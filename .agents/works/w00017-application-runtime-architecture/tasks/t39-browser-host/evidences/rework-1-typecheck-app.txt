@@ -1,0 +1,4 @@
+$ bun run --cwd packages/neuro-book typecheck
+$ nuxt typecheck --dotenv .env.typecheck --logLevel silent
+
+[exit 0]

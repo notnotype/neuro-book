@@ -22,6 +22,18 @@ const enUS = {
     api: {
         requestFailed: "Request failed",
     },
+    browserHost: {
+        startingTitle: "Connecting to NeuroBook",
+        startingDescription: "Starting your workspace.",
+        connectionTitle: "Connection failed",
+        connectionDescription: "Failed to load the workspace: cannot connect to the server. Please retry.",
+        incompatibleTitle: "Refresh or update required",
+        incompatibleDescription: "This page and the server use incompatible versions. Refresh the page; if startup still fails, update NeuroBook.",
+        startupTitle: "Workspace startup failed",
+        startupDescription: "This window could not start the workspace.",
+        retry: "Retry",
+        reload: "Refresh page",
+    },
     worldEngine: {
         workbenchPreview: {
             active: "Active",

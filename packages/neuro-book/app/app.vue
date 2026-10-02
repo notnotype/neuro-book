@@ -4,6 +4,27 @@ import { useDialog } from "nbook/app/composables/useDialog";
 import { useNotification } from "nbook/app/composables/useNotification";
 import {useTitleBarPresent} from "nbook/app/composables/useTitleBarPresent";
 import {provideWorkbenchChrome} from "nbook/app/composables/useWorkbenchChrome";
+import BrowserHostFailurePage from "nbook/app/components/workbench/BrowserHostFailurePage.vue";
+import {routeNeedsBrowserRuntime} from "nbook/app/runtime/browser-window";
+
+const nuxtApp = useNuxtApp();
+const route = useRoute();
+const {t} = useI18n();
+const browserState = computed(() => nuxtApp.$browserWindow?.state.value);
+const needsBrowserRuntime = computed(() => routeNeedsBrowserRuntime(route));
+const failureKind = computed(() => {
+    const status = browserState.value?.status;
+    return status === "connection-failed" || status === "incompatible" || status === "startup-failed" ? status : "starting";
+});
+const failureKey = computed(() => ({"connection-failed": "connection", incompatible: "incompatible", "startup-failed": "startup", starting: "starting"})[failureKind.value]);
+const failureReason = computed(() => browserState.value?.status === "startup-failed" ? browserState.value.reason : "");
+const retryBrowser = async (): Promise<void> => {
+    await nuxtApp.$browserWindow.start();
+    if (nuxtApp.$browserWindow.state.value.status === "unauthorized") {
+        await navigateTo({path: "/login", query: {redirect: route.fullPath}});
+    }
+};
+const reloadBrowser = (): void => window.location.reload();
 
 provideWorkbenchChrome();
 
@@ -25,7 +46,11 @@ const titleBarPresent = useTitleBarPresent();
 <template>
     <!-- 自绘标题栏已随 #192 阶段 1 步骤 4 纳入主页面外壳（titlebar 叶），平台边界（bridge 命令、安全区、菜单数据）仍在 DesktopTitleBar 内。 -->
     <div :class="{ 'desktop-page-shell': desktopAvailable }">
-        <NuxtPage/>
+        <NuxtPage v-if="!needsBrowserRuntime || browserState?.status === 'ready'" />
+        <BrowserHostFailurePage v-else-if="browserState?.status !== 'unauthorized'" :kind="failureKind"
+            :title="t(`browserHost.${failureKey}Title`)" :description="t(`browserHost.${failureKey}Description`)"
+            :reason="failureReason" :retry-label="t('browserHost.retry')" :reload-label="t('browserHost.reload')"
+            @retry="retryBrowser" @reload="reloadBrowser" />
     </div>
     <NotificationViewport :titlebar="titleBarPresent" />
 </template>

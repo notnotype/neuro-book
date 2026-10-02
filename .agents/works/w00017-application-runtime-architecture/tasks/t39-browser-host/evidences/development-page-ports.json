@@ -1,0 +1,25 @@
+{
+  "before": {
+    "shellRegistered": true,
+    "filesRegistered": true
+  },
+  "after": {
+    "url": "http://127.0.0.1:42879/admin/users",
+    "status": "ready",
+    "sameRuntime": true,
+    "shellRegistered": false,
+    "filesRegistered": true,
+    "filesResult": {
+      "ok": false,
+      "code": "unavailable",
+      "reason": "工作台页面端口未就绪"
+    }
+  },
+  "restored": {
+    "url": "http://127.0.0.1:42879/",
+    "status": "ready",
+    "sameRuntime": true,
+    "shellRegistered": true,
+    "sameCommands": true
+  }
+}

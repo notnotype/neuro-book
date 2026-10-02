@@ -1,0 +1,13 @@
+{
+  "result": {
+    "url": "http://127.0.0.1:42879/",
+    "status": "ready",
+    "workbench": true,
+    "failure": false
+  },
+  "errors": {
+    "entries": [],
+    "nextSeq": 428,
+    "dropped": 0
+  }
+}

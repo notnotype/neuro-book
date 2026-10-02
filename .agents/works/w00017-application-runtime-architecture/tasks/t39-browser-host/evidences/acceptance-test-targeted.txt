@@ -1,0 +1,53 @@
+$ bun run test:runtime-foundation
+$ vitest run --config vitest.runtime-foundation.config.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+
+ Test Files  20 passed (20)
+      Tests  231 passed (231)
+   Start at  10:36:45
+   Duration  5.14s (transform 4.44s, setup 780ms, import 7.14s, tests 2.24s, environment 4ms)
+
+exit=0
+$ bun run test -- app/runtime app/features app/plugins app/middleware app/composables app/components/workbench server/api/runtime server/host server/runtime server/features server/middleware server/routes shared scripts/smoke/product-lifecycle
+$ vitest run app/runtime app/features app/plugins app/middleware app/composables app/components/workbench server/api/runtime server/host server/runtime server/features server/middleware server/routes shared scripts/smoke/product-lifecycle
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+ ❯ app/components/workbench/WorkbenchPartHost.test.ts (21 tests | 1 failed) 1290ms
+     × 容器移动菜单：列出生效落位之外的落点，选中后回传 move-container 56ms
+(node:3867824) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3868019) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  app/components/workbench/WorkbenchPartHost.test.ts > WorkbenchPartHost > 容器移动菜单：列出生效落位之外的落点，选中后回传 move-container
+AssertionError: expected undefined to be truthy
+
+- Expected:
+true
+
++ Received:
+undefined
+
+ ❯ app/components/workbench/WorkbenchPartHost.test.ts:1159:24
+    1157|         expect(moveContainer).not.toHaveBeenCalled();
+    1158|         const target = menuItem("t:part.right");
+    1159|         expect(target).toBeTruthy();
+       |                        ^
+    1160|         target!.click();
+    1161|         await settle();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 70 passed (71)
+      Tests  1 failed | 538 passed (539)
+   Start at  10:36:50
+   Duration  27.72s (transform 7.34s, setup 3.94s, import 15.05s, tests 13.18s, environment 11.31s)
+
+error: script "test" exited with code 1
+exit=1

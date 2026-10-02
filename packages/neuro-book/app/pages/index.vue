@@ -74,7 +74,6 @@ import {
     type WorkbenchShellCommandPort,
 } from "nbook/app/utils/workbench/workbench-shell-commands";
 import type {WorkbenchTitleActionEvent, WorkbenchTitleActionItems} from "nbook/app/utils/workbench/view-title-actions";
-import {createProductBrowserRuntime, type ProductBrowserRuntime} from "nbook/app/runtime/product-browser-runtime";
 import WorkspaceCharacterDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterDetailPanel.vue";
 import WorkspaceFileConflictDialog from "nbook/app/components/novel-ide/workspace/WorkspaceFileConflictDialog.vue";
 import WorkspaceLocationProfileDialog from "nbook/app/components/novel-ide/workspace/WorkspaceLocationProfileDialog.vue";
@@ -405,13 +404,15 @@ const workbenchViewContext = computed<WorkbenchContext>(() => {
  * 三个容器的切片都从这一份统一求值里取，不各自解释位置。
  */
 const viewPlacements = useWorkbenchViewPlacements({context: () => workbenchViewContext.value});
-const browserRuntime = shallowRef<ProductBrowserRuntime | null>(null);
+const browserWindowState = useNuxtApp().$browserWindow.state.value;
+if (browserWindowState.status !== "ready") throw new Error("浏览器窗口运行实例未就绪");
+const browserRuntime = browserWindowState.runtime;
 /**
  * 编辑会话的存储会话（`workbench.editor/session` 与 `user-assets-session`）：分组拓扑 + 逐组标签
  * 一条记录原子落盘，恢复顺序与冲突出口都在这一层。工作面标识变化时自动重读并重订阅。
  */
 const editorSessionStorage = useEditorSessionStorage({surface: workbenchLayoutSurface});
-const workbenchRegistryResult = computed(() => browserRuntime.value?.registry ?? {ok: false as const, reason: "浏览器工作台尚未就绪"});
+const workbenchRegistryResult = computed(() => browserRuntime.registry);
 /** Part 标题：容器移动菜单里的落点文案（i18n 归页面，`resolveViewPresentation` 不发明 key）。 */
 const PART_TITLE_KEYS: Record<ToolPartId, string> = {
     left: "ide.workbench.part.left",
@@ -771,6 +772,7 @@ watch([workbenchShellRef, projectPickerActive], ([shell, pickerActive]) => {
  * 打开视图贡献的刷新），不迁移全部编辑器命令、不加全局快捷键、不新建命令面板 UI——那些仍属后续切片。
  */
 const workbenchCommands = provideWorkbenchCommands({
+    workbench: browserRuntime.workbench,
     development: import.meta.dev,
     report: (error: Error): void => {
         notification.error(error.message);
@@ -829,18 +831,16 @@ const containerActions = computed<WorkbenchTitleActionItems>(() => ({
     }],
 }));
 
-/** Product runtime owns this window's shell commands, Files View and refresh contribution. */
-if (import.meta.client) {
-    browserRuntime.value = createProductBrowserRuntime({
-        instanceId: crypto.randomUUID(),
-        commands: workbenchCommands.registry,
-        shell: shellCommandPort,
-        viewCommands: {runAction: viewActions.runAction},
-        onFailure: (reason) => notification.error(`浏览器工作台启动失败：${reason}`),
-    });
-}
+// 页面端口比窗口实例短寿命；离开主页只撤销端口和外壳命令，不停止窗口。
+let releaseWorkbenchPage: (() => void) | null = null;
+onMounted(() => {
+    const attached = browserRuntime.workbench.attachPage({shell: shellCommandPort, views: {runAction: viewActions.runAction}});
+    if (!attached.ok) notification.error(attached.reason);
+    else releaseWorkbenchPage = attached.value;
+});
 onBeforeUnmount(() => {
-    if (browserRuntime.value) void browserRuntime.value.destroy();
+    releaseWorkbenchPage?.();
+    releaseWorkbenchPage = null;
 });
 
 /**
@@ -2346,7 +2346,7 @@ const subscribeWorkspaceEvents = (): void => {
         : null;
     const abortController = new AbortController();
     workspaceEventAbortController.value = abortController;
-    void browserRuntime.value!.subscribeFiles(target, (event) => {
+    void browserRuntime.subscribeFiles(target, (event) => {
         if (revision !== workspaceEventRevision) return;
         if (projectReadyRevision !== null && (
             projectSession.state.value.status !== "ready"
@@ -3177,7 +3177,7 @@ onBeforeUnmount(() => {
             @drag-move="workbenchDrop.handlers.onDragMove"
             @drag-over="workbenchDrop.handlers.onDragOver"
             @drag-end="workbenchDrop.handlers.onDragEnd">
-        <WorkbenchViewInstances :views="viewPresentation?.entries ?? []" :view-factory-resolver="(factoryKey) => browserRuntime?.resolveViewFactory(factoryKey) ?? {ok: false, reason: '浏览器工作台尚未就绪'}"
+        <WorkbenchViewInstances :views="viewPresentation?.entries ?? []" :view-factory-resolver="(factoryKey) => browserRuntime.resolveViewFactory(factoryKey)"
             @view-actions="(target, states) => viewActions.setStates(target, states)"
             @view-handle-ready="(target, handle) => viewActions.bindHandle(target, handle)">
         <!-- 容器实例层：每个容器一个 ViewHost，按 Part 宿主登记的挂载目标搬进去；活动容器一换只搬 DOM。 -->

@@ -1,0 +1,26 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:42879/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:42879/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "url": "http://127.0.0.1:42879/api/auth/login",
+      "status": 401
+    }
+  ],
+  "session": {
+    "status": 200,
+    "session": {
+      "authEnabled": true,
+      "user": null
+    }
+  }
+}

@@ -1,0 +1,4 @@
+$ bun run --cwd packages/neuro-book typecheck:runtime-foundation
+$ tsc --noEmit -p tsconfig.runtime-foundation.json
+
+[exit 0]

@@ -1,0 +1,87 @@
+$ bun run test -- app/component-lab
+$ vitest run app/component-lab
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+(node:3888858) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3888857) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts (9 tests | 9 failed) 18ms
+     × 默认场景把七个 Part、七个空白 View（4 个可见）与两个演示动作渲染出来 7ms
+     × 换场景重建初值：动作状态、面板结构与事件日志都回到该场景的初值 1ms
+     × 面板位置、对齐与隐藏在内存里生效，并如实换掉壳根的树 1ms
+     × 16 个场景均提供真实可编辑的壳属性，JSON 修改立即改变渲染且保留场景宿主探针 1ms
+     × 紧凑呈现由容器宽驱动：390 宽画布进入 compact，活动栏仍是通高列 1ms
+     × View 动作按 Section 归属：panel-a 的计数与 panel-b 的标记互不影响 1ms
+     × lifetime 场景：换面板位置搬 DOM 不重挂实例（探针计数不变） 1ms
+     × when 不满足的视图不出现，容器空态把求值原因写出来 1ms
+     × 未知 factoryKey 的失败写在视图位置上，不留空白 1ms
+(node:3888944) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3888981) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3888993) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3889009) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3889063) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3889075) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3889111) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3889148) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 默认场景把七个 Part、七个空白 View（4 个可见）与两个演示动作渲染出来
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 换场景重建初值：动作状态、面板结构与事件日志都回到该场景的初值
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 面板位置、对齐与隐藏在内存里生效，并如实换掉壳根的树
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 16 个场景均提供真实可编辑的壳属性，JSON 修改立即改变渲染且保留场景宿主探针
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 紧凑呈现由容器宽驱动：390 宽画布进入 compact，活动栏仍是通高列
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > View 动作按 Section 归属：panel-a 的计数与 panel-b 的标记互不影响
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > lifetime 场景：换面板位置搬 DOM 不重挂实例（探针计数不变）
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > when 不满足的视图不出现，容器空态把求值原因写出来
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 未知 factoryKey 的失败写在视图位置上，不留空白
+TypeError: Cannot read properties of undefined (reading 'clear')
+ ❯ app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts:37:18
+     35|     viewportWidth = 1440;
+     36|     viewportHeight = 900;
+     37|     localStorage.clear();
+       |                  ^
+     38|     vi.stubGlobal("ResizeObserver", class {
+     39|         observe(): void {}
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/18]⎯
+
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 默认场景把七个 Part、七个空白 View（4 个可见）与两个演示动作渲染出来
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 换场景重建初值：动作状态、面板结构与事件日志都回到该场景的初值
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 面板位置、对齐与隐藏在内存里生效，并如实换掉壳根的树
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 16 个场景均提供真实可编辑的壳属性，JSON 修改立即改变渲染且保留场景宿主探针
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 紧凑呈现由容器宽驱动：390 宽画布进入 compact，活动栏仍是通高列
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > View 动作按 Section 归属：panel-a 的计数与 panel-b 的标记互不影响
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > lifetime 场景：换面板位置搬 DOM 不重挂实例（探针计数不变）
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > when 不满足的视图不出现，容器空态把求值原因写出来
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 未知 factoryKey 的失败写在视图位置上，不留空白
+TypeError: Cannot read properties of undefined (reading 'clear')
+ ❯ app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts:52:18
+     50|     vi.restoreAllMocks();
+     51|     vi.unstubAllGlobals();
+     52|     localStorage.clear();
+       |                  ^
+     53| });
+     54|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/18]⎯
+
+
+ Test Files  1 failed | 23 passed (24)
+      Tests  9 failed | 125 passed (134)
+   Start at  10:52:28
+   Duration  22.16s (transform 7.43s, setup 1.48s, import 12.88s, tests 12.74s, environment 11.77s)
+
+error: script "test" exited with code 1
+exit=1
+$ nuxt typecheck --dotenv .env.typecheck --logLevel silent

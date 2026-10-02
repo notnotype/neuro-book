@@ -1,0 +1,95 @@
+{
+  "contractTests": {
+    "files": 2,
+    "passed": 10,
+    "exit": 0,
+    "log": "host-contract-tests-final.log"
+  },
+  "scopedTests": {
+    "files": 102,
+    "passedFiles": 101,
+    "failedFiles": 1,
+    "passed": 613,
+    "failed": 1,
+    "exit": 1,
+    "log": "scoped-tests-final.log",
+    "failure": "WorkbenchPartHost / 容器移动菜单：列出生效落位之外的落点，选中后回传 move-container"
+  },
+  "typecheck": {
+    "runtime": 0,
+    "scripts": 0,
+    "app": 0
+  },
+  "foundationSmoke": {
+    "exit": 0,
+    "failures": 0
+  },
+  "lifecycle": {
+    "skipBuild": false,
+    "checks": [
+      {
+        "id": "L1",
+        "result": "pass",
+        "observations": [
+          {
+            "id": "L1-login",
+            "result": "pass"
+          },
+          {
+            "id": "L1-create-project",
+            "result": "pass"
+          },
+          {
+            "id": "L1-seed-files",
+            "result": "pass"
+          },
+          {
+            "id": "L1-workbench-files",
+            "result": "pass"
+          }
+        ]
+      },
+      {
+        "id": "L9",
+        "result": "pass",
+        "observations": [
+          {
+            "id": "no-half-workbench",
+            "result": "pass"
+          },
+          {
+            "id": "failure-surface-with-retry",
+            "result": "pass"
+          },
+          {
+            "id": "retry-recovery",
+            "result": "pass"
+          }
+        ]
+      },
+      {
+        "id": "L10",
+        "result": "pass",
+        "observations": [
+          {
+            "id": "L10-window-isolation",
+            "result": "pass"
+          }
+        ]
+      }
+    ],
+    "pending": false
+  },
+  "development": {
+    "login": "ready",
+    "files": [
+      "index.md",
+      "host-check.md"
+    ],
+    "retry": "ready",
+    "narrowWidth": 390,
+    "ownedProcessExit": 0,
+    "remainingProcesses": [],
+    "tempRootRemoved": true
+  }
+}

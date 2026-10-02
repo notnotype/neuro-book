@@ -1,0 +1,4 @@
+$ bun /tmp/rework-1-browser-host-smoke.ts
+{"status":"ready","view":{"status":"rejected","reason":"invalid-declaration","detail":"Files View 声明与产品目录不一致"},"command":{"status":"rejected","reason":"invalid-declaration","detail":"Files 命令声明与产品目录不一致"},"viewDelivery":"waiting-receiver","commandDelivery":"waiting-receiver"}
+
+[exit 0]

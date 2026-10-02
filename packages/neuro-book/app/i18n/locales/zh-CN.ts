@@ -20,6 +20,18 @@ const zhCN = {
     api: {
         requestFailed: "请求失败",
     },
+    browserHost: {
+        startingTitle: "正在连接 NeuroBook",
+        startingDescription: "正在启动工作区。",
+        connectionTitle: "连接失败",
+        connectionDescription: "无法连接服务端，请重试。",
+        incompatibleTitle: "需要刷新或更新",
+        incompatibleDescription: "页面与服务端版本不兼容。请刷新页面；仍无法启动时，请更新 NeuroBook。",
+        startupTitle: "工作区启动失败",
+        startupDescription: "此窗口未能启动工作区。",
+        retry: "重试",
+        reload: "刷新页面",
+    },
     worldEngine: {
         workbenchPreview: {
             active: "活跃",

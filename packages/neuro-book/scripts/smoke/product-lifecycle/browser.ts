@@ -17,7 +17,7 @@ const FILES = {
  * 在真实 Manager/Product 与 Chromium 中执行产品生命周期的浏览器切片。
  *
  * L1 建立项目、在隔离 State Root 的 Workspace 内准备文件，并从真实工作台文件树读回；
- * L9 在同一正常服务上拦截主页 Project Catalog 请求，验证浏览器内连接失败外壳与真实重试恢复；
+ * L9 在同一正常服务上拦截浏览器引导请求，验证连接失败页与真实重试恢复；
  * L10 在同一浏览器上下文开两个窗口，关闭一个后继续从另一个窗口读文件。
  */
 export async function runBrowserChecks(ctx: SmokeContext): Promise<void> {
@@ -127,8 +127,8 @@ export async function runBrowserChecks(ctx: SmokeContext): Promise<void> {
                 const running = await ensureProduct("L9");
                 const context = await ensureBrowser();
                 const page = await context.newPage();
-                const projectsRoutePattern = "**/api/projects**";
-                let projectCatalogRouteHits = 0;
+                const bootstrapRoutePattern = "**/api/runtime/browser-bootstrap";
+                let bootstrapRouteHits = 0;
                 let routeRemoved = false;
                 const observed = new Set<string>();
                 const record = (observation: Parameters<typeof observe>[0]): void => {
@@ -136,24 +136,19 @@ export async function runBrowserChecks(ctx: SmokeContext): Promise<void> {
                     observed.add(observation.id);
                     observe(observation);
                 };
-                /**
-                 * 当前主页由 ProjectPickerScreen 的 onMounted 真实调用 GET /api/projects；
-                 * 暂以该 catalog 请求作为 browser-host 引导接口的替身，未来接入 browser-host
-                 * 后应替换此规则，而不是伪造 Chromium network offline。
-                 */
-                const failProjectCatalogRoute = async (route: Route): Promise<void> => {
+                const failBootstrapRoute = async (route: Route): Promise<void> => {
                     const request = route.request();
                     const requestUrl = request.url();
                     const parsedUrl = new URL(requestUrl);
-                    if (parsedUrl.pathname !== "/api/projects" || request.method() !== "GET") {
+                    if (parsedUrl.pathname !== "/api/runtime/browser-bootstrap" || request.method() !== "GET") {
                         await route.continue();
                         return;
                     }
-                    projectCatalogRouteHits += 1;
+                    bootstrapRouteHits += 1;
                     await route.fulfill({
                         status: 500,
                         contentType: "application/json",
-                        body: JSON.stringify({message: "browser smoke catalog failure"}),
+                        body: JSON.stringify({message: "browser smoke bootstrap failure"}),
                     });
                     ctx.log("L9", `已拦截主页真实 API：method=${request.method()} URL=${requestUrl} status=500`);
                 };
@@ -169,14 +164,11 @@ export async function runBrowserChecks(ctx: SmokeContext): Promise<void> {
                         ctx.log("L9", `为独立 L9 运行准备真实 Project：projectRoot=${projectRoot}`);
                     }
 
-                    await page.route(projectsRoutePattern, failProjectCatalogRoute);
+                    await page.route(bootstrapRoutePattern, failBootstrapRoute);
                     await page.reload({waitUntil: "domcontentloaded", timeout: 30_000}).catch((error) => {
                         ctx.log("L9", `拦截后主页刷新返回异常：${String(error)}`);
                     });
-                    await page.locator("[data-project-picker-view]").waitFor({state: "visible", timeout: 30_000}).catch((error) => {
-                        ctx.log("L9", `拦截后未出现 Project Picker：${String(error)}`);
-                    });
-                    await page.locator("[data-project-picker-view] [role=alert]").waitFor({state: "visible", timeout: 30_000}).catch((error) => {
+                    await page.locator("[data-browser-connection-failure]").waitFor({state: "visible", timeout: 30_000}).catch((error) => {
                         ctx.log("L9", `拦截后未出现失败 alert：${String(error)}`);
                     });
 
@@ -190,13 +182,13 @@ export async function runBrowserChecks(ctx: SmokeContext): Promise<void> {
                     });
                     record({
                         id: "failure-surface-with-retry",
-                        result: projectCatalogRouteHits > 0 && failurePage.hasConnectionFailurePage && failurePage.hasRetry ? "pass" : "fail",
-                        evidence: `真实 GET /api/projects 拦截命中=${String(projectCatalogRouteHits)}，HTTP=500；failure alert=${String(failurePage.hasConnectionFailurePage)}，真实 retry=${String(failurePage.hasRetry)}；raw page text=${failurePage.text}`,
+                        result: bootstrapRouteHits > 0 && failurePage.hasConnectionFailurePage && failurePage.hasRetry ? "pass" : "fail",
+                        evidence: `真实 GET /api/runtime/browser-bootstrap 拦截命中=${String(bootstrapRouteHits)}，HTTP=500；failure alert=${String(failurePage.hasConnectionFailurePage)}，真实 retry=${String(failurePage.hasRetry)}；raw page text=${failurePage.text}`,
                     });
 
-                    await page.unroute(projectsRoutePattern, failProjectCatalogRoute);
+                    await page.unroute(bootstrapRoutePattern, failBootstrapRoute);
                     routeRemoved = true;
-                    const retryButton = page.locator("[data-project-picker-view] [role=alert]").getByRole("button", {name: /重试|retry/iu}).first();
+                    const retryButton = page.locator("[data-browser-connection-failure]").getByRole("button", {name: /重试|retry/iu}).first();
                     const hasRetryButton = await retryButton.count() > 0;
                     if (hasRetryButton) {
                         await retryButton.click();
@@ -232,7 +224,7 @@ export async function runBrowserChecks(ctx: SmokeContext): Promise<void> {
                     record({id: "failure-surface-with-retry", result: "fail", evidence: `L9 流程异常，无法确认失败外壳与 retry：${String(error)}`});
                     record({id: "retry-recovery", result: "fail", evidence: `L9 流程异常，无法确认解除拦截后的真实恢复：${String(error)}`});
                 } finally {
-                    await page.unroute(projectsRoutePattern, failProjectCatalogRoute).catch((error) => ctx.log("L9", `L9 route 收口失败：${String(error)}`));
+                    await page.unroute(bootstrapRoutePattern, failBootstrapRoute).catch((error) => ctx.log("L9", `L9 route 收口失败：${String(error)}`));
                     if (l9Product !== null && product === l9Product) {
                         await l9Product.dispose();
                         ctx.log("L9", `前一 Product 已完成收口：${l9Product.outputLogPath}`);
@@ -364,7 +356,7 @@ async function openProjectAndFiles(page: Page, title: string): Promise<void> {
 
 async function readConnectionFailureSurface(page: Page): Promise<{hasConnectionFailurePage: boolean; hasRetry: boolean; hasHalfWorkbench: boolean; text: string}> {
     const text = (await page.locator("body").textContent())?.replace(/\s+/gu, " ").trim() ?? "";
-    const failureAlert = page.locator("[data-project-picker-view] [role=alert]").first();
+    const failureAlert = page.locator("[data-browser-connection-failure][role=alert]").first();
     const failureAlertText = await failureAlert.count() > 0
         ? (await failureAlert.textContent())?.replace(/\s+/gu, " ").trim() ?? ""
         : "";

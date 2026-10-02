@@ -1,0 +1,2842 @@
+{
+  "errors": {
+    "entries": [
+      {
+        "seq": 524,
+        "ts": 1790928214369,
+        "type": "requestfailed",
+        "level": "error",
+        "text": "GET http://127.0.0.1:42879/api/workspace-files/events?projectRoot=t39-kai-fa-liu-lan-qi-yan-shou&publicId=6c7c2143-2e2c-4cf3-96d4-f6273b78d2ff%3A1: net::ERR_ABORTED",
+        "location": "http://127.0.0.1:42879/api/workspace-files/events?projectRoot=t39-kai-fa-liu-lan-qi-yan-shou&publicId=6c7c2143-2e2c-4cf3-96d4-f6273b78d2ff%3A1"
+      },
+      {
+        "seq": 525,
+        "ts": 1790928214370,
+        "type": "requestfailed",
+        "level": "error",
+        "text": "GET http://127.0.0.1:42879/api/projects/presence?projectRoot=t39-kai-fa-liu-lan-qi-yan-shou&publicId=6c7c2143-2e2c-4cf3-96d4-f6273b78d2ff%3A1: net::ERR_ABORTED",
+        "location": "http://127.0.0.1:42879/api/projects/presence?projectRoot=t39-kai-fa-liu-lan-qi-yan-shou&publicId=6c7c2143-2e2c-4cf3-96d4-f6273b78d2ff%3A1"
+      }
+    ],
+    "nextSeq": 525,
+    "dropped": 0
+  },
+  "console": {
+    "entries": [
+      {
+        "seq": 337,
+        "ts": 1790928009537.77,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] connecting...",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:732:8",
+        "args": [
+          "[vite] connecting..."
+        ]
+      },
+      {
+        "seq": 338,
+        "ts": 1790928015279.349,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] connected.",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:826:11",
+        "args": [
+          "[vite] connected."
+        ]
+      },
+      {
+        "seq": 339,
+        "ts": 1790928024510.602,
+        "type": "console",
+        "level": "log",
+        "text": "%cssr%c %s: %s \n      background: #7f8c8d;\n      border-radius: 0.5em;\n      color: white;\n      font-weight: bold;\n      padding: 2px 0.5em;\n      [nitro-runtime] request 3.927ms \n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/consola/dist/browser.mjs?v=2f7cdd38:47:6",
+        "args": [
+          "%cssr%c %s: %s",
+          "\n      background: #7f8c8d;\n      border-radius: 0.5em;\n      color: white;\n      font-weight: bold;\n      padding: 2px 0.5em;\n    ",
+          "",
+          "[nitro-runtime] request",
+          "3.927ms",
+          "\n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n"
+        ]
+      },
+      {
+        "seq": 340,
+        "ts": 1790928024511.001,
+        "type": "console",
+        "level": "log",
+        "text": "%cssr%c %s: %s \n      background: #7f8c8d;\n      border-radius: 0.5em;\n      color: white;\n      font-weight: bold;\n      padding: 2px 0.5em;\n      [nitro-runtime] render:before 0.889ms \n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/consola/dist/browser.mjs?v=2f7cdd38:47:6",
+        "args": [
+          "%cssr%c %s: %s",
+          "\n      background: #7f8c8d;\n      border-radius: 0.5em;\n      color: white;\n      font-weight: bold;\n      padding: 2px 0.5em;\n    ",
+          "",
+          "[nitro-runtime] render:before",
+          "0.889ms",
+          "\n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n"
+        ]
+      },
+      {
+        "seq": 341,
+        "ts": 1790928024511.459,
+        "type": "console",
+        "level": "log",
+        "text": "dev:ssr-logs",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "dev:ssr-logs"
+        ]
+      },
+      {
+        "seq": 342,
+        "ts": 1790928024511.632,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] dev:ssr-logs: 2.06884765625 ms [object Object],[object Object]",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] dev:ssr-logs: 2.06884765625 ms",
+          [
+            [
+              {
+                "date": {},
+                "args": [
+                  "%s: %s",
+                  "[nitro-runtime] request",
+                  "3.927ms",
+                  "\n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n"
+                ],
+                "type": "log",
+                "level": 2,
+                "tag": "",
+                "filename": "node:internal/console/constructor",
+                "stack": [
+                  {
+                    "function": "timeLogImpl",
+                    "source": "node:internal/console/constructor",
+                    "line": 403,
+                    "column": 16
+                  },
+                  {
+                    "source": "node:internal/console/constructor",
+                    "line": 458,
+                    "column": 105
+                  },
+                  {
+                    "function": "timeLogImpl",
+                    "source": "node:internal/util/debuglog",
+                    "line": 219,
+                    "column": 5
+                  }
+                ]
+              },
+              {
+                "date": {},
+                "args": [
+                  "%s: %s",
+                  "[nitro-runtime] render:before",
+                  "0.889ms",
+                  "\n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n"
+                ],
+                "type": "log",
+                "level": 2,
+                "tag": "",
+                "filename": "node:internal/console/constructor",
+                "stack": [
+                  {
+                    "function": "timeLogImpl",
+                    "source": "node:internal/console/constructor",
+                    "line": 403,
+                    "column": 16
+                  },
+                  {
+                    "source": "node:internal/console/constructor",
+                    "line": 458,
+                    "column": 105
+                  },
+                  {
+                    "function": "timeLogImpl",
+                    "source": "node:internal/util/debuglog",
+                    "line": 219,
+                    "column": 5
+                  }
+                ]
+              }
+            ]
+          ]
+        ]
+      },
+      {
+        "seq": 343,
+        "ts": 1790928024512.126,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 344,
+        "ts": 1790928024580.853,
+        "type": "console",
+        "level": "log",
+        "text": "✨ %cNuxt DevTools %c Press Shift + Alt + D to open DevTools color: black; border-radius: 3px 0 0 3px; padding: 2px 2px 1px 10px; background: #00DC82 border-radius: 0 3px 3px 0; padding: 2px 10px 1px 2px; background: #00DC8220 ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@nuxt/devtools/dist/runtime/plugins/devtools.client.js?v=2f7cdd38:51:12",
+        "args": [
+          "✨ %cNuxt DevTools %c Press Shift + Alt + D to open DevTools",
+          "color: black; border-radius: 3px 0 0 3px; padding: 2px 2px 1px 10px; background: #00DC82",
+          "border-radius: 0 3px 3px 0; padding: 2px 10px 1px 2px; background: #00DC8220",
+          ""
+        ]
+      },
+      {
+        "seq": 345,
+        "ts": 1790928024621.004,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] hot updated: /__uno.css",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:809:28",
+        "args": [
+          "[vite]",
+          "hot updated: /__uno.css"
+        ]
+      },
+      {
+        "seq": 346,
+        "ts": 1790928024627.955,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] hot updated: /__uno.css",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:809:28",
+        "args": [
+          "[vite]",
+          "hot updated: /__uno.css"
+        ]
+      },
+      {
+        "seq": 347,
+        "ts": 1790928024660.148,
+        "type": "console",
+        "level": "log",
+        "text": "i18n:beforeLocaleSwitch",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "i18n:beforeLocaleSwitch"
+        ]
+      },
+      {
+        "seq": 348,
+        "ts": 1790928024660.27,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] i18n:beforeLocaleSwitch: 0.2109375 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] i18n:beforeLocaleSwitch: 0.2109375 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 349,
+        "ts": 1790928024660.481,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 350,
+        "ts": 1790928024737.495,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] hot updated: /__uno.css",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:809:28",
+        "args": [
+          "[vite]",
+          "hot updated: /__uno.css"
+        ]
+      },
+      {
+        "seq": 351,
+        "ts": 1790928024827.299,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] hot updated: /__uno.css",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:809:28",
+        "args": [
+          "[vite]",
+          "hot updated: /__uno.css"
+        ]
+      },
+      {
+        "seq": 352,
+        "ts": 1790928025058.589,
+        "type": "console",
+        "level": "debug",
+        "text": "[theme] 配色配置未读取，使用内置配色 [object Object]",
+        "location": "http://127.0.0.1:42879/_nuxt/plugins/theme-colorway.client.ts:21:14",
+        "args": [
+          "[theme] 配色配置未读取，使用内置配色",
+          {
+            "name": "FetchError"
+          }
+        ]
+      },
+      {
+        "seq": 353,
+        "ts": 1790928025060.191,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:start",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:start"
+        ]
+      },
+      {
+        "seq": 354,
+        "ts": 1790928025060.306,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:start: 0.156982421875 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:start: 0.156982421875 ms",
+          []
+        ]
+      },
+      {
+        "seq": 355,
+        "ts": 1790928025060.493,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 356,
+        "ts": 1790928025074.597,
+        "type": "console",
+        "level": "log",
+        "text": "app:created",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "app:created"
+        ]
+      },
+      {
+        "seq": 357,
+        "ts": 1790928025074.755,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] app:created: 15.657958984375 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] app:created: 15.657958984375 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 358,
+        "ts": 1790928025074.98,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 359,
+        "ts": 1790928025075.097,
+        "type": "console",
+        "level": "log",
+        "text": "app:beforeMount",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "app:beforeMount"
+        ]
+      },
+      {
+        "seq": 360,
+        "ts": 1790928025075.159,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] app:beforeMount: 0.090087890625 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] app:beforeMount: 0.090087890625 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 361,
+        "ts": 1790928025075.321,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 362,
+        "ts": 1790928025076.741,
+        "type": "console",
+        "level": "log",
+        "text": "vue:setup",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "vue:setup"
+        ]
+      },
+      {
+        "seq": 363,
+        "ts": 1790928025077.008,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] vue:setup: 1.01708984375 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] vue:setup: 1.01708984375 ms",
+          []
+        ]
+      },
+      {
+        "seq": 364,
+        "ts": 1790928025077.271,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 365,
+        "ts": 1790928025079.015,
+        "type": "console",
+        "level": "info",
+        "text": "<Suspense> is an experimental feature and its API will likely change.",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/runtime-core/dist/runtime-core.esm-bundler.js?v=2f7cdd38:7310:42",
+        "args": [
+          "<Suspense> is an experimental feature and its API will likely change."
+        ]
+      },
+      {
+        "seq": 366,
+        "ts": 1790928025091.883,
+        "type": "console",
+        "level": "log",
+        "text": "app:mounted",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "app:mounted"
+        ]
+      },
+      {
+        "seq": 367,
+        "ts": 1790928025092.05,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] app:mounted: 0.33203125 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] app:mounted: 0.33203125 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 368,
+        "ts": 1790928025092.29,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 369,
+        "ts": 1790928025093.643,
+        "type": "console",
+        "level": "log",
+        "text": "page:finish",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:finish"
+        ]
+      },
+      {
+        "seq": 370,
+        "ts": 1790928025093.748,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:finish: 0.216064453125 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:finish: 0.216064453125 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 371,
+        "ts": 1790928025093.967,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 372,
+        "ts": 1790928025094.977,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:end",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:end"
+        ]
+      },
+      {
+        "seq": 373,
+        "ts": 1790928025095.083,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:end: 0.155029296875 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:end: 0.155029296875 ms",
+          []
+        ]
+      },
+      {
+        "seq": 374,
+        "ts": 1790928025095.269,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 375,
+        "ts": 1790928025095.801,
+        "type": "console",
+        "level": "log",
+        "text": "app:suspense:resolve",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "app:suspense:resolve"
+        ]
+      },
+      {
+        "seq": 376,
+        "ts": 1790928025095.922,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] app:suspense:resolve: 0.5380859375 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] app:suspense:resolve: 0.5380859375 ms",
+          []
+        ]
+      },
+      {
+        "seq": 377,
+        "ts": 1790928025096.141,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 378,
+        "ts": 1790928029381.326,
+        "type": "console",
+        "level": "warn",
+        "text": "Timer '[nuxt-app] page:loading:start' already exists",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:241:10",
+        "args": [
+          "Timer '[nuxt-app] page:loading:start' already exists"
+        ]
+      },
+      {
+        "seq": 379,
+        "ts": 1790928029381.463,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:start",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:start"
+        ]
+      },
+      {
+        "seq": 380,
+        "ts": 1790928029381.549,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:start: 4321.393798828125 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:start: 4321.393798828125 ms",
+          []
+        ]
+      },
+      {
+        "seq": 381,
+        "ts": 1790928029381.842,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 382,
+        "ts": 1790928029383.578,
+        "type": "console",
+        "level": "warn",
+        "text": "Timer '[nuxt-app] page:loading:end' already exists",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:241:10",
+        "args": [
+          "Timer '[nuxt-app] page:loading:end' already exists"
+        ]
+      },
+      {
+        "seq": 383,
+        "ts": 1790928029383.703,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:end",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:end"
+        ]
+      },
+      {
+        "seq": 384,
+        "ts": 1790928029383.755,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:end: 4288.8291015625 ms Array(0)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:end: 4288.8291015625 ms",
+          "Array(0)"
+        ]
+      },
+      {
+        "seq": 385,
+        "ts": 1790928029383.939,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 386,
+        "ts": 1790928029448.057,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] connecting...",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:732:8",
+        "args": [
+          "[vite] connecting..."
+        ]
+      },
+      {
+        "seq": 387,
+        "ts": 1790928035415.12,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] connected.",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:826:11",
+        "args": [
+          "[vite] connected."
+        ]
+      },
+      {
+        "seq": 388,
+        "ts": 1790928041428.005,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] hot updated: /__uno.css",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:809:28",
+        "args": [
+          "[vite]",
+          "hot updated: /__uno.css"
+        ]
+      },
+      {
+        "seq": 389,
+        "ts": 1790928041443.909,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] hot updated: /__uno.css",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:809:28",
+        "args": [
+          "[vite]",
+          "hot updated: /__uno.css"
+        ]
+      },
+      {
+        "seq": 390,
+        "ts": 1790928041936.552,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] hot updated: /__uno.css",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:809:28",
+        "args": [
+          "[vite]",
+          "hot updated: /__uno.css"
+        ]
+      },
+      {
+        "seq": 391,
+        "ts": 1790928041938.214,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] hot updated: /__uno.css",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:809:28",
+        "args": [
+          "[vite]",
+          "hot updated: /__uno.css"
+        ]
+      },
+      {
+        "seq": 392,
+        "ts": 1790928041938.561,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] hot updated: /__uno.css",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:809:28",
+        "args": [
+          "[vite]",
+          "hot updated: /__uno.css"
+        ]
+      },
+      {
+        "seq": 393,
+        "ts": 1790928041938.801,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] hot updated: /__uno.css",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:809:28",
+        "args": [
+          "[vite]",
+          "hot updated: /__uno.css"
+        ]
+      },
+      {
+        "seq": 394,
+        "ts": 1790928041942.428,
+        "type": "console",
+        "level": "log",
+        "text": "%cssr%c %s: %s \n      background: #7f8c8d;\n      border-radius: 0.5em;\n      color: white;\n      font-weight: bold;\n      padding: 2px 0.5em;\n      [nitro-runtime] request 4.151ms \n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/consola/dist/browser.mjs?v=2f7cdd38:47:6",
+        "args": [
+          "%cssr%c %s: %s",
+          "\n      background: #7f8c8d;\n      border-radius: 0.5em;\n      color: white;\n      font-weight: bold;\n      padding: 2px 0.5em;\n    ",
+          "",
+          "[nitro-runtime] request",
+          "4.151ms",
+          "\n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n"
+        ]
+      },
+      {
+        "seq": 395,
+        "ts": 1790928041942.731,
+        "type": "console",
+        "level": "log",
+        "text": "%cssr%c %s: %s \n      background: #7f8c8d;\n      border-radius: 0.5em;\n      color: white;\n      font-weight: bold;\n      padding: 2px 0.5em;\n      [nitro-runtime] render:before 0.082ms \n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/consola/dist/browser.mjs?v=2f7cdd38:47:6",
+        "args": [
+          "%cssr%c %s: %s",
+          "\n      background: #7f8c8d;\n      border-radius: 0.5em;\n      color: white;\n      font-weight: bold;\n      padding: 2px 0.5em;\n    ",
+          "",
+          "[nitro-runtime] render:before",
+          "0.082ms",
+          "\n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n"
+        ]
+      },
+      {
+        "seq": 396,
+        "ts": 1790928041942.971,
+        "type": "console",
+        "level": "log",
+        "text": "dev:ssr-logs",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "dev:ssr-logs"
+        ]
+      },
+      {
+        "seq": 397,
+        "ts": 1790928041943.078,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] dev:ssr-logs: 0.760986328125 ms [object Object],[object Object]",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] dev:ssr-logs: 0.760986328125 ms",
+          [
+            [
+              {
+                "date": {},
+                "args": [
+                  "%s: %s",
+                  "[nitro-runtime] request",
+                  "4.151ms",
+                  "\n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n"
+                ],
+                "type": "log",
+                "level": 2,
+                "tag": "",
+                "filename": "node:internal/console/constructor",
+                "stack": [
+                  {
+                    "function": "timeLogImpl",
+                    "source": "node:internal/console/constructor",
+                    "line": 403,
+                    "column": 16
+                  },
+                  {
+                    "source": "node:internal/console/constructor",
+                    "line": 458,
+                    "column": 105
+                  },
+                  {
+                    "function": "timeLogImpl",
+                    "source": "node:internal/util/debuglog",
+                    "line": 219,
+                    "column": 5
+                  }
+                ]
+              },
+              {
+                "date": {},
+                "args": [
+                  "%s: %s",
+                  "[nitro-runtime] render:before",
+                  "0.082ms",
+                  "\n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n"
+                ],
+                "type": "log",
+                "level": 2,
+                "tag": "",
+                "filename": "node:internal/console/constructor",
+                "stack": [
+                  {
+                    "function": "timeLogImpl",
+                    "source": "node:internal/console/constructor",
+                    "line": 403,
+                    "column": 16
+                  },
+                  {
+                    "source": "node:internal/console/constructor",
+                    "line": 458,
+                    "column": 105
+                  },
+                  {
+                    "function": "timeLogImpl",
+                    "source": "node:internal/util/debuglog",
+                    "line": 219,
+                    "column": 5
+                  }
+                ]
+              }
+            ]
+          ]
+        ]
+      },
+      {
+        "seq": 398,
+        "ts": 1790928041943.411,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 399,
+        "ts": 1790928042025.27,
+        "type": "console",
+        "level": "log",
+        "text": "✨ %cNuxt DevTools %c Press Shift + Alt + D to open DevTools color: black; border-radius: 3px 0 0 3px; padding: 2px 2px 1px 10px; background: #00DC82 border-radius: 0 3px 3px 0; padding: 2px 10px 1px 2px; background: #00DC8220 ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@nuxt/devtools/dist/runtime/plugins/devtools.client.js?v=2f7cdd38:51:12",
+        "args": [
+          "✨ %cNuxt DevTools %c Press Shift + Alt + D to open DevTools",
+          "color: black; border-radius: 3px 0 0 3px; padding: 2px 2px 1px 10px; background: #00DC82",
+          "border-radius: 0 3px 3px 0; padding: 2px 10px 1px 2px; background: #00DC8220",
+          ""
+        ]
+      },
+      {
+        "seq": 400,
+        "ts": 1790928042035.734,
+        "type": "console",
+        "level": "log",
+        "text": "i18n:beforeLocaleSwitch",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "i18n:beforeLocaleSwitch"
+        ]
+      },
+      {
+        "seq": 401,
+        "ts": 1790928042035.858,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] i18n:beforeLocaleSwitch: 0.177001953125 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] i18n:beforeLocaleSwitch: 0.177001953125 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 402,
+        "ts": 1790928042036.094,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 403,
+        "ts": 1790928042110.374,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:start",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:start"
+        ]
+      },
+      {
+        "seq": 404,
+        "ts": 1790928042110.549,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:start: 0.197998046875 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:start: 0.197998046875 ms",
+          []
+        ]
+      },
+      {
+        "seq": 405,
+        "ts": 1790928042110.813,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 406,
+        "ts": 1790928042129.784,
+        "type": "console",
+        "level": "log",
+        "text": "app:created",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "app:created"
+        ]
+      },
+      {
+        "seq": 407,
+        "ts": 1790928042129.935,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] app:created: 19.782958984375 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] app:created: 19.782958984375 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 408,
+        "ts": 1790928042130.218,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 409,
+        "ts": 1790928042130.359,
+        "type": "console",
+        "level": "log",
+        "text": "app:beforeMount",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "app:beforeMount"
+        ]
+      },
+      {
+        "seq": 410,
+        "ts": 1790928042130.434,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] app:beforeMount: 0.10595703125 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] app:beforeMount: 0.10595703125 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 411,
+        "ts": 1790928042130.667,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 412,
+        "ts": 1790928042130.977,
+        "type": "console",
+        "level": "log",
+        "text": "vue:setup",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "vue:setup"
+        ]
+      },
+      {
+        "seq": 413,
+        "ts": 1790928042131.144,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] vue:setup: 0.2041015625 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] vue:setup: 0.2041015625 ms",
+          []
+        ]
+      },
+      {
+        "seq": 414,
+        "ts": 1790928042131.438,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 415,
+        "ts": 1790928042132.044,
+        "type": "console",
+        "level": "info",
+        "text": "<Suspense> is an experimental feature and its API will likely change.",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/runtime-core/dist/runtime-core.esm-bundler.js?v=2f7cdd38:7310:42",
+        "args": [
+          "<Suspense> is an experimental feature and its API will likely change."
+        ]
+      },
+      {
+        "seq": 416,
+        "ts": 1790928042139.61,
+        "type": "console",
+        "level": "info",
+        "text": "[PAGE-MODULE] fresh-build-marker-1",
+        "location": "http://127.0.0.1:42879/_nuxt/pages/index.vue:83:10",
+        "args": [
+          "[PAGE-MODULE] fresh-build-marker-1"
+        ]
+      },
+      {
+        "seq": 417,
+        "ts": 1790928042318.052,
+        "type": "console",
+        "level": "log",
+        "text": "app:mounted",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "app:mounted"
+        ]
+      },
+      {
+        "seq": 418,
+        "ts": 1790928042319.76,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] app:mounted: 1.818115234375 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] app:mounted: 1.818115234375 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 419,
+        "ts": 1790928042320.146,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 420,
+        "ts": 1790928042328.099,
+        "type": "console",
+        "level": "log",
+        "text": "page:finish",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:finish"
+        ]
+      },
+      {
+        "seq": 421,
+        "ts": 1790928042328.236,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:finish: 0.199951171875 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:finish: 0.199951171875 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 422,
+        "ts": 1790928042328.588,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 423,
+        "ts": 1790928042329.954,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:end",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:end"
+        ]
+      },
+      {
+        "seq": 424,
+        "ts": 1790928042330.114,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:end: 0.2099609375 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:end: 0.2099609375 ms",
+          []
+        ]
+      },
+      {
+        "seq": 425,
+        "ts": 1790928042330.418,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 426,
+        "ts": 1790928042331.321,
+        "type": "console",
+        "level": "log",
+        "text": "app:suspense:resolve",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "app:suspense:resolve"
+        ]
+      },
+      {
+        "seq": 427,
+        "ts": 1790928042331.533,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] app:suspense:resolve: 0.985107421875 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] app:suspense:resolve: 0.985107421875 ms",
+          []
+        ]
+      },
+      {
+        "seq": 428,
+        "ts": 1790928042331.849,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 429,
+        "ts": 1790928069243.887,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] connecting...",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:732:8",
+        "args": [
+          "[vite] connecting..."
+        ]
+      },
+      {
+        "seq": 430,
+        "ts": 1790928069364.293,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] connected.",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:826:11",
+        "args": [
+          "[vite] connected."
+        ]
+      },
+      {
+        "seq": 431,
+        "ts": 1790928071198.871,
+        "type": "console",
+        "level": "log",
+        "text": "%cssr%c %s: %s \n      background: #7f8c8d;\n      border-radius: 0.5em;\n      color: white;\n      font-weight: bold;\n      padding: 2px 0.5em;\n      [nitro-runtime] request 3.507ms \n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/consola/dist/browser.mjs?v=2f7cdd38:47:6",
+        "args": [
+          "%cssr%c %s: %s",
+          "\n      background: #7f8c8d;\n      border-radius: 0.5em;\n      color: white;\n      font-weight: bold;\n      padding: 2px 0.5em;\n    ",
+          "",
+          "[nitro-runtime] request",
+          "3.507ms",
+          "\n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n"
+        ]
+      },
+      {
+        "seq": 432,
+        "ts": 1790928071199.06,
+        "type": "console",
+        "level": "log",
+        "text": "%cssr%c %s: %s \n      background: #7f8c8d;\n      border-radius: 0.5em;\n      color: white;\n      font-weight: bold;\n      padding: 2px 0.5em;\n      [nitro-runtime] render:before 0.105ms \n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/consola/dist/browser.mjs?v=2f7cdd38:47:6",
+        "args": [
+          "%cssr%c %s: %s",
+          "\n      background: #7f8c8d;\n      border-radius: 0.5em;\n      color: white;\n      font-weight: bold;\n      padding: 2px 0.5em;\n    ",
+          "",
+          "[nitro-runtime] render:before",
+          "0.105ms",
+          "\n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n"
+        ]
+      },
+      {
+        "seq": 433,
+        "ts": 1790928071199.192,
+        "type": "console",
+        "level": "log",
+        "text": "dev:ssr-logs",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "dev:ssr-logs"
+        ]
+      },
+      {
+        "seq": 434,
+        "ts": 1790928071199.254,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] dev:ssr-logs: 0.503173828125 ms [object Object],[object Object]",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] dev:ssr-logs: 0.503173828125 ms",
+          [
+            [
+              {
+                "date": {},
+                "args": [
+                  "%s: %s",
+                  "[nitro-runtime] request",
+                  "3.507ms",
+                  "\n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n"
+                ],
+                "type": "log",
+                "level": 2,
+                "tag": "",
+                "filename": "node:internal/console/constructor",
+                "stack": [
+                  {
+                    "function": "timeLogImpl",
+                    "source": "node:internal/console/constructor",
+                    "line": 403,
+                    "column": 16
+                  },
+                  {
+                    "source": "node:internal/console/constructor",
+                    "line": 458,
+                    "column": 105
+                  },
+                  {
+                    "function": "timeLogImpl",
+                    "source": "node:internal/util/debuglog",
+                    "line": 219,
+                    "column": 5
+                  }
+                ]
+              },
+              {
+                "date": {},
+                "args": [
+                  "%s: %s",
+                  "[nitro-runtime] render:before",
+                  "0.105ms",
+                  "\n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n"
+                ],
+                "type": "log",
+                "level": 2,
+                "tag": "",
+                "filename": "node:internal/console/constructor",
+                "stack": [
+                  {
+                    "function": "timeLogImpl",
+                    "source": "node:internal/console/constructor",
+                    "line": 403,
+                    "column": 16
+                  },
+                  {
+                    "source": "node:internal/console/constructor",
+                    "line": 458,
+                    "column": 105
+                  },
+                  {
+                    "function": "timeLogImpl",
+                    "source": "node:internal/util/debuglog",
+                    "line": 219,
+                    "column": 5
+                  }
+                ]
+              }
+            ]
+          ]
+        ]
+      },
+      {
+        "seq": 435,
+        "ts": 1790928071199.452,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 436,
+        "ts": 1790928071229.887,
+        "type": "console",
+        "level": "log",
+        "text": "i18n:beforeLocaleSwitch",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "i18n:beforeLocaleSwitch"
+        ]
+      },
+      {
+        "seq": 437,
+        "ts": 1790928071230.004,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] i18n:beforeLocaleSwitch: 0.1640625 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] i18n:beforeLocaleSwitch: 0.1640625 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 438,
+        "ts": 1790928071230.208,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 439,
+        "ts": 1790928071249.308,
+        "type": "console",
+        "level": "log",
+        "text": "✨ %cNuxt DevTools %c Press Shift + Alt + D to open DevTools color: black; border-radius: 3px 0 0 3px; padding: 2px 2px 1px 10px; background: #00DC82 border-radius: 0 3px 3px 0; padding: 2px 10px 1px 2px; background: #00DC8220 ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@nuxt/devtools/dist/runtime/plugins/devtools.client.js?v=2f7cdd38:51:12",
+        "args": [
+          "✨ %cNuxt DevTools %c Press Shift + Alt + D to open DevTools",
+          "color: black; border-radius: 3px 0 0 3px; padding: 2px 2px 1px 10px; background: #00DC82",
+          "border-radius: 0 3px 3px 0; padding: 2px 10px 1px 2px; background: #00DC8220",
+          ""
+        ]
+      },
+      {
+        "seq": 440,
+        "ts": 1790928071297.13,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:start",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:start"
+        ]
+      },
+      {
+        "seq": 441,
+        "ts": 1790928071297.275,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:start: 0.171142578125 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:start: 0.171142578125 ms",
+          []
+        ]
+      },
+      {
+        "seq": 442,
+        "ts": 1790928071297.555,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 443,
+        "ts": 1790928071314.691,
+        "type": "console",
+        "level": "log",
+        "text": "app:created",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "app:created"
+        ]
+      },
+      {
+        "seq": 444,
+        "ts": 1790928071314.866,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] app:created: 17.973876953125 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] app:created: 17.973876953125 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 445,
+        "ts": 1790928071315.3,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 446,
+        "ts": 1790928071315.481,
+        "type": "console",
+        "level": "log",
+        "text": "app:beforeMount",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "app:beforeMount"
+        ]
+      },
+      {
+        "seq": 447,
+        "ts": 1790928071315.59,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] app:beforeMount: 0.14599609375 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] app:beforeMount: 0.14599609375 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 448,
+        "ts": 1790928071315.885,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 449,
+        "ts": 1790928071316.332,
+        "type": "console",
+        "level": "log",
+        "text": "vue:setup",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "vue:setup"
+        ]
+      },
+      {
+        "seq": 450,
+        "ts": 1790928071316.549,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] vue:setup: 0.274169921875 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] vue:setup: 0.274169921875 ms",
+          []
+        ]
+      },
+      {
+        "seq": 451,
+        "ts": 1790928071316.912,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 452,
+        "ts": 1790928071317.495,
+        "type": "console",
+        "level": "info",
+        "text": "<Suspense> is an experimental feature and its API will likely change.",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/runtime-core/dist/runtime-core.esm-bundler.js?v=2f7cdd38:7310:42",
+        "args": [
+          "<Suspense> is an experimental feature and its API will likely change."
+        ]
+      },
+      {
+        "seq": 453,
+        "ts": 1790928071320.119,
+        "type": "console",
+        "level": "info",
+        "text": "[PAGE-MODULE] fresh-build-marker-1",
+        "location": "http://127.0.0.1:42879/_nuxt/pages/index.vue:83:10",
+        "args": [
+          "[PAGE-MODULE] fresh-build-marker-1"
+        ]
+      },
+      {
+        "seq": 454,
+        "ts": 1790928071419.868,
+        "type": "console",
+        "level": "log",
+        "text": "app:mounted",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "app:mounted"
+        ]
+      },
+      {
+        "seq": 455,
+        "ts": 1790928071421.069,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] app:mounted: 1.2568359375 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] app:mounted: 1.2568359375 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 456,
+        "ts": 1790928071421.377,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 457,
+        "ts": 1790928071426.715,
+        "type": "console",
+        "level": "log",
+        "text": "page:finish",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:finish"
+        ]
+      },
+      {
+        "seq": 458,
+        "ts": 1790928071426.83,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:finish: 0.170166015625 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:finish: 0.170166015625 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 459,
+        "ts": 1790928071427.107,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 460,
+        "ts": 1790928071427.915,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:end",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:end"
+        ]
+      },
+      {
+        "seq": 461,
+        "ts": 1790928071428.01,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:end: 0.1240234375 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:end: 0.1240234375 ms",
+          []
+        ]
+      },
+      {
+        "seq": 462,
+        "ts": 1790928071428.224,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 463,
+        "ts": 1790928071428.869,
+        "type": "console",
+        "level": "log",
+        "text": "app:suspense:resolve",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "app:suspense:resolve"
+        ]
+      },
+      {
+        "seq": 464,
+        "ts": 1790928071429.018,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] app:suspense:resolve: 0.714111328125 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] app:suspense:resolve: 0.714111328125 ms",
+          []
+        ]
+      },
+      {
+        "seq": 465,
+        "ts": 1790928071429.28,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 466,
+        "ts": 1790928071913.284,
+        "type": "console",
+        "level": "warn",
+        "text": "Timer '[nuxt-app] page:loading:start' already exists",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:241:10",
+        "args": [
+          "Timer '[nuxt-app] page:loading:start' already exists"
+        ]
+      },
+      {
+        "seq": 467,
+        "ts": 1790928071913.471,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:start",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:start"
+        ]
+      },
+      {
+        "seq": 468,
+        "ts": 1790928071913.584,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:start: 616.483154296875 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:start: 616.483154296875 ms",
+          []
+        ]
+      },
+      {
+        "seq": 469,
+        "ts": 1790928071913.805,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 470,
+        "ts": 1790928072340.249,
+        "type": "console",
+        "level": "warn",
+        "text": "Timer '[nuxt-app] page:loading:end' already exists",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:241:10",
+        "args": [
+          "Timer '[nuxt-app] page:loading:end' already exists"
+        ]
+      },
+      {
+        "seq": 471,
+        "ts": 1790928072340.519,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:end",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:end"
+        ]
+      },
+      {
+        "seq": 472,
+        "ts": 1790928072340.643,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:end: 912.7431640625 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:end: 912.7431640625 ms",
+          []
+        ]
+      },
+      {
+        "seq": 473,
+        "ts": 1790928072341.053,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 474,
+        "ts": 1790928136291.134,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] connecting...",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:732:8",
+        "args": [
+          "[vite] connecting..."
+        ]
+      },
+      {
+        "seq": 475,
+        "ts": 1790928136293.784,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] connected.",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:826:11",
+        "args": [
+          "[vite] connected."
+        ]
+      },
+      {
+        "seq": 476,
+        "ts": 1790928138466.943,
+        "type": "console",
+        "level": "log",
+        "text": "%cssr%c %s: %s \n      background: #7f8c8d;\n      border-radius: 0.5em;\n      color: white;\n      font-weight: bold;\n      padding: 2px 0.5em;\n      [nitro-runtime] request 3.391ms \n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/consola/dist/browser.mjs?v=2f7cdd38:47:6",
+        "args": [
+          "%cssr%c %s: %s",
+          "\n      background: #7f8c8d;\n      border-radius: 0.5em;\n      color: white;\n      font-weight: bold;\n      padding: 2px 0.5em;\n    ",
+          "",
+          "[nitro-runtime] request",
+          "3.391ms",
+          "\n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n"
+        ]
+      },
+      {
+        "seq": 477,
+        "ts": 1790928138467.156,
+        "type": "console",
+        "level": "log",
+        "text": "%cssr%c %s: %s \n      background: #7f8c8d;\n      border-radius: 0.5em;\n      color: white;\n      font-weight: bold;\n      padding: 2px 0.5em;\n      [nitro-runtime] render:before 0.088ms \n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/consola/dist/browser.mjs?v=2f7cdd38:47:6",
+        "args": [
+          "%cssr%c %s: %s",
+          "\n      background: #7f8c8d;\n      border-radius: 0.5em;\n      color: white;\n      font-weight: bold;\n      padding: 2px 0.5em;\n    ",
+          "",
+          "[nitro-runtime] render:before",
+          "0.088ms",
+          "\n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n"
+        ]
+      },
+      {
+        "seq": 478,
+        "ts": 1790928138467.318,
+        "type": "console",
+        "level": "log",
+        "text": "dev:ssr-logs",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "dev:ssr-logs"
+        ]
+      },
+      {
+        "seq": 479,
+        "ts": 1790928138467.398,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] dev:ssr-logs: 0.535888671875 ms [object Object],[object Object]",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] dev:ssr-logs: 0.535888671875 ms",
+          [
+            [
+              {
+                "date": {},
+                "args": [
+                  "%s: %s",
+                  "[nitro-runtime] request",
+                  "3.391ms",
+                  "\n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n"
+                ],
+                "type": "log",
+                "level": 2,
+                "tag": "",
+                "filename": "node:internal/console/constructor",
+                "stack": [
+                  {
+                    "function": "timeLogImpl",
+                    "source": "node:internal/console/constructor",
+                    "line": 403,
+                    "column": 16
+                  },
+                  {
+                    "source": "node:internal/console/constructor",
+                    "line": 458,
+                    "column": 105
+                  },
+                  {
+                    "function": "timeLogImpl",
+                    "source": "node:internal/util/debuglog",
+                    "line": 219,
+                    "column": 5
+                  }
+                ]
+              },
+              {
+                "date": {},
+                "args": [
+                  "%s: %s",
+                  "[nitro-runtime] render:before",
+                  "0.088ms",
+                  "\n  at timeLogImpl (node:internal/console/constructor)\n  at node:internal/console/constructor\n  at timeLogImpl (node:internal/util/debuglog)\n"
+                ],
+                "type": "log",
+                "level": 2,
+                "tag": "",
+                "filename": "node:internal/console/constructor",
+                "stack": [
+                  {
+                    "function": "timeLogImpl",
+                    "source": "node:internal/console/constructor",
+                    "line": 403,
+                    "column": 16
+                  },
+                  {
+                    "source": "node:internal/console/constructor",
+                    "line": 458,
+                    "column": 105
+                  },
+                  {
+                    "function": "timeLogImpl",
+                    "source": "node:internal/util/debuglog",
+                    "line": 219,
+                    "column": 5
+                  }
+                ]
+              }
+            ]
+          ]
+        ]
+      },
+      {
+        "seq": 480,
+        "ts": 1790928138467.617,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 481,
+        "ts": 1790928138518.887,
+        "type": "console",
+        "level": "log",
+        "text": "✨ %cNuxt DevTools %c Press Shift + Alt + D to open DevTools color: black; border-radius: 3px 0 0 3px; padding: 2px 2px 1px 10px; background: #00DC82 border-radius: 0 3px 3px 0; padding: 2px 10px 1px 2px; background: #00DC8220 ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@nuxt/devtools/dist/runtime/plugins/devtools.client.js?v=2f7cdd38:51:12",
+        "args": [
+          "✨ %cNuxt DevTools %c Press Shift + Alt + D to open DevTools",
+          "color: black; border-radius: 3px 0 0 3px; padding: 2px 2px 1px 10px; background: #00DC82",
+          "border-radius: 0 3px 3px 0; padding: 2px 10px 1px 2px; background: #00DC8220",
+          ""
+        ]
+      },
+      {
+        "seq": 482,
+        "ts": 1790928138522.451,
+        "type": "console",
+        "level": "log",
+        "text": "i18n:beforeLocaleSwitch",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "i18n:beforeLocaleSwitch"
+        ]
+      },
+      {
+        "seq": 483,
+        "ts": 1790928138522.596,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] i18n:beforeLocaleSwitch: 0.197998046875 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] i18n:beforeLocaleSwitch: 0.197998046875 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 484,
+        "ts": 1790928138522.8,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 485,
+        "ts": 1790928138546.246,
+        "type": "console",
+        "level": "error",
+        "text": "[browser-host] 窗口启动失败 [object Object]",
+        "location": "http://127.0.0.1:42879/_nuxt/plugins/browser-host.client.ts:17:33",
+        "args": [
+          "[browser-host] 窗口启动失败",
+          {
+            "name": "FetchError"
+          }
+        ]
+      },
+      {
+        "seq": 486,
+        "ts": 1790928138568.2,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:start",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:start"
+        ]
+      },
+      {
+        "seq": 487,
+        "ts": 1790928138568.36,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:start: 0.18701171875 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:start: 0.18701171875 ms",
+          []
+        ]
+      },
+      {
+        "seq": 488,
+        "ts": 1790928138568.636,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 489,
+        "ts": 1790928138590.383,
+        "type": "console",
+        "level": "log",
+        "text": "app:created",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "app:created"
+        ]
+      },
+      {
+        "seq": 490,
+        "ts": 1790928138590.518,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] app:created: 22.595947265625 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] app:created: 22.595947265625 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 491,
+        "ts": 1790928138590.756,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 492,
+        "ts": 1790928138590.974,
+        "type": "console",
+        "level": "log",
+        "text": "app:beforeMount",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "app:beforeMount"
+        ]
+      },
+      {
+        "seq": 493,
+        "ts": 1790928138591.132,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] app:beforeMount: 0.218017578125 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] app:beforeMount: 0.218017578125 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 494,
+        "ts": 1790928138591.369,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 495,
+        "ts": 1790928138591.752,
+        "type": "console",
+        "level": "log",
+        "text": "vue:setup",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "vue:setup"
+        ]
+      },
+      {
+        "seq": 496,
+        "ts": 1790928138591.925,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] vue:setup: 0.208984375 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] vue:setup: 0.208984375 ms",
+          []
+        ]
+      },
+      {
+        "seq": 497,
+        "ts": 1790928138592.3,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 498,
+        "ts": 1790928138592.979,
+        "type": "console",
+        "level": "info",
+        "text": "<Suspense> is an experimental feature and its API will likely change.",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/runtime-core/dist/runtime-core.esm-bundler.js?v=2f7cdd38:7310:42",
+        "args": [
+          "<Suspense> is an experimental feature and its API will likely change."
+        ]
+      },
+      {
+        "seq": 499,
+        "ts": 1790928138598.738,
+        "type": "console",
+        "level": "log",
+        "text": "app:mounted",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "app:mounted"
+        ]
+      },
+      {
+        "seq": 500,
+        "ts": 1790928138598.919,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] app:mounted: 0.27294921875 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] app:mounted: 0.27294921875 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 501,
+        "ts": 1790928138599.195,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 502,
+        "ts": 1790928138600.26,
+        "type": "console",
+        "level": "log",
+        "text": "app:suspense:resolve",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "app:suspense:resolve"
+        ]
+      },
+      {
+        "seq": 503,
+        "ts": 1790928138600.404,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] app:suspense:resolve: 1.805908203125 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] app:suspense:resolve: 1.805908203125 ms",
+          []
+        ]
+      },
+      {
+        "seq": 504,
+        "ts": 1790928138600.68,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 505,
+        "ts": 1790928191384.447,
+        "type": "console",
+        "level": "info",
+        "text": "[PAGE-MODULE] fresh-build-marker-1",
+        "location": "http://127.0.0.1:42879/_nuxt/pages/index.vue:83:10",
+        "args": [
+          "[PAGE-MODULE] fresh-build-marker-1"
+        ]
+      },
+      {
+        "seq": 506,
+        "ts": 1790928191487.178,
+        "type": "console",
+        "level": "log",
+        "text": "page:finish",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:finish"
+        ]
+      },
+      {
+        "seq": 507,
+        "ts": 1790928191488.33,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:finish: 1.200927734375 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:finish: 1.200927734375 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 508,
+        "ts": 1790928191488.696,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 509,
+        "ts": 1790928191489.909,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:end",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:end"
+        ]
+      },
+      {
+        "seq": 510,
+        "ts": 1790928191490.084,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:end: 0.2119140625 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:end: 0.2119140625 ms",
+          []
+        ]
+      },
+      {
+        "seq": 511,
+        "ts": 1790928191490.342,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 512,
+        "ts": 1790928214268.952,
+        "type": "console",
+        "level": "warn",
+        "text": "Timer '[nuxt-app] page:loading:start' already exists",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:241:10",
+        "args": [
+          "Timer '[nuxt-app] page:loading:start' already exists"
+        ]
+      },
+      {
+        "seq": 513,
+        "ts": 1790928214269.102,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:start",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:start"
+        ]
+      },
+      {
+        "seq": 514,
+        "ts": 1790928214269.164,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:start: 75701.001953125 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:start: 75701.001953125 ms",
+          []
+        ]
+      },
+      {
+        "seq": 515,
+        "ts": 1790928214269.361,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 516,
+        "ts": 1790928214279.623,
+        "type": "console",
+        "level": "warn",
+        "text": "Timer '[nuxt-app] page:loading:start' already exists",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:241:10",
+        "args": [
+          "Timer '[nuxt-app] page:loading:start' already exists"
+        ]
+      },
+      {
+        "seq": 517,
+        "ts": 1790928214279.752,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:start",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:start"
+        ]
+      },
+      {
+        "seq": 518,
+        "ts": 1790928214279.806,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:start: 75711.64404296875 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:start: 75711.64404296875 ms",
+          []
+        ]
+      },
+      {
+        "seq": 519,
+        "ts": 1790928214279.995,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 520,
+        "ts": 1790928214299.707,
+        "type": "console",
+        "level": "warn",
+        "text": "Timer '[nuxt-app] page:loading:end' already exists",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:241:10",
+        "args": [
+          "Timer '[nuxt-app] page:loading:end' already exists"
+        ]
+      },
+      {
+        "seq": 521,
+        "ts": 1790928214299.903,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:end",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:end"
+        ]
+      },
+      {
+        "seq": 522,
+        "ts": 1790928214300.005,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:end: 22810.138916015625 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:end: 22810.138916015625 ms",
+          []
+        ]
+      },
+      {
+        "seq": 523,
+        "ts": 1790928214300.281,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 526,
+        "ts": 1790928289483.94,
+        "type": "console",
+        "level": "warn",
+        "text": "Timer '[nuxt-app] page:loading:start' already exists",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:241:10",
+        "args": [
+          "Timer '[nuxt-app] page:loading:start' already exists"
+        ]
+      },
+      {
+        "seq": 527,
+        "ts": 1790928289484.101,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:start",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:start"
+        ]
+      },
+      {
+        "seq": 528,
+        "ts": 1790928289484.165,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:start: 150916.0029296875 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:start: 150916.0029296875 ms",
+          []
+        ]
+      },
+      {
+        "seq": 529,
+        "ts": 1790928289484.412,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 530,
+        "ts": 1790928290631.19,
+        "type": "console",
+        "level": "log",
+        "text": "page:start",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:start"
+        ]
+      },
+      {
+        "seq": 531,
+        "ts": 1790928290631.562,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:start: 0.501953125 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:start: 0.501953125 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 532,
+        "ts": 1790928290631.986,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 533,
+        "ts": 1790928290637.341,
+        "type": "console",
+        "level": "warn",
+        "text": "Timer '[nuxt-app] page:finish' already exists",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:241:10",
+        "args": [
+          "Timer '[nuxt-app] page:finish' already exists"
+        ]
+      },
+      {
+        "seq": 534,
+        "ts": 1790928290637.658,
+        "type": "console",
+        "level": "log",
+        "text": "page:finish",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:finish"
+        ]
+      },
+      {
+        "seq": 535,
+        "ts": 1790928290637.786,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:finish: 99150.67797851562 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:finish: 99150.67797851562 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 536,
+        "ts": 1790928290638.128,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 537,
+        "ts": 1790928290638.243,
+        "type": "console",
+        "level": "warn",
+        "text": "Timer '[nuxt-app] page:loading:end' already exists",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:241:10",
+        "args": [
+          "Timer '[nuxt-app] page:loading:end' already exists"
+        ]
+      },
+      {
+        "seq": 538,
+        "ts": 1790928290639.34,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:end",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:end"
+        ]
+      },
+      {
+        "seq": 539,
+        "ts": 1790928290639.527,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:end: 99149.65307617188 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:end: 99149.65307617188 ms",
+          []
+        ]
+      },
+      {
+        "seq": 540,
+        "ts": 1790928290640.559,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 541,
+        "ts": 1790928290706.714,
+        "type": "console",
+        "level": "debug",
+        "text": "[vite] hot updated: /__uno.css",
+        "location": "http://127.0.0.1:42879/_nuxt/@vite/client:809:28",
+        "args": [
+          "[vite]",
+          "hot updated: /__uno.css"
+        ]
+      },
+      {
+        "seq": 542,
+        "ts": 1790928291133.089,
+        "type": "console",
+        "level": "warn",
+        "text": "Timer '[nuxt-app] page:loading:start' already exists",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:241:10",
+        "args": [
+          "Timer '[nuxt-app] page:loading:start' already exists"
+        ]
+      },
+      {
+        "seq": 543,
+        "ts": 1790928291133.371,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:start",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:start"
+        ]
+      },
+      {
+        "seq": 544,
+        "ts": 1790928291133.539,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:start: 152565.35888671875 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:start: 152565.35888671875 ms",
+          []
+        ]
+      },
+      {
+        "seq": 545,
+        "ts": 1790928291134.004,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 546,
+        "ts": 1790928291160.935,
+        "type": "console",
+        "level": "info",
+        "text": "[PAGE-MODULE] fresh-build-marker-1",
+        "location": "http://127.0.0.1:42879/_nuxt/pages/index.vue:83:10",
+        "args": [
+          "[PAGE-MODULE] fresh-build-marker-1"
+        ]
+      },
+      {
+        "seq": 547,
+        "ts": 1790928291235.81,
+        "type": "console",
+        "level": "warn",
+        "text": "Timer '[nuxt-app] page:start' already exists",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:241:10",
+        "args": [
+          "Timer '[nuxt-app] page:start' already exists"
+        ]
+      },
+      {
+        "seq": 548,
+        "ts": 1790928291236.427,
+        "type": "console",
+        "level": "log",
+        "text": "page:start",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:start"
+        ]
+      },
+      {
+        "seq": 549,
+        "ts": 1790928291236.545,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:start: 605.498046875 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:start: 605.498046875 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 550,
+        "ts": 1790928291236.866,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 551,
+        "ts": 1790928291241.162,
+        "type": "console",
+        "level": "warn",
+        "text": "Timer '[nuxt-app] page:finish' already exists",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:241:10",
+        "args": [
+          "Timer '[nuxt-app] page:finish' already exists"
+        ]
+      },
+      {
+        "seq": 552,
+        "ts": 1790928291241.322,
+        "type": "console",
+        "level": "log",
+        "text": "page:finish",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:finish"
+        ]
+      },
+      {
+        "seq": 553,
+        "ts": 1790928291241.381,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:finish: 99754.2890625 ms Array(1)",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:finish: 99754.2890625 ms",
+          "Array(1)"
+        ]
+      },
+      {
+        "seq": 554,
+        "ts": 1790928291241.646,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      },
+      {
+        "seq": 555,
+        "ts": 1790928291242.531,
+        "type": "console",
+        "level": "warn",
+        "text": "Timer '[nuxt-app] page:loading:end' already exists",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:241:10",
+        "args": [
+          "Timer '[nuxt-app] page:loading:end' already exists"
+        ]
+      },
+      {
+        "seq": 556,
+        "ts": 1790928291242.732,
+        "type": "console",
+        "level": "log",
+        "text": "page:loading:end",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:245:29",
+        "args": [
+          "page:loading:end"
+        ]
+      },
+      {
+        "seq": 557,
+        "ts": 1790928291242.843,
+        "type": "console",
+        "level": "log",
+        "text": "[nuxt-app] page:loading:end: 99752.98095703125 ms ",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:246:31",
+        "args": [
+          "[nuxt-app] page:loading:end: 99752.98095703125 ms",
+          []
+        ]
+      },
+      {
+        "seq": 558,
+        "ts": 1790928291243.089,
+        "type": "console",
+        "level": "log",
+        "text": "console.groupEnd",
+        "location": "http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/hookable/dist/index.mjs?v=2f7cdd38:248:29",
+        "args": [
+          "console.groupEnd"
+        ]
+      }
+    ],
+    "nextSeq": 558,
+    "dropped": 0
+  }
+}

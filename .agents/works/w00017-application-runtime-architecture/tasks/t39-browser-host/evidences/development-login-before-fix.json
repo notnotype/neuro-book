@@ -1,0 +1,58 @@
+{
+  "observation": {
+    "url": "http://127.0.0.1:42879/login?redirect=/",
+    "title": "",
+    "viewport": {
+      "width": 1440,
+      "height": 1000,
+      "deviceScaleFactor": 1.25
+    },
+    "scroll": {
+      "x": 0,
+      "y": 0,
+      "width": 1440,
+      "height": 1000,
+      "scrollWidth": 1430,
+      "scrollHeight": 1000
+    },
+    "elements": [
+      {
+        "id": 1,
+        "role": "textbox",
+        "name": "用户名",
+        "value": "admin",
+        "states": []
+      },
+      {
+        "id": 2,
+        "role": "textbox",
+        "name": "密码",
+        "value": "••••••••••••••••••••",
+        "states": []
+      },
+      {
+        "id": 3,
+        "role": "button",
+        "name": "登录",
+        "states": []
+      },
+      {
+        "id": 4,
+        "role": "button",
+        "name": "Toggle Nuxt DevTools",
+        "states": []
+      },
+      {
+        "id": 5,
+        "role": "button",
+        "name": "Toggle Component Inspector",
+        "states": []
+      }
+    ]
+  },
+  "errors": {
+    "entries": [],
+    "nextSeq": 335,
+    "dropped": 0
+  }
+}

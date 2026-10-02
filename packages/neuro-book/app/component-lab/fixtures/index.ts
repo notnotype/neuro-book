@@ -7,6 +7,7 @@ import {modelPickerContentScenes, modelPickerPopoverScenes} from "./ModelPicker.
 import type WorkbenchShellLayout from "../../components/workbench/WorkbenchShellLayout.vue";
 import {WORKBENCH_SHELL_LAYOUT_SCENES} from "./WorkbenchShellLayout.scenes";
 import type WorkbenchActivityBar from "../../components/workbench/WorkbenchActivityBar.vue";
+import type BrowserHostFailurePage from "../../components/workbench/BrowserHostFailurePage.vue";
 import type WorkbenchContainerSection from "../../components/workbench/WorkbenchContainerSection.vue";
 import type WorkbenchContainerSurface from "../../components/workbench/WorkbenchContainerSurface.vue";
 import type WorkbenchPanelSurface from "../../components/workbench/WorkbenchPanelSurface.vue";
@@ -461,6 +462,14 @@ export const labFixtures: LabFixture[] = [
     defineLabFixture<typeof WorkbenchActivityBar>({
         component: "WorkbenchActivityBar", scenes: workbenchActivityBarScenes,
         load: async () => (await import("./WorkbenchActivityBarFixture.vue")).default,
+    }),
+    defineLabFixture<typeof BrowserHostFailurePage>({
+        component: "BrowserHostFailurePage", scenes: [
+            {id: "starting", label: "正在连接", input: {props: {kind: "starting", title: "正在连接 NeuroBook", description: "正在启动工作区。", retryLabel: "重试", reloadLabel: "刷新页面"}}},
+            {id: "connection-failed", label: "引导失败，可重试", input: {props: {kind: "connection-failed", title: "连接失败", description: "无法连接服务端，请重试。", retryLabel: "重试", reloadLabel: "刷新页面"}}},
+            {id: "incompatible", label: "协议版本不兼容", input: {props: {kind: "incompatible", title: "需要刷新或更新", description: "页面与服务端版本不兼容。请刷新页面；仍无法启动时，请更新 NeuroBook。", retryLabel: "重试", reloadLabel: "刷新页面"}}},
+            {id: "startup-failed", label: "workbench 激活失败（长原因）", input: {props: {kind: "startup-failed", title: "工作区启动失败", description: "此窗口未能启动工作区。", reason: "nbook.workbench/browser: Files View 声明与产品目录不一致；activation-failed nbook.files/browser 依赖 nbook.workbench/browser 不可用", retryLabel: "重试", reloadLabel: "刷新页面"}}},
+        ], load: async () => (await import("./BrowserHostFailurePageFixture.vue")).default,
     }),
     defineLabFixture<typeof NovelIdeActivityBar>({component: "NovelIdeActivityBar", scenes: novelIdeActivityBarScenes, load: async () => (await import("./NovelIdeActivityBarFixture.vue")).default}),
     defineLabFixture<typeof EditorWorkbench>({component: "EditorWorkbench", scenes: editorWorkbenchScenes, load: async () => (await import("./EditorWorkbenchFixture.vue")).default}),

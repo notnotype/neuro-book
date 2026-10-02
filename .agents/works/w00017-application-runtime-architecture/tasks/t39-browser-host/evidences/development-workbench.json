@@ -1,0 +1,26 @@
+{
+  "result": {
+    "url": "http://127.0.0.1:42879/?project=t39-kai-fa-liu-lan-qi-yan-shou",
+    "files": [
+      "agents/",
+      "lorebook/",
+      "manual/",
+      "manuscript/",
+      "reference/",
+      "upload/",
+      "world-engine/",
+      "AGENTS.md",
+      "host-check.md",
+      "index.md",
+      "project.yaml"
+    ],
+    "workbench": true,
+    "filesView": true,
+    "status": "ready"
+  },
+  "errors": {
+    "entries": [],
+    "nextSeq": 473,
+    "dropped": 0
+  }
+}

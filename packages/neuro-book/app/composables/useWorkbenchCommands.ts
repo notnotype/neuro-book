@@ -1,9 +1,9 @@
 /**
- * Workbench 命令宿主：一棵组件子树里的命令注册表 + 上下文键 + 面板状态。
+ * Workbench 命令宿主：组件子树的上下文键、面板与活动编辑器状态。
  *
- * 生命周期与 `useWorkbenchChrome` 同形：宿主在 setup 里 provide，子组件 inject，宿主卸载即释放。
- * 产品工作台页与 Lab 的命令场景各建各的实例，互不共享——没有 app 级的全局命令宿主。
+ * 产品页面接入窗口 workbench 的命令表，Lab 仍自行建立隔离命令表。
  * 这里只建立通道与状态，命令由各域自己注册——核心不内置任何业务命令。
+ * 页面卸载只释放上下文接入，不停止窗口运行实例。
  */
 import {
     hasInjectionContext,
@@ -20,6 +20,7 @@ import {
 import {createCommandRegistry, type CommandRegistry, type CommandRegistryOptions} from "nbook/app/utils/workbench/commands";
 import type {ContextValues} from "nbook/app/utils/workbench/context-keys";
 import type {CommandEditorBinding, EditorDocumentTarget} from "nbook/app/components/editor-workbench/editor-view.types";
+import type {WorkbenchBrowserService} from "nbook/app/features/workbench/browser-plugin";
 
 export type WorkbenchCommandsHost = Readonly<{
     registry: CommandRegistry;
@@ -49,6 +50,7 @@ export function provideWorkbenchCommands(options: {
     development: boolean;
     report: (error: Error) => void;
     confirm?: CommandRegistryOptions["confirm"];
+    workbench?: WorkbenchBrowserService;
 }): WorkbenchCommandsHost {
     const context = shallowRef<ContextValues>({});
     const agentMode = ref<"normal" | "discuss" | "plan">("normal");
@@ -63,10 +65,16 @@ export function provideWorkbenchCommands(options: {
         focusRequest: ref(0),
     };
 
-    const registry = createCommandRegistry({
+    const registry = options.workbench?.commands ?? createCommandRegistry({
         context: () => context.value,
         agentMode: () => agentMode.value,
         development: options.development,
+        report: options.report,
+        confirm: options.confirm,
+    });
+    const releaseContext = options.workbench?.bindCommandContext({
+        context: () => context.value,
+        agentMode: () => agentMode.value,
         report: options.report,
         confirm: options.confirm,
     });
@@ -128,6 +136,7 @@ export function provideWorkbenchCommands(options: {
         releaseRevision();
         activeEditor.value = null;
         host.closePalette();
+        releaseContext?.();
     });
     return host;
 }

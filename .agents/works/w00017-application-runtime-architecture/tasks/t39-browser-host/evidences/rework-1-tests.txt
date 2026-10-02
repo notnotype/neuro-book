@@ -1,0 +1,17 @@
+$ bun run --cwd packages/neuro-book test -- app/runtime app/features app/plugins app/middleware app/composables server/api/runtime shared scripts/smoke/product-lifecycle
+$ vitest run app/runtime app/features app/plugins app/middleware app/composables server/api/runtime shared scripts/smoke/product-lifecycle
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+(node:3862183) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3862254) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+ Test Files  39 passed (39)
+      Tests  276 passed (276)
+   Start at  10:27:32
+   Duration  10.44s (transform 3.30s, setup 2.41s, import 4.84s, tests 2.58s, environment 3.69s)
+
+
+[exit 0]

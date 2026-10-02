@@ -1,0 +1,40 @@
+{
+  "width": 390,
+  "height": 844,
+  "scrollWidth": 380,
+  "children": [
+    {
+      "tag": "SPAN",
+      "text": "",
+      "x": 174,
+      "y": 358.25,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "tag": "H1",
+      "text": "连接失败",
+      "x": 160,
+      "y": 398.25,
+      "width": 60,
+      "height": 20
+    },
+    {
+      "tag": "P",
+      "text": "无法连接服务端，请重试。",
+      "x": 112,
+      "y": 426.25,
+      "width": 156,
+      "height": 19.5
+    },
+    {
+      "tag": "BUTTON",
+      "text": "重试",
+      "x": 151.53125,
+      "y": 453.75,
+      "width": 76.9375,
+      "height": 32
+    }
+  ],
+  "hasWorkbench": false
+}

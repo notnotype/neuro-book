@@ -1,0 +1,53 @@
+{
+  "theme": "nbook",
+  "appearance": "light",
+  "colors": {
+    "surface": "rgb(227, 228, 230)",
+    "surfaceToken": "rgb(227, 228, 230)",
+    "title": "rgb(31, 28, 23)",
+    "titleToken": "rgb(31, 28, 23)",
+    "description": "rgb(87, 83, 75)",
+    "descriptionToken": "rgb(87, 83, 75)",
+    "icon": "rgb(192, 52, 42)",
+    "iconToken": "rgb(192, 52, 42)"
+  },
+  "geometry": {
+    "surface": {
+      "x": 0,
+      "y": 0,
+      "width": 1430,
+      "height": 1000
+    },
+    "content": {
+      "x": 491,
+      "y": 436.25,
+      "width": 448,
+      "height": 127.5
+    },
+    "title": {
+      "x": 685,
+      "y": 476.25,
+      "width": 60,
+      "height": 20
+    },
+    "description": {
+      "x": 637,
+      "y": 504.25,
+      "width": 156,
+      "height": 19.5
+    },
+    "button": {
+      "x": 676.53125,
+      "y": 531.75,
+      "width": 76.9375,
+      "height": 32
+    },
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "scrollWidth": 1430
+  },
+  "hasWorkbench": false,
+  "text": "连接失败\n\n无法连接服务端，请重试。\n\n重试"
+}

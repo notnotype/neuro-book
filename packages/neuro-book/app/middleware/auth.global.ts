@@ -34,6 +34,9 @@ export default defineNuxtRouteMiddleware(async (to) => {
         }
         return;
     }
+    if (useNuxtApp().$browserWindow?.state.value.status === "unauthorized") {
+        return navigateTo({path: "/login", query: {redirect: to.fullPath}});
+    }
 
     const session = await fetchSession();
     authSession.setSession(session);
