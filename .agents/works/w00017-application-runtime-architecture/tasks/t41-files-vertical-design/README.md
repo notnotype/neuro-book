@@ -13,7 +13,7 @@ taskId: t41-files-vertical-design
 
 ## 当前状态
 
-2026-10-02 需求讨论完成，设计稿 [项目文件底座与 Files 竖切](../../../../../packages/neuro-book/docs/proposals/project-file-foundation.md) 为 `reviewing`。
+2026-10-02 需求讨论完成，设计稿 [项目文件底座与 Files 竖切](../../../../../packages/neuro-book/docs/proposals/project-file-foundation.md) 经开发者评审同意（含主 Agent 补充的 8 项技术细节），状态 `accepted`。定稿前按讨论记录逐条复核了一遍，补入遗漏：`chapter://` 是真实目录型提供者（按编号寻址、按编排顺序列出，推荐 Agent 直接用 `manuscripts.binder/`）、活页夹细则（未编排分组、外部撞号检测、卷即分组）、frontmatter 最初动机、`lorebook.content` 默认为内容文件夹、剧情现有的路径键与 `plot://` 链接候选、编辑器与以后的使用方。
 
 讨论采用一问一答（每问附主 Agent 的猜测），开发者逐条确认或修正。开发者的关键修正：
 
@@ -26,4 +26,4 @@ taskId: t41-files-vertical-design
 
 ## 下一步
 
-开发者评审设计稿中的技术方案部分；接受后修订相关 Spec，按切片开实施 Task（实施前补一次 VS Code 文件服务与资源管理器的针对性源码调研）。
+按设计稿“对 Spec 的预期改动”修订相关 Spec，按切片开实施 Task；第一片建议先测量打开项目与切换文件的耗时拆解（实施前补一次 VS Code 文件服务与资源管理器的针对性源码调研）。
