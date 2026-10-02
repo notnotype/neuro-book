@@ -47,6 +47,7 @@
 - Vitest 包的全量测试统一用包脚本 `bun run --cwd packages/<pkg> test`（node 运行时）。`bun --bun` 直接运行 vitest 时部分依赖
   （如 zod）的 CJS/ESM interop 与 node 不同，过滤单文件可能误报
   `zod does not provide an export named 'z'`；以 node 运行时为准。
+- 测试含宿主专有模块的入口时，在对应宿主的真实子进程中验证行为；不要直接导入另一宿主的测试运行器，以免模块加载失败替代业务回归。
 - 新增测试目录（如新 `scripts/<area>/`）必须同步加入对应配置的 `include`，否则测试
   永远不运行——「写了但从不跑」比没有测试更危险。
 - 测试导入使用与源码一致的 `nbook/*` / `#manager/*` 别名，不使用跨项目相对路径。

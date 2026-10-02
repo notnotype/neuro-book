@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: runtime.server-host
 owners:
   - application-runtime
@@ -123,8 +123,29 @@ owners:
 
 Smoke：生产构建在 Bun 下用临时 State Root 运行场景 2 至 6；开发模式运行场景 7、8。
 
+## 实现合同
+
+- **实现 owner 与入口**：application-runtime。宿主适配器 `packages/neuro-book/server/runtime/foundation/server-host.ts`（`ServerRuntimeHost.start(options)` 返回 `ServerHost`：`requestStop(source)`、`stopSource`、`stopped`、`detached`、`beforeStopError`；选项含 `signals`、`process`、`beforeStop`、`stopTimeoutMs`、`emergency`）。产品装配 `server/runtime/product-startup.ts`：`startProductRuntime({mode, http, process, clock, exit, nitroApp})` 是生产、开发与 CLI 共用的唯一启动函数，`currentProductRuntime()` 只取得本模块图已建立的实例。生产入口 `server/host/product-host-entry.ts`（由 `nuxt.config.ts` 的内联模块只在非开发构建时设为 Nitro `entry`，并在 `prerender:config` 中移除）；开发入口 `server/host/development-plugin.ts`（Nitro 插件）与 `server/host/development-process.ts`（nuxi 主线程宿主与 worker 停止桥）。HTTP 准入与排空在 `server/features/http/`（`nbook.http`、`ProductHttpAdmission`、`registerHttpEventStream`），停止端口类型在 `server/host/stop-port.ts`，启动致命诊断在 `server/host/startup-diagnostic.ts`，产品启动包装进程在 `server/runtime/product-command.ts` 与 `server/runtime/product-start-command.mjs`。
+- **关键不变量**：
+  - 一个模块图只有一个产品运行实例；进程信号只由宿主挂接一次，停止结算后移除。
+  - 所有停止来源经 `ServerHost.requestStop` 汇合，只执行一次；`beforeStop`（HTTP 排空）先于内核停止，失败仍继续关闭并记入 `beforeStopError`。退出码按 75 > 1 > 0 取值，停止结算后最后刷写日志再交给入口注入的 `exit`。
+  - `nbook.http` 不依赖业务服务，生产下最先监听；就绪前请求等待，启动失败与排空期间返回 503，SSE 事件流登记关闭动作，排空开始即关闭且不计入等待。
+  - 启动必需插件按服务依赖激活、依赖逆序关闭；`nbook.diagnostics` 是依赖图的根，日志桥接最先安装、最后撤销。Nitro 钩子（`error`、`beforeResponse`）由插件在激活时注册、关闭时注销。
+  - 开发模式：热重载在 `dev:reload` 上先等旧实例的停止回执；Session Store 租约只对同一进程的 runtime 持有者有界等待（45 秒），其它持有者立即失败；同一 worker 内不重试启动。
+  - 包装进程重复收到停止信号只转发一次，等服务进程退出后原样传递退出码，服务进程被信号结束时以 128 加信号编号退出。
+- **合同测试**：`server/runtime/foundation/server-host.test.ts`、`server/runtime/product-startup.test.ts`、`server/features/http/admission.test.ts` 与 `plugin.test.ts`、`server/host/development-process.test.ts` 与 `development-plugin.test.ts`、`server/runtime/product-command.test.ts`（真实子进程）、`server/routes/__nbook/control/shutdown.post.test.ts`。
+- **实际 smoke**：`bun run smoke:product-lifecycle`（L1–L10，含生产构建；L2–L6 对应场景 2–6，L7、L8 对应场景 7、8），检查未执行时以非零退出。
+
 ## 证据
 
 - 批准目标：[可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md) P6 与 P11（2026-09-30 开发者同意生命周期部分按验证证据写入）；[ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条。
 - 验证依据：[G0 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g0/REPORT.md)；启动失败退出与退出码优先级的现行修复见 [PR #245](https://github.com/notnotype/neuro-book/pull/245)。
-- 实现进展：生产宿主入口、`nbook.http`（监听、请求准入、排空期间返回 503、SSE 事件流在排空开始时关闭、普通在途请求最多等 20 秒）、停止来源汇合（信号、`PRODUCT_SHUTDOWN_PATH`、租约失效、启动失败经 `ServerRuntimeHost` 的同一停止入口，排空作为宿主停止前置步骤）、退出码 0、1、75 与启动失败的同步致命诊断已实现；其余插件按依赖逆序关闭，诊断以 `runtime.plugins.diagnostic` 与 `runtime.plugins.catalog` 写入产品日志。旧的启动中间件、排空中间件、`productRuntimeReady()` 全局单例、关闭控制器与 `project-session-close` Nitro 插件已删除。开发模式由 Nitro 插件在初始化时建立实例，nuxi 主线程中的开发宿主接管 SIGINT、SIGTERM 并经 `BroadcastChannel` 与 worker 协调：热重载先等旧实例的停止回执再换 worker；Session Store 租约在开发模式对同一进程的 runtime 持有者有界等待 45 秒，过期锁仍按租约规则接管；停止路由与信号都经宿主停止入口排空、按依赖逆序关闭后退出（#244）。已知限制：同一 worker 内由请求触发的重试未实现，因为 Storage 宿主与文件索引仍是模块级单例，关闭后不能在同一模块图中重建，要等它们成为拥有资源的插件；开发宿主依赖 listhen 注册的信号监听形状与 Nitro `dev:reload` 钩子的执行顺序，升级 Nuxt 或 Nitro 时要重新验证；nuxi 分叉模式、Windows 与 Bun 下的开发 worker 未覆盖。`server/plugins/` 下的 Nitro 插件已全部迁入内置插件：日志桥接归 `nbook.diagnostics`（进入产品清单，其它必需插件经依赖闭包排在它之后），请求错误日志与 Server-Timing 归 `nbook.http`，Boot Config 校验归 `nbook.app-state`，Storage 定义登记归 `nbook.storage`，Nitro 钩子随实例注册与注销；产品启动包装进程如实传递退出码，`smoke:product-lifecycle` 在检查未执行时以非零退出。看门狗（退出码 76）未实现；Windows 上的包装进程链与服务进程被信号结束时的退出码映射未实测；本 Spec 保持 `planned`。见 [w00017 t34](../../../.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/README.md)、[t37](../../../.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/README.md)、[t38](../../../.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/README.md)、[t40](../../../.agents/works/w00017-application-runtime-architecture/tasks/t40-phase1-closing/README.md)。
+- 实现入口：[`server-host.ts`](../../../packages/neuro-book/server/runtime/foundation/server-host.ts)、[`product-startup.ts`](../../../packages/neuro-book/server/runtime/product-startup.ts)、[`product-host-entry.ts`](../../../packages/neuro-book/server/host/product-host-entry.ts)、[`development-process.ts`](../../../packages/neuro-book/server/host/development-process.ts)
+- 合同测试：[`server-host.test.ts`](../../../packages/neuro-book/server/runtime/foundation/server-host.test.ts)、[`product-startup.test.ts`](../../../packages/neuro-book/server/runtime/product-startup.test.ts)、[`admission.test.ts`](../../../packages/neuro-book/server/features/http/admission.test.ts)、[`development-process.test.ts`](../../../packages/neuro-book/server/host/development-process.test.ts)、[`product-command.test.ts`](../../../packages/neuro-book/server/runtime/product-command.test.ts)
+- Smoke：[`product-lifecycle.ts`](../../../packages/neuro-book/scripts/smoke/product-lifecycle.ts)（`bun run smoke:product-lifecycle`）
+- 实现与验证：w00017 [t34](../../../.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/README.md)（内置服务插件与依赖逆序关闭）、[t37](../../../.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/README.md)（生产宿主入口、`nbook.http`、停止来源汇合）、[t38](../../../.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/README.md)（开发宿主，#244）、[t40](../../../.agents/works/w00017-application-runtime-architecture/tasks/t40-phase1-closing/README.md)（Nitro 插件迁入内置插件、包装进程退出码）；`smoke:product-lifecycle` L1–L10 全部通过。2026-10-02 开发者批准晋升 `implemented`。
+- 已知限制：
+  - 退出码 76 由 [`runtime.stall-watchdog`](stall-watchdog.md) 定义，看门狗尚未实现。
+  - Windows 上的停止只能走 `PRODUCT_SHUTDOWN_PATH` 与强制结束，包装进程链与服务进程被信号结束时的退出码映射未实测。
+  - 开发模式同一 worker 内由请求触发的启动重试未实现：Storage 宿主与文件索引仍是模块级单例，关闭后不能在同一模块图中重建，要等它们成为拥有资源的插件；开发宿主依赖 listhen 注册的信号监听形状与 Nitro `dev:reload` 钩子的执行顺序，升级 Nuxt 或 Nitro 时要重新验证；nuxi 分叉模式与 Bun 下的开发 worker 未覆盖。
+  - 自有入口依赖 nitropack 的内部导出（`#nitro-internal-pollyfills`、`trapUnhandledNodeErrors`），升级 nitropack（尤其 Nitro 3）时要重新验证本能力的验收场景。
