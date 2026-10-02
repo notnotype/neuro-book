@@ -75,6 +75,7 @@ issueId: null
 | [t38](tasks/t38-development-host/README.md) | 开发宿主（#244）：nuxi 主线程中的开发宿主接管信号并经 `BroadcastChannel` 与 worker 协调，热重载先停旧实例，Session Store 租约对同进程旧实例有界等待，开发进程有序停止后退出；同 worker 内请求重试按开发者决定不做（omp 编码）；L1–L8、L10 通过 |
 | [t39](tasks/t39-browser-host/README.md) | 浏览器宿主（最小范围）：需要登录的引导接口，client plugin 在挂载前完成引导并激活 `nbook.workbench`，失败显示带重试的连接失败页而不渲染工作台；命令表归 workbench 插件，`index.vue` 不再创建运行实例（omp 编码）；`smoke:product-lifecycle` L1–L10 全部通过 |
 | [t40](tasks/t40-phase1-closing/README.md) | 阶段 1 收尾：`server/plugins/` 下 5 个 Nitro 插件迁入内置插件（`nbook.diagnostics` 进入产品清单并借用 `appLogger` 的 writer），产品启动包装进程链如实传递退出码，smoke 在检查未执行时以非零退出（omp 编码）；阶段 1 完成 |
+| [t41](tasks/t41-files-vertical-design/README.md) | 阶段 2 Files 竖切需求讨论：与开发者逐条划定需求、成功标准（性能表）与分项决定，写成设计稿 [项目文件底座与 Files 竖切](../../../packages/neuro-book/docs/proposals/project-file-foundation.md)（`reviewing`）；不改产品代码与 Spec |
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 
