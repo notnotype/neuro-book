@@ -19,7 +19,7 @@ taskId: t40-phase1-closing
 
 不做（开发者决定留到阶段 2，由 Files 竖切真实消费时接入）：`nbook.sqlite`、`nbook.platform-files` 进入产品清单；`nbook.project` 的浏览器部分。
 
-复核中核实后不处理的问题：归档临时目录泄漏在 t38、t39 的完整 smoke 中没有复现，`/tmp/nbook-project-archive-*` 的 15 个残留都是 10-01 crc32 修复前崩溃或强制结束留下的；L10 浏览器日志中的 `STORAGE_CONTEXT_INVALID` 403 在 t31 基线中已存在，属 Storage 多窗口问题，与运行时架构无关，建议另开 Issue（需授权）。
+复核中核实后不处理的问题：归档临时目录泄漏在 t38、t39 的完整 smoke 中没有复现，`/tmp/nbook-project-archive-*` 的 15 个残留都是 10-01 crc32 修复前崩溃或强制结束留下的；L10 浏览器日志中的 `STORAGE_CONTEXT_INVALID` 403 在 t31 基线中已存在，属 Storage 多窗口问题，与运行时架构无关，已登记为 [#246](https://github.com/notnotype/neuro-book/issues/246)（2026-10-02 开发者授权；Storage 后续整体重新设计，预计随之解决）。
 
 编码由 omp 完成（`@default`；中途因 `openai-codex` 额度用尽、`aihub` 余额不足，改用 `cctq` 后又按开发者要求换回 `aihub`），任务说明见 [brief.md](brief.md)，审查意见见 [reviews/](reviews/)。
 
