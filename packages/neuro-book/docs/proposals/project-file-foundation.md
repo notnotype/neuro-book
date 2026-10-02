@@ -197,11 +197,13 @@ bash 绕过文件服务，它的写入由文件监视发现，来源记为“外
 
 ## 对 Spec 的预期改动
 
-- 新 capability（暂名 `workspace.resources`）：URI 方案、提供者注册与能力、经文件服务的读写与来源、变更事件、bash 的真实路径规则。
-- 新 capability（暂名 `workspace.folder-kinds`）：三类文件夹、后缀识别、清单格式与外部增删的处理、渲染贡献点。
-- 修订 [`workspace.files`](../../../../docs/specs/workspace/files.md) 与 [`workbench.files-explorer`](../../../../docs/specs/workbench/files-explorer.md)：按需加载、两个根、乐观切换与加载状态、性能验收表；内容节点模式改为内容文件夹。
-- 修订 [`runtime.browser-host`](../../../../docs/specs/runtime/browser-host.md)：`nbook.project` 浏览器部分。
-- 剧情改造时修订 Plot 合同（另起设计）。
+2026-10-02 已按本节写入 `planned` 合同（[w00017 t41](../../../../.agents/works/w00017-application-runtime-architecture/tasks/t41-files-vertical-design/README.md)）：
+
+- 新增 [`workspace.resources`](../../../../docs/specs/workspace/resources.md)：URI 方案、提供者注册与能力、经文件服务的读写与来源、变更事件、bash 的真实路径规则；`project://` 的当前 Project 由 `nbook.project` 浏览器部分按窗口提供。
+- 新增 [`workspace.folder-kinds`](../../../../docs/specs/workspace/folder-kinds.md)：三类文件夹、后缀识别、清单格式与外部增删的处理、渲染贡献点。
+- 修订 [`workspace.files`](../../../../docs/specs/workspace/files.md)：按需列目录、三类文件夹、写入来源、用户资产根与插件通道。
+- 修订 [`workbench.files-explorer`](../../../../docs/specs/workbench/files-explorer.md)：双模式由文件夹类型取代、两个根、按需加载、乐观切换与加载状态、性能标准。
+- 剧情改造时修订 Plot 合同并登记活页夹在剧情中的语义（另起设计）。
 
 ## 决策记录
 

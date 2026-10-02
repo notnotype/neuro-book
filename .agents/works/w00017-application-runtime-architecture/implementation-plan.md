@@ -126,6 +126,22 @@
 
 退出证据以两项 Files Spec 为准：主页面双模式、基础/多选操作及打开编辑保存；同条件冷开/热切换测量；冲突/部分失败/dirty/旧代次与多窗口；同一基础面板 Lab 场景及跨机器基础操作。HTTP + SSE 先沿用，协议替换不作为提速前提；复用现有索引与正文缓冲，不放宽路径/权限/History 保护。t16 冻结预算，t24 热切换与资源释放已实测；t25 验证本机多选拖动、同目录复制、批量删除、结果未知及事件断开。路径 move 的 no-replace 提交已在 Windows 本机验证文件/目录同名抢占，原语不支持则失败关闭；完整 Windows 产品镜像构建通过。Linux/macOS 和其它文件系统尚未实测，跨机器仍缺第二隔离宿主；未因局部通过晋升 Spec。
 
+### 阶段 2：Files 竖切（项目文件底座）
+
+依据：[项目文件底座与 Files 竖切](../../../packages/neuro-book/docs/proposals/project-file-foundation.md)（2026-10-02 `accepted`，需求讨论见 [t41](tasks/t41-files-vertical-design/README.md)）；行为合同为 [workspace.resources](../../../docs/specs/workspace/resources.md)、[workspace.folder-kinds](../../../docs/specs/workspace/folder-kinds.md)、[workspace.files](../../../docs/specs/workspace/files.md) 与 [workbench.files-explorer](../../../docs/specs/workbench/files-explorer.md)（均为 `planned`）。退出条件：上述合同的验收场景通过，资源管理器的性能标准在生产构建、本机浏览器与桌面版上达标，首版 F1–F9 不回退，History 作为内置插件只依赖底座事件独立工作。
+
+切片顺序（按真实结果逐个开 Task，不预建）：
+
+1. **测量与调研**（[t42](tasks/t42-files-baseline-research/README.md)）：在约 3000 个文件的隔离样本上，拆解打开项目与切换文件的耗时；针对性调研 VS Code 的文件系统提供者能力、资源管理器按需展开、长列表虚拟化与文件监视。不改产品行为。
+2. **资源层底座**：文件服务、提供者框架与能力声明、`project://`、`user://`、`tmp://`、`local://`、`docs://` 提供者、写入来源与变更事件；`nbook.platform-files` 进入产品清单；`nbook.project` 浏览器部分（本窗口当前 Project 与切换事件）。
+3. **三类文件夹与资源管理器按需加载**：XML 清单（新增解析库依赖）、内容文件夹、渲染贡献点、按需列目录与虚拟滚动、两个根。**依赖**：本片上线后，资源管理器只认后缀与清单。现有项目要保留展示名与顺序，必须把 frontmatter 展示信息迁入清单、目录加后缀（`lorebook/` → `lorebook.content/`）；而目录一改名，内置资产与代码中写死的旧路径（`lorebook/` 在内置资产中 237 处）必须同时替换，否则 Agent 找不到资料库。因此“路径迁移”这项后续重构与本片不能拆开。开工前请开发者二选一：把项目迁移脚本与内置资产路径替换并入本片；或本片先上线、现有项目在过渡期只显示真实文件名，等路径迁移时再恢复展示名。
+4. **打开与切换**：按第 1 片的测量结果优化，乐观切换与加载状态、控件与模型复用，外部修改同步到已打开编辑器。
+5. **Files 插件化**：合并两个 Files 插件为 `nbook.files`，读写与事件走插件通道，贡献视图与命令、`explorer/context` 菜单位置、`nbook.editor.open`。
+6. **History 插件**：`nbook.history` 订阅底座变更事件，复用 `@notnotype/nb-history`。
+7. **Agent 文件工具**：读、写、列出、glob、grep 改为资源地址入参，bash 只接受真实路径方案、在 `local://` 运行。
+
+不在阶段 2 主线（记为后续重构）：剧情模型改造与 `chapter://`、`plot://` 提供者；`lorebook/`、`manuscript/` 等内置资产路径的批量替换；用户资产目录布局；预读策略。
+
 ### Settings
 
 入口条件：Files已证明Project寿命；规范明确设置定义/有效值/秘密字段/写入生效语义，Profile专用设置与配置核心分开。

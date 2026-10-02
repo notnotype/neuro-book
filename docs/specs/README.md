@@ -130,6 +130,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | Storage 本地持久化 | [`storage/persistence.md`](storage/persistence.md) | 身份与客户端分区、条件读写、生命周期、恢复、备份与首批迁移；运行时与验收尚未实现 |
 | 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量/宿主、scope仲裁与绝对指针跟随；新矩阵未闭合前保持planned |
 | 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | `workspace.files`；首版文件读写、目录/批量操作、无覆盖冲突、逐项失败与取消语义已批准；尚未实施或运行验证 |
+| 资源寻址与文件服务 | [`workspace/resources.md`](workspace/resources.md) | `workspace.resources`；`方案://路径` 寻址、提供者注册与能力声明、写入来源与变更事件、bash 的真实路径规则；首批 `project://`、`user://`、`tmp://`、`local://`、`docs://`；阶段 2 实施 |
+| 文件夹类型与清单 | [`workspace/folder-kinds.md`](workspace/folder-kinds.md) | `workspace.folder-kinds`；普通、内容（`*.content`）、活页夹（`*.binder`）三类文件夹，后缀识别、XML 清单、未列入与缺失处理、渲染贡献点；阶段 2 实施 |
 | 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | `runtime.plugin-manifest`；清单格式、按入口声明依赖的服务、同一运行位置解析、受阻推导与启停顺序；阶段 1 起实施 |
 | 浏览器宿主 | [`runtime/browser-host.md`](runtime/browser-host.md) | `runtime.browser-host`；挂载前建立窗口运行实例、引导接口、多窗口隔离、可分离边界；阶段 1 实施 |
 | 插件通道与 HTTP 入口 | [`runtime/plugin-channel.md`](runtime/plugin-channel.md) | `runtime.plugin-channel`；合同端点、订阅与重连、错误格式、版本校验、路由贡献；流的传输另立；阶段 1、2 实施 |

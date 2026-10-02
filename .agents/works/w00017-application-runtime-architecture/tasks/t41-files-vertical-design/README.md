@@ -9,7 +9,7 @@ taskId: t41-files-vertical-design
 
 阶段 1 完成后（[t40](../t40-phase1-closing/README.md)），开发者要求阶段 2 的 Files 竖切先讨论、重新设计并划定需求，要解决实际使用中的问题（打开项目要等全量预读、切换文件约 0.3 秒延迟），用起来要和本地 IDE 一样流畅；并把 `nbook.platform-files`、`nbook.project` 视为项目底座，用 History、剧情、Agent 文件工具、用户资产等依赖方检验其扩展性。
 
-本 Task 只做需求讨论与设计稿，不改产品代码、不改 Spec。行为合同未变：设计稿接受后再按其“对 Spec 的预期改动”修订 [`workspace.files`](../../../../../docs/specs/workspace/files.md)、[`workbench.files-explorer`](../../../../../docs/specs/workbench/files-explorer.md) 等并开实施 Task。
+本 Task 做需求讨论、设计稿与 `planned` Spec，不改产品代码。设计稿接受后，按其“对 Spec 的预期改动”新增 [`workspace.resources`](../../../../../docs/specs/workspace/resources.md)、[`workspace.folder-kinds`](../../../../../docs/specs/workspace/folder-kinds.md)，修订 [`workspace.files`](../../../../../docs/specs/workspace/files.md)、[`workbench.files-explorer`](../../../../../docs/specs/workbench/files-explorer.md)（2026-10-02 完成）。
 
 ## 当前状态
 
@@ -26,4 +26,4 @@ taskId: t41-files-vertical-design
 
 ## 下一步
 
-按设计稿“对 Spec 的预期改动”修订相关 Spec，按切片开实施 Task；第一片建议先测量打开项目与切换文件的耗时拆解（实施前补一次 VS Code 文件服务与资源管理器的针对性源码调研）。
+Spec 已写入；切片顺序记在[整体实施路径](../../implementation-plan.md#阶段-2files-竖切项目文件底座)，第 1 片为 [t42](../t42-files-baseline-research/README.md)（测量与 VS Code 针对性调研）。
