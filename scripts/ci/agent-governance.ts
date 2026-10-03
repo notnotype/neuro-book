@@ -13,6 +13,7 @@ import {
     verifyWorkspacePackageGovernance,
 } from "#scripts/ci/agent-governance-contract";
 import {changedFiles, readChangeScopeArguments, scopeWarnings} from "#scripts/ci/change-scope";
+import {testConventionReport} from "#scripts/ci/test-conventions";
 
 const {repoRoot, since, all} = readChangeScopeArguments(import.meta.url);
 const failures: string[] = [];
@@ -88,6 +89,8 @@ for (const relativePath of inspectPaths) {
     if (/\.agent[\\/]tmp(?:[\\/]|$)/u.test(text) && !relativePath.startsWith("packages/neuro-book-test-support/")) failures.push(`活文件仍引用仓库临时根：${relativePath}`);
 }
 
-const warnings = scopeWarnings(rareDocumentSymbolWarnings(repoRoot), all ? null : changedFiles(repoRoot, since));
+const testConventions = testConventionReport(repoRoot);
+failures.push(...testConventions.failures);
+const warnings = scopeWarnings([...rareDocumentSymbolWarnings(repoRoot), ...testConventions.warnings], all ? null : changedFiles(repoRoot, since));
 console.log(JSON.stringify({schema: "nbook.governance-report/v1", repoRoot, failures, ...warnings}, null, 2));
 if (failures.length > 0) process.exitCode = 1;

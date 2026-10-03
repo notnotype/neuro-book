@@ -11,6 +11,14 @@ describe("改动范围参数", () => {
         expect([...parsed.flags]).toEqual(["--dry-run"]);
     });
 
+    it("命令自己的带值参数可重复，按出现顺序收集", () => {
+        const parsed = parseChangeScopeArguments(["--package", "nb-ui", "--tier", "llm", "--package", "nb-runtime"], import.meta.url, [], ["--package", "--tier"]);
+
+        expect(parsed.options.get("--package")).toEqual(["nb-ui", "nb-runtime"]);
+        expect(parsed.options.get("--tier")).toEqual(["llm"]);
+        expect(() => parseChangeScopeArguments(["--package"], import.meta.url, [], ["--package"])).toThrow("参数缺少值：--package");
+    });
+
     it("拒绝未知参数和缺值参数，不退回默认范围", () => {
         expect(() => parseChangeScopeArguments(["--sinse", "master"], import.meta.url)).toThrow("未知参数：--sinse");
         expect(() => parseChangeScopeArguments(["--since"], import.meta.url)).toThrow("参数缺少值：--since");

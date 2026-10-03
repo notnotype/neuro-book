@@ -11,6 +11,8 @@ export type ChangeScopeArguments = {
     all: boolean;
     /** 命令自己的开关，例如 `--dry-run`。 */
     flags: ReadonlySet<string>;
+    /** 命令自己带值的参数，可重复给出，例如 `--package nb-ui --package nb-runtime`。 */
+    options: ReadonlyMap<string, readonly string[]>;
 };
 
 /** 归属到某个文件的警告；`label` 是固定的类别名，存量计数按它分组。 */
@@ -24,26 +26,29 @@ export type ScopedWarnings = {
 };
 
 /**
- * 解析 `--repo-root <dir>`、`--since <rev>`、`--all` 与命令自己声明的开关。
+ * 解析 `--repo-root <dir>`、`--since <rev>`、`--all` 与命令自己声明的开关和带值参数。
  * 未知参数直接报错：拼错的 `--since` 若被忽略，会悄悄退回默认范围。
  */
 export function parseChangeScopeArguments(
     args: readonly string[],
     moduleUrl: string,
     commandFlags: readonly string[] = [],
+    commandOptions: readonly string[] = [],
 ): ChangeScopeArguments {
     let repoRoot = defaultRepoRoot(moduleUrl);
     let since: string | undefined;
     let all = false;
     const flags = new Set<string>();
+    const options = new Map<string, string[]>();
     for (let index = 0; index < args.length; index += 1) {
-        const argument = args[index];
+        const argument = args[index] as string;
         if (argument === "--") continue;
-        if (argument === "--repo-root" || argument === "--since") {
+        if (argument === "--repo-root" || argument === "--since" || commandOptions.includes(argument)) {
             const value = args[index + 1];
             if (value === undefined || value.startsWith("--")) throw new Error(`参数缺少值：${argument}`);
             if (argument === "--repo-root") repoRoot = resolve(value);
-            else since = value;
+            else if (argument === "--since") since = value;
+            else options.set(argument, [...(options.get(argument) ?? []), value]);
             index += 1;
         } else if (argument === "--all") {
             all = true;
@@ -53,13 +58,13 @@ export function parseChangeScopeArguments(
             throw new Error(`未知参数：${argument}`);
         }
     }
-    return {repoRoot, since, all, flags};
+    return {repoRoot, since, all, flags, options};
 }
 
 /** 命令入口用：参数错误时打印原因并以 2 退出。 */
-export function readChangeScopeArguments(moduleUrl: string, commandFlags: readonly string[] = []): ChangeScopeArguments {
+export function readChangeScopeArguments(moduleUrl: string, commandFlags: readonly string[] = [], commandOptions: readonly string[] = []): ChangeScopeArguments {
     try {
-        return parseChangeScopeArguments(process.argv.slice(2), moduleUrl, commandFlags);
+        return parseChangeScopeArguments(process.argv.slice(2), moduleUrl, commandFlags, commandOptions);
     } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));
         process.exit(2);
