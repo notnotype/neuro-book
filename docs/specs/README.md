@@ -182,6 +182,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 5. 验收以规范中的可观察行为为依据；Task 完成不能代替规范更新。
 6. 旧行为退出时，更新当前规范；需要保留理由时写 ADR，需要用户升级步骤时写 migration。Task 和 proposal 保留历史但不再作为当前行为依据。
 
-`bun run docs:check` 只负责确定性结构：元数据、模板占位、必需章节的实义内容、成熟度登记、capability 精确唯一、implemented 证据的「实现入口／合同测试／Smoke」三条标签行及链接类型和活跃相对链接。它不判断自然语言是否互相矛盾、owner 是否真实、两个近义 capability 是否重叠，也不推断代码 diff 是否改变行为。current Work/Task 快照与受管组件文档缺失分别进入 `warnings` 与 `failures`：Task 正文只供协作参考，组件文档缺失阻断发布文档门禁。
+`bun run docs:check` 只负责确定性结构：元数据、模板占位、必需章节的实义内容、成熟度登记、capability 精确唯一、implemented 证据的「实现入口／合同测试／Smoke」三条标签行及链接类型和活跃相对链接。它不判断自然语言是否互相矛盾、owner 是否真实、两个近义 capability 是否重叠，也不推断代码 diff 是否改变行为。current Work/Task 快照与受管组件文档缺失分别进入 `warnings` 与 `failures`：Task 正文只供协作参考，组件文档缺失阻断文档门禁。`warnings` 默认只逐条列出未提交改动涉及的文件，其余合成一行计数（参数见 [测试规范](../testing/README.md#验证门禁)）。
 
 Reviewer 必须核对每项输入、输出、状态、副作用和失败语义没有冲突；`planned` 没有泄漏实现步骤且具有真实批准依据；`implemented` 的代码、测试和 smoke 证据覆盖正文；Task 和 PR 链接具体 Spec 或明确说明行为合同未变。两层都通过才算完成。

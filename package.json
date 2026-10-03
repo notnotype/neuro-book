@@ -33,9 +33,8 @@
     "governance:check": "bun scripts/ci/agent-governance.ts",
     "governance:context": "bun scripts/cli/agent-context.ts",
     "governance:worktree": "bun scripts/cli/create-agent-worktree.ts",
-    "governance:migrate-tasks": "bun scripts/maintenance/migrate-agent-tasks.ts",
-    "governance:migrate-task-ownership": "bun scripts/maintenance/migrate-task-ownership.ts",
-    "docs:check": "bun scripts/ci/check-documentation.ts"
+    "docs:check": "bun scripts/ci/check-documentation.ts",
+    "test:affected": "bun scripts/cli/test-affected.ts"
   },
   "dependencies": {
     "@clack/prompts": "^1.0.0",

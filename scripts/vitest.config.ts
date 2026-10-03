@@ -20,7 +20,7 @@ export default defineConfig({
         setupFiles: ["@notnotype/neuro-book-test-support/vitest"],
         include: [
             "scripts/ci/**/*.test.ts",
-            "scripts/maintenance/**/*.test.ts",
+            "scripts/cli/**/*.test.ts",
             "scripts/utils/**/*.test.ts",
         ],
     },

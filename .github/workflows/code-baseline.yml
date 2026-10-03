@@ -67,5 +67,5 @@ jobs:
         run: bun run governance:check
       - name: Typecheck repository scripts
         run: bun x tsc --noEmit -p scripts/tsconfig.json
-      - name: Check workflow contracts
-        run: bun x vitest run --config scripts/vitest.config.ts scripts/ci/agent-governance.test.ts scripts/ci/workspace-workflows.test.ts
+      - name: Test repository scripts
+        run: bun x vitest run --config scripts/vitest.config.ts

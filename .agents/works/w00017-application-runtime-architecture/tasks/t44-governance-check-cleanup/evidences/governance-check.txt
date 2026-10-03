@@ -1,0 +1,17 @@
+$ bun run governance:check
+$ bun scripts/ci/agent-governance.ts
+{
+  "schema": "nbook.governance-report/v1",
+  "repoRoot": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation",
+  "failures": [],
+  "warnings": [],
+  "stockWarnings": "另有 68 条警告不在本次改动范围（文档用 § 或 ¶ 代替中文词 68），加 --all 逐条列出"
+}
+exit 0
+
+$ bun run governance:check --all（只看计数）
+{
+  "failures": [],
+  "warnings": 68,
+  "stockWarnings": null
+}

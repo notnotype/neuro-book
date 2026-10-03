@@ -2,29 +2,23 @@
 import {existsSync, readFileSync} from "node:fs";
 import {resolve} from "node:path";
 import {
-    defaultRepoRoot,
     expectedGovernanceFiles,
     git,
     hasFile,
+    rareDocumentSymbolWarnings,
     verifyGovernanceDocumentLimits,
-    verifyRareDocumentSymbols,
-    verifyApplicationScriptBoundary,
-    verifyMonorepoCutover,
-    verifySiblingResyncResolution,
-    verifyLegacyTaskProvenance,
-    verifyTaskOwnership,
+    verifyLegacyTaskRoots,
+    verifyPackageScriptBoundary,
     verifyWorkContracts,
     verifyWorkspacePackageGovernance,
 } from "#scripts/ci/agent-governance-contract";
+import {changedFiles, readChangeScopeArguments, scopeWarnings} from "#scripts/ci/change-scope";
 
-const args = process.argv.slice(2);
-const repoArgument = args.indexOf("--repo-root");
-const repoRoot = resolve(repoArgument >= 0 ? args[repoArgument + 1] ?? "" : defaultRepoRoot(import.meta.url));
+const {repoRoot, since, all} = readChangeScopeArguments(import.meta.url);
 const failures: string[] = [];
-const warnings: string[] = [];
 
 failures.push(...verifyWorkContracts(repoRoot));
-failures.push(...verifyLegacyTaskProvenance(repoRoot));
+failures.push(...verifyLegacyTaskRoots(repoRoot));
 
 function requireFile(relativePath: string): void {
     if (!hasFile(repoRoot, relativePath)) failures.push(`缺少治理文件：${relativePath}`);
@@ -41,13 +35,9 @@ function isIgnored(relativePath: string): boolean {
 }
 
 for (const relativePath of expectedGovernanceFiles()) requireFile(relativePath);
-failures.push(...verifyTaskOwnership(repoRoot));
 failures.push(...verifyWorkspacePackageGovernance(repoRoot));
-failures.push(...verifyMonorepoCutover(repoRoot));
-failures.push(...verifyApplicationScriptBoundary(repoRoot));
-failures.push(...verifySiblingResyncResolution(repoRoot));
+failures.push(...verifyPackageScriptBoundary(repoRoot));
 failures.push(...verifyGovernanceDocumentLimits(repoRoot));
-warnings.push(...verifyRareDocumentSymbols(repoRoot));
 for (const relativePath of [".env.local", ".worktree", ".agent/"]) {
     if (!isIgnored(relativePath)) failures.push(`运行态未被忽略：${relativePath}`);
 }
@@ -68,8 +58,8 @@ for (const [name, expected] of [
     ["governance:check", "scripts/ci/agent-governance.ts"],
     ["governance:context", "scripts/cli/agent-context.ts"],
     ["governance:worktree", "scripts/cli/create-agent-worktree.ts"],
-    ["governance:migrate-tasks", "scripts/maintenance/migrate-agent-tasks.ts"],
-    ["governance:migrate-task-ownership", "scripts/maintenance/migrate-task-ownership.ts"],
+    ["docs:check", "scripts/ci/check-documentation.ts"],
+    ["test:affected", "scripts/cli/test-affected.ts"],
 ] as const) {
     if (!scripts[name]?.includes(expected)) failures.push(`package.json 缺少命令入口：${name} -> ${expected}`);
 }
@@ -82,9 +72,11 @@ const inspectPaths = [...new Set([
     ...expectedGovernanceFiles(),
 ])];
 const runtimeExtensions = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".ps1", ".sh", ".json", ".toml"];
+// 历史记录、归档与只读的旧应用保持原样，不扫描。
+const frozenPrefixes = [".agents/tasks/", "docs/archived/", "packages/neuro-book-legacy/"];
 for (const relativePath of inspectPaths) {
     if (!runtimeExtensions.some((extension) => relativePath.endsWith(extension))) continue;
-    if (relativePath.startsWith("docs/tasks/") || relativePath.startsWith(".agents/tasks/") || relativePath.startsWith("docs/archived/")) continue;
+    if (frozenPrefixes.some((prefix) => relativePath.startsWith(prefix))) continue;
     const absolutePath = resolve(repoRoot, relativePath);
     if (!existsSync(absolutePath)) continue;
     let text: string;
@@ -96,13 +88,6 @@ for (const relativePath of inspectPaths) {
     if (/\.agent[\\/]tmp(?:[\\/]|$)/u.test(text) && !relativePath.startsWith("packages/neuro-book-test-support/")) failures.push(`活文件仍引用仓库临时根：${relativePath}`);
 }
 
-const staleGovernanceRefs = [".agent/roles/", ".agent/tasks/", ".agent/skills/"];
-for (const relativePath of [".agents/skills/README.md", ".agents/tasks/README.md", ".agents/tasks/AGENTS.md"]) {
-    const text = readFileSync(resolve(repoRoot, relativePath), "utf8");
-    for (const stale of staleGovernanceRefs) {
-        if (text.includes(stale) && !relativePath.startsWith(".agents/tasks/")) failures.push(`治理文件仍引用旧入口 ${stale}：${relativePath}`);
-    }
-}
-
-console.log(JSON.stringify({schema: "nbook.governance-report/v1", repoRoot, failures, warnings}, null, 2));
+const warnings = scopeWarnings(rareDocumentSymbolWarnings(repoRoot), all ? null : changedFiles(repoRoot, since));
+console.log(JSON.stringify({schema: "nbook.governance-report/v1", repoRoot, failures, ...warnings}, null, 2));
 if (failures.length > 0) process.exitCode = 1;

@@ -1,0 +1,16 @@
+# 在 packages/nb-history 放一个临时未跟踪文件后运行（运行后删除）
+$ bun run test:affected
+改动文件 32 个（未提交的改动）。
+选中 2 项：
+  nb-history（包内有改动）：bun run test
+  scripts（根 scripts、workflow 或根 package.json 有改动）：bun x vitest run --config scripts/vitest.config.ts
+==> nb-history：bun run test
+ 49 pass
+ 0 fail
+==> scripts：bun x vitest run --config scripts/vitest.config.ts
+ Test Files  6 passed (6)
+      Tests  83 passed (83)
+   Start at  14:04:17
+   Duration  3.24s (transform 221ms, setup 142ms, import 499ms, tests 3.29s, environment 1ms)
+全部通过。
+exit 0

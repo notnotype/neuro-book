@@ -81,12 +81,13 @@ const SHARED_INPUT_PREFIXES: readonly string[] = [
 
 const PACKAGES_ROOT = resolve(import.meta.dirname, "../../packages");
 
-type DependencyGraph = {
+/** 按包目录名索引的 workspace 依赖图；本地 `test:affected` 与 CI 选包共用。 */
+export type DependencyGraph = {
     dirByName: ReadonlyMap<string, string>;
     consumersOf: ReadonlyMap<string, ReadonlySet<string>>;
 };
 
-let cachedGraph: DependencyGraph | null = null;
+const cachedGraphs = new Map<string, DependencyGraph>();
 
 function isSharedInput(changedFile: string): boolean {
     if (SHARED_INPUT_FILES[changedFile] === true) {
@@ -95,18 +96,19 @@ function isSharedInput(changedFile: string): boolean {
     return SHARED_INPUT_PREFIXES.some((prefix) => changedFile.startsWith(prefix));
 }
 
-function loadDependencyGraph(): DependencyGraph {
-    if (cachedGraph !== null) {
+export function workspaceDependencyGraph(packagesRoot: string = PACKAGES_ROOT): DependencyGraph {
+    const cachedGraph = cachedGraphs.get(packagesRoot);
+    if (cachedGraph !== undefined) {
         return cachedGraph;
     }
-    const dirents = readdirSync(PACKAGES_ROOT, {withFileTypes: true});
+    const dirents = readdirSync(packagesRoot, {withFileTypes: true});
     const manifestByDir = new Map<string, PackageManifest>();
     const dirByName = new Map<string, string>();
     for (const dirent of dirents) {
         if (!dirent.isDirectory()) {
             continue;
         }
-        const manifestPath = join(PACKAGES_ROOT, dirent.name, "package.json");
+        const manifestPath = join(packagesRoot, dirent.name, "package.json");
         if (!existsSync(manifestPath)) {
             continue;
         }
@@ -134,11 +136,13 @@ function loadDependencyGraph(): DependencyGraph {
             consumers.add(directory);
         }
     }
-    cachedGraph = {dirByName, consumersOf};
-    return cachedGraph;
+    const graph = {dirByName, consumersOf};
+    cachedGraphs.set(packagesRoot, graph);
+    return graph;
 }
 
-function expandConsumerClosure(
+/** 从直接改动的包出发，加入所有直接或间接依赖它们的包。 */
+export function expandConsumerClosure(
     direct: ReadonlySet<string>,
     consumersOf: ReadonlyMap<string, ReadonlySet<string>>,
 ): Set<string> {
@@ -185,7 +189,7 @@ export function selectWorkspaceMatrix(
         // 防御回退：workflow 级 paths 已保证存在可匹配输入，空选择视为全量。
         return fullSelection;
     }
-    const {consumersOf} = loadDependencyGraph();
+    const {consumersOf} = workspaceDependencyGraph();
     const closed = expandConsumerClosure(direct, consumersOf);
     const include = WORKSPACE_PACKAGE_CHECKS.filter((check) => closed.has(check.name));
     const runWebIsland = closed.has("llmlint") || changedFiles.some((file) => file.startsWith("packages/llmlint/"));

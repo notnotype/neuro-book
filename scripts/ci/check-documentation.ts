@@ -7,13 +7,19 @@ import {fromMarkdown} from "mdast-util-from-markdown";
 import GithubSlugger from "github-slugger";
 import {parse as parseYaml} from "yaml";
 
-import {defaultRepoRoot, git} from "#scripts/ci/agent-governance-contract";
+import {git} from "#scripts/ci/agent-governance-contract";
+import {changedFiles, readChangeScopeArguments, scopeWarnings, type FileWarning, type ScopedWarnings} from "#scripts/ci/change-scope";
 
-export type DocumentationCheckReport = {
+export type DocumentationCheckReport = ScopedWarnings & {
     failures: string[];
-    /** 只报告不阻断的结果，例如 current Task 快照问题。 */
-    warnings: string[];
     checkedFiles: number;
+};
+
+export type DocumentationCheckOptions = {
+    /** 受管文件集合；省略时取 Git 跟踪与未忽略的文件。 */
+    paths?: readonly string[];
+    /** 警告只逐条列出这些文件的，其余合成一行计数；省略时全部列出。 */
+    warningScope?: ReadonlySet<string>;
 };
 
 const REQUIRED_DOC_INDEXES = [
@@ -52,7 +58,6 @@ const SMOKE_NOT_APPLICABLE_PATTERN = /^不适用[—–-]{1,2}\s*\S/u;
 const WORK_TASK_README_PATTERN = /^\.agents\/works\/[^/]+\/tasks\/[^/]+\/README\.md$/u;
 const NB_UI_COMPONENT_BARREL = "packages/nb-ui/src/components/index.ts";
 const NB_UI_COMPONENT_EXPORT_PATTERN = /export \{default as \w+\} from "\.\/([\w/.-]+)\.vue";/gu;
-const APP_COMMON_COMPONENT_PREFIX = "packages/neuro-book/app/components/common/";
 const COMPONENT_TAGS = new Set([
     "state:local", "state:shared-read", "state:shared-write", "state:inject",
     "persist:local", "persist:session", "persist:idb",
@@ -78,9 +83,9 @@ const ROOT_DOCUMENTS: Record<string, true> = {
     "WATCHDOG.md": true,
 };
 
-export function checkDocumentation(repoRoot: string, paths?: readonly string[]): DocumentationCheckReport {
+export function checkDocumentation(repoRoot: string, options: DocumentationCheckOptions = {}): DocumentationCheckReport {
     const normalizedRoot = resolve(repoRoot);
-    const candidates = paths ?? git(normalizedRoot, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"])
+    const candidates = options.paths ?? git(normalizedRoot, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"])
         .split("\0")
         .filter(Boolean);
     const files = [...new Set(candidates.map(normalizeRepoPath))]
@@ -88,20 +93,18 @@ export function checkDocumentation(repoRoot: string, paths?: readonly string[]):
         .sort();
     const fileSet = new Set(files);
     const failures: string[] = [];
-    const warnings: string[] = [];
+    const warnings: FileWarning[] = [];
 
     checkRequiredIndexes(fileSet, failures);
     checkDocsRoot(files, failures);
-    checkRetiredDocumentationPaths(files, failures);
     checkAdrs(normalizedRoot, files, failures);
     checkActiveLinks(normalizedRoot, files, fileSet, failures, warnings);
     checkSpecRegistry(normalizedRoot, fileSet, failures);
     checkSpecs(normalizedRoot, files, fileSet, failures);
-    checkFrozenReference(normalizedRoot, files, failures);
-    checkComponentDocuments(normalizedRoot, files, fileSet, failures);
+    checkComponentDocuments(normalizedRoot, fileSet, failures);
     checkCurrentTaskContracts(normalizedRoot, files, fileSet, warnings);
 
-    return {failures, warnings, checkedFiles: files.length};
+    return {failures, ...scopeWarnings(warnings, options.warningScope ?? null), checkedFiles: files.length};
 }
 
 
@@ -131,15 +134,6 @@ function checkDocsRoot(files: readonly string[], failures: string[]): void {
         if (/^docs\/[^/]+\.md$/u.test(path) && path !== "docs/README.md" && path !== "docs/AGENTS.md") {
             failures.push(`docs 根层只允许 README.md 和 AGENTS.md：${path}`);
         }
-    }
-}
-
-function checkRetiredDocumentationPaths(files: readonly string[], failures: string[]): void {
-    for (const path of files.filter((candidate) => candidate.startsWith("docs/manual-eval/"))) {
-        failures.push(`人工评测已归档到 docs/archived/testing/manual-eval：${path}`);
-    }
-    if (files.includes("docs/standards/code.md")) {
-        failures.push("编码规范已按领域迁入 docs/standards/code/：docs/standards/code.md");
     }
 }
 
@@ -176,7 +170,7 @@ function checkActiveLinks(
     files: readonly string[],
     fileSet: ReadonlySet<string>,
     failures: string[],
-    warnings: string[],
+    warnings: FileWarning[],
 ): void {
     const anchorCache = new Map<string, ReadonlySet<string>>();
     const anchorsOf = (path: string): ReadonlySet<string> => {
@@ -188,18 +182,20 @@ function checkActiveLinks(
         return anchors;
     };
     for (const source of files.filter((path) => isActiveMarkdown(path) || isCurrentTaskContract(repoRoot, path))) {
-        const report = isActiveMarkdown(source) ? failures : warnings;
+        const report = isActiveMarkdown(source)
+            ? (label: string, detail: string) => failures.push(`${label}：${detail}`)
+            : (label: string, detail: string) => warnings.push({path: source, label, detail});
         const text = readFileSync(resolve(repoRoot, source), "utf8");
         let tree: Root;
         try {
             tree = fromMarkdown(text);
         } catch (error) {
-            report.push(`Markdown 无法解析：${source}：${error instanceof Error ? error.message : String(error)}`);
+            report("Markdown 无法解析", `${source}：${error instanceof Error ? error.message : String(error)}`);
             continue;
         }
         for (const url of collectLinkUrls(tree, true)) {
             if (url.includes("\\")) {
-                report.push(`相对链接必须使用正斜杠：${source} -> ${url}`);
+                report("相对链接必须使用正斜杠", `${source} -> ${url}`);
                 continue;
             }
             const fragment = linkFragment(url);
@@ -207,12 +203,12 @@ function checkActiveLinks(
             let anchorTarget: string | null = null;
             if (target !== null) {
                 if (target.startsWith("../") || target === "..") {
-                    report.push(`相对链接越出仓库：${source} -> ${url}`);
+                    report("相对链接越出仓库", `${source} -> ${url}`);
                     continue;
                 }
                 const resolved = resolveLinkTarget(target, fileSet);
                 if (resolved === null) {
-                    report.push(`相对链接目标不存在：${source} -> ${url}（${target}）`);
+                    report("相对链接目标不存在", `${source} -> ${url}（${target}）`);
                     continue;
                 }
                 anchorTarget = resolved;
@@ -221,7 +217,7 @@ function checkActiveLinks(
             }
             if (fragment === null || anchorTarget === null || !anchorTarget.endsWith(".md")) continue;
             if (!anchorsOf(anchorTarget).has(fragment)) {
-                report.push(`链接锚点不存在：${source} -> ${url}（${anchorTarget}#${fragment}）`);
+                report("链接锚点不存在", `${source} -> ${url}（${anchorTarget}#${fragment}）`);
             }
         }
     }
@@ -264,7 +260,6 @@ function isActiveMarkdown(path: string): boolean {
     if (!path.endsWith(".md")) return false;
     if (ROOT_DOCUMENTS[path] || path === ".omp/RULES.md") return true;
     if (path.startsWith("docs/")) return !path.startsWith("docs/archived/") && !path.startsWith("docs/research/");
-    if (path.startsWith("reference/")) return true;
     if (path === ".agents/README.md" || path === ".agents/AGENTS.md") return true;
     return path.startsWith(".agents/skills/");
 }
@@ -294,7 +289,7 @@ function checkCurrentTaskContracts(
     repoRoot: string,
     files: readonly string[],
     fileSet: ReadonlySet<string>,
-    warnings: string[],
+    warnings: FileWarning[],
 ): void {
     for (const path of files.filter((candidate) => isCurrentTaskContract(repoRoot, candidate))) {
         const text = readFileSync(resolve(repoRoot, path), "utf8");
@@ -306,7 +301,7 @@ function checkCurrentTaskContracts(
             return isSpecDocument(candidate) && fileSet.has(candidate);
         });
         if (!hasConcreteSpec && !text.includes("行为合同未变")) {
-            warnings.push(`新 Task 必须链接具体 Spec，或明确说明“行为合同未变”：${path}`);
+            warnings.push({path, label: "新 Task 必须链接具体 Spec，或明确说明“行为合同未变”", detail: path});
         }
     }
 }
@@ -453,10 +448,12 @@ function checkImplementedEvidence(
     }
 }
 
-/** 受管组件 = nb-ui barrel 导出 + 应用公共组件；缺少同名契约文档时阻断 docs:check。 */
+/**
+ * 受管组件目前只有 nb-ui barrel 导出的组件；缺少同名契约文档时阻断 docs:check。
+ * 新应用的通用组件目录随 workbench 底座确定后加入。
+ */
 function checkComponentDocuments(
     repoRoot: string,
-    files: readonly string[],
     fileSet: ReadonlySet<string>,
     failures: string[],
 ): void {
@@ -465,9 +462,6 @@ function checkComponentDocuments(
         ? [...readFileSync(barrel, "utf8").matchAll(NB_UI_COMPONENT_EXPORT_PATTERN)].map((match) => `packages/nb-ui/src/components/${match[1]}.vue`)
         : [];
     const managed = new Set(exported.filter((path) => fileSet.has(path)));
-    for (const path of files) {
-        if (path.startsWith(APP_COMMON_COMPONENT_PREFIX) && path.endsWith(".vue")) managed.add(path);
-    }
     for (const path of [...managed].sort()) {
         const documentPath = `${path.slice(0, -".vue".length)}.md`;
         if (!fileSet.has(documentPath)) {
@@ -626,17 +620,9 @@ function parseSpecMetadata(path: string, text: string, failures: string[]): Spec
     return {kind, status, capability};
 }
 
-function checkFrozenReference(_repoRoot: string, files: readonly string[], failures: string[]): void {
-    for (const path of files.filter((candidate) => candidate.startsWith("reference/"))) {
-        failures.push(`根目录 reference/ 已退役，旧应用的运行期 Reference 位于 packages/neuro-book-legacy/assets/reference：${path}`);
-    }
-}
-
 if (import.meta.main) {
-    const args = process.argv.slice(2);
-    const repoArgument = args.indexOf("--repo-root");
-    const repoRoot = resolve(repoArgument >= 0 ? args[repoArgument + 1] ?? "" : defaultRepoRoot(import.meta.url));
-    const report = checkDocumentation(repoRoot);
+    const {repoRoot, since, all} = readChangeScopeArguments(import.meta.url);
+    const report = checkDocumentation(repoRoot, {warningScope: all ? undefined : changedFiles(repoRoot, since)});
     console.log(JSON.stringify(report, null, 2));
     if (report.failures.length > 0) process.exitCode = 1;
 }

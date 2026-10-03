@@ -15,7 +15,7 @@
 
 新建组件必须有一份同名 Markdown 文档与它并列，例如 `PlotTreeView.vue` 对应 `PlotTreeView.md`；已登记的受管组件按下一段机器门禁执行，其他既有组件在下次修改时补齐。**查组件必先读同名 `.md`，改组件必同步同名 `.md`**。查阅或修改组件时先读其说明以获知已有契约与能力标签；任何依赖、输入输出或行为变更都同步维护文档。
 
-受管组件指以下两批：`packages/nb-ui` 通过 [`src/components/index.ts`](../../../packages/nb-ui/src/components/index.ts) 对外导出的组件，以及应用通用组件目录下的 `.vue`（新应用的位置随 workbench 底座迁移确定，届时同步本条与 `docs:check`；当前检查路径为 `packages/neuro-book/app/components/common/**`，新应用尚无组件）。`bun run docs:check` 对这批阻断同名 `.md` 缺失；文档存在后，能力标签与实现一致性仍按本规范报告。其余组件不在本门禁内，改动时按本规范补齐。
+受管组件目前是 `packages/nb-ui` 通过 [`src/components/index.ts`](../../../packages/nb-ui/src/components/index.ts) 对外导出的组件。新应用的通用组件目录随 workbench 底座确定后加入，届时同步本条与 `docs:check`。`bun run docs:check` 对这批阻断同名 `.md` 缺失；文档存在后，能力标签与实现一致性仍按本规范报告。其余组件不在本门禁内，改动时按本规范补齐。
 
 文档先于实现写：设计组件时先想清它长什么样、怎么交互、吃什么数据、有哪些状态，再写实现。写多写少见下文的详略分档，但文档本身不可缺省。
 

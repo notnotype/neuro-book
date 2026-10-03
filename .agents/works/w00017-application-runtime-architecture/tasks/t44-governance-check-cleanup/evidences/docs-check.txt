@@ -1,0 +1,15 @@
+$ bun run docs:check（略去 checkedFiles）
+{
+  "failures": [],
+  "warnings": [],
+  "stockWarnings": "另有 137 条警告不在本次改动范围（相对链接目标不存在 46、相对链接越出仓库 7、新 Task 必须链接具体 Spec，或明确说明“行为合同未变” 84），加 --all 逐条列出"
+}
+exit 0
+
+$ bun run docs:check --all（只看计数）
+{
+  "failures": [],
+  "warnings": 137,
+  "stockWarnings": null,
+  "checkedFiles": 7142
+}

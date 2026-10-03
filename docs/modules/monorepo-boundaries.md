@@ -56,7 +56,7 @@ NeuroBook 以一个 monorepo 维护应用、共享合同与可独立维护的包
 2. **绘制调用图**：用语言服务、测试配置、`package.json`、workflow 和脚本入口确认所有消费者。字符串搜索只能补充，不能替代符号引用和动态入口审计。
 3. **先定 Interface**：为目标 Module 写输入/输出、错误、生命周期、数据所有权和依赖方向；公开合同变化先更新 Spec/ADR，再迁移实现。
 4. **建立目标包骨架**：补齐 `package.json`、exports、tsconfig、测试配置和生成物边界。目标包不得通过相对路径偷读其它包或根 `node_modules`。
-5. **单次迁移一个 Module**：先迁实现和测试，再迁所有调用方、配置、workflow 与文档。导入采用明确的目标入口；不保留旧路径 alias、deprecated re-export 或静默 fallback。
+5. **单次迁移一个 Module**：先迁实现和测试，再迁所有调用方、配置（含 `.gitattributes` 中按路径写的规则）、workflow、文档和生成器。导入采用明确的目标入口；不保留旧路径 alias、deprecated re-export 或静默 fallback。
 6. **隔离运行数据**：测试、验收、cache 和 scratch 使用 `NBOOK_AGENT_TEMP_ROOT` 及受控子目录；任何 fixture 不得写入仓库 `.agent/tmp/`、`.worktree/`、包级 `.worktree/` 或目标包源码树。
 7. **完成验证后删除旧边界**：确认旧路径引用为零、目标包独立 typecheck/test 通过、集成门禁通过，再删除旧实现和旧入口。删除前保留 provenance 或 Task 证据。
 8. **记录实际偏差**：Task 写明未运行的浏览器、真实 Provider 门禁和剩余风险；不要把 focused test 写成全仓或产品验收。

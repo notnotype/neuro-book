@@ -85,7 +85,7 @@ describe("documentation governance gate", () => {
             planned: ["docs/specs/architecture.md"],
         });
 
-        expect(checkDocumentation(fixture.root, fixture.paths)).toEqual({
+        expect(checkDocumentation(fixture.root, {paths: fixture.paths})).toEqual({
             failures: [],
             warnings: [],
             checkedFiles: fixture.paths.length,
@@ -97,7 +97,7 @@ describe("documentation governance gate", () => {
             "docs/standards/rules.md": "# Rules\n\n[Missing](missing.md)\n",
         });
 
-        const report = checkDocumentation(fixture.root, fixture.paths);
+        const report = checkDocumentation(fixture.root, {paths: fixture.paths});
 
         expect(report.failures).toContain("相对链接目标不存在：docs/standards/rules.md -> missing.md（docs/standards/missing.md）");
     });
@@ -108,41 +108,19 @@ describe("documentation governance gate", () => {
             "docs/adr/0001-second-decision.md": "# ADR 0001：Second decision\n",
         });
 
-        const report = checkDocumentation(fixture.root, fixture.paths);
+        const report = checkDocumentation(fixture.root, {paths: fixture.paths});
 
         expect(report.failures).toContain("ADR 编号重复 0001：docs/adr/0001-first-decision.md, docs/adr/0001-second-decision.md");
     });
 
-    it("拒绝 docs 根层正文和已迁移 Reference", async () => {
+    it("拒绝 docs 根层正文", async () => {
         const fixture = await createDocumentationFixture({
             "docs/stray.md": "# Stray\n",
-            "reference/workspace/TERMS.md": "# Workspace Terms\n",
         });
 
-        const report = checkDocumentation(fixture.root, fixture.paths);
+        const report = checkDocumentation(fixture.root, {paths: fixture.paths});
 
         expect(report.failures).toContain("docs 根层只允许 README.md 和 AGENTS.md：docs/stray.md");
-        expect(report.failures).toContain("根目录 reference/ 已退役，旧应用的运行期 Reference 位于 packages/neuro-book-legacy/assets/reference：reference/workspace/TERMS.md");
-    });
-
-    it("拒绝重新创建旧人工评测顶层目录", async () => {
-        const fixture = await createDocumentationFixture({
-            "docs/manual-eval/README.md": "# Retired manual eval location\n",
-        });
-
-        const report = checkDocumentation(fixture.root, fixture.paths);
-
-        expect(report.failures).toContain("人工评测已归档到 docs/archived/testing/manual-eval：docs/manual-eval/README.md");
-    });
-
-    it("拒绝重新创建平面编码规范", async () => {
-        const fixture = await createDocumentationFixture({
-            "docs/standards/code.md": "# Retired code standard\n",
-        });
-
-        const report = checkDocumentation(fixture.root, fixture.paths);
-
-        expect(report.failures).toContain("编码规范已按领域迁入 docs/standards/code/：docs/standards/code.md");
     });
 
 
@@ -154,7 +132,7 @@ describe("documentation governance gate", () => {
             planned: ["docs/specs/missing-frontmatter.md", "docs/specs/incomplete.md"],
         });
 
-        const report = checkDocumentation(fixture.root, fixture.paths);
+        const report = checkDocumentation(fixture.root, {paths: fixture.paths});
 
         expect(report.failures).toContain("Spec 缺少 YAML frontmatter：docs/specs/missing-frontmatter.md");
         expect(report.failures).toContain("Behavior Spec 缺少“输入与前置条件”章节：docs/specs/incomplete.md");
@@ -180,7 +158,7 @@ describe("documentation governance gate", () => {
             planned: ["docs/specs/first.md", "docs/specs/second.md"],
         });
 
-        const report = checkDocumentation(fixture.root, fixture.paths);
+        const report = checkDocumentation(fixture.root, {paths: fixture.paths});
 
         expect(report.failures).toContain("Spec 未登记在“已实现规范”：docs/specs/first.md");
         expect(report.failures).toContain("Spec 登记的成熟度与 frontmatter 不一致：docs/specs/first.md（implemented）");
@@ -196,7 +174,7 @@ describe("documentation governance gate", () => {
             planned: ["docs/specs/editor/html"],
         });
 
-        expect(checkDocumentation(fixture.root, fixture.paths).failures).toEqual([]);
+        expect(checkDocumentation(fixture.root, {paths: fixture.paths}).failures).toEqual([]);
     });
 
     it("拒绝空壳章节、模板占位值和缺失分类证据", async () => {
@@ -226,7 +204,7 @@ describe("documentation governance gate", () => {
             implemented: ["docs/specs/editor/fake-implemented.md"],
         });
 
-        const report = checkDocumentation(fixture.root, fixture.paths);
+        const report = checkDocumentation(fixture.root, {paths: fixture.paths});
 
         expect(report.failures).toContain("Behavior Spec 的“目标与非目标”章节没有实义内容：docs/specs/editor/empty.md");
         expect(report.failures).toContain("Planned Spec 的“证据”章节没有实义内容：docs/specs/editor/empty.md");
@@ -247,7 +225,7 @@ describe("documentation governance gate", () => {
             planned: ["docs/specs/editor/html.md", "docs/specs/editor/html.md", "docs/specs/editor/README.md", "docs/specs/editor/"],
         });
 
-        const report = checkDocumentation(fixture.root, fixture.paths);
+        const report = checkDocumentation(fixture.root, {paths: fixture.paths});
 
         expect(report.failures).toContain("“待实现规范”重复登记 Spec：docs/specs/editor/html.md");
         expect(report.failures).toContain("“待实现规范”只能登记具体 Spec 文件：docs/specs/README.md -> ../../docs/specs/editor/README.md");
@@ -265,23 +243,9 @@ describe("documentation governance gate", () => {
             planned: ["docs/specs/editor/code-headings.md"],
         });
 
-        const report = checkDocumentation(fixture.root, fixture.paths);
+        const report = checkDocumentation(fixture.root, {paths: fixture.paths});
 
         expect(report.failures).toContain("Behavior Spec 缺少“目标与非目标”章节：docs/specs/editor/code-headings.md");
-    });
-
-    it("拒绝重新创建根 Reference 域或索引", async () => {
-        const fixture = await createDocumentationFixture({
-            "reference/README.md": "# Legacy\n",
-            "reference/new-domain/contract.md": "# Contract\n",
-        });
-        expect(checkDocumentation(fixture.root, fixture.paths).failures).toContain(
-            "根目录 reference/ 已退役，旧应用的运行期 Reference 位于 packages/neuro-book-legacy/assets/reference：reference/README.md",
-        );
-
-        expect(checkDocumentation(fixture.root, fixture.paths).failures).toContain(
-            "根目录 reference/ 已退役，旧应用的运行期 Reference 位于 packages/neuro-book-legacy/assets/reference：reference/new-domain/contract.md",
-        );
     });
 
     it("只把 current v2 Task 当 Task 检查，legacy v1 不再进门禁", async () => {
@@ -296,7 +260,7 @@ describe("documentation governance gate", () => {
             planned: ["docs/specs/editor/html.md"],
         });
 
-        const report = checkDocumentation(fixture.root, fixture.paths);
+        const report = checkDocumentation(fixture.root, {paths: fixture.paths});
 
         expect(report.warnings).toContain("相对链接目标不存在：.agents/works/w00001-test-work/tasks/t03-broken/README.md -> ../../../../../docs/specs/editor/missing.md（docs/specs/editor/missing.md）");
         expect(report.warnings).toContain("新 Task 必须链接具体 Spec，或明确说明“行为合同未变”：.agents/works/w00001-test-work/tasks/t03-broken/README.md");
@@ -305,6 +269,23 @@ describe("documentation governance gate", () => {
         expect(report.warnings.some((warning) => warning.includes("t02-no-behavior-change"))).toBe(false);
         expect(report.warnings.some((warning) => warning.includes("00150-legacy-valid"))).toBe(false);
         expect(report.warnings.some((warning) => warning.includes("00151-legacy-broken"))).toBe(false);
+    });
+
+    it("给出改动范围时只逐条列出范围内文件的警告，其余按类别合成一行计数", async () => {
+        const touched = ".agents/works/w00001-test-work/tasks/t01-touched/README.md";
+        const fixture = await createDocumentationFixture({
+            [touched]: "---\nschema: nbook.task/v2\ntaskId: t01-touched\n---\n\n# Task\n\n[Gone](missing.md)\n",
+            ".agents/works/w00001-test-work/tasks/t02-stock/README.md": "---\nschema: nbook.task/v2\ntaskId: t02-stock\n---\n\n# Task\n\n[Gone](missing.md)\n",
+        });
+
+        const report = checkDocumentation(fixture.root, {paths: fixture.paths, warningScope: new Set([touched])});
+
+        expect(report.warnings).toEqual([
+            `相对链接目标不存在：${touched} -> missing.md（.agents/works/w00001-test-work/tasks/t01-touched/missing.md）`,
+            `新 Task 必须链接具体 Spec，或明确说明“行为合同未变”：${touched}`,
+        ]);
+        expect(report.stockWarnings).toBe("另有 2 条警告不在本次改动范围（相对链接目标不存在 1、新 Task 必须链接具体 Spec，或明确说明“行为合同未变” 1），加 --all 逐条列出");
+        expect(checkDocumentation(fixture.root, {paths: fixture.paths}).warnings).toHaveLength(4);
     });
 
     it("implemented Spec 的证据必须给出实现入口、合同测试与 Smoke 固定标签行", async () => {
@@ -372,7 +353,7 @@ describe("documentation governance gate", () => {
             ],
         });
 
-        const report = checkDocumentation(fixture.root, fixture.paths);
+        const report = checkDocumentation(fixture.root, {paths: fixture.paths});
 
         expect(report.failures).toContain("Implemented Spec 的“证据”缺少「Smoke：」标签行：docs/specs/editor/incomplete.md");
         expect(report.failures).toContain("Implemented Spec 的「实现入口：」必须链接存在的源码文件（非 .md）：docs/specs/editor/mistyped.md");
@@ -394,17 +375,12 @@ describe("documentation governance gate", () => {
             "packages/nb-ui/src/components/feedback/DialogWindow.vue": "<template><div /></template>\n",
             "packages/nb-ui/src/components/feedback/DialogWindow.md": "---\n标签: []\n---\n\n# DialogWindow\n",
             "packages/nb-ui/src/components/feedback/ContextMenuPanel.vue": "<template><div /></template>\n",
-            "packages/neuro-book/app/components/common/form/FormInput.vue": "<template><input /></template>\n",
-            "packages/neuro-book/app/components/common/SideDetailPanel.vue": "<template><aside /></template>\n",
-            "packages/neuro-book/app/components/common/SideDetailPanel.md": "---\n标签: []\n---\n\n# SideDetailPanel\n",
-            "packages/neuro-book/app/components/editor-workbench/CodeEditorView.vue": "<template><div /></template>\n",
         });
 
-        const report = checkDocumentation(fixture.root, fixture.paths);
+        const report = checkDocumentation(fixture.root, {paths: fixture.paths});
 
         expect(report.failures).toEqual([
             "受管组件缺少同名文档：packages/nb-ui/src/components/controls/Button.vue（应为 packages/nb-ui/src/components/controls/Button.md）",
-            "受管组件缺少同名文档：packages/neuro-book/app/components/common/form/FormInput.vue（应为 packages/neuro-book/app/components/common/form/FormInput.md）",
         ]);
         expect(report.warnings).toEqual([]);
     });
@@ -413,17 +389,18 @@ describe("documentation governance gate", () => {
         const fixture = await createDocumentationFixture({
             "packages/nb-ui/src/components/index.ts": [
                 'export {default as Button} from "./controls/Button.vue";',
+                'export {default as Toggle} from "./controls/Toggle.vue";',
                 "",
             ].join("\n"),
             "packages/nb-ui/src/components/controls/Button.vue": "<template><button /></template>\n",
             "packages/nb-ui/src/components/controls/Button.md": "---\n别名: []\n---\n\n# Button\n",
-            "packages/neuro-book/app/components/common/SideDetailPanel.vue": "<template><aside /></template>\n",
-            "packages/neuro-book/app/components/common/SideDetailPanel.md": "---\n标签: [state:inject, private:secret]\n---\n\n# WrongName\n",
+            "packages/nb-ui/src/components/controls/Toggle.vue": "<template><button /></template>\n",
+            "packages/nb-ui/src/components/controls/Toggle.md": "---\n标签: [state:inject, private:secret]\n---\n\n# Toggle\n",
         });
 
-        expect(checkDocumentation(fixture.root, fixture.paths).failures).toEqual([
+        expect(checkDocumentation(fixture.root, {paths: fixture.paths}).failures).toEqual([
             "受管组件文档必须声明封闭清单内的「标签」数组：packages/nb-ui/src/components/controls/Button.md",
-            "受管组件文档必须声明封闭清单内的「标签」数组：packages/neuro-book/app/components/common/SideDetailPanel.md",
+            "受管组件文档必须声明封闭清单内的「标签」数组：packages/nb-ui/src/components/controls/Toggle.md",
         ]);
     });
 
@@ -434,7 +411,7 @@ describe("documentation governance gate", () => {
             "docs/standards/images/present.png": "image",
         });
 
-        const report = checkDocumentation(fixture.root, fixture.paths);
+        const report = checkDocumentation(fixture.root, {paths: fixture.paths});
 
         expect(report.failures).toContain("相对链接目标不存在：docs/standards/assets.md -> images/missing.png（docs/standards/images/missing.png）");
         expect(report.failures).toContain("相对链接目标不存在：docs/standards/assets.md -> README.MD（docs/standards/README.MD）");
@@ -472,7 +449,7 @@ describe("documentation governance gate", () => {
             ].join("\n"),
         });
 
-        expect(checkDocumentation(fixture.root, fixture.paths).failures).toEqual([
+        expect(checkDocumentation(fixture.root, {paths: fixture.paths}).failures).toEqual([
             "链接锚点不存在：docs/standards/source.md -> target.md#不存在（docs/standards/target.md#不存在）",
             "链接锚点不存在：docs/standards/source.md -> target.md#_10-开发后自检-checklist（docs/standards/target.md#_10-开发后自检-checklist）",
             "链接锚点不存在：docs/standards/source.md -> #missing-local（docs/standards/source.md#missing-local）",

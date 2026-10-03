@@ -86,8 +86,7 @@ describe("v2 重建期间的 CI 工作流结构合同", () => {
         expect(Object.keys(workflow.jobs)).toEqual(["governance"]);
         expect(commands(workflow)).toContain("bun run governance:check");
         expect(commands(workflow)).toContain("bun x tsc --noEmit -p scripts/tsconfig.json");
-        expect(commands(workflow)).toContain("scripts/ci/agent-governance.test.ts");
-        expect(commands(workflow)).toContain("scripts/ci/workspace-workflows.test.ts");
+        expect(commands(workflow)).toContain("bun x vitest run --config scripts/vitest.config.ts");
         expect(commands(workflow)).not.toMatch(/packages\/neuro-book-legacy/u);
         expect(workflow.jobs.governance?.if).toBeUndefined();
     });

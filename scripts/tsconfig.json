@@ -19,10 +19,13 @@
     "include": [
         "ci/agent-governance-contract.ts",
         "ci/agent-governance.ts",
+        "ci/change-scope.ts",
+        "ci/check-documentation.ts",
+        "ci/workspace-package-matrix.ts",
         "cli/agent-context.ts",
+        "cli/create-agent-worktree.ts",
+        "cli/test-affected.ts",
         "ci/validate-proper-lockfile-patch.ts",
-        "types/proper-lockfile.d.ts",
-        "maintenance/migrate-agent-tasks.ts",
-        "maintenance/migrate-task-ownership.ts"
+        "types/proper-lockfile.d.ts"
     ]
 }
