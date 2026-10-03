@@ -201,14 +201,19 @@ const createEditorModel = (): Monaco.editor.ITextModel | null => {
         return null;
     }
 
-    const modelUri = props.modelPath ? monacoApi.Uri.parse(`file:///workspace/${encodeURIComponent(props.modelPath).replace(/%2F/g, "/")}`) : undefined;
-    if (!modelUri) {
-        return monacoApi.editor.createModel(props.initialValue, props.language);
-    }
+    const startedAt = performance.now();
+    try {
+        const modelUri = props.modelPath ? monacoApi.Uri.parse(`file:///workspace/${encodeURIComponent(props.modelPath).replace(/%2F/g, "/")}`) : undefined;
+        if (!modelUri) {
+            return monacoApi.editor.createModel(props.initialValue, props.language);
+        }
 
-    const existing = monacoApi.editor.getModel(modelUri);
-    if (existing) throw new Error(`Monaco model URI is already owned: ${modelUri.toString()}`);
-    return monacoApi.editor.createModel(props.initialValue, props.language, modelUri);
+        const existing = monacoApi.editor.getModel(modelUri);
+        if (existing) throw new Error(`Monaco model URI is already owned: ${modelUri.toString()}`);
+        return monacoApi.editor.createModel(props.initialValue, props.language, modelUri);
+    } finally {
+        performance.measure("editor.monaco.model", {start: startedAt, end: performance.now()});
+    }
 };
 
 /**
@@ -433,6 +438,7 @@ watch(() => props.visible, async (visible) => {
 });
 
 onMounted(async () => {
+    const mountStartedAt = performance.now();
     const editorRoot = editorRootRef.value;
     if (!editorRoot) {
         return;
@@ -453,6 +459,7 @@ onMounted(async () => {
         return;
     }
 
+    const controlStartedAt = performance.now();
     editorInstance = monacoApi.editor.create(editorRoot, {
         model: modelInstance,
         language: props.language,
@@ -482,6 +489,7 @@ onMounted(async () => {
         ...buildEditorOptions(),
         placeholder: editorPlaceholder.value,
     });
+    performance.measure("editor.monaco.create", {start: controlStartedAt, end: performance.now()});
     applyModelOptions();
 
     editorInstance.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyS, () => {
@@ -525,6 +533,7 @@ onMounted(async () => {
 
     await nextTick();
     layoutEditor();
+    performance.measure("editor.monaco.mount", {start: mountStartedAt, end: performance.now()});
     emit("ready");
 
     if (props.autofocus) {

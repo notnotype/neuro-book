@@ -35,7 +35,7 @@ describe("POST /api/projects/open", () => {
             event: never,
         ) => Promise<unknown>;
 
-        await expect(handler({} as never)).resolves.toEqual({...publication, publicId: "runtime-1:3"});
+        await expect(handler({context: {}} as never)).resolves.toEqual({...publication, publicId: "runtime-1:3"});
         expect(openProjectControl).toHaveBeenCalledWith({projectRoot: "novel-a"}, {kind: "user"});
     });
 });

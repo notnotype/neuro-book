@@ -1,0 +1,2 @@
+$ nuxt typecheck --dotenv .env.typecheck --logLevel silent
+typecheck exit 0

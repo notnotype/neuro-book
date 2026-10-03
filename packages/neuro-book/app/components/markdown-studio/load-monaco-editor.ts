@@ -30,6 +30,7 @@ export const ensureMonacoEnvironment = (workers: {
 export const loadMonacoEditor = async (): Promise<MonacoEditorApi> => {
     if (!monacoLoader) {
         monacoLoader = (async () => {
+            const startedAt = performance.now();
             const [
                 monacoModule,
                 _markdownContribution,
@@ -60,6 +61,7 @@ export const loadMonacoEditor = async (): Promise<MonacoEditorApi> => {
                 editor: editorWorkerModule.default,
                 json: jsonWorkerModule.default,
             });
+            performance.measure("editor.monaco.load", {start: startedAt, end: performance.now()});
             return monacoModule;
         })().catch((error: unknown) => {
             monacoLoader = null;

@@ -217,8 +217,13 @@ function flushPendingChange(): void {
     changeDebounce.flush();
 }
 
+const createStartedAt = performance.now();
+let initializeStartedAt = createStartedAt;
 const editor = useEditor({
     content: normalizeMarkdownDialectBlocks(splitMarkdownFrontmatter(props.initialValue).body),
+    onBeforeCreate: () => {
+        initializeStartedAt = performance.now();
+    },
     contentType: "markdown",
     extensions: [
         ...createMarkdownEditorExtensions({
@@ -299,6 +304,8 @@ const editor = useEditor({
         },
     },
     onCreate: ({editor: currentEditor}) => {
+        performance.measure("editor.tiptap.initialize", {start: initializeStartedAt, end: performance.now()});
+        performance.measure("editor.tiptap.create", {start: createStartedAt, end: performance.now()});
         currentEditor.setEditable(!props.readonly);
         emit("inline-comments-change", COMMENT_PLUGIN_KEY.getState(currentEditor.state)?.comments ?? []);
         refreshInlineAiReferenceHighlight(currentEditor);

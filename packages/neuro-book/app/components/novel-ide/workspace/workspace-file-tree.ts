@@ -84,60 +84,70 @@ export const CONTENT_NODE_ROOTS = new Set(["manuscript", "lorebook"]);
  * 内容模式的根 index.md 由独立根入口使用原始 nodes 提供打开目标。
  */
 export function projectWorkspaceFileNodes(nodes: readonly WorkspaceFileNode[], mode: WorkspaceFilesViewMode): WorkspaceFileNode[] {
-    if (mode === "ordinary") {
-        return nodes.map(node => ({...node, title: basename(node.path)}));
-    }
-
-    const indexByPath = new Map<string, WorkspaceFileNode>();
-    for (const node of nodes) {
-        if (!node.isDirectory && isWorkspaceContentIndexPath(node.path)) {
-            indexByPath.set(node.path, node);
-        }
-    }
-
-    const projected: WorkspaceFileNode[] = [];
-    for (const node of nodes) {
-        if (!node.isDirectory && isWorkspaceContentIndexPath(node.path)) {
-            continue;
+    const startedAt = performance.now();
+    try {
+        if (mode === "ordinary") {
+            return nodes.map(node => ({...node, title: basename(node.path)}));
         }
 
-        const name = basename(node.path);
-        const index = node.isDirectory ? indexByPath.get(`${normalizeWorkspacePath(node.path)}/index.md`) : undefined;
-        const source = index ?? node;
-        const title = (index || (!node.isDirectory && /\.md$/i.test(name))) && !source.frontmatterError
-            ? source.title.trim()
-            : "";
-        projected.push({
-            ...node,
-            ...(node.isDirectory ? {contentNode: Boolean(index), hasIndex: Boolean(index)} : {}),
-            title: title || name,
-        });
+        const indexByPath = new Map<string, WorkspaceFileNode>();
+        for (const node of nodes) {
+            if (!node.isDirectory && isWorkspaceContentIndexPath(node.path)) {
+                indexByPath.set(node.path, node);
+            }
+        }
+
+        const projected: WorkspaceFileNode[] = [];
+        for (const node of nodes) {
+            if (!node.isDirectory && isWorkspaceContentIndexPath(node.path)) {
+                continue;
+            }
+
+            const name = basename(node.path);
+            const index = node.isDirectory ? indexByPath.get(`${normalizeWorkspacePath(node.path)}/index.md`) : undefined;
+            const source = index ?? node;
+            const title = (index || (!node.isDirectory && /\.md$/i.test(name))) && !source.frontmatterError
+                ? source.title.trim()
+                : "";
+            projected.push({
+                ...node,
+                ...(node.isDirectory ? {contentNode: Boolean(index), hasIndex: Boolean(index)} : {}),
+                title: title || name,
+            });
+        }
+        return projected;
+    } finally {
+        performance.measure("files.tree.project", {start: startedAt, end: performance.now()});
     }
-    return projected;
 }
 
 /**
  * 将投影后的扁平文件列表转成可递归渲染的树。
  */
 export function buildWorkspaceFileTree(nodes: WorkspaceFileNode[]): WorkspaceTreeNode[] {
-    const nodeMap = new Map<string, WorkspaceTreeNode>();
-    const roots: WorkspaceTreeNode[] = [];
+    const startedAt = performance.now();
+    try {
+        const nodeMap = new Map<string, WorkspaceTreeNode>();
+        const roots: WorkspaceTreeNode[] = [];
 
-    for (const node of nodes) {
-        nodeMap.set(normalizeWorkspacePath(node.path), {...node, children: []});
-    }
-
-    for (const node of nodeMap.values()) {
-        const parentPath = resolveParentPath(node.path);
-        const parent = parentPath ? nodeMap.get(parentPath) : null;
-        if (parent) {
-            parent.children.push(node);
-            continue;
+        for (const node of nodes) {
+            nodeMap.set(normalizeWorkspacePath(node.path), {...node, children: []});
         }
-        roots.push(node);
-    }
 
-    return sortWorkspaceNodes(roots);
+        for (const node of nodeMap.values()) {
+            const parentPath = resolveParentPath(node.path);
+            const parent = parentPath ? nodeMap.get(parentPath) : null;
+            if (parent) {
+                parent.children.push(node);
+                continue;
+            }
+            roots.push(node);
+        }
+
+        return sortWorkspaceNodes(roots);
+    } finally {
+        performance.measure("files.tree.build", {start: startedAt, end: performance.now()});
+    }
 }
 
 /**

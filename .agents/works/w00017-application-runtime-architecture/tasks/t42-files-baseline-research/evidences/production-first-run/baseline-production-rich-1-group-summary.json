@@ -1,0 +1,435 @@
+{
+  "label": "baseline-production-rich-1-group",
+  "kind": "browser",
+  "sample": {
+    "id": "production-C-cold-rich-1-group-tree--2",
+    "environment": "production",
+    "scenario": "C",
+    "variant": "cold-rich-1-group-tree",
+    "iteration": -2,
+    "operationStartTime": 249257.5,
+    "operationEndTime": 250817.79999995232,
+    "durationMs": 1560.2999999523163,
+    "readiness": {
+      "path": "notes/wide/note-0065.md",
+      "marker": "NBOOK-T42-42017-01963",
+      "mode": "rich",
+      "groupId": "main",
+      "expectedGroups": 1,
+      "actualGroups": 1,
+      "markerVisible": true,
+      "writable": true,
+      "inputClass": "tiptap ProseMirror nb-markdown-editor prose-mirror-markdown h-full min-h-full outline-none ProseMirror-focused",
+      "selectionMs": 5,
+      "tabMs": 1525.199999988079,
+      "visibleEditorText": "NBOOK-T42-42017-01963note 1963Synthetic baseline prose keeps the file path realistic without importing user data. Synthetic baseline prose keeps the file path realistic without importing user data. Synthetic baseline prose keeps the file path realistic without importing user data. Synthetic baseline",
+      "timeOrigin": 1791006589272.1,
+      "capturedClick": true,
+      "completed": true,
+      "inputVerified": true
+    },
+    "requests": [
+      {
+        "name": "http://127.0.0.1:42271/api/workspace-files/read?projectRoot=t42-production-rich-42017&publicId=7a722474-1fd1-4830-821e-da0d3694c2db:2&path=notes%2Fwide%2Fnote-0065.md",
+        "entryType": "resource",
+        "startTime": 249438.59999996424,
+        "duration": 17.30000001192093,
+        "initiatorType": "fetch",
+        "requestStart": 249439.59999996424,
+        "responseStart": 249455,
+        "responseEnd": 249455.89999997616,
+        "transferSize": 8891,
+        "encodedBodySize": 8591,
+        "decodedBodySize": 8591,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": [
+          {
+            "name": "files.read.resolve",
+            "duration": 0.3,
+            "description": ""
+          },
+          {
+            "name": "files.read.read",
+            "duration": 3.6,
+            "description": ""
+          }
+        ]
+      },
+      {
+        "name": "http://127.0.0.1:42271/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 250334.29999995232,
+        "duration": 19.5,
+        "initiatorType": "fetch",
+        "requestStart": 250334.79999995232,
+        "responseStart": 250353,
+        "responseEnd": 250353.79999995232,
+        "transferSize": 404,
+        "encodedBodySize": 104,
+        "decodedBodySize": 104,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:42271/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 250796.29999995232,
+        "duration": 20.100000023841858,
+        "initiatorType": "fetch",
+        "requestStart": 250796.89999997616,
+        "responseStart": 250815.69999998808,
+        "responseEnd": 250816.39999997616,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:42271/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 250797.29999995232,
+        "duration": 19,
+        "initiatorType": "fetch",
+        "requestStart": 250797.89999997616,
+        "responseStart": 250814.79999995232,
+        "responseEnd": 250816.29999995232,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:42271/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 250798.19999998808,
+        "duration": 24.099999964237213,
+        "initiatorType": "fetch",
+        "requestStart": 250798.69999998808,
+        "responseStart": 250821.39999997616,
+        "responseEnd": 250822.29999995232,
+        "transferSize": 491,
+        "encodedBodySize": 191,
+        "decodedBodySize": 191,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      }
+    ],
+    "userTiming": [
+      {
+        "name": "files.activation.read",
+        "entryType": "measure",
+        "startTime": 249437.89999997616,
+        "duration": 446
+      },
+      {
+        "name": "files.activation",
+        "entryType": "measure",
+        "startTime": 249437.89999997616,
+        "duration": 901
+      },
+      {
+        "name": "editor.session.publish",
+        "entryType": "measure",
+        "startTime": 249884,
+        "duration": 0
+      },
+      {
+        "name": "editor.tiptap.create",
+        "entryType": "measure",
+        "startTime": 250322,
+        "duration": 465.19999998807907
+      },
+      {
+        "name": "editor.tiptap.initialize",
+        "entryType": "measure",
+        "startTime": 250330.69999998808,
+        "duration": 456.5
+      },
+      {
+        "name": "editor.view.publish",
+        "entryType": "measure",
+        "startTime": 250787.79999995232,
+        "duration": 0.10000002384185791
+      }
+    ],
+    "longTasks": [
+      {
+        "name": "self",
+        "entryType": "longtask",
+        "startTime": 249437.59999996424,
+        "duration": 439
+      },
+      {
+        "name": "self",
+        "entryType": "longtask",
+        "startTime": 249883.69999998808,
+        "duration": 896
+      }
+    ],
+    "longAnimationFrames": [
+      {
+        "name": "long-animation-frame",
+        "entryType": "long-animation-frame",
+        "startTime": 249429.79999995232,
+        "duration": 449.2000000476837
+      }
+    ],
+    "observerSupport": [
+      "element",
+      "event",
+      "first-input",
+      "interaction-contentful-paint",
+      "largest-contentful-paint",
+      "layout-shift",
+      "long-animation-frame",
+      "longtask",
+      "mark",
+      "measure",
+      "navigation",
+      "paint",
+      "resource",
+      "soft-navigation",
+      "visibility-state"
+    ],
+    "status": "pass",
+    "error": null,
+    "loadAverage": [
+      1.01,
+      1.43,
+      1.17
+    ]
+  },
+  "artifacts": [
+    {
+      "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/baseline-production-rich-1-group.cpuprofile",
+      "bytes": 173487,
+      "retainedInTemp": false
+    },
+    {
+      "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/baseline-production-rich-1-group.trace.json",
+      "bytes": 566263,
+      "retainedInTemp": false
+    }
+  ],
+  "cpu": {
+    "sampleCount": 1553,
+    "spanMs": 1560.299999938965,
+    "negativeDeltaCount": 36,
+    "categories": {
+      "未归类 CPU": 1428.0249999389694,
+      "空闲或原生未归类": 113.769,
+      "垃圾回收": 10.936,
+      "富文本控件与视图": 6.479000000000001,
+      "Monaco 模型与控件": 1.091
+    },
+    "topFunctions": [
+      {
+        "functionName": "go",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 21482,
+        "scriptId": "6",
+        "sampledMs": 287.41600000000005
+      },
+      {
+        "functionName": "go",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 21482,
+        "scriptId": "6",
+        "sampledMs": 269.53700000000015
+      },
+      {
+        "functionName": "go",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 21482,
+        "scriptId": "6",
+        "sampledMs": 190.45900000000006
+      },
+      {
+        "functionName": "(idle)",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "scriptId": "0",
+        "sampledMs": 113.769
+      },
+      {
+        "functionName": "qg",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 8405,
+        "scriptId": "6",
+        "sampledMs": 87.42899999999996
+      },
+      {
+        "functionName": "get",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 13258,
+        "scriptId": "6",
+        "sampledMs": 79.82799999999997
+      },
+      {
+        "functionName": "(program)",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "scriptId": "0",
+        "sampledMs": 74.49299993896483
+      },
+      {
+        "functionName": "get",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 13258,
+        "scriptId": "6",
+        "sampledMs": 73.567
+      },
+      {
+        "functionName": "get",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 13258,
+        "scriptId": "6",
+        "sampledMs": 65.733
+      },
+      {
+        "functionName": "ownKeys",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 14377,
+        "scriptId": "6",
+        "sampledMs": 64.78200000000001
+      },
+      {
+        "functionName": "ownKeys",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 14377,
+        "scriptId": "6",
+        "sampledMs": 42.97899999999999
+      },
+      {
+        "functionName": "ownKeys",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 14377,
+        "scriptId": "6",
+        "sampledMs": 39.96
+      },
+      {
+        "functionName": "track",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 8814,
+        "scriptId": "6",
+        "sampledMs": 24.825
+      },
+      {
+        "functionName": "checkVisibility",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "scriptId": "0",
+        "sampledMs": 22.271
+      },
+      {
+        "functionName": "go",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 21482,
+        "scriptId": "6",
+        "sampledMs": 18.657999999999994
+      },
+      {
+        "functionName": "track",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 8814,
+        "scriptId": "6",
+        "sampledMs": 12.958000000000002
+      },
+      {
+        "functionName": "(garbage collector)",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "scriptId": "0",
+        "sampledMs": 10.936
+      },
+      {
+        "functionName": "track",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 8814,
+        "scriptId": "6",
+        "sampledMs": 7.5600000000000005
+      },
+      {
+        "functionName": "run",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 6223,
+        "scriptId": "6",
+        "sampledMs": 5.416
+      },
+      {
+        "functionName": "track",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 8814,
+        "scriptId": "6",
+        "sampledMs": 4.36
+      },
+      {
+        "functionName": "get",
+        "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 13258,
+        "scriptId": "6",
+        "sampledMs": 4.317
+      },
+      {
+        "functionName": "setAttribute",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "scriptId": "0",
+        "sampledMs": 4.3100000000000005
+      },
+      {
+        "functionName": "focus",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "scriptId": "0",
+        "sampledMs": 3.9690000000000003
+      },
+      {
+        "functionName": "P",
+        "url": "http://127.0.0.1:42271/_nuxt/ODqwthtz.js",
+        "lineNumber": 4424,
+        "columnNumber": 120549,
+        "scriptId": "19",
+        "sampledMs": 3.277
+      }
+    ]
+  },
+  "timeline": {
+    "Paint": 16.295999999999996,
+    "FunctionCall": 38.10399993896483,
+    "UpdateLayoutTree": 31.546,
+    "Layout": 5.353000000000001
+  },
+  "analysisWindow": {
+    "startTime": 443378844085,
+    "endTime": 443380404384.99994,
+    "clock": "User Timing mark 对齐 Chrome monotonic 微秒时钟",
+    "pid": 338599,
+    "tid": 338599
+  }
+}

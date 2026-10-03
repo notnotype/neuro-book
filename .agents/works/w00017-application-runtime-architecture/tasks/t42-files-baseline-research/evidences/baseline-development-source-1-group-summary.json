@@ -1,0 +1,433 @@
+{
+  "label": "baseline-development-source-1-group",
+  "kind": "browser",
+  "sample": {
+    "id": "development-C-cold-source-1-group-tree--2",
+    "environment": "development",
+    "scenario": "C",
+    "variant": "cold-source-1-group-tree",
+    "iteration": -2,
+    "operationStartTime": 734414.6000000238,
+    "operationEndTime": 736115,
+    "durationMs": 1700.3999999761581,
+    "readiness": {
+      "path": "notes/wide/note-0065.md",
+      "marker": "NBOOK-T42-42017-01963",
+      "mode": "source",
+      "groupId": "main",
+      "expectedGroups": 1,
+      "actualGroups": 1,
+      "markerVisible": true,
+      "writable": true,
+      "inputClass": "native-edit-context",
+      "selectionMs": 5,
+      "tabMs": 1661.5999999642372,
+      "visibleEditorText": "123456789101112---title: NBOOK-T42-42017-01963 Synthetic notes 1963type: notestatus: activetags: [synthetic, t42]---NBOOK-T42-42017-01963# note 1963Synthetic baseline prose keeps the file path realistic without importing user data. Synthetic baseline prose keeps the file path realistic without impor",
+      "timeOrigin": 1791010948778,
+      "capturedClick": true,
+      "completed": true,
+      "inputVerified": true
+    },
+    "requests": [
+      {
+        "name": "http://127.0.0.1:33125/api/workspace-files/read?projectRoot=t42-development-source-42017&publicId=cd78b6ed-5d5d-4520-be32-12dd9b0afd55:6&path=notes%2Fwide%2Fnote-0065.md",
+        "entryType": "resource",
+        "startTime": 734598.5,
+        "duration": 19.899999976158142,
+        "initiatorType": "fetch",
+        "requestStart": 734599.1000000238,
+        "responseStart": 734617.5,
+        "responseEnd": 734618.3999999762,
+        "transferSize": 8919,
+        "encodedBodySize": 8619,
+        "decodedBodySize": 8619,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": [
+          {
+            "name": "files.read.resolve",
+            "duration": 0.6,
+            "description": ""
+          },
+          {
+            "name": "files.read.read",
+            "duration": 2,
+            "description": ""
+          }
+        ]
+      },
+      {
+        "name": "http://127.0.0.1:33125/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 735089.6000000238,
+        "duration": 11,
+        "initiatorType": "fetch",
+        "requestStart": 735090.1000000238,
+        "responseStart": 735099.8000000119,
+        "responseEnd": 735100.6000000238,
+        "transferSize": 1298,
+        "encodedBodySize": 998,
+        "decodedBodySize": 998,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:33125/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 735568.6000000238,
+        "duration": 15.099999964237213,
+        "initiatorType": "fetch",
+        "requestStart": 735569.1000000238,
+        "responseStart": 735582.8000000119,
+        "responseEnd": 735583.6999999881,
+        "transferSize": 428,
+        "encodedBodySize": 128,
+        "decodedBodySize": 128,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      }
+    ],
+    "userTiming": [
+      {
+        "name": "files.activation",
+        "entryType": "measure",
+        "startTime": 734598,
+        "duration": 978.3000000119209
+      },
+      {
+        "name": "files.activation.read",
+        "entryType": "measure",
+        "startTime": 734598.1000000238,
+        "duration": 493.7999999523163
+      },
+      {
+        "name": "editor.session.publish",
+        "entryType": "measure",
+        "startTime": 735091.8999999762,
+        "duration": 0.10000002384185791
+      },
+      {
+        "name": "editor.monaco.mount",
+        "entryType": "measure",
+        "startTime": 735568.1000000238,
+        "duration": 496.0999999642372
+      },
+      {
+        "name": "editor.monaco.model",
+        "entryType": "measure",
+        "startTime": 736050,
+        "duration": 0.3999999761581421
+      },
+      {
+        "name": "editor.monaco.create",
+        "entryType": "measure",
+        "startTime": 736050.3999999762,
+        "duration": 13.700000047683716
+      },
+      {
+        "name": "editor.view.publish",
+        "entryType": "measure",
+        "startTime": 736064.1999999881,
+        "duration": 0.10000002384185791
+      }
+    ],
+    "longTasks": [
+      {
+        "name": "self",
+        "entryType": "longtask",
+        "startTime": 734597.8000000119,
+        "duration": 485
+      },
+      {
+        "name": "self",
+        "entryType": "longtask",
+        "startTime": 735091.8000000119,
+        "duration": 982
+      }
+    ],
+    "longAnimationFrames": [
+      {
+        "name": "long-animation-frame",
+        "entryType": "long-animation-frame",
+        "startTime": 734597.8000000119,
+        "duration": 488.19999998807907
+      }
+    ],
+    "observerSupport": [
+      "element",
+      "event",
+      "first-input",
+      "interaction-contentful-paint",
+      "largest-contentful-paint",
+      "layout-shift",
+      "long-animation-frame",
+      "longtask",
+      "mark",
+      "measure",
+      "navigation",
+      "paint",
+      "resource",
+      "soft-navigation",
+      "visibility-state"
+    ],
+    "status": "pass",
+    "error": null,
+    "loadAverage": [
+      1.81,
+      1.76,
+      1.47
+    ]
+  },
+  "artifacts": [
+    {
+      "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/baseline-development-source-1-group.cpuprofile",
+      "bytes": 300236,
+      "retainedInTemp": false
+    },
+    {
+      "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/baseline-development-source-1-group.trace.json",
+      "bytes": 702215,
+      "retainedInTemp": false
+    }
+  ],
+  "cpu": {
+    "sampleCount": 1667,
+    "spanMs": 1700.4,
+    "negativeDeltaCount": 47,
+    "categories": {
+      "Vue 更新": 120.79100000000001,
+      "未归类 CPU": 117.99699999999997,
+      "空闲或原生未归类": 113.38399999999999,
+      "Vue 深度遍历": 1279.415,
+      "垃圾回收": 16.613000000000003,
+      "富文本控件与视图": 11.442999999999998,
+      "富文本解析与模型": 1.081,
+      "Monaco 模型与控件": 39.675999999999995
+    },
+    "topFunctions": [
+      {
+        "functionName": "traverse",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "lineNumber": 1897,
+        "columnNumber": 17,
+        "scriptId": "585",
+        "sampledMs": 283.9780000000001
+      },
+      {
+        "functionName": "traverse",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "lineNumber": 1897,
+        "columnNumber": 17,
+        "scriptId": "585",
+        "sampledMs": 274.724
+      },
+      {
+        "functionName": "traverse",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "lineNumber": 1897,
+        "columnNumber": 17,
+        "scriptId": "585",
+        "sampledMs": 201.02400000000011
+      },
+      {
+        "functionName": "get",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "lineNumber": 948,
+        "columnNumber": 5,
+        "scriptId": "585",
+        "sampledMs": 125.89699999999995
+      },
+      {
+        "functionName": "(idle)",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "scriptId": "0",
+        "sampledMs": 113.38399999999999
+      },
+      {
+        "functionName": "get",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "lineNumber": 948,
+        "columnNumber": 5,
+        "scriptId": "585",
+        "sampledMs": 104.158
+      },
+      {
+        "functionName": "get",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "lineNumber": 948,
+        "columnNumber": 5,
+        "scriptId": "585",
+        "sampledMs": 98.717
+      },
+      {
+        "functionName": "cleanupEffect",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "lineNumber": 480,
+        "columnNumber": 22,
+        "scriptId": "585",
+        "sampledMs": 93.065
+      },
+      {
+        "functionName": "(program)",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "scriptId": "0",
+        "sampledMs": 78.72200000000002
+      },
+      {
+        "functionName": "ownKeys",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "lineNumber": 1062,
+        "columnNumber": 9,
+        "scriptId": "585",
+        "sampledMs": 56.132999999999996
+      },
+      {
+        "functionName": "ownKeys",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "lineNumber": 1062,
+        "columnNumber": 9,
+        "scriptId": "585",
+        "sampledMs": 47.49400000000001
+      },
+      {
+        "functionName": "ownKeys",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "lineNumber": 1062,
+        "columnNumber": 9,
+        "scriptId": "585",
+        "sampledMs": 43.174
+      },
+      {
+        "functionName": "checkVisibility",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "scriptId": "0",
+        "sampledMs": 22.266
+      },
+      {
+        "functionName": "traverse",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "lineNumber": 1897,
+        "columnNumber": 17,
+        "scriptId": "585",
+        "sampledMs": 21.565999999999995
+      },
+      {
+        "functionName": "(garbage collector)",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "scriptId": "0",
+        "sampledMs": 16.613000000000003
+      },
+      {
+        "functionName": "get",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "lineNumber": 948,
+        "columnNumber": 5,
+        "scriptId": "585",
+        "sampledMs": 16.058
+      },
+      {
+        "functionName": "measureReferenceDomElement",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/monaco-editor/esm/vs/editor/browser/config/elementSizeObserver.js?v=69467a67",
+        "lineNumber": 83,
+        "columnNumber": 30,
+        "scriptId": "1731",
+        "sampledMs": 9.405000000000001
+      },
+      {
+        "functionName": "measureSecondaryItems",
+        "url": "http://127.0.0.1:33125/_nuxt/components/workbench/WorkbenchActivityBar.vue",
+        "lineNumber": 107,
+        "columnNumber": 32,
+        "scriptId": "982",
+        "sampledMs": 7.003
+      },
+      {
+        "functionName": "_myTokenize",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/monaco-editor/esm/vs/editor/standalone/common/monarch/monarchLexer.js?v=69467a67",
+        "lineNumber": 452,
+        "columnNumber": 15,
+        "scriptId": "1705",
+        "sampledMs": 6.42
+      },
+      {
+        "functionName": "createLineBreaksFromPreviousLineBreaks",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/monaco-editor/esm/vs/editor/common/viewModel/monospaceLineBreaksComputer.js?v=69467a67",
+        "lineNumber": 78,
+        "columnNumber": 47,
+        "scriptId": "1456",
+        "sampledMs": 6.199000000000001
+      },
+      {
+        "functionName": "focus",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "scriptId": "0",
+        "sampledMs": 5.848000000000001
+      },
+      {
+        "functionName": "run",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "lineNumber": 217,
+        "columnNumber": 5,
+        "scriptId": "585",
+        "sampledMs": 5.487
+      },
+      {
+        "functionName": "traverse",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "lineNumber": 1897,
+        "columnNumber": 17,
+        "scriptId": "585",
+        "sampledMs": 4.366
+      },
+      {
+        "functionName": "measure",
+        "url": "http://127.0.0.1:33125/_nuxt/components/workbench/WorkbenchTitleActions.vue",
+        "lineNumber": 182,
+        "columnNumber": 18,
+        "scriptId": "997",
+        "sampledMs": 4.266
+      }
+    ]
+  },
+  "timeline": {
+    "Paint": 17.099000000000004,
+    "FunctionCall": 54.30300000000002,
+    "UpdateLayoutTree": 61.39,
+    "Layout": 3.217,
+    "ParseHTML": 0.43600000000000005
+  },
+  "analysisWindow": {
+    "startTime": 448223507145,
+    "endTime": 448225207545,
+    "clock": "User Timing mark 对齐 Chrome monotonic 微秒时钟",
+    "pid": 411961,
+    "tid": 411961
+  },
+  "symbolMappings": [
+    {
+      "sourceSymbol": "Vue traverse",
+      "compiledName": "traverse",
+      "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+      "lineNumber": 1897,
+      "columnNumber": 0,
+      "endLineNumber": 1928,
+      "endColumnNumber": 1,
+      "category": "Vue 深度遍历",
+      "matchedBy": [
+        "__v_skip",
+        "new Map",
+        "Object.getOwnPropertySymbols",
+        "propertyIsEnumerable"
+      ]
+    }
+  ]
+}

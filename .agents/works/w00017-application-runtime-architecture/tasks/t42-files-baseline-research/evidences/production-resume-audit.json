@@ -1,0 +1,1244 @@
+{
+  "generatedAt": "2026-10-03T06:56:48.368Z",
+  "rawValuesEqual": true,
+  "rawCount": 410,
+  "sourceReport": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/review-1-development-start-failure/baseline-report.json",
+  "profiles": [
+    {
+      "label": "baseline-directory-expand",
+      "window": {
+        "startTime": 443160380586,
+        "endTime": 443160850986,
+        "clock": "User Timing mark 对齐 Chrome monotonic 微秒时钟",
+        "pid": 338599,
+        "tid": 338599
+      },
+      "cpu": {
+        "sampleCount": 490,
+        "spanMs": 470.4,
+        "negativeDeltaCount": 24,
+        "categories": {
+          "未归类 CPU": 319.9709999999998,
+          "空闲或原生未归类": 17.173000000000002,
+          "垃圾回收": 133.25599999999991
+        },
+        "topFunctions": [
+          {
+            "functionName": "(program)",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 146.94299999999998
+          },
+          {
+            "functionName": "(garbage collector)",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 133.25599999999991
+          },
+          {
+            "functionName": "D",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 76,
+            "columnNumber": 17005,
+            "scriptId": "6",
+            "sampledMs": 78.59199999999997
+          },
+          {
+            "functionName": "(idle)",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 17.173000000000002
+          },
+          {
+            "functionName": "checkVisibility",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 14.864000000000003
+          },
+          {
+            "functionName": "n_",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 3,
+            "columnNumber": 20269,
+            "scriptId": "6",
+            "sampledMs": 10.568
+          },
+          {
+            "functionName": "",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 76,
+            "columnNumber": 17268,
+            "scriptId": "6",
+            "sampledMs": 7.603
+          },
+          {
+            "functionName": "",
+            "url": "",
+            "lineNumber": 29,
+            "columnNumber": 183,
+            "scriptId": "74",
+            "sampledMs": 5.897
+          },
+          {
+            "functionName": "I",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 3,
+            "columnNumber": 23246,
+            "scriptId": "6",
+            "sampledMs": 3.0839999999999996
+          },
+          {
+            "functionName": "S_",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 3,
+            "columnNumber": 46671,
+            "scriptId": "6",
+            "sampledMs": 2.807
+          },
+          {
+            "functionName": "b_",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 3,
+            "columnNumber": 43778,
+            "scriptId": "6",
+            "sampledMs": 2.182
+          },
+          {
+            "functionName": "s_",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 3,
+            "columnNumber": 21411,
+            "scriptId": "6",
+            "sampledMs": 2.153
+          },
+          {
+            "functionName": "t_",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 3,
+            "columnNumber": 19564,
+            "scriptId": "6",
+            "sampledMs": 2.145
+          },
+          {
+            "functionName": "y",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 3,
+            "columnNumber": 23023,
+            "scriptId": "6",
+            "sampledMs": 2.14
+          },
+          {
+            "functionName": "LP",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 3,
+            "columnNumber": 41712,
+            "scriptId": "6",
+            "sampledMs": 2.121
+          },
+          {
+            "functionName": "insertBefore",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 1.9500000000000002
+          },
+          {
+            "functionName": "check",
+            "url": "",
+            "lineNumber": 7,
+            "columnNumber": 102,
+            "scriptId": "74",
+            "sampledMs": 1.613
+          },
+          {
+            "functionName": "I",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 3,
+            "columnNumber": 23246,
+            "scriptId": "6",
+            "sampledMs": 1.4869999999999999
+          },
+          {
+            "functionName": "rl",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 3,
+            "columnNumber": 4059,
+            "scriptId": "6",
+            "sampledMs": 1.124
+          },
+          {
+            "functionName": "addEventListener",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 1.121
+          },
+          {
+            "functionName": "createElement",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 1.109
+          },
+          {
+            "functionName": "insertBefore",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 1.106
+          },
+          {
+            "functionName": "setAttribute",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 1.104
+          },
+          {
+            "functionName": "requestAnimationFrame",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 1.094
+          }
+        ]
+      },
+      "symbolMappings": [
+        {
+          "sourceSymbol": "Vue traverse",
+          "compiledName": "go",
+          "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+          "lineNumber": 1,
+          "columnNumber": 21471,
+          "endLineNumber": 1,
+          "endColumnNumber": 21868,
+          "category": "Vue 深度遍历",
+          "matchedBy": [
+            "__v_skip",
+            "new Map",
+            "Object.getOwnPropertySymbols",
+            "propertyIsEnumerable"
+          ]
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/review-1-development-start-failure/baseline-directory-expand.cpuprofile",
+          "bytes": 42985,
+          "retainedInTemp": false
+        },
+        {
+          "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/review-1-development-start-failure/baseline-directory-expand.trace.json",
+          "bytes": 943340,
+          "retainedInTemp": false
+        }
+      ]
+    },
+    {
+      "label": "baseline-production-rich-1-group",
+      "window": {
+        "startTime": 443378844085,
+        "endTime": 443380404384.99994,
+        "clock": "User Timing mark 对齐 Chrome monotonic 微秒时钟",
+        "pid": 338599,
+        "tid": 338599
+      },
+      "cpu": {
+        "sampleCount": 1553,
+        "spanMs": 1560.299999938965,
+        "negativeDeltaCount": 36,
+        "categories": {
+          "未归类 CPU": 237.81299993896482,
+          "空闲或原生未归类": 113.769,
+          "Vue 深度遍历": 1190.2120000000007,
+          "垃圾回收": 10.936,
+          "富文本控件与视图": 6.479000000000001,
+          "Monaco 模型与控件": 1.091
+        },
+        "topFunctions": [
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 287.41600000000005
+          },
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 269.53700000000015
+          },
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 190.45900000000006
+          },
+          {
+            "functionName": "(idle)",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 113.769
+          },
+          {
+            "functionName": "qg",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8405,
+            "scriptId": "6",
+            "sampledMs": 87.42899999999996
+          },
+          {
+            "functionName": "get",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 13258,
+            "scriptId": "6",
+            "sampledMs": 79.82799999999997
+          },
+          {
+            "functionName": "(program)",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 74.49299993896483
+          },
+          {
+            "functionName": "get",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 13258,
+            "scriptId": "6",
+            "sampledMs": 73.567
+          },
+          {
+            "functionName": "get",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 13258,
+            "scriptId": "6",
+            "sampledMs": 65.733
+          },
+          {
+            "functionName": "ownKeys",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 14377,
+            "scriptId": "6",
+            "sampledMs": 64.78200000000001
+          },
+          {
+            "functionName": "ownKeys",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 14377,
+            "scriptId": "6",
+            "sampledMs": 42.97899999999999
+          },
+          {
+            "functionName": "ownKeys",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 14377,
+            "scriptId": "6",
+            "sampledMs": 39.96
+          },
+          {
+            "functionName": "track",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8814,
+            "scriptId": "6",
+            "sampledMs": 24.825
+          },
+          {
+            "functionName": "checkVisibility",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 22.271
+          },
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 18.657999999999994
+          },
+          {
+            "functionName": "track",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8814,
+            "scriptId": "6",
+            "sampledMs": 12.958000000000002
+          },
+          {
+            "functionName": "(garbage collector)",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 10.936
+          },
+          {
+            "functionName": "track",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8814,
+            "scriptId": "6",
+            "sampledMs": 7.5600000000000005
+          },
+          {
+            "functionName": "run",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 6223,
+            "scriptId": "6",
+            "sampledMs": 5.416
+          },
+          {
+            "functionName": "track",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8814,
+            "scriptId": "6",
+            "sampledMs": 4.36
+          },
+          {
+            "functionName": "get",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 13258,
+            "scriptId": "6",
+            "sampledMs": 4.317
+          },
+          {
+            "functionName": "setAttribute",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 4.3100000000000005
+          },
+          {
+            "functionName": "focus",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 3.9690000000000003
+          },
+          {
+            "functionName": "P",
+            "url": "http://127.0.0.1:42271/_nuxt/ODqwthtz.js",
+            "lineNumber": 4424,
+            "columnNumber": 120549,
+            "scriptId": "19",
+            "sampledMs": 3.277
+          }
+        ]
+      },
+      "symbolMappings": [
+        {
+          "sourceSymbol": "Vue traverse",
+          "compiledName": "go",
+          "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+          "lineNumber": 1,
+          "columnNumber": 21471,
+          "endLineNumber": 1,
+          "endColumnNumber": 21868,
+          "category": "Vue 深度遍历",
+          "matchedBy": [
+            "__v_skip",
+            "new Map",
+            "Object.getOwnPropertySymbols",
+            "propertyIsEnumerable"
+          ]
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/review-1-development-start-failure/baseline-production-rich-1-group.cpuprofile",
+          "bytes": 173487,
+          "retainedInTemp": false
+        },
+        {
+          "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/review-1-development-start-failure/baseline-production-rich-1-group.trace.json",
+          "bytes": 566263,
+          "retainedInTemp": false
+        }
+      ]
+    },
+    {
+      "label": "baseline-production-rich-2-group",
+      "window": {
+        "startTime": 443600708053.00006,
+        "endTime": 443602266853,
+        "clock": "User Timing mark 对齐 Chrome monotonic 微秒时钟",
+        "pid": 338599,
+        "tid": 338599
+      },
+      "cpu": {
+        "sampleCount": 1576,
+        "spanMs": 1558.799999938965,
+        "negativeDeltaCount": 35,
+        "categories": {
+          "未归类 CPU": 254.57999993896485,
+          "空闲或原生未归类": 99.68000000000002,
+          "Vue 深度遍历": 1180.3349999999978,
+          "垃圾回收": 16.333,
+          "富文本控件与视图": 5.736,
+          "Monaco 模型与控件": 2.136
+        },
+        "topFunctions": [
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 279.3390000000004
+          },
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 274.9460000000003
+          },
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 186.67300000000003
+          },
+          {
+            "functionName": "(idle)",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 99.68000000000002
+          },
+          {
+            "functionName": "get",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 13258,
+            "scriptId": "6",
+            "sampledMs": 87.309
+          },
+          {
+            "functionName": "qg",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8405,
+            "scriptId": "6",
+            "sampledMs": 85.11699999999996
+          },
+          {
+            "functionName": "(program)",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 79.98199993896485
+          },
+          {
+            "functionName": "get",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 13258,
+            "scriptId": "6",
+            "sampledMs": 72.131
+          },
+          {
+            "functionName": "get",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 13258,
+            "scriptId": "6",
+            "sampledMs": 61.61299999999999
+          },
+          {
+            "functionName": "ownKeys",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 14377,
+            "scriptId": "6",
+            "sampledMs": 44.029
+          },
+          {
+            "functionName": "ownKeys",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 14377,
+            "scriptId": "6",
+            "sampledMs": 40.829
+          },
+          {
+            "functionName": "ownKeys",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 14377,
+            "scriptId": "6",
+            "sampledMs": 40.775000000000006
+          },
+          {
+            "functionName": "track",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8814,
+            "scriptId": "6",
+            "sampledMs": 30.057
+          },
+          {
+            "functionName": "checkVisibility",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 28.92
+          },
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 22.644
+          },
+          {
+            "functionName": "(garbage collector)",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 16.333
+          },
+          {
+            "functionName": "track",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8814,
+            "scriptId": "6",
+            "sampledMs": 16.129
+          },
+          {
+            "functionName": "track",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8814,
+            "scriptId": "6",
+            "sampledMs": 6.573
+          },
+          {
+            "functionName": "get",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 13258,
+            "scriptId": "6",
+            "sampledMs": 6.433
+          },
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 5.468
+          },
+          {
+            "functionName": "P",
+            "url": "http://127.0.0.1:42271/_nuxt/ODqwthtz.js",
+            "lineNumber": 4424,
+            "columnNumber": 120549,
+            "scriptId": "19",
+            "sampledMs": 5.417
+          },
+          {
+            "functionName": "Jh",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 7914,
+            "scriptId": "6",
+            "sampledMs": 5.389
+          },
+          {
+            "functionName": "track",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8814,
+            "scriptId": "6",
+            "sampledMs": 4.33
+          },
+          {
+            "functionName": "S",
+            "url": "http://127.0.0.1:42271/_nuxt/ODqwthtz.js",
+            "lineNumber": 4207,
+            "columnNumber": 95453,
+            "scriptId": "19",
+            "sampledMs": 3.6100000000000003
+          }
+        ]
+      },
+      "symbolMappings": [
+        {
+          "sourceSymbol": "Vue traverse",
+          "compiledName": "go",
+          "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+          "lineNumber": 1,
+          "columnNumber": 21471,
+          "endLineNumber": 1,
+          "endColumnNumber": 21868,
+          "category": "Vue 深度遍历",
+          "matchedBy": [
+            "__v_skip",
+            "new Map",
+            "Object.getOwnPropertySymbols",
+            "propertyIsEnumerable"
+          ]
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/review-1-development-start-failure/baseline-production-rich-2-group.cpuprofile",
+          "bytes": 165424,
+          "retainedInTemp": false
+        },
+        {
+          "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/review-1-development-start-failure/baseline-production-rich-2-group.trace.json",
+          "bytes": 544812,
+          "retainedInTemp": false
+        }
+      ]
+    },
+    {
+      "label": "baseline-production-source-1-group",
+      "window": {
+        "startTime": 443840361797,
+        "endTime": 443841971197,
+        "clock": "User Timing mark 对齐 Chrome monotonic 微秒时钟",
+        "pid": 345039,
+        "tid": 345039
+      },
+      "cpu": {
+        "sampleCount": 1599,
+        "spanMs": 1609.4,
+        "negativeDeltaCount": 37,
+        "categories": {
+          "未归类 CPU": 271.54899999999986,
+          "空闲或原生未归类": 107.99199999999999,
+          "Vue 深度遍历": 1196.0539999999992,
+          "垃圾回收": 14.116000000000001,
+          "Monaco 模型与控件": 10.646,
+          "富文本控件与视图": 1.088,
+          "Vue 更新": 7.955
+        },
+        "topFunctions": [
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 288.9190000000002
+          },
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 267.72
+          },
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 190.70300000000012
+          },
+          {
+            "functionName": "(idle)",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 107.99199999999999
+          },
+          {
+            "functionName": "(program)",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 93.65700000000001
+          },
+          {
+            "functionName": "qg",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8405,
+            "scriptId": "6",
+            "sampledMs": 87.59100000000001
+          },
+          {
+            "functionName": "get",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 13258,
+            "scriptId": "6",
+            "sampledMs": 84.34099999999998
+          },
+          {
+            "functionName": "get",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 13258,
+            "scriptId": "6",
+            "sampledMs": 77.56800000000001
+          },
+          {
+            "functionName": "get",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 13258,
+            "scriptId": "6",
+            "sampledMs": 63.522999999999996
+          },
+          {
+            "functionName": "ownKeys",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 14377,
+            "scriptId": "6",
+            "sampledMs": 48.65500000000001
+          },
+          {
+            "functionName": "ownKeys",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 14377,
+            "scriptId": "6",
+            "sampledMs": 47.603
+          },
+          {
+            "functionName": "ownKeys",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 14377,
+            "scriptId": "6",
+            "sampledMs": 37.546
+          },
+          {
+            "functionName": "track",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8814,
+            "scriptId": "6",
+            "sampledMs": 30.246
+          },
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 20.474
+          },
+          {
+            "functionName": "checkVisibility",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 18.486
+          },
+          {
+            "functionName": "track",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8814,
+            "scriptId": "6",
+            "sampledMs": 16.078
+          },
+          {
+            "functionName": "(garbage collector)",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 14.116000000000001
+          },
+          {
+            "functionName": "measureReferenceDomElement",
+            "url": "http://127.0.0.1:42271/_nuxt/BFcxjifd.js",
+            "lineNumber": 44,
+            "columnNumber": 8703,
+            "scriptId": "43",
+            "sampledMs": 8.863000000000001
+          },
+          {
+            "functionName": "get",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 13258,
+            "scriptId": "6",
+            "sampledMs": 8.642
+          },
+          {
+            "functionName": "run",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 6223,
+            "scriptId": "6",
+            "sampledMs": 6.5
+          },
+          {
+            "functionName": "S",
+            "url": "http://127.0.0.1:42271/_nuxt/ODqwthtz.js",
+            "lineNumber": 4207,
+            "columnNumber": 95453,
+            "scriptId": "20",
+            "sampledMs": 6.417
+          },
+          {
+            "functionName": "track",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8814,
+            "scriptId": "6",
+            "sampledMs": 5.436999999999999
+          },
+          {
+            "functionName": "focus",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 5.39
+          },
+          {
+            "functionName": "_myTokenize",
+            "url": "http://127.0.0.1:42271/_nuxt/BFcxjifd.js",
+            "lineNumber": 43,
+            "columnNumber": 17451,
+            "scriptId": "43",
+            "sampledMs": 5.378
+          }
+        ]
+      },
+      "symbolMappings": [
+        {
+          "sourceSymbol": "Vue traverse",
+          "compiledName": "go",
+          "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+          "lineNumber": 1,
+          "columnNumber": 21471,
+          "endLineNumber": 1,
+          "endColumnNumber": 21868,
+          "category": "Vue 深度遍历",
+          "matchedBy": [
+            "__v_skip",
+            "new Map",
+            "Object.getOwnPropertySymbols",
+            "propertyIsEnumerable"
+          ]
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/review-1-development-start-failure/baseline-production-source-1-group.cpuprofile",
+          "bytes": 149368,
+          "retainedInTemp": false
+        },
+        {
+          "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/review-1-development-start-failure/baseline-production-source-1-group.trace.json",
+          "bytes": 612265,
+          "retainedInTemp": false
+        }
+      ]
+    },
+    {
+      "label": "baseline-production-source-2-group",
+      "window": {
+        "startTime": 444062230892,
+        "endTime": 444063841192,
+        "clock": "User Timing mark 对齐 Chrome monotonic 微秒时钟",
+        "pid": 345039,
+        "tid": 345039
+      },
+      "cpu": {
+        "sampleCount": 1614,
+        "spanMs": 1610.3,
+        "negativeDeltaCount": 40,
+        "categories": {
+          "未归类 CPU": 270.7089999999999,
+          "空闲或原生未归类": 97.14199999999998,
+          "Vue 深度遍历": 1211.9140000000007,
+          "垃圾回收": 16.490000000000002,
+          "Monaco 模型与控件": 6.082000000000001,
+          "Vue 更新": 7.963
+        },
+        "topFunctions": [
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 310.4640000000002
+          },
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 267.16300000000024
+          },
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 190.939
+          },
+          {
+            "functionName": "(program)",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 99.06100000000002
+          },
+          {
+            "functionName": "(idle)",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 97.14199999999998
+          },
+          {
+            "functionName": "get",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 13258,
+            "scriptId": "6",
+            "sampledMs": 89.39900000000002
+          },
+          {
+            "functionName": "qg",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8405,
+            "scriptId": "6",
+            "sampledMs": 88.64699999999998
+          },
+          {
+            "functionName": "get",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 13258,
+            "scriptId": "6",
+            "sampledMs": 66.991
+          },
+          {
+            "functionName": "ownKeys",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 14377,
+            "scriptId": "6",
+            "sampledMs": 59.387
+          },
+          {
+            "functionName": "get",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 13258,
+            "scriptId": "6",
+            "sampledMs": 58.427000000000014
+          },
+          {
+            "functionName": "ownKeys",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 14377,
+            "scriptId": "6",
+            "sampledMs": 43.852
+          },
+          {
+            "functionName": "ownKeys",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 14377,
+            "scriptId": "6",
+            "sampledMs": 40.95599999999999
+          },
+          {
+            "functionName": "track",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8814,
+            "scriptId": "6",
+            "sampledMs": 26.955999999999996
+          },
+          {
+            "functionName": "track",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8814,
+            "scriptId": "6",
+            "sampledMs": 20.526999999999994
+          },
+          {
+            "functionName": "go",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 21482,
+            "scriptId": "6",
+            "sampledMs": 17.307
+          },
+          {
+            "functionName": "(garbage collector)",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 16.490000000000002
+          },
+          {
+            "functionName": "checkVisibility",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 16.215
+          },
+          {
+            "functionName": "track",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 8814,
+            "scriptId": "6",
+            "sampledMs": 9.76
+          },
+          {
+            "functionName": "measureReferenceDomElement",
+            "url": "http://127.0.0.1:42271/_nuxt/BFcxjifd.js",
+            "lineNumber": 44,
+            "columnNumber": 8703,
+            "scriptId": "43",
+            "sampledMs": 8.331
+          },
+          {
+            "functionName": "S",
+            "url": "http://127.0.0.1:42271/_nuxt/ODqwthtz.js",
+            "lineNumber": 4207,
+            "columnNumber": 95453,
+            "scriptId": "20",
+            "sampledMs": 5.43
+          },
+          {
+            "functionName": "get",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 13258,
+            "scriptId": "6",
+            "sampledMs": 5.399000000000001
+          },
+          {
+            "functionName": "focus",
+            "url": "",
+            "lineNumber": -1,
+            "columnNumber": -1,
+            "scriptId": "0",
+            "sampledMs": 4.909
+          },
+          {
+            "functionName": "P",
+            "url": "http://127.0.0.1:42271/_nuxt/ODqwthtz.js",
+            "lineNumber": 4424,
+            "columnNumber": 120549,
+            "scriptId": "20",
+            "sampledMs": 4.338
+          },
+          {
+            "functionName": "run",
+            "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+            "lineNumber": 1,
+            "columnNumber": 6223,
+            "scriptId": "6",
+            "sampledMs": 4.276
+          }
+        ]
+      },
+      "symbolMappings": [
+        {
+          "sourceSymbol": "Vue traverse",
+          "compiledName": "go",
+          "url": "http://127.0.0.1:42271/_nuxt/DME91Ptf.js",
+          "lineNumber": 1,
+          "columnNumber": 21471,
+          "endLineNumber": 1,
+          "endColumnNumber": 21868,
+          "category": "Vue 深度遍历",
+          "matchedBy": [
+            "__v_skip",
+            "new Map",
+            "Object.getOwnPropertySymbols",
+            "propertyIsEnumerable"
+          ]
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/review-1-development-start-failure/baseline-production-source-2-group.cpuprofile",
+          "bytes": 161639,
+          "retainedInTemp": false
+        },
+        {
+          "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/review-1-development-start-failure/baseline-production-source-2-group.trace.json",
+          "bytes": 413659,
+          "retainedInTemp": false
+        }
+      ]
+    }
+  ],
+  "sourceDiagnostics": [
+    "Error: development 启动失败；详见 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/baseline-development-11.log\n    at startProduct (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/perf/files-baseline.ts:160:19)\n    at async restart (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/perf/files-baseline.ts:219:25)\n    at async main (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/perf/files-baseline.ts:422:19)\n    at processTicksAndRejections (native:7:39)"
+  ]
+}

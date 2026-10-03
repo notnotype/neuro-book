@@ -32,3 +32,7 @@ Ctrl/Cmd+S与失焦前先结算300ms防抖；只emit保存意图。卸载只取�
 ## 布局及上游边界
 
 填满父级，内部Monaco负责横纵滚动，390×844不扩张页面。提供当前加载器的语法/JSON语言服务，不承诺完整VS Code语言能力。主题通过现有产品主题会话读取（注入通道），防抖计时器由内核销毁时取消。外观沿用nb-ui主题变量。
+
+## 性能观测
+
+固定名字的 User Timing measure：`editor.monaco.model` 覆盖本实例模型创建，`editor.monaco.create` 覆盖控件创建，`editor.monaco.mount` 覆盖挂载入口至 nextTick/layout、`ready` 发布前。首次共享模块加载由加载器记录 `editor.monaco.load`；这些是嵌套阶段，不能直接相加。

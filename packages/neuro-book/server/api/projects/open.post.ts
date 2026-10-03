@@ -1,3 +1,4 @@
+import {createServerTiming} from "nbook/server/utils/server-timing";
 import {openProjectControl} from "nbook/server/runtime/product-project";
 import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 import {requireProjectRefBody} from "nbook/server/api/projects/project-control-plane";
@@ -8,8 +9,11 @@ import {requireProjectRefBody} from "nbook/server/api/projects/project-control-p
  *
  * 响应除 Project publication 外追加本次发布的精确 ready 标识：浏览器后续 presence 必须回报同一个值。
  */
-export default defineEventHandler((event) => withProjectHttpError(async () => {
-    const ref = await requireProjectRefBody(event);
-    const opened = await openProjectControl(ref, {kind: "user"});
-    return {...opened.publication, publicId: opened.ready.publicId};
-}));
+export default defineEventHandler((event) => {
+    const timing = createServerTiming(event);
+    return withProjectHttpError(async () => {
+        const ref = await timing.measure("files.project.ref", () => requireProjectRefBody(event));
+        const opened = await timing.measure("files.project.open", () => openProjectControl(ref, {kind: "user"}));
+        return {...opened.publication, publicId: opened.ready.publicId};
+    });
+});

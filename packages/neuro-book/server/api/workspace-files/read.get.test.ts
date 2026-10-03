@@ -35,7 +35,7 @@ describe("GET /api/workspace-files/read", () => {
         }));
 
         const handler = (await import("nbook/server/api/workspace-files/read.get")).default;
-        await expect(handler({} as never)).rejects.toMatchObject({
+        await expect(handler({context: {}} as never)).rejects.toMatchObject({
             statusCode: 409,
             data: {
                 code: "PROJECT_NOT_OPEN",

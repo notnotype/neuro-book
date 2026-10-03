@@ -41,3 +41,7 @@ type Props = {
 ## 交互
 
 切换意图先由编排宿主结算活动输入，再更新受控 editorId/document；目标异步初始化期间旧视图仍可用，真正隐藏旧视图前再结算一次，防止这段等待窗口丢字。handle-ready 后由宿主决定聚焦。布局在390×844仍占满给定空间；具体编辑器负责内部滚动。不承担文件读写、配置解析、保存排队或跨视图统一撤销。
+
+## 性能观测
+
+`editor.view.publish` 为固定名字的 User Timing measure，覆盖原有顺序的活动句柄释放、LRU 更新、handle/actions 发布与 clean view 收口；不包含异步编辑器初始化。起止使用局部 `performance.now()`，不新增 mark 或按实例编号的名字。

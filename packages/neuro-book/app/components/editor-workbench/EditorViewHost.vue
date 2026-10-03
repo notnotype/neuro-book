@@ -74,12 +74,17 @@ export default defineComponent({
         const publish = (entry: ViewInstance) => {
             if (!live(entry) || !current(entry) || props.editorId !== entry.id || !entry.handle) return;
             if (state.active === entry) return;
-            releaseActive();
-            entry.lastUsed = ++usage;
-            state.active = entry;
-            emit("handle-ready", entry.document.target, entry.token, entry.handle);
-            emit("view-actions", entry.document.target, entry.token, entry.actions);
-            trimClean();
+            const startedAt = performance.now();
+            try {
+                releaseActive();
+                entry.lastUsed = ++usage;
+                state.active = entry;
+                emit("handle-ready", entry.document.target, entry.token, entry.handle);
+                emit("view-actions", entry.document.target, entry.token, entry.actions);
+                trimClean();
+            } finally {
+                performance.measure("editor.view.publish", {start: startedAt, end: performance.now()});
+            }
         };
         function create(contribution: EditorContribution, document: EditorDocumentSnapshot): ViewInstance {
             const entry: ViewInstance = shallowReactive({

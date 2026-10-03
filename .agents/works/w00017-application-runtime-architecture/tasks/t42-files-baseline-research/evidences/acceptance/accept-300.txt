@@ -1,0 +1,23 @@
+复用现有生产镜像；不覆盖构建日志
+浏览器 console.error：Failed to load resource: the server responded with a status of 401 (Server Error)
+浏览器 console.error：Failed to load resource: the server responded with a status of 401 (Server Error)
+A service-cold 1/5: 1261.3 ms
+A reopen 1/5: 1017.9 ms
+A service-cold 2/5: 1209.0 ms
+A reopen 2/5: 1005.1 ms
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+A service-cold 3/5: 1148.3 ms
+A reopen 3/5: 1002.9 ms
+A service-cold 4/5: 1273.1 ms
+A reopen 4/5: 1043.2 ms
+A service-cold 5/5: 1216.6 ms
+A reopen 5/5: 1035.9 ms
+B 完成 10 次目录展开
+C production rich 1 组：冷开与两种热切换各 10 次完成
+C production rich 2 组：冷开与两种热切换各 10 次完成
+C production source 1 组：冷开与两种热切换各 10 次完成
+C production source 2 组：冷开与两种热切换各 10 次完成
+报告：/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t42-accept/accept-300.json；有效 140/140；完整完成=true
+exit 0

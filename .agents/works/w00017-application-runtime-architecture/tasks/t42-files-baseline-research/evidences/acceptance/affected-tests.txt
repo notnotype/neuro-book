@@ -1,0 +1,13 @@
+$ vitest run server/api/projects server/api/workspace-files server/workspace-files app/components/novel-ide/workspace app/components/editor-workbench app/components/markdown-studio app/stores scripts/perf
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+(node:525402) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+ Test Files  90 passed | 2 skipped (92)
+      Tests  714 passed | 5 skipped (719)
+   Start at  11:04:26
+   Duration  71.07s (transform 8.84s, setup 5.06s, import 40.20s, tests 71.73s, environment 9.32s)
+
+affected exit 0

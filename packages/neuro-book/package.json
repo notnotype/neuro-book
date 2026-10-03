@@ -50,6 +50,7 @@
     "test:runtime-foundation": "vitest run --config vitest.runtime-foundation.config.ts",
     "smoke:runtime-foundation": "node --import tsx scripts/smoke/runtime-foundation.ts",
     "smoke:product-lifecycle": "bun scripts/smoke/product-lifecycle.ts",
+    "perf:files-baseline": "bun scripts/perf/files-baseline.ts",
     "smoke:agent": "bun scripts/smoke/agent.ts",
     "smoke:agent-http": "bun scripts/smoke/agent-http.ts",
     "smoke:sqlite-vec": "bun scripts/smoke/sqlite-vec.ts",

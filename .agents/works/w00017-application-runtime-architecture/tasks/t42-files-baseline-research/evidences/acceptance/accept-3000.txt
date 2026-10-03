@@ -1,0 +1,51 @@
+构建生产镜像
+浏览器 console.error：Failed to load resource: the server responded with a status of 401 (Server Error)
+浏览器 console.error：Failed to load resource: the server responded with a status of 401 (Server Error)
+A service-cold 1/5: 6392.6 ms
+A reopen 1/5: 6284.8 ms
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+A service-cold 2/5: 6178.7 ms
+A reopen 2/5: 5720.6 ms
+A service-cold 3/5: 6011.4 ms
+A reopen 3/5: 5648.9 ms
+A service-cold 4/5: 5877.1 ms
+A reopen 4/5: 5584.8 ms
+A service-cold 5/5: 6081.6 ms
+A reopen 5/5: 5675.7 ms
+B 完成 10 次目录展开
+C production rich 1 组：冷开与两种热切换各 10 次完成
+C production rich 2 组：冷开与两种热切换各 10 次完成
+C production source 1 组：冷开与两种热切换各 10 次完成
+C production source 2 组：冷开与两种热切换各 10 次完成
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器异常：StorageAdapterError: Storage 访问上下文已失效，请重新初始化
+    at Object.send (http://127.0.0.1:46407/_nuxt/DME91Ptf.js:77:46678)
+    at async q5 (http://127.0.0.1:46407/_nuxt/DME91Ptf.js:77:56866)
+    at async Object.uC [as openOwnerHandle] (http://127.0.0.1:46407/_nuxt/DME91Ptf.js:77:52403)
+    at async eG (http://127.0.0.1:46407/_nuxt/DME91Ptf.js:77:61617)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器异常：StorageAdapterError: Storage 访问上下文已失效，请重新初始化
+    at Object.send (http://127.0.0.1:46407/_nuxt/DME91Ptf.js:77:46678)
+    at async q5 (http://127.0.0.1:46407/_nuxt/DME91Ptf.js:77:56866)
+    at async Object.uC [as openOwnerHandle] (http://127.0.0.1:46407/_nuxt/DME91Ptf.js:77:52403)
+    at async eG (http://127.0.0.1:46407/_nuxt/DME91Ptf.js:77:61617)
+Product健康检查仍在等待：The operation timed out.
+Product健康检查仍在等待：The operation timed out.
+Product健康检查仍在等待：The operation timed out.
+浏览器异常：TypeError: titleInputRef.value?.focus is not a function
+    at focusTitle (http://127.0.0.1:33947/_nuxt/components/novel-ide/project-picker/components/ProjectCreateForm.vue:77:25)
+    at http://127.0.0.1:33947/_nuxt/components/novel-ide/project-picker/components/ProjectCreateForm.vue:84:5
+C development rich 1 组：冷开与两种热切换各 10 次完成
+C development rich 2 组：冷开与两种热切换各 10 次完成
+浏览器异常：TypeError: titleInputRef.value?.focus is not a function
+    at focusTitle (http://127.0.0.1:33947/_nuxt/components/novel-ide/project-picker/components/ProjectCreateForm.vue:77:25)
+    at http://127.0.0.1:33947/_nuxt/components/novel-ide/project-picker/components/ProjectCreateForm.vue:84:5
+C development source 1 组：冷开与两种热切换各 10 次完成
+C development source 2 组：冷开与两种热切换各 10 次完成
+浏览器 console.error：Failed to load resource: the server responded with a status of 401 (Server Error)
+浏览器 console.error：Failed to load resource: the server responded with a status of 401 (Server Error)
+报告：/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t42-accept/accept-3000.json；有效 260/260；完整完成=true
+exit 0

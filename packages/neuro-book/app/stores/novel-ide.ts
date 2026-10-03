@@ -27,7 +27,7 @@ import type {
 } from "nbook/shared/dto/project.dto";
 import {ProjectCatalogRefreshError} from "nbook/app/utils/project-mutation-error";
 import {triggerBrowserDownload} from "nbook/app/utils/browser-download";
-import {FilesClient, createHttpFilesTransport} from "nbook/app/features/files/files-client";
+import {FilesClient, createHttpFilesTransport, type FilesRead} from "nbook/app/features/files/files-client";
 import type { WorkbenchToolViewFocus } from "nbook/app/utils/workbench/tool-context";
 import {
     DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
@@ -743,20 +743,25 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const openEditorTabInGroup = (groupId: string, node: WorkspaceFileNode, openMode: WorkspaceOpenMode): boolean => {
         const path = node.path;
         const existing = findEditorSessionTab(editorSession.value, groupId, path);
-        return applyEditorSessionOutcome(openTabInGroup(editorSession.value, {
-            groupId,
-            path,
-            title: node.title?.trim() || path,
-            editorId: existing?.editorId ?? null,
-            mode: openMode,
-        }, {
-            // 脏文档与有未解决输入的文档不能被 preview 静默顶替（转为常驻）。
-            canEvictPreview: (candidate) => {
-                const buffer = workspaceBuffers.value[candidate];
-                return buffer !== undefined && buffer.content === buffer.lastSyncedContent
-                    && !hasUnresolvedEditorChangeForPath(candidate);
-            },
-        }));
+        const startedAt = performance.now();
+        try {
+            return applyEditorSessionOutcome(openTabInGroup(editorSession.value, {
+                groupId,
+                path,
+                title: node.title?.trim() || path,
+                editorId: existing?.editorId ?? null,
+                mode: openMode,
+            }, {
+                // 脏文档与有未解决输入的文档不能被 preview 静默顶替（转为常驻）。
+                canEvictPreview: (candidate) => {
+                    const buffer = workspaceBuffers.value[candidate];
+                    return buffer !== undefined && buffer.content === buffer.lastSyncedContent
+                        && !hasUnresolvedEditorChangeForPath(candidate);
+                },
+            }));
+        } finally {
+            performance.measure("editor.session.publish", {start: startedAt, end: performance.now()});
+        }
     };
 
     const selectEditorGroup = (groupId: string): boolean =>
@@ -856,8 +861,14 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             return await workspaceTreeRequest.promise;
         }
         loadingWorkspaceTree.value = true;
+        const requestStartedAt = performance.now();
         const promise = (async () => {
-            const snapshot = await client.tree<WorkspaceTreeSnapshotDto<WorkspaceFileNode>>();
+            let snapshot: WorkspaceTreeSnapshotDto<WorkspaceFileNode>;
+            try {
+                snapshot = await client.tree<WorkspaceTreeSnapshotDto<WorkspaceFileNode>>();
+            } finally {
+                performance.measure("files.tree.client", {start: requestStartedAt, end: performance.now()});
+            }
             if (generation !== workspaceGeneration.value || filesClient !== client) {
                 return snapshot.nodes;
             }
@@ -941,14 +952,28 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             openEditorTabInGroup(groupId, cached.node, openMode);
             return cached.node;
         }
-        const detail = knownDetail ?? await operation.client.stat<WorkspaceFileNode>(filePath);
+        let detail = knownDetail;
+        if (!detail) {
+            const startedAt = performance.now();
+            try {
+                detail = await operation.client.stat<WorkspaceFileNode>(filePath);
+            } finally {
+                performance.measure("files.activation.stat", {start: startedAt, end: performance.now()});
+            }
+        }
         if (!acceptsActivation(operation)) return null;
         if (!detail.editable) {
             setBuffer(detail.path, detail, "", "", detail.mtimeMs);
             openEditorTabInGroup(groupId, detail, openMode);
             return detail;
         }
-        const file = await operation.client.read(filePath);
+        const readStartedAt = performance.now();
+        let file: FilesRead;
+        try {
+            file = await operation.client.read(filePath);
+        } finally {
+            performance.measure("files.activation.read", {start: readStartedAt, end: performance.now()});
+        }
         if (!acceptsActivation(operation)) return null;
         setBuffer(detail.path, detail, file.content, file.content, file.mtimeMs);
         openEditorTabInGroup(groupId, detail, openMode);
@@ -963,8 +988,15 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         if (cached && (!options.forceDisk || cached.content !== cached.lastSyncedContent)) {
             return activateEditableWorkspaceFile(groupId, filePath, cached.node, openMode, options, operation);
         }
-        const detail = knownDetail ?? findWorkspaceNode(filePath)
-            ?? await operation.client.stat<WorkspaceFileNode>(filePath);
+        let detail = knownDetail ?? findWorkspaceNode(filePath);
+        if (!detail) {
+            const startedAt = performance.now();
+            try {
+                detail = await operation.client.stat<WorkspaceFileNode>(filePath);
+            } finally {
+                performance.measure("files.activation.stat", {start: startedAt, end: performance.now()});
+            }
+        }
         if (!acceptsActivation(operation)) return null;
         if (detail.isDirectory && detail.contentNode) {
             const indexPath = `${detail.path.replace(/\/$/, "")}/index.md`;
@@ -979,6 +1011,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             return null;
         }
         const operation = beginDocumentActivation(groupId);
+        const startedAt = performance.now();
         try {
             return await activateWorkspaceFile(groupId, filePath, openMode, options, operation, detail);
         } catch (error) {
@@ -986,6 +1019,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             editorGroupErrors.value = {...editorGroupErrors.value, [groupId]: error instanceof Error ? error.message : "文件读取失败"};
             throw error;
         } finally {
+            performance.measure("files.activation", {start: startedAt, end: performance.now()});
             finishGroupActivation(groupId, operation.sequence);
         }
     };

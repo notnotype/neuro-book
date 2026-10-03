@@ -129,11 +129,11 @@ export default defineEventHandler(async (event) => {
     const targets = parseTargets(query.target);
     const parsedDepth = Number.isSafeInteger(depth) ? depth : null;
 
-    const target = await timing.measure("workspace.resolve", () => (
+    const target = await timing.measure("files.tree.resolve", () => (
         resolveWorkspaceFileTarget(runtimePathsFromEnv(), binding)
     ));
     return withBoundProjectTargetOperation(target, binding, (handles) => (
-        timing.measure(target.kind === "project-workspace" ? "workspace.index" : "workspace.tree", () => (
+        timing.measure(target.kind === "project-workspace" ? "files.tree.index" : "files.tree.scan", () => (
             withProductWorkspaceFiles({target, handles}, files => files.tree({targets, type, depth: parsedDepth}))
         ))
     ));

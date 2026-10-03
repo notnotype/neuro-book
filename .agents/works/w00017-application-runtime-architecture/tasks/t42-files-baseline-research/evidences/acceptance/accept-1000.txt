@@ -1,0 +1,51 @@
+复用现有生产镜像；不覆盖构建日志
+浏览器 console.error：Failed to load resource: the server responded with a status of 401 (Server Error)
+浏览器 console.error：Failed to load resource: the server responded with a status of 401 (Server Error)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+A service-cold 1/5: 2654.6 ms
+A reopen 1/5: 2177.5 ms
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+A service-cold 2/5: 2614.1 ms
+A reopen 2/5: 2231.9 ms
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+A service-cold 3/5: 2921.1 ms
+A reopen 3/5: 2286.2 ms
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+A service-cold 4/5: 2829.5 ms
+A reopen 4/5: 2306.6 ms
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+A service-cold 5/5: 3901.9 ms
+A reopen 5/5: 3533.1 ms
+B 完成 10 次目录展开
+C production rich 1 组：冷开与两种热切换各 10 次完成
+C production rich 2 组：冷开与两种热切换各 10 次完成
+C production source 1 组：冷开与两种热切换各 10 次完成
+C production source 2 组：冷开与两种热切换各 10 次完成
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+浏览器异常：StorageAdapterError: Storage 访问上下文已失效，请重新初始化
+    at Object.send (http://127.0.0.1:46795/_nuxt/DME91Ptf.js:77:46678)
+    at async q5 (http://127.0.0.1:46795/_nuxt/DME91Ptf.js:77:56866)
+    at async Object.uC [as openOwnerHandle] (http://127.0.0.1:46795/_nuxt/DME91Ptf.js:77:52403)
+    at async eG (http://127.0.0.1:46795/_nuxt/DME91Ptf.js:77:61617)
+浏览器异常：StorageAdapterError: Storage 访问上下文已失效，请重新初始化
+    at Object.send (http://127.0.0.1:46795/_nuxt/DME91Ptf.js:77:46678)
+    at async q5 (http://127.0.0.1:46795/_nuxt/DME91Ptf.js:77:56866)
+    at async Object.uC [as openOwnerHandle] (http://127.0.0.1:46795/_nuxt/DME91Ptf.js:77:52403)
+    at async eG (http://127.0.0.1:46795/_nuxt/DME91Ptf.js:77:61617)
+浏览器 console.error：Failed to load resource: the server responded with a status of 403 (STORAGE_CONTEXT_INVALID)
+报告：/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t42-accept/accept-1000.json；有效 140/140；完整完成=true
+exit 0

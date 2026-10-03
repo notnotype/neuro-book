@@ -1,0 +1,1255 @@
+{
+  "label": "baseline-project-open",
+  "kind": "browser",
+  "sample": {
+    "id": "production-A-profile-service-cold--1",
+    "environment": "production",
+    "scenario": "A",
+    "variant": "profile-service-cold",
+    "iteration": -1,
+    "operationStartTime": 1477.3999999761581,
+    "operationEndTime": 8127.899999976158,
+    "durationMs": 6650.5,
+    "readiness": {
+      "rootRows": 11,
+      "requiredRoots": [
+        "lorebook/",
+        "manuscript/",
+        "notes/"
+      ],
+      "treeOperable": true,
+      "timeOrigin": 1791011924624.7,
+      "capturedClick": true,
+      "completed": true
+    },
+    "requests": [
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 1450.800000011921,
+        "duration": 70.69999998807907,
+        "initiatorType": "fetch",
+        "requestStart": 1453.3999999761581,
+        "responseStart": 1520.199999988079,
+        "responseEnd": 1521.5,
+        "transferSize": 404,
+        "encodedBodySize": 104,
+        "decodedBodySize": 104,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 1459.5999999642372,
+        "duration": 39.80000001192093,
+        "initiatorType": "fetch",
+        "requestStart": 1460.199999988079,
+        "responseStart": 1498.5,
+        "responseEnd": 1499.3999999761581,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/auth/me",
+        "entryType": "resource",
+        "startTime": 1478.199999988079,
+        "duration": 14.600000023841858,
+        "initiatorType": "fetch",
+        "requestStart": 1478.800000011921,
+        "responseStart": 1491.699999988079,
+        "responseEnd": 1492.800000011921,
+        "transferSize": 413,
+        "encodedBodySize": 113,
+        "decodedBodySize": 113,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": [
+          {
+            "name": "auth.user",
+            "duration": 2.5,
+            "description": ""
+          }
+        ]
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 1501,
+        "duration": 21.899999976158142,
+        "initiatorType": "fetch",
+        "requestStart": 1501.800000011921,
+        "responseStart": 1521.800000011921,
+        "responseEnd": 1522.8999999761581,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/config/bootstrap?workspaceKind=user-assets",
+        "entryType": "resource",
+        "startTime": 1519.5999999642372,
+        "duration": 10.400000035762787,
+        "initiatorType": "fetch",
+        "requestStart": 1521.3999999761581,
+        "responseStart": 1528.800000011921,
+        "responseEnd": 1530,
+        "transferSize": 601,
+        "encodedBodySize": 301,
+        "decodedBodySize": 301,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": [
+          {
+            "name": "config.bootstrap",
+            "duration": 0.9,
+            "description": ""
+          }
+        ]
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/projects/open",
+        "entryType": "resource",
+        "startTime": 1540.5,
+        "duration": 540.3999999761581,
+        "initiatorType": "fetch",
+        "requestStart": 1541.0999999642372,
+        "responseStart": 2079.599999964237,
+        "responseEnd": 2080.899999976158,
+        "transferSize": 575,
+        "encodedBodySize": 275,
+        "decodedBodySize": 275,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": [
+          {
+            "name": "files.project.ref",
+            "duration": 1,
+            "description": ""
+          },
+          {
+            "name": "files.project.open",
+            "duration": 506.8,
+            "description": ""
+          }
+        ]
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/context",
+        "entryType": "resource",
+        "startTime": 1543,
+        "duration": 46.5,
+        "initiatorType": "fetch",
+        "requestStart": 1543.5,
+        "responseStart": 1588.0999999642372,
+        "responseEnd": 1589.5,
+        "transferSize": 317,
+        "encodedBodySize": 17,
+        "decodedBodySize": 17,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/context",
+        "entryType": "resource",
+        "startTime": 1543.3999999761581,
+        "duration": 59.69999998807907,
+        "initiatorType": "fetch",
+        "requestStart": 1543.8999999761581,
+        "responseStart": 1602,
+        "responseEnd": 1603.0999999642372,
+        "transferSize": 317,
+        "encodedBodySize": 17,
+        "decodedBodySize": 17,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/favicon.ico",
+        "entryType": "resource",
+        "startTime": 1543.8999999761581,
+        "duration": 32.60000002384186,
+        "initiatorType": "other",
+        "requestStart": 1544.5,
+        "responseStart": 1575.300000011921,
+        "responseEnd": 1576.5,
+        "transferSize": 378,
+        "encodedBodySize": 78,
+        "decodedBodySize": 78,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 1552.0999999642372,
+        "duration": 65.70000004768372,
+        "initiatorType": "fetch",
+        "requestStart": 1552.699999988079,
+        "responseStart": 1616.800000011921,
+        "responseEnd": 1617.800000011921,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 1619.800000011921,
+        "duration": 488.19999998807907,
+        "initiatorType": "fetch",
+        "requestStart": 1620.3999999761581,
+        "responseStart": 2107,
+        "responseEnd": 2108,
+        "transferSize": 404,
+        "encodedBodySize": 104,
+        "decodedBodySize": 104,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 1902.3999999761581,
+        "duration": 205.4000000357628,
+        "initiatorType": "fetch",
+        "requestStart": 1902.8999999761581,
+        "responseStart": 2106,
+        "responseEnd": 2107.800000011921,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 1954.8999999761581,
+        "duration": 157.60000002384186,
+        "initiatorType": "fetch",
+        "requestStart": 1955.5,
+        "responseStart": 2109.899999976158,
+        "responseEnd": 2112.5,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 1956.3999999761581,
+        "duration": 156.4000000357628,
+        "initiatorType": "fetch",
+        "requestStart": 1957,
+        "responseStart": 2111.800000011921,
+        "responseEnd": 2112.800000011921,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 2058.099999964237,
+        "duration": 54.60000002384186,
+        "initiatorType": "fetch",
+        "requestStart": 2058.800000011921,
+        "responseStart": 2110.899999976158,
+        "responseEnd": 2112.699999988079,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/projects",
+        "entryType": "resource",
+        "startTime": 2102,
+        "duration": 33.30000001192093,
+        "initiatorType": "fetch",
+        "requestStart": 2108.099999964237,
+        "responseStart": 2134.099999964237,
+        "responseEnd": 2135.300000011921,
+        "transferSize": 828,
+        "encodedBodySize": 528,
+        "decodedBodySize": 528,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": [
+          {
+            "name": "projects.manifests",
+            "duration": 0.2,
+            "description": ""
+          },
+          {
+            "name": "projects.total",
+            "duration": 0.3,
+            "description": ""
+          }
+        ]
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/workspace-files/tree?projectRoot=t42-production-rich-42017&publicId=730df698-009f-4257-9f14-7f28ed5909ab:1",
+        "entryType": "resource",
+        "startTime": 2103.800000011921,
+        "duration": 3891.599999964237,
+        "initiatorType": "fetch",
+        "requestStart": 2108.300000011921,
+        "responseStart": 5981.399999976158,
+        "responseEnd": 5995.399999976158,
+        "transferSize": 4403655,
+        "encodedBodySize": 4403355,
+        "decodedBodySize": 4403355,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": [
+          {
+            "name": "files.tree.resolve",
+            "duration": 16,
+            "description": ""
+          },
+          {
+            "name": "files.tree.index",
+            "duration": 3801.7,
+            "description": ""
+          }
+        ]
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/config/bootstrap?workspaceKind=novel&projectRoot=t42-production-rich-42017",
+        "entryType": "resource",
+        "startTime": 2104.899999976158,
+        "duration": 51,
+        "initiatorType": "fetch",
+        "requestStart": 2112.899999976158,
+        "responseStart": 2154.5,
+        "responseEnd": 2155.899999976158,
+        "transferSize": 602,
+        "encodedBodySize": 302,
+        "decodedBodySize": 302,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": [
+          {
+            "name": "config.bootstrap",
+            "duration": 2.1,
+            "description": ""
+          }
+        ]
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 2169.5,
+        "duration": 79.19999998807907,
+        "initiatorType": "fetch",
+        "requestStart": 2170.099999964237,
+        "responseStart": 2247.5,
+        "responseEnd": 2248.699999988079,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/context",
+        "entryType": "resource",
+        "startTime": 2181,
+        "duration": 37.69999998807907,
+        "initiatorType": "fetch",
+        "requestStart": 2181.599999964237,
+        "responseStart": 2216.899999976158,
+        "responseEnd": 2218.699999988079,
+        "transferSize": 380,
+        "encodedBodySize": 80,
+        "decodedBodySize": 80,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/context",
+        "entryType": "resource",
+        "startTime": 2182.099999964237,
+        "duration": 36.80000001192093,
+        "initiatorType": "fetch",
+        "requestStart": 2182.5,
+        "responseStart": 2217.699999988079,
+        "responseEnd": 2218.899999976158,
+        "transferSize": 380,
+        "encodedBodySize": 80,
+        "decodedBodySize": 80,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/context",
+        "entryType": "resource",
+        "startTime": 2183.099999964237,
+        "duration": 60.60000002384186,
+        "initiatorType": "fetch",
+        "requestStart": 2183.599999964237,
+        "responseStart": 2242.5,
+        "responseEnd": 2243.699999988079,
+        "transferSize": 380,
+        "encodedBodySize": 80,
+        "decodedBodySize": 80,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/context",
+        "entryType": "resource",
+        "startTime": 2184.199999988079,
+        "duration": 85.39999997615814,
+        "initiatorType": "fetch",
+        "requestStart": 2219.199999988079,
+        "responseStart": 2268.800000011921,
+        "responseEnd": 2269.599999964237,
+        "transferSize": 380,
+        "encodedBodySize": 80,
+        "decodedBodySize": 80,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 2220.5,
+        "duration": 45.39999997615814,
+        "initiatorType": "fetch",
+        "requestStart": 2220.899999976158,
+        "responseStart": 2264.899999976158,
+        "responseEnd": 2265.899999976158,
+        "transferSize": 348,
+        "encodedBodySize": 48,
+        "decodedBodySize": 48,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 2221.300000011921,
+        "duration": 68.39999997615814,
+        "initiatorType": "fetch",
+        "requestStart": 2244,
+        "responseStart": 2288.699999988079,
+        "responseEnd": 2289.699999988079,
+        "transferSize": 348,
+        "encodedBodySize": 48,
+        "decodedBodySize": 48,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 2245.399999976158,
+        "duration": 65.80000001192093,
+        "initiatorType": "fetch",
+        "requestStart": 2248.899999976158,
+        "responseStart": 2310.199999988079,
+        "responseEnd": 2311.199999988079,
+        "transferSize": 348,
+        "encodedBodySize": 48,
+        "decodedBodySize": 48,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 2250.399999976158,
+        "duration": 120.10000002384186,
+        "initiatorType": "fetch",
+        "requestStart": 2266.099999964237,
+        "responseStart": 2369.599999964237,
+        "responseEnd": 2370.5,
+        "transferSize": 404,
+        "encodedBodySize": 104,
+        "decodedBodySize": 104,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 2267.899999976158,
+        "duration": 57.5,
+        "initiatorType": "fetch",
+        "requestStart": 2269.800000011921,
+        "responseStart": 2324.399999976158,
+        "responseEnd": 2325.399999976158,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 2270.800000011921,
+        "duration": 66.59999996423721,
+        "initiatorType": "fetch",
+        "requestStart": 2290,
+        "responseStart": 2336.599999964237,
+        "responseEnd": 2337.399999976158,
+        "transferSize": 348,
+        "encodedBodySize": 48,
+        "decodedBodySize": 48,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 2291.399999976158,
+        "duration": 57.5,
+        "initiatorType": "fetch",
+        "requestStart": 2311.5,
+        "responseStart": 2347.800000011921,
+        "responseEnd": 2348.899999976158,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 2313.099999964237,
+        "duration": 59.60000002384186,
+        "initiatorType": "fetch",
+        "requestStart": 2325.899999976158,
+        "responseStart": 2371.699999988079,
+        "responseEnd": 2372.699999988079,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 2327.199999988079,
+        "duration": 59.10000002384186,
+        "initiatorType": "fetch",
+        "requestStart": 2337.699999988079,
+        "responseStart": 2385.300000011921,
+        "responseEnd": 2386.300000011921,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 2340.800000011921,
+        "duration": 76.59999996423721,
+        "initiatorType": "fetch",
+        "requestStart": 2349.199999988079,
+        "responseStart": 2416.5,
+        "responseEnd": 2417.399999976158,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 2350.399999976158,
+        "duration": 72.60000002384186,
+        "initiatorType": "fetch",
+        "requestStart": 2370.599999964237,
+        "responseStart": 2422.099999964237,
+        "responseEnd": 2423,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/context",
+        "entryType": "resource",
+        "startTime": 2378.399999976158,
+        "duration": 26.100000023841858,
+        "initiatorType": "fetch",
+        "requestStart": 2378.899999976158,
+        "responseStart": 2403.5,
+        "responseEnd": 2404.5,
+        "transferSize": 317,
+        "encodedBodySize": 17,
+        "decodedBodySize": 17,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 2383.699999988079,
+        "duration": 68.39999997615814,
+        "initiatorType": "fetch",
+        "requestStart": 2386.5,
+        "responseStart": 2451.300000011921,
+        "responseEnd": 2452.099999964237,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 2419.099999964237,
+        "duration": 39.90000003576279,
+        "initiatorType": "fetch",
+        "requestStart": 2419.599999964237,
+        "responseStart": 2458.199999988079,
+        "responseEnd": 2459,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 2461.599999964237,
+        "duration": 14.700000047683716,
+        "initiatorType": "fetch",
+        "requestStart": 2462.099999964237,
+        "responseStart": 2475.199999988079,
+        "responseEnd": 2476.300000011921,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 2477.899999976158,
+        "duration": 22.30000001192093,
+        "initiatorType": "fetch",
+        "requestStart": 2478.5,
+        "responseStart": 2499.300000011921,
+        "responseEnd": 2500.199999988079,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 2888.399999976158,
+        "duration": 17,
+        "initiatorType": "fetch",
+        "requestStart": 2889.199999988079,
+        "responseStart": 2904.5,
+        "responseEnd": 2905.399999976158,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 2924.899999976158,
+        "duration": 14.600000023841858,
+        "initiatorType": "fetch",
+        "requestStart": 2925.599999964237,
+        "responseStart": 2938.399999976158,
+        "responseEnd": 2939.5,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 2954.300000011921,
+        "duration": 23.299999952316284,
+        "initiatorType": "fetch",
+        "requestStart": 2955,
+        "responseStart": 2976.599999964237,
+        "responseEnd": 2977.599999964237,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 2960.699999988079,
+        "duration": 18.5,
+        "initiatorType": "fetch",
+        "requestStart": 2961.5,
+        "responseStart": 2978.199999988079,
+        "responseEnd": 2979.199999988079,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 3001.899999976158,
+        "duration": 17.5,
+        "initiatorType": "fetch",
+        "requestStart": 3002.399999976158,
+        "responseStart": 3018.599999964237,
+        "responseEnd": 3019.399999976158,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 3169.199999988079,
+        "duration": 32.89999997615814,
+        "initiatorType": "fetch",
+        "requestStart": 3169.899999976158,
+        "responseStart": 3201,
+        "responseEnd": 3202.099999964237,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 3176,
+        "duration": 28.599999964237213,
+        "initiatorType": "fetch",
+        "requestStart": 3176.599999964237,
+        "responseStart": 3203.699999988079,
+        "responseEnd": 3204.599999964237,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 3907.5,
+        "duration": 17.30000001192093,
+        "initiatorType": "fetch",
+        "requestStart": 3908.399999976158,
+        "responseStart": 3923.800000011921,
+        "responseEnd": 3924.800000011921,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 3941.300000011921,
+        "duration": 10.599999964237213,
+        "initiatorType": "fetch",
+        "requestStart": 3942,
+        "responseStart": 3950.899999976158,
+        "responseEnd": 3951.899999976158,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 3979.099999964237,
+        "duration": 22.400000035762787,
+        "initiatorType": "fetch",
+        "requestStart": 3979.599999964237,
+        "responseStart": 3999.399999976158,
+        "responseEnd": 4001.5,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 3981,
+        "duration": 20.80000001192093,
+        "initiatorType": "fetch",
+        "requestStart": 3981.599999964237,
+        "responseStart": 4000.399999976158,
+        "responseEnd": 4001.800000011921,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 4021.199999988079,
+        "duration": 13.399999976158142,
+        "initiatorType": "fetch",
+        "requestStart": 4022.5,
+        "responseStart": 4033.699999988079,
+        "responseEnd": 4034.599999964237,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 5203.899999976158,
+        "duration": 21,
+        "initiatorType": "fetch",
+        "requestStart": 5204.5,
+        "responseStart": 5223.800000011921,
+        "responseEnd": 5224.899999976158,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 5207.399999976158,
+        "duration": 17.30000001192093,
+        "initiatorType": "fetch",
+        "requestStart": 5208,
+        "responseStart": 5222.899999976158,
+        "responseEnd": 5224.699999988079,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 5926.899999976158,
+        "duration": 68,
+        "initiatorType": "fetch",
+        "requestStart": 5927.399999976158,
+        "responseStart": 5993,
+        "responseEnd": 5994.899999976158,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/user/action",
+        "entryType": "resource",
+        "startTime": 5953.599999964237,
+        "duration": 41.5,
+        "initiatorType": "fetch",
+        "requestStart": 5954.099999964237,
+        "responseStart": 5994.099999964237,
+        "responseEnd": 5995.099999964237,
+        "transferSize": 398,
+        "encodedBodySize": 98,
+        "decodedBodySize": 98,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/storage/project/action",
+        "entryType": "resource",
+        "startTime": 7610.5,
+        "duration": 22.19999998807907,
+        "initiatorType": "fetch",
+        "requestStart": 7611,
+        "responseStart": 7631.599999964237,
+        "responseEnd": 7632.699999988079,
+        "transferSize": 404,
+        "encodedBodySize": 104,
+        "decodedBodySize": 104,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": []
+      },
+      {
+        "name": "http://127.0.0.1:43677/api/config/bootstrap?workspaceKind=novel&projectRoot=t42-production-rich-42017",
+        "entryType": "resource",
+        "startTime": 8094.099999964237,
+        "duration": 15.900000035762787,
+        "initiatorType": "fetch",
+        "requestStart": 8094.899999976158,
+        "responseStart": 8108.699999988079,
+        "responseEnd": 8110,
+        "transferSize": 602,
+        "encodedBodySize": 302,
+        "decodedBodySize": 302,
+        "nextHopProtocol": "http/1.1",
+        "serverTiming": [
+          {
+            "name": "config.bootstrap",
+            "duration": 0.8,
+            "description": ""
+          }
+        ]
+      }
+    ],
+    "userTiming": [
+      {
+        "name": "files.tree.client",
+        "entryType": "measure",
+        "startTime": 2103.399999976158,
+        "duration": 3922.600000023842
+      },
+      {
+        "name": "files.tree.project",
+        "entryType": "measure",
+        "startTime": 7032.899999976158,
+        "duration": 85.19999998807907
+      },
+      {
+        "name": "files.tree.build",
+        "entryType": "measure",
+        "startTime": 7121.199999988079,
+        "duration": 9.300000011920929
+      }
+    ],
+    "longTasks": [
+      {
+        "name": "self",
+        "entryType": "longtask",
+        "startTime": 2097.300000011921,
+        "duration": 53
+      },
+      {
+        "name": "self",
+        "entryType": "longtask",
+        "startTime": 6010.300000011921,
+        "duration": 2106
+      }
+    ],
+    "longAnimationFrames": [
+      {
+        "name": "long-animation-frame",
+        "entryType": "long-animation-frame",
+        "startTime": 2089.800000011921,
+        "duration": 64.59999996423721
+      }
+    ],
+    "observerSupport": [
+      "element",
+      "event",
+      "first-input",
+      "interaction-contentful-paint",
+      "largest-contentful-paint",
+      "layout-shift",
+      "long-animation-frame",
+      "longtask",
+      "mark",
+      "measure",
+      "navigation",
+      "paint",
+      "resource",
+      "soft-navigation",
+      "visibility-state"
+    ],
+    "status": "pass",
+    "error": null,
+    "loadAverage": [
+      1.45,
+      1.56,
+      1.46
+    ]
+  },
+  "artifacts": [
+    {
+      "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/baseline-project-open.cpuprofile",
+      "bytes": 561579,
+      "retainedInTemp": false
+    },
+    {
+      "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/baseline-project-open.trace.json",
+      "bytes": 2626661,
+      "retainedInTemp": false
+    }
+  ],
+  "cpu": {
+    "sampleCount": 7161,
+    "spanMs": 6650.5,
+    "negativeDeltaCount": 244,
+    "categories": {
+      "未归类 CPU": 905.905000000001,
+      "空闲或原生未归类": 3891.5220000000027,
+      "Vue 深度遍历": 1725.6240000000007,
+      "垃圾回收": 127.44899999999996
+    },
+    "topFunctions": [
+      {
+        "functionName": "(idle)",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "scriptId": "0",
+        "sampledMs": 3891.5220000000027
+      },
+      {
+        "functionName": "(program)",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "scriptId": "0",
+        "sampledMs": 413.8169999999999
+      },
+      {
+        "functionName": "go",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 21482,
+        "scriptId": "7",
+        "sampledMs": 402.94500000000005
+      },
+      {
+        "functionName": "go",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 21482,
+        "scriptId": "7",
+        "sampledMs": 365.63700000000017
+      },
+      {
+        "functionName": "go",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 21482,
+        "scriptId": "7",
+        "sampledMs": 227.81300000000016
+      },
+      {
+        "functionName": "(garbage collector)",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "scriptId": "0",
+        "sampledMs": 127.44899999999996
+      },
+      {
+        "functionName": "u0",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 7176,
+        "scriptId": "7",
+        "sampledMs": 66.231
+      },
+      {
+        "functionName": "run",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 6223,
+        "scriptId": "7",
+        "sampledMs": 62.85600000000002
+      },
+      {
+        "functionName": "ownKeys",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 14377,
+        "scriptId": "7",
+        "sampledMs": 49.44700000000001
+      },
+      {
+        "functionName": "",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 76,
+        "columnNumber": 10172,
+        "scriptId": "7",
+        "sampledMs": 46.99900000000002
+      },
+      {
+        "functionName": "In",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 9704,
+        "scriptId": "7",
+        "sampledMs": 42.96900000000002
+      },
+      {
+        "functionName": "In",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 9704,
+        "scriptId": "7",
+        "sampledMs": 42.17200000000001
+      },
+      {
+        "functionName": "In",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 9704,
+        "scriptId": "7",
+        "sampledMs": 38.765
+      },
+      {
+        "functionName": "go",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 21482,
+        "scriptId": "7",
+        "sampledMs": 36.521
+      },
+      {
+        "functionName": "In",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 9704,
+        "scriptId": "7",
+        "sampledMs": 34.434
+      },
+      {
+        "functionName": "ownKeys",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 14377,
+        "scriptId": "7",
+        "sampledMs": 32.47
+      },
+      {
+        "functionName": "track",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 8814,
+        "scriptId": "7",
+        "sampledMs": 29.059000000000005
+      },
+      {
+        "functionName": "ownKeys",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 14377,
+        "scriptId": "7",
+        "sampledMs": 24.68
+      },
+      {
+        "functionName": "In",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 9704,
+        "scriptId": "7",
+        "sampledMs": 21.547
+      },
+      {
+        "functionName": "track",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 8814,
+        "scriptId": "7",
+        "sampledMs": 18.267
+      },
+      {
+        "functionName": "Qe",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 17619,
+        "scriptId": "7",
+        "sampledMs": 18.225
+      },
+      {
+        "functionName": "In",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 9704,
+        "scriptId": "7",
+        "sampledMs": 17.954
+      },
+      {
+        "functionName": "OO",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 3,
+        "columnNumber": 60667,
+        "scriptId": "7",
+        "sampledMs": 16.1
+      },
+      {
+        "functionName": "cd",
+        "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+        "lineNumber": 1,
+        "columnNumber": 17008,
+        "scriptId": "7",
+        "sampledMs": 14.972000000000001
+      }
+    ]
+  },
+  "timeline": {
+    "FunctionCall": 82.85300000000004,
+    "UpdateLayoutTree": 62.683000000000035,
+    "Layout": 20.277000000000005,
+    "ParseHTML": 0.19099999999999998,
+    "Paint": 25.644000000000013
+  },
+  "analysisWindow": {
+    "startTime": 448466416705,
+    "endTime": 448473067205,
+    "clock": "User Timing mark 对齐 Chrome monotonic 微秒时钟",
+    "pid": 412548,
+    "tid": 412548
+  },
+  "symbolMappings": [
+    {
+      "sourceSymbol": "Vue traverse",
+      "compiledName": "go",
+      "url": "http://127.0.0.1:43677/_nuxt/DME91Ptf.js",
+      "lineNumber": 1,
+      "columnNumber": 21471,
+      "endLineNumber": 1,
+      "endColumnNumber": 21868,
+      "category": "Vue 深度遍历",
+      "matchedBy": [
+        "__v_skip",
+        "new Map",
+        "Object.getOwnPropertySymbols",
+        "propertyIsEnumerable"
+      ]
+    }
+  ]
+}
