@@ -72,9 +72,12 @@ describe("前端构建产物", () => {
         expect(post.headers.get("allow")).toBe("GET, HEAD");
     });
 
-    it("静态根不存在或缺少 index.html 时拒绝打开", async () => {
+    it("静态根不存在、缺少 index.html 或 index.html 经符号链接指向目录之外时拒绝打开", async () => {
         await expect(openStaticFiles(join(tmp, "missing"))).rejects.toThrow("不存在");
         await mkdir(join(tmp, "empty"));
         await expect(openStaticFiles(join(tmp, "empty"))).rejects.toThrow("index.html");
+        await mkdir(join(tmp, "linked"));
+        await symlink(join(tmp, "secret.txt"), join(tmp, "linked", "index.html"));
+        await expect(openStaticFiles(join(tmp, "linked"))).rejects.toThrow("index.html");
     });
 });

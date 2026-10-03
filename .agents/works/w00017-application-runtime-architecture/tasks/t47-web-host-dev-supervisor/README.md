@@ -42,7 +42,7 @@ taskId: t47-web-host-dev-supervisor
 
 ## 当前状态
 
-2026-10-03 实现完成（`40455b18`、`7fecf728`、`735c76f0` 与 S4 提交），待 omp 审查。
+2026-10-03 完成：主 Agent 编码（`40455b18`、`7fecf728`、`735c76f0`、`0fff13f9`），omp 审查后按意见修正。
 
 **实际改动（`packages/neuro-book`）：**
 
@@ -54,14 +54,24 @@ taskId: t47-web-host-dev-supervisor
 
 **验收（主 Agent 自跑）：**
 
-1. `bun run typecheck`（tsc 与 vue-tsc）0 错误；`bun run test` 16 个文件 79 个用例通过（[`app-checks.txt`](evidences/app-checks.txt)），连跑 3 次无波动。
+1. `bun run typecheck`（tsc 与 vue-tsc）0 错误；`bun run test` 16 个文件 81 个用例通过（[`app-checks.txt`](evidences/app-checks.txt)），连跑 3 次无波动。
 2. `bun run smoke:server`：S1–S5 通过（[`smoke-server.txt`](evidences/smoke-server.txt)）。
 3. `bun run test:e2e`：6 个用例通过（[`e2e.txt`](evidences/e2e.txt)）：生产构建上场景 1（挂载前只出现过静态占位，没有“启动中”与失败页）、场景 2（拦截引导请求 → 连接失败页、无工作台 → 解除后重试进入工作台）、503 与协议不兼容、场景 4（关闭一个窗口，另一个照常、刷新后换了新实例，服务端最后以 0 退出）；开发命令上 server-host 场景 7、8（改后端入口 mtime 后有序重启，启动与退出严格交替；SIGTERM 先停后端再关页面，以 0 退出）。
 4. 合同测试覆盖 server-host 场景 7、8 的其余分支：去抖合并、重启中的改动不追加、新进程启动失败不循环、运行中退出只报告、前置门、终端 Ctrl+C、第二个信号以 1 退出、页面端口被占用不启动后端。
 5. `docs:check`、`governance:check` 失败为 0、本次改动无新警告；`test:affected --typecheck`（`bun.lock` 有改动，选中全部包）只有 4 项既有失败（llmlint 类型检查与测试、nb-ui、test-support，开发者 2026-10-03 决定暂不处理），本次改动涉及的包与根脚本全部通过（[`affected.txt`](evidences/affected.txt)）。
 
+**omp 审查（默认模型，只读）：** 一次跑完（[`omp-review.txt`](evidences/omp-review.txt)），列 2 条阻断、5 条建议。主 Agent 逐条核实，处理如下（第 1–5 条各补一个回归测试，撤掉修复时失败）：
+
+1. 阻断“`index.html` 是指向静态根之外的符号链接时照常提供”：成立，降为建议。静态根是本机构建产物，能改它的人也能直接改 `index.html`，不是越权读取；但违反 Spec 的“路径（含符号链接）不能越出该目录”。打开静态根时 `index.html` 同样取真实路径并要求在根内，否则按缺少 `index.html` 激活失败。
+2. 阻断“必需插件的工厂抛错时窗口停在 starting”：成立。工厂调用移进启动失败的处理范围，抛错时记诊断并进入 `startup-failed`。
+3. 建议“`/%61pi/x` 绕过 `/api` 不回退的规则，拿到外壳”：成立。分发按解码后的路径判断 `/api` 命名空间（静态资源也按解码后的路径查找）；Spec 写明。
+4. 建议“后端失败后结束会话仍以 0 退出”：成立。等待改动时（最近一个后端启动失败或运行中退出）结束会话结果为 1；原测试把 0 当成期望，一并改正；Spec 补一句。
+5. 建议“引导集合里的插件全部登记为必需”：成立。只有 `nbook.diagnostics`、`nbook.workbench` 登记为必需，其余插件的入口失败只影响该入口（browser-host“失败与恢复”）。当前集合只有这两个插件，行为差别从第 4 步加入其它浏览器插件开始出现。
+6. 建议“`/assets/` 下不带哈希的文件也长期缓存”：不改实现。Vite 只往 `assets/` 放文件名带内容哈希的产物（本应用不用 `public/` 目录），按文件名猜哈希反而要依赖 Vite 的命名格式；Spec 改为写明这一约定。
+7. 建议“开发 e2e 改仓库内源文件的 mtime”：不改。这个用例验收的是真实 `bun run dev` 与它的真实监视范围，换成可配置的额外监视根要在产品入口加只给测试用的参数；内容不变，结束时（含失败路径的 `finally`）恢复原 mtime，副作用是同一 worktree 里正在运行的开发服务会多重启一次（计划已列为风险）。临时监视目录下的触发由 `run.test.ts` 覆盖。
+
 **未验证**：Windows（Ctrl+C、文件监视、强制结束）；Firefox、Safari 上的实际运行（只按 API 定了基线）。
 
 ## 下一步
 
-omp 审查；之后进入第 4 步 workbench 底座。
+第 4 步：workbench 底座与 Lab 插件。

@@ -111,7 +111,7 @@ Smoke：生产构建的服务端与本机 Chrome 运行场景 1、2、4 与协�
   - 窗口在解析到工作台的根界面后才是 ready；只在连接失败后允许原地重试，其它失败要刷新。每次启动尝试使用新的 instanceId。
   - 引导响应 `Cache-Control: no-store`，集合修订号由排序后的 `id@version` 得出，集合与版本不变时跨重启不变。
   - 前端代码不引用后端代码、Node 与 Bun 模块；跨插件只用 `import type`（`src/architecture.test.ts`）。
-- **合同测试**：`src/web/host/window.test.ts`（同进程真实后端：场景 1、2、4，503、协议与插件版本不一致、结构错误、缺少必需插件、工作台激活失败）、`src/web/host/browser-host.test.ts`、`src/server/browser-bootstrap.test.ts`、`src/architecture.test.ts`。
+- **合同测试**：`src/web/host/window.test.ts`（同进程真实后端：场景 1、2、4，503、协议与插件版本不一致、结构错误、缺少必需插件、工作台激活或装配失败、非必需入口失败时窗口照常）、`src/web/host/browser-host.test.ts`、`src/server/browser-bootstrap.test.ts`、`src/architecture.test.ts`。
 - **实际 smoke**：`e2e/browser-host.e2e.ts`（`bun run test:e2e`，先构建再用本机 Chrome 运行）。
 
 ## 证据

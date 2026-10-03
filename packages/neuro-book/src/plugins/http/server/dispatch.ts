@@ -134,12 +134,16 @@ export function createDispatcher(options: DispatchOptions): (request: Request) =
     };
 }
 
-/** `/api` 命名空间里没匹配上的路径（例如 `/api/`）是不存在的接口，不回退到页面。 */
+/**
+ * `/api` 命名空间里没匹配上的路径（例如 `/api/`）是不存在的接口，不回退到页面。按解码后的路径判断：静态资源按
+ * 解码后的路径查找，`/%61pi/x` 不先解码就会被当成页面路径拿到外壳。
+ */
 function isApiPath(pathname: string): boolean {
-    return pathname === "/api" || pathname.startsWith("/api/");
+    const decoded = decodeSegment(pathname) ?? pathname;
+    return decoded === "/api" || decoded.startsWith("/api/");
 }
 
-/** 路径段按 URL 编码解码；编码非法时返回 null，按不存在的接口处理。 */
+/** 按 URL 编码解码；编码非法时返回 null，按不存在的接口处理。 */
 function decodeSegment(segment: string): string | null {
     try {
         return decodeURIComponent(segment);

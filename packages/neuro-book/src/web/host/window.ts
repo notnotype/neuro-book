@@ -49,7 +49,10 @@ export interface BrowserWindow {
     stop(): Promise<StopResult>;
 }
 
-/** 缺少任一个就不能挂载界面：工作台交出根界面，诊断要先于其它插件可用。 */
+/**
+ * 缺少或入口激活失败就不能挂载界面：工作台交出根界面，诊断要先于其它插件可用。其余插件的入口失败只影响该入口，
+ * 窗口照常就绪。
+ */
 const REQUIRED_PLUGINS = ["nbook.diagnostics", "nbook.workbench"];
 
 /** 引导集合不能用于本外壳；`kind` 决定界面给“刷新”还是只显示原因。 */
@@ -99,9 +102,9 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
 
         const instanceId = crypto.randomUUID();
         const store = createDiagnosticsStore({identity: {location: "browser", instanceId}});
-        const plugins = selected.map(({factory}) => factory({store, console: options.console}));
         let root: WorkbenchRoot | null = null;
         try {
+            const plugins = selected.map(({factory}) => factory({store, console: options.console}));
             host = adapter.start({
                 instanceId,
                 page: options.page,
@@ -111,7 +114,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                 manifest: {
                     keys: collectServiceKeys(plugins, [workbenchRootKey]),
                     plugins,
-                    requiredPlugins: plugins.map((plugin) => plugin.id),
+                    requiredPlugins: REQUIRED_PLUGINS,
                     gates: [{
                         id: "workbench-root",
                         kind: "check",

@@ -29,9 +29,9 @@ export async function openStaticFiles(root: string): Promise<StaticFiles> {
     } catch (error) {
         throw new Error(`前端构建目录不存在：${root}`, {cause: error});
     }
-    const index = resolve(realRoot, "index.html");
-    if (!(await isFile(index))) throw new Error(`前端构建目录缺少 index.html：${root}`);
     const inside = (path: string): boolean => path === realRoot || path.startsWith(realRoot + sep);
+    const index = await resolveFile(resolve(realRoot, "index.html"), inside);
+    if (index === null) throw new Error(`前端构建目录缺少 index.html：${root}`);
 
     return {
         async serve(request) {

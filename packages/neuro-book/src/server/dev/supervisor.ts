@@ -40,7 +40,10 @@ export interface DevSupervisor {
     notifyChange(path: string): void;
     /** 后端启动或重启中时等它有结果；后端可用为 open。 */
     admit(): Promise<GateDecision>;
-    /** 有序停止当前后端并结束会话；结果为后端的退出是否干净（0 或 1）。重复调用共享同一结果。 */
+    /**
+     * 有序停止当前后端并结束会话；结果为最近一个后端是否干净退出（0 或 1），等待改动时最近一个已失败，结果为 1。
+     * 重复调用共享同一结果。
+     */
     stop(): Promise<0 | 1>;
     /** 不等排空，直接结束当前后端。 */
     kill(): void;
@@ -142,13 +145,15 @@ export function createDevSupervisor(options: DevSupervisorOptions): DevSuperviso
             if (stopping !== null) return stopping;
             cancelDebounce?.();
             cancelDebounce = null;
+            // 等待改动时没有当前后端：最近一个后端启动失败或运行中退出，会话不算干净结束。
+            const lastFailed = phase === "waiting";
             phase = "stopping";
             settleWaiters("stopping");
             const backend = current;
             stopping = (async (): Promise<0 | 1> => {
                 if (backend === null) {
                     phase = "stopped";
-                    return 0;
+                    return lastFailed ? 1 : 0;
                 }
                 backend.requestStop();
                 const exitCode = await backend.exited;

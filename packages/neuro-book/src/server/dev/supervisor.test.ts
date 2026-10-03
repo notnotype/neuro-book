@@ -135,7 +135,7 @@ describe("开发监督进程：后端重启", () => {
         expect(await supervisor.stop()).toBe(0);
     }, 30_000);
 
-    it("后端在运行中自行退出：只报告并等待改动，不自动重启", async () => {
+    it("后端在运行中自行退出：只报告并等待改动，不自动重启；此时结束会话，结果为 1", async () => {
         plugins = "test.throw-later";
         const supervisor = supervisorWith(manualClock());
         supervisor.start();
@@ -146,7 +146,7 @@ describe("开发监督进程：后端重启", () => {
         expect(events.at(-1)).toMatchObject({type: "backend-exited", exitCode: 1, expected: false});
         expect(supervisor.phase).toBe("waiting");
         expect(await supervisor.admit()).toBe("unavailable");
-        expect(await supervisor.stop()).toBe(0);
+        expect(await supervisor.stop()).toBe(1);
     }, 30_000);
 
     it("结束会话：后端有序停止，结果为 0；之后的改动不再触发重启，门给出正在关闭", async () => {

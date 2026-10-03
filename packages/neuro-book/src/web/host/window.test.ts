@@ -166,6 +166,36 @@ describe("窗口运行实例", () => {
         expect(browserWindow.state.status).toBe("startup-failed");
     });
 
+    it("必需插件的工厂抛错：同样是启动失败，不停在 starting", async () => {
+        const {browserWindow} = openWindow({factories: {...browserPluginFactories, "nbook.workbench": () => {
+            throw new Error("工作台装配失败（测试注入）");
+        }}});
+        await browserWindow.start();
+        const failure = failureOf(browserWindow.state);
+        expect(failure?.status).toBe("startup-failed");
+        expect(failure?.reason).toContain("工作台装配失败（测试注入）");
+    });
+
+    it("非必需插件的入口激活失败：只影响该入口，窗口照常 ready", async () => {
+        const optional = {id: "nbook.optional", version: "0.1.0", locations: ["browser"] as const};
+        const plugins = [...builtinBrowserPlugins, optional].map(({id, version}) => ({id, version}));
+        const stub = serveBootstrap(() => Response.json({protocolVersion: 1, revision: "r", plugins}));
+        const {browserWindow} = openWindow({
+            url: stub.url,
+            builtin: [...builtinBrowserPlugins, optional],
+            factories: {...browserPluginFactories, "nbook.optional": (): PluginDefinition => ({
+                id: "nbook.optional",
+                entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], activate: () => {
+                    throw new Error("可选入口激活失败（测试注入）");
+                }}],
+            })},
+        });
+        await browserWindow.start();
+        expect(browserWindow.state.status).toBe("ready");
+        await browserWindow.stop();
+        stub.stop();
+    });
+
     it("两个窗口互相独立：一个卸载或失败，另一个仍 ready，服务端不停止（场景 4）", async () => {
         const a = openWindow();
         const b = openWindow();

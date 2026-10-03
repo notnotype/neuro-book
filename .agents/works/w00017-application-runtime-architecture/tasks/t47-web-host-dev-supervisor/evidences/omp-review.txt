@@ -1,0 +1,23 @@
+总体结论：**不建议通过**。发现 2 个阻断问题；静态资源安全边界和浏览器启动失败路径会直接违反合同。另有 5 个建议问题。
+
+| 编号 | 严重程度（阻断 / 建议 / 疑问） | 位置（文件:行） | 问题 | 依据（命令输出或代码引用；实验是否经真实运行时） | 建议改法 |
+|---|---|---|---|---|---|
+| 1 | 阻断 | `packages/neuro-book/src/plugins/http/server/static.ts:32-33,45-48,96-100` | `index.html` 的符号链接未做静态根 containment 校验。`stat(index)` 会跟随符号链接，随后 `Bun.file(index)` 直接读取根外文件；`/` 和所有页面回退因此可以泄漏静态根外内容。 | 真实 Bun 后端实验：`web/index.html -> ../outside.html` 时，`GET /` 与 `GET /workbench` 均返回 `200` 和 `OUTSIDE_STATIC_ROOT`。违反 `runtime.server-host:54` 的“路径（含符号链接）不能越出该目录”。 | `openStaticFiles` 对 `index.html` 也执行 `realpath`，要求真实路径仍在 `realRoot` 内，并保存真实路径供回退使用。同步考虑检查与读取之间的符号链接竞态。 |
+| 2 | 阻断 | `packages/neuro-book/src/web/host/window.ts:100-103` | 浏览器插件工厂在 `selected.map()` 中执行，但该调用位于启动失败 `try` 之外。工厂抛错时 `start()` reject，状态永久停在 `starting`，不会进入 `startup-failed`，页面也不会显示失败页。 | 真实 Bun 模块、真实 `EventTarget` 实验：注入会抛出 `Error("factory boom")` 的 `nbook.workbench` 工厂，结果为 `rejected factory boom state { status: "starting" }`。不是同步伪造进程事件。 | 把插件工厂装配纳入统一失败处理；记录脱敏诊断，清理已创建资源，并设置 `startup-failed`。增加必需插件工厂抛错的合同测试。 |
+| 3 | 建议 | `packages/neuro-book/src/plugins/http/server/dispatch.ts:84-90,137-140` | `/api` 命名空间判定只检查未解码的 pathname。`/%61pi/missing` 语义上等于 `/api/missing`，但会绕过 API 判定并回退到 `index.html`。 | 真实 Bun 后端、正规 `index.html` 实验：`/%61pi/missing`、`/%61pi`、`/%61pi/` 均返回 `200 SHELL`。违反 `runtime.server-host:54` 的“`/api` 命名空间里没有匹配路径不回退到页面”。 | 先严格解码首段，再判断 API 命名空间；非法编码保持 `404`。不要二次解码整个路径。 |
+| 4 | 建议 | `packages/neuro-book/src/server/dev/supervisor.ts:79-96,141-157` | 后端崩溃或启动失败后进入 `waiting`，`current=null`；此时 `stop()` 直接返回 `0`，丢失最近一次后端的非零退出结果。 | 真实 Bun 后端与真实子进程实验：`test.throw-later` 触发真实未捕获异常，输出 `backend-exited exitCode=1 expected=false`；随后 `phase-before-stop waiting stop-result 0`。违反 `runtime.server-host:80` 的“后端以 0 退出时会话以 0 结束，否则以 1”。现有 `supervisor.test.ts:148-149` 还把该错误结果固定为 `0`。 | 保存最近一次后端结果。`waiting` 状态在没有新一代后端时，若最近一次启动失败或意外退出，应返回 `1`。补真实子进程退出码测试。 |
+| 5 | 建议 | `packages/neuro-book/src/web/host/window.ts:111-116` | 窗口把引导集合中的所有插件都登记为 `requiredPlugins`。合同只要求 `nbook.diagnostics`、`nbook.workbench` 为窗口必需插件；可选浏览器入口失败应只影响该入口，不应阻断整个工作台。 | 真实内核与窗口装配实验：注入第三个可选 `nbook.optional`，其 `activate` 抛错，结果为 `startup-failed`。与 `runtime.browser-host:82-83` 的必需/非必需失败语义不一致。 | `requiredPlugins` 只传 `REQUIRED_PLUGINS`。其余入口按可选失败语义处理并记录诊断；增加可选入口激活失败测试。 |
+| 6 | 建议 | `packages/neuro-book/src/plugins/http/server/static.ts:45-47` | 任何 `/assets/` 文件都使用一年 `immutable` 缓存，没有判断文件名是否带内容哈希。合同要求只有带内容哈希的资源长期缓存。 | 真实 Bun 服务实验：存在的 `/assets/plain.js` 返回 `cache-control: public, max-age=31536000, immutable`；代码条件也只有 `path.startsWith(ASSET_PREFIX)`。 | 增加与 Vite 产物约定一致的哈希文件名判定；非哈希资源使用 `no-cache`。 |
+| 7 | 建议 | `packages/neuro-book/e2e/dev.e2e.ts:26-36,48-50` | 开发模式 E2E 直接修改仓库内被跟踪的 `src/server/main.ts` 的 mtime，并把恢复 mtime 当作第二次改动。测试失败或中断时，恢复动作还可能再次触发重启；`Date` 精度也不保证恢复原始纳秒 mtime。 | 代码事实：`entry` 固定指向 `PACKAGE_ROOT/src/server/main.ts`，执行 `utimesSync`。验收证据显示该动作产生第三次 `backend-ready`。本次未运行该 E2E，避免违反审查要求中的真实文件 mtime 禁止修改。 | 为真实 dev 入口增加仅测试可配置的额外监视根，修改 `/tmp` 下的触发文件；或在隔离复制 worktree 中运行，不要把 tracked source 的 mtime 作为触发器。 |
+
+已核对、无问题：
+
+- 窗口连接失败重试、协议版本优先判断、插件版本比对、缺少必需插件、pagehide 停止来源、监听移除、实例身份生成。
+- 基本 GET/HEAD、普通路径穿越、双重编码路径、外部符号链接文件、页面回退和排空准入。
+- 开发监督进程的去抖、有序重启、重启中改动合并、启动失败不循环、运行中崩溃不自动重启、前置门、SIGTERM、SIGINT、第二信号、端口占用。
+- 引导协议字段、`no-store`、修订号排序与服务端路径不泄漏。
+- `runtime.startup.causes` 只在启动失败时写出；启动失败原因经 `serializeDiagnosticError` 进入致命输出。
+- `bun run typecheck`：通过。
+- 聚焦合同测试：`55 pass, 0 fail`。
+- 开发会话合同测试：`4 pass, 0 fail`。
+- 审查产生的临时文件与进程已收口；`git status --short` 无输出。

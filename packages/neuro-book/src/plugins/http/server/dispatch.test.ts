@@ -199,13 +199,13 @@ describe("请求分发", () => {
         expect(await response.text()).toBe("");
     });
 
-    it("页面路径交给前端构建产物并同样经过准入；/api 命名空间里没匹配上的路径不回退到页面", async () => {
+    it("页面路径交给前端构建产物并同样经过准入；/api 命名空间里没匹配上的路径（含编码写法）不回退到页面", async () => {
         const root = await createTestTmpRoot("neuro-book-dispatch", "static-dispatch");
         tmpRoots.push(root);
         await writeFile(join(root, "index.html"), "shell");
         const {request, admission} = setup(await openStaticFiles(root));
         expect(await (await request("/workbench")).text()).toBe("shell");
-        for (const path of ["/api", "/api/"]) expect((await request(path)).status).toBe(404);
+        for (const path of ["/api", "/api/", "/%61pi", "/%61pi/runtime/health"]) expect((await request(path)).status).toBe(404);
         expect(admission.active).toBe(0);
 
         await admission.drain();
