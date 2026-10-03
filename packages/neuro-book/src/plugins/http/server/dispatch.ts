@@ -1,5 +1,6 @@
 /**
- * 请求分发：先经准入，再按路径前缀交给宿主自有路由或插件贡献的处理器，并在响应体发送完毕时归还在途计数。
+ * 请求分发：先经准入，再按路径前缀交给宿主自有路由、插件贡献的处理器或前端构建产物，并在响应体发送完毕时
+ * 归还在途计数。页面资源同样经过准入：排空期间发出外壳，紧接着的引导请求也只会得到 503。
  *
  * 插件路由随贡献交付挂上、随撤回摘下；分发时每次经 `implementation()` 取实现，入口停止后的请求
  * 得到 503，而不是调用已收口的实现。
@@ -12,6 +13,7 @@ import type {HttpAdmission, RequestTicket} from "./admission";
 import {HttpAdmissionRejected} from "./admission";
 import {HTTP_ROUTES_CONTRIBUTION} from "./contracts";
 import type {HttpRouteEnv, HttpRouteHandler} from "./contracts";
+import type {StaticFiles} from "./static";
 
 /** 宿主自有接口的前缀段；插件不能以它为 id 挂载路由。 */
 export const HOST_ROUTE_SEGMENT = "runtime";
@@ -62,6 +64,8 @@ export interface DispatchOptions {
     readonly routes: RouteTable;
     /** `/api/runtime/` 下的宿主自有接口。 */
     readonly hostRoutes: HttpRouteHandler;
+    /** `/api/` 之外的路径；null 时一律 404（开发模式由 Vite 提供页面）。 */
+    readonly staticFiles: StaticFiles | null;
     /** 处理器抛错时的诊断；不改变响应。 */
     readonly reportError: (error: unknown, context: {readonly plugin: string | null; readonly path: string}) => void;
 }
@@ -80,8 +84,19 @@ export function createDispatcher(options: DispatchOptions): (request: Request) =
         const url = new URL(request.url);
         const match = API_PATH_PATTERN.exec(url.pathname);
         if (match === null) {
-            ticket.release();
-            return errorResponse(404, "not-found", "没有这个接口。");
+            if (options.staticFiles === null || isApiPath(url.pathname)) {
+                ticket.release();
+                return errorResponse(404, "not-found", "没有这个接口。");
+            }
+            let response: Response;
+            try {
+                response = await options.staticFiles.serve(request);
+            } catch (error) {
+                ticket.release();
+                options.reportError(error, {plugin: null, path: url.pathname});
+                return errorResponse(500, "internal-error", "处理请求时出错。");
+            }
+            return releaseWhenSent(response, ticket, request.signal);
         }
         const segment = decodeSegment(match[1] as string);
         if (segment === null) {
@@ -117,6 +132,11 @@ export function createDispatcher(options: DispatchOptions): (request: Request) =
         }
         return releaseWhenSent(response, ticket, request.signal);
     };
+}
+
+/** `/api` 命名空间里没匹配上的路径（例如 `/api/`）是不存在的接口，不回退到页面。 */
+function isApiPath(pathname: string): boolean {
+    return pathname === "/api" || pathname.startsWith("/api/");
 }
 
 /** 路径段按 URL 编码解码；编码非法时返回 null，按不存在的接口处理。 */

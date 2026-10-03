@@ -12,13 +12,14 @@
         "test": "bun test",
         "typecheck": "tsc --noEmit",
         "build:server": "bun build src/server/main.ts --target bun --outdir dist/server",
-        "start": "bun dist/server/main.js",
+        "start": "NBOOK_WEB_ROOT=dist/web bun dist/server/main.js",
         "smoke:server": "bun scripts/smoke-server.ts"
     },
     "dependencies": {
         "@notnotype/nb-runtime": "workspace:*",
         "hono": "^4.12.30",
-        "proper-lockfile": "4.1.2"
+        "proper-lockfile": "4.1.2",
+        "typebox": "^1.3.6"
     },
     "devDependencies": {
         "@notnotype/neuro-book-test-support": "workspace:*",

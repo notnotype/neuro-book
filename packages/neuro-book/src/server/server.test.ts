@@ -5,7 +5,7 @@
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 import {EventEmitter} from "node:events";
-import {readFile, rm} from "node:fs/promises";
+import {mkdir, readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -219,7 +219,7 @@ describe("后端宿主（真实子进程）", () => {
 });
 
 describe("后端宿主（同进程）", () => {
-    const config = (name: string) => ({host: "127.0.0.1", port: 0, stateRoot: join(tmpRoot, name), logDirectory: join(tmpRoot, name, "logs"), stopStdin: false});
+    const config = (name: string) => ({host: "127.0.0.1", port: 0, stateRoot: join(tmpRoot, name), logDirectory: join(tmpRoot, name, "logs"), webRoot: null, stopStdin: false});
 
     it("在途请求超过排空上限：继续关闭其余插件，以 1 退出", async () => {
         const scheduled = Promise.withResolvers<() => void>();
@@ -287,6 +287,18 @@ describe("后端宿主（同进程）", () => {
         expect(outcome.result.status).toBe("closed");
         expect(fatalLines.join("")).toContain("process.unhandled-rejection");
         expect(events.eventNames()).toEqual([]);
+    }, 20_000);
+
+    it("前端构建目录缺少 index.html：http 入口激活失败，以 1 退出", async () => {
+        const webRoot = join(tmpRoot, "web-without-index");
+        await mkdir(webRoot, {recursive: true});
+        const fatalLines: string[] = [];
+        const server = startServer({config: {...config("no-index"), webRoot}, process: new EventEmitter(), writeFatal: (line) => fatalLines.push(line)});
+        server.ready.catch(() => undefined);
+        expect((await server.stopped).exitCode).toBe(1);
+        expect(fatalLines.join("")).toContain("runtime.startup.failed");
+        // 具体原因（而不只是失败的入口）要出现在致命通道里，否则运维看不出该修什么。
+        expect(fatalLines.join("")).toContain("缺少 index.html");
     }, 20_000);
 
     it("插件装配失败：同步写出致命诊断并抛 ServerAssemblyError", () => {

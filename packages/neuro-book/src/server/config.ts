@@ -2,9 +2,10 @@
  * 后端进程的启动参数：从命令行与环境变量解析、校验并归一化，宿主与插件只消费结果。
  *
  * 鉴权插件尚未加载，只允许在回环地址上监听；状态根必须显式给出，宿主不猜测默认目录。
+ * 前端构建产物的位置同样显式给出（`NBOOK_WEB_ROOT`）：不给时只提供 API，开发模式由 Vite 提供页面。
  */
 
-import {isAbsolute, join, resolve} from "node:path";
+import {join, resolve} from "node:path";
 
 export interface ServerConfig {
     readonly host: string;
@@ -13,6 +14,8 @@ export interface ServerConfig {
     readonly stateRoot: string;
     /** 诊断文件出口获授的日志位置。 */
     readonly logDirectory: string;
+    /** `vite build` 的输出目录；null 时后端不提供页面。 */
+    readonly webRoot: string | null;
     /** 是否把标准输入的 `stop` 行作为停止来源（开发监督进程与 smoke 使用）。 */
     readonly stopStdin: boolean;
 }
@@ -48,8 +51,10 @@ export function readServerConfig(argv: readonly string[], env: Readonly<Record<s
     if (!stateRootInput) {
         throw new ServerConfigError("missing-state-root", "缺少 NBOOK_STATE_ROOT：后端需要显式的状态根来存放日志与数据");
     }
-    const stateRoot = isAbsolute(stateRootInput) ? stateRootInput : resolve(cwd, stateRootInput);
-    return {host, port, stateRoot, logDirectory: join(stateRoot, "logs"), stopStdin};
+    const stateRoot = resolve(cwd, stateRootInput);
+    const webRootInput = env.NBOOK_WEB_ROOT?.trim();
+    const webRoot = webRootInput ? resolve(cwd, webRootInput) : null;
+    return {host, port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot, stopStdin};
 }
 
 function parsePort(value: string | undefined): number {

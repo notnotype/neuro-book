@@ -4,12 +4,13 @@
  *   bun run smoke:server
  *
  * 场景：S1 启动后 health 为 200，标准输入 stop 以 0 退出且日志落盘；S2 SIGTERM 以 0 退出；
- * S3 缺少状态根以 1 退出；S4 端口已被占用时启动失败、写出致命诊断并以 1 退出。
+ * S3 缺少状态根以 1 退出；S4 端口已被占用时启动失败、写出致命诊断并以 1 退出；
+ * S5 设置 `NBOOK_WEB_ROOT` 时提供外壳、页面路径回退到外壳，引导接口返回协议版本。
  * 任一场景失败或未执行都以非零退出；状态根放在测试临时根下，结束时删除。
  */
 
 import {existsSync} from "node:fs";
-import {rm} from "node:fs/promises";
+import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -95,11 +96,27 @@ async function main(): Promise<number> {
             ok: conflictCode === 1 && conflict.stderr().includes("runtime.startup.failed") && holderCode === 0,
             evidence: `conflict-exit=${String(conflictCode)} holder-exit=${String(holderCode)}`,
         });
+
+        const webRoot = join(root, "S5-web");
+        await mkdir(join(webRoot, "assets"), {recursive: true});
+        await writeFile(join(webRoot, "index.html"), "<!doctype html><title>smoke-shell</title>");
+        const web = run({NBOOK_STATE_ROOT: join(root, "S5"), NBOOK_PORT: "0", NBOOK_WEB_ROOT: webRoot});
+        const webUrl = await web.url;
+        const shell = await (await fetch(webUrl)).text();
+        const fallback = await (await fetch(`${webUrl}some/page`)).text();
+        const bootstrap = (await (await fetch(`${webUrl}api/runtime/browser-bootstrap`)).json()) as {protocolVersion?: unknown};
+        web.stop("stdin");
+        const webCode = await web.exit;
+        results.push({
+            id: "S5",
+            ok: shell.includes("smoke-shell") && fallback === shell && bootstrap.protocolVersion === 1 && webCode === 0,
+            evidence: `shell=${String(shell.includes("smoke-shell"))} fallback=${String(fallback === shell)} protocol=${String(bootstrap.protocolVersion)} exit=${String(webCode)}`,
+        });
     } finally {
         await rm(root, {recursive: true, force: true});
     }
     console.log(JSON.stringify({schema: "nbook.smoke/server/v1", results}, null, 2));
-    const expected = ["S1", "S2", "S3", "S4"];
+    const expected = ["S1", "S2", "S3", "S4", "S5"];
     const complete = expected.every((id) => results.some((result) => result.id === id));
     return complete && results.every((result) => result.ok) ? 0 : 1;
 }

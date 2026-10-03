@@ -9,11 +9,14 @@ import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
 
 import {descriptor as diagnostics} from "./plugins/diagnostics/plugin";
 import {descriptor as http} from "./plugins/http/plugin";
+import {descriptor as workbench} from "./plugins/workbench/plugin";
 
 export interface PluginDescriptor {
     readonly id: string;
+    /** 浏览器入口随前端构建：窗口按 id 与版本核对后端引导返回的集合，不一致即提示刷新。 */
+    readonly version: string;
     /** 插件在哪些运行位置有入口。 */
     readonly locations: ReadonlyArray<RuntimeLocation>;
 }
 
-export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, http];
+export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, http, workbench];

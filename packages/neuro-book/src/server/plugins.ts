@@ -12,6 +12,7 @@ import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/server/pl
 import type {HttpAdmission} from "nbook/plugins/http/server/admission";
 import {createHttpPlugin} from "nbook/plugins/http/server/plugin";
 
+import {createBrowserBootstrapRoute} from "./browser-bootstrap";
 import type {ServerConfig} from "./config";
 
 export interface ServerPluginContext {
@@ -30,6 +31,8 @@ export const serverPluginFactories: Readonly<Record<string, ServerPluginFactory>
         host: context.config.host,
         port: context.config.port,
         onListening: context.onListening,
+        hostRoutes: [createBrowserBootstrapRoute(productPlugins)],
+        staticRoot: context.config.webRoot,
     }),
 };
 

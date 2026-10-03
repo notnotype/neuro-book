@@ -1,13 +1,24 @@
-import {describe, expect, it} from "bun:test";
+import {afterAll, describe, expect, it} from "bun:test";
+import {rm, writeFile} from "node:fs/promises";
+import {join} from "node:path";
 import {Hono} from "hono";
 
 import {PluginStateError} from "@notnotype/nb-runtime/plugins";
 import type {ContributionDescriptor, ContributionHandle} from "@notnotype/nb-runtime/plugins";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {HttpAdmission} from "./admission";
 import {HTTP_ROUTES_CONTRIBUTION, HTTP_ROUTES_POINT} from "./contracts";
 import type {HttpRouteEnv, HttpRouteHandler} from "./contracts";
 import {createDispatcher, RouteTable, validateRouteContribution} from "./dispatch";
+import {openStaticFiles} from "./static";
+import type {StaticFiles} from "./static";
+
+const tmpRoots: string[] = [];
+
+afterAll(async () => {
+    for (const root of tmpRoots) await rm(root, {recursive: true, force: true});
+});
 
 /** 模拟内核交给接收者的句柄：撤回后 implementation() 抛 PluginStateError。 */
 function routeHandle(plugin: string, handler: HttpRouteHandler): ContributionHandle<unknown, HttpRouteHandler> & {revoke(): void} {
@@ -39,13 +50,13 @@ async function mount(routes: RouteTable, handle: ContributionHandle<unknown, Htt
     await receiver.commit!(handle, prepared);
 }
 
-function setup() {
+function setup(staticFiles: StaticFiles | null = null) {
     const admission = new HttpAdmission();
     admission.ready();
     const routes = new RouteTable();
     const errors: Array<{error: unknown; plugin: string | null}> = [];
     const hostRoutes = new Hono<{Bindings: HttpRouteEnv}>().get("/health", (c) => c.json({status: "ok"}));
-    const dispatch = createDispatcher({admission, routes, hostRoutes, reportError: (error, {plugin}) => errors.push({error, plugin})});
+    const dispatch = createDispatcher({admission, routes, hostRoutes, staticFiles, reportError: (error, {plugin}) => errors.push({error, plugin})});
     const request = (path: string, init?: RequestInit) => dispatch(new Request(`http://127.0.0.1${path}`, init));
     return {admission, routes, errors, request};
 }
@@ -186,6 +197,21 @@ describe("请求分发", () => {
         await admission.drain();
         expect(closed).toBe(true);
         expect(await response.text()).toBe("");
+    });
+
+    it("页面路径交给前端构建产物并同样经过准入；/api 命名空间里没匹配上的路径不回退到页面", async () => {
+        const root = await createTestTmpRoot("neuro-book-dispatch", "static-dispatch");
+        tmpRoots.push(root);
+        await writeFile(join(root, "index.html"), "shell");
+        const {request, admission} = setup(await openStaticFiles(root));
+        expect(await (await request("/workbench")).text()).toBe("shell");
+        for (const path of ["/api", "/api/"]) expect((await request(path)).status).toBe(404);
+        expect(admission.active).toBe(0);
+
+        await admission.drain();
+        const stopping = await request("/");
+        expect(stopping.status).toBe(503);
+        expect(await stopping.json()).toMatchObject({error: {code: "stopping"}});
     });
 
     it("排空期间的新请求得到 503 stopping", async () => {

@@ -146,8 +146,13 @@ export function startServer(options: StartServerOptions): RunningServer {
         // 启动没有成功时内核已自行关闭（"stopped" 表示宿主在启动中请求了停止）。
         const reason = startup.failures.map((failure) => `${failure.source}:${failure.reason}`).join("；") || startup.status;
         const error = new Error(`后端启动失败（${startup.status}）：${reason}`);
-        if (startup.status === "failed") reportStartupFailure(error);
-        else admission.failed(error);
+        if (startup.status === "failed") {
+            reportStartupFailure(error);
+            // 紧急报告只带失败的入口与代号（内核不让错误正文进紧急通道），具体原因只在启动结果里：另写一行。
+            reportFatal("runtime.startup.causes", "启动失败的原因", startup.failures);
+        } else {
+            admission.failed(error);
+        }
         throw error;
     });
 
