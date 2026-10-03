@@ -15,6 +15,7 @@ issueId: null
 3. 后续按**外部插件开发者视角**推进 Lab → Files → Settings → World/Plot，不把第三方市场/SDK/沙箱引入当前范围。
 4. 开发者要求先等 w00003 合并 master 再创建 w00017 worktree；该条件已于 `bb688931`（Merge branch `refactor/w00003-nb-ui-adoption` into master）满足，实现 worktree 已创建，t05–t09 已按批准的实施计划执行。
 5. 2026-09-28 开发者重做需求分析并确认 [ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md)：开放第三方可执行插件；内核拥有进程，HTTP、workbench、Agent、模型等都是内置插件；第一版完全信任、公开 API 为远程形态。第 3 条的第三方范围与 Files 之后的顺序由此改为“地基 → Files 竖切 → 扩展点 → 文生图验收”。机制设计见 [t26](tasks/t26-platform-architecture-redesign/README.md)，设计稿于 2026-09-30 `accepted`；实施前先由 [t27](tasks/t27-platform-risk-gates/README.md) 验证风险门 G0、G1、G2。
+6. 2026-10-03 阶段 2 第 1 片（t42）完成后，开发者决定暂停在 `packages/neuro-book` 上的 Files 竖切，改为在同一仓库并排新建应用、从零构建；旧包只读作参照，w00017 成为长期分支、暂不合 master。新应用先只有运行时底座与 workbench 底座，Files 竖切在这个壳子上验证。详见[整体实施路径](implementation-plan.md#2026-10-03-暂停改为并排新建应用)。
 
 规范、Work、整体路径、Task 与审查证据在主线提交 `bc144b2d`。第一片（t05–t09）与第二片（t10–t13）的七项 Spec 已晋升 `implemented`；[t14 Lab 宿主边界](tasks/t14-lab-host-boundary/README.md) 将 LabShell 常驻产品命令宿主收回命令场景，直接打开 `/lab` 跳过产品配色与旧桶迁移，保持 Lab 自有检视和偏好。2026-09-26 开发者报告在 `http://localhost:3000/lab` 完成人工验证，目前未发现问题；后续 [t15 Files 设计](tasks/t15-files-explorer-design/README.md) 纳入文件切换性能重构与主页面左侧资源管理器迁入 Lab。Files 切片期间已将进程级 Session Store gate 和 Project generation owner 接入 runtime.application；产品日志器与既有数据库仍走旧入口。未执行 push、PR、合并或真实模型验收。开发者 2026-09-23 决定首两片一起合，第三片按方案 B 继续本地实施；远端操作仍需授权。
 

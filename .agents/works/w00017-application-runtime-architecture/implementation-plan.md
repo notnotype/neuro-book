@@ -142,6 +142,16 @@
 
 不在阶段 2 主线（记为后续重构）：剧情模型改造与 `chapter://`、`plot://` 提供者；`lorebook/`、`manuscript/` 等内置资产路径的批量替换；用户资产目录布局；预读策略。
 
+#### 2026-10-03 暂停：改为并排新建应用
+
+第 1 片（t42）完成后，开发者决定不再在 `packages/neuro-book` 上继续 Files 竖切，上面第 2–7 片按原路径不再执行：
+
+- 在同一仓库并排新建一个干净的应用包，从零构建；`packages/neuro-book` 保持只读，作为原始代码与行为的参照，只接受 master 同步。w00017 成为长期分支，暂不合入 master。
+- 新应用先只有**运行时底座 + workbench 底座**；Files 竖切在这个壳子上验证：工作台、一个文件资源管理器视图、Lab 中已有的编辑器组件。账户与登录作为可选的内置插件；Lab 作为只在开发模式加载的插件。现有其它功能暂不迁移，以后逐个作为插件迁回。
+- 保留为新应用的目标与依据：[项目文件底座](../../../packages/neuro-book/docs/proposals/project-file-foundation.md)设计稿与四项 `planned` 合同（`workspace.resources`、`workspace.folder-kinds`、`workspace.files`、`workbench.files-explorer`）；[t42](tasks/t42-files-baseline-research/README.md) 的测量结论与脚本。t42 发现的 store 深度订阅不在旧包修复，作为新应用资源管理器与编辑器状态的设计约束：大块状态不进入被深度监听或整体持久化的全局 store。
+- 原第 6 片（History 插件）与第 7 片（Agent 文件工具）不在壳子范围，移出本次竖切。
+- 待定：是否保留 Nuxt、后端框架、包名与目录约定。定下后写新应用的设计稿，经开发者批准再建 Task；第 2 片“资源层底座”在新应用上做 Opus 与 omp 的对照实验。
+
 ### Settings
 
 入口条件：Files已证明Project寿命；规范明确设置定义/有效值/秘密字段/写入生效语义，Profile专用设置与配置核心分开。
