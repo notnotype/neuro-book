@@ -256,6 +256,7 @@ sequenceDiagram
 13. [13 扩展控制面重构](./13-extension-control-plane-refactor.md)：联邦现有 Catalog 的描述快照、权限和激活边界。
 14. [14 双向图像边界](./14-bidirectional-image-system-boundaries.md)：分开图生文与候选文生图的 Provider/Job/asset-state。
 15. [15 重构顺序与决策门](./15-refactor-sequence-and-decision-gates.md)：供后续 Proposal 直接审阅的顺序和证据门。
+16. [16 文件服务、资源管理器与编辑器切换](./16-file-service-explorer-editor-latency.md)：回答“为什么打开项目、展开目录、切换文件不卡”，服务 Files 竖切（w00017 t42）。
 
 - `packages/neuro-book/server/agent/http.ts::useAgentHarness()` 提供 `globalThis` 单例入口，并配合构造器注入；没有 VS Code 式统一 IoC 容器。
 - `packages/neuro-book/server/agent/profiles/catalog.ts::AgentProfileCatalog`、Profile artifact、`ProfileRegistry.publish()`、`AgentToolRegistry`、Runtime Hook 已提供若干控制平面零件；没有统一 Description Registry 或插件 activation state machine。`docs/specs/README.md` 当前待实现规范为空。
