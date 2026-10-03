@@ -46,7 +46,7 @@ const RULES: readonly Rule[] = [
     },
     {
         rule: "fixed-wait",
-        pattern: /\bBun\.sleep(?:Sync)?\(|\bsetTimeout\(/u,
+        pattern: /\bBun\.sleep(?:Sync)?\(|\bsetTimeout\(|\.waitForTimeout\(/u,
         exempt: (line) => ZERO_DELAY.test(line),
         detail: "按固定时长等待：等可观察的状态（test-support 的 waitUntil）或注入时钟",
     },
@@ -112,11 +112,11 @@ export function partitionTestFindings(findings: readonly TestConventionFinding[]
     return {failures, warnings};
 }
 
-/** 仓库里已跟踪与未跟踪（未被忽略）的测试文件。 */
+/** 仓库里已跟踪与未跟踪（未被忽略）的测试文件：`bun test` 的 `*.test.ts` 与浏览器 e2e 的 `*.e2e.ts`。 */
 export function testFiles(repoRoot: string): string[] {
     return git(repoRoot, ["ls-files", "--cached", "--others", "--exclude-standard", "--", "packages", "scripts"])
         .split(/\r?\n/u)
-        .filter((path) => /\.test\.tsx?$/u.test(path) && !path.includes("/node_modules/"))
+        .filter((path) => /\.(?:test|e2e)\.tsx?$/u.test(path) && !path.includes("/node_modules/"))
         .filter((path) => !SKIPPED_ROOTS.some((root) => path.startsWith(root)))
         .sort();
 }

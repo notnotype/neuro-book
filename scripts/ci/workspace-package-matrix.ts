@@ -57,7 +57,7 @@ export const WORKSPACE_PACKAGE_CHECKS: readonly WorkspacePackageCheck[] = [
     {
         name: "neuro-book",
         directory: "packages/neuro-book",
-        commands: "bun run typecheck\nbun run test\nbun run smoke:server",
+        commands: "bun run typecheck\nbun run test\nbun run smoke:server\nbun run build:web",
     },
     {
         name: "llmlint",

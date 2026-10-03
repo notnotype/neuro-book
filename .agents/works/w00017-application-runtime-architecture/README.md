@@ -82,7 +82,7 @@ issueId: null
 | [t44](tasks/t44-governance-check-cleanup/README.md) | 第 2 步前的治理整理：`docs:check`、`governance:check` 的警告只报本次改动，删除核对冻结历史的规则与两条迁移命令，修正指向已删除路径的规则，新增 `test:affected` 按改动选包运行测试；2026-10-03 完成，治理检查主文件与测试由 4437 行减到 1148 行，两项检查失败为 0 |
 | [t45](tasks/t45-nb-runtime-package/README.md) | NeuroBook v2 第 2 步：内核 `runtime/` 抽成 `packages/nb-runtime`（零依赖，`bun test`），五份内核 Spec 的证据改指新包；主 Agent 编码，omp 审查无阻断，4 条意见已采纳；2026-10-03 完成，166 个用例通过 |
 | [t46](tasks/t46-server-host/README.md) | NeuroBook v2 第 3 步（上）：新应用的后端宿主、`nbook.http`（Bun 监听、排空、插件路由贡献点）与 `nbook.diagnostics`（JSONL 出口）；主 Agent 编码，omp 审查 2 条阻断经核实改为 1 处防御修正与 Spec 澄清，其余 5 条采纳；2026-10-03 完成，40 个用例通过 |
-| [t47](tasks/t47-web-host-dev-supervisor/README.md) | NeuroBook v2 第 3 步（下）：开发监督进程、Vite + Vue 前端、浏览器宿主与引导接口、生产静态资源；打开后是空工作台；主 Agent 编码，omp 审查；进行中 |
+| [t47](tasks/t47-web-host-dev-supervisor/README.md) | NeuroBook v2 第 3 步（下）：开发监督进程、Vite + Vue 前端、浏览器宿主与引导接口、生产静态资源；打开后是空工作台；主 Agent 编码，omp 审查；2026-10-03 实现完成，79 个合同测试与 6 个浏览器 e2e 通过，待审查 |
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 

@@ -33,7 +33,7 @@ owners:
 
 ## 输入与前置条件
 
-- 启动参数：环境变量 `NBOOK_STATE_ROOT`（状态根，必填；日志写在 `<状态根>/logs/`）、`NBOOK_HOST`（缺省 `127.0.0.1`）、`NBOOK_PORT`（缺省 3000，0 表示由系统分配）；命令行 `--stop-stdin`。参数无效时写出一行致命诊断并以 1 退出，不建立运行实例。内核不自行扫描替代根。
+- 启动参数：环境变量 `NBOOK_STATE_ROOT`（状态根，必填；日志写在 `<状态根>/logs/`）、`NBOOK_HOST`（缺省 `127.0.0.1`）、`NBOOK_PORT`（缺省 3000，0 表示由系统分配）、`NBOOK_WEB_ROOT`（前端构建产物目录，可选；相对路径按工作目录解析）；命令行 `--stop-stdin`。参数无效时写出一行致命诊断并以 1 退出，不建立运行实例。内核不自行扫描替代根。
 - 未加载鉴权插件时只允许监听回环地址（`127.0.0.1`、`::1`、`localhost`），其它地址按参数无效处理。
 - 内置插件随产品清单构建；已安装插件来自状态根（[`runtime.plugin-install`](plugin-install.md)，尚未实现）。
 - 生产与开发都运行在 Bun 上。
@@ -49,7 +49,9 @@ owners:
 5. `nbook.http` 激活后用 Bun 监听，并在标准输出打印一行 `Listening on <地址>`。端口先监听，请求等待运行实例就绪，就绪后处理；宿主自有接口 `GET /api/runtime/health` 在就绪后返回 200。
 6. 其余入口按激活事件懒激活。
 
-**请求分发：** `nbook.http` 定义贡献点 `http.routes`。插件的服务端入口提交一个处理器（通常是 Hono 应用），挂到 `/api/<插件 id>/`，处理器收到的路径已去掉这个前缀；入口停止时摘下，之后的请求得到 404，摘下前的过渡期得到 503。`/api/runtime/` 留给宿主自有接口。
+**请求分发：** `nbook.http` 定义贡献点 `http.routes`。插件的服务端入口提交一个处理器（通常是 Hono 应用），挂到 `/api/<插件 id>/`，处理器收到的路径已去掉这个前缀；入口停止时摘下，之后的请求得到 404，摘下前的过渡期得到 503。`/api/runtime/` 留给宿主自有接口：`/health`，以及浏览器引导接口 `/browser-bootstrap`（[`runtime.browser-host`](browser-host.md)）。
+
+**页面资源：** 设置了 `NBOOK_WEB_ROOT` 时，`/api/` 之外的路径由前端构建产物提供：只有 GET、HEAD；路径（含符号链接）不能越出该目录；没有扩展名的页面路径回退到 `index.html`，`/assets/` 下与带扩展名的缺失文件是 404；`/assets/` 下带内容哈希的文件长期缓存，其余（含 `index.html`）每次重新验证。页面资源同样经过准入，就绪前等待、排空期间 503。目录缺少 `index.html` 时 `nbook.http` 激活失败，即启动失败。未设置时 `/api/` 之外的路径一律 404（开发模式由 Vite 提供页面）。`/api` 命名空间里没有匹配的路径不回退到页面。
 
 **停止序列：** 任一停止来源触发后：
 
@@ -66,15 +68,16 @@ owners:
 | 主线程卡死被看门狗结束 | 76（[`runtime.stall-watchdog`](stall-watchdog.md)） |
 
 - 多个停止来源先后到达时只执行一次停止；退出码取更具体的原因：已请求 75 后再请求 1 仍以 75 退出。
-- 启动失败时先同步写出一行致命诊断（原因、失败的门禁或插件入口），再有序停止已取得的资源，然后以 1 退出；不依赖未捕获异常终止进程。等待就绪的请求在致命诊断写出时即得到 503 `startup-failed`，先于监听关闭。按清单装配插件本身失败（还没有运行实例）时同样先写出致命诊断，再以 1 退出。
+- 启动失败时先同步写出一行致命诊断（原因、失败的门禁或插件入口），再有序停止已取得的资源，然后以 1 退出；不依赖未捕获异常终止进程。内核关闭完成后再写一行 `runtime.startup.causes`，列出各失败入口的具体错误（紧急通道只带入口与代号，不带错误正文）。等待就绪的请求在致命诊断写出时即得到 503 `startup-failed`，先于监听关闭。按清单装配插件本身失败（还没有运行实例）时同样先写出致命诊断，再以 1 退出。
 - 进程级未处理异常（未捕获异常、未处理的 Promise 拒绝）：同步写出致命诊断，按停止序列有序停止，以 1 退出。
 - 关闭未完成时，进程退出前补写诊断存储中已接受的记录。
 
 **开发模式：**
 
-- 一条命令同时启动 Vite（前端热更新）与开发监督进程；Vite 把 API 请求代理到后端。
-- 监督进程以 `--stop-stdin` 启动后端子进程；后端文件变化时经停止通道按停止序列有序停止旧进程，等它退出后再启动新进程；同一时刻只有一个后端进程持有进程级资源。新进程启动失败时监督进程报告原因并等待下一次文件变化，不循环重启。
-- 监督进程收到 SIGTERM、SIGINT 时，先有序停止后端子进程，再停止 Vite 后退出。
+- 一条命令 `bun run dev` 同时启动页面服务（Vite，前端热更新）与后端子进程。页面在 `NBOOK_DEV_PORT`（缺省 3000），后端在 `NBOOK_DEV_BACKEND_PORT`（缺省 3001，整个会话固定，0 表示启动时取一个空闲端口），都只监听 `127.0.0.1`。未设置 `NBOOK_STATE_ROOT` 时状态根是 `packages/neuro-book/.dev-state/`（git 忽略，每个 worktree 一份）。
+- 页面服务把 `/api` 代理到后端，代理前先过一道门：后端启动或重启中时请求等它就绪；后端启动失败或已退出时直接返回 503 `backend-unavailable`，浏览器显示连接失败页；会话结束中返回 503 `stopping`。
+- 监督进程以 `--stop-stdin` 启动后端子进程，就绪以 `GET /api/runtime/health` 返回 200 为准（`Listening on` 只说明端口已监听）。后端文件（本包 `src/` 与后端用到的 workspace 包源码中的 `.ts`、`.json`；不含前端 `web/`、测试、`testing/` 与监督进程自身 `server/dev/`）变化时，去抖 100 ms 后经停止通道按停止序列有序停止旧进程，等它退出后再启动新进程；同一时刻只有一个后端进程持有进程级资源。重启中的新改动不追加重启。新进程启动失败或运行中退出时，监督进程报告原因并等待下一次文件变化，不循环重启。
+- 监督进程收到第一个 SIGTERM、SIGINT 时，停止监视，先有序停止后端子进程，再停止页面服务后退出：后端以 0 退出时会话以 0 结束，否则以 1。第二个信号不再等排空，直接结束后端，以 1 结束。终端 Ctrl+C 同时发给后端的 SIGINT 与停止通道汇合为同一次停止。页面端口被占用时以 1 退出，不启动后端。
 - 插件热插拔（[`runtime.plugin-hot-plug`](plugin-hot-plug.md)）实现后，改为只重载变化的插件。
 
 ## 状态与转换
@@ -132,23 +135,23 @@ Smoke：生产打包产物在 Bun 下用临时状态根运行场景 1、2、4、
 
 ## 实现合同
 
-- **实现 owner 与入口**：application-runtime。进程入口 `packages/neuro-book/src/server/main.ts`；启动参数 `src/server/config.ts`（`readServerConfig(argv, env, cwd)`，失败抛带 `code` 的 `ServerConfigError`）；宿主适配器 `src/server/host.ts`（`startServerHost(options)` 返回 `ServerHost`：`requestStop(source)`、`stopSource`、`stopped`、`beforeStopError`、`detached`；选项含 `signals`、`process`、`stopInput`、`beforeStop`、`onFatal`、`emergency`）；装配 `src/server/start.ts`（`startServer({config, plugins?, process?, signals?, stopInput?, clock?, onListening?, writeFatal?})` 返回 `RunningServer`：`ready`、`stopped`（含退出码）、`url`、`requestStop(source)`；退出码在停止结束后由启动结果、未处理异常与停止中的失败一次算出；插件装配失败时写出致命诊断后抛 `ServerAssemblyError`）；后端插件装配 `src/server/plugins.ts`（按产品清单取工厂，清单有后端入口而无工厂时失败）。HTTP 准入与排空在 `src/plugins/http/server/admission.ts`，分发与 `http.routes` 接收在 `dispatch.ts`，贡献点合同在 `contracts.ts`，插件定义在 `plugin.ts`。
+- **实现 owner 与入口**：application-runtime。进程入口 `packages/neuro-book/src/server/main.ts`；启动参数 `src/server/config.ts`（`readServerConfig(argv, env, cwd)`，失败抛带 `code` 的 `ServerConfigError`）；宿主适配器 `src/server/host.ts`（`startServerHost(options)` 返回 `ServerHost`：`requestStop(source)`、`stopSource`、`stopped`、`beforeStopError`、`detached`；选项含 `signals`、`process`、`stopInput`、`beforeStop`、`onFatal`、`emergency`）；装配 `src/server/start.ts`（`startServer({config, plugins?, process?, signals?, stopInput?, clock?, onListening?, writeFatal?})` 返回 `RunningServer`：`ready`、`stopped`（含退出码）、`url`、`requestStop(source)`；退出码在停止结束后由启动结果、未处理异常与停止中的失败一次算出；插件装配失败时写出致命诊断后抛 `ServerAssemblyError`）；后端插件装配 `src/server/plugins.ts`（按产品清单取工厂，清单有后端入口而无工厂时失败；向 `nbook.http` 传入引导接口与 `NBOOK_WEB_ROOT`）。HTTP 准入与排空在 `src/plugins/http/server/admission.ts`，分发与 `http.routes` 接收在 `dispatch.ts`，贡献点合同在 `contracts.ts`，页面资源在 `static.ts`（`openStaticFiles(root)`），插件定义在 `plugin.ts`（`createHttpPlugin` 选项含 `hostRoutes`、`staticRoot`）。开发模式在 `src/server/dev/`：`main.ts`（入口）、`run.ts`（`runDev(...)`：会话与信号）、`supervisor.ts`（`createDevSupervisor({launch, clock, onEvent, debounceMs?})`：后端状态 `starting | running | restarting | waiting | stopping | stopped` 与代理前的门 `admit()`）、`backend-process.ts`（`spawnBackend`）、`frontend.ts`（Vite 中间件模式与自有 HTTP 服务）、`watch.ts`（监视根与后端文件判定）、`config.ts`。
 - **关键不变量**：
   - 一个进程只有一个产品运行实例；进程信号、未处理异常监听与停止通道只由宿主挂接一次，停止结算后移除。
   - 启动失败之外的停止来源经 `ServerHost.requestStop` 汇合，只执行一次；进程级未处理异常先交 `onFatal` 记录，再由宿主以 `fatal:<kind>` 请求停止。`beforeStop`（HTTP 排空）先于内核停止，失败仍继续关闭并记入 `beforeStopError`。启动失败由内核自行关闭，宿主随之结算并移除监听。退出码按 75 > 1 > 0 取值，退出码在启动结果确定后才结算。
   - `nbook.http` 只依赖 `nbook.diagnostics`；就绪前请求等待，启动失败与排空期间返回 503，事件流经 `registerEventStream` 登记后不计入等待、排空开始即关闭。插件处理器每次请求经 `implementation()` 取得，入口停止后不再被调用。
   - 测试插件只经 `startServer({plugins})` 注入，产品清单与产品代码不含测试分支。
-- **合同测试**：`src/server/server.test.ts`（真实子进程：启动、标准输入与 SIGTERM 停止、在途请求、启动失败、关闭失败、未捕获异常、未处理的 Promise 拒绝、标准输入结束、非回环地址；同进程：排空超时、启动失败时等待就绪的请求得到 503、未处理异常汇合为一次停止且停止后监听全部移除、插件装配失败）、`src/server/config.test.ts`、`src/plugins/http/server/admission.test.ts`、`src/plugins/http/server/dispatch.test.ts`。
-- **实际 smoke**：`bun run smoke:server`（先打包再运行场景 1、2、4、11），检查未执行时以非零退出。
+- **合同测试**：`src/server/server.test.ts`（真实子进程：启动、标准输入与 SIGTERM 停止、在途请求、启动失败、关闭失败、未捕获异常、未处理的 Promise 拒绝、标准输入结束、非回环地址；同进程：排空超时、启动失败时等待就绪的请求得到 503、未处理异常汇合为一次停止且停止后监听全部移除、插件装配失败、页面目录缺少 index.html）、`src/server/config.test.ts`、`src/plugins/http/server/admission.test.ts`、`src/plugins/http/server/dispatch.test.ts`、`src/plugins/http/server/static.test.ts`；开发模式 `src/server/dev/supervisor.test.ts`（真实后端子进程：场景 7 的有序重启、去抖、启动失败不循环、运行中退出、门）、`src/server/dev/run.test.ts`（真实会话子进程：场景 8 的停止顺序、终端 Ctrl+C、第二个信号、页面端口被占用）、`src/server/dev/watch.test.ts`、`src/server/dev/config.test.ts`。
+- **实际 smoke**：`bun run smoke:server`（先打包再运行场景 1、2、4、11 与页面资源），检查未执行时以非零退出；开发模式由 `e2e/dev.e2e.ts`（`bun run test:e2e`）以真实的 `bun run dev` 入口、本机 Chrome 运行场景 7、8。
 
 ## 证据
 
 - 批准目标：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P6 与 P11（2026-09-30 开发者同意生命周期部分按验证证据写入）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条；v2 的宿主与开发模式见 [NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 方案第 4 节（2026-10-03 `accepted`）与 [ADR 0023](../../adr/0023-v2-frontend-backend-stack.md)。
 - 验证依据：[G0 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g0/REPORT.md)。
-- 实现入口：[`main.ts`](../../../packages/neuro-book/src/server/main.ts)、[`start.ts`](../../../packages/neuro-book/src/server/start.ts)、[`host.ts`](../../../packages/neuro-book/src/server/host.ts)、[`http 插件`](../../../packages/neuro-book/src/plugins/http/server/plugin.ts)
-- 合同测试：[`server.test.ts`](../../../packages/neuro-book/src/server/server.test.ts)、[`config.test.ts`](../../../packages/neuro-book/src/server/config.test.ts)、[`admission.test.ts`](../../../packages/neuro-book/src/plugins/http/server/admission.test.ts)、[`dispatch.test.ts`](../../../packages/neuro-book/src/plugins/http/server/dispatch.test.ts)
-- Smoke：[`smoke-server.ts`](../../../packages/neuro-book/scripts/smoke-server.ts)（`bun run smoke:server`）
-- 实现与验证：旧应用阶段 1 见 w00017 [t34](../../../.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/README.md)、[t37](../../../.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/README.md)、[t38](../../../.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/README.md)、[t40](../../../.agents/works/w00017-application-runtime-architecture/tasks/t40-phase1-closing/README.md)（2026-10-02 开发者批准晋升 `implemented`）；v2 后端宿主见 [t46](../../../.agents/works/w00017-application-runtime-architecture/tasks/t46-server-host/README.md)。
+- 实现入口：[`main.ts`](../../../packages/neuro-book/src/server/main.ts)、[`start.ts`](../../../packages/neuro-book/src/server/start.ts)、[`host.ts`](../../../packages/neuro-book/src/server/host.ts)、[`http 插件`](../../../packages/neuro-book/src/plugins/http/server/plugin.ts)、开发模式 [`run.ts`](../../../packages/neuro-book/src/server/dev/run.ts) 与 [`supervisor.ts`](../../../packages/neuro-book/src/server/dev/supervisor.ts)
+- 合同测试：[`server.test.ts`](../../../packages/neuro-book/src/server/server.test.ts)、[`config.test.ts`](../../../packages/neuro-book/src/server/config.test.ts)、[`admission.test.ts`](../../../packages/neuro-book/src/plugins/http/server/admission.test.ts)、[`dispatch.test.ts`](../../../packages/neuro-book/src/plugins/http/server/dispatch.test.ts)、[`static.test.ts`](../../../packages/neuro-book/src/plugins/http/server/static.test.ts)、[`supervisor.test.ts`](../../../packages/neuro-book/src/server/dev/supervisor.test.ts)、[`run.test.ts`](../../../packages/neuro-book/src/server/dev/run.test.ts)
+- Smoke：[`smoke-server.ts`](../../../packages/neuro-book/scripts/smoke-server.ts)（`bun run smoke:server`）、[`dev.e2e.ts`](../../../packages/neuro-book/e2e/dev.e2e.ts)（`bun run test:e2e`）
+- 实现与验证：旧应用阶段 1 见 w00017 [t34](../../../.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/README.md)、[t37](../../../.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/README.md)、[t38](../../../.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/README.md)、[t40](../../../.agents/works/w00017-application-runtime-architecture/tasks/t40-phase1-closing/README.md)（2026-10-02 开发者批准晋升 `implemented`）；v2 后端宿主见 [t46](../../../.agents/works/w00017-application-runtime-architecture/tasks/t46-server-host/README.md)，开发模式与页面资源见 [t47](../../../.agents/works/w00017-application-runtime-architecture/tasks/t47-web-host-dev-supervisor/README.md)。
 - 已知限制：
-  - 开发模式（场景 7、8）随下一个 Task 在新应用实现；租约失效（场景 5）随 Session Store 插件实现；退出码 76 随看门狗实现。
-  - Windows 上未实测；POSIX 信号路径由 Linux 上的真实子进程测试覆盖。
+  - 租约失效（场景 5）随 Session Store 插件实现；退出码 76 随看门狗实现。
+  - Windows 上未实测（含开发模式的 Ctrl+C 与文件监视）；POSIX 信号路径由 Linux 上的真实子进程测试覆盖。

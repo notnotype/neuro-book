@@ -1,0 +1,73 @@
+$ bun run test:affected --typecheck 2>&1 | grep -E '^==>|全部通过|^失败|^  [a-z-]+：|^ *[0-9]+ (pass|fail)$|Tests |^Ran '
+==> file-snapshot-cache：bun run typecheck
+==> file-snapshot-cache：bun run test
+      Tests  44 passed (44)
+==> llmlint：bun run typecheck
+==> llmlint：bun run test
+      Tests  119 passed (119)
+==> nb-harness：bun run typecheck
+==> nb-harness：bun run test
+ 18 pass
+ 0 fail
+Ran 20 tests across 4 files. [282.00ms]
+==> nb-history：bun run typecheck
+==> nb-history：bun run test
+ 49 pass
+ 0 fail
+Ran 49 tests across 11 files. [14.62s]
+==> nb-memory：bun run typecheck
+==> nb-memory：bun run test
+ 86 pass
+ 0 fail
+Ran 86 tests across 7 files. [149.00ms]
+==> nb-profile：bun run typecheck
+==> nb-profile：bun run test
+ 11 pass
+ 0 fail
+Ran 11 tests across 2 files. [20.00ms]
+==> nb-runtime：bun run typecheck
+==> nb-runtime：bun run test
+ 166 pass
+ 0 fail
+Ran 166 tests across 10 files. [200.00ms]
+==> nb-session：bun run typecheck
+==> nb-session：bun run test
+ 14 pass
+ 0 fail
+Ran 14 tests across 1 file. [21.00ms]
+==> nb-ui：bun run typecheck
+==> nb-ui：bun run test
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  5 failed | 517 passed (522)
+==> nb-workflow：bun run test
+ 103 pass
+ 0 fail
+Ran 103 tests across 13 files. [1345.00ms]
+==> neuro-agent-harness：bun run typecheck
+==> neuro-agent-harness：bun run test
+ 527 pass
+ 0 fail
+Ran 529 tests across 94 files. [38.39s]
+==> neuro-book：bun run typecheck
+==> neuro-book：bun run test
+ 79 pass
+ 0 fail
+Ran 79 tests across 16 files. [4.34s]
+==> neuro-book-contracts：bun run typecheck
+==> neuro-book-contracts：bun run test
+      Tests  32 passed (32)
+==> neuro-book-test-support：bun run typecheck
+==> neuro-book-test-support：bun run test
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+==> owned-process：bun run typecheck
+==> owned-process：bun run test
+      Tests  15 passed | 3 skipped (18)
+==> scripts：bun x tsc --noEmit -p scripts/tsconfig.json
+==> scripts：bun x vitest run --config scripts/vitest.config.ts
+      Tests  94 passed (94)
+失败 4 项：
+  llmlint：bun run typecheck 退出码 2
+  llmlint：bun run test 退出码 1
+  nb-ui：bun run test 退出码 1
+  neuro-book-test-support：bun run test 退出码 1

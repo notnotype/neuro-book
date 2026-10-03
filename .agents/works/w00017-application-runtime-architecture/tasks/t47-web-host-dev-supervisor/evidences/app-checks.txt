@@ -1,0 +1,8 @@
+$ cd packages/neuro-book && bun run typecheck
+$ tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json
+exit 0
+
+$ bun test 2>&1 | grep -E "^\(pass\)|^\(fail\)| pass$| fail$|^Ran"
+ 79 pass
+ 0 fail
+Ran 79 tests across 16 files. [4.47s]

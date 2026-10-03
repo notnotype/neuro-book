@@ -19,6 +19,7 @@ describe("测试文件规则", () => {
             'test.skip("x", () => {});',
             'describe.todo("x");',
             "expect(tree).toMatchSnapshot();",
+            "await page.waitForTimeout(500);",
         ].join("\n");
         expect(rules(source)).toEqual([
             "1:module-mock",
@@ -30,6 +31,7 @@ describe("测试文件规则", () => {
             "7:focus-or-skip",
             "8:focus-or-skip",
             "9:snapshot",
+            "10:fixed-wait",
         ]);
     });
 

@@ -11,6 +11,7 @@
     "scripts": {
         "dev": "bun src/server/dev/main.ts",
         "test": "bun test",
+        "test:e2e": "bun run build && playwright test -c e2e/playwright.config.ts",
         "typecheck": "tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json",
         "build": "bun run build:server && bun run build:web",
         "build:server": "bun build src/server/main.ts --target bun --outdir dist/server",
@@ -27,6 +28,7 @@
     },
     "devDependencies": {
         "@notnotype/neuro-book-test-support": "workspace:*",
+        "@playwright/test": "^1.62.1",
         "@types/bun": "^1.3.14",
         "@vitejs/plugin-vue": "^6.0.7",
         "typescript": "^6.0.3",

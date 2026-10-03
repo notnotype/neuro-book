@@ -1,0 +1,30 @@
+$ cd packages/neuro-book && bun run test:e2e
+$ bun run build && playwright test -c e2e/playwright.config.ts
+$ bun run build:server && bun run build:web
+$ bun build src/server/main.ts --target bun --outdir dist/server
+Bundled 447 modules in 18ms
+
+  main.js  0.28 MB  (entry point)
+
+$ vite build
+vite v8.1.4 building client environment for production...
+transforming...✓ 705 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/web/index.html                   0.64 kB │ gzip:  0.38 kB
+dist/web/assets/index-CtaPr9hh.css    0.79 kB │ gzip:  0.43 kB
+dist/web/assets/index-DtXudkR5.js   228.28 kB │ gzip: 73.12 kB
+
+✓ built in 409ms
+
+Running 6 tests using 1 worker
+
+  ✓  1 e2e/browser-host.e2e.ts:31:1 › 首屏是空工作台：窗口运行实例建立、工作台激活之后才挂载界面（场景 1） (322ms)
+  ✓  2 e2e/browser-host.e2e.ts:51:1 › 引导请求失败：带重试的连接失败页，没有半个工作台；恢复后重试进入工作台（场景 2） (316ms)
+  ✓  3 e2e/browser-host.e2e.ts:63:1 › 服务端返回 503（例如正在关闭）：同样是可重试的连接失败，原因带状态码与错误码 (212ms)
+  ✓  4 e2e/browser-host.e2e.ts:72:1 › 服务端协议版本不同：提示刷新页面，不给原地重试 (204ms)
+  ✓  5 e2e/browser-host.e2e.ts:81:1 › 两个窗口互相独立：关闭一个，另一个照常可用、刷新后重新引导，服务端不停止（场景 4） (377ms)
+  ✓  6 e2e/dev.e2e.ts:23:1 › 开发命令：页面是空工作台；改后端文件后有序重启、页面重新引导成功；SIGTERM 先停后端再关页面，以 0 退出 (3.7s)
+
+  6 passed (6.1s)
+exit 0

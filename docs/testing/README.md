@@ -19,13 +19,13 @@
 
 **覆盖率用来找缺口，不设门槛。** 看哪些失败路径没测、为什么没测。Bun 只报函数与行覆盖率，子进程里执行的代码也不计入，数字会低估进程级测试。
 
-**机检规则。** `governance:check` 检查测试文件（`scripts/ci/test-conventions.ts`）：`packages/neuro-book` 与 `packages/nb-runtime` 违反即失败，其它包给警告。
+**机检规则。** `governance:check` 检查测试文件（`*.test.ts` 与浏览器 e2e 的 `*.e2e.ts`，`scripts/ci/test-conventions.ts`）：`packages/neuro-book` 与 `packages/nb-runtime` 违反即失败，其它包给警告。
 
 | 规则 | 拦截 | 代替做法 |
 | --- | --- | --- |
 | `module-mock` | `mock.module`、`vi.mock`、`jest.mock` | 真实实现，或对过契约的替身 |
 | `spy` | `spyOn` | 断言可观察结果 |
-| `fixed-wait` | 非零延迟的 `Bun.sleep`、`setTimeout` | `waitUntil` 或注入时钟 |
+| `fixed-wait` | 非零延迟的 `Bun.sleep`、`setTimeout`，Playwright 的 `waitForTimeout` | `waitUntil` 或注入时钟；e2e 用 Playwright 的自动等待与 `expect.poll` |
 | `focus-or-skip` | `it/test/describe` 的 `.only`、`.skip`、`.todo` | 按条件跳过用 `skipIf`、`runIf` |
 | `snapshot` | 快照断言 | 断言具体字段 |
 | `llm-credential` | `*.llm.test.ts` 以外读取模型凭据 | 放进 `*.llm.test.ts` |
@@ -44,6 +44,8 @@
 | 浏览器 E2E | 真浏览器，从用户入口到可见结果 | `test:e2e` | Task 验收、CI |
 | 真实模型 | 调用真实模型，见下一节 | `test:llm` | 显式运行，按受影响范围增量；CI 定期 |
 | 全量 | 以上全部 | — | CI 定期 |
+
+浏览器 E2E 由 Playwright 在 Node 中运行（Bun 下启动浏览器时 CDP 握手会超时），用本机安装的 Chrome（`channel: "chrome"`），不下载 Playwright 自带的浏览器；文件命名 `*.e2e.ts`，与 `bun test` 的 `*.test.ts` 分开。被测服务由用例自己启动与停止，以便断言停止顺序与退出码。
 
 快速类单个测试的预算是 200 毫秒。`test:affected` 运行结束时列出超出预算的测试；超出的原则上改快（多半是固定等待或不必要的大数据），确实需要慢的（如性能基准）写明原因。
 

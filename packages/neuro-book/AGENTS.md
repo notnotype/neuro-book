@@ -22,14 +22,21 @@
 - 记录诊断用 `@notnotype/nb-runtime/diagnostics` 的 `diagnosticsKey` 服务，不直接写文件或另建日志器。
 - 测试需要额外插件时经 `startServer({plugins})` 注入（见 `src/server/testing/`），产品代码不加测试分支。
 
+## 前端
+
+- 窗口启动、引导与失败页的合同见 [`runtime.browser-host`](../../docs/specs/runtime/browser-host.md)。插件的浏览器入口在 `src/web/plugins.ts` 登记工厂；窗口只登记引导集合里出现的插件。
+- 浏览器基线：Chrome、Edge 119，Firefox 124，Safari 17.4（`vite.config.ts` 的 `BROWSER_TARGETS`）；不使用基线之外的浏览器 API。
+- `bun test` 不能导入 `.vue`：需要在合同测试里加载的组件（例如工作台交出的根界面）用 `defineComponent` 与渲染函数写。
+- `vite.config.ts` 关闭了依赖发现、只预构建 `vue`（依赖发现进行中时 Vite 的 `close()` 不结算，开发命令停止时会卡住）；新增需要预构建的依赖时加进 `optimizeDeps.include`。
+
 ## 命令
 
 ```text
-bun run typecheck        # 类型检查
+bun run dev              # 开发模式：页面 http://127.0.0.1:3000/，后端改动后有序重启；状态根缺省 .dev-state/
+bun run typecheck        # 类型检查（后端 tsc、前端 vue-tsc）
 bun run test             # 合同测试（含真实子进程）
-bun run build:server     # 打包后端到 dist/server
+bun run test:e2e         # 构建后用本机 Chrome 跑浏览器验收（Playwright 由 Node 运行）
+bun run build            # 打包后端到 dist/server、前端到 dist/web
 bun run smoke:server     # 打包后对产物运行进程级 smoke
-NBOOK_STATE_ROOT=<目录> bun run start   # 运行打包产物
+NBOOK_STATE_ROOT=<目录> bun run start   # 运行打包产物（同时提供页面）
 ```
-
-开发模式（Vite 与开发监督进程）与前端随第 3 步下半建立。

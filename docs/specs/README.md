@@ -101,8 +101,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | 显式服务装配 | [`runtime/services.md`](runtime/services.md) | `runtime.services`；唯一 provider、依赖与寿命检查、并发初始化共享与失败稳定；第一切片闭合；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
 | 插件描述与激活 | [`runtime/plugins.md`](runtime/plugins.md) | `runtime.plugins`；描述目录、入口/代次、贡献事务、局部失败与普通关闭；不含热卸载；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
 | 环境适配与应用门禁 | [`runtime/application.md`](runtime/application.md) | `runtime.application`；浏览器/后端环境适配、启动门禁、接纳、有界停止与实例身份；受控装配入口闭合，产品启动链已迁入（w00017 阶段 1）；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
-| 运行时诊断 | [`runtime/diagnostics.md`](runtime/diagnostics.md) | `runtime.diagnostics`；有界记录与查询、脱敏、早期缓冲补写、日志位置授予与冲突降级、关闭未完成与显式恢复；第二切片由合同测试与组合 smoke 闭合，产品日志器尚未迁入位置授予；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
-| 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | `runtime.server-host`；内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式重启与停止；后端宿主已在新应用由合同测试与 `smoke:server` 闭合，看门狗（76）属 `runtime.stall-watchdog`；**开发模式实现迁移中** |
+| 运行时诊断 | [`runtime/diagnostics.md`](runtime/diagnostics.md) | `runtime.diagnostics`；有界记录与查询、脱敏、早期缓冲补写、日志位置授予与冲突降级、关闭未完成与显式恢复；第二切片由合同测试与组合 smoke 闭合；内核在 `packages/nb-runtime`，前后端出口在新应用；**组合 smoke 仍是旧应用的 `--services`** |
+| 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | `runtime.server-host`；内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式重启与停止；后端宿主与开发模式已在新应用由合同测试、`smoke:server` 与 e2e 闭合，看门狗（76）属 `runtime.stall-watchdog` |
 | 平台文件 | [`platform/files.md`](platform/files.md) | `platform.files`；受根约束 I/O、授予隔离、watch/锁与关闭门禁；不是业务文件树服务；第二切片闭合；**实现迁移中** |
 | SQLite机制 | [`platform/sqlite.md`](platform/sqlite.md) | `platform.sqlite`；具名资源owner、连接借用、单库事务、代次与关闭；不自动迁移；第二切片闭合，既有数据库尚未迁入；**实现迁移中** |
 
@@ -119,7 +119,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | 资源寻址与文件服务 | [`workspace/resources.md`](workspace/resources.md) | `workspace.resources`；`方案://路径` 寻址、提供者注册与能力声明、写入来源与变更事件、bash 的真实路径规则；首批 `project://`、`user://`、`tmp://`、`local://`、`docs://`；阶段 2 实施 |
 | 文件夹类型与清单 | [`workspace/folder-kinds.md`](workspace/folder-kinds.md) | `workspace.folder-kinds`；普通、内容（`*.content`）、活页夹（`*.binder`）三类文件夹，后缀识别、XML 清单、未列入与缺失处理、渲染贡献点；阶段 2 实施 |
 | 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | `runtime.plugin-manifest`；清单格式、按入口声明依赖的服务、同一运行位置解析、受阻推导与启停顺序；阶段 1 起实施 |
-| 浏览器宿主 | [`runtime/browser-host.md`](runtime/browser-host.md) | `runtime.browser-host`；挂载前建立窗口运行实例、引导接口、多窗口隔离、可分离边界；阶段 1 实施 |
+| 浏览器宿主 | [`runtime/browser-host.md`](runtime/browser-host.md) | `runtime.browser-host`；挂载前建立窗口运行实例、引导接口、多窗口隔离、可分离边界；新应用实现启动序列第 1–4 步与场景 1、2、4，懒激活、事件流与热插拔未实现 |
 | 插件通道与 HTTP 入口 | [`runtime/plugin-channel.md`](runtime/plugin-channel.md) | `runtime.plugin-channel`；合同端点、订阅与重连、错误格式、版本校验、路由贡献；流的传输另立；阶段 1、2 实施 |
 | 端点收集与 API 文档 | [`runtime/api-docs.md`](runtime/api-docs.md) | `runtime.api-docs`；端点声明收集、OpenAPI 生成与展示；阶段 2 实施 |
 | 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | `runtime.plugin-hot-plug`；热插拔三档、引用账本与转发器、三步停止、在途调用结算；阶段 3 实施 |

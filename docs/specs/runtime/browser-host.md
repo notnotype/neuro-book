@@ -15,39 +15,40 @@ owners:
 
 明确不承诺：
 
-- 第一版只支持同源部署（Desktop、Manager、容器）；外壳独立部署（例如 CDN）不是第一版目标。
+- 第一版只支持同源部署（后端同时提供页面与接口）；外壳独立部署（例如 CDN）不是第一版目标。
 - 不定义第三方浏览器代码的装载与共享模块表（[`runtime.plugin-code-loading`](plugin-code-loading.md)），不定义插件通道（[`runtime.plugin-channel`](plugin-channel.md)）。
 - 不定义 workbench 的布局算法与视图实例模型，它们沿用 View Host 设计与 workbench 的能力 Spec。
 - 浏览器卸载页面时不保证任何异步清理完成。
 
 ## 术语与参与者
 
-- **外壳**：`index.html`、Nuxt 入口与框架插件。
-- **宿主 client plugin**：在根组件挂载前建立浏览器运行实例的 Nuxt client plugin。
-- **引导接口**：窗口启动时向服务端取有效插件集合与协议版本的宿主内部接口，需要登录。
+- **外壳**：`index.html` 与前端入口（Vite 构建）。内置插件的浏览器入口随外壳一起构建。
+- **前端入口**：`packages/neuro-book/src/web/main.ts`，在挂载根组件前建立窗口运行实例。
+- **引导接口**：窗口启动时向服务端取有效插件集合与协议版本的宿主内部接口。加载鉴权插件后需要登录；壳子阶段不加载鉴权插件，服务端只监听本机（[`runtime.server-host`](server-host.md)）。
 - **窗口运行实例**：每个窗口一个，彼此隔离；关闭窗口即结束该实例。
 - **连接对象**：窗口与服务端之间唯一的通信出口，承载引导接口、插件通道与事件流；服务端地址可配置。
+- **宿主页**：窗口还没有可挂载的工作台时显示的页面：启动中、连接失败、版本不一致或启动失败。
 
 ## 输入与前置条件
 
-- 用户已登录；未登录时沿用现有的登录跳转。
+- 加载鉴权插件时用户已登录，未登录时交给鉴权插件的登录流程（鉴权插件尚未实现）。
 - 服务端运行实例已就绪（请求在就绪前等待，[`runtime.server-host`](server-host.md)）。
-- 内置浏览器插件随外壳构建；第三方浏览器入口来自服务端的有效插件集合。
+- 浏览器不低于基线：Chrome、Edge 119，Firefox 124，Safari 17.4。基线由内核用到的 `Promise.withResolvers`、`AbortSignal.any` 决定，前端构建目标与它一致。
 
 ## 输出与可观察行为
 
 **启动序列：**
 
-1. 加载外壳：`index.html`、Nuxt 入口与框架插件。
-2. 宿主 client plugin 在根组件挂载前调用引导接口，取得有效插件集合（每个插件的 id、版本与清单）、集合修订号与协议版本。失败时显示连接失败页并提供重试，不渲染半个工作台；协议版本不兼容时提示刷新或更新。
-3. 建立窗口运行实例：登记内置浏览器插件与第三方插件的浏览器入口，只登记清单；插件集合以服务端为准，浏览器不自行增减。建立宿主模块表。
-4. 激活 `nbook.workbench`，恢复布局，挂载根组件。
+1. 加载外壳：`index.html` 与前端入口；脚本运行前页面只有静态的“正在启动”占位。
+2. 前端入口在挂载根组件前调用引导接口，取得有效插件集合（每个插件的 id 与版本）、集合修订号与协议版本。请求失败时显示带重试的连接失败页，不渲染半个工作台；协议版本不同、或服务端启用了本外壳没有的插件或版本时提示刷新；响应结构不符合协议或缺少窗口必需的插件（`nbook.diagnostics`、`nbook.workbench`）时显示启动失败页。
+3. 建立窗口运行实例：按集合登记本外壳构建进去的浏览器插件，插件集合以服务端为准，浏览器不自行增减。内置插件的浏览器定义随外壳构建，引导只给 id 与版本；第三方插件的浏览器入口随 [`runtime.plugin-code-loading`](plugin-code-loading.md) 加入，届时引导响应加回清单并建立宿主模块表。
+4. 激活 `nbook.workbench`，解析它交出的根界面，恢复布局，挂载根组件。
 5. 可见视图触发 `onView`，激活其所属入口；不可见视图的入口不加载。
 6. 建立本窗口的事件流。事件流建立（含重连）时，窗口核对服务端发来的集合修订号，与引导时取得的不同就重新取得集合并对齐，保证引导与事件流之间发生的变化不会丢失（[`runtime.plugin-channel`](plugin-channel.md)）；此后的插件集合变化经事件流到达，按 [`runtime.plugin-hot-plug`](plugin-hot-plug.md) 同步。
 
 **窗口关闭：** 按依赖逆序停止本窗口的入口，尽力而为，不等待异步完成；服务端随事件流断开结束本窗口的连接作用域与订阅。
 
-**失败呈现：** 本窗口中某个浏览器入口激活失败时，只影响本窗口；插件管理把各窗口的失败与服务端状态分开显示。视图原位显示失败原因，workbench 保留其布局项。
+**失败呈现：** 宿主页按原因给出动作：连接失败可以原地重试；版本不一致与启动失败要刷新页面才可能恢复（取得与服务端同一次构建的外壳），只给刷新；页面附带原因。本窗口中某个浏览器入口激活失败时，只影响本窗口；插件管理把各窗口的失败与服务端状态分开显示。视图原位显示失败原因，workbench 保留其布局项。
 
 **可分离的三条边界：**
 
@@ -59,8 +60,10 @@ owners:
 
 | 当前 | 事件 | 结果 |
 |---|---|---|
-| 外壳已加载 | 引导成功 | 建立运行实例，激活 workbench 后挂载界面 |
-| 外壳已加载 | 引导失败 | 连接失败页；重试成功后继续启动序列 |
+| 外壳已加载 | 引导成功，工作台激活并交出根界面 | 挂载界面 |
+| 外壳已加载 | 引导请求失败 | 连接失败页；重试成功后继续启动序列 |
+| 外壳已加载 | 协议版本或插件版本不一致 | 版本不一致页，提示刷新 |
+| 外壳已加载 | 响应结构错误、缺少必需插件或必需入口激活失败 | 启动失败页附原因，不挂载根组件 |
 | 可用 | 插件集合变化 | 按依赖逆序停止、按依赖顺序启动受影响的浏览器入口 |
 | 可用 | 事件流断开 | 标注离线；重连后按当时的插件集合对齐并重建订阅 |
 | 可用 | 窗口关闭或刷新 | 尽力停止入口；服务端结束本窗口的连接作用域 |
@@ -74,8 +77,9 @@ owners:
 
 ## 失败与恢复
 
-- 引导接口失败：连接失败页，重试；不渲染部分界面。
-- 启动必需内置插件的浏览器入口（例如 `nbook.workbench`）在本窗口激活失败：本窗口显示启动失败页并附原因，不挂载根组件；服务端与其它窗口不受影响。
+- 引导接口失败（网络失败、非 2xx、正文不是 JSON）：连接失败页，原因带状态码与服务端错误码，原地重试；不渲染部分界面。
+- 协议版本或插件版本不一致：版本不一致页，刷新页面。
+- 启动必需的浏览器入口（例如 `nbook.workbench`）在本窗口激活失败：本窗口显示启动失败页并附原因，不挂载根组件；服务端与其它窗口不受影响。
 - 单个浏览器入口失败：只影响该入口；其它入口与窗口照常。
 - 事件流长时间无法重连：界面显示离线状态，用户操作经插件通道调用时返回错误。
 - 页面被强制卸载：不保证清理；服务端以事件流断开为准。
@@ -83,9 +87,9 @@ owners:
 ## 边界与兼容
 
 - **owner**：application-runtime（浏览器宿主适配器）；内核合同沿用 [`runtime.application`](application.md)。
-- **迁移**：主页面不再创建运行时与注册命令；切换时删除旧的页面内创建路径与 `product-browser-runtime.ts` 的接线，不保留两套。
-- **安全**：引导接口与插件文件需要登录；浏览器不获得服务端路径、数据库对象与凭据。
-- **兼容**：引导接口与事件流是宿主内部协议，以协议版本协商；外壳与服务端版本不一致时提示刷新或更新。
+- **迁移**：v2 由前端入口建立窗口运行实例，页面组件不创建运行时；旧应用的 Nuxt client plugin 与页面内创建路径不迁移。
+- **安全**：加载鉴权插件后，引导接口与插件文件需要登录；浏览器不获得服务端路径、数据库对象与凭据（引导响应只有协议版本、修订号与插件 id、版本）。
+- **兼容**：引导接口与事件流是宿主内部协议，以协议版本协商；外壳与服务端版本不一致时提示刷新。浏览器基线见输入与前置条件。
 
 ## 验收与 Smoke
 
@@ -97,10 +101,21 @@ owners:
 6. **离线与重连。** 断开事件流后窗口标注离线；断开期间服务端禁用一个插件，重连后窗口发现修订号变化并移除该插件，订阅恢复。
 7. **引导与事件流之间的变化。** 引导完成后、事件流建立前服务端启用一个插件，事件流建立后窗口出现该插件的视图。
 
-Smoke：真实服务端与 Chromium 两个窗口运行场景 1 至 7；Electron 与 WebKitGTK 运行场景 1、3。
+Smoke：生产构建的服务端与本机 Chrome 运行场景 1、2、4 与协议不兼容（`bun run test:e2e`）；场景 3、5、6、7 随懒激活、事件流与插件热插拔实现后补上。Electron 与 WebKitGTK 随桌面版删除，不再列入。
+
+## 实现合同
+
+- **实现 owner 与入口**：application-runtime。前端入口 `packages/neuro-book/src/web/main.ts`（先 `await browserWindow.start()`，再 `createApp(App).mount()`）；窗口 `src/web/host/window.ts`（`createBrowserWindow({connection, page, console, builtin?, factories?}) → BrowserWindow {state, onChange(listener), start(), stop()}`，状态 `idle | starting | ready{instanceId, root} | connection-failed | incompatible | startup-failed{reason} | closed`）；浏览器适配器 `src/web/host/browser-host.ts`（见 [`runtime.application`](application.md)）；连接对象 `src/web/host/connection.ts`（`createConnection(baseUrl)`，失败抛带 `status` 的 `ConnectionError`）；浏览器插件装配 `src/web/plugins.ts`；界面 `src/web/App.vue`、`FailurePage.vue`（可观察标记 `data-workbench-root`、`data-window-state`、`data-window-instance`、`data-browser-host-status`）。协议 `src/shared/browser-bootstrap.ts`（`BROWSER_BOOTSTRAP_PATH = /api/runtime/browser-bootstrap`、`BROWSER_PROTOCOL_VERSION = 1`、TypeBox 的 `BrowserBootstrapSchema`）；后端 `src/server/browser-bootstrap.ts`（`browserBootstrap(plugins)`、`createBrowserBootstrapRoute(plugins)`，按产品清单列出有浏览器运行位置的插件）。工作台交出根界面的服务键 `src/plugins/workbench/web/contracts.ts` 的 `workbenchRootKey`。
+- **关键不变量**：
+  - 协议版本先于结构校验：新版本服务端可能改了结构，此时应提示刷新而不是报格式错误。
+  - 窗口在解析到工作台的根界面后才是 ready；只在连接失败后允许原地重试，其它失败要刷新。每次启动尝试使用新的 instanceId。
+  - 引导响应 `Cache-Control: no-store`，集合修订号由排序后的 `id@version` 得出，集合与版本不变时跨重启不变。
+  - 前端代码不引用后端代码、Node 与 Bun 模块；跨插件只用 `import type`（`src/architecture.test.ts`）。
+- **合同测试**：`src/web/host/window.test.ts`（同进程真实后端：场景 1、2、4，503、协议与插件版本不一致、结构错误、缺少必需插件、工作台激活失败）、`src/web/host/browser-host.test.ts`、`src/server/browser-bootstrap.test.ts`、`src/architecture.test.ts`。
+- **实际 smoke**：`e2e/browser-host.e2e.ts`（`bun run test:e2e`，先构建再用本机 Chrome 运行）。
 
 ## 证据
 
-- 批准目标：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P7 与 P11（2026-09-28 启动流程走查批准同源部署加可分离边界与浏览器启动序列）。
+- 批准目标：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P7 与 P11（2026-09-28 启动流程走查批准同源部署加可分离边界与浏览器启动序列）；v2 的前端入口见 [NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 方案第 4 节与 [ADR 0023](../../adr/0023-v2-frontend-backend-stack.md)。
 - 验证依据：[G1 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g1/REPORT.md)。
-- 实现进展：启动序列第 1–4 步已实现。引导接口为 `GET /api/runtime/browser-bootstrap`（需要登录），返回协议版本 1、集合修订号与内置浏览器插件 `nbook.workbench`、`nbook.files` 的浏览器清单，协议常量与响应类型在 `shared/browser-bootstrap.ts`；宿主 client plugin `app/plugins/browser-host.client.ts` 在根组件挂载前经 `app/runtime/browser-window.ts` 调用引导接口、按集合登记内置浏览器插件并激活 `nbook.workbench`，除 `/login` 与 Component Lab 外的产品路由都建立窗口运行实例；引导失败显示带重试的连接失败页，协议不兼容提示刷新，`nbook.workbench` 激活失败显示启动失败页，401 交给鉴权跳转；从登录页进入产品路由时整页加载。命令表归 `nbook.workbench` 的激活作用域，主页面仍是外壳的渲染者，挂载后经 `nbook.workbench/browser` 服务接入外壳与 View 动作端口、卸载时释放；`index.vue` 不再创建运行实例。共享清单与浏览器插件定义由合同测试逐字段核对。未实现：事件流、插件集合变化与离线重连（场景 5–7）、懒激活（场景 3）、`menus` 与 `keybindings` 贡献点、外壳布局归 workbench 插件交出的根组件，以及 Electron、WebKitGTK 上的场景；本 Spec 保持 `planned`。见 [w00017 t39](../../../.agents/works/w00017-application-runtime-architecture/tasks/t39-browser-host/README.md)。
+- 实现进展：新应用实现了启动序列第 1–4 步（布局恢复除外，随 workbench 底座加入）与场景 1、2、4，见 [w00017 t47](../../../.agents/works/w00017-application-runtime-architecture/tasks/t47-web-host-dev-supervisor/README.md)。未实现：懒激活（场景 3）、事件流、插件集合变化与离线重连（场景 5–7）、鉴权、第三方浏览器入口。旧应用阶段 1 的实现见 [t39](../../../.agents/works/w00017-application-runtime-architecture/tasks/t39-browser-host/README.md)。本 Spec 保持 `planned`。
