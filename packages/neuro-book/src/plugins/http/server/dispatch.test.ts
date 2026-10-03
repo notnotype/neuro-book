@@ -143,6 +143,28 @@ describe("请求分发", () => {
         expect(admission.active).toBe(0);
     });
 
+    it("客户端在处理器返回前取消：处理器返回前仍计入在途，返回后即使正文没人读也归还", async () => {
+        const {routes, request, admission} = setup();
+        const entered = Promise.withResolvers<void>();
+        const finish = Promise.withResolvers<void>();
+        await mount(routes, routeHandle("nbook.slow", {
+            fetch: async () => {
+                entered.resolve();
+                await finish.promise;
+                // 不会结束的正文：只靠取消信号归还。
+                return new Response(new ReadableStream({start: (controller) => controller.enqueue(new TextEncoder().encode("a"))}));
+            },
+        }));
+        const client = new AbortController();
+        const response = request("/api/nbook.slow/", {signal: client.signal});
+        await entered.promise;
+        client.abort();
+        expect(admission.active).toBe(1);
+        finish.resolve();
+        await response;
+        expect(admission.active).toBe(0);
+    });
+
     it("登记为事件流的请求不计入排空等待，排空时执行它的关闭动作", async () => {
         const {routes, request, admission} = setup();
         let closed = false;

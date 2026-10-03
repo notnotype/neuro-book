@@ -138,7 +138,8 @@ function forwardedRequest(request: Request, url: URL, path: string): Request {
 
 /**
  * 响应体发送完毕、出错或被客户端取消时归还在途计数；没有正文的响应立即归还。
- * 事件流在处理器内登记后已移出等待，这里的归还只是把它从排空关闭名单中摘掉。
+ * 处理器尚未返回时客户端已断开，票据仍保留到这里：处理器还在使用插件资源，提前归还会让排空在它
+ * 返回前结算、插件随之关闭。事件流在处理器内登记后已移出等待，这里的归还只是把它从排空关闭名单中摘掉。
  */
 function releaseWhenSent(response: Response, ticket: RequestTicket, signal: AbortSignal): Response {
     const body = response.body;
@@ -153,7 +154,9 @@ function releaseWhenSent(response: Response, ticket: RequestTicket, signal: Abor
         signal.removeEventListener("abort", finish);
         ticket.release();
     };
-    signal.addEventListener("abort", finish, {once: true});
+    // 已触发的取消不会再派发 abort 事件；不依赖服务器随后取消正文来归还。
+    if (signal.aborted) finish();
+    else signal.addEventListener("abort", finish, {once: true});
     const reader = body.getReader();
     const tracked = new ReadableStream<Uint8Array>({
         async pull(controller) {

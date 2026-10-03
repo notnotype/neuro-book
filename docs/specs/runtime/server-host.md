@@ -26,7 +26,7 @@ owners:
 - **运行实例**：`runtime.application` 定义的一次启动；本能力中每个进程一个。
 - **产品清单**：`packages/neuro-book/src/manifest.ts`，列出本应用加载的插件；后端按它装配插件的后端入口。
 - **启动必需插件**：服务端入口失败即启动失败的插件。当前清单中的插件（`nbook.diagnostics`、`nbook.http`）都是启动必需。它们的浏览器入口按窗口判定（[`runtime.browser-host`](browser-host.md)）。
-- **停止来源**：进程信号（SIGTERM、SIGINT）、标准输入停止通道、Session Store 租约失效、启动失败、进程级未处理异常。
+- **停止来源**：进程信号（SIGTERM、SIGINT）、标准输入停止通道、Session Store 租约失效、启动失败、进程级未处理异常。启动失败由内核自行关闭已取得的资源；就绪前的请求都在等待、没有被接纳，因此不需要排空。
 - **标准输入停止通道**：以 `--stop-stdin` 启动时，标准输入读到一行 `stop`、或标准输入结束（父进程已不在），都请求停止。Windows 上外部进程不能合作发送信号，开发监督进程与 smoke 用它停止后端。
 - **排空**：停止接纳新请求、等待在途请求结束的阶段。
 - **开发监督进程**：开发模式下启动并在后端文件变化时有序重启后端进程的进程。
@@ -53,7 +53,8 @@ owners:
 
 **停止序列：** 任一停止来源触发后：
 
-1. `nbook.http` 停止接纳新请求：排空期间保持监听，对新请求返回 503；关闭已登记的事件流（不计入等待）；等待在途请求结束（响应正文发送完毕或被客户端取消），排空上限 20 秒，超时后继续后续步骤并记为关闭未完成的一项。
+1. `nbook.http` 停止接纳新请求：排空期间保持监听，对新请求返回 503；关闭已登记的事件流（不计入等待）；等待在途请求结束，排空上限 20 秒，超时后继续后续步骤并记为关闭未完成的一项。
+   在途从请求被接纳起，到处理器返回且响应正文发送完毕（或被客户端取消）为止。客户端断开时处理器若还没返回，仍计入在途，因为它还在使用插件资源；处理器应响应请求的取消信号。
 2. 其余插件入口按依赖逆序关闭（依赖者先、提供者后），`nbook.diagnostics` 最后关闭。
 3. 以退出码结束进程：
 
@@ -65,7 +66,7 @@ owners:
 | 主线程卡死被看门狗结束 | 76（[`runtime.stall-watchdog`](stall-watchdog.md)） |
 
 - 多个停止来源先后到达时只执行一次停止；退出码取更具体的原因：已请求 75 后再请求 1 仍以 75 退出。
-- 启动失败时先同步写出一行致命诊断（原因、失败的门禁或插件入口），再有序停止已取得的资源，然后以 1 退出；不依赖未捕获异常终止进程。
+- 启动失败时先同步写出一行致命诊断（原因、失败的门禁或插件入口），再有序停止已取得的资源，然后以 1 退出；不依赖未捕获异常终止进程。等待就绪的请求在致命诊断写出时即得到 503 `startup-failed`，先于监听关闭。按清单装配插件本身失败（还没有运行实例）时同样先写出致命诊断，再以 1 退出。
 - 进程级未处理异常（未捕获异常、未处理的 Promise 拒绝）：同步写出致命诊断，按停止序列有序停止，以 1 退出。
 - 关闭未完成时，进程退出前补写诊断存储中已接受的记录。
 
@@ -131,13 +132,13 @@ Smoke：生产打包产物在 Bun 下用临时状态根运行场景 1、2、4、
 
 ## 实现合同
 
-- **实现 owner 与入口**：application-runtime。进程入口 `packages/neuro-book/src/server/main.ts`；启动参数 `src/server/config.ts`（`readServerConfig(argv, env, cwd)`，失败抛带 `code` 的 `ServerConfigError`）；宿主适配器 `src/server/host.ts`（`startServerHost(options)` 返回 `ServerHost`：`requestStop(source)`、`stopSource`、`stopped`、`beforeStopError`、`detached`；选项含 `signals`、`process`、`stopInput`、`beforeStop`、`onFatal`、`emergency`）；装配 `src/server/start.ts`（`startServer({config, plugins?, process?, signals?, stopInput?, clock?, onListening?, writeFatal?})` 返回 `RunningServer`：`ready`、`stopped`（含退出码）、`url`、`requestStop(source, exitCode?)`）；后端插件装配 `src/server/plugins.ts`（按产品清单取工厂，清单有后端入口而无工厂时失败）。HTTP 准入与排空在 `src/plugins/http/server/admission.ts`，分发与 `http.routes` 接收在 `dispatch.ts`，贡献点合同在 `contracts.ts`，插件定义在 `plugin.ts`。
+- **实现 owner 与入口**：application-runtime。进程入口 `packages/neuro-book/src/server/main.ts`；启动参数 `src/server/config.ts`（`readServerConfig(argv, env, cwd)`，失败抛带 `code` 的 `ServerConfigError`）；宿主适配器 `src/server/host.ts`（`startServerHost(options)` 返回 `ServerHost`：`requestStop(source)`、`stopSource`、`stopped`、`beforeStopError`、`detached`；选项含 `signals`、`process`、`stopInput`、`beforeStop`、`onFatal`、`emergency`）；装配 `src/server/start.ts`（`startServer({config, plugins?, process?, signals?, stopInput?, clock?, onListening?, writeFatal?})` 返回 `RunningServer`：`ready`、`stopped`（含退出码）、`url`、`requestStop(source, exitCode?)`；插件装配失败时写出致命诊断后抛 `ServerAssemblyError`）；后端插件装配 `src/server/plugins.ts`（按产品清单取工厂，清单有后端入口而无工厂时失败）。HTTP 准入与排空在 `src/plugins/http/server/admission.ts`，分发与 `http.routes` 接收在 `dispatch.ts`，贡献点合同在 `contracts.ts`，插件定义在 `plugin.ts`。
 - **关键不变量**：
   - 一个进程只有一个产品运行实例；进程信号、未处理异常监听与停止通道只由宿主挂接一次，停止结算后移除。
-  - 所有停止来源经 `ServerHost.requestStop` 汇合，只执行一次；`beforeStop`（HTTP 排空）先于内核停止，失败仍继续关闭并记入 `beforeStopError`。退出码按 75 > 1 > 0 取值，退出码在启动结果确定后才结算。
+  - 启动失败之外的停止来源经 `ServerHost.requestStop` 汇合，只执行一次；进程级未处理异常先交 `onFatal` 记录，再由宿主以 `fatal:<kind>` 请求停止。`beforeStop`（HTTP 排空）先于内核停止，失败仍继续关闭并记入 `beforeStopError`。启动失败由内核自行关闭，宿主随之结算并移除监听。退出码按 75 > 1 > 0 取值，退出码在启动结果确定后才结算。
   - `nbook.http` 只依赖 `nbook.diagnostics`；就绪前请求等待，启动失败与排空期间返回 503，事件流经 `registerEventStream` 登记后不计入等待、排空开始即关闭。插件处理器每次请求经 `implementation()` 取得，入口停止后不再被调用。
   - 测试插件只经 `startServer({plugins})` 注入，产品清单与产品代码不含测试分支。
-- **合同测试**：`src/server/server.test.ts`（真实子进程：启动、标准输入与 SIGTERM 停止、在途请求、启动失败、关闭失败、未捕获异常、标准输入结束、非回环地址；同进程：排空超时）、`src/server/config.test.ts`、`src/plugins/http/server/admission.test.ts`、`src/plugins/http/server/dispatch.test.ts`。
+- **合同测试**：`src/server/server.test.ts`（真实子进程：启动、标准输入与 SIGTERM 停止、在途请求、启动失败、关闭失败、未捕获异常、未处理的 Promise 拒绝、标准输入结束、非回环地址；同进程：排空超时、启动失败时等待就绪的请求得到 503、未处理异常汇合为一次停止且停止后监听全部移除、插件装配失败）、`src/server/config.test.ts`、`src/plugins/http/server/admission.test.ts`、`src/plugins/http/server/dispatch.test.ts`。
 - **实际 smoke**：`bun run smoke:server`（先打包再运行场景 1、2、4、11），检查未执行时以非零退出。
 
 ## 证据

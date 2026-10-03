@@ -45,11 +45,11 @@ taskId: t46-server-host
 
 ## 当前状态
 
-2026-10-03 实现完成，待 omp 审查。
+2026-10-03 完成：主 Agent 编码（`05466b52`），omp 审查后按意见修正。
 
 **实际改动（`packages/neuro-book`）：**
 
-- `src/server/`：`config.ts`（启动参数）、`host.ts`（停止来源汇合：信号、标准输入、未处理异常）、`start.ts`（装配、就绪、退出码；关闭未完成时退出前补写诊断）、`plugins.ts`（按清单装配后端插件）、`main.ts`（进程入口）；`testing/` 下是只供测试的插件与子进程入口。
+- `src/server/`：`config.ts`（启动参数）、`host.ts`（停止来源汇合：信号、标准输入、未处理异常）、`start.ts`（装配、就绪、退出码；关闭未完成时退出前补写诊断；插件装配失败抛 `ServerAssemblyError`）、`plugins.ts`（按清单装配后端插件）、`main.ts`（进程入口）；`testing/` 下是只供测试的插件与子进程入口。
 - `src/plugins/http/`：准入与排空（`admission.ts`，按 Fetch 的响应正文跟踪在途）、分发与 `http.routes` 接收（`dispatch.ts`）、贡献点合同（`contracts.ts`）、插件定义（`plugin.ts`，Bun 监听，关闭空闲超时）。
 - `src/plugins/diagnostics/`：JSONL 出口与日志位置授予（`jsonl-exporter.ts`）、写入器（`log-writer.ts`，只保留异步路径，同步写日志的崩溃路径改由宿主同步写标准错误）、插件定义（`plugin.ts`，激活期间桥接 `console.warn`、`console.error`）。
 - `src/manifest.ts` 与各插件 `plugin.ts` 描述；`scripts/smoke-server.ts`；`package.json`（依赖 `@notnotype/nb-runtime`、`hono`、`proper-lockfile`）、`tsconfig.json`。
@@ -60,10 +60,22 @@ taskId: t46-server-host
 
 **验收（主 Agent 自跑）：**
 
-1. `bun run typecheck` 0 错误；`bun run test` 5 个文件 34 个用例通过（[`app-checks.txt`](evidences/app-checks.txt)），连跑 3 次无波动。真实子进程覆盖验收 1–5（启动、诊断先于 http 激活、SIGTERM 与标准输入停止时在途请求完成而新请求 503、启动失败、关闭失败）、未捕获异常、标准输入结束、非回环地址；同进程覆盖验收 6（排空超时以 1 退出）。
-2. 验收 7：JSONL 出口测试 8 个用例（读回、位置冲突降级、脱敏、父路径被占据、关闭不复活、授予被接管、轮转与保留、冲突不回收）。
+1. `bun run typecheck` 0 错误；`bun run test` 6 个文件 40 个用例通过（[`app-checks.txt`](evidences/app-checks.txt)），连跑 3 次无波动。真实子进程覆盖验收 1–5（启动、诊断先于 http 激活、SIGTERM 与标准输入停止时在途请求完成而新请求 503、启动失败、关闭失败）、未捕获异常、未处理的 Promise 拒绝、标准输入结束、非回环地址；同进程覆盖验收 6（排空超时以 1 退出）、启动失败时等待的请求得到 503、未处理异常汇合为一次停止且监听全部移除、插件装配失败。
+2. 验收 7：JSONL 出口测试 8 个用例（读回、位置冲突降级、脱敏、父路径被占据、关闭不复活、授予被接管、轮转与保留、冲突不回收）；`console` 桥接经内核真实激活与关闭验证（照常输出、记入诊断、关闭后恢复）。
 3. `bun run smoke:server`：打包产物上 S1–S4 通过（[`smoke-server.txt`](evidences/smoke-server.txt)）。
 4. `docs:check`、`governance:check` 失败为 0；根脚本测试 83 个用例通过。
+
+**omp 审查（默认模型，只读）：** 第一次运行到 1 小时上限被截停，核对与实验已做完但没来得及输出报告；用原会话续跑只输出报告（[`omp-review.txt`](evidences/omp-review.txt)）。报告列 2 条阻断、4 条建议、1 条疑问，主 Agent 逐条核实后处理如下：
+
+1. 阻断“客户端取消泄漏在途计数”：部分成立，改为建议。处理器还没返回时客户端断开，票据保留到处理器返回，这是有意的：处理器仍在用插件资源，提前归还会让排空结算、插件在它之下关闭；处理器一直不返回由 20 秒排空上限收口。用真实 Bun 实测，处理器返回时客户端已断开，Bun 会取消响应正文并归还计数，不泄漏；报告里“已取消后不归还”的实验直接调用分发函数、没有经过 Bun。仍补上进入归还逻辑前已取消就立即归还，不依赖服务器随后取消正文，并加回归测试；Spec 与准入注释写明在途的界定。
+2. 阻断“启动失败绕过宿主的排空”：Spec 与实现不一致成立，改 Spec 而不改实现。启动失败由内核自行关闭已取得的资源；就绪前的请求都在等待、没有被接纳，排空无事可做；等待的请求在致命诊断写出时（先于内核关闭）得到 503 `startup-failed`，新增同进程测试固定这一点。`start.ts` 里启动失败后多余的 `requestStop` 删除，`runtime.server-host` 的停止来源与关键不变量写明启动失败的路径。
+3. `requestStop` 先占位后赋值：采纳。未处理异常改由宿主在 `onFatal` 记录后自己请求停止，装配方只记录并定退出码，占位写法删除。
+4. 插件装配失败没有结构化致命诊断：采纳。装配失败时同步写出 `runtime.startup.failed`，抛 `ServerAssemblyError`，进程入口以 1 退出。
+5. 测试靠固定睡眠同步：采纳。测试插件的长请求先发出响应头，客户端拿到响应头即确认请求已在途；停止是否生效改为轮询到 503；排空超时测试的计时器改为等它被安排；补断言长请求在排空开始时尚未完成、超时后正文被截断。分发测试里排空前的 5 毫秒等待只用于“尚未结算”的否定断言，慢机器上不会误报，保留。
+6. 测试缺口：采纳。补真实子进程的未处理 Promise 拒绝、用 `EventEmitter` 断言停止后进程监听全部移除、诊断插件 `console` 桥接测试。
+7. 疑问“诊断 Spec 仍要求 `NEURO_BOOK_LOG_DIR`”：成立。`runtime.diagnostics` 改为新应用的日志位置是 `<状态根>/logs/`，不读旧键、不搬迁旧历史；同时修正一处仍指旧应用路径的段落。
+
+证据见 [evidences/](evidences/)。
 
 ## 下一步
 

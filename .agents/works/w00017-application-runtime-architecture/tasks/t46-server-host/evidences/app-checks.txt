@@ -3,6 +3,6 @@ $ tsc --noEmit
 exit 0
 
 $ bun test 2>&1 | grep -E "^\(pass\)|^\(fail\)| pass$| fail$|^Ran"
- 34 pass
+ 40 pass
  0 fail
-Ran 34 tests across 5 files. [3.81s]
+Ran 40 tests across 6 files. [4.74s]

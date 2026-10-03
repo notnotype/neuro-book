@@ -1,9 +1,10 @@
 /**
  * 后端环境适配器：把进程的停止输入翻译成 runtime.application 的宿主上下文。
  *
- * 停止来源（进程信号、标准输入的 `stop` 行、标准输入关闭、调用方请求）汇合为同一次停止：先执行
- * `beforeStop`（HTTP 排空），失败也继续，再交给内核按依赖逆序关闭。适配器只拥有自己挂接的监听，
- * 停止结算后全部移除；它不退出进程、不杀进程、不读凭据，退出码由装配方决定。
+ * 停止来源（进程信号、标准输入的 `stop` 行、标准输入关闭、进程级未处理异常、调用方请求）汇合为同一次
+ * 停止：先执行 `beforeStop`（HTTP 排空），失败也继续，再交给内核按依赖逆序关闭。启动失败不经这里：
+ * 内核自行关闭已取得的资源，此前请求都还在等待就绪、没有被接纳的，排空无事可做。适配器只拥有自己
+ * 挂接的监听，停止结算后全部移除；它不退出进程、不杀进程、不读凭据，退出码由装配方决定。
  */
 
 import {createInterface} from "node:readline";
@@ -32,7 +33,10 @@ export interface ServerHostOptions {
     readonly stopInput?: NodeJS.ReadableStream | null;
     /** 内核停止前的宿主步骤；失败仍继续关闭，原因见 `beforeStopError`。 */
     readonly beforeStop?: () => void | Promise<void>;
-    /** 进程级未处理异常；由装配方记录并决定是否停止。挂接它会取代运行时“打印并退出”的默认行为。 */
+    /**
+     * 进程级未处理异常：由装配方记录（并据此决定退出码），宿主随后以 `fatal:<kind>` 请求停止。
+     * 挂接它会取代运行时“打印并退出”的默认行为。
+     */
     readonly onFatal: (error: unknown, kind: FatalKind) => void;
 }
 
@@ -75,8 +79,8 @@ class ServerHostImpl implements ServerHost {
         this.#listeners = [
             // 停止来源绑定挂接时的事件名，不依赖监听器的实参。
             ...(options.signals ?? DEFAULT_SIGNALS).map((signal) => ({event: signal, listener: () => { void this.requestStop(`signal:${signal}`); }})),
-            {event: "uncaughtException", listener: (error: unknown) => options.onFatal(error, "uncaught-exception")},
-            {event: "unhandledRejection", listener: (reason: unknown) => options.onFatal(reason, "unhandled-rejection")},
+            {event: "uncaughtException", listener: (error: unknown) => this.#fatal(options.onFatal, error, "uncaught-exception")},
+            {event: "unhandledRejection", listener: (reason: unknown) => this.#fatal(options.onFatal, reason, "unhandled-rejection")},
         ];
         for (const {event, listener} of this.#listeners) this.#process.on(event, listener);
         if (options.stopInput) this.#stopInput = this.#watchStopInput(options.stopInput);
@@ -101,6 +105,14 @@ class ServerHostImpl implements ServerHost {
         this.stopSource = source;
         void this.#stop();
         return this.stopped;
+    }
+
+    #fatal(onFatal: ServerHostOptions["onFatal"], error: unknown, kind: FatalKind): void {
+        try {
+            onFatal(error, kind);
+        } finally {
+            void this.requestStop(`fatal:${kind}`);
+        }
     }
 
     async #stop(): Promise<void> {

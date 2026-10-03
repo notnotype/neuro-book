@@ -3,7 +3,7 @@ $ bun scripts/smoke-server.ts
 $ bun build src/server/main.ts --target bun --outdir dist/server
 Bundled 73 modules in 8ms
 
-  main.js  0.26 MB  (entry point)
+  main.js  0.27 MB  (entry point)
 
 {
   "schema": "nbook.smoke/server/v1",

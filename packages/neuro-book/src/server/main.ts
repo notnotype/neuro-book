@@ -10,7 +10,8 @@ import {writeSync} from "node:fs";
 
 import {readServerConfig, ServerConfigError} from "./config";
 import type {ServerConfig} from "./config";
-import {startServer} from "./start";
+import {ServerAssemblyError, startServer} from "./start";
+import type {RunningServer} from "./start";
 
 function readConfigOrExit(): ServerConfig {
     try {
@@ -22,13 +23,22 @@ function readConfigOrExit(): ServerConfig {
     }
 }
 
-const config = readConfigOrExit();
-const server = startServer({
-    config,
-    stopInput: config.stopStdin ? process.stdin : null,
-    onListening: (url) => {
-        console.log(`Listening on ${url}`);
-    },
-});
+function startOrExit(config: ServerConfig): RunningServer {
+    try {
+        return startServer({
+            config,
+            stopInput: config.stopStdin ? process.stdin : null,
+            onListening: (url) => {
+                console.log(`Listening on ${url}`);
+            },
+        });
+    } catch (error) {
+        // 致命诊断已由 startServer 同步写出。
+        if (!(error instanceof ServerAssemblyError)) throw error;
+        process.exit(1);
+    }
+}
+
+const server = startOrExit(readConfigOrExit());
 const {exitCode} = await server.stopped;
 process.exit(exitCode);

@@ -4,12 +4,15 @@
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
+import {EventEmitter} from "node:events";
 import {readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {startServer} from "./start";
+import type {HttpAdmission} from "nbook/plugins/http/server/admission";
+
+import {ServerAssemblyError, startServer} from "./start";
 import {productServerPlugins} from "./plugins";
 import {createTestPlugin} from "./testing/test-plugins";
 
@@ -84,6 +87,18 @@ async function readLog(stateRoot: string): Promise<LogLine[]> {
     return text.split("\n").filter(Boolean).map((line) => JSON.parse(line) as LogLine);
 }
 
+/** 停止请求经信号或标准输入异步送达；轮询 health 直到 503，确认子进程已进入排空。 */
+async function untilStopping(url: string): Promise<Response> {
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+        const response = await fetch(`${url}api/runtime/health`);
+        if (response.status === 503) return response;
+        await response.body?.cancel();
+        if (Date.now() > deadline) throw new Error("子进程没有进入排空");
+        await Bun.sleep(20);
+    }
+}
+
 /**
  * 日志里插件发布与关闭完成的顺序。诊断插件自己的“关闭完成”发生在它的出口关闭之后，写不进自己的
  * 日志文件；它最后关闭由进程以 0 退出（关闭结果为 closed）与其余插件都先于它关闭共同说明。
@@ -113,15 +128,19 @@ describe("后端宿主（真实子进程）", () => {
         it(`${stop} 停止：在途长请求完成，新请求得到 503，以 0 退出`, async () => {
             const server = spawnServer({plugins: ["test.slow"]});
             const url = await server.url;
-            const long = fetch(`${url}api/test.slow/wait?ms=1500`).then(async (response) => ({status: response.status, text: await response.text()}));
-            await Bun.sleep(200);
+            // 响应头已到：长请求已被接纳、正文还在等待。
+            const long = await fetch(`${url}api/test.slow/wait?ms=2000`);
+            expect(long.status).toBe(200);
+            let longDone = false;
+            const longText = long.text().finally(() => {
+                longDone = true;
+            });
             if (stop === "SIGTERM") server.signal("SIGTERM");
             else server.stdin("stop\n");
-            await Bun.sleep(200);
-            const rejected = await fetch(`${url}api/runtime/health`);
-            expect(rejected.status).toBe(503);
+            const rejected = await untilStopping(url);
             expect(await rejected.json()).toMatchObject({error: {code: "stopping"}});
-            expect(await long).toEqual({status: 200, text: "done"});
+            expect(longDone).toBe(false);
+            expect(await longText).toBe("started\ndone");
             expect(await server.exit).toEqual({code: 0, signal: null});
             expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.http", "test.slow"]);
         }, 20_000);
@@ -154,6 +173,15 @@ describe("后端宿主（真实子进程）", () => {
         expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.http", "test.throw-later"]);
     }, 20_000);
 
+    it("未处理的 Promise 拒绝：记录致命诊断后有序停止，以 1 退出", async () => {
+        const server = spawnServer({plugins: ["test.throw-later"]});
+        const url = await server.url;
+        expect(await (await fetch(`${url}api/test.throw-later/reject`)).text()).toBe("scheduled");
+        expect(await server.exit).toEqual({code: 1, signal: null});
+        expect(server.stderr()).toContain("process.unhandled-rejection");
+        expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.http", "test.throw-later"]);
+    }, 20_000);
+
     it("标准输入关闭（父进程不在）也触发有序停止", async () => {
         sequence += 1;
         const stateRoot = join(tmpRoot, `state-${String(sequence)}`);
@@ -183,37 +211,93 @@ describe("后端宿主（真实子进程）", () => {
 });
 
 describe("后端宿主（同进程）", () => {
+    const config = (name: string) => ({host: "127.0.0.1", port: 0, stateRoot: join(tmpRoot, name), logDirectory: join(tmpRoot, name, "logs"), stopStdin: false});
+
     it("在途请求超过排空上限：继续关闭其余插件，以 1 退出", async () => {
-        let expire: (() => void) | null = null;
+        const scheduled = Promise.withResolvers<() => void>();
         const hold = Promise.withResolvers<void>();
-        const events = new EventTarget();
-        const processEvents = {
-            on: (event: string, listener: (...args: unknown[]) => void) => events.addEventListener(event, () => listener()),
-            off: () => undefined,
-        };
         const fatalLines: string[] = [];
         const server = startServer({
-            config: {host: "127.0.0.1", port: 0, stateRoot: join(tmpRoot, "in-process"), logDirectory: join(tmpRoot, "in-process", "logs"), stopStdin: false},
+            config: config("drain-timeout"),
             plugins: (context) => [...productServerPlugins(context), createTestPlugin("test.slow", hold.promise)],
-            process: processEvents,
+            process: new EventEmitter(),
             clock: {schedule: (task) => {
-                expire = task;
+                scheduled.resolve(task);
                 return () => undefined;
             }},
             writeFatal: (line) => fatalLines.push(line),
         });
         await server.ready;
-        const held = fetch(`${server.url}api/test.slow/hold`).catch((error: unknown) => error);
-        await Bun.sleep(100);
+        const held = await fetch(`${server.url}api/test.slow/hold`);
+        expect(held.status).toBe(200);
+        const heldBody = held.text().then(() => "completed", () => "cut");
         server.requestStop("test:stop");
-        await Bun.sleep(50);
-        expect(expire).not.toBeNull();
-        expire!();
+        (await scheduled.promise)();
         const outcome = await server.stopped;
         expect(outcome.exitCode).toBe(1);
         expect(outcome.result.status).toBe("closed");
         expect(fatalLines.join("")).toContain("runtime.stop.incomplete");
+        // 超时后监听被强制关闭，长请求的正文没有发完。
         hold.resolve();
-        await held;
+        expect(await heldBody).toBe("cut");
     }, 20_000);
+
+    it("启动失败：等待就绪的请求得到 503 startup-failed，以 1 退出", async () => {
+        const hold = Promise.withResolvers<void>();
+        const listening = Promise.withResolvers<string>();
+        const captured: {admission?: HttpAdmission} = {};
+        const server = startServer({
+            config: config("startup-failed"),
+            plugins: (context) => {
+                captured.admission = context.admission;
+                return [...productServerPlugins(context), createTestPlugin("test.fail-activate", hold.promise)];
+            },
+            process: new EventEmitter(),
+            onListening: listening.resolve,
+            writeFatal: () => undefined,
+        });
+        server.ready.catch(() => undefined);
+        const waiting = fetch(`${await listening.promise}api/runtime/health`);
+        const deadline = Date.now() + 5_000;
+        while (captured.admission?.active !== 1) {
+            if (Date.now() > deadline) throw new Error("请求没有进入等待");
+            await Bun.sleep(5);
+        }
+        hold.resolve();
+        const response = await waiting;
+        expect(response.status).toBe(503);
+        expect(await response.json()).toMatchObject({error: {code: "startup-failed"}});
+        expect((await server.stopped).exitCode).toBe(1);
+    }, 20_000);
+
+    it("未处理异常经宿主汇合为一次停止，以 1 退出；停止结算后挂接的进程监听全部移除", async () => {
+        const events = new EventEmitter();
+        const fatalLines: string[] = [];
+        const server = startServer({config: config("fatal"), process: events, writeFatal: (line) => fatalLines.push(line)});
+        await server.ready;
+        expect(events.eventNames().sort()).toEqual(["SIGINT", "SIGTERM", "uncaughtException", "unhandledRejection"]);
+        events.emit("unhandledRejection", new Error("注入的未处理拒绝"));
+        events.emit("uncaughtException", new Error("停止中又一个异常"));
+        const outcome = await server.stopped;
+        expect(outcome.exitCode).toBe(1);
+        expect(outcome.result.status).toBe("closed");
+        expect(fatalLines.join("")).toContain("process.unhandled-rejection");
+        expect(events.eventNames()).toEqual([]);
+    }, 20_000);
+
+    it("插件装配失败：同步写出致命诊断并抛 ServerAssemblyError", () => {
+        const fatalLines: string[] = [];
+        const failure = new Error("工厂抛错");
+        expect(() => startServer({
+            config: config("assembly"),
+            plugins: () => {
+                throw failure;
+            },
+            process: new EventEmitter(),
+            writeFatal: (line) => fatalLines.push(line),
+        })).toThrow(ServerAssemblyError);
+        expect(fatalLines).toHaveLength(1);
+        expect(fatalLines[0]).toContain("runtime.startup.failed");
+        expect(fatalLines[0]).toContain("工厂抛错");
+    });
 });
