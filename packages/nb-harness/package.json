@@ -12,6 +12,7 @@
     },
     "scripts": {
         "test": "bun test",
+        "test:llm": "NBOOK_LLM_TESTS=1 bun test .llm.test.ts",
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {

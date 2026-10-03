@@ -7,7 +7,9 @@
         "./paths": "./src/paths.ts",
         "./tmp": "./src/tmp.ts",
         "./test-path": "./src/test-path.ts",
-        "./vitest": "./src/vitest.ts"
+        "./vitest": "./src/vitest.ts",
+        "./wait": "./src/wait.ts",
+        "./llm": "./src/llm.ts"
     },
     "scripts": {
         "typecheck": "tsc --noEmit -p tsconfig.json",

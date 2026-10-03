@@ -25,5 +25,5 @@ bun run typecheck
 bun test
 ```
 
-- 涉及内核装配或工具的改动，必须跑 `tests/harness.e2e.test.ts`（含真实 LLM 两条，无凭据时 skip）。
+- 涉及内核装配或工具的改动，必须跑 `tests/harness.e2e.test.ts`（脚本化流，不调用模型），并用 `bun run test:llm` 跑 `tests/harness.llm.test.ts` 的两条真实模型测试（缺凭据时跳过，记为未验证）。
 - 触及包级资产（`docs/`、本文件）时，另跑仓库门禁：`bun run governance:check` 与 `bun run docs:check`。

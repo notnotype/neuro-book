@@ -1,6 +1,5 @@
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
-import {readFile, rm, writeFile} from "node:fs/promises";
-import {join} from "node:path";
+import {rm} from "node:fs/promises";
 import type {AgentTool} from "@oh-my-pi/pi-agent-core";
 import {ProfilePrompt, System} from "@notnotype/nb-profile";
 import {createJsonlSessionLog} from "@notnotype/nb-session";
@@ -18,9 +17,8 @@ afterAll(async () => {
     if (root !== "") await rm(root, {recursive: true, force: true});
 });
 
-const apiKey = process.env.DEEPSEEK_API_KEY ?? Bun.env.DEEPSEEK_API_KEY;
-const modelRef = process.env.REAL_MODEL_SMOKE_MODEL ?? "deepseek/deepseek-flash";
-const llmTest = apiKey === undefined ? test.skip : test;
+// 脚本化流不发请求，模型名只用于装配。
+const modelRef = "deepseek/deepseek-flash";
 
 function profile(): ReturnType<typeof ProfilePrompt> {
     return ProfilePrompt({children: [System({children: ["你是 nb-harness 的测试助手。"]})]});
@@ -104,65 +102,4 @@ describe("harness 装配（脚本化流，不调用真实模型）", () => {
             await harness.close();
         }
     });
-});
-
-describe("真实模型（无 DEEPSEEK_API_KEY 时跳过）", () => {
-    llmTest(
-        "模型通过 read 工具读取文件并回答",
-        async () => {
-            const sessionId = "real-read";
-            const file = join(root, "note.txt");
-            await writeFile(file, "秘密内容：青鸟计划\n", "utf-8");
-            const log = await createJsonlSessionLog({root, sessionId});
-            const harness = await createHarness({
-                model: modelRef,
-                cwd: root,
-                sessionLog: log,
-                node: ProfilePrompt({children: [System({children: ["你是严谨的助手，必须调用工具获取事实。"]})]}),
-            });
-
-            try {
-                const result = await harness.turn("读取 note.txt（用 read 工具）并原样回答文件里的内容。");
-                const entries = await log.read();
-
-                expect(entries.some((entry) => entry.kind === "tool_call" && entry.toolName === "read")).toBe(true);
-                expect(entries.some((entry) => entry.kind === "tool_result" && entry.isError === false)).toBe(true);
-                expect(result.text.length).toBeGreaterThan(0);
-
-                const replayed = await log.read();
-                expect(replayed.map((entry) => entry.seq)).toEqual(entries.map((entry) => entry.seq));
-            } finally {
-                await harness.close();
-            }
-        },
-        180_000,
-    );
-
-    llmTest(
-        "模型通过 edit 工具把 beta 改成 BETA",
-        async () => {
-            const sessionId = "real-edit";
-            const file = join(root, "target.txt");
-            await writeFile(file, "alpha\nbeta\ngamma\n", "utf-8");
-            const log = await createJsonlSessionLog({root, sessionId});
-            const harness = await createHarness({
-                model: modelRef,
-                cwd: root,
-                sessionLog: log,
-                node: ProfilePrompt({children: [System({children: ["你是严谨的助手，必须先用 read 读取文件再用 edit 修改。"]})]}),
-            });
-
-            try {
-                await harness.turn("用 read 读取 target.txt，然后用 edit 把第 2 行 beta 改成大写 BETA。");
-                const disk = await readFile(file, "utf-8").catch(() => "<缺失>");
-
-                expect(disk).toBe("alpha\nBETA\ngamma\n");
-                const entries = await log.read();
-                expect(entries.some((entry) => entry.kind === "tool_call" && entry.toolName === "edit")).toBe(true);
-            } finally {
-                await harness.close();
-            }
-        },
-        180_000,
-    );
 });
