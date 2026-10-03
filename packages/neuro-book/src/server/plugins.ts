@@ -5,7 +5,6 @@
 
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import {productPlugins} from "nbook/manifest";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/server/plugin";
@@ -47,16 +46,4 @@ export function productServerPlugins(context: ServerPluginContext): PluginDefini
             if (definition.id !== plugin.id) throw new Error(`后端入口工厂产出的插件 id ${definition.id} 与清单 ${plugin.id} 不一致`);
             return definition;
         });
-}
-
-/** 清单的服务键登记表：插件入口提供与依赖的全部键。 */
-export function collectServiceKeys(plugins: ReadonlyArray<PluginDefinition>): ServiceKey<unknown>[] {
-    const keys = new Set<ServiceKey<unknown>>();
-    for (const plugin of plugins) {
-        for (const entry of plugin.entries) {
-            for (const key of entry.provides ?? []) keys.add(key);
-            for (const dependency of entry.dependencies ?? []) keys.add(dependency.key);
-        }
-    }
-    return [...keys];
 }

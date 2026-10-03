@@ -3,8 +3,8 @@
         "target": "ES2022",
         "module": "ESNext",
         "moduleResolution": "bundler",
-        "lib": ["ESNext"],
-        "types": ["bun"],
+        "lib": ["ESNext", "DOM", "DOM.Iterable"],
+        "types": ["vite/client"],
         "strict": true,
         "noEmit": true,
         "skipLibCheck": true,
@@ -13,6 +13,6 @@
             "nbook/*": ["./src/*"]
         }
     },
-    "include": ["src", "scripts", "vite.config.ts"],
-    "exclude": ["src/web/main.ts"]
+    "include": ["src/web", "src/plugins/*/web", "src/plugins/*/plugin.ts", "src/shared", "src/manifest.ts"],
+    "exclude": ["**/*.test.ts"]
 }

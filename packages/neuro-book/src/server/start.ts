@@ -14,11 +14,12 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {HttpAdmission} from "nbook/plugins/http/server/admission";
 import type {DrainClock} from "nbook/plugins/http/server/admission";
+import {collectServiceKeys} from "nbook/shared/service-keys";
 
 import type {ServerConfig} from "./config";
 import {startServerHost} from "./host";
 import type {FatalKind, ProcessEvents} from "./host";
-import {collectServiceKeys, productServerPlugins} from "./plugins";
+import {productServerPlugins} from "./plugins";
 import type {ServerPluginContext} from "./plugins";
 
 export type ExitCode = 0 | 1;

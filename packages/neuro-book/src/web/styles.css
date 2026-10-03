@@ -1,0 +1,48 @@
+/* 第 3 步只有宿主页与空工作台；主题与设计系统随第 4 步的 nb-ui 接入。 */
+:root {
+    color-scheme: light dark;
+    font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
+    line-height: 1.5;
+}
+
+body {
+    margin: 0;
+}
+
+.nb-host-page,
+.nb-empty-workbench {
+    box-sizing: border-box;
+    min-height: 100vh;
+    padding: 2rem 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    text-align: center;
+}
+
+.nb-host-page h1,
+.nb-empty-workbench h1 {
+    margin: 0;
+    font-size: 1.25rem;
+}
+
+.nb-host-page p,
+.nb-empty-workbench p {
+    margin: 0;
+    max-width: 40rem;
+}
+
+.nb-host-reason {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
+    opacity: 0.8;
+}
+
+.nb-host-page button {
+    margin-top: 0.75rem;
+    padding: 0.4rem 1.2rem;
+    font: inherit;
+}
