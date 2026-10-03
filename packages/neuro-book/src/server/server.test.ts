@@ -9,6 +9,7 @@ import {readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import type {HttpAdmission} from "nbook/plugins/http/server/admission";
 
@@ -35,6 +36,8 @@ type Exit = {readonly code: number | null; readonly signal: string | null};
 interface Spawned {
     readonly stateRoot: string;
     readonly url: Promise<string>;
+    /** `test.slow` 的放手通道地址（见 `testing/test-plugins.ts`）。 */
+    readonly control: Promise<string>;
     readonly exit: Promise<Exit>;
     readonly stderr: () => string;
     stdin(text: string): void;
@@ -51,17 +54,22 @@ function spawnServer(options: {readonly plugins?: string[]; readonly entry?: str
         stderr: "pipe",
     });
     const listening = Promise.withResolvers<string>();
-    // 启动失败的用例不读地址；不让这条拒绝变成未处理的 Promise 拒绝。
+    const control = Promise.withResolvers<string>();
+    // 多数用例不读这两个地址（启动失败的用例两个都不读）；不让拒绝变成未处理的 Promise 拒绝。
     listening.promise.catch(() => undefined);
+    control.promise.catch(() => undefined);
     let stderr = "";
     void (async () => {
         let stdout = "";
         for await (const chunk of child.stdout.pipeThrough(new TextDecoderStream())) {
             stdout += chunk;
-            const match = /Listening on (\S+)/u.exec(stdout);
-            if (match) listening.resolve(match[1] as string);
+            const url = /Listening on (\S+)/u.exec(stdout);
+            if (url) listening.resolve(url[1] as string);
+            const release = /Test control on (\S+)/u.exec(stdout);
+            if (release) control.resolve(release[1] as string);
         }
         listening.reject(new Error(`子进程未开始监听；stderr：${stderr}`));
+        control.reject(new Error("子进程没有打印放手通道"));
     })();
     void (async () => {
         for await (const chunk of child.stderr.pipeThrough(new TextDecoderStream())) stderr += chunk;
@@ -70,6 +78,7 @@ function spawnServer(options: {readonly plugins?: string[]; readonly entry?: str
     return {
         stateRoot,
         url: listening.promise,
+        control: control.promise,
         exit,
         stderr: () => stderr,
         stdin: (text) => {
@@ -87,16 +96,14 @@ async function readLog(stateRoot: string): Promise<LogLine[]> {
     return text.split("\n").filter(Boolean).map((line) => JSON.parse(line) as LogLine);
 }
 
-/** 停止请求经信号或标准输入异步送达；轮询 health 直到 503，确认子进程已进入排空。 */
-async function untilStopping(url: string): Promise<Response> {
-    const deadline = Date.now() + 5_000;
-    for (;;) {
+/** 停止请求经信号或标准输入异步送达；查 health 直到 503，确认子进程已进入排空。 */
+function untilStopping(url: string): Promise<Response> {
+    return waitUntil("子进程进入排空，health 返回 503", async () => {
         const response = await fetch(`${url}api/runtime/health`);
         if (response.status === 503) return response;
         await response.body?.cancel();
-        if (Date.now() > deadline) throw new Error("子进程没有进入排空");
-        await Bun.sleep(20);
-    }
+        return null;
+    });
 }
 
 /**
@@ -128,8 +135,8 @@ describe("后端宿主（真实子进程）", () => {
         it(`${stop} 停止：在途长请求完成，新请求得到 503，以 0 退出`, async () => {
             const server = spawnServer({plugins: ["test.slow"]});
             const url = await server.url;
-            // 响应头已到：长请求已被接纳、正文还在等待。
-            const long = await fetch(`${url}api/test.slow/wait?ms=2000`);
+            // 响应头已到：长请求已被接纳、正文还在等测试放手。
+            const long = await fetch(`${url}api/test.slow/hold`);
             expect(long.status).toBe(200);
             let longDone = false;
             const longText = long.text().finally(() => {
@@ -140,7 +147,8 @@ describe("后端宿主（真实子进程）", () => {
             const rejected = await untilStopping(url);
             expect(await rejected.json()).toMatchObject({error: {code: "stopping"}});
             expect(longDone).toBe(false);
-            expect(await longText).toBe("started\ndone");
+            await fetch(await server.control);
+            expect(await longText).toBe("started\nreleased");
             expect(await server.exit).toEqual({code: 0, signal: null});
             expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.http", "test.slow"]);
         }, 20_000);
@@ -258,11 +266,7 @@ describe("后端宿主（同进程）", () => {
         });
         server.ready.catch(() => undefined);
         const waiting = fetch(`${await listening.promise}api/runtime/health`);
-        const deadline = Date.now() + 5_000;
-        while (captured.admission?.active !== 1) {
-            if (Date.now() > deadline) throw new Error("请求没有进入等待");
-            await Bun.sleep(5);
-        }
+        await waitUntil("请求进入等待就绪", () => captured.admission?.active === 1);
         hold.resolve();
         const response = await waiting;
         expect(response.status).toBe(503);

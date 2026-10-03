@@ -134,11 +134,14 @@ describe("请求分发", () => {
         const draining = admission.drain().then(() => {
             drained = true;
         });
-        const text = response.text();
-        await Bun.sleep(5);
+        const reader = response.body!.getReader();
+        const decoder = new TextDecoder();
+        // 第一段已读出、第二段还没给：正文停在中途，排空不能结算。
+        expect(decoder.decode((await reader.read()).value)).toBe("a");
         expect(drained).toBe(false);
         chunks.resolve();
-        expect(await text).toBe("ab");
+        expect(decoder.decode((await reader.read()).value)).toBe("b");
+        expect((await reader.read()).done).toBe(true);
         await draining;
         expect(admission.active).toBe(0);
     });
