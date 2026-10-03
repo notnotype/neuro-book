@@ -4,4 +4,4 @@ NeuroBook v2 的应用包：在原路径从零重建，先只有运行时底座�
 
 旧应用在 [`../neuro-book-legacy/`](../neuro-book-legacy/AGENTS.md)，只作代码与行为参照，不再修改。
 
-代码从 v2 第 3 步“应用骨架”开始写入本包；当前只有包描述与目录约定。
+当前已有后端宿主、`nbook.http` 与 `nbook.diagnostics`；开发模式、前端与浏览器宿主随第 3 步下半加入。目录约定与命令见 [`AGENTS.md`](AGENTS.md)。

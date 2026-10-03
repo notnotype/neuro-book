@@ -102,7 +102,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | 插件描述与激活 | [`runtime/plugins.md`](runtime/plugins.md) | `runtime.plugins`；描述目录、入口/代次、贡献事务、局部失败与普通关闭；不含热卸载；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
 | 环境适配与应用门禁 | [`runtime/application.md`](runtime/application.md) | `runtime.application`；浏览器/后端环境适配、启动门禁、接纳、有界停止与实例身份；受控装配入口闭合，产品启动链已迁入（w00017 阶段 1）；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
 | 运行时诊断 | [`runtime/diagnostics.md`](runtime/diagnostics.md) | `runtime.diagnostics`；有界记录与查询、脱敏、早期缓冲补写、日志位置授予与冲突降级、关闭未完成与显式恢复；第二切片由合同测试与组合 smoke 闭合，产品日志器尚未迁入位置授予；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
-| 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | `runtime.server-host`；内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式热重载与停止；阶段 1 由合同测试与 `smoke:product-lifecycle` 闭合，看门狗（76）属 `runtime.stall-watchdog`；**实现迁移中** |
+| 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | `runtime.server-host`；内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式重启与停止；后端宿主已在新应用由合同测试与 `smoke:server` 闭合，看门狗（76）属 `runtime.stall-watchdog`；**开发模式实现迁移中** |
 | 平台文件 | [`platform/files.md`](platform/files.md) | `platform.files`；受根约束 I/O、授予隔离、watch/锁与关闭门禁；不是业务文件树服务；第二切片闭合；**实现迁移中** |
 | SQLite机制 | [`platform/sqlite.md`](platform/sqlite.md) | `platform.sqlite`；具名资源owner、连接借用、单库事务、代次与关闭；不自动迁移；第二切片闭合，既有数据库尚未迁入；**实现迁移中** |
 

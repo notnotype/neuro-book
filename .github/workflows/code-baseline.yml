@@ -45,7 +45,7 @@ concurrency:
 env:
   NODE_OPTIONS: --max-old-space-size=4096
 
-# v2 重建期间只检查治理与仓库合同；新应用的 typecheck 与测试 job 随应用骨架加入。
+# 本 workflow 只检查治理与仓库合同；新应用与各包的类型检查、测试在 workspace-packages.yml 中按改动选包运行。
 jobs:
   governance:
     name: Governance and repository contracts

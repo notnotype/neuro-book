@@ -93,9 +93,9 @@ owners:
 
 - **实现 owner 与入口**：
   - 内核（runtime）：`packages/nb-runtime/src/application/application.ts`（包入口 `@notnotype/nb-runtime/application`；`createApplication(host, manifest)`、`createInstanceTable()`、`stopTimeout(ms)`、`export type *`）；`contracts.ts` 是类型合同，`bootstrap.ts` 是实现，`instances.ts` 是宿主实例表。
-  - 后端适配器（server）：`packages/neuro-book/server/runtime/foundation/server-host.ts`（`ServerRuntimeHost.start({instanceId, manifest, signals?, process?, emergency?, stopTimeoutMs?}) → ServerHost {application, requestStop(source), stopSource, detached}`）。
-  - 浏览器适配器（app）：`packages/neuro-book/app/runtime/browser-host.ts`（`BrowserRuntimeHost.start({instanceId, manifest, page?, emergency?, stopTimeoutMs?}) → BrowserHost {application, destroy(), stopSource, detached}`）。
-  - 受控装配与 smoke（scripts）：`packages/neuro-book/scripts/smoke/runtime-foundation.ts` 与 `runtime-foundation/{controlled-manifest,server-entry,browser-entry}.ts`。
+  - 后端适配器（server）：`packages/neuro-book/src/server/host.ts`（`startServerHost({instanceId, manifest, emergency, onFatal, process?, signals?, stopInput?, beforeStop?}) → ServerHost {application, requestStop(source), stopSource, stopped, beforeStopError, detached}`），行为见 [`runtime.server-host`](server-host.md)。
+  - 浏览器适配器（app，仍在旧应用，随浏览器宿主迁入新应用）：`packages/neuro-book-legacy/app/runtime/browser-host.ts`（`BrowserRuntimeHost.start({instanceId, manifest, page?, emergency?, stopTimeoutMs?}) → BrowserHost {application, destroy(), stopSource, detached}`）。
+  - 受控装配与 smoke（scripts，旧应用）：`packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts` 与 `runtime-foundation/{controlled-manifest,server-entry,browser-entry}.ts`。
 - **依赖方向**：内核只允许同目录相对导入与 lifecycle / services / plugins 三个入口，源码不引用 `process.`/`window.`/`document.`；两个适配器只导入内核入口，浏览器适配器不含 `vue | nuxt | #imports | server/ | node:`；浏览器 bundle 以 esbuild browser 平台打包并断言不含服务端模块。三条守卫都在合同测试里。
 - **公开接口**：
   - `HostContext {identity, stopSignal, stopDeadline?, emergency(report)}`：宿主只提供实例身份、停止来源、首次停止的截止与最小紧急输出。`stopDeadline` 是函数，内核在首次停止开始时调用一次取得截止信号；适配器的 `stopTimeoutMs` 经 `stopTimeout(ms)` 转换，只接受 1..2^31-1 的整数毫秒（超出定时器范围的值会被运行时缩成立即触发），其余抛 TypeError。
@@ -111,7 +111,7 @@ owners:
   - 有界停止：宿主截止触发后首次停止结算为 `incomplete(deadline)`，根作用域保持停止中，挂起的释放继续运行、不被撤销也不重入；适配器随 `stopped` 结算移除监听，进程是否退出由宿主决定（smoke 的服务端入口以退出码 3 结束）。
   - 适配器各自拥有自己的监听，每个实例挂接一次，等 `application.stopped` 结算后移除；`requestStop` / `destroy` / `pagehide` 只有第一次生效并记录来源；`pagehide` 不等待任何 Promise。
   - 实例身份：适配器用内核 `createInstanceTable` 持有实例。同一 instanceId 存活（含停止未完成）期间共享同一实例与监听；`application.closed` 兑现时立即退役该 id（包括恢复后才关闭的实例），再次启动抛 TypeError（重启须分配新身份），表不再持有已关闭实例。内核不维护进程级全局表。
-- **合同测试**：内核的 `packages/nb-runtime/src/application/application.test.ts`（14 例）、`application-startup.test.ts`（启动激活的选择、失败分类与停止竞态，以及依赖链的启动顺序、关闭顺序与诊断），在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行；宿主适配器的 `server/runtime/foundation/server-host.test.ts`（5 例）、`app/runtime/browser-host.test.ts`（6 例）仍在旧应用，随应用骨架迁入新应用。
+- **合同测试**：内核的 `packages/nb-runtime/src/application/application.test.ts`（14 例）、`application-startup.test.ts`（启动激活的选择、失败分类与停止竞态，以及依赖链的启动顺序、关闭顺序与诊断），在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行；后端适配器由新应用的 `packages/neuro-book/src/server/server.test.ts` 以真实子进程覆盖；浏览器适配器的 `app/runtime/browser-host.test.ts`（6 例）仍在旧应用，随浏览器宿主迁入新应用。
 - **实际 smoke**：`bun run smoke:runtime-foundation -- --host server`（真实子进程，POSIX 发 SIGTERM，Windows 写 stdin `stop`；另起注入必需失败的子进程核对退出码 2；另起 `--hang-release --stop-timeout-ms=300` 子进程核对 `incomplete(deadline)`、退出码 3 与有界退出）与 `-- --host browser [--browser-executable <path>]`（esbuild 打包 + 临时 HTTP + playwright-core 驱动隔离 Chromium：两 tab、同 tab 两实例、显式销毁、注入失败、释放挂起时的有界销毁、pagehide）。在 Node（`node --import tsx`）下运行；Bun 1.3 在 Windows 与 playwright-core 的启动管道不兼容。
 
 ## 证据

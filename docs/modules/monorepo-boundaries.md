@@ -10,7 +10,7 @@ NeuroBook 以一个 monorepo 维护应用、共享合同与可独立维护的包
 
 | 边界 | 当前真相源 | 当前入口或消费方 | 当前状态 |
 | --- | --- | --- | --- |
-| 新应用 | `packages/neuro-book` | 开发与验证命令随应用骨架建立 | 先只有运行时底座与 workbench 底座；目录约定见包内 [`AGENTS.md`](../../packages/neuro-book/AGENTS.md) |
+| 新应用 | `packages/neuro-book` | 后端进程入口 `src/server/main.ts`；验证命令见包内 [`AGENTS.md`](../../packages/neuro-book/AGENTS.md) | 已有后端宿主、`nbook.http` 与 `nbook.diagnostics`；开发模式、前端与 workbench 底座随后续步骤加入 |
 | 内核 | `packages/nb-runtime` | 新应用的后端与浏览器宿主（第 3 步起） | 零运行时依赖，每个机制一个子路径入口；行为合同见 `docs/specs/runtime/` 的 lifecycle、services、plugins、application、diagnostics |
 | 旧应用 | `packages/neuro-book-legacy` | 只读参照 | 依赖照装，不参加类型检查、测试与治理检查；包内含 w00017 阶段 1 的内核与宿主实现、ADR 0001–0021、legacy `.agents/tasks/` |
 | Workspace 自治包 | `packages/nb-history/`、`nb-workflow/`、`nb-memory/`、`nb-ui/`、`neuro-agent-harness/`、`llmlint/` | 各包公开 exports、包内测试和应用消费者 | 各包独立 owner；`neuro-agent-harness` 已冻结，只服务 `llmlint`，待由 `nb-harness` 取代后退役 |

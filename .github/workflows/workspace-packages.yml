@@ -16,6 +16,7 @@ on:
       - "packages/nb-profile/**"
       - "packages/nb-session/**"
       - "packages/nb-runtime/**"
+      - "packages/neuro-book/**"
       - "packages/llmlint/**"
       - "packages/llmlint/web/**"
       - "packages/llmlint/skill/**"
