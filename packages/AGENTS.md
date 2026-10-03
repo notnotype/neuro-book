@@ -1,7 +1,7 @@
 # packages 目录规则
 
 - Monorepo 包按逻辑 Module 管理；包说明负责人、稳定合同、依赖方向、模块验证和产品集成验证。
-- 当前 workspace 成员以根 `package.json` 的 `workspaces` 为准，包括新应用 `neuro-book`、旧应用 `neuro-book-legacy`、`owned-process`、`file-snapshot-cache`、`neuro-book-contracts`、`neuro-book-test-support`、六个自治收编包 `nb-history`、`nb-workflow`、`nb-memory`、`nb-ui`、`neuro-agent-harness`、`llmlint`，以及 w00002 新建的 `nb-harness`、`nb-profile`、`nb-session`。
+- 当前 workspace 成员以根 `package.json` 的 `workspaces` 为准，包括新应用 `neuro-book`、内核 `nb-runtime`、旧应用 `neuro-book-legacy`、`owned-process`、`file-snapshot-cache`、`neuro-book-contracts`、`neuro-book-test-support`、六个自治收编包 `nb-history`、`nb-workflow`、`nb-memory`、`nb-ui`、`neuro-agent-harness`、`llmlint`，以及 w00002 新建的 `nb-harness`、`nb-profile`、`nb-session`。
 - `neuro-book-legacy` 只作代码与行为参照：依赖照装，不参加类型检查、测试与治理检查，不在其中修改代码。`neuro-agent-harness` 已冻结，只服务 `llmlint`，待由 `nb-harness` 取代后退役。
 - 所有 `packages/*` 默认继承 monorepo 根规则、技能、临时根、安全和 Git 规则。包可用自己的 `AGENTS.md`、`docs/`、legacy `.agents/tasks/` 和 `PROJECT-STATUS.md` 覆盖项目专属行为，但 current Work/Task 只在根 `.agents/works/` 创建；只要建立任一包级治理资产，就必须由 `AGENTS.md` 引用 `../../AGENTS.md`。
 - 六个自治包保留 `.agents/tasks` 历史记录、`docs`、`PROJECT-STATUS.md` 和项目专属 `AGENTS.md`；跨包与包内新工作均由根 Work/Task 表达，身份与当前快照只在 `.agents/works/` 定义。

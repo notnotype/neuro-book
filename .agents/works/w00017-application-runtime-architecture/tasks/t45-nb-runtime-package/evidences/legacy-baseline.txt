@@ -1,0 +1,13 @@
+# 旧位置基线：packages/neuro-book-legacy 下 vitest.runtime-foundation.config.ts，只取 runtime/ 的文件
+$ bun x vitest run --config vitest.runtime-foundation.config.ts runtime --reporter=json | <按文件计数>
+21 runtime/application/application-startup.test.ts
+14 runtime/application/application.test.ts
+14 runtime/diagnostics/diagnostics.test.ts
+30 runtime/lifecycle/lifecycle.test.ts
+4 runtime/plugins/blocked.test.ts
+11 runtime/plugins/entry-dependencies.test.ts
+18 runtime/plugins/owner-contribution-points.test.ts
+26 runtime/plugins/plugins.test.ts
+8 runtime/plugins/review-regressions.test.ts
+20 runtime/services/services.test.ts
+合计 166

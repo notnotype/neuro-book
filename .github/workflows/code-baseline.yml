@@ -24,6 +24,7 @@ on:
       - "packages/nb-harness/**"
       - "packages/nb-profile/**"
       - "packages/nb-session/**"
+      - "packages/nb-runtime/**"
       - "packages/llmlint/**"
       - "packages/*/AGENTS.md"
       - "scripts/**"

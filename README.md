@@ -171,7 +171,7 @@ AI 助手干活的规矩是可以改的，而且不用写代码。每个助手�
 
 后续开发只在本仓库的 workspace 内进行（以根 `package.json` 的 `workspaces` 为准）；迁移前的同级 checkout 不再是开发入口。
 
-- 应用：[新应用（v2）](packages/neuro-book/AGENTS.md) · [旧应用（只作参照）](packages/neuro-book-legacy/AGENTS.md)
+- 应用：[新应用（v2）](packages/neuro-book/AGENTS.md) · [内核 nb-runtime](packages/nb-runtime/AGENTS.md) · [旧应用（只作参照）](packages/neuro-book-legacy/AGENTS.md)
 - 内部基础包：[Owned Process](packages/owned-process/package.json) · [File Snapshot Cache](packages/file-snapshot-cache/README.md) · [NeuroBook Contracts](packages/neuro-book-contracts/package.json) · [Test Support](packages/neuro-book-test-support/package.json)
 - 自治包：[History](packages/nb-history/README.md) · [Workflow](packages/nb-workflow/README.md) · [Memory](packages/nb-memory/README.md) · [UI](packages/nb-ui/README.md) · [Agent Harness](packages/neuro-agent-harness/README.md) · [llmlint](packages/llmlint/README.md)
 - Agent harness 重构（w00002）：[nb-harness](packages/nb-harness/AGENTS.md) · [nb-profile](packages/nb-profile/package.json) · [nb-session](packages/nb-session/package.json)

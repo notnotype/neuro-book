@@ -1,0 +1,26 @@
+{
+    "name": "@notnotype/nb-runtime",
+    "private": true,
+    "version": "0.1.0",
+    "description": "NeuroBook 内核：运行作用域与资源生命周期、服务装配、插件、应用门禁与诊断；零运行时依赖，前后端宿主共用。",
+    "license": "AGPL-3.0-only",
+    "type": "module",
+    "engines": {
+        "bun": ">=1.3.14"
+    },
+    "exports": {
+        "./lifecycle": "./src/lifecycle/lifecycle.ts",
+        "./services": "./src/services/services.ts",
+        "./plugins": "./src/plugins/plugins.ts",
+        "./application": "./src/application/application.ts",
+        "./diagnostics": "./src/diagnostics/diagnostics.ts"
+    },
+    "scripts": {
+        "test": "bun test",
+        "typecheck": "tsc --noEmit"
+    },
+    "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3"
+    }
+}

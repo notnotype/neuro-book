@@ -4,3 +4,4 @@
 - 使用 `#scripts/*` 绝对导入、4 空格缩进和完整类型；领域逻辑留在对应 Module，不为单次调用创建 wrapper。
 - Agent、测试、验收、缓存和 scratch 运行数据走 `@notnotype/neuro-book-test-support/paths`，不得新写仓库 `.agent/tmp/`。
 - 新增或修改命令必须保留可执行入口、明确错误码和可验证的聚焦测试；脚本默认不加载 `.env.local`。
+- 新增脚本入口时把它加进 `scripts/tsconfig.json` 的 `include`：该配置按文件列出入口，没列出、也不被入口导入的文件不做类型检查。

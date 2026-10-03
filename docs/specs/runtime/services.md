@@ -125,7 +125,7 @@ Smoke 以解析结果、依赖检查与诊断等外部可观察结果为准。�
 
 ## 实现合同
 
-- **实现 owner 与入口**：runtime；唯一公开入口 `packages/neuro-book/runtime/services/services.ts`（`defineServiceKey`、`createServiceAssembly(instance, {keys, observer?})`、`export type *`）。`contracts.ts` 是类型合同，`assembly.ts`（声明校验与依赖图）与 `composition.ts`（解析与初始化）是实现。
+- **实现 owner 与入口**：runtime；唯一公开入口 `packages/nb-runtime/src/services/services.ts`（包入口 `@notnotype/nb-runtime/services`；`defineServiceKey`、`createServiceAssembly(instance, {keys, observer?})`、`export type *`）。`contracts.ts` 是类型合同，`assembly.ts`（声明校验与依赖图）与 `composition.ts`（解析与初始化）是实现。
 - **依赖方向**：只允许同目录相对导入与 `../lifecycle/lifecycle`；合同测试用源码守卫锁定。[`runtime.plugins`](./plugins.md) 与 [`runtime.application`](./application.md) 依赖本机制。
 - **关键不变量**：
   - 服务键以身份区分（`defineServiceKey` 返回的对象），声明只能引用装配时登记的键；未登记键、重复 id、位置不符、跨实例作用域、已停止作用域的声明整体拒绝并留诊断。
@@ -135,14 +135,14 @@ Smoke 以解析结果、依赖检查与诊断等外部可观察结果为准。�
   - 解析结果的借用登记在访问作用域上：访问作用域必须是入口声明作用域的严格后代或自身；长寿命入口解析短寿命提供者、已关闭作用域或旧代次的绑定返回 `Unavailable`，不返回旧实例。
   - 静态环在声明阶段拒绝（含可选边）；运行时等待环在初始化已开始后检测，阻断受影响解析并收口本次服务作用域，不回滚已发生副作用。
   - 诊断与报告只含位置/作用域/服务键/入口/阶段/原因，不含实例值或声明附加字段。
-- **合同测试**：`packages/neuro-book/runtime/services/services.test.ts`（20 例），经 `bun run test:runtime-foundation` 与 `bun run typecheck:runtime-foundation` 运行。
+- **合同测试**：`packages/nb-runtime/src/services/services.test.ts`（20 例），在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行。
 - **实际 smoke**：`bun run smoke:runtime-foundation -- --host server|browser`，见 [`runtime.application`](./application.md#实现合同)。
 
 ## 证据
 
-- 实现入口：[`services.ts`](../../../packages/neuro-book-legacy/runtime/services/services.ts)
-- 合同测试：[`services.test.ts`](../../../packages/neuro-book-legacy/runtime/services/services.test.ts)
-- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
+- 实现入口：[`services.ts`](../../../packages/nb-runtime/src/services/services.ts)
+- 合同测试：[`services.test.ts`](../../../packages/nb-runtime/src/services/services.test.ts)
+- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）。这是旧应用宿主上的 smoke，运行的是旧应用里的内核副本；新应用宿主的 smoke 随应用骨架建立。
 - 批准目标：[应用运行时、生命周期与内置插件架构](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md)。2026-09-20 开发者接受基础架构与分段推进方向，并明确要求把第一实现切片（环境适配入口与小内核）与第二切片（以内置服务插件检验底座）沉淀为 Spec；不包含任意热卸载扩展。
 - 实现与验证：[w00017 t06](../../../.agents/works/w00017-application-runtime-architecture/tasks/t06-runtime-services/README.md)（机制与合同测试）、[t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（真实双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对并晋升）。
 - 已知限制：第一片只有受控内存能力作为提供者；真实 I/O 提供者（诊断、文件、SQLite）归第二片，其运行期绑定（精确 Project 代次）尚无真实消费者。

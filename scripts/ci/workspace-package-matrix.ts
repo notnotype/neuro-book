@@ -50,6 +50,11 @@ export const WORKSPACE_PACKAGE_CHECKS: readonly WorkspacePackageCheck[] = [
         commands: "bun run typecheck\nbun run test",
     },
     {
+        name: "nb-runtime",
+        directory: "packages/nb-runtime",
+        commands: "bun run typecheck\nbun run test",
+    },
+    {
         name: "llmlint",
         directory: "packages/llmlint",
         commands: "bun run verify",

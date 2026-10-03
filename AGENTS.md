@@ -42,6 +42,7 @@ neuro-book/
 ├── packages/                       # Bun workspace；共同规则 packages/AGENTS.md
 │   ├── neuro-book/                 # 新应用（v2）：运行时底座 + workbench 底座，从零重建
 │   ├── neuro-book-legacy/          # 旧应用（Nuxt），只作参照；依赖照装，不检查不修改
+│   ├── nb-runtime/                 # 内核：生命周期、服务装配、插件、应用门禁、诊断；零依赖，前后端共用
 │   ├── neuro-agent-harness/        # 已冻结，只服务 llmlint；待由 nb-harness 取代后退役
 │   ├── nb-harness/                 # NeuroBook Agent harness 重构（w00002），将作为内置插件的基础
 │   ├── nb-profile/                 # Profile 加载与 JSX 渲染（w00002）

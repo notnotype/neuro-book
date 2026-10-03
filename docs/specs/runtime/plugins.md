@@ -169,7 +169,7 @@ Smoke 以目录查询、激活结果与贡献可见性为准。场景 1–11 与
 
 ## 实现合同
 
-- **实现 owner 与入口**：runtime；唯一公开入口 `packages/neuro-book/runtime/plugins/plugins.ts`（`createPluginHost(instance, assembly, {observer?})`、`provide(key, instance, release?)`、`PluginStateError`、`export type *`）。`contracts.ts` 是类型合同，`registration.ts`（登记纯结构校验）与 `host.ts`（目录、单条校验推导、激活事务、交付账本、恢复）是实现。
+- **实现 owner 与入口**：runtime；唯一公开入口 `packages/nb-runtime/src/plugins/plugins.ts`（包入口 `@notnotype/nb-runtime/plugins`；`createPluginHost(instance, assembly, {observer?})`、`provide(key, instance, release?)`、`PluginStateError`、`export type *`）。`contracts.ts` 是类型合同，`registration.ts`（登记纯结构校验）与 `host.ts`（目录、单条校验推导、激活事务、交付账本、恢复）是实现。
 - **依赖方向**：只允许同目录相对导入与 `../lifecycle/lifecycle`、`../services/services`；合同测试用源码守卫锁定。不内置命令/View/设置的领域语义：贡献点、校验与接收者由拥有者插件提供。
 - **定义与查询**：`PluginDefinition` 有 `contributionPoints?: ContributionPointDefinition[]`（`{id, implementation: "required" | "none", validate?(descriptor)}`）与只有声明的顶层 `contributions?`；入口有 `receives?`，激活产出有 `receivers?`（贡献点 id → `ContributionReceiver`，只含 `prepare`/`commit`/`revoke`）。`contribution(point, id)` 返回该身份的全部声明（按插件、入口、种类稳定排序），未登记为空数组；`ContributionState` 在五态之上带 `validation` 与 `delivery`（`waiting-receiver`、`delivered` 及接收者入口与代次、`delivery-failed` 及错误摘要）；目录的插件描述列出 `contributionPoints` 与顶层贡献，入口描述列出 `receives`。
 - **关键不变量**：
@@ -183,14 +183,14 @@ Smoke 以目录查询、激活结果与贡献可见性为准。场景 1–11 与
   - 缺失实现、缺失提供项、产出未声明的键、缺少声明的接收者（`missing-receiver`）、给出未声明的接收者（`undeclared-receiver`）都是 `output` 阶段失败；不接受空 handler 或占位。
   - 诊断只含 `{sequence, instanceId, location, plugin, entry, generation, stage, reason, capability, contribution, error{name,message}}`；`stage` 为 `register | activate | publish | revoke | recover | close`。交付相关的原因：`receiver-connected`（`publish`）、`receiver-closed`（`revoke`）、`backfill-failed` 与 `delivery-failed`（`publish`）、`receiver-revoke-threw`（`revoke`）。
   - 目录按插件 id 码元比较排序，`PluginDescription.summary` 按输出第 12 条计算。
-- **合同测试**：`packages/neuro-book/runtime/plugins/plugins.test.ts`（含第二片复核补的提供项释放失败重试回归，见 [t13](../../../.agents/works/w00017-application-runtime-architecture/tasks/t13-services-integration-review/README.md)）、`blocked.test.ts`（纯推导）、`entry-dependencies.test.ts`（场景 12–14）、`review-regressions.test.ts`（产出释放、停止后交付、目录排序与重复服务 id）、`owner-contribution-points.test.ts`（场景 16–22 与交付交错回归），关闭顺序与启动激活在 `runtime/application/application-startup.test.ts`（场景 15）；经 `bun run test:runtime-foundation` 与 `bun run typecheck:runtime-foundation` 运行。
+- **合同测试**：`packages/nb-runtime/src/plugins/plugins.test.ts`（含第二片复核补的提供项释放失败重试回归，见 [t13](../../../.agents/works/w00017-application-runtime-architecture/tasks/t13-services-integration-review/README.md)）、`blocked.test.ts`（纯推导）、`entry-dependencies.test.ts`（场景 12–14）、`review-regressions.test.ts`（产出释放、停止后交付、目录排序与重复服务 id）、`owner-contribution-points.test.ts`（场景 16–22 与交付交错回归），关闭顺序与启动激活在 `src/application/application-startup.test.ts`（场景 15）；在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行。
 - **实际 smoke**：`bun run smoke:runtime-foundation -- --host server|browser`，见 [`runtime.application`](./application.md#实现合同)。
 
 ## 证据
 
-- 实现入口：[`plugins.ts`](../../../packages/neuro-book-legacy/runtime/plugins/plugins.ts)
-- 合同测试：[`plugins.test.ts`](../../../packages/neuro-book-legacy/runtime/plugins/plugins.test.ts)、[`entry-dependencies.test.ts`](../../../packages/neuro-book-legacy/runtime/plugins/entry-dependencies.test.ts)、[`blocked.test.ts`](../../../packages/neuro-book-legacy/runtime/plugins/blocked.test.ts)、[`review-regressions.test.ts`](../../../packages/neuro-book-legacy/runtime/plugins/review-regressions.test.ts)、[`owner-contribution-points.test.ts`](../../../packages/neuro-book-legacy/runtime/plugins/owner-contribution-points.test.ts)
-- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
+- 实现入口：[`plugins.ts`](../../../packages/nb-runtime/src/plugins/plugins.ts)
+- 合同测试：[`plugins.test.ts`](../../../packages/nb-runtime/src/plugins/plugins.test.ts)、[`entry-dependencies.test.ts`](../../../packages/nb-runtime/src/plugins/entry-dependencies.test.ts)、[`blocked.test.ts`](../../../packages/nb-runtime/src/plugins/blocked.test.ts)、[`review-regressions.test.ts`](../../../packages/nb-runtime/src/plugins/review-regressions.test.ts)、[`owner-contribution-points.test.ts`](../../../packages/nb-runtime/src/plugins/owner-contribution-points.test.ts)
+- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）。这是旧应用宿主上的 smoke，运行的是旧应用里的内核副本；新应用宿主的 smoke 随应用骨架建立。
 - 批准目标：[应用运行时、生命周期与内置插件架构](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md)。2026-09-20 开发者接受基础架构与分段推进方向，并明确要求把第一实现切片（环境适配入口与小内核）与第二切片（以内置服务插件检验底座）沉淀为 Spec；不包含任意热卸载扩展。
 - 实现与验证：[w00017 t07](../../../.agents/works/w00017-application-runtime-architecture/tasks/t07-runtime-plugins/README.md)（机制与合同测试）、[t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（真实双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对并晋升）。
 - 入口与服务级依赖（输出第 11–14 条、场景 12–15）：依据 [可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3、P11（2026-09-30 `accepted`）与 [`runtime.plugin-manifest`](./plugin-manifest.md) 第 2–9 条，实现与验证见 [w00017 t32](../../../.agents/works/w00017-application-runtime-architecture/tasks/t32-kernel-entry-dependencies/README.md)。

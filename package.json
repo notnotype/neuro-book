@@ -19,6 +19,7 @@
     "packages/nb-harness",
     "packages/nb-profile",
     "packages/nb-session",
+    "packages/nb-runtime",
     "packages/llmlint",
     "packages/neuro-book",
     "packages/neuro-book-legacy"

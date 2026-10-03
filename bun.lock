@@ -208,6 +208,14 @@
         "typescript": "^6.0.3",
       },
     },
+    "packages/nb-runtime": {
+      "name": "@notnotype/nb-runtime",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+    },
     "packages/nb-session": {
       "name": "@notnotype/nb-session",
       "version": "0.1.0",
@@ -998,6 +1006,8 @@
     "@notnotype/nb-memory": ["@notnotype/nb-memory@workspace:packages/nb-memory"],
 
     "@notnotype/nb-profile": ["@notnotype/nb-profile@workspace:packages/nb-profile"],
+
+    "@notnotype/nb-runtime": ["@notnotype/nb-runtime@workspace:packages/nb-runtime"],
 
     "@notnotype/nb-session": ["@notnotype/nb-session@workspace:packages/nb-session"],
 
@@ -3776,6 +3786,10 @@
     "@notnotype/nb-profile/@types/node": ["@types/node@26.2.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg=="],
 
     "@notnotype/nb-profile/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@notnotype/nb-runtime/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+
+    "@notnotype/nb-runtime/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@notnotype/nb-session/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 

@@ -2,7 +2,7 @@
 
 `docs/specs/` 是 NeuroBook 产品、模块和组件规范的唯一落点。Spec 用受约束的自然语言连接模糊需求与确定代码：人类不必阅读全部实现，Agent 也不能只凭一句需求猜测输入、状态、副作用或失败语义。
 
-本目录当前先做注册表，不复制现有正文。每项功能只有一个当前真相源。本分支按 [NeuroBook v2：并排重建应用](../proposals/neuro-book-v2-rebuild.md) 重建应用：标为“实现迁移中”的 `implemented` Spec，实现仍在旧应用 `packages/neuro-book-legacy`，迁入新应用并重新通过验收后证据改指新代码；旧应用的其它规范与 Reference 见[旧应用的规范与 Reference](#旧应用的规范与-reference只作参照)。Monorepo / Module 的唯一正文仍在 [docs/modules/monorepo-boundaries.md](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md)，不得另建 `docs/specs/architecture/monorepo-boundaries.md`。
+本目录当前先做注册表，不复制现有正文。每项功能只有一个当前真相源。本分支按 [NeuroBook v2：并排重建应用](../proposals/neuro-book-v2-rebuild.md) 重建应用：标为“实现迁移中”的 `implemented` Spec，实现仍在旧应用 `packages/neuro-book-legacy`，迁入新应用并重新通过验收后证据改指新代码；标为“内核已迁入 `packages/nb-runtime`”的，内核部分的实现与合同测试已改指新包，宿主部分与 smoke 仍在旧应用；旧应用的其它规范与 Reference 见[旧应用的规范与 Reference](#旧应用的规范与-reference只作参照)。Monorepo / Module 的唯一正文仍在 [docs/modules/monorepo-boundaries.md](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md)，不得另建 `docs/specs/architecture/monorepo-boundaries.md`。
 
 ## 两种成熟度，一个文件
 
@@ -97,11 +97,11 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、组件导航、检视面板、响应式容器、偏好和 Product 排除合同；产品主题与渐进组件迁移仍属后续切片；**实现迁移中** |
 | Workbench 命令系统 | [`workbench/commands.md`](workbench/commands.md) | 注册登记、`when` 求值、执行管线、暴露策略与审计；六条首批命令在 Component Lab 闭环，实现与合同测试闭合；**实现迁移中** |
 | Workbench 快速打开 | [`workbench/quick-open.md`](workbench/quick-open.md) | 单控件两模（命令搜索与行号跳转）、会话 MRU、S4 浮层键盘与焦点交接；实现与 Lab 验收闭合，主页面接入不在本批；**实现迁移中** |
-| 资源生命周期 | [`runtime/lifecycle.md`](runtime/lifecycle.md) | `runtime.lifecycle`；作用域、资源 owner、操作接纳与取消/终止、关闭尝试与显式恢复；第一切片由合同测试与双宿主 smoke 闭合；**实现迁移中** |
-| 显式服务装配 | [`runtime/services.md`](runtime/services.md) | `runtime.services`；唯一 provider、依赖与寿命检查、并发初始化共享与失败稳定；第一切片闭合；**实现迁移中** |
-| 插件描述与激活 | [`runtime/plugins.md`](runtime/plugins.md) | `runtime.plugins`；描述目录、入口/代次、贡献事务、局部失败与普通关闭；不含热卸载；**实现迁移中** |
-| 环境适配与应用门禁 | [`runtime/application.md`](runtime/application.md) | `runtime.application`；浏览器/后端环境适配、启动门禁、接纳、有界停止与实例身份；受控装配入口闭合，产品启动链已迁入（w00017 阶段 1）；**实现迁移中** |
-| 运行时诊断 | [`runtime/diagnostics.md`](runtime/diagnostics.md) | `runtime.diagnostics`；有界记录与查询、脱敏、早期缓冲补写、日志位置授予与冲突降级、关闭未完成与显式恢复；第二切片由合同测试与组合 smoke 闭合，产品日志器尚未迁入位置授予；**实现迁移中** |
+| 资源生命周期 | [`runtime/lifecycle.md`](runtime/lifecycle.md) | `runtime.lifecycle`；作用域、资源 owner、操作接纳与取消/终止、关闭尝试与显式恢复；第一切片由合同测试与双宿主 smoke 闭合；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
+| 显式服务装配 | [`runtime/services.md`](runtime/services.md) | `runtime.services`；唯一 provider、依赖与寿命检查、并发初始化共享与失败稳定；第一切片闭合；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
+| 插件描述与激活 | [`runtime/plugins.md`](runtime/plugins.md) | `runtime.plugins`；描述目录、入口/代次、贡献事务、局部失败与普通关闭；不含热卸载；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
+| 环境适配与应用门禁 | [`runtime/application.md`](runtime/application.md) | `runtime.application`；浏览器/后端环境适配、启动门禁、接纳、有界停止与实例身份；受控装配入口闭合，产品启动链已迁入（w00017 阶段 1）；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
+| 运行时诊断 | [`runtime/diagnostics.md`](runtime/diagnostics.md) | `runtime.diagnostics`；有界记录与查询、脱敏、早期缓冲补写、日志位置授予与冲突降级、关闭未完成与显式恢复；第二切片由合同测试与组合 smoke 闭合，产品日志器尚未迁入位置授予；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
 | 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | `runtime.server-host`；内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式热重载与停止；阶段 1 由合同测试与 `smoke:product-lifecycle` 闭合，看门狗（76）属 `runtime.stall-watchdog`；**实现迁移中** |
 | 平台文件 | [`platform/files.md`](platform/files.md) | `platform.files`；受根约束 I/O、授予隔离、watch/锁与关闭门禁；不是业务文件树服务；第二切片闭合；**实现迁移中** |
 | SQLite机制 | [`platform/sqlite.md`](platform/sqlite.md) | `platform.sqlite`；具名资源owner、连接借用、单库事务、代次与关闭；不自动迁移；第二切片闭合，既有数据库尚未迁入；**实现迁移中** |

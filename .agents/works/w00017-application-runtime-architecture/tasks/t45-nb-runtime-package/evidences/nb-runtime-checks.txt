@@ -1,0 +1,9 @@
+$ cd packages/nb-runtime && bun run typecheck
+$ tsc --noEmit
+exit 0
+
+$ bun run test
+ 166 pass
+ 0 fail
+ 1345 expect() calls
+Ran 166 tests across 10 files. [225.00ms]

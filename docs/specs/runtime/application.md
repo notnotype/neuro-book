@@ -92,7 +92,7 @@ owners:
 ## 实现合同
 
 - **实现 owner 与入口**：
-  - 内核（runtime）：`packages/neuro-book/runtime/application/application.ts`（`createApplication(host, manifest)`、`createInstanceTable()`、`stopTimeout(ms)`、`export type *`）；`contracts.ts` 是类型合同，`bootstrap.ts` 是实现，`instances.ts` 是宿主实例表。
+  - 内核（runtime）：`packages/nb-runtime/src/application/application.ts`（包入口 `@notnotype/nb-runtime/application`；`createApplication(host, manifest)`、`createInstanceTable()`、`stopTimeout(ms)`、`export type *`）；`contracts.ts` 是类型合同，`bootstrap.ts` 是实现，`instances.ts` 是宿主实例表。
   - 后端适配器（server）：`packages/neuro-book/server/runtime/foundation/server-host.ts`（`ServerRuntimeHost.start({instanceId, manifest, signals?, process?, emergency?, stopTimeoutMs?}) → ServerHost {application, requestStop(source), stopSource, detached}`）。
   - 浏览器适配器（app）：`packages/neuro-book/app/runtime/browser-host.ts`（`BrowserRuntimeHost.start({instanceId, manifest, page?, emergency?, stopTimeoutMs?}) → BrowserHost {application, destroy(), stopSource, detached}`）。
   - 受控装配与 smoke（scripts）：`packages/neuro-book/scripts/smoke/runtime-foundation.ts` 与 `runtime-foundation/{controlled-manifest,server-entry,browser-entry}.ts`。
@@ -111,14 +111,14 @@ owners:
   - 有界停止：宿主截止触发后首次停止结算为 `incomplete(deadline)`，根作用域保持停止中，挂起的释放继续运行、不被撤销也不重入；适配器随 `stopped` 结算移除监听，进程是否退出由宿主决定（smoke 的服务端入口以退出码 3 结束）。
   - 适配器各自拥有自己的监听，每个实例挂接一次，等 `application.stopped` 结算后移除；`requestStop` / `destroy` / `pagehide` 只有第一次生效并记录来源；`pagehide` 不等待任何 Promise。
   - 实例身份：适配器用内核 `createInstanceTable` 持有实例。同一 instanceId 存活（含停止未完成）期间共享同一实例与监听；`application.closed` 兑现时立即退役该 id（包括恢复后才关闭的实例），再次启动抛 TypeError（重启须分配新身份），表不再持有已关闭实例。内核不维护进程级全局表。
-- **合同测试**：`runtime/application/application.test.ts`（14 例）、`runtime/application/application-startup.test.ts`（启动激活的选择、失败分类与停止竞态，以及依赖链的启动顺序、关闭顺序与诊断）、`server/runtime/foundation/server-host.test.ts`（5 例）、`app/runtime/browser-host.test.ts`（6 例），经 `bun run test:runtime-foundation` 与 `bun run typecheck:runtime-foundation` 运行；server 适配器测试也在包级 `bun run test` 中运行。
+- **合同测试**：内核的 `packages/nb-runtime/src/application/application.test.ts`（14 例）、`application-startup.test.ts`（启动激活的选择、失败分类与停止竞态，以及依赖链的启动顺序、关闭顺序与诊断），在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行；宿主适配器的 `server/runtime/foundation/server-host.test.ts`（5 例）、`app/runtime/browser-host.test.ts`（6 例）仍在旧应用，随应用骨架迁入新应用。
 - **实际 smoke**：`bun run smoke:runtime-foundation -- --host server`（真实子进程，POSIX 发 SIGTERM，Windows 写 stdin `stop`；另起注入必需失败的子进程核对退出码 2；另起 `--hang-release --stop-timeout-ms=300` 子进程核对 `incomplete(deadline)`、退出码 3 与有界退出）与 `-- --host browser [--browser-executable <path>]`（esbuild 打包 + 临时 HTTP + playwright-core 驱动隔离 Chromium：两 tab、同 tab 两实例、显式销毁、注入失败、释放挂起时的有界销毁、pagehide）。在 Node（`node --import tsx`）下运行；Bun 1.3 在 Windows 与 playwright-core 的启动管道不兼容。
 
 ## 证据
 
-- 实现入口：[`application.ts`](../../../packages/neuro-book-legacy/runtime/application/application.ts)
-- 合同测试：[`application.test.ts`](../../../packages/neuro-book-legacy/runtime/application/application.test.ts)、[`application-startup.test.ts`](../../../packages/neuro-book-legacy/runtime/application/application-startup.test.ts)
-- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
+- 实现入口：[`application.ts`](../../../packages/nb-runtime/src/application/application.ts)
+- 合同测试：[`application.test.ts`](../../../packages/nb-runtime/src/application/application.test.ts)、[`application-startup.test.ts`](../../../packages/nb-runtime/src/application/application-startup.test.ts)
+- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）。这是旧应用宿主上的 smoke，运行的是旧应用里的内核副本；新应用宿主的 smoke 随应用骨架建立。
 - 2026-09-20 开发者明确要求以“环境适配入口、小内核”为第一切片并落 Spec，再以内置服务插件验证。批准方向与非目标见 [总体提案决策记录](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md#决策记录与下一步)。
 - 实现与验证：[w00017 t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（内核、适配器、双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对、公开面收紧并晋升）。
 - 启动必需插件与 `onStartup` 启动激活：依据 [可扩展应用平台设计](../../proposals/extensible-application-platform.md) P11 与 [`runtime.plugin-manifest`](plugin-manifest.md) 第 7、8 条，实现与验证见 [w00017 t32](../../../.agents/works/w00017-application-runtime-architecture/tasks/t32-kernel-entry-dependencies/README.md)。
