@@ -150,7 +150,7 @@
 - 新应用先只有**运行时底座 + workbench 底座**；Files 竖切在这个壳子上验证：工作台、一个文件资源管理器视图、Lab 中已有的编辑器组件。账户与登录作为可选的内置插件；Lab 作为只在开发模式加载的插件。现有其它功能暂不迁移，以后逐个作为插件迁回。
 - 保留为新应用的目标与依据：[项目文件底座](../../../packages/neuro-book/docs/proposals/project-file-foundation.md)设计稿与四项 `planned` 合同（`workspace.resources`、`workspace.folder-kinds`、`workspace.files`、`workbench.files-explorer`）；[t42](tasks/t42-files-baseline-research/README.md) 的测量结论与脚本。t42 发现的 store 深度订阅不在旧包修复，作为新应用资源管理器与编辑器状态的设计约束：大块状态不进入被深度监听或整体持久化的全局 store。
 - 原第 6 片（History 插件）与第 7 片（Agent 文件工具）不在壳子范围，移出本次竖切。
-- 待定：是否保留 Nuxt、后端框架、包名与目录约定。定下后写新应用的设计稿，经开发者批准再建 Task；第 2 片“资源层底座”在新应用上做 Opus 与 omp 的对照实验。
+- 新应用的技术选型、包划分、仓库整理清单与推进顺序见 [NeuroBook v2：并排重建应用](../../../docs/proposals/neuro-book-v2-rebuild.md)（2026-10-03 `accepted`）：去掉 Nuxt，前端 Vue + Vite，后端 Bun + Hono，校验统一 TypeBox；旧包改名 `neuro-book-legacy`，新应用占用原路径 `packages/neuro-book`。推进顺序：仓库整理（[t43](tasks/t43-repository-reorganization/README.md)）→ 内核包 → 应用骨架 → workbench 底座 → Files 竖切；Files 竖切的资源层在新应用上做 Opus 与 omp 的对照实验。
 
 ### Settings
 

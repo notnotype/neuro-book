@@ -4,7 +4,7 @@
 
 当前活跃提案：
 
-- [NeuroBook v2：并排重建应用](./neuro-book-v2-rebuild.md)：旧包改名 `neuro-book-legacy` 只作参照，新建 `neuro-book-v2`；去掉 Nuxt，前端 Vue + Vite、后端 Bun + Hono、校验统一 TypeBox；先只有运行时底座与 workbench 底座，Files 竖切在壳子上验证；删除交付链、归档过时文档；状态为 `reviewing`。
+- [NeuroBook v2：并排重建应用](./neuro-book-v2-rebuild.md)：旧包改名 `neuro-book-legacy` 只作参照，在原路径新建 `neuro-book`；去掉 Nuxt，前端 Vue + Vite、后端 Bun + Hono、校验统一 TypeBox；先只有运行时底座与 workbench 底座，Files 竖切在壳子上验证；删除交付链、归档过时文档；`accepted`（2026-10-03）。
 - [`../packages/neuro-book/docs/proposals/character-workbench.md`](../../packages/neuro-book/docs/proposals/character-workbench.md)：Character 导航、搜索、编辑与 Low-code Form 合同，状态为 `reviewing`。
 - [`Agent Skills 项目化适配`](../../packages/neuro-book/docs/proposals/agent-skills-adaptation.md)：状态为 `accepted`；旧适配流程作为历史保留，当前专项技能与验证分工由 P-005 最新决策取代。
 - [`../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md`](../../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md)：Harness Agent、completion 与 headless 三套调用面、Catalog、授权和 Workflow 重放边界，状态为 `accepted`。

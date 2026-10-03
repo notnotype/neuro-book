@@ -2,7 +2,7 @@
 
 ## 状态
 
-`reviewing`（2026-10-03）。依据的开发者决定见[决策记录](#决策记录)；正文中“待开发者确认”一节列出的事项确认后改为 `accepted`。
+`accepted`（2026-10-03），依据见[决策记录](#决策记录)。实施按[推进顺序](#6-推进顺序与验收)逐步建 Task。
 
 ## 问题
 
@@ -16,7 +16,7 @@ w00017 阶段 1 已经在 `packages/neuro-book` 中建立运行时内核、三�
 
 **目标：**
 
-- 在同一仓库并排新建应用包 `packages/neuro-book-v2`，从零构建；旧包改名为 `packages/neuro-book-legacy`，只作代码与行为参照。
+- 旧包改名为 `packages/neuro-book-legacy`，只作代码与行为参照；在原路径 `packages/neuro-book`（包名 `@notnotype/neuro-book`）从零构建新应用。
 - 新应用先只有**运行时底座 + workbench 底座**：加载了哪些插件由一份产品清单列明，一眼可见。
 - 在这个壳子上做 Files 竖切：工作台、一个文件资源管理器视图、Lab 中已有的编辑器组件。
 - 去掉 Nuxt，前后端分离：前端 Vue 3 + Vite，后端 Bun + Hono，校验与接口描述统一用 TypeBox。
@@ -45,14 +45,14 @@ w00017 阶段 1 已经在 `packages/neuro-book` 中建立运行时内核、三�
 
 | 对象 | 处理 |
 |---|---|
-| `packages/neuro-book` | 改名为 `packages/neuro-book-legacy`，移出 Bun workspaces、类型检查与测试；包内文档（`docs/adr`、`docs/proposals`、`docs/research` 等）随包进入旧包，成为参照 |
+| `packages/neuro-book` | 改名为 `packages/neuro-book-legacy`，包名改为 `@notnotype/neuro-book-legacy`。留在 Bun workspaces 中、依赖照装，但不纳入类型检查、测试与治理检查；`package.json` 去掉对已删除包的依赖和指向已删除脚本的命令。包内文档（`docs/adr`、`docs/proposals`、`docs/research` 等）随包进入旧包，成为参照。新应用占用原路径与原包名 |
 | `packages/neuro-book-manager`、`desktop/`、`scripts/build`、`scripts/release`、`scripts/install`、`scripts/deploy`、`RELEASE.md` 及根 `package.json` 中对应脚本 | 删除（git 历史与 master 中保留） |
-| `packages/neuro-book-contracts` | 交付链出口随交付链删除；剩余出口按实际消费者核对后保留或删除 |
+| `packages/neuro-book-contracts` | 保留：旧包依赖它。交付链专用出口不再维护，旧包退出时一并清理 |
 | Agent 相关库（`nb-harness`、`nb-profile`、`nb-session`、`nb-memory`、`nb-history`、`nb-workflow`、`neuro-agent-harness`、`llmlint`）与通用库（`owned-process`、`file-snapshot-cache`、`neuro-book-test-support`、`nb-ui`） | 原样保留：它们是独立的库，壳子不加载，以后功能迁回时使用 |
 | `docs/specs` 中不在壳子范围的 Spec（Agent、媒体、模型角色选择、Agent 界面等） | 移入 `docs/archive/specs/`，保留原目录结构；登记表移除，归档目录的 README 写明“不是当前合同” |
 | `docs/standards`、`docs/testing` 中针对旧包与交付链的条目，`vitepress/` 用户文档站 | 移入 `docs/archive/`；仍适用的通用规范保留并按新应用改写 |
 | 仍有效的设计文档：ADR 0022（可扩展平台与插件信任）、`extensible-application-platform.md`、`project-file-foundation.md`、`workbench-view-host.md`、VS Code 调研 | 从旧包移到仓库级 `docs/`（`docs/adr/`、`docs/proposals/`、`docs/research/`），更新指向它们的链接 |
-| 根 `AGENTS.md`、`README.md`、`PROJECT-STATUS.md`、`packages/AGENTS.md`、`docs/modules/monorepo-boundaries.md` | 按新结构改写：写明 `neuro-book-v2` 是现行代码，`neuro-book-legacy` 只作参照 |
+| 根 `AGENTS.md`、`README.md`、`PROJECT-STATUS.md`、`packages/AGENTS.md`、`docs/modules/monorepo-boundaries.md` | 按新结构改写：写明 `neuro-book` 是新应用，`neuro-book-legacy` 只作参照 |
 
 `.agents/works/` 下的历史 Work 不动，它们是治理记录。
 
@@ -71,7 +71,7 @@ w00017 阶段 1 已经在 `packages/neuro-book` 中建立运行时内核、三�
 ```text
 packages/
 ├── nb-runtime/              # 内核：生命周期、服务装配、插件、应用门禁、诊断（自旧包 runtime/ 迁出）
-└── neuro-book-v2/
+└── neuro-book/
     ├── src/
     │   ├── manifest.ts      # 产品清单：本应用加载哪些插件，唯一入口
     │   ├── server/          # 后端宿主：进程入口、开发监督进程、Bun 监听
@@ -89,7 +89,6 @@ packages/
 
 - 一个插件的前端、后端与共用合同放在同一目录，不再分成 `server/`、`app/` 两棵大树；前后端各自构建，`web/` 不得引用 `server/`，反之亦然，只经 `shared/` 交换类型与 schema。
 - 内核独立成包，前后端共用；宿主与插件不得绕过内核直接管理彼此的生命周期。
-- 名称 `neuro-book-v2` 是迁移期的包名；旧包退出后是否改回 `neuro-book` 另定。
 
 ### 4. 宿主与开发模式
 
@@ -99,6 +98,7 @@ packages/
 - **生产启动**：`vite build` 产出静态资源，后端打包后同时提供静态资源与 API。不做安装与打包。
 - **鉴权**：作为可选内置插件，向 `nbook.http` 贡献请求守卫；底座不含鉴权。壳子阶段只监听本机地址，默认不加载。
 - **Lab**：只在开发模式加载的内置插件，由它贡献 Lab 页面。
+- **布局持久化**：壳子阶段存浏览器本地，等 Storage 重新设计（Issue #246）后再改。
 
 ### 5. 从旧包迁什么
 
@@ -150,14 +150,7 @@ packages/
 - `runtime.plugin-channel`、`runtime.api-docs`：HTTP 层为 Hono，接口描述为 TypeBox。
 - 现有 `implemented` 的 `runtime.*`、`workbench.*`、`ui.*` Spec：实现迁入新应用并重新通过验收后，证据改指新代码；在此之前登记表注明“实现迁移中”。
 - 不在壳子范围的 Spec 归档（见方案第 1 节），登记表随之更新。
-- `storage.*`：Storage 将重新设计（Issue #246）；壳子阶段的布局持久化方式见下一节。
-
-## 待开发者确认
-
-1. 壳子阶段的布局持久化：先存浏览器本地（localStorage），等 Storage 重新设计后再改，还是先做一个最简的服务端存储插件？建议前者。
-2. 旧包移出 workspaces 后只作文本参照（建议），还是保留在 workspaces 中、依赖照装但不检查？
-3. `vitepress/` 用户文档站归档（建议），还是删除？
-4. 新包名 `neuro-book-v2` 在旧包退出后是否改回 `neuro-book`：现在不决定也可以。
+- `storage.*`：Storage 将重新设计（Issue #246）；在此之前新应用不使用服务端 Storage，布局存浏览器本地。
 
 ## 决策记录
 
@@ -167,3 +160,4 @@ packages/
 | 2026-10-03 | 开发者 | 新应用先只有运行时底座与 workbench 底座，Files 竖切在这个壳子上验证（工作台、一个文件资源管理器视图、Lab 中的编辑器组件）；账户与登录做成可选内置插件；Lab 可做成插件；store 深度订阅不在旧包修复 |
 | 2026-10-03 | 开发者 | 旧包改名为 `neuro-book-legacy`；打包脚本、Manager、桌面版删除；过时文档归档到一个目录；与 master 的差异在合并时处理，主工作区的 w00019 改动是 Lab 界面，迁移难度不大 |
 | 2026-10-03 | 开发者 | 去掉 Nuxt，前后端分离；后端用 Hono（与 NestJS、Elysia 比较后）；校验统一用 TypeBox |
+| 2026-10-03 | 开发者 | 旧包留在 workspaces 中（依赖照装、不检查）；壳子阶段布局持久化存浏览器本地，等 Storage 重新设计后再改；`vitepress/` 用户文档站归档；新应用直接用 `neuro-book` 这个名字。设计稿 `accepted` |
