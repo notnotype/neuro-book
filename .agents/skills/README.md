@@ -16,4 +16,4 @@ current Work/Task 以 [工作入口](../works/AGENTS.md) 为准，legacy provena
 
 通用 Skill 在宿主允许范围内服务当前请求，服从根规则、当前合同和授权，不另立审批或完成门禁。项目不依赖特定 Code Agent 宿主。
 
-产品 Skill 的 canonical 路径为 `packages/neuro-book/assets/workspace/.nbook/agent/skills/`，不要把开发治理混入产品资产。
+产品 Skill 属于产品资产，不要把开发治理混入其中。旧应用的产品 Skill 位于 `packages/neuro-book-legacy/assets/workspace/.nbook/agent/skills/`，只作参照；新应用的产品资产位置随 Agent 插件迁回时确定。

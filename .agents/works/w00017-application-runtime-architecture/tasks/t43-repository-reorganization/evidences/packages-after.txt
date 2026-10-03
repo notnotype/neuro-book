@@ -1,0 +1,27 @@
+nb-ui typecheck exit=0
+nb-ui test exit=1
+nb-harness typecheck exit=0
+nb-harness test exit=0
+nb-profile typecheck exit=0
+nb-profile test exit=0
+nb-session typecheck exit=0
+nb-session test exit=0
+nb-memory typecheck exit=0
+nb-memory test exit=0
+nb-history typecheck exit=0
+nb-history test exit=0
+nb-workflow test exit=0
+neuro-agent-harness typecheck exit=0
+neuro-agent-harness test exit=0
+llmlint typecheck exit=2
+llmlint test exit=1
+owned-process typecheck exit=0
+owned-process test exit=0
+file-snapshot-cache typecheck exit=0
+file-snapshot-cache test exit=0
+neuro-book-test-support typecheck exit=0
+neuro-book-test-support test exit=1
+neuro-book-contracts typecheck exit=0
+neuro-book-contracts test exit=0
+scripts test exit=0
+DONE

@@ -72,5 +72,5 @@ Smoke：阶段 2 Files 竖切完成后，在真实服务端与 Chromium 上核�
 
 ## 证据
 
-- 批准目标：[可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md) P11“端点与 API 文档”与评审问题 2（2026-09-28 开发者批准：内核收集 SDK 端点声明生成 API 文档，并可由 API 文档插件展示）。
+- 批准目标：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P11“端点与 API 文档”与评审问题 2（2026-09-28 开发者批准：内核收集 SDK 端点声明生成 API 文档，并可由 API 文档插件展示）。
 - 导出路径 `/api/openapi.json`、OpenAPI 3.1 版本与排序规则由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文。

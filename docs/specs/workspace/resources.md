@@ -46,7 +46,7 @@ owners:
 
 **能力矩阵：** 每个操作只在提供者声明了对应能力时可用，否则返回“能力不支持”，不静默降级。
 
-glob 与 grep 的能力模型待讨论（见[设计稿的后续讨论](../../../packages/neuro-book/docs/proposals/project-file-foundation.md#后续重构不在本次)）：本表虚拟提供者一列的写法在讨论结论前不实施。
+glob 与 grep 的能力模型待讨论（见[设计稿的后续讨论](../../proposals/project-file-foundation.md#后续重构不在本次)）：本表虚拟提供者一列的写法在讨论结论前不实施。
 
 | 操作 | 真实目录型 | 虚拟提供者 |
 |---|---|---|
@@ -106,4 +106,4 @@ glob 与 grep 的能力模型待讨论（见[设计稿的后续讨论](../../../
 
 ## 证据
 
-- 批准依据：[项目文件底座与 Files 竖切](../../../packages/neuro-book/docs/proposals/project-file-foundation.md)（`accepted`，2026-10-02）的“分项决定”与方案第 1、3、8 节。
+- 批准依据：[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（`accepted`，2026-10-02）的“分项决定”与方案第 1、3、8 节。

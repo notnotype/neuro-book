@@ -1,6 +1,6 @@
 # 前端领域规范
 
-适用：`app/**` 以及 VitePress 主题中的 Vue、HTML、CSS 和客户端交互。通用与语言规则由 [`README.md`](README.md) 路由；只有 `app/**` 追加最近的 `app/AGENTS.md`。
+适用：新应用前端（`packages/neuro-book/src/web/**`、`src/plugins/*/web/**`）中的 Vue、HTML、CSS 和客户端交互。通用与语言规则由 [`README.md`](README.md) 路由；目录专属合同见最近的 `AGENTS.md`。
 
 ## Vue 与交互
 
@@ -12,7 +12,7 @@
 
 ## CSS 与主题
 
-- 普通界面颜色只消费 `app/utils/theme/README.md` 登记的语义变量；新增变量同步主题文档与全部内置主题。
+- 普通界面颜色只消费 [`theme.system`](../../specs/theme/system.md) 登记的语义变量；新增变量同步主题文档与全部内置主题。
 - 决定某块区域用玻璃、实心还是不给面时，判据在 [`packages/nb-ui/docs/ui-development-spec.md`](../../../packages/nb-ui/docs/ui-development-spec.md) 第 2 节，取舍理由在 [`packages/nb-ui/docs/design-language.md`](../../../packages/nb-ui/docs/design-language.md)。这两份规范此前只从 nb-ui 内部路由得到，主应用侧改样式的人找不到，材料语言因此被逐页重新发明过。
 - 样式由组件或语义 class 拥有，保持低特异性；动画尊重 reduced motion，文本、焦点环和状态色保持可辨识。
 - 固定格式控件、面板或网格使用 `min/max`、grid track、`aspect-ratio` 等稳定约束；长文本必须换行或动态收敛，不遮挡相邻内容。
@@ -21,7 +21,7 @@
 
 职责、归属、同步边界和版本恢复的唯一架构合同见 [Storage 架构规范](../../specs/storage/boundaries.md)（planned）；
 初始化、生命周期、保存反馈与磁盘落点见 [持久化行为规范](../../specs/storage/persistence.md)；
-取舍依据见 [ADR 0021](../../../packages/neuro-book/docs/adr/0021-local-storage-persistence.md)。
+取舍依据见 [ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)。
 本节保留前端消费入口与存量债务；新的通用 Storage service 和数据迁移尚未实现。
 
 ### 前端接入
@@ -52,7 +52,7 @@
 ### 待细化
 
 本地阶段、身份分区与恢复已在 [持久化行为规范](../../specs/storage/persistence.md) 固定，
-首批顺序见 [迁移合同](../../../packages/neuro-book/docs/migrations/storage-state.md)。
+首批顺序见 [迁移合同](../../../packages/neuro-book-legacy/docs/migrations/storage-state.md)。
 跨独立 data 的在线同步、缓存失效及未列入首批的消费者继续独立设计，不能借本次迁移整桶搬走领域恢复数据。
 
 ## 验证

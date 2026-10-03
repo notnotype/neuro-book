@@ -2,7 +2,7 @@
 
 - **状态**：draft（2026-09-14 起草；2026-09-18 依据需求讨论修订，待评审；2026-09-19 批准分批实施，首批范围见决策记录）
 - **对应 Issue**：[#192 建立类 VS Code 的 Workbench 与 View Host 抽象](https://github.com/notnotype/neuro-book/issues/192)（硬前置 #191 主应用 nb-ui 底座迁移）
-- **相关提案**：[`workbench-view-host.md`](../../packages/neuro-book/docs/proposals/workbench-view-host.md)（Workbench 与 View Host 抽象，状态 `accepted`；其阶段 5「命令与只读描述快照桥接」由本提案承接）
+- **相关提案**：[`workbench-view-host.md`](workbench-view-host.md)（Workbench 与 View Host 抽象，状态 `accepted`；其阶段 5「命令与只读描述快照桥接」由本提案承接）
 
 ---
 

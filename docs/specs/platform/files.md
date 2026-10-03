@@ -126,10 +126,10 @@ owners:
 
 ## 证据
 
-- 实现入口：[`platform-files.ts`](../../../packages/neuro-book/server/features/platform-files/platform-files.ts)
-- 合同测试：[`platform-files.test.ts`](../../../packages/neuro-book/server/features/platform-files/platform-files.test.ts)
-- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
-- 批准依据：开发者于 2026-09-20 明确接受总体推进方向并要求把两片沉淀为 `planned` Spec；[应用运行时与内置插件架构提案](../../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md) 的内置插件划分表与“File、SQLite 与业务插件的分层”把 `platform-files` 定义为受根约束的文件读写、watch、锁与资源释放能力，只接可信入口签发的资源约束，并与 `workspace-files` 分层。
+- 实现入口：[`platform-files.ts`](../../../packages/neuro-book-legacy/server/features/platform-files/platform-files.ts)
+- 合同测试：[`platform-files.test.ts`](../../../packages/neuro-book-legacy/server/features/platform-files/platform-files.test.ts)
+- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
+- 批准依据：开发者于 2026-09-20 明确接受总体推进方向并要求把两片沉淀为 `planned` Spec；[应用运行时与内置插件架构提案](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md) 的内置插件划分表与“File、SQLite 与业务插件的分层”把 `platform-files` 定义为受根约束的文件读写、watch、锁与资源释放能力，只接可信入口签发的资源约束，并与 `workspace-files` 分层。
 - 实现 provenance：[w00017 应用运行时与内置插件架构](../../../.agents/works/w00017-application-runtime-architecture/README.md) 与其 [t04 底座两切片规范与整体实施路径任务](../../../.agents/works/w00017-application-runtime-architecture/tasks/t04-foundation-spec-plan/README.md)。
 - 实现与验证：[w00017 t11](../../../.agents/works/w00017-application-runtime-architecture/tasks/t11-platform-files/README.md)（机制与合同测试）、[t13 第二片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t13-services-integration-review/README.md)（组合 smoke 与逐条核对后晋升）。
 - 已知限制：可移植 Node API 没有 openat/O_NOFOLLOW，恶意外部进程的并发目录替换只被缩窄与检测，不作绝对保证；watch 事件尽力投递、可合并；协作锁探测存在 stale 窗口；产品既有文件访问尚未迁入本能力。

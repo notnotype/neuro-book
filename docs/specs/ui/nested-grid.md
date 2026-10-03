@@ -106,6 +106,6 @@ nb-ui 拥有领域无关的类型、算法和交互边界；主应用/插件拥�
 ## 证据
 
 - 2026-09-16 开发者在计划审查后回复“可以，优化补充”，同意纳入最小嵌套验证及必要原语修复。
-- [ADR 0021](../../../packages/neuro-book/docs/adr/0021-local-storage-persistence.md)。
+- [ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)。
 - [审查记录](../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t21-storage-design-review/walkthroughs/002-plan-completion.md) 包含旧实现的内存探针结果，不是本目标已实现证据。
 - 2026-09-20开发者批准共享测量/宿主/落点几何、3px线/250ms显现、scope仲裁与无重锚pointer路径；产品容器固定单轴不削弱通用二维能力。新行为证据尚待实施，不复用历史通过数宣布完成。

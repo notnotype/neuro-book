@@ -116,4 +116,4 @@ owners:
 
 ## 证据
 
-- 批准依据：[项目文件底座与 Files 竖切](../../../packages/neuro-book/docs/proposals/project-file-foundation.md)（`accepted`，2026-10-02）的“分项决定”与方案第 2 节。
+- 批准依据：[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（`accepted`，2026-10-02）的“分项决定”与方案第 2 节。

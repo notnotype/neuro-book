@@ -168,12 +168,6 @@ const yamlPaths = [
     ".github/ISSUE_TEMPLATE/config.yml",
     ".github/workflows/community-docs.yml",
     ".github/workflows/code-baseline.yml",
-    ".github/workflows/deploy-docs.yml",
-    ".github/workflows/desktop-envelope-contract.yml",
-    ".github/workflows/product-platforms.yml",
-    ".github/workflows/product-runtime-baselines.yml",
-    ".github/workflows/release-container.yml",
-    ".github/workflows/release-manager.yml",
     ".github/workflows/workspace-packages.yml",
 ];
 
@@ -181,7 +175,6 @@ const codeBaselinePaths = [
     "packages/neuro-book/**",
     "packages/neuro-book-contracts/**",
     "packages/neuro-book-test-support/**",
-    "packages/neuro-book-manager/**",
     "packages/owned-process/**",
     "packages/file-snapshot-cache/**",
     "packages/nb-history/**",
@@ -190,22 +183,8 @@ const codeBaselinePaths = [
     "packages/nb-ui/**",
     "packages/neuro-agent-harness/**",
     "packages/llmlint/**",
-    "packages/neuro-book/assets/**",
-    "plugins/**",
     "scripts/**",
-    "packages/neuro-book/nuxt.config.ts",
-    "packages/neuro-book/prisma.config.ts",
-    "packages/neuro-book/*.d.ts",
-    "packages/neuro-book/.env.example",
-    "packages/neuro-book/.env.docker.example",
-    "packages/neuro-book/Dockerfile*",
     "bunfig.toml",
-    "packages/neuro-book/config.example.yaml",
-    "packages/neuro-book/docker-compose*.yml",
-    "packages/neuro-book/release-state-migration.json",
-    "packages/neuro-book/tsconfig.json",
-    "packages/neuro-book/uno.config.ts",
-    "packages/neuro-book/vitest.config.ts",
     "package.json",
     "bun.lock",
     "patches/**",
@@ -216,21 +195,15 @@ const docsRuntimePaths = [
     ".omp/**",
     "WATCHDOG.md",
     "CONTEXT.md",
-    "RELEASE.md",
     "patches/**",
     "scripts/ci/check-documentation*",
-    "scripts/ci/stage-docs-locales*",
-    "scripts/ci/validate-nitropack-patch.ts",
     "packages/neuro-book/**",
-    "packages/neuro-book/nuxt.config.ts",
-    "packages/neuro-book/tsconfig.json",
     "package.json",
     "bun.lock",
 ];
 
 const communityOnlyPaths = [".agents/**"] as const;
 
-const nitroPatchTestCommand = "bun scripts/ci/validate-nitropack-patch.ts";
 const documentationCheckCommand = "bun run docs:check";
 
 /** 读取仓库内的 UTF-8 文本文件。 */
@@ -473,33 +446,9 @@ async function validateWorkflows(): Promise<void> {
     ensureRuntimeSetup(communityJob, "Community workflow");
     ensureCommandOrder(jobCommands(communityJob, "community-docs"), [
         "bun install --frozen-lockfile",
-        nitroPatchTestCommand,
-        "bun run --cwd packages/neuro-book nuxt:prepare",
         "bun scripts/ci/validate-community-files.ts",
         documentationCheckCommand,
-        "bun run docs:build",
     ], "Community workflow");
-
-    const deployDocs = await readYaml<WorkflowConfig>(".github/workflows/deploy-docs.yml");
-    ensure(deployDocs.permissions.contents === "read", "Deploy Docs 必须保持 contents: read");
-    ensure(deployDocs.permissions.pages === "write", "Deploy Docs 必须声明 pages: write");
-    ensure(deployDocs.permissions["id-token"] === "write", "Deploy Docs 必须声明 id-token: write");
-    ensure(deployDocs.on.push?.branches?.includes("master") === true, "Deploy Docs 必须监听 master push");
-    const deployPaths = deployDocs.on.push?.paths ?? [];
-    for (const path of docsRuntimePaths) {
-        ensure(deployPaths.includes(path), `Deploy Docs 缺少运行时 path: ${path}`);
-    }
-    const deployBuild = deployDocs.jobs.build;
-    ensure(deployBuild?.["timeout-minutes"] === 15, "Deploy Docs build 超时必须为 15 分钟");
-    ensure(deployDocs.jobs.deploy?.["timeout-minutes"] === 10, "Deploy Docs deploy 超时必须为 10 分钟");
-    ensureRuntimeSetup(deployBuild, "Deploy Docs build");
-    ensureCommandOrder(jobCommands(deployBuild, "deploy-docs/build"), [
-        "bun install --frozen-lockfile",
-        nitroPatchTestCommand,
-        "bun run --cwd packages/neuro-book nuxt:prepare",
-        documentationCheckCommand,
-        "bun run docs:build",
-    ], "Deploy Docs");
 
     const baseline = await readYaml<WorkflowConfig>(".github/workflows/code-baseline.yml");
     ensure(baseline.name === "Code Baseline", "Code Baseline 不得保留 Advisory 标记");
@@ -510,29 +459,13 @@ async function validateWorkflows(): Promise<void> {
         ensure(paths.includes(path), `Code Baseline 缺少 paths 合同: ${path}`);
     }
     const governance = baseline.jobs.governance;
-    const typecheck = baseline.jobs.typecheck;
-    const test = baseline.jobs.test;
     ensure(governance?.name?.toLocaleLowerCase("en-US").includes("advisory") !== true, "Governance job 不得标记 advisory");
-    ensure(typecheck?.name?.toLocaleLowerCase("en-US").includes("advisory") !== true, "Typecheck job 不得标记 advisory");
-    ensure(test?.name?.toLocaleLowerCase("en-US").includes("advisory") !== true, "Test job 不得标记 advisory");
-    ensure(typecheck?.["timeout-minutes"] === 15, "Typecheck 超时必须为 15 分钟");
-    ensure(test?.["timeout-minutes"] === 30, "Full tests 超时必须为 30 分钟");
-    ensureRuntimeSetup(typecheck, "Code Baseline typecheck");
-    ensureRuntimeSetup(test, "Code Baseline test");
     ensureRuntimeSetup(governance, "Code Baseline governance");
     const governanceCommands = jobCommands(governance, "code-baseline/governance");
     ensure(governance?.["timeout-minutes"] === 15, "Governance 超时必须为 15 分钟");
-    for (const command of ["bun run governance:check", "bun x tsc --noEmit -p scripts/tsconfig.json", "scripts/ci/workspace-workflows.test.ts", "scripts/build/dockerfile-contract.test.ts"]) {
+    for (const command of ["bun run governance:check", "bun x tsc --noEmit -p scripts/tsconfig.json", "scripts/ci/workspace-workflows.test.ts"]) {
         ensure(governanceCommands.some((actual) => actual.includes(command)), `Code Baseline governance 缺少命令：${command}`);
     }
-    ensure(jobCommands(typecheck, "code-baseline/typecheck").includes("bun run --cwd packages/neuro-book typecheck"), "缺少应用 typecheck 命令");
-    ensure(jobCommands(test, "code-baseline/test").includes("bun run --cwd packages/neuro-book test -- --reporter=dot"), "缺少应用全量测试命令");
-    const changesJob = baseline.jobs.changes;
-    ensure(Boolean(changesJob?.steps?.length), "Code Baseline 缺少 changes 变更作用域 job");
-    ensure(changesJob?.steps?.some((step) => step.uses === "actions/checkout@v5" && step.with?.["fetch-depth"] === 0), "changes job 必须全量 checkout 以计算 merge-base");
-    ensure(changesJob?.steps?.some((step) => step.uses === "oven-sh/setup-bun@v2"), "changes job 必须安装 Bun");
-    ensure(typecheck?.needs === "changes" && typecheck?.if === "needs.changes.outputs.typecheck == 'true'", "Typecheck 必须按变更作用域条件执行");
-    ensure(test?.needs === "changes" && test?.if === "needs.changes.outputs.tests == 'true'", "Full tests 必须按变更作用域条件执行");
     ensure(governance?.if === undefined, "Governance 必须无条件运行");
 
     const workspace = await readYaml<WorkflowConfig>(".github/workflows/workspace-packages.yml");

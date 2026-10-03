@@ -71,7 +71,7 @@ scope 表达归属，不表示保存介质、设备范围或访问权限。`proj
 - 本机定位器与跨设备身份必须区分。当前 `ProjectWorkspaceKey` 是进程内 Symbol，路径哈希依赖 Workspace Root；
   两者不能直接序列化为跨设备 Storage 身份。新的身份映射由 Project 边界负责，不能由每个插件各造一套。
 
-前端上下文就绪与失效的已有依据是 [ADR 0007](../../../packages/neuro-book/docs/adr/0007-project-close-then-open.md)：
+前端上下文就绪与失效的已有依据是 [ADR 0007](../../../packages/neuro-book-legacy/docs/adr/0007-project-close-then-open.md)：
 匹配目标的 open / presence 就绪后发布代次，界面提交还要通过相应工作面门禁；用户资产工作面不能借用残留项目上下文。
 服务端已有就绪代次引用与关闭时拒绝新操作的边界，源码依据见 [审查记录](../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t21-storage-design-review/walkthroughs/001-storage-review.md)。
 这些门禁与 Storage 持久身份承担不同职责。首期 Storage 所需的目录携带、代次、关闭与删除合同已在
@@ -153,10 +153,10 @@ grid 原语只计算布局和处理快照，不拥有 Storage 键、Project 身�
 
 ## 证据与后续合同
 
-- 批准依据：[ADR 0020](../../../packages/neuro-book/docs/adr/0020-user-project-storage-boundaries.md) 记录开发者已确定的职责与两层作用域。
+- 批准依据：[ADR 0020](../../../packages/neuro-book-legacy/docs/adr/0020-user-project-storage-boundaries.md) 记录开发者已确定的职责与两层作用域。
   2026-09-15 开发者追加授权“先审查设计，符合当前需求且具有扩展性后落 spec”；
   [审查记录](../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t21-storage-design-review/walkthroughs/001-storage-review.md) 记录本文件的审查范围与结论。
 - [VS Code 概念与源码对照](../../../.agents/works/w00003-neurobook-ui-foundation-migration/research/2026-09-15-storage-concepts-and-sync.md) 是研究依据，不替代本规范。
-- [ADR 0021](../../../packages/neuro-book/docs/adr/0021-local-storage-persistence.md) 与 [storage.persistence](persistence.md)
+- [ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md) 与 [storage.persistence](persistence.md)
   收敛首期本地行为；[同步提案](../../proposals/storage-service-and-sync.md) 保留未来在线复制设计。
   本架构 Spec 和新增 planned 行为规范均不表示运行时已经实现。

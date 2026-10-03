@@ -73,12 +73,6 @@ for (const [name, expected] of [
 ] as const) {
     if (!scripts[name]?.includes(expected)) failures.push(`package.json 缺少命令入口：${name} -> ${expected}`);
 }
-if (scripts["test:agent-state-root"]?.includes("workspace-root-ref.test.ts")) {
-    failures.push("test:agent-state-root 仍引用不存在的 workspace-root-ref.test.ts");
-}
-for (const expectedTest of ["workspace-runtime-root.test.ts", "agent-workspace-state-root.test.ts"]) {
-    if (!scripts["test:agent-state-root"]?.includes(expectedTest)) failures.push(`test:agent-state-root 缺少：${expectedTest}`);
-}
 
 const trackedAgent = git(repoRoot, ["ls-files", ".agent"]).split(/\r?\n/u).filter(Boolean);
 if (trackedAgent.length > 0) failures.push(`仓库仍跟踪开发运行态 .agent 文件：${trackedAgent.join(", ")}`);
@@ -90,7 +84,7 @@ const inspectPaths = [...new Set([
 const runtimeExtensions = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".ps1", ".sh", ".json", ".toml"];
 for (const relativePath of inspectPaths) {
     if (!runtimeExtensions.some((extension) => relativePath.endsWith(extension))) continue;
-    if (relativePath.startsWith("docs/tasks/") || relativePath.startsWith(".agents/tasks/") || relativePath.startsWith("vitepress/locales/zh-Hans/changelog/") || relativePath.startsWith("vitepress/locales/en-US/changelog/") || relativePath.startsWith("docs/archived/")) continue;
+    if (relativePath.startsWith("docs/tasks/") || relativePath.startsWith(".agents/tasks/") || relativePath.startsWith("docs/archived/")) continue;
     const absolutePath = resolve(repoRoot, relativePath);
     if (!existsSync(absolutePath)) continue;
     let text: string;

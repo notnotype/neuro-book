@@ -13,9 +13,9 @@ owners:
 
 为主页面及其它合法文件消费者提供同一工作区下的文件查询、内容读写、目录操作与变更通知。后端能力由内置 Files 插件提供，浏览器经宿主 API 消费；不依赖资源管理器视图存活才能使用。
 
-2026-09-26 开发者确认首版目标，并以“可以，就这么做，收口”批准 [Files 与资源管理器首版设计](../../../packages/neuro-book/docs/proposals/files-explorer.md#决策记录)中的 F1–F9。本文固定服务侧文件事实、批量结果和安全边界；展示、手势与确认交互归 [workbench.files-explorer](../workbench/files-explorer.md)。实现与单机验收证据见 [w00017 t16–t25](../../../.agents/works/w00017-application-runtime-architecture/README.md#当前-task-与继续条件)；状态仍为 `planned`，不表示全合同已验收。
+2026-09-26 开发者确认首版目标，并以“可以，就这么做，收口”批准 [Files 与资源管理器首版设计](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)中的 F1–F9。本文固定服务侧文件事实、批量结果和安全边界；展示、手势与确认交互归 [workbench.files-explorer](../workbench/files-explorer.md)。实现与单机验收证据见 [w00017 t16–t25](../../../.agents/works/w00017-application-runtime-architecture/README.md#当前-task-与继续条件)；状态仍为 `planned`，不表示全合同已验收。
 
-2026-10-02 开发者接受 [项目文件底座与 Files 竖切](../../../packages/neuro-book/docs/proposals/project-file-foundation.md)：本能力建在 [workspace.resources](resources.md)（资源地址、提供者、写入来源与变更事件）与 [workspace.folder-kinds](folder-kinds.md)（普通、内容、活页夹三类文件夹与清单）之上；目录按需列出，不读取文件内容或 frontmatter；`user://` 用户资产根与 Project 并列；写入带来源。
+2026-10-02 开发者接受 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)：本能力建在 [workspace.resources](resources.md)（资源地址、提供者、写入来源与变更事件）与 [workspace.folder-kinds](folder-kinds.md)（普通、内容、活页夹三类文件夹与清单）之上；目录按需列出，不读取文件内容或 frontmatter；`user://` 用户资产根与 Project 并列；写入带来源。
 
 非目标：两种 UI 展示规则、角色/世界书适配、通用网络 API 动态注册、外部插件安装、恶意代码沙箱、多文件原子事务、远程文件系统提供者。也不迁移 Project 数据格式、删除用户领域数据或取代编辑器的未保存正文；首版不新增回收站或文件操作全局撤销。
 
@@ -88,7 +88,7 @@ owners:
 - 依赖方向是宿主授权/Project 绑定 → 工作区文件能力 → 被授权消费者；底层 [platform.files](../platform/files.md) 不反向等待 Files、Project 或 UI。
 - 基础内置插件装配沿 [runtime.plugins](../runtime/plugins.md)，跨位置经 [runtime.application](../runtime/application.md) 的宿主边界，不新增任意方法透传的通用 RPC。
 - 现有网络入口可以在内部改为调用插件服务，不为“插件版 Files”再设平行文件权威；新复制/批量沿同一入口族扩展，逐项结果必须能让消费者区分成功、残留与未知，而非只返回整批布尔值。
-- 本能力不迁移 [内容格式 Reference](../../../packages/neuro-book/assets/reference/content/README.md)，不改变数据保护、History 和 [Storage](../storage/boundaries.md) 归属。内容节点只存在于内容文件夹中，展示信息来自清单；现有项目的 frontmatter 展示信息与目录后缀由项目迁移脚本一次性迁移，本能力不带兼容分支。普通文件操作也不自动改写 Markdown 链接或外部引用，失效引用应可诊断，不假称移动已修复全部引用。
+- 本能力不迁移 [内容格式 Reference](../../../packages/neuro-book-legacy/assets/reference/content/README.md)，不改变数据保护、History 和 [Storage](../storage/boundaries.md) 归属。内容节点只存在于内容文件夹中，展示信息来自清单；现有项目的 frontmatter 展示信息与目录后缀由项目迁移脚本一次性迁移，本能力不带兼容分支。普通文件操作也不自动改写 Markdown 链接或外部引用，失效引用应可诊断，不假称移动已修复全部引用。
 - 公开第三方 SDK、独立插件安装和动态网络路由不在首版。信任内置代码不等于承诺不可信代码隔离。
 
 ## 验收与 Smoke
@@ -107,5 +107,5 @@ owners:
 
 ## 证据
 
-- 批准依据：开发者于 2026-09-26 经访谈确认首版整体意图，随后以“可以，就这么做，收口”批准 F1–F9；见[首版设计决策记录](../../../packages/neuro-book/docs/proposals/files-explorer.md#决策记录)。2026-10-02 接受 [项目文件底座与 Files 竖切](../../../packages/neuro-book/docs/proposals/project-file-foundation.md#决策记录)：按需列目录、三类文件夹、写入来源、用户资产根与插件通道。
+- 批准依据：开发者于 2026-09-26 经访谈确认首版整体意图，随后以“可以，就这么做，收口”批准 F1–F9；见[首版设计决策记录](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)。2026-10-02 接受 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md#决策记录)：按需列目录、三类文件夹、写入来源、用户资产根与插件通道。
 - 实施与单机验收记录：[w00017 t16–t25](../../../.agents/works/w00017-application-runtime-architecture/README.md#当前-task-与继续条件)，含隔离磁盘/History、HTTP 失败、双窗口、Lab、切换性能与本机逐条复核。路径 move/rename 改用平台原子 no-replace 提交；Windows 在预检后抢占文件/目录目标时确认源与目标不变，未知平台和模拟 Linux 原语不支持会拒绝。完整 Windows 产品镜像构建成功，包含 Koffi 平台原生包；Linux/macOS 及其它文件系统未实测，跨机器基础操作尚未验证，保持 `planned`。

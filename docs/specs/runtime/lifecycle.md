@@ -150,10 +150,10 @@ Smoke 以场景操作序列为主，通过公开查询与宿主观察结果判�
 
 ## 证据
 
-- 实现入口：[`lifecycle.ts`](../../../packages/neuro-book/runtime/lifecycle/lifecycle.ts)
-- 合同测试：[`lifecycle.test.ts`](../../../packages/neuro-book/runtime/lifecycle/lifecycle.test.ts)
-- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
-- 批准目标：[应用运行时、生命周期与内置插件架构](../../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md)。2026-09-20 开发者接受基础架构与分段推进方向，并明确要求把第一实现切片（环境适配入口与小内核）与第二切片（以内置服务插件检验底座）沉淀为 Spec；不包含任意热卸载扩展。
+- 实现入口：[`lifecycle.ts`](../../../packages/neuro-book-legacy/runtime/lifecycle/lifecycle.ts)
+- 合同测试：[`lifecycle.test.ts`](../../../packages/neuro-book-legacy/runtime/lifecycle/lifecycle.test.ts)
+- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
+- 批准目标：[应用运行时、生命周期与内置插件架构](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md)。2026-09-20 开发者接受基础架构与分段推进方向，并明确要求把第一实现切片（环境适配入口与小内核）与第二切片（以内置服务插件检验底座）沉淀为 Spec；不包含任意热卸载扩展。
 - 实现与验证：[w00017 t05](../../../.agents/works/w00017-application-runtime-architecture/tasks/t05-runtime-lifecycle/README.md)（机制与合同测试）、[t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（真实双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对并晋升）。
 - 级联恢复一次推进整条依赖链：多层插件依赖下原先每次恢复只推进一层，见 [w00017 t36](../../../.agents/works/w00017-application-runtime-architecture/tasks/t36-lifecycle-recover-cascade/README.md)。
 - 已知限制：POSIX 信号路径的真实进程 smoke 未在本机（Windows）运行；受管 Worker、Desktop 位置无实测，仅保留 `RuntimeLocation` 边界。

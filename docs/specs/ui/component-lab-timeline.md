@@ -94,5 +94,5 @@ Smoke：尚未实现。实现时扩展现有 `smoke:component-lab` 系列入口�
 
 ## 证据
 
-- 批准依据：[Agent 对话视图重做提案](../../../packages/neuro-book/docs/proposals/agent-conversation-view.md) D5（2026-09-28 accepted）。
+- 批准依据：[Agent 对话视图重做提案](../../../packages/neuro-book-legacy/docs/proposals/agent-conversation-view.md) D5（2026-09-28 accepted）。
 - 执行记录：Work [w00019](../../../.agents/works/w00019-agent-conversation-view/README.md)。

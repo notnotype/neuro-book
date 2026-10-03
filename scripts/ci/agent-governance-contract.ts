@@ -93,7 +93,7 @@ type TaskMigrationMarker = {
     localOnlyFiles: string[];
 };
 
-export const APPLICATION_TASK_OWNER_ROOT = "packages/neuro-book/.agents/tasks";
+export const APPLICATION_TASK_OWNER_ROOT = "packages/neuro-book-legacy/.agents/tasks";
 export const ROOT_TASK_OWNER_ROOT = ".agents/tasks";
 export const TASK_OWNERSHIP_SCHEMA = "nbook.task-ownership/v1";
 
@@ -344,7 +344,7 @@ function packageTaskOwnerRoots(repoRoot: string): string[] {
     const packagesRoot = resolve(repoRoot, "packages");
     if (!existsSync(packagesRoot) || !lstatSync(packagesRoot).isDirectory()) return roots;
     for (const entry of readdirSync(packagesRoot, {withFileTypes: true})) {
-        if (!entry.isDirectory() || entry.name === "neuro-book") continue;
+        if (!entry.isDirectory() || entry.name === "neuro-book-legacy") continue;
         const ownerRoot = `packages/${entry.name}/.agents/tasks`;
         if (hasDirectory(repoRoot, ownerRoot)) roots.push(ownerRoot);
     }
@@ -489,7 +489,6 @@ export function expectedGovernanceFiles(): readonly string[] {
         ".agents/skills/README.md",
         "packages/neuro-book/AGENTS.md",
         "scripts/AGENTS.md",
-        "scripts/release/AGENTS.md",
         "packages/AGENTS.md",
     ];
 }
@@ -510,13 +509,13 @@ export function verifyGovernanceDocumentLimits(repoRoot: string): string[] {
 /** 文档里代替中文词的罕见符号；行内代码与代码块中的不算，它们是在引用符号本身。 */
 const RARE_DOCUMENT_SYMBOL_PATTERN = /[§¶]/gu;
 
-/** 历史 provenance 与 changelog 保持原样，不参与罕见符号检查。 */
+/** 历史 provenance 与旧应用只作参照、保持原样，不参与罕见符号检查。 */
 function isFrozenDocument(relativePath: string): boolean {
     return relativePath.startsWith("docs/tasks/")
         || relativePath.startsWith("docs/archived/")
         || relativePath.startsWith(".agents/tasks/")
         || relativePath.includes("/.agents/tasks/")
-        || /^vitepress\/locales\/[^/]+\/changelog\//u.test(relativePath);
+        || relativePath.startsWith("packages/neuro-book-legacy/");
 }
 
 function countRareDocumentSymbols(markdown: string): number {
@@ -1404,7 +1403,7 @@ function isHeadResearchTaskIdentity(relativePath: string, metadata: Record<strin
     const directoryTaskId = rootMatch?.[1] ?? packageMatch?.[2] ?? "";
     if (metadata.taskId !== directoryTaskId) return false;
     if (rootMatch) return isCurrentTaskContract(ROOT_TASK_OWNER_ROOT, directoryTaskId);
-    if (packageName === "neuro-book") {
+    if (packageName === "neuro-book-legacy") {
         return isCurrentTaskContract(APPLICATION_TASK_OWNER_ROOT, directoryTaskId)
             && ownership.tasks.some((entry) => entry.taskId === directoryTaskId);
     }
@@ -1555,7 +1554,7 @@ export function verifyLegacyTaskProvenance(repoRoot: string): string[] {
     }
     const packagesRoot = resolve(repoRoot, "packages");
     const packageNames = existsSync(packagesRoot)
-        ? readdirSync(packagesRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory() && entry.name !== "neuro-book").map((entry) => entry.name).sort()
+        ? readdirSync(packagesRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory() && entry.name !== "neuro-book-legacy").map((entry) => entry.name).sort()
         : [];
     for (const packageName of packageNames) {
         const packageTaskRoot = resolve(packagesRoot, packageName, ".agents", "tasks");

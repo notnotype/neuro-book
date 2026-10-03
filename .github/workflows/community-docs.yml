@@ -12,22 +12,15 @@ on:
       - "PROJECT-STATUS.md"
       - "WATCHDOG.md"
       - "CONTEXT.md"
-      - "RELEASE.md"
       - ".agents/**"
       - ".omp/**"
       - "docs/**"
-      - "vitepress/**"
-      - "packages/neuro-book/assets/reference/**"
       - "packages/llmlint/docs/promo/**"
       - ".github/**"
       - "scripts/ci/validate-community-files.ts"
-      - "scripts/ci/validate-nitropack-patch.ts"
       - "scripts/ci/check-documentation*"
-      - "scripts/ci/stage-docs-locales*"
       - "patches/**"
       - "packages/neuro-book/**"
-      - "packages/neuro-book/nuxt.config.ts"
-      - "packages/neuro-book/tsconfig.json"
       - "package.json"
       - "bun.lock"
   pull_request:
@@ -40,22 +33,15 @@ on:
       - "PROJECT-STATUS.md"
       - "WATCHDOG.md"
       - "CONTEXT.md"
-      - "RELEASE.md"
       - ".agents/**"
       - ".omp/**"
       - "docs/**"
-      - "vitepress/**"
-      - "packages/neuro-book/assets/reference/**"
       - "packages/llmlint/docs/promo/**"
       - ".github/**"
       - "scripts/ci/validate-community-files.ts"
-      - "scripts/ci/validate-nitropack-patch.ts"
       - "scripts/ci/check-documentation*"
-      - "scripts/ci/stage-docs-locales*"
       - "patches/**"
       - "packages/neuro-book/**"
-      - "packages/neuro-book/nuxt.config.ts"
-      - "packages/neuro-book/tsconfig.json"
       - "package.json"
       - "bun.lock"
   workflow_dispatch:
@@ -83,13 +69,7 @@ jobs:
         uses: oven-sh/setup-bun@v2
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Check patched Nitro modules
-        run: bun scripts/ci/validate-nitropack-patch.ts
-      - name: Prepare Nuxt types
-        run: bun run --cwd packages/neuro-book nuxt:prepare
       - name: Validate community files
         run: bun scripts/ci/validate-community-files.ts
       - name: Check documentation governance
         run: bun run docs:check
-      - name: Build documentation
-        run: bun run docs:build

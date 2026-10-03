@@ -4,7 +4,7 @@
 
 ## 用户视角人工评测
 
-[`manual-eval/README.md`](manual-eval/README.md) 是测试体系中的人工验收子系统：`criteria.md` 定义判定与证据合同，`journeys/` 保存用户旅程用例，`agent-guide.md` 定义一次评测的执行步骤，`report-template.md` 约束结果格式。它不属于 `packages/neuro-book/docs/runbooks/`，因为整套资产不仅包含操作步骤，还包含测试判据、用例和报告合同。
+旧产品的人工评测体系（判定与证据合同、用户旅程、执行步骤与报告格式）已归档到 [`../archived/testing/manual-eval/`](../archived/testing/manual-eval/README.md)，只作参照；新应用的人工评测在功能足够后另行建立。
 
 1. **测试临时根统一在 `<系统Temp>/neuro-book/vitest/<runId>/`**：
    - 由 `@notnotype/neuro-book-test-support/vitest` 在每个 Vitest worker 启动时把
@@ -71,7 +71,7 @@
 ## 验证门禁
 
 - 实施前确定当前目标的可观察行为、直接受影响边界与完成证据；有 Task 时写入快照，否则使用会话计划，不强制创建额外文件。
-- 纯文档修改检查链接、结构与语义，不运行产品测试、typecheck、构建或浏览器；治理脚本变化仅运行直接相关脚本测试与类型检查。VitePress 投影仍按 [文档目录合同](../AGENTS.md) 运行 `bun run docs:build`。
+- 纯文档修改检查链接、结构与语义，不运行产品测试、typecheck、构建或浏览器；治理脚本变化仅运行直接相关脚本测试与类型检查。
 - 实现变化运行受影响既有测试；类型表面改变才运行对应 typecheck。工具只支持全应用检查时运行一次，区分本次诊断与已有基线，不借失败扩大修复范围。CSS 生成物按包合同构建。
 - 局部 UI 按 [UI 验收分档](#ui-验收分档) 取证，不为超出该档的覆盖额外加测；改动面更广或存在具体未解风险时，说明要消除的不确定性再扩大；不因“最后验证”默认跑全主题、全库测试或生产构建。UI、迁移、集成和发布的既有授权边界不变。
 - 长期测试保护可观察合同、真实回归、边界或时序，不匹配措辞、源码镜像或无意义转发。用户报告的现象作为事实处理；有合适切入点时用能捕获缺陷的最小复现形成回归，否则以聚焦 smoke 说明缺口。低风险可逆改动不为“有测试”而新建测试。
@@ -84,7 +84,7 @@
 
 - 优先使用宿主内置、运行在隔离浏览器配置中的浏览器自动化（如 OMP 的 `browser.open`、`tab.observe`、`tab.run`）。宿主没有这类能力、内置能力存在具体缺口或用户指定 CLI 时，使用 `playwright-cli`。
 - 页面业务失败不构成换工具的理由；先区分产品、环境和工具问题。任何浏览器工具都不自动授权安装依赖、修改全局配置、接入用户日常浏览器及其登录态或迁移数据；直接驱动用户浏览器的集成（如 Claude Code 的 Claude in Chrome）只在用户明确要求时使用。
-- 普通 UI 运行验证不自动升级为完整人工评测：Agent 用上述工具自检属日常验证，不需要额外授权；用真实数据跑完整用户旅程的人工评测按 [人工评测](manual-eval/README.md) 单独取得授权，不得用 focused 测试冒充未执行的浏览器场景。
+- 普通 UI 运行验证不自动升级为完整人工评测：Agent 用上述工具自检属日常验证，不需要额外授权；用真实数据跑完整用户旅程的人工评测需单独取得授权，不得用 focused 测试冒充未执行的浏览器场景。
 
 ### UI 验收分档
 
@@ -99,16 +99,14 @@
 - 每项给出实测结果（元素计算样式 ↔ 同名变量解析值、几何、交互前后差异），不用静态推断或截图观感冒充实测；所用工具做不到时按本节首条改用备用工具，仍做不到的如实说明未做。
 - 分档只决定取证范围；人工评测的授权要求见本节「普通 UI 运行验证不自动升级为完整人工评测」一条。
 
-## 应用包真实模型 smoke（`test:real-model`）
+## 应用的真实模型 smoke
 
-`bun run test:real-model`（等价 `bun run --cwd packages/neuro-book test:real-model`）是应用包唯一会真实调用
-Provider 的测试入口：独立配置 `packages/neuro-book/vitest.real-model.config.ts` 只收集
-`packages/neuro-book/scripts/smoke/real-model/**`，默认门禁（`bun run --cwd packages/neuro-book test`）显式排除该目录，常规测试零模型调用。
+应用只能有一个会真实调用 Provider 的测试入口，独立于默认门禁，常规测试零模型调用。旧应用的入口是 `packages/neuro-book-legacy` 的 `test:real-model`（只作参照）；新应用的入口随 Agent 插件迁回时建立，沿用以下规则。
 
 - **凭据**：从仓库根 dotenv（`.env`，含 `.env.local` / `.env.real-model*` 变体）白名单注入测试进程（`DEEPSEEK_API_KEY`，可选 `DEEPSEEK_API_BASE`）；缺凭据的用例 skip 并在证据中记为「未验证」，不得写成通过。`REAL_MODEL_SMOKE_MODEL` 可覆盖模型（默认 `deepseek/deepseek-flash`）。
 - **隔离**：测试使用独立 State Root 与临时 workspace；写入的全局配置只落在本 run 的隔离根内（缺少 `NEURO_BOOK_STATE_ROOT` 时直接拒绝写入），POSIX 下收紧为 0600，随 run teardown 删除。
 - **外部前置**：HTTP 与写作 workflow 用例需要已启动的 dev server（`AGENT_HTTP_BASE_URL`，默认 `http://localhost:3000`），仅网络层不可达时 skip，已监听但接口失败按测试失败暴露；workflow 用例还需 `REAL_MODEL_SMOKE_PROJECT` 与 `REAL_MODEL_SMOKE_CHAPTERS`（缺一即 skip），写盘场景仅在显式设置 `REAL_MODEL_SMOKE_WRITE_CHAPTER` 时执行。
-- **与 smoke CLI 的关系**：`smoke:agent`、`smoke:agent-http`、`smoke:writing-workflow` 面向手工单次执行、失败即退出；测试命令提供统一入口与 skip 语义。两者共用 `packages/neuro-book/scripts/smoke/` 的装配与运行函数。
+- **与 smoke CLI 的关系**：`smoke:agent`、`smoke:agent-http`、`smoke:writing-workflow` 面向手工单次执行、失败即退出；测试命令提供统一入口与 skip 语义。两者共用应用包内的装配与运行函数。
 - **CI**：默认工作流不运行该命令（无外部凭据）；发布或人工验收需要时手动执行。
 
 ## 通用包测试合同（2026-09-11）

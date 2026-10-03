@@ -127,10 +127,10 @@ owners:
 
 ## 证据
 
-- 实现入口：[`diagnostics.ts`](../../../packages/neuro-book/runtime/diagnostics/diagnostics.ts)
-- 合同测试：[`diagnostics.test.ts`](../../../packages/neuro-book/runtime/diagnostics/diagnostics.test.ts)
-- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
-- 批准依据：开发者于 2026-09-20 明确接受总体推进方向（第一切片止于环境适配入口与小内核，第二切片用内置服务插件验证），并要求把两片沉淀为 `planned` Spec；[应用运行时与内置插件架构提案](../../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md) 的内置插件划分表把 `runtime-diagnostics` 定义为提供日志实现与结构化生命周期诊断、早期必需、完整日志失败仍有最小输出的服务。
+- 实现入口：[`diagnostics.ts`](../../../packages/neuro-book-legacy/runtime/diagnostics/diagnostics.ts)
+- 合同测试：[`diagnostics.test.ts`](../../../packages/neuro-book-legacy/runtime/diagnostics/diagnostics.test.ts)
+- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
+- 批准依据：开发者于 2026-09-20 明确接受总体推进方向（第一切片止于环境适配入口与小内核，第二切片用内置服务插件验证），并要求把两片沉淀为 `planned` Spec；[应用运行时与内置插件架构提案](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md) 的内置插件划分表把 `runtime-diagnostics` 定义为提供日志实现与结构化生命周期诊断、早期必需、完整日志失败仍有最小输出的服务。
 - 实现 provenance：[w00017 应用运行时与内置插件架构](../../../.agents/works/w00017-application-runtime-architecture/README.md) 与其 [t04 底座两切片规范与整体实施路径任务](../../../.agents/works/w00017-application-runtime-architecture/tasks/t04-foundation-spec-plan/README.md)。
 - 实现与验证：[w00017 t10](../../../.agents/works/w00017-application-runtime-architecture/tasks/t10-runtime-diagnostics/README.md)（机制、双出口与合同测试）、[t13 第二片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t13-services-integration-review/README.md)（组合 smoke 与逐条核对后晋升）。
 - 产品装配：`nbook.diagnostics` 已进入产品清单（[t40](../../../.agents/works/w00017-application-runtime-architecture/tasks/t40-phase1-closing/README.md)），装配入口 `server/features/runtime-diagnostics/product-plugin.ts`；产品诊断出口借用 `appLogger` 的同一 JSONL writer，进程内不另开写入者，进程级日志桥接（consola、`console.warn`/`console.error`、未处理异常）随该插件激活安装、关闭撤销。

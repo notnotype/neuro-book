@@ -53,22 +53,22 @@ describe("Task ownership 当前树门禁", () => {
     it("ownership 声明文件未进入 Git index 时失败", async () => {
         const repoRoot = await createOwnershipFixture({trackTask: false});
 
-        expect(verifyTaskOwnership(repoRoot)).toContain("ownership 文件尚未进入 Git index：packages/neuro-book/.agents/tasks/01-alpha/README.md");
-        expect(verifyTaskOwnership(repoRoot)).not.toContain("ownership 文件 hash 不一致：packages/neuro-book/.agents/tasks/01-alpha/README.md");
+        expect(verifyTaskOwnership(repoRoot)).toContain("ownership 文件尚未进入 Git index：packages/neuro-book-legacy/.agents/tasks/01-alpha/README.md");
+        expect(verifyTaskOwnership(repoRoot)).not.toContain("ownership 文件 hash 不一致：packages/neuro-book-legacy/.agents/tasks/01-alpha/README.md");
     });
 
     it("ownership 文件 hash 漂移时失败", async () => {
         const repoRoot = await createOwnershipFixture({trackTask: true});
-        await writeText(repoRoot, "packages/neuro-book/.agents/tasks/01-alpha/README.md", "changed\n");
+        await writeText(repoRoot, "packages/neuro-book-legacy/.agents/tasks/01-alpha/README.md", "changed\n");
 
-        expect(verifyTaskOwnership(repoRoot)).toContain("ownership 文件 hash 不一致：packages/neuro-book/.agents/tasks/01-alpha/README.md");
+        expect(verifyTaskOwnership(repoRoot)).toContain("ownership 文件 hash 不一致：packages/neuro-book-legacy/.agents/tasks/01-alpha/README.md");
     });
 
     it("应用 Task 目录缺少 ownership 登记时失败", async () => {
         const repoRoot = await createOwnershipFixture({trackTask: true});
-        await mkdir(join(repoRoot, "packages/neuro-book/.agents/tasks/02-unregistered"), {recursive: true});
+        await mkdir(join(repoRoot, "packages/neuro-book-legacy/.agents/tasks/02-unregistered"), {recursive: true});
 
-        expect(verifyTaskOwnership(repoRoot)).toContain("应用 Task 目录未登记 ownership：packages/neuro-book/.agents/tasks/02-unregistered");
+        expect(verifyTaskOwnership(repoRoot)).toContain("应用 Task 目录未登记 ownership：packages/neuro-book-legacy/.agents/tasks/02-unregistered");
     });
 
     it("旧 docs/tasks 目录重新出现时失败", async () => {
@@ -87,8 +87,8 @@ describe("Task ownership 当前树门禁", () => {
 
     it("ownership 精确选择应用与根 Task root", () => {
         const app = resolveLegacyTaskReadmePath(repositoryRoot, "01-agent-roleplay-mode");
-        expect(app.path).toBe(join(repositoryRoot, "packages/neuro-book/.agents/tasks/01-agent-roleplay-mode/README.md"));
-        expect(app.checkedRoots).toEqual(["packages/neuro-book/.agents/tasks"]);
+        expect(app.path).toBe(join(repositoryRoot, "packages/neuro-book-legacy/.agents/tasks/01-agent-roleplay-mode/README.md"));
+        expect(app.checkedRoots).toEqual(["packages/neuro-book-legacy/.agents/tasks"]);
 
         const root = resolveLegacyTaskReadmePath(repositoryRoot, "00149-monorepo-workspace-consolidation");
         expect(root.path).toBe(join(repositoryRoot, ".agents/tasks/00149-monorepo-workspace-consolidation/README.md"));
@@ -1230,7 +1230,7 @@ taskId: ${taskId}
 
 # Wrong app Task
 `, taskId);
-        const relativePath = `packages/neuro-book/.agents/tasks/${taskId}/README.md`;
+        const relativePath = `packages/neuro-book-legacy/.agents/tasks/${taskId}/README.md`;
 
         expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：${relativePath}`);
         await writeText(repoRoot, relativePath, currentTaskReadme({taskId, actionIssueId: "0", extraFrontmatter: "actionIssueIds:\n  - 191"}));
@@ -1244,7 +1244,7 @@ taskId: ${taskId}
 
     it("应用低号 Task 必须命中不可变基线、mapping 和 ownership", async () => {
         const valid = await createHistoricalApplicationTaskFixture("148-legacy", "valid", "---\nschema: wrong.task/v1\ntaskId: 148-legacy\n---\n\n# Historical app Task\n");
-        const validPath = "packages/neuro-book/.agents/tasks/148-legacy/README.md";
+        const validPath = "packages/neuro-book-legacy/.agents/tasks/148-legacy/README.md";
         expect(verifyLegacyTaskProvenance(valid)).not.toContain("应用 Task 标识无效：148-legacy");
         expect(verifyLegacyTaskProvenance(valid)).not.toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：${validPath}`);
 
@@ -1263,7 +1263,7 @@ taskId: ${taskId}
 
 # Current app Task
 `, taskId);
-            const relativePath = `packages/neuro-book/.agents/tasks/${taskId}/README.md`;
+            const relativePath = `packages/neuro-book-legacy/.agents/tasks/${taskId}/README.md`;
             expect(verifyLegacyTaskProvenance(repoRoot), taskId).toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：${relativePath}`);
         }
     }, 30_000);
@@ -1290,7 +1290,7 @@ agentWorkflow:
 # Historical v1 Task
 `);
         const failures = verifyLegacyTaskProvenance(repoRoot);
-        expect(failures).toContain(`Task status 无效：packages/neuro-book/.agents/tasks/${taskId}/README.md`);
+        expect(failures).toContain(`Task status 无效：packages/neuro-book-legacy/.agents/tasks/${taskId}/README.md`);
         expect(failures).not.toContain(`应用 Task 标识无效：${taskId}`);
         expect(failures).not.toEqual(expect.arrayContaining([
             expect.stringContaining("Task actionIssueId 必须是正整数或 null"),
@@ -1602,7 +1602,7 @@ async function createTaskWorkflowFixture(readme: string, taskId = "00161-profile
     fixtureRoots.push(root);
     await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({
         schema: "nbook.task-ownership/v1",
-        ownerRoot: "packages/neuro-book/.agents/tasks",
+        ownerRoot: "packages/neuro-book-legacy/.agents/tasks",
         taskCount: 0,
         fileCount: 0,
         tasks: [],
@@ -1617,7 +1617,7 @@ async function createHistoricalTaskWorkflowFixture(taskId: string, mode: "valid"
     fixtureRoots.push(root);
     await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({
         schema: "nbook.task-ownership/v1",
-        ownerRoot: "packages/neuro-book/.agents/tasks",
+        ownerRoot: "packages/neuro-book-legacy/.agents/tasks",
         taskCount: 0,
         fileCount: 0,
         tasks: [],
@@ -1696,7 +1696,7 @@ async function writeHistoricalMigrationMetadata(root: string, sourceRevision: st
 async function createInvalidSealedJsonShapeFixture(): Promise<string> {
     const root = await createTestTmpRoot("governance-invalid-sealed-json", "governance-invalid-sealed-json-test");
     fixtureRoots.push(root);
-    await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({schema: "nbook.task-ownership/v1", ownerRoot: "packages/neuro-book/.agents/tasks", taskCount: 0, fileCount: 0, tasks: []}));
+    await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({schema: "nbook.task-ownership/v1", ownerRoot: "packages/neuro-book-legacy/.agents/tasks", taskCount: 0, fileCount: 0, tasks: []}));
     await writeText(root, "docs/tasks/99-invalid/README.md", "# Historical source\n");
     await runGit(root, ["init", "--initial-branch", "master"]);
     await runGit(root, ["config", "user.email", "governance-test@example.invalid"]);
@@ -1716,7 +1716,7 @@ async function createInvalidSealedJsonShapeFixture(): Promise<string> {
 async function createMalformedSealedMappingFixture(): Promise<string> {
     const root = await createTestTmpRoot("governance-malformed-sealed-mapping", "governance-malformed-sealed-mapping-test");
     fixtureRoots.push(root);
-    await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({schema: "nbook.task-ownership/v1", ownerRoot: "packages/neuro-book/.agents/tasks", taskCount: 0, fileCount: 0, tasks: []}));
+    await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({schema: "nbook.task-ownership/v1", ownerRoot: "packages/neuro-book-legacy/.agents/tasks", taskCount: 0, fileCount: 0, tasks: []}));
     await writeText(root, "docs/tasks/99-malformed/README.md", "# Historical source\n");
     await runGit(root, ["init", "--initial-branch", "master"]);
     await runGit(root, ["config", "user.email", "governance-test@example.invalid"]);
@@ -1779,7 +1779,7 @@ async function createPackageResearchDiffFixture(): Promise<{
 - ${untrackedOutputPath}`);
     await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({
         schema: "nbook.task-ownership/v1",
-        ownerRoot: "packages/neuro-book/.agents/tasks",
+        ownerRoot: "packages/neuro-book-legacy/.agents/tasks",
         taskCount: 0,
         fileCount: 0,
         tasks: [],
@@ -1798,7 +1798,7 @@ async function createPackageResearchDiffFixture(): Promise<{
 async function createForgedHistoricalIdentityFixture(taskId: string): Promise<string> {
     const root = await createTestTmpRoot("governance-forged-historical-task", "governance-forged-historical-task-test");
     fixtureRoots.push(root);
-    await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({schema: "nbook.task-ownership/v1", ownerRoot: "packages/neuro-book/.agents/tasks", taskCount: 0, fileCount: 0, tasks: []}));
+    await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({schema: "nbook.task-ownership/v1", ownerRoot: "packages/neuro-book-legacy/.agents/tasks", taskCount: 0, fileCount: 0, tasks: []}));
     await writeText(root, "docs/tasks/98-sealed/README.md", "# Sealed historical source\n");
     await runGit(root, ["init", "--initial-branch", "master"]);
 
@@ -1827,7 +1827,7 @@ async function createDesignDiffFixture(mutation: "bug" | "completed" | "abandone
     fixtureRoots.push(root);
     await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({
         schema: "nbook.task-ownership/v1",
-        ownerRoot: "packages/neuro-book/.agents/tasks",
+        ownerRoot: "packages/neuro-book-legacy/.agents/tasks",
         taskCount: 0,
         fileCount: 0,
         tasks: [],
@@ -1971,7 +1971,7 @@ async function createDesignGateFixture(options: {
     const boundaryPath = "packages/neuro-book/app/api.ts";
     await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({
         schema: "nbook.task-ownership/v1",
-        ownerRoot: "packages/neuro-book/.agents/tasks",
+        ownerRoot: "packages/neuro-book-legacy/.agents/tasks",
         taskCount: 0,
         fileCount: 0,
         tasks: [],
@@ -2082,12 +2082,12 @@ async function createHistoricalApplicationTaskFixture(
     await runGit(root, ["commit", "-m", "seal historical application identity"]);
     await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({
         schema: "nbook.task-ownership/v1",
-        ownerRoot: "packages/neuro-book/.agents/tasks",
+        ownerRoot: "packages/neuro-book-legacy/.agents/tasks",
         taskCount: 1,
         fileCount: 1,
         tasks: [{
             taskId,
-            ownerRoot: "packages/neuro-book/.agents/tasks",
+            ownerRoot: "packages/neuro-book-legacy/.agents/tasks",
             files: [{
                 path: `${taskId}/README.md`,
                 legacyDestination: mode === "mismatched-ownership" ? `.agents/tasks/other/README.md` : destination,
@@ -2095,8 +2095,8 @@ async function createHistoricalApplicationTaskFixture(
             }],
         }],
     }));
-    await writeText(root, `packages/neuro-book/.agents/tasks/${taskId}/README.md`, readme);
-    await writeText(root, `packages/neuro-book/.agents/tasks/${taskId}/context.md`, "# Historical application context\n");
+    await writeText(root, `packages/neuro-book-legacy/.agents/tasks/${taskId}/README.md`, readme);
+    await writeText(root, `packages/neuro-book-legacy/.agents/tasks/${taskId}/context.md`, "# Historical application context\n");
     return root;
 }
 async function createApplicationTaskWorkflowFixture(readme: string, taskId: string, options: TaskFixtureOptions = {}): Promise<string> {
@@ -2104,17 +2104,17 @@ async function createApplicationTaskWorkflowFixture(readme: string, taskId: stri
     fixtureRoots.push(root);
     await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({
         schema: "nbook.task-ownership/v1",
-        ownerRoot: "packages/neuro-book/.agents/tasks",
+        ownerRoot: "packages/neuro-book-legacy/.agents/tasks",
         taskCount: 1,
         fileCount: 1,
         tasks: [{
             taskId,
-            ownerRoot: "packages/neuro-book/.agents/tasks",
+            ownerRoot: "packages/neuro-book-legacy/.agents/tasks",
             files: [{path: `${taskId}/README.md`, legacyDestination: `.agents/tasks/${taskId}/README.md`, sha256: `sha256:${"0".repeat(64)}`}],
         }],
     }));
-    await writeText(root, `packages/neuro-book/.agents/tasks/${taskId}/README.md`, normalizeCurrentTaskReadme(readme, taskId, options));
-    await writeText(root, `packages/neuro-book/.agents/tasks/${taskId}/context.md`, "# App Task Context\n");
+    await writeText(root, `packages/neuro-book-legacy/.agents/tasks/${taskId}/README.md`, normalizeCurrentTaskReadme(readme, taskId, options));
+    await writeText(root, `packages/neuro-book-legacy/.agents/tasks/${taskId}/context.md`, "# App Task Context\n");
     return root;
 }
 async function createGovernanceCliFixture(): Promise<string> {
@@ -2129,7 +2129,6 @@ async function createGovernanceCliFixture(): Promise<string> {
         [".agents/skills/README.md", "- [report/SKILL.md](report/SKILL.md)\n"],
         [".agents/skills/report/SKILL.md", "---\nname: report\ndescription: Report current state and next action.\nargument-hint: 'Request, file, or decision to report'\n---\n$ARGUMENTS\n当前状态\n下一步\n"],
         ["scripts/AGENTS.md", "fixture scripts rules\n"],
-        ["scripts/release/AGENTS.md", "fixture release rules\n"],
         ["packages/AGENTS.md", "fixture packages rules\n"],
         ["packages/neuro-book/AGENTS.md", "共享规则见 ../../AGENTS.md\n"],
         ["packages/neuro-book/package.json", JSON.stringify({name: "@notnotype/neuro-book"})],
@@ -2139,7 +2138,6 @@ async function createGovernanceCliFixture(): Promise<string> {
             "governance:worktree": "bun scripts/cli/create-agent-worktree.ts",
             "governance:migrate-tasks": "bun scripts/maintenance/migrate-agent-tasks.ts",
             "governance:migrate-task-ownership": "bun scripts/maintenance/migrate-task-ownership.ts",
-            "test:agent-state-root": "workspace-runtime-root.test.ts agent-workspace-state-root.test.ts",
         }})],
         ["bunfig.toml", "[test]\npathIgnorePatterns = [\n    \".agent/**\",\n    \".agents/**\",\n]\n"],
         [".gitignore", ".env.local\n.agent/\n.worktree/\n"],
@@ -2168,7 +2166,7 @@ async function createGovernanceCliFixture(): Promise<string> {
     await writeText(root, ".agents/works/w00001-governance/tasks/t01-model/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-model\n---\n\n# Model\n");
     await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({
         schema: "nbook.task-ownership/v1",
-        ownerRoot: "packages/neuro-book/.agents/tasks",
+        ownerRoot: "packages/neuro-book-legacy/.agents/tasks",
         taskCount: 0,
         fileCount: 0,
         tasks: [],
@@ -2271,10 +2269,10 @@ async function createWorktreeFixture(): Promise<{primary: string; linked: string
 async function createOwnershipFixture(options: {trackTask: boolean}): Promise<string> {
     const root = await createTestTmpRoot("governance-ownership", "governance-ownership-test");
     fixtureRoots.push(root);
-    const taskPath = "packages/neuro-book/.agents/tasks/01-alpha/README.md";
+    const taskPath = "packages/neuro-book-legacy/.agents/tasks/01-alpha/README.md";
     const taskContent = Buffer.from("---\nschema: nbook.task/v1\ntaskId: 01-alpha\n---\n\n# Alpha\n", "utf8");
     await writeText(root, ".gitignore", ".worktree/\n");
-    await mkdir(join(root, "packages/neuro-book/.agents/tasks/01-alpha"), {recursive: true});
+    await mkdir(join(root, "packages/neuro-book-legacy/.agents/tasks/01-alpha"), {recursive: true});
     await writeFile(join(root, taskPath), taskContent);
     await runGit(root, ["init", "--initial-branch", "master"]);
     await runGit(root, ["config", "user.email", "governance-test@example.invalid"]);
@@ -2283,10 +2281,10 @@ async function createOwnershipFixture(options: {trackTask: boolean}): Promise<st
     const taskSha = canonicalSha256(taskContent, textAttributes.get(taskPath) ?? "unspecified");
     await writeText(root, ".agents/tasks/ownership.json", `${JSON.stringify({
         schema: "nbook.task-ownership/v1",
-        ownerRoot: "packages/neuro-book/.agents/tasks",
+        ownerRoot: "packages/neuro-book-legacy/.agents/tasks",
         taskCount: 1,
         fileCount: 1,
-        tasks: [{taskId: "01-alpha", ownerRoot: "packages/neuro-book/.agents/tasks", files: [{path: "01-alpha/README.md", legacyDestination: ".agents/tasks/01-alpha/README.md", sha256: taskSha}]}],
+        tasks: [{taskId: "01-alpha", ownerRoot: "packages/neuro-book-legacy/.agents/tasks", files: [{path: "01-alpha/README.md", legacyDestination: ".agents/tasks/01-alpha/README.md", sha256: taskSha}]}],
     }, null, 2)}\n`);
     await runGit(root, ["add", ".gitignore", ".agents/tasks/ownership.json"]);
     if (options.trackTask) await runGit(root, ["add", taskPath]);
@@ -2309,7 +2307,7 @@ async function createLocalOnlyMigrationFixture(): Promise<string> {
     await writeText(root, ".gitignore", `${destination}\n`);
     await writeText(root, ".agents/tasks/ownership.json", `${JSON.stringify({
         schema: "nbook.task-ownership/v1",
-        ownerRoot: "packages/neuro-book/.agents/tasks",
+        ownerRoot: "packages/neuro-book-legacy/.agents/tasks",
         taskCount: 0,
         fileCount: 0,
         tasks: [],

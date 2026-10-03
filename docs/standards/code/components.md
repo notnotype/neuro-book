@@ -15,7 +15,7 @@
 
 新建组件必须有一份同名 Markdown 文档与它并列，例如 `PlotTreeView.vue` 对应 `PlotTreeView.md`；已登记的受管组件按下一段机器门禁执行，其他既有组件在下次修改时补齐。**查组件必先读同名 `.md`，改组件必同步同名 `.md`**。查阅或修改组件时先读其说明以获知已有契约与能力标签；任何依赖、输入输出或行为变更都同步维护文档。
 
-受管组件指以下两批：`packages/nb-ui` 通过 [`src/components/index.ts`](../../../packages/nb-ui/src/components/index.ts) 对外导出的组件，以及 `packages/neuro-book/app/components/common/**` 下的 `.vue`。`bun run docs:check` 对这批阻断同名 `.md` 缺失；文档存在后，能力标签与实现一致性仍按本规范报告。其余组件不在本门禁内，改动时按本规范补齐。
+受管组件指以下两批：`packages/nb-ui` 通过 [`src/components/index.ts`](../../../packages/nb-ui/src/components/index.ts) 对外导出的组件，以及应用通用组件目录下的 `.vue`（新应用的位置随 workbench 底座迁移确定，届时同步本条与 `docs:check`；当前检查路径为 `packages/neuro-book/app/components/common/**`，新应用尚无组件）。`bun run docs:check` 对这批阻断同名 `.md` 缺失；文档存在后，能力标签与实现一致性仍按本规范报告。其余组件不在本门禁内，改动时按本规范补齐。
 
 文档先于实现写：设计组件时先想清它长什么样、怎么交互、吃什么数据、有哪些状态，再写实现。写多写少见下文的详略分档，但文档本身不可缺省。
 
@@ -100,7 +100,7 @@ frontmatter 的能力标签和「数据」一节的类型声明都可以与实�
 - **组件响应**：无法从状态推导的动作（如"聚焦当前编辑器实例"）由宿主路由到活动实例——组件通过既有明面通道（emits 或宿主注入的句柄能力）参与，不新增私有通道。
 - **状态上报**：组件用现有事件（change / focus / ready 等）把自身可观察状态交给宿主，宿主据此维护上下文键；组件不为感知另开第二条通道。
 
-参与命令的组件在组件文档「数据」一节声明上述关系与所响应的句柄能力；范例见 [`CodeEditorView.md`](../../../packages/neuro-book/app/components/editor-workbench/CodeEditorView.md)。
+参与命令的组件在组件文档「数据」一节声明上述关系与所响应的句柄能力；范例见 [`CodeEditorView.md`](../../../packages/neuro-book-legacy/app/components/editor-workbench/CodeEditorView.md)。
 
 ## 推荐配方
 
@@ -170,6 +170,6 @@ Component Lab 的 fixture 承载组件确定性状态验证。编写 fixture 须
 
 1. **视口盒子居中与直连**：局部部件与独立面板在 `component-index.ts` 中使用 `tight` 视口模式由 `ViewportCanvas` 在舞台居中承载；fixture 根部直接挂载被测组件并声明 `w-full`（面板/视图声明 `h-full w-full`），不在 fixture 内手写 `flex items-center justify-center` 或固定像素外壳，使外层 `ViewportCanvas` 拖拽手柄直接控制组件尺寸。
 2. **材质分层**：背景必须消费语义材质变量（`var(--panel-surface)`、`var(--bg-panel)` 等），严禁在 fixture 容器硬编码页面底色 `var(--bg-main)`，以维持 Lab 面板层材质与暗色主题对比度一致。
-3. **典型示范**：标准实现参见 `packages/neuro-book/app/component-lab/fixtures/FixtureExampleFixture.vue` 与对应指南 `packages/neuro-book/app/component-lab/fixtures/README.md`。
+3. **典型示范**：旧应用的标准实现参见 `packages/neuro-book-legacy/app/component-lab/fixtures/FixtureExampleFixture.vue` 与对应指南 `packages/neuro-book-legacy/app/component-lab/fixtures/README.md`；Lab 迁入新应用后改指新位置。
 
 完成标准：每个受管组件都有同名组件文档，且文档的能力标签与实现一致；公共零件目录耦合度为 0；非宿主组件不含 `state:shared-write` 与 `io:mutate`；需要理由的声明都有理由；应用侧可挂载组件在 Component Lab 有场景登记；桌面（宽度不低于 1440px）与 `390×844` 下核心操作均可完成，无页面级横向滚动、无导致操作无法完成的遮挡、无未声明的布局位移。

@@ -228,7 +228,7 @@ Config 与 Storage 的归属、有效 Project 上下文及插件消费边界按 
 ## 副作用与数据
 
 - 持久化：宿主按工作面写 Project 尺寸或显式 User 布局记录；不写领域数据，不新增第二套尺寸持久化。
-- 既有键：主左右尺寸和书架模式按 [首批迁移合同](../../../packages/neuro-book/docs/migrations/storage-state.md) 迁移；
+- 既有键：主左右尺寸和书架模式按 [首批迁移合同](../../../packages/neuro-book-legacy/docs/migrations/storage-state.md) 迁移；
   `novel.ide.session` 与其它旧字段不整桶退役，同一逻辑数据只有一个写者。
 - 尺寸提交：所有尺寸仍经现有唯一 resize 边界提交，原语只做夹取与传播；不新开第二套拖拽实现。
 - 视图副作用：视图只发出结构化意图；写入、dirty、save/discard、Session、Job 与 Project 文件仍归原 authority。
@@ -302,10 +302,10 @@ Smoke 入口：Source Dev 打开主应用页面（桌面与 `390 × 844` 视口�
 
 ## 证据
 
-- 批准依据（目标与阶段 1 口径）：[`workbench-view-host.md`](../../../packages/neuro-book/docs/proposals/workbench-view-host.md)——2026-09-13 开发者批准（`accepted`）；阶段 1 定义为「原语 + 测试矩阵 + 新 Lab 验证台；外壳接入但**保留现有槽位**，不删任何固定入口」，同文件「验证台验收（2026-09-13）」记录验证台四条验收已达成。
+- 批准依据（目标与阶段 1 口径）：[`workbench-view-host.md`](../../proposals/workbench-view-host.md)——2026-09-13 开发者批准（`accepted`）；阶段 1 定义为「原语 + 测试矩阵 + 新 Lab 验证台；外壳接入但**保留现有槽位**，不删任何固定入口」，同文件「验证台验收（2026-09-13）」记录验证台四条验收已达成。
 - 关联工作入口：[#192 建立类 VS Code 的 Workbench 与 View Host 抽象](https://github.com/notnotype/neuro-book/issues/192)（远端 Issue，本文不复制其正文）。
 - 实现与验收证据待实现闭合后补录。
-- 2026-09-16 Storage 与浏览器标题栏目标补充依据：[ADR 0021](../../../packages/neuro-book/docs/adr/0021-local-storage-persistence.md)。
+- 2026-09-16 Storage 与浏览器标题栏目标补充依据：[ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)。
   此次更新不把局部外壳或 Lab 成果声明为本能力全部实现。
 - 2026-09-20 开发者批准ViewContainer模式/分栏/拖放重构及五项sash体验补充；以上新合同取代此前全部vertical、single独立标题、pointer跳回记忆尺寸的要求。当前仍planned；新实现、完整Lab矩阵与获授权的主页验收必须分别留证，旧通过数不代表本轮结果。
 - 2026-09-22 开发者在需求访谈中确认 Switcher 插入时单 View 自动创建容器、跨区域自动换轴、Workbench 中央禁投且不显示 Indicator、实际空成员容器销毁但全部隐藏时保留，以及多 View 并入保留来源比例，并明确授权将讨论与行为表写入相关文档。该决定取代旧的 Workbench 中央保持反馈、View 投 Tab 追加到悬停容器、只在空 Part 头部接收整容器和仅整容器合并才隐藏空容器的行为；Editor 中央反馈和文档标签语义不变。

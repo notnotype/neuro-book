@@ -4,8 +4,6 @@ import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 import {parse} from "yaml";
 
-import {selectProductPlatformMatrix} from "#scripts/build/product-platform-matrix";
-import {selectBaselineScopes} from "#scripts/ci/baseline-change-scope";
 import {WORKSPACE_PACKAGE_CHECKS, selectWorkspaceMatrix} from "#scripts/ci/workspace-package-matrix";
 
 type WorkflowStep = {
@@ -40,13 +38,7 @@ type Workflow = {
 const root = resolve(import.meta.dirname, "../..");
 const workflowNames = [
     "community-docs.yml",
-    "deploy-docs.yml",
     "code-baseline.yml",
-    "desktop-envelope-contract.yml",
-    "product-platforms.yml",
-    "product-runtime-baselines.yml",
-    "release-container.yml",
-    "release-manager.yml",
     "workspace-packages.yml",
 ] as const;
 
@@ -73,7 +65,7 @@ function paths(workflow: Workflow): string[] {
     ];
 }
 
-describe("迁移后九个 CI 工作流结构合同", () => {
+describe("v2 重建期间的 CI 工作流结构合同", () => {
     it("所有批准的 workflow 文件均存在且 YAML 可解析", async () => {
         const configs = await readWorkflows();
         expect([...configs.keys()]).toEqual(workflowNames);
@@ -83,75 +75,23 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         }
     });
 
-    it("code baseline 只监听真实 owner 路径，不保留根应用配置过滤", async () => {
+    it("code baseline 只运行治理与仓库合同，监听现存 owner 路径", async () => {
         const workflow = await readWorkflow("code-baseline.yml");
         const triggerPaths = workflow.on?.pull_request?.paths ?? [];
-        for (const required of [
-            "packages/neuro-book/tsconfig.json",
-            "packages/neuro-book/uno.config.ts",
-            "packages/neuro-book/vitest.config.ts",
-            "packages/neuro-book/release-state-migration.json",
-            "packages/neuro-book/config.example.yaml",
-            "packages/neuro-book/.env.example",
-            "packages/neuro-book/*.d.ts",
-        ]) {
-            expect(triggerPaths).toContain(required);
-        }
-        for (const governancePath of [".agents/**", ".omp/**", "AGENTS.md", "docs/**", "PROJECT-STATUS.md", "packages/neuro-book/assets/**"]) {
+        for (const governancePath of [".agents/**", ".omp/**", "AGENTS.md", "docs/**", "PROJECT-STATUS.md", "packages/neuro-book/**", "scripts/**"]) {
             expect(triggerPaths).toContain(governancePath);
         }
-        expect(triggerPaths).not.toContain("assets/**");
-        for (const stale of [
-            "*.d.ts",
-            ".env.example",
-            "config.example.yaml",
-            "release-state-migration.json",
-            "tsconfig.json",
-            "uno.config.ts",
-            "vitest.config.ts",
-        ]) {
-            expect(triggerPaths).not.toContain(stale);
-        }
-        expect(commands(workflow)).toContain("bun run --cwd packages/neuro-book generate");
-        expect(commands(workflow)).toContain("bun run --cwd packages/neuro-book typecheck");
-        expect(commands(workflow)).toContain("bun run --cwd packages/neuro-book test -- --reporter=dot");
-        expect(commands(workflow)).not.toMatch(/bun --cwd packages\/neuro-book run/u);
-        expect(commands(workflow)).not.toContain("bun install --cwd desktop/electron");
+        expect(triggerPaths).not.toContain("packages/neuro-book-legacy/**");
         expect(workflow.name).toBe("Code Baseline");
-        expect(Object.keys(workflow.jobs)).toContain("governance");
+        expect(Object.keys(workflow.jobs)).toEqual(["governance"]);
         expect(commands(workflow)).toContain("bun run governance:check");
         expect(commands(workflow)).toContain("bun x tsc --noEmit -p scripts/tsconfig.json");
         expect(commands(workflow)).toContain("scripts/ci/agent-governance.test.ts");
         expect(commands(workflow)).toContain("scripts/ci/workspace-workflows.test.ts");
-        expect(commands(workflow)).toContain("scripts/build/dockerfile-contract.test.ts");
-        expect(Object.values(workflow.jobs).map((job) => job.name ?? "").join(" ")).not.toContain("advisory");
-        const changes = workflow.jobs.changes;
-        expect(changes?.steps?.find((step) => step.name === "Checkout")?.with?.["fetch-depth"]).toBe(0);
-        expect(changes?.steps?.some((step) => step.uses === "oven-sh/setup-bun@v2")).toBe(true);
-        expect(String(changes?.steps?.find((step) => step.id === "scope")?.run ?? "")).toContain("scripts/ci/baseline-change-scope.ts");
-        expect(Object.keys(changes?.outputs ?? {}).sort()).toEqual(["tests", "typecheck"]);
+        expect(commands(workflow)).not.toMatch(/packages\/neuro-book-legacy/u);
         expect(workflow.jobs.governance?.if).toBeUndefined();
-        expect(workflow.jobs.typecheck?.needs).toBe("changes");
-        expect(workflow.jobs.typecheck?.if).toBe("needs.changes.outputs.typecheck == 'true'");
-        expect(workflow.jobs.test?.needs).toBe("changes");
-        expect(workflow.jobs.test?.if).toBe("needs.changes.outputs.tests == 'true'");
     });
 
-    it("baseline 变更作用域选择器按输入路径区分门禁", () => {
-        const docsOnly = {typecheck: false, tests: false};
-        expect(selectBaselineScopes([".agents/tasks/00158-notification-contrast-fix/README.md"], "pull_request")).toEqual(docsOnly);
-        expect(selectBaselineScopes(["packages/neuro-book/docs/architecture.md"], "pull_request")).toEqual(docsOnly);
-        expect(selectBaselineScopes(["packages/neuro-book/.agents/handbook.md"], "pull_request")).toEqual(docsOnly);
-        expect(selectBaselineScopes([".github/workflows/code-baseline.yml"], "pull_request")).toEqual(docsOnly);
-        expect(selectBaselineScopes(["README.md", "docs/specs/theme/system.md"], "pull_request")).toEqual(docsOnly);
-        const runtime = {typecheck: true, tests: true};
-        expect(selectBaselineScopes(["packages/neuro-book/server/agent/harness/neuro-agent-harness.test.ts"], "pull_request")).toEqual(runtime);
-        expect(selectBaselineScopes(["patches/nitropack@2.13.4.patch"], "pull_request")).toEqual(runtime);
-        expect(selectBaselineScopes(["package.json", "bun.lock", "bunfig.toml"], "pull_request")).toEqual(runtime);
-        expect(selectBaselineScopes(["plugins/foo/index.ts"], "pull_request")).toEqual(runtime);
-        expect(selectBaselineScopes([".agents/tasks/x/README.md"], "workflow_dispatch")).toEqual(runtime);
-
-    });
     it("所有 CI workflow 使用 Bun run --cwd 语法", async () => {
         const workflows = await readWorkflows();
         const invalid = [...workflows.entries()]
@@ -160,41 +100,24 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(invalid).toEqual([]);
     });
 
-    it("Electron 独立 lockfile 使用 POSIX workspace 路径", async () => {
-        const lockfile = await readFile(resolve(root, "desktop/electron/bun.lock"), "utf8");
-        expect(lockfile).not.toContain("file:..\\\\");
-        expect(lockfile).toContain("@notnotype/neuro-book-test-support@file:../../packages/neuro-book-test-support");
-    });
-
     it("Governance checkout 保留完整历史以校验迁移 sourceRevision", async () => {
         const workflow = await readWorkflow("code-baseline.yml");
         const checkout = workflow.jobs.governance?.steps?.find(({name}) => name === "Checkout");
         expect(checkout?.with?.["fetch-depth"]).toBe(0);
     });
 
-    it("Community 与 Deploy Docs 的 push/PR runtime paths 指向应用 owner", async () => {
+    it("Community workflow 的 push/PR paths 一致并只运行社区文件与文档检查", async () => {
         const community = await readWorkflow("community-docs.yml");
         expect(community.on?.push?.paths).toEqual(community.on?.pull_request?.paths);
         expect(community.on?.push?.paths).toEqual(expect.arrayContaining([
             ".agents/**",
             "packages/neuro-book/**",
-            "packages/neuro-book/tsconfig.json",
-            "scripts/ci/stage-docs-locales*",
             "package.json",
             "bun.lock",
         ]));
-        expect(commands(community)).toContain("bun run --cwd packages/neuro-book nuxt:prepare");
-        const deploy = await readWorkflow("deploy-docs.yml");
-        expect(paths(deploy)).toEqual(expect.arrayContaining([
-            "packages/neuro-book/**",
-            "packages/neuro-book/tsconfig.json",
-            "scripts/ci/stage-docs-locales*",
-            "package.json",
-            "bun.lock",
-        ]));
-        expect(commands(deploy)).toContain("bun run --cwd packages/neuro-book nuxt:prepare");
+        expect(commands(community)).toContain("bun scripts/ci/validate-community-files.ts");
         expect(commands(community)).toContain("bun run docs:check");
-        expect(commands(deploy)).toContain("bun run docs:check");
+        expect(commands(community)).not.toContain("docs:build");
     });
 
     it("六自治包 matrix 由变更选择器驱动并保留 owner、命令、路径和 artifact", async () => {
@@ -262,103 +185,7 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(dispatched.runWebIsland).toBe(true);
     });
 
-    it("Product baseline 与 platform workflow 覆盖 runner、应用 build 和 measurement artifact", async () => {
-        const baseline = await readWorkflow("product-runtime-baselines.yml");
-        const baselineRows = baseline.jobs.measure.strategy?.matrix?.include ?? [];
-        expect(baselineRows.map((row) => row.platform)).toEqual([
-            "windows-x64",
-            "linux-x64-glibc",
-            "linux-aarch64-glibc",
-            "darwin-x64",
-            "darwin-aarch64",
-        ]);
-        expect(commands(baseline)).toContain("bun run product:measure --output");
-        expect(commands(baseline)).toContain("compare-product-runtime-measurements.ts");
-        expect(steps(baseline)).toContainEqual(expect.objectContaining({uses: "actions/upload-artifact@v4", with: expect.objectContaining({path: expect.stringContaining("product-runtime-measurement-")})}));
-        const platforms = await readWorkflow("product-platforms.yml");
-        expect(paths(platforms)).toEqual(expect.arrayContaining([
-            "packages/neuro-book/**",
-            "packages/neuro-book-contracts/**",
-            "packages/neuro-book-manager/**",
-            "patches/**",
-            "bun.lock",
-            "package.json",
-        ]));
-        expect(platforms.jobs.product?.strategy?.matrix).toBe("${{ fromJSON(needs.select-platforms.outputs.matrix) }}");
-        const selectRun = String(platforms.jobs["select-platforms"]?.steps?.find((step) => step.id === "select")?.run ?? "");
-        expect(selectRun).toContain("scripts/build/product-platform-matrix.ts");
-        expect(selectProductPlatformMatrix("pull_request")).toEqual([
-            {
-                platform: "linux-x64-glibc",
-                runner: "ubuntu-latest",
-                command: "release:product:linux",
-                archive: "neuro-book-product-linux-x64-glibc.tar.gz",
-                port: 39223,
-                browser: "playwright",
-            },
-        ]);
-        expect(selectProductPlatformMatrix("push").map((entry) => entry.platform)).toEqual([
-            "linux-x64-glibc",
-            "linux-aarch64-glibc",
-            "darwin-x64",
-            "darwin-aarch64",
-        ]);
-        expect(selectProductPlatformMatrix("workflow_dispatch")).toEqual(selectProductPlatformMatrix("push"));
-        expect(platforms.on?.push?.branches).toEqual(["master"]);
-        expect(platforms.on?.push?.paths).toEqual(platforms.on?.pull_request?.paths);
-        expect(commands(platforms)).toContain("bun run --cwd packages/neuro-book nuxt:build");
-        expect(commands(platforms)).toContain("./packages/neuro-book/package.json");
-        expect(commands(platforms)).toContain("bun run test:install");
-        expect(commands(platforms)).toContain("bun run manager:test");
-        expect(commands(platforms)).toContain("bun run --cwd packages/owned-process test");
-        const diagnostics = steps(platforms).find((step) => step.name === "Upload native Product diagnostics");
-        expect(diagnostics).toMatchObject({
-            uses: "actions/upload-artifact@v4",
-            with: expect.objectContaining({
-                name: expect.stringContaining("product-diagnostics"),
-                path: expect.stringContaining("product-build.json"),
-            }),
-        });
-    });
-
-    it("Desktop、Manager 与 Release workflow 使用正确 owner 命令和产物边界", async () => {
-        const desktop = await readWorkflow("desktop-envelope-contract.yml");
-        expect(paths(desktop)).toEqual(expect.arrayContaining([
-            "packages/neuro-book-contracts/src/desktop-*.ts",
-            "packages/neuro-book-manager/src/desktop-uac-client*.ts",
-            "packages/neuro-book-manager/**",
-            "packages/neuro-book-contracts/src/desktop.ts",
-            "packages/neuro-book-contracts/src/installation.ts",
-            "packages/owned-process/**",
-            "packages/neuro-book-test-support/**",
-        ]));
-        expect(commands(desktop)).toContain("bun x vitest run --config scripts/vitest.config.ts scripts/build/product-runtime-bundle.test.ts scripts/build/product-build-environment.test.ts");
-        expect(commands(desktop)).not.toContain("bun run scripts/build/product-runtime-bundle.test.ts");
-        const focusedRun = String(desktop.jobs.contracts?.steps?.find((step) => step.name === "Verify Manager focused paths and installation schemas")?.run ?? "");
-        expect(focusedRun).toContain("src/app-commands.owned-process.test.ts");
-        expect(focusedRun).toContain("src/installation-mutation.test.ts");
-        const ownedProcessStep = desktop.jobs.contracts?.steps?.find((step) => step.name === "Verify Windows Owned Process lifecycle");
-        expect(ownedProcessStep).toMatchObject({if: "matrix.platform == 'windows-x64'", run: "bun run --cwd packages/owned-process test"});
-        const manager = await readWorkflow("release-manager.yml");
-        expect(commands(manager)).toContain("bun run --cwd packages/neuro-book runtime:typecheck");
-        expect(commands(manager)).toContain("bun run --cwd packages/neuro-book nuxt:prepare");
-        expect(commands(manager)).toContain("bun run manager:typecheck");
-        expect(commands(manager)).toContain("bun run manager:test");
-        expect(steps(manager)).toContainEqual(expect.objectContaining({uses: "actions/setup-node@v6", with: expect.objectContaining({"package-manager-cache": false})}));
-        const release = await readWorkflow("release-container.yml");
-        expect(commands(release)).toContain("bun run --cwd packages/neuro-book generate");
-        expect(commands(release)).toContain("bun run --cwd packages/neuro-book nuxt:build");
-        const windowsCache = release.jobs["product-windows"].steps?.find((step) => step.uses === "actions/cache@v4");
-        const windowsCacheKey = String(windowsCache?.with?.key ?? "");
-        expect(windowsCacheKey).toContain("packages/neuro-book/package.json");
-        expect(windowsCacheKey).toContain("packages/neuro-book-contracts/package.json");
-        expect(windowsCacheKey).toContain("packages/neuro-book-manager/package.json");
-        const dockerBuild = steps(release).find((step) => step.uses === "docker/build-push-action@v6");
-        expect(dockerBuild?.with?.["cache-from"]).toBe("type=gha,scope=app-${{ matrix.arch }}");
-        expect(dockerBuild?.with?.["cache-to"]).toBe("type=gha,mode=max,scope=app-${{ matrix.arch }}");
-    });
-
-    it("九 workflow 的 trigger paths 不保留已迁移的根应用配置路径", async () => {
+    it("所有 workflow 的 trigger paths 不保留已迁移的根应用配置路径", async () => {
         const configs = await readWorkflows();
         const staleRootDirectories = /^(?:app|server|shared|world-engine|prisma)(?:\/|\*\*)/u;
         const staleRootConfigs = new Set([
@@ -381,15 +208,13 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         }
     });
 
-    it("code-baseline 与 product-platforms 的 PR paths 覆盖全部 packages 目录", async () => {
+    it("code-baseline 的 PR paths 覆盖除旧应用外的全部 packages 目录", async () => {
         const dirents = await readdir(resolve(root, "packages"), {withFileTypes: true});
-        const packageDirs = dirents.filter((d) => d.isDirectory()).map((d) => d.name);
+        const packageDirs = dirents.filter((d) => d.isDirectory() && d.name !== "neuro-book-legacy").map((d) => d.name);
         expect(packageDirs.length).toBeGreaterThanOrEqual(12);
-        for (const name of ["code-baseline.yml", "product-platforms.yml"]) {
-            const prPaths = (await readWorkflow(name)).on?.pull_request?.paths ?? [];
-            for (const dir of packageDirs) {
-                expect(prPaths, `${name}: packages/${dir}`).toContain(`packages/${dir}/**`);
-            }
+        const prPaths = (await readWorkflow("code-baseline.yml")).on?.pull_request?.paths ?? [];
+        for (const dir of packageDirs) {
+            expect(prPaths, `code-baseline.yml: packages/${dir}`).toContain(`packages/${dir}/**`);
         }
     });
 });

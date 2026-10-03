@@ -74,7 +74,7 @@ owners:
 
 1. 环境适配器可以依赖框架/OS，机制不得反向依赖 Vue、Nuxt、Nitro、文件驱动、Project 或 Agent。Source 与 Product 采用相同语义，允许不同能力来源。
 2. 第一切片的受控装配和正式产品是不同入口，不允许同时管理同一产品资源。后续每条真实链切换时，所有调用方迁入新 owner，旧启动/关闭路径同时退出；不是长期保留两套 singleton。
-3. 正式产品接入时保留现有迁移检查先于 Session Store 租约、租约失效/退出码、请求 drain 和权限策略。Session Store advisory lease 的详细合同仍归 [agent.session-store-lease](../agent/session-store-lease.md)，不升级为全 State Root 强互斥。
+3. 正式产品接入时保留现有迁移检查先于 Session Store 租约、租约失效/退出码、请求 drain 和权限策略。Session Store advisory lease 的详细合同仍归 [agent.session-store-lease](../../archived/specs/agent/session-store-lease.md)，不升级为全 State Root 强互斥。
 4. State Root 完整性检查当前只读并告警，不因接入本合同自动变成拒绝启动或自动合并/删除数据。所有真实数据格式/迁移策略变化单独决策。
 5. Nuxt/Nitro hook 只连接一个明确的应用装配入口。Component Lab 不成为该入口的底层依赖；后续 Lab 清单与产品清单分开，浏览器是否访问产品服务取决于明确装配，而不是路由名称的隐式豁免。
 6. 第一切片交付 B/S 所需的浏览器与后端环境入口，另有受控测试宿主用于故障验证；Desktop/Worker 仅保留可适配边界，尚无该环境实测时不得宣称支持。
@@ -116,11 +116,11 @@ owners:
 
 ## 证据
 
-- 实现入口：[`application.ts`](../../../packages/neuro-book/runtime/application/application.ts)
-- 合同测试：[`application.test.ts`](../../../packages/neuro-book/runtime/application/application.test.ts)、[`application-startup.test.ts`](../../../packages/neuro-book/runtime/application/application-startup.test.ts)
-- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
-- 2026-09-20 开发者明确要求以“环境适配入口、小内核”为第一切片并落 Spec，再以内置服务插件验证。批准方向与非目标见 [总体提案决策记录](../../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md#决策记录与下一步)。
+- 实现入口：[`application.ts`](../../../packages/neuro-book-legacy/runtime/application/application.ts)
+- 合同测试：[`application.test.ts`](../../../packages/neuro-book-legacy/runtime/application/application.test.ts)、[`application-startup.test.ts`](../../../packages/neuro-book-legacy/runtime/application/application-startup.test.ts)
+- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
+- 2026-09-20 开发者明确要求以“环境适配入口、小内核”为第一切片并落 Spec，再以内置服务插件验证。批准方向与非目标见 [总体提案决策记录](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md#决策记录与下一步)。
 - 实现与验证：[w00017 t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（内核、适配器、双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对、公开面收紧并晋升）。
-- 启动必需插件与 `onStartup` 启动激活：依据 [可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md) P11 与 [`runtime.plugin-manifest`](plugin-manifest.md) 第 7、8 条，实现与验证见 [w00017 t32](../../../.agents/works/w00017-application-runtime-architecture/tasks/t32-kernel-entry-dependencies/README.md)。
+- 启动必需插件与 `onStartup` 启动激活：依据 [可扩展应用平台设计](../../proposals/extensible-application-platform.md) P11 与 [`runtime.plugin-manifest`](plugin-manifest.md) 第 7、8 条，实现与验证见 [w00017 t32](../../../.agents/works/w00017-application-runtime-architecture/tasks/t32-kernel-entry-dependencies/README.md)。
 - 清单删除 `receivers`：接收者改由拥有者插件提供，见 [w00017 t33](../../../.agents/works/w00017-application-runtime-architecture/tasks/t33-owner-contribution-points/README.md)。
 - 已知限制：本规范描述第一切片的受控装配入口；产品的进程级服务已迁为启动必需的内置插件（[t34](../../../.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/README.md)），生产进程由自有宿主入口经 `ServerRuntimeHost` 建立实例并处理信号与停止通道，开发模式与 CLI 共用同一启动函数（[t37](../../../.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/README.md)，行为见 [`runtime.server-host`](server-host.md)）。POSIX 信号路径未在本机（Windows）实测：Windows 上外部进程无法合作发送信号，smoke 走 stdin `stop` 通道，适配器的信号翻译由合同测试的进程替身覆盖。显式关闭的 dirty/在途协商由调用方在调用 `stop()` 之前完成，第一切片没有 dirty 参与者，内核不提供否决接口。强制终止后的「未知」由外部观察者（持久化与领域 owner）判断，不属于实例自身可报告的结果。Desktop/Worker 无实测。

@@ -13,12 +13,6 @@
         "paths": {
             "#scripts/*": [
                 "./scripts/*"
-            ],
-            "nbook/*": [
-                "./packages/neuro-book/*"
-            ],
-            "@notnotype/neuro-book/*": [
-                "./packages/neuro-book/interfaces/*.ts"
             ]
         }
     },
@@ -26,24 +20,8 @@
         "ci/agent-governance-contract.ts",
         "ci/agent-governance.ts",
         "cli/agent-context.ts",
-        "ci/baseline-change-scope.ts",
         "ci/validate-proper-lockfile-patch.ts",
         "types/proper-lockfile.d.ts",
-        "types/yazl.d.ts",
-        "../packages/neuro-book/server/agent/tools/web-extraction-modules.d.ts",
-        "build/build-product-runtime-image.ts",
-        "build/check-product-runtime-policies.ts",
-        "build/measure-product-runtime-image.ts",
-        "build/product-platform-matrix.ts",
-        "build/product-source-path-contract.ts",
-        "build/product-runtime-image-builder.ts",
-        "release/create-interrupted-operation.ts",
-        "release/install-dependencies.ts",
-        "release/verify-windows-portable-restart.ts",
-        "release/manager-release-contract.test.ts",
-        "release/manager-release-vitest.config.ts",
-        "release/desktop-contract-vitest.config.ts",
-        "deploy/windows-owned-process-smoke.ts",
         "maintenance/migrate-agent-tasks.ts",
         "maintenance/migrate-task-ownership.ts"
     ]

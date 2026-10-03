@@ -25,7 +25,7 @@ taskId: t43-repository-reorganization
 
 `packages/neuro-book-contracts` 与 `patches/` 保留：旧包依赖它们。
 
-**C. 归档到 `docs/archive/`**（保留原目录结构，归档目录的 README 写明“不是当前合同，只作参照”）
+**C. 归档到 `docs/archived/`**（保留原目录结构，归档目录的 README 写明“不是当前合同，只作参照”）
 
 - Spec：`agent/*`、`media/*`、`ui/model-role-selection.md`、`ui/agent-conversation-view.md`、`ui/agent-profile-settings.md`，登记表移除对应行；
 - 代码规范：`agent-assets.md`、`database.md`、`delivery.md`、`desktop/`、`docs-site.md`、`server.md`、`workspace-assets.md`、`tooling.md`（Nuxt 配置相关），规范路由表同步；`frontend.md`、`components.md` 等保留，路径表述按新结构改写；
@@ -56,8 +56,31 @@ taskId: t43-repository-reorganization
 
 ## 当前状态
 
-2026-10-03 建立，待开发者同意后开始。由主 Agent 直接执行（以文档与治理改动为主）。
+2026-10-03 完成，由主 Agent 直接执行。
+
+**实际改动：**
+
+- **A**：`git mv packages/neuro-book packages/neuro-book-legacy`（3726 个文件）；旧包包名改为 `@notnotype/neuro-book-legacy`，去掉 `@notnotype/neuro-book-manager` 开发依赖与指向根 `scripts/build` 的 `nuxt:build`（旧包自己 `scripts/build` 下的命令保留）。原路径建占位包，只有 `package.json`、`README.md`、`AGENTS.md`。
+- **B**：删除 Manager、`desktop/`、`scripts/{build,release,install,deploy}`、`RELEASE.md`、6 个交付 workflow；`scripts/utils` 只留仍被治理脚本使用的 `process.mjs` 与 `workspace-roots.ts`；随交付链与文档站一起删除只服务它们的 `scripts/ci/{stage-docs-locales,tutorial-assets,baseline-change-scope,validate-nitropack-patch}.ts` 与 `scripts/types/yazl.d.ts`；根 `package.json` 删除 34 条脚本，workspaces 去掉 Manager、加入旧包。
+- **C**：归档目录定名 `docs/archived/`（与检查脚本既有的归档约定一致），内容按清单归档；旧的 `PROJECT-STATUS.md` 归档为 `docs/archived/project-status-2026-08-17.md`，按现状重写。
+- **D**：整个 `docs/research/`（含 VS Code 调研与开发者在旧位置未提交的研究 README 改动，按开发者要求原样搬入，只改首句路径与两个相对链接）、ADR 0022、三份设计稿移到仓库级；新建 `docs/adr/README.md` 与 ADR 0023。
+- **E**：现行文档的相对链接按“旧位置解析 → 映射新位置 → 重算相对路径”批量改写（52 个文件、320 条，先 dry run）；指向已删除文件的链接与正文提法逐处手改。入口文档、Spec 登记表（新增“旧应用的规范与 Reference”一节，11 项标“实现迁移中”）、代码规范路由、测试规范、模块边界、两个开发技能按新结构改写。治理与文档检查：归属账本与历史 Task 的 owner 根改指旧包；去掉 `test:agent-state-root`、发布合同与文档站的检查及其死代码；CI 只保留治理、社区文件与文档检查和自治包矩阵，新应用的 job 随第 3 步加入。
+
+**验收：**
+
+1. `bun install` 成功，移除 Manager 依赖共 116 个包，`bun.lock` 同步更新。
+2. `docs:check`、`governance:check` 的 `failures` 均为 0；t40 起存在的 `product-command.test.ts` 跨根导入违规已消失。文档检查警告由 89 条变为 137 条，新增 48 条全部是历史 Task README 指向已移动文件的旧链接，按“历史记录不回改”保留。
+3. 根脚本测试 5 个文件 186 个用例通过（整理前 54 个文件中，其余属已删除的 build、deploy、install、release 目录），脚本类型检查 0 错误。保留的 13 个包整理前后类型检查与测试的退出码逐项相同（`packages-before.txt` 对 `packages-after.txt`）；整理前已失败的项原样保持：`nb-ui` 测试 5 个用例（colorway）、`llmlint` 类型检查与测试（web 岛缺 `diff-match-patch`）、`neuro-book-test-support` 测试 1 个用例（paths）。
+4. 根入口文档描述的结构与实际一致。
+
+证据见 [evidences/](evidences/)。
+
+**后续事项：**
+
+- `docs:check` 的组件同名文档检查仍指向 `packages/neuro-book/app/components/common/`，新应用的组件位置在第 4 步确定后同步。
+- 根 `package.json` 的依赖仍是旧应用依赖的镜像（旧包依赖照装需要），旧包退出时清理；`patches/nitropack` 补丁同理保留。
+- `neuro-book-contracts` 的交付链出口不再维护，旧包退出时清理。
 
 ## 下一步
 
-完成后开第 2 步：内核抽成 `nb-runtime` 包。
+第 2 步：内核抽成 `nb-runtime` 包。

@@ -2,7 +2,7 @@
 
 `docs/specs/` 是 NeuroBook 产品、模块和组件规范的唯一落点。Spec 用受约束的自然语言连接模糊需求与确定代码：人类不必阅读全部实现，Agent 也不能只凭一句需求猜测输入、状态、副作用或失败语义。
 
-本目录当前先做注册表，不复制现有正文。每项功能只有一个当前真相源；迁移完成前，注册表指向应用持有的 [`../packages/neuro-book/assets/reference/`](../../packages/neuro-book/assets/reference/)、`docs/modules/`、`docs/testing/` 或根规范文件。Monorepo / Module 的唯一正文仍在 [docs/modules/monorepo-boundaries.md](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md)，不得另建 `docs/specs/architecture/monorepo-boundaries.md`。
+本目录当前先做注册表，不复制现有正文。每项功能只有一个当前真相源。本分支按 [NeuroBook v2：并排重建应用](../proposals/neuro-book-v2-rebuild.md) 重建应用：标为“实现迁移中”的 `implemented` Spec，实现仍在旧应用 `packages/neuro-book-legacy`，迁入新应用并重新通过验收后证据改指新代码；旧应用的其它规范与 Reference 见[旧应用的规范与 Reference](#旧应用的规范与-reference只作参照)。Monorepo / Module 的唯一正文仍在 [docs/modules/monorepo-boundaries.md](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md)，不得另建 `docs/specs/architecture/monorepo-boundaries.md`。
 
 ## 两种成熟度，一个文件
 
@@ -89,42 +89,28 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 
 | 功能域 | 当前规范 | 说明 |
 |---|---|---|
-| 基础术语 | [`../packages/neuro-book/docs/specs/foundation/terminology.md`](../../packages/neuro-book/docs/specs/foundation/terminology.md) | State Root、Cache Root、Workspace、Product、Agent 与安装等稳定领域语言 |
-| Agent Runtime 与 Profile | [Reference: Agent](../../packages/neuro-book/assets/reference/agent/README.md) | Session、Profile、Workflow、Skill、Job、Project Workspace 与 Agent 协作协议 |
-| Agent 资产运行期安装与 Catalog 根 | [`agent/asset-install-runtime.md`](agent/asset-install-runtime.md) | State Root Install Root、Runtime Reference Root、Install → Project 覆盖和显式 artifact context 已由代码与合同测试支持 |
-| Agent Session Abort | [`agent/session-abort.md`](agent/session-abort.md) | HTTP abort、合作/forced 收口、唯一 durable lifecycle、写入恢复与 409/503 失败合同已由实现和行为测试支持 |
-| 内容与 Project Workspace | [Reference: Content](../../packages/neuro-book/assets/reference/content/README.md) | 内容节点、正文、素材、检索、引用与 Workspace 术语 |
-| World Engine | [Reference: World Engine](../../packages/neuro-book/assets/reference/world-engine/README.md) | 时间线、slice、subject、schema、calendar 与写作协作 |
-| Plot | [Reference: Plot](../../packages/neuro-book/assets/reference/plot/README.md) | Story、Thread、Scene、Writer Brief、Agent 与前端合同 |
 | Theme | [`theme/system.md`](theme/system.md) | 主题变量和消费规则 |
 | UI 设计系统与组件规范 | [nb-ui 设计与组件规范](../../packages/nb-ui/docs/README.md) | 设计语言（[`design-language.md`](../../packages/nb-ui/docs/design-language.md)）、组件开发与滚动槽位规范（[`ui-development-spec.md`](../../packages/nb-ui/docs/ui-development-spec.md)）与主题指南 |
-| Media | [`media/image-variants.md`](media/image-variants.md) | 图片原图、变体、缓存和 Project 封面 |
-| Character | [模块需求](https://github.com/notnotype/neuro-book/blob/master/docs/modules/character/requirements.md) | 当前需求与界面字段；尚待补齐状态和失败语义 |
 | Monorepo / Module | [Monorepo 边界](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md) | Monorepo 当前包布局、唯一文档真相源、包级继承/覆盖、依赖方向和 worktree 根边界 |
 | 测试与验收 | [`../testing/README.md`](../testing/README.md) | 测试组织、临时根、验收和证据合同 |
-| 人工评测 | [`../testing/manual-eval/README.md`](../testing/manual-eval/README.md) | 用户视角旅程、判定口径和报告结构 |
-| 数据迁移 | [`../packages/neuro-book/docs/migrations/README.md`](../../packages/neuro-book/docs/migrations/README.md) | 有状态升级、备份和回滚入口 |
 | 贡献与交付 | [CONTRIBUTING](https://github.com/notnotype/neuro-book/blob/master/CONTRIBUTING.md) | Issue、开发、Git、PR 与维护者交付流程 |
-| Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、组件导航、检视面板、响应式容器、偏好和 Product 排除合同；产品主题与渐进组件迁移仍属后续切片 |
-| Workbench 命令系统 | [`workbench/commands.md`](workbench/commands.md) | 注册登记、`when` 求值、执行管线、暴露策略与审计；六条首批命令在 Component Lab 闭环，实现与合同测试闭合 |
-| Workbench 快速打开 | [`workbench/quick-open.md`](workbench/quick-open.md) | 单控件两模（命令搜索与行号跳转）、会话 MRU、S4 浮层键盘与焦点交接；实现与 Lab 验收闭合，主页面接入不在本批 |
-| 资源生命周期 | [`runtime/lifecycle.md`](runtime/lifecycle.md) | `runtime.lifecycle`；作用域、资源 owner、操作接纳与取消/终止、关闭尝试与显式恢复；第一切片由合同测试与双宿主 smoke 闭合 |
-| 显式服务装配 | [`runtime/services.md`](runtime/services.md) | `runtime.services`；唯一 provider、依赖与寿命检查、并发初始化共享与失败稳定；第一切片闭合 |
-| 插件描述与激活 | [`runtime/plugins.md`](runtime/plugins.md) | `runtime.plugins`；描述目录、入口/代次、贡献事务、局部失败与普通关闭；不含热卸载 |
-| 环境适配与应用门禁 | [`runtime/application.md`](runtime/application.md) | `runtime.application`；浏览器/后端环境适配、启动门禁、接纳、有界停止与实例身份；受控装配入口闭合，产品启动链已迁入（w00017 阶段 1） |
-| 运行时诊断 | [`runtime/diagnostics.md`](runtime/diagnostics.md) | `runtime.diagnostics`；有界记录与查询、脱敏、早期缓冲补写、日志位置授予与冲突降级、关闭未完成与显式恢复；第二切片由合同测试与组合 smoke 闭合，产品日志器尚未迁入位置授予 |
-| 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | `runtime.server-host`；内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式热重载与停止；阶段 1 由合同测试与 `smoke:product-lifecycle` 闭合，看门狗（76）属 `runtime.stall-watchdog` |
-| 平台文件 | [`platform/files.md`](platform/files.md) | `platform.files`；受根约束 I/O、授予隔离、watch/锁与关闭门禁；不是业务文件树服务；第二切片闭合 |
-| SQLite机制 | [`platform/sqlite.md`](platform/sqlite.md) | `platform.sqlite`；具名资源owner、连接借用、单库事务、代次与关闭；不自动迁移；第二切片闭合，既有数据库尚未迁入 |
-| 模型角色与通用模型选择器 | [`ui/model-role-selection.md`](ui/model-role-selection.md) | 梯度轴与专精轴快速选择、通用模型高密度浏览搜索、会话临时覆盖与状态栏联动已由代码与业务集成支持 |
+| Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、组件导航、检视面板、响应式容器、偏好和 Product 排除合同；产品主题与渐进组件迁移仍属后续切片；**实现迁移中** |
+| Workbench 命令系统 | [`workbench/commands.md`](workbench/commands.md) | 注册登记、`when` 求值、执行管线、暴露策略与审计；六条首批命令在 Component Lab 闭环，实现与合同测试闭合；**实现迁移中** |
+| Workbench 快速打开 | [`workbench/quick-open.md`](workbench/quick-open.md) | 单控件两模（命令搜索与行号跳转）、会话 MRU、S4 浮层键盘与焦点交接；实现与 Lab 验收闭合，主页面接入不在本批；**实现迁移中** |
+| 资源生命周期 | [`runtime/lifecycle.md`](runtime/lifecycle.md) | `runtime.lifecycle`；作用域、资源 owner、操作接纳与取消/终止、关闭尝试与显式恢复；第一切片由合同测试与双宿主 smoke 闭合；**实现迁移中** |
+| 显式服务装配 | [`runtime/services.md`](runtime/services.md) | `runtime.services`；唯一 provider、依赖与寿命检查、并发初始化共享与失败稳定；第一切片闭合；**实现迁移中** |
+| 插件描述与激活 | [`runtime/plugins.md`](runtime/plugins.md) | `runtime.plugins`；描述目录、入口/代次、贡献事务、局部失败与普通关闭；不含热卸载；**实现迁移中** |
+| 环境适配与应用门禁 | [`runtime/application.md`](runtime/application.md) | `runtime.application`；浏览器/后端环境适配、启动门禁、接纳、有界停止与实例身份；受控装配入口闭合，产品启动链已迁入（w00017 阶段 1）；**实现迁移中** |
+| 运行时诊断 | [`runtime/diagnostics.md`](runtime/diagnostics.md) | `runtime.diagnostics`；有界记录与查询、脱敏、早期缓冲补写、日志位置授予与冲突降级、关闭未完成与显式恢复；第二切片由合同测试与组合 smoke 闭合，产品日志器尚未迁入位置授予；**实现迁移中** |
+| 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | `runtime.server-host`；内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式热重载与停止；阶段 1 由合同测试与 `smoke:product-lifecycle` 闭合，看门狗（76）属 `runtime.stall-watchdog`；**实现迁移中** |
+| 平台文件 | [`platform/files.md`](platform/files.md) | `platform.files`；受根约束 I/O、授予隔离、watch/锁与关闭门禁；不是业务文件树服务；第二切片闭合；**实现迁移中** |
+| SQLite机制 | [`platform/sqlite.md`](platform/sqlite.md) | `platform.sqlite`；具名资源owner、连接借用、单库事务、代次与关闭；不自动迁移；第二切片闭合，既有数据库尚未迁入；**实现迁移中** |
 
 ## 待实现规范
 以下已获批准但尚未实现的目标合同必须在代码切换前满足；实现和验证闭合后原地晋升为 `implemented`。
 
 | 功能域 | 当前规范 | 缺口 |
 |---|---|---|
-| Agent Session Store 租约 | [`agent/session-store-lease.md`](agent/session-store-lease.md) | proper-lockfile 租约互斥、mtime 心跳、失效与 Windows 文件系统兼容目标；修复验证闭合前保持 `planned` |
-| Agent Profile 设置视图 | [`ui/agent-profile-settings.md`](ui/agent-profile-settings.md) | 常用设置优先的受控 Profile 设置视图；实现与 Lab 验证闭合后晋升 implemented |
 | Workbench 外壳接入 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | 含 Editor/工具容器层级与拖拽行为表；2026-09-22 新拖放合同已接入模型和宿主，验收见关联 Task 最新实施记录；规格晋升仍待正式审批 |
 | Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config / Storage / 内存 / 领域数据职责、user/project 归属、插件与 grid 消费边界 |
 | Storage 本地持久化 | [`storage/persistence.md`](storage/persistence.md) | 身份与客户端分区、条件读写、生命周期、恢复、备份与首批迁移；运行时与验收尚未实现 |
@@ -142,35 +128,47 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | 插件公开 API | [`runtime/plugin-api.md`](runtime/plugin-api.md) | `runtime.plugin-api`；远程形态约束、激活上下文、错误码、worker 池、私有存储、配置与密钥；阶段 3 实施 |
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | `runtime.stall-watchdog`；卡死检测、报告、退出码 76、Manager 自动重启与 Desktop 呈现、提示禁用与自动安全模式；阶段 3 实施 |
 | 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | `workbench.files-explorer`；双模式、F1–F9 交互/剪贴板/dirty 策略与验收已收口；主页面真实链尚未实施，第二版草案未进入本规范 |
-| Agent 对话视图 | [`ui/agent-conversation-view.md`](ui/agent-conversation-view.md) | `ui.agent-conversation-view`；纯受控视图、只读 ctx 加 action 合同、扩展点注册表、分轮折叠消息流与原始视图；只以 Lab 验收，不接主页面 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | `ui.component-lab.timeline`；fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
+
+## 旧应用的规范与 Reference（只作参照）
+
+以下是旧应用 `packages/neuro-book-legacy` 时期的规范与 Reference，不是新应用的当前合同。功能迁回新应用时，按 [Proposal 流程](../proposals/README.md) 重新确认后写入本目录。
+
+| 功能域 | 参照 | 说明 |
+|---|---|---|
+| 基础术语 | [`../packages/neuro-book/docs/specs/foundation/terminology.md`](../../packages/neuro-book-legacy/docs/specs/foundation/terminology.md) | State Root、Cache Root、Workspace、Product、Agent 与安装等稳定领域语言 |
+| Agent Runtime 与 Profile | [Reference: Agent](../../packages/neuro-book-legacy/assets/reference/agent/README.md) | Session、Profile、Workflow、Skill、Job、Project Workspace 与 Agent 协作协议 |
+| 内容与 Project Workspace | [Reference: Content](../../packages/neuro-book-legacy/assets/reference/content/README.md) | 内容节点、正文、素材、检索、引用与 Workspace 术语 |
+| World Engine | [Reference: World Engine](../../packages/neuro-book-legacy/assets/reference/world-engine/README.md) | 时间线、slice、subject、schema、calendar 与写作协作 |
+| Plot | [Reference: Plot](../../packages/neuro-book-legacy/assets/reference/plot/README.md) | Story、Thread、Scene、Writer Brief、Agent 与前端合同 |
+| Character | [模块需求](https://github.com/notnotype/neuro-book/blob/master/docs/modules/character/requirements.md) | 当前需求与界面字段；尚待补齐状态和失败语义 |
+| 数据迁移 | [`../packages/neuro-book/docs/migrations/README.md`](../../packages/neuro-book-legacy/docs/migrations/README.md) | 有状态升级、备份和回滚入口 |
+| 归档的 Spec | [`../archived/specs/`](../archived/README.md) | Agent、媒体、Agent 相关界面、模型角色选择等不在新应用壳子范围的 Spec |
 
 ## 冻结过渡规范
 
-以下正文描述已有实现，但仍被产品 Profile、资产投影、测试或打包流程直接消费。它们在迁入 `docs/specs/` 前保持冻结，不是新规范落点：
+以下正文由旧应用持有，描述旧应用的已有实现。对应功能迁回新应用时迁入 `docs/specs/`；在此之前保持冻结，不是新规范落点：
 
 | 功能域 | 当前规范 | 固定目标 |
 |---|---|---|
-| Agent Runtime 与 Profile | [`../../packages/neuro-book/assets/reference/agent/`](../../packages/neuro-book/assets/reference/agent/) | `docs/specs/agent/` |
-| Content / Project Workspace | [`../../packages/neuro-book/assets/reference/content/`](../../packages/neuro-book/assets/reference/content/) | `docs/specs/content/` |
-| World Engine | [`../../packages/neuro-book/assets/reference/world-engine/`](../../packages/neuro-book/assets/reference/world-engine/) | `docs/specs/world-engine/` |
-| Plot | [`../../packages/neuro-book/assets/reference/plot/`](../../packages/neuro-book/assets/reference/plot/) | `docs/specs/plot/` |
+| Agent Runtime 与 Profile | [`../../packages/neuro-book/assets/reference/agent/`](../../packages/neuro-book-legacy/assets/reference/agent/) | `docs/specs/agent/` |
+| Content / Project Workspace | [`../../packages/neuro-book/assets/reference/content/`](../../packages/neuro-book-legacy/assets/reference/content/) | `docs/specs/content/` |
+| World Engine | [`../../packages/neuro-book/assets/reference/world-engine/`](../../packages/neuro-book-legacy/assets/reference/world-engine/) | `docs/specs/world-engine/` |
+| Plot | [`../../packages/neuro-book/assets/reference/plot/`](../../packages/neuro-book-legacy/assets/reference/plot/) | `docs/specs/plot/` |
 
 ## 规范缺口
 
-以下功能已有代码、测试、ADR 或 Proposal，但缺少足以判断当前行为的 `implemented` Spec。修改这些功能前先建立规范归属：
+以下功能在旧应用中已有代码、测试、ADR 或 Proposal，但缺少足以判断当前行为的 `implemented` Spec。功能迁回新应用时先按本表建立规范归属：
 
 | 优先级 | 功能域 | 现有证据 | 缺口 |
 |---|---|---|---|
-| P0 | 应用运行时与功能插件接入 | [总体架构提案与能力地图](../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md#能力地图与规范归属)（基础方向 `accepted`）、[产品装配设计](../../packages/neuro-book/docs/proposals/application-runtime-product-integration.md) | 前两片七项 Spec 已 `implemented`，产品进程启动与 Project generation owner 已迁入 Application；日志器/既有数据库仍走旧入口。Files 第一版两项 `planned` 合同已实施单机链，跨机器基础操作与逐条验收未完成；第二版为独立草案。命令/Storage/Lab/Workbench 沿原能力接入；Project、配置与文档会话完整合同仍有缺口 |
-| P0 | Desktop、安装与 Product Runtime | `packages/neuro-book/docs/adr/0010-*`、`0013-*`、`0014-*`、`0016-*`，`desktop/`、`scripts/install/`、`scripts/deploy/` | 安装状态机、UAC、启动/关闭、升级、卸载和失败恢复未汇成当前规范 |
+| P0 | 应用运行时与功能插件接入 | [总体架构提案与能力地图](../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md#能力地图与规范归属)（基础方向 `accepted`）、[产品装配设计](../../packages/neuro-book-legacy/docs/proposals/application-runtime-product-integration.md) | 前两片七项 Spec 已 `implemented`，产品进程启动与 Project generation owner 已迁入 Application；日志器/既有数据库仍走旧入口。Files 第一版两项 `planned` 合同已实施单机链，跨机器基础操作与逐条验收未完成；第二版为独立草案。命令/Storage/Lab/Workbench 沿原能力接入；Project、配置与文档会话完整合同仍有缺口 |
 | P0 | 应用状态、备份与数据迁移 | `packages/neuro-book/docs/adr/0005-*`、`0008-*`、`0012-*`，`packages/neuro-book/server/backup/`、`packages/neuro-book/server/database/` | 数据所有权、备份恢复、catalog 演进和 release activation 未形成端到端规范 |
-| P0 | Project 生命周期与身份 | [ADR 0007](../../packages/neuro-book/docs/adr/0007-project-close-then-open.md)、[Project Session 产品 owner](../../packages/neuro-book/server/runtime/product-project.ts)、[Root Identity](../../packages/neuro-book/server/workspace-files/project-root-identity.ts) | Product Application 持有 Project generation；完整领域生命周期仍缺 implemented Spec。首期 Storage 所需的目录携带、代次与关闭/删除边界已在 [storage.persistence](storage/persistence.md) 固定；不因此宣称全域规范完成 |
+| P0 | Project 生命周期与身份 | [ADR 0007](../../packages/neuro-book-legacy/docs/adr/0007-project-close-then-open.md)、[Project Session 产品 owner](../../packages/neuro-book-legacy/server/runtime/product-project.ts)、[Root Identity](../../packages/neuro-book-legacy/server/workspace-files/project-root-identity.ts) | Product Application 持有 Project generation；完整领域生命周期仍缺 implemented Spec。首期 Storage 所需的目录携带、代次与关闭/删除边界已在 [storage.persistence](storage/persistence.md) 固定；不因此宣称全域规范完成 |
 | P0 | Agent Session 持久化与历史 | `packages/neuro-book/docs/adr/0003-*`、`0014-agent-job-*`，`packages/neuro-book/server/agent/session/`、`packages/neuro-book/server/workspace-history/` | durable event、Job 历史、附件、租约和文件历史缺少统一状态与恢复规范 |
 | P1 | 配置、模型与凭据 | `packages/neuro-book/server/config/`、`packages/neuro-book/server/models/`、`packages/neuro-book/shared/dto/app-settings.dto.ts` | 配置优先级、敏感字段、provider identity、错误和 UI 行为没有单一规范 |
-| P1 | Markdown Studio 与编辑工作台 | [`../../vitepress/locales/zh-Hans/core/markdown-studio.md`](../../vitepress/locales/zh-Hans/core/markdown-studio.md)、[历史 editor plan](../../packages/neuro-book/docs/archived/plan/06-editor-workbench.md)、`packages/neuro-book/shared/editor-workbench.ts` | 用户文档与历史 plan 存在，但需要按当前代码和测试核对后转成内部当前规范 |
+| P1 | Markdown Studio 与编辑工作台 | [`../../vitepress/locales/zh-Hans/core/markdown-studio.md`](../archived/vitepress/locales/zh-Hans/core/markdown-studio.md)、[历史 editor plan](../../packages/neuro-book-legacy/docs/archived/plan/06-editor-workbench.md)、`packages/neuro-book/shared/editor-workbench.ts` | 用户文档与历史 plan 存在，但需要按当前代码和测试核对后转成内部当前规范 |
 | P1 | Passport 与身份 | `packages/neuro-book/server/passport/`、相关 migration 与测试 | 登录、官方 origin、凭据存储和失败语义缺少当前规范 |
-| P1 | Manager 与发布资产 | `packages/neuro-book-manager/`、`scripts/release/`、`RELEASE.md` | 安装身份、manifest、资产、健康检查和发布门禁分散 |
 | P2 | Character 与 Low-code Form | `docs/modules/character/requirements.md`、`packages/neuro-book/server/low-code-form/` | 需求存在，但状态、校验、持久化、权限和失败语义不完整 |
 
 ## Reference 迁移合同

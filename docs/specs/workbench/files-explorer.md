@@ -13,7 +13,7 @@ owners:
 
 在 NeuroBook 主页面左侧提供基础文件管理，按文件夹类型呈现（普通文件夹、内容文件夹、活页夹，见 [workspace.folder-kinds](../workspace/folder-kinds.md)），显示项目与用户资产两个根。支持浏览、新建、打开、重命名、删除、拖动移动、多选及复制/剪切/粘贴；打开后进入真实编辑与保存链，而不止展示文件树。用起来要和本地 IDE 一样流畅，见[打开与切换](#打开与切换)的性能标准。
 
-2026-09-26 开发者确认首版意图，并以“可以，就这么做，收口”批准 [Files 与资源管理器首版设计](../../../packages/neuro-book/docs/proposals/files-explorer.md#决策记录)中的 F1–F9。本文固定面板展示、交互、确认与反馈；实际文件写入、服务端校验和逐项结果归 [workspace.files](../workspace/files.md)。单机实现与逐条复核记录见 [w00017 t16–t25](../../../.agents/works/w00017-application-runtime-architecture/README.md#当前-task-与继续条件)；`planned` 表示全合同尚未验收。2026-10-02 开发者接受 [项目文件底座与 Files 竖切](../../../packages/neuro-book/docs/proposals/project-file-foundation.md)：全局的普通/内容节点双模式由文件夹类型取代，新增用户资产根、按需加载、乐观切换与性能标准。
+2026-09-26 开发者确认首版意图，并以“可以，就这么做，收口”批准 [Files 与资源管理器首版设计](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)中的 F1–F9。本文固定面板展示、交互、确认与反馈；实际文件写入、服务端校验和逐项结果归 [workspace.files](../workspace/files.md)。单机实现与逐条复核记录见 [w00017 t16–t25](../../../.agents/works/w00017-application-runtime-architecture/README.md#当前-task-与继续条件)；`planned` 表示全合同尚未验收。2026-10-02 开发者接受 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)：全局的普通/内容节点双模式由文件夹类型取代，新增用户资产根、按需加载、乐观切换与性能标准。
 
 非目标：角色/世界书等领域模板、明细和专用操作，两个独立并排文件树，第二套内容组织数据，Git、全文搜索、远程文件系统提供者、外部插件安装/公开 SDK/动态 API/沙箱/热卸载。首版不含回收站或文件操作全局撤销；Lab 仅作辅助验证，不能替代主页面真实链路。
 
@@ -72,7 +72,7 @@ owners:
 
 - 点击文件后，资源管理器选中状态与标签页在下一帧切换，不等正文；编辑区先保持空白，800 毫秒内不显示任何加载提示，超过 800 毫秒仍未就绪才显示顶部进度条（正常打开在此之前完成，提前显示只会闪一下）；不保留旧文件正文，避免输入落到旧文件。
 - 打开成功以正确正文可编辑为完成点；选中与标签先切换只是反馈，不能代替打开成功，失败时在编辑区显示原因。
-- 同组同类编辑器复用控件，文档模型按打开引用保留（沿[首版切换设计](../../../packages/neuro-book/docs/proposals/files-explorer.md#切换性能分开文件模型和控件的寿命)）；外部修改经变更事件同步到已打开的编辑器。预读留扩展口，策略在实际体验后另定。
+- 同组同类编辑器复用控件，文档模型按打开引用保留（沿[首版切换设计](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#切换性能分开文件模型和控件的寿命)）；外部修改经变更事件同步到已打开的编辑器。预读留扩展口，策略在实际体验后另定。
 
 性能标准（生产构建，参考机器上的本机浏览器，约 3000 个 Markdown 文件、3–5 层目录、单章 5–30 KB）。参考机器为 Intel Core i5-1035G1（4 核 8 线程，基础频率 1.0 GHz）、16 GB 内存，选较慢的机器以暴露性能问题；桌面版加载同一本机服务页面，不单独测：
 
@@ -124,7 +124,7 @@ owners:
 
 - 文件数据与访问合同归 `workspace.files`，文件夹类型与清单归 `workspace.folder-kinds`；本能力只拥有用户呈现、操作发起与反馈。
 - 文档/编辑器继续拥有打开、输入和保存；[工作台外壳](../ui/workbench-shell.md)拥有布局/实例，[命令系统](commands.md)拥有统一分发与执行策略，本能力不复制这些合同。
-- 内容格式继续引用 [Content Reference](../../../packages/neuro-book/assets/reference/content/README.md)；内容文件夹的持久格式是其清单，归 `workspace.folder-kinds`。
+- 内容格式继续引用 [Content Reference](../../../packages/neuro-book-legacy/assets/reference/content/README.md)；内容文件夹的持久格式是其清单，归 `workspace.folder-kinds`。
 - 内置 Files/资源管理器通过显式接口接入主页面，经 [插件通道](../runtime/plugin-channel.md) 通信（迁移完成前沿用 HTTP 与 SSE），组件不绑定协议；以视图与命令贡献给 workbench，定义 `explorer/context` 菜单位置，打开文件执行 `nbook.editor.open`。不支持外部可执行插件安装和动态 API 注册不妨碍主页面真实使用。
 - 领域功能移除仅限本资源管理器适配及其专用入口，不授权清理独立领域模块或用户数据。实现切换时同步真实组件文档与能力标签，不提前把文档目标写成当前实现。
 - [Component Lab](../ui/component-lab.md)的无默认产品宿主/真实数据请求约束不变；同一组件在 Lab 可替换依赖不代表生产磁盘、鉴权、SSE 或性能验收已完成。
@@ -149,5 +149,5 @@ owners:
 
 ## 证据
 
-- 批准依据：开发者于 2026-09-26 在访谈后确认整体意图，随后以“可以，就这么做，收口”批准 F1–F9；见[首版设计决策记录](../../../packages/neuro-book/docs/proposals/files-explorer.md#决策记录)。2026-10-02 接受 [项目文件底座与 Files 竖切](../../../packages/neuro-book/docs/proposals/project-file-foundation.md#决策记录)：文件夹类型取代双模式、用户资产根、按需加载、乐观切换与性能标准。2026-10-03 开发者参照 VS Code 把进度条延迟由 100 毫秒改为 800 毫秒，此前编辑区保持空白。同日确定性能标准的参考机器，桌面版不单独测（依据 [t42](../../../.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/README.md) 测量）。
+- 批准依据：开发者于 2026-09-26 在访谈后确认整体意图，随后以“可以，就这么做，收口”批准 F1–F9；见[首版设计决策记录](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)。2026-10-02 接受 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md#决策记录)：文件夹类型取代双模式、用户资产根、按需加载、乐观切换与性能标准。2026-10-03 开发者参照 VS Code 把进度条延迟由 100 毫秒改为 800 毫秒，此前编辑区保持空白。同日确定性能标准的参考机器，桌面版不单独测（依据 [t42](../../../.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/README.md) 测量）。
 - 实施与单机验收记录：[w00017 t16–t25](../../../.agents/works/w00017-application-runtime-architecture/README.md#当前-task-与继续条件)。主页面双窗口与 Lab 已验证，t25 完成本机合同复核并修复原生拖动等缺口；服务侧路径 move/rename 在 Windows 本机的预检后目标抢占测试已保住源与目标，完整 Windows 产品镜像构建成功。Linux/macOS、其它文件系统及跨机器基础操作仍待验证，保持 `planned`。

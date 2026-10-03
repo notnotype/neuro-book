@@ -1,0 +1,9 @@
+$ bun scripts/ci/agent-governance.ts
+{
+  "schema": "nbook.governance-report/v1",
+  "repoRoot": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation",
+  "failures": [],
+  "warnings": [
+    "文档用 § 或 ¶ 代替了中文词：68 个文件共 367 处，改写成小节名或锚点链接；未提交改动里的：docs/research/memory-engines-mem0-graphiti.md（10）、docs/research/cordis-plugin-kernel.md（8）、docs/research/runtime-module-unloading.md（8）、docs/proposals/extensible-application-platform.md（4）、docs/proposals/workbench-view-host.md（4）；存量最多的：packages/nb-memory/docs/reports/2026-08-01-round1-regression.md（32）、.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t60-view-migration-review/walkthroughs/review.md（24）、.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t56-state-ownership-cleanup/walkthroughs/implementation.md（19）、.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t50-browser-titlebar/walkthroughs/implementation.md（15）、.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t51-checkpoint-b-review/walkthroughs/review.md（15）"
+  ]
+}

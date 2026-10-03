@@ -48,9 +48,9 @@ w00017 阶段 1 已经在 `packages/neuro-book` 中建立运行时内核、三�
 | `packages/neuro-book` | 改名为 `packages/neuro-book-legacy`，包名改为 `@notnotype/neuro-book-legacy`。留在 Bun workspaces 中、依赖照装，但不纳入类型检查、测试与治理检查；`package.json` 去掉对已删除包的依赖和指向已删除脚本的命令。包内文档（`docs/adr`、`docs/proposals`、`docs/research` 等）随包进入旧包，成为参照。新应用占用原路径与原包名 |
 | `packages/neuro-book-manager`、`desktop/`、`scripts/build`、`scripts/release`、`scripts/install`、`scripts/deploy`、`RELEASE.md` 及根 `package.json` 中对应脚本 | 删除（git 历史与 master 中保留） |
 | `packages/neuro-book-contracts` | 保留：旧包依赖它。交付链专用出口不再维护，旧包退出时一并清理 |
-| Agent 相关库（`nb-harness`、`nb-profile`、`nb-session`、`nb-memory`、`nb-history`、`nb-workflow`、`neuro-agent-harness`、`llmlint`）与通用库（`owned-process`、`file-snapshot-cache`、`neuro-book-test-support`、`nb-ui`） | 原样保留：它们是独立的库，壳子不加载，以后功能迁回时使用 |
-| `docs/specs` 中不在壳子范围的 Spec（Agent、媒体、模型角色选择、Agent 界面等） | 移入 `docs/archive/specs/`，保留原目录结构；登记表移除，归档目录的 README 写明“不是当前合同” |
-| `docs/standards`、`docs/testing` 中针对旧包与交付链的条目，`vitepress/` 用户文档站 | 移入 `docs/archive/`；仍适用的通用规范保留并按新应用改写 |
+| Agent 相关库（`nb-harness`、`nb-profile`、`nb-session`、`nb-memory`、`nb-history`、`nb-workflow`、`neuro-agent-harness`、`llmlint`）与通用库（`owned-process`、`file-snapshot-cache`、`neuro-book-test-support`、`nb-ui`） | 原样保留：它们是独立的库，壳子不加载，以后功能迁回时使用。`neuro-agent-harness` 已冻结、只服务 `llmlint`，待由 `nb-harness` 取代后退役（2026-10-03 开发者说明：Agent 将基于 `nb-harness` 实现为内置插件） |
+| `docs/specs` 中不在壳子范围的 Spec（Agent、媒体、模型角色选择、Agent 界面等） | 移入 `docs/archived/specs/`，保留原目录结构；登记表移除，归档目录的 README 写明“不是当前合同” |
+| `docs/standards`、`docs/testing` 中针对旧包与交付链的条目，`vitepress/` 用户文档站 | 移入 `docs/archived/`；仍适用的通用规范保留并按新应用改写 |
 | 仍有效的设计文档：ADR 0022（可扩展平台与插件信任）、`extensible-application-platform.md`、`project-file-foundation.md`、`workbench-view-host.md`、VS Code 调研 | 从旧包移到仓库级 `docs/`（`docs/adr/`、`docs/proposals/`、`docs/research/`），更新指向它们的链接 |
 | 根 `AGENTS.md`、`README.md`、`PROJECT-STATUS.md`、`packages/AGENTS.md`、`docs/modules/monorepo-boundaries.md` | 按新结构改写：写明 `neuro-book` 是新应用，`neuro-book-legacy` 只作参照 |
 
@@ -133,7 +133,7 @@ packages/
 | 前端框架 | 去掉 Nuxt，Vue + Vite | 保留 Nuxt：未用服务端渲染，构建期约定与我们自有的插件和宿主冲突 |
 | 后端框架 | Hono | NestJS：自带依赖注入、模块与生命周期，与内核重复；模块启动时静态装配，不适合运行期启停插件；依赖装饰器元数据，esbuild 与 Bun 不生成。Elysia：自带依赖注入与分作用域的生命周期，与内核重叠；Bun 优先，Node 需适配器；几乎单人维护 |
 | 校验库 | TypeBox | Zod：转换与自定义校验无法表达为 JSON Schema，而新应用的接口、插件配置与模型工具参数都以 JSON Schema 为中心 |
-| 过时文档 | 归档到 `docs/archive/` | 直接删除：以后迁回功能时仍需参照旧合同 |
+| 过时文档 | 归档到 `docs/archived/` | 直接删除：以后迁回功能时仍需参照旧合同 |
 
 ## 数据、接口、安全、迁移、发布与回滚影响
 

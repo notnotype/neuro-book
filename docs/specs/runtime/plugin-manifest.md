@@ -147,7 +147,7 @@ Smoke：以合同测试覆盖场景 1–15 的推导结果；在真实服务端�
 
 ## 证据
 
-- 批准目标：[可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md) P1、P2、P3、P11（2026-09-30 `accepted`；“插件、入口、服务”三层同日由开发者确认）；[ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条。
+- 批准目标：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P1、P2、P3、P11（2026-09-30 `accepted`；“插件、入口、服务”三层同日由开发者确认）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条。
 - 调研依据：[VS Code 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-vscode/REPORT.md)、[DeepSeek Harness 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-dsh/REPORT.md)。
 - Spec 编写：[w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md)。
 - 实现进展：第 2、3（除 `version-mismatch`）、4、6、7、8、9 条已在内核对代码定义的插件实现，行为写入 [`runtime.plugins`](plugins.md) 输出第 11–14 条与 [`runtime.application`](application.md)，见 [w00017 t32](../../../.agents/works/w00017-application-runtime-architecture/tasks/t32-kernel-entry-dependencies/README.md)。第 10 条（按单条贡献校验）已对代码定义的插件实现，校验由贡献点的 `validate` 函数给出，行为写入 [`runtime.plugins`](plugins.md) 输出第 15–18 条，见 [w00017 t33](../../../.agents/works/w00017-application-runtime-architecture/tasks/t33-owner-contribution-points/README.md)。清单文件与声明 schema、插件通道（第 5 条）、版本范围与不支持的运行位置仍未实现，本 Spec 保持 `planned`。

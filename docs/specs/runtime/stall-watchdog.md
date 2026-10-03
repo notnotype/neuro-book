@@ -20,7 +20,7 @@ owners:
 - 不打断或恢复卡死的计算，只结束进程。
 - 浏览器端不设看门狗（浏览器自身会提示页面无响应）。
 - 不判定卡死的确切原因；报告只给出按可信度分级的嫌疑。
-- 不改变租约本身的合同（[`agent.session-store-lease`](../agent/session-store-lease.md)）。
+- 不改变租约本身的合同（[`agent.session-store-lease`](../../archived/specs/agent/session-store-lease.md)）。
 
 ## 术语与参与者
 
@@ -99,6 +99,6 @@ Smoke：生产构建在 Bun 下由 Manager 启动，用示例插件触发场景 
 
 ## 证据
 
-- 批准目标：[可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md) P6“主线程卡死看门狗”（2026-09-30 开发者确认阈值与分期：阶段 1 只记录或暂不做，结束进程、自动重启与提示禁用在阶段 3）；[ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md) 后果一节。
+- 批准目标：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P6“主线程卡死看门狗”（2026-09-30 开发者确认阈值与分期：阶段 1 只记录或暂不做，结束进程、自动重启与提示禁用在阶段 3）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 后果一节。
 - 验证依据：[G2 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g2/REPORT.md)（阈值与租约、结束方式与退出码、Manager 与 Desktop 现状）。
 - 重启上限（5 分钟 3 次）与退避、前台 `start` 不自动重启、“连续 2 次”进入安全模式、嫌疑分级的判定口径由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文。

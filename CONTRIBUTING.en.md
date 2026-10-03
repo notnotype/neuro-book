@@ -50,13 +50,12 @@ Confirm the current contract before editing:
 | Entry | Purpose |
 |---|---|
 | [`docs/specs/README.md`](docs/specs/README.md) | Registry for current behavior, data, interfaces, failures, and acceptance |
-| [`docs/specs/foundation/terminology.md`](packages/neuro-book/docs/specs/foundation/terminology.md) | Standard Workspace, runtime, storage, and Agent terminology |
+| [`docs/specs/foundation/terminology.md`](packages/neuro-book-legacy/docs/specs/foundation/terminology.md) | Standard Workspace, runtime, storage, and Agent terminology |
 | [`docs/standards/code/README.md`](docs/standards/code/README.md) | Route changes to frontend, server, desktop, scripts, database, or package standards |
 | [`docs/testing/README.md`](docs/testing/README.md) | Tests, temporary roots, environment, acceptance, and evidence |
-| [`docs/adr/`](packages/neuro-book/docs/adr/) | Reasons behind accepted architecture decisions |
+| [`docs/adr/`](packages/neuro-book-legacy/docs/adr/) | Reasons behind accepted architecture decisions |
 | [`.agents/works/`](.agents/works/README.md) | Current Work/Task: scope, process, and evidence for major implementations; `.agents/tasks/` only keeps historical records |
 | [`PROJECT-STATUS.md`](PROJECT-STATUS.md) | Repository state and current acceptance gaps |
-| [`RELEASE.md`](RELEASE.md) | Current release payload consumed by release tooling |
 
 `packages/neuro-book/assets/reference/` is the application seed source for product Agent/Profile Reference; Profiles keep the logical `reference/**` paths, while explicit Runtime resolves the physical root through the Runtime Asset Adapter. The spec registry tracks its migration. Do not infer a full current contract from an issue title, one code path, a Proposal, or a Task.
 

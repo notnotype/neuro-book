@@ -23,7 +23,7 @@ description: 指导 NeuroBook 与 nb-ui 的前端与 UI 开发、组件设计与
 
 1. **通用基础控件**（按钮、输入框、下拉、滑块、开关、弹层、滚动条等）：100% 优先复用 `@notnotype/nb-ui`，严禁在业务端手写原生元素模拟。
 2. **扩展原则**：通用变体或插槽通过 props/slots 扩展，严禁将业务数据模型写死进通用组件。
-3. **业务复合零件**：放在 `packages/neuro-book/app/components/<domain>/`。
+3. **业务复合零件**：放在拥有该能力的插件的前端目录（新应用目录约定见 [`packages/neuro-book/AGENTS.md`](../../../packages/neuro-book/AGENTS.md)；旧应用的划分 `packages/neuro-book-legacy/app/components/<domain>/` 只作参照）。
 4. **伴生同名 `.md` 契约**：查组件必先读同名 `.md` 获取既有契约；改组件必同步更新；新建组件必先写 `.md` 再写 `.vue`。
 
 ## 三、UI 专属检查

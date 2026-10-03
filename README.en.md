@@ -10,6 +10,8 @@
 [![GHCR App](https://img.shields.io/badge/GHCR-neuro--book-8957e5?logo=github&label=app)](https://github.com/notnotype/neuro-book/pkgs/container/neuro-book)
 [![Bun](https://img.shields.io/badge/runtime%20%2B%20build-Bun-000000?logo=bun)](https://bun.sh/)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
+
+> This branch is being rebuilt from scratch per [NeuroBook v2: side-by-side rebuild](docs/proposals/neuro-book-v2-rebuild.md); the new application is not usable yet. The download, install and usage notes below apply to the current release on master.
 [![Discord](https://img.shields.io/badge/Discord-join%20community-5865F2?logo=discord&logoColor=white)](https://discord.gg/bSQB7mNpHB)
 ![QQ Group](https://img.shields.io/badge/QQ%20Group-287447372-12B7F5?logo=qq&logoColor=white)
 
@@ -64,7 +66,7 @@ curl -fsSL https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts
 bunx --bun @notnotype/neuro-book-manager@canary
 ```
 
-The installer walks you through the directory, port, update channel, and authentication policy, and runs one shared preflight before you confirm. For multi-instance management, Docker deployment, building from source, and SHA256 auditing, see the [deployment guide](vitepress/locales/en-US/deployment.md). To have another AI Agent assist with deployment or troubleshooting, send it the [operator bridge](vitepress/locales/en-US/operator-bridge.md).
+The installer walks you through the directory, port, update channel, and authentication policy, and runs one shared preflight before you confirm. For multi-instance management, Docker deployment, building from source, and SHA256 auditing, see the [deployment guide](docs/archived/vitepress/locales/en-US/deployment.md). To have another AI Agent assist with deployment or troubleshooting, send it the [operator bridge](docs/archived/vitepress/locales/en-US/operator-bridge.md).
 
 ## Four Core Capabilities
 
@@ -147,17 +149,17 @@ For details see [What is a profile](https://blog.notnotype.com/neuro-book/en/pro
 - [Agent mental model](https://blog.notnotype.com/neuro-book/en/agent/) / [Workflows and Jobs](https://blog.notnotype.com/neuro-book/en/agent/workflow) / [Three modes](https://blog.notnotype.com/neuro-book/en/agent/modes)
 - [What is a profile](https://blog.notnotype.com/neuro-book/en/profile/) / [Write a profile from scratch](https://blog.notnotype.com/neuro-book/en/profile-tsx/authoring)
 
-The public documentation sources live under [`vitepress/locales/en-US/`](vitepress/locales/en-US/) (English) and [`vitepress/locales/zh-Hans/`](vitepress/locales/zh-Hans/) (Simplified Chinese). Deeper implementation references remain in their owning package or root engineering documentation:
+The public documentation sources live under [`vitepress/locales/en-US/`](docs/archived/vitepress/locales/en-US/) (English) and [`vitepress/locales/zh-Hans/`](docs/archived/vitepress/locales/zh-Hans/) (Simplified Chinese). Deeper implementation references remain in their owning package or root engineering documentation:
 
-- [NeuroBook Reference Bookshelf](packages/neuro-book/assets/reference/README.md)
+- [NeuroBook Reference Bookshelf](packages/neuro-book-legacy/assets/reference/README.md)
 - [PROJECT-STATUS.md](PROJECT-STATUS.md)
 - [Contributing](CONTRIBUTING.en.md): issues, development conventions, coding-agent collaboration, tasks, and pull requests
 
 ## Workspace Map
 
-All further development happens in these 15 workspaces (the root `package.json` `workspaces` list is authoritative). The pre-migration sibling checkouts are no longer development entry points.
+All further development happens in the workspaces listed in the root `package.json` `workspaces`. The pre-migration sibling checkouts are no longer development entry points.
 
-- Application and host: [main application](packages/neuro-book/AGENTS.md) · [Manager](packages/neuro-book-manager/README.md)
+- Application: [new application (v2)](packages/neuro-book/AGENTS.md) · [legacy application (reference only)](packages/neuro-book-legacy/AGENTS.md)
 - Internal packages: [Owned Process](packages/owned-process/package.json) · [File Snapshot Cache](packages/file-snapshot-cache/README.md) · [NeuroBook Contracts](packages/neuro-book-contracts/package.json) · [Test Support](packages/neuro-book-test-support/package.json)
 - Autonomous packages: [History](packages/nb-history/README.md) · [Workflow](packages/nb-workflow/README.md) · [Memory](packages/nb-memory/README.md) · [UI](packages/nb-ui/README.md) · [Agent Harness](packages/neuro-agent-harness/README.md) · [llmlint](packages/llmlint/README.md)
 - Agent harness rebuild (w00002): [nb-harness](packages/nb-harness/AGENTS.md) · [nb-profile](packages/nb-profile/package.json) · [nb-session](packages/nb-session/package.json)

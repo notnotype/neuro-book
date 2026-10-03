@@ -50,13 +50,12 @@ PR 列出实际命令和结果；没有执行的检查写“未运行”。聚�
 | 入口 | 用途 |
 |---|---|
 | [`docs/specs/README.md`](docs/specs/README.md) | 产品行为、数据、接口、失败和验收的当前规范注册表 |
-| [`packages/neuro-book/docs/specs/foundation/terminology.md`](packages/neuro-book/docs/specs/foundation/terminology.md) | Workspace、运行时、存储与 Agent 标准术语 |
+| [`packages/neuro-book/docs/specs/foundation/terminology.md`](packages/neuro-book-legacy/docs/specs/foundation/terminology.md) | Workspace、运行时、存储与 Agent 标准术语 |
 | [`docs/standards/code/README.md`](docs/standards/code/README.md) | 按改动路径选择前端、服务端、桌面、脚本、数据库或包规范 |
 | [`docs/testing/README.md`](docs/testing/README.md) | 测试、临时根、环境、验收和证据 |
-| [`packages/neuro-book/docs/adr/`](packages/neuro-book/docs/adr/) | 已接受架构决策的理由 |
+| [`packages/neuro-book/docs/adr/`](packages/neuro-book-legacy/docs/adr/) | 已接受架构决策的理由 |
 | [`.agents/works/`](.agents/works/README.md) | 当前 Work/Task：重大实现的范围、过程和证据；`.agents/tasks/` 只保留历史记录 |
 | [`PROJECT-STATUS.md`](PROJECT-STATUS.md) | 仓库现状与当前验收缺口 |
-| [`RELEASE.md`](RELEASE.md) | 发布程序消费的当前版本说明 |
 
 `packages/neuro-book/assets/reference/` 是产品 Agent/Profile Reference 的应用 Seed Source；Profile 的逻辑路径仍为 `reference/**`，显式 Runtime 的物理根由 Runtime Asset Adapter 解析。其迁移状态由规范注册表登记。不要只依据 Issue 标题、单个代码路径、Proposal 或 Task 推断完整当前合同。
 

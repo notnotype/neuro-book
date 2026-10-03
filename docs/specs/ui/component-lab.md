@@ -150,9 +150,9 @@ Lab 落地本身不授权删除任何既有的 preview 页面。既有 preview �
 
 ## 证据
 
-- 实现入口：[`component-index.ts`](../../../packages/neuro-book/app/component-lab/component-index.ts)
-- 合同测试：[`component-index.test.ts`](../../../packages/neuro-book/app/component-lab/component-index.test.ts)
-- Smoke：[`component-lab.ts`](../../../packages/neuro-book/scripts/smoke/component-lab.ts)（`bun run smoke:component-lab:core`）
+- 实现入口：[`component-index.ts`](../../../packages/neuro-book-legacy/app/component-lab/component-index.ts)
+- 合同测试：[`component-index.test.ts`](../../../packages/neuro-book-legacy/app/component-lab/component-index.test.ts)
+- Smoke：[`component-lab.ts`](../../../packages/neuro-book-legacy/scripts/smoke/component-lab.ts)（`bun run smoke:component-lab:core`）
 - 批准与范围依据：[`w00003 NeuroBook UI Foundation Migration`](../../../.agents/works/w00003-neurobook-ui-foundation-migration/README.md)、t05 Component Lab 任务与 t07/t10/t11 交付记录。t09 的 `LabShell.vue` 拆分已延期；产品主题 `theme.system` clean cutover 和渐进组件迁移仍是后续 Work 切片。
 - 分层 smoke 入口：`smoke:component-lab:core` 验证 Lab 壳、通用场景、偏好、响应式及 t14 命令场景 / 启动边界；`smoke:component-lab:agent-profile` 验证 Agent Profile 导航和 DialogWindow；`smoke:component-lab:agent-conversation` 只验证 Agent 对话视图消息流的滚动、阅读位置与历史分页（各场景用 URL 参数直达，不经过 Lab 外壳检查）；`smoke:component-lab` 保留完整组合入口。分层入口共享同一 Node + Playwright runner 和失败截图机制；本次完整组合入口失败，不能把 core 通过写成全量通过，详情见 [w00017 t14](../../../.agents/works/w00017-application-runtime-architecture/tasks/t14-lab-host-boundary/README.md)。
 - 真实 NeuroBook smoke：`bun run smoke:component-lab:core -- --url http://127.0.0.1:3000 --browser-executable <chromium>` 与 `bun run smoke:component-lab:agent-profile -- --url http://127.0.0.1:3000 --browser-executable <chromium>`；完整组合入口仍为 `bun run smoke:component-lab -- --url http://127.0.0.1:3000 --browser-executable <chromium>`。

@@ -2,28 +2,28 @@
 
 `docs/proposals/` 保存尚未生效、需要评审的产品或工程方案。Proposal 把原始自然语言整理成问题、目标、备选方案和影响，用来决定“应该采用什么长期行为”；它不是 Spec、实现 Task、待办清单或过程日志。
 
-当前活跃提案：
+当前活跃提案（链接到 `packages/neuro-book-legacy/` 的提案属于旧应用，只作参照；对应功能迁回新应用时重新评审）：
 
 - [NeuroBook v2：并排重建应用](./neuro-book-v2-rebuild.md)：旧包改名 `neuro-book-legacy` 只作参照，在原路径新建 `neuro-book`；去掉 Nuxt，前端 Vue + Vite、后端 Bun + Hono、校验统一 TypeBox；先只有运行时底座与 workbench 底座，Files 竖切在壳子上验证；删除交付链、归档过时文档；`accepted`（2026-10-03）。
-- [`../packages/neuro-book/docs/proposals/character-workbench.md`](../../packages/neuro-book/docs/proposals/character-workbench.md)：Character 导航、搜索、编辑与 Low-code Form 合同，状态为 `reviewing`。
-- [`Agent Skills 项目化适配`](../../packages/neuro-book/docs/proposals/agent-skills-adaptation.md)：状态为 `accepted`；旧适配流程作为历史保留，当前专项技能与验证分工由 P-005 最新决策取代。
-- [`../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md`](../../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md)：Harness Agent、completion 与 headless 三套调用面、Catalog、授权和 Workflow 重放边界，状态为 `accepted`。
+- [`../packages/neuro-book-legacy/docs/proposals/character-workbench.md`](../../packages/neuro-book-legacy/docs/proposals/character-workbench.md)：Character 导航、搜索、编辑与 Low-code Form 合同，状态为 `reviewing`。
+- [`Agent Skills 项目化适配`](../../packages/neuro-book-legacy/docs/proposals/agent-skills-adaptation.md)：状态为 `accepted`；旧适配流程作为历史保留，当前专项技能与验证分工由 P-005 最新决策取代。
+- [`../packages/neuro-book-legacy/docs/proposals/agent-model-execution-surfaces.md`](../../packages/neuro-book-legacy/docs/proposals/agent-model-execution-surfaces.md)：Harness Agent、completion 与 headless 三套调用面、Catalog、授权和 Workflow 重放边界，状态为 `accepted`。
 - [`p-005-development-workflow-governance.md`](./p-005-development-workflow-governance.md)：`P-005`，Work 本地登记、无正式角色的 Task 当前快照、主 Agent 直接执行与按需协调、专项技能和最小充分验证，状态为 `accepted`。
-- [应用运行时与内置插件架构](../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md)：基础方向 `accepted`；只维护架构、生命周期和能力地图，第一、二片已实现，Lab 状态见关联 Work。
-- [应用运行时产品装配](../../packages/neuro-book/docs/proposals/application-runtime-product-integration.md)：从启动到 Project/工作台及领域接入的细化方案，`reviewing`；从总提案迁出，不新增实现授权。后端启动与 HTTP 入口部分已由下一项替代。
-- [可扩展应用平台](../../packages/neuro-book/docs/proposals/extensible-application-platform.md)：内核拥有进程、领域能力皆为内置插件、第三方插件免构建安装、运行期热插拔、插件通道与远程形态 API 的机制设计及推进路线，`accepted`（2026-09-30）；已确认的长期决定见 [ADR 0022](../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md)。
-- [Files 与资源管理器第一版](../../packages/neuro-book/docs/proposals/files-explorer.md)：范围及 F1–F9 `accepted`，行为已原位沉淀为 `workspace.files` / `workbench.files-explorer`（`planned`）；保留设计理由、内部接缝与待验证性能依据，尚未实施。
-- [Files 与资源管理器第二版](../../packages/neuro-book/docs/proposals/files-explorer-v2.md)：`draft`；快速打开与删除恢复为核心方向，全文搜索/内容整理/导入导出为候选，不扩大第一版验收。
-- [项目文件底座与 Files 竖切](../../packages/neuro-book/docs/proposals/project-file-foundation.md)：阶段 2 Files 竖切的需求与设计——URI 方案与提供者、带来源的变更事件、普通/内容/活页夹三类文件夹（后缀识别、XML 清单）、按需加载与乐观切换、History 插件与用户资产根；`accepted`（2026-10-02），实施按切片另行授权。
-- [`Agent 对话视图重做`](../../packages/neuro-book/docs/proposals/agent-conversation-view.md)：在 `app/components/agent/` 重做纯视图的 `AgentConversationView`（只读 ctx 加 action 合同、扩展点注册表、分轮折叠消息流、卡片与视觉统一、Lab 时间线回放），只做前端、只以 Lab 验收，状态为 `accepted`；已批准行为见 [ui.agent-conversation-view](../specs/ui/agent-conversation-view.md) 与 [ui.component-lab.timeline](../specs/ui/component-lab-timeline.md)。
-- [`Agent 会话数据层后续`](../../packages/neuro-book/docs/proposals/agent-session-data-layer.md)：记录阻塞 invoke 与 SSE 双通道、live state 无版本、重复入口等数据层与后端问题，留到 w00017 插件体系就绪后处理，状态为 `draft`。
+- [应用运行时与内置插件架构](../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md)：基础方向 `accepted`；只维护架构、生命周期和能力地图，第一、二片已实现，Lab 状态见关联 Work。
+- [应用运行时产品装配](../../packages/neuro-book-legacy/docs/proposals/application-runtime-product-integration.md)：从启动到 Project/工作台及领域接入的细化方案，`reviewing`；从总提案迁出，不新增实现授权。后端启动与 HTTP 入口部分已由下一项替代。
+- [可扩展应用平台](extensible-application-platform.md)：内核拥有进程、领域能力皆为内置插件、第三方插件免构建安装、运行期热插拔、插件通道与远程形态 API 的机制设计及推进路线，`accepted`（2026-09-30）；已确认的长期决定见 [ADR 0022](../adr/0022-extensible-platform-and-plugin-trust.md)。
+- [Files 与资源管理器第一版](../../packages/neuro-book-legacy/docs/proposals/files-explorer.md)：范围及 F1–F9 `accepted`，行为已原位沉淀为 `workspace.files` / `workbench.files-explorer`（`planned`）；保留设计理由、内部接缝与待验证性能依据，尚未实施。
+- [Files 与资源管理器第二版](../../packages/neuro-book-legacy/docs/proposals/files-explorer-v2.md)：`draft`；快速打开与删除恢复为核心方向，全文搜索/内容整理/导入导出为候选，不扩大第一版验收。
+- [项目文件底座与 Files 竖切](project-file-foundation.md)：阶段 2 Files 竖切的需求与设计——URI 方案与提供者、带来源的变更事件、普通/内容/活页夹三类文件夹（后缀识别、XML 清单）、按需加载与乐观切换、History 插件与用户资产根；`accepted`（2026-10-02），实施按切片另行授权。
+- [`Agent 对话视图重做`](../../packages/neuro-book-legacy/docs/proposals/agent-conversation-view.md)：在 `app/components/agent/` 重做纯视图的 `AgentConversationView`（只读 ctx 加 action 合同、扩展点注册表、分轮折叠消息流、卡片与视觉统一、Lab 时间线回放），只做前端、只以 Lab 验收，状态为 `accepted`；已批准行为见 [ui.agent-conversation-view](../archived/specs/ui/agent-conversation-view.md) 与 [ui.component-lab.timeline](../specs/ui/component-lab-timeline.md)。
+- [`Agent 会话数据层后续`](../../packages/neuro-book-legacy/docs/proposals/agent-session-data-layer.md)：记录阻塞 invoke 与 SSE 双通道、live state 无版本、重复入口等数据层与后端问题，留到 w00017 插件体系就绪后处理，状态为 `draft`。
 - [`model-roles-contract.md`](./model-roles-contract.md)：模型角色的后端契约（全局配置 `roles` 段、按 role 解析模型的优先级、本地模型已由 Provider 机制覆盖的结论），状态为 `draft`，等待「未决取舍」拍板。
 - [`nb-ui-surface-model.md`](./nb-ui-surface-model.md)：nb-ui 表面模型，把材质（玻璃 / 实心，整页只有一层且只有它开模糊）与层级（不透明色阶，可嵌套、按位置自动推导）拆成两条轴，材质层有可读性不透明度下限，状态为 `accepted`。
-- [`../packages/neuro-book/docs/proposals/workbench-view-host.md`](../../packages/neuro-book/docs/proposals/workbench-view-host.md)：Workbench 与 View Host（descriptor 注册表、可序列化拆分树原语、布局状态四类分层、视图跨容器与容器跨栏移动），状态为 `accepted`。
+- [`workbench-view-host.md`](workbench-view-host.md)：Workbench 与 View Host（descriptor 注册表、可序列化拆分树原语、布局状态四类分层、视图跨容器与容器跨栏移动），状态为 `accepted`。
 - [`workbench-commands.md`](./workbench-commands.md)：命令系统与单一注册表（命令单一身份、`when` 上下文求值、交互入口统一分发命令 id、命令面板与派生快捷键表），状态为 `draft`。
 - [`storage-service-and-sync.md`](./storage-service-and-sync.md)：跨独立 data 在线同步的身份对齐、复制确认、冲突与删除收敛，状态为 `draft`；已批准本地行为见 [storage.persistence](../specs/storage/persistence.md)。
-已完成沉淀的信息架构提案见 [`../packages/neuro-book/docs/archived/proposals/documentation-information-architecture.md`](../../packages/neuro-book/docs/archived/proposals/documentation-information-architecture.md)。
-已否决的 nb-ui 浮层 portal 宿主提案见 [`../packages/neuro-book/docs/archived/proposals/nb-ui-overlay-portal-host.md`](../../packages/neuro-book/docs/archived/proposals/nb-ui-overlay-portal-host.md)，仅供重开时参考。
+已完成沉淀的信息架构提案见 [`../packages/neuro-book-legacy/docs/archived/proposals/documentation-information-architecture.md`](../../packages/neuro-book-legacy/docs/archived/proposals/documentation-information-architecture.md)。
+已否决的 nb-ui 浮层 portal 宿主提案见 [`../packages/neuro-book-legacy/docs/archived/proposals/nb-ui-overlay-portal-host.md`](../../packages/neuro-book-legacy/docs/archived/proposals/nb-ui-overlay-portal-host.md)，仅供重开时参考。
 
 ## 何时需要 Proposal
 
@@ -62,4 +62,4 @@
 - `accepted` 表示长期取舍已决定，可更新 `planned` Spec，并按当前已知结果创建或复用根 `.agents/works/` 的 Work 与 Task；Proposal 本身不自动成为规范或执行授权。
 - 实施前把已批准行为写入[`../specs/README.md`](../specs/README.md)注册的当前规范。Task可引用Proposal并协作准备指定Spec，但只有开发者明确接受的决定可进入`planned`合同。
 - `.agents/works/` 记录 current 一次设计或实现的范围、授权、当前快照和证据链接；Work/Task 引用 Proposal 与 Spec，不复制正文。`.agents/tasks/` 只保存 legacy provenance。
-`rejected`、`superseded` 和已经完成沉淀的 Proposal 移入 [`../packages/neuro-book/docs/archived/`](../../packages/neuro-book/docs/archived/) 下的 proposals 分类；当前规范不依赖归档内容才能被理解。
+`rejected`、`superseded` 和已经完成沉淀的 Proposal 移入 [`../archived/`](../archived/README.md) 下的 proposals 分类（旧应用时期已归档的仍在 `packages/neuro-book-legacy/docs/archived/`）；当前规范不依赖归档内容才能被理解。

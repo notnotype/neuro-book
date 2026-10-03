@@ -5,6 +5,8 @@
 **用工程的方法，写完你的长篇**
 
 > 目前处于快速开发阶段，软件和接口可能不稳定，欢迎反馈。
+>
+> 本分支正在按 [NeuroBook v2：并排重建应用](docs/proposals/neuro-book-v2-rebuild.md) 从零重建，新应用尚不可用；下面的下载、安装与使用说明适用于 master 上的现有版本。
 
  设定不吃书 · 伏笔有账本 · 文字没 AI 味 · AI 听指挥
 
@@ -69,7 +71,7 @@ curl -fsSL https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts
 bunx --bun @notnotype/neuro-book-manager@canary
 ```
 
-安装器会引导你选择目录、端口、更新通道和鉴权方式，确认前统一做一次环境检查。多实例管理、Docker 部署、从源码构建等六种方式，以及引导脚本的 SHA256 审计方法，见[部署文档](vitepress/locales/zh-Hans/deployment.md)。想让别的 AI Agent 帮你部署或排障，把 [operator bridge](vitepress/locales/zh-Hans/operator-bridge.md) 发给它即可。
+安装器会引导你选择目录、端口、更新通道和鉴权方式，确认前统一做一次环境检查。多实例管理、Docker 部署、从源码构建等六种方式，以及引导脚本的 SHA256 审计方法，见[部署文档](docs/archived/vitepress/locales/zh-Hans/deployment.md)。想让别的 AI Agent 帮你部署或排障，把 [operator bridge](docs/archived/vitepress/locales/zh-Hans/operator-bridge.md) 发给它即可。
 
 ## 四大核心能力
 
@@ -143,7 +145,7 @@ AI 助手干活的规矩是可以改的，而且不用写代码。每个助手�
 
 <img src="./vitepress/public/images/TSX可视化编辑器.png" width="100%" alt="Profile 可视化编辑器：以节点树的形式编辑 AI 助手的上下文结构并实时预览" />
 
-细节见 [Profile 介绍](vitepress/locales/zh-Hans/profile/index.md) 与 [Workflow 与 Job](vitepress/locales/zh-Hans/agent/workflow.md)。想参与 NeuroBook 本身的开发，见[参与贡献](CONTRIBUTING.md)。
+细节见 [Profile 介绍](docs/archived/vitepress/locales/zh-Hans/profile/index.md) 与 [Workflow 与 Job](docs/archived/vitepress/locales/zh-Hans/agent/workflow.md)。想参与 NeuroBook 本身的开发，见[参与贡献](CONTRIBUTING.md)。
 
 </details>
 
@@ -154,22 +156,22 @@ AI 助手干活的规矩是可以改的，而且不用写代码。每个助手�
 
 **在线文档站：[中文](https://blog.notnotype.com/neuro-book/) ｜ [English](https://blog.notnotype.com/neuro-book/en/)**（带搜索和语言切换）。下面是仓库内的 Markdown 源文件：
 
-- [官网文档首页](vitepress/locales/zh-Hans/index.md)
-- [快速开始](vitepress/locales/zh-Hans/quick-start.md)
-- [基础教程：从第一本书到前三章](vitepress/locales/zh-Hans/tutorials/index.md)
-- 核心能力：[World Engine](vitepress/locales/zh-Hans/core/world-engine.md) / [Plot 剧情工坊](vitepress/locales/zh-Hans/core/plot-workbench.md) / [Markdown Studio](vitepress/locales/zh-Hans/core/markdown-studio.md) / [llmlint](vitepress/locales/zh-Hans/core/llmlint.md)
-- [部署方式](vitepress/locales/zh-Hans/deployment.md) / [运行、数据与隐私](vitepress/locales/zh-Hans/operations.md)
-- [Agent 心智模型](vitepress/locales/zh-Hans/agent/index.md) / [Workflow 与 Job](vitepress/locales/zh-Hans/agent/workflow.md) / [三种模式](vitepress/locales/zh-Hans/agent/modes.md)
-- [Profile 介绍](vitepress/locales/zh-Hans/profile/index.md) / [从零写一个 Profile](vitepress/locales/zh-Hans/profile-tsx/authoring.md)
-- [NeuroBook Reference Bookshelf](packages/neuro-book/assets/reference/README.md)
+- [官网文档首页](docs/archived/vitepress/locales/zh-Hans/index.md)
+- [快速开始](docs/archived/vitepress/locales/zh-Hans/quick-start.md)
+- [基础教程：从第一本书到前三章](docs/archived/vitepress/locales/zh-Hans/tutorials/index.md)
+- 核心能力：[World Engine](docs/archived/vitepress/locales/zh-Hans/core/world-engine.md) / [Plot 剧情工坊](docs/archived/vitepress/locales/zh-Hans/core/plot-workbench.md) / [Markdown Studio](docs/archived/vitepress/locales/zh-Hans/core/markdown-studio.md) / [llmlint](docs/archived/vitepress/locales/zh-Hans/core/llmlint.md)
+- [部署方式](docs/archived/vitepress/locales/zh-Hans/deployment.md) / [运行、数据与隐私](docs/archived/vitepress/locales/zh-Hans/operations.md)
+- [Agent 心智模型](docs/archived/vitepress/locales/zh-Hans/agent/index.md) / [Workflow 与 Job](docs/archived/vitepress/locales/zh-Hans/agent/workflow.md) / [三种模式](docs/archived/vitepress/locales/zh-Hans/agent/modes.md)
+- [Profile 介绍](docs/archived/vitepress/locales/zh-Hans/profile/index.md) / [从零写一个 Profile](docs/archived/vitepress/locales/zh-Hans/profile-tsx/authoring.md)
+- [NeuroBook Reference Bookshelf](packages/neuro-book-legacy/assets/reference/README.md)
 - [PROJECT-STATUS.md](PROJECT-STATUS.md)
 - [参与贡献](CONTRIBUTING.md)：Issue、开发规范、Agent 协作、Task 与 PR 流程
 
 ## Workspace 导航
 
-后续开发只在本仓库的 15 个 workspace 内进行（以根 `package.json` 的 `workspaces` 为准）；迁移前的同级 checkout 不再是开发入口。
+后续开发只在本仓库的 workspace 内进行（以根 `package.json` 的 `workspaces` 为准）；迁移前的同级 checkout 不再是开发入口。
 
-- 应用与宿主：[主应用](packages/neuro-book/AGENTS.md) · [Manager](packages/neuro-book-manager/README.md)
+- 应用：[新应用（v2）](packages/neuro-book/AGENTS.md) · [旧应用（只作参照）](packages/neuro-book-legacy/AGENTS.md)
 - 内部基础包：[Owned Process](packages/owned-process/package.json) · [File Snapshot Cache](packages/file-snapshot-cache/README.md) · [NeuroBook Contracts](packages/neuro-book-contracts/package.json) · [Test Support](packages/neuro-book-test-support/package.json)
 - 自治包：[History](packages/nb-history/README.md) · [Workflow](packages/nb-workflow/README.md) · [Memory](packages/nb-memory/README.md) · [UI](packages/nb-ui/README.md) · [Agent Harness](packages/neuro-agent-harness/README.md) · [llmlint](packages/llmlint/README.md)
 - Agent harness 重构（w00002）：[nb-harness](packages/nb-harness/AGENTS.md) · [nb-profile](packages/nb-profile/package.json) · [nb-session](packages/nb-session/package.json)

@@ -2,6 +2,8 @@
 
 NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agent 会话和工作流都是可审查的产品数据。本文件是开发 Agent 的仓库入口。产品自身的 NeuroBook Agent Runtime 是另一套系统；人类贡献流程见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
+当前分支正在按 [NeuroBook v2：并排重建应用](docs/proposals/neuro-book-v2-rebuild.md) 从零重建：`packages/neuro-book` 是新应用，`packages/neuro-book-legacy` 是旧应用，只作代码与行为参照，不在其中改代码。
+
 ## Core Rules
 
 - 默认使用简体中文与用户交互。
@@ -38,43 +40,37 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 ```text
 neuro-book/
 ├── packages/                       # Bun workspace；共同规则 packages/AGENTS.md
-│   ├── neuro-book/                 # Nuxt 主应用、Prisma、Agent Runtime、Project Workspace 与应用测试
-│   │   ├── docs/                   # 主应用专属文档
-│   │   ├── assets/reference/       # 运行期 Reference 的 canonical 源
-│   │   └── assets/workspace/       # 内置 workspace 资产与产品 Skill 的 canonical 源
-│   ├── neuro-book-manager/         # 安装、运行、工具链与升级
-│   ├── neuro-agent-harness/        # 已冻结，只服务 llmlint
-│   ├── nb-harness/                 # NeuroBook Agent harness 重构（w00002）
+│   ├── neuro-book/                 # 新应用（v2）：运行时底座 + workbench 底座，从零重建
+│   ├── neuro-book-legacy/          # 旧应用（Nuxt），只作参照；依赖照装，不检查不修改
+│   ├── neuro-agent-harness/        # 已冻结，只服务 llmlint；待由 nb-harness 取代后退役
+│   ├── nb-harness/                 # NeuroBook Agent harness 重构（w00002），将作为内置插件的基础
 │   ├── nb-profile/                 # Profile 加载与 JSX 渲染（w00002）
 │   ├── nb-session/                 # 会话日志（w00002）
-│   ├── neuro-book-contracts/       # 跨包类型与合同
+│   ├── neuro-book-contracts/       # 跨包类型与合同（旧包依赖，交付链出口不再维护）
 │   ├── nb-memory/                  # episode、facts 与主体注册表
 │   ├── nb-history/                 # 操作日志、事件溯源与内容寻址快照
 │   ├── nb-workflow/                # 可重放的脚本化 Workflow Kernel
-│   ├── nb-ui/                      # 共享 Vue/Nuxt UI 基础组件
-│   ├── llmlint/skill/              # llmlint Skill 单一源；产品投影由此生成
-│   ├── owned-process/             # 受管子进程托管
+│   ├── nb-ui/                      # 共享 Vue UI 基础组件
+│   ├── llmlint/skill/              # llmlint Skill 单一源
+│   ├── owned-process/              # 受管子进程托管
 │   ├── file-snapshot-cache/        # 文件快照缓存
 │   └── neuro-book-test-support/    # 系统临时根与 fixture 支持
-├── desktop/                        # Electron、Tauri、共享桥与打包入口
-├── scripts/                        # 仓库自动化；release/ 有独立发布合同
+├── scripts/                        # 仓库治理与自动化
 ├── docs/                           # monorepo 级文档治理
 │   ├── specs/                     # capability 登记与产品行为合同
-│   ├── proposals/                 # 尚未生效的待决策提案
+│   ├── proposals/                 # 尚未生效或已接受的设计提案
+│   ├── adr/                       # 架构决策记录（0022 起；更早的在旧包）
+│   ├── research/                  # 调研资料，非规范
 │   ├── modules/                   # 已登记模块边界
 │   ├── standards/                 # 编码规范与仓库协作流程
-│   └── testing/                   # 测试、临时根和验收证据合同
-├── vitepress/                      # 用户文档站投影与 changelog，非内部真相源
+│   ├── testing/                   # 测试、临时根和验收证据合同
+│   └── archived/                  # 旧应用时期的 Spec、规范与用户文档站，只作参照
 ├── .agents/                        # 开发 Agent 治理，区别于产品 Agent Runtime
 │   ├── works/                     # current Work 及其直接 Task
 │   ├── tasks/                     # legacy Task archive 与历史 provenance
 │   └── skills/                    # 开发 Agent Skill，非产品运行时资产
 ├── .omp/RULES.md                   # 宿主加载的项目核心规则摘要
 ├── .worktree/                      # 分支实现 checkout，不放业务临时数据
-├── server/                         # 以仓库根运行产品时的本机生成态，非 canonical 源码
-├── assets/workspace/               # 本机 State Root 资产，非内置资产源
-├── workspace/                      # 用户作品数据，不入库
-├── logs/                           # 本机运行日志
 └── .local/                         # 用户管理的本地草稿、数据集与下载缓存
 ```
 
@@ -88,7 +84,8 @@ neuro-book/
 | 源码、脚本、schema 或 migration | [`docs/standards/code/README.md`](docs/standards/code/README.md)；按改动路径只读取表中列出的领域与语言规范 |
 | Git 分支、worktree、提交、PR、合并或发布操作 | [`.agents/skills/repository-workflow/SKILL.md`](.agents/skills/repository-workflow/SKILL.md)；Issue 元数据维护读 [`docs/standards/repository-workflow.md`](docs/standards/repository-workflow.md)，公开贡献再读 [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | 前端、UI 界面、组件、样式或主题修改 | [`.agents/skills/ui-development/SKILL.md`](.agents/skills/ui-development/SKILL.md)、[`docs/standards/code/components.md`](docs/standards/code/components.md)、[`packages/nb-ui/docs/ui-development-spec.md`](packages/nb-ui/docs/ui-development-spec.md)；查改组件必读并列同名 `.md` |
-| 前端、服务端、桌面、数据库、脚本、发布、包 | [`packages/neuro-book/AGENTS.md`](packages/neuro-book/AGENTS.md)、[`packages/neuro-book/server/AGENTS.md`](packages/neuro-book/server/AGENTS.md)、[`packages/neuro-book/prisma/AGENTS.md`](packages/neuro-book/prisma/AGENTS.md)、[`desktop/AGENTS.md`](desktop/AGENTS.md)、[`scripts/AGENTS.md`](scripts/AGENTS.md)、[`scripts/release/AGENTS.md`](scripts/release/AGENTS.md)、[`packages/AGENTS.md`](packages/AGENTS.md) 中匹配的最近入口 |
+| 新应用、脚本、包 | [`packages/neuro-book/AGENTS.md`](packages/neuro-book/AGENTS.md)、[`scripts/AGENTS.md`](scripts/AGENTS.md)、[`packages/AGENTS.md`](packages/AGENTS.md) 中匹配的最近入口 |
+| 查旧应用的实现或行为 | [`packages/neuro-book-legacy/AGENTS.md`](packages/neuro-book-legacy/AGENTS.md)；只读，不在旧包里修改 |
 | 新增或修改开发 Agent Skill | [`.agents/skills/README.md`](.agents/skills/README.md) |
 
 ## Git 注意事项
@@ -101,8 +98,8 @@ neuro-book/
 
 ## 文档真相源
 
-行为、状态、数据、接口、失败语义和验收依据以 [`docs/specs/`](docs/specs/) 为准；架构取舍以 ADR 为准；迁移步骤以 `packages/neuro-book/docs/migrations/` 为准；测试、临时根和证据以 [`docs/testing/`](docs/testing/) 为准；一次实现的 current 范围、授权与快照以 [`.agents/works/`](.agents/works/) 为准，历史 provenance 以 [`.agents/tasks/`](.agents/tasks/) 为准。入口文件只写职责、触发条件和链接，不复制下级正文。
+行为、状态、数据、接口、失败语义和验收依据以 [`docs/specs/`](docs/specs/) 为准；架构取舍以 [`docs/adr/`](docs/adr/README.md) 为准；测试、临时根和证据以 [`docs/testing/`](docs/testing/) 为准；一次实现的 current 范围、授权与快照以 [`.agents/works/`](.agents/works/) 为准，历史 provenance 以 [`.agents/tasks/`](.agents/tasks/) 为准。入口文件只写职责、触发条件和链接，不复制下级正文。
 
-当前仓库状态以 [`PROJECT-STATUS.md`](PROJECT-STATUS.md) 为准；运行期 Reference 以 [`packages/neuro-book/assets/reference/`](packages/neuro-book/assets/reference/) 为准。`RELEASE.md` 和 `WATCHDOG.md` 是机器与审查入口，不属于普通产品规范。
+当前仓库状态以 [`PROJECT-STATUS.md`](PROJECT-STATUS.md) 为准。`WATCHDOG.md` 是审查入口，不属于普通产品规范。
 
-`CLAUDE.md` 仅兼容指向本文件。`WATCHDOG.md` 是 advisor 复核清单，不进入主 Agent 普通上下文。`RELEASE.md` 是发布程序消费的当前版本载荷；完整发布规则见 [`scripts/release/AGENTS.md`](scripts/release/AGENTS.md)。
+`CLAUDE.md` 仅兼容指向本文件。`WATCHDOG.md` 是 advisor 复核清单，不进入主 Agent 普通上下文。

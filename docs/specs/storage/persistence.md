@@ -220,7 +220,7 @@ owner 的显式重置只影响已列出的记录；超限拒绝增长写入，�
 不可持久恢复的客户端不开始旧值导入，也不登记完成或清理源；稳定身份就绪后再继续。
 为保护旧桶原始字符串，迁移适配器可使用专用、带版本且有界的浏览器原件暂存；仅服务旧值迁移，
 核验 data 原件与迁移完成后退役，不成为新状态写入 authority。具体门禁和失败行为由迁移合同定义。
-迁移顺序、失败与回滚见 [Storage 状态迁移](../../../packages/neuro-book/docs/migrations/storage-state.md)。
+迁移顺序、失败与回滚见 [Storage 状态迁移](../../../packages/neuro-book-legacy/docs/migrations/storage-state.md)。
 
 ## 验收与 Smoke
 
@@ -258,6 +258,6 @@ Smoke：在 Source Dev 主页面验证书架、项目 A/B、用户资产和双�
 
 ## 证据
 
-- [ADR 0020](../../../packages/neuro-book/docs/adr/0020-user-project-storage-boundaries.md)：职责与两个 scope。
-- [ADR 0021](../../../packages/neuro-book/docs/adr/0021-local-storage-persistence.md)：2026-09-16 确认的本地优先阶段、身份与持久化取舍。
+- [ADR 0020](../../../packages/neuro-book-legacy/docs/adr/0020-user-project-storage-boundaries.md)：职责与两个 scope。
+- [ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)：2026-09-16 确认的本地优先阶段、身份与持久化取舍。
 - [架构边界](boundaries.md) 与 [实施计划](../../../.agents/works/w00003-neurobook-ui-foundation-migration/storage-implementation-plan.md)。

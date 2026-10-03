@@ -16,12 +16,9 @@ const REQUIRED_INDEXES = [
     "docs/standards/code/README.md",
     "docs/proposals/README.md",
     "docs/testing/README.md",
-    "docs/testing/manual-eval/README.md",
-    "packages/neuro-book/docs/adr/README.md",
-    "packages/neuro-book/docs/migrations/README.md",
-    "packages/neuro-book/docs/runbooks/README.md",
-    "packages/neuro-book/docs/research/README.md",
-    "packages/neuro-book/docs/archived/README.md",
+    "docs/adr/README.md",
+    "docs/research/README.md",
+    "docs/archived/README.md",
 ] as const;
 
 const SPEC_REGISTRY = `# NeuroBook 规范编程
@@ -83,7 +80,7 @@ describe("documentation governance gate", () => {
         const fixture = await createDocumentationFixture({
             "docs/standards/rules.md": "# Rules\n\n[Architecture](../specs/architecture.md)\n",
             "docs/specs/architecture.md": specDocument({capability: "test.architecture"}),
-            "packages/neuro-book/docs/adr/0001-first-decision.md": "# ADR 0001：First decision\n",
+            "docs/adr/0001-first-decision.md": "# ADR 0001：First decision\n",
         }, {
             planned: ["docs/specs/architecture.md"],
         });
@@ -93,32 +90,6 @@ describe("documentation governance gate", () => {
             warnings: [],
             checkedFiles: fixture.paths.length,
         });
-    });
-
-    it("拒绝 VitePress 旧根、缺页、locale public、tracked staged 与缺失图片", async () => {
-        const fixture = await createDocumentationFixture({
-            "vitepress/index.md": "# Old root\n",
-            "vitepress/en/index.md": "# Old English\n",
-            "vitepress/images/old.png": "old",
-            "vitepress/.vitepress/staged/index.md": "# generated\n",
-            "vitepress/locales/zh-Hans/index.md": "# 中文\n\n![missing](/images/missing.png)\n",
-            "vitepress/locales/zh-Hans/only-zh.md": "# 仅中文\n",
-            "vitepress/locales/en-US/index.md": "# English\n",
-            "vitepress/locales/en-US/only-en.md": "# English only\n",
-            "vitepress/locales/en-US/public/asset.txt": "bad",
-        });
-
-        const failures = checkDocumentation(fixture.root, fixture.paths).failures;
-        expect(failures).toEqual(expect.arrayContaining([
-            "VitePress 正文必须位于 locales/<BCP47>：vitepress/index.md",
-            "英文正文已迁入 locales/en-US：vitepress/en/index.md",
-            "VitePress 静态图片必须位于 public/images：vitepress/images/old.png",
-            "VitePress staged 生成物不得跟踪：vitepress/.vitepress/staged/index.md",
-            "VitePress locale 内不得包含 public：vitepress/locales/en-US/public/asset.txt",
-            "VitePress 英文 locale 缺少对等页面：only-zh.md",
-            "VitePress 中文 locale 缺少对等页面：only-en.md",
-            "VitePress public 图片不存在：vitepress/locales/zh-Hans/index.md -> /images/missing.png（vitepress/public/images/missing.png）",
-        ]));
     });
 
     it("坏相对链接报告来源和解析目标", async () => {
@@ -133,13 +104,13 @@ describe("documentation governance gate", () => {
 
     it("重复 ADR 编号同时报告两个文件", async () => {
         const fixture = await createDocumentationFixture({
-            "packages/neuro-book/docs/adr/0001-first-decision.md": "# ADR 0001：First decision\n",
-            "packages/neuro-book/docs/adr/0001-second-decision.md": "# ADR 0001：Second decision\n",
+            "docs/adr/0001-first-decision.md": "# ADR 0001：First decision\n",
+            "docs/adr/0001-second-decision.md": "# ADR 0001：Second decision\n",
         });
 
         const report = checkDocumentation(fixture.root, fixture.paths);
 
-        expect(report.failures).toContain("ADR 编号重复 0001：packages/neuro-book/docs/adr/0001-first-decision.md, packages/neuro-book/docs/adr/0001-second-decision.md");
+        expect(report.failures).toContain("ADR 编号重复 0001：docs/adr/0001-first-decision.md, docs/adr/0001-second-decision.md");
     });
 
     it("拒绝 docs 根层正文和已迁移 Reference", async () => {
@@ -151,7 +122,7 @@ describe("documentation governance gate", () => {
         const report = checkDocumentation(fixture.root, fixture.paths);
 
         expect(report.failures).toContain("docs 根层只允许 README.md 和 AGENTS.md：docs/stray.md");
-        expect(report.failures).toContain("运行期 Reference 必须位于 packages/neuro-book/assets/reference：reference/workspace/TERMS.md");
+        expect(report.failures).toContain("根目录 reference/ 已退役，旧应用的运行期 Reference 位于 packages/neuro-book-legacy/assets/reference：reference/workspace/TERMS.md");
     });
 
     it("拒绝重新创建旧人工评测顶层目录", async () => {
@@ -161,7 +132,7 @@ describe("documentation governance gate", () => {
 
         const report = checkDocumentation(fixture.root, fixture.paths);
 
-        expect(report.failures).toContain("人工评测已迁入 docs/testing/manual-eval：docs/manual-eval/README.md");
+        expect(report.failures).toContain("人工评测已归档到 docs/archived/testing/manual-eval：docs/manual-eval/README.md");
     });
 
     it("拒绝重新创建平面编码规范", async () => {
@@ -305,11 +276,11 @@ describe("documentation governance gate", () => {
             "reference/new-domain/contract.md": "# Contract\n",
         });
         expect(checkDocumentation(fixture.root, fixture.paths).failures).toContain(
-            "运行期 Reference 必须位于 packages/neuro-book/assets/reference：reference/README.md",
+            "根目录 reference/ 已退役，旧应用的运行期 Reference 位于 packages/neuro-book-legacy/assets/reference：reference/README.md",
         );
 
         expect(checkDocumentation(fixture.root, fixture.paths).failures).toContain(
-            "运行期 Reference 必须位于 packages/neuro-book/assets/reference：reference/new-domain/contract.md",
+            "根目录 reference/ 已退役，旧应用的运行期 Reference 位于 packages/neuro-book-legacy/assets/reference：reference/new-domain/contract.md",
         );
     });
 
@@ -506,32 +477,6 @@ describe("documentation governance gate", () => {
             "链接锚点不存在：docs/standards/source.md -> target.md#_10-开发后自检-checklist（docs/standards/target.md#_10-开发后自检-checklist）",
             "链接锚点不存在：docs/standards/source.md -> #missing-local（docs/standards/source.md#missing-local）",
             "链接锚点不存在：docs/standards/source.md -> target.md#title-前置元数据（docs/standards/target.md#title-前置元数据）",
-        ]);
-    });
-
-    it("VitePress 页面按站点规则校验锚点与站内路由", async () => {
-        const quickStart = "# 快速开始\n\n## 配置 AI 模型\n\n## 10. 开发后自检（Checklist）\n";
-        const changelog = "# v0.8\n\n### 旧对话的模型引用 {#session-model-refs}\n";
-        const fixture = await createDocumentationFixture({
-            "vitepress/locales/zh-Hans/quick-start.md": quickStart,
-            "vitepress/locales/en-US/quick-start.md": "# Quick start\n\n## Configure an AI model\n",
-            "vitepress/locales/zh-Hans/changelog/v0.8.md": changelog,
-            "vitepress/locales/en-US/changelog/v0.8.md": changelog,
-            "vitepress/locales/zh-Hans/index.md": [
-                "# 首页",
-                "",
-                "[a](./quick-start#配置-ai-模型) [b](/quick-start#_10-开发后自检-checklist) [c](./changelog/v0.8#session-model-refs)",
-                "[d](/en/quick-start.md#configure-an-ai-model) [e](/quick-start)",
-                "[f](/quick-start#10-开发后自检checklist) [g](/missing#x)",
-                "",
-            ].join("\n"),
-            "vitepress/locales/en-US/index.md": "# Home\n\n[a](/en/quick-start#missing)\n",
-        });
-
-        expect(checkDocumentation(fixture.root, fixture.paths).failures).toEqual([
-            "链接锚点不存在：vitepress/locales/en-US/index.md -> /en/quick-start#missing（vitepress/locales/en-US/quick-start.md#missing）",
-            "链接锚点不存在：vitepress/locales/zh-Hans/index.md -> /quick-start#10-开发后自检checklist（vitepress/locales/zh-Hans/quick-start.md#10-开发后自检checklist）",
-            "站内链接目标不存在：vitepress/locales/zh-Hans/index.md -> /missing#x",
         ]);
     });
 });

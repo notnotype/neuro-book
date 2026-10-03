@@ -1,12 +1,12 @@
 {
   "schema": "nbook.task-ownership/v1",
-  "ownerRoot": "packages/neuro-book/.agents/tasks",
+  "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
   "taskCount": 91,
   "fileCount": 855,
   "tasks": [
     {
       "taskId": "01-agent-roleplay-mode",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "01-agent-roleplay-mode/README.md",
@@ -22,7 +22,7 @@
     },
     {
       "taskId": "02-pi-agent-harness-migration",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "02-pi-agent-harness-migration/README.md",
@@ -33,7 +33,7 @@
     },
     {
       "taskId": "03-config-system",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "03-config-system/README.md",
@@ -44,7 +44,7 @@
     },
     {
       "taskId": "04-tsx-profile-workbench",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "04-tsx-profile-workbench/README.md",
@@ -55,7 +55,7 @@
     },
     {
       "taskId": "05-leader-profile-v2-adaptation",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "05-leader-profile-v2-adaptation/README.md",
@@ -66,7 +66,7 @@
     },
     {
       "taskId": "06-leader-default-prompt-parity",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "06-leader-default-prompt-parity/README.md",
@@ -77,7 +77,7 @@
     },
     {
       "taskId": "07-agent-turn-commit-boundary",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "07-agent-turn-commit-boundary/README.md",
@@ -88,7 +88,7 @@
     },
     {
       "taskId": "08-sqlite-first-database",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "08-sqlite-first-database/README.md",
@@ -99,7 +99,7 @@
     },
     {
       "taskId": "10-agent-variable-system",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "10-agent-variable-system/README.md",
@@ -110,7 +110,7 @@
     },
     {
       "taskId": "101-markdown-studio-dialect-and-performance",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "101-markdown-studio-dialect-and-performance/README.md",
@@ -121,7 +121,7 @@
     },
     {
       "taskId": "102-agent-change-inbox-and-prompt-order",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "102-agent-change-inbox-and-prompt-order/README.md",
@@ -132,7 +132,7 @@
     },
     {
       "taskId": "104-pi-models-runtime-upgrade",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "104-pi-models-runtime-upgrade/README.md",
@@ -143,7 +143,7 @@
     },
     {
       "taskId": "106-agent-chat-flow-pagination",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "106-agent-chat-flow-pagination/README.md",
@@ -154,7 +154,7 @@
     },
     {
       "taskId": "107-agent-event-memory-boundaries",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "107-agent-event-memory-boundaries/README.md",
@@ -165,7 +165,7 @@
     },
     {
       "taskId": "108-agent-image-attachment-references",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "108-agent-image-attachment-references/README.md",
@@ -176,7 +176,7 @@
     },
     {
       "taskId": "109-agent-workspace-path-runtime",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "109-agent-workspace-path-runtime/README.md",
@@ -187,7 +187,7 @@
     },
     {
       "taskId": "11-portable-project-workspace",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "11-portable-project-workspace/README.md",
@@ -198,7 +198,7 @@
     },
     {
       "taskId": "111-workflow-agent-integration",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "111-workflow-agent-integration/PLAN-A-core.md",
@@ -244,7 +244,7 @@
     },
     {
       "taskId": "116-agent-workflow-reliability",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "116-agent-workflow-reliability/README.md",
@@ -255,7 +255,7 @@
     },
     {
       "taskId": "118-project-catalog-snapshot-path-integration",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "118-project-catalog-snapshot-path-integration/NOTES-legacy-nested-sessions.md",
@@ -281,7 +281,7 @@
     },
     {
       "taskId": "12-profile-variable-types",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "12-profile-variable-types/README.md",
@@ -292,7 +292,7 @@
     },
     {
       "taskId": "120-agent-skill-package-contract",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "120-agent-skill-package-contract/README.md",
@@ -303,7 +303,7 @@
     },
     {
       "taskId": "121-novel-skill-reorg",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "121-novel-skill-reorg/README.md",
@@ -314,7 +314,7 @@
     },
     {
       "taskId": "122-writing-pipeline-batch2",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "122-writing-pipeline-batch2/README.md",
@@ -325,7 +325,7 @@
     },
     {
       "taskId": "124-writing-pipeline-batch3",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "124-writing-pipeline-batch3/README.md",
@@ -336,7 +336,7 @@
     },
     {
       "taskId": "125-runtime-artifact-storage-lifecycle",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "125-runtime-artifact-storage-lifecycle/README.md",
@@ -367,7 +367,7 @@
     },
     {
       "taskId": "126-agent-context-inspector",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "126-agent-context-inspector/README.md",
@@ -393,7 +393,7 @@
     },
     {
       "taskId": "129-project-picker-and-session-entry",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "129-project-picker-and-session-entry/README.md",
@@ -404,7 +404,7 @@
     },
     {
       "taskId": "132-shared-image-variants-project-covers",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "132-shared-image-variants-project-covers/README.md",
@@ -415,7 +415,7 @@
     },
     {
       "taskId": "133-book-import-and-style-distill",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "133-book-import-and-style-distill/README.md",
@@ -426,7 +426,7 @@
     },
     {
       "taskId": "134-agent-profile-settings-navigation",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "134-agent-profile-settings-navigation/README.md",
@@ -437,7 +437,7 @@
     },
     {
       "taskId": "135-agent-asset-install-protocol",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "135-agent-asset-install-protocol/README.md",
@@ -448,7 +448,7 @@
     },
     {
       "taskId": "136-one-shot-model-providers",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "136-one-shot-model-providers/README.md",
@@ -459,7 +459,7 @@
     },
     {
       "taskId": "137-agent-ui-approval-workflow-bubble",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "137-agent-ui-approval-workflow-bubble/README.md",
@@ -470,7 +470,7 @@
     },
     {
       "taskId": "138-agent-conversation-branch-projection",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "138-agent-conversation-branch-projection/README.md",
@@ -481,7 +481,7 @@
     },
     {
       "taskId": "139-agent-abort-error-projection",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "139-agent-abort-error-projection/README.md",
@@ -492,7 +492,7 @@
     },
     {
       "taskId": "14-agent-sse-front-end-contract",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "14-agent-sse-front-end-contract/README.md",
@@ -503,7 +503,7 @@
     },
     {
       "taskId": "147-agent-context-compaction-reliability",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "147-agent-context-compaction-reliability/README.md",
@@ -514,7 +514,7 @@
     },
     {
       "taskId": "148-provider-details-transition",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "148-provider-details-transition/README.md",
@@ -525,7 +525,7 @@
     },
     {
       "taskId": "17-session-title-summary-enhancement",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "17-session-title-summary-enhancement/README.md",
@@ -536,7 +536,7 @@
     },
     {
       "taskId": "18-agent-runtime-pipeline-hooks",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "18-agent-runtime-pipeline-hooks/HARNESS-BLACK-BOX-CONTRACT.md",
@@ -552,7 +552,7 @@
     },
     {
       "taskId": "21-project-workspace-index-watcher",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "21-project-workspace-index-watcher/README.md",
@@ -563,7 +563,7 @@
     },
     {
       "taskId": "22-agent-public-event-projection",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "22-agent-public-event-projection/README.md",
@@ -574,7 +574,7 @@
     },
     {
       "taskId": "23-agent-sidecar-profile-pass",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "23-agent-sidecar-profile-pass/README.md",
@@ -585,7 +585,7 @@
     },
     {
       "taskId": "24-agent-sse-reload-recovery",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "24-agent-sse-reload-recovery/README.md",
@@ -596,7 +596,7 @@
     },
     {
       "taskId": "28-lorebook-information-control-protocol",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "28-lorebook-information-control-protocol/README.md",
@@ -612,7 +612,7 @@
     },
     {
       "taskId": "31-novel-writing-workflow-emulation",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "31-novel-writing-workflow-emulation/README.md",
@@ -623,7 +623,7 @@
     },
     {
       "taskId": "32-novel-workflow-emulation-implementation",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "32-novel-workflow-emulation-implementation/README.md",
@@ -634,7 +634,7 @@
     },
     {
       "taskId": "36-agent-prompt-engineering-simulation-director",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "36-agent-prompt-engineering-simulation-director/README.md",
@@ -645,7 +645,7 @@
     },
     {
       "taskId": "42-simulation-rollback-mechanism",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "42-simulation-rollback-mechanism/README.md",
@@ -656,7 +656,7 @@
     },
     {
       "taskId": "43-subject-rag-memory",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "43-subject-rag-memory/README.md",
@@ -667,7 +667,7 @@
     },
     {
       "taskId": "47-agent-profile-tool-bindings",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "47-agent-profile-tool-bindings/README.md",
@@ -678,7 +678,7 @@
     },
     {
       "taskId": "48-agent-tool-definition-layer",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "48-agent-tool-definition-layer/README.md",
@@ -689,7 +689,7 @@
     },
     {
       "taskId": "49-agent-session-tree-ui",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "49-agent-session-tree-ui/README.md",
@@ -700,7 +700,7 @@
     },
     {
       "taskId": "53-agent-initial-payload-schema",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "53-agent-initial-payload-schema/README.md",
@@ -711,7 +711,7 @@
     },
     {
       "taskId": "55-inline-editor-agent",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "55-inline-editor-agent/README.md",
@@ -722,7 +722,7 @@
     },
     {
       "taskId": "56-world-engine",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "56-world-engine/README.md",
@@ -2888,7 +2888,7 @@
     },
     {
       "taskId": "58-agent-profile-settings-low-code",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "58-agent-profile-settings-low-code/README.md",
@@ -2909,7 +2909,7 @@
     },
     {
       "taskId": "59-world-engine-workbench-redesign",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "59-world-engine-workbench-redesign/README.md",
@@ -3315,7 +3315,7 @@
     },
     {
       "taskId": "60-agent-profile-home",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "60-agent-profile-home/README.md",
@@ -3326,7 +3326,7 @@
     },
     {
       "taskId": "61-world-engine-workbench-real-api",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "61-world-engine-workbench-real-api/README.md",
@@ -3417,7 +3417,7 @@
     },
     {
       "taskId": "62-harness-contract-sse-recovery-fixes",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "62-harness-contract-sse-recovery-fixes/COMPLETION-REPORT.md",
@@ -3443,7 +3443,7 @@
     },
     {
       "taskId": "63-tool-approval-policy-system",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "63-tool-approval-policy-system/README.md",
@@ -3464,7 +3464,7 @@
     },
     {
       "taskId": "64-world-engine-prompt-engineering",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "64-world-engine-prompt-engineering/README.md",
@@ -3500,7 +3500,7 @@
     },
     {
       "taskId": "65-world-engine-calendar-enhancement",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "65-world-engine-calendar-enhancement/README.md",
@@ -3521,7 +3521,7 @@
     },
     {
       "taskId": "67-world-engine-zod-schema-codeact",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "67-world-engine-zod-schema-codeact/README.md",
@@ -3562,7 +3562,7 @@
     },
     {
       "taskId": "68-global-profile-home-resource-preset",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "68-global-profile-home-resource-preset/README.md",
@@ -3573,7 +3573,7 @@
     },
     {
       "taskId": "69-world-engine-tool-cleanup",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "69-world-engine-tool-cleanup/README.md",
@@ -3584,7 +3584,7 @@
     },
     {
       "taskId": "71-world-engine-codeact-readwrite",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "71-world-engine-codeact-readwrite/README.md",
@@ -3595,7 +3595,7 @@
     },
     {
       "taskId": "72-error-report-logs",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "72-error-report-logs/README.md",
@@ -3606,7 +3606,7 @@
     },
     {
       "taskId": "73-agent-session-list-performance-pagination",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "73-agent-session-list-performance-pagination/README.md",
@@ -3617,7 +3617,7 @@
     },
     {
       "taskId": "74-agent-command-performance",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "74-agent-command-performance/README.md",
@@ -3628,7 +3628,7 @@
     },
     {
       "taskId": "75-world-engine-api-calendar-embedding-cleanup",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "75-world-engine-api-calendar-embedding-cleanup/README.md",
@@ -3714,7 +3714,7 @@
     },
     {
       "taskId": "76-world-engine-issue-contract",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "76-world-engine-issue-contract/README.md",
@@ -3725,7 +3725,7 @@
     },
     {
       "taskId": "78-plot-scene-world-engine-bridge",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "78-plot-scene-world-engine-bridge/IMPLEMENTATION-GOAL.md",
@@ -4451,7 +4451,7 @@
     },
     {
       "taskId": "79-profile-build-system",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "79-profile-build-system/IMPLEMENTATION-GOAL.md",
@@ -4537,7 +4537,7 @@
     },
     {
       "taskId": "81-profile-mcp-config",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "81-profile-mcp-config/ARCHITECTURE.md",
@@ -4553,7 +4553,7 @@
     },
     {
       "taskId": "83-project-list-performance",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "83-project-list-performance/README.md",
@@ -4564,7 +4564,7 @@
     },
     {
       "taskId": "85-fullstack-template-ui-library",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "85-fullstack-template-ui-library/README.md",
@@ -4575,7 +4575,7 @@
     },
     {
       "taskId": "86-pi-request-observability",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "86-pi-request-observability/README.md",
@@ -4611,7 +4611,7 @@
     },
     {
       "taskId": "87-plot-two-trees-and-writer-modes",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "87-plot-two-trees-and-writer-modes/README.md",
@@ -4622,7 +4622,7 @@
     },
     {
       "taskId": "89-theme-system-v2",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "89-theme-system-v2/PLAN.md",
@@ -4708,7 +4708,7 @@
     },
     {
       "taskId": "90-agent-mode-system",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "90-agent-mode-system/README.md",
@@ -4719,7 +4719,7 @@
     },
     {
       "taskId": "91-operation-log-file-history",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "91-operation-log-file-history/GOAL.md",
@@ -4735,7 +4735,7 @@
     },
     {
       "taskId": "92-project-resource-lifecycle",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "92-project-resource-lifecycle/README.md",
@@ -4746,7 +4746,7 @@
     },
     {
       "taskId": "93-plot-planning-layer",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "93-plot-planning-layer/README.md",
@@ -4757,7 +4757,7 @@
     },
     {
       "taskId": "94-project-lifecycle-model",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "94-project-lifecycle-model/GOAL-A.md",
@@ -4783,7 +4783,7 @@
     },
     {
       "taskId": "96-session-title-summarizer",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "96-session-title-summarizer/README.md",
@@ -4794,7 +4794,7 @@
     },
     {
       "taskId": "97-plot-tool-surface-redesign",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "97-plot-tool-surface-redesign/README.md",
@@ -4805,7 +4805,7 @@
     },
     {
       "taskId": "98-leader-assets-profile-reshape",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "98-leader-assets-profile-reshape/README.md",
@@ -4816,7 +4816,7 @@
     },
     {
       "taskId": "99-plot-planning-ui",
-      "ownerRoot": "packages/neuro-book/.agents/tasks",
+      "ownerRoot": "packages/neuro-book-legacy/.agents/tasks",
       "files": [
         {
           "path": "99-plot-planning-ui/README.md",

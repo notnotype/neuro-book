@@ -17,7 +17,7 @@ owners:
 
 - 不改变 Manager、Desktop、容器的启动命令、产物路径、就绪探测与停止通道；不改变它们等待与强制结束的时序。
 - 不定义浏览器宿主（[`runtime.browser-host`](browser-host.md)）与主线程卡死看门狗（[`runtime.stall-watchdog`](stall-watchdog.md)）。
-- 不定义 Session Store 租约本身（[`agent.session-store-lease`](../agent/session-store-lease.md)），只规定租约失效作为停止来源。
+- 不定义 Session Store 租约本身（[`agent.session-store-lease`](../../archived/specs/agent/session-store-lease.md)），只规定租约失效作为停止来源。
 - 不支持一个进程中同时存在两个产品运行实例（开发热重载的短暂交接除外，见下文）。
 
 ## 术语与参与者
@@ -138,11 +138,11 @@ Smoke：生产构建在 Bun 下用临时 State Root 运行场景 2 至 6；开�
 
 ## 证据
 
-- 批准目标：[可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md) P6 与 P11（2026-09-30 开发者同意生命周期部分按验证证据写入）；[ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条。
+- 批准目标：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P6 与 P11（2026-09-30 开发者同意生命周期部分按验证证据写入）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条。
 - 验证依据：[G0 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g0/REPORT.md)；启动失败退出与退出码优先级的现行修复见 [PR #245](https://github.com/notnotype/neuro-book/pull/245)。
-- 实现入口：[`server-host.ts`](../../../packages/neuro-book/server/runtime/foundation/server-host.ts)、[`product-startup.ts`](../../../packages/neuro-book/server/runtime/product-startup.ts)、[`product-host-entry.ts`](../../../packages/neuro-book/server/host/product-host-entry.ts)、[`development-process.ts`](../../../packages/neuro-book/server/host/development-process.ts)
-- 合同测试：[`server-host.test.ts`](../../../packages/neuro-book/server/runtime/foundation/server-host.test.ts)、[`product-startup.test.ts`](../../../packages/neuro-book/server/runtime/product-startup.test.ts)、[`admission.test.ts`](../../../packages/neuro-book/server/features/http/admission.test.ts)、[`development-process.test.ts`](../../../packages/neuro-book/server/host/development-process.test.ts)、[`product-command.test.ts`](../../../packages/neuro-book/server/runtime/product-command.test.ts)
-- Smoke：[`product-lifecycle.ts`](../../../packages/neuro-book/scripts/smoke/product-lifecycle.ts)（`bun run smoke:product-lifecycle`）
+- 实现入口：[`server-host.ts`](../../../packages/neuro-book-legacy/server/runtime/foundation/server-host.ts)、[`product-startup.ts`](../../../packages/neuro-book-legacy/server/runtime/product-startup.ts)、[`product-host-entry.ts`](../../../packages/neuro-book-legacy/server/host/product-host-entry.ts)、[`development-process.ts`](../../../packages/neuro-book-legacy/server/host/development-process.ts)
+- 合同测试：[`server-host.test.ts`](../../../packages/neuro-book-legacy/server/runtime/foundation/server-host.test.ts)、[`product-startup.test.ts`](../../../packages/neuro-book-legacy/server/runtime/product-startup.test.ts)、[`admission.test.ts`](../../../packages/neuro-book-legacy/server/features/http/admission.test.ts)、[`development-process.test.ts`](../../../packages/neuro-book-legacy/server/host/development-process.test.ts)、[`product-command.test.ts`](../../../packages/neuro-book-legacy/server/runtime/product-command.test.ts)
+- Smoke：[`product-lifecycle.ts`](../../../packages/neuro-book-legacy/scripts/smoke/product-lifecycle.ts)（`bun run smoke:product-lifecycle`）
 - 实现与验证：w00017 [t34](../../../.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/README.md)（内置服务插件与依赖逆序关闭）、[t37](../../../.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/README.md)（生产宿主入口、`nbook.http`、停止来源汇合）、[t38](../../../.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/README.md)（开发宿主，#244）、[t40](../../../.agents/works/w00017-application-runtime-architecture/tasks/t40-phase1-closing/README.md)（Nitro 插件迁入内置插件、包装进程退出码）；`smoke:product-lifecycle` L1–L10 全部通过。2026-10-02 开发者批准晋升 `implemented`。
 - 已知限制：
   - 退出码 76 由 [`runtime.stall-watchdog`](stall-watchdog.md) 定义，看门狗尚未实现。

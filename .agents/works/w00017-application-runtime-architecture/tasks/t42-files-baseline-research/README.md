@@ -14,14 +14,14 @@ taskId: t42-files-baseline-research
    - 切换文件：从点击到正文可编辑，拆成请求、服务端读取、传输、前端解析（源码与富文本分开）、编辑器控件与模型创建、界面重渲染；冷开与热切换、单组与多组分开；
    - 每项记录 p50/p95 与波动范围，复现开发者报告的约 0.3 秒切换延迟并给出构成。
    - 测量用现有的 Server-Timing、浏览器性能接口与跟踪工具，不在产品代码里加测试专用分支。
-2. **VS Code 针对性调研。** 沿用既有调研固定的 VS Code 提交（[调研目录](../../../../../packages/neuro-book/docs/research/vscode/README.md)），用源码核实：文件系统提供者的能力声明与 `FileService` 的分派；资源管理器按需解析子目录与刷新；长列表虚拟化；文件监视的实现与范围；打开与切换编辑器路径上的延迟处理。结论按调研目录的证据标签写成新章节。
+2. **VS Code 针对性调研。** 沿用既有调研固定的 VS Code 提交（[调研目录](../../../../../docs/research/vscode/README.md)），用源码核实：文件系统提供者的能力声明与 `FileService` 的分派；资源管理器按需解析子目录与刷新；长列表虚拟化；文件监视的实现与范围；打开与切换编辑器路径上的延迟处理。结论按调研目录的证据标签写成新章节。
 3. **结论。** 根据测量与调研，给出第 2–4 片的优先级与具体改法建议，并核对[性能标准](../../../../../docs/specs/workbench/files-explorer.md#打开与切换)是否可达；不可达的项提出修改建议，交开发者决定。
 
-依据：[项目文件底座与 Files 竖切](../../../../../packages/neuro-book/docs/proposals/project-file-foundation.md)（`accepted`）的方案第 5、6 节与“VS Code 参照”；[`workbench.files-explorer`](../../../../../docs/specs/workbench/files-explorer.md) 的性能标准与验收场景 12。行为合同未变。
+依据：[项目文件底座与 Files 竖切](../../../../../docs/proposals/project-file-foundation.md)（`accepted`）的方案第 5、6 节与“VS Code 参照”；[`workbench.files-explorer`](../../../../../docs/specs/workbench/files-explorer.md) 的性能标准与验收场景 12。行为合同未变。
 
 ## 当前状态
 
-2026-10-03 完成，待开发者确认结论。耗时测量由 omp 写脚本并产出基线（任务说明见 [brief.md](brief.md)，交付见 [delivery.md](evidences/delivery.md)，经一轮返工）；VS Code 调研与结论由主 Agent 完成，调研写成 [第 16 章](../../../../../packages/neuro-book/docs/research/vscode/16-file-service-explorer-editor-latency.md)。桌面版未测：本机没有 Electron；桌面版加载的是同一本机服务页面。
+2026-10-03 完成，待开发者确认结论。耗时测量由 omp 写脚本并产出基线（任务说明见 [brief.md](brief.md)，交付见 [delivery.md](evidences/delivery.md)，经一轮返工）；VS Code 调研与结论由主 Agent 完成，调研写成 [第 16 章](../../../../../docs/research/vscode/16-file-service-explorer-editor-latency.md)。桌面版未测：本机没有 Electron；桌面版加载的是同一本机服务页面。
 
 测量脚本：`bun run --cwd packages/neuro-book perf:files-baseline`（`packages/neuro-book/scripts/perf/`），支持样本规模、种子、重复次数、`--skip-build` 与 `--include-development`。产品代码只加了常驻计时点（Server-Timing 的 `files.*`、User Timing 的 `files.*`/`editor.*`，固定名字），原 `workspace.*` Server-Timing 改名为 `files.tree.*`；行为不变。
 
@@ -55,7 +55,7 @@ taskId: t42-files-baseline-research
 **耗时构成：**
 
 1. **切换：每次状态变化都深度遍历整个 store。** `novelIde` store 配了两条 `persist`；pinia-plugin-persistedstate 对每条调用 `store.$subscribe`，Pinia 的 `$subscribe` 以 `deep: true` 监听整个 store 状态，`pick` 只决定写入哪些字段，不缩小监听范围（源码：`pinia/dist/pinia.mjs` 的 `$subscribe`、`pinia-plugin-persistedstate` 的 `persistState`）。store 里有 3000 个节点的完整文件树与已打开文件的正文缓冲。CPU 采样：首次打开窗口约 1.2 s 落在 Vue `traverse`，占 74–76%；开发构建的未压缩调用栈确认来自深度 `watch` 的 getter。点击标签切换中“标签状态发布→视图发布”与“视图发布→可编辑”各约 420–450 ms。因果尚未用关闭订阅的对照实验定量。
-2. **从文件树单击：固定等待 180 ms。** `WorkspaceFileNode.vue` 的 `scheduleSelectNode` 单击后等 180 ms 才以预览打开，以便双击取消预览改为常驻。每次文件树点击的“点击→激活”都是 180 ms。VS Code 单击立即以预览打开，双击再固定（[第 16 章](../../../../../packages/neuro-book/docs/research/vscode/16-file-service-explorer-editor-latency.md)）。
+2. **从文件树单击：固定等待 180 ms。** `WorkspaceFileNode.vue` 的 `scheduleSelectNode` 单击后等 180 ms 才以预览打开，以便双击取消预览改为常驻。每次文件树点击的“点击→激活”都是 180 ms。VS Code 单击立即以预览打开，双击再固定（[第 16 章](../../../../../docs/research/vscode/16-file-service-explorer-editor-latency.md)）。
 3. **打开项目：服务端建完整快照，前端深度处理 4.4 MB。** 三段互斥区间（p50）：点击到 open 响应 520 ms；open 响应到 tree 响应 3644 ms（tree 接口等完整文件索引，服务端采样中 frontmatter 与 YAML 解析约占 27%，响应 4.4 MB）；tree 响应到可操作 2008 ms（前端 Vue 深度遍历约 1.7 s，投影 73 ms、建树 9 ms）。
 4. **展开目录：** 文件树已整体在前端，展开 400 项不发请求，耗时是渲染 400 行，最长任务约 98 ms。
 

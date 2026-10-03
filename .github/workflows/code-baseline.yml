@@ -14,7 +14,6 @@ on:
       - "packages/neuro-book/**"
       - "packages/neuro-book-contracts/**"
       - "packages/neuro-book-test-support/**"
-      - "packages/neuro-book-manager/**"
       - "packages/owned-process/**"
       - "packages/file-snapshot-cache/**"
       - "packages/nb-history/**"
@@ -26,23 +25,9 @@ on:
       - "packages/nb-profile/**"
       - "packages/nb-session/**"
       - "packages/llmlint/**"
-      - "packages/neuro-book/assets/**"
-      - "plugins/**"
-      - "scripts/**"
       - "packages/*/AGENTS.md"
-      - "packages/neuro-book/nuxt.config.ts"
-      - "packages/neuro-book/prisma.config.ts"
-      - "packages/neuro-book/*.d.ts"
-      - "packages/neuro-book/.env.example"
-      - "packages/neuro-book/.env.docker.example"
-      - "packages/neuro-book/Dockerfile*"
+      - "scripts/**"
       - "bunfig.toml"
-      - "packages/neuro-book/config.example.yaml"
-      - "packages/neuro-book/docker-compose*.yml"
-      - "packages/neuro-book/release-state-migration.json"
-      - "packages/neuro-book/tsconfig.json"
-      - "packages/neuro-book/uno.config.ts"
-      - "packages/neuro-book/vitest.config.ts"
       - "package.json"
       - "bun.lock"
       - "patches/**"
@@ -59,30 +44,8 @@ concurrency:
 env:
   NODE_OPTIONS: --max-old-space-size=4096
 
+# v2 重建期间只检查治理与仓库合同；新应用的 typecheck 与测试 job 随应用骨架加入。
 jobs:
-  changes:
-    name: Detect change scope
-    runs-on: ubuntu-latest
-    outputs:
-      typecheck: ${{ steps.scope.outputs.typecheck }}
-      tests: ${{ steps.scope.outputs.tests }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-      - name: Select baseline scopes
-        id: scope
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          {
-            base="$(git merge-base origin/master HEAD)"
-            git diff --name-only "${base}" HEAD | bun scripts/ci/baseline-change-scope.ts
-          } >> "$GITHUB_OUTPUT"
-
   governance:
     name: Governance and repository contracts
     runs-on: ubuntu-latest
@@ -104,55 +67,5 @@ jobs:
         run: bun run governance:check
       - name: Typecheck repository scripts
         run: bun x tsc --noEmit -p scripts/tsconfig.json
-      - name: Check workflow and Docker contracts
-        run: bun x vitest run --config scripts/vitest.config.ts scripts/ci/agent-governance.test.ts scripts/ci/workspace-workflows.test.ts scripts/build/dockerfile-contract.test.ts
-
-  typecheck:
-    name: Typecheck
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: changes
-    if: needs.changes.outputs.typecheck == 'true'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Set up Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: "24"
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-      - name: Install dependencies
-        run: bun install --frozen-lockfile --linker hoisted
-      - name: Generate Prisma clients
-        run: bun run --cwd packages/neuro-book generate
-      - name: Run typecheck
-        run: bun run --cwd packages/neuro-book typecheck
-
-  test:
-    name: Full tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: changes
-    if: needs.changes.outputs.tests == 'true'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Set up Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: "24"
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-      - name: Install dependencies
-        run: bun install --frozen-lockfile --linker hoisted
-      - name: Generate Prisma clients
-        run: bun run --cwd packages/neuro-book generate
-      - name: Generate Nuxt types
-        # Vitest 配置和应用包 tsconfig 依赖 packages/neuro-book/.nuxt/tsconfig.json。
-        run: bun run --cwd packages/neuro-book nuxt:prepare
-      - name: Install test runtime dependencies
-        # Agent bash 合同会真实执行 rg；GitHub Ubuntu runner 不保证预装 ripgrep。
-        run: sudo apt-get update && sudo apt-get install --yes ripgrep
-      - name: Run full tests
-        run: bun run --cwd packages/neuro-book test -- --reporter=dot
+      - name: Check workflow contracts
+        run: bun x vitest run --config scripts/vitest.config.ts scripts/ci/agent-governance.test.ts scripts/ci/workspace-workflows.test.ts

@@ -140,9 +140,9 @@ Smoke 以解析结果、依赖检查与诊断等外部可观察结果为准。�
 
 ## 证据
 
-- 实现入口：[`services.ts`](../../../packages/neuro-book/runtime/services/services.ts)
-- 合同测试：[`services.test.ts`](../../../packages/neuro-book/runtime/services/services.test.ts)
-- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
-- 批准目标：[应用运行时、生命周期与内置插件架构](../../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md)。2026-09-20 开发者接受基础架构与分段推进方向，并明确要求把第一实现切片（环境适配入口与小内核）与第二切片（以内置服务插件检验底座）沉淀为 Spec；不包含任意热卸载扩展。
+- 实现入口：[`services.ts`](../../../packages/neuro-book-legacy/runtime/services/services.ts)
+- 合同测试：[`services.test.ts`](../../../packages/neuro-book-legacy/runtime/services/services.test.ts)
+- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
+- 批准目标：[应用运行时、生命周期与内置插件架构](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md)。2026-09-20 开发者接受基础架构与分段推进方向，并明确要求把第一实现切片（环境适配入口与小内核）与第二切片（以内置服务插件检验底座）沉淀为 Spec；不包含任意热卸载扩展。
 - 实现与验证：[w00017 t06](../../../.agents/works/w00017-application-runtime-architecture/tasks/t06-runtime-services/README.md)（机制与合同测试）、[t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（真实双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对并晋升）。
 - 已知限制：第一片只有受控内存能力作为提供者；真实 I/O 提供者（诊断、文件、SQLite）归第二片，其运行期绑定（精确 Project 代次）尚无真实消费者。

@@ -14,7 +14,7 @@ issueId: null
 2. 第二切片以内置服务插件检验地基；当前最小真实集合为**诊断、平台文件、SQLite**。其它应用服务随首次真实功能消费接入，不先搬完所有后台。
 3. 后续按**外部插件开发者视角**推进 Lab → Files → Settings → World/Plot，不把第三方市场/SDK/沙箱引入当前范围。
 4. 开发者要求先等 w00003 合并 master 再创建 w00017 worktree；该条件已于 `bb688931`（Merge branch `refactor/w00003-nb-ui-adoption` into master）满足，实现 worktree 已创建，t05–t09 已按批准的实施计划执行。
-5. 2026-09-28 开发者重做需求分析并确认 [ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md)：开放第三方可执行插件；内核拥有进程，HTTP、workbench、Agent、模型等都是内置插件；第一版完全信任、公开 API 为远程形态。第 3 条的第三方范围与 Files 之后的顺序由此改为“地基 → Files 竖切 → 扩展点 → 文生图验收”。机制设计见 [t26](tasks/t26-platform-architecture-redesign/README.md)，设计稿于 2026-09-30 `accepted`；实施前先由 [t27](tasks/t27-platform-risk-gates/README.md) 验证风险门 G0、G1、G2。
+5. 2026-09-28 开发者重做需求分析并确认 [ADR 0022](../../../docs/adr/0022-extensible-platform-and-plugin-trust.md)：开放第三方可执行插件；内核拥有进程，HTTP、workbench、Agent、模型等都是内置插件；第一版完全信任、公开 API 为远程形态。第 3 条的第三方范围与 Files 之后的顺序由此改为“地基 → Files 竖切 → 扩展点 → 文生图验收”。机制设计见 [t26](tasks/t26-platform-architecture-redesign/README.md)，设计稿于 2026-09-30 `accepted`；实施前先由 [t27](tasks/t27-platform-risk-gates/README.md) 验证风险门 G0、G1、G2。
 6. 2026-10-03 阶段 2 第 1 片（t42）完成后，开发者决定暂停在 `packages/neuro-book` 上的 Files 竖切，改为在同一仓库并排新建应用、从零构建；旧包只读作参照，w00017 成为长期分支、暂不合 master。新应用先只有运行时底座与 workbench 底座，Files 竖切在这个壳子上验证。详见[整体实施路径](implementation-plan.md#2026-10-03-暂停改为并排新建应用)。
 
 规范、Work、整体路径、Task 与审查证据在主线提交 `bc144b2d`。第一片（t05–t09）与第二片（t10–t13）的七项 Spec 已晋升 `implemented`；[t14 Lab 宿主边界](tasks/t14-lab-host-boundary/README.md) 将 LabShell 常驻产品命令宿主收回命令场景，直接打开 `/lab` 跳过产品配色与旧桶迁移，保持 Lab 自有检视和偏好。2026-09-26 开发者报告在 `http://localhost:3000/lab` 完成人工验证，目前未发现问题；后续 [t15 Files 设计](tasks/t15-files-explorer-design/README.md) 纳入文件切换性能重构与主页面左侧资源管理器迁入 Lab。Files 切片期间已将进程级 Session Store gate 和 Project generation owner 接入 runtime.application；产品日志器与既有数据库仍走旧入口。未执行 push、PR、合并或真实模型验收。开发者 2026-09-23 决定首两片一起合，第三片按方案 B 继续本地实施；远端操作仍需授权。
@@ -23,12 +23,12 @@ issueId: null
 
 ## 规范与实施入口
 
-- [总体提案](../../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md)：`accepted` 为基础架构与分段方向；任意热卸载/代码升级仍仅评估，未纳入当前实施。
-- [可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md)：`accepted`（2026-09-30），2026-09-28 需求重做后的内核、插件模型、热插拔、插件通道与推进路线；已确认的长期决定见 [ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md)。
+- [总体提案](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md)：`accepted` 为基础架构与分段方向；任意热卸载/代码升级仍仅评估，未纳入当前实施。
+- [可扩展应用平台设计](../../../docs/proposals/extensible-application-platform.md)：`accepted`（2026-09-30），2026-09-28 需求重做后的内核、插件模型、热插拔、插件通道与推进路线；已确认的长期决定见 [ADR 0022](../../../docs/adr/0022-extensible-platform-and-plugin-trust.md)。
 - 第一片 `implemented`：[runtime.lifecycle](../../../docs/specs/runtime/lifecycle.md)、[runtime.services](../../../docs/specs/runtime/services.md)、[runtime.plugins](../../../docs/specs/runtime/plugins.md)、[runtime.application](../../../docs/specs/runtime/application.md)（受控装配入口；进程级产品门禁/Session Store lease 及 Project generation owner 已接入）。
 - 第二片 `implemented`：[runtime.diagnostics](../../../docs/specs/runtime/diagnostics.md)、[platform.files](../../../docs/specs/platform/files.md)、[platform.sqlite](../../../docs/specs/platform/sqlite.md)（真实服务插件；产品日志器与既有数据库尚未迁入）。
 - Files 首版 `planned`：[workspace.files](../../../docs/specs/workspace/files.md)、[workbench.files-explorer](../../../docs/specs/workbench/files-explorer.md)；F1–F9 产品交互、Project owner、单机浏览器主链与 t25 合同复核已落地；Windows 原子 no-replace 移动本机验证及完整产品镜像构建通过，Linux/macOS、其它文件系统及跨机器基础操作未验收，不等于整体 `implemented`。
-- [Files 第一版设计](../../../packages/neuro-book/docs/proposals/files-explorer.md)：`accepted`，设计理由与性能依据；[第二版草案](../../../packages/neuro-book/docs/proposals/files-explorer-v2.md)：`draft`，新增目标与待审风险；[产品装配设计](../../../packages/neuro-book/docs/proposals/application-runtime-product-integration.md)：跨功能接入细化，`reviewing`。
+- [Files 第一版设计](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md)：`accepted`，设计理由与性能依据；[第二版草案](../../../packages/neuro-book-legacy/docs/proposals/files-explorer-v2.md)：`draft`，新增目标与待审风险；[产品装配设计](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-product-integration.md)：跨功能接入细化，`reviewing`。
 - [整体实施路径](implementation-plan.md)：各切片模块、文件边界、依赖、实际smoke、旧入口退出与worktree前提；是工程计划，不复制行为合同。
 - 既有命令、Storage、Lab、Workbench等能力沿同一Spec修订，不建“插件版”副本。
 
@@ -76,9 +76,9 @@ issueId: null
 | [t38](tasks/t38-development-host/README.md) | 开发宿主（#244）：nuxi 主线程中的开发宿主接管信号并经 `BroadcastChannel` 与 worker 协调，热重载先停旧实例，Session Store 租约对同进程旧实例有界等待，开发进程有序停止后退出；同 worker 内请求重试按开发者决定不做（omp 编码）；L1–L8、L10 通过 |
 | [t39](tasks/t39-browser-host/README.md) | 浏览器宿主（最小范围）：需要登录的引导接口，client plugin 在挂载前完成引导并激活 `nbook.workbench`，失败显示带重试的连接失败页而不渲染工作台；命令表归 workbench 插件，`index.vue` 不再创建运行实例（omp 编码）；`smoke:product-lifecycle` L1–L10 全部通过 |
 | [t40](tasks/t40-phase1-closing/README.md) | 阶段 1 收尾：`server/plugins/` 下 5 个 Nitro 插件迁入内置插件（`nbook.diagnostics` 进入产品清单并借用 `appLogger` 的 writer），产品启动包装进程链如实传递退出码，smoke 在检查未执行时以非零退出（omp 编码）；阶段 1 完成 |
-| [t41](tasks/t41-files-vertical-design/README.md) | 阶段 2 Files 竖切需求讨论：与开发者逐条划定需求、成功标准（性能表）与分项决定，写成设计稿 [项目文件底座与 Files 竖切](../../../packages/neuro-book/docs/proposals/project-file-foundation.md)，2026-10-02 `accepted`；随后写入 `workspace.resources`、`workspace.folder-kinds` 两份 `planned` Spec 并修订两份 Files Spec |
+| [t41](tasks/t41-files-vertical-design/README.md) | 阶段 2 Files 竖切需求讨论：与开发者逐条划定需求、成功标准（性能表）与分项决定，写成设计稿 [项目文件底座与 Files 竖切](../../../docs/proposals/project-file-foundation.md)，2026-10-02 `accepted`；随后写入 `workspace.resources`、`workspace.folder-kinds` 两份 `planned` Spec 并修订两份 Files Spec |
 | [t42](tasks/t42-files-baseline-research/README.md) | 阶段 2 Files 竖切第 1 片：在约 3000 个文件的合成样本上拆解打开项目与切换文件的耗时，针对性调研 VS Code 文件服务与资源管理器；不改产品行为（只加常驻计时点）。2026-10-03 完成：3000 个文件时打开项目约 6 s、切换 0.9–1.6 s，主因是 Pinia 持久化对整个 store 的深度订阅（耗时随文件数线性增长）与文件树单击固定等待 180 ms；结论待开发者确认 |
-| [t43](tasks/t43-repository-reorganization/README.md) | NeuroBook v2 第 1 步：旧包改名 `neuro-book-legacy`，删除交付链，归档过时文档，有效设计文档移到仓库级，改写入口与治理检查；待开发者同意后开始 |
+| [t43](tasks/t43-repository-reorganization/README.md) | NeuroBook v2 第 1 步：旧包改名 `neuro-book-legacy`，删除交付链，归档过时文档，有效设计文档移到仓库级，改写入口与治理检查；2026-10-03 完成，`docs:check`、`governance:check` 无失败 |
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 

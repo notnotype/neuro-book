@@ -72,4 +72,4 @@ llmlint 从 `packages/llmlint/skill` 单一源生成产品投影，不手工编�
 
 ## 发布授权
 
-外部贡献者默认不改 `RELEASE.md`。维护者在发布流程中汇总已合并 PR；完整发布门禁见 [`../../scripts/release/AGENTS.md`](../../scripts/release/AGENTS.md)。未经明确授权，不修改版本、创建 release commit、push 资产、创建 GitHub Release、部署或删除历史发布数据。
+当前分支没有发布链（v2 重建期间已删除，交付方式另行设计）；master 上的发布流程不在本分支执行。未经明确授权，不修改版本、创建 release commit、push 资产、创建 GitHub Release、部署或删除历史发布数据。

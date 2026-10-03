@@ -22,12 +22,9 @@ const REQUIRED_DOC_INDEXES = [
     "docs/standards/code/README.md",
     "docs/proposals/README.md",
     "docs/testing/README.md",
-    "docs/testing/manual-eval/README.md",
-    "packages/neuro-book/docs/adr/README.md",
-    "packages/neuro-book/docs/migrations/README.md",
-    "packages/neuro-book/docs/runbooks/README.md",
-    "packages/neuro-book/docs/research/README.md",
-    "packages/neuro-book/docs/archived/README.md",
+    "docs/adr/README.md",
+    "docs/research/README.md",
+    "docs/archived/README.md",
 ] as const;
 const REQUIRED_SPEC_GOVERNANCE = ["docs/AGENTS.md", "docs/specs/AGENTS.md", "docs/specs/TEMPLATE.md"] as const;
 const SPEC_SUPPORT_FILENAMES = new Set(["README.md", "AGENTS.md", "TEMPLATE.md"]);
@@ -78,7 +75,6 @@ const ROOT_DOCUMENTS: Record<string, true> = {
     "PROJECT-STATUS.md": true,
     "README.md": true,
     "README.en.md": true,
-    "RELEASE.md": true,
     "WATCHDOG.md": true,
 };
 
@@ -97,7 +93,6 @@ export function checkDocumentation(repoRoot: string, paths?: readonly string[]):
     checkRequiredIndexes(fileSet, failures);
     checkDocsRoot(files, failures);
     checkRetiredDocumentationPaths(files, failures);
-    checkVitepressStructure(normalizedRoot, files, fileSet, failures);
     checkAdrs(normalizedRoot, files, failures);
     checkActiveLinks(normalizedRoot, files, fileSet, failures, warnings);
     checkSpecRegistry(normalizedRoot, fileSet, failures);
@@ -141,61 +136,17 @@ function checkDocsRoot(files: readonly string[], failures: string[]): void {
 
 function checkRetiredDocumentationPaths(files: readonly string[], failures: string[]): void {
     for (const path of files.filter((candidate) => candidate.startsWith("docs/manual-eval/"))) {
-        failures.push(`人工评测已迁入 docs/testing/manual-eval：${path}`);
+        failures.push(`人工评测已归档到 docs/archived/testing/manual-eval：${path}`);
     }
     if (files.includes("docs/standards/code.md")) {
         failures.push("编码规范已按领域迁入 docs/standards/code/：docs/standards/code.md");
     }
 }
 
-function checkVitepressStructure(
-    repoRoot: string,
-    files: readonly string[],
-    fileSet: ReadonlySet<string>,
-    failures: string[],
-): void {
-    const localeRoots = ["zh-Hans", "en-US"] as const;
-    const markdownByLocale = new Map(localeRoots.map((locale) => [locale, new Set<string>()]));
-
-    for (const path of files.filter((candidate) => candidate.startsWith("vitepress/"))) {
-        if (path.startsWith("vitepress/.vitepress/staged/")) {
-            failures.push(`VitePress staged 生成物不得跟踪：${path}`);
-        }
-        if (path.startsWith("vitepress/en/")) failures.push(`英文正文已迁入 locales/en-US：${path}`);
-        if (path.startsWith("vitepress/images/")) failures.push(`VitePress 静态图片必须位于 public/images：${path}`);
-        if (/^vitepress\/(?!locales\/|public\/|\.vitepress\/).+\.md$/u.test(path)) {
-            failures.push(`VitePress 正文必须位于 locales/<BCP47>：${path}`);
-        }
-        const localeMatch = /^vitepress\/locales\/([^/]+)\/(.+)$/u.exec(path);
-        if (!localeMatch) continue;
-        const [, locale, relativePath] = localeMatch;
-        if (!localeRoots.includes(locale as typeof localeRoots[number])) {
-            failures.push(`VitePress locale 未登记：${path}`);
-            continue;
-        }
-        if (relativePath.startsWith("public/")) failures.push(`VitePress locale 内不得包含 public：${path}`);
-        if (relativePath.endsWith(".md")) markdownByLocale.get(locale as typeof localeRoots[number])!.add(relativePath);
-    }
-
-    const zhPaths = markdownByLocale.get("zh-Hans")!;
-    const enPaths = markdownByLocale.get("en-US")!;
-    for (const path of zhPaths) if (!enPaths.has(path)) failures.push(`VitePress 英文 locale 缺少对等页面：${path}`);
-    for (const path of enPaths) if (!zhPaths.has(path)) failures.push(`VitePress 中文 locale 缺少对等页面：${path}`);
-
-    for (const source of files.filter((path) => /^vitepress\/locales\/(?:zh-Hans|en-US)\/.+\.md$/u.test(path))) {
-        const tree = fromMarkdown(readFileSync(resolve(repoRoot, source), "utf8"));
-        for (const url of collectImageUrls(tree)) {
-            if (!url.startsWith("/")) continue;
-            const target = `vitepress/public/${url.slice(1).split("#", 1)[0].split("?", 1)[0]}`;
-            if (!fileSet.has(target)) failures.push(`VitePress public 图片不存在：${source} -> ${url}（${target}）`);
-        }
-    }
-}
-
 function checkAdrs(repoRoot: string, files: readonly string[], failures: string[]): void {
     const byNumber = new Map<string, string[]>();
-    for (const path of files.filter((candidate) => candidate.startsWith("packages/neuro-book/docs/adr/") && candidate.endsWith(".md") && candidate !== "packages/neuro-book/docs/adr/README.md")) {
-        const filename = path.slice("packages/neuro-book/docs/adr/".length);
+    for (const path of files.filter((candidate) => candidate.startsWith("docs/adr/") && candidate.endsWith(".md") && candidate !== "docs/adr/README.md")) {
+        const filename = path.slice("docs/adr/".length);
         const match = /^(\d{4})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/u.exec(filename);
         if (!match) {
             failures.push(`ADR 文件名必须为 NNNN-kebab-case.md：${path}`);
@@ -213,16 +164,11 @@ function checkAdrs(repoRoot: string, files: readonly string[], failures: string[
     }
 }
 
-const VITEPRESS_PAGE_PATTERN = /^vitepress\/locales\/(?:zh-Hans|en-US)\/.+\.md$/u;
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u;
-const VITEPRESS_SLUG_SPECIAL = /[\s~`!@#$%^&*()\-_+=[\]{}|\\;:"'“”‘’<>,.?/]+/gu;
-
-type AnchorRule = "github" | "vitepress";
 
 /**
  * 校验活跃文档的链接目标与 `#锚点`。
- * 锚点按来源的渲染方式计算：VitePress 站点页面用 VitePress 规则，其余仓库文档用 GitHub 规则；
- * 仅校验指向 Markdown 的锚点，站点绝对路径只在带锚点时解析到 locale 页面。
+ * 锚点按 GitHub 的标题 slug 规则计算，仅校验指向 Markdown 的锚点。
  * current Task 快照按其 v2 合同只是协作参考，命中问题进 `warnings` 而不阻断。
  */
 function checkActiveLinks(
@@ -233,12 +179,11 @@ function checkActiveLinks(
     warnings: string[],
 ): void {
     const anchorCache = new Map<string, ReadonlySet<string>>();
-    const anchorsOf = (path: string, rule: AnchorRule): ReadonlySet<string> => {
-        const key = `${rule}:${path}`;
-        let anchors = anchorCache.get(key);
+    const anchorsOf = (path: string): ReadonlySet<string> => {
+        let anchors = anchorCache.get(path);
         if (anchors === undefined) {
-            anchors = collectAnchors(readFileSync(resolve(repoRoot, path), "utf8"), rule);
-            anchorCache.set(key, anchors);
+            anchors = collectAnchors(readFileSync(resolve(repoRoot, path), "utf8"));
+            anchorCache.set(path, anchors);
         }
         return anchors;
     };
@@ -252,7 +197,6 @@ function checkActiveLinks(
             report.push(`Markdown 无法解析：${source}：${error instanceof Error ? error.message : String(error)}`);
             continue;
         }
-        const rule: AnchorRule = VITEPRESS_PAGE_PATTERN.test(source) ? "vitepress" : "github";
         for (const url of collectLinkUrls(tree, true)) {
             if (url.includes("\\")) {
                 report.push(`相对链接必须使用正斜杠：${source} -> ${url}`);
@@ -274,15 +218,9 @@ function checkActiveLinks(
                 anchorTarget = resolved;
             } else if (fragment !== null && url.trim().startsWith("#")) {
                 anchorTarget = source;
-            } else if (fragment !== null && rule === "vitepress" && /^\/(?!\/)/u.test(url.trim())) {
-                anchorTarget = resolveVitepressRoute(url, fileSet);
-                if (anchorTarget === null) {
-                    report.push(`站内链接目标不存在：${source} -> ${url}`);
-                    continue;
-                }
             }
             if (fragment === null || anchorTarget === null || !anchorTarget.endsWith(".md")) continue;
-            if (!anchorsOf(anchorTarget, rule).has(fragment)) {
+            if (!anchorsOf(anchorTarget).has(fragment)) {
                 report.push(`链接锚点不存在：${source} -> ${url}（${anchorTarget}#${fragment}）`);
             }
         }
@@ -302,24 +240,7 @@ function linkFragment(rawUrl: string): string | null {
     }
 }
 
-/** 解析 VitePress 站点绝对路径：`/` 对应 zh-Hans，`/en/` 对应 en-US，末尾 `/` 指向目录 index。 */
-function resolveVitepressRoute(rawUrl: string, fileSet: ReadonlySet<string>): string | null {
-    let route = rawUrl.trim().split("#", 1)[0].split("?", 1)[0];
-    try {
-        route = decodeURIComponent(route);
-    } catch {
-        // 保留原始路径，按不存在报告。
-    }
-    const english = route === "/en" || route.startsWith("/en/");
-    const localeRoot = `vitepress/locales/${english ? "en-US" : "zh-Hans"}`;
-    const page = route.slice(english ? 3 : 0).replace(/^\//u, "").replace(/\.(?:html|md)$/u, "");
-    const candidate = page === "" || page.endsWith("/")
-        ? `${localeRoot}/${page}index.md`
-        : `${localeRoot}/${page}.md`;
-    return fileSet.has(candidate) ? candidate : null;
-}
-
-function collectAnchors(text: string, rule: AnchorRule): ReadonlySet<string> {
+function collectAnchors(text: string): ReadonlySet<string> {
     let tree: Root;
     try {
         tree = fromMarkdown(text.replace(FRONTMATTER_PATTERN, ""));
@@ -328,24 +249,8 @@ function collectAnchors(text: string, rule: AnchorRule): ReadonlySet<string> {
     }
     const anchors = new Set<string>();
     const githubSlugger = new GithubSlugger();
-    const vitepressSlugCounts = new Map<string, number>();
     const visit = (node: Nodes | Root): void => {
-        if (node.type === "heading") {
-            const title = markdownNodeText(node);
-            if (rule === "github") {
-                anchors.add(githubSlugger.slug(title));
-            } else {
-                const custom = /\s*\{#([^}\s]+)\}\s*$/u.exec(title);
-                if (custom) {
-                    anchors.add(custom[1]);
-                } else {
-                    const slug = vitepressSlug(title);
-                    const count = vitepressSlugCounts.get(slug);
-                    vitepressSlugCounts.set(slug, (count ?? 0) + 1);
-                    anchors.add(count === undefined ? slug : `${slug}-${count}`);
-                }
-            }
-        }
+        if (node.type === "heading") anchors.add(githubSlugger.slug(markdownNodeText(node)));
         if (node.type === "html") {
             for (const match of node.value.matchAll(/\s(?:id|name)\s*=\s*["']([^"']+)["']/gu)) anchors.add(match[1]);
         }
@@ -355,28 +260,11 @@ function collectAnchors(text: string, rule: AnchorRule): ReadonlySet<string> {
     return anchors;
 }
 
-/** 与 VitePress 默认 slugify 逐步一致；该函数未从 `vitepress` 公开导出，升级 VitePress 时需复核。 */
-function vitepressSlug(text: string): string {
-    return text
-        .normalize("NFKD")
-        .replace(/[\u0300-\u036F]/gu, "")
-        .replace(/[\u0000-\u001f]/gu, "")
-        .replace(VITEPRESS_SLUG_SPECIAL, "-")
-        .replace(/-{2,}/gu, "-")
-        .replace(/^-+|-+$/gu, "")
-        .replace(/^(\d)/u, "_$1")
-        .toLowerCase();
-}
-
 function isActiveMarkdown(path: string): boolean {
     if (!path.endsWith(".md")) return false;
     if (ROOT_DOCUMENTS[path] || path === ".omp/RULES.md") return true;
     if (path.startsWith("docs/")) return !path.startsWith("docs/archived/") && !path.startsWith("docs/research/");
-    if (path.startsWith("packages/neuro-book/assets/reference/")) return true;
     if (path.startsWith("reference/")) return true;
-    if (path.startsWith("vitepress/locales/")) return !path.startsWith("vitepress/locales/zh-Hans/changelog/")
-        && !path.startsWith("vitepress/locales/en-US/changelog/");
-    if (path.startsWith("vitepress/")) return !path.startsWith("vitepress/public/");
     if (path === ".agents/README.md" || path === ".agents/AGENTS.md") return true;
     return path.startsWith(".agents/skills/");
 }
@@ -433,16 +321,6 @@ function collectLinkUrls(tree: Root, includeImages = false): string[] {
     return urls;
 }
 
-function collectImageUrls(tree: Root): string[] {
-    const urls: string[] = [];
-    const visit = (node: Nodes | Root): void => {
-        if (node.type === "image") urls.push(node.url);
-        if ("children" in node) for (const child of node.children) visit(child);
-    };
-    visit(tree);
-    return urls;
-}
-
 function resolveRelativeLink(source: string, rawUrl: string): string | null {
     const url = rawUrl.trim();
     if (!url || url.startsWith("#") || url.startsWith("/") || url.startsWith("//")) return null;
@@ -479,7 +357,7 @@ function checkSpecRegistry(repoRoot: string, fileSet: ReadonlySet<string>, failu
     for (const url of collectLinkUrls(fromMarkdown(frozenSection ?? ""))) {
         const target = resolveRelativeLink(registryPath, url);
         if (target === null) continue;
-        if (["docs/proposals/", "docs/research/", "docs/archived/", "packages/neuro-book/docs/proposals/", "packages/neuro-book/docs/research/", "packages/neuro-book/docs/archived/", ".agents/tasks/"].some((prefix) => target.startsWith(prefix))) {
+        if (["docs/proposals/", "docs/research/", "docs/archived/", "packages/neuro-book-legacy/docs/", ".agents/tasks/"].some((prefix) => target.startsWith(prefix))) {
             failures.push(`冻结过渡规范指向非规范资料：${registryPath} -> ${url}（${target}）`);
         }
     }
@@ -528,7 +406,7 @@ function checkSpecs(repoRoot: string, files: readonly string[], fileSet: Readonl
 }
 
 function isSpecDocument(path: string): boolean {
-    if (!(path.startsWith("docs/specs/") || path.startsWith("packages/neuro-book/docs/specs/")) || !path.endsWith(".md")) return false;
+    if (!path.startsWith("docs/specs/") || !path.endsWith(".md")) return false;
     return !SPEC_SUPPORT_FILENAMES.has(posix.basename(path));
 }
 
@@ -693,7 +571,7 @@ function registeredSpecTargets(
     const targets = new Set<string>();
     for (const url of collectLinkUrls(fromMarkdown(section))) {
         const resolved = resolveRelativeLink(registryPath, url);
-        if (resolved === null || !(resolved.startsWith("docs/specs/") || resolved.startsWith("packages/neuro-book/docs/specs/"))) continue;
+        if (resolved === null || !resolved.startsWith("docs/specs/")) continue;
         const candidates = resolved.endsWith(".md") ? [resolved] : [`${resolved}.md`];
         const target = candidates.find((candidate) => specPaths.has(candidate));
         if (target === undefined) {
@@ -750,7 +628,7 @@ function parseSpecMetadata(path: string, text: string, failures: string[]): Spec
 
 function checkFrozenReference(_repoRoot: string, files: readonly string[], failures: string[]): void {
     for (const path of files.filter((candidate) => candidate.startsWith("reference/"))) {
-        failures.push(`运行期 Reference 必须位于 packages/neuro-book/assets/reference：${path}`);
+        failures.push(`根目录 reference/ 已退役，旧应用的运行期 Reference 位于 packages/neuro-book-legacy/assets/reference：${path}`);
     }
 }
 
