@@ -29,7 +29,7 @@ taskId: t45-nb-runtime-package
 
 ## 当前状态
 
-2026-10-03 实现完成，待 omp 审查。
+2026-10-03 完成：主 Agent 编码（`9c513eb3`），omp 审查后按意见修正。
 
 **实际改动：**
 
@@ -45,7 +45,19 @@ taskId: t45-nb-runtime-package
 3. `package.json` 无 `dependencies`；各机制的边界测试通过（源码只有同目录或允许的机制入口导入，无动态 import）。
 4. `docs:check`、`governance:check` 失败为 0，本次改动无新警告；`test:affected --dry-run` 选中 `nb-runtime`。
 
+**omp 审查（`--slow`，只读）：** 无阻断，3 条建议、1 条疑问（[`omp-review.txt`](evidences/omp-review.txt)），全部采纳：
+
+1. 旧位置基线的证据命令不能原样复现（配置里还收录了宿主测试）：改为显式列出五个内核目录的命令重新取证，仍为 10 个文件 166 个用例。
+2. `runtime.plugins` 实现合同里一处测试路径只写了包内相对路径：改为仓库相对路径。
+3. 源码与测试共用带 Bun 类型的配置，源码误用 `process`、`Bun` 等也能通过类型检查：新增只查源码、带 DOM、不带 Bun/Node 类型的 `tsconfig.browser.json`，`typecheck` 两份都跑。用临时探针验证：源码用 `process` 被浏览器配置拦住，用 `document` 被原配置拦住。
+4. 疑问：源码用到 `Promise.withResolvers`、`AbortSignal.any`、`AbortSignal.timeout`，包里没写运行环境要求。已写进包的 `AGENTS.md`；浏览器宿主的最低版本与真实浏览器 smoke 归第 3 步。
+
 证据见 [evidences/](evidences/)。
+
+**后续事项：**
+
+- 第 3 步建浏览器宿主时确定最低浏览器版本，并以真实浏览器运行 smoke（不只做 Vite 构建）。
+- 五份内核 Spec 的 Smoke 仍指旧应用的双宿主 smoke，随第 3 步改指新应用。
 
 ## 下一步
 

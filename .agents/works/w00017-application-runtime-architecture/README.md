@@ -80,7 +80,7 @@ issueId: null
 | [t42](tasks/t42-files-baseline-research/README.md) | 阶段 2 Files 竖切第 1 片：在约 3000 个文件的合成样本上拆解打开项目与切换文件的耗时，针对性调研 VS Code 文件服务与资源管理器；不改产品行为（只加常驻计时点）。2026-10-03 完成：3000 个文件时打开项目约 6 s、切换 0.9–1.6 s，主因是 Pinia 持久化对整个 store 的深度订阅（耗时随文件数线性增长）与文件树单击固定等待 180 ms；结论待开发者确认 |
 | [t43](tasks/t43-repository-reorganization/README.md) | NeuroBook v2 第 1 步：旧包改名 `neuro-book-legacy`，删除交付链，归档过时文档，有效设计文档移到仓库级，改写入口与治理检查；2026-10-03 完成，`docs:check`、`governance:check` 无失败 |
 | [t44](tasks/t44-governance-check-cleanup/README.md) | 第 2 步前的治理整理：`docs:check`、`governance:check` 的警告只报本次改动，删除核对冻结历史的规则与两条迁移命令，修正指向已删除路径的规则，新增 `test:affected` 按改动选包运行测试；2026-10-03 完成，治理检查主文件与测试由 4437 行减到 1148 行，两项检查失败为 0 |
-| [t45](tasks/t45-nb-runtime-package/README.md) | NeuroBook v2 第 2 步：内核 `runtime/` 抽成 `packages/nb-runtime`（零依赖，`bun test`），五份内核 Spec 的证据改指新包；主 Agent 编码，omp 审查 |
+| [t45](tasks/t45-nb-runtime-package/README.md) | NeuroBook v2 第 2 步：内核 `runtime/` 抽成 `packages/nb-runtime`（零依赖，`bun test`），五份内核 Spec 的证据改指新包；主 Agent 编码，omp 审查无阻断，4 条意见已采纳；2026-10-03 完成，166 个用例通过 |
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 

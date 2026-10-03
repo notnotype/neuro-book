@@ -1,0 +1,19 @@
+总体结论：未发现阻断问题。提交 `9c513eb3` 的内核搬移与旧实现保持一致；`nb-runtime` 的 Bun 测试、类型检查、Bun/Vite 消费、CI 登记和治理检查均通过。发现 3 条建议、1 条浏览器兼容性疑问。
+
+| 编号 | 严重程度（阻断 / 建议 / 疑问） | 位置（文件:行） | 问题 | 依据（命令输出或代码引用） | 建议改法 |
+|---|---|---|---|---|---|
+| 1 | 建议 | `.agents/works/w00017-application-runtime-architecture/tasks/t45-nb-runtime-package/evidences/legacy-baseline.txt:2,13` | 旧位置基线命令不能复现文件中记录的 `10 个文件 / 166 个用例`。 | 配置下执行 `... vitest ... runtime ...` 实际得到 `15 files, 191 tests`，因为配置还包含 `server/runtime`、`app/runtime` 等路径；显式指定 `runtime/application runtime/diagnostics runtime/lifecycle runtime/plugins runtime/services` 才得到 `10 files, 166 tests`。 | 将证据命令改为显式目录或 `runtime/**/*.test.ts`，并记录完整可执行命令与输出；移除 `<按文件计数>` 这类人工占位说明。 |
+| 2 | 建议 | `docs/specs/runtime/plugins.md:186` | 合同测试路径表述不一致，`src/application/application-startup.test.ts` 依赖读者推断为包内相对路径。 | 实际文件是 `packages/nb-runtime/src/application/application-startup.test.ts`；同一行前面的测试路径使用了完整仓库路径。`docs:check` 未报错，因为该路径位于行内代码而不是 Markdown 链接。 | 统一使用完整仓库相对路径，或在该段明确声明后续路径均相对于 `packages/nb-runtime`。 |
+| 3 | 建议 | `packages/nb-runtime/tsconfig.json:3,6-13` | 生产源码与 Bun 测试共用 `types: ["bun"]`。这会把 Bun/Node ambient globals 也带入生产源码的类型环境，未来代码可能使用 `Bun`、`process`、`require`、`setImmediate` 而仍能通过包内类型检查。 | 当前配置同时包含 `src` 和 `types: ["bun"]`；`bun-types/globals.d.ts` 声明了 `setImmediate`、`require`，并依赖 `@types/node`。在同一配置下运行的探针 `process.exitCode`、`setImmediate`、`Bun.version` 结果为 `0 errors`。当前生产实现本身未发现这些平台全局，浏览器类型检查也为 `0 errors`，因此不是当前行为缺陷。 | 拆分生产与测试 `tsconfig`：生产配置不加载 Bun/Node ambient declarations，并显式声明允许的标准 Web 类型；测试配置继续使用 Bun 类型。将生产配置纳入 CI。 |
+| 4 | 疑问 | `packages/nb-runtime/package.json:11-16`；`packages/nb-runtime/tsconfig.json:3`；`packages/nb-runtime/src/application/application.ts:32-39`；`packages/nb-runtime/src/application/bootstrap.ts:48,67-69`；`packages/nb-runtime/src/lifecycle/scope.ts:264-266` | 包导出原始 `.ts`，目标为 ES2022，但生产实现直接使用 `Promise.withResolvers`、`AbortSignal.any`、`AbortSignal.timeout`。Vite 构建成功不等于目标浏览器运行时具备这些 API。 | 已验证五个入口可被 Bun 导入，五个入口可用 `bun build --target=browser` 构建，Vite 包消费者构建退出码为 `0`。但包内没有浏览器 target、最低浏览器版本或 polyfill 合同；Vite 构建只证明解析和打包成功。[推断] 若第 3 步支持缺少这些 API 的浏览器，运行时会失败。 | 明确最低浏览器运行时基线，或由宿主提供 polyfill/替代实现；第 3 步建立新浏览器宿主时补充真实浏览器执行 smoke，而不只做 Vite build。 |
+
+已核对、无问题：
+
+- **搬移忠实性**：`diff -r` 的差异仅限测试运行器导入、旧应用路径注释、7 处类型/测试修正；`packages/neuro-book-legacy/runtime` 在提交中无差异。
+- **测试运行器迁移**：`packages/nb-runtime` 输出 `166 pass / 0 fail / 10 files`；旧位置按精确目录运行 Vitest 为 `10 passed / 166 passed`。`it.each`、`mockImplementationOnce`、`mock.calls`、`toEqual`、`toMatchObject`、定时器和 `Promise.withResolvers` 均被实际测试覆盖。
+- **7 处类型修正**：类型注解与非空断言不产生运行时代码；`visibleAtCommit` 改为数组后，断言从“最终值为 false”变为“恰好一次提交且值为 false”，未削弱断言。
+- **包边界**：`package.json` 无 `dependencies`；五个 exports 均存在；生产实现使用包内相对导入；Bun 全入口导入、浏览器构建、Vite 消费和浏览器 TypeScript 类型检查均通过。
+- **类型检查**：`bun run typecheck` 退出码为 `0`；生产源码在 `ESNext + DOM` 类型环境下检查为 `0 errors`。
+- **规范与登记**：`docs:check`、`governance:check` 本次改动范围均为 `failures: []`、`warnings: []`；CI 聚焦测试 `2 files / 15 tests passed`；脚本类型检查通过；单独输入 `packages/nb-runtime/...` 时工作流矩阵选择了 `nb-runtime`。
+- **旧 smoke 范围**：当前仍运行旧应用副本，但任务和五份 Spec 已明确这是第 3 步新宿主迁移范围，不构成本提交的阻断问题。
+- **审查过程**：未执行安装、联网、Git 写操作或文件修改；最终 `git status --porcelain=v1` 无输出。

@@ -183,7 +183,7 @@ Smoke 以目录查询、激活结果与贡献可见性为准。场景 1–11 与
   - 缺失实现、缺失提供项、产出未声明的键、缺少声明的接收者（`missing-receiver`）、给出未声明的接收者（`undeclared-receiver`）都是 `output` 阶段失败；不接受空 handler 或占位。
   - 诊断只含 `{sequence, instanceId, location, plugin, entry, generation, stage, reason, capability, contribution, error{name,message}}`；`stage` 为 `register | activate | publish | revoke | recover | close`。交付相关的原因：`receiver-connected`（`publish`）、`receiver-closed`（`revoke`）、`backfill-failed` 与 `delivery-failed`（`publish`）、`receiver-revoke-threw`（`revoke`）。
   - 目录按插件 id 码元比较排序，`PluginDescription.summary` 按输出第 12 条计算。
-- **合同测试**：`packages/nb-runtime/src/plugins/plugins.test.ts`（含第二片复核补的提供项释放失败重试回归，见 [t13](../../../.agents/works/w00017-application-runtime-architecture/tasks/t13-services-integration-review/README.md)）、`blocked.test.ts`（纯推导）、`entry-dependencies.test.ts`（场景 12–14）、`review-regressions.test.ts`（产出释放、停止后交付、目录排序与重复服务 id）、`owner-contribution-points.test.ts`（场景 16–22 与交付交错回归），关闭顺序与启动激活在 `src/application/application-startup.test.ts`（场景 15）；在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行。
+- **合同测试**：`packages/nb-runtime/src/plugins/plugins.test.ts`（含第二片复核补的提供项释放失败重试回归，见 [t13](../../../.agents/works/w00017-application-runtime-architecture/tasks/t13-services-integration-review/README.md)）、`blocked.test.ts`（纯推导）、`entry-dependencies.test.ts`（场景 12–14）、`review-regressions.test.ts`（产出释放、停止后交付、目录排序与重复服务 id）、`owner-contribution-points.test.ts`（场景 16–22 与交付交错回归），关闭顺序与启动激活在 `packages/nb-runtime/src/application/application-startup.test.ts`（场景 15）；在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行。
 - **实际 smoke**：`bun run smoke:runtime-foundation -- --host server|browser`，见 [`runtime.application`](./application.md#实现合同)。
 
 ## 证据
