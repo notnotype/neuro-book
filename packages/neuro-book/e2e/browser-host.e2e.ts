@@ -1,6 +1,6 @@
 /**
  * runtime.browser-host 在真实浏览器中的验收：生产构建（`bun run build`）的外壳与后端，本机 Chrome。
- * 覆盖场景 1（挂载前建立实例）、2（引导失败与重试）、4（多窗口隔离）与协议不兼容。引导失败用拦截请求模拟：
+ * 覆盖场景 1（挂载前建立实例）、2（引导失败与重试）、4（多窗口隔离）、协议不兼容与页面表之外的路径。引导失败用拦截请求模拟：
  * 同源部署下服务端完全停止时浏览器连外壳都取不到，不属于场景 2。
  */
 
@@ -46,6 +46,15 @@ test("首屏是空工作台：窗口运行实例建立、工作台激活之后�
     await expect(page.locator("[data-browser-host-status]")).toHaveCount(0);
     expect(await page.evaluate(() => [...(window as unknown as {hostStatusesSeen: Set<string>}).hostStatusesSeen])).toEqual(["loading"]);
     expect(errors).toEqual([]);
+});
+
+test("页面表之外的路径：窗口照常就绪，显示“页面不存在”，可以回到工作台", async ({page}) => {
+    await page.goto(`${server.url}nope`);
+    const notFound = page.locator("[data-page-not-found]");
+    await expect(notFound).toHaveAttribute("data-window-state", "ready");
+    await expect(page).toHaveTitle("页面不存在");
+    await notFound.getByRole("link", {name: "回到工作台"}).click();
+    await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
 });
 
 test("引导请求失败：带重试的连接失败页，没有半个工作台；恢复后重试进入工作台（场景 2）", async ({page}) => {

@@ -15,6 +15,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import type {PluginDescriptor} from "nbook/manifest";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {errorResponse} from "nbook/plugins/http/server/dispatch";
 import {EmptyWorkbench} from "nbook/plugins/workbench/web/empty-workbench";
@@ -23,6 +24,7 @@ import type {RunningServer} from "nbook/server/start";
 import {BROWSER_BOOTSTRAP_PATH} from "nbook/shared/browser-bootstrap";
 
 import {browserPluginFactories, builtinBrowserPlugins} from "../plugins";
+import type {BrowserPluginFactory} from "../plugins";
 import {createConnection} from "./connection";
 import {createBrowserWindow} from "./window";
 import type {BrowserWindowOptions, WindowState} from "./window";
@@ -72,6 +74,23 @@ function failureOf(state: WindowState): {status: string; reason: string} | null 
     return "reason" in state ? {status: state.status, reason: state.reason} : null;
 }
 
+/** 浏览器入口在启动时向 `workbench.pages` 贡献一个页面的测试插件。 */
+function pagePlugin(id: string, path: string): {descriptor: PluginDescriptor; factory: BrowserPluginFactory} {
+    return {
+        descriptor: {id, version: "0.1.0", locations: ["browser"]},
+        factory: (): PluginDefinition => ({
+            id,
+            entries: [{
+                id: "browser",
+                location: "browser",
+                activationEvents: ["onStartup"],
+                contributions: [{capability: "workbench.pages", id: path, declaration: {path, title: id}}],
+                activate: () => ({contributions: {"workbench.pages": {[path]: {load: async () => EmptyWorkbench}}}}),
+            }],
+        }),
+    };
+}
+
 /** 工作台激活时抛错的工厂表：窗口必须停在失败状态，而不是挂载半个工作台。 */
 const brokenWorkbench: BrowserWindowOptions["factories"] = {
     ...browserPluginFactories,
@@ -91,7 +110,9 @@ describe("窗口运行实例", () => {
         await browserWindow.start();
         expect(seen).toEqual(["starting", "ready"]);
         const state = browserWindow.state;
-        expect(state.status === "ready" ? state.root.component : null).toBe(EmptyWorkbench);
+        const pages = state.status === "ready" ? state.root.pages() : [];
+        expect(pages.map((page) => page.path)).toEqual(["/"]);
+        expect(await pages[0]?.load()).toBe(EmptyWorkbench);
         await browserWindow.stop();
         expect(browserWindow.state.status).toBe("closed");
     });
@@ -192,6 +213,24 @@ describe("窗口运行实例", () => {
         });
         await browserWindow.start();
         expect(browserWindow.state.status).toBe("ready");
+        await browserWindow.stop();
+        stub.stop();
+    });
+
+    it("其它插件贡献的页面在窗口 ready 时已在页面表里；两个插件贡献同一路径时都被拒绝，留给服务端的路径被拒绝，窗口照常 ready", async () => {
+        const extra = [pagePlugin("test.page", "/probe"), pagePlugin("test.dup-a", "/dup"), pagePlugin("test.dup-b", "/dup"), pagePlugin("test.api", "/api/probe")];
+        const builtin = [...builtinBrowserPlugins, ...extra.map((plugin) => plugin.descriptor)];
+        const stub = serveBootstrap(() => Response.json({protocolVersion: 1, revision: "r", plugins: builtin.map(({id, version}) => ({id, version}))}));
+        const {browserWindow} = openWindow({
+            url: stub.url,
+            builtin,
+            factories: {...browserPluginFactories, ...Object.fromEntries(extra.map((plugin) => [plugin.descriptor.id, plugin.factory]))},
+        });
+        await browserWindow.start();
+        const state = browserWindow.state;
+        const pages = state.status === "ready" ? state.root.pages() : [];
+        expect(pages.map((page) => page.path)).toEqual(["/", "/probe"]);
+        expect(await pages[1]?.load()).toBe(EmptyWorkbench);
         await browserWindow.stop();
         stub.stop();
     });

@@ -17,6 +17,9 @@ export default mergeConfig(viteConfig, defineConfig({
     root: packageRoot,
     test: {
         environment: "happy-dom",
+        // Node 26 自带的全局 localStorage 在没有 --localstorage-file 时只打印实验警告；关掉它，页面里的 localStorage
+        // 由 happy-dom 提供。
+        execArgv: ["--no-experimental-webstorage"],
         include: ["src/**/*.dom.test.ts"],
         setupFiles: [testSupport],
         globalSetup: [testSupport],

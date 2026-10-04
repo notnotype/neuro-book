@@ -10,12 +10,20 @@ import "@notnotype/nb-ui/styles.css";
 import "virtual:uno.css";
 import "./styles.css";
 
-import {createApp} from "vue";
+import {createWebHistory} from "vue-router";
 
-import App from "./App.vue";
 import {createConnection} from "./host/connection";
 import {createBrowserWindow} from "./host/window";
+import {mountWindowUi} from "./mount";
 
+const container = document.querySelector("#app");
+if (container === null) throw new Error("index.html 缺少 #app");
 const browserWindow = createBrowserWindow({connection: createConnection(location.origin), page: window, console});
 await browserWindow.start();
-createApp(App, {browserWindow}).mount("#app");
+await mountWindowUi({
+    browserWindow,
+    container,
+    history: createWebHistory(),
+    navigateDocument: (href) => location.assign(href),
+    reloadDocument: () => location.reload(),
+});

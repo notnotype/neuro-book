@@ -31,6 +31,8 @@ export type WindowState =
     /** connection-failed 可以原地重试；其余两种要刷新页面（换外壳或换服务端）才可能恢复。 */
     | {readonly status: WindowFailure; readonly reason: string};
 
+export type ReadyWindowState = Extract<WindowState, {status: "ready"}>;
+
 export interface BrowserWindowOptions {
     readonly connection: Connection;
     readonly page: PageLifecycleTarget;
