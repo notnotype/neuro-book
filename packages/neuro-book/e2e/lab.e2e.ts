@@ -1,7 +1,8 @@
 /**
  * ui.component-lab 在真实浏览器中的验收：真实的 `bun run dev`（Lab 只在开发模式加载）与本机 Chrome。每个用例一个新的
  * 浏览器上下文，localStorage 与 sessionStorage 互不影响；整个文件共用一个开发会话。
- * 场景 10（生产构建不含 Lab）在 browser-host.e2e.ts 与 `check:dist`；场景 3、4 的索引判定在组件索引的模型测试。
+ * 场景 10（生产构建不含 Lab）在 browser-host.e2e.ts 与 `check:dist`；场景 3、4 的索引判定在组件索引的模型测试；
+ * 场景 14（measure 与截图命令）在 lab-shot.e2e.ts；场景 16（命令场景）随 t49。
  */
 
 import {rm} from "node:fs/promises";
@@ -95,6 +96,24 @@ test("切换组件与场景直接替换舞台；组件回写的输入可在数�
     await expect(toggle(true)).toBeVisible();
     await page.locator('[data-lab-panel="data"] button').filter({hasText: /^还原输入$/u}).click();
     await expect(toggle(false)).toBeVisible();
+    expect(problems).toEqual([]);
+});
+
+test("按部件别名检索能找到真实组件，检索不到的条目隐藏（场景 11）", async ({page}) => {
+    await openLab(page);
+    await page.getByPlaceholder("搜组件名或部件名称").fill("技能徽标");
+    await expect(treeItem(page, "SkillChip")).toBeVisible();
+    await expect(treeItem(page, "JsonViewer")).toHaveCount(0);
+});
+
+test("透传夹具：SkillChip 没有手写夹具组件，场景输入直接作为 props 交给它（场景 15）", async ({page}) => {
+    const problems = watchConsole(page);
+    await openLab(page, "?c=SkillChip&s=skill");
+    await expect.poll(() => labState(page)).toMatchObject({component: "SkillChip", scene: "skill", ready: true});
+    const chip = page.locator(".lab-main [data-lab-subject]");
+    await expect(chip).toHaveAttribute("data-agent-skill-name", "novel-outline");
+    await page.locator('[role="radio"]').filter({hasText: "长技能名"}).click();
+    await expect(chip).toHaveAttribute("data-agent-skill-name", "novel-character-motivation-and-continuity-review");
     expect(problems).toEqual([]);
 });
 

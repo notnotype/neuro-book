@@ -1,6 +1,7 @@
 import type {Component} from "vue";
 
 import type JsonViewer from "nbook/ui/JsonViewer.vue";
+import type SkillChip from "nbook/ui/SkillChip.vue";
 
 import type CollapsibleSidePanel from "../components/CollapsibleSidePanel.vue";
 import type EventLogPanel from "../components/EventLogPanel.vue";
@@ -10,6 +11,8 @@ import type MarkdownView from "../components/MarkdownView.vue";
 import type SurfaceTierDemo from "../components/SurfaceTierDemo.vue";
 import type ViewportCanvas from "../components/ViewportCanvas.vue";
 import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab-subject";
+
+import {defineSubjectFixture} from "./subject-fixture";
 
 /**
  * 场景登记。这不是第二份组件清单——组件清单由 component-index 扫文档得到，
@@ -206,6 +209,15 @@ export const labFixtures: LabFixture[] = [
         component: "SurfaceTierDemo", noInput: "该组件没有可编辑输入",
         scenes: [{id: "default", label: "5 档对照"}],
         load: async () => (await import("./SurfaceTierDemoFixture.vue")).default,
+    }),
+    defineSubjectFixture<typeof SkillChip>({
+        component: "SkillChip",
+        scenes: [
+            {id: "skill", label: "技能名", input: {props: {name: "novel-outline"}}},
+            {id: "long-name", label: "长技能名", input: {props: {name: "novel-character-motivation-and-continuity-review"}}},
+        ],
+        subject: () => import("nbook/ui/SkillChip.vue"),
+        class: "max-w-full",
     }),
 ];
 
