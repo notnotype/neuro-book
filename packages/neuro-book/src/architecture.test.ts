@@ -2,6 +2,8 @@
  * 包内依赖方向（packages/neuro-book/AGENTS.md 目录约定）：前端代码不引后端与 Bun/Node；后端不引前端；
  * 共用目录、插件描述与产品清单不引任何一侧；跨插件只用 `import type`；只有开发监督进程能引 Vite；测试库只在测试里用；
  * 开发清单与开发插件（Lab）只经两个开发入口引用，前端开发入口只能动态加载，生产构建才不含它们。
+ * `src/ui/` 是宿主与插件共用的前端组件，只用前端库与共用代码；`import.meta.glob` 只给 Lab 的组件索引用：
+ * 它把扫描到的模块全部带进构建图，用在别处会把整片目录打进产品。
  * 前端误引后端代码时打包与类型检查不一定失败（Bun 能解析两侧），所以按导入语句检查。
  * 测试文件与 `testing/` 不受限：它们要在同一进程里搭真实后端或运行环境。
  */
@@ -17,6 +19,13 @@ interface ImportUse {
     readonly specifier: string;
     readonly typeOnly: boolean;
 }
+
+/** `import.meta.glob` 的使用位置（相对 src）。 */
+function globUsers(files: ReadonlyArray<string>): string[] {
+    return files.filter((file) => readFileSync(file, "utf8").includes("import.meta.glob")).map((file) => relative(SRC, file));
+}
+
+const globAllowed = (file: string): boolean => file.startsWith("plugins/lab/web/");
 
 function sourceFiles(directory: string): string[] {
     return readdirSync(directory, {withFileTypes: true}).flatMap((entry) => {
@@ -55,7 +64,7 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
     for (const use of uses) {
         const target = targetInSrc(use);
         const where = `${use.file} → ${use.specifier}`;
-        const web = has(use.file, "web");
+        const web = has(use.file, "web") || use.file.startsWith("ui/");
         const server = has(use.file, "server");
         const neutral = use.file.startsWith("shared/") || has(use.file, "shared") || /^plugins\/[^/]+\/plugin\.ts$/u.test(use.file) || use.file === "manifest.ts" || use.file === "development-manifest.ts";
         if (web && (isPlatformModule(use.specifier) || (target !== null && has(target, "server")))) found.push(`前端引用了后端或运行平台：${where}`);
@@ -70,6 +79,7 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
         if (target !== null && isDevelopmentPlugin(target) && !isDevelopmentPlugin(use.file) && use.file !== "development-manifest.ts" && !DEVELOPMENT_ENTRIES.includes(use.file)) {
             found.push(`只有开发入口能引用开发插件：${where}`);
         }
+        if (use.file.startsWith("ui/") && target !== null && !target.startsWith("ui/") && !target.startsWith("shared/")) found.push(`共享前端组件只能引用 ui/ 与 shared/：${where}`);
         if (target === "web/development-plugins") found.push(`前端开发入口只能在 import.meta.env.DEV 分支里动态加载：${where}`);
     }
     return found;
@@ -78,6 +88,12 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
 describe("包内依赖方向", () => {
     it("前后端、共用代码与插件之间只按目录约定引用", () => {
         expect(violationsOf(sourceFiles(SRC).flatMap(importsOf))).toEqual([]);
+    });
+
+    it("import.meta.glob 只出现在 Lab", () => {
+        expect(globUsers(sourceFiles(SRC)).filter((file) => !globAllowed(file))).toEqual([]);
+        expect(globUsers(sourceFiles(SRC))).toContain("plugins/lab/web/component-index.ts");
+        expect(globAllowed("web/main.ts")).toBe(false);
     });
 
     it("每条规则都能拦下对应的违规（防止解析或判定失效后永远通过）", () => {
@@ -94,6 +110,8 @@ describe("包内依赖方向", () => {
             use("server/main.ts", "nbook/development-manifest"),
             use("web/plugins.ts", "nbook/plugins/lab/web/plugin"),
             use("web/main.ts", "./development-plugins"),
+            use("ui/JsonViewer.vue", "nbook/web/host/window"),
+            use("ui/JsonViewer.vue", "node:fs"),
         ];
         expect(cases.map((item) => violationsOf([item]).length)).toEqual(cases.map(() => 1));
         expect(violationsOf([

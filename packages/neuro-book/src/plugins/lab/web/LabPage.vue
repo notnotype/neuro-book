@@ -1,9 +1,10 @@
 <script setup lang="ts">
-/** Lab 页面。 */
+/** `/lab` 页面：Component Lab 外壳占满整个视口，滚动发生在各栏内部。 */
+import LabShell from "./LabShell.vue";
 </script>
 
 <template>
-    <main class="nb-host-page" data-lab-page>
-        <h1>组件 Lab</h1>
-    </main>
+    <div class="h-screen w-screen overflow-hidden" data-lab-page>
+        <LabShell />
+    </div>
 </template>

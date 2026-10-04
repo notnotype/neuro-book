@@ -1,4 +1,28 @@
 /*
+ * 所有页面共用的基础层，接在 reset 之后：UnoCSS 与 nb-ui 的原子类按 Tailwind 的约定写（`border` 只给宽度、
+ * 不给样式），reset 不管这一层，缺了它带边框的元素一律不显示边框。
+ */
+*,
+::after,
+::before,
+::backdrop,
+::file-selector-button {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    border: 0 solid;
+}
+
+html {
+    scrollbar-gutter: stable;
+}
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--text-muted) transparent;
+}
+
+/*
  * 宿主页（启动中、失败页）与空工作台。宿主页在任何插件激活之前就会显示，没有主题变量可用，所以只用系统颜色；
  * reset 去掉了元素的默认样式，按钮要自己画出来。
  */

@@ -6,13 +6,13 @@
 import {existsSync, readFileSync, realpathSync, watch} from "node:fs";
 import {dirname, join, sep} from "node:path";
 
-/** `path` 相对监视根；只有 `.ts`、`.json`，排除前端、测试、测试支持与监督进程自身。 */
+/** `path` 相对监视根；只有 `.ts`、`.json`，排除前端（`web/` 与共享前端组件 `ui/`）、测试、测试支持与监督进程自身。 */
 export function isBackendFile(path: string): boolean {
     const normalized = path.split(sep).join("/");
     if (!/\.(ts|json)$/u.test(normalized) || normalized.endsWith(".test.ts")) return false;
     const segments = normalized.split("/");
     if (segments.includes("web") || segments.includes("testing")) return false;
-    return !normalized.startsWith("server/dev/");
+    return !normalized.startsWith("server/dev/") && !normalized.startsWith("ui/");
 }
 
 /**
