@@ -1,12 +1,11 @@
-/* 第 3 步只有宿主页与空工作台；主题与设计系统随第 4 步的 nb-ui 接入。 */
+/*
+ * 宿主页（启动中、失败页）与空工作台。宿主页在任何插件激活之前就会显示，没有主题变量可用，所以只用系统颜色；
+ * reset 去掉了元素的默认样式，按钮要自己画出来。
+ */
 :root {
     color-scheme: light dark;
     font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
     line-height: 1.5;
-}
-
-body {
-    margin: 0;
 }
 
 .nb-host-page,
@@ -41,8 +40,22 @@ body {
     opacity: 0.8;
 }
 
+.nb-host-page h1,
+.nb-empty-workbench h1 {
+    font-weight: 600;
+}
+
 .nb-host-page button {
     margin-top: 0.75rem;
     padding: 0.4rem 1.2rem;
-    font: inherit;
+    border: 1px solid ButtonBorder;
+    border-radius: 0.375rem;
+    background: ButtonFace;
+    color: ButtonText;
+    cursor: pointer;
+}
+
+.nb-host-page button:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
 }

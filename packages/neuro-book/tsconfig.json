@@ -23,6 +23,7 @@
         "src/plugins/*/shared",
         "src/**/*.test.ts",
         "scripts",
+        "uno.config.ts",
         "vite.config.ts",
         "vitest.config.ts"
     ],

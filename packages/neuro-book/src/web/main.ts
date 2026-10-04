@@ -3,12 +3,18 @@
  * 挂载时窗口要么已经 ready，要么已经落在某种失败状态，所以首屏不会出现半个工作台。
  */
 
+// 样式顺序：reset 在最前（nb-ui 不带 reset，由消费方负责）；UnoCSS 在 nb-ui 之后，否则 nb-ui 对 `i-lucide-*` 的同特异性
+// 规则会盖掉 UnoCSS 的图标遮罩；宿主样式最后。
+import "the-new-css-reset/css/reset.css";
+import "@notnotype/nb-ui/styles.css";
+import "virtual:uno.css";
+import "./styles.css";
+
 import {createApp} from "vue";
 
 import App from "./App.vue";
 import {createConnection} from "./host/connection";
 import {createBrowserWindow} from "./host/window";
-import "./styles.css";
 
 const browserWindow = createBrowserWindow({connection: createConnection(location.origin), page: window, console});
 await browserWindow.start();
