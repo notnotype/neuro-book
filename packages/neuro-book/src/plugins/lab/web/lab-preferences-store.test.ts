@@ -1,0 +1,205 @@
+import {describe, expect, it} from "bun:test";
+import {
+    LAB_PREFERENCES_STORAGE_KEY,
+    LAB_SESSION_STORAGE_KEY,
+    clearLabPreferences,
+    clearLabSession,
+    loadLabPreferences,
+    loadLabSession,
+    saveLabPreferences,
+    saveLabSession,
+} from "./lab-preferences-store";
+import type {KeyValueStorage, LabPreferenceCatalog, LabPreferences, LabSessionState} from "./lab-preferences-store";
+
+const catalog: LabPreferenceCatalog = {
+    themeIds: ["nbook", "macos"],
+    colorwayIds: ["nbook-light", "nbook-dark"],
+    canvasBackdropIds: ["panel", "checker"],
+    pageBackdropIds: ["theme", "custom"],
+    zooms: [0.5, 1, 2],
+    componentNames: ["EditorWorkbench", "ViewportCanvas", "MarkdownView"],
+};
+
+const preferences: LabPreferences = {
+    schema: 1,
+    themeId: "macos",
+    colorwayId: "nbook-light",
+    pageBackdropId: "custom",
+    canvasBackdropId: "checker",
+    canvasZoom: 2,
+    canvasWidth: 390,
+    canvasHeight: 844,
+    leftCollapsed: true,
+    rightCollapsed: false,
+    leftPanelWidth: 320,
+    rightPanelWidth: 420,
+    selectedComponentName: "EditorWorkbench",
+    selectedSceneId: "mixed",
+    activeInspectTab: "data",
+};
+
+describe("Lab preferences store", () => {
+    it("round-trips validated Lab-only UI preferences", () => {
+        const storage = new MemoryStorage();
+
+        expect(saveLabPreferences(storage, preferences)).toBe(true);
+        expect(loadLabPreferences(storage, catalog)).toEqual(preferences);
+
+        // 命令检视随 LabShell 的产品命令宿主一起撤掉：旧版本存下的 commands 不再是合法 tab，丢弃后回默认。
+        storage.clear();
+        storage.setItem(LAB_PREFERENCES_STORAGE_KEY, JSON.stringify({...preferences, activeInspectTab: "commands"}));
+        const {activeInspectTab: _dropped, ...withoutTab} = preferences;
+        expect(loadLabPreferences(storage, catalog)).toEqual(withoutTab);
+    });
+
+    it("keeps valid fields and drops untrusted values independently", () => {
+        const storage = new MemoryStorage();
+        storage.setItem(LAB_PREFERENCES_STORAGE_KEY, JSON.stringify({
+            schema: 1,
+            themeId: "macos",
+            colorwayId: "foreign-colorway",
+            pageBackdropId: "theme",
+            canvasBackdropId: "foreign-backdrop",
+            canvasZoom: 3,
+            canvasWidth: -1,
+            canvasHeight: 1200.5,
+            leftCollapsed: true,
+            rightCollapsed: "false",
+            // 越界、非整数与其它类型的宽度都要丢掉：它们是上次拖动留下的，不能静默变成另一个值
+            leftPanelWidth: 9_999,
+            rightPanelWidth: 300.5,
+            selectedComponentName: "NonExistentComponent",
+            selectedSceneId: "invalid scene with spaces!",
+            activeInspectTab: "unsupported-tab",
+            fixtureData: {secret: "must not enter the preference model"},
+        }));
+
+        expect(loadLabPreferences(storage, catalog)).toEqual({
+            schema: 1,
+            themeId: "macos",
+            pageBackdropId: "theme",
+            leftCollapsed: true,
+        });
+    });
+
+    it("ignores malformed JSON and unknown schema versions", () => {
+        const storage = new MemoryStorage();
+        storage.setItem(LAB_PREFERENCES_STORAGE_KEY, "{");
+        expect(loadLabPreferences(storage, catalog)).toEqual({});
+
+        storage.setItem(LAB_PREFERENCES_STORAGE_KEY, JSON.stringify({schema: 2, themeId: "macos"}));
+        expect(loadLabPreferences(storage, catalog)).toEqual({});
+    });
+
+    it("fails open when browser storage rejects writes or deletion", () => {
+        const storage = new ThrowingStorage();
+
+        expect(saveLabPreferences(storage, preferences)).toBe(false);
+        expect(clearLabPreferences(storage)).toBe(false);
+        expect(loadLabPreferences(storage, catalog)).toEqual({});
+    });
+});
+
+describe("Lab session store", () => {
+    const session: LabSessionState = {
+        schema: 1,
+        selectedComponentName: "EditorWorkbench",
+        selectedSceneId: "mixed",
+        activeInspectTab: "element",
+        canvasZoom: 2,
+        canvasWidth: 800,
+        canvasHeight: 600,
+    };
+
+    it("round-trips validated tab-isolated session state", () => {
+        const storage = new MemoryStorage();
+        expect(saveLabSession(storage, session)).toBe(true);
+        expect(loadLabSession(storage, catalog)).toEqual(session);
+    });
+
+    it("drops invalid components, scenes, tabs and negative sizes", () => {
+        const storage = new MemoryStorage();
+        storage.setItem(LAB_SESSION_STORAGE_KEY, JSON.stringify({
+            schema: 1,
+            selectedComponentName: "NonExistentComponent",
+            selectedSceneId: "bad scene name with spaces",
+            activeInspectTab: "invalid-tab",
+            canvasZoom: 99,
+            canvasWidth: -50,
+            canvasHeight: 600,
+        }));
+        expect(loadLabSession(storage, catalog)).toEqual({
+            schema: 1,
+            canvasHeight: 600,
+        });
+    });
+
+    it("drops the retired commands tab from session state", () => {
+        const storage = new MemoryStorage();
+        storage.setItem(LAB_SESSION_STORAGE_KEY, JSON.stringify({...session, activeInspectTab: "commands"}));
+        const {activeInspectTab: _dropped, ...expected} = session;
+        expect(loadLabSession(storage, catalog)).toEqual(expected);
+    });
+
+    it("clears session cleanly", () => {
+        const storage = new MemoryStorage();
+        saveLabSession(storage, session);
+        expect(loadLabSession(storage, catalog)).toEqual(session);
+        expect(clearLabSession(storage)).toBe(true);
+        expect(loadLabSession(storage, catalog)).toEqual({});
+    });
+});
+
+class MemoryStorage implements KeyValueStorage {
+    private readonly values = new Map<string, string>();
+
+    get length(): number {
+        return this.values.size;
+    }
+
+    clear(): void {
+        this.values.clear();
+    }
+
+    getItem(key: string): string | null {
+        return this.values.get(key) ?? null;
+    }
+
+    key(index: number): string | null {
+        return [...this.values.keys()][index] ?? null;
+    }
+
+    removeItem(key: string): void {
+        this.values.delete(key);
+    }
+
+    setItem(key: string, value: string): void {
+        this.values.set(key, value);
+    }
+}
+
+class ThrowingStorage implements Storage {
+    get length(): number {
+        return 0;
+    }
+
+    clear(): void {
+        throw new Error("blocked");
+    }
+
+    getItem(): string | null {
+        throw new Error("blocked");
+    }
+
+    key(): string | null {
+        return null;
+    }
+
+    removeItem(): void {
+        throw new Error("blocked");
+    }
+
+    setItem(): void {
+        throw new Error("quota");
+    }
+}
