@@ -18,6 +18,8 @@ interface ImportUse {
     readonly file: string;
     readonly specifier: string;
     readonly typeOnly: boolean;
+    /** `import("…")`：运行时加载，按运行时导入判定。 */
+    readonly dynamic?: boolean;
 }
 
 /** `import.meta.glob` 的使用位置（相对 src）。 */
@@ -36,10 +38,15 @@ function sourceFiles(directory: string): string[] {
 }
 
 const IMPORT_PATTERN = /^\s*(?:import|export)\s+(type\s+)?(?:[^"';]*?\sfrom\s+)?["']([^"']+)["']/gmu;
+const DYNAMIC_IMPORT_PATTERN = /\bimport\(\s*["']([^"']+)["']\s*\)/gu;
 
 function importsOf(file: string): ImportUse[] {
     const text = readFileSync(file, "utf8");
-    return [...text.matchAll(IMPORT_PATTERN)].map((match) => ({file: relative(SRC, file), specifier: match[2] as string, typeOnly: match[1] !== undefined}));
+    const at = relative(SRC, file);
+    return [
+        ...[...text.matchAll(IMPORT_PATTERN)].map((match) => ({file: at, specifier: match[2] as string, typeOnly: match[1] !== undefined})),
+        ...[...text.matchAll(DYNAMIC_IMPORT_PATTERN)].map((match) => ({file: at, specifier: match[1] as string, typeOnly: false, dynamic: true})),
+    ];
 }
 
 /** 导入目标在 src 内的相对路径；包名与 node 内置返回 null。 */
@@ -80,7 +87,7 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
             found.push(`只有开发入口能引用开发插件：${where}`);
         }
         if (use.file.startsWith("ui/") && target !== null && !target.startsWith("ui/") && !target.startsWith("shared/")) found.push(`共享前端组件只能引用 ui/ 与 shared/：${where}`);
-        if (target === "web/development-plugins") found.push(`前端开发入口只能在 import.meta.env.DEV 分支里动态加载：${where}`);
+        if (target === "web/development-plugins" && !(use.dynamic === true && use.file === "web/main.ts")) found.push(`前端开发入口只能由 web/main.ts 在 import.meta.env.DEV 分支里动态加载：${where}`);
     }
     return found;
 }
@@ -110,6 +117,7 @@ describe("包内依赖方向", () => {
             use("server/main.ts", "nbook/development-manifest"),
             use("web/plugins.ts", "nbook/plugins/lab/web/plugin"),
             use("web/main.ts", "./development-plugins"),
+            {file: "web/mount.ts", specifier: "./development-plugins", typeOnly: false, dynamic: true},
             use("ui/JsonViewer.vue", "nbook/web/host/window"),
             use("ui/JsonViewer.vue", "node:fs"),
         ];
@@ -121,6 +129,8 @@ describe("包内依赖方向", () => {
             use("web/development-plugins.ts", "nbook/plugins/lab/web/plugin"),
         ])).toEqual([]);
 
+        expect(importsOf(join(SRC, "web", "main.ts")).some((item) => item.specifier === "./development-plugins" && item.dynamic === true)).toBe(true);
+        expect(violationsOf(importsOf(join(SRC, "web", "main.ts")))).toEqual([]);
         const parsed = importsOf(join(SRC, "web", "host", "window.ts"));
         expect(parsed.some((item) => item.specifier === "nbook/shared/browser-bootstrap" && !item.typeOnly)).toBe(true);
         expect(parsed.some((item) => item.specifier === "nbook/manifest" && item.typeOnly)).toBe(true);

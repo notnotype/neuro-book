@@ -1,0 +1,29 @@
+结论：**阻断，不能合并**。共 12 项：**4 项阻断、8 项建议、0 项疑问**。主要阻断涉及 Lab 偏好持久化合同、URL 状态写回、场景切换空白阶段和 IndexedDB 故障收口。现有类型检查、单元测试、构建与浏览器 Smoke 均通过，但未覆盖或反而固定了其中部分错误行为。
+
+| 编号 | 严重程度（阻断/建议/疑问） | 位置（文件:行） | 问题 | 依据（命令输出或代码引用；实验是否经真实运行时） | 建议改法 |
+|---:|---|---|---|---|---|
+| 1 | 建议 | `packages/neuro-book/src/plugins/lab/web/LabShell.vue:464-485` | Lab 用 `history.replaceState(history.state, "", ...)` 修改 `c/s` 后，Vue Router 的 `currentRoute` 不同步；后续 t49 或宿主代码读取 query 会得到旧状态。 | 真实开发服务与浏览器验证：地址从 `/lab?c=JsonViewer&s=array&vp=phone&cw=light` 变为 `/lab?c=SkillChip&s=skill&vp=phone&cw=light`，但 `$router.currentRoute.value.fullPath` 仍为旧路径。 | 让 URL 变更经过 router，或建立明确的 query 双向同步。若必须直接操作 History，至少禁止其它路由消费者依赖过时的 `currentRoute`。 |
+| 2 | **阻断** | `packages/neuro-book/src/plugins/lab/web/lab-preferences-store.ts:1-4,120-180`；`use-lab-preferences.ts:241-265`；`LabShell.vue:419-422` | 偏好存储实现与 `ui.component-lab` 合同不一致。Spec 要求 `nb-lab:preferences:v1` localStorage 文档包含画布缩放、尺寸、当前组件、场景和 active tab；实现却把这些字段写入新增的 `sessionStorage` `nb-lab:session:v1`。 | `docs/specs/ui/component-lab.md:83-89,95` 明确要求这些字段进入 localStorage。真实浏览器验证显示 localStorage 为空，点击 `SkillChip` 后仅有 sessionStorage 数据。现有 `use-lab-preferences.test.ts:114-192` 反而固定了 sessionStorage 行为。 | 按 Spec 删除 sessionStorage 分支，把白名单字段写入唯一的 localStorage 文档；同步改写测试，补充新标签页和关闭标签页后的恢复验收。 |
+| 3 | **阻断** | `packages/neuro-book/src/plugins/lab/web/use-lab-preferences.ts:121-168` | 合法 URL 参数只参与本次恢复，没有按合同写回偏好。`restore()` 在 `ready = true` 前设置 URL 覆盖值，watcher 不会补写；用户不再操作时 URL 状态不会持久化。 | `docs/specs/ui/component-lab.md:73` 要求合法 URL 参数效果等同于界面选中并随之写入偏好。真实浏览器打开 `/lab?c=JsonViewer&s=array&vp=phone&cw=light` 后状态正确，但 localStorage 和 sessionStorage 均为空。 | `restore()` 完成后显式保存实际采用的 URL 字段，或在 hydration 期间记录覆盖值并在 ready 转换时提交；补充“只打开 URL、不做后续操作、刷新仍恢复”的测试。 |
+| 4 | **阻断** | `packages/neuro-book/src/plugins/lab/web/LabShell.vue:1191-1205,2041-2048` | 场景切换使用 `<Transition mode="out-in">`，旧舞台先淡出到透明，新舞台之后才进入，违反“直接替换、不插入空白退场阶段”的合同。 | `docs/specs/ui/component-lab.md:70,128` 明确禁止空白退场。真实浏览器采样显示舞台 DOM 数量始终为 1，但 opacity 约在 101–252ms 从 1 降至 0，约 285ms 后才重新升高。现有 e2e 只等待最终节点数量为 1，未覆盖透明窗口。 | 去掉 `mode="out-in"` 与淡出退场，直接更新舞台内容；若保留进入动效，必须保证旧内容和新内容至少有一个可见，并增加切换期间可见性断言。 |
+| 5 | 建议 | `packages/neuro-book/src/plugins/lab/web/LabShell.vue:1149,2041-2048` | 加载遮罩与舞台动效写死了 `duration-150` 和 `0.16s cubic-bezier(...)`，没有消费 nb-ui 动效 token。 | `packages/nb-ui/docs/ui-development-spec.md:39-46` 要求动效只消费 `--motion-fast`、`--motion-base`、`--motion-enter` 与 `--ease-standard`。代码检查确认，未依赖运行时实验。 | 映射到已有 motion/ease token；若需要 Lab 专属节奏，登记为公共 token 或页面级角色，不在模板和 CSS 中固定数值。 |
+| 6 | **阻断** | `packages/neuro-book/src/plugins/lab/web/LabShell.vue:322-337`；`lab-wallpaper-store.ts:19-27,52-63` | 自定义壁纸的保存和删除没有失败收口。IndexedDB open、put 或 delete 失败时，`pickWallpaper` / `dropWallpaper` 直接返回 rejected Promise，没有回退、诊断或用户可见错误。 | `docs/specs/ui/component-lab.md:105` 要求 IndexedDB 不可用、超额或损坏时 Lab 继续使用默认偏好。代码路径确认错误会从 `openDatabase()` / `withStore()` 冒泡；未用替身强行模拟浏览器存储故障。 | 对保存和删除包裹 `try/catch`，失败时保持当前可用桌面或默认桌面，并写入诊断；补充真实存储失败场景或可控故障测试。 |
+| 7 | 建议 | `packages/neuro-book/src/architecture.test.ts:38-43,78-83`；`packages/neuro-book/src/web/main.ts:22-23` | 架构依赖门禁的正则只匹配静态 `import` / `export ... from`，不匹配动态 `import(...)`。实际生产入口正通过动态 import 加载开发插件，因此其它源文件新增动态开发插件导入时可能绕过门禁。 | `IMPORT_PATTERN` 不包含动态 import 语法；`web/main.ts` 使用 `import("./development-plugins")`。测试中的 `use("web/main.ts", "./development-plugins")` 只是手工构造 `ImportUse`，没有验证实际源文本解析。未依赖运行时实验。 | 使用 TypeScript AST 或补充动态 import 解析分支，并增加从实际 `web/main.ts` 源文本解析的回归断言。 |
+| 8 | 建议 | `packages/neuro-book/scripts/lab-shot.ts:32-34,171-178`；`e2e/lab-shot.e2e.ts:67-82` | 截图脚本的点击后收口依赖固定 `page.waitForTimeout(options.waitMs)`，默认 300ms，不是可观察的就绪条件。异步回写、动画或浏览器负载变化可能导致截图早于稳定状态。 | `docs/testing/README.md` 的可靠性规则禁止用固定时长代替可观察条件。源码存在固定等待；当前 e2e 只覆盖无 `--click` 的场景，未覆盖该分支。未运行点击场景实验。 | 使用 fixture/debug API 暴露的稳定状态、动画完成或下一帧条件；若通用选择器无法定义完成条件，至少将固定等待降为明确的最后兜底，并增加真实点击场景验收。 |
+| 9 | 建议 | `packages/neuro-book/src/web/mount.ts:25-54`；`packages/neuro-book/src/web/main.ts:31-38` | 两段挂载关键失败分支没有测试覆盖：ready 前重试、ready 后首次导航拒绝、页面懒加载失败时应替换为启动失败页。现有测试只覆盖窗口状态机、页面表和失败页组件。 | `mountWindowUi` 仅在 `main.ts` 调用，未被测试引用；`FailurePage.dom.test.ts` 不覆盖挂载编排。未模拟运行失败，属于覆盖证据缺口。 | 增加真实 Vue 挂载测试，断言容器始终只有宿主页或完整页面，不遗留已挂载 app，失败原因可见。 |
+| 10 | 建议 | `packages/neuro-book/src/ui/SkillChip.vue:20-35` | 共享 SkillChip 将主体颜色写死为 `#b45309`，绕过主题系统；不同主题和 colorway 无法统一调整。 | `docs/standards/code/frontend.md:13-18` 要求普通界面颜色消费主题语义变量。代码引用即可确认，未依赖运行时实验。 | 使用现有语义色变量；如确需独立语义，登记公共主题角色并补齐内置主题，同时在组件文档中说明。 |
+| 11 | 建议 | `packages/neuro-book/src/plugins/lab/web/LabShell.vue:214,1149-1152,2022-2025,2041-2048` | reduced-motion 只关闭 `.nb-lab-panel` 过渡，但加载图标仍使用 `animate-spin`，舞台淡入淡出仍执行；系统减少动效设置无法覆盖主要加载和场景动画。 | `docs/standards/code/frontend.md:17` 要求动画尊重 reduced motion。源码同时存在 `animate-spin`、舞台 opacity transition 和仅针对面板的媒体查询。未依赖运行时实验。 | 为 spinner 和舞台过渡增加 `motion-reduce` 或媒体查询收口，并补真实浏览器 reduced-motion 验收。 |
+| 12 | 建议 | `packages/neuro-book/src/plugins/lab/web/component-index-model.ts:177-197` | `别名` 解析会静默过滤非字符串元素。例如 `别名: ["有效", 1]` 会得到 `["有效"]`，不报警，也没有按“没有别名”处理。 | `docs/standards/code/components.md:28` 与实现注释要求别名必须是 JSON 字符串数组，写坏时告警并按无别名继续。现有测试只覆盖完全非法的未加引号值。代码与测试读取核实，未依赖运行时实验。 | 解析后要求 `every(typeof item === "string")`；否则报警并返回空数组。补混合元素、空字符串和带逗号字符串的回归测试。 |
+
+### 已执行验证
+
+- `bun run typecheck`：通过。
+- `bun run test:bun`：109 个用例通过，0 失败。
+- `bun run test:vitest`：7 个文件、30 个用例通过，0 失败。
+- 允许的浏览器验收：`browser-host.e2e.ts`、`lab.e2e.ts`、`lab-shot.e2e.ts` 共 17 个用例通过；未运行用户明确禁止的 `dev.e2e.ts`。
+- `bun run build`：服务端和前端构建通过，`check:dist` 通过。
+- `bun run smoke:server`：S1–S5 全部通过。
+- `bun run docs:check`：`failures: []`、`warnings: []`。
+- `bun run governance:check`：`failures: []`、`warnings: []`。
+- 真实开发服务已停止；`proc://t48-review-dev` 状态为 `exited`，无残留服务。收口时 harness 发送了第二次停止信号，dev wrapper 以 1 退出，这是强制清理结果，不是产品验收失败。
+- 逐条发现已追加至外部临时文件：`/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t48-review/findings.md`。

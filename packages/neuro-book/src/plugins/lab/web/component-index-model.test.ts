@@ -54,17 +54,19 @@ describe("Lab 组件索引", () => {
         expect(warnings).toEqual(["WorkbenchBadge 的「验证入口」指向不存在的组件：NoSuchHost"]);
     });
 
-    it("按组件名、显示名与别名检索，不分大小写，全角空格当空格；别名写坏时提示并当作没有别名", () => {
+    it("按组件名、显示名与别名检索，不分大小写，全角空格当空格；别名写坏（不是 JSON 或混有非字符串）时提示并当作没有别名", () => {
         const {byName, warnings} = index({
             "lab/ViewportCanvas.md": doc('标签: []\n别名: ["画布", "Viewport"]', "# 画布容器\n"),
             "lab/EventLogPanel.md": doc("标签: []\n别名: [事件日志]"),
+            "lab/HighlightBox.md": doc('标签: []\n别名: ["高亮框", 1]'),
         });
         const canvas = byName("ViewportCanvas");
         for (const query of ["viewportcanvas", "画布容器", "VIEWPORT", "　画布　", ""]) expect(matchesLabQuery(canvas, query)).toBe(true);
         expect(matchesLabQuery(canvas, "日志")).toBe(false);
         expect(byName("EventLogPanel").aliases).toEqual([]);
-        expect(warnings).toHaveLength(1);
-        expect(warnings[0]).toStartWith("EventLogPanel 的「别名」不是合法 JSON 字符串数组");
+        expect(byName("HighlightBox").aliases).toEqual([]);
+        expect(warnings).toHaveLength(2);
+        expect(warnings.map((warning) => warning.split(" ")[0])).toEqual(["EventLogPanel", "HighlightBox"]);
     });
 });
 

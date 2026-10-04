@@ -70,6 +70,10 @@ test("打开 Lab：组件树、画布与四个检视面板；地址参数直达�
     const keys = await page.evaluate(() => [...Array(localStorage.length).keys()].map((index) => localStorage.key(index)));
     expect(keys.every((key) => key?.startsWith("nb-lab:"))).toBe(true);
 
+    // 地址参数等同于在界面上选中：不带参数再打开，恢复的是同一个状态。
+    await openLab(page);
+    await expect.poll(() => labState(page)).toMatchObject({component: "JsonViewer", scene: "array", ready: true, themeId: "macos", colorwayId: "nbook-light", canvas: {width: 390, height: 844}});
+
     expect(problems).toEqual([]);
 });
 
@@ -85,8 +89,25 @@ test("切换组件与场景直接替换舞台；组件回写的输入可在数�
     await treeItem(page, "ViewportCanvas").click();
     await page.locator('[role="radio"]').filter({hasText: "不限尺寸"}).click();
     await expect(page.getByText("这块内容用来看盒子尺寸变化").first()).toBeVisible();
+    // 换组件时记录舞台：始终只有一个、始终不透明（不插入空白退场阶段）。
+    await page.evaluate(() => {
+        const samples: Array<{count: number; opacity: number}> = [];
+        (window as unknown as {stageSamples: typeof samples}).stageSamples = samples;
+        const sample = (): void => {
+            const stages = [...document.querySelectorAll("[data-lab-stage]")];
+            samples.push({count: stages.length, opacity: Math.min(...stages.map((stage) => Number(getComputedStyle(stage).opacity)), 1)});
+            if (samples.length < 600) requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+    });
     await treeItem(page, "CollapsibleSidePanel").click();
     await expect(page.getByText("这块代表侧栏旁边的内容区").first()).toBeVisible();
+    const samples = await page.evaluate(() => (window as unknown as {stageSamples: Array<{count: number; opacity: number}>}).stageSamples);
+    expect(samples.length).toBeGreaterThan(0);
+    expect(samples.filter((item) => item.count > 0).every((item) => item.count === 1 && item.opacity === 1)).toBe(true);
+    // 地址栏经宿主 router 改写，router 记录的当前路由跟着变。
+    expect(await page.evaluate(() => (document.querySelector("#app") as unknown as {__vue_app__: {config: {globalProperties: {$router: {currentRoute: {value: {query: Record<string, string>}}}}}}}).__vue_app__.config.globalProperties.$router.currentRoute.value.query.c)).toBe("CollapsibleSidePanel");
+    await expect(page).toHaveURL(/[?&]c=CollapsibleSidePanel(?:&|$)/u);
     expect(await page.locator(".lab-main .nb-lab-stage-box").first().evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(80);
 
     await treeItem(page, "FixtureExample").click();

@@ -167,6 +167,23 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
         await nextTick();
         hydrating.value = false;
         ready = true;
+        // 地址里合法的参数等同于在界面上选中，要写进偏好（ui.component-lab）；恢复期间的改动 watcher 不保存，在这里补写。
+        const urlApplied = urlComponent !== undefined || resolveValidScene(urlParams?.scene) !== undefined || urlParams?.canvasSize !== undefined
+            || allowed(urlParams?.themeId, options.catalog.themeIds) !== undefined || allowed(urlParams?.colorwayId, options.catalog.colorwayIds) !== undefined;
+        if (urlApplied) {
+            persist();
+        }
+    }
+
+    function persist(): void {
+        const storage = getStorage();
+        if (storage !== null) {
+            saveLabPreferences(storage, currentPreferences());
+        }
+        const sessionStore = options.sessionStorage ? getSessionStorage() : null;
+        if (sessionStore !== null) {
+            saveLabSession(sessionStore, currentSession());
+        }
     }
 
     async function reset(applyResponsiveLayout: () => void): Promise<void> {

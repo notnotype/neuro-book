@@ -82,9 +82,9 @@ fixture 不得要求凭据、网络、真实 Project/Session、Provider/Model �
 
 本能力不引入产品侧持久状态。场景加载、动作执行、搜索、选中元素与事件日志都只存在于当前页面，不写入任何产品数据；Lab 自己的界面偏好是唯一例外，按本节的字段白名单保存在浏览器里。
 
-组件切换时选择首个登记场景并加载对应 fixture；场景切换和数据还原将输入恢复为登记初值并清空内部状态与事件日志。fixture 输入、内部状态、搜索词、选中元素与事件日志不写入浏览器存储；当前组件、场景与检视 tab 属于界面偏好，按下一节的字段白名单持久化。
+组件切换时选择首个登记场景并加载对应 fixture；场景切换和数据还原将输入恢复为登记初值并清空内部状态与事件日志。fixture 输入、内部状态、搜索词、选中元素与事件日志不写入浏览器存储；当前组件、场景、检视 tab、缩放与画布尺寸属于本标签页的会话状态，按下一节的字段白名单持久化。
 
-Lab 自身的界面偏好保存在本机浏览器：主题、配色、桌面背景、画布背景、缩放、画布宽高、桌面侧栏开合与当前检视 tab 写入版本化 localStorage 文档；自定义桌面壁纸 Blob 继续写入 Lab 专属 IndexedDB。窄屏自动收起只改变当前布局，不覆盖桌面侧栏偏好。界面提供“恢复 Lab 默认配置”清除小型偏好；壁纸由自定义图片旁的“清除”操作单独删除。
+Lab 自身的界面偏好保存在本机浏览器：主题、配色、桌面背景、画布背景、缩放、画布宽高与桌面侧栏开合、宽度写入版本化 localStorage 文档；当前组件、场景、检视 tab、缩放与画布宽高另写入本标签页的版本化 sessionStorage 文档；自定义桌面壁纸 Blob 继续写入 Lab 专属 IndexedDB。窄屏自动收起只改变当前布局，不覆盖桌面侧栏偏好。界面提供“恢复 Lab 默认配置”清除小型偏好；壁纸由自定义图片旁的“清除”操作单独删除。
 
 恢复偏好不改变 fixture 的初始输入、场景数据或事件。未知 schema、损坏 JSON、未知枚举与越界数值按字段拒绝并回退当前默认值，不阻止 Lab 打开。
 
@@ -92,7 +92,7 @@ Lab 自身的界面偏好保存在本机浏览器：主题、配色、桌面背�
 
 Lab 只读取版本控制内的组件声明与 fixture，并维护本地开发环境的界面状态。它不写产品用户配置、项目工作区、会话历史或业务数据库，也不访问真实网络服务。浏览器持久化只允许使用 Lab 专属 localStorage 键与 IndexedDB 库保存界面偏好，不得用于场景、fixture 或任何产品数据。
 
-localStorage 文档键为 `nb-lab:preferences:v1`，schema 为 `1`；字段白名单为 `themeId`、`colorwayId`、`pageBackdropId`、`canvasBackdropId`、`canvasZoom`、`canvasWidth`、`canvasHeight`、`leftCollapsed`、`rightCollapsed`、`leftPanelWidth`、`rightPanelWidth`、`selectedComponentName`、`selectedSceneId`、`activeInspectTab`（检视 tab 取值 `doc`、`element`、`events`、`data`；已保存的旧值 `commands` 按未知枚举回退默认）。画布尺寸只接受 `0..16384` 的整数，枚举值必须仍在当前登记表中。壁纸使用 IndexedDB `nb-lab` 数据库的 `prefs` store 与 `wallpaper` key。
+界面偏好跨标签页共享，写在 localStorage 文档 `nb-lab:preferences:v1`（schema `1`），字段白名单为 `themeId`、`colorwayId`、`pageBackdropId`、`canvasBackdropId`、`canvasZoom`、`canvasWidth`、`canvasHeight`、`leftCollapsed`、`rightCollapsed`、`leftPanelWidth`、`rightPanelWidth`、`selectedComponentName`、`selectedSceneId`、`activeInspectTab`。当前组件、场景、检视 tab、缩放与画布尺寸另写进本标签页的 sessionStorage 文档 `nb-lab:session:v1`（schema `1`，白名单就是这六个字段），两个标签页各看各的组件与场景、互不覆盖；组件、场景与检视 tab 因此不再写进 localStorage 文档，旧版本留下的仍按白名单读取。恢复顺序是“地址参数 > 会话状态 > 偏好 > 默认”。检视 tab 取值 `doc`、`element`、`events`、`data`（已保存的旧值 `commands` 按未知枚举回退默认）；画布尺寸只接受 `0..16384` 的整数，枚举值必须仍在当前登记表中。壁纸使用 IndexedDB `nb-lab` 数据库的 `prefs` store 与 `wallpaper` key。
 
 fixture 使用脱敏的静态或内存数据，不调用真实 Provider/Model、真实接口，也不依赖跨场景共享的状态。fixture 通过 `useLabSubject` 接入分层输入与事件记录，通过 `useLabDataSink` 上报只读内部状态；Lab 在内存中最多保留最近 200 条事件。
 

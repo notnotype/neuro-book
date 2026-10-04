@@ -174,7 +174,10 @@ async function shoot(page: Page, options: ShotOptions, scene: string, viewport: 
     for (const selector of options.clicks) {
         await page.locator(`[data-lab-stage] ${selector}`).first().click({timeout: 10_000});
     }
-    await page.waitForTimeout(options.waitMs);
+    // 点击引起的变化（展开、动画）没有统一的完成信号，只能等一段时长；没点击时舞台已由 __nbLab 的 ready 确认稳定。
+    if (options.clicks.length > 0) {
+        await page.waitForTimeout(options.waitMs);
+    }
     const measure = await page.evaluate(() => window.__nbLab?.measure() ?? null);
     const name = [options.component, scene, viewport, colorway ?? "current"].join("__").replace(/[^\w.-]+/gu, "-");
     const file = join(options.out, `${name}.png`);

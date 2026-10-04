@@ -2,7 +2,7 @@ $ cd packages/neuro-book && bun run test:e2e
 $ bun run build && playwright test -c e2e/playwright.config.ts
 $ bun run build:server && bun run build:web && bun run check:dist
 $ bun build src/server/main.ts --target bun --outdir dist/server
-Bundled 448 modules in 17ms
+Bundled 448 modules in 20ms
 
   main.js  0.28 MB  (entry point)
 
@@ -15,30 +15,30 @@ dist/web/index.html                   0.82 kB │ gzip:  0.53 kB
 dist/web/assets/index-UXWgrl0-.css  114.92 kB │ gzip: 15.61 kB
 dist/web/assets/index-XxcMbUB9.js   254.30 kB │ gzip: 82.77 kB
 
-✓ built in 957ms
+✓ built in 941ms
 $ bun scripts/check-dist.ts
 [check:dist] 产物不含开发插件与本机路径
 
 Running 18 tests using 1 worker
 
-  ✓   1 e2e/browser-host.e2e.ts:31:1 › 首屏是空工作台：窗口运行实例建立、工作台激活之后才挂载界面（场景 1） (354ms)
-  ✓   2 e2e/browser-host.e2e.ts:51:1 › 页面表之外的路径：窗口照常就绪，显示“页面不存在”，可以回到工作台；生产构建没有 /lab (358ms)
-  ✓   3 e2e/browser-host.e2e.ts:62:1 › 引导请求失败：带重试的连接失败页，没有半个工作台；恢复后重试进入工作台（场景 2） (296ms)
-  ✓   4 e2e/browser-host.e2e.ts:74:1 › 服务端返回 503（例如正在关闭）：同样是可重试的连接失败，原因带状态码与错误码 (223ms)
-  ✓   5 e2e/browser-host.e2e.ts:83:1 › 服务端协议版本不同：提示刷新页面，不给原地重试 (223ms)
-  ✓   6 e2e/browser-host.e2e.ts:92:1 › 两个窗口互相独立：关闭一个，另一个照常可用、刷新后重新引导，服务端不停止（场景 4） (400ms)
-  ✓   7 e2e/dev.e2e.ts:23:1 › 开发命令：页面是空工作台，/lab 是 Lab；改后端文件后有序重启、页面重新引导成功；SIGTERM 先停后端再关页面，以 0 退出 (9.3s)
-  ✓   8 e2e/lab-shot.e2e.ts:51:1 › measure 报出越出舞台、没有被滚动容器挡住的元素 (5.8s)
-  ✓   9 e2e/lab-shot.e2e.ts:67:1 › lab:shot：正常的场景截图并写报告，以 0 退出；舞台有越界元素时在报告里列出并以 1 退出 (6.8s)
-  ✓  10 e2e/lab.e2e.ts:55:1 › 打开 Lab：组件树、画布与四个检视面板；地址参数直达；只发引导一个接口请求，只写 Lab 自己的存储键（场景 1、13） (6.7s)
-  ✓  11 e2e/lab.e2e.ts:76:1 › 地址里不认识的尺寸参数被忽略，按没有这个参数打开（场景 13） (3.2s)
-  ✓  12 e2e/lab.e2e.ts:81:1 › 切换组件与场景直接替换舞台；组件回写的输入可在数据面板还原（场景 2、12） (4.8s)
-  ✓  13 e2e/lab.e2e.ts:102:1 › 按部件别名检索能找到真实组件，检索不到的条目隐藏（场景 11） (3.3s)
-  ✓  14 e2e/lab.e2e.ts:109:1 › 透传夹具：SkillChip 没有手写夹具组件，场景输入直接作为 props 交给它（场景 15） (3.6s)
-  ✓  15 e2e/lab.e2e.ts:120:1 › 检查模式：悬停有探针框，点击后元素面板给出组件与源文件，不留常驻边框；Esc 退出（场景 5） (3.9s)
-  ✓  16 e2e/lab.e2e.ts:147:1 › 主题、窄屏与偏好：窄屏自动收起侧栏、恢复宽屏不弹回；减少动态时没有转场；刷新后恢复，恢复默认清掉偏好（场景 6、7、8） (9.2s)
-  ✓  17 e2e/lab.e2e.ts:181:1 › 偏好存储被写坏：合法的字段照常恢复，不合法的回到默认；整份不是 JSON 时按没有偏好打开（场景 9） (6.7s)
-  ✓  18 e2e/lab.e2e.ts:199:1 › 离开 Lab 回到工作台是整页加载：新的窗口运行实例，Lab 写在 <html> 上的主题不留下（场景 17） (4.4s)
+  ✓   1 e2e/browser-host.e2e.ts:31:1 › 首屏是空工作台：窗口运行实例建立、工作台激活之后才挂载界面（场景 1） (337ms)
+  ✓   2 e2e/browser-host.e2e.ts:51:1 › 页面表之外的路径：窗口照常就绪，显示“页面不存在”，可以回到工作台；生产构建没有 /lab (346ms)
+  ✓   3 e2e/browser-host.e2e.ts:62:1 › 引导请求失败：带重试的连接失败页，没有半个工作台；恢复后重试进入工作台（场景 2） (326ms)
+  ✓   4 e2e/browser-host.e2e.ts:74:1 › 服务端返回 503（例如正在关闭）：同样是可重试的连接失败，原因带状态码与错误码 (230ms)
+  ✓   5 e2e/browser-host.e2e.ts:83:1 › 服务端协议版本不同：提示刷新页面，不给原地重试 (216ms)
+  ✓   6 e2e/browser-host.e2e.ts:92:1 › 两个窗口互相独立：关闭一个，另一个照常可用、刷新后重新引导，服务端不停止（场景 4） (424ms)
+  ✓   7 e2e/dev.e2e.ts:23:1 › 开发命令：页面是空工作台，/lab 是 Lab；改后端文件后有序重启、页面重新引导成功；SIGTERM 先停后端再关页面，以 0 退出 (9.4s)
+  ✓   8 e2e/lab-shot.e2e.ts:51:1 › measure 报出越出舞台、没有被滚动容器挡住的元素 (6.4s)
+  ✓   9 e2e/lab-shot.e2e.ts:67:1 › lab:shot：正常的场景截图并写报告，以 0 退出；舞台有越界元素时在报告里列出并以 1 退出 (6.4s)
+  ✓  10 e2e/lab.e2e.ts:55:1 › 打开 Lab：组件树、画布与四个检视面板；地址参数直达；只发引导一个接口请求，只写 Lab 自己的存储键（场景 1、13） (9.2s)
+  ✓  11 e2e/lab.e2e.ts:80:1 › 地址里不认识的尺寸参数被忽略，按没有这个参数打开（场景 13） (3.2s)
+  ✓  12 e2e/lab.e2e.ts:85:1 › 切换组件与场景直接替换舞台；组件回写的输入可在数据面板还原（场景 2、12） (4.7s)
+  ✓  13 e2e/lab.e2e.ts:123:1 › 按部件别名检索能找到真实组件，检索不到的条目隐藏（场景 11） (3.3s)
+  ✓  14 e2e/lab.e2e.ts:130:1 › 透传夹具：SkillChip 没有手写夹具组件，场景输入直接作为 props 交给它（场景 15） (3.3s)
+  ✓  15 e2e/lab.e2e.ts:141:1 › 检查模式：悬停有探针框，点击后元素面板给出组件与源文件，不留常驻边框；Esc 退出（场景 5） (3.8s)
+  ✓  16 e2e/lab.e2e.ts:168:1 › 主题、窄屏与偏好：窄屏自动收起侧栏、恢复宽屏不弹回；减少动态时没有转场；刷新后恢复，恢复默认清掉偏好（场景 6、7、8） (8.9s)
+  ✓  17 e2e/lab.e2e.ts:202:1 › 偏好存储被写坏：合法的字段照常恢复，不合法的回到默认；整份不是 JSON 时按没有偏好打开（场景 9） (6.5s)
+  ✓  18 e2e/lab.e2e.ts:220:1 › 离开 Lab 回到工作台是整页加载：新的窗口运行实例，Lab 写在 <html> 上的主题不留下（场景 17） (4.4s)
 
   18 passed (1.2m)
 exit 0

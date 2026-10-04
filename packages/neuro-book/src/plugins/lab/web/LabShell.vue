@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, toRaw, watch} from "vue";
 import {Value} from "typebox/value";
+import {useRouter} from "vue-router";
 import {
     FormInput as NbFormInput,
     FormSelect as NbFormSelect,
@@ -211,7 +212,7 @@ function buildComponentTree(entries: typeof labComponents): LabTreeNode[] {
             title: labComponentLabel(entry),
             // 正在加载中的组件实时反馈旋转动画；集成入口用它自己的图形；挂不上的标锁；其余按分类
             iconClass: (fixtureLoading.value && selectedName.value === entry.name)
-                ? "i-lucide-loader-2 animate-spin text-[var(--accent-text)]"
+                ? "i-lucide-loader-2 animate-spin motion-reduce:animate-none text-[var(--accent-text)]"
                 : !entry.mountable
                     ? "i-lucide-lock text-[var(--text-muted)]"
                     : (entry.integrationEntry ? INTEGRATION_ICON : KIND_ICONS[entry.kind]),
@@ -327,12 +328,17 @@ async function pickWallpaper(event: Event): Promise<void> {
     if (!file) {
         return;
     }
-    await saveLabWallpaper(file);
+    // 存不进 IndexedDB（隐私模式、配额）时这次照样显示，只是刷新后不保留（ui.component-lab 失败与恢复）。
+    await saveLabWallpaper(file).catch((error: unknown) => {
+        console.warn("[component-lab] 自定义壁纸没能存进浏览器，刷新后不会保留", error);
+    });
     setWallpaper(file);
 }
 
 async function dropWallpaper(): Promise<void> {
-    await clearLabWallpaper();
+    await clearLabWallpaper().catch((error: unknown) => {
+        console.warn("[component-lab] 没能从浏览器里删除自定义壁纸", error);
+    });
     setWallpaper(null);
     pageBackdrop.value = LAB_DEFAULT_PAGE_BACKDROP;
 }
@@ -356,7 +362,10 @@ function collapseForMobile(event: MediaQueryList | MediaQueryListEvent): void {
 }
 
 onMounted(async () => {
-    setWallpaper(await loadLabWallpaper().catch(() => null));
+    setWallpaper(await loadLabWallpaper().catch((error: unknown) => {
+        console.warn("[component-lab] 读不到自定义壁纸，回到默认桌面", error);
+        return null;
+    }));
     await restorePreferences();
     ensureSelectedComponentExpanded(selectedName.value);
     applyLabTheme(labThemeId.value, labColorwayId.value);
@@ -461,27 +470,14 @@ const {
     hasCustomWallpaper: () => wallpaperUrl.value !== "",
 });
 
+// 地址栏经宿主的 router 改写：直接改 History 会让 router 记录的当前路由与地址栏不一致。
+const router = useRouter();
+
 function syncUrlQuery(componentName: string, sceneId: string): void {
-    if (typeof window === "undefined") {
-        return;
-    }
-    const url = new URL(window.location.href);
-    if (componentName) {
-        url.searchParams.set("c", componentName);
-    } else {
-        url.searchParams.delete("c");
-    }
-    url.searchParams.delete("component");
-
-    if (sceneId) {
-        url.searchParams.set("s", sceneId);
-    } else {
-        url.searchParams.delete("s");
-    }
-    url.searchParams.delete("scene");
-
-    if (url.search !== window.location.search) {
-        window.history.replaceState(window.history.state, "", url.toString());
+    const {component: _component, scene: _scene, c: _c, s: _s, ...rest} = router.currentRoute.value.query;
+    const query = {...rest, ...(componentName ? {c: componentName} : {}), ...(sceneId ? {s: sceneId} : {})};
+    if (router.resolve({query}).fullPath !== router.currentRoute.value.fullPath) {
+        void router.replace({query});
     }
 }
 
@@ -805,31 +801,10 @@ const bottomPanelCollapsed = ref(false);
 const controlsTargetRef = ref<HTMLElement | null>(null);
 const controlsTargetMinHeight = ref<string | undefined>(undefined);
 let activeControlsCount = 0;
-let isStageLeaving = false;
 
 function syncFixtureControlsVisibility(): void {
-    if (!isStageLeaving) {
-        hasFixtureControls.value = activeControlsCount > 0;
-        controlsTargetMinHeight.value = undefined;
-    }
-}
-
-function handleStageBeforeLeave(): void {
-    isStageLeaving = true;
-}
-
-function handleStageEnter(): void {
-    isStageLeaving = false;
-    void nextTick(syncFixtureControlsVisibility);
-}
-
-function handleStageAfterLeave(): void {
-    void nextTick(() => {
-        if (isStageLeaving && !fixtureComponent.value) {
-            isStageLeaving = false;
-            syncFixtureControlsVisibility();
-        }
-    });
+    hasFixtureControls.value = activeControlsCount > 0;
+    controlsTargetMinHeight.value = undefined;
 }
 
 provide(LAB_CONTROLS_REGISTER, (active: boolean) => {
@@ -908,7 +883,6 @@ watch([selectedScene, fixture], ([id, currentFixture], prev) => {
     resetScene();
     if (!currentFixture || (prev && prev[1] && prev[1].component !== currentFixture.component)) {
         activeControlsCount = 0;
-        isStageLeaving = false;
         controlsTargetMinHeight.value = undefined;
         hasFixtureControls.value = false;
     }
@@ -1146,10 +1120,10 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
                     <!-- 切换组件加载遮罩与动画 -->
                     <div
                         v-if="fixtureLoading"
-                        class="lab-fixture-loading absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-[var(--lab-surface)]/75 backdrop-blur-xs select-none transition-opacity duration-150"
+                        class="lab-fixture-loading absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-[var(--lab-surface)]/75 backdrop-blur-xs select-none transition-opacity [transition-duration:var(--motion-fast)]"
                     >
                         <div class="flex items-center gap-2.5 rounded-full border border-[var(--divider)] bg-[var(--bg-panel)] px-4 py-2 shadow-md">
-                            <span class="i-lucide-loader-2 h-4 w-4 animate-spin text-[var(--accent-main)]" aria-hidden="true" />
+                            <span class="i-lucide-loader-2 h-4 w-4 animate-spin motion-reduce:animate-none text-[var(--accent-main)]" aria-hidden="true" />
                             <span class="text-xs font-medium text-[var(--text-main)]">
                                 正在载入 {{ selected?.name }} 场景...
                             </span>
@@ -1188,22 +1162,15 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
                         :backdrop="canvasBackdrop"
                         :display-mode="selectedDisplayMode"
                     >
-                        <Transition
-                            name="lab-stage-fade"
-                            mode="out-in"
-                            @before-leave="handleStageBeforeLeave"
-                            @enter="handleStageEnter"
-                            @after-leave="handleStageAfterLeave"
-                        >
-                            <div :key="`${selectedName}:${selectedScene}`" class="h-full w-full" data-lab-stage>
-                                <component
-                                    :is="fixtureComponent"
-                                    v-if="fixtureComponent"
-                                    :scene="selectedScene"
-                                    :input="sceneInput"
-                                />
-                            </div>
-                        </Transition>
+                        <!-- 换场景直接替换舞台，不做淡出淡入：退场期间舞台是空的，看起来像组件消失了（ui.component-lab：场景切换不插入空白退场阶段）。 -->
+                        <div :key="`${selectedName}:${selectedScene}`" class="h-full w-full" data-lab-stage>
+                            <component
+                                :is="fixtureComponent"
+                                v-if="fixtureComponent"
+                                :scene="selectedScene"
+                                :input="sceneInput"
+                            />
+                        </div>
                     </ViewportCanvas>
                 </div>
 
@@ -2038,13 +2005,4 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
     font-family: var(--font-mono);
 }
 
-.lab-stage-fade-enter-active,
-.lab-stage-fade-leave-active {
-    transition: opacity 0.16s cubic-bezier(0.2, 0, 0, 1);
-}
-
-.lab-stage-fade-enter-from,
-.lab-stage-fade-leave-to {
-    opacity: 0;
-}
 </style>

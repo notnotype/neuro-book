@@ -39,7 +39,7 @@ taskId: t48-web-ui-foundation-lab
 
 ## 当前状态
 
-2026-10-04 实现完成（`8ddd1ee0`、`39fef4a1`、`8fa66bbf`、`e64a7f20`、`1c68eda1`、`eaf48866`、`4bbca2f5`、`b1352069`、`8729e1b1`），待 omp 审查。
+2026-10-04 完成：主 Agent 编码（`8ddd1ee0`、`39fef4a1`、`8fa66bbf`、`e64a7f20`、`1c68eda1`、`eaf48866`、`4bbca2f5`、`b1352069`、`8729e1b1`、`22442b85`），omp 审查后按意见修正。
 
 **实际改动（`packages/neuro-book`）：**
 
@@ -75,14 +75,31 @@ taskId: t48-web-ui-foundation-lab
 
 ## 验收
 
-1. `bun run typecheck`（三遍）0 错误；`bun run test`：`bun test` 21 个文件 109 个用例、Vitest 7 个文件 30 个用例通过（[`app-checks.txt`](evidences/app-checks.txt)），连跑 3 次无波动。
+1. `bun run typecheck`（三遍）0 错误；`bun run test`：`bun test` 21 个文件 111 个用例、Vitest 8 个文件 33 个用例通过（[`app-checks.txt`](evidences/app-checks.txt)），连跑 3 次无波动。
 2. `bun run test:e2e` 18 个用例通过（[`e2e.txt`](evidences/e2e.txt)）：t47 的 browser-host 与开发命令用例保持通过，另加页面表之外的路径、生产构建没有 `/lab`；`lab.e2e.ts` 9 个用例覆盖 `ui.component-lab` 场景 1、2、5–9、11–13、15、17；`lab-shot.e2e.ts` 覆盖场景 14。构建内的 `check:dist` 通过；把 Lab 改成静态导入时 `check:dist` 报出两个文件、构建失败（手动反例，未入库）。
 3. 场景 3、4 由组件索引模型测试覆盖，场景 10 由 `check:dist` 与生产 e2e 覆盖，场景 16 随 t49。
 4. `bun run smoke:server` S1–S5 通过（[`smoke-server.txt`](evidences/smoke-server.txt)）。
 5. `docs:check`、`governance:check` 失败为 0、本次改动无新警告；`test:affected --typecheck`（`bun.lock` 有改动，选中全部包）只有开发者决定暂不处理的 4 项既有失败（llmlint 类型检查与 Vitest、nb-ui、test-support），其余全部通过（[`affected.txt`](evidences/affected.txt)）。
 
+**omp 审查（默认模型，只读）：** 一次跑完（[`omp-review.txt`](evidences/omp-review.txt)），列 4 条阻断、8 条建议，多数落在原样迁入的旧 Lab 代码上。主 Agent 逐条核实（查了相关代码的提交来历），处理如下；新增或改写的测试撤掉修复时失败：
+
+1. 建议“Lab 用 `history.replaceState` 改地址栏，router 记录的当前路由过时”：成立。改为经宿主 router 的 `replace` 改写查询参数；e2e 断言换组件后 router 的当前路由与地址栏一致。
+2. 阻断“组件、场景写进 sessionStorage，与 Spec 的 localStorage 合同不符”：成立，但改 Spec 不改实现。会话状态是开发者 2026-09-24 在旧应用里有意加的（两个标签页各看各的组件与场景），Spec 没跟上；`ui.component-lab` 改为写明两份文档的字段、为什么分开与恢复顺序。降为建议。
+3. 阻断“合法的地址参数没有写进偏好”：成立（旧应用同样如此）。恢复期间 watcher 不保存，恢复结束后在采纳了地址参数时补写偏好与会话；补 Bun 测试与 e2e（只带参数打开一次，不带参数再开时恢复同一状态）。
+4. 阻断“场景切换先淡出再淡入，中间舞台是空的”：成立，是旧应用的回退：开发者 2026-09-03 专门删掉退场过渡并写进 Spec，09-18 又加回了 `mode="out-in"` 的淡出淡入。去掉过渡与配套的退场状态；e2e 逐帧采样舞台，换组件期间始终只有一个、始终不透明（把过渡加回去时这条断言失败）。
+5. 建议“加载遮罩与舞台动效写死时长”：成立。舞台过渡已删；遮罩改用 `--motion-fast`。
+6. 阻断“自定义壁纸存取失败没有收口”：成立，降为建议（开发工具的边角）。保存失败时本次照样显示、提示刷新后不保留；删除失败时照样回到默认桌面；启动时读不到也提示。都写一条 `console.warn`。
+7. 建议“依赖方向守卫看不到动态 `import()`”：成立。守卫解析动态导入，前端开发入口只允许 `web/main.ts` 动态加载；断言从真实 `main.ts` 解析出这条动态导入。
+8. 建议“`lab:shot` 按固定时长等待”：部分成立。这是命令行工具的 `--wait` 选项（点击后、截图前），不是测试；改为只在给了 `--click` 时等待，没点击时舞台已由 `__nbLab` 的 ready 确认。点击分支没有补 e2e。
+9. 建议“两段挂载的失败分支没有测试”：成立。补 `src/web/mount.dom.test.ts`（真实窗口、内核与工作台插件，只有连接对象是按协议返回的替身）。
+10. 建议“SkillChip 写死颜色”：成立，改用 `--status-warning`。
+11. 建议“减少动态时加载转圈与舞台动画仍在动”：成立。舞台动画已删；两处转圈加 `motion-reduce:animate-none`。
+12. 建议“别名混有非字符串时静默丢弃”：成立。混有非字符串时提示并按没有别名处理，补测试。
+
+另：`LabShell.vue` 约 2000 行，超过前端规范 1200 行的审查线；拆分是 `ui.component-lab` 已登记延期的 t09，本 Task 不做。
+
 **未验证**：Windows；Firefox、Safari 上的实际运行；场景 3 中阻断原因与入口跳转的界面（真实索引里还没有这类条目，随 t50）；数据面板编辑非法 JSON 的界面行为（分层输入与校验由组件测试覆盖，e2e 只覆盖回写与还原）。
 
 ## 下一步
 
-omp 审查；之后 t49（命令与快速打开）。
+t49：命令与快速打开（`workbench.commands`、`workbench.quick-open`、Lab 场景 16）。

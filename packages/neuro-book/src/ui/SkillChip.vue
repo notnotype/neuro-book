@@ -31,7 +31,7 @@ const props = defineProps<{
     vertical-align: baseline;
     line-height: 1.2;
     box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 4%, transparent);
-    color: #b45309;
+    color: var(--status-warning);
 }
 
 .nb-skill-chip__icon {

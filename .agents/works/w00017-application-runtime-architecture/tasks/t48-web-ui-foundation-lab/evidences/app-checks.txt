@@ -3,9 +3,9 @@ $ tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p t
 exit 0
 
 $ bun run test 2>&1 | grep -E "^\(fail\)| pass$| fail$|^Ran|Test Files|Tests "
- 109 pass
+ 111 pass
  0 fail
-Ran 109 tests across 21 files. [5.84s]
- Test Files  7 passed (7)
-      Tests  30 passed (30)
+Ran 111 tests across 21 files. [5.70s]
+ Test Files  8 passed (8)
+      Tests  33 passed (33)
 exit 0

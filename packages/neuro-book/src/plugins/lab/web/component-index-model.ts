@@ -185,13 +185,10 @@ function parseAliases(raw: string, name: string, warn: (message: string) => void
     }
     try {
         const parsed = JSON.parse(`[${inner}]`) as unknown;
-        if (!Array.isArray(parsed)) {
-            throw new Error("别名必须是 JSON 数组");
+        if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string")) {
+            throw new Error("别名必须全是字符串");
         }
-        return parsed
-            .filter((item): item is string => typeof item === "string")
-            .map((item) => item.trim())
-            .filter((item) => item !== "");
+        return parsed.map((item) => item.trim()).filter((item) => item !== "");
     } catch (error) {
         warn(`${name} 的「别名」不是合法 JSON 字符串数组：${error instanceof Error ? error.message : String(error)}`);
         return [];

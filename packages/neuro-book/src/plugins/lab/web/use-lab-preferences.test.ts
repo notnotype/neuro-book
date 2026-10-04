@@ -223,6 +223,43 @@ describe("useLabPreferences", () => {
         expect(state.selectedSceneId.value).toBe("url-scene");
     });
 
+    it("地址参数被采纳后立即写进偏好与会话，不用再在界面上操作一次", async () => {
+        const sharedLocalStorage = new MemoryStorage();
+        const sessionStore = new MemoryStorage();
+        const state = createState();
+        const preferences = useLabPreferences({
+            storage: () => sharedLocalStorage,
+            sessionStorage: () => sessionStore,
+            getUrlParams: () => ({component: "ViewportCanvas", scene: "url-scene", themeId: "macos", canvasSize: {width: 390, height: 844}}),
+            catalog,
+            defaults,
+            state,
+            hasCustomWallpaper: () => false,
+        });
+
+        await preferences.restore();
+
+        expect(JSON.parse(sharedLocalStorage.getItem(LAB_PREFERENCES_STORAGE_KEY) ?? "{}")).toMatchObject({themeId: "macos"});
+        expect(JSON.parse(sessionStore.getItem(LAB_SESSION_STORAGE_KEY) ?? "{}")).toMatchObject({selectedComponentName: "ViewportCanvas", selectedSceneId: "url-scene", canvasWidth: 390, canvasHeight: 844});
+    });
+
+    it("没有地址参数时只恢复，不改写存储", async () => {
+        const sharedLocalStorage = new MemoryStorage();
+        const preferences = useLabPreferences({
+            storage: () => sharedLocalStorage,
+            sessionStorage: () => new MemoryStorage(),
+            getUrlParams: () => ({}),
+            catalog,
+            defaults,
+            state: createState(),
+            hasCustomWallpaper: () => false,
+        });
+
+        await preferences.restore();
+
+        expect(sharedLocalStorage.getItem(LAB_PREFERENCES_STORAGE_KEY)).toBeNull();
+    });
+
     it("starts in hydrating state and marks hydrating=false after restore completes", async () => {
         const storage = new MemoryStorage();
         const state = createState();
