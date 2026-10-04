@@ -8,7 +8,7 @@ import type {ContributionDescriptor, ContributionHandle} from "@notnotype/nb-run
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {HttpAdmission} from "./admission";
-import {HTTP_ROUTES_CONTRIBUTION, HTTP_ROUTES_POINT} from "./contracts";
+import {HTTP_ROUTES_POINT} from "./contracts";
 import type {HttpRouteEnv, HttpRouteHandler} from "./contracts";
 import {createDispatcher, RouteTable, validateRouteContribution} from "./dispatch";
 import {openStaticFiles} from "./static";
@@ -25,7 +25,7 @@ function routeHandle(plugin: string, handler: HttpRouteHandler): ContributionHan
     let published = true;
     return {
         capability: HTTP_ROUTES_POINT,
-        id: HTTP_ROUTES_CONTRIBUTION,
+        id: plugin,
         plugin,
         entry: "server",
         generation: 1,
@@ -64,7 +64,7 @@ function setup(staticFiles: StaticFiles | null = null) {
 describe("http.routes 贡献校验", () => {
     const descriptor = (overrides: Partial<ContributionDescriptor>): ContributionDescriptor => ({
         capability: HTTP_ROUTES_POINT,
-        id: HTTP_ROUTES_CONTRIBUTION,
+        id: "nbook.files",
         declaration: undefined,
         plugin: "nbook.files",
         entry: "server",
@@ -72,10 +72,10 @@ describe("http.routes 贡献校验", () => {
         ...overrides,
     });
 
-    it("只接受后端入口、id 为 api、且不占用宿主前缀的贡献", () => {
+    it("只接受后端入口、id 为插件 id、且不占用宿主前缀的贡献", () => {
         expect(validateRouteContribution(descriptor({}))).toBeNull();
-        expect(validateRouteContribution(descriptor({id: "other"}))).not.toBeNull();
-        expect(validateRouteContribution(descriptor({plugin: "runtime"}))).not.toBeNull();
+        expect(validateRouteContribution(descriptor({id: "api"}))).not.toBeNull();
+        expect(validateRouteContribution(descriptor({id: "runtime", plugin: "runtime"}))).not.toBeNull();
         expect(validateRouteContribution(descriptor({location: "browser"}))).not.toBeNull();
     });
 });

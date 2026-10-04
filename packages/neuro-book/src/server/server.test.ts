@@ -10,12 +10,14 @@ import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+import {Hono} from "hono";
 
 import type {HttpAdmission} from "nbook/plugins/http/server/admission";
+import type {HttpRouteEnv} from "nbook/plugins/http/server/contracts";
 
 import {ServerAssemblyError, startServer} from "./start";
 import {productServerPlugins} from "./plugins";
-import {createTestPlugin} from "./testing/test-plugins";
+import {createTestPlugin, routePlugin} from "./testing/test-plugins";
 
 const FIXTURE = join(import.meta.dir, "testing", "fixture-entry.ts");
 const MAIN = join(import.meta.dir, "main.ts");
@@ -220,6 +222,21 @@ describe("后端宿主（真实子进程）", () => {
 
 describe("后端宿主（同进程）", () => {
     const config = (name: string) => ({host: "127.0.0.1", port: 0, stateRoot: join(tmpRoot, name), logDirectory: join(tmpRoot, name, "logs"), webRoot: null, stopStdin: false});
+
+    it("两个插件同时提交 http.routes：各自挂在自己的前缀下", async () => {
+        const ping = (reply: string) => () => new Hono<{Bindings: HttpRouteEnv}>().get("/ping", (c) => c.text(reply));
+        const server = startServer({
+            config: config("two-routes"),
+            plugins: (context) => [...productServerPlugins(context), routePlugin("test.ping-a", ping("a")), routePlugin("test.ping-b", ping("b"))],
+            process: new EventEmitter(),
+            writeFatal: () => undefined,
+        });
+        await server.ready;
+        expect(await (await fetch(`${server.url}api/test.ping-a/ping`)).text()).toBe("a");
+        expect(await (await fetch(`${server.url}api/test.ping-b/ping`)).text()).toBe("b");
+        server.requestStop("test:done");
+        expect((await server.stopped).exitCode).toBe(0);
+    });
 
     it("在途请求超过排空上限：继续关闭其余插件，以 1 退出", async () => {
         const scheduled = Promise.withResolvers<() => void>();

@@ -17,7 +17,7 @@
 
 ## 后端
 
-- 插件提供 HTTP 接口时，在后端入口向贡献点 `http.routes` 提交一个处理器（通常是 Hono 应用），挂载在 `/api/<插件 id>/`；合同见 `src/plugins/http/server/contracts.ts` 与 [`runtime.server-host`](../../docs/specs/runtime/server-host.md)。`/api/runtime/` 留给宿主。
+- 插件提供 HTTP 接口时，在后端入口向贡献点 `http.routes` 提交一个处理器（通常是 Hono 应用），贡献 id 写插件自己的 id，挂载在 `/api/<插件 id>/`；合同见 `src/plugins/http/server/contracts.ts` 与 [`runtime.server-host`](../../docs/specs/runtime/server-host.md)。`/api/runtime/` 留给宿主。
 - 长连接（事件流）在处理器里经 `env.registerEventStream(close)` 登记，否则会拖住排空。
 - 记录诊断用 `@notnotype/nb-runtime/diagnostics` 的 `diagnosticsKey` 服务，不直接写文件或另建日志器。
 - 测试需要额外插件时经 `startServer({plugins})` 注入（见 `src/server/testing/`），产品代码不加测试分支。

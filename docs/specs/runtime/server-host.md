@@ -49,7 +49,7 @@ owners:
 5. `nbook.http` 激活后用 Bun 监听，并在标准输出打印一行 `Listening on <地址>`。端口先监听，请求等待运行实例就绪，就绪后处理；宿主自有接口 `GET /api/runtime/health` 在就绪后返回 200。
 6. 其余入口按激活事件懒激活。
 
-**请求分发：** `nbook.http` 定义贡献点 `http.routes`。插件的服务端入口提交一个处理器（通常是 Hono 应用），挂到 `/api/<插件 id>/`，处理器收到的路径已去掉这个前缀；入口停止时摘下，之后的请求得到 404，摘下前的过渡期得到 503。`/api/runtime/` 留给宿主自有接口：`/health`，以及浏览器引导接口 `/browser-bootstrap`（[`runtime.browser-host`](browser-host.md)）。
+**请求分发：** `nbook.http` 定义贡献点 `http.routes`。插件的服务端入口提交一个处理器（通常是 Hono 应用），贡献 id 写插件自己的 id（贡献点内的 id 唯一，见 [`runtime.plugins`](plugins.md)），挂到 `/api/<插件 id>/`，处理器收到的路径已去掉这个前缀；入口停止时摘下，之后的请求得到 404，摘下前的过渡期得到 503。`/api/runtime/` 留给宿主自有接口：`/health`，以及浏览器引导接口 `/browser-bootstrap`（[`runtime.browser-host`](browser-host.md)）。
 
 **页面资源：** 设置了 `NBOOK_WEB_ROOT` 时，`/api/` 之外的路径由前端构建产物提供：只有 GET、HEAD；路径（含符号链接）不能越出该目录；没有扩展名的页面路径回退到 `index.html`，`/assets/` 下与带扩展名的缺失文件是 404；`/assets/` 下的文件长期缓存（Vite 只往这个目录放文件名带内容哈希的产物），其余（含 `index.html`）每次重新验证。页面资源同样经过准入，就绪前等待、排空期间 503。目录缺少 `index.html` 时 `nbook.http` 激活失败，即启动失败。未设置时 `/api/` 之外的路径一律 404（开发模式由 Vite 提供页面）。`/api` 命名空间（按解码后的路径判断）里没有匹配的路径不回退到页面。
 

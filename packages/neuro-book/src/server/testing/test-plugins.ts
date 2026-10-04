@@ -13,7 +13,7 @@ import {Hono} from "hono";
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {HTTP_ROUTES_CONTRIBUTION, HTTP_ROUTES_POINT} from "nbook/plugins/http/server/contracts";
+import {HTTP_ROUTES_POINT} from "nbook/plugins/http/server/contracts";
 import type {HttpRouteEnv} from "nbook/plugins/http/server/contracts";
 
 export const TEST_PLUGIN_IDS = ["test.slow", "test.fail-activate", "test.fail-close", "test.throw-later"] as const;
@@ -34,7 +34,8 @@ function startedThen(until: Promise<unknown>, last: string): Response {
 
 type RouteApp = Hono<{Bindings: HttpRouteEnv}>;
 
-function routePlugin(id: string, routes: (context: ActivationContext) => RouteApp): PluginDefinition {
+/** 启动时在 `/api/<id>/` 挂载 `routes` 的插件。 */
+export function routePlugin(id: string, routes: (context: ActivationContext) => RouteApp): PluginDefinition {
     return {
         id,
         entries: [{
@@ -42,8 +43,8 @@ function routePlugin(id: string, routes: (context: ActivationContext) => RouteAp
             location: "server",
             activationEvents: ["onStartup"],
             dependencies: [{key: diagnosticsKey}],
-            contributions: [{capability: HTTP_ROUTES_POINT, id: HTTP_ROUTES_CONTRIBUTION, declaration: {}}],
-            activate: (context) => ({contributions: {[HTTP_ROUTES_POINT]: {[HTTP_ROUTES_CONTRIBUTION]: routes(context)}}}),
+            contributions: [{capability: HTTP_ROUTES_POINT, id, declaration: {}}],
+            activate: (context) => ({contributions: {[HTTP_ROUTES_POINT]: {[id]: routes(context)}}}),
         }],
     };
 }

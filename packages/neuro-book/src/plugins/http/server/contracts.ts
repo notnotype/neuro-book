@@ -4,11 +4,11 @@
  * 其它插件只以 `import type` 引用这里，运行时经内核的贡献交付与本插件协作。
  */
 
-/** 贡献点 id。 */
+/**
+ * 贡献点 id。每个插件至多一条贡献，贡献 id 写插件自己的 id：内核要求贡献 id 在同一贡献点内唯一，两个插件用了
+ * 同一个 id 时两条都被拒绝（runtime.plugins）。挂载前缀也由插件 id 决定：`/api/<插件 id>/`。
+ */
 export const HTTP_ROUTES_POINT = "http.routes";
-
-/** 每个插件在 `http.routes` 下的唯一贡献 id；挂载前缀由插件 id 决定：`/api/<插件 id>/`。 */
-export const HTTP_ROUTES_CONTRIBUTION = "api";
 
 /** 分发给插件处理器的请求环境。 */
 export interface HttpRouteEnv {

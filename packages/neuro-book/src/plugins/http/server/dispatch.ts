@@ -11,7 +11,6 @@ import type {ContributionDescriptor, ContributionHandle, ContributionReceiver} f
 
 import type {HttpAdmission, RequestTicket} from "./admission";
 import {HttpAdmissionRejected} from "./admission";
-import {HTTP_ROUTES_CONTRIBUTION} from "./contracts";
 import type {HttpRouteEnv, HttpRouteHandler} from "./contracts";
 import type {StaticFiles} from "./static";
 
@@ -22,7 +21,7 @@ type RouteHandle = ContributionHandle<unknown, HttpRouteHandler>;
 
 /** `http.routes` 贡献的结构校验：每个插件只有一份 `api` 贡献，且不占用宿主前缀。 */
 export function validateRouteContribution(descriptor: ContributionDescriptor): string | null {
-    if (descriptor.id !== HTTP_ROUTES_CONTRIBUTION) return `http.routes 的贡献 id 必须是 ${HTTP_ROUTES_CONTRIBUTION}`;
+    if (descriptor.id !== descriptor.plugin) return "http.routes 的贡献 id 必须是插件 id";
     if (descriptor.plugin === HOST_ROUTE_SEGMENT) return `插件 id ${HOST_ROUTE_SEGMENT} 与宿主接口前缀冲突`;
     if (descriptor.location !== "server") return "http.routes 只接受后端入口的贡献";
     return null;
