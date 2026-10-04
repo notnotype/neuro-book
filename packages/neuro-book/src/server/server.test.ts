@@ -16,7 +16,7 @@ import type {HttpAdmission} from "nbook/plugins/http/server/admission";
 import type {HttpRouteEnv} from "nbook/plugins/http/server/contracts";
 
 import {ServerAssemblyError, startServer} from "./start";
-import {productServerPlugins} from "./plugins";
+import {manifestServerPlugins} from "./plugins";
 import {createTestPlugin, routePlugin} from "./testing/test-plugins";
 
 const FIXTURE = join(import.meta.dir, "testing", "fixture-entry.ts");
@@ -227,7 +227,7 @@ describe("后端宿主（同进程）", () => {
         const ping = (reply: string) => () => new Hono<{Bindings: HttpRouteEnv}>().get("/ping", (c) => c.text(reply));
         const server = startServer({
             config: config("two-routes"),
-            plugins: (context) => [...productServerPlugins(context), routePlugin("test.ping-a", ping("a")), routePlugin("test.ping-b", ping("b"))],
+            plugins: (context) => [...manifestServerPlugins(context), routePlugin("test.ping-a", ping("a")), routePlugin("test.ping-b", ping("b"))],
             process: new EventEmitter(),
             writeFatal: () => undefined,
         });
@@ -244,7 +244,7 @@ describe("后端宿主（同进程）", () => {
         const fatalLines: string[] = [];
         const server = startServer({
             config: config("drain-timeout"),
-            plugins: (context) => [...productServerPlugins(context), createTestPlugin("test.slow", hold.promise)],
+            plugins: (context) => [...manifestServerPlugins(context), createTestPlugin("test.slow", hold.promise)],
             process: new EventEmitter(),
             clock: {schedule: (task) => {
                 scheduled.resolve(task);
@@ -275,7 +275,7 @@ describe("后端宿主（同进程）", () => {
             config: config("startup-failed"),
             plugins: (context) => {
                 captured.admission = context.admission;
-                return [...productServerPlugins(context), createTestPlugin("test.fail-activate", hold.promise)];
+                return [...manifestServerPlugins(context), createTestPlugin("test.fail-activate", hold.promise)];
             },
             process: new EventEmitter(),
             onListening: listening.resolve,

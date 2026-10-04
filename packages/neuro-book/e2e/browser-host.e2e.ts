@@ -48,7 +48,9 @@ test("首屏是空工作台：窗口运行实例建立、工作台激活之后�
     expect(errors).toEqual([]);
 });
 
-test("页面表之外的路径：窗口照常就绪，显示“页面不存在”，可以回到工作台", async ({page}) => {
+test("页面表之外的路径：窗口照常就绪，显示“页面不存在”，可以回到工作台；生产构建没有 /lab", async ({page}) => {
+    await page.goto(`${server.url}lab`);
+    await expect(page.locator("[data-page-not-found]")).toHaveAttribute("data-window-state", "ready");
     await page.goto(`${server.url}nope`);
     const notFound = page.locator("[data-page-not-found]");
     await expect(notFound).toHaveAttribute("data-window-state", "ready");

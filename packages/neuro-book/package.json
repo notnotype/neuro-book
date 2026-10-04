@@ -15,9 +15,10 @@
         "test:vitest": "vitest run",
         "test:e2e": "bun run build && playwright test -c e2e/playwright.config.ts",
         "typecheck": "tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json",
-        "build": "bun run build:server && bun run build:web",
+        "build": "bun run build:server && bun run build:web && bun run check:dist",
         "build:server": "bun build src/server/main.ts --target bun --outdir dist/server",
         "build:web": "vite build",
+        "check:dist": "bun scripts/check-dist.ts",
         "start": "NBOOK_WEB_ROOT=dist/web bun dist/server/main.js",
         "smoke:server": "bun scripts/smoke-server.ts"
     },

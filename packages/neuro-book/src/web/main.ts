@@ -15,10 +15,19 @@ import {createWebHistory} from "vue-router";
 import {createConnection} from "./host/connection";
 import {createBrowserWindow} from "./host/window";
 import {mountWindowUi} from "./mount";
+import {browserPluginFactories, builtinBrowserPlugins} from "./plugins";
 
 const container = document.querySelector("#app");
 if (container === null) throw new Error("index.html 缺少 #app");
-const browserWindow = createBrowserWindow({connection: createConnection(location.origin), page: window, console});
+// 开发清单里的插件（Lab）只在开发模式加载；生产构建把这个分支连同它动态加载的模块一起去掉。
+const development = import.meta.env.DEV ? await import("./development-plugins") : null;
+const browserWindow = createBrowserWindow({
+    connection: createConnection(location.origin),
+    page: window,
+    console,
+    builtin: [...builtinBrowserPlugins, ...(development?.developmentBrowserPlugins ?? [])],
+    factories: {...browserPluginFactories, ...development?.developmentBrowserPluginFactories},
+});
 await browserWindow.start();
 await mountWindowUi({
     browserWindow,

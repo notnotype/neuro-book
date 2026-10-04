@@ -12,6 +12,8 @@ import type {Application, StartupResult, StopResult} from "@notnotype/nb-runtime
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency, serializeDiagnosticError} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
+import {productPlugins} from "nbook/manifest";
+import type {PluginDescriptor} from "nbook/manifest";
 import {HttpAdmission} from "nbook/plugins/http/server/admission";
 import type {DrainClock} from "nbook/plugins/http/server/admission";
 import {collectServiceKeys} from "nbook/shared/service-keys";
@@ -19,14 +21,16 @@ import {collectServiceKeys} from "nbook/shared/service-keys";
 import type {ServerConfig} from "./config";
 import {startServerHost} from "./host";
 import type {FatalKind, ProcessEvents} from "./host";
-import {productServerPlugins} from "./plugins";
+import {manifestServerPlugins} from "./plugins";
 import type {ServerPluginContext} from "./plugins";
 
 export type ExitCode = 0 | 1;
 
 export interface StartServerOptions {
     readonly config: ServerConfig;
-    /** 装配插件；缺省按产品清单。测试经这里加入自己的插件，产品代码不含测试分支。 */
+    /** 本进程加载的清单；缺省是产品清单，开发入口另加开发清单。 */
+    readonly manifest?: ReadonlyArray<PluginDescriptor>;
+    /** 装配插件；缺省按清单。测试经这里加入自己的插件，产品代码不含测试分支。 */
     readonly plugins?: (context: ServerPluginContext) => ReadonlyArray<PluginDefinition>;
     readonly process?: ProcessEvents;
     readonly signals?: ReadonlyArray<NodeJS.Signals>;
@@ -96,6 +100,7 @@ export function startServer(options: StartServerOptions): RunningServer {
 
     const context: ServerPluginContext = {
         config: options.config,
+        manifest: options.manifest ?? productPlugins,
         store,
         admission,
         onListening: (address) => {
@@ -105,7 +110,7 @@ export function startServer(options: StartServerOptions): RunningServer {
     };
     let plugins: ReadonlyArray<PluginDefinition>;
     try {
-        plugins = (options.plugins ?? productServerPlugins)(context);
+        plugins = (options.plugins ?? manifestServerPlugins)(context);
     } catch (error) {
         // 还没有运行实例，没有要关闭的资源。
         reportFatal("runtime.startup.failed", "后端插件装配失败", error);

@@ -25,6 +25,6 @@ const code = await runDev({
     config: readConfigOrExit(),
     configFile: join(packageRoot, "vite.config.ts"),
     watchRoots: backendWatchRoots(packageRoot),
-    backend: (env) => ({command: [process.execPath, join(packageRoot, "src/server/main.ts"), "--stop-stdin"], cwd: packageRoot, env}),
+    backend: (env) => ({command: [process.execPath, join(packageRoot, "src/server/development-main.ts"), "--stop-stdin"], cwd: packageRoot, env}),
 });
 process.exit(code);

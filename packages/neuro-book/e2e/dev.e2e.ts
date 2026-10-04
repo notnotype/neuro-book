@@ -20,12 +20,14 @@ function backendSequence(output: string): string[] {
     });
 }
 
-test("开发命令：页面是空工作台；改后端文件后有序重启、页面重新引导成功；SIGTERM 先停后端再关页面，以 0 退出", async ({page}) => {
+test("开发命令：页面是空工作台，/lab 是 Lab；改后端文件后有序重启、页面重新引导成功；SIGTERM 先停后端再关页面，以 0 退出", async ({page}) => {
     const tmp = await createTestTmpRoot("neuro-book-e2e", "dev-session");
     const dev = await startDevSession(join(tmp, "state"));
     const entry = join(PACKAGE_ROOT, "src", "server", "main.ts");
     const original = statSync(entry);
     try {
+        await page.goto(`${dev.pageUrl}lab`);
+        await expect(page.locator("[data-lab-page]")).toHaveAttribute("data-window-state", "ready");
         await page.goto(dev.pageUrl);
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
 

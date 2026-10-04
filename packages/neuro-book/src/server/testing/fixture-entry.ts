@@ -4,7 +4,7 @@
  */
 
 import {readServerConfig} from "nbook/server/config";
-import {productServerPlugins} from "nbook/server/plugins";
+import {manifestServerPlugins} from "nbook/server/plugins";
 import {startServer} from "nbook/server/start";
 
 import {createTestPlugin, TEST_PLUGIN_IDS} from "./test-plugins";
@@ -18,7 +18,7 @@ const config = readServerConfig(process.argv.slice(2), process.env, process.cwd(
 const server = startServer({
     config,
     stopInput: config.stopStdin ? process.stdin : null,
-    plugins: (context) => [...productServerPlugins(context), ...requested.map((id) => createTestPlugin(id as TestPluginId))],
+    plugins: (context) => [...manifestServerPlugins(context), ...requested.map((id) => createTestPlugin(id as TestPluginId))],
     onListening: (url) => {
         console.log(`Listening on ${url}`);
     },
