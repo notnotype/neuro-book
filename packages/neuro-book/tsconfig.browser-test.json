@@ -1,8 +1,9 @@
 {
     "extends": "./tsconfig.web.json",
     "compilerOptions": {
-        "types": ["bun", "vite/client"]
+        "types": ["bun", "vite/client"],
+        "allowImportingTsExtensions": true
     },
-    "include": ["src/**/*.dom.test.ts", "e2e"],
+    "include": ["src/**/*.dom.test.ts", "e2e", "scripts/lab-shot.ts"],
     "exclude": []
 }

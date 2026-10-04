@@ -20,7 +20,8 @@
         "build:web": "vite build",
         "check:dist": "bun scripts/check-dist.ts",
         "start": "NBOOK_WEB_ROOT=dist/web bun dist/server/main.js",
-        "smoke:server": "bun scripts/smoke-server.ts"
+        "smoke:server": "bun scripts/smoke-server.ts",
+        "lab:shot": "node scripts/lab-shot.ts"
     },
     "dependencies": {
         "@notnotype/nb-runtime": "workspace:*",

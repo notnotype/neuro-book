@@ -27,5 +27,5 @@
         "vite.config.ts",
         "vitest.config.ts"
     ],
-    "exclude": ["src/**/*.dom.test.ts"]
+    "exclude": ["src/**/*.dom.test.ts", "scripts/lab-shot.ts"]
 }
