@@ -94,7 +94,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | Monorepo / Module | [Monorepo 边界](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md) | Monorepo 当前包布局、唯一文档真相源、包级继承/覆盖、依赖方向和 worktree 根边界 |
 | 测试与验收 | [`../testing/README.md`](../testing/README.md) | 测试组织、临时根、验收和证据合同 |
 | 贡献与交付 | [CONTRIBUTING](https://github.com/notnotype/neuro-book/blob/master/CONTRIBUTING.md) | Issue、开发、Git、PR 与维护者交付流程 |
-| Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、组件导航、检视面板、响应式容器、偏好和 Product 排除合同；产品主题与渐进组件迁移仍属后续切片；**实现迁移中** |
+| Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、组件导航、检视面板、响应式容器、偏好和 Product 排除合同；新应用以开发插件 `nbook.lab` 实现外壳与机制（场景 1–15、17），命令场景随 w00017 t49，工作台与业务域组件随各自迁移；**实现迁移中** |
 | Workbench 命令系统 | [`workbench/commands.md`](workbench/commands.md) | 注册登记、`when` 求值、执行管线、暴露策略与审计；六条首批命令在 Component Lab 闭环，实现与合同测试闭合；**实现迁移中** |
 | Workbench 快速打开 | [`workbench/quick-open.md`](workbench/quick-open.md) | 单控件两模（命令搜索与行号跳转）、会话 MRU、S4 浮层键盘与焦点交接；实现与 Lab 验收闭合，主页面接入不在本批；**实现迁移中** |
 | 资源生命周期 | [`runtime/lifecycle.md`](runtime/lifecycle.md) | `runtime.lifecycle`；作用域、资源 owner、操作接纳与取消/终止、关闭尝试与显式恢复；第一切片由合同测试与双宿主 smoke 闭合；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
@@ -119,7 +119,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | 资源寻址与文件服务 | [`workspace/resources.md`](workspace/resources.md) | `workspace.resources`；`方案://路径` 寻址、提供者注册与能力声明、写入来源与变更事件、bash 的真实路径规则；首批 `project://`、`user://`、`tmp://`、`local://`、`docs://`；阶段 2 实施 |
 | 文件夹类型与清单 | [`workspace/folder-kinds.md`](workspace/folder-kinds.md) | `workspace.folder-kinds`；普通、内容（`*.content`）、活页夹（`*.binder`）三类文件夹，后缀识别、XML 清单、未列入与缺失处理、渲染贡献点；阶段 2 实施 |
 | 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | `runtime.plugin-manifest`；清单格式、按入口声明依赖的服务、同一运行位置解析、受阻推导与启停顺序；阶段 1 起实施 |
-| 浏览器宿主 | [`runtime/browser-host.md`](runtime/browser-host.md) | `runtime.browser-host`；挂载前建立窗口运行实例、引导接口、多窗口隔离、可分离边界；新应用实现启动序列第 1–4 步与场景 1、2、4，懒激活、事件流与热插拔未实现 |
+| 浏览器宿主 | [`runtime/browser-host.md`](runtime/browser-host.md) | `runtime.browser-host`；挂载前建立窗口运行实例、引导接口、多窗口隔离、可分离边界；新应用实现启动序列第 1–4 步（含页面表与宿主路由）与场景 1、2、4，懒激活、事件流与热插拔未实现 |
 | 插件通道与 HTTP 入口 | [`runtime/plugin-channel.md`](runtime/plugin-channel.md) | `runtime.plugin-channel`；合同端点、订阅与重连、错误格式、版本校验、路由贡献；流的传输另立；阶段 1、2 实施 |
 | 端点收集与 API 文档 | [`runtime/api-docs.md`](runtime/api-docs.md) | `runtime.api-docs`；端点声明收集、OpenAPI 生成与展示；阶段 2 实施 |
 | 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | `runtime.plugin-hot-plug`；热插拔三档、引用账本与转发器、三步停止、在途调用结算；阶段 3 实施 |

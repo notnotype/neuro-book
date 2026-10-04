@@ -1,0 +1,40 @@
+$ bun run test:affected --typecheck --since master --dry-run
+$ bun scripts/cli/test-affected.ts --typecheck --since master --dry-run
+改动文件 8903 个（未提交的改动，以及与 master 分叉以来的提交）。
+选中 16 项（test）：
+  file-snapshot-cache（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  llmlint（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run registry:build；bun run test:vitest；bun run test:bun
+  nb-harness（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  nb-history（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  nb-memory（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  nb-profile（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  nb-runtime（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  nb-session（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  nb-ui（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  nb-workflow（依赖锁、运行器配置或补丁有改动）：bun run test
+  neuro-agent-harness（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  neuro-book（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test:bun；bun run test:vitest
+  neuro-book-contracts（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  neuro-book-test-support（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  owned-process（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  scripts（依赖锁、运行器配置或补丁有改动）：bun x tsc --noEmit -p scripts/tsconfig.json；bun x vitest run --config scripts/vitest.config.ts
+
+$ bun run test:affected --typecheck --since master   # 实际运行，只保留结尾的汇总
+超过 200ms 的测试 61 个（列出最慢的 10 个）：
+   25295ms  neuro-agent-harness/tests/jsonl-lock-crash-phases.test.ts  root/owner/metadata/heartbeat/append 各阶段退出都 fail closed，append facts 仍可恢复
+    5055ms  neuro-agent-harness/tests/jsonl-lock.test.ts  owner 在 acquire 后崩溃时，后续 commit fail closed 为 busy
+    2691ms  nb-history/tests/perf.test.ts  P2: 1 万条目 + 3 千快照库上 unseen/inbox/timeline 各 ≤ 50ms
+    2084ms  neuro-agent-harness/tests/package-consumer-usability.test.ts  同一个公开 consumer 在 Bun/Node tarball 安装后完成完整组合并可从 JSONL 重启恢复
+    1976ms  neuro-book/src/server/dev/run.test.ts  页面经 Vite 提供、API 经代理；改后端文件有序重启；SIGTERM 时先停后端再关页面，以 0 退出
+    1075ms  neuro-agent-harness/tests/sse-http-transport.test.ts  首连全量 + Last-Event-ID 续传只收新事件
+    1002ms  nb-workflow/test/runner-backend.test.ts  rerun allows a running Run when the Backend declares processRestart
+     547ms  nb-history/tests/handles.test.ts  T12b: 两个先后进程依次打开同一库,不报 SQLITE_BUSY
+     516ms  neuro-book/src/server/dev/run.test.ts  第二个停止信号不等排空：在途请求拖住排空时直接结束后端，以 1 退出
+     495ms  neuro-book/src/server/dev/run.test.ts  终端 Ctrl+C（监督进程与后端同时收到 SIGINT）：两个停止请求汇合，仍有序结束，以 0 退出
+
+失败 4 项：
+  llmlint：bun run typecheck 退出码 2
+  llmlint：bun run test:vitest 退出码 1
+  nb-ui：bun run test 退出码 1
+  neuro-book-test-support：bun run test 退出码 1
+error: script "test:affected" exited with code 1

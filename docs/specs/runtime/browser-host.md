@@ -42,7 +42,7 @@ owners:
 1. 加载外壳：`index.html` 与前端入口；脚本运行前页面只有静态的“正在启动”占位。
 2. 前端入口在挂载根组件前调用引导接口，取得有效插件集合（每个插件的 id 与版本）、集合修订号与协议版本。请求失败时显示带重试的连接失败页，不渲染半个工作台；协议版本不同、或服务端启用了本外壳没有的插件或版本时提示刷新；响应结构不符合协议或缺少窗口必需的插件（`nbook.diagnostics`、`nbook.workbench`）时显示启动失败页。
 3. 建立窗口运行实例：按集合登记本外壳构建进去的浏览器插件，插件集合以服务端为准，浏览器不自行增减。内置插件的浏览器定义随外壳构建，引导只给 id 与版本；第三方插件的浏览器入口随 [`runtime.plugin-code-loading`](plugin-code-loading.md) 加入，届时引导响应加回清单并建立宿主模块表。
-4. 激活 `nbook.workbench`，解析它交出的根界面，恢复布局，挂载根组件。
+4. 激活 `nbook.workbench`，解析它交出的页面表，恢复布局，挂载根组件。页面由工作台的贡献点 `workbench.pages` 汇集（工作台自己的 `/` 加上其它插件贡献的页面，例如开发模式的 `/lab`）；宿主按页面表建立路由，等首次导航完成（当前页面的模块已加载）才挂载，页面表之外的路径显示“页面不存在”。声明了“离开时整页加载”的页面，导航去别的路径时整页加载。
 5. 可见视图触发 `onView`，激活其所属入口；不可见视图的入口不加载。
 6. 建立本窗口的事件流。事件流建立（含重连）时，窗口核对服务端发来的集合修订号，与引导时取得的不同就重新取得集合并对齐，保证引导与事件流之间发生的变化不会丢失（[`runtime.plugin-channel`](plugin-channel.md)）；此后的插件集合变化经事件流到达，按 [`runtime.plugin-hot-plug`](plugin-hot-plug.md) 同步。
 
@@ -105,17 +105,17 @@ Smoke：生产构建的服务端与本机 Chrome 运行场景 1、2、4 与协�
 
 ## 实现合同
 
-- **实现 owner 与入口**：application-runtime。前端入口 `packages/neuro-book/src/web/main.ts`（先 `await browserWindow.start()`，再 `createApp(App).mount()`）；窗口 `src/web/host/window.ts`（`createBrowserWindow({connection, page, console, builtin?, factories?}) → BrowserWindow {state, onChange(listener), start(), stop()}`，状态 `idle | starting | ready{instanceId, root} | connection-failed | incompatible | startup-failed{reason} | closed`）；浏览器适配器 `src/web/host/browser-host.ts`（见 [`runtime.application`](application.md)）；连接对象 `src/web/host/connection.ts`（`createConnection(baseUrl)`，失败抛带 `status` 的 `ConnectionError`）；浏览器插件装配 `src/web/plugins.ts`；界面 `src/web/App.vue`、`FailurePage.vue`（可观察标记 `data-workbench-root`、`data-window-state`、`data-window-instance`、`data-browser-host-status`）。协议 `src/shared/browser-bootstrap.ts`（`BROWSER_BOOTSTRAP_PATH = /api/runtime/browser-bootstrap`、`BROWSER_PROTOCOL_VERSION = 1`、TypeBox 的 `BrowserBootstrapSchema`）；后端 `src/server/browser-bootstrap.ts`（`browserBootstrap(plugins)`、`createBrowserBootstrapRoute(plugins)`，按产品清单列出有浏览器运行位置的插件）。工作台交出根界面的服务键 `src/plugins/workbench/web/contracts.ts` 的 `workbenchRootKey`。
+- **实现 owner 与入口**：application-runtime。前端入口 `packages/neuro-book/src/web/main.ts`（先 `await browserWindow.start()`，再 `mountWindowUi(...)`；开发构建另在 `import.meta.env.DEV` 分支里动态加载开发清单的插件）；挂载 `src/web/mount.ts`（窗口 ready 时建立路由、等首次导航完成后挂载 `PageOutlet.vue`；未 ready 时先挂 `HostPage.vue`，重试成功后换成页面；首次导航失败显示只能刷新的启动失败页）；路由 `src/web/router.ts`（`createPageRouter({pages, history, navigateDocument})`：router 归宿主，一个文档一个；未匹配路径给 `NotFoundPage.vue`；离开 `reloadOnLeave` 的页面时调用 `navigateDocument` 整页加载，同一路径只改查询参数时照常导航）；窗口 `src/web/host/window.ts`（`createBrowserWindow({connection, page, console, builtin?, factories?}) → BrowserWindow {state, onChange(listener), start(), stop()}`，状态 `idle | starting | ready{instanceId, root} | connection-failed | incompatible | startup-failed{reason} | closed`）；浏览器适配器 `src/web/host/browser-host.ts`（见 [`runtime.application`](application.md)）；连接对象 `src/web/host/connection.ts`（`createConnection(baseUrl)`，失败抛带 `status` 的 `ConnectionError`）；浏览器插件装配 `src/web/plugins.ts`（产品）与 `src/web/development-plugins.ts`（开发清单）；宿主页 `FailurePage.vue`（可观察标记 `data-workbench-root`、`data-window-state`、`data-window-instance`、`data-browser-host-status`、`data-page-not-found`）。协议 `src/shared/browser-bootstrap.ts`（`BROWSER_BOOTSTRAP_PATH = /api/runtime/browser-bootstrap`、`BROWSER_PROTOCOL_VERSION = 1`、TypeBox 的 `BrowserBootstrapSchema`）；后端 `src/server/browser-bootstrap.ts`（`browserBootstrap(plugins)`、`createBrowserBootstrapRoute(plugins)`，按本进程加载的清单列出有浏览器运行位置的插件）。工作台交出页面表的服务键 `src/plugins/workbench/web/contracts.ts` 的 `workbenchRootKey`（`WorkbenchRoot {pages()}`）与贡献点 `WORKBENCH_PAGES_POINT`；页面表与贡献校验在 `src/plugins/workbench/web/pages.ts`（贡献 id 写页面路径，同一路径的两条贡献一起被拒绝；`/api`、`/assets` 留给服务端）。
 - **关键不变量**：
   - 协议版本先于结构校验：新版本服务端可能改了结构，此时应提示刷新而不是报格式错误。
-  - 窗口在解析到工作台的根界面后才是 ready；只在连接失败后允许原地重试，其它失败要刷新。每次启动尝试使用新的 instanceId。
+  - 窗口在解析到工作台的页面表后才是 ready，此时其它插件的页面贡献已经在表里（内核先激活全部启动入口、再执行门禁）；只在连接失败后允许原地重试，其它失败要刷新。每次启动尝试使用新的 instanceId。
   - 引导响应 `Cache-Control: no-store`，集合修订号由排序后的 `id@version` 得出，集合与版本不变时跨重启不变。
   - 前端代码不引用后端代码、Node 与 Bun 模块；跨插件只用 `import type`（`src/architecture.test.ts`）。
-- **合同测试**：`src/web/host/window.test.ts`（同进程真实后端：场景 1、2、4，503、协议与插件版本不一致、结构错误、缺少必需插件、工作台激活或装配失败、非必需入口失败时窗口照常）、`src/web/host/browser-host.test.ts`、`src/server/browser-bootstrap.test.ts`、`src/architecture.test.ts`。
-- **实际 smoke**：`e2e/browser-host.e2e.ts`（`bun run test:e2e`，先构建再用本机 Chrome 运行）。
+- **合同测试**：`src/web/host/window.test.ts`（同进程真实后端：场景 1、2、4，503、协议与插件版本不一致、结构错误、缺少必需插件、工作台激活或装配失败、非必需入口失败时窗口照常、页面贡献与重复或保留路径的拒绝）、`src/web/router.dom.test.ts`（页面不存在、整页加载的判定）、`src/web/FailurePage.dom.test.ts`、`src/web/host/browser-host.test.ts`、`src/server/browser-bootstrap.test.ts`、`src/architecture.test.ts`。
+- **实际 smoke**：`e2e/browser-host.e2e.ts`（`bun run test:e2e`，先构建再用本机 Chrome 运行；含页面表之外的路径与生产构建没有 `/lab`）。
 
 ## 证据
 
 - 批准目标：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P7 与 P11（2026-09-28 启动流程走查批准同源部署加可分离边界与浏览器启动序列）；v2 的前端入口见 [NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 方案第 4 节与 [ADR 0023](../../adr/0023-v2-frontend-backend-stack.md)。
 - 验证依据：[G1 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g1/REPORT.md)。
-- 实现进展：新应用实现了启动序列第 1–4 步（布局恢复除外，随 workbench 底座加入）与场景 1、2、4，见 [w00017 t47](../../../.agents/works/w00017-application-runtime-architecture/tasks/t47-web-host-dev-supervisor/README.md)。未实现：懒激活（场景 3）、事件流、插件集合变化与离线重连（场景 5–7）、鉴权、第三方浏览器入口。旧应用阶段 1 的实现见 [t39](../../../.agents/works/w00017-application-runtime-architecture/tasks/t39-browser-host/README.md)。本 Spec 保持 `planned`。
+- 实现进展：新应用实现了启动序列第 1–4 步（布局恢复除外，随 workbench 底座加入）与场景 1、2、4，见 [w00017 t47](../../../.agents/works/w00017-application-runtime-architecture/tasks/t47-web-host-dev-supervisor/README.md)；页面表、宿主路由与开发插件的装配见 [t48](../../../.agents/works/w00017-application-runtime-architecture/tasks/t48-web-ui-foundation-lab/README.md)。未实现：懒激活（场景 3）、事件流、插件集合变化与离线重连（场景 5–7）、鉴权、第三方浏览器入口。旧应用阶段 1 的实现见 [t39](../../../.agents/works/w00017-application-runtime-architecture/tasks/t39-browser-host/README.md)。本 Spec 保持 `planned`。
