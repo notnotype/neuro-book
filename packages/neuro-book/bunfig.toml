@@ -1,0 +1,3 @@
+[test]
+# 组件测试由 Vitest 运行（vitest.config.ts）：Bun 不能加载 .vue。
+pathIgnorePatterns = ["**/*.dom.test.ts"]

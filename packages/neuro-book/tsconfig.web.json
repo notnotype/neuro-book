@@ -13,6 +13,6 @@
             "nbook/*": ["./src/*"]
         }
     },
-    "include": ["src/web", "src/plugins/*/web", "src/plugins/*/plugin.ts", "src/shared", "src/manifest.ts"],
+    "include": ["src/web", "src/ui", "src/plugins/*/web", "src/plugins/*/plugin.ts", "src/plugins/*/shared", "src/shared", "src/manifest.ts", "src/development-manifest.ts"],
     "exclude": ["**/*.test.ts"]
 }

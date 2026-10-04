@@ -13,7 +13,7 @@ import {resolve} from "node:path";
 import {git} from "#scripts/ci/agent-governance-contract";
 import type {FileWarning} from "#scripts/ci/change-scope";
 
-export type TestRule = "module-mock" | "spy" | "fixed-wait" | "focus-or-skip" | "snapshot" | "llm-credential";
+export type TestRule = "module-mock" | "spy" | "fixed-wait" | "fake-timer" | "focus-or-skip" | "snapshot" | "llm-credential";
 
 export type TestConventionFinding = {path: string; line: number; rule: TestRule; detail: string};
 
@@ -36,8 +36,8 @@ type Rule = {
 const RULES: readonly Rule[] = [
     {
         rule: "module-mock",
-        pattern: /\bmock\.module\(|\b(?:vi|jest)\.(?:mock|doMock)\(/u,
-        detail: "替换整个模块：改用真实实现，或注入与真实实现对过契约的替身",
+        pattern: /\bmock\.module\(|\b(?:vi|jest)\.(?:mock|doMock|stubGlobal|stubEnv)\(/u,
+        detail: "替换整个模块或全局对象：改用真实实现，或注入与真实实现对过契约的替身",
     },
     {
         rule: "spy",
@@ -49,6 +49,11 @@ const RULES: readonly Rule[] = [
         pattern: /\bBun\.sleep(?:Sync)?\(|\bsetTimeout\(|\.waitForTimeout\(/u,
         exempt: (line) => ZERO_DELAY.test(line),
         detail: "按固定时长等待：等可观察的状态（test-support 的 waitUntil）或注入时钟",
+    },
+    {
+        rule: "fake-timer",
+        pattern: /\b(?:vi|jest)\.(?:useFakeTimers|advanceTimers\w*|runAllTimers|runOnlyPendingTimers)\(|\bsetSystemTime\(/u,
+        detail: "假计时器改写了全局时间：把时钟作为参数注入，或等可观察的状态",
     },
     {
         rule: "focus-or-skip",

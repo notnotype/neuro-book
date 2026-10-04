@@ -8,7 +8,7 @@ function rules(source: string, path = "packages/x/src/a.test.ts"): string[] {
 }
 
 describe("测试文件规则", () => {
-    it("查出模块 mock、spyOn、固定等待、only/skip/todo 与快照", () => {
+    it("查出模块 mock、spyOn、固定等待、假计时器、only/skip/todo 与快照", () => {
         const source = [
             'mock.module("./db", () => ({}));',
             'vi.mock("./db");',
@@ -20,6 +20,12 @@ describe("测试文件规则", () => {
             'describe.todo("x");',
             "expect(tree).toMatchSnapshot();",
             "await page.waitForTimeout(500);",
+            'vi.stubGlobal("fetch", fake);',
+            'vi.stubEnv("NODE_ENV", "test");',
+            "vi.useFakeTimers();",
+            "vi.advanceTimersByTime(100);",
+            "await vi.runAllTimers();",
+            "setSystemTime(new Date(0));",
         ].join("\n");
         expect(rules(source)).toEqual([
             "1:module-mock",
@@ -32,6 +38,12 @@ describe("测试文件规则", () => {
             "8:focus-or-skip",
             "9:snapshot",
             "10:fixed-wait",
+            "11:module-mock",
+            "12:module-mock",
+            "13:fake-timer",
+            "14:fake-timer",
+            "15:fake-timer",
+            "16:fake-timer",
         ]);
     });
 

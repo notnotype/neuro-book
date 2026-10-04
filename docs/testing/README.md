@@ -23,9 +23,10 @@
 
 | 规则 | 拦截 | 代替做法 |
 | --- | --- | --- |
-| `module-mock` | `mock.module`、`vi.mock`、`jest.mock` | 真实实现，或对过契约的替身 |
+| `module-mock` | `mock.module`、`vi.mock`、`jest.mock`，以及替换全局的 `vi.stubGlobal`、`vi.stubEnv` | 真实实现，或对过契约的替身 |
 | `spy` | `spyOn` | 断言可观察结果 |
 | `fixed-wait` | 非零延迟的 `Bun.sleep`、`setTimeout`，Playwright 的 `waitForTimeout` | `waitUntil` 或注入时钟；e2e 用 Playwright 的自动等待与 `expect.poll` |
+| `fake-timer` | `vi.useFakeTimers`、`vi.advanceTimers*`、`vi.runAllTimers`、`setSystemTime` 等改写全局时间的假计时器 | 把时钟作为参数注入 |
 | `focus-or-skip` | `it/test/describe` 的 `.only`、`.skip`、`.todo` | 按条件跳过用 `skipIf`、`runIf` |
 | `snapshot` | 快照断言 | 断言具体字段 |
 | `llm-credential` | `*.llm.test.ts` 以外读取模型凭据 | 放进 `*.llm.test.ts` |
@@ -54,7 +55,7 @@
 - 缺省按改动：改动所在的包，加上直接或间接依赖它的包；根 `scripts/`、workflow 或根 `package.json` 有改动时加上根脚本测试；`bun.lock`、`bunfig.toml` 或 `patches/` 有改动时选中全部。`--since <rev>` 再算上与 `<rev>` 分叉以来的提交，`--all` 选中全部。
 - `--package <名>`（可重复）：不看改动，只测指定的包，`scripts` 指根脚本测试；加 `--with-consumers` 连同依赖它的包。
 - `--tier fast|e2e|llm`：运行哪一类，缺省 `fast`。
-- `--files`：改动所在的包只跑受影响的测试文件（测试脚本是单条 `bun test` 时，追加 Bun 的 `--changed`）。Bun 按导入关系选文件，不跨包追踪，依赖方的包仍整包运行；只经路径启动的文件（例如子进程入口）改了也选不到，提交前去掉 `--files` 再跑一次。
+- `--files`：改动所在的包只跑受影响的测试文件（测试脚本是单条 `bun test` 时追加 Bun 的 `--changed`；写成 `bun run a && bun run b` 时逐步运行，其中单条 `bun test` 或 `vitest run` 的一步各自追加 `--changed`）。Bun 按导入关系选文件，不跨包追踪，依赖方的包仍整包运行；只经路径启动的文件（例如子进程入口）改了也选不到，提交前去掉 `--files` 再跑一次。
 - `--typecheck` 同时跑类型检查，`--dry-run` 只列出选中项和原因。
 
 包内再缩小到文件时，在包目录把测试文件路径传给 `bun run test <路径>`。
@@ -104,8 +105,8 @@
 
 ## 测试文件组织
 
-- 测试文件与被测源码同目录，命名 `<module>.test.ts`；服务端需要 JSX 时用 `.test.tsx`；真实模型测试用 `<module>.llm.test.ts`。
-- 新应用与新包用 Bun 自带测试器（`bun test`），不引入 Vitest 配置；以下 Vitest 条目只适用于仍用 Vitest 的既有包。
+- 测试文件与被测源码同目录，命名 `<module>.test.ts`；服务端需要 JSX 时用 `.test.tsx`；真实模型测试用 `<module>.llm.test.ts`；新应用的 Vue 组件测试用 `<module>.dom.test.ts`。
+- 新应用与新包用 Bun 自带测试器（`bun test`）。例外是新应用的 Vue 组件测试：Bun 不能加载 `.vue`，`*.dom.test.ts` 由 Vitest 在 happy-dom 里运行（`packages/neuro-book/vitest.config.ts` 沿用前端的 Vite 配置），包内 `bunfig.toml` 让 `bun test` 跳过它们，包脚本 `test` 依次运行两者；需要真实布局的交互走 Playwright。以下 Vitest 条目适用于这部分组件测试与仍用 Vitest 的既有包。
 - 每个 Vitest 配置显式声明 `root`（仓库根或包根），不依赖 `process.cwd()`；include 覆盖
   该作用域内全部测试文件。
 - Vitest 包的全量测试统一用包脚本 `bun run --cwd packages/<pkg> test`（node 运行时）。`bun --bun` 直接运行 vitest 时部分依赖

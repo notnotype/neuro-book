@@ -1,6 +1,6 @@
 /**
  * 包内依赖方向（packages/neuro-book/AGENTS.md 目录约定）：前端代码不引后端与 Bun/Node；后端不引前端；
- * 共用目录、插件描述与产品清单不引任何一侧；跨插件只用 `import type`；只有开发监督进程能引 Vite。
+ * 共用目录、插件描述与产品清单不引任何一侧；跨插件只用 `import type`；只有开发监督进程能引 Vite；测试库只在测试里用。
  * 前端误引后端代码时打包与类型检查不一定失败（Bun 能解析两侧），所以按导入语句检查。
  * 测试文件与 `testing/` 不受限：它们要在同一进程里搭真实后端或运行环境。
  */
@@ -43,6 +43,8 @@ const has = (path: string, segment: string): boolean => path.split("/").includes
 const pluginOf = (path: string): string | null => /^plugins\/([^/]+)\//u.exec(path)?.[1] ?? null;
 const isPlatformModule = (specifier: string): boolean => specifier.startsWith("node:") || specifier === "bun" || specifier.startsWith("bun:");
 const isFrontendPackage = (specifier: string): boolean => specifier === "vue" || specifier.startsWith("vue/") || specifier.startsWith("@vitejs/");
+const TEST_LIBRARIES = ["vitest", "@vue/test-utils", "happy-dom", "@playwright/test"];
+const isTestLibrary = (specifier: string): boolean => TEST_LIBRARIES.some((name) => specifier === name || specifier.startsWith(`${name}/`));
 
 function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
     const found: string[] = [];
@@ -59,6 +61,7 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
         const to = target === null ? null : pluginOf(target);
         if (from !== null && to !== null && from !== to && !use.typeOnly) found.push(`跨插件的运行时导入（只允许 import type）：${where}`);
         if ((use.specifier === "vite" || use.specifier.startsWith("vite/")) && !use.file.startsWith("server/dev/")) found.push(`只有开发监督进程能引用 Vite：${where}`);
+        if (isTestLibrary(use.specifier)) found.push(`产品代码引用了测试库：${where}`);
     }
     return found;
 }
@@ -78,6 +81,7 @@ describe("包内依赖方向", () => {
             use("shared/browser-bootstrap.ts", "nbook/plugins/http/server/dispatch"),
             use("plugins/workbench/web/plugin.ts", "nbook/plugins/diagnostics/web/plugin"),
             use("web/main.ts", "vite"),
+            use("web/host/window.ts", "@vue/test-utils"),
         ];
         expect(cases.map((item) => violationsOf([item]).length)).toEqual(cases.map(() => 1));
         expect(violationsOf([use("plugins/workbench/web/plugin.ts", "nbook/plugins/diagnostics/web/plugin", true)])).toEqual([]);

@@ -26,15 +26,16 @@
 
 - 窗口启动、引导与失败页的合同见 [`runtime.browser-host`](../../docs/specs/runtime/browser-host.md)。插件的浏览器入口在 `src/web/plugins.ts` 登记工厂；窗口只登记引导集合里出现的插件。
 - 浏览器基线：Chrome、Edge 119，Firefox 124，Safari 17.4（`vite.config.ts` 的 `BROWSER_TARGETS`）；不使用基线之外的浏览器 API。
-- `bun test` 不能导入 `.vue`：需要在合同测试里加载的组件（例如工作台交出的根界面）用 `defineComponent` 与渲染函数写。
+- 测试分两个运行器：纯 TS 模块、后端与窗口合同用 `bun test`；Vue 组件测试命名 `*.dom.test.ts`，由 Vitest 在 happy-dom 里运行（`vitest.config.ts` 沿用 Vite 配置，包内 `bunfig.toml` 让 `bun test` 跳过它们）。需要真实布局的交互（尺寸、拖放、滚动）走 Playwright（`e2e/`）。
+- `bun test` 不能导入 `.vue`：Bun 测试会导入的模块（例如工作台交出的根界面）用 `defineComponent` 与渲染函数写。
 - `vite.config.ts` 关闭了依赖发现、只预构建 `vue`（依赖发现进行中时 Vite 的 `close()` 不结算，开发命令停止时会卡住）；新增需要预构建的依赖时加进 `optimizeDeps.include`。
 
 ## 命令
 
 ```text
 bun run dev              # 开发模式：页面 http://127.0.0.1:3000/，后端改动后有序重启；状态根缺省 .dev-state/
-bun run typecheck        # 类型检查（后端 tsc、前端 vue-tsc）
-bun run test             # 合同测试（含真实子进程）
+bun run typecheck        # 类型检查：后端 tsc、前端 vue-tsc、组件测试与 e2e 的 vue-tsc
+bun run test             # bun test（合同测试，含真实子进程）后接 Vitest 组件测试
 bun run test:e2e         # 构建后用本机 Chrome 跑浏览器验收（Playwright 由 Node 运行）
 bun run build            # 打包后端到 dist/server、前端到 dist/web
 bun run smoke:server     # 打包后对产物运行进程级 smoke

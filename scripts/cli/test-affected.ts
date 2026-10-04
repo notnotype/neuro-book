@@ -18,15 +18,19 @@ export type WorkspacePackageInfo = {
 export type TestTier = "fast" | "e2e" | "llm";
 export const TIER_SCRIPTS: Readonly<Record<TestTier, string>> = {fast: "test", e2e: "test:e2e", llm: "test:llm"};
 
+export type AffectedCommand = {
+    argv: string[];
+    /** 这一步是单条 `bun test`，可以在命令后追加 Bun 测试器参数（junit 报告）。 */
+    bunTest: boolean;
+};
+
 export type AffectedTarget = {
     /** 包目录名；根脚本测试为 `scripts`。 */
     name: string;
     /** 运行命令的目录，相对仓库根。 */
     cwd: string;
-    commands: string[][];
+    commands: AffectedCommand[];
     reason: string;
-    /** 测试脚本是单条 `bun test`，可以在命令后追加 Bun 测试器参数。 */
-    bunTest: boolean;
 };
 
 export type AffectedSelection = {
@@ -69,6 +73,26 @@ function isSingleBunTest(script: string): boolean {
     return /^(?:[A-Z_][A-Z0-9_]*=\S*\s+)*bun test(?:\s|$)/u.test(script) && !/&&|\|\||;/u.test(script);
 }
 
+function isSingleVitestRun(script: string): boolean {
+    return /^vitest run(?:\s|$)/u.test(script) && !/&&|\|\||;/u.test(script);
+}
+
+type TestStep = {readonly script: string; readonly runner: "bun" | "vitest" | null};
+
+/**
+ * 测试脚本的各步。`bun run a && bun run b` 形式（例如新应用先跑 Bun 测试、再跑 Vitest 组件测试）拆成各段，
+ * 每段按自己的脚本判断能否按文件选择；其余形式整条作为一步。
+ */
+function testSteps(scripts: Readonly<Record<string, string>>, scriptName: string): TestStep[] {
+    const runnerOf = (script: string): TestStep["runner"] => (isSingleBunTest(script) ? "bun" : isSingleVitestRun(script) ? "vitest" : null);
+    const parts = (scripts[scriptName] as string).split(/\s*&&\s*/u);
+    const names = parts.map((part) => /^bun run ([\w:.-]+)$/u.exec(part)?.[1]);
+    if (parts.length > 1 && names.every((name) => name !== undefined && scripts[name] !== undefined)) {
+        return names.map((name) => ({script: name as string, runner: runnerOf(scripts[name as string] as string)}));
+    }
+    return [{script: scriptName, runner: runnerOf(scripts[scriptName] as string)}];
+}
+
 /**
  * 选出要测试的目标。缺省按改动：改动所在的包，加上直接或间接依赖它的包（与 CI 选包同一套依赖闭包）；
  * 根 `scripts/` 或 workflow 有改动时加上根脚本测试。给出 `only` 时不看改动。
@@ -109,23 +133,27 @@ export function selectAffectedTargets(input: AffectedSelectionInput): AffectedSe
             skipped.push({name: directory, reason: `没有 ${scriptName} 脚本`});
             continue;
         }
-        const commands = input.typecheck && info.scripts.typecheck !== undefined ? [["bun", "run", "typecheck"]] : [];
-        const bunTest = isSingleBunTest(script);
+        const commands: AffectedCommand[] = input.typecheck && info.scripts.typecheck !== undefined ? [{argv: ["bun", "run", "typecheck"], bunTest: false}] : [];
         let reason = full ? fullReason : input.only !== undefined ? (direct.has(directory) ? "指定的包" : "依赖指定的包") : direct.has(directory) ? "包内有改动" : "依赖有改动的包";
-        const run = ["bun", "run", scriptName];
-        if (input.changedFilesSince !== undefined && !full && input.only === undefined && direct.has(directory) && bunTest) {
-            const {since} = input.changedFilesSince;
-            run.push(since === undefined ? "--changed" : `--changed=${since}`);
-            reason += "，只跑受影响的测试文件";
+        const byFile = input.changedFilesSince !== undefined && !full && input.only === undefined && direct.has(directory) ? input.changedFilesSince : null;
+        let narrowed = false;
+        for (const step of testSteps(info.scripts, scriptName)) {
+            const run = ["bun", "run", step.script];
+            // Bun 与 Vitest 都接受 `--changed[=<基准>]`，各自按导入关系选文件。
+            if (byFile !== null && step.runner !== null) {
+                run.push(byFile.since === undefined ? "--changed" : `--changed=${byFile.since}`);
+                narrowed = true;
+            }
+            commands.push({argv: run, bunTest: step.runner === "bun"});
         }
-        commands.push(run);
-        targets.push({name: directory, cwd: `packages/${directory}`, commands, reason, bunTest});
+        if (narrowed) reason += "，只跑受影响的测试文件";
+        targets.push({name: directory, cwd: `packages/${directory}`, commands, reason});
     }
     if (rootScripts && input.tier === "fast") {
-        const commands = input.typecheck ? [["bun", "x", "tsc", "--noEmit", "-p", "scripts/tsconfig.json"]] : [];
-        commands.push(["bun", "x", "vitest", "run", "--config", "scripts/vitest.config.ts"]);
+        const commands: AffectedCommand[] = input.typecheck ? [{argv: ["bun", "x", "tsc", "--noEmit", "-p", "scripts/tsconfig.json"], bunTest: false}] : [];
+        commands.push({argv: ["bun", "x", "vitest", "run", "--config", "scripts/vitest.config.ts"], bunTest: false});
         const reason = full ? fullReason : input.only !== undefined ? "指定的包" : "根 scripts、workflow 或根 package.json 有改动";
-        targets.push({name: ROOT_SCRIPTS, cwd: ".", commands, reason, bunTest: false});
+        targets.push({name: ROOT_SCRIPTS, cwd: ".", commands, reason});
     }
     return {targets, skipped};
 }
@@ -199,7 +227,7 @@ if (import.meta.main) {
     if (selection.targets.length === 0) console.log("没有要运行的测试。");
     else console.log(`选中 ${String(selection.targets.length)} 项（${TIER_SCRIPTS[tier]}）：`);
     for (const target of selection.targets) {
-        console.log(`  ${target.name}（${target.reason}）：${target.commands.map((command) => command.join(" ")).join("；")}`);
+        console.log(`  ${target.name}（${target.reason}）：${target.commands.map((command) => command.argv.join(" ")).join("；")}`);
     }
     // 多数包没有 e2e、llm 类测试，这时只给计数。
     if (tier === "fast") for (const skip of selection.skipped) console.log(`  跳过 ${skip.name}（${skip.reason}）`);
@@ -215,14 +243,14 @@ if (import.meta.main) {
         try {
             // 依次运行：几个包的测试同时跑会争用内存。
             for (const target of selection.targets) {
-                for (const command of target.commands) {
-                    const isTestRun = command[2] === TIER_SCRIPTS[tier];
-                    const junit = reportDirectory !== null && target.bunTest && isTestRun ? join(reportDirectory, `${target.name}.xml`) : null;
-                    const args = junit === null ? command.slice(1) : [...command.slice(1), "--reporter=junit", `--reporter-outfile=${junit}`];
-                    console.log(`\n==> ${target.name}：${command.join(" ")}`);
-                    const result = spawnSync(command[0] as string, args, {cwd: resolve(repoRoot, target.cwd), stdio: "inherit"});
-                    if (result.error !== undefined) failures.push(`${target.name}：${command.join(" ")} 无法启动（${result.error.message}）`);
-                    else if (result.status !== 0) failures.push(`${target.name}：${command.join(" ")} ${result.status === null ? `被信号 ${String(result.signal)} 终止` : `退出码 ${String(result.status)}`}`);
+                for (const [index, command] of target.commands.entries()) {
+                    const {argv} = command;
+                    const junit = reportDirectory !== null && command.bunTest ? join(reportDirectory, `${target.name}-${String(index)}.xml`) : null;
+                    const args = junit === null ? argv.slice(1) : [...argv.slice(1), "--reporter=junit", `--reporter-outfile=${junit}`];
+                    console.log(`\n==> ${target.name}：${argv.join(" ")}`);
+                    const result = spawnSync(argv[0] as string, args, {cwd: resolve(repoRoot, target.cwd), stdio: "inherit"});
+                    if (result.error !== undefined) failures.push(`${target.name}：${argv.join(" ")} 无法启动（${result.error.message}）`);
+                    else if (result.status !== 0) failures.push(`${target.name}：${argv.join(" ")} ${result.status === null ? `被信号 ${String(result.signal)} 终止` : `退出码 ${String(result.status)}`}`);
                     if (junit !== null && existsSync(junit)) durations.push(...parseJunitDurations(target.name, readFileSync(junit, "utf8")));
                 }
             }

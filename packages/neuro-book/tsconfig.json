@@ -13,6 +13,18 @@
             "nbook/*": ["./src/*"]
         }
     },
-    "include": ["src", "scripts", "vite.config.ts"],
-    "exclude": ["src/web/main.ts"]
+    "include": [
+        "src/*.ts",
+        "src/server",
+        "src/shared",
+        "src/types",
+        "src/plugins/*/plugin.ts",
+        "src/plugins/*/server",
+        "src/plugins/*/shared",
+        "src/**/*.test.ts",
+        "scripts",
+        "vite.config.ts",
+        "vitest.config.ts"
+    ],
+    "exclude": ["src/**/*.dom.test.ts"]
 }
