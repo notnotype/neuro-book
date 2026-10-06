@@ -63,7 +63,6 @@ owners:
 | `ctx.plugin` | 两端 | 插件 id、当前版本、上一次成功激活的版本（首次为空，用于数据迁移） |
 | `ctx.signal` | 两端 | 入口停止时触发 |
 | `ctx.services.require(id)` | 两端 | 取得 `requires` 中声明的服务，返回转发器；未声明的 id 返回 `undeclared-service` 失败 |
-| `ctx.commands.execute(id, ...args)` | 两端 | 执行命令，参数可序列化；命令不存在时返回 `command-not-found` |
 | `ctx.channel` | 两端 | 服务端 `handle`、`subscribe` 交出合同实现；浏览器 `call`、`subscribe` 使用本插件合同（[`runtime.plugin-channel`](plugin-channel.md)） |
 | `ctx.config` | 两端 | 读取本插件在清单中声明的设置项的有效值，订阅变化，更新本插件的设置项；读不到其它插件的设置 |
 | `ctx.storage` | 服务端 | 本插件私有的键值存储（值可 JSON 序列化）与一个私有目录 |
@@ -74,9 +73,11 @@ owners:
 
 各贡献点拥有者可以在 `ctx` 上注入命令式注册接口（例如向 `nbook.agent` 注册工具）；返回的句柄同样登记在调用方的激活作用域上，并记入内核账本。
 
+命令不在 `ctx` 上：命令由内置插件 `nbook.commands` 提供，插件向它的贡献点登记命令，在 `requires` 中声明它的命令服务后按 id 执行（[`workbench.commands`](../workbench/commands.md)）。
+
 ### 错误码
 
-宿主合成的错误码：`plugin-unavailable`（提供方入口不可用或已停止）、`interrupted`（调用被中止或在三步停止中被放弃）、`invalid-input`（参数不符合 schema）、`undeclared-service`、`command-not-found`、`provider-error`（提供方抛出未预期的异常，信息脱敏）、`secret-unreadable`。提供方可以定义自己的错误码，以结构化结果返回。
+宿主合成的错误码：`plugin-unavailable`（提供方入口不可用或已停止）、`interrupted`（调用被中止或在三步停止中被放弃）、`invalid-input`（参数不符合 schema）、`undeclared-service`、`provider-error`（提供方抛出未预期的异常，信息脱敏）、`secret-unreadable`。提供方可以定义自己的错误码，以结构化结果返回。
 
 ### worker 池
 
@@ -108,7 +109,7 @@ owners:
 
 ## 失败与恢复
 
-- 调用已停止插件的转发器、命令或通道：立即得到 `plugin-unavailable`，不等待。
+- 调用已停止插件的转发器或通道：立即得到 `plugin-unavailable`，不等待。
 - 提供方抛出未预期异常：调用方得到 `provider-error`，异常详情记入提供方诊断；提供方入口不因单次异常停止。
 - 参数不可克隆：开发模式下在调用时报告违规；生产模式下跨插件调用照常进行（同进程直接传递），worker 调用返回 `input-not-cloneable`。
 - worker 崩溃：本次调用返回 `worker-crashed`，该 worker 被替换，其它调用不受影响。
@@ -141,5 +142,6 @@ Smoke：示例外部插件在服务端与 Chromium 中各执行一次 worker 调
 ## 证据
 
 - 批准目标：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3、P4、P7（2026-09-30 确认 `ctx.storage` 在阶段 3 提供、`ctx.config` 与 `ctx.secrets` 在阶段 3 由 `nbook.settings` 提供、SDK 提供作用域定时器与异步包装、WebAssembly 不强制切分）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条。
+- 2026-10-06 开发者撤回 `ctx.commands` 与错误码 `command-not-found`：命令改由内置插件 `nbook.commands` 经贡献点与命令服务提供（平台设计 [P3](../../proposals/extensible-application-platform.md#p3-插件之间的协作)，[w00017 t49](../../../.agents/works/w00017-application-runtime-architecture/tasks/t49-commands-quick-open/README.md)）。
 - 验证依据：[G2 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g2/REPORT.md)（worker 池原型在 Bun 与 Chrome 中实测）。
 - “跨插件调用一律返回结构化结果、不 reject”的解释、跨插件接口的三类划分、宿主错误码列表、worker 池上限与结算时限、`ctx.storage` 的键值加私有目录形态与数据位置、密钥不可解密时的行为由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文。

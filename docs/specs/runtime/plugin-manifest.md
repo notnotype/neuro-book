@@ -51,9 +51,10 @@ owners:
 | `entries.<id>.contributes` | 需要本入口提供实现的贡献，例如命令、视图、Agent 工具、路由 |
 | `contributes` | 只有声明、不需要实现的贡献，例如菜单项、设置项、上下文键、菜单位置 |
 | `contributionPoints` | 本插件拥有的贡献点：声明 schema，以及该贡献点的贡献是否需要实现（决定贡献写在入口下还是顶层） |
+| `activationEventPrefixes` | 本插件拥有的激活事件前缀，例如 `nbook.commands` 的 `onCommand`；只有拥有者能触发以它开头的事件 |
 | `pluginVersions` | 所依赖第三方插件的版本范围；只约束版本，是否必需由各入口的 `requires` 决定 |
 
-激活事件：`onStartup`、`onCommand:<命令 id>`、`onView:<视图 id>`、`onAgentTool:<工具名>`、`onChannel`（插件通道首次被调用，只能写在通道入口上）。与本入口贡献对应的激活事件可以由 SDK 构建预设生成；手写清单与生成的清单同等有效，合同以清单为准。
+激活事件由插件定义，内核不规定事件种类（2026-10-06 开发者修订）。内核只认识 `onStartup`；其它事件写作 `<前缀>:<参数>`，前缀由拥有者插件在 `activationEventPrefixes` 中声明，例如 `nbook.commands` 的 `onCommand:<命令 id>`、`nbook.workbench` 的 `onView:<视图 id>`、`nbook.agent` 的 `onAgentTool:<工具名>`、`nbook.http` 的 `onChannel`（插件通道首次被调用，只能写在通道入口上）。拥有者在需要时请内核触发自己前缀下的事件，内核激活本运行位置上声明了该事件的入口并逐个返回结果；新增激活方式只需新的拥有者声明前缀，不改内核。与本入口贡献对应的激活事件可以由 SDK 构建预设生成；手写清单与生成的清单同等有效，合同以清单为准。
 
 前置条件：
 
@@ -113,7 +114,7 @@ owners:
 - **清单无效时整个插件不登记。** 包括：缺少必需字段或类型错误；id 格式错误；第三方 id 以 `nbook.` 开头；`main` 不存在、是绝对路径或越出插件目录；入口 id 重复；`channel` 出现在非服务端入口或多于一个；`provides` 中的服务 id 不以本插件 id 为前缀、重复，或占用保留名 `channel`；`pluginVersions` 列出内置插件。原因可在插件管理中查询，其它插件不受影响。单条贡献不合格只拒绝该条（见上文第 10 条）。
 - **两个插件声明同一服务 id** 不可能发生（服务 id 带插件前缀）；同一插件 id 出现多份清单时全部不登记，并报告每份的来源，与输入顺序无关。
 - **启动必需按运行位置判定。** 启动必需内置插件的服务端入口受阻、失败或其清单无效时，服务端启动失败，由 [`runtime.server-host`](server-host.md) 有序退出；它的浏览器入口（例如 `nbook.workbench`）在某个窗口中失败时，只有该窗口显示启动失败页（[`runtime.browser-host`](browser-host.md)），不影响服务端与其它窗口。
-- 本版本不认识的激活事件被忽略并记入诊断；不认识的运行位置按“不支持的运行位置”处理，依赖其提供服务的入口以 `missing-service` 受阻。
+- 前缀没有任何已登记插件声明的激活事件被忽略并在插件详情中标注“未知激活事件”，与未知贡献点相同，便于发现拼写错误；声明前缀的插件之后登记时，事件照常生效。两个插件声明同一前缀时两者的声明都不生效并记入诊断，与输入顺序无关；不认识的运行位置按“不支持的运行位置”处理，依赖其提供服务的入口以 `missing-service` 受阻。
 - 受阻不是错误，不重试、不告警升级；依赖恢复后自动解除。
 
 ## 边界与兼容
@@ -142,12 +143,13 @@ owners:
 13. **未知运行位置。** 清单含 `location: "tui"` 的入口时，该入口标为不支持的运行位置，插件其它入口正常。
 14. **重复 id。** 两份 `example.a` 清单同时出现时两者都不登记，调换输入顺序结果相同。
 15. **通道入口不被提前激活。** `editor-ui` 因视图可见而激活后，服务端 `generator` 仍未激活；首次调用通道时才激活。
+16. **拥有者定义的激活事件。** Given 插件 A 在 `activationEventPrefixes` 中声明 `onFoo`，插件 B 的入口声明 `onFoo:x`；When A 请内核触发 `onFoo:x`；Then B 的该入口激活，A 得到它的激活结果；B 之外未声明 `onFoo:x` 的入口不激活。插件 C 请内核触发 `onFoo:x` 被拒绝（不是前缀的拥有者）。入口声明 `onBar:y` 而没有插件声明前缀 `onBar` 时，该入口标注“未知激活事件”，插件其它部分照常。
 
-Smoke：以合同测试覆盖场景 1–15 的推导结果；在真实服务端与 Chromium 上用一个示例插件（两端入口，其中浏览器入口依赖一个可关闭的内置服务）核对场景 1、2、5 的可见结果。
+Smoke：以合同测试覆盖场景 1–16 的推导结果；在真实服务端与 Chromium 上用一个示例插件（两端入口，其中浏览器入口依赖一个可关闭的内置服务）核对场景 1、2、5 的可见结果。
 
 ## 证据
 
 - 批准目标：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P1、P2、P3、P11（2026-09-30 `accepted`；“插件、入口、服务”三层同日由开发者确认）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条。
 - 调研依据：[VS Code 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-vscode/REPORT.md)、[DeepSeek Harness 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-dsh/REPORT.md)。
 - Spec 编写：[w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md)。
-- 实现进展：第 2、3（除 `version-mismatch`）、4、6、7、8、9 条已在内核对代码定义的插件实现，行为写入 [`runtime.plugins`](plugins.md) 输出第 11–14 条与 [`runtime.application`](application.md)，见 [w00017 t32](../../../.agents/works/w00017-application-runtime-architecture/tasks/t32-kernel-entry-dependencies/README.md)。第 10 条（按单条贡献校验）已对代码定义的插件实现，校验由贡献点的 `validate` 函数给出，行为写入 [`runtime.plugins`](plugins.md) 输出第 15–18 条，见 [w00017 t33](../../../.agents/works/w00017-application-runtime-architecture/tasks/t33-owner-contribution-points/README.md)。清单文件与声明 schema、插件通道（第 5 条）、版本范围与不支持的运行位置仍未实现，本 Spec 保持 `planned`。
+- 实现进展：第 2、3（除 `version-mismatch`）、4、6、7、8、9 条已在内核对代码定义的插件实现，行为写入 [`runtime.plugins`](plugins.md) 输出第 11–14 条与 [`runtime.application`](application.md)，见 [w00017 t32](../../../.agents/works/w00017-application-runtime-architecture/tasks/t32-kernel-entry-dependencies/README.md)。第 10 条（按单条贡献校验）已对代码定义的插件实现，校验由贡献点的 `validate` 函数给出，行为写入 [`runtime.plugins`](plugins.md) 输出第 15–18 条，见 [w00017 t33](../../../.agents/works/w00017-application-runtime-architecture/tasks/t33-owner-contribution-points/README.md)。清单文件与声明 schema、插件通道（第 5 条）、版本范围与不支持的运行位置仍未实现；激活事件目前内核只认 `onStartup`，拥有者定义的前缀与触发（场景 16）随第一个需要懒激活的消费者实现（2026-10-06 开发者确认，见 [w00017 t49](../../../.agents/works/w00017-application-runtime-architecture/tasks/t49-commands-quick-open/README.md)）。本 Spec 保持 `planned`。
