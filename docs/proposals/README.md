@@ -20,6 +20,7 @@
 - [`model-roles-contract.md`](./model-roles-contract.md)：模型角色的后端契约（全局配置 `roles` 段、按 role 解析模型的优先级、本地模型已由 Provider 机制覆盖的结论），状态为 `draft`，等待「未决取舍」拍板。
 - [`nb-ui-surface-model.md`](./nb-ui-surface-model.md)：nb-ui 表面模型，把材质（玻璃 / 实心，整页只有一层且只有它开模糊）与层级（不透明色阶，可嵌套、按位置自动推导）拆成两条轴，材质层有可读性不透明度下限，状态为 `accepted`。
 - [`workbench-view-host.md`](workbench-view-host.md)：Workbench 与 View Host（descriptor 注册表、可序列化拆分树原语、布局状态四类分层、视图跨容器与容器跨栏移动），状态为 `accepted`。
+- [工作台外壳的抽象（v2）](workbench-shell-abstractions.md)：新应用 `nbook.workbench` 的对象模型（Part、ToolPart、Switcher、ActivityBar、ViewContainer、View）、插件面向的视图合同、布局记录与持久化端口、代码分层，以及第 4 步外壳的 t51–t53 切片；沿用 View Host 的分层，取代其 descriptor 字段与持久化细节，状态为 `reviewing`。
 - [`workbench-commands.md`](./workbench-commands.md)：命令系统与单一注册表（命令单一身份、`when` 上下文求值、交互入口统一分发命令 id、命令面板与派生快捷键表），状态为 `draft`。
 - [`storage-service-and-sync.md`](./storage-service-and-sync.md)：跨独立 data 在线同步的身份对齐、复制确认、冲突与删除收敛，状态为 `draft`；已批准本地行为见 [storage.persistence](../specs/storage/persistence.md)。
 已完成沉淀的信息架构提案见 [`../packages/neuro-book-legacy/docs/archived/proposals/documentation-information-architecture.md`](../../packages/neuro-book-legacy/docs/archived/proposals/documentation-information-architecture.md)。
