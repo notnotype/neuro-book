@@ -8,6 +8,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
+import {createCommandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {createBrowserDiagnosticsPlugin} from "nbook/plugins/diagnostics/web/plugin";
 import {createWorkbenchBrowserPlugin} from "nbook/plugins/workbench/web/plugin";
@@ -22,6 +23,7 @@ export type BrowserPluginFactory = (context: BrowserPluginContext) => PluginDefi
 
 export const browserPluginFactories: Readonly<Record<string, BrowserPluginFactory>> = {
     "nbook.diagnostics": (context) => createBrowserDiagnosticsPlugin({store: context.store, console: context.console}),
+    "nbook.commands": () => createCommandsPlugin("browser"),
     "nbook.workbench": () => createWorkbenchBrowserPlugin(),
 };
 

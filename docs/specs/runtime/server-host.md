@@ -25,7 +25,7 @@ owners:
 - **宿主入口**：`packages/neuro-book/src/server/main.ts`；生产运行它的 Bun 打包产物，与全部后端代码处于同一模块图。
 - **运行实例**：`runtime.application` 定义的一次启动；本能力中每个进程一个。
 - **产品清单**：`packages/neuro-book/src/manifest.ts`，列出本应用加载的插件；后端按它装配插件的后端入口。
-- **启动必需插件**：服务端入口失败即启动失败的插件。当前清单中的插件（`nbook.diagnostics`、`nbook.http`）都是启动必需。它们的浏览器入口按窗口判定（[`runtime.browser-host`](browser-host.md)）。
+- **启动必需插件**：服务端入口失败即启动失败的插件。当前清单中有服务端入口的插件（`nbook.diagnostics`、`nbook.http`、`nbook.commands`）都是启动必需。它们的浏览器入口按窗口判定（[`runtime.browser-host`](browser-host.md)）。
 - **停止来源**：进程信号（SIGTERM、SIGINT）、标准输入停止通道、Session Store 租约失效、启动失败、进程级未处理异常。启动失败由内核自行关闭已取得的资源；就绪前的请求都在等待、没有被接纳，因此不需要排空。
 - **标准输入停止通道**：以 `--stop-stdin` 启动时，标准输入读到一行 `stop`、或标准输入结束（父进程已不在），都请求停止。Windows 上外部进程不能合作发送信号，开发监督进程与 smoke 用它停止后端。
 - **排空**：停止接纳新请求、等待在途请求结束的阶段。

@@ -52,10 +52,10 @@ export interface BrowserWindow {
 }
 
 /**
- * 缺少或入口激活失败就不能挂载界面：工作台交出根界面，诊断要先于其它插件可用。其余插件的入口失败只影响该入口，
- * 窗口照常就绪。
+ * 缺少或入口激活失败就不能挂载界面：工作台交出根界面，诊断要先于其它插件可用，工作台的命令面板与键位依赖命令系统。
+ * 其余插件的入口失败只影响该入口，窗口照常就绪。
  */
-const REQUIRED_PLUGINS = ["nbook.diagnostics", "nbook.workbench"];
+const REQUIRED_PLUGINS = ["nbook.diagnostics", "nbook.commands", "nbook.workbench"];
 
 /** 引导集合不能用于本外壳；`kind` 决定界面给“刷新”还是只显示原因。 */
 class BootstrapRejected extends Error {

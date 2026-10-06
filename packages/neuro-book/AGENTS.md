@@ -13,6 +13,7 @@
 - `src/plugins/<插件>/`：一个插件一个目录，`plugin.ts` 为插件描述（id、版本与运行位置），`server/`、`web/` 分别放后端与前端，`shared/` 放两端共用、与运行位置无关的代码（TypeBox 合同，以及不碰 DOM、Bun 与 Node API 的逻辑，例如命令表）。`web/` 不引用 `server/`，反之亦然，只经 `shared/` 交换类型与 schema。
 - 插件之间只经内核的服务、贡献点协作；需要另一个插件的合同类型时只用 `import type`。宿主（`src/server/`、`src/web/`）是装配者，可以引用插件的工厂。
 - 定义贡献点时规定贡献 id 的取法（例如插件 id、页面路径）：内核要求贡献 id 在同一贡献点内唯一，两个插件写同一个 id 时两条都被拒绝，不能让每个插件都写同一个固定 id。
+- 命令（两端都可用）：插件向 `nbook.commands` 的贡献点 `commands.definitions` 提交，贡献 id 写命令 id（内置插件 `nbook.<域>.<动作>`，其它插件以自己的插件 id 开头）；要执行命令的入口在依赖里声明 `commandServiceKey`，按 id 执行。合同见 `src/plugins/commands/shared/contracts.ts` 与 [`workbench.commands`](../../docs/specs/workbench/commands.md)。
 - 跨目录导入用 `nbook/*`（映射到 `src/*`）；同一插件或同一宿主目录内用相对导入。
 - 前端不用全局 Pinia store；状态归插件所有，大块状态用浅层引用。
 - 后端 HTTP 用 Hono，校验与接口描述用 TypeBox，不引入 Nuxt 与 Zod。

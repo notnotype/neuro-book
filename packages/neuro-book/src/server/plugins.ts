@@ -7,6 +7,7 @@ import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import type {PluginDescriptor} from "nbook/manifest";
+import {createCommandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/server/plugin";
 import type {HttpAdmission} from "nbook/plugins/http/server/admission";
 import {createHttpPlugin} from "nbook/plugins/http/server/plugin";
@@ -35,6 +36,7 @@ export const serverPluginFactories: Readonly<Record<string, ServerPluginFactory>
         hostRoutes: [createBrowserBootstrapRoute(context.manifest)],
         staticRoot: context.config.webRoot,
     }),
+    "nbook.commands": () => createCommandsPlugin("server"),
 };
 
 /** 按清单装配后端插件；清单写了后端入口而这里没有工厂时直接失败，不静默少装。 */

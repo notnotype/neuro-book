@@ -7,6 +7,7 @@
 
 import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
 
+import {descriptor as commands} from "./plugins/commands/plugin";
 import {descriptor as diagnostics} from "./plugins/diagnostics/plugin";
 import {descriptor as http} from "./plugins/http/plugin";
 import {descriptor as workbench} from "./plugins/workbench/plugin";
@@ -19,4 +20,4 @@ export interface PluginDescriptor {
     readonly locations: ReadonlyArray<RuntimeLocation>;
 }
 
-export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, http, workbench];
+export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, http, commands, workbench];

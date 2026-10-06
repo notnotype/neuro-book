@@ -177,6 +177,16 @@ describe("窗口运行实例", () => {
         }
     });
 
+    it("引导集合里没有命令系统：启动失败并指名 nbook.commands（工作台的面板与键位依赖它）", async () => {
+        const plugins = builtinBrowserPlugins.filter((plugin) => plugin.id !== "nbook.commands").map(({id, version}) => ({id, version}));
+        const stub = serveBootstrap(() => Response.json({protocolVersion: 1, revision: "r", plugins}));
+        const {browserWindow} = openWindow({url: stub.url});
+        await browserWindow.start();
+        expect(failureOf(browserWindow.state)?.status).toBe("startup-failed");
+        expect(failureOf(browserWindow.state)?.reason).toContain("nbook.commands");
+        stub.stop();
+    });
+
     it("工作台激活失败：启动失败并带原因，不 ready，也不能原地重试", async () => {
         const {browserWindow} = openWindow({factories: brokenWorkbench});
         await browserWindow.start();
