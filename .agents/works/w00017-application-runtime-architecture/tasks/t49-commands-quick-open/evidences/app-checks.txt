@@ -1,0 +1,16 @@
+# t49 应用检查（2026-10-06T05:32:03+01:00，提交 b59c27de 之上的工作区）
+$ bun run --cwd packages/neuro-book typecheck
+$ tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json
+exit=0
+
+$ bun run --cwd packages/neuro-book test
+$ bun run test:bun && bun run test:vitest
+$ bun test
+ 173 pass
+ 0 fail
+Ran 173 tests across 27 files. [6.06s]
+$ vitest run
+ Test Files  11 passed (11)
+      Tests  47 passed (47)
+   Duration  4.67s (transform 6.79s, setup 383ms, import 14.55s, tests 3.05s, environment 5.57s)
+exit=0

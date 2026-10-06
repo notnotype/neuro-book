@@ -94,9 +94,9 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | Monorepo / Module | [Monorepo 边界](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md) | Monorepo 当前包布局、唯一文档真相源、包级继承/覆盖、依赖方向和 worktree 根边界 |
 | 测试与验收 | [`../testing/README.md`](../testing/README.md) | 测试组织、临时根、验收和证据合同 |
 | 贡献与交付 | [CONTRIBUTING](https://github.com/notnotype/neuro-book/blob/master/CONTRIBUTING.md) | Issue、开发、Git、PR 与维护者交付流程 |
-| Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、组件导航、检视面板、响应式容器、偏好和 Product 排除合同；新应用以开发插件 `nbook.lab` 实现外壳与机制（场景 1–15、17），命令场景随 w00017 t49，工作台与业务域组件随各自迁移；**实现迁移中** |
-| Workbench 命令系统 | [`workbench/commands.md`](workbench/commands.md) | 注册登记、`when` 求值、执行管线、暴露策略与审计；六条首批命令在 Component Lab 闭环，实现与合同测试闭合；**实现迁移中** |
-| Workbench 快速打开 | [`workbench/quick-open.md`](workbench/quick-open.md) | 单控件两模（命令搜索与行号跳转）、会话 MRU、S4 浮层键盘与焦点交接；实现与 Lab 验收闭合，主页面接入不在本批；**实现迁移中** |
+| Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、组件导航、检视面板、响应式容器、偏好和 Product 排除合同；新应用以开发插件 `nbook.lab` 实现外壳与机制（场景 1–17，命令场景随 w00017 t49 迁入），工作台与业务域组件随各自迁移；**实现迁移中** |
+| Workbench 命令系统 | [`workbench/commands.md`](workbench/commands.md) | 命令登记、`when` 求值、执行管线、暴露策略与审计；新应用由两端都有入口的内置插件 `nbook.commands` 提供（w00017 t49），第一批六条命令在 Lab 命令场景闭环，产品 `/` 页有命令面板；第二批 `view` 命令随工作台外壳（t50）；**实现迁移中** |
+| Workbench 快速打开 | [`workbench/quick-open.md`](workbench/quick-open.md) | 单控件两模（命令搜索与行号跳转）、会话 MRU、S4 浮层键盘与焦点交接；新应用的面板由工作台提供（w00017 t49），Lab 命令场景验收闭合，产品 `/` 页接入命令模式，行号模式随编辑器插件；**实现迁移中** |
 | 资源生命周期 | [`runtime/lifecycle.md`](runtime/lifecycle.md) | `runtime.lifecycle`；作用域、资源 owner、操作接纳与取消/终止、关闭尝试与显式恢复；第一切片由合同测试与双宿主 smoke 闭合；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
 | 显式服务装配 | [`runtime/services.md`](runtime/services.md) | `runtime.services`；唯一 provider、依赖与寿命检查、并发初始化共享与失败稳定；第一切片闭合；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
 | 插件描述与激活 | [`runtime/plugins.md`](runtime/plugins.md) | `runtime.plugins`；描述目录、入口/代次、贡献事务、局部失败与普通关闭；不含热卸载；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |

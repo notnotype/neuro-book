@@ -11,11 +11,13 @@ owners:
 
 ## 目标与非目标
 
-**目标**：NeuroBook 的**具名可发现动作**——命令面板、快捷键、按钮、未来的菜单与外部调用——拥有单一身份与单一执行入口。每条命令携带：全局唯一 id、人类标题（i18n）与语义描述、参数形状（`argsSchema`）、可用性条件（`when`）、默认快捷键、作用类型（`effect`）与对外暴露策略。执行产生结构化结果与审计事件；触发面只引用命令身份。
+**目标**：NeuroBook 的**具名可发现动作**——命令面板、快捷键、按钮、未来的菜单与外部调用——拥有单一身份与单一执行入口。每条命令携带：全局唯一 id、人类标题（中英文本）与语义描述、参数形状（`args`）、可用性条件（`when`）、默认快捷键、作用类型（`effect`）与对外暴露策略。执行产生结构化结果与审计事件；触发面只引用命令身份。
+
+命令系统是内置插件 `nbook.commands` 提供的能力，与运行位置无关（2026-10-06 开发者确认，见 [ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 决策 2）：服务端、每个浏览器窗口（以后的终端界面）各有一份命令表，登记本位置入口贡献的命令；用户与 Agent 可以不经界面执行命令。界面只是命令的触发面：浏览器里的命令面板与键位分发归 `nbook.workbench`，界面没有加载时（例如终端界面打开、或页面不挂命令宿主）命令照样能执行。
 
 **本批（命令底座与 Lab 闭环）**交付六条命令——`nbook.editor.focus`、`nbook.edit.undo`、`nbook.edit.redo`、`nbook.editor.go-to-line`、`nbook.quick-open.open-commands`、`nbook.quick-open.open-line`——以及机制底座与 Component Lab 可见闭环。
 
-**第二批（外壳与 View 标题操作，2026-09-19）**交付 `view` 域的七条命令：面板位置/对齐/隐藏/收起/最大化切换、工具视图移动，以及一个真实 View 贡献的刷新入口。它们复用同一注册表与同一执行入口，不新开命令总线；面板标题的框架控件与 View 贡献操作分别调用这两组命令。
+**第二批（外壳与 View 标题操作，2026-09-19）**交付 `view` 域的七条命令：面板位置/对齐/隐藏/收起/最大化切换、工具视图移动，以及一个真实 View 贡献的刷新入口。它们复用同一命令表与同一执行入口，不新开命令总线；面板标题的框架控件与 View 贡献操作分别调用这两组命令。新应用随 w00017 t50 的工作台外壳迁入。
 
 **非目标**：
 
@@ -24,58 +26,69 @@ owners:
 - 本批不移入活动栏/标题栏/桌面菜单/右键菜单等入口：别名机制就位，15 条桌面 id 的接线留待后续批次。
 - 不实现自动视图派生命令（`nbook.view.toggle.*` / `nbook.view.focus.*`）。
 - 不实现外部 agent 的接入通道（CLI / MCP / Skill 绑定）：本能力只固定暴露策略、结构化结果与审计语义。
+- 不跨运行位置执行命令：服务端的 Agent 执行浏览器窗口里的命令、终端界面执行服务端命令，另行设计。
+- 内核不提供 `ctx.commands`：命令只经 `nbook.commands` 的贡献点与命令服务（[`runtime.plugin-api`](../runtime/plugin-api.md)）。
 - 不提供第三方不可信代码的沙箱、动态安装或签名机制。
 
 ## 术语与参与者
 
 - **命令（Command）**：具名可发现动作的单一身份。id 全局唯一且稳定；元数据描述"是什么、何时可用、给谁看"；执行是请求/响应，不是事件广播。
+- **命令表（Registry）**：一个运行实例里的全部命令。`nbook.commands` 的每个入口持有本运行位置的一份；Component Lab 的命令场景另建自己的本地命令表，与场景同寿。
+- **命令服务**：命令表对外的查询与执行接口（`get`、`list`、`isEnabled`、`execute`、`onDidChange`、`onDidExecute`）；不提供命令式登记。
 - **别名（Alias）**：既有外部 id（如桌面菜单契约的 15 个 id）到标准命令的映射。别名只做解析，不产生第二份实现。本批只保留机制，不接线。
 - **触发面（Trigger）**：命令面板、快捷键、按钮，以及未来的菜单与外部调用。触发面只引用命令 id。
-- **上下文键（Context Key）**：具名宿主状态（如 `project`、`editor-focus`）。只有登记过的键可以被 `when` 引用；键的命名空间、登记与求值口径与 View descriptor 的 `when` 共用同一份登记表。
-- **可用性（Availability）**：命令的 `when` 在其触发时刻求值的当前结果。不满足时面板不出现、快捷键不响应、`executeCommand` 返回结构化拒绝（不是静默忽略）。
+- **界面宿主**：在某个页面上持有键位分发与命令面板的一方：产品 `/` 页上是工作台的命令宿主，Lab 里是命令场景的局部宿主。宿主随页面或场景挂载与释放。
+- **上下文键（Context Key）**：具名状态（如 `editor-focus`）。键由拥有该状态的一方登记，只有登记过的键可以被 `when` 引用；视图的 `when` 共用同一套求值口径。
+- **可用性（Availability）**：命令的 `when` 在其触发时刻求值的当前结果。不满足时面板不出现、快捷键不响应、执行返回结构化拒绝（不是静默忽略）。
 - **作用类型（`effect`）**：`read` / `write`，必填。是只读模式（discuss / plan）阻断 agent 调用的唯一依据。
 - **暴露级别（Exposure）**：命令对外部 agent 的可见性与约束——`never`（默认）、`confirm`（执行前需用户在界面确认）、`auto`（可直接执行）。
-- **语义标注（Hints）**：`readOnly`、`destructive`、`idempotent`，仅作描述与确认提示生成，不承担阻断职责；与 `effect` 冲突的标注在注册期失败。
+- **语义标注（Hints）**：`readOnly`、`destructive`、`idempotent`，仅作描述与确认提示生成，不承担阻断职责；与 `effect` 冲突的标注在登记时被拒。
 - **审计事件（Audit Event）**：一次执行的可观察记录：来源（用户 / 外部 agent）、命令 id、参数、结果、耗时。每次调用恰好一条，含未知 id、拒绝与异常。
-- **参与者**：用户（触发、确认）；命令所有者（注册与维护命令的模块）；宿主（持有注册表、求值上下文键、呈现面板与确认）；外部 agent（经绑定调用，受暴露策略约束）。
+- **参与者**：用户（触发、确认）；命令的贡献方（向贡献点提交命令声明与处理函数的插件）；`nbook.commands`（持有命令表、求值上下文键、执行与审计）；界面宿主（键位分发、面板、确认呈现）；外部 agent（经绑定调用，受暴露策略约束）。
 
 ## 输入与前置条件
 
-- **触发方式**：用户交互（面板选择、快捷键、按钮）、页面代码 API、未来的外部调用（经绑定）。
-- **输入形状**：命令 id（或已登记的别名）+ 一个对象参数。参数形状由命令自己的 `argsSchema` 约束；不声明参数的命令只接受空对象。调用省略参数时归一为 `{}`，显式 `null` 不归一（校验失败）。
-- **前置状态**：注册表已装配；命令执行所需上下文键可求值。
+- **登记**：插件向 `nbook.commands` 的贡献点 `commands.definitions` 提交命令，贡献 id 写命令 id。声明（标题、分类、描述、参数 schema、`when`、`effect`、暴露策略、默认键位）写在贡献里，处理函数随贡献方入口激活交出；贡献方入口停止或插件被禁用时，内核撤回贡献，命令离开命令表。声明可以来自代码，也可以来自以后的清单 JSON，登记时按同一份 schema 整体校验。Lab 的命令场景直接向本地命令表登记。
+- **执行**：要执行命令的入口在依赖里声明命令服务（`nbook.commands/service`），按 id 执行；依赖的是命令系统，不是提供命令的插件。
+- **输入形状**：命令 id（或已登记的别名）+ 一个对象参数。参数形状由命令自己的 `args` 约束；不声明参数的命令只接受空对象。调用省略参数时归一为 `{}`，显式 `null` 不归一（校验失败）。
+- **前置状态**：所在运行位置的 `nbook.commands` 入口已激活（它在各运行位置都是启动必需插件）；命令执行所需上下文键可求值。
 - **权限**：本能力自身不引入权限模型。破坏性保护由暴露策略（`confirm` / `destructive` 标注）与只读模式（discuss / plan）承担；领域权限仍归各域 owner。
 
 ## 输出与可观察行为
 
-- **命令身份**：id 使用三段式命名空间 `nbook.<domain>.<action>`，全小写 kebab-case 分段（与 View descriptor 的 id 规则一致）。域词表见「边界与兼容」。
-- **注册**：同一描述符对象重复注册返回同一幂等释放闭包；不同对象注册同一 id 是冲突——开发环境抛错并指名冲突，生产环境拒绝后来的注册、保留首个并记录一次。非法描述符（未登记 `when` 键、hint 与 `effect` 冲突等）同样开发期失败、生产期拒绝，不静默降级。
-- **释放**：注册返回的释放闭包只删除自己注册时的条目；命令被释放后重新注册同 id 时，旧释放闭包不得影响新条目。别名在目标卸载时级联清除。
-- **枚举**：任何消费者可获取全部 canonical 命令及其元数据（id、标题、描述、参数形状、`when`、默认键位、来源、暴露策略、`effect`）；别名不出现在 canonical 枚举中，审计的 `id` 用 canonical，`requestedId` 保留输入。
+- **命令身份**：内置插件（`nbook.*`）的命令 id 使用三段式命名空间 `nbook.<domain>.<action>`，全小写 kebab-case 分段（与 View descriptor 的 id 规则一致），域词表见「边界与兼容」；其它插件的命令 id 以自己的插件 id 开头、再接一段动作（`<插件 id>.<action>`），不能占用 `nbook` 命名空间。
+- **标题**：`title` 与可选的 `category` 是中英两份文本 `{zh-CN, en-US}`，界面按显示语言取其中一份（设置插件加入前固定简体中文）；`description` 是稳定的英文语义说明，不随界面语言变化。
+- **登记与冲突**：
+  - 经贡献点：内核要求贡献 id 在贡献点内唯一，两个插件贡献同一命令 id 时两条一起被拒绝，原因可查，与加载顺序无关；不合格的声明（id 不合规则、未登记的 `when` 键、标注与 `effect` 冲突、结构不符）只拒绝这一条，插件的其它贡献照常。
+  - 直接向本地命令表登记（Lab 场景）：同一定义对象重复登记幂等，返回同一个释放函数；不同对象登记同一 id 时拒绝后来者、保留首个，同一原因只报告一次。
+- **释放**：贡献撤回时命令离开命令表，之后执行得到 `unknown-command`。本地命令表的释放函数只删除自己登记时的条目；命令被释放后重新登记同 id 时，旧释放函数不得影响新条目。别名在目标释放时级联清除。
+- **枚举**：任何消费者可获取本运行位置全部 canonical 命令及其元数据（id、贡献方、标题、描述、参数形状、`when`、默认键位、暴露策略、`effect`）；别名不出现在 canonical 枚举中，审计的 `id` 用 canonical，`requestedId` 保留输入。两个运行位置的命令表互不相见。
 - **执行顺序**（固定，不可交换）：解析白名单 → agent 暴露检查 → 严格参数校验 → 当前 `when` → agent 只读检查 → 必要确认 → 复查条目身份/参数不变性/`when`/模式 → `run` → 单次审计。
 - **结果合同**：成功为 `{ok:true, value}`（void 命令显式 `null`，不把 Promise rejection 当成功）；失败为 `{ok:false, code, reason}`，失败码固定九个：`unknown-command`、`unavailable`、`invalid-args`、`not-exposed`、`read-only`、`confirmation-required`、`denied`、`execution-error`、`stale-target`。
-- **可用性求值**：`when` 是上下文键的 all-of 正条件；未登记的键在注册期失败，登记的键缺失按 false 求值。求值失败/不满足返回 `unavailable` 与缺失原因。
+- **可用性求值**：`when` 是上下文键的 all-of 正条件；未登记的键在登记时被拒，登记的键缺失按 false 求值。求值失败/不满足返回 `unavailable` 与缺失原因。
 - **参数校验**：严格（JSON Schema 语义），不转换、不填充默认值、拒绝额外字段与显式 `null`；校验失败返回 `invalid-args` 并指出失败位置。
-- **暴露**：外部 agent 面只可见暴露级别高于 `never` 的命令；`confirm` 命令被 agent 调用时，界面呈现确认（含命令标题、参数、发起者），用户批准后执行、拒绝则返回 `denied`。确认回调缺失返回 `confirmation-required`。确认使用参数的独立快照，等待期间调用方修改原参数不影响获批内容；等待期间注册对象被替换返回 `stale-target`。
-- **只读联动**：宿主处于 discuss / plan 时，`effect: "write"` 或带 `destructive` 标注的命令对外部调用直接拒绝（`read-only`）；界面触发不受该模式影响。
-- **审计**：每次执行产生恰好一条审计事件，来源字段区分 `user` 与 `agent:callerId`；监听器抛出的异常被隔离上报，不改变执行结果、不影响其它监听器。命令核心不弹通知、不维护可见日志队列——可见错误由触发宿主呈现一次。
-- **键位分发**：声明了默认键位的命令由全局分发按当前可用性求值响应；命中后 `preventDefault` 并阻断同次事件继续传播；不满足 `when` 时不拦截。同规范化键位冲突的裁决见「失败与恢复」。
+- **暴露**：外部 agent 面只可见暴露级别高于 `never` 的命令；`confirm` 命令被 agent 调用时，界面呈现确认（含命令标题、参数、发起者），用户批准后执行、拒绝则返回 `denied`。没有确认通道的命令表返回 `confirmation-required`（产品命令表在 Agent 接入前没有确认通道）。确认使用参数的独立快照，等待期间调用方修改原参数不影响获批内容；等待期间命令被替换返回 `stale-target`。
+- **只读联动**：处于 discuss / plan 时，`effect: "write"` 或带 `destructive` 标注的命令对外部调用直接拒绝（`read-only`）；界面触发不受该模式影响。
+- **审计**：每次执行产生恰好一条审计事件，来源字段区分 `user` 与 `agent:callerId`；监听器抛出的异常被隔离上报，不改变执行结果、不影响其它监听器。命令系统不弹通知、不维护可见日志队列——可见错误由触发宿主呈现一次。
+- **键位分发**：默认键位写在命令声明里，由各运行位置的界面宿主解析与分发：命中且命令当前可用时 `preventDefault` 并阻断同次事件继续传播，然后执行；不满足 `when` 时不拦截。键位监听随界面宿主挂载与释放：没有挂宿主的页面（例如 Lab 的非命令场景）按同一组合键不打开任何面板。同规范化键位冲突的裁决见「失败与恢复」。
 
 ## 状态与转换
 
 | 状态 | 触发 | 下一状态 | 拒绝条件 |
 |---|---|---|---|
-| 未注册 | 注册命令 / 别名 | 已注册（可枚举、可执行） | id 冲突（开发失败 / 生产拒绝并保留首个）；描述符非法 |
-| 已注册 · 可用 | 执行触发 | 执行中 → 完成（成功 / 失败结果） | 参数校验失败、只读拒绝、确认被拒、等待期间条目被替换 |
-| 已注册 · 不可用 | `when` 求值变化 | 可用 / 不可用 | 不可用时面板不出现、快捷键不响应、外部调用拒绝 |
-| 已注册 · 键位占用 | 新命令声明同规范化键位 | 后来的绑定不启用（两环境一致） | 报告一次；原持有者释放后按注册顺序重建 |
+| 未登记 | 贡献方入口激活交出命令 / 本地命令表登记 / 登记别名 | 已登记（可枚举、可执行） | 同 id 的两条贡献（一起拒绝）；本地登记冲突（拒绝后来者）；声明不合格 |
+| 已登记 · 可用 | 执行触发 | 执行中 → 完成（成功 / 失败结果） | 参数校验失败、只读拒绝、确认被拒、等待期间条目被替换 |
+| 已登记 · 不可用 | `when` 求值变化 | 可用 / 不可用 | 不可用时面板不出现、快捷键不响应、外部调用拒绝 |
+| 已登记 · 键位占用 | 新命令声明同规范化键位 | 后来的绑定不启用 | 报告一次；原持有者释放后按登记顺序重建 |
+| 已登记 | 贡献撤回（入口停止、插件禁用）/ 本地释放 | 未登记 | — |
 
-本能力不引入持久状态；注册表与上下文键字典都在内存中重建。
+本能力不引入持久状态；命令表与上下文键都在内存中，随运行实例重建。
 
 ## 副作用与数据
 
 - 命令执行产生的业务副作用（打开视图、移动光标、编辑正文等）归各域 owner，本能力只负责调度与结果回传。
 - 审计事件写入内存通道（订阅式分发），不写领域 Store、不持久化。
+- 处理函数抛出的异常除返回 `execution-error` 外，按贡献方插件记入诊断（[`runtime.diagnostics`](../runtime/diagnostics.md)）；键位不合法、冲突与快捷键执行失败由界面宿主记入诊断。
 - 本能力不直接读写任何存储介质。
 
 ## 失败与恢复
@@ -83,30 +96,32 @@ owners:
 - **未知命令 / 别名**：拒绝并返回结构化原因（不得静默忽略）。
 - **参数校验失败**：拒绝并指出失败参数。
 - **`when` 不满足**：界面隐藏/禁用；外部调用返回拒绝原因。
-- **执行错误**：由执行入口的错误边界捕获，返回结构化失败结果，不导致整页崩溃；可见提示由触发宿主呈现一次（命令面板宿主用唯一的 `role="alert"` 区域）。
+- **执行错误**：由执行入口的错误边界捕获，返回结构化失败结果，不导致整页崩溃；可见提示由触发宿主呈现一次（Lab 命令场景在检视区唯一的 `role="alert"` 区域；产品页记入诊断）。
 - **确认被拒 / 只读拒绝**：返回对应失败分类。
-- **键位冲突**：同一规范化键位视为冲突——开发期与生产期均报告且**不启用后来的绑定**；原持有者释放后按仍注册的命令顺序重建，此时新首个可以接管。冲突不因 `when` 条件"看起来互斥"而放行（all-of 正条件无法证明互斥），首个命令不可用时也不回落到冲突命令。非法键位字符串同样不启用该绑定并报告，命令本身仍可通过按钮/面板执行，注册表元数据不被修改。
-- **注册表装配失败**（冲突、未登记 `when` 键）：开发期暴露问题清单并失败，不静默降级。
+- **键位冲突**：同一规范化键位视为冲突——报告且**不启用后来的绑定**；原持有者释放后按仍登记的命令顺序重建，此时新首个可以接管。冲突不因 `when` 条件"看起来互斥"而放行（all-of 正条件无法证明互斥），首个命令不可用时也不回落到冲突命令。非法键位字符串同样不启用该绑定并报告，命令本身仍可通过按钮/面板执行，命令表里的元数据不被修改。
+- **登记被拒**：经贡献点时原因写在贡献状态里（插件详情可查），不影响同一插件的其它贡献；本地命令表登记被拒时报告原因、不静默降级。
 
 ## 边界与兼容
 
 ### 命名与域词表（第一批）
 
-- 格式：`nbook.<domain>.<action>`；`action` 可为复合（如 `go-to-line`）。插件预留 `<source>.<domain>.<action>` 形式，本批只允许核心前缀注册。
-- 域词表：`view`、`editor`、`edit`、`quick-open`、`settings`、`account`、`project`、`app`、`help`。本批只注册 `editor` / `edit` / `quick-open`。
+- 格式：内置插件写 `nbook.<domain>.<action>`；`action` 可为复合（如 `go-to-line`）。其它插件写 `<插件 id>.<action>`。
+- 域词表：`view`、`editor`、`edit`、`quick-open`、`settings`、`account`、`project`、`app`、`help`。本批只用 `editor` / `edit` / `quick-open`。
 
 ### 命令目录（第一批 · 本批全部交付）
 
-| 命令 id | 标题 | 参数 | `when` | `effect` | agent 暴露 |
-|---|---|---|---|---|---|
-| `nbook.editor.focus` | 聚焦编辑器 / Focus Editor | `{}` | 活动编辑器 | read | auto |
-| `nbook.edit.undo` | 撤销 / Undo | `{}` | 活动编辑器且可写 | write | confirm |
-| `nbook.edit.redo` | 重做 / Redo | `{}` | 活动编辑器且可写 | write | never |
-| `nbook.editor.go-to-line` | 跳转到行 / Go to Line | `{target, line}`（`target` 为编辑器文档身份四字段，`line` 为 1 起正整数） | 活动编辑器且支持行导航 | read | auto |
-| `nbook.quick-open.open-commands` | 命令面板 / Command Palette | `{}` | 无 | read | never |
-| `nbook.quick-open.open-line` | 跳转到行… / Go to Line… | `{}` | 活动编辑器且支持行导航 | read | never |
+| 命令 id | 标题 | 参数 | `when` | `effect` | agent 暴露 | 提供方 |
+|---|---|---|---|---|---|---|
+| `nbook.editor.focus` | 聚焦编辑器 / Focus Editor | `{}` | 活动编辑器 | read | auto | 编辑器（第 5 步编辑器插件迁入前由 Lab 命令场景在样板编辑器上登记） |
+| `nbook.edit.undo` | 撤销 / Undo | `{}` | 活动编辑器且可写 | write | confirm | 同上 |
+| `nbook.edit.redo` | 重做 / Redo | `{}` | 活动编辑器且可写 | write | never | 同上 |
+| `nbook.editor.go-to-line` | 跳转到行 / Go to Line | `{target, line}`（`target` 为编辑器文档身份四字段，`line` 为 1 起正整数） | 活动编辑器且支持行导航 | read | auto | 同上 |
+| `nbook.quick-open.open-commands` | 命令面板 / Command Palette | `{}` | 无 | read | never | `nbook.workbench`（产品命令表）；Lab 命令场景另登记一份 |
+| `nbook.quick-open.open-line` | 跳转到行… / Go to Line… | `{}` | 活动编辑器且支持行导航 | read | never | 随编辑器插件接入；现阶段只在 Lab 命令场景登记 |
 
 ### 命令目录（第二批 · 外壳与 View 标题）
+
+新应用随 w00017 t50 的工作台外壳迁入。
 
 | 命令 id | 标题 | 参数 | `when` | `effect` | agent 暴露 |
 |---|---|---|---|---|---|
@@ -125,20 +140,17 @@ owners:
 
 ### 上下文键（第一批）
 
-| 键 | 含义 | 来源 |
-|---|---|---|
-| `project` | 已打开 Project | 现有视图可见性键 |
-| `selection` | 存在选中条目 | 现有视图可见性键 |
-| `user-assets` | 处于用户资产工作区 | 现有视图可见性键 |
-| `desktop` | 桌面外壳（bridge）可用 | 现有视图可见性键 |
-| `editor-focus` | 编辑区获得焦点 | 编辑器宿主 |
-| `quick-open-visible` | 命令面板可见 | 面板宿主 |
-| `agent-panel-open` | Agent 面板已打开 | 外壳宿主 |
-| `editor-active` | 存在有效编辑器句柄 | 编辑器宿主 |
-| `editor-writable` | 活动编辑器非只读 | 编辑器宿主 |
-| `editor-line-navigation` | 活动编辑器支持行导航 | 编辑器宿主 |
+上下文键由拥有该状态的插件登记，命令系统本身不认识任何领域键。产品命令表登记上下文键的贡献点随第一个产品消费者（编辑器插件）加入；在那之前产品命令表不认任何键，声明了 `when` 的命令贡献被拒绝。下表的键现阶段只在 Lab 命令场景的本地命令表里登记。
 
-`when` 引用未登记键在注册期失败。新增键必须同步更新本规范。
+| 键 | 含义 | 拥有者 |
+|---|---|---|
+| `editor-focus` | 编辑区获得焦点 | 编辑器 |
+| `editor-active` | 存在有效编辑器句柄 | 编辑器 |
+| `editor-writable` | 活动编辑器非只读 | 编辑器 |
+| `editor-line-navigation` | 活动编辑器支持行导航 | 编辑器 |
+| `quick-open-visible` | 命令面板可见 | 面板所在的界面宿主 |
+
+`when` 引用未登记键在登记时被拒。新增键必须同步更新本规范。
 
 ### 默认键位（第一批）
 
@@ -146,41 +158,64 @@ owners:
 |---|---|
 | `Ctrl/Cmd+Shift+P` | `nbook.quick-open.open-commands` |
 
-浏览器不可拦截或与宿主冲突的系统组合不注册；控件局部按键（对话框 Escape、列表导航、编辑器内部按键）不属于本能力。`Ctrl/Cmd+P` 文件快速打开不在本批。
+`Mod` 在 macOS 上是 Cmd，其它平台是 Ctrl。浏览器不可拦截或与宿主冲突的系统组合不注册；控件局部按键（对话框 Escape、列表导航、编辑器内部按键）不属于本能力。`Ctrl/Cmd+P` 文件快速打开不在本批。
 
 ### 兼容与安全
 
 - 与桌面菜单契约：15 个既有 id 将来以别名兼容；本批只实现别名机制，不接线、不出现双轨。
-- 与组件标准：纯组件不直接触达注册表；命令作用于域 / 宿主层，组件通过事件或注入端口参与。
-- 白名单：只有已注册的命令（含别名目标）可执行。
+- 与组件标准：纯组件不直接触达命令表；命令作用于域 / 宿主层，组件通过事件或注入端口参与。
+- 白名单：只有已登记的命令（含别名目标）可执行。
 - 参数校验：外部与键位来源的参数在进入执行前校验，不轻信输入。
 - 暴露默认关闭：新命令默认不对 agent 开放，逐条显式开放。
 
 ## 验收与 Smoke
 
-1. **注册与冲突**：Given 两个描述符注册同一 id；When 装配注册表；Then 开发环境失败并指名冲突，生产环境保留首个并记录一次；释放重注册后旧闭包不误删新条目。
-2. **别名机制**：Given 已注册命令与其别名；When 经别名执行；Then 与 canonical 执行同一实现、审计 id 用 canonical；目标释放后别名不可用。
-3. **`when` 三面**：Given 命令声明 `when.requires: [editor-active, editor-writable]`；When 无活动编辑器；Then 面板不出现、快捷键不响应、`executeCommand` 返回 `unavailable` 与原因；编辑器就绪后三面同时恢复。
+1. **登记与冲突**：Given 两个内置插件贡献同一命令 id；When 装配；Then 两条一起被拒绝、原因可查，命令表里没有它，与加载顺序无关。Given 本地命令表上两个不同定义登记同一 id；Then 拒绝后来者、保留首个、只报告一次；释放后重新登记时旧释放函数不误删新条目。
+2. **别名机制**：Given 已登记命令与其别名；When 经别名执行；Then 与 canonical 执行同一实现、审计 id 用 canonical；目标释放后别名不可用。
+3. **`when` 三面**：Given 命令声明 `when.requires: [editor-active, editor-writable]`；When 无活动编辑器；Then 面板不出现、快捷键不响应、执行返回 `unavailable` 与原因；编辑器就绪后三面同时恢复。
 4. **参数严格性**：Given 无参命令与带参命令；When 传入额外字段、缺必填、`null` 或非对象；Then `invalid-args`，处理器未运行。
 5. **暴露策略**：Given 命令 A（默认 `never`）、B（`confirm`）；When agent 调用 A；Then `not-exposed`；调用 B；Then 界面出现确认，确认后执行、取消后 `denied`。
-6. **只读联动与快照**：Given discuss/plan 模式；When agent 调用 `write` 命令；Then `read-only` 直接拒绝；确认等待期间替换注册对象或模式变化，批准后也不执行旧请求（`stale-target`）。
+6. **只读联动与快照**：Given discuss/plan 模式；When agent 调用 `write` 命令；Then `read-only` 直接拒绝；确认等待期间替换命令或模式变化，批准后也不执行旧请求（`stale-target`）。
 7. **审计单一**：Given 同一命令由用户与 agent 各触发一次；Then 每条调用恰好一条审计、来源可区分；一个监听器抛错不影响结果与其它监听器。
-8. **执行错误边界**：Given 命令执行抛出异常；When 触发；Then 返回 `execution-error` 且页面不崩溃。
+8. **执行错误边界**：Given 命令执行抛出异常；When 触发；Then 返回 `execution-error` 且页面不崩溃；经贡献点登记的命令另按贡献方插件记入诊断。
 9. **键位裁决**：Given 两个命令声明同一规范化键位；Then 后来的绑定不启用并报告一次；原持有者释放后重建、新首个接管；不满足 `when` 时按键不拦截。
-10. **Smoke 入口**：在 Component Lab 的命令场景（`WorkbenchCommandPalette` / `CodeEditorView`）以真实浏览器触发 `Ctrl/Cmd+Shift+P`，检索并执行 `nbook.edit.undo`，在场景控制抽屉的命令检视与「事件」tab 观察审计事件与结果；对不可用命令确认拒绝原因可读；切到其它组件后同一快捷键不再响应。自动 core smoke 当前只覆盖快捷键打开/关闭、入口命令审计与离场释放；执行 undo 等完整历史验收见 w00016 证据，不冒充本轮重测。
+10. **Smoke 入口**：在 Component Lab 的 `WorkbenchCommandPalette` 命令场景以真实浏览器触发 `Ctrl/Cmd+Shift+P`，检索并执行 `nbook.edit.undo`，样板编辑器的正文回退，事件 tab 有对应的 `command` 事件；无活动编辑器的场景里命令检视给出可读的不可用原因；切到其它组件后同一快捷键不再响应。
+11. **贡献与撤回**：Given 一个插件向 `commands.definitions` 贡献命令；When 它激活；Then 命令出现在本运行位置的命令表里、经命令服务执行得到处理函数的结果，枚举里的贡献方是该插件；When 它的入口停止；Then 命令离开命令表，执行得到 `unknown-command`。同一插件里不合格的那条贡献被拒、原因可查，其它照常。
+12. **两端各自的命令表**：同一份 `nbook.commands` 入口在服务端与浏览器各自装配；服务端插件贡献的命令只在服务端的命令表里，浏览器窗口的命令表里只有浏览器入口贡献的命令。
+13. **产品页的命令面板**：Given 生产构建的 `/` 页；When 按 `Ctrl/Cmd+Shift+P`；Then 打开命令面板（面板入口命令由 `nbook.workbench` 贡献，不进候选，产品命令表里暂时没有别的人类可见命令时显示空态）；Escape 关闭并把焦点还回去。
 
 ## 实现合同
 
 已实现（合同测试与 Component Lab 真实浏览器验收闭合）：
 
-- 底座：`packages/neuro-book/app/utils/workbench/context-keys.ts`（共享键登记与求值）、`commands.ts`（注册表与执行管线）、`keymap.ts`（键位解析与分发）、`app/composables/useWorkbenchCommands.ts`（宿主 provide/inject 与上下文投影）。
-- 真实样板：`app/utils/workbench/editor-commands.ts` 注册四条编辑器命令；`CodeEditorView` 暴露行导航能力。
-- 面板宿主：`app/components/workbench/WorkbenchCommandPalette.vue`；产品页由 `app/pages/index.vue` 提供宿主，Component Lab 不提供全局宿主——命令场景经 `app/component-lab/fixtures/lab-command-scene.ts` 创建与场景同寿的局部宿主（S4 面板、确认框、键位监听与只读命令检视），切场景即释放。2026-09-25 由 w00017 t14 从 LabShell 常驻宿主收窄为场景局部宿主，w00016 的历史验收保留。
+- 命令系统 `packages/neuro-book/src/plugins/commands/`：
+  - `plugin.ts` 是插件描述，两个运行位置都有入口。
+  - `shared/contracts.ts` 定义贡献点 `commands.definitions`、声明的 TypeBox schema、命令服务接口与 `commandServiceKey`。
+  - `shared/registry.ts` 是命令表与执行管线，声明校验 `commandDeclarationProblems` 由贡献点校验与本地登记共用。
+  - `shared/context-keys.ts` 负责上下文键的登记表与 `when` 求值。
+  - `shared/plugin.ts` 的 `createCommandsPlugin(location)` 是入口：接收者在提交时登记、撤回时释放，每次执行经 `implementation()` 取实现，执行异常记入诊断。
+  - 装配在 `src/server/plugins.ts` 与 `src/web/plugins.ts`。
+- 中英文本：`packages/neuro-book/src/shared/localized-text.ts`。
+- 浏览器界面 `packages/neuro-book/src/plugins/workbench/web/`：
+  - `commands/keymap.ts` 负责键位解析与分发。
+  - `commands/WorkbenchCommandHost.vue` 是 `/` 页上的界面宿主。
+  - `commands/open-commands.ts` 是面板入口命令与“当前面板”槽位。
+  - 命令面板见 [`workbench.quick-open`](quick-open.md)。
+  - 工作台依赖命令服务的键由宿主装配时交进来。
+- Lab 命令场景 `packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/`：
+  - `lab-command-scene.ts` 是局部宿主：本地命令表、确认闸门、审计转 Lab 事件，切场景即释放。
+  - `editor-commands.ts` 是四条编辑器命令，第 5 步随编辑器插件迁走。
+  - `SampleTextEditor.vue` 是 textarea 样板编辑器，`LabCommandInspector.vue` 是命令检视。
 
 ## 证据
 
-- 实现入口：[`commands.ts`](../../../packages/neuro-book-legacy/app/utils/workbench/commands.ts)
-- 合同测试：[`commands.test.ts`](../../../packages/neuro-book-legacy/app/utils/workbench/commands.test.ts)
-- Smoke：不适用——命令面板的 S4 入口在 `/lab` 真实浏览器里人工验收，`component-lab.ts` smoke 只覆盖检查器「命令」面板 tab。
-- 批准该目标的提案：[`../../proposals/workbench-commands.md`](../../proposals/workbench-commands.md)（2026-09-14 起草，2026-09-18 需求讨论修订）。
-- 相关规范：[`../ui/workbench-shell.md`](../ui/workbench-shell.md)（视图描述与 `when` / authority 求值口径）；[`quick-open.md`](quick-open.md)（命令面板与行号跳转交互）。
+- 实现入口：[`registry.ts`](../../../packages/neuro-book/src/plugins/commands/shared/registry.ts)、[`plugin.ts`](../../../packages/neuro-book/src/plugins/commands/shared/plugin.ts)
+- 合同测试：[`registry.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/registry.test.ts)（场景 1–8）、[`context-keys.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/context-keys.test.ts)、[`plugin.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/plugin.test.ts)（经真实内核：场景 1、8、11、12）、[`keymap.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/keymap.test.ts)（场景 3、9）、[`editor-commands.test.ts`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/editor-commands.test.ts)；组件测试 [`lab-command-scene.dom.test.ts`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/lab-command-scene.dom.test.ts)（场景 5 的确认界面）、[`WorkbenchCommandHost.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/WorkbenchCommandHost.dom.test.ts)
+- Smoke：[`e2e/lab-commands.e2e.ts`](../../../packages/neuro-book/e2e/lab-commands.e2e.ts)（场景 10，开发会话，真实 Chrome）、[`e2e/commands.e2e.ts`](../../../packages/neuro-book/e2e/commands.e2e.ts)（场景 13，生产构建）；运行记录见 [w00017 t49](../../../.agents/works/w00017-application-runtime-architecture/tasks/t49-commands-quick-open/README.md)
+- 旧应用的实现与 w00016 的历史验收：[`commands.ts`](../../../packages/neuro-book-legacy/app/utils/workbench/commands.ts)，只作参照。
+- 批准该目标的提案：
+  - [`../../proposals/workbench-commands.md`](../../proposals/workbench-commands.md)（2026-09-14 起草，2026-09-18 需求讨论修订）；
+  - 命令改由内置插件提供，见[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3（2026-10-06）。
+- 相关规范：
+  - [`../ui/workbench-shell.md`](../ui/workbench-shell.md)：视图描述与 `when` / authority 求值口径；
+  - [`quick-open.md`](quick-open.md)：命令面板与行号跳转交互。

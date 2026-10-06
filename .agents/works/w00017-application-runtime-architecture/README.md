@@ -84,7 +84,7 @@ issueId: null
 | [t46](tasks/t46-server-host/README.md) | NeuroBook v2 第 3 步（上）：新应用的后端宿主、`nbook.http`（Bun 监听、排空、插件路由贡献点）与 `nbook.diagnostics`（JSONL 出口）；主 Agent 编码，omp 审查 2 条阻断经核实改为 1 处防御修正与 Spec 澄清，其余 5 条采纳；2026-10-03 完成，40 个用例通过 |
 | [t47](tasks/t47-web-host-dev-supervisor/README.md) | NeuroBook v2 第 3 步（下）：开发监督进程、Vite + Vue 前端、浏览器宿主与引导接口、生产静态资源；打开后是空工作台；主 Agent 编码，omp 审查；2026-10-03 完成，omp 审查 7 条中 5 条修正，81 个合同测试与 6 个浏览器 e2e 通过 |
 | [t48](tasks/t48-web-ui-foundation-lab/README.md) | NeuroBook v2 第 4 步（一）：前端基础（vue-router、UnoCSS、nb-ui、Vitest 组件测试）与只在开发模式加载的 Lab 插件；第 4 步拆三个 Task，Lab 先行；主 Agent 编码，omp 审查；2026-10-04 完成，omp 审查 12 条中 11 条修正、1 条改 Spec，111 个 Bun 用例、33 个组件测试与 18 个浏览器 e2e 通过 |
-| [t49](tasks/t49-commands-quick-open/README.md) | NeuroBook v2 第 4 步（二）：命令系统做成两端都有入口的内置插件 `nbook.commands`（内核不提供 `ctx.commands`，ADR 0022 与平台设计同步修订；激活事件改由拥有者插件定义），workbench 提供命令面板与浏览器键位分发，Lab 命令场景用 textarea 样板编辑器；主 Agent 编码，omp 审查；进行中 |
+| [t49](tasks/t49-commands-quick-open/README.md) | NeuroBook v2 第 4 步（二）：命令系统做成两端都有入口的内置插件 `nbook.commands`（内核不提供 `ctx.commands`，ADR 0022 与平台设计同步修订；激活事件改由拥有者插件定义），workbench 提供命令面板与浏览器键位分发，Lab 命令场景用 textarea 样板编辑器；主 Agent 编码，omp 审查；2026-10-06 实现完成待审查，173 个 Bun 用例、47 个组件测试与 30 个浏览器 e2e 通过 |
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 

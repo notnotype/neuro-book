@@ -24,16 +24,16 @@ owners:
 ## 术语与参与者
 
 - **快速输入（QuickInput）**：nb-ui 的纯受控浮层原语；只呈现宿主给出的候选项与查询，不持有命令注册表、不做匹配与执行决策。
-- **命令模式**：候选来自 `workbench.commands` 注册表；`>` 前缀在查询中可省略，删除 `>` 不切换模式。
+- **命令模式**：候选来自当前页面的命令表（[`workbench.commands`](commands.md)：产品页是本窗口 `nbook.commands` 的命令表，Lab 命令场景是场景自己的本地命令表）；`>` 前缀在查询中可省略，删除 `>` 不切换模式。
 - **行号模式**：`:` 前缀输入；候选固定为一条「跳转到第 N 行」动作，执行 `nbook.editor.go-to-line`。
 - **MRU**：最近使用的命令 id 列表（仅会话内），参与排序加权。
-- **参与者**：用户（输入与选择）；命令注册表（命令来源与可用性过滤）；编辑器宿主（提供行数与活动文档身份）；宿主（键位分发、面板挂载、执行与错误呈现）。
+- **参与者**：用户（输入与选择）；命令表（命令来源与可用性过滤）；编辑器宿主（提供行数与活动文档身份）；界面宿主（键位分发、面板挂载、执行与错误呈现）。
 
 ## 输入与前置条件
 
 - **触发方式**：`Ctrl/Cmd+Shift+P`（经命令系统的键位分发触发 `nbook.quick-open.open-commands`）；`nbook.quick-open.open-line` 命令进入行号模式；浮层内继续输入、方向键移动、回车执行、Escape 关闭。
 - **输入形状**：过滤文本；前缀字符（`>`、`:`）；选中项。
-- **前置状态**：命令注册表可用。行号模式需要活动编辑器与其行导航能力；无活动编辑器时行号模式给出明确不可用原因，不显示假候选。
+- **前置状态**：命令表可用。行号模式需要活动编辑器与其行导航能力；无活动编辑器时行号模式给出明确不可用原因，不显示假候选。产品页的编辑器随编辑器插件接入，在那之前产品页的行号模式显示“没有活动编辑器”。
 - **权限**：无。
 
 ## 输出与可观察行为
@@ -66,15 +66,15 @@ owners:
 ## 失败与恢复
 
 - **无候选 / 空注册表**：空态说明，不显示占位候选。
-- **命令执行失败**：浮层已关闭，失败按命令系统的结构化结果呈现一次（`role="alert"`），不重复弹窗。
+- **命令执行失败**：浮层已关闭，失败按命令系统的结构化结果由界面宿主呈现一次，不重复弹窗（Lab 命令场景在检视区唯一的 `role="alert"` 区域；产品页现在记入诊断）。
 - **行号不可用**：无活动编辑器、不支持行导航、文档已切换或行号越界时给出具体原因；不可提交。
 - **触发重入**：不叠加浮层；已打开时重复触发为幂等且不清空当前输入。
 
 ## 边界与兼容
 
-- **与命令系统**：命令模式的候选、可用性过滤与执行完全来自 `workbench.commands`；本能力不复制命令元数据、不独立维护可用性判定。行号模式通过 `nbook.editor.go-to-line` 执行，不直接调用编辑器句柄。
+- **与命令系统**：命令模式的候选、可用性过滤与执行完全来自 `workbench.commands` 的命令服务；本能力不复制命令元数据、不独立维护可用性判定。命令标题按显示语言取声明里的中英文本。行号模式通过 `nbook.editor.go-to-line` 执行，不直接调用编辑器句柄。
 - **与 nb-ui**：浮层由 nb-ui 纯受控 `QuickInput` 原语承载（portal、modal 键盘与焦点合同、`closed` 交接事件）；匹配高亮与键盘导航复用共享设施，不引入第二套选择控件。
-- **与组件 Lab**：面板先在 Component Lab 完成四主题、双配色、390px 与叠层键盘验收；主页面接入不在本批。
+- **与组件 Lab 与产品页**：面板在 Component Lab 的命令场景完成四主题、双配色、390px 与叠层键盘验收；产品 `/` 页由工作台的命令宿主挂着面板（命令模式），行号模式随编辑器插件接入。
 - **键位**：属于命令系统「默认键位」表，本能力不自行注册全局键盘监听。
 
 ## 验收与 Smoke
@@ -89,16 +89,18 @@ owners:
 
 ## 实现合同
 
-已实现（合同测试与 Component Lab / nb-ui playground 真实浏览器验收闭合）：
+已实现（合同测试、组件测试与真实浏览器验收闭合）：
 
 - 原语：`packages/nb-ui/src/components/feedback/QuickInput.vue`（受控 props/emits、S4 层级 `NB_Z_INDEX.commandPalette`、modal 键盘、`closed` 交接）。
-- 宿主：`packages/neuro-book/app/components/workbench/WorkbenchCommandPalette.vue`（S4 实例、查询/匹配与 MRU 回写）；Component Lab 中由命令场景的局部宿主 `app/component-lab/fixtures/lab-command-scene.ts` 挂载（与场景同寿，负责确认与错误呈现），LabShell 不持有面板。
-- 查询：`app/utils/workbench/command-query.ts`（前缀解析、子序列匹配与排序）。
+- 面板：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue`（同名 `.md`；查询与匹配、行号模式、等 `closed` 后执行、MRU 回写），只依赖面板宿主与命令服务接口，不知道命令表是哪一份。
+- 面板宿主：`src/plugins/workbench/web/commands/palette-host.ts`（开合、查询、捕获的行号目标、会话 MRU、活动编辑器的接入口）；文案中英表 `commands/palette-messages.ts`。
+- 查询：`src/plugins/workbench/web/commands/command-query.ts`（前缀解析、子序列匹配与排序）。
+- 界面宿主：产品 `/` 页上是 `src/plugins/workbench/web/commands/WorkbenchCommandHost.vue`；Component Lab 中由命令场景的局部宿主 `src/plugins/lab/web/fixtures/command-scene/lab-command-scene.ts` 挂载（与场景同寿，负责确认与错误呈现），Lab 外壳不持有面板。
 
 ## 证据
 
-- 实现入口：[`QuickInput.vue`](../../../packages/nb-ui/src/components/feedback/QuickInput.vue)
-- 合同测试：[`QuickInput.test.ts`](../../../packages/nb-ui/src/components/feedback/QuickInput.test.ts)
-- Smoke：不适用——S4 面板在 `/lab` 真实浏览器里人工验收，仓库没有覆盖它的可执行 smoke 入口。
+- 实现入口：[`WorkbenchCommandPalette.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue)、[`QuickInput.vue`](../../../packages/nb-ui/src/components/feedback/QuickInput.vue)
+- 合同测试：[`command-query.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/command-query.test.ts)；组件测试 [`WorkbenchCommandPalette.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.dom.test.ts)（场景 2–6，真实 QuickInput）；原语 [`QuickInput.test.ts`](../../../packages/nb-ui/src/components/feedback/QuickInput.test.ts)
+- Smoke：[`e2e/lab-commands.e2e.ts`](../../../packages/neuro-book/e2e/lab-commands.e2e.ts)（场景 1、7，开发会话中的 Lab 命令场景，真实 Chrome）、[`e2e/commands.e2e.ts`](../../../packages/neuro-book/e2e/commands.e2e.ts)（产品 `/` 页）；运行记录见 [w00017 t49](../../../.agents/works/w00017-application-runtime-architecture/tasks/t49-commands-quick-open/README.md)。
 - 批准该目标的提案：[`../../proposals/workbench-commands.md`](../../proposals/workbench-commands.md)（2026-09-14 起草，2026-09-18 需求讨论修订）。
-- 相关规范：[`commands.md`](commands.md)（命令注册、`when` 求值与暴露策略）。
+- 相关规范：[`commands.md`](commands.md)（命令登记、`when` 求值与暴露策略）。

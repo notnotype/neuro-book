@@ -43,16 +43,91 @@ taskId: t49-commands-quick-open
 
 ## 当前状态
 
-2026-10-06 开始：S1 修订 ADR 0022、平台设计、`runtime.plugin-api`、`runtime.plugin-manifest`。
+2026-10-06 实现完成，主 Agent 编码；待 omp 审查。
 
-计划切片：
-- S2 命令模型；
-- S3 插件与装配；
-- S4 面板与产品页；
-- S5 Lab 命令场景；
-- S6 浏览器验收；
-- S7 收口与 omp 审查。
+提交：
+- `0012c5fd`：文档决定；
+- `e00925da`：命令模型；
+- `63f34ae8`：插件与装配；
+- `fdfaaeac`：面板、键位与 Lab 命令场景；
+- `b59c27de`：浏览器验收。
+
+**实际改动（`packages/neuro-book`，另有文档）：**
+
+- **文档决定**：
+  - ADR 0022 决策 2：协作机制只剩贡献点与导出 API，命令建在其上；
+  - 平台设计 P1、P3、P7、P11，推进表与决策记录；
+  - `runtime.plugin-api`：删去 `ctx.commands` 与 `command-not-found`；
+  - `runtime.plugin-manifest`：激活事件改由拥有者声明前缀，新增 `activationEventPrefixes` 与场景 16，实现推迟。
+- **命令模型** `src/plugins/commands/shared/`：
+  - 命令表 `registry.ts`、上下文键 `context-keys.ts`、合同 `contracts.ts`（贡献点 `commands.definitions`、声明的 TypeBox schema、`commandServiceKey`）；
+  - 中英文本 `src/shared/localized-text.ts`。
+- **插件** `createCommandsPlugin(location)`：
+  - 两个运行位置共用，接收者在提交时登记、撤回时释放，执行异常记入诊断；
+  - 进入产品清单与两侧装配，窗口必需插件加上 `nbook.commands`。
+- **workbench**：
+  - 只作消费者：`commands/` 下有检索、键位分发、面板宿主、面板文案、面板入口命令与槽位；组件 `WorkbenchCommandPalette`；
+  - `/` 页挂异步加载的 `WorkbenchCommandHost`；
+  - 命令服务键由宿主装配时交进来。
+- **Lab 命令场景** `fixtures/command-scene/`：局部宿主、textarea 样板编辑器、四条编辑器命令、命令检视与确认框；`WorkbenchCommandPalette` 的场景。
+- **依赖方向守卫**：Lab 场景可以在运行时引用其它插件的 `web/` 与 `shared/`。
+- **后端 tsc 的 `.vue` 类型垫片**（`src/types/vue-sfc.d.ts`）。
+- **测试**：
+  - Bun：命令表 29 例、插件经真实内核 5 例、检索与键位 20 例、编辑器命令 7 例；
+  - Vitest：面板 8 例、页面宿主 1 例、Lab 场景 4 例、`/` 页的整条接线 1 例；
+  - e2e：`lab-commands.e2e.ts` 11 例、`commands.e2e.ts` 1 例。
+- **Spec 与文档**：`workbench.commands`（原位重写，capability id 与路径不变）、`workbench.quick-open`、`ui.component-lab`（场景 16、例外、实现合同）、`runtime.browser-host` 与 `runtime.server-host`（必需插件）、登记表三行、包 `AGENTS.md` 与 README。
+
+**与计划的出入：**
+
+- **工作台依赖命令服务的方式**：计划里写的是工作台直接 `requires` 命令服务的键。实际上服务键按对象身份比较，而插件之间只能 `import type`，所以改由宿主装配时交进来（`createWorkbenchBrowserPlugin({commands: commandServiceKey})`）。包 `AGENTS.md` 写明了这条约定。
+- **后端 tsc 多了 `.vue` 类型垫片**：bun 测试会导入工作台插件，而它按需加载 `.vue`，后端 tsc 解析不了。垫片只在 `tsconfig.json` 里生效；两遍 vue-tsc 不包含它，组件的类型仍由 vue-tsc 精确检查。
+- **产品页的执行失败只记诊断**：产品命令表现在只有面板入口这一条命令，没有需要呈现给用户的失败，所以不画 `role="alert"` 区域。Lab 命令场景保留了检视区的提示。
+- **样板编辑器忽略内容没变的输入**：正文没变的 `input` 不进撤销栈。实测 Playwright 的 `fill` 会连发多次同样的正文，不忽略的话，撤销只会退回到同一段正文。
+- **quick-open 场景 7 的对比度口径**：玻璃主题（nbook、macos）的面板是半透明加背景模糊，实际看到的底色取决于下层内容，算不出确定值。所以对比度按文字与面板底色这对 token 计算（不计透明度），材质另外检查：面板要么底色不透明，要么是带背景模糊的半透明。
+
+**旧路径到新路径（以后合并 master 时对照）：**
+
+| 旧（`packages/neuro-book-legacy/app/`） | 新（`packages/neuro-book/src/`） |
+|---|---|
+| `utils/workbench/{commands,context-keys}.ts` | `plugins/commands/shared/{registry,context-keys}.ts`（合同在 `contracts.ts`） |
+| `utils/workbench/{keymap,command-query}.ts` | `plugins/workbench/web/commands/` 同名文件 |
+| `composables/useWorkbenchCommands.ts`（面板部分） | `plugins/workbench/web/commands/palette-host.ts` |
+| `components/workbench/WorkbenchCommandPalette.{vue,md}` | `plugins/workbench/web/components/` |
+| `utils/workbench/editor-commands.ts`、`components/editor-workbench/editor-view.types.ts`（命令用到的部分） | `plugins/lab/web/fixtures/command-scene/{editor-commands,editor-binding}.ts`（第 5 步随编辑器插件迁走） |
+| `component-lab/fixtures/{lab-command-scene.ts,LabCommandInspector.vue,LabCommandSceneLayer.vue}` | `plugins/lab/web/fixtures/command-scene/` |
+| `component-lab/fixtures/{CodeEditorViewFixture,WorkbenchCommandPaletteFixture}.vue` | `plugins/lab/web/fixtures/WorkbenchCommandPaletteFixture.vue`（用 `SampleTextEditor.vue`） |
+| i18n `workbenchCommands.*` | 命令声明里的中英文本；面板文案 `plugins/workbench/web/commands/palette-messages.ts` |
 
 ## 验收
 
-（随实现补充。）
+1. **类型检查与单元、组件测试**（[`app-checks.txt`](evidences/app-checks.txt)）：
+   - `bun run typecheck` 三遍 0 错误；
+   - `bun test` 27 个文件 173 例通过；
+   - Vitest 11 个文件 47 例通过。
+2. **浏览器验收**（[`e2e.txt`](evidences/e2e.txt)）：`bun run test:e2e` 30 例通过。
+   - 新增的 12 例覆盖：
+     - `workbench.commands` 场景 10、13；
+     - `workbench.quick-open` 场景 1、7（四主题 × 双配色 × 390 px）；
+     - `ui.component-lab` 场景 16。
+   - t47、t48 原有的 18 例保持通过。
+3. **场景与覆盖方式**：
+   - `workbench.commands` 场景 1–9、11、12 由命令表、插件（真实内核）、键位、编辑器命令的 Bun 测试与 Lab 场景的组件测试覆盖；
+   - `workbench.quick-open` 场景 2–6 由面板的组件测试（真实 QuickInput）与检索测试覆盖。
+4. **服务端 smoke**（[`smoke-server.txt`](evidences/smoke-server.txt)）：`bun run smoke:server` S1–S5 通过。
+5. **治理与受影响范围**（[`affected.txt`](evidences/affected.txt)）：
+   - `docs:check`、`governance:check` 失败为 0，本次改动无新警告；
+   - `test:affected --typecheck` 只选中 neuro-book，全部通过。
+6. **产物大小**：`build` 后与 t48 对比。
+   - t48：一个 JS 块 254 KB（gzip 82.8 KB），CSS 115 KB。
+   - 现在首屏的 JS 是两块，共 317 KB（gzip 106 KB），多出约 63 KB（gzip 24 KB）。
+   - 命令宿主（QuickInput 等）是 50 KB 的异步块。
+   - CSS 164 KB（gzip 21 KB）。
+   - 没有逐块分析增量来源，记作待查。
+
+**未验证**：
+- Windows；
+- Firefox 与 Safari（键位平台判定回退 `navigator.platform`）；
+- Agent 调用与跨运行位置执行命令（本 Task 没有）；
+- 产品页的行号模式（随编辑器插件接入）；
+- 激活事件的内核实现（只写了 Spec）。

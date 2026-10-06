@@ -1,0 +1,39 @@
+# t49 服务端 smoke（2026-10-06T05:35:10+01:00）
+$ bun run --cwd packages/neuro-book smoke:server
+$ bun scripts/smoke-server.ts
+$ bun build src/server/main.ts --target bun --outdir dist/server
+Bundled 741 modules in 28ms
+
+  main.js  0.55 MB  (entry point)
+
+{
+  "schema": "nbook.smoke/server/v1",
+  "results": [
+    {
+      "id": "S1",
+      "ok": true,
+      "evidence": "health=200 exit=0 log=true"
+    },
+    {
+      "id": "S2",
+      "ok": true,
+      "evidence": "health=200 exit=0 log=true"
+    },
+    {
+      "id": "S3",
+      "ok": true,
+      "evidence": "exit=1"
+    },
+    {
+      "id": "S4",
+      "ok": true,
+      "evidence": "conflict-exit=1 holder-exit=0"
+    },
+    {
+      "id": "S5",
+      "ok": true,
+      "evidence": "shell=true fallback=true protocol=1 exit=0"
+    }
+  ]
+}
+exit=0

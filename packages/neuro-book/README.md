@@ -4,4 +4,4 @@ NeuroBook v2 的应用包：在原路径从零重建，先只有运行时底座�
 
 旧应用在 [`../neuro-book-legacy/`](../neuro-book-legacy/AGENTS.md)，只作代码与行为参照，不再修改。
 
-当前是应用骨架：后端宿主、`nbook.http`、`nbook.diagnostics`、开发监督进程与浏览器宿主，打开后是空工作台；开发模式下 `/lab` 是 Component Lab（只在开发模式加载，生产构建不含）。工作台外壳、命令与布局随第 4 步后续 Task 加入。`bun run dev` 启动开发模式，目录约定与其它命令见 [`AGENTS.md`](AGENTS.md)。
+当前是应用骨架：后端宿主、`nbook.http`、`nbook.diagnostics`、命令系统 `nbook.commands`（服务端与浏览器各一份命令表）、开发监督进程与浏览器宿主，打开后是空工作台，按 `Ctrl/Cmd+Shift+P` 打开命令面板；开发模式下 `/lab` 是 Component Lab（只在开发模式加载，生产构建不含）。工作台外壳与布局随第 4 步后续 Task 加入。`bun run dev` 启动开发模式，目录约定与其它命令见 [`AGENTS.md`](AGENTS.md)。
