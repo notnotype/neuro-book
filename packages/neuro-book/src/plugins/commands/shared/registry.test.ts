@@ -97,9 +97,12 @@ describe("登记、释放与冲突", () => {
         value(registry.register(command("nbook.edit.undo", {description: "first", run: () => ({ok: true, value: "first"})})));
         const second = command("nbook.edit.undo", {description: "second", run: () => ({ok: true, value: "second"})});
 
-        expect(registry.register(second)).toEqual({ok: false, code: "invalid-args", reason: "命令 nbook.edit.undo 已登记"});
+        const rejected = registry.register(second);
+        expect(rejected.ok ? "" : rejected.code).toBe("invalid-args");
+        expect(rejected.ok ? "" : rejected.reason).toContain("nbook.edit.undo");
         registry.register(second);
-        expect(reported).toEqual(["命令 nbook.edit.undo 已登记"]);
+        expect(reported).toHaveLength(1);
+        expect(reported[0]).toContain("nbook.edit.undo");
         expect(value(registry.get("nbook.edit.undo")).description).toBe("first");
         expect(await registry.execute("nbook.edit.undo")).toEqual({ok: true, value: "first"});
     });
@@ -184,18 +187,22 @@ describe("别名", () => {
         expect(value(registry.isEnabled("file.quit"))).toBe(true);
     });
 
-    it("同一别名指向同一目标幂等；改指、与命令同名、目标不存在、格式不对都被拒绝", () => {
+    it("同一别名指向同一目标幂等；改指、与命令同名（两个登记方向）、目标不存在、格式不对都被拒绝", async () => {
         const {registry} = harness();
-        value(registry.register(command("nbook.app.quit")));
+        value(registry.register(command("nbook.app.quit", {run: () => ({ok: true, value: "quit"})})));
         value(registry.register(command("nbook.app.reload")));
 
-        const first = value(registry.registerAlias("file.quit", "nbook.app.quit"));
-        expect(value(registry.registerAlias("file.quit", "nbook.app.quit"))).toBe(first);
-        expect(registry.registerAlias("file.quit", "nbook.app.reload").ok).toBe(false);
+        const first = value(registry.registerAlias("nbook.app.exit", "nbook.app.quit"));
+        expect(value(registry.registerAlias("nbook.app.exit", "nbook.app.quit"))).toBe(first);
+        expect(registry.registerAlias("nbook.app.exit", "nbook.app.reload").ok).toBe(false);
         expect(registry.registerAlias("nbook.app.quit", "nbook.app.reload").ok).toBe(false);
-        expect(registry.registerAlias("file.quit", "nbook.app.missing").ok).toBe(false);
+        expect(registry.register(command("nbook.app.exit", {run: () => ({ok: true, value: "newcomer"})})).ok).toBe(false);
+        expect(registry.registerAlias("nbook.app.exit", "nbook.app.missing").ok).toBe(false);
         expect(registry.registerAlias("file quit", "nbook.app.quit").ok).toBe(false);
         expect(registry.registerAlias("file", "nbook.app.quit").ok).toBe(false);
+        // 被拒绝的登记不改变别名原本解析到的命令。
+        expect(await registry.execute("nbook.app.exit")).toEqual({ok: true, value: "quit"});
+        expect(registry.list().map((metadata) => metadata.id)).toEqual(["nbook.app.quit", "nbook.app.reload"]);
     });
 
     it("目标释放时一并清除别名；旧的别名释放函数不影响后来的登记", async () => {
@@ -245,7 +252,9 @@ describe("参数严格校验与执行错误", () => {
 
         expect(await registry.execute("nbook.editor.focus")).toEqual({ok: false, code: "execution-error", reason: "同步失败"});
         expect(await registry.execute("nbook.edit.undo")).toEqual({ok: false, code: "execution-error", reason: "异步失败"});
-        expect(await registry.execute("nbook.edit.redo")).toEqual({ok: false, code: "execution-error", reason: "命令没有返回结构化结果：nbook.edit.redo"});
+        const unstructured = await registry.execute("nbook.edit.redo");
+        expect(unstructured.ok ? "" : unstructured.code).toBe("execution-error");
+        expect(unstructured.ok ? "" : unstructured.reason).toContain("nbook.edit.redo");
         expect(events.map((event) => event.result.ok)).toEqual([false, false, false]);
     });
 

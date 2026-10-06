@@ -203,6 +203,8 @@ export function createCommandRegistry(options: CommandRegistryOptions): CommandR
                 if (existing.definition === definition) return {ok: true, value: existing.release};
                 return reject(`duplicate:${id}`, `命令 ${id} 已登记`);
             }
+            const alias = aliases.get(id);
+            if (alias !== undefined) return reject(`alias-collision:${id}`, `命令与已登记的别名同名：${id} → ${alias.targetId}`);
             const entry: CommandEntry = {definition, metadata: {...definition.declaration, id, source: definition.source}, release: () => undefined};
             entry.release = () => {
                 // 旧的释放函数不能删掉后来复用同一 id 的新条目。

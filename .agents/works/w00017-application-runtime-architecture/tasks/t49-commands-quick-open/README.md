@@ -43,14 +43,16 @@ taskId: t49-commands-quick-open
 
 ## 当前状态
 
-2026-10-06 实现完成，主 Agent 编码；待 omp 审查。
+2026-10-06 完成：主 Agent 编码，omp 审查后按意见修正。
 
 提交：
 - `0012c5fd`：文档决定；
 - `e00925da`：命令模型；
 - `63f34ae8`：插件与装配；
 - `fdfaaeac`：面板、键位与 Lab 命令场景；
-- `b59c27de`：浏览器验收。
+- `b59c27de`：浏览器验收；
+- `e48bfe9f`：Spec 与证据；
+- 审查修正随本 Task 收口提交。
 
 **实际改动（`packages/neuro-book`，另有文档）：**
 
@@ -123,7 +125,19 @@ taskId: t49-commands-quick-open
    - 现在首屏的 JS 是两块，共 317 KB（gzip 106 KB），多出约 63 KB（gzip 24 KB）。
    - 命令宿主（QuickInput 等）是 50 KB 的异步块。
    - CSS 164 KB（gzip 21 KB）。
-   - 没有逐块分析增量来源，记作待查。
+   - 增量来源：用 source map 按源文件统计生成的字节，两次构建都是 `vite build --sourcemap`，t48 在临时 worktree 里构建。
+     - 多出的约 60 KB 里约 45 KB 是 Vue 运行时：runtime-core 多 26 KB，runtime-dom 多 17 KB。命令宿主虽是异步块，它用到的 Vue 功能（Teleport、过渡、指令等）进了首屏与它共用的那份 Vue。
+     - 本 Task 自己的代码：命令系统 7 KB、工作台 2 KB、中英文本 2.6 KB。
+     - 要压首屏，得调整分块，不在本 Task。
+
+**omp 审查（默认模型，只读）：** 一次跑完（[`omp-review.txt`](evidences/omp-review.txt)），列 1 条阻断、3 条建议。主 Agent 逐条核实，全部成立，处理如下；改写的别名用例撤掉修复时失败：
+
+1. 阻断“登记命令时不查别名表，命令 id 与已有别名同名也能登记，经该 id 执行的命令随登记与释放改变”：成立（旧实现同样如此）。`register` 遇到同名别名时拒绝后来者、只报告一次；别名用例补上这个方向，并断言被拒后别名仍执行原命令。`workbench.commands` 的别名定义与场景 2 写明两个方向都拒绝。
+2. 建议“场景 6 把等待确认期间切到只读模式也写成 `stale-target`，实现返回 `read-only`”：成立，改 Spec 不改实现。场景 6 与“只读联动”拆开写：命令被替换返回 `stale-target`，切到 discuss/plan 返回 `read-only`。
+3. 建议“激活事件写作 `<前缀>:<参数>` 并激活声明该事件的全部入口，却保留了不带参数的 `onChannel`”：成立，是本 Task 修订激活事件时留下的。改为 `onChannel:<插件 id>`，`runtime.plugin-manifest`、平台设计、`runtime.plugin-channel`、`runtime.api-docs` 同步；平台设计清单示例里的命令 id 一并改成以插件 id 开头。
+4. 建议“三处测试整句比对生成的中文文案”：成立（测试规范把断言措辞列为变更探测）。改为断言失败码、原因含命令 id、只报告一次；诊断断言级别、消息含命令 id、原始异常。
+
+修正后 `typecheck`、`bun test`（173 例）、`test:affected --typecheck`、`docs:check`、`governance:check` 通过；浏览器验收没有重跑，产品与 Lab 都不登记别名。
 
 **未验证**：
 - Windows；
@@ -131,3 +145,7 @@ taskId: t49-commands-quick-open
 - Agent 调用与跨运行位置执行命令（本 Task 没有）；
 - 产品页的行号模式（随编辑器插件接入）；
 - 激活事件的内核实现（只写了 Spec）。
+
+## 下一步
+
+t50 之前先单独设计一轮工作台外壳的抽象（区域、图标栏、切换器、视图容器、视图），交开发者审批，再开 t50（外壳、拖放与布局）。

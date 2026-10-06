@@ -139,7 +139,10 @@ describe("nbook.commands 经内核装配", () => {
 
         expect(await (service as CommandService | null)?.execute("example.greeter.fail")).toEqual({ok: false, code: "execution-error", reason: "问候失败"});
         const recorded = store.query({plugin: "example.greeter"}).records.filter((record) => record.event === "commands.run-failed");
-        expect(recorded.map((record) => [record.level, record.message])).toEqual([["error", "命令 example.greeter.fail 执行时抛出异常"]]);
+        expect(recorded).toHaveLength(1);
+        expect(recorded[0]?.level).toBe("error");
+        expect(recorded[0]?.message).toContain("example.greeter.fail");
+        expect(recorded[0]?.error).toMatchObject({message: "问候失败"});
         await application.stop();
     });
 });

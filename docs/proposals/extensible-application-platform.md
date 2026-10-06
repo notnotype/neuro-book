@@ -89,7 +89,7 @@ w00017 已经交付一个经过合同测试的小内核，但它还没有成为�
 
 1. **插件包与加载器。** 内核能从两种来源登记插件：随产品构建的内置插件，以及安装在 State Root 的外部插件（[P8](#p8-安装发现兼容与安全模式)）。两者使用同一清单格式；加载器只读清单即可完成登记与校验，不执行插件代码。
 2. **由拥有者插件定义的贡献点。** 贡献点连同声明 schema 写在拥有者插件的清单里，例如 Agent 插件定义 `agent.tools`。登记阶段内核按 schema 校验全部插件的贡献，不需要先激活拥有者；拥有者激活时才接上接收者。这取代现在由宿主传入接收者的做法。
-3. **激活事件（2026-10-06 开发者修订：由拥有者插件定义）。** 入口在清单中声明何时激活。内核只认识 `onStartup`；其它事件写作 `<前缀>:<参数>`，前缀像贡献点一样由拥有者插件声明为自己所有，例如 `nbook.commands` 的 `onCommand:<命令 id>`、`nbook.workbench` 的 `onView:<视图 id>`、`nbook.agent` 的 `onAgentTool:<工具名>`、`nbook.http` 的 `onChannel`（插件通道首次被调用，激活实现通道的服务端入口）。拥有者在需要时请内核触发自己前缀下的事件，内核激活本运行位置上声明了该事件的入口；新增激活方式只需新的拥有者声明前缀，不改内核。事件只是触发现有激活机制的条件，激活事务语义不变。
+3. **激活事件（2026-10-06 开发者修订：由拥有者插件定义）。** 入口在清单中声明何时激活。内核只认识 `onStartup`；其它事件写作 `<前缀>:<参数>`，前缀像贡献点一样由拥有者插件声明为自己所有，例如 `nbook.commands` 的 `onCommand:<命令 id>`、`nbook.workbench` 的 `onView:<视图 id>`、`nbook.agent` 的 `onAgentTool:<工具名>`、`nbook.http` 的 `onChannel:<插件 id>`（该插件的通道首次被调用，激活它实现通道的服务端入口）。拥有者在需要时请内核触发自己前缀下的事件，内核激活本运行位置上声明了该事件的入口；新增激活方式只需新的拥有者声明前缀，不改内核。事件只是触发现有激活机制的条件，激活事务语义不变。
 4. **运行期启用与禁用。** 贡献点接收者除实现层的 prepare、commit、revoke 外，还接收声明层通知（插件启用或禁用时声明出现或消失）；禁用按 [P11](#p11-启动停止与插件状态) 的三步停止执行；撤回后被调用的贡献实现与导出 API 统一返回结构化的 `plugin-unavailable` 错误（命令随其贡献撤回从命令表消失）；禁用前能列出该插件的在途调用供用户确认。
 5. **引用账本。** 跨插件的引用只经内核建立，内核逐项记账：导出 API 以转发器交出，贡献实现以句柄交出，事件订阅以登记在订阅方作用域上的句柄交出。撤销后转发器与句柄失效，且不再引用提供方，即使使用方仍持有它们，提供方也能被回收。
 6. **跨插件调用包装。** 导出 API 调用与贡献调用（执行命令即调用命令的贡献实现）都经内核包装：合成终止信号（调用方传入的信号、调用方被禁用、提供方被禁用），登记在途调用，禁用超时后替调用方结算为“已中断”。在做编辑器扩展点这类每次按键都会触发的路径之前，先对这层包装做基准测试。
@@ -113,7 +113,7 @@ w00017 已经交付一个经过合同测试的小内核，但它还没有成为�
       "main": "./dist/generator.mjs",
       "channel": true,
       "requires": ["nbook.models/image-generation", "nbook.assets/writer"],
-      "activationEvents": ["onChannel", "onAgentTool:generate_illustration"],
+      "activationEvents": ["onChannel:example.text-to-image", "onAgentTool:generate_illustration"],
       "contributes": {
         "agent.tools": [{"name": "generate_illustration", "description": "为场景生成插图", "inputSchema": {"type": "object"}}]
       }
@@ -122,15 +122,15 @@ w00017 已经交付一个经过合同测试的小内核，但它还没有成为�
       "location": "browser",
       "main": "./dist/editor-ui.cjs",
       "requires": ["nbook.editor/document", "example.text-to-image/channel"],
-      "activationEvents": ["onCommand:example.textToImage.generate", "onView:example.textToImage.candidates"],
+      "activationEvents": ["onCommand:example.text-to-image.generate", "onView:example.textToImage.candidates"],
       "contributes": {
-        "commands": [{"id": "example.textToImage.generate", "title": "生成插图"}],
+        "commands": [{"id": "example.text-to-image.generate", "title": "生成插图"}],
         "views": {"right": [{"id": "example.textToImage.candidates", "name": "候选插图"}]}
       }
     }
   },
   "contributes": {
-    "menus": {"editor/context": [{"command": "example.textToImage.generate", "when": "editorHasSelection"}]},
+    "menus": {"editor/context": [{"command": "example.text-to-image.generate", "when": "editorHasSelection"}]},
     "configuration": {"example.textToImage.style": {"type": "string", "default": "watercolor"}}
   }
 }

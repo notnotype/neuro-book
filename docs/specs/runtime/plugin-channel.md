@@ -24,7 +24,7 @@ owners:
 ## 术语与参与者
 
 - **合同模块**：插件的一份 zod 合同，列出方法：调用 `call`、订阅 `subscription`（以及暂不传输的流 `stream`）。每个方法的参数是一个输入对象，结果与事件各有 schema。
-- **通道入口**：清单中声明 `"channel": true` 的服务端入口，用 `ctx.channel.handle`、`ctx.channel.subscribe` 交出实现；首次调用按 `onChannel` 激活它。
+- **通道入口**：清单中声明 `"channel": true` 的服务端入口，用 `ctx.channel.handle`、`ctx.channel.subscribe` 交出实现；首次调用按 `onChannel:<本插件 id>` 激活它。
 - **合同端点**：`POST /api/plugins/<插件 id>/rpc/<方法名>`，由合同生成。
 - **事件流**：每个窗口一条多路复用的服务端推送连接，承载订阅事件与插件集合变化。
 - **连接作用域**：服务端为每个窗口的事件流建立的作用域；订阅同时登记在插件入口的作用域与连接作用域上，任一关闭即结束。
@@ -73,7 +73,7 @@ owners:
 | 路由 | 随所属入口激活可用，随入口停止撤回 |
 
 - 同一方法的并发调用互不合并，各自执行。
-- 调用到达时通道入口尚未激活，先按 `onChannel` 激活再处理；激活失败返回 `plugin-unavailable` 并附原因。
+- 调用到达时通道入口尚未激活，先按 `onChannel:<本插件 id>` 激活再处理；激活失败返回 `plugin-unavailable` 并附原因。
 
 ## 副作用与数据
 

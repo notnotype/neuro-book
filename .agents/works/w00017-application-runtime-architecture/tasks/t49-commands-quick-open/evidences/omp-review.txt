@@ -1,0 +1,106 @@
+# t49 omp 只读审查（2026-10-06T07:11:59+01:00）
+# 审查者：omp 默认模型（@default），只读，范围 0012c5fd^..e48bfe9f；报告原文如下。
+# 报告中的仓库外复现测试 core-review.test.ts 位于会话临时目录，未入库。
+
+# w00017 t49 只读审查
+
+审查范围：`0012c5fd^..e48bfe9f`，差异为 `git diff 0012c5fd^ e48bfe9f`。
+
+严格只读仓库；本报告位于仓库外。问题按核实顺序追加，编号不表示优先级。未运行 `dev`、`build`、`test:e2e` 或真实模型 API。
+
+验证记录（本审查亲自运行）：
+
+- `bun run --cwd packages/neuro-book typecheck`：后端 `tsc` 与两遍 `vue-tsc` 完成，无诊断。
+- 在 `packages/neuro-book` 运行 `bun test src/plugins/commands/shared/registry.test.ts src/plugins/commands/shared/context-keys.test.ts src/plugins/commands/shared/plugin.test.ts src/plugins/workbench/web/commands/keymap.test.ts src/plugins/workbench/web/commands/command-query.test.ts src/plugins/lab/web/fixtures/command-scene/editor-commands.test.ts src/architecture.test.ts`：`64 pass / 0 fail`，7 文件，300 条断言。
+- 仓库外 `core-review.test.ts`：2 例完成，复现第 1 条缺陷与第 2 条合同差异。用例断言的是观察到的现状，不是修复后的合同。
+- Task 内 `173` 个 Bun、`47` 个组件与 `30` 个 e2e 的记录仅作已有证据读取；本审查不冒称复跑全量或浏览器验收。
+
+### 1. [阻断] canonical 登记未检查已占用的别名，命令身份会随登记和释放静默改指
+
+- 位置：`packages/neuro-book/src/plugins/commands/shared/registry.ts:196-218`、`:176-181`、`:221-228`。
+- 现象：先登记 `nbook.app.original`，再把 `nbook.app.alias` 登记为它的别名；随后登记 id 为 `nbook.app.alias` 的另一条 canonical 命令仍成功，没有诊断。经该 id 执行由原实现变成新实现；释放新 canonical 后又自动恢复成旧别名实现。
+- 为什么是问题：`docs/specs/workbench/commands.md:35,38` 定义“id 全局唯一且稳定”及“别名只做解析，不产生第二份实现”；实现自己在 `registry.ts:82` 也声明“别名与 canonical 共用名字表”。反方向的 `registerAlias` 已拒绝 canonical 重名，而 `register` 只检查 `entries`，使同一身份能同时存在两条映射。调用者无法根据登记成功与释放判断自己究竟会触发哪个动作。这一漏洞旧 `commands.ts:278-290` 也存在，本次迁移没有修正；别名机制是本批交付范围，非桌面别名接线要求。
+- 如何核实：读新旧登记与解析代码；运行仓库外 `core-review.test.ts`：`bun test /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t49-review/core-review.test.ts`（cwd 为 `packages/neuro-book`），2 例通过，其中本例观察到 `alias collision registration: true reports: []`，执行结果依次为 `original → newcomer → original`。此测试断言实际缺陷，不表示合同通过。
+- 建议改法：`register` 在插入 canonical 前检查 `aliases.has(id)`，按现有拒绝与单次报告路径拒绝后来者，保留原别名；在既有别名行为测试里补齐两个登记方向，断言失败后原目标仍可执行。
+
+### 2. [建议] 确认等待期间切换只读模式的验收失败码与实现、测试不一致
+
+- 位置：`docs/specs/workbench/commands.md:178`；对应实现 `packages/neuro-book/src/plugins/commands/shared/registry.ts:322-323`，测试 `registry.test.ts:364-377`。
+- 现象：Spec 场景 6 将“确认等待期间替换命令或模式变化”统一写成 `stale-target`；实现与测试在等待期间切到 `plan` 时返回 `read-only`，仅替换命令返回 `stale-target`。
+- 为什么是问题：Spec 原文为“确认等待期间替换命令或模式变化，批准后也不执行旧请求（`stale-target`）”。失败码是公开结果合同，而当前“实现闭合”的声明使按 Spec 编写的消费者或验收脚本得到不同分类。实现本身正确阻止了写入，并与旧 `commands.ts:486-492` 保持一致；这是合同内部矛盾，不是只读防护失效。
+- 如何核实：读 Spec、实现、既有测试与旧执行管线；运行上述仓库外 `core-review.test.ts`，观察 `confirmation mode change: {ok:false, code:"read-only", ...} runs: 0 audit count: 1`。
+- 建议改法：保留语义明确且沿用旧行为的实现，将场景 6 拆为“条目替换 → `stale-target`；切换到 discuss/plan → `read-only`”，避免为了文档措辞把实际只读拒绝改报成别的失败。
+
+### 3. [建议] 拥有者定义的激活事件新合同与保留的无参数 `onChannel` 示例不自洽
+
+- 位置：`docs/specs/runtime/plugin-manifest.md:57,76,146`；`docs/proposals/extensible-application-platform.md:92,116`。
+- 现象：新合同规定内核只认识 `onStartup`，其它事件均为 `<前缀>:<参数>`，并激活本运行位置上声明该事件的全部入口；但同一段及示例清单仍使用裸 `onChannel`，且通道行为要求首次调用只激活所调用插件的通道入口。
+- 为什么是问题：`plugin-manifest.md:57` 原文是“其它事件写作 `<前缀>:<参数>`”“内核激活本运行位置上声明了该事件的入口并逐个返回结果”；`:76` 又写“首次调用或订阅时才按 `onChannel` 激活它”。这使实现者无法确定裸事件是否合法、如何定向到某个插件，还是首次调用一个通道就应激活全部声明裸 `onChannel` 的入口。`runtime.plugin-channel` 的 `:27,76` 也沿用后者的单通道语义。
+- 如何核实：读取本次修改的 Spec 与平台设计，搜索 `onChannel`，确认示例 `activationEvents: ["onChannel", "onAgentTool:generate_illustration"]` 原样保留。激活事件实现按 Task 明确推迟，未运行运行时验证；此项是已核实的文档合同冲突，不声称现有运行时出现错误激活。
+- 建议改法：在本轮 Spec 定清带参形式，例如 `onChannel:<插件 id>`，并同步清单示例与通道 Spec；若要保留裸事件，明确这是“拥有者定向某入口”的额外合同，不能同时描述成通用的按事件全匹配。
+
+### 4. [建议] 部分新测试固定了未承诺的生成文案，行为不变的重措辞会触发回归失败
+
+- 位置：`packages/neuro-book/src/plugins/commands/shared/plugin.test.ts:140-142`；`registry.test.ts:100-102,248`。
+- 现象：插件异常测试把诊断 `message` 精确固定为“命令 example.greeter.fail 执行时抛出异常”；登记冲突测试完整比对“命令 nbook.edit.undo 已登记”；结构化结果错误测试完整固定“命令没有返回结构化结果：nbook.edit.redo”。
+- 为什么是问题：`docs/testing/README.md:7-10` 明确“测行为，不测实现”，并把“断言……措辞”列为有害的“变更探测”。Spec 要求结构化失败码、可读原因、诊断按贡献方关联，没有承诺这三段中文生成句子的精确内容。修改本地化或诊断措辞并不改变冲突裁决、失败分类和插件归属，却会使这些测试失败。此项不针对从处理函数传递的原始错误消息，也不要求删除有用的行为断言。
+- 如何核实：读取上述新测试与 `docs/specs/workbench/commands.md:62-67,91,102`；这些断言包含字面量文案精确比较，超出了失败码、命令身份与诊断结构的合同。问题在断言合同，而非替身使用；没有使用 mock/spy 并不能消除措辞变更探测。
+- 建议改法：保留执行失败、后来者被拒、首个仍执行、诊断次数与贡献方关联的断言；生成文案只检查确有可读原因和必要身份/位置，诊断主要检查 `event`、`level`、`source.plugin` 与原始异常字段，不重新固定另一版句子。
+
+
+## 主 Agent 处理
+
+1. [阻断] 采纳。registry.ts 的 register 在插入前检查别名表，同名时拒绝后来者并只报告一次；registry.test.ts 别名用例补上“先别名后命令”的方向，并断言被拒绝后别名仍执行原命令。未修复的代码上该用例失败（1 fail），修复后通过。commands Spec 的别名定义与场景 2 写明两个方向都拒绝。
+2. [建议] 采纳。commands Spec 场景 6 与“只读联动”条拆开：等待期间命令被替换返回 stale-target，切到 discuss/plan 返回 read-only；实现与测试不变。
+3. [建议] 采纳。onChannel 改为带参的 onChannel:<插件 id>：plugin-manifest（激活事件段、跨位置依赖条）、平台设计 P1 与清单示例、plugin-channel、api-docs 同步。示例里的命令 id 同时改为 example.text-to-image.generate，与命令 id 须以插件 id 开头的规则一致。
+4. [建议] 采纳。registry.test.ts 的重复登记、无结构化结果两处，plugin.test.ts 的执行异常诊断，不再整句比对生成的文案：改为断言失败码、原因含命令 id、只报告一次；诊断断言 level、message 含命令 id、error.message 为原始异常。
+
+## 修复后的检查
+
+$ bun run --cwd packages/neuro-book typecheck  → exit 0
+$ bun test（packages/neuro-book）→ 173 pass / 0 fail，27 个文件
+$ bun run docs:check → failures []，warnings []
+$ bun run governance:check → failures []，warnings []
+$ bun run test:affected --typecheck
+$ bun scripts/cli/test-affected.ts --typecheck
+改动文件 9 个（未提交的改动）。
+选中 1 项（test）：
+  neuro-book（包内有改动）：bun run typecheck；bun run test:bun；bun run test:vitest
+
+==> neuro-book：bun run typecheck
+$ tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json
+
+==> neuro-book：bun run test:bun
+$ bun test "--reporter=junit" "--reporter-outfile=<临时目录>/neuro-book-1.xml"
+bun test v1.4.2 (744846f84)
+
+ 173 pass
+ 0 fail
+ 736 expect() calls
+Ran 173 tests across 27 files. [6.06s]
+
+==> neuro-book：bun run test:vitest
+$ vitest run
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+
+ Test Files  11 passed (11)
+      Tests  47 passed (47)
+   Start at  07:11:32
+   Duration  4.73s (transform 6.75s, setup 413ms, import 14.20s, tests 3.29s, environment 5.67s)
+
+
+超过 200ms 的测试 7 个：
+    1295ms  neuro-book/src/server/dev/run.test.ts  页面经 Vite 提供、API 经代理；改后端文件有序重启；SIGTERM 时先停后端再关页面，以 0 退出
+     586ms  neuro-book/src/server/dev/run.test.ts  终端 Ctrl+C（监督进程与后端同时收到 SIGINT）：两个停止请求汇合，仍有序结束，以 0 退出
+     559ms  neuro-book/src/server/dev/run.test.ts  第二个停止信号不等排空：在途请求拖住排空时直接结束后端，以 1 退出
+     488ms  neuro-book/src/server/dev/supervisor.test.ts  新进程启动失败：报告后等待改动，不循环重启，门直接给不可用；再次改动后恢复
+     418ms  neuro-book/src/server/dev/run.test.ts  页面端口被占用：以 1 退出，不启动后端
+     309ms  neuro-book/src/server/dev/supervisor.test.ts  改动去抖后有序重启：旧进程经标准输入停止并以 0 退出之后，新进程才在同一端口启动
+     309ms  neuro-book/src/server/dev/supervisor.test.ts  重启中的请求等新进程就绪；重启中的新改动不追加重启
+
+全部通过。
+exit=0
+
+# 浏览器验收未重跑：本轮只改命令表的别名冲突路径与测试断言，产品与 Lab 都不登记别名（grep registerAlias 只在 registry 与其测试）。
