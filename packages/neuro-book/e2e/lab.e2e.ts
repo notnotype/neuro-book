@@ -2,7 +2,7 @@
  * ui.component-lab 在真实浏览器中的验收：真实的 `bun run dev`（Lab 只在开发模式加载）与本机 Chrome。每个用例一个新的
  * 浏览器上下文，localStorage 与 sessionStorage 互不影响；整个文件共用一个开发会话。
  * 场景 10（生产构建不含 Lab）在 browser-host.e2e.ts 与 `check:dist`；场景 3、4 的索引判定在组件索引的模型测试；
- * 场景 14（measure 与截图命令）在 lab-shot.e2e.ts；场景 16（命令场景）随 t49。
+ * 场景 14（measure 与截图命令）在 lab-shot.e2e.ts；场景 16（命令场景）在 lab-commands.e2e.ts。
  */
 
 import {rm} from "node:fs/promises";
