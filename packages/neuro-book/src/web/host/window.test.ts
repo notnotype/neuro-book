@@ -12,13 +12,13 @@ import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import {defineComponent, h} from "vue";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import type {PluginDescriptor} from "nbook/manifest";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {errorResponse} from "nbook/plugins/http/server/dispatch";
-import {EmptyWorkbench} from "nbook/plugins/workbench/web/empty-workbench";
 import {startServer} from "nbook/server/start";
 import type {RunningServer} from "nbook/server/start";
 import {BROWSER_BOOTSTRAP_PATH} from "nbook/shared/browser-bootstrap";
@@ -74,6 +74,9 @@ function failureOf(state: WindowState): {status: string; reason: string} | null 
     return "reason" in state ? {status: state.status, reason: state.reason} : null;
 }
 
+/** 测试插件贡献的页面组件；这里只比较身份，不渲染。 */
+const TestPage = defineComponent({name: "TestPage", setup: () => () => h("p", "测试页面")});
+
 /** 浏览器入口在启动时向 `workbench.pages` 贡献一个页面的测试插件。 */
 function pagePlugin(id: string, path: string): {descriptor: PluginDescriptor; factory: BrowserPluginFactory} {
     return {
@@ -85,7 +88,7 @@ function pagePlugin(id: string, path: string): {descriptor: PluginDescriptor; fa
                 location: "browser",
                 activationEvents: ["onStartup"],
                 contributions: [{capability: "workbench.pages", id: path, declaration: {path, title: id}}],
-                activate: () => ({contributions: {"workbench.pages": {[path]: {load: async () => EmptyWorkbench}}}}),
+                activate: () => ({contributions: {"workbench.pages": {[path]: {load: async () => TestPage}}}}),
             }],
         }),
     };
@@ -112,7 +115,7 @@ describe("窗口运行实例", () => {
         const state = browserWindow.state;
         const pages = state.status === "ready" ? state.root.pages() : [];
         expect(pages.map((page) => page.path)).toEqual(["/"]);
-        expect(await pages[0]?.load()).toBe(EmptyWorkbench);
+        expect(((await pages[0]?.load()) as {name?: string} | undefined)?.name).toBe("EmptyWorkbench");
         await browserWindow.stop();
         expect(browserWindow.state.status).toBe("closed");
     });
@@ -240,7 +243,7 @@ describe("窗口运行实例", () => {
         const state = browserWindow.state;
         const pages = state.status === "ready" ? state.root.pages() : [];
         expect(pages.map((page) => page.path)).toEqual(["/", "/probe"]);
-        expect(await pages[1]?.load()).toBe(EmptyWorkbench);
+        expect(await pages[1]?.load()).toBe(TestPage);
         await browserWindow.stop();
         stub.stop();
     });

@@ -2,6 +2,7 @@ import type {Component} from "vue";
 
 import type JsonViewer from "nbook/ui/JsonViewer.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
+import type WorkbenchCommandPalette from "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue";
 
 import type CollapsibleSidePanel from "../components/CollapsibleSidePanel.vue";
 import type EventLogPanel from "../components/EventLogPanel.vue";
@@ -209,6 +210,16 @@ export const labFixtures: LabFixture[] = [
         component: "SurfaceTierDemo", noInput: "该组件没有可编辑输入",
         scenes: [{id: "default", label: "5 档对照"}],
         load: async () => (await import("./SurfaceTierDemoFixture.vue")).default,
+    }),
+    defineLabFixture<typeof WorkbenchCommandPalette>({
+        component: "WorkbenchCommandPalette",
+        noInput: "命令面板由场景的局部命令宿主驱动，没有可登记的 JSON 输入",
+        scenes: [
+            {id: "command-navigation", label: "命令与行号导航"},
+            {id: "readonly", label: "只读文档"},
+            {id: "commands-unavailable", label: "无活动编辑器"},
+        ],
+        load: async () => (await import("./WorkbenchCommandPaletteFixture.vue")).default,
     }),
     defineSubjectFixture<typeof SkillChip>({
         component: "SkillChip",

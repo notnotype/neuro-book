@@ -8,6 +8,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
+import {commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import {createCommandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {createBrowserDiagnosticsPlugin} from "nbook/plugins/diagnostics/web/plugin";
@@ -24,7 +25,7 @@ export type BrowserPluginFactory = (context: BrowserPluginContext) => PluginDefi
 export const browserPluginFactories: Readonly<Record<string, BrowserPluginFactory>> = {
     "nbook.diagnostics": (context) => createBrowserDiagnosticsPlugin({store: context.store, console: context.console}),
     "nbook.commands": () => createCommandsPlugin("browser"),
-    "nbook.workbench": () => createWorkbenchBrowserPlugin(),
+    "nbook.workbench": () => createWorkbenchBrowserPlugin({commands: commandServiceKey}),
 };
 
 /** 本外壳构建进去的浏览器插件：清单中有浏览器运行位置的插件。 */

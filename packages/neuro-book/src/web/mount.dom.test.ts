@@ -79,6 +79,17 @@ describe("窗口界面的挂载", () => {
         await browserWindow.stop();
     });
 
+    it("`/` 页挂着命令宿主：Ctrl+Shift+P 打开命令面板（入口命令是工作台向 nbook.commands 的贡献）", async () => {
+        const {browserWindow} = await mountAt("/");
+        // 命令宿主是异步组件，模块加载完、渲染后才挂键位监听：按到面板出现为止。Vitest 首次转换 nb-ui 与 reka
+        // 要一两秒，截止时间放宽到 10 秒。
+        await vi.waitFor(() => {
+            document.body.dispatchEvent(new KeyboardEvent("keydown", {key: "P", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true}));
+            expect(document.body.querySelector('[role="combobox"]')).not.toBeNull();
+        }, {timeout: 10_000});
+        await browserWindow.stop();
+    });
+
     it("当前路径的页面模块加载失败：显示只能刷新的启动失败页，不挂半个页面", async () => {
         const {browserWindow, container, reloads} = await mountAt("/broken", {withBrokenPage: true});
         const host = container.querySelector("[data-browser-host-status]");

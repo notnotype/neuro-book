@@ -1,6 +1,7 @@
 /**
  * 包内依赖方向（packages/neuro-book/AGENTS.md 目录约定）：前端代码不引后端与 Bun/Node；后端不引前端；
- * 共用目录、插件描述与产品清单不引任何一侧；跨插件只用 `import type`；只有开发监督进程能引 Vite；测试库只在测试里用；
+ * 共用目录、插件描述与产品清单不引任何一侧；跨插件只用 `import type`（例外：Lab 的场景可以在运行时引用别的插件的前端与
+ * 共用代码，用来挂载它们的组件、建场景自己的局部宿主；Lab 只在开发模式加载）；只有开发监督进程能引 Vite；测试库只在测试里用；
  * 开发清单与开发插件（Lab）只经两个开发入口引用，前端开发入口只能动态加载，生产构建才不含它们。
  * `src/ui/` 是宿主与插件共用的前端组件，只用前端库与共用代码；`import.meta.glob` 只给 Lab 的组件索引用：
  * 它把扫描到的模块全部带进构建图，用在别处会把整片目录打进产品。
@@ -64,6 +65,7 @@ const TEST_LIBRARIES = ["vitest", "@vue/test-utils", "happy-dom", "@playwright/t
 /** 静态引用开发清单的只有这两个开发入口；开发插件的代码另外允许开发清单引用它的描述。 */
 const DEVELOPMENT_ENTRIES = ["server/development-main.ts", "web/development-plugins.ts"];
 const isDevelopmentPlugin = (path: string): boolean => path.startsWith("plugins/lab/");
+const labSceneMayImport = (file: string, target: string): boolean => file.startsWith("plugins/lab/web/fixtures/") && /^plugins\/[^/]+\/(?:web|shared)\//u.test(target);
 const isTestLibrary = (specifier: string): boolean => TEST_LIBRARIES.some((name) => specifier === name || specifier.startsWith(`${name}/`));
 
 function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
@@ -79,7 +81,7 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
         if (neutral && target !== null && (has(target, "server") || has(target, "web"))) found.push(`共用代码引用了一侧的实现：${where}`);
         const from = pluginOf(use.file);
         const to = target === null ? null : pluginOf(target);
-        if (from !== null && to !== null && from !== to && !use.typeOnly) found.push(`跨插件的运行时导入（只允许 import type）：${where}`);
+        if (from !== null && to !== null && from !== to && !use.typeOnly && !labSceneMayImport(use.file, target as string)) found.push(`跨插件的运行时导入（只允许 import type）：${where}`);
         if ((use.specifier === "vite" || use.specifier.startsWith("vite/")) && !use.file.startsWith("server/dev/")) found.push(`只有开发监督进程能引用 Vite：${where}`);
         if (isTestLibrary(use.specifier)) found.push(`产品代码引用了测试库：${where}`);
         if (target === "development-manifest" && !DEVELOPMENT_ENTRIES.includes(use.file)) found.push(`只有开发入口能引用开发清单：${where}`);
@@ -120,6 +122,8 @@ describe("包内依赖方向", () => {
             {file: "web/mount.ts", specifier: "./development-plugins", typeOnly: false, dynamic: true},
             use("ui/JsonViewer.vue", "nbook/web/host/window"),
             use("ui/JsonViewer.vue", "node:fs"),
+            use("plugins/lab/web/fixtures/command-scene/lab-command-scene.ts", "nbook/plugins/commands/plugin"),
+            use("plugins/lab/web/LabShell.vue", "nbook/plugins/workbench/web/commands/keymap"),
         ];
         expect(cases.map((item) => violationsOf([item]).length)).toEqual(cases.map(() => 1));
         expect(violationsOf([
@@ -127,6 +131,8 @@ describe("包内依赖方向", () => {
             use("server/development-main.ts", "nbook/development-manifest"),
             use("development-manifest.ts", "./plugins/lab/plugin"),
             use("web/development-plugins.ts", "nbook/plugins/lab/web/plugin"),
+            use("plugins/lab/web/fixtures/command-scene/lab-command-scene.ts", "nbook/plugins/commands/shared/registry"),
+            use("plugins/lab/web/fixtures/command-scene/LabCommandSceneLayer.vue", "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue"),
         ])).toEqual([]);
 
         expect(importsOf(join(SRC, "web", "main.ts")).some((item) => item.specifier === "./development-plugins" && item.dynamic === true)).toBe(true);
