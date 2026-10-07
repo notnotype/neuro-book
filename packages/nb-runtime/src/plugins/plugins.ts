@@ -13,7 +13,8 @@
  */
 
 import type {RuntimeInstance} from "../lifecycle/lifecycle";
-import type {ServiceAssembly, ServiceKey} from "../services/services";
+import {perConsumer} from "../services/services";
+import type {ConsumerIdentity, PerConsumerProvision, ServiceAssembly, ServiceKey} from "../services/services";
 
 import type {PluginHost, PluginHostOptions, ProvidedService} from "./contracts";
 import {PluginHostImpl} from "./host";
@@ -27,6 +28,20 @@ export function createPluginHost(instance: RuntimeInstance, assembly: ServiceAss
         throw new TypeError(`服务装配属于实例 ${assembly.instanceId}，不是 ${instance.identity.instanceId}`);
     }
     return new PluginHostImpl(instance, assembly, options);
+}
+
+/**
+ * 构造激活产出中按调用方提供的一项服务：每个调用方（插件入口的每次激活）解析时得到
+ * `facade(调用方)` 生成的门面，`release` 在该调用方的这次激活结束时调用。门面应是由函数组成的
+ * 普通对象；需要交出响应式对象等运行期值时用 `provide`。
+ */
+export function providePerConsumer<T extends object>(
+    key: ServiceKey<T>,
+    facade: (consumer: ConsumerIdentity) => T,
+    options: {readonly release?: (facade: T, consumer: ConsumerIdentity) => void | Promise<void>} = {},
+): ProvidedService {
+    const provision: PerConsumerProvision<T> = perConsumer(facade, options.release);
+    return {key, instance: provision};
 }
 
 /** 构造激活产出中的一项提供服务；`release` 在服务代次关闭或激活产出被收口时调用一次。 */

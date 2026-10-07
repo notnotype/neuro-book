@@ -16,16 +16,22 @@ import type {ReleaseDependency, ResourceHandle, RuntimeInstance, RuntimeLocation
 
 import {checkAssembly} from "./assembly";
 import type {EntryNode} from "./assembly";
+import {isPerConsumerProvision, revocableFacade} from "./per-consumer";
+import type {RevocableFacade} from "./per-consumer";
 import type {
+    AccessOptions,
     AssemblyDiagnostic,
     AssemblyObserver,
     AssemblyReport,
     ConsumerDeclaration,
+    ConsumerIdentity,
     DeclarationRejection,
     DeclareResult,
     DiagnosticStage,
     EntryId,
+    EntryIdentity,
     FailureError,
+    PerConsumerProvision,
     ProviderDeclaration,
     ProviderState,
     RecoverResult,
@@ -58,11 +64,14 @@ interface Attempt {
     settled: AttemptOutcome | null;
     /** 运行时等待边：本尝试正在等待哪些提供者的初始化。 */
     readonly waitingOn: Set<ProviderEntry>;
+    /** 按调用方门面：调用方键 → 门面；只在提供者交出 `perConsumer(...)` 时使用。 */
+    readonly facades: Map<string, RevocableFacade>;
 }
 
 interface ProviderEntry {
     readonly kind: "provider";
     readonly id: EntryId;
+    readonly identity: EntryIdentity | null;
     readonly key: ServiceKey<unknown>;
     readonly scope: Scope;
     readonly dependencies: ReadonlyArray<Dependency>;
@@ -75,6 +84,7 @@ interface ProviderEntry {
 interface ConsumerEntry {
     readonly kind: "consumer";
     readonly id: EntryId;
+    readonly identity: EntryIdentity | null;
     readonly scope: Scope;
     /** 入口专属子作用域：解析取得的借用默认登记在这里，随声明作用域一起关闭。 */
     readonly entryScope: Scope;
@@ -157,6 +167,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
             this.#entries.set(provider.id, {
                 kind: "provider",
                 id: provider.id,
+                identity: provider.identity ?? null,
                 key: provider.key,
                 scope: provider.scope,
                 dependencies,
@@ -168,7 +179,14 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         } else {
             const entryScope = declaration.scope.createChild(`consumer:${declaration.id}`);
             entryScope.open();
-            this.#entries.set(declaration.id, {kind: "consumer", id: declaration.id, scope: declaration.scope, entryScope, dependencies});
+            this.#entries.set(declaration.id, {
+                kind: "consumer",
+                id: declaration.id,
+                identity: declaration.identity ?? null,
+                scope: declaration.scope,
+                entryScope,
+                dependencies,
+            });
         }
         return {status: "accepted", id: declaration.id};
     }
@@ -198,7 +216,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         return this.#stateOf(entry);
     }
 
-    access(entryId: EntryId, scope?: Scope): ServiceAccess {
+    access(entryId: EntryId, scope?: Scope, options: AccessOptions = {}): ServiceAccess {
         const entry = this.#entries.get(entryId);
         if (entry === undefined) {
             throw new TypeError(`入口 ${entryId} 未登记`);
@@ -207,12 +225,12 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
             if (entry.kind === "provider") {
                 throw new TypeError(`提供者 ${entryId} 的依赖访问必须给出服务作用域或其子作用域`);
             }
-            return this.#accessFor(entry, entry.entryScope);
+            return this.#accessFor(entry, entry.entryScope, options.generation ?? null);
         }
         if (!isStrictDescendant(scope, entry.scope)) {
             throw new TypeError(`访问作用域 ${scope.id} 必须是入口 ${entryId} 声明作用域 ${entry.scope.id} 的严格后代`);
         }
-        return this.#accessFor(entry, scope);
+        return this.#accessFor(entry, scope, options.generation ?? null);
     }
 
     async recover(providerId: EntryId): Promise<RecoverResult> {
@@ -280,12 +298,12 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         return attempt.settled.status;
     }
 
-    #accessFor(entry: Entry, scope: Scope): ServiceAccess {
+    #accessFor(entry: Entry, scope: Scope, generation: number | null): ServiceAccess {
         return {
             entryId: entry.id,
             scope,
             resolve: <T>(key: ServiceKey<T>, options: ResolveOptions = {}) =>
-                this.#resolve(entry, scope, key, options) as Promise<ResolveResult<T>>,
+                this.#resolve(entry, scope, generation, key, options) as Promise<ResolveResult<T>>,
         };
     }
 
@@ -319,7 +337,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         return null;
     }
 
-    async #resolve(entry: Entry, scope: Scope, key: ServiceKey<unknown>, options: ResolveOptions): Promise<ResolveResult<unknown>> {
+    async #resolve(entry: Entry, scope: Scope, generation: number | null, key: ServiceKey<unknown>, options: ResolveOptions): Promise<ResolveResult<unknown>> {
         const unavailable = (reason: UnavailableReason, extra: Partial<Unavailable> = {}): Unavailable => ({
             status: "unavailable",
             key: key.name,
@@ -388,14 +406,21 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
             if (outcome.status === "stopped" || attempt.scope.phase !== "available") {
                 return unavailable("provider-stopped", {providerId: provider.id});
             }
-            return this.#bind(scope, provider, attempt, outcome.handle) ?? unavailable("consumer-stopped", {providerId: provider.id});
+            return this.#bind(entry, scope, generation, provider, attempt, outcome.handle) ?? unavailable("consumer-stopped", {providerId: provider.id});
         } finally {
             waiting?.attempt.waitingOn.delete(provider);
         }
     }
 
-    /** 借用实例到访问作用域；访问作用域已不再存活时返回 null。 */
-    #bind(scope: Scope, provider: ProviderEntry, attempt: Attempt, handle: ResourceHandle<unknown>): ResolveResult<unknown> | null {
+    /** 借用实例到访问作用域；访问作用域已不再存活时返回 null。按调用方提供时交出该调用方的门面。 */
+    #bind(
+        entry: Entry,
+        scope: Scope,
+        generation: number | null,
+        provider: ProviderEntry,
+        attempt: Attempt,
+        handle: ResourceHandle<unknown>,
+    ): ResolveResult<unknown> | null {
         let borrowed;
         try {
             borrowed = scope.borrow(handle);
@@ -420,7 +445,90 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
             },
             release: () => borrow.release(),
         };
-        return {status: "resolved", instance: handle.value, binding};
+        if (!isPerConsumerProvision(handle.value)) {
+            return {status: "resolved", instance: handle.value, binding};
+        }
+        const facade = this.#facadeFor(entry, scope, generation, provider, attempt, handle.value, binding);
+        if (facade === null) {
+            borrow.release();
+            return null;
+        }
+        if (facade.status === "unavailable") {
+            borrow.release();
+            return facade;
+        }
+        return {status: "resolved", instance: facade.instance, binding};
+    }
+
+    /**
+     * 同一调用方（同一入口的同一激活代次；没有代次时按访问作用域）在同一提供者代次内只生成一个门面。
+     * 门面登记在第一次解析它的访问作用域上，依赖那次借用，所以先于借用结束释放。提供者实例释放时
+     * 作废剩下的门面（见 #runAttempt）；不在停止信号上作废，因为父作用域停止会同步触发服务作用域的
+     * 停止信号，而那时调用方还在按依赖顺序清理，清理期间仍可使用门面。
+     */
+    #facadeFor(
+        entry: Entry,
+        scope: Scope,
+        generation: number | null,
+        provider: ProviderEntry,
+        attempt: Attempt,
+        provision: PerConsumerProvision<object>,
+        binding: ServiceBinding,
+    ): {readonly status: "resolved"; readonly instance: object} | Unavailable | null {
+        const cacheKey = generation === null ? `${entry.id}@${scope.id}` : `${entry.id}#${String(generation)}`;
+        const cached = attempt.facades.get(cacheKey);
+        if (cached !== undefined) {
+            return {status: "resolved", instance: cached.proxy};
+        }
+        const consumer: ConsumerIdentity = Object.freeze({
+            instanceId: this.instanceId,
+            location: this.location,
+            plugin: entry.identity?.plugin ?? null,
+            entry: entry.identity?.entry ?? null,
+            generation,
+            via: null,
+        });
+        let target: unknown;
+        try {
+            target = provision.facade(consumer);
+        } catch (error) {
+            const summary = summarizeFailure(error);
+            this.#record("resolve", "facade-failed", {entryId: provider.id, key: provider.key.name, scopeId: scope.id, error: summary});
+            return {status: "unavailable", key: provider.key.name, reason: "initialization-failed", providerId: provider.id, error: summary, path: [provider.id]};
+        }
+        if (typeof target !== "object" || target === null) {
+            this.#record("resolve", "facade-not-object", {entryId: provider.id, key: provider.key.name, scopeId: scope.id});
+            return {status: "unavailable", key: provider.key.name, reason: "initialization-failed", providerId: provider.id, error: null, path: [provider.id]};
+        }
+        const facadeTarget = target;
+        const facade = revocableFacade(facadeTarget, provider.key.name, consumer);
+        let registered;
+        try {
+            registered = scope.register<RevocableFacade>({
+                kind: "service-facade",
+                label: `${provider.key.name} → ${consumer.plugin ?? entry.id}`,
+                value: facade,
+                dependsOn: [binding.dependency],
+                release: async () => {
+                    facade.revoke("released");
+                    if (attempt.facades.get(cacheKey) === facade) {
+                        attempt.facades.delete(cacheKey);
+                    }
+                    await provision.release?.(facadeTarget, consumer);
+                },
+            });
+        } catch (error) {
+            if (error instanceof LifecycleStateError) {
+                return null;
+            }
+            throw error;
+        }
+        if (registered.status !== "registered") {
+            // 访问作用域已在停止：迟到登记只收口，门面不交出。
+            return null;
+        }
+        attempt.facades.set(cacheKey, facade);
+        return {status: "resolved", instance: facade.proxy};
     }
 
     /** 取当前尝试（在途、成功、稳定失败或已停止都复用）；没有尝试且 owner 存活时新建一次。 */
@@ -434,7 +542,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         provider.attempts += 1;
         const scope = provider.scope.createChild(`service:${provider.key.name}#${provider.attempts}`);
         const {promise, resolve} = Promise.withResolvers<AttemptOutcome>();
-        const attempt: Attempt = {scope, outcome: promise, settled: null, waitingOn: new Set()};
+        const attempt: Attempt = {scope, outcome: promise, settled: null, waitingOn: new Set(), facades: new Map()};
         provider.current = attempt;
         this.#attemptScopes.set(scope.id, provider);
         void this.#runAttempt(provider, attempt).then((outcome) => {
@@ -461,7 +569,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
             if (!dependency.required) {
                 continue;
             }
-            const result = await this.#resolve(provider, scope, dependency.key, {});
+            const result = await this.#resolve(provider, scope, null, dependency.key, {});
             if (!isAlive(scope)) {
                 return {status: "stopped"};
             }
@@ -477,7 +585,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         const context: ServiceCreateContext = {
             scope,
             services: {
-                ...this.#accessFor(provider, scope),
+                ...this.#accessFor(provider, scope, null),
                 require: <T>(key: ServiceKey<T>): T => {
                     if (!required.has(key)) {
                         throw new TypeError(`${key.name} 不是提供者 ${provider.id} 已解析的必需依赖`);
@@ -493,7 +601,12 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
                 kind: "service",
                 label: keyName,
                 acquire: () => provider.create(context),
-                release: (instance) => provider.release?.(instance),
+                release: (instance) => {
+                    for (const facade of attempt.facades.values()) {
+                        facade.revoke("provider-stopped");
+                    }
+                    return provider.release?.(instance);
+                },
                 dependsOn: dependencies,
             });
         } catch (error) {

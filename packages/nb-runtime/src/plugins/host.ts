@@ -334,12 +334,14 @@ export class PluginHostImpl implements PluginHost {
             }
             registered.push(entry.id);
             const dependencies = entry.dependencies ?? [];
-            this.#declare(this.#assembly.declare({id: consumerId, location: this.location, scope: options.scope, dependencies}));
+            const identity = {plugin: definition.id, entry: entry.id};
+            this.#declare(this.#assembly.declare({id: consumerId, identity, location: this.location, scope: options.scope, dependencies}));
             for (const key of entry.provides ?? []) {
                 const providerId = `${consumerId}:${key.name}`;
                 providerIds.set(key, providerId);
                 this.#declare(this.#assembly.declare({
                     id: providerId,
+                    identity,
                     key,
                     location: this.location,
                     scope: options.scope,
@@ -682,7 +684,7 @@ export class PluginHostImpl implements PluginHost {
         };
 
         // 1. 只预解析必需依赖；可选依赖由 activate 按需 resolve，不因声明而初始化。
-        const access = this.#assembly.access(record.consumerId, scope);
+        const access = this.#assembly.access(record.consumerId, scope, {generation});
         const required = new Map<ServiceKey<unknown>, unknown>();
         for (const dependency of record.definition.dependencies ?? []) {
             if (dependency.required === false) {
@@ -716,7 +718,7 @@ export class PluginHostImpl implements PluginHost {
                     }
                     return required.get(key) as T;
                 },
-                resolve: (key, options) => this.#assembly.access(record.consumerId, attempt.work).resolve(key, options),
+                resolve: (key, options) => this.#assembly.access(record.consumerId, attempt.work, {generation}).resolve(key, options),
             },
         };
         let acquired;

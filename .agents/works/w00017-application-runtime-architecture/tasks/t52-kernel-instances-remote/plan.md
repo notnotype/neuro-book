@@ -32,7 +32,7 @@
 - **绑定**（`services/composition.ts` 的 `#bind`）：发现交付的是按调用方提供项时，不返回共享值，而是取门面：
   - 缓存键：提供者本次尝试（`Attempt`）+ 消费方 `entryId` + 激活代次；同步工厂，天然 single-flight。
   - 门面资源登记在该次激活的作用域上（插件入口为 `plugin:<id>#<代次>` 作用域；`host.ts` 里必需依赖用激活作用域、可选依赖用其子作用域 `entry-work`，两者共用同一门面），`dependsOn` 指向借用；消费方作用域关闭时调用插件的 `release` 并作废门面。
-  - 提供者尝试作用域离开 `available`（`stopSignal`）时作废它的全部门面。
+  - 提供者代次的服务实例**释放**时作废剩下的门面。（2026-10-07 实施时修订：原写“离开 available（stopSignal）时作废”；但父作用域停止会同步触发子作用域的停止信号，那时调用方还在按依赖顺序清理，按停止信号作废会违反 `runtime/lifecycle.md`“清理仍可使用尚未关闭的依赖”。Spec 同步修订。）
   - 作废：内核返回的是自建 `Proxy` 包装，作废后任何属性访问都抛 `ServiceRevokedError`（带服务键与调用方，替代 `Proxy.revocable` 的无信息 `TypeError`）。门面应是由函数组成的普通对象；需要导出响应式对象的接口仍用 `provide`。
   - 门面里的内存状态随门面释放；底层持久数据归 Storage、配置等拥有者，不归门面。
 - 不变量：现有 `services.test.ts`、`plugins/*.test.ts` 全部不改即通过（普通共享服务语义不变）。
@@ -121,7 +121,8 @@
 | 行为 | 测试 |
 |---|---|
 | `tui` 位置的入口在 `tui` 实例激活；在其它实例为 `foreign-location` | `src/plugins/plugins.test.ts` 增补 |
-| 两个插件拿到各自门面并看到自己的身份；同一激活重复解析同一门面；重激活后旧门面抛 `ServiceRevokedError`、新门面可用；提供方停止后门面作废；`release` 失败可诊断；普通共享服务不变 | `src/services/per-consumer.test.ts`，现有测试不改 |
+| 装配层：无代次调用方按访问作用域各得门面、身份由装配填写、释放后访问与取出的方法都抛 `ServiceRevokedError`、门面不是 thenable、`release` 失败可诊断、工厂失败为 `initialization-failed` | `src/services/per-consumer.test.ts` |
+| 插件层：两个插件各得门面并看到插件、入口与激活代次；同一激活必需与可选解析同一门面；入口停止后旧门面作废、重新激活得到新代次新门面；普通共享服务不变 | `src/plugins/per-consumer.test.ts`，现有测试不改 |
 | A 经代理 P 访问 S，S 看到 A（`via` 为 P）；未声明 `delegates` 或不在允许清单的插件被拒；伪造的身份对象被拒；A 直接访问与经 P 访问得到同一命名空间 | `src/plugins/delegation.test.ts` |
 | 拥有者触发前缀事件激活对应入口；非拥有者触发被拒；无人拥有的前缀被忽略并记诊断 | `src/plugins/activation-events.test.ts` |
 | 每个请求阶段的失败码；写请求派发后断开得到 `unknown-outcome` 附原因；wire 版本不兼容在业务帧前拒绝；合同版本不兼容；业务参数含保留字段被拒 | `src/remote/protocol.test.ts` |

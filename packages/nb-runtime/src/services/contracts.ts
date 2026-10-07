@@ -22,6 +22,37 @@ export interface ServiceKey<T> {
 /** 装配内入口（提供者或消费者）的稳定身份，由声明方给定，同一装配内唯一。 */
 export type EntryId = string;
 
+/** 声明方给出的插件身份；非插件入口（宿主能力、门禁）不给。 */
+export interface EntryIdentity {
+    readonly plugin: string;
+    readonly entry: string;
+}
+
+/**
+ * 发起解析的一方，由装配按入口声明与访问时给出的激活代次填写，调用方不能改写。同一入口停止后
+ * 再激活是另一个调用方（代次不同）。`via` 是代为解析的代理入口，见 runtime.services 的委托。
+ */
+export interface ConsumerIdentity {
+    readonly instanceId: string;
+    readonly location: RuntimeLocation;
+    readonly plugin: string | null;
+    readonly entry: string | null;
+    readonly generation: number | null;
+    readonly via: {readonly plugin: string; readonly entry: string; readonly generation: number | null} | null;
+}
+
+declare const perConsumerBrand: unique symbol;
+
+/**
+ * 按调用方提供：提供者的实例是这个对象时，每个调用方解析得到 `facade(调用方)` 生成的门面，而不是
+ * 共享实例。用 `perConsumer(facade, release?)` 构造；门面应是由函数组成的普通对象。
+ */
+export interface PerConsumerProvision<F extends object> {
+    readonly [perConsumerBrand]: true;
+    readonly facade: (consumer: ConsumerIdentity) => F;
+    readonly release?: (facade: F, consumer: ConsumerIdentity) => void | Promise<void>;
+}
+
 export interface ServiceDependency {
     readonly key: ServiceKey<unknown>;
     /** 默认 true。必需依赖缺失或失败会拒绝本入口及其必需消费者闭包；可选缺失只让该能力不可用。 */
@@ -62,18 +93,26 @@ export interface ServiceCreateContext {
 
 export interface ProviderDeclaration<T> {
     readonly id: EntryId;
+    /** 提供者自身解析按调用方服务时，作为调用方身份的插件与入口。 */
+    readonly identity?: EntryIdentity;
     readonly key: ServiceKey<T>;
     readonly location: RuntimeLocation;
     /** 实例 owner 作用域；只有该作用域及其后代上的入口能解析到本提供者。 */
     readonly scope: Scope;
     readonly dependencies?: ReadonlyArray<ServiceDependency>;
-    /** 首次解析时才调用；登记、报告与状态查询都不调用它。 */
-    readonly create: (context: ServiceCreateContext) => T | Promise<T>;
-    readonly release?: (instance: T) => void | Promise<void>;
+    /**
+     * 首次解析时才调用；登记、报告与状态查询都不调用它。返回 `perConsumer(...)` 时按调用方提供：
+     * 每个调用方得到自己的门面（runtime.services 输出第 12 条）。
+     */
+    readonly create: (context: ServiceCreateContext) => T | PerConsumerProvision<T & object> | Promise<T | PerConsumerProvision<T & object>>;
+    /** 服务代次关闭时调用一次；按调用方提供时收到的是 `create` 返回的那个 `perConsumer(...)` 对象。 */
+    release?(instance: T | PerConsumerProvision<T & object>): void | Promise<void>;
 }
 
 export interface ConsumerDeclaration {
     readonly id: EntryId;
+    /** 解析按调用方服务时，作为调用方身份的插件与入口。 */
+    readonly identity?: EntryIdentity;
     readonly location: RuntimeLocation;
     /** 消费者所在作用域；只能解析该作用域或其祖先上的提供者。 */
     readonly scope: Scope;
@@ -201,12 +240,17 @@ export interface ServiceAssembly {
     /**
      * 取得某入口的依赖访问。消费者缺省用其专属子作用域；提供者必须给出 `scope`（create 上下文的
      * 服务作用域或其子作用域）。给出的 `scope` 必须是入口声明作用域的严格后代（例如操作级作用域），
-     * 否则抛 TypeError：这阻止把实例捕获进更长寿命的作用域。
+     * 否则抛 TypeError：这阻止把实例捕获进更长寿命的作用域。`generation` 是入口的激活代次，
+     * 用作调用方身份；同一代次的多个访问作用域解析同一按调用方服务得到同一门面。
      */
-    access(entryId: EntryId, scope?: Scope): ServiceAccess;
+    access(entryId: EntryId, scope?: Scope, options?: AccessOptions): ServiceAccess;
     /** 显式恢复稳定失败的提供者：上次服务作用域收口完成才重置为未解析；不自动重新初始化。 */
     recover(providerId: EntryId): Promise<RecoverResult>;
     diagnostics(): ReadonlyArray<AssemblyDiagnostic>;
+}
+
+export interface AccessOptions {
+    readonly generation?: number;
 }
 
 export interface ServiceAssemblyOptions {

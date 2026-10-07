@@ -17,6 +17,7 @@ import {ServiceAssemblyImpl} from "./composition";
 import type {ServiceAssembly, ServiceAssemblyOptions, ServiceKey} from "./contracts";
 
 export type * from "./contracts";
+export {perConsumer, ServiceRevokedError} from "./per-consumer";
 
 /** 定义一个类型化服务键；每次调用得到不同身份，同名不等价。 */
 export function defineServiceKey<T>(name: string): ServiceKey<T> {
