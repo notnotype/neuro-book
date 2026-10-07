@@ -1,0 +1,12 @@
+# bun scripts/measure-project.ts 10（packages/neuro-book，先 bun run build；2026-10-07，本机 Linux）
+{"round":1,"generation":1,"startMs":57.9,"rssMB":49.4}
+{"round":2,"generation":2,"startMs":70.3,"rssMB":48.9}
+{"round":3,"generation":3,"startMs":57.1,"rssMB":48.9}
+{"round":4,"generation":4,"startMs":53.9,"rssMB":48.9}
+{"round":5,"generation":5,"startMs":54.4,"rssMB":48.8}
+{"round":6,"generation":6,"startMs":56.7,"rssMB":48.9}
+{"round":7,"generation":7,"startMs":53.8,"rssMB":48.9}
+{"round":8,"generation":8,"startMs":54.2,"rssMB":48.9}
+{"round":9,"generation":9,"startMs":54.5,"rssMB":48.9}
+{"round":10,"generation":10,"startMs":54.8,"rssMB":48.9}
+{"bun":"1.4.2","platform":"linux-x64","rounds":10,"startMs":{"p50":54.8,"p95":70.3,"max":70.3},"rssMB":{"p50":48.9,"max":49.4}}

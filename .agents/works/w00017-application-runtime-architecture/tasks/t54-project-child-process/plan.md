@@ -44,7 +44,7 @@
   - 代价：两端都必须是 Bun；Windows 上 Bun IPC 未实测（记入已知限制）。
 - **IPC 信封**（`src/server/projects/ipc-envelope.ts`，父子共用）：`{t: "frame", d: <帧的 JSON 文本>}`、`{t: "started", status: "available" | "failed", detail}`、`{t: "stop"}`。链路适配复用 `src/shared/rpc-socket.ts` 的 `createSocketLink`（发一条文本、关闭；收到的帧与断开由宿主转入），控制信封不进链路。
 - **项目宿主入口**（`src/project/main.ts`，生产打包为 `dist/server/project.js`，与 `dist/server/main.js` 同一次 `build:server`）：
-  - 从环境变量读项目 id、短名、代次、真实路径、状态根；建诊断存储（日志写 `<状态根>/logs/project-<短名>-current.jsonl`）。
+  - 从环境变量读项目 id、短名、代次、真实路径、状态根；建诊断存储（日志写 `<状态根>/logs/projects/<短名>/`：诊断文件出口按目录持有授予，与服务端的日志目录分开；S4 实施中改）。
   - 建远程节点 `{id: "project:<id>#<代次>", kind: "project", role: "project", project: {id, generation}, client: null}`，经 IPC 链路连父进程的路由。
   - 建运行实例：清单里有 `project` 运行位置的入口；本地能力 `currentProjectKey` 向项目实例里的插件提供 `{id, name, generation, root}`（真实路径只在项目子进程与服务端里，不发给浏览器）。启动结果用 `started` 信封报给父进程。
   - 收到 `stop` 或 IPC 断开（父进程已不在）即按停止序列停止并退出：0 正常，1 失败。开发入口另有 `src/project/development-main.ts`（加开发清单，目前没有项目入口，与服务端入口对称）。

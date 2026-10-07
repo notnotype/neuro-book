@@ -23,9 +23,11 @@ export interface ServerConfig {
     readonly rpcPort: number;
     /** 额外放行的页面来源（已规范化），给页面不由本进程 HTTP 端口提供的情形，即开发模式的页面服务。 */
     readonly allowedOrigins: ReadonlyArray<string>;
+    /** 项目子进程的时限（毫秒）：宽限期、等启动结果的截止、每个子进程的停止截止。 */
+    readonly projects: {readonly graceMs: number; readonly startMs: number; readonly stopMs: number};
 }
 
-export type ServerConfigErrorCode = "unknown-argument" | "invalid-port" | "non-loopback-host" | "missing-state-root" | "invalid-origin";
+export type ServerConfigErrorCode = "unknown-argument" | "invalid-port" | "non-loopback-host" | "missing-state-root" | "invalid-origin" | "invalid-duration";
 
 export class ServerConfigError extends Error {
     readonly code: ServerConfigErrorCode;
@@ -40,6 +42,10 @@ export class ServerConfigError extends Error {
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3000;
 const DEFAULT_RPC_PORT = 0;
+/** 项目子进程时限的缺省值：宽限期 5 分钟、等启动结果 30 秒、每个子进程停止 20 秒。 */
+export const PROJECT_LIMIT_DEFAULTS: ServerConfig["projects"] = {graceMs: 5 * 60_000, startMs: 30_000, stopMs: 20_000};
+/** 计时器能表示的最大毫秒数；更大的值会被运行时缩成立即触发。 */
+const MAX_TIMER_MS = 2 ** 31 - 1;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
 /** `URL.hostname` 的写法：IPv6 带方括号。 */
 const LOOPBACK_ORIGIN_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
@@ -64,7 +70,21 @@ export function readServerConfig(argv: readonly string[], env: Readonly<Record<s
     const stateRoot = resolve(cwd, stateRootInput);
     const webRootInput = env.NBOOK_WEB_ROOT?.trim();
     const webRoot = webRootInput ? resolve(cwd, webRootInput) : null;
-    return {host, port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot, stopStdin, rpcPort, allowedOrigins};
+    const projects = {
+        graceMs: parseDuration("NBOOK_PROJECT_GRACE_MS", env.NBOOK_PROJECT_GRACE_MS, PROJECT_LIMIT_DEFAULTS.graceMs),
+        startMs: parseDuration("NBOOK_PROJECT_START_MS", env.NBOOK_PROJECT_START_MS, PROJECT_LIMIT_DEFAULTS.startMs),
+        stopMs: parseDuration("NBOOK_PROJECT_STOP_MS", env.NBOOK_PROJECT_STOP_MS, PROJECT_LIMIT_DEFAULTS.stopMs),
+    };
+    return {host, port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot, stopStdin, rpcPort, allowedOrigins, projects};
+}
+
+function parseDuration(name: string, value: string | undefined, fallback: number): number {
+    if (value === undefined || value.trim() === "") return fallback;
+    const milliseconds = Number(value);
+    if (!/^\d+$/.test(value.trim()) || milliseconds < 1 || milliseconds > MAX_TIMER_MS) {
+        throw new ServerConfigError("invalid-duration", `${name} 必须是 1..${String(MAX_TIMER_MS)} 的整数毫秒，收到 ${value}`);
+    }
+    return milliseconds;
 }
 
 function parsePort(name: string, value: string | undefined, fallback: number): number {

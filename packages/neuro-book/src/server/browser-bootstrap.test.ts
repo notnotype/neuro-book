@@ -15,6 +15,7 @@ import type {PluginDescriptor} from "nbook/manifest";
 import {BROWSER_BOOTSTRAP_PATH, BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema} from "nbook/shared/browser-bootstrap";
 
 import {browserBootstrap} from "./browser-bootstrap";
+import {PROJECT_LIMIT_DEFAULTS} from "./config";
 import {startServer} from "./start";
 import type {RunningServer} from "./start";
 
@@ -24,7 +25,7 @@ let server: RunningServer;
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-bootstrap", "browser-bootstrap");
     server = startServer({
-        config: {host: "127.0.0.1", port: 0, stateRoot: tmp, logDirectory: join(tmp, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: []},
+        config: {host: "127.0.0.1", port: 0, stateRoot: tmp, logDirectory: join(tmp, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
         process: new EventEmitter(),
         writeFatal: () => undefined,
     });

@@ -23,6 +23,7 @@ import type {PluginDescriptor} from "nbook/manifest";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {errorResponse} from "nbook/plugins/http/server/dispatch";
 import {manifestServerPlugins} from "nbook/server/plugins";
+import {PROJECT_LIMIT_DEFAULTS} from "nbook/server/config";
 import {startServer} from "nbook/server/start";
 import type {RunningServer} from "nbook/server/start";
 import {helloFrame, openRawRpcSocket} from "nbook/server/testing/rpc-client";
@@ -54,7 +55,7 @@ function backendAt(port: number, state: RemoteProbeState = newRemoteProbeState()
     sequence += 1;
     const stateRoot = join(tmp, `state-${String(sequence)}`);
     return startServer({
-        config: {host: "127.0.0.1", port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: []},
+        config: {host: "127.0.0.1", port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
         plugins: (context) => [...manifestServerPlugins(context), createRemoteProbePlugin(state)],
         process: new EventEmitter(),
         writeFatal: () => undefined,

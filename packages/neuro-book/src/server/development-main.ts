@@ -3,9 +3,11 @@
  * 生产构建只打包 `main.ts`，不含本入口。
  */
 
+import {join} from "node:path";
+
 import {developmentPlugins} from "nbook/development-manifest";
 import {productPlugins} from "nbook/manifest";
 
 import {runServerProcess} from "./process";
 
-await runServerProcess([...productPlugins, ...developmentPlugins]);
+await runServerProcess([...productPlugins, ...developmentPlugins], {projectEntry: join(import.meta.dir, "..", "project", "development-main.ts")});

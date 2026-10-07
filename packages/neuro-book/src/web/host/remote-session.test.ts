@@ -13,6 +13,7 @@ import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import {PROJECT_LIMIT_DEFAULTS} from "nbook/server/config";
 import {startServer} from "nbook/server/start";
 import type {RunningServer} from "nbook/server/start";
 
@@ -35,7 +36,7 @@ function serverAt(port: number): RunningServer {
     sequence += 1;
     const stateRoot = join(tmp, `state-${String(sequence)}`);
     return startServer({
-        config: {host: "127.0.0.1", port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: []},
+        config: {host: "127.0.0.1", port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
         process: new EventEmitter(),
         writeFatal: () => undefined,
     });

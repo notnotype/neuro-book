@@ -24,6 +24,7 @@ describe("后端启动参数", () => {
             stopStdin: false,
             rpcPort: 0,
             allowedOrigins: [],
+            projects: {graceMs: 300_000, startMs: 30_000, stopMs: 20_000},
         });
         expect(readServerConfig([], {NBOOK_STATE_ROOT: "/data", NBOOK_WEB_ROOT: "dist/web"}, "/work").webRoot).toBe("/work/dist/web");
         expect(readServerConfig([], {NBOOK_STATE_ROOT: "/data", NBOOK_WEB_ROOT: " "}, "/work").webRoot).toBeNull();
@@ -44,6 +45,14 @@ describe("后端启动参数", () => {
         const config = readServerConfig([], {NBOOK_STATE_ROOT: "/data", NBOOK_RPC_PORT: "4100", NBOOK_ALLOWED_ORIGINS: " http://127.0.0.1:3000 , http://LOCALHOST:3000/,http://[::1]:3000"}, "/work");
         expect(config.rpcPort).toBe(4100);
         expect(config.allowedOrigins).toEqual(["http://127.0.0.1:3000", "http://localhost:3000", "http://[::1]:3000"]);
+    });
+
+    it("项目子进程的时限可调，必须是计时器能表示的正整数毫秒", () => {
+        const config = readServerConfig([], {NBOOK_STATE_ROOT: "/data", NBOOK_PROJECT_GRACE_MS: "50", NBOOK_PROJECT_START_MS: "2000", NBOOK_PROJECT_STOP_MS: " 300 "}, "/work");
+        expect(config.projects).toEqual({graceMs: 50, startMs: 2000, stopMs: 300});
+        for (const [name, value] of [["NBOOK_PROJECT_GRACE_MS", "0"], ["NBOOK_PROJECT_START_MS", "1.5"], ["NBOOK_PROJECT_STOP_MS", "2147483648"], ["NBOOK_PROJECT_GRACE_MS", "5m"]] as const) {
+            expect(errorCode(() => readServerConfig([], {NBOOK_STATE_ROOT: "/data", [name]: value}, "/work")), `${name}=${value}`).toBe("invalid-duration");
+        }
     });
 
     it("拒绝非法的 RPC 端口，与回环地址之外、非 http、带路径或不是 URL 的额外来源", () => {

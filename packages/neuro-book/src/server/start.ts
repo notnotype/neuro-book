@@ -1,18 +1,21 @@
 /**
- * 后端装配：建立诊断存储、HTTP 准入、服务端的远程节点与路由，监听内核 RPC 端口，按清单装配插件，启动宿主，
- * 并把启动与停止的结果换算成退出码（取值规则见 docs/specs/runtime/server-host.md 的“输出与可观察行为”）。
+ * 后端装配：建立诊断存储、HTTP 准入、服务端的远程节点与路由，监听内核 RPC 端口，按清单装配插件，启动宿主与
+ * 项目管理器，并把启动与停止的结果换算成退出码（取值规则见 docs/specs/runtime/server-host.md 的“输出与可观察行为”）。
  *
- * RPC 监听先于插件装配：引导接口要告诉浏览器实际端口。停止时 HTTP 与 RPC 并行排空，插件全部关闭后才关闭
- * RPC 链路与监听，插件关闭期间客户端看到的是服务不可用而不是断线。
+ * RPC 监听先于插件装配：引导接口要告诉浏览器实际端口。停止时先在同一个同步段里关闭 HTTP、RPC 与项目三处接纳，
+ * 再并行排空 HTTP 与 RPC；内核停止时先停完项目子进程（子实例的停止阶段），再按依赖逆序关闭插件；插件全部关闭后
+ * 才关闭 RPC 链路与监听，插件关闭期间客户端看到的是服务不可用而不是断线。
  *
  * 致命诊断走两条路：同步写到致命通道（缺省是标准错误），进程马上退出也看得见；同时记入诊断存储，
  * 出口可用时随后落盘。
  */
 
 import {writeSync} from "node:fs";
+import {join} from "node:path";
 
 import type {Application, StartupResult, StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency, serializeDiagnosticError} from "@notnotype/nb-runtime/diagnostics";
+import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
 
@@ -29,6 +32,9 @@ import {startServerHost} from "./host";
 import type {FatalKind, ProcessEvents} from "./host";
 import {manifestServerPlugins} from "./plugins";
 import type {ServerPluginContext} from "./plugins";
+import {createProjectManager} from "./projects/manager";
+import type {ProjectManager} from "./projects/manager";
+import {createProjectRegistry} from "./projects/registry";
 import {startRpcListener} from "./rpc/listener";
 import type {RpcGateResult, RpcListener} from "./rpc/listener";
 
@@ -45,6 +51,10 @@ export interface StartServerOptions {
     readonly stopInput?: NodeJS.ReadableStream | null;
     /** HTTP 与 RPC 排空的截止计时。 */
     readonly clock?: DrainClock;
+    /** 项目宽限期与子进程启动、停止截止的计时；缺省系统时钟。 */
+    readonly projectClock?: RuntimeClock;
+    /** 项目宿主入口脚本；缺省是产品入口（见 `productProjectEntry`），开发入口与测试另给。 */
+    readonly projectEntry?: string;
     readonly onListening?: (url: string) => void;
     /** RPC 端口开始监听后报告地址（`ws://…/`）。 */
     readonly onRpcListening?: (url: string) => void;
@@ -61,6 +71,7 @@ export interface ServerStopOutcome {
 
 export interface RunningServer {
     readonly application: Application;
+    readonly projects: ProjectManager;
     /** 运行实例可用时完成；启动失败时拒绝。 */
     readonly ready: Promise<void>;
     readonly stopped: Promise<ServerStopOutcome>;
@@ -82,6 +93,11 @@ export class ServerAssemblyError extends Error {
 const INSTANCE_ID = "server";
 /** RPC 排空的上限与 HTTP 相同：两者并行，停止序列的这一步最多等这么久。 */
 const RPC_DRAIN_LIMIT_MS = HTTP_DRAIN_LIMIT_MS;
+
+/** 产品的项目宿主入口：打包产物里是与本文件同目录的 `project.js`（同一次 `build:server` 产出），源码里是 `src/project/main.ts`。 */
+function productProjectEntry(): string {
+    return import.meta.path.endsWith(".js") ? join(import.meta.dir, "project.js") : join(import.meta.dir, "..", "project", "main.ts");
+}
 
 function writeStderrSync(line: string): void {
     writeSync(2, line);
@@ -190,7 +206,11 @@ export function startServer(options: StartServerOptions): RunningServer {
             cancel();
         }
     };
+    // 项目管理器要等运行实例建立后才有；停止只会在那之后到达。
+    let projects: ProjectManager | null = null;
     const drainBoth = async (): Promise<void> => {
+        // 与下面两处排空开头的停止接纳在同一个同步段里：排空期间不会再有项目被打开。
+        projects?.stopAdmission();
         const [http, remote] = await Promise.allSettled([admission.drain(), drainRpc()]);
         const failures: Error[] = [];
         if (http.status === "rejected") failures.push(new Error("HTTP 排空未完成", {cause: http.reason}));
@@ -226,6 +246,19 @@ export function startServer(options: StartServerOptions): RunningServer {
         },
     });
 
+    const projectManager = createProjectManager({
+        application: host.application,
+        router,
+        registry: createProjectRegistry({stateRoot: options.config.stateRoot, cwd: process.cwd()}),
+        stateRoot: options.config.stateRoot,
+        cwd: process.cwd(),
+        entry: options.projectEntry ?? productProjectEntry(),
+        ...options.config.projects,
+        clock: options.projectClock,
+        record: (record) => void store.record(record),
+    });
+    projects = projectManager;
+
     const ready = host.application.startup.then((startup) => {
         if (startup.status === "available") {
             admission.ready();
@@ -253,6 +286,7 @@ export function startServer(options: StartServerOptions): RunningServer {
         const failures: unknown[] = [];
         if (host.beforeStopError !== undefined) failures.push(new Error("停止步骤失败：排空", {cause: host.beforeStopError}));
         if (result.status !== "closed") failures.push(new Error("停止步骤失败：插件关闭未完成", {cause: result.report}));
+        for (const problem of projectManager.shutdownProblems()) failures.push(new Error(`停止步骤失败：${problem}`));
         if (failures.length > 0) reportFatal("runtime.stop.incomplete", "后端关闭不完整", new AggregateError(failures, "后端关闭不完整"));
         if (result.status !== "closed") {
             // 关闭未完成时诊断插件可能还没关闭出口，记录没有补写；进程退出前把已接受的记录写完。
@@ -268,6 +302,7 @@ export function startServer(options: StartServerOptions): RunningServer {
 
     return {
         application: host.application,
+        projects: projectManager,
         ready,
         stopped,
         get url() {

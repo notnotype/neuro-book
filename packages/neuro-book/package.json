@@ -16,7 +16,7 @@
         "test:e2e": "bun run build && bun run build:e2e && playwright test -c e2e/playwright.config.ts",
         "typecheck": "tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json",
         "build": "bun run build:server && bun run build:web && bun run check:dist",
-        "build:server": "bun build src/server/main.ts --target bun --outdir dist/server",
+        "build:server": "bun build src/server/main.ts --target bun --outdir dist/server && bun build src/project/main.ts --target bun --outfile dist/server/project.js",
         "build:web": "vite build",
         "build:e2e": "vite build -c vite.e2e.config.ts",
         "check:dist": "bun scripts/check-dist.ts",

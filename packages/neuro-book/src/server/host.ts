@@ -23,6 +23,8 @@ export interface ProcessEvents {
 
 export interface ServerHostOptions {
     readonly instanceId: string;
+    /** 运行位置：服务端进程为 `server`（缺省），项目子进程为 `project`，两者共用这个适配器。 */
+    readonly location?: "server" | "project";
     readonly manifest: ApplicationManifest;
     readonly emergency: (report: EmergencyReport) => void;
     /** 挂接信号与未处理异常的进程对象；缺省当前进程。 */
@@ -86,7 +88,7 @@ class ServerHostImpl implements ServerHost {
         if (options.stopInput) this.#stopInput = this.#watchStopInput(options.stopInput);
         this.application = createApplication(
             {
-                identity: {location: "server", instanceId: options.instanceId},
+                identity: {location: options.location ?? "server", instanceId: options.instanceId},
                 stopSignal: this.#controller.signal,
                 emergency: this.#emergency,
             },

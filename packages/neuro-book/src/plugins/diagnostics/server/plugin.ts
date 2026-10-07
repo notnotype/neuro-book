@@ -17,11 +17,13 @@ import type {JsonlExporterOptions} from "./jsonl-exporter";
 export interface ServerDiagnosticsPluginOptions {
     readonly store: DiagnosticsStore;
     readonly exporter: JsonlExporterOptions;
+    /** 后端入口跑在哪个运行位置：服务端进程或项目子进程，两者都是 Bun 进程、都写 JSONL。缺省 `server`。 */
+    readonly location?: "server" | "project";
 }
 
 export function createServerDiagnosticsPlugin(options: ServerDiagnosticsPluginOptions): PluginDefinition {
     const base = createDiagnosticsPlugin({
-        location: "server",
+        location: options.location ?? "server",
         store: options.store,
         exporter: createJsonlExporterFactory(options.exporter),
         fallback: createStderrFallback(),

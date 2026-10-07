@@ -25,11 +25,12 @@ function readConfigOrExit(): ServerConfig {
     }
 }
 
-function startOrExit(config: ServerConfig, manifest: ReadonlyArray<PluginDescriptor>): RunningServer {
+function startOrExit(config: ServerConfig, manifest: ReadonlyArray<PluginDescriptor>, projectEntry: string | undefined): RunningServer {
     try {
         return startServer({
             config,
             manifest,
+            projectEntry,
             stopInput: config.stopStdin ? process.stdin : null,
             onListening: (url) => {
                 console.log(`Listening on ${url}`);
@@ -45,8 +46,9 @@ function startOrExit(config: ServerConfig, manifest: ReadonlyArray<PluginDescrip
     }
 }
 
-export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>): Promise<never> {
-    const server = startOrExit(readConfigOrExit(), manifest);
+/** `projectEntry` 是项目宿主入口；缺省为产品入口，开发入口给开发用的项目入口。 */
+export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>, options: {readonly projectEntry?: string} = {}): Promise<never> {
+    const server = startOrExit(readConfigOrExit(), manifest, options.projectEntry);
     const {exitCode} = await server.stopped;
     process.exit(exitCode);
 }

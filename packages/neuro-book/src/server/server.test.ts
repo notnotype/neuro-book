@@ -16,6 +16,7 @@ import type {HttpAdmission} from "nbook/plugins/http/server/admission";
 import type {HttpRouteEnv} from "nbook/plugins/http/server/contracts";
 import {remoteProbeContract} from "nbook/shared/testing/remote-probe-contract";
 
+import {PROJECT_LIMIT_DEFAULTS} from "./config";
 import {ServerAssemblyError, startServer} from "./start";
 import {manifestServerPlugins} from "./plugins";
 import {helloFrame, openRawRpcSocket, upgradeStatus} from "./testing/rpc-client";
@@ -236,7 +237,7 @@ describe("后端宿主（真实子进程）", () => {
 });
 
 describe("后端宿主（同进程）", () => {
-    const config = (name: string) => ({host: "127.0.0.1", port: 0, stateRoot: join(tmpRoot, name), logDirectory: join(tmpRoot, name, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: []});
+    const config = (name: string) => ({host: "127.0.0.1", port: 0, stateRoot: join(tmpRoot, name), logDirectory: join(tmpRoot, name, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS});
 
     it("两个插件同时提交 http.routes：各自挂在自己的前缀下", async () => {
         const ping = (reply: string) => () => new Hono<{Bindings: HttpRouteEnv}>().get("/ping", (c) => c.text(reply));
@@ -355,7 +356,7 @@ describe("后端宿主（同进程）", () => {
 });
 
 describe("后端宿主的 RPC 端口（同进程，Spec server-host 场景 12、13）", () => {
-    const config = (name: string) => ({host: "127.0.0.1", port: 0, stateRoot: join(tmpRoot, name), logDirectory: join(tmpRoot, name, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: []});
+    const config = (name: string) => ({host: "127.0.0.1", port: 0, stateRoot: join(tmpRoot, name), logDirectory: join(tmpRoot, name, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS});
     const tui = {id: "tui-1", kind: "tui", role: "client" as const, project: null, client: null};
     const holdRequest = (id: string, name: string): unknown => ({
         type: "request",

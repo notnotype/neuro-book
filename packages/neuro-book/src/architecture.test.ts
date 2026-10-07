@@ -2,7 +2,7 @@
  * 包内依赖方向（packages/neuro-book/AGENTS.md 目录约定）：前端代码不引后端与 Bun/Node；后端不引前端；
  * 共用目录、插件描述与产品清单不引任何一侧；跨插件只用 `import type`（例外：Lab 的场景可以在运行时引用别的插件的前端与
  * 共用代码，用来挂载它们的组件、建场景自己的局部宿主；Lab 只在开发模式加载）；只有开发监督进程能引 Vite；测试库只在测试里用；
- * 开发清单与开发插件（Lab）只经两个开发入口引用，前端开发入口只能动态加载，生产构建才不含它们。
+ * 开发清单与开发插件（Lab）只经开发入口引用（后端、项目子进程与前端各一个），前端开发入口只能动态加载，生产构建才不含它们。
  * `src/ui/` 是宿主与插件共用的前端组件，只用前端库与共用代码；`import.meta.glob` 只给 Lab 的组件索引用：
  * 它把扫描到的模块全部带进构建图，用在别处会把整片目录打进产品。
  * 前端误引后端代码时打包与类型检查不一定失败（Bun 能解析两侧），所以按导入语句检查。
@@ -62,8 +62,8 @@ const pluginOf = (path: string): string | null => /^plugins\/([^/]+)\//u.exec(pa
 const isPlatformModule = (specifier: string): boolean => specifier.startsWith("node:") || specifier === "bun" || specifier.startsWith("bun:");
 const isFrontendPackage = (specifier: string): boolean => specifier === "vue" || specifier.startsWith("vue/") || specifier.startsWith("@vitejs/");
 const TEST_LIBRARIES = ["vitest", "@vue/test-utils", "happy-dom", "@playwright/test"];
-/** 静态引用开发清单的只有这两个开发入口；开发插件的代码另外允许开发清单引用它的描述。 */
-const DEVELOPMENT_ENTRIES = ["server/development-main.ts", "web/development-plugins.ts"];
+/** 静态引用开发清单的只有这几个开发入口；开发插件的代码另外允许开发清单引用它的描述。 */
+const DEVELOPMENT_ENTRIES = ["server/development-main.ts", "project/development-main.ts", "web/development-plugins.ts"];
 const isDevelopmentPlugin = (path: string): boolean => path.startsWith("plugins/lab/");
 const labSceneMayImport = (file: string, target: string): boolean => file.startsWith("plugins/lab/web/fixtures/") && /^plugins\/[^/]+\/(?:web|shared)\//u.test(target);
 const isTestLibrary = (specifier: string): boolean => TEST_LIBRARIES.some((name) => specifier === name || specifier.startsWith(`${name}/`));
@@ -129,6 +129,7 @@ describe("包内依赖方向", () => {
         expect(violationsOf([
             use("plugins/workbench/web/plugin.ts", "nbook/plugins/diagnostics/web/plugin", true),
             use("server/development-main.ts", "nbook/development-manifest"),
+            use("project/development-main.ts", "nbook/development-manifest"),
             use("development-manifest.ts", "./plugins/lab/plugin"),
             use("web/development-plugins.ts", "nbook/plugins/lab/web/plugin"),
             use("plugins/lab/web/fixtures/command-scene/lab-command-scene.ts", "nbook/plugins/commands/shared/registry"),
