@@ -113,7 +113,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 |---|---|---|
 | Workbench 外壳接入 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | 含 Editor/工具容器层级与拖拽行为表；2026-09-22 新拖放合同已接入模型和宿主，验收见关联 Task 最新实施记录；规格晋升仍待正式审批 |
 | Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config / Storage / 内存 / 领域数据职责、user/project 归属、插件与 grid 消费边界 |
-| Storage 插件记录 | [`storage/persistence.md`](storage/persistence.md) | `nbook.storage`：记录定义、user 分区在服务端与 project 分区在项目实例（SQLite）、浏览器经代理、按插件命名空间与客户端分区、读取分类、条件保存与订阅；2026-10-07 按多实例拓扑改写，随 w00017 t55（K4）实现 |
+| Storage 插件记录 | [`storage/persistence.md`](storage/persistence.md) | `nbook.storage`：记录定义、user 分区在服务端与 project 分区在项目实例（SQLite）、浏览器经代理、按插件命名空间与客户端分区、读取分类、条件保存与订阅；2026-10-07 按多实例拓扑改写；已随 w00017 t55（K4）实现并由合同测试（含真实项目子进程与两个进程写同一个库）、真实 Chrome 的 e2e 与 `smoke:server` 覆盖，晋升待审批 |
 | 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量/宿主、scope仲裁与绝对指针跟随；新矩阵未闭合前保持planned |
 | 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | `workspace.files`；首版文件读写、目录/批量操作、无覆盖冲突、逐项失败与取消语义已批准；尚未实施或运行验证 |
 | 资源寻址与文件服务 | [`workspace/resources.md`](workspace/resources.md) | `workspace.resources`；`方案://路径` 寻址、提供者注册与能力声明、写入来源与变更事件、bash 的真实路径规则；首批 `project://`、`user://`、`tmp://`、`local://`、`docs://`；阶段 2 实施 |

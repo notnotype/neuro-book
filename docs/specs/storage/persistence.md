@@ -209,11 +209,8 @@ type SubscribeResult = {ok: true; handle: {release(): void}} | {ok: false; code:
 
 Smoke：合同测试用真实内核实例、真实 SQLite 与真实项目子进程；`e2e/storage.e2e.ts` 在本机 Chrome 里用两个浏览器上下文与同一上下文的两个标签页，走完 `local` 隔离、同客户端共用、条件保存冲突、项目记录跨窗口共享与项目重新打开后仍在。
 
-## 实现合同
-
-尚未实现。
-
 ## 证据
 
 - 批准目标：[插件的数据与状态](../../proposals/plugin-data-model.md) 第 5 节与 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4、11 节（2026-10-07 `accepted`）、[ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)；介质、废弃与推迟的取舍由开发者 2026-10-07 在 [t55 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/plan.md) 中确认（设计审查见 [omp 设计审查](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/evidences/omp-design-review.txt)）。
+- 实现进展（随 [w00017 t55](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/README.md)，本文保持 `planned`，晋升待开发者审批）：记录定义与公开接口在 `packages/neuro-book/src/shared/storage.ts`；`nbook.storage` 在 `packages/neuro-book/src/plugins/storage/`（`server/partition.ts` 分区库，`server/owner.ts` 分区拥有者的本地路线与远程实现，`server/plugin.ts` 服务端与项目入口，`web/plugin.ts` 浏览器入口，`shared/contracts.ts` 服务键 `storageKey` 与远程合同，`shared/facade.ts` 按调用方的服务对象，`shared/remote-route.ts` 经代理的远程路线）。拥有者一侧的失败经远程合同的业务失败码 `storage-failed` 带回 Storage 失败码（Storage 的 `denied`、`unavailable`、`unknown-outcome` 与路由层失败码同名）。场景 1–4、6–8 由 `src/plugins/storage/storage.test.ts`（真实内核实例与进程内链路）与 `project-child.test.ts`（真实项目子进程），场景 4–6 的分区一侧（含两个 Bun 进程写同一个库）由 `server/partition.test.ts`，记录定义由 `src/shared/storage.test.ts`，场景 3、4、7 与项目记录跨窗口、跨项目代次由 `e2e/storage.e2e.ts`，打包产物里的 user 分区由 `smoke:server` 的 S8 覆盖。
 - 旧合同的依据（只作参照）：[ADR 0020](../../../packages/neuro-book-legacy/docs/adr/0020-user-project-storage-boundaries.md)、[ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)。

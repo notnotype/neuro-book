@@ -20,3 +20,13 @@ K1 [t52](../t52-kernel-instances-remote/README.md)（按调用方门面、委托
 ## 当前状态
 
 2026-10-07 计划确认，“待确认”11 项均按计划的建议确认；从 S0 开始实施。
+
+| 片 | 状态 |
+|---|---|
+| S0 Spec 与文档 | 完成：`storage/persistence.md` 按多实例拓扑原地改写（`planned`），`storage/boundaries.md`、`runtime/plugin-api.md` 去掉旧应用的身份域、访问上下文、Workspace Root 与 `ctx.storage`；`runtime/services.md`、`plugin-channel.md`、`plugins.md`、`plugin-manifest.md`、`application.md` 增补客户端身份、路由覆盖、wire 3、`remote.on` 与 `remoteDelegates`；拓扑稿与配套稿的决策记录与“精确项目代次”的承接方式同步。计划之外补一个失败码 `originals-full`（原件区满时拒绝重置） |
+| S1 调用方的客户端身份 | 完成：运行实例身份可带 `client`（窗口传入），装配与插件宿主据此填 `ConsumerIdentity.client`；帧上调用方带 `client`、`consumerKey` 同步；路由对成员发来的请求、订阅、释放把 `location` 与 `client` 置为登记的成员描述；wire 升为 3。内核 266 例、应用相关测试通过；去掉覆盖的变异被新用例抓住 |
+| S2 跨实例委托 | 完成：入口字段 `remoteDelegates`、激活上下文 `remote.on(调用方)`；装配加 `issuedTo`（核对签发身份、把释放步骤挂在签发记录上，代理门面的 release 之后逆序运行）；拒绝一律 `denied` 并记诊断。`remote/delegation.test.ts` 3 例（真实服务端应用与路由、浏览器运行实例）；去掉挂载与 `remoteDelegates` 核对的两处变异各被抓住；内核 269 例通过 |
+| S3 记录定义与分区库 | 完成：`src/shared/storage.ts`（`defineRecord` 加载时校验、逐层排序的指纹、资源 id 规则、公开接口类型）；`src/plugins/storage/server/partition.ts`（`bun:sqlite`、WAL、`BEGIN IMMEDIATE` 的条件写入、删除标记、读取分类、单条上限、原件区、内存里的描述登记、进程内变更通知；不是 SQLite 或格式版本不认识时 `io-error` 且不改写库）；内核 `json-codec` 加 `encodeJsonValue`。`partition.test.ts` 13 例（两个 Bun 子进程在第三个进程放开写锁后争用同一个库、`busy`）连跑 5 次通过；`BEGIN IMMEDIATE` 换成 `BEGIN` 的变异按时序被抓住（第二个写入方得到 `SQLITE_BUSY_SNAPSHOT`），`SQLITE_BUSY*` 一族都映射为 `busy` |
+| S4 三端入口与代理 | 完成：服务端入口拥有 user 分区、项目入口拥有 project 分区，按调用方提供 Storage 服务，以 `nbook.storage/user`、`nbook.storage/project` 把分区交给别的实例；浏览器入口以调用方的身份经 `remote.on` 转给拥有者；`open` 异步并在同一处报告 `definition-conflict`、`no-client`、`no-project`、`invalid-resource`；拥有者一侧的失败经业务码 `storage-failed` 带回（Storage 的 `denied`、`unavailable`、`unknown-outcome` 与路由层失败码同名）。远程路线要在调用时才取：门面工厂运行时调用方身份还没签发完。`storage.test.ts` 11 例（真实内核实例与进程内链路）；owner 与客户端分区的两处变异各被抓住 |
+| S5 宿主接线与 e2e | 完成：`nbook.storage` 进产品清单，三个宿主登记工厂并按清单的 `delegatingPlugins` 给代理允许清单；测试探针经 Storage 读写三条示例记录；`project-child.test.ts`（真实项目子进程：两窗口共用、退出时关库、下一代读回）；`e2e/storage.e2e.ts` 3 例在本机 Chrome 上通过 |
+| S6 收口 | 进行中：Spec 补实现进展与实现合同，README 注册表同步；`persistence.md` 保持 `planned`，晋升待开发者审批。全量 e2e 时 Lab 偶发停在启动中：开发模式没有预构建 typebox，每次整页加载逐个请求约 450 个模块文件，Chrome 以 `ERR_INSUFFICIENT_RESOURCES` 拒绝其中一些；加进 `optimizeDeps.include` 后 Lab e2e 连跑 3 次通过。`smoke:server` 加 S8（打包产物里的 user 分区：保存、读回、停止关库、重启读到同一个值）。收口验证：[test-affected-typecheck.txt](evidences/test-affected-typecheck.txt)（`--since 2369b724`：内核 270、应用 267 与 57 例）、[test-e2e.txt](evidences/test-e2e.txt)（44 例）、[smoke-server.txt](evidences/smoke-server.txt)（S1–S8）。omp 实现审查进行中 |
