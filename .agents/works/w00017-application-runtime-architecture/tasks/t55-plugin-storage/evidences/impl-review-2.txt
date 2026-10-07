@@ -1,0 +1,134 @@
+# w00017 t55（K4 `nbook.storage`）第二轮只读实现审查
+
+审查基线 `2369b72489b718256221b98b90b87852da2fb27d`；开始 HEAD `0877950b`（2026-10-07）。本轮重点复核 `42142ef5`、`87c815db`、`0877950b`，再审查基线以来 `packages/nb-runtime/src/`、`packages/neuro-book/src/` 与 `packages/neuro-book/e2e/storage.e2e.ts` 的代码质量。`07eae3a2`..`5500b686` 的治理、规范、检查脚本与 composition 模块头注释排除，不按范围外变动记问题。结束时 HEAD 为 `f9baaf728d879623047ccbd3d5fb11e7e9560b72`，期间新增提交只保存第一轮报告与 Task 修正记录（2 files，126 insertions、1 deletion），相关源码未变化。
+
+初始 `git log --oneline 2369b724..HEAD` 与 `git status --short --branch` 已执行：分支 `refactor/w00017-runtime-foundation`；Task README 有未提交变更，`evidences/impl-review.txt` 未跟踪。主 Agent 期间将它们提交为 `f9baaf72`；末次 `git log -1 --format='%H %s' && git status --short --branch` 显示同一分支、ahead 176，无未提交项。本审查未修改仓库文件、未执行 Git 写操作、未删除仓库文件；上一轮 scratchpad `report.md` 未修改。实验与本轮报告写本 scratchpad，不运行 e2e 与开发服务。主 Agent 已提供的变异结果作为其证据，不重复进行变异。
+
+依据：已批准 t55 `plan.md`；`storage/persistence.md`；`runtime/services.md` 输出第 11–13 条；`runtime/plugin-channel.md`；`reviewing` 的实现审查维度、编码规范与 `docs/testing/README.md` 的测试写法。上一轮 `report.md` 保持不变。
+
+## 第一部分：上一轮 9 条复核
+
+逐条复核结果如下；上一轮问题 1–8 已修好，第 9 条尚未完整，其具体缺口在第二部分展开。
+
+| 上轮编号 | 上轮问题 | 结论与依据 |
+|---|---|---|
+| 1 | 分区监听重入导致倒序通知 | **已修好**。`partition.ts:269` 将已提交快照排队，`:277` 跳过监听已收到的 revision；`partition.test.ts:324` 的回归用例覆盖重入写入与途中开始的监听。本轮公开运行时实验中第二个监听依次收到 missing、one、two，最终读取为 two，无倒退。内部整数比较属于分区自己的 revision 表示，不要求调用方解析 token，符合对调用方不透明的合同。 |
+| 2 | `open` 缺少分区打开失败通道 | **已修好**。`partition.ts:105` 的 `register` 先开库；`owner.ts:56`、`:84` 的本地与远程 `open` 都经过此处。本轮真 SQLite、真应用实验中两端 `open` 均直接返回 `io-error`，未交出坏库句柄；当前合同测试通过。 |
+| 3 | 路由转发丢首次快照 | **已修好**。`router.ts:483` 缓冲接受前的事件与结束，接受后按原顺序转发；`routing.test.ts:510` 覆盖服务端、转发至项目、转发至另一客户端三条路线。本轮官方进程内链路的真应用实验收到项目订阅的 before-subscribe 初快照，再收到 after-subscribe，未再丢首事件。 |
+| 4 | 代理 release 内调用随实例停止提前取消 | **已修好**。`host.ts:557` 将委托访问绑定到签发记录收口与代理实际释放；`composition.ts:671` 先等代理门面 release 完成，才收口签发记录。本轮整应用停止与单消费方停止两种真运行时实验中，release 内远程调用均成功、当时订阅未 abort，之后远程门面释放与订阅 abort；停止为 closed。 |
+| 5 | `onEnd` 抛错中断其余订阅收口 | **已修好**。`facade.ts:111` 分别尝试取消订阅和结束回调；`owner.ts:131` 隔离结束回调异常后仍关库，全部完成再抛首错。本轮真应用实验仍如实报告 `release-failed`，但其它订阅收到 released，后续写入不再送达；`recover()` 收口成功。`owner.test.ts` 在拥有者边界用真 SQLite 核对其它回调与关库，37 例 Storage 测试全部通过。 |
+| 6 | 无格式标记的已有 SQLite 被改写 | **已修好**。`partition.ts:293` 只有无表数据库算新库；先只读认库，再仅对新库进入写事务重认、建表。本轮含 unrelated 表的真实外来 SQLite 被 `open` 拒绝为 `io-error`，文件字节不变，表仍只有 unrelated；未知版本保护测试也通过。 |
+| 7 | 测试固定文案与 revision 表示 | **已修好**。`delegation.test.ts:200`、`:201` 改为拒绝码，并检查远程调用／订阅无副作用；`partition.test.ts:104`、`:106` 与 `storage.test.ts:213`、`:216` 等取保存返回的 token 做后续 CAS 和读回核对，不再固定新写入的起始值或连续编号。当前原始坏数据 fixture 的 10／11／12 是主动写入的持久化值，核对同一值的原件保存属格式边界，不等于重新固定 token 分配算法。本轮两套合同测试通过。 |
+| 8 | S5 缺少服务端与项目 Storage 探针 | **已修好**（源码与类型检查已验证；浏览器 e2e 未运行）。`test-plugins.ts:126`、`probe-plugin.ts:28` 两端新增 Storage 依赖并直用；三端共用 `probe-storage.ts` 的同名记录定义。`storage.e2e.ts:130` 交叉核对服务端 user、项目 project 与窗口的同一命名空间，含服务端 no-client/no-project。本轮类型检查通过；实际 Chrome 场景仍由主 Agent 执行。 |
+| 9 | 缓存旧签发身份绕过准入复查 | **没修好（尚未完整）**。`host.ts:551` 已修正“释放后重新调用 on”的路径，本轮确实得到 denied；但有效时保存的 `DelegatedRemoteAccess` 或远程客户端在释放后再次调用／订阅仍为 cancelled。公开真实运行时复现，调用／订阅计数未增；沿用上轮建议级，详见第二部分发现 3，不重复计数。 |
+
+## 第二部分：本轮发现
+
+共 6 项，按用户要求排列：正确性／不变量、结构简化、其余测试问题。发现 3 是上轮第 9 条的剩余缺口，不重复计数；其它 5 项为本轮新增发现。运行时缺陷均经真实公开路径核实；结构问题注明静态依据。
+
+### 1. [重要][不变量] 派发途中释放另一个本地订阅，它仍收到释放后的当前事件
+
+- 位置：`packages/neuro-book/src/plugins/storage/server/partition.ts:276`、`:280`；停止监听在 `:174`；公开释放路线为 `shared/facade.ts:98` → `server/owner.ts:73`。
+- 现象：同一真实消费插件建立两个本地订阅；第一位监听在收到新值时调用第二条公开订阅句柄的 `release()`。第二条已从监听集合删除，但仍收到此次值；之后的写入不再送达。本轮输出为 `seen: [missing, released-before-dispatch]`，应只有 missing。
+- 为什么是问题：派发在回调前复制了全部 Watcher；释放只改原 Set，循环没有再次核对复制出来的条目是否仍有效。消费方可在一个状态变化中拆掉另一个观察者，释放返回后的迟到调用会进入已卸载投影；远程订阅合同明确丢弃释放后的迟到事件，本地路线也应遵守同一寿命。现有“停止后不再推送”测试只在两次写入之间停止，漏了通知回调里的停止。
+- 如何核实：从 worktree 根运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/notification-release-probe.ts`。实验使用真 `createApplication`、真 Storage 插件、真 SQLite 和公开 `open/subscribe/save/release`，无私有函数、mock 或固定等待；两次保存成功，应用清理均为 closed。另一个“初快照里停止调用方”实验正常结束且只报一次 released，不列问题。
+- 具体改法：保留遍历快照以免把途中新增监听纳入旧事件，但在每次调用前核对当前地址的 Set 仍含该 Watcher（同时覆盖 `close()` 清空集合）；或在 Watcher 上使用一个由 stop/close 置位的有效状态。不要只换成直接遍历 Set，新加监听的参与规则会一起变化。在现有真实内核订阅用例补“第一个监听释放第二个，第二个不收到本次及后续值”的行为断言。
+
+### 2. [重要][不变量] 远程订阅在建立 Promise 返回前结束，门面仍把它登记为存活，随后重复调用 `onEnd`
+
+- 位置：`packages/neuro-book/src/plugins/storage/shared/facade.ts:79`–`:93`、`:113`；远程路线的额外异步返回在 `shared/remote-route.ts:41`。
+- 现象：真实浏览器消费插件订阅 user 记录，首快照监听中停止提供方应用。订阅先以 provider-stopped 结束；调用方稍后停止时同一订阅又收到 released。本轮输出 `ended: [provider-stopped, released]`，两端应用停止均为 closed。
+- 为什么是问题：`onEnd` 可以先于 `await route.subscribe` 返回，此时 `entry` 仍为 null，无法从集合移除；返回成功后代码无条件建 entry 并加入集合，忘了这条订阅已经结束。随后服务对象释放直接调用另一份 `onEnd` 包装，违反 `storage/persistence.md:126`“订阅结束时调用一次”。“服务对象 released”与“这条订阅 ended”是不同事实；目前只有前者，entry／owned 两个别名和两份回调包装掩盖了缺失状态。常见终态原因与短时提供项停止都可能落入同一窗口。
+- 如何核实：从 worktree 根运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/early-subscription-end-probe.ts`。只用真应用、真 Storage、真 SQLite、官方进程内链路与公开 subscribe/Application.stop；等待实际 onEnd 的 Promise，不造内部时序、不按时长等待。提供方结束时只有 provider-stopped；调用方随后停止新增 released。0.20 秒，finally 收口两端应用与路由。
+- 具体改法：在调用路线前就创建一个订阅登记对象，由单个结束函数拥有“是否已结束”、从集合移除和 `onEnd` 的一次调用；路线返回后只补底层 release 句柄，若已结束就不登记为活订阅。主动 release 不发 onEnd，服务对象释放／提供方终态通过同一个结束函数。这样可合并 entry／owned 和两份 onEnd 包装，减少回调接线，并覆盖“结束先于建立返回”的真实运行时用例。不要仅按终止原因屏蔽第二次通知。
+
+### 3. [建议][正确性] 上轮第 9 条仍有保存访问对象的缺口：旧签发身份已释放，却返回 `cancelled`
+
+- 位置：`packages/nb-runtime/src/plugins/host.ts:579`–`:587`；已保存客户端的方法执行走 `remote/node.ts:439`–`:464`、`:477`。
+- 现象：代理在身份有效时保存 `const access = context.remote.on(identity)` 和 `const client = access.use(contract)`。签发门面释放后，重新 on(identity) 为 denied；保存的 access 再 use 后调用、保存的 client 直接调用、保存的 access 建新订阅，均得到 cancelled。本轮 `beforeLate`／`afterLate` 都为 calls:2、sinks:1，没有派发新请求或订阅。
+- 为什么是问题：修正把准入复查放在 on 的调用时，但其返回对象继续捕获旧 RemoteAccess，已保存的客户端又捕获同一 caller。底层已中止 signal 能阻止副作用，却把“签发身份失效”报告成普通取消，仍违反 `runtime/plugin-channel.md:85` 的统一 denied 合同。缓存访问／客户端是公开接口允许的正常用法；只复查 on 或 use 无法覆盖更早取得的 client。没有越权或旧门面复活，故保持建议，不采纳独立子审查的更高定级。
+- 如何核实：从 worktree 根运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/delegated-access-lifetime-probe.ts caller-only`。复用真应用、真代理门面、官方进程内链路与真实消费方激活代次停止；用公开实例查询做前序投递屏障。输出 heldAccessAfterRelease／heldClientAfterRelease 均为 cancelled/cause cancelled，heldSubscriptionAfterRelease 为 cancelled，remote.on 重取则 denied；停止 closed，0.19 秒。
+- 具体改法：把委托身份准入核对保留到实际方法调用／事件订阅边界，同时仍复用底层访问的 contacted／owned 与 release 所有权；允许有效门面的释放函数完成后才判失效。可以由宿主交给 remote.access 一个动态准入回调，或由委托客户端包装在请求／订阅前统一核对；不要在 on、use、每个方法各复制一套规则。已有缓存与未缓存身份的用例增加“保存访问对象”和“保存 client”两种公开路径，断言 denied 且无远程副作用。
+
+### 4. [建议][代码质量] 同一签发身份准入规则在 `issuedTo` 与 `#resolveFor` 分别实现
+
+- 位置：`packages/nb-runtime/src/services/composition.ts:339`–`:350`、`:378`–`:387`。
+- 现象：远程与本地委托分别执行同样三项核对：身份在 `#issued` 中、没有 closed、签发给当前插件／入口；三条拒绝文案也重复。两处当前规则一致，未发现本轮准入失效。
+- 为什么是问题：这是同一装配拥有的信任与寿命规则。以后增加签发代次或作废条件时必须改两份分支，调用方还要自行维持本地／远程的等价性；原计划要求“核对与 resolveFor 相同”，目前靠复制实现，读者要逐项对照才知道是否相同。
+- 如何核实：只读逐项比较以上两个分支、`runtime.services` 输出 13 与 `runtime/plugin-channel` 输出 10；内核 273 例及委托停止／旧身份公开实验通过。属于静态结构发现，不声称已有越权。
+- 具体改法：在 composition 内用一个私有准入方法返回有效 `IssueRecord` 或拒绝原因，`issuedTo` 再交出 signal／attach，`#resolveFor` 再转换成现有 ResolveResult 失败形态。保持插件允许清单／合同或服务键声明分别由插件宿主拥有；只合并三项共同规则，删掉一套重复分支，不新增跨模块的“授权服务”或包装层。
+
+### 5. [建议][代码质量] Storage 探针远程输出用 `Type.Unknown`，e2e 又手写一套弱结果类型
+
+- 位置：`packages/neuro-book/src/shared/testing/remote-probe-contract.ts:67`、`:70`；`e2e/storage.e2e.ts:62`–`:69`、`:136`、`:145`。已有可复用合同在 `plugins/storage/shared/contracts.ts:21`、`:39`，探针命名类型在 `shared/testing/probe-storage.ts:21`–`:26`。
+- 现象：新增 storageRead／storageSave 输入有 schema，输出却均为 Type.Unknown；浏览器已有 ProbeSnapshot／WriteResult，e2e 再声明 status:string 与多个可选字段的 Snapshot，并把 HTTP、项目输出断言成这个弱形状。`read` 的正常快照与 open 失败实际是不同联合分支，手写 Snapshot 连 status 都错误要求失败分支具有。
+- 为什么是问题：三端数据路径已有同源记录，但结果合同到探针处丢失：输出不会被远程层检查，e2e 通过 cast 避开收窄，读者要从调用实现重新推断成功／失败形状。`echo`、tick 等既有探针有具体输出 schema；新增两方法形成第二套消费类型，增加维护点。现有 e2e 行为断言能抓住所用成功路径，未据此认定浏览器运行失败。
+- 如何核实：只读对照探针接口、方法 output 与 e2e 的四处重声明／断言；两包类型检查成功，仅说明编译允许这些 cast，Chrome e2e 未运行。
+- 具体改法：在共享探针合同复用 Storage 的快照／失败 schema，明确 read 为快照或 open 失败、save 为 WriteResult；探针模块命名导出这一联合结果，窗口 evaluate 与 HTTP 解码使用它并按 status／ok 收窄。删除 e2e 的 Snapshot 和匿名结果形状；结果值里的 text 可由同源 Text schema 描述。保留当前直接 Storage 与经项目 RPC 的两种观察入口，减少重复模型而不是另造探针协议层。
+
+### 6. [重要][测试] `storage.test.ts` 的 `world()` 不收口应用与路由，测试结束仍有 19 个 SQLite 文件描述符打开
+
+- 位置：`packages/neuro-book/src/plugins/storage/storage.test.ts:94`–`:177` 的 `world()`；返回的 `hub`、项目／窗口 `Application` 与 `RemoteRouter` 没有统一 owner，清理钩子只在 `afterAll` 删除临时根（`:46`–`:47`）。
+- 现象：真实测试文件结束后仍能从 `/proc/self/fd` 看到 19 个指向 `(deleted)` 的 `storage.sqlite`、`-wal`、`-shm` 文件描述符；本轮探针输出 `openStorageFiles: 19`，同时该文件的 15 个测试全部通过。Linux 允许 unlink，所以删除临时根成功不能证明库已关闭；其它平台未实测。
+- 为什么是问题：`world()` 每个用例创建至少一个 hub，很多用例再创建项目和多个窗口，但没有 `afterEach` 逆序停止它们；SQLite 连接拥有文件描述符和 WAL 资源，删除路径不等于关闭资源。从代码推断，未停止的实例与路由也把连接、订阅和生命周期回调留到运行器退出或垃圾回收，关闭的异常无法在当前用例被检查。各用例的数据根独立，未发现跨用例数据串扰；已核实的问题是测试没有确定性收口，而非产品存储泄漏。
+- 如何核实：从 worktree 根执行 `bun test --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/world-resources.probe.test.ts`。探针只导入该真实测试文件，在其 afterAll 后扫描 `/proc/self/fd`；15 pass、0 fail，19 个 Storage 文件描述符均标为 deleted。没有 mock、固定等待或产品内部直调。
+- 具体改法：让 `World` 在创建时登记所有 `Application`、`RemoteRouter` 与链路，提供一个幂等的 `close()`，在 `afterEach` 或每个用例的 `finally` 中逆序 `app.stop()`、`router.close()`、关闭链路，确认完成后再删除 tmp 根。`world()` 不要只把 `hub`／窗口句柄散交给测试而把所有权留给调用方；失败用例也必须走同一收口路径。可以沿用 `project-child.test.ts` 的 `afterEach` 子进程收口，但要等异步 stop 完成。
+
+## 验证记录（随核实追加）
+
+以下为本轮主审亲自执行，不沿用上一轮数字：
+
+| 命令／场景 | 结果 |
+|---|---|
+| 根目录 `bun run --cwd packages/nb-runtime test` | 273 pass、0 fail，2234 expect() calls，22 files，810.00ms。 |
+| `packages/neuro-book` 下 `bun test src/shared/storage.test.ts src/plugins/storage/` | 37 pass、0 fail，233 expect() calls，5 files，1.70s。 |
+| 根目录 `bun run --cwd packages/nb-runtime typecheck` | `tsc --noEmit && tsc --noEmit -p tsconfig.browser.json` 成功，18.07 秒。 |
+| 根目录 `bun run --cwd packages/neuro-book typecheck` | `tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json` 成功，48.75 秒。 |
+| 根目录 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/storage-runtime-probe-2.ts` | 真应用、插件、SQLite 与官方进程内传输：坏库两端 open 拒绝；重入通知有序；重连补最新快照；本地／远程释放各一次 released；项目初快照与后续变更完整；结束回调抛错仍结束其余订阅，recover 成功；外来库拒绝且字节不变。0.27 秒。 |
+| 根目录 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/delegation-stop-probe.ts` | 整应用停止期间，代理 release 内委托调用成功；此时订阅未 abort，随后远程门面释放并 abort；停止为 closed。0.24 秒。 |
+| 根目录 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/delegation-stop-probe.ts caller-only` | 单消费方停止时 release 内调用成功；旧身份再次调用明确 denied；订阅随后 abort；入口为 closed。0.24 秒。 |
+| `packages/neuro-book` 下 `bun test src/web/host/window.test.ts src/server/server.test.ts src/server/projects/projects-capability.test.ts` | 46 pass、0 fail，177 expect() calls，3 files，3.65s。 |
+| 根目录 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/notification-release-probe.ts` | 复现发现 1；相邻“初快照停止调用方”路径正常，只一次 released。两端清理均 closed，0.27 秒。 |
+| 根目录 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/early-subscription-end-probe.ts` | 复现发现 2；两端清理均 closed，0.20 秒。 |
+| 根目录 `bun test --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/world-resources.probe.test.ts` | 导入真实 Storage 15 例测试，观察其 afterAll 后仍开着的 FD：15 pass、0 fail，19 个 SQLite 文件句柄（deleted），0.30 秒。该 15 例是 37 例子集，不重复加总。第一次探针误用 marker purpose 作为目录过滤，得到 0；查明 createTestTmpRoot 目录只用 name 后修正过滤，前一次不作为收口正常证据。 |
+| 根目录 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/delegated-access-lifetime-probe.ts caller-only` | 保存的访问／客户端释放后为 cancelled，重取 on 为 denied；调用与订阅计数均不增加。上轮第 9 条的剩余缺口见发现 3，0.19 秒。 |
+
+本轮亲自运行 **356 例不同既有测试，全部通过**，以及上表两包类型检查、六个公开运行时实验命令（其中 delegation-stop 有两种参数）；资源观察复跑的 15 例属于 37 例子集，不另计。scratchpad 场景执行成功；Bun 在尾部另输出 `Internal error: directory mismatch ... tsconfig.json ... indicates a bug`，没有据此认定 Storage 失败。主 Agent 提供的六类变异证据不重做、不计为本轮主审执行。
+
+## 验证边界与独立审查
+
+- 按只读约束未运行 e2e、开发服务、构建或机检／格式化；未验证 Chrome 的新增三端交叉观察场景、Windows、macOS、TUI 与 K5。三端探针“已修好”限定为接线与合同使用的静态核对、两包类型检查；实际浏览器验收仍由主 Agent 执行。
+- 本轮 smoke 使用真实应用、插件、SQLite 与官方 JSON 进程内链路，不能替代 WebSocket／项目 IPC 的全部实际调度。宿主 46 例覆盖真实服务器／项目宿主；第一轮的 `storage-host-probe.ts` 未重跑，不作为本轮新证据。
+- `KernelQualityRoundTwo` 与 `ProbeTestQualityRoundTwo` 只读独立审查，未跑验证。前者的保存委托访问疑点经本轮真应用复现后合并到发现 3；后者的 world 收口与探针输出合同分别合并到发现 6、5。独立审查提出的更高定级不直接采用：保存访问没有新远程副作用，探针弱输出模型尚无运行失败证据，分别定为建议；测试残留 19 个文件描述符有实测，定为重要。
+- provider-stopped 后签发记录仍可能存留的静态疑点未列发现：尚无符合真实插件寿命的单独故障场景；不能把提前释放绑定、仍持有门面的层内时序直接定为产品缺陷。结束先于 subscribe 返回的节点登记窗口也未单独重复定级，只报告已公开复现的 Storage 重复 onEnd。
+- 4 MiB 原件字节上限未见独立的边界断言；64 份数量上限已有用例。本轮未追加该上限实验，不把测试全绿概括为所有容量边界已验证。
+
+## 复盘回写建议（未落盘，不阻塞审查交付）
+
+已对照现有“依赖用真的”“bug 修复的测试”与异步 owner 规则，没有明确覆盖建立返回前的事件／终止顺序；以下仅为建议，未经开发者批准不修改规范。
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| 1 | 踩坑 | 真应用中首快照触发停止，onEnd 先于 await subscribe 返回；现有测试全绿仍漏掉随后二次结束。 | 新增：“事件订阅或监听注册的建立过程含 Promise 时，用真实支持的传输覆盖首事件、终止先于建立返回的顺序；随后释放调用方，核对终止只通知一次且不会留下活订阅。” | `docs/testing/README.md` 的“测试写法”。 |
+
+## 未发现问题的方面
+
+- **已验证：** 基本读取分类、默认值不落盘、CAS、删除标记防旧写、坏数据／旧版本原件保存、64 份上限、定义冲突、插件／客户端隔离、服务端与项目分区，均由本轮 Storage 合同测试通过；跨进程争写与锁忙用真实 SQLite 和 Bun 子进程核对。公开实验另证坏库／外来库在 open 拒绝、外来库字节不变。
+- **已验证：** 重入写入通知不倒序；途中开始的新监听不会被旧 revision 覆盖；转发项目的初快照不丢；同服务端进程重连补最新快照而不误结束。两项新订阅边界见发现 1、2，不把正常场景扩展为所有重入／终止路径安全。
+- **已验证：** 整应用与单消费方停止时，代理门面 release 内委托调用仍成功，之后签发记录收口、远程门面释放、订阅中止；异常 onEnd 不妨碍其它订阅结束，失败仍报告 release-failed，recover 可完成。旧身份重新 on 得 denied；保存访问对象的残留错误码见发现 3。
+- **从代码核对：** 分区先认库，只有无表的新库才在写锁内重认并建表；事务拥有 CAS 比较与写入，通知在提交后排队。`Watcher.last` 使用分区自己拥有的整数表示，公开调用方仍只回传 token，不与“不透明”冲突。`recognize`／`#transaction`／`#notify` 的职责有实际边界，没有为简化而合并它们的必要。
+- **从代码核对：** `admit` 守远程输入与身份边界，门面核对给本地消费方及时反馈；本地路线与远程入口的部分相似检查不是无效重复。三端插件分别装配分区拥有者或代理，remote-route 做 Storage／RPC 结果转换；未发现需要再引入一个路由管理层的理由。facade 的简化应集中在每条订阅单一登记与终止函数（发现 2）。
+- **从代码核对：** router 的 early 队列只处理接受前的事件／终止，接受后 FIFO 排出，未发现需要第二套通用队列的理由。每次 on 准入在 WeakMap 前，缓存只复用访问对象；签发记录／实际 release 拥有中止，未再次并入会提前触发的激活 stopSignal。相邻 K1–K3 未发现本轮新增破坏，不代表重新认证其全部旧实现。
+- **从代码核对及既有测试：** partition 子进程对话用 ready／结果行作为因果屏障，失败清理由 afterEach 拥有；真实项目子进程也有收口。owner.test 在拥有者边界故意留下订阅来核对结束异常与关库，真实消费者先停的正常路径由应用级测试覆盖，这种分层测试有理由。storage.test 世界缺统一所有权是单列的重要问题（发现 6）。
+- **本轮范围内未发现：** 按错误文案做产品分支、无诊断吞错、放宽断言隐藏失败、产品测试专用分支、跨包源码深导入，或为修正删改范围外源码／配置。三端 probe 共用记录定义，控制路由与项目 RPC 观察入口符合已有测试插件职责；结果合同与 e2e 第二套弱类型需按发现 5 统一。
+
+## 分级与结论
+
+| 严重程度 | 数量 | 组成 |
+|---|---:|---|
+| 阻断 | 0 | 未发现。 |
+| 重要 | 3 | 派发后释放监听仍收当前事件；早终止订阅重复 onEnd；测试世界残留资源。 |
+| 建议 | 3 | 上轮第 9 条保存访问对象的剩余错误码缺口；重复签发准入分支；探针输出与 e2e 结果模型不统一。 |
+| 合计 | 6 | 本轮新增 5 项，另含上轮第 9 条残留 1 项，只计一次。 |
+
+上一轮 **8 项已修好、1 项尚未完整**。实现目前仍有两项已公开复现的订阅寿命不变量问题和一项已实测的测试收口问题，不能据 356 例全绿认定全部合同满足；每项均已给出具体改法与验证入口。本轮只交付审查，不修改实现。
