@@ -5,8 +5,8 @@
 
 import type {RuntimeClock} from "../lifecycle/lifecycle";
 
-import {failureFor, parseFrame} from "./protocol";
-import type {Frame, Outcome, ReleaseFrame, RequestFrame, SubscribeFrame} from "./protocol";
+import {failureFor, parseFrame, wireMismatch} from "./protocol";
+import type {Frame, Outcome, RejectFrame, ReleaseFrame, RequestFrame, SubscribeFrame} from "./protocol";
 import type {RemoteLink} from "./transport";
 
 /** 回复一个入站请求：先 `ack` 再执行，结果只回一次。 */
@@ -25,6 +25,8 @@ export interface SubscriptionChannel {
 
 export interface PeerHandlers {
     onHello?(frame: Extract<Frame, {type: "hello"}>): void;
+    /** 收到 wire 版本不同的 hello（不论其余字段的形状）；参数是应回给对端的拒绝帧。未提供时按无效帧处理。 */
+    onWireMismatch?(reject: RejectFrame): void;
     onWelcome?(frame: Extract<Frame, {type: "welcome"}>): void;
     onReject?(frame: Extract<Frame, {type: "reject"}>): void;
     /** `signal` 在对端取消或链路关闭时触发。 */
@@ -179,6 +181,11 @@ export class Peer {
     }
 
     #receive(value: unknown): void {
+        const mismatch = this.#handlers.onWireMismatch === undefined ? null : wireMismatch(value);
+        if (mismatch !== null) {
+            this.#handlers.onWireMismatch?.(mismatch);
+            return;
+        }
         const frame = parseFrame(value);
         if (frame === null) {
             this.#handlers.onInvalidFrame?.(value);

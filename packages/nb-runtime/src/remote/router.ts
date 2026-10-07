@@ -5,18 +5,21 @@
  * 路由只核对实例级身份：帧上调用方的实例 id 必须是这条链路握手时登记的实例，同一实例内的插件与
  * 入口身份由该实例的内核填写（第一版完全信任，见 ADR 0022）。`{project}` 目标另核对租约，租约由
  * 宿主的项目管理持有（`createChildInstances`），路由只经 `holdsProjectLease` 询问。
+ *
+ * 握手规则（wire 版本先于一切、同一实例重连接管旧链路、协议违规关闭链路）见
+ * docs/specs/runtime/plugin-channel.md 的“WebSocket 传输与握手”。
  */
 
 import {Peer} from "./peer";
 import type {Reply, SubscriptionChannel} from "./peer";
-import {checkHello, failureFor} from "./protocol";
+import {failureFor} from "./protocol";
 import type {CallerFrame, InstanceDescriptor, Outcome, ReleaseFrame, RemoteTarget, RequestFrame, SubscribeFrame} from "./protocol";
 import {INSTANCES_CONTRACT, RemoteNodeImpl} from "./node";
 import type {RemoteNode, Upstream} from "./node";
 import type {RemoteLink} from "./transport";
 
 export interface RemoteRouter {
-    /** 接受一条新链路；对端须先发 hello，wire 版本不兼容或实例 id 重复时拒绝并关闭。 */
+    /** 接受一条新链路；对端须先发 hello，被拒或违反协议时关闭链路。 */
     accept(link: RemoteLink): void;
     /** 当前在线的实例（含服务端自己）。 */
     instances(): ReadonlyArray<InstanceDescriptor>;
@@ -28,6 +31,8 @@ export interface RemoteRouterOptions {
      * 项目管理决定；不提供时没有调用方持有租约，`{project}` 请求与订阅一律 `denied`。
      */
     readonly holdsProjectLease?: (caller: CallerFrame, project: string, generation: number) => boolean;
+    /** 服务端这一次进程的标识，随 welcome 发给客户端；缺省随机生成。同一进程里的路由只建一个。 */
+    readonly boot?: string;
 }
 
 interface Member {
@@ -41,10 +46,22 @@ type Destination =
     | {readonly kind: "gone"; readonly detail: string}
     | {readonly kind: "denied"; readonly detail: string};
 
+/** 重连时判断是不是同一个实例：描述的每一项都要一致，只是换了一条链路。 */
+function sameInstance(left: InstanceDescriptor, right: InstanceDescriptor): boolean {
+    return (
+        left.kind === right.kind &&
+        left.role === right.role &&
+        left.client === right.client &&
+        left.project?.id === right.project?.id &&
+        left.project?.generation === right.project?.generation
+    );
+}
+
 class RemoteRouterImpl implements RemoteRouter {
     readonly #hub: RemoteNodeImpl;
     readonly #members = new Map<string, Member>();
     readonly #options: RemoteRouterOptions;
+    readonly #boot: string;
 
     constructor(hub: RemoteNodeImpl, options: RemoteRouterOptions) {
         if (hub.instance.role !== "hub") {
@@ -52,6 +69,7 @@ class RemoteRouterImpl implements RemoteRouter {
         }
         this.#hub = hub;
         this.#options = options;
+        this.#boot = options.boot ?? crypto.randomUUID();
         const upstream: Upstream = {
             request: (frame, options) => {
                 const destination = this.#resolve(hub.instance, frame.target, frame.$nbConsumer);
@@ -84,52 +102,66 @@ class RemoteRouterImpl implements RemoteRouter {
 
     accept(link: RemoteLink): void {
         let member: Member | null = null;
+        const violation = (detail: string): void => {
+            this.#hub.recordDiagnostic("protocol-violation", null, `${member?.descriptor.id ?? "未握手的链路"}：${detail}`);
+            peer.close();
+        };
+        const refuse = (reason: string, message: string): void => {
+            peer.send({type: "reject", reason, message});
+            peer.close();
+        };
         const peer: Peer = new Peer(
             link,
             {
+                onWireMismatch: (reject) => {
+                    peer.send(reject);
+                    peer.close();
+                },
                 onHello: (frame) => {
                     if (member !== null) {
+                        violation("握手完成后再次发送 hello");
                         return;
                     }
-                    const checked = checkHello(frame);
-                    if (!checked.ok) {
-                        peer.send({type: "reject", reason: checked.reason, message: checked.message});
-                        peer.close();
+                    const {instance} = frame;
+                    if (instance.role === "hub" || instance.id === this.#hub.instance.id) {
+                        refuse("role", "只有一个服务端实例运行路由");
                         return;
                     }
-                    if (frame.instance.id === this.#hub.instance.id || this.#members.has(frame.instance.id)) {
-                        peer.send({type: "reject", reason: "duplicate-instance", message: `实例 ${frame.instance.id} 已在线`});
-                        peer.close();
+                    const existing = this.#members.get(instance.id);
+                    if (existing !== undefined && !sameInstance(existing.descriptor, instance)) {
+                        refuse("duplicate-instance", `实例 ${instance.id} 已在线`);
                         return;
                     }
-                    if (frame.instance.role === "hub") {
-                        peer.send({type: "reject", reason: "role", message: "只有一个服务端实例运行路由"});
-                        peer.close();
-                        return;
-                    }
-                    member = {descriptor: frame.instance, peer};
-                    this.#members.set(frame.instance.id, member);
-                    peer.send({type: "welcome", wire: frame.wire});
+                    // 同一实例重连：服务端可能还没察觉旧连接断开（半开连接）。关闭旧链路，其上的请求与订阅按断开结算。
+                    existing?.peer.close();
+                    member = {descriptor: instance, peer};
+                    this.#members.set(instance.id, member);
+                    peer.send({type: "welcome", wire: frame.wire, boot: this.#boot});
                 },
                 onRequest: (frame, reply, signal) => {
                     if (member === null) {
-                        reply.result({ok: false, code: "denied", detail: "握手完成前不接受请求"});
+                        violation("握手完成前发送请求");
                         return;
                     }
                     this.#routeRequest(member, frame, reply, signal);
                 },
                 onSubscribe: (frame, channel, signal) => {
                     if (member === null) {
-                        channel.reject({ok: false, code: "denied", detail: "握手完成前不接受订阅"});
+                        violation("握手完成前发送订阅");
                         return;
                     }
                     this.#routeSubscribe(member, frame, channel, signal);
                 },
                 onRelease: (frame) => {
-                    if (member !== null && frame.$nbConsumer.instanceId === member.descriptor.id) {
+                    if (member === null) {
+                        violation("握手完成前发送释放");
+                        return;
+                    }
+                    if (frame.$nbConsumer.instanceId === member.descriptor.id) {
                         this.#routeRelease(member.descriptor, frame);
                     }
                 },
+                onInvalidFrame: () => violation("收到无法解析的帧"),
                 onClose: () => {
                     if (member !== null && this.#members.get(member.descriptor.id) === member) {
                         this.#members.delete(member.descriptor.id);

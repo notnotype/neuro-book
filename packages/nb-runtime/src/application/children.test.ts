@@ -304,7 +304,7 @@ describe("Spec plugin-channel 输出 9：{project} 目标核对租约", () => {
                 return {};
             }}],
         };
-        const hubNode = createRemoteNode({instance: {id: "hub", kind: "server", role: "hub", project: null}, clock});
+        const hubNode = createRemoteNode({instance: {id: "hub", kind: "server", role: "hub", project: null, client: null}, clock});
         const hub = createApplication(
             {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
             {keys: [], plugins: [callerPlugin], gates: [], remote: hubNode},
@@ -313,7 +313,7 @@ describe("Spec plugin-channel 输出 9：{project} 目标核对租约", () => {
         const router = createRemoteRouter(hubNode, {holdsProjectLease: (frame, project, generation) => frame.plugin !== null && children.holds(project, generation, frame.plugin)});
         const children = createChildInstances<Running>(hub, {
             create: async (key, generation) => {
-                const descriptor: InstanceDescriptor = {id: `project-${key}-${generation}`, kind: "project", role: "project", project: {id: key, generation}};
+                const descriptor: InstanceDescriptor = {id: `project-${key}-${generation}`, kind: "project", role: "project", project: {id: key, generation}, client: null};
                 const node: RemoteNode = createRemoteNode({instance: descriptor, clock});
                 const plugin: PluginDefinition = {
                     id: "demo.project",

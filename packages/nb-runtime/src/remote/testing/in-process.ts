@@ -1,9 +1,10 @@
 /**
- * 进程内链路对：两端在同一进程里互发帧。投递经 `structuredClone` 并放到微任务里，使测试与组合验证
- * 观察到的行为和真实传输一致：不共享对象引用、不同步回调；不能结构化克隆的值在发送时抛错。
+ * 进程内链路对：两端在同一进程里互发帧。投递经与 WebSocket 链路相同的 JSON 编解码，并放到微任务里，
+ * 使测试与组合验证观察到的行为和真实传输一致：不共享对象引用、不同步回调；JSON 不能如实表示的值在发送时抛错。
  * 真实断线与刷新的时序由真实传输（WebSocket、进程间通信）验证，这里只模拟“关闭”。
  */
 
+import {decodeJsonFrame, encodeJsonFrame} from "../json-codec";
 import type {Frame} from "../protocol";
 import type {RemoteLink} from "../transport";
 
@@ -35,13 +36,12 @@ export function createLinkPair(): LinkPair {
             if (closed) {
                 return;
             }
-            const copy: unknown = structuredClone(frame);
+            const text = encodeJsonFrame(frame);
+            // 关闭前发出的帧照常送达、先于关闭通知（关闭的通知排在它之后的微任务里），与 WebSocket 先送完
+            // 消息再关闭一致：路由回完拒绝帧立即关闭链路时，对端仍要读到拒绝原因。
             queueMicrotask(() => {
-                if (closed) {
-                    return;
-                }
                 for (const listener of [...frameListeners[side === 0 ? 1 : 0]]) {
-                    listener(copy);
+                    listener(decodeJsonFrame(text));
                 }
             });
         },

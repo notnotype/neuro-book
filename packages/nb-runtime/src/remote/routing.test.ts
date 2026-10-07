@@ -183,10 +183,10 @@ async function topology(options: {readonly validateLocalCalls?: boolean} = {}): 
     const clock = new ManualClock();
     const probes = {hub: newProbe(), project: newProbe(), browser2: newProbe()};
     const binding = {id: "P", generation: 1};
-    const hub = await start({id: "hub", kind: "server", role: "hub", project: null}, (contexts) => [provider("demo.server", "server", probes.hub), caller("app.caller", "server", contexts)], clock, options.validateLocalCalls);
-    const project = await start({id: "project-P", kind: "project", role: "project", project: binding}, (contexts) => [provider("demo.project", "project", probes.project), caller("app.caller", "project", contexts)], clock);
-    const browser1 = await start({id: "browser-1", kind: "browser", role: "client", project: binding}, (contexts) => [caller("app.caller", "browser", contexts)], clock);
-    const browser2 = await start({id: "browser-2", kind: "browser", role: "client", project: binding}, (contexts) => [provider("demo.window", "browser", probes.browser2), caller("app.caller", "browser", contexts)], clock);
+    const hub = await start({id: "hub", kind: "server", role: "hub", project: null, client: null}, (contexts) => [provider("demo.server", "server", probes.hub), caller("app.caller", "server", contexts)], clock, options.validateLocalCalls);
+    const project = await start({id: "project-P", kind: "project", role: "project", project: binding, client: null}, (contexts) => [provider("demo.project", "project", probes.project), caller("app.caller", "project", contexts)], clock);
+    const browser1 = await start({id: "browser-1", kind: "browser", role: "client", project: binding, client: "profile-1"}, (contexts) => [caller("app.caller", "browser", contexts)], clock);
+    const browser2 = await start({id: "browser-2", kind: "browser", role: "client", project: binding, client: "profile-1"}, (contexts) => [provider("demo.window", "browser", probes.browser2), caller("app.caller", "browser", contexts)], clock);
     const router = createRemoteRouter(hub.node);
     const links = new Map<string, ReturnType<typeof createLinkPair>>();
     const connect = async (instance: Instance): Promise<void> => {
@@ -312,6 +312,8 @@ describe("Spec plugin-channel 输出 1、4：链路编码失败是结构化失�
         const atServer = t.remote(t.browser1).use(echo).at("server");
 
         expect(await atServer.relay({value: () => 1})).toMatchObject({ok: false, code: "invalid-input"});
+        // 结构化克隆能传 Date，JSON 会把它改写成字符串：链路按 JSON 编码，所以同样拒绝。
+        expect(await atServer.relay({value: new Date(0)})).toMatchObject({ok: false, code: "invalid-input"});
         expect(await atServer.relay({value: 1})).toEqual({ok: true, value: 1});
     });
 
@@ -345,7 +347,7 @@ describe("Spec plugin-channel 输出 1、4：链路编码失败是结构化失�
                 activate: () => ({remote: [provideRemote(echo, (async (consumer: ConsumerIdentity) => implementation(consumer, newProbe())) as unknown as (consumer: ConsumerIdentity) => RemoteImplementation<typeof echo>)]}),
             }],
         };
-        const hub = await start({id: "hub", kind: "server", role: "hub", project: null}, (contexts) => [lazy, caller("app.caller", "server", contexts)], clock);
+        const hub = await start({id: "hub", kind: "server", role: "hub", project: null, client: null}, (contexts) => [lazy, caller("app.caller", "server", contexts)], clock);
         const context = hub.contexts.get("app.caller")!;
 
         expect(await context.remote.use(echo).at("server").whoami({})).toMatchObject({ok: false, code: "provider-error"});
@@ -368,7 +370,7 @@ describe("Spec plugin-channel 状态与场景 8：项目代次结束", () => {
         expect(oldSink.signal.aborted).toBe(true);
 
         const nextProbe = newProbe();
-        const next = await start({id: "project-P-2", kind: "project", role: "project", project: {id: "P", generation: 2}}, () => [provider("demo.project", "project", nextProbe)], t.clock);
+        const next = await start({id: "project-P-2", kind: "project", role: "project", project: {id: "P", generation: 2}, client: null}, () => [provider("demo.project", "project", nextProbe)], t.clock);
         await t.connect(next);
         const atProject = t.remote(t.browser1).use(echo).at("project");
 
@@ -391,7 +393,7 @@ describe("Spec plugin-channel 输出 3：调用方不可伪造", () => {
         t.router.accept(pair.right);
         const frames: unknown[] = [];
         pair.left.onFrame((frame) => frames.push(frame));
-        pair.left.send({type: "hello", wire: 1, instance: {id: "intruder", kind: "browser", role: "client", project: null}});
+        pair.left.send({type: "hello", wire: 1, instance: {id: "intruder", kind: "browser", role: "client", project: null, client: null}});
         await drain();
         pair.left.send({
             type: "request",
@@ -479,5 +481,119 @@ describe("Spec plugin-channel 输出 7：订阅", () => {
         first.next({topic: "a", n: 99});
         await drain();
         expect(received).toEqual([{topic: "a", n: 7}]);
+    });
+});
+
+// ---------- 握手、重连与协议违规（WebSocket 传输与握手） ----------
+
+interface RawLink {
+    readonly frames: unknown[];
+    readonly closed: Promise<void>;
+    send(value: unknown): void;
+}
+
+/** 不经节点、直接向路由发帧的链路：用来发送节点自己不会发的帧。 */
+function rawLink(router: RemoteRouter): RawLink {
+    const pair = createLinkPair();
+    router.accept(pair.right);
+    const frames: unknown[] = [];
+    const closed = Promise.withResolvers<void>();
+    pair.left.onFrame((frame) => frames.push(frame));
+    pair.left.onClose(() => closed.resolve());
+    return {frames, closed: closed.promise, send: (value) => pair.left.send(value as never)};
+}
+
+describe("Spec plugin-channel WebSocket 传输第 3 条：握手", () => {
+    it("hello 带客户端身份并登记；welcome 带服务端进程标识 boot", async () => {
+        const t = await topology();
+        const link = rawLink(t.router);
+        link.send({type: "hello", wire: 1, instance: {id: "browser-9", kind: "browser", role: "client", project: null, client: "profile-9"}});
+        await drain();
+
+        expect(link.frames).toEqual([{type: "welcome", wire: 1, boot: expect.any(String)}]);
+        expect(t.router.instances()).toContainEqual({id: "browser-9", kind: "browser", role: "client", project: null, client: "profile-9"});
+    });
+
+    it("wire 不同的 hello 即使其余字段是另一版本的形状，也得到 wire-version 拒绝并关闭，不登记", async () => {
+        const t = await topology();
+        const link = rawLink(t.router);
+        link.send({type: "hello", wire: 99, instance: {id: "browser-9"}, plugins: [{id: "nbook.files", version: "9.0.0"}]});
+        await link.closed;
+
+        expect(link.frames).toEqual([{type: "reject", reason: "wire-version", message: expect.any(String)}]);
+        expect(t.router.instances().map((instance) => instance.id)).not.toContain("browser-9");
+    });
+
+    it("同一实例重连接管旧链路：旧链路上已派发的写请求为 unknown-outcome，新链路照常；描述不一致为 duplicate-instance", async () => {
+        const t = await topology();
+        const pending = t.remote(t.browser1).use(echo).at("project").hold({name: "w"});
+        await drain();
+        expect(t.probes.project.holdSignals).toHaveLength(1);
+
+        // 不关闭旧链路直接再连一次：服务端还没察觉旧连接断开时客户端重连。
+        await t.connect(t.browser1);
+        expect(await pending).toEqual({ok: false, code: "unknown-outcome", cause: "disconnected"});
+        expect(t.probes.project.holdSignals[0]!.aborted).toBe(true);
+        expect(await t.remote(t.browser1).use(echo).at("server").whoami({})).toMatchObject({ok: true});
+
+        const impostor = createRemoteNode({instance: {...t.browser1.node.instance, client: "profile-2"}, clock: t.clock});
+        const pair = createLinkPair();
+        t.router.accept(pair.right);
+        expect(await impostor.connect(pair.left)).toMatchObject({ok: false, reason: "duplicate-instance"});
+        expect(await t.remote(t.browser1).use(echo).at("server").whoami({})).toMatchObject({ok: true});
+    });
+});
+
+describe("Spec plugin-channel WebSocket 传输第 4 条：服务端重启", () => {
+    it("连回另一个服务端进程：订阅以 server-restarted 结束且不重建，连接结果为 server-restarted；之后的调用为 unavailable，再连也是 server-restarted", async () => {
+        const t = await topology();
+        const ended: string[] = [];
+        const resynced: number[] = [];
+        await t.remote(t.browser1).use(echo).at("server").events.ticks.subscribe({topic: "a"}, () => undefined, {onEnd: (reason) => ended.push(reason), onResync: () => resynced.push(1)});
+        await drain();
+        t.links.get("browser-1")!.left.close();
+        await drain();
+        expect(ended).toEqual([]);
+
+        // 第二个服务端进程：自己的服务端实例与路由，boot 不同。
+        const restartedProbe = newProbe();
+        const restarted = await start({id: "hub", kind: "server", role: "hub", project: null, client: null}, () => [provider("demo.server", "server", restartedProbe)], t.clock);
+        const nextRouter = createRemoteRouter(restarted.node);
+        const pair = createLinkPair();
+        nextRouter.accept(pair.right);
+
+        expect(await t.browser1.node.connect(pair.left)).toMatchObject({ok: false, reason: "server-restarted"});
+        await drain();
+        expect(ended).toEqual(["server-restarted"]);
+        expect(resynced).toEqual([]);
+        expect(restartedProbe.sinks).toEqual([]);
+        expect(await t.remote(t.browser1).use(echo).at("server").whoami({})).toMatchObject({ok: false, code: "unavailable"});
+
+        const again = createLinkPair();
+        t.router.accept(again.right);
+        expect(await t.browser1.node.connect(again.left)).toMatchObject({ok: false, reason: "server-restarted"});
+    });
+});
+
+describe("Spec plugin-channel WebSocket 传输第 5 条：协议违规关闭链路", () => {
+    it("握手完成前发送请求：路由不回复、关闭链路并记诊断", async () => {
+        const t = await topology();
+        const link = rawLink(t.router);
+        link.send({type: "request", id: "x1", target: "server", contract: echo.id, version: 1, method: "whoami", effect: "read", input: {}, $nbConsumer: {instanceId: "x", location: "browser", plugin: null, entry: null, generation: null, via: null}, $nbChain: []});
+        await link.closed;
+
+        expect(link.frames).toEqual([]);
+        expect(t.hub.node.diagnostics().map((diagnostic) => diagnostic.reason)).toContain("protocol-violation");
+        expect(t.probes.hub.consumers).toEqual([]);
+    });
+
+    it("握手后收到无法解析的帧：链路关闭，对端在途请求立即按断开结算，不等超时", async () => {
+        const t = await topology();
+        const pending = t.remote(t.browser1).use(echo).at("project").hold({name: "w"}, {timeout: 60_000});
+        await drain();
+
+        t.links.get("browser-1")!.left.send({type: "teleport"} as never);
+        expect(await pending).toEqual({ok: false, code: "unknown-outcome", cause: "disconnected"});
+        expect(t.hub.node.diagnostics().filter((diagnostic) => diagnostic.reason === "protocol-violation")).toHaveLength(1);
     });
 });

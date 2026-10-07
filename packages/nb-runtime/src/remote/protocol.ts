@@ -11,7 +11,10 @@ import type {Static} from "typebox";
 import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
 
-/** 握手时核对；不兼容时在处理任何业务帧前拒绝链路。帧格式变化时提升。 */
+/**
+ * 握手时核对；不兼容时在处理任何业务帧前拒绝链路。帧格式变化时提升。`hello` 的 `wire` 字段与 `reject`
+ * 帧的形状跨版本不变：任何版本的客户端都能让服务端读出版本、读懂服务端的拒绝。
+ */
 export const WIRE_PROTOCOL_VERSION = 1;
 
 /** 路由层失败码，对所有远程服务相同；业务失败码由各合同声明。 */
@@ -119,12 +122,14 @@ const ProjectBindingSchema = Type.Object({id: Type.String({minLength: 1}), gener
 /**
  * 实例描述。`kind` 是运行位置（宿主声明）；`role` 是它在拓扑里的位置：`hub` 是运行路由的服务端实例，
  * `project` 是项目实例，`client` 是客户端。`project` 是本实例绑定（项目实例则是自身）的项目代次。
+ * `client` 是客户端身份：跨重新加载稳定，区别于每次启动都换新的 `id`；服务端与项目实例为 null。
  */
 export const InstanceSchema = Type.Object({
     id: Type.String({minLength: 1}),
     kind: Type.String({minLength: 1}),
     role: Type.Union([Type.Literal("hub"), Type.Literal("project"), Type.Literal("client")]),
     project: Type.Union([ProjectBindingSchema, Type.Null()]),
+    client: Type.Union([Type.String({minLength: 1}), Type.Null()]),
 }, {additionalProperties: false});
 
 export type InstanceDescriptor = Static<typeof InstanceSchema>;
@@ -143,7 +148,8 @@ const Id = Type.String({minLength: 1});
 
 export const FrameSchema = Type.Union([
     Type.Object({type: Type.Literal("hello"), wire: Type.Integer(), instance: InstanceSchema}, {additionalProperties: false}),
-    Type.Object({type: Type.Literal("welcome"), wire: Type.Integer()}, {additionalProperties: false}),
+    /** `boot` 是服务端这一次进程的标识：客户端重连时据此区分“同一进程”与“服务端已重启”。 */
+    Type.Object({type: Type.Literal("welcome"), wire: Type.Integer(), boot: Type.String({minLength: 1})}, {additionalProperties: false}),
     Type.Object({type: Type.Literal("reject"), reason: Type.String(), message: Type.String()}, {additionalProperties: false}),
     Type.Object({
         type: Type.Literal("request"),
@@ -184,6 +190,7 @@ export type RequestFrame = Extract<Frame, {type: "request"}>;
 export type SubscribeFrame = Extract<Frame, {type: "subscribe"}>;
 export type ReleaseFrame = Extract<Frame, {type: "release"}>;
 export type HelloFrame = Extract<Frame, {type: "hello"}>;
+export type RejectFrame = Extract<Frame, {type: "reject"}>;
 export type Outcome = Extract<Frame, {type: "result"}>["outcome"];
 
 /** 链路上收到的值先经这里：结构不对的帧丢弃（调用方记诊断），不进入路由。 */
@@ -191,10 +198,18 @@ export function parseFrame(value: unknown): Frame | null {
     return Value.Check(FrameSchema, value) ? value : null;
 }
 
-/** 握手核对：只看 wire 协议版本。 */
-export function checkHello(frame: HelloFrame): {readonly ok: true} | {readonly ok: false; readonly reason: "wire-version"; readonly message: string} {
-    if (frame.wire !== WIRE_PROTOCOL_VERSION) {
-        return {ok: false, reason: "wire-version", message: `wire 协议版本 ${String(frame.wire)} 与本端 ${String(WIRE_PROTOCOL_VERSION)} 不兼容`};
+/**
+ * 握手第一步只看 wire 版本，在结构校验之前：另一版本的 hello 可能是另一种形状，按本版本的 schema 会被
+ * 当成无效帧丢掉，对端只能等到超时。返回版本不符时要发的拒绝帧；不是 hello、`wire` 不是整数或版本相同
+ * 时返回 null，交给正常的帧解析。
+ */
+export function wireMismatch(value: unknown): RejectFrame | null {
+    if (typeof value !== "object" || value === null) {
+        return null;
     }
-    return {ok: true};
+    const {type, wire} = value as {readonly type?: unknown; readonly wire?: unknown};
+    if (type !== "hello" || typeof wire !== "number" || !Number.isInteger(wire) || wire === WIRE_PROTOCOL_VERSION) {
+        return null;
+    }
+    return {type: "reject", reason: "wire-version", message: `wire 协议版本 ${String(wire)} 与本端 ${String(WIRE_PROTOCOL_VERSION)} 不兼容`};
 }

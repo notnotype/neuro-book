@@ -2,7 +2,7 @@ import {describe, expect, it} from "bun:test";
 
 import {Type} from "typebox";
 
-import {checkHello, defineRemoteService, failureFor, parseFrame, reservedKeys, validationProblems, WIRE_PROTOCOL_VERSION} from "./remote";
+import {defineRemoteService, failureFor, parseFrame, reservedKeys, validationProblems, WIRE_PROTOCOL_VERSION, wireMismatch} from "./remote";
 import type {RemoteCause} from "./remote";
 
 const caller = {instanceId: "browser-1", location: "browser", plugin: "nbook.files", entry: "web", generation: 1, via: null};
@@ -51,10 +51,26 @@ describe("Spec plugin-channel 输入：帧、握手与保留字段", () => {
         expect(parseFrame("request")).toBeNull();
     });
 
-    it("握手只看 wire 协议版本：不兼容时给出原因", () => {
-        const instance = {id: "browser-1", kind: "browser", role: "client" as const, project: null};
-        expect(checkHello({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance})).toEqual({ok: true});
-        expect(checkHello({type: "hello", wire: WIRE_PROTOCOL_VERSION + 1, instance})).toMatchObject({ok: false, reason: "wire-version"});
+    it("握手先只看 wire 版本：另一版本的 hello 不论其余字段是什么形状都得到 wire-version 拒绝，拒绝帧是本版本的合法帧", () => {
+        const instance = {id: "browser-1", kind: "browser", role: "client" as const, project: null, client: "profile-1"};
+        expect(wireMismatch({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance})).toBeNull();
+        const foreign = {type: "hello", wire: WIRE_PROTOCOL_VERSION + 1, instance: {id: "x"}, plugins: [{id: "nbook.files", version: "9"}]};
+        expect(parseFrame(foreign)).toBeNull();
+        const reject = wireMismatch(foreign);
+        expect(reject).toMatchObject({type: "reject", reason: "wire-version"});
+        expect(parseFrame(reject)).toEqual(reject);
+        expect(wireMismatch({type: "hello", wire: "2"})).toBeNull();
+        expect(wireMismatch({type: "request", wire: WIRE_PROTOCOL_VERSION + 1})).toBeNull();
+        expect(wireMismatch("hello")).toBeNull();
+    });
+
+    it("hello 必须带客户端身份（服务端与项目实例为 null）；welcome 必须带服务端进程标识 boot", () => {
+        const instance = {id: "browser-1", kind: "browser", role: "client", project: null};
+        expect(parseFrame({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance})).toBeNull();
+        expect(parseFrame({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {...instance, client: "profile-1"}})).not.toBeNull();
+        expect(parseFrame({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {...instance, client: null}})).not.toBeNull();
+        expect(parseFrame({type: "welcome", wire: WIRE_PROTOCOL_VERSION})).toBeNull();
+        expect(parseFrame({type: "welcome", wire: WIRE_PROTOCOL_VERSION, boot: "boot-1"})).not.toBeNull();
     });
 
     it("业务参数里 $nb 开头的键是保留字段", () => {

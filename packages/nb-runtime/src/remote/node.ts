@@ -108,10 +108,20 @@ export interface RemoteNodeOptions {
     readonly observer?: {diagnosticRecorded?(diagnostic: RemoteDiagnostic): void};
 }
 
+/**
+ * 连接结果。失败的 `reason`：服务端拒绝握手时是拒绝帧的原因（`wire-version`、`stopping`、`duplicate-instance`、
+ * `role`），握手完成前链路关闭为 `disconnected`，服务端已换进程为 `server-restarted`。
+ */
+export type RemoteConnectResult = {readonly ok: true} | {readonly ok: false; readonly reason: string; readonly message: string};
+
 export interface RemoteNode extends RemoteHostBinding {
     readonly instance: InstanceDescriptor;
-    /** 连到上游（服务端路由）。重连时同一项目代次内仍有效的订阅会重建并收到 `onResync`。 */
-    connect(link: RemoteLink): Promise<{readonly ok: true} | {readonly ok: false; readonly reason: string; readonly message: string}>;
+    /**
+     * 连到上游（服务端路由）。连回同一服务端进程时，同一项目代次内仍有效的订阅会重建并收到 `onResync`；
+     * 服务端已换进程（welcome 的 `boot` 与第一次连接时不同）时，全部远程订阅以 `server-restarted` 结束，
+     * 此后本节点不再连得上、远程调用为 `unavailable`：旧进程里的门面与订阅都已不在，客户端要重新启动。
+     */
+    connect(link: RemoteLink): Promise<RemoteConnectResult>;
     diagnostics(): ReadonlyArray<RemoteDiagnostic>;
 }
 
@@ -190,6 +200,9 @@ export class RemoteNodeImpl implements RemoteNode {
     #source: RemoteProviderSource | null = null;
     #upstream: Upstream | null = null;
     #upstreamPeer: Peer | null = null;
+    /** 第一次握手得到的服务端进程标识。 */
+    #boot: string | null = null;
+    #serverRestarted = false;
     #sequence = 0;
 
     constructor(options: RemoteNodeOptions) {
@@ -217,12 +230,21 @@ export class RemoteNodeImpl implements RemoteNode {
         return [...this.#diagnostics];
     }
 
-    async connect(link: RemoteLink): Promise<{readonly ok: true} | {readonly ok: false; readonly reason: string; readonly message: string}> {
-        const {promise, resolve} = Promise.withResolvers<{readonly ok: true} | {readonly ok: false; readonly reason: string; readonly message: string}>();
+    /** 路由经这里记诊断，与节点自己的诊断同一序列。 */
+    recordDiagnostic(reason: string, contract: string | null, detail: string | null): void {
+        this.#record(reason, contract, detail);
+    }
+
+    async connect(link: RemoteLink): Promise<RemoteConnectResult> {
+        if (this.#serverRestarted) {
+            link.close();
+            return SERVER_RESTARTED;
+        }
+        const {promise, resolve} = Promise.withResolvers<{readonly ok: true; readonly boot: string} | Extract<RemoteConnectResult, {ok: false}>>();
         const peer = new Peer(
             link,
             {
-                onWelcome: () => resolve({ok: true}),
+                onWelcome: (frame) => resolve({ok: true, boot: frame.boot}),
                 onReject: (frame) => {
                     resolve({ok: false, reason: frame.reason, message: frame.message});
                     peer.close();
@@ -240,7 +262,15 @@ export class RemoteNodeImpl implements RemoteNode {
         if (!result.ok) {
             return result;
         }
+        if (this.#boot !== null && result.boot !== this.#boot) {
+            peer.close();
+            this.#onServerRestarted();
+            return SERVER_RESTARTED;
+        }
+        this.#boot = result.boot;
         const previous = this.#upstreamPeer;
+        // 一个节点同时只有一条上游链路：旧链路若还开着（服务端已接管它），关闭它，其上的请求按断开结算。
+        previous?.close();
         this.#upstreamPeer = peer;
         this.#upstream = {
             request: (frame, options) => peer.request(frame, options),
@@ -253,7 +283,30 @@ export class RemoteNodeImpl implements RemoteNode {
         if (previous !== null) {
             this.#resubscribeAll();
         }
-        return result;
+        return {ok: true};
+    }
+
+    /** 服务端已换进程：远程订阅不重建，以 `server-restarted` 结束；此后没有上游。 */
+    #onServerRestarted(): void {
+        this.#serverRestarted = true;
+        this.#upstream = null;
+        this.#upstreamPeer?.close();
+        this.#upstreamPeer = null;
+        for (const subscription of [...this.#subscriptions]) {
+            if (this.#isLocal(subscription.frame.target)) {
+                continue;
+            }
+            this.#subscriptions.delete(subscription);
+            if (!subscription.ended) {
+                subscription.ended = true;
+                subscription.options.onEnd?.("server-restarted");
+            }
+        }
+    }
+
+    /** 没有上游时远程调用与订阅的结果。 */
+    #offline(): {readonly ok: false; readonly code: "unavailable"; readonly detail: string} {
+        return {ok: false, code: "unavailable", detail: this.#serverRestarted ? "服务端已重启，本实例需要重新启动" : "本实例没有连到服务端"};
     }
 
     access(caller: RemoteCallerContext): RemoteAccess {
@@ -323,7 +376,7 @@ export class RemoteNodeImpl implements RemoteNode {
                 const outcome = this.#isLocal(target)
                     ? await this.#localRequest(frame, requestOptions)
                     : this.#upstream === null
-                      ? ({ok: false, code: "unavailable", detail: "本实例没有连到服务端"} as const)
+                      ? this.#offline()
                       : await this.#upstream.request(frame, requestOptions);
                 return this.#checkOutcome(contract.id, method, outcome);
             };
@@ -689,7 +742,7 @@ export class RemoteNodeImpl implements RemoteNode {
             return this.#localSubscribe(subscription, handlers);
         }
         if (this.#upstream === null) {
-            return {ok: false, code: "unavailable", detail: "本实例没有连到服务端"};
+            return this.#offline();
         }
         const started = this.#upstream.subscribe(subscription.frame, handlers);
         subscription.cancel = started.cancel;
@@ -761,7 +814,7 @@ export class RemoteNodeImpl implements RemoteNode {
 
     async #instances(caller: RemoteCallerContext): Promise<RemoteResult<ReadonlyArray<InstanceDescriptor>>> {
         if (this.#upstream === null) {
-            return {ok: false, code: "unavailable", detail: "本实例没有连到服务端"};
+            return this.#offline();
         }
         const outcome = await this.#upstream.request(
             {target: "server", contract: INSTANCES_CONTRACT, version: 1, method: "list", effect: "read", input: {}, $nbConsumer: toCallerFrame(caller.consumer), $nbChain: []},
@@ -781,6 +834,8 @@ export class RemoteNodeImpl implements RemoteNode {
         }
     }
 }
+
+const SERVER_RESTARTED: RemoteConnectResult = Object.freeze({ok: false, reason: "server-restarted", message: "服务端已换进程，本实例需要重新启动"});
 
 /** 内核自带的实例查询，由服务端路由直接回答。 */
 export const INSTANCES_CONTRACT = "runtime/instances";

@@ -67,7 +67,7 @@ async function topology(options: {
             return {};
         }}],
     };
-    const hub = await start({id: "hub", kind: "server", role: "hub", project: null}, [pluginA], clock, options.maxActivationCallMs);
+    const hub = await start({id: "hub", kind: "server", role: "hub", project: null, client: null}, [pluginA], clock, options.maxActivationCallMs);
     const router = createRemoteRouter(hub.node, {holdsProjectLease: (caller, project, generation) => caller.plugin !== null && children.holds(project, generation, caller.plugin)});
     const join = async (instance: Instance): Promise<void> => {
         const pair = createLinkPair();
@@ -76,7 +76,7 @@ async function topology(options: {
     };
     const children = createChildInstances(hub.app, {
         create: async (key, generation) => {
-            const project = await start({id: `project-${key}`, kind: "project", role: "project", project: {id: key, generation}}, [pluginB], clock);
+            const project = await start({id: `project-${key}`, kind: "project", role: "project", project: {id: key, generation}, client: null}, [pluginB], clock);
             await join(project);
             return project;
         },
@@ -86,7 +86,7 @@ async function topology(options: {
         clock,
     });
     expect(await children.acquire("P", "demo.a")).toMatchObject({status: "acquired", lease: {key: "P", generation: 1}});
-    const browser = await start({id: "browser-1", kind: "browser", role: "client", project: binding}, [browserCaller], clock);
+    const browser = await start({id: "browser-1", kind: "browser", role: "client", project: binding, client: "profile-1"}, [browserCaller], clock);
     await join(browser);
     return {clock, hub, browser, browserRemote: () => (browserContext as unknown as ActivationContext).remote};
 }
