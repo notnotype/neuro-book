@@ -14,7 +14,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import type {InstanceDescriptor} from "@notnotype/nb-runtime/remote";
 
-import {productPlugins} from "nbook/manifest";
+import {delegatingPlugins, productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {startServerHost} from "nbook/server/host";
 import type {FatalKind, ProcessEvents, ServerHost} from "nbook/server/host";
@@ -132,6 +132,7 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
             gates: [],
             observers: mechanismObservers(store),
             remote: node,
+            delegation: (plugin) => delegatingPlugins.includes(plugin),
         },
         emergency: recordingEmergency(store, (emergency) => {
             writeFatal(fatalLine(emergency.stage === "startup" ? "project.startup.failed" : "project.stop.emergency", {report: emergency}));

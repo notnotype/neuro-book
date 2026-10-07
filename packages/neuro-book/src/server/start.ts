@@ -19,7 +19,7 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
 
-import {productPlugins} from "nbook/manifest";
+import {delegatingPlugins, productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected} from "nbook/plugins/http/server/admission";
 import type {DrainClock} from "nbook/plugins/http/server/admission";
@@ -250,6 +250,7 @@ export function startServer(options: StartServerOptions): RunningServer {
             gates: [],
             observers: mechanismObservers(store),
             remote: node,
+            delegation: (plugin) => delegatingPlugins.includes(plugin),
         },
         emergency,
         process: options.process,

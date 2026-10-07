@@ -16,6 +16,7 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import {Value} from "typebox/value";
 
+import {delegatingPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
@@ -187,6 +188,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                     }],
                     observers: mechanismObservers(store),
                     remote: node,
+                    delegation: (plugin) => delegatingPlugins.includes(plugin),
                 },
             });
             const application = host.application;

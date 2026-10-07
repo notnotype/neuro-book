@@ -1,7 +1,7 @@
 /**
  * `nbook.storage` 三端入口（docs/specs/storage/persistence.md 场景 1–4、6–8）：服务端、项目与浏览器都是真实的
  * 内核实例，经进程内链路连到服务端路由，分区是真实临时目录上的 SQLite。项目实例在本进程里起（它的入口代码与
- * 项目子进程里的相同）；真实项目子进程里的 project 分区由 `server-storage.test.ts` 覆盖。
+ * 项目子进程里的相同）；真实项目子进程里的 project 分区由 `project-child.test.ts` 覆盖。
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";

@@ -3,12 +3,16 @@
  * （诊断存储、启动参数、当前项目的服务键）后产出插件定义。与 `src/server/plugins.ts` 对称。
  */
 
+import {join} from "node:path";
+
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {PluginDescriptor} from "nbook/manifest";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/server/plugin";
+import {storageKey} from "nbook/plugins/storage/shared/contracts";
+import {createStorageServerPlugin} from "nbook/plugins/storage/server/plugin";
 
 import type {ProjectConfig} from "./config";
 import type {CurrentProject} from "./current-project";
@@ -25,6 +29,7 @@ export type ProjectPluginFactory = (context: ProjectPluginContext) => PluginDefi
 
 export const projectPluginFactories: Readonly<Record<string, ProjectPluginFactory>> = {
     "nbook.diagnostics": (context) => createServerDiagnosticsPlugin({store: context.store, exporter: {directory: context.config.logDirectory}, location: "project"}),
+    "nbook.storage": (context) => createStorageServerPlugin({location: "project", storage: storageKey, path: join(context.config.root, ".nbook", "storage.sqlite")}),
 };
 
 /** 按清单装配项目入口；清单写了 `project` 入口而这里没有工厂时直接失败，不静默少装。 */

@@ -3,6 +3,8 @@
  * （诊断存储、HTTP 准入、启动参数、本进程加载的清单）后产出插件定义。
  */
 
+import {join} from "node:path";
+
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
@@ -13,6 +15,8 @@ import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/server/pl
 import type {HttpAdmission} from "nbook/plugins/http/server/admission";
 import {createHttpPlugin} from "nbook/plugins/http/server/plugin";
 import {createProjectsServerPlugin} from "nbook/plugins/projects/server/plugin";
+import {storageKey} from "nbook/plugins/storage/shared/contracts";
+import {createStorageServerPlugin} from "nbook/plugins/storage/server/plugin";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
 import type {ProjectsService} from "nbook/shared/projects";
 
@@ -46,6 +50,7 @@ export const serverPluginFactories: Readonly<Record<string, ServerPluginFactory>
     }),
     "nbook.commands": () => createCommandsPlugin("server"),
     "nbook.projects": (context) => createProjectsServerPlugin({projects: context.projects}),
+    "nbook.storage": (context) => createStorageServerPlugin({location: "server", storage: storageKey, path: join(context.config.stateRoot, "storage", "user.sqlite")}),
 };
 
 /** 按清单装配后端插件；清单写了后端入口而这里没有工厂时直接失败，不静默少装。 */
