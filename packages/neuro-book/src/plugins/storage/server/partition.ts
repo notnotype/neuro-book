@@ -18,6 +18,8 @@ import {Value} from "typebox/value";
 import {recordFingerprint} from "nbook/shared/storage";
 import type {RecordDescriptor, RecordSnapshot, StorageFailed, StorageFailure, WriteResult} from "nbook/shared/storage";
 
+import type {WriteOperation} from "../shared/facade";
+
 /** 库格式版本；遇到别的版本时分区不可用，也不改写这个库。 */
 export const PARTITION_FORMAT = 1;
 export const DEFAULT_BUSY_TIMEOUT_MS = 2000;
@@ -32,10 +34,6 @@ export interface RecordAddress {
     readonly resource: string;
     readonly client: string;
 }
-
-export type WriteOperation =
-    | {readonly kind: "save" | "reset"; readonly value: unknown; readonly expect: string | null}
-    | {readonly kind: "remove"; readonly expect: string | null};
 
 export interface PartitionOptions {
     /** 库文件路径；所在目录不存在时创建。 */

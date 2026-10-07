@@ -119,23 +119,8 @@ export function resourceProblem(descriptor: Pick<RecordDescriptor, "keyed">, res
 /** 记录的修订标识：对插件不透明；分区内单调递增、不复用，但不保证连续。 */
 export type Revision = string;
 
-export type StorageFailure =
-    | "conflict"
-    | "invalid-value"
-    | "too-large"
-    | "protected"
-    | "originals-full"
-    | "definition-conflict"
-    | "no-client"
-    | "no-project"
-    | "invalid-resource"
-    | "denied"
-    | "busy"
-    | "io-error"
-    | "unavailable"
-    | "unknown-outcome";
-
-export const STORAGE_FAILURES: ReadonlyArray<StorageFailure> = [
+/** Storage 的失败码（docs/specs/storage/persistence.md 的“失败与恢复”）。 */
+export const STORAGE_FAILURES = [
     "conflict",
     "invalid-value",
     "too-large",
@@ -150,7 +135,9 @@ export const STORAGE_FAILURES: ReadonlyArray<StorageFailure> = [
     "io-error",
     "unavailable",
     "unknown-outcome",
-];
+] as const;
+
+export type StorageFailure = (typeof STORAGE_FAILURES)[number];
 
 export type StorageFailed = {readonly ok: false; readonly code: StorageFailure; readonly detail: string};
 
