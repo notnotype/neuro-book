@@ -124,7 +124,8 @@ owners:
   - `createChildInstances<Handle>(parent, {create(key, generation), stop(handle, {signal}), graceMs, stopDeadlineMs, clock?}) → ChildInstances {acquire(key, holder, options?), state(key), list(), holds(key, generation, holder), exited(key, generation), diagnostics()}`：`acquire` 返回 `acquired {lease: {key, generation, holder, revoked, release()}}` 或 `rejected {reason: admission-closed | create-failed | generation-gone, detail}`（`options.generation` 与 `generation-gone` 随 t54）；`ChildStatus` 带 `abnormal: forced | exited | stop-failed | null`（`stop-failed` 是宿主停止回调抛错、不知道子实例是否已退出）。`parent` 必须是 `createApplication` 创建的实例。
   - `StartupResult = available | failed{stop} | stopped{stop}` 带 `gates: GateOutcome[]`（`passed | failed{reason,error} | skipped`）与 `failures: StartupFailure[]`（`category: manifest | activation | gate | stopped`，`stage: register | activate | gate`；activation 失败的 `source` 为 `插件/入口`，`reason` 为 `blocked:<受阻原因>`、`<失败阶段>/<原因>` 或 `rejected:<原因>`）；`StopResult = closed | incomplete{reason, report}`。
 - **关键不变量**：
-  - 清单登记只登记描述（能力提供者向 services 声明，插件向 plugins 登记），不实例化；插件登记顺序没有语义。登记后并发执行启动激活，全部结算后门禁按声明顺序执行；宿主停止后不再发起启动激活，余下门禁 `skipped`。
+  - 清单登记只登记描述（能力提供者向 services 声明，插件向 plugins 登记），不实例化；插件登记顺序没有语义。
+  - 启动激活在 `createApplication` 的同步段就开始：本地能力的 `create` 可能在它返回之前被调用。能力依赖之后才建立的对象（例如以运行实例为父的子实例管理）时，让 `create` 等一个 Promise，不在同步段里读还没赋值的变量。登记后并发执行启动激活，全部结算后门禁按声明顺序执行；宿主停止后不再发起启动激活，余下门禁 `skipped`。
   - 启动激活期间宿主要求停止：结果为 `stopped`，因停止得到的 `cancelled`/`stopped` 激活结果不记为 activation 失败，迟到产出照常收口。
   - 插件登记被拒绝只记一条 `manifest` 失败（插件在 `requiredPlugins` 中或被必需 `activate` 门禁引用时 `required: true`），其入口不进入启动激活；`requiredPlugins` 中不在清单里的插件同样记 `manifest` 失败（`plugin:unknown-plugin`）。
   - 必需门禁失败 → 紧急输出 → `stop()` 收口已取得资源 → `failed`；不发布可用结果，`admit` 稳定 `startup-failed`。
