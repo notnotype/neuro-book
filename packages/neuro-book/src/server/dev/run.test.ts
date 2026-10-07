@@ -11,6 +11,8 @@ import {join, resolve} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import {upgradeStatus} from "nbook/server/testing/rpc-client";
+
 const PACKAGE_ROOT = resolve(import.meta.dir, "../../..");
 const FIXTURE = join(PACKAGE_ROOT, "src/server/dev/testing/fixture-dev.ts");
 
@@ -66,16 +68,25 @@ function order(lines: string[], ...events: string[]): number[] {
 }
 
 describe("开发会话（真实子进程）", () => {
-    it("页面经 Vite 提供、API 经代理；改后端文件有序重启；SIGTERM 时先停后端再关页面，以 0 退出", async () => {
+    it("页面经 Vite 提供、API 经代理、页面直连后端 RPC 端口；改后端文件有序重启；SIGTERM 时先停后端再关页面，以 0 退出", async () => {
         const dev = await startDev();
         const page = (await dev.waitFor(/page-ready (\S+)/u))[1] as string;
         await dev.waitFor(/backend-ready/u);
         expect(await (await fetch(page)).text()).toContain("/@vite/client");
         expect((await fetch(`${page}api/runtime/health`)).status).toBe(200);
+        // 页面经引导接口得知 RPC 端口；后端放行页面服务的来源（三个回环别名），其它来源 403。
+        const rpcPort = async (): Promise<number> => ((await (await fetch(`${page}api/runtime/browser-bootstrap`)).json()) as {rpc: {port: number}}).rpc.port;
+        const pagePort = new URL(page).port;
+        const firstRpc = await rpcPort();
+        for (const origin of [`http://127.0.0.1:${pagePort}`, `http://localhost:${pagePort}`, `http://[::1]:${pagePort}`]) {
+            expect(await upgradeStatus(firstRpc, {origin}), origin).toBe(101);
+        }
+        expect(await upgradeStatus(firstRpc, {origin: "http://evil.example"})).toBe(403);
 
         await writeFile(join(dev.watchRoot, "plugin.ts"), "export {};\n");
         await dev.waitFor(/backend-ready[\s\S]*backend-ready/u);
         expect((await fetch(`${page}api/runtime/health`)).status).toBe(200);
+        expect(await upgradeStatus(await rpcPort(), {origin: page.replace(/\/$/u, "")})).toBe(101);
 
         dev.signal("SIGTERM");
         expect(await dev.exit).toBe(0);

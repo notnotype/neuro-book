@@ -10,7 +10,8 @@ import {createRemoteNode, createRemoteRouter, WIRE_PROTOCOL_VERSION} from "@notn
 import {helloFrame, openRawRpcSocket, upgradeStatus} from "nbook/server/testing/rpc-client";
 import {RPC_MAX_MESSAGE_BYTES} from "nbook/shared/rpc-socket";
 
-import {loopbackOrigins, startRpcListener} from "./listener";
+import {loopbackOrigins} from "../config";
+import {startRpcListener} from "./listener";
 import type {RpcGateResult, RpcListener} from "./listener";
 
 const PAGE_ORIGIN = "http://127.0.0.1:3000";

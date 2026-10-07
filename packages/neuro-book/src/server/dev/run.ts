@@ -1,10 +1,13 @@
 /**
  * 一次开发会话（runtime.server-host 开发模式）：先起页面服务，再启动后端并监视后端文件。
+ * 后端要知道页面服务的实际来源才能放行页面直连 RPC 端口，所以页面服务先起、后端环境在它之后才定。
  *
  * 页面服务起不来（例如端口被占）时以 1 退出，不启动后端。第一个 SIGINT 或 SIGTERM 有序结束：停止监视、
  * 后端经标准输入有序停止、再关页面服务；后端以 0 退出时会话以 0 结束。第二个信号不再等排空，直接结束后端，
  * 以 1 结束。终端 Ctrl+C 会同时把 SIGINT 发给后端，后端自己也开始停止，与监督进程发来的 stop 汇合为同一次停止。
  */
+
+import {loopbackOrigins} from "../config";
 
 import {spawnBackend} from "./backend-process";
 import type {BackendSpec} from "./backend-process";
@@ -19,7 +22,7 @@ export interface DevRunOptions {
     readonly config: DevConfig;
     readonly configFile: string;
     readonly watchRoots: ReadonlyArray<string>;
-    /** 后端启动命令；`env` 已带上状态根与监听地址。产品入口启动 `src/server/main.ts`，测试换成自己的入口。 */
+    /** 后端启动命令；`env` 已带上状态根、监听地址、RPC 端口与页面来源。产品入口启动 `src/server/main.ts`，测试换成自己的入口。 */
     readonly backend: (env: Record<string, string | undefined>) => BackendSpec;
     readonly signals?: ReadonlyArray<NodeJS.Signals>;
     readonly output?: (line: string) => void;
@@ -36,9 +39,19 @@ export async function runDev(options: DevRunOptions): Promise<0 | 1> {
     const output = options.output ?? ((line: string) => process.stdout.write(`${line}\n`));
     const {host, stateRoot} = options.config;
     const backendPort = options.config.backendPort === 0 ? await freePort(host) : options.config.backendPort;
-    const backendEnv = {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_HOST: host, NBOOK_PORT: String(backendPort), NBOOK_WEB_ROOT: ""};
+    let pageUrl: string | null = null;
+    const backendEnv = (): Record<string, string | undefined> => ({
+        ...process.env,
+        NBOOK_STATE_ROOT: stateRoot,
+        NBOOK_HOST: host,
+        NBOOK_PORT: String(backendPort),
+        NBOOK_WEB_ROOT: "",
+        NBOOK_RPC_PORT: String(options.config.rpcPort),
+        // 页面由 Vite 提供，Origin 是页面服务的来源，不是后端 HTTP 端口的；页面直连 RPC 端口，要后端放行它。
+        NBOOK_ALLOWED_ORIGINS: pageUrl === null ? "" : loopbackOrigins(pageUrl).join(","),
+    });
     const supervisor = createDevSupervisor({
-        launch: () => spawnBackend(options.backend(backendEnv)),
+        launch: () => spawnBackend(options.backend(backendEnv())),
         clock: systemClock,
         onEvent: (event) => output(describeEvent(event)),
     });
@@ -56,6 +69,7 @@ export async function runDev(options: DevRunOptions): Promise<0 | 1> {
         output(`[dev] page-failed 页面服务启动失败，未启动后端：${error instanceof Error ? error.message : String(error)}`);
         return 1;
     }
+    pageUrl = frontend.url;
     output(`[dev] page-ready ${frontend.url} 状态根 ${stateRoot}`);
     supervisor.start();
     const watcher = watchBackendFiles(options.watchRoots, (path) => supervisor.notifyChange(path));

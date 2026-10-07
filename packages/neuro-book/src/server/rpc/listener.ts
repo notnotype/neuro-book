@@ -103,10 +103,3 @@ export function startRpcListener(options: RpcListenerOptions): RpcListener {
         },
     };
 }
-
-/** 本进程 HTTP 端口在三个回环别名上的页面来源；端口取实际监听的端口。 */
-export function loopbackOrigins(httpUrl: string): string[] {
-    const port = new URL(httpUrl).port;
-    const suffix = port === "" ? "" : `:${port}`;
-    return ["127.0.0.1", "localhost", "[::1]"].map((host) => new URL(`http://${host}${suffix}`).origin);
-}

@@ -23,12 +23,13 @@ import type {DrainClock} from "nbook/plugins/http/server/admission";
 import {RPC_PATH} from "nbook/shared/rpc-socket";
 import {collectServiceKeys} from "nbook/shared/service-keys";
 
+import {loopbackOrigins} from "./config";
 import type {ServerConfig} from "./config";
 import {startServerHost} from "./host";
 import type {FatalKind, ProcessEvents} from "./host";
 import {manifestServerPlugins} from "./plugins";
 import type {ServerPluginContext} from "./plugins";
-import {loopbackOrigins, startRpcListener} from "./rpc/listener";
+import {startRpcListener} from "./rpc/listener";
 import type {RpcGateResult, RpcListener} from "./rpc/listener";
 
 export type ExitCode = 0 | 1;

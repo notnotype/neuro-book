@@ -101,7 +101,7 @@
 | 就绪前的升级等待、启动失败为 503；RPC 端口被占用以 1 退出 | `listener.test.ts`、`server.test.ts` 增补 |
 | 停止：新升级 503、在途请求完成后插件才关闭、排空超时退出码 1、停止后 RPC 端口不再接受连接 | `server.test.ts` 增补（同进程与真实子进程） |
 | 引导响应带 `rpc` 与协议版本 2 | `src/server/browser-bootstrap.test.ts` 增补 |
-| 开发模式后端收到 RPC 端口与页面来源，页面能连上 | `src/server/dev/run.test.ts` 增补；`e2e/dev.e2e.ts` 增补一条连上的检查 |
+| 开发模式后端收到 RPC 端口与页面来源，页面能连上 | `src/server/dev/run.test.ts` 增补（页面服务的三个回环来源升级成功、其它来源 403、重启后经引导取得新端口）；`e2e/dev.e2e.ts` 增补一条连上的检查（随 S7，浏览器窗口连 RPC 之后） |
 | 窗口：首连成功后 ready 且 `online`；首连失败 `connection-failed` 可重试；`wire-version` 为 `incompatible`；链路断开转 `offline`、退避重连后 `online` 并 `onResync`；服务端换进程后转 `server-restarted` 且不再重试；停止窗口关闭链路 | `src/web/host/window.test.ts` 增补（同进程真实后端、Bun WebSocket、注入时钟）、`remote-session.test.ts`（新） |
 | 客户端身份跨两次窗口启动不变；存储不可用时退回本页随机值 | `src/web/host/client-identity.test.ts`（新） |
 | 离线横幅与 `data-rpc-state`；`server-restarted` 页只有刷新 | `src/web/mount.dom.test.ts`、`FailurePage.dom.test.ts` 增补 |

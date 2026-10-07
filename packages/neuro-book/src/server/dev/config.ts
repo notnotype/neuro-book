@@ -1,6 +1,8 @@
 /**
  * 开发模式参数：页面由 Vite 在 `NBOOK_DEV_PORT`（缺省 3000）提供，后端在 `NBOOK_DEV_BACKEND_PORT`（缺省 3001）。
  * 后端端口在整个开发会话中固定，重启前后代理目标不变；0 表示启动时取一个空闲端口，此后同样固定。
+ * 后端的 RPC 端口为 `NBOOK_DEV_RPC_PORT`（缺省 0，每次启动后端由系统分配）：页面经引导接口得知、直连，
+ * 后端重启对页面来说本来就是服务端重启，不需要固定。
  * 状态根缺省是包内被 git 忽略的 `.dev-state/`：每个 worktree 各一份，不碰旧应用的数据目录。
  */
 
@@ -10,6 +12,7 @@ export interface DevConfig {
     readonly host: string;
     readonly pagePort: number;
     readonly backendPort: number;
+    readonly rpcPort: number;
     readonly stateRoot: string;
 }
 
@@ -27,6 +30,7 @@ export function readDevConfig(env: Readonly<Record<string, string | undefined>>,
         host: "127.0.0.1",
         pagePort: port(env, "NBOOK_DEV_PORT", 3000),
         backendPort: port(env, "NBOOK_DEV_BACKEND_PORT", 3001),
+        rpcPort: port(env, "NBOOK_DEV_RPC_PORT", 0),
         stateRoot: stateRoot ? resolve(packageRoot, stateRoot) : join(packageRoot, ".dev-state"),
     };
 }

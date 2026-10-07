@@ -42,7 +42,7 @@ const DEFAULT_PORT = 3000;
 const DEFAULT_RPC_PORT = 0;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
 /** `URL.hostname` 的写法：IPv6 带方括号。 */
-const LOOPBACK_ORIGIN_HOSTS = new Set(["127.0.0.1", "[::1]", "localhost"]);
+const LOOPBACK_ORIGIN_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
 export function readServerConfig(argv: readonly string[], env: Readonly<Record<string, string | undefined>>, cwd: string): ServerConfig {
     let stopStdin = false;
@@ -74,6 +74,16 @@ function parsePort(name: string, value: string | undefined, fallback: number): n
         throw new ServerConfigError("invalid-port", `${name} 必须是 0..65535 的整数，收到 ${value}`);
     }
     return port;
+}
+
+/**
+ * 一个回环端口在三个回环别名上的页面来源：同一个本机页面可以从任一别名打开，Origin 随之不同。
+ * 用于本进程 HTTP 端口（RPC 端口的允许来源）与开发模式的页面服务（传给后端的 `NBOOK_ALLOWED_ORIGINS`）。
+ */
+export function loopbackOrigins(pageUrl: string): string[] {
+    const port = new URL(pageUrl).port;
+    const suffix = port === "" ? "" : `:${port}`;
+    return [...LOOPBACK_ORIGIN_HOSTS].map((host) => new URL(`http://${host}${suffix}`).origin);
 }
 
 /** 逗号分隔的页面来源；每项必须是回环主机上的 `http` 来源，不带路径、查询与片段。 */
