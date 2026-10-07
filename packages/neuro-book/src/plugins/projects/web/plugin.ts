@@ -33,6 +33,8 @@ export function createProjectsBrowserPlugin(options: ProjectsBrowserOptions): Pl
         entries: [{
             id: "browser",
             location: "browser",
+            // 命令随贡献方入口激活才进命令表（还没有按命令触发的激活事件）：启动即激活，面板里才列得出“打开项目”。
+            activationEvents: ["onStartup"],
             dependencies: [{key: diagnosticsKey}, {key: options.quickPick}],
             contributions: [{capability: COMMANDS, id: OPEN_PROJECT_COMMAND, declaration: DECLARATION}],
             activate: (context) => {

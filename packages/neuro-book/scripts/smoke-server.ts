@@ -6,7 +6,8 @@
  * 场景：S1 启动后 health 为 200，标准输入 stop 以 0 退出且日志落盘；S2 SIGTERM 以 0 退出；
  * S3 缺少状态根以 1 退出；S4 端口已被占用时启动失败、写出致命诊断并以 1 退出；
  * S5 设置 `NBOOK_WEB_ROOT` 时提供外壳、页面路径回退到外壳，引导接口返回协议版本；S6 引导接口给出的内核 RPC 端口上，
- * 本服务页面来源的 WebSocket 握手得到 welcome，别的来源连不上。
+ * 本服务页面来源的 WebSocket 握手得到 welcome，别的来源连不上；S7 登记一个临时项目目录，握手请求绑定它：打包产物里的
+ * `project.js` 起项目子进程（它在自己的日志位置建目录），welcome 带项目代次，停止时子进程随服务端收口、以 0 退出。
  * 任一场景失败或未执行都以非零退出；状态根放在测试临时根下，结束时删除。
  */
 
@@ -18,6 +19,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {WIRE_PROTOCOL_VERSION} from "@notnotype/nb-runtime/remote";
 
+import {createProjectRegistry} from "nbook/server/projects/registry";
 import {BROWSER_PROTOCOL_VERSION} from "nbook/shared/browser-bootstrap";
 
 const packageRoot = resolve(import.meta.dir, "..");
@@ -65,12 +67,12 @@ function run(env: Record<string, string>): Running {
     };
 }
 
-/** 以 `origin` 连 RPC 端口并握手：打开后发 hello，返回第一帧；没能打开时返回 null。 */
-function handshake(rpcPort: number, origin: string): Promise<Record<string, unknown> | null> {
+/** 以 `origin` 连 RPC 端口并握手（可带绑定请求）：打开后发 hello，返回第一帧；没能打开时返回 null。 */
+function handshake(rpcPort: number, origin: string, bind: {readonly project: string} | null = null): Promise<Record<string, unknown> | null> {
     const {promise, resolve} = Promise.withResolvers<Record<string, unknown> | null>();
     const socket = new WebSocket(`ws://127.0.0.1:${String(rpcPort)}/`, {headers: {Origin: origin}});
     socket.addEventListener("open", () => {
-        socket.send(JSON.stringify({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "smoke-client", kind: "browser", role: "client", project: null, client: "smoke"}, bind: null, boot: null}));
+        socket.send(JSON.stringify({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "smoke-client", kind: "browser", role: "client", project: null, client: "smoke"}, bind, boot: null}));
     });
     socket.addEventListener("message", (event) => {
         resolve(JSON.parse(String(event.data)) as Record<string, unknown>);
@@ -146,11 +148,28 @@ async function main(): Promise<number> {
             ok: welcome?.type === "welcome" && typeof welcome.boot === "string" && foreign === null && rpcCode === 0,
             evidence: `rpc-port=${String(rpcPort)} welcome=${String(welcome?.type)} foreign=${foreign === null ? "refused" : "accepted"} exit=${String(rpcCode)}`,
         });
+
+        const s7State = join(root, "S7");
+        const s7Project = join(root, "S7-Book");
+        await mkdir(s7Project, {recursive: true});
+        const registered = await createProjectRegistry({stateRoot: s7State, cwd: root}).register(s7Project);
+        const bound = run({NBOOK_STATE_ROOT: s7State, NBOOK_PORT: "0"});
+        const boundUrl = await bound.url;
+        const boundPort = Number(((await (await fetch(`${boundUrl}api/runtime/browser-bootstrap`)).json()) as {rpc?: {port?: unknown}}).rpc?.port);
+        const binding = (await handshake(boundPort, new URL(boundUrl).origin, {project: "s7-book"}))?.binding as {name?: unknown; generation?: unknown} | undefined;
+        const projectLogs = existsSync(join(s7State, "logs", "projects", "s7-book"));
+        bound.stop("stdin");
+        const boundCode = await bound.exit;
+        results.push({
+            id: "S7",
+            ok: registered.ok && binding?.name === "s7-book" && binding.generation === 1 && projectLogs && boundCode === 0,
+            evidence: `registered=${String(registered.ok)} binding=${JSON.stringify(binding ?? null)} project-logs=${String(projectLogs)} exit=${String(boundCode)}`,
+        });
     } finally {
         await rm(root, {recursive: true, force: true});
     }
     console.log(JSON.stringify({schema: "nbook.smoke/server/v1", results}, null, 2));
-    const expected = ["S1", "S2", "S3", "S4", "S5", "S6"];
+    const expected = ["S1", "S2", "S3", "S4", "S5", "S6", "S7"];
     const complete = expected.every((id) => results.some((result) => result.id === id));
     return complete && results.every((result) => result.ok) ? 0 : 1;
 }

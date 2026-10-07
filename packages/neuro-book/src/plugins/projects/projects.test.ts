@@ -10,20 +10,24 @@ import {join} from "node:path";
 
 import {createApplication} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
-import type {ActivationContext} from "@notnotype/nb-runtime/plugins";
+import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import type {RemoteUse} from "@notnotype/nb-runtime/remote";
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import {commandServiceKey} from "nbook/plugins/commands/shared/contracts";
+import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {createPaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
 import type {PaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
 import {killSpawnedProjects, leaseOf, projectHarness} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
-import {projectsKey} from "nbook/shared/projects";
+import {projectsKey, windowProjectKey} from "nbook/shared/projects";
+import {collectServiceKeys} from "nbook/shared/service-keys";
+import {browserPluginFactories} from "nbook/web/plugins";
 
 import {createProjectsServerPlugin} from "./server/plugin";
 import {projectsRemoteContract} from "./shared/contracts";
@@ -142,5 +146,28 @@ describe("Spec projects 场景 11：打开项目", () => {
         submit(host, "cancel");
         expect(await cancelled).toEqual({ok: true, value: null});
         expect(navigations).toEqual(["/?project=fresh"]);
+    });
+});
+
+describe("Spec projects 输出 10：命令登记", () => {
+    it("产品的浏览器插件装配后，“打开项目”在本窗口的命令表里（人类可见、当前可用）", async () => {
+        const store = createDiagnosticsStore({identity: {location: "browser", instanceId: "window-1"}});
+        let commands: CommandService | null = null;
+        const reader: PluginDefinition = {id: "test.command-reader", entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: commandServiceKey}], activate: (context) => {
+            commands = context.services.require(commandServiceKey);
+            return {};
+        }}]};
+        const plugins = [
+            ...["nbook.diagnostics", "nbook.commands", "nbook.workbench", "nbook.projects"].map((id) => browserPluginFactories[id]!({store, console: {error: () => undefined}, navigateDocument: () => undefined})),
+            reader,
+        ];
+        const app = createApplication(
+            {identity: {location: "browser", instanceId: "window-1"}, stopSignal: new AbortController().signal, emergency: () => undefined},
+            {keys: collectServiceKeys(plugins, [windowProjectKey]), capabilities: [{id: "window.project", key: windowProjectKey, create: () => ({project: null})}], plugins, requiredPlugins: ["nbook.diagnostics", "nbook.commands", "nbook.workbench"], gates: []},
+        );
+        expect(await app.startup).toMatchObject({status: "available", failures: []});
+        expect(commands!.get("nbook.project.open")).toMatchObject({ok: true, value: {source: "nbook.projects", title: {"zh-CN": "打开项目"}}});
+        expect(commands!.isEnabled("nbook.project.open")).toEqual({ok: true, value: true});
+        await app.stop();
     });
 });

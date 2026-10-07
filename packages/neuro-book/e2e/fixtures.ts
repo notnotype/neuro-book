@@ -71,10 +71,10 @@ export interface ProbeServer extends ProductServer {
  * 带测试插件 `test.remote-probe` 的后端（宿主测试入口，源码运行），提供 e2e 测试外壳（`bun run build:e2e` 的
  * `dist/e2e/web`）。`port` 给定时监听这个 HTTP 端口，用于“服务端换进程”：同一地址上起第二个进程。
  */
-export async function startProbeServer(stateRoot: string, options: {readonly port?: number} = {}): Promise<ProbeServer> {
+export async function startProbeServer(stateRoot: string, options: {readonly port?: number; readonly env?: Readonly<Record<string, string>>} = {}): Promise<ProbeServer> {
     const child = spawn("bun", [join("src", "server", "testing", "fixture-entry.ts"), "--stop-stdin"], {
         cwd: PACKAGE_ROOT,
-        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: String(options.port ?? 0), NBOOK_WEB_ROOT: join("dist", "e2e", "web"), NBOOK_TEST_PLUGINS: "test.remote-probe"},
+        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: String(options.port ?? 0), NBOOK_WEB_ROOT: join("dist", "e2e", "web"), NBOOK_TEST_PLUGINS: "test.remote-probe", ...options.env},
     });
     const handle = track(child);
     const rpcUrl = (await handle.waitFor(/RPC listening on (\S+)/u))[1] as string;

@@ -82,7 +82,7 @@ owners:
    浏览器窗口只持有握手时为它取得的那份租约，平时用 `project` 目标；项目实例之间第一版不能互相取得租约。
 10. **`nbook.projects`。**
     - 服务端入口依赖 `projectsKey`，提供远程服务 `nbook.projects/projects`（提供方位置 `server`，调用方 `browser`、`tui`）：`list` 返回短名、项目目录路径与运行状态；`register(路径)` 登记目录。
-    - 浏览器入口提供命令 `nbook.projects.open`（“打开项目”）：经命令面板的选择模式（[`workbench.quick-open`](../workbench/quick-open.md)）列出已登记项目（短名、路径、是否运行），选中即整页导航到 `/?project=<短名>`；输入一个目录路径并确认，先登记，成功后导航；登记失败时带着原因（标题里）重新打开选择，用户可以改了再试或取消。窗口绑定了项目时，工作台显示当前项目的短名（取自窗口的绑定结果，不另外调用服务）。
+    - 浏览器入口提供命令 `nbook.project.open`（“打开项目”）：经命令面板的选择模式（[`workbench.quick-open`](../workbench/quick-open.md)）列出已登记项目（短名、路径、是否运行），选中即整页导航到 `/?project=<短名>`；输入一个目录路径并确认，先登记，成功后导航；登记失败时带着原因（标题里）重新打开选择，用户可以改了再试或取消。窗口绑定了项目时，工作台显示当前项目的短名（取自窗口的绑定结果，不另外调用服务）。
 11. **服务端停止。** 服务端停止序列一开始就同步关闭项目管理器的接纳：之后的 `acquire` 与客户端绑定都以 `admission-closed`（客户端看到 `project-unavailable`，说明服务端正在停止）拒绝；内核停止时先停全部项目子进程并等真实退出，再关闭服务端插件（[`runtime.server-host`](server-host.md)）。
 12. **资源占用。** 每个打开的项目常驻一个 Bun 子进程。2026-10-07 在本机 Linux、Bun 1.4.2 上用生产打包产物实测（`bun scripts/measure-project.ts`，冷启动 10 次）：从请求打开到取得租约 p50 约 55 ms、最大约 70 ms，就绪后常驻约 49 MB；当时项目实例里只有内核与 `nbook.diagnostics`，项目入口变多后需重测。只带 IPC 的空子进程约 26 ms 就绪、常驻约 30 MB，可作为下限参照。
 

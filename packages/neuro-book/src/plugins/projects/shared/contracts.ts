@@ -9,7 +9,7 @@ import type {Static} from "typebox";
 
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 
-export const OPEN_PROJECT_COMMAND = "nbook.projects.open";
+export const OPEN_PROJECT_COMMAND = "nbook.project.open";
 
 const ProjectView = Type.Object({
     id: Type.String(),

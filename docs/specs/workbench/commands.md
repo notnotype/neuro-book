@@ -119,6 +119,12 @@ owners:
 | `nbook.quick-open.open-commands` | 命令面板 / Command Palette | `{}` | 无 | read | never | `nbook.workbench`（产品命令表）；Lab 命令场景另登记一份 |
 | `nbook.quick-open.open-line` | 跳转到行… / Go to Line… | `{}` | 活动编辑器且支持行导航 | read | never | 随编辑器插件接入；现阶段只在 Lab 命令场景登记 |
 
+### 命令目录（项目，随 w00017 t54）
+
+| 命令 id | 标题 | 参数 | `when` | `effect` | agent 暴露 | 提供方 |
+|---|---|---|---|---|---|---|
+| `nbook.project.open` | 打开项目 / Open Project | `{}` | 无 | write | never（整页重新加载会打断 Agent 所在的窗口） | `nbook.projects` 浏览器入口；经命令面板的选择模式选项目或输入目录，行为见 [`runtime.projects`](../runtime/projects.md) 输出第 10 条 |
+
 ### 命令目录（第二批 · 外壳与 View 标题）
 
 新应用随 w00017 t50 的工作台外壳迁入。

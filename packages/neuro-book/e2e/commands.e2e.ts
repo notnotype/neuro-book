@@ -40,8 +40,8 @@ test("`/` 页按 Ctrl+Shift+P 打开命令面板，Escape 关闭并把焦点还�
         await page.keyboard.press("Control+Shift+P");
         await expect(combobox).toBeFocused({timeout: 500});
     }).toPass();
-    // 产品命令表里还只有面板入口本身，它不进候选。
-    await expect(page.getByText("没有匹配的命令")).toBeVisible();
+    // 面板入口本身不进候选；产品命令表里另有“打开项目”。
+    await expect(page.getByRole("option", {name: /打开项目/})).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(combobox).toHaveCount(0);
     await expect(page.locator("body")).toBeFocused();
