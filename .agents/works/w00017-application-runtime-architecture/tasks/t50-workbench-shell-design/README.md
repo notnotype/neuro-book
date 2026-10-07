@@ -42,7 +42,9 @@ omp 只读审查（默认模型）11 条，主 Agent 逐条核实全部成立：
 - **旧外壳**：分层与各模块头注释；统计约 2.1 万行（不含测试），其中约 7000 行是 Storage 会话、迁移与工作面接线，约 1300 行是已在 t49 迁走的命令部分。
 - **旧产品目录**：三个默认容器，只有文件树一个真实视图。
 
+2026-10-07 开发者确认布局直接用 `nbook.storage`，不再经 `localStorage` 过渡。设计稿按 omp 审查 11 条修订完成（仍为 `reviewing`）：三类容器身份与典型情况表、标题回落顺序、移动保留实例并列入 P7 修订、生命周期矩阵、三种失败与加载代际、`ViewContext` 经 `context` 属性投递、三条布局记录按 Storage 归属表、持久化字段四部分状态与多窗口规则、公开状态键与面板命令的 `when.requires`、呈现模型输入输出与意图合成。修订时发现现行 `when` 只支持布尔键全部为真，面板条件改为由 store 派生的正向布尔键。
+
 ## 下一步
 
-- 按 omp 审查的 11 条修订设计稿：第 2、5、6 条按插件状态 store 与 `nbook.storage` 的分区归属重写持久化一节；第 7 条按公开状态重写；切片改为 K5 之后的三个外壳切片。
-- 修订稿交开发者审批后改为 `accepted`，按“对 Spec 的预期改动”修订 `ui/workbench-shell.md`、`workbench/commands.md`。
+- 开发者审阅修订稿；通过后改为 `accepted`，按“对 Spec 与提案的预期改动”修订 `ui/workbench-shell.md`、`workbench/commands.md` 与平台设计 P7。
+- 外壳实现排在 [t51](../t51-runtime-topology-design/README.md) 的 K5 之后。
