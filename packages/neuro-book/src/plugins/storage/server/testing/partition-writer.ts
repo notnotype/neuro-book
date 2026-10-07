@@ -47,10 +47,10 @@ async function main(input: AsyncGenerator<string>): Promise<void> {
     }
     if (mode === "hold" && path !== undefined) {
         const db = new Database(path);
-        db.exec("BEGIN IMMEDIATE");
+        db.run("BEGIN IMMEDIATE");
         console.log("locked");
         await input.next();
-        db.exec("ROLLBACK");
+        db.run("ROLLBACK");
         db.close();
         console.log("released");
         return;

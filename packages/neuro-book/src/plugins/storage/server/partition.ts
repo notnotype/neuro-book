@@ -184,7 +184,7 @@ class SqlitePartition implements Partition {
         try {
             mkdirSync(dirname(this.#path), {recursive: true});
             db = new Database(this.#path, {create: true});
-            db.exec(`PRAGMA busy_timeout = ${String(this.#busyTimeoutMs)}`);
+            db.run(`PRAGMA busy_timeout = ${String(this.#busyTimeoutMs)}`);
             const hasMeta = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get() !== null;
             if (hasMeta) {
                 const format = db.query<{value: string}, []>("SELECT value FROM meta WHERE name = 'format'").get();
@@ -192,11 +192,11 @@ class SqlitePartition implements Partition {
                     throw new PartitionError("io-error", `库格式版本 ${format?.value ?? "（缺失）"} 不受支持`);
                 }
             }
-            db.exec("PRAGMA journal_mode = WAL");
+            db.run("PRAGMA journal_mode = WAL");
             this.#transaction(db, () => {
-                db!.exec("CREATE TABLE IF NOT EXISTS meta (name TEXT PRIMARY KEY, value TEXT NOT NULL)");
-                db!.exec("CREATE TABLE IF NOT EXISTS records (owner TEXT NOT NULL, key TEXT NOT NULL, resource TEXT NOT NULL, client TEXT NOT NULL, revision INTEGER NOT NULL, version INTEGER NOT NULL, value TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY (owner, key, resource, client))");
-                db!.exec("CREATE TABLE IF NOT EXISTS originals (id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, key TEXT NOT NULL, resource TEXT NOT NULL, client TEXT NOT NULL, revision INTEGER NOT NULL, version INTEGER NOT NULL, value TEXT, bytes INTEGER NOT NULL, saved_at INTEGER NOT NULL)");
+                db!.run("CREATE TABLE IF NOT EXISTS meta (name TEXT PRIMARY KEY, value TEXT NOT NULL)");
+                db!.run("CREATE TABLE IF NOT EXISTS records (owner TEXT NOT NULL, key TEXT NOT NULL, resource TEXT NOT NULL, client TEXT NOT NULL, revision INTEGER NOT NULL, version INTEGER NOT NULL, value TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY (owner, key, resource, client))");
+                db!.run("CREATE TABLE IF NOT EXISTS originals (id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, key TEXT NOT NULL, resource TEXT NOT NULL, client TEXT NOT NULL, revision INTEGER NOT NULL, version INTEGER NOT NULL, value TEXT, bytes INTEGER NOT NULL, saved_at INTEGER NOT NULL)");
                 db!.query("INSERT OR IGNORE INTO meta (name, value) VALUES ('format', ?1), ('next_revision', '1')").run(String(PARTITION_FORMAT));
             });
         } catch (error) {
@@ -234,13 +234,13 @@ class SqlitePartition implements Partition {
 
     /** `BEGIN IMMEDIATE` 先取写锁：读 revision 与写入之间别的进程插不进来。 */
     #transaction<T>(db: Database, body: () => T): T {
-        db.exec("BEGIN IMMEDIATE");
+        db.run("BEGIN IMMEDIATE");
         try {
             const result = body();
-            db.exec("COMMIT");
+            db.run("COMMIT");
             return result;
         } catch (error) {
-            if (db.inTransaction) db.exec("ROLLBACK");
+            if (db.inTransaction) db.run("ROLLBACK");
             throw error;
         }
     }
