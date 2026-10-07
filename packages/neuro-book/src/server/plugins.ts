@@ -5,6 +5,7 @@
 
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {PluginDescriptor} from "nbook/manifest";
 import {createCommandsPlugin} from "nbook/plugins/commands/shared/plugin";
@@ -12,6 +13,7 @@ import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/server/pl
 import type {HttpAdmission} from "nbook/plugins/http/server/admission";
 import {createHttpPlugin} from "nbook/plugins/http/server/plugin";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
+import type {ProjectsService} from "nbook/shared/projects";
 
 import {createBrowserBootstrapRoute} from "./browser-bootstrap";
 import type {ServerConfig} from "./config";
@@ -25,6 +27,8 @@ export interface ServerPluginContext {
     readonly onListening: (url: string) => void;
     /** 内核 RPC 端口（已在监听）；引导接口据此告知浏览器。 */
     readonly rpc: BrowserBootstrap["rpc"];
+    /** 宿主能力：项目管理（docs/specs/runtime/projects.md 输出第 8 条）；需要它的插件在入口依赖里声明。 */
+    readonly projects: ServiceKey<ProjectsService>;
 }
 
 export type ServerPluginFactory = (context: ServerPluginContext) => PluginDefinition;

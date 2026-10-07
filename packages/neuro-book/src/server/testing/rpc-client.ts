@@ -6,7 +6,7 @@
 import {connect} from "node:net";
 
 import {WIRE_PROTOCOL_VERSION} from "@notnotype/nb-runtime/remote";
-import type {InstanceDescriptor} from "@notnotype/nb-runtime/remote";
+import type {BindRequest, InstanceDescriptor} from "@notnotype/nb-runtime/remote";
 
 /** 手写一次升级请求，返回响应的状态码；连接被拒时拒绝。 */
 export function upgradeStatus(port: number, options: {readonly path?: string; readonly origin?: string; readonly upgrade?: boolean} = {}): Promise<number> {
@@ -72,7 +72,7 @@ export function openRawRpcSocket(url: string, origin?: string): RawRpcSocket {
     };
 }
 
-/** 以给定实例描述握手的 hello 帧；不绑定项目，也没有上次的服务端进程标识。 */
-export function helloFrame(instance: InstanceDescriptor): unknown {
-    return {type: "hello", wire: WIRE_PROTOCOL_VERSION, instance, bind: null, boot: null};
+/** 以给定实例描述握手的 hello 帧；缺省不绑定项目，也没有上次的服务端进程标识。 */
+export function helloFrame(instance: InstanceDescriptor, options: {readonly bind?: BindRequest; readonly boot?: string | null} = {}): unknown {
+    return {type: "hello", wire: WIRE_PROTOCOL_VERSION, instance, bind: options.bind ?? null, boot: options.boot ?? null};
 }

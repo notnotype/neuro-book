@@ -52,6 +52,7 @@ async function main(): Promise<number> {
         if (!registered.ok) throw new Error(registered.detail);
         const manager = createProjectManager({
             application: parent,
+            serverInstanceId: "hub",
             router: createRemoteRouter(node),
             registry,
             stateRoot,

@@ -23,6 +23,7 @@ import {productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected} from "nbook/plugins/http/server/admission";
 import type {DrainClock} from "nbook/plugins/http/server/admission";
+import {projectsKey} from "nbook/shared/projects";
 import {RPC_PATH} from "nbook/shared/rpc-socket";
 import {collectServiceKeys} from "nbook/shared/service-keys";
 
@@ -55,6 +56,10 @@ export interface StartServerOptions {
     readonly projectClock?: RuntimeClock;
     /** 项目宿主入口脚本；缺省是产品入口（见 `productProjectEntry`），开发入口与测试另给。 */
     readonly projectEntry?: string;
+    /** 项目子进程的基础环境变量；缺省继承本进程。 */
+    readonly projectEnv?: Readonly<Record<string, string | undefined>>;
+    /** 项目子进程输出的去处（每行已加前缀与换行）；缺省本进程的标准输出与标准错误。 */
+    readonly projectOutput?: {readonly stdout: (text: string) => void; readonly stderr: (text: string) => void};
     readonly onListening?: (url: string) => void;
     /** RPC 端口开始监听后报告地址（`ws://…/`）。 */
     readonly onRpcListening?: (url: string) => void;
@@ -135,7 +140,14 @@ export function startServer(options: StartServerOptions): RunningServer {
             diagnosticRecorded: (diagnostic) => store.record({level: "warn", event: `remote.${diagnostic.reason}`, message: "远程服务诊断", data: diagnostic}),
         },
     });
-    const router = createRemoteRouter(node);
+    // 项目管理器要等运行实例建立后才有（项目实例是它的子实例）；路由的回调与停止都只会在那之后用到它。
+    // 宿主能力不同：内核在建立运行实例的同步段里就开始启动激活，插件可能在那时解析它，所以它等管理器建好。
+    let projects: ProjectManager | null = null;
+    const projectsReady = Promise.withResolvers<ProjectManager>();
+    const router = createRemoteRouter(node, {
+        bindProject: (request, client) => projects === null ? Promise.resolve({ok: false, reason: "project-unavailable", message: "服务端还没有就绪"}) : projects.bind(request, client),
+        projectAccess: (caller, id, generation) => projects?.access(caller, id, generation) ?? "denied",
+    });
     const admitUpgrade = async (): Promise<RpcGateResult> => {
         try {
             // 升级与页面资源过同一道门；升级本身瞬间完成，取得票据后立即归还，排空只等路由里的在途请求。
@@ -182,6 +194,7 @@ export function startServer(options: StartServerOptions): RunningServer {
             options.onListening?.(address);
         },
         rpc: {port: rpc.port, path: RPC_PATH},
+        projects: projectsKey,
     };
     let plugins: ReadonlyArray<PluginDefinition>;
     try {
@@ -206,8 +219,6 @@ export function startServer(options: StartServerOptions): RunningServer {
             cancel();
         }
     };
-    // 项目管理器要等运行实例建立后才有；停止只会在那之后到达。
-    let projects: ProjectManager | null = null;
     const drainBoth = async (): Promise<void> => {
         // 与下面两处排空开头的停止接纳在同一个同步段里：排空期间不会再有项目被打开。
         projects?.stopAdmission();
@@ -228,7 +239,12 @@ export function startServer(options: StartServerOptions): RunningServer {
     const host = startServerHost({
         instanceId: INSTANCE_ID,
         manifest: {
-            keys: collectServiceKeys(plugins),
+            keys: collectServiceKeys(plugins, [projectsKey]),
+            capabilities: [{
+                id: "host.projects",
+                key: projectsKey,
+                create: async () => (await projectsReady.promise).provision(),
+            }],
             plugins,
             requiredPlugins: plugins.map((plugin) => plugin.id),
             gates: [],
@@ -248,6 +264,7 @@ export function startServer(options: StartServerOptions): RunningServer {
 
     const projectManager = createProjectManager({
         application: host.application,
+        serverInstanceId: INSTANCE_ID,
         router,
         registry: createProjectRegistry({stateRoot: options.config.stateRoot, cwd: process.cwd()}),
         stateRoot: options.config.stateRoot,
@@ -255,9 +272,12 @@ export function startServer(options: StartServerOptions): RunningServer {
         entry: options.projectEntry ?? productProjectEntry(),
         ...options.config.projects,
         clock: options.projectClock,
+        env: options.projectEnv,
+        output: options.projectOutput,
         record: (record) => void store.record(record),
     });
     projects = projectManager;
+    projectsReady.resolve(projectManager);
 
     const ready = host.application.startup.then((startup) => {
         if (startup.status === "available") {

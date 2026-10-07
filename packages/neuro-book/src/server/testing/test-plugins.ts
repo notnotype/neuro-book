@@ -9,7 +9,9 @@
  * - `test.throw-later`：路由 `GET /throw` 在下一轮事件循环里抛出未捕获异常，`GET /reject` 留下一个未处理的 Promise 拒绝；
  * - `test.remote-probe`：提供远程服务 `test.remote-probe/probe`（`src/shared/testing/remote-probe-contract.ts`），
  *   并挂控制路由：`POST /tick` 向全部订阅推一次事件，`POST /release/<name>` 放行同名的 `hold`，`GET /holds`
- *   列出各 `hold` 是否收到终止信号、是否已放行。同进程测试可传入自己的状态对象直接读写。
+ *   列出各 `hold` 是否收到终止信号、是否已放行，`POST /project/<id>/echo` 不取租约调用该项目的探针（核对宽限期中
+ *   不唤醒项目）。入口关闭时打印一行。同进程测试可传入自己的状态对象直接读写。项目入口见
+ *   `src/project/testing/probe-plugin.ts`。
  */
 
 import {Hono} from "hono";
@@ -19,7 +21,7 @@ import {provideRemote} from "@notnotype/nb-runtime/remote";
 
 import {HTTP_ROUTES_POINT} from "nbook/plugins/http/server/contracts";
 import type {HttpRouteEnv} from "nbook/plugins/http/server/contracts";
-import {remoteProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
+import {projectProbeContract, remoteProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 
 export const TEST_PLUGIN_IDS = ["test.slow", "test.fail-activate", "test.fail-close", "test.throw-later", "test.remote-probe"] as const;
 export type TestPluginId = typeof TEST_PLUGIN_IDS[number];
@@ -73,6 +75,9 @@ function releaseSignal(context: ActivationContext, hold: Promise<void> | undefin
     return released.promise;
 }
 
+/** 服务端入口关闭时打印的一行。 */
+export const SERVER_PROBE_CLOSED_LINE = "remote-probe server entry closed";
+
 /** `test.remote-probe` 的可观察状态。 */
 export interface RemoteProbeState {
     /** 每个 `hold` 调用：放行它的开关、是否收到终止信号。 */
@@ -109,6 +114,7 @@ export function createRemoteProbePlugin(state: RemoteProbeState = newRemoteProbe
             activate: (context) => {
                 context.scope.register({kind: "test-resource", label: "remote-probe", value: state, release: (probe) => {
                     probe.closed = true;
+                    console.log(SERVER_PROBE_CLOSED_LINE);
                 }});
                 const routes = new Hono<{Bindings: HttpRouteEnv}>()
                     .post("/tick", (c) => c.json({sent: tick(state)}))
@@ -117,7 +123,8 @@ export function createRemoteProbePlugin(state: RemoteProbeState = newRemoteProbe
                         hold?.release("released");
                         return c.json({released: hold !== undefined});
                     })
-                    .get("/holds", (c) => c.json([...state.holds].map(([name, hold]) => ({name, aborted: hold.aborted, released: hold.released}))));
+                    .get("/holds", (c) => c.json([...state.holds].map(([name, hold]) => ({name, aborted: hold.aborted, released: hold.released}))))
+                    .post("/project/:id/echo", async (c) => c.json(await context.remote.use(projectProbeContract).at({project: c.req.param("id")}).echo({})));
                 const probe = provideRemote(remoteProbeContract, (consumer) => ({
                     methods: {
                         echo: () => ({ok: true, value: {instanceId: consumer.instanceId, location: consumer.location, plugin: consumer.plugin, entry: consumer.entry, generation: consumer.generation}}),

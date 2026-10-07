@@ -17,11 +17,14 @@ import type {Application, ChildInstances, ChildLease} from "@notnotype/nb-runtim
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
-import type {RemoteRouter} from "@notnotype/nb-runtime/remote";
+import {leaseHolderOf} from "@notnotype/nb-runtime/remote";
+import type {BindRequest, CallerFrame, InstanceDescriptor, ProjectBindResult, RemoteRouter} from "@notnotype/nb-runtime/remote";
+import {perConsumer} from "@notnotype/nb-runtime/services";
+import type {ConsumerIdentity, PerConsumerProvision} from "@notnotype/nb-runtime/services";
 
 import {PROJECT_ENV} from "nbook/project/config";
 import {projectInstance} from "nbook/project/start";
-import type {ProjectRecord, ProjectRegistryRead} from "nbook/shared/projects";
+import type {ProjectAcquireResult, ProjectLease, ProjectRecord, ProjectRegistryRead, ProjectRunState, ProjectState, ProjectsService} from "nbook/shared/projects";
 import type {SocketLink} from "nbook/shared/rpc-socket";
 
 import {checkProjectDirectory, readProjectIdentity} from "./identity";
@@ -32,6 +35,8 @@ import type {ProjectRegistry} from "./registry";
 export interface ProjectManagerOptions {
     /** 服务端运行实例：项目实例是它的子实例，它停止时先停完全部项目子进程。 */
     readonly application: Application;
+    /** 服务端实例 id：它上面的插件可以不取租约访问运行中的项目（docs/specs/runtime/projects.md 输出第 9 条）。 */
+    readonly serverInstanceId: string;
     readonly router: RemoteRouter;
     readonly registry: ProjectRegistry;
     readonly stateRoot: string;
@@ -52,30 +57,6 @@ export interface ProjectManagerOptions {
     readonly output?: {readonly stdout: (text: string) => void; readonly stderr: (text: string) => void};
 }
 
-export type ProjectRunState = "stopped" | "starting" | "running" | "idle-grace" | "stopping";
-
-export interface ProjectState extends ProjectRecord {
-    readonly state: ProjectRunState;
-    /** 运行中（含启动与停止中）的代次；没在运行为 null。 */
-    readonly generation: number | null;
-    /** 当前代次的子进程；没在运行为 null。 */
-    readonly pid: number | null;
-}
-
-export interface ProjectLease {
-    readonly id: string;
-    readonly name: string;
-    readonly generation: number;
-    /** 这一代结束（停止、崩溃、强制结束）时触发。 */
-    readonly revoked: AbortSignal;
-    /** 释放租约；幂等。 */
-    release(): void;
-}
-
-export type ProjectAcquireResult =
-    | {readonly status: "acquired"; readonly lease: ProjectLease}
-    | {readonly status: "rejected"; readonly reason: "unknown-project" | "registry-invalid" | "admission-closed" | "create-failed" | "generation-gone"; readonly detail: string};
-
 export interface ProjectManager {
     readonly registry: ProjectRegistry;
     /** 已登记项目与运行状态，按登记顺序。 */
@@ -93,6 +74,17 @@ export interface ProjectManager {
     stopAdmission(): void;
     /** 服务端停止期间被强制结束或以非 0 退出的项目子进程；有则服务端以 1 退出。 */
     shutdownProblems(): ReadonlyArray<string>;
+    /** 路由的绑定回调：为客户端取得项目租约，持有者是这个客户端实例。 */
+    bind(request: Exclude<BindRequest, null>, client: InstanceDescriptor): Promise<ProjectBindResult>;
+    /** 路由的 `{project}` 访问回调：持有这一代租约的调用方，或运行中项目的服务端插件，放行。 */
+    access(caller: CallerFrame, id: string, generation: number): "allowed" | "denied";
+    /** 宿主能力 `projectsKey` 的提供：每个调用方入口的每次激活一个门面，入口停止时释放它取得的租约。 */
+    provision(): PerConsumerProvision<ProjectsService>;
+}
+
+/** 客户端绑定的租约记在客户端实例名下，不分插件：窗口里的插件都用这一份绑定。 */
+function bindingHolder(instanceId: string): string {
+    return leaseHolderOf({instanceId, plugin: null, entry: null, generation: null});
 }
 
 /** 一个项目代次的子进程。 */
@@ -174,6 +166,7 @@ class ProjectManagerImpl implements ProjectManager {
 
     async acquire(reference: string, holder: string, options: {readonly generation?: number} = {}): Promise<ProjectAcquireResult> {
         if (!this.#admission) return {status: "rejected", reason: "admission-closed", detail: "服务端正在停止"};
+        if (options.generation !== undefined) return this.#acquireGeneration(reference, holder, options.generation);
         const resolved = await this.registry.resolve(reference);
         if (!resolved.ok) {
             this.#options.record({level: "error", event: "project.registry.invalid", message: resolved.detail, data: {file: this.registry.file}});
@@ -191,6 +184,66 @@ class ProjectManagerImpl implements ProjectManager {
             return {status: "rejected", reason: "admission-closed", detail: "服务端正在停止"};
         }
         return {status: "acquired", lease: this.#projectLease(record, result.lease)};
+    }
+
+    /** 按代次取得只认正在运行的那一代，不读登记表：登记表坏了也不影响已打开项目的重连。 */
+    async #acquireGeneration(id: string, holder: string, generation: number): Promise<ProjectAcquireResult> {
+        const child = this.#processes.get(id);
+        if (child === undefined || child.generation !== generation) return {status: "rejected", reason: "generation-gone", detail: `项目 ${id} 的代次 ${String(generation)} 已结束`};
+        const result = await this.#children.acquire(id, holder, {generation});
+        if (result.status === "rejected") return {status: "rejected", reason: result.reason, detail: result.detail ?? result.reason};
+        return {status: "acquired", lease: this.#projectLease(child.record, result.lease)};
+    }
+
+    async bind(request: Exclude<BindRequest, null>, client: InstanceDescriptor): Promise<ProjectBindResult> {
+        const result = await this.acquire(request.project, bindingHolder(client.id), "generation" in request ? {generation: request.generation} : {});
+        if (result.status === "acquired") {
+            const {lease} = result;
+            return {ok: true, binding: {id: lease.id, name: lease.name, generation: lease.generation}, revoked: lease.revoked, release: () => lease.release()};
+        }
+        if (result.reason === "generation-gone") return {ok: false, reason: "project-gone", message: result.detail};
+        return {ok: false, reason: "project-unavailable", message: result.reason === "admission-closed" ? "服务端正在停止" : result.detail};
+    }
+
+    access(caller: CallerFrame, id: string, generation: number): "allowed" | "denied" {
+        if (this.holds(id, generation, leaseHolderOf(caller)) || this.holds(id, generation, bindingHolder(caller.instanceId))) return "allowed";
+        // 服务端插件可以不取租约访问运行中的项目；宽限期中不行，访问也不会取消宽限期。
+        const running = this.running(id);
+        const serverPlugin = caller.instanceId === this.#options.serverInstanceId && caller.plugin !== null;
+        return serverPlugin && running?.generation === generation && running.state === "running" ? "allowed" : "denied";
+    }
+
+    provision(): PerConsumerProvision<ProjectsService> {
+        const held = new Map<ProjectsService, Set<ProjectLease>>();
+        return perConsumer(
+            (consumer: ConsumerIdentity): ProjectsService => {
+                const leases = new Set<ProjectLease>();
+                const facade: ProjectsService = {
+                    list: () => this.list(),
+                    register: (path) => this.registry.register(path),
+                    resolve: (reference) => this.registry.resolve(reference),
+                    acquire: async (reference) => {
+                        // 持有者是这个调用方入口的这次激活（经代理时也是原调用方，见 leaseHolderOf）。
+                        const result = await this.acquire(reference, leaseHolderOf(consumer));
+                        if (result.status !== "acquired") return result;
+                        const {lease} = result;
+                        const tracked: ProjectLease = {...lease, release: () => {
+                            leases.delete(tracked);
+                            lease.release();
+                        }};
+                        leases.add(tracked);
+                        return {status: "acquired", lease: tracked};
+                    },
+                };
+                held.set(facade, leases);
+                return facade;
+            },
+            // 调用方入口停止：它没释放的租约一并释放。
+            (facade) => {
+                for (const lease of [...(held.get(facade) ?? [])]) lease.release();
+                held.delete(facade);
+            },
+        );
     }
 
     holds(id: string, generation: number, holder: string): boolean {
