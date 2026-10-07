@@ -12,6 +12,7 @@ import "./styles.css";
 
 import {createWebHistory} from "vue-router";
 
+import {readClientIdentity} from "./host/client-identity";
 import {createConnection} from "./host/connection";
 import {createBrowserWindow} from "./host/window";
 import {mountWindowUi} from "./mount";
@@ -21,10 +22,13 @@ const container = document.querySelector("#app");
 if (container === null) throw new Error("index.html 缺少 #app");
 // 开发清单里的插件（Lab）只在开发模式加载；生产构建把这个分支连同它动态加载的模块一起去掉。
 const development = import.meta.env.DEV ? await import("./development-plugins") : null;
+const clientIdentity = readClientIdentity(() => window.localStorage);
+if (clientIdentity.problem !== null) console.warn(`[nbook] ${clientIdentity.problem}；客户端身份只在本页有效`);
 const browserWindow = createBrowserWindow({
     connection: createConnection(location.origin),
     page: window,
     console,
+    clientIdentity: clientIdentity.id,
     builtin: [...builtinBrowserPlugins, ...(development?.developmentBrowserPlugins ?? [])],
     factories: {...browserPluginFactories, ...development?.developmentBrowserPluginFactories},
 });

@@ -1,13 +1,17 @@
 /**
- * 窗口运行实例的启动与状态（runtime.browser-host 启动序列第 2–4 步）：取引导集合，按集合登记本外壳构建进去的
- * 浏览器插件，激活 `nbook.workbench` 并解析它交出的根界面。解析到根界面之前窗口不是 ready，界面据此只在
- * 工作台与失败页之间二选一，不出现半个工作台。
+ * 窗口运行实例的启动与状态（runtime.browser-host 启动序列第 2–5 步）：取引导集合，连上内核 RPC 端口，按集合登记
+ * 本外壳构建进去的浏览器插件，激活 `nbook.workbench` 并解析它交出的根界面。解析到根界面之前窗口不是 ready，
+ * 界面据此只在工作台与失败页之间二选一，不出现半个工作台。首连先于建立运行实例：插件激活时远程服务已可用。
+ * 可用之后链路断开只把 ready 标成离线并退避重连；服务端已换进程时转入只能刷新的 `server-restarted`。
  *
- * 不依赖 Vue 与 DOM：连接对象、页面事件目标与 console 由装配方传入，界面经 `onChange` 订阅状态。
+ * 不依赖 Vue 与 DOM：连接对象、页面事件目标、console 与时钟由装配方传入，界面经 `onChange` 订阅状态。
  */
 
 import type {StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency} from "@notnotype/nb-runtime/diagnostics";
+import {systemClock} from "@notnotype/nb-runtime/lifecycle";
+import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
+import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import {Value} from "typebox/value";
 
 import type {PluginDescriptor} from "nbook/manifest";
@@ -21,14 +25,17 @@ import {browserPluginFactories, builtinBrowserPlugins} from "../plugins";
 import type {BrowserPluginFactory} from "../plugins";
 import {BrowserRuntimeHost} from "./browser-host";
 import type {BrowserHost, PageLifecycleTarget} from "./browser-host";
-import type {Connection} from "./connection";
+import type {Connection, RpcEndpoint} from "./connection";
+import {createRemoteSession} from "./remote-session";
+import type {RemoteSession} from "./remote-session";
 
-export type WindowFailure = "connection-failed" | "incompatible" | "startup-failed";
+export type WindowFailure = "connection-failed" | "incompatible" | "startup-failed" | "server-restarted";
 
 export type WindowState =
     | {readonly status: "idle" | "starting" | "closed"}
-    | {readonly status: "ready"; readonly instanceId: string; readonly root: WorkbenchRoot}
-    /** connection-failed 可以原地重试；其余两种要刷新页面（换外壳或换服务端）才可能恢复。 */
+    /** `connection` 是远程服务链路：断开时界面保留、标注离线，重连成功后回到 online。 */
+    | {readonly status: "ready"; readonly instanceId: string; readonly root: WorkbenchRoot; readonly connection: "online" | "offline"}
+    /** connection-failed 可以原地重试；其余要刷新页面（换外壳，或与新的服务端进程重新握手）才可能恢复。 */
     | {readonly status: WindowFailure; readonly reason: string};
 
 export type ReadyWindowState = Extract<WindowState, {status: "ready"}>;
@@ -40,6 +47,10 @@ export interface BrowserWindowOptions {
     /** 本外壳构建进去的浏览器插件及其工厂；缺省按产品清单。测试经这里换入自己的插件，产品代码不含测试分支。 */
     readonly builtin?: ReadonlyArray<PluginDescriptor>;
     readonly factories?: Readonly<Record<string, BrowserPluginFactory>>;
+    /** 客户端身份（`client-identity.ts`），随握手发给服务端；缺省每个窗口各取一个随机值，不跨刷新。 */
+    readonly clientIdentity?: string;
+    /** 重连退避与远程调用超时的时钟；缺省系统时钟。 */
+    readonly clock?: RuntimeClock;
 }
 
 export interface BrowserWindow {
@@ -71,10 +82,13 @@ class BootstrapRejected extends Error {
 export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindow {
     const builtin = options.builtin ?? builtinBrowserPlugins;
     const factories = options.factories ?? browserPluginFactories;
+    const clock = options.clock ?? systemClock;
+    const clientIdentity = options.clientIdentity ?? crypto.randomUUID();
     const adapter = new BrowserRuntimeHost();
     const listeners = new Set<(state: WindowState) => void>();
     let state: WindowState = {status: "idle"};
     let host: BrowserHost | null = null;
+    let session: RemoteSession | null = null;
     let starting: Promise<void> | null = null;
     let closed = false;
 
@@ -94,8 +108,9 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         }
         if (closed) return;
         let selected: SelectedPlugin[];
+        let endpoint: RpcEndpoint;
         try {
-            selected = selectPlugins(raw, builtin, factories);
+            ({selected, endpoint} = selectPlugins(raw, builtin, factories));
         } catch (error) {
             if (!(error instanceof BootstrapRejected)) throw error;
             setState({status: error.kind, reason: error.message});
@@ -104,6 +119,35 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
 
         const instanceId = crypto.randomUUID();
         const store = createDiagnosticsStore({identity: {location: "browser", instanceId}});
+        const node = createRemoteNode({
+            instance: {id: instanceId, kind: "browser", role: "client", project: null, client: clientIdentity},
+            clock,
+            observer: {diagnosticRecorded: (diagnostic) => store.record({level: "warn", event: `remote.${diagnostic.reason}`, message: "远程服务诊断", data: diagnostic})},
+        });
+        const current = createRemoteSession({
+            connection: options.connection,
+            node,
+            clock,
+            onState: (next, reason) => {
+                // 只改写这一次启动的 ready；窗口已关闭或已换成别的状态时不再理会旧链路。
+                if (state.status !== "ready" || state.instanceId !== instanceId) return;
+                if (next === "online" || next === "offline") setState({...state, connection: next});
+                else setState({status: next, reason: reason ?? next});
+                if (next === "server-restarted" || next === "incompatible") void host?.destroy();
+            },
+            onRetryFailed: (reason) => store.record({level: "info", event: "browser-host.reconnect.failed", message: "重连没有成功，稍后再试", data: {reason}}),
+        });
+        session = current;
+        const first = await current.start(endpoint);
+        if (!first.ok) {
+            current.close();
+            if (!closed) setState({status: first.failure, reason: first.reason});
+            return;
+        }
+        if (closed) {
+            current.close();
+            return;
+        }
         let root: WorkbenchRoot | null = null;
         try {
             const plugins = selected.map(({factory}) => factory({store, console: options.console}));
@@ -128,11 +172,14 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                         },
                     }],
                     observers: mechanismObservers(store),
+                    remote: node,
                 },
             });
             const application = host.application;
             // 页面卸载或显式停止后，这个实例对应的 ready 状态失效；更晚的启动尝试有自己的 instanceId，不受影响。
+            // 链路在插件全部停止之后才关：插件停止时还要经它释放远程门面。
             void application.stopped.then(() => {
+                current.close();
                 if (state.status === "ready" && state.instanceId === instanceId) setState({status: "closed"});
             });
             const startup = await application.startup;
@@ -140,10 +187,11 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             if (startup.status !== "available" || root === null) {
                 throw new Error(startup.failures.map((failure) => `${failure.source}：${failure.error?.message ?? failure.reason}`).join("；") || `运行实例 ${startup.status}`);
             }
-            setState({status: "ready", instanceId, root});
+            setState({status: "ready", instanceId, root, connection: "online"});
         } catch (error) {
             store.record({level: "error", event: "browser-host.startup.failed", message: "窗口运行实例启动失败", error});
             await host?.destroy();
+            current.close();
             if (!closed) setState({status: "startup-failed", reason: describe(error)});
         }
     };
@@ -167,7 +215,9 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         async stop() {
             closed = true;
             setState({status: "closed"});
-            return host === null ? {status: "closed"} : host.destroy();
+            const result: StopResult = host === null ? {status: "closed"} : await host.destroy();
+            session?.close();
+            return result;
         },
     };
 }
@@ -181,7 +231,7 @@ interface SelectedPlugin {
     readonly factory: BrowserPluginFactory;
 }
 
-function selectPlugins(raw: unknown, builtin: ReadonlyArray<PluginDescriptor>, factories: Readonly<Record<string, BrowserPluginFactory>>): SelectedPlugin[] {
+function selectPlugins(raw: unknown, builtin: ReadonlyArray<PluginDescriptor>, factories: Readonly<Record<string, BrowserPluginFactory>>): {readonly selected: SelectedPlugin[]; readonly endpoint: RpcEndpoint} {
     if (typeof raw === "object" && raw !== null && "protocolVersion" in raw && typeof raw.protocolVersion === "number"
         && raw.protocolVersion !== BROWSER_PROTOCOL_VERSION) {
         throw new BootstrapRejected("incompatible", `服务端的引导协议版本是 ${String(raw.protocolVersion)}，本页面是 ${String(BROWSER_PROTOCOL_VERSION)}`);
@@ -201,7 +251,7 @@ function selectPlugins(raw: unknown, builtin: ReadonlyArray<PluginDescriptor>, f
     for (const id of REQUIRED_PLUGINS) {
         if (!selected.some((item) => item.id === id)) throw new BootstrapRejected("startup-failed", `引导集合缺少必需插件 ${id}`);
     }
-    return selected;
+    return {selected, endpoint: raw.rpc};
 }
 
 function describe(error: unknown): string {

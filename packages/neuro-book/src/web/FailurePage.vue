@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
- * 宿主页：窗口还没有可挂载的工作台时显示。连接失败可以原地重试；协议或插件版本不一致、启动失败
- * 要刷新页面（取得与服务端同一次构建的外壳）才可能恢复，所以只给刷新。
+ * 宿主页：窗口还没有可挂载的工作台、或已不能继续使用时显示。连接失败可以原地重试；协议或插件版本不一致、
+ * 启动失败要刷新页面（取得与服务端同一次构建的外壳）才可能恢复，服务端已重启要刷新页面与新的服务端进程
+ * 重新握手，所以都只给刷新。服务端重启后不自动刷新：页面上以后可能有未保存的内容。
  */
 import {computed} from "vue";
 
@@ -29,6 +30,8 @@ const view = computed<PageView>(() => {
             return {title: "页面与服务端版本不一致", hint: "刷新页面以加载与服务端匹配的版本。", reason: state.reason, action: "reload"};
         case "startup-failed":
             return {title: "工作台启动失败", hint: "刷新页面重试；仍然失败时请查看服务端日志。", reason: state.reason, action: "reload"};
+        case "server-restarted":
+            return {title: "服务端已重启", hint: "刷新页面以重新连接服务端。", reason: state.reason, action: "reload"};
         case "closed":
             return {title: "窗口已关闭", hint: "", reason: null, action: "reload"};
     }

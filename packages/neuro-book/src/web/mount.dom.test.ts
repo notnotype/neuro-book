@@ -1,10 +1,12 @@
 /**
- * 窗口界面的挂载（runtime.browser-host 启动序列第 4 步）：任何时刻容器里要么是宿主页，要么是完整的页面。
+ * 窗口界面的挂载（runtime.browser-host 启动序列第 5 步）：任何时刻容器里要么是宿主页，要么是完整的页面。
  * 窗口、内核与工作台插件都是真的；连接对象返回符合协议的引导响应（真实后端的响应在 window.test.ts 里），
  * 这里要控制的是“先失败、再成功”的时序。
  */
 
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
+import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 import {describe, expect, it, vi} from "vitest";
 import {createMemoryHistory} from "vue-router";
 
@@ -20,7 +22,13 @@ import type {BrowserPluginFactory} from "./plugins";
 
 const bootstrapOf = (plugins: ReadonlyArray<PluginDescriptor>) => ({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: {port: 1, path: "/"}, revision: "r", plugins: plugins.map(({id, version}) => ({id, version}))});
 
-/** 前 `failures` 次请求失败、之后成功的连接。 */
+/**
+ * 服务端一侧的真实内核路由。RPC 链路用内核的进程内链路（与 WebSocket 链路同一套 JSON 编解码）：这里验证的是
+ * 界面挂载，真实 WebSocket 由 window.test.ts 与 e2e 覆盖。
+ */
+const router = createRemoteRouter(createRemoteNode({instance: {id: "server", kind: "server", role: "hub", project: null, client: null}}));
+
+/** 前 `failures` 次引导请求失败、之后成功的连接。 */
 function connection(plugins: ReadonlyArray<PluginDescriptor>, failures = 0): Connection {
     let calls = 0;
     return {
@@ -28,6 +36,11 @@ function connection(plugins: ReadonlyArray<PluginDescriptor>, failures = 0): Con
             calls += 1;
             if (calls <= failures) throw new ConnectionError("无法连接服务端", null);
             return bootstrapOf(plugins);
+        },
+        async openRemote() {
+            const pair = createLinkPair();
+            router.accept(pair.right);
+            return pair.left;
         },
     };
 }

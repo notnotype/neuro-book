@@ -1,11 +1,19 @@
 /**
- * 连接对象：窗口与服务端之间唯一的通信出口（runtime.browser-host 可分离的边界 1）。目前只有引导请求；
- * 插件通道与事件流随 runtime.plugin-channel 加入。服务端地址由装配方给出，页面里是 `location.origin`。
+ * 连接对象：窗口与服务端之间唯一的通信出口（runtime.browser-host 可分离的边界 1）：引导请求，与内核 RPC 端口上的
+ * 远程服务链路。服务端地址由装配方给出，页面里是 `location.origin`；RPC 地址用同一个主机名与协议、引导给出的端口，
+ * 使浏览器发出的 Origin 与页面一致。
  */
 
-import {BROWSER_BOOTSTRAP_PATH} from "nbook/shared/browser-bootstrap";
+import type {RemoteLink} from "@notnotype/nb-runtime/remote";
 
-/** 引导请求没有拿到可解析的响应：网络失败、非 2xx 或正文不是 JSON。窗口据此显示带重试的连接失败页。 */
+import {BROWSER_BOOTSTRAP_PATH} from "nbook/shared/browser-bootstrap";
+import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
+import {createSocketLink} from "nbook/shared/rpc-socket";
+
+/**
+ * 没有连上服务端：引导请求网络失败、非 2xx 或正文不是 JSON，或 RPC 端口的 WebSocket 没能打开。窗口据此显示
+ * 带重试的连接失败页。
+ */
 export class ConnectionError extends Error {
     /** HTTP 状态码；网络失败为 null。 */
     readonly status: number | null;
@@ -17,14 +25,39 @@ export class ConnectionError extends Error {
     }
 }
 
+export type RpcEndpoint = BrowserBootstrap["rpc"];
+
 export interface Connection {
     /** 取引导响应的原始 JSON；协议版本与结构由窗口判定。失败时抛 ConnectionError。 */
     bootstrap(): Promise<unknown>;
+    /** 连接内核 RPC 端口，WebSocket 打开时完成；没能打开时抛 ConnectionError。之后的断开经链路的 `onClose` 通知。 */
+    openRemote(endpoint: RpcEndpoint): Promise<RemoteLink>;
 }
 
 export function createConnection(baseUrl: string): Connection {
     const url = new URL(BROWSER_BOOTSTRAP_PATH, baseUrl);
+    const base = new URL(baseUrl);
     return {
+        openRemote(endpoint) {
+            const target = new URL(endpoint.path, base);
+            target.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+            target.port = String(endpoint.port);
+            const {promise, resolve, reject} = Promise.withResolvers<RemoteLink>();
+            const socket = new WebSocket(target);
+            const link = createSocketLink({send: (text) => socket.send(text), close: () => socket.close()});
+            let opened = false;
+            socket.addEventListener("open", () => {
+                opened = true;
+                resolve(link);
+            });
+            socket.addEventListener("message", (event) => link.receive(event.data));
+            // 打开前出错也会随后收到 close；拒绝与链路关闭都放在 close 里，只处理一次。
+            socket.addEventListener("close", () => {
+                if (!opened) reject(new ConnectionError("无法连接服务端的 RPC 端口", null));
+                link.closed();
+            });
+            return promise;
+        },
         async bootstrap() {
             let response: Response;
             try {
