@@ -65,8 +65,11 @@ export interface RemoteProviderSource {
 /** 插件宿主为每次入口激活提供的调用方上下文。 */
 export interface RemoteCallerContext {
     readonly consumer: ConsumerIdentity;
-    /** 本次激活所在的激活链（入站请求触发了本入口的按需激活时非空）。 */
-    readonly chain: ReadonlyArray<ChainLink>;
+    /**
+     * 本入口激活期间为“触发它的入站激活链 + 本入口”，激活结束后为空；随调用帧发出，用来发现激活
+     * 等待环（runtime/plugin-channel.md 输出第 6 条）。
+     */
+    chain(): ReadonlyArray<ChainLink>;
     /** 本入口仍在激活中。 */
     activating(): boolean;
     /** 调用方入口的这一代开始停止时触发：在途调用取消、订阅结束。 */
@@ -313,7 +316,7 @@ export class RemoteNodeImpl implements RemoteNode {
                     effect: method.effect,
                     input,
                     $nbConsumer: toCallerFrame(caller.consumer),
-                    $nbChain: [...caller.chain],
+                    $nbChain: [...caller.chain()],
                 };
                 const timeoutMs = caller.activating() ? Math.min(options.timeout ?? this.#activationLimit, this.#activationLimit) : options.timeout;
                 const requestOptions: RequestOptions = {signal: anySignal([options.signal, caller.signal]), timeoutMs};
@@ -337,7 +340,7 @@ export class RemoteNodeImpl implements RemoteNode {
                     }
                     remember();
                     const subscription: ActiveSubscription = {
-                        frame: {target, contract: contract.id, version: contract.version, event: name, filter, $nbConsumer: toCallerFrame(caller.consumer), $nbChain: [...caller.chain]},
+                        frame: {target, contract: contract.id, version: contract.version, event: name, filter, $nbConsumer: toCallerFrame(caller.consumer), $nbChain: [...caller.chain()]},
                         listener,
                         options,
                         payloadSchema: event.payload,
@@ -459,6 +462,9 @@ export class RemoteNodeImpl implements RemoteNode {
         }
         const found = await this.#lookup(frame.contract, frame.$nbChain, signal);
         if (found.status !== "found") {
+            if (found.status === "unavailable" && found.cause === "activation-cycle") {
+                this.#record("activation-cycle", frame.contract, frame.$nbChain.map((link) => `${link.instanceId}:${link.plugin}/${link.entry}`).join(" → "));
+            }
             fail("unavailable", found.status === "missing" ? `本实例没有提供 ${frame.contract}` : found.reason, found.status === "unavailable" ? found.cause : undefined);
             return;
         }

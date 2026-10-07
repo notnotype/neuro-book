@@ -1,0 +1,157 @@
+import {describe, expect, it} from "bun:test";
+
+import {Type} from "typebox";
+
+import {createApplication} from "../application/application";
+import type {Application} from "../application/application";
+import type {RuntimeClock} from "../lifecycle/lifecycle";
+import type {ActivationContext, PluginDefinition, PluginDiagnostic} from "../plugins/plugins";
+
+import {createRemoteNode, createRemoteRouter, defineRemoteService, provideRemote} from "./remote";
+import type {InstanceDescriptor, RemoteNode, RemoteResult} from "./remote";
+import {createLinkPair} from "./testing/in-process";
+
+const Empty = Type.Object({}, {additionalProperties: false});
+const serviceA = defineRemoteService({id: "demo.a/a", version: 1, callers: ["browser", "server", "project"], methods: {ping: {input: Empty, output: Type.String(), effect: "read"}}});
+const serviceB = defineRemoteService({id: "demo.b/b", version: 1, callers: ["browser", "server", "project"], methods: {ping: {input: Empty, output: Type.String(), effect: "read"}, wait: {input: Empty, output: Type.String(), effect: "read"}}});
+
+class ManualClock implements RuntimeClock {
+    #now = 0;
+    readonly #timers = new Set<{at: number; callback: () => void}>();
+    now(): number {
+        return this.#now;
+    }
+    schedule(callback: () => void, ms: number): () => void {
+        const timer = {at: this.#now + ms, callback};
+        this.#timers.add(timer);
+        return () => this.#timers.delete(timer);
+    }
+    advance(ms: number): void {
+        this.#now += ms;
+        for (const timer of [...this.#timers]) {
+            if (timer.at <= this.#now) {
+                this.#timers.delete(timer);
+                timer.callback();
+            }
+        }
+    }
+}
+
+interface Instance {
+    readonly app: Application;
+    readonly node: RemoteNode;
+    readonly diagnostics: PluginDiagnostic[];
+}
+
+async function start(descriptor: InstanceDescriptor, plugins: ReadonlyArray<PluginDefinition>, clock: RuntimeClock, maxActivationCallMs?: number): Promise<Instance> {
+    const node = createRemoteNode({instance: descriptor, clock, maxActivationCallMs});
+    const diagnostics: PluginDiagnostic[] = [];
+    const app = createApplication(
+        {identity: {location: descriptor.kind, instanceId: descriptor.id}, stopSignal: new AbortController().signal, emergency: () => undefined},
+        {keys: [], plugins, gates: [], remote: node, observers: {plugins: {diagnosticRecorded: (diagnostic) => diagnostics.push(diagnostic)}}},
+    );
+    expect(await app.startup).toMatchObject({status: "available"});
+    return {app, node, diagnostics};
+}
+
+/** 服务端提供 A、项目提供 B；`activateA`、`activateB` 是两者激活时要做的事。浏览器有一个启动即激活的调用方。 */
+async function topology(options: {
+    readonly activateA: (context: ActivationContext) => Promise<void>;
+    readonly activateB: (context: ActivationContext) => Promise<void>;
+    readonly waitB?: Promise<string>;
+    readonly maxActivationCallMs?: number;
+}) {
+    const clock = new ManualClock();
+    const binding = {id: "P", generation: 1};
+    const pluginA: PluginDefinition = {
+        id: "demo.a",
+        entries: [{id: "main", location: "server", remoteProvides: [serviceA.id], activate: async (context) => {
+            await options.activateA(context);
+            return {remote: [provideRemote(serviceA, () => ({methods: {ping: () => ({ok: true, value: "a"})}}))]};
+        }}],
+    };
+    const pluginB: PluginDefinition = {
+        id: "demo.b",
+        entries: [{id: "main", location: "project", remoteProvides: [serviceB.id], activate: async (context) => {
+            await options.activateB(context);
+            return {remote: [provideRemote(serviceB, () => ({methods: {ping: () => ({ok: true, value: "b"}), wait: async () => ({ok: true, value: await (options.waitB ?? Promise.resolve("b"))})}}))]};
+        }}],
+    };
+    let browserContext: ActivationContext | null = null;
+    const browserCaller: PluginDefinition = {
+        id: "app.window",
+        entries: [{id: "main", location: "browser", activationEvents: ["onStartup"], activate: (context) => {
+            browserContext = context;
+            return {};
+        }}],
+    };
+    const hub = await start({id: "hub", kind: "server", role: "hub", project: null}, [pluginA], clock, options.maxActivationCallMs);
+    const project = await start({id: "project-P", kind: "project", role: "project", project: binding}, [pluginB], clock);
+    const browser = await start({id: "browser-1", kind: "browser", role: "client", project: binding}, [browserCaller], clock);
+    const router = createRemoteRouter(hub.node);
+    for (const instance of [project, browser]) {
+        const pair = createLinkPair();
+        router.accept(pair.right);
+        expect(await instance.node.connect(pair.left)).toEqual({ok: true});
+    }
+    return {clock, hub, project, browser, browserRemote: () => (browserContext as unknown as ActivationContext).remote};
+}
+
+async function drain(rounds = 40): Promise<void> {
+    for (let index = 0; index < rounds; index += 1) {
+        await Promise.resolve();
+    }
+}
+
+describe("Spec plugin-channel 输出 6：激活期调用与等待环", () => {
+    it("A 激活时调用 B、B 激活时又调用 A：B 立即得到 unavailable(activation-cycle) 而不是挂起，整条链照常完成并记诊断", async () => {
+        // 在回调里赋值；用断言声明类型，避免控制流把它们收窄成 null。
+        let fromB = null as RemoteResult<string> | null;
+        let fromA = null as RemoteResult<string> | null;
+        const t = await topology({
+            activateA: async (context) => {
+                // 服务端没有绑定项目，指名项目 P 调用
+                fromA = await context.remote.use(serviceB).at({project: "P"}).ping({});
+            },
+            activateB: async (context) => {
+                fromB = await context.remote.use(serviceA).at("server").ping({});
+            },
+        });
+
+        const outcome = await t.browserRemote().use(serviceA).at("server").ping({});
+
+        expect(outcome).toEqual({ok: true, value: "a"});
+        expect(fromB).toMatchObject({ok: false, code: "unavailable", cause: "activation-cycle"});
+        expect(fromA).toEqual({ok: true, value: "b"});
+        expect(t.hub.diagnostics.some((diagnostic) => diagnostic.reason === "activation-cycle" && diagnostic.plugin === "demo.a")).toBe(true);
+        expect(t.hub.node.diagnostics().some((diagnostic) => diagnostic.reason === "activation-cycle")).toBe(true);
+    });
+
+    it("激活期间的远程调用受内核上限约束：作者给的超时更长也在上限处结束；激活结束后的调用不受上限约束", async () => {
+        let duringActivation = null as RemoteResult<string> | null;
+        const waitB = Promise.withResolvers<string>();
+        const t = await topology({
+            maxActivationCallMs: 5000,
+            activateA: async (context) => {
+                duringActivation = await context.remote.use(serviceB).at({project: "P"}).wait({}, {timeout: 60_000});
+            },
+            activateB: async () => undefined,
+            waitB: waitB.promise,
+        });
+
+        const pending = t.browserRemote().use(serviceA).at("server").ping({});
+        await drain();
+        t.clock.advance(5000);
+
+        expect(await pending).toEqual({ok: true, value: "a"});
+        expect(duringActivation).toMatchObject({ok: false, code: "timeout", cause: "timeout"});
+
+        // 浏览器调用方不在激活中：同样的长超时不被截短
+        const later = t.browserRemote().use(serviceB).at("project").wait({}, {timeout: 60_000});
+        await drain();
+        t.clock.advance(5000);
+        await drain();
+        waitB.resolve("done");
+        expect(await later).toEqual({ok: true, value: "done"});
+    });
+});

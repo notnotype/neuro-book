@@ -14,7 +14,7 @@
 
 import {LifecycleStateError, summarizeFailure} from "../lifecycle/lifecycle";
 import type {CloseResult, FailureError, ReleaseDependency, RuntimeInstance, RuntimeLocation, Scope} from "../lifecycle/lifecycle";
-import type {ProviderLookup, RemoteAccess, RemoteHostBinding, RemoteProvision} from "../remote/remote";
+import type {ChainLink, ProviderLookup, RemoteAccess, RemoteHostBinding, RemoteProvision} from "../remote/remote";
 import type {ConsumerIdentity, EntryId, ResolveResult, ServiceAssembly, ServiceCreateContext, ServiceKey} from "../services/services";
 
 import {PluginStateError} from "./contracts";
@@ -171,6 +171,8 @@ interface ProvidedRecord {
 
 interface Attempt {
     readonly generation: number;
+    /** 触发这次激活的远程请求的激活链；不是远程请求触发的为空。 */
+    readonly triggerChain: ReadonlyArray<ChainLink>;
     readonly scope: Scope;
     readonly work: Scope;
     readonly services: Set<Scope>;
@@ -278,7 +280,7 @@ export class PluginHostImpl implements PluginHost {
         this.#observer = options.observer;
         this.#delegation = options.delegation ?? null;
         this.#remote = options.remote ?? null;
-        this.#remote?.attach({lookup: (contractId, _chain, signal) => this.#lookupRemote(contractId, signal)});
+        this.#remote?.attach({lookup: (contractId, chain, signal) => this.#lookupRemote(contractId, chain, signal)});
     }
 
     register(definition: PluginDefinition, options: {readonly scope: Scope}): RegisterPluginResult {
@@ -431,7 +433,11 @@ export class PluginHostImpl implements PluginHost {
         return records.map((record) => this.#contributionState(record) as ContributionState<Declaration, Implementation>);
     }
 
-    async activate(ref: EntryRef, options: {readonly signal?: AbortSignal} = {}): Promise<ActivationResult> {
+    activate(ref: EntryRef, options: {readonly signal?: AbortSignal} = {}): Promise<ActivationResult> {
+        return this.#activate(ref, options);
+    }
+
+    async #activate(ref: EntryRef, options: {readonly signal?: AbortSignal; readonly chain?: ReadonlyArray<ChainLink>}): Promise<ActivationResult> {
         const record = this.#entry(ref);
         if (record === null) {
             return {status: "rejected", plugin: ref.plugin, entry: ref.entry, reason: "unknown-entry"};
@@ -444,7 +450,7 @@ export class PluginHostImpl implements PluginHost {
             this.#record("activate", "blocked", {plugin: ref.plugin, entry: ref.entry});
             return {status: "rejected", plugin: ref.plugin, entry: ref.entry, reason: "blocked", blocked};
         }
-        const attempt = this.#attemptFor(record);
+        const attempt = this.#attemptFor(record, options.chain);
         if (attempt === null) {
             return {status: "rejected", plugin: ref.plugin, entry: ref.entry, reason: "scope-closed"};
         }
@@ -503,9 +509,10 @@ export class PluginHostImpl implements PluginHost {
             return unavailableRemote();
         }
         const consumer: ConsumerIdentity = Object.freeze({instanceId: this.instanceId, location: this.location, plugin, entry, generation: attempt.generation, via: null});
+        const self: ChainLink = {instanceId: this.instanceId, plugin, entry};
         return this.#remote.access({
             consumer,
-            chain: [],
+            chain: () => (attempt.settled === null ? [...attempt.triggerChain, self] : []),
             activating: () => attempt.settled === null,
             signal: attempt.scope.stopSignal,
             onRelease: (callback) => {
@@ -525,7 +532,7 @@ export class PluginHostImpl implements PluginHost {
      * 远程调用到达时找本位置提供该合同的入口；未激活就按需激活（onRemote）。多个存活入口声明同一合同时
      * 不挑选，返回不可用。
      */
-    async #lookupRemote(contractId: string, signal: AbortSignal): Promise<ProviderLookup> {
+    async #lookupRemote(contractId: string, chain: ReadonlyArray<ChainLink>, signal: AbortSignal): Promise<ProviderLookup> {
         const candidates: EntryRecord[] = [];
         for (const plugin of this.#plugins.values()) {
             if (!isAlive(plugin.scope)) {
@@ -545,7 +552,12 @@ export class PluginHostImpl implements PluginHost {
             return {status: "unavailable", reason: `多个入口提供 ${contractId}`};
         }
         const record = candidates[0]!;
-        const result = await this.activate({plugin: record.plugin, entry: record.definition.id}, {signal});
+        // 提供入口已在请求的激活链上：它正在激活并（间接）等待这个请求，再等它就是等待环。
+        if (chain.some((link) => link.instanceId === this.instanceId && link.plugin === record.plugin && link.entry === record.definition.id)) {
+            this.#record("activate", "activation-cycle", {plugin: record.plugin, entry: record.definition.id, capability: "remoteProvides", contribution: contractId});
+            return {status: "unavailable", reason: `激活等待环：${record.plugin}/${record.definition.id} 正在激活并等待这个请求`, cause: "activation-cycle"};
+        }
+        const result = await this.#activate({plugin: record.plugin, entry: record.definition.id}, {signal, chain});
         if (result.status !== "activated") {
             const reason = result.status === "failed" ? `${result.stage}/${result.reason}` : result.status === "rejected" ? `rejected:${result.reason}` : result.status;
             return {status: "unavailable", reason: `提供入口 ${record.plugin}/${record.definition.id} 不可用：${reason}`};
@@ -725,7 +737,7 @@ export class PluginHostImpl implements PluginHost {
     }
 
     /** 取当前尝试（在途、成功、稳定失败或已停止都复用）；没有尝试且登记作用域存活时新建一次。 */
-    #attemptFor(record: EntryRecord): Attempt | null {
+    #attemptFor(record: EntryRecord, triggerChain: ReadonlyArray<ChainLink> = []): Attempt | null {
         if (record.current !== null) {
             return record.current;
         }
@@ -741,6 +753,7 @@ export class PluginHostImpl implements PluginHost {
         const {promise, resolve} = Promise.withResolvers<AttemptOutcome>();
         const attempt: Attempt = {
             generation,
+            triggerChain,
             scope,
             work,
             services: new Set(),
