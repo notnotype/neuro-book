@@ -1,0 +1,113 @@
+# t55（K4：`nbook.storage`）实施计划只读审查报告
+
+审查范围：`.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/plan.md`（未提交）。核实方式：通读拓扑稿第 4、11 节、`plugin-data-model.md` 第 3、5 节、ADR 0024、7 份现行 Spec、内核 `packages/nb-runtime/src/{services,remote,plugins}/` 与三个宿主 `packages/neuro-book/src/{server,project,web}/`、K3（t54）计划与审查；在 scratchpad 实测 Bun 1.4.2 的 `bun:sqlite` 跨进程条件保存、busy_timeout、删除标记与 TypeBox 1.3.6 往返。
+
+---
+
+### 1. [重要] 描述指纹的“键排序规范 JSON”若用 `JSON.stringify(record, sortedKeys)` 的 replacer 数组实现，嵌套 schema 会被清空成 `{}`，definition-conflict 检测整体失效
+- 位置：plan.md 第 2 节“描述与指纹”
+- 现象：实测 Bun 1.4.2 + typebox 1.3.6：`JSON.stringify({key: "k", schema: Type.Object({a: Type.Number()}, {additionalProperties: false})}, Object.keys(record).sort())` 得到 `{"key":"k","schema":{}}`——replacer 数组作用于**每一层**对象，schema 自身的 `type/required/properties/additionalProperties` 键全部被过滤。往返后 `Value.Check({}, {a: 1, extra: 2})` 为 true（空 schema 接受一切）。plan 写“键排序后的规范 JSON”，这是实现者最自然的写法。
+- 为什么是问题：指纹里 schema 恒为 `{}` 后，两个只有形状不同的同名定义指纹相同 → `definition-conflict` 永不触发 → 分区拥有者按内存里的新定义校验旧版本值，旧值被误判 corrupt 或静默接受。这是记录定义冲突检测这个 K4 合同的数据正确性问题。
+- 如何核实：scratchpad `replacer-trap.ts`、`typebox-deep.ts` 输出；`typebox-roundtrip.ts` 首次运行即踩中。
+- 建议改法：规范 JSON 用显式字段重建（`{key: def.key, scope: def.scope, …, schema: def.schema}` 整体序列化；TypeBox 的 Object schema 是标准 JSON Schema，直接 `JSON.stringify` 可往返、`additionalProperties: false` 保留）或逐层递归排序；`src/shared/storage.test.ts` 加一例“两个只有 schema 不同的定义指纹不同”。
+
+### 2. [重要] `remote.on(consumer)` 的“挂在签发记录下”需要 composition 新增内部接口；释放顺序与双路释放要写进设计，否则经代理的订阅要么漏结束、要么提前结束
+- 位置：plan.md 第 5 节“跨实例委托”
+- 现象：签发记录 `IssueRecord` 是 `composition.ts:154` 的私有 `#issued` WeakMap，现有公开接口（`ServiceAssembly`）只有 `resolve`/`resolveFor`；remote 节点（`node.ts` 的 `access()`）只认识 `caller.onRelease`，而插件宿主把 `onRelease` 挂在入口激活作用域（`host.ts:519-533` 的 `remote-consumer` 资源）。计划的语义（核对同 `resolveFor`、释放挂签发记录）正确，但没写挂载接口与释放顺序。若实现者沿用现状把 `remote.on` 的释放挂在 `entry-work` 上，则 X 的 storage 门面释放时（X 停止）nbook.storage 的 browser 入口还活着，经代理的订阅不会结束，直到窗口关闭。
+- 为什么是问题：正确语义是“代理门面的 `provision.release` 运行期间经代理建立的远程门面与订阅仍可用，之后才释放”（`runtime/services.md` 输出第 13 条，`composition.ts` 的 `#releaseDelegated` 在 `provision.release?.(…)` 之后执行已保证同实例委托的顺序）。S2 必须给 composition 加一个“核对签发身份 + 把释放步骤追加到签发记录”的内部接口（核对复用 `#resolveFor` 的三项：签发给本入口、未 `closed`、允许清单），远程订阅取消与 release 帧发送作为步骤挂上去。另一条路径（X 的 `entry-work` 关闭时 `remote-consumer` 资源对 X 直接接触的目标发 release 帧）与它都以 `consumerKey` 幂等（`node.ts` 的 `handleRelease` 查不到即 no-op），但 Spec 不写明，实现者可能误判为双释放或漏释放。
+- 如何核实：`composition.ts:328-350`（`#resolveFor` 核对）、`:564-580`（`#releaseDelegated` 顺序）、`node.ts` 的 `access()` 与 `handleRelease`、`host.ts:519-533`。
+- 建议改法：plan 第 5 节补一句接口形状与顺序：composition 暴露“以签发身份挂释放步骤”的内部方法，释放顺序为“代理门面 `provision.release` → 签发记录步骤（订阅取消、release 帧）”；Spec 写明 release 帧与订阅取消的双路幂等。
+
+### 3. [重要] `Revision` 类型与“从未写过为 null”矛盾，K5 会照字面实现返工
+- 位置：plan.md 第 3 节接口定义
+- 现象：`save(value, {expect: Revision})`、`RecordSnapshot.missing.revision: Revision`，正文却说“从未写过的 expect 是 null”“从未写过为 null”。类型与语义对不上。
+- 为什么是问题：这是对插件公开的长期合同；K5 的 persisted 字段首次保存（记录缺失）必须传 null，missing 快照的 revision 也可能是 null，按现在的类型 K5 无法表达“首次保存”。K5 的实现者会照类型写，然后被语义卡住返工。
+- 如何核实：类型与正文对照即可。
+- 建议改法：类型统一为 `Revision | null`（`expect: Revision | null`；missing 快照 `revision: Revision | null`），Spec 写明“删除标记的 revision 是非 null 不透明串，从未写过为 null”。
+
+### 4. [重要] `open()` 同步返回句柄与 definition-conflict / no-project 没有失败通道；且与插件 API“方法返回 Promise”的远程形态约束不符
+- 位置：plan.md 第 2、3 节
+- 现象：`open` 同步返回 `RecordHandle<T>`；但 definition-conflict 只在分区拥有者第一次 read/save 携带描述时才知道（浏览器经远程），no-project 同理（未绑定项目）。正文说“打开以 definition-conflict 拒绝”，同步 open 无处放失败。
+- 为什么是问题：三端行为不一致（服务端本地 open 能同步发现，浏览器要等第一次 read/save）；K5 的 store 初始化不知道该在哪个操作上处理这个失败；`runtime/plugin-api.md` 的远程形态约束要求数据面方法全部返回 Promise。
+- 如何核实：对照 plan 的 `open` 签名与 plugin-api.md 五条约束。
+- 建议改法：`open` 改为 `Promise<OpenResult<T>>`（成功给句柄；失败给 `definition-conflict`、`no-project`、`no-client`、`denied` 等失败码），或在 Spec 明确 definition-conflict/no-project 只在第一次 read/save 以 error 快照/失败码报告。推荐前者：统一三端行为、贴合远程形态、给 K5 一个确定的初始化失败落点。
+
+### 5. [建议] 路由覆盖 client 时应一并覆盖 location；两者同属实例描述的权威字段，location 被合同的 `callers` 核对使用
+- 位置：plan.md 第 5 节“路由对客户端成员发来的帧用登记的实例描述覆盖它”
+- 现象：`InstanceDescriptor` 有 `kind` 与 `client` 两个权威字段；计划只覆盖 client。`$nbConsumer.location` 由客户端节点自报，`node.ts` 的 `handleRequest` 用它做 `contract.callers.includes(location)` 核对。
+- 为什么是问题：覆盖成本相同、规则应一致（“实例描述里的权威字段由路由填写”），漏掉 location 留下一处客户端可自报的门。第一版防误用不防恶意，但只覆盖 client 让规则不完整。
+- 如何核实：`router.ts` 的 `#routeRequest` 现状只核对 `instanceId`；`node.ts` 的 `handleRequest` 的 callers 核对。
+- 建议改法：S1 把 location 一并置为 `descriptor.kind`，Spec 一句话写明“帧上调用方身份中属于实例描述权威的字段（client、location）由路由按登记的成员描述覆盖”。
+
+### 6. [建议] “精确项目代次”不进消费上下文身份，与拓扑稿/配套稿措辞不同，S0 要写明承接方式
+- 位置：plan.md 第 5 节“项目代次不进身份”；拓扑稿第 4 节“上下文携带……精确项目代次”；配套稿第 5 节
+- 现象：拓扑稿说消费上下文携带精确项目代次，计划改为“路由按绑定把请求送到这一代”。
+- 为什么是问题：实现上与 K1–K3 一致（绑定在路由、帧上不携带，旧代次在未派发阶段 `target-gone`），不算违背；但两份 `accepted` 稿的措辞不修订的话，后续读者（K5、K6）会按旧措辞理解。
+- 建议改法：S0 在 `plugin-data-model.md` 第 5 节与 plugin-channel Spec 写明“精确项目代次由路由按客户端绑定解析（`.at("project")`），发往旧代次的请求在未派发阶段 `target-gone`”，与“消费上下文身份不进项目代次”互相对应。
+
+### 7. [建议] 远程方法每次携带完整记录描述（含 schema JSON），可考虑只传指纹
+- 位置：plan.md 第 3 节“远程服务”
+- 现象：read/save/remove/reset 的输入都带记录描述；schema 可达几十 KiB，每次调用全量随帧传输并重复校验。
+- 为什么是问题：本地回环性能影响小，第一版全量携带简单可靠，可接受；但 Spec 应留出演化空间，避免以后改合同时返工。
+- 建议改法：第一版全量携带；Spec 记录“以后可只传描述指纹、分区拥有者按已登记描述核对”，或直接设计“首次传完整描述、之后只传指纹”。
+
+### 8. [建议] `consumerKey`（远程门面缓存键）要加 client 字段
+- 位置：`packages/nb-runtime/src/remote/node.ts` 的 `consumerKey`
+- 现象：`consumerKey = [instanceId, plugin, entry, generation, via…]`。加 client 后同一实例的 client 恒定，撞键目前不可能，但键的语义与 `ConsumerIdentity` 不再同形，后续维护易漏。
+- 建议改法：S1 改 `CallerFrameSchema` 时同步把 client 加入 `consumerKey`、`toCallerFrame`、`toConsumer`。
+
+### 9. [建议] 两个服务端进程同开一个项目时，订阅看到的 revision 会跳跃，订阅方可能误判“遗漏”
+- 位置：plan.md 第 1 节代价
+- 现象：进程 A 写 revision 1→2→4（3 是进程 B 写的），A 的订阅者看到 1→2→4。拓扑稿说“事件可带 revision 以发现遗漏”，跳跃会被当成遗漏。
+- 为什么是问题：这是“不加目录锁”与“只推本进程写入”组合下的隐含连带语义，计划只写了“收不到变更通知”。
+- 建议改法：第 1 节代价补一句“该场景下 revision 在订阅流里可能跳跃”；Spec 的订阅节写明 revision 只保证分区内单调、不保证连续。
+
+### 10. [建议] 读取分类 error（读库失败）的验收测试构造方式未写
+- 位置：plan.md 验收映射“读取分类”行
+- 现象：missing/ok/corrupt/unsupported-version 都好造；error 需要真实读库失败（例如把库文件截断或写入垃圾字节后打开）。
+- 建议改法：`partition.test.ts` 用真实损坏的库文件（截断文件头）断言 `error`/`io-error` 分类，与 corrupt（JSON 坏）区分开。
+
+### 11. [建议] `remoteDelegates` 与现有 `delegates` 两个字段易混，Spec 要写清区别
+- 位置：plan.md 第 5 节与 Spec 改动表（plugins.md、plugin-manifest.md）
+- 现象：`delegates`（代理本地服务键，`resolveFor`）已实现；新增 `remoteDelegates`（代理远程合同，`remote.on`）。两者都是“代理”，一个在装配层、一个在远程层。
+- 建议改法：Spec 各自小节开头写明“`delegates` 管本地服务键的 `resolveFor`，`remoteDelegates` 管远程合同的 `remote.on`”，并把“第一版只允许内置插件、须在代理允许清单”对两字段一致表述。
+
+### 12. [建议] S0 改写 persistence.md 时明确“布局投影与保存反馈”（已确认值/当前显示/本地意图）的去向
+- 位置：plan.md 的 S0 表 `storage/persistence.md` 行
+- 现象：旧 persistence.md 的“布局投影与保存反馈”状态转换是 K5 store 四部分状态模型的前身；v2 改写清单没提它。
+- 为什么是问题：不写明去向，S0 要么把消费方行为留在 Storage Spec（越界），要么删除而 K5 失去依据。
+- 建议改法：该节内容移入 K5 的 store Spec（`plugin-data-model.md` 第 3 节已有对应），persistence.md 只留“条件保存、冲突、订阅快照”等 Storage 自身合同，并在改写说明里写明移动。
+
+---
+
+## 实测结论（scratchpad，Bun 1.4.2）
+
+- **SQLite 介质假设全部成立**：WAL + `busy_timeout=2000` 下，两个独立进程以同一旧 revision 并发 `BEGIN IMMEDIATE` 条件保存，恰好至多一个成功、另一个 conflict；持锁 3 秒时对端 2004 ms 后抛 `SQLiteError: database is locked`（计划“等不到锁返回 busy 可重试”成立）；删除标记换新 revision，旧 revision 保存不复活；revision 单调递增（meta 表方案可行）。
+- **TypeBox 1.3.6 假设成立**：`Type.Object` 的 `additionalProperties: false` 是普通可枚举键，JSON 往返后保留、校验行为不变；计划“已实测”属实。**但**“键排序”若用 `JSON.stringify` 的 replacer 数组实现会清空嵌套 schema（见发现 1）。
+
+## 未发现问题的方面
+
+- **与已定设计一致**：拓扑稿 K4 行与配套稿第 5 节的全部已定项（按插件命名空间、分区归实例、经消费上下文的客户端代理、记录定义与指纹、读取分类、条件保存、资源寻址、不做 session/window、大文件不进记录、K4 验收五条）逐条覆盖，无违背、无悄悄改变。
+- **同一实例与跨实例委托规则一致**：`remote.on` 的核对（签发给本入口、未释放、允许清单、声明）与 `resolveFor` 同构；`#resolveFor` 现有核对只比 plugin/entry 不比 generation，与 services Spec 输出第 13 条一致。
+- **门面/订阅/项目代次/重连语义闭合**：提供方侧门面随调用方入口代次结束经 release 帧释放（K1/K2 已交付，`handleRelease` 幂等）；订阅先推当前快照在分区拥有者进程内无竞态（bun:sqlite 同步 API、写入串行）；项目代次结束、断线重连 `onResync` 沿用 K1–K3 机制；`local`/`no-client`/`no-project` 边界三端一致。
+- **K5 衔接**：四部分状态模型所需的读取分类、已确认值与 revision、条件保存与冲突、订阅快照、损坏时的 reset（原件保留）计划接口都已覆盖，不迫使 K5 返工（前提是发现 3、4 的类型与 open 形态修正）。
+- **`client` 身份链**：实例描述（`InstanceDescriptor.client`）K2 已实现，浏览器宿主已传 localStorage 身份；服务装配 consumer 构造处（`composition.ts:598-605`）加 client 的改动点明确；`leaseHolderOf` 不含 client、项目租约不受影响。
+- **切片顺序与验收映射**：S0–S6 顺序合理（文档→内核→委托→介质→门面→宿主→证据）；验收映射逐条覆盖 K4 行为，测试用真实内核实例、真实 SQLite、真实项目子进程、真实 WebSocket 与本机 Chrome，无 mock/spy/假计时器/固定等待；两进程并发写库（partition.test.ts）与多浏览器上下文（e2e）均已实测可行。
+
+## 对“待确认”11 项的判断（各一句）
+
+1. **介质与锁**：同意 SQLite 不加目录锁——条件保存与 busy 行为已实测符合计划；代价（两服务端进程互收不到变更通知）已说清，只需补 revision 跳跃的连带语义（发现 9）。
+2. **身份域与使用主体**：同意推迟到登录插件；meta 表有库格式版本，登录时迁一次库的路径存在，代价如实。
+3. **访问上下文**：同意废弃；内核调用方身份 + 路由覆盖 + 项目绑定取代它，与拓扑稿“由内核签发”一致（建议按发现 5 把 location 一并覆盖）。
+4. **配额**：同意推迟；保留单条上限（64 KiB/1 MiB）与 originals 区独立上限已够第一版内置插件用。
+5. **外部写入轮询**：同意废弃；SQLite 方案没有廉价的跨进程通知，轮询正是新架构要去掉的。
+6. **删除标记回收与分区代次**：同意本期不做；revision 单调递增 + 删除标记换新 revision 已防旧 revision 复活，分区代次在新架构里没有对应职责。
+7. **定义级迁移**：同意推迟；版本不同一律 `unsupported-version` + 显式 `reset`（原件保留）已闭合语义。
+8. **诊断原件区**：同意保留简化版（64 份 / 4 MiB、超限拒绝重置、不清旧原件）。
+9. **多标签首次初始化收敛**：同意不做；localStorage 同步读写竞态窗口极小、后果只是 local 记录分两份，代价已说清；建议 Spec 记一句已知限制。
+10. **旧浏览器存储迁移**：同意废弃；旧项目整体不兼容（K3 已定），没有迁移对象。
+11. **服务端插件访问 project 分区**：同意 `no-project`；符合“代码写在数据所在处”，服务端插件要碰项目数据经自己的 project 入口，以后有需要再加 `{project}` 目标。
+
+## 总结
+
+发现总数：**重要 4、建议 8，无阻断**。四条重要都集中在类型/接口合同（发现 3、4）与两处实现要点（发现 1 的指纹规范化、发现 2 的签发记录挂载），修正都在 plan 修订范围内，不改变切片结构与介质选择；SQLite 与 TypeBox 的关键假设经真实运行时实测成立。
