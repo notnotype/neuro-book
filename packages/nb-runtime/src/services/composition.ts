@@ -338,16 +338,9 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
 
     issuedTo(entryId: EntryId, consumer: ConsumerIdentity): IssuedConsumer | {readonly status: "denied"; readonly message: string} {
         const entry = this.#entries.get(entryId);
-        const issue = this.#issued.get(consumer);
-        if (entry === undefined || issue === undefined) {
-            return {status: "denied", message: "调用方身份不是装配签发的"};
-        }
-        if (issue.closed) {
-            return {status: "denied", message: "签发该身份的门面已释放"};
-        }
-        const issuer = issue.provider.identity;
-        if (entry.identity === null || issuer === null || issuer.plugin !== entry.identity.plugin || issuer.entry !== entry.identity.entry) {
-            return {status: "denied", message: "调用方身份签发给其它入口的门面"};
+        const issue = entry === undefined ? "调用方身份不是装配签发的" : this.#admitIssued(entry, consumer);
+        if (typeof issue === "string") {
+            return {status: "denied", message: issue};
         }
         return {
             status: "issued",
@@ -375,18 +368,30 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
             this.#record("resolve", "delegation-denied", {entryId: entry.id, key: key.name, scopeId: scope.id});
             return {status: "unavailable", key: key.name, reason: "delegation-denied", providerId: null, error: {name: "DelegationDenied", message}, path: []};
         };
+        const issue = this.#admitIssued(entry, consumer);
+        if (typeof issue === "string") {
+            return denied(issue);
+        }
+        return this.#resolve(entry, scope, generation, key, options, issue);
+    }
+
+    /**
+     * 本地委托与经代理的远程访问共用的身份核对：身份是装配签发的、签发它的门面还没释放、签发给 `entry` 的门面。
+     * 通过时返回签发记录，否则返回拒绝原因。
+     */
+    #admitIssued(entry: Entry, consumer: ConsumerIdentity): IssueRecord | string {
         const issue = this.#issued.get(consumer);
         if (issue === undefined) {
-            return denied("调用方身份不是装配签发的");
+            return "调用方身份不是装配签发的";
         }
         if (issue.closed) {
-            return denied("签发该身份的门面已释放");
+            return "签发该身份的门面已释放";
         }
         const issuer = issue.provider.identity;
         if (entry.identity === null || issuer === null || issuer.plugin !== entry.identity.plugin || issuer.entry !== entry.identity.entry) {
-            return denied("调用方身份签发给其它入口的门面");
+            return "调用方身份签发给其它入口的门面";
         }
-        return this.#resolve(entry, scope, generation, key, options, issue);
+        return issue;
     }
 
     /** 访问作用域位于某个正在初始化的服务作用域内，则这次等待归属该提供者的尝试。 */

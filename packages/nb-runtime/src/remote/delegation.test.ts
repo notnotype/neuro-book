@@ -242,7 +242,7 @@ describe("Spec plugin-channel 输出 10、场景 19：经代理的远程调用",
         expect(b.server.released).toEqual(["app.user via app.proxy"]);
     });
 
-    it("签发它的门面释放之后，代理再用这个身份一律 denied：用过的与没用过的一样，请求没有发出", async () => {
+    it("签发它的门面释放之后，代理再用这个身份一律 denied：用过的与没用过的、先前取得的访问对象与客户端都一样，请求与订阅没有发出", async () => {
         const b = await setup();
         const registration = openedChild(b.root, "user-registration");
         const [used] = await activateUser(b, [proxyKey], registration, "app.user");
@@ -250,12 +250,18 @@ describe("Spec plugin-channel 输出 10、场景 19：经代理的远程调用",
         expect(await used!.whoami()).toMatchObject({ok: true});
         const usedIdentity = used!.identity();
         const unusedIdentity = unused!.identity();
+        const proxyContext = b.proxies.get("app.proxy")!;
+        const heldAccess = proxyContext.remote.on(usedIdentity);
+        const heldClient = heldAccess.use(echo);
         expect(await registration.close()).toMatchObject({status: "closed"});
         const calls = b.server.calls;
+        const sinks = b.server.sinks.length;
 
-        const proxyContext = b.proxies.get("app.proxy")!;
         expect(await proxyContext.remote.on(usedIdentity).use(echo).whoami({})).toMatchObject({ok: false, code: "denied"});
         expect(await proxyContext.remote.on(unusedIdentity).use(echo).whoami({})).toMatchObject({ok: false, code: "denied"});
-        expect(b.server.calls).toBe(calls);
+        expect(await heldAccess.use(echo).whoami({})).toMatchObject({ok: false, code: "denied"});
+        expect(await heldClient.whoami({})).toMatchObject({ok: false, code: "denied"});
+        expect(await heldClient.events.ticks.subscribe({topic: "late"}, () => undefined)).toMatchObject({ok: false, code: "denied"});
+        expect({calls: b.server.calls, sinks: b.server.sinks.length}).toEqual({calls, sinks});
     });
 });

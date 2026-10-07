@@ -79,6 +79,11 @@ export interface RemoteCallerContext {
     readonly signal: AbortSignal;
     /** 这一代结束时调用一次 `callback`；已结束则立即调用。 */
     onRelease(callback: () => void): void;
+    /**
+     * 每次调用与订阅前的准入核对：返回拒绝原因时为 `denied`，不发出请求。经代理的访问用它让先前取得的客户端在
+     * 签发身份失效后同样被拒（runtime/plugin-channel.md 输出第 10 条）；入口自己的访问不需要。
+     */
+    admit?(): string | null;
 }
 
 /** 激活上下文里的 `context.remote`。 */
@@ -443,6 +448,10 @@ export class RemoteNodeImpl implements RemoteNode {
                 if (reservedKeys(input).length > 0) {
                     return {ok: false, code: "invalid-input", detail: `业务参数不得含 $nb 开头的键：${reservedKeys(input).join("、")}`};
                 }
+                const refusal = caller.admit?.() ?? null;
+                if (refusal !== null) {
+                    return {ok: false, code: "denied", detail: refusal};
+                }
                 remember();
                 const frame: Omit<RequestFrame, "type" | "id"> = {
                     target,
@@ -473,6 +482,10 @@ export class RemoteNodeImpl implements RemoteNode {
                     }
                     if (reservedKeys(filter).length > 0) {
                         return {ok: false, code: "invalid-input", detail: `过滤参数不得含 $nb 开头的键：${reservedKeys(filter).join("、")}`};
+                    }
+                    const refusal = caller.admit?.() ?? null;
+                    if (refusal !== null) {
+                        return {ok: false, code: "denied", detail: refusal};
                     }
                     if (caller.signal.aborted) {
                         return {ok: false, code: "cancelled"};
