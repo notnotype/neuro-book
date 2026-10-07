@@ -316,7 +316,7 @@ function remoteCaller(record: CallerRecord, holdName: string | null = null): {de
                 location: "browser",
                 activationEvents: ["onStartup"],
                 activate: async (context) => {
-                    const atServer = context.remote.use(remoteProbeContract).at("server");
+                    const atServer = context.remote.use(remoteProbeContract);
                     record.echo = await atServer.echo({});
                     record.instances = await context.remote.instances();
                     await atServer.events.ticks.subscribe({}, (payload) => record.ticks.push(payload.n), {

@@ -8,7 +8,38 @@ import type {Static, TSchema} from "typebox";
 import type {ConsumerIdentity} from "../services/services";
 
 import {REMOTE_FAILURE_CODES, RESERVED_KEY_PREFIX} from "./protocol";
-import type {RemoteResult} from "./protocol";
+import type {RemoteResult, RemoteTarget} from "./protocol";
+
+/**
+ * 提供方位置：哪种拓扑角色的实例提供这份合同。`client` 指浏览器、TUI 这类客户端实例；`any` 指每个
+ * 实例各有一份（例如命令系统的跨实例执行）。它决定调用方能写哪些目标、能否省略 `.at()`。
+ */
+export type RemoteProviderLocation = "server" | "project" | "client" | "any";
+
+const PROVIDER_LOCATIONS: ReadonlyArray<RemoteProviderLocation> = ["server", "project", "client", "any"];
+
+/** 每种提供方位置可用的目标（runtime/plugin-channel.md 输出第 1 条）。 */
+export type RemoteTargetFor<Provider extends RemoteProviderLocation> = Provider extends "server"
+    ? "server"
+    : Provider extends "project"
+      ? "project" | {readonly project: string}
+      : Provider extends "client"
+        ? {readonly client: string}
+        : RemoteTarget;
+
+/** 目标是否落在合同的提供方位置上；类型检查之外的运行期核对，不符的调用不发出请求。 */
+export function providerAccepts(provider: RemoteProviderLocation, target: RemoteTarget): boolean {
+    switch (provider) {
+        case "server":
+            return target === "server";
+        case "project":
+            return target === "project" || (typeof target === "object" && "project" in target);
+        case "client":
+            return typeof target === "object" && "client" in target;
+        case "any":
+            return true;
+    }
+}
 
 export interface RemoteMethodSpec {
     /** 必须是 `additionalProperties: false` 的对象 schema：多余字段被拒绝。 */
@@ -29,11 +60,13 @@ export interface RemoteEventSpec {
 export interface RemoteContract<
     Methods extends Readonly<Record<string, RemoteMethodSpec>> = Readonly<Record<string, RemoteMethodSpec>>,
     Events extends Readonly<Record<string, RemoteEventSpec>> = Readonly<Record<string, RemoteEventSpec>>,
+    Provider extends RemoteProviderLocation = RemoteProviderLocation,
 > {
     /** 以提供它的插件 id 加 `/` 开头，例如 `nbook.files/files`。 */
     readonly id: string;
     /** 第一版按整数精确匹配。 */
     readonly version: number;
+    readonly provider: Provider;
     /** 允许调用的实例种类（运行位置），例如 `["browser", "tui", "server"]`。 */
     readonly callers: ReadonlyArray<string>;
     readonly methods: Methods;
@@ -48,14 +81,16 @@ function isStrictObjectSchema(schema: TSchema): boolean {
 /** 定义合同；结构不合法时抛 TypeError。 */
 export function defineRemoteService<
     const Methods extends Readonly<Record<string, RemoteMethodSpec>>,
+    const Provider extends RemoteProviderLocation,
     const Events extends Readonly<Record<string, RemoteEventSpec>> = Readonly<Record<never, RemoteEventSpec>>,
 >(spec: {
     readonly id: string;
     readonly version: number;
+    readonly provider: Provider;
     readonly callers: ReadonlyArray<string>;
     readonly methods: Methods;
     readonly events?: Events;
-}): RemoteContract<Methods, Events> {
+}): RemoteContract<Methods, Events, Provider> {
     const problems: string[] = [];
     const separator = spec.id.indexOf("/");
     if (separator <= 0 || separator === spec.id.length - 1) {
@@ -64,13 +99,17 @@ export function defineRemoteService<
     if (!Number.isInteger(spec.version) || spec.version < 1) {
         problems.push(`版本必须是正整数：${String(spec.version)}`);
     }
+    if (!PROVIDER_LOCATIONS.includes(spec.provider)) {
+        problems.push(`provider 必须是 ${PROVIDER_LOCATIONS.join("、")} 之一：${String(spec.provider)}`);
+    }
     if (spec.callers.length === 0 || spec.callers.some((caller) => caller.trim() === "") || new Set(spec.callers).size !== spec.callers.length) {
         problems.push("callers 必须是不重复的非空运行位置列表");
     }
     const events = spec.events ?? ({} as Events);
     const names = new Set<string>();
     for (const [name, method] of Object.entries(spec.methods)) {
-        if (name.trim() === "" || name.startsWith("$") || name === "events") {
+        // `events` 与 `at` 是客户端对象上的固定成员，方法不能与它们重名。
+        if (name.trim() === "" || name.startsWith("$") || name === "events" || name === "at") {
             problems.push(`方法名不合法：${name}`);
         }
         names.add(name);
@@ -97,7 +136,7 @@ export function defineRemoteService<
     if (problems.length > 0) {
         throw new TypeError(`远程服务合同 ${spec.id} 不合法：${problems.join("；")}`);
     }
-    return Object.freeze({id: spec.id, version: spec.version, callers: Object.freeze([...spec.callers]), methods: spec.methods, events});
+    return Object.freeze({id: spec.id, version: spec.version, provider: spec.provider, callers: Object.freeze([...spec.callers]), methods: spec.methods, events});
 }
 
 type BusinessCodes<Method extends RemoteMethodSpec> = Method["errors"] extends Readonly<Record<string, TSchema>> ? keyof Method["errors"] & string : never;
@@ -152,6 +191,14 @@ export interface RemoteSubscribeOptions {
     /** 订阅因提供方停止、连接结束等原因结束；不包括调用方自己 release。 */
     readonly onEnd?: (reason: string) => void;
 }
+
+/**
+ * `context.remote.use(合同)` 的结果。提供方位置能推出目标时（`server` 与 `project`），它本身就是发往
+ * 缺省目标的客户端，`.at()` 可以省略；其余位置必须写 `.at(...)`。`at` 只接受该位置可用的目标。
+ */
+export type RemoteUse<Contract extends RemoteContract> = Contract["provider"] extends "server" | "project"
+    ? RemoteClient<Contract> & {at(target: RemoteTargetFor<Contract["provider"]>): RemoteClient<Contract>}
+    : {at(target: RemoteTargetFor<Contract["provider"]>): RemoteClient<Contract>};
 
 /** 调用方拿到的客户端：方法返回结构化结果，不抛业务失败。 */
 export type RemoteClient<Contract extends RemoteContract> = {

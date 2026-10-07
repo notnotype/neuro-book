@@ -205,6 +205,7 @@ export type ActivationFailureReason =
     | "undeclared-receiver"
     | "missing-remote"
     | "undeclared-remote"
+    | "remote-location-mismatch"
     | "receiver-prepare-failed"
     | "receiver-commit-failed";
 

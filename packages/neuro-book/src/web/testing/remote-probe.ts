@@ -34,7 +34,7 @@ export function createRemoteProbeBrowserPlugin(): PluginDefinition {
             location: "browser",
             activationEvents: ["onStartup"],
             activate: async (context) => {
-                const atServer = context.remote.use(remoteProbeContract).at("server");
+                const atServer = context.remote.use(remoteProbeContract);
                 const debug: RemoteProbeDebug = {
                     echo: () => atServer.echo({}),
                     hold: (name) => {

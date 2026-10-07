@@ -18,9 +18,11 @@ import {createLinkPair} from "./testing/in-process";
 const Empty = Type.Object({}, {additionalProperties: false});
 const Caller = Type.Object({plugin: Type.Union([Type.String(), Type.Null()]), entry: Type.Union([Type.String(), Type.Null()]), instanceId: Type.String(), location: Type.String(), generation: Type.Union([Type.Integer(), Type.Null()])}, {additionalProperties: false});
 
+/** 服务端、项目与 browser-2 各提供一份。 */
 const echo = defineRemoteService({
     id: "demo.echo/echo",
     version: 1,
+    provider: "any",
     callers: ["browser", "server", "project"],
     methods: {
         whoami: {input: Empty, output: Caller, effect: "read"},
@@ -42,7 +44,7 @@ const echo = defineRemoteService({
 const echoV2 = defineRemoteService({...echo, version: 2, events: echo.events});
 
 /** 只允许 tui 调用的合同，由服务端一并提供。 */
-const restricted = defineRemoteService({id: "demo.echo/restricted", version: 1, callers: ["tui"], methods: {ping: {input: Empty, output: Type.Null(), effect: "read"}}});
+const restricted = defineRemoteService({id: "demo.echo/restricted", version: 1, provider: "server", callers: ["tui"], methods: {ping: {input: Empty, output: Type.Null(), effect: "read"}}});
 
 // ---------- 提供方的探针 ----------
 
@@ -663,5 +665,117 @@ describe("Spec plugin-channel WebSocket 传输第 6 条：路由停止", () => {
         const late = rawLink(t.router);
         await late.closed;
         expect(late.frames).toEqual([]);
+    });
+});
+
+describe("Spec plugin-channel 输出 1：合同的提供方位置", () => {
+    const where = {input: Empty, output: Type.String(), effect: "read" as const};
+    const tick = {filter: Empty, payload: Type.Null()};
+    const atServer = defineRemoteService({id: "demo.where/server", version: 1, provider: "server", callers: ["browser", "project", "server"], methods: {where}, events: {tick}});
+    const atProject = defineRemoteService({id: "demo.where/project", version: 1, provider: "project", callers: ["browser", "server"], methods: {where}});
+
+    /** 回答自己所在位置的插件；`calls` 记下每次被调用，用来确认请求是否真的发出。 */
+    function answering(id: string, location: string, contract: typeof atServer | typeof atProject, calls: string[]): PluginDefinition {
+        return {
+            id,
+            entries: [{
+                id: "main",
+                location,
+                remoteProvides: [contract.id],
+                activate: () => ({
+                    remote: [provideRemote(contract, () => ({
+                        methods: {where: () => {
+                            calls.push(location);
+                            return {ok: true, value: location};
+                        }},
+                        events: {tick: {subscribe: () => undefined}},
+                    }))],
+                }),
+            }],
+        };
+    }
+
+    async function placed() {
+        const clock = new ManualClock();
+        const calls: string[] = [];
+        const binding = {id: "P", generation: 1};
+        const hub = await start({id: "hub", kind: "server", role: "hub", project: null, client: null}, (contexts) => [answering("demo.where-server", "server", atServer, calls), caller("app.caller", "server", contexts)], clock);
+        const project = await start({id: "project-P", kind: "project", role: "project", project: binding, client: null}, () => [answering("demo.where-project", "project", atProject, calls)], clock);
+        const browser = await start({id: "browser-1", kind: "browser", role: "client", project: binding, client: "profile-1"}, (contexts) => [caller("app.caller", "browser", contexts)], clock);
+        const router = createRemoteRouter(hub.node, {holdsProjectLease: () => true});
+        for (const instance of [project, browser]) {
+            const pair = createLinkPair();
+            router.accept(pair.right);
+            expect(await instance.node.connect(pair.left)).toEqual({ok: true});
+        }
+        const remote = (instance: Instance): RemoteAccess => {
+            const context = instance.contexts.get("app.caller");
+            if (context === undefined) {
+                throw new Error("没有调用方插件的激活上下文");
+            }
+            return context.remote;
+        };
+        return {calls, hub, browser, remote};
+    }
+
+    it("省略 .at() 时按提供方位置到达服务端或调用方绑定的项目；没有绑定的服务端插件用 {project} 指名", async () => {
+        const t = await placed();
+        expect(await t.remote(t.browser).use(atServer).where({})).toEqual({ok: true, value: "server"});
+        expect(await t.remote(t.browser).use(atProject).where({})).toEqual({ok: true, value: "project"});
+        expect(await t.remote(t.browser).use(atServer).at("server").where({})).toEqual({ok: true, value: "server"});
+        expect(await t.remote(t.hub).use(atProject).at({project: "P"}).where({})).toEqual({ok: true, value: "project"});
+        expect(t.calls).toEqual(["server", "project", "server", "project"]);
+    });
+
+    it("目标与提供方位置不符的调用与订阅在未派发阶段为 invalid-input，请求没有发出", async () => {
+        const t = await placed();
+        const browser = t.remote(t.browser);
+        // @ts-expect-error 服务端合同只能发往服务端
+        const misplacedServer = browser.use(atServer).at("project");
+        // @ts-expect-error 项目合同不能发往客户端
+        const misplacedProject = browser.use(atProject).at({client: "browser-1"});
+        expect(await misplacedServer.where({})).toMatchObject({ok: false, code: "invalid-input"});
+        expect(await misplacedServer.events.tick.subscribe({}, () => undefined)).toMatchObject({ok: false, code: "invalid-input"});
+        expect(await misplacedProject.where({})).toMatchObject({ok: false, code: "invalid-input"});
+        expect(t.calls).toEqual([]);
+    });
+
+    it("any 与 client 的合同推不出目标，必须写 .at()", async () => {
+        const t = await placed();
+        const use = t.remote(t.browser).use(echo);
+        // @ts-expect-error 每个实例各有一份的合同没有缺省目标
+        expect(use.whoami).toBeUndefined();
+        expect(typeof use.at).toBe("function");
+    });
+});
+
+describe("Spec plugins 输出 22：远程提供项的位置", () => {
+    const atServer = defineRemoteService({id: "demo.where/server", version: 1, provider: "server", callers: ["browser"], methods: {where: {input: Empty, output: Type.String(), effect: "read"}}});
+    const misplaced: PluginDefinition = {
+        id: "demo.misplaced",
+        entries: [{
+            id: "main",
+            location: "project",
+            activationEvents: ["onStartup"],
+            remoteProvides: [atServer.id],
+            activate: () => ({remote: [provideRemote(atServer, () => ({methods: {where: () => ({ok: true, value: "project"})}}))]}),
+        }],
+    };
+
+    it("合同的提供方位置与实例角色不符为输出阶段失败 remote-location-mismatch", async () => {
+        const node = createRemoteNode({instance: {id: "project-P", kind: "project", role: "project", project: {id: "P", generation: 1}, client: null}});
+        const app = createApplication(
+            {identity: {location: "project", instanceId: "project-P"}, stopSignal: new AbortController().signal, emergency: () => undefined},
+            {keys: [], plugins: [misplaced], gates: [], remote: node},
+        );
+        expect(await app.startup).toMatchObject({status: "available", failures: [{source: "demo.misplaced/main", reason: "output/remote-location-mismatch", required: false}]});
+    });
+
+    it("没有远程节点的实例不核对位置", async () => {
+        const app = createApplication(
+            {identity: {location: "project", instanceId: "project-P"}, stopSignal: new AbortController().signal, emergency: () => undefined},
+            {keys: [], plugins: [misplaced], gates: [], remote: undefined},
+        );
+        expect(await app.startup).toMatchObject({status: "available", failures: []});
     });
 });

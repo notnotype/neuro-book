@@ -95,11 +95,13 @@ describe("Spec plugin-channel 术语：远程服务合同", () => {
         const contract = defineRemoteService({
             id: "nbook.files/files",
             version: 1,
+            provider: "project",
             callers: ["browser", "tui", "server"],
             methods: {list: {input: Input, output: Type.Array(Type.String()), effect: "read"}, create: {input: Input, output: Type.Null(), effect: "write", errors: {"already-exists": Type.Object({})}}},
             events: {changes: {filter: Input, payload: Type.Object({uri: Type.String()})}},
         });
         expect(Object.isFrozen(contract)).toBe(true);
+        expect(contract.provider).toBe("project");
         expect(Object.keys(contract.methods)).toEqual(["list", "create"]);
         expect(Object.keys(contract.events)).toEqual(["changes"]);
     });
@@ -107,13 +109,15 @@ describe("Spec plugin-channel 术语：远程服务合同", () => {
     it("结构不合法的合同在定义时抛 TypeError", () => {
         const method = {input: Input, output: Type.Null(), effect: "read" as const};
         const bad: ReadonlyArray<Parameters<typeof defineRemoteService>[0]> = [
-            {id: "files", version: 1, callers: ["browser"], methods: {list: method}},
-            {id: "nbook.files/files", version: 0, callers: ["browser"], methods: {list: method}},
-            {id: "nbook.files/files", version: 1, callers: [], methods: {list: method}},
-            {id: "nbook.files/files", version: 1, callers: ["browser"], methods: {list: {...method, input: Type.Object({uri: Type.String()})}}},
-            {id: "nbook.files/files", version: 1, callers: ["browser"], methods: {list: {...method, errors: {timeout: Type.Object({})}}}},
-            {id: "nbook.files/files", version: 1, callers: ["browser"], methods: {events: method}},
-            {id: "nbook.files/files", version: 1, callers: ["browser"], methods: {list: method}, events: {list: {filter: Input, payload: Type.Null()}}},
+            {id: "files", version: 1, provider: "any", callers: ["browser"], methods: {list: method}},
+            {id: "nbook.files/files", version: 0, provider: "any", callers: ["browser"], methods: {list: method}},
+            {id: "nbook.files/files", version: 1, provider: "any", callers: [], methods: {list: method}},
+            {id: "nbook.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: {...method, input: Type.Object({uri: Type.String()})}}},
+            {id: "nbook.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: {...method, errors: {timeout: Type.Object({})}}}},
+            {id: "nbook.files/files", version: 1, provider: "any", callers: ["browser"], methods: {events: method}},
+            {id: "nbook.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: method}, events: {list: {filter: Input, payload: Type.Null()}}},
+            {id: "nbook.files/files", version: 1, provider: "everywhere" as never, callers: ["browser"], methods: {list: method}},
+            {id: "nbook.files/files", version: 1, provider: "any", callers: ["browser"], methods: {at: method}},
         ];
         for (const spec of bad) {
             expect(() => defineRemoteService(spec), spec.id).toThrow(TypeError);

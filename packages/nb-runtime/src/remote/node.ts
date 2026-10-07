@@ -10,7 +10,8 @@ import type {RuntimeClock} from "../lifecycle/lifecycle";
 import {perConsumer} from "../services/services";
 import type {ConsumerIdentity, PerConsumerProvision} from "../services/services";
 
-import type {RemoteClient, RemoteContract, RemoteImplementation, RemoteSubscribeOptions} from "./contract";
+import {providerAccepts} from "./contract";
+import type {RemoteClient, RemoteContract, RemoteImplementation, RemoteProviderLocation, RemoteSubscribeOptions, RemoteUse} from "./contract";
 import {Peer} from "./peer";
 import type {Reply, RequestOptions, SubscribeHandlers, SubscriptionChannel} from "./peer";
 import {failureFor, REMOTE_FAILURE_CODES, reservedKeys, validationProblems, WIRE_PROTOCOL_VERSION} from "./protocol";
@@ -80,12 +81,14 @@ export interface RemoteCallerContext {
 
 /** 激活上下文里的 `context.remote`。 */
 export interface RemoteAccess {
-    use<Contract extends RemoteContract>(contract: Contract): {at(target: RemoteTarget): RemoteClient<Contract>};
+    use<Contract extends RemoteContract>(contract: Contract): RemoteUse<Contract>;
     instances(): Promise<RemoteResult<ReadonlyArray<InstanceDescriptor>>>;
 }
 
 /** 插件宿主依赖的节点接口。 */
 export interface RemoteHostBinding {
+    /** 本实例的描述；插件宿主据其角色核对激活产出的远程提供项是否放对了位置。 */
+    readonly instance: InstanceDescriptor;
     attach(source: RemoteProviderSource): void;
     access(caller: RemoteCallerContext): RemoteAccess;
 }
@@ -115,7 +118,6 @@ export interface RemoteNodeOptions {
 export type RemoteConnectResult = {readonly ok: true} | {readonly ok: false; readonly reason: string; readonly message: string};
 
 export interface RemoteNode extends RemoteHostBinding {
-    readonly instance: InstanceDescriptor;
     /**
      * 连到上游（服务端路由）。连回同一服务端进程时，同一项目代次内仍有效的订阅会重建并收到 `onResync`；
      * 服务端已换进程（welcome 的 `boot` 与第一次连接时不同）时，全部远程订阅以 `server-restarted` 结束，
@@ -165,6 +167,11 @@ function toCallerFrame(consumer: ConsumerIdentity): CallerFrame {
 
 function toConsumer(frame: CallerFrame): ConsumerIdentity {
     return Object.freeze({...frame, via: frame.via === null ? null : Object.freeze({...frame.via})});
+}
+
+/** 能由提供方位置推出的缺省目标；推不出时为 null，调用方必须写 `.at(...)`。 */
+function defaultTarget(provider: RemoteProviderLocation): RemoteTarget | null {
+    return provider === "server" || provider === "project" ? provider : null;
 }
 
 function targetKey(target: RemoteTarget): string {
@@ -334,15 +341,18 @@ export class RemoteNodeImpl implements RemoteNode {
             });
         };
         return {
-            use: <Contract extends RemoteContract>(contract: Contract) => ({
-                at: (target: RemoteTarget): RemoteClient<Contract> => {
+            use: <Contract extends RemoteContract>(contract: Contract): RemoteUse<Contract> => {
+                const at = (target: RemoteTarget): RemoteClient<Contract> => {
                     const remember = (): void => {
                         ensureRelease();
                         contacted.set(targetKey(target), target);
                     };
                     return this.#client(contract, target, caller, remember, owned);
-                },
-            }),
+                };
+                const fallback = defaultTarget(contract.provider);
+                // 类型上 RemoteUse 按合同的提供方位置二选一；这里按同一判据构造，交出时只能断言。
+                return (fallback === null ? {at} : Object.assign(at(fallback), {at})) as unknown as RemoteUse<Contract>;
+            },
             instances: () => this.#instances(caller),
         };
     }
@@ -354,9 +364,16 @@ export class RemoteNodeImpl implements RemoteNode {
         remember: () => void,
         owned: Set<ActiveSubscription>,
     ): RemoteClient<Contract> {
+        // 目标与合同的提供方位置不符：调用与订阅都在未派发阶段失败，不发出请求。
+        const misplaced: Outcome | null = providerAccepts(contract.provider, target)
+            ? null
+            : {ok: false, code: "invalid-input", detail: `目标 ${targetKey(target)} 与合同 ${contract.id} 的提供方位置 ${contract.provider} 不符`};
         const client: Record<string, unknown> = {};
         for (const [name, method] of Object.entries(contract.methods)) {
             client[name] = async (input: unknown, options: {readonly signal?: AbortSignal; readonly timeout?: number} = {}): Promise<Outcome> => {
+                if (misplaced !== null) {
+                    return misplaced;
+                }
                 if (reservedKeys(input).length > 0) {
                     return {ok: false, code: "invalid-input", detail: `业务参数不得含 $nb 开头的键：${reservedKeys(input).join("、")}`};
                 }
@@ -385,6 +402,9 @@ export class RemoteNodeImpl implements RemoteNode {
         for (const [name, event] of Object.entries(contract.events)) {
             events[name] = {
                 subscribe: async (filter: unknown, listener: (payload: unknown) => void, options: RemoteSubscribeOptions = {}): Promise<Outcome> => {
+                    if (misplaced !== null) {
+                        return misplaced;
+                    }
                     if (reservedKeys(filter).length > 0) {
                         return {ok: false, code: "invalid-input", detail: `过滤参数不得含 $nb 开头的键：${reservedKeys(filter).join("、")}`};
                     }

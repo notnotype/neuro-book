@@ -32,3 +32,4 @@ omp（默认模型）只读审查了设计：[omp-design-review.txt](evidences/o
 | 片 | 状态 |
 |---|---|
 | S0 Spec 与文档 | 完成：新 Spec `runtime/projects.md`（`planned`）；`plugin-channel`、`plugins`、`server-host`、`browser-host`、`application`、`workspace/resources` 与拓扑稿按计划修订，README 注册表与包 AGENTS 同步。计划之外补了两条失败语义：登记副本（身份文件里的 id 仍在原路径）为 `identity-conflict`，登记表无法解析时不覆盖、相关操作以 `registry-invalid` 失败 |
+| S1 合同的提供方位置 | 完成：`defineRemoteService` 必填 `provider`，`use(合同)` 在 `server`、`project` 时就是缺省目标的客户端，`at` 只接受该位置的目标；目标不符在未派发阶段 `invalid-input`；激活产出的远程提供项与实例角色不符为 `remote-location-mismatch`；方法名不能是 `at`。内核 251 例、`window.test.ts` 18 例通过，三处判据变异各被一例抓住 |

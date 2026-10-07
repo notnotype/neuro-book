@@ -503,6 +503,18 @@ export class PluginHostImpl implements PluginHost {
         return Promise.all(targets.map((ref) => this.activate(ref, {signal})));
     }
 
+    /**
+     * 远程提供项的合同要求的提供方位置与本实例的拓扑角色不符（服务端实例的角色是 `hub`，对应 `server`）。
+     * 没有远程节点的实例没有远程提供项可用，也就不核对。
+     */
+    #misplacedRemote(item: RemoteProvision): boolean {
+        if (this.#remote === null || item.contract.provider === "any") {
+            return false;
+        }
+        const role = this.#remote.instance.role;
+        return item.contract.provider !== (role === "hub" ? "server" : role);
+    }
+
     /** 激活上下文的 `remote`：调用方身份是这次激活；这一代结束时通知节点释放为它生成的门面。 */
     #remoteAccess(attempt: Attempt, plugin: string, entry: string): RemoteAccess {
         if (this.#remote === null) {
@@ -941,6 +953,9 @@ export class PluginHostImpl implements PluginHost {
         for (const item of output.remote ?? []) {
             if (!remoteDeclared.includes(item.contract.id) || remote.has(item.contract.id)) {
                 return fail("output", "undeclared-remote", {key: item.contract.id});
+            }
+            if (this.#misplacedRemote(item)) {
+                return fail("output", "remote-location-mismatch", {key: item.contract.id});
             }
             remote.set(item.contract.id, item);
         }
@@ -1656,6 +1671,9 @@ function unavailableRemote(): RemoteAccess {
     const failure = (): Promise<{readonly ok: false; readonly code: "unavailable"; readonly detail: string}> =>
         Promise.resolve({ok: false, code: "unavailable", detail: "本实例没有配置远程节点"});
     const events = new Proxy({}, {get: () => ({subscribe: failure})});
-    const client = new Proxy({}, {get: (_target, property) => (property === "then" ? undefined : property === "events" ? events : failure)});
-    return {use: () => ({at: () => client as never}), instances: failure};
+    const client: object = new Proxy(
+        {},
+        {get: (_target, property) => (property === "then" ? undefined : property === "events" ? events : property === "at" ? () => client : failure)},
+    );
+    return {use: () => client as never, instances: failure};
 }

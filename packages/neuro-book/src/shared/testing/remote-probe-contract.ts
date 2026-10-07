@@ -27,6 +27,7 @@ const Caller = Type.Object({
 export const remoteProbeContract = defineRemoteService({
     id: "test.remote-probe/probe",
     version: 1,
+    provider: "server",
     callers: ["browser", "tui"],
     methods: {
         echo: {input: Type.Object({}, {additionalProperties: false}), output: Caller, effect: "read"},

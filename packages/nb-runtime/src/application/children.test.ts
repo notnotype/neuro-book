@@ -287,7 +287,7 @@ describe("Spec application 子实例与租约：父实例停止", () => {
 });
 
 describe("Spec plugin-channel 输出 9：{project} 目标核对租约", () => {
-    const echo = defineRemoteService({id: "demo.project/echo", version: 1, callers: ["server"], methods: {where: {input: Type.Object({}, {additionalProperties: false}), output: Type.String(), effect: "read"}}});
+    const echo = defineRemoteService({id: "demo.project/echo", version: 1, provider: "project", callers: ["server"], methods: {where: {input: Type.Object({}, {additionalProperties: false}), output: Type.String(), effect: "read"}}});
 
     interface Running {
         readonly app: Application;

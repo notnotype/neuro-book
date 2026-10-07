@@ -13,8 +13,8 @@ import type {InstanceDescriptor, RemoteNode, RemoteResult} from "./remote";
 import {createLinkPair} from "./testing/in-process";
 
 const Empty = Type.Object({}, {additionalProperties: false});
-const serviceA = defineRemoteService({id: "demo.a/a", version: 1, callers: ["browser", "server", "project"], methods: {ping: {input: Empty, output: Type.String(), effect: "read"}}});
-const serviceB = defineRemoteService({id: "demo.b/b", version: 1, callers: ["browser", "server", "project"], methods: {ping: {input: Empty, output: Type.String(), effect: "read"}, wait: {input: Empty, output: Type.String(), effect: "read"}}});
+const serviceA = defineRemoteService({id: "demo.a/a", version: 1, provider: "server", callers: ["browser", "server", "project"], methods: {ping: {input: Empty, output: Type.String(), effect: "read"}}});
+const serviceB = defineRemoteService({id: "demo.b/b", version: 1, provider: "project", callers: ["browser", "server", "project"], methods: {ping: {input: Empty, output: Type.String(), effect: "read"}, wait: {input: Empty, output: Type.String(), effect: "read"}}});
 
 interface Instance {
     readonly app: Application;
