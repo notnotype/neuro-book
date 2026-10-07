@@ -531,7 +531,10 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         return {status: "resolved", instance: facade.instance, binding};
     }
 
-    /** 调用提供者的门面工厂；工厂抛错或返回非对象都是这次解析的初始化失败。 */
+    /**
+     * 调用提供者的门面工厂；工厂抛错、返回非对象或返回 Promise 都是这次解析的初始化失败。门面工厂必须
+     * 同步：门面代理把 `then` 读作 undefined，async 工厂产出的 Promise 会被当成没有方法的门面交出去。
+     */
     #createFacade(
         provider: ProviderEntry,
         provision: PerConsumerProvision<object>,
@@ -548,6 +551,10 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         }
         if (typeof target !== "object" || target === null) {
             this.#record("resolve", "facade-not-object", {entryId: provider.id, key: provider.key.name, scopeId: scope.id});
+            return {status: "unavailable", key: provider.key.name, reason: "initialization-failed", providerId: provider.id, error: null, path: [provider.id]};
+        }
+        if ("then" in target && typeof target.then === "function") {
+            this.#record("resolve", "facade-async", {entryId: provider.id, key: provider.key.name, scopeId: scope.id});
             return {status: "unavailable", key: provider.key.name, reason: "initialization-failed", providerId: provider.id, error: null, path: [provider.id]};
         }
         return {status: "created", target};

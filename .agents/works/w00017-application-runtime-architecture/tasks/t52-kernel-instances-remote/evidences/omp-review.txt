@@ -1,0 +1,114 @@
+# w00017 t52（K1 内核）只读审查报告
+
+对象：`61668ee4..HEAD`（S0–S10，分支 `refactor/w00017-runtime-foundation`）。范围：`packages/nb-runtime` 与 `docs/specs/runtime/`。
+方法：逐文件阅读全部改动；对照 7 份 Spec、topology proposal、ADR 0024 与 t51 两轮审查条目；基线跑 `bun run --cwd packages/nb-runtime test`（223 例）与 `typecheck`（两套配置）；对关键判据做 7 次突变检查（改坏实现 → 测试失败/不失败 → 恢复），并用 3 个仓库外临时脚本在真实内核实例 + 进程内链路上复现行为疑点。所有突变已恢复，`git status`、`git diff` 确认工作区干净。
+
+## 发现
+
+### 1. [重要] 激活等待环检测把“已在激活链上”直接当作“正在激活”，已激活完成的入口也被拒
+
+- 位置：`packages/nb-runtime/src/plugins/host.ts:556`（`#lookupRemote`）
+- 现象：环检测只核对 `chain.some(link => link.plugin/entry 匹配)`，不核对候选入口是否仍在激活中。激活链上的每一环只在“该入口激活未完成”时携带（`#remoteAccess` 的 `chain()`），但帧发出后入口可能已完成激活：A 激活期间 fire-and-forget 调用 B（不 await），帧带链 [A]；A 的 activate 返回完成；B 激活期间再调用 A，A 在链上被立即拒为 `activation-cycle`，尽管 A 已经 available、根本不需要等待。
+- 为什么是问题：与 Spec `plugin-channel.md` 输出第 6 条“发现**需要激活或等待**的入口已在链中”不符——实现把“在链上”当成了“需要等待”。误拒不会挂起、不损坏数据，但让合法调用失败；插件作者无法从合同预知这种拒绝。
+- 如何核实：仓库外脚本 `experiment-cycle.ts`，三个真实内核实例（hub + project + browser）经进程内链路：A 激活中 fire-and-forget 调 B，B 激活中调 A。实测结果 `fromB = {ok:false, code:"unavailable", cause:"activation-cycle", detail:"激活等待环：demo.a/main 正在激活并等待这个请求"}`，而同一时刻 `browser->A` 已成功返回 `"a"`（A 已完成激活）。
+- 建议改法：环检测同时核对候选入口正在激活中（`record.current !== null && record.current.settled === null`）才判环；入口已激活（settled 已定）或未激活但不在激活中时走正常激活/复用路径。补一条回归：A 激活期间 fire-and-forget 调 B、A 完成后 B 激活期间调 A 应成功。
+
+### 2. [重要] “提供者实例释放时作废门面”没有测试覆盖，改掉后全部测试仍通过
+
+- 位置：`packages/nb-runtime/src/services/composition.ts:773-775`（`#runAttempt` 的 release 回调里 `facade.revoke("provider-stopped")`）
+- 现象：Spec `services.md` 输出第 12 条与验收场景 10 要求“提供者停止后门面作废、访问抛 `ServiceRevokedError`”。现有测试只覆盖了调用方作用域关闭（released 路径）：`services/per-consumer.test.ts` 与 `plugins/per-consumer.test.ts` 都没有“提供者停止、调用方作用域仍存活时访问门面”的用例。
+- 为什么是问题：这是上一轮审查条目 4（门面两层寿命、旧门面不复活）的核心不变量之一，实现做了但没有任何测试守住；误删该行会静默回归为“调用方仍能通过旧门面访问已停止提供者的状态”。
+- 如何核实：突变检查 7——删除 `for (const facade of attempt.facades.values()) facade.revoke("provider-stopped")` 后跑全量测试，223 例全部通过；已恢复。
+- 建议改法：在 `services/per-consumer.test.ts` 加一条：提供者作用域关闭（调用方作用域不关闭）后，调用方对已取门面与已取方法的访问抛 `ServiceRevokedError`，消息区分 `provider-stopped`；释放函数仍随调用方作用域执行一次。
+
+### 3. [重要] 门面缓存键的“激活代次”维度没有测试覆盖，同一提供者代次内代次变化复用旧门面时无测试失败
+
+- 位置：`packages/nb-runtime/src/services/composition.ts:586`（`#facadeFor` 的 `cacheKey = ${entry.id}#${generation}`）
+- 现象：`plugins/per-consumer.test.ts` 的“重新登记激活得到新代次新门面”用例通过**新登记作用域**（`registration-1` 关闭后新建 `registration-2`）绕过同一提供者 Attempt 内的代次变化，因此它验证不了缓存键里 generation 的作用：同一提供者代次内，入口 A#1 停止、A#2 再解析必须拿到新门面而不是 A#1 的旧门面。
+- 为什么是问题：上一轮条目 4 的“重激活只能拿到新门面、旧门面不复活”。若实现把 generation 从缓存键去掉，A#2 会拿到已被作废的 A#1 门面（立即抛 `ServiceRevokedError`），现有测试一个都不失败。
+- 如何核实：突变检查 5——把 cacheKey 改为 `${entry.id}` 后跑全量测试，只有“没有激活代次的调用方按访问作用域各得一个门面”（generation === null 分支）失败，带代次的用例全过；已恢复。
+- 建议改法：补一条同登记作用域内“入口停止（recover/同作用域重激活）→ 同一提供者代次再解析得到新门面、旧门面仍作废”的用例，覆盖 generation 维度。
+
+### 4. [重要] “发往已结束项目代次的请求/订阅不改投新代次”与“旧代次订阅不复活”没有测试覆盖；plan 验收映射宣称的用例不存在
+
+- 位置：`packages/nb-runtime/src/remote/router.ts:157`（`#resolve` 的 `project` 目标代次核对 `project.descriptor.project?.generation !== binding.generation`）
+- 现象：`routing.test.ts` 的订阅测试只有四种取消条件（释放、提供入口停止、订阅方入口停止、客户端-路由链路断开后同代次重连 resync），没有“客户端绑定 P#1、项目已是 P#2 时请求/订阅被拒”的用例；`children.test.ts` 的 `{project}` 租约测试走的是 `{project}` 目标而非 `project` 绑定目标。plan.md 验收映射“同代次重连后 resync；旧代次订阅不复活 → routing.test.ts”与 README 证据的对应条目实际不存在。
+- 为什么是问题：Spec `plugin-channel.md` 状态表“目标实例代次结束后，发往旧代次的请求一律在未派发阶段失败，不改投新代次”与验收场景 8“旧代次订阅不复活”是 K2/K3 重连语义的核心判据；现在删掉这行核对，客户端会把请求改投到 P#2（旧绑定改投新代次，Spec 明确禁止）而没有任何测试失败。
+- 如何核实：突变检查 4——去掉 `|| project.descriptor.project?.generation !== binding.generation` 后跑 `routing.test.ts`、`activation.test.ts`、`children.test.ts` 共 26 例全部通过；已恢复。
+- 建议改法：在 `routing.test.ts` 补一条：项目 P#1 下线、P#2 上线后，仍绑定 P#1 的客户端经 `at("project")` 请求与重连重建的订阅都得到 `target-gone`，且提供方 P#2 的激活计数不增加（证明没有改投）。
+
+### 5. [重要] 跨实例调用传不可序列化输入时，调用方拿到未捕获的 DOMException 而非结构化失败，且 pending 表条目泄漏到连接关闭
+
+- 位置：`packages/nb-runtime/src/remote/peer.ts:126`（`request` 里 `this.#link.send(...)`）、`:141`（`subscribe` 里 send）；`router.ts` `#routeRequest`/`#routeSubscribe` 转发的 peer 同样
+- 现象：`peer.request` 先把 pending 登记进 `#pending`，再同步调用 `link.send`；进程内链路对不可结构化克隆的帧在 send 里抛 `DOMException`（真实 WebSocket send 在连接关闭竞态下同样可能同步抛）。异常沿 `#client` 的 `await this.#upstream.request(...)` 传播给插件代码，Spec `plugin-channel.md` 输出第 1 条承诺的“返回结构化结果、不抛出业务失败”被破坏；同时 `#pending` 里留下永不结算的条目（abort listener 与超时计时器都挂着），直到链路关闭才被 `#onClose` 清掉。路由器转发路径的 `.then(outcome => reply.result(outcome))` 在 send 抛错时不执行，上游请求只能等超时/取消。
+- 为什么是问题：开发模式的可序列化检查只覆盖同实例调用（`#localRequest` 的 `validateLocalCalls` 分支）；跨实例调用传错值（插件 bug）会逃逸成未捕获异常并泄漏内核表条目，违反 Spec 的结构化失败合同与审查重点里的“Map 条目没有清理”。
+- 如何核实：仓库外脚本 `experiment-unserializable.ts`，真实内核实例 + 进程内链路：`browserRemote.use(echo).at("server").run({callback: () => 1})` 实测得到 `DOMException: The object can not be cloned.`（调用方 try-catch 捕获到异常）；后续正常请求照常成功（节点未损坏，但泄漏条目仍在表内）。
+- 建议改法：`peer.request`/`subscribe` 里把 `send` 包进 try-catch，失败时按未派发结算（`invalid-input` 附不可序列化说明，或按传输故障记 `unavailable`/`disconnected`）并清理 pending；`router.ts` 的转发调用同样 catch 后回 `provider-error`/`unavailable`，不能只挂到超时。
+
+### 6. [建议] `consumerKey` 不含 `via.generation`：跨实例委托启用后，代理入口重激活会复用旧门面
+
+- 位置：`packages/nb-runtime/src/remote/node.ts:146-148`（`consumerKey` 只用 `via.plugin`、`via.entry`，不用 `via.generation`）
+- 现象：帧上的 `$nbConsumer.via` 带代次（`protocol.ts` 的 `CallerFrameSchema`），但节点侧门面缓存键把它丢掉了。当前没有任何路径产生 via 非空的帧（同实例委托不经帧，README 已知限制“经代理转发到另一实例的委托尚未实现”），所以今天不可达；K2/K4 实现跨实例委托后，同一提供方代次内“代理 P#1 停止、P#2 重激活、调用方 A 同一代次”会命中 P#1 时代签发的旧实现，工厂不再为 (A via P#2) 调用。
+- 为什么是问题：与按调用方门面“旧门面不复活”的语义冲突；且 P#1 停止时节点侧为 (A via P#1) 生成的实现没有任何释放路径（release 帧只由 A 代次结束触发，S 的 stopSignal 只在 S 停止时触发），会滞留到 A 代次结束。
+- 如何核实：代码阅读推断（当前无运行路径可触发，未做运行时实验）。
+- 建议改法：`consumerKey` 加入 `consumer.via?.generation`；或在实现跨实例委托时一并补“代理代次变化作废旧门面”的路径与测试。
+
+### 7. [建议] `resync` 帧类型是死代码：定义、解析与 handler 都在，但没有任何发送方
+
+- 位置：`packages/nb-runtime/src/remote/protocol.ts:178`、`peer.ts:218-219`
+- 现象：重连重建订阅后 `onResync` 由节点本地直接调用（`node.ts` `#resubscribeAll`），`{type: "resync", id}` 帧从没有人发送；`PeerHandlers.onResync` 没有消费者。
+- 为什么是问题：协议帧是内核内部协议（Spec 写明变更时提升 wire 版本），留着无发送方的帧类型会让后续实现者误以为重连要发它，或让 wire 版本白白锁住一个未定义的语义。
+- 如何核实：全仓 grep `resync`，只有定义、解析、handler 与注释，无 send。
+- 建议改法：删掉 resync 帧类型与 `onResync` handler（重连语义由订阅方本地回调承担），或补注释说明该帧保留给未来真实传输用且当前语义由本地回调实现。
+
+### 8. [建议] 按调用方门面工厂返回 thenable（async 函数）时静默产出坏门面，诊断不清晰
+
+- 位置：`packages/nb-runtime/src/services/composition.ts:556-568`（`#createFacade` 只检查 `typeof target === "object"`）；`remote/node.ts` `#facade` 同样直接信任工厂返回值
+- 现象：async 工厂返回的 Promise 是 object，通过检查后被 `revocableFacade` 包成代理；代理的 `then` 恒返回 `undefined`（防 thenable 设计），`await facade` 立即返回代理自身，所有方法属性都是 `undefined`。调用方拿到 `status: "resolved"` 的“门面”，调用方法才报 `facade.read is not a function`。远程场景则报“实现缺少方法”。
+- 为什么是问题：Spec 写明门面是同步工厂（“同步工厂，天然 single-flight”），但误用是 TS/JS 作者最常见的错误（写 `async (consumer) => ...` 就能通过编译）；现在的失败在调用点而非解析点，且错误信息与真实原因无关，排查成本高。
+- 如何核实：仓库外脚本 `experiment-async-facade.ts`：async 工厂解析得到 `status: "resolved"`，`typeof facade.read === "undefined"`，调用抛 `TypeError: facade.read is not a function`；`await facade` 不等待内部 Promise。
+- 建议改法：`#createFacade`（与 `node.ts` `#facade`）在工厂返回后检查 `typeof target.then === "function"`，thenable 时按 `initialization-failed`/`facade-failed` 记诊断并拒绝解析，提示“门面工厂必须同步返回”。
+
+### 9. [建议] `#localRequest` 的 abort 监听不随结算清理，与 `peer.request` 不一致
+
+- 位置：`packages/nb-runtime/src/remote/node.ts:437-443`
+- 现象：`peer.request` 在 `settle` 里 `options.signal?.removeEventListener("abort", onAbort)`；`#localRequest` 的 `options.signal?.addEventListener("abort", () => interrupt("cancelled"), {once: true})` 结算后不移除。调用方传入长寿命信号（入口代次信号）时，同代次内每次本地调用累积一个 listener，直到代次结束 abort 时才集中触发（此时 pending 已结算，全是空操作）。
+- 为什么是问题：不是正确性问题（代次结束时必然清理），但是审查重点里“监听没有清理”的一例，且与同文件另一路径的清理习惯不一致；高频率本地调用（按键级路径）会累积。
+- 如何核实：代码阅读；`node.ts` 两处实现对照。
+- 建议改法：与 `peer.request` 一致，在 `settle` 里移除 listener（保存 `onAbort` 引用）。
+
+### 10. [建议] “路由-提供方实例之间的连接结束”半边没有测试：routing.test.ts 的“连接结束”只断客户端-路由链路
+
+- 位置：`packages/nb-runtime/src/remote/router.ts:203`（`onEnd: reason => channel.end(reason === "disconnected" ? "target-gone" : reason)`）；测试缺口在 `routing.test.ts` 订阅 describe
+- 现象：Spec 场景 8“连接结束”覆盖订阅所经连接的任何一段。现有“连接结束”用例关闭的是 `browser-1` 与路由之间的链路，验证了“调用方断开 → 路由退订下游 → 提供方 signal 触发”全链；但路由与项目实例之间断开时，路由把订阅结算为 `target-gone` 转发给客户端（客户端订阅立即结束、不会 resync）这条映射没有任何用例。
+- 为什么是问题：该映射是“所经连接结束即取消订阅”的正确实现，但 resync 与 target-gone 的边界（客户端连接断 → 保留待重建；提供方侧连接断 → 结束）没有测试区分，改坏映射（例如把 `target-gone` 改成原样转发 `disconnected`，客户端会错误地等重连重建）没有测试失败。
+- 如何核实：代码阅读 + 测试清单核对；未做突变（与发现 4 同属“连接/代次结算”判据缺口，修复时一并补）。
+- 建议改法：在 `routing.test.ts` 补一条：断开 `project-P` 与路由之间的链路后，客户端订阅收到 `onEnd("target-gone")`（不触发 resync 保留），提供方 signal 触发。
+
+## 未发现问题、核实过的方面
+
+- 门面作废代理（`revocableFacade`）的 thenable 防御、方法取出后再调用的作废检查：正确，有测试（“门面不是 thenable”）。
+- 委托签发核对（WeakMap、delegates 声明、允许清单、伪造/转交拒绝、释放顺序“代理 release 后逆序释放委托门面”）：实现与 Spec 输出第 13 条一致，`delegation.test.ts` 6 例覆盖，其中“代理释放函数运行时仍可用委托门面”有顺序断言。
+- 远程请求失败码：`protocol.test.ts` 对 `failureFor` 纯函数全码表测试 + `routing.test.ts` 经真实链路的“写请求派发后断开为 unknown-outcome(disconnected)/超时为 unknown-outcome(timeout)”——突变检查 1（去掉 ACK phase 转换）确实让这两例失败，判据有测试守住。
+- 订阅四种取消条件：释放（提供方 signal + 迟到事件丢弃）、提供入口停止（onEnd provider-stopped）、订阅方入口停止（提供方 signal + 门面释放）、连接结束 + 同代次重连 resync：`routing.test.ts` 均有真实内核用例，且迟到事件（旧 sink next 被丢弃）有断言。
+- 激活期超时上限（`min(作者值, 上限)`）与等待环：`activation.test.ts` 注入时钟覆盖；突变检查 6（去掉环检测）使等待环用例超时失败，判据有测试守住。
+- 子实例状态表全部转换、宽限期取消、代次不复用、强制结束记为外部终止、父实例停止先封闭接纳且子实例先停、截止先到报 incomplete(deadline)：`children.test.ts` 12 例覆盖并有顺序断言；`{project}` 租约核对两个用例——突变检查 3（去掉租约核对）使这两例失败，判据有测试守住。
+- 路由实例身份核对：`routing.test.ts` “链路上声称是其它实例的请求被路由拒绝”——突变检查 2 使该例失败，判据有测试守住。
+- 测试写法合规：本 Task 新增测试无 mock/spy/假计时器/固定时长等待，时间全部用注入的 `ManualClock`，等待用让出事件循环（延迟为 0）；源码守卫（remote 模块依赖白名单、plugins 对 remote 只许类型导入）存在且有效。
+- 工作区纪律：7 次突变全部恢复，最终 `git status`、`git diff` 干净；基线 `bun run --cwd packages/nb-runtime test` 223 例通过、`typecheck` 两套配置通过。
+
+## 总结
+
+- 发现共 10 条：重要 5（1–5）、建议 5（6–10）；无阻断。重要项中 1 是实验证实的 Spec 语义偏差（等待环误判），5 是实验证实的失败语义违约 + 表条目泄漏，2–4 是“实现正确但关键判据无测试守住”（均已用突变检查证实改坏后测试不失败，其中发现 4 还对应 plan 验收映射里不存在的用例）。
+- 上一轮审查条目逐条满足情况：
+  - 初审 2（订阅两端寿命）：满足。订阅方入口停止、提供方入口停止、提供项撤回、实例/连接结束四条取消路径都在，测试覆盖四条（提供方侧连接半边见发现 10）。
+  - 初审 3（委托）：满足。签发、核对、允许清单、伪造拒绝、逆序释放全部实现并有测试。
+  - 初审 4（门面寿命）：实现满足，测试部分缺口（提供者停止作废、同提供者代次内代次区分无覆盖，发现 2、3）。
+  - 初审 5（停止先封闭接纳）：满足。`stop()` 同步段关闭接纳 + 停止阶段 + 截止结算，测试覆盖完整。
+  - 初审 15（等待环）：基本满足，但环检测存在已激活入口被误拒的偏差（发现 1）；超时上限满足且被测试守住。
+  - 初审 16（两层版本）：满足。wire 版本握手拒绝、合同版本精确匹配 `version-changed`，均有测试。
+  - 复审 1（同实例也按消费方取门面）：满足。本地路径同样按调用方取门面、开发模式校验可序列化，有测试。
+  - 复审 2（上下文走路由帧）：满足。`$nb` 前缀保留字段 + 业务参数同名前缀拒绝，路由侧只信链路握手登记的实例 id，有测试。
+  - 复审 3（门面内存状态不跨代次）：满足。门面随调用方作用域释放，缓存键带代次（但代次维度无测试守住，发现 3）。
+  - 复审 7（激活期超时强制）：满足。`min(作者值, 上限)`，注入时钟测试证实长超时被截短、激活外不受限。
+  - 复审 8（帧带期望合同版本）：满足。request/subscribe 帧带 `version`，提供方核对不符报 `version-changed`，有测试。

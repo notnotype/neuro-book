@@ -121,6 +121,29 @@ describe("Spec plugin-channel 输出 6：激活期调用与等待环", () => {
         expect(t.hub.node.diagnostics().some((diagnostic) => diagnostic.reason === "activation-cycle")).toBe(true);
     });
 
+    it("A 激活期间发出对 B 的调用但不等待、自己先完成激活：B 激活时再调用 A 不算等待环，照常成功", async () => {
+        let fromA = null as Promise<RemoteResult<string>> | null;
+        let fromB = null as RemoteResult<string> | null;
+        const aSettled = Promise.withResolvers<void>();
+        const t = await topology({
+            activateA: async (context) => {
+                fromA = context.remote.use(serviceB).at({project: "P"}).ping({});
+            },
+            activateB: async (context) => {
+                await aSettled.promise;
+                fromB = await context.remote.use(serviceA).at("server").ping({});
+            },
+        });
+
+        // 浏览器的调用触发 A 激活，A 激活完成后才回复。
+        expect(await t.browserRemote().use(serviceA).at("server").ping({})).toEqual({ok: true, value: "a"});
+        aSettled.resolve();
+
+        expect(await fromA).toEqual({ok: true, value: "b"});
+        expect(fromB).toEqual({ok: true, value: "a"});
+        expect(t.hub.diagnostics.some((diagnostic) => diagnostic.reason === "activation-cycle")).toBe(false);
+    });
+
     it("激活期间的远程调用受内核上限约束：作者给的超时更长也在上限处结束；激活结束后的调用不受上限约束", async () => {
         let duringActivation = null as RemoteResult<string> | null;
         const waitB = Promise.withResolvers<string>();

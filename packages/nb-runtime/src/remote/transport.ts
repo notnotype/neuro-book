@@ -6,6 +6,10 @@
 import type {Frame} from "./protocol";
 
 export interface RemoteLink {
+    /**
+     * 发送一帧。帧无法编码（含不能序列化的值）时同步抛错，`Peer` 据此把这一个请求、结果或事件结算为
+     * 结构化失败；链路已关闭时丢弃、不抛错，关闭由 `onClose` 通知。
+     */
     send(frame: Frame): void;
     /** 收到对端发来的值；返回取消监听的函数。 */
     onFrame(listener: (value: unknown) => void): () => void;

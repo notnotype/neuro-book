@@ -29,9 +29,12 @@ const echo = defineRemoteService({
         peek: {input: Type.Object({name: Type.String()}, {additionalProperties: false}), output: Type.String(), effect: "read"},
         refuse: {input: Empty, output: Type.Null(), effect: "write", errors: {"no-luck": Type.Object({}, {additionalProperties: false})}},
         misbehave: {input: Type.Object({how: Type.String()}, {additionalProperties: false}), output: Type.String(), effect: "read"},
+        /** 合同不限制值的形状：用来检验链路编码失败。`"function"` 让提供方返回一个函数。 */
+        relay: {input: Type.Object({value: Type.Unknown()}, {additionalProperties: false}), output: Type.Unknown(), effect: "read"},
     },
     events: {
         ticks: {filter: Type.Object({topic: Type.String()}, {additionalProperties: false}), payload: Type.Object({topic: Type.String(), n: Type.Integer()}, {additionalProperties: false})},
+        raw: {filter: Type.Object({}, {additionalProperties: false}), payload: Type.Unknown()},
     },
 });
 
@@ -50,10 +53,11 @@ interface Probe {
     readonly gates: Map<string, PromiseWithResolvers<string>>;
     readonly holdSignals: AbortSignal[];
     readonly sinks: Array<{readonly topic: string; readonly next: (payload: {topic: string; n: number}) => void; readonly signal: AbortSignal}>;
+    readonly rawSinks: Array<{readonly next: (payload: unknown) => void; readonly signal: AbortSignal}>;
 }
 
 function newProbe(): Probe {
-    return {activations: 0, consumers: [], released: [], gates: new Map(), holdSignals: [], sinks: []};
+    return {activations: 0, consumers: [], released: [], gates: new Map(), holdSignals: [], sinks: [], rawSinks: []};
 }
 
 function implementation(consumer: ConsumerIdentity, probe: Probe): RemoteImplementation<typeof echo> {
@@ -85,11 +89,17 @@ function implementation(consumer: ConsumerIdentity, probe: Probe): RemoteImpleme
                 // 故意返回合同没有声明的失败码
                 return {ok: false, code: "unheard-of" as never};
             },
+            relay: ({value}) => ({ok: true, value: value === "function" ? () => "not sendable" : value}),
         },
         events: {
             ticks: {
                 subscribe: ({topic}, sink, {signal}) => {
                     probe.sinks.push({topic, next: (payload) => sink.next(payload), signal});
+                },
+            },
+            raw: {
+                subscribe: (_filter, sink, {signal}) => {
+                    probe.rawSinks.push({next: (payload) => sink.next(payload), signal});
                 },
             },
         },
@@ -293,6 +303,84 @@ describe("Spec plugin-channel 输出 4：请求阶段与失败码", () => {
         expect(await atServer.misbehave({how: "throw"})).toMatchObject({ok: false, code: "provider-error"});
         expect(await atServer.misbehave({how: "bad-output"})).toMatchObject({ok: false, code: "provider-error"});
         expect(await atServer.misbehave({how: "undeclared"})).toMatchObject({ok: false, code: "provider-error"});
+    });
+});
+
+describe("Spec plugin-channel 输出 1、4：链路编码失败是结构化失败", () => {
+    it("跨实例传不能序列化的参数：立即得到 invalid-input，不等超时；之后的调用照常", async () => {
+        const t = await topology();
+        const atServer = t.remote(t.browser1).use(echo).at("server");
+
+        expect(await atServer.relay({value: () => 1})).toMatchObject({ok: false, code: "invalid-input"});
+        expect(await atServer.relay({value: 1})).toEqual({ok: true, value: 1});
+    });
+
+    it("提供方返回不能序列化的结果：调用方得到 provider-error，不挂起", async () => {
+        const t = await topology();
+        expect(await t.remote(t.browser1).use(echo).at("project").relay({value: "function"})).toMatchObject({ok: false, code: "provider-error"});
+    });
+
+    it("提供方推送不能序列化的事件：订阅以 onEnd(provider-error) 结束，提供方信号触发", async () => {
+        const t = await topology();
+        const ended: string[] = [];
+        await t.remote(t.browser1).use(echo).at("server").events.raw.subscribe({}, () => undefined, {onEnd: (reason) => ended.push(reason)});
+        await drain();
+        const sink = t.probes.hub.rawSinks[0]!;
+
+        sink.next(() => "not sendable");
+        await drain();
+
+        expect(ended).toEqual(["provider-error"]);
+        expect(sink.signal.aborted).toBe(true);
+    });
+
+    it("远程实现工厂是 async 函数：这次调用为 provider-error 并记诊断，不交出没有方法的实现", async () => {
+        const clock = new ManualClock();
+        const lazy: PluginDefinition = {
+            id: "demo.lazy",
+            entries: [{
+                id: "main",
+                location: "server",
+                remoteProvides: [echo.id],
+                activate: () => ({remote: [provideRemote(echo, (async (consumer: ConsumerIdentity) => implementation(consumer, newProbe())) as unknown as (consumer: ConsumerIdentity) => RemoteImplementation<typeof echo>)]}),
+            }],
+        };
+        const hub = await start({id: "hub", kind: "server", role: "hub", project: null}, (contexts) => [lazy, caller("app.caller", "server", contexts)], clock);
+        const context = hub.contexts.get("app.caller")!;
+
+        expect(await context.remote.use(echo).at("server").whoami({})).toMatchObject({ok: false, code: "provider-error"});
+        expect(hub.node.diagnostics().map((diagnostic) => diagnostic.reason)).toContain("facade-invalid");
+    });
+});
+
+describe("Spec plugin-channel 状态与场景 8：项目代次结束", () => {
+    it("项目实例下线：订阅以 onEnd(target-gone) 结束；新代次上线后，绑定旧代次的客户端请求与订阅都是 target-gone，不改投新代次，重连也不复活旧订阅", async () => {
+        const t = await topology();
+        const ended: string[] = [];
+        const resynced: number[] = [];
+        await t.remote(t.browser1).use(echo).at("project").events.ticks.subscribe({topic: "a"}, () => undefined, {onEnd: (reason) => ended.push(reason), onResync: () => resynced.push(1)});
+        await drain();
+        const oldSink = t.probes.project.sinks[0]!;
+
+        t.links.get("project-P")!.left.close();
+        await drain();
+        expect(ended).toEqual(["target-gone"]);
+        expect(oldSink.signal.aborted).toBe(true);
+
+        const nextProbe = newProbe();
+        const next = await start({id: "project-P-2", kind: "project", role: "project", project: {id: "P", generation: 2}}, () => [provider("demo.project", "project", nextProbe)], t.clock);
+        await t.connect(next);
+        const atProject = t.remote(t.browser1).use(echo).at("project");
+
+        expect(await atProject.whoami({})).toMatchObject({ok: false, code: "target-gone"});
+        expect(await atProject.events.ticks.subscribe({topic: "a"}, () => undefined)).toMatchObject({ok: false, code: "target-gone"});
+        t.links.get("browser-1")!.left.close();
+        await drain();
+        await t.connect(t.browser1);
+        await drain();
+        expect(resynced).toEqual([]);
+        expect(nextProbe.activations).toBe(0);
+        expect(nextProbe.sinks).toEqual([]);
     });
 });
 

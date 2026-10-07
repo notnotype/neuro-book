@@ -161,9 +161,9 @@ Smoke 以解析结果、依赖检查与诊断等外部可观察结果为准。�
   - 静态环在声明阶段拒绝（含可选边）；运行时等待环在初始化已开始后检测，阻断受影响解析并收口本次服务作用域，不回滚已发生副作用。
   - 诊断与报告只含位置/作用域/服务键/入口/阶段/原因，不含实例值或声明附加字段。
   - 调用方身份 `ConsumerIdentity {instanceId, location, plugin, entry, generation, via}` 由装配在生成门面时填写：声明的 `identity {plugin, entry}` 给出插件与入口，`access(entryId, scope?, {generation?})` 带入激活代次；对象冻结。
-  - 按调用方门面：提供者产出 `perConsumer` 品牌的提供项时，解析不返回共享值，而按“提供者本次尝试 + 消费方入口 + 激活代次”（没有代次时用访问作用域）取门面，同步工厂天然 single-flight。门面以 `service-facade` 资源登记在访问作用域上、`dependsOn` 该次借用，作用域关闭时先作废门面再调用提供项的 `release`；提供者实例释放时（而不是提供者开始停止时）作废它发出的全部门面。门面是包在工厂产出外面的 `Proxy`，作废后任何字符串属性访问抛 `ServiceRevokedError {key, consumer}`（消息区分随调用方释放与随提供者停止）；`then` 读作 `undefined`，使门面不被当成 thenable；函数值返回缓存的包装，调用时再检查一次作废，方法里的 `this` 指向原对象。
+  - 按调用方门面：提供者产出 `perConsumer` 品牌的提供项时，解析不返回共享值，而按“提供者本次尝试 + 消费方入口 + 激活代次”（没有代次时用访问作用域）取门面，同步工厂天然 single-flight。工厂必须同步返回对象：抛错、返回非对象或返回 Promise（async 工厂）都是这次解析的 `initialization-failed`，分别记诊断 `facade-failed`、`facade-not-object`、`facade-async`。门面以 `service-facade` 资源登记在访问作用域上、`dependsOn` 该次借用，作用域关闭时先作废门面再调用提供项的 `release`；提供者实例释放时（而不是提供者开始停止时）作废它发出的全部门面。门面是包在工厂产出外面的 `Proxy`，作废后任何字符串属性访问抛 `ServiceRevokedError {key, consumer, reason}`（`reason` 为 `released` 或 `provider-stopped`；后者只在调用方提前 `binding.release()` 结束借用、提供者实例先于门面释放时出现）；`then` 读作 `undefined`，使门面不被当成 thenable；函数值返回缓存的包装，调用时再检查一次作废，方法里的 `this` 指向原对象。
   - 委托：发给门面工厂的身份登记在内部 `WeakMap`（签发记录：原调用方、所属作用域、经它取得的门面）。`resolveFor(consumer, key)` 只接受内核签发、签发给本入口的身份，且键须同时在入口的 `delegates` 与依赖里、插件在宿主 `delegation` 允许清单内，否则返回 `Unavailable(delegation-denied)`。取得的门面身份复制原调用方、`via` 填代理入口，同一签发记录对同一提供者尝试只生成一个；它们在代理门面的 `release` 返回之后按逆序释放并作废。经代理取得的身份同样登记，可继续委托。
-- **合同测试**：`packages/nb-runtime/src/services/services.test.ts`（20 例）、`per-consumer.test.ts`（按调用方门面，5 例）；插件侧的门面共用与委托在 `packages/nb-runtime/src/plugins/per-consumer.test.ts`（3 例）与 `delegation.test.ts`（6 例）；在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行。
+- **合同测试**：`packages/nb-runtime/src/services/services.test.ts`（20 例）、`per-consumer.test.ts`（按调用方门面，7 例）；插件侧的门面共用与委托在 `packages/nb-runtime/src/plugins/per-consumer.test.ts`（3 例）与 `delegation.test.ts`（6 例）；在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行。
 - **实际 smoke**：`bun run smoke:runtime-foundation -- --host server|browser`，见 [`runtime.application`](./application.md#实现合同)。
 
 ## 证据

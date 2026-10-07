@@ -544,16 +544,18 @@ export class PluginHostImpl implements PluginHost {
                 }
             }
         }
-        if (candidates.length === 0) {
+        const [record] = candidates;
+        if (record === undefined) {
             return {status: "missing"};
         }
         if (candidates.length > 1) {
             this.#record("activate", "remote-provider-conflict", {plugin: null, capability: "remoteProvides", contribution: contractId});
             return {status: "unavailable", reason: `多个入口提供 ${contractId}`};
         }
-        const record = candidates[0]!;
-        // 提供入口已在请求的激活链上：它正在激活并（间接）等待这个请求，再等它就是等待环。
-        if (chain.some((link) => link.instanceId === this.instanceId && link.plugin === record.plugin && link.entry === record.definition.id)) {
+        // 提供入口仍在激活中且在请求的激活链上：它正在（间接）等待这个请求，再等它就是等待环。链上的入口
+        // 若已结算（例如它激活期间发出调用但没有等待结果），就不需要等它，照常复用或激活。
+        const activating = record.current !== null && record.current.settled === null;
+        if (activating && chain.some((link) => link.instanceId === this.instanceId && link.plugin === record.plugin && link.entry === record.definition.id)) {
             this.#record("activate", "activation-cycle", {plugin: record.plugin, entry: record.definition.id, capability: "remoteProvides", contribution: contractId});
             return {status: "unavailable", reason: `激活等待环：${record.plugin}/${record.definition.id} 正在激活并等待这个请求`, cause: "activation-cycle"};
         }

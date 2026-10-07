@@ -139,7 +139,7 @@ interface ActiveSubscription {
 }
 
 function consumerKey(consumer: CallerFrame | ConsumerIdentity): string {
-    return JSON.stringify([consumer.instanceId, consumer.plugin, consumer.entry, consumer.generation, consumer.via?.plugin ?? null, consumer.via?.entry ?? null]);
+    return JSON.stringify([consumer.instanceId, consumer.plugin, consumer.entry, consumer.generation, consumer.via?.plugin ?? null, consumer.via?.entry ?? null, consumer.via?.generation ?? null]);
 }
 
 function toCallerFrame(consumer: ConsumerIdentity): CallerFrame {
@@ -325,7 +325,7 @@ export class RemoteNodeImpl implements RemoteNode {
                     : this.#upstream === null
                       ? ({ok: false, code: "unavailable", detail: "本实例没有连到服务端"} as const)
                       : await this.#upstream.request(frame, requestOptions);
-                return this.#checkOutcome(contract, name, outcome);
+                return this.#checkOutcome(contract.id, method, outcome);
             };
         }
         const events: Record<string, unknown> = {};
@@ -370,18 +370,17 @@ export class RemoteNodeImpl implements RemoteNode {
     }
 
     /** 调用方一侧再核对一次结果：成功值按合同的输出 schema，失败码必须是路由层的或合同声明过的。 */
-    #checkOutcome(contract: RemoteContract, method: string, outcome: Outcome): Outcome {
-        const spec = contract.methods[method]!;
+    #checkOutcome(contractId: string, spec: RemoteContract["methods"][string], outcome: Outcome): Outcome {
         if (outcome.ok) {
             const problems = validationProblems(spec.output, outcome.value);
             if (problems !== null) {
-                this.#record("output-invalid", contract.id, problems);
+                this.#record("output-invalid", contractId, problems);
                 return {ok: false, code: "provider-error", detail: `返回值不符合合同：${problems}`};
             }
             return outcome;
         }
         if (!(REMOTE_FAILURE_CODES as ReadonlyArray<string>).includes(outcome.code) && !Object.keys(spec.errors ?? {}).includes(outcome.code)) {
-            this.#record("undeclared-error", contract.id, outcome.code);
+            this.#record("undeclared-error", contractId, outcome.code);
             return {ok: false, code: "provider-error", detail: `收到合同未声明的失败码 ${outcome.code}`};
         }
         return outcome;
@@ -419,6 +418,7 @@ export class RemoteNodeImpl implements RemoteNode {
             if (!settled) {
                 settled = true;
                 cancelTimer();
+                options.signal?.removeEventListener("abort", onAbort);
                 resolve(outcome);
             }
         };
@@ -426,12 +426,13 @@ export class RemoteNodeImpl implements RemoteNode {
             controller.abort();
             settle(failureFor(phase, frame.effect, cause));
         };
+        const onAbort = (): void => interrupt("cancelled");
         const cancelTimer = options.timeoutMs === undefined ? (): void => undefined : this.#clock.schedule(() => interrupt("timeout"), options.timeoutMs);
         if (options.signal?.aborted === true) {
             interrupt("cancelled");
             return promise;
         }
-        options.signal?.addEventListener("abort", () => interrupt("cancelled"), {once: true});
+        options.signal?.addEventListener("abort", onAbort, {once: true});
         const reply: Reply = {
             ack: () => {
                 phase = "dispatched";
@@ -469,20 +470,20 @@ export class RemoteNodeImpl implements RemoteNode {
             return;
         }
         const contract = found.provision.contract;
-        const method = contract.methods[frame.method];
-        const problem =
-            contract.version !== frame.version
-                ? ({code: "version-changed", detail: `合同 ${contract.id} 的版本为 ${String(contract.version)}，调用方期望 ${String(frame.version)}`} as const)
-                : !contract.callers.includes(frame.$nbConsumer.location)
-                  ? ({code: "denied", detail: `合同 ${contract.id} 不允许 ${frame.$nbConsumer.location} 调用`} as const)
-                  : method === undefined
-                    ? ({code: "invalid-input", detail: `合同 ${contract.id} 没有方法 ${frame.method}`} as const)
-                    : null;
-        if (problem !== null) {
-            fail(problem.code, problem.detail);
+        if (contract.version !== frame.version) {
+            fail("version-changed", `合同 ${contract.id} 的版本为 ${String(contract.version)}，调用方期望 ${String(frame.version)}`);
             return;
         }
-        const inputProblems = validationProblems(method!.input, frame.input);
+        if (!contract.callers.includes(frame.$nbConsumer.location)) {
+            fail("denied", `合同 ${contract.id} 不允许 ${frame.$nbConsumer.location} 调用`);
+            return;
+        }
+        const method = contract.methods[frame.method];
+        if (method === undefined) {
+            fail("invalid-input", `合同 ${contract.id} 没有方法 ${frame.method}`);
+            return;
+        }
+        const inputProblems = validationProblems(method.input, frame.input);
         if (inputProblems !== null) {
             fail("invalid-input", inputProblems);
             return;
@@ -503,14 +504,14 @@ export class RemoteNodeImpl implements RemoteNode {
             if (run === undefined) {
                 throw new Error(`实现缺少方法 ${frame.method}`);
             }
-            outcome = await run(frame.input as never, {signal: anySignal([signal, found.stopSignal])});
+            outcome = await run(frame.input, {signal: anySignal([signal, found.stopSignal])});
         } catch (error) {
             this.#record("provider-threw", contract.id, error instanceof Error ? error.message : String(error));
             fail("provider-error", "提供方执行失败");
             return;
         }
         if (outcome.ok) {
-            const problems = validationProblems(method!.output, outcome.value);
+            const problems = validationProblems(method.output, outcome.value);
             if (problems !== null) {
                 this.#record("output-invalid", contract.id, problems);
                 fail("provider-error", `返回值不符合合同：${problems}`);
@@ -519,7 +520,7 @@ export class RemoteNodeImpl implements RemoteNode {
             reply.result({ok: true, value: outcome.value});
             return;
         }
-        const declared = Object.keys(method!.errors ?? {});
+        const declared = Object.keys(method.errors ?? {});
         if (!declared.includes(outcome.code)) {
             this.#record("undeclared-error", contract.id, outcome.code);
             fail("provider-error", `提供方返回了合同未声明的失败码 ${outcome.code}`);
@@ -558,9 +559,8 @@ export class RemoteNodeImpl implements RemoteNode {
             channel.reject({ok: false, code: "invalid-input", detail: filterProblems});
             return;
         }
-        const implementation = this.#facade(found, toConsumer(frame.$nbConsumer));
-        const subscribe = implementation?.events?.[frame.event]?.subscribe;
-        if (subscribe === undefined || signal.aborted || found.stopSignal.aborted) {
+        const handler = this.#facade(found, toConsumer(frame.$nbConsumer))?.events?.[frame.event];
+        if (handler === undefined || signal.aborted || found.stopSignal.aborted) {
             channel.reject({ok: false, code: "unavailable", detail: "提供方没有实现这个事件或正在停止"});
             return;
         }
@@ -581,7 +581,7 @@ export class RemoteNodeImpl implements RemoteNode {
             },
         };
         try {
-            await subscribe.call(implementation!.events![frame.event], frame.filter as never, sink as never, {signal: ended});
+            await handler.subscribe(frame.filter, sink, {signal: ended});
         } catch (error) {
             this.#record("provider-threw", contract.id, error instanceof Error ? error.message : String(error));
             channel.end("provider-error");
@@ -636,14 +636,20 @@ export class RemoteNodeImpl implements RemoteNode {
         if (existing !== undefined) {
             return existing.implementation;
         }
+        let implementation: RemoteImplementation<RemoteContract>;
         try {
-            const implementation = group.provision.provision.facade(consumer);
-            group.facades.set(key, {implementation, consumer});
-            return implementation;
+            implementation = group.provision.provision.facade(consumer);
         } catch (error) {
             this.#record("facade-failed", found.provision.contract.id, error instanceof Error ? error.message : String(error));
             return null;
         }
+        // 实现工厂必须同步返回对象，规则同 runtime.services 的按调用方门面；async 工厂产出的是 Promise。
+        if (typeof implementation !== "object" || implementation === null || ("then" in implementation && typeof implementation.then === "function")) {
+            this.#record("facade-invalid", found.provision.contract.id, "实现工厂必须同步返回对象");
+            return null;
+        }
+        group.facades.set(key, {implementation, consumer});
+        return implementation;
     }
 
     async #releaseFacade(group: FacadeGroup, implementation: RemoteImplementation<RemoteContract>, consumer: ConsumerIdentity): Promise<void> {

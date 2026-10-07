@@ -26,6 +26,8 @@ export function isPerConsumerProvision(value: unknown): value is PerConsumerProv
 export class ServiceRevokedError extends Error {
     readonly key: string;
     readonly consumer: ConsumerIdentity;
+    /** `released`：调用方这次激活结束；`provider-stopped`：提供者实例已释放（调用方提前结束了借用）。 */
+    readonly reason: "released" | "provider-stopped";
 
     constructor(key: string, consumer: ConsumerIdentity, reason: "released" | "provider-stopped") {
         const who = consumer.plugin === null ? consumer.instanceId : `${consumer.plugin}/${consumer.entry ?? ""}#${String(consumer.generation)}`;
@@ -33,6 +35,7 @@ export class ServiceRevokedError extends Error {
         this.name = "ServiceRevokedError";
         this.key = key;
         this.consumer = consumer;
+        this.reason = reason;
     }
 }
 

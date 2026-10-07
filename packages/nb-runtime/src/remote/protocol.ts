@@ -175,7 +175,6 @@ export const FrameSchema = Type.Union([
     Type.Object({type: Type.Literal("event"), id: Id, payload: Type.Unknown()}, {additionalProperties: false}),
     Type.Object({type: Type.Literal("unsubscribe"), id: Id}, {additionalProperties: false}),
     Type.Object({type: Type.Literal("subscription-ended"), id: Id, reason: Type.String()}, {additionalProperties: false}),
-    Type.Object({type: Type.Literal("resync"), id: Id}, {additionalProperties: false}),
     /** 调用方入口的这次激活结束：目标实例释放为它生成的门面。不需要回复。 */
     Type.Object({type: Type.Literal("release"), target: TargetSchema, $nbConsumer: CallerFrameSchema}, {additionalProperties: false}),
 ]);

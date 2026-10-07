@@ -32,7 +32,6 @@ export interface PeerHandlers {
     /** `signal` 在对端退订或链路关闭时触发。 */
     onSubscribe?(frame: SubscribeFrame, channel: SubscriptionChannel, signal: AbortSignal): void;
     onRelease?(frame: ReleaseFrame): void;
-    onResync?(id: string): void;
     onInvalidFrame?(value: unknown): void;
     onClose?(): void;
 }
@@ -90,6 +89,19 @@ export class Peer {
         }
     }
 
+    /**
+     * 发送带业务值（参数、结果、事件内容）的帧：无法编码时返回错误摘要而不抛出，由调用处按阶段结算，
+     * 使插件传错值时得到结构化失败、等待表不留下永不结算的条目。
+     */
+    #sendValue(frame: Frame): string | null {
+        try {
+            this.send(frame);
+            return null;
+        } catch (error) {
+            return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+        }
+    }
+
     close(): void {
         this.#link.close();
     }
@@ -122,7 +134,10 @@ export class Peer {
         if (options.timeoutMs !== undefined) {
             cancelTimer = this.#clock.schedule(() => this.#interrupt(id, "timeout"), options.timeoutMs);
         }
-        this.#link.send({type: "request", id, ...frame});
+        const problem = this.#sendValue({type: "request", id, ...frame});
+        if (problem !== null) {
+            pending.settle({ok: false, code: "invalid-input", detail: `参数无法编码发送：${problem}`});
+        }
         return promise;
     }
 
@@ -134,7 +149,11 @@ export class Peer {
         const id = this.#nextId();
         const {promise, resolve} = Promise.withResolvers<Outcome>();
         this.#subscriptions.set(id, {accepted: false, settle: resolve, handlers});
-        this.#link.send({type: "subscribe", id, ...frame});
+        const problem = this.#sendValue({type: "subscribe", id, ...frame});
+        if (problem !== null) {
+            this.#subscriptions.delete(id);
+            resolve({ok: false, code: "invalid-input", detail: `过滤参数无法编码发送：${problem}`});
+        }
         return {id, outcome: promise};
     }
 
@@ -215,9 +234,6 @@ export class Peer {
                 }
                 return;
             }
-            case "resync":
-                this.#handlers.onResync?.(frame.id);
-                return;
             case "request":
                 this.#acceptRequest(frame);
                 return;
@@ -251,7 +267,10 @@ export class Peer {
                 }
                 settled = true;
                 this.#inbound.delete(frame.id);
-                this.send({type: "result", id: frame.id, outcome});
+                const problem = this.#sendValue({type: "result", id: frame.id, outcome});
+                if (problem !== null) {
+                    this.send({type: "result", id: frame.id, outcome: {ok: false, code: "provider-error", detail: `结果无法编码发送：${problem}`}});
+                }
             },
         };
         if (this.#handlers.onRequest === undefined) {
@@ -283,8 +302,10 @@ export class Peer {
                 }
             },
             event: (payload) => {
-                if (state === "accepted" && !controller.signal.aborted) {
-                    this.send({type: "event", id: frame.id, payload});
+                if (state === "accepted" && !controller.signal.aborted && this.#sendValue({type: "event", id: frame.id, payload}) !== null) {
+                    // 事件内容无法编码：结束这条订阅，提供方经终止信号得知。
+                    controller.abort();
+                    this.send({type: "subscription-ended", id: frame.id, reason: "provider-error"});
                 }
             },
             end: (reason) => {
