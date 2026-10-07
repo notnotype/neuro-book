@@ -1,6 +1,6 @@
 /**
- * 宿主页（runtime.browser-host 的失败页）：按窗口状态给出能恢复的动作。连接失败只能原地重试，版本不一致与启动
- * 失败只能刷新；启动中没有动作，读屏按状态播报而不是告警。
+ * 宿主页（runtime.browser-host 的失败页）：按窗口状态给出能恢复的动作。连接失败只能原地重试，版本不一致、启动
+ * 失败与服务端已重启只能刷新；启动中没有动作，读屏按状态播报而不是告警。
  */
 
 import {mount} from "@vue/test-utils";
@@ -19,13 +19,20 @@ describe("宿主页", () => {
         expect(page.emitted()).not.toHaveProperty("reload");
     });
 
-    it("版本不一致与启动失败：只给刷新页面", async () => {
-        for (const status of ["incompatible", "startup-failed"] as const) {
+    it("版本不一致、启动失败与服务端已重启：只给刷新页面", async () => {
+        for (const status of ["incompatible", "startup-failed", "server-restarted"] as const) {
             const page = mount(FailurePage, {props: {state: {status, reason: "原因"}}});
             expect(page.findAll("button").map((button) => button.text())).toEqual(["刷新页面"]);
             await page.get("button").trigger("click");
             expect(page.emitted()).toHaveProperty("reload");
         }
+    });
+
+    it("服务端已重启：标题说明原因，不自动刷新", () => {
+        const page = mount(FailurePage, {props: {state: {status: "server-restarted", reason: "服务端已换进程"}}});
+        expect(page.get("h1").text()).toBe("服务端已重启");
+        expect(page.get("[data-browser-host-status]").attributes("role")).toBe("alert");
+        expect(page.emitted()).not.toHaveProperty("reload");
     });
 
     it("启动中：没有动作，按状态播报", () => {

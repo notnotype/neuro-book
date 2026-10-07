@@ -83,3 +83,20 @@ html {
     outline: 2px solid Highlight;
     outline-offset: 2px;
 }
+
+/*
+ * 离线横幅：浮在页面顶部、不占布局，出现与收起都不推动页面内容。和宿主页一样只用系统颜色：它属于宿主，
+ * 不依赖插件提供的主题。
+ */
+.nb-offline-banner {
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 2147483000;
+    margin: 0;
+    padding: 0.25rem 1rem;
+    background: Mark;
+    color: MarkText;
+    font-size: 0.875rem;
+    text-align: center;
+    pointer-events: none;
+}

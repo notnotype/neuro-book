@@ -5,7 +5,9 @@
  */
 
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
+import type {RemoteLink, RemoteRouter} from "@notnotype/nb-runtime/remote";
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 import {describe, expect, it, vi} from "vitest";
 import {createMemoryHistory} from "vue-router";
@@ -23,15 +25,19 @@ import type {BrowserPluginFactory} from "./plugins";
 const bootstrapOf = (plugins: ReadonlyArray<PluginDescriptor>) => ({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: {port: 1, path: "/"}, revision: "r", plugins: plugins.map(({id, version}) => ({id, version}))});
 
 /**
- * 服务端一侧的真实内核路由。RPC 链路用内核的进程内链路（与 WebSocket 链路同一套 JSON 编解码）：这里验证的是
- * 界面挂载，真实 WebSocket 由 window.test.ts 与 e2e 覆盖。
+ * 服务端一侧：真实的内核路由，一个路由代表一个服务端进程（各有自己的 boot）。RPC 链路用内核的进程内链路（与
+ * WebSocket 链路同一套 JSON 编解码）：这里验证的是界面挂载与状态呈现，真实 WebSocket 由 window.test.ts 与 e2e 覆盖。
  */
-const router = createRemoteRouter(createRemoteNode({instance: {id: "server", kind: "server", role: "hub", project: null, client: null}}));
+function serverProcess(): RemoteRouter {
+    return createRemoteRouter(createRemoteNode({instance: {id: "server", kind: "server", role: "hub", project: null, client: null}}));
+}
 
-/** 前 `failures` 次引导请求失败、之后成功的连接。 */
-function connection(plugins: ReadonlyArray<PluginDescriptor>, failures = 0): Connection {
+/** 连接对象：前 `failures` 次引导请求失败、之后成功；RPC 连到 `server.current` 这个服务端进程，`links` 是窗口一侧的链路。 */
+function connection(plugins: ReadonlyArray<PluginDescriptor>, failures = 0, server = {current: serverProcess()}): Connection & {readonly links: RemoteLink[]} {
     let calls = 0;
+    const links: RemoteLink[] = [];
     return {
+        links,
         async bootstrap() {
             calls += 1;
             if (calls <= failures) throw new ConnectionError("无法连接服务端", null);
@@ -39,7 +45,8 @@ function connection(plugins: ReadonlyArray<PluginDescriptor>, failures = 0): Con
         },
         async openRemote() {
             const pair = createLinkPair();
-            router.accept(pair.right);
+            server.current.accept(pair.right);
+            links.push(pair.left);
             return pair.left;
         },
     };
@@ -62,17 +69,18 @@ const brokenPage: {descriptor: PluginDescriptor; factory: BrowserPluginFactory} 
     }),
 };
 
-async function mountAt(path: string, options: {failures?: number; withBrokenPage?: boolean} = {}) {
+async function mountAt(path: string, options: {failures?: number; withBrokenPage?: boolean; clock?: ManualClock; server?: {current: RemoteRouter}} = {}) {
     const builtin = options.withBrokenPage === true ? [...builtinBrowserPlugins, brokenPage.descriptor] : builtinBrowserPlugins;
     const factories = options.withBrokenPage === true ? {...browserPluginFactories, [brokenPage.descriptor.id]: brokenPage.factory} : browserPluginFactories;
-    const browserWindow = createBrowserWindow({connection: connection(builtin, options.failures), page: new EventTarget(), console: {error: () => undefined}, builtin, factories});
+    const remote = connection(builtin, options.failures, options.server);
+    const browserWindow = createBrowserWindow({connection: remote, page: new EventTarget(), console: {error: () => undefined}, builtin, factories, clock: options.clock});
     await browserWindow.start();
     const container = document.createElement("div");
     const history = createMemoryHistory();
     history.replace(path);
     const reloads: string[] = [];
     await mountWindowUi({browserWindow, container, history, navigateDocument: () => undefined, reloadDocument: () => reloads.push("reload")});
-    return {browserWindow, container, reloads};
+    return {browserWindow, container, reloads, links: remote.links};
 }
 
 describe("窗口界面的挂载", () => {
@@ -101,6 +109,43 @@ describe("窗口界面的挂载", () => {
             document.body.dispatchEvent(new KeyboardEvent("keydown", {key: "P", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true}));
             expect(document.body.querySelector('[role="combobox"]')).not.toBeNull();
         }, {timeout: 10_000});
+        await browserWindow.stop();
+    });
+
+    it("远程服务链路断开：页面保留、标注离线并浮出横幅；重连后横幅收起", async () => {
+        const clock = new ManualClock();
+        const {browserWindow, container, links} = await mountAt("/", {clock});
+        const root = (): Element | null => container.querySelector("[data-workbench-root]");
+        expect(root()?.getAttribute("data-rpc-state")).toBe("online");
+        expect(container.querySelector(".nb-offline-banner")).toBeNull();
+        const page = root();
+
+        links[0]?.close();
+        await vi.waitFor(() => expect(root()?.getAttribute("data-rpc-state")).toBe("offline"));
+        expect(root()).toBe(page);
+        expect(container.querySelector(".nb-offline-banner")?.getAttribute("role")).toBe("status");
+
+        clock.advance(500);
+        await vi.waitFor(() => expect(root()?.getAttribute("data-rpc-state")).toBe("online"));
+        expect(container.querySelector(".nb-offline-banner")).toBeNull();
+        await browserWindow.stop();
+    });
+
+    it("重连到另一个服务端进程：页面换成只能刷新的“服务端已重启”宿主页", async () => {
+        const clock = new ManualClock();
+        const server = {current: serverProcess()};
+        const {browserWindow, container, links, reloads} = await mountAt("/", {clock, server});
+
+        links[0]?.close();
+        await vi.waitFor(() => expect(container.querySelector(".nb-offline-banner")).not.toBeNull());
+        server.current = serverProcess();
+        clock.advance(500);
+        await vi.waitFor(() => expect(container.querySelector("[data-browser-host-status]")?.getAttribute("data-browser-host-status")).toBe("server-restarted"));
+        expect(container.querySelector("[data-workbench-root]")).toBeNull();
+        expect(container.querySelector(".nb-offline-banner")).toBeNull();
+        expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["刷新页面"]);
+        (container.querySelector("button") as HTMLButtonElement).click();
+        expect(reloads).toEqual(["reload"]);
         await browserWindow.stop();
     });
 
