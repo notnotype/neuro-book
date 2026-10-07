@@ -44,13 +44,13 @@ owners:
 
 1. 加载外壳：`index.html` 与前端入口；脚本运行前页面只有静态的“正在启动”占位。
 2. 前端入口在挂载根组件前调用引导接口，取得有效插件集合（每个插件的 id 与版本）、集合修订号与协议版本。请求失败时显示带重试的连接失败页，不渲染半个工作台；协议版本不同、或服务端启用了本外壳没有的插件或版本时提示刷新；响应结构不符合协议或缺少窗口必需的插件（`nbook.diagnostics`、`nbook.commands`、`nbook.workbench`）时显示启动失败页。
-3. 首连：读取客户端身份，建立浏览器节点，按引导给出的端口连接 RPC 端口并完成握手（[远程服务与 RPC 协议](plugin-channel.md)），之后才建立运行实例，使插件激活时远程服务已可用（随 t53 实现）。连接或握手失败显示带重试的连接失败页；握手以 `wire-version` 被拒显示版本不一致页。
+3. 首连：读取客户端身份，建立浏览器节点，按引导给出的端口连接 RPC 端口并完成握手（[远程服务与 RPC 协议](plugin-channel.md)），之后才建立运行实例，使插件激活时远程服务已可用。连接或握手失败显示带重试的连接失败页；握手以 `wire-version` 被拒显示版本不一致页。
 4. 建立窗口运行实例：浏览器节点交给运行实例；按集合登记本外壳构建进去的浏览器插件，插件集合以服务端为准，浏览器不自行增减。内置插件的浏览器定义随外壳构建，引导只给 id 与版本；第三方插件的浏览器入口随 [`runtime.plugin-code-loading`](plugin-code-loading.md) 加入，届时引导响应加回清单并建立宿主模块表。
 5. 激活 `nbook.workbench`，解析它交出的页面表，恢复布局，挂载根组件。页面由工作台的贡献点 `workbench.pages` 汇集（工作台自己的 `/` 加上其它插件贡献的页面，例如开发模式的 `/lab`）；宿主按页面表建立路由，等首次导航完成（当前页面的模块已加载）才挂载，页面表之外的路径显示“页面不存在”。声明了“离开时整页加载”的页面，导航去别的路径时整页加载。
 6. 可见视图触发 `onView`，激活其所属入口；不可见视图的入口不加载。
 7. 订阅插件集合变化（经远程服务，随 [`runtime.plugin-hot-plug`](plugin-hot-plug.md) 实现）。订阅建立（含重连后重建）时，窗口核对服务端发来的集合修订号，与引导时取得的不同就重新取得集合并对齐，保证引导与订阅之间发生的变化不会丢失；此后的插件集合变化经订阅到达，按 `runtime.plugin-hot-plug` 同步。
 
-**断线与重连（随 t53 实现）：** 窗口可用后 RPC 链路意外断开时，窗口转为离线：界面保留，页面根元素标注离线并显示一条离线横幅，远程调用返回 `unavailable`。窗口按退避间隔重连（0.5、1、2、4、8 秒，之后每 10 秒），每次先重新取引导（服务端重启后 RPC 端口可能已变），再连接与握手：
+**断线与重连：** 窗口可用后 RPC 链路意外断开时，窗口转为离线：界面保留，页面根元素标注离线并显示一条离线横幅，远程调用返回 `unavailable`。窗口按退避间隔重连（0.5、1、2、4、8 秒，之后每 10 秒），每次先重新取引导（服务端重启后 RPC 端口可能已变），再连接与握手：
 
 - 连回同一服务端进程：转回在线，横幅消失，仍有效的订阅重建并收到 `onResync`；
 - 服务端已换进程（握手的 `boot` 不同）：转为“服务端已重启”宿主页，不再重连、不自动刷新，只给刷新；
@@ -104,7 +104,7 @@ owners:
 - **owner**：application-runtime（浏览器宿主适配器）；内核合同沿用 [`runtime.application`](application.md)。
 - **迁移**：v2 由前端入口建立窗口运行实例，页面组件不创建运行时；旧应用的 Nuxt client plugin 与页面内创建路径不迁移。
 - **安全**：加载鉴权插件后，引导接口与插件文件需要登录；浏览器不获得服务端路径、数据库对象与凭据（引导响应只有协议版本、修订号、插件 id 与版本、RPC 端口与路径）。
-- **兼容**：引导接口是宿主内部协议，以协议版本协商（引导响应加入 RPC 端口时升为 2，随 t53 实现）；远程服务链路以 wire 协议版本协商；外壳与服务端版本不一致时提示刷新。浏览器基线见输入与前置条件。
+- **兼容**：引导接口是宿主内部协议，以协议版本协商（引导响应加入 RPC 端口时升为 2）；远程服务链路以 wire 协议版本协商；外壳与服务端版本不一致时提示刷新。浏览器基线见输入与前置条件。
 
 ## 验收与 Smoke
 
@@ -113,26 +113,29 @@ owners:
 3. **懒激活。** 资源管理器视图不可见时 Files 的浏览器入口未激活；展开侧栏显示该视图时激活。
 4. **多窗口隔离。** 两个窗口中一个关闭，另一个不受影响，服务端不停止；一个窗口的入口失败不影响另一个窗口。
 5. **插件集合变化。** 服务端启用一个插件后，两个已打开窗口都出现其视图，不刷新页面。
-6. **离线与重连。** 断开 RPC 链路后窗口标注离线；重连后离线标注消失、订阅收到 `onResync` 且之后的事件到达（随 t53 实现）。断开期间服务端禁用一个插件，重连后窗口发现修订号变化并移除该插件（随热插拔）。
+6. **离线与重连。** 断开 RPC 链路后窗口标注离线；重连后离线标注消失、订阅收到 `onResync` 且之后的事件到达。断开期间服务端禁用一个插件，重连后窗口发现修订号变化并移除该插件（随热插拔）。
 7. **引导与订阅之间的变化。** 引导完成后、插件集合订阅建立前服务端启用一个插件，订阅建立后窗口出现该插件的视图。
-8. **RPC 连接（随 t53 实现）。** 窗口 ready 后，浏览器插件经远程服务调用服务端插件，提供方看到的调用方是本窗口的实例；客户端身份跨两次窗口启动不变；外站页面连不上 RPC 端口；首次连接失败为可重试的连接失败页；握手 `wire-version` 被拒为版本不一致页。
-9. **刷新与服务端重启（随 t53 实现）。** 刷新页面后，旧页发出、仍在执行的请求收到终止信号，新页是新的实例；服务端换进程后已打开的窗口显示服务端已重启页，不再重连。
+8. **RPC 连接。** 窗口 ready 后，浏览器插件经远程服务调用服务端插件，提供方看到的调用方是本窗口的实例；客户端身份跨两次窗口启动不变；外站页面连不上 RPC 端口；首次连接失败为可重试的连接失败页；握手 `wire-version` 被拒为版本不一致页。
+9. **刷新与服务端重启。** 刷新页面后，旧页发出、仍在执行的请求收到终止信号，新页是新的实例；服务端换进程后已打开的窗口显示服务端已重启页，不再重连。
 
-Smoke：生产构建的服务端与本机 Chrome 运行场景 1、2、4 与协议不兼容（`bun run test:e2e`）；场景 6 的离线与重连部分、场景 8、9 由测试外壳与探针插件在本机 Chrome 上运行（随 t53）；场景 3、5、7 与场景 6 的插件集合部分随懒激活与插件热插拔实现后补上。Electron 与 WebKitGTK 随桌面版删除，不再列入。
+Smoke：生产构建的服务端与本机 Chrome 运行场景 1、2、4 与协议不兼容（`bun run test:e2e`）；场景 6 的离线与重连部分、场景 8、9 由测试外壳与探针插件在本机 Chrome 上运行（`e2e/rpc.e2e.ts`）；场景 3、5、7 与场景 6 的插件集合部分随懒激活与插件热插拔实现后补上。Electron 与 WebKitGTK 随桌面版删除，不再列入。
 
 ## 实现合同
 
-- **实现 owner 与入口**：application-runtime。前端入口 `packages/neuro-book/src/web/main.ts`（先 `await browserWindow.start()`，再 `mountWindowUi(...)`；开发构建另在 `import.meta.env.DEV` 分支里动态加载开发清单的插件）；挂载 `src/web/mount.ts`（窗口 ready 时建立路由、等首次导航完成后挂载 `PageOutlet.vue`；未 ready 时先挂 `HostPage.vue`，重试成功后换成页面；首次导航失败显示只能刷新的启动失败页）；路由 `src/web/router.ts`（`createPageRouter({pages, history, navigateDocument})`：router 归宿主，一个文档一个；未匹配路径给 `NotFoundPage.vue`；离开 `reloadOnLeave` 的页面时调用 `navigateDocument` 整页加载，同一路径只改查询参数时照常导航）；窗口 `src/web/host/window.ts`（`createBrowserWindow({connection, page, console, builtin?, factories?}) → BrowserWindow {state, onChange(listener), start(), stop()}`，状态 `idle | starting | ready{instanceId, root} | connection-failed | incompatible | startup-failed{reason} | closed`）；浏览器适配器 `src/web/host/browser-host.ts`（见 [`runtime.application`](application.md)）；连接对象 `src/web/host/connection.ts`（`createConnection(baseUrl)`，失败抛带 `status` 的 `ConnectionError`）；浏览器插件装配 `src/web/plugins.ts`（产品）与 `src/web/development-plugins.ts`（开发清单）；宿主页 `FailurePage.vue`（可观察标记 `data-workbench-root`、`data-window-state`、`data-window-instance`、`data-browser-host-status`、`data-page-not-found`）。协议 `src/shared/browser-bootstrap.ts`（`BROWSER_BOOTSTRAP_PATH = /api/runtime/browser-bootstrap`、`BROWSER_PROTOCOL_VERSION = 1`、TypeBox 的 `BrowserBootstrapSchema`）；后端 `src/server/browser-bootstrap.ts`（`browserBootstrap(plugins)`、`createBrowserBootstrapRoute(plugins)`，按本进程加载的清单列出有浏览器运行位置的插件）。工作台交出页面表的服务键 `src/plugins/workbench/web/contracts.ts` 的 `workbenchRootKey`（`WorkbenchRoot {pages()}`）与贡献点 `WORKBENCH_PAGES_POINT`；页面表与贡献校验在 `src/plugins/workbench/web/pages.ts`（贡献 id 写页面路径，同一路径的两条贡献一起被拒绝；`/api`、`/assets` 留给服务端）。
+- **实现 owner 与入口**：application-runtime。前端入口 `packages/neuro-book/src/web/main.ts`（开发构建另在 `import.meta.env.DEV` 分支里动态加载开发清单的插件），启动流程在 `src/web/boot.ts`（`bootWindowUi({builtin, factories})`：读客户端身份、建窗口、先 `await browserWindow.start()` 再 `mountWindowUi(...)`；e2e 测试外壳 `src/web/testing/e2e-main.ts` 经同一个函数，只多一个测试插件）；挂载 `src/web/mount.ts`（窗口 ready 时建立路由、等首次导航完成后挂载 `PageOutlet.vue`；未 ready 时先挂 `HostPage.vue`，重试成功后换成页面；首次导航失败显示只能刷新的启动失败页）；路由 `src/web/router.ts`（`createPageRouter({pages, history, navigateDocument})`：router 归宿主，一个文档一个；未匹配路径给 `NotFoundPage.vue`；离开 `reloadOnLeave` 的页面时调用 `navigateDocument` 整页加载，同一路径只改查询参数时照常导航）；窗口 `src/web/host/window.ts`（`createBrowserWindow({connection, page, console, builtin?, factories?, clientIdentity?, clock?}) → BrowserWindow {state, onChange(listener), start(), stop()}`，状态 `idle | starting | ready{instanceId, root, connection: online | offline} | connection-failed | incompatible | startup-failed | server-restarted（后四种带 reason）| closed`）；远程服务链路 `src/web/host/remote-session.ts`（`createRemoteSession({connection, node, clock, onState, onRetryFailed?})`：首连与退避重连）；客户端身份 `src/web/host/client-identity.ts`（`readClientIdentity(() => storage) → {id, problem}`）；浏览器适配器 `src/web/host/browser-host.ts`（见 [`runtime.application`](application.md)）；连接对象 `src/web/host/connection.ts`（`createConnection(baseUrl) → {bootstrap(), openRemote({port, path})}`，失败抛带 `status` 的 `ConnectionError`；RPC 链路经 `src/shared/rpc-socket.ts` 的套接字适配）；浏览器插件装配 `src/web/plugins.ts`（产品）与 `src/web/development-plugins.ts`（开发清单）；宿主页 `FailurePage.vue` 与页面根组件 `PageOutlet.vue`（离线横幅 `.nb-offline-banner`；可观察标记 `data-workbench-root`、`data-window-state`、`data-window-instance`、`data-rpc-state`、`data-browser-host-status`、`data-page-not-found`）。协议 `src/shared/browser-bootstrap.ts`（`BROWSER_BOOTSTRAP_PATH = /api/runtime/browser-bootstrap`、`BROWSER_PROTOCOL_VERSION = 2`、TypeBox 的 `BrowserBootstrapSchema`）；后端 `src/server/browser-bootstrap.ts`（`browserBootstrap(plugins)`、`createBrowserBootstrapRoute(plugins)`，按本进程加载的清单列出有浏览器运行位置的插件）。工作台交出页面表的服务键 `src/plugins/workbench/web/contracts.ts` 的 `workbenchRootKey`（`WorkbenchRoot {pages()}`）与贡献点 `WORKBENCH_PAGES_POINT`；页面表与贡献校验在 `src/plugins/workbench/web/pages.ts`（贡献 id 写页面路径，同一路径的两条贡献一起被拒绝；`/api`、`/assets` 留给服务端）。
 - **关键不变量**：
   - 协议版本先于结构校验：新版本服务端可能改了结构，此时应提示刷新而不是报格式错误。
   - 窗口在解析到工作台的页面表后才是 ready，此时其它插件的页面贡献已经在表里（内核先激活全部启动入口、再执行门禁）；只在连接失败后允许原地重试，其它失败要刷新。每次启动尝试使用新的 instanceId。
   - 引导响应 `Cache-Control: no-store`，集合修订号由排序后的 `id@version` 得出，集合与版本不变时跨重启不变。
   - 前端代码不引用后端代码、Node 与 Bun 模块；跨插件只用 `import type`（`src/architecture.test.ts`）。
-- **合同测试**：`src/web/host/window.test.ts`（同进程真实后端：场景 1、2、4，503、协议与插件版本不一致、结构错误、缺少必需插件、工作台激活或装配失败、非必需入口失败时窗口照常、页面贡献与重复或保留路径的拒绝）、`src/web/router.dom.test.ts`（页面不存在、整页加载的判定）、`src/web/mount.dom.test.ts`（真实窗口：直接挂页面、连接失败后重试换成页面、页面模块加载失败给启动失败页）、`src/web/FailurePage.dom.test.ts`、`src/web/host/browser-host.test.ts`、`src/server/browser-bootstrap.test.ts`、`src/architecture.test.ts`。
-- **实际 smoke**：`e2e/browser-host.e2e.ts`（`bun run test:e2e`，先构建再用本机 Chrome 运行；含页面表之外的路径与生产构建没有 `/lab`）。
+  - 首连先于建立运行实例：插件激活时远程节点已连上服务端。链路在插件全部停止之后才关闭（插件停止时还要经它释放远程门面）。每次启动尝试新建浏览器节点与连接会话，旧尝试的链路不再改写窗口状态。
+  - 重连每次先重新取引导：服务端重启后 RPC 端口可能变了；连回不同的服务端进程即转入 `server-restarted`，不再重连、不自动刷新。退避计时用注入时钟。
+  - 客户端身份读写都在 try 里：本地存储不可用时退回本页随机值，原因写到控制台，窗口照常启动。
+- **合同测试**：`src/web/host/window.test.ts`（同进程真实后端、真实 WebSocket：场景 1、2、4，503、协议与插件版本不一致、结构错误、缺少必需插件、工作台激活或装配失败、非必需入口失败时窗口照常、页面贡献与重复或保留路径的拒绝；场景 6 的离线与重连、8、9：远程调用的调用方身份与客户端身份、RPC 首连失败与重试、wire-version、经 TCP 转发掐断后的离线与重连、服务端换进程、卸载后服务端收到终止并不再列出旧实例）、`src/web/host/remote-session.test.ts`（退避间隔与每次重取引导）、`src/web/host/client-identity.dom.test.ts`、`src/web/router.dom.test.ts`（页面不存在、整页加载的判定）、`src/web/mount.dom.test.ts`（真实窗口：直接挂页面、连接失败后重试换成页面、页面模块加载失败给启动失败页、离线横幅与重连后收起、服务端已重启页）、`src/web/FailurePage.dom.test.ts`、`src/web/host/browser-host.test.ts`、`src/server/browser-bootstrap.test.ts`、`src/architecture.test.ts`。
+- **实际 smoke**：`e2e/browser-host.e2e.ts`（`bun run test:e2e`，先构建再用本机 Chrome 运行；含页面表之外的路径与生产构建没有 `/lab`）；`e2e/rpc.e2e.ts`（测试外壳 `bun run build:e2e` 与带探针插件的后端：远程调用、来源核对、`routeWebSocket` 掐断后的离线横幅与重连、刷新后旧请求终止、wire-version、服务端换进程）。
 
 ## 证据
 
 - 批准目标：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P7 与 P11（2026-09-28 启动流程走查批准同源部署加可分离边界与浏览器启动序列）；v2 的前端入口见 [NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 方案第 4 节与 [ADR 0023](../../adr/0023-v2-frontend-backend-stack.md)。
 - 验证依据：[G1 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g1/REPORT.md)。
-- 实现进展：新应用实现了启动序列第 1–4 步（布局恢复除外，随 workbench 底座加入）与场景 1、2、4，见 [w00017 t47](../../../.agents/works/w00017-application-runtime-architecture/tasks/t47-web-host-dev-supervisor/README.md)；页面表、宿主路由与开发插件的装配见 [t48](../../../.agents/works/w00017-application-runtime-architecture/tasks/t48-web-ui-foundation-lab/README.md)。未实现：懒激活（场景 3）、事件流、插件集合变化与离线重连（场景 5–7）、鉴权、第三方浏览器入口。旧应用阶段 1 的实现见 [t39](../../../.agents/works/w00017-application-runtime-architecture/tasks/t39-browser-host/README.md)。本 Spec 保持 `planned`。
+- 实现进展：新应用实现了启动序列第 1–4 步（布局恢复除外，随 workbench 底座加入）与场景 1、2、4，见 [w00017 t47](../../../.agents/works/w00017-application-runtime-architecture/tasks/t47-web-host-dev-supervisor/README.md)；页面表、宿主路由与开发插件的装配见 [t48](../../../.agents/works/w00017-application-runtime-architecture/tasks/t48-web-ui-foundation-lab/README.md)。启动序列第 3 步（首连）、断线与重连、客户端身份、场景 6 的离线与重连部分、场景 8、9 见 [t53](../../../.agents/works/w00017-application-runtime-architecture/tasks/t53-rpc-port-browser-connection/README.md)（2026-10-07）。未实现：懒激活（场景 3）、插件集合订阅与变化（场景 5、7 与场景 6 的插件集合部分）、项目绑定（随 K3）、鉴权、第三方浏览器入口。旧应用阶段 1 的实现见 [t39](../../../.agents/works/w00017-application-runtime-architecture/tasks/t39-browser-host/README.md)。本 Spec 保持 `planned`。

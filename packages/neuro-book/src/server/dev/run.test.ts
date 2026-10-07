@@ -4,7 +4,7 @@
  * 要验证的是进程之间的停止顺序与退出码，只有真实进程能给出。
  */
 
-import {afterAll, beforeAll, describe, expect, it} from "bun:test";
+import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 
@@ -18,9 +18,20 @@ const FIXTURE = join(PACKAGE_ROOT, "src/server/dev/testing/fixture-dev.ts");
 
 let tmp = "";
 let sequence = 0;
+/** 本用例起的会话；用例中途失败时走不到发停止信号的那一步，由 afterEach 收口。 */
+const running = new Set<{readonly exited: () => boolean; kill(): void; readonly exit: Promise<number | null>}>();
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-dev", "dev-run");
+});
+
+afterEach(async () => {
+    // 监督进程没有停止通道（不读标准输入）：不结束它就一直活着。直接结束它，它的后端读到标准输入结束会自己有序停止。
+    for (const session of running) {
+        if (!session.exited()) session.kill();
+        await session.exit;
+    }
+    running.clear();
 });
 
 afterAll(async () => {
@@ -47,6 +58,7 @@ async function startDev(env: Record<string, string> = {}): Promise<DevSession> {
         stdout: "pipe",
         stderr: "pipe",
     });
+    running.add({exited: () => child.exitCode !== null || child.signalCode !== null, kill: () => child.kill("SIGKILL"), exit: child.exited.then(() => child.exitCode)});
     let output = "";
     for (const stream of [child.stdout, child.stderr]) {
         void (async () => {

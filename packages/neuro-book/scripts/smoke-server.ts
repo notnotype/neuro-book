@@ -5,7 +5,8 @@
  *
  * 场景：S1 启动后 health 为 200，标准输入 stop 以 0 退出且日志落盘；S2 SIGTERM 以 0 退出；
  * S3 缺少状态根以 1 退出；S4 端口已被占用时启动失败、写出致命诊断并以 1 退出；
- * S5 设置 `NBOOK_WEB_ROOT` 时提供外壳、页面路径回退到外壳，引导接口返回协议版本。
+ * S5 设置 `NBOOK_WEB_ROOT` 时提供外壳、页面路径回退到外壳，引导接口返回协议版本；S6 引导接口给出的内核 RPC 端口上，
+ * 本服务页面来源的 WebSocket 握手得到 welcome，别的来源连不上。
  * 任一场景失败或未执行都以非零退出；状态根放在测试临时根下，结束时删除。
  */
 
@@ -14,6 +15,8 @@ import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+
+import {WIRE_PROTOCOL_VERSION} from "@notnotype/nb-runtime/remote";
 
 import {BROWSER_PROTOCOL_VERSION} from "nbook/shared/browser-bootstrap";
 
@@ -60,6 +63,21 @@ function run(env: Record<string, string>): Running {
             child.stdin.flush();
         },
     };
+}
+
+/** 以 `origin` 连 RPC 端口并握手：打开后发 hello，返回第一帧；没能打开时返回 null。 */
+function handshake(rpcPort: number, origin: string): Promise<Record<string, unknown> | null> {
+    const {promise, resolve} = Promise.withResolvers<Record<string, unknown> | null>();
+    const socket = new WebSocket(`ws://127.0.0.1:${String(rpcPort)}/`, {headers: {Origin: origin}});
+    socket.addEventListener("open", () => {
+        socket.send(JSON.stringify({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "smoke-client", kind: "browser", role: "client", project: null, client: "smoke"}}));
+    });
+    socket.addEventListener("message", (event) => {
+        resolve(JSON.parse(String(event.data)) as Record<string, unknown>);
+        socket.close();
+    });
+    socket.addEventListener("close", () => resolve(null));
+    return promise;
 }
 
 async function main(): Promise<number> {
@@ -114,11 +132,25 @@ async function main(): Promise<number> {
             ok: shell.includes("smoke-shell") && fallback === shell && bootstrap.protocolVersion === BROWSER_PROTOCOL_VERSION && webCode === 0,
             evidence: `shell=${String(shell.includes("smoke-shell"))} fallback=${String(fallback === shell)} protocol=${String(bootstrap.protocolVersion)} exit=${String(webCode)}`,
         });
+
+        const rpc = run({NBOOK_STATE_ROOT: join(root, "S6"), NBOOK_PORT: "0"});
+        const rpcPageUrl = await rpc.url;
+        const announced = (await (await fetch(`${rpcPageUrl}api/runtime/browser-bootstrap`)).json()) as {rpc?: {port?: unknown}};
+        const rpcPort = Number(announced.rpc?.port);
+        const welcome = await handshake(rpcPort, new URL(rpcPageUrl).origin);
+        const foreign = await handshake(rpcPort, "http://evil.example");
+        rpc.stop("stdin");
+        const rpcCode = await rpc.exit;
+        results.push({
+            id: "S6",
+            ok: welcome?.type === "welcome" && typeof welcome.boot === "string" && foreign === null && rpcCode === 0,
+            evidence: `rpc-port=${String(rpcPort)} welcome=${String(welcome?.type)} foreign=${foreign === null ? "refused" : "accepted"} exit=${String(rpcCode)}`,
+        });
     } finally {
         await rm(root, {recursive: true, force: true});
     }
     console.log(JSON.stringify({schema: "nbook.smoke/server/v1", results}, null, 2));
-    const expected = ["S1", "S2", "S3", "S4", "S5"];
+    const expected = ["S1", "S2", "S3", "S4", "S5", "S6"];
     const complete = expected.every((id) => results.some((result) => result.id === id));
     return complete && results.every((result) => result.ok) ? 0 : 1;
 }

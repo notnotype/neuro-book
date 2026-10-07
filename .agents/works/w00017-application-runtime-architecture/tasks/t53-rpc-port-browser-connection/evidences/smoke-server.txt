@@ -1,0 +1,42 @@
+$ bun scripts/smoke-server.ts
+$ bun build src/server/main.ts --target bun --outdir dist/server
+Bundled 753 modules in 97ms
+
+  main.js  0.63 MB  (entry point)
+
+{
+  "schema": "nbook.smoke/server/v1",
+  "results": [
+    {
+      "id": "S1",
+      "ok": true,
+      "evidence": "health=200 exit=0 log=true"
+    },
+    {
+      "id": "S2",
+      "ok": true,
+      "evidence": "health=200 exit=0 log=true"
+    },
+    {
+      "id": "S3",
+      "ok": true,
+      "evidence": "exit=1"
+    },
+    {
+      "id": "S4",
+      "ok": true,
+      "evidence": "conflict-exit=1 holder-exit=0"
+    },
+    {
+      "id": "S5",
+      "ok": true,
+      "evidence": "shell=true fallback=true protocol=2 exit=0"
+    },
+    {
+      "id": "S6",
+      "ok": true,
+      "evidence": "rpc-port=43865 welcome=welcome foreign=refused exit=0"
+    }
+  ]
+}
+exit 0

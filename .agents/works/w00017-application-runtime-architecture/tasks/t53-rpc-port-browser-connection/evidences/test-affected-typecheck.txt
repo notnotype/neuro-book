@@ -1,0 +1,56 @@
+$ bun scripts/cli/test-affected.ts --typecheck --since "dd98a1fc"
+改动文件 72 个（未提交的改动，以及与 dd98a1fc 分叉以来的提交）。
+选中 2 项（test）：
+  nb-runtime（包内有改动）：bun run typecheck；bun run test
+  neuro-book（包内有改动）：bun run typecheck；bun run test:bun；bun run test:vitest
+
+==> nb-runtime：bun run typecheck
+$ tsc --noEmit && tsc --noEmit -p tsconfig.browser.json
+
+==> nb-runtime：bun run test
+$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-1rfY47/nb-runtime-1.xml"
+bun test v1.4.2 (744846f84)
+
+ 246 pass
+ 0 fail
+ 2002 expect() calls
+Ran 246 tests across 20 files. [1290.00ms]
+
+==> neuro-book：bun run typecheck
+$ tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json
+
+==> neuro-book：bun run test:bun
+$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-1rfY47/neuro-book-1.xml"
+bun test v1.4.2 (744846f84)
+
+ 193 pass
+ 0 fail
+ 810 expect() calls
+Ran 193 tests across 29 files. [24.59s]
+
+==> neuro-book：bun run test:vitest
+$ vitest run
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+
+ Test Files  12 passed (12)
+      Tests  53 passed (53)
+   Start at  11:09:36
+   Duration  10.03s (transform 18.69s, setup 998ms, import 37.97s, tests 6.20s, environment 12.06s)
+
+
+超过 200ms 的测试 19 个（列出最慢的 10 个）：
+    6949ms  neuro-book/src/server/dev/run.test.ts  页面经 Vite 提供、API 经代理、页面直连后端 RPC 端口；改后端文件有序重启；SIGTERM 时先停后端再关页面，以 0 退出
+    2147ms  neuro-book/src/server/dev/run.test.ts  第二个停止信号不等排空：在途请求拖住排空时直接结束后端，以 1 退出
+    1669ms  neuro-book/src/server/dev/run.test.ts  终端 Ctrl+C（监督进程与后端同时收到 SIGINT）：两个停止请求汇合，仍有序结束，以 0 退出
+    1497ms  neuro-book/src/server/dev/supervisor.test.ts  新进程启动失败：报告后等待改动，不循环重启，门直接给不可用；再次改动后恢复
+    1312ms  neuro-book/src/server/dev/run.test.ts  页面端口被占用：以 1 退出，不启动后端
+    1046ms  neuro-book/src/server/dev/supervisor.test.ts  重启中的请求等新进程就绪；重启中的新改动不追加重启
+    1016ms  neuro-book/src/server/dev/supervisor.test.ts  改动去抖后有序重启：旧进程经标准输入停止并以 0 退出之后，新进程才在同一端口启动
+     681ms  neuro-book/src/server/server.test.ts  未处理的 Promise 拒绝：记录致命诊断后有序停止，以 1 退出
+     641ms  neuro-book/src/server/server.test.ts  未捕获异常：记录致命诊断后有序停止，以 1 退出
+     610ms  neuro-book/src/server/server.test.ts  stdin 停止：在途长请求完成，新请求得到 503，以 0 退出
+
+全部通过。
+exit 0
