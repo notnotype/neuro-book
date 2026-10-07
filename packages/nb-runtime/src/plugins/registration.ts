@@ -8,6 +8,18 @@ import type {ServiceKey} from "../services/services";
 
 import type {PluginDefinition, RegistrationRejection, RegistrationRejectionReason} from "./contracts";
 
+/** 内核保留的激活事件前缀；插件不能声明，也不能经 triggerActivationEvent 触发。 */
+export const KERNEL_ACTIVATION_PREFIXES: ReadonlyArray<string> = ["onRemote"];
+
+/** `<前缀>:<参数>` 拆开；`onStartup` 与格式不对的返回 null。 */
+export function parseActivationEvent(event: string): {readonly prefix: string; readonly parameter: string} | null {
+    const separator = event.indexOf(":");
+    if (separator <= 0 || separator === event.length - 1) {
+        return null;
+    }
+    return {prefix: event.slice(0, separator), parameter: event.slice(separator + 1)};
+}
+
 export interface RegistrationEnvironment {
     readonly location: RuntimeLocation;
     hasKey(key: ServiceKey<unknown>): boolean;
@@ -35,6 +47,16 @@ export function validateDefinition(definition: PluginDefinition, environment: Re
     }
     if (definition.entries.length === 0) {
         rejections.push(rejection("no-entries"));
+    }
+
+    const prefixes = new Set<string>();
+    for (const prefix of definition.activationEventPrefixes ?? []) {
+        if (prefix.trim() === "" || prefix.includes(":") || prefixes.has(prefix)) {
+            rejections.push(rejection("invalid-activation-prefix", {detail: prefix}));
+        } else if (prefix === "onStartup" || KERNEL_ACTIVATION_PREFIXES.includes(prefix)) {
+            rejections.push(rejection("reserved-activation-prefix", {detail: prefix}));
+        }
+        prefixes.add(prefix);
     }
 
     const pointIds = new Set<string>();

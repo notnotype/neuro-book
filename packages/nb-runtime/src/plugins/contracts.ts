@@ -83,7 +83,11 @@ export interface ActivationOutput {
     readonly receivers?: Readonly<Record<string, ContributionReceiver>>;
 }
 
-export type ActivationEvent = "onStartup";
+/**
+ * `onStartup`，或 `<前缀>:<参数>`。前缀归声明它的插件（`activationEventPrefixes`），只有拥有者能触发；
+ * 内核保留前缀 `onRemote`（远程服务首次被调用时激活提供它的入口）。见 runtime.plugins 输出第 21 条。
+ */
+export type ActivationEvent = string;
 
 export interface PluginEntryDefinition {
     /** 插件内唯一。 */
@@ -106,6 +110,8 @@ export interface PluginEntryDefinition {
 /** 随产品发布的静态描述；不是已激活实例。 */
 export interface PluginDefinition {
     readonly id: string;
+    /** 本插件拥有的激活事件前缀，例如 `onCommand`；只有拥有者能触发 `<前缀>:<参数>`。 */
+    readonly activationEventPrefixes?: ReadonlyArray<string>;
     readonly contributionPoints?: ReadonlyArray<ContributionPointDefinition>;
     /** 只有声明、没有入口实现的贡献。 */
     readonly contributions?: ReadonlyArray<ContributionDeclaration>;
@@ -160,7 +166,9 @@ export type RegistrationRejectionReason =
     | "reserved-service-name"
     | "self-dependency"
     | "foreign-scope"
-    | "scope-not-alive";
+    | "scope-not-alive"
+    | "invalid-activation-prefix"
+    | "reserved-activation-prefix";
 
 export interface RegistrationRejection {
     readonly reason: RegistrationRejectionReason;
@@ -311,6 +319,14 @@ export type RecoverEntryResult =
     | {readonly status: "closeout-incomplete"; readonly plugin: string; readonly entry: string; readonly scopeId: ScopeId}
     | {readonly status: "rejected"; readonly plugin: string; readonly entry: string; readonly reason: "unknown-entry" | "scope-closed"};
 
+export type TriggerActivationResult =
+    | {readonly status: "triggered"; readonly event: ActivationEvent; readonly results: ReadonlyArray<ActivationResult>}
+    /**
+     * invalid-event：不是 `<前缀>:<参数>`；reserved-prefix：内核保留的前缀；not-prefix-owner：发起者不是
+     * 前缀的存活拥有者；prefix-conflict：两个以上存活插件声明了同一前缀，两者都不生效。
+     */
+    | {readonly status: "rejected"; readonly event: ActivationEvent; readonly reason: "invalid-event" | "reserved-prefix" | "not-prefix-owner" | "prefix-conflict"};
+
 export type PluginDiagnosticStage = "register" | "activate" | "publish" | "revoke" | "recover" | "close";
 
 /** 插件诊断：只含身份、阶段与原因摘要，不含实现、声明附加字段或凭据。 */
@@ -349,6 +365,11 @@ export interface PluginHost {
     activate(ref: EntryRef, options?: {readonly signal?: AbortSignal}): Promise<ActivationResult>;
     /** 显式恢复稳定失败的入口：上次收口完成才重置；不自动重新激活。 */
     recover(ref: EntryRef): Promise<RecoverEntryResult>;
+    /**
+     * 拥有者触发自己前缀下的激活事件：激活本位置声明了该事件的全部入口，逐个返回激活结果（复用
+     * `activate` 的合并语义）。`requester` 是发起触发的插件 id，必须是前缀唯一的存活拥有者。
+     */
+    triggerActivationEvent(event: ActivationEvent, options: {readonly requester: string; readonly signal?: AbortSignal}): Promise<TriggerActivationResult>;
     diagnostics(): ReadonlyArray<PluginDiagnostic>;
 }
 

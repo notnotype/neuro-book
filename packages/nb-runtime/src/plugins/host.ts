@@ -19,6 +19,7 @@ import type {ConsumerIdentity, EntryId, ResolveResult, ServiceAssembly, ServiceC
 import {PluginStateError} from "./contracts";
 import type {
     ActivationContext,
+    ActivationEvent,
     ActivationFailed,
     ActivationFailureReason,
     ActivationOutput,
@@ -39,6 +40,7 @@ import type {
     EntryStatus,
     PluginCatalog,
     PluginDefinition,
+    TriggerActivationResult,
     PluginDiagnostic,
     PluginDiagnosticStage,
     PluginEntryDefinition,
@@ -49,7 +51,7 @@ import type {
     RegisterPluginResult,
     RevokeReason,
 } from "./contracts";
-import {validateDefinition} from "./registration";
+import {KERNEL_ACTIVATION_PREFIXES, parseActivationEvent, validateDefinition} from "./registration";
 import {deriveBlocked, entryIdentity} from "./blocked";
 
 const CANCELLED: unique symbol = Symbol("cancelled");
@@ -198,6 +200,8 @@ interface EntryRecord {
 interface PluginRecord {
     readonly id: string;
     readonly scope: Scope;
+    /** 本插件拥有的激活事件前缀。 */
+    readonly prefixes: ReadonlyArray<string>;
     readonly points: ReadonlyMap<string, ContributionPointDefinition>;
     readonly entries: ReadonlyMap<string, EntryRecord>;
     contributions: ReadonlyArray<ContributionRecord>;
@@ -305,7 +309,14 @@ export class PluginHostImpl implements PluginHost {
         }
         const entries = new Map<string, EntryRecord>();
         const allContributions: ContributionRecord[] = [];
-        const pluginRecord: PluginRecord = {id: definition.id, scope: options.scope, points, entries, contributions: allContributions};
+        const pluginRecord: PluginRecord = {
+            id: definition.id,
+            scope: options.scope,
+            prefixes: definition.activationEventPrefixes ?? [],
+            points,
+            entries,
+            contributions: allContributions,
+        };
         const registered: string[] = [];
 
         for (const entry of definition.entries) {
@@ -375,6 +386,7 @@ export class PluginHostImpl implements PluginHost {
                 release: (records) => this.#revokeTopLevel(records),
             });
         }
+        this.#diagnoseActivationEvents(pluginRecord, definition);
         return {status: "accepted", plugin: definition.id, entries: registered};
     }
 
@@ -439,6 +451,72 @@ export class PluginHostImpl implements PluginHost {
             return {status: "cancelled", plugin: ref.plugin, entry: ref.entry};
         }
         return this.#resultOf(record, attempt, outcome);
+    }
+
+    async triggerActivationEvent(
+        event: ActivationEvent,
+        options: {readonly requester: string; readonly signal?: AbortSignal},
+    ): Promise<TriggerActivationResult> {
+        const parsed = parseActivationEvent(event);
+        if (parsed === null) {
+            return {status: "rejected", event, reason: "invalid-event"};
+        }
+        if (KERNEL_ACTIVATION_PREFIXES.includes(parsed.prefix)) {
+            return {status: "rejected", event, reason: "reserved-prefix"};
+        }
+        const owners = this.#prefixOwners(parsed.prefix);
+        if (owners.length > 1) {
+            this.#record("activate", "activation-prefix-conflict", {plugin: options.requester, capability: "activationEvents", contribution: event});
+            return {status: "rejected", event, reason: "prefix-conflict"};
+        }
+        if (owners[0]?.id !== options.requester) {
+            return {status: "rejected", event, reason: "not-prefix-owner"};
+        }
+        return {status: "triggered", event, results: await this.#activateByEvent(event, options.signal)};
+    }
+
+    /** 激活本位置声明了 `event` 的全部存活入口；内核保留前缀（onRemote）也经这里，不做拥有者核对。 */
+    async #activateByEvent(event: ActivationEvent, signal: AbortSignal | undefined): Promise<ReadonlyArray<ActivationResult>> {
+        const targets: EntryRef[] = [];
+        for (const plugin of this.#plugins.values()) {
+            if (!isAlive(plugin.scope)) {
+                continue;
+            }
+            for (const entry of plugin.entries.values()) {
+                if (entry.activatable && (entry.definition.activationEvents ?? []).includes(event)) {
+                    targets.push({plugin: plugin.id, entry: entry.definition.id});
+                }
+            }
+        }
+        return Promise.all(targets.map((ref) => this.activate(ref, {signal})));
+    }
+
+    #prefixOwners(prefix: string): PluginRecord[] {
+        return [...this.#plugins.values()].filter((plugin) => isAlive(plugin.scope) && plugin.prefixes.includes(prefix));
+    }
+
+    /**
+     * 登记时标出本位置入口里格式不对、或此刻没有存活拥有者的事件：只记诊断，不拒绝插件；拥有者之后
+     * 登记时事件照常生效（触发时才核对拥有者）。激活事件的诊断以 `capability: "activationEvents"`、
+     * `contribution: <事件>` 标出事件。
+     */
+    #diagnoseActivationEvents(plugin: PluginRecord, definition: PluginDefinition): void {
+        for (const entry of definition.entries) {
+            if (entry.location !== this.location) {
+                continue;
+            }
+            for (const event of entry.activationEvents ?? []) {
+                if (event === "onStartup") {
+                    continue;
+                }
+                const parsed = parseActivationEvent(event);
+                if (parsed === null) {
+                    this.#record("register", "invalid-activation-event", {plugin: plugin.id, entry: entry.id, capability: "activationEvents", contribution: event});
+                } else if (!KERNEL_ACTIVATION_PREFIXES.includes(parsed.prefix) && this.#prefixOwners(parsed.prefix).length === 0) {
+                    this.#record("register", "unknown-activation-event", {plugin: plugin.id, entry: entry.id, capability: "activationEvents", contribution: event});
+                }
+            }
+        }
     }
 
     async recover(ref: EntryRef): Promise<RecoverEntryResult> {

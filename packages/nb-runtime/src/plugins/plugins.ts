@@ -21,6 +21,7 @@ import {PluginHostImpl} from "./host";
 
 export type * from "./contracts";
 export {PluginStateError} from "./contracts";
+export {KERNEL_ACTIVATION_PREFIXES} from "./registration";
 
 /** 创建一个插件宿主：绑定到一个运行实例（即一个运行位置）与其服务装配。两个宿主互不共享状态。 */
 export function createPluginHost(instance: RuntimeInstance, assembly: ServiceAssembly, options: PluginHostOptions): PluginHost {
