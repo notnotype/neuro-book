@@ -72,7 +72,7 @@ owners:
 19. **按调用方提供项**：入口在 `provides` 中声明的键，激活产出可以用 `provide`（共享实例）或 `providePerConsumer`（按调用方门面）交出，交付规则与第 13 条的关闭顺序不变；激活上下文的必需依赖与可选依赖解析属于同一次激活，得到同一门面，门面随这次激活的作用域释放。
 20. **委托**：代理入口在处理调用方请求时以 `context.services.resolveFor(调用方身份, 键)` 取得目标服务的门面；核对规则与拒绝原因见 [`runtime.services`](./services.md) 输出第 13 条。
 21. **拥有者定义的激活事件**：入口的 `activationEvents` 可以写 `onStartup` 或 `<前缀>:<参数>`。前缀的拥有者调用 `triggerActivationEvent(事件, {requester})`，内核激活本位置声明了该事件的全部入口并逐个返回激活结果，复用第 3 条的激活合并；非拥有者触发被拒。没有插件拥有的前缀：该事件被忽略并记诊断，插件其它部分照常；两个插件声明同一前缀时两者的声明都不生效并记诊断，与登记顺序无关。前缀 `onRemote` 归内核，插件不能声明。
-22. **远程提供项**：入口的 `remoteProvides` 列出合同 id；激活产出的 `remote` 必须与之完全一致，缺少为 `missing-remote`、多出为 `undeclared-remote`，都是输出阶段失败。远程调用到达时声明了该合同的入口未激活，内核按 `onRemote:<合同 id>` 激活它。远程提供项随入口停止撤回：门面作废、经它建立的订阅取消（[远程服务与 RPC 协议](./plugin-channel.md)）。
+22. **远程提供项**：入口的 `remoteProvides` 列出合同 id；激活产出的 `remote` 必须与之完全一致，缺少为 `missing-remote`、多出为 `undeclared-remote`，都是输出阶段失败。合同的提供方位置与本实例的拓扑角色不符（例如 `provider: "server"` 的合同出现在项目实例的入口里）同样是输出阶段失败 `remote-location-mismatch`；角色取自本实例远程节点的实例描述（`hub` 对应 `server`、`project` 对应 `project`、`client` 对应 `client`，`provider: "any"` 任何角色都可提供），没有远程节点的实例不做这项核对（随 t54 实现）。远程调用到达时声明了该合同的入口未激活，内核按 `onRemote:<合同 id>` 激活它。远程提供项随入口停止撤回：门面作废、经它建立的订阅取消（[远程服务与 RPC 协议](./plugin-channel.md)）。
 
 ## 状态与转换
 
@@ -174,7 +174,7 @@ owners:
 22. **贡献不构成依赖**：拥有者入口受阻或激活失败时，贡献方照常激活，贡献等待接收者。
 23. **按调用方提供项与委托**：见 [`runtime.services`](./services.md) 场景 10、11，插件侧另验证必需与可选依赖共用同一门面、`providePerConsumer` 交出的实例只交付一次。
 24. **激活事件前缀**：拥有者触发前缀事件激活声明它的入口并得到结果；非拥有者触发被拒；无人拥有的前缀被忽略并记诊断；两个插件声明同一前缀时两者都不生效；插件声明 `onRemote` 前缀被拒。
-25. **远程提供项**：`remote` 与 `remoteProvides` 不一致分别为 `missing-remote`、`undeclared-remote`；首次远程调用按 `onRemote:<合同 id>` 激活懒入口；入口停止后它的远程门面作废、订阅取消。
+25. **远程提供项**：`remote` 与 `remoteProvides` 不一致分别为 `missing-remote`、`undeclared-remote`；合同的提供方位置与实例角色不符为 `remote-location-mismatch`（随 t54）；首次远程调用按 `onRemote:<合同 id>` 激活懒入口；入口停止后它的远程门面作废、订阅取消。
 
 Smoke 以目录查询、激活结果与贡献可见性为准。场景 1–11 与 16–22 由下节合同测试逐条覆盖，其中场景 11 的接收者由拥有者插件提供；场景 12–15 由合同测试覆盖，在产品内置服务迁成插件后由 `smoke:product-lifecycle` 的 L2 与 L3、L4 读取同一组诊断在真实进程上核对；场景 8、9 的真实浏览器半边由 `smoke:runtime-foundation` 在真实 Chromium 上运行同一份受控清单验证（启动必需的 `command-owner` 插件定义 `commands` 贡献点并交出接收者，greeter 插件在两个窗口各自激活并向它贡献一条命令，可选 flaky 插件在浏览器与后端分别失败且不影响 greeter）。
 
@@ -209,5 +209,5 @@ Smoke 以目录查询、激活结果与贡献可见性为准。场景 1–11 与
 - 实现与验证：[w00017 t07](../../../.agents/works/w00017-application-runtime-architecture/tasks/t07-runtime-plugins/README.md)（机制与合同测试）、[t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（真实双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对并晋升）。
 - 入口与服务级依赖（输出第 11–14 条、场景 12–15）：依据 [可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3、P11（2026-09-30 `accepted`）与 [`runtime.plugin-manifest`](./plugin-manifest.md) 第 2–9 条，实现与验证见 [w00017 t32](../../../.agents/works/w00017-application-runtime-architecture/tasks/t32-kernel-entry-dependencies/README.md)。
 - 贡献点由拥有者定义、按单条校验与交付账本（输出第 15–18 条、场景 16–22）：依据同一设计的 P1 第 2、4 项与 P3，以及 [`runtime.plugin-manifest`](./plugin-manifest.md) 第 10 条，实现与验证见 [w00017 t33](../../../.agents/works/w00017-application-runtime-architecture/tasks/t33-owner-contribution-points/README.md)。
-- 按调用方提供项、委托、激活事件前缀与远程提供项（输出第 19–22 条、场景 23–25）：依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4 节与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`），实现与验证见 [w00017 t52](../../../.agents/works/w00017-application-runtime-architecture/tasks/t52-kernel-instances-remote/README.md)。
+- 按调用方提供项、委托、激活事件前缀与远程提供项（输出第 19–22 条、场景 23–25）：依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4 节与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`），实现与验证见 [w00017 t52](../../../.agents/works/w00017-application-runtime-architecture/tasks/t52-kernel-instances-remote/README.md)。远程提供项的 `remote-location-mismatch` 依据开发者 2026-10-07 在 [t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中确认的合同提供方位置，随 [t54](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/README.md) 实现。
 - 已知限制：首批真实内置插件（diagnostics、platform-files、sqlite）归第二片；第一片只有受控插件证明机制。命令/View/设置等贡献点的领域字段与校验由各能力 Spec 在首次消费时补齐。声明层在运行期的出现与消失归 [`runtime.plugin-hot-plug`](./plugin-hot-plug.md)：拥有者已接上之后才登记的插件，其顶层声明要等下次接上才补交；之后登记的重复贡献使已交付的那条变为 `rejected`，但不撤回已有交付。
