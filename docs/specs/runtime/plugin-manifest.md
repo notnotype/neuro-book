@@ -46,6 +46,7 @@ owners:
 | `entries.<id>.main` | 入口代码文件，相对插件目录，必须位于插件目录内 |
 | `entries.<id>.remoteProvides` | 可选，本入口提供的远程服务合同 id 列表；合同 id 以本插件 id 加 `/` 开头 |
 | `entries.<id>.delegates` | 可选，本入口可代表调用方解析的服务 id 列表；只有装配方允许清单内的插件可以声明，第一版只限内置插件 |
+| `entries.<id>.remoteDelegates` | 可选，本入口可代表调用方调用的远程服务合同 id 列表（随 t55）；与 `delegates` 同样只限允许清单内的内置插件 |
 | `entries.<id>.requires` | 必需依赖的服务 id 列表 |
 | `entries.<id>.provides` | 本入口提供的服务 id 列表 |
 | `entries.<id>.activationEvents` | 激活事件列表 |
@@ -112,7 +113,7 @@ owners:
 
 ## 失败与恢复
 
-- **清单无效时整个插件不登记。** 包括：缺少必需字段或类型错误；id 格式错误；第三方 id 以 `nbook.` 开头；`main` 不存在、是绝对路径或越出插件目录；入口 id 重复；`provides` 中的服务 id 不以本插件 id 为前缀、重复，或占用保留名 `channel`；`remoteProvides` 中的合同 id 不以本插件 id 为前缀或重复；第三方插件声明 `delegates`；插件在 `activationEventPrefixes` 中声明 `onRemote`；`pluginVersions` 列出内置插件。原因可在插件管理中查询，其它插件不受影响。单条贡献不合格只拒绝该条（见上文第 10 条）。
+- **清单无效时整个插件不登记。** 包括：缺少必需字段或类型错误；id 格式错误；第三方 id 以 `nbook.` 开头；`main` 不存在、是绝对路径或越出插件目录；入口 id 重复；`provides` 中的服务 id 不以本插件 id 为前缀、重复，或占用保留名 `channel`；`remoteProvides` 中的合同 id 不以本插件 id 为前缀或重复；第三方插件声明 `delegates` 或 `remoteDelegates`；插件在 `activationEventPrefixes` 中声明 `onRemote`；`pluginVersions` 列出内置插件。原因可在插件管理中查询，其它插件不受影响。单条贡献不合格只拒绝该条（见上文第 10 条）。
 - **两个插件声明同一服务 id** 不可能发生（服务 id 带插件前缀）；同一插件 id 出现多份清单时全部不登记，并报告每份的来源，与输入顺序无关。
 - **启动必需按运行位置判定。** 启动必需内置插件的服务端入口受阻、失败或其清单无效时，服务端启动失败，由 [`runtime.server-host`](server-host.md) 有序退出；它的浏览器入口（例如 `nbook.workbench`）在某个窗口中失败时，只有该窗口显示启动失败页（[`runtime.browser-host`](browser-host.md)），不影响服务端与其它窗口。
 - 前缀没有任何已登记插件声明的激活事件被忽略并在插件详情中标注“未知激活事件”，与未知贡献点相同，便于发现拼写错误；声明前缀的插件之后登记时，事件照常生效。两个插件声明同一前缀时两者的声明都不生效并记入诊断，与输入顺序无关；其它运行位置的入口在本实例为 `foreign-location`；本实例中依赖它所提供服务的入口按第 3 条以 `location-mismatch` 受阻。
@@ -137,7 +138,7 @@ owners:
 6. **位置不匹配。** 浏览器入口依赖另一插件的服务端服务时，该入口以 `location-mismatch` 受阻，插件其它入口不受影响。
 7. **依赖环。** 两个入口互相依赖时二者以 `dependency-cycle` 受阻，诊断给出环路径；其它入口不受影响。
 8. **版本范围。** `pluginVersions` 不接受已安装的提供方版本时，依赖它的入口以 `version-mismatch` 受阻。
-9. **清单无效。** 第三方 id 以 `nbook.` 开头、第三方插件声明 `delegates`、插件声明 `onRemote` 前缀、`pluginVersions` 列出内置插件，各自使整个插件不登记，原因可查询，其它插件照常。
+9. **清单无效。** 第三方 id 以 `nbook.` 开头、第三方插件声明 `delegates` 或 `remoteDelegates`、插件声明 `onRemote` 前缀、`pluginVersions` 列出内置插件，各自使整个插件不登记，原因可查询，其它插件照常。
 10. **贡献待校验。** 向未启用的拥有者提交的贡献不显示、不报错；拥有者启用后，合格的贡献出现，不合格的一条被拒绝且原因可查，插件其它部分照常。向不存在的贡献点提交的贡献标注“未知贡献点”。
 11. **顺序。** 启动时依赖先于依赖者激活；关闭时依赖者先于提供者关闭；打乱清单登记顺序，推导结果与诊断顺序不变。
 12. **启动必需插件受阻** 时服务端启动失败并以启动失败退出码退出；`nbook.workbench` 的浏览器入口在一个窗口中失败时，只有该窗口显示启动失败页。

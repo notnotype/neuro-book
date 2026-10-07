@@ -32,7 +32,7 @@ owners:
 - **远程服务合同**：插件共享模块里用 TypeBox 声明的合同：合同 id（以插件 id 加 `/` 开头）、整数版本、提供方位置、允许调用的实例种类、方法（输入、输出、读或写、业务失败码）、事件（订阅过滤参数、事件内容）。合同同时被提供方与调用方引用。
 - **提供方位置**（合同的 `provider`）：哪种角色的实例提供这份合同：`server`（服务端实例）、`project`（项目实例）、`client`（客户端实例）、`any`（每个实例各有一份，例如命令系统的跨实例执行）。
 - **远程提供项**：提供入口激活时以 `provideRemote(合同, (调用方) => 门面)` 交出的实现；本地调用与跨实例调用共用这一个工厂，门面规则同 [`runtime.services`](services.md) 的按调用方门面。
-- **调用方身份**：运行实例、插件、入口、入口激活代次，委托时另附代理身份；只由内核填写。
+- **调用方身份**：运行实例、运行位置、插件、入口、入口激活代次与客户端身份，委托时另附代理身份；只由内核填写。
 - **目标**：`project`（本客户端绑定的项目代次）、`server`、`{project}`（指定项目当前运行的代次；能否到达由宿主的项目管理决定，路由按帧上的调用方身份经宿主给的访问回调询问，未提供时一律 `denied`；访问本身不打开项目，规则见 [`runtime.projects`](projects.md)）、`{client}`（指定客户端实例）。
 - **绑定**：客户端实例一生绑定的项目代次，或不绑定；在握手时由服务端宿主决定（见下文“WebSocket 传输与握手”第 3 条），之后不变。
 - **节点**：每个内核实例里负责远程服务的部分：登记本地提供项、发出与接收请求。
@@ -40,7 +40,7 @@ owners:
 - **链路**：两个节点之间的传输，接口为 `{send(帧), onFrame(监听), onClose(监听), close()}`；帧无法编码（含不能序列化的值）时 `send` 同步抛错，链路已关闭时 `send` 丢弃帧；客户端与服务端之间是 WebSocket（见下文“WebSocket 传输与握手”），服务端与项目子进程之间是进程间通信（见下文“进程间链路”），测试与组合验证使用进程内链路。
 - **连接代次**：一条链路建立时分配；链路断开即结算该链路上的全部在途请求与订阅。
 - **内核 RPC 端口**：服务端宿主为远程服务单独监听的 WebSocket 端口，与 HTTP 端口分离（[`runtime.server-host`](server-host.md)）；浏览器经引导接口得知端口（[`runtime.browser-host`](browser-host.md)）。
-- **客户端身份**：客户端实例跨重新加载稳定的标识（浏览器存在本地存储里），与每次启动都不同的实例 id 区分；服务端与项目实例没有。Storage 的 `local` 分区按它划分（随 K4）。
+- **客户端身份**：客户端实例跨重新加载稳定的标识（浏览器存在本地存储里），与每次启动都不同的实例 id 区分；服务端与项目实例没有。调用方身份带它，Storage 的 `local` 记录按它分开（[`storage.persistence`](../storage/persistence.md)，随 t55）。
 - **服务端进程标识（`boot`）**：服务端每次进程启动时生成，经握手告诉客户端；客户端据此区分“同一服务端进程的重连”与“服务端已重启”。
 - **激活链**：请求触发了哪些入口的按需激活，由路由帧携带，用于发现等待环。
 
@@ -51,6 +51,7 @@ owners:
 - 握手时双方核对 wire 协议版本；不兼容时在处理任何业务帧、激活任何入口之前拒绝该链路（握手帧见下文“WebSocket 传输与握手”）。
 - 合同版本：请求携带调用方编译时依赖的合同版本，提供方以自己提供的合同版本核对；第一版按整数精确匹配，兼容范围以后再加。
 - 客户端实例一生只绑定一个项目代次或不绑定；`project` 目标按调用方绑定解析，不读取“当前项目”；没有绑定的调用方用 `project` 目标为 `target-gone`。
+- 调用方身份里不带项目代次：发往 `project` 目标的请求由路由按调用方的绑定送到那一个代次，绑定的代次结束后在未派发阶段为 `target-gone`，不改投新代次。[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4 节的消费上下文因此不带项目代次。
 
 ## 输出与可观察行为
 
@@ -65,7 +66,7 @@ owners:
 
    运行时同样核对：目标与合同的提供方位置不符的调用在未派发阶段以 `invalid-input` 失败（说明目标与提供方位置不符），不发出请求。
 2. **任意实例可达。** 客户端到服务端、到项目实例、到另一个客户端都由内核经服务端路由转发；插件不写转发代码。同一实例内的调用不经链路：同样按调用方取门面、同样核对身份与代次，只是参数与结果不序列化；宿主开启本地校验（开发模式）时本地调用也按合同校验，传不可序列化的值被拒。
-3. **调用方不可伪造。** 提供方看到的调用方身份来自路由帧；委托时为原调用方并附代理身份。
+3. **调用方不可伪造。** 提供方看到的调用方身份来自路由帧；委托时为原调用方并附代理身份。路由只转发调用方实例 id 等于发来链路所登记成员的帧（否则 `denied`），并把帧上调用方身份里由实例描述决定的两项（运行位置、客户端身份）置为该成员描述的 `kind` 与 `client`，节点自报不算数（随 t55）。
 4. **请求阶段与失败码。**
 
    | 阶段 | 结果 |
@@ -80,6 +81,10 @@ owners:
 7. **订阅。** `use(合同).at(目标).事件.subscribe(过滤参数, 监听, {onResync?})` 返回可释放句柄，登记在订阅方的激活作用域上。提供方的 `subscribe(过滤参数, sink, {signal})` 每个订阅调用一次，过滤由提供方完成。订阅绑定两端精确的入口激活代次与所经连接代次：订阅方释放、任一入口开始停止、提供项撤回、任一实例失效或所经连接结束，都取消订阅、触发提供方的 `signal` 并丢弃迟到事件。同一订阅内按序送达；断线期间的事件不补发；连回同一服务端进程、同一项目代次时只重建仍有效的订阅，并调用 `onResync`，订阅方据此重取基线；服务端已换进程时不重建，订阅以 `server-restarted` 结束，绑定的项目代次已结束时以 `project-gone` 结束（见下文“WebSocket 传输与握手”第 4、7 条）。
 8. **实例查询。** `context.remote.instances()` 列出当前在线的实例：种类、绑定的项目代次；不含连接细节。
 9. **诊断。** 每次调用记录合同 id、方法、调用方插件、目标种类、耗时与结果码；不记录输入、输出与事件内容。
+10. **经代理的远程调用**（随 t55）。代理入口在它交出的按调用方门面里，以收到的调用方身份调用 `context.remote.on(调用方身份).use(合同)`，发出的调用与订阅以原调用方的身份到达提供方，另附代理身份（`via` 为代理的插件、入口与激活代次）。
+    - 核对与同一实例内的委托（[`runtime.services`](services.md) 输出第 13 条）相同：身份是本实例装配签发给本入口门面的、签发它的门面还没释放、插件在代理允许清单内；另外合同 id 必须在入口的 `remoteDelegates` 里。不满足时调用与订阅得到 `denied`，不发出请求。
+    - 经代理建立的远程门面与订阅挂在签发记录下：签发该身份的门面释放时（原调用方入口停止、代理入口停止），先运行代理门面自己的释放函数（期间经代理的调用仍可用），再结束这些订阅、通知提供方释放为该身份生成的门面。经代理的身份带 `via`，提供方为它生成的门面与原调用方直接调用时的门面互不相干。
+    - 只有本实例签发的身份能用：提供方收到的远程调用方身份不是签发出去的，不能再经它代理到第三个实例。
 
 ## WebSocket 传输与握手
 
@@ -149,7 +154,7 @@ owners:
 - **与服务装配的关系**：远程提供项的门面规则沿用 [`runtime.services`](services.md) 的按调用方门面与委托；远程服务不进入依赖图（[`runtime.plugin-manifest`](plugin-manifest.md) 第 5 条）。
 - **与 HTTP 的关系**：插件之间不经 HTTP 通信；HTTP 只服务浏览器原生加载与外部调用方（见末节）。
 - **安全**：第一版完全信任（[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md)）；调用方身份与委托防误用、不防恶意代码。客户端互调的权限规则与登录接入时的使用者限制待后续补充。
-- **兼容**：合同 id、版本、提供方位置、失败码与目标写法是公开接口；帧格式与 wire 协议版本是内核内部协议，变更时提升 wire 版本（加入绑定字段时升为 2）；`reject` 帧的形状与 `hello` 的 `wire` 字段跨版本不变。
+- **兼容**：合同 id、版本、提供方位置、失败码与目标写法是公开接口；帧格式与 wire 协议版本是内核内部协议，变更时提升 wire 版本（加入绑定字段时升为 2，调用方身份加入客户端身份时升为 3，随 t55）；`reject` 帧的形状与 `hello` 的 `wire` 字段跨版本不变。
 - **开发模式**：页面经引导接口得知 RPC 端口后直连后端，不经页面服务代理 WebSocket；后端每次重启对已打开的页面都是服务端重启（[`runtime.server-host`](server-host.md)）。
 
 ## 验收与 Smoke
@@ -171,8 +176,10 @@ owners:
 15. **绑定。** 带 `bind` 的 hello 得到带 `binding` 的 `welcome`，`project` 目标到达绑定的代次；绑定回调拒绝时为 `project-unavailable`；重连带原代次，在代次仍在时恢复绑定、订阅重建并收到 `onResync`，代次已结束时为 `project-gone`，节点进入终态、订阅以 `project-gone` 结束；`welcome` 的绑定与记下的不同同样进入终态。绑定的客户端重连按同一实例接管，不是 `duplicate-instance`；同 id 但绑定不同仍是 `duplicate-instance`；非客户端带 `bind` 以 `role` 拒绝。绑定期间链路关闭，租约随即释放；绑定的项目代次结束时客户端链路被关闭。
 16. **提供方位置。** `provider: "server"` 的合同省略 `.at()` 到达服务端；`provider: "project"` 的合同省略 `.at()` 到达绑定的项目；目标与提供方位置不符为 `invalid-input` 且没有发出请求。
 17. **进程间链路。** 真实子进程经进程间通信与服务端互相调用；`expect` 不符的 hello 以 `role` 拒绝；子进程退出后其上写请求为 `unknown-outcome`、订阅以断开结束。
+18. **客户端身份与路由覆盖**（随 t55）。客户端实例里插件的调用到达提供方时带该客户端的客户端身份；客户端节点自报另一个客户端身份或运行位置时，提供方看到的是登记的成员描述里的值。
+19. **经代理的远程调用**（随 t55）。代理以签发给它的身份调用另一实例的服务，提供方看到原调用方与 `via`；伪造或签发给别的入口的身份、未在 `remoteDelegates` 里的合同、不在允许清单的插件各自为 `denied`；原调用方入口停止（代理入口仍在）后经代理建立的订阅结束、提供方为它生成的门面释放，代理门面的释放函数运行期间经代理的调用仍可用。
 
-Smoke：场景 1–9 由内核合同测试以真实内核实例与进程内链路覆盖（[w00017 t52](../../../.agents/works/w00017-application-runtime-architecture/tasks/t52-kernel-instances-remote/README.md)）；场景 10–14 由内核合同测试与服务端宿主的真实 Bun WebSocket 测试覆盖，真实 Chrome 上的连接、断线重连、刷新与服务端重启由 `packages/neuro-book/e2e/rpc.e2e.ts` 核对（[w00017 t53](../../../.agents/works/w00017-application-runtime-architecture/tasks/t53-rpc-port-browser-connection/README.md)）；场景 15、16 由内核合同测试覆盖，场景 17 与绑定的真实子进程、真实 Chrome 验收随 [w00017 t54](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/README.md)（`e2e/projects.e2e.ts`）。
+Smoke：场景 1–9 由内核合同测试以真实内核实例与进程内链路覆盖（[w00017 t52](../../../.agents/works/w00017-application-runtime-architecture/tasks/t52-kernel-instances-remote/README.md)）；场景 10–14 由内核合同测试与服务端宿主的真实 Bun WebSocket 测试覆盖，真实 Chrome 上的连接、断线重连、刷新与服务端重启由 `packages/neuro-book/e2e/rpc.e2e.ts` 核对（[w00017 t53](../../../.agents/works/w00017-application-runtime-architecture/tasks/t53-rpc-port-browser-connection/README.md)）；场景 15、16 由内核合同测试覆盖，场景 17 与绑定的真实子进程、真实 Chrome 验收随 [w00017 t54](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/README.md)（`e2e/projects.e2e.ts`）。场景 18、19 由内核合同测试覆盖，经代理的 Storage 访问在真实 Chrome 里由 `e2e/storage.e2e.ts` 核对（随 t55）。
 
 ## HTTP 路由贡献（待移交 `nbook.http` 的 Spec）
 
@@ -188,6 +195,6 @@ Smoke：场景 1–9 由内核合同测试以真实内核实例与进程内链�
 
 - 批准目标：[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4、5、10 节与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`）；审查与复审见 [t51 证据](../../../.agents/works/w00017-application-runtime-architecture/tasks/t51-runtime-topology-design/evidences/)。原插件通道合同的依据为 [可扩展应用平台设计](../../proposals/extensible-application-platform.md) P5 与 [ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条，被取代的部分以 ADR 0024 为准。
 - 实现：内核部分已随 [w00017 t52](../../../.agents/works/w00017-application-runtime-architecture/tasks/t52-kernel-instances-remote/README.md) 实现，包入口 `@notnotype/nb-runtime/remote`（合同、协议、节点、路由）与 `@notnotype/nb-runtime/remote/testing`（进程内链路）。场景 1–9 由 [`protocol.test.ts`](../../../packages/nb-runtime/src/remote/protocol.test.ts)、[`routing.test.ts`](../../../packages/nb-runtime/src/remote/routing.test.ts)、[`activation.test.ts`](../../../packages/nb-runtime/src/remote/activation.test.ts) 与 [`children.test.ts`](../../../packages/nb-runtime/src/application/children.test.ts) 覆盖，模块的依赖方向由 [`remote.test.ts`](../../../packages/nb-runtime/src/remote/remote.test.ts) 的源码守卫锁定：只依赖 TypeBox 与 lifecycle、services 入口，不依赖插件宿主与应用内核。WebSocket 传输与握手随 [w00017 t53](../../../.agents/works/w00017-application-runtime-architecture/tasks/t53-rpc-port-browser-connection/README.md) 实现：内核的 `json-codec.ts`（`encodeJsonFrame`、`decodeJsonFrame`、`FrameEncodingError`；进程内测试链路也用它）、`protocol.ts` 的 `wireMismatch`、路由的 `boot` 选项与 `stopAdmission`、`drain`、`close`、节点的服务端重启识别；宿主一侧的端口、来源与套接字适配见 [`runtime.server-host`](server-host.md)、[`runtime.browser-host`](browser-host.md) 的实现合同。场景 10–14 由 [`protocol.test.ts`](../../../packages/nb-runtime/src/remote/protocol.test.ts)、[`json-codec.test.ts`](../../../packages/nb-runtime/src/remote/json-codec.test.ts) 与 [`routing.test.ts`](../../../packages/nb-runtime/src/remote/routing.test.ts) 的握手、重连、协议违规与路由停止各组覆盖。绑定、合同的提供方位置与进程间链路（场景 15–17）依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 3、4 节与开发者 2026-10-07 在 [t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中的确认，随 t54 实现：内核 `contract.ts` 的 `provider`、`RemoteTargetFor`、`RemoteUse` 与 `providerAccepts`，`protocol.ts` 的 `BindRequestSchema`、`ProjectBindingSchema`、hello 的 `bind` 与 `boot`、`leaseHolderOf`，路由的 `bindProject`、`projectAccess`（取代 `holdsProjectLease`）与 `accept(link, {expect})`，节点的 `bind` 选项、`binding` 与 `project-gone` 终态；宿主一侧的进程间链路 `packages/neuro-book/src/server/projects/ipc.ts`。场景 15、16 由 [`routing.test.ts`](../../../packages/nb-runtime/src/remote/routing.test.ts) 的绑定、项目代次结束与提供方位置各组及 [`protocol.test.ts`](../../../packages/nb-runtime/src/remote/protocol.test.ts) 覆盖，场景 17 由新应用的 `src/server/projects/manager.test.ts`、`src/server/server-projects.test.ts` 与 `e2e/projects.e2e.ts` 以真实子进程覆盖。本文保持 `planned`，进程间链路实现后再评估晋升。
-- 内核部分的已知限制：委托只在同一实例内，经代理转发到另一实例的委托未实现；合同版本只做整数精确匹配；等待环只沿单条激活链检测，跨链的互相等待只受激活期超时上限约束；激活链只记入口、不记代次，同一入口失败恢复后的新一代若正在激活，会被旧一代留下的链误判为环；`{project}` 目标的租约在建立请求或订阅时核对，订阅建立后租约释放不取消订阅，到该项目代次结束时才取消；拓扑稿第 10 节“服务端向项目推送事件不需要租约”由 `{project}` 的无租约访问规则承担（[`runtime.projects`](projects.md) 输出第 9 条）。
+- 内核部分的已知限制：经代理转发到另一实例的委托随 [t55](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/README.md) 实现（计划中），只能用本实例签发的身份、不能链式跨第三个实例；合同版本只做整数精确匹配；等待环只沿单条激活链检测，跨链的互相等待只受激活期超时上限约束；激活链只记入口、不记代次，同一入口失败恢复后的新一代若正在激活，会被旧一代留下的链误判为环；`{project}` 目标的租约在建立请求或订阅时核对，订阅建立后租约释放不取消订阅，到该项目代次结束时才取消；拓扑稿第 10 节“服务端向项目推送事件不需要租约”由 `{project}` 的无租约访问规则承担（[`runtime.projects`](projects.md) 输出第 9 条）。
 - 验证依据：[G0 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g0/REPORT.md)（旧宿主上的 WebSocket 升级）；新宿主上的 Bun WebSocket 由 t53 的合同测试、smoke 与 e2e 实测。
 - 传输的已知限制：不做发送背压与应用层心跳；同一实例重连时按描述一致接管旧链路，不核对凭据（鉴权随登录插件）。

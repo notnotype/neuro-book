@@ -151,13 +151,13 @@ Storage 记录 ──(打开时读取，之后订阅)──┐
 
   | `nbook.storage` 的入口 | 在哪 | 管什么 |
   |---|---|---|
-  | `server` | 服务端进程 | user 分区，`StateRoot` 下 |
-  | `project` | 每个项目子进程 | 本项目的 project 分区，`ProjectRoot/.nbook/storage/` |
+  | `server` | 服务端进程 | user 分区，`<状态根>/storage/user.sqlite` |
+  | `project` | 每个项目子进程 | 本项目的 project 分区，`<项目目录>/.nbook/storage.sqlite` |
   | `browser`、`tui` | 客户端 | 不存数据；同样的接口，读写经远程服务转给分区的拥有者 |
 
-  project 分区随项目关闭而关闭；一个项目同时只有一个项目实例，加上项目锁，project 分区只有一个写入方。
+  project 分区随项目关闭而关闭。每个分区是一个 SQLite 库，条件保存在数据库事务里完成，两个进程打开同一个库时也至多一个以同一 revision 成功；不另加项目锁（2026-10-07，K4 计划）。
 
-  客户端代理不能用自己的身份转发：那样服务端看到的调用方会变成 `nbook.storage`。代理经内核签发的**消费上下文**转发，上下文携带原消费插件、入口激活代次、稳定客户端身份与精确项目代次，不能由业务参数自报（拓扑稿第 4 节）。本地直用与经客户端代理访问的是同一个命名空间。
+  客户端代理不能用自己的身份转发：那样服务端看到的调用方会变成 `nbook.storage`。代理经内核签发的**消费上下文**转发，上下文携带原消费插件、入口激活代次与稳定客户端身份，不能由业务参数自报（拓扑稿第 4 节）；精确项目代次不进上下文，由路由按客户端的绑定把请求送到那一代，旧代次的请求在派发前失败。本地直用与经客户端代理访问的是同一个命名空间。
 - **记录定义**写在插件的共享模块里，三端共用；第一次打开时登记，同名不同形状的定义被拒绝：
 
   ```ts
@@ -165,9 +165,9 @@ Storage 记录 ──(打开时读取，之后订阅)──┐
       key: "layout-sizes", scope: "project", locality: "local", version: 1,
       schema: Type.Object({sidebar: Type.Number(), auxiliaryBar: Type.Number(), panel: Type.Number()}),
   });
-  const sizes = storage.open(sizesRecord);
-  const current = await sizes.read();            // status: missing | ok | corrupt | unsupported-version | error
-  await sizes.save(next, {expect: current.revision});   // 条件保存：{ok, revision} 或 {ok: false, code}
+  const opened = await storage.open(sizesRecord);  // {ok: true, handle} 或 {ok: false, code}，例如 definition-conflict
+  const current = await opened.handle.read();      // status: missing | ok | corrupt | unsupported-version | error
+  await opened.handle.save(next, {expect: current.revision});   // 条件保存：{ok, revision} 或 {ok: false, code}
   ```
 
   可按资源 id 寻址（`keyed: true`），例如按任务 id 一条记录。
@@ -304,3 +304,4 @@ Lab 不读写产品的配置与 Storage；fixture 不依赖持久化（[`ui/comp
 | 2026-10-07 | 主 Agent（待开发者审批） | 按 omp 审查修订（[t51 证据](../../.agents/works/w00017-application-runtime-architecture/tasks/t51-runtime-topology-design/evidences/omp-review.txt)）：持久化字段的四部分状态模型；公开键静态声明、激活绑定读取函数；服务端镜像按客户端实例隔离；客户端代理经内核委托；配置的用户编辑另走授权路径；K5 与 K6 分界 |
 | 2026-10-07 | 主 Agent（待开发者审批） | 按 omp 复审建议补：公开键重名一起拒绝、清单声明与 `public` 的核对；断线即撤回服务端镜像；`when` 只用正向布尔键（现行命令 Spec 的语法） |
 | 2026-10-07 | 开发者 | 认可本稿，改为 `accepted` |
+| 2026-10-07 | 开发者 | K4 设计（[t55 实施计划](../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/plan.md)）：每个分区一个 SQLite 库、不加项目锁；`open` 异步并报告定义冲突等失败；精确项目代次由路由按绑定解析；身份域、配额、记录格式迁移与删除标记回收推迟，访问上下文、外部写入轮询与旧数据迁移废弃 |

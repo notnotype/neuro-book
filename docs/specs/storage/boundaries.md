@@ -12,14 +12,13 @@ owners:
 
 ## 目标与成熟度
 
-为主 Workbench、内置插件和服务端模块提供共同的状态归属规则，使布局、插件内部记忆和运行时共享状态
-各有明确 owner。主应用 UI 模块负责前端宿主与状态投影，server 模块负责服务端宿主与持久化访问边界；
-Project / Workspace 模块负责项目身份与生命周期。数据内容及其格式由消费模块拥有，nb-ui 只拥有布局原语。
+为工作台、内置插件和服务端插件提供共同的状态归属规则，使布局、插件内部记忆和运行时共享状态
+各有明确 owner。内置插件 `nbook.storage` 负责记录的持久化与访问边界；服务端宿主的项目管理负责项目身份与项目实例的生命周期（[`runtime.projects`](../runtime/projects.md)）。数据内容及其格式由消费插件拥有，nb-ui 只拥有布局原语。
 
-本文件是架构合同，规定后续 Storage 能力必须维持的边界；`planned` 不表示新的 Storage service 已实现。
-初始化、身份映射、条件读写、持久化确认、生命周期、备份与恢复见 [storage.persistence](persistence.md)（planned）。
+本文件是架构合同，规定 Storage 必须维持的边界；`planned` 不表示已实现。
+记录定义、分区、条件读写、订阅、生命周期与失败见 [storage.persistence](persistence.md)（planned，2026-10-07 按多实例拓扑改写）。
 跨独立 data 的在线复制仍由 [同步提案](../../proposals/storage-service-and-sync.md) 继续设计。
-命令系统、第三方可执行插件沙箱和领域数据同步不在本能力中。
+第三方可执行插件沙箱和领域数据同步不在本能力中。
 
 ## Config、Storage、内存与领域数据
 
@@ -36,10 +35,8 @@ Project / Workspace 模块负责项目身份与生命周期。数据内容及其
 供按钮显隐等条件求值使用的键值投影（VS Code 称 Context Key）也属于内存；复杂共享数据不必转成这种投影。
 是否引入统一的 Context Key 服务由其它能力决定。
 
-Config 保持 Global / Project 两层，Global 位于 Workspace Root 的 `.nbook/config.json`，
-Project 位于 Project Workspace Root 的 `.nbook/config.json`。Global-only 字段仍不能由 Project 覆盖。
-配置统一跨设备同步是已确定目标，不引入逐配置项同步选择或机器排除策略；这不改变配置原有生效时机，
-也不证明当前已存在同步通道。配置解析及具体字段合同不由通用 Storage 替代。
+配置的层（声明默认值、用户层、项目层）、声明、读写与落点随配置插件的 Spec 定义（[插件的数据与状态](../../proposals/plugin-data-model.md) 第 6、7 节，K6）。
+配置统一跨设备同步是已确定目标，不引入逐配置项同步选择或机器排除策略；这不证明当前已存在同步通道。配置解析及具体字段合同不由通用 Storage 替代。
 
 ## 作用域与身份
 
@@ -52,30 +49,15 @@ Project 位于 Project Workspace Root 的 `.nbook/config.json`。Global-only 字
   Agent Session 的领域身份不受本项影响。
 
 scope 表达归属，不表示保存介质、设备范围或访问权限。`project` 尤其不等于所有用户可共享读写。
-宿主必须明确绑定使用主体及所在服务/Workspace 的身份域；不同身份域内同名的用户、项目或路径不能自动合并。
-登录与无鉴权主体、身份域和客户端的映射按 [持久化合同](persistence.md#身份与访问上下文)，不创建新的账号体系。
+记录的 owner 与客户端身份取自内核填写的调用方身份，业务参数不能自报（[持久化合同](persistence.md) 输出第 8、9 条）。
+第一版只有本机一个使用主体，身份域与使用主体推迟到登录插件，不创建新的账号体系。
 
 ### Project 上下文与生命周期
 
-- Project 分区由宿主根据 Project 生命周期模块发布的、仍有效的已就绪上下文提供。
-  “已就绪”意味着已经完成该模块的打开门禁，并持有其发布的有效代次标识；不能仅凭路径相同复用已失效的上下文。
-  消费者不得自行把目录名、标题或任意字符串当作授权，不能用 Storage 读取隐式打开 Project。
-- 用户资产工作区和“未打开项目”的界面没有可隐式使用的 Project 上下文。
-  即使内存还保留上次 `currentProjectRoot`，也不能据此获得 Project Storage；缺失上下文必须明确拒绝，不能落到上个 Project 或偷偷改用 User 分区。
-- 后台操作可以持有其显式绑定的 Project 上下文，不必依赖前台当前选择。异步读写和订阅必须保留原目标：
-  从 A 切到 B 后，A 的迟到结果不能显示为 B 的数据，A 的写入不能重新路由到 B。
-  生命周期撤销上下文后，拒绝接纳以该上下文发起的新操作；已接纳操作如何完成、取消或排空沿用 Project owner 的生命周期边界，
-  Storage 行为合同必须明确其接线与结果，不把前台离开等同于全局关闭 Project。
-- 同名目录、同路径删除后重建、不同服务下的同名项目不能仅凭路径相同继承旧记录。
-  首期以项目内目录携带记录，移动、复制、恢复与删除规则按 [持久化合同](persistence.md)；Storage 不因读取失败清理记录。
-- 本机定位器与跨设备身份必须区分。当前 `ProjectWorkspaceKey` 是进程内 Symbol，路径哈希依赖 Workspace Root；
-  两者不能直接序列化为跨设备 Storage 身份。新的身份映射由 Project 边界负责，不能由每个插件各造一套。
-
-前端上下文就绪与失效的已有依据是 [ADR 0007](../../../packages/neuro-book-legacy/docs/adr/0007-project-close-then-open.md)：
-匹配目标的 open / presence 就绪后发布代次，界面提交还要通过相应工作面门禁；用户资产工作面不能借用残留项目上下文。
-服务端已有就绪代次引用与关闭时拒绝新操作的边界，源码依据见 [审查记录](../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t21-storage-design-review/walkthroughs/001-storage-review.md)。
-这些门禁与 Storage 持久身份承担不同职责。首期 Storage 所需的目录携带、代次、关闭与删除合同已在
-[持久化规范](persistence.md) 收敛；完整 Project 领域生命周期仍见 [规范缺口](../README.md#规范缺口)。
+- project 分区归该项目当前的项目实例（一个项目代次），由那个实例里的 `nbook.storage` 入口打开与关闭；项目代次结束即关闭分区（[持久化合同](persistence.md)）。
+- 浏览器窗口只能经代理访问它绑定的那个项目代次的分区（远程服务的 `project` 目标按窗口的绑定解析，[远程服务与 RPC 协议](../runtime/plugin-channel.md)）；没有绑定的窗口与服务端插件打开 project 记录为 `no-project`，不能用 Storage 读取隐式打开项目，也不能落到上一个项目或改用 user 分区。
+- 发往已结束代次的请求在未派发阶段失败，不改投新代次；新代次读到磁盘上的值。迟到结果不会显示为另一个项目的数据，因为窗口一生只绑定一个项目代次，切换项目即重新加载。
+- 项目身份是项目目录 `.nbook/project.json` 里的项目 id，不随路径变化（[`runtime.projects`](../runtime/projects.md)）；project 分区的库在项目目录里，随目录移动或复制携带。同路径删除后重建的目录没有旧库，不继承旧记录。
 
 ## scope 不决定同步
 
@@ -118,9 +100,7 @@ grid 原语只计算布局和处理快照，不拥有 Storage 键、Project 身�
 但不同 owner、scope 的状态必须可独立寻址，不能作为一个不加区分的记录覆盖。
 若未来同步布局结构而保留设备本地尺寸，需先定义二者的组合与一致性合同，不能直接复制整份含尺寸快照。
 
-主工作台与 World Engine 尺寸按开发者新决定归 project/local；未开项目和用户资产使用显式 user/local 记录，
-具体归属矩阵见 [持久化规范](persistence.md#数据归属与首批消费者)。World Engine 当前仍是内存 ref，尚未接入。
-最小嵌套场景的必要原语修复与验收由 [ui.nested-grid](../ui/nested-grid.md) 规定；其它未覆盖结构操作仍保留已有限制。
+工作台各部分尺寸的归属（project/local 或 user/local）与保存时机由工作台外壳的布局 Spec 决定，不在本文规定。
 
 ## 版本、恢复与迁移不变量
 
@@ -130,9 +110,7 @@ grid 原语只计算布局和处理快照，不拥有 Storage 键、Project 身�
 - 视口夹取、临时隐藏、缺少插件导致的引用过滤是当前呈现结果，不能因此自动覆盖保存的用户选择。
   快照解析时丢弃未知引用不等于删除持久化原件。显式新编辑如何与保留状态合成，由对应消费者合同固定。
 - 切换上下文、卸载组件或暂时禁用插件不等于删除持久化数据。订阅和内存对象仍须按生命周期释放。
-- 旧键迁移要先分清 Config、Storage、内存与领域恢复数据，再验证目标写入。
-  `novel.ide.session` 包含项目与用户资产编辑器等不同内容，不能整桶改名、清空或全部放进 Project Storage。
-  迁移期间同一逻辑数据只有一个写入 authority；格式不兼容时不得静默双写。
+- 不迁移旧应用的浏览器存储与 Storage 数据（旧项目整体不兼容，[持久化合同](persistence.md) 的“边界与兼容”）；同一逻辑数据只有一个写入 authority。
 
 ## 架构验收
 
@@ -143,8 +121,8 @@ grid 原语只计算布局和处理快照，不拥有 Storage 键、Project 身�
 |---|---|
 | 未打开 Project，恢复主侧栏尺寸 | 可以使用 user 分区；不能为此伪造 Project |
 | 从项目 A 切 B，再回 A | 使用各自记忆，普通切换不删除 A |
-| A 有未结束请求，此时打开用户资产或 B | 不隐式使用残留 A 路径；迟到读写不污染新目标 |
-| 两个 Workspace 中存在同名项目，或原目录被替换 | 不凭单段路径合并分区或继承记录 |
+| A 有未结束请求，此时窗口重新加载打开 B | 新窗口只绑定 B；发往 A 的迟到请求不污染 B |
+| 两个目录同名的项目，或原目录被替换 | 按项目身份区分，不凭目录名合并分区或继承记录 |
 | 两台客户端连接同一服务器，保存设备本地状态 | 两者互不覆盖；无客户端身份时禁止落公共服务端记录 |
 | 同一插件使用用户尺寸、项目对象记忆、内存焦点 | 三者可共存，焦点不进入持久化 |
 | 主 grid 与插件 grid 使用同名叶引用 | 两个实例及快照独立；调整插件不写主布局 |
@@ -160,3 +138,4 @@ grid 原语只计算布局和处理快照，不拥有 Storage 键、Project 身�
 - [ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md) 与 [storage.persistence](persistence.md)
   收敛首期本地行为；[同步提案](../../proposals/storage-service-and-sync.md) 保留未来在线复制设计。
   本架构 Spec 和新增 planned 行为规范均不表示运行时已经实现。
+- 2026-10-07 按 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 与 [插件的数据与状态](../../proposals/plugin-data-model.md)（`accepted`）改写身份、项目上下文与 Config 的表述；取舍由开发者在 [t55 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/plan.md) 中确认。

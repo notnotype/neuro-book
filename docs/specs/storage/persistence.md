@@ -4,253 +4,210 @@ kind: behavior
 status: planned
 capability: storage.persistence
 owners:
-  - ui
-  - server
+  - nbook.storage
+  - runtime
 ---
 
-# Storage 本地持久化与恢复
+# Storage：插件记录的持久化
+
+2026-10-07 按 [插件的数据与状态](../../proposals/plugin-data-model.md) 第 5 节、[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4、11 节（均 `accepted`）与开发者确认的 [t55 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/plan.md) 原地改写。旧应用时期的合同（每条记录一个 JSON 文件、分区锁、身份域、访问上下文、轮询、配额、删除标记回收与旧数据迁移）不再适用，哪些废弃、哪些推迟见“边界与兼容”；旧应用的实现在 `packages/neuro-book-legacy/server/storage/`，只作参照。
 
 ## 目标与非目标
 
-为工作台、内置插件和服务端模块提供同一套按归属隔离的状态读写、订阅、恢复和失败合同。
-数据写入当前连接的 NeuroBook 后端所管理的 data；本地部署不依赖远端 NeuroBook 服务。
-本规范为获批目标，尚未实现。
+内置插件 `nbook.storage` 让插件记住“程序替用户记住的东西”：布局尺寸、展开的目录、视图定制、最近使用的对象。插件按**记录**声明要持久化的数据；记录按 user / project 分区，落在拥有该分区的内核实例里；浏览器窗口不存数据，同样的接口经远程服务转给分区的拥有者。读写有条件保存与订阅，读到的值先分类再交给插件。
 
-首期支持同一后端的多个客户端、每个浏览器标签页一个 Project，以及停机复制、备份恢复后的轮流使用。
-不提供独立 data 副本间的在线同步、离线写入队列、跨键事务或多个后端直接共写网络目录。
-Config 保持现有 Global/Project 服务及统一同步目标；正文、草稿、Session、Job、历史和凭据沿用领域 Store。
-命令系统、桌面多窗口与第三方插件沙箱另行设计。
+明确不承诺：
+
+- 不做备份恢复、项目 ZIP 导出、删除标记回收与分区代次、配额、记录格式的迁移函数、登录后的使用主体（身份域）、跨设备同步。
+- 两个服务端进程同时打开同一项目时，不提供它们之间的变更通知。
+- 不做 session / window 作用域：本标签页刷新后要保留的状态放进 URL；大文件不进记录。
+- 不是权限沙箱：命名空间防误用，不防恶意的受信代码（[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md)）。
+- 不规定消费方怎样把记录投影到界面（已确认值、当前显示与本地意图）：四部分状态模型归插件状态 store（K5，[插件的数据与状态](../../proposals/plugin-data-model.md) 第 3 节），布局专属的保存时机与冲突重放归工作台外壳的布局 Spec。
+- 不定义插件私有目录与文件；它们随资源寻址与文件服务另定。
 
 ## 术语与参与者
 
-| 术语 | 含义 |
-|---|---|
-| 使用主体 | 服务端核验的当前用户，或无鉴权模式的本地主体；不是客户端提交的用户名 |
-| 身份域 | 一套 data 中的用户身份所属范围；不同身份域中相同用户编号不代表同一人 |
-| 客户端 | 宿主适配器识别的一份恢复环境；浏览器默认为同 origin、同浏览器配置目录的标签页集合，不等同于整台电脑 |
-| 工作台实例 | 一个运行中的工作台；具有独立焦点、拖拽和当前 Project，不是新的 Storage scope |
-| owner / 逻辑键 | 拥有状态格式的模块或插件，以及它声明的一类状态 |
-| 资源标识 | 同类状态中需要独立恢复的对象或槽位的稳定标识；单例状态不需要额外随机标识 |
-| schemaVersion | 状态格式的版本；只有格式或解释改变时才变化 |
-| revision | 一条记录的写入修订标识；用于条件写入，不能以 schemaVersion、时间戳或进程内计数代替 |
-| 已确认值 / 当前显示 / 本地意图 | 已保存的事实、当前工作台的呈现，以及尚未确认保存的主动修改；三者可以暂时不同 |
-
-Storage 宿主负责身份、持久化和事件；消费模块负责内容 schema、恢复策略和用户反馈。
-Project 生命周期模块提供有效上下文；布局原语只处理内存布局。
+- **记录定义**：插件共享模块里 `defineRecord({...})` 的结果，三端共用同一份。字段见“输入与前置条件”。
+- **owner**：记录所属插件的 id。命名空间按插件划分、不按入口：同一插件的任何入口都读写同一份记录。
+- **键与资源 id**：键是记录定义的名字；`keyed: true` 的定义按资源 id 寻址，一个资源 id 一条记录（例如按任务 id）。
+- **scope**：`user`（跨项目，随用户）或 `project`（随项目目录）。
+- **locality**：`local`（按客户端分开，一个客户端一份）或 `shared`（同一 owner、同一 scope 内共用一份）。缺省 `local`。
+- **客户端身份**：客户端实例跨重新加载稳定的标识（浏览器存在本地存储里，[`runtime.browser-host`](../runtime/browser-host.md)）；同一浏览器配置的多个标签页共用一个。服务端与项目实例没有客户端身份。
+- **分区**：一个 scope 的全部记录。user 分区归服务端实例；project 分区归该项目当前的项目实例（[`runtime.projects`](../runtime/projects.md)）。
+- **分区拥有者**：打开分区库、执行读写的那个实例里的 `nbook.storage` 入口。
+- **revision**：一条记录每次写入或删除得到的新标识。对插件是不透明字符串；在分区内单调递增、不复用，但不保证连续。
+- **version**：记录定义的版本，正整数；记录格式或解释改变时提升。
+- **描述与指纹**：记录定义去掉插件私有部分后的规范 JSON（见输出第 2 条）；分区拥有者用它判断两份定义是否相同。
+- **删除标记**：删除后留下的行，带新的 revision、没有值；防止持有旧 revision 的保存把值复活。
+- **原件区**：显式重置前保存被替换的原始内容，供诊断。
+- **代理**：浏览器（以后的 TUI）里的 `nbook.storage` 入口，以原调用插件的身份把操作转给分区拥有者（[`runtime.services`](../runtime/services.md) 的委托与 [远程服务与 RPC 协议](../runtime/plugin-channel.md) 的经代理调用）。
 
 ## 输入与前置条件
 
-### 状态定义与公开能力
+### 记录定义
 
-每类状态登记 owner、逻辑键、scope（`user | project`）、locality（`local | shared`，默认 `local`）、
-schemaVersion、默认值、校验与迁移规则、单条容量上限。允许按稳定资源标识寻址；owner 声明资源数量与总容量边界。
-值为有界 JSON 数据；非法数值、不可序列化对象和超限请求在写入前拒绝。
-普通读写不能临时改变 owner、scope、locality 或注册的校验规则。
+```ts
+export const sizesRecord = defineRecord({
+    key: "layout-sizes",
+    scope: "project",
+    locality: "local",
+    version: 1,
+    schema: Type.Object({sidebar: Type.Number(), panel: Type.Number()}, {additionalProperties: false}),
+    keyed: false,
+    maxBytes: 64 * 1024,
+});
+```
 
-常规记录默认单条上限 64 KiB；受信任状态定义可显式提高至 1 MiB。
-同一 owner 在一个身份域/主体/实际 scope 目标/locality/客户端（仅 local）分区内默认至多 1024 条、16 MiB；
-删除标记计入条数，容量检查与写入共同互斥。迁移原件通过专用备份边界保存，单独登记上限，不占用普通值的 schema 或默认值语义。
-
-宿主提供以下能力，前端适配器与服务端直接调用具有相同结果语义：
-
-| 能力 | 输入及可观察结果 |
+| 字段 | 规则 |
 |---|---|
-| 取得句柄 | 绑定主体、客户端（local 必需）、owner 和 user/有效 Project 上下文；失败不给可写句柄 |
-| 初始化与订阅 | 返回初始快照并持续报告修订或失效；初始快照与后续变更之间不丢更新 |
-| 读取 | 返回状态分类、已确认值（若存在）、schemaVersion 与 revision |
-| 条件保存 | 提交校验后的值和所依据的 revision；返回已持久化的新 revision 或明确失败 |
-| 删除 / 重置 | 条件删除形成有 revision 的缺失记录；重置仅作用于明确指定的记录，损坏记录使用绑定原始内容的修复凭据 |
-| 回收删除标记 | owner 显式维护其实际分区，撤销旧访问代次后回收选定墓碑并释放容量；活值与其它分区不变 |
-| 排空与释放 | 等待已提交请求收口；释放订阅和访问句柄，保留已保存数据 |
+| `key` | 1–64 个字符，`[a-z0-9]` 开头，其余为 `[a-z0-9.-]` |
+| `scope` | `user` 或 `project` |
+| `locality` | `local` 或 `shared`，缺省 `local` |
+| `version` | 正整数 |
+| `schema` | TypeBox schema，顶层为 `type: "object"` 且 `additionalProperties: false` |
+| `keyed` | 布尔，缺省 `false` |
+| `maxBytes` | 值的 JSON 文本按 UTF-8 计的字节上限，1 到 1 MiB 之间的整数，缺省 64 KiB |
 
-同一 owner 可声明多种归属。`ViewDescriptor.stateScope` 只描述该视图默认记忆归属，不限制插件全部数据。
-命名空间是模块边界，不构成任意可执行代码的安全沙箱。HTTP 输入仍须由服务端核验，不能凭 owner 字符串获得别人的句柄。
+- `defineRecord` 在模块加载时校验以上规则，不合法时抛 `TypeError`；返回冻结对象。定义在 `src/shared/storage.ts`，因为每个插件都要在运行时调用它，而插件之间只允许 `import type`。
+- 资源 id：`keyed: true` 时必填，1–128 个字符，`[a-z0-9]` 开头，其余为 `[a-z0-9._-]`；`keyed: false` 时不得给出。
+- 值必须是 JSON 能如实表示的数据（与 [远程服务与 RPC 协议](../runtime/plugin-channel.md) 的帧编码同一规则），并符合 schema。
 
-### 身份与访问上下文
+### 接口
 
-- 鉴权开启时使用已验证 session 对应的用户身份；关闭时使用身份域内独立的本地主体。两者不自动合并。
-- 身份域与 data 一起备份恢复，独立初始化的 data 使用不同身份域。Project 单独复制不改变其中原记录的主体归属。
-  本机制不引入跨设备账号同步或 Project UUID。
-  首次宿主初始化可创建必要身份元数据；这不授权在读取缺失状态时创建默认值记录。
-- 客户端身份由宿主适配器提供；浏览器仅保存定位所需的标识/凭证，状态内容在 data。
-  首次多标签并发初始化须在开放写入前收敛身份；凭证不可持久保存时提供明确不可恢复状态，不偷偷落公共分区。
-- `local` 按客户端额外隔离；`shared` 在相同主体、owner 与 scope 内不按客户端隔离。
-  两者目前都随完整备份携带；`shared` 不表示已实现跨 data 同步，也不授予跨用户访问权。
-- 无客户端上下文的服务端调用不得默认读写某个浏览器的 local 状态；它必须取得明确上下文，或消费已声明的 shared 状态。
-  脱离用户运行的领域任务继续使用领域 Store，不推导一个“当前用户”。
-- Project 句柄绑定已就绪的精确代次。浏览器持有服务端签发并核验的上下文标识；路径和前端自增 revision 都不能代替它。
-  用户资产工作面、未开项目、读取失败都不能回用残留 Project 路径。
-- 登出、换主体、换服务、服务重启及 Project 上下文撤销后，旧句柄不接纳新操作，旧订阅停止；重新初始化后才能恢复访问。
-  授权变更同样作用于长连接，不能仅在建连时校验一次。
+插件依赖 `nbook.storage` 导出的服务键（由装配者交给插件工厂），解析得到按调用方生成的服务对象：
+
+```ts
+interface StorageService {
+    open<T>(record: RecordDefinition<T>, resource?: string): Promise<OpenResult<T>>;
+}
+type OpenResult<T> = {ok: true; handle: RecordHandle<T>} | {ok: false; code: StorageFailure; detail: string};
+interface RecordHandle<T> {
+    read(): Promise<RecordSnapshot<T>>;
+    save(value: T, options: {readonly expect: Revision | null}): Promise<WriteResult>;
+    remove(options: {readonly expect: Revision | null}): Promise<WriteResult>;
+    reset(value: T, options: {readonly expect: Revision | null}): Promise<WriteResult>;
+    subscribe(listener: (snapshot: RecordSnapshot<T>) => void, options?: {onEnd?(reason: string): void}): Promise<SubscribeResult>;
+}
+type RecordSnapshot<T> =
+    | {status: "missing"; revision: Revision | null}
+    | {status: "ok"; value: T; revision: Revision}
+    | {status: "corrupt" | "unsupported-version"; revision: Revision; detail: string}
+    | {status: "error"; code: StorageFailure; detail: string};
+type WriteResult = {ok: true; revision: Revision} | {ok: false; code: StorageFailure; detail: string};
+type SubscribeResult = {ok: true; handle: {release(): void}} | {ok: false; code: StorageFailure; detail: string};
+```
+
+所有方法返回 Promise，不抛出业务失败（[`runtime.plugin-api`](../runtime/plugin-api.md) 的远程形态约束）。
+
+### 在哪里能打开什么
+
+| `nbook.storage` 的入口 | 位置 | 拥有的分区 | user 记录 | project 记录 | `local` 记录 |
+|---|---|---|---|---|---|
+| `server` | 服务端实例 | user | 直接读写 | `no-project`（服务端插件要碰项目数据，经自己的项目入口） | `no-client` |
+| `project` | 项目实例 | 本项目代次的 project | 经远程服务 `nbook.storage/user` 转给服务端 | 直接读写 | `no-client` |
+| `browser` | 浏览器窗口 | 无 | 经 `nbook.storage/user` 转给服务端 | 经 `nbook.storage/project` 转给窗口绑定的项目代次；没有绑定为 `no-project` | 按本窗口的客户端身份 |
+
+调用方必须是插件入口；宿主能力、门禁这类非插件调用方得到 `denied`。
 
 ## 输出与可观察行为
 
-### 数据归属与首批消费者
-
-下表固定恢复归属；首批迁移范围见「边界与兼容」，未在首批的条目不表示本期接入。
-
-| 数据 | 归属 | 恢复与结束时机 |
-|---|---|---|
-| 主题、字体、模型等用户设置和策略 | Global/Project Config | 按各字段既有覆盖与生效规则 |
-| 主工作台左右侧栏尺寸、World Engine 内部尺寸 | project/local | 对应 Project 的有效上下文就绪后恢复；主动调整结束保存，切项目保留旧记录 |
-| 底部面板高度 | project/local（Project 内）与显式 user/local（未开项目、用户资产工作面） | 与左右尺寸同 owner 分键：只记录主动结束的高度意图，短视口夹取与拖动期间临时状态不落盘 |
-| 编辑工作台会话（分组拓扑 + 逐组标签 + 活动组） | project/local（`workbench.editor/session`）与显式 user/local（`user-assets-session`） | 一条记录原子保存；组拓扑、活动组选择与每组的活动标签一起恢复，正文不属于它 |
-| 未开项目、用户资产工作面的尺寸 | 显式 user/local 记录 | 进入相应工作面恢复；与 Project 尺寸独立，不能作为读取失败的 fallback |
-| 书架显示模式、普通设置窗口尺寸 | user/local | 同一客户端跨 Project 恢复 |
-| 视图排序、位置、显式隐藏偏好 | user/local | 与尺寸拆键、分别版本化；临时条件不满足不改变用户偏好 |
-| 插件置顶/展开等对象记忆 | 按对象归属声明 user 或 project；默认 local | 恢复前由 owner 检查稳定对象身份；需要 shared 时另行声明 |
-| 当前 Project、焦点、拖拽、当前请求进度投影 | 工作台或 Project 内存上下文 | 组件/工作台释放，或所属 Project 代次结束时失效；没有 session/window Storage scope |
-| 正文、未保存内容、草稿、Session、Job、历史 | 对应领域 Store | 按领域的保存、恢复和保留合同，不能只留在通用 UI 记忆里 |
-
-Project 内状态随完整项目目录移动或复制携带；原件与副本分别写自己的目录。
-删除后新建空项目不会继承旧 Project 记录。项目单独复制到不同身份域或不同客户端后，
-没有匹配身份的个人/local 记录保持原样，新环境使用自己的默认值，不自动认领旧记录。
-清理浏览器标识或更换 origin 也可能形成新的客户端；不能因此删除 data 中的旧分区。
-
-### 布局投影与保存反馈
-
-- 初次加载可以显示产品默认布局，尺寸调整控件在读取就绪前不可用；读取失败后可提供暂时调整并明确显示未保存。
-- 有效记录只在进入工作面、重新创建视图或显式恢复时应用。其他标签页更新已确认值，不强制改变本窗口当前布局。
-- 拖拽期间只更新本地意图与当前显示；鼠标或键盘主动调整结束后提交。容器测量、视口夹取、初次 layout、临时显隐均不产生保存。
-- 每条记录在一个句柄内按用户提交顺序保存；订阅和迟到确认不能清除更新的本地意图。
-- 尺寸冲突后重读，只重放本次主动修改的字段，再条件提交一次。再次冲突或其它保存失败时保留当前显示和未保存意图，
-  停止该意图的自动重试，提供重试与放弃入口；重新拖动是新的明确意图。其它数据的冲突由其 owner 处理，Storage 不通用合并 JSON。
-- 布局保存失败使用现有通知与可恢复入口反馈；重试仍绑定原工作面。放弃采用当前已确认值，不清空其他记录。
-- 产品内正常切换先结束手势，提交已形成的旧目标意图并等待请求收口，再释放旧上下文。失败时可重试，或明确放弃未保存调整后离开。
-  浏览器强制关闭、崩溃和断网不保证客户端尚未提交的意图保存；重新打开只恢复已确认提交。
+1. **打开。** `open` 核对本位置能不能用这条记录（上表、资源 id 规则），并在分区拥有者处登记记录描述。失败码：`no-project`、`no-client`、`denied`、`invalid-resource`、`definition-conflict`，以及 `unavailable`、`busy`、`io-error`。三端在同一处报告这些失败；成功得到句柄。打开不读值、不写默认值。
+2. **描述与定义冲突。** 描述是 `{key, scope, locality, version, keyed, maxBytes, schema}` 每一层对象都按键排序后的 JSON。分区拥有者为每个 `(owner, key)` 在内存里记下第一次打开时的描述；之后描述不同的打开与操作得到 `definition-conflict`（同一次运行里两个版本的代码，或客户端外壳比服务端旧），客户端据此提示刷新。描述不落库：拥有者重启或入口重新激活后，以新代码的定义为准，库里旧版本的值按第 3 条分类。第一版每次远程操作都带完整描述；以后可改为登记后只带指纹。
+3. **读取分类。** `read` 返回：
+   - `missing`：没有这一行（`revision` 为 `null`），或是删除标记（`revision` 为删除标记的 revision）。
+   - `ok`：版本与定义相同，JSON 可解析且符合 schema。
+   - `corrupt`：JSON 无法解析或不符合 schema。
+   - `unsupported-version`：库里的版本与定义不同（高于或低于）。
+   - `error`：读取失败（`busy`、`io-error`、`unavailable` 等），不当作缺失。
+   读到的值都先校验再交给调用方。一条坏记录不影响别的记录与别的插件。
+4. **条件保存。** `save(value, {expect})` 只在记录当前的 revision 等于 `expect` 时写入（从未写过为 `null`；删除标记的 revision 不是 `null`，所以持有 `null` 的保存不能越过删除），成功返回新 revision。值不符合 schema 或无法编码为 `invalid-value`，超过 `maxBytes` 为 `too-large`，revision 已变为 `conflict`，当前是 `corrupt` 或 `unsupported-version` 为 `protected`。同一 revision 的两次保存至多一次成功，不论来自同一进程还是两个打开同一个库的进程。
+5. **删除。** `remove({expect})` 同样以 revision 为条件，写入带新 revision 的删除标记；对 `corrupt`、`unsupported-version` 为 `protected`。
+6. **重置。** `reset(value, {expect})` 以 revision 为条件写入新值；当前是 `corrupt` 或 `unsupported-version` 时，先把原件（原始文本与版本）写进原件区再替换。原件区每个分区最多 64 份、合计 4 MiB，满了拒绝重置（`originals-full`），不清旧原件。对其它状态与 `save` 相同。
+7. **订阅。** `subscribe` 先推一次当前快照，之后分区拥有者进程里对同一 owner、键、资源 id、客户端分区的每次写入推送新快照；同一订阅内按写入顺序送达。订阅表示当前状态，不重放每个中间值。订阅随调用方的门面释放、调用方入口停止、分区拥有者的入口停止、绑定的项目代次结束或断线结束，`onEnd` 收到原因；连回同一服务端进程、同一项目代次时订阅重建，重建后先收到当时的快照。
+8. **命名空间与客户端分区。** owner 取调用方身份里的插件（经代理时是原插件，不是 `nbook.storage`）；`local` 记录另按调用方身份里的客户端身份分开。两个插件的同名键互不可见；同一客户端身份的两个窗口共用一份 `local` 记录，两个客户端身份各一份；本地直用与经代理访问同一个命名空间。
+9. **经代理的访问。** 浏览器里插件 X 的操作由 `nbook.storage` 的浏览器入口以 X 的身份转给分区拥有者；拥有者看到的调用方是 X，另附代理身份。调用方身份（含客户端身份）由内核填写，业务参数里没有 owner、客户端或项目字段。
+10. **写请求结果未知。** 经代理的写请求在派发后链路中断时得到 `unknown-outcome`（[远程服务与 RPC 协议](../runtime/plugin-channel.md) 输出第 4 条）；调用方重读后按 revision 判断是否已写入，内核不重放。
 
 ## 状态与转换
 
-| 初始状态 | 输入 / 事件 | 结果与下一状态 |
+以一条记录（owner、键、资源 id、客户端分区）为单位：
+
+| 当前 | 操作 | 结果 |
 |---|---|---|
-| 未初始化 | 初始化 | 加载中；不写默认值，不开放普通保存 |
-| 加载中 | 读到有效记录 / 缺失记录 | 可写快照，含 revision；缺失可呈现默认但不自动创建 |
-| 可写快照 | revision 匹配的保存 | 持久化完成后发布新快照与变更，返回新 revision |
-| 可写快照 | revision 已改变 | 冲突，原记录保持最新值；调用方重读或明确放弃 |
-| 可写快照 | 条件删除 | 有新 revision 的缺失状态；旧写不能把删除的值复活 |
-| 读取损坏 / 未知版本 | 恢复 | 安全默认或局部降级、诊断与禁止普通覆盖；原件保留 |
-| 读取 I/O 失败 | 重试 | 仍不可视为缺失；读取成功后才能条件保存 |
-| 保存中 | 超时 / 连接中断 | 未确认；重读当前记录核对，不把超时报告为已保存或明确未写入 |
-| 任意访问状态 | 上下文失效 | 拒绝新操作，停止订阅；已接纳请求按生命周期收口 |
+| 从未写过（`missing`，revision `null`） | `save`/`reset` 带 `expect: null` | `ok`，新 revision |
+| 任意 | 带的 `expect` 与当前 revision 不同 | `conflict`，记录不变 |
+| `ok` | `save`/`reset` | `ok`，新 revision |
+| `ok`、`missing` | `remove` | 删除标记（`missing`），新 revision |
+| 删除标记 | `save`/`reset` 带删除标记的 revision | `ok`，新 revision |
+| `corrupt`、`unsupported-version` | `save`、`remove` | `protected`，记录不变 |
+| `corrupt`、`unsupported-version` | `reset` | 原件进原件区，`ok`，新 revision |
 
-revision 在记录持久化替换或删除时改变，不能在删除后复用旧标识。
-记录 schemaVersion 与 Storage 文件封装版本分别兼容；旧客户端不得覆盖不支持的更高版本。
-远程值动作必须声明客户端实际消费的定义版本；与服务端注册定义不一致时，在记录操作前拒绝并要求更新客户端。
-这一失败与磁盘记录的旧值/未知版本分类不同：双方定义相同后，仍按记录版本决定显式迁移或保护原件。
-客户端只有验证响应版本及值内容后，才能将其作为当前定义的已确认值交付消费者。
-条件检查和写入必须处于同一串行临界区；两个进程或请求不能同时以同一旧 revision 成功提交不同值。
-
-订阅初始快照与后续更新有明确顺序；客户端不得用迟到初始响应覆盖较新快照。
-订阅表示当前状态变化，不是审计日志，不保证重放每个中间值。重连重新取得快照，保留尚未确认的本地意图。
-订阅者异常或变更推送失败不撤销已经持久化的结果；受影响连接重新读取，不能将通知失败伪装成磁盘回滚。
-当前值与未确认意图相同可视为当前目标已满足，不据此伪造某次历史请求的成功回执；不相同时由 owner 决定重试。
+条件检查与写入在同一个数据库事务里完成。revision 在分区内单调递增：两个进程交替写同一个库时，订阅看到的 revision 会跳过另一个进程写入的值，订阅方不能用“不连续”判断漏收。
 
 ## 副作用与数据
 
-### 物理落点与文件消费
-
-- user：`WorkspaceRoot/.nbook/storage/`，即通常的 `StateRoot/workspace/.nbook/storage/`。
-- project：`ProjectRoot/.nbook/storage/`。内部按身份域、主体、locality、客户端（仅 local）、owner、键与可选资源标识隔离。
-- 两层独立，不隐式继承。注册的逻辑标识由宿主编码为安全文件地址；调用方不传文件路径，不能通过分隔符或符号链接越过分区。
-- 已保存值、revision、删除标记、迁移原件和必要身份域信息均属于 data；不在源码 worktree 或 Lab fixture 中建立产品记录。
-
-| 文件消费者 | 对 Storage 的行为 |
-|---|---|
-| 普通文件树、内容索引、搜索、文件事件、History | 排除 Storage 内部目录；user-assets 根内的 `storage/` 同样排除 |
-| 普通产品文件编辑/改名/删除入口 | 保留 Storage 服务的写入边界，不通过通用文件 API 绕过条件写与校验 |
-| 内置资产同步、模板与发布种子 | 不把 Storage 当作受管资产安装、覆盖或清理 |
-| 完整 data 备份 | 保留两个 scope 的有效记录、删除标记、迁移原件和身份域信息；排除临时文件和锁 |
-| 完整项目 ZIP 导出 | 强制保留项目 Storage 的上述内容，不因 `.gitignore` 忽略 `.nbook` 而漏掉；不夹带 user 分区 |
-| 停机手工复制 / 移动 | 完整目录携带记录；跨身份域/客户端的采用规则仍按前述身份合同 |
-
-单条记录的值、revision 与删除状态共同成为一个完整持久化单元。备份不能获得半条记录或把临时文件当正式记录。
-在线备份中不同键可以对应不同保存时刻，不承诺与正文、Config 或数据库构成全局事务快照。
-恢复在停止写入后替换数据，重新建立访问上下文；不将备份在线合并进运行中的 Storage 缓存。
-
-### 生命周期与清理
-
-Project 普通离开只释放本标签页拥有的上下文和 presence，不全局关闭 Project。
-后台操作使用自己捕获的有效 Project 上下文，不跟随前台选择。
-关闭 Project / 应用时拒绝接纳新操作，等待已接纳保存完成或返回明确失败，再释放相应资源；user 分区也参加应用关闭。
-物理目录替换、锁失效或权限撤销导致操作不再安全时必须失败，不能为了排空继续写入失效目标。
-崩溃或停机复制遗留的锁由统一心跳/过期协议识别，有界等待后才能重新取得；仅文件存在或 PID 相同都不能证明当前占用。
-活动锁不被强抢，无法在等待期限内恢复则报告可重试的占用错误；旧持有者发现锁失效后不得继续写入。
-
-项目删除沿用现有 Project 删除合同：它是影响所有窗口的领域操作，不等于单窗口离开。
-删除开始后旧窗口的迟到保存不能重建目录；同路径新项目的代次不能接纳旧请求。
-
-切项目、组件卸载、插件暂时禁用和客户端标识丢失都不自动删除记录。
-删除标记保留在原分区，防止仍持有旧 revision 的请求复活数据；首期不做其自动回收，不建立全局 Project 墓碑索引。
-owner 的显式重置只影响已列出的记录；超限拒绝增长写入，仍允许减少容量的更新、删除与显式维护，不为腾空间静默清理其他用户或插件的数据。
-
-显式回收由受信 owner 对一个实际分区发起，在同一 quota/mutation 锁内收口已接纳操作、持久化新的分区代次，再删除选定墓碑。
-所有条件凭据（含从未创建记录的 revision 与损坏修复凭据）均绑定分区代次；旧句柄和旧凭据在代次切换后失效，
-调用方须重新初始化，不能把旧写自动改用新代次重试。现存活值保持原样，新读取返回新代次下的条件凭据。
-回收中断只能留下未清完的墓碑，不能恢复旧代次或复活旧值；重试可继续释放容量。维护元数据预留独立有界空间，
-不会因普通分区 quota 满而禁止回收；物理磁盘写入失败仍明确报告失败。首期不提供自动全量清空或跨 owner 回收。
+- **落点**：user 分区 `<状态根>/storage/user.sqlite`；project 分区 `<项目目录>/.nbook/storage.sqlite`。运行中另有 SQLite 的 `-wal`、`-shm` 文件。目录不存在时创建。
+- **库**：每个分区一个 SQLite 库，WAL 模式；表 `records`（owner、键、资源 id、客户端身份、revision、version、值、更新时间，主键为前四项）、`originals`（原件区）、`meta`（库格式版本、下一个 revision）。库格式版本是 1；遇到不认识的版本，分区的操作为 `io-error`，不改写这个库。
+- **事务**：条件保存、删除与重置都在 `BEGIN IMMEDIATE` 事务里读 revision、比较、写入；等锁上限 2 秒，等不到为 `busy`（可以重试）。不另加目录锁。
+- **生命周期**：分区库在第一次使用时打开；`nbook.storage` 的入口停止时先停止接纳新操作，等在途操作结算，再关闭库。项目子进程停止即关闭 project 分区。切换项目、组件卸载、插件禁用都不删除记录。
+- **随项目目录走**：project 分区在项目目录里，项目移动或复制时随目录携带。项目放在 Git 里的用户需要忽略 `.nbook/storage.sqlite*`。
 
 ## 失败与恢复
 
-- 校验、超限、访问拒绝、上下文过期、并发冲突、I/O 失败与结果未确认分别可识别；前端沿用统一 API 错误映射与通知。
-- 读取过程先完成封装/schema 校验，再发布投影；一个坏键不阻止 Project 就绪或其他 owner 使用。
-- 支持的旧版本由 owner 提供迁移；迁移以原 revision 为条件，保留原件，成功前不退役旧格式。
-  不支持的版本或损坏记录保持禁止普通保存，显式重置须保留可诊断原件后才替换。
-  无法读取 revision 的坏记录使用绑定原始内容的修复凭据；凭据只允许显式修复/重置，不允许普通保存。
-  重置前发现原内容已改变时返回冲突，不能覆盖读取之后由其它请求修复的有效记录。
-- 缺失插件/对象、视口夹取仅影响显示。宿主保留完整已确认数据，保存已知字段时保留未涉及的未知引用与字段；
-  整体格式无法理解时拒绝普通保存，不从过滤后的渲染树重建原记录。
-- 正常提交失败保持上个有效记录；临时替换中断后只能读到完整旧记录或完整新记录。
-  “已保存”表示后端完成本地持久化并可在进程重启后读取，不表示其他 data 副本已收到，不保证硬件故障或整机断电下零丢失。
+| 失败码 | 含义 | 调用方怎么办 |
+|---|---|---|
+| `conflict` | revision 已变 | 重读后决定是否重放 |
+| `invalid-value` | 值不符合 schema 或无法编码 | 修正值 |
+| `too-large` | 值超过 `maxBytes` | 缩小值 |
+| `protected` | 对 `corrupt`、`unsupported-version` 做普通保存或删除 | 用 `reset` |
+| `originals-full` | 原件区已满，拒绝重置 | 报告给用户 |
+| `definition-conflict` | 同名记录的描述与已登记的不同 | 提示刷新 |
+| `no-client` | `local` 记录在没有客户端身份的位置打开 | 改用 `shared` 或换位置 |
+| `no-project` | project 记录在没有项目分区可用的位置打开 | 经项目入口 |
+| `invalid-resource` | 资源 id 与 `keyed` 不符或不合规则 | 修正调用 |
+| `denied` | 调用方不是插件入口 | — |
+| `busy` | 2 秒内等不到库锁 | 稍后重试 |
+| `io-error` | 库无法读写或格式版本不认识 | 报告给用户；库文件不被覆盖 |
+| `unavailable` | 分区已关闭、项目代次已结束、服务端不可达 | 等宿主恢复或刷新 |
+| `unknown-outcome` | 写请求派发后中断 | 重读后按 revision 判断 |
+
+- 分区库打不开或读写出错时，只影响该分区的操作，不影响其它分区与别的插件；不删除、不重建这个库。
+- `read` 的 I/O 失败返回 `error` 快照，不当作缺失；调用方在读取成功前不应写入默认值。
+- 订阅的推送失败不撤销已经写入的结果。
 
 ## 边界与兼容
 
-存储服务不依赖 Pinia、Vue 或主页面；UI 宿主只提供适配器和投影，nb-ui 不拥有 Storage 键或 Project 身份。
-内存共享通过 owner 的显式服务接口；工作台级上下文跨 Project 保留其合法状态，Project 级上下文按代次释放。
-跨 owner 的共享使用模块接口，不依赖猜测键名，也不把任意复杂对象放入按钮显隐条件键。
+- **owner**：`nbook.storage`（记录、分区库、三端入口、远程服务 `nbook.storage/user` 与 `nbook.storage/project`）；内核提供按调用方门面、调用方的客户端身份与跨实例委托（[`runtime.services`](../runtime/services.md)、[远程服务与 RPC 协议](../runtime/plugin-channel.md)）。
+- **别的插件的数据**：不经 Storage 读取别人的记录；需要共享的数据经拥有者插件自己的服务（[插件的数据与状态](../../proposals/plugin-data-model.md) 第 5 节）。
+- **记录的公开接口**：`defineRecord` 的字段、`StorageService` 与失败码是公开接口；库的表结构不是公开接口。
+- **旧合同的去向**（开发者 2026-10-07 确认）：
 
-插件消费示例：同一个 World Engine owner 可以声明 project/local 的 `layout`、project 的对象记忆，
-并在 Project 内存上下文暴露选择与焦点。两个需要独立恢复的内部 grid 使用不同稳定资源标识；
-同一项目的两个工作台若明确要共享恢复布局，则使用同一地址，但保持各自当前显示。
-主 grid 与插件 grid 即使叶子重名，也不共享持久化地址。该示例不承诺 World Engine 页面本期完成迁移。
-
-首批只迁主工作台左右尺寸的全部现存读写入口及书架模式。
-项目没有新记录时采用产品默认尺寸，旧全局尺寸保留迁移备份，不复制给每个项目；
-未开项目/用户资产的 user 尺寸可以从旧全局尺寸迁入，书架模式迁到 user/local。
-存量 `novel.ide.session`、编辑器正文和 Agent 状态不整桶迁移。
-不可持久恢复的客户端不开始旧值导入，也不登记完成或清理源；稳定身份就绪后再继续。
-为保护旧桶原始字符串，迁移适配器可使用专用、带版本且有界的浏览器原件暂存；仅服务旧值迁移，
-核验 data 原件与迁移完成后退役，不成为新状态写入 authority。具体门禁和失败行为由迁移合同定义。
-迁移顺序、失败与回滚见 [Storage 状态迁移](../../../packages/neuro-book-legacy/docs/migrations/storage-state.md)。
+  | 旧机制 | 原本防什么 | 现在 |
+  |---|---|---|
+  | 每条记录一个 JSON 文件 + `proper-lockfile` 分区锁与心跳 | 两个进程同时写一个分区 | 改为 SQLite 事务，不加目录锁；代价是两个服务端进程同开一个项目时互相收不到变更通知 |
+  | 身份域与使用主体 | 不同 data、不同登录用户的记录串号 | 推迟到登录插件；登录上线时迁一次库 |
+  | HTTP 头里的访问上下文、IndexedDB 客户端凭证 | 浏览器自报身份与项目 | 废弃，由内核调用方身份、路由按成员描述覆盖的客户端身份与运行位置、项目绑定取代 |
+  | 每 owner 每分区 1024 条、16 MiB 配额 | 插件写满磁盘 | 推迟到第三方插件能用 Storage 时；保留单条上限 |
+  | 每 500 ms 轮询外部写入 | 发现别的进程写入 | 废弃，订阅只覆盖分区拥有者进程里的写入 |
+  | 删除标记回收与分区代次 | 释放容量、使旧凭据失效 | 本期不做；删除标记照常保留 |
+  | 记录格式的迁移函数 | 旧版本记录读出时迁移 | 推迟；版本不同一律 `unsupported-version`，可以 `reset` |
+  | 诊断原件区（1024 份、16 MiB） | 重置前保留原始字节 | 保留简化版：每分区 64 份、4 MiB |
+  | 多标签首次初始化客户端身份的收敛 | 两个标签页同时首次生成不同身份 | 不做；两个标签页同一瞬间首次打开可能各得一个身份，`local` 记录分成两份（已知限制） |
+  | 旧浏览器存储的迁移 | 旧版本的布局与偏好 | 废弃：旧项目整体不兼容 |
+- **已知限制**：两个服务端进程同时打开同一项目时互相收不到变更通知，revision 在订阅里会跳跃；SQLite 的 WAL 库放在网络盘上可能不可靠；Windows 与 macOS 未实测。
 
 ## 验收与 Smoke
 
-以下为待实现验收矩阵；fixture 使用隔离测试根，不读写用户产品数据。
-客户端隔离使用两个独立浏览器存储上下文；同一客户端并发使用同上下文的两个标签页。
-身份域隔离使用两个独立后端测试根。服务核心可注入身份验证，但不能代替浏览器身份恢复与隔离验收。
+1. **同一命名空间。** 服务端插件 X 直用写 user/shared 记录，浏览器里的插件 X 经代理读到同一值，反之亦然；项目实例里的插件 X 直用写 project 记录，浏览器里的 X 经代理读到同一值。
+2. **插件隔离。** 插件 A、B 写同名键互不可见；B 不能经任何路径读写 A 的记录。
+3. **客户端分区。** 两个客户端身份写同一 `local` 记录各自一份；同一客户端身份的两个窗口共用一份；服务端与项目实例打开 `local` 记录为 `no-client`；服务端插件打开 project 记录为 `no-project`。
+4. **条件保存。** 同一 revision 的两次保存至多一次成功、另一次为 `conflict`；删除后持有旧 revision 或 `null` 的保存为 `conflict`；两个进程同时以同一 revision 写同一个库，恰好一个成功。
+5. **读取分类。** 缺失、正常、坏 JSON 与 schema 不符（`corrupt`）、版本不同（`unsupported-version`）各一例；库文件头被写坏时为 `error`（`io-error`），文件不被覆盖；`corrupt` 与 `unsupported-version` 时 `save`、`remove` 为 `protected`，`reset` 把原件写进原件区后写入新值；原件区满时 `originals-full`。
+6. **记录定义。** 不合规则的定义在加载时抛错；只差 schema 的两份定义描述不同；同一 owner 同名键的描述不同时 `open` 为 `definition-conflict`；资源 id 与 `keyed` 不符为 `invalid-resource`；超过上限为 `too-large`，不符合 schema 为 `invalid-value`。
+7. **订阅。** 订阅先收到当前快照，之后收到写入（含另一个窗口经代理的写入）；调用方入口停止后订阅结束；绑定的项目代次结束时订阅以项目已结束结束，项目再次打开后新代次读到磁盘上的值。
+8. **生命周期。** `nbook.storage` 的入口停止后操作为 `unavailable`、库已关闭；项目子进程停止后 project 分区关闭。
 
-| 场景 | 必须观察到的结果 |
-|---|---|
-| 两个主体、两个客户端、两个独立身份域分别读写同名键 | 按定义隔离；shared 仅省略客户端维度，不跨主体 |
-| 两个全新标签页同时初始化客户端身份 | 写入前获得同一有效恢复身份，不产生互相覆盖的初始化结果 |
-| 初始加载、缺失、损坏、未知版本、权限/磁盘读取失败 | 分类不同；默认显示不产生文件，坏键不拖垮其它消费者 |
-| 保存返回成功后重启；保存中断或替换失败 | 确认值可恢复；失败不产生半条记录，未确认不误报成功 |
-| 两请求/进程用同 revision 写不同值；删除后旧请求重试 | 至多一个条件写成功，删除不会被旧写复活 |
-| owner quota 满后删除、显式回收、中途重启、旧凭据重试 | 可释放容量；活值不变，旧代次和缺失凭据均不能复活记录 |
-| 同 owner 不同键/进程并发新增，合计将超过容量 | quota 检查与提交串行，不能同时接受导致超限的写入 |
-| A 有请求时切 B 或用户资产；A 关闭重开或同路径新建 | 迟到结果不污染新目标；旧请求不能被重新解释为新代次 |
-| 同项目两标签页，另一个标签页保存时正在拖动 | 当前几何不跳动；只重放主动修改字段，二次冲突保留未保存意图 |
-| 首次订阅同时发生写入；重连、登出、换账号或服务重启 | 快照不倒退；不漏当前值，旧授权与句柄失效 |
-| 正常切项目、强制关闭标签页、全局 Project 删除、应用退出 | 分别遵守收口合同；user 队列也排空，旧保存不能重建已删除目录 |
-| 插件两个 grid 使用同名叶、不同资源标识 | 保存独立；内存焦点在 Project 代次结束后不复活 |
-| 暂缺插件后修改另一叶尺寸，再恢复插件 | 未涉及的原节点、位置和未知字段仍在；不是保存过滤后的整树 |
-| Storage 写入、内置资产同步、用户资产树刷新 | 没有内容索引/历史/文件事件噪声；内部记录不被普通文件操作覆盖 |
-| `.nbook` 被忽略时导出项目 ZIP；整 data 备份恢复 | 应保留的记录和删除标记在包内，无临时文件；主体与客户端采用规则正确 |
-| 项目移动/复制、同名重建、浏览器标识丢失 | 分别携带记录、独立写、无旧项目记录、不自动认领旧客户端记录 |
-| 旧数据迁移后从所有现存尺寸入口调整并刷新两次 | 只有新 authority 写入，旧原件保留，重置后不再重新迁入 |
-| 客户端身份不可持久恢复；后端不可达时修改旧桶其它偏好 | 不导入临时客户端、不清源；原件暂存成功后未迁字段仍可持久化 |
-
-Smoke：在 Source Dev 主页面验证书架、项目 A/B、用户资产和双标签；
-在 Component Lab 的插件消费与嵌套 grid fixture 验证隔离和恢复；以隔离后端执行文件、备份、失败与重启合同测试。
+Smoke：合同测试用真实内核实例、真实 SQLite 与真实项目子进程；`e2e/storage.e2e.ts` 在本机 Chrome 里用两个浏览器上下文与同一上下文的两个标签页，走完 `local` 隔离、同客户端共用、条件保存冲突、项目记录跨窗口共享与项目重新打开后仍在。
 
 ## 实现合同
 
@@ -258,6 +215,5 @@ Smoke：在 Source Dev 主页面验证书架、项目 A/B、用户资产和双�
 
 ## 证据
 
-- [ADR 0020](../../../packages/neuro-book-legacy/docs/adr/0020-user-project-storage-boundaries.md)：职责与两个 scope。
-- [ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)：2026-09-16 确认的本地优先阶段、身份与持久化取舍。
-- [架构边界](boundaries.md) 与 [实施计划](../../../.agents/works/w00003-neurobook-ui-foundation-migration/storage-implementation-plan.md)。
+- 批准目标：[插件的数据与状态](../../proposals/plugin-data-model.md) 第 5 节与 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4、11 节（2026-10-07 `accepted`）、[ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)；介质、废弃与推迟的取舍由开发者 2026-10-07 在 [t55 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/plan.md) 中确认（设计审查见 [omp 设计审查](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/evidences/omp-design-review.txt)）。
+- 旧合同的依据（只作参照）：[ADR 0020](../../../packages/neuro-book-legacy/docs/adr/0020-user-project-storage-boundaries.md)、[ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)。

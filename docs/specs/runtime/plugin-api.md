@@ -65,13 +65,14 @@ owners:
 | `ctx.services.require(id)` | 两端 | 取得 `requires` 中声明的服务，返回转发器；未声明的 id 返回 `undeclared-service` 失败 |
 | `ctx.remote` | 各位置 | `use(合同).at(目标)` 调用与订阅任意实例的远程服务；本入口的远程提供项经激活产出的 `remote` 交出（[远程服务与 RPC 协议](plugin-channel.md)；2026-10-07 起取代 `ctx.channel`） |
 | `ctx.config` | 两端 | 读取本插件在清单中声明的设置项的有效值，订阅变化，更新本插件的设置项；读不到其它插件的设置 |
-| `ctx.storage` | 服务端 | 本插件私有的键值存储（值可 JSON 序列化）与一个私有目录 |
 | `ctx.secrets` | 服务端 | 本插件私有密钥的读、写、删除；落盘加密，任何接口都不把密钥发给浏览器；无法解密时返回 `secret-unreadable`（见“失败与恢复”） |
 | `ctx.workers.run(module, input, options)` | 两端 | 见下文 worker 池 |
 | `ctx.setTimeout`、`ctx.setInterval`、`ctx.run(promise)` | 两端 | 作用域登记的定时器与异步包装：其中抛出的错误记入本插件诊断，入口停止时自动清理 |
 | `ctx.diagnostics` | 两端 | 写本插件的诊断记录，按插件 id 归类并脱敏 |
 
 各贡献点拥有者可以在 `ctx` 上注入命令式注册接口（例如向 `nbook.agent` 注册工具）；返回的句柄同样登记在调用方的激活作用域上，并记入内核账本。
+
+持久化记录不在 `ctx` 上：插件在依赖中声明内置插件 `nbook.storage` 的服务，按记录读写（[`storage.persistence`](../storage/persistence.md)；2026-10-07 起取代 `ctx.storage`）；插件私有目录随资源寻址与文件服务另定。
 
 命令不在 `ctx` 上：命令由内置插件 `nbook.commands` 提供，插件向它的贡献点登记命令，在 `requires` 中声明它的命令服务后按 id 执行（[`workbench.commands`](../workbench/commands.md)）。
 
@@ -99,11 +100,11 @@ owners:
 - 转发器：有效 → 已撤销（提供方入口停止）；撤销后调用返回 `plugin-unavailable`，不再变回有效。
 - 作用域登记的定时器与订阅：随入口激活建立，入口停止时撤回；撤回后回调不再触发。
 - worker 调用：排队 → 执行中 → 已结算（成功或失败之一）；每个调用只结算一次。
-- `ctx.storage`、`ctx.config`、`ctx.secrets` 的数据跨入口代次与插件版本保留。
+- `nbook.storage` 的记录、`ctx.config`、`ctx.secrets` 的数据跨入口代次与插件版本保留。
 
 ## 副作用与数据
 
-- `ctx.storage` 与 `ctx.secrets` 的数据位于 `<State Root>/plugin-data/<插件 id>/`，禁用时保留，卸载时按用户选择删除（[`runtime.plugin-install`](plugin-install.md)）；目录内的文件格式不是公开接口。
+- `ctx.secrets` 的数据位于 `<State Root>/plugin-data/<插件 id>/`，禁用时保留，卸载时按用户选择删除（[`runtime.plugin-install`](plugin-install.md)）；目录内的文件格式不是公开接口。Storage 记录的落点见 [`storage.persistence`](../storage/persistence.md)。
 - `ctx.config` 的值由 `nbook.settings` 持有与持久化；插件只能读写自己声明的设置项。
 - `ctx.diagnostics` 与作用域定时器中的错误进入运行时诊断（[`runtime.diagnostics`](diagnostics.md)），按插件 id 归类。
 
@@ -131,7 +132,7 @@ owners:
 4. **worker 中止。** 在 worker 中运行 JS 死循环，调用方中止后 100 毫秒内得到 `interrupted`；Bun 中该 worker 在 1 秒内停止并释放名额，Chromium 中在 5 秒内释放名额；插件禁用时其排队与在途调用全部以 `interrupted` 结算。
 5. **worker 结果形态。** 返回不可克隆的对象得到 `output-not-cloneable`；模块不存在得到 `load-failed`。
 6. **作用域定时器。** `ctx.setInterval` 的回调抛错被记入插件诊断；插件禁用后回调不再触发。
-7. **私有数据。** 插件写入 `ctx.storage` 与 `ctx.secrets` 后禁用再启用，数据仍在；浏览器端没有 `ctx.secrets`，密钥不出现在任何发往浏览器的响应中。
+7. **私有数据。** 插件写入 `nbook.storage` 的记录与 `ctx.secrets` 后禁用再启用，数据仍在；浏览器端没有 `ctx.secrets`，密钥不出现在任何发往浏览器的响应中。
 8. **上一版本号。** 升级后首次激活时 `ctx.plugin` 给出上一次成功激活的版本。
 9. **开发模式克隆检查。** 跨插件调用传函数时，开发模式报告违规。
 10. **入口粒度。** 同一插件 `main` 与 `tts` 入口各有一个运行中的 worker 调用；`tts` 停止时只有它的调用被结算，`main` 的调用正常完成。
@@ -144,4 +145,4 @@ Smoke：示例外部插件在服务端与 Chromium 中各执行一次 worker 调
 - 批准目标：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3、P4、P7（2026-09-30 确认 `ctx.storage` 在阶段 3 提供、`ctx.config` 与 `ctx.secrets` 在阶段 3 由 `nbook.settings` 提供、SDK 提供作用域定时器与异步包装、WebAssembly 不强制切分）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条。
 - 2026-10-06 开发者撤回 `ctx.commands` 与错误码 `command-not-found`：命令改由内置插件 `nbook.commands` 经贡献点与命令服务提供（平台设计 [P3](../../proposals/extensible-application-platform.md#p3-插件之间的协作)，[w00017 t49](../../../.agents/works/w00017-application-runtime-architecture/tasks/t49-commands-quick-open/README.md)）。
 - 验证依据：[G2 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g2/REPORT.md)（worker 池原型在 Bun 与 Chrome 中实测）。
-- “跨插件调用一律返回结构化结果、不 reject”的解释、跨插件接口的三类划分、宿主错误码列表、worker 池上限与结算时限、`ctx.storage` 的键值加私有目录形态与数据位置、密钥不可解密时的行为由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文。
+- “跨插件调用一律返回结构化结果、不 reject”的解释、跨插件接口的三类划分、宿主错误码列表、worker 池上限与结算时限、`ctx.storage` 的键值加私有目录形态与数据位置（2026-10-07 起由 `nbook.storage` 取代，见 [w00017 t55](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/README.md)）、密钥不可解密时的行为由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文。

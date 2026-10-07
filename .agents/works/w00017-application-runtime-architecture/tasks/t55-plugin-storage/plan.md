@@ -66,7 +66,7 @@ type WriteResult = {ok: true; revision: Revision} | {ok: false; code: StorageFai
 
 - `Revision` 是不透明字符串（实现里是 revision 整数的十进制），删除标记的 revision 同样非空。“从未写过”的 `expect` 是 `null`：只在没有这一行时写入。
 - **`open` 是异步的、有失败通道**：它在分区拥有者处登记记录描述，并核对本位置能不能用这条记录，失败码 `definition-conflict`、`no-client`、`no-project`、`denied`、`invalid-resource`（资源 id 与 `keyed` 不符或不是小写安全单段），以及传输与分区的 `unavailable`、`busy`、`io-error`。这样三端在同一处报告这些失败（服务端本地能同步判断，浏览器要问分区拥有者），K5 的 store 初始化也有确定的落点；数据面方法全部返回 Promise，与 `runtime/plugin-api.md` 的远程形态约束一致。拥有者的入口重新激活后登记会丢，所以之后每次操作仍带描述，仍可能得到 `definition-conflict`。
-- 失败码：`conflict`（revision 已变）、`invalid-value`（不符合 schema、不能序列化）、`too-large`、`protected`（对 corrupt / unsupported-version 做普通保存或删除）、`definition-conflict`、`no-client`（`local` 记录没有客户端上下文）、`no-project`（project 记录在没有项目分区可用的位置打开，见下）、`denied`（调用方不是插件入口）、`invalid-resource`、`busy`、`io-error`、`unavailable`（分区已关闭、项目代次已结束、服务端不可达）、`unknown-outcome`（写请求派发后中断，按远程服务的阶段规则）。读到的值都按定义的 schema 校验后才交给调用方。
+- 失败码：`conflict`（revision 已变）、`invalid-value`（不符合 schema、不能序列化）、`too-large`、`protected`（对 corrupt / unsupported-version 做普通保存或删除）、`originals-full`（原件区已满）、`definition-conflict`、`no-client`（`local` 记录没有客户端上下文）、`no-project`（project 记录在没有项目分区可用的位置打开，见下）、`denied`（调用方不是插件入口）、`invalid-resource`、`busy`、`io-error`、`unavailable`（分区已关闭、项目代次已结束、服务端不可达）、`unknown-outcome`（写请求派发后中断，按远程服务的阶段规则）。读到的值都按定义的 schema 校验后才交给调用方。
 - **门面按调用方生成**：`nbook.storage` 的入口以 `providePerConsumer(storageKey, (consumer) => 门面)` 提供；owner 取 `consumer.plugin`，`plugin` 为 null（宿主能力、门禁）以 `denied` 拒绝。门面释放时结束它建立的订阅。
 - **入口与位置**：
 
@@ -84,7 +84,7 @@ type WriteResult = {ok: true; revision: Revision} | {ok: false; code: StorageFai
 ### 4. 读取分类与版本
 
 - `missing`：没有这一行，或是删除标记。`ok`：JSON 可解析、版本与定义相同、符合 schema。`corrupt`：JSON 无法解析或不符合 schema。`unsupported-version`：库里的版本与定义不同（高于或低于；新应用没有旧格式，定义级的迁移函数推迟，见待确认第 7 项）。`error`：读库失败。
-- corrupt 与 unsupported-version 时普通 `save`、`remove` 为 `protected`；`reset` 以当前 revision 为条件，把原件（原始文本与版本，每个分区最多保留 64 份、总计 4 MiB，超出时拒绝重置，不清旧原件）写进 `originals`，再写入新值。
+- corrupt 与 unsupported-version 时普通 `save`、`remove` 为 `protected`；`reset` 以当前 revision 为条件，把原件（原始文本与版本，每个分区最多保留 64 份、总计 4 MiB，超出时以 `originals-full` 拒绝重置，不清旧原件）写进 `originals`，再写入新值；对其它状态与 `save` 相同。
 
 ### 5. 内核：消费上下文带客户端身份，委托跨实例（`packages/nb-runtime`）
 
