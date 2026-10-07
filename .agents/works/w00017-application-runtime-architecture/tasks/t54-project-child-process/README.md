@@ -24,7 +24,7 @@ K1 [t52](../t52-kernel-instances-remote/README.md)（子实例与租约、远程
 omp（默认模型）只读审查了设计：[omp-design-review.txt](evidences/omp-design-review.txt)，10 条（重要 3、建议 7），无阻断，逐条核实均成立，已修订 plan.md：
 - 1 重连的同一实例判定会把绑定窗口当冒名：改为比较 `kind`、`role`、`client` 与绑定；
 - 2 K1 的 `acquire` 不能按代次取租约：加 `generation` 选项与 `generation-gone`，节点再核对绑定作第二道防线；
-- 3 列表带项目路径与“浏览器不获得服务端路径”冲突：列为待开发者确认；
+- 3 列表带项目路径与“浏览器不获得服务端路径”冲突：开发者确认带路径，S0 改两处 Spec 的表述；
 - 4 `onDisconnect` 时拿不到退出码；5 等 `started` 没有截止（加 `NBOOK_PROJECT_START_MS`）；6 `remote-location-mismatch` 的角色从远程节点取；7 租约持有者编码统一为 `leaseHolderOf`、`via` 不参与；8 停止时非 0 退出与 `started: failed` 的收口；9 绑定期间开始停止要再查一次门；10 S4 加打包验证。
 
-待开发者确认计划“待确认”一节的 1 项后从 S0 开始。
+2026-10-07 开发者确认列表带项目路径，开始实施。

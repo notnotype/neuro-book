@@ -13,6 +13,7 @@
   5. **项目管理由服务端宿主实现，并以宿主本地能力（`ApplicationManifest.capabilities`）直接提供服务 `projectsKey` 给服务端插件**；`nbook.projects` 只做项目管理的界面与给客户端的远程入口，不管生命周期；当前项目的身份随握手结果带回窗口，不另设项目入口的信息服务。
   6. **远程服务合同声明提供方在哪种位置**（`provider`），`.at()` 能由合同推出时可以省略，目标与合同不符时类型检查与运行时都拒绝。
   7. 没有租约的访问：服务端插件可以不取租约调用处于 `available` 的项目；项目处于宽限期或没在运行时一律 `denied`，不唤醒、不取消宽限期。
+  8. “打开项目”列表带项目目录路径（omp 设计审查第 3 条的取舍）：项目目录是用户自己登记的位置，用来区分同名目录。`runtime.browser-host` 与 `workspace/resources.md` 的“浏览器不获得服务端路径”改为指状态根、安装目录等服务端内部路径；第三方浏览器插件接入时，随拓扑稿待定项 3 收紧这个服务的调用方。
 - **进程间通信的实测**（2026-10-07，Bun 1.4.2，本机 Linux，同时有其它测试在跑）：
 
   | 机制 | 子进程就绪 | 空子进程 RSS | 小消息往返 p50 / p99 | 100 KB 往返 p50 / p99 | SIGKILL 后父进程发现 |
@@ -107,7 +108,7 @@
 
 ### 7. 产品插件 `nbook.projects`（界面与客户端的远程入口）
 
-- **服务端入口**：依赖 `projectsKey`，把“列出项目”“登记目录”包成远程服务 `nbook.projects/projects`（`provider: "server"`，`callers: ["browser", "tui"]`），供浏览器与以后的 TUI 调用。列表含短名与运行状态；是否带项目目录路径见“待确认”。
+- **服务端入口**：依赖 `projectsKey`，把“列出项目”“登记目录”包成远程服务 `nbook.projects/projects`（`provider: "server"`，`callers: ["browser", "tui"]`），供浏览器与以后的 TUI 调用。列表含短名、项目目录路径与运行状态（确认第 8 项）。
 - **浏览器入口**：命令 `nbook.projects.open`（“打开项目”）：经命令面板的快速输入列出已登记项目（短名、路径、是否运行），选中即整页导航到 `/?project=<短名>`；输入目录路径并确认则先登记再导航。窗口绑定了项目时在工作台显示当前项目短名（从窗口的绑定结果取，不另调服务）。
 - 以后的书架页、最近打开、新建项目、移除登记、重命名都归这个插件；K3 只做上面两件。
 
@@ -130,9 +131,9 @@
 | `docs/specs/runtime/plugin-channel.md` | wire 2：`hello.bind`、`welcome.binding`、`project-unavailable`、`project-gone`；绑定代次结束时关闭客户端链路；`router.accept` 的 `expect`；`{project}` 核对改为宿主的访问回调；合同的 `provider` 与 `.at()` 的省略、不符时的失败；进程间链路一节 |
 | `docs/specs/runtime/plugins.md` | 远程提供项的 `provider` 与实例角色不符为 `remote-location-mismatch`；角色来自远程节点 |
 | `docs/specs/runtime/server-host.md` | 启动参数 `NBOOK_PROJECT_GRACE_MS`、`NBOOK_PROJECT_START_MS`、`NBOOK_PROJECT_STOP_MS`；项目子进程启动失败、启动超时、停止时非 0 退出的收口与诊断；本地能力 `projectsKey`；停止序列加“封闭项目接纳”“停止项目子进程并等退出”；项目子进程的输出转发；打包多一个入口；验收场景 |
-| `docs/specs/runtime/browser-host.md` | `/?project=` 绑定；`ready` 带项目；“无法打开项目”“项目已关闭”宿主页；场景 |
+| `docs/specs/runtime/browser-host.md` | `/?project=` 绑定；`ready` 带项目；“无法打开项目”“项目已关闭”宿主页；场景；安全段“浏览器不获得服务端路径”改为指状态根、安装目录等内部路径，用户登记的项目目录路径可以显示给用户 |
 | `docs/specs/runtime/application.md` | 子实例的 `acquire` 增加 `generation` 选项与拒绝原因 `generation-gone`（新条目标“随 t54 实现”）；实现合同补：`project` 位置的运行实例由项目宿主建立，本地能力可用按调用方门面 |
-| `docs/specs/workspace/resources.md` | `project://` 由客户端绑定的项目实例提供，不再依赖 `nbook.project` 浏览器入口；增加 `projects://`（登记表，供 Agent，随 nb-harness 实现）。只改合同文字，提供者随第 6 步 Files 实现 |
+| `docs/specs/workspace/resources.md` | `project://` 由客户端绑定的项目实例提供，不再依赖 `nbook.project` 浏览器入口；增加 `projects://`（登记表，供 Agent，随 nb-harness 实现）；“不向浏览器暴露服务端绝对路径”同样改为指内部路径。只改合同文字，提供者随第 6 步 Files 实现 |
 | `docs/proposals/multi-instance-runtime-topology.md` | 第 2 节去掉防双开的锁（推迟到出现项目级持久数据时）；第 4 节目标写法补“合同声明提供方位置、`.at()` 可省略”；第 8 节项目管理改为宿主能力 `projectsKey` 加 `nbook.projects` 的界面与远程入口；决策记录加 2026-10-07 这几条 |
 | `packages/neuro-book/AGENTS.md` | 目录约定加 `src/project/`（项目子进程宿主） |
 
@@ -192,9 +193,3 @@
   - 每个打开的项目常驻一个 Bun 进程（空进程约 30 MB，带内核与插件的实测在 S4）；没有上限提示，记入已知限制。
   - wire 升到 2、合同多一个必填字段：K2 的客户端与服务端同时升级，外壳与服务端版本不一致时按 K2 的规则提示刷新；现有合同（只有测试合同）随 S1 补字段。
   - 合同 `provider` 改变 K1 的调用写法（`.at()` 可省略）：K1 的测试与 Spec 示例在 S1 一并改，`docs/` 中搜旧写法。
-
-## 待确认
-
-1. **“打开项目”列表带不带项目目录路径**（omp 设计审查第 3 条）。`runtime.browser-host` 与 `workspace/resources.md` 现在写着“浏览器不获得服务端路径”；列表带路径就要改这两处的表述。
-   - **带路径（建议）**：项目目录是用户自己登记的位置，只有它能区分 `novel` 与 `novel-2` 各是哪个目录。S0 把两处 Spec 改为“浏览器不获得状态根、安装目录等服务端内部路径；用户登记的项目目录路径可以显示给用户”。代价：浏览器里的任何插件都能调用这个服务拿到这些路径；第三方浏览器插件接入时，随拓扑稿待定项 3（客户端调用的权限规则）收紧 `callers` 或改为宿主专用。
-   - **不带路径**：列表只有短名与运行状态，用户靠短名辨认；登记新目录时由用户输入路径，之后界面不再显示。两处 Spec 不用改。
