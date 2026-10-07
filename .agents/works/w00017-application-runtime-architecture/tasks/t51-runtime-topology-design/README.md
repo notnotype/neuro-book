@@ -34,5 +34,6 @@ omp 复审修订（[evidences/omp-rereview.txt](evidences/omp-rereview.txt)）�
 
 ## 下一步
 
-- 开发者审阅两份设计稿、ADR 0024 与 t50 修订稿；
-- 通过后改为 `accepted`，修订相关 Spec 与 v2 重建提案的推进顺序，再创建 K1 Task。
+2026-10-07 开发者认可，两份设计稿改为 `accepted`，ADR 0024 已为 Accepted；v2 重建提案的推进顺序已修订（第 5 步为 K1–K6，Files 竖切为第 6 步），平台设计与 ADR 0022、0023 加了以 ADR 0024 为准的指引。本 Task 的设计工作完成。
+
+下一步：创建 K1 内核 Task，写实施计划交开发者确认。各 Spec 按拓扑稿“对 Spec 与提案的预期改动”表的切片列随实现修订。

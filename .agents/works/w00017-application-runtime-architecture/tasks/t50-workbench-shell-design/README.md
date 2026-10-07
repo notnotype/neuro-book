@@ -46,5 +46,9 @@ omp 只读审查（默认模型）11 条，主 Agent 逐条核实全部成立：
 
 ## 下一步
 
-- 开发者审阅修订稿；通过后改为 `accepted`，按“对 Spec 与提案的预期改动”修订 `ui/workbench-shell.md`、`workbench/commands.md` 与平台设计 P7。
-- 外壳实现排在 [t51](../t51-runtime-topology-design/README.md) 的 K5 之后。
+2026-10-07 开发者认可修订稿，设计稿改为 `accepted`。本 Task 的设计工作完成。
+
+后续 Spec 修订随实现切片进行（避免先改出与实现脱节的合同）：
+- `workbench/commands.md` 的公开状态键与面板命令 `when.requires` 随运行时拓扑 K5；
+- `ui/workbench-shell.md` 按 v2 修订随外壳一；
+- 平台设计 P7 的实例释放表述已在平台设计“状态”中注明以本稿为准，正文随外壳二修订。

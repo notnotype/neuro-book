@@ -2,7 +2,7 @@
 
 ## 状态
 
-`accepted`（2026-10-03），依据见[决策记录](#决策记录)。实施按[推进顺序](#6-推进顺序与验收)逐步建 Task。
+`accepted`（2026-10-03），依据见[决策记录](#决策记录)。实施按[推进顺序](#6-推进顺序与验收)逐步建 Task；2026-10-07 推进顺序修订：第 4 步的外壳实现与第 5 步改按[多实例运行时拓扑](multi-instance-runtime-topology.md)进行，Files 竖切改为第 6 步。
 
 ## 问题
 
@@ -121,8 +121,9 @@ packages/
 1. **仓库整理**：按方案第 1 节改名、删除、归档、移动有效文档。验收：`docs:check`、`governance:check` 通过；剩余包的类型检查与测试通过；根入口文档描述的结构与实际一致。
 2. **内核包**：`nb-runtime` 迁出，测试全部通过，无外部依赖。
 3. **应用骨架**：后端宿主、`nbook.http`、`nbook.diagnostics`、开发监督进程、Vite 前端与浏览器宿主；打开后是空工作台。验收：启动、各类停止来源、退出码、排空、开发模式改后端文件后有序重启、浏览器引导与失败页（从 `smoke:product-lifecycle` 迁移宿主相关检查）。
-4. **workbench 底座**：工作台外壳、命令、快速打开、布局持久化；Lab 插件。验收：现有 `workbench.*`、`ui.workbench-shell`、`ui.component-lab` 的验收场景在新应用上通过。
-5. **Files 竖切**：资源层（`workspace.resources`，用于 Opus 与 omp 的对照实验）→ 文件资源管理器视图 → 编辑器打开与切换，性能按 `workbench.files-explorer` 的标准与参考机器验收。
+4. **workbench 底座**：命令、快速打开、Lab 插件已完成（t48、t49）；工作台外壳的设计已接受（[外壳设计稿](workbench-shell-abstractions.md)），实现排在第 5 步的 K5 之后（2026-10-07 修订）。验收：`workbench/commands.md`、`workbench/quick-open.md`、`ui/workbench-shell.md`、`ui/component-lab.md` 的验收场景在新应用上通过。
+5. **运行时拓扑与平台服务**（2026-10-07 新增）：按[多实例运行时拓扑](multi-instance-runtime-topology.md)第 11 节的 K1–K6 推进：内核的子实例与远程服务 → 服务端与浏览器宿主的 RPC 端口 → 项目子进程 → `nbook.storage` → 插件状态与公开状态 → 配置；K5 之后接着做外壳实现。验收见该节切片表。
+6. **Files 竖切**：资源层（`workspace.resources`，用于 Opus 与 omp 的对照实验）→ 文件资源管理器视图 → 编辑器打开与切换，性能按 `workbench.files-explorer` 的标准与参考机器验收。
 
 ## 备选方案与取舍
 
@@ -161,3 +162,4 @@ packages/
 | 2026-10-03 | 开发者 | 旧包改名为 `neuro-book-legacy`；打包脚本、Manager、桌面版删除；过时文档归档到一个目录；与 master 的差异在合并时处理，主工作区的 w00019 改动是 Lab 界面，迁移难度不大 |
 | 2026-10-03 | 开发者 | 去掉 Nuxt，前后端分离；后端用 Hono（与 NestJS、Elysia 比较后）；校验统一用 TypeBox |
 | 2026-10-03 | 开发者 | 旧包留在 workspaces 中（依赖照装、不检查）；壳子阶段布局持久化存浏览器本地，等 Storage 重新设计后再改；`vitepress/` 用户文档站归档；新应用直接用 `neuro-book` 这个名字。设计稿 `accepted` |
+| 2026-10-07 | 开发者 | 推进顺序修订：Files 竖切推迟到第 6 步；第 5 步先做运行时拓扑与平台服务（K1–K6，见[多实例运行时拓扑](multi-instance-runtime-topology.md)与 [ADR 0024](../adr/0024-multi-instance-runtime-topology.md)）；外壳实现排在 K5 之后，布局直接用 `nbook.storage`，取代 2026-10-03“壳子阶段布局持久化存浏览器本地”的安排 |

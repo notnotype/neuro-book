@@ -2,7 +2,7 @@
 
 ## 状态
 
-reviewing（2026-10-06 起草，2026-10-07 按开发者确认的总览改写，同日按 omp 审查修订，交开发者审批）。
+accepted（2026-10-07 开发者认可）。2026-10-06 起草，2026-10-07 按开发者确认的总览改写，同日按 omp 审查与复审修订。
 
 本稿回答一个插件的全部数据各是什么、存在哪、谁写、谁能读，以及插件作者用什么入口声明它们。拓扑（实例角色、项目子进程、远程服务、端口）见配套的 [多实例运行时拓扑](multi-instance-runtime-topology.md) 与 [ADR 0024](../adr/0024-multi-instance-runtime-topology.md)；本稿的“实例”“远程服务”“按调用方生成实例”都按那里的定义。分类沿用 [`storage/boundaries.md`](../specs/storage/boundaries.md) 的四类（Config、Storage、内存、领域数据），在其上细分插件作者实际会遇到的情况。
 
@@ -303,3 +303,4 @@ Lab 不读写产品的配置与 Storage；fixture 不依赖持久化（[`ui/comp
 | 2026-10-07 | 开发者 | `defineStore` 作为插件作者统一声明状态的入口：配置、持久化、内存、派生、公开、action |
 | 2026-10-07 | 主 Agent（待开发者审批） | 按 omp 审查修订（[t51 证据](../../.agents/works/w00017-application-runtime-architecture/tasks/t51-runtime-topology-design/evidences/omp-review.txt)）：持久化字段的四部分状态模型；公开键静态声明、激活绑定读取函数；服务端镜像按客户端实例隔离；客户端代理经内核委托；配置的用户编辑另走授权路径；K5 与 K6 分界 |
 | 2026-10-07 | 主 Agent（待开发者审批） | 按 omp 复审建议补：公开键重名一起拒绝、清单声明与 `public` 的核对；断线即撤回服务端镜像；`when` 只用正向布尔键（现行命令 Spec 的语法） |
+| 2026-10-07 | 开发者 | 认可本稿，改为 `accepted` |

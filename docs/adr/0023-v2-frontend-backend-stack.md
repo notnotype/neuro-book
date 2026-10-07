@@ -4,6 +4,7 @@
 - 日期：2026-10-03
 - 决策者：开发者
 - 关联工作：[w00017 t43](../../.agents/works/w00017-application-runtime-architecture/tasks/t43-repository-reorganization/README.md)
+- 补充：[ADR 0024](0024-multi-instance-runtime-topology.md)（2026-10-07）补充决策 3：`nbook.http` 仍拥有 HTTP 监听，但不再承载插件通道；插件通信走内核专用的 RPC 端口
 - 相关文档：[NeuroBook v2：并排重建应用](../proposals/neuro-book-v2-rebuild.md)（`accepted`，本 ADR 的完整方案与取舍）、[ADR 0022](0022-extensible-platform-and-plugin-trust.md)（内核拥有进程、领域能力皆为内置插件）
 
 ## 背景

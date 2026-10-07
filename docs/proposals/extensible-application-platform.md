@@ -7,6 +7,7 @@
   - [应用运行时总提案](../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md)的内核合同（资源作用域、服务装配、激活事务、有序关闭）继续有效；其非目标“不加载第三方代码”由 ADR 0022 取代。
   - [产品装配提案](../../packages/neuro-book-legacy/docs/proposals/application-runtime-product-integration.md)中后端启动（S0）与 HTTP 入口的设计由本文 [P6](#p6-服务端宿主内核拥有进程) 替代；其余阶段待按本文复核。
   - [Workbench 与 View Host](workbench-view-host.md) 的布局算法与视图实例模型保留，贡献来源改由 workbench 插件的贡献点提供。
+- 2026-10-07 起，运行位置、插件通道、`nbook.project`、`ctx.storage`/`ctx.config`/`ctx.secrets`、视图实例释放（P7）与 Agent 的位置，以 [ADR 0024](../adr/0024-multi-instance-runtime-topology.md)、[多实例运行时拓扑](multi-instance-runtime-topology.md)、[插件的数据与状态](plugin-data-model.md) 与 [外壳设计稿](workbench-shell-abstractions.md) 为准；本文相应段落随各切片修订。
 - 本文不是 Spec，也不授权实施。设计过程与证据见 [w00017 t26](../../.agents/works/w00017-application-runtime-architecture/tasks/t26-platform-architecture-redesign/README.md)。
 
 ## 问题
