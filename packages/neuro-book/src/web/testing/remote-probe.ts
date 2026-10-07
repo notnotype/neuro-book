@@ -1,20 +1,22 @@
 /**
  * e2e 用的浏览器测试插件 `test.remote-probe`：启动时订阅服务端探针的 `ticks`，并把调用入口与观察结果挂到
  * `window.__nbRemoteProbe` 上供 Playwright 读取。窗口绑定了项目时，另订阅项目探针的 `ticks` 并挂上 `project`。
- * `storage` 以本插件的身份经 `nbook.storage` 读写三条示例记录（user 共享、user 本客户端、project 共享）。
+ * `storage` 以本插件的身份经 `nbook.storage` 读写三条示例记录（`src/shared/testing/probe-storage.ts`）。
  * 服务端一侧见 `src/server/testing/test-plugins.ts`，项目一侧见 `src/project/testing/probe-plugin.ts`。
  * 只由测试外壳（`testing/e2e-main.ts`）装配，产品清单与产品构建不含它。
  */
 
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import type {RemoteResult, RemoteUse} from "@notnotype/nb-runtime/remote";
-import {Type} from "typebox";
 
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {windowProjectKey} from "nbook/shared/projects";
-import {defineRecord} from "nbook/shared/storage";
-import type {OpenResult, RecordSnapshot, StorageFailed, StorageService, WriteResult} from "nbook/shared/storage";
+import type {StorageService} from "nbook/shared/storage";
+import {probeRecords, probeStorage} from "nbook/shared/testing/probe-storage";
+import type {ProbeRecordName, ProbeSnapshot, ProbeStorage} from "nbook/shared/testing/probe-storage";
 import {projectProbeContract, remoteProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
+
+export type {ProbeRecordName} from "nbook/shared/testing/probe-storage";
 
 /** 窗口绑定的项目里的探针：经 `project` 目标调用。 */
 export interface ProjectProbeDebug {
@@ -27,24 +29,10 @@ export interface ProjectProbeDebug {
     resyncs: number;
 }
 
-const Text = Type.Object({text: Type.String()}, {additionalProperties: false});
-
-/** 探针的示例记录。 */
-const probeRecords = {
-    shared: defineRecord({key: "probe-shared", scope: "user", locality: "shared", version: 1, schema: Text}),
-    local: defineRecord({key: "probe-local", scope: "user", locality: "local", version: 1, schema: Text}),
-    project: defineRecord({key: "probe-project", scope: "project", locality: "shared", version: 1, schema: Text}),
-};
-
-export type ProbeRecordName = keyof typeof probeRecords;
-type TextSnapshot = RecordSnapshot<{readonly text: string}>;
-
-export interface StorageProbeDebug {
-    read(name: ProbeRecordName): Promise<TextSnapshot | StorageFailed>;
-    save(name: ProbeRecordName, text: string, expect: string | null): Promise<WriteResult>;
+export interface StorageProbeDebug extends ProbeStorage {
     /** 订阅；之后收到的快照依次记进 `seen[name]`。 */
     watch(name: ProbeRecordName): Promise<boolean>;
-    readonly seen: Record<ProbeRecordName, TextSnapshot[]>;
+    readonly seen: Record<ProbeRecordName, ProbeSnapshot[]>;
 }
 
 /** `window.__nbRemoteProbe` 的形状。 */
@@ -107,19 +95,11 @@ export function createRemoteProbeBrowserPlugin(): PluginDefinition {
 }
 
 function storageProbe(storage: StorageService): StorageProbeDebug {
-    const open = (name: ProbeRecordName): Promise<OpenResult<{readonly text: string}>> => storage.open(probeRecords[name]);
     const seen: StorageProbeDebug["seen"] = {shared: [], local: [], project: []};
     return {
-        read: async (name) => {
-            const opened = await open(name);
-            return opened.ok ? opened.handle.read() : opened;
-        },
-        save: async (name, text, expect) => {
-            const opened = await open(name);
-            return opened.ok ? opened.handle.save({text}, {expect}) : opened;
-        },
+        ...probeStorage(storage),
         watch: async (name) => {
-            const opened = await open(name);
+            const opened = await storage.open(probeRecords[name]);
             if (!opened.ok) return false;
             const subscribed = await opened.handle.subscribe((snapshot) => seen[name].push(snapshot));
             return subscribed.ok;

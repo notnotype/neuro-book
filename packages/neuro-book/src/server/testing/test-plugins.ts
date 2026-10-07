@@ -10,7 +10,9 @@
  * - `test.remote-probe`：提供远程服务 `test.remote-probe/probe`（`src/shared/testing/remote-probe-contract.ts`），
  *   并挂控制路由：`POST /tick` 向全部订阅推一次事件，`POST /release/<name>` 放行同名的 `hold`，`GET /holds`
  *   列出各 `hold` 是否收到终止信号、是否已放行，`POST /project/<id>/echo` 不取租约调用该项目的探针（核对宽限期中
- *   不唤醒项目）。入口关闭时打印一行。同进程测试可传入自己的状态对象直接读写。项目入口见
+ *   不唤醒项目）。`GET /storage/<记录>` 与 `POST /storage/<记录>`（正文 `{text, expect}`）以本插件的身份直用
+ *   Storage 读写探针示例记录（`src/shared/testing/probe-storage.ts`）；`/project/<id>/storage/<记录>` 同样两种方法，
+ *   转给该项目的探针，由项目入口直用 Storage。入口关闭时打印一行。同进程测试可传入自己的状态对象直接读写。项目入口见
  *   `src/project/testing/probe-plugin.ts`。
  */
 
@@ -21,6 +23,9 @@ import {provideRemote} from "@notnotype/nb-runtime/remote";
 
 import {HTTP_ROUTES_POINT} from "nbook/plugins/http/server/contracts";
 import type {HttpRouteEnv} from "nbook/plugins/http/server/contracts";
+import {storageKey} from "nbook/plugins/storage/shared/contracts";
+import {PROBE_RECORD_NAMES, probeStorage} from "nbook/shared/testing/probe-storage";
+import type {ProbeRecordName} from "nbook/shared/testing/probe-storage";
 import {projectProbeContract, remoteProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 
 export const TEST_PLUGIN_IDS = ["test.slow", "test.fail-activate", "test.fail-close", "test.throw-later", "test.remote-probe"] as const;
@@ -100,6 +105,16 @@ function tick(state: RemoteProbeState): number {
     return state.sinks.size;
 }
 
+function recordName(value: string): ProbeRecordName | null {
+    return (PROBE_RECORD_NAMES as ReadonlyArray<string>).includes(value) ? (value as ProbeRecordName) : null;
+}
+
+/** `POST …/storage/<记录>` 的正文。 */
+interface SaveBody {
+    readonly text: string;
+    readonly expect: string | null;
+}
+
 export function createRemoteProbePlugin(state: RemoteProbeState = newRemoteProbeState()): PluginDefinition {
     const id = remoteProbeDescriptor.id;
     return {
@@ -108,7 +123,7 @@ export function createRemoteProbePlugin(state: RemoteProbeState = newRemoteProbe
             id: "server",
             location: "server",
             activationEvents: ["onStartup"],
-            dependencies: [{key: diagnosticsKey}],
+            dependencies: [{key: diagnosticsKey}, {key: storageKey}],
             remoteProvides: [remoteProbeContract.id],
             contributions: [{capability: HTTP_ROUTES_POINT, id, declaration: {}}],
             activate: (context) => {
@@ -116,6 +131,8 @@ export function createRemoteProbePlugin(state: RemoteProbeState = newRemoteProbe
                     probe.closed = true;
                     console.log(SERVER_PROBE_CLOSED_LINE);
                 }});
+                const storage = probeStorage(context.services.require(storageKey));
+                const atProject = (projectId: string) => context.remote.use(projectProbeContract).at({project: projectId});
                 const routes = new Hono<{Bindings: HttpRouteEnv}>()
                     .post("/tick", (c) => c.json({sent: tick(state)}))
                     .post("/release/:name", (c) => {
@@ -124,7 +141,27 @@ export function createRemoteProbePlugin(state: RemoteProbeState = newRemoteProbe
                         return c.json({released: hold !== undefined});
                     })
                     .get("/holds", (c) => c.json([...state.holds].map(([name, hold]) => ({name, aborted: hold.aborted, released: hold.released}))))
-                    .post("/project/:id/echo", async (c) => c.json(await context.remote.use(projectProbeContract).at({project: c.req.param("id")}).echo({})));
+                    .post("/project/:id/echo", async (c) => c.json(await atProject(c.req.param("id")).echo({})))
+                    .get("/storage/:name", async (c) => {
+                        const name = recordName(c.req.param("name"));
+                        return name === null ? c.notFound() : c.json(await storage.read(name));
+                    })
+                    .post("/storage/:name", async (c) => {
+                        const name = recordName(c.req.param("name"));
+                        if (name === null) return c.notFound();
+                        const body = await c.req.json<SaveBody>();
+                        return c.json(await storage.save(name, body.text, body.expect));
+                    })
+                    .get("/project/:id/storage/:name", async (c) => {
+                        const name = recordName(c.req.param("name"));
+                        return name === null ? c.notFound() : c.json(await atProject(c.req.param("id")).storageRead({name}));
+                    })
+                    .post("/project/:id/storage/:name", async (c) => {
+                        const name = recordName(c.req.param("name"));
+                        if (name === null) return c.notFound();
+                        const body = await c.req.json<SaveBody>();
+                        return c.json(await atProject(c.req.param("id")).storageSave({name, text: body.text, expect: body.expect}));
+                    });
                 const probe = provideRemote(remoteProbeContract, (consumer) => ({
                     methods: {
                         echo: () => ({ok: true, value: {instanceId: consumer.instanceId, location: consumer.location, plugin: consumer.plugin, entry: consumer.entry, generation: consumer.generation}}),

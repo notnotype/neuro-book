@@ -1,7 +1,8 @@
 /**
  * Storage 在真实 Chrome 中的验收（docs/specs/storage/persistence.md 场景 3、4、7 与项目记录跨窗口、跨项目代次）：
  * e2e 测试外壳里的测试插件 `test.remote-probe` 以自己的身份经 `nbook.storage` 读写三条示例记录
- * （`window.__nbRemoteProbe.storage`），后端是宿主测试入口起的真实服务端与项目子进程。两个浏览器上下文的本地
+ * （`window.__nbRemoteProbe.storage`），后端是宿主测试入口起的真实服务端与项目子进程；同一插件的服务端入口与项目
+ * 入口直用 Storage，经服务端探针的控制路由读写（`src/server/testing/test-plugins.ts`）。两个浏览器上下文的本地
  * 存储互不相通，各是一个客户端；同一上下文的两个标签页是同一个客户端。
  */
 
@@ -24,6 +25,7 @@ const GRACE_MS = 1500;
 const PROJECT_PROBE_CLOSED_LINE = "remote-probe project entry closed";
 
 let tmp = "";
+let projectId = "";
 let server: ProbeServer;
 
 /** 先登记好项目 `book`：身份文件与登记表按 docs/specs/runtime/projects.md 的格式写入，不经界面。 */
@@ -32,6 +34,7 @@ test.beforeAll(async () => {
     const projectDir = join(tmp, "Book");
     const stateRoot = join(tmp, "state");
     const id = randomUUID();
+    projectId = id;
     await mkdir(join(projectDir, ".nbook"), {recursive: true});
     await mkdir(stateRoot, {recursive: true});
     await writeFile(join(projectDir, ".nbook", "project.json"), JSON.stringify({schema: 1, id}));
@@ -123,6 +126,35 @@ test("项目记录跨窗口共享；没有页面使用项目、子进程退出�
     expect(await read(reopened, "project")).toMatchObject({status: "ok", value: {text: "写进项目"}});
     await reopened.context().close();
 });
+
+test("服务端与项目实例里的同一插件直用 Storage：与窗口经代理读写的是同一条记录", async ({browser}) => {
+    const page = await client(browser);
+    await open(page);
+
+    const shared = await read(page, "shared");
+    expect(await save(page, "shared", "窗口写", shared.revision ?? null)).toMatchObject({ok: true});
+    const atServer = await probeApi("GET", "storage/shared") as Snapshot;
+    expect(atServer).toMatchObject({status: "ok", value: {text: "窗口写"}});
+    expect(await probeApi("POST", "storage/shared", {text: "服务端写", expect: atServer.revision})).toMatchObject({ok: true});
+    expect(await read(page, "shared")).toMatchObject({status: "ok", value: {text: "服务端写"}});
+    expect(await probeApi("GET", "storage/local")).toMatchObject({ok: false, code: "no-client"});
+    expect(await probeApi("GET", "storage/project")).toMatchObject({ok: false, code: "no-project"});
+
+    const board = await read(page, "project");
+    expect(await save(page, "project", "窗口写项目", board.revision ?? null)).toMatchObject({ok: true});
+    const atProject = await probeApi("GET", `project/${projectId}/storage/project`) as {readonly ok: boolean; readonly value: Snapshot};
+    expect(atProject).toMatchObject({ok: true, value: {status: "ok", value: {text: "窗口写项目"}}});
+    expect(await probeApi("POST", `project/${projectId}/storage/project`, {text: "项目写", expect: atProject.value.revision})).toMatchObject({ok: true, value: {ok: true}});
+    expect(await read(page, "project")).toMatchObject({status: "ok", value: {text: "项目写"}});
+    await page.context().close();
+});
+
+/** 服务端探针的控制路由（`/api/test.remote-probe/…`）。 */
+async function probeApi(method: "GET" | "POST", path: string, body?: unknown): Promise<unknown> {
+    const response = await fetch(new URL(`/api/test.remote-probe/${path}`, server.url), body === undefined ? {method} : {method, headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
+    expect(response.status).toBe(200);
+    return response.json();
+}
 
 function watch(target: Page, name: ProbeRecordName): Promise<boolean> {
     return target.evaluate((record) => window.__nbRemoteProbe!.storage.watch(record), name);
