@@ -1,0 +1,81 @@
+# t54 计划只读审查报告（omp）
+
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md`（提交 6de54c1e）。
+核实方式：通读 K1/K2 README、内核 `packages/nb-runtime/src/{application,remote,services,plugins}/` 关键实现（children.ts、router.ts、node.ts、peer.ts、protocol.ts、composition.ts、per-consumer.ts、bootstrap.ts、host.ts）、宿主 `packages/neuro-book/src/{server,web,shared}/`（start.ts、host.ts、process.ts、plugins.ts、window.ts、remote-session.ts、connection.ts、browser-host.ts、rpc-socket.ts、boot.ts、manifest.ts、test-plugins.ts、remote-probe-contract.ts、smoke-server.ts）、7 份 Spec 与 `docs/testing/README.md`、`.agents/skills/implementation-planning/SKILL.md`；在 Bun 1.4.2 上做了两组真实 IPC 实验（scratchpad 下 `ipc-basic.ts`、`ipc-kill.ts`）。
+
+### 1. [重要] 重连的“同一实例”比较会与“把绑定写进成员实例描述”直接冲突，计划的 hello 恒 null 约定会让每个绑定窗口的重连都被当 duplicate-instance 拒绝
+- 位置：plan.md 第 3 节（“`instance.project` 对客户端恒为 `null`，绑定由服务端决定”“路由把绑定写进该成员的实例描述”）
+- 现象：计划要求路由把绑定代次写进已登记成员的实例描述（`project` 目标与 `{project}` 核对都按它），同时规定客户端 hello 的 `instance.project` 恒为 `null`（绑定走新字段 `hello.bind`）。现有 `sameInstance`（`packages/nb-runtime/src/remote/router.ts:53-61`）逐项比较两个实例描述的 kind/role/client/project.id/project.generation。重连时旧成员描述 project={id,gen}，新 hello 的 instance.project=null，`left.project?.id !== right.project?.id` 恒成立 → 走 `duplicate-instance` 拒绝，绑定客户端永远重连不上。
+- 为什么是问题：重连接管是 K2 已有的核心路径，计划说“宽限期内重连恢复原绑定”完全建立在它之上；不改比较语义这条验收不可能通过，且这是实现时必然踩到的坑而不是可留到实施中的小细节。
+- 如何核实：读 `router.ts` 的 `sameInstance` 与 `accept` 的 duplicate-instance 分支、`protocol.ts` 的 `InstanceSchema`（project 对客户端为 null 是 K2 已实现的现状）；计划第 3 节未提任何比较规则的改动。
+- 建议改法：计划第 3 节写明重连一致性比较的输入是“旧成员的实例描述”对“新 hello 的 instance + bind 合成描述”（或在 bind 完成后再做 sameInstance 判断），并把这个改动列入 S2 提交边界与验收映射（现有“wire 2 握手字段”一行不够）。
+
+### 2. [重要] `ChildInstances.acquire` 没有代次参数，且 stopping 时会在 terminated 后自动创建新代次——计划“重连只在原代次仍是 available/idle-grace 时重新 acquire 同一代次”用现有接口表达不出来，存在把旧绑定改投新代次的竞态
+- 位置：plan.md 第 3 节（路由绑定回调）与第 4 节；内核 `packages/nb-runtime/src/application/children.ts` 的 `acquire`（stopping 分支 `await current.terminated.promise` 后回循环创建新代次）、`docs/specs/runtime/application.md` 状态表第 6 行
+- 现象：`acquire(key, holder)` 只按键取“当前代次”。宿主项目管理器实现“重连只在原代次仍是 available/idle-grace 时重新 acquire”只能先 `state()` 查、再 `acquire()`；两步之间宽限期定时器触发（或服务端恰在停止该代次），`acquire` 会等待 terminated 后**创建新代次并返回新代次租约**。绑定回调拿着新代次返回 welcome，旧绑定被静默改投——正是拓扑稿第 3 节“绝不把旧绑定改投新代次”禁止的行为。
+- 为什么是问题：这是拓扑稿 K3 的核心不变量，而计划没有列出任何消除竞态的手段：S0 表对 `application.md` 只写“补实现合同的引用”，S2 提交边界也没有“acquire 支持按代次取得租约”之类的内核改动；计划第 3 节节点侧只说“重连都带它”，也没写客户端核对 welcome.binding 代次与已绑定代次不一致时按 `project-gone` 进终态（这是第二道防线，计划同样缺）。
+- 如何核实：读 `children.ts` 的 `acquire` 循环（state 检查与 acquire 之间无锁；stopping → 等 terminated → 创建新代次）与 application.md 状态表；计划全文无“代次参数”“单飞”“绑定与宽限期定时器互斥”的措辞。
+- 建议改法：S2 明确给 `ChildInstances` 增加“仅当指定代次仍可用才取得租约”的原语（例如 `acquire(key, holder, {generation})`，代次不符返回带原因的结构化拒绝），路由绑定回调用它；同时在第 3 节写明客户端节点核对 welcome 的 binding 与自身绑定代次、不符即 `project-gone` 终态。两条防线写进验收映射（当前“超过宽限期重连”一条只覆盖了状态已变的一般路径，覆盖不了这个竞态窗口）。
+
+### 3. [重要] `nbook.projects` 列表把项目目录绝对路径发给浏览器，与 `runtime.browser-host`“浏览器不获得服务端路径”的安全边界冲突；计划正文承诺 S0 写清区分，但 S0 改动表两处都没列这个修订
+- 位置：plan.md 第 7 节与 S0 表；`docs/specs/runtime/browser-host.md` 边界与兼容“安全”段（“浏览器不获得服务端路径、数据库对象与凭据”）、`docs/specs/workspace/resources.md` 副作用与数据（“不向浏览器暴露服务端绝对路径、数据库对象或凭据”）
+- 现象：计划第 7 节让 `nbook.projects/projects` 的列表含“项目目录路径”供浏览器“区分同名目录”。这是浏览器插件拿到的服务端绝对路径，与两处 Spec 刚在 K2 建立的安全边界字面冲突。计划正文自己承认冲突（“S0 在 Spec 里写清这条区分”），但 S0 改动表对 browser-host.md 只列了“`/?project=` 绑定；`ready` 带项目；宿主页；场景”，对 resources.md 只列了 `project://`/`projects://`——承诺的修订没有落进表格，实施时必然漏改。此外：第 1 节的短名 `-2`/`-3` 机制解决的是登记键冲突，并不解决用户辨认（`novel` 与 `novel-2` 哪个对应哪个目录仍需路径区分），所以路径展示有它的 UX 理由——但这条取舍与安全边界的冲突本身没有在计划里作为取舍被提出与确认。
+- 为什么是问题：安全边界文字是行为合同（`governance:check` 与验收都按它），计划不列修订会造成 Spec 与实现自相矛盾；且以后浏览器会加载第三方插件入口，把用户目录路径交给它们与“浏览器不获得服务端路径”的原则直接冲突。
+- 如何核实：读 browser-host.md 安全段与 resources.md 副作用与数据段原文；对照计划 S0 表逐行核对。
+- 建议改法：要么列表不带绝对路径（只给短名与运行状态，同名区分靠 -2/-3 短名加展示名/父目录名这类非敏感信息，或显示路径前先过开发者确认），要么在 S0 表为 browser-host.md 与 resources.md 各加一行“修订‘浏览器不获得服务端路径’的表述，明确指状态根与安装目录等内部路径，用户登记的目录路径例外”，并说明这条安全取舍已获开发者认可（当前 Context 的 7 项确认里没有这一条）。
+
+### 4. [建议] `onDisconnect` 触发时退出码并不可得，计划的选型判据“子进程退出即 onDisconnect，父进程同时拿到退出码”不准确
+- 位置：plan.md 第 2 节 IPC 判据与 Context 实测表
+- 现象：真实实验（Bun 1.4.2，`ipc-basic.ts`/`ipc-kill.ts`）显示：正常退出场景 `onDisconnect` 回调里 `exitCode=null`、`signalCode=null`；SIGKILL 场景 `signalCode` 可见但 `exitCode` 仍为 null；都要等 `proc.exited` 结算后才可靠。且 `onDisconnect` 先于 `exited` 结算，两者之间父进程 `proc.send` 会抛错（“cannot be used after the process has exited”）。
+- 为什么是问题：宿主 manager 的“意外退出检测”与“stop 流程等退出”两条路径都要正确的时序：stop 流程中发 stop 信封后 `onDisconnect` 也会触发，不能当成 `children.exited` 报告；退出码只有 `exited` 里可靠。
+- 如何核实：两组真实 Bun IPC 实验（脚本在 scratchpad/omp-t54-design/），观察 `onDisconnect` 与 `exited` 回调内 `exitCode`/`signalCode` 的值与顺序。
+- 建议改法：计划第 2 节把判据改为“onDisconnect 即判定这一代结束，退出码在 `proc.exited` 结算后读取”，并写明 manager 在 stop 流程进行中不得把 onDisconnect 报告为 `children.exited`（该代次已在 stopping）。
+
+### 5. [建议] 项目创建（等 `started` 信封）没有截止：子进程挂起时客户端绑定无限挂住，服务端停止阶段会挂到父实例 deadline
+- 位置：plan.md 第 2 节 `create(id, generation)` 与第 3 节“绑定是异步的（首次打开要等子进程创建，可能几秒）”
+- 现象：`createChildInstances` 的 `create` 回调等 `started` 信封；若子进程起来但永不发 `started`（启动死锁），`children.created` 永不结算，acquire 排队者（客户端 hello 的绑定）无限挂住；服务端停止时 `#stopAll` 里 `await current.created` 同样挂住，停止阶段被父实例 deadline 截断（结算 `incomplete(deadline)`）但宿主 stop 流程不会再收这个子进程，只能靠“父进程退出 → IPC 断开 → 子进程自行退出”兜底，而完全挂死到连 IPC 断开回调都跑不了的子进程会泄漏。
+- 为什么是问题：K3 引入了一条新的无限等待路径，计划既没有给 started 等待设截止，也没有写“等 started 期间 IPC 断开即 create 失败”的判定（现有 K1 `#create` 的 `then` 分支只处理“创建期间已报 exited”，但宿主 create 若一直 pending 不 settle，谁都不会报 exited）。
+- 如何核实：读 `children.ts` 的 `#create`/`#stopAll` 与 `bootstrap.ts` 的 `#closeAfterStages`（阶段受 deadline 约束但 promise 不被取消）；计划第 2 节无截止参数。
+- 建议改法：计划明确 `create` 的收口：等 `started` 期间 IPC 断开（onDisconnect）即让 create 失败并收掉子进程；给 started 等待加截止（复用 `NBOOK_PROJECT_STOP_MS` 或单独参数），超时 kill 子进程并按 `create-failed` 结算；子进程侧 `started` 必须在启动序列末尾发送，避免半就绪。
+
+### 6. [建议] `remote-location-mismatch` 的判定位置计划没有写清：与 `missing-remote`/`undeclared-remote` 并列的输出阶段核对在插件宿主，而插件宿主目前不知道本实例角色
+- 位置：plan.md 第 5 节；`packages/nb-runtime/src/plugins/host.ts:939-951`（输出核对处）、`packages/nb-runtime/src/remote/node.ts` 的 `RemoteHostBinding`（只有 attach/access）
+- 现象：K1 的 `missing-remote`/`undeclared-remote` 是插件宿主激活输出阶段的失败，核对时宿主可用的身份只有 `RuntimeInstanceIdentity {location, instanceId}`（`createPluginHost(instance, …)`），没有拓扑角色；实例角色（hub/project/client）在 `RemoteNodeImpl.instance` 里。计划说 provider 与角色不符是“输出阶段失败”并列，但没写角色从哪来——要么把 role 传进插件宿主（改动 PluginHostOptions 与两个宿主的装配），要么把核对挪到节点的 `#lookup`/`attach`（那就不再是输出阶段失败而是调用时 `unavailable`，语义与计划写的不同）。
+- 为什么是问题：审查重点第 3 条。判定依据（实例角色）在节点侧可得，但计划声明的失败阶段与现有核对位置之间的数据流缺口没写，实施时会产生两种自洽但互相矛盾的实现。
+- 如何核实：读 host.ts 输出核对与 `createPluginHost` 签名、node.ts 的 `RemoteHostBinding`/`instance`；计划第 5 节只有失败码没有判定位置。
+- 建议改法：计划第 5 节写明判定位置与数据流（建议在插件宿主加 `role` 输入、沿现有输出核对扩展为 `remote-location-mismatch`，理由：与 missing/undeclared 同属“入口激活产出的静态核对”，且 provider 字段是合同静态属性），并在 S1 提交边界注明 `createPluginHost` 与两端装配的配套改动。
+
+### 7. [建议] 租约持有者编码与 `via` 的语义未定义：经代理取得的租约与调用方直发 `{project}` 调用的核对可能不一致
+- 位置：plan.md 第 4、6 节；`packages/nb-runtime/src/remote/protocol.ts` 的 `CallerFrameSchema`（含 via）、`node.ts` 的 `consumerKey`
+- 现象：第 6 节说租约持有者“就是门面收到的调用方身份”，门面收到的 `ConsumerIdentity` 在委托时含 `via`；第 4 节说路由“用帧上的调用方身份按同一规则核对”。若 holder 编码照抄 `consumerKey`（含 via），则入口 A 经代理 P 用 `projectsKey.acquire` 取得租约后，A 直接（不经代理）发 `{project: id}` 调用时帧上无 via，编码不同、核对 denied；反过来若编码不含 via，A 与 P 会同名持有。K1 的委托只在同一实例内，projectsKey 是本地能力，所以这个场景真实存在（服务端插件经代理取租约）。
+- 为什么是问题：审查重点第 2 条。计划没有规定 holder 字符串的规范编码，也没有规定“经代理取得的租约是否只能经同一代理路径使用”，两个实现者会写出互不兼容的映射。
+- 如何核实：读第 4、6 节原文（无编码定义）；`consumerKey` 与 `CallerFrameSchema` 的 via 字段。
+- 建议改法：计划第 6 节定义 holder 的规范编码（建议与 `consumerKey` 同构并写明 via 是否参与），第 4 节写明核对用同一函数；并明确语义：租约记在发起入口这次激活名下、与代理路径无关（via 不参与）还是与代理绑定（via 参与），选前者时说明理由。
+
+### 8. [建议] stop 流程中子进程以非零退出码退出会被静默当正常关闭；`started: failed` 后的收口动作未写
+- 位置：plan.md 第 2 节 `stop(handle, {signal})` 与 `started` 信封
+- 现象：`createChildInstances.#stop` 只区分宿主 stop 回调返回 `closed`/`forced`。子进程在 stop 信封后以非 0 退出（例如收口时崩了），宿主若返回 `closed`，这一代不记任何 abnormal 标记，诊断里看不到；计划没有定义这个边界。同样，子进程报 `started: failed`（实例启动失败）后计划只说“失败时收掉子进程”，没写是发 stop 信封等退出还是直接 kill（子进程收到 started 后不会再自己退出，两种收法对“这一代怎么终结”的语义不同）。
+- 为什么是问题：审查重点第 2 条“崩溃与正常停止交错”。这两个边界都会让“崩溃/失败”与“正常停止”的诊断混淆，后续排障与 Spec 的 abnormal 语义失真。
+- 如何核实：读 `children.ts` 的 `#stop`（只认 closed/forced）与计划第 2 节原文。
+- 建议改法：计划写明：stop 期间子进程非零退出码 → 宿主 stop 回调仍等它退出、但这一代按外部终止记录（或至少写诊断）；`started: failed` → 发 stop 信封等退出，超时 kill，create 抛错即 `create-failed`。
+
+### 9. [建议] 绑定在途时服务端开始停止的二次门检未写：排空期间可能完成一个绑定并登记新成员
+- 位置：plan.md 第 2 节停止顺序第 1 步与第 3 节绑定回调
+- 现象：计划说“`stopAdmission()` 之后的 `acquire` 与绑定都以 `admission-closed` 拒绝”。但 `manager.acquire` 在门关闭前已经进入（子进程创建中）的那次 acquire，在 `started` 到达、`createChildInstances` 返回 acquired 时，内核侧接纳仍开（内核 stop 还没开始），绑定回调若不再查一次自己的门，会把新成员登记进路由、发 welcome 带绑定，几秒后又被停止序列杀掉——排空与停止期间打开了一个注定马上关闭的项目窗口。
+- 为什么是问题：审查重点第 2 条“服务端停止各阶段与打开项目交错”。计划的门只覆盖了“门关闭后新到达的请求”，没覆盖“门关闭前已进入的请求”。
+- 如何核实：读 `children.ts` 的 `acquire`（接纳检查在循环开头，等待创建期间不重查）；K1 的内核接纳要到内核 `stop()` 才关（计划自己也写了这段）。
+- 建议改法：计划第 3 节写明绑定回调在 acquire 结算后、登记成员前再查一次 manager 的门，已关闭则立即释放租约并返回 `project-unavailable`（附“服务端正在停止”）。
+
+### 10. [建议] S4 引入第二个打包入口 `dist/server/project.js`，但 `build:server` 的验证要等 S8/S9 才出现
+- 位置：plan.md 切片表 S4、S8、S9；`packages/neuro-book/package.json` 的 `build:server`（当前是单入口 `bun build src/server/main.ts --target bun --outdir dist/server`）
+- 现象：S4 提交边界含“项目宿主入口”，必然要改 `build:server` 为多入口；S4 自跑验证只有 test 类命令，不跑构建；打包产物的第一道检查在 S8（test:e2e 先 build）与 S9（smoke:server 先打包）。
+- 为什么是问题：多入口改动在 S4 引入却在 S8/S9 才验证，间隔几片；`bun build` 多入口 + `check:dist`（scripts/check-dist.ts）的约束可能回退到 S4 返工。
+- 如何核实：读 package.json 的 build 脚本与切片表自跑验证列。
+- 建议改法：S4 自跑验证加 `bun run build:server`（或至少 `check:dist` 里涉及的打包检查），把“打包产物能起项目子进程”的 smoke 增补留在 S9 不变。
+
+## 总结
+
+- 发现总数：10 条——**阻断 0、重要 3、建议 7**。
+- 设计主体成立：Bun IPC 选型经真实实验复核，双向消息、onDisconnect 时序、SIGKILL 发现机制都与计划一致；`createSocketLink` 的薄接口可以承载 IPC 信封；`capabilities` + `perConsumer` 走同一条装配路径（bootstrap.ts 把 capability 与插件都经 `assembly.declare` 登记，composition.ts 统一处理 perConsumer 品牌），按调用方门面对本地能力生效；停止阶段顺序、路由停止接纳只拒客户端、宽限期内 acquire 取消关闭、节点 `server-restarted` 终态先于 project-gone 判定（两者互斥）等依赖都核实成立。
+- 拓扑稿 K3 行的验收逐条映射齐全，切片顺序无依赖倒置，测试方式符合 `docs/testing/README.md`（真实进程、注入时钟、短值环境变量、无 mock/假计时器/固定等待）；计划结构与 implementation-planning SKILL 要求一致。
+- 三个重要问题都在第 3 节的客户端绑定与重连路径上（比较规则冲突、acquire 缺代次语义、路径展示与安全边界冲突），建议 S2 前修订计划再实施；建议 4–10 是实现细节收口，可随计划修订一并写入。无未发现范围外的改动需求。

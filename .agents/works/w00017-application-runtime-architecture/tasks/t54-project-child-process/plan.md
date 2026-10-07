@@ -37,7 +37,7 @@
 
 - **选 Bun IPC**（`Bun.spawn({ipc, serialization: "json"})`，子进程用 `process.send`、`process.on("message")`）。判据：
   - 不开端口、不需要令牌：只有父进程能连到子进程；回环 WebSocket 方案要让 RPC 端口接受“项目”角色的连接，就得另加令牌防本机其它进程冒充。
-  - 链路寿命与进程绑定：子进程退出即 `onDisconnect`，父进程同时拿到退出码，正好对应“意外退出 → 这一代结束”。
+  - 链路寿命与进程绑定：子进程退出即 `onDisconnect`，正好对应“意外退出 → 这一代结束”。退出码要等 `proc.exited` 结算后才可靠（omp 实测：`onDisconnect` 回调里 `exitCode` 仍是 null，SIGKILL 时只有 `signalCode`）；`onDisconnect` 之后、`exited` 之前再 `send` 会抛错。
   - 标准输出与标准错误留给日志，逐行转发到服务端的输出（加 `[project <短名>#<代次>]` 前缀）。
   - 帧仍用 K2 的 JSON 编解码，IPC 只搬字符串：三条链路（进程内、WebSocket、IPC）的编码语义一致，不因为 IPC 能传 `Date`、`Map` 就放宽。
   - 代价：两端都必须是 Bun；Windows 上 Bun IPC 未实测（记入已知限制）。
@@ -49,9 +49,9 @@
   - 收到 `stop` 或 IPC 断开（父进程已不在）即按停止序列停止并退出：0 正常，1 失败。开发入口另有 `src/project/development-main.ts`（加开发清单，目前没有项目入口，与服务端入口对称）。
 - **路由接受项目链路**（内核 `router.ts`）：`router.accept(link, {expect?: InstanceDescriptor})`：给了 `expect` 时 hello 的实例描述必须与之一致，否则以 `role` 拒绝。宿主为每个子进程给出它应有的身份，链路上不会出现别的项目或别的代次。
 - **项目管理器**（`src/server/projects/manager.ts`）：在服务端运行实例上 `createChildInstances(application, {create, stop, graceMs, stopDeadlineMs, clock})`，键是项目 id。
-  - `create(id, generation)`：起子进程 → 把 IPC 链路交给路由（带 `expect`）→ 等 `started`；失败时收掉子进程，抛错即 `create-failed`。
-  - `stop(handle, {signal})`：发 `stop` 信封，等进程退出；`signal` 到时 `SIGKILL` 并返回 `forced`。
-  - 子进程在没有被要求停止时退出：报告 `children.exited(id, generation)`，这一代立即结束，租约失效。不自动重启（确认第 2 项）。
+  - `create(id, generation)`：起子进程 → 把 IPC 链路交给路由（带 `expect`）→ 等 `started`。等待有截止 `NBOOK_PROJECT_START_MS`（缺省 30 秒）。以下都按创建失败收口，抛错即 `create-failed`：截止到时 `SIGKILL` 子进程；等待期间 IPC 断开（子进程启动中退出）；子进程报 `started: failed`（实例启动失败）时发 `stop` 信封、等它退出，`NBOOK_PROJECT_STOP_MS` 到时 `SIGKILL`。项目宿主在启动序列的最后（运行实例可用之后）才发 `started`，不报半就绪。
+  - `stop(handle, {signal})`：发 `stop` 信封，等 `proc.exited`；`signal` 到时 `SIGKILL` 并返回 `forced`。停止过程中的 `onDisconnect` 是预期的，不报告为意外退出。子进程以非 0 退出码结束（收口时出错）时照常返回 `closed`，同时写诊断 `project.stop.incomplete`（带退出码），不把它当作正常关闭而无痕。
+  - 子进程在没有被要求停止时 IPC 断开：立即报告 `children.exited(id, generation)`，这一代结束、租约失效；退出码在 `proc.exited` 结算后写进诊断。不自动重启（确认第 2 项）。
 - **服务端停止顺序**（拓扑稿第 2 节）：
   1. `beforeStop` 一开始同步封闭三处接纳：路由停止接纳（K2，只拒客户端、不拒项目成员）、HTTP 准入、项目管理器的接纳。K1 的子实例接纳要到内核 `stop()` 开始才关闭，而 `beforeStop` 的排空在那之前，最长 20 秒；所以项目管理器自己加一道门，`stopAdmission()` 之后的 `acquire` 与绑定都以 `admission-closed` 拒绝，不必等内核。
   2. HTTP 与 RPC 并行排空（K2）。
@@ -64,17 +64,21 @@
   - `hello` 增加 `bind: {project: string} | {project: string; generation: number} | null`：首次连接按短名或 id 请求绑定；重连带上已绑定的 id 与代次。`instance.project` 对客户端恒为 `null`，绑定由服务端决定。
   - `welcome` 增加 `binding: {id, name, generation} | null`。
   - 新的拒绝原因：`project-unavailable`（不存在、未登记、创建失败、服务端正在停止，带说明）、`project-gone`（重连时原代次已结束）。
-- **路由**：选项 `bindProject(request, clientInstanceId) → Promise<{ok: true, binding, release} | {ok: false, reason, message}>` 由宿主给出（项目管理器实现：首次按短名解析后 `acquire`；重连只在原代次仍是 `available` 或 `idle-grace` 时重新 `acquire` 同一代次，否则 `project-gone`）。路由把绑定写进该成员的实例描述，`project` 目标与 `{project}` 访问核对都按它；成员链路关闭时调用 `release`，最后一个使用者离开即进入宽限期。
+- **路由**：选项 `bindProject(request, clientInstanceId) → Promise<{ok: true, binding, release} | {ok: false, reason, message}>` 由宿主给出。路由把绑定写进该成员的实例描述，`project` 目标与 `{project}` 访问核对都按它；成员链路关闭时调用 `release`，最后一个使用者离开即进入宽限期。项目管理器的实现：
+  - 首次（`bind: {project: 短名或 id}`）：解析后 `acquire(id, 持有者)`。
+  - 重连（`bind: {project: id, generation}`）：`acquire(id, 持有者, {generation})`，只在这一代仍是 `available` 或 `idle-grace` 时取得，否则 `project-gone`。内核 `ChildInstances.acquire` 为此加 `generation` 选项（K1 的 `acquire` 只按键取当前代次，原代次正在停止时会等它结束后创建新代次，用来重连就会把旧绑定改投新代次）：指定代次不是当前代次、或已在 `stopping`、`terminated`，以新原因 `generation-gone` 拒绝，不等待、不创建。
+  - `acquire` 结算后、登记成员之前再查一次项目管理器的门：门已关闭（服务端在绑定期间开始停止）就立即释放租约，以 `project-unavailable`（说明服务端正在停止）拒绝。
+- **重连的“同一实例”判定**：K2 的 `sameInstance` 逐项比较实例描述，已登记成员的描述带绑定、新 hello 的 `instance.project` 恒为 `null`，照搬会把每个绑定窗口的重连都当 `duplicate-instance`。改为：`kind`、`role`、`client` 三项相同，且绑定一致（已登记成员没有绑定时 `bind` 为 `null`；有绑定时 `bind` 必须是同一 `{id, generation}`）。
   - 绑定是异步的（首次打开要等子进程创建，可能几秒）：hello 的处理在绑定结果出来之前不登记成员；这期间链路关闭则一拿到租约就释放；客户端在 welcome 之前不会发业务帧，收到的按协议违规处理（K2 规则不变）。
   - 同一实例重连接管旧链路（K2）时，新链路先取得租约、再关闭旧链路释放旧租约，使用者计数不会落到 0，不会误入宽限期。
-- **节点**：`createRemoteNode({instance, bind?})`；首次 welcome 记下绑定（节点的实例描述随之带上项目代次），之后重连都带它。重连得到 `project-gone` 与得到不同 `boot` 一样进入终态：远程订阅以 `project-gone` 结束、不重建，之后调用为 `unavailable`，连接结果为 `project-gone`。
+- **节点**：`createRemoteNode({instance, bind?})`；首次 welcome 记下绑定（节点的实例描述随之带上项目代次），之后重连都带 `{id, generation}`。重连得到 `project-gone` 与得到不同 `boot` 一样进入终态：远程订阅以 `project-gone` 结束、不重建，之后调用为 `unavailable`，连接结果为 `project-gone`。第二道防线：重连的 welcome 里绑定的 id 或代次与已记下的不同，节点同样按 `project-gone` 进入终态并关闭链路，不接受改投。
 - **绑定的项目代次结束时**（宽限期满、崩溃、服务端停止）：路由关闭绑定它的客户端链路；客户端重连得到 `project-gone`，窗口转入“项目已关闭”页。
 
 ### 4. `{project}` 目标的访问与租约（内核 `router.ts`、宿主项目管理器）
 
 - 租约是“正在用这个项目”的登记：持有期间项目不会因宽限期满而停止；`{project}` 只能到达已经在运行的项目，访问本身不打开项目。
 - `{project}` 目标的核对由宿主回调 `projectAccess(caller, projectId, generation) → "allowed" | "denied"` 决定（替换 K1 的 `holdsProjectLease`）。项目管理器的实现：
-  - 调用方持有这一代的租约：放行。租约持有者是内核签发的调用方身份（实例、插件、入口、激活代次，见第 6 节），路由用帧上的调用方身份按同一规则核对，插件无法冒用别人的租约。
+  - 调用方持有这一代的租约：放行。租约持有者由内核函数 `leaseHolderOf(调用方身份)` 编码为“实例 + 插件 + 入口 + 激活代次”，`projectsKey` 取得租约与路由核对 `{project}` 都用这一个函数，插件无法冒用别人的租约。`via`（委托的代理）不参与编码：租约记在发起它的入口这次激活名下，与经不经代理无关，入口 A 经代理取得的租约，A 直接调用也能用，代理 P 用 A 的身份转发时同样按 A 核对。
   - 没有租约、调用方是服务端实例上的插件、这一代处于 `available`：放行（确认第 7 项，文生图走查的通知）。
   - 其余 `denied`：处于 `idle-grace` 的项目对没有租约的调用方不可达，调用本身不取得租约，因此不会取消宽限期。
 - 浏览器窗口只持有握手时为它取得的那个项目的租约，平时用 `.at("project")`；用 `{project: 别的项目}` 得到 `denied`。项目实例之间第一版不能互相取租约。
@@ -87,7 +91,7 @@
   - `provider: "project"`：省略 `.at()` 等于 `.at("project")`（本客户端绑定的项目）；服务端插件这类没有绑定的调用方要写 `.at({project: id})`。
   - `provider: "client"`、`"any"`：必须写 `.at(...)` 指明哪个实例。
 - 运行时同样核对：目标与 `provider` 不符的调用在未派发阶段以 `invalid-input` 失败（说明“目标与合同的提供方位置不符”），不发出请求。
-- 提供方一侧：入口激活产出的远程提供项，合同的 `provider` 与本实例的角色不符（例如 `provider: "server"` 的合同出现在项目实例的入口里）是输出阶段失败 `remote-location-mismatch`，与 K1 的 `missing-remote`、`undeclared-remote` 并列。
+- 提供方一侧：入口激活产出的远程提供项，合同的 `provider` 与本实例的角色不符（例如 `provider: "server"` 的合同出现在项目实例的入口里）是输出阶段失败 `remote-location-mismatch`，与 K1 的 `missing-remote`、`undeclared-remote` 在插件宿主的同一处输出核对（`host.ts`）。插件宿主现在只知道运行位置字符串、不知道拓扑角色；`RemoteHostBinding` 加只读的 `instance`（节点的实例描述），插件宿主从它取角色（`hub` 对应 `server`、`project` 对应 `project`、`client` 对应 `client`）。没有配置远程节点的实例不做这项核对（它也没有远程提供项可用）。
 - 现有合同按此补字段：内核测试的 `echo` 合同为 `any`；测试探针 `test.remote-probe/probe` 为 `server`，K3 另加 `provider: "project"` 的项目探针合同。
 
 ### 6. 宿主能力 `projectsKey`（宿主 `src/server/projects/`，键与类型在 `src/shared/projects.ts`）
@@ -103,7 +107,7 @@
 
 ### 7. 产品插件 `nbook.projects`（界面与客户端的远程入口）
 
-- **服务端入口**：依赖 `projectsKey`，把“列出项目”“登记目录”包成远程服务 `nbook.projects/projects`（`provider: "server"`，`callers: ["browser", "tui"]`），供浏览器与以后的 TUI 调用。列表含短名、项目目录路径与运行状态：项目路径是用户自己登记的位置，显示在“打开项目”里用来区分同名目录；`runtime.browser-host` 的“浏览器不获得服务端路径”指状态根、安装目录这类内部路径，S0 在 Spec 里写清这条区分。
+- **服务端入口**：依赖 `projectsKey`，把“列出项目”“登记目录”包成远程服务 `nbook.projects/projects`（`provider: "server"`，`callers: ["browser", "tui"]`），供浏览器与以后的 TUI 调用。列表含短名与运行状态；是否带项目目录路径见“待确认”。
 - **浏览器入口**：命令 `nbook.projects.open`（“打开项目”）：经命令面板的快速输入列出已登记项目（短名、路径、是否运行），选中即整页导航到 `/?project=<短名>`；输入目录路径并确认则先登记再导航。窗口绑定了项目时在工作台显示当前项目短名（从窗口的绑定结果取，不另调服务）。
 - 以后的书架页、最近打开、新建项目、移除登记、重命名都归这个插件；K3 只做上面两件。
 
@@ -124,10 +128,10 @@
 |---|---|
 | 新 `docs/specs/runtime/projects.md`（`runtime.projects`，`planned`） | 项目身份与 `.nbook/project.json`、登记表与短名、项目实例状态表在宿主侧的含义（创建、宽限期、崩溃、停止）、项目子进程宿主与 IPC 链路、`currentProjectKey`、宿主能力 `projectsKey` 与租约归属、`nbook.projects` 的远程服务与命令、`{project}` 访问规则、不加锁的取舍与已知限制、实测的子进程启动时间与内存 |
 | `docs/specs/runtime/plugin-channel.md` | wire 2：`hello.bind`、`welcome.binding`、`project-unavailable`、`project-gone`；绑定代次结束时关闭客户端链路；`router.accept` 的 `expect`；`{project}` 核对改为宿主的访问回调；合同的 `provider` 与 `.at()` 的省略、不符时的失败；进程间链路一节 |
-| `docs/specs/runtime/plugins.md` | 远程提供项的 `provider` 与实例角色不符为 `remote-location-mismatch` |
-| `docs/specs/runtime/server-host.md` | 启动参数 `NBOOK_PROJECT_GRACE_MS`、`NBOOK_PROJECT_STOP_MS`；本地能力 `projectsKey`；停止序列加“封闭项目接纳”“停止项目子进程并等退出”；项目子进程的输出转发；打包多一个入口；验收场景 |
+| `docs/specs/runtime/plugins.md` | 远程提供项的 `provider` 与实例角色不符为 `remote-location-mismatch`；角色来自远程节点 |
+| `docs/specs/runtime/server-host.md` | 启动参数 `NBOOK_PROJECT_GRACE_MS`、`NBOOK_PROJECT_START_MS`、`NBOOK_PROJECT_STOP_MS`；项目子进程启动失败、启动超时、停止时非 0 退出的收口与诊断；本地能力 `projectsKey`；停止序列加“封闭项目接纳”“停止项目子进程并等退出”；项目子进程的输出转发；打包多一个入口；验收场景 |
 | `docs/specs/runtime/browser-host.md` | `/?project=` 绑定；`ready` 带项目；“无法打开项目”“项目已关闭”宿主页；场景 |
-| `docs/specs/runtime/application.md` | 只补实现合同的引用：`project` 位置的运行实例由项目宿主建立；本地能力可用按调用方门面 |
+| `docs/specs/runtime/application.md` | 子实例的 `acquire` 增加 `generation` 选项与拒绝原因 `generation-gone`（新条目标“随 t54 实现”）；实现合同补：`project` 位置的运行实例由项目宿主建立，本地能力可用按调用方门面 |
 | `docs/specs/workspace/resources.md` | `project://` 由客户端绑定的项目实例提供，不再依赖 `nbook.project` 浏览器入口；增加 `projects://`（登记表，供 Agent，随 nb-harness 实现）。只改合同文字，提供者随第 6 步 Files 实现 |
 | `docs/proposals/multi-instance-runtime-topology.md` | 第 2 节去掉防双开的锁（推迟到出现项目级持久数据时）；第 4 节目标写法补“合同声明提供方位置、`.at()` 可省略”；第 8 节项目管理改为宿主能力 `projectsKey` 加 `nbook.projects` 的界面与远程入口；决策记录加 2026-10-07 这几条 |
 | `packages/neuro-book/AGENTS.md` | 目录约定加 `src/project/`（项目子进程宿主） |
@@ -138,9 +142,9 @@
 |---|---|---|---|
 | S0 | Spec 改动表 | 新 Spec、7 份文档修订、README 注册表、包 AGENTS | `bun run docs:check`、`bun run governance:check` |
 | S1 | 第 5 节 | 合同 `provider`、`.at()` 省略与核对、`remote-location-mismatch` | `bun run --cwd packages/nb-runtime typecheck`、`bun run --cwd packages/nb-runtime test`、`bun run --cwd packages/neuro-book typecheck` |
-| S2 | 第 3、4 节内核部分 | wire 2 握手字段、绑定与 `project-gone`、`accept` 的 `expect`、访问回调；本地能力的按调用方门面补测试 | 同 S1 |
+| S2 | 第 3、4 节内核部分 | wire 2 握手字段、绑定与 `project-gone`、重连的同一实例判定、节点核对绑定、`accept` 的 `expect`、访问回调与 `leaseHolderOf`、`ChildInstances.acquire` 的 `generation` 选项；本地能力的按调用方门面补测试 | 同 S1 |
 | S3 | 第 1 节 | 身份、登记表 | 同 S1，另 `bun run --cwd packages/neuro-book test:bun` |
-| S4 | 第 2 节 | 项目宿主入口、IPC 信封与链路、项目管理器、停止顺序；实测启动时间与内存 | 同 S3 |
+| S4 | 第 2 节 | 项目宿主入口、IPC 信封与链路、项目管理器、停止顺序、打包多一个入口；实测启动时间与内存 | 同 S3，另 `bun run --cwd packages/neuro-book build`（含 `check:dist`） |
 | S5 | 第 3、4、6 节宿主部分 | 路由的绑定回调与访问回调接到项目管理器；绑定代次结束时关客户端链路；宿主能力 `projectsKey` | 同 S3 |
 | S6 | 第 7 节 | `nbook.projects` 的服务端与浏览器入口 | 同 S3，另 `bun run --cwd packages/neuro-book test:vitest` |
 | S7 | 第 8 节 | 窗口绑定、宿主页 | 同 S6 |
@@ -164,6 +168,11 @@
 | 合同 `provider`：省略 `.at()` 走默认目标、不符的目标被拒、提供方位置不符为 `remote-location-mismatch` | 内核 `protocol.test.ts`、`routing.test.ts`、`plugins` 的远程提供项测试增补 |
 | 身份文件、登记与短名、项目移动、目录校验 | `identity.test.ts`、`registry.test.ts`（真实临时目录） |
 | wire 2 握手字段、`expect` 不符被拒、访问回调 | 内核 `protocol.test.ts`、`routing.test.ts` 增补 |
+| 绑定窗口重连按同一实例接管（不是 `duplicate-instance`）；绑定不同的同 id 实例仍被拒 | 内核 `routing.test.ts` 增补 |
+| 原代次正在停止或已结束时，按代次取租约得到 `generation-gone`，不等待、不创建新代次；节点收到不同的绑定即 `project-gone` | 内核 `children.test.ts` 增补（注入时钟）、`routing.test.ts` 增补 |
+| 绑定期间服务端开始停止：取得的租约立即释放、窗口得到 `project-unavailable` | `server.test.ts` 增补 |
+| 租约持有者编码：经代理取得的租约，发起入口直接调用与经代理调用都按它放行；别的入口不行 | `projects-capability.test.ts` |
+| 项目子进程启动超时、启动中退出、实例启动失败都按 `create-failed` 收口、子进程不残留；停止时非 0 退出写诊断 | `manager.test.ts`（真实子进程，测试入口按环境变量制造这几种情形） |
 | “打开项目”命令：列出、登记新目录、导航；工作台显示项目短名 | `nbook.projects` 的合同测试与组件测试、e2e |
 | 打包产物能起项目子进程 | `scripts/smoke-server.ts` 增补一个场景：登记临时目录、经 RPC 绑定、子进程起来并报身份 |
 | 子进程启动时间与内存 | S4 的测量脚本输出写入 Spec 与证据 |
@@ -183,3 +192,9 @@
   - 每个打开的项目常驻一个 Bun 进程（空进程约 30 MB，带内核与插件的实测在 S4）；没有上限提示，记入已知限制。
   - wire 升到 2、合同多一个必填字段：K2 的客户端与服务端同时升级，外壳与服务端版本不一致时按 K2 的规则提示刷新；现有合同（只有测试合同）随 S1 补字段。
   - 合同 `provider` 改变 K1 的调用写法（`.at()` 可省略）：K1 的测试与 Spec 示例在 S1 一并改，`docs/` 中搜旧写法。
+
+## 待确认
+
+1. **“打开项目”列表带不带项目目录路径**（omp 设计审查第 3 条）。`runtime.browser-host` 与 `workspace/resources.md` 现在写着“浏览器不获得服务端路径”；列表带路径就要改这两处的表述。
+   - **带路径（建议）**：项目目录是用户自己登记的位置，只有它能区分 `novel` 与 `novel-2` 各是哪个目录。S0 把两处 Spec 改为“浏览器不获得状态根、安装目录等服务端内部路径；用户登记的项目目录路径可以显示给用户”。代价：浏览器里的任何插件都能调用这个服务拿到这些路径；第三方浏览器插件接入时，随拓扑稿待定项 3（客户端调用的权限规则）收紧 `callers` 或改为宿主专用。
+   - **不带路径**：列表只有短名与运行状态，用户靠短名辨认；登记新目录时由用户输入路径，之后界面不再显示。两处 Spec 不用改。
