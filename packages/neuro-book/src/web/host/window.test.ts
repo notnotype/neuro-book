@@ -178,6 +178,13 @@ describe("窗口运行实例", () => {
         await browserWindow.start();
         expect(browserWindow.state.status).toBe("incompatible");
         stub.stop();
+
+        // 版本号不是整数就不算声明了版本，按结构不符合协议处理（断线重连取引导时同一判定）。
+        const malformed = serveBootstrap(() => Response.json({protocolVersion: String(BROWSER_PROTOCOL_VERSION + 1)}));
+        const second = openWindow({url: malformed.url});
+        await second.browserWindow.start();
+        expect(failureOf(second.browserWindow.state)?.status).toBe("startup-failed");
+        malformed.stop();
     });
 
     it("服务端启用了本页面没有的插件版本：提示刷新", async () => {

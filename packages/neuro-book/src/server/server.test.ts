@@ -333,11 +333,14 @@ describe("后端宿主（同进程）", () => {
         expect(fatalLines.join("")).toContain("缺少 index.html");
     }, 20_000);
 
-    it("插件装配失败：同步写出致命诊断并抛 ServerAssemblyError", () => {
+    it("插件装配失败：同步写出致命诊断并抛 ServerAssemblyError，已开的 RPC 监听随之关闭", async () => {
         const fatalLines: string[] = [];
         const failure = new Error("工厂抛错");
+        const probePort = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response()});
+        const rpcPort = probePort.port!;
+        await probePort.stop(true);
         expect(() => startServer({
-            config: config("assembly"),
+            config: {...config("assembly"), rpcPort},
             plugins: () => {
                 throw failure;
             },
@@ -347,6 +350,7 @@ describe("后端宿主（同进程）", () => {
         expect(fatalLines).toHaveLength(1);
         expect(fatalLines[0]).toContain("runtime.startup.failed");
         expect(fatalLines[0]).toContain("工厂抛错");
+        expect(await upgradeStatus(rpcPort).then(() => "accepted", () => "refused")).toBe("refused");
     });
 });
 
@@ -371,7 +375,8 @@ describe("后端宿主的 RPC 端口（同进程，Spec server-host 场景 12、
         await server.ready;
         const rpcPort = Number(new URL(server.rpcUrl).port);
         const httpPort = new URL(server.url!).port;
-        for (const origin of [`http://127.0.0.1:${httpPort}`, `http://localhost:${httpPort}`, `http://[::1]:${httpPort}`, "http://127.0.0.1:5999"]) {
+        // 比较前按 URL 规范化：主机名大小写不同的同一来源照样放行。
+        for (const origin of [`http://127.0.0.1:${httpPort}`, `http://localhost:${httpPort}`, `http://[::1]:${httpPort}`, `http://LOCALHOST:${httpPort}`, "http://127.0.0.1:5999"]) {
             expect(await upgradeStatus(rpcPort, {origin}), origin).toBe(101);
         }
         for (const origin of ["http://127.0.0.1:5998", `https://127.0.0.1:${httpPort}`, "http://evil.example", "null"]) {
@@ -395,6 +400,10 @@ describe("后端宿主的 RPC 端口（同进程，Spec server-host 场景 12、
 
         server.requestStop("test:stop");
         await waitUntil("RPC 端口停止接纳新升级", async () => (await upgradeStatus(rpcPort)) === 503);
+        // 路由先停止接纳、再排空：已连接的客户端经原链路发来的新请求被拒，不会在排空期间被派发执行。
+        client.send(holdRequest("r2", "late"));
+        expect(await client.next((frame) => frame.type === "result" && frame.id === "r2")).toMatchObject({outcome: {ok: false, code: "unavailable", detail: "服务端正在停止"}});
+        expect(probe.holds.has("late")).toBe(false);
         expect(probe.closed).toBe(false);
         probe.holds.get("long")!.release("finished");
 

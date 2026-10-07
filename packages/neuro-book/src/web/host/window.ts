@@ -18,7 +18,7 @@ import type {PluginDescriptor} from "nbook/manifest";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
-import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema} from "nbook/shared/browser-bootstrap";
+import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
 import {collectServiceKeys} from "nbook/shared/service-keys";
 
 import {browserPluginFactories, builtinBrowserPlugins} from "../plugins";
@@ -232,9 +232,9 @@ interface SelectedPlugin {
 }
 
 function selectPlugins(raw: unknown, builtin: ReadonlyArray<PluginDescriptor>, factories: Readonly<Record<string, BrowserPluginFactory>>): {readonly selected: SelectedPlugin[]; readonly endpoint: RpcEndpoint} {
-    if (typeof raw === "object" && raw !== null && "protocolVersion" in raw && typeof raw.protocolVersion === "number"
-        && raw.protocolVersion !== BROWSER_PROTOCOL_VERSION) {
-        throw new BootstrapRejected("incompatible", `服务端的引导协议版本是 ${String(raw.protocolVersion)}，本页面是 ${String(BROWSER_PROTOCOL_VERSION)}`);
+    const version = declaredProtocolVersion(raw);
+    if (version !== null && version !== BROWSER_PROTOCOL_VERSION) {
+        throw new BootstrapRejected("incompatible", `服务端的引导协议版本是 ${String(version)}，本页面是 ${String(BROWSER_PROTOCOL_VERSION)}`);
     }
     if (!Value.Check(BrowserBootstrapSchema, raw)) throw new BootstrapRejected("startup-failed", "引导响应的结构不符合协议");
     const selected: SelectedPlugin[] = [];

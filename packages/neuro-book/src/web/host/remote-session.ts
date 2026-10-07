@@ -9,7 +9,7 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RemoteLink, RemoteNode} from "@notnotype/nb-runtime/remote";
 import {Value} from "typebox/value";
 
-import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema} from "nbook/shared/browser-bootstrap";
+import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
 
 import type {Connection, RpcEndpoint} from "./connection";
 
@@ -60,7 +60,14 @@ export function createRemoteSession(options: RemoteSessionOptions): RemoteSessio
             opened.close();
             return {kind: "failed", reason: "窗口已关闭"};
         }
-        const result = await options.node.connect(opened);
+        let result: Awaited<ReturnType<RemoteNode["connect"]>>;
+        try {
+            result = await options.node.connect(opened);
+        } catch (error) {
+            // 节点的握手不应抛错；万一抛了，按这一次连接失败处理，退避照常继续，不让重连循环静默停下。
+            opened.close();
+            return {kind: "failed", reason: `握手出错：${describe(error)}`};
+        }
         if (result.ok) {
             if (closed) {
                 opened.close();
@@ -86,7 +93,13 @@ export function createRemoteSession(options: RemoteSessionOptions): RemoteSessio
         if (closed) return;
         const delay = RETRY_DELAYS_MS[retries] ?? STEADY_RETRY_MS;
         retries += 1;
-        cancelRetry = options.clock.schedule(() => void retry(), delay);
+        cancelRetry = options.clock.schedule(() => {
+            void retry().catch((error: unknown) => {
+                // 重连里的意外异常同样按一次失败处理，记下原因后继续退避。
+                options.onRetryFailed?.(`重连出错：${describe(error)}`);
+                scheduleRetry();
+            });
+        }, delay);
     };
 
     const retry = async (): Promise<void> => {
@@ -129,7 +142,8 @@ export function createRemoteSession(options: RemoteSessionOptions): RemoteSessio
             options.onRetryFailed?.(describe(error));
             return null;
         }
-        if (typeof raw === "object" && raw !== null && "protocolVersion" in raw && raw.protocolVersion !== BROWSER_PROTOCOL_VERSION) return "incompatible";
+        const version = declaredProtocolVersion(raw);
+        if (version !== null && version !== BROWSER_PROTOCOL_VERSION) return "incompatible";
         if (Value.Check(BrowserBootstrapSchema, raw)) return raw.rpc;
         options.onRetryFailed?.("引导响应的结构不符合协议");
         return null;

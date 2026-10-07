@@ -23,3 +23,13 @@ export const BrowserBootstrapSchema = Type.Object({
 });
 
 export type BrowserBootstrap = Static<typeof BrowserBootstrapSchema>;
+
+/**
+ * 引导响应声明的协议版本，先于结构校验读取：新版本的服务端可能改了结构，此时应提示刷新而不是报格式错误。
+ * 没有这个字段或它不是整数时返回 null，交给结构校验判为不符合协议。首连与断线重连都经这里判定。
+ */
+export function declaredProtocolVersion(raw: unknown): number | null {
+    if (typeof raw !== "object" || raw === null || !("protocolVersion" in raw)) return null;
+    const version = raw.protocolVersion;
+    return typeof version === "number" && Number.isInteger(version) ? version : null;
+}

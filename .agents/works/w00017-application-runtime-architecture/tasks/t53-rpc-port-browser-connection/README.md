@@ -23,7 +23,7 @@ K1 [t52](../t52-kernel-instances-remote/README.md)：内核远程服务、路由
 
 ## 当前状态
 
-2026-10-07 S0–S8 已按 [plan.md](plan.md) 完成，交 omp（默认模型）在后台只读审查。
+2026-10-07 S0–S8 已按 [plan.md](plan.md) 完成，omp（默认模型）只读审查后修正完毕，随 K6 完成后一起验收。
 
 - **改动**：Spec 修订（S0 `bb9138c1`）；握手字段、wire 先核对、服务端重启识别、重连接管与 JSON 编解码（S1 `7a7184a8`）；路由停止接纳、排空与关闭（S2 `fb83da0f`）；服务端 RPC 端口、`Origin` 与启停顺序（S3 `1d349a2c`）；开发模式传端口与来源（S4 `7729c8c6`）；浏览器首连、客户端身份与断线重连（S5 `7a0a7120`）；离线横幅与服务端已重启页（S6 `20d7983d`）；真实 Chrome 的 e2e（S7 `da38fe4a`）；Spec 实现合同、smoke 与证据（S8，本次提交）。
 - **与计划的出入**（均已先改 plan.md）：
@@ -32,6 +32,12 @@ K1 [t52](../t52-kernel-instances-remote/README.md)：内核远程服务、路由
   - 路由停止的测试并进 `routing.test.ts`，复用其中的四实例拓扑。
   - 实现中发现并修正：进程内测试链路会丢掉“关闭前已发出”的帧（路由回完拒绝帧立即关链路时对端读不到原因），改为先送达再通知关闭，并改用与 WebSocket 相同的 JSON 编解码；窗口启动流程抽成 `src/web/boot.ts`，产品入口与 e2e 测试外壳共用。
   - 服务端正常停止时插件先于链路关闭，客户端订阅以 `provider-stopped` 结束；`server-restarted` 结束订阅只在链路意外断开后连到新进程时出现（内核测试覆盖）。
+- **omp 审查**：[omp-review.txt](evidences/omp-review.txt)，5 条（重要 1、建议 4），无阻断，逐条核实均成立，已修正（审查修正提交）：
+  - 1 服务端停止时“路由先停止接纳、再排空”的顺序在宿主层没有测试守住：补断言，排空期间已连接客户端经原链路发来的新请求得到 `unavailable` 且没有被派发；
+  - 2 来源比较前的 URL 规范化、3 插件装配失败时关闭 RPC 监听：各补一条断言；
+  - 4 连接会话对握手与重连中的意外异常没有兜底：握手出错按一次连接失败处理，重连出错记诊断后继续退避；`openRemote` 地址或浏览器拒绝建连按 `ConnectionError` 拒绝，不再同步抛出；
+  - 5 首连与重连对引导协议版本的判定写法不一致：抽成 `declaredProtocolVersion` 共用，版本号不是整数按结构不符处理，Spec 不变量同步。
+  - 1、2、3、5 的新断言都做过变异检查。
 - **证据**：[test-affected-typecheck.txt](evidences/test-affected-typecheck.txt)（`bun run test:affected --typecheck --since dd98a1fc`：nb-runtime 与 neuro-book 的类型检查与全部测试）、[smoke-server.txt](evidences/smoke-server.txt)（S1–S6，S6 为 RPC 握手与来源核对）、[test-e2e.txt](evidences/test-e2e.txt)（36 条，含 `rpc.e2e.ts` 6 条）；`docs:check`、`governance:check` 无失败。验收映射的每条判据都做过变异检查（改坏实现后对应测试失败）；变异检查发现“重连成功后退避归零”与 `start.ts` 的来源接线没有测试守住，已补测试。
 - **未验证的边界**：项目绑定、超过宽限期的重连与服务端停止项目子实例（K3）；TUI 客户端；鉴权、Cookie 与 wss/TLS；反向代理；Windows；发送背压。
 - **已知限制**（已写入对应 Spec）：不做发送背压与应用层心跳；同一实例重连按描述一致接管、不核对凭据；鉴权上线前不带 `Origin` 的本机进程都能连 RPC 端口。

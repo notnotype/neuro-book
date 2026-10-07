@@ -1,0 +1,67 @@
+# w00017 t53（K2：服务端 RPC 端口与浏览器连接）只读审查报告
+
+审查对象：`dd98a1fc..HEAD`（S0–S8，分支 `refactor/w00017-runtime-foundation`）。范围：内核 `packages/nb-runtime/src/remote/`，宿主 `packages/neuro-book/src/{server,web,shared}/`、`e2e/` 与 `scripts/smoke-server.ts`，行为合同 `docs/specs/runtime/`。
+方法：逐文件阅读全部改动；对照 5 份 Spec、topology proposal、ADR 0024 与 t52 审查条目；跑基线 `bun run --cwd packages/nb-runtime test`（246 例）与 `typecheck`、`bun run --cwd packages/neuro-book test:bun`（193 例）、`test:vitest`（53 例）、`typecheck`；对 7 处关键判据做变异检查（改坏实现 → 测试失败/不失败 → 恢复）；用仓库外临时脚本验证 Origin 规范化的 19 个边角输入。所有变异已恢复，`git status`/`git diff` 确认我未留下改动（工作区只有与本审查无关的 `.agents/works` 一处改动与未跟踪的 t54 目录，非我所改）。
+
+## 发现
+
+### 1. [重要] 服务端停止序列“路由先停止接纳、再排空”的顺序没有测试守住，顺序写反后已连接客户端的新写请求会在排空期间被派发执行
+
+- 位置：`packages/neuro-book/src/server/start.ts:183-193`（`drainRpc`）；测试 `src/server/server.test.ts` 的“后端宿主的 RPC 端口”组
+- 现象：`drainRpc` 先 `router.stopAdmission()` 再 `router.drain()`。变异检查：把 `stopAdmission()` 挪到 `await router.drain(...)` 之后（先排空、排空完成后才停止接纳），`server.test.ts` 20 例全部通过。“远程请求在途时停止”用例断言的“新升级 503”来自 HTTP 准入门（升级先过 `admission.admit()`，HTTP 排空开始后门就拒），与路由是否停止接纳无关，因此守不住顺序。
+- 为什么是问题：Spec `plugin-channel.md` 第 6 条与 `server-host.md` 停止序列都写明“先停止接纳、再排空”。顺序反了时，排空等待期间已连接客户端（WebSocket 还开着，不经 HTTP 门）发来的新写请求仍会被路由接纳并派发执行，直到 `router.close()` 才按断开结算——写副作用已经发生，调用方却拿到 `unknown-outcome`，正是 Spec 要避免的语义。内核层 `routing.test.ts` 守住了 `stopAdmission` 的语义本身（变异 3 证实），缺的是宿主调用顺序这一层。
+- 如何核实：变异检查（改 `start.ts` 后跑 `bun run --cwd packages/neuro-book test src/server/server.test.ts`，20 pass 0 fail），已恢复；对照 Spec 停止序列第 1 条。
+- 建议改法：补一条宿主层用例：停止开始、在途远程请求未完成时，已连接客户端经原链路发新请求得到 `unavailable`（detail 说明服务端正在停止）；或让现有“远程请求在途时停止”用例在 503 之外同时断言“已连接客户端的新请求被拒”。宿主用注入时钟制造顺序敏感的窗口，判定方式参照 `routing.test.ts` 的停止接纳用例。
+
+### 2. [建议] `allowOrigin` 的“比较前按 URL 规范化”没有测试守住；规范化本身没有安全绕过
+
+- 位置：`packages/neuro-book/src/server/start.ts:133-141`（`allowOrigin`）；测试 `src/server/rpc/listener.test.ts`、`src/server/server.test.ts`
+- 现象：Spec `server-host.md`“内核 RPC 端口”要求比较前按 URL 规范化。变异检查：把 `new URL(origin).origin` 换成直接用原字符串比较，`listener.test.ts` 与 `server.test.ts` 全部通过——所有测试用的 Origin 都是已规范形式。`config.ts` 的 `parseOrigins` 规范化存储有测试（`config.test.ts` 增补），比较侧没有。
+- 为什么是问题：规范化的作用是放行回环别名写法（`http://LOCALHOST:3000`、`http://127.1:3000`、`http://0x7f000001:3000` 等），去掉只会误拒这些变体，不造成绕过（用临时脚本验证 19 个边角输入：evil.com、`127.0.0.1:3000@evil.com`、`[::ffff:127.0.0.1]`、`null`、`https:` 等都不会规范化进允许集合）。但这条 Spec 明确写的判据现在改坏后无测试失败，会静默回归为“合法回环别名页面连不上 RPC”。
+- 如何核实：变异检查 + 仓库外脚本 `origin-probe.ts`（`new URL` 规范化行为逐项输出）。
+- 建议改法：在 `listener.test.ts` 的 Origin 用例加一条：`Origin: http://LOCALHOST:<HTTP端口>`（大写、或 `http://127.1:<端口>` 这类回环别名）升级 101。
+
+### 3. [建议] 插件装配失败时关闭已开的 RPC 监听没有测试守住
+
+- 位置：`packages/neuro-book/src/server/start.ts:171-178`（装配失败分支的 `rpc.stop()`）；测试 `src/server/server.test.ts` 的“插件装配失败”用例
+- 现象：Spec `server-host.md` 实现合同要求“插件装配失败时先关闭已开的 RPC 监听”。变异检查：去掉该分支的 `rpc.stop()`，`server.test.ts` 20 例全部通过。“插件装配失败”用例只断言抛出 `ServerAssemblyError` 与致命诊断内容，不断言端口已关。
+- 为什么是问题：装配失败后 RPC 监听若没关，端口在进程存活期间一直占用（同进程测试里表现为残留监听，真实进程里 `process.exit(1)` 会兜底）。这是 Spec 明确写的行为，改坏无测试失败。
+- 如何核实：变异检查（去掉 `rpc.stop()` 后跑 `server.test.ts`，20 pass 0 fail），已恢复。
+- 建议改法：在“插件装配失败”用例里，捕获异常后断言该 RPC 端口拒绝连接（`upgradeStatus(port)` 得到 refused；端口号可从 fatalLines 或装配前无从得知——可在用例里先用临时 `Bun.serve` 占一个端口、让被测装配用该端口，装配失败后再核对它已释放可监听，或直接用“连接被拒”断言）。
+
+### 4. [建议] `remote-session` 对 `node.connect` 与端点解析的意外同步异常没有兜底，一旦发生重试循环静默停止、窗口停在“正在启动”
+
+- 位置：`packages/neuro-book/src/web/host/remote-session.ts:54-74`（`connectOnce`）、`86-118`（`retry`）；`host/connection.ts:55-60`（`openRemote` 里 `new URL(endpoint.path, base)` 在 try 之外）
+- 现象：`connectOnce` 只对 `openRemote` 包 try；`await options.node.connect(opened)` 无 try。`retry()` 与 `start()` 都由 `void`/顶层 `await` 消费，`connectOnce` reject 时：`retry` 里未处理拒绝使退避循环停止；`start` 里 reject 一路传到 `boot.ts` 的 `await browserWindow.start()` 与 `main.ts` 顶层 await，窗口停留在“正在启动”占位，没有任何失败呈现。
+- 为什么是问题：今天触发不可达（hello 帧全部可编码、endpoint 经 `BrowserBootstrapSchema` 的 `^/` 校验），但这是审查重点“Promise 永不结算/未处理拒绝”的一例：一旦内核 `connect` 或 `new URL` 因未知输入抛错，链路层的恢复机制整体失效且无诊断。防御成本低。
+- 如何核实：代码阅读；`node.ts` `connect` 内 `peer.send(hello)` 与 `await promise` 无 reject 路径、`openRemote` 的 URL 构造在 try 外的对照。
+- 建议改法：`connectOnce` 把 `node.connect` 也包进 try（失败按 `failed` 处理），或 `retry`/`start` 的调用方加 `.catch` 记诊断并按 `failed` 继续退避；`openRemote` 把 URL 构造移进 try，抛错按 `ConnectionError` 拒绝。
+
+### 5. [建议] 引导协议版本检查在首连与重连两处写法不一致，同一异常响应两种呈现
+
+- 位置：`packages/neuro-book/src/web/host/window.ts:246-249`（`selectPlugins`，要求 `typeof raw.protocolVersion === "number"`）；`src/web/host/remote-session.ts:126`（`refreshEndpoint`，只查 `in` 与不等）
+- 现象：若服务端（或损坏的中间层）返回 `protocolVersion: "2"`（字符串），首连走 `Value.Check` 失败报 `startup-failed`（“工作台启动失败”），断线重连走 `"2" !== 2` 报 `incompatible`（“版本不一致”）。两处动作都是刷新，但文案与状态不同。
+- 为什么是问题：同一引导响应在两条路径上被分到两个不同的失败类别，排查时误导；也是“按错误文案做分支”类不一致的轻微一例（这里按字段形状分支，无害但应统一）。
+- 如何核实：代码对照；服务端自己只发数字，触发需要异常响应。
+- 建议改法：`refreshEndpoint` 与 `selectPlugins` 用同一个判定（加 `typeof === "number"` 前置条件），或抽成共享函数。
+
+## 核实过、没有问题的方面
+
+- 握手：wire 先于结构校验（`wireMismatch` 只读 `type`/`wire`，非整数 wire 走无效帧）；`reject` 形状跨版本冻结；hello 带 `client`；welcome 带 `boot`。routing.test.ts 覆盖，且“wire 不同但其余字段是另一版本形状”有专门用例。
+- 服务端重启识别：`#onServerRestarted` 结束全部非本地订阅（`server-restarted`）、置终态、此后连接与调用都走 `server-restarted`/`unavailable`；变异 2 证实有测试守住。
+- 重连接管：描述一致才接管（`sameInstance` 逐字段），旧链路在途写请求 `unknown-outcome(disconnected)`、订阅按断开结算；描述不一致 `duplicate-instance`；路由 `onClose` 用 `#members.get(id) === member` 防旧链路误删新登记。变异 1 证实有测试守住。
+- 协议违规：握手前业务帧/无效帧关闭链路并记 `protocol-violation` 诊断，对端在途请求立即结算；有测试。
+- 路由停止：`stopAdmission` 幂等、客户端新请求/订阅 `unavailable`、项目成员照常（变异 3 证实守住）；`drain` 计数只经 `#track` 统一登记（成员发来的、转发给项目的、服务端插件发出的三条路径都有用例），拒绝路径不计数不泄漏；`close` 幂等、之后的新链路立即关闭；无提前归零路径（`#track` 的 done 只执行一次）。
+- 服务端宿主：RPC 监听先于插件装配、引导接口拿到实际端口；升级先过 HTTP 门（就绪前等待、启动失败/停止中 503）再核对 Origin（顺序正确，端口为 0 时来源要等 HTTP 监听）；无 Origin 放行、有 Origin 严格核对；非 `/` 路径 404、非升级 426；`maxPayloadLength` 1 MiB、idleTimeout 120 秒 + `sendPings`；启动失败（含端口被占）写致命诊断后退出 1；HTTP 与 RPC 排空并行（`Promise.allSettled` + 注入时钟），插件全部关闭后才 `router.close()` 与 `rpc.stop()`；退出码 75>1>0 语义不变。`server.test.ts` 同进程与真实子进程、`listener.test.ts` 真实 Bun 监听覆盖。
+- Origin 安全：允许集合 = 三个回环别名 × 实际 HTTP 端口 + `NBOOK_ALLOWED_ORIGINS`（校验回环 + http + 无路径/查询/用户信息）；比较侧规范化没有绕过（临时脚本验证：evil.com、userinfo 混淆、IPv4-mapped IPv6、`null`、非 http 等全部拒绝）；`http://localhost:80` 默认端口省略后不会误匹配带端口的集合成员。
+- 开发模式：页面服务先起、`backendEnv()` 每次重启后端时重新计算 `NBOOK_ALLOWED_ORIGINS`（三个回环别名）与 `NBOOK_RPC_PORT`；页面经引导直连后端 RPC；`run.test.ts` 补了中途失败时的进程收口；`dev.e2e.ts` 验证直连、后端重启后“服务端已重启”页与刷新恢复。
+- 浏览器：首连在运行实例建立之前；每次启动尝试新 instanceId 与新 session；`onState` 与 `onLinkClosed` 都用 instanceId/link 身份守卫，旧尝试不改写新状态；退避 0.5/1/2/4/8/10 秒且每次先重取引导（`remote-session.test.ts` 用 ManualClock 验证前三级与重启识别）；重连成功退避归零（变异 7 证实有测试守住）；`server-restarted`/`incompatible` 是终态、不再重连；`stop()` 先停插件再关链路，`pagehide` 经 BrowserRuntimeHost 汇合为同一次停止（window.test.ts“窗口卸载”用例验证服务端收到终止）；客户端身份读写全在 try、存储不可用退回本页随机值（dom 测试覆盖三种情形）。
+- 套接字链路适配：发送先编码（哪怕关闭中，编码失败同步抛）、关闭中的发送丢弃、`closed()` 幂等只通知一次、关闭后注册的监听微任务补触发、二进制消息交给帧解析判无效帧（与文本无效 JSON 同一路径，有测试）；`in-process.ts` 改为同一套 JSON 编解码并保证“关闭前发出的帧先于关闭通知送达”。
+- 路由转发的订阅清理：`channel.end`/`reject` 都经 `finish` 从 `#inbound` 删除，abort 监听随 controller 一起失去外部引用可回收，无累积泄漏。
+- 测试质量：本 Task 新增/增补测试无 mock/spy/假计时器/固定时长等待；时间全用注入 `ManualClock`，等待用 `waitUntil`/`expect.poll`；e2e 的 `routeWebSocket` 真实转发与真实掐断、`page.route` 伪造外站来源、固定端口换进程，验证的是真实浏览器行为而非实现细节；`window.test.ts` 用 TCP 代理制造真实断线；界面测试分工明确（真实 WebSocket 在 window.test.ts 与 e2e，进程内链路在 mount.dom.test.ts，替身与真实系统共用同一套 JSON 编解码合同）。
+- 禁止清单：无按错误文案分支（`errorCode` 只拼接展示）、无静默吞错（`decodeJsonFrame`/`errorCode`/`#record` 的 catch 都有说明或诊断）、产品代码无测试分支（测试插件只经 `startServer({plugins})` 注入）、无死代码或第二条请求路径（`drain` 计数统一经 `#track`）、无跨包深导入（web 测试经 `nbook/*` 别名引 server/testing 工具，同包内）、`as`/非空断言仅在测试与 Bun API 边界。t52 审查的修正（`#sendValue` 结构化失败结算、`#localRequest` 监听清理、进程内链路先送达再关闭）均未被回退。
+- Spec 与代码一致：`server-host.md`/`browser-host.md` 实现合同的入口文件、函数签名、关键不变量与代码逐一对应（`startServer`/`RunningServer`、`bootWindowUi`、`createBrowserWindow`、`BROWSER_PROTOCOL_VERSION=2`、`rpc` 字段等）；场景 10–14 的测试映射与 plan 验收映射一致；e2e 证据 36 条全过（含 rpc.e2e.ts 6 条）。
+
+## 总结
+
+发现共 5 条：重要 1（宿主停止序列顺序无测试守住，顺序反了会导致排空期间新写请求被执行）、建议 4（Origin 规范化比较侧无测试、装配失败关 RPC 监听无测试、remote-session 无异常兜底、首连与重连的协议版本判定不一致）；无阻断。内核三个关键判据（重连接管描述一致、服务端重启订阅结束、停止接纳后项目成员照常）与浏览器重连退避归零均被变异检查证实有测试守住。除上述 5 条外，握手、路由停止与排空、服务端启停与 Origin 安全、浏览器首连/重连/卸载、套接字链路适配、测试写法与禁止清单各面均核对过，未发现其它问题。

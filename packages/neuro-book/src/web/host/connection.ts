@@ -39,11 +39,17 @@ export function createConnection(baseUrl: string): Connection {
     const base = new URL(baseUrl);
     return {
         openRemote(endpoint) {
-            const target = new URL(endpoint.path, base);
-            target.protocol = base.protocol === "https:" ? "wss:" : "ws:";
-            target.port = String(endpoint.port);
             const {promise, resolve, reject} = Promise.withResolvers<RemoteLink>();
-            const socket = new WebSocket(target);
+            let socket: WebSocket;
+            try {
+                const target = new URL(endpoint.path, base);
+                target.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+                target.port = String(endpoint.port);
+                socket = new WebSocket(target);
+            } catch (error) {
+                // 地址拼不出来或浏览器拒绝建立连接（例如混合内容）：与连不上同样处理，窗口给出可重试的连接失败。
+                return Promise.reject(new ConnectionError("无法连接服务端的 RPC 端口", null, {cause: error}));
+            }
             const link = createSocketLink({send: (text) => socket.send(text), close: () => socket.close()});
             let opened = false;
             socket.addEventListener("open", () => {
