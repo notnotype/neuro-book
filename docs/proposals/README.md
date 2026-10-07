@@ -21,6 +21,8 @@
 - [`nb-ui-surface-model.md`](./nb-ui-surface-model.md)：nb-ui 表面模型，把材质（玻璃 / 实心，整页只有一层且只有它开模糊）与层级（不透明色阶，可嵌套、按位置自动推导）拆成两条轴，材质层有可读性不透明度下限，状态为 `accepted`。
 - [`workbench-view-host.md`](workbench-view-host.md)：Workbench 与 View Host（descriptor 注册表、可序列化拆分树原语、布局状态四类分层、视图跨容器与容器跨栏移动），状态为 `accepted`。
 - [工作台外壳的抽象（v2）](workbench-shell-abstractions.md)：新应用 `nbook.workbench` 的对象模型（Part、ToolPart、Switcher、ActivityBar、ViewContainer、View）、插件面向的视图合同、布局记录与持久化端口、代码分层，以及第 4 步外壳的 t51–t53 切片；沿用 View Host 的分层，取代其 descriptor 字段与持久化细节，状态为 `reviewing`。
+- [多实例运行时拓扑](multi-instance-runtime-topology.md)：服务端、项目子进程与浏览器、TUI 客户端四类内核实例；项目由内核子实例机制与服务端宿主管理；插件间只有本地服务与内核路由的远程服务两种通信；对称 RPC 协议与内核专用端口；`nbook.http` 只做 HTTP 边缘；实施切片 K1–K6；长期决定见 [ADR 0024](../adr/0024-multi-instance-runtime-topology.md)，状态为 `reviewing`。
+- [插件的数据与状态](plugin-data-model.md)：插件数据的归位判据与十类数据、插件状态 store（`defineStore`）、公开状态与 `when`、Storage 的命名空间与分区归属、配置的读写规则，以工作台为例走查，状态为 `reviewing`。
 - [`workbench-commands.md`](./workbench-commands.md)：命令系统与单一注册表（命令单一身份、`when` 上下文求值、交互入口统一分发命令 id、命令面板与派生快捷键表），状态为 `draft`。
 - [`storage-service-and-sync.md`](./storage-service-and-sync.md)：跨独立 data 在线同步的身份对齐、复制确认、冲突与删除收敛，状态为 `draft`；已批准本地行为见 [storage.persistence](../specs/storage/persistence.md)。
 已完成沉淀的信息架构提案见 [`../packages/neuro-book-legacy/docs/archived/proposals/documentation-information-architecture.md`](../../packages/neuro-book-legacy/docs/archived/proposals/documentation-information-architecture.md)。

@@ -248,3 +248,5 @@ interface ViewContext {
 | 日期 | 决策者 | 结论 |
 |---|---|---|
 | 2026-10-06 | 开发者 | workbench 贡献点按真实消费者逐个加入；外壳抽象参照 VS Code 在 t50 之前单独设计一轮，交开发者审批（见 [t49](../../.agents/works/w00017-application-runtime-architecture/tasks/t49-commands-quick-open/README.md)） |
+| 2026-10-06 | 开发者 | 批准待定项 1–3：布局先经 `LayoutStore` 存 `localStorage`；视图未指定容器时自成隐式容器；对旧设计的取舍表 |
+| 2026-10-07 | 开发者 | 先做 [多实例运行时拓扑](multi-instance-runtime-topology.md) 的 K1–K5，外壳实现排在其后；外壳状态用插件状态 store，面板命令的可用条件读公开状态；第 7 节切片的 t51–t53 编号不再保留。本稿按 omp 审查 11 条（见 [t50 证据](../../.agents/works/w00017-application-runtime-architecture/tasks/t50-workbench-shell-design/evidences/omp-review.txt)）修订前仍为 `reviewing` |

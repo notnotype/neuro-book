@@ -25,11 +25,16 @@ taskId: t50-workbench-shell-design
 
 ## 当前状态
 
-2026-10-06 设计稿起草完成，状态 `reviewing`，待开发者审批四个待定项：
-1. 持久化后端；
-2. 视图默认自成隐式容器；
-3. 对旧设计的取舍；
-4. 切片。
+2026-10-06 设计稿起草完成，状态 `reviewing`。
+
+开发者 2026-10-06 批准待定项 1–3：
+1. 持久化先经 `LayoutStore` 端口存浏览器 `localStorage`，`nbook.storage` 就绪后换适配器；
+2. 视图未指定容器时自成隐式容器；
+3. 对旧设计的取舍表。
+
+omp 只读审查（默认模型）11 条，主 Agent 逐条核实全部成立：6 条阻断（隐式容器身份、`LayoutStore` 端口过薄、与平台设计 P7 的实例释放冲突、尺寸记录划分与 `storage/persistence.md` 不符、面板命令的 `when` 无法登记、实现撤回与声明删除未区分），5 条建议。报告原文与核实见 [evidences/omp-review.txt](evidences/omp-review.txt)。
+
+待定项 4（切片）由后续讨论改变：开发者 2026-10-07 决定先做 [多实例运行时拓扑](../../../../../docs/proposals/multi-instance-runtime-topology.md) 的 K1–K5，再做外壳实现。外壳状态改用插件状态 store，面板命令的可用条件读公开状态（第 7 条由此解决）；原定的 t51–t53 编号不再保留，外壳的三个切片在 K5 之后按当时的最大编号创建。
 
 读过的材料与依据的事实：
 - **新应用**：工作台插件、页面表、命令宿主。
@@ -39,7 +44,5 @@ taskId: t50-workbench-shell-design
 
 ## 下一步
 
-开发者审批后：
-- 设计稿改为 `accepted`；
-- 按“对 Spec 的预期改动”修订 `ui.workbench-shell`、`workbench.commands`；
-- 建 t51（外壳与布局）。
+- 按 omp 审查的 11 条修订设计稿：第 2、5、6 条按插件状态 store 与 `nbook.storage` 的分区归属重写持久化一节；第 7 条按公开状态重写；切片改为 K5 之后的三个外壳切片。
+- 修订稿交开发者审批后改为 `accepted`，按“对 Spec 的预期改动”修订 `ui/workbench-shell.md`、`workbench/commands.md`。
