@@ -367,7 +367,7 @@ describe("后端宿主的 RPC 端口（同进程，Spec server-host 场景 12、
         method: "hold",
         effect: "write",
         input: {name},
-        $nbConsumer: {instanceId: tui.id, location: "tui", plugin: null, entry: null, generation: null, via: null},
+        $nbConsumer: {instanceId: tui.id, location: "tui", client: null, plugin: null, entry: null, generation: null, via: null},
         $nbChain: [],
     });
 

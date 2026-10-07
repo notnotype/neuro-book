@@ -21,9 +21,15 @@ interface Fixture {
 
 /** 根作用域上声明一个按调用方提供的 store，与一个没有插件身份的消费者入口。 */
 function setup(
-    options: {readonly facade?: (consumer: ConsumerIdentity) => Store; readonly release?: (facade: Store) => void; readonly providerReleased?: () => void} = {},
+    options: {
+        readonly facade?: (consumer: ConsumerIdentity) => Store;
+        readonly release?: (facade: Store) => void;
+        readonly providerReleased?: () => void;
+        readonly identity?: {readonly location: string; readonly instanceId: string; readonly client: string | null};
+    } = {},
 ): Fixture {
-    const runtime = createRuntimeInstance({location: "server", instanceId: "server-1"});
+    const identity = options.identity ?? {location: "server", instanceId: "server-1", client: null};
+    const runtime = createRuntimeInstance(identity);
     runtime.root.open();
     const assembly = createServiceAssembly(runtime, {keys: [storeKey]});
     const released: Fixture["released"] = [];
@@ -32,7 +38,7 @@ function setup(
         assembly.declare({
             id: "store",
             key: storeKey,
-            location: "server",
+            location: identity.location,
             scope: runtime.root,
             create: () =>
                 perConsumer(facade, (instance, consumer) => {
@@ -42,7 +48,7 @@ function setup(
             release: () => options.providerReleased?.(),
         }),
     ).toMatchObject({status: "accepted"});
-    expect(assembly.declare({id: "host-consumer", location: "server", scope: runtime.root, dependencies: [{key: storeKey}]})).toMatchObject({status: "accepted"});
+    expect(assembly.declare({id: "host-consumer", location: identity.location, scope: runtime.root, dependencies: [{key: storeKey}]})).toMatchObject({status: "accepted"});
     return {root: runtime.root, assembly, released};
 }
 
@@ -72,8 +78,15 @@ describe("Spec services 输出 11–12：按调用方门面（装配层）", () 
 
         expect(again).toBe(a);
         expect(b).not.toBe(a);
-        expect(a.who()).toEqual({instanceId: "server-1", location: "server", plugin: null, entry: null, generation: null, via: null});
+        expect(a.who()).toEqual({instanceId: "server-1", location: "server", client: null, plugin: null, entry: null, generation: null, via: null});
         expect(Object.isFrozen(a.who())).toBe(true);
+    });
+
+    it("运行实例带客户端身份：调用方身份带同一个客户端身份与运行位置（随 t55）", async () => {
+        const {root, assembly} = setup({identity: {location: "browser", instanceId: "browser-1", client: "profile-1"}});
+        const store = await resolveStore(assembly, openedChild(root, "op"));
+
+        expect(store.who()).toEqual({instanceId: "browser-1", location: "browser", client: "profile-1", plugin: null, entry: null, generation: null, via: null});
     });
 
     it("调用方作用域关闭：释放函数收到这个门面与调用方，之后访问门面或先取出的方法都抛 ServiceRevokedError", async () => {

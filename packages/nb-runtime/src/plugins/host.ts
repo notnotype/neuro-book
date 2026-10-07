@@ -257,6 +257,7 @@ interface DeliveryRecord {
 export class PluginHostImpl implements PluginHost {
     readonly instanceId: string;
     readonly location: RuntimeLocation;
+    readonly #client: string | null;
     readonly #assembly: ServiceAssembly;
     readonly #observer: PluginObserver | undefined;
     readonly #delegation: ((pluginId: string) => boolean) | null;
@@ -276,6 +277,7 @@ export class PluginHostImpl implements PluginHost {
     constructor(instance: RuntimeInstance, assembly: ServiceAssembly, options: PluginHostOptions) {
         this.instanceId = instance.identity.instanceId;
         this.location = instance.identity.location;
+        this.#client = instance.identity.client ?? null;
         this.#assembly = assembly;
         this.#observer = options.observer;
         this.#delegation = options.delegation ?? null;
@@ -520,7 +522,7 @@ export class PluginHostImpl implements PluginHost {
         if (this.#remote === null) {
             return unavailableRemote();
         }
-        const consumer: ConsumerIdentity = Object.freeze({instanceId: this.instanceId, location: this.location, plugin, entry, generation: attempt.generation, via: null});
+        const consumer: ConsumerIdentity = Object.freeze({instanceId: this.instanceId, location: this.location, client: this.#client, plugin, entry, generation: attempt.generation, via: null});
         const self: ChainLink = {instanceId: this.instanceId, plugin, entry};
         return this.#remote.access({
             consumer,

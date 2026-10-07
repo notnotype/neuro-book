@@ -360,7 +360,7 @@ async function onlineInstances(server: RunningServer): Promise<string[]> {
     socket.send(helloFrame({id, kind: "tui", role: "client", project: null, client: null}));
     await socket.next((frame) => frame.type === "welcome");
     socket.send({type: "request", id: "list", target: "server", contract: "runtime/instances", version: 1, method: "list", effect: "read", input: {},
-        $nbConsumer: {instanceId: id, location: "tui", plugin: null, entry: null, generation: null, via: null}, $nbChain: []});
+        $nbConsumer: {instanceId: id, location: "tui", client: null, plugin: null, entry: null, generation: null, via: null}, $nbChain: []});
     const result = await socket.next((frame) => frame.type === "result");
     socket.socket.close();
     return ((result.outcome as {value: Array<{id: string}>}).value).map((instance) => instance.id);

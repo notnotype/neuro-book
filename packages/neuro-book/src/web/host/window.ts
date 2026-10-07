@@ -165,6 +165,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             const plugins = selected.map(({factory}) => factory({store, console: options.console, navigateDocument: options.navigateDocument}));
             host = adapter.start({
                 instanceId,
+                client: clientIdentity,
                 page: options.page,
                 emergency: recordingEmergency(store, (report) => {
                     Reflect.apply(options.console.error, options.console, [JSON.stringify({emergency: report})]);

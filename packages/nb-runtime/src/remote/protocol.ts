@@ -12,10 +12,11 @@ import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
 
 /**
- * 握手时核对；不兼容时在处理任何业务帧前拒绝链路。帧格式变化时提升（2：握手加入项目绑定）。`hello` 的
+ * 握手时核对；不兼容时在处理任何业务帧前拒绝链路。帧格式变化时提升（2：握手加入项目绑定；3：调用方身份
+ * 加入客户端身份）。`hello` 的
  * `wire` 字段与 `reject` 帧的形状跨版本不变：任何版本的客户端都能让服务端读出版本、读懂服务端的拒绝。
  */
-export const WIRE_PROTOCOL_VERSION = 2;
+export const WIRE_PROTOCOL_VERSION = 3;
 
 /** 路由层失败码，对所有远程服务相同；业务失败码由各合同声明。 */
 export const REMOTE_FAILURE_CODES = [
@@ -91,10 +92,14 @@ export function validationProblems(schema: TSchema, value: unknown): string | nu
 const NullableString = Type.Union([Type.String(), Type.Null()]);
 const NullableInteger = Type.Union([Type.Integer(), Type.Null()]);
 
-/** 帧上的调用方身份；与 runtime.services 的 ConsumerIdentity 同形。 */
+/**
+ * 帧上的调用方身份；与 runtime.services 的 ConsumerIdentity 同形。`location` 与 `client` 属于实例描述，
+ * 路由按发来链路登记的成员描述覆盖（runtime/plugin-channel.md 输出第 3 条）。
+ */
 export const CallerFrameSchema = Type.Object({
     instanceId: Type.String({minLength: 1}),
     location: Type.String({minLength: 1}),
+    client: NullableString,
     plugin: NullableString,
     entry: NullableString,
     generation: NullableInteger,

@@ -29,6 +29,11 @@ export interface RuntimeInstanceIdentity {
     readonly location: RuntimeLocation;
     /** 一次启动的身份；刷新、重启或再次启动必须换新值。 */
     readonly instanceId: string;
+    /**
+     * 客户端身份：客户端实例（浏览器、TUI）跨重新加载稳定的标识，由宿主给出；服务端与项目实例不给。
+     * 服务装配把它填进本实例插件入口的调用方身份（runtime/services.md 输出第 11 条）。
+     */
+    readonly client?: string | null;
 }
 
 /** 作用域四阶段。“关闭未完成”是 stopping 阶段的收口结果，不是第五种阶段。 */

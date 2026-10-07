@@ -73,7 +73,7 @@ describe("Spec plugins 输出 19：按调用方提供项", () => {
         }
 
         expect(seen.get("alpha")?.facade).not.toBe(seen.get("beta")?.facade);
-        expect(seen.get("alpha")?.identity).toEqual({instanceId: "server-1", location: "server", plugin: "alpha", entry: "main", generation: 1, via: null});
+        expect(seen.get("alpha")?.identity).toEqual({instanceId: "server-1", location: "server", client: null, plugin: "alpha", entry: "main", generation: 1, via: null});
         expect(seen.get("beta")?.identity).toMatchObject({plugin: "beta", entry: "main", generation: 1});
     });
 

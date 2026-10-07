@@ -55,7 +55,7 @@ function serverPlugin(id: string, activate: (projects: ProjectsService, context:
 }
 
 function frame(instanceId: string, plugin: string | null, via: CallerFrame["via"] = null): CallerFrame {
-    return {instanceId, location: instanceId === "hub" ? "server" : "browser", plugin, entry: plugin === null ? null : "main", generation: plugin === null ? null : 1, via};
+    return {instanceId, location: instanceId === "hub" ? "server" : "browser", client: null, plugin, entry: plugin === null ? null : "main", generation: plugin === null ? null : 1, via};
 }
 
 /** 浏览器窗口：另一个真实内核实例，按短名绑定项目，经进程内链路连到服务端路由。 */

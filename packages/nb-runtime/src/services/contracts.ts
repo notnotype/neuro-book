@@ -35,6 +35,8 @@ export interface EntryIdentity {
 export interface ConsumerIdentity {
     readonly instanceId: string;
     readonly location: RuntimeLocation;
+    /** 调用方实例的客户端身份（跨重新加载稳定）；只有客户端实例有，服务端与项目实例为 null。 */
+    readonly client: string | null;
     readonly plugin: string | null;
     readonly entry: string | null;
     readonly generation: number | null;

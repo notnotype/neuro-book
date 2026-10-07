@@ -17,6 +17,8 @@ export interface PageLifecycleTarget {
 
 export interface BrowserHostOptions {
     readonly instanceId: string;
+    /** 客户端身份（`client-identity.ts`）：进入实例身份，本窗口插件的调用方身份都带它（runtime.services 输出第 11 条）。 */
+    readonly client?: string;
     readonly manifest: ApplicationManifest;
     readonly page: PageLifecycleTarget;
     readonly emergency: (report: EmergencyReport) => void;
@@ -47,7 +49,7 @@ class BrowserHostImpl implements BrowserHost {
         this.#page.addEventListener("pagehide", this.#onPageHide);
         this.application = createApplication(
             {
-                identity: {location: "browser", instanceId: options.instanceId},
+                identity: {location: "browser", instanceId: options.instanceId, client: options.client ?? null},
                 stopSignal: this.#controller.signal,
                 stopDeadline: options.stopTimeoutMs === undefined ? undefined : stopTimeout(options.stopTimeoutMs),
                 emergency: options.emergency,

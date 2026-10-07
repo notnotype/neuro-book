@@ -133,8 +133,8 @@ describe("Spec services 输出 13、plugins 输出 20：委托", () => {
 
         expect(await host.activate({plugin: "alpha", entry: "main"})).toMatchObject({status: "activated"});
 
-        expect(viaProxy).toEqual({instanceId: "server-1", location: "server", plugin: "alpha", entry: "main", generation: 1, via: {plugin: "proxy", entry: "main", generation: 1}});
-        expect(direct).toEqual({instanceId: "server-1", location: "server", plugin: "alpha", entry: "main", generation: 1, via: null});
+        expect(viaProxy).toEqual({instanceId: "server-1", location: "server", client: null, plugin: "alpha", entry: "main", generation: 1, via: {plugin: "proxy", entry: "main", generation: 1}});
+        expect(direct).toEqual({instanceId: "server-1", location: "server", client: null, plugin: "alpha", entry: "main", generation: 1, via: null});
     });
 
     it("A 停止：代理的释放函数先运行且仍能使用委托取得的门面，之后委托门面才释放并作废", async () => {

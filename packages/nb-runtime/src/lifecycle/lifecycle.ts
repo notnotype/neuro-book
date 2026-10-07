@@ -37,7 +37,9 @@ export function createRuntimeInstance(
         throw new TypeError("运行实例必须有非空运行位置");
     }
     const context = createInstanceContext(
-        {location: identity.location, instanceId: identity.instanceId},
+        identity.client === undefined || identity.client === null
+            ? {location: identity.location, instanceId: identity.instanceId}
+            : {location: identity.location, instanceId: identity.instanceId, client: identity.client},
         options.observer,
     );
     return {

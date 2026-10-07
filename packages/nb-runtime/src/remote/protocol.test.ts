@@ -5,7 +5,7 @@ import {Type} from "typebox";
 import {defineRemoteService, failureFor, leaseHolderOf, parseFrame, reservedKeys, validationProblems, WIRE_PROTOCOL_VERSION, wireMismatch} from "./remote";
 import type {RemoteCause} from "./remote";
 
-const caller = {instanceId: "browser-1", location: "browser", plugin: "nbook.files", entry: "web", generation: 1, via: null};
+const caller = {instanceId: "browser-1", location: "browser", client: "profile-1", plugin: "nbook.files", entry: "web", generation: 1, via: null};
 
 function request(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return {
@@ -47,6 +47,8 @@ describe("Spec plugin-channel 输入：帧、握手与保留字段", () => {
         expect(parseFrame(withoutCaller)).toBeNull();
         expect(parseFrame(request({extra: true}))).toBeNull();
         expect(parseFrame(request({version: 0}))).toBeNull();
+        const {client: _client, ...withoutClient} = caller;
+        expect(parseFrame(request({$nbConsumer: withoutClient}))).toBeNull();
         expect(parseFrame({type: "teleport"})).toBeNull();
         expect(parseFrame("request")).toBeNull();
     });

@@ -160,13 +160,14 @@ interface ActiveSubscription {
 }
 
 function consumerKey(consumer: CallerFrame | ConsumerIdentity): string {
-    return JSON.stringify([consumer.instanceId, consumer.plugin, consumer.entry, consumer.generation, consumer.via?.plugin ?? null, consumer.via?.entry ?? null, consumer.via?.generation ?? null]);
+    return JSON.stringify([consumer.instanceId, consumer.client, consumer.plugin, consumer.entry, consumer.generation, consumer.via?.plugin ?? null, consumer.via?.entry ?? null, consumer.via?.generation ?? null]);
 }
 
 function toCallerFrame(consumer: ConsumerIdentity): CallerFrame {
     return {
         instanceId: consumer.instanceId,
         location: consumer.location,
+        client: consumer.client,
         plugin: consumer.plugin,
         entry: consumer.entry,
         generation: consumer.generation,

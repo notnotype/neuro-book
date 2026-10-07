@@ -16,7 +16,7 @@ import {createLinkPair} from "./testing/in-process";
 // ---------- 合同 ----------
 
 const Empty = Type.Object({}, {additionalProperties: false});
-const Caller = Type.Object({plugin: Type.Union([Type.String(), Type.Null()]), entry: Type.Union([Type.String(), Type.Null()]), instanceId: Type.String(), location: Type.String(), generation: Type.Union([Type.Integer(), Type.Null()])}, {additionalProperties: false});
+const Caller = Type.Object({plugin: Type.Union([Type.String(), Type.Null()]), entry: Type.Union([Type.String(), Type.Null()]), instanceId: Type.String(), location: Type.String(), client: Type.Union([Type.String(), Type.Null()]), generation: Type.Union([Type.Integer(), Type.Null()])}, {additionalProperties: false});
 
 /** 服务端、项目与 browser-2 各提供一份。 */
 const echo = defineRemoteService({
@@ -74,7 +74,7 @@ function implementation(consumer: ConsumerIdentity, probe: Probe): RemoteImpleme
     };
     return {
         methods: {
-            whoami: () => ({ok: true, value: {plugin: consumer.plugin, entry: consumer.entry, instanceId: consumer.instanceId, location: consumer.location, generation: consumer.generation}}),
+            whoami: () => ({ok: true, value: {plugin: consumer.plugin, entry: consumer.entry, instanceId: consumer.instanceId, location: consumer.location, client: consumer.client, generation: consumer.generation}}),
             hold: async ({name}, {signal}) => {
                 probe.holdSignals.push(signal);
                 return {ok: true, value: await gate(name).promise};
@@ -159,7 +159,7 @@ async function start(
     const contexts = new Map<string, ActivationContext>();
     const node = createRemoteNode({instance: descriptor, clock, validateLocalCalls: options.validateLocalCalls, bind: options.bind});
     const app = createApplication(
-        {identity: {location: descriptor.kind, instanceId: descriptor.id}, stopSignal: new AbortController().signal, emergency: () => undefined},
+        {identity: {location: descriptor.kind, instanceId: descriptor.id, client: descriptor.client}, stopSignal: new AbortController().signal, emergency: () => undefined},
         {keys: [], plugins: plugins(contexts), gates: [], remote: node},
     );
     expect(await app.startup).toMatchObject({status: "available"});
@@ -280,7 +280,7 @@ describe("Spec plugin-channel 输出 1–3、5：调用、寻址与按需激活"
         const atProject = await fromBrowser("project").whoami({});
         const atClient = await fromBrowser({client: "browser-2"}).whoami({});
 
-        const expected = {plugin: "app.caller", entry: "main", instanceId: "browser-1", location: "browser", generation: 1};
+        const expected = {plugin: "app.caller", entry: "main", instanceId: "browser-1", location: "browser", client: "profile-1", generation: 1};
         expect(atServer).toEqual({ok: true, value: expected});
         expect(atProject).toEqual({ok: true, value: expected});
         expect(atClient).toEqual({ok: true, value: expected});
@@ -290,7 +290,7 @@ describe("Spec plugin-channel 输出 1–3、5：调用、寻址与按需激活"
     it("同实例调用不经链路，结果与跨实例一致；开发模式下传不可序列化的值被拒", async () => {
         const t = await topology({validateLocalCalls: true});
         const local = await t.remote(t.hub).use(echo).at("server").whoami({});
-        expect(local).toEqual({ok: true, value: {plugin: "app.caller", entry: "main", instanceId: "hub", location: "server", generation: 1}});
+        expect(local).toEqual({ok: true, value: {plugin: "app.caller", entry: "main", instanceId: "hub", location: "server", client: null, generation: 1}});
 
         const rejected = await t.remote(t.hub).use(echo).at("server").peek({name: (() => "x") as unknown as string});
         expect(rejected).toMatchObject({ok: false, code: "invalid-input"});
@@ -472,12 +472,30 @@ describe("Spec plugin-channel 输出 3：调用方不可伪造", () => {
             method: "whoami",
             effect: "read",
             input: {},
-            $nbConsumer: {instanceId: "browser-1", location: "browser", plugin: "app.caller", entry: "main", generation: 1, via: null},
+            $nbConsumer: {instanceId: "browser-1", location: "browser", client: "profile-1", plugin: "app.caller", entry: "main", generation: 1, via: null},
             $nbChain: [],
         });
         await drain();
         expect(frames).toContainEqual({type: "result", id: "x1", outcome: {ok: false, code: "denied", detail: "调用方实例与链路登记的实例不符"}});
         expect(t.probes.hub.consumers).toEqual([]);
+    });
+
+    it("帧上自报的运行位置与客户端身份不算数：提供方看到登记的成员描述里的值，合同的调用方种类按它核对（随 t55）", async () => {
+        const t = await topology();
+        const pair = createLinkPair();
+        t.router.accept(pair.right);
+        const frames: unknown[] = [];
+        pair.left.onFrame((frame) => frames.push(frame));
+        pair.left.send({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "browser-9", kind: "browser", role: "client", project: null, client: "profile-9"}, bind: null, boot: null});
+        await drain();
+        const forged = {instanceId: "browser-9", location: "tui", client: "profile-1", plugin: "app.caller", entry: "main", generation: 1, via: null};
+        const request = (id: string, contract: string, method: string) => ({type: "request" as const, id, target: "server" as const, contract, version: 1, method, effect: "read" as const, input: {}, $nbConsumer: forged, $nbChain: []});
+        pair.left.send(request("x1", echo.id, "whoami"));
+        pair.left.send(request("x2", restricted.id, "ping"));
+        await drain();
+
+        expect(frames).toContainEqual({type: "result", id: "x1", outcome: {ok: true, value: {plugin: "app.caller", entry: "main", instanceId: "browser-9", location: "browser", client: "profile-9", generation: 1}}});
+        expect(frames).toContainEqual({type: "result", id: "x2", outcome: expect.objectContaining({ok: false, code: "denied"})});
     });
 });
 
@@ -701,7 +719,7 @@ describe("Spec plugin-channel WebSocket 传输第 3 条：绑定", () => {
         first.send({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "browser-9", kind: "browser", role: "client", project: null, client: null}, bind: {project: "p"}, boot: null});
         await drain();
         // 握手完成前发业务帧是协议违规：链路关闭。
-        first.send({type: "release", target: "server", $nbConsumer: {instanceId: "browser-9", location: "browser", plugin: null, entry: null, generation: null, via: null}});
+        first.send({type: "release", target: "server", $nbConsumer: {instanceId: "browser-9", location: "browser", client: null, plugin: null, entry: null, generation: null, via: null}});
         await first.closed;
         pending[0]!.resolve();
         await drain();
@@ -792,7 +810,7 @@ describe("Spec plugin-channel WebSocket 传输第 5 条：协议违规关闭链�
     it("握手完成前发送请求：路由不回复、关闭链路并记诊断", async () => {
         const t = await topology();
         const link = rawLink(t.router);
-        link.send({type: "request", id: "x1", target: "server", contract: echo.id, version: 1, method: "whoami", effect: "read", input: {}, $nbConsumer: {instanceId: "x", location: "browser", plugin: null, entry: null, generation: null, via: null}, $nbChain: []});
+        link.send({type: "request", id: "x1", target: "server", contract: echo.id, version: 1, method: "whoami", effect: "read", input: {}, $nbConsumer: {instanceId: "x", location: "browser", client: null, plugin: null, entry: null, generation: null, via: null}, $nbChain: []});
         await link.closed;
 
         expect(link.frames).toEqual([]);

@@ -102,6 +102,14 @@ function sameInstance(existing: InstanceDescriptor, hello: HelloFrame): boolean 
     return bind !== null && "generation" in bind && bind.project === existing.project.id && bind.generation === existing.project.generation;
 }
 
+/**
+ * 帧上调用方身份里属于实例描述的两项（运行位置、客户端身份）按发来链路登记的成员描述填写，节点自报不算数。
+ * 实例 id 不在这里改：它与成员不符的帧由各路由函数以 `denied` 拒绝。
+ */
+function attested<Frame extends {readonly $nbConsumer: CallerFrame}>(member: InstanceDescriptor, frame: Frame): Frame {
+    return {...frame, $nbConsumer: {...frame.$nbConsumer, location: member.kind, client: member.client}};
+}
+
 function sameDescriptor(left: InstanceDescriptor, right: InstanceDescriptor): boolean {
     return (
         left.id === right.id &&
@@ -334,14 +342,14 @@ class RemoteRouterImpl implements RemoteRouter {
                         violation("握手完成前发送请求");
                         return;
                     }
-                    this.#routeRequest(member, frame, reply, signal);
+                    this.#routeRequest(member, attested(member.descriptor, frame), reply, signal);
                 },
                 onSubscribe: (frame, channel, signal) => {
                     if (member === null) {
                         violation("握手完成前发送订阅");
                         return;
                     }
-                    this.#routeSubscribe(member, frame, channel, signal);
+                    this.#routeSubscribe(member, attested(member.descriptor, frame), channel, signal);
                 },
                 onRelease: (frame) => {
                     if (member === null) {
@@ -349,7 +357,7 @@ class RemoteRouterImpl implements RemoteRouter {
                         return;
                     }
                     if (frame.$nbConsumer.instanceId === member.descriptor.id) {
-                        this.#routeRelease(member.descriptor, frame);
+                        this.#routeRelease(member.descriptor, attested(member.descriptor, frame));
                     }
                 },
                 onInvalidFrame: () => violation("收到无法解析的帧"),

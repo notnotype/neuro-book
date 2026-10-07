@@ -144,6 +144,7 @@ function awaitOrCancel<T>(promise: Promise<T>, signal: AbortSignal | undefined):
 export class ServiceAssemblyImpl implements ServiceAssembly {
     readonly instanceId: string;
     readonly location: RuntimeLocation;
+    readonly #client: string | null;
     readonly #keys: ReadonlySet<ServiceKey<unknown>>;
     readonly #observer: AssemblyObserver | undefined;
     readonly #entries = new Map<EntryId, Entry>();
@@ -158,6 +159,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
     constructor(instance: RuntimeInstance, options: ServiceAssemblyOptions) {
         this.instanceId = instance.identity.instanceId;
         this.location = instance.identity.location;
+        this.#client = instance.identity.client ?? null;
         this.#keys = new Set(options.keys);
         this.#observer = options.observer;
     }
@@ -598,6 +600,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         const consumer: ConsumerIdentity = Object.freeze({
             instanceId: this.instanceId,
             location: this.location,
+            client: this.#client,
             plugin: entry.identity?.plugin ?? null,
             entry: entry.identity?.entry ?? null,
             generation,
