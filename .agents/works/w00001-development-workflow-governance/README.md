@@ -18,3 +18,5 @@ issueId: null
 
 2026-09-24 开发者批准文档门禁、UI 验收和 Work 生命周期治理改进，见 [t06](tasks/t06-documentation-gates-and-ui-governance/README.md)；继续使用同一 checkout 与分支，远端动作未授权。
 已收尾：`master` 上的合入提交 `836979cd`（技能与协作精简）、`1ec1a8b8`（Lab 显式契约与治理文档）、`1b677f77`（AgentSidebar fixture 修复）、`5c8f11cf`（nb-harness 包规则）、`cb584e08`（最终证据快照）、`f2c80d98`（Work/Task provenance 收口）和 `2128fcd3`（清理授权记录）。治理 worktree `.worktree/w00001-development-workflow-governance` 与本地分支 `feat/w00001-docs-anchor-check` 已按授权删除；主树中其他 Work、用户改动和远端分支未触碰。
+
+2026-10-07 开发者接受 [规格驱动开发：文档分工与 Spec 写法](../../../docs/proposals/spec-and-docs-governance.md)，五个待定项按推荐，实施见 [t07](tasks/t07-spec-and-docs-governance/README.md)；执行位置为 `.worktree/w00017-runtime-foundation`（分支 `refactor/w00017-runtime-foundation`），本地提交，未授权远端动作。

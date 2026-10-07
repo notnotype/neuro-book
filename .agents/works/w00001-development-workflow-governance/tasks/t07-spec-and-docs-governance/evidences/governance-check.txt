@@ -1,0 +1,10 @@
+# 命令（仓库根，HEAD 6c3614dd，改动范围为工作树全部未提交改动：本 Task 文件与主 Agent 进行中的 K4 改动）：bun run governance:check
+
+$ bun scripts/ci/agent-governance.ts
+{
+  "schema": "nbook.governance-report/v1",
+  "repoRoot": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation",
+  "failures": [],
+  "warnings": [],
+  "stockWarnings": "另有 222 条警告不在本次改动范围（文档用 § 或 ¶ 代替中文词 67、测试规则 fake-timer 45、测试规则 fixed-wait 70、测试规则 spy 36、测试规则 module-mock 4），加 --all 逐条列出"
+}

@@ -1,0 +1,37 @@
+# 变异检查：scripts/ci/check-documentation.ts 新增的六处规则各改坏一次，跑测试后恢复
+# 运行于 2026-10-07，提交 6c3614dd 之前的工作副本（与提交内容只差一行注释）；仓库根，zsh。
+# 每个变异用 python 把下列“原文”替换成“改坏后”，再运行：
+#   bun x vitest run scripts/ci/check-documentation.test.ts 2>&1 | grep -E '^ +Tests '
+# 运行前把脚本复制到仓库外备份，每次变异前从备份恢复，全部结束后再恢复一次并确认与备份一致（cmp）。
+
+M1 不检查索引登记
+  原文：if (!indexed.has(path)) failures
+  改坏：if (false) failures
+  结果：Tests  1 failed | 19 passed (20)
+
+M2 “证据”任意行都算固定标签
+  原文：const EVIDENCE_LINE_PATTERN = /^
+  改坏：const EVIDENCE_LINE_PATTERN = /|^
+  结果：Tests  1 failed | 19 passed (20)
+
+M3 “证据”一节也查 Task 引用
+  原文：prose = body.slice(0, start) + body.slice(end);
+  改坏：prose = body;
+  结果：Tests  1 failed | 19 passed (20)
+
+M4 不查 decided
+  原文：if (rules.decidedRequiredFor.has(status) &&
+  改坏：if (false &&
+  结果：Tests  1 failed | 19 passed (20)
+
+M5 不查 superseded-by
+  原文：if (status === "superseded" &&
+  改坏：if (false &&
+  结果：Tests  1 failed | 19 passed (20)
+
+M6 rejected、superseded 也当活跃提案
+  原文：new Set(["draft", "reviewing", "accepted"])
+  改坏：new Set(["draft", "reviewing", "accepted", "rejected", "superseded"])
+  结果：Tests  1 failed | 19 passed (20)
+
+恢复后：Tests  20 passed (20)

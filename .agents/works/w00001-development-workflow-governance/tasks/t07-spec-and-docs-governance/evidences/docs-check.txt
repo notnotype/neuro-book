@@ -1,0 +1,9 @@
+# 命令（仓库根，HEAD 6c3614dd，改动范围为工作树全部未提交改动：本 Task 文件与主 Agent 进行中的 K4 改动）：bun run docs:check
+
+$ bun scripts/ci/check-documentation.ts
+{
+  "failures": [],
+  "warnings": [],
+  "stockWarnings": "另有 176 条警告不在本次改动范围（相对链接目标不存在 47、相对链接越出仓库 7、Spec 的“证据”一节有固定标签与批准依据之外的行 26、Spec 正文引用了 Task（只能出现在“证据”一节） 12、新 Task 必须链接具体 Spec，或明确说明“行为合同未变” 84），加 --all 逐条列出",
+  "checkedFiles": 7529
+}

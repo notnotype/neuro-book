@@ -1,0 +1,28 @@
+# 命令（仓库根，HEAD 6c3614dd）：bun x vitest run scripts/ci/check-documentation.test.ts
+
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation
+
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 合法目录、ADR 和相对链接通过 159ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 坏相对链接报告来源和解析目标 17ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 重复 ADR 编号同时报告两个文件 22ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 拒绝 docs 根层正文 17ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 拒绝缺少 frontmatter 或行为章节的 Spec 26ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 拒绝成熟度登记错位和重复 capability 58ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 允许模块 README、AGENTS 和省略 md 的具体 Spec 登记 35ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 拒绝空壳章节、模板占位值和缺失分类证据 70ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 拒绝注册目录、治理文件、重复行和反斜杠链接 32ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 代码块标题不能冒充 Behavior 章节 18ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 只把 current v2 Task 当 Task 检查，legacy v1 不再进门禁 42ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 给出改动范围时只逐条列出范围内文件的警告，其余按类别合成一行计数 28ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > implemented Spec 的证据必须给出实现入口、合同测试与 Smoke 固定标签行 76ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 受管组件缺少同名文档时阻断，且忽略未导出组件 14ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 受管组件文档拒绝漏标签与未知标签 13ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 图片链接和路径大小写使用受管文件集合校验 10ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 提案与 ADR 的 frontmatter：status 取值、accepted 与 rejected 要有 decided、superseded 要有 superseded-by 16ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > draft、reviewing、accepted 的提案必须登记在索引里；rejected、superseded 的不留在活跃目录 19ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > Spec 正文的 Task 引用与“证据”里的叙述只给警告；“证据”的批准依据可以提到 Task 42ms
+ ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 仓库文档按 GitHub 规则校验锚点 35ms
+
+ Test Files  1 passed (1)
+      Tests  20 passed (20)
