@@ -17,6 +17,8 @@
 
 **不按固定时长等待。** 等一个可观察的状态成立（`@notnotype/neuro-book-test-support/wait` 的 `waitUntil`），或让被测代码接受注入的时钟、由测试推进时间。让出一轮事件循环（延迟为 0）不算等待。Vitest 里等动态 import 的组件（`defineAsyncComponent`、懒加载路由）首次出现时，`vi.waitFor` 显式给足超时：首次导入要经 Vite 转换，实测超过默认的 1 s。
 
+**变异检查。** 核心逻辑在交付前，对验收映射里每条判据做一次变异检查：改坏实现，确认对应测试失败后恢复；验收映射里列出的测试文件和用例与实际不符时，先补测试或改计划。
+
 **覆盖率用来找缺口，不设门槛。** 看哪些失败路径没测、为什么没测。Bun 只报函数与行覆盖率，子进程里执行的代码也不计入，数字会低估进程级测试。
 
 **机检规则。** `governance:check` 检查测试文件（`*.test.ts` 与浏览器 e2e 的 `*.e2e.ts`，`scripts/ci/test-conventions.ts`）：`packages/neuro-book` 与 `packages/nb-runtime` 违反即失败，其它包给警告。
