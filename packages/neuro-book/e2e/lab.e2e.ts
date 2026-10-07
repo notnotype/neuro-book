@@ -68,7 +68,8 @@ test("打开 Lab：组件树、画布与四个检视面板；地址参数直达�
     }
     expect(apiRequests).toEqual(["/api/runtime/browser-bootstrap"]);
     const keys = await page.evaluate(() => [...Array(localStorage.length).keys()].map((index) => localStorage.key(index)));
-    expect(keys.every((key) => key?.startsWith("nb-lab:"))).toBe(true);
+    // 宿主每个窗口都写客户端身份（runtime.browser-host），它不是 Lab 的存储；Lab 自己只写 `nb-lab:` 开头的键。
+    expect(keys.filter((key) => key !== "nbook.client-identity").every((key) => key?.startsWith("nb-lab:"))).toBe(true);
 
     // 地址参数等同于在界面上选中：不带参数再打开，恢复的是同一个状态。
     await openLab(page);

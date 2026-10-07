@@ -11,6 +11,11 @@ import {Type} from "typebox";
 
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 
+import type {PluginDescriptor} from "nbook/manifest";
+
+/** 测试插件的描述：服务端入口提供合同，浏览器入口调用它（宿主测试入口把它加进本进程清单，引导接口才会列出它）。 */
+export const remoteProbeDescriptor: PluginDescriptor = {id: "test.remote-probe", version: "0.1.0", locations: ["server", "browser"]};
+
 const Caller = Type.Object({
     instanceId: Type.String(),
     location: Type.String(),

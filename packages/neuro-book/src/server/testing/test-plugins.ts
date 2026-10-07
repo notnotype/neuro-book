@@ -19,7 +19,7 @@ import {provideRemote} from "@notnotype/nb-runtime/remote";
 
 import {HTTP_ROUTES_POINT} from "nbook/plugins/http/server/contracts";
 import type {HttpRouteEnv} from "nbook/plugins/http/server/contracts";
-import {remoteProbeContract} from "nbook/shared/testing/remote-probe-contract";
+import {remoteProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 
 export const TEST_PLUGIN_IDS = ["test.slow", "test.fail-activate", "test.fail-close", "test.throw-later", "test.remote-probe"] as const;
 export type TestPluginId = typeof TEST_PLUGIN_IDS[number];
@@ -96,7 +96,7 @@ function tick(state: RemoteProbeState): number {
 }
 
 export function createRemoteProbePlugin(state: RemoteProbeState = newRemoteProbeState()): PluginDefinition {
-    const id = "test.remote-probe";
+    const id = remoteProbeDescriptor.id;
     return {
         id,
         entries: [{

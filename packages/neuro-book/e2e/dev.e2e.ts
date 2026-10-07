@@ -20,7 +20,7 @@ function backendSequence(output: string): string[] {
     });
 }
 
-test("开发命令：页面是空工作台，/lab 是 Lab；改后端文件后有序重启、页面重新引导成功；SIGTERM 先停后端再关页面，以 0 退出", async ({page}) => {
+test("开发命令：页面是空工作台、直连后端 RPC 端口，/lab 是 Lab；改后端文件后有序重启，已打开的页面显示服务端已重启、刷新后重新引导成功；SIGTERM 先停后端再关页面，以 0 退出", async ({page}) => {
     const tmp = await createTestTmpRoot("neuro-book-e2e", "dev-session");
     const dev = await startDevSession(join(tmp, "state"));
     const entry = join(PACKAGE_ROOT, "src", "server", "main.ts");
@@ -30,14 +30,19 @@ test("开发命令：页面是空工作台，/lab 是 Lab；改后端文件后�
         await expect(page.locator("[data-lab-page]")).toHaveAttribute("data-window-state", "ready");
         await page.goto(dev.pageUrl);
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        // 页面经引导接口得知后端的 RPC 端口并直连，不经 Vite 代理。
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
 
         const now = new Date();
         utimesSync(entry, now, now);
         await dev.waitFor(/(?:\[dev\] backend-ready[\s\S]*){2}/u);
+        // 后端重启对已打开的页面就是服务端重启：页面不自动刷新，显示服务端已重启页。
+        await expect(page.locator("[data-browser-host-status]")).toHaveAttribute("data-browser-host-status", "server-restarted");
         utimesSync(entry, original.atime, original.mtime);
         await dev.waitFor(/(?:\[dev\] backend-ready[\s\S]*){3}/u);
         await page.reload();
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
 
         dev.child.kill("SIGTERM");
         expect(await dev.exit).toBe(0);
