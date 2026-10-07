@@ -19,7 +19,7 @@
 - **客户端节点识别服务端重启**：`RemoteNodeImpl` 记住第一次 welcome 的 `boot`。之后 `connect(link)` 收到不同的 `boot`：结束本节点全部远程订阅（`onEnd("server-restarted")`），不重建，关闭这条链路，返回 `{ok: false, reason: "server-restarted"}`；此后远程调用为 `unavailable`。`boot` 相同时沿用 K1：重建仍有效的订阅并调用 `onResync`。
 - **重连接管**：hello 的实例 id 已登记时，若 `kind`、`role`、`project`、`client` 都与已登记的一致，路由关闭旧链路（其上在途请求与订阅按断开结算）、登记新链路；否则仍以 `duplicate-instance` 拒绝。服务端自己的 id 一律拒绝。这样服务端尚未察觉旧连接断开（半开连接）时客户端也能重连。
 - **协议违规**：握手前收到非 hello 帧、或任何无法解析的帧，路由记诊断并关闭这条链路（K1 只记诊断，调用方要等到超时）。
-- **JSON 编解码**：新增 `json-codec.ts`，从 `./remote` 导出 `encodeJsonFrame(frame) → string` 与 `decodeJsonFrame(text) → unknown`。编码遇到 JSON 会静默丢弃或改写的值（函数、symbol、bigint、非有限数）时抛错，满足 K1 写进 `RemoteLink.send` 的“无法编码时同步抛错”；解码失败返回原文交给 `parseFrame` 判为无效帧。WebSocket 链路两端（以后的 TUI）共用。
+- **JSON 编解码**：新增 `json-codec.ts`，从 `./remote` 导出 `encodeJsonFrame(frame) → string` 与 `decodeJsonFrame(text) → unknown`。只接受 JSON 能如实表示的值（普通对象、数组、字符串、有限数、布尔、`null`；对象上的 `undefined` 属性省略），遇到函数、symbol、bigint、非有限数、数组里的 `undefined`、非普通对象（`Date`、`Map` 等）与循环引用时抛错，满足 K1 写进 `RemoteLink.send` 的“无法编码时同步抛错”；解码失败返回原文交给 `parseFrame` 判为无效帧。WebSocket 链路两端（以后的 TUI）共用。
 
 ### 2. 路由的停止接纳与排空（内核 `router.ts`）
 
@@ -32,13 +32,13 @@
 
 - **启动参数**（`src/server/config.ts`）：`NBOOK_RPC_PORT`（缺省 0，由系统分配；浏览器经引导接口得知），`NBOOK_ALLOWED_ORIGINS`（逗号分隔的额外页面来源，给不由本进程 HTTP 端口提供页面的情形，即开发模式的 Vite 页面）。额外来源必须是回环地址上的 `http` 来源，否则按参数无效处理（未加载鉴权时的回环约束）。
 - **监听**（`rpc/listener.ts`）：`startRpcListener({host, port, router, allowedOrigin(origin), ready})`，用 `Bun.serve` 的 `websocket` 处理器。只有 `GET /` 带升级头可升级，其余路径 404。升级前依次：
-  1. `Origin` 核对：没有 `Origin` 头放行（浏览器的 WebSocket 握手总会带，网页无法省略；不带的只有本机非浏览器客户端，例如以后的 TUI）；带了就必须在允许集合里，否则 403。
-  2. 等运行实例就绪：启动成功后升级；启动失败或已停止接纳为 503。
+  1. 等运行实例就绪（经 HTTP 准入 `admission.admit()`，与页面资源同一道门）：启动失败或已停止接纳为 503。先等就绪再核对来源，因为 HTTP 端口为 0 时允许的来源要等 `nbook.http` 监听后才知道。
+  2. `Origin` 核对：没有 `Origin` 头放行（浏览器的 WebSocket 握手总会带，网页无法省略；不带的只有本机非浏览器客户端，例如以后的 TUI）；带了就必须在允许集合里，否则 403。
   3. `server.upgrade(req, {data})`，`open` 时把链路交给 `router.accept(link)`。
   选项：`maxPayloadLength` 1 MiB（二进制走 HTTP 资源地址），`idleTimeout` 120 秒加 `sendPings`（Bun 发 ping，客户端不回应即断开，服务端由此发现失联客户端），不开压缩。
 - **允许的来源**：`http://<别名>:<HTTP 端口>`，别名取 `127.0.0.1`、`localhost`、`[::1]`（HTTP 端口为 0 时按实际监听端口算），加上 `NBOOK_ALLOWED_ORIGINS`。比较前按 `new URL(origin).origin` 规范化。
 - **链路**（`rpc/websocket-link.ts`）：Bun `ServerWebSocket` 包成 `RemoteLink`，收发经第 1 节的 JSON 编解码；`close` 回调只触发一次。K2 不做发送背压。
-- **装配**（`src/server/start.ts`）：建立服务端节点 `createRemoteNode({instance: {id: "server", kind: "server", role: "hub", project: null, client: null}, clock})` 与路由，清单的 `remote` 给它；RPC 监听先于运行实例建立（与 HTTP 一样先监听、请求等就绪），标准输出打印 `RPC listening on ws://...`。`RunningServer` 增加 `rpcUrl`。RPC 端口被占用为启动失败，以 1 退出。
+- **装配**（`src/server/start.ts`）：建立服务端节点 `createRemoteNode({instance: {id: "server", kind: "server", role: "hub", project: null, client: null}, clock})` 与路由，清单的 `remote` 给它；RPC 监听先于插件装配与运行实例建立（插件装配要把端口交给引导接口；与 HTTP 一样先监听、请求等就绪），标准输出打印 `RPC listening on ws://...`。`RunningServer` 增加 `rpcUrl`。RPC 端口监听失败时还没有运行实例：写出致命诊断、抛出与插件装配失败同类的错误，进程以 1 退出；插件装配失败时先关闭已开的 RPC 监听。
 - **引导接口**（`src/server/browser-bootstrap.ts`、`src/shared/browser-bootstrap.ts`）：响应增加 `rpc: {port, path}`；`BROWSER_PROTOCOL_VERSION` 升为 2（新外壳依赖这个字段，旧外壳遇到新服务端提示刷新）。浏览器用自己页面的主机名与协议（`ws`/`wss`）拼地址，所以 `localhost` 与 `127.0.0.1` 打开的页面各自得到与自己 `Origin` 一致的连接。
 - **停止**（`start.ts` 的 `beforeStop`）：HTTP 排空与 RPC 排空并行：`router.stopAdmission()` 后 `router.drain()`，上限与 HTTP 相同（20 秒），超时记为停止步骤失败、退出码 1；运行实例停止之后 `router.close()` 并 `stop(true)` 关闭 RPC 监听。顺序与拓扑稿第 2 节一致，其中“停止项目子实例”归 K3。
 - **开发模式**（`src/server/dev/`）：监督进程把 `NBOOK_RPC_PORT`（`NBOOK_DEV_RPC_PORT`，缺省 0）与 `NBOOK_ALLOWED_ORIGINS`（页面服务的实际来源，三个回环别名）传给后端子进程。页面经引导接口得知端口后**直连**后端 RPC 端口，不经 Vite 代理 WebSocket。理由：引导接口已经告知端口，直连少一道门；Vite 代理的门只能管 HTTP 请求，后端重启期间的升级仍会失败，客户端照样要靠重连。代价：与拓扑稿第 6 节“开发模式由 Vite 代理”不同，需要 `NBOOK_ALLOWED_ORIGINS`；后端每次重启对页面来说都是服务端重启（第 4 节）。
@@ -70,7 +70,8 @@
 | `docs/specs/runtime/plugin-channel.md` | WebSocket 传输：JSON 编解码与编码失败；`Origin` 策略；握手字段（客户端身份，不带插件版本）；先核对 wire 版本、`reject` 形状冻结；welcome 的 `boot` 与服务端重启后客户端必须重启；同一实例重连接管；路由停止接纳、排空与关闭；协议违规关闭链路；开发模式直连。保持 `planned` |
 | `docs/specs/runtime/server-host.md` | 启动参数 `NBOOK_RPC_PORT`、`NBOOK_ALLOWED_ORIGINS`；启动序列加 RPC 监听与 `RPC listening on`；握手等就绪；停止序列加停止接纳与 RPC 排空（与 HTTP 排空并行）、插件关闭后关 RPC；开发模式传端口与来源、页面直连；RPC 端口被占用即启动失败；新增验收场景。新条目标“随 t53 实现” |
 | `docs/specs/runtime/browser-host.md` | 连接对象承载 RPC 链路；启动序列加首连；`offline`、`server-restarted` 状态与重连规则；客户端身份；场景 6 先实现离线与重连部分；引导协议版本 2。保持 `planned` |
-| `docs/specs/runtime/api-docs.md` | 按拓扑稿：只覆盖显式对外的 HTTP 贡献，去掉 `/api/plugins/<id>/rpc/<method>` 与 `onChannel` |
+| `docs/specs/runtime/api-docs.md` | 按拓扑稿：只覆盖显式对外的 HTTP 贡献，去掉由插件合同生成的 `http.endpoints` 端点 |
+| `docs/specs/runtime/plugin-hot-plug.md` | 窗口同步改为经远程服务的订阅，不再写“事件流” |
 
 ## 切片
 
