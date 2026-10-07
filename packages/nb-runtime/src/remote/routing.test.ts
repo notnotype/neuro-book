@@ -597,3 +597,71 @@ describe("Spec plugin-channel WebSocket 传输第 5 条：协议违规关闭链�
         expect(t.hub.node.diagnostics().filter((diagnostic) => diagnostic.reason === "protocol-violation")).toHaveLength(1);
     });
 });
+
+describe("Spec plugin-channel WebSocket 传输第 6 条：路由停止", () => {
+    it("停止接纳：新 hello 以 stopping 拒绝，客户端的新请求与新订阅为 unavailable；项目成员照常", async () => {
+        const t = await topology();
+        t.router.stopAdmission();
+        t.router.stopAdmission();
+
+        const link = rawLink(t.router);
+        link.send({type: "hello", wire: 1, instance: {id: "browser-9", kind: "browser", role: "client", project: null, client: null}});
+        await link.closed;
+        expect(link.frames).toEqual([{type: "reject", reason: "stopping", message: expect.any(String)}]);
+
+        const fromBrowser = t.remote(t.browser1).use(echo);
+        expect(await fromBrowser.at("server").whoami({})).toMatchObject({ok: false, code: "unavailable", detail: "服务端正在停止"});
+        expect(await fromBrowser.at({client: "browser-2"}).whoami({})).toMatchObject({ok: false, code: "unavailable"});
+        expect(await fromBrowser.at("server").events.ticks.subscribe({topic: "a"}, () => undefined)).toMatchObject({ok: false, code: "unavailable"});
+        expect(t.probes.hub.consumers).toEqual([]);
+        expect(await t.remote(t.project).use(echo).at("server").whoami({})).toMatchObject({ok: true});
+    });
+
+    it("排空等已接纳的在途请求结算：客户端发给服务端的、转发给项目的、服务端插件发给客户端的，各自都要等", async () => {
+        const cases: ReadonlyArray<{readonly label: string; send(t: Topology): Promise<unknown>; gate(t: Topology): PromiseWithResolvers<string>}> = [
+            {label: "客户端 → 服务端", send: (t) => t.remote(t.browser1).use(echo).at("server").hold({name: "g"}), gate: (t) => t.probes.hub.gates.get("g")!},
+            {label: "客户端 → 项目（转发）", send: (t) => t.remote(t.browser1).use(echo).at("project").hold({name: "g"}), gate: (t) => t.probes.project.gates.get("g")!},
+            {label: "服务端插件 → 客户端", send: (t) => t.remote(t.hub).use(echo).at({client: "browser-2"}).hold({name: "g"}), gate: (t) => t.probes.browser2.gates.get("g")!},
+        ];
+        for (const {label, send, gate} of cases) {
+            const t = await topology();
+            const request = send(t);
+            await drain();
+            t.router.stopAdmission();
+            const outcome: {drained: string | null} = {drained: null};
+            const deadline = new AbortController();
+            const draining = t.router.drain(deadline.signal).then((result) => {
+                outcome.drained = result;
+            });
+            await drain();
+            expect(outcome.drained, label).toBeNull();
+
+            gate(t).resolve("done");
+            await draining;
+            expect(outcome.drained, label).toBe("drained");
+            expect(await request, label).toEqual({ok: true, value: "done"});
+            expect(await t.router.drain(deadline.signal), label).toBe("drained");
+        }
+    });
+
+    it("排空到截止仍有在途请求：返回 deadline；关闭后成员全部断开，在途写请求为 unknown-outcome，新链路立即被关闭", async () => {
+        const t = await topology();
+        const stuck = t.remote(t.browser1).use(echo).at("server").hold({name: "never"});
+        await drain();
+        t.router.stopAdmission();
+        const deadline = new AbortController();
+        const draining = t.router.drain(deadline.signal);
+
+        deadline.abort();
+        expect(await draining).toBe("deadline");
+
+        t.router.close();
+        t.router.close();
+        expect(await stuck).toEqual({ok: false, code: "unknown-outcome", cause: "disconnected"});
+        await drain();
+        expect(t.router.instances().map((instance) => instance.id)).toEqual(["hub"]);
+        const late = rawLink(t.router);
+        await late.closed;
+        expect(late.frames).toEqual([]);
+    });
+});

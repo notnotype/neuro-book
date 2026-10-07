@@ -19,10 +19,19 @@ import type {RemoteNode, Upstream} from "./node";
 import type {RemoteLink} from "./transport";
 
 export interface RemoteRouter {
-    /** 接受一条新链路；对端须先发 hello，被拒或违反协议时关闭链路。 */
+    /** 接受一条新链路；对端须先发 hello，被拒或违反协议时关闭链路。路由已关闭时立即关闭它。 */
     accept(link: RemoteLink): void;
     /** 当前在线的实例（含服务端自己）。 */
     instances(): ReadonlyArray<InstanceDescriptor>;
+    /**
+     * 停止接纳：之后的 hello 以 `stopping` 拒绝，客户端成员的新请求与新订阅为 `unavailable`。项目成员照常：
+     * 项目子实例停止时还要经远程服务收口。幂等，不可撤销。
+     */
+    stopAdmission(): void;
+    /** 等路由已接纳的在途请求（发给服务端插件的、转发给其它实例的）全部结算；`signal` 先触发则返回 `deadline`。 */
+    drain(signal: AbortSignal): Promise<"drained" | "deadline">;
+    /** 关闭全部成员链路，其上的请求与订阅按断开结算；同时停止接纳。幂等。 */
+    close(): void;
 }
 
 export interface RemoteRouterOptions {
@@ -62,6 +71,11 @@ class RemoteRouterImpl implements RemoteRouter {
     readonly #members = new Map<string, Member>();
     readonly #options: RemoteRouterOptions;
     readonly #boot: string;
+    #admitting = true;
+    #closed = false;
+    /** 已接纳、尚未结算的请求数；排空等它归零。订阅是长期的，不计入。 */
+    #inFlight = 0;
+    readonly #idle = new Set<() => void>();
 
     constructor(hub: RemoteNodeImpl, options: RemoteRouterOptions) {
         if (hub.instance.role !== "hub") {
@@ -76,7 +90,7 @@ class RemoteRouterImpl implements RemoteRouter {
                 if (destination.kind !== "member") {
                     return Promise.resolve(this.#refusal(frame.effect, destination));
                 }
-                return destination.member.peer.request(frame, options);
+                return this.#track(destination.member.peer.request(frame, options));
             },
             subscribe: (frame, handlers) => {
                 const destination = this.#resolve(hub.instance, frame.target, frame.$nbConsumer);
@@ -100,7 +114,58 @@ class RemoteRouterImpl implements RemoteRouter {
         return [this.#hub.instance, ...[...this.#members.values()].map((member) => member.descriptor)];
     }
 
+    stopAdmission(): void {
+        this.#admitting = false;
+    }
+
+    async drain(signal: AbortSignal): Promise<"drained" | "deadline"> {
+        if (this.#inFlight === 0) {
+            return "drained";
+        }
+        if (signal.aborted) {
+            return "deadline";
+        }
+        const {promise, resolve} = Promise.withResolvers<"drained" | "deadline">();
+        const onIdle = (): void => resolve("drained");
+        const onDeadline = (): void => resolve("deadline");
+        this.#idle.add(onIdle);
+        signal.addEventListener("abort", onDeadline, {once: true});
+        try {
+            return await promise;
+        } finally {
+            this.#idle.delete(onIdle);
+            signal.removeEventListener("abort", onDeadline);
+        }
+    }
+
+    close(): void {
+        this.#admitting = false;
+        this.#closed = true;
+        for (const member of [...this.#members.values()]) {
+            member.peer.close();
+        }
+    }
+
+    /** 计入在途直到 `settled` 结算；请求的两条路（成员发来的、服务端插件发往成员的）都经这里。 */
+    #track<T>(settled: Promise<T>): Promise<T> {
+        this.#inFlight += 1;
+        const done = (): void => {
+            this.#inFlight -= 1;
+            if (this.#inFlight === 0) {
+                for (const resolve of [...this.#idle]) {
+                    resolve();
+                }
+            }
+        };
+        void settled.then(done, done);
+        return settled;
+    }
+
     accept(link: RemoteLink): void {
+        if (this.#closed) {
+            link.close();
+            return;
+        }
         let member: Member | null = null;
         const violation = (detail: string): void => {
             this.#hub.recordDiagnostic("protocol-violation", null, `${member?.descriptor.id ?? "未握手的链路"}：${detail}`);
@@ -123,6 +188,10 @@ class RemoteRouterImpl implements RemoteRouter {
                         return;
                     }
                     const {instance} = frame;
+                    if (!this.#admitting) {
+                        refuse("stopping", "服务端正在停止");
+                        return;
+                    }
                     if (instance.role === "hub" || instance.id === this.#hub.instance.id) {
                         refuse("role", "只有一个服务端实例运行路由");
                         return;
@@ -222,9 +291,19 @@ class RemoteRouterImpl implements RemoteRouter {
         }
     }
 
+    /** 停止接纳后客户端的新请求与新订阅得到的结果；项目成员不受影响。 */
+    #stopping(from: Member): Extract<Outcome, {ok: false}> | null {
+        return !this.#admitting && from.descriptor.role === "client" ? {ok: false, code: "unavailable", detail: "服务端正在停止"} : null;
+    }
+
     #routeRequest(from: Member, frame: RequestFrame, reply: Reply, signal: AbortSignal): void {
         if (frame.$nbConsumer.instanceId !== from.descriptor.id) {
             reply.result({ok: false, code: "denied", detail: "调用方实例与链路登记的实例不符"});
+            return;
+        }
+        const stopping = this.#stopping(from);
+        if (stopping !== null) {
+            reply.result(stopping);
             return;
         }
         const destination = this.#resolve(from.descriptor, frame.target, frame.$nbConsumer);
@@ -238,16 +317,21 @@ class RemoteRouterImpl implements RemoteRouter {
                 reply.result({ok: true, value: this.instances()});
                 return;
             }
-            void this.#hub.handleRequest(frame, reply, signal);
+            void this.#track(this.#hub.handleRequest(frame, reply, signal));
             return;
         }
         const {type: _type, id: _id, ...forwarded} = frame;
-        void destination.member.peer.request(forwarded, {signal, onAck: () => reply.ack()}).then((outcome) => reply.result(outcome));
+        void this.#track(destination.member.peer.request(forwarded, {signal, onAck: () => reply.ack()})).then((outcome) => reply.result(outcome));
     }
 
     #routeSubscribe(from: Member, frame: SubscribeFrame, channel: SubscriptionChannel, signal: AbortSignal): void {
         if (frame.$nbConsumer.instanceId !== from.descriptor.id) {
             channel.reject({ok: false, code: "denied", detail: "订阅方实例与链路登记的实例不符"});
+            return;
+        }
+        const stopping = this.#stopping(from);
+        if (stopping !== null) {
+            channel.reject(stopping);
             return;
         }
         const destination = this.#resolve(from.descriptor, frame.target, frame.$nbConsumer);

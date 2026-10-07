@@ -95,7 +95,7 @@
 | 同一 `boot` 重连：订阅重建并 `onResync`；不同 `boot`：订阅以 `server-restarted` 结束、不重建，`connect` 返回 `server-restarted`，之后调用为 `unavailable` | `routing.test.ts` 增补（两个路由模拟两次服务端进程） |
 | 同一实例重连接管旧链路，旧链路上的写请求为 `unknown-outcome`；描述不一致仍为 `duplicate-instance` | `routing.test.ts` 增补 |
 | 握手前的业务帧与无法解析的帧使链路关闭并留诊断 | `routing.test.ts` 增补 |
-| 停止接纳后新 hello 以 `stopping` 拒绝、客户端新请求为 `unavailable`、项目成员不受影响；排空等在途请求，截止返回 `deadline`；关闭断开全部成员 | `packages/nb-runtime/src/remote/router-stop.test.ts`（新，注入时钟） |
+| 停止接纳后新 hello 以 `stopping` 拒绝、客户端新请求为 `unavailable`、项目成员不受影响；排空等在途请求，截止返回 `deadline`；关闭断开全部成员 | `routing.test.ts` 增补（复用其中的四实例拓扑；截止由测试的 `AbortController` 触发，宿主用注入时钟产生这个信号） |
 | JSON 编码遇函数、symbol、bigint、非有限数抛错；`Peer` 据此按阶段结算 | `packages/nb-runtime/src/remote/json-codec.test.ts`（新） |
 | 带不允许 `Origin` 的升级 403；没有 `Origin` 放行；允许集合含 HTTP 端口的三个回环别名与 `NBOOK_ALLOWED_ORIGINS`；非 `/` 路径 404；非回环的额外来源是参数错误 | `packages/neuro-book/src/server/rpc/listener.test.ts`（新，真实 Bun 服务与 WebSocket 客户端）、`config.test.ts` 增补 |
 | 就绪前的升级等待、启动失败为 503；RPC 端口被占用以 1 退出 | `listener.test.ts`、`server.test.ts` 增补 |
