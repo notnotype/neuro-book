@@ -39,7 +39,10 @@ export interface StorageRoutes {
 
 export interface StorageFacade {
     readonly service: StorageService;
-    /** 门面释放：结束它建立的订阅（`onEnd("released")`），之后的操作为 `unavailable`。幂等。 */
+    /**
+     * 门面释放：结束它建立的订阅（`onEnd("released")`），之后的操作为 `unavailable`。幂等。某条订阅的 `onEnd` 抛错
+     * 不影响其余订阅结束；全部结束后抛出第一个错误，由生命周期记为释放失败。
+     */
     release(): void;
 }
 
@@ -104,11 +107,18 @@ export function createStorageFacade(consumer: ConsumerIdentity, routes: StorageR
         release: () => {
             if (released) return;
             released = true;
+            const failures: unknown[] = [];
             for (const subscription of [...subscriptions]) {
                 subscriptions.delete(subscription);
-                subscription.release();
-                subscription.onEnd("released");
+                for (const step of [() => subscription.release(), () => subscription.onEnd("released")]) {
+                    try {
+                        step();
+                    } catch (error) {
+                        failures.push(error);
+                    }
+                }
             }
+            if (failures.length > 0) throw failures[0];
         },
     };
 }

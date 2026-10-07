@@ -6,8 +6,8 @@
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 import {existsSync} from "node:fs";
-import {rm} from "node:fs/promises";
-import {join} from "node:path";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {dirname, join} from "node:path";
 
 import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
@@ -24,7 +24,7 @@ import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins
 import {windowProjectKey} from "nbook/shared/projects";
 import {collectServiceKeys} from "nbook/shared/service-keys";
 import {defineRecord} from "nbook/shared/storage";
-import type {RecordDefinition, RecordHandle, RecordSnapshot, StorageService} from "nbook/shared/storage";
+import type {RecordDefinition, RecordHandle, RecordSnapshot, StorageService, WriteResult} from "nbook/shared/storage";
 
 import {createStorageServerPlugin} from "./server/plugin";
 import {storageKey, userStorageContract} from "./shared/contracts";
@@ -82,8 +82,11 @@ interface World {
     readonly projectPath: string;
     /** 起一个项目实例（第 `generation` 代），经路由登记。 */
     project(generation: number): Promise<Application>;
-    /** 起一个浏览器窗口；`bound` 为 false 时不绑定项目。`reconnect` 像窗口的重连那样换一条链路再握手。 */
-    window(id: string, client: string, options?: {readonly bound?: boolean}): Promise<{readonly app: Application; reconnect(): Promise<unknown>}>;
+    /**
+     * 起一个浏览器窗口；`bound` 为 false 时不绑定项目。`disconnect` 关掉当前链路（断线），`reconnect` 像窗口的重连
+     * 那样换一条链路再握手。
+     */
+    window(id: string, client: string, options?: {readonly bound?: boolean}): Promise<{readonly app: Application; disconnect(): void; reconnect(): Promise<unknown>}>;
     /** 结束项目代次：路由关闭绑定它的窗口链路，之后按原代次重连为 project-gone。 */
     endProject(): void;
 }
@@ -140,7 +143,7 @@ async function world(): Promise<World> {
         window: async (id, client, options = {}) => {
             const bound = options.bound ?? true;
             const node = createRemoteNode({instance: {id, kind: "browser", role: "client", project: null, client}, bind: bound ? {project: "book"} : null});
-            const pair = createLinkPair();
+            let pair = createLinkPair();
             router.accept(pair.right);
             expect(await node.connect(pair.left)).toEqual({ok: true});
             const project = node.binding === null ? null : {id: node.binding.id, name: node.binding.name, generation: node.binding.generation};
@@ -159,10 +162,11 @@ async function world(): Promise<World> {
             expect(await app.startup).toMatchObject({status: "available", failures: []});
             return {
                 app,
+                disconnect: () => pair.left.close(),
                 reconnect: async () => {
-                    const again = createLinkPair();
-                    router.accept(again.right);
-                    return node.connect(again.left);
+                    pair = createLinkPair();
+                    router.accept(pair.right);
+                    return node.connect(pair.left);
                 },
             };
         },
@@ -189,6 +193,16 @@ function revisionOf(snapshot: RecordSnapshot<unknown>): string | null {
     return snapshot.status === "error" ? null : snapshot.revision;
 }
 
+/** 成功写入得到的 revision；revision 对调用方不透明，只拿来做下一次的 `expect`。 */
+function saved(result: WriteResult): string {
+    if (!result.ok) throw new Error(`期望写入成功，得到 ${result.code}：${result.detail}`);
+    return result.revision;
+}
+
+function textOf(snapshot: RecordSnapshot<{text: string}>): string {
+    return snapshot.status === "ok" ? snapshot.value.text : snapshot.status;
+}
+
 describe("Spec storage.persistence 场景 1：本地直用与经代理访问同一个命名空间", () => {
     it("user 记录：服务端插件直接写，浏览器里的同一插件经代理读到；反过来也一样", async () => {
         const w = await world();
@@ -196,12 +210,11 @@ describe("Spec storage.persistence 场景 1：本地直用与经代理访问同�
         const server = await opened(storageOf(w, "app.notes", "hub"), notes);
         const browser = await opened(storageOf(w, "app.notes", "browser-1"), notes);
 
-        const written = await server.save({text: "服务端写"}, {expect: null});
-        expect(written).toEqual({ok: true, revision: "1"});
-        expect(await browser.read()).toEqual({status: "ok", value: {text: "服务端写"}, revision: "1"});
+        const written = saved(await server.save({text: "服务端写"}, {expect: null}));
+        expect(await browser.read()).toEqual({status: "ok", value: {text: "服务端写"}, revision: written});
 
-        expect(await browser.save({text: "窗口写"}, {expect: "1"})).toEqual({ok: true, revision: "2"});
-        expect(await server.read()).toEqual({status: "ok", value: {text: "窗口写"}, revision: "2"});
+        const again = saved(await browser.save({text: "窗口写"}, {expect: written}));
+        expect(await server.read()).toEqual({status: "ok", value: {text: "窗口写"}, revision: again});
     });
 
     it("project 记录：项目实例里的插件直接写，浏览器里的同一插件经代理读到；反过来也一样", async () => {
@@ -224,8 +237,21 @@ describe("Spec storage.persistence 场景 1：本地直用与经代理访问同�
         const server = await opened(storageOf(w, "app.notes", "hub"), notes);
         const project = await opened(storageOf(w, "app.notes", "project:P#1"), notes);
 
-        await server.save({text: "服务端写"}, {expect: null});
-        expect(await project.read()).toEqual({status: "ok", value: {text: "服务端写"}, revision: "1"});
+        const written = saved(await server.save({text: "服务端写"}, {expect: null}));
+        expect(await project.read()).toEqual({status: "ok", value: {text: "服务端写"}, revision: written});
+    });
+});
+
+describe("Spec storage.persistence 输出 1：打开时核对分区库", () => {
+    it("user 库不是 SQLite：服务端插件直接打开与浏览器经代理打开都为 io-error，库文件不变", async () => {
+        const w = await world();
+        await w.window("browser-1", "profile-1");
+        await mkdir(dirname(w.userPath), {recursive: true});
+        await writeFile(w.userPath, "不是 SQLite");
+
+        expect(await storageOf(w, "app.notes", "hub").open(notes)).toMatchObject({ok: false, code: "io-error"});
+        expect(await storageOf(w, "app.notes", "browser-1").open(notes)).toMatchObject({ok: false, code: "io-error"});
+        expect(await readFile(w.userPath, "utf8")).toBe("不是 SQLite");
     });
 });
 
@@ -302,18 +328,53 @@ describe("Spec storage.persistence 场景 7：订阅", () => {
         await w.window("browser-1", "profile-1");
         await w.window("browser-3", "profile-1");
         const server = await opened(storageOf(w, "app.notes", "hub"), notes);
-        await server.save({text: "一"}, {expect: null});
+        const first = saved(await server.save({text: "一"}, {expect: null}));
 
         const seen: Array<RecordSnapshot<{text: string}>> = [];
         const watcher = await opened(storageOf(w, "app.notes", "browser-1"), notes);
         expect(await watcher.subscribe((snapshot) => seen.push(snapshot))).toMatchObject({ok: true});
         await waitUntil("收到当前快照", () => seen.length === 1 || null);
-        expect(seen[0]).toEqual({status: "ok", value: {text: "一"}, revision: "1"});
+        expect(seen[0]).toEqual({status: "ok", value: {text: "一"}, revision: first});
 
-        await server.save({text: "二"}, {expect: "1"});
-        await (await opened(storageOf(w, "app.notes", "browser-3"), notes)).save({text: "三"}, {expect: "2"});
+        const second = saved(await server.save({text: "二"}, {expect: first}));
+        await (await opened(storageOf(w, "app.notes", "browser-3"), notes)).save({text: "三"}, {expect: second});
         await waitUntil("收到两次写入", () => seen.length === 3 || null);
-        expect(seen.map((snapshot) => (snapshot.status === "ok" ? snapshot.value.text : snapshot.status))).toEqual(["一", "二", "三"]);
+        expect(seen.map(textOf)).toEqual(["一", "二", "三"]);
+    });
+
+    it("浏览器经路由订阅 project 记录：先收到项目实例里的当前快照", async () => {
+        const w = await world();
+        await w.project(1);
+        await w.window("browser-1", "profile-1");
+        await (await opened(storageOf(w, "app.notes", "project:P#1"), board)).save({text: "订阅前"}, {expect: null});
+
+        const seen: string[] = [];
+        const browser = await opened(storageOf(w, "app.notes", "browser-1"), board);
+        expect(await browser.subscribe((snapshot) => seen.push(textOf(snapshot)))).toMatchObject({ok: true});
+        await waitUntil("收到当前快照", () => seen.length === 1 || null);
+        expect(seen).toEqual(["订阅前"]);
+    });
+
+    it("断线后连回同一服务端：订阅重建，先收到断线期间写入后的当前快照，之后照常收到写入；订阅不结束", async () => {
+        const w = await world();
+        const window = await w.window("browser-1", "profile-1");
+        const server = await opened(storageOf(w, "app.notes", "hub"), notes);
+        const before = saved(await server.save({text: "断线前"}, {expect: null}));
+        const seen: string[] = [];
+        const ended: string[] = [];
+        const watcher = await opened(storageOf(w, "app.notes", "browser-1"), notes);
+        expect(await watcher.subscribe((snapshot) => seen.push(textOf(snapshot)), {onEnd: (reason) => ended.push(reason)})).toMatchObject({ok: true});
+        await waitUntil("收到当前快照", () => seen.length === 1 || null);
+
+        window.disconnect();
+        const during = saved(await server.save({text: "断线期间"}, {expect: before}));
+        expect(await window.reconnect()).toEqual({ok: true});
+        await waitUntil("重建后收到当前快照", () => seen.length === 2 || null);
+        await server.save({text: "重连后"}, {expect: during});
+        await waitUntil("收到重连后的写入", () => seen.length === 3 || null);
+
+        expect(seen).toEqual(["断线前", "断线期间", "重连后"]);
+        expect(ended).toEqual([]);
     });
 
     it("项目代次结束：经代理的 project 订阅结束；下一代项目实例读到磁盘上的值", async () => {
@@ -346,6 +407,28 @@ describe("Spec storage.persistence 场景 8：生命周期", () => {
         expect(await w.hub.stop()).toMatchObject({status: "closed"});
         expect(existsSync(`${w.userPath}-wal`)).toBe(false);
         expect(await server.read()).toMatchObject({status: "error", code: "unavailable"});
-        expect(await server.save({text: "y"}, {expect: "1"})).toMatchObject({ok: false, code: "unavailable"});
+        expect(await server.save({text: "y"}, {expect: null})).toMatchObject({ok: false, code: "unavailable"});
+    });
+
+    it("一条订阅的 onEnd 抛错：同一服务对象的其余订阅照样以 released 结束、不再收到写入；收口报告释放失败", async () => {
+        const w = await world();
+        await w.window("browser-1", "profile-1");
+        const caller = w.seen.get("app.notes@hub")!;
+        const handle = await opened(caller.storage, notes);
+        const seen: string[] = [];
+        const ended: string[] = [];
+        await handle.subscribe(() => undefined, {
+            onEnd: () => {
+                throw new Error("结束回调抛错");
+            },
+        });
+        await handle.subscribe((snapshot) => seen.push(textOf(snapshot)), {onEnd: (reason) => ended.push(reason)});
+
+        // 关闭调用方入口这一代的激活作用域，等同于这个入口停止：它的 Storage 服务对象随之释放。
+        expect(await caller.context.scope.parent!.close()).toMatchObject({status: "incomplete"});
+        expect(ended).toEqual(["released"]);
+        // 本地订阅的通知在写入时同步派发，写入返回时还没收到就是不会再收到。
+        await (await opened(storageOf(w, "app.notes", "browser-1"), notes)).save({text: "调用方停止后"}, {expect: null});
+        expect(seen).toEqual(["missing"]);
     });
 });

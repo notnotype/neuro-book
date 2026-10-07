@@ -18,7 +18,10 @@ export interface PartitionOwner {
     route(consumer: ConsumerIdentity): PartitionRoute;
     /** 别的实例里调用方的远程实现。 */
     remote(consumer: ConsumerIdentity): RemoteImplementation<typeof userStorageContract>;
-    /** 结束本地订阅（`onEnd("provider-stopped")`）并关闭库；之后的操作为 `unavailable`。幂等。 */
+    /**
+     * 结束本地订阅（`onEnd("provider-stopped")`）并关闭库；之后的操作为 `unavailable`。幂等。某条订阅的 `onEnd`
+     * 抛错不影响其余订阅结束与关库；全部完成后抛出第一个错误，由生命周期记为释放失败。
+     */
     close(): void;
 }
 
@@ -124,12 +127,18 @@ export function createPartitionOwner(partition: Partition, scope: RecordScope, o
         close: () => {
             if (closed) return;
             closed = true;
+            const failures: unknown[] = [];
             for (const subscription of [...localSubscriptions]) {
                 localSubscriptions.delete(subscription);
                 subscription.stop();
-                subscription.onEnd("provider-stopped");
+                try {
+                    subscription.onEnd("provider-stopped");
+                } catch (error) {
+                    failures.push(error);
+                }
             }
             partition.close();
+            if (failures.length > 0) throw failures[0];
         },
     };
 }

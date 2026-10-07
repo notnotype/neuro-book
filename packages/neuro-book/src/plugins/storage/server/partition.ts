@@ -2,8 +2,9 @@
  * 一个 Storage 分区：一个 SQLite 库（docs/specs/storage/persistence.md 的“副作用与数据”）。
  *
  * 接口是同步的（`bun:sqlite` 是同步 API）：同一进程里的操作天然串行，订阅“先取当前快照再登记”在同一段
- * 同步代码里完成，不会漏掉中间的写入。两个进程打开同一个库时，条件写入在 `BEGIN IMMEDIATE` 事务里读
- * revision、比较、写入，由 SQLite 的锁保证同一 revision 至多一次成功；不另加目录锁。
+ * 同步代码里完成，不会漏掉中间的写入。监听里可以再写同一条记录：通知排队派发，每个监听按写入顺序收到快照。
+ * 两个进程打开同一个库时，条件写入在 `BEGIN IMMEDIATE` 事务里读 revision、比较、写入，由 SQLite 的锁保证同一
+ * revision 至多一次成功；不另加目录锁。
  *
  * 描述登记只在内存里：分区拥有者重启后以新代码的定义为准，库里旧版本的值按读取分类处理。
  */
@@ -46,7 +47,10 @@ export interface PartitionOptions {
 }
 
 export interface Partition {
-    /** 登记或核对描述：同一 owner 同名键的描述与已登记的不同为 `definition-conflict`。 */
+    /**
+     * 打开库并登记或核对描述（不读记录）：库打不开为 `io-error`、`busy` 或 `unavailable`；同一 owner 同名键的描述
+     * 与已登记的不同为 `definition-conflict`。
+     */
     register(owner: string, descriptor: RecordDescriptor): {readonly ok: true} | StorageFailed;
     read(address: RecordAddress, descriptor: RecordDescriptor): RecordSnapshot<unknown>;
     write(address: RecordAddress, descriptor: RecordDescriptor, operation: WriteOperation): WriteResult;
@@ -54,6 +58,12 @@ export interface Partition {
     watch(address: RecordAddress, descriptor: RecordDescriptor, listener: (snapshot: RecordSnapshot<unknown>) => void): {readonly initial: RecordSnapshot<unknown>; stop(): void};
     /** 关闭库；之后的操作为 `unavailable`。幂等。 */
     close(): void;
+}
+
+/** 一个监听与它已经收到的最新 revision：只推更新的快照，排队中较旧的通知不会盖过订阅时取到的快照。 */
+interface Watcher {
+    readonly listener: (snapshot: RecordSnapshot<unknown>) => void;
+    last: number;
 }
 
 interface Row {
@@ -78,7 +88,10 @@ class SqlitePartition implements Partition {
     readonly #now: () => number;
     readonly #onListenerError: (error: unknown) => void;
     readonly #registered = new Map<string, string>();
-    readonly #watchers = new Map<string, Set<(snapshot: RecordSnapshot<unknown>) => void>>();
+    readonly #watchers = new Map<string, Set<Watcher>>();
+    /** 已提交、还没派发完的通知；监听里再写入时新通知排在后面，不打断正在派发的那一份。 */
+    readonly #pending: Array<{readonly address: RecordAddress; readonly snapshot: RecordSnapshot<unknown>}> = [];
+    #dispatching = false;
     #db: Database | null = null;
     #closed = false;
 
@@ -90,7 +103,11 @@ class SqlitePartition implements Partition {
     }
 
     register(owner: string, descriptor: RecordDescriptor): {readonly ok: true} | StorageFailed {
-        if (this.#closed) return failed("unavailable", "分区已关闭");
+        try {
+            this.#open();
+        } catch (error) {
+            return failureOf(error);
+        }
         const name = `${owner}\u0000${descriptor.key}`;
         const fingerprint = recordFingerprint(descriptor);
         const known = this.#registered.get(name);
@@ -145,17 +162,18 @@ class SqlitePartition implements Partition {
     watch(address: RecordAddress, descriptor: RecordDescriptor, listener: (snapshot: RecordSnapshot<unknown>) => void): {readonly initial: RecordSnapshot<unknown>; stop(): void} {
         const initial = this.read(address, descriptor);
         const name = addressKey(address);
-        let listeners = this.#watchers.get(name);
-        if (listeners === undefined) {
-            listeners = new Set();
-            this.#watchers.set(name, listeners);
+        let watchers = this.#watchers.get(name);
+        if (watchers === undefined) {
+            watchers = new Set();
+            this.#watchers.set(name, watchers);
         }
-        listeners.add(listener);
+        const watcher: Watcher = {listener, last: revisionNumber(initial)};
+        watchers.add(watcher);
         return {
             initial,
             stop: () => {
-                listeners.delete(listener);
-                if (listeners.size === 0 && this.#watchers.get(name) === listeners) this.#watchers.delete(name);
+                watchers.delete(watcher);
+                if (watchers.size === 0 && this.#watchers.get(name) === watchers) this.#watchers.delete(name);
             },
         };
     }
@@ -174,8 +192,10 @@ class SqlitePartition implements Partition {
     }
 
     /**
-     * 第一次使用时打开库。先只读地核对格式版本，再建表与切到 WAL：遇到不是 SQLite 的文件或别的格式版本时，
-     * 打开失败而不改写它。打开失败不缓存，下一次操作再试。
+     * 第一次使用时打开库，先认库再动它：没有任何表的是新库；有 `meta` 且格式版本认识的是本插件的库；其余（别的应用
+     * 的库、缺格式标记、不认识的版本、不是 SQLite 的文件）为 `io-error`，不建表、不切 WAL，不改写这个文件。已有的库
+     * 只读着认，不拿写锁（别的进程正在写时也能打开）；只有新库才在写锁里再认一次再建表，两个进程同时打开新库时，
+     * 后拿到锁的一方看到的是已建好的库。打开失败不缓存，下一次操作再试。
      */
     #open(): Database {
         if (this.#closed) throw new PartitionError("unavailable", "分区已关闭");
@@ -185,20 +205,17 @@ class SqlitePartition implements Partition {
             mkdirSync(dirname(this.#path), {recursive: true});
             db = new Database(this.#path, {create: true});
             db.run(`PRAGMA busy_timeout = ${String(this.#busyTimeoutMs)}`);
-            const hasMeta = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get() !== null;
-            if (hasMeta) {
-                const format = db.query<{value: string}, []>("SELECT value FROM meta WHERE name = 'format'").get();
-                if (format?.value !== String(PARTITION_FORMAT)) {
-                    throw new PartitionError("io-error", `库格式版本 ${format?.value ?? "（缺失）"} 不受支持`);
-                }
+            const opened = db;
+            if (recognize(opened) === "empty") {
+                this.#transaction(opened, () => {
+                    if (recognize(opened) === "ours") return;
+                    opened.run("CREATE TABLE meta (name TEXT PRIMARY KEY, value TEXT NOT NULL)");
+                    opened.run("CREATE TABLE records (owner TEXT NOT NULL, key TEXT NOT NULL, resource TEXT NOT NULL, client TEXT NOT NULL, revision INTEGER NOT NULL, version INTEGER NOT NULL, value TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY (owner, key, resource, client))");
+                    opened.run("CREATE TABLE originals (id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, key TEXT NOT NULL, resource TEXT NOT NULL, client TEXT NOT NULL, revision INTEGER NOT NULL, version INTEGER NOT NULL, value TEXT, bytes INTEGER NOT NULL, saved_at INTEGER NOT NULL)");
+                    opened.query("INSERT INTO meta (name, value) VALUES ('format', ?1), ('next_revision', '1')").run(String(PARTITION_FORMAT));
+                });
             }
-            db.run("PRAGMA journal_mode = WAL");
-            this.#transaction(db, () => {
-                db!.run("CREATE TABLE IF NOT EXISTS meta (name TEXT PRIMARY KEY, value TEXT NOT NULL)");
-                db!.run("CREATE TABLE IF NOT EXISTS records (owner TEXT NOT NULL, key TEXT NOT NULL, resource TEXT NOT NULL, client TEXT NOT NULL, revision INTEGER NOT NULL, version INTEGER NOT NULL, value TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY (owner, key, resource, client))");
-                db!.run("CREATE TABLE IF NOT EXISTS originals (id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, key TEXT NOT NULL, resource TEXT NOT NULL, client TEXT NOT NULL, revision INTEGER NOT NULL, version INTEGER NOT NULL, value TEXT, bytes INTEGER NOT NULL, saved_at INTEGER NOT NULL)");
-                db!.query("INSERT OR IGNORE INTO meta (name, value) VALUES ('format', ?1), ('next_revision', '1')").run(String(PARTITION_FORMAT));
-            });
+            opened.run("PRAGMA journal_mode = WAL");
         } catch (error) {
             db?.close();
             throw error;
@@ -245,15 +262,46 @@ class SqlitePartition implements Partition {
         }
     }
 
+    /**
+     * 按提交顺序派发通知。监听里再写入时只把新通知排进队列，等当前这份派发给所有监听之后再派发，所以每个监听
+     * 收到的快照与写入顺序一致；否则内层写入会先通知全部监听，外层恢复后再把较旧的快照推给其余监听。
+     */
     #notify(address: RecordAddress, snapshot: RecordSnapshot<unknown>): void {
-        for (const listener of [...(this.#watchers.get(addressKey(address)) ?? [])]) {
-            try {
-                listener(snapshot);
-            } catch (error) {
-                this.#onListenerError(error);
+        this.#pending.push({address, snapshot});
+        if (this.#dispatching) return;
+        this.#dispatching = true;
+        try {
+            for (let next = this.#pending.shift(); next !== undefined; next = this.#pending.shift()) {
+                const revision = revisionNumber(next.snapshot);
+                for (const watcher of [...(this.#watchers.get(addressKey(next.address)) ?? [])]) {
+                    if (revision <= watcher.last) continue;
+                    watcher.last = revision;
+                    try {
+                        watcher.listener(next.snapshot);
+                    } catch (error) {
+                        this.#onListenerError(error);
+                    }
+                }
             }
+        } finally {
+            this.#dispatching = false;
         }
     }
+}
+
+/** 认库：`empty` 是没有任何表的新库，`ours` 是格式版本认识的分区库；其余抛 `io-error`。 */
+function recognize(db: Database): "empty" | "ours" {
+    const tables = db.query<{name: string}, []>("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name);
+    if (tables.length === 0) return "empty";
+    if (!tables.includes("meta")) throw new PartitionError("io-error", "这个文件是别的 SQLite 库，不是 Storage 的分区库");
+    const format = db.query<{value: string}, []>("SELECT value FROM meta WHERE name = 'format'").get();
+    if (format?.value !== String(PARTITION_FORMAT)) throw new PartitionError("io-error", `库格式版本 ${format?.value ?? "（缺失）"} 不受支持`);
+    return "ours";
+}
+
+/** 快照的 revision 作为数字比较先后；从未写过与读取失败视为最旧。 */
+function revisionNumber(snapshot: RecordSnapshot<unknown>): number {
+    return snapshot.status === "error" || snapshot.revision === null ? 0 : Number(snapshot.revision);
 }
 
 function addressKey(address: RecordAddress): string {

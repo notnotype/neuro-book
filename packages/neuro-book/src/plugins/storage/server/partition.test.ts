@@ -53,6 +53,12 @@ function partitionAt(path: string, options: {readonly busyTimeoutMs?: number} = 
 
 const at = (owner: string, key = notes.key, client = ""): RecordAddress => ({owner, key, resource: "", client});
 
+/** 成功写入得到的 revision；revision 对调用方不透明，测试只拿它做下一次的 `expect`，不假定具体取值。 */
+function revisionOf(result: ReturnType<Partition["write"]>): string {
+    if (!result.ok) throw new Error(`期望写入成功，得到 ${result.code}：${result.detail}`);
+    return result.revision;
+}
+
 /** 直接改库里的一行：模拟坏数据与旧版本的记录。 */
 function rawWrite(path: string, address: RecordAddress, value: string | null, version: number, revision = 900): void {
     const db = new Database(path);
@@ -95,41 +101,42 @@ describe("Spec storage.persistence 场景 4：条件保存", () => {
         const partition = partitionAt(freshPath());
         expect(partition.read(at("app.a"), notes.descriptor)).toEqual({status: "missing", revision: null});
 
-        const first = partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "一"}, expect: null});
-        expect(first).toEqual({ok: true, revision: "1"});
+        const first = revisionOf(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "一"}, expect: null}));
         expect(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "抢"}, expect: null})).toMatchObject({ok: false, code: "conflict"});
-        const second = partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "二"}, expect: "1"});
-        expect(second).toEqual({ok: true, revision: "2"});
-        expect(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "旧"}, expect: "1"})).toMatchObject({ok: false, code: "conflict"});
-        expect(partition.read(at("app.a"), notes.descriptor)).toEqual({status: "ok", value: {text: "二"}, revision: "2"});
+        const second = revisionOf(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "二"}, expect: first}));
+        expect(second).not.toBe(first);
+        expect(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "旧"}, expect: first})).toMatchObject({ok: false, code: "conflict"});
+        expect(partition.read(at("app.a"), notes.descriptor)).toEqual({status: "ok", value: {text: "二"}, revision: second});
     });
 
     it("删除留下带新 revision 的删除标记：持有旧 revision 或 null 的保存不能复活，带删除标记的 revision 可以", () => {
         const partition = partitionAt(freshPath());
-        partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "一"}, expect: null});
-        const removed = partition.write(at("app.a"), notes.descriptor, {kind: "remove", expect: "1"});
-        expect(removed).toEqual({ok: true, revision: "2"});
-        expect(partition.read(at("app.a"), notes.descriptor)).toEqual({status: "missing", revision: "2"});
+        const written = revisionOf(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "一"}, expect: null}));
+        const removed = revisionOf(partition.write(at("app.a"), notes.descriptor, {kind: "remove", expect: written}));
+        expect(removed).not.toBe(written);
+        expect(partition.read(at("app.a"), notes.descriptor)).toEqual({status: "missing", revision: removed});
 
-        expect(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "复活"}, expect: "1"})).toMatchObject({ok: false, code: "conflict"});
+        expect(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "复活"}, expect: written})).toMatchObject({ok: false, code: "conflict"});
         expect(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "复活"}, expect: null})).toMatchObject({ok: false, code: "conflict"});
-        expect(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "新"}, expect: "2"})).toEqual({ok: true, revision: "3"});
+        expect(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "新"}, expect: removed})).toMatchObject({ok: true});
+        expect(partition.read(at("app.a"), notes.descriptor)).toMatchObject({status: "ok", value: {text: "新"}});
     });
 
-    it("owner 与客户端分区各自独立；关掉再打开值与 revision 计数都在", () => {
+    it("owner 与客户端分区各自独立；关掉再打开值都在，新的 revision 不与用过的重复", () => {
         const path = freshPath();
         const partition = partitionAt(path);
-        partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "a"}, expect: null});
-        partition.write(at("app.b"), notes.descriptor, {kind: "save", value: {text: "b"}, expect: null});
-        partition.write(at("app.a", notes.key, "profile-1"), notes.descriptor, {kind: "save", value: {text: "a1"}, expect: null});
+        const a = revisionOf(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "a"}, expect: null}));
+        const b = revisionOf(partition.write(at("app.b"), notes.descriptor, {kind: "save", value: {text: "b"}, expect: null}));
+        const a1 = revisionOf(partition.write(at("app.a", notes.key, "profile-1"), notes.descriptor, {kind: "save", value: {text: "a1"}, expect: null}));
         partition.close();
 
         const reopened = partitionAt(path);
-        expect(reopened.read(at("app.a"), notes.descriptor)).toEqual({status: "ok", value: {text: "a"}, revision: "1"});
-        expect(reopened.read(at("app.b"), notes.descriptor)).toEqual({status: "ok", value: {text: "b"}, revision: "2"});
-        expect(reopened.read(at("app.a", notes.key, "profile-1"), notes.descriptor)).toEqual({status: "ok", value: {text: "a1"}, revision: "3"});
+        expect(reopened.read(at("app.a"), notes.descriptor)).toEqual({status: "ok", value: {text: "a"}, revision: a});
+        expect(reopened.read(at("app.b"), notes.descriptor)).toEqual({status: "ok", value: {text: "b"}, revision: b});
+        expect(reopened.read(at("app.a", notes.key, "profile-1"), notes.descriptor)).toEqual({status: "ok", value: {text: "a1"}, revision: a1});
         expect(reopened.read(at("app.a", notes.key, "profile-2"), notes.descriptor)).toEqual({status: "missing", revision: null});
-        expect(reopened.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "a2"}, expect: "1"})).toEqual({ok: true, revision: "4"});
+        const a2 = revisionOf(reopened.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "a2"}, expect: a}));
+        expect([a, b, a1]).not.toContain(a2);
     });
 
     it("两个进程同时以 null 保存同一条记录：恰好一个成功，另一个是 conflict", async () => {
@@ -145,27 +152,28 @@ describe("Spec storage.persistence 场景 4：条件保存", () => {
 
         holder.send("release");
         expect(await holder.next()).toBe("released");
-        const results = await Promise.all(writers.map(async (writer) => JSON.parse(await writer.next()) as {ok: boolean; code?: string}));
+        const results = await Promise.all(writers.map(async (writer) => JSON.parse(await writer.next()) as {ok: boolean; code?: string; revision?: string}));
         for (const writer of writers) expect(await writer.exited).toBe(0);
 
         expect(results.filter((result) => result.ok)).toHaveLength(1);
         expect(results.filter((result) => !result.ok).map((result) => result.code)).toEqual(["conflict"]);
-        expect(partitionAt(path).read(at("app.a", race.key), race.descriptor)).toMatchObject({status: "ok", revision: "1"});
+        const winner = results.find((result) => result.ok);
+        expect(partitionAt(path).read(at("app.a", race.key), race.descriptor)).toMatchObject({status: "ok", revision: winner?.revision});
     });
 
     it("别的进程持有库锁超过等待上限：保存为 busy，记录不变；锁释放后照常写入", async () => {
         const path = freshPath();
         const partition = partitionAt(path, {busyTimeoutMs: 50});
-        partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "一"}, expect: null});
+        const first = revisionOf(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "一"}, expect: null}));
         const holder = spawnWriter(["hold", path]);
         expect(await holder.next()).toBe("locked");
 
-        expect(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "二"}, expect: "1"})).toMatchObject({ok: false, code: "busy"});
+        expect(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "二"}, expect: first})).toMatchObject({ok: false, code: "busy"});
 
         holder.send("release");
         expect(await holder.next()).toBe("released");
         expect(await holder.exited).toBe(0);
-        expect(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "二"}, expect: "1"})).toEqual({ok: true, revision: "2"});
+        expect(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "二"}, expect: first})).toMatchObject({ok: true});
     });
 });
 
@@ -237,6 +245,37 @@ describe("Spec storage.persistence 场景 5：读取分类、保护与重置", (
     });
 });
 
+describe("Spec storage.persistence 副作用与数据：认库", () => {
+    it("别的应用的 SQLite 库、缺格式标记的库：登记与读写都为 io-error，文件不变；空文件当作新库", async () => {
+        const foreign = freshPath();
+        await mkdir(dirname(foreign), {recursive: true});
+        const other = new Database(foreign, {create: true});
+        other.run("CREATE TABLE unrelated (id INTEGER PRIMARY KEY, note TEXT)");
+        other.query("INSERT INTO unrelated (note) VALUES ('别人的数据')").run();
+        other.close();
+        const unmarked = freshPath();
+        await mkdir(dirname(unmarked), {recursive: true});
+        const half = new Database(unmarked, {create: true});
+        half.run("CREATE TABLE meta (name TEXT PRIMARY KEY, value TEXT NOT NULL)");
+        half.close();
+
+        for (const path of [foreign, unmarked]) {
+            const before = await readFile(path);
+            const partition = partitionAt(path);
+            expect(partition.register("app.a", notes.descriptor)).toMatchObject({ok: false, code: "io-error"});
+            expect(partition.read(at("app.a"), notes.descriptor)).toMatchObject({status: "error", code: "io-error"});
+            expect(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "x"}, expect: null})).toMatchObject({ok: false, code: "io-error"});
+            partition.close();
+            expect(Buffer.compare(await readFile(path), before)).toBe(0);
+        }
+
+        const empty = freshPath();
+        await mkdir(dirname(empty), {recursive: true});
+        await writeFile(empty, "");
+        expect(partitionAt(empty).write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "新库"}, expect: null})).toMatchObject({ok: true});
+    });
+});
+
 describe("Spec storage.persistence 场景 6：描述与值的核对", () => {
     it("同一 owner 同名键的描述不同为 definition-conflict（登记、读、写都是）；别的 owner 不受影响", () => {
         const partition = partitionAt(freshPath());
@@ -271,15 +310,34 @@ describe("Spec storage.persistence 输出 7：进程内的变更通知", () => {
         });
         expect(watcher.initial).toEqual({status: "missing", revision: null});
 
-        expect(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "一"}, expect: null})).toMatchObject({ok: true});
+        const first = revisionOf(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "一"}, expect: null}));
         partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "冲突"}, expect: null});
         partition.write(at("app.b"), notes.descriptor, {kind: "save", value: {text: "别人"}, expect: null});
-        partition.write(at("app.a"), notes.descriptor, {kind: "remove", expect: "1"});
+        const removed = revisionOf(partition.write(at("app.a"), notes.descriptor, {kind: "remove", expect: first}));
         watcher.stop();
-        partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "停止后"}, expect: "3"});
+        partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "停止后"}, expect: removed});
 
-        expect(seen).toEqual([{status: "ok", value: {text: "一"}, revision: "1"}, {status: "missing", revision: "3"}]);
+        expect(seen).toEqual([{status: "ok", value: {text: "一"}, revision: first}, {status: "missing", revision: removed}]);
         expect(errors).toHaveLength(3);
+    });
+
+    it("监听里再写同一条记录：每个监听都按写入顺序收到快照；派发途中开始的监听不重复收到它的初始快照", () => {
+        const partition = partitionAt(freshPath());
+        const seen = {writer: [] as string[], other: [] as string[], late: [] as string[]};
+        let late: ReturnType<Partition["watch"]> | null = null;
+        const text = (snapshot: {readonly status: string; readonly value?: unknown}): string => (snapshot.status === "ok" ? (snapshot.value as {text: string}).text : snapshot.status);
+        partition.watch(at("app.a"), notes.descriptor, (snapshot) => {
+            seen.writer.push(text(snapshot));
+            if (snapshot.status !== "ok" || late !== null) return;
+            partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "二"}, expect: snapshot.revision});
+            late = partition.watch(at("app.a"), notes.descriptor, (next) => seen.late.push(text(next)));
+        });
+        partition.watch(at("app.a"), notes.descriptor, (snapshot) => seen.other.push(text(snapshot)));
+
+        partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "一"}, expect: null});
+
+        expect(seen).toEqual({writer: ["一", "二"], other: ["一", "二"], late: []});
+        expect(late!.initial).toMatchObject({status: "ok", value: {text: "二"}});
     });
 
     it("关闭后操作为 unavailable", () => {

@@ -98,7 +98,7 @@ type SubscribeResult = {ok: true; handle: {release(): void}} | {ok: false; code:
 
 ## 输出与可观察行为
 
-1. **打开**：核对上表与资源 id 规则，并在分区拥有者处登记这条记录的定义；不读值、不写默认值。三端都在 `open` 报告 `no-project`、`no-client`、`denied`、`invalid-resource`、`definition-conflict`。
+1. **打开**：核对上表与资源 id 规则，在分区拥有者处打开分区库、登记这条记录的定义；不读值、不写默认值。三端都在 `open` 报告 `no-project`、`no-client`、`denied`、`invalid-resource`、`definition-conflict`，以及库打不开的 `unavailable`、`busy`、`io-error`。
 2. **定义冲突**：分区拥有者记下每个 `(owner, key)` 第一次打开时的定义（`{key, scope, locality, version, keyed, maxBytes, schema}`，逐层按键排序比较）。同一次运行里再以不同定义打开或操作，为 `definition-conflict`（客户端外壳比服务端旧时出现，提示刷新）。登记不落库：拥有者重启后以新定义为准。
 3. **读取分类**：`missing`（从未写过，revision 为 `null`；或删除标记）、`ok`（版本相同、能解析、符合 schema）、`corrupt`（不能解析或不符合 schema）、`unsupported-version`（版本不同，高低都算）、`error`（读取失败，不当作缺失）。值都先校验再交出；一条坏记录不影响别的记录与插件。
 4. **条件保存**：`save` 只在当前 revision 等于 `expect` 时写入（从未写过为 `null`），成功返回新 revision。删除标记的 revision 不是 `null`，所以持有 `null` 或旧 revision 的保存不能复活已删除的值。
@@ -131,7 +131,7 @@ type SubscribeResult = {ok: true; handle: {release(): void}} | {ok: false; code:
 ## 副作用与数据
 
 - **落点**：user 分区 `<状态根>/storage/user.sqlite`；project 分区 `<项目目录>/.nbook/storage.sqlite`。运行中另有同名的 `-wal`、`-shm` 文件；目录不存在时创建。project 分区随项目目录移动、复制；项目放在 Git 里时需要忽略 `.nbook/storage.sqlite*`。
-- **格式**：每个分区一个 SQLite 库，库格式版本 1。遇到不是 SQLite 的文件或不认识的版本，该分区的操作为 `io-error`，不改写、不删除这个库。
+- **格式**：每个分区一个 SQLite 库，库格式版本 1。没有任何表的库（含空文件）当作新库初始化；其余文件必须带本插件认识的格式版本，否则（不是 SQLite、别的应用的库、缺格式标记、版本不认识）该分区的操作为 `io-error`，不改写、不删除这个文件。
 - **寿命**：分区库在第一次使用时打开；拥有它的 `nbook.storage` 入口停止（服务端或项目子进程停止）时关闭，之后的操作为 `unavailable`。切换项目、组件卸载、插件禁用都不删除记录。
 
 ## 失败与恢复
@@ -168,10 +168,10 @@ type SubscribeResult = {ok: true; handle: {release(): void}} | {ok: false; code:
 2. **插件隔离**：A、B 的同名记录互不可见；B 直接调用远程服务也只读到自己的。
 3. **客户端分区与位置**：两个客户端身份各一份 `local` 记录，同一客户端的两个窗口共用；服务端与项目实例打开 `local` 记录为 `no-client`；服务端插件与没有绑定项目的窗口打开 project 记录为 `no-project`。
 4. **条件保存**：同一 revision 的两次保存一次成功、一次 `conflict`；删除后持有旧 revision 或 `null` 的保存为 `conflict`；两个进程以同一 revision 写同一个库，恰好一个成功；别的进程占着库锁超过上限时为 `busy`。
-5. **读取分类与重置**：缺失、正常、坏 JSON、schema 不符、版本不同各一例；库文件不是 SQLite、格式版本不认识时为 `io-error` 且文件不变；`corrupt` 时 `save` 为 `protected`，`reset` 保存原件后写入；原件区满时 `originals-full`。
+5. **读取分类与重置**：缺失、正常、坏 JSON、schema 不符、版本不同各一例；库文件不是 SQLite、是别的应用的 SQLite 库、格式版本不认识时 `open` 与读写都为 `io-error` 且文件不变；`corrupt` 时 `save` 为 `protected`，`reset` 保存原件后写入；原件区满时 `originals-full`。
 6. **定义与值**：不合规则的定义加载时抛错；只差 schema 的两份定义被判为不同；同名不同定义为 `definition-conflict`；资源 id 不合为 `invalid-resource`；超限为 `too-large`，不符合 schema 为 `invalid-value`。
-7. **订阅**：先收到当前快照，再收到服务端与另一个窗口的写入；窗口绑定的项目代次结束后，窗口重连时订阅以 `project-gone` 结束；项目再次打开后新代次读到磁盘上的值。
-8. **寿命**：服务端停止后 user 分区关闭，已打开的句柄为 `unavailable`；项目子进程退出前关闭 project 分区。
+7. **订阅**：先收到当前快照（经服务端转发订阅项目实例里的 project 记录也一样），再收到服务端与另一个窗口的写入；监听里再写同一条记录时，每个订阅仍按写入顺序收到；断线后连回同一服务端，订阅先收到断线期间写入后的快照、不结束；窗口绑定的项目代次结束后，窗口重连时订阅以 `project-gone` 结束；项目再次打开后新代次读到磁盘上的值。
+8. **寿命**：服务端停止后 user 分区关闭，已打开的句柄为 `unavailable`；项目子进程退出前关闭 project 分区；一条订阅的 `onEnd` 抛错时，其余订阅照样结束、库照样关闭。
 
 Smoke：`smoke:server` 经打包产物保存、读回一条 user 记录，重启后读到同一个值；`e2e/storage.e2e.ts` 在本机 Chrome 里覆盖场景 3、4、7 与项目记录跨窗口共享。
 
@@ -179,5 +179,5 @@ Smoke：`smoke:server` 经打包产物保存、读回一条 user 记录，重启
 
 - 批准依据：[插件的数据与状态](../../proposals/plugin-data-model.md) 第 5 节、[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4、11 节、[ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)；介质与旧机制的取舍见 [t55 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/plan.md) 的“待确认”（开发者 2026-10-07 确认）。
 - 实现入口：[`packages/neuro-book/src/plugins/storage/server/plugin.ts`](../../../packages/neuro-book/src/plugins/storage/server/plugin.ts)、[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/storage/web/plugin.ts)、[`src/shared/storage.ts`](../../../packages/neuro-book/src/shared/storage.ts)
-- 合同测试：[`storage.test.ts`](../../../packages/neuro-book/src/plugins/storage/storage.test.ts)、[`project-child.test.ts`](../../../packages/neuro-book/src/plugins/storage/project-child.test.ts)、[`partition.test.ts`](../../../packages/neuro-book/src/plugins/storage/server/partition.test.ts)、[`storage.test.ts`（记录定义）](../../../packages/neuro-book/src/shared/storage.test.ts)
+- 合同测试：[`storage.test.ts`](../../../packages/neuro-book/src/plugins/storage/storage.test.ts)、[`project-child.test.ts`](../../../packages/neuro-book/src/plugins/storage/project-child.test.ts)、[`partition.test.ts`](../../../packages/neuro-book/src/plugins/storage/server/partition.test.ts)、[`owner.test.ts`](../../../packages/neuro-book/src/plugins/storage/server/owner.test.ts)、[`storage.test.ts`（记录定义）](../../../packages/neuro-book/src/shared/storage.test.ts)
 - Smoke：[`smoke-server.ts`](../../../packages/neuro-book/scripts/smoke-server.ts)（S8）、[`storage.e2e.ts`](../../../packages/neuro-book/e2e/storage.e2e.ts)
