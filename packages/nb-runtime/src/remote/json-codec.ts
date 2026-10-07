@@ -63,6 +63,18 @@ export function encodeJsonFrame(frame: Frame): string {
     return JSON.stringify(frame, strictReplacer);
 }
 
+/**
+ * 按同一规则编码一个业务值：要把值经链路发出、或落盘后要能原样读回的插件用它（例如 Storage 的记录值）。
+ * 值本身是 `undefined` 时同样抛错。
+ */
+export function encodeJsonValue(value: unknown): string {
+    const text: string | undefined = JSON.stringify(value, strictReplacer);
+    if (text === undefined) {
+        throw new FrameEncodingError("值是 undefined，JSON 不能表示");
+    }
+    return text;
+}
+
 /** 解码一条文本消息；不是合法 JSON 时原样返回，由 `parseFrame` 判为无效帧。 */
 export function decodeJsonFrame(text: string): unknown {
     try {

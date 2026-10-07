@@ -11,7 +11,7 @@ export type * from "./contract";
 export {defineRemoteService} from "./contract";
 export type * from "./protocol";
 export {failureFor, leaseHolderOf, parseFrame, REMOTE_FAILURE_CODES, reservedKeys, validationProblems, WIRE_PROTOCOL_VERSION, wireMismatch} from "./protocol";
-export {decodeJsonFrame, encodeJsonFrame, FrameEncodingError} from "./json-codec";
+export {decodeJsonFrame, encodeJsonFrame, encodeJsonValue, FrameEncodingError} from "./json-codec";
 export type * from "./node";
 export {createRemoteNode, provideRemote} from "./node";
 export type * from "./router";

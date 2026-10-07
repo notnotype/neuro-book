@@ -1,6 +1,6 @@
 import {describe, expect, it} from "bun:test";
 
-import {decodeJsonFrame, encodeJsonFrame, FrameEncodingError, parseFrame} from "./remote";
+import {decodeJsonFrame, encodeJsonFrame, encodeJsonValue, FrameEncodingError, parseFrame} from "./remote";
 import type {Frame} from "./remote";
 
 /** 把任意值放进一个事件帧的内容里编码。 */
@@ -46,6 +46,12 @@ describe("Spec plugin-channel WebSocket 传输第 1 条：JSON 编码", () => {
         }
         expect(message).toContain("Map");
         expect(message).not.toContain("hunter2");
+    });
+
+    it("业务值按同一规则编码：能如实表示的往返不变，不能的与 undefined 本身都抛 FrameEncodingError", () => {
+        expect(JSON.parse(encodeJsonValue({a: [1, "x", null]}))).toEqual({a: [1, "x", null]});
+        expect(() => encodeJsonValue({at: new Date(0)})).toThrow(FrameEncodingError);
+        expect(() => encodeJsonValue(undefined)).toThrow(FrameEncodingError);
     });
 
     it("循环引用在编码时抛错", () => {
