@@ -1,8 +1,22 @@
+---
+schema: nbook.proposal/v1
+status: accepted
+created: 2026-10-06
+decided: 2026-10-07
+supersedes: []
+superseded-by: null
+specs:
+  - docs/specs/storage/persistence.md
+  - docs/specs/storage/boundaries.md
+  - docs/specs/runtime/plugin-api.md
+  - docs/specs/workbench/commands.md
+  - docs/specs/runtime/plugin-manifest.md
+adrs: []
+---
+
 # 插件的数据与状态
 
-## 状态
-
-accepted（2026-10-07 开发者认可）。2026-10-06 起草，2026-10-07 按开发者确认的总览改写，同日按 omp 审查与复审修订。
+2026-10-06 起草，2026-10-07 按开发者确认的总览改写，同日按 omp 审查与复审修订。
 
 本稿回答一个插件的全部数据各是什么、存在哪、谁写、谁能读，以及插件作者用什么入口声明它们。拓扑（实例角色、项目子进程、远程服务、端口）见配套的 [多实例运行时拓扑](multi-instance-runtime-topology.md) 与 [ADR 0024](../adr/0024-multi-instance-runtime-topology.md)；本稿的“实例”“远程服务”“按调用方生成实例”都按那里的定义。分类沿用 [`storage/boundaries.md`](../specs/storage/boundaries.md) 的四类（Config、Storage、内存、领域数据），在其上细分插件作者实际会遇到的情况。
 

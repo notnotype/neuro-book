@@ -1,8 +1,22 @@
+---
+schema: nbook.proposal/v1
+status: accepted
+created: 2026-10-03
+decided: 2026-10-03
+supersedes: []
+superseded-by: null
+specs:
+  - docs/specs/runtime/server-host.md
+  - docs/specs/runtime/browser-host.md
+  - docs/specs/runtime/plugin-channel.md
+  - docs/specs/runtime/api-docs.md
+adrs:
+  - docs/adr/0023-v2-frontend-backend-stack.md
+---
+
 # NeuroBook v2：并排重建应用
 
-## 状态
-
-`accepted`（2026-10-03），依据见[决策记录](#决策记录)。实施按[推进顺序](#6-推进顺序与验收)逐步建 Task；2026-10-07 推进顺序修订：第 4 步的外壳实现与第 5 步改按[多实例运行时拓扑](multi-instance-runtime-topology.md)进行，Files 竖切改为第 6 步。
+实施按[推进顺序](#6-推进顺序与验收)逐步建 Task；2026-10-07 推进顺序修订：第 4 步的外壳实现与第 5 步改按[多实例运行时拓扑](multi-instance-runtime-topology.md)进行，Files 竖切改为第 6 步。
 
 ## 问题
 

@@ -1,8 +1,28 @@
+---
+schema: nbook.proposal/v1
+status: accepted
+created: 2026-09-28
+decided: 2026-09-30
+supersedes: []
+superseded-by: null
+specs:
+  - docs/specs/runtime/plugin-manifest.md
+  - docs/specs/runtime/server-host.md
+  - docs/specs/runtime/browser-host.md
+  - docs/specs/runtime/plugin-channel.md
+  - docs/specs/runtime/api-docs.md
+  - docs/specs/runtime/plugin-hot-plug.md
+  - docs/specs/runtime/plugin-install.md
+  - docs/specs/runtime/plugin-code-loading.md
+  - docs/specs/runtime/plugin-api.md
+  - docs/specs/runtime/stall-watchdog.md
+adrs:
+  - docs/adr/0022-extensible-platform-and-plugin-trust.md
+---
+
 # 可扩展应用平台：内核、插件模型与推进路线
 
-## 状态
-
-- 状态：`accepted`（2026-09-30）。需求与五项长期决定已由开发者于 2026-09-28 确认，记于 [ADR 0022](../adr/0022-extensible-platform-and-plugin-trust.md)；此后的设计走查逐项确认了启动流程、热插拔与卸载规则、协作方式、插件的浏览器部分、执行位置与插件通道、热升级、入口与服务级依赖，确认日期见[决策记录](#决策记录)。“Agent 工具与 Profile 的装配”已移交 nb-harness 重构。风险门 G0、G1、G2 已于同日验证（见 [w00017 t27](../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/README.md)），结论写入 P2、P4、P5、P6、P7、P11；接受不等于实施授权；行为合同已于同日写入 `planned` Spec（见[对 Spec 的预期改动](#对-spec-的预期改动)），实施按阶段另行授权。
+- 需求与五项长期决定已由开发者于 2026-09-28 确认，记于 [ADR 0022](../adr/0022-extensible-platform-and-plugin-trust.md)；此后的设计走查逐项确认了启动流程、热插拔与卸载规则、协作方式、插件的浏览器部分、执行位置与插件通道、热升级、入口与服务级依赖，确认日期见[决策记录](#决策记录)。“Agent 工具与 Profile 的装配”已移交 nb-harness 重构。风险门 G0、G1、G2 已于同日验证（见 [w00017 t27](../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/README.md)），结论写入 P2、P4、P5、P6、P7、P11；接受不等于实施授权；行为合同已于同日写入 `planned` Spec（见[对 Spec 的预期改动](#对-spec-的预期改动)），实施按阶段另行授权。
 - 与既有提案的关系：
   - [应用运行时总提案](../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md)的内核合同（资源作用域、服务装配、激活事务、有序关闭）继续有效；其非目标“不加载第三方代码”由 ADR 0022 取代。
   - [产品装配提案](../../packages/neuro-book-legacy/docs/proposals/application-runtime-product-integration.md)中后端启动（S0）与 HTTP 入口的设计由本文 [P6](#p6-服务端宿主内核拥有进程) 替代；其余阶段待按本文复核。

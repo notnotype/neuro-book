@@ -1,8 +1,20 @@
+---
+schema: nbook.proposal/v1
+status: accepted
+created: 2026-10-06
+decided: 2026-10-07
+supersedes: []
+superseded-by: null
+specs:
+  - docs/specs/ui/workbench-shell.md
+  - docs/specs/workbench/commands.md
+  - docs/specs/storage/persistence.md
+adrs: []
+---
+
 # 工作台外壳的抽象（v2）
 
-## 状态
-
-accepted（2026-10-07 开发者认可）。2026-10-06 起草，2026-10-07 按 omp 审查 11 条与运行时拓扑的决定修订。外壳实现排在运行时拓扑 K5 之后。
+2026-10-06 起草，2026-10-07 按 omp 审查 11 条与运行时拓扑的决定修订。外壳实现排在运行时拓扑 K5 之后。
 
 本稿定义新应用 `nbook.workbench` 的外壳抽象：Part、ActivityBar、Switcher、ViewContainer、View 各是什么、归谁、怎样与插件体系接上，以及外壳实现的切片。
 

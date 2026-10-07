@@ -1,8 +1,23 @@
 # NeuroBook 规范编程
 
-`docs/specs/` 是 NeuroBook 产品、模块和组件规范的唯一落点。Spec 用受约束的自然语言连接模糊需求与确定代码：人类不必阅读全部实现，Agent 也不能只凭一句需求猜测输入、状态、副作用或失败语义。
+`docs/specs/` 是 NeuroBook 产品、模块和组件规范的唯一落点。Spec 用受约束的自然语言写出现在或下一次实现必须成立的行为：人类不必阅读全部实现，Agent 也不能只凭一句需求猜测输入、状态、副作用或失败语义。本文件只放规则、成熟度、机检项与注册表；怎么写（定位能力、先列假设、写合同、补证据）与模板见 [`writing-specs`](../../.agents/skills/writing-specs/SKILL.md)。
 
-本目录当前先做注册表，不复制现有正文。每项功能只有一个当前真相源。本分支按 [NeuroBook v2：并排重建应用](../proposals/neuro-book-v2-rebuild.md) 重建应用：标为“实现迁移中”的 `implemented` Spec，实现仍在旧应用 `packages/neuro-book-legacy`，迁入新应用并重新通过验收后证据改指新代码；标为“内核已迁入 `packages/nb-runtime`”的，内核部分的实现与合同测试已改指新包，宿主部分与 smoke 仍在旧应用；旧应用的其它规范与 Reference 见[旧应用的规范与 Reference](#旧应用的规范与-reference只作参照)。Monorepo / Module 的唯一正文仍在 [docs/modules/monorepo-boundaries.md](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md)，不得另建 `docs/specs/architecture/monorepo-boundaries.md`。
+每项功能只有一个当前真相源。本分支按 [NeuroBook v2：并排重建应用](../proposals/neuro-book-v2-rebuild.md) 重建应用：标为“实现迁移中”的 `implemented` Spec，实现仍在旧应用 `packages/neuro-book-legacy`，迁入新应用并重新通过验收后证据改指新代码；标为“内核已迁入 `packages/nb-runtime`”的，内核部分的实现与合同测试已改指新包，宿主部分与 smoke 仍在旧应用；旧应用的其它规范与 Reference 见[旧应用的规范与 Reference](#旧应用的规范与-reference只作参照)。Monorepo / Module 的唯一正文仍在 [docs/modules/monorepo-boundaries.md](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md)，不得另建 `docs/specs/architecture/monorepo-boundaries.md`。
+
+## 文档分工与寿命
+
+| 文档 | 回答什么 | 寿命 |
+|---|---|---|
+| 提案 | 为什么做、有哪些备选、怎么取舍 | `accepted` 后正文冻结；之后的变化写进 Spec 或新的提案、ADR，原提案只在 frontmatter 记 `superseded-by` 或在决策记录追加一行（[提案规则](../proposals/README.md)） |
+| ADR | 一个难以逆转的架构决定和它的理由 | 不改，只能被新的 ADR 取代（[ADR 规则](../adr/README.md)） |
+| Spec | 现在或下一次实现必须成立的行为 | 行为变化时原地改；唯一的当前合同 |
+| 计划（`plan.md`） | 这一次怎么做：内部设计、切片、验收映射、验证 | 实施中随事实修订；Task 完成后留作历程 |
+| Work、Task README 与证据 | 切片怎么推进、做到哪了、证据在哪 | 随工作推进，完成后冻结 |
+| 代码注释、模块头、包 `AGENTS.md` | 代码里看不出来的原因与约束、目录约定 | 随代码改 |
+| 测试 | Spec 条目与场景的可执行版本 | 随 Spec 改 |
+| Skill | 怎么写、怎么审、怎么做 | 随方法改进 |
+
+同一件事只在一处写正文，其它地方链接。计划的验收映射写 Spec 编号，不复述内容；计划里的内部设计在完成后仍需要知道的，进代码注释或模块头，不回写 Spec。
 
 ## 两种成熟度，一个文件
 
@@ -13,41 +28,80 @@
 | `planned` | 已批准、尚无代码完整支持的目标合同 | 规定下一次实现必须达到的行为；不能用来宣称当前产品已有该能力 |
 | `implemented` | 已由代码和验证证据支持的当前合同 | 规定当前产品行为；与代码或测试冲突时视为缺陷并停止猜测，核实后修正错误的一侧 |
 
-不创建 `*-draft.md` 与 `*-current.md` 两份正文。能力实现后，原文件从 `planned` 原地晋升为 `implemented`，补充实现合同和证据。一个模块同时包含已实现与未实现内容时，按可独立验收的能力拆成多个 Spec，而不是在同一文件标记“部分实现”。
+不创建 `*-draft.md` 与 `*-current.md` 两份正文。能力实现后，原文件从 `planned` 原地晋升为 `implemented`。
 
-Proposal 的 `draft` / `reviewing` 表示方案尚未批准；Spec 的 `planned` 表示目标行为已经批准。未批准需求不能进入 `planned` Spec。
+- **已实现的 Spec 加新行为**：整块新能力另起一份 Spec；在已有能力上加几条行为时，新条目末尾标“（planned）”，实现并验证后去掉标记，不写 Task 编号。
+- **已实现、待晋升**：`planned` 的 Spec 实现后照常写三条证据标签（见[实现合同与证据](#实现合同与证据)）；注册表“说明”列只写一句范围并加“待晋升”，不写实施历程。晋升为 `implemented` 由开发者批准。
+
+提案的 `draft`、`reviewing` 表示方案尚未批准；Spec 的 `planned` 表示目标行为已经批准。未批准需求不能进入 `planned` Spec。
 
 ## 共同行为合同
 
-所有 `kind: behavior` 的 Spec，无论成熟度，都必须使用黑盒语言说明：
+所有 `kind: behavior` 的 Spec，无论成熟度，都用黑盒语言写下面九节。九个名称是固定二级标题，供机器稳定提取；不适用的写一行“无”，不改名或合并章节。
 
-1. **目标与非目标**：解决什么问题，明确不承诺什么。
-2. **术语与参与者**：消除同义词、角色和对象边界。
+1. **目标与非目标**：解决什么问题，明确不承诺什么；已知限制也写在这里。
+2. **术语与参与者**：只定义本 Spec 新引入或含义不同的词；共用的词链接[术语表](#术语表)或定义它的 Spec。
 3. **输入与前置条件**：触发方式、数据形状、权限、有效范围与约束。
-4. **输出与可观察行为**：返回结果、界面反馈和外部可见变化。
-5. **状态与转换**：初始状态、事件、下一状态、幂等与并发语义。
+4. **输出与可观察行为**：编号条目，每条一个可判定的行为。
+5. **状态与转换**：初始状态、事件、下一状态、幂等与并发语义，以及交互合同（见下节）。
 6. **副作用与数据**：持久化、文件、事件、网络、缓存和清理责任。
-7. **失败与恢复**：校验失败、部分失败、重试、回滚和 fail-closed 边界。
-8. **边界与兼容**：模块所有权、权限、安全、版本与迁移影响。
-9. **验收与 Smoke**：能直接观察输入、输出、状态和副作用的场景。
-以上九个名称是 `kind: behavior` 的固定二级标题，供机器稳定提取；API、UI 或领域特有表达放在对应章节正文或三级标题。无状态、无副作用或不适用的能力保留章节并明确说明“无”，不通过改名或合并章节省略合同主题。
+7. **失败与恢复**：失败码、部分失败、重试、回滚和 fail-closed 边界。
+8. **边界与兼容**：只写公开接口、版本与兼容、信任边界。owner 已在 frontmatter，依赖方向写在实现合同。
+9. **验收与 Smoke**：只写跨多条规则的组合场景与特殊环境（多进程、多窗口、重启、真实浏览器）；单条规则由“输出”条目本身验收。最后一行写 Smoke 入口。
 
 `planned` Spec 把实现当作黑盒，不指定类名、函数名、算法、目录布局、框架技巧或逐文件改法。它允许约束公开接口、持久化格式和必须维持的架构边界，因为这些本身就是外部合同。
 
-## Implemented Spec 的内部信息
+## Spec 写什么、不写什么
 
-`implemented` Spec 仍以共同的可观察行为为主体。它额外记录未来维护者必须知道、且代码阅读成本高的内部合同：
+**必须写：**
 
-- 实现 owner、数据 owner 和依赖方向；
-- 公开接口、事件、持久化 schema 与事务边界；
-- 决定失败恢复、并发、安全或兼容性的关键不变量；
-- 实现入口、合同测试和实际 smoke 命令。
+- 对外可观察的行为：输入、输出、状态与转换、失败码与恢复。
+- **交互合同**：调用方能依赖的先后与寿命——什么时候可用、什么时候作废、谁先谁后、断线或重启后会怎样。写在“状态与转换”；跨两个能力的写在提供方的 Spec，使用方链接过去。
+- 对外的格式与兼容：只写兼容所需的部分（例如“库格式版本 1，不认识的版本不改写”），不写表结构。
+- 编号的条目与验收场景。
 
-逐函数控制流、文件改动清单、临时诊断、实现日志和“先改 A 再改 B”的过程属于代码或 Task。难以逆转且需要解释原因的内部取舍进入 ADR。这样重构内部实现时，只要行为和关键不变量不变，Spec 无需跟随文件结构改写。
+**不写：**
+
+- 实现做法：去代码与注释。
+- 取舍理由与备选：去提案与 ADR。
+- 历程（“随 tNN 实现”、某日改写、审查结论）：去 Task 与 git。
+- 证据叙述：证据只留固定几行。
+
+**两条判据**，逐句检查：
+
+1. 换一种实现、行为不变，这句话要不要改？要改，就不属于 Spec。
+2. 这句话能写成测试或审查判据吗？不能，就删掉或改写到能。
+
+## 编号
+
+输出条目、失败码与验收场景都编号。编号稳定：只在末尾追加，删除时保留空号并写“（已删除）”。测试名引用编号（例如 `Spec storage.persistence 输出 4`、`场景 7`），中间插入会让测试名对不上。
+
+## 实现合同与证据
+
+`implemented` 的 behavior Spec 在“验收与 Smoke”与“证据”之间加“实现合同”短节，只写三样：
+
+- 公开入口：包入口与公开符号，不列内部文件；
+- owner 与依赖方向；
+- 不超过五条维护者必须知道、且有测试锁定的内部不变量。
+
+逐函数控制流、缓存键、内部诊断原因、文件清单与实施过程属于代码注释、模块头或 Task；难以逆转且需要解释原因的内部取舍进入 ADR。这样重构内部实现时，只要行为和关键不变量不变，Spec 无需跟随文件结构改写。
+
+“证据”一节只留固定几行：
+
+- `批准依据：` 提案、ADR 或开发者决定的链接；
+- `implemented` 另有 `实现入口：`（源码）、`合同测试：`（测试文件）、`Smoke：`（可执行脚本或测试；确实没有时写“不适用——<理由>”）三行，各链接仓库里存在的文件。
+
+## 术语表
+
+运行时 Spec 共用的术语收在 [运行时术语表](runtime/glossary.md)（`kind: glossary`），每个词一两句并链接定义它的 Spec。各 Spec 只定义自己新引入的词；新词被第二份 Spec 用到时移入术语表。
+
+## architecture 与 glossary
+
+`architecture` 只写跨能力的归属规则：哪类数据或职责归哪个能力、能力之间的依赖方向与边界。与某一个 behavior Spec 重叠的内容并入那份 Spec，architecture 只链接过去。`architecture` 和 `glossary` 可使用与内容匹配的章节，但同样必须登记成熟度、稳定 capability 和 owner。
 
 ## 文件格式
 
-新 Spec 按 [`writing-specs`](../../.agents/skills/writing-specs/SKILL.md) 的模板写，文件名和目录使用英文 kebab-case。除 `README.md` 和 `AGENTS.md` 外，每个 Markdown Spec 都必须包含：
+文件名和目录使用英文 kebab-case。除 `README.md` 和 `AGENTS.md` 外，每个 Markdown Spec 都必须包含：
 
 ```yaml
 ---
@@ -65,75 +119,82 @@ owners:
 - `capability`：仓库内唯一、稳定的点分标识；文件移动时不改变。
 - `owners`：对行为与数据边界负责的一个或多个模块，必须使用 YAML 列表，不写临时执行人。
 
-`architecture` 和 `glossary` 可使用与内容匹配的章节，但同样必须登记成熟度、稳定 capability 和 owner。`kind: behavior` 使用模板的完整行为合同。
-
 ## 流水线
 
-### 新功能或长期行为变化
+### 开发方式：规格驱动、验收先行
 
-1. 原始自然语言进入 [`../proposals/`](../proposals/)；补齐歧义、备选方案和影响。
-2. 人类接受 Proposal 后，创建或更新 `planned` Spec，把目标写成黑盒行为与验收场景。
-3. `.agents/works/` 中的 Work/Task 引用 Proposal 和 Spec，记录具体实现、验证和交接；current Task 不登记 formal role。
-4. 代码、测试和 Spec 在同一交付中收敛；证据支持全部合同后，将原 Spec 晋升为 `implemented`。
+1. **探明**：拿不准的技术点先做小实验实测，结论进 Task 证据，不进 Spec。
+2. **决定**：有长期取舍时写[提案](../proposals/README.md)，开发者接受后冻结。
+3. **写合同**：按 [`writing-specs`](../../.agents/skills/writing-specs/SKILL.md) 更新 `planned` Spec。
+4. **计划**：`plan.md` 写内部设计、切片与验收映射（Spec 编号 → 测试），见 [`implementation-planning`](../../.agents/skills/implementation-planning/SKILL.md)。
+5. **验收先行**：每片先写这片对应条目的合同测试并看它失败，再实现到通过；交付前做变异检查。
+6. **审查**：按 [`reviewing`](../../.agents/skills/reviewing/SKILL.md) 审查设计与实现。
+7. **收口**：按固定标签写证据；全部有证据后，经开发者批准晋升 `implemented`。
+
+单元层面不要求严格的 TDD；测试覆盖 Spec 条目与失败方式（[测试写法](../testing/README.md#测试写法)）。界面类改动另由 Component Lab 场景验收。Work/Task 引用提案与 Spec，记录实现、验证和交接，不复制正文。
 
 ### Bug
+
 - 代码偏离 `implemented` Spec：Spec 保持目标不变，Task 修复代码并验证回归。
-- Spec 与代码、测试和稳定用户文档共同证明的当前行为不符：这是规范事实失真；Task 修正规范并记录依据。原 Spec 已被对外承诺或测试锁定时，必须经 Reviewer 复核并请求人类确认，不能由实现者单方改写。
+- Spec 与代码、测试和稳定用户文档共同证明的当前行为不符：这是规范事实失真；Task 修正规范并记录依据。原 Spec 已被对外承诺或测试锁定时，请开发者确认，不能由实现者单方改写。
 - 现有材料能推出唯一行为、但 Spec 没写：在 Task 内补齐合同。
-- 存在两个以上合理的可观察结果，或涉及跨模块、数据所有权、公开接口、安全与兼容取舍：这是产品歧义，回到 Proposal 或人类决策，不把诊断结论伪装成当前规范。
+- 存在两个以上合理的可观察结果，或涉及跨模块、数据所有权、公开接口、安全与兼容取舍：这是产品歧义，回到提案或开发者决策，不把诊断结论伪装成当前规范。
 
 ### Code-first 与重构
-Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、Task 范围或 Proposal 门禁。紧急修复或既有未记录行为可以先修代码，但同一 Task 完成前必须补齐或更新 `implemented` Spec；修复中出现产品歧义时先采用现有合同可推出的 fail-closed 行为，无法推出则停止请求决策。纯内部重构若不改变可观察行为，只核对现有 Spec 仍成立并在 Task 中记录行为基线；行为章节发生变化时不再属于纯重构，必须按行为变化流程处理。
+
+Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权、Task 范围或提案门禁。紧急修复或既有未记录行为可以先修代码，但同一 Task 完成前必须补齐或更新 `implemented` Spec；修复中出现产品歧义时先采用现有合同可推出的 fail-closed 行为，无法推出则停止请求决策。纯内部重构若不改变可观察行为，只核对现有 Spec 仍成立并在 Task 中记录行为基线；行为章节发生变化时不再属于纯重构，必须按行为变化流程处理。
 
 ## 已实现规范
 
 | 功能域 | 当前规范 | 说明 |
 |---|---|---|
 | Theme | [`theme/system.md`](theme/system.md) | 主题变量和消费规则 |
-| UI 设计系统与组件规范 | [nb-ui 设计与组件规范](../../packages/nb-ui/docs/README.md) | 设计语言（[`design-language.md`](../../packages/nb-ui/docs/design-language.md)）、组件开发与滚动槽位规范（[`ui-development-spec.md`](../../packages/nb-ui/docs/ui-development-spec.md)）与主题指南 |
-| Monorepo / Module | [Monorepo 边界](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md) | Monorepo 当前包布局、唯一文档真相源、包级继承/覆盖、依赖方向和 worktree 根边界 |
+| UI 设计系统与组件规范 | [nb-ui 设计与组件规范](../../packages/nb-ui/docs/README.md) | 设计语言、组件开发与滚动槽位规范、主题指南 |
+| Monorepo / Module | [Monorepo 边界](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md) | 包布局、唯一文档真相源、包级继承与覆盖、依赖方向和 worktree 根边界 |
 | 测试与验收 | [`../testing/README.md`](../testing/README.md) | 测试组织、临时根、验收和证据合同 |
 | 贡献与交付 | [CONTRIBUTING](https://github.com/notnotype/neuro-book/blob/master/CONTRIBUTING.md) | Issue、开发、Git、PR 与维护者交付流程 |
-| Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、组件导航、检视面板、响应式容器、偏好和 Product 排除合同；新应用以开发插件 `nbook.lab` 实现外壳与机制（场景 1–17，命令场景随 w00017 t49 迁入），工作台与业务域组件随各自迁移；**实现迁移中** |
-| Workbench 命令系统 | [`workbench/commands.md`](workbench/commands.md) | 命令登记、`when` 求值、执行管线、暴露策略与审计；新应用由两端都有入口的内置插件 `nbook.commands` 提供（w00017 t49），第一批六条命令在 Lab 命令场景闭环，产品 `/` 页有命令面板；第二批 `view` 命令随工作台外壳（t50）；**实现迁移中** |
-| Workbench 快速打开 | [`workbench/quick-open.md`](workbench/quick-open.md) | 单控件两模（命令搜索与行号跳转）、会话 MRU、S4 浮层键盘与焦点交接；新应用的面板由工作台提供（w00017 t49），Lab 命令场景验收闭合，产品 `/` 页接入命令模式，行号模式随编辑器插件；**实现迁移中** |
-| 资源生命周期 | [`runtime/lifecycle.md`](runtime/lifecycle.md) | `runtime.lifecycle`；作用域、资源 owner、操作接纳与取消/终止、关闭尝试与显式恢复；第一切片由合同测试与双宿主 smoke 闭合；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
-| 显式服务装配 | [`runtime/services.md`](runtime/services.md) | `runtime.services`；唯一 provider、依赖与寿命检查、并发初始化共享与失败稳定；第一切片闭合；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中**；增补调用方身份、按调用方门面与委托（w00017 t52 已实现） |
-| 插件描述与激活 | [`runtime/plugins.md`](runtime/plugins.md) | `runtime.plugins`；描述目录、入口/代次、贡献事务、局部失败与普通关闭；不含热卸载；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中**；增补按调用方提供项、委托、激活事件前缀与远程提供项（w00017 t52 已实现） |
-| 环境适配与应用门禁 | [`runtime/application.md`](runtime/application.md) | `runtime.application`；浏览器/后端环境适配、启动门禁、接纳、有界停止与实例身份；受控装配入口闭合，产品启动链已迁入（w00017 阶段 1）；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中**；增补子实例、租约与远程节点（w00017 t52 已实现），按代次取得随 t54 |
-| 运行时诊断 | [`runtime/diagnostics.md`](runtime/diagnostics.md) | `runtime.diagnostics`；有界记录与查询、脱敏、早期缓冲补写、日志位置授予与冲突降级、关闭未完成与显式恢复；第二切片由合同测试与组合 smoke 闭合；内核在 `packages/nb-runtime`，前后端出口在新应用；**组合 smoke 仍是旧应用的 `--services`** |
-| 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | `runtime.server-host`；内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式重启与停止；后端宿主与开发模式已在新应用由合同测试、`smoke:server` 与 e2e 闭合，内核 RPC 端口随 w00017 t53 实现，项目子进程与停止序列的项目步骤随 t54，看门狗（76）属 `runtime.stall-watchdog` |
-| 平台文件 | [`platform/files.md`](platform/files.md) | `platform.files`；受根约束 I/O、授予隔离、watch/锁与关闭门禁；不是业务文件树服务；第二切片闭合；**实现迁移中** |
-| SQLite机制 | [`platform/sqlite.md`](platform/sqlite.md) | `platform.sqlite`；具名资源owner、连接借用、单库事务、代次与关闭；不自动迁移；第二切片闭合，既有数据库尚未迁入；**实现迁移中** |
+| Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 的确定性 fixture、组件导航、检视面板、响应式容器、偏好与 Product 排除；**实现迁移中** |
+| Workbench 命令系统 | [`workbench/commands.md`](workbench/commands.md) | 命令登记、`when` 求值、执行管线、暴露策略与审计；**实现迁移中** |
+| Workbench 快速打开 | [`workbench/quick-open.md`](workbench/quick-open.md) | 命令搜索与行号跳转两种模式、会话 MRU、浮层键盘与焦点交接；**实现迁移中** |
+| 运行时术语表 | [`runtime/glossary.md`](runtime/glossary.md) | 运行时 Spec 共用的术语，含义以出处 Spec 为准 |
+| 资源生命周期 | [`runtime/lifecycle.md`](runtime/lifecycle.md) | 作用域、资源 owner、操作接纳与取消、终止、关闭尝试与显式恢复；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
+| 显式服务装配 | [`runtime/services.md`](runtime/services.md) | 唯一提供者、依赖与寿命检查、并发初始化共享与失败稳定、调用方身份、按调用方门面与委托；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
+| 插件描述与激活 | [`runtime/plugins.md`](runtime/plugins.md) | 描述目录、入口与代次、贡献事务、局部失败与普通关闭、按调用方提供项、委托与远程提供项，不含热卸载；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
+| 环境适配与应用门禁 | [`runtime/application.md`](runtime/application.md) | 浏览器与后端环境适配、启动门禁、接纳、有界停止、实例身份、子实例与租约；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
+| 运行时诊断 | [`runtime/diagnostics.md`](runtime/diagnostics.md) | 有界记录与查询、脱敏、早期缓冲补写、日志位置授予与冲突降级、关闭未完成与显式恢复；**组合 smoke 仍是旧应用的 `--services`** |
+| 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | 内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式重启与停止、内核 RPC 端口与项目子进程；看门狗属 `runtime.stall-watchdog` |
+| 平台文件 | [`platform/files.md`](platform/files.md) | 受根约束的 I/O、授予隔离、watch 与锁、关闭门禁，不是业务文件树服务；**实现迁移中** |
+| SQLite 机制 | [`platform/sqlite.md`](platform/sqlite.md) | 具名资源 owner、连接借用、单库事务、代次与关闭，不自动迁移；**实现迁移中** |
 
 ## 待实现规范
+
 以下已获批准但尚未实现的目标合同必须在代码切换前满足；实现和验证闭合后原地晋升为 `implemented`。
 
-| 功能域 | 当前规范 | 缺口 |
+| 功能域 | 当前规范 | 说明 |
 |---|---|---|
-| Workbench 外壳接入 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | 含 Editor/工具容器层级与拖拽行为表；2026-09-22 新拖放合同已接入模型和宿主，验收见关联 Task 最新实施记录；规格晋升仍待正式审批 |
-| Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config / Storage / 内存 / 领域数据职责、user/project 归属、插件与 grid 消费边界 |
-| Storage 插件记录 | [`storage/persistence.md`](storage/persistence.md) | `nbook.storage`：记录定义、user 分区在服务端与 project 分区在项目实例（SQLite）、浏览器经代理、按插件命名空间与客户端分区、读取分类、条件保存与订阅；2026-10-07 按多实例拓扑改写；已随 w00017 t55（K4）实现并由合同测试（含真实项目子进程与两个进程写同一个库）、真实 Chrome 的 e2e 与 `smoke:server` 覆盖，晋升待审批 |
-| 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量/宿主、scope仲裁与绝对指针跟随；新矩阵未闭合前保持planned |
-| 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | `workspace.files`；首版文件读写、目录/批量操作、无覆盖冲突、逐项失败与取消语义已批准；尚未实施或运行验证 |
-| 资源寻址与文件服务 | [`workspace/resources.md`](workspace/resources.md) | `workspace.resources`；`方案://路径` 寻址、提供者注册与能力声明、写入来源与变更事件、bash 的真实路径规则；首批 `project://`、`user://`、`tmp://`、`local://`、`docs://`；阶段 2 实施 |
-| 文件夹类型与清单 | [`workspace/folder-kinds.md`](workspace/folder-kinds.md) | `workspace.folder-kinds`；普通、内容（`*.content`）、活页夹（`*.binder`）三类文件夹，后缀识别、XML 清单、未列入与缺失处理、渲染贡献点；阶段 2 实施 |
-| 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | `runtime.plugin-manifest`；清单格式、按入口声明依赖的服务、同一运行位置解析、受阻推导与启停顺序；阶段 1 起实施 |
-| 浏览器宿主 | [`runtime/browser-host.md`](runtime/browser-host.md) | `runtime.browser-host`；挂载前建立窗口运行实例、引导接口、RPC 首连与断线重连、多窗口隔离、可分离边界；新应用实现启动序列第 1–5 步（含页面表、宿主路由与首连）与场景 1、2、4、6 的离线重连部分、8、9（w00017 t53），懒激活、插件集合订阅与热插拔未实现；项目绑定与“无法打开项目”“项目已关闭”页随 w00017 t54 实现 |
-| 远程服务与 RPC 协议 | [`runtime/plugin-channel.md`](runtime/plugin-channel.md) | `runtime.plugin-channel`（2026-10-07 原地改写，取代插件通道）；跨实例的远程服务合同、内核路由、请求阶段与失败码、两层版本、订阅、按需激活与等待环；末节暂留 HTTP 路由贡献，待移交 `nbook.http` 的 Spec；内核部分已随 w00017 t52 实现，WebSocket 传输与握手随 t53 实现，项目子进程链路、客户端绑定与合同的提供方位置随 K3（w00017 t54）实现 |
-| 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | `runtime.projects`；项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、宿主能力 `projectsKey` 与租约归属、`{project}` 访问规则、`nbook.projects` 的“打开项目”；不加目录锁；已随 w00017 t54（K3）实现并由合同测试、真实 Chrome 的 e2e 与 `smoke:server` 覆盖，晋升待审批 |
-| 端点收集与 API 文档 | [`runtime/api-docs.md`](runtime/api-docs.md) | `runtime.api-docs`；对外 HTTP 路由的收集、OpenAPI 生成与展示，不含远程服务合同；阶段 2 实施 |
-| 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | `runtime.plugin-hot-plug`；热插拔三档、引用账本与转发器、三步停止、在途调用结算；阶段 3 实施 |
-| 插件安装与热升级 | [`runtime/plugin-install.md`](runtime/plugin-install.md) | `runtime.plugin-install`；本地文件夹安装、卸载、兼容、安全模式、热升级与回滚；阶段 3 实施 |
-| 插件代码的装载与回收 | [`runtime/plugin-code-loading.md`](runtime/plugin-code-loading.md) | `runtime.plugin-code-loading`；服务端装载与缓存回收、浏览器宿主模块表、纯度检查、插件文件端点；阶段 3 实施 |
-| 插件公开 API | [`runtime/plugin-api.md`](runtime/plugin-api.md) | `runtime.plugin-api`；远程形态约束、激活上下文、错误码、worker 池、私有存储、配置与密钥；阶段 3 实施 |
-| 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | `runtime.stall-watchdog`；卡死检测、报告、退出码 76、Manager 自动重启与 Desktop 呈现、提示禁用与自动安全模式；阶段 3 实施 |
-| 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | `workbench.files-explorer`；双模式、F1–F9 交互/剪贴板/dirty 策略与验收已收口；主页面真实链尚未实施，第二版草案未进入本规范 |
-| Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | `ui.component-lab.timeline`；fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
+| Workbench 外壳接入 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | Part、容器与视图的层级，拖放行为表与布局记录 |
+| Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config、Storage、内存与领域数据的归属，插件与 grid 的消费边界 |
+| Storage 插件记录 | [`storage/persistence.md`](storage/persistence.md) | `nbook.storage` 的记录定义、user 与 project 分区、读取分类、条件保存与订阅；**待晋升** |
+| 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量与宿主、scope 仲裁与绝对指针跟随 |
+| 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | 文件读写、目录与批量操作、无覆盖冲突、逐项失败与取消 |
+| 资源寻址与文件服务 | [`workspace/resources.md`](workspace/resources.md) | `方案://路径` 寻址、提供者注册与能力声明、写入来源与变更事件、bash 的真实路径规则 |
+| 文件夹类型与清单 | [`workspace/folder-kinds.md`](workspace/folder-kinds.md) | 普通、内容、活页夹三类文件夹，后缀识别、XML 清单、未列入与缺失处理、渲染贡献点 |
+| 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | 清单格式、按入口声明的服务依赖、同一运行位置解析、受阻推导与启停顺序 |
+| 浏览器宿主 | [`runtime/browser-host.md`](runtime/browser-host.md) | 挂载前建立窗口运行实例、引导接口、RPC 首连与断线重连、多窗口隔离、项目绑定与可分离边界 |
+| 远程服务与 RPC 协议 | [`runtime/plugin-channel.md`](runtime/plugin-channel.md) | 跨实例的远程服务合同、内核路由、请求阶段与失败码、两层版本、订阅、按需激活与等待环；末节暂留 HTTP 路由贡献，待移交 `nbook.http` 的 Spec |
+| 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则；**待晋升** |
+| 端点收集与 API 文档 | [`runtime/api-docs.md`](runtime/api-docs.md) | 对外 HTTP 路由的收集、OpenAPI 生成与展示，不含远程服务合同 |
+| 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | 热插拔三档、引用账本与转发器、三步停止、在途调用结算 |
+| 插件安装与热升级 | [`runtime/plugin-install.md`](runtime/plugin-install.md) | 本地文件夹安装、卸载、兼容、安全模式、热升级与回滚 |
+| 插件代码的装载与回收 | [`runtime/plugin-code-loading.md`](runtime/plugin-code-loading.md) | 服务端装载与缓存回收、浏览器宿主模块表、纯度检查、插件文件端点 |
+| 插件公开 API | [`runtime/plugin-api.md`](runtime/plugin-api.md) | 远程形态约束、激活上下文、错误码、worker 池、私有存储、配置与密钥 |
+| 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
+| 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | 双模式、F1–F9 交互、剪贴板与 dirty 策略 |
+| Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
 
 ## 旧应用的规范与 Reference（只作参照）
 
-以下是旧应用 `packages/neuro-book-legacy` 时期的规范与 Reference，不是新应用的当前合同。功能迁回新应用时，按 [Proposal 流程](../proposals/README.md) 重新确认后写入本目录。
+以下是旧应用 `packages/neuro-book-legacy` 时期的规范与 Reference，不是新应用的当前合同。功能迁回新应用时，按 [提案流程](../proposals/README.md) 重新确认后写入本目录。
 
 | 功能域 | 参照 | 说明 |
 |---|---|---|
@@ -159,7 +220,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 
 ## 规范缺口
 
-以下功能在旧应用中已有代码、测试、ADR 或 Proposal，但缺少足以判断当前行为的 `implemented` Spec。功能迁回新应用时先按本表建立规范归属：
+以下功能在旧应用中已有代码、测试、ADR 或提案，但缺少足以判断当前行为的 `implemented` Spec。功能迁回新应用时先按本表建立规范归属：
 
 | 优先级 | 功能域 | 现有证据 | 缺口 |
 |---|---|---|---|
@@ -181,8 +242,22 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 3. 提案获批后，先更新或创建当前规范，再在 `.agents/works/` 创建 Work 与实现 Task。
 4. 实现期间如果行为变化，规范和代码在同一变更中更新。
 5. 验收以规范中的可观察行为为依据；Task 完成不能代替规范更新。
-6. 旧行为退出时，更新当前规范；需要保留理由时写 ADR，需要用户升级步骤时写 migration。Task 和 proposal 保留历史但不再作为当前行为依据。
+6. 旧行为退出时，更新当前规范；需要保留理由时写 ADR，需要用户升级步骤时写 migration。Task 和提案保留历史但不再作为当前行为依据。
 
-`bun run docs:check` 只负责确定性结构：元数据、模板占位、必需章节的实义内容、成熟度登记、capability 精确唯一、implemented 证据的「实现入口／合同测试／Smoke」三条标签行及链接类型和活跃相对链接。它不判断自然语言是否互相矛盾、owner 是否真实、两个近义 capability 是否重叠，也不推断代码 diff 是否改变行为。current Work/Task 快照与受管组件文档缺失分别进入 `warnings` 与 `failures`：Task 正文只供协作参考，组件文档缺失阻断文档门禁。`warnings` 默认只逐条列出未提交改动涉及的文件，其余合成一行计数（参数见 [测试规范](../testing/README.md#验证门禁)）。
+## 完成条件
 
-Reviewer 必须核对每项输入、输出、状态、副作用和失败语义没有冲突；`planned` 没有泄漏实现步骤且具有真实批准依据；`implemented` 的代码、测试和 smoke 证据覆盖正文；Task 和 PR 链接具体 Spec 或明确说明行为合同未变。两层都通过才算完成。
+一次 Spec 改动在两组检查都通过后才算完成。
+
+**机检**（`bun run docs:check`）：
+
+- 失败：frontmatter 的取值、模板占位、behavior Spec 九个固定章节与实义内容、成熟度登记与 frontmatter 一致、capability 精确唯一、`implemented` 证据的「实现入口／合同测试／Smoke」三条标签行及链接类型、活跃文档的相对链接与锚点、受管组件文档缺失；提案与 ADR 的 frontmatter 规则见各自 README。
+- 警告：Spec 正文（“证据”一节除外）出现 Task 引用（`tNN`、`wNNNNN`）；“证据”一节出现固定标签与批准依据之外的行；current Work/Task 快照的链接问题。警告默认只逐条列出未提交改动涉及的文件，其余合成一行计数（参数见 [测试规范](../testing/README.md#验证门禁)）。
+
+**需人工核对**：
+
+- 每项输入、输出、状态、副作用和失败语义之间没有冲突，与相邻 Spec 的术语和失败码一致；
+- 每句话过得了两条判据，交互合同写在提供方；
+- `planned` 没有泄漏实现步骤，且有真实批准依据；
+- `implemented` 的代码、测试和 smoke 证据覆盖正文；
+- owner 真实，没有两个近义 capability 重叠；
+- Task 和 PR 链接具体 Spec，或明确说明行为合同未变。

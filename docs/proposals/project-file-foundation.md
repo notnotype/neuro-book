@@ -1,8 +1,21 @@
+---
+schema: nbook.proposal/v1
+status: accepted
+created: 2026-10-02
+decided: 2026-10-02
+supersedes: []
+superseded-by: null
+specs:
+  - docs/specs/workspace/resources.md
+  - docs/specs/workspace/folder-kinds.md
+  - docs/specs/workspace/files.md
+  - docs/specs/workbench/files-explorer.md
+adrs: []
+---
+
 # 项目文件底座与 Files 竖切
 
-## 状态
-
-- 状态：`accepted`（2026-10-02）。需求、成功标准与[分项决定](#分项决定)由开发者在需求讨论中逐条确认，[方案](#方案)中主 Agent 补充的技术细节经开发者评审同意（过程见 [w00017 t41](../../.agents/works/w00017-application-runtime-architecture/tasks/t41-files-vertical-design/README.md)）。接受不等于实施授权，实施按切片另行授权。
+- 需求、成功标准与[分项决定](#分项决定)由开发者在需求讨论中逐条确认，[方案](#方案)中主 Agent 补充的技术细节经开发者评审同意（过程见 [w00017 t41](../../.agents/works/w00017-application-runtime-architecture/tasks/t41-files-vertical-design/README.md)）。接受不等于实施授权，实施按切片另行授权。
 - 定位：[可扩展应用平台](extensible-application-platform.md) 阶段 2“Files 竖切”的需求与设计。它把 Files 从“一个资源管理器插件”扩成整个项目的文件底座，资源管理器与编辑器是底座的第一批使用方。
 - 与既有提案的关系：
   - [Files 与资源管理器第一版](../../packages/neuro-book-legacy/docs/proposals/files-explorer.md)（`accepted`）的 F1–F9 产品策略与切换性能设计（控件复用、模型按引用保留）继续有效，本文不重定义；它的“内容节点模式”改由本文的[三类文件夹](#2-三类文件夹)承担。

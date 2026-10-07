@@ -1,6 +1,17 @@
-# Workbench 与 View Host 提案
+---
+schema: nbook.proposal/v1
+status: accepted
+created: 2026-09-12
+decided: 2026-09-13
+supersedes: []
+superseded-by: null
+specs:
+  - docs/specs/ui/workbench-shell.md
+  - docs/specs/ui/nested-grid.md
+adrs: []
+---
 
-状态：accepted（2026-09-13 已获批准）
+# Workbench 与 View Host 提案
 
 2026-09-28 部分修订：[ADR 0022](../adr/0022-extensible-platform-and-plugin-trust.md) 开放可执行第三方插件（本文的 L3），取代本文“不开放 L3”的非目标。视图组件改由拥有者插件在激活时交给 workbench，不再由宿主静态白名单解析 `factoryKey`；descriptor 仍不含组件与模块路径，布局算法、视图实例模型与布局状态分层保留。见[可扩展应用平台 P7](extensible-application-platform.md#p7-浏览器宿主与第三方界面)。
 

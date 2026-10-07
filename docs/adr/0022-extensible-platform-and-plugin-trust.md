@@ -1,6 +1,12 @@
+---
+schema: nbook.adr/v1
+status: accepted
+decided: 2026-09-28
+superseded-by: null
+---
+
 # ADR 0022：可扩展应用平台与第一版插件信任模型
 
-- 状态：Accepted
 - 日期：2026-09-28
 - 决策者：开发者（需求访谈逐条确认）
 - 关联工作：[w00017 t26](../../.agents/works/w00017-application-runtime-architecture/tasks/t26-platform-architecture-redesign/README.md)

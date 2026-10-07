@@ -1,6 +1,12 @@
+---
+schema: nbook.adr/v1
+status: accepted
+decided: 2026-10-03
+superseded-by: null
+---
+
 # ADR 0023：NeuroBook v2 去掉 Nuxt，前端 Vue + Vite，后端 Bun + Hono，校验统一 TypeBox
 
-- 状态：Accepted
 - 日期：2026-10-03
 - 决策者：开发者
 - 关联工作：[w00017 t43](../../.agents/works/w00017-application-runtime-architecture/tasks/t43-repository-reorganization/README.md)

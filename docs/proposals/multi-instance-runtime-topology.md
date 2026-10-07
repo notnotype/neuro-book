@@ -1,8 +1,34 @@
+---
+schema: nbook.proposal/v1
+status: accepted
+created: 2026-10-07
+decided: 2026-10-07
+supersedes: []
+superseded-by: null
+specs:
+  - docs/specs/runtime/lifecycle.md
+  - docs/specs/runtime/application.md
+  - docs/specs/runtime/services.md
+  - docs/specs/runtime/plugins.md
+  - docs/specs/runtime/plugin-hot-plug.md
+  - docs/specs/runtime/plugin-manifest.md
+  - docs/specs/runtime/plugin-channel.md
+  - docs/specs/runtime/api-docs.md
+  - docs/specs/runtime/plugin-api.md
+  - docs/specs/runtime/server-host.md
+  - docs/specs/runtime/browser-host.md
+  - docs/specs/runtime/projects.md
+  - docs/specs/workspace/resources.md
+  - docs/specs/storage/persistence.md
+  - docs/specs/storage/boundaries.md
+  - docs/specs/workbench/commands.md
+adrs:
+  - docs/adr/0024-multi-instance-runtime-topology.md
+---
+
 # 多实例运行时拓扑：服务端、项目子进程与客户端
 
-## 状态
-
-accepted（2026-10-07 开发者认可）。2026-10-07 起草，同日按 omp 审查 16 条与复审 10 条建议修订。接受不等于实施授权，实施按第 11 节切片逐个建 Task。
+2026-10-07 起草，同日按 omp 审查 16 条与复审 10 条建议修订。接受不等于实施授权，实施按第 11 节切片逐个建 Task。
 
 本稿把 2026-10-06 至 10-07 与开发者逐条确认的拓扑决定整理成一份设计：有哪几类内核实例、项目由谁打开和关闭、插件之间怎样通信、RPC 协议与端口、`nbook.http` 的定位、Agent 会话的位置，以及随后的实施切片。长期决定另记 [ADR 0024](../adr/0024-multi-instance-runtime-topology.md)。插件数据与状态（Storage、配置、公开状态、插件状态 store）见配套的 [插件的数据与状态](plugin-data-model.md)。审查原文与核实见 [t51 证据](../../.agents/works/w00017-application-runtime-architecture/tasks/t51-runtime-topology-design/evidences/omp-review.txt)。
 

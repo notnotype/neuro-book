@@ -1,6 +1,15 @@
-# 模型角色（role）的后端契约
+---
+schema: nbook.proposal/v1
+status: accepted
+created: 2026-09-10
+decided: 2026-09-10
+supersedes: []
+superseded-by: null
+specs: []
+adrs: []
+---
 
-- **状态**：accepted（2026-09-10 开发者就四条取舍作出结论；2026-09-11 按 UI 重设计修订，见「决策记录」）
+# 模型角色（role）的后端契约
 
 ## 问题
 

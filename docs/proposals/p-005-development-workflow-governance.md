@@ -1,6 +1,15 @@
-# 开发流程与角色治理提案
+---
+schema: nbook.proposal/v1
+status: accepted
+created: 2026-08-22
+decided: 2026-08-24
+supersedes: []
+superseded-by: null
+specs: []
+adrs: []
+---
 
-状态：accepted
+# 开发流程与角色治理提案
 
 ## 问题
 

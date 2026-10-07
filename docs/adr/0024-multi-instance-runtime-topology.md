@@ -1,6 +1,12 @@
+---
+schema: nbook.adr/v1
+status: accepted
+decided: 2026-10-07
+superseded-by: null
+---
+
 # ADR 0024：多实例运行时拓扑：项目子进程、内核路由的远程服务与专用 RPC 端口
 
-- 状态：Accepted
 - 日期：2026-10-07
 - 决策者：开发者
 - 关联工作：[w00017](../../.agents/works/w00017-application-runtime-architecture/README.md)
