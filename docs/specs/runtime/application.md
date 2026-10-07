@@ -13,7 +13,7 @@ owners:
 
 给浏览器、后端及验证宿主提供一致的运行实例启动、接纳、停止与结果查询边界。环境适配器把宿主事件和已解析能力交给小内核；产品装配选择服务及就绪条件，不把框架 hook、端口监听或页面出现当作业务 ready。
 
-本合同覆盖第一切片的环境适配入口及其后被内置服务消费的门禁接口。第一切片用受控装配验证真实宿主事件，不要求同时迁移完整产品清单。它不规定登录、Project、Job 的领域状态机，不新增 HTTP API、通用 RPC、安装升级协议、桌面重写或第三方插件执行沙箱；不把 `ready` 扩展为“所有可选功能和 UI 恢复成功”。
+本合同覆盖第一切片的环境适配入口及其后被内置服务消费的门禁接口。第一切片用受控装配验证真实宿主事件，不要求同时迁移完整产品清单。它不规定登录、Project、Job 的领域状态机，不新增 HTTP API、安装升级协议、桌面重写或第三方插件执行沙箱；跨实例调用见 [远程服务与 RPC 协议](plugin-channel.md)；不把 `ready` 扩展为“所有可选功能和 UI 恢复成功”。
 
 ## 术语与参与者
 
@@ -23,6 +23,8 @@ owners:
 - **运行实例**：一次环境加载/启动，身份在此次存活期间固定；重启是新实例。
 - **接纳门禁**：决定能否开始新业务的结果；与诊断通道、内部清理权限分开。
 - **紧急输出**：在诊断插件尚未就绪或失败时仍可报告最小错误的宿主能力。
+- **子实例**（随 t52 实现）：由某个运行实例（父实例）按键创建、停止并计数使用者的另一个运行实例，例如服务端为每个打开的项目创建的项目实例。子实例可以在另一个进程里；父实例只持有它的记录与宿主回调，不持有它的作用域。
+- **租约**：使用者（客户端绑定、Agent 会话、后台任务）对某个子实例代次的使用登记；最后一个租约释放后子实例进入宽限期。
 
 ## 输入与前置条件
 
@@ -40,6 +42,8 @@ owners:
 - 装配方可以指定启动必需的插件。登记完成后、执行门禁之前，并发激活启动必需插件在本位置的全部入口与声明了 `onStartup` 的本位置入口；依赖先于依赖者完成激活，不按清单顺序串行，其余入口保持懒激活。启动必需插件的入口受阻或激活失败时启动失败；非必需的 `onStartup` 入口受阻或失败只记录为可选失败。
 - 停止进入后拒绝新业务与新激活，但已接纳操作以及其清理仍按精确 owner 使用存活依赖。停止结果区分完成、失败/未完成及强制终止后未知，不能把超时映射成正常 closed。
 - 描述登记、同一服务重复解析和普通 UI 读取不反复添加进程信号/浏览器监听。实例释放后，适配器自己的监听和订阅不再触发该实例。
+- **子实例与租约**（随 t52 实现）：父实例经 `createChildInstances(parent, options)` 管理子实例，宿主回调负责真正创建与停止（例如启动子进程）。`acquire(键, 持有者)` 返回租约或拒绝原因；子实例代次单调递增、不复用。父实例开始停止时**同步**关闭接纳，之后的 `acquire` 一律以 `admission-closed` 拒绝；随后停止全部子实例并等待真实退出或到截止强制结束，最后才释放父实例自己的其余资源。强制结束记为外部观察到的终止并写诊断，不报为正常关闭。
+- **远程节点**（随 t52 实现）：清单可以给出远程节点，插件宿主据此交出远程提供项、在激活上下文中提供 `remote`；没有远程节点时远程调用返回 `unavailable`。
 
 ## 状态与转换
 
@@ -52,6 +56,21 @@ owners:
 | 停止中 | 所有受管操作、未完成获取与资源均已确认收口 | 已关闭；重复停止观察同一次结果 |
 | 停止中 | 清理失败、超时或远端结果未知 | 保持停止中与失败记录；不得给新 owner 报可接管 |
 | 任意存活阶段 | 宿主强制终止/页面被丢弃 | 无异步保存保证；恢复由持久化与领域 owner 负责 |
+
+子实例（随 t52 实现），以“键 + 代次”为单位：
+
+| 当前 | 事件 | 结果 |
+|---|---|---|
+| 不存在 | 首个 `acquire` | `creating`，新代次；宿主回调创建；等待中的 `acquire` 随创建结果一起结算 |
+| `creating` | 创建成功 | `available`；等待者取得租约 |
+| `creating` | 创建失败 | `terminated`；等待者得到 `create-failed` |
+| `available` | 最后一个租约释放 | `idle-grace`，按注入时钟开始宽限计时 |
+| `idle-grace` | 新 `acquire` | 取消关闭，回到 `available` 并取得租约 |
+| `idle-grace` | 宽限期满 | `stopping`；宿主回调停止 |
+| `stopping` | 新 `acquire` | 不复活本代次；等它进入 `terminated` 后以新代次创建（父实例已在停止则 `admission-closed`） |
+| `stopping` | 子实例退出或到截止强制结束 | `terminated`；强制结束带标记与诊断 |
+| `available`、`idle-grace` | 子实例意外退出 | `terminated`；全部租约失效，持有者收到失效通知 |
+| 任意 | 父实例开始停止 | 同步关闭接纳；存活子实例依次进入 `stopping` |
 
 显式用户关闭的 dirty/在途协商在真正停止前进行；否决不改变原可用状态。程序退出信号、租约失效、用户强制退出不能统一当作可无限否决的关闭请求。已关闭实例不复活；重启分配新实例身份。失败恢复遵循 [资源生命周期](lifecycle.md)，不在每次请求时自动重试。
 
@@ -87,6 +106,7 @@ owners:
 - **启动与关闭竞态**：初始化未完成时停止，迟到完成没有重开接纳；已得到的资源释放一次。消费者关闭时仍能完成依赖清理；依赖关闭失败则不报整实例 closed。
 - **真实宿主事件**：后端合作停止信号和浏览器显式销毁都走同一生命周期合同；移除适配器后重复事件不能调用旧实例。浏览器强制卸载只报告无法保证，不以测试中的异步回调成功假定真实卸载可靠。
 - **隔离与伸缩**：两个浏览器实例、两个本地子作用域的提供者不串实例；一个窗口释放不发送共享后端全局关闭。更换受控装配的能力集合不修改机制实现。
+- **子实例与租约**（随 t52 实现）：状态表每个转换各一例（宽限期用注入时钟）；宽限期内新租约取消关闭；`stopping` 中的新租约得到新代次；父实例停止后新租约被拒、子实例先于父实例其余资源停止；强制结束记为外部终止；子实例代次不复用。
 - 上述五组由 `bun run smoke:runtime-foundation -- --host server|browser` 在真实后端子进程与真实 Chromium 上运行，另由内核与两个适配器的合同测试在进程内覆盖竞态与拒绝分支。运行数据遵守 [测试与临时根合同](../../testing/README.md)；第一切片不初始化产品数据库、不调用 Provider，不以 Component Lab fixture 替代宿主验证。
 
 ## 实现合同
@@ -122,4 +142,5 @@ owners:
 - 实现与验证：[w00017 t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（内核、适配器、双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对、公开面收紧并晋升）。
 - 启动必需插件与 `onStartup` 启动激活：依据 [可扩展应用平台设计](../../proposals/extensible-application-platform.md) P11 与 [`runtime.plugin-manifest`](plugin-manifest.md) 第 7、8 条，实现与验证见 [w00017 t32](../../../.agents/works/w00017-application-runtime-architecture/tasks/t32-kernel-entry-dependencies/README.md)。
 - 清单删除 `receivers`：接收者改由拥有者插件提供，见 [w00017 t33](../../../.agents/works/w00017-application-runtime-architecture/tasks/t33-owner-contribution-points/README.md)。
+- 子实例、租约与远程节点：依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 2 节与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`），随 [w00017 t52](../../../.agents/works/w00017-application-runtime-architecture/tasks/t52-kernel-instances-remote/README.md) 实现；真实子进程宿主随后续 K3。
 - 已知限制：本规范描述第一切片的受控装配入口；产品的进程级服务已迁为启动必需的内置插件（[t34](../../../.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/README.md)），生产进程由自有宿主入口经 `ServerRuntimeHost` 建立实例并处理信号与停止通道，开发模式与 CLI 共用同一启动函数（[t37](../../../.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/README.md)，行为见 [`runtime.server-host`](server-host.md)）。POSIX 信号路径未在本机（Windows）实测：Windows 上外部进程无法合作发送信号，smoke 走 stdin `stop` 通道，适配器的信号翻译由合同测试的进程替身覆盖。显式关闭的 dirty/在途协商由调用方在调用 `stop()` 之前完成，第一切片没有 dirty 参与者，内核不提供否决接口。强制终止后的「未知」由外部观察者（持久化与领域 owner）判断，不属于实例自身可报告的结果。Desktop/Worker 无实测。

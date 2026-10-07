@@ -32,8 +32,12 @@ owners:
 - **目录**：描述登记后形成的可查询集合；目录中存在描述不代表实现已激活，也不代表权限通过。静态描述独立于激活寿命：正常关闭只撤回可调用实现，描述保留并携带不可用原因（例如未激活或作用域已关闭）。
 - **激活代次**：一次激活的身份；重新启用必须基于存活的新作用域并产生新代次，已关闭作用域不重新激活，旧代次与旧句柄一律失效。
 - **受控贡献事务**：激活期间新增的 handler、订阅、注册先由本次激活拥有，全部必需步骤成功后才对外发布。
-- **服务 id**：入口对外提供的服务键名，形如 `<插件 id>/<名称>`，归该插件所有；`<插件 id>/channel` 保留给插件通道。
+- **服务 id**：入口对外提供的服务键名，形如 `<插件 id>/<名称>`，归该插件所有；`<插件 id>/channel` 为保留名（原插件通道服务；2026-10-07 起插件通道由远程服务取代，名称继续保留，避免旧清单误用）。
 - **受阻**：入口因必需依赖不可满足而不能激活的推导状态，不是失败，也不是用户设置。
+- **按调用方提供项**（随 t52 实现）：入口以 `providePerConsumer` 交出的提供项，服务装配为每个调用方生成门面（[`runtime.services`](./services.md) 输出第 12 条）。
+- **代理入口**（随 t52 实现）：声明了 `delegates`（可代表调用方解析的服务键）的入口，所属插件须在装配方给出的允许清单内。
+- **激活事件前缀**（随 t52 实现）：插件以 `activationEventPrefixes` 声明自己拥有的前缀，只有拥有者能请内核触发 `<前缀>:<参数>`；内核自己保留前缀 `onRemote`。
+- **远程提供项**（随 t52 实现）：入口以 `remoteProvides` 静态声明、激活时以 `provideRemote` 交出的远程服务实现（[远程服务与 RPC 协议](./plugin-channel.md)）。
 
 ## 输入与前置条件
 
@@ -65,6 +69,10 @@ owners:
 16. **接收者接上与补交**：拥有者入口激活时，激活产出的 `receivers` 必须与入口的 `receives` 完全一致。产出核对通过后、发布之前接上这些接收者，随后补交该点已可用的贡献：入口贡献按贡献方代次整批补交（同一批跨接收者先全部 `prepare`，再全部 `commit`），顶层声明逐条补交。补交在拥有者的 `activate()` 返回前完成。某一批补交失败只把这一批标为交付失败（可查询、记诊断），已准备的项按逆序以 `delivery-failed` 撤回，贡献方与拥有者的激活结果都不受影响。顶层声明交给接收者的句柄 `kind` 为 `plugin`，`implementation()` 抛 `PluginStateError`。
 17. **交付与撤回**：贡献方激活时，已接上接收者的贡献按受控事务（第 5 条）交付，失败则贡献方激活失败；接收者未接上的贡献照常发布，交付状态为等待接收者。贡献方关闭时，已交付项逆序以 `scope-closed` 撤回。拥有者关闭时，接收者断开前把已交付给它的项逐一以 `receiver-closed` 撤回，这些贡献回到等待接收者，贡献方不受影响；断开先于拥有者自己的激活产出释放，撤回回调仍能使用拥有者的实现。拥有者恢复并重新激活后按第 16 条重新补交。两边同时关闭时每条交付恰好撤回一次；同一接收者上的补交、事务交付与撤回串行执行，不交错。
 18. **贡献不构成依赖**：只经贡献点协作的两个插件之间没有依赖边；拥有者受阻、激活失败或缺席不使贡献方受阻或失败，贡献等待接收者。
+19. **按调用方提供项**（随 t52 实现）：入口在 `provides` 中声明的键，激活产出可以用 `provide`（共享实例）或 `providePerConsumer`（按调用方门面）交出，交付规则与第 13 条的关闭顺序不变；激活上下文的必需依赖与可选依赖解析属于同一次激活，得到同一门面，门面随这次激活的作用域释放。
+20. **委托**（随 t52 实现）：代理入口在处理调用方请求时以 `context.services.resolveFor(调用方身份, 键)` 取得目标服务的门面；核对规则与拒绝原因见 [`runtime.services`](./services.md) 输出第 13 条。
+21. **拥有者定义的激活事件**（随 t52 实现）：入口的 `activationEvents` 可以写 `onStartup` 或 `<前缀>:<参数>`。前缀的拥有者调用 `triggerActivationEvent(事件, {requester})`，内核激活本位置声明了该事件的全部入口并逐个返回激活结果，复用第 3 条的激活合并；非拥有者触发被拒。没有插件拥有的前缀：该事件被忽略并记诊断，插件其它部分照常；两个插件声明同一前缀时两者的声明都不生效并记诊断，与登记顺序无关。前缀 `onRemote` 归内核，插件不能声明。
+22. **远程提供项**（随 t52 实现）：入口的 `remoteProvides` 列出合同 id；激活产出的 `remote` 必须与之完全一致，缺少为 `missing-remote`、多出为 `undeclared-remote`，都是输出阶段失败。远程调用到达时声明了该合同的入口未激活，内核按 `onRemote:<合同 id>` 激活它。远程提供项随入口停止撤回：门面作废、经它建立的订阅取消（[远程服务与 RPC 协议](./plugin-channel.md)）。
 
 ## 状态与转换
 
@@ -131,7 +139,7 @@ owners:
 - **owner 与依赖方向**：owner 为 runtime；依赖 [`runtime.services`](./services.md) 与 [`runtime.lifecycle`](./lifecycle.md)；不得 import 产品领域实现、框架 hook 或数据库驱动。能力适配通过各自 Spec 的贡献合同接入，本能力不内置命令、Storage、Config、View 的领域语义。
 - **资源与数据 owner**：基础设施插件提供机制，不自动成为物理资源的 owner；只有有 owner 的资源才登记，例如文件句柄与数据库连接。SQLite 提供连接、事务与迁移执行机制，而具体数据库物理资源的 owner 是相应资源作用域——Project 数据库属于该 Project 代次——不是进程级插件 id。
 - **权限与安全**：仅装配受信内置代码；不接收网络请求任意登记提供者；描述、目录与可调用性都不构成授权；不提供恶意代码沙箱。
-- **跨位置**：不做网络原子激活、不传对象引用、不提供通用 RPC 或写操作的自动重试；跨位置协议与授权归 `runtime.application` 与各能力合同。
+- **跨实例**：不做网络原子激活、不传对象引用、不自动重试写操作；跨实例调用经 [远程服务与 RPC 协议](./plugin-channel.md)，不构成依赖边。
 - **兼容与迁移**：允许 clean cutover（迁移全部调用方并删除旧入口）；本批不提供热卸载、不承诺第三方 SDK 兼容、不新增发布包、不改变数据格式或迁移策略。首批验收只要求底座与最小内置服务插件集合（diagnostics、platform-files、sqlite）真实可用，不要求全部业务插件迁移。
 - **相邻合同**：服务声明与解析（含提供声明到激活的协作、对外依赖边与运行时等待环）见 [`runtime.services`](./services.md)；资源所有权与关闭见 [`runtime.lifecycle`](./lifecycle.md)；应用清单、启动门禁与跨位置装配见 `runtime.application`。
 - **已批准的后续目标**（`planned`，实现后本文随之修订非目标）：插件清单见 [`runtime.plugin-manifest`](./plugin-manifest.md)，其中按入口的服务依赖、受阻推导、汇总状态、启停顺序（输出第 11–14 条），以及贡献点由拥有者定义、按单条贡献校验与交付（输出第 15–18 条），已对代码定义的插件实现；清单文件、版本范围与插件通道仍为 `planned`；运行期启用、禁用与引用撤回见 [`runtime.plugin-hot-plug`](./plugin-hot-plug.md)；第三方安装与热升级见 [`runtime.plugin-install`](./plugin-install.md)；代码装载与回收见 [`runtime.plugin-code-loading`](./plugin-code-loading.md)。
@@ -164,6 +172,9 @@ owners:
 20. **回调串行**：两个贡献方并发激活与一次挂起的补交交错时，同一接收者观察到的回调不交错。
 21. **结构拒绝**：`receives` 引用未定义的点、同位置两个入口接收同一个点、贡献点 id 在本插件内重复或被另一插件定义，各自使整个插件不登记；激活产出缺少声明的接收者为 `missing-receiver`、给出未声明的接收者为 `undeclared-receiver`，都是输出阶段失败。
 22. **贡献不构成依赖**：拥有者入口受阻或激活失败时，贡献方照常激活，贡献等待接收者。
+23. **按调用方提供项与委托**（随 t52 实现）：见 [`runtime.services`](./services.md) 场景 10、11，插件侧另验证必需与可选依赖共用同一门面、`providePerConsumer` 交出的实例只交付一次。
+24. **激活事件前缀**（随 t52 实现）：拥有者触发前缀事件激活声明它的入口并得到结果；非拥有者触发被拒；无人拥有的前缀被忽略并记诊断；两个插件声明同一前缀时两者都不生效；插件声明 `onRemote` 前缀被拒。
+25. **远程提供项**（随 t52 实现）：`remote` 与 `remoteProvides` 不一致分别为 `missing-remote`、`undeclared-remote`；首次远程调用按 `onRemote:<合同 id>` 激活懒入口；入口停止后它的远程门面作废、订阅取消。
 
 Smoke 以目录查询、激活结果与贡献可见性为准。场景 1–11 与 16–22 由下节合同测试逐条覆盖，其中场景 11 的接收者由拥有者插件提供；场景 12–15 由合同测试覆盖，在产品内置服务迁成插件后由 `smoke:product-lifecycle` 的 L2 与 L3、L4 读取同一组诊断在真实进程上核对；场景 8、9 的真实浏览器半边由 `smoke:runtime-foundation` 在真实 Chromium 上运行同一份受控清单验证（启动必需的 `command-owner` 插件定义 `commands` 贡献点并交出接收者，greeter 插件在两个窗口各自激活并向它贡献一条命令，可选 flaky 插件在浏览器与后端分别失败且不影响 greeter）。
 
@@ -195,4 +206,5 @@ Smoke 以目录查询、激活结果与贡献可见性为准。场景 1–11 与
 - 实现与验证：[w00017 t07](../../../.agents/works/w00017-application-runtime-architecture/tasks/t07-runtime-plugins/README.md)（机制与合同测试）、[t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（真实双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对并晋升）。
 - 入口与服务级依赖（输出第 11–14 条、场景 12–15）：依据 [可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3、P11（2026-09-30 `accepted`）与 [`runtime.plugin-manifest`](./plugin-manifest.md) 第 2–9 条，实现与验证见 [w00017 t32](../../../.agents/works/w00017-application-runtime-architecture/tasks/t32-kernel-entry-dependencies/README.md)。
 - 贡献点由拥有者定义、按单条校验与交付账本（输出第 15–18 条、场景 16–22）：依据同一设计的 P1 第 2、4 项与 P3，以及 [`runtime.plugin-manifest`](./plugin-manifest.md) 第 10 条，实现与验证见 [w00017 t33](../../../.agents/works/w00017-application-runtime-architecture/tasks/t33-owner-contribution-points/README.md)。
+- 按调用方提供项、委托、激活事件前缀与远程提供项（输出第 19–22 条、场景 23–25）：依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4 节与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`），随 [w00017 t52](../../../.agents/works/w00017-application-runtime-architecture/tasks/t52-kernel-instances-remote/README.md) 实现。
 - 已知限制：首批真实内置插件（diagnostics、platform-files、sqlite）归第二片；第一片只有受控插件证明机制。命令/View/设置等贡献点的领域字段与校验由各能力 Spec 在首次消费时补齐。声明层在运行期的出现与消失归 [`runtime.plugin-hot-plug`](./plugin-hot-plug.md)：拥有者已接上之后才登记的插件，其顶层声明要等下次接上才补交；之后登记的重复贡献使已交付的那条变为 `rejected`，但不撤回已有交付。

@@ -22,7 +22,7 @@ owners:
 
 ## 术语与参与者
 
-- **运行位置**：执行代码的环境（浏览器标签页/renderer、后端进程、桌面进程、受管 Worker）。本能力按位置分别建立作用域，不建立跨位置的父子作用域。
+- **运行位置**：执行代码的宿主，由宿主以字符串声明，例如 `server`、`project`、`browser`、`tui`；内核不列举运行位置（2026-10-07 起，见 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)）。本能力按运行实例分别建立作用域，不建立跨实例的父子作用域；子实例与父实例之间的关系见 [`runtime.application`](./application.md)。
 - **运行实例**：某次启动的具体环境实例，拥有自己的作用域树。刷新、重启或再次启动产生新的运行实例。
 - **作用域**：拥有运行资源的边界，也是资源登记与关闭发生的单位；创建作用域的参与者是它的唯一 owner。
 - **资源**：具有独立寿命的运行对象，如连接、文件句柄、订阅、监听器、计时器、Worker、租约、注册表条目。
@@ -53,6 +53,7 @@ owners:
 5. **重复关闭**：对停止中或已关闭的作用域重复请求关闭，不重复副作用，并返回同一次关闭的结果；普通重复请求不另起清理，显式恢复才另起一次关闭尝试，且不得与仍 pending 的清理并发重入。
 6. **取消语义与执行方分离**：取消请求后等待方得到的观察结果为已取消或结果未知，并停止等待；这描述的是等待方，不证明执行方已终止，也不缩短“使用未结束不得释放”的约束。执行方可在取消竞态中成功，成功结果同样有效、不回滚、也不改记为已取消；操作占用资源的释放以执行方终止为准。机制不自动重放、不自动撤销已发生的写入或外部副作用；调用方断线不证明远端已终止。
 7. **失败可见**：创建失败、收口失败与超时都留下可查询的失败记录，包含作用域、阶段与原因；因关闭门禁未满足而保持停止中时，也能查询待返回的受管获取与仍占用资源的在途操作；诊断不携带凭据、secret 或文件内容。
+8. **可注入时钟**（随 [w00017 t52](../../../.agents/works/w00017-application-runtime-architecture/tasks/t52-kernel-instances-remote/README.md) 实现）：内核里需要计时的机制（远程调用超时、子实例宽限期）只经宿主可注入的时钟 `{now(), schedule(callback, ms) → cancel}` 计时，默认是系统时钟；测试以注入时钟推进，不做真实等待。
 
 ## 状态与转换
 
@@ -145,6 +146,7 @@ Smoke 以场景操作序列为主，通过公开查询与宿主观察结果判�
   - 在途操作分两个视角：等待方 `outcome` 在取消或作用域停止时立即 `cancelled`；执行方 `termination` 只在 `run` 实际结束后结算，取消竞态中成功仍记 `completed`，占用资源以 `termination` 为准释放。
   - `stopping` 时 `register` 仍接受但标记 `late: true`，只收口不出借；`closed` 后一切登记抛 `LifecycleStateError`。
   - 失败记录只含 `name/message`，不携带资源值。
+  - （随 t52 实现）`RuntimeLocation` 是宿主声明的字符串；`clock.ts` 导出 `RuntimeClock` 与 `systemClock`。
 - **合同测试**：`packages/nb-runtime/src/lifecycle/lifecycle.test.ts`（30 例），在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行（strict，无 DOM lib，无产品或 Agent setup）。
 - **实际 smoke**：`bun run smoke:runtime-foundation -- --host server|browser`，见 [`runtime.application`](./application.md#实现合同)。
 
