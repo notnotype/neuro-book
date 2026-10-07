@@ -58,6 +58,16 @@ const SMOKE_NOT_APPLICABLE_PATTERN = /^不适用[—–-]{1,2}\s*\S/u;
 const WORK_TASK_README_PATTERN = /^\.agents\/works\/[^/]+\/tasks\/[^/]+\/README\.md$/u;
 const NB_UI_COMPONENT_BARREL = "packages/nb-ui/src/components/index.ts";
 const NB_UI_COMPONENT_EXPORT_PATTERN = /export \{default as \w+\} from "\.\/([\w/.-]+)\.vue";/gu;
+const PROPOSAL_STATUSES = new Set(["draft", "reviewing", "accepted", "rejected", "superseded"]);
+/** 这些状态的提案仍在活跃目录，必须登记在索引里；其余状态的应移入归档。 */
+const ACTIVE_PROPOSAL_STATUSES = new Set(["draft", "reviewing", "accepted"]);
+const ADR_STATUSES = new Set(["accepted", "superseded"]);
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
+const PROPOSAL_INDEX = "docs/proposals/README.md";
+/** Spec 正文里的 Task 引用：`t52`、`w00017`（含“随 t55”、Task 目录链接）。 */
+const TASK_REFERENCE_PATTERN = /\b(?:t\d{2}|w\d{5})\b/gu;
+/** “证据”一节允许的固定标签行；批准依据之外的叙述属于 Task。 */
+const EVIDENCE_LINE_PATTERN = /^(?:[-*]\s+)?(?:\*\*)?(?:实现入口|合同测试|Smoke|批准依据)(?:\*\*)?[：:]/u;
 const COMPONENT_TAGS = new Set([
     "state:local", "state:shared-read", "state:shared-write", "state:inject",
     "persist:local", "persist:session", "persist:idb",
@@ -98,9 +108,10 @@ export function checkDocumentation(repoRoot: string, options: DocumentationCheck
     checkRequiredIndexes(fileSet, failures);
     checkDocsRoot(files, failures);
     checkAdrs(normalizedRoot, files, failures);
+    checkProposals(normalizedRoot, files, fileSet, failures);
     checkActiveLinks(normalizedRoot, files, fileSet, failures, warnings);
     checkSpecRegistry(normalizedRoot, fileSet, failures);
-    checkSpecs(normalizedRoot, files, fileSet, failures);
+    checkSpecs(normalizedRoot, files, fileSet, failures, warnings);
     checkComponentDocuments(normalizedRoot, fileSet, failures);
     checkCurrentTaskContracts(normalizedRoot, files, fileSet, warnings);
 
@@ -150,12 +161,99 @@ function checkAdrs(repoRoot: string, files: readonly string[], failures: string[
         const sameNumber = byNumber.get(number) ?? [];
         sameNumber.push(path);
         byNumber.set(number, sameNumber);
-        const heading = readFileSync(resolve(repoRoot, path), "utf8").match(/^# ADR (\d{4})(?:\b|：)/mu)?.[1];
+        const text = readFileSync(resolve(repoRoot, path), "utf8");
+        const heading = text.match(/^# ADR (\d{4})(?:\b|：)/mu)?.[1];
         if (heading !== number) failures.push(`ADR 标题编号与文件名不一致：${path}（标题 ${heading ?? "缺失"}，文件名 ${number}）`);
+        checkDecisionFrontmatter(path, text, {kind: "ADR", schema: "nbook.adr/v1", statuses: ADR_STATUSES, decidedRequiredFor: ADR_STATUSES}, failures);
     }
     for (const [number, paths] of byNumber) {
         if (paths.length > 1) failures.push(`ADR 编号重复 ${number}：${paths.join(", ")}`);
     }
+}
+
+/**
+ * 提案的 frontmatter 与索引登记（docs/proposals/README.md 的“frontmatter”）：状态只写在 frontmatter；
+ * draft、reviewing、accepted 的提案必须登记在索引里，rejected、superseded 的不留在活跃目录。
+ */
+function checkProposals(repoRoot: string, files: readonly string[], fileSet: ReadonlySet<string>, failures: string[]): void {
+    const proposals = files.filter((path) => path.startsWith("docs/proposals/") && path.endsWith(".md") && !SPEC_SUPPORT_FILENAMES.has(posix.basename(path)));
+    if (proposals.length === 0) return;
+    const indexed = new Set<string>();
+    if (fileSet.has(PROPOSAL_INDEX)) {
+        for (const url of collectLinkUrls(fromMarkdown(readFileSync(resolve(repoRoot, PROPOSAL_INDEX), "utf8")))) {
+            const target = resolveRelativeLink(PROPOSAL_INDEX, url);
+            const resolved = target === null ? null : resolveLinkTarget(target, fileSet);
+            if (resolved !== null) indexed.add(resolved);
+        }
+    }
+    for (const path of proposals) {
+        const status = checkDecisionFrontmatter(path, readFileSync(resolve(repoRoot, path), "utf8"), {
+            kind: "提案",
+            schema: "nbook.proposal/v1",
+            statuses: PROPOSAL_STATUSES,
+            decidedRequiredFor: new Set(["accepted", "rejected"]),
+        }, failures);
+        if (status === null) continue;
+        if (ACTIVE_PROPOSAL_STATUSES.has(status)) {
+            if (!indexed.has(path)) failures.push(`提案未登记在 ${PROPOSAL_INDEX}：${path}（${status}）`);
+        } else {
+            failures.push(`${status} 的提案应移入 docs/archived/proposals/：${path}`);
+        }
+    }
+}
+
+type DecisionDocumentRules = {
+    kind: "提案" | "ADR";
+    schema: string;
+    statuses: ReadonlySet<string>;
+    decidedRequiredFor: ReadonlySet<string>;
+};
+
+/** 提案与 ADR 共用的 frontmatter 校验；返回合法的 status，frontmatter 缺失或 status 非法时返回 null。 */
+function checkDecisionFrontmatter(path: string, text: string, rules: DecisionDocumentRules, failures: string[]): string | null {
+    // 中文与英文之间留空格：“提案的 schema”“ADR 的 schema”。
+    const subject = rules.kind === "ADR" ? "ADR " : rules.kind;
+    const frontmatter = readFrontmatter(text);
+    if (frontmatter.status === "missing") {
+        failures.push(`${subject}缺少 YAML frontmatter：${path}`);
+        return null;
+    }
+    if (frontmatter.status === "invalid") {
+        failures.push(`${subject}的 frontmatter ${frontmatter.message}：${path}`);
+        return null;
+    }
+    const fields = frontmatter.fields;
+    if (fields.schema !== rules.schema) failures.push(`${subject}的 schema 必须是 ${rules.schema}：${path}`);
+    const status = fields.status;
+    if (typeof status !== "string" || !rules.statuses.has(status)) {
+        failures.push(`${subject}的 status 必须是 ${[...rules.statuses].join("、")} 之一：${path}`);
+        return null;
+    }
+    if (rules.decidedRequiredFor.has(status) && !(typeof fields.decided === "string" && DATE_PATTERN.test(fields.decided))) {
+        failures.push(`${subject}的 status 为 ${status} 时 decided 必须是 YYYY-MM-DD 日期：${path}`);
+    }
+    if (status === "superseded" && !(typeof fields["superseded-by"] === "string" && fields["superseded-by"].trim() !== "")) {
+        failures.push(`${subject}的 status 为 superseded 时必须填写 superseded-by：${path}`);
+    }
+    return status;
+}
+
+type FrontmatterRead =
+    | {status: "missing"}
+    | {status: "invalid"; message: string}
+    | {status: "ok"; fields: Record<string, unknown>};
+
+function readFrontmatter(text: string): FrontmatterRead {
+    const match = FRONTMATTER_PATTERN.exec(text);
+    if (!match) return {status: "missing"};
+    let raw: unknown;
+    try {
+        raw = parseYaml(match[1]);
+    } catch (error) {
+        return {status: "invalid", message: `无法解析：${error instanceof Error ? error.message : String(error)}`};
+    }
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {status: "invalid", message: "必须是对象"};
+    return {status: "ok", fields: raw as Record<string, unknown>};
 }
 
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u;
@@ -358,7 +456,7 @@ function checkSpecRegistry(repoRoot: string, fileSet: ReadonlySet<string>, failu
     }
 }
 
-function checkSpecs(repoRoot: string, files: readonly string[], fileSet: ReadonlySet<string>, failures: string[]): void {
+function checkSpecs(repoRoot: string, files: readonly string[], fileSet: ReadonlySet<string>, failures: string[], warnings: FileWarning[]): void {
     const registryPath = "docs/specs/README.md";
     if (!files.includes(registryPath)) return;
     const registry = readFileSync(resolve(repoRoot, registryPath), "utf8");
@@ -382,6 +480,7 @@ function checkSpecs(repoRoot: string, files: readonly string[], fileSet: Readonl
         if (!expectedTargets.has(path)) failures.push(`Spec 未登记在“${expectedSection}”：${path}`);
         if (otherTargets.has(path)) failures.push(`Spec 登记的成熟度与 frontmatter 不一致：${path}（${metadata.status}）`);
         if (text.includes("本模板中的说明在填写后删除")) failures.push(`Spec 仍包含模板说明：${path}`);
+        checkSpecProse(path, text, warnings);
 
         if (metadata.kind === "behavior") {
             const sections = markdownSections(text);
@@ -397,6 +496,40 @@ function checkSpecs(repoRoot: string, files: readonly string[], fileSet: Readonl
 
     for (const [capability, paths] of byCapability) {
         if (paths.length > 1) failures.push(`Spec capability 重复 ${capability}：${paths.join(", ")}`);
+    }
+}
+
+/**
+ * Spec 只写行为（docs/specs/README.md 的“Spec 写什么、不写什么”）：历程属于 Task，所以正文里的 Task 引用、
+ * “证据”一节里固定标签与批准依据之外的叙述都给警告。存量 Spec 改到哪份清理哪份，所以不阻断。
+ */
+function checkSpecProse(path: string, text: string, warnings: FileWarning[]): void {
+    const body = text.replace(FRONTMATTER_PATTERN, "");
+    let tree: Root;
+    try {
+        tree = fromMarkdown(body);
+    } catch {
+        // 无法解析的 Markdown 已由 checkActiveLinks 报为失败，这里不重复报告。
+        return;
+    }
+    const headings = tree.children.filter((node) => node.type === "heading" && node.depth === 2);
+    const evidenceIndex = headings.findIndex((heading) => markdownNodeText(heading).trim() === "证据");
+    let prose = body;
+    if (evidenceIndex >= 0) {
+        const start = headings[evidenceIndex].position?.start.offset ?? body.length;
+        const evidenceStart = headings[evidenceIndex].position?.end.offset ?? body.length;
+        const end = headings[evidenceIndex + 1]?.position?.start.offset ?? body.length;
+        prose = body.slice(0, start) + body.slice(end);
+        const extraLines = body.slice(evidenceStart, end).split(/\r?\n/u)
+            .map((line) => line.trim())
+            .filter((line) => line !== "" && !EVIDENCE_LINE_PATTERN.test(line));
+        if (extraLines.length > 0) {
+            warnings.push({path, label: "Spec 的“证据”一节有固定标签与批准依据之外的行", detail: `${path}（${String(extraLines.length)} 行）`});
+        }
+    }
+    const references = [...new Set([...prose.matchAll(TASK_REFERENCE_PATTERN)].map((match) => match[0]))];
+    if (references.length > 0) {
+        warnings.push({path, label: "Spec 正文引用了 Task（只能出现在“证据”一节）", detail: `${path}（${references.slice(0, 5).join("、")}${references.length > 5 ? " 等" : ""}）`});
     }
 }
 

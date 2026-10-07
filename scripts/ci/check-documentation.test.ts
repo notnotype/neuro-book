@@ -53,7 +53,7 @@ function specDocument(options: {capability: string; status?: "planned" | "implem
             "验收与 Smoke",
         ].map((heading) => `## ${heading}\n\n有效说明。`),
         ...(status === "implemented" ? ["## 实现合同\n\n有效实现合同。"] : []),
-        "## 证据\n\n[Registry](../README.md)",
+        "## 证据\n\n- 批准依据：[Registry](../README.md)",
     ].join("\n\n");
     return `---
 schema: nbook.spec/v1
@@ -70,6 +70,23 @@ ${options.body ?? requiredBody}
 `;
 }
 
+function adrDocument(number: string, title: string, frontmatter = "schema: nbook.adr/v1\nstatus: accepted\ndecided: 2026-10-07\nsuperseded-by: null"): string {
+    return `---\n${frontmatter}\n---\n\n# ADR ${number}：${title}\n`;
+}
+
+function proposalDocument(frontmatter: string): string {
+    return `---\nschema: nbook.proposal/v1\n${frontmatter}\n---\n\n# Proposal\n`;
+}
+
+/** behavior Spec 的九个固定章节都有内容；`overrides` 替换其中几节的正文。 */
+function behaviorBody(overrides: Readonly<Record<string, string>>, evidence: string): string {
+    return [
+        ...["目标与非目标", "术语与参与者", "输入与前置条件", "输出与可观察行为", "状态与转换", "副作用与数据", "失败与恢复", "边界与兼容", "验收与 Smoke"]
+            .map((heading) => `## ${heading}\n\n${overrides[heading] ?? "有效说明。"}`),
+        `## 证据\n\n${evidence}`,
+    ].join("\n\n");
+}
+
 afterEach(async () => {
     await Promise.all(fixtureRoots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
 });
@@ -79,7 +96,7 @@ describe("documentation governance gate", () => {
         const fixture = await createDocumentationFixture({
             "docs/standards/rules.md": "# Rules\n\n[Architecture](../specs/architecture.md)\n",
             "docs/specs/architecture.md": specDocument({capability: "test.architecture"}),
-            "docs/adr/0001-first-decision.md": "# ADR 0001：First decision\n",
+            "docs/adr/0001-first-decision.md": adrDocument("0001", "First decision"),
         }, {
             planned: ["docs/specs/architecture.md"],
         });
@@ -103,8 +120,8 @@ describe("documentation governance gate", () => {
 
     it("重复 ADR 编号同时报告两个文件", async () => {
         const fixture = await createDocumentationFixture({
-            "docs/adr/0001-first-decision.md": "# ADR 0001：First decision\n",
-            "docs/adr/0001-second-decision.md": "# ADR 0001：Second decision\n",
+            "docs/adr/0001-first-decision.md": adrDocument("0001", "First decision"),
+            "docs/adr/0001-second-decision.md": adrDocument("0001", "Second decision"),
         });
 
         const report = checkDocumentation(fixture.root, {paths: fixture.paths});
@@ -414,6 +431,84 @@ describe("documentation governance gate", () => {
 
         expect(report.failures).toContain("相对链接目标不存在：docs/standards/assets.md -> images/missing.png（docs/standards/images/missing.png）");
         expect(report.failures).toContain("相对链接目标不存在：docs/standards/assets.md -> README.MD（docs/standards/README.MD）");
+    });
+
+    it("提案与 ADR 的 frontmatter：status 取值、accepted 与 rejected 要有 decided、superseded 要有 superseded-by", async () => {
+        const fixture = await createDocumentationFixture({
+            "docs/proposals/README.md": [
+                "# 项目提案",
+                "",
+                "- [Valid](valid.md)",
+                "- [Missing](missing-frontmatter.md)",
+                "- [Bad status](bad-status.md)",
+                "- [Undecided](undecided.md)",
+                "",
+            ].join("\n"),
+            "docs/proposals/valid.md": proposalDocument("status: accepted\ncreated: 2026-10-01\ndecided: 2026-10-07"),
+            "docs/proposals/missing-frontmatter.md": "# Proposal\n\n状态：accepted\n",
+            "docs/proposals/bad-status.md": proposalDocument("status: approved"),
+            "docs/proposals/undecided.md": proposalDocument("status: accepted\ndecided: null"),
+            "docs/adr/0001-valid.md": adrDocument("0001", "Valid"),
+            "docs/adr/0002-missing.md": "# ADR 0002：Missing\n\n- 状态：Accepted\n",
+            "docs/adr/0003-superseded.md": adrDocument("0003", "Superseded", "schema: nbook.adr/v1\nstatus: superseded\ndecided: 2026-10-07\nsuperseded-by: null"),
+            "docs/adr/0004-wrong-schema.md": adrDocument("0004", "Wrong schema", "schema: nbook.proposal/v1\nstatus: accepted\ndecided: 2026-10-07"),
+            "docs/adr/0005-undecided.md": adrDocument("0005", "Undecided", "schema: nbook.adr/v1\nstatus: accepted"),
+        });
+
+        const report = checkDocumentation(fixture.root, {paths: fixture.paths});
+
+        expect(report.failures).toContain("提案缺少 YAML frontmatter：docs/proposals/missing-frontmatter.md");
+        expect(report.failures).toContain("提案的 status 必须是 draft、reviewing、accepted、rejected、superseded 之一：docs/proposals/bad-status.md");
+        expect(report.failures).toContain("提案的 status 为 accepted 时 decided 必须是 YYYY-MM-DD 日期：docs/proposals/undecided.md");
+        expect(report.failures).toContain("ADR 缺少 YAML frontmatter：docs/adr/0002-missing.md");
+        expect(report.failures).toContain("ADR 的 status 为 superseded 时必须填写 superseded-by：docs/adr/0003-superseded.md");
+        expect(report.failures).toContain("ADR 的 schema 必须是 nbook.adr/v1：docs/adr/0004-wrong-schema.md");
+        expect(report.failures).toContain("ADR 的 status 为 accepted 时 decided 必须是 YYYY-MM-DD 日期：docs/adr/0005-undecided.md");
+        expect(report.failures.some((failure) => failure.includes("docs/proposals/valid.md") || failure.includes("docs/adr/0001-valid.md"))).toBe(false);
+    });
+
+    it("draft、reviewing、accepted 的提案必须登记在索引里；rejected、superseded 的不留在活跃目录", async () => {
+        const fixture = await createDocumentationFixture({
+            "docs/proposals/README.md": "# 项目提案\n\n- [Registered](registered.md)\n- [Rejected](rejected.md)\n",
+            "docs/proposals/registered.md": proposalDocument("status: reviewing\ndecided: null"),
+            "docs/proposals/unregistered.md": proposalDocument("status: draft\ndecided: null"),
+            "docs/proposals/rejected.md": proposalDocument("status: rejected\ndecided: 2026-10-07"),
+            "docs/proposals/superseded.md": proposalDocument("status: superseded\ndecided: 2026-10-01\nsuperseded-by: docs/proposals/registered.md"),
+        });
+
+        const report = checkDocumentation(fixture.root, {paths: fixture.paths});
+
+        expect(report.failures).toEqual([
+            "rejected 的提案应移入 docs/archived/proposals/：docs/proposals/rejected.md",
+            "superseded 的提案应移入 docs/archived/proposals/：docs/proposals/superseded.md",
+            "提案未登记在 docs/proposals/README.md：docs/proposals/unregistered.md（draft）",
+        ]);
+    });
+
+    it("Spec 正文的 Task 引用与“证据”里的叙述只给警告；“证据”的批准依据可以提到 Task", async () => {
+        const fixture = await createDocumentationFixture({
+            "docs/specs/editor/history.md": specDocument({
+                capability: "editor.history",
+                body: behaviorBody(
+                    {"输出与可观察行为": "1. **保存**：写入后返回新 revision（随 t55）。", "边界与兼容": "实现见 w00017。"},
+                    "- 批准依据：开发者在 t55 计划中确认\n- 实现进展：随 t54 完成。",
+                ),
+            }),
+            "docs/specs/editor/clean.md": specDocument({
+                capability: "editor.clean",
+                body: behaviorBody({}, "- 批准依据：开发者在 t55 计划中确认"),
+            }),
+        }, {
+            planned: ["docs/specs/editor/history.md", "docs/specs/editor/clean.md"],
+        });
+
+        const report = checkDocumentation(fixture.root, {paths: fixture.paths});
+
+        expect(report.failures).toEqual([]);
+        expect(report.warnings).toEqual([
+            "Spec 的“证据”一节有固定标签与批准依据之外的行：docs/specs/editor/history.md（1 行）",
+            "Spec 正文引用了 Task（只能出现在“证据”一节）：docs/specs/editor/history.md（t55、w00017）",
+        ]);
     });
 
     it("仓库文档按 GitHub 规则校验锚点", async () => {
