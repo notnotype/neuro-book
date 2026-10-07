@@ -211,6 +211,9 @@
     "packages/nb-runtime": {
       "name": "@notnotype/nb-runtime",
       "version": "0.1.0",
+      "dependencies": {
+        "typebox": "^1.3.6",
+      },
       "devDependencies": {
         "@types/bun": "^1.3.14",
         "typescript": "^6.0.3",
@@ -285,7 +288,6 @@
         "hono": "^4.12.30",
         "proper-lockfile": "4.1.2",
         "typebox": "^1.3.6",
-        "vue": "^3.5.24",
       },
       "devDependencies": {
         "@iconify-json/lucide": "^1.2.95",
@@ -305,6 +307,7 @@
         "vanilla-jsoneditor": "^3.12.0",
         "vite": "^8.1.4",
         "vitest": "^4.1.10",
+        "vue": "^3.5.24",
         "vue-router": "^5.1.0",
         "vue-tsc": "^3.3.7",
       },
