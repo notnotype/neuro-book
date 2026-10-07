@@ -15,6 +15,8 @@ import {join, resolve} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import {BROWSER_PROTOCOL_VERSION} from "nbook/shared/browser-bootstrap";
+
 const packageRoot = resolve(import.meta.dir, "..");
 const bundle = join(packageRoot, "dist", "server", "main.js");
 
@@ -109,7 +111,7 @@ async function main(): Promise<number> {
         const webCode = await web.exit;
         results.push({
             id: "S5",
-            ok: shell.includes("smoke-shell") && fallback === shell && bootstrap.protocolVersion === 1 && webCode === 0,
+            ok: shell.includes("smoke-shell") && fallback === shell && bootstrap.protocolVersion === BROWSER_PROTOCOL_VERSION && webCode === 0,
             evidence: `shell=${String(shell.includes("smoke-shell"))} fallback=${String(fallback === shell)} protocol=${String(bootstrap.protocolVersion)} exit=${String(webCode)}`,
         });
     } finally {

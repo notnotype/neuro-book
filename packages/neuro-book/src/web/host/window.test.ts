@@ -21,13 +21,16 @@ import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exp
 import {errorResponse} from "nbook/plugins/http/server/dispatch";
 import {startServer} from "nbook/server/start";
 import type {RunningServer} from "nbook/server/start";
-import {BROWSER_BOOTSTRAP_PATH} from "nbook/shared/browser-bootstrap";
+import {BROWSER_BOOTSTRAP_PATH, BROWSER_PROTOCOL_VERSION} from "nbook/shared/browser-bootstrap";
 
 import {browserPluginFactories, builtinBrowserPlugins} from "../plugins";
 import type {BrowserPluginFactory} from "../plugins";
 import {createConnection} from "./connection";
 import {createBrowserWindow} from "./window";
 import type {BrowserWindowOptions, WindowState} from "./window";
+
+/** 引导桩里的 RPC 端点：结构合法即可，这些用例不连 RPC。 */
+const STUB_RPC = {port: 1, path: "/"};
 
 let tmp = "";
 let backend: RunningServer;
@@ -40,7 +43,7 @@ function backendAt(port: number): RunningServer {
     sequence += 1;
     const stateRoot = join(tmp, `state-${String(sequence)}`);
     return startServer({
-        config: {host: "127.0.0.1", port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false},
+        config: {host: "127.0.0.1", port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: []},
         process: new EventEmitter(),
         writeFatal: () => undefined,
     });
@@ -149,11 +152,11 @@ describe("窗口运行实例", () => {
     });
 
     it("协议版本不同：提示刷新，先于结构校验", async () => {
-        const stub = serveBootstrap(() => Response.json({protocolVersion: 2, shape: "未来的结构"}));
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION + 1, shape: "未来的结构"}));
         const {browserWindow} = openWindow({url: stub.url});
         await browserWindow.start();
         expect(failureOf(browserWindow.state)?.status).toBe("incompatible");
-        expect(failureOf(browserWindow.state)?.reason).toContain("协议版本是 2");
+        expect(failureOf(browserWindow.state)?.reason).toContain(`协议版本是 ${String(BROWSER_PROTOCOL_VERSION + 1)}`);
         await browserWindow.start();
         expect(browserWindow.state.status).toBe("incompatible");
         stub.stop();
@@ -169,8 +172,8 @@ describe("窗口运行实例", () => {
 
     it("结构不合法或缺少必需插件：启动失败", async () => {
         for (const body of [
-            {protocolVersion: 1, revision: "r", plugins: "nbook.workbench"},
-            {protocolVersion: 1, revision: "r", plugins: [{id: "nbook.diagnostics", version: "0.1.0"}]},
+            {protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins: "nbook.workbench"},
+            {protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins: [{id: "nbook.diagnostics", version: "0.1.0"}]},
         ]) {
             const stub = serveBootstrap(() => Response.json(body));
             const {browserWindow} = openWindow({url: stub.url});
@@ -182,7 +185,7 @@ describe("窗口运行实例", () => {
 
     it("引导集合里没有命令系统：启动失败并指名 nbook.commands（工作台的面板与键位依赖它）", async () => {
         const plugins = builtinBrowserPlugins.filter((plugin) => plugin.id !== "nbook.commands").map(({id, version}) => ({id, version}));
-        const stub = serveBootstrap(() => Response.json({protocolVersion: 1, revision: "r", plugins}));
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins}));
         const {browserWindow} = openWindow({url: stub.url});
         await browserWindow.start();
         expect(failureOf(browserWindow.state)?.status).toBe("startup-failed");
@@ -213,7 +216,7 @@ describe("窗口运行实例", () => {
     it("非必需插件的入口激活失败：只影响该入口，窗口照常 ready", async () => {
         const optional = {id: "nbook.optional", version: "0.1.0", locations: ["browser"] as const};
         const plugins = [...builtinBrowserPlugins, optional].map(({id, version}) => ({id, version}));
-        const stub = serveBootstrap(() => Response.json({protocolVersion: 1, revision: "r", plugins}));
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins}));
         const {browserWindow} = openWindow({
             url: stub.url,
             builtin: [...builtinBrowserPlugins, optional],
@@ -233,7 +236,7 @@ describe("窗口运行实例", () => {
     it("其它插件贡献的页面在窗口 ready 时已在页面表里；两个插件贡献同一路径时都被拒绝，留给服务端的路径被拒绝，窗口照常 ready", async () => {
         const extra = [pagePlugin("test.page", "/probe"), pagePlugin("test.dup-a", "/dup"), pagePlugin("test.dup-b", "/dup"), pagePlugin("test.api", "/api/probe")];
         const builtin = [...builtinBrowserPlugins, ...extra.map((plugin) => plugin.descriptor)];
-        const stub = serveBootstrap(() => Response.json({protocolVersion: 1, revision: "r", plugins: builtin.map(({id, version}) => ({id, version}))}));
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins: builtin.map(({id, version}) => ({id, version}))}));
         const {browserWindow} = openWindow({
             url: stub.url,
             builtin,

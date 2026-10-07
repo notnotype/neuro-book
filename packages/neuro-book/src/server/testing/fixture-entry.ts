@@ -22,6 +22,9 @@ const server = startServer({
     onListening: (url) => {
         console.log(`Listening on ${url}`);
     },
+    onRpcListening: (url) => {
+        console.log(`RPC listening on ${url}`);
+    },
 });
 const {exitCode} = await server.stopped;
 process.exit(exitCode);

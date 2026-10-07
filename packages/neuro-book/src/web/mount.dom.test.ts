@@ -9,6 +9,7 @@ import {describe, expect, it, vi} from "vitest";
 import {createMemoryHistory} from "vue-router";
 
 import type {PluginDescriptor} from "nbook/manifest";
+import {BROWSER_PROTOCOL_VERSION} from "nbook/shared/browser-bootstrap";
 
 import {ConnectionError} from "./host/connection";
 import type {Connection} from "./host/connection";
@@ -17,7 +18,7 @@ import {mountWindowUi} from "./mount";
 import {browserPluginFactories, builtinBrowserPlugins} from "./plugins";
 import type {BrowserPluginFactory} from "./plugins";
 
-const bootstrapOf = (plugins: ReadonlyArray<PluginDescriptor>) => ({protocolVersion: 1, revision: "r", plugins: plugins.map(({id, version}) => ({id, version}))});
+const bootstrapOf = (plugins: ReadonlyArray<PluginDescriptor>) => ({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: {port: 1, path: "/"}, revision: "r", plugins: plugins.map(({id, version}) => ({id, version}))});
 
 /** 前 `failures` 次请求失败、之后成功的连接。 */
 function connection(plugins: ReadonlyArray<PluginDescriptor>, failures = 0): Connection {

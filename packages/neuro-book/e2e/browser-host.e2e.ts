@@ -81,7 +81,7 @@ test("服务端返回 503（例如正在关闭）：同样是可重试的连接�
 });
 
 test("服务端协议版本不同：提示刷新页面，不给原地重试", async ({page}) => {
-    await page.route(BOOTSTRAP, (route) => route.fulfill({json: {protocolVersion: 2}}));
+    await page.route(BOOTSTRAP, (route) => route.fulfill({json: {protocolVersion: 999}}));
     await page.goto(server.url);
     const failure = page.locator('[data-browser-host-status="incompatible"]');
     await expect(failure.getByRole("button", {name: "刷新页面"})).toBeVisible();

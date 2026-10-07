@@ -11,6 +11,7 @@ import {createCommandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/server/plugin";
 import type {HttpAdmission} from "nbook/plugins/http/server/admission";
 import {createHttpPlugin} from "nbook/plugins/http/server/plugin";
+import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
 
 import {createBrowserBootstrapRoute} from "./browser-bootstrap";
 import type {ServerConfig} from "./config";
@@ -22,6 +23,8 @@ export interface ServerPluginContext {
     readonly store: DiagnosticsStore;
     readonly admission: HttpAdmission;
     readonly onListening: (url: string) => void;
+    /** 内核 RPC 端口（已在监听）；引导接口据此告知浏览器。 */
+    readonly rpc: BrowserBootstrap["rpc"];
 }
 
 export type ServerPluginFactory = (context: ServerPluginContext) => PluginDefinition;
@@ -33,7 +36,7 @@ export const serverPluginFactories: Readonly<Record<string, ServerPluginFactory>
         host: context.config.host,
         port: context.config.port,
         onListening: context.onListening,
-        hostRoutes: [createBrowserBootstrapRoute(context.manifest)],
+        hostRoutes: [createBrowserBootstrapRoute(context.manifest, context.rpc)],
         staticRoot: context.config.webRoot,
     }),
     "nbook.commands": () => createCommandsPlugin("server"),

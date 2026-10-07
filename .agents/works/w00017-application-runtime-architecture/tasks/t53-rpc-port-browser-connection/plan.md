@@ -37,7 +37,7 @@
   3. `server.upgrade(req, {data})`，`open` 时把链路交给 `router.accept(link)`。
   选项：`maxPayloadLength` 1 MiB（二进制走 HTTP 资源地址），`idleTimeout` 120 秒加 `sendPings`（Bun 发 ping，客户端不回应即断开，服务端由此发现失联客户端），不开压缩。
 - **允许的来源**：`http://<别名>:<HTTP 端口>`，别名取 `127.0.0.1`、`localhost`、`[::1]`（HTTP 端口为 0 时按实际监听端口算），加上 `NBOOK_ALLOWED_ORIGINS`。比较前按 `new URL(origin).origin` 规范化。
-- **链路**（`rpc/websocket-link.ts`）：Bun `ServerWebSocket` 包成 `RemoteLink`，收发经第 1 节的 JSON 编解码；`close` 回调只触发一次。K2 不做发送背压。
+- **链路**（`src/shared/rpc-socket.ts`，两端共用）：`createSocketLink({send(text), close()})` 把套接字包成 `RemoteLink`，宿主把收到的消息与关闭事件转进来；收发经第 1 节的 JSON 编解码；关闭通知只触发一次。服务端在 `rpc/listener.ts` 里接 Bun `ServerWebSocket`，浏览器在 `connection.ts` 里接 `WebSocket`。K2 不做发送背压。
 - **装配**（`src/server/start.ts`）：建立服务端节点 `createRemoteNode({instance: {id: "server", kind: "server", role: "hub", project: null, client: null}, clock})` 与路由，清单的 `remote` 给它；RPC 监听先于插件装配与运行实例建立（插件装配要把端口交给引导接口；与 HTTP 一样先监听、请求等就绪），标准输出打印 `RPC listening on ws://...`。`RunningServer` 增加 `rpcUrl`。RPC 端口监听失败时还没有运行实例：写出致命诊断、抛出与插件装配失败同类的错误，进程以 1 退出；插件装配失败时先关闭已开的 RPC 监听。
 - **引导接口**（`src/server/browser-bootstrap.ts`、`src/shared/browser-bootstrap.ts`）：响应增加 `rpc: {port, path}`；`BROWSER_PROTOCOL_VERSION` 升为 2（新外壳依赖这个字段，旧外壳遇到新服务端提示刷新）。浏览器用自己页面的主机名与协议（`ws`/`wss`）拼地址，所以 `localhost` 与 `127.0.0.1` 打开的页面各自得到与自己 `Origin` 一致的连接。
 - **停止**（`start.ts` 的 `beforeStop`）：HTTP 排空与 RPC 排空并行：`router.stopAdmission()` 后 `router.drain()`，上限与 HTTP 相同（20 秒），超时记为停止步骤失败、退出码 1；运行实例停止之后 `router.close()` 并 `stop(true)` 关闭 RPC 监听。顺序与拓扑稿第 2 节一致，其中“停止项目子实例”归 K3。
@@ -45,7 +45,7 @@
 
 ### 4. 浏览器连接（宿主 `packages/neuro-book/src/web/host/`）
 
-- **连接对象**（`connection.ts`）：增加 `openRemote(endpoint: {port, path}) → Promise<RemoteLink>`，按页面协议与主机名连接，`open` 时完成；连接前失败抛 `ConnectionError`。浏览器 WebSocket 包成链路在 `websocket-link.ts`，用第 1 节的编解码。
+- **连接对象**（`connection.ts`）：增加 `openRemote(endpoint: {port, path}) → Promise<RemoteLink>`，按页面协议与主机名连接，`open` 时完成；连接前失败抛 `ConnectionError`。浏览器 WebSocket 经第 3 节的共用链路适配包成链路。
 - **客户端身份**（`client-identity.ts`）：`localStorage` 键 `nbook.client-identity` 存一个 UUID；存储不可用（隐私模式、被禁用）时退回本页随机值，读写包在 try/catch 里。
 - **连接会话**（`remote-session.ts`）：`createRemoteSession({connection, node, clock, onState})` 管理首连与重连。
   - 首连属于窗口启动（下一条）。
@@ -57,7 +57,7 @@
 ### 5. 真实浏览器验收用的探针（只在 `testing/`）
 
 - 测试插件 `test.remote-probe`：
-  - 共用合同 `src/web/testing/remote-probe-contract.ts`：方法 `echo`（读，返回调用方身份）、`hold`（写，等测试放行；记录收到的终止信号）；事件 `ticks`。
+  - 共用合同 `src/shared/testing/remote-probe-contract.ts`（服务端测试插件与浏览器测试入口都要引用，放在 `shared/`）：方法 `echo`（读，返回调用方身份）、`hold`（写，等测试放行；记录收到的终止信号）；事件 `ticks`。S3 的服务端停止测试已先用上它。
   - 服务端入口加进 `src/server/testing/test-plugins.ts`，并给 `http.routes` 贡献控制路由：推一次 `ticks`、放行 `hold`、读各 `hold` 的结局。
   - 浏览器入口 `src/web/testing/remote-probe.ts` 在激活时把 `window.__nbRemoteProbe` 挂上去（调用、订阅，以及收到的事件、`onResync`、`onEnd` 计数），供 Playwright 读取。
 - 测试外壳：`src/web/testing/e2e.html` 与 `e2e-main.ts`，经 `createBrowserWindow({builtin, factories})`（现有的测试注入口）加入探针插件；`vite.e2e.config.ts` 构建到 `dist-e2e/web`（加入 git 忽略）。产品的 `dist/web` 不变，`check:dist` 照旧。

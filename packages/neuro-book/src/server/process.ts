@@ -2,7 +2,8 @@
  * 后端进程的启动与退出：解析启动参数，按给定清单启动唯一的运行实例，等停止结算后以约定的退出码结束进程。
  * 产品入口（`main.ts`）与开发入口（`development-main.ts`）只差加载的清单。
  *
- * 监听成功后在标准输出打印一行 `Listening on <地址>`，开发监督进程与 smoke 据此取得实际端口。
+ * 监听成功后在标准输出打印一行 `Listening on <地址>`，开发监督进程与 smoke 据此取得实际端口；内核 RPC 端口
+ * 另打印一行 `RPC listening on <ws 地址>`。
  */
 
 import {writeSync} from "node:fs";
@@ -32,6 +33,9 @@ function startOrExit(config: ServerConfig, manifest: ReadonlyArray<PluginDescrip
             stopInput: config.stopStdin ? process.stdin : null,
             onListening: (url) => {
                 console.log(`Listening on ${url}`);
+            },
+            onRpcListening: (url) => {
+                console.log(`RPC listening on ${url}`);
             },
         });
     } catch (error) {

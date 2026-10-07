@@ -14,10 +14,12 @@ import {Hono} from "hono";
 
 import type {HttpAdmission} from "nbook/plugins/http/server/admission";
 import type {HttpRouteEnv} from "nbook/plugins/http/server/contracts";
+import {remoteProbeContract} from "nbook/shared/testing/remote-probe-contract";
 
 import {ServerAssemblyError, startServer} from "./start";
 import {manifestServerPlugins} from "./plugins";
-import {createTestPlugin, routePlugin} from "./testing/test-plugins";
+import {helloFrame, openRawRpcSocket, upgradeStatus} from "./testing/rpc-client";
+import {createRemoteProbePlugin, createTestPlugin, newRemoteProbeState, routePlugin} from "./testing/test-plugins";
 
 const FIXTURE = join(import.meta.dir, "testing", "fixture-entry.ts");
 const MAIN = join(import.meta.dir, "main.ts");
@@ -38,6 +40,7 @@ type Exit = {readonly code: number | null; readonly signal: string | null};
 interface Spawned {
     readonly stateRoot: string;
     readonly url: Promise<string>;
+    readonly rpcUrl: Promise<string>;
     /** `test.slow` 的放手通道地址（见 `testing/test-plugins.ts`）。 */
     readonly control: Promise<string>;
     readonly exit: Promise<Exit>;
@@ -56,9 +59,11 @@ function spawnServer(options: {readonly plugins?: string[]; readonly entry?: str
         stderr: "pipe",
     });
     const listening = Promise.withResolvers<string>();
+    const rpcListening = Promise.withResolvers<string>();
     const control = Promise.withResolvers<string>();
-    // 多数用例不读这两个地址（启动失败的用例两个都不读）；不让拒绝变成未处理的 Promise 拒绝。
+    // 多数用例不读这几个地址（启动失败的用例都不读）；不让拒绝变成未处理的 Promise 拒绝。
     listening.promise.catch(() => undefined);
+    rpcListening.promise.catch(() => undefined);
     control.promise.catch(() => undefined);
     let stderr = "";
     void (async () => {
@@ -67,10 +72,13 @@ function spawnServer(options: {readonly plugins?: string[]; readonly entry?: str
             stdout += chunk;
             const url = /Listening on (\S+)/u.exec(stdout);
             if (url) listening.resolve(url[1] as string);
+            const rpcUrl = /RPC listening on (\S+)/u.exec(stdout);
+            if (rpcUrl) rpcListening.resolve(rpcUrl[1] as string);
             const release = /Test control on (\S+)/u.exec(stdout);
             if (release) control.resolve(release[1] as string);
         }
         listening.reject(new Error(`子进程未开始监听；stderr：${stderr}`));
+        rpcListening.reject(new Error(`子进程未开始监听 RPC 端口；stderr：${stderr}`));
         control.reject(new Error("子进程没有打印放手通道"));
     })();
     void (async () => {
@@ -80,6 +88,7 @@ function spawnServer(options: {readonly plugins?: string[]; readonly entry?: str
     return {
         stateRoot,
         url: listening.promise,
+        rpcUrl: rpcListening.promise,
         control: control.promise,
         exit,
         stderr: () => stderr,
@@ -120,14 +129,17 @@ function pluginOrder(lines: LogLine[], stage: "publish" | "close"): string[] {
 }
 
 describe("后端宿主（真实子进程）", () => {
-    it("启动后 health 返回 200，诊断先于其余插件激活；标准输入 stop 后依赖逆序关闭并以 0 退出", async () => {
+    it("启动后 health 返回 200、RPC 端口接受升级，诊断先于其余插件激活；标准输入 stop 后依赖逆序关闭并以 0 退出，RPC 端口随之关闭", async () => {
         const server = spawnServer();
         const url = await server.url;
         const health = await fetch(`${url}api/runtime/health`);
         expect(health.status).toBe(200);
         expect(await health.json()).toEqual({status: "ok"});
+        const rpcPort = Number(new URL(await server.rpcUrl).port);
+        expect(await upgradeStatus(rpcPort, {origin: url.replace(/\/$/u, "")})).toBe(101);
         server.stdin("stop\n");
         expect(await server.exit).toEqual({code: 0, signal: null});
+        expect(await upgradeStatus(rpcPort).then(() => "accepted", () => "refused")).toBe("refused");
         const log = await readLog(server.stateRoot);
         // http 与命令系统都只依赖诊断，两者之间没有先后。
         const published = pluginOrder(log, "publish");
@@ -224,7 +236,7 @@ describe("后端宿主（真实子进程）", () => {
 });
 
 describe("后端宿主（同进程）", () => {
-    const config = (name: string) => ({host: "127.0.0.1", port: 0, stateRoot: join(tmpRoot, name), logDirectory: join(tmpRoot, name, "logs"), webRoot: null, stopStdin: false});
+    const config = (name: string) => ({host: "127.0.0.1", port: 0, stateRoot: join(tmpRoot, name), logDirectory: join(tmpRoot, name, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: []});
 
     it("两个插件同时提交 http.routes：各自挂在自己的前缀下", async () => {
         const ping = (reply: string) => () => new Hono<{Bindings: HttpRouteEnv}>().get("/ping", (c) => c.text(reply));
@@ -335,5 +347,131 @@ describe("后端宿主（同进程）", () => {
         expect(fatalLines).toHaveLength(1);
         expect(fatalLines[0]).toContain("runtime.startup.failed");
         expect(fatalLines[0]).toContain("工厂抛错");
+    });
+});
+
+describe("后端宿主的 RPC 端口（同进程，Spec server-host 场景 12、13）", () => {
+    const config = (name: string) => ({host: "127.0.0.1", port: 0, stateRoot: join(tmpRoot, name), logDirectory: join(tmpRoot, name, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: []});
+    const tui = {id: "tui-1", kind: "tui", role: "client" as const, project: null, client: null};
+    const holdRequest = (id: string, name: string): unknown => ({
+        type: "request",
+        id,
+        target: "server",
+        contract: remoteProbeContract.id,
+        version: remoteProbeContract.version,
+        method: "hold",
+        effect: "write",
+        input: {name},
+        $nbConsumer: {instanceId: tui.id, location: "tui", plugin: null, entry: null, generation: null, via: null},
+        $nbChain: [],
+    });
+
+    it("允许的来源：HTTP 端口在三个回环别名上的来源与 NBOOK_ALLOWED_ORIGINS 放行，其它来源 403", async () => {
+        const server = startServer({config: {...config("rpc-origins"), allowedOrigins: ["http://127.0.0.1:5999"]}, process: new EventEmitter(), writeFatal: () => undefined});
+        await server.ready;
+        const rpcPort = Number(new URL(server.rpcUrl).port);
+        const httpPort = new URL(server.url!).port;
+        for (const origin of [`http://127.0.0.1:${httpPort}`, `http://localhost:${httpPort}`, `http://[::1]:${httpPort}`, "http://127.0.0.1:5999"]) {
+            expect(await upgradeStatus(rpcPort, {origin}), origin).toBe(101);
+        }
+        for (const origin of ["http://127.0.0.1:5998", `https://127.0.0.1:${httpPort}`, "http://evil.example", "null"]) {
+            expect(await upgradeStatus(rpcPort, {origin}), origin).toBe(403);
+        }
+        server.requestStop("test:done");
+        expect((await server.stopped).exitCode).toBe(0);
+    }, 20_000);
+
+    it("远程请求在途时停止：新升级得到 503，请求完成后插件才关闭；停止后 RPC 端口不再接受连接，以 0 退出", async () => {
+        const probe = newRemoteProbeState();
+        const server = startServer({config: config("rpc-stop"), plugins: (context) => [...manifestServerPlugins(context), createRemoteProbePlugin(probe)], process: new EventEmitter(), writeFatal: () => undefined});
+        await server.ready;
+        const rpcPort = Number(new URL(server.rpcUrl).port);
+        const client = openRawRpcSocket(server.rpcUrl);
+        await client.opened;
+        client.send(helloFrame(tui));
+        await client.next((frame) => frame.type === "welcome");
+        client.send(holdRequest("r1", "long"));
+        await client.next((frame) => frame.type === "ack" && frame.id === "r1");
+
+        server.requestStop("test:stop");
+        await waitUntil("RPC 端口停止接纳新升级", async () => (await upgradeStatus(rpcPort)) === 503);
+        expect(probe.closed).toBe(false);
+        probe.holds.get("long")!.release("finished");
+
+        expect(await client.next((frame) => frame.type === "result" && frame.id === "r1")).toMatchObject({outcome: {ok: true, value: "finished"}});
+        const outcome = await server.stopped;
+        expect(probe.closed).toBe(true);
+        expect(outcome.exitCode).toBe(0);
+        await client.closed;
+        expect(await upgradeStatus(rpcPort).then(() => "accepted", () => "refused")).toBe("refused");
+    }, 20_000);
+
+    it("RPC 排空超过上限：继续关闭插件，以 1 退出，失败记为 RPC 排空未完成", async () => {
+        const probe = newRemoteProbeState();
+        const timers = new Set<() => void>();
+        const server = startServer({
+            config: config("rpc-drain-timeout"),
+            plugins: (context) => [...manifestServerPlugins(context), createRemoteProbePlugin(probe)],
+            process: new EventEmitter(),
+            clock: {schedule: (task) => {
+                timers.add(task);
+                return () => timers.delete(task);
+            }},
+            writeFatal: () => undefined,
+        });
+        await server.ready;
+        const client = openRawRpcSocket(server.rpcUrl);
+        await client.opened;
+        client.send(helloFrame(tui));
+        await client.next((frame) => frame.type === "welcome");
+        client.send(holdRequest("r1", "never"));
+        await client.next((frame) => frame.type === "ack");
+
+        server.requestStop("test:stop");
+        // HTTP 没有在途请求，它的排空立刻完成并撤销计时；剩下的是 RPC 排空的截止计时。
+        const [deadline] = await waitUntil("只剩 RPC 排空的截止计时", () => (timers.size === 1 ? [...timers] : null));
+        deadline!();
+
+        const outcome = await server.stopped;
+        expect(outcome.exitCode).toBe(1);
+        expect(probe.closed).toBe(true);
+        const drainFailure = (outcome.failures[0] as Error).cause as AggregateError;
+        expect(drainFailure.errors.map((error: Error) => error.message)).toEqual(["RPC 排空未完成"]);
+        // 截止后不再等那个请求：插件关闭、RPC 链路断开，客户端只能按断开结算它。
+        await client.closed;
+        expect(probe.holds.get("never")).toMatchObject({aborted: true, released: false});
+    }, 20_000);
+
+    it("启动失败：等待就绪的 RPC 升级得到 503 startup-failed，以 1 退出", async () => {
+        const hold = Promise.withResolvers<void>();
+        const captured: {admission?: HttpAdmission} = {};
+        const server = startServer({
+            config: config("rpc-startup-failed"),
+            plugins: (context) => {
+                captured.admission = context.admission;
+                return [...manifestServerPlugins(context), createTestPlugin("test.fail-activate", hold.promise)];
+            },
+            process: new EventEmitter(),
+            writeFatal: () => undefined,
+        });
+        server.ready.catch(() => undefined);
+        const waiting = upgradeStatus(Number(new URL(server.rpcUrl).port));
+        await waitUntil("升级进入等待就绪", () => captured.admission?.active === 1);
+        hold.resolve();
+        expect(await waiting).toBe(503);
+        expect((await server.stopped).exitCode).toBe(1);
+    }, 20_000);
+
+    it("RPC 端口被占用：写出致命诊断并抛 ServerAssemblyError，不建立运行实例", () => {
+        const occupant = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response("occupied")});
+        const fatalLines: string[] = [];
+        try {
+            expect(() => startServer({config: {...config("rpc-in-use"), rpcPort: occupant.port!}, process: new EventEmitter(), writeFatal: (line) => fatalLines.push(line)})).toThrow(ServerAssemblyError);
+        } finally {
+            void occupant.stop(true);
+        }
+        expect(fatalLines).toHaveLength(1);
+        expect(fatalLines[0]).toContain("runtime.startup.failed");
+        expect(fatalLines[0]).toContain("RPC");
     });
 });

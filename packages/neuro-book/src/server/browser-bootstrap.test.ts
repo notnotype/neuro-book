@@ -24,7 +24,7 @@ let server: RunningServer;
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-bootstrap", "browser-bootstrap");
     server = startServer({
-        config: {host: "127.0.0.1", port: 0, stateRoot: tmp, logDirectory: join(tmp, "logs"), webRoot: null, stopStdin: false},
+        config: {host: "127.0.0.1", port: 0, stateRoot: tmp, logDirectory: join(tmp, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: []},
         process: new EventEmitter(),
         writeFatal: () => undefined,
     });
@@ -38,7 +38,7 @@ afterAll(async () => {
 });
 
 describe("浏览器引导接口", () => {
-    it("返回协议版本、修订号与清单里有浏览器入口的插件；不缓存，不带服务端路径", async () => {
+    it("返回协议版本、修订号、清单里有浏览器入口的插件与 RPC 端口；不缓存，不带服务端路径", async () => {
         const response = await fetch(new URL(BROWSER_BOOTSTRAP_PATH, server.url!));
         expect(response.status).toBe(200);
         expect(response.headers.get("cache-control")).toBe("no-store");
@@ -47,7 +47,7 @@ describe("浏览器引导接口", () => {
         const body: unknown = JSON.parse(text);
         expect(Value.Check(BrowserBootstrapSchema, body)).toBe(true);
         const expected = productPlugins.filter((plugin) => plugin.locations.includes("browser")).map(({id, version}) => ({id, version}));
-        expect(body).toMatchObject({protocolVersion: BROWSER_PROTOCOL_VERSION});
+        expect(body).toMatchObject({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: {port: Number(new URL(server.rpcUrl).port), path: "/"}});
         expect((body as {plugins: unknown[]}).plugins).toEqual(expect.arrayContaining(expected));
         expect((body as {plugins: unknown[]}).plugins).toHaveLength(expected.length);
     });
@@ -56,10 +56,11 @@ describe("浏览器引导接口", () => {
         const a: PluginDescriptor = {id: "a", version: "1.0.0", locations: ["browser"]};
         const b: PluginDescriptor = {id: "b", version: "1.0.0", locations: ["server", "browser"]};
         const serverOnly: PluginDescriptor = {id: "s", version: "1.0.0", locations: ["server"]};
-        const revision = browserBootstrap([a, b, serverOnly]).revision;
-        expect(browserBootstrap([serverOnly, b, a]).revision).toBe(revision);
-        expect(browserBootstrap([a, b]).revision).toBe(revision);
-        expect(browserBootstrap([{...a, version: "1.0.1"}, b]).revision).not.toBe(revision);
-        expect(browserBootstrap([a]).revision).not.toBe(revision);
+        const rpc = {port: 4100, path: "/"};
+        const revision = browserBootstrap([a, b, serverOnly], rpc).revision;
+        expect(browserBootstrap([serverOnly, b, a], rpc).revision).toBe(revision);
+        expect(browserBootstrap([a, b], {port: 4200, path: "/"}).revision).toBe(revision);
+        expect(browserBootstrap([{...a, version: "1.0.1"}, b], rpc).revision).not.toBe(revision);
+        expect(browserBootstrap([a], rpc).revision).not.toBe(revision);
     });
 });
