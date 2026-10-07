@@ -1,0 +1,125 @@
+# w00017 t55（K4：`nbook.storage`）实现只读审查
+
+审查基线：`2369b72489b718256221b98b90b87852da2fb27d`。开始审查时 HEAD 为 `04891020943bdffa31032e1b4c787fd440e15eba`（7 个提交、59 个文件）；期间新增 `17936315488a51d3911e670e6e2f680834e40b4f`（S6 实现进展与证据），已纳入文档核对。另有开发者正在修改的未提交 Storage Spec 与 `db.exec` → `db.run` 替换；逐项注明版本差异，保留用户改动，审查未编辑仓库文件。
+
+依据：t55 `plan.md`（11 项待确认按建议批准）、`evidences/omp-design-review.txt`、`docs/specs/storage/persistence.md` v2、`runtime/services.md` 输出第 11–13 条、`runtime/plugin-channel.md` 输出第 3、10 条与场景 18–19、`runtime/plugins.md` 输出第 20 条，以及仓库编码、测试规范。
+
+本次不修改 worktree、不执行 Git 写操作、不运行 e2e 或 `bun run dev`。实验与报告仅写入本 scratchpad。以下发现核实一条追加一条；未完成运行核实的怀疑不计入发现。
+
+## 已核实发现
+
+### 1. [重要][Spec] 本地订阅监听内再次保存会让其它订阅者倒序收到快照，最终投影回退到旧值
+
+- 位置：`packages/neuro-book/src/plugins/storage/server/partition.ts:248`（`#notify`，尤其第 249–251 行）；公开调用链为 `shared/facade.ts:71` → `server/owner.ts:55` → `partition.write`。
+- 现象：同一记录建立两个本地订阅，第一位监听收到 `one/revision 1` 时立即调用公开句柄 `save(two, {expect: "1"})`。两次保存都成功，但第二位监听收到的序列是 `missing → two/revision 2 → one/revision 1`；重读磁盘却是 `two/revision 2`。
+- 为什么是问题：审查起点的 `storage/persistence.md` 输出第 7 条（当前精简稿第 6 条）要求同一订阅按写入顺序送达。公开 `save()` 虽返回 Promise，本地路线在返回 Promise 前同步执行 SQLite 写入和通知；通知可重入，内层写入先通知全部监听，再恢复外层通知。正常的订阅投影会把较新的状态覆盖成旧状态；无需调用私有函数或伪造时序。
+- 如何核实：在 scratchpad 的 `storage-runtime-probe.ts` 中启动真实 `createApplication`、真实 `nbook.storage` 服务端插件、真实临时 SQLite，经消费插件解析 `storageKey`，只调用公开 `open/save/subscribe/read`。命令：从 worktree 根运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/storage-runtime-probe.ts`。输出 `reentrantLocalWrite`：两次写入 revision 分别为 `"1"`、`"2"`，第二位监听的 revision 为 `[null,"2","1"]`，当前读取 revision 为 `"2"`。
+- 建议改法：分区拥有者为已提交写入的通知维护 FIFO 与派发标志；通知中的重入写入仅追加队列，完成当前快照的全体派发后再派发下一份。补真实内核场景，断言每个订阅的顺序及最终状态与重读一致。
+
+### 2. [重要][Spec] `open` 不尝试打开分区库，坏库仍返回成功句柄，缺少约定的分区失败通道
+
+- 位置：`packages/neuro-book/src/plugins/storage/server/owner.ts:53`（本地 `open`）、`:78`（远程 `open`）；`server/partition.ts:92` 的 `register` 只登记内存描述。
+- 现象：把 user 库路径预先写成非 SQLite 内容后，服务端本地和浏览器经代理的 `storage.open(notes)` 均返回 `{ok:true}`；紧接着句柄 `read()` 才返回 `{status:"error",code:"io-error",detail:"file is not a database"}`。
+- 为什么是问题：`storage/persistence.md` 输出第 1 条与计划第 3 节明确规定 `open` 的失败包含 `unavailable/busy/io-error`，让消费方在统一的初始化位置处理分区不可用。现在 `open` 成功不代表分区可用，K5 初始化会越过应在 `open` 返回的失败；库格式版本不认识、路径不能读写也同样被拖到首次数据操作。可以不读记录值，但仍需在打开阶段核对库。
+- 如何核实：同一 `storage-runtime-probe.ts`，真实服务端应用和浏览器应用经内核进程内 JSON 链路连接；坏库由实验写入临时目录。输出 `openBadDatabase`：`localOpen.ok === true`、`remoteOpen.ok === true`，二者随后 `read` 均为 `io-error`。现有坏库测试只直接调用 `partition.read/write`，没有验收公开 `open`。
+- 建议改法：给分区增加不读取记录值的打开/格式核对操作，本地与远程 `open` 在登记描述时调用它并返回其结构化失败。补两条公开路线的坏库/不可读写路径/未知格式验收，确保失败后不覆盖原文件。
+- 版本说明：当前未提交 Spec 精简稿第 101 行没有列出 `open` 的分区失败码，而开发者批准的计划第 68 行仍要求它们在 `open` 返回。本项以已批准计划与审查起点 Spec 为依据；若准备改变打开语义，需要明确修订行为合同与计划。
+
+### 3. [重要][Spec] 浏览器经路由订阅 project 分区时，建立成功却丢掉首次快照
+
+- 位置：`packages/nb-runtime/src/remote/router.ts:483`（`#routeSubscribe` 先转发事件，直到 `started.outcome.then` 才 `channel.accept`）；首次立即推送由新增 `packages/neuro-book/src/plugins/storage/server/owner.ts:117` 触发。
+- 现象：真实项目内核实例保存 `before-subscribe/revision 1`，真实浏览器内核通过服务端路由打开并订阅 project 记录。`subscribe` 返回成功；随后经相同远程路径 `read` 读到 revision 1，但订阅收到的快照仍为空。再保存 revision 2 才收到唯一快照 `after-subscribe/revision 2`。
+- 为什么是问题：审查起点的 `storage/persistence.md` 输出第 7 条（当前精简稿第 6 条）与场景 7 要求先推当前快照；消费方若以订阅初始化状态将一直等到下次写入。提供方同步发送订阅接受与当前快照，官方进程内 JSON 链路把二者依次排入微任务；接受结果只 resolve Promise，路由的 `.then(channel.accept)` 排在已排队的 event 后面，`Peer` 的 `channel.event` 因下游仍是 pending 丢掉首事件。内核原路径已有这个竞态，t55 的立即快照暴露了它；这条 t55 使用的受支持路径需要修复。
+- 如何核实：`storage-runtime-probe.ts` 的三实例场景，只通过真实 `createApplication`、`createRemoteNode/createRemoteRouter/createLinkPair`、`nbook.storage` 插件与公开 `open/save/subscribe/read`，无 mock、私有调用或固定等待。输出 `projectInitial.snapshotsBeforeWrite: []`，同时 `beforeWrite` 为 `ok/before-subscribe/revision 1`，`snapshotsAfterWrite` 只有 revision 2。命令同发现 1。边界复核：`storage-host-probe.ts` 启动真实 `startServer`、真实 WebSocket 与真实项目 Bun 子进程/IPC，同一场景收到 `[revision 1, revision 2]`，停止结果 `exitCode:0`、`closed`。因此已证实的是内核支持的官方进程内链路上的时序缺陷；未在产品 WebSocket/IPC 场景复现，不宣称产品当前必然漏首快照。
+- 建议改法：转发订阅在向订阅者确认接受前，缓冲来自目标的事件；确认接受后按 FIFO 排出。或者让目标订阅的 accept 回调同步推进下游状态，避免以 Promise 微任务延后门禁。补 hub→project 路由的立即首快照与重连后首快照测试，不能只测 hub 自己提供的 user 订阅。
+
+### 4. [重要][Spec] 整个实例停止时，代理门面释放函数中的远程调用被提前取消
+
+- 位置：`packages/nb-runtime/src/plugins/host.ts:562`，委托远程访问的信号合并了代理激活作用域的 `stopSignal`。
+- 现象：真实浏览器应用里，消费插件经代理服务调用与订阅远程合同均成功；执行公开 `Application.stop()` 后，代理服务的 `providePerConsumer.release` 内再次经 `context.remote.on(consumer)` 调用同一远程只读方法，结果却为 `{ok:false,code:"cancelled",cause:"cancelled"}`。该时刻远程订阅仍未 abort，之后才发 release、结束订阅；停止本身返回 `closed`。
+- 为什么是问题：`runtime/plugin-channel.md` 输出第 10 条第 2 小点明确包括“原调用方入口停止、代理入口停止”，且要求代理门面的释放函数运行期间经代理调用仍可用；计划第 93 行同样要求。运行实例停止会同步触发全部子作用域的 `stopSignal`，早于按依赖顺序释放门面；把这个停止信号并入请求信号，破坏了 `runtime.services` 输出第 12 条强调的“父作用域停止不能据此作废门面”不变量。代理释放时需要远程收口的插件无法完成操作；目前测试只覆盖原调用方单独停止、代理仍在，漏掉了整个实例停止。
+- 如何核实：scratchpad `delegation-stop-probe.ts` 创建真实服务端应用、远程路由、浏览器应用、远程服务与允许代理插件；通过真实 `providePerConsumer`、插件依赖、`context.remote.on`、JSON 进程内链路与公开 `Application.stop()` 复现，无私有方法直调或伪造先后。命令从 worktree 根执行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/delegation-stop-probe.ts`。输出 `seen[0]` 为 `proxy-release/cancelled/subscriptionAborted:false`，`seen[1]` 为 `remote-release`；停止后订阅 signal 才变为 `true`。
+- 建议改法：经代理访问使用签发记录在门面自己的 release 完成后才关闭的寿命信号；代理停止路径也按服务依赖顺序完成门面 release，再关闭挂在签发记录上的远程访问。不要让激活作用域开始停止直接取消 release 内的经代理调用。补代理入口单独停止与整个应用停止场景，保留原消费方单独停止测试。
+
+### 5. [重要][生命周期] 一条订阅的 `onEnd` 抛错会中断同一服务对象其余订阅的收口
+
+- 位置：`packages/neuro-book/src/plugins/storage/shared/facade.ts:104`（尤其第 107–110 行）；分区拥有者的同类路径为 `server/owner.ts:124`（第 127–132 行）。
+- 现象：真实服务端消费插件建立两条本地订阅，第一条 `onEnd` 抛错。关闭它的真实激活作用域后，收口结果为 `incomplete/release-failed`；第二条没有收到结束通知，另一个真实浏览器插件随后保存记录时，第二条仍收到 `after-caller-stop/revision 1`。
+- 为什么是问题：Storage 的释放循环把消费插件回调夹在各订阅收口之间，没有隔离回调异常；一条订阅的异常阻止其余订阅解除监听。`released` 已置为 `true`，后续重试 release 也会立即返回，剩余订阅只能等整个分区停止。分区拥有者自己的关闭循环有相同风险，且异常可跳过最后的 `partition.close()`。内核能记录 release 失败并继续其它资源，但不能替 Storage 完成它内部漏掉的循环；回调异常应被报告，同时所有监听与库仍需收口。
+- 如何核实：`storage-runtime-probe.ts` 的 `callbackCleanup` 场景，只用真实插件解析 Storage、公开 `open/subscribe/save` 与内核激活作用域 `close()/recover()`。输出：第一次关闭为 `incomplete/release-failed`，显式 `recover()` 第二次为 `closed`；随后另一个窗口保存，已关闭消费方的第二条订阅仍收到 revision 1，`cleanupEnds: []`。命令同发现 1。分区拥有者关闭时可能跳过关库的风险来自同类关闭循环代码，未单独宣称实验已证明库未关闭。
+- 建议改法：逐条停止订阅，分别捕获并报告 `onEnd` 异常；先尝试完全部订阅，并确保分区关闭在最终收口路径执行，再把首个异常交给生命周期报告。补第一条结束回调抛错、其余订阅不再接收事件且数据库仍关闭的公开运行时用例。
+
+### 6. [重要][数据保护] 已有 SQLite 文件缺少 Storage 格式标记时被当成新库改写
+
+- 位置：`packages/neuro-book/src/plugins/storage/server/partition.ts:188`（第 188–200 行）。
+- 现象：在 user 库路径放置一个已有 SQLite 文件，内含其它应用的 `unrelated` 表且没有 Storage 的 `meta` 表。经真实消费插件 `open/read/save` 后，读返回 `missing`、保存成功；文件被添加 `meta`、`records`、`originals` 等表，并被切换为 WAL，停止后文件字节已变化。
+- 为什么是问题：格式检查只在存在 `meta` 表时执行，缺少格式标记的已有库会直接进入初始化路径。Spec 的格式与 `io-error` 合同要求不认识的库不被改写；缺少 Storage 标记无法证明它是本插件的新库。误放的库或丢失格式表的库会被静默接管，而不是按分区故障拒绝。实验未删除原表数据，但已证明未知文件被改写。
+- 如何核实：`storage-runtime-probe.ts` 的 `foreignFormat` 场景用真实 `bun:sqlite` 预建外来库，再通过真实应用与 Storage 公开 API 读写。输出 `foreignRead: {status:"missing",revision:null}`、`foreignWrite: {ok:true,revision:"1"}`、`fileUnchanged:false`；表名从 `unrelated` 增至 `meta/originals/records/sqlite_sequence/unrelated`。命令同发现 1；在 `17936315` 加未提交 `db.run` 替换的当前代码上复现。
+- 建议改法：区分真正的新库与已有文件；已有非空库必须具有受支持的 Storage 格式标记，核对失败时在切 WAL、建表和写数据之前返回 `io-error`。首次初始化与格式判断仍须兼顾两个进程同时打开新库的锁边界。补缺少 `meta` 的已有库、缺少 `format` 的库、未知格式版本三种文件不变断言。
+
+### 7. [建议][测试质量] 行为测试固定了拒绝文案与不透明 revision 的具体表示
+
+- 位置：`packages/nb-runtime/src/remote/delegation.test.ts:187`（第 187–188 行）；`packages/neuro-book/src/plugins/storage/server/partition.test.ts:98`（第 98–104 行等）。
+- 现象：委托拒绝测试精确比较两段中文 `detail`；分区条件保存测试固定首次 revision 为 `"1"`、后续为连续的 `"2"` 等，并把这些字面量用于后续保存。
+- 为什么是问题：`docs/testing/README.md:7`–`:10` 禁止把措辞与实现偶然值作为验收判据。委托合同要求 `denied` 且不产生远程副作用；Storage 的 `Revision` 对消费者是不透明串、只保证不复用与单调，不保证连续。上述写法会拒绝文案调整或符合公开合同的 revision 分配改动，却没有补强关键边界。
+- 如何核实：只读核对新增测试与 `storage.ts:119`、批准计划第 67 行；测试已在本次 270 例内核与 30 例 Storage 定向运行中通过。两条格式约束未作为产品运行时缺陷计数。
+- 建议改法：委托拒绝断言错误码与没有远程副作用；保存测试取成功结果的 revision 作为下一次 `expect`，断言旧 token 冲突、新 token 有效、最终值正确。不把措辞或固定起始编号重新写成长期行为测试。
+
+### 8. [重要][计划交付] S5 承诺的服务端与项目 Storage 探针没有实现
+
+- 位置：`packages/neuro-book/src/server/testing/test-plugins.ts:103`（`createRemoteProbePlugin`）、`packages/neuro-book/src/project/testing/probe-plugin.ts:18`（`createRemoteProbeProjectPlugin`）；已批准 `plan.md:100`。
+- 现象：计划要求 `test.remote-probe` 的服务端入口直用 user 记录、项目入口直用 project 记录，浏览器入口经代理访问两者并交出观察入口。实现只在 `src/web/testing/remote-probe.ts` 新增三条记录；服务端探针只依赖诊断、项目探针只依赖当前项目，都没有 Storage 依赖或读写入口。
+- 为什么是问题：计划承诺的三端宿主观察路径缺了两端；S6 快照把 S5 标为完成，但当前 probe/e2e 无法从服务端或项目测试入口触发本地 Storage 操作并与浏览器交叉核对。`storage.test.ts` 的独立 `app.notes` 消费插件确实覆盖本地与代理同命名空间，故这不是“数据路径完全没有测试”，而是已批准探针交付未完成。
+- 如何核实：只读比较 `2369b724` 后的改动文件与这两个探针工厂、计划第 100 行、Task README 的 S5 行；`17936315` 仅补文档与证据，没有补探针源码。真实内核 Storage 测试通过不等于该命名探针已落实。
+- 建议改法：补齐两端探针的 Storage 依赖、真实读写与观察入口，用既有宿主测试核对与浏览器交叉可见；或者由开发者明确修订该交付项及验收映射，登记现有等价路径。不能只把 S5 的完成描述改成笼统“探针已有三条记录”。
+
+### 9. [建议][合同] 已使用过的签发身份释放后绕过准入复查，失败码为 `cancelled` 而非 `denied`
+
+- 位置：`packages/nb-runtime/src/plugins/host.ts:543`（第 543–546 行的缓存提前返回）。
+- 现象：真实消费插件单独停止、代理仍在时，其门面 release 内的远程调用正常，订阅随后结束；再由仍存活的代理对同一旧身份调用 `remote.on(identity)`，返回 `{ok:false,code:"cancelled",cause:"cancelled"}`。如果身份此前未缓存，`issuedTo` 的关闭状态核对会返回 `denied`。
+- 为什么是问题：`runtime/plugin-channel.md:85` 要求签发门面已经释放的身份调用与订阅为 `denied`。缓存命中跳过了 `issuedTo`，只能依靠已 abort 的信号取消请求，导致同一种已释放身份因是否用过而返回不同失败种类。实验没有发现越权派发或旧门面复活，故定为建议，不当作身份隔离突破。
+- 如何核实：`delegation-stop-probe.ts caller-only`，真实应用、代理服务与公开消费入口激活作用域 `close()`。输出 release 内调用 `ok:true`、结束后订阅信号 `true`、`cachedAfterRelease.code:"cancelled"`。命令从 worktree 根执行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/delegation-stop-probe.ts caller-only`。
+- 建议改法：缓存返回前仍核对签发记录是否有效；缓存只复用访问对象，不省略寿命与准入核对。补已使用身份与从未使用身份在签发门面释放后均为 `denied` 的行为断言。
+
+## 未发现问题的方面
+
+- **记录与保存基本合同**：定义加载时核对键、版本、schema 形状及大小上限；指纹逐层排序，没有采用上次审查指出的 replacer 数组陷阱。缺失/正常/坏 JSON/schema 不符/版本不同/读取故障有行为断言；条件保存、删除标记的非 null revision、旧 token 不复活、保护与原件保存路径经真实 SQLite 测试通过。未知 SQLite 格式缺少标记的例外见发现 6。
+- **命名空间与三端路线**：真实内核测试核对 user 本地↔浏览器、project 本地↔浏览器、项目实例→user 共用同一插件命名空间；不同插件同名记录与直接远程访问仍按原插件隔离。`local` 按客户端分开、同客户端两个窗口共享；server/project 的 `no-client`、server/未绑定窗口的 `no-project`、资源 id、定义冲突、无效值均有通过的行为断言。
+- **客户端身份链**：运行实例身份→服务装配/插件上下文→远程 CallerFrame→提供方身份与缓存键已带 `client`。路由对请求、订阅、释放三处都调用统一 `attested` 覆盖 `location/client`；请求自报错误位置和客户端身份的回归测试通过。订阅与释放的覆盖当前来自代码核对，不能写成各自已有反伪造测试。
+- **委托准入的正常与拒绝路径**：`remote.on` 通过 `issuedTo` 核对签发对象、接收入口与关闭状态；允许清单和 `remoteDelegates` 分别核对；伪造、转交、未声明合同与未获授权插件得到 `denied` 的测试通过。提供方看到原插件、客户端与 `via`；`refusedRemote` 统一返回结构化失败。全实例停止的取消例外见发现 4，已用过的身份缓存例外见发现 9。
+- **跨进程 CAS 与 busy**：真实两个 Bun 写入进程争用同一 SQLite 库，恰好一个保存成功、另一个 `conflict`；真实持锁进程导致 `busy`，释放锁后可继续保存。事务先 `BEGIN IMMEDIATE`、锁内读 revision/原件/revision 计数/写值，失败回滚；未发现条件检查在锁外的窗口。审查期间 `db.exec` → `db.run` 替换后定向 13 例仍通过。
+- **订阅与寿命的已覆盖路径**：普通 user 初快照及写入通知、项目终态 `project-gone`、新代次磁盘读回、服务端停止后句柄 `unavailable` 与 WAL 收回、真实项目子进程退出前关库均通过。本次额外公开实验核对本地与浏览器消费方释放各收到一次 `released`、同进程重连拿到断线期间最新值且不结束订阅、真实 WebSocket/IPC 项目初快照正常；重入、官方进程内转发与回调异常的例外见发现 1、3、5。
+- **测试与禁止清单**：新增测试使用真实 SQLite、内核、链路、WebSocket 与项目子进程，没有发现 module mock、spy、改写全局计时器、固定非零等待、跳过/放宽断言、产品测试专用分支或错误文案决定产品分支。异常解析为 `corrupt`、观察者异常隔离和已报告诊断的 catch 有边界理由；未发现新增业务错误被静默吞掉。跨包依赖经包公开入口，未发现范围外源码或注释删除。测试中过度固定文案/revision 的例外见发现 7。
+
+## 本次验证与边界
+
+| 命令或公开运行场景 | 本次观察 |
+|---|---|
+| `bun run --cwd packages/nb-runtime test` | 270 pass、0 fail；22 files、2198 expect() calls |
+| 在 `packages/neuro-book` 运行 `bun test src/shared/storage.test.ts src/plugins/storage/` | 30 pass、0 fail；4 files、192 expect() calls |
+| 在 `packages/neuro-book` 运行 `bun test src/web/host/window.test.ts src/server/server.test.ts src/server/projects/projects-capability.test.ts` | 46 pass、0 fail；3 files、177 expect() calls |
+| 当前未提交事务替换后，运行 `bun test src/plugins/storage/server/partition.test.ts` | 13 pass、0 fail；65 expect() calls；这是对已计入 30 例的子集复核，不重复加总 |
+| `storage-runtime-probe.ts` | 真应用/SQLite/官方 JSON 进程内链路；见发现 1、2、3、5、6，以及消费方释放与重连正常结果 |
+| `storage-host-probe.ts` | 真 `startServer`/WebSocket/项目 Bun 子进程/IPC 首快照正常；停止 `exitCode:0`、`closed` |
+| `delegation-stop-probe.ts`（无参数及 `caller-only`） | 真代理插件与全应用/单消费入口停止；见发现 4、9 |
+
+已有测试合计本次跑过 **346 例不同测试，全部通过**，但公开实验暴露了当前测试未覆盖的行为缺陷。未运行 e2e、`bun run dev`、构建、typecheck 或变异修改；S6 文件里的相关结果是实施方保存的证据，不冒充本次自跑结果。原件区 64 份上限有测试，4 MiB 字节上限未见独立边界断言。Windows、macOS、TUI、K5 消费模型未验证。
+
+本次代码核对未发现 K1 的请求阶段、等待环、服务端 boot 与 K3 项目精确代次/租约接纳规则被 t55 改写；相关内核与定向宿主测试通过。这不是对范围外所有旧路径的重新认证。
+
+独立标准审查与内核审查均已交付。标准切片核实了发现 7、8；内核切片独立核对了发现 4、9，并未发现额外的身份覆盖、嵌套签发释放顺序或 direct/via 缓存互扰问题。子审查没有运行测试，运行证据与最终定级由本报告作者核实；旧身份仅被取消、未发生越权，故保留建议定级。
+
+## 复盘回写建议
+
+以下只提出建议，没有修改任何仓库规范。已存在的行为测试、真实依赖、释放顺序规则不再重复新增。
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| 1 | 踩坑 | 官方进程内链路在同一轮微任务中连续投递接受与首事件时漏事件，真实 WebSocket/IPC 的同一场景正常；只选一种传输会遗漏协议状态推进的竞态 | 新增：异步协议有“确认接受后派发事件”的门禁时，验收覆盖确认与首事件在同一调度轮次连续到达，并在实际支持的传输上核对时序；不假定不同传输有相同的调度间隔。 | `docs/testing/README.md` 的“测试写法” |
+
+## 总结
+
+当前已核实 **阻断 0、重要 7、建议 2**。重要项为通知重入逆序、公开 `open` 缺少批准的分区失败通道、官方进程内转发首快照丢失、全实例停止时代理 release 内调用提前取消、结束回调抛错中断其余订阅收口、无格式标记的已有 SQLite 被改写、S5 两端探针交付缺失。建议项为测试锁定措辞/revision 表示，以及已缓存的释放身份返回错误种类。
+
+结论：当前不能视为完全满足 t55 批准计划与合同。346 例不同既有测试通过，仍需补本报告给出的消费可见边界；发现 3 的产品 WebSocket/IPC 复核正常，发现 9 没有越权派发，均已限制结论范围。审查只读，未修改实现或自行调整计划。
+
