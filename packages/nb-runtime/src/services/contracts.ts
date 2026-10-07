@@ -254,9 +254,24 @@ export interface ServiceAssembly {
      * 用作调用方身份；同一代次的多个访问作用域解析同一按调用方服务得到同一门面。
      */
     access(entryId: EntryId, scope?: Scope, options?: AccessOptions): ServiceAccess;
+    /**
+     * 跨实例委托的核对与挂载（runtime/plugin-channel.md 输出第 10 条）：`consumer` 是装配签发给 `entryId`
+     * 所属插件入口的门面、且签发它的门面还没释放时返回挂载点，否则返回拒绝原因。代理允许清单与合同声明由
+     * 插件宿主核对，这里只核对身份。
+     */
+    issuedTo(entryId: EntryId, consumer: ConsumerIdentity): IssuedConsumer | {readonly status: "denied"; readonly message: string};
     /** 显式恢复稳定失败的提供者：上次服务作用域收口完成才重置为未解析；不自动重新初始化。 */
     recover(providerId: EntryId): Promise<RecoverResult>;
     diagnostics(): ReadonlyArray<AssemblyDiagnostic>;
+}
+
+/** 签发记录的挂载点：经代理建立的远程访问把释放步骤挂在这里。 */
+export interface IssuedConsumer {
+    readonly status: "issued";
+    /** 签发它的门面的释放函数结束、开始释放挂载项时触发。 */
+    readonly signal: AbortSignal;
+    /** 挂一个释放步骤：在签发它的门面的释放函数结束之后，与委托取得的门面一起按逆序运行；已开始释放时立即运行。 */
+    attach(step: () => void | Promise<void>): void;
 }
 
 export interface AccessOptions {

@@ -5,7 +5,7 @@
  */
 
 import type {FailureError, RuntimeLocation, Scope, ScopeId} from "../lifecycle/lifecycle";
-import type {RemoteAccess, RemoteHostBinding, RemoteProvision} from "../remote/remote";
+import type {RemoteAccess, RemoteContract, RemoteHostBinding, RemoteProvision, RemoteUse} from "../remote/remote";
 import type {ConsumerIdentity, EntryId, ResolveOptions, ResolveResult, ServiceDependency, ServiceKey} from "../services/services";
 
 export type {FailureError} from "../lifecycle/lifecycle";
@@ -58,7 +58,7 @@ export interface ActivationContext {
      * 跨实例调用与订阅远程服务（docs/specs/runtime/plugin-channel.md）。宿主没有配置远程节点时，
      * 调用一律得到 `unavailable`。
      */
-    readonly remote: RemoteAccess;
+    readonly remote: PluginRemoteAccess;
     readonly services: {
         /** 必需依赖已在激活前解析完成；未声明或可选的键抛 TypeError。 */
         require<T>(key: ServiceKey<T>): T;
@@ -111,10 +111,30 @@ export interface PluginEntryDefinition {
     readonly delegates?: ReadonlyArray<ServiceKey<unknown>>;
     /** 本入口提供的远程服务合同 id；首次远程调用时按需激活本入口（onRemote）。 */
     readonly remoteProvides?: ReadonlyArray<string>;
+    /**
+     * 本入口可代表调用方调用的远程服务合同 id（经 `context.remote.on`）。`delegates` 管本地服务键的
+     * `resolveFor`，这里管远程合同；两者都只对代理允许清单里的插件生效。
+     */
+    readonly remoteDelegates?: ReadonlyArray<string>;
     /** 入口激活后向贡献点提交的声明。 */
     readonly contributions?: ReadonlyArray<ContributionDeclaration>;
     /** 只在激活时调用；登记、目录查询与状态查询都不调用它。 */
     activate(context: ActivationContext): ActivationOutput | Promise<ActivationOutput>;
+}
+
+/** 激活上下文里的 `remote`：本入口以自己的身份访问远程服务，代理入口另可以调用方的身份访问。 */
+export interface PluginRemoteAccess extends RemoteAccess {
+    /**
+     * 跨实例委托（runtime/plugin-channel.md 输出第 10 条）：在本入口交出的按调用方门面里，以收到的调用方身份
+     * 发出远程调用与订阅，提供方看到原调用方、`via` 为本入口。合同 id 必须在 `remoteDelegates` 里，插件必须在
+     * 宿主的代理允许清单内，`consumer` 必须是装配签发给本入口门面、且签发它的门面还没释放的身份；不满足时
+     * 调用与订阅得到 `denied`。经它建立的远程门面与订阅在签发它的门面释放（释放函数结束之后）时结束。
+     */
+    on(consumer: ConsumerIdentity): DelegatedRemoteAccess;
+}
+
+export interface DelegatedRemoteAccess {
+    use<Contract extends RemoteContract>(contract: Contract): RemoteUse<Contract>;
 }
 
 /** 随产品发布的静态描述；不是已激活实例。 */

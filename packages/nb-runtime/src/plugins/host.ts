@@ -30,6 +30,7 @@ import type {
     ContributionPointDefinition,
     ContributionReceiver,
     ContributionState,
+    DelegatedRemoteAccess,
     ContributionValidation,
     ProvidedService,
     ActivationResult,
@@ -48,6 +49,7 @@ import type {
     PluginHost,
     PluginHostOptions,
     PluginObserver,
+    PluginRemoteAccess,
     RecoverEntryResult,
     RegisterPluginResult,
     RevokeReason,
@@ -518,28 +520,85 @@ export class PluginHostImpl implements PluginHost {
     }
 
     /** 激活上下文的 `remote`：调用方身份是这次激活；这一代结束时通知节点释放为它生成的门面。 */
-    #remoteAccess(attempt: Attempt, plugin: string, entry: string): RemoteAccess {
+    #remoteAccess(attempt: Attempt, record: EntryRecord, plugin: string, entry: string): PluginRemoteAccess {
         if (this.#remote === null) {
-            return unavailableRemote();
+            const unavailable = refusedRemote("unavailable", "本实例没有配置远程节点");
+            return {...unavailable, on: () => unavailable};
         }
+        const remote = this.#remote;
         const consumer: ConsumerIdentity = Object.freeze({instanceId: this.instanceId, location: this.location, client: this.#client, plugin, entry, generation: attempt.generation, via: null});
         const self: ChainLink = {instanceId: this.instanceId, plugin, entry};
-        return this.#remote.access({
+        const chain = (): ReadonlyArray<ChainLink> => (attempt.settled === null ? [...attempt.triggerChain, self] : []);
+        const activating = (): boolean => attempt.settled === null;
+        const own = remote.access({
             consumer,
-            chain: () => (attempt.settled === null ? [...attempt.triggerChain, self] : []),
-            activating: () => attempt.settled === null,
+            chain,
+            activating,
             signal: attempt.scope.stopSignal,
-            onRelease: (callback) => {
-                try {
-                    attempt.work.register({kind: "remote-consumer", label: `${plugin}/${entry}`, value: callback, release: (release) => release()});
-                } catch (error) {
-                    if (!(error instanceof LifecycleStateError)) {
-                        throw error;
-                    }
-                    callback();
-                }
-            },
+            onRelease: (callback) => this.#onAttemptRelease(attempt, `${plugin}/${entry}`, callback),
         });
+        // 同一个签发身份只建一次访问：它在节点里记下联系过的目标与订阅，释放时一并通知。
+        const delegated = new WeakMap<ConsumerIdentity, DelegatedRemoteAccess>();
+        const on = (issued: ConsumerIdentity): DelegatedRemoteAccess => {
+            const cached = delegated.get(issued);
+            if (cached !== undefined) {
+                return cached;
+            }
+            const refuse = (message: string): DelegatedRemoteAccess => {
+                this.#record("activate", "delegation-denied", {plugin, entry, generation: attempt.generation});
+                return refusedRemote("denied", message);
+            };
+            if (this.#delegation?.(plugin) !== true) {
+                return refuse(`插件 ${plugin} 不在代理允许清单内`);
+            }
+            const issue = this.#assembly.issuedTo(record.consumerId, issued);
+            if (issue.status === "denied") {
+                return refuse(issue.message);
+            }
+            const access = remote.access({
+                consumer: Object.freeze({...issued, via: Object.freeze({plugin, entry, generation: attempt.generation})}),
+                chain,
+                activating,
+                signal: anySignal([issue.signal, attempt.scope.stopSignal]),
+                // 原调用方的门面释放（签发记录收口）与代理入口这一代结束，先到的一个通知节点释放。
+                onRelease: (callback) => {
+                    let done = false;
+                    const once = (): void => {
+                        if (!done) {
+                            done = true;
+                            callback();
+                        }
+                    };
+                    issue.attach(once);
+                    this.#onAttemptRelease(attempt, `${plugin}/${entry} → ${issued.plugin ?? "host"}`, once);
+                },
+            });
+            const declared = record.definition.remoteDelegates ?? [];
+            const result: DelegatedRemoteAccess = {
+                use: (contract) => {
+                    if (!declared.includes(contract.id)) {
+                        this.#record("activate", "delegation-denied", {plugin, entry, generation: attempt.generation});
+                        return refusedRemote("denied", `入口 ${plugin}/${entry} 没有声明可代理 ${contract.id}`).use(contract);
+                    }
+                    return access.use(contract);
+                },
+            };
+            delegated.set(issued, result);
+            return result;
+        };
+        return {...own, on};
+    }
+
+    /** 这一代结束时调用 `callback`；已结束则立即调用。 */
+    #onAttemptRelease(attempt: Attempt, label: string, callback: () => void): void {
+        try {
+            attempt.work.register({kind: "remote-consumer", label, value: callback, release: (release) => release()});
+        } catch (error) {
+            if (!(error instanceof LifecycleStateError)) {
+                throw error;
+            }
+            callback();
+        }
     }
 
     /**
@@ -888,7 +947,7 @@ export class PluginHostImpl implements PluginHost {
             generation,
             scope: attempt.work,
             signal: scope.stopSignal,
-            remote: this.#remoteAccess(attempt, plugin, entry),
+            remote: this.#remoteAccess(attempt, record, plugin, entry),
             services: {
                 require: <T>(key: ServiceKey<T>): T => {
                     if (!required.has(key)) {
@@ -1669,13 +1728,26 @@ export class PluginHostImpl implements PluginHost {
 }
 
 /** 没有远程节点的实例：远程调用与订阅一律得到 unavailable，而不是抛错。 */
-function unavailableRemote(): RemoteAccess {
-    const failure = (): Promise<{readonly ok: false; readonly code: "unavailable"; readonly detail: string}> =>
-        Promise.resolve({ok: false, code: "unavailable", detail: "本实例没有配置远程节点"});
+/** 一律以同一失败码结算的远程访问：没有远程节点（`unavailable`），或代理核对不过（`denied`）。 */
+function refusedRemote(code: "unavailable" | "denied", detail: string): RemoteAccess {
+    const failure = (): Promise<{readonly ok: false; readonly code: "unavailable" | "denied"; readonly detail: string}> => Promise.resolve({ok: false, code, detail});
     const events = new Proxy({}, {get: () => ({subscribe: failure})});
     const client: object = new Proxy(
         {},
         {get: (_target, property) => (property === "then" ? undefined : property === "events" ? events : property === "at" ? () => client : failure)},
     );
     return {use: () => client as never, instances: failure};
+}
+
+/** 任一信号触发即触发。 */
+function anySignal(signals: ReadonlyArray<AbortSignal>): AbortSignal {
+    const controller = new AbortController();
+    for (const signal of signals) {
+        if (signal.aborted) {
+            controller.abort(signal.reason);
+            break;
+        }
+        signal.addEventListener("abort", () => controller.abort(signal.reason), {once: true});
+    }
+    return controller.signal;
 }

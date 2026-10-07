@@ -31,6 +31,7 @@ import type {
     EntryId,
     EntryIdentity,
     FailureError,
+    IssuedConsumer,
     PerConsumerProvision,
     ProviderDeclaration,
     ProviderState,
@@ -103,6 +104,10 @@ interface IssueRecord {
     /** 签发身份的门面登记在哪个作用域；委托取得的借用也登记在这里。 */
     readonly scope: Scope;
     readonly delegated: Array<{readonly attempt: Attempt; readonly facade: RevocableFacade; readonly release: () => Promise<void>}>;
+    /** 经代理的远程访问挂上的释放步骤（`issuedTo`），在委托取得的门面之后按逆序运行。 */
+    readonly attached: Array<() => void | Promise<void>>;
+    /** 开始释放委托项时触发；经代理的远程访问据此取消在途调用。 */
+    readonly closing: AbortController;
     closed: boolean;
 }
 
@@ -324,6 +329,32 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
                 this.#resolve(entry, scope, generation, key, options, null) as Promise<ResolveResult<T>>,
             resolveFor: <T>(consumer: ConsumerIdentity, key: ServiceKey<T>, options: ResolveOptions = {}) =>
                 this.#resolveFor(entry, scope, generation, consumer, key, options) as Promise<ResolveResult<T>>,
+        };
+    }
+
+    issuedTo(entryId: EntryId, consumer: ConsumerIdentity): IssuedConsumer | {readonly status: "denied"; readonly message: string} {
+        const entry = this.#entries.get(entryId);
+        const issue = this.#issued.get(consumer);
+        if (entry === undefined || issue === undefined) {
+            return {status: "denied", message: "调用方身份不是装配签发的"};
+        }
+        if (issue.closed) {
+            return {status: "denied", message: "签发该身份的门面已释放"};
+        }
+        const issuer = issue.provider.identity;
+        if (entry.identity === null || issuer === null || issuer.plugin !== entry.identity.plugin || issuer.entry !== entry.identity.entry) {
+            return {status: "denied", message: "调用方身份签发给其它入口的门面"};
+        }
+        return {
+            status: "issued",
+            signal: issue.closing.signal,
+            attach: (step) => {
+                if (issue.closed) {
+                    void Promise.resolve().then(step).catch((error: unknown) => this.#record("resolve", "delegated-release-failed", {entryId, key: null, scopeId: null, error: summarizeFailure(error)}));
+                    return;
+                }
+                issue.attached.push(step);
+            },
         };
     }
 
@@ -562,18 +593,24 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         return {status: "created", target};
     }
 
-    /** 释放委托取得的门面：逆序、全部尝试，第一个异常在全部尝试后抛出（由生命周期记为释放失败）。 */
+    /**
+     * 释放委托取得的门面，再运行经代理的远程访问挂上的步骤：各自逆序、全部尝试，第一个异常在全部尝试后抛出
+     * （由生命周期记为释放失败）。
+     */
     async #releaseDelegated(issue: IssueRecord): Promise<unknown> {
         issue.closed = true;
+        issue.closing.abort();
         let failure: unknown = null;
-        for (const delegated of [...issue.delegated].reverse()) {
+        const steps = [...[...issue.delegated].reverse().map((delegated) => delegated.release), ...[...issue.attached].reverse()];
+        issue.delegated.length = 0;
+        issue.attached.length = 0;
+        for (const step of steps) {
             try {
-                await delegated.release();
+                await step();
             } catch (error) {
                 failure ??= error;
             }
         }
-        issue.delegated.length = 0;
         return failure;
     }
 
@@ -612,7 +649,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         }
         const facadeTarget = created.target;
         const facade = revocableFacade(facadeTarget, provider.key.name, consumer);
-        const issue: IssueRecord = {provider, consumer, scope, delegated: [], closed: false};
+        const issue: IssueRecord = {provider, consumer, scope, delegated: [], attached: [], closing: new AbortController(), closed: false};
         let registered;
         try {
             registered = scope.register<RevocableFacade>({
@@ -684,7 +721,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         const facadeTarget = created.target;
         const facade = revocableFacade(facadeTarget, provider.key.name, consumer);
         const cacheKey = `delegated:${String(++this.#delegations)}`;
-        const nested: IssueRecord = {provider, consumer, scope: issue.scope, delegated: [], closed: false};
+        const nested: IssueRecord = {provider, consumer, scope: issue.scope, delegated: [], attached: [], closing: new AbortController(), closed: false};
         attempt.facades.set(cacheKey, facade);
         this.#issued.set(consumer, nested);
         issue.delegated.push({
