@@ -70,7 +70,7 @@ function handshake(rpcPort: number, origin: string): Promise<Record<string, unkn
     const {promise, resolve} = Promise.withResolvers<Record<string, unknown> | null>();
     const socket = new WebSocket(`ws://127.0.0.1:${String(rpcPort)}/`, {headers: {Origin: origin}});
     socket.addEventListener("open", () => {
-        socket.send(JSON.stringify({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "smoke-client", kind: "browser", role: "client", project: null, client: "smoke"}}));
+        socket.send(JSON.stringify({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "smoke-client", kind: "browser", role: "client", project: null, client: "smoke"}, bind: null, boot: null}));
     });
     socket.addEventListener("message", (event) => {
         resolve(JSON.parse(String(event.data)) as Record<string, unknown>);

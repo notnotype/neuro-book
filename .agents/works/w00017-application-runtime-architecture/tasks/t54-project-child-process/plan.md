@@ -63,6 +63,7 @@
 
 - **握手字段**（wire 版本升为 2）：
   - `hello` 增加 `bind: {project: string} | {project: string; generation: number} | null`：首次连接按短名或 id 请求绑定；重连带上已绑定的 id 与代次。`instance.project` 对客户端恒为 `null`，绑定由服务端决定。
+  - `hello` 另带 `boot`（上次握手得到的服务端进程标识，第一次为 `null`），路由在 wire 之后先比它，不同即以 `server-restarted` 拒绝（S2 实施中发现：否则服务端重启后，绑定窗口的重连会先被新进程按旧代次号判断绑定，得到“项目已关闭”而不是“服务端已重启”，还可能撞上新进程里同号的代次）。
   - `welcome` 增加 `binding: {id, name, generation} | null`。
   - 新的拒绝原因：`project-unavailable`（不存在、未登记、创建失败、服务端正在停止，带说明）、`project-gone`（重连时原代次已结束）。
 - **路由**：选项 `bindProject(request, clientInstanceId) → Promise<{ok: true, binding, release} | {ok: false, reason, message}>` 由宿主给出。路由把绑定写进该成员的实例描述，`project` 目标与 `{project}` 访问核对都按它；成员链路关闭时调用 `release`，最后一个使用者离开即进入宽限期。项目管理器的实现：

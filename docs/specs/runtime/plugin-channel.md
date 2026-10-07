@@ -87,13 +87,14 @@ owners:
 
 1. **编码。** 每帧一条 JSON 文本消息。只接受 JSON 能如实表示的值：`null`、布尔、有限数、字符串、数组、原型为 `Object.prototype` 或 `null` 的普通对象；对象上值为 `undefined` 的属性省略（与可选字段缺省同义）。其它值（函数、symbol、bigint、`NaN` 与无穷、数组里的 `undefined`、`Date`、`Map` 等非普通对象、循环引用）使 `send` 同步抛错，按“失败与恢复”中业务值无法编码的规则结算。无法解析为 JSON 的消息是无效帧。
 2. **端口与来源。** 服务端在内核 RPC 端口接受 WebSocket 升级，只接受路径 `/`，其它路径 404。升级请求带 `Origin` 头时必须在宿主给出的允许来源集合内（[`runtime.server-host`](server-host.md)），否则 403；不带 `Origin` 头的放行：浏览器发起的 WebSocket 握手总会带 `Origin`，网页无法省略，不带的只有本机的非浏览器客户端。单条消息上限 1 MiB，超过即断开；二进制经 HTTP 资源地址传递。
-3. **握手。** 链路建立后客户端先发 `hello {wire, instance: {id, kind, role, project, client}, bind}`，其中 `client` 是客户端身份（服务端与项目实例为 `null`）；`instance.project` 对客户端恒为 `null`，绑定由服务端决定；`bind` 是绑定请求：不绑定为 `null`，首次连接为 `{project: 项目引用}`（短名或 id），重连为已绑定的 `{project: id, generation}`，只有客户端（`role: client`）可以带。hello 不带各插件版本：每个请求帧已带调用方期望的合同版本，由提供方逐个请求核对。服务端依次判定：
+3. **握手。** 链路建立后客户端先发 `hello {wire, instance: {id, kind, role, project, client}, bind, boot}`，其中 `client` 是客户端身份（服务端与项目实例为 `null`）；`boot` 是上次握手得到的服务端进程标识，第一次连接为 `null`；`instance.project` 对客户端恒为 `null`，绑定由服务端决定；`bind` 是绑定请求：不绑定为 `null`，首次连接为 `{project: 项目引用}`（短名或 id），重连为已绑定的 `{project: id, generation}`，只有客户端（`role: client`）可以带。hello 不带各插件版本：每个请求帧已带调用方期望的合同版本，由提供方逐个请求核对。服务端依次判定：
    - **wire 版本先于一切。** `hello` 的 `wire` 是整数但与本端不同时，不校验其余字段（另一版本的 hello 可能是另一种形状），直接回 `reject {reason: "wire-version"}` 并关闭。`reject` 帧的形状 `{type: "reject", reason, message}` 跨 wire 版本不变，任何版本的客户端都读得懂新服务端的拒绝。
+   - **服务端已换进程。** `boot` 不为 `null` 且与本进程的不同时回 `reject {reason: "server-restarted"}`，不再判定其余各项：项目代次号在新进程里从头编号，按旧进程的代次判断绑定可能撞上新进程里的同号代次。
    - **停止中。** 服务端已停止接纳时回 `reject {reason: "stopping"}`。
    - **实例 id。** 等于服务端自己的 id、`role` 为 `hub`、或不是客户端却带了 `bind` 的，以 `role` 拒绝。id 已在线时：种类、角色与客户端身份都与已登记的一致，且绑定一致（已登记的成员没有绑定时 `bind` 为 `null`；有绑定时 `bind` 是同一个 `{project: id, generation}`），视为同一实例重连，服务端关闭旧链路（其上在途请求与订阅按断开结算）、登记新链路，使服务端还没察觉旧连接断开时客户端也能重连；任一不一致回 `reject {reason: "duplicate-instance"}`。
    - **绑定。** `bind` 不为 `null` 时，路由交给宿主的绑定回调（[`runtime.projects`](projects.md) 输出第 7 条），等它的结果，期间不登记成员：首次连接按引用打开项目并取得租约；重连只在原代次仍在运行（含宽限期中）时取得，否则以 `project-gone` 拒绝，不改投新代次；项目不存在、未登记、创建失败或服务端正在停止，以 `project-unavailable` 拒绝并附说明；宿主没有提供绑定回调时同样是 `project-unavailable`。等待期间链路关闭的，绑定一出结果就释放租约。同一实例重连接管旧链路时，先为新链路取得租约，再关闭旧链路释放旧租约，使用者计数不会中途落到 0。
    - 通过后回 `welcome {wire, boot, binding}`，`binding` 为 `{id, name, generation}` 或 `null`；该成员的实例描述随之带上项目代次，`project` 目标与 `{project}` 访问都按它解析。成员链路关闭时释放绑定的租约。
-4. **服务端重启与项目已结束。** 客户端节点记住第一次握手得到的 `boot` 与绑定，之后重连都带 `{project: id, generation}`。之后重连得到不同的 `boot`，说明服务端已换进程，旧进程里与本实例有关的门面、订阅与等待都已不在：本节点的全部远程订阅以 `server-restarted` 结束、不重建，这条链路关闭，连接结果为 `server-restarted`；此后本节点的远程调用为 `unavailable`、再次连接仍返回 `server-restarted`。重连以 `project-gone` 被拒，或 `welcome` 里绑定的 id、代次与记下的不同（第二道防线，不接受改投），同样进入终态：订阅以 `project-gone` 结束、不重建，链路关闭，连接结果为 `project-gone`，之后调用为 `unavailable`。客户端宿主据此要求重新加载（浏览器见 [`runtime.browser-host`](browser-host.md)）。`boot` 与绑定都相同时按输出第 7 条重建订阅。
+4. **服务端重启与项目已结束。** 客户端节点记住第一次握手得到的 `boot` 与绑定，之后重连都带 `{project: id, generation}`。之后重连被以 `server-restarted` 拒绝（或 `welcome` 的 `boot` 与记下的不同，作为第二道防线），说明服务端已换进程，旧进程里与本实例有关的门面、订阅与等待都已不在：本节点的全部远程订阅以 `server-restarted` 结束、不重建，这条链路关闭，连接结果为 `server-restarted`；此后本节点的远程调用为 `unavailable`、再次连接仍返回 `server-restarted`。重连以 `project-gone` 被拒，或 `welcome` 里绑定的 id、代次与记下的不同（第二道防线，不接受改投），同样进入终态：订阅以 `project-gone` 结束、不重建，链路关闭，连接结果为 `project-gone`，之后调用为 `unavailable`。客户端宿主据此要求重新加载（浏览器见 [`runtime.browser-host`](browser-host.md)）。`boot` 与绑定都相同时按输出第 7 条重建订阅。
 5. **协议违规。** 握手完成前收到 `hello` 以外的帧，或任何时候收到无法解析的帧，服务端记诊断并关闭这条链路；对端的在途请求随即按断开结算，不必等到超时。
 6. **停止。** 服务端宿主停止时，路由依次：
    1. **停止接纳**：新的客户端 `hello` 以 `stopping` 拒绝；客户端成员发来的新请求与新订阅为 `unavailable`（说明服务端正在停止）。项目成员与宿主带 `expect` 交来的项目链路不受影响：项目子实例停止时还要经远程服务收口，正在创建的项目子实例也要能完成握手、再按停止序列收口。
@@ -140,7 +141,7 @@ owners:
 - 激活等待环与激活期超时都返回结构化失败并记诊断，不挂起调用方。
 - 业务值无法经链路编码（插件传了不能序列化的值）：参数或过滤参数为 `invalid-input`，结果为 `provider-error`，事件内容使订阅以 `provider-error` 结束；都立即结算，不等超时。
 - 远程实现工厂必须同步返回对象；抛错、返回非对象或 Promise 时这次调用为 `provider-error` 并记诊断。
-- 握手被拒：连接结果带 `reason`（`wire-version`、`stopping`、`duplicate-instance`、`role`、`project-unavailable`、`project-gone`）与说明，链路关闭；客户端宿主按原因决定提示刷新、稍后重连、显示无法打开项目或报告启动失败。
+- 握手被拒：连接结果带 `reason`（`wire-version`、`server-restarted`、`stopping`、`duplicate-instance`、`role`、`project-unavailable`、`project-gone`）与说明，链路关闭；客户端宿主按原因决定提示刷新、稍后重连、显示无法打开项目或报告启动失败。
 
 ## 边界与兼容
 
@@ -163,7 +164,7 @@ owners:
 8. **订阅。** 四种取消条件（订阅方释放、任一入口停止、提供项撤回、连接结束）各一例；迟到事件被丢弃；同一项目代次内重连后订阅重建并收到 `onResync`；旧代次订阅不复活。
 9. **`{project}` 目标。** 访问回调拒绝时为 `denied`，没有访问回调时一律 `denied`；项目代次结束后发往它的请求为 `target-gone`。
 10. **握手与来源。** 带不允许 `Origin` 的升级得到 403、不带 `Origin` 的放行；`wire` 不同的 hello（其余字段是另一版本的形状）得到 `wire-version` 拒绝；`welcome` 带 `boot`；hello 带客户端身份。
-11. **重连与服务端重启。** 连回同一 `boot`：订阅重建并收到 `onResync`。不同 `boot`：订阅以 `server-restarted` 结束且不重建，连接结果为 `server-restarted`，之后的调用为 `unavailable`。同一实例重连接管旧链路，旧链路上已派发的写请求为 `unknown-outcome`；描述不一致为 `duplicate-instance`。
+11. **重连与服务端重启。** 连回同一 `boot`：订阅重建并收到 `onResync`。连到另一个服务端进程：hello 带的 `boot` 不同即以 `server-restarted` 拒绝，订阅以 `server-restarted` 结束且不重建，连接结果为 `server-restarted`，之后的调用为 `unavailable`。同一实例重连接管旧链路，旧链路上已派发的写请求为 `unknown-outcome`；描述不一致为 `duplicate-instance`。
 12. **协议违规。** 握手前的业务帧、无法解析的帧使链路关闭并留诊断，对端在途请求立即结算。
 13. **停止。** 停止接纳后新 hello 以 `stopping` 拒绝，客户端新请求为 `unavailable`，项目成员照常；排空等在途请求结算，到截止时间返回截止；关闭断开全部成员。
 14. **编码。** JSON 编码遇函数、symbol、bigint、非有限数、数组里的 `undefined`、非普通对象与循环引用时抛错，请求、结果与事件按阶段结算。

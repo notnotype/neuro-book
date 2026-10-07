@@ -2,7 +2,7 @@ import {describe, expect, it} from "bun:test";
 
 import {Type} from "typebox";
 
-import {defineRemoteService, failureFor, parseFrame, reservedKeys, validationProblems, WIRE_PROTOCOL_VERSION, wireMismatch} from "./remote";
+import {defineRemoteService, failureFor, leaseHolderOf, parseFrame, reservedKeys, validationProblems, WIRE_PROTOCOL_VERSION, wireMismatch} from "./remote";
 import type {RemoteCause} from "./remote";
 
 const caller = {instanceId: "browser-1", location: "browser", plugin: "nbook.files", entry: "web", generation: 1, via: null};
@@ -64,13 +64,27 @@ describe("Spec plugin-channel 输入：帧、握手与保留字段", () => {
         expect(wireMismatch("hello")).toBeNull();
     });
 
-    it("hello 必须带客户端身份（服务端与项目实例为 null）；welcome 必须带服务端进程标识 boot", () => {
+    it("hello 必须带客户端身份（服务端与项目实例为 null）、绑定请求与上次的 boot；welcome 必须带 boot 与绑定结果", () => {
         const instance = {id: "browser-1", kind: "browser", role: "client", project: null};
-        expect(parseFrame({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance})).toBeNull();
-        expect(parseFrame({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {...instance, client: "profile-1"}})).not.toBeNull();
-        expect(parseFrame({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {...instance, client: null}})).not.toBeNull();
-        expect(parseFrame({type: "welcome", wire: WIRE_PROTOCOL_VERSION})).toBeNull();
-        expect(parseFrame({type: "welcome", wire: WIRE_PROTOCOL_VERSION, boot: "boot-1"})).not.toBeNull();
+        const hello = {type: "hello", wire: WIRE_PROTOCOL_VERSION, bind: null, boot: null};
+        expect(parseFrame({...hello, instance})).toBeNull();
+        expect(parseFrame({...hello, instance: {...instance, client: "profile-1"}})).not.toBeNull();
+        expect(parseFrame({...hello, instance: {...instance, client: null}})).not.toBeNull();
+        expect(parseFrame({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {...instance, client: null}})).toBeNull();
+        for (const bind of [{project: "p"}, {project: "P", generation: 1}]) {
+            expect(parseFrame({...hello, instance: {...instance, client: null}, bind, boot: "boot-1"})).not.toBeNull();
+        }
+        expect(parseFrame({...hello, instance: {...instance, client: null}, bind: {project: "P", generation: 1, extra: true}})).toBeNull();
+        expect(parseFrame({type: "welcome", wire: WIRE_PROTOCOL_VERSION, boot: "boot-1"})).toBeNull();
+        expect(parseFrame({type: "welcome", wire: WIRE_PROTOCOL_VERSION, boot: "boot-1", binding: null})).not.toBeNull();
+        expect(parseFrame({type: "welcome", wire: WIRE_PROTOCOL_VERSION, boot: "boot-1", binding: {id: "P", name: "p", generation: 1}})).not.toBeNull();
+    });
+
+    it("租约持有者的编码含实例、插件、入口与激活代次，不含委托代理", () => {
+        const delegated = {...caller, via: {plugin: "nbook.storage", entry: "main", generation: 3}};
+        expect(leaseHolderOf(delegated)).toBe(leaseHolderOf(caller));
+        expect(leaseHolderOf({...caller, generation: 2})).not.toBe(leaseHolderOf(caller));
+        expect(leaseHolderOf({...caller, instanceId: "browser-2"})).not.toBe(leaseHolderOf(caller));
     });
 
     it("业务参数里 $nb 开头的键是保留字段", () => {

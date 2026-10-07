@@ -72,7 +72,7 @@ export function openRawRpcSocket(url: string, origin?: string): RawRpcSocket {
     };
 }
 
-/** 以给定实例描述握手的 hello 帧。 */
+/** 以给定实例描述握手的 hello 帧；不绑定项目，也没有上次的服务端进程标识。 */
 export function helloFrame(instance: InstanceDescriptor): unknown {
-    return {type: "hello", wire: WIRE_PROTOCOL_VERSION, instance};
+    return {type: "hello", wire: WIRE_PROTOCOL_VERSION, instance, bind: null, boot: null};
 }

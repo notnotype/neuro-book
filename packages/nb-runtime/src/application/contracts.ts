@@ -17,7 +17,7 @@ import type {
     ScopePhase,
 } from "../lifecycle/lifecycle";
 import type {EntryRef, PluginDefinition, PluginHost, PluginHostOptions, PluginObserver} from "../plugins/plugins";
-import type {AssemblyObserver, ServiceAccess, ServiceAssembly, ServiceCreateContext, ServiceDependency, ServiceKey} from "../services/services";
+import type {AssemblyObserver, PerConsumerProvision, ServiceAccess, ServiceAssembly, ServiceCreateContext, ServiceDependency, ServiceKey} from "../services/services";
 
 export type {FailureError} from "../lifecycle/lifecycle";
 
@@ -51,8 +51,9 @@ export interface CapabilityProvider<T = unknown> {
     readonly id: string;
     readonly key: ServiceKey<T>;
     readonly dependencies?: ReadonlyArray<ServiceDependency>;
-    create(context: ServiceCreateContext): T | Promise<T>;
-    release?(instance: T): void | Promise<void>;
+    /** 返回 `perConsumer(...)` 时按调用方提供：每个调用方入口的每次激活各得一个门面（runtime.services 输出第 12 条）。 */
+    create(context: ServiceCreateContext): T | PerConsumerProvision<T & object> | Promise<T | PerConsumerProvision<T & object>>;
+    release?(instance: T | PerConsumerProvision<T & object>): void | Promise<void>;
 }
 
 /** 只读检查门禁的上下文：停止信号、根作用域与该门禁声明依赖的服务访问。 */

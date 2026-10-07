@@ -38,7 +38,15 @@ export interface ChildLease {
 
 export type AcquireChildResult =
     | {readonly status: "acquired"; readonly lease: ChildLease}
-    | {readonly status: "rejected"; readonly reason: "admission-closed" | "create-failed"; readonly detail: string | null};
+    | {readonly status: "rejected"; readonly reason: "admission-closed" | "create-failed" | "generation-gone"; readonly detail: string | null};
+
+export interface AcquireChildOptions {
+    /**
+     * 只取这一代：它是当前代次且处于 `available` 或 `idle-grace` 时取得，否则立即 `generation-gone`，不等待、
+     * 不创建新代次。客户端按原代次重连用它，旧绑定因此不会改投新代次。
+     */
+    readonly generation?: number;
+}
 
 /** 代次的非正常结束：强制结束与意外退出是外部观察到的终止；停止回调抛错时不知道子实例是否已退出。 */
 export type ChildAbnormalEnd = "forced" | "exited" | "stop-failed";
@@ -60,7 +68,7 @@ export interface ChildDiagnostic {
 }
 
 export interface ChildInstances {
-    acquire(key: string, holder: string): Promise<AcquireChildResult>;
+    acquire(key: string, holder: string, options?: AcquireChildOptions): Promise<AcquireChildResult>;
     /** 该键当前（最近一个）代次的状态；从未创建过为 null。 */
     state(key: string): ChildStatus | null;
     /** 每个键当前代次的状态。 */
@@ -123,7 +131,10 @@ class ChildInstancesImpl<Handle> implements ChildInstances {
         parent.root.register({kind: "child-instances", label: "child-instances", value: null, release: () => this.#stopAll()});
     }
 
-    async acquire(key: string, holder: string): Promise<AcquireChildResult> {
+    async acquire(key: string, holder: string, options: AcquireChildOptions = {}): Promise<AcquireChildResult> {
+        if (options.generation !== undefined) {
+            return this.#acquireGeneration(key, holder, options.generation);
+        }
         // 每次等待之后回到循环开头：等待期间父实例可能开始停止，或这一代已经换掉。
         for (;;) {
             if (!this.#admission) {
@@ -153,6 +164,26 @@ class ChildInstancesImpl<Handle> implements ChildInstances {
                     return {status: "acquired", lease: this.#lease(current, holder)};
             }
         }
+    }
+
+    #acquireGeneration(key: string, holder: string, generation: number): AcquireChildResult {
+        if (!this.#admission) {
+            return {status: "rejected", reason: "admission-closed", detail: null};
+        }
+        const current = this.#current.get(key);
+        if (current === undefined || current.generation !== generation) {
+            return {status: "rejected", reason: "generation-gone", detail: `${key} 的代次 ${String(generation)} 不是当前代次`};
+        }
+        const phase = current.phase;
+        if (phase.state === "idle-grace") {
+            phase.cancelGrace();
+            current.phase = {state: "available", handle: phase.handle};
+            return {status: "acquired", lease: this.#lease(current, holder)};
+        }
+        if (phase.state === "available") {
+            return {status: "acquired", lease: this.#lease(current, holder)};
+        }
+        return {status: "rejected", reason: "generation-gone", detail: `${key} 的代次 ${String(generation)} 处于 ${phase.state}`};
     }
 
     state(key: string): ChildStatus | null {

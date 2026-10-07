@@ -10,7 +10,7 @@
 export type * from "./contract";
 export {defineRemoteService} from "./contract";
 export type * from "./protocol";
-export {failureFor, parseFrame, REMOTE_FAILURE_CODES, reservedKeys, validationProblems, WIRE_PROTOCOL_VERSION, wireMismatch} from "./protocol";
+export {failureFor, leaseHolderOf, parseFrame, REMOTE_FAILURE_CODES, reservedKeys, validationProblems, WIRE_PROTOCOL_VERSION, wireMismatch} from "./protocol";
 export {decodeJsonFrame, encodeJsonFrame, FrameEncodingError} from "./json-codec";
 export type * from "./node";
 export {createRemoteNode, provideRemote} from "./node";

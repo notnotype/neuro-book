@@ -219,6 +219,52 @@ describe("Spec application 子实例与租约：状态表", () => {
     });
 });
 
+describe("Spec application 子实例与租约：按代次取得", () => {
+    it("指定代次在宽限期中：取消关闭并取得，与不指定代次的租约同一代", async () => {
+        const clock = new ManualClock();
+        const host = controlledHost(clock);
+        const children = createChildInstances(await parentApplication(), host.options);
+        leaseOf(await children.acquire("P", "a")).release();
+        expect(children.state("P")?.state).toBe("idle-grace");
+
+        const resumed = leaseOf(await children.acquire("P", "a", {generation: 1}));
+        expect(resumed.generation).toBe(1);
+        clock.advance(GRACE_MS);
+        expect(children.state("P")).toMatchObject({generation: 1, state: "available", leases: 1});
+    });
+
+    it("指定代次正在停止或已结束：立即 generation-gone，不等待、不创建新代次", async () => {
+        const clock = new ManualClock();
+        const host = controlledHost(clock, {stop: true});
+        const children = createChildInstances(await parentApplication(), host.options);
+        leaseOf(await children.acquire("P", "a")).release();
+        clock.advance(GRACE_MS);
+        expect(children.state("P")?.state).toBe("stopping");
+
+        expect(await children.acquire("P", "a", {generation: 1})).toMatchObject({status: "rejected", reason: "generation-gone"});
+        host.stops[0]!.settle.resolve("closed");
+        await drain();
+        expect(await children.acquire("P", "a", {generation: 1})).toMatchObject({status: "rejected", reason: "generation-gone"});
+        expect(host.events).toEqual(["create:P#1", "stop:P#1"]);
+    });
+
+    it("指定的不是当前代次、或这一代还在创建中：generation-gone", async () => {
+        const clock = new ManualClock();
+        const host = controlledHost(clock, {create: true});
+        const children = createChildInstances(await parentApplication(), host.options);
+        expect(await children.acquire("P", "a", {generation: 1})).toMatchObject({status: "rejected", reason: "generation-gone"});
+        expect(host.events).toEqual([]);
+
+        const creating = children.acquire("P", "a");
+        await drain();
+        expect(await children.acquire("P", "b", {generation: 1})).toMatchObject({status: "rejected", reason: "generation-gone"});
+        host.creations[0]!.resolve("P#1");
+        await creating;
+        expect(await children.acquire("P", "b", {generation: 2})).toMatchObject({status: "rejected", reason: "generation-gone"});
+        expect(leaseOf(await children.acquire("P", "b", {generation: 1})).generation).toBe(1);
+    });
+});
+
 describe("Spec application 子实例与租约：父实例停止", () => {
     it("父实例 stop() 的同步段里关闭接纳；存活子实例在父实例插件与本地能力收口之前停完", async () => {
         const clock = new ManualClock();
@@ -310,7 +356,7 @@ describe("Spec plugin-channel 输出 9：{project} 目标核对租约", () => {
             {keys: [], plugins: [callerPlugin], gates: [], remote: hubNode},
         );
         expect(await hub.startup).toMatchObject({status: "available"});
-        const router = createRemoteRouter(hubNode, {holdsProjectLease: (frame, project, generation) => frame.plugin !== null && children.holds(project, generation, frame.plugin)});
+        const router = createRemoteRouter(hubNode, {projectAccess: (frame, project, generation) => (frame.plugin !== null && children.holds(project, generation, frame.plugin) ? "allowed" : "denied")});
         const children = createChildInstances<Running>(hub, {
             create: async (key, generation) => {
                 const descriptor: InstanceDescriptor = {id: `project-${key}-${generation}`, kind: "project", role: "project", project: {id: key, generation}, client: null};
@@ -325,7 +371,7 @@ describe("Spec plugin-channel 输出 9：{project} 目标核对租约", () => {
                 );
                 expect(await app.startup).toMatchObject({status: "available"});
                 const pair = createLinkPair();
-                router.accept(pair.right);
+                router.accept(pair.right, {expect: descriptor});
                 expect(await node.connect(pair.left)).toEqual({ok: true});
                 return {app, link: pair.left};
             },

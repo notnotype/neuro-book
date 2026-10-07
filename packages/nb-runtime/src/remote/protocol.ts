@@ -12,10 +12,10 @@ import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
 
 /**
- * 握手时核对；不兼容时在处理任何业务帧前拒绝链路。帧格式变化时提升。`hello` 的 `wire` 字段与 `reject`
- * 帧的形状跨版本不变：任何版本的客户端都能让服务端读出版本、读懂服务端的拒绝。
+ * 握手时核对；不兼容时在处理任何业务帧前拒绝链路。帧格式变化时提升（2：握手加入项目绑定）。`hello` 的
+ * `wire` 字段与 `reject` 帧的形状跨版本不变：任何版本的客户端都能让服务端读出版本、读懂服务端的拒绝。
  */
-export const WIRE_PROTOCOL_VERSION = 1;
+export const WIRE_PROTOCOL_VERSION = 2;
 
 /** 路由层失败码，对所有远程服务相同；业务失败码由各合同声明。 */
 export const REMOTE_FAILURE_CODES = [
@@ -103,6 +103,14 @@ export const CallerFrameSchema = Type.Object({
 
 export type CallerFrame = Static<typeof CallerFrameSchema>;
 
+/**
+ * 租约持有者的编码：实例 + 插件 + 入口 + 入口激活代次。委托代理（`via`）不参与：租约记在发起它的入口这次
+ * 激活名下，经不经代理都按它核对。宿主取得租约与路由核对 `{project}` 访问都用这一个函数，插件冒用不了别人的租约。
+ */
+export function leaseHolderOf(caller: Pick<CallerFrame, "instanceId" | "plugin" | "entry" | "generation">): string {
+    return JSON.stringify([caller.instanceId, caller.plugin, caller.entry, caller.generation]);
+}
+
 const EntryRefSchema = Type.Object({instanceId: Type.String(), plugin: Type.String(), entry: Type.String()}, {additionalProperties: false});
 
 /** 激活链上的一环：哪个实例里的哪个入口正在因远程调用而激活。 */
@@ -117,7 +125,7 @@ export const TargetSchema = Type.Union([
 
 export type RemoteTarget = Static<typeof TargetSchema>;
 
-const ProjectBindingSchema = Type.Object({id: Type.String({minLength: 1}), generation: Type.Integer()}, {additionalProperties: false});
+const ProjectGenerationSchema = Type.Object({id: Type.String({minLength: 1}), generation: Type.Integer()}, {additionalProperties: false});
 
 /**
  * 实例描述。`kind` 是运行位置（宿主声明）；`role` 是它在拓扑里的位置：`hub` 是运行路由的服务端实例，
@@ -128,11 +136,28 @@ export const InstanceSchema = Type.Object({
     id: Type.String({minLength: 1}),
     kind: Type.String({minLength: 1}),
     role: Type.Union([Type.Literal("hub"), Type.Literal("project"), Type.Literal("client")]),
-    project: Type.Union([ProjectBindingSchema, Type.Null()]),
+    project: Type.Union([ProjectGenerationSchema, Type.Null()]),
     client: Type.Union([Type.String({minLength: 1}), Type.Null()]),
 }, {additionalProperties: false});
 
 export type InstanceDescriptor = Static<typeof InstanceSchema>;
+
+/**
+ * 客户端的绑定请求：首次连接按项目引用（短名或 id），重连带已绑定的 id 与代次；不绑定为 null。
+ * 只有客户端可以带，服务端由宿主决定绑定（runtime/plugin-channel.md 的“WebSocket 传输与握手”第 3 条）。
+ */
+export const BindRequestSchema = Type.Union([
+    Type.Null(),
+    Type.Object({project: Type.String({minLength: 1})}, {additionalProperties: false}),
+    Type.Object({project: Type.String({minLength: 1}), generation: Type.Integer()}, {additionalProperties: false}),
+]);
+
+export type BindRequest = Static<typeof BindRequestSchema>;
+
+/** 握手回复的绑定结果：客户端绑定的项目代次与短名。 */
+export const ProjectBindingSchema = Type.Object({id: Type.String({minLength: 1}), name: Type.String({minLength: 1}), generation: Type.Integer()}, {additionalProperties: false});
+
+export type ProjectBinding = Static<typeof ProjectBindingSchema>;
 
 const OutcomeSchema = Type.Union([
     Type.Object({ok: Type.Literal(true), value: Type.Unknown()}, {additionalProperties: false}),
@@ -147,9 +172,13 @@ const OutcomeSchema = Type.Union([
 const Id = Type.String({minLength: 1});
 
 export const FrameSchema = Type.Union([
-    Type.Object({type: Type.Literal("hello"), wire: Type.Integer(), instance: InstanceSchema}, {additionalProperties: false}),
+    /**
+     * `boot` 是客户端上次握手得到的服务端进程标识（第一次为 null）。路由先比它：服务端换了进程就直接拒绝，
+     * 不让新进程按旧进程的项目代次号去判断绑定（代次号在新进程里从头编号，可能撞上）。
+     */
+    Type.Object({type: Type.Literal("hello"), wire: Type.Integer(), instance: InstanceSchema, bind: BindRequestSchema, boot: Type.Union([Type.String({minLength: 1}), Type.Null()])}, {additionalProperties: false}),
     /** `boot` 是服务端这一次进程的标识：客户端重连时据此区分“同一进程”与“服务端已重启”。 */
-    Type.Object({type: Type.Literal("welcome"), wire: Type.Integer(), boot: Type.String({minLength: 1})}, {additionalProperties: false}),
+    Type.Object({type: Type.Literal("welcome"), wire: Type.Integer(), boot: Type.String({minLength: 1}), binding: Type.Union([ProjectBindingSchema, Type.Null()])}, {additionalProperties: false}),
     Type.Object({type: Type.Literal("reject"), reason: Type.String(), message: Type.String()}, {additionalProperties: false}),
     Type.Object({
         type: Type.Literal("request"),

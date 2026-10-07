@@ -16,10 +16,12 @@ import {Peer} from "./peer";
 import type {Reply, RequestOptions, SubscribeHandlers, SubscriptionChannel} from "./peer";
 import {failureFor, REMOTE_FAILURE_CODES, reservedKeys, validationProblems, WIRE_PROTOCOL_VERSION} from "./protocol";
 import type {
+    BindRequest,
     CallerFrame,
     ChainLink,
     InstanceDescriptor,
     Outcome,
+    ProjectBinding,
     ReleaseFrame,
     RemoteResult,
     RemoteTarget,
@@ -102,7 +104,10 @@ export interface RemoteDiagnostic {
 }
 
 export interface RemoteNodeOptions {
+    /** 客户端的 `project` 恒为 null：绑定由服务端在握手时决定。 */
     readonly instance: InstanceDescriptor;
+    /** 客户端要绑定的项目（短名或 id）；第一次握手后改为按已绑定的 id 与代次重连。 */
+    readonly bind?: {readonly project: string} | null;
     readonly clock?: RuntimeClock;
     /** 开发模式打开：同实例调用也按合同校验，并经结构化克隆，提前发现传了不可序列化的值。 */
     readonly validateLocalCalls?: boolean;
@@ -113,15 +118,19 @@ export interface RemoteNodeOptions {
 
 /**
  * 连接结果。失败的 `reason`：服务端拒绝握手时是拒绝帧的原因（`wire-version`、`stopping`、`duplicate-instance`、
- * `role`），握手完成前链路关闭为 `disconnected`，服务端已换进程为 `server-restarted`。
+ * `role`、`project-unavailable`、`project-gone`），握手完成前链路关闭为 `disconnected`，服务端已换进程为
+ * `server-restarted`。
  */
 export type RemoteConnectResult = {readonly ok: true} | {readonly ok: false; readonly reason: string; readonly message: string};
 
 export interface RemoteNode extends RemoteHostBinding {
+    /** 第一次握手得到的绑定；没有请求绑定或还没连上时为 null。 */
+    readonly binding: ProjectBinding | null;
     /**
-     * 连到上游（服务端路由）。连回同一服务端进程时，同一项目代次内仍有效的订阅会重建并收到 `onResync`；
-     * 服务端已换进程（welcome 的 `boot` 与第一次连接时不同）时，全部远程订阅以 `server-restarted` 结束，
-     * 此后本节点不再连得上、远程调用为 `unavailable`：旧进程里的门面与订阅都已不在，客户端要重新启动。
+     * 连到上游（服务端路由）。连回同一服务端进程、同一项目代次时，仍有效的订阅会重建并收到 `onResync`。
+     * 进入终态时全部远程订阅以终态原因结束，此后本节点不再连得上、远程调用为 `unavailable`，客户端要重新启动：
+     * 服务端已换进程（welcome 的 `boot` 与第一次连接时不同）为 `server-restarted`；绑定的项目代次已结束（重连
+     * 被以 `project-gone` 拒绝，或 welcome 的绑定与记下的不同，不接受改投）为 `project-gone`。
      */
     connect(link: RemoteLink): Promise<RemoteConnectResult>;
     diagnostics(): ReadonlyArray<RemoteDiagnostic>;
@@ -195,7 +204,7 @@ function anySignal(signals: ReadonlyArray<AbortSignal | undefined>): AbortSignal
 }
 
 export class RemoteNodeImpl implements RemoteNode {
-    readonly instance: InstanceDescriptor;
+    #instance: InstanceDescriptor;
     readonly #clock: RuntimeClock;
     readonly #validateLocal: boolean;
     readonly #activationLimit: number;
@@ -209,11 +218,16 @@ export class RemoteNodeImpl implements RemoteNode {
     #upstreamPeer: Peer | null = null;
     /** 第一次握手得到的服务端进程标识。 */
     #boot: string | null = null;
-    #serverRestarted = false;
+    /** 首次连接的绑定请求；拿到绑定后重连改带 id 与代次。 */
+    readonly #bindRequest: {readonly project: string} | null;
+    #binding: ProjectBinding | null = null;
+    /** 终态的连接结果；进入后不再连接。 */
+    #terminal: Extract<RemoteConnectResult, {ok: false}> | null = null;
     #sequence = 0;
 
     constructor(options: RemoteNodeOptions) {
-        this.instance = Object.freeze({...options.instance});
+        this.#instance = Object.freeze({...options.instance});
+        this.#bindRequest = options.bind ?? null;
         this.#clock = options.clock ?? systemClock;
         this.#validateLocal = options.validateLocalCalls ?? false;
         this.#activationLimit = options.maxActivationCallMs ?? DEFAULT_ACTIVATION_CALL_LIMIT_MS;
@@ -222,6 +236,22 @@ export class RemoteNodeImpl implements RemoteNode {
 
     get clock(): RuntimeClock {
         return this.#clock;
+    }
+
+    /** 客户端绑定项目后，描述带上绑定的项目代次。 */
+    get instance(): InstanceDescriptor {
+        return this.#instance;
+    }
+
+    get binding(): ProjectBinding | null {
+        return this.#binding;
+    }
+
+    #helloBind(): BindRequest {
+        if (this.#binding !== null) {
+            return {project: this.#binding.id, generation: this.#binding.generation};
+        }
+        return this.#bindRequest === null ? null : {project: this.#bindRequest.project};
     }
 
     attach(source: RemoteProviderSource): void {
@@ -243,15 +273,15 @@ export class RemoteNodeImpl implements RemoteNode {
     }
 
     async connect(link: RemoteLink): Promise<RemoteConnectResult> {
-        if (this.#serverRestarted) {
+        if (this.#terminal !== null) {
             link.close();
-            return SERVER_RESTARTED;
+            return this.#terminal;
         }
-        const {promise, resolve} = Promise.withResolvers<{readonly ok: true; readonly boot: string} | Extract<RemoteConnectResult, {ok: false}>>();
+        const {promise, resolve} = Promise.withResolvers<{readonly ok: true; readonly boot: string; readonly binding: ProjectBinding | null} | Extract<RemoteConnectResult, {ok: false}>>();
         const peer = new Peer(
             link,
             {
-                onWelcome: (frame) => resolve({ok: true, boot: frame.boot}),
+                onWelcome: (frame) => resolve({ok: true, boot: frame.boot, binding: frame.binding}),
                 onReject: (frame) => {
                     resolve({ok: false, reason: frame.reason, message: frame.message});
                     peer.close();
@@ -264,15 +294,31 @@ export class RemoteNodeImpl implements RemoteNode {
             },
             this.#clock,
         );
-        peer.send({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {...this.instance}});
+        // 客户端的 instance.project 恒为 null：绑定由服务端决定，经 bind 请求。
+        const instance = this.#instance.role === "client" ? {...this.#instance, project: null} : {...this.#instance};
+        peer.send({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance, bind: this.#helloBind(), boot: this.#boot});
         const result = await promise;
         if (!result.ok) {
+            const terminal = result.reason === "server-restarted" ? SERVER_RESTARTED : result.reason === "project-gone" ? PROJECT_GONE : null;
+            if (terminal !== null) {
+                this.#enterTerminal(terminal);
+                return terminal;
+            }
             return result;
         }
+        // 第二道防线：路由本应已按 hello 的 boot 拒绝。
         if (this.#boot !== null && result.boot !== this.#boot) {
             peer.close();
-            this.#onServerRestarted();
+            this.#enterTerminal(SERVER_RESTARTED);
             return SERVER_RESTARTED;
+        }
+        const rebound = this.#checkBinding(result.binding);
+        if (rebound !== null) {
+            peer.close();
+            if (rebound.reason === "project-gone") {
+                this.#enterTerminal(rebound);
+            }
+            return rebound;
         }
         this.#boot = result.boot;
         const previous = this.#upstreamPeer;
@@ -293,9 +339,28 @@ export class RemoteNodeImpl implements RemoteNode {
         return {ok: true};
     }
 
-    /** 服务端已换进程：远程订阅不重建，以 `server-restarted` 结束；此后没有上游。 */
-    #onServerRestarted(): void {
-        this.#serverRestarted = true;
+    /**
+     * 核对 welcome 的绑定。第一次：请求了绑定就必须拿到，记下它，描述随之带上项目代次。之后：必须与记下的
+     * 同一 id、同一代次，否则是改投新代次，按 `project-gone` 进入终态（第二道防线，路由本应已拒绝）。
+     */
+    #checkBinding(binding: ProjectBinding | null): Extract<RemoteConnectResult, {ok: false}> | null {
+        if (this.#binding !== null) {
+            return binding !== null && binding.id === this.#binding.id && binding.generation === this.#binding.generation ? null : PROJECT_GONE;
+        }
+        if (this.#bindRequest === null) {
+            return binding === null ? null : {ok: false, reason: "role", message: "没有请求绑定，服务端却回复了绑定"};
+        }
+        if (binding === null) {
+            return {ok: false, reason: "project-unavailable", message: "服务端没有回复绑定"};
+        }
+        this.#binding = binding;
+        this.#instance = Object.freeze({...this.#instance, project: {id: binding.id, generation: binding.generation}});
+        return null;
+    }
+
+    /** 服务端已换进程或绑定的项目代次已结束：远程订阅不重建，以终态原因结束；此后没有上游。 */
+    #enterTerminal(result: Extract<RemoteConnectResult, {ok: false}>): void {
+        this.#terminal = result;
         this.#upstream = null;
         this.#upstreamPeer?.close();
         this.#upstreamPeer = null;
@@ -306,14 +371,14 @@ export class RemoteNodeImpl implements RemoteNode {
             this.#subscriptions.delete(subscription);
             if (!subscription.ended) {
                 subscription.ended = true;
-                subscription.options.onEnd?.("server-restarted");
+                subscription.options.onEnd?.(result.reason);
             }
         }
     }
 
     /** 没有上游时远程调用与订阅的结果。 */
     #offline(): {readonly ok: false; readonly code: "unavailable"; readonly detail: string} {
-        return {ok: false, code: "unavailable", detail: this.#serverRestarted ? "服务端已重启，本实例需要重新启动" : "本实例没有连到服务端"};
+        return {ok: false, code: "unavailable", detail: this.#terminal === null ? "本实例没有连到服务端" : `${this.#terminal.message}`};
     }
 
     access(caller: RemoteCallerContext): RemoteAccess {
@@ -855,7 +920,8 @@ export class RemoteNodeImpl implements RemoteNode {
     }
 }
 
-const SERVER_RESTARTED: RemoteConnectResult = Object.freeze({ok: false, reason: "server-restarted", message: "服务端已换进程，本实例需要重新启动"});
+const SERVER_RESTARTED: Extract<RemoteConnectResult, {ok: false}> = Object.freeze({ok: false, reason: "server-restarted", message: "服务端已换进程，本实例需要重新启动"});
+const PROJECT_GONE: Extract<RemoteConnectResult, {ok: false}> = Object.freeze({ok: false, reason: "project-gone", message: "绑定的项目代次已结束，本实例需要重新启动"});
 
 /** 内核自带的实例查询，由服务端路由直接回答。 */
 export const INSTANCES_CONTRACT = "runtime/instances";

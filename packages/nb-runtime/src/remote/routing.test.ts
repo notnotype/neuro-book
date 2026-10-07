@@ -9,8 +9,8 @@ import {ManualClock} from "../lifecycle/testing/manual-clock";
 import type {ActivationContext, PluginDefinition} from "../plugins/plugins";
 import type {ConsumerIdentity} from "../services/services";
 
-import {createRemoteNode, createRemoteRouter, defineRemoteService, provideRemote} from "./remote";
-import type {InstanceDescriptor, RemoteAccess, RemoteImplementation, RemoteNode, RemoteRouter, RemoteTarget} from "./remote";
+import {createRemoteNode, createRemoteRouter, defineRemoteService, provideRemote, WIRE_PROTOCOL_VERSION} from "./remote";
+import type {InstanceDescriptor, RemoteAccess, RemoteImplementation, RemoteNode, RemoteRouter, RemoteRouterOptions, RemoteTarget} from "./remote";
 import {createLinkPair} from "./testing/in-process";
 
 // ---------- 合同 ----------
@@ -154,10 +154,10 @@ async function start(
     descriptor: InstanceDescriptor,
     plugins: (contexts: Map<string, ActivationContext>) => ReadonlyArray<PluginDefinition>,
     clock: RuntimeClock,
-    validateLocalCalls = false,
+    options: {readonly validateLocalCalls?: boolean; readonly bind?: {readonly project: string}} = {},
 ): Promise<Instance> {
     const contexts = new Map<string, ActivationContext>();
-    const node = createRemoteNode({instance: descriptor, clock, validateLocalCalls});
+    const node = createRemoteNode({instance: descriptor, clock, validateLocalCalls: options.validateLocalCalls, bind: options.bind});
     const app = createApplication(
         {identity: {location: descriptor.kind, instanceId: descriptor.id}, stopSignal: new AbortController().signal, emergency: () => undefined},
         {keys: [], plugins: plugins(contexts), gates: [], remote: node},
@@ -166,9 +166,46 @@ async function start(
     return {app, node, contexts};
 }
 
+/**
+ * 测试里的项目管理：只有项目 P（短名 p），实例由测试自己起。`end()` 结束当前代次（租约失效），`next()`
+ * 开始下一代。首次绑定按引用取当前代次；重连只取原代次，已结束为 project-gone。
+ */
+function projectsStandIn() {
+    let generation = 1;
+    let running = true;
+    let revoke = new AbortController();
+    const released: string[] = [];
+    const bindProject: NonNullable<RemoteRouterOptions["bindProject"]> = async (request, client) => {
+        if (request.project !== "P" && request.project !== "p") {
+            return {ok: false, reason: "project-unavailable", message: `没有项目 ${request.project}`};
+        }
+        if ("generation" in request && (!running || request.generation !== generation)) {
+            return {ok: false, reason: "project-gone", message: `项目 P 的代次 ${String(request.generation)} 已结束`};
+        }
+        if (!running) {
+            return {ok: false, reason: "project-unavailable", message: "项目 P 没在运行"};
+        }
+        return {ok: true, binding: {id: "P", name: "p", generation}, revoked: revoke.signal, release: () => void released.push(client.id)};
+    };
+    return {
+        bindProject,
+        released,
+        end(): void {
+            running = false;
+            revoke.abort();
+        },
+        next(): void {
+            generation += 1;
+            running = true;
+            revoke = new AbortController();
+        },
+    };
+}
+
 interface Topology {
     readonly clock: ManualClock;
     readonly router: RemoteRouter;
+    readonly projects: ReturnType<typeof projectsStandIn>;
     readonly hub: Instance;
     readonly project: Instance;
     readonly browser1: Instance;
@@ -185,11 +222,12 @@ async function topology(options: {readonly validateLocalCalls?: boolean} = {}): 
     const clock = new ManualClock();
     const probes = {hub: newProbe(), project: newProbe(), browser2: newProbe()};
     const binding = {id: "P", generation: 1};
-    const hub = await start({id: "hub", kind: "server", role: "hub", project: null, client: null}, (contexts) => [provider("demo.server", "server", probes.hub), caller("app.caller", "server", contexts)], clock, options.validateLocalCalls);
+    const hub = await start({id: "hub", kind: "server", role: "hub", project: null, client: null}, (contexts) => [provider("demo.server", "server", probes.hub), caller("app.caller", "server", contexts)], clock, {validateLocalCalls: options.validateLocalCalls});
     const project = await start({id: "project-P", kind: "project", role: "project", project: binding, client: null}, (contexts) => [provider("demo.project", "project", probes.project), caller("app.caller", "project", contexts)], clock);
-    const browser1 = await start({id: "browser-1", kind: "browser", role: "client", project: binding, client: "profile-1"}, (contexts) => [caller("app.caller", "browser", contexts)], clock);
-    const browser2 = await start({id: "browser-2", kind: "browser", role: "client", project: binding, client: "profile-1"}, (contexts) => [provider("demo.window", "browser", probes.browser2), caller("app.caller", "browser", contexts)], clock);
-    const router = createRemoteRouter(hub.node);
+    const browser1 = await start({id: "browser-1", kind: "browser", role: "client", project: null, client: "profile-1"}, (contexts) => [caller("app.caller", "browser", contexts)], clock, {bind: {project: "p"}});
+    const browser2 = await start({id: "browser-2", kind: "browser", role: "client", project: null, client: "profile-1"}, (contexts) => [provider("demo.window", "browser", probes.browser2), caller("app.caller", "browser", contexts)], clock, {bind: {project: "p"}});
+    const projects = projectsStandIn();
+    const router = createRemoteRouter(hub.node, {bindProject: projects.bindProject});
     const links = new Map<string, ReturnType<typeof createLinkPair>>();
     const connect = async (instance: Instance): Promise<void> => {
         const pair = createLinkPair();
@@ -203,6 +241,7 @@ async function topology(options: {readonly validateLocalCalls?: boolean} = {}): 
     return {
         clock,
         router,
+        projects,
         hub,
         project,
         browser1,
@@ -358,11 +397,10 @@ describe("Spec plugin-channel 输出 1、4：链路编码失败是结构化失�
 });
 
 describe("Spec plugin-channel 状态与场景 8：项目代次结束", () => {
-    it("项目实例下线：订阅以 onEnd(target-gone) 结束；新代次上线后，绑定旧代次的客户端请求与订阅都是 target-gone，不改投新代次，重连也不复活旧订阅", async () => {
+    it("项目实例下线：订阅以 onEnd(target-gone) 结束；新代次上线后，绑定旧代次的客户端请求与订阅都是 target-gone，不改投新代次", async () => {
         const t = await topology();
         const ended: string[] = [];
-        const resynced: number[] = [];
-        await t.remote(t.browser1).use(echo).at("project").events.ticks.subscribe({topic: "a"}, () => undefined, {onEnd: (reason) => ended.push(reason), onResync: () => resynced.push(1)});
+        await t.remote(t.browser1).use(echo).at("project").events.ticks.subscribe({topic: "a"}, () => undefined, {onEnd: (reason) => ended.push(reason)});
         await drain();
         const oldSink = t.probes.project.sinks[0]!;
 
@@ -378,13 +416,37 @@ describe("Spec plugin-channel 状态与场景 8：项目代次结束", () => {
 
         expect(await atProject.whoami({})).toMatchObject({ok: false, code: "target-gone"});
         expect(await atProject.events.ticks.subscribe({topic: "a"}, () => undefined)).toMatchObject({ok: false, code: "target-gone"});
-        t.links.get("browser-1")!.left.close();
-        await drain();
-        await t.connect(t.browser1);
-        await drain();
-        expect(resynced).toEqual([]);
         expect(nextProbe.activations).toBe(0);
-        expect(nextProbe.sinks).toEqual([]);
+    });
+
+    it("绑定的代次结束（租约失效）：路由关闭绑定它的客户端链路并释放租约；重连得到 project-gone，节点进入终态，订阅不复活", async () => {
+        const t = await topology();
+        const ended: string[] = [];
+        const resynced: number[] = [];
+        await t.remote(t.browser1).use(echo).at("server").events.ticks.subscribe({topic: "a"}, () => undefined, {onEnd: (reason) => ended.push(reason), onResync: () => resynced.push(1)});
+        await drain();
+        const browserClosed = Promise.withResolvers<void>();
+        t.links.get("browser-1")!.left.onClose(() => browserClosed.resolve());
+
+        t.projects.end();
+        await browserClosed.promise;
+        await drain();
+        expect(t.projects.released.sort()).toEqual(["browser-1", "browser-2"]);
+        expect(t.router.instances().map((instance) => instance.id).sort()).toEqual(["hub", "project-P"]);
+
+        t.projects.next();
+        const pair = createLinkPair();
+        t.router.accept(pair.right);
+        expect(await t.browser1.node.connect(pair.left)).toMatchObject({ok: false, reason: "project-gone"});
+        await drain();
+        expect(ended).toEqual(["project-gone"]);
+        expect(resynced).toEqual([]);
+        expect(await t.remote(t.browser1).use(echo).at("server").whoami({})).toMatchObject({ok: false, code: "unavailable"});
+        expect(t.browser1.node.binding).toEqual({id: "P", name: "p", generation: 1});
+
+        const again = createLinkPair();
+        t.router.accept(again.right);
+        expect(await t.browser1.node.connect(again.left)).toMatchObject({ok: false, reason: "project-gone"});
     });
 });
 
@@ -395,7 +457,7 @@ describe("Spec plugin-channel 输出 3：调用方不可伪造", () => {
         t.router.accept(pair.right);
         const frames: unknown[] = [];
         pair.left.onFrame((frame) => frames.push(frame));
-        pair.left.send({type: "hello", wire: 1, instance: {id: "intruder", kind: "browser", role: "client", project: null, client: null}});
+        pair.left.send({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "intruder", kind: "browser", role: "client", project: null, client: null}, bind: null, boot: null});
         await drain();
         pair.left.send({
             type: "request",
@@ -509,10 +571,10 @@ describe("Spec plugin-channel WebSocket 传输第 3 条：握手", () => {
     it("hello 带客户端身份并登记；welcome 带服务端进程标识 boot", async () => {
         const t = await topology();
         const link = rawLink(t.router);
-        link.send({type: "hello", wire: 1, instance: {id: "browser-9", kind: "browser", role: "client", project: null, client: "profile-9"}});
+        link.send({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "browser-9", kind: "browser", role: "client", project: null, client: "profile-9"}, bind: null, boot: null});
         await drain();
 
-        expect(link.frames).toEqual([{type: "welcome", wire: 1, boot: expect.any(String)}]);
+        expect(link.frames).toEqual([{type: "welcome", wire: WIRE_PROTOCOL_VERSION, boot: expect.any(String), binding: null}]);
         expect(t.router.instances()).toContainEqual({id: "browser-9", kind: "browser", role: "client", project: null, client: "profile-9"});
     });
 
@@ -532,17 +594,151 @@ describe("Spec plugin-channel WebSocket 传输第 3 条：握手", () => {
         await drain();
         expect(t.probes.project.holdSignals).toHaveLength(1);
 
-        // 不关闭旧链路直接再连一次：服务端还没察觉旧连接断开时客户端重连。
+        // 不关闭旧链路直接再连一次：服务端还没察觉旧连接断开时客户端重连。绑定的窗口带原代次重连，按同一实例接管。
         await t.connect(t.browser1);
         expect(await pending).toEqual({ok: false, code: "unknown-outcome", cause: "disconnected"});
+        expect(t.projects.released).toEqual(["browser-1"]);
         expect(t.probes.project.holdSignals[0]!.aborted).toBe(true);
         expect(await t.remote(t.browser1).use(echo).at("server").whoami({})).toMatchObject({ok: true});
 
-        const impostor = createRemoteNode({instance: {...t.browser1.node.instance, client: "profile-2"}, clock: t.clock});
+        const impostors = [
+            createRemoteNode({instance: {...t.browser1.node.instance, project: null, client: "profile-2"}, clock: t.clock, bind: {project: "p"}}),
+            // 同 id、同客户端身份，但只按引用请求绑定（不是带原代次的重连）
+            createRemoteNode({instance: {...t.browser1.node.instance, project: null}, clock: t.clock, bind: {project: "p"}}),
+            createRemoteNode({instance: {...t.browser1.node.instance, project: null}, clock: t.clock}),
+        ];
+        for (const impostor of impostors) {
+            const pair = createLinkPair();
+            t.router.accept(pair.right);
+            expect(await impostor.connect(pair.left)).toMatchObject({ok: false, reason: "duplicate-instance"});
+        }
+        expect(await t.remote(t.browser1).use(echo).at("server").whoami({})).toMatchObject({ok: true});
+    });
+});
+
+/** 只有服务端实例与路由；路由的项目回调由测试给出。 */
+async function bareHub(options: RemoteRouterOptions = {}) {
+    const clock = new ManualClock();
+    const hub = await start({id: "hub", kind: "server", role: "hub", project: null, client: null}, () => [], clock);
+    return {clock, hub, router: createRemoteRouter(hub.node, options)};
+}
+
+describe("Spec plugin-channel WebSocket 传输第 3 条：绑定", () => {
+    it("带 bind 的 hello 得到带 binding 的 welcome；成员描述带上项目代次；节点记下绑定", async () => {
+        const t = await topology();
+        const link = rawLink(t.router);
+        link.send({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "browser-9", kind: "browser", role: "client", project: null, client: "profile-9"}, bind: {project: "p"}, boot: null});
+        await drain();
+
+        expect(link.frames).toEqual([{type: "welcome", wire: WIRE_PROTOCOL_VERSION, boot: expect.any(String), binding: {id: "P", name: "p", generation: 1}}]);
+        expect(t.router.instances()).toContainEqual({id: "browser-9", kind: "browser", role: "client", project: {id: "P", generation: 1}, client: "profile-9"});
+        expect(t.browser1.node.binding).toEqual({id: "P", name: "p", generation: 1});
+        expect(t.browser1.node.instance.project).toEqual({id: "P", generation: 1});
+    });
+
+    it("绑定回调拒绝为 project-unavailable；没有绑定回调同样是 project-unavailable", async () => {
+        const t = await topology();
+        const missing = createRemoteNode({instance: {id: "browser-9", kind: "browser", role: "client", project: null, client: null}, bind: {project: "elsewhere"}});
         const pair = createLinkPair();
         t.router.accept(pair.right);
-        expect(await impostor.connect(pair.left)).toMatchObject({ok: false, reason: "duplicate-instance"});
-        expect(await t.remote(t.browser1).use(echo).at("server").whoami({})).toMatchObject({ok: true});
+        expect(await missing.connect(pair.left)).toMatchObject({ok: false, reason: "project-unavailable"});
+        expect(missing.binding).toBeNull();
+
+        const bare = await bareHub();
+        const unmanaged = createRemoteNode({instance: {id: "browser-9", kind: "browser", role: "client", project: null, client: null}, bind: {project: "p"}});
+        const other = createLinkPair();
+        bare.router.accept(other.right);
+        expect(await unmanaged.connect(other.left)).toMatchObject({ok: false, reason: "project-unavailable"});
+    });
+
+    it("{project} 目标：没有访问回调时一律 denied，项目没在运行为 target-gone", async () => {
+        const t = await topology();
+        expect(await t.remote(t.hub).use(echo).at({project: "P"}).whoami({})).toMatchObject({ok: false, code: "denied"});
+        expect(await t.remote(t.hub).use(echo).at({project: "Q"}).whoami({})).toMatchObject({ok: false, code: "target-gone"});
+        expect(t.probes.project.consumers).toEqual([]);
+    });
+
+    it("客户端自报项目代次、非客户端带 bind：以 role 拒绝", async () => {
+        const t = await topology();
+        const claims = rawLink(t.router);
+        claims.send({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "browser-9", kind: "browser", role: "client", project: {id: "P", generation: 1}, client: null}, bind: null, boot: null});
+        await claims.closed;
+        expect(claims.frames).toEqual([{type: "reject", reason: "role", message: expect.any(String)}]);
+
+        const projectBinds = rawLink(t.router);
+        projectBinds.send({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "project-Q", kind: "project", role: "project", project: {id: "Q", generation: 1}, client: null}, bind: {project: "p"}, boot: null});
+        await projectBinds.closed;
+        expect(projectBinds.frames).toEqual([{type: "reject", reason: "role", message: expect.any(String)}]);
+    });
+
+    it("等绑定期间链路关闭：绑定一出结果就释放租约，不登记成员；路由关闭时握手中的链路一并关闭", async () => {
+        const pending: Array<PromiseWithResolvers<void>> = [];
+        const released: string[] = [];
+        const bare = await bareHub({
+            bindProject: async (_request, client) => {
+                const gate = Promise.withResolvers<void>();
+                pending.push(gate);
+                await gate.promise;
+                return {ok: true, binding: {id: "P", name: "p", generation: 1}, revoked: new AbortController().signal, release: () => void released.push(client.id)};
+            },
+        });
+        const first = rawLink(bare.router);
+        first.send({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "browser-9", kind: "browser", role: "client", project: null, client: null}, bind: {project: "p"}, boot: null});
+        await drain();
+        // 握手完成前发业务帧是协议违规：链路关闭。
+        first.send({type: "release", target: "server", $nbConsumer: {instanceId: "browser-9", location: "browser", plugin: null, entry: null, generation: null, via: null}});
+        await first.closed;
+        pending[0]!.resolve();
+        await drain();
+        expect(released).toEqual(["browser-9"]);
+        expect(bare.router.instances().map((instance) => instance.id)).toEqual(["hub"]);
+
+        const second = rawLink(bare.router);
+        second.send({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "browser-10", kind: "browser", role: "client", project: null, client: null}, bind: {project: "p"}, boot: null});
+        await drain();
+        bare.router.close();
+        await second.closed;
+        pending[1]!.resolve();
+        await drain();
+        expect(released).toEqual(["browser-9", "browser-10"]);
+        expect(second.frames).toEqual([]);
+    });
+
+    it("宿主给出 expect 的链路：描述不一致以 role 拒绝；一致的在停止接纳后照常登记", async () => {
+        const t = await topology();
+        const expected: InstanceDescriptor = {id: "project-Q-1", kind: "project", role: "project", project: {id: "Q", generation: 1}, client: null};
+        const wrong = createLinkPair();
+        t.router.accept(wrong.right, {expect: expected});
+        const liar = createRemoteNode({instance: {...expected, project: {id: "Q", generation: 2}}});
+        expect(await liar.connect(wrong.left)).toMatchObject({ok: false, reason: "role"});
+
+        t.router.stopAdmission();
+        const right = createLinkPair();
+        t.router.accept(right.right, {expect: expected});
+        expect(await createRemoteNode({instance: expected}).connect(right.left)).toEqual({ok: true});
+        expect(t.router.instances().map((instance) => instance.id)).toContain("project-Q-1");
+    });
+
+    it("重连时 welcome 的绑定与记下的不同：节点不接受改投，按 project-gone 进入终态", async () => {
+        let generation = 0;
+        const bare = await bareHub({
+            // 不按请求办事的宿主：每次都给新代次。节点是第二道防线。
+            bindProject: async () => {
+                generation += 1;
+                return {ok: true, binding: {id: "P", name: "p", generation}, revoked: new AbortController().signal, release: () => undefined};
+            },
+        });
+        const node = createRemoteNode({instance: {id: "browser-9", kind: "browser", role: "client", project: null, client: null}, bind: {project: "p"}});
+        const first = createLinkPair();
+        bare.router.accept(first.right);
+        expect(await node.connect(first.left)).toEqual({ok: true});
+        first.left.close();
+        await drain();
+
+        const second = createLinkPair();
+        bare.router.accept(second.right);
+        expect(await node.connect(second.left)).toMatchObject({ok: false, reason: "project-gone"});
+        expect(node.binding).toEqual({id: "P", name: "p", generation: 1});
     });
 });
 
@@ -607,7 +803,7 @@ describe("Spec plugin-channel WebSocket 传输第 6 条：路由停止", () => {
         t.router.stopAdmission();
 
         const link = rawLink(t.router);
-        link.send({type: "hello", wire: 1, instance: {id: "browser-9", kind: "browser", role: "client", project: null, client: null}});
+        link.send({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "browser-9", kind: "browser", role: "client", project: null, client: null}, bind: null, boot: null});
         await link.closed;
         expect(link.frames).toEqual([{type: "reject", reason: "stopping", message: expect.any(String)}]);
 
@@ -701,8 +897,8 @@ describe("Spec plugin-channel 输出 1：合同的提供方位置", () => {
         const binding = {id: "P", generation: 1};
         const hub = await start({id: "hub", kind: "server", role: "hub", project: null, client: null}, (contexts) => [answering("demo.where-server", "server", atServer, calls), caller("app.caller", "server", contexts)], clock);
         const project = await start({id: "project-P", kind: "project", role: "project", project: binding, client: null}, () => [answering("demo.where-project", "project", atProject, calls)], clock);
-        const browser = await start({id: "browser-1", kind: "browser", role: "client", project: binding, client: "profile-1"}, (contexts) => [caller("app.caller", "browser", contexts)], clock);
-        const router = createRemoteRouter(hub.node, {holdsProjectLease: () => true});
+        const browser = await start({id: "browser-1", kind: "browser", role: "client", project: null, client: "profile-1"}, (contexts) => [caller("app.caller", "browser", contexts)], clock, {bind: {project: "p"}});
+        const router = createRemoteRouter(hub.node, {bindProject: projectsStandIn().bindProject, projectAccess: () => "allowed"});
         for (const instance of [project, browser]) {
             const pair = createLinkPair();
             router.accept(pair.right);

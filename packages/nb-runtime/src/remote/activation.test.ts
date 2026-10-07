@@ -22,8 +22,8 @@ interface Instance {
     readonly diagnostics: PluginDiagnostic[];
 }
 
-async function start(descriptor: InstanceDescriptor, plugins: ReadonlyArray<PluginDefinition>, clock: RuntimeClock, maxActivationCallMs?: number): Promise<Instance> {
-    const node = createRemoteNode({instance: descriptor, clock, maxActivationCallMs});
+async function start(descriptor: InstanceDescriptor, plugins: ReadonlyArray<PluginDefinition>, clock: RuntimeClock, maxActivationCallMs?: number, bind?: {readonly project: string}): Promise<Instance> {
+    const node = createRemoteNode({instance: descriptor, clock, maxActivationCallMs, bind});
     const diagnostics: PluginDiagnostic[] = [];
     const app = createApplication(
         {identity: {location: descriptor.kind, instanceId: descriptor.id}, stopSignal: new AbortController().signal, emergency: () => undefined},
@@ -44,7 +44,6 @@ async function topology(options: {
     readonly maxActivationCallMs?: number;
 }) {
     const clock = new ManualClock();
-    const binding = {id: "P", generation: 1};
     const pluginA: PluginDefinition = {
         id: "demo.a",
         entries: [{id: "main", location: "server", remoteProvides: [serviceA.id], activate: async (context) => {
@@ -68,10 +67,21 @@ async function topology(options: {
         }}],
     };
     const hub = await start({id: "hub", kind: "server", role: "hub", project: null, client: null}, [pluginA], clock, options.maxActivationCallMs);
-    const router = createRemoteRouter(hub.node, {holdsProjectLease: (caller, project, generation) => caller.plugin !== null && children.holds(project, generation, caller.plugin)});
+    // 客户端经子实例管理绑定项目（持有者是客户端实例 id）；服务端插件 A 以插件 id 持有租约访问 `{project}`。
+    const router = createRemoteRouter(hub.node, {
+        bindProject: async (request, client) => {
+            const result = await children.acquire(request.project, client.id, "generation" in request ? {generation: request.generation} : {});
+            if (result.status !== "acquired") {
+                return {ok: false, reason: result.reason === "generation-gone" ? "project-gone" : "project-unavailable", message: result.detail ?? result.reason};
+            }
+            const {lease} = result;
+            return {ok: true, binding: {id: lease.key, name: lease.key, generation: lease.generation}, revoked: lease.revoked, release: () => lease.release()};
+        },
+        projectAccess: (caller, project, generation) => (caller.plugin !== null && children.holds(project, generation, caller.plugin) ? "allowed" : "denied"),
+    });
     const join = async (instance: Instance): Promise<void> => {
         const pair = createLinkPair();
-        router.accept(pair.right);
+        router.accept(pair.right, instance.node.instance.role === "project" ? {expect: instance.node.instance} : {});
         expect(await instance.node.connect(pair.left)).toEqual({ok: true});
     };
     const children = createChildInstances(hub.app, {
@@ -86,7 +96,7 @@ async function topology(options: {
         clock,
     });
     expect(await children.acquire("P", "demo.a")).toMatchObject({status: "acquired", lease: {key: "P", generation: 1}});
-    const browser = await start({id: "browser-1", kind: "browser", role: "client", project: binding, client: "profile-1"}, [browserCaller], clock);
+    const browser = await start({id: "browser-1", kind: "browser", role: "client", project: null, client: "profile-1"}, [browserCaller], clock, undefined, {project: "P"});
     await join(browser);
     return {clock, hub, browser, browserRemote: () => (browserContext as unknown as ActivationContext).remote};
 }
