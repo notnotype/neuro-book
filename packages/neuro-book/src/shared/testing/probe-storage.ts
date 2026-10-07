@@ -5,6 +5,7 @@
 
 import {Type} from "typebox";
 
+import {RecordSnapshotSchema, StorageFailureSchema} from "nbook/plugins/storage/shared/contracts";
 import {defineRecord} from "nbook/shared/storage";
 import type {RecordSnapshot, StorageFailed, StorageService, WriteResult} from "nbook/shared/storage";
 
@@ -19,10 +20,16 @@ export const probeRecords = {
 export type ProbeRecordName = keyof typeof probeRecords;
 export const PROBE_RECORD_NAMES = ["shared", "local", "project"] as const satisfies ReadonlyArray<ProbeRecordName>;
 export type ProbeSnapshot = RecordSnapshot<{readonly text: string}>;
+/** 读的结果：快照，或 `open` 的失败。 */
+export type ProbeRead = ProbeSnapshot | StorageFailed;
+
+const StorageFailedSchema = Type.Object({ok: Type.Literal(false), code: StorageFailureSchema, detail: Type.String()}, {additionalProperties: false});
+/** 读写结果在链路上的形状：项目探针的远程合同与控制路由的回应都按它核对。 */
+export const ProbeReadSchema = Type.Union([RecordSnapshotSchema, StorageFailedSchema]);
+export const ProbeSaveSchema = Type.Union([Type.Object({ok: Type.Literal(true), revision: Type.String()}, {additionalProperties: false}), StorageFailedSchema]);
 
 export interface ProbeStorage {
-    /** 打开失败时交出 `open` 的失败。 */
-    read(name: ProbeRecordName): Promise<ProbeSnapshot | StorageFailed>;
+    read(name: ProbeRecordName): Promise<ProbeRead>;
     save(name: ProbeRecordName, text: string, expect: string | null): Promise<WriteResult>;
 }
 

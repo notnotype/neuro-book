@@ -52,7 +52,8 @@ function failed(code: StorageFailed["code"], detail: string): StorageFailed {
 
 export function createStorageFacade(consumer: ConsumerIdentity, routes: StorageRoutes): StorageFacade {
     let released = false;
-    const subscriptions = new Set<{release(): void; readonly onEnd: (reason: string) => void}>();
+    /** 活订阅：它的结束函数 → 底层订阅句柄。 */
+    const subscriptions = new Map<(reason: string) => void, {release(): void}>();
     const gone = (): StorageFailed => failed("unavailable", "Storage 服务对象已释放");
 
     const open = async <T>(record: RecordDefinition<T>, resource?: string): Promise<{readonly ok: true; readonly handle: RecordHandle<T>} | StorageFailed> => {
@@ -76,26 +77,29 @@ export function createStorageFacade(consumer: ConsumerIdentity, routes: StorageR
         reset: (value, {expect}) => (released ? Promise.resolve(gone()) : route.write(request, {kind: "reset", value, expect})),
         subscribe: async (listener, options = {}) => {
             if (released) return gone();
-            let entry: {release(): void; readonly onEnd: (reason: string) => void} | null = null;
-            const onEnd = (reason: string): void => {
-                if (entry !== null) subscriptions.delete(entry);
+            // 每条订阅至多结束一次。结束可能早于建立返回（例如首快照的监听里停了提供方），这时不再登记为活订阅。
+            let ended = false;
+            const end = (reason: string): void => {
+                if (ended) return;
+                ended = true;
+                subscriptions.delete(end);
                 options.onEnd?.(reason);
             };
-            const result = await route.subscribe(request, listener as (snapshot: RecordSnapshot<unknown>) => void, onEnd);
+            const result = await route.subscribe(request, listener as (snapshot: RecordSnapshot<unknown>) => void, end);
             if (!result.ok) return result;
             const handle = result.handle;
-            entry = {release: () => handle.release(), onEnd: (reason) => options.onEnd?.(reason)};
             if (released) {
                 handle.release();
                 return gone();
             }
-            subscriptions.add(entry);
-            const owned = entry;
+            if (!ended) subscriptions.set(end, handle);
             return {
                 ok: true,
                 handle: {
+                    // 调用方自己释放不算结束，不调用 onEnd。
                     release: () => {
-                        if (subscriptions.delete(owned)) handle.release();
+                        ended = true;
+                        if (subscriptions.delete(end)) handle.release();
                     },
                 },
             };
@@ -108,9 +112,8 @@ export function createStorageFacade(consumer: ConsumerIdentity, routes: StorageR
             if (released) return;
             released = true;
             const failures: unknown[] = [];
-            for (const subscription of [...subscriptions]) {
-                subscriptions.delete(subscription);
-                for (const step of [() => subscription.release(), () => subscription.onEnd("released")]) {
+            for (const [end, handle] of [...subscriptions]) {
+                for (const step of [() => handle.release(), () => end("released")]) {
                     try {
                         step();
                     } catch (error) {

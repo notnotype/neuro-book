@@ -13,7 +13,13 @@ import {join} from "node:path";
 import {expect, test} from "@playwright/test";
 import type {Browser, Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {Type} from "typebox";
+import type {Static, TSchema} from "typebox";
+import {Value} from "typebox/value";
 
+import type {WriteResult} from "nbook/shared/storage";
+import {ProbeReadSchema} from "nbook/shared/testing/probe-storage";
+import type {ProbeRead} from "nbook/shared/testing/probe-storage";
 // 同时带来 `window.__nbRemoteProbe` 的全局类型。
 import type {ProbeRecordName} from "nbook/web/testing/remote-probe";
 
@@ -59,14 +65,17 @@ async function open(page: Page, bound = true): Promise<void> {
     await expect.poll(() => page.evaluate(() => window.__nbRemoteProbe !== undefined)).toBe(true);
 }
 
-type Snapshot = {readonly status: string; readonly value?: {readonly text: string}; readonly revision?: string | null; readonly code?: string};
-
-function read(page: Page, name: ProbeRecordName): Promise<Snapshot> {
-    return page.evaluate((record) => window.__nbRemoteProbe!.storage.read(record), name) as Promise<Snapshot>;
+function read(page: Page, name: ProbeRecordName): Promise<ProbeRead> {
+    return page.evaluate((record) => window.__nbRemoteProbe!.storage.read(record), name);
 }
 
-function save(page: Page, name: ProbeRecordName, text: string, expectRevision: string | null): Promise<{readonly ok: boolean; readonly code?: string; readonly revision?: string}> {
+function save(page: Page, name: ProbeRecordName, text: string, expectRevision: string | null): Promise<WriteResult> {
     return page.evaluate(([record, value, revision]) => window.__nbRemoteProbe!.storage.save(record, value, revision), [name, text, expectRevision] as const);
+}
+
+/** 读到的 revision，作下一次保存的 `expect`；从未写过或读失败为 null。 */
+function revisionOf(result: Static<typeof ProbeReadSchema>): string | null {
+    return "revision" in result ? result.revision : null;
 }
 
 test("local 记录按客户端分开：另一个浏览器上下文看不到，同一上下文的另一个标签页共用", async ({browser}) => {
@@ -91,8 +100,7 @@ test("同一客户端的两个标签页以同一 revision 保存：一个成功�
     const right = await left.context().newPage();
     await open(left, false);
     await open(right, false);
-    const base = await read(left, "shared");
-    const revision = base.revision ?? null;
+    const revision = revisionOf(await read(left, "shared"));
     expect(await watch(right, "shared")).toBe(true);
 
     expect(await save(left, "shared", "左边先写", revision)).toMatchObject({ok: true});
@@ -106,7 +114,7 @@ test("项目记录跨窗口共享；没有页面使用项目、子进程退出�
     const first = await client(browser);
     await open(first);
     const generation = await projectGeneration(first);
-    expect(await save(first, "project", "写进项目", (await read(first, "project")).revision ?? null)).toMatchObject({ok: true});
+    expect(await save(first, "project", "写进项目", revisionOf(await read(first, "project")))).toMatchObject({ok: true});
 
     const second = await client(browser);
     await open(second);
@@ -131,20 +139,19 @@ test("服务端与项目实例里的同一插件直用 Storage：与窗口经代
     const page = await client(browser);
     await open(page);
 
-    const shared = await read(page, "shared");
-    expect(await save(page, "shared", "窗口写", shared.revision ?? null)).toMatchObject({ok: true});
-    const atServer = await probeApi("GET", "storage/shared") as Snapshot;
+    expect(await save(page, "shared", "窗口写", revisionOf(await read(page, "shared")))).toMatchObject({ok: true});
+    const atServer = decoded(ProbeReadSchema, await probeApi("GET", "storage/shared"));
     expect(atServer).toMatchObject({status: "ok", value: {text: "窗口写"}});
-    expect(await probeApi("POST", "storage/shared", {text: "服务端写", expect: atServer.revision})).toMatchObject({ok: true});
+    expect(await probeApi("POST", "storage/shared", {text: "服务端写", expect: revisionOf(atServer)})).toMatchObject({ok: true});
     expect(await read(page, "shared")).toMatchObject({status: "ok", value: {text: "服务端写"}});
     expect(await probeApi("GET", "storage/local")).toMatchObject({ok: false, code: "no-client"});
     expect(await probeApi("GET", "storage/project")).toMatchObject({ok: false, code: "no-project"});
 
-    const board = await read(page, "project");
-    expect(await save(page, "project", "窗口写项目", board.revision ?? null)).toMatchObject({ok: true});
-    const atProject = await probeApi("GET", `project/${projectId}/storage/project`) as {readonly ok: boolean; readonly value: Snapshot};
-    expect(atProject).toMatchObject({ok: true, value: {status: "ok", value: {text: "窗口写项目"}}});
-    expect(await probeApi("POST", `project/${projectId}/storage/project`, {text: "项目写", expect: atProject.value.revision})).toMatchObject({ok: true, value: {ok: true}});
+    expect(await save(page, "project", "窗口写项目", revisionOf(await read(page, "project")))).toMatchObject({ok: true});
+    // 经项目探针的远程调用：回应是远程调用的结果，成功时 `value` 是项目入口读到的结果。
+    const atProject = decoded(Type.Object({ok: Type.Literal(true), value: ProbeReadSchema}), await probeApi("GET", `project/${projectId}/storage/project`));
+    expect(atProject.value).toMatchObject({status: "ok", value: {text: "窗口写项目"}});
+    expect(await probeApi("POST", `project/${projectId}/storage/project`, {text: "项目写", expect: revisionOf(atProject.value)})).toMatchObject({ok: true, value: {ok: true}});
     expect(await read(page, "project")).toMatchObject({status: "ok", value: {text: "项目写"}});
     await page.context().close();
 });
@@ -154,6 +161,12 @@ async function probeApi(method: "GET" | "POST", path: string, body?: unknown): P
     const response = await fetch(new URL(`/api/test.remote-probe/${path}`, server.url), body === undefined ? {method} : {method, headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
     expect(response.status).toBe(200);
     return response.json();
+}
+
+/** 按 schema 核对控制路由的回应，不符时连同回应一起报错。 */
+function decoded<Schema extends TSchema>(schema: Schema, value: unknown): Static<Schema> {
+    if (!Value.Check(schema, value)) throw new Error(`控制路由的回应不符合探针的结果形状：${JSON.stringify(value)}`);
+    return value;
 }
 
 function watch(target: Page, name: ProbeRecordName): Promise<boolean> {

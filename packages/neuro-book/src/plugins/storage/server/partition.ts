@@ -265,6 +265,7 @@ class SqlitePartition implements Partition {
     /**
      * 按提交顺序派发通知。监听里再写入时只把新通知排进队列，等当前这份派发给所有监听之后再派发，所以每个监听
      * 收到的快照与写入顺序一致；否则内层写入会先通知全部监听，外层恢复后再把较旧的快照推给其余监听。
+     * 监听也可能在派发途中停掉别的监听（或关闭分区）：每次调用前再看它是否还在登记里，停掉之后不再收到。
      */
     #notify(address: RecordAddress, snapshot: RecordSnapshot<unknown>): void {
         this.#pending.push({address, snapshot});
@@ -272,9 +273,10 @@ class SqlitePartition implements Partition {
         this.#dispatching = true;
         try {
             for (let next = this.#pending.shift(); next !== undefined; next = this.#pending.shift()) {
+                const key = addressKey(next.address);
                 const revision = revisionNumber(next.snapshot);
-                for (const watcher of [...(this.#watchers.get(addressKey(next.address)) ?? [])]) {
-                    if (revision <= watcher.last) continue;
+                for (const watcher of [...(this.#watchers.get(key) ?? [])]) {
+                    if (this.#watchers.get(key)?.has(watcher) !== true || revision <= watcher.last) continue;
                     watcher.last = revision;
                     try {
                         watcher.listener(next.snapshot);

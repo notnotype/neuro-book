@@ -4,7 +4,7 @@
  * 项目子进程里的相同）；真实项目子进程里的 project 分区由 `project-child.test.ts` 覆盖。
  */
 
-import {afterAll, beforeAll, describe, expect, it} from "bun:test";
+import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {existsSync} from "node:fs";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
@@ -38,9 +38,19 @@ const draft = defineRecord({key: "draft", scope: "project", locality: "local", v
 
 let tmp = "";
 let counter = 0;
+/** 当前用例起的应用与路由。用例结束（含失败）后逆序停应用、再关路由，全部收口后再核对都正常关闭。 */
+const apps: Application[] = [];
+const routers: RemoteRouter[] = [];
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-storage", "storage-plugin");
+});
+
+afterEach(async () => {
+    const stops = [];
+    for (const app of apps.splice(0).reverse()) stops.push(await app.stop());
+    for (const router of routers.splice(0)) router.close();
+    for (const stop of stops) expect(stop).toMatchObject({status: "closed"});
 });
 
 afterAll(async () => {
@@ -105,6 +115,7 @@ async function world(): Promise<World> {
         {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
         {keys: collectServiceKeys(hubPlugins), plugins: hubPlugins, gates: [], remote: hubNode, delegation},
     );
+    apps.push(hub);
     expect(await hub.startup).toMatchObject({status: "available", failures: []});
 
     let generation = 1;
@@ -116,6 +127,7 @@ async function world(): Promise<World> {
             return {ok: true, binding: {id: "P", name: "book", generation}, revoked: revoke.signal, release: () => undefined};
         },
     });
+    routers.push(router);
 
     return {
         seen,
@@ -134,6 +146,7 @@ async function world(): Promise<World> {
                 {identity: {location: "project", instanceId: descriptor.id}, stopSignal: new AbortController().signal, emergency: () => undefined},
                 {keys: collectServiceKeys(plugins), plugins, gates: [], remote: node, delegation},
             );
+            apps.push(app);
             const pair = createLinkPair();
             router.accept(pair.right, {expect: descriptor});
             expect(await node.connect(pair.left)).toEqual({ok: true});
@@ -159,6 +172,7 @@ async function world(): Promise<World> {
                     delegation,
                 },
             );
+            apps.push(app);
             expect(await app.startup).toMatchObject({status: "available", failures: []});
             return {
                 app,
@@ -394,6 +408,23 @@ describe("Spec storage.persistence 场景 7：订阅", () => {
 
         await w.project(2);
         expect(await (await opened(storageOf(w, "app.notes", "project:P#2"), board)).read()).toMatchObject({status: "ok", value: {text: "留在磁盘上"}});
+    });
+
+    it("首快照的监听里就停了服务端：订阅只以 provider-stopped 结束一次，窗口随后停止不再结束它", async () => {
+        const w = await world();
+        const window = await w.window("browser-1", "profile-1");
+        const watcher = await opened(storageOf(w, "app.notes", "browser-1"), notes);
+        const ended: string[] = [];
+        const hubStops: Array<Promise<unknown>> = [];
+        const subscribed = await watcher.subscribe(() => {
+            if (hubStops.length === 0) hubStops.push(w.hub.stop());
+        }, {onEnd: (reason) => ended.push(reason)});
+
+        expect(subscribed).toMatchObject({ok: true});
+        expect(await hubStops[0]).toMatchObject({status: "closed"});
+        await waitUntil("订阅结束", () => ended.length > 0 || null);
+        expect(await window.app.stop()).toMatchObject({status: "closed"});
+        expect(ended).toEqual(["provider-stopped"]);
     });
 });
 

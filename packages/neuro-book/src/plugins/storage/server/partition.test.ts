@@ -340,6 +340,24 @@ describe("Spec storage.persistence 输出 7：进程内的变更通知", () => {
         expect(late!.initial).toMatchObject({status: "ok", value: {text: "二"}});
     });
 
+    it("派发途中停掉排在后面的监听或关闭分区：被停掉的监听收不到这一次写入，之后的也收不到", () => {
+        const partition = partitionAt(freshPath());
+        const stopped: string[] = [];
+        let second: ReturnType<Partition["watch"]> | null = null;
+        partition.watch(at("app.a"), notes.descriptor, () => second?.stop());
+        second = partition.watch(at("app.a"), notes.descriptor, (snapshot) => stopped.push(snapshot.status));
+        const first = revisionOf(partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "一"}, expect: null}));
+        partition.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "二"}, expect: first});
+
+        const closing = partitionAt(freshPath());
+        const afterClose: string[] = [];
+        closing.watch(at("app.a"), notes.descriptor, () => closing.close());
+        closing.watch(at("app.a"), notes.descriptor, (snapshot) => afterClose.push(snapshot.status));
+        closing.write(at("app.a"), notes.descriptor, {kind: "save", value: {text: "一"}, expect: null});
+
+        expect({stopped, afterClose}).toEqual({stopped: [], afterClose: []});
+    });
+
     it("关闭后操作为 unavailable", () => {
         const partition = partitionAt(freshPath());
         partition.close();

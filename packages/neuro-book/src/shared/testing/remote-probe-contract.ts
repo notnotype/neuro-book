@@ -21,7 +21,7 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 
 import type {PluginDescriptor} from "nbook/manifest";
 
-import {PROBE_RECORD_NAMES} from "./probe-storage";
+import {PROBE_RECORD_NAMES, ProbeReadSchema, ProbeSaveSchema} from "./probe-storage";
 
 /** 测试插件的描述：服务端入口提供合同，浏览器入口调用它（宿主测试入口把它加进本进程清单，引导接口才会列出它）。 */
 export const remoteProbeDescriptor: PluginDescriptor = {id: "test.remote-probe", version: "0.1.0", locations: ["server", "project", "browser"]};
@@ -64,10 +64,10 @@ export const projectProbeContract = defineRemoteService({
         },
         tick: {input: Type.Object({}, {additionalProperties: false}), output: Type.Integer(), effect: "write"},
         crash: {input: Type.Object({code: Type.Integer({minimum: 1, maximum: 125})}, {additionalProperties: false}), output: Type.Null(), effect: "write"},
-        storageRead: {input: Type.Object({name: RecordName}, {additionalProperties: false}), output: Type.Unknown(), effect: "read"},
+        storageRead: {input: Type.Object({name: RecordName}, {additionalProperties: false}), output: ProbeReadSchema, effect: "read"},
         storageSave: {
             input: Type.Object({name: RecordName, text: Type.String(), expect: Type.Union([Type.String(), Type.Null()])}, {additionalProperties: false}),
-            output: Type.Unknown(),
+            output: ProbeSaveSchema,
             effect: "write",
         },
     },
