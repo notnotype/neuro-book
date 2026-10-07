@@ -136,7 +136,7 @@ Smoke 以场景操作序列为主，通过公开查询与宿主观察结果判�
 
 ## 实现合同
 
-- **实现 owner 与入口**：runtime；唯一公开入口 `packages/nb-runtime/src/lifecycle/lifecycle.ts`（包入口 `@notnotype/nb-runtime/lifecycle`；`createRuntimeInstance(identity, {observer?})`、`summarizeFailure`、`LifecycleStateError`、`export type *`）。`contracts.ts` 是类型合同，`scope.ts` 是实现；调用方不得 import `scope.ts`。
+- **实现 owner 与入口**：runtime；唯一公开入口 `packages/nb-runtime/src/lifecycle/lifecycle.ts`（包入口 `@notnotype/nb-runtime/lifecycle`；`createRuntimeInstance(identity, {observer?})`、`summarizeFailure`、`LifecycleStateError`、`systemClock`、`export type *`）。`contracts.ts` 是类型合同，`scope.ts` 是实现，`clock.ts` 是注入时钟；调用方不得 import `scope.ts`。测试用手动时钟 `ManualClock` 在 `testing/manual-clock.ts`（包入口 `@notnotype/nb-runtime/lifecycle/testing`），时间只在 `advance()` 时前进、按到期先后同步执行回调。
 - **依赖方向**：目录内只允许同目录相对导入；不 import 框架、DOM、进程、文件/数据库驱动或产品领域。合同测试用源码守卫锁定。
 - **关键不变量**：
   - 作用域四阶段 `creating | available | stopping | closed`；`close()` 幂等返回同一次 `CloseResult`；只有 `recover()` 另起尝试，且在途尝试未结算时返回它而不重入。
@@ -146,8 +146,9 @@ Smoke 以场景操作序列为主，通过公开查询与宿主观察结果判�
   - 在途操作分两个视角：等待方 `outcome` 在取消或作用域停止时立即 `cancelled`；执行方 `termination` 只在 `run` 实际结束后结算，取消竞态中成功仍记 `completed`，占用资源以 `termination` 为准释放。
   - `stopping` 时 `register` 仍接受但标记 `late: true`，只收口不出借；`closed` 后一切登记抛 `LifecycleStateError`。
   - 失败记录只含 `name/message`，不携带资源值。
-  - （随 t52 实现）`RuntimeLocation` 是宿主声明的字符串；`clock.ts` 导出 `RuntimeClock` 与 `systemClock`。
-- **合同测试**：`packages/nb-runtime/src/lifecycle/lifecycle.test.ts`（30 例），在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行（strict，无 DOM lib，无产品或 Agent setup）。
+  - `RuntimeLocation` 是宿主声明的非空字符串，内核不列举位置、只比较相等；空串在 `createRuntimeInstance` 抛 TypeError。
+  - `RuntimeClock {now(), schedule(callback, ms) → cancel}`：需要计时的机制（远程调用超时、子实例宽限期与停止截止）都经注入的时钟，缺省为 `systemClock`。
+- **合同测试**：`packages/nb-runtime/src/lifecycle/lifecycle.test.ts`（31 例），在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行（strict，无 DOM lib，无产品或 Agent setup）。
 - **实际 smoke**：`bun run smoke:runtime-foundation -- --host server|browser`，见 [`runtime.application`](./application.md#实现合同)。
 
 ## 证据
@@ -158,4 +159,5 @@ Smoke 以场景操作序列为主，通过公开查询与宿主观察结果判�
 - 批准目标：[应用运行时、生命周期与内置插件架构](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md)。2026-09-20 开发者接受基础架构与分段推进方向，并明确要求把第一实现切片（环境适配入口与小内核）与第二切片（以内置服务插件检验底座）沉淀为 Spec；不包含任意热卸载扩展。
 - 实现与验证：[w00017 t05](../../../.agents/works/w00017-application-runtime-architecture/tasks/t05-runtime-lifecycle/README.md)（机制与合同测试）、[t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（真实双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对并晋升）。
 - 级联恢复一次推进整条依赖链：多层插件依赖下原先每次恢复只推进一层，见 [w00017 t36](../../../.agents/works/w00017-application-runtime-architecture/tasks/t36-lifecycle-recover-cascade/README.md)。
+- 开放运行位置与注入时钟：依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`），实现与验证见 [w00017 t52](../../../.agents/works/w00017-application-runtime-architecture/tasks/t52-kernel-instances-remote/README.md)。
 - 已知限制：POSIX 信号路径的真实进程 smoke 未在本机（Windows）运行；受管 Worker、Desktop 位置无实测，仅保留 `RuntimeLocation` 边界。

@@ -187,9 +187,9 @@ describe("runtime.plugins 机制边界", () => {
             const fromSpecifiers = [...code.matchAll(/^\s*(?:import|export)\b[^"']*?\bfrom\s+["']([^"']+)["']/gmu)].map((match) => match[1]);
             const sideEffectSpecifiers = [...code.matchAll(/^\s*import\s+["']([^"']+)["']/gmu)].map((match) => match[1]);
             // 远程模块只允许类型导入：远程节点依赖插件宿主的运行期接口，反过来只用它的类型。
-            const typeOnlySpecifiers = new Set([...code.matchAll(/^\s*import\s+type\b[^"']*?\bfrom\s+["']([^"']+)["']/gmu)].map((match) => match[1]));
+            const valueSpecifiers = new Set([...code.matchAll(/^\s*(?:import|export)\s+(?!type\b)[^"']*?\bfrom\s+["']([^"']+)["']/gmu)].map((match) => match[1]));
             for (const specifier of [...fromSpecifiers, ...sideEffectSpecifiers]) {
-                if (specifier === "../remote/remote" && typeOnlySpecifiers.has(specifier)) {
+                if (specifier === "../remote/remote" && !valueSpecifiers.has(specifier) && !sideEffectSpecifiers.includes(specifier)) {
                     continue;
                 }
                 expect(specifier, `${name} 导入了 ${specifier}`).toMatch(/^(?:\.\/[^/]+|\.\.\/lifecycle\/lifecycle|\.\.\/services\/services)$/u);

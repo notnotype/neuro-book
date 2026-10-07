@@ -31,9 +31,9 @@ owners:
 - **初始化**：首次解析时创建服务实例的过程；同一提供者作用域的并发首次解析共享同一次初始化，单个等待方取消不取消共享初始化。
 - **运行期绑定**：在一次操作期间取得的精确资源身份/代次（如 Project 代次）；绑定不构成对资源消费者的反向激活，也不允许稍后改读“当前目标”。
 - **装配诊断**：描述声明、冲突、缺失、环与初始化失败的运行实例内记录。
-- **调用方身份**（随 t52 实现）：解析发起方的身份：运行实例、插件、入口与入口激活代次；非插件消费者（宿主能力、门禁）的插件与入口为空。同一入口停止后再激活是另一个调用方。
-- **按调用方门面**（随 t52 实现）：提供者为每个调用方单独生成的服务对象。底层数据由提供者按插件归属自行维护；门面只是这次激活看到的入口，寿命跟随调用方的这次激活。
-- **委托**（随 t52 实现）：声明了代理能力的入口在处理某个调用方的请求时，以该调用方的身份取得另一项服务的门面；调用方身份由内核签发，代理不能自报。
+- **调用方身份**：解析发起方的身份：运行实例、插件、入口与入口激活代次；非插件消费者（宿主能力、门禁）的插件与入口为空。同一入口停止后再激活是另一个调用方。
+- **按调用方门面**：提供者为每个调用方单独生成的服务对象。底层数据由提供者按插件归属自行维护；门面只是这次激活看到的入口，寿命跟随调用方的这次激活。
+- **委托**：声明了代理能力的入口在处理某个调用方的请求时，以该调用方的身份取得另一项服务的门面；调用方身份由内核签发，代理不能自报。
 
 ## 输入与前置条件
 
@@ -56,14 +56,14 @@ owners:
 8. **寿命合法性**：解析只在消费者所在作用域及寿命更长的作用域内取得实例。长寿命作用域不得依赖、持有或捕获更短寿命作用域的实例（包括不得把短寿命作用域实例存入长寿命服务）；反向借用允许：短寿命（操作级）作用域可通过显式操作借用寿命更长的精确资源身份/代次（例如精确 Project 代次），借用必须携带精确身份/代次，不构成所有权，也不延长资源寿命。指向更短寿命作用域的隐式解析、已关闭作用域或旧代次的绑定解析失败，不返回已关闭实例，也不静默改投新目标。
 9. **精确 factory 绑定**：工厂只被登记，不因登记或查询而实例化、也不因此等待目标资源 ready；操作期间取得的绑定指向精确代次；目标换代后旧绑定不可用，重连/重开产生新代次。
 10. **诊断脱敏且可查询**：装配诊断包含位置、作用域、服务键、阶段与原因；不包含 secret、凭据、令牌、文件内容或用户数据；诊断在最小依赖下可用，不要求完整日志能力成功才能报告装配错误。
-11. **调用方身份可见**（随 t52 实现）：按调用方提供的服务在生成门面时收到调用方身份；身份由内核按发起解析的入口与激活代次填写，调用方不能改写。
-12. **按调用方门面**（随 t52 实现）：
+11. **调用方身份可见**：按调用方提供的服务在生成门面时收到调用方身份；身份由内核按发起解析的入口与激活代次填写，调用方不能改写。
+12. **按调用方门面**：
     - 提供者可以登记为“按调用方提供”：每个调用方得到自己的门面，同一调用方（同一实例、插件、入口、激活代次）在同一提供者代次内重复解析得到同一门面，并发解析只生成一次；不同调用方的门面互不相同。
     - 门面随调用方的这次激活作用域关闭而释放（调用提供者交出的释放函数），随提供者代次的服务实例释放而作废；作废后对门面的任何访问（包括先取出的方法再调用）抛 `ServiceRevokedError`（带服务键与调用方），不静默返回空值。调用方按依赖顺序清理期间门面仍可用（父作用域停止会同步触发服务作用域的停止信号，所以不以停止信号作废）。调用方重新激活只能得到新门面，旧门面不复活。
     - 门面里的内存状态随门面释放，不跨激活代次保留；需要跨代次保留的数据由 Storage、配置等持久拥有者负责。
     - 门面应是由函数组成的普通对象；需要交出响应式对象等运行期值的接口仍按普通共享服务提供。
     - 普通共享服务（不按调用方提供）的全部行为不变。
-13. **委托**（随 t52 实现）：入口声明可代理的服务键，且所属插件在装配方给出的允许清单内，才能在处理调用方请求时以该调用方身份取得这些服务的门面；目标服务看到的调用方是原调用方，另附代理身份。调用方身份对象只由内核签发、只对收到它的门面所属入口有效；伪造、转交给其它入口或用于未声明的键都被拒绝。经代理取得的门面挂在代理交给该调用方的门面下：后者的释放函数运行时仍可使用它们，结束之后它们才按逆序释放并作废。经代理取得的门面本身也是签发出去的身份，目标服务若也是代理，可以继续委托。第一版只允许内置插件代理；可代理的键必须同时声明为依赖，否则为 `undeclared-dependency`。
+13. **委托**：入口声明可代理的服务键，且所属插件在装配方给出的允许清单内，才能在处理调用方请求时以该调用方身份取得这些服务的门面；目标服务看到的调用方是原调用方，另附代理身份。调用方身份对象只由内核签发、只对收到它的门面所属入口有效；伪造、转交给其它入口或用于未声明的键都被拒绝。经代理取得的门面挂在代理交给该调用方的门面下：后者的释放函数运行时仍可使用它们，结束之后它们才按逆序释放并作废。经代理取得的门面本身也是签发出去的身份，目标服务若也是代理，可以继续委托。第一版只允许内置插件代理；可代理的键必须同时声明为依赖，否则为 `undeclared-dependency`。
 
 ## 状态与转换
 
@@ -91,7 +91,7 @@ owners:
 | 失败 | 缺少必需提供者、存在环或冲突未决 | 拒绝相关绑定与必需消费者闭包，记录失败/缺失服务键与受影响服务键/消费者 |
 | 部分可用 | 仅可选依赖缺失 | 对应能力不可用；其他消费者不变 |
 
-按调用方门面（随 t52 实现），以“提供者代次 + 调用方”为单位：
+按调用方门面，以“提供者代次 + 调用方”为单位：
 
 | 状态 | 事件 | 下一状态 | 结果 |
 | --- | --- | --- | --- |
@@ -119,8 +119,8 @@ owners:
 - **初始化失败**：失败稳定且不发布半成品；重试需显式策略或新的作用域/代次，且失败资源必须已收口完成，不得与仍 pending 的收口并发重入。
 - **作用域停止/取消**：拒绝新解析与新激活；已接纳解析按 [`runtime.lifecycle`](./lifecycle.md) 的取消/收口推进；某个等待方取消不取消共享初始化（只有提供者 owner 作用域停止/取消才收口共享初始化）；迟到初始化成功不发布。
 - **绑定失效**：旧代次绑定返回 stale/失效原因，不自动绑定到新目标；调用方经显式协议重新确认代次后才能继续。
-- **门面作废**（随 t52 实现）：作废或已释放的门面被访问时抛 `ServiceRevokedError`，携带服务键与调用方；提供者的释放函数抛错只记诊断，不阻断调用方作用域的其余释放，收口结果按 [`runtime.lifecycle`](./lifecycle.md) 报告。
-- **委托被拒**（随 t52 实现）：未声明代理能力、不在允许清单、身份对象不是内核签发给本入口的、或键未声明，`resolveFor` 返回结构化拒绝原因，不取得门面。
+- **门面作废**：作废或已释放的门面被访问时抛 `ServiceRevokedError`，携带服务键与调用方；提供者的释放函数抛错只记诊断，不阻断调用方作用域的其余释放，收口结果按 [`runtime.lifecycle`](./lifecycle.md) 报告。
+- **委托被拒**：未声明代理能力、不在允许清单、身份对象不是内核签发给本入口的、或键未声明，`resolveFor` 返回结构化拒绝原因，不取得门面。
 
 ## 边界与兼容
 
@@ -143,14 +143,14 @@ owners:
 7. **精确绑定**：工厂登记后不因查询而实例化；操作期间取得的绑定指向精确代次；目标换代后旧绑定的操作失败为 stale，不自动改投新目标。
 8. **诊断脱敏**：声明与错误上下文包含敏感字段时，查询到的诊断只含位置/作用域/服务键/阶段/原因，不含敏感值。
 9. **两种作用域 × 两个 host 复用**：同一机制在两个 host（浏览器运行实例与后端进程实例）与两种作用域（实例级、操作级）上装配：各自独立解析、独立失败、互不串实例；机制实现不含产品领域 import 与框架适配依赖。
-10. **按调用方门面**（随 t52 实现）：两个插件解析同一按调用方提供的服务，各自得到门面并看到自己的身份；同一激活重复解析得到同一门面；入口停止再激活后旧门面抛 `ServiceRevokedError`、新门面可用；提供者停止后门面作废；释放函数抛错可在诊断中查到；普通共享服务的既有场景不变。
-11. **委托**（随 t52 实现）：插件 A 经代理插件 P 访问服务 S，S 看到的调用方是 A、代理为 P；P 未声明代理能力或不在允许清单、身份对象伪造或来自其它入口、键未声明，各自被拒；A 直接访问 S 与经 P 访问 S 看到的是同一插件身份。
+10. **按调用方门面**：两个插件解析同一按调用方提供的服务，各自得到门面并看到自己的身份；同一激活重复解析得到同一门面；入口停止再激活后旧门面抛 `ServiceRevokedError`、新门面可用；提供者停止后门面作废；释放函数抛错可在诊断中查到；普通共享服务的既有场景不变。
+11. **委托**：插件 A 经代理插件 P 访问服务 S，S 看到的调用方是 A、代理为 P；P 未声明代理能力或不在允许清单、身份对象伪造或来自其它入口、键未声明，各自被拒；A 直接访问 S 与经 P 访问 S 看到的是同一插件身份。
 
 Smoke 以解析结果、依赖检查与诊断等外部可观察结果为准。场景 1–9 由下节合同测试逐条覆盖；场景 9 的真实双宿主半边由 `smoke:runtime-foundation` 在真实后端子进程与真实 Chromium 上运行同一份受控清单验证（宿主注入的 clock/presence 能力经本机制声明、解析并随根作用域释放）。
 
 ## 实现合同
 
-- **实现 owner 与入口**：runtime；唯一公开入口 `packages/nb-runtime/src/services/services.ts`（包入口 `@notnotype/nb-runtime/services`；`defineServiceKey`、`createServiceAssembly(instance, {keys, observer?})`、`export type *`）。`contracts.ts` 是类型合同，`assembly.ts`（声明校验与依赖图）与 `composition.ts`（解析与初始化）是实现。
+- **实现 owner 与入口**：runtime；唯一公开入口 `packages/nb-runtime/src/services/services.ts`（包入口 `@notnotype/nb-runtime/services`；`defineServiceKey`、`createServiceAssembly(instance, {keys, observer?})`、`perConsumer(factory, {release?})`、`ServiceRevokedError`、`export type *`）。`contracts.ts` 是类型合同，`assembly.ts`（声明校验与依赖图）、`composition.ts`（解析、初始化、门面与委托）与 `per-consumer.ts`（按调用方提供项的品牌与可作废门面）是实现。
 - **依赖方向**：只允许同目录相对导入与 `../lifecycle/lifecycle`；合同测试用源码守卫锁定。[`runtime.plugins`](./plugins.md) 与 [`runtime.application`](./application.md) 依赖本机制。
 - **关键不变量**：
   - 服务键以身份区分（`defineServiceKey` 返回的对象），声明只能引用装配时登记的键；未登记键、重复 id、位置不符、跨实例作用域、已停止作用域的声明整体拒绝并留诊断。
@@ -160,15 +160,18 @@ Smoke 以解析结果、依赖检查与诊断等外部可观察结果为准。�
   - 解析结果的借用登记在访问作用域上：访问作用域必须是入口声明作用域的严格后代或自身；长寿命入口解析短寿命提供者、已关闭作用域或旧代次的绑定返回 `Unavailable`，不返回旧实例。
   - 静态环在声明阶段拒绝（含可选边）；运行时等待环在初始化已开始后检测，阻断受影响解析并收口本次服务作用域，不回滚已发生副作用。
   - 诊断与报告只含位置/作用域/服务键/入口/阶段/原因，不含实例值或声明附加字段。
-- **合同测试**：`packages/nb-runtime/src/services/services.test.ts`（20 例），在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行。
-- **随 t52 实现**（输出第 11–13 条、场景 10–11）：`ConsumerIdentity`、`providePerConsumer`、`ServiceRevokedError`、`resolveFor`；计划见 [t52 plan](../../../.agents/works/w00017-application-runtime-architecture/tasks/t52-kernel-instances-remote/plan.md)。
+  - 调用方身份 `ConsumerIdentity {instanceId, location, plugin, entry, generation, via}` 由装配在生成门面时填写：声明的 `identity {plugin, entry}` 给出插件与入口，`access(entryId, scope?, {generation?})` 带入激活代次；对象冻结。
+  - 按调用方门面：提供者产出 `perConsumer` 品牌的提供项时，解析不返回共享值，而按“提供者本次尝试 + 消费方入口 + 激活代次”（没有代次时用访问作用域）取门面，同步工厂天然 single-flight。门面以 `service-facade` 资源登记在访问作用域上、`dependsOn` 该次借用，作用域关闭时先作废门面再调用提供项的 `release`；提供者实例释放时（而不是提供者开始停止时）作废它发出的全部门面。门面是包在工厂产出外面的 `Proxy`，作废后任何字符串属性访问抛 `ServiceRevokedError {key, consumer}`（消息区分随调用方释放与随提供者停止）；`then` 读作 `undefined`，使门面不被当成 thenable；函数值返回缓存的包装，调用时再检查一次作废，方法里的 `this` 指向原对象。
+  - 委托：发给门面工厂的身份登记在内部 `WeakMap`（签发记录：原调用方、所属作用域、经它取得的门面）。`resolveFor(consumer, key)` 只接受内核签发、签发给本入口的身份，且键须同时在入口的 `delegates` 与依赖里、插件在宿主 `delegation` 允许清单内，否则返回 `Unavailable(delegation-denied)`。取得的门面身份复制原调用方、`via` 填代理入口，同一签发记录对同一提供者尝试只生成一个；它们在代理门面的 `release` 返回之后按逆序释放并作废。经代理取得的身份同样登记，可继续委托。
+- **合同测试**：`packages/nb-runtime/src/services/services.test.ts`（20 例）、`per-consumer.test.ts`（按调用方门面，5 例）；插件侧的门面共用与委托在 `packages/nb-runtime/src/plugins/per-consumer.test.ts`（3 例）与 `delegation.test.ts`（6 例）；在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行。
 - **实际 smoke**：`bun run smoke:runtime-foundation -- --host server|browser`，见 [`runtime.application`](./application.md#实现合同)。
 
 ## 证据
 
 - 实现入口：[`services.ts`](../../../packages/nb-runtime/src/services/services.ts)
-- 合同测试：[`services.test.ts`](../../../packages/nb-runtime/src/services/services.test.ts)
+- 合同测试：[`services.test.ts`](../../../packages/nb-runtime/src/services/services.test.ts)、[`per-consumer.test.ts`](../../../packages/nb-runtime/src/services/per-consumer.test.ts)、[`plugins/delegation.test.ts`](../../../packages/nb-runtime/src/plugins/delegation.test.ts)
 - Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）。这是旧应用宿主上的 smoke，运行的是旧应用里的内核副本；新应用宿主的 smoke 随应用骨架建立。
 - 批准目标：[应用运行时、生命周期与内置插件架构](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md)。2026-09-20 开发者接受基础架构与分段推进方向，并明确要求把第一实现切片（环境适配入口与小内核）与第二切片（以内置服务插件检验底座）沉淀为 Spec；不包含任意热卸载扩展。
 - 实现与验证：[w00017 t06](../../../.agents/works/w00017-application-runtime-architecture/tasks/t06-runtime-services/README.md)（机制与合同测试）、[t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（真实双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对并晋升）。
-- 已知限制：第一片只有受控内存能力作为提供者；真实 I/O 提供者（诊断、文件、SQLite）归第二片，其运行期绑定（精确 Project 代次）尚无真实消费者。
+- 调用方身份、按调用方门面与委托（输出第 11–13 条、场景 10–11）：依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4 节、[插件的数据与状态](../../proposals/plugin-data-model.md) 与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`），实现与验证见 [w00017 t52](../../../.agents/works/w00017-application-runtime-architecture/tasks/t52-kernel-instances-remote/README.md)。
+- 已知限制：第一片只有受控内存能力作为提供者；真实 I/O 提供者（诊断、文件、SQLite）归第二片，其运行期绑定（精确 Project 代次）尚无真实消费者。委托只在同一实例内：跨实例的远程调用以路由帧携带调用方身份，经代理转发到另一实例的委托尚未实现。门面适合由函数组成的普通对象；要导出响应式对象的接口仍用共享服务。

@@ -98,9 +98,9 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | Workbench 命令系统 | [`workbench/commands.md`](workbench/commands.md) | 命令登记、`when` 求值、执行管线、暴露策略与审计；新应用由两端都有入口的内置插件 `nbook.commands` 提供（w00017 t49），第一批六条命令在 Lab 命令场景闭环，产品 `/` 页有命令面板；第二批 `view` 命令随工作台外壳（t50）；**实现迁移中** |
 | Workbench 快速打开 | [`workbench/quick-open.md`](workbench/quick-open.md) | 单控件两模（命令搜索与行号跳转）、会话 MRU、S4 浮层键盘与焦点交接；新应用的面板由工作台提供（w00017 t49），Lab 命令场景验收闭合，产品 `/` 页接入命令模式，行号模式随编辑器插件；**实现迁移中** |
 | 资源生命周期 | [`runtime/lifecycle.md`](runtime/lifecycle.md) | `runtime.lifecycle`；作用域、资源 owner、操作接纳与取消/终止、关闭尝试与显式恢复；第一切片由合同测试与双宿主 smoke 闭合；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
-| 显式服务装配 | [`runtime/services.md`](runtime/services.md) | `runtime.services`；唯一 provider、依赖与寿命检查、并发初始化共享与失败稳定；第一切片闭合；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中**；增补调用方身份、按调用方门面与委托（随 w00017 t52 实现） |
-| 插件描述与激活 | [`runtime/plugins.md`](runtime/plugins.md) | `runtime.plugins`；描述目录、入口/代次、贡献事务、局部失败与普通关闭；不含热卸载；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中**；增补按调用方提供项、委托、激活事件前缀与远程提供项（随 w00017 t52 实现） |
-| 环境适配与应用门禁 | [`runtime/application.md`](runtime/application.md) | `runtime.application`；浏览器/后端环境适配、启动门禁、接纳、有界停止与实例身份；受控装配入口闭合，产品启动链已迁入（w00017 阶段 1）；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中**；增补子实例、租约与远程节点（随 w00017 t52 实现） |
+| 显式服务装配 | [`runtime/services.md`](runtime/services.md) | `runtime.services`；唯一 provider、依赖与寿命检查、并发初始化共享与失败稳定；第一切片闭合；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中**；增补调用方身份、按调用方门面与委托（w00017 t52 已实现） |
+| 插件描述与激活 | [`runtime/plugins.md`](runtime/plugins.md) | `runtime.plugins`；描述目录、入口/代次、贡献事务、局部失败与普通关闭；不含热卸载；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中**；增补按调用方提供项、委托、激活事件前缀与远程提供项（w00017 t52 已实现） |
+| 环境适配与应用门禁 | [`runtime/application.md`](runtime/application.md) | `runtime.application`；浏览器/后端环境适配、启动门禁、接纳、有界停止与实例身份；受控装配入口闭合，产品启动链已迁入（w00017 阶段 1）；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中**；增补子实例、租约与远程节点（w00017 t52 已实现） |
 | 运行时诊断 | [`runtime/diagnostics.md`](runtime/diagnostics.md) | `runtime.diagnostics`；有界记录与查询、脱敏、早期缓冲补写、日志位置授予与冲突降级、关闭未完成与显式恢复；第二切片由合同测试与组合 smoke 闭合；内核在 `packages/nb-runtime`，前后端出口在新应用；**组合 smoke 仍是旧应用的 `--services`** |
 | 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | `runtime.server-host`；内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式重启与停止；后端宿主与开发模式已在新应用由合同测试、`smoke:server` 与 e2e 闭合，看门狗（76）属 `runtime.stall-watchdog` |
 | 平台文件 | [`platform/files.md`](platform/files.md) | `platform.files`；受根约束 I/O、授予隔离、watch/锁与关闭门禁；不是业务文件树服务；第二切片闭合；**实现迁移中** |
@@ -120,7 +120,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | 文件夹类型与清单 | [`workspace/folder-kinds.md`](workspace/folder-kinds.md) | `workspace.folder-kinds`；普通、内容（`*.content`）、活页夹（`*.binder`）三类文件夹，后缀识别、XML 清单、未列入与缺失处理、渲染贡献点；阶段 2 实施 |
 | 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | `runtime.plugin-manifest`；清单格式、按入口声明依赖的服务、同一运行位置解析、受阻推导与启停顺序；阶段 1 起实施 |
 | 浏览器宿主 | [`runtime/browser-host.md`](runtime/browser-host.md) | `runtime.browser-host`；挂载前建立窗口运行实例、引导接口、多窗口隔离、可分离边界；新应用实现启动序列第 1–4 步（含页面表与宿主路由）与场景 1、2、4，懒激活、事件流与热插拔未实现 |
-| 远程服务与 RPC 协议 | [`runtime/plugin-channel.md`](runtime/plugin-channel.md) | `runtime.plugin-channel`（2026-10-07 原地改写，取代插件通道）；跨实例的远程服务合同、内核路由、请求阶段与失败码、两层版本、订阅、按需激活与等待环；末节暂留 HTTP 路由贡献，待移交 `nbook.http` 的 Spec；内核部分随 w00017 t52，WebSocket 与端口随 K2 |
+| 远程服务与 RPC 协议 | [`runtime/plugin-channel.md`](runtime/plugin-channel.md) | `runtime.plugin-channel`（2026-10-07 原地改写，取代插件通道）；跨实例的远程服务合同、内核路由、请求阶段与失败码、两层版本、订阅、按需激活与等待环；末节暂留 HTTP 路由贡献，待移交 `nbook.http` 的 Spec；内核部分已随 w00017 t52 实现，WebSocket 与端口随 K2 |
 | 端点收集与 API 文档 | [`runtime/api-docs.md`](runtime/api-docs.md) | `runtime.api-docs`；端点声明收集、OpenAPI 生成与展示；阶段 2 实施 |
 | 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | `runtime.plugin-hot-plug`；热插拔三档、引用账本与转发器、三步停止、在途调用结算；阶段 3 实施 |
 | 插件安装与热升级 | [`runtime/plugin-install.md`](runtime/plugin-install.md) | `runtime.plugin-install`；本地文件夹安装、卸载、兼容、安全模式、热升级与回滚；阶段 3 实施 |
