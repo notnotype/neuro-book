@@ -214,4 +214,56 @@ describe("WorkbenchCommandPalette", () => {
         await vi.waitFor(() => expect(app.executed).toHaveLength(1));
         expect(app.host.recent.value).toEqual([]);
     });
+    it("选择模式：同一浮层列出请求的候选，标签与说明都参与匹配；Enter 关面板、焦点归还后才给出选中项", async () => {
+        const app = harness();
+        app.opener.focus();
+        const request = {
+            title: "打开项目",
+            placeholder: "选择项目，或输入目录路径",
+            items: [{id: "alpha", label: "alpha", detail: "/books/alpha"}, {id: "book", label: "book", detail: "/drafts/book"}],
+            text: {label: (text: string) => `登记并打开 ${text}`},
+        };
+        const result = app.host.openPick(request);
+        await vi.waitFor(() => expect(input()).not.toBeNull());
+        expect(options()).toEqual(["alpha", "book"]);
+        expect(document.body.textContent).toContain("打开项目");
+        expect(document.body.textContent).toContain("/drafts/book");
+
+        await type("drafts");
+        expect(options()).toEqual(["book", "quick-pick:text"]);
+        let settled: unknown = null;
+        void result.then((value) => {
+            settled = {value, focusReturned: document.activeElement === app.opener};
+        });
+        await press("Enter");
+        expect(app.host.open.value).toBe(false);
+        await vi.waitFor(() => expect(settled).toEqual({value: {kind: "item", id: "book"}, focusReturned: true}));
+        expect(app.host.pick.value).toBeNull();
+        expect(app.executed).toEqual([]);
+    });
+
+    it("选择模式：提交输入的文字为 text，Escape 为 cancelled；切回命令模式取消这次选择", async () => {
+        const app = harness();
+        app.register("nbook.app.alpha");
+        const request = {title: "打开项目", placeholder: "目录", items: [], text: {label: (text: string) => `登记并打开 ${text}`}, empty: "还没有登记的项目"};
+
+        const typed = app.host.openPick(request);
+        await vi.waitFor(() => expect(input()).not.toBeNull());
+        expect(document.body.textContent).toContain("还没有登记的项目");
+        await type("/new/book");
+        expect(options()).toEqual(["quick-pick:text"]);
+        await press("Enter");
+        expect(await typed).toEqual({kind: "text", text: "/new/book"});
+
+        const escaped = app.host.openPick(request);
+        await vi.waitFor(() => expect(input()).not.toBeNull());
+        await press("Escape");
+        expect(await escaped).toEqual({kind: "cancelled"});
+
+        const replaced = app.host.openPick(request);
+        await vi.waitFor(() => expect(input()).not.toBeNull());
+        app.host.openPalette("commands");
+        expect(await replaced).toEqual({kind: "cancelled"});
+        await vi.waitFor(() => expect(options()).toEqual(["nbook.app.alpha"]));
+    });
 });

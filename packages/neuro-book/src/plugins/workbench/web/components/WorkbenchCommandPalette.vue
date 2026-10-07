@@ -3,7 +3,8 @@
  * 命令面板：`host` 状态的受控视图，行为合同见同名 `.md` 与 workbench.quick-open。
  *
  * 一次 accept 只执行一次：记下命令、参数与打开时捕获的目标，关闭面板，等 QuickInput 的 `closed`（焦点已归还）
- * 再执行。先关后执行是为了让命令自己转移的焦点（聚焦编辑器、跳到某行）不被归还焦点夺回。
+ * 再执行。先关后执行是为了让命令自己转移的焦点（聚焦编辑器、跳到某行）不被归还焦点夺回。选择模式同理：
+ * 选中的结果由宿主在 `closed` 之后才交给发起选择的命令。
  */
 import {QuickInput} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
@@ -11,7 +12,7 @@ import {computed, onBeforeUnmount, ref, watch} from "vue";
 import {DISPLAY_LOCALE} from "nbook/shared/localized-text";
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
 
-import {parseCommandQuery, parseLineNumber, searchCommands} from "../commands/command-query";
+import {parseCommandQuery, parseLineNumber, searchCommands, searchPickItems} from "../commands/command-query";
 import type {PaletteItem} from "../commands/command-query";
 import {sameDocument} from "../commands/palette-host";
 import type {DocumentTarget, PaletteHost} from "../commands/palette-host";
@@ -24,6 +25,8 @@ const LINE_ITEM_ID = "quick-open:line";
 const GO_TO_LINE_ID = "nbook.editor.go-to-line";
 const OPEN_LINE_ID = "nbook.quick-open.open-line";
 const OPEN_COMMANDS_ID = "nbook.quick-open.open-commands";
+/** 选择模式里“提交输入的文字”这一项：不是请求里的候选 id。 */
+const PICK_TEXT_ID = "quick-pick:text";
 
 const host = props.host;
 const activeId = ref<string | null>(null);
@@ -70,6 +73,13 @@ const lineState = computed<LineState>(() => {
 
 const items = computed<readonly PaletteItem[]>(() => {
     if (!host.open.value) return [];
+    const picking = host.pick.value;
+    if (picking !== null) {
+        // 选择模式不做前缀路由：输入的就是要匹配或提交的文字。
+        const text = host.query.value.trim();
+        const found = searchPickItems(picking.items, text);
+        return picking.text === undefined || text === "" ? found : [...found, {id: PICK_TEXT_ID, label: picking.text.label(text)}];
+    }
     if (parsedQuery.value.mode === "line") {
         const state = lineState.value;
         return state.line === null ? [] : [{id: LINE_ITEM_ID, label: paletteText("goToLine", {line: state.line})}];
@@ -77,7 +87,11 @@ const items = computed<readonly PaletteItem[]>(() => {
     return searchCommands(visibleCommands.value, parsedQuery.value.text, host.recent.value, DISPLAY_LOCALE);
 });
 
-const emptyText = computed(() => (parsedQuery.value.mode === "line" ? lineState.value.message : paletteText("empty")));
+const emptyText = computed(() => {
+    const picking = host.pick.value;
+    if (picking !== null) return picking.empty ?? paletteText("pickEmpty");
+    return parsedQuery.value.mode === "line" ? lineState.value.message : paletteText("empty");
+});
 
 // 列表变化时保留仍然有效的选中项，失效就选第一项，空列表给 null。
 watch(items, (next) => {
@@ -97,6 +111,10 @@ async function run(id: string, args: unknown): Promise<void> {
 
 function onAccept(id: string): void {
     if (pending !== null) return;
+    if (host.pick.value !== null) {
+        host.choosePick(id === PICK_TEXT_ID ? {kind: "text", text: host.query.value.trim()} : {kind: "item", id});
+        return;
+    }
     if (id === LINE_ITEM_ID) {
         const state = lineState.value;
         if (state.target === null || state.line === null) return;
@@ -114,6 +132,7 @@ function onAccept(id: string): void {
 }
 
 function onClosed(): void {
+    host.closed();
     const selection = pending;
     pending = null;
     if (selection === null) return;
@@ -133,8 +152,8 @@ onBeforeUnmount(() => {
         :query="host.query.value"
         :items="items"
         :active-id="activeId"
-        :title="paletteText('title')"
-        :placeholder="paletteText('placeholder')"
+        :title="host.pick.value?.title ?? paletteText('title')"
+        :placeholder="host.pick.value?.placeholder ?? paletteText('placeholder')"
         :empty-text="emptyText"
         :focus-request="host.focusRequest.value"
         :restore-focus="true"

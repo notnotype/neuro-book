@@ -7,6 +7,7 @@ const MESSAGES = {
     title: {"zh-CN": "命令面板", "en-US": "Command Palette"},
     placeholder: {"zh-CN": "输入命令，或输入 : 跳到某一行", "en-US": "Type a command, or : to go to a line"},
     empty: {"zh-CN": "没有匹配的命令", "en-US": "No matching commands"},
+    pickEmpty: {"zh-CN": "没有匹配的项", "en-US": "No matching items"},
     linePrompt: {"zh-CN": "输入行号（1–{max}）", "en-US": "Type a line number (1–{max})"},
     goToLine: {"zh-CN": "跳转到第 {line} 行", "en-US": "Go to line {line}"},
     lineInvalid: {"zh-CN": "行号无效：{text}", "en-US": "Invalid line number: {text}"},

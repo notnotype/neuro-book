@@ -12,6 +12,7 @@ import {createCommandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/server/plugin";
 import type {HttpAdmission} from "nbook/plugins/http/server/admission";
 import {createHttpPlugin} from "nbook/plugins/http/server/plugin";
+import {createProjectsServerPlugin} from "nbook/plugins/projects/server/plugin";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
 import type {ProjectsService} from "nbook/shared/projects";
 
@@ -44,6 +45,7 @@ export const serverPluginFactories: Readonly<Record<string, ServerPluginFactory>
         staticRoot: context.config.webRoot,
     }),
     "nbook.commands": () => createCommandsPlugin("server"),
+    "nbook.projects": (context) => createProjectsServerPlugin({projects: context.projects}),
 };
 
 /** 按清单装配后端插件；清单写了后端入口而这里没有工厂时直接失败，不静默少装。 */

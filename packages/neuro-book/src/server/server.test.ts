@@ -142,11 +142,11 @@ describe("后端宿主（真实子进程）", () => {
         expect(await server.exit).toEqual({code: 0, signal: null});
         expect(await upgradeStatus(rpcPort).then(() => "accepted", () => "refused")).toBe("refused");
         const log = await readLog(server.stateRoot);
-        // http 与命令系统都只依赖诊断，两者之间没有先后。
+        // http、命令系统与项目管理界面都只依赖诊断（项目管理界面另依赖宿主能力），它们之间没有先后。
         const published = pluginOrder(log, "publish");
         expect(published[0]).toBe("nbook.diagnostics");
-        expect(published.slice(1).sort()).toEqual(["nbook.commands", "nbook.http"]);
-        expect(pluginOrder(log, "close").sort()).toEqual(["nbook.commands", "nbook.http"]);
+        expect(published.slice(1).sort()).toEqual(["nbook.commands", "nbook.http", "nbook.projects"]);
+        expect(pluginOrder(log, "close").sort()).toEqual(["nbook.commands", "nbook.http", "nbook.projects"]);
     }, 20_000);
 
     for (const stop of ["SIGTERM", "stdin"] as const) {
@@ -168,7 +168,7 @@ describe("后端宿主（真实子进程）", () => {
             await fetch(await server.control);
             expect(await longText).toBe("started\nreleased");
             expect(await server.exit).toEqual({code: 0, signal: null});
-            expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.commands", "nbook.http", "test.slow"]);
+            expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.commands", "nbook.http", "nbook.projects", "test.slow"]);
         }, 20_000);
     }
 
@@ -196,7 +196,7 @@ describe("后端宿主（真实子进程）", () => {
         expect(await (await fetch(`${url}api/test.throw-later/throw`)).text()).toBe("scheduled");
         expect(await server.exit).toEqual({code: 1, signal: null});
         expect(server.stderr()).toContain("process.uncaught-exception");
-        expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.commands", "nbook.http", "test.throw-later"]);
+        expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.commands", "nbook.http", "nbook.projects", "test.throw-later"]);
     }, 20_000);
 
     it("未处理的 Promise 拒绝：记录致命诊断后有序停止，以 1 退出", async () => {
@@ -205,7 +205,7 @@ describe("后端宿主（真实子进程）", () => {
         expect(await (await fetch(`${url}api/test.throw-later/reject`)).text()).toBe("scheduled");
         expect(await server.exit).toEqual({code: 1, signal: null});
         expect(server.stderr()).toContain("process.unhandled-rejection");
-        expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.commands", "nbook.http", "test.throw-later"]);
+        expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.commands", "nbook.http", "nbook.projects", "test.throw-later"]);
     }, 20_000);
 
     it("标准输入关闭（父进程不在）也触发有序停止", async () => {

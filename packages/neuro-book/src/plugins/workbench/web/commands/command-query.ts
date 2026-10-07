@@ -9,6 +9,8 @@ import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
 
+import type {QuickPickItem} from "../contracts";
+
 type QueryMode = "commands" | "line";
 
 type ParsedQuery = Readonly<{mode: QueryMode; text: string}>;
@@ -153,5 +155,23 @@ export function searchCommands(commands: readonly CommandMetadata[], query: stri
         });
     }
     scored.sort((left, right) => left.score - right.score || compareMru(left.mru, right.mru) || compareCodePoints(left.item.id, right.item.id));
+    return scored.map((entry) => entry.item);
+}
+
+/**
+ * 选择模式的候选：标签与说明都参与匹配、取较低分，只有标签命中才渲染片段；按匹配分排，同分保持请求里的次序
+ * （请求方已经排好，例如登记顺序）。
+ */
+export function searchPickItems(items: ReadonlyArray<QuickPickItem>, query: string): readonly PaletteItem[] {
+    const scored: {item: PaletteItem; score: number; index: number}[] = [];
+    items.forEach((candidate, index) => {
+        const labelMatch = matchCommandText(candidate.label, query);
+        const detailMatch = candidate.detail === undefined ? null : matchCommandText(candidate.detail, query);
+        const labelWins = labelMatch !== null && (detailMatch === null || labelMatch.score <= detailMatch.score);
+        const match = labelWins ? labelMatch : detailMatch;
+        if (match === null) return;
+        scored.push({item: {id: candidate.id, label: candidate.label, description: candidate.detail, labelMatches: labelWins ? match.ranges : undefined}, score: match.score, index});
+    });
+    scored.sort((left, right) => left.score - right.score || left.index - right.index);
     return scored.map((entry) => entry.item);
 }

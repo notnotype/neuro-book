@@ -1,5 +1,6 @@
 /**
- * 命令面板的宿主状态：开合、查询、捕获的行号目标、会话 MRU，以及活动编辑器的接入口（workbench.quick-open）。
+ * 命令面板的宿主状态：开合、查询、捕获的行号目标、会话 MRU、命令发起的选择，以及活动编辑器的接入口
+ * （workbench.quick-open）。
  *
  * 一个页面上的宿主一份：产品页的命令宿主建一份，Lab 的命令场景建一份，随宿主组件卸载释放。
  * 命令从注入的命令服务取，面板不知道命令来自插件的命令表还是 Lab 场景的本地命令表。
@@ -9,6 +10,8 @@ import {ref, shallowRef} from "vue";
 import type {Ref, ShallowRef} from "vue";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
+
+import type {QuickPickRequest, QuickPickResult} from "../contracts";
 
 /** 文档身份：行号跳转把它原样交给 `nbook.editor.go-to-line`；面板只判断是不是同一份文档的同一代。 */
 export type DocumentTarget = Readonly<Record<string, string | number>>;
@@ -43,7 +46,18 @@ export interface PaletteHost {
     readonly target: Readonly<ShallowRef<DocumentTarget | null>>;
     /** 已打开时再次请求命令模式：只把焦点交回输入框，不重置输入。 */
     readonly focusRequest: Readonly<Ref<number>>;
+    /** 选择模式的请求；不在选择模式为 null。 */
+    readonly pick: Readonly<ShallowRef<QuickPickRequest | null>>;
     openPalette(mode: "commands" | "line"): void;
+    /**
+     * 进入选择模式（同一浮层）。结果在浮层关闭完成（`closed()`）后给出：选中的一项或文字，否则 `cancelled`。
+     * 还有没结算的选择时，那一次先以 `cancelled` 结算；切回命令或行号模式同样取消它。
+     */
+    openPick(request: QuickPickRequest): Promise<QuickPickResult>;
+    /** 选择模式里提交：记下结果并关闭面板，等关闭完成再结算。 */
+    choosePick(result: Extract<QuickPickResult, {kind: "item" | "text"}>): void;
+    /** 浮层关闭完成（QuickInput 的 `closed`，焦点已归还）：结算选择模式。没有选择时什么也不做。 */
+    closed(): void;
     closePalette(): void;
     remember(id: string): void;
     /** 停止跟踪命令表并关闭面板。 */
@@ -67,9 +81,18 @@ export function createPaletteHost(options: PaletteHostOptions): PaletteHost {
     const query = ref("");
     const target = shallowRef<DocumentTarget | null>(null);
     const focusRequest = ref(0);
+    const pick = shallowRef<QuickPickRequest | null>(null);
+    let session: {readonly resolve: (result: QuickPickResult) => void; choice: QuickPickResult | null} | null = null;
     const unsubscribe = options.commands.onDidChange(() => {
         revision.value += 1;
     });
+
+    const settlePick = (result: QuickPickResult | null): void => {
+        const current = session;
+        session = null;
+        pick.value = null;
+        current?.resolve(result ?? current.choice ?? {kind: "cancelled"});
+    };
 
     const closePalette = (): void => {
         const wasOpen = open.value;
@@ -89,7 +112,14 @@ export function createPaletteHost(options: PaletteHostOptions): PaletteHost {
         query,
         target,
         focusRequest,
+        pick,
         openPalette(mode) {
+            if (session !== null) {
+                settlePick({kind: "cancelled"});
+                query.value = mode === "line" ? ":" : ">";
+                focusRequest.value += 1;
+                return;
+            }
             if (!open.value) {
                 target.value = editor.value === null ? null : {...editor.value.target};
                 query.value = mode === "line" ? ":" : ">";
@@ -101,6 +131,29 @@ export function createPaletteHost(options: PaletteHostOptions): PaletteHost {
                 focusRequest.value += 1;
             }
         },
+        openPick(request) {
+            if (session !== null) settlePick({kind: "cancelled"});
+            const {promise, resolve} = Promise.withResolvers<QuickPickResult>();
+            session = {resolve, choice: null};
+            pick.value = request;
+            query.value = "";
+            if (open.value) {
+                focusRequest.value += 1;
+            } else {
+                target.value = null;
+                open.value = true;
+                options.onVisibleChange?.(true);
+            }
+            return promise;
+        },
+        choosePick(result) {
+            if (session === null) return;
+            session.choice = result;
+            closePalette();
+        },
+        closed() {
+            if (session !== null && !open.value) settlePick(null);
+        },
         closePalette,
         remember(id) {
             recent.value = [id, ...recent.value.filter((entry) => entry !== id)].slice(0, RECENT_LIMIT);
@@ -108,6 +161,7 @@ export function createPaletteHost(options: PaletteHostOptions): PaletteHost {
         dispose() {
             unsubscribe();
             closePalette();
+            settlePick({kind: "cancelled"});
         },
     };
 }

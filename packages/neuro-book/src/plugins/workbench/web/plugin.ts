@@ -1,6 +1,7 @@
 /**
  * `nbook.workbench` 浏览器入口：提供窗口挂载的页面表，定义页面贡献点 `workbench.pages`；
- * 向命令系统贡献面板入口命令，`/` 页挂着命令宿主（命令面板与浏览器键位分发）。
+ * 向命令系统贡献面板入口命令，向其它插件提供选择服务（命令面板的选择模式），`/` 页挂着命令宿主
+ * （命令面板与浏览器键位分发）。
  */
 
 import {defineAsyncComponent, h} from "vue";
@@ -15,7 +16,7 @@ import type {COMMANDS_POINT, CommandService} from "nbook/plugins/commands/shared
 import {descriptor} from "../plugin";
 import {OPEN_COMMANDS_DECLARATION, OPEN_COMMANDS_ID, PaletteSlot} from "./commands/open-commands";
 import type {PaletteHost} from "./commands/palette-host";
-import {WORKBENCH_PAGES_POINT, workbenchRootKey} from "./contracts";
+import {quickPickKey, WORKBENCH_PAGES_POINT, workbenchRootKey} from "./contracts";
 import {createEmptyWorkbench} from "./empty-workbench";
 import {PageTable, validatePageContribution} from "./pages";
 
@@ -39,7 +40,7 @@ export function createWorkbenchBrowserPlugin(keys: WorkbenchServiceKeys): Plugin
             id: "browser",
             location: "browser",
             dependencies: [{key: diagnosticsKey}, {key: keys.commands}],
-            provides: [workbenchRootKey],
+            provides: [workbenchRootKey, quickPickKey],
             receives: [WORKBENCH_PAGES_POINT],
             contributions: [{capability: COMMANDS, id: OPEN_COMMANDS_ID, declaration: OPEN_COMMANDS_DECLARATION}],
             activate: (context) => {
@@ -52,7 +53,7 @@ export function createWorkbenchBrowserPlugin(keys: WorkbenchServiceKeys): Plugin
                 const home = createEmptyWorkbench(() => h(CommandHost, {commands, report, attach: (host: PaletteHost) => palettes.attach(host)}));
                 const pages = new PageTable([{path: "/", title: "NeuroBook", load: async () => home}]);
                 return {
-                    services: [provide(workbenchRootKey, {pages: () => pages.list()})],
+                    services: [provide(workbenchRootKey, {pages: () => pages.list()}), provide(quickPickKey, palettes.quickPick)],
                     receivers: {[WORKBENCH_PAGES_POINT]: pages.receiver()},
                     contributions: {[COMMANDS]: {[OPEN_COMMANDS_ID]: palettes.command}},
                 };

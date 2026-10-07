@@ -81,7 +81,7 @@ afterAll(async () => {
 
 function openWindow(options: Partial<BrowserWindowOptions> & {readonly url?: string} = {}) {
     const page = new EventTarget();
-    const browserWindow = createBrowserWindow({connection: createConnection(options.url ?? backend.url!), page, console: quietConsole, clientIdentity: "profile-test", ...options});
+    const browserWindow = createBrowserWindow({connection: createConnection(options.url ?? backend.url!), page, console: quietConsole, clientIdentity: "profile-test", navigateDocument: () => undefined, ...options});
     return {browserWindow, page};
 }
 

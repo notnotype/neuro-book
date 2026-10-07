@@ -3,7 +3,7 @@ import {Type} from "typebox";
 
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
 
-import {matchCommandText, parseCommandQuery, parseLineNumber, searchCommands} from "./command-query";
+import {matchCommandText, parseCommandQuery, parseLineNumber, searchCommands, searchPickItems} from "./command-query";
 
 function command(id: string, zh: string, overrides: Partial<CommandMetadata> = {}): CommandMetadata {
     return {id, source: "nbook.test", title: {"zh-CN": zh, "en-US": zh}, description: `run ${id}`, args: Type.Object({}, {additionalProperties: false}), effect: "read", ...overrides};
@@ -103,5 +103,20 @@ describe("searchCommands", () => {
             "nbook.quick-open.open-line",
         ]);
         expect(searchCommands(commands, "并不存在的命令", [], "zh-CN")).toEqual([]);
+    });
+});
+
+describe("选择模式的候选", () => {
+    const items = [
+        {id: "b", label: "book", detail: "/drafts/book"},
+        {id: "a", label: "alpha", detail: "/books/alpha"},
+        {id: "c", label: "cookbook"},
+    ];
+
+    it("空查询保持请求里的次序；标签与说明都参与匹配，只有标签命中才给片段", () => {
+        expect(searchPickItems(items, "").map((item) => item.id)).toEqual(["b", "a", "c"]);
+        const byDetail = searchPickItems(items, "drafts");
+        expect(byDetail).toEqual([{id: "b", label: "book", description: "/drafts/book", labelMatches: undefined}]);
+        expect(searchPickItems(items, "book").map((item) => [item.id, item.labelMatches])).toEqual([["b", [[0, 4]]], ["a", undefined], ["c", [[4, 8]]]]);
     });
 });

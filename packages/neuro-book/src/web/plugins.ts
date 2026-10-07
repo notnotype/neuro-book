@@ -12,12 +12,16 @@ import {commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import {createCommandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {createBrowserDiagnosticsPlugin} from "nbook/plugins/diagnostics/web/plugin";
+import {createProjectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
+import {quickPickKey} from "nbook/plugins/workbench/web/contracts";
 import {createWorkbenchBrowserPlugin} from "nbook/plugins/workbench/web/plugin";
 
 export interface BrowserPluginContext {
     /** 本窗口运行实例的诊断存储。 */
     readonly store: DiagnosticsStore;
     readonly console: DiagnosticsConsole;
+    /** 整页加载到 `href`。 */
+    readonly navigateDocument: (href: string) => void;
 }
 
 export type BrowserPluginFactory = (context: BrowserPluginContext) => PluginDefinition;
@@ -26,6 +30,7 @@ export const browserPluginFactories: Readonly<Record<string, BrowserPluginFactor
     "nbook.diagnostics": (context) => createBrowserDiagnosticsPlugin({store: context.store, console: context.console}),
     "nbook.commands": () => createCommandsPlugin("browser"),
     "nbook.workbench": () => createWorkbenchBrowserPlugin({commands: commandServiceKey}),
+    "nbook.projects": (context) => createProjectsBrowserPlugin({quickPick: quickPickKey, navigateDocument: context.navigateDocument}),
 };
 
 /** 本外壳构建进去的浏览器插件：清单中有浏览器运行位置的插件。 */

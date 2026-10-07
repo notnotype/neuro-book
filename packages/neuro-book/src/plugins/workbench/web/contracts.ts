@@ -38,3 +38,39 @@ export interface WorkbenchRoot {
 }
 
 export const workbenchRootKey: ServiceKey<WorkbenchRoot> = defineServiceKey<WorkbenchRoot>("nbook.workbench/root");
+
+/** 选择模式的一项候选。 */
+export interface QuickPickItem {
+    readonly id: string;
+    readonly label: string;
+    /** 第二行的说明（例如项目目录路径）。 */
+    readonly detail?: string;
+}
+
+/**
+ * 命令发起的一次候选选择（workbench.quick-open 的选择模式）：在命令面板的同一浮层里列出候选，用户选一项、
+ * 提交输入的文字或取消。只有一步，不是向导。
+ */
+export interface QuickPickRequest {
+    readonly title: string;
+    readonly placeholder: string;
+    readonly items: ReadonlyArray<QuickPickItem>;
+    /** 给了它时，输入的文字本身也可以提交：候选末尾多一项，文案由它给出。 */
+    readonly text?: {readonly label: (text: string) => string};
+    /** 没有候选时的空态文案。 */
+    readonly empty?: string;
+}
+
+/** 选择的结果在浮层关闭完成（焦点已归还）后才给出；当前页面没有命令面板时为 `unavailable`。 */
+export type QuickPickResult =
+    | {readonly kind: "item"; readonly id: string}
+    | {readonly kind: "text"; readonly text: string}
+    | {readonly kind: "cancelled"}
+    | {readonly kind: "unavailable"; readonly reason: string};
+
+export interface QuickPick {
+    pick(request: QuickPickRequest): Promise<QuickPickResult>;
+}
+
+/** 工作台提供的选择服务；需要它的插件在入口依赖里声明，服务键由装配者交给插件工厂。 */
+export const quickPickKey: ServiceKey<QuickPick> = defineServiceKey<QuickPick>("nbook.workbench/quick-pick");

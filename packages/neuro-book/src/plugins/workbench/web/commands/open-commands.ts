@@ -1,14 +1,15 @@
 /**
- * 工作台贡献的命令 `nbook.quick-open.open-commands`（默认键位 `Mod+Shift+P`）。
+ * 工作台贡献的命令 `nbook.quick-open.open-commands`（默认键位 `Mod+Shift+P`），与给其它插件的选择服务。
  *
- * 命令实现随工作台激活交出，面板却挂在页面上：页面的命令宿主挂载时接入槽位、卸载时断开。没有页面宿主的文档
- * （例如 Lab）里执行它只得到 `unavailable`，那里也不挂键位分发，快捷键不会走到这里。
+ * 命令实现与选择服务随工作台激活交出，面板却挂在页面上：页面的命令宿主挂载时接入槽位、卸载时断开。没有页面宿主的
+ * 文档（例如 Lab）里执行它只得到 `unavailable`，选择得到 `unavailable`；那里也不挂键位分发，快捷键不会走到这里。
  */
 
 import {Type} from "typebox";
 
 import type {CommandDeclaration, CommandImplementation, Release} from "nbook/plugins/commands/shared/contracts";
 
+import type {QuickPick} from "../contracts";
 import type {PaletteHost} from "./palette-host";
 
 export const OPEN_COMMANDS_ID = "nbook.quick-open.open-commands";
@@ -40,5 +41,9 @@ export class PaletteSlot {
             this.#current.openPalette("commands");
             return {ok: true, value: null};
         },
+    };
+
+    readonly quickPick: QuickPick = {
+        pick: (request) => (this.#current === null ? Promise.resolve({kind: "unavailable", reason: "当前页面没有命令面板"}) : this.#current.openPick(request)),
     };
 }

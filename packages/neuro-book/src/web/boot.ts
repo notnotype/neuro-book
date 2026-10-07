@@ -36,6 +36,7 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
         connection: createConnection(location.origin),
         page: window,
         console,
+        navigateDocument: (href) => location.assign(href),
         clientIdentity: clientIdentity.id,
         builtin: options.builtin,
         factories: options.factories,

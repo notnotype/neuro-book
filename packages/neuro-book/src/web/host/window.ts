@@ -44,6 +44,8 @@ export interface BrowserWindowOptions {
     readonly connection: Connection;
     readonly page: PageLifecycleTarget;
     readonly console: DiagnosticsConsole;
+    /** 整页加载到 `href`（生产是 `location.assign`）：交给需要整页导航的插件，例如“打开项目”。 */
+    readonly navigateDocument: (href: string) => void;
     /** 本外壳构建进去的浏览器插件及其工厂；缺省按产品清单。测试经这里换入自己的插件，产品代码不含测试分支。 */
     readonly builtin?: ReadonlyArray<PluginDescriptor>;
     readonly factories?: Readonly<Record<string, BrowserPluginFactory>>;
@@ -150,7 +152,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         }
         let root: WorkbenchRoot | null = null;
         try {
-            const plugins = selected.map(({factory}) => factory({store, console: options.console}));
+            const plugins = selected.map(({factory}) => factory({store, console: options.console, navigateDocument: options.navigateDocument}));
             host = adapter.start({
                 instanceId,
                 page: options.page,
