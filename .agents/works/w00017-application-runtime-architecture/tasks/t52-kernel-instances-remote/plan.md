@@ -81,10 +81,11 @@
 ### 8. 子实例与租约（新文件 `src/application/children.ts`，从 `./application` 导出）
 
 - `createChildInstances(parent: Application, options)`：`options` 含宿主回调 `create(key, generation) → Promise<ChildHandle>`、`stop(handle, {signal}) → Promise<"closed" | "forced">`，以及 `graceMs`、`stopDeadlineMs`、`clock`。父实例只持子实例记录，实际进程由宿主提供（K3）。
-- `acquire(key, holder) → Promise<{status: "acquired", lease: {key, generation, release()}} | {status: "rejected", reason}>`；`state(key)`；`list()`。
+- `acquire(key, holder) → Promise<{status: "acquired", lease: {key, generation, holder, revoked, release()}} | {status: "rejected", reason}>`；`state(key)`；`list()`；`holds(key, generation, holder)`（路由核对用）；`exited(key, generation)`（宿主报告意外退出）。
 - 状态：`creating → available → idle-grace → stopping → terminated`。新租约在 `creating` 等创建结果；`idle-grace` 中取消关闭回到 `available`；`stopping` 不复活，等退出后以新代次创建；子实例代次单调、不复用。`stop` 返回 `"forced"` 时记为外部观察到的终止并写诊断，不报为正常关闭。
-- 父实例停止：监听 `parent.root.stopSignal` **同步**关闭接纳（之后 `acquire` 返回 `admission-closed`），再由登记在根作用域上的资源依次停止子实例、等真实退出或超时强制结束。
-- 第 5 节路由的 `{project}` 目标在这里接入：调用方必须持有该代次的租约。
+- 父实例停止（S9 实施时修订：根作用域一关闭插件作用域就并行收口，只靠根作用域资源排不出“子实例先停”）：`ApplicationImpl` 增加同目录内部的停止阶段，`stop()` 的同步段先触发“停止已开始”信号（子实例据此关闭接纳，`status()` 报 `stopping`、`admit` 拒绝），跑完停止阶段（停止全部子实例、等真实退出或截止强制结束）再关闭根作用域；停止阶段受首次停止的截止约束。另在根作用域登记一项资源等仍在停止的子实例，截止先到时父实例报 `incomplete(deadline)` 而不是 closed。
+- 第 5 节路由的 `{project}` 目标在这里接入：调用方必须持有该代次的租约。调用方与持有者的对应由宿主的项目管理决定（K3），路由经 `createRemoteRouter(hub, {holdsProjectLease})` 询问，未提供时一律 `denied`。
+- 测试用手动时钟抽到 `src/lifecycle/testing/manual-clock.ts`（导出 `./lifecycle/testing`），远程与子实例测试共用。
 
 ## Spec 与文档改动（S0）
 

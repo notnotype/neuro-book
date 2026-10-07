@@ -10,6 +10,7 @@
     },
     "exports": {
         "./lifecycle": "./src/lifecycle/lifecycle.ts",
+        "./lifecycle/testing": "./src/lifecycle/testing/manual-clock.ts",
         "./services": "./src/services/services.ts",
         "./plugins": "./src/plugins/plugins.ts",
         "./application": "./src/application/application.ts",

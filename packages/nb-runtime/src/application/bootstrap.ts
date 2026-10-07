@@ -68,6 +68,11 @@ export class ApplicationImpl implements Application {
     readonly stopped: Promise<StopResult> = this.#stopped.promise;
     readonly #closed = Promise.withResolvers<void>();
     readonly closed: Promise<void> = this.#closed.promise;
+    /** 首次停止开始即触发，早于根作用域关闭；两者之间跑登记的停止阶段。 */
+    readonly #stopRequested = new AbortController();
+    readonly #stopStages: Array<() => Promise<void>> = [];
+    /** 启动期的激活与门禁等待：停止一开始就取消，不等停止阶段跑完、根作用域关闭。 */
+    readonly #startupSignal: AbortSignal;
 
     constructor(host: HostContext, manifest: ApplicationManifest) {
         this.#host = host;
@@ -76,6 +81,7 @@ export class ApplicationImpl implements Application {
         this.identity = this.#instance.identity;
         this.root = this.#instance.root;
         this.assembly = createServiceAssembly(this.#instance, {keys: manifest.keys, observer: manifest.observers?.services});
+        this.#startupSignal = AbortSignal.any([this.root.stopSignal, this.#stopRequested.signal]);
         this.plugins = createPluginHost(this.#instance, this.assembly, {observer: manifest.observers?.plugins, remote: manifest.remote, delegation: manifest.delegation});
         if (host.stopSignal.aborted) {
             void this.stop();
@@ -88,8 +94,8 @@ export class ApplicationImpl implements Application {
     status(): ApplicationStatus {
         return {
             identity: this.identity,
-            phase: this.root.phase,
-            admission: this.root.phase === "available" ? "open" : "closed",
+            phase: this.#stopRequested.signal.aborted && this.root.phase !== "closed" ? "stopping" : this.root.phase,
+            admission: this.root.phase === "available" && !this.#stopRequested.signal.aborted ? "open" : "closed",
             startup: this.#startup,
             gates: [...this.#gates],
             failures: [...this.#failures],
@@ -104,6 +110,9 @@ export class ApplicationImpl implements Application {
             const reason = startup.status === "failed" ? "startup-failed" : this.root.phase === "closed" ? "closed" : "stopping";
             return {status: "rejected", reason};
         }
+        if (this.#stopRequested.signal.aborted && this.root.phase === "available") {
+            return {status: "rejected", reason: "stopping"};
+        }
         try {
             return {status: "accepted", operation: this.root.accept(spec)};
         } catch (error) {
@@ -116,10 +125,53 @@ export class ApplicationImpl implements Application {
 
     stop(request?: CloseRequest): Promise<StopResult> {
         if (this.#stop === null) {
-            this.#stop = this.#settleStop(this.root.close(firstStopRequest(this.#host.stopDeadline?.(), request)));
+            const closeRequest = firstStopRequest(this.#host.stopDeadline?.(), request);
+            this.#stopRequested.abort();
+            this.#stop = this.#settleStop(this.#closeAfterStages(closeRequest));
             this.#stopped.resolve(this.#stop);
         }
         return this.#stop;
+    }
+
+    /**
+     * 同目录内部使用（子实例），不在 Application 接口上：登记一个在根作用域关闭之前跑完的停止阶段，
+     * 返回“停止已开始”信号。需要这一层是因为根作用域一关闭，插件作用域就并行收口，排不出
+     * “子实例先停、父实例其余部分后停”（docs/specs/runtime/application.md）。
+     */
+    addStopStage(stage: () => Promise<void>): AbortSignal {
+        this.#stopStages.push(stage);
+        return this.#stopRequested.signal;
+    }
+
+    /** 宿主已要求停止：根作用域可能还在停止阶段之前，没进入 stopping。 */
+    #stopBegun(): boolean {
+        return this.#stopRequested.signal.aborted || this.root.phase !== "creating";
+    }
+
+    /** 没有停止阶段时同步开始关闭根作用域，与只有根作用域时的停止时序一致。 */
+    async #closeAfterStages(request: CloseRequest | undefined): Promise<CloseResult> {
+        if (this.#stopStages.length > 0) {
+            const stages = Promise.allSettled(this.#stopStages.map((stage) => stage())).then((results) => {
+                for (const result of results) {
+                    if (result.status === "rejected") {
+                        const failure = summarizeFailure(result.reason);
+                        this.#emergency("stop", "停止阶段失败", `${failure.name}: ${failure.message}`);
+                    }
+                }
+            });
+            // 停止阶段也受首次停止的截止约束：到截止就不再等，根作用域的关闭随即以 deadline 结算。
+            const deadline = request?.deadline;
+            if (deadline === undefined) {
+                await stages;
+            } else if (!deadline.aborted) {
+                const expired = Promise.withResolvers<void>();
+                const onAbort = (): void => expired.resolve();
+                deadline.addEventListener("abort", onAbort, {once: true});
+                await Promise.race([stages, expired.promise]);
+                deadline.removeEventListener("abort", onAbort);
+            }
+        }
+        return this.root.close(request);
     }
 
     recover(request?: CloseRequest): Promise<StopResult> {
@@ -183,13 +235,13 @@ export class ApplicationImpl implements Application {
             }
         }
         const activationFailures = await Promise.all(startupEntries.map(async ({plugin, entry, required}): Promise<StartupFailure | null> => {
-            if (this.root.phase !== "creating") {
+            if (this.#stopBegun()) {
                 return null;
             }
             const base = {category: "activation", required, source: `${plugin}/${entry}`, stage: "activate"} as const;
             try {
-                const result = await this.plugins.activate({plugin, entry}, {signal: this.root.stopSignal});
-                if ((result.status === "cancelled" || result.status === "stopped") && this.root.phase !== "creating") {
+                const result = await this.plugins.activate({plugin, entry}, {signal: this.#startupSignal});
+                if ((result.status === "cancelled" || result.status === "stopped") && this.#stopBegun()) {
                     return null;
                 }
                 return result.status === "activated" ? null : {...base, reason: activationDetail(result), error: result.status === "failed" ? result.error : null};
@@ -206,7 +258,7 @@ export class ApplicationImpl implements Application {
 
         // 门禁顺序执行；宿主停止后余下门禁跳过。
         for (const gate of this.#manifest.gates) {
-            if (this.root.phase !== "creating") {
+            if (this.#stopBegun()) {
                 this.#gates.push({id: gate.id, required: isRequired(gate), status: "skipped"});
                 continue;
             }
@@ -219,7 +271,7 @@ export class ApplicationImpl implements Application {
 
         const gates = [...this.#gates];
         const failures = [...this.#failures];
-        if (this.root.phase !== "creating") {
+        if (this.#stopBegun()) {
             const stop = await this.stop();
             this.#fail({category: "stopped", required: true, source: this.identity.instanceId, stage: "gate", reason: "宿主在启动完成前要求停止", error: null});
             return this.#settle({status: "stopped", instanceId: this.identity.instanceId, gates, failures: [...this.#failures], stop});
@@ -249,7 +301,7 @@ export class ApplicationImpl implements Application {
         try {
             switch (gate.kind) {
                 case "activate": {
-                    const result = await this.plugins.activate(gate.entry, {signal: this.root.stopSignal});
+                    const result = await this.plugins.activate(gate.entry, {signal: this.#startupSignal});
                     if (result.status === "activated") {
                         return {...base, status: "passed"};
                     }
@@ -262,7 +314,7 @@ export class ApplicationImpl implements Application {
                     if (declared.status === "rejected") {
                         return failed(`resolve:${declared.reason}`);
                     }
-                    const result = await this.assembly.access(consumerId).resolve(gate.key, {signal: this.root.stopSignal});
+                    const result = await this.assembly.access(consumerId).resolve(gate.key, {signal: this.#startupSignal});
                     if (result.status === "resolved") {
                         return {...base, status: "passed"};
                     }
@@ -274,7 +326,7 @@ export class ApplicationImpl implements Application {
                     if (declared.status === "rejected") {
                         return failed(`check:${declared.reason}`);
                     }
-                    await gate.check({signal: this.root.stopSignal, root: this.root, services: this.assembly.access(consumerId)});
+                    await gate.check({signal: this.#startupSignal, root: this.root, services: this.assembly.access(consumerId)});
                     return {...base, status: "passed"};
                 }
             }

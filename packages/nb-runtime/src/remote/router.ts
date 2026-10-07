@@ -3,13 +3,14 @@
  * 订阅与释放转给对应实例（或本进程的服务端节点），并把 ACK、结果与事件原路送回。
  *
  * 路由只核对实例级身份：帧上调用方的实例 id 必须是这条链路握手时登记的实例，同一实例内的插件与
- * 入口身份由该实例的内核填写（第一版完全信任，见 ADR 0022）。
+ * 入口身份由该实例的内核填写（第一版完全信任，见 ADR 0022）。`{project}` 目标另核对租约，租约由
+ * 宿主的项目管理持有（`createChildInstances`），路由只经 `holdsProjectLease` 询问。
  */
 
 import {Peer} from "./peer";
 import type {Reply, SubscriptionChannel} from "./peer";
 import {checkHello, failureFor} from "./protocol";
-import type {InstanceDescriptor, Outcome, ReleaseFrame, RemoteTarget, RequestFrame, SubscribeFrame} from "./protocol";
+import type {CallerFrame, InstanceDescriptor, Outcome, ReleaseFrame, RemoteTarget, RequestFrame, SubscribeFrame} from "./protocol";
 import {INSTANCES_CONTRACT, RemoteNodeImpl} from "./node";
 import type {RemoteNode, Upstream} from "./node";
 import type {RemoteLink} from "./transport";
@@ -21,40 +22,54 @@ export interface RemoteRouter {
     instances(): ReadonlyArray<InstanceDescriptor>;
 }
 
+export interface RemoteRouterOptions {
+    /**
+     * `{project}` 目标的租约核对：调用方是否持有该项目这一代次的租约。调用方与租约持有者怎样对应由宿主的
+     * 项目管理决定；不提供时没有调用方持有租约，`{project}` 请求与订阅一律 `denied`。
+     */
+    readonly holdsProjectLease?: (caller: CallerFrame, project: string, generation: number) => boolean;
+}
+
 interface Member {
     readonly descriptor: InstanceDescriptor;
     readonly peer: Peer;
 }
 
-type Destination = {readonly kind: "hub"} | {readonly kind: "member"; readonly member: Member} | {readonly kind: "gone"; readonly detail: string};
+type Destination =
+    | {readonly kind: "hub"}
+    | {readonly kind: "member"; readonly member: Member}
+    | {readonly kind: "gone"; readonly detail: string}
+    | {readonly kind: "denied"; readonly detail: string};
 
 class RemoteRouterImpl implements RemoteRouter {
     readonly #hub: RemoteNodeImpl;
     readonly #members = new Map<string, Member>();
+    readonly #options: RemoteRouterOptions;
 
-    constructor(hub: RemoteNodeImpl) {
+    constructor(hub: RemoteNodeImpl, options: RemoteRouterOptions) {
         if (hub.instance.role !== "hub") {
             throw new TypeError(`路由只能挂在 role 为 hub 的节点上，收到 ${hub.instance.role}`);
         }
         this.#hub = hub;
+        this.#options = options;
         const upstream: Upstream = {
             request: (frame, options) => {
-                const destination = this.#resolve(hub.instance, frame.target);
+                const destination = this.#resolve(hub.instance, frame.target, frame.$nbConsumer);
                 if (destination.kind !== "member") {
-                    return Promise.resolve(this.#gone(frame.effect, destination));
+                    return Promise.resolve(this.#refusal(frame.effect, destination));
                 }
                 return destination.member.peer.request(frame, options);
             },
             subscribe: (frame, handlers) => {
-                const destination = this.#resolve(hub.instance, frame.target);
+                const destination = this.#resolve(hub.instance, frame.target, frame.$nbConsumer);
                 if (destination.kind !== "member") {
-                    return {outcome: Promise.resolve(this.#gone("read", destination)), cancel: () => undefined};
+                    return {outcome: Promise.resolve(this.#refusal("read", destination)), cancel: () => undefined};
                 }
                 const started = destination.member.peer.subscribe(frame, handlers);
                 return {outcome: started.outcome, cancel: () => destination.member.peer.unsubscribe(started.id)};
             },
             release: (frame) => {
-                const destination = this.#resolve(hub.instance, frame.target);
+                const destination = this.#resolve(hub.instance, frame.target, null);
                 if (destination.kind === "member") {
                     destination.member.peer.send({type: "release", ...frame});
                 }
@@ -125,8 +140,11 @@ class RemoteRouterImpl implements RemoteRouter {
         );
     }
 
-    /** 目标解析：`project` 按调用方握手时绑定的项目代次；代次不符视为目标已不在。 */
-    #resolve(from: InstanceDescriptor, target: RemoteTarget): Destination {
+    /**
+     * 目标解析：`project` 按调用方握手时绑定的项目代次，代次不符视为目标已不在；`{project}` 要求调用方
+     * 持有正在运行的那一代的租约。释放帧不带调用方（`caller` 为 null）：撤回使用关系总是放行。
+     */
+    #resolve(from: InstanceDescriptor, target: RemoteTarget, caller: CallerFrame | null): Destination {
         if (target === "server") {
             return {kind: "hub"};
         }
@@ -142,8 +160,17 @@ class RemoteRouterImpl implements RemoteRouter {
             return {kind: "member", member: project};
         }
         if ("project" in target) {
-            const project = [...this.#members.values()].find((member) => member.descriptor.role === "project" && member.descriptor.project?.id === target.project);
-            return project === undefined ? {kind: "gone", detail: `项目 ${target.project} 没在运行`} : {kind: "member", member: project};
+            for (const member of this.#members.values()) {
+                const binding = member.descriptor.project;
+                if (member.descriptor.role !== "project" || binding === null || binding.id !== target.project) {
+                    continue;
+                }
+                if (caller !== null && !(this.#options.holdsProjectLease?.(caller, binding.id, binding.generation) ?? false)) {
+                    return {kind: "denied", detail: `调用方没有持有项目 ${binding.id} 代次 ${String(binding.generation)} 的租约`};
+                }
+                return {kind: "member", member};
+            }
+            return {kind: "gone", detail: `项目 ${target.project} 没在运行`};
         }
         if (target.client === this.#hub.instance.id) {
             return {kind: "hub"};
@@ -152,8 +179,15 @@ class RemoteRouterImpl implements RemoteRouter {
         return client === undefined ? {kind: "gone", detail: `实例 ${target.client} 不在线`} : {kind: "member", member: client};
     }
 
-    #gone(effect: "read" | "write", destination: Destination): Outcome {
-        return {...failureFor("undispatched", effect, "target-gone"), detail: destination.kind === "gone" ? destination.detail : undefined};
+    #refusal(effect: "read" | "write", destination: Extract<Destination, {kind: "gone" | "denied"}> | {readonly kind: "hub"}): Extract<Outcome, {ok: false}> {
+        switch (destination.kind) {
+            case "denied":
+                return {ok: false, code: "denied", detail: destination.detail};
+            case "gone":
+                return {...failureFor("undispatched", effect, "target-gone"), detail: destination.detail};
+            case "hub":
+                return {...failureFor("undispatched", effect, "target-gone"), detail: "服务端自己的目标不经路由转发"};
+        }
     }
 
     #routeRequest(from: Member, frame: RequestFrame, reply: Reply, signal: AbortSignal): void {
@@ -161,9 +195,9 @@ class RemoteRouterImpl implements RemoteRouter {
             reply.result({ok: false, code: "denied", detail: "调用方实例与链路登记的实例不符"});
             return;
         }
-        const destination = this.#resolve(from.descriptor, frame.target);
-        if (destination.kind === "gone") {
-            reply.result(this.#gone(frame.effect, destination));
+        const destination = this.#resolve(from.descriptor, frame.target, frame.$nbConsumer);
+        if (destination.kind === "gone" || destination.kind === "denied") {
+            reply.result(this.#refusal(frame.effect, destination));
             return;
         }
         if (destination.kind === "hub") {
@@ -184,9 +218,9 @@ class RemoteRouterImpl implements RemoteRouter {
             channel.reject({ok: false, code: "denied", detail: "订阅方实例与链路登记的实例不符"});
             return;
         }
-        const destination = this.#resolve(from.descriptor, frame.target);
-        if (destination.kind === "gone") {
-            channel.reject({ok: false, code: "target-gone", detail: destination.kind === "gone" ? destination.detail : undefined});
+        const destination = this.#resolve(from.descriptor, frame.target, frame.$nbConsumer);
+        if (destination.kind === "gone" || destination.kind === "denied") {
+            channel.reject(this.#refusal("read", destination));
             return;
         }
         if (destination.kind === "hub") {
@@ -207,7 +241,7 @@ class RemoteRouterImpl implements RemoteRouter {
     }
 
     #routeRelease(from: InstanceDescriptor, frame: ReleaseFrame): void {
-        const destination = this.#resolve(from, frame.target);
+        const destination = this.#resolve(from, frame.target, null);
         if (destination.kind === "hub") {
             this.#hub.handleRelease(frame);
         } else if (destination.kind === "member") {
@@ -217,9 +251,9 @@ class RemoteRouterImpl implements RemoteRouter {
 }
 
 /** 在服务端节点上建立路由；服务端节点此后经它到达其它实例。 */
-export function createRemoteRouter(hub: RemoteNode): RemoteRouter {
+export function createRemoteRouter(hub: RemoteNode, options: RemoteRouterOptions = {}): RemoteRouter {
     if (!(hub instanceof RemoteNodeImpl)) {
         throw new TypeError("路由需要 createRemoteNode 创建的节点");
     }
-    return new RemoteRouterImpl(hub);
+    return new RemoteRouterImpl(hub, options);
 }

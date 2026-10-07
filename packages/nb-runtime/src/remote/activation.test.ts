@@ -2,9 +2,10 @@ import {describe, expect, it} from "bun:test";
 
 import {Type} from "typebox";
 
-import {createApplication} from "../application/application";
+import {createApplication, createChildInstances} from "../application/application";
 import type {Application} from "../application/application";
 import type {RuntimeClock} from "../lifecycle/lifecycle";
+import {ManualClock} from "../lifecycle/testing/manual-clock";
 import type {ActivationContext, PluginDefinition, PluginDiagnostic} from "../plugins/plugins";
 
 import {createRemoteNode, createRemoteRouter, defineRemoteService, provideRemote} from "./remote";
@@ -14,28 +15,6 @@ import {createLinkPair} from "./testing/in-process";
 const Empty = Type.Object({}, {additionalProperties: false});
 const serviceA = defineRemoteService({id: "demo.a/a", version: 1, callers: ["browser", "server", "project"], methods: {ping: {input: Empty, output: Type.String(), effect: "read"}}});
 const serviceB = defineRemoteService({id: "demo.b/b", version: 1, callers: ["browser", "server", "project"], methods: {ping: {input: Empty, output: Type.String(), effect: "read"}, wait: {input: Empty, output: Type.String(), effect: "read"}}});
-
-class ManualClock implements RuntimeClock {
-    #now = 0;
-    readonly #timers = new Set<{at: number; callback: () => void}>();
-    now(): number {
-        return this.#now;
-    }
-    schedule(callback: () => void, ms: number): () => void {
-        const timer = {at: this.#now + ms, callback};
-        this.#timers.add(timer);
-        return () => this.#timers.delete(timer);
-    }
-    advance(ms: number): void {
-        this.#now += ms;
-        for (const timer of [...this.#timers]) {
-            if (timer.at <= this.#now) {
-                this.#timers.delete(timer);
-                timer.callback();
-            }
-        }
-    }
-}
 
 interface Instance {
     readonly app: Application;
@@ -54,7 +33,10 @@ async function start(descriptor: InstanceDescriptor, plugins: ReadonlyArray<Plug
     return {app, node, diagnostics};
 }
 
-/** 服务端提供 A、项目提供 B；`activateA`、`activateB` 是两者激活时要做的事。浏览器有一个启动即激活的调用方。 */
+/**
+ * 服务端提供 A、项目提供 B；`activateA`、`activateB` 是两者激活时要做的事。浏览器有一个启动即激活的调用方。
+ * 项目实例由服务端的子实例管理创建；A 所在插件持有项目 P 的租约，才能指名 `{project: "P"}` 调用。
+ */
 async function topology(options: {
     readonly activateA: (context: ActivationContext) => Promise<void>;
     readonly activateB: (context: ActivationContext) => Promise<void>;
@@ -86,15 +68,27 @@ async function topology(options: {
         }}],
     };
     const hub = await start({id: "hub", kind: "server", role: "hub", project: null}, [pluginA], clock, options.maxActivationCallMs);
-    const project = await start({id: "project-P", kind: "project", role: "project", project: binding}, [pluginB], clock);
-    const browser = await start({id: "browser-1", kind: "browser", role: "client", project: binding}, [browserCaller], clock);
-    const router = createRemoteRouter(hub.node);
-    for (const instance of [project, browser]) {
+    const router = createRemoteRouter(hub.node, {holdsProjectLease: (caller, project, generation) => caller.plugin !== null && children.holds(project, generation, caller.plugin)});
+    const join = async (instance: Instance): Promise<void> => {
         const pair = createLinkPair();
         router.accept(pair.right);
         expect(await instance.node.connect(pair.left)).toEqual({ok: true});
-    }
-    return {clock, hub, project, browser, browserRemote: () => (browserContext as unknown as ActivationContext).remote};
+    };
+    const children = createChildInstances(hub.app, {
+        create: async (key, generation) => {
+            const project = await start({id: `project-${key}`, kind: "project", role: "project", project: {id: key, generation}}, [pluginB], clock);
+            await join(project);
+            return project;
+        },
+        stop: async (project) => ((await project.app.stop()).status === "closed" ? "closed" : "forced"),
+        graceMs: 1000,
+        stopDeadlineMs: 1000,
+        clock,
+    });
+    expect(await children.acquire("P", "demo.a")).toMatchObject({status: "acquired", lease: {key: "P", generation: 1}});
+    const browser = await start({id: "browser-1", kind: "browser", role: "client", project: binding}, [browserCaller], clock);
+    await join(browser);
+    return {clock, hub, browser, browserRemote: () => (browserContext as unknown as ActivationContext).remote};
 }
 
 async function drain(rounds = 40): Promise<void> {

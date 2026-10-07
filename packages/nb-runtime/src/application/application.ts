@@ -15,6 +15,8 @@
 import {ApplicationImpl} from "./bootstrap";
 import type {Application, ApplicationManifest, HostContext} from "./contracts";
 
+export {createChildInstances} from "./children";
+export type {AcquireChildResult, ChildAbnormalEnd, ChildDiagnostic, ChildInstances, ChildInstancesOptions, ChildLease, ChildState, ChildStatus} from "./children";
 export {createInstanceTable} from "./instances";
 export type {InstanceTable} from "./instances";
 

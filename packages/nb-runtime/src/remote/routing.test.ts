@@ -5,6 +5,7 @@ import {Type} from "typebox";
 import {createApplication} from "../application/application";
 import type {Application} from "../application/application";
 import type {RuntimeClock} from "../lifecycle/lifecycle";
+import {ManualClock} from "../lifecycle/testing/manual-clock";
 import type {ActivationContext, PluginDefinition} from "../plugins/plugins";
 import type {ConsumerIdentity} from "../services/services";
 
@@ -129,28 +130,6 @@ function caller(id: string, location: string, captured: Map<string, ActivationCo
 }
 
 // ---------- 实例与时钟 ----------
-
-class ManualClock implements RuntimeClock {
-    #now = 0;
-    readonly #timers = new Set<{at: number; callback: () => void}>();
-    now(): number {
-        return this.#now;
-    }
-    schedule(callback: () => void, ms: number): () => void {
-        const timer = {at: this.#now + ms, callback};
-        this.#timers.add(timer);
-        return () => this.#timers.delete(timer);
-    }
-    advance(ms: number): void {
-        this.#now += ms;
-        for (const timer of [...this.#timers]) {
-            if (timer.at <= this.#now) {
-                this.#timers.delete(timer);
-                timer.callback();
-            }
-        }
-    }
-}
 
 interface Instance {
     readonly app: Application;
