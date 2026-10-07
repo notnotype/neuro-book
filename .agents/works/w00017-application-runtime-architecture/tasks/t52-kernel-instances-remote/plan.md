@@ -111,7 +111,7 @@
 | S4 | 第 4 节 | 激活事件 | 同 S1 |
 | S5 | 第 5 节 `contract.ts`、`protocol.ts` | 合同与协议纯模块、TypeBox 依赖 | 同 S1；`bun install` 后确认锁文件只多 `typebox` |
 | S6 | 第 5 节其余 | 节点、路由、传输、插件接线 | 同 S1 |
-| S7 | 第 6 节 | 订阅 | 同 S1 |
+| S7 | 第 6 节 | 订阅（2026-10-07 实施时与 S6 合并为一次提交：订阅与调用共用同一套帧会话 `peer.ts`，分开写会在中间留下半成品） | 同 S1 |
 | S8 | 第 7 节 | 激活期超时与等待环 | 同 S1 |
 | S9 | 第 8 节 | 子实例与租约，接入 `{project}` 租约核对 | 同 S1 |
 | S10 | — | Spec 实现合同与证据、Task 证据、omp 审查与修正 | `bun run test:affected --typecheck`、`docs:check`、`governance:check` |
@@ -127,7 +127,7 @@
 | 拥有者触发前缀事件激活对应入口；非拥有者触发被拒；无人拥有的前缀被忽略并记诊断 | `src/plugins/activation-events.test.ts` |
 | 每个请求阶段的失败码；写请求派发后断开得到 `unknown-outcome` 附原因；wire 版本不兼容在业务帧前拒绝；合同版本不兼容；业务参数含保留字段被拒 | `src/remote/protocol.test.ts` |
 | 三个真实内核实例（服务端、客户端、另一客户端或“项目”）经进程内链路互调；客户端到客户端经服务端转发；同实例调用与跨实例调用结果一致；开发模式本地调用传不可序列化值被拒；提供方看到的调用方不可伪造；首次远程调用按 `onRemote` 激活懒入口 | `src/remote/routing.test.ts` |
-| 订阅四种取消条件各一例；迟到事件丢弃；同代次重连后 `resync`；旧代次订阅不复活 | `src/remote/subscriptions.test.ts` |
+| 订阅四种取消条件各一例；迟到事件丢弃；同代次重连后 `resync`；旧代次订阅不复活 | `src/remote/routing.test.ts`（与调用共用同一套拓扑夹具） |
 | 两个入口激活期间互相远程调用：双方得到 `unavailable`（`activation-cycle`）而不是挂起；激活期超时上限生效 | `src/remote/activation.test.ts`（注入时钟） |
 | 租约状态表每个转换；宽限期内新租约取消关闭；`stopping` 不复活；代次不复用；父实例停止后新租约被拒、子实例先停；强制结束记为外部终止；`{project}` 目标无租约被拒 | `src/application/children.test.ts`（注入时钟） |
 

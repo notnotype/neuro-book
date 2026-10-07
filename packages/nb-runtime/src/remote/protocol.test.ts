@@ -15,6 +15,7 @@ function request(overrides: Record<string, unknown> = {}): Record<string, unknow
         contract: "nbook.files/files",
         version: 1,
         method: "list",
+        effect: "read",
         input: {uri: "project://"},
         $nbConsumer: caller,
         $nbChain: [],
@@ -51,7 +52,7 @@ describe("Spec plugin-channel 输入：帧、握手与保留字段", () => {
     });
 
     it("握手只看 wire 协议版本：不兼容时给出原因", () => {
-        const instance = {id: "browser-1", kind: "browser", project: null};
+        const instance = {id: "browser-1", kind: "browser", role: "client" as const, project: null};
         expect(checkHello({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance})).toEqual({ok: true});
         expect(checkHello({type: "hello", wire: WIRE_PROTOCOL_VERSION + 1, instance})).toMatchObject({ok: false, reason: "wire-version"});
     });

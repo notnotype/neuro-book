@@ -5,6 +5,7 @@
  */
 
 import type {FailureError, RuntimeLocation, Scope, ScopeId} from "../lifecycle/lifecycle";
+import type {RemoteAccess, RemoteHostBinding, RemoteProvision} from "../remote/remote";
 import type {ConsumerIdentity, EntryId, ResolveOptions, ResolveResult, ServiceDependency, ServiceKey} from "../services/services";
 
 export type {FailureError} from "../lifecycle/lifecycle";
@@ -53,6 +54,11 @@ export interface ActivationContext {
     readonly scope: Scope;
     /** 激活作用域的停止信号；入口 owner 停止时触发，迟到的成功不会发布。 */
     readonly signal: AbortSignal;
+    /**
+     * 跨实例调用与订阅远程服务（docs/specs/runtime/plugin-channel.md）。宿主没有配置远程节点时，
+     * 调用一律得到 `unavailable`。
+     */
+    readonly remote: RemoteAccess;
     readonly services: {
         /** 必需依赖已在激活前解析完成；未声明或可选的键抛 TypeError。 */
         require<T>(key: ServiceKey<T>): T;
@@ -81,6 +87,8 @@ export interface ActivationOutput {
     readonly services?: ReadonlyArray<ProvidedService>;
     /** 本入口声明的贡献点接收者；键必须与 `receives` 完全一致。 */
     readonly receivers?: Readonly<Record<string, ContributionReceiver>>;
+    /** 本入口的远程提供项（`provideRemote`）；合同 id 必须与 `remoteProvides` 完全一致。 */
+    readonly remote?: ReadonlyArray<RemoteProvision>;
 }
 
 /**
@@ -101,6 +109,8 @@ export interface PluginEntryDefinition {
     readonly receives?: ReadonlyArray<string>;
     /** 本入口可代表调用方解析的服务键（委托）；这些键也必须在 `dependencies` 中声明。 */
     readonly delegates?: ReadonlyArray<ServiceKey<unknown>>;
+    /** 本入口提供的远程服务合同 id；首次远程调用时按需激活本入口（onRemote）。 */
+    readonly remoteProvides?: ReadonlyArray<string>;
     /** 入口激活后向贡献点提交的声明。 */
     readonly contributions?: ReadonlyArray<ContributionDeclaration>;
     /** 只在激活时调用；登记、目录查询与状态查询都不调用它。 */
@@ -193,6 +203,8 @@ export type ActivationFailureReason =
     | "undeclared-service"
     | "missing-receiver"
     | "undeclared-receiver"
+    | "missing-remote"
+    | "undeclared-remote"
     | "receiver-prepare-failed"
     | "receiver-commit-failed";
 
@@ -377,6 +389,8 @@ export interface PluginHostOptions {
     readonly observer?: PluginObserver;
     /** 代理允许清单：返回 true 的插件才能委托解析；不给时一律不允许。第一版只给内置插件。 */
     readonly delegation?: (pluginId: string) => boolean;
+    /** 本实例的远程节点；宿主据此提供 `context.remote`，并作为远程提供项的来源接入节点。 */
+    readonly remote?: RemoteHostBinding;
 }
 
 /** 贡献未发布或已撤回时取实现、以及向 runtime.services 交付未激活成功的实例时抛出。 */

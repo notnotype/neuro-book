@@ -114,10 +114,17 @@ export const TargetSchema = Type.Union([
 
 export type RemoteTarget = Static<typeof TargetSchema>;
 
-const InstanceSchema = Type.Object({
+const ProjectBindingSchema = Type.Object({id: Type.String({minLength: 1}), generation: Type.Integer()}, {additionalProperties: false});
+
+/**
+ * 实例描述。`kind` 是运行位置（宿主声明）；`role` 是它在拓扑里的位置：`hub` 是运行路由的服务端实例，
+ * `project` 是项目实例，`client` 是客户端。`project` 是本实例绑定（项目实例则是自身）的项目代次。
+ */
+export const InstanceSchema = Type.Object({
     id: Type.String({minLength: 1}),
     kind: Type.String({minLength: 1}),
-    project: Type.Union([Type.Object({id: Type.String(), generation: Type.Integer()}, {additionalProperties: false}), Type.Null()]),
+    role: Type.Union([Type.Literal("hub"), Type.Literal("project"), Type.Literal("client")]),
+    project: Type.Union([ProjectBindingSchema, Type.Null()]),
 }, {additionalProperties: false});
 
 export type InstanceDescriptor = Static<typeof InstanceSchema>;
@@ -145,8 +152,9 @@ export const FrameSchema = Type.Union([
         contract: Type.String({minLength: 1}),
         version: Type.Integer({minimum: 1}),
         method: Type.String({minLength: 1}),
+        /** 调用方按自己的合同填写；路由与调用方据此计算中断后的失败码。 */
+        effect: Type.Union([Type.Literal("read"), Type.Literal("write")]),
         input: Type.Unknown(),
-        timeout: Type.Optional(Type.Integer({minimum: 0})),
         $nbConsumer: CallerFrameSchema,
         $nbChain: Type.Array(EntryRefSchema),
     }, {additionalProperties: false}),
@@ -168,9 +176,16 @@ export const FrameSchema = Type.Union([
     Type.Object({type: Type.Literal("unsubscribe"), id: Id}, {additionalProperties: false}),
     Type.Object({type: Type.Literal("subscription-ended"), id: Id, reason: Type.String()}, {additionalProperties: false}),
     Type.Object({type: Type.Literal("resync"), id: Id}, {additionalProperties: false}),
+    /** 调用方入口的这次激活结束：目标实例释放为它生成的门面。不需要回复。 */
+    Type.Object({type: Type.Literal("release"), target: TargetSchema, $nbConsumer: CallerFrameSchema}, {additionalProperties: false}),
 ]);
 
 export type Frame = Static<typeof FrameSchema>;
+export type RequestFrame = Extract<Frame, {type: "request"}>;
+export type SubscribeFrame = Extract<Frame, {type: "subscribe"}>;
+export type ReleaseFrame = Extract<Frame, {type: "release"}>;
+export type HelloFrame = Extract<Frame, {type: "hello"}>;
+export type Outcome = Extract<Frame, {type: "result"}>["outcome"];
 
 /** 链路上收到的值先经这里：结构不对的帧丢弃（调用方记诊断），不进入路由。 */
 export function parseFrame(value: unknown): Frame | null {
@@ -178,7 +193,7 @@ export function parseFrame(value: unknown): Frame | null {
 }
 
 /** 握手核对：只看 wire 协议版本。 */
-export function checkHello(frame: Extract<Frame, {type: "hello"}>): {readonly ok: true} | {readonly ok: false; readonly reason: "wire-version"; readonly message: string} {
+export function checkHello(frame: HelloFrame): {readonly ok: true} | {readonly ok: false; readonly reason: "wire-version"; readonly message: string} {
     if (frame.wire !== WIRE_PROTOCOL_VERSION) {
         return {ok: false, reason: "wire-version", message: `wire 协议版本 ${String(frame.wire)} 与本端 ${String(WIRE_PROTOCOL_VERSION)} 不兼容`};
     }

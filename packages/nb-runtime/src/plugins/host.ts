@@ -14,6 +14,7 @@
 
 import {LifecycleStateError, summarizeFailure} from "../lifecycle/lifecycle";
 import type {CloseResult, FailureError, ReleaseDependency, RuntimeInstance, RuntimeLocation, Scope} from "../lifecycle/lifecycle";
+import type {ProviderLookup, RemoteAccess, RemoteHostBinding, RemoteProvision} from "../remote/remote";
 import type {ConsumerIdentity, EntryId, ResolveResult, ServiceAssembly, ServiceCreateContext, ServiceKey} from "../services/services";
 
 import {PluginStateError} from "./contracts";
@@ -180,6 +181,8 @@ interface Attempt {
     readonly deliveries: Set<DeliveryRecord>;
     readonly connections: ReceiverConnection[];
     provided: ReadonlyMap<ServiceKey<unknown>, ProvidedRecord>;
+    /** 本代次交出的远程提供项：合同 id → 提供项。 */
+    remote: ReadonlyMap<string, RemoteProvision>;
     readonly releasedOutputs: Set<ProvidedService>;
     /** 失败时发起的收口；停止与正常关闭由 lifecycle 级联推进，不在这里记录。 */
     closeout: Promise<CloseResult> | null;
@@ -255,6 +258,7 @@ export class PluginHostImpl implements PluginHost {
     readonly #assembly: ServiceAssembly;
     readonly #observer: PluginObserver | undefined;
     readonly #delegation: ((pluginId: string) => boolean) | null;
+    readonly #remote: RemoteHostBinding | null;
     readonly #plugins = new Map<string, PluginRecord>();
     /** 贡献目录：贡献点 id + 贡献 id → 全部当前登记，重复判定不区分运行位置。 */
     readonly #contributions = new Map<string, ContributionRecord[]>();
@@ -273,6 +277,8 @@ export class PluginHostImpl implements PluginHost {
         this.#assembly = assembly;
         this.#observer = options.observer;
         this.#delegation = options.delegation ?? null;
+        this.#remote = options.remote ?? null;
+        this.#remote?.attach({lookup: (contractId, _chain, signal) => this.#lookupRemote(contractId, signal)});
     }
 
     register(definition: PluginDefinition, options: {readonly scope: Scope}): RegisterPluginResult {
@@ -491,6 +497,67 @@ export class PluginHostImpl implements PluginHost {
         return Promise.all(targets.map((ref) => this.activate(ref, {signal})));
     }
 
+    /** 激活上下文的 `remote`：调用方身份是这次激活；这一代结束时通知节点释放为它生成的门面。 */
+    #remoteAccess(attempt: Attempt, plugin: string, entry: string): RemoteAccess {
+        if (this.#remote === null) {
+            return unavailableRemote();
+        }
+        const consumer: ConsumerIdentity = Object.freeze({instanceId: this.instanceId, location: this.location, plugin, entry, generation: attempt.generation, via: null});
+        return this.#remote.access({
+            consumer,
+            chain: [],
+            activating: () => attempt.settled === null,
+            signal: attempt.scope.stopSignal,
+            onRelease: (callback) => {
+                try {
+                    attempt.work.register({kind: "remote-consumer", label: `${plugin}/${entry}`, value: callback, release: (release) => release()});
+                } catch (error) {
+                    if (!(error instanceof LifecycleStateError)) {
+                        throw error;
+                    }
+                    callback();
+                }
+            },
+        });
+    }
+
+    /**
+     * 远程调用到达时找本位置提供该合同的入口；未激活就按需激活（onRemote）。多个存活入口声明同一合同时
+     * 不挑选，返回不可用。
+     */
+    async #lookupRemote(contractId: string, signal: AbortSignal): Promise<ProviderLookup> {
+        const candidates: EntryRecord[] = [];
+        for (const plugin of this.#plugins.values()) {
+            if (!isAlive(plugin.scope)) {
+                continue;
+            }
+            for (const record of plugin.entries.values()) {
+                if (record.activatable && (record.definition.remoteProvides ?? []).includes(contractId)) {
+                    candidates.push(record);
+                }
+            }
+        }
+        if (candidates.length === 0) {
+            return {status: "missing"};
+        }
+        if (candidates.length > 1) {
+            this.#record("activate", "remote-provider-conflict", {plugin: null, capability: "remoteProvides", contribution: contractId});
+            return {status: "unavailable", reason: `多个入口提供 ${contractId}`};
+        }
+        const record = candidates[0]!;
+        const result = await this.activate({plugin: record.plugin, entry: record.definition.id}, {signal});
+        if (result.status !== "activated") {
+            const reason = result.status === "failed" ? `${result.stage}/${result.reason}` : result.status === "rejected" ? `rejected:${result.reason}` : result.status;
+            return {status: "unavailable", reason: `提供入口 ${record.plugin}/${record.definition.id} 不可用：${reason}`};
+        }
+        const attempt = record.current;
+        const provision = attempt?.generation === result.generation ? attempt.remote.get(contractId) : undefined;
+        if (attempt === null || provision === undefined) {
+            return {status: "unavailable", reason: `提供入口 ${record.plugin}/${record.definition.id} 已换代`};
+        }
+        return {status: "found", provision, entry: {plugin: record.plugin, entry: record.definition.id, generation: attempt.generation}, stopSignal: attempt.scope.stopSignal};
+    }
+
     #prefixOwners(prefix: string): PluginRecord[] {
         return [...this.#plugins.values()].filter((plugin) => isAlive(plugin.scope) && plugin.prefixes.includes(prefix));
     }
@@ -684,6 +751,7 @@ export class PluginHostImpl implements PluginHost {
             deliveries: new Set(),
             connections: [],
             provided: new Map(),
+            remote: new Map(),
             releasedOutputs: new Set(),
             closeout: null,
             closeoutResult: null,
@@ -791,6 +859,7 @@ export class PluginHostImpl implements PluginHost {
             generation,
             scope: attempt.work,
             signal: scope.stopSignal,
+            remote: this.#remoteAccess(attempt, plugin, entry),
             services: {
                 require: <T>(key: ServiceKey<T>): T => {
                     if (!required.has(key)) {
@@ -852,6 +921,20 @@ export class PluginHostImpl implements PluginHost {
                 return fail("output", "missing-service", {key: key.name});
             }
         }
+        const remoteDeclared = record.definition.remoteProvides ?? [];
+        const remote = new Map<string, RemoteProvision>();
+        for (const item of output.remote ?? []) {
+            if (!remoteDeclared.includes(item.contract.id) || remote.has(item.contract.id)) {
+                return fail("output", "undeclared-remote", {key: item.contract.id});
+            }
+            remote.set(item.contract.id, item);
+        }
+        for (const id of remoteDeclared) {
+            if (!remote.has(id)) {
+                return fail("output", "missing-remote", {key: id});
+            }
+        }
+        attempt.remote = remote;
 
         const handles: HandleImpl[] = [];
         for (const contribution of record.contributions) {
@@ -1551,4 +1634,13 @@ export class PluginHostImpl implements PluginHost {
             // 观察者是诊断通道，它的异常不得改变机制状态。
         }
     }
+}
+
+/** 没有远程节点的实例：远程调用与订阅一律得到 unavailable，而不是抛错。 */
+function unavailableRemote(): RemoteAccess {
+    const failure = (): Promise<{readonly ok: false; readonly code: "unavailable"; readonly detail: string}> =>
+        Promise.resolve({ok: false, code: "unavailable", detail: "本实例没有配置远程节点"});
+    const events = new Proxy({}, {get: () => ({subscribe: failure})});
+    const client = new Proxy({}, {get: (_target, property) => (property === "then" ? undefined : property === "events" ? events : failure)});
+    return {use: () => ({at: () => client as never}), instances: failure};
 }

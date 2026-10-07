@@ -14,7 +14,8 @@
         "./plugins": "./src/plugins/plugins.ts",
         "./application": "./src/application/application.ts",
         "./diagnostics": "./src/diagnostics/diagnostics.ts",
-        "./remote": "./src/remote/remote.ts"
+        "./remote": "./src/remote/remote.ts",
+        "./remote/testing": "./src/remote/testing/in-process.ts"
     },
     "scripts": {
         "test": "bun test",
