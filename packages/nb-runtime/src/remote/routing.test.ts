@@ -175,7 +175,10 @@ function projectsStandIn() {
     let running = true;
     let revoke = new AbortController();
     const released: string[] = [];
+    /** 每次绑定请求的实例 id：判定在绑定之前就拒绝的 hello 不出现在这里。 */
+    const requested: string[] = [];
     const bindProject: NonNullable<RemoteRouterOptions["bindProject"]> = async (request, client) => {
+        requested.push(client.id);
         if (request.project !== "P" && request.project !== "p") {
             return {ok: false, reason: "project-unavailable", message: `没有项目 ${request.project}`};
         }
@@ -190,6 +193,7 @@ function projectsStandIn() {
     return {
         bindProject,
         released,
+        requested,
         end(): void {
             running = false;
             revoke.abort();
@@ -613,6 +617,17 @@ describe("Spec plugin-channel WebSocket 传输第 3 条：握手", () => {
             expect(await impostor.connect(pair.left)).toMatchObject({ok: false, reason: "duplicate-instance"});
         }
         expect(await t.remote(t.browser1).use(echo).at("server").whoami({})).toMatchObject({ok: true});
+
+        // 同 id、同客户端身份，带代次的 bind 却指向别的项目或别的代次：在绑定之前就拒绝，原成员的绑定不变。
+        const requestedBefore = t.projects.requested.length;
+        for (const bind of [{project: "Q", generation: 1}, {project: "P", generation: 2}]) {
+            const link = rawLink(t.router);
+            link.send({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "browser-1", kind: "browser", role: "client", project: null, client: "profile-1"}, bind, boot: null});
+            await link.closed;
+            expect(link.frames, JSON.stringify(bind)).toEqual([{type: "reject", reason: "duplicate-instance", message: expect.any(String)}]);
+        }
+        expect(t.projects.requested.length).toBe(requestedBefore);
+        expect(t.router.instances()).toContainEqual({id: "browser-1", kind: "browser", role: "client", project: {id: "P", generation: 1}, client: "profile-1"});
     });
 });
 

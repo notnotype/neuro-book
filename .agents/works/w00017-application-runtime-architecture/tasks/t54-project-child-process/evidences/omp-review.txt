@@ -1,0 +1,63 @@
+# omp（默认模型）只读审查 t54：提交 784c309a..03662490，2026-10-07
+
+# t54（K3：项目子进程、项目管理与客户端绑定）只读审查报告
+
+审查范围：`784c309a..HEAD`（S0–S9，108 个文件，+5244/−346）。工作区在 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation`。
+核实方式：通读内核 `packages/nb-runtime/src/{remote,application,plugins}/` 与宿主 `packages/neuro-book/src/{server,project,web,shared,plugins/projects,plugins/workbench}/`、`e2e/`、`scripts/` 的改动；对照 7 份 Spec 与 t52/t53 审查；实跑 `bun run test`（内核 264 例）、`bun run test:bun`（237 例）、`bun run test:vitest`（57 例）、内核 `typecheck`；做 4 处变异实验（改坏判据看测试是否失败，随后恢复，`git status`/`git diff` 确认工作区干净）；另在 scratchpad 写了一个伪造绑定的真实路由实验。
+
+---
+
+### 1. [重要] `sameInstance` 的绑定一致性判据没有测试覆盖：变异后内核 264 例全过
+- 位置：`packages/nb-runtime/src/remote/router.ts:102`（`bind.project === existing.project.id && bind.generation === existing.project.generation`）
+- 现象：把这个比较改成只看 `bind !== null && "generation" in bind`，`bun run --cwd packages/nb-runtime test` 264 例全过。现有 `routing.test.ts` 的 impostor 三例分别是“不同 client 身份”“只带引用不带代次”“不带 bind”，恰好都不覆盖“同 id、同 client 身份、但 bind 是另一个项目或另一个代次”的形状。
+- 为什么是问题：这是“绝不把旧绑定改投新代次”在路由侧的唯一防线（节点侧 `#checkBinding` 只保护诚实客户端自己记下的绑定，伪造原始帧可绕过）。路由的实例表经 `instances()` 可见，本机进程可以拿到已绑定窗口的 id 与 client 身份，发同 id 的 hello 请求绑定另一个项目/代次；判据失效时 `#screen` 放行，绑定完成后的复查（router.ts 绑定分支里的 `sameInstance` 复查）同样失效，`#register` 会把成员描述替换为新绑定——原窗口的绑定被改投、原租约释放，之后原窗口重连会一直被 `duplicate-instance` 拒绝。Spec（`plugin-channel.md` 握手第 3 条）明确写了“任一不一致回 `reject {reason: duplicate-instance}`”。第一版信任模型下这是“防误用”而非“防恶意”，但正是 Spec 声明的公开判据。我在 scratchpad 用真实路由 + 伪造 hello 实验确认：正确实现下该 hello 在 `#screen` 被 `duplicate-instance` 拒绝、绑定回调从未被调用；即判据有效，只是无测试守着。
+- 如何核实：变异实验（改后跑内核测试全过，已恢复原样，`git status`/`git diff` 确认干净）；scratchpad 的 `impostor-test.ts` 用真实 `createRemoteRouter` + `createLinkPair` 发伪造 hello，观察 `duplicate-instance` 拒绝且 `bindProject` 未被调用。
+- 建议改法：`routing.test.ts` 的“同一实例重连接管旧链路”impostor 列表加一例：同 id、同 client、`bind: {project: 其它项目, generation: N}`（N 是已登记成员绑定的代次），断言 `duplicate-instance` 且绑定回调没有被调用、原成员绑定不变。同样补“同项目但不同代次”的 bind 一例。
+### 2. [建议] `#spawn` 先交链路后起进程，`Bun.spawn` 抛错时这条链路没有收口
+- 位置：`packages/neuro-book/src/server/projects/manager.ts`（`#spawn` 里 `router.accept(child.link, ...)` 在 `Bun.spawn(...)` 之前；`#create` 的 catch 只结算 children 的 create-failed，不关链路）
+- 现象：`Bun.spawn` 一旦同步抛错（例如 `process.execPath` 丢失、OOM 类极端情形），`#create` 拒绝、子实例 `create-failed`，但已交给路由的链路留在路由里（Peer 与 link 对象），直到服务端停止 `router.close()` 才释放；对端永不 hello，也没有成员登记，`drain` 不看它。
+- 为什么是问题：一条永不关闭的链路对象与服务端同寿命，属资源收口遗漏；也是唯一一处“spawn 失败”没有显式关链路的路径。
+- 如何核实：读 `#spawn` 与 `#create`；实验确认入口文件不存在时 `Bun.spawn` 不抛错、子进程以 1 退出（`onDisconnect` → `started: disconnected` → `#create` 正常收口，链路经 `link.closed()` 关闭），所以这条路径实际不可达，仅防御性缺口。
+- 建议改法：`#spawn` 里把 `Bun.spawn` 包进 try，抛错时 `child.link.closed()`（或先 spawn 再 accept，保持“先交路由再起进程”的注释语义时补 catch 关链路）。
+
+### 3. [建议] 登记表的条目校验不核对 id 形状，坏表里的任意字符串 id 会被当作合法项目
+- 位置：`packages/neuro-book/src/server/projects/registry.ts`（`isRecord` 只查 `id`/`name`/`path` 都是 string）
+- 现象：登记表里 `{id: "not-a-uuid", name, path}` 通过结构校验；`resolve("not-a-uuid")` 能匹配它；打开时 `#create` 里 `readProjectIdentity` 与登记不符而 `create-failed`，但 `list()`、`resolve()` 都会把它当正常项目返回给 `nbook.projects` 与 `projectsKey`。
+- 为什么是问题：Spec 规定身份是 UUID、坏文件不覆盖且相关操作以 `registry-invalid` 失败；id 形状是这条边界的最后一环，宽松后“半坏”的登记表（schema 对、条目形状松）不会触发 `registry-invalid`，而是带出一个永远打不开的项目。
+- 如何核实：读 `isRecord` 与 `read`；`registry.test.ts` 的坏表用例只覆盖“JSON 不合法”与 `{projects: [{id: "x"}]}`（缺 name/path），没覆盖“id 非 UUID 但三个字段都是 string”的形状。
+- 建议改法：`isRecord` 里对 `id` 用 identity.ts 已有的 UUID 形状检查（同一正则），不合格整表按 `registry-invalid` 处理；补一条坏表用例。
+
+## 总结
+
+发现总数：**重要 1、建议 2，无阻断**。
+
+核实与验证：
+
+- **实跑**：内核 `bun run test` 264 例通过、`typecheck` 通过；宿主 `bun run test:bun` 237 例通过、`test:vitest` 57 例通过（`test:e2e`、`smoke:server`、`build` 按约束不跑，读 `evidences/test-e2e.txt`（41 例）、`evidences/smoke-server.txt`（S1–S7 通过）与 `evidences/test-affected-typecheck.txt`）。
+- **变异实验**（改坏判据看测试是否失败，用完立即恢复，`git status`/`git diff` 确认工作区干净）：
+  - `providerAccepts` 的 `any` 分支改 false → 内核 23 例失败（覆盖充分）；
+  - `manager.access` 的服务端插件判定去掉 `plugin !== null` → 宿主 1 例失败（覆盖充分）；
+  - `manager.bind` 的 `generation-gone → project-gone` 映射改掉 → 宿主 4 例失败（覆盖充分）；
+  - `router.sameInstance` 的绑定一致性判据放宽 → 内核 264 例全过（**无覆盖，见发现 1**）。
+- **额外的真实路由实验**（scratchpad）：伪造同实例 id、同 client 身份、`bind` 另一个项目的 hello，正确实现下被 `duplicate-instance` 拒绝且 `bindProject` 未被调用——判据有效，只是没有测试守着。
+
+未发现问题的方面（不再展开）：
+
+- **内核**：`accept(link, {expect})` 的核对与停止接纳豁免；绑定期间链路关闭即释放租约、路由关闭时握手中链路一并关闭；重连接管旧链路的“先取新租约再释放旧租约”（`#register` 的 set 先于旧 peer.close，旧成员 onClose 的 delete 是条件性的、release 无条件，计数不会落 0）；`revoked` 即关客户端链路（welcome 前还查一次 `revoked.aborted`）；`#screen` 判定顺序（wire → boot → stopping → role/expect → duplicate）与 Spec 一致；节点 `#checkBinding` 首连/重连两分支与终态语义；`#enterTerminal` 订阅以终态原因结束、之后调用 unavailable；`ChildInstances.acquire` 的 `generation` 选项不等待、不创建、只认 current 代次；`leaseHolderOf` 的 via 不参与编码。
+- **项目管理器**：创建三分支收口（截止 SIGKILL、启动中退出等 `exited`、`started: failed` 发 stop 等退出）与停止收口（截止强制结束、非 0 退出写 `project.stop.incomplete`、强制结束记停止问题）；`#disconnected` 以 `lost`/`stopping`/`available` 三标志保证 IPC 断开与进程结束两条路只处理一次，退出码在 `proc.exited` 结算后读；接纳门在进入前与取得后各查一次；`provision()` 的按调用方门面与门面释放时释放租约；`#terminate` 的 kill 前查退出状态。
+- **项目宿主**：先连路由再建实例、可用后才报 `started`；`stop` 与 IPC 断开都请求停止、停止期间链路保持；`runProjectProcess` 装 SIGINT 空 handler，实测 Bun 子进程无 handler 时 SIGINT 会杀死进程（exit 130），现实现正确实现“不因 SIGINT 退出”；退出码 0/1 判据完整。
+- **服务端装配**：三处接纳同一同步段关闭（`drainBoth` 同步段先 `projects.stopAdmission()`）；`projectsKey` 等管理器建好再交出；退出码计入 `shutdownProblems`。
+- **身份与登记表**：realpath 校验（符号链接登记为真实路径、状态根内部拒绝）、独占创建身份文件、坏文件不覆盖、写入串行、短名去重与移动/副本判定。
+- **浏览器**：`project` 参数与 `windowProjectKey`、首连失败可重试、`project-gone`/`server-restarted` 终态销毁运行实例、重连每次重取引导、`project-unavailable` 重连时继续退避；工作台显示短名（`data-workbench-project`）；命令面板选择模式结算只一次、`closed` 之后交回、切回命令模式取消、Escape/外点取消。
+- **`nbook.projects`**：列表不含 pid；`openProject` 登记失败带原因重选、取消为成功空结果、导航地址 `encodeURIComponent`；命令 id `nbook.project.open` 与 commands Spec 目录一致。
+- **测试质量**：起子进程的测试全部 afterEach 收口（`killSpawnedProjects` + 真实就绪行登记 pid）；注入时钟、无假计时器、无固定等待、无 mock 子进程；e2e 真实 Chrome 覆盖打开/共用/重连/宽限期/崩溃/未登记。
+- **禁止清单**：未发现按错误文案分支、静默吞错 catch、产品代码测试分支、不可达的第二条路径、跨包深导入、无理由的 `as`/非空断言或任务外改动。
+- **Spec 一致性**：`projects.md`、`plugin-channel.md`（握手第 3/4/7 条、进程间链路、场景 15–17）、`server-host.md`（参数、停止序列、场景 14–16）、`browser-host.md`（绑定与两个宿主页）、`application.md`（按代次取得）、`plugins.md`（`remote-location-mismatch`）、`quick-open.md`（选择模式）、`commands.md`、`resources.md`（路径可见性修订）与代码逐条对得上；实现合同里的文件路径与接口签名均存在且一致；拓扑稿第 2 节去掉锁与决策记录已同步。
+- 实验均基于真实运行时（真实 Bun 子进程、真实 WebSocket、真实路由/内核实例、注入时钟），未发现绕过运行时伪造时序的实验。
+
+## 主 Agent 核实与处理
+
+- 1（重要）成立：我在 S2 做的变异改的是“已登记成员没有绑定”那一支，没碰到带代次的比较。routing.test.ts 的同一实例重连一例补两条同 id、同客户端身份、带代次却指向别的项目或别的代次的 hello，断言在绑定之前就以 duplicate-instance 拒绝（绑定回调没被调用）、原成员绑定不变；omp 的变异现在被抓住（内核 1 例失败）。
+- 2（建议）成立：manager.ts 的 #spawn 里 Bun.spawn 抛错时关闭已交给路由的链路再抛出。omp 实测这条路径在入口文件缺失时不可达，属防御性收口，没有专门的测试。
+- 3（建议）成立：identity.ts 导出 isProjectId，登记表条目的 id 必须是 UUID，否则整表 registry-invalid；registry.test.ts 补一条“只有 id 不是 UUID”的坏表，变异（放宽回只查字符串）被它抓住。
+- 修正后：内核 264 例、应用 test:bun 237 例、两边 typecheck 通过。

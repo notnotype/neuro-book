@@ -10,7 +10,7 @@ import {basename, join} from "node:path";
 
 import type {ProjectRecord, ProjectRegisterResult, ProjectRegistryRead} from "nbook/shared/projects";
 
-import {checkProjectDirectory, readProjectIdentity, writeProjectIdentity} from "./identity";
+import {checkProjectDirectory, isProjectId, readProjectIdentity, writeProjectIdentity} from "./identity";
 
 export const PROJECT_REGISTRY_FILE = "projects.json";
 
@@ -40,7 +40,7 @@ function uniqueName(base: string, taken: ReadonlySet<string>): string {
 
 function isRecord(value: unknown): value is ProjectRecord {
     const record = value as Partial<Record<keyof ProjectRecord, unknown>> | null;
-    return typeof record === "object" && record !== null && typeof record.id === "string" && typeof record.name === "string" && typeof record.path === "string";
+    return typeof record === "object" && record !== null && isProjectId(record.id) && typeof record.name === "string" && typeof record.path === "string";
 }
 
 export function createProjectRegistry(options: {readonly stateRoot: string; readonly cwd: string}): ProjectRegistry {
@@ -65,7 +65,7 @@ export function createProjectRegistry(options: {readonly stateRoot: string; read
         }
         const registry = value as {readonly schema?: unknown; readonly projects?: unknown} | null;
         if (typeof registry !== "object" || registry === null || registry.schema !== 1 || !Array.isArray(registry.projects) || !registry.projects.every(isRecord)) {
-            return {ok: false, reason: "registry-invalid", detail: "项目登记表的结构不符（应为 {schema: 1, projects: [{id, name, path}]}）"};
+            return {ok: false, reason: "registry-invalid", detail: "项目登记表的结构不符（应为 {schema: 1, projects: [{id: UUID, name, path}]}）"};
         }
         return {ok: true, value: registry.projects.map(({id, name, path}) => ({id, name, path}))};
     }

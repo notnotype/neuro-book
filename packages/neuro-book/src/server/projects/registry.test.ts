@@ -185,6 +185,9 @@ describe("Spec projects 输出 2 与失败：解析与坏掉的登记表", () =>
 
         await writeFile(file, JSON.stringify({schema: 1, projects: [{id: "x"}]}));
         expect(await w.registry.list()).toMatchObject({ok: false, reason: "registry-invalid"});
+        // 三个字段都是字符串、只有 id 不是 UUID：同样整表无效，不带出一个永远打不开的项目。
+        await writeFile(file, JSON.stringify({schema: 1, projects: [{id: "not-a-uuid", name: "book", path}]}));
+        expect(await w.registry.resolve("book")).toMatchObject({ok: false, reason: "registry-invalid"});
 
         await rm(file);
         expect(registered(await w.registry.register(path)).project.name).toBe("book");

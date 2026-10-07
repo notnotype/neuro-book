@@ -13,6 +13,11 @@ export const PROJECT_IDENTITY_FILE = join(".nbook", "project.json");
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+/** 项目 id 的形状（UUID）；身份文件与登记表用同一个判据。 */
+export function isProjectId(value: unknown): value is string {
+    return typeof value === "string" && UUID.test(value);
+}
+
 export type ProjectIdentity = {readonly status: "found"; readonly id: string} | {readonly status: "missing"} | {readonly status: "invalid"; readonly detail: string};
 
 export type DirectoryCheck = {readonly ok: true; readonly path: string} | {readonly ok: false; readonly reason: Extract<ProjectRegisterFailure, "invalid-path" | "not-directory" | "not-accessible" | "inside-state-root">; readonly detail: string};
@@ -67,7 +72,7 @@ export async function readProjectIdentity(projectPath: string): Promise<ProjectI
         return {status: "invalid", detail: `${PROJECT_IDENTITY_FILE} 不是合法的 JSON`};
     }
     const record = value as {readonly schema?: unknown; readonly id?: unknown} | null;
-    if (typeof record !== "object" || record === null || record.schema !== 1 || typeof record.id !== "string" || !UUID.test(record.id)) {
+    if (typeof record !== "object" || record === null || record.schema !== 1 || !isProjectId(record.id)) {
         return {status: "invalid", detail: `${PROJECT_IDENTITY_FILE} 的结构不符（应为 {schema: 1, id: UUID}）`};
     }
     return {status: "found", id: record.id};

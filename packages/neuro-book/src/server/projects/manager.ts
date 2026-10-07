@@ -330,24 +330,31 @@ class ProjectManagerImpl implements ProjectManager {
         };
         this.#options.router.accept(child.link, {expect: projectInstance({id: record.id, generation})});
         const env = this.#options.env ?? process.env;
-        const proc = Bun.spawn({
-            cmd: [process.execPath, this.#options.entry],
-            cwd: this.#options.cwd,
-            env: {
-                ...env,
-                [PROJECT_ENV.stateRoot]: this.#options.stateRoot,
-                [PROJECT_ENV.id]: record.id,
-                [PROJECT_ENV.name]: record.name,
-                [PROJECT_ENV.generation]: String(generation),
-                [PROJECT_ENV.root]: record.path,
-            },
-            stdin: "ignore",
-            stdout: "pipe",
-            stderr: "pipe",
-            serialization: "json",
-            ipc: (message) => this.#receive(child, message),
-            onDisconnect: () => this.#disconnected(child),
-        });
+        let proc: Subprocess<"ignore", "pipe", "pipe">;
+        try {
+            proc = Bun.spawn({
+                cmd: [process.execPath, this.#options.entry],
+                cwd: this.#options.cwd,
+                env: {
+                    ...env,
+                    [PROJECT_ENV.stateRoot]: this.#options.stateRoot,
+                    [PROJECT_ENV.id]: record.id,
+                    [PROJECT_ENV.name]: record.name,
+                    [PROJECT_ENV.generation]: String(generation),
+                    [PROJECT_ENV.root]: record.path,
+                },
+                stdin: "ignore",
+                stdout: "pipe",
+                stderr: "pipe",
+                serialization: "json",
+                ipc: (message) => this.#receive(child, message),
+                onDisconnect: () => this.#disconnected(child),
+            });
+        } catch (error) {
+            // 链路已交给路由：进程没起来就关掉它，不留一条永远等不到 hello 的链路。
+            child.link.closed();
+            throw error;
+        }
         child.proc = proc;
         this.#processes.set(record.id, child);
         const output = this.#options.output ?? {stdout: (text: string) => void process.stdout.write(text), stderr: (text: string) => void process.stderr.write(text)};
