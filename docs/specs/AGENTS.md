@@ -1,6 +1,6 @@
 # Spec Agent 指令
 
-规范模型、成熟度、格式和流水线统一见 [`README.md`](README.md)；创建或修改 Spec 时从 [`TEMPLATE.md`](TEMPLATE.md) 开始。本文件只规定 Agent 的执行步骤。
+规范模型、成熟度、格式和流水线统一见 [`README.md`](README.md)；创建或修改 Spec 时按 [`writing-specs`](../../.agents/skills/writing-specs/SKILL.md) 写。本文件只规定 Agent 的执行步骤。
 
 1. **定位能力**：先查 README 注册表和相邻 Spec。以可独立验收的行为确定 capability；找到现有文件就原地更新。完成标准：同一行为只有一个正文和一个稳定 capability。
 2. **核实成熟度**：`planned`必须有accepted Proposal或明确人类批准；`implemented`必须读取实现、调用方和相关测试。Task只能按开发者明确接受的决定更新其引用的`planned` Spec，不能自行批准取舍或晋升`implemented`。完成标准：状态不依赖文件名或推测。

@@ -32,12 +32,12 @@ const REQUIRED_DOC_INDEXES = [
     "docs/research/README.md",
     "docs/archived/README.md",
 ] as const;
-const REQUIRED_SPEC_GOVERNANCE = ["docs/AGENTS.md", "docs/specs/AGENTS.md", "docs/specs/TEMPLATE.md"] as const;
-const SPEC_SUPPORT_FILENAMES = new Set(["README.md", "AGENTS.md", "TEMPLATE.md"]);
+const REQUIRED_SPEC_GOVERNANCE = ["docs/AGENTS.md", "docs/specs/AGENTS.md"] as const;
+const SPEC_SUPPORT_FILENAMES = new Set(["README.md", "AGENTS.md"]);
 const SPEC_KINDS = new Set(["behavior", "architecture", "glossary"]);
 const SPEC_STATUSES = new Set(["planned", "implemented"]);
-const SPEC_PLACEHOLDER_CAPABILITY = "replace.with-stable-capability";
-const SPEC_PLACEHOLDER_OWNER = "replace-with-owning-module";
+/** `writing-specs` 模板里的占位写法 `<…>`：照抄模板没有替换时拦下。 */
+const TEMPLATE_PLACEHOLDER_PATTERN = /[<>]/u;
 const BEHAVIOR_SPEC_HEADINGS = [
     "目标与非目标",
     "术语与参与者",
@@ -604,19 +604,17 @@ function parseSpecMetadata(path: string, text: string, failures: string[]): Spec
     if (schema !== "nbook.spec/v1") failures.push(`Spec schema 必须是 nbook.spec/v1：${path}`);
     if (typeof kind !== "string" || !SPEC_KINDS.has(kind)) failures.push(`Spec kind 必须是 behavior、architecture 或 glossary：${path}`);
     if (typeof status !== "string" || !SPEC_STATUSES.has(status)) failures.push(`Spec status 必须是 planned 或 implemented：${path}`);
-    if (typeof capability !== "string" || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(capability)) failures.push(`Spec capability 必须是稳定的点分小写标识：${path}`);
-    if (capability === SPEC_PLACEHOLDER_CAPABILITY) failures.push(`Spec capability 仍是模板占位值：${path}`);
-    if (!Array.isArray(owners) || owners.length === 0 || owners.some((owner) => typeof owner !== "string" || !owner.trim())) {
-        failures.push(`Spec owners 必须是非空模块列表：${path}`);
-    } else if (owners.includes(SPEC_PLACEHOLDER_OWNER)) {
-        failures.push(`Spec owners 仍包含模板占位值：${path}`);
-    }
+    const capabilityPlaceholder = typeof capability === "string" && TEMPLATE_PLACEHOLDER_PATTERN.test(capability);
+    if (capabilityPlaceholder) failures.push(`Spec capability 仍是模板占位值：${path}`);
+    else if (typeof capability !== "string" || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(capability)) failures.push(`Spec capability 必须是稳定的点分小写标识：${path}`);
+    const ownersValid = Array.isArray(owners) && owners.length > 0 && owners.every((owner) => typeof owner === "string" && owner.trim() !== "");
+    const ownerPlaceholder = ownersValid && owners.some((owner: string) => TEMPLATE_PLACEHOLDER_PATTERN.test(owner));
+    if (!ownersValid) failures.push(`Spec owners 必须是非空模块列表：${path}`);
+    else if (ownerPlaceholder) failures.push(`Spec owners 仍包含模板占位值：${path}`);
     if (schema !== "nbook.spec/v1" || typeof kind !== "string" || !SPEC_KINDS.has(kind)
         || typeof status !== "string" || !SPEC_STATUSES.has(status)
-        || typeof capability !== "string" || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(capability)
-        || capability === SPEC_PLACEHOLDER_CAPABILITY
-        || !Array.isArray(owners) || owners.length === 0 || owners.some((owner) => typeof owner !== "string" || !owner.trim())
-        || owners.includes(SPEC_PLACEHOLDER_OWNER)) return null;
+        || typeof capability !== "string" || capabilityPlaceholder || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(capability)
+        || !ownersValid || ownerPlaceholder) return null;
     return {kind, status, capability};
 }
 

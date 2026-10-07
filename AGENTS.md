@@ -93,7 +93,7 @@ neuro-book/
 | 测试、fixture、验收、缓存、临时数据 | [`docs/testing/README.md`](docs/testing/README.md) |
 | 新功能、bug 期望不明确或长期行为变化 | [`docs/proposals/README.md`](docs/proposals/README.md)、[`docs/specs/AGENTS.md`](docs/specs/AGENTS.md)、相关 Spec 与 ADR |
 | 源码、脚本、schema 或 migration | [`docs/standards/code/README.md`](docs/standards/code/README.md)；按改动路径只读取表中列出的领域与语言规范 |
-| Git 分支、worktree、提交、PR、合并或发布操作 | [`.agents/skills/repository-workflow/SKILL.md`](.agents/skills/repository-workflow/SKILL.md)；Issue 元数据维护读 [`docs/standards/repository-workflow.md`](docs/standards/repository-workflow.md)，公开贡献再读 [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| Git 分支、worktree、提交、PR、合并或发布操作 | [`docs/standards/repository-workflow.md`](docs/standards/repository-workflow.md) 中与本次操作对应的节；公开贡献再读 [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | 前端、UI 界面、组件、样式或主题修改 | [`.agents/skills/ui-development/SKILL.md`](.agents/skills/ui-development/SKILL.md)、[`docs/standards/code/components.md`](docs/standards/code/components.md)、[`packages/nb-ui/docs/ui-development-spec.md`](packages/nb-ui/docs/ui-development-spec.md)；查改组件必读并列同名 `.md` |
 | 新应用、脚本、包 | [`packages/neuro-book/AGENTS.md`](packages/neuro-book/AGENTS.md)、[`scripts/AGENTS.md`](scripts/AGENTS.md)、[`packages/AGENTS.md`](packages/AGENTS.md) 中匹配的最近入口 |
 | 查旧应用的实现或行为 | [`packages/neuro-book-legacy/AGENTS.md`](packages/neuro-book-legacy/AGENTS.md)；只读，不在旧包里修改 |

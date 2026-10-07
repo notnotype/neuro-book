@@ -11,7 +11,6 @@ const REQUIRED_INDEXES = [
     "docs/AGENTS.md",
     "docs/specs/README.md",
     "docs/specs/AGENTS.md",
-    "docs/specs/TEMPLATE.md",
     "docs/standards/README.md",
     "docs/standards/code/README.md",
     "docs/proposals/README.md",
@@ -187,8 +186,8 @@ describe("documentation governance gate", () => {
                 ].join("\n\n"),
             }),
             "docs/specs/editor/template-copy.md": specDocument({
-                capability: "replace.with-stable-capability",
-                owners: ["replace-with-owning-module"],
+                capability: "<稳定的点分标识>",
+                owners: ["<负责行为与数据边界的模块或插件>"],
             }),
             "docs/specs/editor/fake-implemented.md": specDocument({
                 capability: "editor.fake-implemented",

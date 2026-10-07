@@ -47,7 +47,7 @@ Proposal 的 `draft` / `reviewing` 表示方案尚未批准；Spec 的 `planned`
 
 ## 文件格式
 
-新 Spec 从 [`TEMPLATE.md`](TEMPLATE.md) 开始，文件名和目录使用英文 kebab-case。除 `README.md`、`AGENTS.md` 和 `TEMPLATE.md` 外，每个 Markdown Spec 都必须包含：
+新 Spec 按 [`writing-specs`](../../.agents/skills/writing-specs/SKILL.md) 的模板写，文件名和目录使用英文 kebab-case。除 `README.md` 和 `AGENTS.md` 外，每个 Markdown Spec 都必须包含：
 
 ```yaml
 ---
