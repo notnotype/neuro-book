@@ -5,7 +5,7 @@
  */
 
 import type {FailureError, RuntimeLocation, Scope, ScopeId} from "../lifecycle/lifecycle";
-import type {EntryId, ResolveOptions, ResolveResult, ServiceDependency, ServiceKey} from "../services/services";
+import type {ConsumerIdentity, EntryId, ResolveOptions, ResolveResult, ServiceDependency, ServiceKey} from "../services/services";
 
 export type {FailureError} from "../lifecycle/lifecycle";
 
@@ -58,6 +58,12 @@ export interface ActivationContext {
         require<T>(key: ServiceKey<T>): T;
         /** 只允许解析入口声明过的键；借用登记到 context.scope，可用于该作用域资源的 dependsOn。 */
         resolve<T>(key: ServiceKey<T>, options?: ResolveOptions): Promise<ResolveResult<T>>;
+        /**
+         * 委托（runtime.plugins 输出第 20 条）：在本入口交出的按调用方门面里，以收到的调用方身份取得
+         * `key` 的门面。键必须同时在 `delegates` 与依赖中声明，插件必须在宿主的代理允许清单内；
+         * 不满足时返回 `delegation-denied`。
+         */
+        resolveFor<T>(consumer: ConsumerIdentity, key: ServiceKey<T>, options?: ResolveOptions): Promise<ResolveResult<T>>;
     };
 }
 
@@ -89,6 +95,8 @@ export interface PluginEntryDefinition {
     readonly provides?: ReadonlyArray<ServiceKey<unknown>>;
     /** 本入口接收的、由本插件定义的贡献点。 */
     readonly receives?: ReadonlyArray<string>;
+    /** 本入口可代表调用方解析的服务键（委托）；这些键也必须在 `dependencies` 中声明。 */
+    readonly delegates?: ReadonlyArray<ServiceKey<unknown>>;
     /** 入口激活后向贡献点提交的声明。 */
     readonly contributions?: ReadonlyArray<ContributionDeclaration>;
     /** 只在激活时调用；登记、目录查询与状态查询都不调用它。 */
@@ -346,6 +354,8 @@ export interface PluginHost {
 
 export interface PluginHostOptions {
     readonly observer?: PluginObserver;
+    /** 代理允许清单：返回 true 的插件才能委托解析；不给时一律不允许。第一版只给内置插件。 */
+    readonly delegation?: (pluginId: string) => boolean;
 }
 
 /** 贡献未发布或已撤回时取实现、以及向 runtime.services 交付未激活成功的实例时抛出。 */

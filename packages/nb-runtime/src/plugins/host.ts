@@ -14,7 +14,7 @@
 
 import {LifecycleStateError, summarizeFailure} from "../lifecycle/lifecycle";
 import type {CloseResult, FailureError, ReleaseDependency, RuntimeInstance, RuntimeLocation, Scope} from "../lifecycle/lifecycle";
-import type {EntryId, ServiceAssembly, ServiceCreateContext, ServiceKey} from "../services/services";
+import type {ConsumerIdentity, EntryId, ResolveResult, ServiceAssembly, ServiceCreateContext, ServiceKey} from "../services/services";
 
 import {PluginStateError} from "./contracts";
 import type {
@@ -250,6 +250,7 @@ export class PluginHostImpl implements PluginHost {
     readonly location: RuntimeLocation;
     readonly #assembly: ServiceAssembly;
     readonly #observer: PluginObserver | undefined;
+    readonly #delegation: ((pluginId: string) => boolean) | null;
     readonly #plugins = new Map<string, PluginRecord>();
     /** 贡献目录：贡献点 id + 贡献 id → 全部当前登记，重复判定不区分运行位置。 */
     readonly #contributions = new Map<string, ContributionRecord[]>();
@@ -267,6 +268,7 @@ export class PluginHostImpl implements PluginHost {
         this.location = instance.identity.location;
         this.#assembly = assembly;
         this.#observer = options.observer;
+        this.#delegation = options.delegation ?? null;
     }
 
     register(definition: PluginDefinition, options: {readonly scope: Scope}): RegisterPluginResult {
@@ -719,6 +721,19 @@ export class PluginHostImpl implements PluginHost {
                     return required.get(key) as T;
                 },
                 resolve: (key, options) => this.#assembly.access(record.consumerId, attempt.work, {generation}).resolve(key, options),
+                resolveFor: async <T>(consumer: ConsumerIdentity, key: ServiceKey<T>, options?: {readonly signal?: AbortSignal}): Promise<ResolveResult<T>> => {
+                    const denied = (message: string): ResolveResult<T> => {
+                        this.#record("activate", "delegation-denied", {plugin, entry, generation});
+                        return {status: "unavailable", key: key.name, reason: "delegation-denied", providerId: null, error: {name: "DelegationDenied", message}, path: []};
+                    };
+                    if (!(record.definition.delegates ?? []).includes(key)) {
+                        return denied(`入口 ${plugin}/${entry} 没有声明可代理 ${key.name}`);
+                    }
+                    if (this.#delegation?.(plugin) !== true) {
+                        return denied(`插件 ${plugin} 不在代理允许清单内`);
+                    }
+                    return this.#assembly.access(record.consumerId, attempt.work, {generation}).resolveFor(consumer, key, options);
+                },
             },
         };
         let acquired;

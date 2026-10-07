@@ -41,7 +41,7 @@
 
 - 声明：`PluginEntryDefinition.delegates?: ReadonlyArray<ServiceKey<unknown>>`（本入口可代表消费方解析的键）；`PluginHostOptions.delegation?: (pluginId: string) => boolean`，由装配方给出允许的内置插件，第一版第三方一律不允许。
 - 凭据：内核传给按调用方工厂的 `ConsumerIdentity` 是冻结对象，登记在内核内部的 `WeakMap`（身份 → 签发记录：消费方、所属门面的子作用域）。
-- 使用：代理插件在门面方法里调用 `context.services.resolveFor(consumer, key)`。内核核对：`consumer` 是内核签发的、签发给本入口的门面、本入口 `delegates` 含 `key`、插件在允许清单内；通过后以原消费方身份（`via` 填代理）取目标门面，登记在签发记录的子作用域上，随代理给该消费方的门面一起释放。
+- 使用：代理插件在门面方法里调用 `context.services.resolveFor(consumer, key)`。内核核对：`consumer` 是内核签发的、签发给本入口的门面、本入口 `delegates` 含 `key`、插件在允许清单内；通过后以原消费方身份（`via` 填代理）取目标门面。（2026-10-07 实施时细化：不另建子作用域；借用登记在签发门面所在的作用域上，委托门面挂在签发记录下，等代理的释放函数结束后按逆序释放，使代理释放时仍能使用它们。）
 - 远程情况下，消费上下文由路由帧携带（见第 5 节），不进入业务参数。
 
 ### 4. 激活事件（`src/plugins/`、`src/application/bootstrap.ts`）
