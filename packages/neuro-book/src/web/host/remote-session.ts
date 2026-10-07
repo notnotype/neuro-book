@@ -1,8 +1,9 @@
 /**
  * 窗口与服务端之间的远程服务链路：首连，以及断线后的退避重连（runtime.browser-host 的“断线与重连”）。
  *
- * 每次重连先重新取引导：服务端重启后 RPC 端口可能变了。连回同一服务端进程时内核节点重建订阅并调用 `onResync`；
- * 服务端已换进程或 wire 版本不一致时停止重连，由窗口要求刷新。退避按注入时钟计时。
+ * 每次重连先重新取引导：服务端重启后 RPC 端口可能变了。连回同一服务端进程（绑定了项目时还是同一项目代次）时
+ * 内核节点重建订阅并调用 `onResync`；服务端已换进程、绑定的项目代次已结束或 wire 版本不一致时停止重连，由窗口
+ * 要求刷新。退避按注入时钟计时。
  */
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
@@ -17,10 +18,11 @@ import type {Connection, RpcEndpoint} from "./connection";
 const RETRY_DELAYS_MS = [500, 1000, 2000, 4000, 8000];
 const STEADY_RETRY_MS = 10_000;
 
-/** 窗口可用之后链路的状态；`server-restarted` 与 `incompatible` 是终态，不再重连。 */
-export type RemoteSessionState = "online" | "offline" | "server-restarted" | "incompatible";
+/** 窗口可用之后链路的状态；`server-restarted`、`project-gone` 与 `incompatible` 是终态，不再重连。 */
+export type RemoteSessionState = "online" | "offline" | "server-restarted" | "project-gone" | "incompatible";
 
-export type FirstConnectResult = {readonly ok: true} | {readonly ok: false; readonly failure: "connection-failed" | "incompatible"; readonly reason: string};
+/** 首连失败：`project-unavailable` 是握手时打不开要绑定的项目，与连接失败一样可以原地重试。 */
+export type FirstConnectResult = {readonly ok: true} | {readonly ok: false; readonly failure: "connection-failed" | "incompatible" | "project-unavailable"; readonly reason: string};
 
 export interface RemoteSessionOptions {
     readonly connection: Connection;
@@ -41,7 +43,7 @@ export interface RemoteSession {
 
 type Attempt =
     | {readonly kind: "online"}
-    | {readonly kind: "server-restarted" | "incompatible" | "failed"; readonly reason: string};
+    | {readonly kind: "server-restarted" | "project-gone" | "project-unavailable" | "incompatible" | "failed"; readonly reason: string};
 
 export function createRemoteSession(options: RemoteSessionOptions): RemoteSession {
     let closed = false;
@@ -78,6 +80,8 @@ export function createRemoteSession(options: RemoteSessionOptions): RemoteSessio
             return {kind: "online"};
         }
         if (result.reason === "server-restarted") return {kind: "server-restarted", reason: result.message};
+        if (result.reason === "project-gone") return {kind: "project-gone", reason: result.message};
+        if (result.reason === "project-unavailable") return {kind: "project-unavailable", reason: result.message};
         if (result.reason === "wire-version") return {kind: "incompatible", reason: result.message};
         return {kind: "failed", reason: `${result.reason}：${result.message}`};
     };
@@ -122,9 +126,12 @@ export function createRemoteSession(options: RemoteSessionOptions): RemoteSessio
                 options.onState("online", null);
                 return;
             case "server-restarted":
+            case "project-gone":
             case "incompatible":
                 options.onState(attempt.kind, attempt.reason);
                 return;
+            // 重连时打不开项目只会是服务端正在停止这类暂时情形（原代次已结束是 project-gone），照常退避。
+            case "project-unavailable":
             case "failed":
                 options.onRetryFailed?.(attempt.reason);
                 scheduleRetry();
@@ -157,9 +164,13 @@ export function createRemoteSession(options: RemoteSessionOptions): RemoteSessio
                     return {ok: true};
                 case "incompatible":
                     return {ok: false, failure: "incompatible", reason: attempt.reason};
+                case "project-unavailable":
+                    return {ok: false, failure: "project-unavailable", reason: attempt.reason};
                 case "server-restarted":
+                case "project-gone":
                 case "failed":
-                    // 首连不会是 server-restarted（节点还没见过服务端）；两者都按连接失败处理，窗口可原地重试。
+                    // 首连不会是 server-restarted 或 project-gone（节点还没见过服务端、还没有绑定）；都按连接失败处理，
+                    // 窗口可原地重试。
                     return {ok: false, failure: "connection-failed", reason: attempt.reason};
             }
         },

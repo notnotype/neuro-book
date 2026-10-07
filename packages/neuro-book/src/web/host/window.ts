@@ -2,7 +2,9 @@
  * 窗口运行实例的启动与状态（runtime.browser-host 启动序列第 2–5 步）：取引导集合，连上内核 RPC 端口，按集合登记
  * 本外壳构建进去的浏览器插件，激活 `nbook.workbench` 并解析它交出的根界面。解析到根界面之前窗口不是 ready，
  * 界面据此只在工作台与失败页之间二选一，不出现半个工作台。首连先于建立运行实例：插件激活时远程服务已可用。
- * 可用之后链路断开只把 ready 标成离线并退避重连；服务端已换进程时转入只能刷新的 `server-restarted`。
+ * 可用之后链路断开只把 ready 标成离线并退避重连；服务端已换进程时转入只能刷新的 `server-restarted`，绑定的项目
+ * 代次已结束时转入 `project-gone`。地址栏指定了项目时首连同时绑定它，绑定结果随 ready 给出，并以本地能力
+ * `windowProjectKey` 交给本窗口的插件。
  *
  * 不依赖 Vue 与 DOM：连接对象、页面事件目标、console 与时钟由装配方传入，界面经 `onChange` 订阅状态。
  */
@@ -19,6 +21,8 @@ import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exp
 import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
 import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
+import {windowProjectKey} from "nbook/shared/projects";
+import type {WindowProject} from "nbook/shared/projects";
 import {collectServiceKeys} from "nbook/shared/service-keys";
 
 import {browserPluginFactories, builtinBrowserPlugins} from "../plugins";
@@ -29,12 +33,13 @@ import type {Connection, RpcEndpoint} from "./connection";
 import {createRemoteSession} from "./remote-session";
 import type {RemoteSession} from "./remote-session";
 
-export type WindowFailure = "connection-failed" | "incompatible" | "startup-failed" | "server-restarted";
+/** `connection-failed` 与 `project-unavailable` 可以原地重试；其余要刷新页面。 */
+export type WindowFailure = "connection-failed" | "project-unavailable" | "incompatible" | "startup-failed" | "server-restarted" | "project-gone";
 
 export type WindowState =
     | {readonly status: "idle" | "starting" | "closed"}
     /** `connection` 是远程服务链路：断开时界面保留、标注离线，重连成功后回到 online。 */
-    | {readonly status: "ready"; readonly instanceId: string; readonly root: WorkbenchRoot; readonly connection: "online" | "offline"}
+    | {readonly status: "ready"; readonly instanceId: string; readonly root: WorkbenchRoot; readonly connection: "online" | "offline"; readonly project: WindowProject["project"]}
     /** connection-failed 可以原地重试；其余要刷新页面（换外壳，或与新的服务端进程重新握手）才可能恢复。 */
     | {readonly status: WindowFailure; readonly reason: string};
 
@@ -46,6 +51,8 @@ export interface BrowserWindowOptions {
     readonly console: DiagnosticsConsole;
     /** 整页加载到 `href`（生产是 `location.assign`）：交给需要整页导航的插件，例如“打开项目”。 */
     readonly navigateDocument: (href: string) => void;
+    /** 地址栏 `project` 参数（短名或 id）：首连时请求绑定它；没有则窗口不绑定项目。 */
+    readonly project?: string | null;
     /** 本外壳构建进去的浏览器插件及其工厂；缺省按产品清单。测试经这里换入自己的插件，产品代码不含测试分支。 */
     readonly builtin?: ReadonlyArray<PluginDescriptor>;
     readonly factories?: Readonly<Record<string, BrowserPluginFactory>>;
@@ -123,6 +130,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         const store = createDiagnosticsStore({identity: {location: "browser", instanceId}});
         const node = createRemoteNode({
             instance: {id: instanceId, kind: "browser", role: "client", project: null, client: clientIdentity},
+            bind: options.project === undefined || options.project === null ? null : {project: options.project},
             clock,
             observer: {diagnosticRecorded: (diagnostic) => store.record({level: "warn", event: `remote.${diagnostic.reason}`, message: "远程服务诊断", data: diagnostic})},
         });
@@ -135,7 +143,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                 if (state.status !== "ready" || state.instanceId !== instanceId) return;
                 if (next === "online" || next === "offline") setState({...state, connection: next});
                 else setState({status: next, reason: reason ?? next});
-                if (next === "server-restarted" || next === "incompatible") void host?.destroy();
+                if (next === "server-restarted" || next === "project-gone" || next === "incompatible") void host?.destroy();
             },
             onRetryFailed: (reason) => store.record({level: "info", event: "browser-host.reconnect.failed", message: "重连没有成功，稍后再试", data: {reason}}),
         });
@@ -151,6 +159,8 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             return;
         }
         let root: WorkbenchRoot | null = null;
+        // 首连之后绑定已定，窗口一生不变。
+        const project: WindowProject["project"] = node.binding === null ? null : {id: node.binding.id, name: node.binding.name, generation: node.binding.generation};
         try {
             const plugins = selected.map(({factory}) => factory({store, console: options.console, navigateDocument: options.navigateDocument}));
             host = adapter.start({
@@ -160,7 +170,8 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                     Reflect.apply(options.console.error, options.console, [JSON.stringify({emergency: report})]);
                 }),
                 manifest: {
-                    keys: collectServiceKeys(plugins, [workbenchRootKey]),
+                    keys: collectServiceKeys(plugins, [workbenchRootKey, windowProjectKey]),
+                    capabilities: [{id: "window.project", key: windowProjectKey, create: () => Object.freeze({project})}],
                     plugins,
                     requiredPlugins: REQUIRED_PLUGINS,
                     gates: [{
@@ -189,7 +200,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             if (startup.status !== "available" || root === null) {
                 throw new Error(startup.failures.map((failure) => `${failure.source}：${failure.error?.message ?? failure.reason}`).join("；") || `运行实例 ${startup.status}`);
             }
-            setState({status: "ready", instanceId, root, connection: "online"});
+            setState({status: "ready", instanceId, root, connection: "online", project});
         } catch (error) {
             store.record({level: "error", event: "browser-host.startup.failed", message: "窗口运行实例启动失败", error});
             await host?.destroy();
@@ -208,7 +219,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         },
         start() {
             if (starting !== null) return starting;
-            if (closed || (state.status !== "idle" && state.status !== "connection-failed")) return Promise.resolve();
+            if (closed || (state.status !== "idle" && state.status !== "connection-failed" && state.status !== "project-unavailable")) return Promise.resolve();
             starting = boot().finally(() => {
                 starting = null;
             });

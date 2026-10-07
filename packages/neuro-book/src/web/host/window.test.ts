@@ -7,13 +7,13 @@
  * 要把测试插件放进引导集合时也用它，RPC 端点指向真实后端（或指向转发到真实后端的 TCP 代理，用来制造断线）。
  */
 
-import {afterAll, beforeAll, describe, expect, it} from "bun:test";
+import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {EventEmitter} from "node:events";
-import {rm} from "node:fs/promises";
+import {mkdir, rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
-import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import type {RemoteResult} from "@notnotype/nb-runtime/remote";
 import {defineComponent, h} from "vue";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -26,12 +26,16 @@ import {manifestServerPlugins} from "nbook/server/plugins";
 import {PROJECT_LIMIT_DEFAULTS} from "nbook/server/config";
 import {startServer} from "nbook/server/start";
 import type {RunningServer} from "nbook/server/start";
+import {createProjectRegistry} from "nbook/server/projects/registry";
+import {killSpawnedProjects, observed, PROJECT_FIXTURE_ENTRY, trackedProjectOutput} from "nbook/server/testing/projects";
 import {helloFrame, openRawRpcSocket} from "nbook/server/testing/rpc-client";
 import {startTcpProxy} from "nbook/server/testing/tcp-proxy";
 import {createRemoteProbePlugin, newRemoteProbeState} from "nbook/server/testing/test-plugins";
 import type {RemoteProbeState} from "nbook/server/testing/test-plugins";
 import {BROWSER_BOOTSTRAP_PATH, BROWSER_PROTOCOL_VERSION} from "nbook/shared/browser-bootstrap";
-import {remoteProbeContract} from "nbook/shared/testing/remote-probe-contract";
+import {windowProjectKey} from "nbook/shared/projects";
+import type {WindowProject} from "nbook/shared/projects";
+import {projectProbeContract, remoteProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 
 import {browserPluginFactories, builtinBrowserPlugins} from "../plugins";
 import type {BrowserPluginFactory} from "../plugins";
@@ -500,5 +504,192 @@ describe("窗口的远程服务链路（场景 6、8、9）", () => {
         second.stub.stop();
         // 提供方收到终止后仍在等放行；放行它，后端停止时的排空才不必等它。
         probe.holds.get(holdName)?.release("done");
+    }, 20_000);
+});
+
+// ---------- 项目绑定（runtime.browser-host 场景 10、11） ----------
+
+interface ProjectRecordOfWindow {
+    echo: RemoteResult<unknown> | null;
+    bound: WindowProject["project"] | undefined;
+    resyncs: number;
+    readonly ends: string[];
+    remote: ActivationContext["remote"] | null;
+}
+
+/** 启动时经 `project` 目标调用项目探针、订阅它的事件，并读本窗口绑定的项目（宿主的本地能力）。 */
+function projectCaller(record: ProjectRecordOfWindow): {descriptor: PluginDescriptor; factory: BrowserPluginFactory} {
+    const id = "test.project-caller";
+    return {
+        descriptor: {id, version: "0.1.0", locations: ["browser"]},
+        factory: (): PluginDefinition => ({
+            id,
+            entries: [{
+                id: "browser",
+                location: "browser",
+                activationEvents: ["onStartup"],
+                dependencies: [{key: windowProjectKey}],
+                activate: async (context) => {
+                    record.bound = context.services.require(windowProjectKey).project;
+                    record.remote = context.remote;
+                    const atProject = context.remote.use(projectProbeContract);
+                    record.echo = await atProject.echo({});
+                    await atProject.events.ticks.subscribe({}, () => undefined, {
+                        onResync: () => {
+                            record.resyncs += 1;
+                        },
+                        onEnd: (reason) => record.ends.push(reason),
+                    });
+                    return {};
+                },
+            }],
+        }),
+    };
+}
+
+function newProjectRecord(): ProjectRecordOfWindow {
+    return {echo: null, bound: undefined, resyncs: 0, ends: [], remote: null};
+}
+
+/** 带项目的同进程后端：登记好的项目 `book`，项目子进程跑项目宿主的测试入口（带探针）；宽限期用手动时钟。 */
+async function projectBackend(): Promise<{readonly server: RunningServer; readonly grace: ManualClock; readonly root: string}> {
+    sequence += 1;
+    const root = join(tmp, `projects-${String(sequence)}`);
+    const stateRoot = join(root, "state");
+    await mkdir(join(root, "Book"), {recursive: true});
+    const registered = await createProjectRegistry({stateRoot, cwd: root}).register(join(root, "Book"));
+    if (!registered.ok) throw new Error(registered.detail);
+    const grace = new ManualClock();
+    const forward = trackedProjectOutput(observed<string>());
+    const server = startServer({
+        config: {host: "127.0.0.1", port: 0, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: [], projects: {graceMs: 1000, startMs: 10_000, stopMs: 10_000}},
+        plugins: (context) => [...manifestServerPlugins(context), createRemoteProbePlugin()],
+        process: new EventEmitter(),
+        writeFatal: () => undefined,
+        projectEntry: PROJECT_FIXTURE_ENTRY,
+        projectEnv: {...process.env, NBOOK_TEST_PLUGINS: remoteProbeDescriptor.id},
+        projectOutput: {stdout: forward, stderr: forward},
+        projectClock: grace,
+    });
+    projectServers.add(server);
+    await server.ready;
+    return {server, grace, root};
+}
+
+const projectServers = new Set<RunningServer>();
+
+afterEach(async () => {
+    for (const server of projectServers) {
+        server.requestStop("test:cleanup");
+        await server.stopped;
+    }
+    projectServers.clear();
+    killSpawnedProjects();
+});
+
+/** 引导集合加上 `test.project-caller`；地址栏的项目由 `project` 给出。 */
+function projectWindow(server: RunningServer, record: ProjectRecordOfWindow, options: {readonly project: string; readonly rpc?: () => {readonly port: number; readonly path: string}; readonly clock?: ManualClock}) {
+    const caller = projectCaller(record);
+    const builtin = [...builtinBrowserPlugins, caller.descriptor];
+    const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: options.rpc?.() ?? rpcOf(server), revision: "r", plugins: builtin.map(({id, version}) => ({id, version}))}));
+    const opened = openWindow({url: stub.url, builtin, factories: {...browserPluginFactories, [caller.descriptor.id]: caller.factory}, project: options.project, clock: options.clock});
+    return {...opened, stub};
+}
+
+describe("窗口绑定项目（场景 10、11）", () => {
+    it("按地址栏的项目绑定：ready 带项目代次，插件经 project 目标到达项目实例并读到绑定；两个窗口共用同一代次", async () => {
+        const {server} = await projectBackend();
+        const first = newProjectRecord();
+        const second = newProjectRecord();
+        const one = projectWindow(server, first, {project: "book"});
+        const two = projectWindow(server, second, {project: "book"});
+        await Promise.all([one.browserWindow.start(), two.browserWindow.start()]);
+
+        const ready = readyOf(one.browserWindow.state);
+        expect(ready.project).toMatchObject({name: "book", generation: 1});
+        expect(readyOf(two.browserWindow.state).project).toEqual(ready.project);
+        expect(first.bound).toEqual(ready.project);
+        expect(first.echo).toMatchObject({ok: true, value: {project: {name: "book", generation: 1}, caller: {instanceId: ready.instanceId, plugin: "test.project-caller"}}});
+        expect(second.echo).toMatchObject({ok: true, value: {project: {generation: 1}}});
+        await one.browserWindow.stop();
+        await two.browserWindow.stop();
+        one.stub.stop();
+        two.stub.stop();
+    }, 20_000);
+
+    it("项目未登记：可重试的无法打开项目，没有运行实例；登记后重试成功", async () => {
+        const {server, root} = await projectBackend();
+        const record = newProjectRecord();
+        const {browserWindow, stub} = projectWindow(server, record, {project: "later"});
+        await browserWindow.start();
+        expect(failureOf(browserWindow.state)).toMatchObject({status: "project-unavailable", reason: expect.stringContaining("later")});
+        expect(record.bound).toBeUndefined();
+
+        await mkdir(join(root, "later"), {recursive: true});
+        expect(await server.projects.registry.register(join(root, "later"))).toMatchObject({ok: true});
+        await browserWindow.start();
+        expect(readyOf(browserWindow.state).project).toMatchObject({name: "later", generation: 1});
+        await browserWindow.stop();
+        stub.stop();
+    }, 20_000);
+
+    it("宽限期内断线重连：同一代次，订阅收到 onResync", async () => {
+        const {server} = await projectBackend();
+        const proxy = startTcpProxy({host: "127.0.0.1", port: rpcOf(server).port});
+        const clock = new ManualClock();
+        const record = newProjectRecord();
+        const {browserWindow, stub} = projectWindow(server, record, {project: "book", rpc: () => ({port: proxy.port, path: "/"}), clock});
+        await browserWindow.start();
+        const project = readyOf(browserWindow.state).project;
+
+        proxy.drop();
+        await waitUntil("窗口标注离线", () => browserWindow.state.status === "ready" && browserWindow.state.connection === "offline");
+        await waitUntil("项目进入宽限期", () => server.projects.running(project!.id)?.state === "idle-grace");
+        clock.advance(500);
+        await waitUntil("重连回到在线", () => browserWindow.state.status === "ready" && browserWindow.state.connection === "online");
+        await waitUntil("订阅重建并收到 onResync", () => record.resyncs === 1);
+        expect(server.projects.running(project!.id)).toEqual({generation: 1, state: "running"});
+        expect(record.ends).toEqual([]);
+        await browserWindow.stop();
+        stub.stop();
+        proxy.stop();
+    }, 20_000);
+
+    it("超过宽限期再重连：窗口转为项目已关闭，订阅以 project-gone 结束，不改投新代次", async () => {
+        const {server, grace} = await projectBackend();
+        const proxy = startTcpProxy({host: "127.0.0.1", port: rpcOf(server).port});
+        const clock = new ManualClock();
+        const record = newProjectRecord();
+        const {browserWindow, stub} = projectWindow(server, record, {project: "book", rpc: () => ({port: proxy.port, path: "/"}), clock});
+        await browserWindow.start();
+        const project = readyOf(browserWindow.state).project!;
+
+        proxy.drop();
+        await waitUntil("项目进入宽限期", () => server.projects.running(project.id)?.state === "idle-grace");
+        grace.advance(1000);
+        await waitUntil("宽限期满后项目子进程退出", () => server.projects.running(project.id) === null);
+        clock.advance(500);
+        await waitUntil("窗口转为项目已关闭", () => browserWindow.state.status === "project-gone");
+        expect(record.ends).toEqual(["project-gone"]);
+        expect(server.projects.running(project.id)).toBeNull();
+        clock.advance(10_000);
+        expect(browserWindow.state.status).toBe("project-gone");
+        stub.stop();
+        proxy.stop();
+    }, 20_000);
+
+    it("项目子进程崩溃：路由关闭窗口链路，重连得到项目已关闭", async () => {
+        const {server} = await projectBackend();
+        const clock = new ManualClock();
+        const record = newProjectRecord();
+        const {browserWindow, stub} = projectWindow(server, record, {project: "book", clock});
+        await browserWindow.start();
+        readyOf(browserWindow.state);
+
+        void record.remote!.use(projectProbeContract).crash({code: 70});
+        await waitUntil("窗口标注离线", () => browserWindow.state.status === "ready" && browserWindow.state.connection === "offline");
+        clock.advance(500);
+        await waitUntil("窗口转为项目已关闭", () => browserWindow.state.status === "project-gone");
+        stub.stop();
     }, 20_000);
 });

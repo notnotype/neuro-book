@@ -12,6 +12,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {COMMANDS_POINT, CommandService} from "nbook/plugins/commands/shared/contracts";
+import type {WindowProject} from "nbook/shared/projects";
 
 import {descriptor} from "../plugin";
 import {OPEN_COMMANDS_DECLARATION, OPEN_COMMANDS_ID, PaletteSlot} from "./commands/open-commands";
@@ -30,6 +31,8 @@ const CommandHost = defineAsyncComponent(() => import("./commands/WorkbenchComma
  */
 export interface WorkbenchServiceKeys {
     readonly commands: ServiceKey<CommandService>;
+    /** 浏览器宿主提供的本窗口绑定的项目。 */
+    readonly windowProject: ServiceKey<WindowProject>;
 }
 
 export function createWorkbenchBrowserPlugin(keys: WorkbenchServiceKeys): PluginDefinition {
@@ -39,7 +42,7 @@ export function createWorkbenchBrowserPlugin(keys: WorkbenchServiceKeys): Plugin
         entries: [{
             id: "browser",
             location: "browser",
-            dependencies: [{key: diagnosticsKey}, {key: keys.commands}],
+            dependencies: [{key: diagnosticsKey}, {key: keys.commands}, {key: keys.windowProject}],
             provides: [workbenchRootKey, quickPickKey],
             receives: [WORKBENCH_PAGES_POINT],
             contributions: [{capability: COMMANDS, id: OPEN_COMMANDS_ID, declaration: OPEN_COMMANDS_DECLARATION}],
@@ -50,7 +53,8 @@ export function createWorkbenchBrowserPlugin(keys: WorkbenchServiceKeys): Plugin
                 const report = (error: Error): void => {
                     diagnostics.record({level: "warn", event: "workbench.commands", message: error.message, source: {plugin: descriptor.id}});
                 };
-                const home = createEmptyWorkbench(() => h(CommandHost, {commands, report, attach: (host: PaletteHost) => palettes.attach(host)}));
+                const project = context.services.require(keys.windowProject).project;
+                const home = createEmptyWorkbench(() => h(CommandHost, {commands, report, attach: (host: PaletteHost) => palettes.attach(host)}), project?.name ?? null);
                 const pages = new PageTable([{path: "/", title: "NeuroBook", load: async () => home}]);
                 return {
                     services: [provide(workbenchRootKey, {pages: () => pages.list()}), provide(quickPickKey, palettes.quickPick)],

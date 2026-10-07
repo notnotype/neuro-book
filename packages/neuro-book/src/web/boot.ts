@@ -37,6 +37,7 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
         page: window,
         console,
         navigateDocument: (href) => location.assign(href),
+        project: new URLSearchParams(location.search).get("project"),
         clientIdentity: clientIdentity.id,
         builtin: options.builtin,
         factories: options.factories,

@@ -1,6 +1,7 @@
 /**
- * 宿主页（runtime.browser-host 的失败页）：按窗口状态给出能恢复的动作。连接失败只能原地重试，版本不一致、启动
- * 失败与服务端已重启只能刷新；启动中没有动作，读屏按状态播报而不是告警。
+ * 宿主页（runtime.browser-host 的失败页）：按窗口状态给出能恢复的动作。连接失败与无法打开项目可以原地重试，
+ * 版本不一致、启动失败、服务端已重启与项目已关闭只能刷新，与项目有关的两页另给“不打开项目”；启动中没有动作，
+ * 读屏按状态播报而不是告警。
  */
 
 import {mount} from "@vue/test-utils";
@@ -33,6 +34,27 @@ describe("宿主页", () => {
         expect(page.get("h1").text()).toBe("服务端已重启");
         expect(page.get("[data-browser-host-status]").attributes("role")).toBe("alert");
         expect(page.emitted()).not.toHaveProperty("reload");
+    });
+
+    it("无法打开项目：显示原因，给重试与“不打开项目”（链接到 /，不经事件）", async () => {
+        const page = mount(FailurePage, {props: {state: {status: "project-unavailable", reason: "没有登记的项目：nope"}}});
+        expect(page.get("h1").text()).toBe("无法打开项目");
+        expect(page.text()).toContain("没有登记的项目：nope");
+        expect(page.findAll("button").map((button) => button.text())).toEqual(["重试"]);
+        expect(page.get("a.nb-host-home").attributes("href")).toBe("/");
+        await page.get("button").trigger("click");
+        expect(page.emitted()).toHaveProperty("retry");
+    });
+
+    it("项目已关闭：只给刷新页面与“不打开项目”，不自动刷新", async () => {
+        const page = mount(FailurePage, {props: {state: {status: "project-gone", reason: "绑定的项目代次已结束"}}});
+        expect(page.get("h1").text()).toBe("项目已关闭");
+        expect(page.get("[data-browser-host-status]").attributes()).toMatchObject({"data-browser-host-status": "project-gone", "role": "alert"});
+        expect(page.findAll("button").map((button) => button.text())).toEqual(["刷新页面"]);
+        expect(page.get("a.nb-host-home").attributes("href")).toBe("/");
+        expect(page.emitted()).not.toHaveProperty("reload");
+        await page.get("button").trigger("click");
+        expect(page.emitted()).toHaveProperty("reload");
     });
 
     it("启动中：没有动作，按状态播报", () => {

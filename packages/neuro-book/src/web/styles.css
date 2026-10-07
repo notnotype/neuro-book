@@ -79,9 +79,16 @@ html {
     cursor: pointer;
 }
 
-.nb-host-page button:focus-visible {
+.nb-host-page button:focus-visible,
+.nb-host-home:focus-visible {
     outline: 2px solid Highlight;
     outline-offset: 2px;
+}
+
+/* 与项目有关的宿主页另给的“不打开项目”：普通链接，用系统的链接色，不依赖主题。 */
+.nb-host-home {
+    color: LinkText;
+    font-size: 0.875rem;
 }
 
 /*

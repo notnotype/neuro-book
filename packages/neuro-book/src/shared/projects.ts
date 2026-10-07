@@ -70,3 +70,12 @@ export interface ProjectsService {
 
 /** 服务键按对象身份比较：宿主在装配时把它交给需要的插件工厂。 */
 export const projectsKey: ServiceKey<ProjectsService> = defineServiceKey<ProjectsService>("nbook/projects");
+
+/** 窗口绑定的项目：握手时由服务端决定，窗口一生不变（docs/specs/runtime/browser-host.md 启动序列第 5 步）。 */
+export interface WindowProject {
+    /** 没有绑定项目的窗口为 null。 */
+    readonly project: {readonly id: string; readonly name: string; readonly generation: number} | null;
+}
+
+/** 浏览器宿主以本地能力提供给本窗口的插件；服务键由装配者交给需要它的插件工厂。 */
+export const windowProjectKey: ServiceKey<WindowProject> = defineServiceKey<WindowProject>("nbook/window-project");

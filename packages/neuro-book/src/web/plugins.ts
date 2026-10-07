@@ -14,6 +14,7 @@ import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exp
 import {createBrowserDiagnosticsPlugin} from "nbook/plugins/diagnostics/web/plugin";
 import {createProjectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
 import {quickPickKey} from "nbook/plugins/workbench/web/contracts";
+import {windowProjectKey} from "nbook/shared/projects";
 import {createWorkbenchBrowserPlugin} from "nbook/plugins/workbench/web/plugin";
 
 export interface BrowserPluginContext {
@@ -29,7 +30,7 @@ export type BrowserPluginFactory = (context: BrowserPluginContext) => PluginDefi
 export const browserPluginFactories: Readonly<Record<string, BrowserPluginFactory>> = {
     "nbook.diagnostics": (context) => createBrowserDiagnosticsPlugin({store: context.store, console: context.console}),
     "nbook.commands": () => createCommandsPlugin("browser"),
-    "nbook.workbench": () => createWorkbenchBrowserPlugin({commands: commandServiceKey}),
+    "nbook.workbench": () => createWorkbenchBrowserPlugin({commands: commandServiceKey, windowProject: windowProjectKey}),
     "nbook.projects": (context) => createProjectsBrowserPlugin({quickPick: quickPickKey, navigateDocument: context.navigateDocument}),
 };
 
