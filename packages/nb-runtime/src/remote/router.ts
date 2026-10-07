@@ -480,13 +480,29 @@ class RemoteRouterImpl implements RemoteRouter {
         }
         const {type: _type, id: _id, ...forwarded} = frame;
         const target = destination.member.peer;
-        const started = target.subscribe(forwarded, {onEvent: (payload) => channel.event(payload), onEnd: (reason) => channel.end(reason === "disconnected" ? "target-gone" : reason)});
+        // 目标接受订阅时可以立刻推送事件（例如先推当前快照）；接受的结果经 Promise 才回到这里，事件却同步到达，
+        // 此时向订阅方的通道还没接受，直接转发会被丢掉。所以接受之前到达的事件与结束先缓冲，接受后按原顺序转发。
+        let accepted = false;
+        const early: Array<{readonly event: unknown} | {readonly end: string}> = [];
+        const started = target.subscribe(forwarded, {
+            onEvent: (payload) => (accepted ? channel.event(payload) : early.push({event: payload})),
+            onEnd: (reason) => {
+                const forwardedReason = reason === "disconnected" ? "target-gone" : reason;
+                if (accepted) channel.end(forwardedReason);
+                else early.push({end: forwardedReason});
+            },
+        });
         signal.addEventListener("abort", () => target.unsubscribe(started.id), {once: true});
         void started.outcome.then((outcome) => {
-            if (outcome.ok) {
-                channel.accept();
-            } else {
+            if (!outcome.ok) {
                 channel.reject(outcome);
+                return;
+            }
+            channel.accept();
+            accepted = true;
+            for (const item of early.splice(0)) {
+                if ("event" in item) channel.event(item.event);
+                else channel.end(item.end);
             }
         });
     }

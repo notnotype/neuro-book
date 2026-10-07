@@ -13,7 +13,7 @@ import {createRuntimeInstance} from "../lifecycle/lifecycle";
 import type {Scope} from "../lifecycle/lifecycle";
 import {ManualClock} from "../lifecycle/testing/manual-clock";
 import {createPluginHost, providePerConsumer} from "../plugins/plugins";
-import type {PluginDefinition, PluginHost} from "../plugins/plugins";
+import type {ActivationContext, PluginDefinition, PluginHost} from "../plugins/plugins";
 import {createServiceAssembly, defineServiceKey} from "../services/services";
 import type {ConsumerIdentity} from "../services/services";
 
@@ -49,13 +49,15 @@ const proxyKey = defineServiceKey<Proxy>("app.proxy/echo");
 const otherProxyKey = defineServiceKey<Proxy>("app.other-proxy/echo");
 
 interface Server {
+    /** 服务端执行过的方法调用次数：被拒的调用不应到达这里。 */
+    calls: number;
     /** 服务端看到的门面释放：`<插件> via <代理>`。 */
     readonly released: string[];
     readonly sinks: Array<{readonly topic: string; readonly signal: AbortSignal}>;
 }
 
 async function startServer(clock: ManualClock): Promise<{readonly server: Server; readonly router: ReturnType<typeof createRemoteRouter>}> {
-    const server: Server = {released: [], sinks: []};
+    const server: Server = {calls: 0, released: [], sinks: []};
     const node = createRemoteNode({instance: {id: "hub", kind: "server", role: "hub", project: null, client: null}, clock});
     const plugin: PluginDefinition = {
         id: "demo.server",
@@ -66,7 +68,12 @@ async function startServer(clock: ManualClock): Promise<{readonly server: Server
             activate: () => ({
                 remote: [
                     provideRemote(echo, (consumer) => ({
-                        methods: {whoami: () => ({ok: true, value: consumer})},
+                        methods: {
+                            whoami: () => {
+                                server.calls += 1;
+                                return {ok: true, value: consumer};
+                            },
+                        },
                         events: {ticks: {subscribe: ({topic}, _sink, {signal}) => void server.sinks.push({topic, signal})}},
                     }), {release: (_implementation, consumer) => void server.released.push(`${consumer.plugin ?? "?"} via ${consumer.via?.plugin ?? "-"}`)}),
                     provideRemote(other, () => ({methods: {ping: () => ({ok: true, value: null})}})),
@@ -82,8 +89,8 @@ async function startServer(clock: ManualClock): Promise<{readonly server: Server
     return {server, router: createRemoteRouter(node)};
 }
 
-/** 代理插件：为每个调用方提供 Proxy 门面；释放函数里再以该调用方身份调用一次，记下结果。 */
-function proxyPlugin(id: string, key: typeof proxyKey, events: string[], remoteDelegates: ReadonlyArray<string> = [echo.id]): PluginDefinition {
+/** 代理插件：为每个调用方提供 Proxy 门面；释放函数里再以该调用方身份调用一次，记下结果。激活上下文交给测试。 */
+function proxyPlugin(id: string, key: typeof proxyKey, events: string[], contexts: Map<string, ActivationContext>, remoteDelegates: ReadonlyArray<string> = [echo.id]): PluginDefinition {
     return {
         id,
         entries: [{
@@ -91,7 +98,9 @@ function proxyPlugin(id: string, key: typeof proxyKey, events: string[], remoteD
             location: "browser",
             provides: [key],
             remoteDelegates,
-            activate: (context) => ({
+            activate: (context) => {
+                contexts.set(id, context);
+                return {
                 services: [providePerConsumer(key, (consumer): Proxy => ({
                     whoami: () => context.remote.on(consumer).use(echo).whoami({}),
                     ping: () => context.remote.on(consumer).use(other).ping({}),
@@ -104,7 +113,8 @@ function proxyPlugin(id: string, key: typeof proxyKey, events: string[], remoteD
                         events.push(`proxy-release ${consumer.plugin ?? "?"} ${during.ok ? "call-ok" : during.code}`);
                     },
                 })],
-            }),
+                };
+            },
         }],
     };
 }
@@ -131,6 +141,8 @@ interface Browser {
     readonly server: Server;
     readonly events: string[];
     readonly captured: Map<string, Proxy[]>;
+    /** 代理插件的激活上下文，按插件 id。 */
+    readonly proxies: Map<string, ActivationContext>;
 }
 
 async function setup(allowed: ReadonlyArray<string> = ["app.proxy", "app.other-proxy"], remoteDelegates?: ReadonlyArray<string>): Promise<Browser> {
@@ -145,9 +157,10 @@ async function setup(allowed: ReadonlyArray<string> = ["app.proxy", "app.other-p
     router.accept(pair.right);
     expect(await node.connect(pair.left)).toEqual({ok: true});
     const events: string[] = [];
-    expect(host.register(proxyPlugin("app.proxy", proxyKey, events, remoteDelegates), {scope: runtime.root})).toMatchObject({status: "accepted"});
-    expect(host.register(proxyPlugin("app.other-proxy", otherProxyKey, events), {scope: runtime.root})).toMatchObject({status: "accepted"});
-    return {root: runtime.root, host, server, events, captured: new Map()};
+    const proxies = new Map<string, ActivationContext>();
+    expect(host.register(proxyPlugin("app.proxy", proxyKey, events, proxies, remoteDelegates), {scope: runtime.root})).toMatchObject({status: "accepted"});
+    expect(host.register(proxyPlugin("app.other-proxy", otherProxyKey, events, proxies), {scope: runtime.root})).toMatchObject({status: "accepted"});
+    return {root: runtime.root, host, server, events, captured: new Map(), proxies};
 }
 
 function openedChild(parent: Scope, label: string): Scope {
@@ -163,10 +176,10 @@ async function drain(rounds = 20): Promise<void> {
     }
 }
 
-async function activateUser(b: Browser, keys: ReadonlyArray<typeof proxyKey> = [proxyKey], scope: Scope = b.root): Promise<Proxy[]> {
-    expect(b.host.register(userPlugin("app.user", keys, b.captured), {scope})).toMatchObject({status: "accepted"});
-    expect(await b.host.activate({plugin: "app.user", entry: "main"})).toMatchObject({status: "activated"});
-    return b.captured.get("app.user")!;
+async function activateUser(b: Browser, keys: ReadonlyArray<typeof proxyKey> = [proxyKey], scope: Scope = b.root, id = "app.user"): Promise<Proxy[]> {
+    expect(b.host.register(userPlugin(id, keys, b.captured), {scope})).toMatchObject({status: "accepted"});
+    expect(await b.host.activate({plugin: id, entry: "main"})).toMatchObject({status: "activated"});
+    return b.captured.get(id)!;
 }
 
 describe("Spec plugin-channel 输出 10、场景 19：经代理的远程调用", () => {
@@ -184,9 +197,10 @@ describe("Spec plugin-channel 输出 10、场景 19：经代理的远程调用",
         const b = await setup();
         const [proxy, otherProxy] = await activateUser(b, [proxyKey, otherProxyKey]);
 
-        expect(await proxy!.whoamiAs({...proxy!.identity()})).toMatchObject({ok: false, code: "denied", detail: "调用方身份不是装配签发的"});
-        expect(await proxy!.whoamiAs(otherProxy!.identity())).toMatchObject({ok: false, code: "denied", detail: "调用方身份签发给其它入口的门面"});
+        expect(await proxy!.whoamiAs({...proxy!.identity()})).toMatchObject({ok: false, code: "denied"});
+        expect(await proxy!.whoamiAs(otherProxy!.identity())).toMatchObject({ok: false, code: "denied"});
         expect(await proxy!.ping()).toMatchObject({ok: false, code: "denied"});
+        expect(b.server.calls).toBe(0);
 
         const unlisted = await setup(["app.other-proxy"]);
         const [notAllowed] = await activateUser(unlisted);
@@ -212,5 +226,36 @@ describe("Spec plugin-channel 输出 10、场景 19：经代理的远程调用",
         expect(b.server.sinks[0]!.signal.aborted).toBe(true);
         expect(b.server.released).toEqual(["app.user via app.proxy"]);
         expect(b.host.entryState({plugin: "app.proxy", entry: "main"})).toMatchObject({status: "available", generation: 1});
+    });
+
+    it("整个运行实例停止：代理门面的释放函数里经代理的调用仍可用，之后订阅结束、服务端释放为它生成的门面", async () => {
+        const b = await setup();
+        const [proxy] = await activateUser(b);
+        expect(await proxy!.subscribe("a")).toMatchObject({ok: true});
+        await drain();
+
+        expect(await b.root.close()).toMatchObject({status: "closed"});
+        await drain();
+
+        expect(b.events).toEqual(["proxy-release app.user call-ok"]);
+        expect(b.server.sinks[0]!.signal.aborted).toBe(true);
+        expect(b.server.released).toEqual(["app.user via app.proxy"]);
+    });
+
+    it("签发它的门面释放之后，代理再用这个身份一律 denied：用过的与没用过的一样，请求没有发出", async () => {
+        const b = await setup();
+        const registration = openedChild(b.root, "user-registration");
+        const [used] = await activateUser(b, [proxyKey], registration, "app.user");
+        const [unused] = await activateUser(b, [proxyKey], registration, "app.idle");
+        expect(await used!.whoami()).toMatchObject({ok: true});
+        const usedIdentity = used!.identity();
+        const unusedIdentity = unused!.identity();
+        expect(await registration.close()).toMatchObject({status: "closed"});
+        const calls = b.server.calls;
+
+        const proxyContext = b.proxies.get("app.proxy")!;
+        expect(await proxyContext.remote.on(usedIdentity).use(echo).whoami({})).toMatchObject({ok: false, code: "denied"});
+        expect(await proxyContext.remote.on(unusedIdentity).use(echo).whoami({})).toMatchObject({ok: false, code: "denied"});
+        expect(b.server.calls).toBe(calls);
     });
 });

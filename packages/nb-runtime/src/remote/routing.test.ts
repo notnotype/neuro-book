@@ -37,6 +37,8 @@ const echo = defineRemoteService({
     events: {
         ticks: {filter: Type.Object({topic: Type.String()}, {additionalProperties: false}), payload: Type.Object({topic: Type.String(), n: Type.Integer()}, {additionalProperties: false})},
         raw: {filter: Type.Object({}, {additionalProperties: false}), payload: Type.Unknown()},
+        /** 提供方在接受订阅的同一时刻就推送一次：检验首个事件不会在转发中丢失。 */
+        hello: {filter: Type.Object({}, {additionalProperties: false}), payload: Type.String()},
     },
 });
 
@@ -102,6 +104,11 @@ function implementation(consumer: ConsumerIdentity, probe: Probe): RemoteImpleme
             raw: {
                 subscribe: (_filter, sink, {signal}) => {
                     probe.rawSinks.push({next: (payload) => sink.next(payload), signal});
+                },
+            },
+            hello: {
+                subscribe: (_filter, sink) => {
+                    sink.next("hello");
                 },
             },
         },
@@ -500,6 +507,19 @@ describe("Spec plugin-channel 输出 3：调用方不可伪造", () => {
 });
 
 describe("Spec plugin-channel 输出 7：订阅", () => {
+    it("提供方在接受订阅时立即推送的事件：经服务端转发到项目、到另一个客户端，与服务端自己提供的一样都收得到", async () => {
+        const t = await topology();
+        const received = new Map<string, string[]>();
+        for (const [label, target] of [["server", "server"], ["project", "project"], ["client", {client: "browser-2"}]] as const) {
+            received.set(label, []);
+            const subscribed = await t.remote(t.browser1).use(echo).at(target).events.hello.subscribe({}, (payload) => received.get(label)!.push(payload));
+            expect(subscribed.ok).toBe(true);
+        }
+        await drain();
+
+        expect(Object.fromEntries(received)).toEqual({server: ["hello"], project: ["hello"], client: ["hello"]});
+    });
+
     it("提供方按过滤参数推送；调用方只收到自己订阅的；释放句柄后提供方信号触发、迟到事件丢弃", async () => {
         const t = await topology();
         const received: unknown[] = [];

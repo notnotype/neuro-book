@@ -537,13 +537,10 @@ export class PluginHostImpl implements PluginHost {
             signal: attempt.scope.stopSignal,
             onRelease: (callback) => this.#onAttemptRelease(attempt, `${plugin}/${entry}`, callback),
         });
-        // 同一个签发身份只建一次访问：它在节点里记下联系过的目标与订阅，释放时一并通知。
-        const delegated = new WeakMap<ConsumerIdentity, DelegatedRemoteAccess>();
+        // 同一个签发身份只建一次访问：它在节点里记下联系过的目标与订阅，释放时一并通知。缓存只复用访问对象，
+        // 准入每次都重新核对：签发它的门面释放之后，用过与没用过的身份同样被拒。
+        const delegated = new WeakMap<ConsumerIdentity, RemoteAccess>();
         const on = (issued: ConsumerIdentity): DelegatedRemoteAccess => {
-            const cached = delegated.get(issued);
-            if (cached !== undefined) {
-                return cached;
-            }
             const refuse = (message: string): DelegatedRemoteAccess => {
                 this.#record("activate", "delegation-denied", {plugin, entry, generation: attempt.generation});
                 return refusedRemote("denied", message);
@@ -555,36 +552,41 @@ export class PluginHostImpl implements PluginHost {
             if (issue.status === "denied") {
                 return refuse(issue.message);
             }
-            const access = remote.access({
-                consumer: Object.freeze({...issued, via: Object.freeze({plugin, entry, generation: attempt.generation})}),
-                chain,
-                activating,
-                signal: anySignal([issue.signal, attempt.scope.stopSignal]),
-                // 原调用方的门面释放（签发记录收口）与代理入口这一代结束，先到的一个通知节点释放。
-                onRelease: (callback) => {
-                    let done = false;
-                    const once = (): void => {
-                        if (!done) {
-                            done = true;
-                            callback();
-                        }
-                    };
-                    issue.attach(once);
-                    this.#onAttemptRelease(attempt, `${plugin}/${entry} → ${issued.plugin ?? "host"}`, once);
-                },
-            });
+            let access = delegated.get(issued);
+            if (access === undefined) {
+                const released = new AbortController();
+                access = remote.access({
+                    consumer: Object.freeze({...issued, via: Object.freeze({plugin, entry, generation: attempt.generation})}),
+                    chain,
+                    activating,
+                    // 不用代理入口这一代的停止信号：运行实例停止时它与全部子作用域的停止信号同步触发，早于按依赖顺序
+                    // 释放门面，而代理门面的释放函数运行期间经代理的调用必须仍可用（runtime/plugin-channel.md 输出第 10 条）。
+                    signal: anySignal([issue.signal, released.signal]),
+                    // 原调用方的门面释放（签发记录收口）与代理入口这一代结束，先到的一个通知节点释放。
+                    onRelease: (callback) => {
+                        const once = (): void => {
+                            if (!released.signal.aborted) {
+                                released.abort();
+                                callback();
+                            }
+                        };
+                        issue.attach(once);
+                        this.#onAttemptRelease(attempt, `${plugin}/${entry} → ${issued.plugin ?? "host"}`, once);
+                    },
+                });
+                delegated.set(issued, access);
+            }
+            const target = access;
             const declared = record.definition.remoteDelegates ?? [];
-            const result: DelegatedRemoteAccess = {
+            return {
                 use: (contract) => {
                     if (!declared.includes(contract.id)) {
                         this.#record("activate", "delegation-denied", {plugin, entry, generation: attempt.generation});
                         return refusedRemote("denied", `入口 ${plugin}/${entry} 没有声明可代理 ${contract.id}`).use(contract);
                     }
-                    return access.use(contract);
+                    return target.use(contract);
                 },
             };
-            delegated.set(issued, result);
-            return result;
         };
         return {...own, on};
     }
