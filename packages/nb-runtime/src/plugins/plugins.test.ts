@@ -376,6 +376,19 @@ describe("Spec 验收 3、8：入口独立与跨位置非原子", () => {
         expect(browser.host.contribution("commands", "files.open")).toMatchObject([{status: "available"}]);
     });
 
+    it("宿主声明的运行位置：tui 入口只在 tui 实例装配，在 server 实例是 foreign-location", async () => {
+        const server = await setup("server");
+        const tui = await setup("tui", "tui-1");
+        const definition = plugin("shell", commandEntry("terminal", ["shell.split"], {location: "tui"}));
+        accepted(server.host, definition, server.root);
+        accepted(tui.host, definition, tui.root);
+
+        expect(server.host.entryState({plugin: "shell", entry: "terminal"})).toMatchObject({status: "foreign-location"});
+        expect(await server.host.activate({plugin: "shell", entry: "terminal"})).toMatchObject({status: "rejected", reason: "location-mismatch"});
+        expect(await tui.host.activate({plugin: "shell", entry: "terminal"})).toMatchObject({status: "activated", generation: 1});
+        expect(tui.host.contribution("commands", "shell.split")).toMatchObject([{status: "available", location: "tui"}]);
+    });
+
     it("同一位置的两个入口不共享激活状态", async () => {
         const {host, root} = await setup();
         const activateA = vi.fn(commandEntry("a", ["p.a"]).activate);

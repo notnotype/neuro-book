@@ -114,6 +114,11 @@ describe("runtime.lifecycle 机制边界", () => {
     it("运行实例必须有非空 instanceId", () => {
         expect(() => createRuntimeInstance({location: "server", instanceId: " "})).toThrow(TypeError);
     });
+
+    it("运行位置由宿主声明：任意非空字符串都可以，空串被拒", () => {
+        expect(createRuntimeInstance({location: "tui", instanceId: "tui-1"}).identity.location).toBe("tui");
+        expect(() => createRuntimeInstance({location: " ", instanceId: "x-1"})).toThrow(TypeError);
+    });
 });
 
 describe("阶段与转换", () => {

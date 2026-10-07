@@ -19,7 +19,11 @@ export type OperationId = Branded<"OperationId">;
 /** 借用身份；借用是借用者作用域内的一条使用关系，不是资源。 */
 export type BorrowId = Branded<"BorrowId">;
 
-export type RuntimeLocation = "browser" | "server" | "desktop" | "worker";
+/**
+ * 运行位置由宿主声明（例如 server、project、browser、tui），内核不列举：装配只比较入口位置
+ * 与本实例位置是否相同。新增一种宿主不需要改内核。
+ */
+export type RuntimeLocation = string;
 
 export interface RuntimeInstanceIdentity {
     readonly location: RuntimeLocation;

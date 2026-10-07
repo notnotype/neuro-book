@@ -17,7 +17,9 @@ import type {RuntimeInstance, RuntimeInstanceIdentity, RuntimeInstanceOptions} f
 import {createInstanceContext, ScopeImpl} from "./scope";
 
 export type * from "./contracts";
+export type {RuntimeClock} from "./clock";
 export {LifecycleStateError} from "./contracts";
+export {systemClock} from "./clock";
 export {summarizeFailure} from "./scope";
 
 /**
@@ -30,6 +32,9 @@ export function createRuntimeInstance(
 ): RuntimeInstance {
     if (identity.instanceId.trim() === "") {
         throw new TypeError("运行实例必须有非空 instanceId");
+    }
+    if (identity.location.trim() === "") {
+        throw new TypeError("运行实例必须有非空运行位置");
     }
     const context = createInstanceContext(
         {location: identity.location, instanceId: identity.instanceId},
