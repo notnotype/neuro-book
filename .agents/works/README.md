@@ -37,7 +37,7 @@ Work 的五位序号在项目内唯一，名称不同也不能复用同一序号
 
 ## 创建与执行
 
-主 Agent 按当前已知结果创建 Work 与至少一个可执行 Task，可直接执行或按独立边界委派，不预建依赖未知结果的链。CLI 使用 `--work <workId>`，需要具体 Task 时追加 `--task <taskId>`；`governance:context` 输出 `nbook.governance-context/v2`，不再接受 `--role` 或返回角色字段。
+主 Agent 按当前已知结果创建 Work 与至少一个可执行 Task，可直接执行或按独立边界委派，不预建依赖未知结果的链。非平凡 Task 的实施计划按 [implementation-planning](../skills/implementation-planning/SKILL.md) 写在 Task 目录的 `plan.md`，开发者确认后再实施；Task README 只链接计划并记录进展。CLI 使用 `--work <workId>`，需要具体 Task 时追加 `--task <taskId>`；`governance:context` 输出 `nbook.governance-context/v2`，不再接受 `--role` 或返回角色字段。
 
 需要隔离代码改动时，同一 Work 默认共享 `.worktree/<workId>`；branch 继续使用根规则的 `{type}/{refs}-{slug}`，其中 `refs` 使用 Work 编号。恢复时运行 `governance:context` 记录实际 worktree 与 branch；默认路径已属于其它仓库、Work 或不匹配 branch 时报告冲突并停止，不覆盖或另建第二身份。执行身份不写入 Work/Task frontmatter。
 
