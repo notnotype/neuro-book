@@ -132,15 +132,15 @@ owners:
   - 有界停止：宿主截止触发后首次停止结算为 `incomplete(deadline)`，根作用域保持停止中，挂起的释放继续运行、不被撤销也不重入；适配器随 `stopped` 结算移除监听，进程是否退出由宿主决定。
   - 适配器各自拥有自己的监听，每个实例挂接一次，等 `application.stopped` 结算后移除；`requestStop` / `destroy` / `pagehide` 只有第一次生效并记录来源；`pagehide` 不等待任何 Promise。
   - 停止阶段：首次 `stop()` 的同步段先触发内部的“停止已开始”信号（子实例据此关闭接纳；`status()` 报 `stopping`、`admission: closed`，`admit` 拒绝 `stopping`；启动中的激活与门禁等待立即取消），再跑完登记的停止阶段，最后才关闭根作用域。没有停止阶段时根作用域在同步段里开始关闭，时序与以前相同。停止阶段受首次停止的截止约束；子实例管理另在根作用域登记一项等仍在停止的子实例的资源，截止先到时首次停止结算为 `incomplete(deadline)`。
-  - 子实例代次：同一键的代次单调递增、不复用；`stopping` 的代次不复活，新 `acquire` 等它 `terminated` 后创建新代次；宽限期内的 `acquire` 取消关闭计时。宿主报告的退出只对当前代次生效，过期代次的报告被忽略。
+  - 子实例代次：同一键的代次单调递增、不复用；`stopping` 的代次不复活，新 `acquire` 等它 `terminated` 后创建新代次；宽限期内的 `acquire` 取消关闭计时。按代次取得（随 t54）不进等待与创建的循环：只看当前代次的阶段，`available` 与 `idle-grace` 取得，其余立即 `generation-gone`。宿主报告的退出只对当前代次生效，过期代次的报告被忽略。
   - 实例身份：适配器用内核 `createInstanceTable` 持有实例。同一 instanceId 存活（含停止未完成）期间共享同一实例与监听；`application.closed` 兑现时立即退役该 id（包括恢复后才关闭的实例），再次启动抛 TypeError（重启须分配新身份），表不再持有已关闭实例。内核不维护进程级全局表。
-- **合同测试**：内核的 `packages/nb-runtime/src/application/application.test.ts`（14 例）、`application-startup.test.ts`（启动激活的选择、失败分类与停止竞态，以及依赖链的启动顺序、关闭顺序与诊断）、`children.test.ts`（子实例状态表、父实例停止与 `{project}` 目标的租约核对，12 例，注入时钟），在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行；后端适配器由新应用的 `packages/neuro-book/src/server/server.test.ts` 以真实子进程覆盖；浏览器适配器由 `packages/neuro-book/src/web/host/browser-host.test.ts`（真实内核，EventTarget 充当页面）覆盖。
+- **合同测试**：内核的 `packages/nb-runtime/src/application/application.test.ts`（14 例）、`application-startup.test.ts`（启动激活的选择、失败分类与停止竞态，以及依赖链的启动顺序、关闭顺序与诊断）、`children.test.ts`（子实例状态表、按代次取得、父实例停止与 `{project}` 目标的访问核对，15 例，注入时钟）、`capabilities.test.ts`（本地能力按调用方门面，随 t54），在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行；后端适配器由新应用的 `packages/neuro-book/src/server/server.test.ts` 以真实子进程覆盖；浏览器适配器由 `packages/neuro-book/src/web/host/browser-host.test.ts`（真实内核，EventTarget 充当页面）覆盖。
 - **实际 smoke**：新应用的后端宿主 `bun run smoke:server`（打包产物上的真实子进程）；浏览器宿主 `bun run test:e2e` 的 `e2e/browser-host.e2e.ts`（本机 Chrome：两个窗口、关闭一个不影响另一个、引导失败不挂载）。新应用的宿主不设停止截止，有界停止（`stopTimeout`）只由内核合同测试覆盖。
 
 ## 证据
 
 - 实现入口：[`application.ts`](../../../packages/nb-runtime/src/application/application.ts)
-- 合同测试：[`application.test.ts`](../../../packages/nb-runtime/src/application/application.test.ts)、[`application-startup.test.ts`](../../../packages/nb-runtime/src/application/application-startup.test.ts)、[`children.test.ts`](../../../packages/nb-runtime/src/application/children.test.ts)
+- 合同测试：[`application.test.ts`](../../../packages/nb-runtime/src/application/application.test.ts)、[`application-startup.test.ts`](../../../packages/nb-runtime/src/application/application-startup.test.ts)、[`children.test.ts`](../../../packages/nb-runtime/src/application/children.test.ts)、[`capabilities.test.ts`](../../../packages/nb-runtime/src/application/capabilities.test.ts)
 - Smoke：[`smoke-server.ts`](../../../packages/neuro-book/scripts/smoke-server.ts)（`bun run smoke:server`）、[`browser-host.e2e.ts`](../../../packages/neuro-book/e2e/browser-host.e2e.ts)（`bun run test:e2e`）。旧应用的双宿主 smoke 见 [w00017 t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)。
 - 2026-09-20 开发者明确要求以“环境适配入口、小内核”为第一切片并落 Spec，再以内置服务插件验证。批准方向与非目标见 [总体提案决策记录](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md#决策记录与下一步)。
 - 实现与验证：[w00017 t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（内核、适配器、双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对、公开面收紧并晋升）。
