@@ -52,7 +52,7 @@ const layoutStore = defineStore("layout", ({persist, publish}) => {
 
 // 插件定义的入口：contributions: [...layoutPublic.contributions]
 // 入口激活时：
-const store = layoutStore.create(context, {storage});
+const store = layoutStore.create(context, {storage, diagnostics});
 return {contributions: store.contributions};
 ```
 
@@ -62,7 +62,7 @@ return {contributions: store.contributions};
 | `defineStore(name, setup)` | `name` 1–64 个字符，小写字母开头，其余为小写字母、数字与 `-`；在同一插件里只用于区分诊断 |
 | setup 上下文 | `persist(record, {initial, resource?})`、`publish(declarations, bindings)`；不给别的 I/O |
 | setup 返回 | `{state, actions}`：`state` 是要给读取方看的 ref、computed 与字段；`actions` 是函数 |
-| `create(context, {storage})` | 在入口的 `activate` 里调用；`context` 是激活上下文，`storage` 是该入口解析到的 Storage 服务 |
+| `create(context, {storage, diagnostics})` | 在入口的 `activate` 里调用；`context` 是激活上下文，`storage` 是该入口解析到的 Storage 服务（用了 `persist` 时必须给），`diagnostics` 是诊断服务 |
 | `publish` 的 `bindings` | 键与声明完全一致，值是对应类型的 `ref` 或 `computed`；漏绑、多绑、类型不符编译不过 |
 
 字段句柄（只在 setup 的闭包里有方法）：
@@ -79,7 +79,7 @@ interface PersistedField<T> {
     show(value: T): void;
     commit(change: (current: T) => T): Promise<CommitResult>;
     reset(value: T): Promise<CommitResult>;
-    retry(): Promise<CommitResult>;
+    retry(): Promise<CommitResult | "busy" | "nothing">;
     discard(): "discarded" | "busy" | "nothing";
     adopt(): void;
     reopen(): Promise<void>;
@@ -102,7 +102,7 @@ type CommitResult = "saved" | "failed" | "unknown" | "protected" | "cancelled" |
 11. **冲突重放一次**：条件保存得到 `conflict` 时，读最新快照，把同一个 `change` 作用在它上面再保存一次；仍冲突或得到其它确定的失败，队首以 `failed` 结算并记失败码，**队列暂停**，后面的意图保留不发、仍体现在 `display` 里。
 12. **受保护的记录**：`base` 为 `corrupt` 或 `unsupported-version` 时 `commit` 直接以 `protected` 结算、不写；只能 `reset(value)` 覆盖，`expect` 取该快照的 revision。
 13. **结果不确定**：保存得到 `unknown-outcome`（写可能已经落盘）时队首以 `unknown` 结算，保留这次要写的**具体值与 `expect`**，队列暂停；不在新 `base` 上重算 `change`。
-14. **retry**：只作用于暂停的队首。`failed` 时按第 10、11 条重来；`unknown` 时，若 `base` 的值已等于要写的值则以 `saved` 结算，否则以原值、原 `expect` 重发，再冲突仍为 `unknown`。返回这次尝试的结果。
+14. **retry**：只作用于暂停的队首。`failed` 时按第 10、11 条重来；`unknown` 时，若 `base` 的值已等于要写的值则以 `saved` 结算，否则以原值、原 `expect` 重发，除成功外的结果都仍为 `unknown`。返回这次尝试的结果；队首正在发送时返回 `busy`，没有暂停的队首时返回 `nothing`；字段此刻不能保存（`failure` 来自打开失败或订阅结束）时不发送，返回队首当前的结果。
 15. **discard**：只作用于暂停的队首：移除它（这条以 `discarded` 结算），`display` 改为把剩余意图依次作用在 `base` 上的结果，队列继续。队首正在发送时返回 `busy`；没有暂停的队首时返回 `nothing`。
 16. **订阅结束与打开失败**：`open` 失败或订阅结束（`provider-stopped`、`project-gone`、`server-restarted`、`released`）时 `failure` 记下失败码，`canSave` 立即为 false；在途的保存按它的结果结算，排队的意图暂停。不自动重开；`reopen()` 重新打开并订阅，成功后 `failure` 清空，由拥有者 `retry`。
 17. **停止**：入口开始停止后调用 action 抛错（可按错误类型判定）。store 释放时先等在途保存结束，再按队列顺序发送已接受的意图（含一次冲突重放），直到队列空或队首失败；剩下的意图以 `cancelled` 结算并记一条诊断。随后结束 Storage 订阅、停止 setup 的响应式作用域。

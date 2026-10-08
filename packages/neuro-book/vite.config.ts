@@ -26,6 +26,8 @@ export default defineConfig({
         noDiscovery: true,
         include: [
             "vue",
+            // 插件状态 store 直接用它；必须与 vue 用同一份预构建，否则组件里读 store 的 computed 不刷新
+            "@vue/reactivity",
             "vue-router",
             // nb-ui 的运行依赖（nb-ui 本身是 workspace 源码，不预构建）
             "reka-ui",
