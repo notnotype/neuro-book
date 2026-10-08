@@ -14,7 +14,7 @@
 
 1. 向开发者请求当前草稿列出的具体远端动作；授权不外推到 Project、PR、push 或其它远端动作。
 2. 获授权后先查找精确 `Draft-Key: <slug>`：搜索所有状态 Issue 并按正文独立行复核，PR 不计入。0 个精确匹配才创建 Issue，并设置草稿中的一个 `type:*` 和一个 `status:*`；1 个精确匹配复用其正整数编号；多个精确匹配立即阻塞并记录编号。
-3. 取得或复用编号后，将相关 Work 的 `issueId` 更新为 `i<编号>`；Work 内只按当前已确定结果创建 Task，不预建依赖未知结果的链。
+3. 取得或复用编号后，将相关 Work 的 `issueId` 更新为 `i<编号>`；Work 内按 [Work 规则](../works/README.md#创建与执行) 创建 Task。
 4. 闭合 Issue、Proposal、Spec 和 Work 链接，在报告或 evidence 持久化授权来源、动作范围、Draft-Key、Issue 编号、实际标签和创建或复用结果，然后最后删除本地草稿；不得保留第二份状态正文。
 
 每个 Work 可引用零或一个 Issue，并包含 `1..N` 个 Task。满足当前 Task 的继续条件后，根据真实结果更新路线并按需创建下一 Task。只有需要独立排期、独立验收或独立交付的结果才拆子 Issue。
