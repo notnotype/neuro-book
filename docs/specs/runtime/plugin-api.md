@@ -63,7 +63,7 @@ owners:
 | `ctx.plugin` | 两端 | 插件 id、当前版本、上一次成功激活的版本（首次为空，用于数据迁移） |
 | `ctx.signal` | 两端 | 入口停止时触发 |
 | `ctx.services.require(id)` | 两端 | 取得 `requires` 中声明的服务，返回转发器；未声明的 id 返回 `undeclared-service` 失败 |
-| `ctx.remote` | 各位置 | `use(合同).at(目标)` 调用与订阅任意实例的远程服务；本入口的远程提供项经激活产出的 `remote` 交出（[远程服务与 RPC 协议](plugin-channel.md)；2026-10-07 起取代 `ctx.channel`） |
+| `ctx.remote` | 各位置 | `use(合同).at(目标)` 调用与订阅任意实例的远程服务；本入口的远程提供项经激活产出的 `remote` 交出（[远程服务与 RPC 协议](plugin-channel.md)） |
 | `ctx.config` | 两端 | 读取本插件在清单中声明的设置项的有效值，订阅变化，更新本插件的设置项；读不到其它插件的设置 |
 | `ctx.secrets` | 服务端 | 本插件私有密钥的读、写、删除；落盘加密，任何接口都不把密钥发给浏览器；无法解密时返回 `secret-unreadable`（见“失败与恢复”） |
 | `ctx.workers.run(module, input, options)` | 两端 | 见下文 worker 池 |
@@ -72,9 +72,11 @@ owners:
 
 各贡献点拥有者可以在 `ctx` 上注入命令式注册接口（例如向 `nbook.agent` 注册工具）；返回的句柄同样登记在调用方的激活作用域上，并记入内核账本。
 
-持久化记录不在 `ctx` 上：插件在依赖中声明内置插件 `nbook.storage` 的服务，按记录读写（[`storage.persistence`](../storage/persistence.md)；2026-10-07 起取代 `ctx.storage`）；插件私有目录随资源寻址与文件服务另定。
+持久化记录不在 `ctx` 上：插件在依赖中声明内置插件 `nbook.storage` 的服务，按记录读写（[`storage.persistence`](../storage/persistence.md)）；插件私有目录随资源寻址与文件服务另定。
 
 命令不在 `ctx` 上：命令由内置插件 `nbook.commands` 提供，插件向它的贡献点登记命令，在 `requires` 中声明它的命令服务后按 id 执行（[`workbench.commands`](../workbench/commands.md)）。
+
+插件状态不在 `ctx` 上：插件用 `defineStore` 在一处声明一个入口的内存、持久化、派生与公开状态，在 `activate` 里以 `ctx` 创建，随入口代次释放（[`state.store`](../state/store.md)）；公开键是向贡献点 `state.public` 的声明（[`state.public`](../state/public-state.md)）。
 
 ### 错误码
 
@@ -142,7 +144,4 @@ Smoke：示例外部插件在服务端与 Chromium 中各执行一次 worker 调
 
 ## 证据
 
-- 批准目标：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3、P4、P7（2026-09-30 确认 `ctx.storage` 在阶段 3 提供、`ctx.config` 与 `ctx.secrets` 在阶段 3 由 `nbook.settings` 提供、SDK 提供作用域定时器与异步包装、WebAssembly 不强制切分）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条。
-- 2026-10-06 开发者撤回 `ctx.commands` 与错误码 `command-not-found`：命令改由内置插件 `nbook.commands` 经贡献点与命令服务提供（平台设计 [P3](../../proposals/extensible-application-platform.md#p3-插件之间的协作)，[w00017 t49](../../../.agents/works/w00017-application-runtime-architecture/tasks/t49-commands-quick-open/README.md)）。
-- 验证依据：[G2 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g2/REPORT.md)（worker 池原型在 Bun 与 Chrome 中实测）。
-- “跨插件调用一律返回结构化结果、不 reject”的解释、跨插件接口的三类划分、宿主错误码列表、worker 池上限与结算时限、`ctx.storage` 的键值加私有目录形态与数据位置（2026-10-07 起由 `nbook.storage` 取代，见 [w00017 t55](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/README.md)）、密钥不可解密时的行为由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文。
+- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3、P4、P7（2026-09-30 确认 `ctx.config` 与 `ctx.secrets` 由 `nbook.settings` 提供、SDK 提供作用域定时器与异步包装、WebAssembly 不强制切分）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条；跨插件调用一律返回结构化结果、跨插件接口的三类划分、宿主错误码、worker 池上限与结算时限、密钥不可解密时的行为由 [t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，开发者 2026-09-30 确认（worker 池原型的实测见 [G2 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g2/REPORT.md)）；2026-10-06 开发者撤回 `ctx.commands` 与错误码 `command-not-found`，命令改由内置插件 `nbook.commands` 提供（[t49](../../../.agents/works/w00017-application-runtime-architecture/tasks/t49-commands-quick-open/README.md)）；`ctx.storage` 2026-10-07 起由 `nbook.storage` 取代（[t55](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/README.md)）；插件状态用 `defineStore` 由开发者 2026-10-08 确认（[t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md)）。

@@ -38,7 +38,7 @@ owners:
 - **别名（Alias）**：既有外部 id（如桌面菜单契约的 15 个 id）到标准命令的映射。别名只做解析，不产生第二份实现；别名与命令 id 共用一张名字表，同名时不论先登记哪个，后来者都被拒绝。本批只保留机制，不接线。
 - **触发面（Trigger）**：命令面板、快捷键、按钮，以及未来的菜单与外部调用。触发面只引用命令 id。
 - **界面宿主**：在某个页面上持有键位分发与命令面板的一方：产品 `/` 页上是工作台的命令宿主，Lab 里是命令场景的局部宿主。宿主随页面或场景挂载与释放。
-- **上下文键（Context Key）**：具名状态（如 `editor-focus`）。键由拥有该状态的一方登记，只有登记过的键可以被 `when` 引用；视图的 `when` 共用同一套求值口径。
+- **上下文键（Context Key）**：具名的布尔状态，`when` 只能引用登记过的键；视图的 `when` 共用同一套求值口径。产品命令表的键是公开状态里的布尔键，写限定名 `<插件 id>/<名>`（[`state.public`](../state/public-state.md)；planned）；Lab 命令场景的本地命令表另有自己的键表（见“上下文键（第一批）”）。
 - **可用性（Availability）**：命令的 `when` 在其触发时刻求值的当前结果。不满足时面板不出现、快捷键不响应、执行返回结构化拒绝（不是静默忽略）。
 - **作用类型（`effect`）**：`read` / `write`，必填。是只读模式（discuss / plan）阻断 agent 调用的唯一依据。
 - **暴露级别（Exposure）**：命令对外部 agent 的可见性与约束——`never`（默认）、`confirm`（执行前需用户在界面确认）、`auto`（可直接执行）。
@@ -66,6 +66,10 @@ owners:
 - **执行顺序**（固定，不可交换）：解析白名单 → agent 暴露检查 → 严格参数校验 → 当前 `when` → agent 只读检查 → 必要确认 → 复查条目身份/参数不变性/`when`/模式 → `run` → 单次审计。
 - **结果合同**：成功为 `{ok:true, value}`（void 命令显式 `null`，不把 Promise rejection 当成功）；失败为 `{ok:false, code, reason}`，失败码固定九个：`unknown-command`、`unavailable`、`invalid-args`、`not-exposed`、`read-only`、`confirmation-required`、`denied`、`execution-error`、`stale-target`。
 - **可用性求值**：`when` 是上下文键的 all-of 正条件；未登记的键在登记时被拒，登记的键缺失按 false 求值。求值失败/不满足返回 `unavailable` 与缺失原因。
+- **`when` 读公开状态**（planned）：产品命令表登记时，`when` 引用的每个键必须是本运行位置入口声明的、已被接受的布尔公开键，否则这一条以 `invalid-declaration` 被拒；求值时键未就绪按 false，原因取声明的 `reason`。`when` 只在命令所在的实例求值，不跨实例读状态；拥有键的入口激活、停止与值的变化即时反映在可用性上，命令面板开着时候选随之变化。
+- **跨实例列出与执行**（planned）：浏览器的 `nbook.commands` 入口提供远程服务 `nbook.commands/remote`，第一版只允许服务端调用，服务端插件以 `.at({client: 窗口实例 id})` 选定窗口：
+  - `list({})`（读）：该窗口命令表里 `expose.agent` 不为 `never` 的命令元数据，每条带此刻按该窗口公开状态求出的可用性与不满足的原因；
+  - `execute({id, args})`（写）：以 `{source: "agent", callerId: 调用方插件}` 走该窗口命令表的执行管线，执行前按该窗口此刻的状态复查 `when`，返回结果合同里的结果；`expose.agent` 为 `never` 的命令为 `not-exposed`。
 - **参数校验**：严格（JSON Schema 语义），不转换、不填充默认值、拒绝额外字段与显式 `null`；校验失败返回 `invalid-args` 并指出失败位置。
 - **暴露**：外部 agent 面只可见暴露级别高于 `never` 的命令；`confirm` 命令被 agent 调用时，界面呈现确认（含命令标题、参数、发起者），用户批准后执行、拒绝则返回 `denied`。没有确认通道的命令表返回 `confirmation-required`（产品命令表在 Agent 接入前没有确认通道）。确认使用参数的独立快照，等待期间调用方修改原参数不影响获批内容；等待期间命令被替换返回 `stale-target`。
 - **只读联动**：处于 discuss / plan 时，`effect: "write"` 或带 `destructive` 标注的命令对外部调用直接拒绝（`read-only`），确认等待期间切到这两种模式的，批准后同样拒绝；界面触发不受该模式影响。
@@ -100,6 +104,7 @@ owners:
 - **确认被拒 / 只读拒绝**：返回对应失败分类。
 - **键位冲突**：同一规范化键位视为冲突——报告且**不启用后来的绑定**；原持有者释放后按仍登记的命令顺序重建，此时新首个可以接管。冲突不因 `when` 条件"看起来互斥"而放行（all-of 正条件无法证明互斥），首个命令不可用时也不回落到冲突命令。非法键位字符串同样不启用该绑定并报告，命令本身仍可通过按钮/面板执行，命令表里的元数据不被修改。
 - **登记被拒**：经贡献点时原因写在贡献状态里（插件详情可查），不影响同一插件的其它贡献；本地命令表登记被拒时报告原因、不静默降级。
+- **跨实例调用失败**（planned）：窗口不在为 `target-gone`，断线未派发为 `unavailable`，`execute` 派发后断线为 `unknown-outcome`（不自动重试），服务端以外的实例调用为 `denied`；失败码与阶段规则见 [远程服务与 RPC 协议](../runtime/plugin-channel.md)。
 
 ## 边界与兼容
 
@@ -146,7 +151,7 @@ owners:
 
 ### 上下文键（第一批）
 
-上下文键由拥有该状态的插件登记，命令系统本身不认识任何领域键。产品命令表登记上下文键的贡献点随第一个产品消费者（编辑器插件）加入；在那之前产品命令表不认任何键，声明了 `when` 的命令贡献被拒绝。下表的键现阶段只在 Lab 命令场景的本地命令表里登记。
+上下文键由拥有该状态的插件登记，命令系统本身不认识任何领域键。产品命令表的键来自公开状态（planned）：拥有状态的插件声明布尔公开键，`when` 写它的限定名。下表的键只在 Lab 命令场景的本地命令表里登记，不进产品的公开状态；编辑器插件接入时改为它的公开键。
 
 | 键 | 含义 | 拥有者 |
 |---|---|---|
@@ -189,6 +194,8 @@ owners:
 11. **贡献与撤回**：Given 一个插件向 `commands.definitions` 贡献命令；When 它激活；Then 命令出现在本运行位置的命令表里、经命令服务执行得到处理函数的结果，枚举里的贡献方是该插件；When 它的入口停止；Then 命令离开命令表，执行得到 `unknown-command`。同一插件里不合格的那条贡献被拒、原因可查，其它照常。
 12. **两端各自的命令表**：同一份 `nbook.commands` 入口在服务端与浏览器各自装配；服务端插件贡献的命令只在服务端的命令表里，浏览器窗口的命令表里只有浏览器入口贡献的命令。
 13. **产品页的命令面板**：Given 生产构建的 `/` 页；When 按 `Ctrl/Cmd+Shift+P`；Then 打开命令面板（面板入口命令由 `nbook.workbench` 贡献，不进候选，产品命令表里暂时没有别的人类可见命令时显示空态）；Escape 关闭并把焦点还回去。
+14. **两个窗口的状态不同**（planned）：Given 两个窗口都有一条 `when` 引用某插件布尔公开键的命令，只在一个窗口里该键为 true；Then 各自的命令面板只在那一个窗口列出它；服务端经 `nbook.commands/remote` 分别问两个窗口，得到的可用性各按那个窗口此刻的状态；对另一个窗口执行为 `unavailable`、不执行。
+15. **懒激活插件的键**（planned）：Given 命令的 `when` 引用一个懒激活插件声明的键；Then 命令通过登记期校验；入口未激活时不可执行并给出声明的原因；激活后按值求值；入口停止后回到不可用。
 
 ## 实现合同
 
@@ -217,4 +224,4 @@ owners:
 - 实现入口：[`registry.ts`](../../../packages/neuro-book/src/plugins/commands/shared/registry.ts)、[`plugin.ts`](../../../packages/neuro-book/src/plugins/commands/shared/plugin.ts)
 - 合同测试：[`registry.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/registry.test.ts)（场景 1–8）、[`context-keys.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/context-keys.test.ts)、[`plugin.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/plugin.test.ts)（经真实内核：场景 1、8、11、12）、[`keymap.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/keymap.test.ts)（场景 3、9）、[`editor-commands.test.ts`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/editor-commands.test.ts)；组件测试 [`lab-command-scene.dom.test.ts`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/lab-command-scene.dom.test.ts)（场景 5 的确认界面）、[`WorkbenchCommandHost.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/WorkbenchCommandHost.dom.test.ts)
 - Smoke：[`e2e/lab-commands.e2e.ts`](../../../packages/neuro-book/e2e/lab-commands.e2e.ts)（场景 10，开发会话，真实 Chrome）、[`e2e/commands.e2e.ts`](../../../packages/neuro-book/e2e/commands.e2e.ts)（场景 13，生产构建）
-- 批准依据：[命令系统提案](../../proposals/workbench-commands.md)（2026-09-14 起草，2026-09-18 需求讨论修订）；命令改由内置插件提供，见[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3（2026-10-06）；一份定义含服务端与浏览器两个入口依据 [ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)（2026-10-08）。
+- 批准依据：[命令系统提案](../../proposals/workbench-commands.md)（2026-09-14 起草，2026-09-18 需求讨论修订）；命令改由内置插件提供，见[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3（2026-10-06）；一份定义含服务端与浏览器两个入口依据 [ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)（2026-10-08）；`when` 读公开状态、跨实例命令直接问目标窗口由开发者 2026-10-08 在 [t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md) 中确认。

@@ -133,14 +133,14 @@
 | `docs/specs/runtime/plugins.md` | 输出第 15 条增补校验函数与入口可查已接受的声明、环的判定（planned） |
 | `docs/specs/runtime/plugin-manifest.md` | 公开键作为入口下的 `state.public` 贡献声明 |
 | `docs/specs/runtime/plugin-api.md` | 插件状态入口改为 `defineStore`，链接 `state/store.md` |
-| `docs/proposals/plugin-data-model.md` | 第 3 节的示例改为 setup 写法；决策记录：形状调整与不用 Pinia、待定项 1 的结论、公开状态做成贡献点、`unknown-outcome` 不重算、第 4 节“镜像”改为直接问目标实例 |
+| `docs/proposals/plugin-data-model.md` | 决策记录追加一行：形状调整与不用 Pinia、待定项 1 的结论、公开状态做成贡献点、`unknown-outcome` 不重算、第 4 节“镜像”改为直接问目标实例（实施中修正：提案 `accepted` 后正文冻结，第 3 节的示例不改，以 `state/store.md` 为准） |
 | `docs/proposals/multi-instance-runtime-topology.md` | 决策记录：K5 不做客户端镜像，跨实例命令改为直接问目标实例；`.at({client})` 第一版只允许服务端调用（待定项 3） |
 
 ## 切片
 
 | 片 | 对应设计 | 提交边界 | 自跑验证 |
 |---|---|---|---|
-| S0 | Spec 改动表 | 文档；新 Spec 编号定下后把下面的验收映射改写为编号 | `bun run docs:check`、`bun run governance:check` |
+| S0 | Spec 改动表 | 文档；验收映射改写为新 Spec 的编号 | `bun run docs:check`、`bun run governance:check` |
 | S1 | 第 5 节 | 内核的声明查询与环判定 | `bun run --cwd packages/nb-runtime typecheck`、`test`；`bun run --cwd packages/neuro-book typecheck` |
 | S2 | 第 2 节 | `nbook.state`：贡献点、接收者、响应式读取服务；三个宿主接线 | 同 S1，另 `bun run --cwd packages/neuro-book test:bun` |
 | S3 | 第 4 节 | 命令的键来源、`when` 校验与求值、Lab 适配 | 同 S2，另 `test:vitest` |
@@ -152,25 +152,25 @@
 
 ## 验收映射
 
-S0 定下新 Spec 的编号后改为“编号 → 测试”。下表先按行为列出，括号里是制造所需时序的真实切口。
+实施中调整切片顺序：S4、S5（store）先于 S1 提交。t59 的 omp 审查进行时不改它在审的内核文件，store 也不依赖 S1。
 
-| 行为（拓扑稿 K5 行在前） | 测试 |
+
+| Spec 条目 | 测试 |
 |---|---|
-| 懒激活插件声明的键：引用它的命令通过登记期校验；入口未激活时按未就绪、命令不可执行并给出原因；激活后按值求值；入口停止后回到未就绪；面板保持打开时候选随绑定与撤回即时变化 | `src/plugins/state/state.test.ts`（真实内核实例）、`src/plugins/commands/shared/plugin.test.ts` 增补、`WorkbenchCommandHost.dom.test.ts` 增补 |
-| 两个窗口公开状态不同：各自的命令可用性按本窗口的值；服务端经 `nbook.commands/remote` 分别问两个窗口，得到的可用性各按那个窗口此刻的状态 | `src/plugins/commands/shared/remote.test.ts`（真实服务端与两个窗口实例、进程内链路）、`e2e/state.e2e.ts`（同一上下文两个标签页） |
-| 跨实例执行：服务端执行窗口里的命令，窗口按本地状态复查 `when`，不可用时为 `unavailable` 不执行；`expose.agent` 为 `never` 的命令不出现在列表、执行为 `not-exposed`；窗口断线时列出为 `target-gone`，执行派发后断线为 `unknown-outcome`（命令的实现里关掉窗口链路）；浏览器以外的位置调用为 `denied` | `remote.test.ts` |
-| 冲突后窄修改都保留：两个窗口在同一轮里各自提交，对同一条记录的不同字段窄改；后者冲突后在最新值上重放并保存成功，最终两个字段的修改都在，冲突次数为 1，对方的显示不被强行改，`adopt` 后才更新（同一轮里提交，两边都还没收到对方的写入） | `src/shared/store/store.test.ts`（真实内核实例、进程内链路、真实 Storage 与 SQLite）、e2e |
-| 第二次冲突：队首记 `failed`、队列暂停、后续意图保留并显示在 `display` 里；`retry` 成功；`discard` 只移除队首并重新投影显示；在途 `discard` 为 `busy`（`change` 第二次被调用时由测试用另一个真实写者先写一次） | `store.test.ts` |
-| `unknown-outcome` 不重算：写已落盘、回包前断线（分区拥有者一侧另一个本地订阅者在收到这次写入的通知时关掉窗口链路，分区先通知再返回结果）；断线期间别处再写；重连后 `retry` 不重复应用；`base` 已等于要写的值时视为完成 | `store.test.ts` |
-| 无值记录的 revision：从未写过、删除标记、`corrupt`、`unsupported-version` 四种 `base` 下的 `commit` 与 `reset` | `store.test.ts`（真实 SQLite，坏数据由测试直接写进库） |
-| 迟到确认不倒退：重连后订阅重建、基线未到时保存结果先回来，`base` 仍按订阅顺序更新（重连阶段订阅重建是异步的） | `store.test.ts` |
-| 订阅结束与重开：提供方入口单独停止而调用方仍活着，`canSave` 立即为 false、排队意图暂停；`reopen` 后 `retry` 成功；首个快照早于建立返回、结束早于建立返回两种顺序 | `store.test.ts` |
-| 读写边界：只读视图不能写、字段视图不带方法，action 能提交；setup 里建立的 `computed`、`watch` 随释放停止 | `store.test.ts`、类型测试（`tsc` 下的 `@ts-expect-error`） |
-| 停止时的队列：action 已接受的意图在正常停止时发出；队首失败时其余以 `cancelled` 结算；停止开始后 action 抛错 | `store.test.ts` |
-| 未声明的键、非布尔键、前缀不是本插件、两个插件同名：登记时拒绝，原因可查 | `state.test.ts`、`plugin.test.ts` |
-| `publish` 漏绑、多绑、类型不符编译不过；绕过类型检查时运行时多出的不绑并记诊断、没给的为 `unbound`，与 getter 返回同值的 `ready` 区分；读取函数抛错或类型不符按未就绪并记诊断 | 类型测试、`state.test.ts`、`store.test.ts` |
-| 声明查询只给已接受的；无环的三级查询可用；两点互查、自查时环上每条都被拒，与查询入口和登记顺序无关；查询不记诊断 | 内核 `src/plugins/declarations.test.ts` |
-| 浏览器里组件的 `computed` 随 store 与公开状态刷新 | e2e 在构建产物与开发模式（`bun run dev`）各跑一次“面板打开时切换键值，候选即时变化” |
+| `state/store.md` 输出 1–3 | `src/shared/store/store.test.ts`“输出 1–3”；同文件的类型合同（`@ts-expect-error`） |
+| `state/store.md` 输出 4 | `store.test.ts`“输出 4”；`state.test.ts` 的读取 |
+| `state/store.md` 输出 5–8 | `store.test.ts`“输出 5–8” |
+| `state/store.md` 输出 9–11、验收 1 | `store.test.ts` 两个窗口窄改、重放后仍冲突、discard 三例；`e2e/state.e2e.ts` |
+| `state/store.md` 输出 12 | `store.test.ts` 删除标记、`corrupt`、`unsupported-version` 三例（坏数据由测试直接写进库） |
+| `state/store.md` 输出 13–14、验收 2 | `store.test.ts` 结果不确定两例（分区拥有者一侧的订阅者在收到这次写入的通知时关掉窗口链路） |
+| `state/store.md` 输出 16、验收 4 | `store.test.ts` 提供方停止一例（项目实例有序停止）；`reopen` 成功的路径没有真实切口：产品里只有热插拔会让提供方在同一绑定里回来，随 `runtime.plugin-hot-plug` 验证 |
+| `state/store.md` 输出 17、验收 3 | `store.test.ts` 窗口里正常停止、队首失败后 `cancelled` 两例 |
+| `state/store.md` 输出 6 的“迟到的保存结果不倒退” | 由“`base` 只随订阅更新”的结构保证；进程内链路造不出“结果先于基线到达”的时序，不单独测 |
+| `state/public-state.md` 输出 1–10、验收 1–3 | `src/plugins/state/state.test.ts`（真实内核实例） |
+| `workbench/commands.md`“`when` 读公开状态”、验收 15 | `plugins/commands/shared/plugin.test.ts` 增补、`WorkbenchCommandHost.dom.test.ts` 增补 |
+| `workbench/commands.md`“跨实例列出与执行”“跨实例调用失败”、验收 14 | `src/plugins/commands/shared/remote.test.ts`、`e2e/state.e2e.ts` |
+| `runtime/plugins.md` 输出 23、验收 26 | nb-runtime `src/plugins/declarations.test.ts` |
+| 浏览器里组件的 `computed` 随 store 与公开状态刷新（`state/store.md`“边界与兼容”） | e2e 在构建产物与开发模式各跑一次“面板打开时切换键值，候选即时变化” |
 
 ## 验证
 

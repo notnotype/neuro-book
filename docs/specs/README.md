@@ -191,6 +191,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
 | 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | 双模式、F1–F9 交互、剪贴板与 dirty 策略 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
+| 公开状态 | [`state/public-state.md`](state/public-state.md) | 公开键的声明与校验、激活时绑定与停止时撤回、本实例内的同步读取与未就绪、响应式失效 |
+| 插件状态 store | [`state/store.md`](state/store.md) | `defineStore` 的 setup 写法、只读视图与 action、持久化字段的已确认值与显示、保存队列、停止时的结算 |
 
 ## 旧应用的规范与 Reference（只作参照）
 

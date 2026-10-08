@@ -319,3 +319,4 @@ Lab 不读写产品的配置与 Storage；fixture 不依赖持久化（[`ui/comp
 | 2026-10-07 | 主 Agent（待开发者审批） | 按 omp 复审建议补：公开键重名一起拒绝、清单声明与 `public` 的核对；断线即撤回服务端镜像；`when` 只用正向布尔键（现行命令 Spec 的语法） |
 | 2026-10-07 | 开发者 | 认可本稿，改为 `accepted` |
 | 2026-10-07 | 开发者 | K4 设计（[t55 实施计划](../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/plan.md)）：每个分区一个 SQLite 库、不加项目锁；`open` 异步并报告定义冲突等失败；精确项目代次由路由按绑定解析；身份域、配额、记录格式迁移与删除标记回收推迟，访问上下文、外部写入轮询与旧数据迁移废弃 |
+| 2026-10-08 | 开发者 | K5 设计（[t56 实施计划](../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md)）：store 改为 setup 写法，用 `@vue/reactivity` 自己实现，放应用包共享库，不用 Pinia（待定项 1 的结论；第 3 节的对象写法示例以 [`state/store.md`](../specs/state/store.md) 为准）；公开状态做成贡献点 `state.public`，由内置插件 `nbook.state` 拥有（[`state/public-state.md`](../specs/state/public-state.md)）；写结果不确定时不在新基础上重算修改；第 4 节的服务端镜像不做，服务端要列出或执行窗口里的命令时直接问那个窗口；正常停止时发出已被 action 接受的修改 |

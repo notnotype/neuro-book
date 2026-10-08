@@ -50,8 +50,8 @@ owners:
 | `entries.<id>.requires` | 必需依赖的服务 id 列表 |
 | `entries.<id>.provides` | 本入口提供的服务 id 列表 |
 | `entries.<id>.activationEvents` | 激活事件列表 |
-| `entries.<id>.contributes` | 需要本入口提供实现的贡献，例如命令、视图、Agent 工具、路由 |
-| `contributes` | 只有声明、不需要实现的贡献，例如菜单项、设置项、上下文键、菜单位置 |
+| `entries.<id>.contributes` | 需要本入口提供实现的贡献，例如命令、视图、Agent 工具、路由、公开状态的键（`state.public`，实现是激活时绑定的读取函数，[`state.public`](../state/public-state.md)） |
+| `contributes` | 只有声明、不需要实现的贡献，例如菜单项、设置项、菜单位置 |
 | `contributionPoints` | 本插件拥有的贡献点：声明 schema，以及该贡献点的贡献是否需要实现（决定贡献写在入口下还是顶层） |
 | `activationEventPrefixes` | 本插件拥有的激活事件前缀，例如 `nbook.commands` 的 `onCommand`；只有拥有者能触发以它开头的事件 |
 | `pluginVersions` | 所依赖第三方插件的版本范围；只约束版本，是否必需由各入口的 `requires` 决定 |
@@ -153,4 +153,4 @@ Smoke：以合同测试覆盖场景 1–17 的推导结果；在真实服务端�
 
 ## 证据
 
-- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P1、P2、P3、P11（2026-09-30 `accepted`；“插件、入口、服务”三层同日由开发者确认）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条；开放的运行位置与远程提供项依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md)（2026-10-07 `accepted`）；服务 id 按字符串识别依据 [ADR 0025](../../adr/0025-service-keys-by-id.md)，不同位置的入口可以提供同一 id 依据取代它的 [ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)；调研见 [VS Code 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-vscode/REPORT.md)、[DeepSeek Harness 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-dsh/REPORT.md)。
+- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P1、P2、P3、P11（2026-09-30 `accepted`；“插件、入口、服务”三层同日由开发者确认）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条；开放的运行位置与远程提供项依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md)（2026-10-07 `accepted`）；服务 id 按字符串识别依据 [ADR 0025](../../adr/0025-service-keys-by-id.md)，不同位置的入口可以提供同一 id 依据取代它的 [ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)；公开状态的键作为入口下的 `state.public` 贡献由开发者 2026-10-08 在 [t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md) 中确认；调研见 [VS Code 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-vscode/REPORT.md)、[DeepSeek Harness 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-dsh/REPORT.md)。
