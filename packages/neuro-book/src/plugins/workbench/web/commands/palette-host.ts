@@ -54,7 +54,8 @@ export interface PaletteHost {
     openPalette(mode: "commands" | "line"): void;
     /**
      * 进入选择模式（同一浮层）。结果在浮层关闭完成（`closed()`）后给出：选中的一项或文字，否则 `cancelled`。
-     * 还有没结算的选择时，那一次先以 `cancelled` 结算；切回命令或行号模式同样取消它。
+     * 还有没结算的选择时，那一次先结算：还没选中的以 `cancelled` 结算（切回命令或行号模式同样取消它），已经选中、
+     * 只等关闭完成的立即按选中项给出。
      */
     openPick(request: QuickPickRequest): Promise<QuickPickResult>;
     /** 选择模式里提交：记下结果并关闭面板，等关闭完成再结算。 */
@@ -119,6 +120,9 @@ export function createPaletteHost(options: PaletteHostOptions): PaletteHost {
         focusRequest,
         pick,
         openPalette(mode) {
+            // 已经选中、正等浮层关闭完成的选择：立即按选中项给出，再照常打开面板。回车后马上再开面板（键盘快的用户、
+            // 脚本）时，选中的一项不能被当成取消丢掉。
+            if (session !== null && session.choice !== null) settlePick(null);
             if (session !== null) {
                 settlePick({kind: "cancelled"});
                 query.value = mode === "line" ? ":" : ">";
@@ -137,7 +141,7 @@ export function createPaletteHost(options: PaletteHostOptions): PaletteHost {
             }
         },
         openPick(request) {
-            if (session !== null) settlePick({kind: "cancelled"});
+            if (session !== null) settlePick(session.choice === null ? {kind: "cancelled"} : null);
             const {promise, resolve} = Promise.withResolvers<QuickPickResult>();
             session = {resolve, choice: null};
             pick.value = request;

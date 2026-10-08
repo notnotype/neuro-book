@@ -61,6 +61,8 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
 
 ### 外壳一：外壳与布局
 
+外壳一的输出 1–14 已实现；本 Spec 仍为 `planned`，外壳二、三实现后整体晋升。
+
 1. **拓扑**：标题栏在顶、状态栏在底；ActivityBar 是主体左侧的通高列，主体（侧栏、编辑器、右栏、面板）永远在它右侧，任何面板位置与对齐都不跨过 ActivityBar。不出现双重边框、双重标题条或双重标签条。
 2. **面板位置与对齐**：位置 `bottom`、`top`、`left`、`right`，默认 `bottom`；水平位置的跨度 `center`（只在编辑器下）、`left`（含侧栏）、`right`（含右栏）、`justify`（含左右侧栏），默认 `center`；`justify` 不跨 ActivityBar。左右位置忽略保存的对齐，改回水平位置时再生效。
 3. **固定尺寸**：标题栏 36px、状态栏 22px、ActivityBar 叶宽 60px（卡片 48px 加两侧留白），不可调整、不可收起；可调整的边界在流内占 1px，命中区向两侧扩展。
@@ -255,4 +257,7 @@ Smoke 入口：生产构建下打开 `/` 与 `/?project=…`（桌面与 `390 ×
 
 ## 证据
 
+- 实现入口：外壳一 [`plugins/workbench/web/shell/`](../../../packages/neuro-book/src/plugins/workbench/web/shell/)、[`state/layout-store.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-store.ts)、[`state/public-state.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/public-state.ts)、[`commands/panel-commands.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/panel-commands.ts)、[`components/WorkbenchShellLayout.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShellLayout.vue)、[`components/WorkbenchShell.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue)
+- 合同测试：外壳一 [`layout.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/shell/layout.test.ts)、[`layout-store.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-store.test.ts)、[`panel-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/panel-commands.test.ts)；组件测试 `WorkbenchShellLayout`、`WorkbenchPanelSurface`、`WorkbenchStatusBar` 的 `.dom.test.ts`
+- Smoke：外壳一 [`workbench-shell.e2e.ts`](../../../packages/neuro-book/e2e/workbench-shell.e2e.ts)、[`settings.e2e.ts`](../../../packages/neuro-book/e2e/settings.e2e.ts)（外壳根的主题 token）
 - 批准依据：[外壳设计稿](../../proposals/workbench-shell-abstractions.md)（2026-10-07 `accepted`）第 2、6、7、9、10、11 节与“对 Spec 与提案的预期改动”；开发者 2026-10-08 确认旧应用的外壳已人工验证、作为参照（[v2 重建提案](../../proposals/neuro-book-v2-rebuild.md) 的决策记录）。本文由旧应用口径的同名 Spec（归档于 [`docs/archived/specs/ui/workbench-shell.md`](../../archived/specs/ui/workbench-shell.md)）改写，旧口径的依据为 [`workbench-view-host.md`](../../proposals/workbench-view-host.md)（2026-09-13 `accepted`）与 2026-09-20、2026-09-22 开发者对容器模式、分栏、拖放与内容区 50% 规则的确认。

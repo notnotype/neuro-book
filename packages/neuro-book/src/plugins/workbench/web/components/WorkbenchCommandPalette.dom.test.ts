@@ -262,6 +262,19 @@ describe("WorkbenchCommandPalette", () => {
         expect(await second).toEqual({kind: "item", id: "bottom"});
     });
 
+    it("选择模式：回车选中后、浮层关闭完成前又打开面板：选中的一项照常给出，面板照常打开", async () => {
+        const app = harness();
+        const request = {title: "面板位置", placeholder: "选中后立即生效", items: [{id: "bottom", label: "底部"}, {id: "left", label: "左侧"}]};
+        const result = app.host.openPick(request);
+        await vi.waitFor(() => expect(input()).not.toBeNull());
+        await press("ArrowDown");
+        await press("Enter");
+        app.host.openPalette("commands");
+        expect(await result).toEqual({kind: "item", id: "left"});
+        expect(app.host.open.value).toBe(true);
+        expect(app.host.pick.value).toBeNull();
+    });
+
     it("选择模式：提交输入的文字为 text，Escape 为 cancelled；切回命令模式取消这次选择", async () => {
         const app = harness();
         app.register("nbook.app.alpha");
