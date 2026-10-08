@@ -491,21 +491,33 @@ describe("Spec plugin-channel 输出 4：请求阶段与失败码", () => {
     });
 
     it("ACK 在途时链路中断：目标已执行，写请求为 unknown-outcome(disconnected)，读请求为 unavailable；直连与经服务端转发的两跳一样", async () => {
-        // 经服务端转发到项目，切断服务端与项目之间那一跳；直连服务端，切断调用方自己的链路。
+        // 经服务端转发到项目时两跳各切一次：服务端与项目之间、调用方与服务端之间；直连服务端时切调用方自己的链路。
+        // `ackEnd` 是被切链路上等 ACK 的那一端（路由接受的是 right，实例连的是 left），在那里数收到的 ACK。
         const cases = [
-            {target: "project", link: "project-P", probe: "project"},
-            {target: "server", link: "browser-1", probe: "hub"},
+            {name: "两跳，切第二跳", target: "project", link: "project-P", ackEnd: "right", probe: "project"},
+            {name: "两跳，切第一跳", target: "project", link: "browser-1", ackEnd: "left", probe: "project"},
+            {name: "直连", target: "server", link: "browser-1", ackEnd: "left", probe: "hub"},
         ] as const;
-        for (const {target, link, probe} of cases) {
+        for (const {name, target, link, ackEnd, probe} of cases) {
             const outcomes = [];
             for (const method of ["hold", "peek"] as const) {
                 const t = await topology();
-                t.probes[probe].onEnter = () => t.links.get(link)!.cut();
+                let entered = 0;
+                let acks = 0;
+                t.links.get(link)![ackEnd].onFrame((value) => {
+                    if ((value as {readonly type?: unknown}).type === "ack") acks += 1;
+                });
+                t.probes[probe].onEnter = () => {
+                    entered += 1;
+                    t.links.get(link)!.cut();
+                };
                 const client = t.remote(t.browser1).use(echo).at(target);
                 outcomes.push(method === "hold" ? await client.hold({name: "w"}) : await client.peek({name: "r"}));
-                expect(t.probes[probe].consumers, `${target} ${method}`).toHaveLength(1);
+                await drain();
+                // 方法确实执行了，被切那一跳上的 ACK 确实没送到：调用方看到的是“目标已执行、ACK 丢在路上”。
+                expect([entered, acks], `${name} ${method}`).toEqual([1, 0]);
             }
-            expect(outcomes, target).toEqual([
+            expect(outcomes, name).toEqual([
                 {ok: false, code: "unknown-outcome", cause: "disconnected"},
                 {ok: false, code: "unavailable", cause: "disconnected"},
             ]);
