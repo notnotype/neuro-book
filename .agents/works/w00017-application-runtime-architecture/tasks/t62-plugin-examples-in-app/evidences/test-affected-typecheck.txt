@@ -1,0 +1,77 @@
+$ bun scripts/cli/test-affected.ts --typecheck --since "4d4e3465"
+改动文件 70 个（未提交的改动，以及与 4d4e3465 分叉以来的提交）。
+选中 2 项（test）：
+  nb-runtime（包内有改动）：bun run typecheck；bun run test
+  neuro-book（包内有改动）：bun run typecheck；bun run test:bun；bun run test:vitest
+
+==> nb-runtime：bun run typecheck
+$ tsc --noEmit && tsc --noEmit -p tsconfig.browser.json
+
+==> nb-runtime：bun run test
+$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-EdwGdy/nb-runtime-1.xml"
+bun test v1.4.2 (744846f84)
+
+ 292 pass
+ 0 fail
+ 2441 expect() calls
+Ran 292 tests across 24 files. [486.00ms]
+
+==> neuro-book：bun run typecheck
+$ tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json
+
+==> neuro-book：bun run test:bun
+$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-EdwGdy/neuro-book-1.xml"
+bun test v1.4.2 (744846f84)
+
+src/server/server-projects.test.ts:
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+
+src/server/server.test.ts:
+remote-probe server entry closed
+remote-probe server entry closed
+
+src/web/host/window.test.ts:
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+
+ 333 pass
+ 0 fail
+ 1704 expect() calls
+Ran 333 tests across 47 files. [13.55s]
+
+==> neuro-book：bun run test:vitest
+$ vitest run
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t62-examples/packages/neuro-book
+
+
+ Test Files  12 passed (12)
+      Tests  57 passed (57)
+   Start at  14:35:23
+   Duration  5.08s (transform 7.47s, setup 327ms, import 15.38s, tests 3.16s, environment 6.07s)
+
+
+超过 200ms 的测试 15 个（列出最慢的 10 个）：
+    1245ms  neuro-book/src/server/dev/run.test.ts  页面经 Vite 提供、API 经代理、页面直连后端 RPC 端口；改后端文件有序重启；SIGTERM 时先停后端再关页面，以 0 退出
+     641ms  neuro-book/src/server/server-projects.test.ts  项目子进程不响应停止：到 NBOOK_PROJECT_STOP_MS 强制结束，记为停止问题，服务端以 1 退出
+     597ms  neuro-book/src/server/dev/run.test.ts  第二个停止信号不等排空：在途请求拖住排空时直接结束后端，以 1 退出
+     564ms  neuro-book/src/server/dev/run.test.ts  终端 Ctrl+C（监督进程与后端同时收到 SIGINT）：两个停止请求汇合，仍有序结束，以 0 退出
+     545ms  neuro-book/src/server/dev/supervisor.test.ts  新进程启动失败：报告后等待改动，不循环重启，门直接给不可用；再次改动后恢复
+     363ms  neuro-book/src/server/dev/supervisor.test.ts  重启中的请求等新进程就绪；重启中的新改动不追加重启
+     361ms  neuro-book/src/server/dev/run.test.ts  页面端口被占用：以 1 退出，不启动后端
+     354ms  neuro-book/src/server/dev/supervisor.test.ts  改动去抖后有序重启：旧进程经标准输入停止并以 0 退出之后，新进程才在同一端口启动
+     344ms  neuro-book/src/server/server-projects.test.ts  SIGTERM：项目子进程先于服务端插件收口并退出，服务端以 0 退出
+     322ms  neuro-book/src/plugins/storage/project-child.test.ts  两个窗口经代理共用项目里的记录；项目子进程退出时关库；下一代项目实例读到磁盘上的值
+
+全部通过。

@@ -76,7 +76,7 @@ export interface NotesView {
     notes(): ReadonlyArray<Note> | null;
     /** 开始同步：订阅服务端的 `changed`，拿到第一份列表后返回。重复调用共用同一次同步。 */
     sync(): Promise<RemoteResult<null>>;
-    /** 写一条笔记。拿到结果时，服务端推来的新列表已经进了缓存（同一条链路按发送顺序送达）。 */
+    /** 写一条笔记。已经 `sync` 过时，拿到结果的那一刻服务端推来的新列表已经进了缓存（同一条链路按发送顺序送达）。 */
     add(text: string): Promise<RemoteResult<Note, "storage-failed">>;
 }
 

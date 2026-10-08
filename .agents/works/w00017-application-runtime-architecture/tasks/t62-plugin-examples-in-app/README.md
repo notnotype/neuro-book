@@ -27,3 +27,16 @@ taskId: t62-plugin-examples-in-app
 ## 当前状态
 
 进行中：实施计划见 [plan.md](plan.md)。开发者 2026-10-08 要求写好计划后派子代理在独立 worktree 实施，与 t61 的收口并行。拥有者定义的激活事件暂不演示（插件没有触发入口，见计划“不做与风险”）；开发者 2026-10-08 决定补上插件一侧，记为 [t63](../t63-plugin-activation-trigger/README.md)。
+
+子代理已在 `refactor/w00017-t62-examples` 完成 S0–S5，待主 Agent 审查与合回；实施中与计划不同的地方记在计划末尾的“实施中的调整”。
+
+| 片 | 提交 | 结果 |
+|---|---|---|
+| S0 | `6bbe0225` | 注释规则给示例开教学例外（根 `AGENTS.md`、`common.md`）；`testing/` 约定写进测试规范；内核“零依赖”改为“运行时依赖只有 TypeBox” |
+| S1 | `6a3f7848` | `git mv` 把示例原样搬到 `packages/neuro-book/examples/`，两包 tsconfig 与 `AGENTS.md` 随之改，场景照旧通过 |
+| S2 | `6cdd21f2` | 架构检查拦住产品代码引用 `testing/`、内核 `*/testing` 入口与 `examples/`，示例插件按插件规则检查；三条规则各改成不报时反例用例失败 |
+| S3 | `0364a84c` | 新场地装真实内置插件；clock、notes（合并 notes、cloud-notes、greeter）重写；场景 01、02、05 |
+| S4 | `3f803a42` | counter（合并 board）、menu、file-menu 重写；场景 03、04；删去 board、旧场景 06 与旧场地 |
+| S5 | 本片 | `examples/README.md` 重写；收口验证 |
+
+收口验证：[evidences/test-affected-typecheck.txt](evidences/test-affected-typecheck.txt)：`--since 4d4e3465` 选中内核与应用，内核 292 例、应用 333 例与组件 57 例、两包类型检查通过；示例的 20 例场景最慢约 25 ms。`docs:check`、`governance:check` 无告警。

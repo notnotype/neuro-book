@@ -99,8 +99,8 @@ export const notesBackendPlugin: PluginDefinition = {
                 const diagnostics = context.services.require(diagnosticsKey);
 
                 // 可选依赖不能 `require`（会抛错）：用 `resolve`，它返回结构化结果、不抛。解析会按需激活 clock 的入口。
-                // 拿到的服务随本入口的这一代有效，内核管它的寿命：clock 停止之前，本入口先停（依赖的先激活、后停止）。
-                // 不要在这里缓存“clock 在不在”之外的东西，也不要把它交给别的寿命更长的对象。
+                // 拿到的服务只在本入口的这一代里有效，内核管它的寿命：clock 停止之前，本入口先停（依赖的先激活、后停止）。
+                // 不要把它存到寿命更长的地方（例如模块顶层的变量）：本入口停止后它就失效了，下一代要重新解析。
                 const clock = await context.services.resolve(clockKey);
                 if (clock.status !== "resolved") {
                     // 两种原因要分开处理：`missing-provider` 是没有任何插件提供报时服务，这项功能本来就不存在；其它原因
@@ -159,7 +159,7 @@ export const notesBackendPlugin: PluginDefinition = {
                                         // 订阅方推送。
                                         subscribe: async (_filter, sink, {signal}) => {
                                             const opened = await open();
-                                            // 抛出的错误由内核结算为 `provider-error`，订阅方收到失败结果。
+                                            // 抛错时内核记一条诊断，以 `provider-error` 结束这条订阅，订阅方的 `onEnd` 收到它。
                                             if (!opened.ok) throw new Error(`打不开 ${owner} 的笔记：${opened.detail.code}`);
                                             // Storage 的订阅先推一次当前快照、之后推每次写入，正好就是 `changed` 的语义。它在本
                                             // 实例里同步通知，早于保存返回：`add` 的结果送回调用方之前，新列表已经推出去了。
@@ -171,8 +171,9 @@ export const notesBackendPlugin: PluginDefinition = {
                                                 else diagnostics.record({level: "warn", event: "example.notes.snapshot-unreadable", message: `${owner} 的笔记读不出来，没有推送`, data: {status: snapshot.status}, source: {plugin: descriptor.id, entry: "server"}});
                                             });
                                             if (!subscribed.ok) throw new Error(`订阅不了 ${owner} 的笔记：${subscribed.code}`);
-                                            // Storage 的订阅只会在 Storage 的入口停止时自己结束；notes 依赖 Storage、比它先停，
-                                            // 那时内核已经结束了这条远程订阅，所以不用 `onEnd`。
+                                            // Storage 的订阅自己结束，只会发生在 notes 的这一代停止（它的 Storage 门面随之释放）或
+                                            // Storage 停止时；notes 依赖 Storage、比它先停，两种情况下内核都已经结束了这条远程订阅，
+                                            // 所以不用 `onEnd`。
                                             if (signal.aborted) subscribed.handle.release();
                                             else signal.addEventListener("abort", () => subscribed.handle.release(), {once: true});
                                         },
