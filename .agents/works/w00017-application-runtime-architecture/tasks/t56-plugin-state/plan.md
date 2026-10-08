@@ -152,7 +152,12 @@
 
 ## 验收映射
 
-实施中调整切片顺序：S4、S5（store）先于 S1 提交。t59 的 omp 审查进行时不改它在审的内核文件，store 也不依赖 S1。
+实施中的调整：
+
+- 切片顺序：S4、S5（store）先于 S1 提交。t59 的 omp 审查进行时不改它在审的内核文件，store 也不依赖 S1。
+- 内核另加贡献接收者可选的 `published` 回调（`runtime/plugins.md` 输出 24）：commit 时贡献方的激活还可能失败撤回、`implementation()` 取不到，激活事务的发布又可能隔着 await；`nbook.state` 在 commit 时就把绑定放进响应式表的话，这段时间里读过它的 computed 会停在“未就绪”且之后没人让它失效。
+- 开发模式的 e2e 不跑“面板即时变化”：开发会话只有产品与 Lab，没有声明公开键的插件。它要防的是 store 与 Vue 用了两份响应式运行时，改为直接核对预构建的 `@vue/reactivity` 与 `vue` 导出同一个 `ref`（去掉 Vite 预构建项的变异得到 false）。
+- `WorkbenchCommandHost.dom.test.ts` 不增补：面板随公开状态变化由 `plugin.test.ts`（computed 随值与入口停止变化）与 `state.e2e.ts`（生产构建里面板开着时切换）覆盖。
 
 
 | Spec 条目 | 测试 |

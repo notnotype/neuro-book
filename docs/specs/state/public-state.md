@@ -118,4 +118,7 @@ Smoke：`e2e/state.e2e.ts`，同一浏览器的两个标签页里各自切换探
 
 ## 证据
 
+- 实现入口：[`state/shared/plugin.ts`](../../../packages/neuro-book/src/plugins/state/shared/plugin.ts)、[`state/shared/contracts.ts`](../../../packages/neuro-book/src/plugins/state/shared/contracts.ts)
+- 合同测试：[`state.test.ts`](../../../packages/neuro-book/src/plugins/state/state.test.ts)（输出 1–10、验收 1–3）
+- Smoke：[`state.e2e.ts`](../../../packages/neuro-book/e2e/state.e2e.ts)（测试外壳与真实服务端，本机 Chrome；另含开发模式的响应式运行时核对）
 - 批准依据：[插件的数据与状态](../../proposals/plugin-data-model.md) 第 4、11 节（2026-10-07 `accepted`）；[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 11 节 K5 行；开发者 2026-10-08 在 [t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md) 中确认：公开状态做成贡献点 `state.public`、由内置插件 `nbook.state` 拥有，只在本实例求值、不做客户端镜像。

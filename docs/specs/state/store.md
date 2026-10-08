@@ -162,4 +162,7 @@ Smoke：`e2e/state.e2e.ts`，同一浏览器两个标签页窄改探针记录的
 
 ## 证据
 
+- 实现入口：[`store.ts`](../../../packages/neuro-book/src/shared/store/store.ts)、[`persisted.ts`](../../../packages/neuro-book/src/shared/store/persisted.ts)、[`public.ts`](../../../packages/neuro-book/src/shared/store/public.ts)
+- 合同测试：[`store.test.ts`](../../../packages/neuro-book/src/shared/store/store.test.ts)（输出 1–17、验收 1–4；输出 19 随配置能力）
+- Smoke：[`state.e2e.ts`](../../../packages/neuro-book/e2e/state.e2e.ts)（测试外壳与真实服务端，本机 Chrome；另含开发模式的响应式运行时核对）
 - 批准依据：[插件的数据与状态](../../proposals/plugin-data-model.md) 第 3、11 节与待定项 1（2026-10-07 `accepted`）；开发者 2026-10-08 在 [t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md) 中确认：setup 写法、用 `@vue/reactivity` 自己实现、不用 Pinia、放应用包共享库，正常停止时发出已接受的意图。
