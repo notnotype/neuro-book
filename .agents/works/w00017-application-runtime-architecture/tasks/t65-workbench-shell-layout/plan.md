@@ -37,7 +37,7 @@
 - **store**（`defineStore("workbench-layout", …)`，setup 写法）：三个 `persist` 字段；内存状态 `maximized` 与布局事实（`mode`、生效的面板状态，事实到达前为 `null`）；派生的有效状态；action：
   - 定制：`setPanelPosition`、`setPanelAlignment`、`setPanelHidden`、`setPanelCollapsed`、`togglePanelMaximized`、`setPartHidden`。每个 action 校验后按**字段**合成一次意图：`commit((current) => ({...current, panel: {...current.panel, position}}))`；`hiddenParts` 只增删本次这一个 Part，`dragCollapsed` 只合并本次的键；不把整份显示值当作待保存值（冲突重放时同一个 change 作用在最新值上，另一个窗口改的别的字段保留）。位置、对齐、隐藏、收起变化时清内存最大化；同值不写。
   - 尺寸：`commitSizes(patch)` 只写补丁里的字段，一次手势按涉及的记录各提交一次（两条记录各自保存，不是事务）；`commitDragCollapsed(map)` 同上。
-  - 布局事实：`acceptLayoutFacts(facts)`：组件发布的呈现事实（模式、生效的面板状态）只经它写进 store；内存最大化为真而事实里已不是最大化（进入紧凑、宽度放不下左右面板）时清掉，不写任何记录。
+  - 布局事实：`acceptLayoutFacts(facts)`：组件发布的呈现事实（模式、生效的面板状态）只经它写进 store；内存最大化为真而事实里已不是最大化（进入紧凑）时清掉，不写任何记录。
   - 恢复：`retry(record)`、`discard(record)`：转给对应字段的 `retry`/`discard`（打开或订阅确定失败时先 `reopen`）；失败只暂停那一条记录，别的记录照常保存。
 - 读取就绪前显示默认布局、尺寸手势不可用；记录损坏或版本不支持时按 store 的读取分类显示默认并记诊断，原件不被普通保存覆盖；尺寸越界只夹取显示、记诊断、不改写记录。多窗口共用记录：另一窗口保存后只更新已确认值，本窗口当前显示不被强改（`state/store.md` 输出 5–11）。同一客户端的两个窗口共用 `local` 记录；不同绑定项目的窗口尺寸记录不同。
 - **创建时机**：store 不在工作台入口激活时创建，而是产品外壳页面第一次挂载时由入口持有的惰性取值创建（登记在入口作用域上、随入口这一代释放）。直接打开 `/lab` 的窗口因此不打开、不订阅产品布局记录（`ui/component-lab.md` 的数据隔离）。工作台浏览器入口增加依赖 `storageKey`（store 的 `persist` 要的）。

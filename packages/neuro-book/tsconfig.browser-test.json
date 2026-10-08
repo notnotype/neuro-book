@@ -4,6 +4,6 @@
         "types": ["bun", "vite/client"],
         "allowImportingTsExtensions": true
     },
-    "include": ["src/**/*.dom.test.ts", "e2e", "scripts/lab-shot.ts"],
+    "include": ["src/**/*.dom.test.ts", "src/plugins/*/web/**/*.test.ts", "e2e", "scripts/lab-shot.ts"],
     "exclude": []
 }
