@@ -47,7 +47,7 @@
 - 新增项目级插件 `project-notes`：`project` 入口持有本项目的笔记（远程服务，提供方位置 `project`），浏览器入口包成本地服务；场景宿主 `Stage` 增加起项目实例与按项目绑定窗口（参照 `packages/neuro-book/src/plugins/storage/storage.test.ts` 的 `world()`），场景 06 覆盖：窗口经 `.at("project")` 读写本项目、两个项目代次的数据各在各的实例里、项目代次结束后订阅以 `project-gone` 结束。
 - README：插件、入口、服务、远程服务、贡献的概念表（t57 讨论里的那张）；“插件两端用远程服务、对外用本地服务”；运行位置与目录的对应（应用级 `server`、项目级 `project`、客户端级 `browser`；`backend/` 给前两者，`web/` 给浏览器）；工厂参数规则。
 
-## Spec 与文档改动（S0）
+## Spec 与文档改动
 
 | 文档 | 改什么 |
 |---|---|
@@ -65,14 +65,16 @@
 
 ## 切片
 
+文档随它描述的代码同片提交：Spec 里的源码链接要指向存在的文件，约定要与代码一致。改到的存量 Spec 按“改到哪份清理哪份”一并清理正文里的 Task 引用与“证据”一节（只留批准依据、实现入口、合同测试、Smoke 四种行）。
+
 | 片 | 对应设计 | 提交边界 | 自跑验证 |
 |---|---|---|---|
-| S0 | Spec 改动表（除示例 README） | Spec、ADR、两份 AGENTS | `bun run docs:check`、`bun run governance:check` |
-| S1 | 第 1 节 | 内核按 id 识别、删去 `keys` 与 `unknown-service-key`；内核测试与示例同步 | `bun run --cwd packages/nb-runtime typecheck`、`test` |
-| S2 | 第 2、3 节 | 应用包：删去 `collectServiceKeys` 与 `keys:`、工厂只收宿主配置、跨插件引用 `shared/contracts`、边界测试 | `bun run test:affected --typecheck` |
-| S3 | 第 4 节 | 后端目录改名（应用包与示例）、边界测试、文档里的路径 | 同 S2，另 `test:e2e`、`smoke:server` |
+| S0 | — | ADR 0025 | `bun run docs:check`、`bun run governance:check` |
+| S1 | 第 1 节 | 内核按 id 识别、删去 `keys` 与 `unknown-service-key`；内核测试与示例同步；`runtime/services.md`、`plugins.md`、`application.md`、`plugin-manifest.md` 与 `packages/nb-runtime/AGENTS.md` | `bun run --cwd packages/nb-runtime typecheck`、`test`；`docs:check`、`governance:check` |
+| S2 | 第 2、3 节 | 应用包：删去 `collectServiceKeys` 与 `keys:`、工厂只收宿主配置、跨插件引用 `shared/contracts`、边界测试；`packages/neuro-book/AGENTS.md` 的引用规则 | `bun run test:affected --typecheck` |
+| S3 | 第 4 节 | 后端目录改名（应用包与示例）、边界测试；`packages/neuro-book/AGENTS.md` 的目录约定、Spec 里的路径（`persistence.md`、`server-host.md`、`diagnostics.md`） | 同 S2，另 `build`、`check:dist`、`test:e2e`、`smoke:server` |
 | S4 | 第 5 节 | 示例：工厂参数、项目级插件与场景、README | `bun run --cwd packages/nb-runtime test`、`typecheck` |
-| S5 | — | Spec 证据、Task 证据、omp 审查与修正 | `bun run test:affected --typecheck --since <计划提交>`、`test:e2e`、`smoke:server`、`docs:check`、`governance:check` |
+| S5 | — | Task 证据、omp 审查与修正 | `bun run test:affected --typecheck --since <计划提交>`、`test:e2e`、`smoke:server`、`docs:check`、`governance:check` |
 
 ## 验收映射
 
