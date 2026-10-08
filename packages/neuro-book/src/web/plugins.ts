@@ -13,6 +13,7 @@ import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {createBrowserDiagnosticsPlugin} from "nbook/plugins/diagnostics/web/plugin";
 import {projectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
+import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {storageBrowserPlugin} from "nbook/plugins/storage/web/plugin";
 import {workbenchBrowserPlugin} from "nbook/plugins/workbench/web/plugin";
 
@@ -33,6 +34,7 @@ export function isBrowserHostPlugin(id: string): id is BrowserHostPluginId {
 
 /** 普通插件：只能放定义常量。 */
 export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>> = {
+    "nbook.state": statePlugin,
     "nbook.commands": commandsPlugin,
     "nbook.workbench": workbenchBrowserPlugin,
     "nbook.projects": projectsBrowserPlugin,

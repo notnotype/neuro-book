@@ -9,6 +9,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import type {PluginDescriptor} from "nbook/manifest";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/plugin";
+import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {storageBackendPlugin} from "nbook/plugins/storage/backend/plugin";
 
 import type {ProjectConfig} from "./config";
@@ -26,6 +27,7 @@ export type ProjectHostPluginId = "nbook.diagnostics";
 
 /** 普通插件：只能放定义常量。 */
 export const projectPluginDefinitions: Readonly<Record<string, PluginDefinition>> = {
+    "nbook.state": statePlugin,
     "nbook.storage": storageBackendPlugin,
 };
 
