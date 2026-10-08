@@ -38,7 +38,10 @@ export function serviceProbe(id: string, location: string, keys: ReadonlyArray<S
 
 export interface RemoteProbe {
     readonly definition: PluginDefinition;
-    /** 探针入口的远程访问，以探针插件自己的身份调用；激活后才有，激活前调用抛错。 */
+    /**
+     * 探针入口的远程访问，以探针插件自己的身份调用；激活后才有，激活前调用抛错。经它建立的订阅归探针入口的这一代，
+     * 入口停止时内核替它结束。
+     */
     remote(): PluginRemoteAccess;
 }
 

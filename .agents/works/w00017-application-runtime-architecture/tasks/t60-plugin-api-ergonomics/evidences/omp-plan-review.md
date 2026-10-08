@@ -1,8 +1,8 @@
 # w00017 t60 实施计划只读审查
 
-审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md` 与同目录 `README.md`，固定提交 `8aa26b09`。只读取本审查 worktree；实验与报告写入指定 scratch 目录。
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md` 与同目录 `README.md`，固定提交 `8aa26b09`。审查根为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t60-plan-review`；下文仓库路径均相对于该根。只读取此 worktree，实验与报告仅写入指定 scratch；未修改仓库文件、提交或操作其他工作树。
 
-本报告随核实追加；收尾时按影响排序并补齐未发现问题的方面与数量。
+结论：已批准的精简方向可以保留；计划需要补齐签发收口、整批补交屏障、接收者删除面、类型保证边界、命令诊断与作者文档，才能按字面实施和验收。发现按影响排序：设计与遗漏在前、写法与验收建议在后。阻断 0 条、重要 8 条、建议 4 条，共 12 条；重要表示实施前需要修订的具体合同或步骤，未把尚未存在的实现判为故障。
 
 ## 发现：删除本地委托时仍须迁移签发记录的共享收口
 
@@ -48,6 +48,7 @@
 - **为什么是问题**：只去掉登记期核对并在 availability 的失败分支记日志，无法稳定按键去重，只能依赖解析文案；同命令多个坏键会只暴露首项，其余永远未查，面板隐藏又使用户难以发现拼错。通过一个未声明键的测试不足以证明计划的诊断保证。
 - **依据**：真实 `evaluateContextWhen` 的 scratch 调用传入两个未声明键，实际只访问 a，返回 reason 文案且无 key 字段。源码确认命令面板、键位、isEnabled、执行和远程 list 都共用 registry 可用性求值。公开状态 declaration() 先读响应式 bindings.get(key)，后来绑定使 computed 失效的链路已具备，不需要另加事件总线。
 - **建议改法**：在命令表求值边界逐键取得 `problem(key)`，以现成的 key 和命令 id 去重并诊断，再求值合法键；或让纯求值结果携带结构化坏键集合。不要解析文案、重复核对或给每个界面另加诊断。补两个坏键、同键被两条命令引用、反复从列表/执行求值不重复、键后来声明且绑定后恢复的测试；保持现行面板过滤，把风险文案改为“面板隐藏，诊断与 isEnabled/远程 list 原因可查”。
+
 ## 发现：可选功能的“远程调用失败即不在”会错误解释协议失败
 
 - **严重程度**：重要；**类别**：作者规则 / 失败语义。
@@ -66,15 +67,6 @@
 - **依据**：逐处读取上述活跃文档；ADR 0024 仍为 accepted，S0/S7 的文档列表只有 7 份 Spec 与示例 README。新方案明确合同仍为 TypeBox 值、声明也直接写合同对象，类型导入不会在运行时留下对象。`require` 现行参数为服务键对象，未声明键抛 TypeError，与旧 SDK 字符串/结构化失败表述不同。
 - **建议改法**：S0 加一条对 ADR 0024 第 4 条的补充决策或明确修订引用，保留历史批准依据；明确“可导入无副作用的公开合同/键值，不导入提供方实现、宿主内部模块”，并给类型与值各一例。把 plugin-api 的上下文、命令用法、错误与对应验收同步到本地 require/resolve 的现行合同；plugin-channel 的远程委托核对直接引用保留的签发记录规则。清单 JSON 的 requires/contributes 可按其 planned 映射保留，不把源码与 JSON 字段混成一套。
 
-## 发现：入口辅助函数的宽类型会挡住 S6，需加入正例与迁移步骤
-
-- **严重程度**：建议；**类别**：写法 / 类型验收。
-- **位置**：`plan.md:65–74,110,140,153`；`packages/neuro-book/src/plugins/commands/shared/plugin.ts:105,133–153`；`src/plugins/diagnostics/backend/plugin.ts:31–44,79–95`。
-- **现象**：现有 `remoteCommands()` 显式返回未带合同参数的 `RemoteProvision`；后端诊断插件从 `PluginDefinition.entries` 取宽类型的 `baseEntry`，并经返回 `ActivationOutput` 的辅助函数改写服务。计划只写“全部入口改用 defineEntry”，没有迁移这些擦除后的返回类型。
-- **为什么是问题**：一旦提供项保留类型参数，宽 `RemoteProvision` 无法赋给具体合同元组；宽 `ActivationOutput` 的任意数组也无法保证固定提供项与禁用类别。只在入口外套 `defineEntry` 会误报合法现有入口；为了通过而加断言又会撤销静态保证。
-- **依据**：scratch 小样中，`remoteHelper(): RemoteProvision` 的旧注解导致 TS2322，改为 `RemoteProvision<typeof remote>` 后消失。加入“未声明类别禁用、非空类别必需”后，条件类型令同步/async 字面量数组丢失元组上下文；最终以显式 `as const` 和对远程声明元组并集的非分配条件隔离了问题，正例仅剩预期反例的 TS2578。最初的全 optional 版本能直接推导数组，但不满足缺项保证，不能作为完成的设计证明。真实 `partitionEntry` 的两份合同形状不同；小样只验证了简化的分支结构。
-- **建议改法**：保留推导或给辅助函数精确的合同参数；诊断插件在内核工厂边界保留精确入口/产出类型，使桥接只装饰释放回调而不擦除元组。加入不靠类型断言的同步字面量、async、真实 `commandsEntry(location)`、真实 `partitionEntry`、包装已有入口的编译成功正例；核对禁用类别的条件类型与声明元组并集是否保留元组上下文。必要的 `as const` 要在作者写法里明确，不能只用全 optional 小样声称普通写法成立。不要复制多个入口或用 `as ActivationOutput` 绕过。
-
 ## 发现：逐片提交后，S7 的默认 `test:affected` 不会运行本 Task 的测试
 
 - **严重程度**：重要；**类别**：验收。
@@ -83,6 +75,15 @@
 - **为什么是问题**：收口证据会把空选集当作完成检验；示例与产品整合后的测试并没有由这条命令覆盖。每片的有效验证可以保留，但不能把这条命令当最终整合门禁。
 - **依据**：在固定计划提交的干净审查 worktree 实际执行 `bun run test:affected --typecheck --dry-run`，输出 `改动文件 0 个（未提交的改动）。没有要运行的测试。`，退出码 0。实现按 `changedFiles(repoRoot, since?)` 取范围，缺 `since` 不看已提交改动。
 - **建议改法**：S7 显式写 `bun run test:affected --typecheck --since 8aa26b09`，或指定 `--package nb-runtime --with-consumers`；docs/governance 若要逐条展示本 Task 的已提交警告，也用同一 `--since` 基准。显式选包的 dry-run 已实测选中 nb-runtime 的 typecheck/test 与 neuro-book 的 typecheck/test:bun/test:vitest；未运行这些全量命令。
+
+## 发现：入口辅助函数的宽类型会挡住 S6，需加入正例与迁移步骤
+
+- **严重程度**：建议；**类别**：写法 / 类型验收。
+- **位置**：`plan.md:65–74,110,140,153`；`packages/neuro-book/src/plugins/commands/shared/plugin.ts:105,133–153`；`src/plugins/diagnostics/backend/plugin.ts:31–44,79–95`。
+- **现象**：现有 `remoteCommands()` 显式返回未带合同参数的 `RemoteProvision`；后端诊断插件从 `PluginDefinition.entries` 取宽类型的 `baseEntry`，并经返回 `ActivationOutput` 的辅助函数改写服务。计划只写“全部入口改用 defineEntry”，没有迁移这些擦除后的返回类型。
+- **为什么是问题**：一旦提供项保留类型参数，宽 `RemoteProvision` 无法赋给具体合同元组；宽 `ActivationOutput` 的任意数组也无法保证固定提供项与禁用类别。只在入口外套 `defineEntry` 会误报合法现有入口；为了通过而加断言又会撤销静态保证。
+- **依据**：scratch 小样中，`remoteHelper(): RemoteProvision` 的旧注解导致 TS2322，改为 `RemoteProvision<typeof remote>` 后消失。加入“未声明类别禁用、非空类别必需”后，条件类型令同步/async 字面量数组丢失元组上下文；最终以显式 `as const` 和对远程声明元组并集的非分配条件隔离了问题，正例仅剩预期反例的 TS2578。最初的全 optional 版本能直接推导数组，但不满足缺项保证，不能作为完成的设计证明。真实 `partitionEntry` 的两份合同形状不同；小样只验证了简化的分支结构。
+- **建议改法**：保留推导或给辅助函数精确的合同参数；诊断插件在内核工厂边界保留精确入口/产出类型，使桥接只装饰释放回调而不擦除元组。加入不靠类型断言的同步字面量、async、真实 `commandsEntry(location)`、真实 `partitionEntry`、包装已有入口的编译成功正例；核对禁用类别的条件类型与声明元组并集是否保留元组上下文。必要的 `as const` 要在作者写法里明确，不能只用全 optional 小样声称普通写法成立。不要复制多个入口或用 `as ActivationOutput` 绕过。
 
 ## 发现：类型上的提供项参数只保服务形状，不能核对服务与合同的 id
 
@@ -102,3 +103,66 @@
 - **依据**：`real-delivery.ts` 第一个真实 host 场景登记 RouteTable 接收者与同插件两个路由入口；实际输出为两条 `duplicate-contribution`、两个入口 activated、prepare 调用 0 次、没有挂载。`validateRouteContribution` 排除了用两个不同合法贡献 id 绕过该冲突；整个定义第二次登记又会先被 `duplicate-plugin` 拒绝。
 - **建议改法**：真实内核验收应写“两条重复路由都不挂载”；prepare 否决与逆序撤回由自定义贡献点的真实内核场景验证。若保留 RouteTable 的重复预占保护，明确它是单独边界防御测试；若只考虑当前完全受内核管理的入口，可以评估删除 HTTP 的 pending Set 与 prepare，直接在 published 挂载、revoke 摘下，少一张状态表。该精简是建议，不要求超出批准范围实施。
 
+## 发现：S5 的直连示例需保留调用方入口拥有订阅的说明
+
+- **严重程度**：建议；**类别**：示例教学 / 生命周期验收。
+- **位置**：`plan.md:99–106,156`；`packages/nb-runtime/examples/plugins/counter/web/plugin.ts:2–5`；`examples/scenarios/04-remote-service.test.ts:27–33`、`06-project-instance.test.ts:46–59`。
+- **现象**：删掉浏览器包装后，订阅从包装入口迁给探针入口；当前场景 4 演示收到事件，场景 6 演示提供方项目停止，但计划的示例验收只点名直调与身份，没有保留“订阅随发起调用的入口代次结束”的说明或验收依据。
+- **为什么是问题**：直接把 context.remote 交给场景后，作者容易误认为寿命属于场景函数或提供方。原包装注释明确过调用方停止时收口，删除它需要迁移这条教学语义。当前内核行为已有合同测试，不是新的运行时缺陷，因此列为建议。
+- **依据**：`host.ts:568–585` 把 remote access 的停止信号与释放登记绑定到发起入口；`src/remote/routing.test.ts:523–568` 已分别覆盖主动 release 的 abort/迟到事件丢弃、提供方停止、订阅方入口停止后的 abort 与门面释放。现有场景 6 的 provider-stopped 不等价于调用方停止。
+- **建议改法**：S5 的探针与 README 明确订阅随探针入口代次结束，并引用现有 routing 合同测试；若需示例本身证明，再加停止调用方后观察提供方 abort、事件不再送达的场景。调用方主动 release 不触发 onEnd，不把它误当判据。无需再建本地服务包装。
+
+## 未发现问题的方面
+
+- **本地委托删除的方向**：产品与示例未找到本地 `resolveFor`、`delegates` 的直接或间接消费者；`cloud-notes` 与产品 Storage 消费的是保留的 `remote.on`、`remoteDelegates`。签发收口迁移明确后，可以删除本地专属数组、解析路径与测试，不需要兼容层。
+- **跨点校验的精简方向**：除命令登记期查公开键外，HTTP、页面、公开状态的校验只看自身。保留 `ActivationContext.declarations` 足够服务公开状态的 accepted + location 查询；删除校验栈与跨点查询不需要建立第二套索引或事件机制。
+- **公开状态与命令恢复**：`state.declaration()` 先读响应式 Map，`published` 的绑定与 `revoke` 的删除能使已有 computed 重新求值。仅向非响应式内核目录登记声明不承诺自动刷新；计划要求“后来声明并就绪”时恢复，绑定路径与该要求相容。此结论从代码推断，本审查没有执行未来 S2 的动态登记场景。
+- **命令的共同边界**：产品面板、键位分发、isEnabled、执行与远程 list/execute 都经同一 registry 可用性路径；Lab 的注册/执行同样如此，检视器另外直接求值用于展示。诊断放在命令表边界即可统一，不必把报告副作用塞进公开状态服务。
+- **去掉 commit 的方向**：挂载/登记改到同步 published 能避免最终激活失败的入口短暂对外出现；当前锁、交付账本、完成标记、存活检查、逆序撤回与通知去重不依赖保留 commit 回调。必须保留上文列出的整批屏障和寿命边界。published 异常只诊断、不否决的旧合同无需改变。
+- **合同对象声明**：内核最终仍按合同 id 核对前缀、重复与提供项一致性；目录和诊断继续给 id，清单 JSON 装载继续另开。代码对象与 JSON id 的区分成立。
+- **orThrow / RemoteCallError**：新工具可在成功时返回原值、失败时保留原 RemoteFailure 引用，独立覆盖路由失败、带 cause 的 unknown-outcome 与业务失败。failure 字段避免与 Error.cause 的语义冲突；客户端返回合同无需改变。scratch 形状烟测与类型检查通过，尚未验证未来包导出的实现。
+- **示例与规则代价**：counter/board 直调合同能去掉重复接口和原样转发，并使身份归实际发起入口；场景 6 已有项目隔离、无绑定失败、provider-stopped、target-gone 与 project-gone 演示。cloud-notes/Storage 的选路和身份代理不是原样包装，保留合理。远程合同公开、需处理版本变化的代价已在计划第 171 行列出，无需重新议价。
+- **范围与切片**：S1–S3 精简、S4 API 类型与取值工具、S5 示例、S6 产品迁移的顺序有真实依赖；每片同时迁移受影响消费者可以独立编译。已明确把目录/not-provided 放后续、角色匹配只写设计，不需要提前实现 TUI。README 的目标与边界和计划一致，未另发现 Task 元数据问题。
+
+## 已执行验证与限制
+
+所有命令从审查根执行；以下基线通过只证明 `8aa26b09` 的当前行为，不证明拟议改动已通过。
+
+| 实际命令 | 结果与覆盖 |
+|---|---|
+| `prox bun install --frozen-lockfile --ignore-scripts` | 退出 0，安装 1559 packages；不执行 postinstall 构建。 |
+| `packages/nb-runtime/node_modules/.bin/tsc --version` | `Version 6.0.3`，类型小样使用此版本。 |
+| `bun run --cwd packages/nb-runtime typecheck` | 退出 0；执行 `tsc --noEmit && tsc --noEmit -p tsconfig.browser.json`。 |
+| `bun run --cwd packages/nb-runtime test src/remote/delegation.test.ts src/plugins/owner-contribution-points.test.ts src/plugins/declarations.test.ts` | 31 pass，0 fail，247 expect() calls；远程身份与寿命、贡献事务/补交、声明查询基线。 |
+| `bun run --cwd packages/neuro-book test:bun src/plugins/commands/shared/context-keys.test.ts src/plugins/commands/shared/registry.test.ts src/plugins/commands/shared/plugin.test.ts src/plugins/commands/shared/remote.test.ts src/plugins/http/backend/dispatch.test.ts` | 50 pass，0 fail，261 expect() calls；命令各边界与 HTTP 分发基线。 |
+| `bun run --cwd packages/nb-runtime test examples/scenarios/04-remote-service.test.ts examples/scenarios/05-delegating-proxy.test.ts examples/scenarios/06-project-instance.test.ts` | 6 pass，0 fail，44 expect() calls；远程服务、代理身份、项目绑定与结束基线。 |
+| `bun run test:affected --typecheck --dry-run` | 退出 0，`改动文件 0 个（未提交的改动）。没有要运行的测试。` |
+| `bun run test:affected --typecheck --package nb-runtime --with-consumers --dry-run` | 退出 0，实际选中 nb-runtime 与 neuro-book 两项，包含内核 typecheck/test 与应用 typecheck/test:bun/test:vitest；只核对选择，没有运行全量。 |
+
+临时实验保留在本报告同目录。以下为可原样重跑的命令：
+
+```sh
+bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-plan/real-delivery.ts
+bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-plan/when-issues.ts
+bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-plan/result-shape.ts
+packages/nb-runtime/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target ES2022 --module ESNext --moduleResolution bundler --typeRoots /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t60-plan-review/node_modules/@types --types bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-plan/entry-types.ts
+packages/nb-runtime/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target ES2022 --module ESNext --moduleResolution bundler --typeRoots /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t60-plan-review/node_modules/@types --types bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-plan/result-shape.ts
+```
+
+- `real-delivery.ts` 退出 0。三个真实宿主场景分别证明：重复 HTTP 贡献在准备前被拒；补交第二项 prepare 失败时仅撤回第一项、双方仍 available、无 published；挂起 prepare 时关闭贡献方，迟到完成只撤回，事件为 `prepare:start, prepare:end, revoke:activation-stopped`，激活结果 stopped，无 published。
+- `when-issues.ts` 退出 0。真实 helper 对 a、b 两个坏键仅访问 a，返回 `{ok:false, reason}`，没有结构化 key。
+- `result-shape.ts` 运行与 tsc 均退出 0。成功值保持同一引用；denied、unknown-outcome/timeout、conflict/detail 三个失败保留原 failure 引用，均为 Error 和 RemoteCallError。
+- `entry-types.ts` 最终 tsc 退出 2，仅四条 `TS2578: Unused '@ts-expect-error' directive.`，位置 56、61、66、71：同形服务不同 id、非空接收者多写、非空贡献实现多写、同形远程合同不同 id。合法正例没有其它诊断；这是揭示计划形状能力边界的预期失败，不是仓库类型检查失败。数组用 as const，Storage 分支为简化模型，不冒充真实 S6 已迁移。
+
+未运行：应用全量 typecheck/test、e2e、smoke:server、开发服务、docs:check/governance:check；没有修改仓库实现，故没有在仓库中执行变异。变异的落点与断言已静态核对：类型反例必须配合法正例；失败 prepare 场景的接收者必须真的装 published 并记录通知，否则“没通知”可能只是没有回调；提前通知的变异必须破坏真实门禁，单独搬动 #notifyPublished 调用仍可能被 handle.published 拦住。未来 S3 应保留挂起准备、第二项失败、补交整批失败、关闭与新增接收者交错的旧判据，将 commit 失败点迁往 prepare，而不是删除这些时序测试。
+
+## 回写建议与数量
+
+本次的规范缺陷对应上述重要发现：建议直接修订 t60 计划、既有 runtime Spec 与 ADR 的指定小节，不新建通用规则或并列真相源。测试规范已有变异、真实依赖和显式改动基准要求，无需再添加同义规则；本审查只提出建议，未回写仓库。
+
+| 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|
+| 规范缺陷 | 映射返回类型允许额外对象键，同形 id 在结构类型中不可区分 | 明确静态保证与 runtime 身份核对的边界；要保证键恰好一致时捕获实际产出键并增加反例 | t60 `plan.md` 第 5 节；`docs/specs/runtime/plugins.md` 的 defineEntry 合同 |
+| 规范缺陷 | “远程失败即不在”合并了 denied、版本不符与已派发写请求结果未知 | 改写：“直接尝试远程调用；不可达或暂不可用时按领域降级，当前不能精确判断未安装；其它失败按各自合同处理，unknown-outcome 交给写入方核对。” | t60 `plan.md:121`；`docs/specs/runtime/plugin-api.md` 的可选功能小节 |
+
+最终数量：**阻断 0 条，重要 8 条，建议 4 条，共 12 条。**

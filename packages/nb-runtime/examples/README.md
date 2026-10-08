@@ -83,7 +83,7 @@ plugins/<插件>/
 | [01-services](scenarios/01-services.test.ts) | clock、greeter（宿主给时钟能力；不给时 clock 受阻） | [services](../../../docs/specs/runtime/services.md)、[plugins](../../../docs/specs/runtime/plugins.md)、[application](../../../docs/specs/runtime/application.md) |
 | [02-per-consumer](scenarios/02-per-consumer.test.ts) | notes | [services](../../../docs/specs/runtime/services.md) 输出第 11–12 条 |
 | [03-contribution-point](scenarios/03-contribution-point.test.ts) | menu、file-menu | [plugins](../../../docs/specs/runtime/plugins.md) 输出第 15–18 条 |
-| [04-remote-service](scenarios/04-remote-service.test.ts) | counter（窗口里的面板直接调用；`orThrow` 只取值） | [plugin-channel](../../../docs/specs/runtime/plugin-channel.md) |
+| [04-remote-service](scenarios/04-remote-service.test.ts) | counter（窗口里的面板直接调用；`orThrow` 只取值；订阅归发起它的入口，入口停止即结束） | [plugin-channel](../../../docs/specs/runtime/plugin-channel.md) |
 | [05-delegating-proxy](scenarios/05-delegating-proxy.test.ts) | cloud-notes | [services](../../../docs/specs/runtime/services.md) 输出第 13 条、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md) 输出第 10 条 |
 | [06-project-instance](scenarios/06-project-instance.test.ts) | board | [projects](../../../docs/specs/runtime/projects.md)、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md) |
 
