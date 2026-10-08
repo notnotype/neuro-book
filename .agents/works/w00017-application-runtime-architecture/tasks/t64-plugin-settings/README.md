@@ -22,3 +22,4 @@ K5 [t56](../t56-plugin-state/README.md)（store 的读配置辅助函数建在�
 - 2026-10-08 计划起草；三个 omp 交叉审查（对照 VS Code、架构与授权、文件层实验与使用场景）共 34 条，主 Agent 逐条核实后全部并入计划（[审查处理](plan.md#审查处理)，报告见 `evidences/plan-review-*.txt`）。开发者授权按 [autonomous-delivery](../../../../skills/autonomous-delivery/SKILL.md) 推进，本该开发者确认的点记入 [待确认清单](../../pending-confirmations.md)。
 - S0（Spec 与文档）`1abde4fa`。
 - S1（只含声明的定义可以登记；`pluginsAt`、`definitionAt` 统一三个宿主与浏览器引导的插件集合；宿主能力 `clockKey`、`windowConnectionKey`）：内核 301 例、应用 338 例与组件 57 例、三份 typecheck 通过，新判据做了变异检查。
+- S2（`defineSetting` 与声明校验、层文本解析与单键编辑、合成与快照比较；`jsonc-parser` 依赖，锁文件只多它）：28 例，变异检查覆盖重复键、整行删除、悬空逗号、非 JSON 数、制表符缩进、secret、默认值与层。
