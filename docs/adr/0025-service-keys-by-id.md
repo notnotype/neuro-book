@@ -1,8 +1,8 @@
 ---
 schema: nbook.adr/v1
-status: accepted
+status: superseded
 decided: 2026-10-08
-superseded-by: null
+superseded-by: docs/adr/0026-plugin-definitions-as-constants.md
 ---
 
 # ADR 0025：服务键按服务 id 识别，插件之间可引用对方的合同模块
