@@ -44,7 +44,8 @@ describe("sameContent：层变坏或修好而值不变也算变化", () => {
     const ok: LayerSnapshot = {status: "ok", revision: {boot: "a", seq: 1}, values: {[theme.key]: "macos", [font.key]: {size: 1, family: "x"}}, problems: []};
 
     it("只差修订号或对象键的顺序：相同", () => {
-        expect(sameContent(ok, {...ok, revision: {boot: "a", seq: 2}})).toBe(true);
+        const later: LayerSnapshot = {...ok, revision: {boot: "a", seq: 2}};
+        expect(sameContent(ok, later)).toBe(true);
         expect(sameContent(ok, {...ok, values: {[font.key]: {family: "x", size: 1}, [theme.key]: "macos"}})).toBe(true);
     });
 

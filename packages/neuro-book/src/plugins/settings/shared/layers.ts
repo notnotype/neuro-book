@@ -16,11 +16,14 @@ export interface LayerProblem {
     readonly reason: "invalid-value" | "layer-not-allowed";
 }
 
-/** 一层的公开状态。`values` 只含已声明、符合 schema、本层允许的键，深冻结。 */
-export type LayerSnapshot =
-    | {readonly status: "ok"; readonly revision: Revision; readonly values: Readonly<Record<string, unknown>>; readonly problems: ReadonlyArray<LayerProblem>}
+/** 一层的公开内容。`values` 只含已声明、符合 schema、本层允许的键，深冻结。 */
+export type LayerContent =
+    | {readonly status: "ok"; readonly values: Readonly<Record<string, unknown>>; readonly problems: ReadonlyArray<LayerProblem>}
     /** 文件当前无效：`values` 与 `problems` 是上一份有效内容的（启动时即无效则为空），写入一律拒绝。 */
-    | {readonly status: "invalid"; readonly revision: Revision; readonly values: Readonly<Record<string, unknown>>; readonly problems: ReadonlyArray<LayerProblem>; readonly detail: string};
+    | {readonly status: "invalid"; readonly values: Readonly<Record<string, unknown>>; readonly problems: ReadonlyArray<LayerProblem>; readonly detail: string};
+
+/** 拥有者发布的层快照：内容加修订号。 */
+export type LayerSnapshot = LayerContent & {readonly revision: Revision};
 
 /**
  * 收到的快照能不能替换当前的：同一启动标识下序号更大才替换，写入结果与订阅推送乱序到达时不倒退。启动标识不同说明
@@ -35,11 +38,11 @@ export function supersedes(next: Revision, current: Revision | null): boolean {
  * 两份快照是否在公开内容上相同（状态、键值、被丢弃的键、无效原因），不看修订号：拥有者重读后都相同时不发布
  * （输出 10）。值都是 JSON，按规范化的 JSON 文本比较。
  */
-export function sameContent(left: LayerSnapshot, right: LayerSnapshot): boolean {
+export function sameContent(left: LayerContent, right: LayerContent): boolean {
     return canonical(contentOf(left)) === canonical(contentOf(right));
 }
 
-function contentOf(snapshot: LayerSnapshot): unknown {
+function contentOf(snapshot: LayerContent): unknown {
     return snapshot.status === "ok"
         ? {status: "ok", values: snapshot.values, problems: snapshot.problems}
         : {status: "invalid", values: snapshot.values, problems: snapshot.problems, detail: snapshot.detail};
