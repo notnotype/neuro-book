@@ -87,7 +87,7 @@ function owner(points: ReadonlyArray<ContributionPointDefinition>, receivers: Re
 function recordingReceiver(events: string[]): ContributionReceiver {
     return {
         prepare: (handle) => {events.push(`prepare:${handle.id}`); return handle.id;},
-        commit: (handle) => {events.push(`commit:${handle.id}`);},
+        published: (handle) => {events.push(`published:${handle.id}`);},
         revoke: (handle, _prepared, reason) => {events.push(`revoke:${handle.id}:${reason}`);},
     };
 }
@@ -114,7 +114,7 @@ describe("拥有者贡献点合同", () => {
         expect(state(host, "ok").validation).toEqual({status: "accepted"});
         expect((await host.activate({plugin: "source", entry: "main"})).status).toBe("activated");
         expect((await host.activate({plugin: "source", entry: "other"})).status).toBe("activated");
-        expect(events).toEqual(["prepare:ok", "commit:ok", "prepare:other", "commit:other"]);
+        expect(events).toEqual(["prepare:ok", "published:ok", "prepare:other", "published:other"]);
         expect(state(host, "ok")).toMatchObject({status: "available", delivery: {status: "delivered"}});
         expect(state(host, "bad")).toMatchObject({status: "declared", validation: {status: "rejected"}, delivery: {status: "waiting-receiver"}});
         expect("implementation" in state(host, "bad")).toBe(false);
@@ -236,24 +236,25 @@ describe("拥有者贡献点合同", () => {
         const events: string[] = [];
         const publishedDuringCallbacks: boolean[] = [];
         const receiver: ContributionReceiver = {
-            prepare: (handle) => {events.push(`prepare:${handle.id}`); publishedDuringCallbacks.push(handle.published); return handle.id;},
-            commit: (handle) => {
-                events.push(`commit:${handle.id}`);
+            prepare: (handle) => {
+                events.push(`prepare:${handle.id}`);
                 publishedDuringCallbacks.push(handle.published);
-                if (handle.id === "bad.view") throw new Error("backfill commit failed");
+                if (handle.id === "bad.last") throw new Error("backfill prepare failed");
+                return handle.id;
             },
+            published: (handle) => {events.push(`published:${handle.id}`);},
             revoke: (handle, _prepared, reason) => {events.push(`revoke:${handle.id}:${reason}`);},
         };
         register(host, owner([point(), point("views")], {commands: receiver, views: receiver}), root);
         expect((await host.activate({plugin: "owner", entry: "main"})).status).toBe("activated");
         expect(events).toEqual([
-            "prepare:good.command", "prepare:good.view", "commit:good.command", "commit:good.view",
-            "prepare:bad.command", "prepare:bad.view", "prepare:bad.last", "commit:bad.command", "commit:bad.view",
-            "revoke:bad.last:delivery-failed", "revoke:bad.view:delivery-failed", "revoke:bad.command:delivery-failed",
+            "prepare:good.command", "prepare:good.view", "published:good.command", "published:good.view",
+            "prepare:bad.command", "prepare:bad.view", "prepare:bad.last",
+            "revoke:bad.view:delivery-failed", "revoke:bad.command:delivery-failed",
         ]);
         expect(publishedDuringCallbacks.every((value) => !value)).toBe(true);
         for (const item of good) expect(state(host, item.id, item.capability)).toMatchObject({status: "available", delivery: {status: "delivered", receiver: {plugin: "owner", entry: "main", generation: 1}}});
-        for (const item of bad) expect(state(host, item.id, item.capability)).toMatchObject({status: "available", delivery: {status: "delivery-failed", error: {name: "Error", message: "backfill commit failed"}}});
+        for (const item of bad) expect(state(host, item.id, item.capability)).toMatchObject({status: "available", delivery: {status: "delivery-failed", error: {name: "Error", message: "backfill prepare failed"}}});
         expect(host.entryState({plugin: "source", entry: "bad"})?.status).toBe("available");
         expect(host.diagnostics().filter((item) => item.reason === "backfill-failed" || item.reason === "delivery-failed").map((item) => item.reason)).toEqual(["delivery-failed", "backfill-failed"]);
     });
@@ -272,7 +273,7 @@ describe("拥有者贡献点合同", () => {
         };
         register(host, owner([point("metadata", "none")], {metadata: receiver}), root);
         expect((await host.activate({plugin: "owner", entry: "main"})).status).toBe("activated");
-        expect(events).toEqual(["prepare:one", "commit:one", "prepare:two", "commit:two"]);
+        expect(events).toEqual(["prepare:one", "published:one", "prepare:two", "published:two"]);
         expect(activations).toBe(0);
         for (const handle of handles) {
             expect(handle).toMatchObject({kind: "plugin", entry: null, published: true});
@@ -289,7 +290,7 @@ describe("拥有者贡献点合同", () => {
         const output = {alive: true};
         const receiver: ContributionReceiver = {
             prepare: (handle) => {handles.push(handle); return handle.id;},
-            commit: (handle) => {events.push(`commit:${handle.id}`);},
+            published: (handle) => {events.push(`published:${handle.id}`);},
             revoke: (handle, _prepared, reason) => {events.push(`revoke:${handle.id}:${reason}:${output.alive}`);},
         };
         const definition = owner([point()], {commands: receiver});
@@ -303,7 +304,7 @@ describe("拥有者贡献点合同", () => {
         const oldHandle = handles[0]!;
         expect(oldHandle.implementation()).toBeTypeOf("function");
         expect((await ownerScope.close()).status).toBe("closed");
-        expect(events).toEqual(["commit:one", "revoke:one:receiver-closed:true", "release:output"]);
+        expect(events).toEqual(["published:one", "revoke:one:receiver-closed:true", "release:output"]);
         expect(oldHandle.published).toBe(false);
         expect(() => oldHandle.implementation()).toThrow(PluginStateError);
         expect(state(host, "one")).toMatchObject({status: "available", validation: {status: "pending", reason: "unknown-point"}, delivery: {status: "waiting-receiver"}});
@@ -340,11 +341,12 @@ describe("拥有者贡献点合同", () => {
         }
     });
 
-    it("场景 11：挂起的补交与两个贡献方并发激活交错，同一接收者整批回调仍不交错", async () => {
+    it("场景 11：挂起的补交与两个贡献方并发激活交错，同一接收者整批 prepare 仍不交错", async () => {
         const {host, root} = fixture();
         register(host, source("existing", [declaration("existing")]), root);
         await host.activate({plugin: "existing", entry: "main"});
         const events: string[] = [];
+        const published: string[] = [];
         const backfillStarted = Promise.withResolvers<void>();
         const releaseBackfill = Promise.withResolvers<void>();
         const aStarted = Promise.withResolvers<void>();
@@ -356,7 +358,7 @@ describe("拥有者贡献点合同", () => {
                 events.push(`prepare:end:${handle.id}`);
                 return handle.id;
             },
-            commit: (handle) => {events.push(`commit:${handle.id}`);},
+            published: (handle) => {published.push(handle.id);},
         };
         register(host, owner([point()], {commands: receiver}), root);
         const activatingOwner = host.activate({plugin: "owner", entry: "main"});
@@ -379,9 +381,10 @@ describe("拥有者贡献点合同", () => {
         expect((await activatingOwner).status).toBe("activated");
         expect((await a).status).toBe("activated");
         expect((await b).status).toBe("activated");
-        expect(events.slice(0, 3)).toEqual(["prepare:start:existing", "prepare:end:existing", "commit:existing"]);
-        const expectedBatch = (id: string) => [`prepare:start:${id}.one`, `prepare:end:${id}.one`, `prepare:start:${id}.two`, `prepare:end:${id}.two`, `commit:${id}.one`, `commit:${id}.two`];
-        expect([events.slice(3, 9), events.slice(9, 15)].sort((left, right) => left[0]! < right[0]! ? -1 : 1)).toEqual([expectedBatch("a"), expectedBatch("b")]);
+        expect(events.slice(0, 2)).toEqual(["prepare:start:existing", "prepare:end:existing"]);
+        const expectedBatch = (id: string) => [`prepare:start:${id}.one`, `prepare:end:${id}.one`, `prepare:start:${id}.two`, `prepare:end:${id}.two`];
+        expect([events.slice(2, 6), events.slice(6, 10)].sort((left, right) => left[0]! < right[0]! ? -1 : 1)).toEqual([expectedBatch("a"), expectedBatch("b")]);
+        expect(published.sort()).toEqual(["a.one", "a.two", "b.one", "b.two", "existing"]);
     });
 
     it("场景 12：结构错误整插件不登记，同点不同位置可接收，missing/undeclared receiver 是输出阶段失败", async () => {
@@ -447,7 +450,7 @@ describe("拥有者贡献点合同", () => {
             gate.resolve();
         }
         expect((await activating).status).toBe("activated");
-        expect(events).toEqual(["prepare:two", "commit:two"]);
+        expect(events).toEqual(["prepare:two", "published:two"]);
         expect(state(host, "two", "second").delivery).toMatchObject({status: "delivered", receiver: {plugin: "second-owner"}});
     });
 
@@ -460,7 +463,7 @@ describe("拥有者贡献点合同", () => {
         const output = {alive: true};
         const receiver: ContributionReceiver = {
             prepare: async () => {events.push("prepare:start"); started.resolve(); await gate.promise; events.push(`prepare:end:${output.alive}`);},
-            commit: () => {events.push("commit");},
+            published: () => {events.push("published");},
             revoke: (_handle, _prepared, reason) => {events.push(`revoke:${reason}:${output.alive}`);},
         };
         const definition = owner([point()], {commands: receiver});
@@ -479,7 +482,7 @@ describe("拥有者贡献点合同", () => {
         expect(state(host, "one")).toMatchObject({status: "available", delivery: {status: "waiting-receiver"}});
     });
 
-    it("贡献方在补交 prepare 中关闭时不迟到 commit，已准备项撤回后才释放贡献方产出", async () => {
+    it("贡献方在补交 prepare 中关闭时不迟到 published，已准备项撤回后才释放贡献方产出", async () => {
         const {host, root} = fixture();
         const sourceScope = child(root, "source");
         const events: string[] = [];
@@ -492,7 +495,7 @@ describe("拥有者贡献点合同", () => {
         const gate = Promise.withResolvers<void>();
         const receiver: ContributionReceiver = {
             prepare: async (handle) => {events.push(`prepare:${handle.id}`); started.resolve(); await gate.promise; return handle.id;},
-            commit: (handle) => {events.push(`commit:${handle.id}`);},
+            published: (handle) => {events.push(`published:${handle.id}`);},
             revoke: (handle, _prepared, reason) => {events.push(`revoke:${handle.id}:${reason}`);},
         };
         register(host, owner([point()], {commands: receiver}), root);
@@ -538,8 +541,8 @@ describe("拥有者贡献点合同", () => {
 });
 
 describe("Spec runtime.plugins 输出 24：接收者的 published 回调", () => {
-    /** 记录回调顺序，并在每个回调里试取实现：commit 时还取不到，published 时取得到。 */
-    function publishingReceiver(events: string[], options: {readonly throwOnPublished?: boolean} = {}): ContributionReceiver {
+    /** 记录回调顺序，并在每个回调里试取实现：prepare 时还取不到，published 时取得到。 */
+    function publishingReceiver(events: string[], options: {readonly throwOnPublished?: boolean; readonly prepared?: () => void; readonly gate?: Promise<void>} = {}): ContributionReceiver {
         const reachable = (handle: ContributionHandle): string => {
             try {
                 return String((handle.implementation() as () => string)());
@@ -548,8 +551,10 @@ describe("Spec runtime.plugins 输出 24：接收者的 published 回调", () =>
             }
         };
         return {
-            commit: (handle) => {
-                events.push(`commit:${handle.id}:${reachable(handle)}`);
+            prepare: async (handle) => {
+                events.push(`prepare:${handle.id}:${reachable(handle)}`);
+                options.prepared?.();
+                await options.gate;
             },
             published: (handle) => {
                 events.push(`published:${handle.id}:${reachable(handle)}`);
@@ -561,7 +566,7 @@ describe("Spec runtime.plugins 输出 24：接收者的 published 回调", () =>
         };
     }
 
-    it("激活事务：commit 时实现还取不到，贡献方发布后每条通知一次，此时取得到；撤回之后不再通知", async () => {
+    it("激活事务：prepare 时实现还取不到，贡献方发布后每条通知一次，此时取得到；撤回之后不再通知", async () => {
         const {host, root} = fixture();
         const events: string[] = [];
         register(host, owner([point()], {commands: publishingReceiver(events)}), root);
@@ -569,19 +574,37 @@ describe("Spec runtime.plugins 输出 24：接收者的 published 回调", () =>
         const scope = child(root, "source");
         register(host, source("source", [declaration("a"), declaration("b")]), scope);
         expect((await host.activate({plugin: "source", entry: "main"})).status).toBe("activated");
-        expect(events).toEqual(["commit:a:未发布", "commit:b:未发布", "published:a:a", "published:b:b"]);
+        expect(events).toEqual(["prepare:a:未发布", "prepare:b:未发布", "published:a:a", "published:b:b"]);
         await scope.close();
         expect(events.slice(4)).toEqual(["revoke:b:scope-closed", "revoke:a:scope-closed"]);
     });
 
-    it("补交：贡献方先发布、拥有者后激活时，commit 期间同样取不到实现，补交完成即通知、取得到", async () => {
+    it("补交：贡献方先发布、拥有者后激活时，prepare 期间同样取不到实现，prepare 之后随即通知、取得到", async () => {
         const {host, root} = fixture();
         const events: string[] = [];
         register(host, source("source", [declaration("a")]), root);
         expect((await host.activate({plugin: "source", entry: "main"})).status).toBe("activated");
         register(host, owner([point()], {commands: publishingReceiver(events)}), root);
         expect((await host.activate({plugin: "owner", entry: "main"})).status).toBe("activated");
-        expect(events).toEqual(["commit:a:未发布", "published:a:a"]);
+        expect(events).toEqual(["prepare:a:未发布", "published:a:a"]);
+    });
+
+    it("验收 27：贡献方在 prepare 之后停止，已准备的项只收到 revoke，收不到 published", async () => {
+        const {host, root} = fixture();
+        const events: string[] = [];
+        const started = Promise.withResolvers<void>();
+        const gate = Promise.withResolvers<void>();
+        register(host, owner([point()], {commands: publishingReceiver(events, {prepared: started.resolve, gate: gate.promise})}), root);
+        await host.activate({plugin: "owner", entry: "main"});
+        const scope = child(root, "source");
+        register(host, source("source", [declaration("a")]), scope);
+        const activating = host.activate({plugin: "source", entry: "main"});
+        await started.promise;
+        const closing = scope.close();
+        gate.resolve();
+        expect((await activating).status).not.toBe("activated");
+        expect((await closing).status).toBe("closed");
+        expect(events).toEqual(["prepare:a:未发布", "revoke:a:activation-stopped"]);
     });
 
     it("published 回调抛错：只记诊断，贡献照常可用", async () => {

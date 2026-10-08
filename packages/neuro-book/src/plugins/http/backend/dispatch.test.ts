@@ -47,7 +47,7 @@ function routeHandle(plugin: string, handler: HttpRouteHandler): ContributionHan
 async function mount(routes: RouteTable, handle: ContributionHandle<unknown, HttpRouteHandler>): Promise<void> {
     const receiver = routes.receiver();
     const prepared = await receiver.prepare!(handle);
-    await receiver.commit!(handle, prepared);
+    receiver.published!(handle, prepared);
 }
 
 function setup(staticFiles: StaticFiles | null = null) {

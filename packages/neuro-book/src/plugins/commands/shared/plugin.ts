@@ -82,10 +82,14 @@ function receiverOf(registry: CommandRegistry, diagnostics: DiagnosticsService):
     };
     return {
         prepare: () => ({release: null}),
-        commit(handle, prepared) {
+        // 贡献方发布后才进命令表：prepare 之后它的激活还可能失败撤回。
+        published(handle, prepared) {
             const registered = registry.register({id: handle.id, source: handle.plugin, declaration: handle.declaration, run: run(handle)});
             // 登记时的校验与贡献点的 validate 是同一份，id 唯一又由内核保证，走到这里说明两者不一致。
-            if (!registered.ok) throw new Error(`命令 ${handle.id} 通过了贡献校验却没能登记：${registered.reason}`);
+            if (!registered.ok) {
+                diagnostics.record({level: "error", event: "commands.registry", message: `命令 ${handle.id} 通过了贡献校验却没能登记：${registered.reason}`, source: {plugin: handle.plugin}});
+                return;
+            }
             prepared.release = registered.value;
         },
         revoke(_handle, prepared) {

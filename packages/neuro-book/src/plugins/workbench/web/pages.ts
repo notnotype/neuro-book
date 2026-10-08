@@ -45,7 +45,7 @@ export class PageTable {
 
     receiver(): ContributionReceiver<WorkbenchPageDeclaration, WorkbenchPageImplementation> {
         return {
-            commit: (handle) => {
+            published: (handle) => {
                 this.#mounted.set(handle.id, handle);
             },
             revoke: (handle) => {

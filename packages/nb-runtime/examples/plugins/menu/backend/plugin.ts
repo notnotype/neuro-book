@@ -2,8 +2,8 @@
  * `example.menu` 的服务端入口：定义贡献点 `menu.items` 并接收贡献，对外提供菜单服务。
  *
  * - 声明按贡献点的 `validate` 逐条校验：插件还没激活就能校验，不合格的只拒绝那一条，同一插件的其它贡献照常。
- * - 本入口激活时交出接收者，内核把已可用的贡献交给它（`commit`）；贡献方或本入口停止时撤回（`revoke`），每条
- *   交付恰好撤回一次。接收者只维护自己的表，不用关心贡献方的激活顺序。
+ * - 本入口激活时交出接收者，贡献方发布后内核逐条通知它（`published`），此时实现可用；贡献方或本入口停止时撤回
+ *   （`revoke`），每条交付恰好撤回一次。接收者只维护自己的表，不用关心贡献方的激活顺序。
  * - 贡献方与拥有者之间没有服务依赖：本插件缺席时贡献只是等着，不使贡献方失败。
  *
  * `nbook.commands` 的命令、`nbook.workbench` 的页面都是这样接入的。
@@ -37,7 +37,7 @@ export const menuBackendPlugin: PluginDefinition = {
         activate: () => {
             const items = new Map<string, MenuHandle>();
             const receiver: ContributionReceiver<MenuItemDeclaration, MenuItemImplementation> = {
-                commit: (handle) => void items.set(handle.id, handle),
+                published: (handle) => void items.set(handle.id, handle),
                 revoke: (handle) => void items.delete(handle.id),
             };
             const menu: MenuService = {

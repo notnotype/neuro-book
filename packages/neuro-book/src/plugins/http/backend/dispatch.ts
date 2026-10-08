@@ -38,6 +38,7 @@ export class RouteTable {
 
     receiver(): ContributionReceiver<unknown, HttpRouteHandler, string> {
         return {
+            // prepare 只预占插件 id，贡献方发布后才挂载：它的激活在 prepare 之后还可能失败撤回。
             prepare: (handle) => {
                 // 同一插件的两个入口都提交路由时，后到的那次交付失败，已挂载的不受影响。
                 if (this.#mounted.has(handle.plugin) || this.#pending.has(handle.plugin)) {
@@ -46,7 +47,7 @@ export class RouteTable {
                 this.#pending.add(handle.plugin);
                 return handle.plugin;
             },
-            commit: (handle, plugin) => {
+            published: (handle, plugin) => {
                 this.#pending.delete(plugin);
                 this.#mounted.set(plugin, handle);
             },

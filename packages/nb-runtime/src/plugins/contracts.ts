@@ -179,7 +179,7 @@ export interface ContributionHandle<Declaration = unknown, Implementation = unkn
     /** entry：入口实现；plugin：顶层声明。 */
     readonly kind: "entry" | "plugin";
     readonly declaration: Declaration;
-    /** 整批交付与贡献方发布后为 true；prepare/commit 期间、任一侧停止或撤回后为 false。 */
+    /** 整批交付与贡献方发布后为 true；prepare 期间、任一侧停止或撤回后为 false。 */
     readonly published: boolean;
     implementation(): Implementation;
 }
@@ -187,20 +187,18 @@ export interface ContributionHandle<Declaration = unknown, Implementation = unkn
 export type RevokeReason = "activation-failed" | "activation-stopped" | "scope-closed" | "receiver-closed" | "delivery-failed";
 
 /**
- * 贡献接收者：由拥有者入口在激活产出中提供。prepare/commit 抛出即事务失败；
- * revoke 的异常只记诊断，不改变机制状态，同一接收者连接上的回调串行。
+ * 贡献接收者：由拥有者入口在激活产出中提供（runtime.plugins 输出第 24 条）。prepare 预占或否决，抛出即事务失败；
+ * published 时生效；revoke 的异常只记诊断，不改变机制状态，同一接收者连接上的回调串行。
  */
 export interface ContributionReceiver<Declaration = unknown, Implementation = unknown, Prepared = unknown> {
-    /** 激活或补交事务的暂存项；prepare/commit 期间 implementation 不可用。 */
+    /** 激活或补交事务的暂存项：预占资源或否决这一项；此时 implementation 不可用。 */
     prepare?(handle: ContributionHandle<Declaration, Implementation>): Prepared | Promise<Prepared>;
-    /** 全部接收者准备成功后按声明顺序提交。 */
-    commit?(handle: ContributionHandle<Declaration, Implementation>, prepared: Prepared): void | Promise<void>;
-    /** 撤回本次暂存或已发布项；按声明逆序调用，必须幂等。 */
+    /** 撤回本次暂存或已发布项：还没 published 的只释放预占；按声明逆序调用，必须幂等。 */
     revoke?(handle: ContributionHandle<Declaration, Implementation>, prepared: Prepared, reason: RevokeReason): void | Promise<void>;
     /**
-     * 这一项已发布（runtime.plugins 输出第 24 条）：贡献方的激活事务发布、或补交完成且贡献方已发布之后，每条已交付项
-     * 调用一次，此后 `implementation()` 可用。commit 时贡献方还可能失败撤回，要按实现做投影的接收者（例如响应式的
-     * 读取表）在这里才放进去。抛错只记诊断。
+     * 这一项已发布：贡献方的激活事务发布、或补交完成且贡献方已发布之后，每条已交付项调用一次，此后
+     * `implementation()` 可用。接收者在这里让贡献生效（挂路由、登记命令）；prepare 之后贡献方的激活还可能失败
+     * 撤回，所以不在 prepare 里生效。抛错只记诊断。
      */
     published?(handle: ContributionHandle<Declaration, Implementation>, prepared: Prepared): void;
 }
@@ -235,7 +233,7 @@ export type RegisterPluginResult =
     /** 整个定义被拒绝：不登记任何入口，不留下部分声明。 */
     | {readonly status: "rejected"; readonly plugin: string; readonly rejections: ReadonlyArray<RegistrationRejection>};
 
-export type ActivationStage = "dependencies" | "activate" | "output" | "prepare" | "commit";
+export type ActivationStage = "dependencies" | "activate" | "output" | "prepare";
 
 export type ActivationFailureReason =
     | "dependency-unavailable"
@@ -248,8 +246,7 @@ export type ActivationFailureReason =
     | "missing-remote"
     | "undeclared-remote"
     | "remote-location-mismatch"
-    | "receiver-prepare-failed"
-    | "receiver-commit-failed";
+    | "receiver-prepare-failed";
 
 export interface ActivationFailed {
     readonly status: "failed";

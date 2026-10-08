@@ -64,24 +64,28 @@ type CommandHandle = ContributionHandle<{readonly title: string}, Command>;
 interface RecordingReceiver extends ContributionReceiver<{readonly title: string}, Command, string> {
     readonly handles: Map<string, CommandHandle>;
     readonly revocations: Array<{readonly id: string; readonly reason: RevokeReason; readonly prepared: string}>;
+    /** 收到 `published` 的贡献 id，按调用顺序。 */
+    readonly publications: string[];
     readonly prepare: Mock<(handle: CommandHandle) => string>;
-    readonly commit: Mock<(handle: CommandHandle, prepared: string) => void>;
 }
 
-function recordingReceiver(hooks: {prepare?: (id: string) => void; commit?: (id: string) => void; revoke?: (id: string) => void} = {}): RecordingReceiver {
+function recordingReceiver(hooks: {prepare?: (id: string) => void; published?: (id: string) => void; revoke?: (id: string) => void} = {}): RecordingReceiver {
     const handles = new Map<string, ContributionHandle<{readonly title: string}, Command>>();
     const revocations: RecordingReceiver["revocations"] = [];
+    const publications: string[] = [];
     return {
         handles,
         revocations,
+        publications,
         prepare: vi.fn((handle) => {
             hooks.prepare?.(handle.id);
             handles.set(handle.id, handle);
             return `${handle.id}#${handle.generation}`;
         }),
-        commit: vi.fn((handle) => {
-            hooks.commit?.(handle.id);
-        }),
+        published: (handle) => {
+            hooks.published?.(handle.id);
+            publications.push(handle.id);
+        },
         revoke: (handle, prepared, reason) => {
             hooks.revoke?.(handle.id);
             revocations.push({id: handle.id, reason, prepared});
@@ -317,7 +321,7 @@ describe("Spec 验收 2：激活一次、执行两次", () => {
         expect(viaView).toEqual(viaCommand);
         expect(activate).toHaveBeenCalledTimes(1);
         expect(commands.prepare).toHaveBeenCalledTimes(1);
-        expect(commands.commit).toHaveBeenCalledTimes(1);
+        expect(commands.publications).toEqual(["p.run"]);
 
         const handle = commands.handles.get("p.run")!;
         expect(handle.implementation()()).toBe("p.run@1");
@@ -440,28 +444,31 @@ describe("Spec 验收 4、7：失败隔离与普通关闭", () => {
             }),
             root,
         );
-        views.commit.mockImplementationOnce(() => {
-            throw new Error("view 提交失败 password=hunter2");
+        views.prepare.mockImplementationOnce(() => {
+            throw new Error("view 准备失败 password=hunter2");
         });
         const result = await host.activate({plugin: "a", entry: "main"});
-        expect(result).toMatchObject({status: "failed", stage: "commit", reason: "receiver-commit-failed", capability: "views", contribution: "a.view"});
+        expect(result).toMatchObject({status: "failed", stage: "prepare", reason: "receiver-prepare-failed", capability: "views", contribution: "a.view"});
         expect(commands.revocations).toEqual([{id: "a.run", reason: "activation-failed", prepared: "a.run#1"}]);
-        expect(views.revocations).toEqual([{id: "a.view", reason: "activation-failed", prepared: "a.view#1"}]);
+        // prepare 抛错的项没有暂存，不交给接收者撤回；两边都收不到 published。
+        expect(views.revocations).toEqual([]);
+        expect(commands.publications).toEqual(["b.run"]);
+        expect(views.publications).toEqual([]);
         expect(() => commands.handles.get("a.run")!.implementation()).toThrow(PluginStateError);
-        expect(host.contribution("commands", "a.run")).toMatchObject([{status: "activation-failed", failure: {reason: "receiver-commit-failed"}}]);
+        expect(host.contribution("commands", "a.run")).toMatchObject([{status: "activation-failed", failure: {reason: "receiver-prepare-failed"}}]);
         expect(host.contribution("commands", "b.run")).toMatchObject([{status: "available"}]);
         expect(commands.handles.get("b.run")!.implementation()()).toBe("b.run@1");
         expect(host.catalog().plugins.map((description) => description.id).sort()).toEqual(["a", "b", "receivers"]);
         expect(host.entryState({plugin: "a", entry: "main"})).toMatchObject({status: "failed", closeout: "pending"});
         await tick();
         expect(host.entryState({plugin: "a", entry: "main"})).toMatchObject({status: "failed", closeout: "closed"});
-        const failure = diagnostics.find((diagnostic) => diagnostic.reason === "receiver-commit-failed")!;
+        const failure = diagnostics.find((diagnostic) => diagnostic.reason === "receiver-prepare-failed")!;
         expect(Object.keys(failure).sort()).toEqual(["capability", "contribution", "entry", "error", "generation", "instanceId", "location", "plugin", "reason", "sequence", "stage"]);
-        expect(failure.error).toEqual({name: "Error", message: "view 提交失败 password=hunter2"});
+        expect(failure.error).toEqual({name: "Error", message: "view 准备失败 password=hunter2"});
         expect(JSON.stringify(failure)).not.toContain("implementation");
         // 失败稳定：再次触发得到同一结果，不自动重试。
         expect(await host.activate({plugin: "a", entry: "main"})).toEqual(result);
-        expect(views.commit).toHaveBeenCalledTimes(1);
+        expect(views.prepare).toHaveBeenCalledTimes(1);
     });
 
     it("关闭操作级作用域撤回该实例已发布的实现并释放资源；描述保留并带不可用原因；重复关闭不重复副作用；根上的必需插件不受影响", async () => {
@@ -693,8 +700,8 @@ describe("Spec 验收 10：重试前置收口", () => {
 describe("Spec 验收 11：多接收者事务", () => {
     it("第二个接收者准备失败：第一个接收者的暂存项撤回且不可调用，其它插件仍可调用；成功路径全部接收者完成后才可调用", async () => {
         const order: string[] = [];
-        const commands = recordingReceiver({prepare: (id) => order.push(`prepare:${id}`), commit: (id) => order.push(`commit:${id}`), revoke: (id) => order.push(`revoke:${id}`)});
-        const views = recordingReceiver({prepare: (id) => order.push(`prepare:${id}`), commit: (id) => order.push(`commit:${id}`), revoke: (id) => order.push(`revoke:${id}`)});
+        const commands = recordingReceiver({prepare: (id) => order.push(`prepare:${id}`), published: (id) => order.push(`published:${id}`), revoke: (id) => order.push(`revoke:${id}`)});
+        const views = recordingReceiver({prepare: (id) => order.push(`prepare:${id}`), published: (id) => order.push(`published:${id}`), revoke: (id) => order.push(`revoke:${id}`)});
         const {host, root} = await setup("server", "server-1", {commands, views});
         accepted(host, plugin("other", commandEntry("main", ["other.run"])), root);
         await host.activate({plugin: "other", entry: "main"});
@@ -724,14 +731,16 @@ describe("Spec 验收 11：多接收者事务", () => {
         order.length = 0;
         accepted(host, plugin("b", twoReceivers("b")), root);
         // 在回调里赋值，用数组收集，避免控制流分析把局部变量收窄成初始值。
-        const visibleAtCommit: boolean[] = [];
-        views.commit.mockImplementationOnce((handle) => {
-            order.push(`commit:${handle.id}`);
-            visibleAtCommit.push(commands.handles.get("b.run")!.published || handle.published);
+        const visibleAtPrepare: boolean[] = [];
+        views.prepare.mockImplementationOnce((handle) => {
+            order.push(`prepare:${handle.id}`);
+            visibleAtPrepare.push(commands.handles.get("b.run")!.published || handle.published);
+            views.handles.set(handle.id, handle);
+            return `${handle.id}#${handle.generation}`;
         });
         expect(await host.activate({plugin: "b", entry: "main"})).toMatchObject({status: "activated"});
-        expect(order).toEqual(["prepare:b.run", "prepare:b.view", "commit:b.run", "commit:b.view"]);
-        expect(visibleAtCommit).toEqual([false]);
+        expect(order).toEqual(["prepare:b.run", "prepare:b.view", "published:b.run", "published:b.view"]);
+        expect(visibleAtPrepare).toEqual([false]);
         expect(commands.handles.get("b.run")!.implementation()()).toBe("run");
         expect(views.handles.get("b.view")!.implementation()()).toBe("view");
     });

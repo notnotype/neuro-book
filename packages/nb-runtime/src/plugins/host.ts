@@ -65,7 +65,6 @@ type DeliveryMode = "activation" | "backfill";
 type AttemptOutcome = {readonly status: "activated"} | {readonly status: "failed"; readonly failure: ActivationFailed} | {readonly status: "stopped"};
 
 type DeliveryFailure = {
-    readonly stage: "prepare" | "commit";
     readonly handle: HandleImpl;
     readonly error: FailureError;
 };
@@ -257,7 +256,7 @@ interface DeliveryRecord {
     readonly sourceAttempt: Attempt | null;
     prepared: unknown;
     preparedSuccessfully: boolean;
-    state: "preparing" | "committing" | "delivered" | "failed" | "revoked";
+    state: "preparing" | "delivered" | "failed" | "revoked";
     revoked: boolean;
     /** 已调用过接收者的 `published`：每条交付只通知一次。 */
     notified: boolean;
@@ -1106,7 +1105,7 @@ export class PluginHostImpl implements PluginHost {
         }
         await this.#backfillReceivers(connections);
 
-        // 5. 受控事务：整批 prepare 后 commit，失败逆序撤回；循环纳入发布前新接上的接收者。
+        // 5. 受控事务：整批 prepare，失败逆序撤回；循环纳入发布前新接上的接收者。接收者在第 6 步发布后经 published 生效。
         for (;;) {
             if (!isAlive(scope)) {
                 await this.#withdrawAttempt(attempt, "activation-stopped");
@@ -1123,7 +1122,7 @@ export class PluginHostImpl implements PluginHost {
             }
             if (delivery.status === "failed") {
                 await this.#withdrawAttempt(attempt, "activation-failed");
-                return fail(delivery.failure.stage, delivery.failure.stage === "prepare" ? "receiver-prepare-failed" : "receiver-commit-failed", {
+                return fail("prepare", "receiver-prepare-failed", {
                     capability: delivery.failure.handle.capability,
                     contribution: delivery.failure.handle.id,
                     error: delivery.failure.error,
@@ -1343,7 +1342,7 @@ export class PluginHostImpl implements PluginHost {
                 sourceAttempt?.deliveries.add(delivery);
                 deliveries.push(delivery);
             }
-            const fail = async (stage: "prepare" | "commit", handle: HandleImpl, error: unknown): Promise<DeliveryAttemptResult> => {
+            const fail = async (handle: HandleImpl, error: unknown): Promise<DeliveryAttemptResult> => {
                 const failure = summarizeFailure(error);
                 for (const delivery of deliveries) {
                     delivery.state = "failed";
@@ -1354,7 +1353,7 @@ export class PluginHostImpl implements PluginHost {
                     plugin: handle.plugin, entry: handle.entry, generation: handle.generation,
                     capability: handle.capability, contribution: handle.id, error: failure,
                 });
-                return {status: "failed", failure: {stage, handle, error: failure}};
+                return {status: "failed", failure: {handle, error: failure}};
             };
             const stop = async (): Promise<DeliveryAttemptResult> => {
                 await this.#revokeDeliveriesLocked(deliveries, mode === "activation" ? "activation-stopped" : "scope-closed", false);
@@ -1375,29 +1374,7 @@ export class PluginHostImpl implements PluginHost {
                         });
                         continue;
                     }
-                    return fail("prepare", delivery.handle, error);
-                }
-                if (!sourceAlive()) {
-                    return stop();
-                }
-            }
-            await this.#revokeDeliveriesLocked(deliveries.filter((delivery) => !this.#receiverAlive(delivery.connection)), "receiver-closed", false);
-            for (const delivery of deliveries) {
-                if (!delivery.preparedSuccessfully || delivery.revoked || !this.#receiverAlive(delivery.connection)) {
-                    continue;
-                }
-                delivery.state = "committing";
-                try {
-                    await delivery.connection.receiver.commit?.(delivery.handle, delivery.prepared);
-                } catch (error) {
-                    if (!this.#receiverAlive(delivery.connection)) {
-                        this.#record("publish", "delivery-failed", {
-                            plugin: delivery.handle.plugin, entry: delivery.handle.entry, generation: delivery.handle.generation,
-                            capability: delivery.handle.capability, contribution: delivery.handle.id, error: summarizeFailure(error),
-                        });
-                        continue;
-                    }
-                    return fail("commit", delivery.handle, error);
+                    return fail(delivery.handle, error);
                 }
                 if (!sourceAlive()) {
                     return stop();
