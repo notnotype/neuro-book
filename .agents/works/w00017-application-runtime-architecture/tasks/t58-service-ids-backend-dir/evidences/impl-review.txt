@@ -1,0 +1,108 @@
+# w00017 t58 只读审查
+
+审查对象：`d49ae4e3..HEAD` 的已提交差异；本报告的实现基准固定为 `7b9dcd57`。计划提交 `d49ae4e3` 作为上下文，计划、ADR 0025、S1–S4 共 6 个提交；审查期间主 Agent 新增 `5ba2750b`，仅补 S5 验证证据与 Task 进展，提交内代码未变。当前分支：`refactor/w00017-runtime-foundation`。发现的文件:行均指该实现基准，末尾另记并行修复状态。
+
+开始时工作区已有 t58 README 未提交修改、t58 `evidences/` 与 t56 `tasks/t56-plugin-state/` 未跟踪内容；t58 快照和证据随后由主 Agent 提交。t56 与稍后出现的 t59 均不在审查范围。审查者未修改仓库文件；所有实验与本报告都位于指定 scratch 目录。未另行启动开发服务，未运行 e2e 或 `smoke:server`。
+
+## 已核实发现
+
+### 1. 同 id 的另一份服务键仍被委托检查拒绝
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-runtime/src/plugins/host.ts:970`；覆盖缺口在 `src/plugins/delegation.test.ts:57`、`:63`。
+- **现象**：入口在 `dependencies` 与 `delegates` 声明键 A，调用 `context.services.resolveFor(consumer, B)` 时，即使 A、B 的 `name` 都是 `store/data`，B 仍返回 `delegation-denied`，错误为“入口 proxy/main 没有声明可代理 store/data”；使用 A 成功。
+- **为什么是问题**：`delegates.includes(key)` 仍按对象身份判断，违反 ADR 0025 与本次“同 id 键可互换，调用方身份签发仍按对象身份”的合同。插件各自打包而产生等价键时，普通解析与 `require` 可用，委托却失败。现有委托测试始终复用同一个 `storeKey`，不能暴露此遗漏。
+- **如何核实**：运行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/delegation-by-id.ts`。经公开 `createApplication` 创建真实 store、proxy、caller 三个插件；身份由真实按调用方门面签发，未伪造时序。实际输出 `startup: available`、`exact: resolved`、`equivalent: unavailable / delegation-denied`，等价键成功断言失败（退出 1）；`finally` 中 `application.stop()` 完整关闭。
+- **建议改法**：改为 `(record.definition.delegates ?? []).some((declared) => declared.name === key.name)`；在原委托行为用例中让声明与委托调用使用同 id 的不同键对象，同时保留伪造身份和跨入口转交被拒的断言，无需新增抽象。
+
+### 2. 同 id 的重复激活产出被静默覆盖，清理时还会漏掉释放回调
+
+- **严重程度**：重要；**类别**：正确性与资源不变量。
+- **位置**：`packages/nb-runtime/src/plugins/host.ts:1005`、`:1010`、`:1485`。
+- **现象**：入口只声明一个 `owner/value`，激活产出给出两项同 id、不同键对象的 `provide`，现在应用启动与必需解析门禁都成功，产出表静默保留最后一项。两项指向同一实例但带各自的释放回调时，关闭返回 `closed`，只执行第二项回调，第一项清理被跳过。
+- **为什么是问题**：产出表改成以 id 索引之后，仅检查“是否声明”却没有检查“该 id 是否已产出”，`Map.set` 覆盖了前项。清理再按 id 找唯一记录并按实例相等判断已接管，误把前项也算作后项的已接管产出。本次放开等价键后引入了新的静默选择与清理丢失，违反唯一提供者和实际产出完整收口的不变量。
+- **如何核实**：运行 scratch 中 `duplicate-output.ts`，经公开 `createApplication` 与真实解析门禁验证；不同实例与同一实例两组均为 `startup: available`，同一实例组实际 `released: ["second"]`、关闭 `closed`。将 `d49ae4e3` 的内核源码只导出到 scratch，运行 `baseline-duplicate-output.ts` 的同一真实流程：两组都因 `output/undeclared-service` 失败，均逆序执行 `["second", "first"]`。这是实际运行时的前后差异，不是直接调内部函数。
+- **建议改法**：在同一产出核对循环里用 `provided.has(service.key.name)` 拒绝重复 id，类似紧邻的远程产出核对；不要新增去重或优先级规则。失败后的清理账本按实际 `ProvidedService` 项追踪，只跳过实际已交付的那一项，保留每项释放成功后再记账、失败恢复时只重试未成功项的现有语义。补一条重复 id 产出的行为回归，同时断言不发布和全部实际产出逆序清理。
+
+### 3. 示例宿主把已结束项目代次的重连误报成可重试的 project-unavailable
+
+- **严重程度**：重要；**类别**：正确性与示例合同。
+- **位置**：`packages/nb-runtime/examples/scenarios/hosts.ts:48`、`:51`。
+- **现象**：窗口首次绑定 `alpha` 第 1 代后断线，宿主停止这一代；同一个客户端节点带原绑定代次重连，实际得到 `project-unavailable`，合同要求 `project-gone`。
+- **为什么是问题**：绑定回调先用 `running === null` 拒绝，再检查请求里的代次，把首次找不到项目与旧代次已经结束混成一种失败。内核只把 `project-gone` 作为项目终态；错误码使调用方继续把此连接当作可重试失败，保留旧订阅的恢复预期，而不能完成项目已结束的终态处理。问题限于新增示例宿主，产品项目管理器已有正确的重连路径。
+- **如何核实**：运行 scratch 中 `project-reconnect-smoke.ts`；通过真实 `Stage` 与公开 `createRemoteNode` 首次握手获得 `{id: "alpha", name: "alpha", generation: 1}`，关闭链路、`await stopProject("alpha")`，然后用同一节点的新 JSON 链路重连。实际输出 `reason: "project-unavailable"`、`message: "项目 alpha 没有打开"`；`project-gone` 断言失败（退出 1），`finally` 正常关闭链路和全部实例。未直接调用绑定回调或内部函数。
+- **建议改法**：先处理带 `generation` 的请求：项目不存在、这一代已停止或代次不符都返回 `project-gone`；只有首次按名字绑定且项目没运行时返回 `project-unavailable`。在场景 6 里保留同一客户端节点，补停止后重连的行为断言，无需改内核或建立第二套失败分类。
+
+### 4. 后端目录改名后，TypeScript include 仍指向旧目录，已漏掉独立子进程入口
+
+- **严重程度**：重要；**类别**：测试与配置。
+- **位置**：`packages/neuro-book/tsconfig.json:22`；漏检文件为 `src/plugins/storage/backend/testing/partition-writer.ts`。
+- **现象**：后端从 `server/` 改成 `backend/`，后端类型检查却仍包含 `src/plugins/*/server`。现有产品入口多数通过静态导入进入编译程序，但分区测试按文件路径启动的 `partition-writer.ts` 没有静态导入，改名后退出了类型检查范围；以后新增同类独立入口也会漏检。
+- **为什么是问题**：改名没有完整迁移工具链合同。测试实际执行这个子进程文件，Bun 运行时不替代 TypeScript 检查；当前类型检查全绿不能证明它通过了类型检查。
+- **如何核实**：`bunx --no-install tsc --noEmit -p packages/neuro-book/tsconfig.json --listFilesOnly` 的完整编译程序包含产品 `backend/` 文件，却没有 `partition-writer.ts`。运行 scratch 中 `typecheck-selection.ts`，经 TypeScript 自己的配置解析器与 `createProgram` 对比原配置和仅把该 include 改成 `backend` 的配置，`missedAfterRename` 精确为 `["src/plugins/storage/backend/testing/partition-writer.ts"]`，未修改仓库配置。
+- **建议改法**：将该 include 直接改为 `src/plugins/*/backend`。同时把 `docs/standards/code/README.md:8` 的当前后端规范路由改成 `src/plugins/*/backend/**`；这两处都是同一次目录切换的残留，无需增加检查层或新配置。
+
+### 5. 示例宿主允许同名项目同时起两代，登记代次与实际路由不一致
+
+- **严重程度**：建议；**类别**：测试宿主与项目代次不变量。
+- **位置**：`packages/nb-runtime/examples/scenarios/hosts.ts:62`、`:65`、`:73`。
+- **现象**：同一个 `Stage`、同一路由连续调用两次 `project(router, "alpha", ...)`，第一代没有被停止，表里的 `running` 却被第二代覆盖。旧窗口还能读第一代的数据；新窗口握手绑定第二代后，实际调用得到 `target-gone`。再调用 `stopProject("alpha")` 只停第二代，旧窗口仍可访问第一代。
+- **为什么是问题**：示例宿主自己声明“同一时刻至多一代在运行”，但建立下一代没有验证旧代是否已停止。项目目录把旧实例覆盖掉，和路由仍登记的实际实例分离；作为项目级插件样板，调用者沿公开辅助方法无法知道自己破坏了代次前提。这个问题限于示例宿主，不影响产品项目管理器。
+- **如何核实**：运行 scratch 中 `project-stage-smoke.ts`，通过真实 `Stage`、白板插件、窗口探针与 JSON 链路创建并调用两代。输出为旧窗口 `ok: true / ["old-generation"]`，新窗口 `target-gone / 项目 alpha 的代次 2 已不在`；停止表里的项目后，旧窗口仍为 `ok: true`。`finally` 的 `stage.close()` 正常收口所有实例。
+- **建议改法**：在创建下一代前直接拒绝 `running !== null`，明确要求先 `await stopProject(name)`；停止过程也应保留运行记录到关闭完成，避免新代与尚在收口的旧代并行。无须把示例扩成完整项目管理器。
+
+### 6. 服务公开入口的边界注释仍宣称按对象身份比较
+
+- **严重程度**：建议；**类别**：注释与合同可读性。
+- **位置**：`packages/nb-runtime/src/services/services.ts:6`。
+- **现象**：同一文件第 6 行写着“服务键以对象身份比较”，第 22 行却写“同一 id 定义两次是同一个键”，公开入口内直接自相矛盾。
+- **为什么是问题**：这是本次重构要撤销的旧设计说明，维护者从机制入口开始阅读时会得到错误的不变量，增加把比较改回对象身份的风险。
+- **如何核实**：对照本文件头部注释、`defineServiceKey` 注释与 `docs/adr/0025-service-keys-by-id.md` 第 1 条；实际按 id 解析已由合同测试与 `runtime-ids-smoke.ts` 验证。
+- **建议改法**：直接删掉旧身份比较短语，或替换成“服务键按服务 id 识别”，保留模块没有 I/O、单例、计时器与扫描的有效约束。
+
+## 当前验证记录
+
+- `git log --oneline d49ae4e3~1..HEAD && git status`：已核对提交和工作区状态。
+- `bun run --cwd packages/nb-runtime test`：282 pass，0 fail，28 个文件；既有全套合同测试未覆盖发现 1。
+- `bun run --cwd packages/nb-runtime typecheck`：两份 TypeScript 配置通过（退出 0）。
+- `delegation-by-id.ts`：真实运行时最小实验如发现 1，预期断言失败，应用正常收口。
+- `bun run --cwd packages/neuro-book test:bun`：276 pass，0 fail，39 个文件。
+- `bun run --cwd packages/neuro-book test:vitest`：57 pass，0 fail，12 个文件。
+- `bun run --cwd packages/neuro-book typecheck`：后端、前端、浏览器测试三份配置均通过（退出 0）。
+- `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/runtime-ids-smoke.ts`：7 组场景通过，包括同 id 的冲突隔离、传递静态失败与两种门禁原因一致、可满足的懒依赖、可选缺失、宿主能力门面缓存与作废、自依赖整体拒绝。首次脚本调用少传 `createPluginHost` 的必填 options 而失败；补 `{}` 后通过，未改仓库代码。
+- `duplicate-output.ts` / `baseline-duplicate-output.ts`：经真实运行时验证发现 2，前后差异如上。
+- `bunx --no-install tsc --noEmit -p packages/neuro-book/tsconfig.json --listFilesOnly` / `typecheck-selection.ts`：核实发现 4 的实际漏检文件。
+- 已读取主 Agent 的 `evidences/test-e2e.txt` 与 `evidences/smoke-server.txt`：记录为 e2e 45 passed 与 S1–S8 `ok: true`。本审查未重跑这两项，不能作为本审的独立最新验证。
+- `bun run docs:check --since d49ae4e3`：检查 7578 个文件，failures 0、范围内 warnings 0，范围外警告 163 条。
+- `bun run governance:check --since d49ae4e3`：failures 0、范围内 warnings 0，范围外警告 222 条。
+- `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/project-stage-smoke.ts`：真实示例宿主验证发现 5，全部实例正常收口。
+- `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/project-reconnect-smoke.ts`：真实示例宿主验证发现 3，预期断言失败，链路与全部实例正常收口。
+
+## 未发现问题的方面
+
+- 普通服务解析、必需依赖的 `require`、受阻推导、声明重复 id、自依赖与宿主能力按 `key.name` 匹配；同 id 不同对象能够解析同一实例。调用方身份的签发、按调用方门面缓存与代次作废仍按原生命周期合同工作。委托的服务键检查遗漏单列在发现 1。
+- 删除 `ApplicationManifest.keys`、`ServiceAssemblyOptions.keys`、`hasKey` 与旧拒绝原因后，应用和示例的既有调用方已完成切换；没有发现继续使用旧参数的产品入口。检查门禁对缺失、冲突与传递静态失败先于 `check` 拒绝，和解析门禁给出一致原因；可满足的懒激活与可选缺失没有被误拦。
+- workbench、projects、storage 与示例工厂不再收跨插件服务键，依赖在入口声明。`quickPickKey`、页面贡献声明和 `HTTP_ROUTES_POINT` 的公开合同移到所属插件的 `shared/contracts.ts`；仍依赖 Vue 的工作台页面实现留在 `web/contracts.ts`。跨插件值导入边界与 Lab 例外有对应规则用例。
+- `backend/` 的源码导入、服务端与项目宿主装配以及核心架构判定已迁移；开发监督进程按排除前端、测试与监督自身的规则判断后端，因此改名后仍识别后端文件。剩余工具链与规范路由遗漏见发现 4。
+- 项目级 `board` 的后端按需激活，状态属于项目实例；浏览器入口把远程合同包成本地服务。现有场景验证两个项目的数据隔离、无项目绑定的失败、事件交付以及有序停止后的订阅结束与 `target-gone`。
+- 已逐项对照本次 Spec 清理：dirty 协商、外部观察者报告强制终止未知、无遥测静态证据限制、自由文本脱敏范围、Windows 未实测、RPC 背压与未鉴权边界仍有记录；移除的旧产品日志 writer 和旧宿主说明属于已退出的应用。批准依据仍链接原提案、ADR 与必要的开发者决策记录；未发现本次清理删掉仍成立的限制或改错批准依据。accepted 提案的旧路径按计划保留为历史记录。
+- 测试里原 `unknown-key` 的错误场景改成结构无效或初始化失败后，仍在测登记拒绝、启动失败分类、可选失败不阻断、诊断转发与收口。未发现跳过测试或为通过而削弱核心断言；同 id 委托与重复产出的缺口已分别列在发现 1、2。
+
+## 验证范围与限制
+
+- 上述合同测试、类型检查与 scratch 实验为本审实际运行结果。应用的 Bun 测试会启动它自身的真实受控子进程与会话，这些均由原测试收口；没有额外启动长驻服务。
+- 第三方插件独立打包与代码加载仍未实现，本审没有宣称已覆盖；同 id 不同类型无法由 TypeScript 检出，是 ADR 0025 已接受的取舍。源码导入边界用正则守卫，未新增 AST 解析器或另一套检查约定。
+- LSP 返回没有配置语言服务器，代码引用与边界通过文件阅读、现有架构用例和实际编译程序核实。
+
+## 审查期间的并行修复
+
+主 Agent 已依据实时发现修改 `host.ts` 的委托比较、重复产出拒绝与实际产出对账，并修改 `delegation.test.ts`、`review-regressions.test.ts`、`services.ts`、`tsconfig.json`。本审只确认看到了这些未提交修改，没有重跑它们的测试或复审最终 diff；上面的失败实验与通过测试全部属于修复前的审查基准，不能当作修复完成证据。
+
+## 独立切片意见的核实
+
+- 应用切片提出的 TypeScript include 遗漏经实际编译程序确认，合并为发现 4；跨插件非字面量动态导入绕过是现有正则守卫的能力限制，当前产品没有使用该路径，本轮不以此要求引入 AST 或新增检查部件。
+- 示例切片提出的旧项目重连失败码经真实节点握手确认，合并为发现 3；同名两代重叠经真实 `Stage` 复现，合并为发现 5。后者限于示例辅助宿主，按建议处理，未升级为产品项目管理器缺陷。
+
+## 数量
+
+阻断 **0**；重要 **4**；建议 **2**。共 **6** 条已核实发现，按正确性与不变量、测试配置、代码可读性排序。前两条是内核缺陷，第三条是新增示例的正常重连合同错误，第四条是目录切换的真实类型检查覆盖遗漏。
