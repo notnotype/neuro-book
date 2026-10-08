@@ -10,22 +10,20 @@ import {descriptor} from "../plugin";
 import {boardContract, boardKey} from "../shared/contracts";
 import type {BoardService} from "../shared/contracts";
 
-export function createBoardBrowserPlugin(): PluginDefinition {
-    return {
-        id: descriptor.id,
-        entries: [{
-            id: "browser",
-            location: "browser",
-            provides: [boardKey],
-            activate: (context) => {
-                const project = context.remote.use(boardContract).at("project");
-                const board: BoardService = {
-                    pin: (text) => project.pin({text}),
-                    items: () => project.items({}),
-                    watch: (listener, options) => project.events.pinned.subscribe({}, listener, options),
-                };
-                return {services: [provide(boardKey, board)]};
-            },
-        }],
-    };
-}
+export const boardBrowserPlugin: PluginDefinition = {
+    id: descriptor.id,
+    entries: [{
+        id: "browser",
+        location: "browser",
+        provides: [boardKey],
+        activate: (context) => {
+            const project = context.remote.use(boardContract).at("project");
+            const board: BoardService = {
+                pin: (text) => project.pin({text}),
+                items: () => project.items({}),
+                watch: (listener, options) => project.events.pinned.subscribe({}, listener, options),
+            };
+            return {services: [provide(boardKey, board)]};
+        },
+    }],
+};

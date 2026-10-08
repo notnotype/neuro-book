@@ -10,8 +10,8 @@ import type {RemoteRouter} from "@notnotype/nb-runtime/remote";
 
 import {boardKey} from "../plugins/board/shared/contracts";
 import type {BoardService} from "../plugins/board/shared/contracts";
-import {createBoardProjectPlugin} from "../plugins/board/backend/plugin";
-import {createBoardBrowserPlugin} from "../plugins/board/web/plugin";
+import {boardBackendPlugin} from "../plugins/board/backend/plugin";
+import {boardBrowserPlugin} from "../plugins/board/web/plugin";
 import {Stage} from "./hosts";
 import {serviceProbe} from "./probes";
 
@@ -24,14 +24,14 @@ afterEach(async () => {
 /** 起一个窗口，装上白板的浏览器入口与一个用它的探针，交出白板服务。 */
 async function windowBoard(router: RemoteRouter, id: string, project?: string): Promise<BoardService> {
     const user = serviceProbe("example.pinboard-ui", "browser", [boardKey]);
-    await stage.window(router, id, {plugins: [createBoardBrowserPlugin(), user.definition], project});
+    await stage.window(router, id, {plugins: [boardBrowserPlugin, user.definition], project});
     return user.get(boardKey);
 }
 
 it("场景 6：两个项目各有一块白板，窗口只看到自己绑定的那个项目的；没有绑定项目的窗口得到失败码", async () => {
     const {router} = await stage.server({plugins: []});
-    await stage.project(router, "alpha", {plugins: [createBoardProjectPlugin()]});
-    await stage.project(router, "beta", {plugins: [createBoardProjectPlugin()]});
+    await stage.project(router, "alpha", {plugins: [boardBackendPlugin]});
+    await stage.project(router, "beta", {plugins: [boardBackendPlugin]});
     const alpha = await windowBoard(router, "window-a", "alpha");
     const beta = await windowBoard(router, "window-b", "beta");
     const unbound = await windowBoard(router, "window-c");
@@ -45,7 +45,7 @@ it("场景 6：两个项目各有一块白板，窗口只看到自己绑定的�
 
 it("场景 6：项目实例结束时，窗口里的订阅随白板的项目入口停止而结束（provider-stopped），实例断开后调用得到 target-gone", async () => {
     const {router} = await stage.server({plugins: []});
-    await stage.project(router, "alpha", {plugins: [createBoardProjectPlugin()]});
+    await stage.project(router, "alpha", {plugins: [boardBackendPlugin]});
     const alpha = await windowBoard(router, "window-a", "alpha");
     const seen: string[] = [];
     const ended = Promise.withResolvers<string>();
@@ -61,9 +61,9 @@ it("场景 6：项目实例结束时，窗口里的订阅随白板的项目入�
 
 it("场景 6：项目这一代结束后，绑定它的窗口重连得到终态 project-gone；上一代停完之前不能起下一代", async () => {
     const {router} = await stage.server({plugins: []});
-    await stage.project(router, "alpha", {plugins: [createBoardProjectPlugin()]});
+    await stage.project(router, "alpha", {plugins: [boardBackendPlugin]});
     await windowBoard(router, "window-a", "alpha");
-    await expect(stage.project(router, "alpha", {plugins: [createBoardProjectPlugin()]})).rejects.toThrow("还没停止");
+    await expect(stage.project(router, "alpha", {plugins: [boardBackendPlugin]})).rejects.toThrow("还没停止");
 
     expect(await stage.stopProject("alpha")).toEqual({status: "closed"});
     expect(await stage.reconnect(router, "window-a")).toMatchObject({ok: false, reason: "project-gone"});

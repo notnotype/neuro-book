@@ -14,26 +14,24 @@ import {descriptor} from "../plugin";
 import {notesKey} from "../shared/contracts";
 import type {NotesService} from "../shared/contracts";
 
-export function createNotesServerPlugin(): PluginDefinition {
-    return {
-        id: descriptor.id,
-        entries: [{
-            id: "server",
-            location: "server",
-            provides: [notesKey],
-            activate: () => {
-                const byPlugin = new Map<string, string[]>();
-                return {
-                    services: [providePerConsumer(notesKey, (consumer): NotesService => {
-                        // 宿主能力等非插件调用方没有插件 id，归到同一个“host”命名空间。
-                        const owner = consumer.plugin ?? "host";
-                        return {
-                            add: (text) => void byPlugin.set(owner, [...(byPlugin.get(owner) ?? []), text]),
-                            list: () => byPlugin.get(owner) ?? [],
-                        };
-                    })],
-                };
-            },
-        }],
-    };
-}
+export const notesBackendPlugin: PluginDefinition = {
+    id: descriptor.id,
+    entries: [{
+        id: "server",
+        location: "server",
+        provides: [notesKey],
+        activate: () => {
+            const byPlugin = new Map<string, string[]>();
+            return {
+                services: [providePerConsumer(notesKey, (consumer): NotesService => {
+                    // 宿主能力等非插件调用方没有插件 id，归到同一个“host”命名空间。
+                    const owner = consumer.plugin ?? "host";
+                    return {
+                        add: (text) => void byPlugin.set(owner, [...(byPlugin.get(owner) ?? []), text]),
+                        list: () => byPlugin.get(owner) ?? [],
+                    };
+                })],
+            };
+        },
+    }],
+};

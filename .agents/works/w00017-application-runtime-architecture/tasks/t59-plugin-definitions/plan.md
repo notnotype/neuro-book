@@ -55,7 +55,7 @@
 
 ### 4. 示例（`packages/nb-runtime/examples/`）
 
-- 示例宿主提供宿主能力 `example.host/clock`：键定义在 `examples/shared/host.ts`（与应用包的 `src/shared/host.ts` 同一角色；平台中立，插件的浏览器类型检查会递归检查它），`Stage` 创建实例时经 `ApplicationManifest["capabilities"]` 给出，测试注入手动时钟。`clock` 插件依赖它、包成按小时报时的 `ClockService`，改为常量 `clockPlugin`。其余示例插件改为常量。
+- 示例宿主提供宿主能力 `example/clock`（与应用包 `nbook/…` 同一写法，实施中由 `example.host/clock` 改来：那样读起来像插件 `example.host` 的服务）：键定义在 `examples/shared/host.ts`（与应用包的 `src/shared/host.ts` 同一角色；平台中立，插件的浏览器类型检查会递归检查它），`Stage` 创建实例时经 `ApplicationManifest["capabilities"]` 给出，测试注入手动时钟。`clock` 插件依赖它、包成按小时报时的 `ClockService`，改为常量 `clockBackendPlugin`。其余示例插件改为常量，按插件与代码所在的一侧命名。
 - README 的工厂规则改为：普通插件是常量；要宿主的东西就依赖宿主能力服务；宿主适配器是例外，例外要说明第 5 节的启动与停机依赖。
 
 ### 5. ADR 0026（`docs/adr/0026-plugin-definitions-as-constants.md`）

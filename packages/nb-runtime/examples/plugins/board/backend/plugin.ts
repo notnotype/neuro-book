@@ -11,38 +11,36 @@ import {provideRemote} from "@notnotype/nb-runtime/remote";
 import {descriptor} from "../plugin";
 import {boardContract} from "../shared/contracts";
 
-export function createBoardProjectPlugin(): PluginDefinition {
-    return {
-        id: descriptor.id,
-        entries: [{
-            id: "project",
-            location: "project",
-            remoteProvides: [boardContract.id],
-            activate: () => {
-                const items: string[] = [];
-                const sinks = new Set<(text: string) => void>();
-                return {
-                    remote: [provideRemote(boardContract, () => ({
-                        methods: {
-                            pin: ({text}) => {
-                                items.push(text);
-                                for (const sink of sinks) sink(text);
-                                return {ok: true, value: null};
-                            },
-                            items: () => ({ok: true, value: [...items]}),
+export const boardBackendPlugin: PluginDefinition = {
+    id: descriptor.id,
+    entries: [{
+        id: "project",
+        location: "project",
+        remoteProvides: [boardContract.id],
+        activate: () => {
+            const items: string[] = [];
+            const sinks = new Set<(text: string) => void>();
+            return {
+                remote: [provideRemote(boardContract, () => ({
+                    methods: {
+                        pin: ({text}) => {
+                            items.push(text);
+                            for (const sink of sinks) sink(text);
+                            return {ok: true, value: null};
                         },
-                        events: {
-                            pinned: {
-                                subscribe: (_filter, sink, {signal}) => {
-                                    const next = (text: string): void => sink.next(text);
-                                    sinks.add(next);
-                                    signal.addEventListener("abort", () => sinks.delete(next), {once: true});
-                                },
+                        items: () => ({ok: true, value: [...items]}),
+                    },
+                    events: {
+                        pinned: {
+                            subscribe: (_filter, sink, {signal}) => {
+                                const next = (text: string): void => sink.next(text);
+                                sinks.add(next);
+                                signal.addEventListener("abort", () => sinks.delete(next), {once: true});
                             },
                         },
-                    }))],
-                };
-            },
-        }],
-    };
-}
+                    },
+                }))],
+            };
+        },
+    }],
+};

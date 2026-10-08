@@ -12,25 +12,23 @@ import {descriptor} from "../plugin";
 const OPEN = `${descriptor.id}.open`;
 const CLOSE = `${descriptor.id}.close`;
 
-export function createFileMenuServerPlugin(): PluginDefinition {
-    return {
-        id: descriptor.id,
-        entries: [{
-            id: "server",
-            location: "server",
-            // 贡献要等本入口激活才交出实现，没有别的激活时机，所以启动即激活。
-            activationEvents: ["onStartup"],
-            contributions: [
-                {capability: MENU_POINT, id: OPEN, declaration: {title: "打开文件"} satisfies MenuItemDeclaration},
-                {capability: MENU_POINT, id: CLOSE, declaration: {title: "关闭文件"} satisfies MenuItemDeclaration},
-            ],
-            activate: () => {
-                const items: Record<string, MenuItemImplementation> = {
-                    [OPEN]: {run: () => "已打开"},
-                    [CLOSE]: {run: () => "已关闭"},
-                };
-                return {contributions: {[MENU_POINT]: items}};
-            },
-        }],
-    };
-}
+export const fileMenuBackendPlugin: PluginDefinition = {
+    id: descriptor.id,
+    entries: [{
+        id: "server",
+        location: "server",
+        // 贡献要等本入口激活才交出实现，没有别的激活时机，所以启动即激活。
+        activationEvents: ["onStartup"],
+        contributions: [
+            {capability: MENU_POINT, id: OPEN, declaration: {title: "打开文件"} satisfies MenuItemDeclaration},
+            {capability: MENU_POINT, id: CLOSE, declaration: {title: "关闭文件"} satisfies MenuItemDeclaration},
+        ],
+        activate: () => {
+            const items: Record<string, MenuItemImplementation> = {
+                [OPEN]: {run: () => "已打开"},
+                [CLOSE]: {run: () => "已关闭"},
+            };
+            return {contributions: {[MENU_POINT]: items}};
+        },
+    }],
+};

@@ -9,30 +9,28 @@ import {provideRemote} from "@notnotype/nb-runtime/remote";
 import {descriptor} from "../plugin";
 import {cloudNotesContract} from "../shared/contracts";
 
-export function createCloudNotesServerPlugin(): PluginDefinition {
-    return {
-        id: descriptor.id,
-        entries: [{
-            id: "server",
-            location: "server",
-            remoteProvides: [cloudNotesContract.id],
-            activate: () => {
-                const byPlugin = new Map<string, string[]>();
-                return {
-                    remote: [provideRemote(cloudNotesContract, (consumer) => {
-                        const owner = consumer.plugin ?? "host";
-                        return {
-                            methods: {
-                                add: ({text}) => {
-                                    byPlugin.set(owner, [...(byPlugin.get(owner) ?? []), text]);
-                                    return {ok: true, value: null};
-                                },
-                                list: () => ({ok: true, value: byPlugin.get(owner) ?? []}),
+export const cloudNotesBackendPlugin: PluginDefinition = {
+    id: descriptor.id,
+    entries: [{
+        id: "server",
+        location: "server",
+        remoteProvides: [cloudNotesContract.id],
+        activate: () => {
+            const byPlugin = new Map<string, string[]>();
+            return {
+                remote: [provideRemote(cloudNotesContract, (consumer) => {
+                    const owner = consumer.plugin ?? "host";
+                    return {
+                        methods: {
+                            add: ({text}) => {
+                                byPlugin.set(owner, [...(byPlugin.get(owner) ?? []), text]);
+                                return {ok: true, value: null};
                             },
-                        };
-                    })],
-                };
-            },
-        }],
-    };
-}
+                            list: () => ({ok: true, value: byPlugin.get(owner) ?? []}),
+                        },
+                    };
+                })],
+            };
+        },
+    }],
+};

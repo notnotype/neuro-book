@@ -16,6 +16,8 @@ import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 
 export interface InstanceOptions {
     readonly plugins: ReadonlyArray<PluginDefinition>;
+    /** 宿主给本实例插件的本地能力（键在 `examples/shared/host.ts`），例如时钟。 */
+    readonly capabilities?: ApplicationManifest["capabilities"];
     /** 代理允许清单：可以以调用方身份转发的插件。 */
     readonly delegation?: ApplicationManifest["delegation"];
 }
@@ -135,7 +137,7 @@ export class Stage {
         const app = createApplication(
             // 宿主给出的上下文：实例身份、停止来源、紧急输出。
             {identity, stopSignal: new AbortController().signal, emergency: () => undefined},
-            {plugins: options.plugins, gates: [], remote, delegation: options.delegation},
+            {capabilities: options.capabilities, plugins: options.plugins, gates: [], remote, delegation: options.delegation},
         );
         this.#apps.push(app);
         const startup = await app.startup;

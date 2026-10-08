@@ -6,8 +6,8 @@
 import {afterEach, expect, it} from "bun:test";
 
 import {cloudNotesKey} from "../plugins/cloud-notes/shared/contracts";
-import {createCloudNotesServerPlugin} from "../plugins/cloud-notes/backend/plugin";
-import {createCloudNotesBrowserPlugin} from "../plugins/cloud-notes/web/plugin";
+import {cloudNotesBackendPlugin} from "../plugins/cloud-notes/backend/plugin";
+import {cloudNotesBrowserPlugin} from "../plugins/cloud-notes/web/plugin";
 import {Stage} from "./hosts";
 import {serviceProbe} from "./probes";
 
@@ -18,10 +18,10 @@ afterEach(async () => {
 });
 
 async function windowWith(delegation: (plugin: string) => boolean) {
-    const {router} = await stage.server({plugins: [createCloudNotesServerPlugin()]});
+    const {router} = await stage.server({plugins: [cloudNotesBackendPlugin]});
     const a = serviceProbe("example.a", "browser", [cloudNotesKey]);
     const b = serviceProbe("example.b", "browser", [cloudNotesKey]);
-    await stage.window(router, "window-1", {plugins: [createCloudNotesBrowserPlugin(), a.definition, b.definition], delegation});
+    await stage.window(router, "window-1", {plugins: [cloudNotesBrowserPlugin, a.definition, b.definition], delegation});
     return {a: a.get(cloudNotesKey), b: b.get(cloudNotesKey)};
 }
 

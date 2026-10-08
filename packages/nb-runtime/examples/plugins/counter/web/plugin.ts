@@ -12,22 +12,20 @@ import {descriptor} from "../plugin";
 import {counterContract, counterKey} from "../shared/contracts";
 import type {CounterService} from "../shared/contracts";
 
-export function createCounterBrowserPlugin(): PluginDefinition {
-    return {
-        id: descriptor.id,
-        entries: [{
-            id: "browser",
-            location: "browser",
-            provides: [counterKey],
-            activate: (context) => {
-                const server = context.remote.use(counterContract).at("server");
-                const counter: CounterService = {
-                    increment: (by) => server.increment({by}),
-                    current: () => server.current({}),
-                    watch: (listener) => server.events.changed.subscribe({}, listener),
-                };
-                return {services: [provide(counterKey, counter)]};
-            },
-        }],
-    };
-}
+export const counterBrowserPlugin: PluginDefinition = {
+    id: descriptor.id,
+    entries: [{
+        id: "browser",
+        location: "browser",
+        provides: [counterKey],
+        activate: (context) => {
+            const server = context.remote.use(counterContract).at("server");
+            const counter: CounterService = {
+                increment: (by) => server.increment({by}),
+                current: () => server.current({}),
+                watch: (listener) => server.events.changed.subscribe({}, listener),
+            };
+            return {services: [provide(counterKey, counter)]};
+        },
+    }],
+};

@@ -12,39 +12,37 @@ import {provideRemote} from "@notnotype/nb-runtime/remote";
 import {descriptor} from "../plugin";
 import {counterContract} from "../shared/contracts";
 
-export function createCounterServerPlugin(): PluginDefinition {
-    return {
-        id: descriptor.id,
-        entries: [{
-            id: "server",
-            location: "server",
-            remoteProvides: [counterContract.id],
-            activate: () => {
-                let count = 0;
-                const sinks = new Set<(value: number) => void>();
-                return {
-                    remote: [provideRemote(counterContract, () => ({
-                        methods: {
-                            increment: ({by}) => {
-                                count += by;
-                                for (const sink of sinks) sink(count);
-                                return {ok: true, value: count};
-                            },
-                            current: () => ({ok: true, value: count}),
+export const counterBackendPlugin: PluginDefinition = {
+    id: descriptor.id,
+    entries: [{
+        id: "server",
+        location: "server",
+        remoteProvides: [counterContract.id],
+        activate: () => {
+            let count = 0;
+            const sinks = new Set<(value: number) => void>();
+            return {
+                remote: [provideRemote(counterContract, () => ({
+                    methods: {
+                        increment: ({by}) => {
+                            count += by;
+                            for (const sink of sinks) sink(count);
+                            return {ok: true, value: count};
                         },
-                        events: {
-                            changed: {
-                                // 每个订阅调用一次；订阅结束（调用方释放、任一端停止、连接断开）时 signal 触发。
-                                subscribe: (_filter, sink, {signal}) => {
-                                    const next = (value: number): void => sink.next(value);
-                                    sinks.add(next);
-                                    signal.addEventListener("abort", () => sinks.delete(next), {once: true});
-                                },
+                        current: () => ({ok: true, value: count}),
+                    },
+                    events: {
+                        changed: {
+                            // 每个订阅调用一次；订阅结束（调用方释放、任一端停止、连接断开）时 signal 触发。
+                            subscribe: (_filter, sink, {signal}) => {
+                                const next = (value: number): void => sink.next(value);
+                                sinks.add(next);
+                                signal.addEventListener("abort", () => sinks.delete(next), {once: true});
                             },
                         },
-                    }))],
-                };
-            },
-        }],
-    };
-}
+                    },
+                }))],
+            };
+        },
+    }],
+};

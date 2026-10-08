@@ -9,6 +9,8 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 export interface ClockService {
     /** 当前时间，毫秒。 */
     now(): number;
+    /** 当前是几点（UTC，0–23）。 */
+    hour(): number;
 }
 
 /** 服务 id 以提供它的插件 id 加 `/` 开头。 */

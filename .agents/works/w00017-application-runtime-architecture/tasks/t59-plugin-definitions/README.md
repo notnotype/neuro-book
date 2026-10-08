@@ -25,6 +25,7 @@ taskId: t59-plugin-definitions
 |---|---|---|
 | S0 | `2aab9e25` | ADR 0026；ADR 0025 标为被 0026 取代，索引同步 |
 | S1 | `06847f12` | 内核按运行位置判服务 id 不重复；`plugins.md`、`plugin-manifest.md` 修订并补场景。把唯一性改回跨全部入口的变异被新用例抓住 |
-| S2 | （待提交） | 宿主能力 `stateRootKey`、`windowNavigationKey`（`src/shared/host.ts`），`currentProjectKey` 移到 `src/shared/projects.ts`；插件定义改为常量（`commandsPlugin` 与 `storageBackendPlugin` 各含两个位置的入口）；三个宿主各分定义表与宿主适配器的工厂表；“打开项目”的测试改为经命令服务在真实浏览器内核里执行、导航记在宿主能力上；Storage 补缺能力受阻用例；随片的 Spec 与 AGENTS 修订，`projects.md`、`commands.md` 的“证据”一节与正文 Task 引用一并清理 |
+| S2 | `e862b1e0` | 宿主能力 `stateRootKey`、`windowNavigationKey`（`src/shared/host.ts`），`currentProjectKey` 移到 `src/shared/projects.ts`；插件定义改为常量（`commandsPlugin` 与 `storageBackendPlugin` 各含两个位置的入口）；三个宿主各分定义表与宿主适配器的工厂表；“打开项目”的测试改为经命令服务在真实浏览器内核里执行、导航记在宿主能力上；Storage 补缺能力受阻用例；随片的 Spec 与 AGENTS 修订，`projects.md`、`commands.md` 的“证据”一节与正文 Task 引用一并清理 |
+| S3 | （待提交） | 示例插件改为常量（`clockBackendPlugin` 等）；示例宿主给出时钟能力 `example/clock`（键在 `examples/shared/host.ts`），`Stage` 收 `capabilities`；场景 1 补“宿主不给时钟时 clock 受阻”。让 clock 绕过宿主能力直接读系统时间的变异被场景 1 抓住 |
 
-实施中一处偏离计划：`currentProjectKey` 原在项目宿主目录（`src/project/current-project.ts`），Storage 的项目入口依赖它就得引用宿主目录，所以移到 `src/shared/projects.ts`，宿主能力的键都在 `src/shared/`。
+实施中两处偏离计划：`currentProjectKey` 原在项目宿主目录（`src/project/current-project.ts`），Storage 的项目入口依赖它就得引用宿主目录，所以移到 `src/shared/projects.ts`，宿主能力的键都在 `src/shared/`。示例的时钟能力 id 由 `example.host/clock` 改为 `example/clock`，与应用包的 `nbook/…` 同一写法。

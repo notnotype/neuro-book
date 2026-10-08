@@ -25,29 +25,27 @@ function validateMenuItem(contribution: ContributionDescriptor): string | null {
     return typeof title === "string" && title.trim() !== "" ? null : "菜单项要有标题";
 }
 
-export function createMenuServerPlugin(): PluginDefinition {
-    return {
-        id: descriptor.id,
-        // required：贡献写在入口下并给出实现；none：只有声明。
-        contributionPoints: [{id: MENU_POINT, implementation: "required", validate: validateMenuItem}],
-        entries: [{
-            id: "server",
-            location: "server",
-            provides: [menuKey],
-            receives: [MENU_POINT],
-            activate: () => {
-                const items = new Map<string, MenuHandle>();
-                const receiver: ContributionReceiver<MenuItemDeclaration, MenuItemImplementation> = {
-                    commit: (handle) => void items.set(handle.id, handle),
-                    revoke: (handle) => void items.delete(handle.id),
-                };
-                const menu: MenuService = {
-                    items: () => [...items.values()].map((handle) => ({id: handle.id, title: handle.declaration.title})),
-                    // 每次执行都经 implementation() 取实现：撤回之后不会再调到旧实现。
-                    run: (id) => items.get(id)?.implementation().run() ?? null,
-                };
-                return {services: [provide(menuKey, menu)], receivers: {[MENU_POINT]: receiver}};
-            },
-        }],
-    };
-}
+export const menuBackendPlugin: PluginDefinition = {
+    id: descriptor.id,
+    // required：贡献写在入口下并给出实现；none：只有声明。
+    contributionPoints: [{id: MENU_POINT, implementation: "required", validate: validateMenuItem}],
+    entries: [{
+        id: "server",
+        location: "server",
+        provides: [menuKey],
+        receives: [MENU_POINT],
+        activate: () => {
+            const items = new Map<string, MenuHandle>();
+            const receiver: ContributionReceiver<MenuItemDeclaration, MenuItemImplementation> = {
+                commit: (handle) => void items.set(handle.id, handle),
+                revoke: (handle) => void items.delete(handle.id),
+            };
+            const menu: MenuService = {
+                items: () => [...items.values()].map((handle) => ({id: handle.id, title: handle.declaration.title})),
+                // 每次执行都经 implementation() 取实现：撤回之后不会再调到旧实现。
+                run: (id) => items.get(id)?.implementation().run() ?? null,
+            };
+            return {services: [provide(menuKey, menu)], receivers: {[MENU_POINT]: receiver}};
+        },
+    }],
+};

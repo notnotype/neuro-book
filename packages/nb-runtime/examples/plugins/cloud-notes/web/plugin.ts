@@ -15,23 +15,21 @@ import {descriptor} from "../plugin";
 import {cloudNotesContract, cloudNotesKey} from "../shared/contracts";
 import type {CloudNotes} from "../shared/contracts";
 
-export function createCloudNotesBrowserPlugin(): PluginDefinition {
-    return {
-        id: descriptor.id,
-        entries: [{
-            id: "browser",
-            location: "browser",
-            provides: [cloudNotesKey],
-            remoteDelegates: [cloudNotesContract.id],
-            activate: (context) => ({
-                services: [providePerConsumer(cloudNotesKey, (consumer): CloudNotes => {
-                    const server = () => context.remote.on(consumer).use(cloudNotesContract).at("server");
-                    return {
-                        add: (text) => server().add({text}),
-                        list: () => server().list({}),
-                    };
-                })],
-            }),
-        }],
-    };
-}
+export const cloudNotesBrowserPlugin: PluginDefinition = {
+    id: descriptor.id,
+    entries: [{
+        id: "browser",
+        location: "browser",
+        provides: [cloudNotesKey],
+        remoteDelegates: [cloudNotesContract.id],
+        activate: (context) => ({
+            services: [providePerConsumer(cloudNotesKey, (consumer): CloudNotes => {
+                const server = () => context.remote.on(consumer).use(cloudNotesContract).at("server");
+                return {
+                    add: (text) => server().add({text}),
+                    list: () => server().list({}),
+                };
+            })],
+        }),
+    }],
+};
