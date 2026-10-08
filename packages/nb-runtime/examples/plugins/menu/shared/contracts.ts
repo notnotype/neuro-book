@@ -1,6 +1,5 @@
 /**
- * `example.menu` 对其它插件公开的合同：贡献点、菜单项的声明与实现、菜单服务。
- * 贡献方只以 `import type` 引用这里，贡献点 id 写成同一个字面量（类型检查保证一致）。
+ * `example.menu` 对其它插件公开的合同：贡献点、菜单项的声明与实现、菜单服务。别的插件在运行时只引用这个文件。
  */
 
 import {defineServiceKey} from "@notnotype/nb-runtime/services";

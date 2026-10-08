@@ -7,7 +7,6 @@ import {afterEach, describe, expect, it} from "bun:test";
 
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
 
-import {clockKey} from "../plugins/clock/shared/contracts";
 import {createClockServerPlugin} from "../plugins/clock/backend/plugin";
 import {greeterKey} from "../plugins/greeter/shared/contracts";
 import {createGreeterServerPlugin} from "../plugins/greeter/backend/plugin";
@@ -21,9 +20,9 @@ afterEach(async () => {
     for (const result of await stage.close()) expect(result).toEqual({status: "closed"});
 });
 
-/** 装配：宿主把 clock 的服务键交给 greeter 的工厂（键按对象身份比较）。 */
+/** 装配：宿主只给 clock 它需要的配置（时钟）；greeter 对 clock 的依赖写在它自己的入口里。 */
 function plugins(clock: ManualClock) {
-    return [createClockServerPlugin({clock}), createGreeterServerPlugin({clock: clockKey})];
+    return [createClockServerPlugin({clock}), createGreeterServerPlugin()];
 }
 
 describe("场景 1：共享服务与依赖", () => {

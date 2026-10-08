@@ -1,6 +1,6 @@
 /**
- * `example.clock` 对其它插件公开的合同。别的插件只以 `import type` 引用这里：服务键是对象、按身份比较，
- * 由宿主装配时交给依赖它的插件工厂（见 `greeter/server/plugin.ts`）。
+ * `example.clock` 对其它插件公开的合同。别的插件在运行时只引用这个文件（docs/adr/0025-service-keys-by-id.md）：
+ * 服务键按服务 id 识别，只在这里定义一次。
  */
 
 import {defineServiceKey} from "@notnotype/nb-runtime/services";

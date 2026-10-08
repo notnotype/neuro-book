@@ -1,33 +1,26 @@
 /**
  * `example.greeter` 的服务端入口：依赖 `example.clock` 的报时服务，提供问候服务。
  *
- * 依赖写在 `dependencies` 里：激活前内核先解析它（必要时先激活提供方），解析不到时本入口受阻、不激活，
- * 原因可查询。激活时用 `context.services.require` 直接取。
+ * 依赖写在 `dependencies` 里，服务键从 clock 的合同模块引用：激活前内核先解析它（必要时先激活提供方），解析不到时
+ * 本入口受阻、不激活，原因可查询。激活时用 `context.services.require` 直接取。工厂没有参数：它不需要宿主给的配置。
  */
 
 import {provide} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import type {ServiceKey} from "@notnotype/nb-runtime/services";
-
-import type {ClockService} from "../../clock/shared/contracts";
+import {clockKey} from "../../clock/shared/contracts";
 import {descriptor} from "../plugin";
 import {greeterKey} from "../shared/contracts";
 
-/** 依赖的其它插件的服务键，由宿主装配时交进来（键按对象身份比较，插件之间只 `import type`）。 */
-export interface GreeterServiceKeys {
-    readonly clock: ServiceKey<ClockService>;
-}
-
-export function createGreeterServerPlugin(keys: GreeterServiceKeys): PluginDefinition {
+export function createGreeterServerPlugin(): PluginDefinition {
     return {
         id: descriptor.id,
         entries: [{
             id: "server",
             location: "server",
-            dependencies: [{key: keys.clock}],
+            dependencies: [{key: clockKey}],
             provides: [greeterKey],
             activate: (context) => {
-                const clock = context.services.require(keys.clock);
+                const clock = context.services.require(clockKey);
                 return {services: [provide(greeterKey, {greet: (name) => `${period(clock.now())}好，${name}`})]};
             },
         }],
