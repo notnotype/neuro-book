@@ -6,7 +6,7 @@
 import {afterEach, expect, it} from "bun:test";
 
 import {counterKey} from "../plugins/counter/shared/contracts";
-import {createCounterServerPlugin} from "../plugins/counter/server/plugin";
+import {createCounterServerPlugin} from "../plugins/counter/backend/plugin";
 import {createCounterBrowserPlugin} from "../plugins/counter/web/plugin";
 import {Stage} from "./hosts";
 import {serviceProbe} from "./probes";

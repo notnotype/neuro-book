@@ -10,11 +10,11 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import type {PluginDescriptor} from "nbook/manifest";
 import {createCommandsPlugin} from "nbook/plugins/commands/shared/plugin";
-import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/server/plugin";
-import type {HttpAdmission} from "nbook/plugins/http/server/admission";
-import {createHttpPlugin} from "nbook/plugins/http/server/plugin";
-import {createProjectsServerPlugin} from "nbook/plugins/projects/server/plugin";
-import {createStorageServerPlugin} from "nbook/plugins/storage/server/plugin";
+import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/plugin";
+import type {HttpAdmission} from "nbook/plugins/http/backend/admission";
+import {createHttpPlugin} from "nbook/plugins/http/backend/plugin";
+import {createProjectsServerPlugin} from "nbook/plugins/projects/backend/plugin";
+import {createStorageServerPlugin} from "nbook/plugins/storage/backend/plugin";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
 
 import {createBrowserBootstrapRoute} from "./browser-bootstrap";

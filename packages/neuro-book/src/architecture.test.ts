@@ -59,6 +59,8 @@ function targetInSrc(use: ImportUse): string | null {
 }
 
 const has = (path: string, segment: string): boolean => path.split("/").includes(segment);
+/** 后端代码：服务端与项目子进程两个宿主，以及插件的 `backend/`（两种进程共用）。 */
+const isBackend = (path: string): boolean => path.startsWith("server/") || path.startsWith("project/") || has(path, "backend");
 const pluginOf = (path: string): string | null => /^plugins\/([^/]+)\//u.exec(path)?.[1] ?? null;
 const isPlatformModule = (specifier: string): boolean => specifier.startsWith("node:") || specifier === "bun" || specifier.startsWith("bun:");
 const isFrontendPackage = (specifier: string): boolean => specifier === "vue" || specifier.startsWith("vue/") || specifier.startsWith("@vitejs/");
@@ -76,11 +78,11 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
         const target = targetInSrc(use);
         const where = `${use.file} → ${use.specifier}`;
         const web = has(use.file, "web") || use.file.startsWith("ui/");
-        const server = has(use.file, "server");
+        const server = isBackend(use.file);
         const neutral = use.file.startsWith("shared/") || has(use.file, "shared") || /^plugins\/[^/]+\/plugin\.ts$/u.test(use.file) || use.file === "manifest.ts" || use.file === "development-manifest.ts";
-        if (web && (isPlatformModule(use.specifier) || (target !== null && has(target, "server")))) found.push(`前端引用了后端或运行平台：${where}`);
+        if (web && (isPlatformModule(use.specifier) || (target !== null && isBackend(target)))) found.push(`前端引用了后端或运行平台：${where}`);
         if (server && (isFrontendPackage(use.specifier) || (target !== null && has(target, "web")))) found.push(`后端引用了前端：${where}`);
-        if (neutral && target !== null && (has(target, "server") || has(target, "web"))) found.push(`共用代码引用了一侧的实现：${where}`);
+        if (neutral && target !== null && (isBackend(target) || has(target, "web"))) found.push(`共用代码引用了一侧的实现：${where}`);
         const from = pluginOf(use.file);
         const to = target === null ? null : pluginOf(target);
         if (from !== null && to !== null && from !== to && !use.typeOnly && !isPluginContracts(target as string) && !labSceneMayImport(use.file, target as string)) {
@@ -114,9 +116,11 @@ describe("包内依赖方向", () => {
         const cases: ReadonlyArray<ImportUse> = [
             use("web/host/window.ts", "nbook/server/start"),
             use("web/host/window.ts", "node:fs"),
-            use("plugins/http/server/plugin.ts", "../web/view"),
-            use("plugins/http/server/plugin.ts", "vue"),
-            use("shared/browser-bootstrap.ts", "nbook/plugins/http/server/dispatch"),
+            use("plugins/http/backend/plugin.ts", "../web/view"),
+            use("plugins/http/backend/plugin.ts", "vue"),
+            use("project/start.ts", "vue"),
+            use("web/host/window.ts", "nbook/plugins/storage/backend/plugin"),
+            use("shared/browser-bootstrap.ts", "nbook/plugins/http/backend/dispatch"),
             use("plugins/workbench/web/plugin.ts", "nbook/plugins/diagnostics/web/plugin"),
             use("web/main.ts", "vite"),
             use("web/host/window.ts", "@vue/test-utils"),

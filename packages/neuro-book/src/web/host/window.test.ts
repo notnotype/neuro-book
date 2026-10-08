@@ -21,7 +21,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import type {PluginDescriptor} from "nbook/manifest";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
-import {errorResponse} from "nbook/plugins/http/server/dispatch";
+import {errorResponse} from "nbook/plugins/http/backend/dispatch";
 import {manifestServerPlugins} from "nbook/server/plugins";
 import {PROJECT_LIMIT_DEFAULTS} from "nbook/server/config";
 import {startServer} from "nbook/server/start";

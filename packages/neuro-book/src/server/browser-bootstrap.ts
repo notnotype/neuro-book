@@ -8,7 +8,7 @@
 import {createHash} from "node:crypto";
 
 import type {PluginDescriptor} from "nbook/manifest";
-import type {HostRoute} from "nbook/plugins/http/server/plugin";
+import type {HostRoute} from "nbook/plugins/http/backend/plugin";
 import {BROWSER_PROTOCOL_VERSION} from "nbook/shared/browser-bootstrap";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
 

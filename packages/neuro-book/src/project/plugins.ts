@@ -9,8 +9,8 @@ import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import type {PluginDescriptor} from "nbook/manifest";
-import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/server/plugin";
-import {createStorageServerPlugin} from "nbook/plugins/storage/server/plugin";
+import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/plugin";
+import {createStorageServerPlugin} from "nbook/plugins/storage/backend/plugin";
 
 import type {ProjectConfig} from "./config";
 

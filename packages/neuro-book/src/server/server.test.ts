@@ -12,8 +12,8 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {Hono} from "hono";
 
-import type {HttpAdmission} from "nbook/plugins/http/server/admission";
-import type {HttpRouteEnv} from "nbook/plugins/http/server/contracts";
+import type {HttpAdmission} from "nbook/plugins/http/backend/admission";
+import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
 import {remoteProbeContract} from "nbook/shared/testing/remote-probe-contract";
 
 import {PROJECT_LIMIT_DEFAULTS} from "./config";

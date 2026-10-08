@@ -8,8 +8,8 @@ import type {ContributionDescriptor, ContributionHandle} from "@notnotype/nb-run
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {HttpAdmission} from "./admission";
-import {HTTP_ROUTES_POINT} from "./contracts";
-import type {HttpRouteEnv, HttpRouteHandler} from "./contracts";
+import {HTTP_ROUTES_POINT} from "../shared/contracts";
+import type {HttpRouteEnv, HttpRouteHandler} from "../shared/contracts";
 import {createDispatcher, RouteTable, validateRouteContribution} from "./dispatch";
 import {openStaticFiles} from "./static";
 import type {StaticFiles} from "./static";

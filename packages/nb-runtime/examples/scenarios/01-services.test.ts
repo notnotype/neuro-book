@@ -8,9 +8,9 @@ import {afterEach, describe, expect, it} from "bun:test";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
 
 import {clockKey} from "../plugins/clock/shared/contracts";
-import {createClockServerPlugin} from "../plugins/clock/server/plugin";
+import {createClockServerPlugin} from "../plugins/clock/backend/plugin";
 import {greeterKey} from "../plugins/greeter/shared/contracts";
-import {createGreeterServerPlugin} from "../plugins/greeter/server/plugin";
+import {createGreeterServerPlugin} from "../plugins/greeter/backend/plugin";
 import {Stage} from "./hosts";
 import {serviceProbe} from "./probes";
 

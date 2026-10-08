@@ -12,8 +12,8 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {descriptor} from "../plugin";
 import type {HttpAdmission} from "./admission";
-import {HTTP_ROUTES_POINT} from "./contracts";
-import type {HttpRouteEnv} from "./contracts";
+import {HTTP_ROUTES_POINT} from "../shared/contracts";
+import type {HttpRouteEnv} from "../shared/contracts";
 import {createDispatcher, errorResponse, RouteTable, validateRouteContribution} from "./dispatch";
 import {openStaticFiles} from "./static";
 

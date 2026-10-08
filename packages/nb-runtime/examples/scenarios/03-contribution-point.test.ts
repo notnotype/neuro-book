@@ -7,9 +7,9 @@ import {afterEach, expect, it} from "bun:test";
 
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {createFileMenuServerPlugin} from "../plugins/file-menu/server/plugin";
+import {createFileMenuServerPlugin} from "../plugins/file-menu/backend/plugin";
 import {MENU_POINT, menuKey} from "../plugins/menu/shared/contracts";
-import {createMenuServerPlugin} from "../plugins/menu/server/plugin";
+import {createMenuServerPlugin} from "../plugins/menu/backend/plugin";
 import {Stage} from "./hosts";
 import {serviceProbe} from "./probes";
 

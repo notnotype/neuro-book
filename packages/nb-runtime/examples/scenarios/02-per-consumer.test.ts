@@ -8,7 +8,7 @@ import {afterEach, expect, it} from "bun:test";
 import {ServiceRevokedError} from "@notnotype/nb-runtime/services";
 
 import {notesKey} from "../plugins/notes/shared/contracts";
-import {createNotesServerPlugin} from "../plugins/notes/server/plugin";
+import {createNotesServerPlugin} from "../plugins/notes/backend/plugin";
 import {Stage} from "./hosts";
 import {serviceProbe} from "./probes";
 

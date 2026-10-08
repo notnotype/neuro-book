@@ -6,7 +6,7 @@
 import {afterEach, expect, it} from "bun:test";
 
 import {cloudNotesKey} from "../plugins/cloud-notes/shared/contracts";
-import {createCloudNotesServerPlugin} from "../plugins/cloud-notes/server/plugin";
+import {createCloudNotesServerPlugin} from "../plugins/cloud-notes/backend/plugin";
 import {createCloudNotesBrowserPlugin} from "../plugins/cloud-notes/web/plugin";
 import {Stage} from "./hosts";
 import {serviceProbe} from "./probes";

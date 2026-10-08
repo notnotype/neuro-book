@@ -21,8 +21,8 @@ import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote
 
 import {delegatingPlugins, productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
-import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected} from "nbook/plugins/http/server/admission";
-import type {DrainClock} from "nbook/plugins/http/server/admission";
+import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected} from "nbook/plugins/http/backend/admission";
+import type {DrainClock} from "nbook/plugins/http/backend/admission";
 import {projectsKey} from "nbook/shared/projects";
 import {RPC_PATH} from "nbook/shared/rpc-socket";
 

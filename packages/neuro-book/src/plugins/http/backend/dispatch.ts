@@ -11,7 +11,7 @@ import type {ContributionDescriptor, ContributionHandle, ContributionReceiver} f
 
 import type {HttpAdmission, RequestTicket} from "./admission";
 import {HttpAdmissionRejected} from "./admission";
-import type {HttpRouteEnv, HttpRouteHandler} from "./contracts";
+import type {HttpRouteEnv, HttpRouteHandler} from "../shared/contracts";
 import type {StaticFiles} from "./static";
 
 /** 宿主自有接口的前缀段；插件不能以它为 id 挂载路由。 */

@@ -25,7 +25,7 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {defineRecord} from "nbook/shared/storage";
 import type {RecordDefinition, RecordHandle, RecordSnapshot, StorageService, WriteResult} from "nbook/shared/storage";
 
-import {createStorageServerPlugin} from "./server/plugin";
+import {createStorageServerPlugin} from "./backend/plugin";
 import {storageKey, userStorageContract} from "./shared/contracts";
 import {createStorageBrowserPlugin} from "./web/plugin";
 

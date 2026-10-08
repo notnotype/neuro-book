@@ -28,7 +28,7 @@ import type {ProjectHarness} from "nbook/server/testing/projects";
 import {windowProjectKey} from "nbook/shared/projects";
 import {browserPluginFactories} from "nbook/web/plugins";
 
-import {createProjectsServerPlugin} from "./server/plugin";
+import {createProjectsServerPlugin} from "./backend/plugin";
 import {projectsRemoteContract} from "./shared/contracts";
 import {openProject} from "./web/open-project";
 

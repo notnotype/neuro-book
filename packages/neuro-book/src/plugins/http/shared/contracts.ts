@@ -1,7 +1,6 @@
 /**
- * `nbook.http` 对其它插件公开的合同：贡献点 `http.routes` 的形状。
- *
- * 其它插件只以 `import type` 引用这里，运行时经内核的贡献交付与本插件协作。
+ * `nbook.http` 对其它插件公开的合同：贡献点 `http.routes` 的形状。只用标准的 `Request`、`Response`，不依赖 Hono。
+ * 其它插件在运行时只引用本文件（docs/adr/0025-service-keys-by-id.md）。
  */
 
 /**

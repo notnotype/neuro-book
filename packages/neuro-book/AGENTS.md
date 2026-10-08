@@ -10,7 +10,7 @@
 - `src/server/`：后端宿主（进程入口、启动参数、停止来源与退出码、按清单装配插件，`src/server/projects/` 是项目管理：身份、登记表、项目子进程与租约）；`src/project/`：项目宿主（项目子进程的入口，建立 `project` 位置的运行实例，见 [`runtime.projects`](../../docs/specs/runtime/projects.md)）；`src/web/`：前端宿主（Vite 入口、浏览器宿主、根组件）。
 - `src/ui/`：宿主与插件共用的前端组件（同名 `.md` 文档并列，Lab 自动收录），只引用前端库、`ui/` 与 `shared/`；只属于某个插件的界面组件放在插件的 `web/components/`。
 - `src/shared/`：前后端宿主共用、与运行位置无关的代码：宿主之间的协议（例如浏览器引导的 TypeBox schema 与常量）、装配工具，以及各插件都要用的小工具（例如界面文本的中英两份 `localized-text.ts`）；不引用任何一侧的实现。插件自己的合同放在插件的 `shared/`。
-- `src/plugins/<插件>/`：一个插件一个目录，`plugin.ts` 为插件描述（id、版本与运行位置），`server/`、`web/` 分别放后端与前端，`shared/` 放两端共用、与运行位置无关的代码（TypeBox 合同，以及不碰 DOM、Bun 与 Node API 的逻辑，例如命令表）。`web/` 不引用 `server/`，反之亦然，只经 `shared/` 交换类型与 schema。
+- `src/plugins/<插件>/`：一个插件一个目录，`plugin.ts` 为插件描述（id、版本与运行位置）。`backend/` 放后端代码，服务端（`server`，应用级，一个进程）与项目子进程（`project`，每个打开的项目一个）共用这份代码，入口工厂按运行位置装配；`web/` 放浏览器窗口（`browser`，每个窗口一个）的代码；`shared/` 放两端共用、与运行位置无关的代码（TypeBox 合同，以及不碰 DOM、Bun 与 Node API 的逻辑，例如命令表），其中 `shared/contracts.ts` 是对其它插件公开的合同。`web/` 不引用 `backend/`，反之亦然，只经 `shared/` 交换类型与 schema。
 - 插件之间只经内核的服务、贡献点与远程服务协作。运行时只引用对方的 `shared/contracts.ts`（服务键、远程合同、贡献点 id、schema），类型可以 `import type`；服务键按服务 id 识别，同一 id 只在提供方的 `shared/contracts.ts` 定义一次（[ADR 0025](../../docs/adr/0025-service-keys-by-id.md)），由 `src/architecture.test.ts` 检查。插件入口的工厂只收宿主给的配置（运行位置、路径、宿主拥有的对象），对别的插件与宿主能力的依赖写在入口的 `dependencies` 里。宿主（`src/server/`、`src/project/`、`src/web/`）是装配者，可以引用插件的工厂。例外：Lab 的场景（`src/plugins/lab/web/fixtures/`）可以在运行时引用其它插件的 `web/` 与 `shared/`，用来挂载它们的组件、建场景自己的局部宿主；Lab 只在开发模式加载。
 - 定义贡献点时规定贡献 id 的取法（例如插件 id、页面路径）：内核要求贡献 id 在同一贡献点内唯一，两个插件写同一个 id 时两条都被拒绝，不能让每个插件都写同一个固定 id。
 - 命令（两端都可用）：插件向 `nbook.commands` 的贡献点 `commands.definitions` 提交，贡献 id 写命令 id（内置插件 `nbook.<域>.<动作>`，域取 [`workbench.commands`](../../docs/specs/workbench/commands.md) 的域词表，不是插件 id，不在词表里的贡献被拒绝；其它插件以自己的插件 id 开头）。命令随贡献方入口激活才进命令表，还没有按命令触发的激活事件，贡献命令的入口要启动即激活（`onStartup`）；要执行命令的入口在依赖里声明 `commandServiceKey`，按 id 执行。合同见 `src/plugins/commands/shared/contracts.ts` 与 [`workbench.commands`](../../docs/specs/workbench/commands.md)。
@@ -21,7 +21,7 @@
 
 ## 后端
 
-- 插件提供 HTTP 接口时，在后端入口向贡献点 `http.routes` 提交一个处理器（通常是 Hono 应用），贡献 id 写插件自己的 id，挂载在 `/api/<插件 id>/`；合同见 `src/plugins/http/server/contracts.ts` 与 [`runtime.server-host`](../../docs/specs/runtime/server-host.md)。`/api/runtime/` 留给宿主。
+- 插件提供 HTTP 接口时，在后端入口向贡献点 `http.routes` 提交一个处理器（通常是 Hono 应用），贡献 id 写插件自己的 id，挂载在 `/api/<插件 id>/`；合同见 `src/plugins/http/shared/contracts.ts` 与 [`runtime.server-host`](../../docs/specs/runtime/server-host.md)。`/api/runtime/` 留给宿主。
 - 长连接（事件流）在处理器里经 `env.registerEventStream(close)` 登记，否则会拖住排空。
 - 记录诊断用 `@notnotype/nb-runtime/diagnostics` 的 `diagnosticsKey` 服务，不直接写文件或另建日志器。
 - 测试需要额外插件时经 `startServer({plugins})` 注入（见 `src/server/testing/`），产品代码不加测试分支。

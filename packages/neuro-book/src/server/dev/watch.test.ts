@@ -24,7 +24,7 @@ afterAll(async () => {
 
 describe("后端文件监视", () => {
     it("后端代码、共用合同与插件描述触发重启；前端、测试、测试支持、监督进程自身与非代码文件不触发", () => {
-        for (const path of ["server/start.ts", "plugins/http/server/dispatch.ts", "plugins/workbench/plugin.ts", "shared/browser-bootstrap.ts", "manifest.ts", "lifecycle/scope.ts", "data/table.json"]) {
+        for (const path of ["server/start.ts", "plugins/http/backend/dispatch.ts", "plugins/workbench/plugin.ts", "shared/browser-bootstrap.ts", "manifest.ts", "lifecycle/scope.ts", "data/table.json"]) {
             expect(isBackendFile(path)).toBe(true);
         }
         for (const path of ["web/App.vue", "web/host/window.ts", "plugins/workbench/web/plugin.ts", "server/start.test.ts", "server/testing/fixture-entry.ts", "server/dev/run.ts", "ui/theme/install-theme-packs.ts", "README.md", "server/.start.ts.swp"]) {
