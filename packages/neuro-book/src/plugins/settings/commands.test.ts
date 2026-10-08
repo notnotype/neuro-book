@@ -18,6 +18,8 @@ import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/c
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
+import {descriptor as storageDescriptor} from "nbook/plugins/storage/plugin";
+import {storageBrowserPlugin} from "nbook/plugins/storage/web/plugin";
 import {descriptor as workbenchDescriptor} from "nbook/plugins/workbench/plugin";
 import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
 import {SWITCH_APPEARANCE_COMMAND, SWITCH_THEME_COMMAND} from "nbook/plugins/workbench/web/commands/theme-commands";
@@ -156,7 +158,10 @@ describe("切换界面语言", () => {
 });
 
 describe("切换主题与明暗（工作台贡献）", () => {
-    /** 服务端与项目实例只登记工作台描述里的声明；窗口装真实的工作台（选择服务由它的命令面板提供，这里没挂页面）。 */
+    /**
+     * 服务端与项目实例只登记工作台描述里的声明；窗口装真实的工作台（选择服务由它的命令面板提供，这里没挂页面）与它依赖
+     * 的 Storage 浏览器入口（没挂外壳页面，布局 store 不会创建，服务端不需要 Storage）。
+     */
     async function themeWorld(files: {readonly user?: string; readonly project?: string}): Promise<SettingsWorld> {
         counter += 1;
         const root = join(tmp, `theme-${String(counter)}`);
@@ -176,7 +181,7 @@ describe("切换主题与明暗（工作台贡献）", () => {
         const target: Reader = {commands: null, settings: null};
         // 产品窗口里工作台是必需插件、启动即激活；这里由一个依赖选择服务的插件把它拉起来。
         const activator: PluginDefinition = {id: "x.activator", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: quickPickKey}], activate: () => ({})})]};
-        await created.window(id, [statePlugin, commandsPlugin, definitionAt("browser", workbenchDescriptor, workbenchBrowserPlugin), activator, reader(target)], {bound});
+        await created.window(id, [statePlugin, commandsPlugin, definitionAt("browser", storageDescriptor, storageBrowserPlugin), definitionAt("browser", workbenchDescriptor, workbenchBrowserPlugin), activator, reader(target)], {bound});
         return target;
     }
 

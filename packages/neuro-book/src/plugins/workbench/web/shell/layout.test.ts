@@ -8,27 +8,19 @@ import {describe, expect, it} from "bun:test";
 
 import type {Grid, GridAxis, GridBranchChange, GridExtent, GridGestureCommit, GridLayoutResult, GridNode} from "@notnotype/nb-ui/layout";
 
+import {createShellGrid, projectShell, SHELL_BODY_ID, SHELL_CONTENT_ROW_ID, SHELL_MAIN_ID, SHELL_PANEL_STACK_ID, SHELL_ROOT_ID, shellGestureProblem, shellPatch, shellSettleableBranch} from "./layout";
+import type {ShellProjectionInput} from "./layout";
 import {
-    createShellGrid,
-    projectShell,
     SHELL_ACTIVITYBAR_WIDTH,
-    SHELL_BODY_ID,
     SHELL_COMPACT_WIDTH,
-    SHELL_CONTENT_ROW_ID,
     SHELL_EDITOR_MIN_HEIGHT,
-    SHELL_MAIN_ID,
     SHELL_PANEL_COLLAPSED_HEIGHT,
     SHELL_PANEL_DEFAULT_HEIGHT,
-    SHELL_PANEL_STACK_ID,
-    SHELL_ROOT_ID,
     SHELL_SIZE_DEFAULTS,
     SHELL_STATUSBAR_HEIGHT,
     SHELL_TITLEBAR_HEIGHT,
-    shellGestureProblem,
-    shellPatch,
-    shellSettleableBranch,
-} from "./layout";
-import type {ShellProjectionInput, ShellSizePatch} from "./layout";
+} from "./sizes";
+import type {ShellSizePatch} from "./sizes";
 import {PANEL_ALIGNMENTS, PANEL_POSITIONS} from "./panel-state";
 import type {PanelState} from "./panel-state";
 

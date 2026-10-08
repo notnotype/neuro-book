@@ -225,7 +225,7 @@ describe("Spec projects 输出 10：命令登记", () => {
         let commands: CommandService | null = null;
         const plugins = [
             browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}),
-            ...["nbook.state", "nbook.settings", "nbook.commands", "nbook.workbench", "nbook.projects"].map((id) => browserPluginDefinitions[id]!),
+            ...["nbook.state", "nbook.settings", "nbook.commands", "nbook.storage", "nbook.workbench", "nbook.projects"].map((id) => browserPluginDefinitions[id]!),
             commandReader((service) => {
                 commands = service;
             }),

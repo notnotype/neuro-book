@@ -83,12 +83,12 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
     |---|---|---|---|
     | `nbook.workbench/layoutReady` | 布尔 | `false` | 三条布局记录读取完成 |
     | `nbook.workbench/nonCompact` | 布尔 | `false` | 不在紧凑呈现 |
-    | `nbook.workbench/panelHorizontal` | 布尔 | `false` | 面板生效位置是底部或顶部 |
-    | `nbook.workbench/panelMaximizable` | 布尔 | `false` | 面板在左右两侧，或水平且居中 |
+    | `nbook.workbench/panelHorizontal` | 布尔 | `false` | 面板保存的位置是底部或顶部（紧凑呈现临时放到底部的左右面板不算：收起与对齐对它不生效） |
+    | `nbook.workbench/panelMaximizable` | 布尔 | `false` | 面板显示着、不在紧凑呈现，并在左右两侧或水平且居中 |
     | `nbook.workbench/panelVisible` | 布尔 | `false` | 面板显示中 |
     | `nbook.workbench/panelMaximized` | 布尔 | `false` | 面板瞬时最大化中 |
-    | `nbook.workbench/panelPosition` | 字符串 | `bottom` | 面板位置（只供读取，不进 `when`） |
-    | `nbook.workbench/panelAlignment` | 字符串 | `center` | 面板对齐（同上） |
+    | `nbook.workbench/panelPosition` | 字符串 | `bottom` | 面板保存的位置（只供读取，不进 `when`） |
+    | `nbook.workbench/panelAlignment` | 字符串 | `center` | 面板保存的对齐（同上） |
 
     五条面板命令的参数、条件与暴露见 [workbench.commands](../workbench/commands.md) 第二批；外壳框架按钮、状态栏按钮与命令面板走同一组命令。`focusedPart`（焦点所在 Part）随外壳二加入。
 14. **布局恢复**：主动调整与用户定制按各自记录保存；重新进入时恢复并按当前约束夹取。测量、夹取、临时显隐、拖动期间、呈现事实变化都不保存。

@@ -15,8 +15,8 @@ import type {DeepReadonly} from "@vue/reactivity";
 
 import {defineStore} from "nbook/shared/store/store";
 
-import {clampLeafSize, clampPanelHeight, clampPanelWidth, SHELL_SIZE_DEFAULTS, shellLeafLimits} from "../shell/layout";
-import type {ShellDragCollapseMap, ShellHideablePart, ShellLayoutFacts, ShellSizePatch, ShellSizePreferences} from "../shell/layout";
+import {clampLeafSize, clampPanelHeight, clampPanelWidth, SHELL_SIZE_DEFAULTS, shellLeafLimits} from "../shell/sizes";
+import type {ShellDragCollapseMap, ShellHideablePart, ShellLayoutFacts, ShellSizePatch, ShellSizePreferences} from "../shell/sizes";
 import {isHorizontalPanelPosition, PANEL_ALIGNMENTS, PANEL_DEFAULTS, PANEL_POSITIONS, panelMaximizable} from "../shell/panel-state";
 import type {PanelAlignment, PanelPosition, PanelPreferences, PanelState} from "../shell/panel-state";
 import {LAYOUT_RECORDS} from "./records";
