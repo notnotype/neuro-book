@@ -1,0 +1,118 @@
+# w00017 t66 实施计划对抗审查：可实现性、界面与测试
+
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t66-workbench-shell-views/plan.md`，worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-plan-impl`，固定快照 `bacae9fd`。本报告只读审查计划与现有合同、代码；实验与报告均位于指定的仓库外目录。开发者已经接受外壳设计与参照旧应用的决定；视图合同提前的推荐不作为阻断理由。
+
+以下发现按影响排序；依据为仓库相对路径与行号。没有运行证据的行为结论明确标为“推断”。
+
+## 1. 重要：“新建容器（在 X）”不能由现有 `move-view` 参数表达，且会复用仍有成员的容器
+
+- **类别**：接口与正确性。
+- **计划位置**：「关键设计 5. 命令」第 49–50 行；「关键设计 2. 注册表、落位与呈现模型」第 28 行；「验收映射」第 90 行。
+- **现象**：三个区域的“新建容器”都把同一视图移入 `view:<视图 id>`，命令却只收 `{viewId,targetContainerId}`，不收区域或目标种类，也没有独立的容器移动 action。
+- **为什么是问题**：对初始在 Sidebar 的 A，三个“新建”项的参数均只能是 `{viewId:A,targetContainerId:view:A}`，与当前容器相同，会被计划自己的无写入规则拒绝或忽略，不能移动到 Panel。若 B 已并入 `view:A`，A 再选择“新建容器（在 Panel）”，`view:A` 仍含 B；复用并移动它会把 B 一起带走，违背“移动视图”只改该视图归属，且“新建”文案并不成立。这些是计划形状与 accepted 身份规则直接推出的冲突，尚未实现的命令行为为推断。
+- **依据**：计划第 26、28、49–50 行；`docs/proposals/workbench-shell-abstractions.md:68–72` 区分移动视图与移动容器，`114–130` 规定隐式 id 不随成员或区域变化，A 移走后 `view:A` 仍可含 B；`112`、`334` 规定独立新容器为外壳三的 `custom:<UUID>`。现有 Spec `docs/specs/workbench/commands.md:161` 也没有“目标区域”路径，需要本 Task 显式修订。
+- **建议改法**：在 S0 定清目标联合，例如“既有容器”与“迁到某区域”两种目标，区域明确进命令／意图；跨区不能只靠一个隐式 id 推导。为了少做部件，本 Task 的菜单只提供能正确表达的既有容器目标，把“新建”留给外壳三；若本 Task 必须让仅有一个 Files 视图也能迁区，则需明确处理独占隐式容器与已被其它视图占用的隐式容器两种情况，并新增对应验收，不能无条件复用起源 id。
+
+## 2. 重要：`move-view` 的必填参数使计划承诺的命令面板路径不可用
+
+- **类别**：接口与测试。
+- **计划位置**：「关键设计 5. 命令」第 49 行；「验收映射」第 90 行。
+- **现象**：计划定义严格的 `{viewId, targetContainerId}`，同时承诺 S7「经菜单与命令面板」完成移动；没有定义省略参数时的视图与目标选择。
+- **为什么是问题**：现有命令面板对普通候选一律执行 `{}`，命令系统先校验 schema，失败后不会调用处理函数。因此「移动视图」即使出现在候选里，选中也只得到 `invalid-args`，无法完成该验收；当前产品命令面板也没有执行失败提示。这是按现有代码确定的合同冲突，尚未实现的 `move-view` 本身未运行。
+- **依据**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue:142–154` 把普通命令记为 `args: {}` 并执行；`src/plugins/commands/shared/registry.ts:300–306` 在调用 `run` 前拒绝非法参数；`docs/specs/workbench/commands.md:164` 明写普通候选执行 `{}`；t65 `plan.md:141` 已因同一问题把面板命令参数改为可省略。`WorkbenchCommandPalette.md:44–47` 明确不提供执行失败提示。
+- **建议改法**：沿用面板命令的选择服务：省略 `viewId` 时先选可移动视图，省略目标时选现有容器或区域；取消成功且不写。有参数的直接路径保持严格，异步选择后重新核对源与目标身份。若产品只打算提供菜单路径，应明确调整该条命令面板验收与发现方式，不能保留一条必然失败的候选。
+- **运行核实**：仓库外 `command-smoke.ts` 使用真实命令注册表与 TypeBox，登记计划中的必填参数形状。执行 `{}` 实得 `{ok:false,code:"invalid-args",reason:"参数校验失败：/：must have required properties viewId, targetContainerId"}`，处理函数未执行；提供两个合法字段后成功。这个探针验证现有命令系统的边界，没有冒充尚未实现的移动处理函数。
+
+## 3. 重要：S6 缺少测试插件的服务端装配与真实入口启停控制
+
+- **类别**：可实现性与测试。
+- **计划位置**：「关键设计 6. Lab 与测试插件」第 55 行；「切片」S6；「验收映射」第 92 行；「验证」真实环境。
+- **现象**：计划只把 `test.sample-views` 放在 `src/web/testing/` 并写「一个入口可由测试停止与恢复」。现有 e2e 外壳确实允许追加浏览器定义，但后端测试入口只接受固定测试 id，且只把 `test.remote-probe` 描述加进服务端清单；浏览器只装服务端引导响应列出的插件。现有浏览器测试探针没有入口启停控制，`bootWindowUi()` 也不交出内核宿主。
+- **为什么是问题**：按所列提交边界仅增加浏览器插件不能使样例进入真实产品页。若 fixture 指定 `NBOOK_TEST_PLUGINS=test.sample-views`，后端会以「未知测试插件」退出。停止可以经真实 activation scope 完成，但当前内核的 `recover()` 只重置稳定失败；正常停止后 `recover()` 返回 `not-failed`，`activate()` 拒绝 `scope-closed`。因而浏览器里一个“恢复”开关不能凭空实现生命周期矩阵，直接调用接收者或重载整页也无法验证“同一工作台保留布局并创建新代际”。
+- **依据**：`src/web/testing/e2e-main.ts:13–16` 为客户端装配；`vite.e2e.config.ts:14–17` 只换构建入口；`src/server/testing/fixture-entry.ts:19–21,26–32` 为 id 白名单与引导清单；`src/server/testing/test-plugins.ts:34,201–255` 没有 sample id；`e2e/fixtures.ts:74–78` 默认为 remote-probe，可经 `options.env` 覆盖；`src/web/host/window.ts:282–299` 只遍历服务端引导集合；`src/web/boot.ts:31–54` 返回 `void`；`packages/nb-runtime/src/plugins/contracts.ts:416–439` 没有正常停止入口的重启 API。
+- **运行核实**：仓库外 `lifecycle-smoke.ts` 用真实浏览器位置的 `createRuntimeInstance`、`createServiceAssembly`、`createPluginHost`，真实登记、激活与撤回。关闭贡献入口激活作用域后声明仍可查询，事件为 `published:1`、`revoke:scope-closed`；`recover()` 实得 `{status:"not-failed",state:"closed"}`，再 `activate()` 实得 `{status:"rejected",reason:"scope-closed"}`。结束登记作用域、在新作用域重新登记后才得到 `generation:2`。最终根作用域 `closeout:"closed"`。没有 mock、spy、计时器或手工调用接收者。
+- **建议改法**：在 S6 明列同版本共享测试描述、客户端定义、后端测试白名单／清单装配、fixture 环境键与隔离边界，并让控制入口活在被停止的贡献入口之外。先决定采用哪条真实机制：测试外壳持有内核与登记作用域、按公共 API 重登记，明确区分其声明撤销窗口；或者在被测真实运行时补齐所需的正常入口重启合同。不要让样例组件自带“假停止”状态冒充内核撤回。把这条最小全链路探针提前做出，再扩大到五个样例。
+
+## 4. 重要：两个内层 Teleport 没有滚动／焦点恢复边界，外壳一的恢复只随 Part 拓扑触发
+
+- **类别**：外壳一复用与界面不变量。
+- **计划位置**：「关键设计 4. 组件」第 42–44 行；「验收映射」第 87、91 行。
+- **现象**：计划要求切换、跨容器／Part 移动、换轴和目标短暂卸载时保持实例、输入与滚动，但实例层只写稳定宿主与 Teleport，没有规定谁在每次内层搬运前捕获、搬回可见落点后恢复滚动与焦点。Section 的 `scroll` 滚动盒又在实例外，移动一个视图时它的旧 Section 不会随视图搬走。
+- **为什么是问题**：稳定组件不等于稳定浏览器状态。现有 `WorkbenchShellLayout` 的恢复挂在 `watch(projection)`，只由外层位置、尺寸、显隐、最大化等输入触发。容器选择或视图归属变化不改变这些输入；容器与视图两个新增 Teleport 因而不会自动进入该恢复事务。`scroll` 由 Section 管、`fill` 由视图管，两种都要有明确记忆边界；只保护视图组件内部滚动仍会遗漏前者。single／multiple 下重建内容目标也会使承诺失效。
+- **依据**：`WorkbenchShellLayout.vue:123–156,182–197` 的捕获／恢复与触发条件；`WorkbenchShellLayout.md:22` 只列外层迁移；`docs/proposals/workbench-shell-abstractions.md:149–155,187` 的停放与两种滚动所有权；旧 `WorkbenchViewSection.md:27–30` 特意让内容落点保持同一 DOM 节点；`docs/specs/ui/workbench-shell.md:201–202` 要求模式切换状态保留与落点退回停放区。
+- **运行核实及限度**：`memory-chrome.mjs` 在真实开发 Vite 场地、本机 Chrome `151.0.7922.71`、真实 `WorkbenchShellLayout` 与 nb-ui `FormInput` 中保持 Part 几何与 props 身份不变，将同一个 Vue 实例从 Sidebar 落点 Teleport 到 AuxiliaryBar，再经 `hidden inert` 停放区搬回。外壳承载盒实测 1440×800；创建始终 1、卸载 0、输入“跨容器草稿”保留；滚动实得 300→0，焦点变为空。相对地，`chrome-smoke.mjs` 在真实产品／Lab 页改变面板拓扑时滚动保持 300。前一实验是独立 Vue 场地中的内层迁移机制边界，没有经过 t66 贡献点或移动命令；t66 尚未实现，不能把它报告为 t66 运行缺陷。此项重要性来自计划没有给出已承诺状态保留所需的恢复职责。
+- **建议改法**：在 S5 明定容器／视图迁移的捕获与恢复事务，复用外壳一的规则而不是假设现有 watcher 会覆盖。按视图身份保存 Section 自有 scroll 盒及视图 fill 子树的滚动，内容目标在模式切换时保持 DOM 身份；停放时保留记忆、真正代际销毁时清理。焦点恢复只在原节点可见且用户没有移到菜单／对话框时执行；原节点不可见时给一个可达的导航入口。浏览器连续覆盖 `scroll` 与 `fill` 的 1→2→1、跨容器、跨 Part、停放／重新登记，不重载页面，每步同时断言 DOM 身份、输入、滚动、焦点与代际。
+
+## 5. 重要：面板标题替换没有定义扩展面，也没有明确唯一标题行的拥有者
+
+- **类别**：不变量与界面合同。
+- **计划位置**：「关键设计 4. 组件」第 40–45 行；「Spec 与文档改动（S0）」；「验收映射」第 87、96 行。
+- **现象**：计划既让 `WorkbenchSwitcherTabs` 替换 `WorkbenchPanelSurface` 的“面板”标题，又让 Panel 的 `WorkbenchToolPartHost` 自带 Switcher。现有 PanelSurface 只开放内容槽，左侧是带 `tabindex="-1"` 的焦点标题；计划未说明新增标题槽、由哪个组件拥有唯一的标题／动作行，也没有同步列出现有 PanelSurface 的 `.md`、fixture 与外壳一焦点合同。
+- **为什么是问题**：若按两个组件的描述各自画头部，再直接嵌套，会产生双标签行；若把标签放进内容槽，收起时整条消失；若直接删除原标题，则可能使最大化的焦点落点退到外壳根。这些是从现有扩展面推断的实现风险，尚未实现，不是已复现的 UI 缺陷。空 Panel 没有可聚焦 tab 时，框架动作和焦点落点仍须存在。截图和 token 断言不能替代键盘可达性；标签的 roving tabindex、长标题、横向溢出与右侧固定按钮要一起确定。
+- **依据**：计划第 40–45 行；`WorkbenchPanelSurface.md:14,34–51,58` 只有标题 prop 与默认槽；`.vue:34,50` 的焦点标题与 `v-show`；`WorkbenchShellLayout.vue:158–166,193–194` 的最大化焦点转交；`docs/specs/ui/workbench-shell.md:66,79–80,101–102` 禁止双标题／双标签并要求空 Part 框架动作可达；`packages/nb-ui/src/components/controls/Tabs.md:24–31,69,88` 的键盘、面板关联和扩展边界；`docs/standards/code/components.md:16,47–49,58` 要求同步合同、窄屏与焦点语义。
+- **运行核实**：`chrome-smoke.mjs` 经真实开发宿主与本机 Chrome `151.0.7922.71` 打开现有产品页，标题头实测 32px、五个 nb-ui 框架按钮各 26px；390×844 时 Panel 宽 320px，未产生页面横向溢出。该结果只证明既有一行的基线；新增标签与动作尚未实现，不能宣称 390px 已覆盖。
+- **建议改法**：保留 PanelSurface 作为唯一的 32px 框架标题与内容显隐拥有者，开放一个明确的左侧标题／导航槽，ToolPartHost 在 Panel 分支不再另画标签头；或由 ToolPartHost 完全接管后删除重复外壳，但只能有一个拥有者。在并列 `.md` 明定空／单／多容器时的焦点目标、可访问名称、tab 与内容的关联、溢出优先级和收起行为，同片更新 fixture。S7 增加仅用键盘切容器、打开“移动到”、Esc 返回、最大化后聚焦，以及单标签／长标签＋五个框架按钮的 390px 路径。
+
+## 6. 重要：新增容器网格没有真实 sash／键盘／收起恢复的验收，S5 的组件测试无法替代
+
+- **类别**：测试与可实现性。
+- **计划位置**：「关键设计 4. 组件」第 42 行；「切片」S5；「验收映射」第 87–88、93 行。
+- **现象**：S5 接入 `useLayoutExtent`、`useGridLayout` 与主动叶尺寸提交，自跑验证只有组件测试；S7 映射了模式、实例、菜单、主题，但没有一条真实容器尺寸手势、键盘调整、取消或 32px 收起展开用例。输入、代际、目标登记可在 DOM 测试里验证；真实滚动、有限几何、单轴分配和实际手势不能。
+- **为什么是问题**：happy-dom 中真实测量为 0×0，`useGridLayout` 明确发布空布局并拒绝提交。在“不伪造尺寸／不用 mock”的约束下，S5 不会触发新的有效保存路径；纯模型和真实 Storage 只证明补丁合成，不能证明 `GridRenderer → 一次落账 → 当前轴主动字段 → action` 接线，也不能抓到补偿叶被误存、重复保存或换轴后旧手势仍落账。复用 nb-ui 不等于本次消费者已验证。
+- **依据**：`packages/neuro-book/vitest.config.ts:1–5,19–25`；`src/plugins/workbench/web/components/WorkbenchShellLayout.dom.test.ts:1–4`；`packages/nb-ui/src/composables/useLayoutExtent.ts:34–35` 读取 client 尺寸；`useGridLayout.ts:60–69,81–113` 对零尺寸拒绝、校验 context/revision/extent 后才原子落账；`docs/specs/ui/workbench-shell.md:101,159` 规定两轴、收起、有效最小值与只存主动字段；`docs/specs/ui/nested-grid.md:38–43,100` 明确消费者验收并不由原语验证代替。
+- **运行核实**：仓库外 `dom-geometry-smoke.ts` 用真实 happy-dom，向已连接到 body 的 div 设置 `1440px × 900px`，实得 `clientWidth:0,clientHeight:0,rect:{width:0,height:0},isConnected:true`；未替换任何 DOM API。
+- **建议改法**：S5 留确定性的 DOM／Promise／登记身份测试；把几何、滚动与输入保留明确放到同一场景连续操作的浏览器验证。新增最小真实路径：侧栏多视图纵向与 Panel 横向各调整一次，核对主动轴与 revision；键盘、Escape／换轴取消；收成 32px 后按钮与 Enter 恢复记忆尺寸；降级与补偿不写盘。S7 应核对真实记录和最终几何，而不只读 `data-orientation` 或截图。
+
+## 7. 建议：S5 混合四个独立寿命／几何机制，且提前占了尚无消费者的动作入口
+
+- **类别**：代码质量与切片规模。
+- **计划位置**：「关键设计 4. 组件」第 41–44 行；「切片」S4–S6；「不做」第 107 行。
+- **现象**：S5 一片承担 ToolPart 的导航与挂载、容器单轴 Grid、两个实例层、懒加载、三种错误与代际淘汰、同名合同及局部 Lab；运行验证却到 S6–S7 才接入。同时第 41 行排列“视图动作 → 容器管理（移动到）→ Part 框架”，但视图动作贡献被明确推迟，命令 action 里也没有容器移动入口。Sidebar 标题写成无条件存在，现行 Spec 则只在 single 时有标题行。
+- **为什么是问题**：这里不是组件数量本身过多，而是目标登记身份、加载代际、真实几何和旧框架兼容四类故障会在同一提交第一次汇合，失败时难以判定来源。照旧应用一起搬标题动作路由、authority、factoryKey、CAS 会话，或先做空的容器管理层，会产生本 Task 用不到的第二套机制。无条件的 Sidebar 容器标题还会偏离已定 multiple 合同。
+- **依据**：计划第 41–44、76–78、107 行；`docs/specs/ui/workbench-shell.md:101–102` 的 Sidebar single／multiple 与菜单失效；`docs/proposals/workbench-shell-abstractions.md:204–207,316–323` 明确标题动作、when、揭示服务以后加，且删除旧 authority、factoryKey、stateScope 与 CAS；`docs/standards/code/components.md:30` 和 `src/plugins/lab/web/fixtures/index.dom.test.ts:47–78` 支持宿主链统一验证入口，不要求每个注入零件各造一份场景。
+- **建议改法**：保持两个稳定实例层，不额外加 action registry 或会话层。把 S5 拆为可独立验证的三步：单轴容器宿主＋Section（此时跑一条真实浏览器调整）；两个实例层＋加载／错误代际（连续移动与延迟 Promise 验证）；ToolPart＋Panel 唯一标题头接线（键盘、窄屏与旧焦点合同）。共用一个集成 Lab 入口，其它注入／Teleport 零件用真实能力标签与 `验证入口` 指向它，避免为门禁复制宿主。当前只实现框架“移动视图”菜单；视图贡献动作和无合同的容器管理留到实际消费者，Sidebar multiple 明确不再画容器标题。所需外壳二生命周期、single 动作投射位置与 Files 视图挂载能力均保留。
+
+## 未发现问题的方面
+
+- **视图合同提前的推荐合理**：能把声明／实现／实例三层与撤回原因在外壳二经真实内核验证，Files 仍只作为消费者；不因待追认判阻断。新合同与组件文档在实现前写明，也是正确顺序。
+- **纯模型与运行资源分开可实现**：声明、默认＋定制落位、标题／图标回落与意图合成可直接用 Bun 验证；Promise、DOM 与实例表不进纯模型。跨贡献引用留到呈现时解析，符合单条贡献校验的纯边界，避免登记顺序依赖。
+- **真实 Storage 场地可复用**：本次实际运行现有 `layout-store.test.ts`，9 pass、0 fail、104 expect() calls。它已用真实内核、Storage、SQLite 与两个窗口覆盖异字段冲突重放、同字段后写胜出、Project／User 分区及资源正常关闭；t66 应扩展视图字段场景，不需要另造存储替身。这是 t65 基线，尚未证明 t66 的视图补丁路径。
+- **惰性 store 与直接 Lab 隔离能保留**：当前工作台入口建立 `createLayoutHost`，只有 `home-page.ts:32` 在产品页面 setup 调用 `acquire()`。内存注册表与接收者可以由入口拥有并交给惰性 store；登记声明本身不要求打开 Storage。`e2e/workbench-shell.e2e.ts:318–332` 已有观察 RPC 帧的隔离场景，本次未重跑它，不能把“源码有验收”当本次通过证据。实现时让注册／撤回维护内存输入，不在回调里无条件 `acquire()`；直接 Lab 的局部场景仍独立。
+- **nb-ui 网格与外壳一可复用**：`useGridLayout` 已有 extent、revision、contextKey 核验与一次 `resizeBranches`；保留当前 CSS px／主动字段边界即可。真实 Chrome 本次验证现有外壳拓扑变化保留实例、输入和滚动，证明有可借用的恢复规则；第 4、6 条指出的是新增消费者接线与内层触发范围。
+- **现有框架尺寸可容纳一个标题头**：实测 32px Panel 头与 26px 小按钮，22px 状态栏为既有外壳规则。本次没有发现必须新增控件或 token 的依据；优先沿用 nb-ui，小尺寸消费应在同名合同声明，而不是重新实现一套键盘导航。
+- **不把“未知数据保留”误判为 Storage 宽松解析**：本计划明确 schema 顶层与已知对象严格。未知视图／容器 id 的合法 map 条目，以及 schema 接受但本 action 不负责的字段，与 schema 真正未知字段是不同边界。t65 对非法记录保护原件、合法 action 保留其它字段；未运行未知字段插入探针，本次不将这两种口径的混用列成已确认缺陷。S0 应用这一区分写清验收。
+
+## 需要开发者决定的点
+
+1. **追认视图合同提前到外壳二**：维持计划的推荐，后端／浏览器同版本装配与真实撤回验证一起前移。此项不是阻断发现。
+2. **空区域的移动菜单范围（第 1 条）**：建议本 Task 仅提供既有容器目标，将“新建”留给外壳三，部件最少。代价是仅有一个 Files 视图、目标区没有任何容器时，本 Task 无菜单路径迁到那里。若这条体验现在必须成立，就明确新增区域目标／容器创建语义及碰撞用例，不能继续用一个 `view:<id>` 表示三个新建区域。
+3. **正常入口重启是否纳入本 Task（第 3 条）**：现有内核不提供保留登记后的正常重启。建议把这项作为实施前的机制选择：最小方案由隔离测试宿主持有真实登记作用域，以公共 API 重登记，明确其声明撤销窗口和布局清理边界；若验收坚持“声明持续保留的正常关闭后恢复”，则需批准对应运行时能力，不能用整页重载或假状态替代。其余标题拥有者、S5 拆片、恢复职责与验收层级可以由实施 owner 在现有范围内修订。
+
+## 本次验证与边界
+
+实验根：`/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-plan/impl/`。下表中的脚本均在该目录；测试与脚本执行均设置 `NBOOK_AGENT_TEMP_ROOT` 为此根。除明确包前缀外，发现中的 `src/...` 与 `e2e/...` 都相对 `packages/neuro-book/`，组件简称相对该包的 `src/plugins/workbench/web/components/`。
+
+| 实际命令 | 执行位置 | 结果及证据 |
+|---|---|---|
+| `prox bun install --frozen-lockfile --ignore-scripts` | 审查 worktree 根 | Bun v1.4.2，1560 packages installed [1.88s]；依赖已安装，本次未重复 |
+| `bun test src/plugins/workbench/web/state/layout-store.test.ts` | `packages/neuro-book` | 9 pass、0 fail、104 expect() calls，657 ms |
+| `bun <实验根>/lifecycle-smoke.ts` | 审查 worktree 根 | 真实登记／激活／撤回；正常停止后 not-failed／scope-closed，重登记 generation 2；根作用域 closed |
+| `bun <实验根>/dom-geometry-smoke.ts` | 审查 worktree 根 | 已连接元素真实测量 0×0，没有覆盖 DOM API |
+| `bun <实验根>/command-smoke.ts` | 审查 worktree 根 | `{}` 为 invalid-args 且 handler 未运行；合法参数成功 |
+| `bun <实验根>/dev-smoke.ts` | 审查 worktree 根 | 真实 `runDev()`、开发后端、临时 Vite 缓存／State Root；ready 后执行 Chrome 验证 |
+| `node <实验根>/chrome-smoke.mjs` | 审查 worktree 根 | Chrome 151.0.7922.71；五次连续拓扑操作均创建 1／卸载 0、输入与 scrollTop 300 保留；现有产品 390×844 无页面横向溢出；`chrome-smoke.json`、`shell-lab.png`、`shell-product-390.png` |
+| `node <实验根>/memory-chrome.mjs` | 审查 worktree 根 | 独立真实 Vue／WorkbenchShellLayout／nb-ui 迁移探针；外壳 1440×800，实例保留但 scrollTop 300→0、焦点丢失；`memory-chrome.json`、`memory-chrome.png`。未经过尚不存在的 t66 产品路径 |
+| `/usr/bin/kill -TERM 1111665` | 审查 worktree 根 | 审查服务有序停止，后端 pid 1111771 exit=0，随后 page-closed；监督进程 exit=0，见 `dev-smoke.log` |
+| `/usr/bin/git status --short --branch && /usr/bin/git rev-parse --short=8 HEAD` | 审查 worktree 根 | `## HEAD (no branch)`、`bacae9fd`，没有仓库文件改动 |
+
+工具与场地失败不计产品发现：临时 `.ts` Vite 配置的 UnoCSS 导出错误改为 `.mts` 后启动成功；内置 browser 打开超时、CLI 不存在且 `npx --no-install playwright-cli --version` 遇 EOVERRIDE，之后用已有 Node Playwright 与本机 Chrome 完成核对。外部迁移探针最初遗漏 UnoCSS、且 props 每次新建意外触发外层恢复，修正两点后再取得上述最终结果。该探针有一条 404 资源控制台错误，报告保留在 JSON 中；未将它计为产品问题，也未声称探针控制台无错误。LSP 返回未配置语言服务器，代码依据来自明确范围的静态读取与运行探针。
+
+未运行：t66 尚未实现的贡献点／产品移动流程／正常关闭后恢复；build、三份 typecheck、完整 E2E、四主题×双配色矩阵、DPR、变异检查、真实模型。未修改／新建仓库文件，未实施 t66，未 commit、push、stash 或切换分支。浏览器上下文均已关闭，内置 browser 最后返回空 tab 列表；服务停止后已删除本次 `browser-state`、`vite-cache`、`node-chrome-profile`、`chrome-profile` 四个运行态目录。截图、JSON、日志、报告与复现实验脚本保留在指定仓库外目录。
+
+## 严重程度统计
+
+- 阻断：0。
+- 重要：6（第 1–6 条）。
+- 建议：1（第 7 条）。
+- 合计：7 条发现。
+

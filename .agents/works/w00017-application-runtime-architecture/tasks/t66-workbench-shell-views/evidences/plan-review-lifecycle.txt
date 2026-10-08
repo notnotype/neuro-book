@@ -1,0 +1,137 @@
+# w00017 t66 实施计划对抗审查：内核合同、生命周期与数据
+
+审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-plan-lifecycle/.agents/works/w00017-application-runtime-architecture/tasks/t66-workbench-shell-views/plan.md`。审查时 HEAD 为 `bacae9fd24328dd699e4da52d98311e8cb204254`、detached，`git status --short --branch` 仅输出 `## HEAD (no branch)`。本报告仅审查计划，未修改仓库文件。外壳设计稿 accepted、旧应用作为参照是已定前提；视图合同提前到外壳二按推荐评价，不以待追认为阻断。
+
+证据状态：以下区分代码／合同核实、真实运行机制实验与推断；尚未实施的产品行为不作为已运行事实。下文源码相对路径均相对此审查 worktree，`plan.md` 指上述完整路径，实验文件均位于本报告同目录。发现编号保留核实顺序，正文按影响排序。
+
+## 发现
+
+### L1：声明目录与入口状态没有进入注册表的可执行接线
+
+- **严重程度**：阻断；**类别**：正确性／内核合同。
+- **计划位置**：“关键设计 / 1. 视图合同与贡献点”“2. 注册表、落位与呈现模型”“验收映射 / 生命周期矩阵”；`plan.md:20,25,92,103`。
+- **现象**：计划只规定接收者把声明与实现交给注册表，却要求在入口受阻或激活失败时保留声明并原位显示原因，还要求“声明真正消失才清理布局项”。现有接收者没有声明层通知，`prepare`／`published` 只处理可交付的实现；从未激活、依赖受阻或 `activate` 抛错的入口不会产生这样的交付。计划没有规定静态声明的初始读取、状态更新、激活触发及声明移除来源。
+- **为什么是问题**：照当前接线实现，注册表只认识成功交付过的视图，首次打开就受阻或失败的视图会直接缺席，无法兑现生命周期矩阵。把某次 `revoke` 当作移除通知又会误删普通停止的布局；只检查 `contribution(point,id)` 是否为空也不成立，内核在关闭后仍保留历史声明供查询。插件管理未实现不妨碍此处成立：原位受阻呈现是本片明示验收，计划还把声明消失列入 S3 的真实内核验收。
+- **依据**：`docs/specs/runtime/plugins.md:31-34,46,61,71-72,197-201`；`packages/nb-runtime/src/plugins/contracts.ts:35-40,56-80,204-215,412-438`。激活上下文只有同步 `declarations.get/list`，没有目录／入口状态订阅，也没有激活其它入口的接口；`PluginObserver` 只有诊断回调。`packages/nb-runtime/src/plugins/host.ts:278-295,414-430,457-465,820-826` 显示已接受声明查询按存活登记求值，但普通 `contribution()` 查询保留已关闭登记。现有页面写法 `packages/neuro-book/src/plugins/workbench/web/pages.ts:46-54` 只有成功交付表。真实 `kernel-probe.ts` 输出静态目录含 `test.blocked,test.lazy`，受阻入口状态为 `blocked`，接收者回调仍为空；只停入口后声明仍在，退役登记后 `declarations.get()` 为 null，但普通 `contribution()` 长度仍为 1。具体视图缺席表现仍为推断。
+- **建议改法**：在 S0／S3 先定义最小的声明／入口状态接线，由内核或宿主向 workbench 提供初始快照与变化版本；注册表分别保存静态声明快照和当前交付句柄，并补首次显示时的真实激活入口。明确哪些事件只撤运行资源，哪些是权威声明移除，只有后者产生窄清理意图。动态登记通知若仍属于后续插件管理，必须明示边界并相应修订验收，不能拿普通撤回代替；本片仍须显示启动时受阻／失败的声明及原因。验收至少包含从未成功激活的视图、只停入口而声明仍在、权威删除单条声明且保留未知引用。
+
+### L3：只比对三种身份，仍会接纳停止后、撤回前返回的加载结果
+
+- **严重程度**：重要；**类别**：不变量／生命周期。
+- **计划位置**：“关键设计 / 4. 组件 / 实例层”“验收映射 / 三种失败”；`plan.md:44,93`。
+- **现象**：计划规定加载完成时比较“声明身份 + 入口激活代次 + 视图代际号”，其中任一变化才丢弃。入口开始停止时，这三个身份都可以尚未变化；贡献句柄已失效，但 `revoke` 回调可能仍在等待同一接收者上的另一条 `prepare`。
+- **为什么是问题**：这段真实可发生的窗口中，加载 Promise 会正常返回组件；三项相同的结果会被按计划接纳，组件可能在所属入口已经停止之后首次挂载并读取失效的插件资源。仅在 `revoke` 时加视图代际不够；入口开始停止与撤回回调不是同一时机。
+- **依据**：`packages/nb-runtime/src/plugins/contracts.ts:179-195` 明确任何一侧停止即句柄失效；同目录 `host.ts:135-162,1123,1366-1377,1485-1497,1533-1538` 显示门禁依赖作用域存活，而撤回要等待接收者串行锁。真实内核实验 `kernel-probe.ts`：挂起另一个贡献方的 `prepare`，通过真实 `context.scope.parent.close()` 停止源入口，再让已发出的 `load()` 返回。实际输出为 `sourceStatus:"stopping"`、`sourceGeneration:1`、声明仍在、`handlePublished:false`、`revokeArrived:false`，旧 `implementation()` 抛 `PluginStateError`，已取得的 Promise 却返回 `late-component`。没有伪造内核时序，也未直接调用内部函数；计划视图组件尚未实施，接纳后果为推断。
+- **建议改法**：注册表持有交付的 `ContributionHandle`，发起加载每次调用 `handle.implementation().load()`，不要缓存实现函数绕过门禁；成功或失败结果返回时，除身份与工作台存活校验外，再检查所捕获句柄仍是当前句柄且 `published === true`。已失效就丢弃结果，不把停止判为加载失败，也不出现“重新加载”。加入上述真实串行锁窗口的回归场景，不只测 `revoke` 已经到达后的迟到结果。
+
+### L5：纯声明容器被放入统一要求组件实现的贡献点
+
+- **严重程度**：重要；**类别**：正确性／内核合同。
+- **计划位置**：“关键设计 / 1. 视图合同与贡献点”“6. Lab 与测试插件”；`plan.md:18-20,55`。
+- **现象**：`ContainerDeclaration` 只有标题、图标、默认位置与顺序，却与视图共用 `implementation:"required"` 的 `workbench.views`。写在插件顶层的纯容器声明会被内核以 `implementation-required` 拒绝；改写在入口下而不提供实现，则该入口以 `missing-implementation` 激活失败。
+- **为什么是问题**：计划的两个声明式样例容器没有合法的纯声明接入方式。给每个容器提供假的 `load()` 或空对象只为通过核对，会把无实现的元数据绑到入口寿命并留下无意义部件；也让多个视图的默认分组依赖一次不需要的组件交付。内核的实现要求按整个贡献点统一设定，不能由声明的 `kind` 改成可选。
+- **依据**：`docs/specs/runtime/plugins.md:70,194,204`；`packages/nb-runtime/src/plugins/host.ts:846-850,1105-1112`；同目录 `contracts.ts:169-176`。真实 `interface-probe.ts` 分别登记顶层容器与入口容器：前者查询得到 `rejected/implementation-required`，后者激活得到 `failed/output/missing-implementation`。已核实的接口冲突，不依赖尚未实施的容器组件行为。
+- **建议改法**：保留 `workbench.views` 为要求实现的视图贡献点；容器元数据使用独立 `implementation:"none"` 的容器贡献点，顶层登记，进入同一个声明注册表。若当前片只服务测试分组，也可先不开放容器贡献 API，在明确的工作台内置声明集合提供容器；不要扩大内核去支持按 `kind` 混合实现要求，也不要制造容器占位实现。
+
+### L8：新增容器／视图 Teleport 没有接入焦点与滚动恢复
+
+- **严重程度**：重要；**类别**：不变量／实例保留。
+- **计划位置**：“关键设计 / 3. 记录与 store”“4. 组件 / 实例层”“验收映射 / 模式与实例保留”；`plan.md:35,44,87,91,95`。
+- **现象**：计划用两个实例层保证不重挂，并要求移动与模式变化后滚动保留，却没有让这两层参与滚动／焦点记忆。现有外壳一只在 Part 几何的 `projection` 变化前后捕获与恢复；切换容器、View 改归属或模式从 single 变 multiple 可以完全不改这份 projection。
+- **为什么是问题**：Teleport 保留 Vue 组件身份，不自动保留浏览器的焦点与滚动。新增两层只搬 DOM 时，即使实例编号和输入没变，当前输入焦点会掉到 body，嵌套滚动归零；只靠根 `focusin` 更新 `focusedPart` 还会留下旧 Part 值。容器停放时，目标元素也可能仍 `isConnected`、仍登记着，但在 `hidden inert` 祖先下；这同样不能算 `ViewContext.visible === true` 或触发首次加载。
+- **依据**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShellLayout.vue:123-155,182-199`、同名 `.md:22,75`；`docs/specs/ui/workbench-shell.md:79,103`；外壳设计稿第 5 节 `ViewContext.visible` 排除停放。真实 Chromium 加载真实 Vue 的 `teleport-probe.html`，以 Part、容器、视图三层 Teleport 做机制实验：移动前 `created:1,destroyed:0,scrollTop:87,activeId:"view-input",focusedPart:"sidebar"`；从侧栏目标移到面板目标后仍 `created:1,destroyed:0` 且输入保持，但 `scrollTop:0,activeTag:"BODY",focusedPart:"sidebar"`。容器停放后视图仍连接文档但 `inertAncestor:true`。这是浏览器／Vue 机制证据；计划组件尚未存在，没有声称已复现其实现故障。
+- **建议改法**：复用外壳一的记忆策略，在真正拥有 DOM 搬动的两层捕获／恢复，而不是再靠外壳 projection 触发；共享一份最小记忆工具或由同一个外壳协调者接纳结构变化，避免三套焦点规则。仍可见时恢复原输入与滚动，停放时给可见框架控件，外壳外菜单／对话框不抢焦点；明确 `focusedPart` 是当前焦点还是最近 Part，body、根与 portal 的取值须一致。首次加载与 `visible` 使用纯呈现的活动容器、Part 有效可见性、收起态及当前落点状态共同求值，不能只看目标存在或连接。S5／S7 在同一实例中连续移动、切模式、停放／恢复，断言滚动、焦点、代际与 `visible`。
+
+### L2：移动命令无法表达计划列出的“新建容器（在 X）”目标
+
+- **严重程度**：重要；**类别**：正确性／公开接口。
+- **计划位置**：“关键设计 / 5. 命令”；`plan.md:49-50`。
+- **现象**：命令参数固定为 `{viewId, targetContainerId}`，菜单却为三个 ToolPart 各列“新建容器（在 X）”，并规定都使用同一个 `view:<viewId>`。三个目标得到完全相同的命令参数；参数没有携带 `X`。当视图已经独占其隐式容器时，目标还与当前容器相同，按第 49 行会被当作成功无写入，跨区域移动失效。
+- **为什么是问题**：纯函数无法从相同参数区分 Sidebar、AuxiliaryBar、Panel。提前经别的 action 移动隐式容器再调用命令，会把一次动作拆成两个写入，并绕过“移动到菜单经它执行”的唯一入口。此外隐式容器可能已有 B，而起源视图 A 已被移走；把 A 移回 `view:A` 再改容器区域会连 B 一起搬，不能称为“新建”一个只装 A 的容器。
+- **依据**：计划第 49–50 行；`docs/proposals/workbench-shell-abstractions.md:110-115,123-129` 明确隐式容器 id 与区域、当前成员无关，起源视图移走后 B 仍占 `view:A`；`docs/specs/workbench/commands.md:164` 要求参数严格，不能偷偷追加目标区域；`ui/workbench-shell.md:152` 要求窄字段合成。以上为已核实的合同矛盾；具体实现尚未存在。
+- **建议改法**：把目标写成带类型的联合，例如已有容器 `{kind:"container", id}` 与单独落到区域 `{kind:"implicit", location}`，后一种在一个 `applyIntent`／一次 commit 内同时改视图归属、容器落位与选择。显式定义隐式容器已经被别的视图占用时的结果；若不做 `custom:<UUID>`，推荐菜单称“移动到自己的容器（在 X）”并显示将一同移动的实际成员，不能宣称新建独立容器。若产品要求单视图新容器，复用外壳三的真实自建身份方案，不把稳定隐式身份当作新身份。现有 Spec 的 `sourceContainerId` 是发起时的来源前提，仍应保留或用等价的菜单上下文校验，迟到点击不能重新从当前布局推导来源后盲搬；这项校验与已接纳意图的 Storage 重放策略分别定义。
+
+### L6：起源视图声明消失后，仍有成员的隐式容器没有位置来源
+
+- **严重程度**：重要；**类别**：正确性／持久化模型。
+- **计划位置**：“关键设计 / 2. 注册表、落位与呈现模型”“3. 记录与 store”“验收映射 / 设计稿第 3 节典型情况表”；`plan.md:26,33,85`。
+- **现象**：A 默认在 Sidebar，B 默认在 Panel；把 B 移到 `view:A`，再禁用 A 的插件。设计稿要求 `view:A` 仍含 B、入口保留并用 B 的标题。但计划只从起源视图 A 的声明取隐式容器默认位置，`containers["view:A"]` 只有用户改容器位置时才可能存在；首次移动 B 不必产生这项覆盖。A 的声明一消失，剩余记录只有 B 指向 `view:A`，没有其位置来源。
+- **为什么是问题**：把 `view:A` 判为未知容器并忽略，会让 B 回默认容器，违反典型情况表；只在内存保留 A 的旧声明，则同一记录刷新后结果不同。此前 A 在 Sidebar 或 AuxiliaryBar 的两个历史，可在清理 A 后得到相同的当前声明与用户记录，纯函数不能恢复已经丢失的默认位置。该场景明确列入本片的 S1，不能仅以真实插件管理尚未实现略过。
+- **依据**：计划第 26、33、85 行；`docs/proposals/workbench-shell-abstractions.md:110,114-115,129,136,158,224`：位置来自起源声明、A 消失后 B 的容器仍保留、只清被撤回视图的布局、未知引用仅忽略。记录 schema 尚未实现；这是由计划输入输出推导出的信息缺口，未声称运行复现产品错误。
+- **建议改法**：在 S0／S1 明确“可由实际成员引用证明存在的隐式容器”与真正未知容器的区别，并定义无起源声明时的确定性落位规则。若要求保留原区域，在第一次把别的视图移入时，同次意图保存维持该容器所需的最小位置基线；起源声明删除不删仍有成员的容器基线。若允许采用首个实际成员的声明位置，直接固定该回落规则并诊断，避免另建长期声明缓存。两种都须测 A 消失后立刻与刷新后的 `view:A` 身份、B 归属和区域一致。
+
+### L7：命令面板路径缺少取参，必填移动参数使该验收必然失败
+
+- **严重程度**：重要；**类别**：正确性／验收映射。
+- **计划位置**：“关键设计 / 5. 命令”“验收映射 / 移动到菜单与 move-view”；`plan.md:49,90`。
+- **现象**：计划将 `viewId` 与 `targetContainerId` 定为严格必填，却要求 S7 经命令面板执行。现有面板对普通候选统一执行 `{}`；工作台没有活动视图的公开权威，计划也未规定从哪个视图开始选择、怎么选目标。
+- **为什么是问题**：布局就绪时命令会作为可用候选出现，用户提交后在参数校验即得到 `invalid-args`，命令实现根本不会运行。经菜单传完整参数的测试证明不了面板路径；把必填字段改可选但不实现选择同样到不了用户目标。
+- **依据**：`docs/specs/workbench/commands.md:164`；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue:142-154`；`packages/neuro-book/src/plugins/commands/shared/registry.ts:300-306`。真实命令表实验 `interface-probe.ts` 按计划的 schema 登记该命令，`layoutReady:true` 时输出 `enabled:{ok:true,value:true}`，执行 `{}` 返回 `invalid-args`（缺少 `viewId,targetContainerId`）。没有替换命令系统；移动实现尚未存在。
+- **建议改法**：沿用面板命令的选择服务：无参调用先选择可移动视图，再选择 L2 修订后的目标；显式给参数的菜单调用直接执行。取消任何一步成功且无写入，选择期间来源／目标／工作台代次变化则拒绝旧选择。严格 schema 接受“完整直接调用”或“明确的无参交互调用”，拒绝只有一半的参数；无需新增活动视图权威或专用面板框架。S3 与 S7 分别覆盖直接、无参、取消及过期选择。
+
+### L4：测试插件的正常入口停止后，现有 `recover` 不能让它恢复为新代次
+
+- **严重程度**：重要；**类别**：测试／内核合同。
+- **计划位置**：“关键设计 / 6. Lab 与测试插件”“验收映射 / 生命周期矩阵”；`plan.md:55,92`。
+- **现象**：计划要求 e2e 的一个入口可停止与恢复，以证明正常 `scope-closed` 后保留布局、原位显示原因、恢复后新代际。现有 `PluginHost.recover` 只重置激活失败的尝试，正常关闭的入口不会被重置；再次 `activate` 也不会产生第二代。
+- **为什么是问题**：若测试控制只关闭入口激活作用域再调用 `recover`／`activate`，恢复段永远到不了；改成让 `load` 失败再重试，或只停组件局部 ref，检验的都不是计划要求的入口生命周期。新应用尚无插件管理，不能把未实现的“重新启用”能力当作现成前提。
+- **依据**：`docs/specs/runtime/plugins.md:34,65,203` 规定已关闭代次不复活；`packages/nb-runtime/src/plugins/host.ts:749-784` 在 `attempt.settled.status !== "failed"` 时返回 `not-failed`，第 489–491 行拒绝已关闭尝试。真实内核 `kernel-probe.ts` 在只关闭 `context.scope.parent`、登记作用域仍存活时得到 `recover:{status:"not-failed",state:"closed"}` 和 `activate:{status:"rejected",reason:"scope-closed"}`；关闭旧登记作用域、在新作用域重新登记后才得到 `generation:2`。实验均经过公开的真实 Scope／PluginHost。
+- **建议改法**：把测试控制的真实恢复方式写进 S3／S6：测试宿主让样例插件有独立登记作用域，正常停止当前代次但保留声明；需要恢复时退役旧登记并在新作用域重新登记／交付。权威插件集合未发生禁用，因此这个恢复过程不能清理布局。或者单独验收激活失败的 `recover`，把正常停止后的再启用放到拥有真实再登记机制的场景；不要为这一条提前引入通用热插拔框架。并补 `receiver-closed` 后贡献方代次不变、交付句柄换新的场景。
+
+### L9：记录容量判断没有输入边界，合法的 100 个视图即可超过 64 KiB
+
+- **严重程度**：建议；**类别**：安全与性能／文档。
+- **计划位置**：“风险”；`plan.md:113`。
+- **现象**：计划说“视图上百时仍远低于上限”，但视图 id 规则没有长度上限，默认指纹的编码也未定。100 个合法的 315 字符 id，按本片字段保存归属、顺序、双轴尺寸、收起与短指纹，JSON 即为 73601 字节。
+- **为什么是问题**：视图定制、容器选择、Part 显隐与面板状态共享一条记录；超过上限后，暂停的是这条记录的整个队列，后来改面板也不能独立保存。Storage 的明确拒绝通道已存在，因此这不是数据丢失或本片阻断，但“上百远低于上限”不能当作容量验收依据。
+- **依据**：`packages/neuro-book/src/shared/storage.ts:13-15` 的缺省上限 65536、最大 1048576；`packages/neuro-book/src/plugins/commands/shared/registry.ts:76-81,114-123` 的 id 规则没有 maxLength；`data-probe.ts` 用真实 Storage／SQLite 保存 100 条、每条 `idLength:315`，得到 `too-large`，说明 `值 73601 字节，超过上限 65536`。字段形状按计划、记录 key 为实验专用 `views-probe`，不是尚未实施的产品 schema。
+- **建议改法**：给容量估算注明 id 与指纹大小前提，补 `too-large` 后面板操作、状态栏提示、重试与放弃的实际场景；指纹采用有界稳定编码。若产品要求大量插件视图，可单独为此记录选定显式 `maxBytes`，无需改 Storage 缺省上限或提前分拆记录。
+
+## 未发现问题的方面
+
+- `scope-closed`、`receiver-closed`、`delivery-failed` 都是现有内核的真实原因；普通入口停止、拥有者关闭与补交失败只撤实现、保留布局的方向正确。另两种 `activation-failed`／`activation-stopped` 也应走幂等的暂存撤回，未发布项不得先装进运行表；不需要新增撤回原因。
+- `ContributionHandle` 已暴露来源插件、入口、`generation` 与 `published`，按调用取得 `implementation()` 能绑定真实入口代次。L3 的修复可用现有接口完成，无需组件模块缓存服务或通用热替换层。
+- 声明／呈现模型与实例表、DOM、Promise 分离，以及两个实例层各自持有稳定宿主，有明确职责。真实 Vue 三层 Teleport 实验保持 `created:1,destroyed:0` 和输入；没有发现三层嵌套本身必然导致重挂。目标按元素身份反登记、断开立即停放的旧组件合同值得沿用；L8 是附带状态恢复缺口。
+- 正有限 CSS px、只保存主动轴、另一轴与收起位保留、跨轴迟到提交整批拒绝，符合现有 nested-grid 与外壳数据合同。顶层可选增加字段使旧记录在新 schema 下仍合法；这仅是前向读取兼容，不等于旧客户端能读取新字段。Storage 已通过完整描述指纹拒绝同一服务进程中的不同 schema；本片没有承诺滚动升级，故不将混合客户端另列问题。
+- 按字段的纯 `change` 能复用现有 Storage 条件保存。真实 store／Storage／SQLite 场地的两个同客户端窗口：不同视图归属都保留，同一视图归属与宽度都保留，同一归属字段先保存 Y 再保存 Z，落盘为 Z；另一窗口订阅只更新 base、当前 display 保留自己的布局。这验证的是现有重放机制，不是尚未实现的移动 resolver。
+- `when` 只读布尔公开键；把参数相关的可移动／可接收判定放在命令实现是可执行的。`focusedPart` 是字符串，适合作为只读公开状态，不应塞进现有布尔 `when` 语法。选择来源与陈旧目标校验仍需按 L2／L7 落实。
+- Vue 错误边界只覆盖 Vue 调用路径，插件自己发起的异步错误归所属插件，这个边界已在计划中明确；未发现需要外壳拦截所有异步错误的依据。
+
+## 需要开发者决定的点
+
+1. **视图合同提前到外壳二**：赞成计划推荐。真实入口交付、撤回、受阻呈现是本片验收，提前最小合同能让验收通过真实内核；L1／L5 需要补齐接线，不构成推迟到 Files 的理由。无需同时引入标题动作、视图 `when`、揭示服务或通用插件热插拔。
+2. **“新建容器（在 X）”的真实语义**：现有 `view:<id>` 是稳定身份，可能已有其它成员。推荐本片保留隐式容器方案并明确菜单搬回自己的容器会影响已有成员；若必须新建只装当前视图的容器，就需明确提前真实 `custom:<UUID>` 行为及原子写入，不能沿用“无需生成 id”的说法。
+3. **起源声明消失后的区域**：L6 要确定保留原区域，还是按仍在的首个实际成员回落。推荐后者作为最小确定性规则；若保留原区域是产品要求，就在成员首次移入时保存有界位置基线。两种都必须保持隐式容器身份与刷新一致。
+4. **同一视图并发移动**：现行 `ui/workbench-shell.md:152` 是同字段后保存胜出；旧 `view-placements.ts:1579-1582` 则在来源已变到第三处时拒绝较早移动。推荐按现行 Spec 实现已接纳字段意图的重放，菜单过期检查在接纳边界完成。若要采用旧的来源 CAS 语义，应明确修订合同与 S2 的同视图场景；不能只测两个窗口改不同视图就视为已定。
+
+## 实际验证与边界
+
+以下路径中的 `<实验目录>` 均为 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-plan/lifecycle`。依赖安装与三个 Bun 探针命令均显式设置 `NBOOK_AGENT_TEMP_ROOT=<实验目录>`；类型检查从实验目录运行，浏览器只打开该目录下的本地页面。
+
+| 命令／操作 | 实际结果 |
+|---|---|
+| worktree 根：`prox bun install --frozen-lockfile --ignore-scripts` | 成功；`bun install v1.4.2 (744846f84)`，`1560 packages installed [3.35s]`；未运行安装脚本 |
+| worktree 根：`bun <实验目录>/kernel-probe.ts` | exit 0；静态声明先于交付、受阻无回调、停止早于撤回的迟到加载、普通停止不可 recover、新登记得到 generation 2；root 正常关闭 |
+| worktree 根：`bun <实验目录>/interface-probe.ts` | exit 0；纯容器两种接法分别遭 `implementation-required`／`missing-implementation`；面板同形 `{}` 被 `invalid-args` 拒绝；root 正常关闭 |
+| worktree 根：`bun <实验目录>/data-probe.ts` | exit 0；真实 SQLite 的三种字段并发结果如上；73601 字节保存得到 `too-large`；Storage 场地所有实例正常关闭 |
+| `<实验目录>`：`./node_modules/.bin/tsc --noEmit --skipLibCheck --lib esnext,dom -p tsconfig.json` | 首次两条实验脚本类型错误已修正，最后 exit 0；这是实验目录的 strict 检查，未声称跑过产品三份 typecheck |
+| 内置 Chromium：打开 `<实验目录>/teleport-probe.html`，填输入、设内部滚动 87、聚焦、移动、停放与恢复 | `teleport-observations.json` 保存观测；实例与输入保留，焦点与滚动丢失；无 page errors；截图 `teleport-probe.png`；已关闭 tab |
+| worktree 根：`/usr/bin/git status --short --branch`；读取 linked-worktree HEAD | 仅 `## HEAD (no branch)`；HEAD 为 `bacae9fd24328dd699e4da52d98311e8cb204254`；仓库工作文件无修改 |
+
+`data-probe.ts` 另做了一个受控释放探针：在真实入口中释放一个会让 getter 抛错的外部源，无论它在 store 前后登记，store 释放时读取 computed 都会得到 `release-failed`，随后 root 关闭成功。它证明“同作用域登记顺序不保证派生数据先于依赖释放”，但源是实验构造，计划的注册表尚未存在，**不据此认定本片已经有释放故障**。建议注册表输入只交普通不可变快照，`presentation` 不读实现 getter、组件或已释放服务；就当前纯模型方向，未发现必须依赖活句柄的原因。
+
+未运行产品 E2E、开发服务、全量测试、产品三份 typecheck、真实插件管理禁用／卸载或 DPR 验收。审查对象尚未实施；浏览器证据仅为真实 Vue／Chromium 机制实验。未调用真实 Provider／Model，未修改仓库源码、Spec 或 Task，未提交或推送。
+
+## 数量
+
+阻断 **1**（L1）；重要 **7**（L3、L5、L8、L2、L6、L7、L4）；建议 **1**（L9）。共 **9** 条。建议先补声明／入口状态接线、纯容器贡献合同与句柄存活门禁，再据此落实命令参数和真实验收方式。
+
+## 反思回写建议（交主 Agent 汇总，未写入仓库）
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| R1 | 规范缺陷 | 新旧外壳设计均把三种身份相同当作迟到加载的主要判据；真实内核实验中句柄已失效而撤回回调尚未到达 | 改写：“异步贡献结果发布前，除身份／代次匹配外，还须校验发起调用的句柄仍是当前且可用；正常停止使结果作废，不转成加载失败。” | `docs/proposals/workbench-shell-abstractions.md` 的“视图的三层与生命周期”，以及本片新建的 `docs/specs/workbench/views.md` |
+| R2 | 规范缺陷 | `view:<A>` 在 A 声明消失但仍有 B 时必须保留，现有输入只从 A 取位置，刷新后缺来源 | 新增：“仍有实际成员的隐式容器在起源声明缺席时，按已定的持久位置基线或确定性成员回落求位置；该规则须与未知容器区分，并保证刷新一致。” | `docs/proposals/workbench-shell-abstractions.md` 的“容器身份”；具体选择须先由开发者决定 |
+
+实验脚本的静态导入、具名合同与无 `any` 要求已按提示修正；现有规则已覆盖，不建议追加重复条目。根入口引用的 `.agents/skills/repository-workflow/SKILL.md` 在固定 revision 不存在，已改读 `docs/standards/repository-workflow.md`；仅作为核验路径记录，不扩大本次治理修复范围。
+
