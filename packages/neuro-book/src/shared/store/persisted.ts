@@ -53,6 +53,8 @@ export interface PersistedField<T> {
     reset(value: T): Promise<CommitResult>;
     retry(): Promise<CommitResult | "busy" | "nothing">;
     discard(): "discarded" | "busy" | "nothing";
+    /** 暂停时整条放弃：队首与排在它后面的修改都移除，显示回到已确认值。 */
+    discardAll(): "discarded" | "busy" | "nothing";
     adopt(): void;
     reopen(): Promise<void>;
 }
@@ -169,6 +171,7 @@ export class PersistedFieldState<T> {
             reset: (value) => this.#enqueue("reset", () => value),
             retry: () => this.#retry(),
             discard: () => this.#discard(),
+            discardAll: () => this.#discardAll(),
             adopt: () => {
                 this.#assertOpen("adopt");
                 this.#display.value = this.#project();
@@ -429,6 +432,20 @@ export class PersistedFieldState<T> {
         this.#save.value = {state: "idle"};
         this.#display.value = this.#project();
         this.#pump();
+        return "discarded";
+    }
+
+    #discardAll(): "discarded" | "busy" | "nothing" {
+        this.#assertOpen("discardAll");
+        if (this.#inFlight !== null) return "busy";
+        const head = this.#queue[0];
+        if (head === undefined || (head.state !== "failed" && head.state !== "unknown")) return "nothing";
+        // 一条条 discard 不行：移除队首后队列继续，下一条会立刻发出去。
+        const removed = this.#queue.splice(0);
+        this.#queueLength.value = 0;
+        for (const intent of removed) this.#settleFirst(intent, "discarded");
+        this.#save.value = {state: "idle"};
+        this.#display.value = this.#project();
         return "discarded";
     }
 

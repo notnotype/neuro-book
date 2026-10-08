@@ -161,6 +161,46 @@ describe("瞬时最大化与呈现事实", () => {
     });
 });
 
+describe("最大化的每一种清除与显示面板", () => {
+    it("改位置、改对齐、隐藏、收起、进入紧凑都清除最大化；回到可最大化的组合也不复活", async () => {
+        const w = await world();
+        const {store} = await openLayout(w, "w", "c");
+        store.actions.acceptLayoutFacts(facts("split", false));
+        const changes: ReadonlyArray<[string, () => void]> = [
+            ["位置", () => store.actions.setPanelPosition("left")],
+            ["对齐", () => store.actions.setPanelAlignment("justify")],
+            ["隐藏", () => store.actions.setPanelHidden(true)],
+            ["收起", () => store.actions.setPanelCollapsed(true)],
+            ["紧凑", () => store.actions.acceptLayoutFacts(facts("compact", false))],
+        ];
+        for (const [name, change] of changes) {
+            store.actions.setPanelPosition("bottom");
+            store.actions.setPanelAlignment("center");
+            store.actions.setPanelHidden(false);
+            store.actions.acceptLayoutFacts(facts("split", false));
+            expect(store.actions.togglePanelMaximized(), name).toBe(true);
+            change();
+            expect(store.state.panel.maximized, name).toBe(false);
+            store.actions.setPanelPosition("bottom");
+            store.actions.setPanelAlignment("center");
+            store.actions.setPanelHidden(false);
+            store.actions.acceptLayoutFacts(facts("split", false));
+            expect(store.state.panel.maximized, `${name}之后回到底部居中`).toBe(false);
+        }
+    });
+
+    it("显示面板同时清除隐藏、收起与拖到零，一次写入；面板只是拖到零时也能显示", async () => {
+        const w = await world();
+        const {store, storage} = await openLayout(w, "w", "c");
+        store.actions.commitSizes({dragCollapsed: {panel: true}});
+        await saved(store);
+        expect(store.actions.setPanelHidden(false)).toBe(true);
+        await saved(store);
+        expect(await read(storage, LAYOUT_RECORDS.user.customizations)).toEqual({panel: {hidden: false, collapsed: false}, dragCollapsed: {panel: false}});
+        expect(store.actions.setPanelHidden(false)).toBe(false);
+    });
+});
+
 describe("多窗口与分区", () => {
     it("同一客户端两个窗口：A 改位置、B 改对齐，两项都保留；各改一个 Part 都保留；同一字段后写胜出；对方的修改不强改本窗口显示", async () => {
         const w = await world();
@@ -219,6 +259,61 @@ describe("坏记录与保存失败", () => {
         expect(store.state.panel.position).toBe("bottom");
         expect(await read(storage, LAYOUT_RECORDS.user.customizations)).toBe("corrupt");
         expect(await read(storage, LAYOUT_RECORDS.user.side)).toEqual({sidebarWidth: 250});
+    });
+
+    it("放弃丢掉这条记录暂停与排队的全部修改：显示回到已确认值，重连后也不保存被放弃的修改", async () => {
+        const w = await world();
+        const {store, storage, window} = await openLayout(w, "w", "c");
+        store.actions.commitSizes({sidebarWidth: 300});
+        await saved(store);
+        window.disconnect();
+        store.actions.commitSizes({sidebarWidth: 250});
+        store.actions.commitSizes({sidebarWidth: 200});
+        await waitUntil("暂停", () => store.state.problems.some((problem) => problem.record === "side" && problem.kind === "unsaved"));
+        expect(store.state.side.queue).toBe(2);
+        expect(store.actions.discard("side")).toBe("discarded");
+        expect(store.state.side.queue).toBe(0);
+        expect(store.state.sizes.sidebarWidth).toBe(300);
+        expect(await window.reconnect()).toEqual({ok: true});
+        expect(await store.actions.retry("side")).toBe("nothing");
+        expect(await read(storage, LAYOUT_RECORDS.user.side)).toEqual({sidebarWidth: 300});
+    });
+
+    it("记录版本不支持：按默认显示、给出问题、修改不保存也不覆盖原件", async () => {
+        const w = await world();
+        const seed = await openLayout(w, "seed", "c");
+        seed.store.actions.commitSizes({panelHeight: 300});
+        await saved(seed.store);
+        const db = new Database(w.userPath);
+        db.query("UPDATE records SET version = 2 WHERE owner = ?1 AND key = 'layout-sizes-panel'").run(PLUGIN);
+        db.close();
+        const {store, storage} = await openLayout(w, "w", "c");
+        expect(store.state.sizes.panelHeight).toBe(200);
+        expect(store.state.problems).toEqual([{record: "panelSize", kind: "unread", code: "unsupported-version"}]);
+        store.actions.commitSizes({panelHeight: 400});
+        await saved(store);
+        expect(await read(storage, LAYOUT_RECORDS.user.panelSize)).toBe("unsupported-version");
+    });
+
+    it("项目分区写不进去而用户分区正常：只有尺寸记录暂停，定制照常保存；库恢复后只重试失败的那条", async () => {
+        const w = await world();
+        await w.project(1, []);
+        const {store, storage} = await openLayout(w, "w", "c", true);
+        const rename = (from: string, to: string): void => {
+            const db = new Database(w.projectPath);
+            db.run(`ALTER TABLE ${from} RENAME TO ${to}`);
+            db.close();
+        };
+        rename("records", "records_away");
+        store.actions.commitSizes({sidebarWidth: 250});
+        store.actions.setPanelPosition("top");
+        await waitUntil("尺寸暂停、定制保存", () => store.state.side.save.state === "failed" && store.state.customizations.queue === 0);
+        expect(store.state.problems.map((problem) => [problem.record, problem.kind])).toEqual([["side", "unsaved"]]);
+        expect(await read(storage, LAYOUT_RECORDS.user.customizations)).toEqual({panel: {position: "top"}});
+        rename("records_away", "records");
+        expect(await store.actions.retry("side")).toBe("saved");
+        expect(await read(storage, LAYOUT_RECORDS.project.side)).toEqual({sidebarWidth: 250});
+        expect(store.state.problems).toEqual([]);
     });
 
     it("断线时的修改暂停并显示未保存，显示保留修改；重连后 retry 补上；discard 回到已确认值", async () => {

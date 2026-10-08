@@ -107,8 +107,20 @@ function defineLayoutStore(records: LayoutRecords) {
             actions: {
                 setPanelPosition: (position: PanelPosition): boolean => (PANEL_POSITIONS as ReadonlyArray<string>).includes(position) && setPanel({position}),
                 setPanelAlignment: (alignment: PanelAlignment): boolean => (PANEL_ALIGNMENTS as ReadonlyArray<string>).includes(alignment) && setPanel({alignment}),
-                /** 显示面板时同时清除收起：“显示面板”要让面板完整回来（输出 7）。 */
-                setPanelHidden: (hidden: boolean): boolean => setPanel(hidden ? {hidden} : {hidden, collapsed: false}),
+                /** 显示面板时同时清除收起与拖到零：“显示面板”要让面板按记忆尺寸完整回来（输出 7、8）。 */
+                setPanelHidden: (hidden: boolean): boolean => {
+                    if (hidden) return setPanel({hidden});
+                    const current = panel.value;
+                    if (!current.hidden && !current.collapsed && dragCollapsed.value.panel !== true) return false;
+                    maximized.value = false;
+                    void customizations.commit((value) => {
+                        const next = editable(value);
+                        next.panel = {...next.panel, hidden: false, collapsed: false};
+                        if (next.dragCollapsed?.panel === true) next.dragCollapsed = {...next.dragCollapsed, panel: false};
+                        return next;
+                    });
+                    return true;
+                },
                 /** 32px 标题头只对水平位置成立。 */
                 setPanelCollapsed: (collapsed: boolean): boolean => isHorizontalPanelPosition(panel.value.position) && setPanel({collapsed}),
                 /** 最大化只在左右位置或水平居中、面板显示、不在紧凑呈现时成立；收起着的面板最大化时先展开。 */
@@ -156,8 +168,8 @@ function defineLayoutStore(records: LayoutRecords) {
                     if (field.failure !== null) await field.reopen();
                     return field.retry();
                 },
-                /** 放弃这条记录暂停的修改，显示回到已确认值。 */
-                discard: (record: LayoutRecordName): string => fields[record].discard(),
+                /** 放弃这条记录暂停与排队的全部修改，显示回到已确认值。 */
+                discard: (record: LayoutRecordName): string => fields[record].discardAll(),
             },
         };
     });

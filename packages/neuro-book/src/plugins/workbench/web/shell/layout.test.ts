@@ -172,6 +172,25 @@ describe("降级与紧凑呈现", () => {
         expect(projection.issues.some((issue) => issue.includes("标题头"))).toBe(true);
     });
 
+    it("紧凑呈现同样做高度降级：390×260 时面板退到 32px 标题头、编辑器拿到余量，并给出诊断", () => {
+        const {projection, layout} = project({extent: {width: 390, height: 260}});
+        expect(projection.mode).toBe("compact");
+        expect(projection.effectivePanel.collapsed).toBe(true);
+        expect(leafExtent(layout, "panel").height).toBe(SHELL_PANEL_COLLAPSED_HEIGHT);
+        expect(leafExtent(layout, "editor").height).toBeGreaterThan(40);
+        expect(projection.issues.some((issue) => issue.includes("紧凑呈现高度"))).toBe(true);
+    });
+
+    it("宽度放得下分栏但偏好放不下时，先给编辑器留出 160px，侧栏按可缩空间压缩", () => {
+        const {layout} = project({extent: {width: 830, height: 900}});
+        expect(leafExtent(layout, "editor").width).toBeGreaterThanOrEqual(160);
+        expect(leafExtent(layout, "panel").width).toBeGreaterThanOrEqual(160);
+        expect(leafExtent(layout, "sidebar").width).toBeGreaterThanOrEqual(160);
+        const side = project({extent: {width: 900, height: 900}, panel: {...PANEL, position: "right"}});
+        expect(leafExtent(side.layout, "editor").width).toBeGreaterThanOrEqual(160);
+        expect(leafExtent(side.layout, "panel").width).toBeGreaterThanOrEqual(160);
+    });
+
     it("极矮容器：所有叶非负、editor 取非负余量", () => {
         const {layout} = project({extent: {width: 1440, height: 80}});
         for (const size of Object.values(layout.sizes)) expect(size.height).toBeGreaterThanOrEqual(0);
@@ -195,6 +214,8 @@ describe("降级与紧凑呈现", () => {
         const {layout, projection} = project({preferences: wide});
         expect(leafExtent(layout, "sidebar").width).toBe(560);
         expect(leafExtent(layout, "panel").height).toBe(80);
+        expect(projection.issues.filter((issue) => issue.includes("越出可用区间"))).toHaveLength(2);
+        expect(project().projection.issues.filter((issue) => issue.includes("越出可用区间"))).toEqual([]);
         const narrow = project({extent: {width: 900, height: 900}, preferences: {...SHELL_SIZE_DEFAULTS, sidebarWidth: 560}});
         expect(leafExtent(narrow.layout, "sidebar").width).toBeLessThan(560);
         expect(leafExtent(narrow.layout, "sidebar").width).toBeGreaterThanOrEqual(160);

@@ -1,0 +1,76 @@
+# w00017 t65 实现审查：正确性与不变量
+
+审查范围：`ecc4a64f..53596fc6`；worktree：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t65-impl-correctness`。
+
+下列发现按影响排序；编号保留确认顺序。代码位置均相对上述 worktree。问题与验证均由本轮独立核实，不采用作者自报结果替代。
+
+## F03：记录级“放弃”只移除队首，继续保存该记录的后续修改，不回到已确认值
+
+- **严重程度**：重要。
+- **类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/state/layout-store.ts:159`（`discard`）；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:131`。
+- **现象**：已保存侧栏宽度 300 后断线，连续调整到 250、200；未保存队列为 2。点击记录级放弃所调用的 `discard('side')` 后，显示仍是 200、队列为 1，并立即尝试发送剩余修改。重连并重试后盘中侧栏宽度成为 200，没有回到已确认的 300。
+- **为什么是问题**：外壳 Spec“失败与恢复”和验收 10 明确要求“放弃回到已确认值”，action 注释也承诺放弃这条记录的暂停修改。底层 `PersistedField.discard()` 的合同却是只丢暂停的队首、重新投影剩余意图并继续队列。直接转发混淆了单意图操作与产品的记录级放弃；真实用户在保存失败后继续拖动即可触发。现有布局失败测试每条记录只有一次修改，未覆盖这条路径。
+- **如何核实**：本目录 `storage-probe.ts` 使用现有 `storageWorld`、`openLayout`，真实内核、远程链路与 SQLite；无替身、无手造失败。cwd `packages/neuro-book`：`NBOOK_AGENT_TEMP_ROOT=<本报告目录> bun --tsconfig-override tsconfig.json <本报告目录>/storage-probe.ts`。输出依次为 `seed: sidebarWidth=300 / revision=1`、`paused: sidebarWidth=200 / queue=2 / unknown-outcome`、`discard-result: discarded`、`after-discard: sidebarWidth=200 / queue=1 / saving`；重连成功，重试 `saved`，盘中 `sidebarWidth=200 / revision=2`。两个真实实例均以 `closed` 收口。Bun 在结果之后另打印一次内部 `directory mismatch ... tsconfig.json` 诊断，实验已完整执行，不将运行器诊断归为产品问题。
+- **建议改法**：保留通用字段的既有队首语义，在布局拥有者提供真正的记录级取消全部暂停/排队意图并采用最新 base 的操作，不能用反复 `discard()` 循环（第一下会泵出下一条）。优先给现有字段补一个明确的原子清队列操作，再由唯一记录级 action 调用；不增第二套保存队列。补失败后同一记录继续改两次、一次放弃、重连后也不保存被放弃修改的验收。
+
+## F02：面板拖到零后，“显示面板”命令没有清除拖收起位，不能恢复记忆尺寸
+
+- **严重程度**：重要。
+- **类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/state/layout-store.ts:111`（`setPanelHidden`）；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:126`（状态栏仅按 `panel.hidden` 决定显隐）。
+- **现象**：底部面板从 sash 用 Enter 拖收起到 0px 后，状态栏仍显示“隐藏面板”。点击它隐藏，再点击“显示面板”，面板叶回来但高度仍为 `0`，框架按钮也全被裁掉。`set-panel-hidden {hidden:false}` 只清 `hidden` 和 32px `collapsed`，留下 `dragCollapsed.panel=true`；对已非 hidden/collapsed 的零面板，甚至按同值直接不写。
+- **为什么是问题**：`docs/specs/ui/workbench-shell.md` 输出 8 和验收 3 承诺从拖到零通过按钮、命令或 Enter 恢复记忆尺寸。当前只有 sash 的 Enter/指针能恢复；到了紧凑呈现没有 sash，仍按拖收起位移除面板落点，用户只能先扩大窗口。用户请求“显示面板”后得到零面板，违反命令的可观察结果。旧命令也只清两位，照搬它并未满足本次明确的恢复合同。
+- **如何核实**：真实产品 `/` 页，1440×900。聚焦 `[role="separator"][aria-label="调整 editor 与 panel 的高度"]`，按 Enter，等待 panel 高度为 0；依次点击状态栏“隐藏面板”“显示面板”，等待叶消失再出现。两次量得 panel 高度均为 `0`，状态栏末态仍为“隐藏面板”。操作路径全经真实 Grid 和五条产品命令。
+- **追加核实**：同一产品页拖到零后缩到 390×844，再按状态栏隐藏、显示。实测 `mode=compact, panelPresent=false, toggle='隐藏面板', separators=0`：整个面板及其框架控件仍在停放区，当前窄屏没有边界可恢复。截图 `panel-zero-compact.png`。
+- **建议改法**：把“显示面板”的单次定制意图合并为清除 `panel.hidden`、`panel.collapsed` 与 `dragCollapsed.panel`，同值判断同时纳入这三项；保留高度/宽度记录，不写 0。状态栏把拖到零也视为需要显示的状态，单击即可恢复。无需新增命令或保存路径。
+
+## F01：最大化只把编辑器叶压到 0，没有停放内容；Tab 仍进入不可见编辑器
+
+- **严重程度**：重要。
+- **类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShellLayout.vue:169`（`syncTargets`，行 169–176；Teleport 行 238–241）；`packages/neuro-book/src/plugins/workbench/web/shell/layout.ts:258`。
+- **现象**：面板最大化后，编辑器叶的高度为 `0`，编辑器内容仍 Teleport 到该叶，没有进入 `hidden inert aria-hidden` 停放区。在 Lab 场景中聚焦面板标题按钮后按一次 `Tab`，焦点进入已被裁掉的编辑器输入框；输入框仍为 `tabIndex=0`，祖先没有 `inert`。
+- **为什么是问题**：违反 `docs/specs/ui/workbench-shell.md` 输出 7、10 和验收 6：最大化应停放编辑器，停放内容不可交互且不进读屏与 Tab 顺序。零几何与 `overflow:hidden` 只裁剪像素，不移除键盘/无障碍交互。当前测试只断言 editor 高度为 0、样例不重挂，没有验证停放和键盘顺序。拖到零的可交互 Part 内容也共用这条落点路径。
+- **如何核实**：启动隔离开发服务（`NBOOK_STATE_ROOT=<本报告目录>/dev-state NBOOK_DEV_PORT=43865 NBOOK_DEV_BACKEND_PORT=0 NBOOK_DEV_RPC_PORT=0 bun src/server/dev/main.ts`，完整环境与运行目录见最终验证记录），用内置 Chromium 打开 `/lab?c=WorkbenchShellLayout&s=default`，2300×1100 视口；点击场景控制的“最大化”，等待 `[data-leaf="editor"]` 高度为 0；`focus('[data-shell-focus-target="panel-title"]')`，`press('Tab')`。实测 `document.activeElement` 为样例 `INPUT`，`hiddenEditor=true, parking=false, inert=false, editorHeight=0`。截图：`maximized-focus.png`。使用真实组件、真实网格和真实键盘，没有伪发组件事件。
+- **建议改法**：在同一份落点解析中排除最大化时的 editor 和拖到零的 Part，让已有 Teleport 自然回到唯一停放区，不另加一套 CSS 隐藏状态。以呈现中可交互的 Part 决定落点，并保留恢复时的滚动/焦点记忆；补真实 Tab 与停放属性的验收。
+
+## 本轮验证与执行边界
+
+报告目录：`/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/correctness`。下表中的 `<报告目录>` 仅为这个绝对路径的缩写，实际执行时用了完整路径。
+
+| 验证 | 实际命令或操作 | 本轮结果 |
+|---|---|---|
+| 依赖 | worktree 根：`prox bun install --frozen-lockfile --ignore-scripts` | Bun `1.4.2 (744846f84)`，`1560 packages installed [1253.00ms]`；未执行生命周期脚本。 |
+| 几何、store、公开状态与面板命令的聚焦合同测试 | cwd `packages/neuro-book`：`NBOOK_AGENT_TEMP_ROOT=<报告目录> bun test src/plugins/workbench/web/shell/layout.test.ts src/plugins/workbench/web/state/layout-store.test.ts src/plugins/workbench/web/commands/panel-commands.test.ts` | **47 pass，0 fail，715 expect() calls，3 files**；650ms。 |
+| 布局、面板、状态栏、命令面板的聚焦组件测试 | 同一 cwd：`NBOOK_AGENT_TEMP_ROOT=<报告目录> bun run test:vitest -- src/plugins/workbench/web/components/WorkbenchShellLayout.dom.test.ts src/plugins/workbench/web/components/WorkbenchPanelSurface.dom.test.ts src/plugins/workbench/web/components/WorkbenchStatusBar.dom.test.ts src/plugins/workbench/web/components/WorkbenchCommandPalette.dom.test.ts` | Vitest `4.1.10`，**4 files passed，21 tests passed**；4.30s。包含最新选择后立即重开的回归例；happy-dom 不证明真实几何。 |
+| 保存失败后的连续修改与记录级放弃 | 同一 cwd：`NBOOK_AGENT_TEMP_ROOT=<报告目录> bun --tsconfig-override tsconfig.json <报告目录>/storage-probe.ts` | 完整执行、退出 0；真实 Storage/SQLite 复现 F03；两个运行实例均 `closed`。Bun 末尾的目录 mismatch 为运行器诊断。脚本与真实库保留在报告目录。 |
+| 真实外壳 smoke | 同一 cwd：`NBOOK_AGENT_TEMP_ROOT=<报告目录> NBOOK_STATE_ROOT=<报告目录>/dev-state NBOOK_DEV_PORT=43865 NBOOK_DEV_BACKEND_PORT=0 NBOOK_DEV_RPC_PORT=0 bun src/server/dev/main.ts`；内置 Chromium 打开 `/` 与 `/lab?c=WorkbenchShellLayout&s=default` | 前端 `43865`，后端 `46303`，RPC `41907`。真实键盘与产品按钮复现 F01、F02；没有用组件伪事件证明手势。 |
+| 容器变化取消 | 产品页侧栏当前 260px，真实 pointer 拖出 300px 预览，改变视口、等待新 editor 几何发布后松手 | `before=260, preview=300, after=260`，取消后预览没有留下。前期以根盒变化或两帧等待代替布局发布的探针未用于下结论。 |
+| 内容保活与记忆 | 同一 Lab 场景写入“审查草稿”、scrollTop=300，经换位置、最大化/还原、手机/随窗口往返 | 输入保留、scrollTop=300；最大化/还原所观察的样例身份始终为 `1`。保活成立不能替代 F01 的不可交互判据。 |
+| 选择模式的重开补丁 | 产品面板位置选择“左侧”，真实键盘 Enter 后紧接 Ctrl+Shift+P | 左侧面板宽 320px；命令面板重新打开、查询为 `>`、输入框聚焦。 |
+| Lab 直接启动隔离 | 新页面从导航前用 Chromium CDP `Network.webSocketFrameSent` 抓帧，等页面与 fixture 就绪 | Lab 共 3 个发送帧，布局相关帧 0；产品共 9 个发送帧，其中布局 open 3、subscribe 3。原始帧：`storage-browser-frames.json`。 |
+| 浏览器诊断 | 收尾分别读取产品页、Lab 页的 `errors()` | 两页 `entries=[]`；未将工具层探针错误记为产品错误。 |
+| 只读与服务收口 | worktree 根：`/usr/bin/git status --short --untracked-files=normal`；`kill -TERM 1094717`；`ss -ltnp '( sport = :43865 or sport = :46303 or sport = :41907 )'` | status 无输出；开发 supervisor 退出 **0**；三个端口无监听；两个 managed browser tab 已释放。 |
+
+没有修改受跟踪源码、Spec、Task 或锁文件，没有 commit、push、stash、切分支，也没有删除文件。允许的安装写忽略的 node_modules；本轮实验、真实状态库与截图在报告目录。截图 `side-panel-800.png`、`compact-260.png` 仅为边界调查证据，不另算发现。
+
+本轮未运行：应用全量测试、正式 Playwright e2e 套件、全量 typecheck、生产 build/check:dist、smoke:server、docs:check、governance:check、变异检查、四主题视觉矩阵与 DPR 线/热区矩阵。使用的是本地开发服务与真实 Chromium，不把 smoke 扩称为生产 e2e 验收。作者自报的 433/70/60 等数量不是本轮验证。
+
+## 未发现问题的方面
+
+- **字段级写入与分区**：聚焦真实 Storage 测试验证位置/对齐、不同 Part 位保留、同字段后写胜出、外来 base 不强改 display；绑定与未绑定窗口的尺寸分别写 project/user，定制始终写 user。未发现本次 action 捕获整份 display 覆盖其它字段的回归。同值判断按 display 是既定合同，不单报外来 base 与显示不同。
+- **坏记录与恢复隔离**：损坏定制记录保持原件、默认显示且不覆盖，尺寸记录照常保存；读取 I/O 错误后 reopen/retry 拿新基线补写、单条暂停的重试通过。F03 仅针对多条积压意图的记录级放弃；不重复已补上的恢复入口问题。
+- **几何与手势边界**：聚焦几何测试覆盖位置/对齐、ActivityBar 不交叠、刚性尺寸、夹取、短高度和拖到零不写 0；真实 260px 高的宽屏把面板退到 32px，80px 高仍是非负且在盒内。800px 宽左右面板下 editor 取 0 符合现行降级合同，没有另报为最小宽度缺陷。容器变化取消的稳态结果见上表。
+- **惰性创建与当前生命周期**：直接 Lab 启动没有产品布局 open/subscribe 已由真实抓帧核实。代码中 store 在首页 setup acquire、创建后登记在工作台入口 scope；页面表/root 闭包按入口创建，终态由宿主移除页面、销毁运行实例。运行期插件热插拔尚未实现，本轮不把未实现的动态页面表当作 t65 回归。
+- **公开状态与最大化清除**：聚焦测试验证记录就绪、事实就绪后几何键才成立；紧凑按保存位置判断 horizontal、禁位置/对齐/最大化；事实失效清瞬时最大化。没有发现需要新增 focusedPart 或另建一张可用性表的依据。八个键、四条可省参数和 DPR 延后均按已定方案核对，没有重新讨论待确认项。
+- **共享宿主与内容寿命**：单一 `useGridLayout` 落账入口、`shellPatch` 只持久化主动叶，组件单次挂载与隐藏停放测试通过；同一 Lab 场景换位置、紧凑往返的输入与滚动保留。已发现的零几何未停放单列 F01，不用这些通过项掩盖它。
+- **最新命令面板补丁**：真实键盘确认选中后立即重开保留选择且重新聚焦；相关组件测试通过。未发现 `53596fc6` 所修路径的剩余问题。
+
+## 数量
+
+- 阻断：**0**。
+- 重要：**3**（按报告顺序 F03、F02、F01）。
+- 建议：**0**。
+
+没有新增需开发者决定的取舍。任务反思已核对：本轮探针的等待/快捷键用法修正与已存在的真实可观察事实、工具说明规则重复，不提出新的规范回写条目，也未改规则文件。

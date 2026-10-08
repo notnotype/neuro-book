@@ -20,7 +20,7 @@ export const workbenchState = definePublicState("nbook.workbench", {
     nonCompact: {type: "boolean", unready: false, reason: {"zh-CN": "窗口太窄，正在用紧凑布局", "en-US": "The window is too narrow (compact layout)"}},
     panelHorizontal: {type: "boolean", unready: false, reason: {"zh-CN": "面板不在底部或顶部", "en-US": "The panel is not at the bottom or top"}},
     panelMaximizable: {type: "boolean", unready: false, reason: {"zh-CN": "面板要显示着，并在左右两侧或底部、顶部居中", "en-US": "The panel must be shown, on a side, or centered at the bottom or top"}},
-    panelVisible: {type: "boolean", unready: false, reason: {"zh-CN": "面板已隐藏", "en-US": "The panel is hidden"}},
+    panelVisible: {type: "boolean", unready: false, reason: {"zh-CN": "面板已隐藏或拖到零", "en-US": "The panel is hidden or dragged closed"}},
     panelMaximized: {type: "boolean", unready: false, reason: {"zh-CN": "面板没有最大化", "en-US": "The panel is not maximized"}},
     panelPosition: {type: "string", unready: "bottom"},
     panelAlignment: {type: "string", unready: "center"},
@@ -43,7 +43,7 @@ export function workbenchStateBindings(layout: Readonly<ShallowRef<LayoutStore |
             const {position, alignment, hidden} = store.state.panel;
             return !hidden && panelMaximizable(position, alignment);
         }),
-        panelVisible: computed(() => layout.value !== null && !layout.value.state.panel.hidden),
+        panelVisible: computed(() => layout.value !== null && !layout.value.state.panel.hidden && layout.value.state.dragCollapsed.panel !== true),
         panelMaximized: computed(() => panel.value?.maximized ?? false),
         panelPosition: computed(() => panel.value?.position ?? "bottom"),
         panelAlignment: computed(() => panel.value?.alignment ?? "center"),

@@ -42,6 +42,8 @@ const text = (value: LocalizedText): string => localize(value, props.locale);
 const welcome = computed(() => (props.project === null ? text(TEXT.ready) : text(formatText(TEXT.readyWithProject, {name: props.project}))));
 
 const state = computed(() => props.layout.state);
+/** 面板看不见：隐藏或拖到零。状态栏按钮此时是“显示面板”，执行时同时清除这两种（与命令的省略参数同一判断）。 */
+const panelHidden = computed(() => state.value.panel.hidden || state.value.dragCollapsed.panel === true);
 
 /** 框架按钮：可用性问命令系统；先读布局状态，让按钮随它重新求值（命令系统的可用性变化不通知）。 */
 const FRAME: ReadonlyArray<{id: keyof typeof PANEL_COMMAND_DECLARATIONS; icon: string}> = [
@@ -123,10 +125,10 @@ function onLayout(facts: ShellLayoutFacts): void {
             <WorkbenchStatusBar
                 :locale="locale"
                 :project="project"
-                :panel-hidden="state.panel.hidden"
+                :panel-hidden="panelHidden"
                 :panel-toggle-disabled="!state.ready"
                 :problems="state.problems"
-                @toggle-panel="run(SET_PANEL_HIDDEN_COMMAND, {hidden: !state.panel.hidden})"
+                @toggle-panel="run(SET_PANEL_HIDDEN_COMMAND, {hidden: !panelHidden})"
                 @retry="(record) => layout.actions.retry(record as 'side' | 'panelSize' | 'customizations')"
                 @discard="(record) => layout.actions.discard(record as 'side' | 'panelSize' | 'customizations')"
             />

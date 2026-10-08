@@ -1,0 +1,183 @@
+# w00017 t65 实现审查：测试与验收映射
+
+审查范围：`ecc4a64f..53596fc6`。审查工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t65-impl-tests`。本报告只记录已核实问题；实验全部置于报告所在的仓库外目录。作者自报结果不计作本次运行证据。
+
+发现按影响排序，编号保留核实时的顺序。所有位置均相对于上述审查工作区；`plan.md` 指 `.agents/works/w00017-application-runtime-architecture/tasks/t65-workbench-shell-layout/plan.md`。测试缺口不等同于已复现的产品故障。
+
+## 发现 06：最大化时没有停放编辑器，Tab 会进入不可见内容，而 e2e 要求它“可见”
+
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShellLayout.vue:169`、`:239`；`packages/neuro-book/e2e/workbench-shell.e2e.ts:309`；Spec 外壳一输出 7、10、验收 6。
+- 现象：`syncTargets()` 仅按 `[data-leaf]` 是否存在选择 Teleport 落点。最大化投影仍保留尺寸为 0 的 editor 叶，于是编辑器没有进入 `hidden inert aria-hidden` 停放区。真实 Lab 的 left 场景最大化后编辑器宽 0、样例自身宽 24（padding），`parked=false`、`inert=false`；从面板标题按一次 Tab 就聚焦编辑器输入，下一次聚焦编辑器滚动区。键盘可达已实测；从 DOM 属性推断也没有主动排除读屏访问，未运行读屏软件。新 e2e 对每一步（含最大化）无条件要求 sample 可见，只检验输入和滚动，不检查停放与 Tab 排除。
+- 为什么是问题：最大化应该挤走并停放编辑器；0px 裁切不等于不可交互，也不能触发基于 parkingEl 的焦点交接。当前测试恰好接受了错误形态；正确把编辑器放进 hidden 停放区会先让这条 `toBeVisible()` 失败。
+- 如何核实：未修改 `WorkbenchShellLayout` 的真实开发会话：打开 `/lab?c=WorkbenchShellLayout&s=left`，点击“最大化”，等 editor 叶宽为 0，读取样例祖先的 parking/inert 状态；聚焦面板标题后实际按 Tab 5 次，前两次分别在编辑器 INPUT 和滚动 DIV。基线 shell e2e 8 例全通过。场景内布局动作与 Tab 都走浏览器真实输入，没有直接调用内部函数。
+- 变异补证：实验副本删除 `restoreMemory` 的焦点恢复 4 行，以及 `becameMaximized` 到 `panel-title` 的交接行；组件测试仍为 3 pass；重建真实生产前端后再次运行完整 `workbench-shell.e2e.ts`，仍为 8 pass（19.8s）。说明全部现有 shell e2e 没有保护可见内容搬动后的焦点恢复或最大化交接，外部浮层不抢焦点也没有独立断言。
+- 可重复 smoke：全部源码变异恢复后，运行 `bun x --no-install playwright test -c e2e/review.config.ts review-parking.e2e.ts`，1 failed（9.13s）；输出 `{"state":{"parked":false,"inert":false,"id":"1"},"inEditor":true}`，停放断言 `Expected: true / Received: false`。该新增脚本只在实验副本中，走真实开发服务、浏览器点击与 Tab，未加入原仓库。
+- 建议改法：在拥有呈现事实的 `syncTargets()` 中把最大化时的 editor 排除出可见目标（仍保留零几何叶），沿用现有唯一停放区；不用另造隐藏分支。改 Lab e2e：最大化时断言样例在停放区、不在 Tab 顺序，恢复后再断言可见、实例/输入/滚动不变；补输入聚焦后最大化的标题落点和外部浮层不抢焦点。
+
+## 发现 07：文件头列“别处已覆盖”的恢复验收并未闭合
+
+- 严重程度：重要；类别：测试。
+- 位置：`packages/neuro-book/e2e/workbench-shell.e2e.ts:5`；`packages/neuro-book/src/plugins/workbench/web/state/layout-store.test.ts:203`；`plan.md:105`、`:106`；Spec 外壳一验收 7、10。
+- 现象：坏记录用例只破坏 `views-customizations` 的 JSON，不放入不支持版本或有效但越界的尺寸记录；纯几何用例传越界参数，但不读取记录、比较原件或 revision。恢复用例断线时让 side/customizations 两条同时暂停，随后重试 customizations、放弃 side；真实运行观察两条均为 `unknown/unknown-outcome`，该用例没有断言保存失败分类，也没有一条正常写、一条确定失败后只重试失败记录的路径。新 shell e2e 没有任何真实布局保存失败，S5 只手传 problems 并断言 emits，产品状态栏到 retry/discard 的完整接线没有运行证据。
+- 为什么是问题：通用 store 的 protected/unknown/retry 测试不能保护布局特有的 problems 汇总、记录选择与状态栏接线。文件头笼统说恢复已由布局 store 覆盖，会掩盖这些缺口；计划 S7 明确承诺“一条真实失败路径”。
+- 如何核实：实验副本只删除布局 `problems` 对 `unsupported-version` 的分支，保留底座的记录保护；聚焦布局/命令测试仍为 13 pass、0 fail、148 expect() calls（变异存活）。运行 `bun src/plugins/workbench/web/testing/review-recovery.ts` 实测断线后的 side/customizations 都是 `{state:"unknown",code:"unknown-outcome"}`，两个应用都正常 closed。移除 unknown 汇总的另一变异被现有断线用例抓到（12 pass、1 fail），因此未知结果处理有覆盖，缺口是确定失败/一条正常另一条失败/产品恢复入口。代码核对：全部 shell e2e 没有断线、改库、未保存提示、重试或放弃；组件用例自行提供 problems 后只接收事件。共享 store 的版本保护不能记成布局 owner 的诊断验收。
+- 建议改法：扩展已有坏记录用例为坏 JSON/不支持版本/越界尺寸三组，检查默认或夹取、布局问题、原件及 revision；在现有真实场地让 project 尺寸库失败而 user 定制仍正常，断言重试只补失败记录。S7 增加一条真实保存失败后点击状态栏重试/放弃的用户路径，覆盖拥有者接线，不重复实现通用 store 的重试算法。
+
+## 发现 01：S7 没有兑现手势取消、提交次数与短容器可达性的浏览器验收
+
+- 严重程度：重要；类别：测试。
+- 位置：`packages/neuro-book/e2e/workbench-shell.e2e.ts:163`、`:209`；`plan.md:100`、`:101`、`:103`；Spec 外壳一验收 2、3、5。
+- 现象：拖动用例只拖侧栏、松手后量宽并刷新；不观察三条记录的 revision/保存次数。键盘只覆盖方向键、Shift、Escape、Enter，没有 Home/End；Escape 只核对预览恢复，没有检查没有保存。没有拖动中改变容器尺寸、未读完前实际尝试拖动、从零用指针拉回的用例。紧凑用例只在 `390×844` 下检查模式、禁用与页面横向滚动，没有 `260px` 高承载盒中实际显示/还原和裁切检查。
+- 为什么是问题：`layout.test.ts:313` 直接把旧提交交给另一棵树，不经过真实 pointer/ResizeObserver/共享宿主；纯模型和 store 测试无法保护这些接线。`open()` 等按钮可用以后才继续操作，也没有验证读取前禁拖。计划审查专门要求移到 S7 的这些判据仍然没有相应测试，截图也不能证明取消零写入或恢复入口未裁切。
+- 如何核实：逐行核对新 e2e 333 行、纯模型 321 行、store 测试 265 行；检索全部应用 e2e 的 `Home|End|260|pointercancel|setViewportSize`。相关 viewport 变化都发生在手势结束以后。实验副本聚焦 Bun 基线：47 pass、0 fail、715 expect() calls。
+- 建议改法：扩展现有拖动和紧凑用例：通过真实输入启动手势，期间调整容器再释放，并比较变更前后三条记录的 revision；一次有效手势断言涉及记录各增 1、其余不变；取消、测量变化和未就绪操作断言不变。补 Home/End、零边界指针恢复，以及 `390×260` 下实际完成显示/还原并核对按钮可见矩形，复用现有测试而不是增加伪手势场地。
+
+## 发现 02：样例的实例身份与累计计数每次重挂都会重置
+
+- 严重程度：重要；类别：测试。
+- 位置：`packages/neuro-book/src/plugins/lab/web/fixtures/shell-scene/ShellSampleEditor.vue:10`；`packages/neuro-book/e2e/workbench-shell.e2e.ts:292`。
+- 现象：`counters` 位于 `<script setup>`，实际在每个实例的 `setup()` 内建立；每次实例都是 `instance=1`、`created=1`、`unmounted=0`。卸载回调只改变这个旧实例的普通对象，新实例又创建自己的对象。e2e 的 `identity()` 只读取实例编号和卸载数，没有读 `data-created`，也没有断言“创建 1 次、卸载 0 次”。
+- 为什么是问题：计划把生命周期计数作为“内容未卸载”的独立判据；这两个属性即使卸载再挂也不变。当前输入和滚动断言仍能抓到丢状态的重挂，不能把它们的通过说成身份/次数已经核实：允许状态恢复的重建会通过这套身份断言。注释“计数放在模块里，跨实例累计”与实际 Vue 编译结果相反。
+- 如何核实：源码静态核对和 Vue 真实 SFC 编译；编译探针 `node lifecycle-counter.mjs` 输出的 `setup(__props)` 内含 `const counters = {next: 1, created: 0, unmounted: 0}`。未变异基线：8 个 shell e2e 全通过。真实 Chrome 在 Lab 从默认场景切到左侧场景后，旧样例 DOM 的 `isConnected=false`，新旧样例却同为 `{id:"1",created:"1",unmounted:"0"}`，证明卸载重建未被这些计数揭示。
+- 变异补证：让 editor 的 Teleport key 随 `effectivePanel` 变化，真实 Lab e2e 为 1 failed；身份数组断言仍通过，先失败的是输入从“草稿”变为空（`workbench-shell.e2e.ts:313`）。说明生命周期变异被状态断言拦住，编号与卸载计数本身确实没有判别力。
+- 建议改法：把计数放到一个场景拥有、跨子实例存活的对象，由 fixture 传给样例，样例每次 setup 分配新的 id，生命周期钩子更新同一个可观察计数；同一场景转换后分别断言 id 不变、created=1、unmounted=0。不要用产品代码的状态恢复充当实例保留证据。
+
+## 发现 04：命令测试绕过命令系统，错误的 when 声明可以通过全部四例
+
+- 严重程度：重要；类别：测试。
+- 位置：`packages/neuro-book/src/plugins/workbench/web/commands/panel-commands.test.ts:72`、`:114`；`plan.md:87`、`:109`；Spec 外壳一验收 11。
+- 现象：测试直接执行 `panelCommands(...)[id].run()`，只有声明格式和“when 引用的是已声明键”的检查；没有登记真实命令系统，没有实际非法参数/额外字段返回 `invalid-args` 的断言，没有逐条验证五个命令在未就绪、左右位置、justify、紧凑、隐藏时的可用与原因。
+- 为什么是问题：状态绑定值正确不等于命令的 `when` 读对键；handler 直接调用也完全跳过参数校验和 when 求值。通用 commands 测试证明通用执行管线，不证明这五条产品声明与发布接线正确。计划明确要求 S3 使用真实命令系统，这一承诺没有落地。
+- 如何核实：实验副本把 `set-panel-alignment` 的 `when: requires("panelHorizontal", "nonCompact")` 改成 `when: requires()`，保持合法声明；运行 `bun test src/plugins/workbench/web/commands/panel-commands.test.ts` 仍为 4 pass、0 fail、42 expect() calls。该变异取消了左右/紧凑禁用条件，当前合同测试存活；不宣称整个 e2e 也会存活（紧凑 e2e 会检查对应按钮禁用）。
+- 建议改法：在已有真实 Storage 场地装入真实 `nbook.commands` 与 `nbook.state`，经 `isEnabled/execute` 表格驱动检查五条命令与参数边界，复用产品声明和实现。删除只调用声明校验再复述其内部字段的用例，选择服务仍可由合同已验证的内存选择器作答。
+
+## 发现 05：最大化清除只测了位置与隐藏，改对齐漏清除的变异存活
+
+- 严重程度：重要；类别：测试。
+- 位置：`packages/neuro-book/src/plugins/workbench/web/state/layout-store.test.ts:132`；`packages/neuro-book/src/plugins/workbench/web/commands/panel-commands.test.ts:82`；Spec 外壳一输出 7、验收 4；`plan.md:104`。
+- 现象：store 用例名称提“隐藏时清除”但该用例实际没有在最大化后隐藏；公开状态测试补到了隐藏。两者均未在最大化后改变对齐或收起并核对最大化清除；e2e 只验证换位置。
+- 为什么是问题：对齐与位置共用 action，不代表四种转换都受测试保护；该变异违反 action 的瞬时状态清除合同而不失败。产品的呈现事实回写可能另行清除最大化，本实验没有跑该变异的完整产品页，不把“最大化会在产品中复活”列为已复现缺陷。
+- 如何核实：实验副本将 `setPanel` 的无条件清除改为 `if (patch.alignment === undefined) maximized.value = false;`。运行 `bun test src/plugins/workbench/web/state/layout-store.test.ts src/plugins/workbench/web/commands/panel-commands.test.ts`：13 pass、0 fail、146 expect() calls。另一个“只在 position 清除”的粗变异被公开状态隐藏用例抓到（12 pass、1 fail），因此缺口精确落在未测的转换，而非所有清除均未覆盖。
+- 建议改法：扩展现有最大化用例，分别在位置、对齐、隐藏、收起变化与进入紧凑后断言最大化为 false，并证明回到允许最大化的组合也不复活；同值动作保持不写入，不另造最大化状态机。
+
+## 发现 03：主题测试只测三块底色，却宣称文字、字体与边框验收已覆盖
+
+- 严重程度：重要；类别：测试。
+- 位置：`packages/neuro-book/e2e/workbench-shell.e2e.ts:249`；`packages/neuro-book/e2e/settings.e2e.ts:93`；Spec 外壳一验收 1、12，计划验收映射 `plan.md:114`。
+- 现象：标题写“底色、文字与字体”，实际 `read()` 只返回 `getComputedStyle(...).backgroundColor`，并且只在默认产品主题量一次。`settings.e2e.ts` 只对外壳根检查背景、文字、字体，在 nbook/macOS 两种主题切换下执行；没有面板/状态栏文字、边框和结构边界唯一绘制者的断言，也没有 Lab 四主题 × 双配色的计算样式检查。
+- 为什么是问题：截图记录布局外观，不能证明主题 token 的解析值。面板或状态栏字色硬编码、边框使用错 token、边界重复绘制，以及 editorial/aurora 覆盖错误均能漏过当前验收。Spec 与计划审查已明确不准把截图当 token 证明。
+- 如何核实：核对 e2e 的返回值只有 `{own: backgroundColor, token: backgroundColor}`，settings 的 `pageTokens` 只选外壳根；全应用 e2e 没有面板/状态栏边框对照。未变异 shell e2e：8 pass。
+- 建议改法：修正现有 token 用例，分别断言三块区域的背景、字色与实际绘制的 border/outline token，并检查相邻边界只有一个 owner；复用同一个测量函数在约定的 Lab 主题/配色和产品默认明暗组合运行。标题和证据只声明实际检查过的属性。
+
+## Spec 外壳一验收 1–13 映射
+
+下表的“覆盖”指本次核对的测试判据；静态核对与实际运行分开写。并未在本次审查重跑 settings、projects 或全量应用 e2e。
+
+| 验收 | 测试与层级 | 核对结果 |
+|---|---|---|
+| 1：四位置、四水平对齐、ActivityBar 通高、无重复边界 | `shell/layout.test.ts:73`、`:91`、`:109`；shell e2e `:91` | 纯模型枚举 16 个位置/对齐组合并检查非负与不越界；真实 e2e 抽查左侧、两端、顶部靠右、刷新，不逐一枚举全部 DOM 组合；未检查边界唯一绘制者，见发现 03。 |
+| 2：越界停住、一次手势各记录一次、刷新、键盘与取消 | `layout.test.ts:249`、`:271`、`:278`、`:313`；shell e2e `:163` | 主动补丁、整批拒绝、几何与刷新有覆盖；真实提交次数、Home/End、容器变化取消零保存缺失，见发现 01。 |
+| 3：拖到零、1px 边界、无 0 写盘、指针/按钮/命令/Enter 恢复 | `layout.test.ts:205`、`:305`；`layout-store.test.ts:113`；shell e2e `:163` | 纯模型与 store 覆盖零值过滤，删除过滤的变异失败；浏览器只操作 sidebar、刷新和 Enter，没有指针从零拉回或面板的全部恢复入口，见发现 01。 |
+| 4：隐藏、收起、最大化、清除、不写盘、同值无写入 | `layout.test.ts:143`、`:156`；`layout-store.test.ts:91`、`:132`；命令状态测试 `:82`；shell e2e `:131` | 形态、还原、隐藏清收起、位置清最大化、刷新不恢复最大化有覆盖；同值守卫变异被抓到；对齐/收起清最大化缺少转换断言，见发现 05。 |
+| 5：390×260 控件可达、不裁切、非负、禁用有原因、宽屏恢复与 revision 不变 | `layout.test.ts:164`、`:175`、`:180`；store `:132`；shell e2e `:209` | 纯模型覆盖短高和紧凑，真实浏览器覆盖 390×844 与最大化不复活；未在 260px 高容器完成显示/还原，未比较测量前后三记录 revision 或逐项禁用原因，见发现 01、04。 |
+| 6：实例/输入/滚动/焦点、停放 Tab 排除、外部焦点 | `WorkbenchShellLayout.dom.test.ts:71`；shell e2e `:131`、`:288` | 组件计数器置于子实例外，正确覆盖隐藏停放；Lab 输入与滚动变异被抓到，但身份计数无效，焦点变异存活，最大化停放存在真实缺陷，见发现 02、06。 |
+| 7：坏内容、不支持版本、越界尺寸、诊断与原件 | `layout-store.test.ts:204`；`layout.test.ts:193` | 坏 JSON 默认/保护和纯模型夹取有覆盖；没有版本记录和越界持久化记录的完整读取/诊断/原件比较，版本诊断变异存活，见发现 07。 |
+| 8：双窗口窄字段、Part 各改一位、同字段后写、显示不跳 | `layout-store.test.ts:165`；shell e2e `:224` | 真实内核/Storage 覆盖上述四项，真实双页面覆盖面板字段与当前显示不跳；字段组替换变异失败。 |
+| 9：项目/user 分区、用户定制仍在 user | `layout-store.test.ts:188` | 真实 Storage 同时创建 bound/free 窗口，核对 side 分区及 customizations 共享；未在同一用例对 panelSize 和 Part 显隐逐项复核。记录定义两条尺寸使用同一分区选择，从代码推断后两者正确。 |
+| 10：确定失败、未知结果、读取恢复、只重试失败、放弃、状态栏 | `layout-store.test.ts:224`、`:244`；`WorkbenchStatusBar.dom.test.ts`；shell e2e 文件头 `:5` | 未知结果的暂停/重连/重试/放弃与读取恢复有真实证据；组件显示与事件有覆盖；独立记录正常保存/确定写失败和产品状态栏恢复接线没有完整验收，见发现 07。 |
+| 11：八公开键、五命令可用性、带参/省略/非法参、命令面板 | `panel-commands.test.ts:72`、`:82`、`:110`、`:133`；shell e2e `:91`、`:209` | 公开绑定与 handler、命令面板真实选择有覆盖；合同测试直接 run，未走真实登记、when、invalid-args 与原因；when 变异在此套件存活，见发现 04。 |
+| 12：Lab 四主题双配色双视口、产品主题明暗、token 与边界 | shell e2e `:249`；`settings.e2e.ts:93`；Task `evidences/shots/` | 文件中存在 16 张 Lab 与 8 张产品截图，本次没有重做矩阵或逐张视觉验收。计算样式只覆盖默认主题三块背景，settings 仅外壳根的背景/文字/字体；其余缺口见发现 03。DPR 1.25/1.5/2 按既定决定留未验证。 |
+| 13：直接 Lab 不打开/订阅产品布局 | shell e2e `:318`；`state/layout-host.ts:18` | 基线通过；把惰性 store 改为立即创建后，真实 WebSocket 捕获三条 open 和三条 subscribe 并使测试失败。此项有实际判别力。 |
+
+## 计划验收映射逐行核对
+
+| plan.md 行 | 承诺 | 实际映射 |
+|---|---|---|
+| 98 | S1 与 S7：全部位置/对齐拓扑 | S1 枚举完整；S7 抽查，未逐一核对所有真实 DOM 组合；重复边界见发现 03。 |
+| 99 | S1：夹取、主动补丁、零过滤、整批拒绝 | 纯模型通过；零过滤变异失败。持久化原件不改写另见发现 07。 |
+| 100 | S7：越界、零边界指针恢复、各记录一次、读前禁拖 | 越界/刷新有覆盖，后三项缺失，见发现 01。 |
+| 101 | S7：方向、Shift、Home/End、Enter、Escape 零提交、容器变化取消 | 方向/Shift/Enter 与 Escape 几何回退有覆盖；Home/End 和零提交判据缺失，见发现 01。 |
+| 102 | S1/S2/S3/S7：紧凑与最大化不复活、测量不保存 | 模型、store 与 390px 产品表现有覆盖；when 全条件矩阵与真实 revision 比较缺失，见发现 01、04。 |
+| 103 | S1/S7：短容器非负与恢复入口可达 | S1 数值通过；S7 没有 260px 高容器，见发现 01。 |
+| 104 | S1/S2/S7：四种消失与瞬时最大化清除 | 基本形态有覆盖；对齐/收起转换缺少断言，编辑器最大化停放错误，见发现 05、06。 |
+| 105 | S2：同值无写入、坏记录和版本保护 | 同值守卫变异被抓到，坏 JSON 有覆盖；版本诊断缺口见发现 07。 |
+| 106 | S2/S5/S7：三类失败、独立记录、恢复用户入口 | 未知结果/读取恢复与组件提示有覆盖；独立确定写失败、S7 真失败与产品恢复接线缺失，见发现 07。 |
+| 107 | S2/S7：多窗口全部字段与不跳显示 | S2 四项有覆盖，S7 两页面面板路径通过；窄字段变异失败。 |
+| 108 | S2：项目/user 分区 | side 与 customizations 经真实 Storage 通过；panelSize 和 Part 分别核对的边界尚未逐项运行。 |
+| 109 | S3/S7：真实命令系统、参数和 when | S3 直接 handler，偏离 S3 表格“真实命令系统”；S7 真实面板路径通过，见发现 04。 |
+| 110 | S7：实例计数、输入、滚动、焦点 | 输入/滚动能抓重挂和恢复删除；身份计数无效、焦点未断言，见发现 02、06。 |
+| 111 | S7：隐藏/最大化焦点、Tab 与外部浮层 | 隐藏到 panel-toggle 有断言；其余缺失；最大化 Tab 错误已复现，见发现 06。 |
+| 112 | S7：观察 Storage 远程调用的 Lab 隔离 | 按 WebSocket 帧检查，提前创建变异失败。 |
+| 113 | S6：项目名、无假入口、唯一标记 | 静态核对 home-page 产品单根与唯一标记、标题栏与状态栏接线；projects e2e 已迁移，本次未运行该文件，不计作本次通过。 |
+| 114 | S6/S7：背景/文字/边框 token 与边界唯一 owner | 只有背景及 settings 外壳根文字/字体，见发现 03。 |
+| 115 | S7：Lab 与产品截图矩阵 | 24 张对应文件存在；本次没有重新生成或逐张验收，不把作者截图结果列作本次运行证据。 |
+
+## 变异实验
+
+全部变异只改归档副本，测试命令均设置 `NBOOK_AGENT_TEMP_ROOT` 为本报告所在目录；实际命令见 [commands.md](commands.md)。下列“存活”只限明确运行的套件，未测的上层路径不算通过。
+
+| 编号 | 改坏点 | 实际命令范围与结果 | 判定 |
+|---|---|---|---|
+| M01 | `layout-store.ts:86`：窄字段合成改用本窗口 display，而非重放输入 value | store：8 pass、1 fail；`:177` 丢 position，仅剩 alignment | 被抓到：多窗口窄字段。 |
+| M02 | `panel-commands.ts`：alignment 的 requires 改为空 | 命令：4 pass、0 fail、42 expect() | 存活：此合同测试跳过 when，发现 04。没有运行该变异的紧凑 e2e。 |
+| M03 | `setPanel`：仅 position 变化清最大化 | store + 命令：12 pass、1 fail；公开状态隐藏断言仍为 true | 被抓到：隐藏清除；未把此粗变异算作对齐覆盖。 |
+| M04 | `setPanel`：alignment 变化不清最大化 | store + 命令：13 pass、0 fail、146 expect() | 存活：转换缺口，发现 05。 |
+| M05 | `shellPatch`：删拖到零时跳过尺寸的 continue | 纯模型：33 pass、1 fail；`:308` 补丁意外含 sidebarWidth:0 | 被抓到：0 不写尺寸。 |
+| M06 | `setPanel`：删同值 guard | store：8 pass、1 fail；`:98` 期望 false，实际 true | 被抓到：同值动作拒绝。 |
+| M07 | `WorkbenchShellLayout.vue`：删原焦点恢复 4 行与最大化标题交接 1 行 | 组件：3 pass；重建 web 后完整 shell e2e：8 pass（19.8s） | 存活：焦点恢复/交接没有独立断言，发现 06。 |
+| M08 | `restoreMemory`：删 scrollTop/scrollLeft 恢复 | 真实 Lab 用例：1 failed；`:314` 期望 300，实际 4140 | 被抓到：跨拓扑滚动恢复。 |
+| M09 | `problems`：同时删 unknown 与 unsupported-version 分支 | store + 命令：12 pass、1 fail（另有 1 error）；“两条都暂停”超时 | 被抓到：unknown 汇总；M10 单独移除版本分支仍通过，因而此失败不能算版本覆盖。 |
+| M10 | `problems`：只删 unsupported-version 分支 | store + 命令：13 pass、0 fail、148 expect() | 存活：版本诊断，发现 07。 |
+| M11 | editor Teleport key 随 effectivePanel 变化，强制重挂 | 真实 Lab 用例：1 failed；身份断言通过，`:313` 输入从“草稿”变空 | 被抓到：状态丢失；身份计数本身无效，发现 02。 |
+| M12 | `layout-host.ts:19`：null 初值改为 create() | Lab 隔离用例：1 failed；收到 3 条 open、3 条 subscribe | 被抓到：Lab 不得读取产品布局。 |
+
+共 12 组实验，4 组在所运行套件中存活、8 组被抓到；组合变异与套件范围如表，不声称逐条全部验收已经完成变异证明。所有受变异源码已恢复；`dist/web` 保留 M07 的实验构建，重跑基线须先 `bun run build`。原 worktree 源码没有变异。
+
+## 本次验证与运行边界
+
+| 验证 | 实际结果 |
+|---|---|
+| worktree 根 `prox bun install --frozen-lockfile --ignore-scripts` | Bun 1.4.2，1560 packages installed；只用于补依赖，不运行安装脚本。 |
+| 实验副本聚焦 `bun test`（layout/store/panel-commands） | 47 pass、0 fail、715 expect() calls。 |
+| 聚焦 `bun run test:vitest`（ShellLayout/PanelSurface/StatusBar） | 3 files、8 tests passed。 |
+| 实验副本 `bun run build` | server/web/check:dist 通过；web 1652 modules。 |
+| 未变异 shell e2e | 8 passed（23.1s）：6 产品、2 Lab。 |
+| 原包 `bun run typecheck` | `tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json` 通过。 |
+| TypeScript 配置成员探针 | 24 个迁移的 `web/**/*.test.ts` 或 `web/testing` TS 文件，`unchecked: []`，均由 `tsconfig.browser-test.json` 覆盖。 |
+| Vue SFC 编译探针 | 编译后 counters 位于 setup 中；与真实 Lab 重挂观察一致。 |
+| 恢复分类 smoke | 断线后 side/customizations 都为 unknown-outcome；两个真实应用 closed。 |
+| 未变异停放 smoke | 1 failed；parked=false、inert=false、Tab 进入编辑器；输出与 trace 在实验根 `playwright-output/`。 |
+| 资源收口 | 手动产品/开发服务已停止、两个受管浏览器标签已关闭；扫描实验根 cwd 的存活进程结果为空，既有实验监听端口不再监听。手动开发服务停止输出为 exit=1（重复停止信号触发 force），不记作“正常有序退出”。 |
+| worktree 边界 | 最后 `/usr/bin/git status --short --untracked-files=normal` 无输出；未修改受跟踪文件、未 commit/push/stash/切分支。该结果不证明忽略的 node_modules 没有写入。 |
+
+副本 Vite 的 fs.allow 只放行原 worktree 的依赖 realpath；副本 Playwright 配置只把 outputDir 放进实验根。初始副本组件导入因 realpath 失败，修正后基线通过，这不是产品发现。实验截图一度由宿主写到 `/tmp/omp-sshots-*.webp`，已报告工具问题；正式可重跑取证写在实验根。所有测试状态/缓存使用指定临时根；没有使用 3000 或 3917。
+
+未运行：本次全量应用 Bun/组件/e2e、settings/projects/browser-host 的聚焦 e2e、`smoke:server`、`docs:check`、`governance:check`、重新生成 24 张主题截图、读屏软件、DPR 1.25/1.5/2、桌面壳。上述不列为通过。待确认清单中的 focusedPart 延期、四命令参数可省略、DPR 边界均沿用既定决定，没有重开产品取舍。
+
+## 未发现问题的方面
+
+- 真实 Storage 场地使用真实内核、路由、SQLite 与产品布局 store；`web/testing/layout.ts` 不含断言，没有把写入或订阅换成假返回。它是 store 层场地，并不等于完整产品插件装配；命令层欠缺另见发现 04。
+- `WorkbenchShellLayoutFixture` 使用真实 nb-ui 网格和纯布局组件，局部 props 写回 Lab 场景输入；样例控制放在 LabFixtureControls，产品布局 store 没有被借入。受控面板与状态栏透传 fixture 对零件合同是合适边界，不能替代产品命令与恢复接线。
+- 本次读取与搜索的 workbench 产品模块未发现 NODE_ENV、测试模式、mock/spy 或 testing 导入分支。测试辅助只由测试引用；生产与 Lab e2e 使用真实后端/开发会话。
+- 聚焦 Bun/组件/e2e 未发现 mock.module、spyOn、假计时器或固定非零等待。产品交互主要使用可访问角色、命令 id、Part 标记和可观察几何；选择模式等名称/唯一候选条件后继续，避免写入正在关闭的旧输入框。
+- store/命令测试把已创建 world 登记后在 afterEach 收口，再删除临时根；本次失败变异也没有残留实验进程。e2e afterAll 停生产/开发子进程；未对 beforeAll 部分启动失败做专门故障注入，不宣称该异常边界已证明。
+- 多窗口窄字段合成、同值动作、拖到零不写 0、输入与滚动保留、Lab 惰性隔离具有本次变异失败证据，不能因其它覆盖缺口否认这些已有保护。
+- tsconfig 排除 browser test 后，browser-test 的 include 与空 exclude 接住全部 24 个迁移文件，三份实际类型检查通过；没有发现迁移导致测试脱离类型检查。
+
+## 反思回写建议（未写入仓库）
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| R1 | 踩坑 | 样例身份观察器与被测实例同寿，编译与强制重挂都证明其每次归零；输入先失败，身份仍通过。现有“测可观察行为/变异检查”没有明确观察器寿命。 | 新增：“用身份和累计生命周期次数证明实例保留时，观察器必须活得比被测实例更久；先强制重建一次，确认身份或累计次数能变化，再用它验证保留。” | `docs/testing/README.md` 的“测试写法”，经开发者批准后回写。 |
+
+## 数量
+
+| 严重程度 | 数量 |
+|---|---:|
+| 阻断 | 0 |
+| 重要 | 7 |
+| 建议 | 0 |
+
+重要项中：正确性 1 条（发现 06，真实浏览器复现）；测试 6 条（发现 01–05、07）。反思建议 R1 不计入缺陷数量。
+

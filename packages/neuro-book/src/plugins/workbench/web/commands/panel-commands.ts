@@ -134,7 +134,9 @@ export function panelCommands(layout: () => LayoutStore | null, quickPick: Quick
             return DONE;
         }),
         [SET_PANEL_HIDDEN_COMMAND]: withStore((store, args) => {
-            store.actions.setPanelHidden((args.hidden as boolean | undefined) ?? !store.state.panel.hidden);
+            // 省略参数时切换：面板隐藏或拖到零（看不见）就显示，否则隐藏。
+            const shown = !store.state.panel.hidden && store.state.dragCollapsed.panel !== true;
+            store.actions.setPanelHidden((args.hidden as boolean | undefined) ?? shown);
             return DONE;
         }),
         [SET_PANEL_COLLAPSED_COMMAND]: withStore((store, args) => {

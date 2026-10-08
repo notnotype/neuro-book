@@ -12,7 +12,8 @@ import {shallowRef} from "@vue/reactivity";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {commandDeclarationProblems} from "nbook/plugins/commands/shared/registry";
+import type {ContextKeySource} from "nbook/plugins/commands/shared/context-keys";
+import {commandDeclarationProblems, createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 import {storageWorld} from "nbook/plugins/storage/testing/world";
 import type {StorageWorld} from "nbook/plugins/storage/testing/world";
 import {textOf} from "nbook/shared/localized-text";
@@ -149,5 +150,59 @@ describe("命令", () => {
 
         const detached = panelCommands(() => null, picker(() => ({kind: "cancelled"})));
         expect(await detached[SET_PANEL_HIDDEN_COMMAND].run({hidden: true})).toMatchObject({ok: false, code: "unavailable"});
+    });
+});
+
+describe("经命令注册表", () => {
+    /** 真实的命令注册表：上下文键读工作台公开状态的绑定（产品里由 `nbook.state` 转交，读法相同）。 */
+    function registryFor(store: LayoutStore) {
+        const bindings = workbenchStateBindings(shallowRef<LayoutStore | null>(store)) as unknown as Readonly<Record<string, {readonly value: unknown}>>;
+        const declarations = workbenchState.declarations as Readonly<Record<string, {readonly reason?: {readonly "zh-CN": string}}>>;
+        const nameOf = (key: string): string | null => (key.startsWith("nbook.workbench/") ? key.slice("nbook.workbench/".length) : null);
+        const contextKeys: ContextKeySource = {
+            problem: (key) => (nameOf(key) !== null && nameOf(key)! in declarations ? null : `${key} 不是工作台的公开键`),
+            evaluate: (key) => (bindings[nameOf(key)!]?.value === true ? {matches: true} : {matches: false, reason: declarations[nameOf(key)!]?.reason?.["zh-CN"] ?? key}),
+        };
+        const registry = createCommandRegistry({contextKeys, report: (error) => {
+            throw error;
+        }});
+        const implementations = panelCommands(() => store, picker(() => ({kind: "cancelled"})));
+        for (const [id, declaration] of Object.entries(PANEL_COMMAND_DECLARATIONS)) {
+            const registered = registry.register({id, source: "nbook.workbench", declaration, run: implementations[id as keyof typeof implementations].run});
+            expect(registered.ok, id).toBe(true);
+        }
+        const enabled = () => Object.fromEntries(Object.keys(PANEL_COMMAND_DECLARATIONS).map((id) => [id.slice("nbook.view.".length), registry.isEnabled(id).ok]));
+        return {registry, enabled};
+    }
+
+    it("可用性随布局变化：未就绪、底部居中、两端对齐、左右位置、隐藏、紧凑", async () => {
+        const store = await layout();
+        const {registry, enabled} = registryFor(store);
+        // 呈现事实未到：只有不依赖几何的“隐藏/显示”可用。
+        expect(enabled()).toEqual({"set-panel-position": false, "set-panel-alignment": false, "set-panel-hidden": true, "set-panel-collapsed": false, "toggle-panel-maximized": false});
+        store.actions.acceptLayoutFacts(SPLIT);
+        expect(enabled()).toEqual({"set-panel-position": true, "set-panel-alignment": true, "set-panel-hidden": true, "set-panel-collapsed": true, "toggle-panel-maximized": true});
+        store.actions.setPanelAlignment("justify");
+        expect(enabled()["toggle-panel-maximized"]).toBe(false);
+        store.actions.setPanelPosition("left");
+        expect(enabled()).toMatchObject({"set-panel-alignment": false, "set-panel-collapsed": false, "toggle-panel-maximized": true});
+        expect(registry.isEnabled(SET_PANEL_COLLAPSED_COMMAND)).toEqual({ok: false, code: "unavailable", reason: "面板不在底部或顶部"});
+        store.actions.setPanelHidden(true);
+        expect(enabled()["toggle-panel-maximized"]).toBe(false);
+        store.actions.setPanelHidden(false);
+        store.actions.acceptLayoutFacts(COMPACT);
+        expect(enabled()).toMatchObject({"set-panel-position": false, "set-panel-alignment": false, "toggle-panel-maximized": false, "set-panel-hidden": true});
+    });
+
+    it("参数严格：多余字段与非法取值为 invalid-args 且不改布局；带参数执行改变布局", async () => {
+        const store = await layout();
+        store.actions.acceptLayoutFacts(SPLIT);
+        const {registry} = registryFor(store);
+        expect(await registry.execute(SET_PANEL_POSITION_COMMAND, {position: "middle"}, {source: "user"})).toMatchObject({ok: false, code: "invalid-args"});
+        expect(await registry.execute(SET_PANEL_HIDDEN_COMMAND, {hidden: true, extra: 1}, {source: "user"})).toMatchObject({ok: false, code: "invalid-args"});
+        expect(await registry.execute(TOGGLE_PANEL_MAXIMIZED_COMMAND, {force: true}, {source: "user"})).toMatchObject({ok: false, code: "invalid-args"});
+        expect(store.state.panel).toMatchObject({position: "bottom", hidden: false, maximized: false});
+        expect(await registry.execute(SET_PANEL_POSITION_COMMAND, {position: "top"}, {source: "user"})).toEqual({ok: true, value: null});
+        expect(store.state.panel.position).toBe("top");
     });
 });

@@ -18,7 +18,8 @@ describe("WorkbenchPanelSurface", () => {
         const button = (id: string) => wrapper.get(`[data-panel-action="${id}"]`);
         expect(button("position").attributes("aria-label")).toBe("面板位置");
         expect(button("collapse").attributes("disabled")).toBeDefined();
-        expect(button("collapse").attributes("title")).toBe("收起为标题头：面板不在底部或顶部");
+        expect(button("collapse").attributes("title")).toBe("面板不在底部或顶部");
+        expect(button("collapse").attributes("aria-label")).toBe("收起为标题头");
         expect(button("maximize").attributes("aria-pressed")).toBe("true");
         await button("collapse").trigger("click");
         await button("position").trigger("click");

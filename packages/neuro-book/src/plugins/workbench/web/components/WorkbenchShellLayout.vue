@@ -11,7 +11,7 @@ import {computed, nextTick, ref, shallowRef, watch} from "vue";
 
 import {createShellGrid, projectShell, shellGestureProblem, shellPatch} from "../shell/layout";
 import type {PanelState} from "../shell/panel-state";
-import {SHELL_GUTTER_PX, SHELL_PART_IDS, SHELL_STATUSBAR_HEIGHT, SHELL_TITLEBAR_HEIGHT} from "../shell/sizes";
+import {SHELL_DRAG_COLLAPSIBLE_IDS, SHELL_GUTTER_PX, SHELL_PART_IDS, SHELL_STATUSBAR_HEIGHT, SHELL_TITLEBAR_HEIGHT} from "../shell/sizes";
 import type {ShellDragCollapseMap, ShellEffectivePanel, ShellHideablePart, ShellLayoutFacts, ShellLayoutMode, ShellPartId, ShellSizePatch, ShellSizePreferences} from "../shell/sizes";
 
 defineOptions({name: "WorkbenchShellLayout"});
@@ -166,10 +166,23 @@ function focusTarget(target: "panel-toggle" | "panel-title"): void {
     element.focus({preventScroll: true});
 }
 
+/**
+ * 呈现为 0 的 Part 内容也要停放：最大化时的编辑器、拖到零的 Part 只是被压成 0 尺寸，内容若留在落点里，Tab 仍能进去、
+ * 读屏仍会读到。停放区是 `inert` 的，放进去就不可交互（Spec 外壳一输出 10）。
+ */
+function parkedParts(): ReadonlySet<ShellPartId> {
+    const parked = new Set<ShellPartId>();
+    if (projection.value.effectivePanel.maximized) parked.add("editor");
+    for (const part of SHELL_DRAG_COLLAPSIBLE_IDS) if (projection.value.dragCollapsed[part] === true) parked.add(part);
+    return parked;
+}
+
 function syncTargets(): void {
     const root = rootEl.value;
+    const parked = parkedParts();
     const next: Partial<Record<ShellPartId, Element>> = {};
     for (const part of SHELL_PART_IDS) {
+        if (parked.has(part)) continue;
         const element = root?.querySelector(`[data-leaf="${part}"]`);
         if (element !== null && element !== undefined) next[part] = element;
     }

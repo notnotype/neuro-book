@@ -39,7 +39,7 @@ defineSlots<{
                     size="sm"
                     :icon-class="action.icon"
                     :aria-label="action.label"
-                    :title="action.disabled && action.reason !== undefined ? `${action.label}：${action.reason}` : action.label"
+                    :title="action.disabled && action.reason !== undefined ? action.reason : action.label"
                     :disabled="action.disabled"
                     :aria-pressed="action.pressed"
                     :data-panel-action="action.id"

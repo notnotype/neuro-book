@@ -100,6 +100,7 @@ function pairStore(record: RecordDefinition<PairValue>, changes: Changes) {
                 reset: (value: PairValue) => pair.reset(value),
                 retry: () => pair.retry(),
                 discard: () => pair.discard(),
+                discardAll: () => pair.discardAll(),
                 adopt: () => pair.adopt(),
                 reopen: () => pair.reopen(),
             },
@@ -405,6 +406,25 @@ describe("Spec state.store 输出 9–11、场景 1：提交与冲突重放", ()
         expect(store.state.pair.display).toEqual({left: "抢二", right: "留下的"});
         expect(await kept).toBe("saved");
         expect(await valueOf(storage, pairRecord)).toEqual({left: "抢二", right: "留下的"});
+    });
+
+    it("discardAll 移除暂停的队首与排在后面的全部修改，显示回到 base，不发出保存；没有暂停的队首为 nothing", async () => {
+        const changes = changesOf();
+        const probe = hosted(pairStore(pairRecord, changes), "server");
+        await world([probe.plugin]);
+        const {store, storage} = probe.get();
+        await waitUntil("字段就绪", () => store.state.pair.ready);
+        expect(store.actions.discardAll()).toBe("nothing");
+        contend(changes, await opened(storage, pairRecord), () => store.state.pair.base?.revision ?? null);
+        const failing = store.actions.setLeft("要放弃的");
+        expect(await failing).toBe("failed");
+        const queued = store.actions.setRight("也放弃");
+        await waitUntil("base 收到另一个写者的值", () => store.state.pair.base?.status === "ok" && store.state.pair.base.value.left === "抢二");
+        expect(store.actions.discardAll()).toBe("discarded");
+        expect(await queued).toBe("discarded");
+        expect(store.state.pair.queue).toBe(0);
+        expect(store.state.pair.display).toEqual({left: "抢二", right: ""});
+        expect(await valueOf(storage, pairRecord)).toEqual({left: "抢二", right: ""});
     });
 });
 

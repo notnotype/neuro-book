@@ -1,0 +1,105 @@
+# t65 实现审查：界面、组件规范与文档
+
+审查范围：`ecc4a64f..53596fc6`。审查 worktree：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t65-impl-ui`，实查 HEAD 为 `53596fc60430e135a1eaa13e667ffbafc7a23cbe`、detached、受跟踪与非忽略文件状态干净。只读；自编实验、状态与报告在指定仓库外目录，工具默认截图有一处路径偏差，见末尾。作者自报的测试与截图仅作审查线索，以下按本轮核实的证据报告；源码相对路径均相对该 worktree。
+
+## U1：最大化后的编辑器没有停放，零高内容仍进入读屏与 Tab 顺序
+
+- **严重程度**：重要；**类别**：界面。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShellLayout.vue:169`、`:239`；`packages/neuro-book/src/plugins/workbench/web/shell/layout.ts:258`。
+- **现象**：最大化只把 editor 叶的高度设为 0；`syncTargets()` 仍登记这个叶，编辑器槽仍 Teleport 到零高叶里，而非 `hidden inert aria-hidden` 的停放区。真实 Lab 场景点击“最大化”后，editor 高度为 **0px**、停放区的 Part 数为 **0**；从“面板”标题倒着按两次 Shift+Tab，焦点到达不可见的样例 `<input>`。Chrome 无障碍树仍列出这个 textbox 和全部 **80** 行正文。产品页最大化后同样没有停放 editor。
+- **为什么是问题**：直接违反 Shell 输出 7、10 与验收 6 的“最大化时停放、不可交互、不进读屏与 Tab 顺序”。`overflow:hidden` 只裁像素，不移除交互或无障碍语义；接入真实编辑器后会把键盘送入看不见的正文。当前 e2e 只核对实例、值、滚动和零高度，没有检查停放或 Tab 顺序。
+- **如何核实**：启动本报告末尾的隔离开发服务；打开 `/lab?c=WorkbenchShellLayout&s=default&vp=1440x900`，点击场景控制中的“最大化”，聚焦舞台里的“面板”，按 Shift+Tab 两次；`document.activeElement` 是 `[data-shell-sample-input] input`。读取 `[data-leaf="editor"]` 高度为 0，`[data-shell-parking] [data-shell-slot]` 为空。打开 `/` 点击最大化也可读到零高 editor 槽仍在叶内。以上使用真实 nb-ui、真实 Vue 与 Chrome，未直接调用内部 action。
+- **建议改法**：在唯一的落点表里把被最大化挤走的 editor 视为没有可见落点，搬进现有停放区；还原后搬回。以同一份可见性判断驱动焦点转交，不再用“叶存在”等同“内容可交互”。补在既有 lifetime e2e 中检查停放、无障碍树与 Tab 顺序。
+
+## U2：800px 以上的分栏布局可把面板压成 55px，三个框架按钮被完全裁掉
+
+- **严重程度**：重要；**类别**：界面。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelSurface.vue:95`；`packages/neuro-book/src/plugins/workbench/web/shell/layout.ts:312`、`:389`；`packages/neuro-book/src/plugins/workbench/web/shell/sizes.ts:94`。
+- **现象**：默认产品页在 **840×900** 的窗口里仍走 `split`，实测外壳宽 830px（页面预留 10px scrollbar gutter），侧栏 340px、右栏 373px，编辑器与底部居中面板只有 **55px**。五个 26px 框架按钮加四个 2px 间距共 138px，动作区 `flex:0 0 auto`，外框裁剪；“收起”“最大化”“隐藏”三项可见宽度均为 **0px**，“对齐”仅露 17px。欢迎标题与正文也被裁成窄条，根的降级诊断却为空。使用默认偏好即可复现，不需要坏记录。
+- **为什么是问题**：Shell 输出 4 声明编辑器最小可用 120×120，输出 11 与组件规范要求框架按钮可达；实现把 editor 的最小宽度写成 0，只在所有列的理论最小值不够时退紧凑，没有为当前分配保留可用内容宽或按钮宽。390px 截图因走纵向布局不会暴露这一段窗口宽度的裁切。“标题先截断、按钮保持可点”的同名文档承诺不成立。
+- **如何核实**：真实产品 `/` 从 1440×900 缩到 840×900，等待布局稳定，读取 `[data-leaf="editor"]`、`[data-leaf="panel"]` 与 `[data-panel-action]` 的 client rect；将按钮矩形与 panel 矩形求交得到上述数字。证据：本报告同目录 `product-840.json`、`product-840.png`。未修改产品代码、未调用内部布局函数。
+- **建议改法**：分配时为中心内容保留真实可用最小宽，必要时先按已有规则压缩侧栏；面板动作在宽度不足时用 nb-ui 现有 Dropdown 合并成一个具名入口，不让固定动作区越出叶。补一个临界分栏宽度的真实浏览器判据，检查按钮的可见命中面积，不能只检查页面 `scrollWidth`。
+
+## U3：紧凑布局跳过短高度降级，260px 高时编辑器只剩 0.67px
+
+- **严重程度**：重要；**类别**：界面。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/shell/layout.ts:346`、`:367`、`:443`；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShellLayout.vue:95`。
+- **现象**：真实产品页设为 **390×260**，默认 200px 面板仍保持展开；标题栏 36px 与状态栏 22px 后主体只有 202px，面板占去 200px，侧栏、编辑器、右栏三者各分约 **0.67px**。编辑器欢迎文字完全不可见，根的 `data-layout-diagnostics` 为空。框架按钮与状态栏的隐藏／显示仍可点击；隐藏再显示后问题相同。
+- **为什么是问题**：Shell 输出 5 及计划验收映射明确要求“高度不足时面板退到 32px 标题头”，先保护编辑器再取非负余量；这个策略只在 `distributeBranch()` 的 split 路径调用 `preflightPanelCollapse()`，compact 直接把展开面板夹到主体高度后等分剩余量。这里不仅没有退标题头，正的 2px 余量也绕过了 `rest <= 0` 的诊断。现有纯模型的 260px 用例只有 1440px 宽，e2e 的紧凑用例只有 844px 高，二者的组合未覆盖。
+- **如何核实**：在真实 `/` 已切为英文的界面，将浏览器视口设为 390×260；等待外壳高为 260px 后读取所有 `[data-leaf]` 的 client rect，得到 panel=200px、editor=0.671875px；点击“Hide or Show Panel”再点状态栏“Show Panel”，恢复后仍是该布局。截图为本报告同目录 `product-390x260.png`。
+- **建议改法**：把高度降级作为两种呈现共用的投影步骤，根据 compact 实际分给编辑器的高度决定是否退标题头，沿用现有 `effectivePanel.collapsed` 和诊断；只改呈现，不改保存的 `collapsed` 与尺寸。补 390×260 的既有浏览器场景断言，核对 panel 为 32px、编辑器获得可用高度及诊断。
+
+## U6：样例生命周期计数在每次 setup 都重置，身份断言不能发现重挂
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`packages/neuro-book/src/plugins/lab/web/fixtures/shell-scene/ShellSampleEditor.vue:10`、`:15`、`:20`；`packages/neuro-book/e2e/workbench-shell.e2e.ts:292`。
+- **现象**：注释称“计数放在模块里，跨实例累计”，但 `counters` 位于 `<script setup>`，每次实例创建重新得到 `{next:1,created:0,unmounted:0}`；输出永远为实例 1、创建 1、卸载 0，卸载只改该旧实例自己的对象，`unmounted` ref 也不跟着更新。真实 Lab 的默认场景填入文字后，经场景菜单切到“底部两端对齐”，输入清空（确实重挂），三项仍然为 **1 / 1 / 0**。
+- **为什么是问题**：Spec 验收 6 与计划要求用稳定身份及累计计数证明不卸载。现有 e2e 的 `identity()` 只读实例号与卸载数，前后总相等，根本不是重挂探针；输入和滚动断言仍有价值，但不能替代承诺的生命周期证据。组件 happy-dom 的独立挂载计数测试仍有效，本条不声称产品在正常切布局时一定重挂。
+- **如何核实**：打开真实 `/lab?c=WorkbenchShellLayout&s=default&vp=1440x900`，填样例输入，读取 `data-shell-sample`、`data-created`、`data-unmounted` 得到 1/1/0；点击场景 combobox 选“底部两端对齐”，等场景为 `justify` 且输入为空，重新读三项仍为 1/1/0。使用真实场景卸载路径，没有直接调用组件生命周期。
+- **建议改法**：把计数对象放到真正的模块 `<script lang="ts">` 中，或由不随被测内容卸载的 fixture 拥有，输出每次递增的身份与共享累计创建／卸载数。既有 e2e 同时核对身份、创建和卸载；用真实场景切换作为一次反例验证计数会变，再在同一场景的布局变更中确认不变。
+
+## U4：旧 Spec 归档后没有调整相对链接，11 处本地引用全部失效
+
+- **严重程度**：建议；**类别**：文档。
+- **位置**：`docs/archived/specs/ui/workbench-shell.md:12`、`:35`、`:205`、`:224`、`:231`、`:256`、`:305`、`:308`。
+- **现象**：旧 Spec 从 `docs/specs/ui/` 复制到 `docs/archived/specs/ui/` 后沿用了原相对路径；文内 **11** 处本地链接逐一按新文件目录解析，全部目标不存在。例如 nb-ui 规范落到 `docs/packages/nb-ui/...`，批准依据落到 `docs/archived/proposals/workbench-view-host.md`，主题规范落到 `docs/archived/specs/theme/system.md`。正文和 24 条旧验收仍在，但依据无法从归档页打开。
+- **为什么是问题**：当前 Spec 明确要求以后编辑器插件从这份归档取回合同；历史批准、迁移与原语合同是理解旧验收的必要上下文。归档路径是本次 S0 新增，不能把旧路径按历史原文保留后当作有效导航；当前 Spec 的“旧验收去向”表本身没有丢条目。
+- **如何核实**：仓库根执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/ui/check-links.ts`，退出 0；脚本对每处 Markdown 本地链接按文档目录 `resolve`，用真实文件系统 `access` 检查。结果保存在同目录 `links.json`：归档页 11/11 失效，其余九份受查文档共 98 处本地路径均存在。该实验只检查文件目标，不判锚点。
+- **建议改法**：归档保留行为与批准原文，按新目录重写链接：仓库根资源用 `../../../../packages/...`，当前规范与提案指向其现存路径；没有现存目标的历史依据标清去向。把归档页纳入这次移动的链接检查，不新增另一份旧 Spec。
+
+## U5：英文禁用提示仍由零件拼入中文全角冒号
+
+- **严重程度**：建议；**类别**：界面。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelSurface.vue:42`。
+- **现象**：经真实命令面板切换到 English 后，面板名称、欢迎文字、按钮名称和禁用原因都即时变为英文，但禁用 tooltip 仍是 `Panel Position：The window is too narrow (compact layout)`。把面板放到左侧时，对齐与收起两个提示同样含全角 `：`。390px 的最大化提示还包含命令系统原有的全角 `；`，冒号这一处由本次新零件直接生成。
+- **为什么是问题**：本次要求检查中英文完整文本与标点；组件拿到的是已经按语言取好的 `label`、`reason`，却自行把两段拼成中文句式，没有当前语言信息，无法保证完整提示随语言一致。Task S5 所写“英文冒号已修正”只覆盖状态栏模板，没有覆盖这个新组件。
+- **如何核实**：真实 `/` 用 Ctrl+Shift+P 执行“切换界面语言”，选 English，再设视口 390×844；读取 `[data-panel-action]` 的 `title` 与浏览器可访问 description，得到上述原文。1440px 下经“Panel Position”选 Left，侧面板的禁用提示也可复现。
+- **建议改法**：保留无语言依赖的零件；`aria-label` 用 `label`，禁用时 tooltip 直接用已本地化的 `reason`，或由宿主提供完整 tooltip。不要为一个分隔符再给零件加语言状态和一套文本表。
+
+## 未发现问题的方面
+
+- **基础控件与依赖入口（代码核对）**：布局消费 nb-ui 的公开 layout/composables，按钮与输入消费公开 components，没有为新外壳再造拖拽、选择控件或旧保存会话。面板与状态栏零件只接受 props、发事件；命令执行由产品外壳拥有，没有在这两个零件里导入命令注册表。
+- **类型合同与 Lab 登记（代码核对）**：四个组件都有同名 `.md`，props/emits/slots 与实际签名相符，attrs、expose 的边界有说明。三个受控零件有非空场景；产品外壳按计划在产品页验证，Lab 因 `state:shared-write`、`io:mutate` 将它标为不可挂载。能力标签的“明面通道”口径有歧义，单列末尾回写建议，不据此新增产品缺陷。
+- **代表尺寸与名称（本轮 Chrome 实测）**：1440×900 下标题头为 32px，状态栏 22px，框架图标按钮 26×26px；经真实 sash 的 Home 把侧面板调到 160px 后，五个按钮各有完整 26px 可见宽。按钮都有非空可访问名称，收起与最大化带 `aria-pressed`；390×844 时位置、对齐、最大化禁用并有原因，显隐可用。U2 是临界分栏宽度的问题，不能由这些通过项排除。
+- **常规隐藏与内容保留（本轮 Chrome 实测）**：面板隐藏时进入 `hidden inert aria-hidden` 停放区，状态栏按钮保持可达；样例在同一场景换面板位置后仍保留输入。U1 单列最大化例外；U6 单列生命周期计数无法证明不重挂的证据缺陷。
+- **动态语言（本轮 Chrome 实测）**：从真实命令面板选 English 后，欢迎文字、空状态、面板与按钮名称、禁用原因、状态栏即时更新。英文标点偏差见 U5。Lab 的中文场景控件是开发台局部文案，没有当作产品翻译遗漏。
+- **token 与边框（本轮代表主题实测 + 代码核对）**：nbook-light 的外壳背景、文字、字体、面板背景、标题头底线、状态栏背景／顶线／文字，共 8 项计算样式与对应 token 解析值相同；外壳与卡片描边取登记变量，未见字面颜色或嵌套玻璃。未新跑全主题矩阵，原截图只做视觉参考。结构上 panel 叶边界与标题头内分隔线各有一位绘制者。
+- **错误状态（真实 Lab + 组件测试）**：390px 的既有 unsaved 场景显示原因、重试、放弃与显隐，控件未裁切；提示有 `role="status"`，整条状态栏没有设为 live region。三组件聚焦测试的 8 例通过，覆盖既有问题优先、事件与中英状态。本轮没有在真实产品链路注入 Storage 失败，不能宣称失败恢复的端到端合同已验证。
+- **旧验收去向与交叉引用（文档核对）**：旧 24 条都有去向；编辑器行为移出且明确指回归档，中央禁投旧口径已按后续决定改写，外壳二、三没有误标已实现。当前 Spec、命令与选择合同、本 Task 计划及 README、四份组件文档的 98 处本地路径均存在；归档失效链接见 U4。
+
+## 本轮验证与限制
+
+所有命令均从审查 worktree 根执行；下面是本轮结果，不引用作者自报的通过数量。
+
+| 实际命令或场景 | 结果 |
+|---|---|
+| `prox bun install --frozen-lockfile --ignore-scripts` | Bun v1.4.2，1560 packages installed；生命周期脚本未执行 |
+| `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/ui bun run --cwd packages/neuro-book test:vitest src/plugins/workbench/web/components/WorkbenchShellLayout.dom.test.ts src/plugins/workbench/web/components/WorkbenchPanelSurface.dom.test.ts src/plugins/workbench/web/components/WorkbenchStatusBar.dom.test.ts` | Vitest v4.1.10：3 files、8 tests passed，2.64s |
+| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/ui/check-links.ts` | 退出 0；输出 109 处本地路径的存在性，归档页 11 处缺失，其余 98 处存在；`links.json` |
+| 隔离开发服务 + OMP 内置 Chrome | 实际打开 `/` 与外壳／状态栏 Lab 场景；核实最大化的 Tab/无障碍树、840px 裁切、390×260、语言切换、160px 侧面板、8 项计算样式、场景重挂计数；`runtime-evidence.json` 记录最终页面状态与无页面错误 |
+| `/usr/bin/git rev-parse HEAD`、`/usr/bin/git status --short --branch --untracked-files=normal` | 固定 HEAD 如开头；状态仅输出 `## HEAD (no branch)`，无文件改动；没有 commit、push、stash、切分支或删除文件 |
+| `kill -TERM 1093536` | 开发服务有序停止；监督结果 exit=0，后端 PID 1093610 exit=0，日志含 `backend-stopped`、`page-closed`；两审查 tab 已释放 |
+| `ps -p 1093536,1093610 -o pid=,stat=,args=` | 无输出、退出 1：开发服务与后端 PID 均已不存在 |
+
+开发服务的实际启动命令：
+
+```bash
+env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/ui NBOOK_STATE_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/ui/state NBOOK_DEV_PORT=43821 NBOOK_DEV_BACKEND_PORT=0 NBOOK_DEV_RPC_PORT=0 bun run --cwd packages/neuro-book dev
+```
+
+前端 `http://127.0.0.1:43821/`、后端 `http://127.0.0.1:34853/`、RPC `ws://127.0.0.1:45795/`；没有用 3000、3917。截图 `product-840.png`、`product-390x260.png`、几何 `product-840.json`、链接探针与输出均在本报告目录，保留供复核。首个工具默认截图自动写到了 `/tmp/omp-sshots-159e962b2769d4f4.webp`，超出限定实验目录；后续截图显式指定本目录，没有删除该工具产物。
+
+未运行：生产 build、正式 Playwright e2e、全量 Bun/组件测试、typecheck、`smoke:server`、`docs:check`、`governance:check`、变异检查与完整四主题矩阵。浏览器实例报告 deviceScaleFactor=1.25，本轮没有检验 DPR 的线、热区与设备像素对齐，不改变已接受的 DPR 待验证边界。交互验证使用开发页，不能替代生产产物验收。浏览器自动化初期因选择器组合、组合键语法与 Puppeteer locator API 用错产生工具错误，改为已公开的直接助手后完成；另一次等待误将根宽应等于 innerWidth，忽略 10px scrollbar gutter，超时后改为直接读取实际稳定几何，未改产品。默认工具截图越界与这些工具错误均不计产品问题。
+
+## 回写建议（仅供主 Agent 汇总，未写入仓库）
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| R1 | 规范缺陷 | `components.md` 把 props 能力定为明面通道、不计耦合；本次 `WorkbenchShell.md` 又给 prop 传入的 LayoutStore、CommandService 标 shared/io 以阻断 Lab，而同样通过 prop 命令宿主的 `WorkbenchCommandPalette.md`、`WorkbenchCommandHost.md` 没有 io 标签。`WorkbenchShellLayout` 的 Teleport 目标也全部位于自身子树，却标“树外渲染”的 `env:portal`。现有文字不足以稳定判同类实现，不能为了挂载分类反过来选能力标签。 | 改写：“能力入口经 props 显式传入时，按明面通道计算耦合；是否可在 Lab 安全验证另按真实依赖与场景合同声明，不用隐藏通道标签代替运行限制。Teleport 只在落点越过自身子树时声明 env:portal，组件内部搬动的寿命与停放合同写在同名文档。” | `docs/standards/code/components.md` 的“明面通道与隐藏通道”“能力标签”“验证”，同步 `ui/component-lab.md` 与索引规则；由主 Agent 结合既有 Lab 边界决定，不在本只读审查中改口径 |
+
+其余发现已有 Shell、组件与测试合同覆盖，属于实现未兑现，不建议重复新增全局规则。工具默认截图的路径限制属于审查工具使用问题，没有提为产品规范。
+
+## 数量
+
+共 **6 条**：阻断 **0**；重要 **4**（U1、U2、U3、U6）；建议 **2**（U4、U5）。编号保留逐条记录时的身份，正文按影响排序。R1 是规范回写建议，不计实现缺陷；没有改动仓库。
+

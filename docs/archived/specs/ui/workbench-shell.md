@@ -9,7 +9,7 @@ owners:
 
 # Workbench 外壳接入
 
-> 2026-09-22 拖拽需求已获开发者批准并进入实现，规格状态仍为 `planned`，不由 Tasker 自行晋升。Editor 合同保持不变；Workbench 内容区前后各 50%、Switcher 单 View 建容器、空成员清理、半区比例与全收起剩余区域（交互设计意图见 [`workbench-collapsed-view-drop.md`](../../intent/workbench-collapsed-view-drop.md) 与 [`workbench-single-container-title.md`](../../intent/workbench-single-container-title.md)）已接入模型及宿主，验证证据以关联 Task 的最新实施记录为准。
+> 2026-09-22 拖拽需求已获开发者批准并进入实现，规格状态仍为 `planned`，不由 Tasker 自行晋升。Editor 合同保持不变；Workbench 内容区前后各 50%、Switcher 单 View 建容器、空成员清理、半区比例与全收起剩余区域（交互设计意图见 [`workbench-collapsed-view-drop.md`](../../../intent/workbench-collapsed-view-drop.md) 与 [`workbench-single-container-title.md`](../../../intent/workbench-single-container-title.md)）已接入模型及宿主，验证证据以关联 Task 的最新实施记录为准。
 
 ## 目标与非目标
 
@@ -32,7 +32,7 @@ owners:
 - **容器切换器（Switcher）**：按容器选择导航，主侧栏由 Activity Bar 承担；面板与右侧栏始终显示容器标签带，可与内容不在同一 DOM 子树。
 - **视图**：一项能力的描述与内容面板，由 descriptor 描述（稳定标识、标题 key、图标、`layout: scroll | fill`、可见性条件、所需 authority、容器归属、顺序与工厂键）；描述与内容分离，注册表不持组件。
 - **现有固定槽位**：今天主页面写死的入口区域与入口实现（写死的图标栏列表、左右栏模板、编辑器区模板、面板与状态栏）。
-- **主题宿主**：按 [theme.system](../theme/system.md) 发布产品与 nb-ui 变量的宿主；浮层复用现有 portal 能力，主题已可从 html 继承。
+- **主题宿主**：按 [theme.system](../../../specs/theme/system.md) 发布产品与 nb-ui 变量的宿主；浮层复用现有 portal 能力，主题已可从 html 继承。
 - **布局快照**：版本化的布局恢复数据；Project 尺寸与 user 视图定制分别寻址和版本化，不是一个用户级整桶。
 - **宿主**：持有注册表、布局读写与主题的调用方（主应用外壳根）；视图只消费渲染模型、只发出结构化意图。
 - **参与者**：用户（操作外壳、容器与视图）；外壳宿主（渲染、持久化、诊断）；descriptor 注册表（描述来源）；可序列化拆分树原语与唯一 resize 边界（几何）。
@@ -202,8 +202,8 @@ Switcher 的正常选中样式与拖放高亮不同：本规则删除拖放额�
 
 状态转换：
 
-Config 与 Storage 的归属、有效 Project 上下文及插件消费边界按 [Storage 架构规范](../storage/boundaries.md) 区分。
-持久化、并发、切换与首批迁移按 [storage.persistence](../storage/persistence.md)，未承诺 Storage 跨独立 data 同步。
+Config 与 Storage 的归属、有效 Project 上下文及插件消费边界按 [Storage 架构规范](../../../specs/storage/boundaries.md) 区分。
+持久化、并发、切换与首批迁移按 [storage.persistence](../../../specs/storage/persistence.md)，未承诺 Storage 跨独立 data 同步。
 
 | 初始状态 | 事件 | 下一状态 | 拒绝条件 |
 |---|---|---|---|
@@ -221,14 +221,14 @@ Config 与 Storage 的归属、有效 Project 上下文及插件消费边界按 
 - 非空 left 的整个 header（当前容器标题、空白与动作区）不接受投递，标题仅保留整容器拖动源；容器切换与接收归活动栏。非空 Panel/right 的带落点只覆盖 selector，外侧动作区不接收。两类来源共用拖动激活、命中、会话、预览和提交路径，按来源保留移动 View、移动容器与整组并入的语义差别。
 - 空 Switcher 指该区域没有任何容器 Tab，不等同于当前容器无可见 View。空 Switcher 保留条目带接收能力，内容区显示“将视图拖动到此处显示”并登记整区落点；两处均接收单个 View 或整个容器。取消或被拒绝不得先留下空容器／新 Tab。目标自身后代不算外部遮挡。
 - Editor 与 Workbench 共用 nb-ui 的拖影与落点反馈皮肤，动作语义各自拥有。区域反馈只用于有效分屏、空态接收或全收起后的剩余内容区，内容区不叠加插线；展开内容区前后各 50%，中点归后半。Switcher 只画插入线，不叠加条目高亮或底部横线；源拖影与有效区域提示须可读且不拦截指针。坐标变化不重复播报，结束后清除反馈和观察器。
-- Editor 的标签排序、跨组移动与四边分屏共用独立 dnd-kit 会话；仅发原有 move/transfer/split 意图，宿主仍是编辑会话与Grid的唯一写者。标签列表用公共 `resolveListInsertion` 统一间隙及末尾锚点，一个插入位只画一条线。其他场景后续接入遵守 [nb-ui拖放反馈规范](../../../packages/nb-ui/docs/ui-development-spec.md#拖放反馈dropindicator--dropindicatorlabel--dropfeedbackoverlay)，不另造样式。
+- Editor 的标签排序、跨组移动与四边分屏共用独立 dnd-kit 会话；仅发原有 move/transfer/split 意图，宿主仍是编辑会话与Grid的唯一写者。标签列表用公共 `resolveListInsertion` 统一间隙及末尾锚点，一个插入位只画一条线。其他场景后续接入遵守 [nb-ui拖放反馈规范](../../../../packages/nb-ui/docs/ui-development-spec.md#拖放反馈dropindicator--dropindicatorlabel--dropfeedbackoverlay)，不另造样式。
 - Workbench 每个宿主提供唯一 Custom DragOverlay，容器 Tab 与 ActivityBar 容器项统一显示图标和文字；源 View 标题、容器标签及活动条目保持可见、矩形与不透明度不变，不插 placeholder、不实时重排。两类源共用 Switcher 插入位，首尾插线留 4px；容器原位插入仍显示线但不提交。
 - Editor源Tab保持可见且布局不动，使用Custom DragOverlay，不插占位；默认多行，固定/普通各自独立换行且有可见模式切换按钮，显式单行固定区拒绝拖入。固定区不铺灰底，图钉为独立可访问的取消固定按钮。正文中央整区高亮但释放无操作，跨组移动走标签栏。原位落点仍显示插线但不提交移动；插线首尾留4px、内部12px槽居中。区域/居中提示首次淡入，连续换区复用单节点并平滑改变位置/尺寸，命中与提交即时更新；插线不动画，取消立即清除，减少动效时取消过渡。
 
 ## 副作用与数据
 
 - 持久化：宿主按工作面写 Project 尺寸或显式 User 布局记录；不写领域数据，不新增第二套尺寸持久化。
-- 既有键：主左右尺寸和书架模式按 [首批迁移合同](../../../packages/neuro-book-legacy/docs/migrations/storage-state.md) 迁移；
+- 既有键：主左右尺寸和书架模式按 [首批迁移合同](../../../../packages/neuro-book-legacy/docs/migrations/storage-state.md) 迁移；
   `novel.ide.session` 与其它旧字段不整桶退役，同一逻辑数据只有一个写者。
 - 尺寸提交：所有尺寸仍经现有唯一 resize 边界提交，原语只做夹取与传播；不新开第二套拖拽实现。
 - 视图副作用：视图只发出结构化意图；写入、dirty、save/discard、Session、Job 与 Project 文件仍归原 authority。
@@ -241,7 +241,7 @@ Config 与 Storage 的归属、有效 Project 上下文及插件消费边界按 
 ## 失败与恢复
 
 - 布局快照损坏、版本不符或根结构非法：回落默认布局并给出诊断，不阻塞外壳打开；诊断逐条可枚举，不静默吞掉。
-- 回落默认、夹取尺寸或过滤未知引用只影响当前呈现；持久化原件的保留与版本兼容遵守 [Storage 架构规范](../storage/boundaries.md)，不能因恢复失败触发自动覆盖。
+- 回落默认、夹取尺寸或过滤未知引用只影响当前呈现；持久化原件的保留与版本兼容遵守 [Storage 架构规范](../../../specs/storage/boundaries.md)，不能因恢复失败触发自动覆盖。
 - 快照引用未知容器、未知视图或非法尺寸：丢弃对应条目（或夹取尺寸）并逐条给出 issue，其余布局照常恢复。
 - descriptor 或工厂失败：以**视图级 issue** 呈现该视图的错误与重试入口，不遮蔽其它视图、不拖垮外壳。
 - 上下文不可用（Project 未打开、authority 缺失）：视图仍可见，动作不可执行并给出原因；可见性不等于权限。
@@ -253,7 +253,7 @@ Config 与 Storage 的归属、有效 Project 上下文及插件消费边界按 
 
 ## 边界与兼容
 
-- 归属：主应用 UI 层（owner `ui`）；嵌套与调整结束等原语合同由 [ui.nested-grid](nested-grid.md) 提供，本能力负责消费接线。
+- 归属：主应用 UI 层（owner `ui`）；嵌套与调整结束等原语合同由 [ui.nested-grid](../../../specs/ui/nested-grid.md) 提供，本能力负责消费接线。
 - 公开接口：本能力不承诺对外 API；descriptor 形状、布局键名与恢复规则属内部合同，升级走版本化快照。
 - 主题与浮层接入沿用 theme.system 和 nb-ui 现有 portal 通道，不新增第二套主题或浮层接入通道。
 - 兼容：未迁消费者的固定槽位和旧组件继续保留；逐项满足入口闭环、行为等价证据、生命周期安全、owner 迁移及单 Editor Group 不变后才能删除。
@@ -302,10 +302,10 @@ Smoke 入口：Source Dev 打开主应用页面（桌面与 `390 × 844` 视口�
 
 ## 证据
 
-- 批准依据（目标与阶段 1 口径）：[`workbench-view-host.md`](../../proposals/workbench-view-host.md)——2026-09-13 开发者批准（`accepted`）；阶段 1 定义为「原语 + 测试矩阵 + 新 Lab 验证台；外壳接入但**保留现有槽位**，不删任何固定入口」，同文件「验证台验收（2026-09-13）」记录验证台四条验收已达成。
+- 批准依据（目标与阶段 1 口径）：[`workbench-view-host.md`](../../../proposals/workbench-view-host.md)——2026-09-13 开发者批准（`accepted`）；阶段 1 定义为「原语 + 测试矩阵 + 新 Lab 验证台；外壳接入但**保留现有槽位**，不删任何固定入口」，同文件「验证台验收（2026-09-13）」记录验证台四条验收已达成。
 - 关联工作入口：[#192 建立类 VS Code 的 Workbench 与 View Host 抽象](https://github.com/notnotype/neuro-book/issues/192)（远端 Issue，本文不复制其正文）。
 - 实现与验收证据待实现闭合后补录。
-- 2026-09-16 Storage 与浏览器标题栏目标补充依据：[ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)。
+- 2026-09-16 Storage 与浏览器标题栏目标补充依据：[ADR 0021](../../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)。
   此次更新不把局部外壳或 Lab 成果声明为本能力全部实现。
 - 2026-09-20 开发者批准ViewContainer模式/分栏/拖放重构及五项sash体验补充；以上新合同取代此前全部vertical、single独立标题、pointer跳回记忆尺寸的要求。当前仍planned；新实现、完整Lab矩阵与获授权的主页验收必须分别留证，旧通过数不代表本轮结果。
 - 2026-09-22 开发者在需求访谈中确认 Switcher 插入时单 View 自动创建容器、跨区域自动换轴、Workbench 中央禁投且不显示 Indicator、实际空成员容器销毁但全部隐藏时保留，以及多 View 并入保留来源比例，并明确授权将讨论与行为表写入相关文档。该决定取代旧的 Workbench 中央保持反馈、View 投 Tab 追加到悬停容器、只在空 Part 头部接收整容器和仅整容器合并才隐藏空容器的行为；Editor 中央反馈和文档标签语义不变。

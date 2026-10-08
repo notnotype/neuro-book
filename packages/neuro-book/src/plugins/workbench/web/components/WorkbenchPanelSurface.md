@@ -25,7 +25,7 @@ type PanelFrameAction = {
     icon: string;
     /** 不可用时为 true：按钮禁用。 */
     disabled: boolean;
-    /** 不可用的原因，作为悬停提示；可用时不给。 */
+    /** 不可用的原因（已按当前语言取好），不可用时作为悬停提示；可访问名称仍是 `label`。可用时不给。 */
     reason?: string;
     /** 切换类按钮当前是否处于开启（收起、最大化），给 `aria-pressed`；不是切换类时不给。 */
     pressed?: boolean;

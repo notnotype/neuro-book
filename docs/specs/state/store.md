@@ -81,6 +81,7 @@ interface PersistedField<T> {
     reset(value: T): Promise<CommitResult>;
     retry(): Promise<CommitResult | "busy" | "nothing">;
     discard(): "discarded" | "busy" | "nothing";
+    discardAll(): "discarded" | "busy" | "nothing";
     adopt(): void;
     reopen(): Promise<void>;
 }
@@ -103,7 +104,7 @@ type CommitResult = "saved" | "failed" | "unknown" | "protected" | "cancelled" |
 12. **受保护的记录**：`base` 为 `corrupt` 或 `unsupported-version` 时 `commit` 直接以 `protected` 结算、不写；只能 `reset(value)` 覆盖，`expect` 取该快照的 revision。
 13. **结果不确定**：保存得到 `unknown-outcome`（写可能已经落盘）时队首以 `unknown` 结算，保留这次要写的**具体值与 `expect`**，队列暂停；不在新 `base` 上重算 `change`。
 14. **retry**：只作用于暂停的队首。`failed` 时按第 10、11 条重来；`unknown` 时，若 `base` 的值已等于要写的值则以 `saved` 结算，否则以原值、原 `expect` 重发，除成功外的结果都仍为 `unknown`。返回这次尝试的结果；队首正在发送时返回 `busy`，没有暂停的队首时返回 `nothing`；字段此刻不能保存（`failure` 来自打开失败或订阅结束）时不发送，返回队首当前的结果。
-15. **discard**：只作用于暂停的队首：移除它（这条以 `discarded` 结算），`display` 改为把剩余意图依次作用在 `base` 上的结果，队列继续。队首正在发送时返回 `busy`；没有暂停的队首时返回 `nothing`。
+15. **discard**：只作用于暂停的队首：移除它（这条以 `discarded` 结算），`display` 改为把剩余意图依次作用在 `base` 上的结果，队列继续。队首正在发送时返回 `busy`；没有暂停的队首时返回 `nothing`。**discardAll**：队首暂停时整条放弃：队首与排在它后面的意图都以 `discarded` 结算，`display` 回到 `base`，不发出任何保存；`busy`、`nothing` 同上（给“放弃这条记录未保存的修改”这类界面用，逐条 `discard` 做不到：移除队首后队列继续，下一条会立刻发出）。
 16. **打开失败、读取错误与订阅结束**：`open` 失败、订阅送来读取错误、或订阅结束（`provider-stopped`、`project-gone`、`server-restarted`、`released`）时 `failure` 记下失败码，`canSave` 立即为 false；在途的保存按它的结果结算，排队的队首以 `failed` 结算并暂停。读取错误之后再收到正常快照时 `failure` 自动清空；其余不自动恢复。`reopen()` 换代重新打开并订阅，拿到新的基线后 `failure` 清空，由拥有者 `retry`。
 17. **停止**：入口开始停止后调用 action 抛错（可按错误类型判定）。store 释放时先等在途保存结束，再按队列顺序发送已接受的意图（含一次冲突重放），直到队列空或队首失败；剩下的意图以 `cancelled` 结算并记一条诊断。随后结束 Storage 订阅、停止 setup 的响应式作用域。
 18. **私有**：store 实例只经创建它的入口交出的视图与 action 访问；同一定义在两个入口或两个实例里创建的是两份，互不相见。
