@@ -19,4 +19,4 @@ K5 [t56](../t56-plugin-state/README.md)（store 与公开状态）、K6 [t64](..
 
 ## 当前状态
 
-- 2026-10-08 计划起草，按 [autonomous-delivery](../../../../skills/autonomous-delivery/SKILL.md) 交三个 omp 审查。
+- 2026-10-08 计划起草；三个 omp 审查（对照旧应用与设计稿、状态与多窗口、可实现性与测试）合并去重 13 条，全部并入计划（[审查处理](plan.md#审查处理)，报告见 `evidences/plan-review-*.txt`）；三项记入 [待确认清单](../../pending-confirmations.md)。按 [autonomous-delivery](../../../../skills/autonomous-delivery/SKILL.md) 进入实施。

@@ -1,0 +1,187 @@
+# t65 计划对抗审查：旧外壳迁移完整性
+
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t65-workbench-shell-layout/plan.md`。代码依据均来自审查 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t65-plan-legacy`，固定 revision `1c146c67`。本报告审查计划与合同；设计稿 accepted、外壳参照旧应用这两个决定作为前提。
+
+核实方式：逐项阅读计划、设计稿、Spec 与源码。下列缺口是已核实的文档/接口事实；对将来实现的后果明确写为推断。审查期间不启动开发服务或 e2e，不修改仓库。
+
+## 发现（按影响排序，编号保留核实顺序）
+
+### L1 — 重要｜不变量：替换旧保存会话时丢了用户可达的失败恢复通道
+
+- **计划位置**：关键设计第 3 节“工作台 store 与布局记录”、第 5 节“外壳组件”、验收映射“两个窗口共用记录”与“坏记录回落默认”。计划行 34–36、52–58、98–100。
+- **现象**：计划列出的 action 只有布局修改，没有重试、放弃、重新打开记录；组件只安排项目名、面板按钮与空状态，没有“未保存”反馈。验收也只覆盖正常保存、坏记录和多窗口正常窄改。计划把 `layout-session.ts` 的职责交给 store，但没有接出失败后的用户操作。
+- **为什么是问题**：store 的 `failed` / `unknown` 会暂停该字段队列；普通新布局 action 只往队尾追加，不能恢复队首。打开失败或订阅确定结束不会自动恢复，需要拥有者 `reopen()`；读取错误在后续正常快照到达时可以恢复，不能把它与 `ready` 等同。**推断**：一次保存失败后用户仍可拖动并看到变化，却无法知道未落盘，也无法让后续布局修改继续保存。accepted 设计要求读取失败后可临时调整并明确显示“未保存”，保存再失败时保留意图并提供重试与放弃。这属于外壳一的布局恢复，不应推给容器/拖放切片。
+- **依据**：`docs/proposals/workbench-shell-abstractions.md:229–232`；`docs/specs/state/store.md` 输出 11、13–16 与“失败与恢复”（行 102–107、137–143）；旧 `packages/neuro-book-legacy/app/utils/workbench/layout-session.ts:195–196,136–145,1518–1543` 已拥有重试/放弃。新 `packages/neuro-book/src/shared/store/persisted.ts:311–320,388–400` 在失败时暂停并等待拥有者处理，不会由下一次 `commit` 自动重启。旧 Shell Spec 验收 10（`docs/specs/ui/workbench-shell.md:275`）仍要求保存失败可重试或明确放弃。
+- **实验**：真实内核、真实 Storage/SQLite 的现有 store 场地覆盖双窗口窄改、冲突后暂停与重试、放弃、读取恢复、两种 `unknown-outcome` 恢复、提供方停止，共 7 个用例通过。实际命令与结果见报告末尾；未声称尚未实现的外壳已复现故障。
+- **建议改法**：继续使用现有 store，不搬旧会话。工作台 store 为三条字段接出按记录的 `retry` / `discard`，需要时先 `reopen`；在一个外壳反馈区集中显示失败码对应的可读原因与“未保存”。不增加另一个保存队列。验收增加真实 Storage 的确定失败、`unknown-outcome`、读取失败恢复，以及一条记录成功/另一条失败时只重试失败记录。
+
+### L3 — 重要｜正确性：严格必填参数的四条面板命令无法按计划从当前命令面板执行
+
+- **计划位置**：关键设计第 4 节“公开状态与面板命令”、验收映射“五条面板命令”；计划行 41–47、101。
+- **现象**：位置、对齐、隐藏、收起命令都要求参数严格且必填，S6 却指定“e2e 经命令面板”。当前命令面板对普通候选只执行 `{}`，没有按 schema 收集参数的机制；只有行号模式特殊构造参数。计划没有给这四条命令安排选择模式，也没有修改该触发面。
+- **为什么是问题**：现有调用载荷是 `{}`，真实命令运行时对缺必填字段返回 `invalid-args`。**推断**：按计划把这四条严格命令登记后，用户即使在 `when` 为真时选中，也不会改变布局；只有 `{}` 的最大化命令能照现有入口工作。问题是计划的参数合同与指定验收入口不相容，不是已实现的外壳故障。
+- **依据**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue:137–149` 固定给普通候选 `{}`；`docs/specs/workbench/commands.md:53,73,156–164` 要求缺字段拒绝；现有带选择的设置命令在同一 Spec 行 139 明确允许省略参数，项目打开命令行 135 用 `{}` 后进入选择，而四条面板命令没有该合同。
+- **实验**：现有命令经真实内核在 server/browser 两位置装配，用例同时断言带必填参数成功与 `{}` 为 `invalid-args`，2 个用例通过。四条面板命令与新外壳尚未实现，本次没有从浏览器命令面板运行它们。
+- **建议改法**：最小方案是在本 Task 保留五条严格命令，S6 让真实面板/状态栏控件带参数经命令服务执行，命令面板只验最大化与可用性；对必填参数命令是否应出现在直接执行候选中另明确交互。若产品要求从命令面板操作位置/对齐等，就在 S3 明确使用现有 `QuickPick` 的选择流程及取消语义，并同步 `commands.md` 的参数合同；不要加通用 schema 表单或新命令总线。
+
+### L4 — 重要｜正确性：进入紧凑呈现只投影为非最大化，没有安排清除宿主的最大化意图
+
+- **计划位置**：关键设计第 3 节“工作台 store 与布局记录”、第 5 节“外壳组件”、验收映射“紧凑呈现”与“四种消失”；计划行 34、51–52、95、97。
+- **现象**：计划明确列出清除瞬时最大化的触发器只有位置、对齐、隐藏、收起变化；布局事件只描述为发布事实，未规定 store 接到紧凑/降级事实时清除 `maximized`。验收只说回宽屏恢复偏好，没有“宽屏最大化 → 紧凑 → 宽屏不再最大化”。
+- **为什么是问题**：旧 `projectShell` 只把此次输出的 `effectivePanel.maximized` 置为 false，不改输入。旧产品 `WorkbenchShell` 另有 `onLayout` 把这条事实写回宿主的瞬时 ref；迁移几何与纯布局组件而省掉这段接线不会得到相同状态转换。**推断**：若只由 `compact` 遮住最大化，回宽屏会从仍为 true 的内存偏好重新最大化，而合同要求进入紧凑时即清除；布局命令读到的状态也可能与画面不一致。这是外壳一职责。
+- **依据**：`docs/specs/ui/workbench-shell.md:87` 明确“进入紧凑呈现即清除”；`packages/neuro-book-legacy/app/utils/workbench/layout.ts:740–766,781–787` 是纯投影；`packages/neuro-book-legacy/app/components/workbench/WorkbenchShell.vue:151–164` 明确回传 `update:maximized(false)`；旧 Lab 同样在 `packages/neuro-book-legacy/app/component-lab/fixtures/WorkbenchShellLayoutFixture.vue:1000–1011` 清自己的内存 ref。
+- **建议改法**：在现有布局事实接入口一次更新 `compact` 与生效状态，并在 `maximized && !effectivePanel.maximized` 时清内存 ref，不写任何布局记录；Lab 用同一规则。S2/S6 增加宽屏最大化后进入紧凑、再返回宽屏的往返断言，核对两条尺寸意图及记录 revision 不变。
+
+### L2 — 重要｜测试：把“不卸载”当成完整生命周期验收，漏了焦点、滚动与键盘恢复
+
+- **计划位置**：关键设计第 5 节“外壳组件”、第 6 节“Lab 场景”、验收映射“编辑器内容不卸载”；计划行 51、58、64、102。
+- **现象**：计划只明确挂载计数与输入保留，未规定换位置/紧凑切换时恢复焦点与滚动，也未要求状态栏按钮提供焦点标记；没有键盘调整、Enter 恢复拖收起、Escape 取消、按键连发只在结束保存的外壳验收。旧纯模型 `layout.test.ts` 本身没有这些 DOM 场景，搬入它不能补齐覆盖。
+- **为什么是问题**：Teleport 保留实例不等于浏览器保留焦点与滚动，`inert` 停放还会使原焦点不可达。旧布局组件的焦点策略依赖两个槽提供 DOM 落点，单独复制布局组件不能保证产品接线正确。**推断**：编辑内容虽然没有重挂，键盘用户仍会在换拓扑或隐藏/最大化后丢失输入焦点，或者回到壳根而找不到恢复入口。尺寸 sash 的键盘操作属于外壳一；视图/容器的键盘搬移才属于外壳三。
+- **依据**：`packages/neuro-book-legacy/app/components/workbench/WorkbenchShellLayout.vue:186–226,237–276,297–303,453–465`；`WorkbenchPanelSurface.vue:83–86` 标 `panel-title`，旧页面 `packages/neuro-book-legacy/app/pages/index.vue:3408–3413` 标 `panel-toggle`。`WorkbenchShellLayout.md:57–62` 要求焦点、滚动与挂载共同保留。`docs/specs/ui/nested-grid.md` 输出“鼠标和键盘调整具有开始、更新和结束边界”（行 38）及 Enter/方向/Home/End 转换（行 56–57）；`packages/nb-ui/src/components/layout/GridRenderer.md:15–17` 明确取消与键盘提交合同。
+- **建议改法**：在现有 Lab lifetime 场景加滚动内容与可聚焦输入，保留原焦点策略及两个稳定标记；验收明确隐藏 → 状态栏显示入口、最大化 → 面板标题、仍可见的 Part 搬移 → 原输入与滚动保留、外部菜单/对话框焦点不被抢。真实浏览器增加一条 sash 方向键连发/keyup、Enter 恢复、Escape 与尺寸/结构变化取消场景；不另建焦点管理器。
+
+### L5 — 建议｜代码质量：原样搬布局宿主会保留已被 nb-ui 共享能力替代的测量与发布路径
+
+- **计划位置**：Context“现状”、关键设计第 2 节“外壳几何的纯模型”、第 5 节“外壳组件”；计划行 12、25、51、119。
+- **现象**：计划以旧 `WorkbenchShellLayout` 的自有测量、`layout`、`revision` 和 `settleShellGesture` 原子落账为搬入单位，却没有接入当前 `useLayoutExtent`、`useGridLayout`。旧组件自建 `ResizeObserver`，同时在 `measure()` 和 `watch(extent, …)` 两条入口重建布局；`settleShellGesture` 内部又直接调用 `grid.resizeBranches`。
+- **为什么是问题**：`nested-grid.md` 已规定共享测量与宿主，原样复制会保留两份生命周期和发布策略；以后修未挂载/零尺寸、版本失效或预览收口要改两处。也不能只把旧结算函数塞进 `useGridLayout.onApplied`：那是落账后的通知，会形成第二次落账，通知失败还不能拒绝几何。本项是已核实的职责重复与接入缺口，未声称发生浏览器故障。
+- **依据**：`docs/specs/ui/nested-grid.md:66–67`；`packages/nb-ui/src/composables/useLayoutExtent.ts:16–60` 与 `useGridLayout.ts:33–47,81–118`；旧 `packages/neuro-book-legacy/app/components/workbench/WorkbenchShellLayout.vue:307–319,358–394`；旧 `packages/neuro-book-legacy/app/utils/workbench/layout.ts:861–877`。
+- **建议改法**：优先复用 `useLayoutExtent`，删掉局部 observer/measure；明确一次手势只经一个原子落账入口。接 `useGridLayout` 时，把工作台可保存叶的校验与补丁求值留在纯模型，几何落账与匹配布局发布交给共享宿主；不要再包一层保存会话，也不要在 nb-ui 加 v2 适配。若暂留旧结算宿主，计划应写明这项与既有共享宿主合同的偏离及证据要求。
+
+## 旧行为迁移归属与实际依赖
+
+下表判断的是计划覆盖与接入要求，不代表新外壳已实现。旧代码已人工验证的结论作为前提；本次没有重跑旧主页。
+
+| 旧行为或机制 | 应归属 | 计划与迁移判断 |
+|---|---|---|
+| 七 Part、ActivityBar 通高、面板四位置 × 四对齐、两轴独立尺寸、夹取、短高度非负余量 | 外壳一 | 计划第 2 节、S1 与验收映射明确保留；几何与 CSS 共用常量，不能让主题改几何 |
+| 实际容器宽测量、ResizeObserver 释放、未挂载与真实零区分 | 外壳一消费 nb-ui 原语 | 原样搬局部测量会重复共享职责，见 L5；布局承载盒无 padding/border，叶内接盒的 gutter 可以保留 |
+| 一次 sash 手势一批 changes、同步原子接纳、只保存 active 叶、零值与 compensated 不进尺寸 | 外壳一 | 第 2 节保留正确；几何接纳与记录保存分开。`resize` 监听须同步更新当前显示并发布匹配布局，不能等 SQLite 回执才发布 |
+| 拖到零、1px 恢复边界、pointer 按原始边界累计位移恢复、按钮/Enter 恢复记忆尺寸、取消不保存 | 外壳一 | 第 2 节写保留，但 pointer 跟随、键盘连发/keyup 与取消的真实浏览器判据未写完整，见 L2；不能用输入保留或纯模型代替 |
+| 隐藏、32px 标题头、拖到零、瞬时最大化四种形态；紧凑往返保持已保存偏好 | 外壳一 | 形态区分已覆盖；进入紧凑清除内存最大化的接线缺口见 L4 |
+| Part 槽唯一稳定宿主、Teleport、`hidden inert aria-hidden` 停放、焦点与滚动恢复 | 外壳一 | 第 5、6 节保留实例，但产品槽落点与焦点/滚动验收缺口见 L2；不能等到外壳二才保留编辑器槽生命周期 |
+| 已确认值/base 与当前显示分开、窄字段重放、按记录反馈、失败重试/放弃、读取恢复 | 外壳一 | `nbook.storage` 与现有 store 足够承担，不需迁旧 `layout-session.ts`；缺产品恢复通道见 L1；多记录不加事务 |
+| Switcher、三类容器、empty/single/multiple、标题回落与动作上提、容器与视图两层实例停放及入口撤回 | 外壳二 | 计划明确排除且 S0 保留合同，范围正确；不为本 Task 搬旧 PartHost/注册表/业务目录 |
+| View/容器拖放、自建容器、半区比例、换轴、键盘搬移、拖影与插线 | 外壳三 | 不属于本 Task；sash 调尺寸不随这项延期 |
+| EditorGroup、文档 Tab、未保存文档守卫、桌面窗口控制与旧固定业务入口 | 编辑器插件、项目/桌面或旧产品 | 可移出本 Task 的 v2 Shell Spec；保留来源或去向，不能把尚未迁入的业务功能列为本次验收 |
+
+具体迁移接点：
+
+- **旧 Storage 依赖**：`layout.ts:44–47,143–145` 仍运行时导入旧 `nbook/shared/storage/workbench-state`；该文件 `workbench-state.ts:16–17,37–38` 又导入旧存储定义。v2 的 `nbook/*` 指向 `src/*`，没有这些旧入口。把 340/400 的默认宽度收回新纯几何常量，同一源供新记录默认显示读取；不用搬旧 Storage 文件或加别名兼容。
+- **Part 改名需要全路径一致**：`activity/left/right` → `activitybar/sidebar/auxiliarybar` 不只改数组；还包括树引用、`hiddenParts`、`dragCollapsed` 键、size patch 与 `applyShellSizeField`、slots、Teleport 落点、`data-leaf`/`data-shell-slot`、compact 渲染与 scoped CSS、测试几何 id 和 Lab fixture。旧布局组件中这些接点见 `WorkbenchShellLayout.vue:72–79,124–137,231–232,375–390,438–456,474–483`。新应用无旧布局数据，不需要迁移别名。
+- **测试器**：旧 `layout.test.ts:1,25–26` 用 Vitest 与旧路径；新应用纯 TS 用 `bun:test`，组件用 `*.dom.test.ts` 与真实 Vue/nb-ui。已实际验证 Bun 1.4.2 导入 `@notnotype/nb-ui/layout` 不报错、`createGrid` 是函数；`.vue` 导出只是文件路径字符串，不能据此在 Bun 挂组件，也不能把 barrel 中有 `.vue` 判为纯模型导入阻断。模型测试需改测试器和路径。
+- **Nuxt**：所选纯布局、PanelSurface、StatusBar 组件的 Vue imports 已显式给出，没有发现必须搬 Nuxt 自动导入或旧 store 的理由。`defineProps`/`defineEmits`/`defineSlots` 是 Vue 编译宏；其它旧子组件按需逐一检查，不搬 `DesktopTitleBar` 和业务宿主。
+- **页面与主题寿命**：计划保留 `WorkbenchDocument`、命令宿主在 `/` 页面上是正确的；二者卸载清理与 Lab 的文档主题相容。store 则按插件入口代次创建和释放。不能把文档 theme/media 或键盘监听迁入一直存活的插件作用域（`WorkbenchDocument.vue:21–43`、`WorkbenchCommandHost.vue:41–46`）。
+- **根盒与已有消费者**：替换 `.nb-empty-workbench` 时去掉其居中、padding、`min-height:100vh` 对新 grid 的约束，给壳可测的确定高度；`data-workbench-root` 与单根 attrs 仍接 `PageOutlet.vue:27–29` 的 ready/instance/rpc 标记，项目短名保留 `data-workbench-project`。`settings.e2e.ts:92` 的背景观察器应改到新外壳真实表面；`window.test.ts:146` 的 `EmptyWorkbench` 名称断言是实现细节，应删除，不改钉另一个组件名。
+
+## accepted 设计逐节对照与待确认判断
+
+| 设计稿小节 | 计划落点 | 判断 |
+|---|---|---|
+| 第 2 节：七 Part、ToolPart、ActivityBar、稳定 Editor 槽、无假数据的 TitleBar/StatusBar | 第 2、5 节，S1/S4 | 对象范围一致。没有容器的 ActivityBar 只保留区域、Sidebar/AuxiliaryBar 空态、标题栏应用名与项目名、欢迎文字放 Editor 槽均可在外壳一完成；Switcher 与业务内容随真实消费者加入 |
+| 第 6 节：三记录、project/user 分区与 local、写入时机、失败与多窗口 | 第 3 节，S2 | 记录划分和窄字段提交一致；失败恢复遗漏见 L1；几何原子与多记录非原子必须同时保留 |
+| 第 7 节：正向布尔公开键与命令 `when`，字符串只供读取 | 第 4 节，S3 | 八个已列键及五条 `when` 与表一致；限定名应依当前 Spec 用 `nbook.workbench/<名>`。`focusedPart` 的延期是明确的范围偏离，见下面判断；命令面板载荷不相容见 L3 |
+| 第 9 节：shell/state/components 分层，真实 nb-ui，Lab 局部状态 | 第 2、3、5、6 节，S1–S5 | 分层一致；纯布局 Lab 用局部 refs 已能测本片，不必为符合“局部 store”字样引入第二个保存 store；共享布局宿主复用见 L5 |
+| 第 10 节：去旧工厂/authority/stateScope/迁移会话，保留已验证几何和交互 | S0、第 2、3 节 | 去旧接线正确；删除机制描述时必须保留用户可观察的恢复、焦点、主动字段与取消合同，不能连同旧会话一起删掉 |
+| 第 11 节：外壳一/二/三及 Files 的顺序 | “不做”、S0–S7 | 范围总体一致。外壳一仍负责 sash 键盘、稳定槽和布局恢复；View/容器搬移与业务视图不可提前塞入本片 |
+
+计划没有“待确认项”小节，现有 `pending-confirmations.md` 也没有 t65 行。本报告不修改该清单；供主 Agent 的判断如下：
+
+| 取舍 | 是否需记待确认 | 理由与推荐 |
+|---|---|---|
+| `focusedPart` 推迟到外壳二 | **需要**：偏离已接受提案 | accepted 第 7 节列出了它，第 11 节把公开状态键归外壳一。可以接受延期：目前没有消费者且不影响五条面板命令；应记录延期至外壳二，而不是对外发布固定 `editor` 值伪装焦点追踪。此判断不替代开发者追认 |
+| 标题栏仅应用名/项目名，无菜单与搜索 | 不需要额外审批 | accepted 第 2 节允许条目/菜单随消费者贡献；浏览器 shell 仍有标题栏。没有已实现能力时不画假入口，符合旧 Spec 第 183、187 行；项目打开可继续经现有命令面板 |
+| 无容器时 ActivityBar 只保留通高区域与底部区域 | 不需要 | 外壳二才实现 Switcher，外壳一没有容器；不画空工具按钮符合切片与对象模型 |
+| 欢迎文字作为稳定 Editor 内容槽 | 不需要 | EditorGroup/标签随编辑器插件；当前欢迎文字保留语言变化且最大化只停放，符合 accepted 第 2、9、11 节 |
+| 四主题 × 双配色证据 | 不需要改产品主题范围，需明确证据来源 | Lab 已有四主题与 nbook-light/nbook-dark；产品设置只接受 nbook/macos 并应用各自默认配色。全矩阵可在 Lab 测同一外壳，产品 `/` 再测受支持配置、菜单浮层与页面主题寿命；不能把 Lab 的 editorial/aurora 扩入产品设置只为凑截图 |
+| DPR 1.25/1.5/2 不验，只记未验证 | **需要**：接受验收边界的取舍 | 计划第 111 行已诚实列出；旧验收 17 仍单独要求这些 DPR 的线/热区/坐标。若本 Task 删去或延期这部分验收，应保留明确去向并记取舍；DPR 1 截图不能作为它们的通过证据 |
+| 必填参数面板命令改成可省略参数后选择 | 只有选该改法时需要 | 会改变第二批命令的既有参数合同。推荐优先按 L3 从带参框架控件验五条命令，若要加选择，复用现有 QuickPick 并记录接口/交互变化 |
+
+## 旧 Shell Spec 的 24 条验收保留映射
+
+S0 允许按 v2 改写，不应逐字保留旧业务边界。以下是行为去向：旧条目中的有效子判据继续有效，旧产品名字、存储键和测试入口可以替换。
+
+| 旧验收 | 去向 | 改写时必须保留或明确处理 |
+|---|---|---|
+| 1 区域等价 | 外壳一 | 七 Part 种类、相对位置、无双边框/标题/标签；不用要求新应用已有旧领域内容 |
+| 2 固定业务入口 | 移出 v2 本片 | 固定旧产品清单可删除，符合 accepted 修订方向；新应用已有项目打开/配置/命令入口仍保留 |
+| 3 主题与浮层 | 外壳一 | 主题变量传到真实外壳和菜单 portal、浅深色/对照主题；去 sepia 旧名，不删浮层验收 |
+| 4 活动栏与恢复 | 拆分 | 容器互斥选择归外壳二；拖收起 Part 的 pointer 恢复跟随、显式恢复记忆归外壳一，见 L2 |
+| 5 拖过 min/max、重开恢复 | 外壳一 | 不弹回、结束保存、重开恢复；程序夹取不改原件 |
+| 6 坏记录/未知引用/非法尺寸 | 拆分 | 坏记录保护、尺寸夹取与逐条诊断归外壳一；未知容器/视图覆盖保留归外壳二；不能整份未知引用都回默认 |
+| 7 窄屏核心操作 | 拆分 | 外壳一面板框架动作、真实命令/配置入口可达且无横溢；容器切换随外壳二；旧固定业务清单移出 |
+| 8 原语与验证台 | 换入口，保留合同 | 新 Lab/真实 nb-ui 合同替换旧 `/workbench-spike`、旧 smoke 脚本；不能用历史通过数证明新消费接线 |
+| 9 浏览器标题栏/菜单/打开项目 | 拆分与延期 | 本片保留自绘标题栏和现有项目打开路径；应用菜单/平台窗口控制按范围延期。菜单加入时键盘、Escape、outside、焦点与不裁剪仍有效 |
+| 10 工作面与双窗口恢复/失败 | 外壳一按 v2 改写 | 无项目的 user/local 与不同绑定项目的 project/local、同客户端双窗口、当前手势不跳动、失败可重试/放弃；旧用户资产与页面内 A/B 切换可移除。L1 不能被“删旧 CAS”删掉 |
+| 11 四位置 × 四对齐 | 外壳一 | ActivityBar 通高、Panel 不跨活动栏、justify 只跨左右侧栏；S1/S6 已映射 |
+| 12 面板形态与同值无写入 | 外壳一 | 四种消失形态、还原记忆尺寸、清瞬时最大化与不落盘；另保留进入紧凑清除最大化，见 L4 |
+| 13 empty/single/multiple | 外壳二 | 标题/图标同源、动作上提、旧菜单失效、实例输入/滚动/generation；稳定 Editor 槽的焦点/滚动在外壳一另测 |
+| 14 紧凑/短高度 | 外壳一 | 必须在真实 390×844 与 260px 高承载盒检固定按钮与恢复入口可达、非负余量、回宽屏偏好不变；纯模型短高度通过不能证明按钮可达 |
+| 15 两类源指针/键盘拖放 | 外壳三 | 一次结果、整组拒绝、隐藏成员、非法方向无反馈；内容区判据按 Spec 后续决策，见下文 |
+| 16 容器 parking/目标撤销 | 外壳二 | 唯一宿主退回 parking、重新登记后再搬回、来源空态；Part 槽稳定机制外壳一先建 |
+| 17 四主题/双配色/短高度/DPR | 外壳一，后续片复用 | 明确每份证据在哪个表面；260px 高的控件可达需浏览器检；DPR 未执行单列取舍，不得悄悄删除 |
+| 18 空 Switcher 两入口两来源 | 外壳三 | View 创建容器/整容器不套层、同次选中保存、按钮区禁投 |
+| 19 同源拖影与唯一插线 | 外壳三 | ActivityBar/Tab 拖影一致、无额外高亮、结束释放 |
+| 20 View 投 Tab 建新容器 | 外壳三 | 插入位一致、悬停容器成员不变、源实际搬空才消失 |
+| 21 半区来源比例 | 外壳三 | 25%/12.5%/6.25% 与 3:1 判据保持；不增加 Tab，不套层 |
+| 22 换轴与禁投方向 | 外壳二的排列 + 外壳三的搬移 | 两轴意图独立记忆；侧栏纵向、Panel 横向不随外壳位置改变；禁左右/禁上下保持 |
+| 23 实际空与全隐藏的区别 | 外壳二 | 实际成员归零才移除容器；全部隐藏/条件不可见仍保留 |
+| 24 文档 Tab 拖放 | 编辑器插件 | 移出本 Spec 时留行为来源/去向；不提前选编辑器或把文档 Tab 当工具 View |
+
+**`nested-grid.md` 不需要本 Task 修改**：accepted 预期改动明确“不改”（设计稿第 359 行）。它是领域无关的几何与手势合同，Part 名和存储地址都归宿主；本片修消费接线与 Shell 验收即可。特别保留第 38–43、56–57、65–67 行的键盘/取消、pointer 无重锚、CSS px/transform、共享宿主与一次原子提交；不通过改 Spec 为复制旧宿主开第二套路径。
+
+
+## 合同矛盾与回写建议
+
+按 `task-reflection` 分类为“规范缺陷”。这些建议随审查报告交主 Agent 汇总，不在本审查写入仓库；旧包保持只读。
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| R1 | 规范缺陷 | `ui/workbench-shell.md:141,312` 的后续决定已要求前后各 50%、中点归后半且没有中央禁投区；验收 15（行 280）仍写“Workbench 非空中央……零提交”，与新决定冲突 | 改写：“Workbench 展开内容窗格在允许轴的前后各 50% 接收，中央按所在半区提交；非法方向零提交、零落点反馈。全收起时按剩余内容区的整区落点处理。”其余整组拒绝/隐藏成员/取消判据保留 | `docs/specs/ui/workbench-shell.md` 的“验收与 Smoke”第 15 条，S0 本就安排修订 |
+| R2 | 规范缺陷 | 旧 `WorkbenchShellLayout.md:66,71–72` 写逐分支 `resizeBranch`、两轴各发一次与 Reka 会话；实际 `WorkbenchShellLayout.vue:327–346` 与 `layout.ts:877` 已一次 `GridGestureCommit`/`resizeBranches`，当前 Shell/嵌套 Spec 同样要求一批原子接纳 | 新 v2 同名文档改写：“一个 GridRenderer 拥有一份 sash scope；一次手势的全部 changes 同步校验、一次 resizeBranches 落账，随后一次发布匹配几何与主动叶补丁；取消不提交，记录分项保存。”不要复制旧逐轴/Reka 描述，也不修改冻结的 legacy 文档 | 计划拟新建的 `packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShellLayout.md` 的“手势”部分 |
+
+## 未发现问题的方面
+
+- 七 Part 词表、四位置 × 四对齐、ActivityBar 通高、不跨活动栏、32px 标题头与拖到零的区分、尺寸两轴独立记忆、紧凑阈值与短高度投影均按 accepted 设计保留。以上是计划一致性判断，实际新 UI 未验证。
+- 三条记录的划分、locality、按窗口绑定选 project/user 分区，以及未绑定与项目尺寸不互作 fallback，与 accepted 第 6 节一致。真实 store 双窗口测试已验证 base/display 分开与窄改重放，不需第二套 CAS 或布局会话。
+- store 按入口代次建立和释放；命令/文档设置按页面寿命挂载，计划未要求把它们移入插件常驻作用域。新工作台与 Lab 的主题和局部状态可以沿用现有隔离模式。
+- 纯 TS 模型 + state + Vue components 的分层，以及容器/视图/拖放/编辑器的延期，未发现必须扩到本 Task 的理由。未实现菜单/业务项不画假入口、Editor 欢迎文字保留语言跟随，符合本片职责。
+- 所选旧布局与表面组件已显式使用 Vue imports；没有发现迁入必然需要 Nuxt、旧 Pinia 或旧领域 authority。Bun 1.4.2 实际可以加载 `@notnotype/nb-ui/layout` 的 TS 原语入口，不能因同 barrel 导出 `.vue` 就判为导入阻断。
+- 按 accepted 方向修订 Shell Spec、移走旧固定入口与 EditorGroup/Tab，且保留外壳二/三合同是正确范围；`nested-grid.md` 无需改名或重写持久化合同。
+
+## 实际验证与边界
+
+以下 Bun 命令的工作目录均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t65-plan-legacy/packages/neuro-book`。测试临时根显式指向本次获准的报告目录；没有启动开发服务或 e2e。
+
+```sh
+env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/legacy bun test ./src/shared/store/store.test.ts --test-name-pattern '重放后仍冲突|discard 只移除|首个快照是读取错误|同一客户端的两个窗口'
+```
+
+结果：`4 pass`、`15 filtered out`、`0 fail`、`38 expect() calls`。
+
+```sh
+env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/legacy bun test ./src/shared/store/store.test.ts --test-name-pattern '写已落盘、结果没回来|断线期间别处又写了|提供方入口停止而 store 仍活着'
+```
+
+结果：`3 pass`、`16 filtered out`、`0 fail`、`31 expect() calls`。
+
+```sh
+env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/legacy bun test ./src/plugins/commands/shared/plugin.test.ts --test-name-pattern '贡献的命令经命令服务执行'
+```
+
+结果：`2 pass`、`6 filtered out`、`0 fail`、`14 expect() calls`。
+
+```sh
+bun -e 'const m = await import("@notnotype/nb-ui/layout"); console.log(JSON.stringify({createGrid: typeof m.createGrid, GridRenderer: typeof m.GridRenderer, gridRendererValue: m.GridRenderer}));'
+```
+
+结果：`createGrid: "function"`、`GridRenderer: "string"`，后者的值是当前 worktree 的 `packages/nb-ui/src/components/layout/GridRenderer.vue` 绝对路径。它证明 TS 入口可加载，不证明 `.vue` 在 Bun 能渲染。
+
+工作区根运行 `prox bun install --frozen-lockfile --ignore-scripts`：成功，`1560 packages installed [1.54s]`；跳过根 postinstall，避免生成构建产物。`bun --version` 为 `1.4.2`。交付前在审查 worktree 根运行 `git status --short --untracked-files=normal`：无输出；未修改或新建仓库文件、未提交、未切分支。
+
+未运行：新外壳/迁入模型测试（未实现）、旧主页、typecheck、构建、docs/governance 检查、开发服务、e2e、浏览器焦点/滚动/pointer/键盘场景、主题矩阵、DPR 矩阵。L2/L4/L5 的未来运行时后果保持推断或未验证；报告不把现有 store/命令用例当作 t65 UI 的通过证据。
+
+## 数量
+
+正式发现共 **5 条：阻断 0、重要 4、建议 1**。按影响为 L1、L3、L4、L2、L5；两条合同回写建议 R1/R2 与待确认判断单独列出，不重复计入正式发现。
+

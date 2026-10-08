@@ -1,0 +1,157 @@
+# w00017 t65 实施计划对抗审查：可实现性、UI 规范与测试
+
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t65-workbench-shell-layout/plan.md`。
+
+审查基线：专用 detached worktree `1c146c67`。外壳设计稿 accepted 与开发者“参照旧应用”的决定作为既定前提。
+
+本报告只审查计划和现有设施；未修改仓库受跟踪文件，未启动开发服务与 e2e。实验源码与报告放在指定临时目录。获准执行的安装命令触发根 `postinstall`，另外生成了忽略的 harness `dist/`；详见末尾执行边界。代码结论区分静态核实与 `[INFERENCE]`（从代码推断），运行实验单列。
+
+以下按影响排序。所有仓库相对路径均相对本专用 worktree；裸写 `src/`、`e2e/` 的引用相对 `packages/neuro-book/`。旧外壳文件相对 `packages/neuro-book-legacy/app/`。
+
+## 发现 01：移除旧保存会话后，没有接出“未保存”、重试与放弃，失败会卡住本代次的后续布局保存
+
+- **严重程度**：重要。
+- **类别**：正确性 / 失败恢复 / UI。
+- **计划位置**：「3. 工作台 store 与布局记录」「4. 公开状态与面板命令」「5. 外壳组件」「验收映射」（plan.md:29–58、97–103）。
+- **现象**：计划用三个 persist 字段替换旧会话，列出的 action 全是布局变更，没有 retry/discard/reopen；标题栏、面板与状态栏的 UI 清单没有保存反馈或恢复入口；命令只“调 store 的 action”，没有把 `CommitResult` 折算为命令结果的规则。验收只列坏记录回落，没列确定失败、未知结果或打开/订阅失败。
+- **为什么是问题**：persist 字段的恢复方法只在 setup 闭包里可用，`store.state` 不带方法。第一次保存失败或未知结果会暂停队首，后面的布局动作继续改当前显示但不再发出；泛用 store 能保留意图，却不会替产品提供用户入口。`[INFERENCE]` 按计划可做出看起来能拖、刷新就丢改动、也无法恢复的外壳；命令包装若忽略结果，还会把未落盘报成成功。这是 accepted 设计已有的外壳一合同。
+- **依据**：静态核实；泛用 store 的恢复行为已在真实内核/Storage 测试中运行通过，尚无 t65 产品 UI。设计稿 `docs/proposals/workbench-shell-abstractions.md:229–231` 要求读取失败可临时调整并显示“未保存”、失败保留意图并提供重试/放弃。`docs/specs/state/store.md:93、102–107、135–142` 规定字段只读视图、失败队列暂停、由 owner 调用恢复。真实实现 `src/shared/store/persisted.ts:294–303、312–331、344–354` 继续改 display/排队但失败不发，`:51–57` 恢复方法只在字段句柄；`src/shared/store/store.test.ts:363–407` 经真实写者冲突验证暂停、retry 接着保存和 discard 后继续。旧 `components/workbench/WorkbenchShellLayout.md:19–20` 明确原产品宿主负责失败重试/放弃。`docs/specs/workbench/commands.md:67、167` 要求结构化结果，并把未保存与已保存区分。
+- **建议改法**：在已有工作台 store 增加按三个已知字段执行的恢复 action，直接复用 persist 的 reopen/retry/discard。在现有状态栏提供保存状态及重试/放弃入口，受保护原件保持明确只读状态。规定布局命令如何映射 `saved/failed/unknown/protected` 及同值结果；将确定失败、未知结果的反馈与恢复加入 S2 和产品界面验收。
+
+## 发现 02：四条必填参数命令不能通过现有命令面板执行，S6 的入口承诺缺少实现
+
+- **严重程度**：重要。
+- **类别**：可实现性 / 命令合同 / 测试。
+- **计划位置**：「4. 公开状态与面板命令」「验收映射」五条命令；「验证」（plan.md:41–47、101、110）。
+- **现象**：位置、对齐、隐藏、标题头收起分别严格要求 `{position}`、`{alignment}`、`{hidden}`、`{collapsed}`，计划同时承诺 S6 经命令面板执行改变布局。现有面板对普通候选一律传 `{}`，没有通用参数编辑器；计划没有定义这四条命令如何取得用户选择。
+- **为什么是问题**：按计划直接登记后，只要它们人类可见，候选可选却必然得到 `invalid-args`，不会调用 store action。按钮传完整参数能成功，不代表命令面板路径能成功；在 e2e 中直接调用服务也不能证明用户入口。
+- **依据**：静态核实与真实组件运行探针。`src/plugins/workbench/web/components/WorkbenchCommandPalette.vue:120–149` 只对行号模式合成参数，普通命令在 :138 写 `args: {}`；`src/plugins/commands/shared/registry.ts:302–305` 在求 `when` 和执行前严格校验。`docs/specs/workbench/commands.md:73、156–160` 规定必填参数与严格校验。现有 `src/plugins/workbench/web/commands/theme-commands.ts:22–37、41–65` 单独实现“无参数则用户选择”，并非命令面板自动提供。本次临时探针挂载真实 `WorkbenchCommandPalette`、nb-ui QuickInput 与命令表，登记同形必填 position 命令，以输入框 Enter 选择；1 个测试通过，断言真实审计事件 `args: {}`、`invalid-args`、处理器执行次数为 0。没有直接伪发 accept/closed、mock/spy/假时钟；覆盖组件入口，未运行 Chrome e2e。
+- **建议改法**：推荐保留必填参数合同，四条带参命令设 `expose.human: false`，通过面板标题控件与状态栏传完整参数，无参最大化命令保留命令面板执行；修正 S6 入口映射，S3 通过真实命令服务验证参数与不可用原因。若保留“命令面板执行全部动作”的目标，明确加入选择流程及可省参数合同，复用 quickPick 并同步 Spec；不能静默补默认值。
+
+## 发现 03：布局 store 若随现有根入口创建，打开 Lab 也会读取产品布局记录
+
+- **严重程度**：重要。
+- **类别**：不变量 / 生命周期 / Lab 隔离。
+- **计划位置**：「3. 工作台 store 与布局记录」「5. 外壳组件」「6. Lab 场景」（plan.md:34–36、52、59、64）。
+- **现象**：计划把三个 persist 字段的 store 归工作台浏览器入口代次，又依赖“Lab 场景只用局部状态”维持隔离，没有限定真实 store 在哪条页面路径开始读取。现有工作台根入口在路由创建前就被窗口门禁激活，包括直接打开 `/lab` 的窗口。
+- **为什么是问题**：`[INFERENCE]` 若在当前 `activate` 中创建 store，`defineStore.create` 会立即对三个字段执行 Storage open 与订阅；Lab 的 fixture 即使完全局部，也已在舞台挂载前读取产品布局。只把产品 `WorkbenchShell` 标为不可 Lab 挂载不能阻止该启动路径。现有 Lab 隔离合同要求页面与 fixture 不读取产品数据；此处须明确根入口的启动工作是否属于允许的共同引导，以及产品布局何时激活。尚无 t65 实现，未运行浏览器，不宣称已发生回归。
+- **依据**：静态核实调用链。`src/web/host/window.ts:200–207、222–227` 先解析 `workbenchRootKey`；`src/web/mount.ts:43–47` 之后才建立并等路由。`src/plugins/workbench/web/plugin.ts:43–56` 当前根入口负责所有页面表。`src/shared/store/store.ts:211–212` 创建时逐字段 attach；`src/shared/store/persisted.ts:238、247` 立即 open/subscribe；`src/plugins/storage/shared/remote-route.ts:22–24、39–42` 转真实远程服务。`docs/specs/ui/component-lab.md:58、69、93、122` 规定 Lab 与 fixture 的数据隔离。现有 `e2e/lab.e2e.ts:55–79` 仅观察 HTTP `/api/` 与浏览器存储键，不能完整捕获新增 WebSocket Storage 调用。
+- **建议改法**：推荐保留页面表与选择服务的原启动边界，把布局 store 的创建明确延迟到产品首页需要时，并仍归已定入口代次释放；可沿用现有服务/入口机制，在布局未激活时公开键保持未就绪值。S5/S6 用真实运行时验证 Lab 没有新增产品布局 open/订阅，观察 Storage 远程调用或真实订阅事实，不能只数 HTTP。若计划允许共同引导读取产品布局，则明确其与 Lab 隔离合同的边界并更新验收；不在通用 store 加 Lab 特例。
+
+## 发现 04：首页切换没有同片迁移既有 e2e 的选择器、项目标记与根元素合同
+
+- **严重程度**：重要。
+- **类别**：回归 / 切片顺序 / 验收。
+- **计划位置**：「5. 外壳组件」页面；「切片」S4、S6–S7；「验证」（plan.md:59、84、86–87、109）。
+- **现象**：S4 替换 `createEmptyWorkbench` 的首页，仅列新组件测试与 typecheck；S6 新增 `workbench-shell.e2e.ts`，S7 才跑全量，没有列既有消费方的迁移。当前 `settings.e2e.ts` 测 `.nb-empty-workbench` 的计算底色；`projects.e2e.ts` 依赖唯一 `data-workbench-project`；宿主状态依赖页面单根 attrs 透传。
+- **为什么是问题**：`[INFERENCE]` 删除旧 class 后，主题测试会找不到元素；保留旧 class 的中心对齐与 padding 等页面样式又会污染全屏 Grid。标题栏、欢迎文字和状态栏都显示项目名，若各自照搬旧项目标记，原项目测试会因多个匹配失败。新页面若多根且不显式绑定 attrs，窗口 ready/instance/rpc 标记会丢失。新增外壳用例不会自动迁移这些已有消费方。
+- **依据**：静态核实，未运行新实现 e2e。`e2e/settings.e2e.ts:91–92、129–149` 依赖旧 class；`:102–119` 测欢迎文字，计划保留欢迎文字，所以文案断言本身不必然失败。`e2e/projects.e2e.ts:62、80–81、122` 依赖唯一项目标记；`src/plugins/workbench/web/empty-workbench.ts:27–33` 当前拥有单根与标记；`src/web/PageOutlet.vue:27–28` 将宿主状态 attrs 交给页面根。`src/web/styles.css:35–68、77–79` 旧 class 同时负责中心布局和 token 底色。`e2e/lab.e2e.ts:221–235` 要求离开 Lab 后新窗口实例与产品主题。`docs/testing/README.md:140–145` 要求随实现运行受影响既有测试。
+- **建议改法**：首页接线同片迁移 settings 的底色测量到真实外壳根，保留窗口状态属性，为当前项目选一个唯一稳定语义标记。欢迎文字按计划保留。明确列出 settings/projects/browser-host/Lab 返回路径的受影响用例，在接线片跑聚焦 e2e；S7 全量用于收口。删除旧空首页的失效样式，不保留旧 class 作为兼容路径。
+
+## 发现 05：把 DOM 几何、手势边界和编辑器跨布局生命周期交给了无法测量布局的层级
+
+- **严重程度**：重要。
+- **类别**：测试 / 验收可判定性。
+- **计划位置**：「切片」S2、S4–S6；「验收映射」尺寸夹取、同值与手势、编辑器不卸载（plan.md:82–86、94、98、102）。
+- **现象**：尺寸夹取与拖到零 1px 边界映射到 S4 组件测试；“手势结束只提交一次”“读取就绪前尺寸手势不可用”只映射到 S2 store；编辑器在最大化、换位置与紧凑切换时不卸载只映射到 S4 挂载计数与 S5 Lab，没有列入 S6 浏览器断言。
+- **为什么是问题**：store 不接收真实 pointer/key/ResizeObserver，不能证明手势禁用与一次提交的产品接线；happy-dom 不计算盒布局。实际紧凑切换、零占用、1px sash 和 Teleport 落点变化需要真实尺寸。只有 Lab 场景没有明确断言也不构成验收。输入保留本身不能证明未卸载：重挂后从外部恢复输入会误通过。
+- **依据**：静态核实与真实 happy-dom 探针。`packages/neuro-book/vitest.config.ts:1–4、19`、`docs/testing/README.md:114–116` 规定真实布局走 Playwright。本次对真实 happy-dom 元素设置 `width:1440px;height:900px`，client 与 rect 宽高四值均为 0。旧 `components/workbench/WorkbenchShellLayout.vue:307–318、360–367` 读取实际容器并由 ResizeObserver 重建；旧 `WorkbenchShellLayout.test.ts:54–76、132–143、450–457` 用 stub/spy、回调调用及组件伪事件，不能按本计划规则照搬。旧同名 `.md:57–62` 还承诺输入、滚动、焦点与挂载生命周期。
+- **建议改法**：S1 测纯尺寸/补丁；S2 用真实 Storage 的值、revision、订阅验证 action；S4 happy-dom 测不需布局的 props/emits、名称、按钮状态。S6 测实际拖动、读前禁用、越界停住不弹回、1px 边界、紧凑往返与停放。一次手势按涉及的记录验证各一次提交，不把跨记录保存说成原子事务。保活在同一局部 Lab 场景连续转换：样例暴露实例身份及累计创建/卸载数，输入与滚动由样例内部持有；断言身份不变、创建 1、卸载 0，再验证输入/滚动/焦点。不能靠切换 Lab 场景验证，场景切换会重挂。
+
+## 发现 06：键盘调整、取消和停放后的焦点没有进入验收映射
+
+- **严重程度**：重要。
+- **类别**：可访问性 / 回归 / 验收覆盖。
+- **计划位置**：「5. 外壳组件」「6. Lab 场景」「验收映射」「验证」（plan.md:51–64、89–111）。
+- **现象**：验收没有分隔线键盘路径、取消后零提交、隐藏/最大化时的焦点去向，也没有框架按钮名称、禁用与窄屏键盘可达判据。
+- **为什么是问题**：复用真实 nb-ui 只保护原语自身；新宿主仍需提供 `disabled/contextKey/revision`、接受一次提交、提供焦点落点并保持停放区不可交互。接线遗漏能通过纯模型、store 和截图，却使键盘无法调整、Escape 仍保存或焦点留在隐藏内容。公开键 `focusedPart` 延期不影响保护既有焦点行为。
+- **依据**：静态核实。`packages/nb-ui/src/components/layout/GridRenderer.md:17、68` 规定方向键 10px、Shift 1px、Home/End、Enter，以及 Escape/pointercancel/失焦/上下文失效取消；旧 `components/workbench/WorkbenchShellLayout.md:37、46–47、57–74` 规定禁用、焦点/滚动恢复、取消不保存；旧 `.vue:237–275、418–422、454` 依赖宿主的 `data-shell-focus-target`、revision/disabled 与 `inert/aria-hidden`。`packages/nb-ui/docs/ui-development-spec.md:342–345`、`docs/standards/code/components.md:175` 要求名称、禁用与 390px 核心操作可达。
+- **建议改法**：S4 验证名称、禁用和命令结果反馈；S6 用真实键盘调整 sash、Enter 恢复、Escape 取消，并观察几何及提交。补拖动期间改变容器尺寸或上下文后零提交。隐藏后焦点到“显示面板”，最大化后到面板标题，可见内容换位置/紧凑往返保留焦点与滚动，停放内容不进入 Tab；外部浮层不被抢焦点。在 390px 和 260px 短容器实际完成恢复操作。
+
+## 发现 07：新增可挂载零件没有场景，S4 与 S5 的顺序也会触发现有覆盖门禁
+
+- **严重程度**：重要。
+- **类别**：UI 规范 / 切片顺序 / 测试。
+- **计划位置**：「5. 外壳组件」「6. Lab 场景」「切片」S4–S5（plan.md:49–64、84–85）。
+- **现象**：S4 新增四个 `.vue` 与同名 `.md`，S5 只明确登记 `WorkbenchShellLayout` 场景。参照的 `WorkbenchPanelSurface`、`WorkbenchStatusBar` 可独立挂载，却没有计划场景；S4 已要求组件测试。该片同时承担纯布局迁入、面板/状态栏、产品宿主及首页接线。
+- **为什么是问题**：新组件有文档就进入自动索引，全组件门禁检查可挂载项的 fixture；S4 完成时布局缺场景，最终 S5 仍缺面板/状态栏。行数本身不阻断，但把受控零件、真实 store 接线与首页替换绑在同片，使局部通过也不能提供独立可运行的交付点。
+- **依据**：静态核实。`src/plugins/lab/web/component-index.ts:13–16` 自动扫描插件组件；`component-index-model.ts:249–277` 推导挂载条件；`fixtures/index.dom.test.ts:47–56、74–78` 检查缺场景和无效登记。旧 `components/workbench/WorkbenchPanelSurface.md:1–18`、`WorkbenchStatusBar.md:1–17` 均为受控零件。三个参照 `.vue` 分别为 483、217、97 行，合计 797 行，尚不含新产品宿主、测试、四份文档及首页迁移。`docs/specs/ui/component-lab.md:104、124`、`docs/standards/code/components.md:175` 要求可挂载组件有非空场景。
+- **建议改法**：将组件、同名文档及最小 fixture 同片交付；拆为纯布局与场景、面板/状态栏与各自场景、产品宿主与首页接线。保留自动索引，在 `fixtures/index.ts` 登记；小零件可复用 `defineSubjectFixture`。产品 `WorkbenchShell` 按真实 store 写入能力标不可挂载，在产品页验收；不能为门禁假标纯零件为不可挂载。
+
+## 发现 08：四主题截图没有区分 Lab 与产品主题，截图本身也不能证明 token 与操作可达
+
+- **严重程度**：重要。
+- **类别**：UI 规范 / 验收可判定性。
+- **计划位置**：「5. 外壳组件」「切片」S6；「验收映射」主题；「验证」（plan.md:59–60、86、104、110–111）。
+- **现象**：承诺四主题 × 双配色 × 桌面与 390px 截图，据此判定颜色来自 token、无双重边框；没有列页面、主题/配色 id、计算样式、短容器与恢复控件裁切判据。
+- **为什么是问题**：产品主题只有 nbook/macos，四主题与统一 nbook-light/nbook-dark 组合只在 Lab。需要区分局部 fixture 和真实产品的证据。截图不能证明 token 来源；Lab 溢出检查忽略被祖先裁切的元素，零外溢仍可能剪掉操作入口。
+- **依据**：静态核实。`src/plugins/workbench/shared/contracts.ts:68–81` 只接受两主题；`src/ui/theme/product-themes.ts:17–24` 取产品默认配色。`src/plugins/lab/web/lab-theme.ts:4–7、24、39–43` 提供四主题和两套 nbook 配色。`scripts/lab-shot.ts:29–35、97–108、174–185` 只输出图、几何和页面问题；`--click` 带固定等待。`src/plugins/lab/web/lab-debug.ts:20–27、39–45` 排除裁切祖先下越界元素。`docs/testing/README.md:167` 要求计算样式对照变量解析值；现行 `docs/specs/ui/workbench-shell.md:279、282` 要求 260px 短容器与可达恢复入口。
+- **建议改法**：Lab 明列 nbook/macos/editorial/aurora × nbook-light/nbook-dark、1440×900/390×844，逐主题不同输出目录；产品页验证 nbook/macos 的默认明暗配色。初始场景截图沿用 `lab:shot`，交互用 Playwright 可观察状态等待。核对外壳根、面板、状态栏的背景/边框与 token 解析值、结构边界的唯一绘制 owner；390px 和 260px 高实际完成显示/还原，检查控件未裁切。DPR 保持计划已声明的未验证边界。
+
+## 发现 09：依赖风险只有笼统提醒，缺少搬入边界与浏览器产物的可复核检查
+
+- **严重程度**：建议。
+- **类别**：依赖 / 性能 / 可维护性。
+- **计划位置**：「2. 外壳几何的纯模型」「5. 外壳组件」「风险」（plan.md:25–27、51–58、119）。
+- **现象**：计划承诺搬纯模型与三个参照组件，风险仅写“旧 nb-ui 接口不符时查用法”，没有说明旧 Storage 常量、旧 tab/item 子组件的取舍，也没有浏览器 JS 增量或动态页面加载的检查。
+- **为什么是问题**：旧 `layout.ts` 仍从旧 Storage 定义取两个默认宽度；旧面板、状态栏还导入本片未列出的 tab/item。原样复制会留下旧应用依赖，或顺带搬入尚未使用的容器标签层。当前没有证据支持“要新增 VueUse 才能搬布局”，也不能从包安装大小推断浏览器传输体积；应以最终可达产物为准。纯布局已有公开窄入口，产品插件保持懒加载也关系到 Bun 合同测试是否意外加载 `.vue`。
+- **依据**：静态核实与内存 Vite 生产构建探针。旧 `layout.ts:44–47、143–145` 取旧 Storage 的 340/400 默认宽度；`WorkbenchPanelSurface.vue:13` 导入 `WorkbenchPanelTab`，`WorkbenchStatusBar.vue:12` 导入 `WorkbenchStatusBarItem`。当前 `packages/nb-ui/package.json:12、35` 已有 layout 导出与 VueUse 依赖，布局原语自己的运行导入只用 Vue 与内部模块；`packages/neuro-book/vite.config.ts:27–46` 已预构建 VueUse、Vue 与响应式库。探针用当前真实 Vite/vue/UnoCSS 配置，`write:false`，在浏览器入口显式保留 `GridRenderer/createGrid`：现有 JS 合计 480,029 B，引用后 534,382 B；逐 chunk gzip 合计 159,445 B → 177,330 B，增量 54,353 B / 17,885 B。两份产物都不含 Lab，VueUse 在基线已经可达。这个实验只覆盖原语强制保留的构建形态，未实现 t65 外壳，不能作为最终体积或首次加载量。
+- **建议改法**：S1 把 340/400 等几何默认值归到新纯模型，再由记录初值引用，不导入旧 Storage；S4 对不需要的旧 tab/item 路径明确删掉或改用现有 nb-ui 控件，确需新零件才列入同名文档/Lab 登记。布局继续走 `@notnotype/nb-ui/layout`，普通控件用公开 components 入口；新应用源码只有直接使用 VueUse API 时才声明直接依赖。产品页面 `.vue` 沿用异步 loader，现有 Vue/reactivity 单份预构建规则保持。实施后在同配置下记录浏览器 JS raw/gzip 与关键加载 chunk 增量，不设无依据的体积阈值，也不为探针数字改 nb-ui 架构。
+
+## 验证记录与执行边界
+
+审查 worktree：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t65-plan-impl`。以下脚本、配置与测量 JSON 均保留在本报告同目录；没有新建永久测试。验证的是现有设施及计划假设，不代表尚未实现的 t65 行为已经验收。
+
+| 验证 | 实际命令或探针 | 结果与边界 |
+|---|---|---|
+| frozen 依赖安装 | worktree 根：`prox bun install --frozen-lockfile` | Bun v1.4.2，1560 packages installed；根 postinstall 执行了 harness build，见下文。 |
+| Bun 纯几何入口 | worktree 根：`bun -e 'import {createGrid} from "./packages/nb-ui/src/components/layout/index.ts"; console.log(typeof createGrid);'`；另运行本目录 `layout-import.test.ts` | 导入输出 `function`；真实 Grid 100×50 几何断言：1 pass、0 fail、1 expect() call。排除桶入口重导出 `.vue` 必然使 Bun 纯模型测试失败的假设。 |
+| 真实内核、Storage、store 与命令装配 | cwd `packages/neuro-book`：`bun test src/shared/store/store.test.ts src/plugins/commands/shared/plugin.test.ts` | 27 pass、0 fail、217 expect() calls，450ms。证明已有真实设施可用，不证明 t65 action/命令已实现。 |
+| happy-dom 布局能力 | Bun 内联探针：创建真实 `Window({width:1440,height:900})`，给 div 设置 1440×900 样式并加入 body，读取 client 与 rect 后关闭 Window | `{"clientWidth":0,"clientHeight":0,"rectWidth":0,"rectHeight":0}`。未保存该内联命令为独立文件；不据此推断 Chrome 几何。 |
+| 真实命令面板参数路径 | worktree 根：`node node_modules/vitest/vitest.mjs run --config /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/impl/vitest.config.ts` | Vitest v4.1.10：1 file / 1 test passed，2.61s。真实 DOM Enter → 真实命令表审计：空参数、invalid-args、处理器执行 0 次。探针在 `palette-contract.dom.test.ts`，无 mock/spy/假时钟/固定等待。 |
+| 浏览器构建图与体积 | worktree 根：`node /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/impl/bundle-probe.ts` | 两次真实 Vite 内存构建通过，write:false，无 repo dist 写入；数字见下表及 `bundle-probe.json`。未运行完整 check:dist、后端构建或浏览器性能测量。 |
+| 仓库边界 | worktree 根：`/usr/bin/git status --short --untracked-files=normal`；`/usr/bin/git check-ignore packages/neuro-agent-harness/dist/index.js` | 收尾 status 无输出；check-ignore 命中该 harness 产物。status 不包含忽略文件，不能当作安装只写 node_modules 的证明。 |
+
+内存构建测量：
+
+| 形态 | 压缩后 JS bytes | 逐 chunk gzip bytes 合计 | JS chunks | 模块图含 Lab |
+|---|---:|---:|---:|---|
+| 当前产品基线 | 480029 | 159445 | 7 | 否 |
+| 入口强制保留 GridRenderer/createGrid | 534382 | 177330 | 7 | 否 |
+| 差值 | 54353 | 17885 | 0 | — |
+
+这里“压缩后”指生产 minify；gzip 列为各 chunk 单独压缩后求和。基线已经可达部分布局模块与 VueUse。引用探针改变共享 chunk 切分，不能把 17,885 B 当成最终外壳、首次加载或旧组件移植成本。
+
+执行边界有两处偏差，不能称本次实验完全只写了指定 scratch：
+
+1. 获准的安装命令运行了根 `package.json:32` 的 `postinstall`：`bun run --cwd packages/neuro-agent-harness build` → `tsc -p tsconfig.build.json`。该配置把输出写到忽略的 `packages/neuro-agent-harness/dist/`，本次确实运行了该构建；不是仅 node_modules 写入。没有擅自删除这些产物。
+2. 运行现有 store/commands 测试时没有覆盖 `NBOOK_AGENT_TEMP_ROOT`。后续只读探针确认环境未设置该变量，默认解析为 `/tmp/neuro-book`；现有 `createTestTmpRoot` 因而在该系统临时根创建了测试场地，并由测试既有 teardown 清理。本报告与新实验源码位于获准 scratch，但这次测试的临时数据根超出了原限定目录。
+
+命令面板探针第一次因外部脚本导入 `vue-test-utils.esm-bundler.js` 不存在而在收集阶段失败（0 tests）；核实已安装文件为 `.mjs` 后，只修 scratch 导入并重新运行通过。该环境配置失败未作为产品问题列报。
+
+未运行：开发服务、Chrome/Playwright e2e、lab:shot 视觉矩阵、正式外壳交互、smoke:server、完整 build/check:dist、typecheck、docs:check、governance:check。没有修改产品实现，以上未运行项不能计为通过。`smoke:server` 的实现先 build:server，再验证 HTTP/RPC/设置/项目握手，不挂载 DOM（`packages/neuro-book/scripts/smoke-server.ts:147–175`）；它是后端回归证据，不能替代外壳浏览器验收。
+
+## 未发现问题的方面
+
+- 外壳一复用旧几何与受控组件、剥离旧存储会话、改接现有插件状态 store 的方向有现成实现支撑；没有发现必须改 nb-ui 接口或增建第二套 CAS 会话的前置阻断。
+- 纯模型经公开 layout 入口使用 Grid 可在 Bun 实际运行；没有证据要求为 S1 分拆 nb-ui 包或增加测试运行时替身。
+- 现有真实 Storage 场地已覆盖两个写者、队列暂停与恢复等行为，能够承载 S2；命令装配设施也已运行通过。计划坚持真实依赖可执行，关键是补齐各层应承担的判据。
+- 三条记录的 scope/locality 与窗口一生绑定一个项目的既定边界相容；将确认值和当前显示分离、最大化不落盘、容器不足只改变呈现不反写记录，与既有 store/设计合同一致。此项为静态合同核对，没有新外壳运行证据。
+- 同名组件文档、自动索引、局部 fixture、真实产品宿主各有既定通道；四主题 × 双配色也有现成 Lab 工具，不需要新的 Lab 宿主或主题切换框架。
+- 内存生产构建中，两份模块图均未含 Lab。未发现由布局公开入口带入 Lab 的证据；未据此替代完整产物门禁。
+- 计划已明确 DPR 1.25/1.5/2 与桌面窗口控制为未验证边界；本报告未扩大到容器/视图/拖放或桌面壳。
+
+## 回写建议
+
+| 分类 | 建议 | 真相源与授权 |
+|---|---|---|
+| 执行规则 | 只读审查若仅允许安装写 node_modules，应先检查根生命周期脚本；当前仓库须用禁用脚本的安装方式，或明确把生成产物纳入授权范围。 | 可由主 Agent 评估补到只读审查模板或依赖安装说明。本次未修改规则，需开发者批准后回写。 |
+| 执行规则 | 限定 scratch 的实验在运行既有测试前显式设置 NBOOK_AGENT_TEMP_ROOT，并检查其解析值。 | 可由主 Agent 评估补到只读审查模板；现有临时根规范已有机制，本次属于执行遗漏，不需要新增一套临时目录规则。 |
+
+## 统计
+
+- 阻断：0。
+- 重要：8（01–08）。
+- 建议：1（09）。
+
+结论：现有设施支持该实施方向；计划需补齐失败恢复、命令参数入口、产品布局与 Lab 的启动边界，以及可观察的浏览器验收和同片回归迁移。以上为交给主 Agent 的审查意见，不是已实施决定。

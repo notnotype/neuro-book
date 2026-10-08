@@ -1,0 +1,108 @@
+# w00017 t65 实施计划对抗审查：状态、持久化、公开状态与多窗口
+
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t65-workbench-shell-layout/plan.md`，审查 worktree 固定在 `1c146c67`。外壳设计稿 accepted 与“参照旧应用”的决定作为前提。本报告只审查计划；新外壳尚未实现，代码依据均为现有底座。代码路径以本审查 worktree 为根。
+
+## F02：四条必填参数命令无法从计划指定的命令面板执行
+
+- **严重程度**：阻断。
+- **类别**：接口合同、验收不可达。
+- **计划位置**：关键设计第 4 节“公开状态与面板命令”（第 41–46 行）、第 5 节“外壳组件”（第 59 行）、“验收映射”（第 101 行）。
+- **现象**：`set-panel-position`、`set-panel-alignment`、`set-panel-hidden`、`set-panel-collapsed` 都要求必填字段，计划同时要求 S6“经命令面板”执行五条命令，而命令宿主保持原样。现有面板选中普通命令时只传 `{}`，没有参数采集通道；这四条会出现在可用候选里，选中后被严格校验拒绝，处理器根本不运行。
+- **为什么是问题**：S6 所写的人类入口无法验收。框架按钮传入参数能执行，并不能补上命令面板入口。命令实现里再打开选择也无效，因为参数校验先于 `run`；不能靠处理器兜底修复必填 schema。现有面板对失败只保留审计，用户看到的还会是关闭面板却没有布局变化。
+- **依据**：
+  - `docs/specs/workbench/commands.md:53,66,73,156–164`：必填参数与严格校验；执行顺序先校验参数再 run。
+  - `packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue:51–55,114–149`：候选不按参数形状过滤，普通选中项固定 `args: {}`，关闭后原样执行。
+  - `packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.md:44–47`：不提供多步向导与执行失败提示。
+  - `packages/neuro-book/src/plugins/commands/shared/registry.ts:300–306,335–342`：必填缺失直接 `invalid-args`，不会进入实现。
+  - t64 可复用的现有模式：`packages/neuro-book/src/plugins/workbench/web/commands/theme-commands.ts:22–38,41–65` 将字段声明为可选，省略时用已有 quickPick，传值时直接写入。
+  - **真实运行核实**：从真实面板追踪参数来源后，在 `settingsWorld` 中装配真实配置、公开状态、命令插件与一条按计划 schema 声明的探针命令；空参返回 `invalid-args`，处理器没有运行；合法 `{position:"left"}` 才进入处理器。未知枚举、额外属性均返回 `invalid-args`，Agent 调用返回 `not-exposed`。运行命令与退出结果见末尾验证记录。没有运行浏览器面板；面板发空参由组件源码核实。
+- **建议改法**：S0 明确这四条的人类参数采集合同，S3 实现它。部件最少的方案是沿用 t64 的选择服务：省略目标字段时进入 quickPick，给出字段时仍严格校验取值与额外属性，并同步修订命令表的参数合同。如果必须保留必填字段，则给人类入口提供明确的选值触发层，由它调用同一条严格命令；不要让没有参数来源的 canonical 命令成为不可执行的面板候选。
+
+## F03：按字段组替换不能兑现“两窗口之后的保存不覆盖对方”
+
+- **严重程度**：重要。
+- **类别**：正确性、多窗口不变量。
+- **计划位置**：关键设计第 3 节“工作台 store 与布局记录”（第 33–35 行）、“验收映射”（第 99 行）。
+- **现象**：计划将 `views-customizations` 分成“面板状态”和“Part 状态”字段组，给出的合成指引是 `commit(current => ({...current, …}))`“只改自己的字段组”。根对象合并只能保留其它组；如果这次修改从 display 合成整份 panel 或 Part map，再替换该组，仍会覆盖另一窗口在同组里保存的不同字段。尺寸部分明确写了主动叶补丁，定制部分没有固定同等粒度。
+- **为什么是问题**：store 故意保留旧 display。因此 panel 组内的未改字段也可能已经过期；即使不发生 CAS 冲突，本次发送也可能以最新 base 的 revision 成功写入旧 position。CAS 只防过期 revision，不识别 reducer 究竟改了几个字段；冲突重放同一个整组 replacement 也救不回来。“两个窗口都改 position”本来只能让后一次有效写入胜出，验收必须区分同字段竞争与不同字段保留。
+- **依据**：
+  - `docs/proposals/workbench-shell-abstractions.md:230–232,293–296`：只重放本次主动修改的字段，其余字段与未知数据保留。
+  - `docs/specs/state/store.md` 输出 7、9–11，验收 1：change 在 display、base 和冲突最新值上多次调用；底座不做通用 JSON 合并，验收使用两个独立字段。
+  - `packages/neuro-book/src/shared/store/persisted.ts:274–280,294–303,370–385`：后续快照不改 display；保存与冲突重放应用同一 change。
+  - **真实运行实验**：`review-smoke.ts` 经 `storageWorld` 的真实内核、Storage 代理、JSON 帧与 SQLite，两个窗口使用同一客户端身份。A 保存 `position=left`，B 的 base 收到 left、display 仍 bottom；B 使用 `panel={...display.panel, alignment:right}` 和 `commit(current => ({...current, panel}))`，磁盘 revision `2` 变成 `position=bottom, alignment=right`，A 的位置丢失。改为 `panel={...current.panel, alignment:left}` 后，revision `4` 同时保留 A 的 `position=right` 与 B 的 `alignment=left`。最终完整 smoke 退出 0，全部 11 个实例正常停止。
+  - t65 尚无实现；已核实的是计划中“根合并 + 组替换”的指引不足，不能据此声称现有 t65 代码已经丢写。
+- **建议改法**：在计划中给出一个字段级 reducer，例如 `commit(current => ({...current, panel:{...current.panel, position}}))`；`hiddenParts` 按本次 Part 的增删意图重算，`dragCollapsed` 按本次 map 的键合并。不要捕获整份 display 作为待保存值。S2 分别验收 position/alignment 同组并发、两个 Part 位并发，以及同一 position 的后写胜出，不写笼统的“互不覆盖”。
+
+## F01：保存失败的恢复与用户反馈没有进入实施范围
+
+- **严重程度**：重要。
+- **类别**：正确性、失败与恢复。
+- **计划位置**：关键设计第 3 节“工作台 store 与布局记录”（第 34–35 行）、第 4 节“公开状态与面板命令”（第 47 行）、第 5 节“外壳组件”（第 52–58 行）、“验收映射”（第 98–101 行）。
+- **现象**：计划只列修改布局的 action，没有 `retry`、`discard`、`reopen` 的拥有者入口；外壳只列布局、项目信息与面板按钮，没有“未保存”反馈。验收只有坏记录和成功的双窗口路径，没有确定失败或结果不确定后恢复。记录读取“就绪”也没有与可保存区分。
+- **为什么是问题**：读取失败仍会让字段 `ready` 为 true，而 `canSave` 为 false。随后提交会更新 display，再以 `failed` 暂停队首；写请求断线则可能以 `unknown` 暂停。后续操作可以继续改 display 并排队，却不会发出；链路恢复、正常订阅快照或新用户操作都不替拥有者调用重试。按现有 action 表实施，用户会看到布局改变却不知道没有保存，且没有恢复或放弃通道。即使重开记录成功，也必须显式 `retry`。这不是底座自动承担的行为。
+- **依据**：
+  - `docs/proposals/workbench-shell-abstractions.md:227–231`：读取失败后允许临时调整并明确显示“未保存”；冲突再失败保留意图，提供重试与放弃。
+  - `docs/specs/state/store.md` 输出 11、13–16；“失败与恢复”第 139–143 行：确定失败、unknown、打开失败分别需要拥有者处理，不能保存时先 reopen。
+  - `packages/neuro-book/src/shared/store/persisted.ts:126–130`：ready 与 canSave 不等价；`:294–303`：先更新显示并排队；`:312–320`：读取失败暂停；`:344–355`、`:388–418`：失败/unknown 暂停，只有 retry 显式重发；`:435–445`：reopen 只重建订阅。
+  - `packages/neuro-book/src/shared/store/store.ts:31–37,180–188`：字段写方法只在 setup 闭包，读取方只拿数据；外壳不能从 `store.state` 直接恢复。
+  - **真实运行核实**：最终 `bun review-smoke.ts` 运行经真实内核、Storage、JSON 帧与 SQLite：读取错误后字段 `ready=true`、`canSave=false`，修改返回 `failed`；恢复数据库后 `reopen` 成功，但 `save.state=failed`、队列长度仍为 1，只有 `retry` 才落盘。断链期间写入返回 `unknown`，重连后仍为 unknown 且队列长度为 1，显式 `retry` 后保存成功。t65 的用户界面尚未实现，具体反馈缺失的可见后果是推断。
+- **建议改法**：在现有工作台 store 增加按三条记录寻址的恢复 action，外壳提供一个统一保存状态区域即可，不另建保存会话。明确各字段的“读取已结算、可保存、正在保存、failed、unknown、protected”处理与反馈；保留读取失败后的临时操作；恢复时按现有字段合同 `reopen → retry`，unknown 用原值重试，放弃调用 discard。把失败反馈和恢复行为加入 S2/S4 验收。
+
+## F04：呈现事实缺少 store 的写入口，环境降级也没有清除瞬时最大化
+
+- **严重程度**：重要。
+- **类别**：不变量、接口合同。
+- **计划位置**：关键设计第 3 节“工作台 store 与布局记录”（第 34 行）、第 4 节“公开状态与面板命令”（第 40–46 行）、第 5 节“外壳组件”（第 51–52 行）、验收映射第 95、97 行。
+- **现象**：计划把 `compact` 放在 store 内存并说明来自组件的呈现事实，组件也会发布模式和 `effectivePanel`；但 action 表只有用户定制和手势提交，没有接受呈现事实的 action。最大化的清除只列了位置、对齐、隐藏、收起变化，没有容器缩窄等投影失效路径。
+- **为什么是问题**：组件只能拿 store 的只读视图，不能直接把 `compact` 或 `effectivePanel` 写回去。如果按 action 表落地，`nonCompact` 和命令可用性无法跟随实测容器，几何与命令条件会分离。另一个独立边界是“宽屏最大化 → 紧凑 → 回宽屏”：纯投影在紧凑时返回 `maximized=false`，但不改宿主的内存位；宿主不显式清除，它会在回到宽屏时再次最大化。t65 尚未实现，上述产品现象是按缺失写入口实施后的推断。
+- **依据**：
+  - `docs/specs/state/store.md` 输出 2–3；`packages/neuro-book/src/shared/store/store.ts:175–188`：只读视图不提供写入口，写操作只经 setup 返回的 action。
+  - `docs/specs/ui/workbench-shell.md:87–88`：瞬时最大化不落盘；紧凑呈现禁用最大化，返回宽屏恢复偏好。
+  - 拟搬入的 `packages/neuro-book-legacy/app/utils/workbench/layout.ts:763–787`：每次纯投影从输入 `maximized` 算起，紧凑时只改本次有效输出为 false；没有跨次状态。
+  - `packages/neuro-book-legacy/app/utils/workbench/layout.ts:311–317` 与 `components/workbench/WorkbenchShellLayout.md:43–47`：呈现事实供宿主清过期最大化、判断命令可用性，不是保存意图。
+  - 旧产品宿主 `packages/neuro-book-legacy/app/components/workbench/WorkbenchShell.vue:151–164` 已实际包含事实回传后清宿主最大化的处理；这是照搬纯几何时必须一同保留的拥有者边界，不能指望几何模块替 store 写。
+- **建议改法**：在 S2 固定一个 `acceptLayoutFacts(facts)` action，S4 的 `layout` 事件只调用它；用同一份事实更新 compact 与实际面板状态，当前最大化失效时清内存位，不提交持久化。事实尚未到达时把依赖几何的布尔公开键保持不可用。验收宽屏最大化 → 容器进入紧凑 → 回宽屏，确认不会复活最大化、命令可用性同步、三条记录的 revision 都不因测量变化。
+
+## 未发现问题的方面
+
+- **现有 API 能实现分区选择，无须改 store API**。`defineStore` 的 setup 不接项目参数，但两份模块级定义可以由同一 setup 工厂闭包分别持有 project/user 记录，再在入口按 `windowProjectKey.project` 选择并 create。真实 smoke 的绑定窗口将尺寸 `333` 写到项目 SQLite，未绑定窗口的 user 尺寸记录仍为 missing。正式实现需要对侧栏尺寸、面板尺寸各选一份，共三个 persist 字段；不应同时打开两边的尺寸记录或增加全局 store 注册表。窗口绑定一生不变，已由 `docs/specs/runtime/browser-host.md:143` 与 `src/web/host/window.ts:174–175` 核实。
+- **base/display 分离与 accepted 设计一致**。同客户端 B 收到 A 的 base 后显示不变，真实 smoke 已验证。首个快照自动采用记录值；initial 不会自动落盘。无需另建旧式 CAS/订阅会话，也不应为了避免陈旧 reducer 而强行 adopt 所有外来值。F03 的修复应落在窄意图，不在显示策略。
+- **local 的“两窗口共用”成立，但只指同客户端**。`storage/persistence.md:30–31,107`、`src/web/host/client-identity.ts:26–41` 规定同源同浏览器配置的稳定身份；真实 smoke 两个相同身份共享、另一个身份隔离。浏览器本地存储不可用时退回页级随机身份，不能用不同浏览器配置或不同隔离上下文验收共用记录；这是既有退化合同，没有发现 t65 新缺陷。
+- **坏记录与未来版本的保护由底座提供**。真实 SQLite 中分别放入非法 JSON 与 version 2，两个入口都成功激活，默认显示、`ready=true`、`canSave=false`；普通 action 返回 protected，原始 value/version 均保留。计划已写默认回落与保留原件，未要求迁移旧应用数据，符合 Storage 边界。记录保护与读 I/O 错误不同：后者允许暂时改 display 并保留 failed 意图，恢复遗漏见 F01。
+- **尺寸只夹取呈现、手势只提交主动叶可以复用**。旧 `layout.ts:861–906` 只在有效结算中生成主动轴补丁，拖到零只写偏好位、保留展开尺寸；旧布局组件的测量与 `layout` 事实不写 Storage。计划把几何保留为纯模块并由产品宿主路由补丁，方向正确。这里是代码核对，未运行旧应用或 t65 组件。
+- **同值不写需要由 action 判断，计划已明确此要求**。真实 smoke 直接 commit 同值仍使 revision 从 `4` 到 `5`；这不是底座缺陷。实现应在提交前按 display 中本次主动字段判断 unchanged，不能为此改底座。`setPanelHidden(false)` 的同值判定要同时看 hidden 与 collapsed，因为“显示面板”需一次意图清两位；旧 `workbench-shell-commands.ts:426–439` 已有该语义，计划第 58、97 行保留了它，不另报遗漏。
+- **公开键与五条 requires 对齐**。设计稿列九个键，t65 明确推迟无消费者的 focusedPart，当前应贡献六个布尔键加两个字符串键，共八个。五条 requires 与设计稿第 7 节逐项相同；布尔未就绪 false、字符串 bottom/center、字符串不进入 when，符合 `state.public`。实际限定键必须用 `definePublicState(...).key(name)` 取得的 `nbook.workbench/<名>`（`shared/store/public.ts:33–40`），不是示意表中的 `workbench.<名>`。布局读取未完成时，绑定的 computed 也要返回未就绪值，不能只依赖声明的 unready；声明的 unready 仅覆盖没有有效绑定的情形。未发现需要第九个无消费者键、额外比较语法或第二套命令可用性表的理由。
+- **命令策略符合合同**。计划的 `effect: write`、Agent never、严格枚举与拒绝额外属性符合第二批命令；真实命令插件已验证拒绝未知枚举、额外字段及 Agent 调用。人类参数来源不成立的部分单列 F02。
+- **新增入口依赖不会把记录读取失败直接变成整个工作台失败**。Storage 浏览器入口只依赖窗口绑定，激活提供惰性门面，真正开库在 record.open；坏记录、不可读 SQLite 均在字段内结算，真实 smoke 已验证消费者入口成功激活。若 Storage 提供入口本身缺失或激活失败，则工作台必需依赖受阻并显示启动失败，符合必需服务的合同；不能把数据库错误混同于该情形。工作台 → commands → state/settings 与工作台 → storage → windowProject 没有新增依赖环；原配置浏览器 core 与需要 quickPick 的界面入口分开，不因工作台提供 quickPick 形成反向强依赖。
+- **释放与 t64/Lab 的边界已有实现，不需另建宿主**。store 登记在入口 scope，停止后旧 action 按类型拒绝，真实 smoke 已验证。`WorkbenchDocument.vue:38–43` 与 `WorkbenchCommandHost.vue:41–46` 都按页面卸载清理；计划保留两者在工作台页面，Lab 不挂产品宿主。离线时 `PageOutlet.vue:26–32` 保留页面；项目代次结束和服务端重启由 `host/window.ts:151–158` 先切宿主页并销毁运行实例。真实项目路由实验已验证原代次重连拒绝 project-gone；没有发现需要在外壳里再实现重连或中途切到 user 尺寸的理由。t65 手势与组件在终态卸载时的最终表现仍需实施者验证，本审查没有浏览器证据。
+- **切片未发现明显过度设计**。不搬 `layout-session.ts`、不引入容器/视图注册表、焦点公开键推迟、Lab 用局部状态、主题沿用 t64，都缩小了外壳一的部件数。上述四项补正可直接放回现有 store/命令/宿主边界，无须建立新保存框架。
+
+## 验证记录与限制
+
+所有实验配置、脚本、SQLite 数据和日志都在本报告目录；源码与正式计划保持只读。使用真实 Storage/store/命令插件与内核，链路为现有测试场地的进程内链路、帧经 JSON 编解码，没有验证 WebSocket、浏览器 DOM 或新外壳的最终行为。
+
+| 实际命令 | 运行目录 | 结果 |
+|---|---|---|
+| `prox bun install --frozen-lockfile` | 本审查 worktree 根 | 成功，`1560 packages installed [2.12s]`；根 postinstall 同时成功执行了 harness build，额外生成被忽略的 dist，见下面的环境偏差 |
+| `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/data/review-smoke.ts` | 本审查 worktree 根 | 首轮退出 1：断链立即写入实际返回 unknown，而初版断言预期 failed；纠正实验时序认识后，第二轮完整退出 0。两轮均关闭所有已启动实例。Bun 另输出目录 mismatch 内部诊断，后续在 scratch 自有 tsconfig 下运行没有该诊断 |
+| `bun review-smoke.ts` | 本报告目录 | 最终扩展 smoke 退出 0；base/display、组替换丢写与窄改保留、同值 revision、unknown 重试、读取失败 reopen/retry、坏记录与未来版本保护、project/user 选择、提供方停止、项目代次拒绝、store 停止和严格命令入口全部断言通过；Storage 场地 9 个实例、命令场地 2 个实例全部 closed |
+| `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t65-plan-data/node_modules/.bin/tsc -p tsconfig.json --noEmit` | 本报告目录 | 首轮退出 2：临时接口缺 store 的 Record 约束，临时配置未包含仓库既有 proper-lockfile 声明；修正临时类型并包含该声明后退出 0。只检查临时 smoke 及其导入，不等于应用全量 typecheck |
+| `git status --short --untracked-files=normal` | 本审查 worktree 根 | 退出 0，无输出：受跟踪文件和非忽略未跟踪文件没有变化 |
+
+最终运行原始 stdout 已保存到 `runtime-smoke.log`；脚本为 `review-smoke.ts`，配置为 `tsconfig.json`，最终运行数据目录为 `run-eb96598a-370c-4000-8863-7816390d4a17/`。没有运行仓库合同测试套件、产品全量 typecheck、开发服务、e2e、截图或变异检查；t65 尚未实现，F04 的产品后果仅是代码推断。
+
+**环境偏差**：审查说明将获准安装描述为“只写被忽略的 node_modules”，但根 `package.json:32` 的 postinstall 调用 harness build，`packages/neuro-agent-harness/tsconfig.build.json:4` 指向 dist。目录中生成文件的时间与安装一致，已核实产生了被忽略的 `packages/neuro-agent-harness/dist/`。没有改源码、锁文件或安装命令，也没有删除生成物；不得将 git status 干净表述成仓库绝无写入。
+
+## 待确认项与反思回写建议
+
+该计划没有独立的 t65 待确认项；Work 的待确认表没有 t65 条目。accepted 外壳设计与旧应用参照决定本轮不重审。四条发现都是合同接线或验收缺口，可由实施者修订；没有新增需要审查者代开发者决定的产品取舍。
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| R01 | 踩坑、规范缺陷 | 只读审查的依赖安装被描述成只写 node_modules，但获准命令触发 postinstall 生成 dist | 新增：“只读审查需要安装依赖时，先检查生命周期脚本；允许写 node_modules 不隐含授权其生成其它目录。需限制写入范围时使用禁用生命周期脚本的安装方式，或在审查说明中明确列出获准生成的目录。” | `.agents/skills/reviewing/SKILL.md` 的“规则” |
+
+该建议仅供主 Agent 汇总，未写入仓库规范。TypeScript 规则已存在，本次临时脚本已按静态导入、顶层类型导入、无 any 与命名合同修正，不建议重复回写。工具编辑解析异常已报送工具问题，没有扩大为仓库规范建议。
+
+## 数量
+
+共 4 条：**阻断 1**（F02）、**重要 3**（F03、F01、F04）、**建议 0**。R01 为审查流程反思，不计入 t65 计划缺陷数量。
