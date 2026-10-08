@@ -5,7 +5,7 @@
  * 本入口受阻、不激活，原因可查询。激活时用 `context.services.require` 直接取。
  */
 
-import {provide} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {clockKey} from "../../clock/shared/contracts";
 import {descriptor} from "../plugin";
@@ -13,7 +13,7 @@ import {greeterKey} from "../shared/contracts";
 
 export const greeterBackendPlugin: PluginDefinition = {
     id: descriptor.id,
-    entries: [{
+    entries: [defineEntry({
         id: "server",
         location: "server",
         dependencies: [{key: clockKey}],
@@ -22,7 +22,7 @@ export const greeterBackendPlugin: PluginDefinition = {
             const clock = context.services.require(clockKey);
             return {services: [provide(greeterKey, {greet: (name) => `${period(clock.hour())}好，${name}`})]};
         },
-    }],
+    })],
 };
 
 function period(hour: number): string {

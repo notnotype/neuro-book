@@ -5,6 +5,7 @@
  * 和服务端入口用同一个 `backend/` 目录：两种进程都是后端，区别只在入口声明的运行位置。
  */
 
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
@@ -13,7 +14,7 @@ import {boardContract} from "../shared/contracts";
 
 export const boardBackendPlugin: PluginDefinition = {
     id: descriptor.id,
-    entries: [{
+    entries: [defineEntry({
         id: "project",
         location: "project",
         remoteProvides: [boardContract],
@@ -42,5 +43,5 @@ export const boardBackendPlugin: PluginDefinition = {
                 }))],
             };
         },
-    }],
+    })],
 };

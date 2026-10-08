@@ -7,7 +7,7 @@
  * 是包装过的代理。
  */
 
-import {providePerConsumer} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, providePerConsumer} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {descriptor} from "../plugin";
@@ -16,7 +16,7 @@ import type {NotesService} from "../shared/contracts";
 
 export const notesBackendPlugin: PluginDefinition = {
     id: descriptor.id,
-    entries: [{
+    entries: [defineEntry({
         id: "server",
         location: "server",
         provides: [notesKey],
@@ -33,5 +33,5 @@ export const notesBackendPlugin: PluginDefinition = {
                 })],
             };
         },
-    }],
+    })],
 };

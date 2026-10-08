@@ -4,7 +4,7 @@
  * 不声明激活事件：只有当某个要激活的入口依赖它时，内核才先激活它。
  */
 
-import {provide} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {hostClockKey} from "../../../shared/host";
@@ -13,7 +13,7 @@ import {clockKey} from "../shared/contracts";
 
 export const clockBackendPlugin: PluginDefinition = {
     id: descriptor.id,
-    entries: [{
+    entries: [defineEntry({
         id: "server",
         location: "server",
         dependencies: [{key: hostClockKey}],
@@ -22,5 +22,5 @@ export const clockBackendPlugin: PluginDefinition = {
             const host = context.services.require(hostClockKey);
             return {services: [provide(clockKey, {now: () => host.now(), hour: () => new Date(host.now()).getUTCHours()})]};
         },
-    }],
+    })],
 };

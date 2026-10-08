@@ -3,6 +3,7 @@
  * 原插件（`via` 是代理入口），所以同一个插件在哪个窗口写都落在同一份里，不同插件互不可见。
  */
 
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
@@ -11,7 +12,7 @@ import {cloudNotesContract} from "../shared/contracts";
 
 export const cloudNotesBackendPlugin: PluginDefinition = {
     id: descriptor.id,
-    entries: [{
+    entries: [defineEntry({
         id: "server",
         location: "server",
         remoteProvides: [cloudNotesContract],
@@ -32,5 +33,5 @@ export const cloudNotesBackendPlugin: PluginDefinition = {
                 })],
             };
         },
-    }],
+    })],
 };

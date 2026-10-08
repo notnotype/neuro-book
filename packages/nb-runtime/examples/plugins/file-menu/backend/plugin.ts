@@ -3,6 +3,7 @@
  * 激活交出。与 `example.menu` 之间没有服务依赖，只经贡献点协作；贡献点 id 与声明类型从它的合同模块引用。
  */
 
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {MENU_POINT} from "../../menu/shared/contracts";
@@ -14,7 +15,7 @@ const CLOSE = `${descriptor.id}.close`;
 
 export const fileMenuBackendPlugin: PluginDefinition = {
     id: descriptor.id,
-    entries: [{
+    entries: [defineEntry({
         id: "server",
         location: "server",
         // 贡献要等本入口激活才交出实现，没有别的激活时机，所以启动即激活。
@@ -30,5 +31,5 @@ export const fileMenuBackendPlugin: PluginDefinition = {
             };
             return {contributions: {[MENU_POINT]: items}};
         },
-    }],
+    })],
 };

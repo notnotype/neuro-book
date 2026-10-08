@@ -9,7 +9,7 @@
  * `nbook.commands` 的命令、`nbook.workbench` 的页面都是这样接入的。
  */
 
-import {provide} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
 import type {ContributionDescriptor, ContributionHandle, ContributionReceiver, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {descriptor} from "../plugin";
@@ -29,7 +29,7 @@ export const menuBackendPlugin: PluginDefinition = {
     id: descriptor.id,
     // required：贡献写在入口下并给出实现；none：只有声明。
     contributionPoints: [{id: MENU_POINT, implementation: "required", validate: validateMenuItem}],
-    entries: [{
+    entries: [defineEntry({
         id: "server",
         location: "server",
         provides: [menuKey],
@@ -47,5 +47,5 @@ export const menuBackendPlugin: PluginDefinition = {
             };
             return {services: [provide(menuKey, menu)], receivers: {[MENU_POINT]: receiver}};
         },
-    }],
+    })],
 };

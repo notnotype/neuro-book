@@ -8,7 +8,7 @@
  * - `remote.on` 在门面方法被调用时才取，不能在门面工厂里取：工厂返回之后内核才签发这个身份。
  */
 
-import {providePerConsumer} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, providePerConsumer} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {descriptor} from "../plugin";
@@ -17,7 +17,7 @@ import type {CloudNotes} from "../shared/contracts";
 
 export const cloudNotesBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
-    entries: [{
+    entries: [defineEntry({
         id: "browser",
         location: "browser",
         provides: [cloudNotesKey],
@@ -31,5 +31,5 @@ export const cloudNotesBrowserPlugin: PluginDefinition = {
                 };
             })],
         }),
-    }],
+    })],
 };

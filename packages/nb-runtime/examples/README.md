@@ -70,10 +70,10 @@ plugins/<插件>/
 | [clock](plugins/clock/) | server | 依赖宿主能力里的时钟，包成共享的报时服务（`provide`）；不声明激活事件，有入口依赖它时才激活 |
 | [greeter](plugins/greeter/) | server | 依赖另一个插件的服务：服务键从对方的合同模块引用，激活前内核先解析依赖 |
 | [notes](plugins/notes/) | server | 按调用方生成门面（`providePerConsumer`）：每个插件只看到自己的数据，门面随调用方释放 |
-| [menu](plugins/menu/) | server | 定义贡献点：逐条校验声明、接收者维护表、每次执行经 `implementation()` 取实现 |
+| [menu](plugins/menu/) | server | 定义贡献点：逐条校验声明、贡献方发布后接收者经 `published` 放进表、每次执行经 `implementation()` 取实现 |
 | [file-menu](plugins/file-menu/) | server | 向贡献点提交声明与实现，与拥有者之间没有服务依赖 |
-| [counter](plugins/counter/) | server、browser | 一个插件两端之间的远程服务：合同、第一次调用时按需激活、订阅；浏览器入口把它包成本地服务 |
-| [board](plugins/board/) | project、browser | 项目级插件：每个项目实例一份，窗口经 `.at("project")` 到达它绑定的那个项目 |
+| [counter](plugins/counter/) | server | 远程服务：合同、第一次调用时按需激活、订阅、提供方看到的调用方；窗口里的插件直接用合同，不经本地服务转发 |
+| [board](plugins/board/) | project | 项目级插件：每个项目实例一份，窗口里的插件省略 `.at()` 即到达窗口绑定的那个项目 |
 | [cloud-notes](plugins/cloud-notes/) | server、browser | 浏览器入口以调用方身份代理（`remote.on`、`remoteDelegates`、代理允许清单），`nbook.storage` 的同款结构 |
 
 ## 场景
@@ -83,16 +83,17 @@ plugins/<插件>/
 | [01-services](scenarios/01-services.test.ts) | clock、greeter（宿主给时钟能力；不给时 clock 受阻） | [services](../../../docs/specs/runtime/services.md)、[plugins](../../../docs/specs/runtime/plugins.md)、[application](../../../docs/specs/runtime/application.md) |
 | [02-per-consumer](scenarios/02-per-consumer.test.ts) | notes | [services](../../../docs/specs/runtime/services.md) 输出第 11–12 条 |
 | [03-contribution-point](scenarios/03-contribution-point.test.ts) | menu、file-menu | [plugins](../../../docs/specs/runtime/plugins.md) 输出第 15–18 条 |
-| [04-remote-service](scenarios/04-remote-service.test.ts) | counter | [plugin-channel](../../../docs/specs/runtime/plugin-channel.md) |
+| [04-remote-service](scenarios/04-remote-service.test.ts) | counter（窗口里的面板直接调用；`orThrow` 只取值） | [plugin-channel](../../../docs/specs/runtime/plugin-channel.md) |
 | [05-delegating-proxy](scenarios/05-delegating-proxy.test.ts) | cloud-notes | [services](../../../docs/specs/runtime/services.md) 输出第 13 条、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md) 输出第 10 条 |
 | [06-project-instance](scenarios/06-project-instance.test.ts) | board | [projects](../../../docs/specs/runtime/projects.md)、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md) |
 
 - [`hosts.ts`](scenarios/hosts.ts) 像应用包的宿主那样把插件与宿主能力装进运行实例：服务端带路由，项目实例与窗口经 `@notnotype/nb-runtime/remote/testing` 的进程内链路连上它（产品里项目实例经 Bun IPC、窗口经 WebSocket，帧同样经 JSON 编解码），窗口按项目名绑定项目、可以断线重连；同一项目上一代停完才能起下一代。每个场景在 `afterEach` 里停止全部实例并核对正常关闭。
-- [`probes.ts`](scenarios/probes.ts) 的探针站在“使用这些服务的插件”的位置上，把拿到的服务交给场景；产品里没有这样的插件。
+- [`probes.ts`](scenarios/probes.ts) 的探针站在“使用这些服务的插件”的位置上，把拿到的本地服务（`serviceProbe`）或以探针身份的远程访问（`remoteProbe`）交给场景；产品里没有这样的插件。
 - 场景遵守 [测试写法](../../../docs/testing/README.md#测试写法)：真实内核实例，不用 mock、spy、假计时器与固定等待，时间由注入的时钟推进。
 
 ## 写法与维护
 
 - 示例只经包的公开入口（`@notnotype/nb-runtime/<机制>`）引用内核，和包外的插件一样，不深导入 `src/`。
+- 入口都用 `defineEntry` 定义，激活产出与静态声明不一致在编译期报错；按运行位置分支时在整个产出上分支。
 - 注释写这样做的原因与要遵守的约束，行为细节链接 Spec；一个插件只演示一两件事。
 - 内核的公开接口改动时，同一提交里更新受影响的示例；新增机制或出现新的典型用法时，补插件与场景。场景随 `bun run test` 运行，接口改了示例没跟上会直接失败。
