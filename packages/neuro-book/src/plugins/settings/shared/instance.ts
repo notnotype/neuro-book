@@ -19,11 +19,10 @@ import {providePerConsumer} from "@notnotype/nb-runtime/plugins";
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
 import type {WindowConnection} from "nbook/shared/host";
-import {isJson} from "nbook/shared/settings";
 import type {DeepReadonly, LayerInspection, SettingDefinition, SettingInspection, SettingLayer, SettingsService, SettingUpdateOptions, SettingWriteResult} from "nbook/shared/settings";
 
 import {settingsKey} from "./contracts";
-import {canonical, effectiveOf, supersedes} from "./layers";
+import {canonical, effectiveOf, supersedes, writeProblem} from "./layers";
 import type {DeclaredSetting, LayerEdit, LayerSnapshot, LayerWriteResult} from "./layers";
 
 export type LinkSubscribe =
@@ -68,10 +67,15 @@ type LayerState = {readonly status: "pending" | "unavailable"} | {readonly statu
 
 const LAYERS: ReadonlyArray<SettingLayer> = ["user", "project"];
 
+interface Registration {
+    readonly listener: (keys: ReadonlySet<string>) => void;
+}
+
 export function createSettingsInstance(options: SettingsInstanceOptions): SettingsInstance {
     const states = new Map<SettingLayer, ShallowRef<LayerState>>();
     for (const layer of LAYERS) if (options.layers[layer] !== undefined) states.set(layer, shallowRef<LayerState>({status: "pending"}));
-    const listeners = new Set<(keys: ReadonlySet<string>) => void>();
+    // 每次登记一项：同一个函数被两个调用方各登记一次是两项，一方取消或释放不影响另一方。
+    const listeners = new Set<Registration>();
     let closed = false;
 
     /** 本实例各层此刻的值；没有这一层或不可用时不出现。 */
@@ -96,9 +100,9 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
         const changed = new Set([...effective].filter(([key, text]) => lastEffective.get(key) !== text).map(([key]) => key));
         lastEffective = effective;
         if (changed.size === 0) return;
-        for (const listener of [...listeners]) {
+        for (const registration of [...listeners]) {
             try {
-                listener(changed);
+                registration.listener(changed);
             } catch (error) {
                 options.record("warn", "settings.listener.failed", "配置变化的监听出错", {keys: [...changed]}, error);
             }
@@ -201,7 +205,7 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
 
     const facade = (consumer: ConsumerIdentity): SettingsFacade => {
         let released = false;
-        const own = new Set<(keys: ReadonlySet<string>) => void>();
+        const own = new Set<Registration>();
         const declarationOf = <T>(setting: SettingDefinition<T>) => options.declarations.get(setting.key)?.declaration ?? setting.declaration;
 
         const service: SettingsService = {
@@ -218,22 +222,21 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
                 };
             },
             onDidChange: (listener) => {
-                if (released) return () => undefined;
-                listeners.add(listener);
-                own.add(listener);
+                const registration: Registration = {listener};
+                listeners.add(registration);
+                own.add(registration);
                 return () => {
-                    listeners.delete(listener);
-                    own.delete(listener);
+                    listeners.delete(registration);
+                    own.delete(registration);
                 };
             },
             update: async <T>(setting: SettingDefinition<T>, value: T | undefined, update: SettingUpdateOptions = {}): Promise<SettingWriteResult> => {
-                if (released || closed) return {ok: false, code: "unavailable", detail: "配置服务对象已释放"};
-                if (consumer.plugin === null) return {ok: false, code: "denied", detail: "只有插件入口能写配置"};
+                if (closed) return {ok: false, code: "unavailable", detail: "配置服务已停止"};
                 const declared = options.declarations.get(setting.key);
-                if (declared === undefined) return {ok: false, code: "undeclared", detail: `配置项 ${setting.key} 没有被接受的声明`};
-                if (value !== undefined && !isJson(value)) return {ok: false, code: "invalid-value", detail: `值不是 JSON 能如实表示的值`};
-                const layer = targetLayer(setting.key, declared, update.layer ?? "auto");
-                if (!declared.declaration.layers.includes(layer)) return {ok: false, code: "layer-not-allowed", detail: `配置项 ${setting.key} 不允许写 ${layer} 层`};
+                const requested: LayerEdit = value === undefined ? {kind: "delete"} : {kind: "set", value};
+                const layer = declared === undefined ? "user" : targetLayer(setting.key, declared, update.layer ?? "auto");
+                const problem = writeProblem(consumer.plugin, setting.key, declared, requested, layer);
+                if (problem !== null) return {ok: false, ...problem};
                 const link = options.layers[layer];
                 if (link === undefined) return {ok: false, code: layer === "project" ? "no-project" : "unavailable", detail: layer === "project" ? "这个实例没有项目层" : "这个实例没有用户层"};
                 // 先复制一份：排队与传输期间调用方再改原对象不影响这次写入。
@@ -258,7 +261,7 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
             release: () => {
                 if (released) return;
                 released = true;
-                for (const listener of own) listeners.delete(listener);
+                for (const registration of own) listeners.delete(registration);
                 own.clear();
             },
         };

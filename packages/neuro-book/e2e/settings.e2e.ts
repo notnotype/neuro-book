@@ -51,13 +51,11 @@ test.beforeEach(async () => {
     await rm(projectFile(), {force: true});
 });
 
-function watchConsole(page: Page): string[] {
-    const problems: string[] = [];
+function watchConsole(page: Page, problems: string[]): void {
     page.on("console", (message) => {
         if (message.type() === "error" || message.type() === "warning") problems.push(`${message.type()}: ${message.text()}`);
     });
     page.on("pageerror", (error) => problems.push(`pageerror: ${error.message}`));
-    return problems;
 }
 
 async function open(page: Page, path = "/"): Promise<void> {
@@ -91,11 +89,28 @@ async function choose(page: Page, text: string): Promise<void> {
 const html = (page: Page, name: "lang" | "data-nb-theme" | "data-nb-appearance") => page.locator("html").getAttribute(name);
 const pageBackground = (page: Page) => page.locator(".nb-empty-workbench").evaluate((element) => getComputedStyle(element).backgroundColor);
 
+/** 首页的背景、文字颜色与字体，以及同一位置上 `--bg-main`、`--text-main`、`--font-ui` 解析出的值（用探针元素求出）。 */
+const pageTokens = (page: Page) => page.locator(".nb-empty-workbench").evaluate((element) => {
+    const probe = document.createElement("div");
+    probe.style.cssText = "background-color: var(--bg-main); color: var(--text-main); font-family: var(--font-ui)";
+    element.append(probe);
+    const own = getComputedStyle(element);
+    const token = getComputedStyle(probe);
+    const result = {
+        actual: [own.backgroundColor, own.color, own.fontFamily],
+        tokens: [token.backgroundColor, token.color, token.fontFamily],
+    };
+    probe.remove();
+    return result;
+});
+
 test("两个窗口：一处用命令面板切换界面语言，另一处即时换成英文；面板文字跟着换；刷新后保持；设置文件的注释保留", async ({browser}) => {
     const context = await browser.newContext();
     const a = await context.newPage();
     const b = await context.newPage();
-    const problems = [...watchConsole(a), ...watchConsole(b)];
+    const problems: string[] = [];
+    watchConsole(a, problems);
+    watchConsole(b, problems);
     await open(a);
     await open(b);
     expect(await html(b, "lang")).toBe("zh-CN");
@@ -133,10 +148,14 @@ test("外部改用户层文件后主题与页面底色变化；项目层覆盖�
     await open(free);
     await expect.poll(() => html(free, "data-nb-theme")).toBe("nbook");
     const nbookBackground = await pageBackground(free);
+    const nbookTokens = await pageTokens(free);
+    expect(nbookTokens.actual).toEqual(nbookTokens.tokens);
 
     await writeFile(userFile(), "{\"nbook.workbench/theme\": \"macos\"}");
     await expect.poll(() => html(free, "data-nb-theme")).toBe("macos");
     await expect.poll(() => pageBackground(free)).not.toBe(nbookBackground);
+    const tokens = await pageTokens(free);
+    expect(tokens.actual).toEqual(tokens.tokens);
 
     await writeFile(projectFile(), "{\"nbook.workbench/theme\": \"nbook\"}");
     await open(bound, "/?project=book");

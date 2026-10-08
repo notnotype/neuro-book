@@ -3,6 +3,9 @@
  * 两端共用，不碰文件。
  */
 
+import {Value} from "typebox/value";
+
+import {isJson} from "nbook/shared/settings";
 import type {SettingDeclaration, SettingLayer, SettingSource, SettingsFailure} from "nbook/shared/settings";
 
 /** 拥有者进程的启动标识加进程内单调递增的序号；只有启动标识相同的两个修订号可以比较先后。 */
@@ -77,4 +80,17 @@ export function effectiveOf(key: string, declaration: SettingDeclaration, layers
         return {value: values[key], source: layer};
     }
     return {value: declaration.default, source: "default"};
+}
+
+/**
+ * 写入的核对（configuration.md 输出 11 的顺序：已声明、声明者、值、允许的层）。实例在选路前、拥有者在落盘前各做一遍：
+ * 实例给调用方正确的失败原因，拥有者守住副作用的边界，两处用同一个函数，顺序不会走样。
+ */
+export function writeProblem(plugin: string | null, key: string, declared: DeclaredSetting | undefined, edit: LayerEdit, layer: SettingLayer): {readonly code: SettingsFailure; readonly detail: string} | null {
+    if (declared === undefined) return {code: "undeclared", detail: `配置项 ${key} 没有被接受的声明`};
+    if (plugin !== declared.plugin) return {code: "denied", detail: `配置项 ${key} 由 ${declared.plugin} 声明，${plugin ?? "宿主"} 不能写`};
+    if (edit.kind === "set" && !isJson(edit.value)) return {code: "invalid-value", detail: "值不是 JSON 能如实表示的值"};
+    if (edit.kind === "set" && !Value.Check(declared.declaration.schema, edit.value)) return {code: "invalid-value", detail: `值不符合配置项 ${key} 的 schema`};
+    if (!declared.declaration.layers.includes(layer)) return {code: "layer-not-allowed", detail: `配置项 ${key} 不允许写 ${layer} 层`};
+    return null;
 }

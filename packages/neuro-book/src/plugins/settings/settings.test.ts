@@ -7,13 +7,15 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 
+import {computed} from "@vue/reactivity";
+
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {Type} from "typebox";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {defineSetting} from "nbook/shared/settings";
+import {defineSetting, SETTINGS_POINT} from "nbook/shared/settings";
 import type {SettingsService} from "nbook/shared/settings";
 
 import {RELOAD_DELAY_MS} from "./backend/layer-owner";
@@ -182,12 +184,18 @@ describe("合成与跨实例分发", () => {
         await writeFile(created.userFile, "{\"x.ui/theme\": \"nbook\"}");
         await settle(created, "窗口收到外部修改", () => service(w.ui).get(theme) === "nbook");
 
+        // 界面经 computed 读层状态：层状态变了 computed 要失效，值不变时不发变化通知。
+        const status = computed(() => service(w.ui).inspect(theme).user.status);
+        expect(status.value).toBe("ok");
+        const notified: string[][] = [];
+        service(w.ui).onDidChange((keys) => notified.push([...keys]));
         await writeFile(created.userFile, "{\"x.ui/theme\": ");
-        await settle(created, "窗口看到层无效", () => service(w.ui).inspect(theme).user.status === "invalid");
+        await settle(created, "窗口看到层无效", () => status.value === "invalid");
         expect(service(w.ui).get(theme)).toBe("nbook");
         expect(await service(w.ui).update(theme, "macos")).toMatchObject({ok: false, code: "layer-invalid"});
         await writeFile(created.userFile, "{\"x.ui/theme\": \"nbook\"}");
-        await settle(created, "窗口看到层恢复", () => service(w.ui).inspect(theme).user.status === "ok");
+        await settle(created, "窗口看到层恢复", () => status.value === "ok");
+        expect(notified).toEqual([]);
     });
 });
 
@@ -205,9 +213,15 @@ describe("授权与值", () => {
         expect(await service(w.ui).update(font, {family: "mono", size: Number.NaN})).toMatchObject({ok: false, code: "invalid-value"});
         expect(await service(w.ui).update(locale, "en-US", {layer: "project"})).toMatchObject({ok: false, code: "layer-not-allowed"});
         expect(await service(hub.ui).update(theme, "macos", {layer: "project"})).toMatchObject({ok: false, code: "no-project"});
+        // 同时违反几条时按输出 11 的顺序报第一条：非声明者先于层与值，值先于层。
+        expect(await service(w.other).update(locale, "en-US", {layer: "project"})).toMatchObject({ok: false, code: "denied"});
+        expect(await service(hub.other).update(theme, "macos", {layer: "project"})).toMatchObject({ok: false, code: "denied"});
+        expect(await service(w.other).update(font, {family: "mono", size: Number.NaN})).toMatchObject({ok: false, code: "denied"});
+        expect(await service(w.ui).update(locale, "fr-FR" as "zh-CN", {layer: "project"})).toMatchObject({ok: false, code: "invalid-value"});
         // 审计看到的调用方是原插件，经 nbook.settings 代理。
+        expect(await service(w.ui).update(theme, "macos")).toEqual({ok: true});
         const audit = created.diagnostics("hub").query({}).records.filter((entry) => entry.event === "settings.write");
-        expect(audit.map((entry) => entry.data)).toContainEqual({key: theme.key, layer: "user", plugin: "x.other", via: "nbook.settings", code: "denied"});
+        expect(audit.map((entry) => entry.data)).toContainEqual({key: theme.key, layer: "user", plugin: "x.ui", via: "nbook.settings", code: "ok"});
     });
 
     it("读到的对象值深冻结：改不动，也影响不到别的读取方；写入前复制，之后改原对象不影响写入", async () => {
@@ -226,6 +240,21 @@ describe("授权与值", () => {
         next.size = 1;
         expect(await writing).toEqual({ok: true});
         expect(service(w.ui).get(font)).toEqual({family: "serif", size: 20});
+    });
+});
+
+describe("手写的声明", () => {
+    it("不经 defineSetting 的声明：默认值在接受时复制并深冻结，读取方改不动，作者手里的原对象也不影响有效值", async () => {
+        const created = await world();
+        const raw = {schema: Type.Object({nested: Type.Object({label: Type.String()})}), default: {nested: {label: "a"}}, title, layers: ["user", "project"], restart: false};
+        const opts = defineSetting({plugin: "x.raw", name: "opts", schema: raw.schema, default: {nested: {label: "a"}}, title});
+        const probe: Probe = {service: null};
+        const rawPlugin: PluginDefinition = {...plugin("x.raw", "browser", probe), contributions: [{capability: SETTINGS_POINT, id: opts.key, declaration: raw}]};
+        await created.window("w", [rawPlugin], {bound: false});
+        const value = service(probe).get(opts);
+        expect(Object.isFrozen(value) && Object.isFrozen(value.nested)).toBe(true);
+        raw.default.nested.label = "changed";
+        expect(service(probe).get(opts)).toEqual({nested: {label: "a"}});
     });
 });
 

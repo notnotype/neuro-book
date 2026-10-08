@@ -79,6 +79,11 @@ describe("searchCommands", () => {
         expect(searchCommands(commands, "undo", [], "en-US")[0]).toMatchObject({label: "撤销", category: "Edit"});
     });
 
+    it("别的界面语言下的标题也能命中，不渲染片段（语言切换后旧输入仍命中）", () => {
+        const theme = command("nbook.workbench.switch-theme", "切换主题", {title: {"zh-CN": "切换主题", "en-US": "Change Theme"}});
+        expect(searchCommands([theme], "切换主题", [], "en-US")).toMatchObject([{id: "nbook.workbench.switch-theme", label: "Change Theme", labelMatches: undefined}]);
+    });
+
     it("按 id 命中也算候选，但不渲染标亮片段", () => {
         const items = searchCommands(commands, "open-line", [], "zh-CN");
         expect(items.map((item) => item.id)).toEqual(["nbook.quick-open.open-line"]);
@@ -108,9 +113,9 @@ describe("searchCommands", () => {
 
 describe("选择模式的候选", () => {
     const items = [
-        {id: "b", label: "book", detail: "/drafts/book"},
-        {id: "a", label: "alpha", detail: "/books/alpha"},
-        {id: "c", label: "cookbook"},
+        {id: "b", label: "book", detail: "/drafts/book", alternates: []},
+        {id: "a", label: "alpha", detail: "/books/alpha", alternates: []},
+        {id: "c", label: "cookbook", alternates: []},
     ];
 
     it("空查询保持请求里的次序；标签与说明都参与匹配，只有标签命中才给片段", () => {
@@ -118,5 +123,10 @@ describe("选择模式的候选", () => {
         const byDetail = searchPickItems(items, "drafts");
         expect(byDetail).toEqual([{id: "b", label: "book", description: "/drafts/book", labelMatches: undefined}]);
         expect(searchPickItems(items, "book").map((item) => [item.id, item.labelMatches])).toEqual([["b", [[0, 4]]], ["a", undefined], ["c", [[4, 8]]]]);
+    });
+
+    it("别的界面语言下的写法也能匹配，不给片段（语言切换后旧输入仍命中）", () => {
+        const shown = [{id: "nbook", label: "NeuroBook", detail: "current", alternates: ["当前"]}, {id: "macos", label: "macOS", alternates: []}];
+        expect(searchPickItems(shown, "当前")).toEqual([{id: "nbook", label: "NeuroBook", description: "current", labelMatches: undefined}]);
     });
 });

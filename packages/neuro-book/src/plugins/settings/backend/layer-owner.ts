@@ -9,16 +9,14 @@
 
 import {randomUUID} from "node:crypto";
 
-import {Value} from "typebox/value";
 
 import type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
-import {isJson} from "nbook/shared/settings";
 import type {SettingDeclaration, SettingLayer, SettingsFailure} from "nbook/shared/settings";
 
-import {canonical, sameContent} from "../shared/layers";
+import {canonical, sameContent, writeProblem} from "../shared/layers";
 import type {DeclaredSetting, LayerContent, LayerEdit, LayerProblem, LayerSnapshot, LayerWriteResult} from "../shared/layers";
 import {readLayerFile, writeLayerFile} from "./layer-file";
 import {editLayerText, parseLayerText} from "./layer-text";
@@ -137,11 +135,8 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
 
     const admitAndWrite = (consumer: ConsumerIdentity, key: string, edit: LayerEdit): Promise<OwnerWriteResult> | OwnerWriteResult => {
         if (closed) return {ok: false, code: "unavailable", detail: "配置层的拥有者已停止"};
-        const declared = options.declarations().get(key);
-        if (declared === undefined) return {ok: false, code: "undeclared", detail: `配置项 ${key} 没有被接受的声明`};
-        if (consumer.plugin !== declared.plugin) return {ok: false, code: "denied", detail: `配置项 ${key} 由 ${declared.plugin} 声明，${consumer.plugin ?? "宿主"} 不能写`};
-        if (edit.kind === "set" && (!isJson(edit.value) || !Value.Check(declared.declaration.schema, edit.value))) return {ok: false, code: "invalid-value", detail: `值不符合配置项 ${key} 的 schema`};
-        if (!declared.declaration.layers.includes(options.layer)) return {ok: false, code: "layer-not-allowed", detail: `配置项 ${key} 不允许写 ${options.layer} 层`};
+        const problem = writeProblem(consumer.plugin, key, options.declarations().get(key), edit, options.layer);
+        if (problem !== null) return {ok: false, ...problem};
         // 核对通过即接纳：同步排进队列，之后的停止会等它走完（“时序与寿命”第 4 条）。
         return enqueue(async (): Promise<OwnerWriteResult> => {
             const written = await writeLayerFile(options.path, (text) => {

@@ -6,6 +6,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
+import {existsSync, mkdirSync, renameSync, rmSync, writeFileSync} from "node:fs";
 import {chmod, lstat, mkdir, readdir, readFile, readlink, rename, rm, stat, symlink, unlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
@@ -22,6 +23,7 @@ import {defineSetting} from "nbook/shared/settings";
 import type {SettingLayer} from "nbook/shared/settings";
 
 import type {DeclaredSetting, LayerSnapshot} from "../shared/layers";
+import {writeLayerFile} from "./layer-file";
 import {createLayerOwner, RELOAD_DELAY_MS} from "./layer-owner";
 import type {LayerOwner} from "./layer-owner";
 
@@ -167,7 +169,8 @@ describe("读取与外部修改", () => {
         const scheduled = clock.scheduled;
         await writeFile(path, "{\"x.ui/size\": 2}");
         await waitUntil("第二次写入的事件重新计时", () => clock.scheduled > scheduled);
-        clock.advance(RELOAD_DELAY_MS - 1);
+        // 期望值按 Spec 输出 9 的 50 毫秒写死，不取实现的常量。
+        clock.advance(49);
         expect(clock.pending).toBe(1);
         clock.advance(1);
         await waitUntil("重读完成", () => owner.snapshot().values["x.ui/size"] === 2);
@@ -267,6 +270,39 @@ describe("读取与外部修改", () => {
         await settle("目标重建后生效", (snapshot) => snapshot.values["x.ui/size"] === 33);
     });
 
+    it("祖先目录是符号链接：链接改指另一个目录后，改新目录里的文件生效", async () => {
+        const root = await directory();
+        await mkdir(join(root, "a"));
+        await mkdir(join(root, "b"));
+        await writeFile(join(root, "a", "settings.json"), "{\"x.ui/size\": 1}");
+        await writeFile(join(root, "b", "settings.json"), "{\"x.ui/size\": 2}");
+        await symlink(join(root, "a"), join(root, "state"));
+        const {settle} = await start(join(root, "state", "settings.json"));
+        expect(await settle("初始值", (snapshot) => snapshot.values["x.ui/size"])).toBe(1);
+
+        await symlink(join(root, "b"), join(root, "state.new"));
+        await rename(join(root, "state.new"), join(root, "state"));
+        await settle("改指后读到新目录", (snapshot) => snapshot.values["x.ui/size"] === 2);
+        await writeFile(join(root, "b", "settings.json"), "{\"x.ui/size\": 7}");
+        await settle("改新目录里的文件生效", (snapshot) => snapshot.values["x.ui/size"] === 7);
+    });
+
+    it("经 11 个链接到达的文件：改最终目标生效", async () => {
+        const root = await directory();
+        const target = join(root, "final.json");
+        await writeFile(target, "{\"x.ui/size\": 1}");
+        let previous = target;
+        for (let index = 0; index < 11; index += 1) {
+            const link = join(root, `link-${String(index)}`);
+            await symlink(previous, link);
+            previous = link;
+        }
+        const {settle} = await start(previous);
+        expect(await settle("初始值", (snapshot) => snapshot.values["x.ui/size"])).toBe(1);
+        await writeFile(target, "{\"x.ui/size\": 7}");
+        await settle("改最终目标生效", (snapshot) => snapshot.values["x.ui/size"] === 7);
+    });
+
     it("被丢弃的键记诊断（键与原因，不含值），同一份内容只记一次", async () => {
         const root = await directory();
         const path = join(root, "settings.json");
@@ -307,18 +343,34 @@ describe("写入", () => {
         expect(published.slice(before).map((snapshot) => snapshot.values)).toEqual([{"x.ui/theme": "macos"}, {"x.ui/theme": "macos", "x.ui/size": 9}]);
     });
 
-    it("文件或目录不存在时首次写入才创建；删除不存在的键无副作用；权限位沿用原文件", async () => {
+    it("文件或目录不存在时首次写入才创建；删除不存在的键、写入与当前相同的值都不碰文件（只读也成功）；权限位沿用原文件", async () => {
         const root = await directory();
         const path = join(root, ".nbook", "settings.json");
         const {owner} = await start(path, "project");
         expect(await owner.write(ui, theme.key, {kind: "delete"})).toMatchObject({ok: true});
-        expect(await readdir(root)).toEqual([".nbook"]);
+        expect(await readdir(root)).toEqual([]);
         expect(await owner.write(ui, theme.key, {kind: "set", value: "macos"})).toMatchObject({ok: true});
         expect(JSON.parse(await readFile(path, "utf8"))).toEqual({"x.ui/theme": "macos"});
 
         await chmod(path, 0o600);
         expect(await owner.write(ui, size.key, {kind: "set", value: 3})).toMatchObject({ok: true});
         expect((await stat(path)).mode & 0o777).toBe(0o600);
+        expect(await readdir(join(root, ".nbook"))).toEqual(["settings.json"]);
+
+        // 只读文件：与当前相同的写入、删除不存在的键都成功，文件身份与修改时间不变。
+        await chmod(path, 0o400);
+        const identity = await stat(path);
+        expect(await owner.write(ui, theme.key, {kind: "set", value: "macos"})).toMatchObject({ok: true});
+        expect((await stat(path)).mtimeMs).toBe(identity.mtimeMs);
+        await chmod(path, 0o600);
+        expect(await owner.write(ui, size.key, {kind: "delete"})).toMatchObject({ok: true});
+        await chmod(path, 0o400);
+        const deleted = await stat(path);
+        expect(deleted.ino).not.toBe(identity.ino);
+        expect(await owner.write(ui, size.key, {kind: "delete"})).toMatchObject({ok: true});
+        const after = await stat(path);
+        expect([after.ino, after.mtimeMs]).toEqual([deleted.ino, deleted.mtimeMs]);
+        await chmod(path, 0o600);
         expect(await readdir(join(root, ".nbook"))).toEqual(["settings.json"]);
     });
 
@@ -398,6 +450,51 @@ describe("写入", () => {
         expect(Object.keys(written).sort()).toEqual([...["a", "b"].flatMap((prefix) => Array.from({length: count}, (_unused, index) => `x.race/${prefix}${String(index)}`))].sort());
         expect(await readdir(root)).toEqual(["settings.json"]);
     }, 30_000);
+
+    it("改名前文件被外部编辑器替换：从新文本重做，两边的键都在；每次都被改动则三次后 write-failed，外部内容不被覆盖", async () => {
+        const root = await directory();
+        const path = join(root, "settings.json");
+        await writeFile(path, "{}");
+        const lockPath = `${path}.lock`;
+        let external = 0;
+        // 持锁阶段（锁目录已在）算新文本时，像编辑器那样写临时文件再改名替换：发生在读文本之后、改名核对之前。
+        const editorSaves = (limit: number) => (current: string) => {
+            if (existsSync(lockPath) && external < limit) {
+                external += 1;
+                writeFileSync(`${path}.editor`, `{"x.ext/n": ${String(external)}}`);
+                renameSync(`${path}.editor`, path);
+            }
+            const value = JSON.parse(current) as Record<string, unknown>;
+            return {ok: true as const, text: JSON.stringify({...value, "x.ui/size": 1})};
+        };
+        expect(await writeLayerFile(path, editorSaves(1), () => undefined)).toMatchObject({ok: true});
+        expect(JSON.parse(await readFile(path, "utf8"))).toEqual({"x.ext/n": 1, "x.ui/size": 1});
+
+        external = 0;
+        await writeFile(path, "{}");
+        expect(await writeLayerFile(path, editorSaves(3), () => undefined)).toMatchObject({ok: false, code: "write-failed"});
+        expect(JSON.parse(await readFile(path, "utf8"))).toEqual({"x.ext/n": 3});
+        expect(await readdir(root)).toEqual(["settings.json"]);
+    });
+
+    it("写入锁在持有期间被别的进程接管（锁目录被删掉重建）：放弃这次写入、write-failed，文件不变、不留临时文件", async () => {
+        const root = await directory();
+        const path = join(root, "settings.json");
+        await writeFile(path, "{}");
+        const lockPath = `${path}.lock`;
+        const result = await writeLayerFile(path, (current) => {
+            // 持锁阶段（锁目录已在）模拟别的进程判残留后的接管：proper-lockfile 正是删掉锁目录再建。
+            if (existsSync(lockPath)) {
+                rmSync(lockPath, {recursive: true});
+                mkdirSync(lockPath);
+            }
+            return {ok: true, text: current === "{}" ? "{\"x.ui/size\": 1}" : current};
+        }, () => undefined);
+        expect(result).toMatchObject({ok: false, code: "write-failed", detail: expect.stringContaining("接管")});
+        expect(await readFile(path, "utf8")).toBe("{}");
+        await rm(lockPath, {recursive: true});
+        expect(await readdir(root)).toEqual(["settings.json"]);
+    });
 
     it("停止：之后的写入为 unavailable，不再发布；不留临时文件与锁", async () => {
         const root = await directory();

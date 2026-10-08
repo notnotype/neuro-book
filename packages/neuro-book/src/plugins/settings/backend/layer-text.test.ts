@@ -84,6 +84,13 @@ describe("editLayerText", () => {
         expect(twoSpaces).toBe("{\n  \"x.ui/theme\": \"nbook\",\n  \"x.ui/editor.fontSize\": 14\n}\n");
     });
 
+    it("新增键：最后一个键的行尾注释仍跟着它，不规则空白与单行写法不动，尾随逗号的风格沿用", () => {
+        expect(textOf(editLayerText("{\"unrelated\"  :  1 /* 行尾 */}", theme.key, {kind: "set", value: "macos"}))).toBe("{\"unrelated\"  :  1, /* 行尾 */ \"x.ui/theme\": \"macos\"}");
+        expect(textOf(editLayerText("{\n    \"a\":   1 // 说明\n}\n", theme.key, {kind: "set", value: "macos"}))).toBe("{\n    \"a\":   1, // 说明\n    \"x.ui/theme\": \"macos\"\n}\n");
+        expect(textOf(editLayerText("{\n  \"a\": 1,\n}\n", theme.key, {kind: "set", value: "macos"}))).toBe("{\n  \"a\": 1,\n  \"x.ui/theme\": \"macos\",\n}\n");
+        expect(textOf(editLayerText("{\n  \"a\": 1\n}\n", font.key, {kind: "set", value: {family: "mono", size: 14}}))).toBe("{\n  \"a\": 1,\n  \"x.ui/font\": {\n    \"family\": \"mono\",\n    \"size\": 14\n  }\n}\n");
+    });
+
     it("删除独占一行的首、中、末键：只删那一行，其它行（含别的键前的注释）不动", () => {
         expect(textOf(editLayerText(commented, theme.key, {kind: "delete"}))).toBe("{\n    // 外观\n    \"other.plugin/thing\": {\"a\": 1},\n    /* 字号 */\n    \"x.ui/editor.fontSize\": 12\n}\n");
         expect(textOf(editLayerText(commented, "other.plugin/thing", {kind: "delete"}))).toBe("{\n    // 外观\n    \"x.ui/theme\": \"nbook\", // 行尾注释\n    /* 字号 */\n    \"x.ui/editor.fontSize\": 12\n}\n");

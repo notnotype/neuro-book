@@ -2,8 +2,8 @@
  * 监视一层配置文件的外部修改（docs/specs/settings/configuration.md 输出 9）。
  *
  * 不直接监视文件：编辑器常以“写临时文件再改名替换”保存，替换后对旧文件的监视就收不到后续事件。改为监视路径上
- * 最近存在的那一级目录，只理会通往文件的下一级名字（以及没有文件名的事件、目录自己的事件）；是符号链接时再监视
- * 链接目标路径上最近存在的那一级目录。每次相关事件后静止 `delayMs` 再“协调”：重算要监视的目录、关掉不再需要的、
+ * 最近存在的那一级目录，只理会通往文件的下一级名字（以及没有文件名的事件、目录自己的事件）。路径上有符号链接时
+ * （文件本身或任一级祖先目录），再监视每个链接所在的目录：链接改指在那里有事件。每次相关事件后静止 `delayMs` 再“协调”：重算要监视的目录、关掉不再需要的、
  * 建上新的，然后通知拥有者重读。这样覆盖首次没有目录、`.nbook` 被删后重建、链接改指、目标被删后重建。
  *
  * 已知限制：网络文件系统与部分容器挂载上 `fs.watch` 可能收不到事件，此时外部修改到下一次写入或重启才生效。
@@ -12,14 +12,14 @@
 import {watch} from "node:fs";
 import type {FSWatcher} from "node:fs";
 import {lstat, readlink, stat} from "node:fs/promises";
-import {basename, dirname, resolve} from "node:path";
+import {basename, dirname, join, parse, resolve, sep} from "node:path";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import {errno} from "./layer-file";
 
-/** 链接链最多跟几层；再多当作环，停止往下找。 */
-const MAX_LINK_HOPS = 8;
+/** 解析一条路径最多经过几个符号链接（Linux 的 MAXSYMLINKS）；再多读文件也是 ELOOP，停止往下找。 */
+const MAX_LINK_HOPS = 40;
 
 export interface LayerWatchOptions {
     readonly path: string;
@@ -136,23 +136,49 @@ interface Desired {
     readonly names: Set<string>;
 }
 
-/** 要监视的目录与各自相关的名字：配置文件路径一条链，是符号链接时每一跳的目标路径再各一条。 */
+/** 要监视的目录与各自相关的名字：途经的每个符号链接一条链，最终路径一条链。 */
 async function desiredDirectories(path: string): Promise<Map<string, Desired>> {
     const desired = new Map<string, Desired>();
-    let current = resolve(path);
-    for (let hop = 0; hop <= MAX_LINK_HOPS; hop += 1) {
-        await addChain(desired, current);
-        let next: string;
+    const walked = await walkLinks(resolve(path));
+    for (const link of walked.links) await addChain(desired, link);
+    await addChain(desired, walked.final);
+    return desired;
+}
+
+/**
+ * 逐级解析路径（与内核解析文件路径同一语义），记下途经的每个符号链接的位置与最终路径。链接位置的父目录都是解析过的
+ * 真实目录。某一级不存在时停在那里，最终路径带着没有解析的余下部分。
+ */
+async function walkLinks(path: string): Promise<{readonly links: ReadonlyArray<string>; readonly final: string}> {
+    const links: string[] = [];
+    let prefix = parse(path).root;
+    let pending = components(path);
+    while (pending.length > 0) {
+        const [name, ...rest] = pending as [string, ...string[]];
+        const candidate = join(prefix, name);
+        let isLink: boolean;
         try {
-            if (!(await lstat(current)).isSymbolicLink()) break;
-            next = resolve(dirname(current), await readlink(current));
+            isLink = (await lstat(candidate)).isSymbolicLink();
         } catch (error) {
-            if (errno(error) === "ENOENT" || errno(error) === "ENOTDIR") break;
+            if (errno(error) === "ENOENT" || errno(error) === "ENOTDIR") return {links, final: join(candidate, ...rest)};
             throw error;
         }
-        current = next;
+        if (!isLink) {
+            prefix = candidate;
+            pending = rest;
+            continue;
+        }
+        if (links.length >= MAX_LINK_HOPS) return {links, final: join(candidate, ...rest)};
+        links.push(candidate);
+        const target = resolve(prefix, await readlink(candidate));
+        prefix = parse(target).root;
+        pending = [...components(target), ...rest];
     }
-    return desired;
+    return {links, final: prefix};
+}
+
+function components(path: string): string[] {
+    return path.slice(parse(path).root.length).split(sep).filter((part) => part !== "");
 }
 
 /** 路径上最近存在的那一级目录，相关的名字是通往路径的下一级名字与这个目录自己的名字。 */

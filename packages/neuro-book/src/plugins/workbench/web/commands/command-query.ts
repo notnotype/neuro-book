@@ -6,7 +6,7 @@
  */
 
 import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {DisplayLocale, DisplayText} from "nbook/shared/localized-text";
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
 
 
@@ -136,9 +136,9 @@ export function searchCommands(commands: readonly CommandMetadata[], query: stri
     for (const command of commands) {
         const title = localize(command.title, locale);
         const titleMatch = matchCommandText(title, query);
-        const idMatch = matchCommandText(command.id, query);
-        const titleWins = titleMatch !== null && (idMatch === null || titleMatch.score <= idMatch.score);
-        const match = titleWins ? titleMatch : idMatch;
+        const otherMatch = bestMatch([command.id, ...otherTexts(command.title, locale)], query);
+        const titleWins = titleMatch !== null && (otherMatch === null || titleMatch.score <= otherMatch.score);
+        const match = titleWins ? titleMatch : otherMatch;
         if (match === null) continue;
         scored.push({
             item: {
@@ -157,11 +157,29 @@ export function searchCommands(commands: readonly CommandMetadata[], query: stri
     return scored.map((entry) => entry.item);
 }
 
-/** 已按当前语言取好文字的选择候选。 */
+/** 已按当前语言取好文字的选择候选；`alternates` 是标签与说明在别的界面语言下的写法，只参与匹配。 */
 export interface ShownPickItem {
     readonly id: string;
     readonly label: string;
     readonly detail?: string;
+    readonly alternates: ReadonlyArray<string>;
+}
+
+/**
+ * 别的界面语言下的写法。语言切换时面板的输入保留（quick-open.md），已经输入的文字可能是旧语言的，所以候选在各语言下
+ * 的写法都参与匹配；片段只在当前语言的文字命中时渲染。
+ */
+export function otherTexts(text: DisplayText, locale: DisplayLocale): string[] {
+    return typeof text === "string" ? [] : Object.entries(text).filter(([key]) => key !== locale).map(([, value]) => value);
+}
+
+function bestMatch(texts: ReadonlyArray<string>, query: string): ReturnType<typeof matchCommandText> {
+    let best: ReturnType<typeof matchCommandText> = null;
+    for (const text of texts) {
+        const match = matchCommandText(text, query);
+        if (match !== null && (best === null || match.score < best.score)) best = match;
+    }
+    return best;
 }
 
 /**
@@ -172,7 +190,7 @@ export function searchPickItems(items: ReadonlyArray<ShownPickItem>, query: stri
     const scored: {item: PaletteItem; score: number; index: number}[] = [];
     items.forEach((candidate, index) => {
         const labelMatch = matchCommandText(candidate.label, query);
-        const detailMatch = candidate.detail === undefined ? null : matchCommandText(candidate.detail, query);
+        const detailMatch = bestMatch([...(candidate.detail === undefined ? [] : [candidate.detail]), ...candidate.alternates], query);
         const labelWins = labelMatch !== null && (detailMatch === null || labelMatch.score <= detailMatch.score);
         const match = labelWins ? labelMatch : detailMatch;
         if (match === null) return;

@@ -1,10 +1,13 @@
 /**
  * 一层配置文件的读与写（docs/specs/settings/configuration.md 输出 13、14，“副作用与数据”）。
  *
- * 写入：取写入锁 → 读当前文本并记下文件身份 → 由调用方算出新文本 → 写同目录的临时文件 → 改名前再核对文件身份，变了就
- * 从新文本重做 → 改名替换 → 释放锁。
+ * 写入：先不持锁读一次，新文本与当前相同就直接成功，不建目录、不取锁、不碰文件（删除不存在的键没有副作用）；否则取写入锁
+ * → 读当前文本并记下文件身份 → 由调用方算出新文本（仍相同就不写）→ 写同目录的临时文件 → 改名前核对仍持有锁、文件身份
+ * 没变，身份变了就从新文本重做 → 改名替换 → 释放锁。
  * - 写入锁：两个服务端可以同时打开同一个项目（docs/specs/runtime/projects.md），同一份项目层会有两个拥有者，进程内的
  *   串行挡不住它们互相覆盖对方改的键。锁是目标旁的 `<目标>.lock`（proper-lockfile，诊断插件也用它），只在读到改名之间持有。
+ * - 锁被判为残留、被别的进程接管后，本次写入失去资格：proper-lockfile 接管时删掉锁目录再建，所以改名前比对锁目录的
+ *   身份（连同 `onCompromised` 报告的失效）就能发现，此时放弃写入、返回 write-failed。核对与改名之间仍有一个很小的窗口。
  * - 外部编辑器不走锁，改名前的身份核对只能缩小窗口：核对与改名之间仍可能被写入。
  * - 改名替换会绕过文件的只读位，所以目标存在时先核对可写；临时文件沿用原文件的权限位。
  * - 符号链接解析到最终目标，替换目标、不动链接；链接悬空时不写，免得把链接换成普通文件。
@@ -67,7 +70,8 @@ export type Transform = (current: string) => {readonly ok: true; readonly text: 
 export type WriteLayer = {readonly ok: true; readonly text: string} | {readonly ok: false; readonly code: string; readonly detail: string};
 
 /**
- * 写一层：`transform` 在持锁期间、每次重做时各调用一次。失败码 `write-failed` 由本模块给出，其余来自 `transform`。
+ * 写一层：`transform` 在取锁前调用一次，持锁后每次重做时再各调用一次，必须是当前文本的纯函数。失败码 `write-failed`
+ * 由本模块给出，其余来自 `transform`。
  * 收尾时的次要错误（释放锁、删临时文件）不改变结果，交给 `report` 记诊断。
  */
 export async function writeLayerFile(path: string, transform: Transform, report: (event: string, error: unknown) => void): Promise<WriteLayer> {
@@ -79,35 +83,65 @@ export async function writeLayerFile(path: string, transform: Transform, report:
     }
     if (target.kind === "dangling") return failed(`${path} 是符号链接，目标不存在；不替换这个链接`);
     const file = target.target;
+    // 不持锁的预读：新文本与当前相同时，这次写入在“读到的那一刻”已经完成，不必取锁。
+    const unlocked = await readLayerFile(file);
+    if (unlocked.ok) {
+        const preview = transform(unlocked.text);
+        if (!preview.ok) return preview;
+        if (preview.text === unlocked.text) return {ok: true, text: unlocked.text};
+    }
     try {
         await mkdir(dirname(file), {recursive: true});
     } catch (error) {
         return failed(`无法创建目录：${describe(error)}`);
     }
+    const lockPath = `${file}.lock`;
     let release: () => Promise<void>;
+    let compromised: unknown = null;
+    let lost = false;
     try {
-        release = await lock(file, {realpath: false, lockfilePath: `${file}.lock`, stale: LOCK_STALE_MS, retries: LOCK_RETRIES, onCompromised: () => undefined});
+        release = await lock(file, {realpath: false, lockfilePath: lockPath, stale: LOCK_STALE_MS, retries: LOCK_RETRIES, onCompromised: (error) => {
+            compromised = error;
+        }});
     } catch (error) {
         return failed(errno(error) === "ELOCKED" ? "写入锁一直被别的进程占着" : `无法取得写入锁：${describe(error)}`);
     }
     try {
+        let held: Stats;
+        try {
+            held = await stat(lockPath);
+        } catch (error) {
+            return failed(`无法核对写入锁：${describe(error)}`);
+        }
+        const stillHeld = async (): Promise<string | null> => {
+            if (compromised !== null) return `写入锁在写入期间失效：${describe(compromised)}`;
+            const now = await statOrNull(lockPath);
+            if (now !== null && now.dev === held.dev && now.ino === held.ino) return null;
+            lost = true;
+            return "写入锁在写入期间被判为残留、已被别的进程接管";
+        };
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-            const outcome = await writeOnce(file, transform, report);
+            const outcome = await writeOnce(file, transform, stillHeld, report);
             if (outcome !== "modified") return outcome;
         }
         return failed("写入期间文件反复被别的程序改动");
     } finally {
-        try {
-            await release();
-        } catch (error) {
-            // 锁已被判为残留并被接管时没有可释放的；照样报告，写入结果不变。
-            report("settings.lock.release-failed", error);
-        }
+        // 锁已归别人时不释放：释放会删掉接管者的锁目录，proper-lockfile 的刷新计时器随后发现锁目录变了，自行停下。
+        // 已报告失效的锁 proper-lockfile 已经放下，也不必释放。
+        if (!lost && compromised === null) await releaseLock(release, report);
+    }
+}
+
+async function releaseLock(release: () => Promise<void>, report: (event: string, error: unknown) => void): Promise<void> {
+    try {
+        await release();
+    } catch (error) {
+        report("settings.lock.release-failed", error);
     }
 }
 
 /** 一次读、算、写、核对、改名；改名前发现文件变了返回 `modified`，由调用方重做。 */
-async function writeOnce(file: string, transform: Transform, report: (event: string, error: unknown) => void): Promise<WriteLayer | "modified"> {
+async function writeOnce(file: string, transform: Transform, stillHeld: () => Promise<string | null>, report: (event: string, error: unknown) => void): Promise<WriteLayer | "modified"> {
     let before: Stats | null;
     let current: string;
     try {
@@ -116,6 +150,9 @@ async function writeOnce(file: string, transform: Transform, report: (event: str
     } catch (error) {
         return failed(`无法读取：${describe(error)}`);
     }
+    const next = transform(current);
+    if (!next.ok) return next;
+    if (next.text === current) return {ok: true, text: current};
     if (before !== null) {
         try {
             await access(file, constants.W_OK);
@@ -123,8 +160,6 @@ async function writeOnce(file: string, transform: Transform, report: (event: str
             return failed(errno(error) === "EACCES" || errno(error) === "EPERM" ? `${file} 是只读的` : `无法写入：${describe(error)}`);
         }
     }
-    const next = transform(current);
-    if (!next.ok) return next;
     const temporary = join(dirname(file), `.${basename(file)}.${randomUUID()}.tmp`);
     try {
         const handle = await open(temporary, "wx", before === null ? 0o644 : before.mode & 0o777);
@@ -133,6 +168,11 @@ async function writeOnce(file: string, transform: Transform, report: (event: str
             await handle.sync();
         } finally {
             await handle.close();
+        }
+        const lost = await stillHeld();
+        if (lost !== null) {
+            await unlink(temporary);
+            return failed(lost);
         }
         if (!sameFile(before, await statOrNull(file))) {
             await unlink(temporary);

@@ -1,7 +1,7 @@
 /**
  * 实例里的时序（docs/specs/settings/configuration.md 输出 8、15–17，“时序与寿命”）：到层拥有者的路按 `LayerLink`
- * 的合同手写，用来摆出真实内核里难以稳定复现的先后（订阅建立期间被结束、写入结果晚于推送到达）。真实内核与链路上
- * 的同一组行为由 `settings.test.ts` 覆盖。
+ * 的合同手写，用来摆出真实内核里难以稳定复现的先后（订阅建立期间被结束、写入结果晚于推送到达）；这些先后只在这里
+ * 覆盖。真实内核与链路上的就绪、截止后晚到、重订与写入由 `settings.test.ts` 覆盖。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -13,7 +13,7 @@ import {Type} from "typebox";
 import type {WindowConnection, WindowConnectionState} from "nbook/shared/host";
 import {defineSetting} from "nbook/shared/settings";
 
-import {createSettingsInstance} from "./instance";
+import {createSettingsInstance, FIRST_SNAPSHOT_MS} from "./instance";
 import type {LayerLink, LinkSubscribe} from "./instance";
 import type {DeclaredSetting, LayerSnapshot, LayerWriteResult} from "./layers";
 
@@ -127,6 +127,22 @@ describe("订阅的先后", () => {
     });
 });
 
+describe("首个快照的截止", () => {
+    it("按 Spec 输出 16 的 3 秒：2999 毫秒时仍在等，3000 毫秒时层不可用、就绪", async () => {
+        const link = new ScriptedLink();
+        link.next = null;
+        const clock = new ManualClock();
+        const instance = createSettingsInstance({layers: {user: link}, declarations, clock, firstSnapshotMs: FIRST_SNAPSHOT_MS, record: () => undefined});
+        // 已就绪时 ready 的回调先排进队列，先于哨兵完成。
+        const state = (): Promise<string> => Promise.race([instance.ready.then(() => "ready"), Promise.resolve().then(() => "waiting")]);
+        clock.advance(2_999);
+        expect(await state()).toBe("waiting");
+        clock.advance(1);
+        expect(await state()).toBe("ready");
+        expect(instance.facade(consumer).service.inspect(theme).user).toEqual({status: "unavailable"});
+    });
+});
+
 describe("读到自己的写入", () => {
     it("写入结果晚于更新的推送到达：不倒退；早于推送到达：update 返回时已是新值", async () => {
         const link = new ScriptedLink();
@@ -165,7 +181,28 @@ describe("变化通知", () => {
         expect(records).toContain("settings.listener.failed");
     });
 
-    it("门面释放后：update 为 unavailable，监听不再调用", async () => {
+    it("两个调用方登记同一个函数：一方释放或取消，只撤掉自己的那一项", async () => {
+        const link = new ScriptedLink();
+        const {instance} = instanceWith(link);
+        link.push(snapshot(1, {}));
+        await instance.ready;
+        const calls: string[] = [];
+        const shared = (): void => {
+            calls.push("shared");
+        };
+        const first = instance.facade(consumer);
+        const second = instance.facade({...consumer, plugin: "x.other"});
+        const cancel = first.service.onDidChange(shared);
+        second.service.onDidChange(shared);
+        link.push(snapshot(2, {[theme.key]: "a"}));
+        expect(calls).toEqual(["shared", "shared"]);
+        first.release();
+        cancel();
+        link.push(snapshot(3, {[theme.key]: "b"}));
+        expect(calls).toEqual(["shared", "shared", "shared"]);
+    });
+
+    it("门面释放后监听不再调用（释放后的访问由内核的门面代理拒绝）", async () => {
         const link = new ScriptedLink();
         const {instance} = instanceWith(link);
         link.push(snapshot(1, {}));
@@ -176,6 +213,5 @@ describe("变化通知", () => {
         facade.release();
         link.push(snapshot(2, {[theme.key]: "macos"}));
         expect(seen).toEqual([]);
-        expect(await facade.service.update(theme, "x")).toMatchObject({ok: false, code: "unavailable"});
     });
 });

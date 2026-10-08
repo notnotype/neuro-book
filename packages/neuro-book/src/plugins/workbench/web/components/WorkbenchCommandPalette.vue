@@ -12,7 +12,7 @@ import {computed, onBeforeUnmount, ref, watch} from "vue";
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
 import {textOf} from "nbook/shared/localized-text";
 
-import {parseCommandQuery, parseLineNumber, searchCommands, searchPickItems} from "../commands/command-query";
+import {otherTexts, parseCommandQuery, parseLineNumber, searchCommands, searchPickItems} from "../commands/command-query";
 import type {PaletteItem} from "../commands/command-query";
 import {sameDocument} from "../commands/palette-host";
 import type {DocumentTarget, PaletteHost} from "../commands/palette-host";
@@ -84,7 +84,12 @@ const items = computed<readonly PaletteItem[]>(() => {
         // 选择模式不做前缀路由：输入的就是要匹配或提交的文字。
         const text = host.query.value.trim();
         const locale = host.locale.value;
-        const shown = picking.items.map((item) => ({id: item.id, label: textOf(item.label, locale), ...(item.detail === undefined ? {} : {detail: textOf(item.detail, locale)})}));
+        const shown = picking.items.map((item) => ({
+            id: item.id,
+            label: textOf(item.label, locale),
+            ...(item.detail === undefined ? {} : {detail: textOf(item.detail, locale)}),
+            alternates: [...otherTexts(item.label, locale), ...(item.detail === undefined ? [] : otherTexts(item.detail, locale))],
+        }));
         const found = searchPickItems(shown, text);
         return picking.text === undefined || text === "" ? found : [...found, {id: PICK_TEXT_ID, label: textOf(picking.text.label(text), locale)}];
     }

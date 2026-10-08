@@ -281,9 +281,10 @@ describe("WorkbenchCommandPalette", () => {
         await vi.waitFor(() => expect(input()).not.toBeNull());
         expect(document.body.textContent).toContain("切换主题");
         expect(document.body.textContent).toContain("当前");
-        await type("o");
-        await press("ArrowDown");
+        // 按会翻译的说明过滤：切到英文后输入仍是“当前”，候选与选中项都还在。
+        await type("当前");
         const chosen = selected();
+        expect(chosen).not.toBeNull();
 
         app.locale.value = "en-US";
         await nextTick();
@@ -291,7 +292,7 @@ describe("WorkbenchCommandPalette", () => {
         expect(document.body.textContent).toContain("current");
         expect(document.body.textContent).not.toContain("切换主题");
         expect(input()?.placeholder).toBe("Takes effect immediately");
-        expect(input()?.value).toBe("o");
+        expect(input()?.value).toBe("当前");
         expect(selected()).toBe(chosen);
         await type("zzz");
         expect(document.body.textContent).toContain("No matching items");

@@ -111,6 +111,8 @@ describe("切换界面语言", () => {
         const b = await window(created, "w-b", picker(() => ({kind: "cancelled"})));
         expect(a.commands!.isEnabled("x.reader.guarded")).toEqual({ok: false, code: "unavailable", reason: "when 引用的 x.reader/missing 不是本运行位置声明的公开键"});
 
+        // 只读模式按 effect 拒绝写入（命令系统的测试覆盖）；这里核对这条命令登记为写入、Agent 自动可用。
+        expect(a.commands!.get(SWITCH_LOCALE_COMMAND)).toMatchObject({ok: true, value: {effect: "write", expose: {agent: "auto"}}});
         const switched = await a.commands!.execute(SWITCH_LOCALE_COMMAND, {locale: "en-US"}, {source: "agent", callerId: "x.agent"});
         expect(switched).toEqual({ok: true, value: null});
         expect(pick.requests).toEqual([]);
@@ -185,6 +187,7 @@ describe("切换主题与明暗（工作台贡献）", () => {
         expect(bound.settings!.get(themeSetting)).toBe("macos");
         expect(free.settings!.get(themeSetting)).toBe("nbook");
 
+        for (const id of [SWITCH_THEME_COMMAND, SWITCH_APPEARANCE_COMMAND]) expect(bound.commands!.get(id)).toMatchObject({ok: true, value: {effect: "write", expose: {agent: "auto"}}});
         expect(await bound.commands!.execute(SWITCH_THEME_COMMAND, {theme: "nbook"}, {source: "agent", callerId: "x.agent"})).toEqual({ok: true, value: null});
         expect(JSON.parse(await readFile(join(created.projectFile), "utf8"))).toEqual({"nbook.workbench/theme": "nbook"});
         expect(await free.commands!.execute(SWITCH_THEME_COMMAND, {theme: "macos"}, {source: "user"})).toEqual({ok: true, value: null});

@@ -57,7 +57,8 @@ export function parseLayerText(text: string, declarations: ReadonlyMap<string, S
 export type EditResult = {readonly ok: true; readonly text: string} | {readonly ok: false; readonly detail: string};
 
 /**
- * 只改一个键：替换已有键的值不动其它文本；新增键按原文的缩进与换行风格追加；删除独占几行的键整行删去，其余行不动，
+ * 只改一个键：替换已有键的值不动其它文本；新增键追加在最后一个键之后（多行的对象另起一行，沿用最后一个键的缩进与原文
+ * 的换行；单行的对象接在同一行），只在最后一个键的值后补逗号，其余文本不动；删除独占几行的键整行删去，其余行不动，
  * 与别的内容同在一行的键交给 `jsonc-parser`。BOM 原样保留。编辑后的文本不合法、或这个键的值不是要写的值时不交出。
  */
 export function editLayerText(text: string, key: string, edit: LayerEdit): EditResult {
@@ -70,6 +71,8 @@ export function editLayerText(text: string, key: string, edit: LayerEdit): EditR
     if (edit.kind === "delete") {
         if (property === undefined) return {ok: true, text};
         next = deleteOwnLines(body, property) ?? withoutDanglingCommas(applyEdits(body, modify(body, [key], undefined, {formattingOptions: formatting(body)})));
+    } else if (property === undefined && before.root !== undefined && (before.root.children?.length ?? 0) > 0) {
+        next = appendProperty(body, before.root, key, edit.value);
     } else {
         next = withoutDanglingCommas(applyEdits(body, modify(body, [key], edit.value, {formattingOptions: formatting(body)})));
     }
@@ -130,6 +133,34 @@ function formatting(text: string): FormattingOptions {
     if (indent === undefined) return {insertSpaces: true, tabSize: 4};
     if (indent.startsWith("\t")) return {insertSpaces: false, tabSize: 4};
     return {insertSpaces: true, tabSize: indent.length};
+}
+
+/**
+ * `jsonc-parser` 新增键时会格式化相邻文本，并把新键插在最后一个键的行尾注释之前，注释就跟到了新键上。这里自己插：
+ * 逗号紧跟最后一个值，新键放在这一行的尾随注释之后（遇到换行或 `}` 为止）；原来就有尾随逗号时新键也带上。
+ */
+function appendProperty(text: string, root: Node, key: string, value: unknown): string {
+    const last = root.children!.at(-1)!;
+    const valueEnd = last.offset + last.length;
+    const scanner = createScanner(text, false);
+    scanner.setPosition(valueEnd);
+    let trailingComma = false;
+    let insertAt = valueEnd;
+    for (let kind = scanner.scan(); kind !== SyntaxKind.EOF; kind = scanner.scan()) {
+        if (kind === SyntaxKind.LineBreakTrivia || kind === SyntaxKind.CloseBraceToken) break;
+        if (kind === SyntaxKind.CommaToken) trailingComma = true;
+        insertAt = scanner.getTokenOffset() + scanner.getTokenLength();
+    }
+    const lineStart = text.lastIndexOf("\n", last.offset - 1) + 1;
+    const leading = text.slice(lineStart, last.offset);
+    const multiline = lineStart > root.offset && leading.trim() === "";
+    const eol = text.includes("\r\n") ? "\r\n" : "\n";
+    const unit = formatting(text);
+    const encoded = JSON.stringify(value, null, unit.insertSpaces ? unit.tabSize : "\t");
+    const property = `${JSON.stringify(key)}: ${multiline ? encoded.replaceAll("\n", eol + leading) : JSON.stringify(value)}${trailingComma ? "," : ""}`;
+    const inserted = multiline ? `${eol}${leading}${property}` : ` ${property}`;
+    const withProperty = text.slice(0, insertAt) + inserted + text.slice(insertAt);
+    return trailingComma ? withProperty : withProperty.slice(0, valueEnd) + "," + withProperty.slice(valueEnd);
 }
 
 /**
