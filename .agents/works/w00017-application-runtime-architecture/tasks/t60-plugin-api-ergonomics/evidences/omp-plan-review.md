@@ -1,6 +1,6 @@
 # w00017 t60 实施计划只读审查
 
-审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md` 与同目录 `README.md`，固定提交 `8aa26b09`。审查根为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t60-plan-review`；下文仓库路径均相对于该根。只读取此 worktree，实验与报告仅写入指定 scratch；未修改仓库文件、提交或操作其他工作树。
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md` 与同目录 `README.md`，固定提交 `8aa26b09`。审查根为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t60-plan-review`；完整仓库相对路径以该根解析，省略包前缀的源码引用承接同段的包。只读取此 worktree，实验与报告仅写入指定 scratch；除安装依赖外，未修改仓库源码、计划或规范文件，未提交或操作其他工作树。
 
 结论：已批准的精简方向可以保留；计划需要补齐签发收口、整批补交屏障、接收者删除面、类型保证边界、命令诊断与作者文档，才能按字面实施和验收。发现按影响排序：设计与遗漏在前、写法与验收建议在后。阻断 0 条、重要 8 条、建议 4 条，共 12 条；重要表示实施前需要修订的具体合同或步骤，未把尚未存在的实现判为故障。
 

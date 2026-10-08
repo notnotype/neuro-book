@@ -12,7 +12,11 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {Hono} from "hono";
 
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
+import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+
 import type {HttpAdmission} from "nbook/plugins/http/backend/admission";
+import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
 import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
 import {remoteProbeContract} from "nbook/shared/testing/remote-probe-contract";
 
@@ -250,6 +254,35 @@ describe("后端宿主（同进程）", () => {
         await server.ready;
         expect(await (await fetch(`${server.url}api/test.ping-a/ping`)).text()).toBe("a");
         expect(await (await fetch(`${server.url}api/test.ping-b/ping`)).text()).toBe("b");
+        server.requestStop("test:done");
+        expect((await server.stopped).exitCode).toBe(0);
+    });
+
+    it("同一插件的两个入口都提交 http.routes：两条都判为 duplicate-contribution、都不挂载，别的插件照常挂载", async () => {
+        const id = "test.twice";
+        const twice: PluginDefinition = {
+            id,
+            entries: ["server", "server-2"].map((entry) => defineEntry({
+                id: entry,
+                location: "server",
+                activationEvents: ["onStartup"],
+                contributions: [{capability: HTTP_ROUTES_POINT, id, declaration: {}}],
+                activate: () => ({contributions: {[HTTP_ROUTES_POINT]: {[id]: new Hono<{Bindings: HttpRouteEnv}>().get("/ping", (c) => c.text(entry))}}}),
+            })),
+        };
+        const server = startServer({
+            config: config("duplicate-routes"),
+            plugins: (context) => [...manifestServerPlugins(context), twice, routePlugin("test.ping-a", () => new Hono<{Bindings: HttpRouteEnv}>().get("/ping", (c) => c.text("a")))],
+            process: new EventEmitter(),
+            writeFatal: () => undefined,
+        });
+        await server.ready;
+        expect(server.application.plugins.contribution(HTTP_ROUTES_POINT, id).map((state) => state.validation)).toEqual([
+            {status: "rejected", reason: "duplicate-contribution", detail: null},
+            {status: "rejected", reason: "duplicate-contribution", detail: null},
+        ]);
+        expect((await fetch(`${server.url}api/${id}/ping`)).status).toBe(404);
+        expect(await (await fetch(`${server.url}api/test.ping-a/ping`)).text()).toBe("a");
         server.requestStop("test:done");
         expect((await server.stopped).exitCode).toBe(0);
     });

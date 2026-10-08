@@ -27,33 +27,24 @@ export function validateRouteContribution(descriptor: ContributionDescriptor): s
     return null;
 }
 
-/** 已挂载的插件路由，按插件 id 索引；同时充当贡献接收者。 */
+/**
+ * 已挂载的插件路由，按插件 id 索引；同时充当贡献接收者。贡献 id 就是插件 id，同一 id 的两条贡献由内核判为
+ * `duplicate-contribution`、都不交付，所以这里不再查重。贡献方发布后才挂载：它的激活在交付之后还可能失败撤回。
+ */
 export class RouteTable {
     readonly #mounted = new Map<string, RouteHandle>();
-    readonly #pending = new Set<string>();
 
     lookup(plugin: string): RouteHandle | null {
         return this.#mounted.get(plugin) ?? null;
     }
 
-    receiver(): ContributionReceiver<unknown, HttpRouteHandler, string> {
+    receiver(): ContributionReceiver<unknown, HttpRouteHandler> {
         return {
-            // prepare 只预占插件 id，贡献方发布后才挂载：它的激活在 prepare 之后还可能失败撤回。
-            prepare: (handle) => {
-                // 同一插件的两个入口都提交路由时，后到的那次交付失败，已挂载的不受影响。
-                if (this.#mounted.has(handle.plugin) || this.#pending.has(handle.plugin)) {
-                    throw new Error(`插件 ${handle.plugin} 已挂载 http.routes`);
-                }
-                this.#pending.add(handle.plugin);
-                return handle.plugin;
+            published: (handle) => {
+                this.#mounted.set(handle.plugin, handle);
             },
-            published: (handle, plugin) => {
-                this.#pending.delete(plugin);
-                this.#mounted.set(plugin, handle);
-            },
-            revoke: (handle, plugin) => {
-                this.#pending.delete(plugin);
-                if (this.#mounted.get(plugin) === handle) this.#mounted.delete(plugin);
+            revoke: (handle) => {
+                if (this.#mounted.get(handle.plugin) === handle) this.#mounted.delete(handle.plugin);
             },
         };
     }

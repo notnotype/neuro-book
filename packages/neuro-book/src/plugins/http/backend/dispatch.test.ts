@@ -44,10 +44,8 @@ function routeHandle(plugin: string, handler: HttpRouteHandler): ContributionHan
     };
 }
 
-async function mount(routes: RouteTable, handle: ContributionHandle<unknown, HttpRouteHandler>): Promise<void> {
-    const receiver = routes.receiver();
-    const prepared = await receiver.prepare!(handle);
-    receiver.published!(handle, prepared);
+function mount(routes: RouteTable, handle: ContributionHandle<unknown, HttpRouteHandler>): void {
+    routes.receiver().published!(handle, undefined);
 }
 
 function setup(staticFiles: StaticFiles | null = null) {
@@ -83,7 +81,7 @@ describe("http.routes 贡献校验", () => {
 describe("请求分发", () => {
     it("宿主接口与插件路由按前缀分发，插件收到去掉前缀的路径并保留查询串与方法", async () => {
         const {routes, request} = setup();
-        await mount(routes, routeHandle("nbook.files", new Hono().all("*", (c) => c.json({method: c.req.method, path: c.req.path, q: c.req.query("q")}))));
+        mount(routes, routeHandle("nbook.files", new Hono().all("*", (c) => c.json({method: c.req.method, path: c.req.path, q: c.req.query("q")}))));
 
         expect(await (await request("/api/runtime/health")).json()).toEqual({status: "ok"});
         const response = await request("/api/nbook.files/tree/a?q=1", {method: "POST", body: "x"});
@@ -101,25 +99,24 @@ describe("请求分发", () => {
         expect(admission.active).toBe(0);
     });
 
-    it("同一插件第二次挂载被拒绝；撤回后请求得到 503，摘下后是 404", async () => {
+    it("撤回后请求得到 503，摘下后是 404", async () => {
         const {routes, request} = setup();
         const handle = routeHandle("nbook.files", new Hono().get("/", (c) => c.text("ok")));
-        await mount(routes, handle);
-        await expect(mount(routes, routeHandle("nbook.files", new Hono()))).rejects.toThrow();
+        mount(routes, handle);
 
         handle.revoke();
         const unavailable = await request("/api/nbook.files/");
         expect(unavailable.status).toBe(503);
         expect(await unavailable.json()).toMatchObject({error: {code: "plugin-unavailable"}});
 
-        await routes.receiver().revoke!(handle, "nbook.files", "scope-closed");
+        await routes.receiver().revoke!(handle, undefined, "scope-closed");
         expect((await request("/api/nbook.files/")).status).toBe(404);
     });
 
     it("处理器抛错返回 500 并报告错误，在途计数归还", async () => {
         const {routes, request, errors, admission} = setup();
         const failure = new Error("boom");
-        await mount(routes, routeHandle("nbook.broken", {fetch: () => { throw failure; }}));
+        mount(routes, routeHandle("nbook.broken", {fetch: () => { throw failure; }}));
         const response = await request("/api/nbook.broken/x");
         expect(response.status).toBe(500);
         expect(errors).toEqual([{error: failure, plugin: "nbook.broken"}]);
@@ -129,7 +126,7 @@ describe("请求分发", () => {
     it("流式响应在正文读完前计入在途，读完后归还；排空在那之前不结算", async () => {
         const {routes, request, admission} = setup();
         const chunks = Promise.withResolvers<void>();
-        await mount(routes, routeHandle("nbook.slow", {
+        mount(routes, routeHandle("nbook.slow", {
             fetch: () => new Response(new ReadableStream({
                 async start(controller) {
                     controller.enqueue(new TextEncoder().encode("a"));
@@ -161,7 +158,7 @@ describe("请求分发", () => {
         const {routes, request, admission} = setup();
         const entered = Promise.withResolvers<void>();
         const finish = Promise.withResolvers<void>();
-        await mount(routes, routeHandle("nbook.slow", {
+        mount(routes, routeHandle("nbook.slow", {
             fetch: async () => {
                 entered.resolve();
                 await finish.promise;
@@ -182,7 +179,7 @@ describe("请求分发", () => {
     it("登记为事件流的请求不计入排空等待，排空时执行它的关闭动作", async () => {
         const {routes, request, admission} = setup();
         let closed = false;
-        await mount(routes, routeHandle("nbook.events", {
+        mount(routes, routeHandle("nbook.events", {
             fetch: (_request, env) => {
                 const stream = new TransformStream<Uint8Array, Uint8Array>();
                 env.registerEventStream(() => {
