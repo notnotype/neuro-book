@@ -26,4 +26,4 @@ taskId: t62-plugin-examples-in-app
 
 ## 当前状态
 
-未开工：2026-10-08 先建，记下已确认的范围。开工时按当时的代码与 Spec 修订范围，按 [implementation-planning](../../../../skills/implementation-planning/SKILL.md) 写 `plan.md`，交开发者确认后再实施。
+进行中：实施计划见 [plan.md](plan.md)。开发者 2026-10-08 要求写好计划后派子代理在独立 worktree 实施，与 t61 的收口并行。拥有者定义的激活事件暂不演示（插件没有触发入口，见计划“不做与风险”），交开发者决定。
