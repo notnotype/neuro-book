@@ -1,5 +1,5 @@
 $ bun scripts/cli/test-affected.ts --typecheck --since "8aa26b09"
-改动文件 69 个（未提交的改动，以及与 8aa26b09 分叉以来的提交）。
+改动文件 88 个（未提交的改动，以及与 8aa26b09 分叉以来的提交）。
 选中 2 项（test）：
   nb-runtime（包内有改动）：bun run typecheck；bun run test
   neuro-book（包内有改动）：bun run typecheck；bun run test:bun；bun run test:vitest
@@ -8,19 +8,19 @@ $ bun scripts/cli/test-affected.ts --typecheck --since "8aa26b09"
 $ tsc --noEmit && tsc --noEmit -p tsconfig.browser.json
 
 ==> nb-runtime：bun run test
-$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-ZjlcOp/nb-runtime-1.xml"
+$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-sy4uU6/nb-runtime-1.xml"
 bun test v1.4.2 (744846f84)
 
- 292 pass
+ 294 pass
  0 fail
- 2344 expect() calls
-Ran 292 tests across 30 files. [491.00ms]
+ 2362 expect() calls
+Ran 294 tests across 30 files. [528.00ms]
 
 ==> neuro-book：bun run typecheck
 $ tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json
 
 ==> neuro-book：bun run test:bun
-$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-ZjlcOp/neuro-book-1.xml"
+$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-sy4uU6/neuro-book-1.xml"
 bun test v1.4.2 (744846f84)
 
 src/server/server-projects.test.ts:
@@ -45,10 +45,10 @@ remote-probe server entry closed
 remote-probe server entry closed
 remote-probe server entry closed
 
- 312 pass
+ 313 pass
  0 fail
- 1574 expect() calls
-Ran 312 tests across 42 files. [13.46s]
+ 1577 expect() calls
+Ran 313 tests across 42 files. [14.33s]
 
 ==> neuro-book：bun run test:vitest
 $ vitest run
@@ -58,20 +58,20 @@ $ vitest run
 
  Test Files  12 passed (12)
       Tests  57 passed (57)
-   Start at  12:12:44
-   Duration  5.13s (transform 8.43s, setup 466ms, import 16.39s, tests 3.39s, environment 5.78s)
+   Start at  12:57:30
+   Duration  5.05s (transform 8.38s, setup 472ms, import 16.18s, tests 3.34s, environment 5.87s)
 
 
-超过 200ms 的测试 15 个（列出最慢的 10 个）：
-    1215ms  neuro-book/src/server/dev/run.test.ts  页面经 Vite 提供、API 经代理、页面直连后端 RPC 端口；改后端文件有序重启；SIGTERM 时先停后端再关页面，以 0 退出
-     649ms  neuro-book/src/server/server-projects.test.ts  项目子进程不响应停止：到 NBOOK_PROJECT_STOP_MS 强制结束，记为停止问题，服务端以 1 退出
+超过 200ms 的测试 17 个（列出最慢的 10 个）：
+    1910ms  neuro-book/src/server/dev/run.test.ts  页面经 Vite 提供、API 经代理、页面直连后端 RPC 端口；改后端文件有序重启；SIGTERM 时先停后端再关页面，以 0 退出
+     641ms  neuro-book/src/server/server-projects.test.ts  项目子进程不响应停止：到 NBOOK_PROJECT_STOP_MS 强制结束，记为停止问题，服务端以 1 退出
+     580ms  neuro-book/src/server/dev/run.test.ts  终端 Ctrl+C（监督进程与后端同时收到 SIGINT）：两个停止请求汇合，仍有序结束，以 0 退出
      574ms  neuro-book/src/server/dev/run.test.ts  第二个停止信号不等排空：在途请求拖住排空时直接结束后端，以 1 退出
-     563ms  neuro-book/src/server/dev/run.test.ts  终端 Ctrl+C（监督进程与后端同时收到 SIGINT）：两个停止请求汇合，仍有序结束，以 0 退出
      545ms  neuro-book/src/server/dev/supervisor.test.ts  新进程启动失败：报告后等待改动，不循环重启，门直接给不可用；再次改动后恢复
-     365ms  neuro-book/src/server/dev/run.test.ts  页面端口被占用：以 1 退出，不启动后端
-     362ms  neuro-book/src/server/dev/supervisor.test.ts  改动去抖后有序重启：旧进程经标准输入停止并以 0 退出之后，新进程才在同一端口启动
-     356ms  neuro-book/src/server/dev/supervisor.test.ts  重启中的请求等新进程就绪；重启中的新改动不追加重启
-     347ms  neuro-book/src/server/server-projects.test.ts  SIGTERM：项目子进程先于服务端插件收口并退出，服务端以 0 退出
-     329ms  neuro-book/src/plugins/storage/project-child.test.ts  两个窗口经代理共用项目里的记录；项目子进程退出时关库；下一代项目实例读到磁盘上的值
+     369ms  neuro-book/src/server/dev/run.test.ts  页面端口被占用：以 1 退出，不启动后端
+     363ms  neuro-book/src/server/dev/supervisor.test.ts  改动去抖后有序重启：旧进程经标准输入停止并以 0 退出之后，新进程才在同一端口启动
+     362ms  neuro-book/src/server/dev/supervisor.test.ts  重启中的请求等新进程就绪；重启中的新改动不追加重启
+     343ms  neuro-book/src/server/server-projects.test.ts  SIGTERM：项目子进程先于服务端插件收口并退出，服务端以 0 退出
+     326ms  neuro-book/src/plugins/storage/project-child.test.ts  两个窗口经代理共用项目里的记录；项目子进程退出时关库；下一代项目实例读到磁盘上的值
 
 全部通过。

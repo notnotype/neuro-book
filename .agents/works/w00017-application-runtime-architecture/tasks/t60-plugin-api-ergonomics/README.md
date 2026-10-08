@@ -28,7 +28,7 @@ taskId: t60-plugin-api-ergonomics
 
 ## 当前状态
 
-2026-10-08 计划经开发者确认；S0–S6 已实现，omp 实现审查进行中。omp 计划审查（[evidences/omp-plan-review.md](evidences/omp-plan-review.md)）的发现与处理记在计划末尾的“实施中的调整”。
+2026-10-08 完成。计划经开发者确认；omp 计划审查（[evidences/omp-plan-review.md](evidences/omp-plan-review.md)）与实现审查（[evidences/omp-impl-review.md](evidences/omp-impl-review.md)）的发现与处理记在计划末尾的“实施中的调整”。
 
 | 片 | 提交 | 结果 |
 |---|---|---|
@@ -40,10 +40,14 @@ taskId: t60-plugin-api-ergonomics
 | S5 | `c9ffe488` | counter、board 删去只转发的浏览器入口，窗口里的插件直接用合同；场景 4 核对提供方看到的调用方、演示 `orThrow`；全部示例入口改用 `defineEntry` |
 | S6 | `9f78dfe9` | 产品插件、内核诊断插件与测试插件的入口改用 `defineEntry`；应用的诊断包装装饰宽类型入口，保留原写法 |
 | 补正 | `3b01a401` | omp 计划审查补报：命令 `when` 的坏键逐个核对，按（命令，键）记诊断。让核对在第一个坏键处停下的变异被 2 例抓住 |
+| 精简 HTTP | `299cf044` | 开发者决定删去 HTTP 路由表的 `prepare` 与待挂载表：重复路由由内核判为 `duplicate-contribution`，接收者不再查重；真实内核场景核对重复路由两条都不挂载 |
+| 实现审查修正 | `6e77e31b` | 发布通知纳入接收者串行锁（新场景修正前失败）；`defineEntry` 的数值键按字符串核对（回退后 3 条反例失效） |
 
-收口验证：
+收口验证（实现审查修正后重跑）：
 
-- [test-affected-typecheck.txt](evidences/test-affected-typecheck.txt)：`--since 8aa26b09` 选中内核与应用，内核 292 例、应用 312 例与组件 57 例、两包类型检查通过。
-- [test-e2e.txt](evidences/test-e2e.txt)：应用 e2e 48 例全部通过（含 Lab 命令场景与 `/lab` 页面，页面表改到 `published` 生效后照常列出）。
+- [test-affected-typecheck.txt](evidences/test-affected-typecheck.txt)：`--since 8aa26b09` 选中内核与应用，内核 294 例、应用 313 例与组件 57 例、两包类型检查通过。
+- [test-e2e.txt](evidences/test-e2e.txt)：应用 e2e 48 例全部通过。
 - [smoke-server.txt](evidences/smoke-server.txt)：S1–S8 全部 `ok`。
 - `docs:check`、`governance:check` 无告警。
+
+未验证：`published` 改在锁内后，激活结果要等同一接收者上别的批次结束才返回；进程内与真实浏览器场景都通过，没有单独测量激活延迟。

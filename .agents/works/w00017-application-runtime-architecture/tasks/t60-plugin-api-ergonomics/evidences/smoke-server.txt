@@ -1,10 +1,10 @@
 $ bun scripts/smoke-server.ts
 $ bun build src/server/main.ts --target bun --outdir dist/server && bun build src/project/main.ts --target bun --outfile dist/server/project.js
-Bundled 779 modules in 32ms
+Bundled 779 modules in 31ms
 
   main.js  0.80 MB  (entry point)
 
-Bundled 733 modules in 27ms
+Bundled 733 modules in 28ms
 
   project.js  0.66 MB  (entry point)
 
@@ -39,12 +39,12 @@ Bundled 733 modules in 27ms
     {
       "id": "S6",
       "ok": true,
-      "evidence": "rpc-port=38519 welcome=welcome foreign=refused exit=0"
+      "evidence": "rpc-port=38097 welcome=welcome foreign=refused exit=0"
     },
     {
       "id": "S7",
       "ok": true,
-      "evidence": "registered=true binding={\"id\":\"81e7e675-012b-4835-bc05-647bd458ab20\",\"name\":\"s7-book\",\"generation\":1} project-logs=true exit=0"
+      "evidence": "registered=true binding={\"id\":\"c9169c28-fe25-498c-bbb5-0f53fffbdf26\",\"name\":\"s7-book\",\"generation\":1} project-logs=true exit=0"
     },
     {
       "id": "S8",
@@ -53,4 +53,3 @@ Bundled 733 modules in 27ms
     }
   ]
 }
-smoke exit 0
