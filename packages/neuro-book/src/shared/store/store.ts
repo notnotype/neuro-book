@@ -7,7 +7,7 @@
  * 的预构建清单把 `@vue/reactivity` 与 `vue` 一起列出。
  */
 
-import {effectScope, readonly} from "@vue/reactivity";
+import {effectScope, isRef, readonly} from "@vue/reactivity";
 import type {DeepReadonly, UnwrapRef} from "@vue/reactivity";
 
 import type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
@@ -75,6 +75,26 @@ export class StoreStoppedError extends Error {
     }
 }
 
+/** 第一层以下出现的字段句柄的路径；没有为 null。只看普通对象与数组，不进入 ref。 */
+function nestedField(state: object, fields: WeakMap<object, unknown>): string | null {
+    const visit = (value: unknown, path: string, depth: number): string | null => {
+        if (typeof value !== "object" || value === null || isRef(value)) return null;
+        if (depth > 0 && fields.has(value)) return path;
+        if (depth > 0 && Object.getPrototypeOf(value) !== Object.prototype && !Array.isArray(value)) return null;
+        for (const [key, item] of Object.entries(value)) {
+            const found = visit(item, path === "" ? key : `${path}.${key}`, depth + 1);
+            if (found !== null) return found;
+        }
+        return null;
+    };
+    for (const [key, value] of Object.entries(state)) {
+        if (typeof value === "object" && value !== null && fields.has(value)) continue;
+        const found = visit(value, key, 1);
+        if (found !== null) return found;
+    }
+    return null;
+}
+
 export function defineStore<S extends object, A extends Actions>(name: string, setup: (context: StoreSetupContext) => StoreShape<S, A>): StoreDefinition<S, A> {
     if (!STORE_NAME.test(name)) throw new TypeError(`store 名 ${name} 不合规则：小写字母开头，其余为小写字母、数字与 -，至多 64 个字符`);
     return {name, create: (context, options) => createStore(name, setup, context, options)};
@@ -140,8 +160,14 @@ function createStore<S extends object, A extends Actions>(
         return action(...args);
     }])) as unknown as A;
 
-    // 字段句柄对外换成只含数据的视图；其余的 ref 与 computed 由 readonly 解包并禁止写入。
-    const exposed = Object.fromEntries(Object.entries(shape.state).map(([key, value]) => [key, typeof value === "object" && value !== null && views.has(value) ? views.get(value) : value]));
+    // 字段句柄对外换成只含数据的视图；其余的 ref 与 computed 由 readonly 解包并禁止写入。字段只能放在第一层：
+    // 嵌套的句柄会连同写方法一起交出去，readonly 拦不住方法。
+    const nested = nestedField(shape.state, views);
+    if (nested !== null) {
+        scope.stop();
+        throw new TypeError(`${label}：持久化字段只能放在 state 的第一层，${nested} 是嵌套的`);
+    }
+    const exposed: Record<string, unknown> = Object.fromEntries(Object.entries(shape.state).map(([key, value]) => [key, typeof value === "object" && value !== null && views.has(value) ? views.get(value) : value]));
     const state = readonly(exposed) as unknown as StoreView<S>;
 
     context.scope.register({
@@ -150,11 +176,19 @@ function createStore<S extends object, A extends Actions>(
         value: fields,
         release: async (owned) => {
             accepting = false;
-            const cancelled = await Promise.all(owned.map((field) => field.flush()));
-            const total = cancelled.reduce((sum, count) => sum + count, 0);
-            if (total > 0) record("warn", "store.intents-cancelled", `${label} 停止时有 ${String(total)} 条修改没有发出`, {cancelled: total});
-            for (const field of owned) field.close();
-            scope.stop();
+            try {
+                const cancelled = await Promise.all(owned.map((field) => field.flush()));
+                const total = cancelled.reduce((sum, count) => sum + count, 0);
+                if (total > 0) record("warn", "store.intents-cancelled", `${label} 停止时有 ${String(total)} 条修改没有发出`, {cancelled: total});
+            } finally {
+                for (const field of owned) field.close();
+                // effectScope 停得了 watch 与 effect，停不了 computed（它是惰性的，读就会重新求值）：第一层的 ref 与
+                // computed 换成释放时的值，旧视图之后读到的就是这一刻的值。
+                for (const [key, value] of Object.entries(exposed)) {
+                    if (isRef(value)) exposed[key] = value.value;
+                }
+                scope.stop();
+            }
         },
     });
     for (const field of fields) {

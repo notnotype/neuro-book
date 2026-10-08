@@ -36,7 +36,7 @@ export interface ContributionDescriptor<Declaration = unknown> extends Contribut
  * 此刻校验为已接受的贡献声明（runtime.plugins 输出第 23 条）：按存活登记推导，不缓存、不产生诊断。
  *
  * 校验函数里查询时不要吞掉查询抛出的错误：查询绕回正在推导的贡献时内核抛出环错误，它要穿过中间各层的校验，
- * 回到被重新进入的那条贡献才判为“校验相互引用”。
+ * 回到被重新进入的那条贡献才判为“校验相互引用”；吞掉它，环上的贡献就可能被判为接受。
  */
 export interface ContributionDeclarations {
     /** 该贡献点上这个 id 的已接受声明；没有、被拒或待定为 null。 */

@@ -144,4 +144,28 @@ describe("Spec runtime.plugins 输出 23、验收 26：查询已接受的声明"
             }
         });
     }
+
+    it("无环的共享依赖：一次查询里每条声明只校验一次，成本不随深度指数增长", () => {
+        const {host, register} = fixture();
+        let calls = 0;
+        const depth = 12;
+        const points: ContributionPointDefinition<{readonly next: string | null}>[] = Array.from({length: depth + 1}, (_, level) => ({
+            id: `layer${String(level)}`,
+            implementation: "none",
+            validate: ({declaration}, declarations) => {
+                calls += 1;
+                if (declaration.next === null) return null;
+                // 每一层的两条声明都列出下一层：共享同一组后继。
+                return declarations.list(declaration.next).length === 2 ? null : `${declaration.next} 不全`;
+            },
+        }));
+        register({id: "layers", contributionPoints: points, entries: IDLE});
+        register(contributor("x", Array.from({length: depth + 1}, (_, level) => ["a", "b"].map((side) => ({
+            capability: `layer${String(level)}`,
+            id: `${side}${String(level)}`,
+            declaration: {next: level === depth ? null : `layer${String(level + 1)}`} as unknown as Ref,
+        }))).flat()));
+        expect(statusOf(host, "layer0", "a0")).toBe("accepted");
+        expect(calls).toBeLessThanOrEqual(2 * (depth + 1));
+    });
 });

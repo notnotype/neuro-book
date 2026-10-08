@@ -19,7 +19,7 @@ import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {storageWorld} from "nbook/plugins/storage/testing/world";
 import type {StorageWorld, WorldWindow} from "nbook/plugins/storage/testing/world";
 
-import {COMMANDS_POINT, commandsRemoteContract} from "./contracts";
+import {COMMANDS_POINT, commandServiceKey, commandsRemoteContract} from "./contracts";
 import type {CommandDeclaration} from "./contracts";
 import {commandsPlugin} from "./plugin";
 
@@ -51,30 +51,44 @@ function declaration(overrides: Partial<CommandDeclaration> = {}): CommandDeclar
  * 窗口里的工具插件：声明公开键 `example.tools/armed` 并绑到 `armed`，贡献三条命令：`go` 要求 armed，`hidden` 不对
  * Agent 开放，`leave` 执行时关掉本窗口的链路（结果回不去）。
  */
-function tools(armed: Ref<boolean>, onLeave: () => void): PluginDefinition {
+interface Observed {
+    /** `go` 真正执行的次数。 */
+    runs: number;
+    /** 本窗口命令表的审计：每次执行的调用来源。 */
+    readonly invocations: unknown[];
+}
+
+function tools(armed: Ref<boolean>, onLeave: () => void, observed: Observed): PluginDefinition {
     return {
         id: "example.tools",
         entries: [{
             id: "browser",
             location: "browser",
             activationEvents: ["onStartup"],
+            dependencies: [{key: commandServiceKey}],
             contributions: [
                 {capability: PUBLIC_STATE_POINT, id: "example.tools/armed", declaration: {type: "boolean", unready: false, reason: REASON}},
                 {capability: COMMANDS_POINT, id: "example.tools.go", declaration: declaration({when: {requires: ["example.tools/armed"]}})},
                 {capability: COMMANDS_POINT, id: "example.tools.hidden", declaration: declaration({expose: {agent: "never"}})},
                 {capability: COMMANDS_POINT, id: "example.tools.leave", declaration: declaration()},
             ],
-            activate: () => ({contributions: {
+            activate: (context) => {
+                context.services.require(commandServiceKey).onDidExecute((event) => observed.invocations.push(event.invocation));
+                return {contributions: {
                 [PUBLIC_STATE_POINT]: {"example.tools/armed": {kind: "bound", read: () => armed.value}},
                 [COMMANDS_POINT]: {
-                    "example.tools.go": {run: () => ({ok: true, value: "done"})},
+                    "example.tools.go": {run: () => {
+                        observed.runs += 1;
+                        return {ok: true, value: "done"};
+                    }},
                     "example.tools.hidden": {run: () => ({ok: true, value: "hidden"})},
                     "example.tools.leave": {run: () => {
                         onLeave();
                         return {ok: true, value: "left"};
                     }},
                 },
-            }}),
+            }};
+            },
         }],
     };
 }
@@ -94,7 +108,7 @@ function caller(id: string, location: string): {readonly plugin: PluginDefinitio
     };
 }
 
-async function setup(): Promise<{readonly agent: ReturnType<typeof caller>; readonly windows: ReadonlyArray<{readonly id: string; readonly armed: Ref<boolean>; readonly window: WorldWindow}>; readonly peer: ReturnType<typeof caller>}> {
+async function setup(): Promise<{readonly agent: ReturnType<typeof caller>; readonly windows: ReadonlyArray<{readonly id: string; readonly armed: Ref<boolean>; readonly window: WorldWindow; readonly observed: Observed}>; readonly peer: ReturnType<typeof caller>}> {
     counter += 1;
     const agent = caller("example.agent", "server");
     const world = await storageWorld(join(tmp, `case-${String(counter)}`), [agent.plugin]);
@@ -103,11 +117,12 @@ async function setup(): Promise<{readonly agent: ReturnType<typeof caller>; read
     const windows = [];
     for (const id of ["browser-a", "browser-b"]) {
         const armed = ref(false);
+        const observed: Observed = {runs: 0, invocations: []};
         let opened: WorldWindow | null = null;
-        const plugins = [statePlugin, commandsPlugin, tools(armed, () => opened?.disconnect())];
+        const plugins = [statePlugin, commandsPlugin, tools(armed, () => opened?.disconnect(), observed)];
         if (id === "browser-a") plugins.push(peer.plugin);
         opened = await world.window(id, "profile-1", plugins, {bound: false});
-        windows.push({id, armed, window: opened});
+        windows.push({id, armed, window: opened, observed});
     }
     return {agent, windows, peer};
 }
@@ -133,6 +148,20 @@ describe("Spec workbench.commands 场景 14：两个窗口的状态不同", () =
 
         windows[1]!.armed.value = true;
         expect(await atB.execute({id: "example.tools.go"})).toEqual({ok: true, value: {ok: true, value: "done"}});
+        expect(windows[1]!.observed.invocations.at(-1)).toEqual({source: "agent", callerId: "example.agent"});
+    });
+
+    it("列出时可用、执行前窗口里的开关关了：执行按窗口此刻的状态复查，为 unavailable，命令没有运行", async () => {
+        const {agent, windows} = await setup();
+        const a = windows[0]!;
+        a.armed.value = true;
+        const atA = agent.remote().use(commandsRemoteContract).at({client: "browser-a"});
+        const listed = await atA.list({});
+        expect(listed.ok && listed.value.find((command) => command.id === "example.tools.go")?.available).toBe(true);
+
+        a.armed.value = false;
+        expect(await atA.execute({id: "example.tools.go"})).toEqual({ok: true, value: {ok: false, code: "unavailable", reason: "这个窗口没有准备好"}});
+        expect(a.observed.runs).toBe(0);
     });
 });
 

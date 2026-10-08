@@ -198,8 +198,9 @@ describe("Spec state.store 输出 1–3：setup、只读视图与 action", () =>
             const pair = persist(pairRecord, {initial: EMPTY});
             const count = ref(0);
             const doubled = computed(() => count.value * 2);
+            const outsideDoubled = computed(() => outside.value * 2);
             watch(outside, (value) => watched.push(value));
-            return {state: {count, doubled, pair}, actions: {increment: () => {
+            return {state: {count, doubled, outsideDoubled, pair}, actions: {increment: () => {
                 count.value += 1;
             }}};
         });
@@ -220,6 +221,15 @@ describe("Spec state.store 输出 1–3：setup、只读视图与 action", () =>
         await stopping;
         outside.value = 2;
         expect(watched).toEqual([1]);
+        // computed 不归 effectScope 管：释放时第一层的值被固定下来，之后不再跟着变。
+        expect(store.state.outsideDoubled).toBe(2);
+    });
+
+    it("持久化字段放进嵌套对象：create 时抛错，入口激活失败，原因指出路径", async () => {
+        const definition = defineStore("nested", ({persist}) => ({state: {panel: {field: persist(pairRecord, {initial: EMPTY})}}, actions: {}}));
+        const probe = hosted(definition, "server", {lazy: true});
+        const w = await world([probe.plugin]);
+        expect(await w.hub.plugins.activate({plugin: PLUGIN, entry: "server"})).toMatchObject({status: "failed", error: {message: expect.stringContaining("panel.field 是嵌套的")}});
     });
 });
 
@@ -287,6 +297,33 @@ describe("Spec state.store 输出 5–8：初值、base 与显示", () => {
         expect(store.state.pair.display).toEqual(EMPTY);
         store.actions.adopt();
         expect(store.state.pair.display).toEqual({left: "别处", right: ""});
+    });
+});
+
+describe("Spec state.store 输出 8–9：show 与 change 的约束", () => {
+    it("show 只改显示，不排队、不保存；change 拿到冻结的值，改参数时 commit 直接抛错、不排队，已确认的值不变", async () => {
+        const definition = defineStore("strict", ({persist}) => {
+            const pair = persist(pairRecord, {initial: EMPTY});
+            return {state: {pair}, actions: {
+                show: (value: PairValue) => pair.show(value),
+                mutate: () => pair.commit((current) => {
+                    (current as {left: string}).left = "就地改";
+                    return current as PairValue;
+                }),
+            }};
+        });
+        const probe = hosted(definition, "server");
+        await world([probe.plugin]);
+        const {store, storage} = probe.get();
+        await waitUntil("字段就绪", () => store.state.pair.ready);
+
+        store.actions.show({left: "拖动中", right: ""});
+        expect(store.state.pair.display).toEqual({left: "拖动中", right: ""});
+        expect([store.state.pair.queue, store.state.pair.save]).toEqual([0, {state: "idle"}]);
+        expect(() => store.actions.mutate()).toThrow(TypeError);
+        expect(store.state.pair.queue).toBe(0);
+        expect(store.state.pair.base).toEqual({status: "missing", revision: null});
+        expect(await valueOf(storage, pairRecord)).toBe("missing");
     });
 });
 
@@ -362,6 +399,35 @@ describe("Spec state.store 输出 9–11、场景 1：提交与冲突重放", ()
         expect(store.state.pair.display).toEqual({left: "抢二", right: "留下的"});
         expect(await kept).toBe("saved");
         expect(await valueOf(storage, pairRecord)).toEqual({left: "抢二", right: "留下的"});
+    });
+});
+
+describe("Spec state.store 输出 10：change 在最新值上抛错", () => {
+    it("显示上算得出、在 base 上抛错：这条以 failed（change-threw）结算并记诊断，队列暂停；discard 后照常，正常停止", async () => {
+        const definition = defineStore("guarded", ({persist}) => {
+            const pair = persist(pairRecord, {initial: EMPTY});
+            return {state: {pair}, actions: {
+                edit: () => pair.commit((current) => {
+                    if (current.left === "已删除") throw new RangeError("要改的条目已经不在了");
+                    return {...current, right: "改过"};
+                }),
+                discard: () => pair.discard(),
+            }};
+        });
+        const probe = hosted(definition, "server");
+        const w = await world([probe.plugin]);
+        const {store, storage} = probe.get();
+        await waitUntil("字段就绪", () => store.state.pair.ready);
+        expect(await (await opened(storage, pairRecord)).save({left: "已删除", right: ""}, {expect: null})).toMatchObject({ok: true});
+        await waitUntil("base 收到别处的写入", () => store.state.pair.base?.status === "ok");
+
+        expect(await store.actions.edit()).toBe("failed");
+        expect(store.state.pair.save).toEqual({state: "failed", code: "change-threw"});
+        expect(store.state.pair.queue).toBe(1);
+        expect(w.diagnostics("hub").query({plugin: PLUGIN}).records.map((record) => record.event)).toContain("store.change-threw");
+        expect(store.actions.discard()).toBe("discarded");
+        expect(store.state.pair.queue).toBe(0);
+        expect(await valueOf(storage, pairRecord)).toEqual({left: "已删除", right: ""});
     });
 });
 
@@ -510,6 +576,35 @@ describe("Spec state.store 输出 16、场景 4：订阅结束与重开", () => 
         expect(store.state.pair.failure).not.toBeNull();
         expect(await store.actions.retry()).toBe("failed");
         expect(changes.seen).toHaveLength(1);
+    });
+});
+
+describe("Spec state.store 输出 16：读取错误与 reopen", () => {
+    it("首个快照是读取错误：提交以 failed 结算、队列暂停；库恢复后 reopen 拿到基线，retry 落盘", async () => {
+        const raw = writer("server");
+        const probe = hosted(pairStore(pairRecord, changesOf()), "server", {lazy: true});
+        const w = await world([{id: PLUGIN, entries: [{...raw.plugin.entries[0]!, id: "writer"}, probe.plugin.entries[0]!]}]);
+        expect(await (await opened(raw.storage(), pairRecord)).save({left: "原来的", right: ""}, {expect: null})).toMatchObject({ok: true});
+        const rename = (from: string, to: string): void => {
+            const db = new Database(w.userPath);
+            db.run(`ALTER TABLE ${from} RENAME TO ${to}`);
+            db.close();
+        };
+        rename("records", "records_away");
+        expect(await w.hub.plugins.activate({plugin: PLUGIN, entry: "server"})).toMatchObject({status: "activated"});
+        const {store} = probe.get();
+        await waitUntil("字段就绪", () => store.state.pair.ready);
+        expect(store.state.pair.failure).toBe("io-error");
+        expect(store.state.pair.canSave).toBe(false);
+        expect(await store.actions.setRight("要写的")).toBe("failed");
+        expect(store.state.pair.save).toEqual({state: "failed", code: "io-error"});
+
+        rename("records_away", "records");
+        await store.actions.reopen();
+        await waitUntil("拿到基线", () => store.state.pair.base?.status === "ok");
+        expect(store.state.pair.failure).toBeNull();
+        expect(await store.actions.retry()).toBe("saved");
+        expect(await valueOf(raw.storage(), pairRecord)).toEqual({left: "原来的", right: "要写的"});
     });
 });
 

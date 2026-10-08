@@ -61,7 +61,7 @@ return {contributions: store.contributions};
 | `definePublicState(插件 id, {名: 声明})` | 声明规则见 [`state.public`](public-state.md)；结果的 `contributions` 写进插件定义的入口，同一份常量交给 `publish` |
 | `defineStore(name, setup)` | `name` 1–64 个字符，小写字母开头，其余为小写字母、数字与 `-`；在同一插件里只用于区分诊断 |
 | setup 上下文 | `persist(record, {initial, resource?})`、`publish(declarations, bindings)`；不给别的 I/O |
-| setup 返回 | `{state, actions}`：`state` 是要给读取方看的 ref、computed 与字段；`actions` 是函数 |
+| setup 返回 | `{state, actions}`：`state` 是要给读取方看的 ref、computed 与字段，持久化字段只能放在第一层（放进嵌套的对象或数组时 `create` 抛 `TypeError`）；`actions` 是函数 |
 | `create(context, {storage, diagnostics})` | 在入口的 `activate` 里调用；`context` 是激活上下文，`storage` 是该入口解析到的 Storage 服务（用了 `persist` 时必须给），`diagnostics` 是诊断服务 |
 | `publish` 的 `bindings` | 键与声明完全一致，值是对应类型的 `ref` 或 `computed`；漏绑、多绑、类型不符编译不过 |
 
@@ -69,15 +69,15 @@ return {contributions: store.contributions};
 
 ```ts
 interface PersistedField<T> {
-    readonly base: Snapshot<T> | null;          // Storage 快照的非 error 分支；打开中为 null
+    readonly base: DeepReadonly<Snapshot<T>> | null;  // Storage 快照的非 error 分支；打开中为 null
     readonly failure: StorageFailure | null;
     readonly ready: boolean;                     // base 已有或 failure 已定
     readonly canSave: boolean;                   // failure 为 null 且 base 是 missing 或 ok
-    readonly display: T;
+    readonly display: DeepReadonly<T>;
     readonly queue: number;                      // 排队意图数
     readonly save: {state: "idle" | "saving"} | {state: "failed" | "unknown"; code: string};
     show(value: T): void;
-    commit(change: (current: T) => T): Promise<CommitResult>;
+    commit(change: (current: DeepReadonly<T>) => T): Promise<CommitResult>;
     reset(value: T): Promise<CommitResult>;
     retry(): Promise<CommitResult | "busy" | "nothing">;
     discard(): "discarded" | "busy" | "nothing";
@@ -97,14 +97,14 @@ type CommitResult = "saved" | "failed" | "unknown" | "protected" | "cancelled" |
 6. **base 只来自订阅**：`base` 只随 Storage 订阅送来的快照更新，按订阅顺序；保存的结果只结算意图，不改 `base`。迟到的保存结果因此不会让 `base` 倒退。
 7. **新的 base 不改显示**：订阅带来新的 `base` 时 `display` 不变；`adopt()` 把排队意图依次作用在最新 `base` 上，结果作为 `display`，不清意图。
 8. **show**：只改 `display`（例如拖动中），不排意图、不保存。
-9. **commit**：`display` 立即变为 `change(display)`，意图排到队尾；返回的 Promise 以这条意图**第一次**尝试的结果结算。同一字段的意图按提交顺序一条一条发送。
-10. **队首发送**：以 `base` 的值为基础算出要写的值（`missing` 时以 `initial` 为基础），以 `base` 的 revision 作 `expect` 条件保存；成功则这条以 `saved` 结算。
+9. **commit**：`display` 立即变为 `change(display)`，意图排到队尾；返回的 Promise 以这条意图**第一次**尝试的结果结算。同一字段的意图按提交顺序一条一条发送。`change` 会被调用多次（算显示、首发、冲突重放、重新投影），拿到的值都是冻结的，必须返回新值：改参数会抛错。在显示上就抛错时 `commit` 直接抛出、不排队。
+10. **队首发送**：以 `base` 的值为基础算出要写的值（`missing` 时以 `initial` 为基础），以 `base` 的 revision 作 `expect` 条件保存；成功则这条以 `saved` 结算。`change` 在 `base` 或冲突后的最新快照上抛错时，这条以 `failed`（失败码 `change-threw`）结算并记诊断，队列暂停。
 11. **冲突重放一次**：条件保存得到 `conflict` 时，读最新快照，把同一个 `change` 作用在它上面再保存一次；仍冲突或得到其它确定的失败，队首以 `failed` 结算并记失败码，**队列暂停**，后面的意图保留不发、仍体现在 `display` 里。
 12. **受保护的记录**：`base` 为 `corrupt` 或 `unsupported-version` 时 `commit` 直接以 `protected` 结算、不写；只能 `reset(value)` 覆盖，`expect` 取该快照的 revision。
 13. **结果不确定**：保存得到 `unknown-outcome`（写可能已经落盘）时队首以 `unknown` 结算，保留这次要写的**具体值与 `expect`**，队列暂停；不在新 `base` 上重算 `change`。
 14. **retry**：只作用于暂停的队首。`failed` 时按第 10、11 条重来；`unknown` 时，若 `base` 的值已等于要写的值则以 `saved` 结算，否则以原值、原 `expect` 重发，除成功外的结果都仍为 `unknown`。返回这次尝试的结果；队首正在发送时返回 `busy`，没有暂停的队首时返回 `nothing`；字段此刻不能保存（`failure` 来自打开失败或订阅结束）时不发送，返回队首当前的结果。
 15. **discard**：只作用于暂停的队首：移除它（这条以 `discarded` 结算），`display` 改为把剩余意图依次作用在 `base` 上的结果，队列继续。队首正在发送时返回 `busy`；没有暂停的队首时返回 `nothing`。
-16. **订阅结束与打开失败**：`open` 失败或订阅结束（`provider-stopped`、`project-gone`、`server-restarted`、`released`）时 `failure` 记下失败码，`canSave` 立即为 false；在途的保存按它的结果结算，排队的意图暂停。不自动重开；`reopen()` 重新打开并订阅，成功后 `failure` 清空，由拥有者 `retry`。
+16. **打开失败、读取错误与订阅结束**：`open` 失败、订阅送来读取错误、或订阅结束（`provider-stopped`、`project-gone`、`server-restarted`、`released`）时 `failure` 记下失败码，`canSave` 立即为 false；在途的保存按它的结果结算，排队的队首以 `failed` 结算并暂停。读取错误之后再收到正常快照时 `failure` 自动清空；其余不自动恢复。`reopen()` 换代重新打开并订阅，拿到新的基线后 `failure` 清空，由拥有者 `retry`。
 17. **停止**：入口开始停止后调用 action 抛错（可按错误类型判定）。store 释放时先等在途保存结束，再按队列顺序发送已接受的意图（含一次冲突重放），直到队列空或队首失败；剩下的意图以 `cancelled` 结算并记一条诊断。随后结束 Storage 订阅、停止 setup 的响应式作用域。
 18. **私有**：store 实例只经创建它的入口交出的视图与 action 访问；同一定义在两个入口或两个实例里创建的是两份，互不相见。
 19. **读配置（planned）**：setup 上下文增加按配置键取只读有效值的辅助函数，值随配置变化更新；形状与失败语义随配置能力定。
@@ -125,7 +125,7 @@ type CommitResult = "saved" | "failed" | "unknown" | "protected" | "cancelled" |
 - 订阅的首个快照可能早于 `open` 的建立返回，结束也可能早于建立返回；两种顺序下字段的状态都按第 5、16 条结算，不留下活订阅。
 - 同一字段同一时刻至多一个保存在途。
 - 入口停止开始到 store 释放之间，action 已抛错，已接受的意图仍按第 17 条发送。宿主给停止设了截止时，截止只决定内核等多久，不中断这次发送；之后进程退出则剩下的不保证。
-- 释放之后字段句柄的方法与 action 都抛错；只读视图保留最后的值。
+- 释放之后字段句柄的方法与 action 都抛错；只读视图第一层的值固定为释放时的值（computed 不再随来源变化），字段视图保留最后的数据。
 
 ## 副作用与数据
 
@@ -137,7 +137,7 @@ type CommitResult = "saved" | "failed" | "unknown" | "protected" | "cancelled" |
 | 结果 | 含义 | 拥有者怎么办 |
 |---|---|---|
 | `saved` | 这条意图已落盘 | 无 |
-| `failed` | 冲突重放后仍冲突，或确定的失败（失败码随 `save.code`） | `retry`、`discard`，或 `adopt` 后重新提交 |
+| `failed` | 冲突重放后仍冲突、确定的失败、`change` 抛错（`change-threw`），或字段此刻不能保存（失败码随 `save.code`） | `retry`、`discard`，或 `adopt` 后重新提交；不能保存时先 `reopen` |
 | `unknown` | 写可能已落盘 | `retry`（不会重复应用）或 `discard` |
 | `protected` | 记录损坏或版本不认识 | 用 `reset` 覆盖，或保持只读 |
 | `cancelled` | 停止时没有发出 | 无（下次启动按落盘的值） |
@@ -163,6 +163,6 @@ Smoke：`e2e/state.e2e.ts`，同一浏览器两个标签页窄改探针记录的
 ## 证据
 
 - 实现入口：[`store.ts`](../../../packages/neuro-book/src/shared/store/store.ts)、[`persisted.ts`](../../../packages/neuro-book/src/shared/store/persisted.ts)、[`public.ts`](../../../packages/neuro-book/src/shared/store/public.ts)
-- 合同测试：[`store.test.ts`](../../../packages/neuro-book/src/shared/store/store.test.ts)（输出 1–17、验收 1–4；输出 19 随配置能力）
-- Smoke：[`state.e2e.ts`](../../../packages/neuro-book/e2e/state.e2e.ts)（测试外壳与真实服务端，本机 Chrome；另含开发模式的响应式运行时核对）
+- 合同测试：[`store.test.ts`](../../../packages/neuro-book/src/shared/store/store.test.ts)（输出 1–17、验收 1–4；“首个快照或结束早于 subscribe 返回”的字段层顺序与“停止时字段还没拿到首个快照”没有单独用例，输出 19 随配置能力）
+- Smoke：[`state.e2e.ts`](../../../packages/neuro-book/e2e/state.e2e.ts)（测试外壳与真实服务端，本机 Chrome：两个标签页窄改都保留，两边是否真的冲突取决于时序，确定的冲突重放由合同测试验证；另含开发模式的响应式运行时核对）
 - 批准依据：[插件的数据与状态](../../proposals/plugin-data-model.md) 第 3、11 节与待定项 1（2026-10-07 `accepted`）；开发者 2026-10-08 在 [t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md) 中确认：setup 写法、用 `@vue/reactivity` 自己实现、不用 Pinia、放应用包共享库，正常停止时发出已接受的意图。

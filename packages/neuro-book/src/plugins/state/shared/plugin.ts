@@ -94,7 +94,8 @@ function createService(location: RuntimeLocation, bindings: ReadonlyMap<string, 
             const declaration = handle?.declaration ?? declarationOf(key);
             if (declaration === null) return {status: "undeclared"};
             const unready: PublicStateRead = {status: "unready", value: declaration.unready};
-            if (handle === undefined) return unready;
+            // 拥有者入口开始停止时句柄先失效、撤回稍后才把它移出表：这段时间按未就绪，不再调用旧的读取函数。
+            if (handle === undefined || !handle.published) return unready;
             const binding = handle.implementation();
             if (binding.kind === "unbound") return unready;
             let value: unknown;

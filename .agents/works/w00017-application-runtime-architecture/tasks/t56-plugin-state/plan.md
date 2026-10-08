@@ -165,17 +165,17 @@
 | `state/store.md` 输出 1–3 | `src/shared/store/store.test.ts`“输出 1–3”；同文件的类型合同（`@ts-expect-error`） |
 | `state/store.md` 输出 4 | `store.test.ts`“输出 4”；`state.test.ts` 的读取 |
 | `state/store.md` 输出 5–8 | `store.test.ts`“输出 5–8” |
-| `state/store.md` 输出 9–11、验收 1 | `store.test.ts` 两个窗口窄改、重放后仍冲突、discard 三例；`e2e/state.e2e.ts` |
+| `state/store.md` 输出 9–11、验收 1 | `store.test.ts` 两个窗口窄改（恰好重放一次）、重放后仍冲突、discard、`change` 在最新值上抛错、`show` 与冻结的参数；`e2e/state.e2e.ts` 在真实 Chrome 两个标签页里窄改都保留（冲突是否发生取决于时序，不作为重放的证据） |
 | `state/store.md` 输出 12 | `store.test.ts` 删除标记、`corrupt`、`unsupported-version` 三例（坏数据由测试直接写进库） |
 | `state/store.md` 输出 13–14、验收 2 | `store.test.ts` 结果不确定两例（分区拥有者一侧的订阅者在收到这次写入的通知时关掉窗口链路） |
-| `state/store.md` 输出 16、验收 4 | `store.test.ts` 提供方停止一例（项目实例有序停止）；`reopen` 成功的路径没有真实切口：产品里只有热插拔会让提供方在同一绑定里回来，随 `runtime.plugin-hot-plug` 验证 |
+| `state/store.md` 输出 16、验收 4 | `store.test.ts` 提供方停止一例（项目实例有序停止，`reopen` 在提供方回来之前仍失败）、读取错误一例（库表临时改名得到真实的读取错误，恢复后 `reopen` 拿到基线、`retry` 落盘） |
 | `state/store.md` 输出 17、验收 3 | `store.test.ts` 窗口里正常停止、队首失败后 `cancelled` 两例 |
 | `state/store.md` 输出 6 的“迟到的保存结果不倒退” | 由“`base` 只随订阅更新”的结构保证；进程内链路造不出“结果先于基线到达”的时序，不单独测 |
 | `state/public-state.md` 输出 1–10、验收 1–3 | `src/plugins/state/state.test.ts`（真实内核实例） |
-| `workbench/commands.md`“`when` 读公开状态”、验收 15 | `plugins/commands/shared/plugin.test.ts` 增补、`WorkbenchCommandHost.dom.test.ts` 增补 |
-| `workbench/commands.md`“跨实例列出与执行”“跨实例调用失败”、验收 14 | `src/plugins/commands/shared/remote.test.ts`、`e2e/state.e2e.ts` |
+| `workbench/commands.md`“`when` 读公开状态”、验收 15 | `plugins/commands/shared/plugin.test.ts` 增补（computed 随值与入口停止变化） |
+| `workbench/commands.md`“跨实例列出与执行”“跨实例调用失败”、验收 14 | `src/plugins/commands/shared/remote.test.ts`（含列出后窗口状态变化、执行时复查与审计里的调用方）、`e2e/state.e2e.ts` |
 | `runtime/plugins.md` 输出 23、验收 26 | nb-runtime `src/plugins/declarations.test.ts` |
-| 浏览器里组件的 `computed` 随 store 与公开状态刷新（`state/store.md`“边界与兼容”） | e2e 在构建产物与开发模式各跑一次“面板打开时切换键值，候选即时变化” |
+| 浏览器里组件的 `computed` 随 store 与公开状态刷新（`state/store.md`“边界与兼容”） | `e2e/state.e2e.ts`：生产构建的测试外壳里面板开着时切换开关、候选即时变化；开发模式核对预构建的 `@vue/reactivity` 与 `vue` 导出同一个 `ref` |
 
 ## 验证
 

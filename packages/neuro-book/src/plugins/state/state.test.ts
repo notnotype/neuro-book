@@ -149,7 +149,10 @@ describe("Spec state.public 输出 3–6、9、验收 1：描述先于实现、�
 
         const activation = (context as ActivationContext | null)?.scope.parent;
         if (activation === null || activation === undefined) throw new Error("入口没有激活作用域");
-        await activation.close();
+        const closing = activation.close();
+        // 停止已开始、撤回还没完成：同步读到未就绪，不抛错。
+        expect(service.read("app.lazy/ready")).toEqual({status: "unready", value: false});
+        await closing;
         expect(watched.value).toEqual({status: "unready", value: false});
     });
 

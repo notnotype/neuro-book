@@ -8,6 +8,9 @@
  * 同一字段同一时刻至多一个保存在途；队首确定失败或结果不确定时队列暂停，后面的意图不发，等拥有者 `retry` 或
  * `discard`。结果不确定（`unknown-outcome`）时保留这次要写的具体值与 `expect` 原样重发，不在新 `base` 上重算
  * `change`，否则同一次修改可能生效两次。
+ *
+ * `change` 会被调用多次（算显示、首发、冲突重放、重新投影），拿到的值都是冻结的：它必须返回新值。改参数会抛错，
+ * 抛错按 `change-threw` 失败，不会让已确认的快照或显示被就地改掉、同一次修改被算两次。
  */
 
 import {computed, reactive, readonly, shallowRef} from "@vue/reactivity";
@@ -18,6 +21,9 @@ import type {RecordDefinition, RecordHandle, RecordSnapshot, Revision, StorageSe
 export type FieldSnapshot<T> = Exclude<RecordSnapshot<T>, {status: "error"}>;
 
 export type CommitResult = "saved" | "failed" | "unknown" | "protected" | "cancelled" | "discarded";
+
+/** 修改：拿当前值（冻结）返回新值；可能被调用多次，不能有副作用。 */
+export type Change<T> = (current: DeepReadonly<T>) => T;
 
 export type SaveState = {readonly state: "idle" | "saving"} | {readonly state: "failed" | "unknown"; readonly code: string};
 
@@ -35,15 +41,15 @@ export interface PersistedFieldView<T> {
 
 /** setup 闭包里的字段句柄：数据之外还有方法，方法只经 action 使用。 */
 export interface PersistedField<T> {
-    readonly base: FieldSnapshot<T> | null;
+    readonly base: DeepReadonly<FieldSnapshot<T>> | null;
     readonly failure: string | null;
     readonly ready: boolean;
     readonly canSave: boolean;
-    readonly display: T;
+    readonly display: DeepReadonly<T>;
     readonly queue: number;
     readonly save: SaveState;
     show(value: T): void;
-    commit(change: (current: T) => T): Promise<CommitResult>;
+    commit(change: Change<T>): Promise<CommitResult>;
     reset(value: T): Promise<CommitResult>;
     retry(): Promise<CommitResult | "busy" | "nothing">;
     discard(): "discarded" | "busy" | "nothing";
@@ -71,7 +77,7 @@ type Operation = "save" | "reset";
 interface Intent<T> {
     readonly operation: Operation;
     /** `reset` 的 change 忽略参数、直接给出要写的值。 */
-    readonly change: (current: T) => T;
+    readonly change: Change<T>;
     state: "queued" | "sending" | "failed" | "unknown";
     /** 结果不确定时这次要写的具体值与 expect，`retry` 原样重发。 */
     pending: {readonly value: T; readonly expect: Revision | null} | null;
@@ -84,7 +90,7 @@ type Outcome<T> =
     | {readonly result: "failed"; readonly code: string}
     | {readonly result: "unknown"; readonly code: string; readonly pending: {readonly value: T; readonly expect: Revision | null}};
 
-/** 失败从哪来：读取错误在下一个正常快照到达时清掉；打开失败与订阅结束要 `reopen`。 */
+/** 失败从哪来：读取错误在下一个正常快照到达时清掉；三种都可以 `reopen`。 */
 type FailureKind = "read" | "open" | "ended";
 
 export class PersistedFieldState<T> {
@@ -116,7 +122,7 @@ export class PersistedFieldState<T> {
         this.#record = record;
         this.#options = options;
         this.#label = label;
-        this.#display = shallowRef(options.initial);
+        this.#display = shallowRef(deepFreeze(options.initial));
         const ready = computed(() => this.#base.value !== null || this.#failure.value !== null);
         const canSave = computed(() => {
             const base = this.#base.value;
@@ -135,7 +141,7 @@ export class PersistedFieldState<T> {
         const state = this;
         this.handle = {
             get base() {
-                return state.#base.value;
+                return state.#base.value as DeepReadonly<FieldSnapshot<T>> | null;
             },
             get failure() {
                 return failure.value;
@@ -147,7 +153,7 @@ export class PersistedFieldState<T> {
                 return canSave.value;
             },
             get display() {
-                return state.#display.value;
+                return state.#display.value as DeepReadonly<T>;
             },
             get queue() {
                 return state.#queueLength.value;
@@ -157,7 +163,7 @@ export class PersistedFieldState<T> {
             },
             show: (value) => {
                 this.#assertOpen("show");
-                this.#display.value = value;
+                this.#display.value = deepFreeze(value);
             },
             commit: (change) => this.#enqueue("save", change),
             reset: (value) => this.#enqueue("reset", () => value),
@@ -266,7 +272,7 @@ export class PersistedFieldState<T> {
             return;
         }
         const first = this.#base.value === null;
-        this.#base.value = snapshot;
+        this.#base.value = frozenCopy(snapshot);
         this.#settled.resolve();
         if (this.#failure.value?.kind === "read") this.#failure.value = null;
         // 首个快照之前显示的是 initial（加上已排队的修改）；拿到它之后换成它的值。之后的快照不改显示。
@@ -285,11 +291,12 @@ export class PersistedFieldState<T> {
         this.#pump();
     }
 
-    #enqueue(operation: Operation, change: (current: T) => T): Promise<CommitResult> {
+    #enqueue(operation: Operation, change: Change<T>): Promise<CommitResult> {
         this.#assertOpen(operation === "save" ? "commit" : "reset");
         const {promise, resolve} = Promise.withResolvers<CommitResult>();
         const intent: Intent<T> = {operation, change, state: "queued", pending: null, settle: resolve};
-        this.#display.value = change(this.#display.value);
+        // 在显示上算不出来（change 抛错）就不排队：错误原样交给调用 action 的一方。
+        this.#display.value = deepFreeze(change(this.#display.value as DeepReadonly<T>));
         this.#queue.push(intent);
         this.#queueLength.value = this.#queue.length;
         this.#pump();
@@ -307,12 +314,12 @@ export class PersistedFieldState<T> {
             const head = this.#queue[0];
             if (head === undefined || head.state !== "queued") return;
             const failure = this.#failure.value;
-            if (failure !== null && failure.kind !== "read") {
-                // 订阅结束或打开失败：不发，队首暂停，等拥有者 reopen 再 retry（输出第 16 条）。
+            if (failure !== null) {
+                // 打开失败、读取错误或订阅结束：不发，队首暂停，等拥有者 reopen 再 retry（输出第 16 条）。
                 this.#pause(head, {result: "failed", code: failure.code});
                 return;
             }
-            if (this.#base.value === null || failure !== null) return;
+            if (this.#base.value === null) return;
             // 受保护的记录不接受普通修改：轮到它时直接结算、不写，显示回到其余修改的投影（输出第 12 条）。
             if (head.operation === "save" && this.#protected()) {
                 this.#queue.shift();
@@ -330,7 +337,11 @@ export class PersistedFieldState<T> {
     #send(head: Intent<T>, pending: Intent<T>["pending"]): Promise<Outcome<T>> {
         head.state = "sending";
         this.#save.value = {state: "saving"};
-        const attempt = this.#attempt(head, pending).then((outcome) => {
+        // change 抛错在 #attempt 里结算；这里接住的只剩 Storage 调用本身的异常（它的接口不以抛错表达失败）。
+        const attempt = this.#attempt(head, pending).catch((error: unknown): Outcome<T> => {
+            this.#report("store.storage-threw", error);
+            return {result: "failed", code: "unavailable"};
+        }).then((outcome) => {
             this.#inFlight = null;
             if (outcome.result === "saved") {
                 this.#queue.shift();
@@ -356,7 +367,8 @@ export class PersistedFieldState<T> {
             const resent = await write(pending.value, pending.expect);
             return resent.ok ? {result: "saved"} : {result: "unknown", code: resent.code, pending};
         }
-        const value = head.change(this.#valueOf(base));
+        const value = this.#apply(head.change, this.#valueOf(base));
+        if (value === CHANGE_THREW) return {result: "failed", code: "change-threw"};
         const first = await write(value, base.revision);
         if (first.ok) return {result: "saved"};
         if (first.code === "unknown-outcome") return {result: "unknown", code: first.code, pending: {value, expect: base.revision}};
@@ -365,7 +377,8 @@ export class PersistedFieldState<T> {
         const latest = await handle.read();
         if (latest.status === "error") return {result: "failed", code: latest.code};
         if (latest.status === "corrupt" || latest.status === "unsupported-version") return {result: "failed", code: "protected"};
-        const replayed = head.change(this.#valueOf(latest));
+        const replayed = this.#apply(head.change, this.#valueOf(frozenCopy(latest)));
+        if (replayed === CHANGE_THREW) return {result: "failed", code: "change-threw"};
         const second = await write(replayed, latest.revision);
         if (second.ok) return {result: "saved"};
         if (second.code === "unknown-outcome") return {result: "unknown", code: second.code, pending: {value: replayed, expect: latest.revision}};
@@ -384,8 +397,7 @@ export class PersistedFieldState<T> {
         if (this.#inFlight !== null) return "busy";
         const head = this.#queue[0];
         if (head === undefined || (head.state !== "failed" && head.state !== "unknown")) return "nothing";
-        const failure = this.#failure.value;
-        if (this.#base.value === null || (failure !== null && failure.kind !== "read")) return head.state;
+        if (this.#base.value === null || this.#failure.value !== null) return head.state;
         if (head.state === "unknown" && head.pending !== null) {
             const base = this.#base.value;
             // 写已经落盘：订阅送来的 base 已是要写的值，视为完成，不再发（输出第 14 条）。
@@ -422,19 +434,34 @@ export class PersistedFieldState<T> {
 
     async #reopen(): Promise<void> {
         this.#assertOpen("reopen");
-        const failure = this.#failure.value;
-        if (failure === null || failure.kind === "read") return;
+        if (this.#failure.value === null) return;
+        // 读取错误时旧订阅还在，但底层恢复不会推新快照：一并换代重开，拿新的基线。
+        this.#subscription?.release();
+        this.#subscription = null;
+        this.#recordHandle = null;
         this.#failure.value = null;
         this.#opening = this.#guardedOpen();
         await this.#opening;
     }
 
-    /** 把排队的修改依次作用在 base 的值上。 */
+    /** 把排队的修改依次作用在 base 的值上；某条在这里抛错就跳过它（它发送时会按 change-threw 失败）。 */
     #project(): T {
         const base = this.#base.value;
         let value = base === null ? this.#options.initial : this.#valueOf(base);
-        for (const intent of this.#queue) value = intent.change(value);
+        for (const intent of this.#queue) {
+            const next = this.#apply(intent.change, value);
+            if (next !== CHANGE_THREW) value = next;
+        }
         return value;
+    }
+
+    #apply(change: Change<T>, value: T): T | typeof CHANGE_THREW {
+        try {
+            return deepFreeze(change(value as DeepReadonly<T>));
+        } catch (error) {
+            this.#report("store.change-threw", error);
+            return CHANGE_THREW;
+        }
     }
 
     #valueOf(snapshot: FieldSnapshot<T>): T {
@@ -446,6 +473,22 @@ export class PersistedFieldState<T> {
         intent.settle = null;
         settle?.(result);
     }
+}
+
+const CHANGE_THREW: unique symbol = Symbol("change-threw");
+
+/** Storage 交来的快照可能与别的订阅者共用同一个对象：先复制再冻结。 */
+function frozenCopy<V>(value: V): V {
+    return deepFreeze(structuredClone(value));
+}
+
+/** 值都是 JSON 数据（Storage 记录的值）：逐层冻结对象与数组。 */
+function deepFreeze<V>(value: V): V {
+    if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
+        Object.freeze(value);
+        for (const item of Object.values(value)) deepFreeze(item);
+    }
+    return value;
 }
 
 /** JSON 数据的结构相等：Storage 的值经 JSON 往返，键的顺序可能不同。 */

@@ -94,7 +94,10 @@ function waitWithSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined)
     return waiting;
 }
 
-/** 校验查询绕回正在推导的贡献；`target` 是被重新进入的那条。只在宿主内部抛与接，不交给插件。 */
+/**
+ * 校验查询绕回正在推导的贡献；`target` 是被重新进入的那条。它从查询里抛出，穿过中间各层插件的校验函数，回到
+ * 被重新进入的那条才接住：校验函数吞掉查询的错误时，环判定就不成立（ContributionDeclarations 的前提）。
+ */
 class ValidationCycle extends Error {
     readonly target: ContributionRecord;
 
@@ -288,6 +291,11 @@ export class PluginHostImpl implements PluginHost {
     readonly #contributions = new Map<string, ContributionRecord[]>();
     /** 正在推导校验结果的贡献：查询绕回其中一条即为环（runtime.plugins 输出第 23 条）。 */
     readonly #validating: ContributionRecord[] = [];
+    /**
+     * 一次最外层推导里已经正常得出的结果：无环的共享依赖不必按路径重复展开（否则查询成本随深度指数增长）。
+     * 最外层推导结束即丢弃，不跨查询缓存，结果仍按此刻的存活登记推导。
+     */
+    #validated: Map<ContributionRecord, ContributionValidation> | null = null;
     readonly #declarations: ContributionDeclarations = {
         get: <Declaration>(capability: string, id: string): ContributionDescriptor<Declaration> | null => {
             const live = this.#liveContributions(capability, id);
@@ -805,9 +813,28 @@ export class PluginHostImpl implements PluginHost {
     }
 
     #validation(contribution: ContributionRecord): ContributionValidation {
-        if (this.#validating.includes(contribution)) {
-            throw new ValidationCycle(contribution);
+        const outermost = this.#validated === null;
+        const validated = this.#validated ?? new Map<ContributionRecord, ContributionValidation>();
+        this.#validated = validated;
+        try {
+            const known = validated.get(contribution);
+            if (known !== undefined) {
+                return known;
+            }
+            if (this.#validating.includes(contribution)) {
+                throw new ValidationCycle(contribution);
+            }
+            const result = this.#derive(contribution);
+            validated.set(contribution, result);
+            return result;
+        } finally {
+            if (outermost) {
+                this.#validated = null;
+            }
         }
+    }
+
+    #derive(contribution: ContributionRecord): ContributionValidation {
         const point = this.#pointFor(contribution);
         if (point === null) {
             return {status: "pending", reason: "unknown-point"};

@@ -1,0 +1,132 @@
+# w00017 t56 只读实现审查
+
+审查对象：`34033b24`、`48cbc7fb`、`7b3d6d7b`、`0cec1e46`、`bf22b11d`、`d1fa5eca`、`3bc2006f`、`a8aa3729`、`1e381563`。分支：`refactor/w00017-runtime-foundation`。
+
+初始核对：`git log --oneline 971e2fd7..HEAD && git status` 返回 7 个后续提交；S0 与 store 两个提交另外以 `git show --stat --oneline` 核对。工作区干净。
+
+本报告逐条追加已核实发现，完成时按影响排序。审查只读；不运行 e2e、`smoke:server` 或开发服务。实验文件仅在本目录。既有 Task 证据与本次运行结果分开记录。
+
+## 验证与范围
+
+- **真实运行时实验**：`state-stop-smoke.ts`、`store-boundary-smoke.ts`、`reducer-failure-smoke.ts`、`computed-stop-smoke.ts`、`mutable-reducer-smoke.ts`、`read-error-smoke.ts`、`reopen-smoke.ts`、`initial-stop-smoke.ts`、`late-create-smoke.ts`、`cycle-smoke.ts`、`declarations-cost-smoke.ts` 均从指定 scratch 目录执行，使用真实内核、插件宿主、应用／Storage／SQLite 公共路径；本报告各条已记录对应输出。实验代码未写入仓库。
+- **通过的聚焦测试**：应用 Bun 测试（`store.test.ts`、`state.test.ts`、commands 的 `plugin.test.ts`、`remote.test.ts`、`context-keys.test.ts`、`registry.test.ts`）60 个测试、374 个 expect；nb-runtime 的 `declarations.test.ts`、`owner-contribution-points.test.ts` 25 个测试、178 个 expect；应用 Vitest 的 `WorkbenchCommandHost.dom.test.ts`、`lab-command-scene.dom.test.ts`、`WorkbenchCommandPalette.dom.test.ts` 15 个测试；应用 Bun 的 `keymap.test.ts`、`editor-commands.test.ts` 19 个测试、82 个 expect。合计 119 个测试，0 失败。
+- **类型检查**：`bun run --cwd packages/nb-runtime typecheck` 与 `bun run --cwd packages/neuro-book typecheck` 均通过。
+- **未运行**：按任务限制未运行 e2e、`smoke:server`、开发服务；未重新执行 Task 的变异检查。Bun scratch 运行伴随 `Internal error: directory mismatch ... fd 3. You don't need to do anything, but this indicates a bug.`，相关实验仍以退出码 0 和输出结果完成；该诊断不是本次实现问题证据。
+
+## 未发现问题的方面
+
+- 正常纯 reducer 的串行保存、一次冲突重放、`unknown-outcome` 保留具体值并按原 `expect` 重发、`discard`、保护记录、正常 `flush`／停止取消；上述持久化队列聚焦测试通过。
+- `nbook.state` 三宿主引用同一 `statePlugin` 常量；声明位置过滤；正常发布、撤回；getter 错误诊断去重。激活事务发布、补交、只通知一次、回调抛错及撤回路径已有合同覆盖；独立内核审查未发现新的 `published` 缺陷。
+- `ContextKeySource`／Lab `contextTable` 保留响应式依赖；贡献登记按贡献位置查声明，执行按本实例公开状态求值；remote 的 expose 过滤、Agent 身份、`target-gone`／`unknown-outcome`／`denied` 结果路径已有覆盖。实现静态上正确复查目标状态。
+- 声明查询的正常 accepted／rejected／待定过滤和不吞错环路径的既有测试通过。未把吞错环实验列为合法调用下的产品正确性缺陷。
+
+## 结论与数量
+
+该提交组当前不能按现有合同验收：存在 1 项阻断的保存队列收口缺陷，另有 6 项重要问题；其中第 7 项是测试／证据声明缺口，不是已复现的运行时错误。另有 4 项建议项，分别涉及旧 Spec、remote 时序测试、环合同前提和声明查询成本。
+
+- 阻断：1
+- 重要：6
+- 建议：4
+- 合计：11
+
+工作区最终核对发现 3 个既有未跟踪证据文件：`.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/evidences/smoke-server.txt`、`test-affected-typecheck.txt`、`test-e2e.txt`；本次未修改、未删除、未纳入报告实验范围。
+## 1. reducer 在最新 base 上抛错后，已接受的提交永不结算且正常停止被卡住
+
+- **严重程度**：阻断；**类别**：正确性、不变量。
+- **位置**：`packages/neuro-book/src/shared/store/persisted.ts:324,333,359,368,185`；对应合同 `docs/specs/state/store.md:100,108`。
+- **现象**：另一写者删除了记录里的目标条目，订阅更新 base 而本地 display 仍有旧条目。action 的窄修改在 display 上成功、已排队；再次作用在最新 base 上时因目标不存在抛 `RangeError`。调用方的 commit Promise 一直未结算，队列永留 `saving`、queue=1，普通关闭不能完成。
+- **为什么是问题**：`#attempt` 是 async，但 `#send` 只有成功分支 `.then`，没有 rejection 收口；`#pump` 又以 `void #send` 启动。reducer 的拒绝成为未处理 Promise rejection，`#inFlight` 从未清空、意图从未暂停/结算，`flush()` await 同一个被拒绝的在途 Promise 后也抛错，store 的 close 与 effectScope.stop 均未执行。reducer 在投影与当前基线之间遇到已删除资源是真实并发路径；合同和类型未禁止抛错。
+- **如何核实**：本次 `reducer-failure-smoke.ts` 使用真实内核、真实 `nbook.storage` 与 SQLite；store 初始显示条目 a，另一真实句柄保存 `items=[]` 后，编辑 a 的 action 在本地显示中成功、在保存基线上抛错。输出 `RangeError:目标条目已删除`、`settled:false`、`save:{state:"saving"}`、`queue:1`，base 为空 items/revision=1 而显示为已编辑的 a。通过宿主公开 `stop({deadline})` 结束等待后为 `incomplete`，不是 `closed`；进程退出回收本实验的同进程资源。命令同前，脚本换为本目录 `reducer-failure-smoke.ts`。没有伪造 Storage 返回，也没有直接调用字段内部类。
+- **建议改法**：在队首尝试边界统一捕获 reducer/异步调用异常，记录诊断，清空在途状态，把该意图按确定失败暂停并结算首次 Promise；剩余意图仍保留，retry/discard 与停止取消继续可用。正常停止的后续字段关闭和 effectScope 释放用可靠的收口路径完成，不能被一个失败保存跳过。补“display 有目标、base 已删除目标”的真实并发用例，核对首次结果、队列恢复和最终 closed。
+## 2. 入口停止开始后，公开读取在撤回完成前抛错
+
+- **严重程度**：重要；**类别**：正确性、不变量。
+- **位置**：`packages/neuro-book/src/plugins/state/shared/plugin.ts:98`；`packages/nb-runtime/src/plugins/host.ts:148`；对应合同 `docs/specs/state/public-state.md:14,88`。
+- **现象**：已绑定的入口开始停止后立即调用 `read(key)`，得到 `PluginStateError`，并非声明的 `unready`；等关闭完成才恢复未就绪。命令 `when` 与 `computed` 读取也会经过该路径。
+- **为什么是问题**：贡献句柄的 `published` 会因来源停止同步变为 false；接收者的 `revoke` 在串行异步收口中才删除响应式表项。此窗口内表里仍有句柄，`handle.implementation()` 在 try 之外抛错，破坏同步、不失败、停止后不调用旧 getter 的公开读取合同。既有 `state.test.ts:152` 先 await 完关闭，未覆盖该窗口。
+- **如何核实**：本次真实内核应用实验 `state-stop-smoke.ts`，经 `createApplication` 激活 `nbook.state` 与贡献方，调用入口的激活作用域 `close()` 后同栈立即读：输出 `during={threw:"PluginStateError",message:"插件入口 test.owner/main#1 贡献尚未发布：state.public:test.owner/ready"}`，关闭后为 `{status:"unready",value:false}`，getter 总调用 1 次，应用最终 `closed`。命令：`bun --tsconfig-override /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t56/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t56/state-stop-smoke.ts`。
+- **建议改法**：`read` 读取响应式表后先检查 `handle.published`，已停止时直接返回 `unready`，随后由现有撤回删除表项；不调用失效的 implementation、不把正常停止记录成 getter 错误。增加真实入口 `close()` 返回后、await 前的直接读取和命令 when 验证。
+## 3. 嵌套的持久化字段保留写方法，绕过 action 写入真实记录
+
+- **严重程度**：重要；**类别**：不变量、正确性。
+- **位置**：`packages/neuro-book/src/shared/store/store.ts:44,144`；对应合同 `docs/specs/state/store.md:93,94`。
+- **现象**：setup 返回 `{state:{panel:{field}},actions:{}}` 后，`store.state.panel.field` 仍带 `commit/reset/show/retry/discard/reopen`；读取方无需 action 即可提交并落盘。类型表面也保留这些函数。
+- **为什么是问题**：字段到只读数据视图的替换只扫描 state 第一层；嵌套字段由 `readonly` 包装，函数闭包仍可修改内部状态，readonly 不能撤销方法。合同没有限制持久化字段只能出现在顶层，嵌套状态是合法的 `S extends object`；因此“字段只有数据”和“只经 action 写”的边界不成立。现有测试只返回顶层 `pair`。
+- **如何核实**：本次 `store-boundary-smoke.ts` 在真实应用、真实 `nbook.storage` 与 SQLite 中创建该嵌套 store，`actions=[]`；通过只读视图调用 `commit(current => ({count:current.count+1}))` 返回 `saved`，base 与 display 均为 count=1、revision=1。输出的 6 个写方法均存在，应用最终 `closed`。运行方式与上一条相同，脚本换为本目录 `store-boundary-smoke.ts`。
+- **建议改法**：让 store 的视图投影递归识别本 store 拥有的字段，替换为字段数据视图，并同步递归类型；或明确仅接受并在运行时拒绝嵌套字段的 state 形状。按现有任意对象接口，递归投影更符合合同。增加嵌套对象/数组中的字段不带方法、不能写的行为与类型验收。
+## 4. 读取 error 后无法主动恢复，队列停在 idle 且提交不结算
+
+- **严重程度**：重要；**类别**：正确性、失败恢复。
+- **位置**：`packages/neuro-book/src/shared/store/persisted.ts:263,315,386,423`。
+- **现象**：Storage 打开成功但首快照为 error(io-error) 时，字段 ready=true、base=null。commit 被接受但不发送、不结算，queue=1 而 save=idle；底层读取恢复成功后，`reopen()` 不执行、`retry()` 返回 nothing，字段仍保持原错误。只能等待另一次正常订阅通知或关闭并取消。
+- **为什么是问题**：读取错误进入 `FailureKind:"read"`，`#pump` 仅等待正常通知；`#reopen` 专门对 read 直接 return，`#retry` 又只认 failed/unknown。Storage 订阅只在本进程写入或重建时推快照，底层可读恢复本身没有事件，因此拥有者没有主动重新订阅/读取的出口。它不是“初始值缺失”，也不能靠重新提交恢复；可见状态还把这次暂停报告为 idle。Spec 的字段 failure 包含读取错误，却没有明确其恢复边界。
+- **如何核实**：本次 `read-error-smoke.ts` 在真实应用和 SQLite 中先写 count=10，再通过第二真实连接临时改名 records 表以产生真实 error 快照（未伪造 Storage），修复表名后另一真实句柄 read 已返回 count=10/revision=1；store 经 reopen 和 retry 仍输出 `base:null,failure:"io-error",retried:"nothing",settled:false,queue:1,save:{state:"idle"}`。停止后正常 closed，提交才以 cancelled 结算。命令同前，脚本换为本目录 `read-error-smoke.ts`。
+- **建议改法**：读取错误也使用同一个显式 reopen 入口：释放旧订阅、换代重开并接收新基线，再由拥有者 retry。统一读取失败时暂停队首与可见保存状态，给已接受的提交一个明确结果；合同补齐读取错误的恢复规则。无需再加轮询或自动重试机制。
+## 5. change 接收可写且与 display 共用的 base，单次原地修改被应用两次
+
+- **严重程度**：重要；**类别**：正确性、合同。
+- **位置**：`packages/neuro-book/src/shared/store/persisted.ts:292,359,433,440`；`PersistedField.commit` 类型在同文件 `:46`；对应合同 `docs/specs/state/store.md:97,100`。
+- **现象**：记录 count=0，提交 `current => {current.count += 1; return current;}` 一次，结果为 saved，但 SQLite、display 都是 count=2。此前取到的 base 快照在 revision 仍为旧 revision 时也变成 count=2。
+- **为什么是问题**：首快照直接让 display 引用 base.value；commit 为显示调用 change、保存又对同一个 base.value 调用 change。原地修改既在保存前改坏已确认快照，也让同一次意图加两次。公开类型给 change 的参数是可写 T，Spec、计划未约束它必须纯、不能修改参数；该合法调用的隐含前提与 API 不一致。
+- **如何核实**：本次 `mutable-reducer-smoke.ts` 在真实内核和 Storage/SQLite 上先写 count=0，再建立 store、执行一次 increment。输出 `result:"saved"`、disk `{count:2,revision:"2"}`、先前 base 引用 `{count:2,revision:"1"}`、display count=2；应用最终 closed。命令同前，脚本换为本目录 `mutable-reducer-smoke.ts`。没有伪造结果或直接调用字段内部类。
+- **建议改法**：把 change 的输入改为深只读值，明确它是可重复调用的同步纯变换、返回新的值；运行时也向 reducer 提供只读的基线/显示，不交出已确认快照的可写对象。沿用 Vue readonly 可以避免为了隔离每次深拷贝；若选择支持原地 reducer，则需要独立工作副本，不能共用 base/display。补单次原地修改不会改 base、不会重复计数的边界验收。
+## 6. effectScope.stop 没有停止 computed，释放后的只读视图继续变化
+
+- **严重程度**：重要；**类别**：不变量、文档与测试。
+- **位置**：`packages/neuro-book/src/shared/store/store.ts:119,157`；`packages/neuro-book/src/shared/store/store.test.ts:194,220`；对应合同 `docs/specs/state/store.md:92,128`。
+- **现象**：setup 内建立的 computed 在入口已 closed 后仍会重新求值；外部来源变更后，读取旧 store 的只读视图得到新值，无法保留释放时的最后值。watch 正常停止，computed 没有停止。
+- **为什么是问题**：本版本 `@vue/reactivity` 的 computed 不作为 effectScope 的受管 effect 登记，调用 `scope.stop()` 只停止 watch/effect。代码把两者共同释放当作前提，Spec 又承诺两者一起停止和旧视图保留最后值；既有测试只在关闭后检查 watched，没有检查 computed 的关闭后值。派生 getter 若读取入口已释放的资源，继续求值还会触碰失效资源。
+- **如何核实**：本次 `computed-stop-smoke.ts` 在真实内核入口创建 store，computed 为 external ref 的两倍，关闭前读取为 2；await 激活作用域 close 得到 closed，external 从 1 改为 5，旧视图读取变为 10，getter runs=2、watch 回调数组仍为空，应用最终 closed。命令同前，脚本换为本目录 `computed-stop-smoke.ts`。
+- **建议改法**：不要声称 effectScope 能停止 computed。若保留“旧视图最后值”合同，store 释放边界对暴露的派生状态保存最终只读快照，关闭后读取该快照；setup 内普通 watch/effect 继续由现有 scope 停止。若决定 computed 允许继续懒求值，则需要明确修改合同、移除相反承诺。测试需核对关闭后的派生值，不能只检查 watch。
+## 7. 浏览器冲突重放与恢复时序的证据声明超出实际断言
+
+- **严重程度**：重要；**类别**：测试、文档。
+- **位置**：`packages/neuro-book/e2e/state.e2e.ts:87-104`；`packages/neuro-book/src/shared/store/store.test.ts:275,487`；`docs/specs/state/store.md:166`；计划 `plan.md:171,175,178,184`；Task README `:34`。
+- **现象**：e2e 的并行 evaluate 没有同 revision 的协调切口，断言重放次数 `<=1` 允许零冲突通过，但计划称它验证了“一边冲突后重放成功”。Spec 证据把 store 测试称作输出 1–17、验收 1–4 全覆盖，实际没有 show 调用、reopen 成功或 store 层“订阅结束早于 subscribe 返回”的断言。计划表还保留已经明确取消的 Workbench DOM 增补与开发模式面板变化两行。
+- **为什么是问题**：浏览器路径不必经过冲突就能通过，不能作为真实 Chrome 冲突重放的证据。恢复覆盖缺口不是“没有真实切口”：本次已用真实损坏库打开失败、修复后 reopen+retry 成功验证，初始快照前停止也通过真实挂起 activate 得到切口。Task 虽诚实写出未验证项，但 Spec 证据与验收表仍把未测项当已覆盖，会误导晋升判断。
+- **如何核实**：静态核对上述断言、测试动作与计划；e2e 本次未运行。聚焦 store 合同测试通过，但测试未调用 show、只在 provider 仍未恢复时 reopen。新增只读实验 `reopen-smoke.ts` 输出 `first:"failed",second:"saved",failure:null,queue:0,disk:{count:1}`，应用 closed；`initial-stop-smoke.ts` 在 ready=false 时接纳两条修改，关闭后两条 saved、数据库 left=L/right=R，两个实例 closed。
+- **建议改法**：保留合同测试中的真实冲突断言；按已批准的浏览器验收要求，在探针增加保留同链路 FIFO 的准备/释放协调点，让两边基于同 revision 发出，再断言恰好一次重放。补已有失败/恢复用例中的真实 reopen 成功、初始/结束早于建立返回及 show 行为；证据仅列实际覆盖，清掉验收表的旧行。不把 <=1 改名当作完成已批准的冲突判据。
+## 8. 命令与内核 Spec 保留了被新接口替代的旧条款
+
+- **严重程度**：建议；**类别**：文档。
+- **位置**：`docs/specs/workbench/commands.md:29,70-72`；`docs/specs/runtime/plugins.md:190`。
+- **现象**：commands 非目标仍说服务端 Agent 执行浏览器窗口命令“另行设计”，同一 Spec 新条款已交付该行为；plugins 的接口形状仍是 `validate?(descriptor)` 且称 receiver“只含 prepare/commit/revoke”，遗漏新 declarations 参数与 published。
+- **为什么是问题**：正文给同一已批准的跨实例行为相反边界；维护者沿“实现合同”接入新能力时又读到旧接口。新增条目去掉 planned，却没有同步删去与之冲突的旧承诺。
+- **如何核实**：静态逐条对照 Spec 与 `commands/shared/contracts.ts:154-160`、`nb-runtime/src/plugins/contracts.ts:55,215`；两个包 typecheck 与聚焦合同测试均通过，新 API 已可用，不是尚待实现的功能。
+- **建议改法**：删除 commands 旧非目标或明确只排除本节以外的跨位置方式；更新 plugins 的 validate 与 receiver 接口形状。新 public/store 两份 Spec 保持 planned、注册表标待晋升与 Task 当前状态一致，无需因已有证据链接就直接晋升。
+## 9. 远程测试尚未保护“列出后变为不可用”的执行复查
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/neuro-book/src/plugins/commands/shared/remote.test.ts:127-135`。
+- **现象**：测试列出 A 为可用、B 为不可用后，按原状态执行；之后仅将 B 改为可用再执行成功。没有“list 显示可用后键转 false，execute 必须拒绝且处理器未运行”的直接断言，也没有远程审计中 callerId 等于调用插件的断言。
+- **为什么是问题**：这是新能力容易出现的时序回归：调用方缓存可用性不能代替目标实例的执行时检查。当前实现静态上正确走 `registry.execute`、使用 `consumer.plugin`，已有 false 窗口拒绝与 registry 合同测试提供部分保护，因此此项不是已发现的产品缺陷。
+- **如何核实**：逐行核对 remote 测试；本次两条 remote 合同测试已实际运行通过。独立 reviewer 的同一发现已核对原文，未以其未执行的验证作为证据。
+- **建议改法**：在现有双窗口用例中，list A 可用后切换 A 的公开键为 false 再 execute；断言 unavailable、真正的命令计数未增加，并用本地审计核对远程 source=agent、callerId=调用插件。再加无确认通道的 confirm 命令经 remote 返回 confirmation-required，与已存在的 registry 合同组合即可，不另建替身管线。
+## 10. Spec 的无条件环拒绝承诺漏掉源码“不得吞错”的前提
+
+- **严重程度**：建议；**类别**：合同、文档。
+- **位置**：`docs/specs/runtime/plugins.md:77`、`packages/nb-runtime/src/plugins/contracts.ts:38`、`packages/nb-runtime/src/plugins/host.ts:97,808,827-844`。
+- **现象**：A 的 validate 查询 B，B 的 validate 查询 A 并以 `try/catch` 回退为 null；A、B 均被报告为 accepted，而不是 invalid-declaration（校验相互引用）。
+- **为什么是问题**：环只通过 `ValidationCycle` 异常向外传播，异常实际上经过插件的 validate 调用栈。源码合同 `ContributionDeclarations` 已明确要求“不要吞掉查询抛出的错误”，因此该实验违反源码前置条件，不能把它直接定为合法使用下的正确性缺陷；但 Spec 无条件承诺环上每条贡献都被拒，内部注释“环错误不交给插件”也与路径不符。API 读者按 Spec 编写普通失败回退时会误用。
+- **如何核实**：本次 `cycle-smoke.ts` 用公开 `createRuntimeInstance/createServiceAssembly/createPluginHost` 登记两个顶层声明及两点的上述真实校验函数，分别通过 `host.contribution` 查询，输出 `a:{status:"accepted"},b:{status:"accepted"}`；根作用域最终 closed。命令同前，脚本换为本目录 `cycle-smoke.ts`。
+- **建议改法**：最小改法是在 Spec 与 validate 的接口注释中明确“查询错误必须穿透，吞错后环判定不保证”，并修正“不交给插件”的注释。若仍要保留无条件拒环合同，则独立记录本次推导中的环事实，validate 返回后按事实拒绝，而不只靠可吞掉的异常；相应补吞错退化的合同验证。
+## 11. 无环的 list 共享依赖会重复展开，合法声明图的查询成本呈指数增长
+
+- **严重程度**：建议；**类别**：安全与性能、代码质量。
+- **位置**：`packages/nb-runtime/src/plugins/host.ts:297-306,807-844`。
+- **现象**：每层两条声明，上一层的 validate 列出下一层，两边共享相同后继。只有 26 条声明、深度 12 的无环图，查询一条根声明就执行了 8191 次 validate；本次测得 11.97 ms。
+- **为什么是问题**：路径判环避免环递归，但无环的共享依赖每经过一条路径都会再次完整推导；`list` 又每次扫描全贡献集合。深度增加时调用数按 `2^(深度+1)-1` 增长，而不是随声明数量增长；本地公开状态/命令读取走同步路径，这种合法图可能占住实例线程。目前产品的 public 校验只是结构检查，尚没有该退化消费者，因此不列为当前产品阻断。
+- **如何核实**：本次 `declarations-cost-smoke.ts` 经真实公开宿主登记 13 个贡献点、各 2 条贡献，没有伪造声明查询；输出 `depth:12,contributions:26,result:"accepted",validations:8191,durationMs:11.965587999999999`，根作用域 closed。命令同前，脚本换为本目录 `declarations-cost-smoke.ts`。
+- **建议改法**：在一次最外层查询的固定登记快照内复用已完成、无环的校验结果，跨查询不留缓存，不改变“按存活登记推导”的合同；保留当前路径用于判环。也可按 capability 枚举已有目录而不是每次全表扫描。不要引入跨请求缓存失效系统；增加共享后继图的查询成本边界验证时只约束可观察性能，不把私有调用次数写成永久测试。
+
+
+
+
+
+
+
+
+
+
+
+
