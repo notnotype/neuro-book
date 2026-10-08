@@ -19,7 +19,7 @@ K4 [t55](../t55-plugin-storage/README.md)（`nbook.storage`，持久化字段建
 
 ## 当前状态
 
-2026-10-08 计划起草；omp 计划审查（[evidences/omp-plan-review.txt](evidences/omp-plan-review.txt)）阻断 2、重要 10，全部成立并已并入计划。同日开发者同意先改计划：store 改为 setup 写法、不用 Pinia（计划第 3 节、待确认第 2 项）。开发者确认计划与 6 项推荐（计划“已确认”一节）。S0–S8 已实现，omp 实现审查 11 条已修正；两份新 Spec 保持 `planned`，待开发者批准晋升。实施中的调整记在计划“验收映射”前。
+2026-10-08 计划起草；omp 计划审查（[evidences/omp-plan-review.txt](evidences/omp-plan-review.txt)）阻断 2、重要 10，全部成立并已并入计划。同日开发者同意先改计划：store 改为 setup 写法、不用 Pinia（计划第 3 节、待确认第 2 项）。开发者确认计划与 6 项推荐（计划“已确认”一节）。S0–S8 已实现，omp 实现审查 11 条已修正；两份新 Spec 经开发者 2026-10-08 批准晋升 `implemented`，补了实现合同。实施中的调整记在计划“验收映射”前。
 
 | 片 | 提交 | 结果 |
 |---|---|---|

@@ -166,6 +166,9 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 平台文件 | [`platform/files.md`](platform/files.md) | 受根约束的 I/O、授予隔离、watch 与锁、关闭门禁，不是业务文件树服务；**实现迁移中** |
 | SQLite 机制 | [`platform/sqlite.md`](platform/sqlite.md) | 具名资源 owner、连接借用、单库事务、代次与关闭，不自动迁移；**实现迁移中** |
 | Storage 插件记录 | [`storage/persistence.md`](storage/persistence.md) | `nbook.storage` 的记录定义、user 与 project 分区、读取分类、条件保存与订阅 |
+| 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则 |
+| 公开状态 | [`state/public-state.md`](state/public-state.md) | 公开键的声明与校验、激活时绑定与停止时撤回、本实例内的同步读取与未就绪、响应式失效 |
+| 插件状态 store | [`state/store.md`](state/store.md) | `defineStore` 的 setup 写法、只读视图与 action、持久化字段的已确认值与显示、保存队列、停止时的结算 |
 
 ## 待实现规范
 
@@ -182,7 +185,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | 清单格式、按入口声明的服务依赖、同一运行位置解析、受阻推导与启停顺序 |
 | 浏览器宿主 | [`runtime/browser-host.md`](runtime/browser-host.md) | 挂载前建立窗口运行实例、引导接口、RPC 首连与断线重连、多窗口隔离、项目绑定与可分离边界 |
 | 远程服务与 RPC 协议 | [`runtime/plugin-channel.md`](runtime/plugin-channel.md) | 跨实例的远程服务合同、内核路由、请求阶段与失败码、两层版本、订阅、按需激活与等待环；末节暂留 HTTP 路由贡献，待移交 `nbook.http` 的 Spec |
-| 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则；**待晋升** |
 | 端点收集与 API 文档 | [`runtime/api-docs.md`](runtime/api-docs.md) | 对外 HTTP 路由的收集、OpenAPI 生成与展示，不含远程服务合同 |
 | 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | 热插拔三档、引用账本与转发器、三步停止、在途调用结算 |
 | 插件安装与热升级 | [`runtime/plugin-install.md`](runtime/plugin-install.md) | 本地文件夹安装、卸载、兼容、安全模式、热升级与回滚 |
@@ -191,8 +193,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
 | 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | 双模式、F1–F9 交互、剪贴板与 dirty 策略 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
-| 公开状态 | [`state/public-state.md`](state/public-state.md) | 公开键的声明与校验、激活时绑定与停止时撤回、本实例内的同步读取与未就绪、响应式失效；**待晋升** |
-| 插件状态 store | [`state/store.md`](state/store.md) | `defineStore` 的 setup 写法、只读视图与 action、持久化字段的已确认值与显示、保存队列、停止时的结算；**待晋升** |
 
 ## 旧应用的规范与 Reference（只作参照）
 

@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: state.store
 owners:
   - neuro-book
@@ -159,6 +159,16 @@ type CommitResult = "saved" | "failed" | "unknown" | "protected" | "cancelled" |
 4. **提供方单独停止**：Given 项目入口的 Storage 停止而 store 仍活着；Then `canSave` 立即为 false，排队意图暂停；`reopen` 后 `retry` 成功。
 
 Smoke：`e2e/state.e2e.ts`，同一浏览器两个标签页窄改探针记录的不同字段，两边的修改都保留。
+
+## 实现合同
+
+- **公开入口**：`nbook/shared/store/store`（`defineStore`、`definePublicState`、`StoreSetupContext`、`Store`、`StoreDefinition`、`PersistedField`、`PersistedFieldView`、`CommitResult`、`SaveState`、`StoreStoppedError`、`StoreClosedError`）。
+- **owner 与依赖方向**：应用包的共享库，内置插件直接引用；依赖 `@vue/reactivity`（浏览器里与 Vue 共用同一份）、[`storage.persistence`](../storage/persistence.md) 的 `StorageService`（持久化字段）与 [`state.public`](public-state.md) 的贡献点（公开键）；不用 Pinia。store 不是插件，也不经服务登记。
+- **关键不变量**：
+  - 同一字段的意图按提交顺序逐条发送，同一时刻至多一个保存在途；队首在途时 `retry`、`discard` 返回 `busy`（输出 9、14、15）。
+  - 冲突只重放一次，在最新快照上重算 `change`；结果不确定时保留具体值与 `expect`，`retry` 原样重发，`base` 已等于要写的值时以 `saved` 结算，不重复应用（输出 11、13、14，验收 2）。
+  - 传给 `change` 的值是冻结的；`change` 在最新值上抛错时这条以 `change-threw` 失败、队列暂停（输出 9、10）。
+  - 入口停止时先等在途保存，再按队列顺序发出已接受的意图，队首失败后其余以 `cancelled` 结算并记诊断；停止开始后 action 抛错（输出 17，验收 3）。
 
 ## 证据
 

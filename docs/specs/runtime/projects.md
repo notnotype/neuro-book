@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: runtime.projects
 owners:
   - application-runtime
@@ -128,7 +128,7 @@ owners:
 ## 边界与兼容
 
 - **owner**：application-runtime（服务端宿主的项目管理器与项目宿主）；`nbook.projects`（界面与远程入口）。子实例与租约的机制归 runtime（[`runtime.application`](application.md)），绑定、`project-gone` 与 `{project}` 访问的协议归 [远程服务与 RPC 协议](plugin-channel.md)。
-- **不加目录锁**：旧应用与早期设计里“防止两个服务端进程同时打开同一项目”的锁，保护的是项目实例独占的项目级持久数据（项目 SQLite、Storage 的项目分区、带写入来源的文件监视）。本合同还没有这类数据，锁保护不了任何东西，因此不加；出现项目级持久数据时（K4 或 History）再定，届时优先用数据本身的机制（SQLite 的锁、库里的拥有者记录），不另加目录锁文件。同一个服务端进程里，多个窗口本来就共用同一个项目实例。
+- **不加目录锁**：旧应用与早期设计里“防止两个服务端进程同时打开同一项目”的锁，保护的是项目实例独占的项目级持久数据。第一份这样的数据是 Storage 的项目分区：条件保存靠 SQLite 自己的锁，两个服务端进程同时打开同一项目时写入仍然正确，只是互相收不到对方写入的变更通知（[`storage.persistence`](../storage/persistence.md)）。以后的项目级数据同样优先用数据本身的机制（SQLite 的锁、库里的拥有者记录），不另加目录锁文件。同一个服务端进程里，多个窗口本来就共用同一个项目实例。
 - **路径可见性**：用户登记的项目目录路径会经 `nbook.projects` 显示给用户，用来区分同名目录；状态根、安装目录等服务端内部路径不发给浏览器。第三方浏览器插件接入时，随 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 待定项 3 收紧 `nbook.projects/projects` 的调用方。
 - **兼容**：身份文件与登记表带 `schema`，结构变化时提升；`.nbook/` 目录以后可能放其它文件，本能力只读写 `project.json`。项目子进程与服务端必须来自同一次构建（同一 Bun 可执行文件、同一产物目录）。
 - **平台**：Bun 的进程间通信在 Windows 上未实测；macOS 未实测。
@@ -149,6 +149,16 @@ owners:
 12. **打包产物。** 生产打包产物能起项目子进程：登记临时目录，经 RPC 绑定，项目实例报告自己的身份。
 
 Smoke：场景 1 由登记表与身份的合同测试在真实临时目录上运行；场景 2–10 由服务端宿主的合同测试以真实子进程与真实 WebSocket 运行（宽限期与截止用注入时钟或短参数）；场景 2–6、11 另在本机 Chrome 上由 `e2e/projects.e2e.ts` 运行；场景 12 由 `bun run smoke:server` 运行。
+
+## 实现合同
+
+- **公开入口**：`nbook/shared/projects`（宿主能力 `projectsKey` 与 `ProjectsService`、`ProjectLease`、`ProjectState`，项目实例里的 `currentProjectKey`，窗口里的 `windowProjectKey`）；`nbook/plugins/projects/shared/contracts`（远程合同 `projectsRemoteContract`、命令 `OPEN_PROJECT_COMMAND`）；插件定义 `projectsBackendPlugin`、`projectsBrowserPlugin`。项目管理器（`createProjectManager`）与项目宿主是宿主内部，插件只经 `projectsKey` 使用。
+- **owner 与依赖方向**：服务端宿主的项目管理器建在内核的子实例与租约（[`runtime.application`](application.md)）与远程路由之上，经 Bun IPC 连项目子进程；项目宿主（`src/project/`）在子进程里装配 `project` 位置的插件并给出 `currentProjectKey`。`nbook.projects` 后端依赖 `projectsKey`，浏览器入口依赖命令面板的 `quickPickKey` 与整页导航的宿主能力。
+- **关键不变量**：
+  - 身份在项目目录的 `.nbook/project.json`，登记表在状态根；移动目录后 id 与短名不变，复制出的目录得到 `identity-conflict`（场景 1）。
+  - 项目代次单调、不复用；`stopping` 中的项目不复活，等子进程真实退出后以新代次创建（场景 5、6）。
+  - 无租约访问只对服务端插件与 `running` 的项目放行，`idle-grace` 时得到 `denied` 且不唤醒项目；租约只归取得它的那次激活，入口停止即释放（场景 7、8）。
+  - 服务端停止时先封闭新握手与新的打开，项目子进程先于服务端插件退出，超过截止的强制结束并记为外部终止（场景 10）。
 
 ## 证据
 
