@@ -94,20 +94,6 @@ function waitWithSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined)
     return waiting;
 }
 
-/**
- * 校验查询绕回正在推导的贡献；`target` 是被重新进入的那条。它从查询里抛出，穿过中间各层插件的校验函数，回到
- * 被重新进入的那条才接住：校验函数吞掉查询的错误时，环判定就不成立（ContributionDeclarations 的前提）。
- */
-class ValidationCycle extends Error {
-    readonly target: ContributionRecord;
-
-    constructor(target: ContributionRecord) {
-        super(`贡献 ${target.definition.capability}/${target.definition.id} 的校验相互引用`);
-        this.name = "ValidationCycle";
-        this.target = target;
-    }
-}
-
 class HandleImpl implements ContributionHandle {
     readonly capability: string;
     readonly id: string;
@@ -289,13 +275,7 @@ export class PluginHostImpl implements PluginHost {
     readonly #plugins = new Map<string, PluginRecord>();
     /** 贡献目录：贡献点 id + 贡献 id → 全部当前登记，重复判定不区分运行位置。 */
     readonly #contributions = new Map<string, ContributionRecord[]>();
-    /** 正在推导校验结果的贡献：查询绕回其中一条即为环（runtime.plugins 输出第 23 条）。 */
-    readonly #validating: ContributionRecord[] = [];
-    /**
-     * 一次最外层推导里已经正常得出的结果：无环的共享依赖不必按路径重复展开（否则查询成本随深度指数增长）。
-     * 最外层推导结束即丢弃，不跨查询缓存，结果仍按此刻的存活登记推导。
-     */
-    #validated: Map<ContributionRecord, ContributionValidation> | null = null;
+    /** 激活上下文里的声明查询（runtime.plugins 输出第 23 条）；校验函数拿不到它，所以推导不会递归。 */
     readonly #declarations: ContributionDeclarations = {
         get: <Declaration>(capability: string, id: string): ContributionDescriptor<Declaration> | null => {
             const live = this.#liveContributions(capability, id);
@@ -812,29 +792,8 @@ export class PluginHostImpl implements PluginHost {
         };
     }
 
+    /** 按此刻的存活登记推导一条贡献的校验结果；只看这一条声明与同 id 是否重复，不缓存。 */
     #validation(contribution: ContributionRecord): ContributionValidation {
-        const outermost = this.#validated === null;
-        const validated = this.#validated ?? new Map<ContributionRecord, ContributionValidation>();
-        this.#validated = validated;
-        try {
-            const known = validated.get(contribution);
-            if (known !== undefined) {
-                return known;
-            }
-            if (this.#validating.includes(contribution)) {
-                throw new ValidationCycle(contribution);
-            }
-            const result = this.#derive(contribution);
-            validated.set(contribution, result);
-            return result;
-        } finally {
-            if (outermost) {
-                this.#validated = null;
-            }
-        }
-    }
-
-    #derive(contribution: ContributionRecord): ContributionValidation {
         const point = this.#pointFor(contribution);
         if (point === null) {
             return {status: "pending", reason: "unknown-point"};
@@ -849,23 +808,13 @@ export class PluginHostImpl implements PluginHost {
             return {status: "rejected", reason: "implementation-not-accepted", detail: null};
         }
         if (point.validate !== undefined) {
-            this.#validating.push(contribution);
             try {
-                const detail = point.validate(this.#descriptorOf(contribution), this.#declarations);
+                const detail = point.validate(this.#descriptorOf(contribution));
                 if (detail !== null) {
                     return {status: "rejected", reason: "invalid-declaration", detail};
                 }
             } catch (error) {
-                // 环错误穿过中间各层，回到被重新进入的那条才判为相互引用：环上每条无论从哪开始查都被拒。
-                if (error instanceof ValidationCycle) {
-                    if (error.target !== contribution) {
-                        throw error;
-                    }
-                    return {status: "rejected", reason: "invalid-declaration", detail: "校验相互引用：这条声明的校验经查询又回到了它自己"};
-                }
                 return {status: "rejected", reason: "invalid-declaration", detail: summarizeFailure(error).message};
-            } finally {
-                this.#validating.pop();
             }
         }
         return {status: "accepted"};

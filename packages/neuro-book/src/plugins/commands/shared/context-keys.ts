@@ -1,7 +1,8 @@
 /**
  * 上下文键：`when` 可以引用的具名布尔状态（例如“有活动编辑器”）。
  *
- * 命令表只经键来源问两件事：登记时这个键能不能用于 `when`，求值时它此刻是否为 true。产品命令表的来源是公开状态
+ * 命令表求值时经键来源问两件事：这个键能不能用于 `when`，它此刻是否为 true；登记时不问，键的拥有者晚登记也不影响
+ * 命令登记（docs/specs/workbench/commands.md 的“可用性求值”）。产品命令表的来源是公开状态
  * （`nbook.state`，键是本运行位置声明的布尔公开键，见 docs/specs/workbench/commands.md 的“when 读公开状态”）；
  * Lab 命令场景与测试用本地键表（`contextTable`）。命令系统本身不认识任何领域键。本文件不碰 DOM 与运行时。
  */
@@ -18,7 +19,7 @@ export type WhenPredicate = Readonly<{requires?: readonly string[]}>;
 export type WhenEvaluation = {ok: true; value: {matches: boolean; reasons: string[]}} | {ok: false; reason: string};
 
 export interface ContextKeySource {
-    /** 登记期：键不能用于 `when` 的原因；能用为 null。 */
+    /** 键不能用于 `when` 的原因；能用为 null。 */
     problem(key: string): string | null;
     /** 求值期：键此刻是否为 true，不为 true 时给出原因。在响应式环境里求值时，读到的依赖随之收集。 */
     evaluate(key: string): {readonly matches: true} | {readonly matches: false; readonly reason: string};
@@ -32,7 +33,7 @@ export function contextTable(keys: ContextKeyTable, values: () => ContextValues 
     };
 }
 
-/** 登记期校验：只回答“键是否都能用”，不求值。 */
+/** 只回答“键是否都能用”，不求值；第一个不能用的键给出原因。 */
 export function validateWhen(keys: Pick<ContextKeySource, "problem">, when: WhenPredicate | undefined): {ok: true} | {ok: false; reason: string} {
     for (const key of when?.requires ?? []) {
         const problem = keys.problem(key);

@@ -11,9 +11,9 @@ import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
 import {provide} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 import type {RemoteProvision} from "@notnotype/nb-runtime/remote";
-import type {ContributionDeclarations, ContributionDescriptor, ContributionHandle, ContributionReceiver, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
+import type {ContributionDescriptor, ContributionHandle, ContributionReceiver, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
+import {publicStateKey} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateDeclaration, PublicStateService} from "nbook/plugins/state/shared/contracts";
 import {DISPLAY_LOCALE, localize} from "nbook/shared/localized-text";
 
@@ -25,23 +25,20 @@ import {commandDeclarationProblems, createCommandRegistry, effectiveAgentExposur
 import type {CommandRegistry} from "./registry";
 
 /**
- * 产品命令表的上下文键是公开状态里的布尔键（docs/specs/workbench/commands.md 的“when 读公开状态”）：`when` 只能引用
- * 本运行位置入口声明的、已被接受的布尔公开键，求值只读本实例。
+ * 产品命令表的上下文键是公开状态里的布尔键（docs/specs/workbench/commands.md 的“when 读公开状态”）：`when` 引用的
+ * 键要是本运行位置入口声明的、已被接受的布尔公开键，否则命令不可用；求值只读本实例。
  */
 function keyProblem(key: string, declaration: PublicStateDeclaration | null): string | null {
     if (declaration === null) return `when 引用的 ${key} 不是本运行位置声明的公开键`;
     return declaration.type === "boolean" ? null : `when 引用的 ${key} 不是布尔公开键`;
 }
 
-/** 登记期（贡献点的校验）：按命令贡献所在的运行位置查内核里已接受的公开键声明。 */
-function validateCommandContribution(contribution: ContributionDescriptor, declarations: ContributionDeclarations): string | null {
-    const keys = {
-        problem: (key: string) => {
-            const accepted = declarations.get<PublicStateDeclaration>(PUBLIC_STATE_POINT, key);
-            return keyProblem(key, accepted === null || accepted.location !== contribution.location ? null : accepted.declaration);
-        },
-    };
-    const problems = commandDeclarationProblems(contribution.id, contribution.plugin, contribution.declaration, keys);
+/**
+ * 贡献点的校验只看这一条声明（runtime.plugins 输出第 23 条）；`when` 引用的键是否存在在求值时判断，所以键的拥有者
+ * 晚登记、先撤销都不改变这条命令能否登记。
+ */
+function validateCommandContribution(contribution: ContributionDescriptor): string | null {
+    const problems = commandDeclarationProblems(contribution.id, contribution.plugin, contribution.declaration);
     return problems.length === 0 ? null : problems.join("；");
 }
 

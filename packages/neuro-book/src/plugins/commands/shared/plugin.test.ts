@@ -131,7 +131,6 @@ describe("nbook.commands 经内核装配", () => {
         const run = {run: () => ({ok: true as const, value: null})};
         const greeter = provider("example.greeter", "browser", {
             "example.greeter.greet": {declaration: declaration(), implementation: run},
-            "example.greeter.wait": {declaration: declaration({when: {requires: ["editor-active"]}}), implementation: run},
             "nbook.edit.undo": {declaration: declaration(), implementation: run},
         }, (resolved) => {
             service = resolved;
@@ -142,7 +141,6 @@ describe("nbook.commands 经内核装配", () => {
             const validation = application.plugins.contribution(COMMANDS_POINT, id)[0]?.validation;
             return validation?.status === "rejected" ? validation.detail : null;
         };
-        expect(rejection("example.greeter.wait")).toContain("when 引用的 editor-active 不是本运行位置声明的公开键");
         expect(rejection("nbook.edit.undo")).toContain("插件 example.greeter 的命令 id 必须是 example.greeter.<action>");
         expect((service as CommandService | null)?.list().map((metadata) => metadata.id)).toEqual(["example.greeter.greet"]);
         await application.stop();
@@ -222,24 +220,51 @@ describe("Spec workbench.commands“when 读公开状态”、场景 15", () => 
         await application.stop();
     });
 
-    it("when 引用未声明的键、非布尔键或只在另一个运行位置声明的键：这一条被拒，原因可查", async () => {
+    it("when 引用未声明的键、非布尔键或只在另一个运行位置声明的键：照常登记但不可用，原因写明，诊断按命令只记一次；键之后被声明并就绪时可用", async () => {
         const bothSides: PluginDefinition = {...flags("browser", {label: {declaration: {type: "string", unready: ""}}}), entries: [
             ...flags("browser", {label: {declaration: {type: "string", unready: ""}}}).entries,
             ...flags("server", {serverOnly: {declaration: {type: "boolean", unready: false}}}).entries,
         ]};
+        let service: CommandService | null = null;
         const source = provider("example.greeter", "browser", {
             "example.greeter.missing": {declaration: declaration({when: {requires: ["example.flags/nothing"]}}), implementation: run},
             "example.greeter.label": {declaration: declaration({when: {requires: ["example.flags/label"]}}), implementation: run},
             "example.greeter.elsewhere": {declaration: declaration({when: {requires: ["example.flags/serverOnly"]}}), implementation: run},
+            "example.greeter.later": {declaration: declaration({when: {requires: ["example.later/open"]}}), implementation: run},
+        }, (resolved) => {
+            service = resolved;
         });
-        const {application} = await start("browser", [bothSides, source]);
-        const detail = (id: string): string | null => {
-            const validation = application.plugins.contribution(COMMANDS_POINT, id)[0]?.validation;
-            return validation?.status === "rejected" ? validation.detail : null;
+        const {application, store} = await start("browser", [bothSides, source]);
+        const commands = service as CommandService | null;
+        if (commands === null) throw new Error("没有拿到命令服务");
+        const ids = ["example.greeter.missing", "example.greeter.label", "example.greeter.elsewhere", "example.greeter.later"];
+        for (const id of ids) expect(application.plugins.contribution(COMMANDS_POINT, id)[0]?.validation).toEqual({status: "accepted"});
+        expect(commands.list().map((metadata) => metadata.id).sort()).toEqual([...ids].sort());
+
+        const expected = {
+            "example.greeter.missing": "when 引用的 example.flags/nothing 不是本运行位置声明的公开键",
+            "example.greeter.label": "when 引用的 example.flags/label 不是布尔公开键",
+            "example.greeter.elsewhere": "when 引用的 example.flags/serverOnly 不是本运行位置声明的公开键",
         };
-        expect(detail("example.greeter.missing")).toContain("example.flags/nothing 不是本运行位置声明的公开键");
-        expect(detail("example.greeter.label")).toContain("example.flags/label 不是布尔公开键");
-        expect(detail("example.greeter.elsewhere")).toContain("example.flags/serverOnly 不是本运行位置声明的公开键");
+        for (let round = 0; round < 3; round += 1) {
+            for (const [id, reason] of Object.entries(expected)) expect(commands.isEnabled(id)).toEqual({ok: false, code: "unavailable", reason});
+        }
+        expect(await commands.execute("example.greeter.missing")).toMatchObject({ok: false, code: "unavailable"});
+        const reported = store.query({plugin: "nbook.commands"}).records.filter((record) => record.event === "commands.registry").map((record) => record.message);
+        for (const [id, reason] of Object.entries(expected)) expect(reported.filter((message) => message === `命令 ${id} 的 ${reason}`)).toHaveLength(1);
+
+        const open = ref(true);
+        const later: PluginDefinition = {id: "example.later", entries: [{
+            id: "browser",
+            location: "browser",
+            contributions: [{capability: PUBLIC_STATE_POINT, id: "example.later/open", declaration: {type: "boolean", unready: false}}],
+            activate: () => ({contributions: {[PUBLIC_STATE_POINT]: {"example.later/open": {kind: "bound", read: () => open.value}}}}),
+        }]};
+        expect(commands.isEnabled("example.greeter.later")).toMatchObject({ok: false, code: "unavailable"});
+        expect(application.plugins.register(later, {scope: application.root})).toMatchObject({status: "accepted"});
+        expect(await application.plugins.activate({plugin: "example.later", entry: "browser"})).toMatchObject({status: "activated"});
+        expect(commands.isEnabled("example.greeter.later")).toEqual({ok: true, value: true});
+        expect(await commands.execute("example.greeter.later")).toEqual({ok: true, value: "done"});
         await application.stop();
     });
 });

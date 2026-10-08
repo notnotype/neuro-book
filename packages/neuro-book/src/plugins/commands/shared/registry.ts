@@ -11,7 +11,7 @@
 import type {TSchema} from "typebox";
 import {Value} from "typebox/value";
 
-import {evaluateContextWhen, validateWhen} from "./context-keys";
+import {evaluateContextWhen} from "./context-keys";
 import type {ContextKeySource} from "./context-keys";
 import {CommandDeclarationSchema} from "./contracts";
 import type {
@@ -43,13 +43,13 @@ export interface CommandConfirmationRequest {
 }
 
 export interface CommandRegistryOptions {
-    /** 本命令表的上下文键来源：`when` 引用它不认的键时登记失败，求值时问它此刻的值。 */
+    /** 本命令表的上下文键来源：求值时问它键能不能用、此刻的值；它不认的键使命令不可用。 */
     readonly contextKeys: ContextKeySource;
     /** 缺省为 normal。 */
     readonly agentMode?: () => AgentMode;
     /** Agent 调用 `confirm` 命令时的确认通道；缺省时这类调用得到 `confirmation-required`。 */
     readonly confirm?: (request: CommandConfirmationRequest) => Promise<boolean>;
-    /** 登记被拒绝、监听器抛错时报告；同一原因只报告一次。 */
+    /** 登记被拒绝、`when` 引用了不能用的键、监听器抛错时报告；同一原因只报告一次。 */
     readonly report: (error: Error) => void;
 }
 
@@ -111,7 +111,7 @@ function schemaProblems(declaration: unknown): string[] {
  * id 规则：`nbook.` 开头的插件写 `nbook.<域>.<动作>`，域在词表内；其它插件的命令 id 以自己的插件 id 开头，
  * 再接一段动作，避免第三方占用内置命名空间或彼此撞名。
  */
-export function commandDeclarationProblems(id: string, source: string, declaration: unknown, contextKeys: Pick<ContextKeySource, "problem">): string[] {
+export function commandDeclarationProblems(id: string, source: string, declaration: unknown): string[] {
     const problems: string[] = [];
     if (source.startsWith("nbook.")) {
         const match = BUILTIN_COMMAND_ID.exec(id);
@@ -125,8 +125,6 @@ export function commandDeclarationProblems(id: string, source: string, declarati
     if (shape.length > 0) return [...problems, ...shape.map((problem) => `命令 ${id} 的声明不合格：${problem}`)];
     const valid = declaration as CommandDeclaration;
     if (valid.expose?.hints?.readOnly === true && valid.effect === "write") problems.push(`命令 ${id} 的 readOnly 标注与 effect=write 冲突`);
-    const when = validateWhen(contextKeys, valid.when);
-    if (!when.ok) problems.push(`命令 ${id} 的 ${when.reason}`);
     return problems;
 }
 
@@ -180,7 +178,15 @@ export function createCommandRegistry(options: CommandRegistryOptions): CommandR
 
     function availability(entry: CommandEntry): {ok: true} | {ok: false; reason: string} {
         const evaluation = evaluateContextWhen(options.contextKeys, entry.metadata.when);
-        if (!evaluation.ok) return evaluation;
+        if (!evaluation.ok) {
+            // 键不能用是写命令的人的问题：每次求值都给出原因，诊断按命令与原因只记一次。
+            const key = `when:${entry.metadata.id}:${evaluation.reason}`;
+            if (!reported.has(key)) {
+                reported.add(key);
+                options.report(new Error(`命令 ${entry.metadata.id} 的 ${evaluation.reason}`));
+            }
+            return evaluation;
+        }
         return evaluation.value.matches ? {ok: true} : {ok: false, reason: evaluation.value.reasons.join("；")};
     }
 
@@ -191,7 +197,7 @@ export function createCommandRegistry(options: CommandRegistryOptions): CommandR
 
     return {
         register(definition) {
-            const problems = commandDeclarationProblems(definition.id, definition.source, definition.declaration, options.contextKeys);
+            const problems = commandDeclarationProblems(definition.id, definition.source, definition.declaration);
             if (typeof definition.run !== "function") problems.push(`命令 ${definition.id} 必须提供 run`);
             if (problems.length > 0) return reject(`definition:${definition.id}`, problems.join("；"));
             const id = definition.id;

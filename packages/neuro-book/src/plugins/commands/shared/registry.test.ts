@@ -128,7 +128,6 @@ describe("登记、释放与冲突", () => {
             [command("nbook.edit.undo", {args: Type.Object({text: Type.String()})}), "/args"],
             [command("nbook.edit.undo", {args: Type.Array(Type.String()) as TSchema}), "/args"],
             [command("nbook.edit.undo", {effect: "write", expose: {hints: {readOnly: true}}}), "readOnly 标注与 effect=write 冲突"],
-            [command("nbook.edit.undo", {when: {requires: ["offline"]}}), "未登记的 when 取值：offline"],
             [{...command("nbook.edit.undo"), run: undefined as unknown as CommandDefinition["run"]}, "必须提供 run"],
         ];
         for (const [definition, expected] of broken) {
@@ -139,6 +138,22 @@ describe("登记、释放与冲突", () => {
             expect(registry.list()).toEqual([]);
             expect(reported).toHaveLength(1);
         }
+    });
+
+    it("when 引用未登记的键：照常登记，但不可用、原因写明；执行为 unavailable；同一命令同一原因只报告一次", async () => {
+        const {registry, reported} = harness();
+        let runs = 0;
+        expect(registry.register(command("nbook.edit.undo", {when: {requires: ["editor-active", "offline"]}, run: () => {
+            runs += 1;
+            return {ok: true, value: null};
+        }})).ok).toBe(true);
+        expect(registry.list().map((metadata) => metadata.id)).toEqual(["nbook.edit.undo"]);
+        for (let round = 0; round < 3; round += 1) {
+            expect(registry.isEnabled("nbook.edit.undo")).toEqual({ok: false, code: "unavailable", reason: "未登记的 when 取值：offline"});
+        }
+        expect(await registry.execute("nbook.edit.undo")).toMatchObject({ok: false, code: "unavailable", reason: "未登记的 when 取值：offline"});
+        expect(runs).toBe(0);
+        expect(reported).toEqual(["命令 nbook.edit.undo 的 未登记的 when 取值：offline"]);
     });
 
     it("非内置插件的命令 id 必须以自己的插件 id 开头，不能占用 nbook 命名空间", () => {
