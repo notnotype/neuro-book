@@ -20,9 +20,16 @@ import type {RecordDefinition, StorageService} from "nbook/shared/storage";
 
 import type {ShellLayoutFacts} from "../shell/sizes";
 import {PANEL_ALIGNMENTS, PANEL_POSITIONS} from "../shell/panel-state";
+import {shallowRef} from "@vue/reactivity";
+
+import type {ViewDeclaration, ViewLocation} from "../../shared/views";
 import {openLayout} from "../testing/layout";
+import type {LayoutWindow} from "../testing/layout";
+import type {ViewCatalog} from "../views/placement";
 import type {LayoutStore} from "./layout-store";
+import {workbenchStateBindings} from "./public-state";
 import {LAYOUT_RECORDS} from "./records";
+import type {Customizations} from "./records";
 
 /** 布局记录所在的命名空间（工作台的插件 id）。 */
 const PLUGIN = "nbook.workbench";
@@ -356,5 +363,118 @@ describe("坏记录与保存失败", () => {
         rename("records_away", "records");
         expect(await store.actions.retry("panelSize")).toBe("saved");
         expect(await read(storage, LAYOUT_RECORDS.user.panelSize)).toEqual({panelHeight: 300, panelWidth: 400});
+    });
+});
+
+describe("视图与容器（外壳二）", () => {
+    const view = (name: string, location: ViewLocation): ViewDeclaration => ({title: {"zh-CN": name, "en-US": name}, icon: `i-${name}`, location, layout: "scroll"});
+    const catalog: ViewCatalog = new Map([["test.a", view("A", "sidebar")], ["test.b", view("B", "sidebar")], ["test.c", view("C", "panel")]]);
+
+    async function viewWindow(w: StorageWorld, id: string): Promise<LayoutWindow> {
+        const opened = await openLayout(w, id, "c");
+        opened.store.actions.acceptViewCatalog(catalog);
+        return opened;
+    }
+
+    it("意图按字段写进记录，刷新后同样的落位；拒绝与无变化不写", async () => {
+        const w = await world();
+        const {store, storage} = await viewWindow(w, "w");
+        expect(store.state.presentation.parts.sidebar.switcher.map((item) => item.containerId)).toEqual(["view:test.a", "view:test.b"]);
+        expect(store.actions.applyView({kind: "move-view", viewId: "test.b", sourceContainerId: "view:test.b", targetContainerId: "view:test.a"}).kind).toBe("patch");
+        expect(store.actions.applyView({kind: "set-view-sizes", containerId: "view:test.a", axis: "vertical", sizes: {"test.a": 150}}).kind).toBe("patch");
+        await saved(store);
+        expect(await read(storage, LAYOUT_RECORDS.user.customizations)).toEqual({
+            views: {"test.b": {container: "view:test.a", order: 1, fingerprint: "sidebar#0"}, "test.a": {height: 150}},
+            selected: {sidebar: "view:test.a"},
+        });
+        const revisionOf = (): string | null => (store.state.customizations.base?.status === "ok" ? store.state.customizations.base.revision : null);
+        const revision = revisionOf();
+        expect(revision).not.toBeNull();
+        expect(store.actions.applyView({kind: "move-view", viewId: "test.b", sourceContainerId: "view:test.b", targetContainerId: "view:test.c"})).toMatchObject({kind: "rejected", code: "stale-source"});
+        expect(store.actions.applyView({kind: "select-container", part: "sidebar", containerId: "view:test.a"})).toEqual({kind: "unchanged"});
+        await saved(store);
+        expect(revisionOf()).toBe(revision);
+
+        const again = await viewWindow(w, "again");
+        const container = again.store.state.presentation.containers.get("view:test.a");
+        expect(container?.mode).toBe("multiple");
+        expect([...container?.members ?? []]).toEqual(["test.a", "test.b"]);
+        expect(container?.views[0]?.size).toBe(150);
+    });
+
+    it("两个窗口改不同视图都保留；同一视图后保存的胜出；对方的修改不强改本窗口显示", async () => {
+        const w = await world();
+        const a = await viewWindow(w, "a");
+        const b = await viewWindow(w, "b");
+        a.store.actions.applyView({kind: "move-view", viewId: "test.a", sourceContainerId: "view:test.a", targetContainerId: "view:test.c"});
+        b.store.actions.applyView({kind: "move-view", viewId: "test.b", sourceContainerId: "view:test.b", targetContainerId: "view:test.c"});
+        await Promise.all([saved(a.store), saved(b.store)]);
+        const both = await read(a.storage, LAYOUT_RECORDS.user.customizations) as Customizations;
+        expect(Object.keys(both.views ?? {}).sort()).toEqual(["test.a", "test.b"]);
+        expect(a.store.state.placement.views.get("test.b")?.container).toBe("view:test.b");
+
+        // 同一视图：A 先把 C 移进 view:test.b（A 的显示里它还在），B 再把 C 移进 view:test.a；后保存的胜出。
+        a.store.actions.applyView({kind: "move-view", viewId: "test.c", sourceContainerId: "view:test.c", targetContainerId: "view:test.b"});
+        await saved(a.store);
+        b.store.actions.applyView({kind: "move-view", viewId: "test.c", sourceContainerId: "view:test.c", targetContainerId: "view:test.a"});
+        await saved(b.store);
+        expect((await read(a.storage, LAYOUT_RECORDS.user.customizations) as Customizations).views?.["test.c"]?.container).toBe("view:test.a");
+    });
+
+    it("记录里不认识的视图与容器在写入后原样保留；超过 64 KiB 时保存失败、可放弃", async () => {
+        const w = await world();
+        const seed = await viewWindow(w, "seed");
+        seed.store.actions.applyView({kind: "select-container", part: "sidebar", containerId: "view:test.b"});
+        await saved(seed.store);
+        // 塞进接近上限的未知视图项：id 取 128 个字符的上限，指纹与尺寸都写满。
+        const unknown: Record<string, unknown> = {};
+        let index = 0;
+        const sized = (): number => Buffer.byteLength(JSON.stringify({selected: {sidebar: "view:test.b"}, views: unknown}));
+        // 先用大项、再用小项填到离上限不到 75 字节：本窗口之后一次移动（约 95 字节）就会超出。
+        const fill = (make: (n: number) => [string, unknown]): void => {
+            for (;;) {
+                const [id, entry] = make(index);
+                unknown[id] = entry;
+                if (sized() >= 64 * 1024 - 50) {
+                    delete unknown[id];
+                    return;
+                }
+                index += 1;
+            }
+        };
+        fill((n) => {
+            const id = `gone.${String(n).padStart(4, "0")}`.padEnd(128, "x");
+            return [id, {container: `view:${id}`, order: n, fingerprint: "auxiliarybar#1000000", width: 999_999, height: 999_999, collapsed: true}];
+        });
+        fill((n) => [`gone.${String(n)}`, {height: 1}]);
+        const db = new Database(w.userPath);
+        db.query("UPDATE records SET value = ?1 WHERE owner = ?2 AND key = 'views-customizations'").run(JSON.stringify({selected: {sidebar: "view:test.b"}, views: unknown}), PLUGIN);
+        db.close();
+
+        const {store, storage} = await viewWindow(w, "w");
+        expect(store.state.placement.selected.sidebar).toBe("view:test.b");
+        expect(store.state.presentation.diagnostics).toHaveLength(index);
+        store.actions.applyView({kind: "select-container", part: "sidebar", containerId: "view:test.a"});
+        await saved(store);
+        expect(Object.keys((await read(storage, LAYOUT_RECORDS.user.customizations) as Customizations).views ?? {})).toHaveLength(index);
+
+        store.actions.applyView({kind: "move-view", viewId: "test.a", sourceContainerId: "view:test.a", targetContainerId: "view:test.c"});
+        await waitUntil("超过上限的保存暂停", () => store.state.customizations.save.state === "failed");
+        expect(store.state.problems).toEqual([{record: "customizations", kind: "unsaved", code: "too-large"}]);
+        expect(store.state.placement.views.get("test.a")?.container).toBe("view:test.c");
+        expect(store.actions.discard("customizations")).toBe("discarded");
+        expect(store.state.placement.views.get("test.a")?.container).toBe("view:test.a");
+        expect(store.state.problems).toEqual([]);
+    });
+
+    it("focusedPart 默认 editor，随外壳上报变化并进入公开状态", async () => {
+        const w = await world();
+        const {store} = await viewWindow(w, "w");
+        expect(store.state.focusedPart).toBe("editor");
+        store.actions.focusPart("sidebar");
+        expect(store.state.focusedPart).toBe("sidebar");
+        const bindings = workbenchStateBindings(shallowRef(store));
+        expect(bindings.focusedPart.value).toBe("sidebar");
+        expect(workbenchStateBindings(shallowRef(null)).focusedPart.value).toBe("editor");
     });
 });

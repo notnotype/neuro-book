@@ -8,6 +8,8 @@
  * - 呈现事实只经 `acceptLayoutFacts` 进来：外壳组件按实测容器算出模式与生效的面板状态；内存里的最大化在事实里已经不
  *   成立（进入紧凑）时清掉，回到宽屏不复活。
  * - action 不等保存：显示立即更新，保存结果看各字段的保存状态（状态栏据此显示“布局未保存”）。
+ * - 视图与容器（外壳二）：视图目录由工作台入口经 `acceptViewCatalog` 交进来，落位与呈现模型从目录和定制的当前显示
+ *   求出；每个意图先按发起时的呈现合成一份按字段的补丁（`web/views/intents.ts`），冲突重放时同一份补丁作用在最新值上。
  */
 
 import {computed, shallowRef} from "@vue/reactivity";
@@ -19,6 +21,12 @@ import {clampLeafSize, clampPanelHeight, clampPanelWidth, SHELL_SIZE_DEFAULTS, s
 import type {ShellDragCollapseMap, ShellHideablePart, ShellLayoutFacts, ShellSizePatch, ShellSizePreferences} from "../shell/sizes";
 import {isHorizontalPanelPosition, PANEL_ALIGNMENTS, PANEL_DEFAULTS, PANEL_POSITIONS, panelMaximizable} from "../shell/panel-state";
 import type {PanelAlignment, PanelPosition, PanelPreferences, PanelState} from "../shell/panel-state";
+import {applyIntent, applyPatch} from "../views/intents";
+import type {IntentResult, ViewIntent} from "../views/intents";
+import {computePlacement} from "../views/placement";
+import type {ViewCatalog} from "../views/placement";
+import {buildPresentation} from "../views/presentation";
+import type {ShellPartId} from "../shell/sizes";
 import {LAYOUT_RECORDS} from "./records";
 import type {Customizations, LayoutRecords} from "./records";
 
@@ -46,6 +54,11 @@ function defineLayoutStore(records: LayoutRecords) {
         const fields = {side, panelSize, customizations} as const;
         const maximized = shallowRef(false);
         const facts = shallowRef<ShellLayoutFacts | null>(null);
+        const catalog = shallowRef<ViewCatalog>(new Map());
+        /** 最近获得焦点的 Part（输出 27）：焦点移到外壳之外时不变，所以只有外壳里的 focusin 会改它。 */
+        const focusedPart = shallowRef<ShellPartId>("editor");
+        const placement = computed(() => computePlacement(catalog.value, customizations.display));
+        const presentation = computed(() => buildPresentation({catalog: catalog.value, placement: placement.value, customizations: customizations.display}));
 
         const sizes = computed<ShellSizePreferences>(() => ({
             sidebarWidth: side.display.sidebarWidth ?? SHELL_SIZE_DEFAULTS.sidebarWidth,
@@ -103,7 +116,7 @@ function defineLayoutStore(records: LayoutRecords) {
         };
 
         return {
-            state: {side, panelSize, customizations, maximized, facts, sizes, panel, hiddenParts, dragCollapsed, ready, problems},
+            state: {side, panelSize, customizations, maximized, facts, sizes, panel, hiddenParts, dragCollapsed, ready, problems, catalog, placement, presentation, focusedPart},
             actions: {
                 setPanelPosition: (position: PanelPosition): boolean => (PANEL_POSITIONS as ReadonlyArray<string>).includes(position) && setPanel({position}),
                 setPanelAlignment: (alignment: PanelAlignment): boolean => (PANEL_ALIGNMENTS as ReadonlyArray<string>).includes(alignment) && setPanel({alignment}),
@@ -157,6 +170,19 @@ function defineLayoutStore(records: LayoutRecords) {
                             return next;
                         });
                     }
+                },
+                /** 视图目录变化（登记、交付、撤回不改目录；只有声明集合变了才换）。 */
+                acceptViewCatalog: (next: ViewCatalog): void => {
+                    catalog.value = next;
+                },
+                /** 一次视图或容器的意图；拒绝与无变化都不写。返回合成结果，命令据此给出失败码。 */
+                applyView: (intent: ViewIntent): IntentResult => {
+                    const result = applyIntent({catalog: catalog.value, placement: placement.value, presentation: presentation.value, customizations: customizations.display}, intent);
+                    if (result.kind === "patch") void customizations.commit((value) => applyPatch(value, result.patch));
+                    return result;
+                },
+                focusPart: (part: ShellPartId): void => {
+                    focusedPart.value = part;
                 },
                 acceptLayoutFacts: (next: ShellLayoutFacts): void => {
                     facts.value = next;

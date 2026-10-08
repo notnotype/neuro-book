@@ -1,5 +1,5 @@
 /**
- * 工作台的公开状态（docs/specs/ui/workbench-shell.md 外壳一输出 13）：面板命令的 `when` 读其中的布尔键，字符串键只供
+ * 工作台的公开状态（docs/specs/ui/workbench-shell.md 外壳一输出 13，`focusedPart` 见外壳二输出 27）：面板命令的 `when` 读其中的布尔键，字符串键只供
  * 读取。布局 store 还没创建、记录没读完或呈现事实还没到时，依赖它们的布尔键为 false。
  *
  * “水平位置”按保存的位置判断：紧凑呈现把左右面板临时放到底部，但那时收起对它不生效（几何按保存的位置决定能否收起），
@@ -24,6 +24,7 @@ export const workbenchState = definePublicState("nbook.workbench", {
     panelMaximized: {type: "boolean", unready: false, reason: {"zh-CN": "面板没有最大化", "en-US": "The panel is not maximized"}},
     panelPosition: {type: "string", unready: "bottom"},
     panelAlignment: {type: "string", unready: "center"},
+    focusedPart: {type: "string", unready: "editor"},
 });
 
 export function workbenchStateBindings(layout: Readonly<ShallowRef<LayoutStore | null>>): PublicBindings<typeof workbenchState.declarations> {
@@ -47,5 +48,6 @@ export function workbenchStateBindings(layout: Readonly<ShallowRef<LayoutStore |
         panelMaximized: computed(() => panel.value?.maximized ?? false),
         panelPosition: computed(() => panel.value?.position ?? "bottom"),
         panelAlignment: computed(() => panel.value?.alignment ?? "center"),
+        focusedPart: computed(() => layout.value?.state.focusedPart ?? "editor"),
     };
 }

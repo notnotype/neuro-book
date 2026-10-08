@@ -84,7 +84,7 @@ describe("公开状态", () => {
         const current = shallowRef<LayoutStore | null>(null);
         const keys = workbenchStateBindings(current);
         const snapshot = () => Object.fromEntries(Object.entries(keys).map(([name, binding]) => [name, binding.value]));
-        expect(snapshot()).toEqual({layoutReady: false, nonCompact: false, panelHorizontal: false, panelMaximizable: false, panelVisible: false, panelMaximized: false, panelPosition: "bottom", panelAlignment: "center"});
+        expect(snapshot()).toEqual({layoutReady: false, nonCompact: false, panelHorizontal: false, panelMaximizable: false, panelVisible: false, panelMaximized: false, panelPosition: "bottom", panelAlignment: "center", focusedPart: "editor"});
 
         const store = await layout();
         current.value = store;
