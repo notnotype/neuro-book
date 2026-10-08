@@ -67,6 +67,8 @@ interface ViewContext {
 
 ## 输出与可观察行为
 
+输出 1–6、8、9 已实现；输出 7（声明消失时清理布局项）要等插件管理提供声明消失的来源，现在只在纯模型里有规则。本 Spec 仍为 `planned`。
+
 1. **注册表的两种输入**：工作台激活时从已接受声明取得视图目录，未交付实现的视图也出现在导航里；接收者只更新交付句柄与交付状态。导航不因交付先后而跳动。
 2. **交付状态**：每个视图处于下列之一，原位呈现：
    | 状态 | 含义 | 原位呈现 |
@@ -144,6 +146,15 @@ interface ViewContext {
 
 Smoke 入口：`e2e/workbench-views.e2e.ts`（e2e 构建装上测试插件 `test.sample-views`）。
 
+## 实现合同
+
+- 公开入口：贡献点与声明 `plugins/workbench/shared/views.ts`（`WORKBENCH_VIEWS_POINT`、`ViewDeclaration`、`validateViewContribution`）；实现与上下文 `plugins/workbench/web/contracts.ts`（`ViewImplementation`、`ViewContext`）；宿主能力 `shared/host.ts` 的 `windowPluginsKey`。
+- owner 与依赖方向：`nbook.workbench` 的浏览器入口拥有贡献点与注册表（`web/views/registry.ts`），只经内核的贡献句柄与宿主能力 `window.plugins` 知道入口状态；浏览器宿主（`web/host/window-plugins.ts`）用应用自己的插件宿主实现该能力。
+- 不变量：注册表不缓存实现，每次加载经句柄取；加载结果回来时句柄已不是当前句柄、不处于 published 或工作台已停止就作废（`registry.test.ts` 用真实内核的串行窗口锁定）。代际在实例层按视图 id 单调，每次加载与渲染重试加一。
+
 ## 证据
 
+- 实现入口：[`web/views/registry.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/registry.ts)、[`web/components/WorkbenchViewInstances.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewInstances.vue)、[`web/components/WorkbenchViewFrame.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewFrame.vue)、[`web/host/window-plugins.ts`](../../../packages/neuro-book/src/web/host/window-plugins.ts)
+- 合同测试：[`views/registry.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/registry.test.ts)（真实内核：从未交付、受阻、激活失败与重试、停止、加载中停止、拥有者停止）
+- Smoke：[`workbench-views.e2e.ts`](../../../packages/neuro-book/e2e/workbench-views.e2e.ts)（测试插件 `test.sample-views`：全链路、激活失败与重试、入口停止与刷新、加载失败与渲染出错）
 - 批准依据：[外壳设计稿](../../proposals/workbench-shell-abstractions.md)（2026-10-07 `accepted`）第 4、5 节；视图合同提前到外壳二的决策记录见同一设计稿末尾。
