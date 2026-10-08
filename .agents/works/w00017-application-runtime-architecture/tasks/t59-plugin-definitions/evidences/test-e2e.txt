@@ -1,0 +1,146 @@
+$ bun run build && bun run build:e2e && playwright test -c e2e/playwright.config.ts
+$ bun run build:server && bun run build:web && bun run check:dist
+$ bun build src/server/main.ts --target bun --outdir dist/server && bun build src/project/main.ts --target bun --outfile dist/server/project.js
+Bundled 772 modules in 34ms
+
+  main.js  0.72 MB  (entry point)
+
+Bundled 725 modules in 27ms
+
+  project.js  0.58 MB  (entry point)
+
+$ vite build
+vite v8.1.4 building client environment for production...
+[2Ktransforming...✓ 1579 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/web/index.html                                 0.99 kB │ gzip:  0.59 kB
+dist/web/assets/index-KQ416kWw.css                164.43 kB │ gzip: 21.17 kB
+dist/web/assets/rolldown-runtime-DK3Fl9T5.js        0.15 kB │ gzip:  0.15 kB
+dist/web/assets/WorkbenchCommandHost-DtOq0LiJ.js   51.76 kB │ gzip: 18.26 kB
+dist/web/assets/localized-text-DguMPsJB.js        155.80 kB │ gzip: 55.27 kB
+dist/web/assets/index-DZHK3fnx.js                 213.11 kB │ gzip: 66.53 kB
+
+✓ built in 2.42s
+$ bun scripts/check-dist.ts
+[check:dist] 产物不含开发插件与本机路径
+$ vite build -c vite.e2e.config.ts
+vite v8.1.4 building client environment for production...
+[2Ktransforming...✓ 1582 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/e2e/web/index.html                                 0.88 kB │ gzip:  0.49 kB
+dist/e2e/web/assets/index-KQ416kWw.css                164.43 kB │ gzip: 21.17 kB
+dist/e2e/web/assets/rolldown-runtime-DK3Fl9T5.js        0.15 kB │ gzip:  0.15 kB
+dist/e2e/web/assets/WorkbenchCommandHost-DXw5ul5_.js   51.69 kB │ gzip: 18.25 kB
+dist/e2e/web/assets/localized-text-Cq4PxNXv.js        155.90 kB │ gzip: 55.48 kB
+dist/e2e/web/assets/index--SCWIDQj.js                 217.93 kB │ gzip: 68.69 kB
+
+✓ built in 2.44s
+
+Running 45 tests using 1 worker
+
+  ✓   1 e2e/browser-host.e2e.ts:31:1 › 首屏是空工作台：窗口运行实例建立、工作台激活之后才挂载界面（场景 1） (399ms)
+  ✓   2 e2e/browser-host.e2e.ts:51:1 › 页面表之外的路径：窗口照常就绪，显示“页面不存在”，可以回到工作台；生产构建没有 /lab (448ms)
+  ✓   3 e2e/browser-host.e2e.ts:62:1 › 引导请求失败：带重试的连接失败页，没有半个工作台；恢复后重试进入工作台（场景 2） (328ms)
+  ✓   4 e2e/browser-host.e2e.ts:74:1 › 服务端返回 503（例如正在关闭）：同样是可重试的连接失败，原因带状态码与错误码 (229ms)
+  ✓   5 e2e/browser-host.e2e.ts:83:1 › 服务端协议版本不同：提示刷新页面，不给原地重试 (231ms)
+  ✓   6 e2e/browser-host.e2e.ts:92:1 › 两个窗口互相独立：关闭一个，另一个照常可用、刷新后重新引导，服务端不停止（场景 4） (497ms)
+  ✓   7 e2e/commands.e2e.ts:28:1 › `/` 页按 Ctrl+Shift+P 打开命令面板，Escape 关闭并把焦点还回去 (322ms)
+  ✓   8 e2e/dev.e2e.ts:23:1 › 开发命令：页面是空工作台、直连后端 RPC 端口，/lab 是 Lab；改后端文件后有序重启，已打开的页面显示服务端已重启、刷新后重新引导成功；SIGTERM 先停后端再关页面，以 0 退出 (9.8s)
+  ✘   9 e2e/lab-commands.e2e.ts:60:1 › 命令场景：快捷键打开受检的面板、执行撤销、执行记录进事件；换到别的组件后快捷键不再响应（场景 16、commands 10） (14.4s)
+  ✓  10 e2e/lab-commands.e2e.ts:93:1 › 没有活动编辑器：编辑器命令不登记、按钮不可用，检视里给出可读的原因（commands 10） (6.1s)
+  ✓  11 e2e/lab-commands.e2e.ts:104:1 › `:15` 回车：光标到第 15 行第 1 列，焦点在编辑器（quick-open 1） (4.0s)
+  ✓  12 e2e/lab-commands.e2e.ts:141:9 › 面板在 nbook / light、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7） (3.7s)
+  ✓  13 e2e/lab-commands.e2e.ts:141:9 › 面板在 nbook / dark、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7） (3.7s)
+  ✓  14 e2e/lab-commands.e2e.ts:141:9 › 面板在 macos / light、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7） (3.6s)
+  ✓  15 e2e/lab-commands.e2e.ts:141:9 › 面板在 macos / dark、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7） (3.7s)
+  ✓  16 e2e/lab-commands.e2e.ts:141:9 › 面板在 editorial / light、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7） (3.6s)
+  ✓  17 e2e/lab-commands.e2e.ts:141:9 › 面板在 editorial / dark、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7） (3.6s)
+  ✓  18 e2e/lab-commands.e2e.ts:141:9 › 面板在 aurora / light、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7） (3.6s)
+  ✓  19 e2e/lab-commands.e2e.ts:141:9 › 面板在 aurora / dark、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7） (3.7s)
+  ✓  20 e2e/lab-shot.e2e.ts:51:1 › measure 报出越出舞台、没有被滚动容器挡住的元素 (5.7s)
+  ✓  21 e2e/lab-shot.e2e.ts:67:1 › lab:shot：正常的场景截图并写报告，以 0 退出；舞台有越界元素时在报告里列出并以 1 退出 (5.1s)
+  ✓  22 e2e/lab.e2e.ts:55:1 › 打开 Lab：组件树、画布与四个检视面板；地址参数直达；只发引导一个接口请求，只写 Lab 自己的存储键（场景 1、13） (7.6s)
+  ✓  23 e2e/lab.e2e.ts:81:1 › 地址里不认识的尺寸参数被忽略，按没有这个参数打开（场景 13） (2.6s)
+  ✓  24 e2e/lab.e2e.ts:86:1 › 切换组件与场景直接替换舞台；组件回写的输入可在数据面板还原（场景 2、12） (3.7s)
+  ✓  25 e2e/lab.e2e.ts:124:1 › 按部件别名检索能找到真实组件，检索不到的条目隐藏（场景 11） (2.6s)
+  ✓  26 e2e/lab.e2e.ts:131:1 › 透传夹具：SkillChip 没有手写夹具组件，场景输入直接作为 props 交给它（场景 15） (2.7s)
+  ✓  27 e2e/lab.e2e.ts:142:1 › 检查模式：悬停有探针框，点击后元素面板给出组件与源文件，不留常驻边框；Esc 退出（场景 5） (3.2s)
+  ✓  28 e2e/lab.e2e.ts:169:1 › 主题、窄屏与偏好：窄屏自动收起侧栏、恢复宽屏不弹回；减少动态时没有转场；刷新后恢复，恢复默认清掉偏好（场景 6、7、8） (8.0s)
+  ✓  29 e2e/lab.e2e.ts:203:1 › 偏好存储被写坏：合法的字段照常恢复，不合法的回到默认；整份不是 JSON 时按没有偏好打开（场景 9） (5.3s)
+  ✓  30 e2e/lab.e2e.ts:221:1 › 离开 Lab 回到工作台是整页加载：新的窗口运行实例，Lab 写在 <html> 上的主题不留下（场景 17） (3.1s)
+  ✓  31 e2e/projects.e2e.ts:59:1 › “打开项目”：登记目录并整页打开它，工作台显示当前项目短名 (720ms)
+  ✓  32 e2e/projects.e2e.ts:85:1 › 两个页面共用同一代次；掐断一个页面的链路，宽限期内重连恢复原绑定，订阅收到 onResync (1.4s)
+  ✓  33 e2e/projects.e2e.ts:105:1 › 没有页面使用项目：宽限期满后项目子进程收口退出；再打开得到新代次 (2.5s)
+  ✓  34 e2e/projects.e2e.ts:113:1 › 项目子进程崩溃：页面转为项目已关闭，“不打开项目”回到不绑定项目的页面 (1.2s)
+  ✓  35 e2e/projects.e2e.ts:125:1 › 没有登记的项目：显示无法打开项目页，给重试与“不打开项目” (228ms)
+  ✓  36 e2e/rpc.e2e.ts:60:1 › 连上 RPC 端口：页面在线，测试插件经远程服务调用服务端插件，提供方看到本页的实例 (287ms)
+  ✓  37 e2e/rpc.e2e.ts:70:1 › 页面来源：本服务的页面能连 RPC 端口，别的来源的页面连不上 (279ms)
+  ✓  38 e2e/rpc.e2e.ts:79:1 › 断开后显示离线横幅、界面保留；重连后横幅收起，订阅收到 onResync 且之后的事件到达 (1.2s)
+  ✓  39 e2e/rpc.e2e.ts:105:1 › 刷新页面：旧页发出、仍在执行的请求在服务端收到终止，新页是新的实例 (388ms)
+  ✓  40 e2e/rpc.e2e.ts:123:1 › 握手以 wire-version 被拒：显示版本不一致页，只给刷新 (241ms)
+  ✓  41 e2e/rpc.e2e.ts:136:1 › 服务端换了进程：已打开的页面显示服务端已重启页，不自动刷新、不再重连 (1.3s)
+  ✓  42 e2e/storage.e2e.ts:81:1 › local 记录按客户端分开：另一个浏览器上下文看不到，同一上下文的另一个标签页共用 (818ms)
+  ✓  43 e2e/storage.e2e.ts:98:1 › 同一客户端的两个标签页以同一 revision 保存：一个成功、另一个 conflict；订阅收到另一个窗口的写入 (521ms)
+  ✓  44 e2e/storage.e2e.ts:113:1 › 项目记录跨窗口共享；没有页面使用项目、子进程退出后再打开，新代次读到磁盘上的值 (3.3s)
+  ✓  45 e2e/storage.e2e.ts:138:1 › 服务端与项目实例里的同一插件直用 Storage：与窗口经代理读写的是同一条记录 (357ms)
+
+
+  1) e2e/lab-commands.e2e.ts:60:1 › 命令场景：快捷键打开受检的面板、执行撤销、执行记录进事件；换到别的组件后快捷键不再响应（场景 16、commands 10） ─
+
+    Error: expect(received).toMatchObject(expected)
+
+    Matcher error: received value must be a non-null object
+
+    Received has value: null
+
+    Call Log:
+    - Timeout 15000ms exceeded while waiting on the predicate
+
+      43 | async function openScene(page: Page, query: string): Promise<void> {
+      44 |     await page.goto(`${dev.pageUrl}lab?${query}`);
+    > 45 |     await expect.poll(() => labState(page)).toMatchObject({ready: true});
+         |                                             ^
+      46 | }
+      47 |
+      48 | /** 命令面板的输入框；Lab 外壳的下拉框也是 combobox，按面板输入框的名字区分。 */
+        at openScene (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/e2e/lab-commands.e2e.ts:45:45)
+        at /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/e2e/lab-commands.e2e.ts:62:5
+
+    Error Context: ../../../../../../../../tmp/neuro-book/playwright/neuro-book/lab-commands.e2e.ts-命令场景：快-5d3af-后快捷键不再响应（场景-16、commands-10）/error-context.md
+
+    Error Context: ../../../../../../../../tmp/neuro-book/playwright/neuro-book/lab-commands.e2e.ts-命令场景：快-5d3af-后快捷键不再响应（场景-16、commands-10）/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../../../../../../../tmp/neuro-book/playwright/neuro-book/lab-commands.e2e.ts-命令场景：快-5d3af-后快捷键不再响应（场景-16、commands-10）/trace.zip
+    Usage:
+
+        npx playwright show-trace ../../../../../../../../tmp/neuro-book/playwright/neuro-book/lab-commands.e2e.ts-命令场景：快-5d3af-后快捷键不再响应（场景-16、commands-10）/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    e2e/lab-commands.e2e.ts:60:1 › 命令场景：快捷键打开受检的面板、执行撤销、执行记录进事件；换到别的组件后快捷键不再响应（场景 16、commands 10） ──
+  44 passed (2.3m)
+error: script "test:e2e" exited with code 1
+exit=1
+
+--- 重跑 e2e/lab-commands.e2e.ts（首轮失败的那一例所在文件）
+
+Running 11 tests using 1 worker
+
+  ✓   1 e2e/lab-commands.e2e.ts:60:1 › 命令场景：快捷键打开受检的面板、执行撤销、执行记录进事件；换到别的组件后快捷键不再响应（场景 16、commands 10） (7.2s)
+  ✓   2 e2e/lab-commands.e2e.ts:93:1 › 没有活动编辑器：编辑器命令不登记、按钮不可用，检视里给出可读的原因（commands 10） (3.7s)
+  ✓   3 e2e/lab-commands.e2e.ts:104:1 › `:15` 回车：光标到第 15 行第 1 列，焦点在编辑器（quick-open 1） (3.8s)
+  ✓   4 e2e/lab-commands.e2e.ts:141:9 › 面板在 nbook / light、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7） (3.7s)
+  ✓   5 e2e/lab-commands.e2e.ts:141:9 › 面板在 nbook / dark、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7） (3.7s)
+  ✓   6 e2e/lab-commands.e2e.ts:141:9 › 面板在 macos / light、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7） (3.7s)
+  ✓   7 e2e/lab-commands.e2e.ts:141:9 › 面板在 macos / dark、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7） (3.6s)
+  ✓   8 e2e/lab-commands.e2e.ts:141:9 › 面板在 editorial / light、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7） (3.6s)
+  ✓   9 e2e/lab-commands.e2e.ts:141:9 › 面板在 editorial / dark、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7） (3.7s)
+  ✓  10 e2e/lab-commands.e2e.ts:141:9 › 面板在 aurora / light、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7） (3.6s)
+  ✓  11 e2e/lab-commands.e2e.ts:141:9 › 面板在 aurora / dark、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7） (3.6s)
+
+  11 passed (45.8s)
+exit=0

@@ -1,0 +1,964 @@
+$ bun scripts/cli/test-affected.ts --typecheck --since "079f7544"
+改动文件 90 个（未提交的改动，以及与 079f7544 分叉以来的提交）。
+选中 16 项（test）：
+  file-snapshot-cache（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  llmlint（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run registry:build；bun run test:vitest；bun run test:bun
+  nb-harness（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  nb-history（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  nb-memory（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  nb-profile（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  nb-runtime（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  nb-session（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  nb-ui（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  nb-workflow（依赖锁、运行器配置或补丁有改动）：bun run test
+  neuro-agent-harness（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  neuro-book（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test:bun；bun run test:vitest
+  neuro-book-contracts（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  neuro-book-test-support（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  owned-process（依赖锁、运行器配置或补丁有改动）：bun run typecheck；bun run test
+  scripts（依赖锁、运行器配置或补丁有改动）：bun x tsc --noEmit -p scripts/tsconfig.json；bun x vitest run --config scripts/vitest.config.ts
+
+==> file-snapshot-cache：bun run typecheck
+$ tsc --noEmit -p tsconfig.json
+
+==> file-snapshot-cache：bun run test
+$ vitest run --config vitest.config.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation
+
+
+ Test Files  3 passed (3)
+      Tests  44 passed (44)
+   Start at  07:02:39
+   Duration  428ms (transform 337ms, setup 245ms, import 196ms, tests 63ms, environment 0ms)
+
+
+==> llmlint：bun run typecheck
+$ bun run registry:build && tsc --noEmit --pretty false
+$ cd web && bun scripts/build-registry.ts
+未找到 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/evals/report/report.json，跳过 verdict 烘焙（消费端降级为仅 fixability 过滤）。
+registry.json 已生成：245 条 regex 规则、7 条 density 规则、6 条 handler 规则、8 条 semantic 规则、266/360 active，engine 3.0.0+r74d91053，verdict 未烘焙（降级口径）。；profile creative-writing@1 纳入 245 条。
+rules-report.json 已生成（降级：report.json 缺失，rules 为空）。
+web/app/utils/llm-merge.ts(12,28): error TS2307: Cannot find module 'diff-match-patch' or its corresponding type declarations.
+
+==> llmlint：bun run registry:build
+$ cd web && bun scripts/build-registry.ts
+未找到 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/evals/report/report.json，跳过 verdict 烘焙（消费端降级为仅 fixability 过滤）。
+registry.json 已生成：245 条 regex 规则、7 条 density 规则、6 条 handler 规则、8 条 semantic 规则、266/360 active，engine 3.0.0+r74d91053，verdict 未烘焙（降级口径）。；profile creative-writing@1 纳入 245 条。
+rules-report.json 已生成（降级：report.json 缺失，rules 为空）。
+
+==> llmlint：bun run test:vitest
+$ vitest run --exclude tests/agent-invocation-revision-migration.test.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint
+
+ ❯ tests/agent-abort-state.test.ts (0 test)
+ ❯ tests/agent-analysis-contract.test.ts (0 test)
+ ❯ tests/agent-chat-projection.test.ts (0 test)
+ ❯ tests/agent-chat-flow.test.ts (0 test)
+ ❯ tests/agent-sse-lifecycle.test.ts (0 test)
+ ❯ tests/auth-mode.test.ts (0 test)
+ ❯ tests/analysis-score.test.ts (0 test)
+ ❯ tests/llm-fix-agent.test.ts (0 test)
+ ❯ tests/agent-markdown.test.ts (0 test)
+ ❯ tests/contribute-workspace.test.ts (0 test)
+ ❯ tests/llm-merge.test.ts (0 test)
+ ❯ tests/llm-risk-score.test.ts (0 test)
+ ❯ tests/neuro-agent-harness-analysis-capability.test.ts (0 test)
+ ❯ tests/neuro-agent-harness-pi-runtime.test.ts (0 test)
+ ❯ tests/agent-session-rebuild.test.ts (0 test)
+ ❯ tests/neuro-agent-harness-adapter.test.ts (0 test)
+ ❯ tests/neuro-agent-harness-review-projector.test.ts (0 test)
+ ❯ tests/neuro-agent-harness-prisma-store.test.ts (0 test)
+ ❯ tests/repair-draft.test.ts (0 test)
+ ❯ tests/rule-profile.test.ts (0 test)
+ ❯ tests/revision-text-workspace.test.ts (0 test)
+ ❯ tests/neuro-agent-harness-profile.test.ts (0 test)
+ ❯ tests/style-review.test.ts (0 test)
+ ❯ tests/llmlint.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 24 ⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/agent-abort-state.test.ts [ tests/agent-abort-state.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/app/utils/agent-abort-state.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/app/utils/agent-abort-state.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/24]⎯
+
+ FAIL  tests/agent-analysis-contract.test.ts [ tests/agent-analysis-contract.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/server/agent/analysis-contract.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/server/agent/analysis-contract.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/24]⎯
+
+ FAIL  tests/agent-chat-flow.test.ts [ tests/agent-chat-flow.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/app/utils/agent-chat-flow.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/app/utils/agent-chat-flow.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/24]⎯
+
+ FAIL  tests/agent-chat-projection.test.ts [ tests/agent-chat-projection.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/app/utils/agent-chat-projection.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/app/utils/agent-chat-projection.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/24]⎯
+
+ FAIL  tests/agent-markdown.test.ts [ tests/agent-markdown.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/app/utils/agent-markdown.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/app/utils/agent-markdown.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/24]⎯
+
+ FAIL  tests/agent-session-rebuild.test.ts [ tests/agent-session-rebuild.test.ts ]
+ FAIL  tests/neuro-agent-harness-adapter.test.ts [ tests/neuro-agent-harness-adapter.test.ts ]
+ FAIL  tests/neuro-agent-harness-analysis-capability.test.ts [ tests/neuro-agent-harness-analysis-capability.test.ts ]
+ FAIL  tests/neuro-agent-harness-prisma-store.test.ts [ tests/neuro-agent-harness-prisma-store.test.ts ]
+ FAIL  tests/neuro-agent-harness-review-projector.test.ts [ tests/neuro-agent-harness-review-projector.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/server/database/prisma.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/server/database/prisma.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/24]⎯
+
+ FAIL  tests/agent-sse-lifecycle.test.ts [ tests/agent-sse-lifecycle.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/server/agent/sse-lifecycle.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/server/agent/sse-lifecycle.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/24]⎯
+
+ FAIL  tests/analysis-score.test.ts [ tests/analysis-score.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/shared/analysis.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/shared/analysis.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/24]⎯
+
+ FAIL  tests/auth-mode.test.ts [ tests/auth-mode.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/server/utils/auth-mode.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/server/utils/auth-mode.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/24]⎯
+
+ FAIL  tests/contribute-workspace.test.ts [ tests/contribute-workspace.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/app/utils/contribute-workspace.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/app/utils/contribute-workspace.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/24]⎯
+
+ FAIL  tests/llm-fix-agent.test.ts [ tests/llm-fix-agent.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/server/utils/llm-fix-agent.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/server/utils/llm-fix-agent.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/24]⎯
+
+ FAIL  tests/llm-merge.test.ts [ tests/llm-merge.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/app/utils/llm-merge.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/app/utils/llm-merge.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/24]⎯
+
+ FAIL  tests/llm-risk-score.test.ts [ tests/llm-risk-score.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/server/agent/llm-risk-score.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/server/agent/llm-risk-score.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/24]⎯
+
+ FAIL  tests/llmlint.test.ts [ tests/llmlint.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/app/i18n/messages.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/app/i18n/messages.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/24]⎯
+
+ FAIL  tests/neuro-agent-harness-pi-runtime.test.ts [ tests/neuro-agent-harness-pi-runtime.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/server/agent/neuro-agent-harness/pi-runtime.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/server/agent/neuro-agent-harness/pi-runtime.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/24]⎯
+
+ FAIL  tests/neuro-agent-harness-profile.test.ts [ tests/neuro-agent-harness-profile.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/server/agent/neuro-agent-harness/profile.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/server/agent/neuro-agent-harness/profile.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/24]⎯
+
+ FAIL  tests/repair-draft.test.ts [ tests/repair-draft.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/app/utils/repair-draft.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/app/utils/repair-draft.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/24]⎯
+
+ FAIL  tests/revision-text-workspace.test.ts [ tests/revision-text-workspace.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/server/agent/neuro-agent-harness/revision-text-workspace.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/server/agent/neuro-agent-harness/revision-text-workspace.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/24]⎯
+
+ FAIL  tests/rule-profile.test.ts [ tests/rule-profile.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/shared/rule-profile.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/shared/rule-profile.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/24]⎯
+
+ FAIL  tests/style-review.test.ts [ tests/style-review.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'web/server/utils/style-review.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/llmlint/web/server/utils/style-review.ts
+ ❯ transformWithOxc ../../node_modules/vite/dist/node/chunks/node.js:4017:19
+ ❯ TransformPluginContext.transform ../../node_modules/vite/dist/node/chunks/node.js:4088:26
+ ❯ EnvironmentPluginContainer.transform ../../node_modules/vite/dist/node/chunks/node.js:30151:51
+ ❯ loadAndTransform ../../node_modules/vite/dist/node/chunks/node.js:20098:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/24]⎯
+
+
+ Test Files  24 failed | 12 passed (36)
+      Tests  119 passed (119)
+   Start at  07:02:45
+   Duration  2.88s (transform 3.62s, setup 0ms, import 1.15s, tests 1.73s, environment 7ms)
+
+error: script "test:vitest" exited with code 1
+
+==> llmlint：bun run test:bun
+$ bun test tests/agent-invocation-revision-migration.test.ts web/tests/nuxt/use-agent-chat.test.ts evals "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-M7vdhx/llmlint-3.xml"
+bun test v1.4.2 (744846f84)
+
+evals/generator/hardening.test.ts:
+  ⚠ 分类字段 pov 返回白名单外的值「花里胡哨的非法值」，丢弃
+
+evals/generator/model-client.test.ts:
+  ↻ test 重试 1/2（empty-output: stopReason=stop, output_tokens=0）
+  ↻ test 重试 1/2（empty-output: stopReason=stop, output_tokens=0）
+  ↻ test 重试 2/2（empty-output: stopReason=stop, output_tokens=0）
+
+ 80 pass
+ 0 fail
+ 207 expect() calls
+Ran 80 tests across 14 files. [413.00ms]
+
+==> nb-harness：bun run typecheck
+$ tsc --noEmit
+
+==> nb-harness：bun run test
+$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-M7vdhx/nb-harness-1.xml"
+bun test v1.4.2 (744846f84)
+
+ 18 pass
+ 2 skip
+ 0 fail
+ 51 expect() calls
+Ran 20 tests across 4 files. [356.00ms]
+
+==> nb-history：bun run typecheck
+$ tsc --noEmit
+
+==> nb-history：bun run test
+$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-M7vdhx/nb-history-1.xml"
+bun test v1.4.2 (744846f84)
+
+tests/perf.test.ts:
+P1 performWrite(30KB) 中位 0.77ms / 平均 0.83ms
+P2 unseenChanges(5000 条未见): best 20.2ms [39.0, 23.4, 21.6, 22.8, 20.2], 50 组
+P2 inbox(已审 90/100,余 10 组待审): best 7.1ms [7.5, 9.8, 7.2, 7.1, 7.1], 10 组
+P2 inbox 最坏情况(u2 零接受全扫): best 42.0ms [60.3, 43.1, 43.4, 42.0, 43.4]
+P2 timeline(100 版): best 0.9ms [1.4, 1.1, 1.1, 0.9, 0.9], 100 条
+P3 体积: db=3.01MB wal=0.00MB (快照原文理论值≈2.86MB,101 版全文快照)
+
+ 49 pass
+ 0 fail
+ 200 expect() calls
+Ran 49 tests across 11 files. [14.68s]
+
+==> nb-memory：bun run typecheck
+$ tsc --noEmit
+
+==> nb-memory：bun run test
+$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-M7vdhx/nb-memory-1.xml"
+bun test v1.4.2 (744846f84)
+
+ 86 pass
+ 0 fail
+ 464 expect() calls
+Ran 86 tests across 7 files. [161.00ms]
+
+==> nb-profile：bun run typecheck
+$ tsc --noEmit
+
+==> nb-profile：bun run test
+$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-M7vdhx/nb-profile-1.xml"
+bun test v1.4.2 (744846f84)
+
+ 11 pass
+ 0 fail
+ 17 expect() calls
+Ran 11 tests across 2 files. [21.00ms]
+
+==> nb-runtime：bun run typecheck
+$ tsc --noEmit && tsc --noEmit -p tsconfig.browser.json
+
+==> nb-runtime：bun run test
+$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-M7vdhx/nb-runtime-1.xml"
+bun test v1.4.2 (744846f84)
+
+ 286 pass
+ 0 fail
+ 2309 expect() calls
+Ran 286 tests across 28 files. [483.00ms]
+
+==> nb-session：bun run typecheck
+$ tsc --noEmit
+
+==> nb-session：bun run test
+$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-M7vdhx/nb-session-1.xml"
+bun test v1.4.2 (744846f84)
+
+ 14 pass
+ 0 fail
+ 41 expect() calls
+Ran 14 tests across 1 file. [35.00ms]
+
+==> nb-ui：bun run typecheck
+$ nuxt prepare playground && vue-tsc --noEmit && vue-tsc --noEmit -p playground
+[nuxt] modules:before: 0.187ms
+ℹ Module @notnotype/nb-ui took 1.58ms to setup.
+[nuxt] pages:routerOptions: 0.037ms
+ℹ Module nuxt:pages took 11.35ms to setup.
+ℹ Module nuxt:meta took 2.33ms to setup.
+ℹ Module nuxt:components took 5.45ms to setup.
+ℹ Module nuxt:compiler took 0.21ms to setup.
+ℹ Module nuxt:imports took 1.83ms to setup.
+ℹ Module nuxt:nuxt-config-schema took 0.43ms to setup.
+ℹ Module @nuxt/telemetry took 0.28ms to setup.
+[nuxt] imports:dirs: 0.086ms
+[nuxt] imports:sources: 0.145ms
+[nuxt] imports:context: 0.063ms
+[nuxt] imports:extend: 0.037ms
+[nuxt] builder:generateApp: 0.039ms
+[nuxt] schema:extend: 0.042ms
+[nuxt] schema:resolved: 0.063ms
+[nuxt] modules:done: 38.486ms
+[nuxt] nitro:config: 27.749ms
+[nuxt] telemetry:setup: 0.036ms
+[nuxt] nitro:init: 8.879ms
+[nuxt] ready: 0.025ms
+[nuxt] components:dirs: 0.098ms
+[nuxt] app:resolve: 2.253ms
+[nuxt] pages:extend: 0.146ms
+[nuxt] pages:resolved: 0.266ms
+[nuxt] components:extend: 0.442ms
+[nuxt] app:templates: 21.06ms
+[nuxt] nitro:prepare:types: 0.176ms
+[nuxt] ℹ Compiled app-component.mjs in 10.64ms
+[nuxt] ℹ Compiled types/app.config.d.ts in 10.55ms
+[nuxt] ℹ Compiled app.config.mjs in 10.54ms
+[nuxt] ℹ Compiled types/build.d.ts in 10.55ms
+[nuxt] ℹ Compiled nitro.client.mjs in 10.12ms
+[nuxt] ℹ Compiled css.mjs in 10.16ms
+[nuxt] ℹ Compiled fetch.mjs in 10.17ms
+[nuxt] ℹ Compiled error-component.mjs in 10.18ms
+[nuxt] ℹ Compiled global-polyfills.mjs in 10.2ms
+[nuxt] ℹ Compiled layouts.mjs in 10.29ms
+[nuxt] ℹ Compiled middleware.mjs in 10.26ms
+[nuxt] ℹ Compiled nuxt.config.mjs in 9.94ms
+[nuxt] ℹ Compiled paths.mjs in 9.49ms
+[nuxt] ℹ Compiled root-component.mjs in 9.37ms
+[nuxt] ℹ Compiled types/modules.d.ts in 9.37ms
+[nuxt] ℹ Compiled test-component-wrapper.mjs in 8.7ms
+[nuxt] ℹ Compiled types/vue-shim.d.ts in 8.72ms
+[nuxt] ℹ Compiled types/nitro-layouts.d.ts in 8.76ms
+[nuxt] ℹ Compiled types/builder-env.d.ts in 8.78ms
+[nuxt] ℹ Compiled routes.mjs in 8.84ms
+[nuxt] ℹ Compiled pages.mjs in 7.81ms
+[nuxt] ℹ Compiled types/middleware.d.ts in 7.67ms
+[nuxt] ℹ Compiled types/nitro-middleware.d.ts in 7.67ms
+[nuxt] ℹ Compiled types/layouts.d.ts in 7.7ms
+[nuxt] ℹ Compiled unhead-options.mjs in 7.78ms
+[nuxt] ℹ Compiled unhead.config.mjs in 7.8ms
+[nuxt] ℹ Compiled components.d.ts in 7.82ms
+[nuxt] ℹ Compiled types/components.d.ts in 5.79ms
+[nuxt] ℹ Compiled components.plugin.mjs in 4ms
+[nuxt] ℹ Compiled component-names.mjs in 3.9ms
+[nuxt] ℹ Compiled components.islands.mjs in 3.86ms
+[nuxt] ℹ Compiled component-chunk.mjs in 3.73ms
+[nuxt] ℹ Compiled route-rules.mjs in 8.97ms
+[nuxt] ℹ Compiled imports.mjs in 9.98ms
+[nuxt] ℹ Compiled imports.d.ts in 10.04ms
+[nuxt] ℹ Compiled types/nitro-nuxt.d.ts in 9.93ms
+[nuxt] ℹ Compiled types/shared-imports.d.ts in 10.87ms
+[nuxt] ℹ Compiled types/runtime-config.d.ts in 17.31ms
+[nuxt] ℹ Compiled types/imports.d.ts in 13.73ms
+[nuxt] pages:routerOptions: 0.022ms
+[nuxt] ℹ Compiled router.options.mjs in 20.1ms
+[nuxt] ℹ Compiled plugins.server.mjs in 28.35ms
+[nuxt] ℹ Compiled plugins.client.mjs in 30.27ms
+[nuxt] ℹ Compiled types/plugins.d.ts in 30.77ms
+[nuxt] imports:extend: 0.027ms
+[nuxt] builder:generateApp: 0.015ms
+[nuxt] app:templatesGenerated: 14.102ms
+[nuxt] build:before: 4.594ms
+[nuxt] schema:beforeWrite: 0.024ms
+[nuxt] schema:written: 0.021ms
+[nitro] types:extend: 0.189ms
+
+ Nuxt Build Performance
+
+  Phase                       Duration       RSS Delta      Heap Delta
+  ────────────────────────────────────────────────────────────────────
+  init                             5ms       +768.0 KB       +482.8 KB  ████
+  modules                         32ms         +5.6 MB         +2.1 MB  ███████░░░
+  modules:done                    39ms         +4.9 MB         +6.4 MB  ███████░░
+  nitro:config                    28ms         +4.9 MB         +4.8 MB  ███████░░
+  nitro:createNitro              163ms        +21.1 MB         -1.5 MB  ██████████░░░░░░░░░░
+  nitro:init                       9ms         +2.5 MB       -351.6 KB  ████░
+  ready                            1ms       +128.0 KB       +107.8 KB  ██
+  app:generate                    77ms        +15.3 MB         -8.3 MB  █████████░░░░░░░
+  app:templates                   21ms         +3.1 MB         +3.0 MB  ██████░
+  app:templatesGenerated          14ms       +256.0 KB         +4.5 MB  █████
+  ────────────────────────────────────────────────────────────────────
+  Total                           1.3s        +97.1 MB        +40.2 MB
+  Tip: run with NODE_OPTIONS=--expose-gc to see retained heap per phase
+
+ Modules
+
+  • nuxt:pages — 11ms
+  • nuxt:components — 5ms
+
+ Details
+
+  • module:nuxt:pages — 11ms
+  • module:nuxt:components — 5ms
+
+ Data dump written to ./playground/.nuxt/perf-report.json
+ Trace written to ./playground/.nuxt/perf-trace.json (load in https://ui.perfetto.dev)
+
+[nitro] close: 0.154ms
+[nuxt] close: 6.574ms
+[nuxt] prepare:types: 31.252ms
+│
+◆  Types generated in playground/.nuxt.
+
+==> nb-ui：bun run test
+$ nuxt prepare playground && vitest run
+[nuxt] modules:before: 0.158ms
+ℹ Module @notnotype/nb-ui took 1.61ms to setup.
+[nuxt] pages:routerOptions: 0.04ms
+ℹ Module nuxt:pages took 9.96ms to setup.
+ℹ Module nuxt:meta took 2.36ms to setup.
+ℹ Module nuxt:components took 6.01ms to setup.
+ℹ Module nuxt:compiler took 0.25ms to setup.
+ℹ Module nuxt:imports took 2.29ms to setup.
+ℹ Module nuxt:nuxt-config-schema took 0.55ms to setup.
+ℹ Module @nuxt/telemetry took 0.3ms to setup.
+[nuxt] imports:dirs: 0.097ms
+[nuxt] imports:sources: 0.172ms
+[nuxt] imports:context: 0.07ms
+[nuxt] imports:extend: 0.035ms
+[nuxt] builder:generateApp: 0.047ms
+[nuxt] schema:extend: 0.07ms
+[nuxt] schema:resolved: 0.037ms
+[nuxt] modules:done: 43.48ms
+[nuxt] nitro:config: 24.592ms
+[nuxt] telemetry:setup: 0.032ms
+[nuxt] nitro:init: 7.98ms
+[nuxt] ready: 0.02ms
+[nuxt] components:dirs: 0.066ms
+[nuxt] app:resolve: 1.485ms
+[nuxt] pages:extend: 0.135ms
+[nuxt] pages:resolved: 0.236ms
+[nuxt] components:extend: 0.42ms
+[nuxt] app:templates: 17.102ms
+[nuxt] nitro:prepare:types: 0.225ms
+[nuxt] ℹ Compiled app-component.mjs in 9.57ms
+[nuxt] ℹ Compiled types/app.config.d.ts in 9.51ms
+[nuxt] ℹ Compiled app.config.mjs in 9.51ms
+[nuxt] ℹ Compiled types/build.d.ts in 9.52ms
+[nuxt] ℹ Compiled nitro.client.mjs in 9.04ms
+[nuxt] ℹ Compiled css.mjs in 9.03ms
+[nuxt] ℹ Compiled fetch.mjs in 9.01ms
+[nuxt] ℹ Compiled error-component.mjs in 9.03ms
+[nuxt] ℹ Compiled global-polyfills.mjs in 9.05ms
+[nuxt] ℹ Compiled layouts.mjs in 9.14ms
+[nuxt] ℹ Compiled middleware.mjs in 9.1ms
+[nuxt] ℹ Compiled nuxt.config.mjs in 8.8ms
+[nuxt] ℹ Compiled paths.mjs in 8.39ms
+[nuxt] ℹ Compiled root-component.mjs in 8.41ms
+[nuxt] ℹ Compiled types/modules.d.ts in 8.42ms
+[nuxt] ℹ Compiled test-component-wrapper.mjs in 7.83ms
+[nuxt] ℹ Compiled types/vue-shim.d.ts in 7.87ms
+[nuxt] ℹ Compiled types/nitro-layouts.d.ts in 7.9ms
+[nuxt] ℹ Compiled types/builder-env.d.ts in 7.91ms
+[nuxt] ℹ Compiled routes.mjs in 7.97ms
+[nuxt] ℹ Compiled pages.mjs in 6.92ms
+[nuxt] ℹ Compiled types/middleware.d.ts in 6.79ms
+[nuxt] ℹ Compiled types/nitro-middleware.d.ts in 6.79ms
+[nuxt] ℹ Compiled types/layouts.d.ts in 6.8ms
+[nuxt] ℹ Compiled unhead-options.mjs in 6.8ms
+[nuxt] ℹ Compiled unhead.config.mjs in 6.81ms
+[nuxt] ℹ Compiled components.d.ts in 6.82ms
+[nuxt] ℹ Compiled types/components.d.ts in 5.28ms
+[nuxt] ℹ Compiled components.plugin.mjs in 3.99ms
+[nuxt] ℹ Compiled component-names.mjs in 3.86ms
+[nuxt] ℹ Compiled components.islands.mjs in 3.79ms
+[nuxt] ℹ Compiled component-chunk.mjs in 3.65ms
+[nuxt] ℹ Compiled route-rules.mjs in 8.34ms
+[nuxt] ℹ Compiled imports.mjs in 9.43ms
+[nuxt] ℹ Compiled imports.d.ts in 9.51ms
+[nuxt] ℹ Compiled types/nitro-nuxt.d.ts in 9.4ms
+[nuxt] ℹ Compiled types/shared-imports.d.ts in 10.48ms
+[nuxt] ℹ Compiled types/runtime-config.d.ts in 15.86ms
+[nuxt] ℹ Compiled types/imports.d.ts in 13.61ms
+[nuxt] pages:routerOptions: 0.026ms
+[nuxt] ℹ Compiled router.options.mjs in 18.88ms
+[nuxt] ℹ Compiled plugins.server.mjs in 10.81ms
+[nuxt] ℹ Compiled plugins.client.mjs in 12.32ms
+[nuxt] ℹ Compiled types/plugins.d.ts in 12.94ms
+[nuxt] imports:extend: 0.034ms
+[nuxt] builder:generateApp: 0.015ms
+[nuxt] app:templatesGenerated: 17.937ms
+[nuxt] build:before: 5.061ms
+[nuxt] schema:beforeWrite: 0.025ms
+[nuxt] schema:written: 0.023ms
+[nitro] types:extend: 0.174ms
+
+ Nuxt Build Performance
+
+  Phase                       Duration       RSS Delta      Heap Delta
+  ────────────────────────────────────────────────────────────────────
+  init                             5ms       +512.0 KB       +475.3 KB  ████
+  modules                         28ms         +5.6 MB         +2.5 MB  ███████░░░
+  modules:done                    44ms         +7.9 MB         +6.3 MB  ████████░░░░
+  nitro:config                    25ms       +128.0 KB         +4.8 MB  ███████
+  nitro:createNitro              104ms        +21.4 MB         +2.4 MB  ██████████░░░░░░░░░░
+  nitro:init                       8ms       +128.0 KB       -223.1 KB  █████
+  ready                            1ms            +0 B       +107.7 KB  █
+  app:generate                    50ms         +4.9 MB         +7.9 MB  ████████░░
+  app:templates                   17ms       +512.0 KB         +3.4 MB  ██████
+  app:templatesGenerated          18ms         +7.4 MB         +4.1 MB  ██████░░░
+  build:before                     5ms       +512.0 KB       +529.4 KB  ████
+  ────────────────────────────────────────────────────────────────────
+  Total                          975ms        +92.9 MB        +31.6 MB
+  Tip: run with NODE_OPTIONS=--expose-gc to see retained heap per phase
+
+ Modules
+
+  • nuxt:pages — 10ms
+  • nuxt:components — 6ms
+
+ Details
+
+  • module:nuxt:pages — 10ms
+  • module:nuxt:components — 6ms
+
+ Data dump written to ./playground/.nuxt/perf-report.json
+ Trace written to ./playground/.nuxt/perf-trace.json (load in https://ui.perfetto.dev)
+
+[nitro] close: 0.241ms
+[nuxt] close: 6.809ms
+[nuxt] prepare:types: 35.837ms
+│
+◆  Types generated in playground/.nuxt.
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/nb-ui
+
+(node:389226) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ src/colorway/colorway.test.ts (11 tests | 5 failed) 74ms
+     × applies the default colorway and persists switches 25ms
+     × restores the stored colorway on init and rejects unknown ids 1ms
+     × migrates retired colorway ids through the alias layer 1ms
+     × supports custom colorway tables 2ms
+     × mirrors the colorway appearance onto data-nb-appearance 9ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/colorway/colorway.test.ts > nb-ui colorway store > applies the default colorway and persists switches
+TypeError: Cannot read properties of undefined (reading 'getItem')
+ ❯ src/colorway/colorway.test.ts:67:29
+     65|
+     66|         store.setColorway("dark");
+     67|         expect(localStorage.getItem("test-colorway-a")).toBe("dark");
+       |                             ^
+     68|         expect(document.documentElement.style.colorScheme).toBe("dark"…
+     69|         localStorage.removeItem("test-colorway-a");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  src/colorway/colorway.test.ts > nb-ui colorway store > restores the stored colorway on init and rejects unknown ids
+TypeError: Cannot read properties of undefined (reading 'setItem')
+ ❯ src/colorway/colorway.test.ts:73:22
+     71|
+     72|     it("restores the stored colorway on init and rejects unknown ids",…
+     73|         localStorage.setItem("test-colorway-b", "dark");
+       |                      ^
+     74|         const store = createColorwayStore({storageKey: "test-colorway-…
+     75|         store.initColorway();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  src/colorway/colorway.test.ts > nb-ui colorway store > migrates retired colorway ids through the alias layer
+TypeError: Cannot read properties of undefined (reading 'setItem')
+ ❯ src/colorway/colorway.test.ts:92:26
+     90|
+     91|         for (const retired of ["dracula", "midnight", "slate", "sepia"…
+     92|             localStorage.setItem("test-colorway-retired", retired);
+       |                          ^
+     93|             store.initColorway();
+     94|             expect(store.current.value, `${retired} 没被别名层接住`).toBe("da…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  src/colorway/colorway.test.ts > nb-ui colorway store > supports custom colorway tables
+TypeError: Cannot read properties of undefined (reading 'removeItem')
+ ❯ src/colorway/colorway.test.ts:123:22
+    121|         store.initColorway();
+    122|         expect(store.current.value).toBe("brand");
+    123|         localStorage.removeItem("test-colorway-d");
+       |                      ^
+    124|     });
+    125|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  src/colorway/colorway.test.ts > nb-ui colorway store > mirrors the colorway appearance onto data-nb-appearance
+TypeError: Cannot read properties of undefined (reading 'removeItem')
+ ❯ src/colorway/colorway.test.ts:146:22
+    144|         expect(document.documentElement.dataset.nbAppearance).toBe("li…
+    145|
+    146|         localStorage.removeItem("test-colorway-appearance");
+       |                      ^
+    147|     });
+    148| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed | 28 passed (29)
+      Tests  5 failed | 517 passed (522)
+   Start at  07:03:43
+   Duration  6.64s (transform 5.99s, setup 991ms, import 13.01s, tests 7.05s, environment 15.62s)
+
+error: script "test" exited with code 1
+
+==> nb-workflow：bun run test
+$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-M7vdhx/nb-workflow-0.xml"
+bun test v1.4.2 (744846f84)
+
+ 103 pass
+ 0 fail
+ 294 expect() calls
+Ran 103 tests across 13 files. [1370.00ms]
+
+==> neuro-agent-harness：bun run typecheck
+$ bun run build && tsc --noEmit -p tsconfig.json
+$ tsc -p tsconfig.build.json
+
+==> neuro-agent-harness：bun run test
+$ bun test --parallel=1 "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-M7vdhx/neuro-agent-harness-1.xml"
+bun test v1.4.2 (744846f84) 1x PARALLEL
+
+ 527 pass
+ 2 skip
+ 0 fail
+ 2198 expect() calls
+Ran 529 tests across 94 files. [38.93s]
+
+==> neuro-book：bun run typecheck
+$ tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json
+
+==> neuro-book：bun run test:bun
+$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-M7vdhx/neuro-book-1.xml"
+bun test v1.4.2 (744846f84)
+
+src/server/server-projects.test.ts:
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+
+src/server/server.test.ts:
+remote-probe server entry closed
+remote-probe server entry closed
+
+src/web/host/window.test.ts:
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+
+ 294 pass
+ 0 fail
+ 1424 expect() calls
+Ran 294 tests across 40 files. [13.99s]
+
+==> neuro-book：bun run test:vitest
+$ vitest run
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+
+ Test Files  12 passed (12)
+      Tests  57 passed (57)
+   Start at  07:05:13
+   Duration  5.15s (transform 9.20s, setup 471ms, import 16.75s, tests 3.36s, environment 5.71s)
+
+
+==> neuro-book-contracts：bun run typecheck
+$ tsc --noEmit -p tsconfig.json
+
+==> neuro-book-contracts：bun run test
+$ vitest run --config vitest.config.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book-contracts
+
+
+ Test Files  6 passed (6)
+      Tests  32 passed (32)
+   Start at  07:05:20
+   Duration  465ms (transform 672ms, setup 337ms, import 681ms, tests 82ms, environment 1ms)
+
+
+==> neuro-book-test-support：bun run typecheck
+$ tsc --noEmit -p tsconfig.json
+
+==> neuro-book-test-support：bun run test
+$ vitest run --config vitest.config.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book-test-support
+
+ ❯ tests/paths.test.ts (8 tests | 1 failed) 19ms
+     × 拒绝不安全的 run/task 段与超长结果 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/paths.test.ts > Agent 路径解析 > 拒绝不安全的 run/task 段与超长结果
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ tests/paths.test.ts:107:84
+    105|         expect(() => resolveAgentFixtureRoot("00149-agent", "bad\\run"…
+    106|         const longRoot = join(resolveSystemTempRoot(env()), "n".repeat…
+    107|         expect(() => resolveAgentTempRoot(env({NBOOK_AGENT_TEMP_ROOT: …
+       |                                                                                    ^
+    108|     });
+    109| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 13 passed (14)
+   Start at  07:05:22
+   Duration  266ms (transform 171ms, setup 0ms, import 285ms, tests 70ms, environment 1ms)
+
+error: script "test" exited with code 1
+
+==> owned-process：bun run typecheck
+$ tsc --noEmit -p tsconfig.json
+
+==> owned-process：bun run test
+$ vitest run --config vitest.config.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation
+
+
+ Test Files  3 passed (3)
+      Tests  15 passed | 3 skipped (18)
+   Start at  07:05:24
+   Duration  1.46s (transform 185ms, setup 114ms, import 185ms, tests 1.41s, environment 0ms)
+
+
+==> scripts：bun x tsc --noEmit -p scripts/tsconfig.json
+
+==> scripts：bun x vitest run --config scripts/vitest.config.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation
+
+
+ Test Files  7 passed (7)
+      Tests  98 passed (98)
+   Start at  07:05:28
+   Duration  3.41s (transform 295ms, setup 177ms, import 635ms, tests 3.47s, environment 1ms)
+
+
+超过 200ms 的测试 69 个（列出最慢的 10 个）：
+   25325ms  neuro-agent-harness/tests/jsonl-lock-crash-phases.test.ts  root/owner/metadata/heartbeat/append 各阶段退出都 fail closed，append facts 仍可恢复
+    5053ms  neuro-agent-harness/tests/jsonl-lock.test.ts  owner 在 acquire 后崩溃时，后续 commit fail closed 为 busy
+    2718ms  nb-history/tests/perf.test.ts  P2: 1 万条目 + 3 千快照库上 unseen/inbox/timeline 各 ≤ 50ms
+    2254ms  neuro-agent-harness/tests/package-consumer-usability.test.ts  同一个公开 consumer 在 Bun/Node tarball 安装后完成完整组合并可从 JSONL 重启恢复
+    2159ms  neuro-book/src/server/dev/run.test.ts  页面经 Vite 提供、API 经代理、页面直连后端 RPC 端口；改后端文件有序重启；SIGTERM 时先停后端再关页面，以 0 退出
+    1075ms  neuro-agent-harness/tests/sse-http-transport.test.ts  首连全量 + Last-Event-ID 续传只收新事件
+    1002ms  nb-workflow/test/runner-backend.test.ts  rerun allows a running Run when the Backend declares processRestart
+     634ms  neuro-book/src/server/server-projects.test.ts  项目子进程不响应停止：到 NBOOK_PROJECT_STOP_MS 强制结束，记为停止问题，服务端以 1 退出
+     560ms  neuro-book/src/server/dev/run.test.ts  第二个停止信号不等排空：在途请求拖住排空时直接结束后端，以 1 退出
+     544ms  nb-history/tests/handles.test.ts  T12b: 两个先后进程依次打开同一库,不报 SQLITE_BUSY
+
+失败 4 项：
+  llmlint：bun run typecheck 退出码 2
+  llmlint：bun run test:vitest 退出码 1
+  nb-ui：bun run test 退出码 1
+  neuro-book-test-support：bun run test 退出码 1
+error: script "test:affected" exited with code 1
+exit=1
