@@ -31,9 +31,13 @@ import type {
 import type {RemoteLink} from "./transport";
 
 /** 激活产出里的一项远程提供：合同与按调用方的实现工厂。用 `provideRemote` 构造。 */
-export interface RemoteProvision {
+declare const provisionContract: unique symbol;
+
+/** 一项远程提供；类型参数只在编译期，供 `defineEntry` 核对合同。 */
+export interface RemoteProvision<Contract extends RemoteContract = RemoteContract> {
     readonly contract: RemoteContract;
     readonly provision: PerConsumerProvision<RemoteImplementation<RemoteContract>>;
+    readonly [provisionContract]?: Contract;
 }
 
 /**
@@ -44,7 +48,7 @@ export function provideRemote<Contract extends RemoteContract>(
     contract: Contract,
     facade: (consumer: ConsumerIdentity) => RemoteImplementation<Contract>,
     options: {readonly release?: (implementation: RemoteImplementation<Contract>, consumer: ConsumerIdentity) => void | Promise<void>} = {},
-): RemoteProvision {
+): RemoteProvision<Contract> {
     const provision = perConsumer(facade, options.release) as unknown as PerConsumerProvision<RemoteImplementation<RemoteContract>>;
     return {contract, provision};
 }

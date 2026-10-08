@@ -21,6 +21,7 @@ import {PluginHostImpl} from "./host";
 
 export type * from "./contracts";
 export {PluginStateError} from "./contracts";
+export {defineEntry} from "./define";
 export {KERNEL_ACTIVATION_PREFIXES} from "./registration";
 
 /** 创建一个插件宿主：绑定到一个运行实例（即一个运行位置）与其服务装配。两个宿主互不共享状态。 */
@@ -40,13 +41,16 @@ export function providePerConsumer<T extends object>(
     key: ServiceKey<T>,
     facade: (consumer: ConsumerIdentity) => T,
     options: {readonly release?: (facade: T, consumer: ConsumerIdentity) => void | Promise<void>} = {},
-): ProvidedService {
+): ProvidedService<T> {
     const provision: PerConsumerProvision<T> = perConsumer(facade, options.release);
     return {key, instance: provision};
 }
 
-/** 构造激活产出中的一项提供服务；`release` 在服务代次关闭或激活产出被收口时调用一次。 */
-export function provide<T>(key: ServiceKey<T>, instance: T, release?: (instance: T) => void | Promise<void>): ProvidedService {
+/**
+ * 构造激活产出中的一项提供服务；`release` 在服务代次关闭或激活产出被收口时调用一次。服务类型只取自键，
+ * 实例按它核对。
+ */
+export function provide<T>(key: ServiceKey<T>, instance: NoInfer<T>, release?: (instance: T) => void | Promise<void>): ProvidedService<T> {
     return {
         key,
         instance,

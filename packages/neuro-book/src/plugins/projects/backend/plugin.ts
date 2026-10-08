@@ -18,7 +18,7 @@ export const projectsBackendPlugin: PluginDefinition = {
         id: "server",
         location: "server",
         dependencies: [{key: diagnosticsKey}, {key: projectsKey}],
-        remoteProvides: [projectsRemoteContract.id],
+        remoteProvides: [projectsRemoteContract],
         activate: (context) => {
             const projects = context.services.require(projectsKey);
             const remote = provideRemote(projectsRemoteContract, () => ({

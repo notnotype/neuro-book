@@ -16,7 +16,7 @@ export const boardBackendPlugin: PluginDefinition = {
     entries: [{
         id: "project",
         location: "project",
-        remoteProvides: [boardContract.id],
+        remoteProvides: [boardContract],
         activate: () => {
             const items: string[] = [];
             const sinks = new Set<(text: string) => void>();

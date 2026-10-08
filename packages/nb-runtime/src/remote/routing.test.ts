@@ -122,7 +122,7 @@ function provider(id: string, location: string, probe: Probe): PluginDefinition 
         entries: [{
             id: "main",
             location,
-            remoteProvides: location === "server" ? [echo.id, restricted.id] : [echo.id],
+            remoteProvides: location === "server" ? [echo, restricted] : [echo],
             activate: () => {
                 probe.activations += 1;
                 const remote = [provideRemote(echo, (consumer) => implementation(consumer, probe), {release: (_implementation, consumer) => void probe.released.push(`${consumer.instanceId}:${consumer.plugin ?? "?"}#${String(consumer.generation)}`)})];
@@ -395,7 +395,7 @@ describe("Spec plugin-channel 输出 1、4：链路编码失败是结构化失�
             entries: [{
                 id: "main",
                 location: "server",
-                remoteProvides: [echo.id],
+                remoteProvides: [echo],
                 activate: () => ({remote: [provideRemote(echo, (async (consumer: ConsumerIdentity) => implementation(consumer, newProbe())) as unknown as (consumer: ConsumerIdentity) => RemoteImplementation<typeof echo>)]}),
             }],
         };
@@ -930,7 +930,7 @@ describe("Spec plugin-channel 输出 1：合同的提供方位置", () => {
             entries: [{
                 id: "main",
                 location,
-                remoteProvides: [contract.id],
+                remoteProvides: [contract],
                 activate: () => ({
                     remote: [provideRemote(contract, () => ({
                         methods: {where: () => {
@@ -1006,7 +1006,7 @@ describe("Spec plugins 输出 22：远程提供项的位置", () => {
             id: "main",
             location: "project",
             activationEvents: ["onStartup"],
-            remoteProvides: [atServer.id],
+            remoteProvides: [atServer],
             activate: () => ({remote: [provideRemote(atServer, () => ({methods: {where: () => ({ok: true, value: "project"})}}))]}),
         }],
     };

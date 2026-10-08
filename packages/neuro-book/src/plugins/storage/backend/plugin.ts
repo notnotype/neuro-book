@@ -38,8 +38,8 @@ function partitionEntry(location: "server" | "project", placement: ServiceKey<un
         location,
         dependencies: [{key: diagnosticsKey}, {key: placement}],
         provides: [storageKey],
-        remoteProvides: [owned.id],
-        remoteDelegates: scope === "project" ? [userStorageContract.id] : [],
+        remoteProvides: [owned],
+        remoteDelegates: scope === "project" ? [userStorageContract] : [],
         activate: (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const onListenerError = (error: unknown): void => {

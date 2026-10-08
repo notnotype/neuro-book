@@ -609,7 +609,7 @@ export class PluginHostImpl implements PluginHost {
             const declared = record.definition.remoteDelegates ?? [];
             return {
                 use: (contract) => {
-                    if (!declared.includes(contract.id)) {
+                    if (!declared.some((item) => item.id === contract.id)) {
                         return refusedRemote("denied", denial(`入口 ${plugin}/${entry} 没有声明可代理 ${contract.id}`)).use(contract);
                     }
                     return target.use(contract);
@@ -642,7 +642,7 @@ export class PluginHostImpl implements PluginHost {
                 continue;
             }
             for (const record of plugin.entries.values()) {
-                if (record.activatable && (record.definition.remoteProvides ?? []).includes(contractId)) {
+                if (record.activatable && (record.definition.remoteProvides ?? []).some((contract) => contract.id === contractId)) {
                     candidates.push(record);
                 }
             }
@@ -1035,7 +1035,7 @@ export class PluginHostImpl implements PluginHost {
                 return fail("output", "missing-service", {key});
             }
         }
-        const remoteDeclared = record.definition.remoteProvides ?? [];
+        const remoteDeclared = (record.definition.remoteProvides ?? []).map((contract) => contract.id);
         const remote = new Map<string, RemoteProvision>();
         for (const item of output.remote ?? []) {
             if (!remoteDeclared.includes(item.contract.id) || remote.has(item.contract.id)) {

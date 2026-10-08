@@ -46,14 +46,14 @@ async function topology(options: {
     const clock = new ManualClock();
     const pluginA: PluginDefinition = {
         id: "demo.a",
-        entries: [{id: "main", location: "server", remoteProvides: [serviceA.id], activate: async (context) => {
+        entries: [{id: "main", location: "server", remoteProvides: [serviceA], activate: async (context) => {
             await options.activateA(context);
             return {remote: [provideRemote(serviceA, () => ({methods: {ping: () => ({ok: true, value: "a"})}}))]};
         }}],
     };
     const pluginB: PluginDefinition = {
         id: "demo.b",
-        entries: [{id: "main", location: "project", remoteProvides: [serviceB.id], activate: async (context) => {
+        entries: [{id: "main", location: "project", remoteProvides: [serviceB], activate: async (context) => {
             await options.activateB(context);
             return {remote: [provideRemote(serviceB, () => ({methods: {ping: () => ({ok: true, value: "b"}), wait: async () => ({ok: true, value: await (options.waitB ?? Promise.resolve("b"))})}}))]};
         }}],

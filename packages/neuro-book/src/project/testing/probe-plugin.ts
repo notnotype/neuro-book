@@ -24,7 +24,7 @@ export function createRemoteProbeProjectPlugin(): PluginDefinition {
             location: "project",
             activationEvents: ["onStartup"],
             dependencies: [{key: currentProjectKey}, {key: storageKey}],
-            remoteProvides: [projectProbeContract.id],
+            remoteProvides: [projectProbeContract],
             activate: (context) => {
                 const current = context.services.require(currentProjectKey);
                 const storage = probeStorage(context.services.require(storageKey));

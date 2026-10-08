@@ -138,7 +138,7 @@ function commandsEntry(location: RuntimeLocation): PluginEntryDefinition {
         dependencies: [{key: diagnosticsKey}, {key: publicStateKey}],
         provides: [commandServiceKey],
         receives: [COMMANDS_POINT],
-        remoteProvides: location === "browser" ? [commandsRemoteContract.id] : [],
+        remoteProvides: location === "browser" ? [commandsRemoteContract] : [],
         activate: (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const registry = createCommandRegistry({

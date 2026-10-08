@@ -14,7 +14,7 @@ export const cloudNotesBackendPlugin: PluginDefinition = {
     entries: [{
         id: "server",
         location: "server",
-        remoteProvides: [cloudNotesContract.id],
+        remoteProvides: [cloudNotesContract],
         activate: () => {
             const byPlugin = new Map<string, string[]>();
             return {

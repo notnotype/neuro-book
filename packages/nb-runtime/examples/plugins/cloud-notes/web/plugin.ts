@@ -21,7 +21,7 @@ export const cloudNotesBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         provides: [cloudNotesKey],
-        remoteDelegates: [cloudNotesContract.id],
+        remoteDelegates: [cloudNotesContract],
         activate: (context) => ({
             services: [providePerConsumer(cloudNotesKey, (consumer): CloudNotes => {
                 const server = () => context.remote.on(consumer).use(cloudNotesContract).at("server");

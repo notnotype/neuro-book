@@ -126,7 +126,7 @@ export function createRemoteProbePlugin(state: RemoteProbeState = newRemoteProbe
             location: "server",
             activationEvents: ["onStartup"],
             dependencies: [{key: diagnosticsKey}, {key: storageKey}],
-            remoteProvides: [remoteProbeContract.id],
+            remoteProvides: [remoteProbeContract],
             contributions: [{capability: HTTP_ROUTES_POINT, id, declaration: {}}],
             activate: (context) => {
                 context.scope.register({kind: "test-resource", label: "remote-probe", value: state, release: (probe) => {

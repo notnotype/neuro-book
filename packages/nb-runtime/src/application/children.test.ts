@@ -362,7 +362,7 @@ describe("Spec plugin-channel 输出 9：{project} 目标核对租约", () => {
                 const node: RemoteNode = createRemoteNode({instance: descriptor, clock});
                 const plugin: PluginDefinition = {
                     id: "demo.project",
-                    entries: [{id: "main", location: "project", remoteProvides: [echo.id], activate: () => ({remote: [provideRemote(echo, () => ({methods: {where: () => ({ok: true, value: `${key}#${generation}`})}}))]})}],
+                    entries: [{id: "main", location: "project", remoteProvides: [echo], activate: () => ({remote: [provideRemote(echo, () => ({methods: {where: () => ({ok: true, value: `${key}#${generation}`})}}))]})}],
                 };
                 const app = createApplication(
                     {identity: {location: "project", instanceId: descriptor.id}, stopSignal: new AbortController().signal, emergency: () => undefined},

@@ -14,6 +14,7 @@ export {failureFor, leaseHolderOf, parseFrame, REMOTE_FAILURE_CODES, reservedKey
 export {decodeJsonFrame, encodeJsonFrame, encodeJsonValue, FrameEncodingError} from "./json-codec";
 export type * from "./node";
 export {createRemoteNode, provideRemote} from "./node";
+export {orThrow, RemoteCallError} from "./result";
 export type * from "./router";
 export {createRemoteRouter} from "./router";
 export type * from "./transport";

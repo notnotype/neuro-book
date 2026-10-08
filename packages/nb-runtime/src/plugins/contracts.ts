@@ -80,11 +80,17 @@ export interface ActivationContext {
     };
 }
 
-/** 激活产出的一项对外提供服务；用 `provide(key, instance, release?)` 构造。 */
-export interface ProvidedService {
+declare const providedType: unique symbol;
+
+/**
+ * 激活产出的一项对外提供服务；用 `provide(key, instance, release?)` 构造。类型参数只在编译期，供 `defineEntry`
+ * 核对服务类型。
+ */
+export interface ProvidedService<T = unknown> {
     readonly key: ServiceKey<unknown>;
     readonly instance: unknown;
     release?(instance: unknown): void | Promise<void>;
+    readonly [providedType]?: T;
 }
 
 /** 入口激活的产出：当前有效的入口贡献与所有提供项必须给出实现，接收者与 receives 完全一致。 */
@@ -94,7 +100,7 @@ export interface ActivationOutput {
     readonly services?: ReadonlyArray<ProvidedService>;
     /** 本入口声明的贡献点接收者；键必须与 `receives` 完全一致。 */
     readonly receivers?: Readonly<Record<string, ContributionReceiver>>;
-    /** 本入口的远程提供项（`provideRemote`）；合同 id 必须与 `remoteProvides` 完全一致。 */
+    /** 本入口的远程提供项（`provideRemote`）；合同必须与 `remoteProvides` 完全一致（按 id 核对）。 */
     readonly remote?: ReadonlyArray<RemoteProvision>;
 }
 
@@ -114,13 +120,13 @@ export interface PluginEntryDefinition {
     readonly provides?: ReadonlyArray<ServiceKey<unknown>>;
     /** 本入口接收的、由本插件定义的贡献点。 */
     readonly receives?: ReadonlyArray<string>;
-    /** 本入口提供的远程服务合同 id；首次远程调用时按需激活本入口（onRemote）。 */
-    readonly remoteProvides?: ReadonlyArray<string>;
+    /** 本入口提供的远程服务合同；首次远程调用时按需激活本入口（onRemote）。 */
+    readonly remoteProvides?: ReadonlyArray<RemoteContract>;
     /**
-     * 本入口可代表调用方调用的远程服务合同 id（经 `context.remote.on`，runtime.plugins 输出第 20 条）；
+     * 本入口可代表调用方调用的远程服务合同（经 `context.remote.on`，runtime.plugins 输出第 20 条）；
      * 只对代理允许清单里的插件生效。
      */
-    readonly remoteDelegates?: ReadonlyArray<string>;
+    readonly remoteDelegates?: ReadonlyArray<RemoteContract>;
     /** 入口激活后向贡献点提交的声明。 */
     readonly contributions?: ReadonlyArray<ContributionDeclaration>;
     /** 只在激活时调用；登记、目录查询与状态查询都不调用它。 */
@@ -131,7 +137,7 @@ export interface PluginEntryDefinition {
 export interface PluginRemoteAccess extends RemoteAccess {
     /**
      * 跨实例委托（runtime/plugin-channel.md 输出第 10 条）：在本入口交出的按调用方门面里，以收到的调用方身份
-     * 发出远程调用与订阅，提供方看到原调用方、`via` 为本入口。合同 id 必须在 `remoteDelegates` 里，插件必须在
+     * 发出远程调用与订阅，提供方看到原调用方、`via` 为本入口。合同必须在 `remoteDelegates` 里，插件必须在
      * 宿主的代理允许清单内，`consumer` 必须是装配签发给本入口门面、且签发它的门面还没释放的身份；不满足时
      * 调用与订阅得到 `denied`。经它建立的远程门面与订阅在签发它的门面释放（释放函数结束之后）时结束。
      */

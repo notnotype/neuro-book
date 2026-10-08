@@ -18,7 +18,7 @@ import {createServiceAssembly, defineServiceKey} from "../services/services";
 import type {ConsumerIdentity} from "../services/services";
 
 import {createRemoteNode, createRemoteRouter, defineRemoteService, provideRemote} from "./remote";
-import type {RemoteResult} from "./remote";
+import type {RemoteContract, RemoteResult} from "./remote";
 import {createLinkPair} from "./testing/in-process";
 
 const Empty = Type.Object({}, {additionalProperties: false});
@@ -64,7 +64,7 @@ async function startServer(clock: ManualClock): Promise<{readonly server: Server
         entries: [{
             id: "main",
             location: "server",
-            remoteProvides: [echo.id, other.id],
+            remoteProvides: [echo, other],
             activate: () => ({
                 remote: [
                     provideRemote(echo, (consumer) => ({
@@ -90,7 +90,7 @@ async function startServer(clock: ManualClock): Promise<{readonly server: Server
 }
 
 /** 代理插件：为每个调用方提供 Proxy 门面；释放函数里再以该调用方身份调用一次，记下结果。激活上下文交给测试。 */
-function proxyPlugin(id: string, key: typeof proxyKey, events: string[], contexts: Map<string, ActivationContext>, remoteDelegates: ReadonlyArray<string> = [echo.id]): PluginDefinition {
+function proxyPlugin(id: string, key: typeof proxyKey, events: string[], contexts: Map<string, ActivationContext>, remoteDelegates: ReadonlyArray<RemoteContract> = [echo]): PluginDefinition {
     return {
         id,
         entries: [{
@@ -145,7 +145,7 @@ interface Browser {
     readonly proxies: Map<string, ActivationContext>;
 }
 
-async function setup(allowed: ReadonlyArray<string> = ["app.proxy", "app.other-proxy"], remoteDelegates?: ReadonlyArray<string>): Promise<Browser> {
+async function setup(allowed: ReadonlyArray<string> = ["app.proxy", "app.other-proxy"], remoteDelegates?: ReadonlyArray<RemoteContract>): Promise<Browser> {
     const clock = new ManualClock();
     const {server, router} = await startServer(clock);
     const node = createRemoteNode({instance: {id: "browser-1", kind: "browser", role: "client", project: null, client: "profile-1"}, clock});

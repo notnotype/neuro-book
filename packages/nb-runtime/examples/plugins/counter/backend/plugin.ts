@@ -17,7 +17,7 @@ export const counterBackendPlugin: PluginDefinition = {
     entries: [{
         id: "server",
         location: "server",
-        remoteProvides: [counterContract.id],
+        remoteProvides: [counterContract],
         activate: () => {
             let count = 0;
             const sinks = new Set<(value: number) => void>();

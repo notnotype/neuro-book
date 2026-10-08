@@ -32,7 +32,7 @@ owners:
 
 - 作者用 `defineEntry({id, location, activationEvents?, dependencies?, provides?, remoteProvides?, receives?, contributions?, activate})` 声明入口，编译期核对激活产出与这些声明一致（[`runtime.plugins`](plugins.md) 的“输入与前置条件”）；清单实现后，构建预设据此生成清单（[`runtime.plugin-manifest`](plugin-manifest.md)）。只提供组件、不需要初始化逻辑的浏览器入口可以省略 `activate`。
 - `activate(ctx)` 在入口激活时调用一次，返回激活结果：本入口提供的服务实现、需要实现的贡献的实现，以及浏览器入口只交给本插件自己组件的 `local` 对象。
-- 其它插件导出服务的类型来自提供方发布的类型包，只以 `import type` 使用，构建后不留运行时引用；内置插件服务的类型由 SDK 提供。
+- 其它插件的接口来自提供方的合同模块（`shared/contracts.ts`，[ADR 0026](../../adr/0026-plugin-definitions-as-constants.md) 第 2 条）：运行时可以导入其中的服务键与远程服务合同这类无副作用的值，例如 `import {counterContract} from "<提供方>/shared/contracts"` 后 `ctx.remote.use(counterContract)`；服务类型只以 `import type` 使用；不导入提供方的实现与宿主内部模块。第三方提供方随包发布合同模块，内置插件的合同模块由 SDK 提供。
 
 ## 输出与可观察行为
 
@@ -42,7 +42,7 @@ owners:
 
 | 接口的性质 | 用什么 | 说明 |
 |---|---|---|
-| 只传数据，调用方可能在别的运行实例 | 远程服务合同（[远程服务与 RPC 协议](plugin-channel.md)） | 所有调用方都直接 `ctx.remote.use(合同)`，同一实例里的调用方也一样（走本地路径，不序列化，身份与代次照样核对）；不写只原样转发的本地服务包装。合同因此是插件对外的公开接口，改动按合同版本处理 |
+| 只传数据，调用方可能在别的运行实例 | 远程服务合同（[远程服务与 RPC 协议](plugin-channel.md)） | 所有调用方都直接 `ctx.remote.use(合同)`，同一实例里的调用方也一样（走本地路径，不序列化，身份与代次照样核对）；不写只原样转发的本地服务包装。本地与远程共用一个提供者登记，只在本实例用、含不可序列化内容的接口才另登记为本地服务（[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4 节，[ADR 0024](../../adr/0024-multi-instance-runtime-topology.md) 第 4 条）。合同因此是插件对外的公开接口，改动按合同版本处理 |
 | 只在同一实例里用，给第三方插件 | 本地服务（`provide`、`providePerConsumer`），按下节的数据面约束写 | 以后把插件移出宿主进程时只换传输（[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条） |
 | 要同步调用，或要传响应式值、对象引用 | 只限内置插件之间的内部服务，或下节的宿主适配对象 | 例如命令面板求 `when` 时同步读公开状态 |
 | 许多插件各交“声明 + 实现”，由一个拥有者统一管理 | 贡献点 | 命令、页面、公开状态键；贡献方与拥有者之间没有依赖 |
@@ -57,7 +57,7 @@ owners:
 | 单独的入口加必需依赖 | 同一实例里，这部分功能整段依赖对方的服务 | 只有这个入口受阻，插件显示为部分可用（[`runtime.plugin-manifest`](plugin-manifest.md) 验收第 4 条）；入口的寿命落在对方服务的寿命之内 |
 | 可选依赖加 `ctx.services.resolve(键)` | 同一实例里，入口只有一处要用对方 | `resolve` 返回 `unavailable`：原因 `missing-provider` 表示没有提供方，其它原因表示提供方暂时不可用 |
 | 向对方的贡献点贡献 | 反方向：本插件给对方的系统加东西（命令、页面） | 贡献等待接收者，本插件照常 |
-| 远程调用 | 对方在别的实例，或只在用到时才需要 | 调用得到失败码，调用方当作“没有这项功能”；不使任何入口受阻 |
+| 远程调用 | 对方在别的实例，或只在用到时才需要 | 不使任何入口受阻。调用得到 `unavailable` 时按领域降级，目前分不出“没装”与“暂时不可用”；其它失败码按各自含义处理，写请求的 `unknown-outcome` 不能当作没有执行（[远程服务与 RPC 协议](plugin-channel.md) 输出第 1 条） |
 | 公开状态加 `when` | 命令要等对方的某个状态 | 键未声明时命令不可用，原因写明（[`workbench.commands`](../workbench/commands.md)） |
 
 内核不提供“先检测对方在不在、再持有它的引用”：拿到引用之后对方可能停止，引用随之失效（[可扩展应用平台设计](../../proposals/extensible-application-platform.md) 2026-09-30 的决定）。上面几种写法里，引用要么随入口寿命由内核管理，要么每次调用重新解析。

@@ -138,7 +138,7 @@ export function orThrow<T, Code extends string>(result: RemoteResult<T, Code>): 
 | S4 | 第 4–6 节 | 合同对象声明、`defineEntry`、带参数的提供项类型、`orThrow`；各处 `remoteProvides`、`remoteDelegates` 机械改成合同对象 | 同 S1 |
 | S5 | 第 7 节 | 示例改用 `defineEntry`、删去只转发的包装、场景、`probes.ts`、示例 README | 内核两条 |
 | S6 | 第 8 节 | 产品插件与测试插件改用 `defineEntry` | 应用两条 |
-| S7 | — | Task 证据、omp 实现审查与修正、Spec 证据行 | `bun run test:affected --typecheck`、`bun run --cwd packages/neuro-book test:e2e`、`bun run --cwd packages/neuro-book smoke:server`、`docs:check`、`governance:check` |
+| S7 | — | Task 证据、omp 实现审查与修正、Spec 证据行 | `bun run test:affected --typecheck --since 8aa26b09`、`bun run --cwd packages/neuro-book test:e2e`、`bun run --cwd packages/neuro-book smoke:server`、`docs:check`、`governance:check` |
 
 内核两条：`bun run --cwd packages/nb-runtime typecheck`、`bun run --cwd packages/nb-runtime test`。应用两条：`bun run --cwd packages/neuro-book typecheck`、`bun run --cwd packages/neuro-book test`。
 
@@ -158,7 +158,7 @@ export function orThrow<T, Code extends string>(result: RemoteResult<T, Code>): 
 
 ## 验证
 
-- 每片按切片表自跑；收口跑 `bun run test:affected --typecheck`、应用包 e2e 全量与 `smoke:server`。
+- 每片按切片表自跑；收口跑 `bun run test:affected --typecheck --since 8aa26b09`（不给基准时只看未提交改动，逐片提交后选不中任何包）、应用包 e2e 全量与 `smoke:server`。
 - 变异核对：编译期核对逐项放宽（例如把 `services` 放宽成任意数组），对应的 `@ts-expect-error` 变成“未使用”而让类型检查失败；接收者把 `published` 提前到贡献方发布之前，“激活失败时 `published` 不被调用”的用例失败；命令表恢复登记期查键，“未声明键时登记成功”的用例失败。
 - 未验证的边界：`defineEntry` 的报错文案取决于 TypeScript 版本，只核对“报错”，不核对文案。
 
@@ -173,3 +173,14 @@ export function orThrow<T, Code extends string>(result: RemoteResult<T, Code>): 
 ## 实施中的调整
 
 - 2026-10-08 写 S0 时发现：本计划第 7 节原写“本地服务可以同步、可以传任意值”，与已 `accepted` 的 [ADR 0022](../../../../../docs/adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条（给第三方的公开 API 全部异步、可序列化）冲突。改为在 ADR 0022 的三类划分之内写选用规则，不改该决定；第 7 节规则 2 与 Spec 改动表 `plugin-api.md` 一行随之修改。
+- 2026-10-08 omp 计划审查（[报告](evidences/omp-plan-review.md)）的处理：
+  - 删本地委托时签发记录的收口（`#releaseDelegated`）同时服务远程委托：S1 保留它，改名 `#releaseIssued`。
+  - S3 补上工作台页面表 `PageTable.receiver()` 的 `commit` → `published`。
+  - `defineEntry` 按第 5 节的写法拦不住非空声明下多写的接收者与贡献实现，omp 的小样还要求产出写 `as const`。S4 改为把激活产出单独推导成 `const` 类型参数、以声明要求的产出为约束，多写的键从实际产出里另行找出，报错写成“缺少属性 多写的接收者：x”；字面量不再需要 `as const`。第一版把产出与核对写在同一个返回类型里，TypeScript 6.0.3 在推导时崩溃（`Debug Failure`），因此分成约束与参数上的额外属性两处。
+  - 编译期分不出服务类型相同而 id 不同的两个服务键、形状相同的两个合同；按运行位置分支时只能在整个产出上分支；辅助函数返回宽类型会擦掉要核对的参数。三者写进 `define.ts` 与 `runtime.plugins` 输入一节，不扩大接口；S6 迁移时给辅助函数写出带参数的返回类型。
+  - S7 的 `test:affected` 加 `--since 8aa26b09`。
+  - 第 3 节“补交时 `prepare` 成功后立即 `published`”漏了整批屏障：实现保留整批 `prepare` 后才交付（只删 `commit` 循环），`runtime.plugins` 验收 27 改写为“这一批全部 `prepare` 成功之后”，场景 7 的测试把失败点从 `commit` 移到第三项 `prepare`。
+  - 可选功能表里“远程调用失败即当作没有这项功能”会把拒绝、提供方错误与 `unknown-outcome` 误当成未安装：改为 `unavailable` 时按领域降级、其它失败码按各自含义处理。
+  - omp 认为规则 1（同一实例的调用方也直接用远程合同）与 ADR 0024 第 4 条“同一实例内用本地服务”冲突。核实：已接受的[多实例运行时拓扑](../../../../../docs/proposals/multi-instance-runtime-topology.md)第 4 节写明本地与远程共用一个提供者登记、同一实例的调用方同样按消费方取门面，只在本地提供、含不可序列化内容的接口另登记为本地服务；ADR 第 4 条是它的概括，规则 1 不改变决定。`plugin-api.md` 的规则 1 引用这一节为依据，不改 ADR。
+  - `plugin-api.md` 原写“其它插件的接口只以 `import type` 使用、构建后不留运行时引用”，拿不到 `ctx.remote.use(合同)` 要的合同值，也与 [ADR 0026](../../../../../docs/adr/0026-plugin-definitions-as-constants.md) 第 2 条不符：改为可以导入合同模块里的服务键与合同，不导入提供方实现。`plugin-channel.md` 远程委托的核对改为直接引用签发记录（不再说“与同一实例内的委托相同”）。
+  - 未采纳：omp 指出 HTTP 路由表的重复预占在完整内核下走不到（同一插件的两条路由先被判为 `duplicate-contribution`），建议可删去 `prepare` 与待挂载表。计划已定“`prepare` 预占不变”，这里保留作边界防御，是否精简交开发者决定。`plugin-api.md` 的 `ctx.services.require(id)` 返回 `undeclared-service` 属于 t28 选定的第三方 SDK 形状，与内核 `require(键)` 抛错不同，不在本 Task 范围。

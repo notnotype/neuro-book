@@ -23,7 +23,7 @@ export const storageBrowserPlugin: PluginDefinition = {
         location: "browser",
         dependencies: [{key: windowProjectKey}],
         provides: [storageKey],
-        remoteDelegates: [userStorageContract.id, projectStorageContract.id],
+        remoteDelegates: [userStorageContract, projectStorageContract],
         activate: (context) => {
             const bound = context.services.require(windowProjectKey).project !== null;
             const facades = new WeakMap<StorageService, StorageFacade>();
