@@ -87,10 +87,10 @@ async function choose(page: Page, text: string): Promise<void> {
 }
 
 const html = (page: Page, name: "lang" | "data-nb-theme" | "data-nb-appearance") => page.locator("html").getAttribute(name);
-const pageBackground = (page: Page) => page.locator(".nb-empty-workbench").evaluate((element) => getComputedStyle(element).backgroundColor);
+const pageBackground = (page: Page) => page.locator("[data-workbench-shell]").evaluate((element) => getComputedStyle(element).backgroundColor);
 
 /** 首页的背景、文字颜色与字体，以及同一位置上 `--bg-main`、`--text-main`、`--font-ui` 解析出的值（用探针元素求出）。 */
-const pageTokens = (page: Page) => page.locator(".nb-empty-workbench").evaluate((element) => {
+const pageTokens = (page: Page) => page.locator("[data-workbench-shell]").evaluate((element) => {
     const probe = document.createElement("div");
     probe.style.cssText = "background-color: var(--bg-main); color: var(--text-main); font-family: var(--font-ui)";
     element.append(probe);

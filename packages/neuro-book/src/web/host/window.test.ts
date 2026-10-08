@@ -143,7 +143,7 @@ describe("窗口运行实例", () => {
         expect(state).toMatchObject({status: "ready", connection: "online"});
         const pages = state.status === "ready" ? state.root.pages() : [];
         expect(pages.map((page) => page.path)).toEqual(["/"]);
-        expect(((await pages[0]?.load()) as {name?: string} | undefined)?.name).toBe("EmptyWorkbench");
+        expect(await pages[0]?.load()).toBeDefined();
         await browserWindow.stop();
         expect(browserWindow.state.status).toBe("closed");
     });

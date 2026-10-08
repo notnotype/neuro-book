@@ -23,7 +23,7 @@ html {
 }
 
 /*
- * 宿主页（启动中、失败页）与空工作台。宿主页在任何插件激活之前就会显示，没有主题变量可用，所以只用系统颜色；
+ * 宿主页（启动中、失败页）。宿主页在任何插件激活之前就会显示，没有主题变量可用，所以只用系统颜色；
  * reset 去掉了元素的默认样式，按钮要自己画出来。
  */
 :root {
@@ -32,8 +32,7 @@ html {
     line-height: 1.5;
 }
 
-.nb-host-page,
-.nb-empty-workbench {
+.nb-host-page {
     box-sizing: border-box;
     min-height: 100vh;
     padding: 2rem 1rem;
@@ -45,26 +44,24 @@ html {
     text-align: center;
 }
 
-.nb-host-page h1,
-.nb-empty-workbench h1 {
+.nb-host-page h1 {
     margin: 0;
     font-size: 1.25rem;
 }
 
-.nb-host-page p,
-.nb-empty-workbench p {
+.nb-host-page p {
     margin: 0;
     max-width: 40rem;
 }
 
 /*
- * 工作台的页面消费产品主题（docs/specs/theme/system.md 的“运行时流程”）：背景、文字与字体取 nb-ui 的 token，换主题
- * 与明暗看得见。宿主页仍只用上面的系统颜色。
+ * 工作台的页面：外壳占满视口，它是外壳布局的承载盒（不能有 padding、border，测量按布局盒）。底色、文字与字体由外壳
+ * 消费产品主题（docs/specs/theme/system.md 的“运行时流程”）；宿主页仍只用上面的系统颜色。
  */
-.nb-empty-workbench {
-    background: var(--bg-main);
-    color: var(--text-main);
-    font-family: var(--font-ui);
+.nb-workbench-page {
+    width: 100%;
+    height: 100dvh;
+    overflow: hidden;
 }
 
 .nb-host-reason {
@@ -74,8 +71,7 @@ html {
     opacity: 0.8;
 }
 
-.nb-host-page h1,
-.nb-empty-workbench h1 {
+.nb-host-page h1 {
     font-weight: 600;
 }
 

@@ -25,7 +25,7 @@ import type {PaletteHost} from "./commands/palette-host";
 import {PANEL_COMMAND_DECLARATIONS, panelCommands} from "./commands/panel-commands";
 import {appearanceSetting, quickPickKey, themeSetting, WORKBENCH_PAGES_POINT} from "../shared/contracts";
 import {workbenchRootKey} from "./contracts";
-import {createEmptyWorkbench} from "./empty-workbench";
+import {createHomePage} from "./home-page";
 import {PageTable, validatePageContribution} from "./pages";
 import {createLayoutHost} from "./state/layout-host";
 import {layoutStoreFor} from "./state/layout-store";
@@ -33,6 +33,7 @@ import {workbenchState, workbenchStateBindings} from "./state/public-state";
 
 const CommandHost = defineAsyncComponent(() => import("./commands/WorkbenchCommandHost.vue"));
 const WorkbenchDocument = defineAsyncComponent(() => import("./document/WorkbenchDocument.vue"));
+const WorkbenchShell = defineAsyncComponent(() => import("./components/WorkbenchShell.vue"));
 
 export const workbenchBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
@@ -65,7 +66,15 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const locale = computed(() => displayLocale(settings));
             const theme = computed(() => settings.get(themeSetting));
             const appearance = computed(() => settings.get(appearanceSetting));
-            const home = createEmptyWorkbench(() => h(CommandHost, {commands, report, locale, attach: (host: PaletteHost) => palettes.attach(host)}), () => h(WorkbenchDocument, {locale, theme, appearance}), project?.name ?? null, locale);
+            const home = createHomePage({
+                shell: WorkbenchShell,
+                renderDocument: () => h(WorkbenchDocument, {locale, theme, appearance}),
+                renderCommandHost: () => h(CommandHost, {commands, report, locale, attach: (host: PaletteHost) => palettes.attach(host)}),
+                layout,
+                commands,
+                projectName: project?.name ?? null,
+                locale,
+            });
             const pages = new PageTable([{path: "/", title: "NeuroBook", load: async () => home}]);
             return {
                 services: [provide(workbenchRootKey, {pages: () => pages.list()}), provide(quickPickKey, palettes.quickPick)],
