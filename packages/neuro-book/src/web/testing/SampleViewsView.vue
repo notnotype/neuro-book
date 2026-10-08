@@ -14,7 +14,7 @@ import {ref} from "vue";
 import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
 import {SAMPLE_VIEWS_SWITCHES} from "nbook/shared/testing/sample-views-contract";
 
-const props = defineProps<{context: ViewContext}>();
+const props = defineProps<{context: ViewContext; focusedPart?: string}>();
 
 const failing = (globalThis.localStorage?.getItem(SAMPLE_VIEWS_SWITCHES.failRender) ?? "").split(",");
 if (failing.includes(props.context.id)) throw new Error(`样例视图 ${props.context.id} 按开关渲染出错`);
@@ -26,7 +26,7 @@ const lines = Array.from({length: 60}, (_, index) => `${props.context.id} · 第
 </script>
 
 <template>
-    <div class="flex h-full min-h-0 flex-col gap-2 text-sm" :data-sample-view="context.id" :data-instance="instance" :data-generation="context.generation" :data-visible="context.visible.value ? 'true' : 'false'" :data-location="context.location.value">
+    <div class="flex h-full min-h-0 flex-col gap-2 text-sm" :data-sample-view="context.id" :data-instance="instance" :data-generation="context.generation" :data-visible="context.visible.value ? 'true' : 'false'" :data-location="context.location.value" :data-focused-part="focusedPart">
         <div class="text-xs text-[var(--text-muted)]">实例 #{{ instance }} · 代际 {{ context.generation }} · {{ context.location.value }}</div>
         <div data-sample-input><FormInput v-model="draft" size="sm" placeholder="样例输入" /></div>
         <div class="min-h-0 flex-1 overflow-auto" data-sample-scroll>

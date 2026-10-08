@@ -4,7 +4,7 @@
  * （外壳二），实例层搬进各区域的落点。
  */
 import {Tabs} from "@notnotype/nb-ui/components";
-import {computed, reactive, ref} from "vue";
+import {computed, reactive, ref, shallowRef, useId} from "vue";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import {formatText, localize} from "nbook/shared/localized-text";
@@ -19,7 +19,8 @@ import {
     TOGGLE_PANEL_MAXIMIZED_COMMAND,
 } from "../commands/panel-commands";
 import {MOVE_VIEW_COMMAND, PART_LABELS} from "../commands/view-commands";
-import type {ShellLayoutFacts, ShellSizePatch} from "../shell/sizes";
+import {SHELL_PART_IDS} from "../shell/sizes";
+import type {ShellLayoutFacts, ShellPartId, ShellSizePatch} from "../shell/sizes";
 import {TeleportMemory} from "../shell/teleport-memory";
 import type {LayoutStore} from "../state/layout-store";
 import type {ViewLocation} from "../../shared/views";
@@ -34,6 +35,7 @@ import type {PanelFrameAction} from "./WorkbenchPanelSurface.vue";
 import WorkbenchShellLayout from "./WorkbenchShellLayout.vue";
 import WorkbenchStatusBar from "./WorkbenchStatusBar.vue";
 import WorkbenchToolPartHost from "./WorkbenchToolPartHost.vue";
+import {switcherPanelId, switcherTabId} from "./switcher-ids";
 import WorkbenchViewInstances from "./WorkbenchViewInstances.vue";
 
 defineOptions({name: "WorkbenchShell"});
@@ -141,7 +143,18 @@ function selectContainer(part: ViewLocation, containerId: string): void {
     props.layout.actions.applyView({kind: "select-container", part, containerId});
 }
 
-const panelTabs = computed(() => presentation.value.parts.panel.switcher.map((item) => ({value: item.containerId, label: text(item.title), iconClass: item.icon})));
+/** 标签与内容面板关联的 id 前缀：外壳一生取一次。 */
+const idPrefix = useId();
+const panelTabs = computed(() => presentation.value.parts.panel.switcher.map((item) => ({
+    value: item.containerId,
+    label: text(item.title),
+    iconClass: item.icon,
+    id: switcherTabId(idPrefix, "panel", item.containerId),
+    controls: switcherPanelId(idPrefix, "panel"),
+})));
+
+/** 视图实例的代际（实例层报上来）。 */
+const generations = shallowRef<ReadonlyMap<string, number>>(new Map());
 
 /** “移动到”菜单的输入：目标按 Part 分组，标题与图标与 Switcher 同源。 */
 function moveMenuOf(viewId: string): {groups: MoveTargetGroup[]; source: string; resetLabel: string | null; identity: string} | null {
@@ -152,8 +165,8 @@ function moveMenuOf(viewId: string): {groups: MoveTargetGroup[]; source: string;
         groups: targets.groups.map((group) => ({label: text(PART_LABELS[group.part]), targets: group.targets.map((target) => ({id: target.containerId, label: text(target.title), icon: target.icon}))})),
         source: targets.sourceContainerId,
         resetLabel: targets.canReset ? text(TEXT.resetLocation) : null,
-        // 菜单目标身份：视图、来源容器、容器模式与交付状态任一变化，已打开的菜单就关闭。
-        identity: `${viewId}|${targets.sourceContainerId}|${container?.mode ?? ""}|${props.views.delivery(viewId).kind}`,
+        // 菜单目标身份：视图、来源容器、容器模式、交付状态与实例代际任一变化，已打开的菜单就关闭。
+        identity: `${viewId}|${targets.sourceContainerId}|${container?.mode ?? ""}|${props.views.delivery(viewId).kind}|${String(generations.value.get(viewId) ?? 0)}`,
     };
 }
 
@@ -165,12 +178,21 @@ function resetView(viewId: string): void {
     props.layout.actions.applyView({kind: "reset-view", viewId});
 }
 
+/**
+ * 最近获得焦点的 Part（输出 27）：焦点进到外壳里某个 Part 的内容时上报。停放区、命令面板与菜单浮层不在任何 Part 里，
+ * 焦点到那里时保持原值。视图实例搬进 Part 的落点后才在 `[data-shell-slot]` 之下，所以按焦点此刻所在的 DOM 求。
+ */
+function onFocusIn(event: FocusEvent): void {
+    const part = event.target instanceof Element ? event.target.closest("[data-shell-slot]")?.getAttribute("data-shell-slot") : null;
+    if (part !== null && part !== undefined && (SHELL_PART_IDS as ReadonlyArray<string>).includes(part)) props.layout.actions.focusPart(part as ShellPartId);
+}
+
 /** single 时上提到区域标题行的动作：容器里唯一可见的视图的“移动到”。 */
 const singleViewOf = (container: ContainerPresentation): string | null => (container.mode === "single" ? (container.views[0]?.id ?? null) : null);
 </script>
 
 <template>
-    <div ref="hostEl" class="workbench-shell-host" tabindex="-1">
+    <div ref="hostEl" class="workbench-shell-host" tabindex="-1" @focusin="onFocusIn">
     <WorkbenchShellLayout
         class="workbench-shell"
         :sizes="state.sizes"
@@ -200,6 +222,7 @@ const singleViewOf = (container: ContainerPresentation): string | null => (conta
                 :locale="locale"
                 :label="text(PART_LABELS[part])"
                 :empty-text="text(TEXT.emptyPart)"
+                :id-prefix="idPrefix"
                 @select="(id) => selectContainer(part, id)"
                 @target="(element) => setPartTarget(part, element)"
             >
@@ -247,6 +270,7 @@ const singleViewOf = (container: ContainerPresentation): string | null => (conta
                     :locale="locale"
                     :label="text(PART_LABELS.panel)"
                     :empty-text="text(TEXT.emptyPart)"
+                :id-prefix="idPrefix"
                     @select="(id) => selectContainer('panel', id)"
                     @target="(element) => setPartTarget('panel', element)"
                 />
@@ -275,6 +299,7 @@ const singleViewOf = (container: ContainerPresentation): string | null => (conta
         :locale="locale"
         :disabled="!state.ready"
         @intent="(intent) => layout.actions.applyView(intent)"
+        @generations="(next) => (generations = next)"
     >
         <template #view-actions="{viewId}">
             <WorkbenchMoveViewMenu

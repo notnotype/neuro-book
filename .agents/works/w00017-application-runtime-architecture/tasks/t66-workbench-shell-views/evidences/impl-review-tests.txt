@@ -1,0 +1,213 @@
+# t66 实现审查：测试与验收映射
+
+审查范围：`cc4b39e3..ed0f12be`；审查 worktree：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-impl-tests`。仓库源码只读；变异、构建与浏览器实验在本报告旁的 `snapshot/` 中进行。编号保留核实顺序，正文按影响排序。当前产品行为、变异揭示的覆盖缺口、静态核实与未验证边界分别注明。
+
+## 已核实的发现
+
+### T4：focusedPart 没有接入真实 focusin；只调用 action 的测试掩盖公开状态一直为 editor
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:173`；`web/home-page.ts:36`；`web/state/layout-store.test.ts:470`；计划 `plan.md:129`。
+- **现象**：外壳和页面根都没有 focusin 处理，`focusPart` 在产品代码中没有调用者。真实页面依次聚焦侧栏甲的输入和 Panel 戊的输入，DOM 最近 Part 分别为 `sidebar`、`panel`，公开键均返回 `{status:"ready",value:"editor"}`。
+- **为什么是问题**：输出 27 与计划要求最近获得焦点的 Part 对外可读；当前声明为已实现却永远保留默认值。S2 测试直接调用 `store.actions.focusPart("sidebar")`，只证明赋值和公开绑定，S7 完全不读该公开键，因而接线缺失仍全绿。
+- **如何核实**：全仓搜索 `focusPart|focusedPart|@focusin` 只有 action 定义与直接调用 action 的测试，无产品事件上报；隔离副本的测试插件只增加公开服务读取器（`review-observer.ts`），没有修改外壳、store 或 public-state 实现。`node browser-review.mjs` 使用真实浏览器 focus 操作，经真实 `PublicStateService.read("nbook.workbench/focusedPart")` 读取；`browser-observations.json` 保存两次DOM与公开状态的对照。
+- **建议改法**：在唯一外壳根处理真实 focusin，按有效 Part 标记调用现有 action；无 Part 或外部 portal 保持原值。将现有直接 action 用例改成真实浏览器消费公开键：侧栏→面板→外部菜单/body，断言最后两步保持面板值，无需第二套焦点状态。
+
+### T7：菜单身份没有视图代际，重试后旧菜单可移动新实例
+
+- **严重程度**：重要；**类别**：正确性／测试。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:156`；`WorkbenchViewInstances.vue:247`；`WorkbenchShellParts.dom.test.ts:80`；`e2e/workbench-views.e2e.ts:341`；`docs/specs/ui/workbench-shell.md:107`、`:215`。
+- **现象**：宿主 identity 只有 viewId、sourceContainerId、容器 mode、delivery kind；实例层没有把 generation 交给动作槽。真实 Chrome 中右栏丁渲染失败，打开它的“移动到”，消除失败开关后触发真实重试，generation 从 1 变 2，菜单数量仍为 1；点击此前菜单的“样例戊”把第 2 代丁移入 Panel。
+- **为什么是问题**：输出 24 与验收 27 明确“视图重试换代立即关闭旧菜单，旧点击零写入”。计划第60行“实施时改定”把代际检查降为来源容器检查，但来源在重试前后相同，不能兑现仍有效的Spec与计划验收123。组件测试只手工修改identity，S7把重试与菜单分开测试，没检验真实宿主identity是否覆盖换代。
+- **如何核实**：`node browser-review.mjs`（实验目录，显式临时根）运行真实e2e页面、Vue重试与CommandService；`browser-observations.json` 记录 `before={generation:"1",menuCount:1}`、`afterRetry={generation:"2",menuCount:1}`、`oldClick={location:"panel",generation:"2"}`。重试用DOM按钮的 `click()`，不直接操作实例表或内核，验证真实实例换代后的身份规则；该实验未证明可信指针/键盘操作能够保持同一菜单打开。由Dropdown的点外关闭规则推断，普通指针点重试会先关菜单，这不能代替身份合同。另以真实命令在菜单打开时移动甲，菜单正确关闭；删除菜单identity监听的组件变异为4 pass／1 fail，因此缺口在宿主代际接线。
+- **建议改法**：由现有实例层把当前 generation 随动作槽向上传出，single 上提动作也消费同一实例身份，并纳入 identity；同一身份在接纳点击时仍要验证。把当前手工改 identity 用例保留为组件规则，再用真实实例重试补宿主集成判据，旧点击核对本客户端 revision 不变。
+
+### T3：计划声称真实串行锁窗口已锁定，实际 8 例注册表测试抓不到删除 published 门禁
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/views/registry.test.ts:180`；`docs/specs/workbench/views.md:153`；计划 `plan.md:127`。
+- **现象**：测试在 `await stopEntry(toggle)` 等撤回全部结束后才放行加载，根本没有覆盖“入口 stopping、句柄 published=false、revoke 尚未到达”的窗口。只删除 `registry.ts:130` 的 `&& handle.published`，原 8 个测试仍 8 pass、0 fail。
+- **为什么是问题**：这是上一轮 L3 明确要求补的关键寿命门禁；Spec 实现合同却声明 `registry.test.ts` 用真实内核串行窗口锁定。没有该判据，未来简化门禁会把失效插件的迟到组件当作有效组件接纳。
+- **如何核实**：隔离副本执行 `bun test src/plugins/workbench/web/views/registry.test.ts`（显式 `NBOOK_AGENT_TEMP_ROOT`）：8 pass、29 expect。`serial-probe.ts` 使用真实 `createApplication`、真实接收者 prepare 锁和真实入口作用域关闭，输出 `before={entry:"stopping",published:false,revoked:false}`、变异后的 `result="loaded"`，最后 `activation="activated"`、`close="closed"`、`shutdown="closed"`。恢复 `&& handle.published` 后，在相同真实窗口返回 `result="stale"`，正常关闭。不伪造内核回调、不直接操作内部状态；变异前后证明门禁必要，但这是测试覆盖缺口，当前门禁实现正确。Bun 的 directory mismatch 诊断已按工具规则报告，不计产品缺陷。
+- **建议改法**：将这条真实公开机制的受控 Promise 场景纳入现有“加载进行中入口停止”用例：先让同一接收者的第二次 prepare 持锁，再关源入口，确认句柄已失效且 revoke 未达，在解锁前放行加载，期望 stale；finally 放行所有门并正常关闭。另外覆盖同一 id 换句柄、工作台停止期间 pending load 的结果。
+
+### T1：e2e 的记录查询没有绑定本用例客户端，取消的“零写入”断言可以读取上一用例的记录
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`packages/neuro-book/e2e/workbench-views.e2e.ts:67`、`:83`、`:97`、`:190`。
+- **现象**：12 个用例共用一个后端和 `user.sqlite`，Playwright 每个用例使用独立浏览器上下文、生成不同的 `nbook.client-identity`。`customizations()` 和 `hideSidebarInRecord()` 只按 owner/key 查询 revision 最大的行，没有 `client` 条件。未写布局的当前用例读取的是前一个用例留下的行；取消后立即比较 revision，也没有等待当前用例保存通道结束。
+- **为什么是问题**：断言与被操作窗口没有同一身份约束；“取消无写入”可以通过一条与本窗口无关的记录，直接改库隐藏 Sidebar 也建立在“恰好这个用例最近写过”的隐含前提上。后端目前串行运行且 revision 是数据库全局计数，成功写入之后多数读取恰好来自当前用例，不能替代明确隔离。
+- **如何核实**：对照 `client-identity.ts:26` 与 `storage/backend/partition.ts:149`、`:150`。真实页面 `t66-focus-move` 经移动视图与选择乙写入记录，另开独立上下文 `t66-other-case` 只打开默认页面；SQLite 按 e2e 相同 owner/key 条件查询，返回 `client="t66-focus-move",revision=3`，加 `client="t66-other-case"` 则无行。第二窗口的三个失败开关均为 null、甲正常可见。因此开关按上下文隔离成立，SQL 判据的跨客户端读取已动态核实；尚未把故意取消后写入的产品变异送进该取消用例，不能声称已经证明这种变异必然存活。
+- **建议改法**：记录读取与更新同时筛选当前页面的客户端身份和 resource，或每用例建立独立后端/状态根。取消路径等待选择层真实关闭、确认本客户端的记录与保存完成状态，不能用全库最新行作为窗口证据。
+
+### T2：实例保留测试的名称声称焦点与每一步状态保留，但没有任何焦点断言
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`packages/neuro-book/e2e/workbench-views.e2e.ts:269`、`:285`、`:300`；Task `README.md:29`；计划 `plan.md:118`；`docs/specs/ui/workbench-shell.md:218`。
+- **现象**：该用例在七次搬动/显隐操作之后只检查末态实例编号、代际、输入与两个 scrollTop；没有检查 `document.activeElement`、`toBeFocused()`、停放时焦点回退或外部菜单不被抢。它通过点击菜单和 sash 触发操作，操作前焦点已离开视图输入框，无法证明节点搬动时原输入焦点会恢复。被删 `teleport-memory.dom.test.ts` 的焦点恢复、外部焦点不抢，以及旧落点先离开文档的事件恢复也没有在这个 e2e 用例中等价替换。
+- **为什么是问题**：外壳二验收 30 与计划明确要求每一步输入、滚动、焦点与代际保留。删除实际焦点恢复动作后，这个声称覆盖焦点的 e2e 用例仍通过。外壳一 e2e 的隐藏面板按钮焦点回退只覆盖 Part 框架路径，不能证明新增容器/视图层恢复。
+- **如何核实**：隔离副本只删 `teleport-memory.ts:96` 的 `focus.focus({preventScroll:true})`，重建 e2e 后执行 `npx playwright test -c e2e/playwright.config.ts e2e/workbench-views.e2e.ts -g '实例保留'`：**1 passed (4.4s)**，变异存活。真实 Chrome 对照先聚焦甲输入，经真实 CommandService 执行甲从侧栏移到戊面板；原实现搬完后 activeElement 仍是甲输入、scrollTop=240；相同操作在该变异下 activeElement=BODY，输入与 scrollTop=240 仍保留。公开观察器没有改产品外壳时序，证明该缺口可掩盖真实用户可见焦点丢失。被删四例旧测试只有一般滚动末态有替代覆盖，焦点恢复/停放丢失/外部不抢、停放区注销与断开忘记、旧落点事件恢复均无等价浏览器断言。
+- **建议改法**：在真实页面聚焦已有视图输入，经真实本窗口命令或宿主意图入口触发保持焦点的布局操作；在每次 single/multiple、跨容器、跨 Part 与停放后核对 activeElement、输入、滚动和 generation。焦点回退另断言具体可见框架控件；旧落点卸载/恢复用真实 Vue 宿主组件测试页覆盖，避免在 happy-dom 中伪造布局。同客户端另一窗口的保存不强改本窗口实时呈现，不适合作为本窗口搬动触发器。
+
+### T9：receiver-closed 用例停掉整个应用，没有检验工作台单独停止
+
+- **严重程度**：重要；**类别**：测试／生命周期。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/views/registry.test.ts:195`、`:199`、`:202`；计划 `plan.md:126`；`docs/specs/workbench/views.md:145`、`:158`。
+- **现象**：用例执行 `application.stop()`，贡献方与接收者一起停；load 在停止完成后才开始。贡献方 generation 在停止前赋给普通变量，停止后只拿该旧值与1比较，没有观察停止后的入口或句柄。
+- **为什么是问题**：验收6要求工作台单独停止时组件全部卸载、已有加载作废、布局不改写；计划另要求贡献方仍活着、代次不变、接收者重新登记换句柄。当前测试不能区分“只释放接收方”与“把源入口也停掉”，也没有进行中加载和任何组件/Storage判据。
+- **如何核实**：完整读取8例注册表测试、S7停止场景以及Spec证据声明。隔离真实内核 `lifecycle-contract-probe.ts` 从公开激活作用域关闭拥有者，保留整个Application：原实现返回 `receiver-closed`、进行中load返回 `stale`，贡献方停后仍 `status="available",generation=1`，两次root均 `closed`。这是当前实现正确的受控运行证据，现有用例没有锁定这些判据；本次未搭组件卸载与Storage零写入的组合探针。
+- **建议改法**：修改现有receiver用例为只关拥有者激活作用域，在load已经开始后关闭，放行结果并读关闭后的源入口；若按计划验证重新登记，在新登记作用域激活接收者并比较新旧句柄、贡献方代次。组件卸载与本客户端记录revision另由真实工作台停止浏览器场景消费，避免新增只检查布线的测试。
+
+### T5：容器网格验收只操作 Sidebar；Escape 的几何断言与自身比较
+
+- **严重程度**：重要；**类别**：测试／验收映射。
+- **位置**：`packages/neuro-book/e2e/workbench-views.e2e.ts:236`、`:260`；`web/views/container-grid.test.ts:51`；计划 `plan.md:119`；`docs/specs/ui/workbench-shell.md:217`。
+- **现象**：验收 29 和计划要求侧栏纵向、Panel 横向各调整一次，以及收成 32px 后恢复记忆尺寸、降级与补偿不写盘。现有 e2e 只操作 Sidebar 的 A/B 边界；横向场景只检查收起的宽度等于 32px，没有实际调整边界、没有恢复前后尺寸比较。Escape 后把 `offsetHeight` 与当时同一元素 `boundingBox().height` 的四舍五入值比较，没与手势开始前的基线比较。
+- **为什么是问题**：即使 Escape 把预览尺寸留在页面，两个同源高度仍相等；SQL revision 只证明未保存，不能证明预览撤销。纯模型里检查横向根、手工提交 active 集合，不能覆盖浏览器横向手势、补偿标记与宿主接纳这一条路径。
+- **如何核实**：完整读取 `workbench-views.e2e.ts:204-267` 与 `container-grid.test.ts:38-78`；真实 Chrome 基线 23 例通过。主动叶变异（循环改成 `Object.keys(change.target)`）被纯模型 `container-grid.test.ts:75` 抓到，2 pass／1 fail，证明主动字段规则有有效测试，但不补足上述浏览器路径。
+- **建议改法**：Escape 前记录每个受影响分节的几何基线，取消后比较基线并等待本客户端保存状态；补一个真实 Panel 横向边界的指针或键盘调整，用数据库按客户端核对 width 写入、height 保留，以及收起→展开恢复尺寸与受约束补偿不写盘。已有两视图场景可直接复用。
+
+### T10：390px 产品验收用单短标签聚焦代替容器键盘切换与长标签溢出
+
+- **严重程度**：建议；**类别**：测试／验收映射。
+- **位置**：`packages/neuro-book/e2e/workbench-views.e2e.ts:371`、`:374`；计划 `plan.md:124`；`docs/specs/ui/workbench-shell.md:219`。
+- **现象**：样例只有戊一个Panel标签，测试调用focus并检查按钮右边界、菜单Esc；没有第二个容器可切换，没有长标题，也没有键盘最大化后的焦点断言。注释把多标签键盘切换交给nb-ui Tabs合同，但该合同没有消费产品导航槽与五个框架按钮共存的宽度分配。
+- **为什么是问题**：产品的标签带、动作槽、框架按钮共同影响焦点顺序和可达性。单项focus能通过并不能证明方向键切换或溢出标签不挤掉按钮；这是验收31与计划124的未执行部分，不是已复现的产品故障。
+- **如何核实**：完整读取390px用例，真实浏览器基线中该例通过；测试插件五个视图均短标题且Panel只有戊。按布局合同390px进入compact，最大化不可用，因此最大化焦点须在非compact宽屏单独覆盖，不能强行在390px启用。
+- **建议改法**：复用测试插件贡献第二个长标题的Panel视图，真实键盘方向切换并确认对应内容可见；窄屏核对标签与五按钮都可达。最大化焦点放在非compact的键盘场景，或修订验收31拆开这两个条件。
+
+### T6：纯模型测试固定诊断原文，声明测试固定 when 接线
+
+- **严重程度**：建议；**类别**：测试写法。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/views/model.test.ts:115`、`:136`、`:192`；`web/commands/view-commands.test.ts:68`、`:71`。
+- **现象**：未知引用场景把三条中文诊断原文整数组固定，起源缺席和默认指纹场景也按原文子串计数；另一个用例断言命令 `when.requires` 恰为一条内部公开键，没有执行就绪／未就绪条件下的命令消费路径。
+- **为什么是问题**：诊断措辞调整、等价的条件接法会让行为未变的实现失败；测试规范“测试写法”明确禁止措辞、接线及同义反复。落位回退、原件保留与命令当前可用性才是消费者合同。
+- **如何核实**：逐行读取上述用例；相关 Bun 基线 50 pass。`docs/testing/README.md:7-10` 与 `:24` 明确判据；governance 本次范围为 0 failures／0 warnings，只扫描列举的禁用语法，无法发现这类断言质量问题。
+- **建议改法**：删除固定文案及内部键列表断言，保留用户可观察的回退／原件不删判据；若诊断类别是合同，输出结构化类别再测试类别。命令条件用真实 CommandService 的 `isEnabled` 或 `execute` 消费验证，复用既有面板命令合同场地。
+
+### T8：Lab 的局部 ViewSource 没有与真实来源对过寿命契约
+
+- **严重程度**：建议；**类别**：测试替身。
+- **位置**：`packages/neuro-book/src/plugins/lab/web/fixtures/shell-scene/ShellViewsScene.vue:73`、`:75`、`:76`、`:216`；`docs/testing/README.md:16`。
+- **现象**：局部load立即返回loaded/failed，retry对任何viewId都删除delivery并返回activated；停止开关再次点击即恢复available。无测试消费这份局部source并与ViewRegistry对过契约，故没有pending-load失效、未知view、正常停止不可recover等判据。
+- **为什么是问题**：真实宿主retry只处理稳定失败，正常scope-closed返回not-failed，不能把同一关闭入口复活；Lab把停止与恢复做成对称按钮，若把Lab截图或这条交互当寿命证明，会掩盖源实际能力。它目前用于UI展示，不把这一点认作产品运行故障。
+- **如何核实**：真实开发Lab `views-merged` 初次终端generation=1，点“入口停止”样例卸载，再点同一按钮回ready、generation=2。真实 `lifecycle-contract-probe.ts` 关闭贡献方激活作用域后返回 `delivery=entry-stopped/scope-closed,loadResult=stale,retry=not-failed`，入口仍closed；两轮shutdown均closed。全包搜 `ViewSource`/`ShellViewsScene` 没有局部source的契约测试。QuickPick替身则使用Promise结果、包含item/cancelled/unavailable，真实命令面板e2e以及既有选择模式组件测试消费了关层与焦点归还，没有发现同样的类型或同步结算矛盾。
+- **建议改法**：让局部source只模拟明确列出的UI状态，恢复按钮标明是“模拟新交付”；失败retry遵守只对failed有效的最小规则。共用一组来源合同场景跑局部实现和真实Registry，或将Lab寿命声明限定为展示状态，真实寿命证据继续用内核/产品页测试。
+
+## 验收条款与有效断言
+
+以下路径以 `packages/neuro-book` 为起点。S1 模型、S2 store、S3 注册表／命令、S4 零件、S5a 容器网格、S5b 实例、S5c Panel、S7 浏览器沿用计划编号；截图及作者自报不算本次重新运行。
+
+| Spec 条款 | 实际覆盖与判据 | 缺口／本次结论 |
+|---|---|---|
+| 外壳二 14 | `e2e/workbench-views.e2e.ts:122`：选中互斥、隐藏/拖到零后打开、恢复原宽；S4 `WorkbenchShellParts.dom.test.ts:29` | 浏览器基线通过；直接改库隐藏的身份约束见 T1 |
+| 外壳二 15 | S1 `model.test.ts:142` 模式/标题；S4 标题动作；S7 `:154`、`:269` single→multiple→single | 一般模式和实例末态有判据；旧菜单代际见 T7；焦点和每步身份见 T2 |
+| 外壳二 16 | S7 `:269` Part 拖到零/恢复；S5 两层 Teleport 有停放与目标反登记实现 | 没有独立令目标卸载→新目标登记的浏览器断言；“来源空态”只由移动结果间接出现 |
+| 外壳二 17 | S1 `model.test.ts:65` 源容器实际搬空；`:142` 全隐藏仍保留；S7 `:154` 入口消失 | 模型有实际空／全隐藏的不同判据；全隐藏无产品浏览器路径，按当前隐藏视图消费者未接入的边界记录 |
+| 外壳二 18 | S1 `model.test.ts:179` 未知容器/视图回退、原件保留；S2 `layout-store.test.ts:424` 真实 SQLite 写回 | 有真实 Storage 场地；诊断原文固定见 T6 |
+| 外壳二 26 | S1 `model.test.ts:65,95`，S7 `:154` 移动、A离开后独立操作、重置、刷新 | 有逐步归属与实例判据，浏览器基线通过 |
+| 外壳二 27 | S4 `:80` 手工改 identity 关菜单；S3 `view-commands.test.ts:74,92,114` 参数、两步、取消、过期；S7 `:188` 真实选择 | 组件 identity 监听有效，但宿主不含 generation（T7）；取消数据库身份与等待见 T1；S7 没有取消第一步 |
+| 外壳二 28 | S1 `model.test.ts:142` 记录收起意图保留；S7 `:204` multiple→single→multiple、Panel 32px 与 Enter 展开 | 原记录不变与32px键盘展开有有效判据，浏览器基线通过 |
+| 外壳二 29 | S1 `model.test.ts:258` 轴/值校验；S5a `container-grid.test.ts:67` 主动叶；S7 `:236` 纵向拖动与键盘 | 主动叶变异被抓；真实横向手势、取消预览基线与恢复尺寸缺口见 T5 |
+| 外壳二 30 | S7 `:269` 末态 input、generation/instance、fill与scroll的scrollTop | 删除滚动恢复被抓；删除焦点恢复存活；旧测试未等价迁移（T2） |
+| 外壳二 31 | S7 `:371` 390px单标签聚焦、五框架按钮右边界、键盘菜单与Esc返回、页面scrollWidth | 只覆盖单短标签；无多标签键盘切换／长标签场景；最大化在390px紧凑下被禁止，未在非紧凑键盘路径断言最大化焦点。不能用 nb-ui Tabs 自身合同证明产品 nav 溢出接线 |
+| 视图 1 | S7 `:111` 默认Part、首次generation=1、未选中乙没有实例框；`:269` 一般移动/显隐 | 提前加载与代际复用变异被抓，焦点边界见 T2 |
+| 视图 2 | S3 `registry.test.ts:145` 真实失败入口recover/activate；S7 `:308` 布局仍为multiple、原位重试 | 新入口交付代次在内核测试验证；浏览器视图首次成功加载generation=1是本轮首次实例，不混同入口代次 |
+| 视图 3 | S3 `registry.test.ts:170` scope-closed与stale；S7 `:327` 卸载样例、停止原因、布局保留、刷新 | 真实正常停止成立；正常停止后的再启用是插件管理边界，不把 Lab 的开关恢复当此证据 |
+| 视图 4 | S7 `:341` 乙load-failed重载generation=2、丁render-failed重试generation=2、戊实例不变 | 代际变异被抓；名称“同容器”实际未把戊与乙/丁合在一起，未直接覆盖同容器错误隔离 |
+| 视图 5 | S3 `registry.test.ts:180` pending load在revoke后返回stale | stopping到revoke前的真实串行窗口缺口见 T3 |
+| 视图 6 | S3 `registry.test.ts:195` 调整个 `application.stop()` 后entry-stopped/receiver-closed，之后才开始load | 没有工作台单独关闭且贡献方仍活着的pending load、组件卸载、布局零写入判据；停前generation变量与1比较不能证明停后贡献方代次未变 |
+
+计划“验收映射”中未在上表直接列出的行：
+
+| 计划行 | 实际测试与本次结论 |
+|---|---|
+| 114 典型情况表 | S1六个连续归属场景与S7移动刷新有判据 |
+| 115 起源声明消失/区域回落 | `model.test.ts:106,120` 检查身份、成员、区域、刷新等价；仅模型，插件管理未接入 |
+| 116 标题图标四级回落 | 模型断言首个可见／实际成员标题，初始图标在首例检查；起源声明与容器id两级没有独立判据，但当前落位只保留实际成员非空的容器，合法模型下后两级不可达，不据此报缺陷；实际空和全隐藏见17 |
+| 117 模式/轴/收起 | `model.test.ts:142,170` 与S7收起场景；同值意图不会覆盖保存收起 |
+| 118 实例每步/外部焦点 | T2，末态替代每步，删除焦点恢复仍通过 |
+| 119 网格两轴/取消/记忆 | T5，纯模型主动叶规则有效，浏览器只纵向 |
+| 120 意图字段/未知/两窗口 | `model.test.ts:231,258`、`layout-store.test.ts:379,405,424`；字段丢失变异被抓，真实Storage冲突与同字段后写胜出通过 |
+| 121 容量失败/提示/重试/放弃 | `layout-store.test.ts:424` 真实 too-large、显示保留、discard；`WorkbenchStatusBar.dom.test.ts:23` 既有通用失败提示/事件，超容量实际状态栏与retry组合未端到端覆盖 |
+| 122 ActivityBar | 外壳二14；组件与产品页各覆盖选择/显式恢复 |
+| 123 移动/参数/旧点击 | 外壳二27；T1、T7 |
+| 124 Panel键盘/长标签 | 外壳二31的部分覆盖；作者16张静态Lab截图只证明静态页面，不证明多标签键盘与长标签溢出 |
+| 125 停放/空Part/全隐藏 | 目标反登记机制从代码可见；目标卸载重登记、全部隐藏仍可达的真实浏览器断言缺席 |
+| 126 生命周期矩阵 | 真实内核声明、受阻、失败、scope-closed有判据；单停receiver并重新登记、贡献方代次不变且句柄换新未测 |
+| 127 三失败/加载门禁 | 视图2/4/5；T3 |
+| 128 未知引用/指纹 | `model.test.ts:129,179` 与store真实写回；措辞断言见T6 |
+| 129 focusedPart | 直接action测试无法证明事件接线；真实页面失败见T4 |
+| 130 主题/390px | S7 `:393` 六处解析颜色比token，`:371` 控件可达；本次跑过这两例，未重复作者四主题截图矩阵 |
+
+## 变异判别结果
+
+每次只施加一项产品变异，构建前恢复前一项；观察器只暴露已有公开服务。以下失败均为预期变异结果，不列为产品基线失败。所有产品变异已恢复。
+
+| 变异 | 运行范围 | 实际结果 | 判别 |
+|---|---|---|---|
+| `intents.ts:168` 把已有视图字段展开改为 `{}` | `bun test .../model.test.ts .../layout-store.test.ts -t '补丁只含\|意图按字段'` | 1 pass／1 fail；`:247` height=90丢失 | 抓到 |
+| `container-grid.ts:59` active改为所有target键 | `bun test .../container-grid.test.ts` | 2 pass／1 fail；`:75` 多写补偿test.c=363.5 | 抓到 |
+| `view-commands.ts:61` stale-target改invalid-args | `bun test .../view-commands.test.ts` | 4 pass／1 fail；`:83` 失败码错误 | 抓到 |
+| `WorkbenchMoveViewMenu.vue:69-72` 删除身份关闭监听 | 原测试import重定向到隔离变异组件，`npx vitest run -c <实验目录>/component-review.config.ts .../WorkbenchShellParts.dom.test.ts` | 4 pass／1 fail；`:87` 菜单未关闭 | 抓到；组件规则，不证明宿主identity完整 |
+| `WorkbenchViewInstances.vue:113` generation恒为1 | 重建后Playwright `-g '加载失败与渲染出错'` | 1 failed；`:363` 期望2收到1 | 抓到 |
+| `WorkbenchViewInstances.vue:75-77` 有效可见不再限制选中容器 | 重建后Playwright `-g '全链路'` | 1 failed；`:118` 未选中乙出现实例框 | 抓到 |
+| `registry.ts:130` 删除published门禁 | `bun test .../registry.test.ts` 与真实串行探针 | 8 pass／0 fail；探针变异loaded、恢复原实现stale | 存活，T3 |
+| `teleport-memory.ts:96` 删除focus调用 | 重建后Playwright `-g '实例保留'` 与真实命令搬动 | 1 passed；原实现仍聚焦甲，变异落BODY | 存活，T2 |
+| `teleport-memory.ts:85-86` 删除滚动恢复赋值 | 重建后Playwright `-g '实例保留'` | 1 failed；`:302` 期望240收到0 | 抓到 |
+
+## 实际验证
+
+实验根 `EXP` 为 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/tests`；隔离包根 `PKG` 为 `$EXP/snapshot/packages/neuro-book`；原审查仓库根 `ROOT` 为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-impl-tests`。以下每次仓库测试显式设置 `NBOOK_AGENT_TEMP_ROOT=$EXP`；命令中的变量只是缩短路径的记法。
+
+| 工作目录与实际命令／操作 | 本次结果 |
+|---|---|
+| `$ROOT`：`prox bun install --frozen-lockfile --ignore-scripts` | 成功，1560 packages；只写被忽略node_modules，未运行安装脚本 |
+| `$PKG`：`bun test src/plugins/workbench/web/views src/plugins/workbench/web/state/layout-store.test.ts src/plugins/workbench/web/commands/view-commands.test.ts` | **50 pass，0 fail，375 expect()，5 files**；这是变异前基线 |
+| `$ROOT/packages/neuro-book`：`npx vitest run src/plugins/workbench/web/components/WorkbenchShellParts.dom.test.ts src/plugins/workbench/web/components/WorkbenchShellLayout.dom.test.ts src/plugins/workbench/web/components/WorkbenchPanelSurface.dom.test.ts` | **3 files passed，10 tests passed** |
+| `$PKG`：`bun run build && bun run build:e2e` | 成功，`check:dist`通过；之后每个浏览器变异均重新build:e2e，最后恢复实现后重建成功 |
+| `$PKG`：`npx playwright test -c e2e/playwright.config.ts e2e/workbench-views.e2e.ts e2e/workbench-shell.e2e.ts --output=$EXP/baseline-playwright` | **23 passed (43.4s)**；12例外壳二、11例外壳一，不是全仓e2e |
+| `$ROOT/packages/neuro-book`：`bun run typecheck` | exit 0；`tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json`，37.20s |
+| `$ROOT`：`bun run docs:check --since cc4b39e3` | exit 0；0 failures、0本范围warnings，checkedFiles=7777；范围外156 warnings |
+| `$ROOT`：`bun run governance:check --since cc4b39e3` | exit 0；0 failures、0本范围warnings；范围外222 warnings |
+| `$PKG`：`bun --tsconfig-override tsconfig.json $EXP/serial-probe.ts` | 原实现真实stopping/published=false/revoke未达时stale；变异时loaded；activation、close、shutdown均正常收口 |
+| `$PKG`：`bun --tsconfig-override tsconfig.json $EXP/lifecycle-contract-probe.ts` | 源单停：scope-closed、pending stale、retry not-failed；拥有者单停：receiver-closed、pending stale、源仍available/generation=1；两轮shutdown=closed |
+| `$EXP`：`node browser-review.mjs` | exit 0；焦点公开状态和重试旧菜单不满足合同、原实现实际焦点恢复成立；观测保存在 `browser-observations.json`，脚本finally关闭所有上下文与Chrome |
+| 内置Chromium：真实产品页两客户端与SQLite查询 | 当前第二客户端无定制行时，e2e相同查询读到第一客户端revision=3；第二客户端三个开关均null |
+| `$PKG`：随机端口开发服务；内置Chromium打开Lab `?c=WorkbenchShellLayout&s=views-merged&vp=1440x900` | Lab ready、无页面错误；局部来源停止卸载→恢复generation=2，观测 `lab-observations.json` |
+| `/usr/bin/git status --short --branch` | 仅 `## HEAD (no branch)`；原worktree无tracked或untracked改动 |
+| 结束产品服务、Lab监督进程与浏览器标签 | 产品探针PID1239308经stdin stop、Lab监督PID1261386经SIGTERM；两服务均 **exit 0**，Lab后端有序停止；3个managed tab已释放 |
+
+隔离组件环境的两次非产品失败：首次副本Vitest无法解析外部workspace setup，0 test／3 failed suites；菜单重定向配置首次按CJS加载，UnoCSS默认导出不是函数。前者回到原worktree跑只读组件基线，后者只在实验根声明ESM后成功执行变异用例。没有改仓库配置，也没有把失败计为产品缺陷。Bun探针的directory mismatch诊断已上报工具问题，命令仍完成正常close。
+
+## 未验证边界
+
+- 未运行 `test:affected` 全包、全仓e2e、`smoke:server`、桌面端或真实Provider／Model；本次复核限相关50个Bun、10个组件、23个浏览器基线与已列变异/探针，不引用作者自报作为本次通过。
+- 未重复作者16张Lab四主题×双配色矩阵；本次只运行既有产品token断言与一条Lab寿命展示；DPR矩阵、长标签和多Panel容器未取证。
+- 插件真正禁用／卸载、工作台重新登记、正常停止入口的重新启用仍属计划明示的插件管理边界。起源声明消失与全隐藏只按纯模型证据判断。
+- 工作台单停后的组件卸载、Storage零写入组合未实测；只实测真实注册表pending-load与贡献方仍活着。T9报告测试缺口，不把当前组件行为写成故障。
+- T7真实实例换代与旧点击成立，但重试事件由DOM按钮click触发；可信指针／键盘可达的同一菜单时序未证实。T1没有取消后错误写入的产品变异，不宣称取消一定漏报。
+- 本次未逐一变异验收映射全部18个计划行；完成了用户指定的七类，共9项产品变异，抓到7项、存活2项。其余覆盖映射以有效断言和代码核对为准。
+
+## 未发现问题的方面
+
+- 原实现published门禁经真实串行窗口返回stale，正常入口停止与工作台单停都使pending load作废；测试覆盖不足与现有实现正确分别注明。
+- 真实Storage／SQLite的两窗口不同视图保存、同字段后写胜出、未知数据保留与64KiB拒写可放弃均有通过的行为断言；字段合成和主动叶写入变异被抓。
+- 未选中容器不首次加载、加载／渲染重试代际增加有浏览器判据；提前加载、代际恒1变异被抓。五样例插件走真实贡献点与CommandService，没有用局部ref替代入口停止。
+- 两种内容布局的滚动末态有真实浏览器断言，删除滚动恢复失败；原实现经本窗口真实命令跨Part后保持甲输入焦点与scrollTop=240。
+- QuickPick的item／cancelled／unavailable形状与Promise边界一致，真实两步命令面板路径通过；没有发现替身同步回调代替真实异步结果的问题，但它没有覆盖工作台身份换代。
+- localStorage失败开关按浏览器上下文隔离；本次范围无mock、spy、固定非零等待、skip/only、snapshot违规，governance无本范围失败；SQL身份问题单列T1。
+- 三份typecheck、docs:check、governance:check均在固定审查checkout通过；原仓库只读，实验仅在指定根，所有启动资源正常收口。
+
+## 回写建议（交主 Agent 汇总，未写入仓库）
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| R1 | 规范缺陷 | 验收31把390px紧凑与最大化放在同一Given，但紧凑合同禁止最大化；实际e2e未跑最大化焦点 | 改写：“390×844验证容器键盘切换、长标签、移动菜单与五框架按钮可达；最大化后的焦点另在非紧凑外壳验证。” | `docs/specs/ui/workbench-shell.md` 的“外壳二 / 验收31” |
+
+测试替身契约、测行为而非接线／措辞、对每条验收做变异已有规则，不建议重复追加规范。隔离Vitest与编辑寄存器失败为本次环境/tool差异，已纠正和报告，没有形成需要写进项目规则的约定。
+
+## 数量
+
+阻断 **0**；重要 **7**（T4、T7、T3、T1、T2、T9、T5）；建议 **3**（T10、T6、T8）。共 **10** 条。
+

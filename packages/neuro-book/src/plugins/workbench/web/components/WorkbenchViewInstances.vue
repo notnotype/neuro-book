@@ -37,6 +37,8 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
     (event: "intent", intent: ViewIntent): void;
+    /** 各视图实例当前的代际（变化时整表报一次）：宿主拿它拼“移动到”菜单的目标身份。 */
+    (event: "generations", generations: ReadonlyMap<string, number>): void;
 }>();
 
 defineSlots<{
@@ -138,6 +140,10 @@ async function load(viewId: string): Promise<void> {
         Object.assign(current, {status: "ready", component: markRaw(result.component)});
     }
 }
+
+watch(() => [...instances].map(([id, instance]) => `${id}:${String(instance.generation)}`).join("|"), () => {
+    emit("generations", new Map([...instances].map(([id, instance]) => [id, instance.generation])));
+}, {immediate: true});
 
 // 第一次有效可见才建实例。
 watch(visible, (ids) => {

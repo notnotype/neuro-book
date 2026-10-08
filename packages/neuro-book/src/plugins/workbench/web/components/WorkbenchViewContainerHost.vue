@@ -50,6 +50,22 @@ const host = useGridLayout({
     },
 });
 
+/** 分节的标题行高度：multiple 才有。 */
+const HEADER_PX = 32;
+
+/**
+ * 分节正文此刻有没有空间：网格降级把叶压到不足标题行时正文是 0px，这时不给落点，视图内容退回实例层的停放区
+ * （不进 Tab 顺序、`visible` 为 false），而不是留在看不见的 0px 盒子里。
+ */
+function hasSpace(viewId: string): boolean {
+    const size = host.layout.value.sizes[viewId];
+    if (size === undefined) return false;
+    const header = props.container.mode === "multiple" ? HEADER_PX : 0;
+    const main = props.container.axis === "horizontal" ? size.width : size.height - header;
+    const cross = props.container.axis === "horizontal" ? size.height - header : size.width;
+    return main > 0 && cross > 0;
+}
+
 /**
  * 每个视图当前的落点元素。落点由一个小组件在挂上、卸下时各报一次自己的元素：分节重建时新旧落点的先后不定，卸下时
  * 只有卸下的正是当前落点才报 null，避免把新落点覆盖掉。
@@ -114,7 +130,7 @@ const ViewTarget = defineComponent({
                     <template #actions>
                         <slot name="view-actions" :view-id="node.id"></slot>
                     </template>
-                    <ViewTarget :view-id="node.id" />
+                    <ViewTarget v-if="hasSpace(node.id)" :view-id="node.id" />
                 </WorkbenchViewSection>
             </template>
         </GridRenderer>

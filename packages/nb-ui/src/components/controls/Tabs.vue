@@ -9,6 +9,10 @@ export type TabsItem = {
     iconClass?: string;
     count?: number | string;
     disabled?: boolean;
+    /** 标签元素的 id；消费方用它给内容面板写 `aria-labelledby`。 */
+    id?: string;
+    /** 这个标签控制的内容面板 id，写到 `aria-controls`。 */
+    controls?: string;
 };
 export type TabsSize = "sm" | "md";
 
@@ -99,6 +103,8 @@ function tabClass(item: TabsItem): string {
             :key="item.value"
             type="button"
             role="tab"
+            :id="item.id"
+            :aria-controls="item.controls"
             :data-tab-value="item.value"
             :aria-selected="isSelected(item)"
             :tabindex="isSelected(item) ? 0 : -1"

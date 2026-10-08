@@ -12,7 +12,7 @@ import type {Component} from "vue";
 
 import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
-import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {ActivationContext, ContributionHandle, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
@@ -35,6 +35,9 @@ function declaration(name: string): ViewDeclaration {
 
 interface Owner {
     registry: ViewRegistry | null;
+    context: ActivationContext | null;
+    /** 接收者预占某一项时让测试持住串行锁（真实接收者没有 prepare，这里在产品接收者外加一层）。 */
+    prepare?: (handle: ContributionHandle<ViewDeclaration, ViewImplementation>) => Promise<void> | void;
 }
 
 /** 拥有者：定义贡献点、在激活时建注册表；与产品的工作台入口同一接法。 */
@@ -48,8 +51,10 @@ function ownerPlugin(owner: Owner, plugins: () => ReturnType<typeof createWindow
             activationEvents: ["onStartup"],
             receives: [WORKBENCH_VIEWS_POINT],
             activate: (context) => {
+                owner.context = context;
                 owner.registry = new ViewRegistry(context.declarations.list<ViewDeclaration>(WORKBENCH_VIEWS_POINT), plugins(), context.signal);
-                return {receivers: {[WORKBENCH_VIEWS_POINT]: owner.registry.receiver()}};
+                const receiver = owner.registry.receiver();
+                return {receivers: {[WORKBENCH_VIEWS_POINT]: owner.prepare === undefined ? receiver : {...receiver, prepare: owner.prepare}}};
             },
         }],
     };
@@ -82,8 +87,8 @@ function contributor(id: string, views: ReadonlyArray<string>, control: Contribu
     };
 }
 
-async function start(plugins: ReadonlyArray<PluginDefinition>): Promise<{application: Application; registry: ViewRegistry}> {
-    const owner: Owner = {registry: null};
+async function start(plugins: ReadonlyArray<PluginDefinition>, prepare?: Owner["prepare"]): Promise<{application: Application; registry: ViewRegistry; owner: Owner}> {
+    const owner: Owner = {registry: null, context: null, prepare};
     let application: Application | null = null;
     const feed = createWindowPlugins(() => application?.plugins ?? null, (error) => {
         throw error;
@@ -95,7 +100,7 @@ async function start(plugins: ReadonlyArray<PluginDefinition>): Promise<{applica
     started.push(application);
     await application.startup;
     if (owner.registry === null) throw new Error("拥有者没有激活");
-    return {application, registry: owner.registry};
+    return {application, registry: owner.registry, owner};
 }
 
 /**
@@ -192,13 +197,56 @@ describe("视图注册表", () => {
         expect(await pending).toEqual({status: "stale"});
     });
 
-    it("拥有者自己停止（receiver-closed）：之后的加载作废", async () => {
-        const toggle = control();
-        const {application, registry} = await start([contributor("test.views", ["test.views.a"], toggle)]);
-        const generation = application.plugins.entryState({plugin: "test.views", entry: "browser"})?.generation;
-        await application.stop();
+    it("入口开始停止、撤回还排在接收者的串行锁后面：交付状态按已停止呈现，这时回来的加载结果作废", async () => {
+        let releaseLoad: (component: Component) => void = () => undefined;
+        let loading = false;
+        const toggle = control({load: () => new Promise<Component>((resolve) => {
+            loading = true;
+            releaseLoad = resolve;
+        })});
+        let releaseLock: () => void = () => undefined;
+        let holding = false;
+        const lock = new Promise<void>((resolve) => {
+            releaseLock = resolve;
+        });
+        const slow = contributor("test.slow", ["test.slow.x"], control(), {activationEvents: []});
+        const {application, registry} = await start([contributor("test.views", ["test.views.a"], toggle), slow], (handle) => {
+            if (handle.id !== "test.slow.x") return undefined;
+            holding = true;
+            return lock;
+        });
+        const pending = registry.load("test.views.a");
+        await waitUntil("加载已经发起", () => loading);
+        // 另一个贡献方激活，接收者预占它时持住串行锁；甲入口这时开始停止，撤回只能排队。
+        const slowActivation = application.plugins.activate({plugin: "test.slow", entry: "browser"});
+        await waitUntil("串行锁被持住", () => holding);
+        const closing = toggle.context?.scope.parent?.close();
+        await waitUntil("甲入口开始停止", () => application.plugins.entryState({plugin: "test.views", entry: "browser"})?.status === "stopping");
+        expect(registry.delivery("test.views.a")).toEqual({kind: "entry-stopped", reason: "stopped"});
+        releaseLoad(Sample);
+        expect(await pending).toEqual({status: "stale"});
+        releaseLock();
+        expect((await closing)?.status).toBe("closed");
+        expect((await slowActivation).status).toBe("activated");
+        expect(registry.delivery("test.views.a")).toEqual({kind: "entry-stopped", reason: "scope-closed"});
+    });
+
+    it("工作台自己的入口停止（receiver-closed）：进行中的加载作废、之后一律作废；贡献方入口照常、代次不变", async () => {
+        let releaseLoad: (component: Component) => void = () => undefined;
+        let loading = false;
+        const toggle = control({load: () => new Promise<Component>((resolve) => {
+            loading = true;
+            releaseLoad = resolve;
+        })});
+        const {application, registry, owner} = await start([contributor("test.views", ["test.views.a"], toggle)]);
+        const pending = registry.load("test.views.a");
+        await waitUntil("加载已经发起", () => loading);
+        expect((await owner.context?.scope.parent?.close())?.status).toBe("closed");
+        releaseLoad(Sample);
+        expect(await pending).toEqual({status: "stale"});
         expect(registry.delivery("test.views.a")).toEqual({kind: "entry-stopped", reason: "receiver-closed"});
         expect(await registry.load("test.views.a")).toEqual({status: "stale"});
-        expect(generation).toBe(1);
+        expect(application.plugins.entryState({plugin: "test.views", entry: "browser"})).toMatchObject({status: "available", generation: 1});
     });
+
 });

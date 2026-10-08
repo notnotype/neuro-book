@@ -70,13 +70,17 @@ defineSlots<{
     background: var(--panel-surface);
 }
 
-/* 标题头固定 32px：外壳把收起的面板叶压到同一高度。 */
+/*
+ * 标题头 32px：外壳把收起的面板叶压到同一高度。导航放不下（左右面板窄到 160px 起）时换到第二行，框架按钮不让位；
+ * 底部与顶部的面板至少与编辑器的最小宽同宽，那里不会换行，收起时仍是一行 32px。
+ */
 .workbench-panel-surface__head {
     display: flex;
-    flex: 0 0 32px;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-2);
-    height: 32px;
+    column-gap: var(--space-2);
+    min-height: 32px;
     padding-inline: var(--space-3) var(--space-1);
     border-bottom: var(--border-w) solid var(--divider);
 }
@@ -94,7 +98,8 @@ defineSlots<{
 
 .workbench-panel-surface__nav {
     display: flex;
-    flex: 1 1 auto;
+    flex: 1 1 96px;
+    height: 32px;
     align-items: center;
     gap: var(--space-1);
     min-width: 0;
@@ -110,6 +115,8 @@ defineSlots<{
 .workbench-panel-surface__actions {
     display: flex;
     flex: 0 0 auto;
+    height: 32px;
+    margin-inline-start: auto;
     align-items: center;
     gap: var(--space-1);
 }

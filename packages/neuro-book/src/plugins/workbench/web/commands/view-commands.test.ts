@@ -11,7 +11,10 @@ import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {commandDeclarationProblems} from "nbook/plugins/commands/shared/registry";
+import {shallowRef} from "@vue/reactivity";
+
+import type {ContextKeySource} from "nbook/plugins/commands/shared/context-keys";
+import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 import {storageWorld} from "nbook/plugins/storage/testing/world";
 import type {StorageWorld} from "nbook/plugins/storage/testing/world";
 import {textOf} from "nbook/shared/localized-text";
@@ -19,7 +22,7 @@ import {textOf} from "nbook/shared/localized-text";
 import type {QuickPick, QuickPickRequest, QuickPickResult} from "../../shared/contracts";
 import type {ViewDeclaration, ViewLocation} from "../../shared/views";
 import type {LayoutStore} from "../state/layout-store";
-import {workbenchState} from "../state/public-state";
+import {workbenchStateBindings} from "../state/public-state";
 import {openLayout} from "../testing/layout";
 import {MOVE_VIEW_COMMAND, VIEW_COMMAND_DECLARATIONS, viewCommands} from "./view-commands";
 
@@ -65,10 +68,23 @@ const labels = (request: QuickPickRequest | undefined): string[] => (request?.it
 const run = (store: LayoutStore, quickPick: QuickPick, args: Record<string, unknown>) => viewCommands(() => store, quickPick)[MOVE_VIEW_COMMAND].run(args);
 
 describe("移动视图", () => {
-    it("声明通过命令系统的校验，when 读工作台的 layoutReady", () => {
-        const declaration = VIEW_COMMAND_DECLARATIONS[MOVE_VIEW_COMMAND];
-        expect(commandDeclarationProblems(MOVE_VIEW_COMMAND, "nbook.workbench", declaration)).toEqual([]);
-        expect(declaration.when.requires).toEqual([workbenchState.key("layoutReady")]);
+    it("经真实命令注册表登记；布局没打开时不可用，打开后可用", async () => {
+        const store = await layout();
+        const current = shallowRef<LayoutStore | null>(null);
+        const bindings = workbenchStateBindings(current) as unknown as Readonly<Record<string, {readonly value: unknown}>>;
+        const nameOf = (key: string): string => key.slice("nbook.workbench/".length);
+        const contextKeys: ContextKeySource = {
+            problem: (key) => (key.startsWith("nbook.workbench/") && nameOf(key) in bindings ? null : `${key} 不是工作台的公开键`),
+            evaluate: (key) => (bindings[nameOf(key)]?.value === true ? {matches: true} : {matches: false, reason: key}),
+        };
+        const registry = createCommandRegistry({contextKeys, report: (error) => {
+            throw error;
+        }});
+        const registered = registry.register({id: MOVE_VIEW_COMMAND, source: "nbook.workbench", declaration: VIEW_COMMAND_DECLARATIONS[MOVE_VIEW_COMMAND], run: viewCommands(() => current.value, picker(() => ({kind: "cancelled"})))[MOVE_VIEW_COMMAND].run});
+        expect(registered.ok).toBe(true);
+        expect(registry.isEnabled(MOVE_VIEW_COMMAND)).toMatchObject({ok: false, code: "unavailable"});
+        current.value = store;
+        expect(registry.isEnabled(MOVE_VIEW_COMMAND)).toEqual({ok: true, value: true});
     });
 
     it("三项参数直接移动；只给一部分为 invalid-args；来源已变为 stale-target 且不写；不可移动、目标不存在为 invalid-args", async () => {

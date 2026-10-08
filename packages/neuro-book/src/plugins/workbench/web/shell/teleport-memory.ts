@@ -6,7 +6,8 @@
  * 三层共用一份记忆：滚动位置记在一张跨多次变化的表里，任何一层搬动前记下仍可见的元素、搬完后给回到可见处的元素还原；
  * 停放区登记在这里，记录时跳过停放着的元素，也不用读出的 0 覆盖之前的记录（停放与刚搬回还没还原的元素读出的都是 0）。
  *
- * 焦点只在一次搬动里有效：原节点搬完仍可见、用户也没有把焦点移出外壳时拿回，不抢外壳外的菜单与对话框。
+ * 焦点只在一次搬动里有效：原节点搬完仍可见、焦点随搬动落到了 body 时拿回；焦点已经在别处（外壳外的菜单与对话框，
+ * 或外壳里别的控件，例如标签带用方向键切换时跟到新标签）就不抢。
  *
  * 内层的搬动可能发生在记录之前：分节重建时旧落点连同里面的内容先被移出文档，这时再读滚动位置与焦点都已丢失。所以
  * `track` 在根上监听滚动（捕获阶段）与 focusin，滚动位置随用户操作随时记下，焦点记下最近一个。
@@ -72,8 +73,8 @@ export class TeleportMemory {
     }
 
     /**
-     * 搬完后调用：可见的元素还原滚动位置；焦点在原节点仍可见、当前焦点还在 `root` 里或落到了 body 时拿回。返回焦点是否
-     * 丢了需要别处接住（原节点被停放或已不在文档里，且焦点原本在 `root` 里）。
+     * 搬完后调用：可见的元素还原滚动位置；原节点仍可见、当前焦点落到了 body 时拿回焦点。返回焦点是否丢了需要别处接住
+     * （原节点被停放或已不在文档里，且焦点落到了 body）。
      */
     restore(focus: HTMLElement | null, root: Element | null): "kept" | "restored" | "lost" | "none" {
         for (const [element, {top, left}] of this.#scroll) {
@@ -89,10 +90,11 @@ export class TeleportMemory {
         // 焦点在记录之前就随旧落点离开了文档：落到了 body，用最近一次 focusin 的元素代替。
         if (focus === null && current === document.body && this.#lastFocus !== null && root?.contains(this.#lastFocus) === true) focus = this.#lastFocus;
         if (focus === null) return "none";
-        const inside = current !== null && (current === document.body || root?.contains(current) === true);
-        if (!focus.isConnected || this.parked(focus)) return inside ? "lost" : "none";
+        // 只在焦点真的丢了（随搬动落到 body）时接住；焦点已经在别处（用户或控件自己把它移到了新的地方）就不抢。
+        const lost = current === null || current === document.body;
+        if (!focus.isConnected || this.parked(focus)) return lost ? "lost" : "none";
         if (current === focus) return "kept";
-        if (!inside) return "none";
+        if (!lost) return "none";
         focus.focus({preventScroll: true});
         return "restored";
     }

@@ -8,6 +8,7 @@ import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {ContainerPresentation, PartPresentation} from "../views/presentation";
+import {switcherPanelId, switcherTabId} from "./switcher-ids";
 
 defineOptions({name: "WorkbenchToolPartHost"});
 
@@ -18,6 +19,8 @@ const props = defineProps<{
     locale: DisplayLocale;
     label: string;
     emptyText: string;
+    /** 标签与内容面板关联用的 id 前缀（`switcher-ids.ts`）。 */
+    idPrefix: string;
 }>();
 
 const emit = defineEmits<{
@@ -29,7 +32,15 @@ defineSlots<{
     actions?(props: {container: ContainerPresentation}): unknown;
 }>();
 
-const tabs = computed(() => props.presentation.switcher.map((item) => ({value: item.containerId, label: localize(item.title, props.locale), iconClass: item.icon})));
+const tabs = computed(() => props.presentation.switcher.map((item) => ({
+    value: item.containerId,
+    label: localize(item.title, props.locale),
+    iconClass: item.icon,
+    id: switcherTabId(props.idPrefix, props.part, item.containerId),
+    controls: switcherPanelId(props.idPrefix, props.part),
+})));
+/** 右栏与面板的内容是标签带的 tabpanel；Sidebar 的切换在 ActivityBar，不是标签。 */
+const tabbed = computed(() => props.part !== "sidebar" && props.selected !== null);
 const showTitleRow = computed(() => props.part === "sidebar" && props.selected?.showContainerTitle === true);
 
 /** 落点只在有选中容器时出现；它换成新元素或卸下时报给宿主。 */
@@ -62,7 +73,16 @@ onBeforeUnmount(() => {
                 <slot name="actions" :container="selected"></slot>
             </div>
         </header>
-        <div v-if="selected !== null" ref="target" class="workbench-tool-part__body" data-container-target :data-selected-container="selected.id"></div>
+        <div
+            v-if="selected !== null"
+            :id="tabbed ? switcherPanelId(idPrefix, part) : undefined"
+            ref="target"
+            class="workbench-tool-part__body"
+            :role="tabbed ? 'tabpanel' : undefined"
+            :aria-labelledby="tabbed ? switcherTabId(idPrefix, part, selected.id) : undefined"
+            data-container-target
+            :data-selected-container="selected.id"
+        ></div>
         <div v-else class="workbench-tool-part__empty">{{ emptyText }}</div>
     </section>
 </template>

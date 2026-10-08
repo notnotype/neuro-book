@@ -14,6 +14,7 @@ import {
     SHELL_ACTIVITYBAR_WIDTH,
     SHELL_COMPACT_WIDTH,
     SHELL_EDITOR_MIN_HEIGHT,
+    SHELL_EDITOR_MIN_WIDTH,
     SHELL_PANEL_COLLAPSED_HEIGHT,
     SHELL_PANEL_DEFAULT_HEIGHT,
     SHELL_SIZE_DEFAULTS,
@@ -181,13 +182,13 @@ describe("降级与紧凑呈现", () => {
         expect(projection.issues.some((issue) => issue.includes("紧凑呈现高度"))).toBe(true);
     });
 
-    it("宽度放得下分栏但偏好放不下时，先给编辑器留出 160px，侧栏按可缩空间压缩", () => {
+    it("宽度放得下分栏但偏好放不下时，先给编辑器留出最小宽，侧栏按可缩空间压缩", () => {
         const {layout} = project({extent: {width: 830, height: 900}});
-        expect(leafExtent(layout, "editor").width).toBeGreaterThanOrEqual(160);
-        expect(leafExtent(layout, "panel").width).toBeGreaterThanOrEqual(160);
+        expect(leafExtent(layout, "editor").width).toBeGreaterThanOrEqual(SHELL_EDITOR_MIN_WIDTH);
+        expect(leafExtent(layout, "panel").width).toBeGreaterThanOrEqual(SHELL_EDITOR_MIN_WIDTH);
         expect(leafExtent(layout, "sidebar").width).toBeGreaterThanOrEqual(160);
         const side = project({extent: {width: 900, height: 900}, panel: {...PANEL, position: "right"}});
-        expect(leafExtent(side.layout, "editor").width).toBeGreaterThanOrEqual(160);
+        expect(leafExtent(side.layout, "editor").width).toBeGreaterThanOrEqual(SHELL_EDITOR_MIN_WIDTH);
         expect(leafExtent(side.layout, "panel").width).toBeGreaterThanOrEqual(160);
     });
 

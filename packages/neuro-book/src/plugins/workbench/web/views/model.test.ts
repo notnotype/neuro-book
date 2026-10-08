@@ -112,7 +112,7 @@ describe("设计稿第 3 节典型情况", () => {
         const {placement, presentation} = model(withoutA, moved);
         expect(placement.containers.get("view:test.a")).toMatchObject({part: "panel", source: "member", members: [B]});
         expect(presentation.containers.get("view:test.a")?.title["zh-CN"]).toBe("B");
-        expect(placement.diagnostics.some((line) => line.includes("起源视图 test.a 的声明不在"))).toBe(true);
+        expect(placement.diagnostics.filter((line) => line.includes("view:test.a"))).toHaveLength(1);
         // 刷新后身份、归属与区域一致。
         expect(model(withoutA, structuredClone(moved)).placement).toEqual(placement);
     });
@@ -133,7 +133,8 @@ describe("设计稿第 3 节典型情况", () => {
         const {placement} = model(upgraded, withContainer);
         expect(placement.views.get(A)).toMatchObject({container: "view:test.a", source: "default"});
         expect(placement.containers.get("view:test.a")).toMatchObject({part: "auxiliarybar", order: 5, source: "default"});
-        expect(placement.diagnostics.filter((line) => line.includes("默认位置已变"))).toHaveLength(2);
+        // 视图覆盖与容器覆盖各诊断一次。
+        expect(placement.diagnostics).toHaveLength(2);
         expect(withContainer.views?.[A]?.container).toBe("view:test.c");
     });
 });
@@ -189,11 +190,8 @@ describe("呈现模型", () => {
         const {placement} = model(catalog, customizations);
         expect(placement.parts.sidebar).toEqual(["view:test.a", "view:test.b"]);
         expect(placement.selected.sidebar).toBe("view:test.a");
-        expect(placement.diagnostics).toEqual([
-            "视图 test.b 的位置覆盖指向不认识的容器 custom:123，已忽略",
-            "记录里有未登记视图 gone.view 的布局项，已忽略（原件保留）",
-            "记录里有不存在的容器 view:gone.other 的布局项，已忽略（原件保留）",
-        ]);
+        // 三条未知引用各诊断一次（只看点到的是哪一项，不看措辞）。
+        expect(placement.diagnostics.map((line) => ["custom:123", "gone.view", "view:gone.other"].find((id) => line.includes(id)))).toEqual(["custom:123", "gone.view", "view:gone.other"]);
         const next = patched(catalog, customizations, {kind: "select-container", part: "sidebar", containerId: "view:test.b"});
         expect(next.views?.["gone.view"]).toEqual(customizations.views?.["gone.view"]);
         expect(next.containers).toEqual(customizations.containers);
@@ -253,6 +251,13 @@ describe("意图合成", () => {
         expect(model(catalog, next).placement.containers.get("view:test.c")?.members).toEqual([C, B, A]);
         expect(next.views?.[A]?.order).toBe(3);
         expect(next.views?.["test.d"]).toBeUndefined();
+
+        // 重放到另一个窗口改过的最新值：乙已被那边移进 view:test.a，重排只改顺序，不把乙搬回来。
+        const {result} = act(catalog, crowded, {kind: "move-view", viewId: A, sourceContainerId: "view:test.a", targetContainerId: "view:test.c"});
+        const elsewhere: Customizations = {views: {[B]: {container: "view:test.a", order: 1, fingerprint: "sidebar#0", height: 88}}};
+        const replayed = applyPatch(elsewhere, (result as Extract<IntentResult, {kind: "patch"}>).patch);
+        expect(replayed.views?.[B]).toEqual({container: "view:test.a", order: 1, fingerprint: "sidebar#0", height: 88});
+        expect(replayed.views?.[A]?.container).toBe("view:test.c");
     });
 
     it("视图尺寸：只写主动叶的当前轴；换轴的迟到提交被拒；任一非法值整批拒绝；同值无变化；越界夹取", () => {

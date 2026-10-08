@@ -1,0 +1,105 @@
+# w00017 t66 只读实现审查：界面、交互与组件合同
+
+审查范围：`cc4b39e3..ed0f12be`。报告仅收录核实后成立的问题；尚未完成的检查不作为通过证据。
+
+## 1. 重要：合法的 160px 面板宽度把容器标签带压成 0px，并裁切“移动到”入口
+
+- **类别**：界面。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelSurface.vue:95`；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:230`；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:308`。
+- **现象**：真实测试插件产品页在 `840×900`、默认底部居中面板、左右工具栏均显示时，面板被合法夹取到 `160px`。五个框架按钮共占 `138px`，导航槽只剩 `10px`，Tabs 的可见宽度是 `0px`（内容宽 `93px`）。上提的“移动到”宽 `26px`，其中心已落在“面板位置”上；真实鼠标中心点击打开位置选择的命令面板，没有打开移动菜单。Playwright 自动点击能找到按钮残留的边缘，不能据此认定入口未裁切。键盘可以打开移动菜单，但容器名称与标签的焦点提示没有可见空间。
+- **原因**：外壳一的 `160px` 最小宽只考虑五个框架按钮；外壳二新增标签带和上提动作后仍沿用它。`__actions` 不收缩，`__nav` 允许收缩至零并 `overflow:hidden`，内部 Tabs 又允许缩至零。Spec 输出 25、PanelSurface 文档的“标签带自己横向滚动”无法在零宽盒内成立。
+- **如何核实**：`chrome-transcript.jsonl` 的 `stale-focus-clipped-nav`、`panel-clipping-final`：实测 `panelWidth=160`、`nav.width=10`、`list.width=0`、`list.scrollWidth=93`、`nativeHit="面板位置"`；Playwright `mouse.click` 后 `centerClick.palette=true`、`menu=0`。截图 `product-840.png`、`panel-840-final.png`。本轮 `workbench-views.e2e.ts` 12 例全通过，但其窄屏用例只核对 `390px` 下框架按钮，未覆盖宽屏最小面板宽度。
+- **建议改法**：在外壳的宽度下限与降级规则里计入面板标题行新增的导航和动作；为导航保留非零标签宽度与完整的 `26px` 移动按钮，装不下时提前采用既有紧凑呈现。不要只取消裁切，那会让导航覆盖框架按钮。补一条 `840px` 产品页的鼠标与键盘检查，断言标签盒宽度大于零、移动按钮的中心命中自身。
+
+## 2. 重要：矮屏降级把视图内容压到 0px 后，隐藏输入仍进入 Tab 顺序
+
+- **类别**：界面。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewInstances.vue:77`；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewSection.vue:53`；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewContainerHost.vue:117`。
+- **现象**：真实产品页把乙并进甲的 Sidebar 容器后，调整到 `390×260`。甲、乙的网格叶各只有 `21px`，小于固定 `32px` 标题行；甲的内容盒与 ViewFrame 实测高度均为 `0px`，但 `context.visible=true`，未停放、没有 `inert`。从状态栏开始按真实 Tab，第 6 次进入甲的样例输入；该输入有焦点，却被 `0px` 的父内容盒完全裁切，截图无输入与焦点环。这会产生看不见的键盘停靠点，并向插件报告错误的有效可见状态。
+- **原因**：实例层的有效可见只检查所在 Part、选中容器、收起偏好和“存在落点”；落点在几何降级中压到零仍算可见。ViewSection 也只按收起偏好隐藏正文，不消费网格实际分配的尺寸。外壳层对 0px Part 已有停放策略，新增的视图层没有覆盖同一边界。
+- **如何核实**：`chrome-transcript.jsonl` 的 `product-390-short`、`zero-content-focus`。前者从状态栏真实按 Tab，记录 `sequence[5].sample="test.sample-views.alpha"`；后者读取甲输入 `focus=true`、`sampleVisible="true"`，祖先 `workbench-view-frame.h=0` 与 `workbench-view-section__body.h=0`。截图 `zero-content-focused.png`、`product-390-short.png`。没有替换尺寸 API，没有伪造焦点事件。Spec 外壳一验收 5 明确包括 `390×260`；输出 10、18 与 `workbench/views.md` 输出 9 要求有效可见与不可交互内容的行为一致。
+- **建议改法**：让容器宿主从现有 `useGridLayout` 的实际分配发布内容是否有非零可用空间，实例层据此把内容停放或设为 `inert`，并让 `ViewContext.visible` 同步变为 false；视图标题与展开控件保留。正文重新可用时恢复同一实例、滚动与焦点规则。补真实矮屏 Tab 用例，不新增第二套测量。
+
+## 3. 重要：`focusedPart` 没有界面事件入口，始终停在 `editor`
+
+- **类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:173`；`packages/neuro-book/src/plugins/workbench/web/state/layout-store.ts:184`；`packages/neuro-book/src/plugins/workbench/web/state/public-state.ts:51`。
+- **现象**：真实开发产品页中，依次聚焦 Panel 的“面板位置”按钮、状态栏的“隐藏面板”按钮，实际焦点分别在对应节点，但 `layout.state.focusedPart` 两次仍是 `editor`。全范围搜索 `focusPart|focusin|focusedPart`，`focusPart` 的调用仅在 store 测试；两个组件的 `focusin` 监听只更新 Teleport 的私有记忆，不更新 store。
+- **为什么是问题**：Spec `ui/workbench-shell.md` 输出 27 与计划第 49 行规定最近获得焦点的 Part 必须上报，公开状态供插件读。该公开键目前对 Sidebar、Panel、AuxiliaryBar、ActivityBar、StatusBar 均不会反映用户焦点。现有测试直接调用 action，只证明 setter，不保护真实接线。
+- **如何核实**：真实 Chrome `151.0.7922.71` 打开 `http://127.0.0.1:42166/`；实验 `focus-state-dev` 通过 Playwright `.focus()` 依次聚焦 `[data-panel-action="nbook.view.set-panel-position"]` 与 `[data-shell-focus-target="panel-toggle"]`，只读组件 props 中的真实 store。结果 `panel.focused="editor"`、`status.focused="editor"`，见 `chrome-transcript.jsonl`。驱动的完整启动命令与实验代码位置见“本次验证与边界”。没有伪造 focus 事件或替换运行时。
+- **建议改法**：在 `WorkbenchShell` 根上接一条 `focusin`，从目标最近的 `[data-shell-slot]` 或 `[data-leaf]` 求 Part，调用现有 `focusPart`；菜单和对话框不在根内，自然保持原值。把现有 setter 测试的界面合同补在真实页面用例中。
+
+## 4. 重要：Panel 与 AuxiliaryBar 的标签没有和内容建立无障碍关联
+
+- **类别**：界面。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchToolPartHost.vue:53`；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchToolPartHost.vue:65`；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:230`。
+- **现象**：真实测试插件产品页中，“样例戊”“样例丁”具有 `role=tab`、`aria-selected=true`，但 `id=""`、`aria-controls=null`；页面 `role=tabpanel` 数量为 `0`。两个选中容器的目标均无 `role`、`id`、`aria-labelledby`。从 DOM 的关联属性缺失可推断，辅助技术无法据这些属性把标签与对应内容联系起来；未运行真实读屏软件。
+- **原因**：nb-ui `Tabs.md:31` 明确把标签与内容的程序化关联交给消费者；本次直接复用 Tabs 后没有补这条消费合同。计划 `plan.md:56` 要求 PanelSurface 与 ToolPartHost 定清关联，两个组件文档也没有记录具体关联。
+- **如何核实**：真实 Chrome 产品页实验 `tab-association`（`chrome-transcript.jsonl`）读取上述 DOM 属性。没有用静态源码代替浏览器结果；没有做实际读屏软件的听觉检查。`7/7` 组件测试、`12/12` 外壳二 e2e 均通过，现有用例没有断言这条关联。
+- **建议改法**：给选中容器的内容目标一个稳定 `id`、`role="tabpanel"` 与 `aria-labelledby`，标签补同源 `id`、`aria-controls`；Panel 与右栏共用同一规则并同步组件文档。可在现有 Tabs 项合同中加可选的关联字段，由工作台传入，不新包一层只转发的组件。
+
+## 5. 建议：菜单代际检查的实施改定没有同步到 Spec 与组件文档
+
+- **类别**：文档。
+- **位置**：`docs/specs/ui/workbench-shell.md:105`；`docs/specs/ui/workbench-shell.md:107`；`docs/specs/ui/workbench-shell.md:215`；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchMoveViewMenu.md:45`。
+- **现象**：上述合同仍承诺“视图换代立即关闭旧菜单”，但实施计划 `plan.md:60` 已明确改为“视图、来源容器、容器模式、交付状态”，与 WorkbenchShell 实现和同名文档一致。真实产品链路里，乙加载失败时打开菜单，清除测试插件失败开关后经现有“重新加载”处理器重试，代际从 `1` 变 `2`，菜单保持打开；这是实施改定的结果，不按代码缺陷报告。
+- **原因**：新 Spec 与 MoveViewMenu 文档沿用改定前的身份词表与验收 27；计划与 WorkbenchShell 文档已更新，四份依据互相矛盾。按旧 Spec 做后续测试会把当前实现判为失败。
+- **如何核实**：读取 `plan.md:60`、`WorkbenchShell.vue:156`、`WorkbenchShell.md:30`，对照上述四处。实验 `product-retry-menu-identity` 在真实测试插件产品页执行：只设置插件已有失败开关，没有替换 source 或实例层；`before="1"`、`after.generation="2"`、`after.menuVisible=true`。此步用 DOM `click()` 保持外部菜单焦点以观察换代，结论仅用于合同一致性。
+- **建议改法**：保留实施改定，把 Spec 输出 17、24、验收 27 和 MoveViewMenu 的身份说明同步为视图、来源容器、容器模式、交付状态；删除这些位置的“代际变化即关闭”承诺。无需另加代际暴露或菜单部件。
+
+## 本次验证与边界
+
+本轮独立运行；不采用作者自报作为最新通过证据。Bun `v1.4.2 (744846f84)`；Chrome `151.0.7922.71`。工作区快照实读为 `ed0f12be969754ed72fb746fade6f0acddfbb3ce`；`git status --short --untracked-files=normal` 输出为空。未修改仓库文件，未 commit、push、stash、切分支或删除文件。
+
+下面三条验证命令的工作目录均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-impl-ui/packages/neuro-book`：
+
+```bash
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui bun run build && NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui bun run build:e2e
+
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui bun run test:vitest src/plugins/workbench/web/components/WorkbenchShellParts.dom.test.ts src/plugins/workbench/web/components/WorkbenchPanelSurface.dom.test.ts
+
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui node ../../node_modules/@playwright/test/cli.js test -c e2e/playwright.config.ts workbench-views.e2e.ts --output=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui/playwright-views
+```
+
+- 构建成功：产品 Web `4.64s`，e2e Web `3.80s`，完整命令 `10.44s`；`check:dist` 输出 `[check:dist] 产物不含开发插件与本机路径`。
+- 组件：`2` 个文件、`7/7` 用例通过，Vitest `2.85s`。
+- 外壳二 e2e：`12/12` 通过，`18.9s`。仅跑这一份 e2e，一次；没有把作者三次连跑结果作为本轮证据。
+
+本次服务的实际启动命令（同一包工作目录）：
+
+```bash
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui NBOOK_STATE_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui/lab-state NBOOK_DEV_PORT=42166 NBOOK_DEV_BACKEND_PORT=42167 bun run dev
+
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui NBOOK_STATE_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui/product-state NBOOK_PORT=42168 NBOOK_WEB_ROOT=dist/e2e/web NBOOK_TEST_PLUGINS=test.sample-views bun src/server/testing/fixture-entry.ts --stop-stdin
+
+node /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui/chrome-driver.mjs
+```
+
+浏览器驱动从标准输入逐行接收 `{id,code}`，`code` 是 Playwright async 函数体。`chrome-transcript.jsonl` 保留每条完整的代码、结果与错误，按对应实验 id 可复核；页面 Map 的建立见 `open-pages`，合并乙进甲见 `scroll-menu-focus`。复跑需要从无定制的隔离产品状态开始，本次 `product-state` 已保留审查后的定制。截图均位于本报告同目录。
+
+内置 browser 两次 CDP 打开超时，CLI 备用检查被仓库 npm `EOVERRIDE` 拒绝；改用仓库已安装的 Playwright，以 Node 启动同一本机 Chrome。测试规范与 `e2e/playwright.config.ts:3` 已记载 Bun CDP 握手超时，无需再新增同义规则。浏览器探针中三条未完成尝试（`panel-parking-focus`、`zero-scroll-resize`、`panel-nav-840-native`）不作结论；相应路径的完成证据分别是 `panel-focus-retry`、`zero-scroll-narrow`、`panel-clipping-final`。
+
+收口已完成：三个浏览器页面及其上下文关闭，`remainingPages=0`、`connected=false`；Node 驱动结束。测试插件服务收到 `stop` 后 `exit=0`；Lab 会话收到 `SIGTERM` 后记录后端 `exit=0`、`page-closed`，会话 `exit=0`。只保留实验文件与隔离状态，没有删除文件。
+
+未运行：Bun 全套测试、store/registry 的独立测试、三份 typecheck、外壳一 e2e、docs/governance 检查、四主题 × 双配色完整矩阵、真实读屏软件、非 DPR 1 的检查。产品尚无“全部成员按条件隐藏”的输入，本轮没有在产品运行时验证它；从呈现模型人工注入 hidden 得到的结果不作为生命周期问题。
+
+## 未发现问题的方面
+
+以下仅指本轮实际检查的路径：
+
+- Lab `views` 在 `1440×900` 的测量 `overflowX=0`、`offenders=[]`；`views-merged` 的 `multiple→single→multiple` 过程中资源管理器实例号始终为 `1`、代际 `1`，输入“Lab 合并草稿”保留。
+- 产品甲、乙合并与再分离的实例、输入和滚动保留；在新单视图落点仍有效时，原输入节点相同且焦点恢复。原有外壳二 e2e 的跨 Part、拖到零恢复、容器网格键盘与 Escape、横向竖条键盘展开、三种失败路径本轮全部通过。
+- 用户把滚动位置从 `240` 主动回到 `0`，再最大化并还原，实测仍为 `0`；没有发现“0 不覆盖”导致旧位置复活。
+- 从面板样例输入触发隐藏，焦点到 `data-shell-focus-target="panel-toggle"`；显示后焦点保持在该按钮，没有抢回样例输入。搬动期间外部菜单保留焦点的路径已观察。
+- Panel 最后一个视图移出时显示空态、标签数量 `0`，五个框架按钮均可用；收起后高度 `32px`，标题行数量始终 `1`；重置视图后恢复。
+- `390×844` 产品页无页面级横向溢出，移动菜单键盘打开、Escape 焦点归还与五个框架按钮的路径通过。Lab `views-merged` 的 NeuroBook 暗色窄屏实测卡片背景与 `--panel-surface` 均为 `rgb(45, 41, 37)`，横向溢出 `0`，菜单 Escape 后焦点返回。明色产品页的主题 token 比对用例本轮通过。
+
+## 严重程度统计
+
+| 严重程度 | 数量 |
+|---|---:|
+| 阻断 | 0 |
+| 重要 | 4 |
+| 建议 | 1 |
+| 合计 | 5 |
+

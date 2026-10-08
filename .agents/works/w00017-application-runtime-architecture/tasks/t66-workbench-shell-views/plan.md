@@ -57,7 +57,7 @@
 - `WorkbenchToolPartHost`：一个 ToolPart 的宿主：Switcher（Sidebar 的由 ActivityBar 承担）+ 选中容器的挂载目标 + single 模式的动作上提（视图动作位，本片无贡献 → 容器管理“移动到” → Part 框架）。空 Part 的框架按钮仍可达。
 - `WorkbenchViewContainerHost`：容器内部的单轴网格（`useLayoutExtent`、`useGridLayout`，每个可见视图一个叶，叶里是 `WorkbenchViewSection`）；手势只把主动叶折成视图尺寸补丁；降级与补偿不写盘。
 - `WorkbenchViewSection`：视图标题（multiple 时显示）、动作（“移动到”菜单，nb-ui Dropdown 的 Escape 与焦点归还）、收起（横向 32px 竖条、纵向 32px 横标题，键盘可展开）；内容区按 `layout` 给内边距与滚动。
-- **菜单目标身份**（审查 D01）：“移动到”菜单打开时捕获视图 id 与来源容器，身份由视图、来源容器、容器模式与交付状态拼成，任一变化即关闭菜单（实施时改定：视图代际只在实例层，上提的菜单拿不到；过期点击最终由命令按来源容器核对拒绝）。single 上提的菜单与 multiple 的 Section 菜单共用一个组件。菜单一层平铺、右侧注明 Part（实施时改定：nb-ui Dropdown 的级联子菜单在真实浏览器里指针点不进去）。
+- **菜单目标身份**（审查 D01）：“移动到”菜单打开时捕获视图 id 与来源容器，身份由视图、来源容器、容器模式、交付状态与实例代际（实例层经事件报给外壳）拼成，任一变化即关闭菜单；过期点击另由命令按来源容器核对拒绝。single 上提的菜单与 multiple 的 Section 菜单共用一个组件。菜单一层平铺、右侧注明 Part（实施时改定：nb-ui Dropdown 的级联子菜单在真实浏览器里指针点不进去）。
 - 实例层：`WorkbenchContainerInstances`（每个常驻容器一个稳定宿主，Teleport 到当前落点，没有落点时停放）与 `WorkbenchViewInstances`（每个视图一个实例宿主：首次有效可见才 `load()`、错误边界、加载与渲染失败的“重新加载”“重试”、代际号）。“有效可见”由呈现模型的活动容器、Part 可见性、收起与落点状态共同求值。
 - **滚动与焦点记忆**（审查 L8、impl 4、D09）：把 t65 `WorkbenchShellLayout.vue` 里的滚动记忆与焦点恢复抽成 `web/shell/teleport-memory.ts`，外壳层、容器层、视图层三处真正搬动 DOM 的地方各自在搬动前捕获、搬动后恢复，规则同一份：原节点仍可见时恢复输入与滚动；被停放时把焦点给可见的框架控件；焦点在外壳外的菜单或对话框时不抢；停放的内容不能 Tab 到达。视图代际销毁时清理它的记忆。
 - `WorkbenchShell` 接线：三个 ToolPart 放 `WorkbenchToolPartHost`，ActivityBar 放 `WorkbenchActivityBar`。

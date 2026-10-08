@@ -15,6 +15,7 @@
 
 - 拖动或用键盘调整视图之间的边界：松手后只把主动、真实变化且没收起的视图的当前轴尺寸经 `resize` 报出；Escape、换轴（`axis` 变化）、`contextKey` 变化取消手势，不报。
 - 分节的收起开关经 `toggle-collapsed` 报出。
+- 网格降级把某个分节压到正文没有空间（叶不足标题行）时，不给这个视图落点：内容退回实例层的停放区，不进 Tab 顺序，`ViewContext.visible` 为 false；空间回来时重新报出落点。
 - 键盘：边界按 nb-ui `GridRenderer` 的合同（方向键 10px、Shift 1px、Home/End、Escape）。
 
 ## 数据

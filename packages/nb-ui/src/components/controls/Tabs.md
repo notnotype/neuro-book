@@ -28,7 +28,7 @@
   - 全部标签都禁用时，方向键与 `Home` / `End` 不做任何事。
 - 焦点模型是 roving tabindex：只有选中项 `tabindex="0"`，其余（含禁用项）都是 `-1`，整条标签栏只有一个 Tab 停靠点。
 
-无障碍：容器是 `role="tablist"`，`ariaLabel` 非空时同时设 `aria-label`（默认为空，此时标签栏没有可访问名）；每个标签是 `role="tab"` 并带 `aria-selected`。组件不生成 `id`、不设 `aria-controls`，也不渲染 `role="tabpanel"` 的内容区——面板与标签的程序化关联由消费方自己建立，内容切换的显隐也由消费方负责。
+无障碍：容器是 `role="tablist"`，`ariaLabel` 非空时同时设 `aria-label`（默认为空，此时标签栏没有可访问名）；每个标签是 `role="tab"` 并带 `aria-selected`。组件不生成 `id`，也不渲染 `role="tabpanel"` 的内容区：消费方给标签项传 `id` 与 `controls`，组件原样写到标签的 `id` 与 `aria-controls`，内容面板的 `role="tabpanel"`、`aria-labelledby` 与显隐由消费方负责。
 
 ## 数据
 
@@ -45,6 +45,10 @@ export type TabsItem = {
     count?: number | string;
     /** 禁用：不可点、不可聚焦、键盘跳过；默认 false */
     disabled?: boolean;
+    /** 标签元素的 id；默认不设。消费方用它给内容面板写 aria-labelledby */
+    id?: string;
+    /** 这个标签控制的内容面板 id，写到 aria-controls；默认不设 */
+    controls?: string;
 };
 
 export type TabsSize = "sm" | "md";
@@ -77,7 +81,7 @@ type TabsEmits = {
 
 ## 不支持
 
-- 不支持内容面板：不渲染 `tabpanel`，也不提供面板关联的 `id` / `aria-controls`。
+- 不支持内容面板：不渲染 `tabpanel`；关联用的 `id` 与 `aria-controls` 由消费方经标签项传入，组件不生成。
 - 不支持换行：标签过多时横向滚动，不做多行排列。
 - 不支持关闭按钮、拖拽重排、溢出菜单（没有 `closable` / `draggable` / 「更多」入口）。
 - 不支持纯图标标签（`label` 必填）与垂直朝向（没有 `orientation`）。

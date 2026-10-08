@@ -17,6 +17,7 @@ export const SAMPLE_VIEW_IDS = {
     gamma: "test.sample-views.gamma",
     delta: "test.sample-views.delta",
     omega: "test.sample-views.omega",
+    zeta: "test.sample-views.zeta",
 } as const;
 
 /** 测试命令：入口关闭自己这一代的激活作用域（真实的 `scope-closed` 撤回，声明仍在）。 */

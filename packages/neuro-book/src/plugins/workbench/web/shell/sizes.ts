@@ -64,8 +64,11 @@ export const SHELL_AUXILIARYBAR_MAX_VIEWPORT_RATIO = 0.45;
 
 /** 编辑器吸收余量；上限给大值而不是 Infinity：Infinity 经 JSON 变成 null。 */
 export const SHELL_EDITOR_MAX_WIDTH = Number.MAX_SAFE_INTEGER;
-/** 编辑器在降级判定里的可用最小值：宽度不足退紧凑、高度不足先把面板退到标题头。 */
-export const SHELL_EDITOR_MIN_WIDTH = 160;
+/**
+ * 编辑器在降级判定里的可用最小值：宽度不足退紧凑、高度不足先把面板退到标题头。底部与顶部的面板与编辑器同宽，宽度要
+ * 放得下面板标题行：两侧内边距 16、五个框架按钮 146、间距 8、导航（容器标签带与上提的“移动到”）至少 96。
+ */
+export const SHELL_EDITOR_MIN_WIDTH = 272;
 export const SHELL_EDITOR_MIN_HEIGHT = 120;
 
 /** 紧凑呈现的容器宽阈值：按实测的外壳容器宽判断，不是 window 宽。 */

@@ -52,6 +52,8 @@ type Props = {
 
 type Emits = {
     (event: "intent", intent: ViewIntent): void;
+    /** 各视图实例当前的代际，变化时整表报一次；宿主用它拼“移动到”菜单的目标身份，实例换代时旧菜单随之关闭。 */
+    (event: "generations", generations: ReadonlyMap<string, number>): void;
 };
 
 type Slots = {

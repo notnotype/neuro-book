@@ -1,0 +1,70 @@
+# w00017 t66 实现审查：正确性与不变量
+
+审查范围：`cc4b39e3..ed0f12be`，固定 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-impl-correctness`。
+
+审查完成。下文只列已用真实运行路径核实的 3 项问题；任务队列饿死的后果单独标为推断。实验目录为本报告所在目录；Spec 等仓库相对路径均基于上述 worktree。
+
+## C01｜重要｜正确性：目标序号重排会覆盖另一窗口已经保存的成员归属
+
+- **文件:行**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-impl-correctness/packages/neuro-book/src/plugins/workbench/web/views/intents.ts:91`（重排把每个被动成员写成完整 `placement`）；同文件 `:173`（重放重新写入 `container`、`order`、`fingerprint`）。
+- **现象**：目标 `view:test.c` 中 B 的序号为 `1_000_000`。同客户端两个窗口读到它后，窗口 A 把 B 移入 `view:test.d` 并保存；窗口 B 的显示仍保留旧布局，把另一个视图 A 追加到 `view:test.c` 时触发重排。保存冲突重放把 B 从 `view:test.d` 搬回 `view:test.c`，并把其序号从 `1` 改成 `2`，尽管本次主动移动的是 A。
+- **为什么是问题**：Spec `docs/specs/ui/workbench-shell.md:157,160` 要求冲突只重放本次主动修改的字段、保留另一窗口修改的其它字段。这里的重排只需要修目标成员的顺序，却把被动成员的归属也写进固定补丁；一个视图的移动可以撤销其它视图已经保存的跨容器移动。序号上限的分支触发后，目标容器的所有旧成员都受影响。
+- **核实命令或实验**：在 worktree 根执行 `NBOOK_AGENT_TEMP_ROOT=<实验目录> bun run <实验目录>/storage-command-smoke.ts`，真实 `StorageWorld`、两个同客户端窗口、产品 `layoutStoreFor` 与真实 SQLite；exit 0。输出：`beforeB={container:"view:test.d",order:1,fingerprint:"sidebar#0",height:88}`，`afterB={container:"view:test.c",order:2,fingerprint:"sidebar#0",height:88}`，`afterA={container:"view:test.c",order:3,fingerprint:"sidebar#0"}`；五个实例均正常 `closed`。实验目录是本报告所在目录。
+- **建议改法**：将被动重排从完整位置覆盖中分离，重放只对最新记录中仍属于目标容器的成员调整 `order`，不重写这些成员的 `container` 或默认指纹；主动移动仍按已接纳意图及同字段后保存胜出的规则执行。把该跨窗口场景补入已有 store 并发行为测试，避免引入新的保存或会话机制。
+
+## C03｜重要｜不变量：停止后、撤回前仍报 available，作废的加载结果触发连续重试
+
+- **文件:行**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-impl-correctness/packages/neuro-book/src/plugins/workbench/web/views/registry.ts:76`（只查句柄是否在表中）；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewInstances.vue:134`（stale 退回 waiting）及 `:165`（available + waiting 又发起加载）。
+- **现象**：真实插件入口有一个已接纳、尚未结束的业务操作，通过公共 `context.scope.parent.close()` 开始停止，再放行正在进行的组件加载。内核状态为 `stopping`、交付句柄 `published:false`，但 `registry.delivery()` 仍为 `available`。真实 `WorkbenchViewInstances` 在结果作废后连续重试。实验第 25 次 `source.load` 调用时解除业务操作的等待，以保证收口；最终观测 26 次调用、26 个 `stale` 结果、组件挂载 0 次。入口正常 `closed`、显示 `entry-stopped/scope-closed` 后循环才结束。
+- **为什么是问题**：加载结果的门禁本身正确，但“表里有句柄”不等于“句柄仍 published”。停止先关闭句柄门禁，资源撤回还会等待在途工作或接收者串行锁。这个真实窗口中 `waiting→loading→stale→waiting` 持续产生 Promise/Vue 微任务，停止越久重试越多，外壳会空转；若解除等待依赖后续浏览器任务，存在任务队列被持续微任务饿死的风险（后者为推断）。已有 registry 测试先等停止完成才放行 load，错过了该窗口。
+- **核实命令或实验**：`bun x --no-install vite --config <实验目录>/vite.lifecycle.config.ts`，内置真实 Chromium 打开 `/lifecycle.html` 并点击“停止真实入口”。`lifecycle.ts` 经公开包入口创建真实 `createApplication`、产品 `ViewRegistry`、产品 `createWindowPlugins` 和真实 `WorkbenchViewInstances.vue`；没有直接调用 receiver 模拟撤回，没有伪造句柄或 load 的返回值。调用计数包装仅在第 25 次放行 `scope.accept()` 中的真实业务任务。输出 `gate={published:false,delivery:{kind:"available"},entry:"stopping",inFlight:2}`、`loads:26,stale:26,mounts:0,warnings:[],errors:[]`；随后真实入口 closed。
+- **建议改法**：交付判定必须核对当前句柄的 `published` 与工作台存活；它们失效就发布停止状态，让实例停等真实的新交付，不依据 stale 自动重试。沿用已有宿主停止通知和句柄门禁，不新增轮询、重试次数或延时。把“真实在途任务延迟 revoke，load 在停止后完成”的场景补入注册表与实例层的同一验收路径。
+
+## C02｜重要｜正确性：产品外壳没有上报焦点 Part，公开状态一直是 editor
+
+- **文件:行**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-impl-correctness/packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:173`（外壳根没有 `focusin` 处理）；`packages/neuro-book/src/plugins/workbench/web/state/layout-store.ts:184`（唯一修改 action）；`packages/neuro-book/src/plugins/workbench/web/state/public-state.ts:51`（直接发布该值）。
+- **现象**：真实产品页分别聚焦侧栏 `test.sample-views.alpha` 和面板 `test.sample-views.omega` 的输入。`document.activeElement` 分别属于这两个样例视图，但公开状态两次均为 `{status:"ready",value:"editor"}`。源码中 `focusPart` 的调用者只有 store 测试，产品组件没有调用。
+- **为什么是问题**：Spec `docs/specs/ui/workbench-shell.md:94,110` 已承诺 `focusedPart` 是最近获得焦点的 Part，焦点离开外壳时保留最近值。当前公开键虽已声明并处于 ready，实际上永远是初始值；消费它的插件无法分辨用户正在侧栏、右栏或面板中操作。
+- **核实命令或实验**：在实验目录的 Vite 配置中只替换测试插件 `test.remote-probe`，经真实内核公开的 `publicStateKey` 读取状态，产品 store、外壳、视图、命令和状态插件均未修改。生产构建 `bun x --no-install vite build -c <实验目录>/vite.probe.config.ts --outDir <实验目录>/web-probe` 成功；真实 fixture 服务以临时 State Root、随机端口启动，内置浏览器 `focus()` 后读取上述 activeElement 和公开值。探针源码为同目录 `browser-public-probe.ts`。
+- **建议改法**：在外壳根集中处理冒泡的 `focusin`，从当前 DOM 所在 Part 识别并调用 `layout.actions.focusPart()`；Teleport 搬动后的焦点按实际新 Part 识别，root、停放区或外部 portal 没有 Part 时保持原值。补侧栏→面板→外部命令面板的真实产品验收，直接调用 action 的测试不能替代接线验证。
+
+## 本轮实际验证与边界
+
+全部仓库测试都设置 `NBOOK_AGENT_TEMP_ROOT` 为实验目录。下列包内命令的 cwd 为上述 worktree 的 `packages/neuro-book`，实验脚本的 cwd 为 worktree 根。
+
+| 命令或运行路径 | 本轮结果 |
+|---|---|
+| `prox bun install --frozen-lockfile --ignore-scripts`（worktree 根） | 成功；Bun `1.4.2 (744846f84)`，1560 packages installed；未运行安装脚本 |
+| `bun test src/plugins/workbench/web/views/model.test.ts src/plugins/workbench/web/views/registry.test.ts src/plugins/workbench/web/state/layout-store.test.ts src/plugins/workbench/web/commands/view-commands.test.ts` | 47 pass、0 fail、363 expect() calls；1167 ms |
+| `bun x --no-install vitest run src/plugins/workbench/web/components/WorkbenchShellParts.dom.test.ts` | 1 个文件、5 例通过；2.53 s |
+| `bun run <实验目录>/storage-command-smoke.ts` | exit 0；C01 已复现，第二步选择中目标消失返回 `invalid-args` 且视图未移走；目录改为 panel 后呈现同步重算；5 个实例正常 closed |
+| `bun x --no-install vite build -c vite.e2e.config.ts --outDir <实验目录>/web` | 成功；生产测试外壳输出到实验目录，3.62 s |
+| `bun x --no-install vite build -c <实验目录>/vite.probe.config.ts --outDir <实验目录>/web-probe` | 成功；只替换测试插件读取公开服务，3.08 s |
+| 真实 fixture 产品页 + 内置 Chromium | C02 已复现；初始仅三个选中视图创建、代际 1；未选中的乙未创建。加载/渲染失败恢复后的乙/丁代际均为 2，未重试的戊保持实例 2、代际 1。乙跨侧栏容器及 Panel 后仍为实例 3、代际 2，输入“审查输入保留”保留 |
+| `/lifecycle.html`：真实 createApplication、产品注册表、实例层与在途任务 | C03 已复现；26 次加载、26 个 stale、0 次挂载。实验应用 stop 为 closed |
+| `/instances.html`：真实登记作用域关闭/重登记 + 产品实例层 | 入口及视图代际 1→2→3→4；两次旧 Promise 结果都没挂载。撤回已显示组件时出现 unmount:new，声明移除后外框消失，重新出现后只挂载 redeclared；根作用域 closed |
+| `/usr/bin/git status --short`（worktree 根） | 无输出；仓库无修改 |
+
+证据脚本与 `focus-observation.json`、`lifecycle-observation.json`、`instance-observation.json` 留在实验目录。4 个浏览器标签均已关闭，两份 fixture 服务均以 `stop` 正常退出（exit 0），实验 Vite 已停止。
+
+未运行本轮完整 e2e 套件、三份产品 typecheck、docs/governance 检查或变异检查；作者的自报结果没有计入本轮验证。声明移除/重登记实验检验实例层的受控目录输入与真实交付，不宣称产品插件管理已实现。
+
+实验启动绕路已纠正，未当作产品缺陷：包内不存在 `node_modules/vite/bin/vite.js`，改用已安装的 Vite CLI；实验 Storage 句柄方法应为 `save()`；仓库外 Vite 配置需 ESM；组件测试文件实际为 `WorkbenchShellParts.dom.test.ts`。Bun `--tsconfig` 未执行脚本，`--tsconfig-override` 曾触发运行器内部错误，最终直接 `bun run` 使用实验目录 tsconfig 成功；只有最终运行输出计入证据。
+
+## 规范回写建议
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| R1 | 新规范 | 本轮收到 `ts-set-map` 规则：小型静态字符串查找表使用 Record；现有 TypeScript 规范只规定避免重复构建集合，未写选型边界 | 新增：“小型静态字符串键查找表使用 `Record<K, V>` 或 `Record<K, true>`；有运行期增删、非字符串键、插入顺序或迭代器需求时使用 `Map`/`Set`。” | 上述 worktree 的 `docs/standards/code/languages/typescript.md` |
+
+此建议仅供主 Agent 汇总，未修改规范。实验中作为产品动态目录的 Map 会被遍历并随目录变化替换，保留该数据合同。
+
+## 未发现问题的方面
+
+- 纯模型的隐式容器身份、起源声明消失后的确定性回落、标题/图标同源、未知项保留与默认位置指纹失效：已读实现和对应测试，本轮相关测试通过，未发现 C01 之外的问题。
+- 普通移动及不同字段的冲突重放、同视图主动归属后写胜出、reset-view 按隐式容器当前所在 Part 选中：本轮现有 store/模型测试通过；C01 限于序号重排的被动成员位置补丁。
+- 入口激活失败的 recover→activate 与变化通知、受阻无重试、句柄撤回后的加载结果门禁：本轮真实内核测试通过。C03 实验也证明停止后结果没有错误挂载，发现的是 delivery 状态导致的重复尝试。
+- 移动命令三项完整性、来源变化的 stale-target、取消无写入、同目标无写入和目标消失的 invalid-args：本轮命令测试和真实 Storage 实验符合合同。
+- 首次有效可见加载、加载/渲染重试换代、撤回卸载、新交付换代、删除后代际不复用和迟到结果淘汰：真实产品页及真实内核实例实验未发现 C03 之外的问题。
+
+数量：阻断 0 项，重要 3 项（C01、C03、C02），建议 0 项。R1 是规范回写建议，不计为实现缺陷。

@@ -18,7 +18,7 @@ Sidebar 与 AuxiliaryBar 画卡片（`--panel-surface`、`--panel-outline`、`--
 
 ## 交互
 
-- 标签带：点击或方向键切换发 `select`；roving tabindex，Tab 一次进入。
+- 标签带：点击或方向键切换发 `select`；roving tabindex，Tab 一次进入。右栏与面板的落点是 `role="tabpanel"`，`aria-labelledby` 指向选中的标签，标签的 `aria-controls` 指回它（id 规则在 `switcher-ids.ts`，面板的标签带在面板框架的导航槽里，按同一规则求）。
 - 动作区由宿主经 `actions` 插槽放（产品里是“移动到”菜单）。
 
 ## 数据
@@ -38,6 +38,8 @@ type Props = {
     label: string;
     /** 区域里没有容器时的说明。 */
     emptyText: string;
+    /** 标签与内容面板关联用的 id 前缀；外壳用 `useId()` 取一次，面板框架里的标签带用同一个前缀。 */
+    idPrefix: string;
 };
 
 type Emits = {

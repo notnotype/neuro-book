@@ -448,8 +448,8 @@ export function projectShell(input: ShellProjectionInput): ShellProjection {
     let collapsed = storedHorizontal ? input.panel.collapsed : false;
     let maximized = input.panel.maximized && !input.panel.hidden && panelMaximizable(position, alignment) && !collapsed;
 
-    // 宽度 ≥ 800 时主体至少 740px，装得下两个侧栏、左右面板与编辑器的最小宽度（603px）；这里仍按实际最小值判定，
-    // 常量改了也不会给出越界的几何。
+    // 宽度 ≥ 800 时主体至少 740px：底部与顶部面板装得下（两个侧栏与编辑器最小 594px）；左右面板要 755px，800 宽附近
+    // 退紧凑。按实际最小值判定，常量改了也不会给出越界的几何。
     let mode: ShellLayoutMode = extent.width < SHELL_COMPACT_WIDTH ? "compact" : "split";
     if (mode === "split" && !splitRowFits(position, hidden, dragCollapsed, extent.width)) {
         mode = "compact";

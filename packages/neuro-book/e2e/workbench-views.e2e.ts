@@ -1,7 +1,7 @@
 /**
  * 外壳二在真实 Chrome 中的验收（docs/specs/ui/workbench-shell.md 外壳二验收 14–18、26–31，docs/specs/workbench/views.md
  * 验收 1–5）：生产构建的 e2e 测试外壳与宿主测试入口，测试插件 `test.sample-views`（src/web/testing/sample-views.ts）
- * 贡献五个视图。等页面上可观察的变化，不按时长等待。
+ * 贡献六个视图。等页面上可观察的变化，不按时长等待。
  *
  * 不在这里的：落位与意图合成的逐条规则（`views/model.test.ts`）、两个窗口与保存失败（`state/layout-store.test.ts`）、
  * 注册表与内核撤回的串行窗口（`views/registry.test.ts`）、命令的参数与过期（`commands/view-commands.test.ts`）。
@@ -17,6 +17,8 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {SAMPLE_VIEWS_SWITCHES} from "nbook/shared/testing/sample-views-contract";
 
+import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";
+
 import {startProbeServer} from "./fixtures";
 import type {ProbeServer} from "./fixtures";
 
@@ -25,6 +27,7 @@ const B = "test.sample-views.beta";
 const C = "test.sample-views.gamma";
 const D = "test.sample-views.delta";
 const E = "test.sample-views.omega";
+const F = "test.sample-views.zeta";
 
 const sample = (page: Page, viewId: string) => page.locator(`[data-sample-view="${viewId}"]`);
 
@@ -79,22 +82,31 @@ test.describe("产品页：测试插件贡献的视图", () => {
 
     const userDatabase = (): string => join(tmp, "state", "storage", "user.sqlite");
 
-    /** 工作台定制记录的最新值与修订号。 */
-    function customizations(): {value: Record<string, unknown> | null; revision: number} {
+    /** 本页的客户端身份：`local` 记录按它分行，后端由各用例共用，只看本用例这一行。 */
+    async function clientOf(page: Page): Promise<string> {
+        const client = await page.evaluate((key) => localStorage.getItem(key), CLIENT_IDENTITY_KEY);
+        if (client === null) throw new Error("页面还没有客户端身份");
+        return client;
+    }
+
+    /** 本页客户端的工作台定制记录：值与修订号；还没写过为 null 与 0。 */
+    async function customizations(page: Page): Promise<{value: Record<string, unknown> | null; revision: number}> {
+        const client = await clientOf(page);
         const db = new DatabaseSync(userDatabase());
         try {
-            const row = db.prepare("SELECT value, revision FROM records WHERE owner = 'nbook.workbench' AND key = 'views-customizations' ORDER BY revision DESC LIMIT 1").get() as {value: string; revision: number} | undefined;
+            const row = db.prepare("SELECT value, revision FROM records WHERE owner = 'nbook.workbench' AND key = 'views-customizations' AND client = ?1").get(client) as {value: string; revision: number} | undefined;
             return row === undefined ? {value: null, revision: 0} : {value: JSON.parse(row.value) as Record<string, unknown>, revision: Number(row.revision)};
         } finally {
             db.close();
         }
     }
 
-    /** 在最新一条工作台定制记录（本窗口刚写的）里加上隐藏 Sidebar。 */
-    function hideSidebarInRecord(): void {
+    /** 在本页客户端的工作台定制记录里加上隐藏 Sidebar（外壳二还没有隐藏它的界面）。 */
+    async function hideSidebarInRecord(page: Page): Promise<void> {
+        const client = await clientOf(page);
         const db = new DatabaseSync(userDatabase());
         try {
-            const row = db.prepare("SELECT rowid AS id, value FROM records WHERE owner = 'nbook.workbench' AND key = 'views-customizations' ORDER BY revision DESC LIMIT 1").get() as {id: number; value: string};
+            const row = db.prepare("SELECT rowid AS id, value FROM records WHERE owner = 'nbook.workbench' AND key = 'views-customizations' AND client = ?1").get(client) as {id: number; value: string};
             const value = JSON.parse(row.value) as Record<string, unknown>;
             db.prepare("UPDATE records SET value = ?1 WHERE rowid = ?2").run(JSON.stringify({...value, hiddenParts: ["sidebar"]}), row.id);
         } finally {
@@ -130,8 +142,8 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(sample(page, A)).toBeHidden();
 
         // 隐藏 Sidebar（Part 显隐，外壳二还没有隐藏它的界面）：把本窗口刚写下的定制记录改成隐藏，刷新后生效。
-        await expect.poll(() => (customizations().value?.selected as Record<string, string> | undefined)?.sidebar).toBe(`view:${B}`);
-        hideSidebarInRecord();
+        await expect.poll(async () => ((await customizations(page)).value?.selected as Record<string, string> | undefined)?.sidebar).toBe(`view:${B}`);
+        await hideSidebarInRecord(page);
         await page.reload();
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
         await expect(page.locator('[data-tool-part="sidebar"]')).toBeHidden();
@@ -153,7 +165,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
 
     test("移动到：乙并进甲的容器（single→multiple，乙的实例不变）；甲移到面板后操作甲的容器，乙不随甲走；重置后回到初始；刷新后一致", async ({page}) => {
         await open(page);
-        const before = customizations().revision;
+        const before = (await customizations(page)).revision;
         await page.locator(`[data-activity-container="view:${B}"]`).click();
         await sample(page, B).locator("input").fill("乙的草稿");
         const beta = await instanceOf(page, B);
@@ -181,24 +193,24 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await moveVia(page, `[data-view-section="${A}"]`, A, "重置位置");
         await moveVia(page, `[data-view-section="${B}"]`, B, "重置位置");
         await expect(page.locator("[data-activity-container]")).toHaveCount(3);
-        expect(customizations().revision).toBeGreaterThan(before);
-        expect(customizations().value?.views ?? {}).toEqual({});
+        expect((await customizations(page)).revision).toBeGreaterThan(before);
+        expect((await customizations(page)).value?.views ?? {}).toEqual({});
     });
 
     test("命令面板的移动视图：先选视图、再选目标；取消任一步不写", async ({page}) => {
         await open(page);
-        const before = customizations().revision;
+        const before = (await customizations(page)).revision;
         await runCommand(page, "移动视图");
         await pick(page, "选择要移动的视图", "样例丙");
         await page.keyboard.press("Escape");
         await expect(page.getByRole("combobox")).toHaveCount(0);
-        expect(customizations().revision).toBe(before);
+        expect((await customizations(page)).revision).toBe(before);
 
         await runCommand(page, "移动视图");
         await pick(page, "选择要移动的视图", "样例丙");
         await pick(page, "移动到", "样例丁");
         await expect(page.locator(`[data-container-host="view:${D}"]`)).toHaveAttribute("data-container-mode", "multiple");
-        await expect.poll(() => customizations().revision).toBeGreaterThan(before);
+        await expect.poll(async () => (await customizations(page)).revision).toBeGreaterThan(before);
     });
 
     test("收起：multiple 收起甲 → 乙移出后甲在 single 展开但记录不变 → 乙回来甲重新收起；面板横向收起成竖条、键盘展开", async ({page}) => {
@@ -208,7 +220,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         const section = (viewId: string) => page.locator(`[data-view-section="${viewId}"]`);
         await section(A).locator("[data-view-toggle]").click();
         await expect(section(A)).toHaveAttribute("data-view-collapsed", "true");
-        await expect.poll(() => ((customizations().value?.views as Record<string, {collapsed?: boolean}> | undefined)?.[A]?.collapsed)).toBe(true);
+        await expect.poll(async () => (((await customizations(page)).value?.views as Record<string, {collapsed?: boolean}> | undefined)?.[A]?.collapsed)).toBe(true);
 
         // 重置把乙送回自己的容器并选中它；切回甲的容器看。
         await moveVia(page, `[data-view-section="${B}"]`, B, "重置位置");
@@ -216,7 +228,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(page.locator(`[data-container-host="view:${A}"]`)).toHaveAttribute("data-container-mode", "single");
         await expect(section(A)).toHaveAttribute("data-view-collapsed", "false");
         await expect(sample(page, A)).toBeVisible();
-        expect(((customizations().value?.views as Record<string, {collapsed?: boolean}>)[A])?.collapsed).toBe(true);
+        expect((((await customizations(page)).value?.views as Record<string, {collapsed?: boolean}>)[A])?.collapsed).toBe(true);
 
         await page.locator(`[data-activity-container="view:${B}"]`).click();
         await moveVia(page, '[data-tool-part="sidebar"]', B, "样例甲");
@@ -239,7 +251,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await moveVia(page, '[data-tool-part="sidebar"]', B, "样例甲");
         const sash = page.getByRole("separator", {name: `调整 ${A} 与 ${B} 的高度`});
         await expect(sash).toBeVisible();
-        const before = customizations().revision;
+        const before = (await customizations(page)).revision;
         const heightOf = async (viewId: string) => (await page.locator(`[data-view-section="${viewId}"]`).boundingBox())!.height;
         const startA = await heightOf(A);
         const bounds = (await sash.boundingBox())!;
@@ -247,23 +259,25 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await page.mouse.down();
         await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2 - 80, {steps: 5});
         await page.mouse.up();
-        await expect.poll(() => customizations().revision).toBeGreaterThan(before);
-        const views = customizations().value?.views as Record<string, {height?: number; width?: number}>;
+        await expect.poll(async () => (await customizations(page)).revision).toBeGreaterThan(before);
+        const views = (await customizations(page)).value?.views as Record<string, {height?: number; width?: number}>;
         expect(views[A]?.height).toBeCloseTo(startA - 80, 0);
         expect(views[A]?.width).toBeUndefined();
 
-        const afterDrag = customizations().revision;
+        const afterDrag = (await customizations(page)).revision;
+        const baseline = [await heightOf(A), await heightOf(B)];
         await sash.focus();
         await page.keyboard.down("ArrowUp");
+        await expect.poll(() => heightOf(A)).toBeLessThan(baseline[0]!);
         await page.keyboard.press("Escape");
         await page.keyboard.up("ArrowUp");
-        await expect(page.locator(`[data-view-section="${A}"]`)).toHaveJSProperty("offsetHeight", Math.round(await heightOf(A)));
-        expect(customizations().revision).toBe(afterDrag);
+        await expect.poll(async () => [await heightOf(A), await heightOf(B)]).toEqual(baseline);
+        expect((await customizations(page)).revision).toBe(afterDrag);
 
         await sash.focus();
         await page.keyboard.press("ArrowDown");
-        await expect.poll(() => customizations().revision).toBeGreaterThan(afterDrag);
-        expect((customizations().value?.views as Record<string, {height?: number}>)[A]?.height).toBeCloseTo(startA - 70, 0);
+        await expect.poll(async () => (await customizations(page)).revision).toBeGreaterThan(afterDrag);
+        expect(((await customizations(page)).value?.views as Record<string, {height?: number}>)[A]?.height).toBeCloseTo(startA - 70, 0);
     });
 
     test("实例保留：fill 与 scroll 两种视图在 1→2→1、跨容器、跨 Part、Part 拖到零再展开之后，输入、滚动与焦点都还在，实例不重建", async ({page}) => {
@@ -303,6 +317,21 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await page.locator(`[data-activity-container="view:${B}"]`).click();
         expect(await instanceOf(page, B)).toEqual(beta);
         await expect.poll(() => scrollerOf(B).evaluate((element) => element.scrollTop)).toBe(200);
+
+        // 焦点：命令面板关闭时把焦点还给乙的输入框，随后乙被搬到面板、再重置回来；两次搬动后焦点都还在它的输入框里。
+        const input = sample(page, B).locator("input");
+        await input.focus();
+        await runCommand(page, "移动视图");
+        await pick(page, "选择要移动的视图", "样例乙");
+        await pick(page, "移动到", "样例戊");
+        await expect(page.locator(`[data-container-host="view:${E}"]`)).toHaveAttribute("data-container-mode", "multiple");
+        await expect(input).toBeFocused();
+        await runCommand(page, "移动视图");
+        await pick(page, "选择要移动的视图", "样例乙");
+        await pick(page, "移动到", "重置位置");
+        await expect(page.locator(`[data-container-host="view:${E}"]`)).toHaveAttribute("data-container-mode", "single");
+        await expect(input).toBeFocused();
+        expect(await instanceOf(page, B)).toEqual(beta);
     });
 
     test("入口激活失败：原位显示原因与重试，布局项保留；消除原因后重试，以新代次交付", async ({page}) => {
@@ -417,5 +446,105 @@ test.describe("产品页：测试插件贡献的视图", () => {
             ].filter((item) => item.own !== item.token);
         });
         await expect.poll(mismatches).toEqual([]);
+    });
+
+    test("容器网格（Panel 横向）：拖动视图之间的边界只写宽度；收成 32px 竖条再展开回到记忆宽度", async ({page}) => {
+        await open(page);
+        await moveVia(page, '[data-tool-part="auxiliarybar"]', D, "样例戊");
+        const sash = page.getByRole("separator", {name: `调整 ${E} 与 ${D} 的宽度`});
+        await expect(sash).toBeVisible();
+        const widthOf = async (viewId: string) => (await page.locator(`[data-view-section="${viewId}"]`).boundingBox())!.width;
+        const startE = await widthOf(E);
+        const bounds = (await sash.boundingBox())!;
+        await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(bounds.x + bounds.width / 2 - 60, bounds.y + bounds.height / 2, {steps: 5});
+        await page.mouse.up();
+        await expect.poll(async () => ((await customizations(page)).value?.views as Record<string, {width?: number}> | undefined)?.[E]?.width).toBeCloseTo(startE - 60, 0);
+        expect(((await customizations(page)).value?.views as Record<string, {height?: number}>)[E]?.height).toBeUndefined();
+        const remembered = await widthOf(D);
+        await page.locator(`[data-view-section="${D}"] [data-view-toggle]`).click();
+        await expect.poll(async () => Math.round(await widthOf(D))).toBe(32);
+        await page.locator(`[data-view-section="${D}"] [data-view-toggle]`).click();
+        await expect.poll(async () => Math.round(await widthOf(D))).toBe(Math.round(remembered));
+    });
+
+    test("focusedPart：焦点进到侧栏、面板时随之变化，焦点移到外壳之外的命令面板时保持", async ({page}) => {
+        await open(page);
+        const focused = (viewId: string) => sample(page, viewId).getAttribute("data-focused-part");
+        await sample(page, A).locator("input").focus();
+        await expect.poll(() => focused(A)).toBe("ready:sidebar");
+        await sample(page, E).locator("input").focus();
+        await expect.poll(() => focused(E)).toBe("ready:panel");
+        await expect(async () => {
+            await page.keyboard.press("Control+Shift+P");
+            await expect(page.getByRole("combobox")).toBeFocused({timeout: 500});
+        }).toPass();
+        expect(await focused(E)).toBe("ready:panel");
+        await page.keyboard.press("Escape");
+    });
+
+    test("标签带：标签与内容面板互相关联；长标题标签与“移动到”、五个框架按钮在 840 宽下都完整可点；方向键切换面板的容器", async ({page}) => {
+        await page.setViewportSize({width: 840, height: 900});
+        await open(page);
+        const tab = page.getByRole("tab", {name: "样例戊"});
+        const panelId = await tab.getAttribute("aria-controls");
+        expect(panelId).not.toBeNull();
+        const panel = page.locator(`[id="${panelId!}"]`);
+        await expect(panel).toHaveAttribute("role", "tabpanel");
+        await expect(panel).toHaveAttribute("aria-labelledby", (await tab.getAttribute("id"))!);
+        // 每个可点的东西：中心点命中的就是它自己。
+        const hitsItself = (selector: string) => page.locator(selector).first().evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+            return rect.width > 0 && hit !== null && (hit === element || element.contains(hit));
+        });
+        await expect.poll(() => hitsItself(`.workbench-panel-surface [data-move-view="${E}"]`)).toBe(true);
+        for (const action of ["set-panel-position", "set-panel-alignment", "set-panel-collapsed", "toggle-panel-maximized", "set-panel-hidden"]) {
+            expect(await hitsItself(`[data-panel-action="nbook.view.${action}"]`), action).toBe(true);
+        }
+        expect(await tab.evaluate((element) => element.getBoundingClientRect().width)).toBeGreaterThan(0);
+        await tab.focus();
+        await page.keyboard.press("ArrowRight");
+        await expect(page.getByRole("tab", {name: /^样例己/u})).toBeFocused();
+        await expect(sample(page, F)).toBeVisible();
+        await expect(sample(page, E)).toBeHidden();
+    });
+
+    test("390 × 260：容器网格压到正文没有空间时，视图内容停放：不进 Tab 顺序、visible 为假；空间回来时实例不变", async ({page}) => {
+        await open(page);
+        await page.locator(`[data-activity-container="view:${B}"]`).click();
+        await moveVia(page, '[data-tool-part="sidebar"]', B, "样例甲");
+        const alpha = await instanceOf(page, A);
+        await page.setViewportSize({width: 390, height: 260});
+        await expect(page.locator("[data-workbench-shell]")).toHaveAttribute("data-shell-layout", "compact");
+        await expect(page.locator(`[data-view-frame="${A}"]`)).toHaveCount(1);
+        await expect.poll(() => page.locator(`[data-view-frame="${A}"]`).evaluate((element) => element.closest("[data-view-parking]") !== null)).toBe(true);
+        await expect.poll(() => sample(page, A).getAttribute("data-visible")).toBe("false");
+        // 从状态栏一路 Tab：焦点不会落进停放的样例输入。
+        await page.locator("[data-shell-focus-target=\"panel-toggle\"]").focus();
+        for (let step = 0; step < 30; step += 1) {
+            await page.keyboard.press("Tab");
+            expect(await page.evaluate(() => document.activeElement?.closest("[data-view-parking]") !== null)).toBe(false);
+        }
+        await page.setViewportSize({width: 1440, height: 900});
+        await expect.poll(() => sample(page, A).getAttribute("data-visible")).toBe("true");
+        expect(await instanceOf(page, A)).toEqual(alpha);
+    });
+
+    test("“移动到”菜单打开时视图换代（渲染出错后重试）：菜单关闭，旧点击无从发生", async ({page}) => {
+        await open(page);
+        await page.evaluate(([render, delta]) => localStorage.setItem(render, delta), [SAMPLE_VIEWS_SWITCHES.failRender, D] as const);
+        await page.reload();
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        const frame = page.locator(`[data-view-frame="${D}"]`);
+        await expect(frame).toHaveAttribute("data-view-state", "render-failed");
+        await page.evaluate((render) => localStorage.removeItem(render), SAMPLE_VIEWS_SWITCHES.failRender);
+        await page.locator(`[data-tool-part="auxiliarybar"] [data-move-view="${D}"]`).click();
+        await expect(page.getByRole("menu")).toBeVisible();
+        // 菜单开着时经页面重试（不移开焦点、不关菜单的 DOM 点击）。
+        await frame.locator("[data-view-retry-render]").evaluate((element) => (element as HTMLButtonElement).click());
+        await expect(sample(page, D)).toBeVisible();
+        await expect(page.getByRole("menu")).toHaveCount(0);
     });
 });

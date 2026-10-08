@@ -42,7 +42,7 @@ type Props = {
     groups: ReadonlyArray<MoveTargetGroup>;
     /** “重置位置”的文字；视图已在默认位置时为 null，不显示这一项。 */
     resetLabel: string | null;
-    /** 菜单目标身份；变化即关闭已打开的菜单。宿主用视图、来源容器、视图代际与容器模式拼出它。 */
+    /** 菜单目标身份；变化即关闭已打开的菜单。宿主用视图、来源容器、容器模式、交付状态与视图代际拼出它。 */
     identity: string;
 };
 

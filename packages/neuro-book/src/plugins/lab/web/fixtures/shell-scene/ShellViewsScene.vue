@@ -3,7 +3,8 @@
  * 外壳二的集成场景（docs/specs/ui/workbench-shell.md 外壳二），登记为 WorkbenchShellLayout 的 views 系列场景：真实的外壳
  * 布局、活动栏、工具区域、面板框架与两层实例，落位、呈现与意图合成用产品的纯模型；外壳的尺寸与面板状态是场景输入
  * （数据面板里看得到），视图定制只在场景里（不连产品的布局 store、Storage 与插件宿主）。视图来源是一份局部实现：按
- * 场景开关让某个视图加载失败、渲染出错、所属入口停止或启动失败。
+ * 场景开关让某个视图加载失败、渲染出错、所属入口停止或启动失败。这份来源只用来摆出界面的各种状态，交付寿命的
+ * 证据在真实内核与产品页的测试里（`views/registry.test.ts`、`e2e/workbench-views.e2e.ts`）。
  *
  * 样例视图带实例编号、代际与可见标记：在同一场景里连续移动、切容器、隐藏 Part，实例编号不变就说明没有重挂。
  */
@@ -15,6 +16,7 @@ import WorkbenchMoveViewMenu from "nbook/plugins/workbench/web/components/Workbe
 import WorkbenchPanelSurface from "nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue";
 import WorkbenchShellLayout from "nbook/plugins/workbench/web/components/WorkbenchShellLayout.vue";
 import WorkbenchToolPartHost from "nbook/plugins/workbench/web/components/WorkbenchToolPartHost.vue";
+import {switcherPanelId, switcherTabId} from "nbook/plugins/workbench/web/components/switcher-ids";
 import WorkbenchViewInstances from "nbook/plugins/workbench/web/components/WorkbenchViewInstances.vue";
 import type {ViewDeclaration, ViewLocation} from "nbook/plugins/workbench/shared/views";
 import type {PanelPosition, PanelState} from "nbook/plugins/workbench/web/shell/panel-state";
@@ -73,7 +75,9 @@ const loadFailures = reactive(new Set<string>());
 const source: ViewSource = {
     delivery: (viewId) => deliveries.get(viewId) ?? AVAILABLE,
     load: async (viewId) => (loadFailures.has(viewId) ? {status: "failed", error: new Error("样例：组件模块加载失败")} : {status: "loaded", component: SampleView}),
+    // 与真实宿主同一条规则：只有激活失败的入口能重试；正常停止的入口不能经它复活（场景里的“模拟重新交付”另算）。
     retry: async (viewId) => {
+        if (deliveries.get(viewId)?.kind !== "entry-failed") return {status: "not-failed"};
         deliveries.delete(viewId);
         return {status: "activated"};
     },
@@ -135,6 +139,8 @@ function togglePart(part: ShellHideablePart): void {
 
 const PART_LABELS: Readonly<Record<ViewLocation, string>> = {sidebar: "侧栏", auxiliarybar: "右栏", panel: "面板"};
 
+const generations = shallowRef<ReadonlyMap<string, number>>(new Map());
+
 function menuOf(viewId: string) {
     const targets = moveTargetsOf(presentation.value, placement.value, catalog, viewId);
     if (targets === null) return null;
@@ -143,14 +149,14 @@ function menuOf(viewId: string) {
         groups: targets.groups.map((group) => ({label: PART_LABELS[group.part], targets: group.targets.map((target) => ({id: target.containerId, label: target.title["zh-CN"], icon: target.icon}))})),
         source: targets.sourceContainerId,
         resetLabel: targets.canReset ? "重置位置" : null,
-        identity: `${viewId}|${targets.sourceContainerId}|${container?.mode ?? ""}|${source.delivery(viewId).kind}`,
+        identity: `${viewId}|${targets.sourceContainerId}|${container?.mode ?? ""}|${source.delivery(viewId).kind}|${String(generations.value.get(viewId) ?? 0)}`,
     };
 }
 
 const singleViewOf = (container: ContainerPresentation | null): string | null => (container?.mode === "single" ? (container.views[0]?.id ?? null) : null);
 
 const activityContainers = computed(() => presentation.value.parts.sidebar.switcher.map((item) => ({id: item.containerId, label: item.title["zh-CN"], icon: item.icon})));
-const panelTabs = computed(() => presentation.value.parts.panel.switcher.map((item) => ({value: item.containerId, label: item.title["zh-CN"], iconClass: item.icon})));
+const panelTabs = computed(() => presentation.value.parts.panel.switcher.map((item) => ({value: item.containerId, label: item.title["zh-CN"], iconClass: item.icon, id: switcherTabId("lab-views", "panel", item.containerId), controls: switcherPanelId("lab-views", "panel")})));
 
 const positions = [{value: "bottom", label: "底部"}, {value: "left", label: "左侧"}, {value: "right", label: "右侧"}];
 const position = computed({get: () => panel.value.position, set: (value: string | number | boolean) => {
@@ -177,7 +183,7 @@ const position = computed({get: () => panel.value.position, set: (value: string 
                 <WorkbenchActivityBar label="活动栏" :containers="activityContainers" :selected="presentation.parts.sidebar.selected" :sidebar-visible="sidebarVisible" @select="selectSidebar" />
             </template>
             <template v-for="part in (['sidebar', 'auxiliarybar'] as const)" :key="part" #[part]>
-                <WorkbenchToolPartHost :part="part" :presentation="presentation.parts[part]" :selected="selectedOf(part)" locale="zh-CN" :label="PART_LABELS[part]" empty-text="这里还没有视图" @select="(id) => apply({kind: 'select-container', part, containerId: id})" @target="(element) => setTarget(part, element)">
+                <WorkbenchToolPartHost :part="part" :presentation="presentation.parts[part]" :selected="selectedOf(part)" locale="zh-CN" :label="PART_LABELS[part]" empty-text="这里还没有视图" id-prefix="lab-views" @select="(id) => apply({kind: 'select-container', part, containerId: id})" @target="(element) => setTarget(part, element)">
                     <template #actions="{container}">
                         <WorkbenchMoveViewMenu v-if="singleViewOf(container) !== null && menuOf(singleViewOf(container)!) !== null" label="移动到" :view-id="singleViewOf(container)!" :source-container-id="menuOf(singleViewOf(container)!)!.source" :groups="menuOf(singleViewOf(container)!)!.groups" :reset-label="menuOf(singleViewOf(container)!)!.resetLabel" :identity="menuOf(singleViewOf(container)!)!.identity" @move="(payload) => apply({kind: 'move-view', ...payload})" @reset="(viewId) => apply({kind: 'reset-view', viewId})" />
                     </template>
@@ -192,14 +198,14 @@ const position = computed({get: () => panel.value.position, set: (value: string 
                         <Tabs class="min-w-0 flex-1" size="sm" :model-value="presentation.parts.panel.selected ?? ''" :items="panelTabs" aria-label="面板" @update:model-value="(id: string) => apply({kind: 'select-container', part: 'panel', containerId: id})" />
                         <WorkbenchMoveViewMenu v-if="singleViewOf(selectedOf('panel')) !== null && menuOf(singleViewOf(selectedOf('panel'))!) !== null" label="移动到" :view-id="singleViewOf(selectedOf('panel'))!" :source-container-id="menuOf(singleViewOf(selectedOf('panel'))!)!.source" :groups="menuOf(singleViewOf(selectedOf('panel'))!)!.groups" :reset-label="menuOf(singleViewOf(selectedOf('panel'))!)!.resetLabel" :identity="menuOf(singleViewOf(selectedOf('panel'))!)!.identity" @move="(payload) => apply({kind: 'move-view', ...payload})" @reset="(viewId) => apply({kind: 'reset-view', viewId})" />
                     </template>
-                    <WorkbenchToolPartHost part="panel" :presentation="presentation.parts.panel" :selected="selectedOf('panel')" locale="zh-CN" label="面板" empty-text="这里还没有视图" @select="(id) => apply({kind: 'select-container', part: 'panel', containerId: id})" @target="(element) => setTarget('panel', element)" />
+                    <WorkbenchToolPartHost part="panel" :presentation="presentation.parts.panel" :selected="selectedOf('panel')" locale="zh-CN" label="面板" empty-text="这里还没有视图" id-prefix="lab-views" @select="(id) => apply({kind: 'select-container', part: 'panel', containerId: id})" @target="(element) => setTarget('panel', element)" />
                 </WorkbenchPanelSurface>
             </template>
             <template #statusbar>
                 <div class="flex h-full items-center px-3 text-xs text-[var(--text-secondary)]">状态栏</div>
             </template>
         </WorkbenchShellLayout>
-        <WorkbenchViewInstances :presentation="presentation" :source="source" :part-targets="partTargets" :shown-parts="shownParts" :memory="memory" :root="hostEl" locale="zh-CN" @intent="apply">
+        <WorkbenchViewInstances :presentation="presentation" :source="source" :part-targets="partTargets" :shown-parts="shownParts" :memory="memory" :root="hostEl" locale="zh-CN" @intent="apply" @generations="(next) => (generations = next)">
             <template #view-actions="{viewId}">
                 <WorkbenchMoveViewMenu v-if="menuOf(viewId) !== null" label="移动到" :view-id="viewId" :source-container-id="menuOf(viewId)!.source" :groups="menuOf(viewId)!.groups" :reset-label="menuOf(viewId)!.resetLabel" :identity="menuOf(viewId)!.identity" @move="(payload) => apply({kind: 'move-view', ...payload})" @reset="(id) => apply({kind: 'reset-view', viewId: id})" />
             </template>
@@ -213,7 +219,7 @@ const position = computed({get: () => panel.value.position, set: (value: string 
         <div class="flex flex-wrap items-center gap-2 text-xs">
             <Button size="sm" variant="secondary" data-lab-toggle="load-failure" @click="toggle(loadFailures, 'test.timeline')">{{ loadFailures.has("test.timeline") ? "时间线：恢复加载" : "时间线：加载失败" }}</Button>
             <Button size="sm" variant="secondary" data-lab-toggle="render-failure" @click="toggle(renderFailing, 'test.notes')">{{ renderFailing.has("test.notes") ? "笔记：恢复渲染" : "笔记：渲染出错" }}</Button>
-            <Button size="sm" variant="secondary" data-lab-toggle="entry-stopped" @click="toggleDelivery('test.terminal', {kind: 'entry-stopped', reason: 'scope-closed'})">终端：入口停止/恢复</Button>
+            <Button size="sm" variant="secondary" data-lab-toggle="entry-stopped" @click="toggleDelivery('test.terminal', {kind: 'entry-stopped', reason: 'scope-closed'})">终端：模拟入口停止 / 模拟重新交付</Button>
             <Button size="sm" variant="secondary" data-lab-toggle="entry-failed" @click="toggleDelivery('test.terminal', {kind: 'entry-failed', reason: '样例入口启动失败'})">终端：入口启动失败</Button>
             <Button size="sm" variant="secondary" @click="togglePart('sidebar')">{{ hiddenParts.includes("sidebar") ? "显示侧栏" : "隐藏侧栏" }}</Button>
             <span class="text-[var(--text-secondary)]">面板位置</span>

@@ -7,7 +7,8 @@
  *   这样撤回之后不会再用旧实现。
  *
  * 句柄之外的状态（入口受阻、激活失败、已停止）从宿主能力 `window.plugins` 查；它的变化通知不精确，所以交付状态每次
- * 都重新求，句柄优先：有已发布的句柄就是 `available`。
+ * 都重新求，句柄优先：有仍 published 的句柄才是 `available`。入口开始停止时句柄先失去 published、撤回稍后才到，
+ * 这段时间按已停止呈现（停止开始时内核会记诊断，变化通知随之到达）。
  */
 
 import {shallowRef} from "@vue/reactivity";
@@ -73,7 +74,11 @@ export class ViewRegistry implements ViewSource {
 
     delivery(viewId: string): ViewDelivery {
         void this.#version.value;
-        if (this.#handles.has(viewId)) return {kind: "available"};
+        if (this.#stopped) return {kind: "entry-stopped", reason: "receiver-closed"};
+        const handle = this.#handles.get(viewId);
+        if (handle?.published === true) return {kind: "available"};
+        // 句柄还在表里但已不 published：入口开始停止、撤回还在排队（接收者的串行锁）。按已停止呈现，实例层不再拿它加载。
+        if (handle !== undefined) return {kind: "entry-stopped", reason: "stopped"};
         const owner = this.#owners.get(viewId);
         const state = owner?.entry === null || owner === undefined ? null : this.#plugins?.entryState({plugin: owner.plugin, entry: owner.entry}) ?? null;
         if (state?.status === "blocked") return {kind: "entry-blocked", reason: entryReason(state)};

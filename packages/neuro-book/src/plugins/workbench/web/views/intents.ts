@@ -38,6 +38,11 @@ export interface ViewPlacementPatch {
 /** 视图的字段补丁：`null` 删除该字段，缺省不动。 */
 export interface ViewFieldPatch {
     readonly placement?: ViewPlacementPatch | null;
+    /**
+     * 只改顺序：重放时视图仍在 `placement.container`（有覆盖指向它，或没有覆盖且这就是它的隐式容器）才写，否则不动。
+     * 目标容器的序号排满时给其它成员重排用：被动成员的归属不是本次意图，不能盖掉另一个窗口已保存的移动。
+     */
+    readonly reorder?: ViewPlacementPatch;
     readonly width?: number | null;
     readonly height?: number | null;
     readonly collapsed?: boolean | null;
@@ -91,7 +96,7 @@ function moveView(state: IntentState, intent: Extract<ViewIntent, {kind: "move-v
         if (order > ORDER_MAX) {
             others.forEach((member, index) => {
                 const memberDeclaration = catalog.get(member.id)!;
-                views[member.id] = {placement: {container: intent.targetContainerId, order: index + 1, fingerprint: defaultFingerprint(memberDeclaration)}};
+                views[member.id] = {reorder: {container: intent.targetContainerId, order: index + 1, fingerprint: defaultFingerprint(memberDeclaration)}};
             });
             order = others.length + 1;
         }
@@ -174,6 +179,11 @@ export function applyPatch(value: DeepReadonly<Customizations>, patch: Customiza
                 entry.container = fields.placement.container;
                 entry.order = fields.placement.order;
                 entry.fingerprint = fields.placement.fingerprint;
+            }
+            if (fields.reorder !== undefined && (entry.container ?? implicitContainerId(viewId)) === fields.reorder.container) {
+                entry.container = fields.reorder.container;
+                entry.order = fields.reorder.order;
+                entry.fingerprint = fields.reorder.fingerprint;
             }
             for (const name of ["width", "height", "collapsed"] as const) {
                 const field = fields[name];
