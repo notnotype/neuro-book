@@ -65,7 +65,7 @@ owners:
    - 创建失败：请求方得到 `create-failed`，附原因（启动超时、启动中退出带退出码、实例启动失败带失败入口）；子进程不残留。
 4. **项目子进程。** 服务端用自己的 Bun 可执行文件运行项目宿主入口（打包产物的 `project.js`；开发模式与测试使用各自的源码入口），经 Bun 的进程间通信建立链路，帧与客户端链路使用同一 JSON 编码（[远程服务与 RPC 协议](plugin-channel.md) 的“进程间链路”）。项目宿主：
    - 建立远程节点，实例描述 `{id: "project:<项目 id>#<代次>", kind: "project", role: "project", project: {id, generation}, client: null}`；服务端路由只接受与此完全一致的描述。
-   - 建立 `project` 位置的运行实例，装配清单中有 `project` 运行位置的入口，本地能力 `currentProjectKey` 提供 `{id, name, generation, root}`（`root` 是项目目录的真实路径）。
+   - 建立 `project` 位置的运行实例，装配清单中有 `project` 运行位置的入口，本地能力 `currentProjectKey` 提供 `{id, name, generation, root}`（`root` 是项目目录的真实路径），`clockKey` 与服务端相同（planned）。
    - 运行实例可用之后才报告“已启动”；启动失败报告“启动失败”与失败原因，然后按停止序列收口并退出。
    - 诊断写入每个项目自己的日志位置 `<状态根>/logs/projects/<短名>/`（诊断文件出口按位置持有授予，与服务端的 `<状态根>/logs/` 各自持有）；标准输出与标准错误由服务端逐行转发到自己的输出，每行加前缀 `[project <短名>#<代次>]`。
    - 收到服务端的停止请求，或与服务端的进程间链路断开（服务端已不在），即按停止序列停止：依赖逆序关闭插件，正常以 0 退出，停止中有步骤失败以 1 退出。

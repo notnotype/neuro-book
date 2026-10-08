@@ -46,7 +46,7 @@ NeuroBook 以一个 monorepo 维护应用、共享合同与可独立维护的包
 ```
 
 - UI、HTTP 路由和 CLI 负责解析输入、授权、错误映射和编排；领域 Module 负责业务规则和数据所有权。
-- 插件之间只经内核登记的贡献点、服务与命令协作，不在运行时 import 其它插件的模块（[ADR 0022](../adr/0022-extensible-platform-and-plugin-trust.md)）。
+- 插件之间只经内核登记的贡献点、服务、远程服务与命令协作；运行时只引用对方对外公开的合同模块（新应用里是 `shared/contracts.ts`：服务键、远程合同、贡献点 id、schema、配置定义），不 import 对方的实现（[ADR 0022](../adr/0022-extensible-platform-and-plugin-trust.md)、[ADR 0026](../adr/0026-plugin-definitions-as-constants.md)）。
 - 根 `scripts/` 只保留跨 workspace 的治理与自动化；应用专属的 smoke、seed 与开发命令进入应用包。
 - 应用与领域包不得依赖 `@notnotype/neuro-book-legacy`；从旧应用迁入的代码整理后进入新位置，不保留对旧路径的引用。
 - 共享 DTO 或 verifier 只有在实际存在跨宿主复用且不会形成反向环时才下沉，不为“看起来干净”提前抽包。

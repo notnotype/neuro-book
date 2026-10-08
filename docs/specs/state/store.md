@@ -15,7 +15,7 @@ owners:
 
 不承诺：
 
-- 读配置的辅助函数：形状见输出第 19 条（planned），随配置能力实现；本能力不提供替代实现。
+- 读配置的辅助函数：见输出第 19 条（planned）。
 - 服务端数据的副本与查询缓存；跨实例共享同一个 store；全局 store 注册表。
 - `unknown-outcome` 的自动判定（写可能已落盘时由拥有者决定重试或放弃）。
 - 强制退出与浏览器页面关闭时保存完未发出的修改。
@@ -107,7 +107,7 @@ type CommitResult = "saved" | "failed" | "unknown" | "protected" | "cancelled" |
 16. **打开失败、读取错误与订阅结束**：`open` 失败、订阅送来读取错误、或订阅结束（`provider-stopped`、`project-gone`、`server-restarted`、`released`）时 `failure` 记下失败码，`canSave` 立即为 false；在途的保存按它的结果结算，排队的队首以 `failed` 结算并暂停。读取错误之后再收到正常快照时 `failure` 自动清空；其余不自动恢复。`reopen()` 换代重新打开并订阅，拿到新的基线后 `failure` 清空，由拥有者 `retry`。
 17. **停止**：入口开始停止后调用 action 抛错（可按错误类型判定）。store 释放时先等在途保存结束，再按队列顺序发送已接受的意图（含一次冲突重放），直到队列空或队首失败；剩下的意图以 `cancelled` 结算并记一条诊断。随后结束 Storage 订阅、停止 setup 的响应式作用域。
 18. **私有**：store 实例只经创建它的入口交出的视图与 action 访问；同一定义在两个入口或两个实例里创建的是两份，互不相见。
-19. **读配置（planned）**：setup 上下文增加按配置键取只读有效值的辅助函数，值随配置变化更新；形状与失败语义随配置能力定。
+19. **读配置（planned）**：setup 上下文的 `setting(定义)` 返回 `Readonly<Ref<DeepReadonly<T>>>`，值是 [`settings.configuration`](../settings/configuration.md) 的有效值，随配置变化更新，同步、不失败；`create` 的选项增加 `settings`（`SettingsService`），setup 里用了 `setting` 而没给 `settings` 时 `create` 抛错（与 `persist` 要求 `storage` 相同）。配置值不自动进入公开状态：要在 `when` 里用的，在 setup 里读配置再 `publish`。
 
 ## 状态与转换
 

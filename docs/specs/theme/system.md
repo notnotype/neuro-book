@@ -11,25 +11,19 @@ owners:
 
 ## 概述
 
-Novel IDE 的主题由 **nb-ui 的两条轴**承担：**主题包**（形状 / 材质 / 排版 / 角色映射）与**配色**（颜色，按明暗分档）。产品只登记 `nbook` 与 `macos` 两套主题包，配色明暗由主题包自带的 `defaultColorway` 决定。老的自研 8 主题体系与自定义主题（`custom-*`）已整体下线，不留兼容层。
+NeuroBook 的主题由 **nb-ui 的两条轴**承担：**主题包**（形状 / 材质 / 排版 / 角色映射）与**配色**（颜色，按明暗分档）。产品只装 `nbook` 与 `macos` 两套主题包，配色取主题包自带的 `defaultColorway[明暗]`。老的自研 8 主题体系与自定义主题（`custom-*`）已整体下线，不留兼容层。
 
 业务组件只消费 CSS 变量，不维护第二套颜色源。
 
+新应用（`packages/neuro-book`）的事实源与运行时流程见下两节（planned）；旧应用（`packages/neuro-book-legacy`）的做法见其源码，只作参照。
+
 ## 事实源
 
-- `packages/neuro-book/shared/theme/theme-axes.ts`
-  - `productThemeIds`：`nbook | macos`，配置白名单。
-  - `productAppearances`：`light | dark`。
-  - `DEFAULT_PRODUCT_THEME_ID` / `DEFAULT_PRODUCT_APPEARANCE`：`nbook` + `light`。
-- `packages/neuro-book/app/utils/theme/theme-packs.ts`
-  - 装载 nbook / macos（顺序 = 设置里主题列表的顺序）；已装过则跳过，避免与 `/lab` 重复装载冲突。
-- `packages/neuro-book/app/utils/theme/theme-session.ts`
-  - 两轴会话（模块级单例）：`themeId` / `appearance` / `colorwayId` / `colorwayVars`。
-  - 落地点是 `<html>`：`data-nb-theme`、`data-nb-appearance`、`style.colorScheme`，以及配色变量（`<html>` 与 `<body>` 各写一份）。
-- `packages/neuro-book/app/utils/theme/host.ts`
-  - `THEME_HOST_CLASS = "novel-ide-theme"`：页面根节点的宿主 class，浮层 Teleport 的落点；`ensureThemeHost()` 只补 class、不写变量。
-- `packages/neuro-book/app/composables/useThemeSettings.ts`
-  - 写入口：乐观应用 → 写 Global Config → 失败回滚并提示。
+- 配置项（[`settings.configuration`](../settings/configuration.md)），工作台在描述里声明，定义在 `src/plugins/workbench/shared/contracts.ts`：
+  - `nbook.workbench/theme`：`"nbook" | "macos"`，默认 `"nbook"`；
+  - `nbook.workbench/appearance`：`"light" | "dark" | "system"`，默认 `"light"`；
+  - 两项都允许用户层与项目层。
+- `src/ui/theme/`：装载两套主题包（已装过则跳过，与 `/lab` 共存）与无状态的应用、清除函数：把主题包、明暗与配色写到文档根（`<html>` 的 `data-nb-theme`、`data-nb-appearance`、`style.colorScheme` 与配色变量），清除时去掉它们。Lab 与工作台共用，偏好与状态各管各的。
 - nb-ui 侧
   - `src/theme/theme-loader.ts`：装载校验（含 `defaultColorway` 指向的配色必须存在）与 fallback 兜底层。
   - `src/tokens.css`：设计 token、主题层基线与「角色 → 配色变量」映射。
@@ -37,27 +31,11 @@ Novel IDE 的主题由 **nb-ui 的两条轴**承担：**主题包**（形状 / �
 
 ## 运行时流程
 
-1. `/api/config/bootstrap` 返回 Global Config 中的 `ui.themeId` 与 `ui.appearance`。
-2. `app/pages/index.vue` 调用 `useProductTheme().applyStoredAxes(...)`：白名单外的取值（老 id、`custom-*`、缺失字段）一律回落默认，**不做映射**。
-3. 会话把两轴写到 `<html>`；配色变量来自当前主题包 `manifest.defaultColorway[appearance]` 指向的那套配色。
-4. 切换走 `useThemeSettings().saveAxes({themeId?, appearance?})`：先本地应用，再静默保存 Global Config；失败时通知并回滚。
-5. 模块首次求值就落一次默认值，配置读回之前界面也是完整主题。
-
-登录页、Admin 用户页与 Profile Template Visual Editor 共用同一个会话单例（不再各自持有主题源）；它们与工作台一样，只需保证页面根节点带宿主 class。
-
-## 存储契约
-
-Global Config `ui` 字段：
-
-```ts
-type UiConfig = {
-    themeId: "nbook" | "macos";
-    appearance: "light" | "dark";
-    costCurrency: "USD" | "CNY";
-};
-```
-
-`ui.customThemes` 与老 `ui.theme` 已从 schema 删除：配置文件里残留的旧键在 normalizer 里被忽略，读到旧 id 时回落到 `nbook` + `light`。
+1. 工作台渲染的页面挂载时，按配置的两项求出主题包、明暗与配色，写到文档根；`appearance` 为 `system` 时读 `prefers-color-scheme` 的当前值并监听变化，只改文档的明暗与配色，不改写配置。
+2. 配置变化（命令、另一个窗口、外部改文件）时重新应用；页面卸载时停止应用与监听。应用不放在一直存活的插件激活作用域里。
+3. 产品页面（首页与工作台根）的背景、文字颜色与字体消费 nb-ui 的 token，切换主题后看得见变化；宿主的启动与失败页保留自己的样式。
+4. Lab（`/lab`）是离开时整页加载的独立页面，自己管文档根与偏好，不读产品配置（[`ui.component-lab`](../ui/component-lab.md)）；离开 Lab 后整页加载，工作台按最新配置重新应用。
+5. 切换走命令 `nbook.settings.switch-theme`、`nbook.settings.switch-appearance`（[`workbench.commands`](../workbench/commands.md)），写入目标为 `auto`：项目层已覆盖主题时写项目层，否则写用户层。
 
 ## 变量体系
 
@@ -121,9 +99,8 @@ NotificationViewport 挂在页面根节点之外，但配色变量写在 `<html>
 ## 验证
 
 - 变量新增、删除、重命名时同步 nb-ui 侧契约（`colorway-contract.ts` / `tokens.css`）与主题包，本参考只记映射与规则。
-- 四个组合（nbook / macos × light / dark）在 `<html>` 上的取值与主题包逐项一致，由 `app/utils/theme/theme-session.test.ts` 锁定。
+- 四个组合（nbook / macos × light / dark）写到文档根的取值与主题包逐项一致，`system` 跟随系统明暗，由 `src/ui/theme/` 的组件测试锁定；产品页面随配置换主题、Lab 显示期间不被改写，由 `e2e/settings.e2e.ts` 验证（planned）。
 - 常用命令：
-  - `bun x vue-tsc --noEmit -p packages/neuro-book/tsconfig.json`
+  - `bun run --cwd packages/neuro-book typecheck`
   - `bun run --cwd packages/neuro-book test`
   - `bun run --cwd packages/nb-ui test`
-  - DTO / config route 变化后再跑 `bun run generate:openapi`

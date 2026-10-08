@@ -57,7 +57,7 @@ owners:
 ## 输出与可观察行为
 
 - **命令身份**：内置插件（`nbook.*`）的命令 id 使用三段式命名空间 `nbook.<domain>.<action>`，全小写 kebab-case 分段（与 View descriptor 的 id 规则一致），域词表见「边界与兼容」；其它插件的命令 id 以自己的插件 id 开头、再接一段动作（`<插件 id>.<action>`），不能占用 `nbook` 命名空间。
-- **标题**：`title` 与可选的 `category` 是中英两份文本 `{zh-CN, en-US}`，界面按显示语言取其中一份（设置插件加入前固定简体中文）；`description` 是稳定的英文语义说明，不随界面语言变化。
+- **标题**：`title` 与可选的 `category` 是中英两份文本 `{zh-CN, en-US}`，界面按当前显示语言（配置项 `nbook.settings/locale`，[`settings.configuration`](../settings/configuration.md)）取其中一份，语言切换后已打开的面板即时换文字（planned）；`description` 是稳定的英文语义说明，不随界面语言变化。
 - **登记与冲突**：
   - 经贡献点：内核要求贡献 id 在贡献点内唯一，两个插件贡献同一命令 id 时两条一起被拒绝，原因可查，与加载顺序无关；不合格的声明（id 不合规则、标注与 `effect` 冲突、结构不符）只拒绝这一条，插件的其它贡献照常。
   - 直接向本地命令表登记（Lab 场景）：同一定义对象重复登记幂等，返回同一个释放函数；不同对象登记同一 id 时拒绝后来者、保留首个，同一原因只报告一次。
@@ -65,7 +65,7 @@ owners:
 - **枚举**：任何消费者可获取本运行位置全部 canonical 命令及其元数据（id、贡献方、标题、描述、参数形状、`when`、默认键位、暴露策略、`effect`）；别名不出现在 canonical 枚举中，审计的 `id` 用 canonical，`requestedId` 保留输入。两个运行位置的命令表互不相见。
 - **执行顺序**（固定，不可交换）：解析白名单 → agent 暴露检查 → 严格参数校验 → 当前 `when` → agent 只读检查 → 必要确认 → 复查条目身份/参数不变性/`when`/模式 → `run` → 单次审计。
 - **结果合同**：成功为 `{ok:true, value}`（void 命令显式 `null`，不把 Promise rejection 当成功）；失败为 `{ok:false, code, reason}`，失败码固定九个：`unknown-command`、`unavailable`、`invalid-args`、`not-exposed`、`read-only`、`confirmation-required`、`denied`、`execution-error`、`stale-target`。
-- **可用性求值**：`when` 是上下文键的 all-of 正条件；登记的键缺失按 false 求值。`when` 引用的键是否存在在求值时判断，不在登记时判断：未登记（或不是布尔）的键使命令不可用，原因写明是哪个键，命令表对同一命令的同一个键只记一次诊断；之后这个键被登记，命令按它的值求值。求值失败/不满足返回 `unavailable` 与缺失原因。
+- **可用性求值**：`when` 是上下文键的 all-of 正条件；登记的键缺失按 false 求值。`when` 引用的键是否存在在求值时判断，不在登记时判断：未登记（或不是布尔）的键使命令不可用，原因写明是哪个键，命令表对同一命令的同一个键只记一次诊断；之后这个键被登记，命令按它的值求值。求值失败/不满足返回 `unavailable` 与缺失原因；原因按求值时的显示语言给出，已记下的诊断保留当时的文字（planned）。
 - **`when` 读公开状态**：产品命令表里，`when` 引用的键是本运行位置入口声明的、已被接受的布尔公开键；求值时键未就绪按 false，原因取声明的 `reason`；键未声明、只在别的运行位置声明或不是布尔，按上一条为不可用。`when` 只在命令所在的实例求值，不跨实例读状态；拥有键的入口激活、停止与值的变化即时反映在可用性上，命令面板开着时候选随之变化。
 - **跨实例列出与执行**：浏览器的 `nbook.commands` 入口提供远程服务 `nbook.commands/remote`，第一版只允许服务端调用，服务端插件以 `.at({client: 窗口实例 id})` 选定窗口：
   - `list({})`（读）：该窗口命令表里 `expose.agent` 不为 `never` 的命令元数据，每条带此刻按该窗口公开状态求出的可用性与不满足的原因；
@@ -133,6 +133,19 @@ owners:
 | 命令 id | 标题 | 参数 | `when` | `effect` | agent 暴露 | 提供方 |
 |---|---|---|---|---|---|---|
 | `nbook.project.open` | 打开项目 / Open Project | `{}` | 无 | write | never（整页重新加载会打断 Agent 所在的窗口） | `nbook.projects` 浏览器入口；经命令面板的选择模式选项目或输入目录，行为见 [`runtime.projects`](../runtime/projects.md) 输出第 10 条 |
+
+### 命令目录（设置）
+
+本节 planned。三条命令给了参数就直接写入、不打开选择；没给参数时经命令面板的选择模式列出可选值，用户取消为成功、无副作用。
+
+| 命令 id | 标题 | 参数 | `when` | `effect` | agent 暴露 | 提供方 |
+|---|---|---|---|---|---|---|
+| `nbook.settings.switch-locale` | 切换界面语言 / Change Display Language | `{locale?}`（`zh-CN`\|`en-US`） | 无 | write | auto | `nbook.settings` 浏览器入口；写用户层 |
+| `nbook.settings.switch-theme` | 切换主题 / Change Theme | `{theme?}`（`nbook`\|`macos`） | 无 | write | auto | `nbook.workbench`；写入目标 `auto` |
+| `nbook.settings.switch-appearance` | 切换明暗 / Change Appearance | `{appearance?}`（`light`\|`dark`\|`system`） | 无 | write | auto | `nbook.workbench`；写入目标 `auto` |
+
+- 域取 `settings`：内置命令的域表示功能领域，不等于提供方插件 id。
+- 配置写入失败转换为命令失败：`denied` → `denied`；`unavailable`、`no-project` → `unavailable`；`invalid-value` → `invalid-args`；其余 → `execution-error`，`reason` 写明配置的失败码与说明。
 
 ### 命令目录（第二批 · 外壳与 View 标题）
 
