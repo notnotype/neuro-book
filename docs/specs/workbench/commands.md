@@ -163,7 +163,7 @@ owners:
 
 - 参数一律严格校验（`additionalProperties: false`）：多余字段、未知取值都是 `invalid-args`，不静默补齐；四条面板命令的参数可以省略（命令面板对普通候选执行 `{}`，与设置命令同一写法），选择被取消为成功且不写。
 - 前六条写的是**同一份用户定制记录**（面板状态）或既有移动写入路径；尺寸（高度/宽度）不在这里写，只由手势落点提交，避免两个写者。
-- `move-view` 的目标是除来源外的已有容器（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 24）。只给一部分参数为 `invalid-args`；视图不存在、不可移动或目标容器不存在为 `invalid-args`；视图已不在 `sourceContainerId`（菜单或选择过期）为 `stale-target` 且零写入；目标就是当前容器为成功且不写。无参选择期间来源、目标或视图代际变化，同样按过期拒绝。
+- `move-view` 的目标是除来源外的已有容器（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 24）。只给一部分参数为 `invalid-args`；视图不存在、不可移动或目标容器不存在为 `invalid-args`；视图已不在 `sourceContainerId`（菜单或选择过期）为 `stale-target` 且零写入；目标就是当前容器为成功且不写。无参的两步选择之间视图被移走，同样按过期拒绝。
 - `refresh-files` 是 View 贡献动作的样例：命令只携带 `{viewId, generation}`，命中句柄与代际校验归宿主；活动 View 或实例代际变化后的迟到点击按 `stale-target` 拒绝。
 - 面板命令返回时布局已按新值显示；保存在后台进行，失败由状态栏的“布局未保存”给出（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 11），命令不等保存完成、也不把“已接纳”说成“已保存”。
 

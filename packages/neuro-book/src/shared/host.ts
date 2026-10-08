@@ -5,6 +5,7 @@
  */
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
+import type {EntryRef, EntryState} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
@@ -43,3 +44,25 @@ export interface WindowConnection {
 
 /** 浏览器宿主提供给本窗口的插件；建立失败的远程订阅不会被内核重建，插件据此在回到在线时重新订阅。 */
 export const windowConnectionKey: ServiceKey<WindowConnection> = defineServiceKey<WindowConnection>("nbook/window-connection");
+
+/** `WindowPlugins.retry` 的结果：恢复并重新激活了，或为什么没有。 */
+export type WindowPluginRetry =
+    | {readonly status: "activated"}
+    | {readonly status: "not-failed"}
+    | {readonly status: "failed"; readonly reason: string};
+
+/**
+ * 本窗口的插件入口状态（docs/specs/workbench/views.md 输出 8）：工作台据此原位显示视图所属入口的受阻、失败与停止，并对
+ * 激活失败的入口提供“重试”。插件管理实现后这些职责并入它的服务。
+ */
+export interface WindowPlugins {
+    /** 入口当前状态；未登记、或运行实例还没建立时为 null。 */
+    entryState(ref: EntryRef): EntryState | null;
+    /** 入口状态可能变了（激活开始、失败、停止、恢复）时调用；返回取消函数。监听抛错只记诊断。 */
+    onChange(listener: () => void): () => void;
+    /** 只对激活失败的入口：恢复后重新激活。 */
+    retry(ref: EntryRef): Promise<WindowPluginRetry>;
+}
+
+/** 浏览器宿主提供给本窗口的插件。 */
+export const windowPluginsKey: ServiceKey<WindowPlugins> = defineServiceKey<WindowPlugins>("nbook/window-plugins");

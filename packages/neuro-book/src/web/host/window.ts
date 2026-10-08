@@ -23,7 +23,7 @@ import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exp
 import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
 import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
-import {clockKey, windowConnectionKey, windowNavigationKey} from "nbook/shared/host";
+import {clockKey, windowConnectionKey, windowNavigationKey, windowPluginsKey} from "nbook/shared/host";
 import type {WindowConnection, WindowConnectionState} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
@@ -34,6 +34,7 @@ import {BrowserRuntimeHost} from "./browser-host";
 import type {BrowserHost, PageLifecycleTarget} from "./browser-host";
 import type {Connection, RpcEndpoint} from "./connection";
 import {createRemoteSession} from "./remote-session";
+import {createWindowPlugins} from "./window-plugins";
 import type {RemoteSession} from "./remote-session";
 
 /** `connection-failed` 与 `project-unavailable` 可以原地重试；其余要刷新页面。 */
@@ -175,6 +176,8 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         const project: WindowProject["project"] = node.binding === null ? null : {id: node.binding.id, name: node.binding.name, generation: node.binding.generation};
         try {
             const context: BrowserPluginContext = {store, console: options.console};
+            const observers = mechanismObservers(store);
+            const windowPlugins = createWindowPlugins(() => host?.application.plugins ?? null, (error) => store.record({level: "warn", event: "browser-host.plugins-listener.failed", message: "入口状态的监听抛错", error}));
             // 登记看的是定义里的 id，引导集合与必需插件看的是表项的 id：两者不一致时不装，否则会装进集合之外的插件。
             const plugins = selected.map((plugin) => {
                 const definition = plugin.kind === "host" ? plugin.factory(context) : plugin.definition;
@@ -194,6 +197,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                         {id: "window.navigation", key: windowNavigationKey, create: () => navigation},
                         {id: "window.connection", key: windowConnectionKey, create: () => link.connection},
                         {id: "clock", key: clockKey, create: () => clock},
+                        {id: "window.plugins", key: windowPluginsKey, create: () => windowPlugins.capability},
                     ],
                     plugins,
                     requiredPlugins: REQUIRED_PLUGINS,
@@ -207,7 +211,10 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                             root = resolved.instance;
                         },
                     }],
-                    observers: mechanismObservers(store),
+                    observers: {...observers, plugins: {diagnosticRecorded: (diagnostic) => {
+                        observers.plugins?.diagnosticRecorded?.(diagnostic);
+                        windowPlugins.diagnosticRecorded(diagnostic);
+                    }}},
                     remote: node,
                     delegation: (plugin) => delegatingPlugins.includes(plugin),
                 },

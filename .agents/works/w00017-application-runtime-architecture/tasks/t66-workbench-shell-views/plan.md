@@ -22,7 +22,7 @@
 - **注册表的两种输入**（审查 D04、L1）：
   - 声明目录：工作台入口激活时从 `context.declarations.list("workbench.views")` 取本位置已接受的声明（当前是静态清单，登记后不变）；未交付的声明也出现在导航里。
   - 交付句柄：接收者 `published` 时记下 `ContributionHandle`，`revoke` 时按原因改交付状态：`receiver-closed` 只释放运行资源；`scope-closed`、`activation-stopped`、`delivery-failed` 卸载实例、保留布局项，原位显示原因。声明真正消失（插件禁用、卸载）要等插件管理，本片没有来源，只在纯模型测试里覆盖清理规则。
-  - 入口状态：新增宿主能力 `window.plugins`（`browser-host.ts` 用应用自己的 `PluginHost` 实现）：`entryState(ref)`、状态变化通知（经插件诊断观察者与 `startup` 完成）、`retry(ref)`（对 `failed` 入口 `recover` 再 `activate`）。工作台只对声明了 `workbench.views` 的入口查询与重试。注册表据此区分 `declared`（入口未激活或激活中）、`entry-blocked(reason)`、`entry-failed(reason)`、`entry-stopped`、`available`；加载与渲染失败在实例层另记（第 4 节）。
+  - 入口状态：新增宿主能力 `window.plugins`（`browser-host.ts` 用应用自己的 `PluginHost` 实现）：`entryState(ref)`、状态变化通知（经插件诊断观察者与 `startup` 完成）、`retry(ref)`（对 `failed` 入口 `recover` 再 `activate`）。工作台只经视图 id 查询与重试。注册表据此区分 `declared`（入口未激活或激活中）、`entry-blocked(reason)`、`entry-failed(reason)`、`entry-stopped`、`available`；加载与渲染失败在实例层另记（第 4 节）。
 - **加载门禁**（审查 L3）：每次加载调用 `handle.implementation().load()`，不缓存实现；结果回来时核对“所捕获句柄仍是当前句柄且 `published`、视图代际未变、工作台未停止”，任一不符就丢弃，不记为加载失败。
 - **新 Spec** `docs/specs/workbench/views.md`（`planned`，外壳二实现后标注）：声明、实现、注册表输入、实例生命周期矩阵、三种失败、撤回与受阻的呈现、`ViewContext`、`window.plugins` 的边界、验收。
 
@@ -77,7 +77,7 @@
   - 五个视图（侧栏三个、右栏一个、面板一个），都在各自的隐式容器；一个视图的 `load()` 按开关失败、一个视图组件按开关渲染出错（开关是测试插件自己的 `localStorage` 键，测试用 `addInitScript` 设）。
   - 一个浏览器入口，贡献视图并登记测试命令 `test.sample-views.stop`。入口状态的三条真实路径：
     - 激活失败后恢复：开关让入口激活抛错 → 工作台原位显示原因与“重试” → 测试清掉开关、点“重试”（`window.plugins.retry`）→ 新代次交付、视图新代际、布局保留。
-    - 入口停止：测试命令让入口关闭自己的激活作用域 `context.scope`（不等待，真实 `scope-closed` 撤回，声明仍在）→ 原位显示“已停止”、布局保留；正常停止后的再启用要插件管理，本片不做（记入待确认清单），刷新页面后恢复。
+    - 入口停止：测试命令让入口关闭自己这一代的激活作用域（`context.scope.parent`；`context.scope` 是其下的入口工作作用域，单关它会等借用它的资源；不等待，真实 `scope-closed` 撤回，声明仍在）→ 原位显示“已停止”、布局保留；正常停止后的再启用要插件管理，本片不做（记入待确认清单），刷新页面后恢复。
     - `receiver-closed`：只在 S3 的真实内核测试里覆盖（停止工作台入口）。
   - 先做最小全链路探针（一个视图从测试插件到产品页），再扩到五个。
 
