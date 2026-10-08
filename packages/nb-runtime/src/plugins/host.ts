@@ -15,7 +15,7 @@
 import {LifecycleStateError, summarizeFailure} from "../lifecycle/lifecycle";
 import type {CloseResult, FailureError, ReleaseDependency, RuntimeInstance, RuntimeLocation, Scope} from "../lifecycle/lifecycle";
 import type {ChainLink, ProviderLookup, RemoteAccess, RemoteHostBinding, RemoteProvision} from "../remote/remote";
-import type {ConsumerIdentity, EntryId, ResolveResult, ServiceAssembly, ServiceCreateContext, ServiceKey} from "../services/services";
+import type {ConsumerIdentity, EntryId, ServiceAssembly, ServiceCreateContext, ServiceKey} from "../services/services";
 
 import {PluginStateError} from "./contracts";
 import type {
@@ -1046,19 +1046,6 @@ export class PluginHostImpl implements PluginHost {
                     return required.get(key.name) as T;
                 },
                 resolve: (key, options) => this.#assembly.access(record.consumerId, attempt.work, {generation}).resolve(key, options),
-                resolveFor: async <T>(consumer: ConsumerIdentity, key: ServiceKey<T>, options?: {readonly signal?: AbortSignal}): Promise<ResolveResult<T>> => {
-                    const denied = (message: string): ResolveResult<T> => {
-                        this.#record("activate", "delegation-denied", {plugin, entry, generation});
-                        return {status: "unavailable", key: key.name, reason: "delegation-denied", providerId: null, error: {name: "DelegationDenied", message}, path: []};
-                    };
-                    if (!(record.definition.delegates ?? []).some((declared) => declared.name === key.name)) {
-                        return denied(`入口 ${plugin}/${entry} 没有声明可代理 ${key.name}`);
-                    }
-                    if (this.#delegation?.(plugin) !== true) {
-                        return denied(`插件 ${plugin} 不在代理允许清单内`);
-                    }
-                    return this.#assembly.access(record.consumerId, attempt.work, {generation}).resolveFor(consumer, key, options);
-                },
             },
         };
         let acquired;

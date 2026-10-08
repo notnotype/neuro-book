@@ -79,12 +79,6 @@ export interface ActivationContext {
         require<T>(key: ServiceKey<T>): T;
         /** 只允许解析入口声明过的键；借用登记到 context.scope，可用于该作用域资源的 dependsOn。 */
         resolve<T>(key: ServiceKey<T>, options?: ResolveOptions): Promise<ResolveResult<T>>;
-        /**
-         * 委托（runtime.plugins 输出第 20 条）：在本入口交出的按调用方门面里，以收到的调用方身份取得
-         * `key` 的门面。键必须同时在 `delegates` 与依赖中声明，插件必须在宿主的代理允许清单内；
-         * 不满足时返回 `delegation-denied`。
-         */
-        resolveFor<T>(consumer: ConsumerIdentity, key: ServiceKey<T>, options?: ResolveOptions): Promise<ResolveResult<T>>;
     };
 }
 
@@ -122,13 +116,11 @@ export interface PluginEntryDefinition {
     readonly provides?: ReadonlyArray<ServiceKey<unknown>>;
     /** 本入口接收的、由本插件定义的贡献点。 */
     readonly receives?: ReadonlyArray<string>;
-    /** 本入口可代表调用方解析的服务键（委托）；这些键也必须在 `dependencies` 中声明。 */
-    readonly delegates?: ReadonlyArray<ServiceKey<unknown>>;
     /** 本入口提供的远程服务合同 id；首次远程调用时按需激活本入口（onRemote）。 */
     readonly remoteProvides?: ReadonlyArray<string>;
     /**
-     * 本入口可代表调用方调用的远程服务合同 id（经 `context.remote.on`）。`delegates` 管本地服务键的
-     * `resolveFor`，这里管远程合同；两者都只对代理允许清单里的插件生效。
+     * 本入口可代表调用方调用的远程服务合同 id（经 `context.remote.on`，runtime.plugins 输出第 20 条）；
+     * 只对代理允许清单里的插件生效。
      */
     readonly remoteDelegates?: ReadonlyArray<string>;
     /** 入口激活后向贡献点提交的声明。 */

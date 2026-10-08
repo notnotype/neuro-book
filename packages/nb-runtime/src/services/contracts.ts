@@ -76,12 +76,6 @@ export interface ServiceAccess {
     readonly scope: Scope;
     /** 只允许解析入口声明过的键；结果联合，不抛。 */
     resolve<T>(key: ServiceKey<T>, options?: ResolveOptions): Promise<ResolveResult<T>>;
-    /**
-     * 委托：以 `consumer` 的身份取得按调用方提供的 `key` 的门面（runtime.services 输出第 13 条）。
-     * `consumer` 必须是装配签发给本入口所提供门面的调用方身份；键必须是本入口声明过的依赖。
-     * 取得的门面随签发 `consumer` 的那个门面释放，在它的释放函数结束之后才释放。
-     */
-    resolveFor<T>(consumer: ConsumerIdentity, key: ServiceKey<T>, options?: ResolveOptions): Promise<ResolveResult<T>>;
 }
 
 export interface ServiceCreateContext {
@@ -193,9 +187,7 @@ export type UnavailableReason =
     | "initialization-failed"
     | "provider-stopped"
     | "consumer-stopped"
-    | "cancelled"
-    /** 委托被拒：原因在 `error.message`。 */
-    | "delegation-denied";
+    | "cancelled";
 
 export interface Unavailable {
     readonly status: "unavailable";
@@ -269,7 +261,7 @@ export interface IssuedConsumer {
     readonly status: "issued";
     /** 签发它的门面的释放函数结束、开始释放挂载项时触发。 */
     readonly signal: AbortSignal;
-    /** 挂一个释放步骤：在签发它的门面的释放函数结束之后，与委托取得的门面一起按逆序运行；已开始释放时立即运行。 */
+    /** 挂一个释放步骤：在签发它的门面的释放函数结束之后按逆序运行；已开始释放时立即运行。 */
     attach(step: () => void | Promise<void>): void;
 }
 

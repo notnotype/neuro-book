@@ -99,18 +99,15 @@ interface ConsumerEntry {
 type Entry = ProviderEntry | ConsumerEntry;
 
 /**
- * 装配签发的一个调用方身份：记录它是哪个提供者（代理）发给谁的门面，以便代理以该身份委托解析。
- * 委托取得的门面挂在这里，在签发它的门面的释放函数结束之后按逆序释放：代理的释放函数可能还要用它们。
+ * 装配签发的一个调用方身份：记录它是哪个提供者（代理）发给谁的门面，以便代理以该身份发出远程调用。
+ * 经代理的远程访问挂在这里，在签发它的门面的释放函数结束之后按逆序释放：代理的释放函数可能还要用它们。
  */
 interface IssueRecord {
     readonly provider: ProviderEntry;
     readonly consumer: ConsumerIdentity;
-    /** 签发身份的门面登记在哪个作用域；委托取得的借用也登记在这里。 */
-    readonly scope: Scope;
-    readonly delegated: Array<{readonly attempt: Attempt; readonly facade: RevocableFacade; readonly release: () => Promise<void>}>;
-    /** 经代理的远程访问挂上的释放步骤（`issuedTo`），在委托取得的门面之后按逆序运行。 */
+    /** 经代理的远程访问挂上的释放步骤（`issuedTo`）。 */
     readonly attached: Array<() => void | Promise<void>>;
-    /** 开始释放委托项时触发；经代理的远程访问据此取消在途调用。 */
+    /** 开始释放时触发；经代理的远程访问据此取消在途调用。 */
     readonly closing: AbortController;
     closed: boolean;
 }
@@ -161,7 +158,6 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
     readonly #diagnostics: AssemblyDiagnostic[] = [];
     /** 调用方身份对象 → 签发记录；身份对象只由装配创建，伪造的对象查不到。 */
     readonly #issued = new WeakMap<ConsumerIdentity, IssueRecord>();
-    #delegations = 0;
     #sequence = 0;
 
     constructor(instance: RuntimeInstance, options: ServiceAssemblyOptions) {
@@ -317,9 +313,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
             entryId: entry.id,
             scope,
             resolve: <T>(key: ServiceKey<T>, options: ResolveOptions = {}) =>
-                this.#resolve(entry, scope, generation, key, options, null) as Promise<ResolveResult<T>>,
-            resolveFor: <T>(consumer: ConsumerIdentity, key: ServiceKey<T>, options: ResolveOptions = {}) =>
-                this.#resolveFor(entry, scope, generation, consumer, key, options) as Promise<ResolveResult<T>>,
+                this.#resolve(entry, scope, generation, key, options) as Promise<ResolveResult<T>>,
         };
     }
 
@@ -342,28 +336,8 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         };
     }
 
-    /** 委托的身份核对；核对通过后与普通解析走同一路径，只是门面带原调用方身份并挂在签发记录下。 */
-    async #resolveFor(
-        entry: Entry,
-        scope: Scope,
-        generation: number | null,
-        consumer: ConsumerIdentity,
-        key: ServiceKey<unknown>,
-        options: ResolveOptions,
-    ): Promise<ResolveResult<unknown>> {
-        const denied = (message: string): Unavailable => {
-            this.#record("resolve", "delegation-denied", {entryId: entry.id, key: key.name, scopeId: scope.id});
-            return {status: "unavailable", key: key.name, reason: "delegation-denied", providerId: null, error: {name: "DelegationDenied", message}, path: []};
-        };
-        const issue = this.#admitIssued(entry, consumer);
-        if (typeof issue === "string") {
-            return denied(issue);
-        }
-        return this.#resolve(entry, scope, generation, key, options, issue);
-    }
-
     /**
-     * 本地委托与经代理的远程访问共用的身份核对：身份是装配签发的、签发它的门面还没释放、签发给 `entry` 的门面。
+     * 经代理的远程访问的身份核对：身份是装配签发的、签发它的门面还没释放、签发给 `entry` 的门面。
      * 通过时返回签发记录，否则返回拒绝原因。
      */
     #admitIssued(entry: Entry, consumer: ConsumerIdentity): IssueRecord | string {
@@ -417,7 +391,6 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         generation: number | null,
         key: ServiceKey<unknown>,
         options: ResolveOptions,
-        delegation: IssueRecord | null,
     ): Promise<ResolveResult<unknown>> {
         const unavailable = (reason: UnavailableReason, extra: Partial<Unavailable> = {}): Unavailable => ({
             status: "unavailable",
@@ -487,16 +460,13 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
             if (outcome.status === "stopped" || attempt.scope.phase !== "available") {
                 return unavailable("provider-stopped", {providerId: provider.id});
             }
-            return this.#bind(entry, scope, generation, provider, attempt, outcome.handle, delegation) ?? unavailable("consumer-stopped", {providerId: provider.id});
+            return this.#bind(entry, scope, generation, provider, attempt, outcome.handle) ?? unavailable("consumer-stopped", {providerId: provider.id});
         } finally {
             waiting?.attempt.waitingOn.delete(provider);
         }
     }
 
-    /**
-     * 借用实例到访问作用域；访问作用域已不再存活时返回 null。按调用方提供时交出该调用方的门面。
-     * 委托时借用登记在签发记录的作用域上，门面挂在签发记录下（见 IssueRecord）。
-     */
+    /** 借用实例到访问作用域；访问作用域已不再存活时返回 null。按调用方提供时交出该调用方的门面。 */
     #bind(
         entry: Entry,
         scope: Scope,
@@ -504,23 +474,10 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         provider: ProviderEntry,
         attempt: Attempt,
         handle: ResourceHandle<unknown>,
-        delegation: IssueRecord | null,
     ): ResolveResult<unknown> | null {
-        if (delegation !== null && !isPerConsumerProvision(handle.value)) {
-            this.#record("resolve", "delegation-denied", {entryId: entry.id, key: provider.key.name, scopeId: scope.id});
-            return {
-                status: "unavailable",
-                key: provider.key.name,
-                reason: "delegation-denied",
-                providerId: provider.id,
-                error: {name: "DelegationDenied", message: "目标服务不按调用方提供"},
-                path: [],
-            };
-        }
-        const borrowScope = delegation?.scope ?? scope;
         let borrowed;
         try {
-            borrowed = borrowScope.borrow(handle);
+            borrowed = scope.borrow(handle);
         } catch (error) {
             if (error instanceof LifecycleStateError) {
                 return null;
@@ -545,10 +502,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         if (!isPerConsumerProvision(handle.value)) {
             return {status: "resolved", instance: handle.value, binding};
         }
-        const facade =
-            delegation === null
-                ? this.#facadeFor(entry, scope, generation, provider, attempt, handle.value, binding)
-                : this.#delegatedFacade(entry, generation, provider, attempt, handle.value, delegation, () => borrow.release());
+        const facade = this.#facadeFor(entry, scope, generation, provider, attempt, handle.value, binding);
         if (facade === null) {
             borrow.release();
             return null;
@@ -590,15 +544,13 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
     }
 
     /**
-     * 释放委托取得的门面，再运行经代理的远程访问挂上的步骤：各自逆序、全部尝试，第一个异常在全部尝试后抛出
-     * （由生命周期记为释放失败）。
+     * 运行经代理的远程访问挂上的步骤：逆序、全部尝试，第一个异常在全部尝试后抛出（由生命周期记为释放失败）。
      */
-    async #releaseDelegated(issue: IssueRecord): Promise<unknown> {
+    async #releaseIssued(issue: IssueRecord): Promise<unknown> {
         issue.closed = true;
         issue.closing.abort();
         let failure: unknown = null;
-        const steps = [...[...issue.delegated].reverse().map((delegated) => delegated.release), ...[...issue.attached].reverse()];
-        issue.delegated.length = 0;
+        const steps = [...issue.attached].reverse();
         issue.attached.length = 0;
         for (const step of steps) {
             try {
@@ -645,7 +597,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         }
         const facadeTarget = created.target;
         const facade = revocableFacade(facadeTarget, provider.key.name, consumer);
-        const issue: IssueRecord = {provider, consumer, scope, delegated: [], attached: [], closing: new AbortController(), closed: false};
+        const issue: IssueRecord = {provider, consumer, attached: [], closing: new AbortController(), closed: false};
         let registered;
         try {
             registered = scope.register<RevocableFacade>({
@@ -664,9 +616,9 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
                     } catch (error) {
                         failure = error;
                     }
-                    const delegatedFailure = await this.#releaseDelegated(issue);
-                    if (failure !== null || delegatedFailure !== null) {
-                        throw failure ?? delegatedFailure;
+                    const issuedFailure = await this.#releaseIssued(issue);
+                    if (failure !== null || issuedFailure !== null) {
+                        throw failure ?? issuedFailure;
                     }
                 },
             });
@@ -682,63 +634,6 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         }
         attempt.facades.set(cacheKey, facade);
         this.#issued.set(consumer, issue);
-        return {status: "resolved", instance: facade.proxy};
-    }
-
-    /**
-     * 委托：以签发记录里的原调用方身份（`via` 填代理入口）取得目标门面，同一签发记录对同一提供者代次
-     * 只生成一个。它本身也是签发出去的身份，目标服务若也是代理，可以继续委托。
-     */
-    #delegatedFacade(
-        entry: Entry,
-        generation: number | null,
-        provider: ProviderEntry,
-        attempt: Attempt,
-        provision: PerConsumerProvision<object>,
-        issue: IssueRecord,
-        releaseBorrow: () => void,
-    ): {readonly status: "resolved"; readonly instance: object} | Unavailable | null {
-        const existing = issue.delegated.find((delegated) => delegated.attempt === attempt);
-        if (existing !== undefined) {
-            releaseBorrow();
-            return {status: "resolved", instance: existing.facade.proxy};
-        }
-        if (issue.closed || entry.identity === null) {
-            return null;
-        }
-        const consumer: ConsumerIdentity = Object.freeze({
-            ...issue.consumer,
-            via: {plugin: entry.identity.plugin, entry: entry.identity.entry, generation},
-        });
-        const created = this.#createFacade(provider, provision, consumer, issue.scope);
-        if (created.status === "unavailable") {
-            return created;
-        }
-        const facadeTarget = created.target;
-        const facade = revocableFacade(facadeTarget, provider.key.name, consumer);
-        const cacheKey = `delegated:${String(++this.#delegations)}`;
-        const nested: IssueRecord = {provider, consumer, scope: issue.scope, delegated: [], attached: [], closing: new AbortController(), closed: false};
-        attempt.facades.set(cacheKey, facade);
-        this.#issued.set(consumer, nested);
-        issue.delegated.push({
-            attempt,
-            facade,
-            release: async () => {
-                facade.revoke("released");
-                attempt.facades.delete(cacheKey);
-                let failure: unknown = null;
-                try {
-                    await provision.release?.(facadeTarget, consumer);
-                } catch (error) {
-                    failure = error;
-                }
-                const nestedFailure = await this.#releaseDelegated(nested);
-                releaseBorrow();
-                if (failure !== null || nestedFailure !== null) {
-                    throw failure ?? nestedFailure;
-                }
-            },
-        });
         return {status: "resolved", instance: facade.proxy};
     }
 
@@ -780,7 +675,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
             if (!dependency.required) {
                 continue;
             }
-            const result = await this.#resolve(provider, scope, null, dependency.key, {}, null);
+            const result = await this.#resolve(provider, scope, null, dependency.key, {});
             if (!isAlive(scope)) {
                 return {status: "stopped"};
             }
