@@ -112,6 +112,7 @@
 ## 测试文件组织
 
 - 测试文件与被测源码同目录，命名 `<module>.test.ts`；服务端需要 JSX 时用 `.test.tsx`；真实模型测试用 `<module>.llm.test.ts`；新应用的 Vue 组件测试用 `<module>.dom.test.ts`。
+- **`testing/` 目录**放测试支持代码：测试工具、测试插件与测试入口、多个测试共用的场地（例如 `packages/neuro-book/src/plugins/storage/testing/world.ts`）、e2e 外壳。它可以带参数，但不含断言：断言写在测试文件里。产品代码不引用 `testing/`，也不引用内核的 `*/testing` 入口（`@notnotype/nb-runtime/lifecycle/testing`、`@notnotype/nb-runtime/remote/testing`）；唯一的例外是 e2e 构建配置（`vite.e2e.config.ts`）引用 e2e 外壳。`packages/neuro-book` 由 `src/architecture.test.ts` 检查。
 - 新应用与新包用 Bun 自带测试器（`bun test`）。例外是新应用的 Vue 组件测试：Bun 不能加载 `.vue`，`*.dom.test.ts` 由 Vitest 在 happy-dom 里运行（`packages/neuro-book/vitest.config.ts` 沿用前端的 Vite 配置），包内 `bunfig.toml` 让 `bun test` 跳过它们，包脚本 `test` 依次运行两者；需要真实布局的交互走 Playwright。以下 Vitest 条目适用于这部分组件测试与仍用 Vitest 的既有包。
 - 每个 Vitest 配置显式声明 `root`（仓库根或包根），不依赖 `process.cwd()`；include 覆盖
   该作用域内全部测试文件。

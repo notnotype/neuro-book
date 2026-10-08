@@ -11,7 +11,7 @@ NeuroBook 以一个 monorepo 维护应用、共享合同与可独立维护的包
 | 边界 | 当前真相源 | 当前入口或消费方 | 当前状态 |
 | --- | --- | --- | --- |
 | 新应用 | `packages/neuro-book` | 后端进程入口 `src/server/main.ts`，前端入口 `src/web/main.ts`，开发命令 `bun run dev`；验证命令见包内 [`AGENTS.md`](../../packages/neuro-book/AGENTS.md) | 已有应用骨架：后端宿主、开发监督进程、浏览器宿主与空工作台；前端基础（vue-router、UnoCSS、nb-ui、Vitest 组件测试）与只在开发模式加载的 Component Lab（`/lab`）已加入；工作台外壳、命令与布局随后续步骤加入 |
-| 内核 | `packages/nb-runtime` | 新应用的后端与浏览器宿主（第 3 步起） | 零运行时依赖，每个机制一个子路径入口；行为合同见 `docs/specs/runtime/` 的 lifecycle、services、plugins、application、diagnostics |
+| 内核 | `packages/nb-runtime` | 新应用的后端与浏览器宿主（第 3 步起） | 运行时依赖只有 TypeBox，每个机制一个子路径入口；行为合同见 `docs/specs/runtime/` 的 lifecycle、services、plugins、application、diagnostics；典型用法见应用包的示例插件 `packages/neuro-book/examples/` |
 | 旧应用 | `packages/neuro-book-legacy` | 只读参照 | 依赖照装，不参加类型检查、测试与治理检查；包内含 w00017 阶段 1 的内核与宿主实现、ADR 0001–0021、legacy `.agents/tasks/` |
 | Workspace 自治包 | `packages/nb-history/`、`nb-workflow/`、`nb-memory/`、`nb-ui/`、`neuro-agent-harness/`、`llmlint/` | 各包公开 exports、包内测试和应用消费者 | 各包独立 owner；`neuro-agent-harness` 已冻结，只服务 `llmlint`，待由 `nb-harness` 取代后退役 |
 | Agent harness 重构 | `packages/nb-harness/`、`nb-profile/`、`nb-session/` | 包内测试 | w00002 新建；`nb-harness` 将作为 Agent 内置插件的基础 |

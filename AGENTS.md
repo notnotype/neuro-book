@@ -28,6 +28,7 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 - 最难懂的地方先写：读者要推演几个回调的先后才能看懂的代码，先试着改结构消除它，改不掉就写清楚先后
 - 行为规则链接 Spec，不在注释里复述
 - 用平常的中文和代码里的英文标识符；Promise 的状态写 resolve、reject、settle 或“完成”“失败”，不另造译名；一句只说一件事
+- 例外：`packages/neuro-book/examples/` 的注释是教学材料，可以逐步讲这一步做什么、为什么、不这样会怎样，并链接 Spec；讲解随场景测试一起改。产品代码的注释规则不变
 
 ## 测试
 
@@ -52,7 +53,7 @@ neuro-book/
 ├── packages/                       # Bun workspace；共同规则 packages/AGENTS.md
 │   ├── neuro-book/                 # 新应用（v2）：运行时底座 + workbench 底座，从零重建
 │   ├── neuro-book-legacy/          # 旧应用（Nuxt），只作参照；依赖照装，不检查不修改
-│   ├── nb-runtime/                 # 内核：生命周期、服务装配、插件、应用门禁、诊断；零依赖，前后端共用
+│   ├── nb-runtime/                 # 内核：生命周期、服务装配、插件、应用门禁、诊断；运行时依赖只有 TypeBox，前后端共用
 │   ├── neuro-agent-harness/        # 已冻结，只服务 llmlint；待由 nb-harness 取代后退役
 │   ├── nb-harness/                 # NeuroBook Agent harness 重构（w00002），将作为内置插件的基础
 │   ├── nb-profile/                 # Profile 加载与 JSX 渲染（w00002）
