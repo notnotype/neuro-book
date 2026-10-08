@@ -639,13 +639,13 @@ export class PluginHostImpl implements PluginHost {
      * 不挑选，返回不可用。
      */
     async #lookupRemote(contractId: string, chain: ReadonlyArray<ChainLink>, signal: AbortSignal): Promise<ProviderLookup> {
-        const candidates = this.#remoteProviders(contractId, isAlive);
+        const {records: candidates, stopping} = this.#remoteCandidates(contractId);
         const [record] = candidates;
         if (record === undefined) {
-            // 声明它的插件正在停止（热重载或实例停止）只是此刻不可用；停用、卸载之后才是没有提供方。
-            return this.#remoteProviders(contractId, (scope) => scope.phase === "stopping").length > 0
-                ? {status: "unavailable", reason: `提供 ${contractId} 的插件正在停止`}
-                : {status: "missing"};
+            return {status: "missing"};
+        }
+        if (stopping) {
+            return {status: "unavailable", reason: `提供 ${contractId} 的插件正在停止`};
         }
         if (candidates.length > 1) {
             this.#record("activate", "remote-provider-conflict", {plugin: null, capability: "remoteProvides", contribution: contractId});
@@ -676,21 +676,30 @@ export class PluginHostImpl implements PluginHost {
      * 不激活、不记诊断。
      */
     #describeRemote(contractId: string): ProviderDescription {
-        const alive = this.#remoteProviders(contractId, isAlive);
-        if (alive.length > 1) {
+        const {records, stopping} = this.#remoteCandidates(contractId);
+        if (records.length > 1) {
             return {status: "unavailable", reason: `多个入口提供 ${contractId}`};
         }
-        const [record] = alive.length > 0 ? alive : this.#remoteProviders(contractId, (scope) => scope.phase === "stopping");
+        const [record] = records;
         const contract = record?.definition.remoteProvides?.find((item) => item.id === contractId);
         if (record === undefined || contract === undefined) {
             return {status: "missing"};
         }
-        if (alive.length === 0) {
+        if (stopping) {
             return {status: "found", contract, state: "stopping"};
         }
         const {status} = this.#stateOf(record);
         // 候选都是本位置的入口，不会是 foreign-location；类型上仍要排除它。
         return status === "foreign-location" ? {status: "missing"} : {status: "found", contract, state: status};
+    }
+
+    /**
+     * 调用与查询共用的候选：存活插件里声明这份合同的入口；没有时取正在停止的插件里的（热重载或实例停止，只是此刻
+     * 不可用），`stopping` 为 true。插件停用、卸载之后不再是候选，即没有提供方。冲突由调用方按数组长度判断。
+     */
+    #remoteCandidates(contractId: string): {readonly records: EntryRecord[]; readonly stopping: boolean} {
+        const alive = this.#remoteProviders(contractId, isAlive);
+        return alive.length > 0 ? {records: alive, stopping: false} : {records: this.#remoteProviders(contractId, (scope) => scope.phase === "stopping"), stopping: true};
     }
 
     /** 本位置在 `remoteProvides` 里声明了这份合同的入口，只看登记作用域满足 `phase` 的插件。 */

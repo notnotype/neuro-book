@@ -156,16 +156,16 @@ function provider(id: string, location: string, probe: Probe): PluginDefinition 
  * 提供 late 的插件，测试按需登记。激活作用域里有一项释放要等 `release`：停用插件时它停在“正在停止”。
  * `id` 不同的两份同时登记就是多个入口声明同一合同。
  */
-function latePlugin(release: Promise<void>, id = "demo.late"): PluginDefinition {
+function latePlugin(release: Promise<void>, id = "demo.late", contract: typeof late = late): PluginDefinition {
     return {
         id,
         entries: [{
             id: "main",
             location: "server",
-            remoteProvides: [late],
+            remoteProvides: [contract],
             activate: (context) => {
                 context.scope.register({kind: "test-gate", label: "等测试放行", value: release, release: (gate) => gate});
-                return {remote: [provideRemote(late, () => ({methods: {ping: () => ({ok: true, value: "late"})}}))]};
+                return {remote: [provideRemote(contract, () => ({methods: {ping: () => ({ok: true, value: "late"})}}))]};
             },
         }],
     };
@@ -436,6 +436,27 @@ describe("Spec plugin-channel 输出 11：查询提供方", () => {
 
         expect(t.hub.app.plugins.register(latePlugin(Promise.resolve(), "demo.late-again"), {scope: t.hub.app.root})).toMatchObject({status: "accepted"});
         expect(await fromBrowser.lookup(late)).toMatchObject({ok: false, code: "unavailable"});
+    });
+
+    it("两个声明同一合同的插件都在停止：仍是多个入口，查询与调用都为 unavailable，不按登记顺序挑一个", async () => {
+        const t = await topology();
+        const fromBrowser = t.remote(t.browser1);
+        const lateV2 = defineRemoteService({...late, version: 2});
+        const release = Promise.withResolvers<void>();
+        const scopes = [hubRegistration(t, "demo.late-a"), hubRegistration(t, "demo.late-b")];
+        const plugins = [latePlugin(release.promise, "demo.late-a"), latePlugin(release.promise, "demo.late-b", lateV2)];
+        for (const [index, plugin] of plugins.entries()) {
+            expect(t.hub.app.plugins.register(plugin, {scope: scopes[index]!})).toMatchObject({status: "accepted"});
+            expect(await t.hub.app.plugins.activate({plugin: plugin.id, entry: "main"})).toMatchObject({status: "activated"});
+        }
+        const closing = scopes.map((scope) => scope.close());
+        expect(scopes.map((scope) => scope.phase)).toEqual(["stopping", "stopping"]);
+
+        expect(await fromBrowser.lookup(late)).toMatchObject({ok: false, code: "unavailable"});
+        expect(await fromBrowser.lookup(lateV2)).toMatchObject({ok: false, code: "unavailable"});
+        expect(await fromBrowser.use(late).ping({})).toMatchObject({ok: false, code: "unavailable"});
+        release.resolve();
+        await Promise.all(closing);
     });
 
     it("寻址与连接：目标不在为 target-gone；{project} 无权访问为 denied；没连上服务端为 unavailable；目标与提供方位置不符为 invalid-input", async () => {
