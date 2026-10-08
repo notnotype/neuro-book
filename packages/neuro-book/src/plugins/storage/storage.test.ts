@@ -109,7 +109,7 @@ async function world(): Promise<World> {
     const delegation = (plugin: string): boolean => plugin === "nbook.storage";
 
     const hubNode = createRemoteNode({instance: {id: "hub", kind: "server", role: "hub", project: null, client: null}});
-    const hubPlugins = [silentDiagnostics("server", "hub"), createStorageServerPlugin({location: "server", storage: storageKey, path: userPath}), consumer("app.notes", "server", seen, "hub"), consumer("app.other", "server", seen, "hub")];
+    const hubPlugins = [silentDiagnostics("server", "hub"), createStorageServerPlugin({location: "server", path: userPath}), consumer("app.notes", "server", seen, "hub"), consumer("app.other", "server", seen, "hub")];
     const hub = createApplication(
         {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
         {plugins: hubPlugins, gates: [], remote: hubNode, delegation},
@@ -140,7 +140,7 @@ async function world(): Promise<World> {
             revoke = new AbortController();
             const descriptor: InstanceDescriptor = {id: `project:P#${String(next)}`, kind: "project", role: "project", project: {id: "P", generation: next}, client: null};
             const node = createRemoteNode({instance: descriptor});
-            const plugins = [silentDiagnostics("project", descriptor.id), createStorageServerPlugin({location: "project", storage: storageKey, path: projectPath}), consumer("app.notes", "project", seen, descriptor.id)];
+            const plugins = [silentDiagnostics("project", descriptor.id), createStorageServerPlugin({location: "project", path: projectPath}), consumer("app.notes", "project", seen, descriptor.id)];
             const app = createApplication(
                 {identity: {location: "project", instanceId: descriptor.id}, stopSignal: new AbortController().signal, emergency: () => undefined},
                 {plugins, gates: [], remote: node, delegation},
@@ -159,7 +159,7 @@ async function world(): Promise<World> {
             router.accept(pair.right);
             expect(await node.connect(pair.left)).toEqual({ok: true});
             const project = node.binding === null ? null : {id: node.binding.id, name: node.binding.name, generation: node.binding.generation};
-            const plugins = [createStorageBrowserPlugin({storage: storageKey, windowProject: windowProjectKey}), consumer("app.notes", "browser", seen, id), consumer("app.other", "browser", seen, id)];
+            const plugins = [createStorageBrowserPlugin(), consumer("app.notes", "browser", seen, id), consumer("app.other", "browser", seen, id)];
             const app = createApplication(
                 {identity: {location: "browser", instanceId: id, client}, stopSignal: new AbortController().signal, emergency: () => undefined},
                 {

@@ -7,9 +7,8 @@
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provide} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
-import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
-import type {CurrentProject} from "../current-project";
+import {currentProjectKey} from "../current-project";
 
 /** `start-on-signal`：激活停在就绪行之后，收到 SIGUSR2 才继续，测试据此在启动中途做别的事。 */
 export const PROJECT_FAULTS = ["none", "hang-start", "start-on-signal", "exit-during-start", "startup-failure", "stop-fails", "stop-hangs"] as const;
@@ -24,16 +23,16 @@ function never(): Promise<never> {
     return new Promise<never>(() => undefined);
 }
 
-export function createProjectFaultPlugin(fault: ProjectFault, currentProject: ServiceKey<CurrentProject>): PluginDefinition {
+export function createProjectFaultPlugin(fault: ProjectFault): PluginDefinition {
     return {
         id: "test.project-fault",
         entries: [{
             id: "main",
             location: "project",
             provides: [hookKey],
-            dependencies: [{key: currentProject}],
+            dependencies: [{key: currentProjectKey}],
             activate: async (context) => {
-                const current = context.services.require(currentProject);
+                const current = context.services.require(currentProjectKey);
                 // 先挂上信号再打印就绪行：测试看到就绪行就可以发信号。
                 const signalled = fault === "start-on-signal" ? new Promise<void>((resolve) => process.once("SIGUSR2", () => resolve())) : null;
                 console.log(`${FIXTURE_READY_LINE} ${current.id}#${String(current.generation)} ${current.name} ${current.root} pid=${String(process.pid)}`);

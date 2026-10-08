@@ -7,7 +7,6 @@ import {join} from "node:path";
 
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {PluginDescriptor} from "nbook/manifest";
 import {createCommandsPlugin} from "nbook/plugins/commands/shared/plugin";
@@ -15,10 +14,8 @@ import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/server/pl
 import type {HttpAdmission} from "nbook/plugins/http/server/admission";
 import {createHttpPlugin} from "nbook/plugins/http/server/plugin";
 import {createProjectsServerPlugin} from "nbook/plugins/projects/server/plugin";
-import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {createStorageServerPlugin} from "nbook/plugins/storage/server/plugin";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
-import type {ProjectsService} from "nbook/shared/projects";
 
 import {createBrowserBootstrapRoute} from "./browser-bootstrap";
 import type {ServerConfig} from "./config";
@@ -32,8 +29,6 @@ export interface ServerPluginContext {
     readonly onListening: (url: string) => void;
     /** 内核 RPC 端口（已在监听）；引导接口据此告知浏览器。 */
     readonly rpc: BrowserBootstrap["rpc"];
-    /** 宿主能力：项目管理（docs/specs/runtime/projects.md 输出第 8 条）；需要它的插件在入口依赖里声明。 */
-    readonly projects: ServiceKey<ProjectsService>;
 }
 
 export type ServerPluginFactory = (context: ServerPluginContext) => PluginDefinition;
@@ -49,8 +44,8 @@ export const serverPluginFactories: Readonly<Record<string, ServerPluginFactory>
         staticRoot: context.config.webRoot,
     }),
     "nbook.commands": () => createCommandsPlugin("server"),
-    "nbook.projects": (context) => createProjectsServerPlugin({projects: context.projects}),
-    "nbook.storage": (context) => createStorageServerPlugin({location: "server", storage: storageKey, path: join(context.config.stateRoot, "storage", "user.sqlite")}),
+    "nbook.projects": () => createProjectsServerPlugin(),
+    "nbook.storage": (context) => createStorageServerPlugin({location: "server", path: join(context.config.stateRoot, "storage", "user.sqlite")}),
 };
 
 /** 按清单装配后端插件；清单写了后端入口而这里没有工厂时直接失败，不静默少装。 */

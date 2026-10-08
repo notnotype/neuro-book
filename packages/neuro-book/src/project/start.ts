@@ -110,7 +110,7 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
         return 1;
     }
 
-    const context: ProjectPluginContext = {config, manifest: options.manifest ?? productPlugins, store, currentProject: currentProjectKey};
+    const context: ProjectPluginContext = {config, manifest: options.manifest ?? productPlugins, store};
     let plugins: ReadonlyArray<PluginDefinition>;
     try {
         plugins = (options.plugins ?? manifestProjectPlugins)(context);

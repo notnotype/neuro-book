@@ -6,37 +6,30 @@
 
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {providePerConsumer} from "@notnotype/nb-runtime/plugins";
-import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
-import type {WindowProject} from "nbook/shared/projects";
+import {windowProjectKey} from "nbook/shared/projects";
 import type {StorageService} from "nbook/shared/storage";
 
 import {descriptor} from "../plugin";
-import {projectStorageContract, userStorageContract} from "../shared/contracts";
+import {projectStorageContract, storageKey, userStorageContract} from "../shared/contracts";
 import {createStorageFacade} from "../shared/facade";
 import type {StorageFacade} from "../shared/facade";
 import {remoteRoute} from "../shared/remote-route";
 
-export interface StorageBrowserKeys {
-    /** Storage 服务键与窗口绑定的项目，都由装配者交进来。 */
-    readonly storage: ServiceKey<StorageService>;
-    readonly windowProject: ServiceKey<WindowProject>;
-}
-
-export function createStorageBrowserPlugin(keys: StorageBrowserKeys): PluginDefinition {
+export function createStorageBrowserPlugin(): PluginDefinition {
     return {
         id: descriptor.id,
         entries: [{
             id: "browser",
             location: "browser",
-            dependencies: [{key: keys.windowProject}],
-            provides: [keys.storage],
+            dependencies: [{key: windowProjectKey}],
+            provides: [storageKey],
             remoteDelegates: [userStorageContract.id, projectStorageContract.id],
             activate: (context) => {
-                const bound = context.services.require(keys.windowProject).project !== null;
+                const bound = context.services.require(windowProjectKey).project !== null;
                 const facades = new WeakMap<StorageService, StorageFacade>();
                 const storage = providePerConsumer(
-                    keys.storage,
+                    storageKey,
                     (consumer): StorageService => {
                         const facade = createStorageFacade(consumer, {
                             user: () => remoteRoute(context.remote.on(consumer), userStorageContract),

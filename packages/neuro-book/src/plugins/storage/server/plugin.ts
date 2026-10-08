@@ -10,12 +10,11 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {providePerConsumer} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
-import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {StorageService} from "nbook/shared/storage";
 
 import {descriptor} from "../plugin";
-import {projectStorageContract, userStorageContract} from "../shared/contracts";
+import {projectStorageContract, storageKey, userStorageContract} from "../shared/contracts";
 import {createStorageFacade} from "../shared/facade";
 import type {StorageFacade} from "../shared/facade";
 import {remoteRoute} from "../shared/remote-route";
@@ -24,8 +23,6 @@ import {createPartition} from "./partition";
 
 export interface StorageServerOptions {
     readonly location: "server" | "project";
-    /** Storage 服务键，由装配者交进来。 */
-    readonly storage: ServiceKey<StorageService>;
     /** 本入口拥有的分区库：服务端为 `<状态根>/storage/user.sqlite`，项目实例为 `<项目目录>/.nbook/storage.sqlite`。 */
     readonly path: string;
 }
@@ -39,7 +36,7 @@ export function createStorageServerPlugin(options: StorageServerOptions): Plugin
             id: options.location,
             location: options.location,
             dependencies: [{key: diagnosticsKey}],
-            provides: [options.storage],
+            provides: [storageKey],
             remoteProvides: [owned.id],
             remoteDelegates: scope === "project" ? [userStorageContract.id] : [],
             activate: (context) => {
@@ -52,7 +49,7 @@ export function createStorageServerPlugin(options: StorageServerOptions): Plugin
                 context.scope.register({kind: "storage-partition", label: `${descriptor.id} ${scope}`, value: owner, release: (value) => value.close()});
                 const facades = new WeakMap<StorageService, StorageFacade>();
                 const storage = providePerConsumer(
-                    options.storage,
+                    storageKey,
                     (consumer): StorageService => {
                         const facade = createStorageFacade(consumer, {
                             user: () => (scope === "user" ? owner.route(consumer) : remoteRoute(context.remote.on(consumer), userStorageContract)),

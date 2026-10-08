@@ -11,7 +11,7 @@ import type {Ref, ShallowRef} from "vue";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 
-import type {QuickPickRequest, QuickPickResult} from "../contracts";
+import type {QuickPickRequest, QuickPickResult} from "../../shared/contracts";
 
 /** 文档身份：行号跳转把它原样交给 `nbook.editor.go-to-line`；面板只判断是不是同一份文档的同一代。 */
 export type DocumentTarget = Readonly<Record<string, string | number>>;

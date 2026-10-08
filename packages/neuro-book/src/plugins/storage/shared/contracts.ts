@@ -15,7 +15,7 @@ import {Type} from "typebox";
 import {STORAGE_FAILURES} from "nbook/shared/storage";
 import type {StorageService} from "nbook/shared/storage";
 
-/** 插件依赖它取得按调用方生成的 Storage 服务；由装配者交给需要它的插件工厂。 */
+/** 插件依赖它取得按调用方生成的 Storage 服务。 */
 export const storageKey: ServiceKey<StorageService> = defineServiceKey<StorageService>("nbook.storage/storage");
 
 export const StorageFailureSchema = Type.Enum(STORAGE_FAILURES);

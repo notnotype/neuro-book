@@ -4,8 +4,9 @@
 
 import type {ContributionDescriptor, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
 
-import {WORKBENCH_PAGES_POINT} from "./contracts";
-import type {WorkbenchPage, WorkbenchPageDeclaration, WorkbenchPageImplementation} from "./contracts";
+import {WORKBENCH_PAGES_POINT} from "../shared/contracts";
+import type {WorkbenchPageDeclaration} from "../shared/contracts";
+import type {WorkbenchPage, WorkbenchPageImplementation} from "./contracts";
 
 const PAGE_PATH = /^(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)+$/u;
 /** 这些路径前缀归服务端：`/api` 下没有匹配的路径不回退到页面，`/assets` 是带哈希的构建产物。 */

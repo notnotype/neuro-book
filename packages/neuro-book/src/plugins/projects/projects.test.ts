@@ -25,7 +25,7 @@ import {createPaletteHost} from "nbook/plugins/workbench/web/commands/palette-ho
 import type {PaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
 import {killSpawnedProjects, leaseOf, projectHarness} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
-import {projectsKey, windowProjectKey} from "nbook/shared/projects";
+import {windowProjectKey} from "nbook/shared/projects";
 import {browserPluginFactories} from "nbook/web/plugins";
 
 import {createProjectsServerPlugin} from "./server/plugin";
@@ -51,7 +51,7 @@ async function setup(): Promise<{readonly h: ProjectHarness; readonly projects: 
     // 服务端插件都以诊断为依赖图的根；这里的诊断只进内存，不写文件也不打印。
     const silent = {error: () => undefined};
     const diagnostics = createDiagnosticsPlugin({location: "server", store: createDiagnosticsStore({identity: {location: "server", instanceId: "hub"}}), exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)});
-    const h = await projectHarness(tmp, {plugins: [diagnostics, createProjectsServerPlugin({projects: projectsKey})]});
+    const h = await projectHarness(tmp, {plugins: [diagnostics, createProjectsServerPlugin()]});
     let remote: ActivationContext["remote"] | null = null;
     const node = createRemoteNode({instance: {id: "browser-1", kind: "browser", role: "client", project: null, client: "profile-1"}});
     const app = createApplication(

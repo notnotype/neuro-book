@@ -2,11 +2,12 @@
 
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import type {WORKBENCH_PAGES_POINT, WorkbenchPageDeclaration, WorkbenchPageImplementation} from "nbook/plugins/workbench/web/contracts";
+import {WORKBENCH_PAGES_POINT} from "nbook/plugins/workbench/shared/contracts";
+import type {WorkbenchPageDeclaration} from "nbook/plugins/workbench/shared/contracts";
+import type {WorkbenchPageImplementation} from "nbook/plugins/workbench/web/contracts";
 
 import {descriptor} from "../plugin";
 
-const PAGES: typeof WORKBENCH_PAGES_POINT = "workbench.pages";
 const LAB_PATH = "/lab";
 
 export function createLabBrowserPlugin(): PluginDefinition {
@@ -19,8 +20,8 @@ export function createLabBrowserPlugin(): PluginDefinition {
             id: "browser",
             location: "browser",
             activationEvents: ["onStartup"],
-            contributions: [{capability: PAGES, id: LAB_PATH, declaration}],
-            activate: () => ({contributions: {[PAGES]: {[LAB_PATH]: page}}}),
+            contributions: [{capability: WORKBENCH_PAGES_POINT, id: LAB_PATH, declaration}],
+            activate: () => ({contributions: {[WORKBENCH_PAGES_POINT]: {[LAB_PATH]: page}}}),
         }],
     };
 }

@@ -2,8 +2,8 @@
  * `nbook.commands` 对其它插件公开的合同：命令贡献点、命令的声明与实现、命令服务。行为见
  * [`workbench.commands`](../../../../../../docs/specs/workbench/commands.md)。
  *
- * 其它插件只以 `import type` 引用这里（贡献点 id 写成同一个字面量，类型检查保证一致）；
- * 例外是只在开发模式加载的 Lab 场景，它在运行时引用本目录建自己的命令表。
+ * 其它插件在运行时只引用本文件（docs/adr/0025-service-keys-by-id.md）；例外是只在开发模式加载的 Lab 场景，
+ * 它在运行时引用本目录的其它模块建自己的命令表。
  */
 
 import {Type} from "typebox";

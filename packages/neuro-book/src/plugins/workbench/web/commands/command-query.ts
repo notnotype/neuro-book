@@ -9,7 +9,7 @@ import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
 
-import type {QuickPickItem} from "../contracts";
+import type {QuickPickItem} from "../../shared/contracts";
 
 type QueryMode = "commands" | "line";
 

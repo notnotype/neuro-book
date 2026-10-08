@@ -8,15 +8,11 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
-import {commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import {createCommandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {createBrowserDiagnosticsPlugin} from "nbook/plugins/diagnostics/web/plugin";
 import {createProjectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
-import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {createStorageBrowserPlugin} from "nbook/plugins/storage/web/plugin";
-import {quickPickKey} from "nbook/plugins/workbench/web/contracts";
-import {windowProjectKey} from "nbook/shared/projects";
 import {createWorkbenchBrowserPlugin} from "nbook/plugins/workbench/web/plugin";
 
 export interface BrowserPluginContext {
@@ -32,9 +28,9 @@ export type BrowserPluginFactory = (context: BrowserPluginContext) => PluginDefi
 export const browserPluginFactories: Readonly<Record<string, BrowserPluginFactory>> = {
     "nbook.diagnostics": (context) => createBrowserDiagnosticsPlugin({store: context.store, console: context.console}),
     "nbook.commands": () => createCommandsPlugin("browser"),
-    "nbook.workbench": () => createWorkbenchBrowserPlugin({commands: commandServiceKey, windowProject: windowProjectKey}),
-    "nbook.projects": (context) => createProjectsBrowserPlugin({quickPick: quickPickKey, navigateDocument: context.navigateDocument}),
-    "nbook.storage": () => createStorageBrowserPlugin({storage: storageKey, windowProject: windowProjectKey}),
+    "nbook.workbench": () => createWorkbenchBrowserPlugin(),
+    "nbook.projects": (context) => createProjectsBrowserPlugin({navigateDocument: context.navigateDocument}),
+    "nbook.storage": () => createStorageBrowserPlugin(),
 };
 
 /** 本外壳构建进去的浏览器插件：清单中有浏览器运行位置的插件。 */

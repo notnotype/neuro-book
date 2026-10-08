@@ -7,7 +7,7 @@
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 
 import type {CommandDeclaration, CommandResult} from "nbook/plugins/commands/shared/contracts";
-import type {QuickPick, QuickPickRequest} from "nbook/plugins/workbench/web/contracts";
+import type {QuickPick, QuickPickRequest} from "nbook/plugins/workbench/shared/contracts";
 
 import {OPEN_PROJECT_COMMAND, projectsRemoteContract} from "../shared/contracts";
 import type {ProjectView} from "../shared/contracts";

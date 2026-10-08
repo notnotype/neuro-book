@@ -9,7 +9,7 @@ import {Type} from "typebox";
 
 import type {CommandDeclaration, CommandImplementation, Release} from "nbook/plugins/commands/shared/contracts";
 
-import type {QuickPick} from "../contracts";
+import type {QuickPick} from "../../shared/contracts";
 import type {PaletteHost} from "./palette-host";
 
 export const OPEN_COMMANDS_ID = "nbook.quick-open.open-commands";

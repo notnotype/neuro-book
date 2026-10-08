@@ -193,7 +193,6 @@ export function startServer(options: StartServerOptions): RunningServer {
             options.onListening?.(address);
         },
         rpc: {port: rpc.port, path: RPC_PATH},
-        projects: projectsKey,
     };
     let plugins: ReadonlyArray<PluginDefinition>;
     try {

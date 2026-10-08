@@ -7,28 +7,27 @@
 
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
-import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {probeStorage} from "nbook/shared/testing/probe-storage";
 import {projectProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 
-import type {CurrentProject} from "../current-project";
+import {currentProjectKey} from "../current-project";
 
 /** 项目入口关闭时打印的一行。 */
 export const PROJECT_PROBE_CLOSED_LINE = "remote-probe project entry closed";
 
-export function createRemoteProbeProjectPlugin(currentProject: ServiceKey<CurrentProject>): PluginDefinition {
+export function createRemoteProbeProjectPlugin(): PluginDefinition {
     return {
         id: remoteProbeDescriptor.id,
         entries: [{
             id: "project",
             location: "project",
             activationEvents: ["onStartup"],
-            dependencies: [{key: currentProject}, {key: storageKey}],
+            dependencies: [{key: currentProjectKey}, {key: storageKey}],
             remoteProvides: [projectProbeContract.id],
             activate: (context) => {
-                const current = context.services.require(currentProject);
+                const current = context.services.require(currentProjectKey);
                 const storage = probeStorage(context.services.require(storageKey));
                 const sinks = new Set<(payload: {readonly n: number}) => void>();
                 let ticks = 0;

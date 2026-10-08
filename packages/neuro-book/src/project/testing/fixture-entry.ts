@@ -19,6 +19,6 @@ const probe = (process.env.NBOOK_TEST_PLUGINS ?? "").split(",").includes(remoteP
 
 await runProjectProcess(productPlugins, (context) => [
     ...manifestProjectPlugins(context),
-    createProjectFaultPlugin(fault as ProjectFault, context.currentProject),
-    ...(probe ? [createRemoteProbeProjectPlugin(context.currentProject)] : []),
+    createProjectFaultPlugin(fault as ProjectFault),
+    ...(probe ? [createRemoteProbeProjectPlugin()] : []),
 ]);

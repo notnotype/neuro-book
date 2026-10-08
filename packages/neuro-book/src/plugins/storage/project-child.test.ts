@@ -48,7 +48,7 @@ function serverPlugins(stateRoot: string): PluginDefinition[] {
     const silent = {error: () => undefined};
     return [
         createDiagnosticsPlugin({location: "server", store: createDiagnosticsStore({identity: {location: "server", instanceId: "hub"}}), exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)}),
-        createStorageServerPlugin({location: "server", storage: storageKey, path: join(stateRoot, "storage", "user.sqlite")}),
+        createStorageServerPlugin({location: "server", path: join(stateRoot, "storage", "user.sqlite")}),
     ];
 }
 
@@ -61,7 +61,7 @@ async function windowOf(h: ProjectHarness, id: string, client: string): Promise<
     expect(await node.connect(pair.left)).toEqual({ok: true});
     const binding = node.binding!;
     const plugins: PluginDefinition[] = [
-        createStorageBrowserPlugin({storage: storageKey, windowProject: windowProjectKey}),
+        createStorageBrowserPlugin(),
         {id: "app.notes", entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: storageKey}], activate: (context) => {
             storage = context.services.require(storageKey);
             return {};

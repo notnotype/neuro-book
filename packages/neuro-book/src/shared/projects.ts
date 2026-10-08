@@ -68,7 +68,7 @@ export interface ProjectsService {
     acquire(reference: string): Promise<ProjectAcquireResult>;
 }
 
-/** 服务键按对象身份比较：宿主在装配时把它交给需要的插件工厂。 */
+/** 服务端宿主以本地能力提供；需要它的插件在入口依赖里声明。 */
 export const projectsKey: ServiceKey<ProjectsService> = defineServiceKey<ProjectsService>("nbook/projects");
 
 /** 窗口绑定的项目：握手时由服务端决定，窗口一生不变（docs/specs/runtime/browser-host.md 启动序列第 5 步）。 */
@@ -77,5 +77,5 @@ export interface WindowProject {
     readonly project: {readonly id: string; readonly name: string; readonly generation: number} | null;
 }
 
-/** 浏览器宿主以本地能力提供给本窗口的插件；服务键由装配者交给需要它的插件工厂。 */
+/** 浏览器宿主以本地能力提供给本窗口的插件；需要它的插件在入口依赖里声明。 */
 export const windowProjectKey: ServiceKey<WindowProject> = defineServiceKey<WindowProject>("nbook/window-project");
