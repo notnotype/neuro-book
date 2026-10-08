@@ -9,9 +9,9 @@
 - `src/manifest.ts`：产品清单，列出本应用加载的全部插件，是“加载了什么”的唯一入口；只引用各插件的 `plugin.ts` 描述。`src/development-manifest.ts` 是开发清单（Component Lab），只由后端开发入口 `src/server/development-main.ts`、项目子进程的开发入口 `src/project/development-main.ts` 与前端的 `src/web/development-plugins.ts` 引用，后者只在 `import.meta.env.DEV` 分支里动态加载；生产构建不含它们，`check:dist` 检查。
 - `src/server/`：后端宿主（进程入口、启动参数、停止来源与退出码、按清单装配插件，`src/server/projects/` 是项目管理：身份、登记表、项目子进程与租约）；`src/project/`：项目宿主（项目子进程的入口，建立 `project` 位置的运行实例，见 [`runtime.projects`](../../docs/specs/runtime/projects.md)）；`src/web/`：前端宿主（Vite 入口、浏览器宿主、根组件）。
 - `src/ui/`：宿主与插件共用的前端组件（同名 `.md` 文档并列，Lab 自动收录），只引用前端库、`ui/` 与 `shared/`；只属于某个插件的界面组件放在插件的 `web/components/`。
-- `src/shared/`：前后端宿主共用、与运行位置无关的代码：宿主之间的协议（例如浏览器引导的 TypeBox schema 与常量）、装配工具，以及各插件都要用的小工具（例如界面文本的中英两份 `localized-text.ts`）；不引用任何一侧的实现。插件自己的合同放在插件的 `shared/`。
-- `src/plugins/<插件>/`：一个插件一个目录，`plugin.ts` 为插件描述（id、版本与运行位置）。`backend/` 放后端代码，服务端（`server`，应用级，一个进程）与项目子进程（`project`，每个打开的项目一个）共用这份代码，入口工厂按运行位置装配；`web/` 放浏览器窗口（`browser`，每个窗口一个）的代码；`shared/` 放两端共用、与运行位置无关的代码（TypeBox 合同，以及不碰 DOM、Bun 与 Node API 的逻辑，例如命令表），其中 `shared/contracts.ts` 是对其它插件公开的合同。`web/` 不引用 `backend/`，反之亦然，只经 `shared/` 交换类型与 schema。
-- 插件之间只经内核的服务、贡献点与远程服务协作。运行时只引用对方的 `shared/contracts.ts`（服务键、远程合同、贡献点 id、schema），类型可以 `import type`；服务键按服务 id 识别，同一 id 只在提供方的 `shared/contracts.ts` 定义一次（[ADR 0025](../../docs/adr/0025-service-keys-by-id.md)），由 `src/architecture.test.ts` 检查。插件入口的工厂只收宿主给的配置（运行位置、路径、宿主拥有的对象），对别的插件与宿主能力的依赖写在入口的 `dependencies` 里。宿主（`src/server/`、`src/project/`、`src/web/`）是装配者，可以引用插件的工厂。例外：Lab 的场景（`src/plugins/lab/web/fixtures/`）可以在运行时引用其它插件的 `web/` 与 `shared/`，用来挂载它们的组件、建场景自己的局部宿主；Lab 只在开发模式加载。
+- `src/shared/`：前后端宿主共用、与运行位置无关的代码：宿主之间的协议（例如浏览器引导的 TypeBox schema 与常量）、宿主提供给插件的能力的键（`host.ts`、`projects.ts`）、装配工具，以及各插件都要用的小工具（例如界面文本的中英两份 `localized-text.ts`）；不引用任何一侧的实现。插件自己的合同放在插件的 `shared/`。
+- `src/plugins/<插件>/`：一个插件一个目录，`plugin.ts` 为插件描述（id、版本与运行位置）。`backend/` 放后端代码，服务端（`server`，应用级，一个进程）与项目子进程（`project`，每个打开的项目一个）共用这份代码，一份定义里按运行位置各写一个入口；`web/` 放浏览器窗口（`browser`，每个窗口一个）的代码；`shared/` 放两端共用、与运行位置无关的代码（TypeBox 合同，以及不碰 DOM、Bun 与 Node API 的逻辑，例如命令表），其中 `shared/contracts.ts` 是对其它插件公开的合同。`web/` 不引用 `backend/`，反之亦然，只经 `shared/` 交换类型与 schema。
+- 插件之间只经内核的服务、贡献点与远程服务协作。运行时只引用对方的 `shared/contracts.ts`（服务键、远程合同、贡献点 id、schema），类型可以 `import type`；服务键按服务 id 识别，同一 id 只在提供方的 `shared/contracts.ts` 定义一次，由 `src/architecture.test.ts` 检查。插件定义是常量，按代码所在的一侧导出（`backend/plugin.ts`、`web/plugin.ts`，两侧共用的放 `shared/plugin.ts`），没有工厂参数；要宿主的东西（状态根、项目目录、整页导航）就在入口的 `dependencies` 里依赖宿主能力，对别的插件的依赖同样写在那里（[ADR 0026](../../docs/adr/0026-plugin-definitions-as-constants.md)）。宿主（`src/server/`、`src/project/`、`src/web/`）是装配者，各有两张表：普通插件的定义表只能放常量，宿主适配器的工厂表只有诊断与 HTTP；新增宿主适配器要说明 ADR 0026 决策第 5 条的启动或停机依赖。测试插件（`testing/` 与测试文件里的）可以带参数。例外：Lab 的场景（`src/plugins/lab/web/fixtures/`）可以在运行时引用其它插件的 `web/` 与 `shared/`，用来挂载它们的组件、建场景自己的局部宿主；Lab 只在开发模式加载。
 - 定义贡献点时规定贡献 id 的取法（例如插件 id、页面路径）：内核要求贡献 id 在同一贡献点内唯一，两个插件写同一个 id 时两条都被拒绝，不能让每个插件都写同一个固定 id。
 - 命令（两端都可用）：插件向 `nbook.commands` 的贡献点 `commands.definitions` 提交，贡献 id 写命令 id（内置插件 `nbook.<域>.<动作>`，域取 [`workbench.commands`](../../docs/specs/workbench/commands.md) 的域词表，不是插件 id，不在词表里的贡献被拒绝；其它插件以自己的插件 id 开头）。命令随贡献方入口激活才进命令表，还没有按命令触发的激活事件，贡献命令的入口要启动即激活（`onStartup`）；要执行命令的入口在依赖里声明 `commandServiceKey`，按 id 执行。合同见 `src/plugins/commands/shared/contracts.ts` 与 [`workbench.commands`](../../docs/specs/workbench/commands.md)。
 - 跨目录导入用 `nbook/*`（映射到 `src/*`）；同一插件或同一宿主目录内用相对导入。
@@ -28,7 +28,7 @@
 
 ## 前端
 
-- 窗口启动、引导与失败页的合同见 [`runtime.browser-host`](../../docs/specs/runtime/browser-host.md)。插件的浏览器入口在 `src/web/plugins.ts` 登记工厂；窗口只登记引导集合里出现的插件。页面经 `nbook.workbench` 的贡献点 `workbench.pages` 交出（贡献 id 写页面路径），路由归宿主（`src/web/router.ts`）。
+- 窗口启动、引导与失败页的合同见 [`runtime.browser-host`](../../docs/specs/runtime/browser-host.md)。插件的浏览器入口在 `src/web/plugins.ts` 的定义表登记；窗口只登记引导集合里出现的插件。页面经 `nbook.workbench` 的贡献点 `workbench.pages` 交出（贡献 id 写页面路径），路由归宿主（`src/web/router.ts`）。
 - 样式：UnoCSS（`uno.config.ts`）与 nb-ui 的预编译样式同时在场，引入顺序与 transform 类黑名单的原因见 `src/web/main.ts`、`uno.config.ts`；主题变量来自 nb-ui 主题包。
 - 浏览器基线：Chrome、Edge 119，Firefox 124，Safari 17.4（`vite.config.ts` 的 `BROWSER_TARGETS`）；不使用基线之外的浏览器 API。
 - 测试分两个运行器：纯 TS 模块、后端与窗口合同用 `bun test`；Vue 组件测试命名 `*.dom.test.ts`，由 Vitest 在 happy-dom 里运行（`vitest.config.ts` 沿用 Vite 配置，包内 `bunfig.toml` 让 `bun test` 跳过它们）。需要真实布局的交互（尺寸、拖放、滚动）走 Playwright（`e2e/`）。

@@ -17,7 +17,7 @@ owners:
 
 **本批（命令底座与 Lab 闭环）**交付六条命令——`nbook.editor.focus`、`nbook.edit.undo`、`nbook.edit.redo`、`nbook.editor.go-to-line`、`nbook.quick-open.open-commands`、`nbook.quick-open.open-line`——以及机制底座与 Component Lab 可见闭环。
 
-**第二批（外壳与 View 标题操作，2026-09-19）**交付 `view` 域的七条命令：面板位置/对齐/隐藏/收起/最大化切换、工具视图移动，以及一个真实 View 贡献的刷新入口。它们复用同一命令表与同一执行入口，不新开命令总线；面板标题的框架控件与 View 贡献操作分别调用这两组命令。新应用随 w00017 t50 的工作台外壳迁入。
+**第二批（外壳与 View 标题操作，2026-09-19）**交付 `view` 域的七条命令：面板位置/对齐/隐藏/收起/最大化切换、工具视图移动，以及一个真实 View 贡献的刷新入口。它们复用同一命令表与同一执行入口，不新开命令总线；面板标题的框架控件与 View 贡献操作分别调用这两组命令。新应用里随工作台外壳一起迁入（[`ui.workbench-shell`](../ui/workbench-shell.md) 定义视图描述与 `when` / authority 的求值口径）。
 
 **非目标**：
 
@@ -119,7 +119,7 @@ owners:
 | `nbook.quick-open.open-commands` | 命令面板 / Command Palette | `{}` | 无 | read | never | `nbook.workbench`（产品命令表）；Lab 命令场景另登记一份 |
 | `nbook.quick-open.open-line` | 跳转到行… / Go to Line… | `{}` | 活动编辑器且支持行导航 | read | never | 随编辑器插件接入；现阶段只在 Lab 命令场景登记 |
 
-### 命令目录（项目，随 w00017 t54）
+### 命令目录（项目）
 
 | 命令 id | 标题 | 参数 | `when` | `effect` | agent 暴露 | 提供方 |
 |---|---|---|---|---|---|---|
@@ -127,7 +127,7 @@ owners:
 
 ### 命令目录（第二批 · 外壳与 View 标题）
 
-新应用随 w00017 t50 的工作台外壳迁入。
+新应用里随工作台外壳一起迁入。
 
 | 命令 id | 标题 | 参数 | `when` | `effect` | agent 暴露 |
 |---|---|---|---|---|---|
@@ -199,8 +199,8 @@ owners:
   - `shared/contracts.ts` 定义贡献点 `commands.definitions`、声明的 TypeBox schema、命令服务接口与 `commandServiceKey`。
   - `shared/registry.ts` 是命令表与执行管线，声明校验 `commandDeclarationProblems` 由贡献点校验与本地登记共用。
   - `shared/context-keys.ts` 负责上下文键的登记表与 `when` 求值。
-  - `shared/plugin.ts` 的 `createCommandsPlugin(location)` 是入口：接收者在提交时登记、撤回时释放，每次执行经 `implementation()` 取实现，执行异常记入诊断。
-  - 装配在 `src/server/plugins.ts` 与 `src/web/plugins.ts`。
+  - `shared/plugin.ts` 的 `commandsPlugin` 是插件定义，含服务端与浏览器两个入口，每个实例的入口各自一份命令表：接收者在提交时登记、撤回时释放，每次执行经 `implementation()` 取实现，执行异常记入诊断。
+  - 装配在 `src/server/plugins.ts` 与 `src/web/plugins.ts` 的定义表。
 - 中英文本：`packages/neuro-book/src/shared/localized-text.ts`。
 - 浏览器界面 `packages/neuro-book/src/plugins/workbench/web/`：
   - `commands/keymap.ts` 负责键位解析与分发。
@@ -217,11 +217,5 @@ owners:
 
 - 实现入口：[`registry.ts`](../../../packages/neuro-book/src/plugins/commands/shared/registry.ts)、[`plugin.ts`](../../../packages/neuro-book/src/plugins/commands/shared/plugin.ts)
 - 合同测试：[`registry.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/registry.test.ts)（场景 1–8）、[`context-keys.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/context-keys.test.ts)、[`plugin.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/plugin.test.ts)（经真实内核：场景 1、8、11、12）、[`keymap.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/keymap.test.ts)（场景 3、9）、[`editor-commands.test.ts`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/editor-commands.test.ts)；组件测试 [`lab-command-scene.dom.test.ts`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/lab-command-scene.dom.test.ts)（场景 5 的确认界面）、[`WorkbenchCommandHost.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/WorkbenchCommandHost.dom.test.ts)
-- Smoke：[`e2e/lab-commands.e2e.ts`](../../../packages/neuro-book/e2e/lab-commands.e2e.ts)（场景 10，开发会话，真实 Chrome）、[`e2e/commands.e2e.ts`](../../../packages/neuro-book/e2e/commands.e2e.ts)（场景 13，生产构建）；运行记录见 [w00017 t49](../../../.agents/works/w00017-application-runtime-architecture/tasks/t49-commands-quick-open/README.md)
-- 旧应用的实现与 w00016 的历史验收：[`commands.ts`](../../../packages/neuro-book-legacy/app/utils/workbench/commands.ts)，只作参照。
-- 批准该目标的提案：
-  - [`../../proposals/workbench-commands.md`](../../proposals/workbench-commands.md)（2026-09-14 起草，2026-09-18 需求讨论修订）；
-  - 命令改由内置插件提供，见[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3（2026-10-06）。
-- 相关规范：
-  - [`../ui/workbench-shell.md`](../ui/workbench-shell.md)：视图描述与 `when` / authority 求值口径；
-  - [`quick-open.md`](quick-open.md)：命令面板与行号跳转交互。
+- Smoke：[`e2e/lab-commands.e2e.ts`](../../../packages/neuro-book/e2e/lab-commands.e2e.ts)（场景 10，开发会话，真实 Chrome）、[`e2e/commands.e2e.ts`](../../../packages/neuro-book/e2e/commands.e2e.ts)（场景 13，生产构建）
+- 批准依据：[命令系统提案](../../proposals/workbench-commands.md)（2026-09-14 起草，2026-09-18 需求讨论修订）；命令改由内置插件提供，见[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3（2026-10-06）；一份定义含服务端与浏览器两个入口依据 [ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)（2026-10-08）。

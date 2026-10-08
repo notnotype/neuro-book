@@ -4,7 +4,7 @@
  * 界面据此只在工作台与失败页之间二选一，不出现半个工作台。首连先于建立运行实例：插件激活时远程服务已可用。
  * 可用之后链路断开只把 ready 标成离线并退避重连；服务端已换进程时转入只能刷新的 `server-restarted`，绑定的项目
  * 代次已结束时转入 `project-gone`。地址栏指定了项目时首连同时绑定它，绑定结果随 ready 给出，并以本地能力
- * `windowProjectKey` 交给本窗口的插件。
+ * `windowProjectKey` 交给本窗口的插件；整页导航同样以本地能力 `windowNavigationKey` 交出。
  *
  * 不依赖 Vue 与 DOM：连接对象、页面事件目标、console 与时钟由装配方传入，界面经 `onChange` 订阅状态。
  */
@@ -13,6 +13,7 @@ import type {StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency} from "@notnotype/nb-runtime/diagnostics";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
+import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import {Value} from "typebox/value";
 
@@ -22,11 +23,12 @@ import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exp
 import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
 import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
+import {windowNavigationKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
 
-import {browserPluginFactories, builtinBrowserPlugins} from "../plugins";
-import type {BrowserPluginFactory} from "../plugins";
+import {browserHostPlugins, browserPluginDefinitions, builtinBrowserPlugins} from "../plugins";
+import type {BrowserHostPluginFactory, BrowserPluginContext} from "../plugins";
 import {BrowserRuntimeHost} from "./browser-host";
 import type {BrowserHost, PageLifecycleTarget} from "./browser-host";
 import type {Connection, RpcEndpoint} from "./connection";
@@ -49,13 +51,17 @@ export interface BrowserWindowOptions {
     readonly connection: Connection;
     readonly page: PageLifecycleTarget;
     readonly console: DiagnosticsConsole;
-    /** 整页加载到 `href`（生产是 `location.assign`）：交给需要整页导航的插件，例如“打开项目”。 */
+    /** 整页加载到 `href`（生产是 `location.assign`）：以本地能力交给需要整页导航的插件，例如“打开项目”。 */
     readonly navigateDocument: (href: string) => void;
     /** 地址栏 `project` 参数（短名或 id）：首连时请求绑定它；没有则窗口不绑定项目。 */
     readonly project?: string | null;
-    /** 本外壳构建进去的浏览器插件及其工厂；缺省按产品清单。测试经这里换入自己的插件，产品代码不含测试分支。 */
+    /**
+     * 本外壳构建进去的浏览器插件、普通插件的定义与宿主适配器的工厂；缺省按产品清单与 `plugins.ts` 的两张表。
+     * 测试经这里换入自己的插件，产品代码不含测试分支。
+     */
     readonly builtin?: ReadonlyArray<PluginDescriptor>;
-    readonly factories?: Readonly<Record<string, BrowserPluginFactory>>;
+    readonly definitions?: Readonly<Record<string, PluginDefinition>>;
+    readonly hostPlugins?: Readonly<Record<string, BrowserHostPluginFactory>>;
     /** 客户端身份（`client-identity.ts`），随握手发给服务端；缺省每个窗口各取一个随机值，不跨刷新。 */
     readonly clientIdentity?: string;
     /** 重连退避与远程调用超时的时钟；缺省系统时钟。 */
@@ -90,7 +96,9 @@ class BootstrapRejected extends Error {
 
 export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindow {
     const builtin = options.builtin ?? builtinBrowserPlugins;
-    const factories = options.factories ?? browserPluginFactories;
+    const definitions = options.definitions ?? browserPluginDefinitions;
+    const hostPlugins = options.hostPlugins ?? browserHostPlugins;
+    const navigation = Object.freeze({navigateDocument: (href: string) => options.navigateDocument(href)});
     const clock = options.clock ?? systemClock;
     const clientIdentity = options.clientIdentity ?? crypto.randomUUID();
     const adapter = new BrowserRuntimeHost();
@@ -119,7 +127,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         let selected: SelectedPlugin[];
         let endpoint: RpcEndpoint;
         try {
-            ({selected, endpoint} = selectPlugins(raw, builtin, factories));
+            ({selected, endpoint} = selectPlugins(raw, builtin, definitions, hostPlugins));
         } catch (error) {
             if (!(error instanceof BootstrapRejected)) throw error;
             setState({status: error.kind, reason: error.message});
@@ -162,7 +170,8 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         // 首连之后绑定已定，窗口一生不变。
         const project: WindowProject["project"] = node.binding === null ? null : {id: node.binding.id, name: node.binding.name, generation: node.binding.generation};
         try {
-            const plugins = selected.map(({factory}) => factory({store, console: options.console, navigateDocument: options.navigateDocument}));
+            const context: BrowserPluginContext = {store, console: options.console};
+            const plugins = selected.map((plugin) => (plugin.kind === "host" ? plugin.factory(context) : plugin.definition));
             host = adapter.start({
                 instanceId,
                 client: clientIdentity,
@@ -171,7 +180,10 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                     Reflect.apply(options.console.error, options.console, [JSON.stringify({emergency: report})]);
                 }),
                 manifest: {
-                    capabilities: [{id: "window.project", key: windowProjectKey, create: () => Object.freeze({project})}],
+                    capabilities: [
+                        {id: "window.project", key: windowProjectKey, create: () => Object.freeze({project})},
+                        {id: "window.navigation", key: windowNavigationKey, create: () => navigation},
+                    ],
                     plugins,
                     requiredPlugins: REQUIRED_PLUGINS,
                     gates: [{
@@ -240,12 +252,16 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
  * 按引导响应选出要登记的插件。协议版本先于结构校验：新版本的服务端可能改了结构，此时应提示刷新而不是报格式错误。
  * 服务端启用了本外壳没有的插件或版本不同，说明外壳与服务端不是同一次构建，刷新即可对齐。
  */
-interface SelectedPlugin {
-    readonly id: string;
-    readonly factory: BrowserPluginFactory;
-}
+type SelectedPlugin =
+    | {readonly id: string; readonly kind: "definition"; readonly definition: PluginDefinition}
+    | {readonly id: string; readonly kind: "host"; readonly factory: BrowserHostPluginFactory};
 
-function selectPlugins(raw: unknown, builtin: ReadonlyArray<PluginDescriptor>, factories: Readonly<Record<string, BrowserPluginFactory>>): {readonly selected: SelectedPlugin[]; readonly endpoint: RpcEndpoint} {
+function selectPlugins(
+    raw: unknown,
+    builtin: ReadonlyArray<PluginDescriptor>,
+    definitions: Readonly<Record<string, PluginDefinition>>,
+    hostPlugins: Readonly<Record<string, BrowserHostPluginFactory>>,
+): {readonly selected: SelectedPlugin[]; readonly endpoint: RpcEndpoint} {
     const version = declaredProtocolVersion(raw);
     if (version !== null && version !== BROWSER_PROTOCOL_VERSION) {
         throw new BootstrapRejected("incompatible", `服务端的引导协议版本是 ${String(version)}，本页面是 ${String(BROWSER_PROTOCOL_VERSION)}`);
@@ -258,9 +274,11 @@ function selectPlugins(raw: unknown, builtin: ReadonlyArray<PluginDescriptor>, f
         if (local === undefined || local.version !== plugin.version) {
             throw new BootstrapRejected("incompatible", `本页面没有服务端启用的浏览器插件 ${plugin.id}@${plugin.version}`);
         }
-        const factory = factories[plugin.id];
-        if (factory === undefined) throw new BootstrapRejected("startup-failed", `浏览器插件 ${plugin.id} 没有装配工厂`);
-        selected.push({id: plugin.id, factory});
+        const factory = hostPlugins[plugin.id];
+        const definition = definitions[plugin.id];
+        if (factory !== undefined) selected.push({id: plugin.id, kind: "host", factory});
+        else if (definition !== undefined) selected.push({id: plugin.id, kind: "definition", definition});
+        else throw new BootstrapRejected("startup-failed", `浏览器插件 ${plugin.id} 没有装配定义`);
     }
     for (const id of REQUIRED_PLUGINS) {
         if (!selected.some((item) => item.id === id)) throw new BootstrapRejected("startup-failed", `引导集合缺少必需插件 ${id}`);

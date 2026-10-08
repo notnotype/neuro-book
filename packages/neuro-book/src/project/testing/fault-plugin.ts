@@ -8,7 +8,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provide} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 
-import {currentProjectKey} from "../current-project";
+import {currentProjectKey} from "nbook/shared/projects";
 
 /** `start-on-signal`：激活停在就绪行之后，收到 SIGUSR2 才继续，测试据此在启动中途做别的事。 */
 export const PROJECT_FAULTS = ["none", "hang-start", "start-on-signal", "exit-during-start", "startup-failure", "stop-fails", "stop-hangs"] as const;

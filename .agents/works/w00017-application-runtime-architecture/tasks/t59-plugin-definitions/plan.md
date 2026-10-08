@@ -30,7 +30,7 @@
 | `nbook/window-navigation` | `{navigateDocument(href: string): void}`：整页加载 | `web/host/window.ts`（取自 `BrowserWindowOptions.navigateDocument`） | `nbook.projects` 浏览器入口 |
 
 - 键与 `projects.ts` 同层，宿主与插件共用；只依赖内核服务键类型，不放进 `nb-runtime` 或 Storage 的公开合同。宿主拥有根的定位，Storage 拥有根下的布局，所以给状态根而不是库文件路径。
-- 项目入口的库目录用已有的 `currentProjectKey.root`（项目宿主冻结提供，当前代次不变），不另加。状态根不发给浏览器。
+- 项目入口的库目录用已有的 `currentProjectKey.root`（项目宿主冻结提供，当前代次不变），不另加；它的键从项目宿主目录（`src/project/current-project.ts`）移到 `src/shared/projects.ts`，插件不引用宿主目录（实施中补充）。状态根不发给浏览器。
 - `web/mount.ts` 的整页导航属于宿主路由，保持原样，不经内核解析。
 
 ### 2. 插件定义改为常量（`packages/neuro-book/src/plugins/`）

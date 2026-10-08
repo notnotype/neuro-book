@@ -1,14 +1,14 @@
 /**
- * 开发清单里插件的浏览器入口工厂。`main.ts` 只在 `import.meta.env.DEV` 时动态加载本模块，生产构建不含它。
+ * 开发清单里插件的浏览器入口定义。`main.ts` 只在 `import.meta.env.DEV` 时动态加载本模块，生产构建不含它。
  */
 
-import {developmentPlugins} from "nbook/development-manifest";
-import {createLabBrowserPlugin} from "nbook/plugins/lab/web/plugin";
+import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import type {BrowserPluginFactory} from "./plugins";
+import {developmentPlugins} from "nbook/development-manifest";
+import {labBrowserPlugin} from "nbook/plugins/lab/web/plugin";
 
 export const developmentBrowserPlugins = developmentPlugins.filter((plugin) => plugin.locations.includes("browser"));
 
-export const developmentBrowserPluginFactories: Readonly<Record<string, BrowserPluginFactory>> = {
-    "nbook.lab": () => createLabBrowserPlugin(),
+export const developmentBrowserPluginDefinitions: Readonly<Record<string, PluginDefinition>> = {
+    "nbook.lab": labBrowserPlugin,
 };

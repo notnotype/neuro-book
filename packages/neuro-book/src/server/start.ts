@@ -23,6 +23,7 @@ import {delegatingPlugins, productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected} from "nbook/plugins/http/backend/admission";
 import type {DrainClock} from "nbook/plugins/http/backend/admission";
+import {stateRootKey} from "nbook/shared/host";
 import {projectsKey} from "nbook/shared/projects";
 import {RPC_PATH} from "nbook/shared/rpc-socket";
 
@@ -234,14 +235,18 @@ export function startServer(options: StartServerOptions): RunningServer {
         // recordingEmergency 已把报告记入诊断存储；停止阶段出口可能已关闭，这里只补同步的致命通道。
         writeFatal(fatalLine("runtime.stop.emergency", {report}));
     });
+    const stateRoot = Object.freeze({path: options.config.stateRoot});
     const host = startServerHost({
         instanceId: INSTANCE_ID,
         manifest: {
-            capabilities: [{
-                id: "host.projects",
-                key: projectsKey,
-                create: async () => (await projectsReady.promise).provision(),
-            }],
+            capabilities: [
+                {id: "host.state-root", key: stateRootKey, create: () => stateRoot},
+                {
+                    id: "host.projects",
+                    key: projectsKey,
+                    create: async () => (await projectsReady.promise).provision(),
+                },
+            ],
             plugins,
             requiredPlugins: plugins.map((plugin) => plugin.id),
             gates: [],

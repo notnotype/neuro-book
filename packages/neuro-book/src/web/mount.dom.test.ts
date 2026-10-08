@@ -19,8 +19,7 @@ import {ConnectionError} from "./host/connection";
 import type {Connection} from "./host/connection";
 import {createBrowserWindow} from "./host/window";
 import {mountWindowUi} from "./mount";
-import {browserPluginFactories, builtinBrowserPlugins} from "./plugins";
-import type {BrowserPluginFactory} from "./plugins";
+import {browserPluginDefinitions, builtinBrowserPlugins} from "./plugins";
 
 const bootstrapOf = (plugins: ReadonlyArray<PluginDescriptor>) => ({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: {port: 1, path: "/"}, revision: "r", plugins: plugins.map(({id, version}) => ({id, version}))});
 
@@ -53,9 +52,9 @@ function connection(plugins: ReadonlyArray<PluginDescriptor>, failures = 0, serv
 }
 
 /** 贡献一个加载必然失败的页面的插件。 */
-const brokenPage: {descriptor: PluginDescriptor; factory: BrowserPluginFactory} = {
+const brokenPage: {descriptor: PluginDescriptor; definition: PluginDefinition} = {
     descriptor: {id: "test.broken-page", version: "0.1.0", locations: ["browser"]},
-    factory: (): PluginDefinition => ({
+    definition: {
         id: "test.broken-page",
         entries: [{
             id: "browser",
@@ -66,14 +65,14 @@ const brokenPage: {descriptor: PluginDescriptor; factory: BrowserPluginFactory} 
                 throw new Error("页面模块加载失败（测试注入）");
             }}}}}),
         }],
-    }),
+    },
 };
 
 async function mountAt(path: string, options: {failures?: number; withBrokenPage?: boolean; clock?: ManualClock; server?: {current: RemoteRouter}} = {}) {
     const builtin = options.withBrokenPage === true ? [...builtinBrowserPlugins, brokenPage.descriptor] : builtinBrowserPlugins;
-    const factories = options.withBrokenPage === true ? {...browserPluginFactories, [brokenPage.descriptor.id]: brokenPage.factory} : browserPluginFactories;
+    const definitions = options.withBrokenPage === true ? {...browserPluginDefinitions, [brokenPage.descriptor.id]: brokenPage.definition} : browserPluginDefinitions;
     const remote = connection(builtin, options.failures, options.server);
-    const browserWindow = createBrowserWindow({connection: remote, page: new EventTarget(), console: {error: () => undefined}, navigateDocument: () => undefined, builtin, factories, clock: options.clock});
+    const browserWindow = createBrowserWindow({connection: remote, page: new EventTarget(), console: {error: () => undefined}, navigateDocument: () => undefined, builtin, definitions, clock: options.clock});
     await browserWindow.start();
     const container = document.createElement("div");
     const history = createMemoryHistory();

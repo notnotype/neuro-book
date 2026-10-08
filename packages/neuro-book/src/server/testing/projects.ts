@@ -19,6 +19,7 @@ import type {RemoteNode, RemoteRouter} from "@notnotype/nb-runtime/remote";
 
 import {FIXTURE_READY_LINE} from "nbook/project/testing/fault-plugin";
 import type {ProjectFault} from "nbook/project/testing/fault-plugin";
+import {stateRootKey} from "nbook/shared/host";
 import {projectsKey} from "nbook/shared/projects";
 import type {ProjectAcquireResult, ProjectLease, ProjectRecord} from "nbook/shared/projects";
 
@@ -103,7 +104,8 @@ export interface ProjectHarness {
 
 /**
  * 在 `root` 下建一个项目目录 `Book`（短名 `book`）与状态根，起服务端实例与项目管理器。`env` 交给项目子进程
- * （故障插件、探针）；`plugins` 装进服务端实例，宿主能力 `projectsKey` 与产品里一样以按调用方门面提供。
+ * （故障插件、探针）；`plugins` 装进服务端实例，宿主能力与产品里一样：状态根 `stateRootKey`，以及以按调用方门面
+ * 提供的 `projectsKey`。
  */
 export async function projectHarness(
     root: string,
@@ -129,7 +131,10 @@ export async function projectHarness(
     const parent = createApplication(
         {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
         {
-            capabilities: [{id: "host.projects", key: projectsKey, create: async () => (await managerReady.promise).provision()}],
+            capabilities: [
+                {id: "host.state-root", key: stateRootKey, create: () => Object.freeze({path: stateRoot})},
+                {id: "host.projects", key: projectsKey, create: async () => (await managerReady.promise).provision()},
+            ],
             plugins,
             gates: [],
             remote: node,

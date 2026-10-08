@@ -37,8 +37,7 @@ import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
 import {projectProbeContract, remoteProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 
-import {browserPluginFactories, builtinBrowserPlugins} from "../plugins";
-import type {BrowserPluginFactory} from "../plugins";
+import {browserPluginDefinitions, builtinBrowserPlugins} from "../plugins";
 import {createConnection} from "./connection";
 import {createBrowserWindow} from "./window";
 import type {BrowserWindowOptions, WindowState} from "./window";
@@ -103,10 +102,10 @@ function failureOf(state: WindowState): {status: string; reason: string} | null 
 const TestPage = defineComponent({name: "TestPage", setup: () => () => h("p", "测试页面")});
 
 /** 浏览器入口在启动时向 `workbench.pages` 贡献一个页面的测试插件。 */
-function pagePlugin(id: string, path: string): {descriptor: PluginDescriptor; factory: BrowserPluginFactory} {
+function pagePlugin(id: string, path: string): {descriptor: PluginDescriptor; definition: PluginDefinition} {
     return {
         descriptor: {id, version: "0.1.0", locations: ["browser"]},
-        factory: (): PluginDefinition => ({
+        definition: {
             id,
             entries: [{
                 id: "browser",
@@ -115,19 +114,19 @@ function pagePlugin(id: string, path: string): {descriptor: PluginDescriptor; fa
                 contributions: [{capability: "workbench.pages", id: path, declaration: {path, title: id}}],
                 activate: () => ({contributions: {"workbench.pages": {[path]: {load: async () => TestPage}}}}),
             }],
-        }),
+        },
     };
 }
 
-/** 工作台激活时抛错的工厂表：窗口必须停在失败状态，而不是挂载半个工作台。 */
-const brokenWorkbench: BrowserWindowOptions["factories"] = {
-    ...browserPluginFactories,
-    "nbook.workbench": (): PluginDefinition => ({
+/** 工作台激活时抛错的定义表：窗口必须停在失败状态，而不是挂载半个工作台。 */
+const brokenWorkbench: BrowserWindowOptions["definitions"] = {
+    ...browserPluginDefinitions,
+    "nbook.workbench": {
         id: "nbook.workbench",
         entries: [{id: "browser", location: "browser", activate: () => {
             throw new Error("工作台激活失败（测试注入）");
         }}],
-    }),
+    },
 };
 
 describe("窗口运行实例", () => {
@@ -224,7 +223,7 @@ describe("窗口运行实例", () => {
     });
 
     it("工作台激活失败：启动失败并带原因，不 ready，也不能原地重试", async () => {
-        const {browserWindow} = openWindow({factories: brokenWorkbench});
+        const {browserWindow} = openWindow({definitions: brokenWorkbench});
         await browserWindow.start();
         const failure = failureOf(browserWindow.state);
         expect(failure?.status).toBe("startup-failed");
@@ -233,14 +232,14 @@ describe("窗口运行实例", () => {
         expect(browserWindow.state.status).toBe("startup-failed");
     });
 
-    it("必需插件的工厂抛错：同样是启动失败，不停在 starting", async () => {
-        const {browserWindow} = openWindow({factories: {...browserPluginFactories, "nbook.workbench": () => {
-            throw new Error("工作台装配失败（测试注入）");
+    it("宿主适配器的工厂抛错：同样是启动失败，不停在 starting", async () => {
+        const {browserWindow} = openWindow({hostPlugins: {"nbook.diagnostics": () => {
+            throw new Error("诊断装配失败（测试注入）");
         }}});
         await browserWindow.start();
         const failure = failureOf(browserWindow.state);
         expect(failure?.status).toBe("startup-failed");
-        expect(failure?.reason).toContain("工作台装配失败（测试注入）");
+        expect(failure?.reason).toContain("诊断装配失败（测试注入）");
     });
 
     it("非必需插件的入口激活失败：只影响该入口，窗口照常 ready", async () => {
@@ -250,12 +249,12 @@ describe("窗口运行实例", () => {
         const {browserWindow} = openWindow({
             url: stub.url,
             builtin: [...builtinBrowserPlugins, optional],
-            factories: {...browserPluginFactories, "nbook.optional": (): PluginDefinition => ({
+            definitions: {...browserPluginDefinitions, "nbook.optional": {
                 id: "nbook.optional",
                 entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], activate: () => {
                     throw new Error("可选入口激活失败（测试注入）");
                 }}],
-            })},
+            }},
         });
         await browserWindow.start();
         expect(browserWindow.state.status).toBe("ready");
@@ -270,7 +269,7 @@ describe("窗口运行实例", () => {
         const {browserWindow} = openWindow({
             url: stub.url,
             builtin,
-            factories: {...browserPluginFactories, ...Object.fromEntries(extra.map((plugin) => [plugin.descriptor.id, plugin.factory]))},
+            definitions: {...browserPluginDefinitions, ...Object.fromEntries(extra.map((plugin) => [plugin.descriptor.id, plugin.definition]))},
         });
         await browserWindow.start();
         const state = browserWindow.state;
@@ -284,7 +283,7 @@ describe("窗口运行实例", () => {
     it("两个窗口互相独立：一个卸载或失败，另一个仍 ready，服务端不停止（场景 4）", async () => {
         const a = openWindow();
         const b = openWindow();
-        const broken = openWindow({factories: brokenWorkbench});
+        const broken = openWindow({definitions: brokenWorkbench});
         await Promise.all([a.browserWindow.start(), b.browserWindow.start(), broken.browserWindow.start()]);
         expect(broken.browserWindow.state.status).toBe("startup-failed");
         expect(a.browserWindow.state.status).toBe("ready");
@@ -310,11 +309,11 @@ interface CallerRecord {
  * 启动时经远程服务调用服务端探针：`echo` 一次、查一次在线实例、订阅 `ticks`，并发出一个不等结果的 `hold`
  * （名字由测试给出，用来观察窗口关闭后服务端收到的终止）。
  */
-function remoteCaller(record: CallerRecord, holdName: string | null = null): {descriptor: PluginDescriptor; factory: BrowserPluginFactory} {
+function remoteCaller(record: CallerRecord, holdName: string | null = null): {descriptor: PluginDescriptor; definition: PluginDefinition} {
     const id = "test.remote-caller";
     return {
         descriptor: {id, version: "0.1.0", locations: ["browser"]},
-        factory: (): PluginDefinition => ({
+        definition: {
             id,
             entries: [{
                 id: "browser",
@@ -334,7 +333,7 @@ function remoteCaller(record: CallerRecord, holdName: string | null = null): {de
                     return {};
                 },
             }],
-        }),
+        },
     };
 }
 
@@ -347,7 +346,7 @@ function callerWindow(record: CallerRecord, rpc: () => {readonly port: number; r
     const caller = remoteCaller(record, options.holdName ?? null);
     const builtin = [...builtinBrowserPlugins, caller.descriptor];
     const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpc(), revision: "r", plugins: builtin.map(({id, version}) => ({id, version}))}));
-    const opened = openWindow({url: stub.url, builtin, factories: {...browserPluginFactories, [caller.descriptor.id]: caller.factory}, clock: options.clock});
+    const opened = openWindow({url: stub.url, builtin, definitions: {...browserPluginDefinitions, [caller.descriptor.id]: caller.definition}, clock: options.clock});
     return {...opened, stub};
 }
 
@@ -518,11 +517,11 @@ interface ProjectRecordOfWindow {
 }
 
 /** 启动时经 `project` 目标调用项目探针、订阅它的事件，并读本窗口绑定的项目（宿主的本地能力）。 */
-function projectCaller(record: ProjectRecordOfWindow): {descriptor: PluginDescriptor; factory: BrowserPluginFactory} {
+function projectCaller(record: ProjectRecordOfWindow): {descriptor: PluginDescriptor; definition: PluginDefinition} {
     const id = "test.project-caller";
     return {
         descriptor: {id, version: "0.1.0", locations: ["browser"]},
-        factory: (): PluginDefinition => ({
+        definition: {
             id,
             entries: [{
                 id: "browser",
@@ -543,7 +542,7 @@ function projectCaller(record: ProjectRecordOfWindow): {descriptor: PluginDescri
                     return {};
                 },
             }],
-        }),
+        },
     };
 }
 
@@ -592,7 +591,7 @@ function projectWindow(server: RunningServer, record: ProjectRecordOfWindow, opt
     const caller = projectCaller(record);
     const builtin = [...builtinBrowserPlugins, caller.descriptor];
     const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: options.rpc?.() ?? rpcOf(server), revision: "r", plugins: builtin.map(({id, version}) => ({id, version}))}));
-    const opened = openWindow({url: stub.url, builtin, factories: {...browserPluginFactories, [caller.descriptor.id]: caller.factory}, project: options.project, clock: options.clock});
+    const opened = openWindow({url: stub.url, builtin, definitions: {...browserPluginDefinitions, [caller.descriptor.id]: caller.definition}, project: options.project, clock: options.clock});
     return {...opened, stub};
 }
 

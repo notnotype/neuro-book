@@ -20,9 +20,9 @@ import {startServerHost} from "nbook/server/host";
 import type {FatalKind, ProcessEvents, ServerHost} from "nbook/server/host";
 import {createEnvelopeLink, parseEnvelope} from "nbook/server/projects/ipc";
 import type {EnvelopeChannel} from "nbook/server/projects/ipc";
+import {currentProjectKey} from "nbook/shared/projects";
 
 import type {ProjectConfig} from "./config";
-import {currentProjectKey} from "./current-project";
 import {manifestProjectPlugins} from "./plugins";
 import type {ProjectPluginContext} from "./plugins";
 

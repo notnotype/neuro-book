@@ -38,7 +38,7 @@ owners:
 - **绑定**：客户端实例一生绑定的那个项目代次（或不绑定），由握手取得（[远程服务与 RPC 协议](plugin-channel.md)）；绑定持有该代次的一份租约。
 - **宽限期**：最后一个租约释放后到开始停止项目实例的等待时间，缺省 5 分钟。
 - **`projectsKey`**：服务端宿主以本地能力提供给服务端插件的项目管理服务，按调用方门面提供。
-- **`currentProjectKey`**：项目宿主以本地能力提供给项目实例里的插件的当前项目信息。
+- **`currentProjectKey`**：项目宿主以本地能力提供给项目实例里的插件的当前项目信息（键在 `src/shared/projects.ts`）。项目里的插件要项目目录时依赖它，不经插件工厂传入（[ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)）。
 - **`nbook.projects`**：内置插件，服务端入口把列出与登记包成远程服务，浏览器入口提供“打开项目”命令与当前项目的显示。
 
 ## 输入与前置条件
@@ -152,6 +152,7 @@ Smoke：场景 1 由登记表与身份的合同测试在真实临时目录上运
 
 ## 证据
 
-- 批准目标：[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 2、3、4、8 节与第 11 节 K3 行，[ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`）。
-- 实现进展（随 [w00017 t54](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/README.md)，本文保持 `planned`，晋升待开发者审批）：服务端的项目管理在 `packages/neuro-book/src/server/projects/`（`registry.ts`、`identity.ts`、`manager.ts`、`ipc.ts`），项目宿主在 `packages/neuro-book/src/project/`，`nbook.projects` 在 `packages/neuro-book/src/plugins/projects/`，共用类型与服务键（`projectsKey`、`windowProjectKey`）在 `packages/neuro-book/src/shared/projects.ts`。场景 1 由 `registry.test.ts`，场景 2–10 由 `manager.test.ts`、`projects-capability.test.ts`、`src/server/server-projects.test.ts` 与 `src/web/host/window.test.ts`，场景 11 由 `src/plugins/projects/projects.test.ts` 与命令面板组件测试，场景 2–6、11 另由 `e2e/projects.e2e.ts`，场景 12 由 `smoke:server` 的 S7 覆盖。实测见输出第 12 条。
-- 开发者 2026-10-07 在 [w00017 t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中确认：进程间通信用 Bun IPC（选型实测见计划 Context）；宽限期缺省 5 分钟、崩溃不自动重启；身份写在项目目录 `.nbook/project.json`、登记表在状态根、短名登记后不变；不加防双开的锁；项目管理由宿主实现并以能力 `projectsKey` 提供，`nbook.projects` 只做界面与远程入口；无租约访问只对服务端插件与 `running` 的项目放行；“打开项目”列表带项目目录路径。设计审查见 [t54 证据](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/evidences/omp-design-review.txt)。
+- 批准依据：[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 2、3、4、8 节与第 11 节 K3 行，[ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`）；开发者 2026-10-07 在 [t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中确认：进程间通信用 Bun IPC、宽限期缺省 5 分钟且崩溃不自动重启、身份写在项目目录 `.nbook/project.json` 而登记表在状态根、短名登记后不变、不加防双开的锁、项目管理由宿主实现并以能力 `projectsKey` 提供、无租约访问只对服务端插件与 `running` 的项目放行、“打开项目”列表带项目目录路径；项目里的插件经宿主能力取项目目录依据 [ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)（2026-10-08）。
+- 实现入口：[`manager.ts`](../../../packages/neuro-book/src/server/projects/manager.ts)（另有同目录的 `registry.ts`、`identity.ts`、`ipc.ts`）、[`project/start.ts`](../../../packages/neuro-book/src/project/start.ts)、[`projects/backend/plugin.ts`](../../../packages/neuro-book/src/plugins/projects/backend/plugin.ts)、[`projects/web/plugin.ts`](../../../packages/neuro-book/src/plugins/projects/web/plugin.ts)、[`shared/projects.ts`](../../../packages/neuro-book/src/shared/projects.ts)
+- 合同测试：[`registry.test.ts`](../../../packages/neuro-book/src/server/projects/registry.test.ts)（场景 1）、[`manager.test.ts`](../../../packages/neuro-book/src/server/projects/manager.test.ts)、[`projects-capability.test.ts`](../../../packages/neuro-book/src/server/projects/projects-capability.test.ts)、[`server-projects.test.ts`](../../../packages/neuro-book/src/server/server-projects.test.ts)、[`window.test.ts`](../../../packages/neuro-book/src/web/host/window.test.ts)（场景 2–10）、[`projects.test.ts`](../../../packages/neuro-book/src/plugins/projects/projects.test.ts)（场景 11）
+- Smoke：[`projects.e2e.ts`](../../../packages/neuro-book/e2e/projects.e2e.ts)（场景 2–6、11）、[`smoke-server.ts`](../../../packages/neuro-book/scripts/smoke-server.ts)（场景 12，S7）；实测见输出第 12 条

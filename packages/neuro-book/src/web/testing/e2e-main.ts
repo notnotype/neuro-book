@@ -6,11 +6,11 @@
 import {remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 
 import {bootWindowUi} from "../boot";
-import {browserPluginFactories, builtinBrowserPlugins} from "../plugins";
+import {browserPluginDefinitions, builtinBrowserPlugins} from "../plugins";
 
 import {createRemoteProbeBrowserPlugin} from "./remote-probe";
 
 await bootWindowUi({
     builtin: [...builtinBrowserPlugins, remoteProbeDescriptor],
-    factories: {...browserPluginFactories, [remoteProbeDescriptor.id]: createRemoteProbeBrowserPlugin},
+    definitions: {...browserPluginDefinitions, [remoteProbeDescriptor.id]: createRemoteProbeBrowserPlugin()},
 });

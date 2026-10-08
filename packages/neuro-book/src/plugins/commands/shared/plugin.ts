@@ -1,5 +1,5 @@
 /**
- * `nbook.commands` 的入口：两个运行位置是同一份代码，各自持有一份命令表。
+ * `nbook.commands`：一份定义含服务端与浏览器两个入口，代码相同，每个实例的入口各自持有一份命令表。
  *
  * 命令只经贡献点 `commands.definitions` 登记：贡献撤回（入口停止、插件禁用）时命令随之离开命令表，
  * 内核也替命令表保证同一 id 只有一条贡献。命令服务因此不提供命令式登记。
@@ -9,7 +9,7 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
 import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
 import {provide} from "@notnotype/nb-runtime/plugins";
-import type {ContributionDescriptor, ContributionHandle, ContributionReceiver, PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {ContributionDescriptor, ContributionHandle, ContributionReceiver, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {descriptor} from "../plugin";
 import type {ContextKeyTable} from "./context-keys";
@@ -68,29 +68,32 @@ function receiverOf(registry: CommandRegistry, diagnostics: DiagnosticsService):
     };
 }
 
-export function createCommandsPlugin(location: RuntimeLocation): PluginDefinition {
+/** 命令表在 activate 里建：每个实例的入口各一份，常量本身不持有状态。 */
+function commandsEntry(location: RuntimeLocation): PluginEntryDefinition {
     return {
-        id: descriptor.id,
-        contributionPoints: [{id: COMMANDS_POINT, implementation: "required", validate: validateCommandContribution}],
-        entries: [{
-            id: location,
-            location,
-            dependencies: [{key: diagnosticsKey}],
-            provides: [commandServiceKey],
-            receives: [COMMANDS_POINT],
-            activate: (context) => {
-                const diagnostics = context.services.require(diagnosticsKey);
-                const registry = createCommandRegistry({
-                    contextKeys: PRODUCT_CONTEXT_KEYS,
-                    report: (error) => {
-                        diagnostics.record({level: "warn", event: "commands.registry", message: error.message, source: {plugin: descriptor.id}});
-                    },
-                });
-                return {
-                    services: [provide(commandServiceKey, serviceOf(registry))],
-                    receivers: {[COMMANDS_POINT]: receiverOf(registry, diagnostics)},
-                };
-            },
-        }],
+        id: location,
+        location,
+        dependencies: [{key: diagnosticsKey}],
+        provides: [commandServiceKey],
+        receives: [COMMANDS_POINT],
+        activate: (context) => {
+            const diagnostics = context.services.require(diagnosticsKey);
+            const registry = createCommandRegistry({
+                contextKeys: PRODUCT_CONTEXT_KEYS,
+                report: (error) => {
+                    diagnostics.record({level: "warn", event: "commands.registry", message: error.message, source: {plugin: descriptor.id}});
+                },
+            });
+            return {
+                services: [provide(commandServiceKey, serviceOf(registry))],
+                receivers: {[COMMANDS_POINT]: receiverOf(registry, diagnostics)},
+            };
+        },
     };
 }
+
+export const commandsPlugin: PluginDefinition = {
+    id: descriptor.id,
+    contributionPoints: [{id: COMMANDS_POINT, implementation: "required", validate: validateCommandContribution}],
+    entries: [commandsEntry("server"), commandsEntry("browser")],
+};

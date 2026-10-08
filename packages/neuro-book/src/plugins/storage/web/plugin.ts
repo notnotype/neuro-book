@@ -16,32 +16,30 @@ import {createStorageFacade} from "../shared/facade";
 import type {StorageFacade} from "../shared/facade";
 import {remoteRoute} from "../shared/remote-route";
 
-export function createStorageBrowserPlugin(): PluginDefinition {
-    return {
-        id: descriptor.id,
-        entries: [{
-            id: "browser",
-            location: "browser",
-            dependencies: [{key: windowProjectKey}],
-            provides: [storageKey],
-            remoteDelegates: [userStorageContract.id, projectStorageContract.id],
-            activate: (context) => {
-                const bound = context.services.require(windowProjectKey).project !== null;
-                const facades = new WeakMap<StorageService, StorageFacade>();
-                const storage = providePerConsumer(
-                    storageKey,
-                    (consumer): StorageService => {
-                        const facade = createStorageFacade(consumer, {
-                            user: () => remoteRoute(context.remote.on(consumer), userStorageContract),
-                            project: () => (bound ? remoteRoute(context.remote.on(consumer), projectStorageContract) : {ok: false, code: "no-project", detail: "这个窗口没有绑定项目"}),
-                        });
-                        facades.set(facade.service, facade);
-                        return facade.service;
-                    },
-                    {release: (service) => facades.get(service)?.release()},
-                );
-                return {services: [storage]};
-            },
-        }],
-    };
-}
+export const storageBrowserPlugin: PluginDefinition = {
+    id: descriptor.id,
+    entries: [{
+        id: "browser",
+        location: "browser",
+        dependencies: [{key: windowProjectKey}],
+        provides: [storageKey],
+        remoteDelegates: [userStorageContract.id, projectStorageContract.id],
+        activate: (context) => {
+            const bound = context.services.require(windowProjectKey).project !== null;
+            const facades = new WeakMap<StorageService, StorageFacade>();
+            const storage = providePerConsumer(
+                storageKey,
+                (consumer): StorageService => {
+                    const facade = createStorageFacade(consumer, {
+                        user: () => remoteRoute(context.remote.on(consumer), userStorageContract),
+                        project: () => (bound ? remoteRoute(context.remote.on(consumer), projectStorageContract) : {ok: false, code: "no-project", detail: "这个窗口没有绑定项目"}),
+                    });
+                    facades.set(facade.service, facade);
+                    return facade.service;
+                },
+                {release: (service) => facades.get(service)?.release()},
+            );
+            return {services: [storage]};
+        },
+    }],
+};

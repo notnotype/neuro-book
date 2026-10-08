@@ -9,7 +9,7 @@ import {join} from "node:path";
 
 import {productPlugins} from "nbook/manifest";
 import {readServerConfig} from "nbook/server/config";
-import {serverPluginFactories} from "nbook/server/plugins";
+import {serverPlugin} from "nbook/server/plugins";
 import {startServer} from "nbook/server/start";
 import {remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 
@@ -26,13 +26,9 @@ const server = startServer({
     manifest: [...productPlugins, ...(requested.includes(remoteProbeDescriptor.id) ? [remoteProbeDescriptor] : [])],
     stopInput: config.stopStdin ? process.stdin : null,
     projectEntry: join(import.meta.dir, "..", "..", "project", "testing", "fixture-entry.ts"),
-    // 产品插件按产品清单取工厂（测试插件没有登记在产品工厂表里），工厂拿到的上下文仍是含测试插件的清单。
+    // 产品插件按产品清单取定义（测试插件不在产品的表里），宿主适配器拿到的上下文仍是含测试插件的清单。
     plugins: (context) => [
-        ...productPlugins.filter((plugin) => plugin.locations.includes("server")).map((plugin) => {
-            const factory = serverPluginFactories[plugin.id];
-            if (factory === undefined) throw new Error(`产品插件 ${plugin.id} 没有后端入口工厂`);
-            return factory(context);
-        }),
+        ...productPlugins.filter((plugin) => plugin.locations.includes("server")).map((plugin) => serverPlugin(plugin.id, context)),
         ...requested.map((id) => createTestPlugin(id as TestPluginId)),
     ],
     onListening: (url) => {

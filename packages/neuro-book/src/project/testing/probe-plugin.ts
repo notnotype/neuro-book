@@ -9,10 +9,9 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
+import {currentProjectKey} from "nbook/shared/projects";
 import {probeStorage} from "nbook/shared/testing/probe-storage";
 import {projectProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
-
-import {currentProjectKey} from "../current-project";
 
 /** 项目入口关闭时打印的一行。 */
 export const PROJECT_PROBE_CLOSED_LINE = "remote-probe project entry closed";

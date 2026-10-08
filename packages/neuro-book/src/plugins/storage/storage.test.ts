@@ -21,13 +21,14 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {Type} from "typebox";
 
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
-import {windowProjectKey} from "nbook/shared/projects";
+import {stateRootKey} from "nbook/shared/host";
+import {currentProjectKey, windowProjectKey} from "nbook/shared/projects";
 import {defineRecord} from "nbook/shared/storage";
 import type {RecordDefinition, RecordHandle, RecordSnapshot, StorageService, WriteResult} from "nbook/shared/storage";
 
-import {createStorageServerPlugin} from "./backend/plugin";
+import {storageBackendPlugin} from "./backend/plugin";
 import {storageKey, userStorageContract} from "./shared/contracts";
-import {createStorageBrowserPlugin} from "./web/plugin";
+import {storageBrowserPlugin} from "./web/plugin";
 
 const Text = Type.Object({text: Type.String()}, {additionalProperties: false});
 const notes = defineRecord({key: "notes", scope: "user", locality: "shared", version: 1, schema: Text});
@@ -109,10 +110,10 @@ async function world(): Promise<World> {
     const delegation = (plugin: string): boolean => plugin === "nbook.storage";
 
     const hubNode = createRemoteNode({instance: {id: "hub", kind: "server", role: "hub", project: null, client: null}});
-    const hubPlugins = [silentDiagnostics("server", "hub"), createStorageServerPlugin({location: "server", path: userPath}), consumer("app.notes", "server", seen, "hub"), consumer("app.other", "server", seen, "hub")];
+    const hubPlugins = [silentDiagnostics("server", "hub"), storageBackendPlugin, consumer("app.notes", "server", seen, "hub"), consumer("app.other", "server", seen, "hub")];
     const hub = createApplication(
         {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
-        {plugins: hubPlugins, gates: [], remote: hubNode, delegation},
+        {capabilities: [{id: "host.state-root", key: stateRootKey, create: () => ({path: join(root, "state")})}], plugins: hubPlugins, gates: [], remote: hubNode, delegation},
     );
     apps.push(hub);
     expect(await hub.startup).toMatchObject({status: "available", failures: []});
@@ -140,10 +141,11 @@ async function world(): Promise<World> {
             revoke = new AbortController();
             const descriptor: InstanceDescriptor = {id: `project:P#${String(next)}`, kind: "project", role: "project", project: {id: "P", generation: next}, client: null};
             const node = createRemoteNode({instance: descriptor});
-            const plugins = [silentDiagnostics("project", descriptor.id), createStorageServerPlugin({location: "project", path: projectPath}), consumer("app.notes", "project", seen, descriptor.id)];
+            const plugins = [silentDiagnostics("project", descriptor.id), storageBackendPlugin, consumer("app.notes", "project", seen, descriptor.id)];
+            const current = {id: "P", name: "book", generation: next, root: join(root, "Book")};
             const app = createApplication(
                 {identity: {location: "project", instanceId: descriptor.id}, stopSignal: new AbortController().signal, emergency: () => undefined},
-                {plugins, gates: [], remote: node, delegation},
+                {capabilities: [{id: "project.current", key: currentProjectKey, create: () => current}], plugins, gates: [], remote: node, delegation},
             );
             apps.push(app);
             const pair = createLinkPair();
@@ -159,7 +161,7 @@ async function world(): Promise<World> {
             router.accept(pair.right);
             expect(await node.connect(pair.left)).toEqual({ok: true});
             const project = node.binding === null ? null : {id: node.binding.id, name: node.binding.name, generation: node.binding.generation};
-            const plugins = [createStorageBrowserPlugin(), consumer("app.notes", "browser", seen, id), consumer("app.other", "browser", seen, id)];
+            const plugins = [storageBrowserPlugin, consumer("app.notes", "browser", seen, id), consumer("app.other", "browser", seen, id)];
             const app = createApplication(
                 {identity: {location: "browser", instanceId: id, client}, stopSignal: new AbortController().signal, emergency: () => undefined},
                 {
@@ -423,6 +425,21 @@ describe("Spec storage.persistence 场景 7：订阅", () => {
         await waitUntil("订阅结束", () => ended.length > 0 || null);
         expect(await window.app.stop()).toMatchObject({status: "closed"});
         expect(ended).toEqual(["provider-stopped"]);
+    });
+});
+
+describe("Spec storage.persistence 输出 1：库文件位置来自宿主能力", () => {
+    it("服务端宿主没有提供状态根：Storage 的服务端入口按 missing-service 受阻，用 Storage 的插件随之受阻、不激活", async () => {
+        const seen = new Map<string, Seen>();
+        const app = createApplication(
+            {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
+            {plugins: [silentDiagnostics("server", "hub"), storageBackendPlugin, consumer("app.notes", "server", seen, "hub")], gates: []},
+        );
+        apps.push(app);
+        expect(await app.startup).toMatchObject({status: "available"});
+        expect(app.plugins.entryState({plugin: "nbook.storage", entry: "server"})).toMatchObject({status: "blocked", blocked: {reason: "missing-service", key: "nbook/state-root"}});
+        expect(app.plugins.entryState({plugin: "app.notes", entry: "server"})).toMatchObject({status: "blocked", blocked: {reason: "provider-blocked", key: "nbook.storage/storage"}});
+        expect(seen.size).toBe(0);
     });
 });
 

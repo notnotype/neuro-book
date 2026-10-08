@@ -61,7 +61,7 @@ export const sizesRecord = defineRecord({
 
 ### 接口
 
-插件依赖 `nbook.storage` 的服务键（由装配者交给插件工厂），解析得到按调用方生成的服务对象：
+插件在入口的 `dependencies` 里声明 `nbook.storage` 的服务键 `storageKey`（从 `nbook.storage` 的 `shared/contracts.ts` 引用），解析得到按调用方生成的服务对象：
 
 ```ts
 interface StorageService {
@@ -177,8 +177,8 @@ Smoke：`smoke:server` 经打包产物保存、读回一条 user 记录，重启
 
 ## 实现合同
 
-- **公开入口**：`nbook/shared/storage`（`defineRecord`、`StorageService`、`RecordHandle`、`RecordSnapshot`、`WriteResult`、`STORAGE_FAILURES`）；`nbook/plugins/storage/shared/contracts` 的 `storageKey` 与远程合同 `userStorageContract`、`projectStorageContract`；插件工厂 `createStorageServerPlugin`（服务端与项目实例共用，宿主给出位置与库路径）、`createStorageBrowserPlugin`。
-- **owner 与依赖方向**：`nbook.storage` 依赖内核的按调用方门面、远程服务与跨实例委托（`remoteDelegates`、`context.remote.on`），服务端与项目入口依赖 `nbook.diagnostics`，浏览器入口依赖窗口的项目绑定；分区库直接用 `bun:sqlite`。别的插件只依赖 `storageKey`，不依赖分区库与远程合同。
+- **公开入口**：`nbook/shared/storage`（`defineRecord`、`StorageService`、`RecordHandle`、`RecordSnapshot`、`WriteResult`、`STORAGE_FAILURES`）；`nbook/plugins/storage/shared/contracts` 的 `storageKey` 与远程合同 `userStorageContract`、`projectStorageContract`；插件定义 `storageBackendPlugin`（服务端与项目两个入口，代码相同；user 库在宿主能力 `stateRootKey` 给出的状态根下的 `storage/user.sqlite`，project 库在 `currentProjectKey.root` 下的 `.nbook/storage.sqlite`）与 `storageBrowserPlugin`。
+- **owner 与依赖方向**：`nbook.storage` 依赖内核的按调用方门面、远程服务与跨实例委托（`remoteDelegates`、`context.remote.on`），服务端与项目入口依赖 `nbook.diagnostics` 与给出库文件位置的宿主能力（宿主没有提供时入口按 `missing-service` 受阻），浏览器入口依赖窗口的项目绑定；分区库直接用 `bun:sqlite`。别的插件只依赖 `storageKey`，不依赖分区库与远程合同。
 - **关键不变量**：
   - 分区库只在拥有它的实例里打开；别的实例经远程服务到达，拥有者按内核填写的调用方身份取 owner 与客户端身份，不信任输入里的身份（场景 1、2）。
   - 先认库再改库：只有一张表都没有的库才在写锁里再认一次并建表，其余文件为 `io-error` 且不改写（输出 1、场景 5）。

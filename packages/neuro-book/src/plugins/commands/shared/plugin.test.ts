@@ -1,6 +1,7 @@
 /**
  * `nbook.commands` 经真实内核装配（workbench.commands 场景 1、11、12）：插件经贡献点登记命令、经命令服务执行；
- * 贡献撤回后命令离开命令表；冲突与不合格的声明按内核的贡献规则拒绝；两个运行位置是同一份入口代码。
+ * 贡献撤回后命令离开命令表；冲突与不合格的声明按内核的贡献规则拒绝；一份定义含两个运行位置的入口，每个实例
+ * 各自一份命令表。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -15,7 +16,7 @@ import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins
 
 import {COMMANDS_POINT, commandServiceKey} from "./contracts";
 import type {CommandDeclaration, CommandImplementation, CommandService} from "./contracts";
-import {createCommandsPlugin} from "./plugin";
+import {commandsPlugin} from "./plugin";
 
 const silent = {error: () => undefined};
 const NAME_ARGS = Type.Object({name: Type.String()}, {additionalProperties: false});
@@ -51,10 +52,9 @@ async function start(location: RuntimeLocation, plugins: ReadonlyArray<PluginDef
     const identity = {location, instanceId: `commands-${location}`};
     const store = createDiagnosticsStore({identity});
     const diagnostics = createDiagnosticsPlugin({location, store, exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)});
-    const commands = createCommandsPlugin(location);
     const application = createApplication(
         {identity, stopSignal: new AbortController().signal, emergency: () => undefined},
-        {plugins: [diagnostics, commands, ...plugins], requiredPlugins: [diagnostics.id, commands.id], gates: []},
+        {plugins: [diagnostics, commandsPlugin, ...plugins], requiredPlugins: [diagnostics.id, commandsPlugin.id], gates: []},
     );
     expect((await application.startup).status).toBe("available");
     return {application, store};
@@ -85,6 +85,24 @@ describe("nbook.commands 经内核装配", () => {
             expect(await commands.execute("example.greeter.greet", {name: "林"})).toMatchObject({ok: false, code: "unknown-command"});
         });
     }
+
+    it("同一份定义同时在服务端与浏览器两个实例里运行：各实例只激活本位置的入口，命令表互相隔离", async () => {
+        const services = new Map<string, CommandService>();
+        const run = {run: () => ({ok: true as const, value: null})};
+        const started = await Promise.all((["server", "browser"] as const).map((location) =>
+            start(location, [provider(`example.${location}`, location, {[`example.${location}.ping`]: {declaration: declaration(), implementation: run}}, (resolved) => {
+                services.set(location, resolved);
+            })]),
+        ));
+        expect(services.get("server")?.list().map((metadata) => metadata.id)).toEqual(["example.server.ping"]);
+        expect(services.get("browser")?.list().map((metadata) => metadata.id)).toEqual(["example.browser.ping"]);
+        const [server, browser] = started.map(({application}) => application);
+        expect(server?.plugins.entryState({plugin: commandsPlugin.id, entry: "server"})).toMatchObject({status: "available"});
+        expect(server?.plugins.entryState({plugin: commandsPlugin.id, entry: "browser"})).toMatchObject({status: "foreign-location"});
+        expect(browser?.plugins.entryState({plugin: commandsPlugin.id, entry: "browser"})).toMatchObject({status: "available"});
+        expect(browser?.plugins.entryState({plugin: commandsPlugin.id, entry: "server"})).toMatchObject({status: "foreign-location"});
+        await Promise.all(started.map(({application}) => application.stop()));
+    });
 
     it("两个内置插件贡献同一命令 id：两条一起被拒绝，与加载顺序无关", async () => {
         let service: CommandService | null = null;

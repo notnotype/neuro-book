@@ -1,6 +1,7 @@
 /**
- * 浏览器插件装配：产品清单里有浏览器入口的插件，在这里对应一个工厂。与 `src/server/plugins.ts` 对称；
- * 清单写了浏览器入口而这里没有工厂时直接失败，不静默少装。
+ * 浏览器插件装配：产品清单里有浏览器入口的插件，在这里对应一份定义。与 `src/server/plugins.ts` 对称：普通插件的
+ * 定义是常量，宿主的东西经宿主能力取得；只有诊断是宿主适配器的工厂（docs/adr/0026-plugin-definitions-as-constants.md）。
+ * 清单写了浏览器入口而两张表都没有时，窗口以启动失败结束，不静默少装。
  */
 
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
@@ -8,29 +9,32 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
-import {createCommandsPlugin} from "nbook/plugins/commands/shared/plugin";
+import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {createBrowserDiagnosticsPlugin} from "nbook/plugins/diagnostics/web/plugin";
-import {createProjectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
-import {createStorageBrowserPlugin} from "nbook/plugins/storage/web/plugin";
-import {createWorkbenchBrowserPlugin} from "nbook/plugins/workbench/web/plugin";
+import {projectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
+import {storageBrowserPlugin} from "nbook/plugins/storage/web/plugin";
+import {workbenchBrowserPlugin} from "nbook/plugins/workbench/web/plugin";
 
 export interface BrowserPluginContext {
     /** 本窗口运行实例的诊断存储。 */
     readonly store: DiagnosticsStore;
     readonly console: DiagnosticsConsole;
-    /** 整页加载到 `href`。 */
-    readonly navigateDocument: (href: string) => void;
 }
 
-export type BrowserPluginFactory = (context: BrowserPluginContext) => PluginDefinition;
+export type BrowserHostPluginFactory = (context: BrowserPluginContext) => PluginDefinition;
 
-export const browserPluginFactories: Readonly<Record<string, BrowserPluginFactory>> = {
+/** 普通插件：只能放定义常量。 */
+export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>> = {
+    "nbook.commands": commandsPlugin,
+    "nbook.workbench": workbenchBrowserPlugin,
+    "nbook.projects": projectsBrowserPlugin,
+    "nbook.storage": storageBrowserPlugin,
+};
+
+/** 宿主适配器：诊断的存储在窗口运行实例建立之前就要能记录（ADR 0026 决策第 5 条）。 */
+export const browserHostPlugins: Readonly<Record<string, BrowserHostPluginFactory>> = {
     "nbook.diagnostics": (context) => createBrowserDiagnosticsPlugin({store: context.store, console: context.console}),
-    "nbook.commands": () => createCommandsPlugin("browser"),
-    "nbook.workbench": () => createWorkbenchBrowserPlugin(),
-    "nbook.projects": (context) => createProjectsBrowserPlugin({navigateDocument: context.navigateDocument}),
-    "nbook.storage": () => createStorageBrowserPlugin(),
 };
 
 /** 本外壳构建进去的浏览器插件：清单中有浏览器运行位置的插件。 */

@@ -13,18 +13,19 @@ import "./styles.css";
 
 import {createWebHistory} from "vue-router";
 
+import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+
 import type {PluginDescriptor} from "nbook/manifest";
 
 import {readClientIdentity} from "./host/client-identity";
 import {createConnection} from "./host/connection";
 import {createBrowserWindow} from "./host/window";
 import {mountWindowUi} from "./mount";
-import type {BrowserPluginFactory} from "./plugins";
 
 export interface WindowUiBoot {
-    /** 本外壳构建进去的浏览器插件及其工厂。 */
+    /** 本外壳构建进去的浏览器插件及其定义（宿主适配器固定在 `plugins.ts`）。 */
     readonly builtin: ReadonlyArray<PluginDescriptor>;
-    readonly factories: Readonly<Record<string, BrowserPluginFactory>>;
+    readonly definitions: Readonly<Record<string, PluginDefinition>>;
 }
 
 export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
@@ -40,7 +41,7 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
         project: new URLSearchParams(location.search).get("project"),
         clientIdentity: clientIdentity.id,
         builtin: options.builtin,
-        factories: options.factories,
+        definitions: options.definitions,
     });
     await browserWindow.start();
     await mountWindowUi({

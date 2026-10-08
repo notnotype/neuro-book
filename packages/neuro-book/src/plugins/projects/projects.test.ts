@@ -1,7 +1,7 @@
 /**
  * `nbook.projects`：服务端入口的远程服务接在真实的项目管理器与登记表上（必要时起真实的项目子进程）；“打开项目”
- * 的流程由真实的浏览器内核实例经进程内链路调用它，选择走真实的命令面板宿主（选择模式）。
- * 行为合同见 docs/specs/runtime/projects.md 输出第 10 条与场景 11。
+ * 由真实的浏览器内核实例经命令服务执行、经进程内链路调用它，选择走真实的命令面板宿主（选择模式），整页导航经
+ * 宿主能力 `windowNavigationKey`。行为合同见 docs/specs/runtime/projects.md 输出第 10 条与场景 11。
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
@@ -10,6 +10,7 @@ import {join} from "node:path";
 
 import {createApplication} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
+import type {Application} from "@notnotype/nb-runtime/application";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import type {RemoteUse} from "@notnotype/nb-runtime/remote";
@@ -21,16 +22,23 @@ import {commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
+import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
+import {quickPickKey} from "nbook/plugins/workbench/shared/contracts";
+import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
 import {createPaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
 import type {PaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
 import {killSpawnedProjects, leaseOf, projectHarness} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
+import {windowNavigationKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
-import {browserPluginFactories} from "nbook/web/plugins";
+import {browserHostPlugins, browserPluginDefinitions} from "nbook/web/plugins";
 
-import {createProjectsServerPlugin} from "./backend/plugin";
+import {projectsBackendPlugin} from "./backend/plugin";
 import {projectsRemoteContract} from "./shared/contracts";
 import {openProject} from "./web/open-project";
+import {projectsBrowserPlugin} from "./web/plugin";
+
+const silentConsole = {error: () => undefined};
 
 let tmp = "";
 
@@ -51,7 +59,7 @@ async function setup(): Promise<{readonly h: ProjectHarness; readonly projects: 
     // 服务端插件都以诊断为依赖图的根；这里的诊断只进内存，不写文件也不打印。
     const silent = {error: () => undefined};
     const diagnostics = createDiagnosticsPlugin({location: "server", store: createDiagnosticsStore({identity: {location: "server", instanceId: "hub"}}), exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)});
-    const h = await projectHarness(tmp, {plugins: [diagnostics, createProjectsServerPlugin()]});
+    const h = await projectHarness(tmp, {plugins: [diagnostics, projectsBackendPlugin]});
     let remote: ActivationContext["remote"] | null = null;
     const node = createRemoteNode({instance: {id: "browser-1", kind: "browser", role: "client", project: null, client: "profile-1"}});
     const app = createApplication(
@@ -70,6 +78,43 @@ async function setup(): Promise<{readonly h: ProjectHarness; readonly projects: 
     expect(await node.connect(pair.left)).toEqual({ok: true});
     expect(await app.startup).toMatchObject({status: "available"});
     return {h, projects: remote!.use(projectsRemoteContract)};
+}
+
+/** 拿到命令服务的测试插件：依赖命令服务，借此把它交给测试。 */
+function commandReader(onService: (service: CommandService) => void): PluginDefinition {
+    return {id: "test.command-reader", entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: commandServiceKey}], activate: (context) => {
+        onService(context.services.require(commandServiceKey));
+        return {};
+    }}]};
+}
+
+/**
+ * 装着产品 `nbook.commands` 与 `nbook.projects` 浏览器入口的窗口实例，连到 `h` 的路由。工作台的选择服务要挂上
+ * 命令面板（DOM）才有宿主，这里用同一个真实的面板宿主顶替它；整页导航记在宿主能力上（产品里是 `location.assign`）。
+ */
+async function commandWindow(h: ProjectHarness, host: PaletteHost, navigations: string[]): Promise<{readonly commands: CommandService; readonly app: Application}> {
+    let commands: CommandService | null = null;
+    const store = createDiagnosticsStore({identity: {location: "browser", instanceId: "browser-2"}});
+    const node = createRemoteNode({instance: {id: "browser-2", kind: "browser", role: "client", project: null, client: "profile-2"}});
+    const app = createApplication(
+        {identity: {location: "browser", instanceId: "browser-2"}, stopSignal: new AbortController().signal, emergency: () => undefined},
+        {
+            capabilities: [
+                {id: "window.navigation", key: windowNavigationKey, create: () => ({navigateDocument: (href: string) => navigations.push(href)})},
+                {id: "test.quick-pick", key: quickPickKey, create: (): QuickPick => ({pick: (request) => host.openPick(request)})},
+            ],
+            plugins: [browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}), commandsPlugin, projectsBrowserPlugin, commandReader((service) => {
+                commands = service;
+            })],
+            gates: [],
+            remote: node,
+        },
+    );
+    const pair = createLinkPair();
+    h.router.accept(pair.right);
+    expect(await node.connect(pair.left)).toEqual({ok: true});
+    expect(await app.startup).toMatchObject({status: "available", failures: []});
+    return {commands: commands!, app};
 }
 
 async function directory(name: string): Promise<string> {
@@ -111,17 +156,19 @@ describe("Spec projects 场景 11：打开项目", () => {
         host.closed();
     }
 
-    it("列出已登记项目，选中即整页导航到 /?project=<短名>", async () => {
-        const {projects} = await setup();
+    it("经命令服务执行“打开项目”：列出已登记项目，选中后经宿主能力整页导航到 /?project=<短名>", async () => {
+        const {h} = await setup();
         const {host, opened} = await picker();
         const navigations: string[] = [];
-        const running = openProject(projects, {pick: (request) => host.openPick(request)}, (url) => navigations.push(url));
+        const {commands, app} = await commandWindow(h, host, navigations);
+        const running = commands.execute("nbook.project.open");
 
         const request = await opened();
         expect(request.items).toEqual([{id: "book", label: "book", detail: expect.stringContaining("Book")}]);
         submit(host, {kind: "item", id: "book"});
         expect(await running).toEqual({ok: true, value: null});
         expect(navigations).toEqual(["/?project=book"]);
+        expect((await app.stop()).status).toBe("closed");
     });
 
     it("输入目录路径：先登记再导航；登记失败带着原因重新选择，取消则什么也不做", async () => {
@@ -151,17 +198,24 @@ describe("Spec projects 输出 10：命令登记", () => {
     it("产品的浏览器插件装配后，“打开项目”在本窗口的命令表里（人类可见、当前可用）", async () => {
         const store = createDiagnosticsStore({identity: {location: "browser", instanceId: "window-1"}});
         let commands: CommandService | null = null;
-        const reader: PluginDefinition = {id: "test.command-reader", entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: commandServiceKey}], activate: (context) => {
-            commands = context.services.require(commandServiceKey);
-            return {};
-        }}]};
         const plugins = [
-            ...["nbook.diagnostics", "nbook.commands", "nbook.workbench", "nbook.projects"].map((id) => browserPluginFactories[id]!({store, console: {error: () => undefined}, navigateDocument: () => undefined})),
-            reader,
+            browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}),
+            ...["nbook.commands", "nbook.workbench", "nbook.projects"].map((id) => browserPluginDefinitions[id]!),
+            commandReader((service) => {
+                commands = service;
+            }),
         ];
         const app = createApplication(
             {identity: {location: "browser", instanceId: "window-1"}, stopSignal: new AbortController().signal, emergency: () => undefined},
-            {capabilities: [{id: "window.project", key: windowProjectKey, create: () => ({project: null})}], plugins, requiredPlugins: ["nbook.diagnostics", "nbook.commands", "nbook.workbench"], gates: []},
+            {
+                capabilities: [
+                    {id: "window.project", key: windowProjectKey, create: () => ({project: null})},
+                    {id: "window.navigation", key: windowNavigationKey, create: () => ({navigateDocument: () => undefined})},
+                ],
+                plugins,
+                requiredPlugins: ["nbook.diagnostics", "nbook.commands", "nbook.workbench"],
+                gates: [],
+            },
         );
         expect(await app.startup).toMatchObject({status: "available", failures: []});
         expect(commands!.get("nbook.project.open")).toMatchObject({ok: true, value: {source: "nbook.projects", title: {"zh-CN": "打开项目"}}});

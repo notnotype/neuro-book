@@ -24,9 +24,9 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {defineRecord} from "nbook/shared/storage";
 import type {RecordHandle, StorageService} from "nbook/shared/storage";
 
-import {createStorageServerPlugin} from "./backend/plugin";
+import {storageBackendPlugin} from "./backend/plugin";
 import {storageKey} from "./shared/contracts";
-import {createStorageBrowserPlugin} from "./web/plugin";
+import {storageBrowserPlugin} from "./web/plugin";
 
 const board = defineRecord({key: "board", scope: "project", locality: "shared", version: 1, schema: Type.Object({text: Type.String()}, {additionalProperties: false})});
 
@@ -44,11 +44,12 @@ afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-function serverPlugins(stateRoot: string): PluginDefinition[] {
+/** 服务端实例的插件：诊断与 Storage 的后端定义；user 库在测试宿主给的状态根下。 */
+function serverPlugins(): PluginDefinition[] {
     const silent = {error: () => undefined};
     return [
         createDiagnosticsPlugin({location: "server", store: createDiagnosticsStore({identity: {location: "server", instanceId: "hub"}}), exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)}),
-        createStorageServerPlugin({location: "server", path: join(stateRoot, "storage", "user.sqlite")}),
+        storageBackendPlugin,
     ];
 }
 
@@ -61,7 +62,7 @@ async function windowOf(h: ProjectHarness, id: string, client: string): Promise<
     expect(await node.connect(pair.left)).toEqual({ok: true});
     const binding = node.binding!;
     const plugins: PluginDefinition[] = [
-        createStorageBrowserPlugin(),
+        storageBrowserPlugin,
         {id: "app.notes", entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: storageKey}], activate: (context) => {
             storage = context.services.require(storageKey);
             return {};
@@ -95,7 +96,7 @@ async function opened(storage: StorageService): Promise<RecordHandle<{text: stri
 
 describe("Spec storage.persistence：project 分区在项目子进程里", () => {
     it("两个窗口经代理共用项目里的记录；项目子进程退出时关库；下一代项目实例读到磁盘上的值", async () => {
-        const h = await projectHarness(tmp, {plugins: serverPlugins(join(tmp, "hub-state"))});
+        const h = await projectHarness(tmp, {plugins: serverPlugins()});
         const keep = leaseOf(await h.manager.acquire("book", "test"));
         const pid = await h.ready(1);
         const library = join(h.project.path, ".nbook", "storage.sqlite");

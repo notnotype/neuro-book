@@ -12,32 +12,30 @@ import {projectsKey} from "nbook/shared/projects";
 import {descriptor} from "../plugin";
 import {projectsRemoteContract} from "../shared/contracts";
 
-export function createProjectsServerPlugin(): PluginDefinition {
-    return {
-        id: descriptor.id,
-        entries: [{
-            id: "server",
-            location: "server",
-            dependencies: [{key: diagnosticsKey}, {key: projectsKey}],
-            remoteProvides: [projectsRemoteContract.id],
-            activate: (context) => {
-                const projects = context.services.require(projectsKey);
-                const remote = provideRemote(projectsRemoteContract, () => ({
-                    methods: {
-                        list: async () => {
-                            const listed = await projects.list();
-                            if (!listed.ok) return {ok: false, code: "registry-invalid", detail: {detail: listed.detail}};
-                            return {ok: true, value: listed.value.map(({id, name, path, state, generation}) => ({id, name, path, state, generation}))};
-                        },
-                        register: async ({path}) => {
-                            const registered = await projects.register(path);
-                            if (!registered.ok) return {ok: false, code: "register-failed", detail: {reason: registered.reason, detail: registered.detail}};
-                            return {ok: true, value: registered.project};
-                        },
+export const projectsBackendPlugin: PluginDefinition = {
+    id: descriptor.id,
+    entries: [{
+        id: "server",
+        location: "server",
+        dependencies: [{key: diagnosticsKey}, {key: projectsKey}],
+        remoteProvides: [projectsRemoteContract.id],
+        activate: (context) => {
+            const projects = context.services.require(projectsKey);
+            const remote = provideRemote(projectsRemoteContract, () => ({
+                methods: {
+                    list: async () => {
+                        const listed = await projects.list();
+                        if (!listed.ok) return {ok: false, code: "registry-invalid", detail: {detail: listed.detail}};
+                        return {ok: true, value: listed.value.map(({id, name, path, state, generation}) => ({id, name, path, state, generation}))};
                     },
-                }));
-                return {remote: [remote]};
-            },
-        }],
-    };
-}
+                    register: async ({path}) => {
+                        const registered = await projects.register(path);
+                        if (!registered.ok) return {ok: false, code: "register-failed", detail: {reason: registered.reason, detail: registered.detail}};
+                        return {ok: true, value: registered.project};
+                    },
+                },
+            }));
+            return {remote: [remote]};
+        },
+    }],
+};
