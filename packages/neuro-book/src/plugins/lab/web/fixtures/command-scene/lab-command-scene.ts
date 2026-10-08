@@ -14,6 +14,7 @@ import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue"
 import type {ComputedRef, Ref, ShallowRef} from "vue";
 
 import {DISPLAY_LOCALE, localize} from "nbook/shared/localized-text";
+import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import type {ContextValues} from "nbook/plugins/commands/shared/context-keys";
 import type {AgentMode, Release} from "nbook/plugins/commands/shared/contracts";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
@@ -81,8 +82,7 @@ export function useLabCommandScene(): LabCommandScene {
     };
 
     const registry = createCommandRegistry({
-        contextKeys: LAB_CONTEXT_KEYS,
-        context: () => context.value,
+        contextKeys: contextTable(LAB_CONTEXT_KEYS, () => context.value),
         agentMode: () => agentMode.value,
         confirm: requestConfirmation,
         report: reportError,

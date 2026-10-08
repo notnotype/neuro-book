@@ -8,6 +8,7 @@ import {Type} from "typebox";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {nextTick, shallowRef} from "vue";
 
+import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import type {ContextValues} from "nbook/plugins/commands/shared/context-keys";
 import type {CommandDeclaration, CommandExecutionEvent, CommandResult} from "nbook/plugins/commands/shared/contracts";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
@@ -29,8 +30,7 @@ afterEach(() => {
 function harness() {
     const context = shallowRef<ContextValues>({});
     const registry = createCommandRegistry({
-        contextKeys: {"editor-active": "需要活动编辑器", "editor-line-navigation": "当前编辑器不支持行号跳转"},
-        context: () => context.value,
+        contextKeys: contextTable({"editor-active": "需要活动编辑器", "editor-line-navigation": "当前编辑器不支持行号跳转"}, () => context.value),
         report: (error) => {
             throw error;
         },

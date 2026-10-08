@@ -5,14 +5,18 @@
  */
 
 import {describe, expect, it} from "bun:test";
+import {computed, ref} from "@vue/reactivity";
+import type {Ref} from "@vue/reactivity";
 import {Type} from "typebox";
 
 import {createApplication} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
-import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
+import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
+import {statePlugin} from "nbook/plugins/state/shared/plugin";
 
 import {COMMANDS_POINT, commandServiceKey} from "./contracts";
 import type {CommandDeclaration, CommandImplementation, CommandService} from "./contracts";
@@ -54,7 +58,7 @@ async function start(location: RuntimeLocation, plugins: ReadonlyArray<PluginDef
     const diagnostics = createDiagnosticsPlugin({location, store, exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)});
     const application = createApplication(
         {identity, stopSignal: new AbortController().signal, emergency: () => undefined},
-        {plugins: [diagnostics, commandsPlugin, ...plugins], requiredPlugins: [diagnostics.id, commandsPlugin.id], gates: []},
+        {plugins: [diagnostics, statePlugin, commandsPlugin, ...plugins], requiredPlugins: [diagnostics.id, commandsPlugin.id], gates: []},
     );
     expect((await application.startup).status).toBe("available");
     return {application, store};
@@ -138,7 +142,7 @@ describe("nbook.commands 经内核装配", () => {
             const validation = application.plugins.contribution(COMMANDS_POINT, id)[0]?.validation;
             return validation?.status === "rejected" ? validation.detail : null;
         };
-        expect(rejection("example.greeter.wait")).toContain("未登记的 when 取值：editor-active");
+        expect(rejection("example.greeter.wait")).toContain("when 引用的 editor-active 不是本运行位置声明的公开键");
         expect(rejection("nbook.edit.undo")).toContain("插件 example.greeter 的命令 id 必须是 example.greeter.<action>");
         expect((service as CommandService | null)?.list().map((metadata) => metadata.id)).toEqual(["example.greeter.greet"]);
         await application.stop();
@@ -164,3 +168,79 @@ describe("nbook.commands 经内核装配", () => {
         await application.stop();
     });
 });
+
+describe("Spec workbench.commands“when 读公开状态”、场景 15", () => {
+    const REASON = {"zh-CN": "开关还没打开", "en-US": "The switch is off"};
+    const run = {run: () => ({ok: true as const, value: "done"})};
+
+    /** 声明并绑定公开键 `example.flags/<名>` 的插件；`lazy` 时不随启动激活。 */
+    function flags(location: RuntimeLocation, keys: Readonly<Record<string, {readonly declaration: unknown; readonly value?: Ref<boolean>}>>, options: {readonly lazy?: boolean; readonly onActivate?: (context: ActivationContext) => void} = {}): PluginDefinition {
+        return {
+            id: "example.flags",
+            entries: [{
+                id: location,
+                location,
+                activationEvents: options.lazy === true ? [] : ["onStartup"],
+                contributions: Object.entries(keys).map(([name, key]) => ({capability: PUBLIC_STATE_POINT, id: `example.flags/${name}`, declaration: key.declaration})),
+                activate: (context) => {
+                    options.onActivate?.(context);
+                    const bindings = Object.fromEntries(Object.entries(keys).map(([name, key]) => [`example.flags/${name}`, key.value === undefined ? {kind: "unbound"} : {kind: "bound", read: () => key.value!.value}]));
+                    return {contributions: {[PUBLIC_STATE_POINT]: bindings}};
+                },
+            }],
+        };
+    }
+
+    it("懒激活插件的键：登记期就通过；入口未激活时不可执行并给出声明的原因；激活后按值求值，computed 随值变化；入口停止后回到不可用", async () => {
+        const open = ref(false);
+        let flagsContext: ActivationContext | null = null;
+        let service: CommandService | null = null;
+        const source = provider("example.greeter", "browser", {
+            "example.greeter.go": {declaration: declaration({when: {requires: ["example.flags/open"]}}), implementation: run},
+        }, (resolved) => {
+            service = resolved;
+        });
+        const {application} = await start("browser", [flags("browser", {open: {declaration: {type: "boolean", unready: false, reason: REASON}, value: open}}, {lazy: true, onActivate: (context) => {
+            flagsContext = context;
+        }}), source]);
+        const commands = service as CommandService | null;
+        if (commands === null) throw new Error("没有拿到命令服务");
+        expect(application.plugins.contribution(COMMANDS_POINT, "example.greeter.go")[0]?.validation).toEqual({status: "accepted"});
+        const enabled = computed(() => commands.isEnabled("example.greeter.go"));
+        expect(enabled.value).toMatchObject({ok: false, code: "unavailable", reason: "开关还没打开"});
+        expect(await commands.execute("example.greeter.go")).toEqual({ok: false, code: "unavailable", reason: "开关还没打开"});
+
+        expect(await application.plugins.activate({plugin: "example.flags", entry: "browser"})).toMatchObject({status: "activated"});
+        expect(enabled.value).toMatchObject({ok: false, code: "unavailable", reason: "开关还没打开"});
+        open.value = true;
+        expect(enabled.value).toEqual({ok: true, value: true});
+        expect(await commands.execute("example.greeter.go")).toEqual({ok: true, value: "done"});
+
+        await (flagsContext as ActivationContext | null)?.scope.parent?.close();
+        expect(enabled.value).toMatchObject({ok: false, code: "unavailable", reason: "开关还没打开"});
+        expect(await commands.execute("example.greeter.go")).toMatchObject({ok: false, code: "unavailable"});
+        await application.stop();
+    });
+
+    it("when 引用未声明的键、非布尔键或只在另一个运行位置声明的键：这一条被拒，原因可查", async () => {
+        const bothSides: PluginDefinition = {...flags("browser", {label: {declaration: {type: "string", unready: ""}}}), entries: [
+            ...flags("browser", {label: {declaration: {type: "string", unready: ""}}}).entries,
+            ...flags("server", {serverOnly: {declaration: {type: "boolean", unready: false}}}).entries,
+        ]};
+        const source = provider("example.greeter", "browser", {
+            "example.greeter.missing": {declaration: declaration({when: {requires: ["example.flags/nothing"]}}), implementation: run},
+            "example.greeter.label": {declaration: declaration({when: {requires: ["example.flags/label"]}}), implementation: run},
+            "example.greeter.elsewhere": {declaration: declaration({when: {requires: ["example.flags/serverOnly"]}}), implementation: run},
+        });
+        const {application} = await start("browser", [bothSides, source]);
+        const detail = (id: string): string | null => {
+            const validation = application.plugins.contribution(COMMANDS_POINT, id)[0]?.validation;
+            return validation?.status === "rejected" ? validation.detail : null;
+        };
+        expect(detail("example.greeter.missing")).toContain("example.flags/nothing 不是本运行位置声明的公开键");
+        expect(detail("example.greeter.label")).toContain("example.flags/label 不是布尔公开键");
+        expect(detail("example.greeter.elsewhere")).toContain("example.flags/serverOnly 不是本运行位置声明的公开键");
+        await application.stop();
+    });
+});
+

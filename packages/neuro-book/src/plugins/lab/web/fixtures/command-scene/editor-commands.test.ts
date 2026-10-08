@@ -3,6 +3,7 @@
 import {describe, expect, it} from "bun:test";
 import {Type} from "typebox";
 
+import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import type {ContextValues} from "nbook/plugins/commands/shared/context-keys";
 import type {CommandResult} from "nbook/plugins/commands/shared/contracts";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
@@ -21,7 +22,7 @@ function value<T>(result: CommandResult<T>): T {
 function harness() {
     let context: ContextValues = {"editor-active": true, "editor-writable": true, "editor-line-navigation": true};
     let binding: CommandEditorBinding | null = null;
-    const registry = createCommandRegistry({contextKeys: LAB_CONTEXT_KEYS, context: () => context, report: () => undefined});
+    const registry = createCommandRegistry({contextKeys: contextTable(LAB_CONTEXT_KEYS, () => context), report: () => undefined});
     return {
         registry,
         setContext: (values: ContextValues) => {

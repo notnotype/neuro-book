@@ -9,7 +9,7 @@ import {computed} from "vue";
 
 import JsonViewer from "nbook/ui/JsonViewer.vue";
 import {DISPLAY_LOCALE, localize} from "nbook/shared/localized-text";
-import {evaluateContextWhen} from "nbook/plugins/commands/shared/context-keys";
+import {contextTable, evaluateContextWhen} from "nbook/plugins/commands/shared/context-keys";
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
 import {effectiveAgentExposure} from "nbook/plugins/commands/shared/registry";
 
@@ -37,7 +37,7 @@ const rows = computed<readonly CommandRow[]>(() => {
     void props.scene.palette.revision.value;
     return props.scene.registry.list().map((command) => {
         const requires = command.when?.requires ?? [];
-        const evaluation = evaluateContextWhen(LAB_CONTEXT_KEYS, command.when, props.scene.context.value);
+        const evaluation = evaluateContextWhen(contextTable(LAB_CONTEXT_KEYS, () => props.scene.context.value), command.when);
         const verdict = evaluation.ok ? (evaluation.value.matches ? "满足" : `缺少：${evaluation.value.reasons.join("；")}`) : `求值失败：${evaluation.reason}`;
         return {
             command,

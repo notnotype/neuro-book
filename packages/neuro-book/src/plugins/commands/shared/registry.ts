@@ -12,7 +12,7 @@ import type {TSchema} from "typebox";
 import {Value} from "typebox/value";
 
 import {evaluateContextWhen, validateWhen} from "./context-keys";
-import type {ContextKeyTable, ContextValues} from "./context-keys";
+import type {ContextKeySource} from "./context-keys";
 import {CommandDeclarationSchema} from "./contracts";
 import type {
     AgentMode,
@@ -43,10 +43,8 @@ export interface CommandConfirmationRequest {
 }
 
 export interface CommandRegistryOptions {
-    /** 本命令表认识的上下文键；`when` 引用其它键的命令登记失败。 */
-    readonly contextKeys: ContextKeyTable;
-    /** 当前上下文；缺省时所有键按 false 求值。 */
-    readonly context?: () => ContextValues;
+    /** 本命令表的上下文键来源：`when` 引用它不认的键时登记失败，求值时问它此刻的值。 */
+    readonly contextKeys: ContextKeySource;
     /** 缺省为 normal。 */
     readonly agentMode?: () => AgentMode;
     /** Agent 调用 `confirm` 命令时的确认通道；缺省时这类调用得到 `confirmation-required`。 */
@@ -113,7 +111,7 @@ function schemaProblems(declaration: unknown): string[] {
  * id 规则：`nbook.` 开头的插件写 `nbook.<域>.<动作>`，域在词表内；其它插件的命令 id 以自己的插件 id 开头，
  * 再接一段动作，避免第三方占用内置命名空间或彼此撞名。
  */
-export function commandDeclarationProblems(id: string, source: string, declaration: unknown, contextKeys: ContextKeyTable): string[] {
+export function commandDeclarationProblems(id: string, source: string, declaration: unknown, contextKeys: Pick<ContextKeySource, "problem">): string[] {
     const problems: string[] = [];
     if (source.startsWith("nbook.")) {
         const match = BUILTIN_COMMAND_ID.exec(id);
@@ -151,7 +149,6 @@ export function createCommandRegistry(options: CommandRegistryOptions): CommandR
     const changeListeners = new Set<() => void>();
     const executeListeners = new Set<(event: CommandExecutionEvent) => void>();
     const reported = new Set<string>();
-    const context = options.context ?? (() => ({}));
     const agentMode = options.agentMode ?? (() => "normal");
 
     function notifyChange(): void {
@@ -182,7 +179,7 @@ export function createCommandRegistry(options: CommandRegistryOptions): CommandR
     }
 
     function availability(entry: CommandEntry): {ok: true} | {ok: false; reason: string} {
-        const evaluation = evaluateContextWhen(options.contextKeys, entry.metadata.when, context());
+        const evaluation = evaluateContextWhen(options.contextKeys, entry.metadata.when);
         if (!evaluation.ok) return evaluation;
         return evaluation.value.matches ? {ok: true} : {ok: false, reason: evaluation.value.reasons.join("；")};
     }

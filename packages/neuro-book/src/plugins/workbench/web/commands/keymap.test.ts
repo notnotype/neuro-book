@@ -3,6 +3,7 @@
 import {describe, expect, it} from "bun:test";
 import {Type} from "typebox";
 
+import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import type {ContextValues, WhenPredicate} from "nbook/plugins/commands/shared/context-keys";
 import type {CommandResult, Release} from "nbook/plugins/commands/shared/contracts";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
@@ -41,7 +42,7 @@ function harness(platform: KeyPlatform) {
     const reported: string[] = [];
     const waiters: Array<() => void> = [];
     const runs: string[] = [];
-    const registry = createCommandRegistry({contextKeys: {"editor-active": "需要活动编辑器"}, context: () => context, report: () => undefined});
+    const registry = createCommandRegistry({contextKeys: contextTable({"editor-active": "需要活动编辑器"}, () => context), report: () => undefined});
     const dispatcher = createKeymapDispatcher(registry, platform, (error) => {
         reported.push(error.message);
         for (const wake of waiters.splice(0)) wake();

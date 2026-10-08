@@ -20,9 +20,11 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
+import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
+import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {quickPickKey} from "nbook/plugins/workbench/shared/contracts";
 import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
 import {createPaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
@@ -103,7 +105,7 @@ async function commandWindow(h: ProjectHarness, host: PaletteHost, navigations: 
                 {id: "window.navigation", key: windowNavigationKey, create: () => ({navigateDocument: (href: string) => navigations.push(href)})},
                 {id: "test.quick-pick", key: quickPickKey, create: (): QuickPick => ({pick: (request) => host.openPick(request)})},
             ],
-            plugins: [browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}), commandsPlugin, projectsBrowserPlugin, commandReader((service) => {
+            plugins: [browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}), statePlugin, commandsPlugin, projectsBrowserPlugin, commandReader((service) => {
                 commands = service;
             })],
             gates: [],
@@ -143,7 +145,7 @@ describe("Spec projects 输出 10：nbook.projects/projects", () => {
 describe("Spec projects 场景 11：打开项目", () => {
     /** 真实的命令面板宿主作为选择服务；`opened` 等它进入选择模式（流程里先要经远程服务读登记表），返回这次的请求。 */
     async function picker(): Promise<{readonly host: PaletteHost; readonly opened: (match?: (title: string) => boolean) => Promise<NonNullable<PaletteHost["pick"]["value"]>>}> {
-        const host = createPaletteHost({commands: createCommandRegistry({contextKeys: {}, context: () => ({}), report: (error) => {
+        const host = createPaletteHost({commands: createCommandRegistry({contextKeys: contextTable({}), report: (error) => {
             throw error;
         }})});
         return {host, opened: (match = () => true) => waitUntil("进入选择模式", () => (host.pick.value !== null && match(host.pick.value.title) ? host.pick.value : null))};
@@ -200,7 +202,7 @@ describe("Spec projects 输出 10：命令登记", () => {
         let commands: CommandService | null = null;
         const plugins = [
             browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}),
-            ...["nbook.commands", "nbook.workbench", "nbook.projects"].map((id) => browserPluginDefinitions[id]!),
+            ...["nbook.state", "nbook.commands", "nbook.workbench", "nbook.projects"].map((id) => browserPluginDefinitions[id]!),
             commandReader((service) => {
                 commands = service;
             }),

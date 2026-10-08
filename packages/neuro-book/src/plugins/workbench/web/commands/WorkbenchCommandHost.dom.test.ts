@@ -7,6 +7,7 @@ import {mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {nextTick} from "vue";
 
+import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 
 import {OPEN_COMMANDS_DECLARATION, OPEN_COMMANDS_ID, PaletteSlot} from "./open-commands";
@@ -25,7 +26,7 @@ function shortcut(): KeyboardEvent {
 describe("WorkbenchCommandHost", () => {
     it("挂载后快捷键打开面板；卸载后快捷键不再拦截，面板命令得到 unavailable", async () => {
         const reported: string[] = [];
-        const registry = createCommandRegistry({contextKeys: {}, report: (error) => reported.push(error.message)});
+        const registry = createCommandRegistry({contextKeys: contextTable({}), report: (error) => reported.push(error.message)});
         const slot = new PaletteSlot();
         const registered = registry.register({id: OPEN_COMMANDS_ID, source: "nbook.workbench", declaration: OPEN_COMMANDS_DECLARATION, run: () => slot.command.run({})});
         expect(registered.ok).toBe(true);

@@ -7,6 +7,7 @@ import {describe, expect, it} from "bun:test";
 import {Type} from "typebox";
 import type {TSchema} from "typebox";
 
+import {contextTable} from "./context-keys";
 import type {ContextValues} from "./context-keys";
 import type {AgentMode, CommandDeclaration, CommandExecutionEvent, CommandResult} from "./contracts";
 import {createCommandRegistry} from "./registry";
@@ -28,8 +29,7 @@ function harness(options: {confirm?: CommandRegistryOptions["confirm"]} = {}) {
     const reported: string[] = [];
     const events: CommandExecutionEvent[] = [];
     const registry = createCommandRegistry({
-        contextKeys: CONTEXT_KEYS,
-        context: () => context,
+        contextKeys: contextTable(CONTEXT_KEYS, () => context),
         agentMode: () => mode,
         confirm: options.confirm,
         report: (error) => reported.push(error.message),

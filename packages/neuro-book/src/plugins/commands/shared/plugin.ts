@@ -9,24 +9,52 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
 import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
 import {provide} from "@notnotype/nb-runtime/plugins";
-import type {ContributionDescriptor, ContributionHandle, ContributionReceiver, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
+import type {ContributionDeclarations, ContributionDescriptor, ContributionHandle, ContributionReceiver, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
+
+import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
+import type {PublicStateDeclaration, PublicStateService} from "nbook/plugins/state/shared/contracts";
+import {DISPLAY_LOCALE, localize} from "nbook/shared/localized-text";
 
 import {descriptor} from "../plugin";
-import type {ContextKeyTable} from "./context-keys";
+import type {ContextKeySource} from "./context-keys";
 import {COMMANDS_POINT, commandServiceKey} from "./contracts";
 import type {CommandDeclaration, CommandImplementation, CommandResult, CommandService, Release} from "./contracts";
 import {commandDeclarationProblems, createCommandRegistry} from "./registry";
 import type {CommandRegistry} from "./registry";
 
 /**
- * 产品命令表认识的上下文键。登记上下文键的贡献点随第一个产品消费者（编辑器插件）加入；在那之前产品命令表
- * 不认任何键，声明了 `when` 的命令贡献会被拒绝。
+ * 产品命令表的上下文键是公开状态里的布尔键（docs/specs/workbench/commands.md 的“when 读公开状态”）：`when` 只能引用
+ * 本运行位置入口声明的、已被接受的布尔公开键，求值只读本实例。
  */
-const PRODUCT_CONTEXT_KEYS: ContextKeyTable = {};
+function keyProblem(key: string, declaration: PublicStateDeclaration | null): string | null {
+    if (declaration === null) return `when 引用的 ${key} 不是本运行位置声明的公开键`;
+    return declaration.type === "boolean" ? null : `when 引用的 ${key} 不是布尔公开键`;
+}
 
-function validateCommandContribution(contribution: ContributionDescriptor): string | null {
-    const problems = commandDeclarationProblems(contribution.id, contribution.plugin, contribution.declaration, PRODUCT_CONTEXT_KEYS);
+/** 登记期（贡献点的校验）：按命令贡献所在的运行位置查内核里已接受的公开键声明。 */
+function validateCommandContribution(contribution: ContributionDescriptor, declarations: ContributionDeclarations): string | null {
+    const keys = {
+        problem: (key: string) => {
+            const accepted = declarations.get<PublicStateDeclaration>(PUBLIC_STATE_POINT, key);
+            return keyProblem(key, accepted === null || accepted.location !== contribution.location ? null : accepted.declaration);
+        },
+    };
+    const problems = commandDeclarationProblems(contribution.id, contribution.plugin, contribution.declaration, keys);
     return problems.length === 0 ? null : problems.join("；");
+}
+
+/** 命令表的键来源：本实例的公开状态。未就绪按 false，原因取声明的 reason。 */
+function publicStateKeys(state: PublicStateService): ContextKeySource {
+    return {
+        problem: (key) => keyProblem(key, state.declaration(key)),
+        evaluate: (key) => {
+            const read = state.read(key);
+            if (read.status === "ready" && read.value === true) return {matches: true};
+            const declaration = state.declaration(key);
+            const reason = declaration?.type === "boolean" && declaration.reason !== undefined ? localize(declaration.reason, DISPLAY_LOCALE) : `${key} 不为 true`;
+            return {matches: false, reason};
+        },
+    };
 }
 
 /** 只交出查询与执行：登记只能经贡献点，撤回才能由内核记账。 */
@@ -73,13 +101,13 @@ function commandsEntry(location: RuntimeLocation): PluginEntryDefinition {
     return {
         id: location,
         location,
-        dependencies: [{key: diagnosticsKey}],
+        dependencies: [{key: diagnosticsKey}, {key: publicStateKey}],
         provides: [commandServiceKey],
         receives: [COMMANDS_POINT],
         activate: (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const registry = createCommandRegistry({
-                contextKeys: PRODUCT_CONTEXT_KEYS,
+                contextKeys: publicStateKeys(context.services.require(publicStateKey)),
                 report: (error) => {
                     diagnostics.record({level: "warn", event: "commands.registry", message: error.message, source: {plugin: descriptor.id}});
                 },
