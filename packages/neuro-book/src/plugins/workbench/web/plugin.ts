@@ -6,7 +6,7 @@
  * 第一刻起记下交付的句柄（`views/registry.ts`）。
  */
 
-import {computed, defineAsyncComponent, h} from "vue";
+import {computed, defineAsyncComponent, h, watch} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
@@ -75,6 +75,16 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const layout = createLayoutHost(() => {
                 const store = layoutStoreFor(project !== null).create(context, {storage, diagnostics});
                 store.actions.acceptViewCatalog(views.catalog);
+                // 落位与呈现的诊断（未知引用、默认位置已变、起源声明不在）：同一条只记一次。
+                const recorded = new Set<string>();
+                const stop = watch(() => store.state.presentation.diagnostics, (lines) => {
+                    for (const line of lines) {
+                        if (recorded.has(line)) continue;
+                        recorded.add(line);
+                        diagnostics.record({level: "warn", event: "workbench.views.placement", message: line, source: {plugin: descriptor.id}});
+                    }
+                }, {immediate: true});
+                context.signal.addEventListener("abort", () => stop(), {once: true});
                 return store;
             });
             const publicState = bindingsOf(workbenchState, workbenchStateBindings(layout.current));
@@ -88,6 +98,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 renderCommandHost: () => h(CommandHost, {commands, report, locale, attach: (host: PaletteHost) => palettes.attach(host)}),
                 layout,
                 commands,
+                views,
                 projectName: project?.name ?? null,
                 locale,
             });

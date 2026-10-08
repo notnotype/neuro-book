@@ -9,6 +9,7 @@ import type WorkbenchPanelSurface from "nbook/plugins/workbench/web/components/W
 import type WorkbenchShellLayout from "nbook/plugins/workbench/web/components/WorkbenchShellLayout.vue";
 import type WorkbenchStatusBar from "nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue";
 import type WorkbenchViewContainerHost from "nbook/plugins/workbench/web/components/WorkbenchViewContainerHost.vue";
+import type WorkbenchViewFrame from "nbook/plugins/workbench/web/components/WorkbenchViewFrame.vue";
 import type WorkbenchViewSection from "nbook/plugins/workbench/web/components/WorkbenchViewSection.vue";
 import type {PanelState} from "nbook/plugins/workbench/web/shell/panel-state";
 
@@ -248,6 +249,9 @@ export const labFixtures: LabFixture[] = [
                 scene("maximized", "面板最大化", {panel: {maximized: true}}),
                 scene("hidden", "面板隐藏、侧栏拖到零", {panel: {hidden: true}, dragCollapsedParts: {sidebar: true}}),
                 scene("minimal", "只留编辑器与状态栏", {hiddenParts: ["titlebar", "activitybar", "sidebar", "auxiliarybar"], panel: {hidden: true}}),
+                // 外壳二的集成场景：工具区域里是真实的容器与视图实例（shell-scene/ShellViewsScene.vue）。
+                scene("views", "视图：五个视图各在自己的容器", {}),
+                scene("views-merged", "视图：大纲并进资源管理器（multiple）", {}),
             ];
         })(),
         load: async () => (await import("./WorkbenchShellLayoutFixture.vue")).default,
@@ -345,6 +349,24 @@ export const labFixtures: LabFixture[] = [
             ];
         })(),
         load: async () => (await import("./WorkbenchViewContainerHostFixture.vue")).default,
+    }),
+    defineSubjectFixture<typeof WorkbenchViewFrame>({
+        component: "WorkbenchViewFrame",
+        events: ["retry-entry", "reload", "retry-render", "render-error"],
+        class: "h-full w-full",
+        scenes: (() => {
+            const base = {viewId: "test.files", locale: "zh-CN" as const, error: null, component: null, context: null, generation: 1, busy: false};
+            return [
+                {id: "declared", label: "等待入口启动", input: {props: {...base, delivery: {kind: "declared" as const}, status: "waiting" as const}}},
+                {id: "blocked", label: "入口受阻", input: {props: {...base, delivery: {kind: "entry-blocked" as const, reason: "missing-dependency：nbook/storage"}, status: "waiting" as const}}},
+                {id: "failed", label: "入口启动失败（可重试）", input: {props: {...base, delivery: {kind: "entry-failed" as const, reason: "activation-threw"}, status: "waiting" as const}}},
+                {id: "stopped", label: "入口已停止", input: {props: {...base, delivery: {kind: "entry-stopped" as const, reason: "scope-closed" as const}, status: "waiting" as const}}},
+                {id: "loading", label: "加载中", input: {props: {...base, delivery: {kind: "available" as const}, status: "loading" as const}}},
+                {id: "load-failed", label: "加载失败（重新加载）", input: {props: {...base, delivery: {kind: "available" as const}, status: "load-failed" as const, error: "Failed to fetch dynamically imported module"}}},
+                {id: "render-failed", label: "渲染出错（重试）", input: {props: {...base, delivery: {kind: "available" as const}, status: "render-failed" as const, error: "Cannot read properties of undefined"}}},
+            ];
+        })(),
+        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchViewFrame.vue"),
     }),
     defineLabFixture<typeof WorkbenchViewSection>({
         component: "WorkbenchViewSection", slots: ["default", "actions"],

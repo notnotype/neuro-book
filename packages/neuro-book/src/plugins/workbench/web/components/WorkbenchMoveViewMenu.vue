@@ -35,40 +35,54 @@ const emit = defineEmits<{
 const RESET = "reset";
 const MOVE_PREFIX = "move:";
 
-/** 打开时记下的发起身份；关闭即清空。选择只认它，不认选择那一刻的 props。 */
-const opened = ref<{readonly viewId: string; readonly sourceContainerId: string} | null>(null);
+const open = ref(false);
+/**
+ * 打开时记下的发起身份。选择只认它，不认选择那一刻的 props；关闭时不清：菜单原语先报关闭、再报选择。身份一变就清，
+ * 之后到达的选择没有发起身份可用，被丢弃。
+ */
+const origin = ref<{readonly viewId: string; readonly sourceContainerId: string} | null>(null);
 
-const items = computed<DropdownItem[]>(() => [
-    ...props.groups.map((group, index) => ({
-        label: group.label,
-        value: `group:${String(index)}`,
-        children: group.targets.map((target) => ({label: target.label, value: `${MOVE_PREFIX}${target.id}`, iconClass: target.icon})),
-    })),
-    ...(props.resetLabel === null || props.groups.length === 0 ? [] : [{label: "", value: "separator", separator: true}]),
-    ...(props.resetLabel === null ? [] : [{label: props.resetLabel, value: RESET, iconClass: "i-lucide-undo-2"}]),
-]);
+/**
+ * 一层平铺：按 Part 分段、段间分隔线，每项右侧注明所在 Part。不用级联子菜单：子菜单浮层在菜单原语看来是“外部”，
+ * 真实浏览器里指针点进去会先触发外部点击关闭整个菜单，选择到不了。
+ */
+const items = computed<DropdownItem[]>(() => {
+    const result: DropdownItem[] = [];
+    props.groups.forEach((group, index) => {
+        if (index > 0) result.push({label: "", value: `separator:${String(index)}`, separator: true});
+        for (const target of group.targets) result.push({label: target.label, value: `${MOVE_PREFIX}${target.id}`, iconClass: target.icon, shortcut: group.label});
+    });
+    if (props.resetLabel !== null) {
+        if (result.length > 0) result.push({label: "", value: "separator:reset", separator: true});
+        result.push({label: props.resetLabel, value: RESET, iconClass: "i-lucide-undo-2"});
+    }
+    return result;
+});
 
 const disabled = computed(() => props.groups.length === 0 && props.resetLabel === null);
 
-function setOpen(open: boolean): void {
-    opened.value = open ? {viewId: props.viewId, sourceContainerId: props.sourceContainerId} : null;
+function setOpen(next: boolean): void {
+    open.value = next;
+    if (next) origin.value = {viewId: props.viewId, sourceContainerId: props.sourceContainerId};
 }
 
 watch(() => props.identity, () => {
-    opened.value = null;
+    open.value = false;
+    origin.value = null;
 });
 
 function select(value: string): void {
-    const origin = opened.value;
-    opened.value = null;
-    if (origin === null) return;
-    if (value === RESET) emit("reset", origin.viewId);
-    else if (value.startsWith(MOVE_PREFIX)) emit("move", {viewId: origin.viewId, sourceContainerId: origin.sourceContainerId, targetContainerId: value.slice(MOVE_PREFIX.length)});
+    const from = origin.value;
+    origin.value = null;
+    open.value = false;
+    if (from === null) return;
+    if (value === RESET) emit("reset", from.viewId);
+    else if (value.startsWith(MOVE_PREFIX)) emit("move", {viewId: from.viewId, sourceContainerId: from.sourceContainerId, targetContainerId: value.slice(MOVE_PREFIX.length)});
 }
 </script>
 
 <template>
-    <Dropdown :items="items" :open="opened !== null" align="end" compact :disabled="disabled" @update:open="setOpen" @select="select">
+    <Dropdown :items="items" :open="open" align="end" compact :disabled="disabled" @update:open="setOpen" @select="select">
         <IconButton size="sm" icon-class="i-lucide-arrow-right-left" :aria-label="label" :title="label" :disabled="disabled" :data-move-view="viewId" />
     </Dropdown>
 </template>

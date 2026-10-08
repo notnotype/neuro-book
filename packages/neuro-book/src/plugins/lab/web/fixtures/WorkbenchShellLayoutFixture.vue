@@ -19,6 +19,7 @@ import {useLabSubject} from "../lab-subject";
 import type {LabFixtureProps} from "../lab-subject";
 import LabFixtureControls from "../LabFixtureControls.vue";
 import ShellSampleEditor from "./shell-scene/ShellSampleEditor.vue";
+import ShellViewsScene from "./shell-scene/ShellViewsScene.vue";
 
 const props = defineProps<LabFixtureProps>();
 const subject = useLabSubject<typeof WorkbenchShellLayout>(() => props.input, ["resize", "layout"]);
@@ -57,6 +58,8 @@ const alignment = computed({get: () => panel.value.alignment, set: (value: strin
 </script>
 
 <template>
+    <ShellViewsScene v-if="props.scene.startsWith('views')" :scene="props.scene" :input="props.input" />
+    <template v-else>
     <WorkbenchShellLayout
         data-lab-subject
         class="h-full w-full bg-[var(--bg-panel)]"
@@ -114,4 +117,5 @@ const alignment = computed({get: () => panel.value.alignment, set: (value: strin
             <Button v-for="part in SHELL_HIDDEN_PART_IDS" :key="part" size="sm" variant="secondary" @click="togglePart(part)">{{ hiddenParts.includes(part) ? "显示" : "隐藏" }}{{ PART_LABELS[part] }}</Button>
         </div>
     </LabFixtureControls>
+    </template>
 </template>

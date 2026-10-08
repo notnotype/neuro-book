@@ -88,4 +88,27 @@ describe("TeleportMemory", () => {
         memory.restore(null, root);
         expect(content.scrollTop).toBe(0);
     });
+
+    it("track：旧落点先带着内容离开文档时，滚动位置与焦点仍按事件里记下的还原", () => {
+        const {root, visible, memory} = world();
+        const dispose = memory.track(root);
+        const oldTarget = document.createElement("div");
+        visible.append(oldTarget);
+        const content = scroller("content");
+        oldTarget.append(content);
+        content.scrollTop = 200;
+        content.dispatchEvent(new Event("scroll"));
+        content.focus();
+        // 旧落点被卸下：内容随它离开文档，焦点落到 body。
+        oldTarget.remove();
+        expect(document.activeElement).toBe(document.body);
+        const newTarget = document.createElement("div");
+        visible.append(newTarget);
+        newTarget.append(content);
+        content.scrollTop = 0;
+        expect(memory.restore(null, root)).toBe("restored");
+        expect(content.scrollTop).toBe(200);
+        expect(document.activeElement).toBe(content);
+        dispose();
+    });
 });

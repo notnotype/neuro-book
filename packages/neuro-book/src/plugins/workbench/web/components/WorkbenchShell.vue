@@ -1,6 +1,10 @@
 <script setup lang="ts">
-/** 产品的工作台外壳（同名 .md）：布局 store 接到纯布局组件，七个 Part 的外壳一内容，按钮接到面板命令。 */
-import {computed} from "vue";
+/**
+ * 产品的工作台外壳（同名 .md）：布局 store 接到纯布局组件，七个 Part 的内容，按钮接到面板命令；工具区域放容器与视图
+ * （外壳二），实例层搬进各区域的落点。
+ */
+import {Tabs} from "@notnotype/nb-ui/components";
+import {computed, reactive, ref} from "vue";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import {formatText, localize} from "nbook/shared/localized-text";
@@ -14,18 +18,30 @@ import {
     SET_PANEL_POSITION_COMMAND,
     TOGGLE_PANEL_MAXIMIZED_COMMAND,
 } from "../commands/panel-commands";
+import {MOVE_VIEW_COMMAND, PART_LABELS} from "../commands/view-commands";
 import type {ShellLayoutFacts, ShellSizePatch} from "../shell/sizes";
+import {TeleportMemory} from "../shell/teleport-memory";
 import type {LayoutStore} from "../state/layout-store";
+import type {ViewLocation} from "../../shared/views";
+import {moveTargetsOf} from "../views/presentation";
+import type {ContainerPresentation} from "../views/presentation";
+import type {ViewSource} from "../views/registry";
+import WorkbenchActivityBar from "./WorkbenchActivityBar.vue";
+import WorkbenchMoveViewMenu from "./WorkbenchMoveViewMenu.vue";
+import type {MoveTargetGroup} from "./WorkbenchMoveViewMenu.vue";
 import WorkbenchPanelSurface from "./WorkbenchPanelSurface.vue";
 import type {PanelFrameAction} from "./WorkbenchPanelSurface.vue";
 import WorkbenchShellLayout from "./WorkbenchShellLayout.vue";
 import WorkbenchStatusBar from "./WorkbenchStatusBar.vue";
+import WorkbenchToolPartHost from "./WorkbenchToolPartHost.vue";
+import WorkbenchViewInstances from "./WorkbenchViewInstances.vue";
 
 defineOptions({name: "WorkbenchShell"});
 
 const props = defineProps<{
     layout: LayoutStore;
     commands: CommandService;
+    views: ViewSource;
     project: string | null;
     locale: DisplayLocale;
 }>();
@@ -34,8 +50,11 @@ const TEXT = {
     ready: {"zh-CN": "工作台已就绪。没有打开项目。", "en-US": "The workbench is ready. No project is open."},
     readyWithProject: {"zh-CN": "工作台已就绪。当前项目：{name}", "en-US": "The workbench is ready. Current project: {name}"},
     panel: {"zh-CN": "面板", "en-US": "Panel"},
-    emptyTools: {"zh-CN": "工具视图会显示在这里", "en-US": "Tool views appear here"},
-    emptyPanel: {"zh-CN": "面板里还没有视图", "en-US": "No views in the panel yet"},
+    emptyPart: {"zh-CN": "这里还没有视图", "en-US": "No views here yet"},
+    emptyContainer: {"zh-CN": "容器里的视图都已隐藏", "en-US": "All views in this container are hidden"},
+    activityBar: {"zh-CN": "活动栏", "en-US": "Activity Bar"},
+    moveTo: {"zh-CN": "移动到", "en-US": "Move To"},
+    resetLocation: {"zh-CN": "重置位置", "en-US": "Reset Location"},
 } satisfies Record<string, LocalizedText>;
 
 const text = (value: LocalizedText): string => localize(value, props.locale);
@@ -81,9 +100,77 @@ function onResize(payload: {contextKey: string; patch: ShellSizePatch}): void {
 function onLayout(facts: ShellLayoutFacts): void {
     props.layout.actions.acceptLayoutFacts(facts);
 }
+
+// ── 容器与视图（外壳二） ───────────────────────────────────────────────────
+
+/** 三层 Teleport 共用一份滚动与焦点记忆；外壳一生不换。 */
+const memory = new TeleportMemory();
+const hostEl = ref<HTMLElement | null>(null);
+const partTargets = reactive<Partial<Record<ViewLocation, HTMLElement>>>({});
+function setPartTarget(part: ViewLocation, element: HTMLElement | null): void {
+    if (element === null) delete partTargets[part];
+    else partTargets[part] = element;
+}
+
+const presentation = computed(() => state.value.presentation);
+const selectedOf = (part: ViewLocation): ContainerPresentation | null => {
+    const id = presentation.value.parts[part].selected;
+    return id === null ? null : (presentation.value.containers.get(id) ?? null);
+};
+const sidebarVisible = computed(() => !state.value.hiddenParts.includes("sidebar") && state.value.dragCollapsed.sidebar !== true);
+/** 看得见的工具区域：未隐藏、未拖到零；面板还要未收起成标题头。 */
+const shownParts = computed<ViewLocation[]>(() => {
+    const {hiddenParts, dragCollapsed, facts} = state.value;
+    const shown: ViewLocation[] = [];
+    if (sidebarVisible.value) shown.push("sidebar");
+    if (!hiddenParts.includes("auxiliarybar") && dragCollapsed.auxiliarybar !== true) shown.push("auxiliarybar");
+    if (!panelHidden.value && facts?.effectivePanel.collapsed !== true) shown.push("panel");
+    return shown;
+});
+
+const activityContainers = computed(() => presentation.value.parts.sidebar.switcher.map((item) => ({id: item.containerId, label: text(item.title), icon: item.icon})));
+
+/** ActivityBar：切到这个容器；Sidebar 看不见时同时打开它（被隐藏的显示、拖到零的按记忆尺寸展开）。 */
+function selectSidebarContainer(containerId: string): void {
+    props.layout.actions.applyView({kind: "select-container", part: "sidebar", containerId});
+    if (state.value.hiddenParts.includes("sidebar")) props.layout.actions.setPartHidden("sidebar", false);
+    if (state.value.dragCollapsed.sidebar === true) props.layout.actions.commitSizes({dragCollapsed: {sidebar: false}});
+}
+
+function selectContainer(part: ViewLocation, containerId: string): void {
+    props.layout.actions.applyView({kind: "select-container", part, containerId});
+}
+
+const panelTabs = computed(() => presentation.value.parts.panel.switcher.map((item) => ({value: item.containerId, label: text(item.title), iconClass: item.icon})));
+
+/** “移动到”菜单的输入：目标按 Part 分组，标题与图标与 Switcher 同源。 */
+function moveMenuOf(viewId: string): {groups: MoveTargetGroup[]; source: string; resetLabel: string | null; identity: string} | null {
+    const targets = moveTargetsOf(presentation.value, state.value.placement, state.value.catalog, viewId);
+    if (targets === null) return null;
+    const container = presentation.value.containers.get(targets.sourceContainerId);
+    return {
+        groups: targets.groups.map((group) => ({label: text(PART_LABELS[group.part]), targets: group.targets.map((target) => ({id: target.containerId, label: text(target.title), icon: target.icon}))})),
+        source: targets.sourceContainerId,
+        resetLabel: targets.canReset ? text(TEXT.resetLocation) : null,
+        // 菜单目标身份：视图、来源容器、容器模式与交付状态任一变化，已打开的菜单就关闭。
+        identity: `${viewId}|${targets.sourceContainerId}|${container?.mode ?? ""}|${props.views.delivery(viewId).kind}`,
+    };
+}
+
+function moveView(payload: {viewId: string; sourceContainerId: string; targetContainerId: string}): void {
+    void props.commands.execute(MOVE_VIEW_COMMAND, payload, {source: "user"});
+}
+
+function resetView(viewId: string): void {
+    props.layout.actions.applyView({kind: "reset-view", viewId});
+}
+
+/** single 时上提到区域标题行的动作：容器里唯一可见的视图的“移动到”。 */
+const singleViewOf = (container: ContainerPresentation): string | null => (container.mode === "single" ? (container.views[0]?.id ?? null) : null);
 </script>
 
 <template>
+    <div ref="hostEl" class="workbench-shell-host" tabindex="-1">
     <WorkbenchShellLayout
         class="workbench-shell"
         :sizes="state.sizes"
@@ -92,6 +179,7 @@ function onLayout(facts: ShellLayoutFacts): void {
         :hidden-parts="state.hiddenParts"
         :drag-collapsed-parts="state.dragCollapsed"
         :disabled="!state.ready"
+        :memory="memory"
         @resize="onResize"
         @layout="onLayout"
     >
@@ -102,13 +190,33 @@ function onLayout(facts: ShellLayoutFacts): void {
             </div>
         </template>
         <template #activitybar>
-            <div class="workbench-shell__card"></div>
+            <WorkbenchActivityBar :label="text(TEXT.activityBar)" :containers="activityContainers" :selected="presentation.parts.sidebar.selected" :sidebar-visible="sidebarVisible" @select="selectSidebarContainer" />
         </template>
-        <template #sidebar>
-            <div class="workbench-shell__card workbench-shell__empty">{{ text(TEXT.emptyTools) }}</div>
-        </template>
-        <template #auxiliarybar>
-            <div class="workbench-shell__card workbench-shell__empty">{{ text(TEXT.emptyTools) }}</div>
+        <template v-for="part in (['sidebar', 'auxiliarybar'] as const)" :key="part" #[part]>
+            <WorkbenchToolPartHost
+                :part="part"
+                :presentation="presentation.parts[part]"
+                :selected="selectedOf(part)"
+                :locale="locale"
+                :label="text(PART_LABELS[part])"
+                :empty-text="text(TEXT.emptyPart)"
+                @select="(id) => selectContainer(part, id)"
+                @target="(element) => setPartTarget(part, element)"
+            >
+                <template #actions="{container}">
+                    <WorkbenchMoveViewMenu
+                        v-if="singleViewOf(container) !== null && moveMenuOf(singleViewOf(container)!) !== null"
+                        :label="text(TEXT.moveTo)"
+                        :view-id="singleViewOf(container)!"
+                        :source-container-id="moveMenuOf(singleViewOf(container)!)!.source"
+                        :groups="moveMenuOf(singleViewOf(container)!)!.groups"
+                        :reset-label="moveMenuOf(singleViewOf(container)!)!.resetLabel"
+                        :identity="moveMenuOf(singleViewOf(container)!)!.identity"
+                        @move="moveView"
+                        @reset="resetView"
+                    />
+                </template>
+            </WorkbenchToolPartHost>
         </template>
         <template #editor>
             <div class="workbench-shell__welcome">
@@ -118,7 +226,30 @@ function onLayout(facts: ShellLayoutFacts): void {
         </template>
         <template #panel="{collapsed}">
             <WorkbenchPanelSurface :title="text(TEXT.panel)" :collapsed="collapsed" :actions="frameActions" @action="run">
-                <div class="workbench-shell__empty workbench-shell__panel-empty">{{ text(TEXT.emptyPanel) }}</div>
+                <template v-if="panelTabs.length > 0" #nav>
+                    <Tabs class="workbench-shell__panel-tabs" size="sm" :model-value="presentation.parts.panel.selected ?? ''" :items="panelTabs" :aria-label="text(TEXT.panel)" @update:model-value="(id: string) => selectContainer('panel', id)" />
+                    <WorkbenchMoveViewMenu
+                        v-if="selectedOf('panel') !== null && singleViewOf(selectedOf('panel')!) !== null && moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null"
+                        :label="text(TEXT.moveTo)"
+                        :view-id="singleViewOf(selectedOf('panel')!)!"
+                        :source-container-id="moveMenuOf(singleViewOf(selectedOf('panel')!)!)!.source"
+                        :groups="moveMenuOf(singleViewOf(selectedOf('panel')!)!)!.groups"
+                        :reset-label="moveMenuOf(singleViewOf(selectedOf('panel')!)!)!.resetLabel"
+                        :identity="moveMenuOf(singleViewOf(selectedOf('panel')!)!)!.identity"
+                        @move="moveView"
+                        @reset="resetView"
+                    />
+                </template>
+                <WorkbenchToolPartHost
+                    part="panel"
+                    :presentation="presentation.parts.panel"
+                    :selected="selectedOf('panel')"
+                    :locale="locale"
+                    :label="text(PART_LABELS.panel)"
+                    :empty-text="text(TEXT.emptyPart)"
+                    @select="(id) => selectContainer('panel', id)"
+                    @target="(element) => setPartTarget('panel', element)"
+                />
             </WorkbenchPanelSurface>
         </template>
         <template #statusbar>
@@ -134,9 +265,51 @@ function onLayout(facts: ShellLayoutFacts): void {
             />
         </template>
     </WorkbenchShellLayout>
+    <WorkbenchViewInstances
+        :presentation="presentation"
+        :source="views"
+        :part-targets="partTargets"
+        :shown-parts="shownParts"
+        :memory="memory"
+        :root="hostEl"
+        :locale="locale"
+        :disabled="!state.ready"
+        @intent="(intent) => layout.actions.applyView(intent)"
+    >
+        <template #view-actions="{viewId}">
+            <WorkbenchMoveViewMenu
+                v-if="moveMenuOf(viewId) !== null"
+                :label="text(TEXT.moveTo)"
+                :view-id="viewId"
+                :source-container-id="moveMenuOf(viewId)!.source"
+                :groups="moveMenuOf(viewId)!.groups"
+                :reset-label="moveMenuOf(viewId)!.resetLabel"
+                :identity="moveMenuOf(viewId)!.identity"
+                @move="moveView"
+                @reset="resetView"
+            />
+        </template>
+        <template #empty>
+            <div class="workbench-shell__empty">{{ text(TEXT.emptyContainer) }}</div>
+        </template>
+    </WorkbenchViewInstances>
+    </div>
 </template>
 
 <style scoped>
+.workbench-shell-host {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    outline: none;
+}
+
+.workbench-shell__panel-tabs {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 .workbench-shell {
     background: var(--bg-main);
     color: var(--text-main);

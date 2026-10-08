@@ -36,12 +36,20 @@ export type ViewLoad =
 
 type ViewHandle = ContributionHandle<ViewDeclaration, ViewImplementation>;
 
+/** 实例层要的三件事；产品里是 `ViewRegistry`，Lab 场景给一份局部实现。 */
+export interface ViewSource {
+    /** 响应式：在 computed 里读会随交付变化重算。 */
+    delivery(viewId: string): ViewDelivery;
+    load(viewId: string): Promise<ViewLoad>;
+    retry(viewId: string): Promise<WindowPluginRetry>;
+}
+
 function entryReason(state: EntryState): string {
     if (state.blocked !== null) return `${state.blocked.reason}：${state.blocked.key}`;
     return state.failure?.error?.message ?? state.failure?.reason ?? state.status;
 }
 
-export class ViewRegistry {
+export class ViewRegistry implements ViewSource {
     readonly catalog: ViewCatalog;
     readonly #owners: ReadonlyMap<string, {readonly plugin: string; readonly entry: string | null}>;
     readonly #plugins: WindowPlugins | null;

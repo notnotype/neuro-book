@@ -56,26 +56,17 @@ describe("WorkbenchMoveViewMenu", () => {
         await flush();
     }
 
-    async function choose(label: string): Promise<void> {
-        const group = menuItems().find((item) => item.textContent?.includes(label));
-        if (group === undefined) throw new Error(`菜单里没有 ${label}`);
-        group.focus();
-        group.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true}));
-        await flush();
-    }
-
     function click(label: string): void {
-        const item = menuItems().find((candidate) => candidate.textContent?.trim() === label);
+        const item = menuItems().find((candidate) => candidate.textContent?.trim().startsWith(label) === true);
         if (item === undefined) throw new Error(`菜单里没有 ${label}`);
         item.click();
     }
 
-    it("按 Part 分组列目标，选中后发 move，来源是打开时记下的；重置位置发 reset", async () => {
+    it("一层平铺列出目标，右侧注明 Part；选中后发 move，来源是打开时记下的；重置位置发 reset", async () => {
         const wrapper = mount(WorkbenchMoveViewMenu, {props: base, attachTo: document.body});
         wrappers.push(wrapper);
         await open(wrapper);
-        expect(menuItems().map((item) => item.textContent?.trim())).toEqual(["侧栏", "面板", "重置位置"]);
-        await choose("面板");
+        expect(menuItems().map((item) => item.textContent?.replace(/\s+/gu, ""))).toEqual(["搜索侧栏", "终端面板", "重置位置"]);
         click("终端");
         await flush();
         expect(wrapper.emitted("move")).toEqual([[{viewId: "a", sourceContainerId: "view:a", targetContainerId: "view:c"}]]);

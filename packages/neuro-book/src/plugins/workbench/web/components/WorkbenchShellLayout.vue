@@ -126,6 +126,9 @@ const targets = shallowRef<Partial<Record<ShellPartId, Element>>>({});
 // 记忆在组件一生里不换：中途换一份会丢掉已记下的滚动位置。
 const memory = props.memory ?? new TeleportMemory();
 watch(parkingEl, (element, previous) => memory.parking(element, previous), {immediate: true});
+watch(rootEl, (element, _previous, onCleanup) => {
+    if (element !== null) onCleanup(memory.track(element));
+}, {immediate: true});
 
 /** 焦点所在内容被停放时给它一个可见的去处；焦点已在外壳之外时不动。 */
 function focusTarget(target: "panel-toggle" | "panel-title"): void {

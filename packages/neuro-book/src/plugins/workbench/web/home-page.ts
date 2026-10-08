@@ -5,6 +5,7 @@ import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {LayoutHost} from "./state/layout-host";
+import type {ViewSource} from "./views/registry";
 
 /**
  * 工作台的 `/` 页：外壳（docs/specs/ui/workbench-shell.md 外壳一）、文档根的设置与命令宿主。页面单根：窗口的状态、
@@ -21,6 +22,8 @@ export interface HomePageParts {
     readonly renderCommandHost: () => VNode;
     readonly layout: LayoutHost;
     readonly commands: CommandService;
+    /** 视图注册表：交付状态、加载与重试。 */
+    readonly views: ViewSource;
     readonly projectName: string | null;
     readonly locale: Readonly<Ref<DisplayLocale>>;
 }
@@ -32,7 +35,7 @@ export function createHomePage(parts: HomePageParts): Component {
             const layout = parts.layout.acquire();
             return () => h("div", {"class": "nb-workbench-page", "data-workbench-root": "", ...(parts.projectName === null ? {} : {"data-workbench-project": parts.projectName})}, [
                 parts.renderDocument(),
-                h(parts.shell, {layout, commands: parts.commands, project: parts.projectName, locale: parts.locale.value}),
+                h(parts.shell, {layout, commands: parts.commands, views: parts.views, project: parts.projectName, locale: parts.locale.value}),
                 parts.renderCommandHost(),
             ]);
         },

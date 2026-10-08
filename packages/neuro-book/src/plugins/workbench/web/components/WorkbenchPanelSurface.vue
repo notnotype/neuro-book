@@ -24,6 +24,8 @@ const emit = defineEmits<{
 }>();
 
 defineSlots<{
+    /** 标题行左侧的导航（容器标签带）；不给时显示标题。 */
+    nav?(): unknown;
     default?(): unknown;
 }>();
 </script>
@@ -31,7 +33,10 @@ defineSlots<{
 <template>
     <section class="workbench-panel-surface" :aria-label="title" :data-panel-collapsed="collapsed ? 'true' : 'false'">
         <header class="workbench-panel-surface__head">
-            <h2 class="workbench-panel-surface__title" tabindex="-1" data-shell-focus-target="panel-title">{{ title }}</h2>
+            <div v-if="$slots.nav" class="workbench-panel-surface__nav" tabindex="-1" data-shell-focus-target="panel-title">
+                <slot name="nav"></slot>
+            </div>
+            <h2 v-else class="workbench-panel-surface__title" tabindex="-1" data-shell-focus-target="panel-title">{{ title }}</h2>
             <div class="workbench-panel-surface__actions">
                 <IconButton
                     v-for="action in actions"
@@ -87,7 +92,17 @@ defineSlots<{
     white-space: nowrap;
 }
 
-/* 标题是可编程聚焦的落点（最大化时外壳把焦点交给它），不是交互控件，不画焦点环。 */
+.workbench-panel-surface__nav {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* 标题与导航区是可编程聚焦的落点（最大化时外壳把焦点交给它），不是交互控件，不画焦点环。 */
+.workbench-panel-surface__nav:focus,
 .workbench-panel-surface__title:focus {
     outline: none;
 }

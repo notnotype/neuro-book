@@ -7,11 +7,37 @@
  * 停放区登记在这里，记录时跳过停放着的元素（它们此刻读出的滚动位置是 0，不能覆盖之前的记录）。
  *
  * 焦点只在一次搬动里有效：原节点搬完仍可见、用户也没有把焦点移出外壳时拿回，不抢外壳外的菜单与对话框。
+ *
+ * 内层的搬动可能发生在记录之前：分节重建时旧落点连同里面的内容先被移出文档，这时再读滚动位置与焦点都已丢失。所以
+ * `track` 在根上监听滚动（捕获阶段）与 focusin，滚动位置随用户操作随时记下，焦点记下最近一个。
  */
 
 export class TeleportMemory {
     readonly #scroll = new Map<Element, {readonly top: number; readonly left: number}>();
     readonly #parkings = new Set<Element>();
+    readonly #tracked = new WeakSet<Element>();
+    #lastFocus: HTMLElement | null = null;
+
+    /** 在根上持续记录滚动位置与最近的焦点；同一个根只装一次。返回卸下监听的函数。 */
+    track(root: Element): () => void {
+        if (this.#tracked.has(root)) return () => undefined;
+        this.#tracked.add(root);
+        const onScroll = (event: Event): void => {
+            const element = event.target;
+            if (!(element instanceof Element) || this.parked(element)) return;
+            this.#scroll.set(element, {top: element.scrollTop, left: element.scrollLeft});
+        };
+        const onFocus = (event: Event): void => {
+            if (event.target instanceof HTMLElement) this.#lastFocus = event.target;
+        };
+        root.addEventListener("scroll", onScroll, {capture: true, passive: true});
+        root.addEventListener("focusin", onFocus);
+        return () => {
+            this.#tracked.delete(root);
+            root.removeEventListener("scroll", onScroll, {capture: true});
+            root.removeEventListener("focusin", onFocus);
+        };
+    }
 
     /** 停放区挂载时登记、卸载时注销。 */
     parking(element: Element | null, previous?: Element | null): void {
@@ -50,8 +76,10 @@ export class TeleportMemory {
             element.scrollTop = top;
             element.scrollLeft = left;
         }
-        if (focus === null) return "none";
         const current = document.activeElement;
+        // 焦点在记录之前就随旧落点离开了文档：落到了 body，用最近一次 focusin 的元素代替。
+        if (focus === null && current === document.body && this.#lastFocus !== null && root?.contains(this.#lastFocus) === true) focus = this.#lastFocus;
+        if (focus === null) return "none";
         const inside = current !== null && (current === document.body || root?.contains(current) === true);
         if (!focus.isConnected || this.parked(focus)) return inside ? "lost" : "none";
         if (current === focus) return "kept";
