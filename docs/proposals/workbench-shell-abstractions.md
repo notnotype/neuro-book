@@ -368,3 +368,4 @@ const workbench = defineStore("workbench", {
 | 2026-10-07 | 开发者 | 布局直接用 `nbook.storage`，不再经 `localStorage` 过渡；`LayoutStore` 端口删除 |
 | 2026-10-07 | 主 Agent（待开发者审批） | 按 omp 审查 11 条修订：三类容器身份与典型情况表、标题回落顺序、移动保留实例并列入 P7 修订、生命周期矩阵、三种失败与加载代际、`ViewContext` 经 `context` 属性投递、三条布局记录按 Storage 归属表、持久化字段四部分状态与多窗口规则、公开状态键与面板命令的 `when`、呈现模型输入输出与意图合成 |
 | 2026-10-07 | 开发者 | 认可修订稿，改为 `accepted` |
+| 2026-10-08 | 主 Agent（待开发者确认，见 w00017 待确认清单） | 插件面向的视图合同（第 5 节）从 Files 提前到外壳二，写成 [`workbench/views.md`](../specs/workbench/views.md)，外壳二用 e2e 测试插件验收全链路；外壳二不做声明式容器（第 5 节的 `container?` 随它）与“新建容器”，多视图容器只经“移动到”形成；起源声明消失的隐式容器回落到首个实际成员的默认位置 |

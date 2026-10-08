@@ -46,7 +46,7 @@
 - `views-customizations` 加可选字段组（版本不变，旧记录仍合法）：`containers`（容器 id → `{location, order, fingerprint}`）、`selected`（ToolPart → 容器 id）、`views`（视图 id → `{container, order, width, height, collapsed, fingerprint}`）。字段取值约束与 Spec 的“副作用与数据”一致（尺寸正有限且 ≤ 1,000,000；id 长度 ≤ 128；指纹是有界的稳定编码；未知字段在已知对象内拒绝，顶层仍严格）。
 - 容量（审查 L9）：按 id ≤ 128、指纹 ≤ 64 估算单个视图项上限，Spec 写明前提；超出 64 KiB 时 Storage 拒绝写入，走 t65 已有的保存失败路径（状态栏提示、重试、放弃），补一条真实 Storage 场景。
 - 布局 store 加：视图注册表的只读输入（响应式）、`presentation`（computed，调纯模型）、action `selectContainer`、`moveView`、`commitViewSizes`、`setViewCollapsed`、`resetView`；每个 action 经 `applyIntent` 合成按字段的 change（同 t65 的写法），冲突重放作用在最新值上。
-- 公开状态：补上外壳一推迟的 `focusedPart`：最近获得焦点的 Part（焦点移到外壳外的菜单、对话框时保留原值，移到 body 时为 `null`）；`focusin` 由外壳根上报给 store。
+- 公开状态：补上外壳一推迟的 `focusedPart`：最近获得焦点的 Part，默认 `editor`（焦点移到外壳之外的菜单、对话框或页面空白处时保持原值；公开状态是非空字符串）；`focusin` 由外壳根上报给 store。
 
 ### 4. 组件（`plugins/workbench/web/components/`，同名 `.md` 先写）
 
@@ -66,7 +66,7 @@
 - `nbook.view.move-view` `{viewId, sourceContainerId, targetContainerId}`：`when` 读公开状态 `layoutReady`；Agent 暴露 `never`。
   - 参数要么三项齐全（菜单路径），要么全部省略（命令面板路径）；只给一部分为 `invalid-args`。
   - 无参时用面板命令同一个选择服务：先选可移动的视图，再选目标（第 2 节的目标表）；任一步取消为成功且无写入；选择期间来源、目标或视图代际变了则拒绝（审查 D07、L7）。
-  - 执行时核对来源：视图当前容器不是 `sourceContainerId` 时返回 `unavailable`（原因“菜单已过期”），零写入（审查 D01）。视图不可移动、目标不存在为 `invalid-args`；目标与当前相同为成功无写入。
+  - 执行时核对来源：视图当前容器不是 `sourceContainerId` 时返回已有失败码 `stale-target`，零写入（审查 D01）。视图不可移动、目标不存在为 `invalid-args`；目标与当前相同为成功无写入。
 - 不提供“新建容器（在 X）”（审查 D02、L2、impl 1）：隐式容器 `view:<id>` 可能已有其它成员，不能当作新身份；单视图分离与移到空区域随外壳三的自建容器 `custom:<UUID>` 一起做（记入待确认清单）。回到默认位置用“重置位置”。
 
 ### 6. Lab 与测试插件
@@ -126,7 +126,7 @@
 | 生命周期矩阵：从未交付的声明原位显示 `declared` 或受阻、失败原因；入口激活失败后“重试”产生新代次、布局保留；入口停止（`scope-closed`）卸载组件、保留布局、原位显示；`receiver-closed` 不当作删除；`receiver-closed` 后贡献方代次不变、句柄换新 | S3（真实内核）；S7（测试插件） |
 | 三种失败与加载门禁：`load()` 失败“重新加载”只重试加载、代际加一；渲染出错“重试”重建实例、代际加一；入口停止后、撤回前返回的加载结果被丢弃 | S3（真实串行锁窗口）；S5b；S7 |
 | 未知引用只在呈现中忽略并诊断、原件不删；默认指纹失效回到新默认并诊断 | S1；S2 |
-| `focusedPart`：随焦点变化；移到外部菜单时保留；移到 body 为 `null` | S2；S7 |
+| `focusedPart`：随焦点变化；移到外壳之外时保持原值 | S2；S7 |
 | 主题与 390 px：新零件的颜色取 token，窄屏下 Switcher 与动作可达 | S7（计算样式与截图） |
 
 ## 验证
