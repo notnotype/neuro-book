@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: settings.configuration
 owners:
   - nbook.settings

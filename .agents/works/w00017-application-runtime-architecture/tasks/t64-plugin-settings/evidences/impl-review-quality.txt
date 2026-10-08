@@ -1,0 +1,114 @@
+# t64 实现审查：代码质量、Spec、界面与文档
+
+审查范围：`1d68afea..325bbe33`，8 个提交、82 个文件、4,474 行新增、185 行删除；worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-impl-quality`，固定在 `325bbe33`。只读审查；编号按发现时分配，正文按影响排序。以下只记录已核实的发现，运行证据与静态推断逐条注明。
+
+## Q7：锁被接管后旧写入者仍提交成功，失锁错误只在收尾时报告
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/settings/backend/layer-file.ts:89`、`:95`、`:141`；合同 `docs/specs/settings/configuration.md:124`、`:165`。
+- **现象**：真实进程 A 经公开 `SettingsService.update` 创建临时文件后暂停，锁超过 10 秒未刷新；真实进程 B 接管残留锁并开始自己的写入。恢复 A 后，A 在 B 持锁期间仍提交 16,777,216 字节的配置值并返回 `{ok:true}`，审计结果码为 `ok`。仅收尾时出现 `settings.lock.release-failed`，原因为 `Lock is already released`。本次最终两键均保留，没有复现丢键。
+- **原因与影响**：`onCompromised` 返回 `undefined`，没有把失锁状态交给写入路径，也没有在改名前停止失去授予的写入者。持锁串行化因此失效；改名前的文件身份检查只能缩小窗口，两个参与者都通过核对后仍可能覆盖（这是从代码推断的后果，未在本实验中观察到）。已有诊断 exporter 的相邻锁边界在失守后停止写入，配置文件路径没有沿用这一保护。
+- **核实**：仓库外 `lock-probe.ts` 启动两个真实 Bun 进程，`lock-actor.ts` 中的真实插件取得 `settingsKey` 后调用公开 `update`；仅用 `fs.watch` 观察临时文件创建并以 `SIGSTOP`／`SIGCONT` 模拟进程停顿，未替换文件 API、锁、计时器或配置实现。使用 `waitUntil` 等真实锁 mtime 超过 10 秒。命令与 Q1 相同，末尾改为 `lock-probe.ts`，工作目录为报告所在目录，退出 0。锁 inode `10173993 → 10173995`；`AFTER_A` 为 `exit:0,lockInode:10173995,bStillRunning:true`，A 的 `ACTOR_RESULT` 为成功且含上述释放诊断；`LOCK_TAKEOVER_FINAL` 中 a、b 值长度均为 `16777216`，两个实例都正常关闭。
+- **建议改法**：把 `onCompromised` 的错误记录为该次写入的失锁状态并立即记诊断；失锁后不得继续 rename，返回带失锁原因的 `write-failed` 并清理自己的临时文件。改名前还要核对当前锁仍属于本次授予，避免旧参与者释放新参与者的锁；与相邻诊断出口复用同一授予边界，不新增重试体系。补真实进程停顿与残留锁接管的合同场景，断言旧写入者明确失败。
+
+## Q1：新增键会重排已有文本，并把已有键的注释移给新键
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/settings/backend/layer-text.ts:74`；合同 `docs/specs/settings/configuration.md:124`。
+- **现象**：在 `{"unrelated"  :  1 /* 行尾 */}` 中新增 `x.review/theme`，原键变成 `"unrelated": 1,`，其块注释被移到新键 `"x.review/theme": "macos" /* 行尾 */` 后。多行文件同样发生；单行文件还被整体展开成多行。
+- **原因与影响**：新增也直接使用带 `formattingOptions` 的 `jsonc-parser.modify`，该库会格式化相邻文本，并在既有行尾块注释前插入新属性。Spec 输出 13 承诺新增键按原文缩进追加，其余内容按原文保留。注释从原配置项转移到另一项，改变了用户配置文件表达的含义；现有测试覆盖普通新增、BOM／CRLF、制表符与两空格缩进，但没有覆盖新增时保留不规则空白与已有行尾块注释。
+- **核实**：真实内核实例中的插件经 `settingsKey` 调用 `SettingsService.update`，真实文件读回。运行 `bun --tsconfig-override /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/settings-probe.ts`，工作目录为报告所在目录。`APPEND_COMPACT`、`APPEND_MULTILINE` 输出均确认上述改写，写入返回 `{ok:true}`。该脚本之后在释放门面的实验处抛错，不影响已完成的文件实验。
+- **建议改法**：新增分支根据现有语法树和 scanner 定位插入点，只插入必要的逗号、换行和新属性；不要格式化已有属性区段。保留统一的编辑后重新解析与目标值核对。在现有文件保留行为测试里补行尾块注释与不规则空白的新增场景。
+
+## Q2：删除不存在的键仍创建或替换文件，测试反而固定了副作用
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/settings/backend/layer-file.ts:83`、`:126`；`packages/neuro-book/src/plugins/settings/backend/layer-owner.test.ts:310`。
+- **现象**：用户层文件不存在时，`update(setting, undefined, {layer:"user"})` 返回成功并创建空的 `settings.json`；文件存在但没有该键时，同一次操作替换了文件 inode，原文字节不变。项目层测试名写“删除不存在的键无副作用”，却断言原来不存在的 `.nbook` 目录被创建。
+- **原因与影响**：`editLayerText` 对不存在的键返回原文本，但写盘层没有 no-op 分支，先 `mkdir`，然后仍创建临时文件、同步、改名。违反配置 Spec 输出 11 的“删除不存在的键成功、无副作用”；也产生多余文件事件和元数据变更。只读路径上的无操作删除还会被当作写入拒绝（此项从代码推断，未单独实测）。
+- **核实**：同 Q1 的真实服务实验，`MISSING_DELETE` 为 `{result:{ok:true},fileExists:true,created:""}`；`EXISTING_DELETE` 的 inode 从 `10166831` 变为 `10166833`，`sameBytes:true`。本次 `bun test src/shared/settings.test.ts src/plugins/settings src/shared/store/store.test.ts` 为 79 pass、0 fail，包含接受 `.nbook` 创建的现有测试。
+- **建议改法**：在写入流程中明确区分删除不存在的键与真实修改。对未改变的文本返回当前快照，跳过临时文件与改名；不存在的文件和目录上的无操作删除在创建目录前结算。修正现有“无副作用”测试，断言目录／文件不被创建、已有文件身份与内容不变，而不是新增一个只重复文本编辑行为的用例。
+
+## Q4：直接登记的合法声明没有冻结默认值，读取方能修改其它读取方的配置
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/settings/shared/point.ts:21`；`packages/neuro-book/src/plugins/settings/shared/instance.ts:205`、`:208`。
+- **现象**：不经 `defineSetting`、直接提交一条符合声明合同的顶层贡献后，`get` 返回的嵌套默认对象没有冻结。另一个插件改它的 `nested.value`，声明者随后读到同一个被改过的默认值，`inspect.default` 也变了；全程没有 `update`，没有写入诊断。
+- **原因与影响**：只有 `defineSetting` 会复制并深冻结默认值；贡献点只校验，`acceptedSettings` 保留原声明引用，`get`／`inspect` 原样返回默认对象。代码明确支持“不经 defineSetting 写出的声明”（`src/shared/settings.ts:88`），所以公开读取合同不能依赖某一种声明构造方式。违反配置 Spec 输出 7 的深冻结与读取方隔离，也说明计划审查中的“读到的对象值可被改动”只处理了 helper 构造的声明。
+- **核实**：运行报告目录中的 `boundary-probe.ts`（命令与 Q1 相同，仅末尾脚本换为 `boundary-probe.ts`），用真实内核登记 `x.raw`、`x.reader` 并经各自的 `settingsKey` 服务读取。`RAW_DEFAULT_BEFORE` 显示 `rootFrozen:false,nestedFrozen:false`；`RAW_DEFAULT_AFTER.otherConsumer` 与 `inspect.default` 均为 `changed-without-update`，`diagnostics:[]`，关闭结果 `closed`。
+- **建议改法**：在接收已校验声明的拥有者边界统一复制、深冻结 JSON 数据，保证任何登记来源都有同一不变量；不要在每次 `get` 时复制。现有深冻结／消费者隔离测试补直接贡献声明的场景，不能只以 `defineSetting` 的冻结测试代替服务合同。
+
+## Q6：语言切换后按译文过滤，已选中的候选会消失
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue:86`、`:105`；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.dom.test.ts:272`。
+- **现象**：打开主题选择，输入“当前”过滤出并选中 NeuroBook，显示语言切到英文后，输入仍为“当前”，候选与选中项都消失，显示 `No matching items`。命令模式同样复现：输入 `>切换主题` 已选中主题命令，切英文后选中项变成 `null`，显示 `No matching commands`。与 quick-open Spec 的“输入与选中项保留”及组件同名文档不符。
+- **原因与影响**：语言变化时 `items` 用新语言的标签与说明重新匹配旧输入；“当前”变成 `current`、“切换主题”变成 `Change Theme` 后不再命中。`watch(items)` 只保留仍在新结果里的 id，所以选中项变为 null。现有语言切换测试只用两种语言相同的 `NeuroBook`／`macOS` 标签和查询 `o`，没覆盖按会翻译的文字过滤的路径。
+- **核实**：仓库外 `palette-probe.dom.test.ts` 挂载真实 `WorkbenchCommandPalette`、nb-ui `QuickInput` 和真实面板宿主。首次运行的 `PICK_LOCALE_SELECTION` 输出 `before:"nb-quick-input-v-0-listbox-option-nbook",after:null,query:"当前",text:"Change ThemeNo matching items"`，保留选中项断言失败；命令模式的实验 args schema 当时漏写 `additionalProperties`，该部分未进入交互。纠正实验 schema 后以 `-t '命令模式：'` 单独运行，`COMMAND_LOCALE_SELECTION` 输出 `before:"nb-quick-input-v-0-listbox-option-nbook.settings.switch-theme",after:null,query:">切换主题",text:"Command PaletteNo matching commands"`，同一断言失败（1 failed、1 skipped）。命令：`node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-impl-quality/node_modules/vitest/vitest.mjs run --config /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/vitest.config.mjs`，第二次追加上述 `-t`，工作目录均为报告所在目录。实验直接改变响应式 locale，核实组件语言更新路径；跨窗口传播由已通过的配置合同测试覆盖，此处没有运行跨窗口浏览器 e2e。
+- **建议改法**：让过滤匹配独立于显示语言：用候选的两份可搜索文字匹配，显示时仍按当前语言取文字；选择 id 与输入不变。命令标题、候选标签与候选说明采用同一规则。在现有语言切换行为测试里补中文标题和“当前”说明的过滤场景。
+
+## Q5：公开 update 的前置判断绕过了 Spec 规定的失败优先级
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/settings/shared/instance.ts:234`；合同 `docs/specs/settings/configuration.md:122`。
+- **现象**：非声明者写只允许用户层的键到项目层，返回 `layer-not-allowed`；非声明者在服务端写双层键到项目层，返回 `no-project`；非声明者给 `NaN`，返回 `invalid-value`。声明者给不合 schema 的值并选禁用层，也返回 `layer-not-allowed`。
+- **原因与影响**：Spec 输出 11 明确依次检查“已声明 → 声明者 → 严格 JSON 与 schema → 允许层 → 本实例可用层”。公开门面先检查严格 JSON、允许层和本实例可用层，只有能到拥有者的请求才核对声明者和 schema。因此公开 API 与直接拥有者的失败码不同，使用者会按错误的原因处理。这些实验没有发现越权写成功，不应把它报成权限绕过。
+- **核实**：同 Q4 的真实配置服务实验，`VALIDATION_ORDER` 依次输出 `layer-not-allowed`、`no-project`、`invalid-value`、`layer-not-allowed`；按 Spec 前三项应为 `denied`，最后一项应为 `invalid-value`。
+- **建议改法**：公开门面在选路前按合同顺序做声明者与 schema 校验，拥有者仍保留副作用边界的身份校验；复用同一校验顺序，避免两处逐渐分歧。在已有授权测试里加入同时违反两条规则的输入，保护失败优先级。
+
+## Q3：配置 Spec 对释放后访问的承诺与内核合同、实际服务相冲突
+
+- **严重程度**：重要；**类别**：文档。
+- **位置**：`docs/specs/settings/configuration.md:157`；提供入口 `packages/neuro-book/src/plugins/settings/shared/instance.ts:288`。
+- **现象**：Spec 写“释放后 `get` 返回最后的值，`update` 为 `unavailable`，`onDidChange` 不再调用”。插件经 `settingsKey` 取得实际服务后关闭调用方作用域，访问 `update` 就同步抛 `ServiceRevokedError`（reason 为 `released`），根本到不了配置门面内部的 `unavailable` 分支；`get`、`onDidChange` 同样被代理拦截。
+- **原因与影响**：配置服务使用 `providePerConsumer`，内核统一套可撤销代理。`runtime/services.md` 输出 12 明确规定释放后任何访问（包括先取出的方法）抛 `ServiceRevokedError`。配置 Spec 又给调用方相反的生命周期合同；按新 Spec 编写停止后的读取或失败处理会遇到未预期异常。内部 `createSettingsInstance.facade` 的行为不能代替公开服务的运行证据。
+- **核实**：Q1 的脚本通过真实 `Application.plugins.register/activate` 建立 `x.reader` 子作用域，读取成功，`scope.close()` 返回 `closed`；随后调用 `reader.update` 抛 `ServiceRevokedError: 服务 nbook.settings/settings 给 x.reader/server#1 的门面已随调用方释放`。源码核对 `packages/nb-runtime/src/services/per-consumer.ts:54`、`:72` 与 `docs/specs/runtime/services.md:65`，`get` 和已取出方法也统一受 guard 保护。
+- **建议改法**：沿用已有内核的门面撤销合同，把配置 Spec 的释放后规则改为 `ServiceRevokedError` 并链接服务 Spec；不要为配置新增第二种内核撤销模式。将释放行为的合同测试放在真实配置插件场地，避免只测没套内核代理的内部门面。
+
+## Q8：两个改动过的非页面组件缺少同名合同文档
+
+- **严重程度**：建议；**类别**：文档。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/commands/WorkbenchCommandHost.vue:19`；`packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/LabCommandInspector.vue:20`。
+- **现象**：命令宿主这次新增了响应式 `locale` prop，Lab 检视零件改用自己的语言常量，但两个组件旁都没有同名 `.md`。调用方无法从组件合同查到新增输入、页面卸载时的监听／槽位清理或检视区的错误清除行为。
+- **原因与影响**：`docs/standards/code/components.md:3`、`:16`、`:40` 要求给 props 即可渲染的非页面零件和宿主有同名文档，既有组件改动时补齐；开发工具里的零件也受约束。两者均通过 props 取得依赖，分别嵌在产品首页和 fixture 控制抽屉里，并非页面或整体外壳，不能套用页面豁免。源码开头的说明没有能力标签和完整外部合同，不能代替伴生文档。
+- **核实**：检查提交 diff 中新增的 `locale` prop 与 `LAB_LOCALE` 替换；工具 `glob` 查询 `packages/neuro-book/src/plugins/workbench/web/commands/WorkbenchCommandHost*` 只有 `.vue`、`.dom.test.ts`，查询 `packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/*.md` 没有文件。已通过的真实命令宿主 DOM 用例以 props 独立挂载并验证卸载清理，也确认它是可独立传入依赖的宿主。此条为文档／源码核对，没有额外运行实验。
+- **建议改法**：补这两份伴生文档，按宿主／零件分档写明 props、隐藏通道、卸载和失败行为；Lab 检视说明语言固定为 Lab 常量。沿用现有文档与场景入口，不另建组件清单，也不把有全局监听的产品宿主伪装成可独立挂载的 Lab fixture。
+
+## 未发现问题的方面
+
+- **职责与相邻约定**：配置定义放在声明者的 `shared/contracts.ts`，服务键单一定义、两端装配与声明／实现分离，仔细检查后没有发现额外问题。`switchSetting` 被三条设置命令复用，统一选择、取消与失败码转换；它对命令／选择服务只有类型导入，未使配置核心增加运行期依赖。`displayLocale` 虽只有一次 `get`，但集中表达界面语言的类型与默认项，多处使用；未把个人命名偏好列为发现。
+- **层与跨实例的正常路径**：逐键校验、未知项留盘、坏文件保留上一份有效内容、按层整体覆盖、有效值变化通知、已有快照乱序保护、首份快照截止与晚到恢复、首次断线后的重新订阅，仔细检查后没有发现额外问题；focused 配置合同测试和真实多实例路径均有运行证据。Q1、Q2、Q4、Q5、Q7 是另列的边界缺口。
+- **授权与诊断中的值**：核对拥有者身份、原调用方委托、`settings.write` 与层变化／丢弃事件；审计记录键、层、插件、via 和结果码，不记录配置值。远程校验摘要只写路径与说明。读取、监视、监听、队列、临时文件清理和锁释放错误各有失败结果或诊断，仔细检查后没有发现额外泄值或静默吞错；失锁处理单列 Q7。
+- **主题与 Lab 隔离**：源码与已运行的 DOM 用例覆盖文档根上的主题／配色、`system` 明暗与卸载收口；首页样式消费 nb-ui token，Lab 保持自己的语言常量与界面偏好，仔细检查后没有发现额外问题。此结论限于源码和 DOM 状态，不宣称真实布局、对比度或跨页首帧已经验收。
+- **示例与入口文档**：教学时钟独立于产品时钟的原因已写在 `examples/shared/host.ts`，stage 装真实配置服务；例子、应用入口、模块边界与数据模型提案的此次相关修改，仔细检查后没有发现额外问题。示例／命令／项目／架构 focused 测试通过。
+- **旧说法搜索**：按要求排除 `packages/neuro-book-legacy` 与 `docs/archived`，核对 `ctx.config`、固定简体中文与语言常量的残留。命中的历史批准依据不能当作现行 API；Lab Spec 正文已说明新产品按 settings 应用主题。仔细检查后没有发现这些残留另行导致当前合同错误；配置生命周期冲突和组件文档缺失分别列 Q3、Q8。
+
+## 本审查的验证
+
+以下四条命令的工作目录均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-impl-quality/packages/neuro-book`，结果来自本审查实际执行，未采用作者自报结果替代。
+
+| 实际命令 | 结果 |
+|---|---|
+| `bun test src/shared/settings.test.ts src/plugins/settings src/shared/store/store.test.ts` | 79 pass、0 fail，425 expect，8 files，4.76 s |
+| `bun run test:vitest src/plugins/workbench/web/components/WorkbenchCommandPalette.dom.test.ts src/plugins/workbench/web/document/WorkbenchDocument.dom.test.ts src/plugins/workbench/web/commands/WorkbenchCommandHost.dom.test.ts` | 3 files passed、14 tests passed，Vitest 4.1.10，约 5.06 s |
+| `bun run typecheck` | `tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json` 通过，30.34 s |
+| `bun test examples src/plugins/projects src/plugins/commands src/plugins/workbench/web/commands/command-query.test.ts src/architecture.test.ts` | 78 pass、0 fail，466 expect，12 files，966 ms |
+
+补充实验工作目录均为 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality`，脚本与输入／输出文件留在此处供交叉核对：
+
+| 实际命令 | 结果与边界 |
+|---|---|
+| `bun --tsconfig-override /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/settings-probe.ts` | Q1、Q2 的真实文件实验完成；Q3 访问已撤销门面抛 `ServiceRevokedError` 后脚本退出非零，随后分支未执行 |
+| `bun --tsconfig-override /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/boundary-probe.ts` | 退出 0，真实公开服务核实 Q4、Q5，两个 world 正常关闭 |
+| `node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-impl-quality/node_modules/vitest/vitest.mjs run --config /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/vitest.config.mjs` | 退出 1：选择模式进入交互后断言失败，核实 Q6；当时命令实验 schema 不合声明合同，未进入交互 |
+| `node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-impl-quality/node_modules/vitest/vitest.mjs run --config /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/vitest.config.mjs -t '命令模式：'` | 纠正实验 schema 后退出 1，1 failed、1 skipped；命令模式进入交互后选中项丢失，核实 Q6 第二条路径 |
+| `bun --tsconfig-override /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/lock-probe.ts` | 退出 0，13.28 s，真实进程停顿／接管核实 Q7；最终未丢键，两个进程退出 0、world 正常关闭 |
+
+`settings-probe.ts` 的缺文件场景已经留下文件，重跑必须换新的外部子目录；直接重跑不能再作为“初始文件不存在”的证据。首次仓库外模块解析与 Vitest 配置失败已纠正，不作为产品发现。Bun 在外部 tsconfig 路径偶尔打印 `Internal error: directory mismatch`；成功退出的边界／锁实验和产品结果均已逐项区分，未把该运行器消息归因于配置插件。
+
+未运行：浏览器 e2e、开发服务、生产构建与 `smoke:server`、全仓测试、全仓类型检查、`docs:check`、`governance:check`。遵守本审查的限制；Q6 的跨窗口完整浏览器路径及主题真实视觉由主 Agent 验收。没有修改仓库源码／规范，没有提交、push、stash、切换分支或删除文件；写入只限授权的依赖安装和仓库外报告／实验。
+
+## 数量
+
+阻断 **0**；重要 **6**（Q1、Q2、Q3、Q4、Q6、Q7）；建议 **2**（Q5、Q8）；合计 **8**。每条发现给出合同、位置、原因、证据与改法；未在本审查中观察到的丢键和只读无操作删除后果均标为推断。
+

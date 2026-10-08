@@ -1,0 +1,105 @@
+# t64 实现审查：正确性与不变量
+
+审查范围：`1d68afea..325bbe33`，固定 checkout `325bbe33`。所有源码位置以 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-impl-correctness/` 为根。只读审查；实验脚本、运行结果和数据均在本报告所在目录。以下六条的主要现象均已通过真实运行时核实；进一步风险或仅从代码得出的结论另行标明。
+
+## 1. 锁被判为残留并被另一进程接管后，旧写者仍能提交且返回成功
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/settings/backend/layer-file.ts:89`、`:95`、`:103`、`:137`。
+- **现象**：两个真实服务端实例写同一配置文件。进程 A 持锁并创建临时文件后被 `SIGSTOP` 挂起；锁超过实际 10 秒 stale 条件后，B 取得新锁并开始写入。恢复 A 后，A 在 B 仍持有新锁时完成改名、返回 `{"ok":true}`，只在释放锁时记录 `Lock is already released`。A 已经失去互斥资格，仍成为成功的写者。
+- **为什么是问题**：配置 Spec 输出 13 要求两个拥有者经写入锁串行。这里的 `onCompromised` 是无操作，写入期间也不保存或检查锁失效状态。改名前的文件身份核对只能发现已经提交的修改，无法代替持锁资格；两名写者可以同时进入最后的身份核对和改名窗口。实验直接证实失效写者在别人的锁内提交；本次最终文件保留了两项，未观察到丢失更新，不能声称已复现数据丢失。
+- **如何核实**：从 worktree 根执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/correctness/lock-takeover.ts`。脚本启动两个真实 `settingsWorld` 子进程，经服务解析执行 `update`；用真实 `fs.watch` 观察临时文件创建后发送 `SIGSTOP`，以 `waitUntil` 等锁目录实际达到 stale 条件，不替换锁或计时器，也不固定等待。输出 `a-lock 10170613`、`b-lock 10170638 changed true`、A 的 `result {"ok":true}` 和 `settings.lock.release-failed`，以及 `a-renamed-while-b-held-lock ["x.ui/a"] b-still-holds-lock true`；两个子进程退出码均为 0，实例停止均为 `closed`。
+- **建议改法**：锁失效必须终止本次写入资格，保存 `onCompromised` 的错误，在每次重做与提交前检查，清理临时文件并返回 `write-failed`。还需核对暂停后恢复时锁失效检测与改名的先后；单靠异步回调标志不能宣称已经消除这个窗口。若继续支持 stale 接管，必须保证旧拥有者不能再提交；不要把已丢失锁资格仅当作不影响成功结果的收尾错误。
+
+## 2. 未经 `defineSetting` 的合法声明保留可变默认值，读取方能改另一插件的有效配置
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/settings/shared/point.ts:20`、`packages/neuro-book/src/plugins/settings/shared/instance.ts:205`、`packages/neuro-book/src/shared/settings.ts:91`。
+- **现象**：向 `settings.properties` 登记一条合法的手写声明，默认值为嵌套对象；真实窗口的 `get` 返回对象及其子对象均未冻结。另一插件直接改读到的对象，声明者随后读到新值；本场地中同一声明常量还进入服务端，所以服务端也跟着改变。这只证明同进程场地里的共享引用，不代表真实跨进程共享引用；同一窗口内读取方影响声明者已足以构成问题。
+- **为什么是问题**：贡献点接受不经 `defineSetting` 的声明，`settingDeclarationProblem` 说明这条路径用于清单 JSON。冻结只发生在 `defineSetting` 工厂里，`acceptedSettings` 原样引用声明，`effectiveOf` 原样返回 `declaration.default`。配置 Spec 输出 7 的“深冻结，读取方影响不到别的读取方”不覆盖全部已接受输入。从代码推断，这种直接改对象不会经过写入、修订号更新或变化通知，调用方能悄悄改变其它消费者的有效配置。
+- **如何核实**：从 worktree 根执行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/correctness/authorization-values.ts`。通过真实插件登记与 `settingsWorld` 激活，输出 `default-frozen false false`；`x.other` 将 `size:1` 改为 99、`nested.label` 改为 `changed` 后，声明者和服务端 `get` 均得到 `{"size":99,"nested":{"label":"changed"}}`。对照实验中，直接调远程合同写另一插件的项为 `settings-failed/denied`，伪造 `via` 的委托也为 `denied`；两个实例正常关闭。
+- **建议改法**：在接受声明的配置边界统一复制并深冻结声明，至少覆盖默认值与 schema；不要把工厂是否被调用作为运行时只读的前提。让工厂与原始贡献共用归一化逻辑，回归用例从真实登记入口读取原始对象声明。
+
+## 3. 监视协调漏掉祖先目录链接改指与合法的较长链接链，实例持续读旧值
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/settings/backend/layer-watch.ts:140`、`:147`、`:163`。
+- **现象**：状态根 `state` 是指向目录 A 的符号链接时，拥有者监视的是解引用后的 A 目录。将 `state` 原子改指 B，再修改 B 的 `settings.json`，服务端与窗口仍读 A 的值。另一种失败是 `settings.json` 经 11 个链接到达最终目标：启动能读到目标，之后直接改最终目标不生效。
+- **为什么是问题**：`desiredDirectories` 只 `lstat(current)` 检查末尾文件，不检查路径中的目录链接，因此没有监视链接自身所在父目录，也无法知道链接改指；状态根合同明确不保证 realpath。文件链接链另被限制为 `MAX_LINK_HOPS = 8`，Linux 正常可解引用的链被读写支持，却不被监视支持。违反配置 Spec 输出 9 的外部修改即时生效；50 毫秒合并不能补回没有被观察到的事件。
+- **如何核实**：从 worktree 根执行下面两个命令。实验均用真实目录、链接、`settingsWorld` 和 `fs.watch`。初值 1，写盘为 7 后用 `waitUntil` 等状态并推进注入时钟，800 毫秒内均未收到，输出 `missed 1 1 disk {"x.ui/value":7}`；经窗口写入 8 作为屏障即成功读取 8。每次两个实例正常关闭。
+
+  ```sh
+  bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/correctness/watch-edges.ts ancestor-link
+  bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/correctness/watch-edges.ts long-chain
+  ```
+
+- **建议改法**：把路径解析与监视需求收敛到同一个解析结果：记录路径中每个链接的位置、目标链和最终文件位置，监视相关父目录；以访问过的链接身份检测环，不默默截断合法长链。读写与监视采用同样的解引用语义。
+
+## 4. 配置门面的释放合同被内核代理覆盖，释放后读取和写入都抛异常
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/settings/shared/instance.ts:286`、`packages/nb-runtime/src/services/composition.ts:599`、`packages/nb-runtime/src/services/per-consumer.ts:65`。
+- **现象**：在真实窗口实例中，把读取配置的插件登记到子作用域、激活后关闭该作用域。持有的配置服务调用 `get`、`inspect`、`update`、`onDidChange` 全部同步抛 `ServiceRevokedError`；`update` 没有返回约定的 `{ok:false, code:"unavailable"}`。
+- **为什么是问题**：配置 Spec“时序与寿命”规定释放后 `get` 返回最后值、`update` 返回 `unavailable`、通知停止；`runtime.services` 的按调用方门面合同却规定释放后访问抛 `ServiceRevokedError`。`provideSettings` 使用的 `providePerConsumer` 先被内核的可作废代理包装，内核在提供方 `release` 回调前撤销代理，配置门面自己的释放行为无法处理之后的调用。已有 `instance.test.ts:168` 直接使用 `instance.facade`，绕过真实代理而漏掉冲突。从代码推断，即使绕过代理，当前 `get` 仍实时读 `layerValues()`，没有保存释放时的最后值。
+- **如何核实**：从 worktree 根执行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/correctness/runtime-edges.ts release`。使用仓库 `settingsWorld`、真实 `Application.plugins.register/activate` 与 `Scope.close`。关闭作用域为 `closed` 后，四个方法均输出 `threw ServiceRevokedError`；两个实例停止均为 `closed`。
+- **建议改法**：先统一配置与 `runtime.services` 的寿命合同，避免内外两层分别定义撤销语义。沿用现有内核合同可减少配置层的重复状态，但会改变已写明的配置承诺，应由主 Agent 对照已确认要求处理。若保留最后值承诺，须在服务装配边界显式支持，并在释放时固化值；回归用例必须从真实服务解析入口关闭作用域后访问旧对象。
+
+## 5. 一个调用方释放时会删除另一存活调用方注册的同一监听函数
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/settings/shared/instance.ts:74`、`:220`、`:261`。
+- **现象**：两个真实插件分别从内核取得各自配置门面，注册同一个函数作为 `onDidChange` 回调。关闭其中一个插件的作用域后，另一插件仍能读取最新配置，但它登记的回调停止；同一门面额外登记的独立回调照常收到变化。
+- **为什么是问题**：实例用全局 `Set<listener>` 存回调，各门面又用自己的 `Set<listener>` 记归属。相同函数的两次登记在全局只占一项；任一门面释放或任一取消函数执行都会删除这一项，破坏其它登记的寿命。调用方门面应各自拥有自己的订阅，不能靠函数身份共用一个可被另一调用方删除的记录。
+- **如何核实**：从 worktree 根执行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/correctness/listener-lifecycle.ts`。使用真实 `settingsWorld`、两条插件服务解析、`Scope.close` 和服务端两次成功写入，以 `waitUntil` 等窗口值更新。输出 `before-release-events [["x.ui/value"]]`；关闭第二个插件为 `closed` 后，输出 `after-release value 2 shared-listener [] independent-listener [["x.ui/value"]]`。两个实例停止均为 `closed`。
+- **建议改法**：每次 `onDidChange` 建立独立登记，以记录对象或独立包装函数作为实例集合的键；取消和门面释放只删除自己建立的登记，无需额外按回调身份去重。
+
+## 6. 删除不存在的键仍改写磁盘，并可能错误地失败
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/settings/backend/layer-file.ts:83`、`:119`、`:128`；`packages/neuro-book/src/plugins/settings/backend/layer-owner.test.ts:310`。
+- **现象**：用户层文件与目录都不存在时，窗口 `update(setting, undefined)` 返回成功，但创建 `state/settings.json`，大小为 0 字节。把这个仍不含该键的空文件改为 `0444` 后，同样的删除返回 `write-failed`。从代码推断，文件存在且可写时，即使编辑后的文本与原文相同，也会写临时文件、改名并替换 inode。
+- **为什么是问题**：配置 Spec 输出 11 要求“删除不存在的键成功、无副作用”。`editLayerText` 原样返回文本，文件写入层却没有识别无改动；可写检查也在确认是否需要写入之前。已有测试标题宣称无副作用，实际断言要求缺失目录被创建，把合同违例当成正确结果。
+- **如何核实**：从 worktree 根执行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/correctness/runtime-edges.ts delete`。真实窗口经委托 RPC 到服务端拥有者；输出 `before ["Book"]`、`delete-missing {"ok":true} created ["settings.json"] bytes 0`、`delete-missing-readonly {"ok":false,"code":"write-failed",...}`。两个实例正常关闭。
+- **建议改法**：编辑结果明确有无修改；持锁读取后无变化直接返回当前文本，不做权限检查、临时文件和改名。缺失文件的删除应在创建父目录前结算；修正已有测试，断言目录、文件和原文件身份均不变。
+
+## 未发现问题的方面
+
+以下结论限于本次执行的用例与查阅范围，不代表全量或真实浏览器验收：
+
+- **正常层合成与写入**：现有配置合同测试覆盖默认、用户、项目层优先级，四种实例位置，`auto` 选层，写入返回时本实例已应用，两个窗口并发写入，以及层 `ok → invalid → ok` 的值保留与状态变化；本次全部通过。
+- **正常文件处理**：现有合同测试覆盖 BOM、CRLF、制表符、注释及未声明键保留，重复键拒绝，普通链接目标写入、悬空链接拒写、只读文件及目录拒写，普通目录删除重建、两个真实进程各写不同键及停止收口；本次通过。第 1、3、6 条仍是这些正常用例以外的缺口。
+- **身份与委托**：真实运行时拒绝直接远程写别的插件的项，也拒绝伪造委托身份；未发现能通过正常远程写入绕过声明者核对的路径。第 2 条是读取对象可变带来的独立缺口。
+- **就绪与恢复**：真实多实例用例覆盖首快照截止后的默认值、晚到快照生效、首次订阅失败后恢复、已建立订阅断线后的基线重建，以及请求发出后断线返回 `unknown-outcome`；本次通过。同一启动标识下乱序修订号的拒绝由时序单元用例覆盖，未人为延迟真实链路帧。
+- **纯声明与宿主装配**：内核纯声明登记、声明查询与目录汇总的聚焦用例 3 项通过；`pluginsAt`、`definitionAt`、浏览器引导包含纯声明插件、浏览器不需要其入口定义的聚焦用例 5 项通过。设置的核心入口与语言命令入口已拆分，真实工作台主题命令场地能激活并执行，未发现原计划中的静态依赖环重新出现。
+- **类型表面**：应用三份类型检查通过；未发现本次类型检查可见的错误。
+
+## 本次验证与边界
+
+下列命令均从 worktree 根执行。运行器把测试临时根重定向到报告所在目录；原始输出分别保留为 `contracts.txt`、`checks-declarations.txt`、`checks-hosts.txt`、`checks-typecheck.txt`。
+
+| 实际命令 | 实际结果 |
+|---|---|
+| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/correctness/run-contracts.ts` | 运行 `bun test src/plugins/settings src/shared/settings.test.ts`；60 pass，0 fail，276 expect() calls，7 files，4.66s |
+| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/correctness/run-review-checks.ts declarations` | 内核聚焦合同测试 3 pass，28 filtered out，0 fail，17 expect() calls，2 files |
+| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/correctness/run-review-checks.ts hosts` | 宿主聚焦合同测试 5 pass，27 filtered out，0 fail，13 expect() calls，3 files；用例启动并停止真实测试后端，未启动开发服务 |
+| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/correctness/run-review-checks.ts typecheck` | 运行 `bun run --cwd packages/neuro-book typecheck`：`tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json`，退出码 0 |
+| `git status --short --untracked-files=normal` | 无输出；未修改仓库源码或产生未跟踪文件 |
+
+- 另外执行了各发现所列的 7 个真实运行时场景：锁接管、原始声明对象、祖先目录链接、11 跳文件链接、释放门面、共享监听函数、删除不存在键。场景及子进程均正常收口；实验数据保留，未删除文件。
+- 为运行审查，经授权执行了 `prox bun install --frozen-lockfile`；安装完成，安装脚本执行了 harness 构建。未把依赖安装当作产品验证。
+- 不重跑作者自报的全量结果。本次未运行全量应用或内核测试、Vitest 组件测试、e2e、开发服务、打包 smoke、真实浏览器验证，也未验证 Windows、macOS、网络文件系统或容器挂载。
+- 语言与主题的可见效果、系统明暗派发、Lab 切换只查阅了实现、合同与已有用例；本次没有新的视觉证据，交主 Agent 用已授权的浏览器验收核实。
+- 仓库外 TypeScript 实验使用 `--tsconfig-override` 时，Bun 1.4.2 在退出阶段打印 `Internal error: directory mismatch ... You don't need to do anything, but this indicates a bug.`；成功场景退出码仍为 0。该诊断未当作产品发现。共享监听实验初次将激活结果误断言为 `available`，纠正为实际合同的 `activated` 后完成，初次失败未作为产品证据。
+- LSP 返回 `No language servers configured for this project`，符号核查改用源码阅读；未据此省略运行时实验。
+
+## 回写建议
+
+只交主 Agent 汇总，未修改规范。已有测试和 TypeScript 规则明确的事项不另增规则。
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| 1 | 规范缺陷 | 第 4 条：配置要求释放后返回最后值，`runtime.services` 要求抛 `ServiceRevokedError`；真实装配遵守后者 | 改写两份合同中的冲突，先确认是否保留配置的特殊寿命要求。若沿用现有内核，配置条款改为“服务对象随调用方入口释放；释放后访问抛 `ServiceRevokedError`，变化通知停止”，并删除无法兑现的重复释放语义。此为建议，不能代替开发者已批准的产品要求 | `docs/specs/settings/configuration.md` 的“时序与寿命”；必要时同步 `docs/specs/runtime/services.md` 的按调用方门面合同 |
+
+## 数量
+
+阻断：0；重要：6；建议：0。回写建议不计为额外发现。

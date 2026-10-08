@@ -1,0 +1,229 @@
+# t64 实现审查：测试与验收映射
+
+审查范围：`1d68afea..325bbe33`。工作树：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-impl-tests`。
+
+审查已完成。核实 9 条：重要 6、建议 3、阻断 0。当前实现问题与存活变异证明的测试缺口分开陈述；不把变异后的故障算作当前产品故障。
+
+## 已核实发现
+
+### T04：内部门面释放测试绕过了内核撤销，真实服务释放后 get 抛错而不是返回最后值
+
+- **严重程度**：重要。**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/settings/shared/instance.test.ts:168`；`packages/neuro-book/src/plugins/settings/shared/instance.ts:285`；Spec `settings/configuration.md:157`；`packages/nb-runtime/src/services/per-consumer.ts:54`。
+- **现象**：Spec 承诺服务随调用方入口释放后，get 返回最后值、update 返回 unavailable。现有用例手工建 `createSettingsInstance().facade()` 并直接 `facade.release()`，只断言 update 与监听；产品经 `providePerConsumer` 交出的服务先被内核 revocableFacade 包装。真实插件经 `context.services.require(settingsKey)` 拿服务，关闭它注册所在的子作用域，再调用 get，直接抛 `ServiceRevokedError`（reason= released），连读取方法都取不到。
+- **为什么是问题**：公开寿命合同与实际服务装配冲突。内部 helper 的测试不能证明调用方拿到的真实服务有同样行为，测试头部声称真实内核覆盖“同一组行为”也不成立。插件释放期或持有最后只读值的消费者不能按合同使用该服务。
+- **如何核实**：`experiments/baseline/packages/neuro-book` 执行 `bun review-contracts.ts`，通过真实 createApplication、插件 register/activate、服务 require 与 `scope.close()` 走完整生命周期；首轮直接访问的脚本退出 1，错误为 `ServiceRevokedError: 服务 nbook.settings/settings 给 x.reader/server#1 的门面已随调用方释放`，栈位于 `per-consumer.ts:56`。脚本随后显式捕获实际错误以继续独立场景，退出 0，get 和 update 都是 `ServiceRevokedError`、reason= released，监听仍未被调用。未直接调用私有内核函数、未伪造消费者身份。
+- **建议改法**：沿用已生效的内核统一撤销合同，修正配置 Spec 的释放后读取与 unavailable 承诺，并把寿命测试放到真实插件作用域释放路径。`runtime/services.md:65`、`:104` 明确释放后任何访问抛错；无需另造配置服务寿命或让内部 facade 的行为冒充消费者实际拿到的门面。
+
+### T05：不存在的键被删除时仍创建目录和空文件，测试把副作用写成了通过条件
+
+- **严重程度**：建议。**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/settings/backend/layer-owner.test.ts:310`；`packages/neuro-book/src/plugins/settings/backend/layer-file.ts:83`、`:128`；Spec `settings/configuration.md:122`。
+- **现象**：用例名称写“删除不存在的键无副作用”，却断言删除后父目录已经出现 `.nbook`，且未检查内部文件。真实窗口调用 `update(setting, undefined)` 删除不存在的用户层键，返回 `{ok:true}`，同时创建 `<状态根>/settings.json` 空文件。拥有者始终 mkdir、取锁、写临时文件、改名，即使 transform 返回原文本。
+- **为什么是问题**：Spec 输出 11 明确“删除不存在的键成功、无副作用”；一个本应无事发生的删除主动触碰用户文件系统，当前测试还会阻止实现修正为真正的空操作。这是可观察行为，不是要求断言内部调用次数。
+- **如何核实**：`experiments/baseline/packages/neuro-book` 执行 `bun review-contracts.ts`，真实内核窗口、真实远程写入及目录：输出 `deleteMissing.result={ok:true}`、`directory=["settings.json"]`、`file=""`，退出 0；各实例均 closed，临时根已收口。
+- **建议改法**：在持锁读取并变换后，新文本与原文本一致时返回成功，不写临时文件；文件与父目录原先都不存在时，删除应在创建之前直接结算。把现有用例改为删除后原目录内容和文件存在性不变，并覆盖现有文件里不存在该键的空操作。
+
+### T01：改名前冲突重做的验收没有对应测试，删除整段冲突检测仍全绿
+
+- **严重程度**：重要。**类别**：测试。
+- **位置**：`packages/neuro-book/src/plugins/settings/backend/layer-owner.test.ts:385`；`packages/neuro-book/src/plugins/settings/backend/layer-file.ts:137`；计划 `plan.md:171`；Spec `settings/configuration.md:124`。
+- **现象**：计划明确要求“改名前文件被外部改动时重做后两边的键都在”。现有 15 个拥有者用例没有制造读文本到改名之间的外部保存；两个写入进程都遵守同一锁，不能覆盖不走锁的编辑器。实验副本删掉 `layer-file.ts:137–140` 的身份比较、删除临时文件与 `modified` 重试返回后，配置与 store 的 79 例仍全部通过（425 次断言）。
+- **为什么是问题**：合作进程的锁和外部编辑器的冲突检测保护的是两条不同路径；失去后一条会把已在核对前完成的外部修改覆盖掉，两边都认为成功。计划列出的这条关键判据实际没有验收，已有“变异覆盖锁”不能证明它。
+- **如何核实**：工作树基线执行 `bun test ./src/plugins/settings ./src/shared/settings.test.ts ./src/shared/store/store.test.ts`，79 pass / 0 fail；相同命令在报告同目录的 `experiments/no-cas/packages/neuro-book` 执行，79 pass / 0 fail，5.19 秒。另执行两个目录的 `bun review-cas.ts`：真实窗口调用 update，真实 fs.watch 观察临时文件创建（0 字节）时由外部编辑器式 rename 保存；基线保留 `other/editor="saved"`、退出 0，变异仍报写入成功却丢该键、退出 1。8 MiB 旧文件仅用于放大真实 IO 窗口，没有直接调用内部写函数或伪造帧。变异仅发生在实验副本，原工作树未改动。
+- **建议改法**：在原拥有者行为测试中用真实文件事件或 IO 屏障控制一次“旧文本已读、临时文件已生成、外部保存完成、改名前核对”的交错；断言写入键和外部键都保留，并另覆盖 3 次冲突耗尽时 `write-failed`、原文件不被覆盖。保留现有单文件锁，无需新增另一套写入组件。
+
+### T02：三条设置命令的只读模式判据没有被测，全部改成 read 仍通过
+
+- **严重程度**：重要。**类别**：测试。
+- **位置**：`packages/neuro-book/src/plugins/settings/commands.test.ts:107`、`:181`；`packages/neuro-book/src/plugins/settings/web/plugin.ts:35`；`packages/neuro-book/src/plugins/workbench/web/commands/theme-commands.ts:27`、`:36`；计划 `plan.md:181`。
+- **现象**：设置命令测试只在 normal 模式执行 Agent 调用，未把三条实际命令放到 plan/discuss 模式。实验副本将三条声明的 `effect: "write"` 全部改成 `"read"`，运行 settings 与 commands 两组共 94 例仍全通过（491 次断言）。已有 registry 的 plan/discuss 测试仅登记 `nbook.edit.undo` 与 `redo`，与这三条产品声明没有连接。
+- **为什么是问题**：只读门禁依据声明里的 effect 判定；命令仍真的写配置，但被错标成 read 后绕过门禁。泛用命令系统测试不覆盖设置命令的分类，计划明确列出的安全行为没有验收。此条是已核实的测试缺口，不声称当前三条声明已错标。
+- **如何核实**：`experiments/commands-read/packages/neuro-book` 执行 `bun test ./src/plugins/settings ./src/plugins/commands`：94 pass / 0 fail，5.14 秒；变异文件与范围见本条位置。
+- **建议改法**：让三条真实命令声明与处理函数经过已有支持 `agentMode` 注入的真实 registry，在 plan/discuss 模式执行有效参数；断言 `read-only` 且配置文件及服务值不变，切回 normal 后同参数成功。不要只断言 effect 字符串。
+
+### T07：配置场地另写代理允许清单，产品漏装代理能力时测试仍全绿
+
+- **严重程度**：重要。**类别**：测试。
+- **位置**：`packages/neuro-book/src/plugins/settings/testing/world.ts:60`、`:93`、`:139`、`:174`；`packages/neuro-book/src/manifest.ts:32`；对照 `packages/neuro-book/examples/testing/stage.ts:254`。
+- **现象**：配置世界硬编码 `plugin === "nbook.settings"`，没有消费产品的 delegatingPlugins。实验副本从产品允许清单删除 settings.id，运行配置、manifest、浏览器宿主与引导合同共 84 例仍全部通过（331 次断言）。示例 Stage 已直接引用产品清单，可见不需要另一份测试规则。
+- **为什么是问题**：经真实内核签发身份仍不代表装配真实；测试场地主动补足了产品可能缺失的授权。产品漏装 settings 代理时窗口里的写入被 denied，场地继续允许这些写入，S4 的委托验收无法保护实际产品宿主。此条是测试缺口，当前产品清单已含 settings.id。
+- **如何核实**：`experiments/no-delegation/packages/neuro-book` 执行 `bun test ./src/plugins/settings ./src/manifest.test.ts ./src/web/host/window.test.ts ./src/server/browser-bootstrap.test.ts`，84 pass / 0 fail，6.72 秒；仅变异 manifest 的清单，world 的硬编码未动。再执行基线与变异两边的 `bun review-delegation.ts`，真实 startServer 与 createBrowserWindow、真实 WebSocket、产品内置插件：两边窗口都 ready；基线切语言 `{ok:true,value:null}`、读到 en-US、退出 0，变异为 `denied`、读到 zh-CN、退出 1，原因是“插件 nbook.settings 不在代理允许清单内”。引导响应只用于添加读取探针插件；代理判断与设置命令均走产品装配，各资源在 finally 收口。
+- **建议改法**：world 与 Stage 一样直接消费 delegatingPlugins，不再声明 DELEGATION；需要额外测试代理时只显式增加测试插件。至少让一条设置命令写入经过真实浏览器宿主的装配表，而不是只验证窗口已经 ready。
+
+### T06：50 毫秒与 3 秒的断言取自实现本身，两处延迟变成 10 倍仍通过
+
+- **严重程度**：重要。**类别**：测试。
+- **位置**：`packages/neuro-book/src/plugins/settings/backend/layer-owner.test.ts:170`；`packages/neuro-book/src/plugins/settings/settings.test.ts:241`；`packages/neuro-book/src/plugins/settings/backend/layer-owner.ts:29`；`packages/neuro-book/src/plugins/settings/shared/instance.ts:300`。
+- **现象**：合并测试按导入的 `RELOAD_DELAY_MS - 1` 和 `+1` 推进，未独立锁定合同的 49/50 毫秒；首快照用 waitUntil 每轮推进导入的 FIRST_SNAPSHOT_MS，也未断言 2999 毫秒时仍等待、3000 毫秒时降级。实验副本把 RELOAD_DELAY_MS=50 改成 500，FIRST_SNAPSHOT_MS=3000 改成 30000，两处各延长 10 倍，配置与 store 的 79 例、425 次断言仍全通过。
+- **为什么是问题**：期望值由实现常量算出，测试与错误实现一起移动。50 毫秒影响外部修改延迟，3 秒是明确的启动等待上限；当前测试无法防止首屏停 30 秒或外部编辑延迟 500 毫秒。泛用时钟测试并不保护这两个产品合同值。
+- **如何核实**：`experiments/deadlines/packages/neuro-book` 执行 `bun test ./src/plugins/settings ./src/shared/settings.test.ts ./src/shared/store/store.test.ts`：79 pass / 0 fail，4.82 秒。变异只改两个时间常量；没有假计时器或固定等待。
+- **建议改法**：按 Spec 独立推进 49、1 毫秒和 2999、1 毫秒；边界前观察未发布/激活未完成，边界后观察最终快照/激活已降级。测试里的期望时间不要从被测实现导入，轮询推进也要有明确总时长边界。
+
+### T03：inspect 的响应式层状态没有验收，移除依赖追踪仍全绿
+
+- **严重程度**：重要。**类别**：测试。
+- **位置**：`packages/neuro-book/src/plugins/settings/settings.test.ts:178`；`packages/neuro-book/src/plugins/settings/shared/instance.test.ts:149`；`packages/neuro-book/src/plugins/settings/shared/instance.ts:209`；Spec `settings/configuration.md:118`。
+- **现象**：层坏/恢复用例在 waitUntil 中反复直接调用 inspect；从未在 computed/effect 中读取 inspect 并观察同值的 `ok → invalid → ok`。实验副本只给 inspect 加 `pauseTracking()` / `resetTracking()`，保留 get、直接 inspect 和全部文件/订阅逻辑；配置与 store 的 79 例仍全部通过（425 次断言）。
+- **为什么是问题**：直接轮询仍能看到最新状态，消费者缓存的 computed 却不会失效，界面会继续显示旧的可写状态。store 的 setting 测试覆盖 get 的响应式值，不能覆盖 inspect 对层状态的独立承诺。
+- **如何核实**：`experiments/inspect-untracked/packages/neuro-book` 执行 `bun test ./src/plugins/settings ./src/shared/settings.test.ts ./src/shared/store/store.test.ts`：79 pass / 0 fail，5.18 秒。再执行基线与变异两边的 `bun review-inspect.ts`，真实窗口从配置服务建立 computed、再改真实文件：基线状态序列 `["ok","invalid","ok"]`、退出 0；变异 `["ok","ok","ok"]`、退出 1，而直接 inspect 最终都是 ok、有效值和通知都没变。变异只改变 inspect 的依赖追踪。
+- **建议改法**：在现有真实多实例文件坏/恢复用例中建 `computed(() => service.inspect(definition).user.status)`，先求值再保存坏文件、再修回相同值；逐次断言 computed 为 ok/invalid/ok，并断言有效值不变、onDidChange 不触发。这样直接覆盖消费方行为。
+
+### T09：e2e 的控制台错误断言永远看不到后来的错误
+
+- **严重程度**：建议。**类别**：测试。
+- **位置**：`packages/neuro-book/e2e/settings.e2e.ts:98`、`:125`。
+- **现象**：`const problems = [...watchConsole(a), ...watchConsole(b)]` 在刚注册监听时复制两份空数组；后面的 console/pageerror 只追加到 watchConsole 闭包里的原数组。125 行断言的 problems 从未再被写入，无论页面报多少错误都还是空。
+- **为什么是问题**：用例声称验证两窗口切语言无运行错误，但这条判据实际上是常量空数组断言，不能发现变化中的 Vue/浏览器错误。
+- **如何核实**：`bun console-check.ts`（在 experiments 目录）保留相同 watchConsole 收集与数组展开代码，通过 EventEmitter 各派发一个 pageerror 和 error console，输出 `assertedProblems=[]`，空数组断言仍通过。此实验只验证 JS 收集逻辑，未运行 e2e、未冒充页面错误复现。
+- **建议改法**：分别保留 `aProblems`、`bProblems`，到断言时再合并；或让 watchConsole 接受调用方提供的同一数组。无需增加监控组件。
+
+### T10：产品主题的文字颜色与字体没有计算样式验收，背景也只断言变化
+
+- **严重程度**：建议。**类别**：测试。
+- **位置**：`packages/neuro-book/e2e/settings.e2e.ts:92`、`:135`、`:139`；`packages/neuro-book/src/plugins/workbench/web/document/WorkbenchDocument.dom.test.ts:27`、`:44`；计划 `plan.md:182`；`docs/testing/README.md:167`。
+- **现象**：计划的 S7/S8 判据包括首页背景、文字颜色与字体的计算样式。e2e 只读取 backgroundColor，换主题后只断言与原值不同；没有 color 或 fontFamily 的断言。组件测试检查文档根属性与 --bg-main 内联值，不挂载工作台页面及其 CSS。文字和字体的两条 CSS 绑定丢失，或背景切到错误的不同颜色，这些验收都不能发现。
+- **为什么是问题**：html 属性和配色变量正确不证明产品页面消费了对应 token；验收映射的一部分仍未落实。仓库 UI 取证要求计算样式与同名变量解析值对应，只判断颜色变化不足以验证该合同。
+- **如何核实**：静态核对 settings.e2e.ts 全部 4 例、主题组件全部 2 例，以及全 e2e 中 getComputedStyle/fontFamily/color 的命中。原工作树命令面板与主题组件合同合计 13 例通过；没有运行浏览器，此条仅报告已确认的断言缺口，不声称当前页面颜色或字体错误。
+- **建议改法**：在已有外部换主题用例里，一次读取工作台的 backgroundColor、color、fontFamily，再与该主题下 --bg-main、--text-main、--font-ui 的浏览器解析值逐项对照。复用现有页面和主题切换，不增加一套验收脚本。
+
+## 逐条验收映射
+
+除注明内核或仓库文档外，下表测试路径相对工作树的 `packages/neuro-book/`；每条发现的“位置”使用仓库相对路径。`计划` 指 `.agents/works/w00017-application-runtime-architecture/tasks/t64-plugin-settings/plan.md`。S0/S1 已在审查基线里，相关测试只作相邻合同核对；本轮不重议 Context 1–6 或已处理的 34 条设计意见。
+
+“覆盖”表示在测试中找到实际断言，不等于本轮跑过所有相关套件；“部分”逐项说明缺口。本轮实际执行范围另列，e2e 与打包 Smoke 都仅静态核查。
+
+| 计划行 / 判据 | 实际文件与用例位置 | 核对结果 |
+|---|---|---|
+| 167 / 三端声明装配、声明-only、空定义、缺实现、浏览器集合与版本 | `src/manifest.test.ts:17,25,34`；`src/server/browser-bootstrap.test.ts:68`；`src/web/host/window.test.ts:273`；内核 `src/plugins/plugins.test.ts:241` | 共同规则与浏览器路径有断言；服务端、项目宿主都调用 `pluginsAt/definitionAt`（从代码确认）。未找到专门把 browser-only 声明经产品项目宿主登记后查询的独立用例；多实例配置场地手工交出声明，不能替代三个产品装配表的全部验收。 |
+| 168 / 声明校验、严格 JSON、层、secret、重复键 | `src/shared/settings.test.ts:43,49,58,66,79`；内核 `src/plugins/owner-contribution-points.test.ts:164` | 单条声明边界有断言；重复贡献的两种登记顺序由内核通用测试覆盖，配置未另加同键场景。实际文件名为 shared/settings.test.ts，不是计划中的 declarations.test.ts。 |
+| 169 / JSONC、BOM、空层、根类型、嵌套重复键、非法值、未知键、层限制 | `src/plugins/settings/backend/layer-text.test.ts:30,35,41,50,62` | 覆盖正反输入、诊断不含值与冻结；本轮基线通过。实际文件为 layer-text.test.ts。 |
+| 170 / 单键保留、删除、空文本、空操作、编辑后拒绝 | `src/plugins/settings/backend/layer-text.test.ts:73,77,87,96,104,113,118`；`backend/layer-owner.test.ts:310` | 文本保留与常规编辑覆盖。文件空操作违约见 T05；编辑后拒绝只有实现，没有对应可触发的反例。删除编辑后校验的变异存活，详见变异表；未构造真实合法输入反例，不据此另定当前缺陷。 |
+| 171 / 改名写入、链接、权限、坏文件、两个进程、外部冲突重做 | `backend/layer-owner.test.ts:193,288,325,343,385` | 前五类有真实 IO 断言，两个子进程核对全部键及残留文件；外部编辑器冲突的反例缺失，存活变异与真实丢键探针见 T01。 |
+| 172 / 外部保存、截断、删除、状态、目录、链接、50 毫秒、去重、停止 | `backend/layer-owner.test.ts:138,158,177,193,214,241,288,402` | 常规保存方式、路径生命周期、状态与去重有断言。时间从实现取值，独立边界缺口见 T06。停止用例接纳的 pending 写入成功结算，新写 unavailable，目录无临时文件/锁。 |
+| 173 / 不同位置的层与 inspect | `src/plugins/settings/settings.test.ts:107,178` | 合成、来源与状态直接读取覆盖。层坏/恢复用例只启动一个未绑定窗口；computed 依赖追踪没有验收，见 T03。 |
+| 174 / 声明者授权、失败码、代理身份、深冻结隔离 | `settings.test.ts:195,213`；`backend/layer-owner.test.ts:366` | 真实远程写入与审计断言原插件及 via；对象读取冻结、调用后改输入不影响落盘有断言。产品代理允许清单与场地脱钩，见 T07。 |
+| 175 / 自己写入、其它实例、竞争、乱序、不改变被覆盖有效值 | `settings.test.ts:128,159`；`shared/instance.test.ts:131` | 自己/另一窗口/项目收到、不同键保留、项目层覆盖有真实场地断言；较旧写结果不倒退只有 ScriptedLink 的确定性时序。 |
+| 176 / 首值、截止与晚到、首次失败恢复、订阅两种顺序、unknown-outcome | `settings.test.ts:233,252,262,275`；`shared/instance.test.ts:83,93,117` | 首值、降级晚到与断线恢复走真实内核；3 秒边界缺口见 T06。提前事件/提前结束由 ScriptedLink 摆时序，不能声称 settings.test.ts 覆盖同一组顺序；实际证据边界见下文。 |
+| 177 / 两个浏览器入口不成环 | `src/plugins/settings/commands.test.ts:100,173`；`settings/web/plugin.ts:42,65` | 命令、配置与工作台均能在真实实例激活并执行；另用产品宿主探针成功切语言。核心/commands 拆分符合已定设计。 |
+| 178 / auto 目标层、只允许用户层 | `settings.test.ts:128`；`commands.test.ts:181` | 项目存在覆盖写项目，否则写用户、显式写被覆盖用户层均有断言；界面语言只允许用户层。 |
+| 179 / store.setting 响应性、缺 settings 拒绝 | `src/shared/store/store.test.ts:658` | 真实配置场地、store computed、自己写入与外部修改覆盖，缺 settings 时 create 抛错；本轮通过。 |
+| 180 / 语言即时变化、打开中输入/选择保持、项目原因、Lab 隔离 | `WorkbenchCommandPalette.dom.test.ts:272`；`src/plugins/projects/projects.test.ts:185`；`commands.test.ts:107`；`e2e/settings.e2e.ts:94` | 通用选择模式保持输入/选择、标题/说明/placeholder 随语言变有组件断言；项目失败请求生成双语原因有真实后端断言。没有在浏览器中保持实际“打开项目”浮层、从另一窗口切语言并检查它的端到端场景；Lab 的旧命令 e2e 只静态读取，未实跑。 |
+| 181 / 三命令有效/非法参数、只读、失败转换、取消 | `commands.test.ts:107,126,142,181` | normal 成功、参数与用户/项目目标覆盖；语言命令取消/失败覆盖。plan/discuss 缺口见 T02；主题/明暗的无参数选择、非法 appearance、取消与写失败未逐条覆盖，不能把共用 switchSetting 的语言例当三条命令全部验收。 |
+| 182 / 文档根、计算样式、系统明暗、Lab 页面寿命 | `WorkbenchDocument.dom.test.ts:35,61`；`e2e/settings.e2e.ts:129,155,174`；`e2e/lab.e2e.ts:221` | 文档根组件本轮通过，动态系统 change 与 Lab 文档隔离仅静态核查。页面 color/fontFamily 和 token 对照缺口见 T10；Lab 场景 17 检查新窗口身份和产品主题，未重复沿用“离开后没有主题”的旧断言。 |
+| 183 / 两窗口语言、刷新、注释 | `e2e/settings.e2e.ts:94` | 具体业务断言存在；控制台错误判据失效见 T09。本轮未跑浏览器。 |
+| 184 / 外部主题、项目覆盖、不同窗口写不同层 | `e2e/settings.e2e.ts:129`；`commands.test.ts:181` | e2e 检查外部改文件及绑定窗口改项目层、用户层不变；未绑定窗口命令写用户层由合同测试覆盖。e2e 未实跑。 |
+| 185 / 打包客户端写入、注释、坏文件启动与诊断 | `scripts/smoke-server.ts:278`（S9） | 精确比较完整编辑文本、两次退出码、坏文件健康接口与 invalid 诊断；脚本要求 S1–S9 都有结果。S9 未实跑，详见静态核查说明。 |
+
+## 配置 Spec 的输出与场景
+
+依据 `docs/specs/settings/configuration.md:112` 起的 18 条 implemented 输出；planned 的用户编辑与密钥输出 19、20 不在本轮实现验收内。
+
+| 输出 | 实际覆盖与限制 |
+|---|---|
+| 1 登记期校验 | shared/settings.test.ts 的键、严格 JSON、schema、layers、title、secret 等正反输入；产品贡献点直接用该校验。 |
+| 2 同键 | 内核 owner-contribution-points.test.ts 场景 4 有重复者双拒与两种顺序；配置键前缀的单条校验另测。无 settings 专属重复登记例，不声称本轮已执行此内核用例。 |
+| 3 每实例全部声明 | manifest 规则、引导、浏览器声明-only 与配置多实例场地；产品项目装配独立场景未找到。 |
+| 4 层校验 | layer-text.test.ts 非法值、层限制、未知键；layer-owner.test.ts 丢弃诊断不含值、相同内容不重复记。 |
+| 5 层无效 | 解析反例、坏文件保留 last-good、layer-invalid、修复恢复；启动即无效在命令失败用例出现。 |
+| 6 合成 | layers.test.ts 三层优先、缺层、对象整体覆盖；settings.test.ts 不同位置真实读取。 |
+| 7 响应式读取 | store computed 与 get 冻结有真实测试；inspect 响应性未保护，T03。释放后“不失败”还与内核冲突，T04。 |
+| 8 变化通知 | instance.test.ts 有变化一次、不变值不通知、抛错监听不影响其它监听；多监听修改 ReadonlySet 不纳入违约计数。 |
+| 9 外部修改 | layer-owner.test.ts 真实 fs.watch 的保存/路径/链接场景；约 50 毫秒未由独立合同值保护，T06。 |
+| 10 快照发布 | layers.test.ts 内容比较各字段；真实 owner 去重屏障与层坏/恢复发布。 |
+| 11 写授权、删除空操作 | 真实调用方身份与错误码覆盖；不存在键的删除产生文件副作用，T05。产品允许清单未保护，T07。 |
+| 12 目标层 | auto 项目覆盖、用户默认、显式用户写入被覆盖；命令按各窗口目标层写入。 |
+| 13 文件保留、锁、外部冲突、编辑后校验 | 常规文本保留/锁有测试；外部冲突变异存活，T01；编辑后拒绝反例尚缺。 |
+| 14 链接与权限 | 普通链接写目标并保留链接、悬空拒写、只读文件/目录不变；真实非 root 用例本轮通过。 |
+| 15 读到自己的写入 | settings.test.ts update 返回立刻读、另一窗口/项目收到；乱序只有内部 ScriptedLink。 |
+| 16 就绪 | 文件首值、截止降级与晚到真实路径；截止值变成 30 秒仍绿，T06。 |
+| 17 不可达恢复 | 首次失败在线重订、已订断线重连实际场地覆盖；终态不重订只有 ScriptedLink。 |
+| 18 审计 | owner 与跨实例测试核对插件、via、层、code、不含值；真实外部保存日志从实现确认。 |
+
+七个场景逐条：1 合成与位置对应 settings.test.ts:107；2 跨实例写入与非声明者拒绝对应 settings.test.ts:128、195 及 commands.test.ts:181；3 三种外部保存、目录/链接来自拥有者的真实 IO，而多实例坏/恢复仅验证一个窗口；4 全格式保留在 layer-owner.test.ts:288 与文本编辑测试，窗口 e2e 只验证注释；5 两个真实进程在 layer-owner.test.ts:385，用同一个拥有者实现模拟两个服务端拥有者；6 首次失败与恢复在 settings.test.ts:252；7 权限与链接在 layer-owner.test.ts:325、343。真实浏览器及打包产物场景本轮没有重跑，不用这张映射冒充端到端完成。
+
+## 异步时序与场地忠实性
+
+- `ScriptedLink` 明确控制同步回调与异步建立结果，只用于确定性状态机；真实 settings.test.ts 没有强制“建立返回前结束”和较旧写结果晚到。头部“同一组行为由 settings.test.ts 覆盖”的表述偏宽。内核已有并本轮执行的两例是立即推送不丢、建立期间订阅方停止后 cancelled；后者不是配置层的 onEnd 先到且随后建立成功返回。恢复/结束的完整契约对照仍应由主 Agent 补齐，不把内部手写时序称为实际产品缺陷。
+- `world.ts` 用真实 createApplication、definitionAt、远程节点/路由、真实文件与 ManualClock；位置、项目绑定、时钟与连接状态能力的方向一致。确定的不忠实点是复制的代理允许清单（T07）。项目注册表与进程边界有意缩成场地绑定；它不证明真实项目子进程的全装配。
+- `standalone.ts` 是显式离线场地，后端用真实配置拥有者、窗口在远程层不可达时按默认值；没有返回假的成功配置结果。`settingsBrowserCore` 复用完整插件的同一个核心入口，只剔除需要工作台选择服务的命令入口，产品仍用完整定义；不把它定为产品后门。
+- 示例 Stage 的 definitionAt、宿主时钟、连接能力与 product delegatingPlugins 均复用，额外测试代理显式追加；33 例中的示例场景已执行。未发现把 mock、spy、假计时器或非零固定等待混入本次配置/主题新测试的命中。
+
+## e2e 与 Smoke 的静态核查
+
+- settings.e2e.ts 共 4 例，真实生产外壳/后端、文件在隔离临时根；system 用 emulateMedia 派发实际浏览器事件，退出显式模式后以另一配置变化作屏障；Lab 配置变化以另开的产品页观察到新主题作屏障。这些判据方向成立，本轮未运行。
+- Lab 场景 17 从 macOS 的 Lab 经 router 离开，检查新窗口实例身份与产品 nbook/light，不仅检查 URL；改动匹配产品现在会应用主题的合同。静态读取没有发现收口判据被删。
+- S9 检查的是 RPC 外层 ok，但还要求整份文件精确等于只替换主题值的原文本，所以仅“传输成功、业务失败”不能通过。两次进程先后停止，先改坏文件再启动第二次，状态根每次新建；扫描此根所有日志在该场景里没有旧任务污染证据。未核实独立烟测的失败路径资源收口与 WebSocket 卡住时的终止，不报告未运行的 S9 为通过。
+
+## 实际验证与未运行项
+
+所有实验变异仅发生在本报告同目录的 `experiments/`；其下各副本经自己的包内别名加载自己的产品源码，依赖真实内核公开入口。原工作树未改源码。原始结果保留在 `experiments/verified-results.txt`，实际运行的探针文件保留供复查。
+
+| 工作目录 | 实际命令 | 结果 |
+|---|---|---|
+| 工作树根 | `prox bun install --frozen-lockfile` | 成功；Bun 1.4.2，1560 packages；执行了仓库原有 postinstall build，安装忽略依赖获明确授权。 |
+| 工作树 `packages/neuro-book` | `bun test ./src/plugins/settings ./src/shared/settings.test.ts ./src/shared/store/store.test.ts` | 79 pass / 0 fail，425 expect() calls，8 files，4.76 秒。 |
+| 同上 | `bun run test:vitest src/plugins/workbench/web/components/WorkbenchCommandPalette.dom.test.ts src/plugins/workbench/web/document/WorkbenchDocument.dom.test.ts` | 2 文件 / 13 例通过，3.98 秒。 |
+| 同上 | `bun run typecheck` | `tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json` 全部退出 0，28.77 秒。 |
+| 同上 | `bun test ./src/manifest.test.ts ./src/server/browser-bootstrap.test.ts ./src/plugins/projects/projects.test.ts ./src/architecture.test.ts ./examples/scenarios` | 33 pass / 0 fail，189 expect() calls，9 files，735 毫秒。 |
+| 工作树 `packages/nb-runtime` | 下方的聚焦订阅命令 | 2 pass / 0 fail，55 filtered out，22 expect() calls，155 毫秒；不是内核全量通过。 |
+| 工作树根 | `git status --porcelain=v1 --untracked-files=all` | 无输出，原工作树干净。 |
+
+聚焦订阅命令（工作目录 `packages/nb-runtime`）：
+
+```sh
+bun test ./src/remote/routing.test.ts -t '提供方在接受订阅时立即推送的事件|跨实例订阅建立期间订阅方开始停止'
+```
+
+变异命令按下面三组定义，实际工作目录为 `experiments/<副本>/packages/neuro-book`：
+
+- 配置组：`bun test ./src/plugins/settings ./src/shared/settings.test.ts ./src/shared/store/store.test.ts`。
+- 命令组：`bun test ./src/plugins/settings ./src/plugins/commands`。
+- 装配组：`bun test ./src/plugins/settings ./src/manifest.test.ts ./src/web/host/window.test.ts ./src/server/browser-bootstrap.test.ts`。
+
+| 副本 / 变异 | 实际命令组与结果 | 消费者行为证明 / 判定 |
+|---|---|---|
+| no-cas / 删除改名前身份核对与 modified 重试返回 | 配置组：79 pass / 0 fail，425 次断言，5.19 秒 | 两边 `bun review-cas.ts`：基线保留外部保存键退出 0；变异写入仍成功却丢键退出 1。T01 是当前冲突保护的测试缺口。 |
+| commands-read / 三个 effect write 全改 read | 命令组：94 pass / 0 fail，491 次断言，5.14 秒 | 从已测的实际处理函数和 registry 分类逻辑确认错标仍会写；未额外运行 plan/discuss 变异命令探针，当前真实声明都是 write。T02。 |
+| no-delegation / 产品允许清单删除 settings.id | 装配组：84 pass / 0 fail，331 次断言，6.72 秒 | 两边 `bun review-delegation.ts`：真实产品宿主窗口都 ready；基线 en-US/退出 0，变异 denied/zh-CN/退出 1。T07。 |
+| deadlines / 50→500、3000→30000，联合变异 | 配置组：79 pass / 0 fail，425 次断言，4.82 秒 | 直接证实测试随实现常量一起移动；不把它说成原实现使用了错误延迟。T06。 |
+| inspect-untracked / 关闭 inspect 的依赖追踪 | 配置组：79 pass / 0 fail，425 次断言，5.18 秒 | 两边 `bun review-inspect.ts`：真实窗口 computed 基线 ok/invalid/ok、变异一直 ok，分别退出 0/1。T03。 |
+| edit-unchecked / 删除编辑后解析与目标值检查 | 配置组：79 pass / 0 fail，425 次断言，5.16 秒 | 没有给出真实公共入口可接纳并触发差异的合法反例；只记录验收映射缺少反向判据，不另加产品缺陷。 |
+| notify-clear / 正常监听返回后 clear 共享事件集合 | 配置组：79 pass / 0 fail，425 次断言，5.14 秒 | `bun review-notifications.ts` 可复现一个订阅者主动 clear 后下一个收到空集合。撤回初步 T08：ReadonlySet 已约束消费者只读，Spec 未承诺事件集合运行时冻结；不增加该合同。 |
+
+其它实验：`experiments` 目录执行 `bun console-check.ts`，派发两个错误后被断言的数组仍是空，退出 0，仅验证 JS 收集逻辑；`experiments/timeout-writers/packages/neuro-book` 执行 `bun review-timeout.ts`，用例超时后运行器退出 1，两个写入 PID 最终均不存在，输出 `killed 2 dangling processes`。初轮仅看到超时消息时检查进程太早，终态不支持资源泄漏，不纳入发现。
+
+一次环境绕路：外部副本执行组件测试时无法解析 `/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-impl-tests/packages/neuro-book-test-support/src/vitest.ts`，2 套件都未运行任何测试。随后同命令在原工作树成功；这个失败不是产品失败，也没有通过修改源码/依赖配置掩盖。
+
+未运行：全量应用、内核与组件套件，e2e、本机 Chrome、开发服务、`smoke:server`（含 S9）、本轮生产构建、lint/formatter、docs:check、governance:check。没有复用作者自报的 301/399/60/52 例与 S1–S9 全绿作为本轮证据。没有 commit/push/stash/切换分支或改仓库规范。真实 Provider/Model 和人工评测没有调用。
+
+## 审查过程回写建议
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| R1 | 规范缺陷 | 配置寿命承诺释放后 get/update 可调用，真实门面与既有内核 Spec 均明确撤销抛错，T04 已通过真实作用域关闭复现 | 改写：“配置服务门面随调用方入口代次释放；释放后任何访问抛 ServiceRevokedError，监听结束。unavailable 用于仍有效的门面所访问的层不可达。”同步删除 get 不失败中隐含的已释放例外与失败码表的已释放承诺 | `docs/specs/settings/configuration.md` 的“时序与寿命”“失败与恢复”；不修改 `runtime/services.md` 已生效的撤销合同 |
+
+这是产品规范矛盾的修正建议，随结果交给主 Agent 汇总；本轮没有写回。其余测试缺口已由现有测试规范的真实依赖、独立期望、逐条变异与资源收口规则覆盖，不另加重复规范。系统提醒的命名类型规则已用于探针，静态字符串查找规则不影响需要动态登记/clear 的通知实验。工具不支持中文寄存器名的绕路已提交工具 QA，不作为仓库规则新增依据。
+
+## 未发现问题的方面
+
+以下只说明本轮已核对的路径，不是整个实现的无缺陷保证。
+
+- 声明与严格 JSON 的常规校验、JSONC/BOM/CRLF/缩进与单键文本保留、坏文件 last-good 和权限/链接保护，既有测试有具体正反结果，本轮配置组通过。
+- 层级合成、auto 选层、读到自己的写入、另一窗口/项目收到、调用方身份与 via、读取冻结及写入输入复制，真实内核配置场地有断言；产品宿主基线切语言也实际成功。
+- store.setting 的 computed 随值变化、缺少 settings 拒绝创建，原工作树测试通过。
+- 配置 core 与命令入口分开以避免静态依赖环、standalone 的显式离线默认、Stage 复用产品能力与代理清单，未发现这几个选择制造假的成功路径。
+- 命令选择浮层的语言更新保留输入/选中项、工作台文档根主题/语言与组件卸载清理，两份组件合同 13 例通过；真实系统 change 与 Lab 隔离没有在本轮运行。
+- 两写入子进程的超时终态由 Bun 1.4.2 清理，最终两个 PID 均 gone；不支持“超时后永久泄漏”的判断。
+
+## 各级数量
+
+编号保留最初追加顺序，T08 已撤回；正文按正确性优先、随后按测试影响排序，不为连续编号重命名。
+
+| 严重程度 | 数量 | 发现编号 |
+|---|---:|---|
+| 阻断 | 0 | — |
+| 重要 | 6 | T04、T01、T02、T07、T06、T03 |
+| 建议 | 3 | T05、T09、T10 |
+| 合计 | 9 | 2 条当前行为/合同问题，7 条测试判据或映射缺口 |
+
