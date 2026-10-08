@@ -1151,12 +1151,16 @@ export class PluginHostImpl implements PluginHost {
         }
         scope.open();
         this.#record("publish", "published", {plugin, entry, generation});
-        for (const contribution of attempt.handlesByContribution.keys()) {
-            for (const delivery of contribution.deliveries) {
-                if (delivery.sourceAttempt === attempt) {
+        const published = [...attempt.handlesByContribution.keys()].flatMap((contribution) => contribution.deliveries.filter((delivery) => delivery.sourceAttempt === attempt));
+        if (published.length > 0) {
+            // 通知也在接收者的串行锁里：别的贡献方这时可能正挂在同一接收者的 prepare 里。等锁期间撤回的项由
+            // #notifyPublished 跳过。
+            const connections = lockOrder(published.map((delivery) => delivery.connection));
+            await this.#withReceiverLocks(connections, async () => {
+                for (const delivery of published) {
                     this.#notifyPublished(delivery);
                 }
-            }
+            });
         }
         return {status: "activated"};
     }
@@ -1297,8 +1301,7 @@ export class PluginHostImpl implements PluginHost {
     }
 
     async #deliverPlans(plans: ReadonlyArray<DeliveryPlan>, mode: DeliveryMode, sourceAttempt: Attempt | null): Promise<DeliveryAttemptResult> {
-        // 多连接按 id 排序加锁，避免不同批次互相等待。
-        const connections = [...new Set(plans.map((plan) => plan.connection))].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+        const connections = lockOrder(plans.map((plan) => plan.connection));
         return this.#withReceiverLocks(connections, async () => {
             const sourceAlive = (): boolean => sourceAttempt === null
                 ? plans.every((plan) => isAlive(plan.contribution.plugin.scope))
@@ -1481,7 +1484,7 @@ export class PluginHostImpl implements PluginHost {
 
     async #withdrawAttempt(attempt: Attempt, reason: RevokeReason, handles: ReadonlyArray<HandleImpl> = attempt.handles): Promise<void> {
         const deliveries = [...attempt.deliveries];
-        const connections = [...new Set(deliveries.map((delivery) => delivery.connection))].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+        const connections = lockOrder(deliveries.map((delivery) => delivery.connection));
         await this.#withReceiverLocks(connections, async () => {
             await this.#revokeDeliveriesLocked(deliveries, reason, false);
         });
@@ -1494,7 +1497,7 @@ export class PluginHostImpl implements PluginHost {
 
     async #revokeTopLevel(records: ReadonlyArray<ContributionRecord>): Promise<void> {
         const deliveries = records.flatMap((record) => record.deliveries);
-        const connections = [...new Set(deliveries.map((delivery) => delivery.connection))].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+        const connections = lockOrder(deliveries.map((delivery) => delivery.connection));
         await this.#withReceiverLocks(connections, async () => {
             await this.#revokeDeliveriesLocked(deliveries, "scope-closed", false);
         });
@@ -1758,6 +1761,11 @@ export class PluginHostImpl implements PluginHost {
             // 观察者是诊断通道，它的异常不得改变机制状态。
         }
     }
+}
+
+/** 一次要锁多个接收者连接时去重并按 id 排序，各批按同一顺序加锁，避免互相等待。 */
+function lockOrder(connections: ReadonlyArray<ReceiverConnection>): ReceiverConnection[] {
+    return [...new Set(connections)].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
 /** 没有远程节点的实例：远程调用与订阅一律得到 unavailable，而不是抛错。 */

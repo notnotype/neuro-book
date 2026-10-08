@@ -48,18 +48,21 @@ type ExpectedOutput<
     & (Receives extends readonly [] ? {readonly receivers?: undefined} : {readonly receivers: NoInfer<Receivers<Receives>>})
     & (Contributions extends readonly [] ? {readonly contributions?: undefined} : {readonly contributions: NoInfer<Implementations<Contributions>>});
 
+/** 对象的键在运行时都是字符串（内核按 `Object.keys` 核对），数值键 `2` 同样按 `"2"` 核对；只排除 symbol。 */
+type RuntimeKeys<T> = `${Exclude<keyof T, symbol>}`;
+
 /**
  * 实际产出里多写的接收者与贡献实现。约束只要求声明的键都在，多出来的键要另外从实际产出里找：赋值给对象类型时
  * TypeScript 不报多余属性。
  */
 type ExtraKeys<Output, Receives extends ReadonlyArray<string>, Contributions extends ReadonlyArray<ContributionDeclaration>> =
-    | (Output extends {readonly receivers: infer Actual} ? `多写的接收者：${Exclude<keyof Actual, Receives[number] | symbol | number>}` : never)
+    | (Output extends {readonly receivers: infer Actual} ? `多写的接收者：${Exclude<RuntimeKeys<Actual>, Receives[number]>}` : never)
     | (Output extends {readonly contributions: infer Actual}
         ? {
-            [Point in keyof Actual & string]: Point extends Contributions[number]["capability"]
-                ? `多写的贡献实现：${Point}/${Exclude<keyof Actual[Point], IdsAt<Contributions, Point> | symbol | number>}`
+            [Point in Exclude<keyof Actual, symbol>]: `${Point}` extends Contributions[number]["capability"]
+                ? `多写的贡献实现：${Point}/${Exclude<RuntimeKeys<Actual[Point]>, IdsAt<Contributions, `${Point}`>>}`
                 : `多写的贡献点：${Point}`;
-        }[keyof Actual & string]
+        }[Exclude<keyof Actual, symbol>]
         : never);
 
 /** 有多写的键时要求入口上有一个以问题命名的属性，报错因此写成“缺少属性 多写的接收者：x”。 */

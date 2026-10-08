@@ -103,8 +103,15 @@ describe("Spec runtime.plugins 验收 28：defineEntry 编译期核对", () => {
             defineEntry({id: "x", location: "server", contributions: [{capability: POINT, id: "sample.one", declaration: {}}], activate: () => ({contributions: {[POINT]: {"sample.one": 1, "sample.two": 2}}})}),
             // @ts-expect-error 多写贡献点
             defineEntry({id: "x", location: "server", contributions: [{capability: POINT, id: "sample.one", declaration: {}}], activate: () => ({contributions: {[POINT]: {"sample.one": 1}, "sample.other": {}}})}),
+            // 数值键在运行时也是字符串键，同样算多写。
+            // @ts-expect-error 多写接收者（数值键）
+            defineEntry({id: "x", location: "server", receives: [POINT], activate: () => ({receivers: {[POINT]: receiver, 2: receiver}})}),
+            // @ts-expect-error 多写贡献实现（数值键）
+            defineEntry({id: "x", location: "server", contributions: [{capability: POINT, id: "sample.one", declaration: {}}], activate: () => ({contributions: {[POINT]: {"sample.one": 1, 2: 2}}})}),
+            // @ts-expect-error 多写贡献点（数值键）
+            defineEntry({id: "x", location: "server", contributions: [{capability: POINT, id: "sample.one", declaration: {}}], activate: () => ({contributions: {[POINT]: {"sample.one": 1}, 2: {extra: 2}}})}),
         ];
-        expect(entries).toHaveLength(14);
+        expect(entries).toHaveLength(17);
     });
 });
 

@@ -341,12 +341,11 @@ describe("拥有者贡献点合同", () => {
         }
     });
 
-    it("场景 11：挂起的补交与两个贡献方并发激活交错，同一接收者整批 prepare 仍不交错", async () => {
+    it("场景 11：挂起的补交与两个贡献方并发激活交错，同一接收者整批 prepare 仍不交错，published 不插进 prepare", async () => {
         const {host, root} = fixture();
         register(host, source("existing", [declaration("existing")]), root);
         await host.activate({plugin: "existing", entry: "main"});
         const events: string[] = [];
-        const published: string[] = [];
         const backfillStarted = Promise.withResolvers<void>();
         const releaseBackfill = Promise.withResolvers<void>();
         const aStarted = Promise.withResolvers<void>();
@@ -358,7 +357,7 @@ describe("拥有者贡献点合同", () => {
                 events.push(`prepare:end:${handle.id}`);
                 return handle.id;
             },
-            published: (handle) => {published.push(handle.id);},
+            published: (handle) => {events.push(`published:${handle.id}`);},
         };
         register(host, owner([point()], {commands: receiver}), root);
         const activatingOwner = host.activate({plugin: "owner", entry: "main"});
@@ -381,10 +380,17 @@ describe("拥有者贡献点合同", () => {
         expect((await activatingOwner).status).toBe("activated");
         expect((await a).status).toBe("activated");
         expect((await b).status).toBe("activated");
-        expect(events.slice(0, 2)).toEqual(["prepare:start:existing", "prepare:end:existing"]);
+        const prepares = events.filter((event) => event.startsWith("prepare:"));
+        expect(prepares.slice(0, 2)).toEqual(["prepare:start:existing", "prepare:end:existing"]);
         const expectedBatch = (id: string) => [`prepare:start:${id}.one`, `prepare:end:${id}.one`, `prepare:start:${id}.two`, `prepare:end:${id}.two`];
-        expect([events.slice(2, 6), events.slice(6, 10)].sort((left, right) => left[0]! < right[0]! ? -1 : 1)).toEqual([expectedBatch("a"), expectedBatch("b")]);
-        expect(published.sort()).toEqual(["a.one", "a.two", "b.one", "b.two", "existing"]);
+        expect([prepares.slice(2, 6), prepares.slice(6, 10)].sort((left, right) => left[0]! < right[0]! ? -1 : 1)).toEqual([expectedBatch("a"), expectedBatch("b")]);
+        let preparing: string | null = null;
+        for (const event of events) {
+            if (event.startsWith("prepare:start:")) preparing = event;
+            else if (event.startsWith("prepare:end:")) preparing = null;
+            else expect({event, preparing}).toEqual({event, preparing: null});
+        }
+        expect(events.filter((event) => event.startsWith("published:")).sort()).toEqual(["published:a.one", "published:a.two", "published:b.one", "published:b.two", "published:existing"]);
     });
 
     it("场景 12：结构错误整插件不登记，同点不同位置可接收，missing/undeclared receiver 是输出阶段失败", async () => {
@@ -430,6 +436,51 @@ describe("拥有者贡献点合同", () => {
             expect(state(host, "one")).toMatchObject({status: "available", validation: {status: "accepted"}, delivery: {status: "waiting-receiver"}});
             expect(host.entryState({plugin: "source", entry: "main"})?.status).toBe("available");
         }
+    });
+
+    it("场景 11（发布通知）：贡献方发布时同一接收者上另一批的 prepare 还挂着，published 等那一批结束，不插进去", async () => {
+        // 让 a 的交付分两轮：第二轮在后接上的接收者上挂起，b 趁这时占住共用接收者并挂在 prepare 里；
+        // 再放行 a，它发布时 b 的 prepare 仍未结束。
+        const runtime = createRuntimeInstance({location: "server", instanceId: "published-serial"});
+        runtime.root.open();
+        roots.push(runtime.root);
+        const aPublished = Promise.withResolvers<void>();
+        const host = createPluginHost(runtime, createServiceAssembly(runtime), {observer: {diagnosticRecorded: (diagnostic) => {
+            if (diagnostic.stage === "publish" && diagnostic.reason === "published" && diagnostic.plugin === "a") aPublished.resolve();
+        }}});
+        const root = runtime.root;
+        const events: string[] = [];
+        const gates = new Map(["a.one", "a.late", "b.one"].map((id) => [id, {started: Promise.withResolvers<void>(), release: Promise.withResolvers<void>()}]));
+        const gated = async (id: string) => {
+            const gate = gates.get(id);
+            if (gate === undefined) return;
+            gate.started.resolve();
+            await gate.release.promise;
+        };
+        const shared: ContributionReceiver = {
+            prepare: async (handle) => {events.push(`prepare:start:${handle.id}`); await gated(handle.id); events.push(`prepare:end:${handle.id}`);},
+            published: (handle) => {events.push(`published:${handle.id}`);},
+        };
+        const late: ContributionReceiver = {prepare: (handle) => gated(handle.id)};
+        register(host, {...owner([point("shared")], {shared}), id: "shared-owner"}, root);
+        await host.activate({plugin: "shared-owner", entry: "main"});
+        register(host, source("a", [declaration("a.one", "shared"), declaration("a.late", "late")]), root);
+        register(host, source("b", [declaration("b.one", "shared")]), root);
+        const gate = (id: string) => gates.get(id)!;
+        const a = host.activate({plugin: "a", entry: "main"});
+        await gate("a.one").started.promise;
+        register(host, {...owner([point("late")], {late}), id: "late-owner"}, root);
+        expect((await host.activate({plugin: "late-owner", entry: "main"})).status).toBe("activated");
+        gate("a.one").release.resolve();
+        await gate("a.late").started.promise;
+        const b = host.activate({plugin: "b", entry: "main"});
+        await gate("b.one").started.promise;
+        gate("a.late").release.resolve();
+        await aPublished.promise;
+        gate("b.one").release.resolve();
+        expect((await a).status).toBe("activated");
+        expect((await b).status).toBe("activated");
+        expect(events).toEqual(["prepare:start:a.one", "prepare:end:a.one", "prepare:start:b.one", "prepare:end:b.one", "published:a.one", "published:b.one"]);
     });
 
     it("发布前新接上的第二个接收者仍收到贡献，不漏交激活中的代次", async () => {
