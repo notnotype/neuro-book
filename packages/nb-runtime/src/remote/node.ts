@@ -789,6 +789,12 @@ export class RemoteNodeImpl implements RemoteNode {
             fail("provider-error", "提供方没有为调用方生成实现");
             return;
         }
+        // 门面工厂是插件代码，可能同步停止了调用方或提供入口：同实例调用这时已按未 ACK 结算为确定失败，
+        // 方法就不能再执行。
+        if (signal.aborted || found.stopSignal.aborted) {
+            fail("unavailable", "提供入口正在停止");
+            return;
+        }
         reply.ack();
         const run = implementation.methods[frame.method];
         let outcome: Awaited<ReturnType<NonNullable<typeof run>>>;
@@ -939,6 +945,11 @@ export class RemoteNodeImpl implements RemoteNode {
         if (typeof implementation !== "object" || implementation === null || ("then" in implementation && typeof implementation.then === "function")) {
             this.#record("facade-invalid", found.provision.contract.id, "实现工厂必须同步返回对象");
             return null;
+        }
+        // 工厂同步停止了提供入口时整组已经释放，新门面不再登记进去，立即释放。
+        if (found.stopSignal.aborted) {
+            void this.#releaseFacade(group, implementation, consumer);
+            return implementation;
         }
         group.facades.set(key, {implementation, consumer});
         return implementation;

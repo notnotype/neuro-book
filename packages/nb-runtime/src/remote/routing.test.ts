@@ -527,6 +527,60 @@ describe("Spec plugin-channel 输出 4：请求阶段与失败码", () => {
         }
     });
 
+    it("同实例调用：门面工厂同步停止了调用方入口时请求以 cancelled 结算，写方法不执行", async () => {
+        // 门面工厂是插件代码，可能同步停止别的入口。同实例调用不经链路，还没 ACK 的请求被报成确定失败，
+        // 方法就必须真的没有执行。
+        const t = await topology();
+        const touch = defineRemoteService({id: "demo.touch/touch", version: 1, provider: "server", callers: ["server"], methods: {touch: {input: Empty, output: Type.Null(), effect: "write"}}});
+        const callerScope = hubRegistration(t, "app.touch-caller");
+        let executions = 0;
+        const toucher: PluginDefinition = {
+            id: "demo.touch",
+            entries: [{id: "main", location: "server", remoteProvides: [touch], activate: () => ({
+                remote: [provideRemote(touch, () => {
+                    void callerScope.close();
+                    return {methods: {touch: () => {
+                        executions += 1;
+                        return {ok: true, value: null};
+                    }}};
+                })],
+            })}],
+        };
+        const contexts = new Map<string, ActivationContext>();
+        expect(t.hub.app.plugins.register(toucher, {scope: t.hub.app.root})).toMatchObject({status: "accepted"});
+        expect(t.hub.app.plugins.register(caller("app.touch-caller", "server", contexts), {scope: callerScope})).toMatchObject({status: "accepted"});
+        expect(await t.hub.app.plugins.activate({plugin: "app.touch-caller", entry: "main"})).toMatchObject({status: "activated"});
+
+        expect(await contexts.get("app.touch-caller")!.remote.use(touch).touch({})).toMatchObject({ok: false, code: "cancelled"});
+        expect(executions).toBe(0);
+    });
+
+    it("同实例调用：门面工厂同步停止了提供方自己时请求为 unavailable，写方法不执行，刚生成的门面被释放", async () => {
+        const t = await topology();
+        const touch = defineRemoteService({id: "demo.touch/touch", version: 1, provider: "server", callers: ["server"], methods: {touch: {input: Empty, output: Type.Null(), effect: "write"}}});
+        const providerScope = hubRegistration(t, "demo.touch");
+        let executions = 0;
+        const released: string[] = [];
+        const toucher: PluginDefinition = {
+            id: "demo.touch",
+            entries: [{id: "main", location: "server", remoteProvides: [touch], activate: () => ({
+                remote: [provideRemote(touch, () => {
+                    void providerScope.close();
+                    return {methods: {touch: () => {
+                        executions += 1;
+                        return {ok: true, value: null};
+                    }}};
+                }, {release: (_implementation, consumer) => void released.push(consumer.plugin ?? "?")})],
+            })}],
+        };
+        expect(t.hub.app.plugins.register(toucher, {scope: providerScope})).toMatchObject({status: "accepted"});
+
+        expect(await t.remote(t.hub).use(touch).touch({})).toMatchObject({ok: false, code: "unavailable"});
+        await drain();
+        expect(executions).toBe(0);
+        expect(released).toEqual(["app.caller"]);
+    });
+
     it("回复阶段：业务失败码原样返回；抛错、输出不符合合同、未声明的失败码都是 provider-error", async () => {
         const t = await topology();
         const atServer = t.remote(t.browser1).use(echo).at("server");
