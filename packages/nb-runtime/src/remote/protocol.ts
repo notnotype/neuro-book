@@ -33,7 +33,7 @@ export const REMOTE_FAILURE_CODES = [
 
 export type RemoteFailureCode = (typeof REMOTE_FAILURE_CODES)[number];
 
-/** 已派发请求中断的原因；`activation-cycle` 只出现在按需激活形成等待环时。 */
+/** 请求中断的原因；`activation-cycle` 只出现在按需激活形成等待环时。 */
 export type RemoteCause = "target-gone" | "timeout" | "cancelled" | "disconnected" | "activation-cycle";
 
 export interface RemoteFailure<Code extends string = RemoteFailureCode> {
@@ -47,11 +47,20 @@ export interface RemoteFailure<Code extends string = RemoteFailureCode> {
 export type RemoteResult<T, BusinessCode extends string = never> = {readonly ok: true; readonly value: T} | RemoteFailure<RemoteFailureCode | BusinessCode>;
 
 /**
- * 请求在哪个阶段失败决定结果：未派发前的失败都是确定的；已派发（目标已 ACK）后，读请求按原因
- * 报告、可以重试，写请求一律 `unknown-outcome` 并附原因，因为 ACK 证明不了副作用没发生。
+ * 请求被中断时所处的阶段（runtime/plugin-channel.md 输出第 4 条）：
+ * - `undispatched`：帧还没交给链路，目标不可能收到；
+ * - `sent`：帧已交给链路，还没收到 ACK。目标可能已经 ACK 并开始执行，只是 ACK 在链路中断时丢在了路上；
+ * - `acked`：目标已 ACK，正在执行。
  */
-export function failureFor(phase: "undispatched" | "dispatched", effect: "read" | "write", cause: RemoteCause): RemoteFailure {
-    if (phase === "dispatched" && effect === "write") {
+export type RequestPhase = "undispatched" | "sent" | "acked";
+
+/**
+ * 中断时的结果：帧还没发出时都是确定失败。帧发出之后，写请求一律 `unknown-outcome` 并附原因，因为收到
+ * ACK 证明不了副作用没发生、没收到 ACK 也证明不了没执行；读请求按原因报告、可以重试，断开时以是否收到
+ * ACK 区分 `unavailable` 与 `target-gone`。
+ */
+export function failureFor(phase: RequestPhase, effect: "read" | "write", cause: RemoteCause): RemoteFailure {
+    if (phase !== "undispatched" && effect === "write") {
         return {ok: false, code: "unknown-outcome", cause};
     }
     switch (cause) {
@@ -62,7 +71,7 @@ export function failureFor(phase: "undispatched" | "dispatched", effect: "read" 
         case "cancelled":
             return {ok: false, code: "cancelled", cause};
         case "disconnected":
-            return {ok: false, code: phase === "undispatched" ? "unavailable" : "target-gone", cause};
+            return {ok: false, code: phase === "acked" ? "target-gone" : "unavailable", cause};
         case "activation-cycle":
             return {ok: false, code: "unavailable", cause};
     }

@@ -45,7 +45,7 @@ export interface RemoteMethodSpec {
     /** 必须是 `additionalProperties: false` 的对象 schema：多余字段被拒绝。 */
     readonly input: TSchema;
     readonly output: TSchema;
-    /** 写方法派发后中断时结果为 `unknown-outcome`，不自动重试。 */
+    /** 写方法的请求帧发出后被中断时结果为 `unknown-outcome`，不自动重试。 */
     readonly effect: "read" | "write";
     /** 业务失败码 → 详情 schema；码不得与路由层失败码重名。 */
     readonly errors?: Readonly<Record<string, TSchema>>;

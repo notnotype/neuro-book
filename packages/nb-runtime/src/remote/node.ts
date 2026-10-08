@@ -26,6 +26,7 @@ import type {
     RemoteResult,
     RemoteTarget,
     RequestFrame,
+    RequestPhase,
     SubscribeFrame,
 } from "./protocol";
 import type {RemoteLink} from "./transport";
@@ -571,7 +572,8 @@ export class RemoteNodeImpl implements RemoteNode {
         }
         const controller = new AbortController();
         const {promise, resolve} = Promise.withResolvers<Outcome>();
-        let phase: "undispatched" | "dispatched" = "undispatched";
+        // 不经链路：ACK 与开始执行在同一个同步段里，中断时还没 ACK 的请求确定没有执行，不需要 sent 阶段。
+        let phase: Extract<RequestPhase, "undispatched" | "acked"> = "undispatched";
         let settled = false;
         const settle = (outcome: Outcome): void => {
             if (!settled) {
@@ -594,7 +596,7 @@ export class RemoteNodeImpl implements RemoteNode {
         options.signal?.addEventListener("abort", onAbort, {once: true});
         const reply: Reply = {
             ack: () => {
-                phase = "dispatched";
+                phase = "acked";
             },
             result: (outcome) => {
                 if (outcome.ok && this.#validateLocal) {

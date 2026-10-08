@@ -166,7 +166,7 @@ describe("Spec workbench.commands 场景 14：两个窗口的状态不同", () =
 });
 
 describe("Spec workbench.commands“跨实例调用失败”", () => {
-    it("窗口不在为 target-gone；执行派发后窗口断线为 unknown-outcome；浏览器实例调用为 denied", async () => {
+    it("窗口不在为 target-gone；执行的帧发出后窗口断线为 unknown-outcome；浏览器实例调用为 denied", async () => {
         const {agent, peer} = await setup();
         expect(await agent.remote().use(commandsRemoteContract).at({client: "nobody"}).list({})).toMatchObject({ok: false, code: "target-gone"});
         expect(await agent.remote().use(commandsRemoteContract).at({client: "browser-b"}).execute({id: "example.tools.leave"})).toMatchObject({ok: false, code: "unknown-outcome"});

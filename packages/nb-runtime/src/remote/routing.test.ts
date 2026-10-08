@@ -26,7 +26,7 @@ const echo = defineRemoteService({
     callers: ["browser", "server", "project"],
     methods: {
         whoami: {input: Empty, output: Caller, effect: "read"},
-        /** 等到测试放行才返回；用来制造“已派发未回复”。 */
+        /** 等到测试放行才返回；用来制造“已 ACK 未回复”。 */
         hold: {input: Type.Object({name: Type.String()}, {additionalProperties: false}), output: Type.String(), effect: "write"},
         peek: {input: Type.Object({name: Type.String()}, {additionalProperties: false}), output: Type.String(), effect: "read"},
         refuse: {input: Empty, output: Type.Null(), effect: "write", errors: {"no-luck": Type.Object({}, {additionalProperties: false})}},
@@ -58,10 +58,15 @@ interface Probe {
     readonly holdSignals: AbortSignal[];
     readonly sinks: Array<{readonly topic: string; readonly next: (payload: {topic: string; n: number}) => void; readonly signal: AbortSignal}>;
     readonly rawSinks: Array<{readonly next: (payload: unknown) => void; readonly signal: AbortSignal}>;
+    /**
+     * `hold` 与 `peek` 开始执行时同步调用。提供方方法与 ACK 在同一个同步段里开始，ACK 帧这时还在链路上：
+     * 在这里切断链路或推进时钟，就是“目标已执行、调用方还没收到 ACK”时被中断。
+     */
+    onEnter: (() => void) | null;
 }
 
 function newProbe(): Probe {
-    return {activations: 0, consumers: [], released: [], gates: new Map(), holdSignals: [], sinks: [], rawSinks: []};
+    return {activations: 0, consumers: [], released: [], gates: new Map(), holdSignals: [], sinks: [], rawSinks: [], onEnter: null};
 }
 
 function implementation(consumer: ConsumerIdentity, probe: Probe): RemoteImplementation<typeof echo> {
@@ -79,9 +84,13 @@ function implementation(consumer: ConsumerIdentity, probe: Probe): RemoteImpleme
             whoami: () => ({ok: true, value: {plugin: consumer.plugin, entry: consumer.entry, instanceId: consumer.instanceId, location: consumer.location, client: consumer.client, generation: consumer.generation}}),
             hold: async ({name}, {signal}) => {
                 probe.holdSignals.push(signal);
+                probe.onEnter?.();
                 return {ok: true, value: await gate(name).promise};
             },
-            peek: async ({name}) => ({ok: true, value: await gate(name).promise}),
+            peek: async ({name}) => {
+                probe.onEnter?.();
+                return {ok: true, value: await gate(name).promise};
+            },
             refuse: () => ({ok: false, code: "no-luck"}),
             misbehave: ({how}) => {
                 if (how === "throw") {
@@ -322,7 +331,7 @@ describe("Spec plugin-channel 输出 4：请求阶段与失败码", () => {
         expect(t.probes.hub.consumers).toEqual([]);
     });
 
-    it("已派发后链路断开：写请求为 unknown-outcome，读请求为 target-gone，原因都是 disconnected", async () => {
+    it("已 ACK 后链路断开：写请求为 unknown-outcome，读请求为 target-gone，原因都是 disconnected", async () => {
         const t = await topology();
         const atProject = t.remote(t.browser1).use(echo).at("project");
         const write = atProject.hold({name: "w"});
@@ -338,7 +347,7 @@ describe("Spec plugin-channel 输出 4：请求阶段与失败码", () => {
         expect(t.probes.project.holdSignals[0]!.aborted).toBe(true);
     });
 
-    it("超时按注入时钟：写请求已派发为 unknown-outcome(timeout)，提供方收到取消", async () => {
+    it("超时按注入时钟：写请求已 ACK 后超时为 unknown-outcome(timeout)，提供方收到取消", async () => {
         const t = await topology();
         const pending = t.remote(t.browser1).use(echo).at("project").hold({name: "slow"}, {timeout: 1000});
         await drain();
@@ -346,6 +355,43 @@ describe("Spec plugin-channel 输出 4：请求阶段与失败码", () => {
         expect(await pending).toEqual({ok: false, code: "unknown-outcome", cause: "timeout"});
         await drain();
         expect(t.probes.project.holdSignals[0]!.aborted).toBe(true);
+    });
+
+    it("ACK 在途时链路中断：目标已执行，写请求为 unknown-outcome(disconnected)，读请求为 unavailable；直连与经服务端转发的两跳一样", async () => {
+        // 经服务端转发到项目，切断服务端与项目之间那一跳；直连服务端，切断调用方自己的链路。
+        const cases = [
+            {target: "project", link: "project-P", probe: "project"},
+            {target: "server", link: "browser-1", probe: "hub"},
+        ] as const;
+        for (const {target, link, probe} of cases) {
+            const outcomes = [];
+            for (const method of ["hold", "peek"] as const) {
+                const t = await topology();
+                t.probes[probe].onEnter = () => t.links.get(link)!.cut();
+                const client = t.remote(t.browser1).use(echo).at(target);
+                outcomes.push(method === "hold" ? await client.hold({name: "w"}) : await client.peek({name: "r"}));
+                expect(t.probes[probe].consumers, `${target} ${method}`).toHaveLength(1);
+            }
+            expect(outcomes, target).toEqual([
+                {ok: false, code: "unknown-outcome", cause: "disconnected"},
+                {ok: false, code: "unavailable", cause: "disconnected"},
+            ]);
+        }
+    });
+
+    it("ACK 到达前超时或取消：写请求为 unknown-outcome，读请求为 timeout、cancelled", async () => {
+        const t = await topology();
+        const atProject = t.remote(t.browser1).use(echo).at("project");
+        t.probes.project.onEnter = () => t.clock.advance(1000);
+        expect(await atProject.hold({name: "w1"}, {timeout: 1000})).toEqual({ok: false, code: "unknown-outcome", cause: "timeout"});
+        expect(await atProject.peek({name: "r1"}, {timeout: 1000})).toEqual({ok: false, code: "timeout", cause: "timeout"});
+
+        for (const [method, expected] of [["hold", {ok: false, code: "unknown-outcome", cause: "cancelled"}], ["peek", {ok: false, code: "cancelled", cause: "cancelled"}]] as const) {
+            const controller = new AbortController();
+            t.probes.project.onEnter = () => controller.abort();
+            const outcome = method === "hold" ? await atProject.hold({name: "w2"}, {signal: controller.signal}) : await atProject.peek({name: "r2"}, {signal: controller.signal});
+            expect(outcome, method).toEqual(expected);
+        }
     });
 
     it("回复阶段：业务失败码原样返回；抛错、输出不符合合同、未声明的失败码都是 provider-error", async () => {
@@ -630,7 +676,7 @@ describe("Spec plugin-channel WebSocket 传输第 3 条：握手", () => {
         expect(t.router.instances().map((instance) => instance.id)).not.toContain("browser-9");
     });
 
-    it("同一实例重连接管旧链路：旧链路上已派发的写请求为 unknown-outcome，新链路照常；描述不一致为 duplicate-instance", async () => {
+    it("同一实例重连接管旧链路：旧链路上已发出的写请求为 unknown-outcome，新链路照常；描述不一致为 duplicate-instance", async () => {
         const t = await topology();
         const pending = t.remote(t.browser1).use(echo).at("project").hold({name: "w"});
         await drain();

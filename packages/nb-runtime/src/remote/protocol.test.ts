@@ -32,10 +32,17 @@ describe("Spec plugin-channel 输出 4：请求阶段与失败码", () => {
         }
     });
 
-    it("已派发：读请求按原因报告；写请求一律 unknown-outcome 并附原因", () => {
-        expect(causes.map((cause) => failureFor("dispatched", "read", cause).code)).toEqual(["target-gone", "timeout", "cancelled", "target-gone", "unavailable"]);
+    it("帧已发出、还没收到 ACK：读请求断开为 unavailable、其余按原因；写请求一律 unknown-outcome 并附原因", () => {
+        expect(causes.map((cause) => failureFor("sent", "read", cause).code)).toEqual(["target-gone", "timeout", "cancelled", "unavailable", "unavailable"]);
         for (const cause of causes) {
-            expect(failureFor("dispatched", "write", cause)).toEqual({ok: false, code: "unknown-outcome", cause});
+            expect(failureFor("sent", "write", cause)).toEqual({ok: false, code: "unknown-outcome", cause});
+        }
+    });
+
+    it("已 ACK：读请求按原因报告、断开为 target-gone；写请求一律 unknown-outcome 并附原因", () => {
+        expect(causes.map((cause) => failureFor("acked", "read", cause).code)).toEqual(["target-gone", "timeout", "cancelled", "target-gone", "unavailable"]);
+        for (const cause of causes) {
+            expect(failureFor("acked", "write", cause)).toEqual({ok: false, code: "unknown-outcome", cause});
         }
     });
 });

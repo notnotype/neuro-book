@@ -6,7 +6,7 @@
 import type {RuntimeClock} from "../lifecycle/lifecycle";
 
 import {failureFor, parseFrame, wireMismatch} from "./protocol";
-import type {Frame, Outcome, RejectFrame, ReleaseFrame, RequestFrame, SubscribeFrame} from "./protocol";
+import type {Frame, Outcome, RejectFrame, ReleaseFrame, RequestFrame, RequestPhase, SubscribeFrame} from "./protocol";
 import type {RemoteLink} from "./transport";
 
 /** 回复一个入站请求：先 `ack` 再执行，结果只回一次。 */
@@ -51,7 +51,7 @@ export interface SubscribeHandlers {
 }
 
 interface Pending {
-    phase: "undispatched" | "dispatched";
+    phase: RequestPhase;
     readonly effect: "read" | "write";
     readonly settle: (outcome: Outcome) => void;
     readonly onAck: (() => void) | undefined;
@@ -139,6 +139,10 @@ export class Peer {
         const problem = this.#sendValue({type: "request", id, ...frame});
         if (problem !== null) {
             pending.settle({ok: false, code: "invalid-input", detail: `参数无法编码发送：${problem}`});
+        } else {
+            // 帧已交给链路：此后的中断不能再当作确定失败。链路已关闭而 onClose 还没到时帧会被丢弃，
+            // 这里同样记为已发出，写请求因此偏保守地得到 unknown-outcome。
+            pending.phase = "sent";
         }
         return promise;
     }
@@ -203,8 +207,8 @@ export class Peer {
                 return;
             case "ack": {
                 const pending = this.#pending.get(frame.id);
-                if (pending !== undefined && pending.phase === "undispatched") {
-                    pending.phase = "dispatched";
+                if (pending !== undefined && pending.phase === "sent") {
+                    pending.phase = "acked";
                     pending.onAck?.();
                 }
                 return;
