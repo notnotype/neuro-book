@@ -207,6 +207,12 @@ export interface ContributionReceiver<Declaration = unknown, Implementation = un
     commit?(handle: ContributionHandle<Declaration, Implementation>, prepared: Prepared): void | Promise<void>;
     /** 撤回本次暂存或已发布项；按声明逆序调用，必须幂等。 */
     revoke?(handle: ContributionHandle<Declaration, Implementation>, prepared: Prepared, reason: RevokeReason): void | Promise<void>;
+    /**
+     * 这一项已发布（runtime.plugins 输出第 24 条）：贡献方的激活事务发布、或补交完成且贡献方已发布之后，每条已交付项
+     * 调用一次，此后 `implementation()` 可用。commit 时贡献方还可能失败撤回，要按实现做投影的接收者（例如响应式的
+     * 读取表）在这里才放进去。抛错只记诊断。
+     */
+    published?(handle: ContributionHandle<Declaration, Implementation>, prepared: Prepared): void;
 }
 
 export type RegistrationRejectionReason =

@@ -75,6 +75,7 @@ owners:
 21. **拥有者定义的激活事件**：入口的 `activationEvents` 可以写 `onStartup` 或 `<前缀>:<参数>`。前缀的拥有者调用 `triggerActivationEvent(事件, {requester})`，内核激活本位置声明了该事件的全部入口并逐个返回激活结果，复用第 3 条的激活合并；非拥有者触发被拒。没有插件拥有的前缀：该事件被忽略并记诊断，插件其它部分照常；两个插件声明同一前缀时两者的声明都不生效并记诊断，与登记顺序无关。前缀 `onRemote` 归内核，插件不能声明。
 22. **远程提供项**：入口的 `remoteProvides` 列出合同 id；激活产出的 `remote` 必须与之完全一致，缺少为 `missing-remote`、多出为 `undeclared-remote`，都是输出阶段失败。合同的提供方位置与本实例的拓扑角色不符（例如 `provider: "server"` 的合同出现在项目实例的入口里）同样是输出阶段失败 `remote-location-mismatch`；角色取自本实例远程节点的实例描述（`hub` 对应 `server`、`project` 对应 `project`、`client` 对应 `client`，`provider: "any"` 任何角色都可提供），没有远程节点的实例不做这项核对。远程调用到达时声明了该合同的入口未激活，内核按 `onRemote:<合同 id>` 激活它。远程提供项随入口停止撤回：门面作废、经它建立的订阅取消（[远程服务与 RPC 协议](./plugin-channel.md)）。
 23. **查询已接受的声明**（planned）：贡献点的校验函数（第二个参数）与入口的激活上下文可以按贡献点与贡献 id 查询此刻校验为已接受的贡献声明（插件、入口、运行位置与声明），也可以列出一个贡献点的全部已接受声明；与第 15 条一样按存活登记推导、不缓存、不产生诊断。校验之间可以多级查询（A 的校验查 B、B 的校验查 C）；查询绕回正在推导的贡献时，环上的每条贡献都以 `invalid-declaration`（校验相互引用）被拒，与从哪条开始查、登记顺序无关。
+24. **接收者得知发布**（planned）：接收者可以提供可选的 `published(handle, prepared)`：贡献方的激活事务发布之后、或补交完成且贡献方已发布之后，每条已交付项调用一次，此后这一项的 `implementation()` 可用；prepare 与 commit 期间（含补交）`implementation()` 仍不可用。撤回之后不再调用；回调抛错只记 `publish` 阶段诊断 `receiver-published-threw`，不改变交付与激活结果。
 
 ## 状态与转换
 

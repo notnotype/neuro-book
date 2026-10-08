@@ -536,3 +536,62 @@ describe("拥有者贡献点合同", () => {
     });
 
 });
+
+describe("Spec runtime.plugins 输出 24：接收者的 published 回调", () => {
+    /** 记录回调顺序，并在每个回调里试取实现：commit 时还取不到，published 时取得到。 */
+    function publishingReceiver(events: string[], options: {readonly throwOnPublished?: boolean} = {}): ContributionReceiver {
+        const reachable = (handle: ContributionHandle): string => {
+            try {
+                return String((handle.implementation() as () => string)());
+            } catch (error) {
+                return error instanceof PluginStateError ? "未发布" : "其它错误";
+            }
+        };
+        return {
+            commit: (handle) => {
+                events.push(`commit:${handle.id}:${reachable(handle)}`);
+            },
+            published: (handle) => {
+                events.push(`published:${handle.id}:${reachable(handle)}`);
+                if (options.throwOnPublished === true) throw new Error("published 回调出错");
+            },
+            revoke: (handle, _prepared, reason) => {
+                events.push(`revoke:${handle.id}:${reason}`);
+            },
+        };
+    }
+
+    it("激活事务：commit 时实现还取不到，贡献方发布后每条通知一次，此时取得到；撤回之后不再通知", async () => {
+        const {host, root} = fixture();
+        const events: string[] = [];
+        register(host, owner([point()], {commands: publishingReceiver(events)}), root);
+        await host.activate({plugin: "owner", entry: "main"});
+        const scope = child(root, "source");
+        register(host, source("source", [declaration("a"), declaration("b")]), scope);
+        expect((await host.activate({plugin: "source", entry: "main"})).status).toBe("activated");
+        expect(events).toEqual(["commit:a:未发布", "commit:b:未发布", "published:a:a", "published:b:b"]);
+        await scope.close();
+        expect(events.slice(4)).toEqual(["revoke:b:scope-closed", "revoke:a:scope-closed"]);
+    });
+
+    it("补交：贡献方先发布、拥有者后激活时，commit 期间同样取不到实现，补交完成即通知、取得到", async () => {
+        const {host, root} = fixture();
+        const events: string[] = [];
+        register(host, source("source", [declaration("a")]), root);
+        expect((await host.activate({plugin: "source", entry: "main"})).status).toBe("activated");
+        register(host, owner([point()], {commands: publishingReceiver(events)}), root);
+        expect((await host.activate({plugin: "owner", entry: "main"})).status).toBe("activated");
+        expect(events).toEqual(["commit:a:未发布", "published:a:a"]);
+    });
+
+    it("published 回调抛错：只记诊断，贡献照常可用", async () => {
+        const {host, root, diagnostics} = fixture();
+        const events: string[] = [];
+        register(host, owner([point()], {commands: publishingReceiver(events, {throwOnPublished: true})}), root);
+        await host.activate({plugin: "owner", entry: "main"});
+        register(host, source("source", [declaration("a")]), root);
+        expect((await host.activate({plugin: "source", entry: "main"})).status).toBe("activated");
+        expect(state(host, "a")).toMatchObject({status: "available", delivery: {status: "delivered"}});
+        expect(diagnostics.filter((diagnostic) => diagnostic.reason === "receiver-published-threw").map((diagnostic) => diagnostic.contribution)).toEqual(["a"]);
+    });
+});

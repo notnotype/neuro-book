@@ -270,6 +270,8 @@ interface DeliveryRecord {
     preparedSuccessfully: boolean;
     state: "preparing" | "committing" | "delivered" | "failed" | "revoked";
     revoked: boolean;
+    /** 已调用过接收者的 `published`：每条交付只通知一次。 */
+    notified: boolean;
     error: FailureError | null;
 }
 
@@ -1187,6 +1189,13 @@ export class PluginHostImpl implements PluginHost {
         }
         scope.open();
         this.#record("publish", "published", {plugin, entry, generation});
+        for (const contribution of attempt.handlesByContribution.keys()) {
+            for (const delivery of contribution.deliveries) {
+                if (delivery.sourceAttempt === attempt) {
+                    this.#notifyPublished(delivery);
+                }
+            }
+        }
         return {status: "activated"};
     }
 
@@ -1363,6 +1372,7 @@ export class PluginHostImpl implements PluginHost {
                     preparedSuccessfully: false,
                     state: "preparing",
                     revoked: false,
+                    notified: false,
                     error: null,
                 };
                 plan.connection.deliveries.set(key, delivery);
@@ -1435,10 +1445,31 @@ export class PluginHostImpl implements PluginHost {
                 if (delivery.preparedSuccessfully && !delivery.revoked && this.#receiverAlive(delivery.connection)) {
                     delivery.state = "delivered";
                     delivery.handle.published = true;
+                    // 补交给已发布的贡献方时现在就可用；激活事务里的要等贡献方发布（第 6 步）再通知。
+                    this.#notifyPublished(delivery);
                 }
             }
             return {status: "ok"};
         });
+    }
+
+    #notifyPublished(delivery: DeliveryRecord): void {
+        if (delivery.connection.receiver.published === undefined || delivery.notified || delivery.revoked || delivery.state !== "delivered" || !delivery.handle.published) {
+            return;
+        }
+        delivery.notified = true;
+        try {
+            delivery.connection.receiver.published?.(delivery.handle, delivery.prepared);
+        } catch (error) {
+            this.#record("publish", "receiver-published-threw", {
+                plugin: delivery.handle.plugin,
+                entry: delivery.handle.entry,
+                generation: delivery.handle.generation,
+                capability: delivery.handle.capability,
+                contribution: delivery.handle.id,
+                error: summarizeFailure(error),
+            });
+        }
     }
 
     async #withReceiverLocks<T>(connections: ReadonlyArray<ReceiverConnection>, work: () => Promise<T>): Promise<T> {
