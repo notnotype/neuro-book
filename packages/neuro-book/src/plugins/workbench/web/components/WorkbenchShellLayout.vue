@@ -10,6 +10,7 @@ import {useGridLayout, useLayoutExtent} from "@notnotype/nb-ui/composables";
 import {computed, nextTick, ref, shallowRef, watch} from "vue";
 
 import {createShellGrid, projectShell, shellGestureProblem, shellPatch} from "../shell/layout";
+import {TeleportMemory} from "../shell/teleport-memory";
 import type {PanelState} from "../shell/panel-state";
 import {SHELL_DRAG_COLLAPSIBLE_IDS, SHELL_GUTTER_PX, SHELL_PART_IDS, SHELL_STATUSBAR_HEIGHT, SHELL_TITLEBAR_HEIGHT} from "../shell/sizes";
 import type {ShellDragCollapseMap, ShellEffectivePanel, ShellHideablePart, ShellLayoutFacts, ShellLayoutMode, ShellPartId, ShellSizePatch, ShellSizePreferences} from "../shell/sizes";
@@ -23,7 +24,9 @@ const props = withDefaults(defineProps<{
     hiddenParts?: ReadonlyArray<ShellHideablePart>;
     dragCollapsedParts?: ShellDragCollapseMap;
     disabled?: boolean;
-}>(), {hiddenParts: () => [], dragCollapsedParts: () => ({}), disabled: false});
+    /** 三层 Teleport 共用的滚动与焦点记忆；不给时自建一份（Lab 场景只有这一层）。 */
+    memory?: TeleportMemory;
+}>(), {hiddenParts: () => [], dragCollapsedParts: () => ({}), disabled: false, memory: undefined});
 
 const emit = defineEmits<{
     (event: "resize", payload: {contextKey: string; patch: ShellSizePatch}): void;
@@ -120,40 +123,9 @@ watch(projection, (next) => {
 /** 当前网格里各 Part 的叶落点；没有的 Part 内容留在停放区。 */
 const targets = shallowRef<Partial<Record<ShellPartId, Element>>>({});
 
-/**
- * 浏览器把节点移到别处时会清掉它的滚动位置，焦点也会丢；停放区是 `display: none`，在那里设滚动位置不生效。所以滚动
- * 位置记在一张跨多次变化的表里：每次结构变化前记下仍可见的元素，搬完后给回到可见落点的元素还原。焦点只记这一次。
- */
-const scrollMemory = new Map<Element, {readonly top: number; readonly left: number}>();
-
-function captureMemory(): HTMLElement | null {
-    const root = rootEl.value;
-    if (root === null) return null;
-    for (const element of root.querySelectorAll("[data-shell-slot] *")) {
-        if (parkingEl.value?.contains(element) === true) continue;
-        if (element.scrollTop !== 0 || element.scrollLeft !== 0) scrollMemory.set(element, {top: element.scrollTop, left: element.scrollLeft});
-        else scrollMemory.delete(element);
-    }
-    const active = document.activeElement;
-    return active instanceof HTMLElement && root.contains(active) ? active : null;
-}
-
-/** 搬完 DOM 后还原：可见的元素还原滚动位置；焦点只在原节点仍可见、用户也没有把焦点移出外壳时拿回，不抢菜单与对话框。 */
-function restoreMemory(focus: HTMLElement | null): void {
-    for (const [element, {top, left}] of scrollMemory) {
-        if (!element.isConnected) {
-            scrollMemory.delete(element);
-            continue;
-        }
-        if (parkingEl.value?.contains(element) === true) continue;
-        element.scrollTop = top;
-        element.scrollLeft = left;
-    }
-    if (focus === null || !focus.isConnected || parkingEl.value?.contains(focus) === true) return;
-    const current = document.activeElement;
-    const inside = current !== null && (current === document.body || rootEl.value?.contains(current) === true);
-    if (inside && current !== focus) focus.focus({preventScroll: true});
-}
+// 记忆在组件一生里不换：中途换一份会丢掉已记下的滚动位置。
+const memory = props.memory ?? new TeleportMemory();
+watch(parkingEl, (element, previous) => memory.parking(element, previous), {immediate: true});
 
 /** 焦点所在内容被停放时给它一个可见的去处；焦点已在外壳之外时不动。 */
 function focusTarget(target: "panel-toggle" | "panel-title"): void {
@@ -194,7 +166,7 @@ let wasMaximized = projection.value.effectivePanel.maximized;
 
 // 结构变化前（flush: pre）记下焦点：渲染会换掉叶落点，Teleport 随后在下一轮搬内容，所以等两轮再恢复。
 watch(projection, (next) => {
-    const memory = captureMemory();
+    const focus = memory.capture(rootEl.value);
     const becameHidden = props.panel.hidden && !wasHidden;
     const becameMaximized = next.effectivePanel.maximized && !wasMaximized;
     wasHidden = props.panel.hidden;
@@ -202,7 +174,7 @@ watch(projection, (next) => {
     void nextTick(() => {
         syncTargets();
         void nextTick(() => {
-            restoreMemory(memory);
+            memory.restore(focus, rootEl.value);
             if (becameHidden) focusTarget("panel-toggle");
             else if (becameMaximized) focusTarget("panel-title");
         });

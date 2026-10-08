@@ -8,6 +8,7 @@ import type WorkbenchMoveViewMenu from "nbook/plugins/workbench/web/components/W
 import type WorkbenchPanelSurface from "nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue";
 import type WorkbenchShellLayout from "nbook/plugins/workbench/web/components/WorkbenchShellLayout.vue";
 import type WorkbenchStatusBar from "nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue";
+import type WorkbenchViewContainerHost from "nbook/plugins/workbench/web/components/WorkbenchViewContainerHost.vue";
 import type WorkbenchViewSection from "nbook/plugins/workbench/web/components/WorkbenchViewSection.vue";
 import type {PanelState} from "nbook/plugins/workbench/web/shell/panel-state";
 
@@ -322,6 +323,28 @@ export const labFixtures: LabFixture[] = [
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchMoveViewMenu.vue"),
+    }),
+    defineLabFixture<typeof WorkbenchViewContainerHost>({
+        component: "WorkbenchViewContainerHost",
+        scenes: (() => {
+            const slot = (id: string, name: string, extra: {collapsed?: boolean; size?: number | null; layout?: "scroll" | "fill"} = {}) => ({
+                id, title: {"zh-CN": name, "en-US": name}, icon: "i-lucide-square", layout: extra.layout ?? ("scroll" as const), movable: true, collapsed: extra.collapsed ?? false, size: extra.size ?? null, minSize: 64, maxSize: 1_000_000,
+            });
+            const container = (part: "sidebar" | "panel", views: ReturnType<typeof slot>[]) => ({
+                id: "view:test.a", part, axis: part === "panel" ? ("horizontal" as const) : ("vertical" as const), title: views[0]?.title ?? {"zh-CN": "空", "en-US": "Empty"}, icon: "i-lucide-square",
+                mode: views.length === 0 ? ("empty" as const) : views.length === 1 ? ("single" as const) : ("multiple" as const), members: views.map((view) => view.id), views, showContainerTitle: part === "sidebar" && views.length === 1,
+            });
+            const scene = (id: string, label: string, part: "sidebar" | "panel", views: ReturnType<typeof slot>[]) => ({
+                id, label, input: {props: {container: container(part, views), contextKey: `lab:${id}`, disabled: false, collapseLabel: "收起视图", expandLabel: "展开视图", locale: "zh-CN" as const}},
+            });
+            return [
+                scene("vertical", "侧栏纵向三个视图", "sidebar", [slot("test.a", "资源管理器"), slot("test.b", "大纲", {size: 160}), slot("test.c", "时间线")]),
+                scene("collapsed", "纵向：中间一个收起", "sidebar", [slot("test.a", "资源管理器"), slot("test.b", "大纲", {collapsed: true}), slot("test.c", "时间线")]),
+                scene("horizontal", "Panel 横向两个视图，一个收起成竖条", "panel", [slot("test.a", "终端"), slot("test.b", "问题", {collapsed: true}), slot("test.c", "输出")]),
+                scene("single", "single：一个视图、没有标题行", "sidebar", [slot("test.a", "资源管理器")]),
+            ];
+        })(),
+        load: async () => (await import("./WorkbenchViewContainerHostFixture.vue")).default,
     }),
     defineLabFixture<typeof WorkbenchViewSection>({
         component: "WorkbenchViewSection", slots: ["default", "actions"],
