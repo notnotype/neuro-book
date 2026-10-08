@@ -92,7 +92,7 @@ issueId: null
 | [t53](tasks/t53-rpc-port-browser-connection/README.md) | NeuroBook v2 第 5 步 K2：服务端内核 RPC 端口（WebSocket、`Origin` 校验）、握手字段与重连规则、浏览器窗口的连接与重连、引导接口告知端口；只做未绑定项目的客户端；2026-10-07 计划确认（[plan.md](tasks/t53-rpc-port-browser-connection/plan.md)），S0–S8 完成，omp 审查 5 条均已修正，测试、smoke 与 e2e 通过；随 K6 完成后一起验收 |
 | [t54](tasks/t54-project-child-process/README.md) | NeuroBook v2 第 5 步 K3：项目子进程（Bun IPC 接入服务端路由）、项目管理（身份、登记表、租约、宽限期、崩溃；不做防双开的锁）、浏览器按 `/?project=` 绑定与宽限期内重连、服务端停止顺序、合同声明提供方位置、宿主能力 `projectsKey` 与 `nbook.projects` 的“打开项目”命令；2026-10-07 计划确认（[plan.md](tasks/t54-project-child-process/plan.md)）、omp 设计审查后修订；S0–S9 实现完成，omp 实现审查 3 条已修正，待验收 |
 | [t55](tasks/t55-plugin-storage/README.md) | NeuroBook v2 第 5 步 K4：`nbook.storage`：插件按记录持久化，user 分区在服务端、project 分区在项目实例、浏览器经代理；按插件命名空间、`local` 按客户端分区；条件保存与订阅；内核的跨实例委托与调用方客户端身份；2026-10-07 计划确认（[plan.md](tasks/t55-plugin-storage/plan.md)），omp 设计审查 12 条已并入，待确认 11 项按建议确认；S0–S6 完成，两轮 omp 实现审查的发现均已修正，`persistence.md` 2026-10-08 晋升 `implemented`；K1–K4 整体验收放到 K6 之后 |
-| [t57](tasks/t57-runtime-examples/README.md) | nb-runtime 示例插件：`packages/nb-runtime/examples/` 五个可直接运行、各配测试的示例（服务与依赖、按调用方门面、贡献点、远程服务、代理），只经公开入口；随插件系统完善继续补充；2026-10-08 第一批完成 |
+| [t57](tasks/t57-runtime-examples/README.md) | nb-runtime 示例插件：`packages/nb-runtime/examples/` 按内置插件目录格式写的七个插件（服务与依赖、按调用方门面、贡献点、远程服务、代理）与五个场景测试，只经公开入口；插件描述类型移进内核；随插件系统完善继续补充；2026-10-08 完成 |
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 

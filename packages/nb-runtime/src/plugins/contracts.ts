@@ -137,6 +137,18 @@ export interface DelegatedRemoteAccess {
     use<Contract extends RemoteContract>(contract: Contract): RemoteUse<Contract>;
 }
 
+/**
+ * 插件描述：插件包一级的身份、版本与有入口的运行位置，写在插件目录的 `plugin.ts`。宿主按它装配各运行位置的
+ * 入口、核对两端的插件集合；内核登记的是各运行位置的插件定义，不读它。插件清单文件实现后
+ * （docs/specs/runtime/plugin-manifest.md）由清单生成。
+ */
+export interface PluginDescriptor {
+    readonly id: string;
+    /** semver。 */
+    readonly version: string;
+    readonly locations: ReadonlyArray<RuntimeLocation>;
+}
+
 /** 随产品发布的静态描述；不是已激活实例。 */
 export interface PluginDefinition {
     readonly id: string;

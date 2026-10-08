@@ -4,7 +4,7 @@
 
 `@notnotype/nb-runtime` 是 NeuroBook 的内核，新应用的后端与浏览器宿主共用。六个机制各有一份行为合同：[`lifecycle`](../../docs/specs/runtime/lifecycle.md)（运行作用域与资源生命周期）、[`services`](../../docs/specs/runtime/services.md)（服务装配）、[`plugins`](../../docs/specs/runtime/plugins.md)（插件描述、激活与贡献）、[`application`](../../docs/specs/runtime/application.md)（运行实例与启动门禁）、[`diagnostics`](../../docs/specs/runtime/diagnostics.md)（诊断记录）、[`remote`](../../docs/specs/runtime/plugin-channel.md)（远程服务与 RPC 协议）。
 
-典型用法见 [`examples/`](examples/README.md)：可直接运行的示例插件，各配一个测试。公开接口改动时同一提交里更新受影响的示例，新增机制或新的典型用法时补一个。
+典型用法见 [`examples/`](examples/README.md)：按内置插件的目录格式写的示例插件（一个插件一个目录），以及把它们装进运行实例、核对行为的场景测试。公开接口改动时同一提交里更新受影响的示例，新增机制或新的典型用法时补插件与场景。插件描述的类型 `PluginDescriptor` 归本包（`plugins` 入口），应用包经 `src/manifest.ts` 引用。
 
 ## 边界
 
