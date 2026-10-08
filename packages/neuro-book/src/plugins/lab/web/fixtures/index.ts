@@ -3,7 +3,9 @@ import type {Component} from "vue";
 import type JsonViewer from "nbook/ui/JsonViewer.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
 import type WorkbenchCommandPalette from "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue";
+import type WorkbenchPanelSurface from "nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue";
 import type WorkbenchShellLayout from "nbook/plugins/workbench/web/components/WorkbenchShellLayout.vue";
+import type WorkbenchStatusBar from "nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue";
 import type {PanelState} from "nbook/plugins/workbench/web/shell/panel-state";
 
 import type CollapsibleSidePanel from "../components/CollapsibleSidePanel.vue";
@@ -245,6 +247,41 @@ export const labFixtures: LabFixture[] = [
             ];
         })(),
         load: async () => (await import("./WorkbenchShellLayoutFixture.vue")).default,
+    }),
+    defineSubjectFixture<typeof WorkbenchPanelSurface>({
+        component: "WorkbenchPanelSurface",
+        events: ["action"],
+        class: "h-full w-full",
+        scenes: (() => {
+            const action = (id: string, label: string, icon: string, disabled = false, extra: {reason?: string; pressed?: boolean} = {}) => ({id, label, icon, disabled, ...extra});
+            const actions = (side: boolean, collapsed: boolean, maximized: boolean) => [
+                action("nbook.view.set-panel-position", "面板位置", "i-lucide-panel-bottom"),
+                action("nbook.view.set-panel-alignment", "面板对齐", "i-lucide-align-horizontal-space-between", side, side ? {reason: "面板不在底部或顶部"} : {}),
+                action("nbook.view.set-panel-collapsed", "收起为标题头", "i-lucide-chevrons-down", side, side ? {reason: "面板不在底部或顶部"} : {pressed: collapsed}),
+                action("nbook.view.toggle-panel-maximized", "最大化/还原面板", "i-lucide-maximize-2", false, {pressed: maximized}),
+                action("nbook.view.set-panel-hidden", "隐藏面板", "i-lucide-x"),
+            ];
+            return [
+                {id: "default", label: "底部、全部可用", input: {props: {title: "面板", collapsed: false, actions: actions(false, false, false)}}},
+                {id: "collapsed", label: "收起为标题头", input: {props: {title: "面板", collapsed: true, actions: actions(false, true, false)}}},
+                {id: "side", label: "在左侧（对齐与收起不可用）", input: {props: {title: "面板", collapsed: false, actions: actions(true, false, false)}}},
+                {id: "long-title", label: "长标题", input: {props: {title: "一个非常长的面板标题，用来看放不下时标题先截断、按钮保持可点", collapsed: false, actions: actions(false, false, true)}}},
+            ];
+        })(),
+        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue"),
+    }),
+    defineSubjectFixture<typeof WorkbenchStatusBar>({
+        component: "WorkbenchStatusBar",
+        events: ["toggle-panel", "retry", "discard"],
+        class: "w-full",
+        scenes: [
+            {id: "no-project", label: "未打开项目", input: {props: {locale: "zh-CN", project: null, panelHidden: false, panelToggleDisabled: false, problems: []}}},
+            {id: "project", label: "项目名", input: {props: {locale: "zh-CN", project: "长篇小说《雾港》第二部", panelHidden: false, panelToggleDisabled: false, problems: []}}},
+            {id: "unsaved", label: "布局未保存", input: {props: {locale: "zh-CN", project: "雾港", panelHidden: false, panelToggleDisabled: false, problems: [{record: "customizations", kind: "unsaved", code: "unavailable"}]}}},
+            {id: "unread", label: "布局未读取", input: {props: {locale: "zh-CN", project: "雾港", panelHidden: false, panelToggleDisabled: false, problems: [{record: "side", kind: "unread", code: "corrupt"}]}}},
+            {id: "hidden", label: "面板已隐藏、按钮不可用", input: {props: {locale: "en-US", project: null, panelHidden: true, panelToggleDisabled: true, problems: []}}},
+        ],
+        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue"),
     }),
     defineSubjectFixture<typeof SkillChip>({
         component: "SkillChip",
