@@ -32,14 +32,27 @@ export interface ContributionDescriptor<Declaration = unknown> extends Contribut
     readonly location: RuntimeLocation;
 }
 
+/**
+ * 此刻校验为已接受的贡献声明（runtime.plugins 输出第 23 条）：按存活登记推导，不缓存、不产生诊断。
+ *
+ * 校验函数里查询时不要吞掉查询抛出的错误：查询绕回正在推导的贡献时内核抛出环错误，它要穿过中间各层的校验，
+ * 回到被重新进入的那条贡献才判为“校验相互引用”。
+ */
+export interface ContributionDeclarations {
+    /** 该贡献点上这个 id 的已接受声明；没有、被拒或待定为 null。 */
+    get<Declaration = unknown>(capability: string, id: string): ContributionDescriptor<Declaration> | null;
+    /** 该贡献点的全部已接受声明，按贡献 id 的码元顺序。 */
+    list<Declaration = unknown>(capability: string): ReadonlyArray<ContributionDescriptor<Declaration>>;
+}
+
 /** 由拥有者插件定义的贡献点。 */
 export interface ContributionPointDefinition<Declaration = unknown> {
     /** 在全部存活登记中唯一，例如 "workbench.view"。 */
     readonly id: string;
     /** required：贡献写在入口下并给出实现；none：只有顶层声明。 */
     readonly implementation: "required" | "none";
-    /** 纯函数，返回拒绝原因或 null。 */
-    validate?(descriptor: ContributionDescriptor<Declaration>): string | null;
+    /** 纯函数，返回拒绝原因或 null；可以经 `declarations` 查别的贡献点上已接受的声明。 */
+    validate?(descriptor: ContributionDescriptor<Declaration>, declarations: ContributionDeclarations): string | null;
 }
 
 /** 入口激活期间可用的上下文。 */
@@ -59,6 +72,8 @@ export interface ActivationContext {
      * 调用一律得到 `unavailable`。
      */
     readonly remote: PluginRemoteAccess;
+    /** 此刻已接受的贡献声明（runtime.plugins 输出第 23 条），与贡献点校验函数拿到的是同一个查询。 */
+    readonly declarations: ContributionDeclarations;
     readonly services: {
         /** 必需依赖已在激活前解析完成；未声明或可选的键抛 TypeError。 */
         require<T>(key: ServiceKey<T>): T;

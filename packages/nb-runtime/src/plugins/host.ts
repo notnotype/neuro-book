@@ -25,6 +25,8 @@ import type {
     ActivationFailureReason,
     ActivationOutput,
     ContributionDeclaration,
+    ContributionDeclarations,
+    ContributionDescriptor,
     ContributionDelivery,
     ContributionHandle,
     ContributionPointDefinition,
@@ -90,6 +92,17 @@ function waitWithSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined)
     signal.addEventListener("abort", onAbort, {once: true});
     void promise.then(resolve, () => resolve(CANCELLED)).finally(() => signal.removeEventListener("abort", onAbort));
     return waiting;
+}
+
+/** 校验查询绕回正在推导的贡献；`target` 是被重新进入的那条。只在宿主内部抛与接，不交给插件。 */
+class ValidationCycle extends Error {
+    readonly target: ContributionRecord;
+
+    constructor(target: ContributionRecord) {
+        super(`贡献 ${target.definition.capability}/${target.definition.id} 的校验相互引用`);
+        this.name = "ValidationCycle";
+        this.target = target;
+    }
 }
 
 class HandleImpl implements ContributionHandle {
@@ -271,6 +284,26 @@ export class PluginHostImpl implements PluginHost {
     readonly #plugins = new Map<string, PluginRecord>();
     /** 贡献目录：贡献点 id + 贡献 id → 全部当前登记，重复判定不区分运行位置。 */
     readonly #contributions = new Map<string, ContributionRecord[]>();
+    /** 正在推导校验结果的贡献：查询绕回其中一条即为环（runtime.plugins 输出第 23 条）。 */
+    readonly #validating: ContributionRecord[] = [];
+    readonly #declarations: ContributionDeclarations = {
+        get: <Declaration>(capability: string, id: string): ContributionDescriptor<Declaration> | null => {
+            const live = this.#liveContributions(capability, id);
+            const only = live.length === 1 ? live[0] : undefined;
+            return only !== undefined && this.#validation(only).status === "accepted" ? (this.#descriptorOf(only) as ContributionDescriptor<Declaration>) : null;
+        },
+        list: <Declaration>(capability: string): ReadonlyArray<ContributionDescriptor<Declaration>> => {
+            const accepted: ContributionDescriptor<Declaration>[] = [];
+            for (const records of this.#contributions.values()) {
+                for (const record of records) {
+                    if (record.definition.capability === capability && this.#isLive(record) && this.#validation(record).status === "accepted") {
+                        accepted.push(this.#descriptorOf(record) as ContributionDescriptor<Declaration>);
+                    }
+                }
+            }
+            return accepted.sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+        },
+    };
     readonly #connections = new Map<string, ReceiverConnection>();
     /** 代次跨登记单调递增：重新启用得到新代次，旧代次身份不复用。 */
     readonly #generations = new Map<string, number>();
@@ -753,11 +786,26 @@ export class PluginHostImpl implements PluginHost {
     }
 
     #liveContributions(capability: string, id: string): ReadonlyArray<ContributionRecord> {
-        return (this.#contributions.get(this.#contributionIdentity(capability, id)) ?? []).filter((record) =>
-            this.#plugins.get(record.plugin.id) === record.plugin && isAlive(record.plugin.scope));
+        return (this.#contributions.get(this.#contributionIdentity(capability, id)) ?? []).filter((record) => this.#isLive(record));
+    }
+
+    #isLive(record: ContributionRecord): boolean {
+        return this.#plugins.get(record.plugin.id) === record.plugin && isAlive(record.plugin.scope);
+    }
+
+    #descriptorOf(contribution: ContributionRecord): ContributionDescriptor {
+        return {
+            ...contribution.definition,
+            plugin: contribution.plugin.id,
+            entry: contribution.entry?.definition.id ?? null,
+            location: contribution.location,
+        };
     }
 
     #validation(contribution: ContributionRecord): ContributionValidation {
+        if (this.#validating.includes(contribution)) {
+            throw new ValidationCycle(contribution);
+        }
         const point = this.#pointFor(contribution);
         if (point === null) {
             return {status: "pending", reason: "unknown-point"};
@@ -772,19 +820,23 @@ export class PluginHostImpl implements PluginHost {
             return {status: "rejected", reason: "implementation-not-accepted", detail: null};
         }
         if (point.validate !== undefined) {
-            const descriptor = {
-                ...contribution.definition,
-                plugin: contribution.plugin.id,
-                entry: contribution.entry?.definition.id ?? null,
-                location: contribution.location,
-            };
+            this.#validating.push(contribution);
             try {
-                const detail = point.validate(descriptor);
+                const detail = point.validate(this.#descriptorOf(contribution), this.#declarations);
                 if (detail !== null) {
                     return {status: "rejected", reason: "invalid-declaration", detail};
                 }
             } catch (error) {
+                // 环错误穿过中间各层，回到被重新进入的那条才判为相互引用：环上每条无论从哪开始查都被拒。
+                if (error instanceof ValidationCycle) {
+                    if (error.target !== contribution) {
+                        throw error;
+                    }
+                    return {status: "rejected", reason: "invalid-declaration", detail: "校验相互引用：这条声明的校验经查询又回到了它自己"};
+                }
                 return {status: "rejected", reason: "invalid-declaration", detail: summarizeFailure(error).message};
+            } finally {
+                this.#validating.pop();
             }
         }
         return {status: "accepted"};
@@ -956,6 +1008,7 @@ export class PluginHostImpl implements PluginHost {
             scope: attempt.work,
             signal: scope.stopSignal,
             remote: this.#remoteAccess(attempt, record, plugin, entry),
+            declarations: this.#declarations,
             services: {
                 require: <T>(key: ServiceKey<T>): T => {
                     if (!required.has(key.name)) {
