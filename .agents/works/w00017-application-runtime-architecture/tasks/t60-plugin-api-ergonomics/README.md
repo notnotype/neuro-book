@@ -19,7 +19,12 @@ taskId: t60-plugin-api-ergonomics
 
 ## 后续
 
-开发者 2026-10-08 确认在本 Task 之后另开：内核的目录查询（本实例的插件与服务、别的实例是否提供某份合同）与失败码 `not-provided`。按拓扑角色匹配入口（TUI 不改代码就能用 `nbook.storage` 这类插件）只在本 Task 写设计，随 TUI 实现。
+开发者 2026-10-08 确认的后续 Task（已先建，未开工）：
+
+- [t61](../t61-kernel-catalog-failure-codes/README.md)：内核目录查询与失败码 `not-provided`；结果未知的写请求改报 `unknown-outcome`；`plugin-api.md` 的取服务写法与内核一致；命令与公开状态的同步服务注明只限内置插件。
+- [t62](../t62-plugin-examples-in-app/README.md)：示例插件搬到应用包、合并为 5 个并补齐未演示的机制，开教学注释的例外；`testing/` 目录的约定与检查。
+
+按拓扑角色匹配入口（TUI 不改代码就能用 `nbook.storage` 这类插件）只在本 Task 写设计，随 TUI 实现。
 
 ## 当前状态
 
