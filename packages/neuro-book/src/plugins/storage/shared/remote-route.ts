@@ -47,7 +47,7 @@ export function remoteRoute(access: DelegatedRemoteAccess, contract: StorageCont
 /**
  * 拥有者一侧的失败经业务失败码 `storage-failed` 带回原失败码；路由层的失败按含义折算：调用方身份核对不过为
  * `denied`，写请求帧发出后被中断为 `unknown-outcome`，输入不合合同（多半是值无法编码）为 `invalid-value`，拥有者
- * 抛错为 `io-error`，其余（目标不在、超时、服务端不可达、版本不符）为 `unavailable`。
+ * 抛错为 `io-error`，其余（目标不在、目标实例没有 Storage 的提供方、超时、服务端不可达、版本不符）为 `unavailable`。
  */
 function fromRemote(failure: RemoteFailure<string>): StorageFailed {
     if (failure.code === "storage-failed") {

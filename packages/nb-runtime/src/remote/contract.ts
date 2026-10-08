@@ -7,7 +7,7 @@ import type {Static, TSchema} from "typebox";
 
 import type {ConsumerIdentity} from "../services/services";
 
-import {REMOTE_FAILURE_CODES, RESERVED_KEY_PREFIX} from "./protocol";
+import {KERNEL_CONTRACT_PREFIX, REMOTE_FAILURE_CODES, RESERVED_KEY_PREFIX} from "./protocol";
 import type {RemoteResult, RemoteTarget} from "./protocol";
 
 /**
@@ -95,6 +95,9 @@ export function defineRemoteService<
     const separator = spec.id.indexOf("/");
     if (separator <= 0 || separator === spec.id.length - 1) {
         problems.push(`合同 id 必须写作 <插件 id>/<名称>：${spec.id}`);
+    }
+    if (spec.id.startsWith(KERNEL_CONTRACT_PREFIX)) {
+        problems.push(`合同 id 的前缀 ${KERNEL_CONTRACT_PREFIX} 留给内核：${spec.id}`);
     }
     if (!Number.isInteger(spec.version) || spec.version < 1) {
         problems.push(`版本必须是正整数：${String(spec.version)}`);

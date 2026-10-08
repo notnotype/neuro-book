@@ -45,6 +45,16 @@ const echo = defineRemoteService({
 /** 调用方只认版本 2：与提供方的版本 1 不兼容。 */
 const echoV2 = defineRemoteService({...echo, version: 2, events: echo.events});
 
+/** 拓扑里没有插件提供它；测试按需登记提供它的插件。 */
+const late = defineRemoteService({
+    id: "demo.late/late",
+    version: 1,
+    provider: "server",
+    callers: ["browser", "server"],
+    methods: {ping: {input: Empty, output: Type.String(), effect: "read"}},
+    events: {pulse: {filter: Empty, payload: Type.Null()}},
+});
+
 /** 只允许 tui 调用的合同，由服务端一并提供。 */
 const restricted = defineRemoteService({id: "demo.echo/restricted", version: 1, provider: "server", callers: ["tui"], methods: {ping: {input: Empty, output: Type.Null(), effect: "read"}}});
 
@@ -310,6 +320,51 @@ describe("Spec plugin-channel 输出 1–3、5：调用、寻址与按需激活"
 
         const rejected = await t.remote(t.hub).use(echo).at("server").peek({name: (() => "x") as unknown as string});
         expect(rejected).toMatchObject({ok: false, code: "invalid-input"});
+    });
+
+    it("没有提供方为 not-provided：调用与订阅、跨实例与同实例都是；声明它的插件正在停止或激活失败为 unavailable，停用后回到 not-provided", async () => {
+        const t = await topology();
+        const fromBrowser = t.remote(t.browser1).use(late);
+        const fromHub = t.remote(t.hub).use(late);
+        expect(await fromBrowser.ping({})).toMatchObject({ok: false, code: "not-provided"});
+        expect(await fromHub.ping({})).toMatchObject({ok: false, code: "not-provided"});
+        expect(await fromBrowser.events.pulse.subscribe({}, () => undefined)).toMatchObject({ok: false, code: "not-provided"});
+
+        // 提供方的激活作用域里有一项释放要等测试放行：停用插件时它停在“正在停止”。
+        const registration = t.hub.app.root.createChild("demo.late");
+        registration.open();
+        const release = Promise.withResolvers<void>();
+        const latePlugin: PluginDefinition = {
+            id: "demo.late",
+            entries: [{
+                id: "main",
+                location: "server",
+                remoteProvides: [late],
+                activate: (context) => {
+                    context.scope.register({kind: "test-gate", label: "等测试放行", value: release.promise, release: (gate) => gate});
+                    return {remote: [provideRemote(late, () => ({methods: {ping: () => ({ok: true, value: "late"})}}))]};
+                },
+            }],
+        };
+        expect(t.hub.app.plugins.register(latePlugin, {scope: registration})).toMatchObject({status: "accepted"});
+        expect(await fromBrowser.ping({})).toEqual({ok: true, value: "late"});
+
+        const closing = registration.close();
+        expect(registration.phase).toBe("stopping");
+        expect(await fromBrowser.ping({})).toMatchObject({ok: false, code: "unavailable"});
+        expect(await fromBrowser.events.pulse.subscribe({}, () => undefined)).toMatchObject({ok: false, code: "unavailable"});
+        release.resolve();
+        expect(await closing).toMatchObject({status: "closed"});
+        expect(await fromBrowser.ping({})).toMatchObject({ok: false, code: "not-provided"});
+
+        const broken: PluginDefinition = {
+            id: "demo.broken",
+            entries: [{id: "main", location: "server", remoteProvides: [late], activate: () => {
+                throw new Error("激活失败");
+            }}],
+        };
+        expect(t.hub.app.plugins.register(broken, {scope: t.hub.app.root})).toMatchObject({status: "accepted"});
+        expect(await fromBrowser.ping({})).toMatchObject({ok: false, code: "unavailable"});
     });
 
     it("实例查询列出服务端与在线实例", async () => {

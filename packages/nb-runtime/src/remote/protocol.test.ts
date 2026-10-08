@@ -129,7 +129,7 @@ describe("Spec plugin-channel 术语：远程服务合同", () => {
         expect(Object.keys(contract.events)).toEqual(["changes"]);
     });
 
-    it("结构不合法的合同在定义时抛 TypeError", () => {
+    it("结构不合法的合同在定义时抛 TypeError；runtime/ 开头的 id 留给内核", () => {
         const method = {input: Input, output: Type.Null(), effect: "read" as const};
         const bad: ReadonlyArray<Parameters<typeof defineRemoteService>[0]> = [
             {id: "files", version: 1, provider: "any", callers: ["browser"], methods: {list: method}},
@@ -141,6 +141,9 @@ describe("Spec plugin-channel 术语：远程服务合同", () => {
             {id: "nbook.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: method}, events: {list: {filter: Input, payload: Type.Null()}}},
             {id: "nbook.files/files", version: 1, provider: "everywhere" as never, callers: ["browser"], methods: {list: method}},
             {id: "nbook.files/files", version: 1, provider: "any", callers: ["browser"], methods: {at: method}},
+            {id: "nbook.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: {...method, errors: {"not-provided": Type.Object({})}}}},
+            {id: "runtime/catalog", version: 1, provider: "any", callers: ["browser"], methods: {list: method}},
+            {id: "runtime/files", version: 1, provider: "any", callers: ["browser"], methods: {list: method}},
         ];
         for (const spec of bad) {
             expect(() => defineRemoteService(spec), spec.id).toThrow(TypeError);

@@ -62,6 +62,7 @@ export type ProviderLookup =
         /** 提供入口的这一代开始停止时触发。 */
         readonly stopSignal: AbortSignal;
     }
+    /** 本实例没有已登记的插件在本运行位置的入口里声明这份合同：没装、已停用或已卸载。 */
     | {readonly status: "missing"}
     | {readonly status: "unavailable"; readonly reason: string; readonly cause?: "activation-cycle"};
 
@@ -623,11 +624,15 @@ export class RemoteNodeImpl implements RemoteNode {
             return;
         }
         const found = await this.#lookup(frame.contract, frame.$nbChain, signal);
-        if (found.status !== "found") {
-            if (found.status === "unavailable" && found.cause === "activation-cycle") {
+        if (found.status === "missing") {
+            fail("not-provided", `本实例没有提供 ${frame.contract}`);
+            return;
+        }
+        if (found.status === "unavailable") {
+            if (found.cause === "activation-cycle") {
                 this.#record("activation-cycle", frame.contract, frame.$nbChain.map((link) => `${link.instanceId}:${link.plugin}/${link.entry}`).join(" → "));
             }
-            fail("unavailable", found.status === "missing" ? `本实例没有提供 ${frame.contract}` : found.reason, found.status === "unavailable" ? found.cause : undefined);
+            fail("unavailable", found.reason, found.cause);
             return;
         }
         const contract = found.provision.contract;
@@ -698,7 +703,7 @@ export class RemoteNodeImpl implements RemoteNode {
         }
         const found = await this.#lookup(frame.contract, frame.$nbChain, signal);
         if (found.status !== "found") {
-            channel.reject({ok: false, code: "unavailable", detail: found.status === "missing" ? `本实例没有提供 ${frame.contract}` : found.reason});
+            channel.reject(found.status === "missing" ? {ok: false, code: "not-provided", detail: `本实例没有提供 ${frame.contract}`} : {ok: false, code: "unavailable", detail: found.reason});
             return;
         }
         const contract = found.provision.contract;

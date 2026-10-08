@@ -18,12 +18,16 @@ import type {TSchema} from "typebox";
  */
 export const WIRE_PROTOCOL_VERSION = 3;
 
-/** 路由层失败码，对所有远程服务相同；业务失败码由各合同声明。 */
+/**
+ * 路由层失败码，对所有远程服务相同；业务失败码由各合同声明。`not-provided` 与 `unavailable` 分开：前者是目标
+ * 实例上没有这份合同的提供方（没装、已停用或已卸载），后者是有提供方但此刻不能用，调用方据此分别降级。
+ */
 export const REMOTE_FAILURE_CODES = [
     "invalid-input",
     "denied",
     "target-gone",
     "unavailable",
+    "not-provided",
     "version-changed",
     "timeout",
     "cancelled",
@@ -76,6 +80,9 @@ export function failureFor(phase: RequestPhase, effect: "read" | "write", cause:
             return {ok: false, code: "unavailable", cause};
     }
 }
+
+/** 合同 id 的这个前缀留给内核自带的查询（实例查询、提供方查询），插件的合同不能用。 */
+export const KERNEL_CONTRACT_PREFIX = "runtime/";
 
 /** 业务参数不得含 `$nb` 开头的键：这些名字留给内核填写的帧字段。 */
 export const RESERVED_KEY_PREFIX = "$nb";

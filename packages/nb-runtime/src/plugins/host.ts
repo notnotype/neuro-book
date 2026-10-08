@@ -636,20 +636,13 @@ export class PluginHostImpl implements PluginHost {
      * 不挑选，返回不可用。
      */
     async #lookupRemote(contractId: string, chain: ReadonlyArray<ChainLink>, signal: AbortSignal): Promise<ProviderLookup> {
-        const candidates: EntryRecord[] = [];
-        for (const plugin of this.#plugins.values()) {
-            if (!isAlive(plugin.scope)) {
-                continue;
-            }
-            for (const record of plugin.entries.values()) {
-                if (record.activatable && (record.definition.remoteProvides ?? []).some((contract) => contract.id === contractId)) {
-                    candidates.push(record);
-                }
-            }
-        }
+        const candidates = this.#remoteProviders(contractId, isAlive);
         const [record] = candidates;
         if (record === undefined) {
-            return {status: "missing"};
+            // 声明它的插件正在停止（热重载或实例停止）只是此刻不可用；停用、卸载之后才是没有提供方。
+            return this.#remoteProviders(contractId, (scope) => scope.phase === "stopping").length > 0
+                ? {status: "unavailable", reason: `提供 ${contractId} 的插件正在停止`}
+                : {status: "missing"};
         }
         if (candidates.length > 1) {
             this.#record("activate", "remote-provider-conflict", {plugin: null, capability: "remoteProvides", contribution: contractId});
@@ -673,6 +666,22 @@ export class PluginHostImpl implements PluginHost {
             return {status: "unavailable", reason: `提供入口 ${record.plugin}/${record.definition.id} 已换代`};
         }
         return {status: "found", provision, entry: {plugin: record.plugin, entry: record.definition.id, generation: attempt.generation}, stopSignal: attempt.scope.stopSignal};
+    }
+
+    /** 本位置在 `remoteProvides` 里声明了这份合同的入口，只看登记作用域满足 `phase` 的插件。 */
+    #remoteProviders(contractId: string, phase: (scope: Scope) => boolean): EntryRecord[] {
+        const found: EntryRecord[] = [];
+        for (const plugin of this.#plugins.values()) {
+            if (!phase(plugin.scope)) {
+                continue;
+            }
+            for (const record of plugin.entries.values()) {
+                if (record.activatable && (record.definition.remoteProvides ?? []).some((contract) => contract.id === contractId)) {
+                    found.push(record);
+                }
+            }
+        }
+        return found;
     }
 
     #prefixOwners(prefix: string): PluginRecord[] {
