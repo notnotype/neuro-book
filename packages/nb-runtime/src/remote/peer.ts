@@ -51,7 +51,8 @@ export interface SubscribeHandlers {
 }
 
 interface Pending {
-    phase: RequestPhase;
+    /** 登记即已发出：未派发的请求不进等待表，在 `request` 里直接结算。 */
+    phase: Exclude<RequestPhase, "undispatched">;
     readonly effect: "read" | "write";
     readonly settle: (outcome: Outcome) => void;
     readonly onAck: (() => void) | undefined;
@@ -120,8 +121,11 @@ export class Peer {
         const {promise, resolve} = Promise.withResolvers<Outcome>();
         let cancelTimer: () => void = () => undefined;
         const onAbort = (): void => this.#interrupt(id, "cancelled");
+        // 登记时就记为已发出：编码会同步运行业务值的 getter 与 toJSON，其中可能取消这个请求，而帧在取消之后仍会
+        // 发出、被执行。编码失败时帧确实没发出，结算为 invalid-input（编码途中已被取消的，保留先到的结果）。
+        // 链路已关闭而 onClose 还没到时帧会被丢弃，同样按已发出算，写请求因此偏保守地得到 unknown-outcome。
         const pending: Pending = {
-            phase: "undispatched",
+            phase: "sent",
             effect: frame.effect,
             onAck: options.onAck,
             settle: (outcome) => {
@@ -139,10 +143,6 @@ export class Peer {
         const problem = this.#sendValue({type: "request", id, ...frame});
         if (problem !== null) {
             pending.settle({ok: false, code: "invalid-input", detail: `参数无法编码发送：${problem}`});
-        } else {
-            // 帧已交给链路：此后的中断不能再当作确定失败。链路已关闭而 onClose 还没到时帧会被丢弃，
-            // 这里同样记为已发出，写请求因此偏保守地得到 unknown-outcome。
-            pending.phase = "sent";
         }
         return promise;
     }

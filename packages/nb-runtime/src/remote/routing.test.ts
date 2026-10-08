@@ -70,8 +70,9 @@ interface Probe {
     readonly sinks: Array<{readonly topic: string; readonly next: (payload: {topic: string; n: number}) => void; readonly signal: AbortSignal}>;
     readonly rawSinks: Array<{readonly next: (payload: unknown) => void; readonly signal: AbortSignal}>;
     /**
-     * `hold` 与 `peek` 开始执行时同步调用。提供方方法与 ACK 在同一个同步段里开始，ACK 帧这时还在链路上：
-     * 在这里切断链路或推进时钟，就是“目标已执行、调用方还没收到 ACK”时被中断。
+     * `hold`、`peek` 开始执行与 `ticks` 订阅开始时同步调用。提供方方法与 ACK 在同一个同步段里开始，ACK 帧这时
+     * 还在链路上：在这里切断链路或推进时钟，就是“目标已执行、调用方还没收到 ACK”时被中断。订阅同理，接受订阅的
+     * 结果这时还在链路上。
      */
     onEnter: (() => void) | null;
 }
@@ -119,6 +120,7 @@ function implementation(consumer: ConsumerIdentity, probe: Probe): RemoteImpleme
             ticks: {
                 subscribe: ({topic}, sink, {signal}) => {
                     probe.sinks.push({topic, next: (payload) => sink.next(payload), signal});
+                    probe.onEnter?.();
                 },
             },
             raw: {
@@ -501,6 +503,27 @@ describe("Spec plugin-channel 输出 4：请求阶段与失败码", () => {
         expect(t.probes.project.holdSignals[0]!.aborted).toBe(true);
     });
 
+    it("参数编码期间取消（业务值的 getter 里触发）：帧照样发出，写请求为 unknown-outcome、读请求为 cancelled", async () => {
+        // JSON 编码会同步运行业务值的 getter 与 toJSON：取消可能发生在帧交给链路的途中，帧随后仍会发出并被执行。
+        const t = await topology();
+        const atServer = t.remote(t.browser1).use(echo).at("server");
+        const write = new AbortController();
+        const writeInput = {get name(): string {
+            write.abort();
+            return "w";
+        }};
+        expect(await atServer.hold(writeInput, {signal: write.signal})).toEqual({ok: false, code: "unknown-outcome", cause: "cancelled"});
+        await drain();
+        expect(t.probes.hub.holdSignals).toHaveLength(1);
+
+        const read = new AbortController();
+        const readInput = {get name(): string {
+            read.abort();
+            return "r";
+        }};
+        expect(await atServer.peek(readInput, {signal: read.signal})).toEqual({ok: false, code: "cancelled", cause: "cancelled"});
+    });
+
     it("超时按注入时钟：写请求已 ACK 后超时为 unknown-outcome(timeout)，提供方收到取消", async () => {
         const t = await topology();
         const pending = t.remote(t.browser1).use(echo).at("project").hold({name: "slow"}, {timeout: 1000});
@@ -586,6 +609,41 @@ describe("Spec plugin-channel 输出 4：请求阶段与失败码", () => {
 
         expect(await contexts.get("app.touch-caller")!.remote.use(touch).touch({})).toMatchObject({ok: false, code: "cancelled"});
         expect(executions).toBe(0);
+    });
+
+    it("同实例订阅：门面工厂同步停止了调用方入口时订阅以 cancelled 结算，提供方的 subscribe 不执行，事件不送达", async () => {
+        const t = await topology();
+        const ticks = defineRemoteService({
+            id: "demo.ticks/ticks",
+            version: 1,
+            provider: "server",
+            callers: ["server"],
+            methods: {},
+            events: {tick: {filter: Empty, payload: Type.Integer()}},
+        });
+        const callerScope = hubRegistration(t, "app.tick-caller");
+        let subscribed = 0;
+        const ticker: PluginDefinition = {
+            id: "demo.ticks",
+            entries: [{id: "main", location: "server", remoteProvides: [ticks], activate: () => ({
+                remote: [provideRemote(ticks, () => {
+                    void callerScope.close();
+                    return {methods: {}, events: {tick: {subscribe: (_filter, sink) => {
+                        subscribed += 1;
+                        sink.next(1);
+                    }}}};
+                })],
+            })}],
+        };
+        const contexts = new Map<string, ActivationContext>();
+        expect(t.hub.app.plugins.register(ticker, {scope: t.hub.app.root})).toMatchObject({status: "accepted"});
+        expect(t.hub.app.plugins.register(caller("app.tick-caller", "server", contexts), {scope: callerScope})).toMatchObject({status: "accepted"});
+        expect(await t.hub.app.plugins.activate({plugin: "app.tick-caller", entry: "main"})).toMatchObject({status: "activated"});
+
+        const delivered: number[] = [];
+        expect(await contexts.get("app.tick-caller")!.remote.use(ticks).events.tick.subscribe({}, (value) => void delivered.push(value))).toMatchObject({ok: false, code: "cancelled"});
+        await drain();
+        expect([subscribed, delivered]).toEqual([0, []]);
     });
 
     it("同实例调用：门面工厂同步停止了提供方自己时请求为 unavailable，写方法不执行，刚生成的门面被释放", async () => {
@@ -831,6 +889,52 @@ describe("Spec plugin-channel 输出 7：订阅", () => {
         await drain();
         expect(sink.signal.aborted).toBe(true);
         expect(t.probes.project.released).toEqual(["browser-1:app.caller#1"]);
+    });
+
+    it("跨实例订阅建立期间订阅方开始停止：订阅以 cancelled 结算并随即退订，提供方信号触发", async () => {
+        const t = await topology();
+        const scope = t.browser1.app.root.createChild("app.short-lived");
+        scope.open();
+        const contexts = new Map<string, ActivationContext>();
+        expect(t.browser1.app.plugins.register(caller("app.short-lived", "browser", contexts), {scope})).toMatchObject({status: "accepted"});
+        expect(await t.browser1.app.plugins.activate({plugin: "app.short-lived", entry: "main"})).toMatchObject({status: "activated"});
+        // 提供方接受订阅之后、接受的结果回到订阅方之前，订阅方入口开始停止：它的释放回调随后跑过时这条订阅还没
+        // 登记，结束不到它。
+        let closing: Promise<unknown> = Promise.resolve();
+        t.probes.project.onEnter = () => {
+            closing = scope.close();
+        };
+        expect(await contexts.get("app.short-lived")!.remote.use(echo).at("project").events.ticks.subscribe({topic: "a"}, () => undefined)).toMatchObject({ok: false, code: "cancelled"});
+        await closing;
+        await drain();
+        expect(t.probes.project.sinks[0]!.signal.aborted).toBe(true);
+    });
+
+    it("订阅方入口开始停止、订阅还没结束时到达的事件按迟到事件丢弃", async () => {
+        const t = await topology();
+        const scope = t.browser1.app.root.createChild("app.late-listener");
+        scope.open();
+        const contexts = new Map<string, ActivationContext>();
+        expect(t.browser1.app.plugins.register(caller("app.late-listener", "browser", contexts), {scope})).toMatchObject({status: "accepted"});
+        expect(await t.browser1.app.plugins.activate({plugin: "app.late-listener", entry: "main"})).toMatchObject({status: "activated"});
+        const context = contexts.get("app.late-listener")!;
+        const received: number[] = [];
+        expect(await context.remote.use(echo).at("project").events.ticks.subscribe({topic: "a"}, (payload) => void received.push(payload.n))).toMatchObject({ok: true});
+        await drain();
+        const sink = t.probes.project.sinks[0]!;
+        // 订阅之后才登记、释放要等测试放行的资源：按登记的逆序收口时，它挡在结束订阅的释放回调前面。
+        const release = Promise.withResolvers<void>();
+        context.scope.register({kind: "test-gate", label: "等测试放行", value: release.promise, release: (gate) => gate});
+        sink.next({topic: "a", n: 1});
+        await drain();
+
+        const closing = scope.close();
+        expect(context.signal.aborted).toBe(true);
+        sink.next({topic: "a", n: 2});
+        await drain();
+        release.resolve();
+        await closing;
+        expect(received).toEqual([1]);
     });
 
     it("连接结束：提供方信号触发；同一绑定重连后订阅重建并收到 onResync", async () => {

@@ -194,6 +194,11 @@ interface ActiveSubscription {
     readonly listener: (payload: unknown) => void;
     readonly options: RemoteSubscribeOptions;
     readonly payloadSchema: RemoteContract["events"][string]["payload"];
+    /**
+     * 订阅方入口这一代的停止信号。建立期间它也要生效：同实例订阅在建立中途可能因插件代码（提供方的门面工厂）
+     * 同步停止订阅方，这时订阅不能再建立、事件不能再送达（runtime/plugin-channel.md 输出第 7 条）。
+     */
+    readonly callerSignal: AbortSignal;
     cancel: () => void;
     ended: boolean;
 }
@@ -624,12 +629,18 @@ export class RemoteNodeImpl implements RemoteNode {
                         listener,
                         options,
                         payloadSchema: event.payload,
+                        callerSignal: caller.signal,
                         cancel: () => undefined,
                         ended: false,
                     };
                     const outcome = await this.#startSubscription(subscription);
                     if (!outcome.ok) {
                         return outcome;
+                    }
+                    // 建立期间订阅方已开始停止：它的释放回调已经跑过、不会再收这条订阅，在这里结束它。
+                    if (caller.signal.aborted) {
+                        this.#endLocalSubscription(subscription);
+                        return {ok: false, code: "cancelled"};
                     }
                     // 结束可能早于建立返回（例如首个事件的监听里停了提供方）：已结束的不再登记，否则它留在两张表里不会删掉。
                     if (!subscription.ended) {
@@ -966,7 +977,8 @@ export class RemoteNodeImpl implements RemoteNode {
     async #startSubscription(subscription: ActiveSubscription): Promise<Outcome> {
         const handlers: SubscribeHandlers = {
             onEvent: (payload) => {
-                if (subscription.ended) {
+                // 订阅方已开始停止：释放回调稍后才结束订阅，这之间到达的事件按迟到事件丢弃。
+                if (subscription.ended || subscription.callerSignal.aborted) {
                     return;
                 }
                 const problems = validationProblems(subscription.payloadSchema, payload);
@@ -1003,7 +1015,20 @@ export class RemoteNodeImpl implements RemoteNode {
         const controller = new AbortController();
         const {promise, resolve} = Promise.withResolvers<Outcome>();
         let state: "pending" | "accepted" | "ended" = "pending";
-        subscription.cancel = () => controller.abort();
+        // 同实例订阅不经链路，没有对端替它在订阅方停止时取消：把订阅方的停止信号接到本地的终止信号上，建立中途
+        // 停止时以 cancelled 结算，提供方的 subscribe 因而不会执行（handleSubscribe 在门面工厂返回后核对信号）。
+        const stopWithCaller = (): void => {
+            if (state === "pending") {
+                state = "ended";
+                resolve({ok: false, code: "cancelled"});
+            }
+            controller.abort();
+        };
+        subscription.callerSignal.addEventListener("abort", stopWithCaller, {once: true});
+        subscription.cancel = () => {
+            subscription.callerSignal.removeEventListener("abort", stopWithCaller);
+            controller.abort();
+        };
         const channel: SubscriptionChannel = {
             accept: () => {
                 if (state === "pending") {
