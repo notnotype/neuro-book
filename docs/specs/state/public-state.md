@@ -107,6 +107,7 @@ type PublicRead =
 - 公开接口：贡献点 `state.public` 的声明形状、限定名规则、读取服务与它的服务键。
 - 声明形状将来扩展只加可选字段；`type` 的取值只增不改。
 - 第三方插件的公开键随插件清单以 JSON 声明（[`runtime.plugin-manifest`](../runtime/plugin-manifest.md)），规则相同。
+- 读取服务是同步的，按 [`runtime.plugin-api`](../runtime/plugin-api.md) 的选用规则属于内置插件之间的内部服务，只给内置插件依赖。第三方插件声明公开键不受影响；第三方读取公开状态的异步写法随第三方插件 API 设计。
 
 ## 验收与 Smoke
 

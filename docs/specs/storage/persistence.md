@@ -125,7 +125,7 @@ type SubscribeResult = {ok: true; handle: {release(): void}} | {ok: false; code:
 - 句柄在服务对象释放后失效：之后的操作为 `unavailable`，它建立的订阅以 `onEnd("released")` 结束。服务对象随调用方入口的这一代释放。
 - 订阅结束时调用一次 `onEnd(原因)`：分区拥有者的 `nbook.storage` 入口停止为 `provider-stopped`；窗口绑定的项目代次结束、服务端已换进程，按 [远程服务与 RPC 协议](../runtime/plugin-channel.md) 的规则在窗口重连时以 `project-gone`、`server-restarted` 结束。调用方自己 `release` 不调用 `onEnd`。
 - 断线后连回同一服务端进程、同一项目代次时，订阅自动重建，重建后先收到当时的快照；断线期间的写入不逐条补发。
-- 经代理的写入在派发后断线为 `unknown-outcome`：调用方重读后按 revision 判断是否写入，不会被自动重放。
+- 经代理的写入在请求帧发出后断线、超时或取消为 `unknown-outcome`：调用方重读后按 revision 判断是否写入，不会被自动重放。
 - 两个服务端进程交替写同一个库时，一方的订阅收不到另一方的写入，看到的 revision 会跳跃；不能用“不连续”判断漏收。
 
 ## 副作用与数据
@@ -151,7 +151,7 @@ type SubscribeResult = {ok: true; handle: {release(): void}} | {ok: false; code:
 | `busy` | 2 秒内等不到库锁（别的进程正在写同一个库） | 稍后重试 |
 | `io-error` | 库无法读写，或格式不认识 | 报告给用户；库文件不被覆盖 |
 | `unavailable` | 分区已关闭、项目代次已结束、服务端不可达 | 等宿主恢复或刷新 |
-| `unknown-outcome` | 经代理的写请求派发后中断 | 重读后按 revision 判断 |
+| `unknown-outcome` | 经代理的写请求帧发出后中断 | 重读后按 revision 判断 |
 
 一个分区出错只影响该分区；读取失败返回 `error` 快照，调用方在读取成功前不应写入默认值。
 

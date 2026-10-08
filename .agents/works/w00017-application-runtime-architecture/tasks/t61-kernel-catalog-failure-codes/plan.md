@@ -31,6 +31,7 @@
 
 - `REMOTE_FAILURE_CODES` 加 `not-provided`，合同因此不能把它声明为业务失败码（`defineRemoteService` 已按这张表拒绝）。
 - `node.ts` 的 `handleRequest`、`handleSubscribe`：提供方查找为 `missing`（目标实例上没有存活登记的、本运行位置的入口在 `remoteProvides` 里声明这份合同）时，结果为 `not-provided`，原来是 `unavailable`。它属于未派发阶段，是确定失败。
+- 插件宿主的 `#lookupRemote`：存活插件里没有候选时，再看正在停止的插件（作用域处于 `stopping`）有没有声明这份合同的入口，有则为 `unavailable`（插件正在停止，可能是热重载）；插件已停用、卸载（作用域 `closed`）才是 `missing`。（实施时补：原计划没区分插件正在停止。）
 - 仍为 `unavailable` 的情形不变：提供入口受阻、激活失败、正在停止、多个入口声明同一合同、等待环、实例没有插件宿主、本端没连上服务端、服务端正在停止。
 - **内核保留的合同 id**：`runtime/` 开头的合同 id 留给内核自带的查询（现有的实例查询 `runtime/instances`，以及第 3 节的 `runtime/catalog`）；`defineRemoteService` 拒绝这类 id，在模块加载时失败。
 - **应用里的消费方**：Storage 的 `fromRemote`（`packages/neuro-book/src/plugins/storage/shared/remote-route.ts`）把其余码折算为 Storage 的 `unavailable`，`not-provided` 落在这一支，行为不变，只更新注释。
@@ -53,7 +54,7 @@
       | {readonly status: "version-changed"; readonly version: number};
 
   /** 提供入口此刻的状态；名字与插件目录的 EntryStatus 相同。registered 表示已登记、还没激活，调用时会按需激活。 */
-  type RemoteProviderState = "registered" | "activating" | "available" | "blocked" | "failed" | "stopping";
+  type RemoteProviderState = "registered" | "activating" | "available" | "blocked" | "failed" | "stopping" | "closed";
   ```
 
 - **语义**：
@@ -61,7 +62,9 @@
   - 寻址、路由与访问规则和调用相同，按读请求结算：目标不在为 `target-gone`，`{project}` 无权访问为 `denied`，本端没连上为 `unavailable`；
   - 结果只是此刻的信息，查到 `provided` 之后的调用照样可能得到 `not-provided` 或 `unavailable`，调用方照常处理失败；
   - 版本按调用时的同一规则核对（整数精确匹配），不一致返回提供方的版本；
-  - 多个入口声明同一合同时，与调用一样为 `unavailable`。
+  - 多个入口声明同一合同、声明它的插件正在停止时，与调用一样为 `unavailable`；
+  - 调用方种类不在合同的 `callers` 内为 `denied`，与调用相同。
+  - 状态补上 `closed`：插件仍存活、入口这一代已结束且不复活时调用为 `unavailable`（实施时补）。
 - **线上**：查询是发往目标实例的普通请求帧，合同 `runtime/catalog`、方法 `lookup`、`effect: "read"`，输入 `{contract, version}`。目标节点的 `handleRequest` 先认出这个合同：校验输入，ACK 后直接回答，不走提供方查找与激活。经服务端路由转发时与普通请求相同；目标是服务端时由服务端节点自己回答。节点不把查询的目标记进“联系过的目标”，调用方入口停止时不为它发释放帧。
 - **插件宿主一侧**：`RemoteProviderSource` 增加 `describe(contractId): ProviderDescription`。插件宿主从静态声明 `remoteProvides` 里的合同对象取版本，从入口状态取 `state`，不调用 `activate`。远程模块只依赖 TypeBox 与 lifecycle、services 入口，状态的字面量在远程模块里定义，不引用插件宿主的类型；`remote.test.ts` 的源码守卫照旧。
 - **没有远程节点的实例**：插件宿主的 `refusedRemote` 补上 `lookup`，与调用一样得到 `unavailable`。委托入口 `remote.on(调用方)` 只代调用、订阅，不加查询。

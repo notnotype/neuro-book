@@ -57,10 +57,10 @@ owners:
 | 单独的入口加必需依赖 | 同一实例里，这部分功能整段依赖对方的服务 | 只有这个入口受阻，插件显示为部分可用（[`runtime.plugin-manifest`](plugin-manifest.md) 验收第 4 条）；入口的寿命落在对方服务的寿命之内 |
 | 可选依赖加 `ctx.services.resolve(键)` | 同一实例里，入口只有一处要用对方 | `resolve` 返回 `unavailable`：原因 `missing-provider` 表示没有提供方，其它原因表示提供方暂时不可用 |
 | 向对方的贡献点贡献 | 反方向：本插件给对方的系统加东西（命令、页面） | 贡献等待接收者，本插件照常 |
-| 远程调用 | 对方在别的实例，或只在用到时才需要 | 不使任何入口受阻。调用得到 `unavailable` 时按领域降级，目前分不出“没装”与“暂时不可用”；其它失败码按各自含义处理，写请求的 `unknown-outcome` 不能当作没有执行（[远程服务与 RPC 协议](plugin-channel.md) 输出第 1 条） |
+| 远程调用 | 对方在别的实例，或只在用到时才需要 | 不使任何入口受阻。`not-provided` 表示目标实例没装（或没启用）提供这份合同的插件，`unavailable` 表示装了但此刻不可用，按领域分别降级；其它失败码按各自含义处理，写请求的 `unknown-outcome` 不能当作没有执行（[远程服务与 RPC 协议](plugin-channel.md) 输出第 4、5 条）。想在调用前知道对方在不在（例如决定显示不显示一个按钮）、又不想激活提供方时，用 `ctx.remote.lookup(合同, 目标?)`（同文输出第 11 条） |
 | 公开状态加 `when` | 命令要等对方的某个状态 | 键未声明时命令不可用，原因写明（[`workbench.commands`](../workbench/commands.md)） |
 
-内核不提供“先检测对方在不在、再持有它的引用”：拿到引用之后对方可能停止，引用随之失效（[可扩展应用平台设计](../../proposals/extensible-application-platform.md) 2026-09-30 的决定）。上面几种写法里，引用要么随入口寿命由内核管理，要么每次调用重新解析。
+内核不提供“先检测对方在不在、再持有它的引用”：拿到引用之后对方可能停止，引用随之失效（[可扩展应用平台设计](../../proposals/extensible-application-platform.md) 2026-09-30 的决定）。上面几种写法里，引用要么随入口寿命由内核管理，要么每次调用重新解析；`ctx.remote.lookup` 只返回此刻的信息、不返回引用，查到之后的调用照样可能失败。同一实例里判断对方在不在用可选依赖加 `resolve`，不另设查询：它让依赖留在依赖图里，激活顺序与受阻推导照常。
 
 ### 远程形态约束
 
@@ -88,8 +88,9 @@ owners:
 |---|---|---|
 | `ctx.plugin` | 两端 | 插件 id、当前版本、上一次成功激活的版本（首次为空，用于数据迁移） |
 | `ctx.signal` | 两端 | 入口停止时触发 |
-| `ctx.services.require(id)` | 两端 | 取得 `dependencies` 中声明的服务，返回转发器；未声明的 id 返回 `undeclared-service` 失败 |
-| `ctx.remote` | 各位置 | `use(合同).at(目标)` 调用与订阅任意实例的远程服务；本入口的远程提供项经激活产出的 `remote` 交出（[远程服务与 RPC 协议](plugin-channel.md)） |
+| `ctx.services.require(键)` | 两端 | 取得 `dependencies` 中声明的必需依赖，返回服务本身；键是提供方 `shared/contracts.ts` 里定义的服务键对象（[ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)）。未声明或只声明为可选的键抛错：这是写错了入口定义，不是运行期的失败 |
+| `ctx.services.resolve(键)` | 两端 | 解析声明过的依赖（含可选依赖），返回结构化结果，用法见上文“可选功能” |
+| `ctx.remote` | 各位置 | `use(合同).at(目标)` 调用与订阅任意实例的远程服务；`lookup(合同, 目标?)` 不激活提供方地查询目标实例是否提供这份合同；本入口的远程提供项经激活产出的 `remote` 交出（[远程服务与 RPC 协议](plugin-channel.md)） |
 | `ctx.config` | 两端 | 读取本插件在清单中声明的设置项的有效值，订阅变化，更新本插件的设置项；读不到其它插件的设置 |
 | `ctx.secrets` | 服务端 | 本插件私有密钥的读、写、删除；落盘加密，任何接口都不把密钥发给浏览器；无法解密时返回 `secret-unreadable`（见“失败与恢复”） |
 | `ctx.workers.run(module, input, options)` | 两端 | 见下文 worker 池 |
@@ -100,13 +101,13 @@ owners:
 
 持久化记录不在 `ctx` 上：插件在依赖中声明内置插件 `nbook.storage` 的服务，按记录读写（[`storage.persistence`](../storage/persistence.md)）；插件私有目录随资源寻址与文件服务另定。
 
-命令不在 `ctx` 上：命令由内置插件 `nbook.commands` 提供，插件向它的贡献点登记命令，在 `dependencies` 中声明它的命令服务后按 id 执行（[`workbench.commands`](../workbench/commands.md)）。
+命令不在 `ctx` 上：命令由内置插件 `nbook.commands` 提供，插件向它的贡献点登记命令；内置插件在 `dependencies` 中声明它的命令服务后按 id 执行（命令服务含同步读取，只限内置插件；第三方执行命令的写法随第三方插件 API 设计，见 [`workbench.commands`](../workbench/commands.md)）。
 
 插件状态不在 `ctx` 上：插件用 `defineStore` 在一处声明一个入口的内存、持久化、派生与公开状态，在 `activate` 里以 `ctx` 创建，随入口代次释放（[`state.store`](../state/store.md)）；公开键是向贡献点 `state.public` 的声明（[`state.public`](../state/public-state.md)）。
 
 ### 错误码
 
-宿主合成的错误码：`plugin-unavailable`（提供方入口不可用或已停止）、`interrupted`（调用被中止或在三步停止中被放弃）、`invalid-input`（参数不符合 schema）、`undeclared-service`、`provider-error`（提供方抛出未预期的异常，信息脱敏）、`secret-unreadable`。提供方可以定义自己的错误码，以结构化结果返回。
+宿主合成的错误码：`plugin-unavailable`（提供方入口不可用或已停止）、`interrupted`（调用被中止或在三步停止中被放弃）、`invalid-input`（参数不符合 schema）、`provider-error`（提供方抛出未预期的异常，信息脱敏）、`secret-unreadable`。提供方可以定义自己的错误码，以结构化结果返回。
 
 ### worker 池
 
@@ -155,7 +156,7 @@ owners:
 ## 验收与 Smoke
 
 1. **转发器撤销。** 插件 A 取得 B 的服务后 B 被禁用，A 残留的转发器调用立即得到 `plugin-unavailable`。
-2. **未声明服务。** `ctx.services.require` 取未在 `dependencies` 中声明的 id，得到 `undeclared-service`。
+2. **未声明服务。** `ctx.services.require` 取未在 `dependencies` 中声明、或只声明为可选的键时抛错。
 3. **提供方异常。** B 的方法抛错，A 得到 `provider-error`，B 仍然可用。
 4. **worker 中止。** 在 worker 中运行 JS 死循环，调用方中止后 100 毫秒内得到 `interrupted`；Bun 中该 worker 在 1 秒内停止并释放名额，Chromium 中在 5 秒内释放名额；插件禁用时其排队与在途调用全部以 `interrupted` 结算。
 5. **worker 结果形态。** 返回不可克隆的对象得到 `output-not-cloneable`；模块不存在得到 `load-failed`。
@@ -170,4 +171,4 @@ Smoke：示例外部插件在服务端与 Chromium 中各执行一次 worker 调
 
 ## 证据
 
-- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3、P4、P7（2026-09-30 确认 `ctx.config` 与 `ctx.secrets` 由 `nbook.settings` 提供、SDK 提供作用域定时器与异步包装、WebAssembly 不强制切分）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条；跨插件调用一律返回结构化结果、跨插件接口的三类划分、宿主错误码、worker 池上限与结算时限、密钥不可解密时的行为由 [t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，开发者 2026-09-30 确认（worker 池原型的实测见 [G2 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g2/REPORT.md)）；2026-10-06 开发者撤回 `ctx.commands` 与错误码 `command-not-found`，命令改由内置插件 `nbook.commands` 提供（[t49](../../../.agents/works/w00017-application-runtime-architecture/tasks/t49-commands-quick-open/README.md)）；`ctx.storage` 2026-10-07 起由 `nbook.storage` 取代（[t55](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/README.md)）；插件状态用 `defineStore` 由开发者 2026-10-08 确认（[t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md)）；选用规则、可选功能的写法与 `defineEntry` 的字段由开发者 2026-10-08 在 [t60 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md) 中确认。
+- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3、P4、P7（2026-09-30 确认 `ctx.config` 与 `ctx.secrets` 由 `nbook.settings` 提供、SDK 提供作用域定时器与异步包装、WebAssembly 不强制切分）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条；跨插件调用一律返回结构化结果、跨插件接口的三类划分、宿主错误码、worker 池上限与结算时限、密钥不可解密时的行为由 [t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，开发者 2026-09-30 确认（worker 池原型的实测见 [G2 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g2/REPORT.md)）；2026-10-06 开发者撤回 `ctx.commands` 与错误码 `command-not-found`，命令改由内置插件 `nbook.commands` 提供（[t49](../../../.agents/works/w00017-application-runtime-architecture/tasks/t49-commands-quick-open/README.md)）；`ctx.storage` 2026-10-07 起由 `nbook.storage` 取代（[t55](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/README.md)）；插件状态用 `defineStore` 由开发者 2026-10-08 确认（[t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md)）；选用规则、可选功能的写法与 `defineEntry` 的字段由开发者 2026-10-08 在 [t60 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md) 中确认；`ctx.services.require(键)` 与内核一致、`ctx.remote.lookup` 与 `not-provided` 由开发者 2026-10-08 在 [t61 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t61-kernel-catalog-failure-codes/plan.md) 中确认。

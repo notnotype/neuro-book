@@ -43,6 +43,7 @@ owners:
 - **客户端身份**：客户端实例跨重新加载稳定的标识（浏览器存在本地存储里），与每次启动都不同的实例 id 区分；服务端与项目实例没有。调用方身份带它，Storage 的 `local` 记录按它分开（[`storage.persistence`](../storage/persistence.md)）。
 - **服务端进程标识（`boot`）**：服务端每次进程启动时生成，经握手告诉客户端；客户端据此区分“同一服务端进程的重连”与“服务端已重启”。
 - **激活链**：请求触发了哪些入口的按需激活，由路由帧携带，用于发现等待环。
+- **内核保留的合同 id**：以 `runtime/` 开头的合同 id 留给内核自带的查询（实例查询 `runtime/instances`、提供方查询 `runtime/catalog`），插件的合同不能用，定义时即被拒。
 
 ## 输入与前置条件
 
@@ -83,12 +84,13 @@ owners:
 
    | 阶段 | 结果 |
    |---|---|
-   | 未派发：路由校验不过、目标与提供方位置不符、目标不存在或不可用、`{project}` 访问被拒、不在允许的调用方种类、版本不兼容、保留字段冲突 | 确定失败：`invalid-input`、`denied`、`target-gone`、`unavailable`、`version-changed` |
-   | 已派发（目标已 ACK）、尚未收到结果 | 读方法：按原因报告 `target-gone`、`timeout`、`cancelled`，可以重试。写方法：一律 `unknown-outcome`，`cause` 为 `target-gone`、`timeout`、`cancelled` 或 `disconnected`，不自动重试 |
+   | 未派发：本端在帧交给链路之前拒绝（目标与提供方位置不符、保留字段冲突、参数无法编码、没连上服务端、发出前已取消），或路由、目标在 ACK 之前回复拒绝（路由校验不过、目标不存在或不可用、没有提供方、`{project}` 访问被拒、不在允许的调用方种类、版本不兼容） | 确定失败：`invalid-input`、`denied`、`target-gone`、`unavailable`、`not-provided`、`version-changed`、`cancelled` |
+   | 已发出：帧已交给链路，尚未收到 ACK 或结果 | 读方法：断开为 `unavailable`、超时为 `timeout`、取消为 `cancelled`，可以重试。写方法：一律 `unknown-outcome`，不自动重试 |
+   | 已确认：目标已 ACK，尚未收到结果 | 读方法：断开为 `target-gone`、超时为 `timeout`、取消为 `cancelled`，可以重试。写方法：一律 `unknown-outcome`，不自动重试 |
    | 提供方执行完毕 | 成功；合同声明的业务失败码；未声明的异常或输出不符合合同为 `provider-error` |
 
-   ACK 只表示目标收到请求，不证明没有副作用。
-5. **按需激活。** 请求到达时目标实例上声明了该合同的入口未激活，内核按 `onRemote:<合同 id>` 激活它后再派发；激活失败或受阻得到 `unavailable` 并附原因；没有入口声明该合同为 `unavailable`。
+   写请求的 `unknown-outcome` 附 `cause`：`target-gone`、`timeout`、`cancelled` 或 `disconnected`。ACK 只表示目标收到请求并开始执行，不证明没有副作用；没收到 ACK 也不证明没有执行，链路中断时 ACK 可能丢在路上。所以写请求从帧交给链路起被中断，结果就是未知。经服务端转发的请求两跳各自按这张表结算，服务端到目标那一跳的结果原样交回调用方。同一实例内的调用不经链路，ACK 与开始执行在同一步，中断时还没 ACK 的请求确定没有执行，按未派发结算。
+5. **按需激活与没有提供方。** 请求到达时目标实例上声明了该合同的入口未激活，内核按 `onRemote:<合同 id>` 激活它后再派发；激活失败或受阻得到 `unavailable` 并附原因。目标实例上没有已登记的插件在本运行位置的入口里声明该合同（没装、已停用或已卸载）为 `not-provided`；声明它的插件正在停止、多个入口声明同一合同为 `unavailable`。两者都是未派发阶段的确定失败：`not-provided` 表示这项功能在目标实例上不存在，`unavailable` 表示存在但此刻不能用。订阅同样。
 6. **激活期调用与等待环。** 入口激活期间发出的远程调用，超时取作者给的值与内核上限（默认 10 秒，宿主可配置）中较小的一个。入站请求触发入口 E 激活时，E 激活期间发出的调用携带“入站激活链 + E”；任何节点发现需要等待的入口仍在激活中且已在链中，立即以 `unavailable`（`cause: activation-cycle`）失败并记诊断，不挂起；链上的入口若已结束激活（例如它激活期间发出调用但没有等待结果），不必等它，调用照常进行。环只沿同一条激活链检测：两条独立触发的激活互相等待时（例如两个启动激活的入口各自调用对方），由上面的超时上限兜底，调用方得到 `timeout`。
 7. **订阅。** `use(合同).at(目标).事件.subscribe(过滤参数, 监听, {onResync?})` 返回可释放句柄，登记在订阅方的激活作用域上。提供方的 `subscribe(过滤参数, sink, {signal})` 每个订阅调用一次，过滤由提供方完成。订阅绑定两端精确的入口激活代次与所经连接代次：订阅方释放、任一入口开始停止、提供项撤回、任一实例失效或所经连接结束，都取消订阅、触发提供方的 `signal` 并丢弃迟到事件。同一订阅内按序送达；断线期间的事件不补发；连回同一服务端进程、同一项目代次时只重建仍有效的订阅，并调用 `onResync`，订阅方据此重取基线；服务端已换进程时不重建，订阅以 `server-restarted` 结束，绑定的项目代次已结束时以 `project-gone` 结束（见下文“WebSocket 传输与握手”第 4、7 条）。
 8. **实例查询。** `context.remote.instances()` 列出当前在线的实例：种类、绑定的项目代次；不含连接细节。
@@ -97,6 +99,13 @@ owners:
     - 核对按 [`runtime.services`](services.md) 输出第 13 条的签发记录：身份是本实例装配签发给本入口门面的、签发它的门面还没释放、插件在代理允许清单内；另外合同必须在入口的 `remoteDelegates` 里。不满足时调用与订阅得到 `denied`，不发出请求。
     - 经代理建立的远程门面与订阅挂在签发记录下：签发该身份的门面释放时（原调用方入口停止、代理入口停止），先运行代理门面自己的释放函数（期间经代理的调用仍可用），再结束这些订阅、通知提供方释放为该身份生成的门面。经代理的身份带 `via`，提供方为它生成的门面与原调用方直接调用时的门面互不相干。
     - 只有本实例签发的身份能用：提供方收到的远程调用方身份不是签发出去的，不能再经它代理到第三个实例。
+    - 经代理的访问只代调用与订阅，不提供第 11 条的查询。
+11. **查询提供方。** `context.remote.lookup(合同, 目标?)` 回答目标实例此刻是否提供这份合同，不激活提供方、不生成门面、不建立订阅。目标写法与调用相同，`server`、`project` 合同可以省略目标（第 1 条的表）。成功时 `value` 为：
+    - `{status: "provided", state}`：有入口声明这份合同、版本一致、调用方种类在 `callers` 内。`state` 是提供入口此刻的状态：`registered`（还没激活，调用时按需激活）、`activating`、`available`，或 `blocked`、`failed`、`stopping`、`closed`（这四种时调用得到 `unavailable`）。
+    - `{status: "not-provided"}`：条件与第 5 条的 `not-provided` 相同。
+    - `{status: "version-changed", version}`：提供方的合同版本与调用方的不同，`version` 是提供方的版本。
+
+    查询按读请求结算，路由与访问规则与调用相同：目标不在为 `target-gone`，`{project}` 无权访问、调用方种类不在 `callers` 内为 `denied`，多个入口声明同一合同、声明它的插件正在停止为 `unavailable`，本端没连上为 `unavailable`。结果只是此刻的信息，不是引用：查到 `provided` 之后的调用照样可能得到 `not-provided` 或 `unavailable`，调用方照常处理失败。查询是发往目标实例的普通请求帧，合同为内核保留的 `runtime/catalog`，由目标节点直接回答；它不算联系过目标，调用方入口停止时不为它发释放帧。
 
 ## WebSocket 传输与握手
 
@@ -133,7 +142,7 @@ owners:
 
 | 对象 | 状态与转换 |
 |---|---|
-| 请求 | 未派发 → 已派发（ACK）→ 已结算；只结算一次；结算后的迟到结果丢弃 |
+| 请求 | 未派发 → 已发出（帧交给链路）→ 已确认（ACK）→ 已结算；只结算一次；结算后的迟到结果丢弃 |
 | 订阅 | 建立中 → 活动 → 已取消（见输出第 7 条的取消条件）；重连时以新订阅替代，旧订阅不复活 |
 | 链路 | 连接 → 握手（等绑定结果，`welcome` 或 `reject`）→ 已登记 → 断开；每次连接分配新的连接代次；断开即结算其上全部在途请求与订阅并释放绑定的租约；同一实例重连时旧链路被关闭；绑定的项目代次结束时被关闭 |
 | 路由 | 接纳 → 停止接纳 → 已关闭；只前进不回退 |
@@ -153,7 +162,8 @@ owners:
 
 - 输入不符合合同：`invalid-input`，不调用提供方。
 - 提供方返回值不符合合同或抛出未声明异常：`provider-error`，不把不合格数据交给调用方。
-- 提供入口在处理过程中停止：调用方得到第 4 条已派发阶段的结果；之后到达的请求为 `unavailable`。
+- 提供入口在处理过程中停止：调用方得到第 4 条已确认阶段的结果；之后到达的请求为 `unavailable`。
+- 目标实例上没有这份合同的提供方：`not-provided`，调用方按“没有这项功能”处理（隐藏入口或降级），重试没有意义；`unavailable` 表示有提供方但此刻不可用，可以稍后重试。想在调用前知道又不想激活提供方时用第 11 条的查询。
 - 链路断开不证明对方已取消执行中的请求；内核不重放未确认的请求，写请求的结果由领域按自己的合同核对（例如按任务 id 幂等处理）。
 - 激活等待环与激活期超时都返回结构化失败并记诊断，不挂起调用方。
 - 业务值无法经链路编码（插件传了不能序列化的值）：参数或过滤参数为 `invalid-input`，结果为 `provider-error`，事件内容使订阅以 `provider-error` 结束；都立即结算，不等超时。
@@ -175,14 +185,14 @@ owners:
 1. **调用与校验。** 调用方经进程内链路调用另一实例的远程服务得到结果；多余字段或类型错误的输入为 `invalid-input`，提供方未被调用；提供方返回不合格数据为 `provider-error`。
 2. **任意实例可达。** 三个真实内核实例（服务端与两个客户端，或服务端、客户端与项目）互调；客户端到客户端经服务端转发；同实例调用与跨实例调用结果一致；开启本地校验时本地调用传不可序列化值被拒。
 3. **调用方不可伪造。** 提供方看到的调用方是真实发起入口与激活代次；业务参数含保留字段被拒；经代理时为原调用方并附代理身份。
-4. **请求阶段。** 每个阶段的失败码各一例；写请求派发后链路断开得到 `unknown-outcome` 附 `cause`；读请求同样情况按原因报告。
+4. **请求阶段。** 每个阶段的失败码各一例；写请求在帧发出后、ACK 到达前（ACK 在途时链路中断，或超时）与 ACK 之后被中断，都得到 `unknown-outcome` 附 `cause`；读请求同样情况按原因报告；直连与经服务端转发的两跳各一例。
 5. **版本。** wire 协议版本不兼容时链路在业务帧前被拒；合同版本不一致为 `version-changed`。
 6. **按需激活。** 首次远程调用按 `onRemote:<合同 id>` 激活懒入口并成功；激活失败为 `unavailable` 附原因。
 7. **等待环与激活期超时。** 两个入口激活期间互相远程调用：双方得到 `unavailable`（`activation-cycle`）而不是挂起；激活期间只发出调用、不等待结果的入口先结束激活后，被它触发的入口再调用它照常成功；激活期调用的超时上限生效（注入时钟）。
 8. **订阅。** 四种取消条件（订阅方释放、任一入口停止、提供项撤回、连接结束）各一例；迟到事件被丢弃；同一项目代次内重连后订阅重建并收到 `onResync`；旧代次订阅不复活。
 9. **`{project}` 目标。** 访问回调拒绝时为 `denied`，没有访问回调时一律 `denied`；项目代次结束后发往它的请求为 `target-gone`。
 10. **握手与来源。** 带不允许 `Origin` 的升级得到 403、不带 `Origin` 的放行；`wire` 不同的 hello（其余字段是另一版本的形状）得到 `wire-version` 拒绝；`welcome` 带 `boot`；hello 带客户端身份。
-11. **重连与服务端重启。** 连回同一 `boot`：订阅重建并收到 `onResync`。连到另一个服务端进程：hello 带的 `boot` 不同即以 `server-restarted` 拒绝，订阅以 `server-restarted` 结束且不重建，连接结果为 `server-restarted`，之后的调用为 `unavailable`。同一实例重连接管旧链路，旧链路上已派发的写请求为 `unknown-outcome`；描述不一致为 `duplicate-instance`。
+11. **重连与服务端重启。** 连回同一 `boot`：订阅重建并收到 `onResync`。连到另一个服务端进程：hello 带的 `boot` 不同即以 `server-restarted` 拒绝，订阅以 `server-restarted` 结束且不重建，连接结果为 `server-restarted`，之后的调用为 `unavailable`。同一实例重连接管旧链路，旧链路上已发出的写请求为 `unknown-outcome`；描述不一致为 `duplicate-instance`。
 12. **协议违规。** 握手前的业务帧、无法解析的帧使链路关闭并留诊断，对端在途请求立即结算。
 13. **停止。** 停止接纳后新 hello 以 `stopping` 拒绝，客户端新请求为 `unavailable`，项目成员照常；排空等在途请求结算，到截止时间返回截止；关闭断开全部成员。
 14. **编码。** JSON 编码遇函数、symbol、bigint、非有限数、数组里的 `undefined`、非普通对象与循环引用时抛错，请求、结果与事件按阶段结算。
@@ -192,8 +202,10 @@ owners:
 18. **客户端身份与路由覆盖**。客户端实例里插件的调用到达提供方时带该客户端的客户端身份；客户端节点自报另一个客户端身份或运行位置时，提供方看到的是登记的成员描述里的值。
 19. **经代理的远程调用**。代理以签发给它的身份调用另一实例的服务，提供方看到原调用方与 `via`；伪造或签发给别的入口的身份、未在 `remoteDelegates` 里的合同、不在允许清单的插件各自为 `denied`；原调用方入口停止（代理入口仍在）后经代理建立的订阅结束、提供方为它生成的门面释放，代理门面的释放函数运行期间经代理的调用仍可用。
 20. **只取值。** `orThrow` 对成功结果返回值；对路由层失败、带 `cause` 的 `unknown-outcome` 与合同声明的业务失败都抛 `RemoteCallError`，`failure` 与原结果相同。
+21. **没有提供方。** 目标实例没有入口声明合同时，调用与订阅为 `not-provided`；声明它的插件停用后同样为 `not-provided`；提供入口激活失败、受阻时仍为 `unavailable`；`runtime/` 开头的合同 id 在定义时被拒。
+22. **查询提供方。** 提供方未激活时查询得到 `provided` 与 `registered`，且查询后提供方仍未激活；激活后为 `available`；没有提供方为 `not-provided`；版本不同为 `version-changed` 并带提供方的版本；经服务端到达项目实例与另一客户端；`{project}` 无权访问为 `denied`；没连上服务端为 `unavailable`；同实例查询与跨实例查询结果一致。
 
-Smoke：场景 1–9、15、16、18–20 由内核合同测试以真实内核实例与进程内链路覆盖；场景 10–14 由内核合同测试与服务端宿主的真实 Bun WebSocket 测试覆盖，真实 Chrome 上的连接、断线重连、刷新与服务端重启由 `packages/neuro-book/e2e/rpc.e2e.ts` 核对；场景 17 与绑定由真实子进程与真实 Chrome 核对（`e2e/projects.e2e.ts`）；经代理的 Storage 访问在真实 Chrome 里由 `e2e/storage.e2e.ts` 核对。
+Smoke：场景 1–9、15、16、18–22 由内核合同测试以真实内核实例与进程内链路覆盖；场景 10–14 由内核合同测试与服务端宿主的真实 Bun WebSocket 测试覆盖，真实 Chrome 上的连接、断线重连、刷新与服务端重启由 `packages/neuro-book/e2e/rpc.e2e.ts` 核对；场景 17 与绑定由真实子进程与真实 Chrome 核对（`e2e/projects.e2e.ts`）；经代理的 Storage 访问在真实 Chrome 里由 `e2e/storage.e2e.ts` 核对。
 
 ## HTTP 路由贡献（待移交 `nbook.http` 的 Spec）
 
@@ -214,7 +226,7 @@ Smoke：场景 1–9、15、16、18–20 由内核合同测试以真实内核实
 
 ## 证据
 
-- 批准依据：[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 3、4、5、10 节与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`；审查与复审见 [t51 证据](../../../.agents/works/w00017-application-runtime-architecture/tasks/t51-runtime-topology-design/evidences/)）；原插件通道合同的依据为 [可扩展应用平台设计](../../proposals/extensible-application-platform.md) P5 与 [ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条，被取代的部分以 ADR 0024 为准，旧宿主上的 WebSocket 升级见 [G0 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g0/REPORT.md)；绑定、合同的提供方位置与进程间链路由开发者 2026-10-07 在 [t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中确认；调用方的客户端身份与经代理的远程调用由开发者 2026-10-07 在 [t55 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/plan.md) 中确认；`orThrow`、同实例直接用合同与可达表由开发者 2026-10-08 在 [t60 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md) 中确认。本文保持 `planned`，进程间链路实现后再评估晋升。
+- 批准依据：[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 3、4、5、10 节与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`；审查与复审见 [t51 证据](../../../.agents/works/w00017-application-runtime-architecture/tasks/t51-runtime-topology-design/evidences/)）；原插件通道合同的依据为 [可扩展应用平台设计](../../proposals/extensible-application-platform.md) P5 与 [ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条，被取代的部分以 ADR 0024 为准，旧宿主上的 WebSocket 升级见 [G0 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g0/REPORT.md)；绑定、合同的提供方位置与进程间链路由开发者 2026-10-07 在 [t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中确认；调用方的客户端身份与经代理的远程调用由开发者 2026-10-07 在 [t55 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/plan.md) 中确认；`orThrow`、同实例直接用合同与可达表由开发者 2026-10-08 在 [t60 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md) 中确认；`not-provided`、提供方查询与写请求从帧发出起结果未知由开发者 2026-10-08 在 [t61 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t61-kernel-catalog-failure-codes/plan.md) 中确认。本文保持 `planned`，进程间链路实现后再评估晋升。
 - 实现入口：[`remote.ts`](../../../packages/nb-runtime/src/remote/remote.ts)、[`testing/in-process.ts`](../../../packages/nb-runtime/src/remote/testing/in-process.ts)
 - 合同测试：场景 1–9 由 [`protocol.test.ts`](../../../packages/nb-runtime/src/remote/protocol.test.ts)、[`routing.test.ts`](../../../packages/nb-runtime/src/remote/routing.test.ts)、[`activation.test.ts`](../../../packages/nb-runtime/src/remote/activation.test.ts) 与 [`children.test.ts`](../../../packages/nb-runtime/src/application/children.test.ts) 覆盖；场景 10–14 由 `protocol.test.ts`、[`json-codec.test.ts`](../../../packages/nb-runtime/src/remote/json-codec.test.ts) 与 `routing.test.ts` 的握手、重连、协议违规与路由停止各组覆盖；场景 15、16 由 `routing.test.ts` 的绑定、项目代次结束与提供方位置各组及 `protocol.test.ts` 覆盖；场景 17 由新应用的 `src/server/projects/manager.test.ts`、`src/server/server-projects.test.ts` 覆盖；场景 18 由 `routing.test.ts` 的“帧上自报的运行位置与客户端身份不算数”，场景 19 由 [`delegation.test.ts`](../../../packages/nb-runtime/src/remote/delegation.test.ts) 覆盖，场景 20 由 [`result.test.ts`](../../../packages/nb-runtime/src/remote/result.test.ts) 覆盖；模块依赖方向由 [`remote.test.ts`](../../../packages/nb-runtime/src/remote/remote.test.ts) 的源码守卫锁定。
 - Smoke：[`rpc.e2e.ts`](../../../packages/neuro-book/e2e/rpc.e2e.ts)、[`projects.e2e.ts`](../../../packages/neuro-book/e2e/projects.e2e.ts)、[`storage.e2e.ts`](../../../packages/neuro-book/e2e/storage.e2e.ts)（真实 Chrome 与真实服务端、真实项目子进程）

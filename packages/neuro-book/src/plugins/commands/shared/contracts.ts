@@ -104,6 +104,9 @@ export interface CommandExecutionEvent {
 /**
  * 命令服务：一个运行实例的命令表。`nbook.commands` 的入口提供它，Lab 场景的本地命令表也满足它，
  * 所以命令面板与键位分发只依赖这个接口。
+ *
+ * `get`、`list`、`isEnabled` 是同步的，按选用规则这是内置插件之间的内部服务，只给内置插件依赖；第三方插件
+ * 贡献命令不受影响，查询与执行命令的写法随第三方插件 API 设计（docs/specs/workbench/commands.md）。
  */
 export interface CommandService {
     get(id: string): CommandResult<CommandMetadata>;
