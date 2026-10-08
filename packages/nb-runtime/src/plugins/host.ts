@@ -1075,6 +1075,11 @@ export class PluginHostImpl implements PluginHost {
             if (!remoteDeclared.includes(item.contract.id) || remote.has(item.contract.id)) {
                 return fail("output", "undeclared-remote", {key: item.contract.id});
             }
+            // 提供方查询按静态声明回答版本与调用方种类，调用按产出的合同核对：两者必须是同一个合同对象，
+            // 否则同 id 不同版本时查询说“在”、调用却一直 version-changed（runtime/plugins.md 输出第 22 条）。
+            if (!(record.definition.remoteProvides ?? []).includes(item.contract)) {
+                return fail("output", "remote-contract-mismatch", {key: item.contract.id});
+            }
             if (this.#misplacedRemote(item)) {
                 return fail("output", "remote-location-mismatch", {key: item.contract.id});
             }

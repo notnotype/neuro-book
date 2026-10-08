@@ -1231,7 +1231,7 @@ describe("Spec plugin-channel 输出 1：合同的提供方位置", () => {
     });
 });
 
-describe("Spec plugins 输出 22：远程提供项的位置", () => {
+describe("Spec plugins 输出 22：远程提供项的位置与合同", () => {
     const atServer = defineRemoteService({id: "demo.where/server", version: 1, provider: "server", callers: ["browser"], methods: {where: {input: Empty, output: Type.String(), effect: "read"}}});
     const misplaced: PluginDefinition = {
         id: "demo.misplaced",
@@ -1251,6 +1251,27 @@ describe("Spec plugins 输出 22：远程提供项的位置", () => {
             {plugins: [misplaced], gates: [], remote: node},
         );
         expect(await app.startup).toMatchObject({status: "available", failures: [{source: "demo.misplaced/main", reason: "output/remote-location-mismatch", required: false}]});
+    });
+
+    it("产出的合同与声明的不是同一个合同对象（同 id 不同版本）为输出阶段失败 remote-contract-mismatch", async () => {
+        // 提供方查询按声明回答版本，调用按产出的合同核对：放过这种入口，查询说版本 1 可用，调用却一直 version-changed。
+        const atServerV2 = defineRemoteService({...atServer, version: 2});
+        const drifted: PluginDefinition = {
+            id: "demo.drifted",
+            entries: [{
+                id: "main",
+                location: "server",
+                activationEvents: ["onStartup"],
+                remoteProvides: [atServer],
+                activate: () => ({remote: [provideRemote(atServerV2, () => ({methods: {where: () => ({ok: true, value: "server"})}}))]}),
+            }],
+        };
+        const node = createRemoteNode({instance: {id: "hub", kind: "server", role: "hub", project: null, client: null}});
+        const app = createApplication(
+            {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
+            {plugins: [drifted], gates: [], remote: node},
+        );
+        expect(await app.startup).toMatchObject({status: "available", failures: [{source: "demo.drifted/main", reason: "output/remote-contract-mismatch", required: false}]});
     });
 
     it("没有远程节点的实例不核对位置", async () => {

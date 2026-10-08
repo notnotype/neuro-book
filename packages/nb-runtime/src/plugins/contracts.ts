@@ -252,6 +252,7 @@ export type ActivationFailureReason =
     | "missing-remote"
     | "undeclared-remote"
     | "remote-location-mismatch"
+    | "remote-contract-mismatch"
     | "receiver-prepare-failed";
 
 export interface ActivationFailed {
