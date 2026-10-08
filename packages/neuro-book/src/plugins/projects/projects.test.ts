@@ -26,7 +26,6 @@ import type {PaletteHost} from "nbook/plugins/workbench/web/commands/palette-hos
 import {killSpawnedProjects, leaseOf, projectHarness} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
 import {projectsKey, windowProjectKey} from "nbook/shared/projects";
-import {collectServiceKeys} from "nbook/shared/service-keys";
 import {browserPluginFactories} from "nbook/web/plugins";
 
 import {createProjectsServerPlugin} from "./server/plugin";
@@ -58,7 +57,6 @@ async function setup(): Promise<{readonly h: ProjectHarness; readonly projects: 
     const app = createApplication(
         {identity: {location: "browser", instanceId: "browser-1"}, stopSignal: new AbortController().signal, emergency: () => undefined},
         {
-            keys: [],
             plugins: [{id: "app.window", entries: [{id: "main", location: "browser", activationEvents: ["onStartup"], activate: (context) => {
                 remote = context.remote;
                 return {};
@@ -163,7 +161,7 @@ describe("Spec projects 输出 10：命令登记", () => {
         ];
         const app = createApplication(
             {identity: {location: "browser", instanceId: "window-1"}, stopSignal: new AbortController().signal, emergency: () => undefined},
-            {keys: collectServiceKeys(plugins, [windowProjectKey]), capabilities: [{id: "window.project", key: windowProjectKey, create: () => ({project: null})}], plugins, requiredPlugins: ["nbook.diagnostics", "nbook.commands", "nbook.workbench"], gates: []},
+            {capabilities: [{id: "window.project", key: windowProjectKey, create: () => ({project: null})}], plugins, requiredPlugins: ["nbook.diagnostics", "nbook.commands", "nbook.workbench"], gates: []},
         );
         expect(await app.startup).toMatchObject({status: "available", failures: []});
         expect(commands!.get("nbook.project.open")).toMatchObject({ok: true, value: {source: "nbook.projects", title: {"zh-CN": "打开项目"}}});

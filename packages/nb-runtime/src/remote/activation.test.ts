@@ -27,7 +27,7 @@ async function start(descriptor: InstanceDescriptor, plugins: ReadonlyArray<Plug
     const diagnostics: PluginDiagnostic[] = [];
     const app = createApplication(
         {identity: {location: descriptor.kind, instanceId: descriptor.id}, stopSignal: new AbortController().signal, emergency: () => undefined},
-        {keys: [], plugins, gates: [], remote: node, observers: {plugins: {diagnosticRecorded: (diagnostic) => diagnostics.push(diagnostic)}}},
+        {plugins, gates: [], remote: node, observers: {plugins: {diagnosticRecorded: (diagnostic) => diagnostics.push(diagnostic)}}},
     );
     expect(await app.startup).toMatchObject({status: "available"});
     return {app, node, diagnostics};

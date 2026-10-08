@@ -203,7 +203,6 @@ export type RegistrationRejectionReason =
     | "unknown-contribution-point"
     | "duplicate-receiver"
     | "duplicate-contribution-point"
-    | "unknown-service-key"
     | "foreign-service-id"
     | "reserved-service-name"
     | "self-dependency"

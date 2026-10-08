@@ -21,7 +21,7 @@ afterEach(async () => {
 it("场景 2：两个插件各拿到自己的门面，只看到自己写的笔记；实例停止后门面作废", async () => {
     const a = serviceProbe("example.a", "server", [notesKey]);
     const b = serviceProbe("example.b", "server", [notesKey]);
-    await stage.local({plugins: [createNotesServerPlugin(), a.definition, b.definition], keys: [notesKey]});
+    await stage.local({plugins: [createNotesServerPlugin(), a.definition, b.definition]});
 
     a.get(notesKey).add("A 的笔记");
     b.get(notesKey).add("B 的笔记");

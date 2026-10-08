@@ -65,7 +65,6 @@ async function windowBoundTo(h: ProjectHarness, id: string) {
     const app = createApplication(
         {identity: {location: "browser", instanceId: id}, stopSignal: new AbortController().signal, emergency: () => undefined},
         {
-            keys: [],
             plugins: [{id: "app.window", entries: [{id: "main", location: "browser", activationEvents: ["onStartup"], activate: (context) => {
                 remote = context.remote;
                 return {};

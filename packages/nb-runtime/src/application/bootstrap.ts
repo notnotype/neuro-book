@@ -80,7 +80,7 @@ export class ApplicationImpl implements Application {
         this.#instance = createRuntimeInstance(host.identity, {observer: manifest.observers?.lifecycle});
         this.identity = this.#instance.identity;
         this.root = this.#instance.root;
-        this.assembly = createServiceAssembly(this.#instance, {keys: manifest.keys, observer: manifest.observers?.services});
+        this.assembly = createServiceAssembly(this.#instance, {observer: manifest.observers?.services});
         this.#startupSignal = AbortSignal.any([this.root.stopSignal, this.#stopRequested.signal]);
         this.plugins = createPluginHost(this.#instance, this.assembly, {observer: manifest.observers?.plugins, remote: manifest.remote, delegation: manifest.delegation});
         if (host.stopSignal.aborted) {
@@ -326,7 +326,21 @@ export class ApplicationImpl implements Application {
                     if (declared.status === "rejected") {
                         return failed(`check:${declared.reason}`);
                     }
-                    await gate.check({signal: this.#startupSignal, root: this.root, services: this.assembly.access(consumerId)});
+                    const services = this.assembly.access(consumerId);
+                    // 必需依赖在静态上就满足不了（例如没有任何入口提供这个 id）时，在检查之前失败、不调用检查函数；
+                    // 原因与 resolve 门禁相同，经同一次解析得出。
+                    const verdicts = this.assembly.report().entries.find((entry) => entry.id === consumerId)?.dependencies ?? [];
+                    for (const dependency of gate.dependencies ?? []) {
+                        const verdict = verdicts.find((candidate) => candidate.key === dependency.key.name);
+                        if (dependency.required === false || verdict === undefined || verdict.status === "satisfied") {
+                            continue;
+                        }
+                        const result = await services.resolve(dependency.key, {signal: this.#startupSignal});
+                        if (result.status !== "resolved") {
+                            return {...base, status: "failed", reason: `check:${result.reason}`, error: result.error};
+                        }
+                    }
+                    await gate.check({signal: this.#startupSignal, root: this.root, services});
                     return {...base, status: "passed"};
                 }
             }

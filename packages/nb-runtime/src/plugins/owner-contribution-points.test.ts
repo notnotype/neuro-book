@@ -3,7 +3,6 @@ import {afterEach, describe, expect, it} from "bun:test";
 import {createRuntimeInstance} from "../lifecycle/lifecycle";
 import type {Scope} from "../lifecycle/lifecycle";
 import {createServiceAssembly, defineServiceKey} from "../services/services";
-import type {ServiceKey} from "../services/services";
 
 import {createPluginHost, PluginStateError, provide} from "./plugins";
 import type {
@@ -28,11 +27,11 @@ afterEach(async () => {
     await Promise.all(roots.splice(0).map((scope) => scope.close()));
 });
 
-function fixture(keys: ReadonlyArray<ServiceKey<unknown>> = []) {
+function fixture() {
     const runtime = createRuntimeInstance({location: "server", instanceId: "contribution-contract"});
     runtime.root.open();
     roots.push(runtime.root);
-    const assembly = createServiceAssembly(runtime, {keys});
+    const assembly = createServiceAssembly(runtime);
     const diagnostics: PluginDiagnostic[] = [];
     const host = createPluginHost(runtime, assembly, {observer: {diagnosticRecorded: (diagnostic) => diagnostics.push(diagnostic)}});
     return {host, root: runtime.root, assembly, diagnostics};
@@ -283,7 +282,7 @@ describe("拥有者贡献点合同", () => {
     });
 
     it("场景 9：拥有者先断开再释放产出，贡献方不受影响，新登记新代次补交且旧句柄不复活", async () => {
-        const {host, root} = fixture([ownerOutputKey]);
+        const {host, root} = fixture();
         const ownerScope = child(root, "owner-1");
         const events: string[] = [];
         const handles: ContributionHandle[] = [];
@@ -417,7 +416,7 @@ describe("拥有者贡献点合同", () => {
 
     it("场景 13：拥有者受阻或激活失败都不是贡献方依赖，贡献方可用且等待接收者", async () => {
         for (const blocked of [true, false]) {
-            const {host, root} = fixture([blockerKey]);
+            const {host, root} = fixture();
             const definition = owner([point()], {}, () => {throw new Error("owner activation failed");});
             register(host, {...definition, entries: [{...definition.entries[0]!, dependencies: blocked ? [{key: blockerKey}] : []}]}, root);
             register(host, source("source", [declaration("one")]), root);
@@ -453,7 +452,7 @@ describe("拥有者贡献点合同", () => {
     });
 
     it("接收者关闭与贡献方 prepare 交错时不释放在途回调的产出，贡献方仍成功等待接收者", async () => {
-        const {host, root} = fixture([ownerOutputKey]);
+        const {host, root} = fixture();
         const ownerScope = child(root, "owner");
         const started = Promise.withResolvers<void>();
         const gate = Promise.withResolvers<void>();
@@ -515,7 +514,7 @@ describe("拥有者贡献点合同", () => {
         expect((await host.activate({plugin: "source", entry: "main"})).status).toBe("activated");
     });
     it("已交给 services 的拥有者产出仍在接收者撤回完成后才释放", async () => {
-        const {host, root, assembly} = fixture([ownerOutputKey]);
+        const {host, root, assembly} = fixture();
         const ownerScope = child(root, "owner");
         const output = {alive: true};
         const events: string[] = [];

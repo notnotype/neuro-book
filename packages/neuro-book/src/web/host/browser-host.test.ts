@@ -9,7 +9,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {BrowserRuntimeHost} from "./browser-host";
 
-const emptyManifest: ApplicationManifest = {keys: [], plugins: [], requiredPlugins: [], gates: []};
+const emptyManifest: ApplicationManifest = {plugins: [], requiredPlugins: [], gates: []};
 const ignore = (): void => undefined;
 
 describe("浏览器环境适配器", () => {
@@ -59,7 +59,7 @@ describe("浏览器环境适配器", () => {
         const reports: EmergencyReport[] = [];
         const host = new BrowserRuntimeHost().start({
             instanceId: "w1",
-            manifest: {keys: [], plugins: [failing], requiredPlugins: ["test.fail"], gates: []},
+            manifest: {plugins: [failing], requiredPlugins: ["test.fail"], gates: []},
             page: new EventTarget(),
             emergency: (report) => reports.push(report),
         });

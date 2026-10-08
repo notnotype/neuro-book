@@ -20,7 +20,6 @@ import {startServerHost} from "nbook/server/host";
 import type {FatalKind, ProcessEvents, ServerHost} from "nbook/server/host";
 import {createEnvelopeLink, parseEnvelope} from "nbook/server/projects/ipc";
 import type {EnvelopeChannel} from "nbook/server/projects/ipc";
-import {collectServiceKeys} from "nbook/shared/service-keys";
 
 import type {ProjectConfig} from "./config";
 import {currentProjectKey} from "./current-project";
@@ -125,7 +124,6 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
         instanceId: instance.id,
         location: "project",
         manifest: {
-            keys: collectServiceKeys(plugins, [currentProjectKey]),
             capabilities: [{id: "project.current", key: currentProjectKey, create: () => current}],
             plugins,
             requiredPlugins: plugins.map((plugin) => plugin.id),

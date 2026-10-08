@@ -23,7 +23,7 @@ interface Fixture {
 function setup(): Fixture {
     const runtime = createRuntimeInstance({location: "server", instanceId: "server-1"});
     runtime.root.open();
-    const assembly = createServiceAssembly(runtime, {keys: [storeKey]});
+    const assembly = createServiceAssembly(runtime, {});
     const host = createPluginHost(runtime, assembly, {});
     const released: ConsumerIdentity[] = [];
     const store: PluginDefinition = {

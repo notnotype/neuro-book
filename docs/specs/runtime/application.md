@@ -28,7 +28,7 @@ owners:
 
 ## 输入与前置条件
 
-1. 输入包含运行位置与实例身份、静态受信清单、本地能力、关闭信号、紧急输出以及装配方指定的必需门禁。根定位、凭据来源及进程管理权限由环境边界先验证；内核不得自行扫描 cwd、用户目录或网络寻找替代根。实例身份为运行位置、实例 id 与可选的客户端身份：客户端实例（浏览器、以后的 TUI）由宿主给出跨重新加载稳定的客户端身份，服务端与项目实例不给；服务装配把它填进本实例插件入口的调用方身份（[服务装配](services.md) 输出第 11 条，随 t55）。
+1. 输入包含运行位置与实例身份、静态受信清单、本地能力、关闭信号、紧急输出以及装配方指定的必需门禁。根定位、凭据来源及进程管理权限由环境边界先验证；内核不得自行扫描 cwd、用户目录或网络寻找替代根。实例身份为运行位置、实例 id 与可选的客户端身份：客户端实例（浏览器、以后的 TUI）由宿主给出跨重新加载稳定的客户端身份，服务端与项目实例不给；服务装配把它填进本实例插件入口的调用方身份（[服务装配](services.md) 输出第 11 条）。
 2. 相同环境中的不同应用实例必须显式隔离；不是共享一个隐式全局容器。重复启动请求指向同一实例时共享其启动结果，不能再创建一套提供者。
 3. 浏览器只获得本地 UI 能力与经身份/授权的远端协议代理；不获得数据库对象、服务端路径或凭据。后端不得把某次请求的身份放入进程级默认服务。
 4. 本地服务与插件按 [服务装配](services.md)、[插件运行时](plugins.md) 校验。跨位置不存在对象 DI，也不承诺一次激活事务覆盖网络。
@@ -42,7 +42,7 @@ owners:
 - 装配方可以指定启动必需的插件。登记完成后、执行门禁之前，并发激活启动必需插件在本位置的全部入口与声明了 `onStartup` 的本位置入口；依赖先于依赖者完成激活，不按清单顺序串行，其余入口保持懒激活。启动必需插件的入口受阻或激活失败时启动失败；非必需的 `onStartup` 入口受阻或失败只记录为可选失败。
 - 停止进入后拒绝新业务与新激活，但已接纳操作以及其清理仍按精确 owner 使用存活依赖。停止结果区分完成、失败/未完成及强制终止后未知，不能把超时映射成正常 closed。
 - 描述登记、同一服务重复解析和普通 UI 读取不反复添加进程信号/浏览器监听。实例释放后，适配器自己的监听和订阅不再触发该实例。
-- **子实例与租约**：父实例经 `createChildInstances(parent, options)` 管理子实例，宿主回调负责真正创建与停止（例如启动子进程）。`acquire(键, 持有者)` 返回租约或拒绝原因；子实例代次单调递增、不复用。父实例开始停止时**同步**关闭接纳，之后的 `acquire` 一律以 `admission-closed` 拒绝；随后停止全部子实例并等待真实退出或到截止强制结束，最后才释放父实例自己的其余资源。子实例停止期间父实例的插件与资源仍可用（供子实例收口时调用），但 `status()` 已报 `stopping`、`admit` 拒绝新业务。父实例的截止先于子实例停完到达时，父实例停止结算为 `incomplete(deadline)`，不报 closed。强制结束记为外部观察到的终止并写诊断，不报为正常关闭；宿主报告的意外退出同样立即结束该代次、使其租约失效。按代次取得（`acquire(键, 持有者, {generation})`，随 t54）只在指定代次是当前代次、且处于 `available` 或 `idle-grace` 时取得（宽限期中同样取消关闭），否则立即以 `generation-gone` 拒绝，不等待、不创建新代次；客户端按原代次重连用它，保证旧绑定不会改投新代次。
+- **子实例与租约**：父实例经 `createChildInstances(parent, options)` 管理子实例，宿主回调负责真正创建与停止（例如启动子进程）。`acquire(键, 持有者)` 返回租约或拒绝原因；子实例代次单调递增、不复用。父实例开始停止时**同步**关闭接纳，之后的 `acquire` 一律以 `admission-closed` 拒绝；随后停止全部子实例并等待真实退出或到截止强制结束，最后才释放父实例自己的其余资源。子实例停止期间父实例的插件与资源仍可用（供子实例收口时调用），但 `status()` 已报 `stopping`、`admit` 拒绝新业务。父实例的截止先于子实例停完到达时，父实例停止结算为 `incomplete(deadline)`，不报 closed。强制结束记为外部观察到的终止并写诊断，不报为正常关闭；宿主报告的意外退出同样立即结束该代次、使其租约失效。按代次取得（`acquire(键, 持有者, {generation})`）只在指定代次是当前代次、且处于 `available` 或 `idle-grace` 时取得（宽限期中同样取消关闭），否则立即以 `generation-gone` 拒绝，不等待、不创建新代次；客户端按原代次重连用它，保证旧绑定不会改投新代次。
 - **远程节点**：清单可以给出远程节点，插件宿主据此交出远程提供项、在激活上下文中提供 `remote`；没有远程节点时远程调用返回 `unavailable`。
 
 ## 状态与转换
@@ -68,7 +68,7 @@ owners:
 | `idle-grace` | 新 `acquire` | 取消关闭，回到 `available` 并取得租约 |
 | `idle-grace` | 宽限期满 | `stopping`；宿主回调停止 |
 | `stopping` | 新 `acquire` | 不复活本代次；等它进入 `terminated` 后以新代次创建（父实例已在停止则 `admission-closed`） |
-| `creating`、`stopping`、`terminated`，或不是当前代次 | 按代次 `acquire`（随 t54） | 立即 `generation-gone`，不等待、不创建 |
+| `creating`、`stopping`、`terminated`，或不是当前代次 | 按代次 `acquire` | 立即 `generation-gone`，不等待、不创建 |
 | `stopping` | 子实例退出或到截止强制结束 | `terminated`；强制结束带标记与诊断 |
 | `available`、`idle-grace` | 子实例意外退出 | `terminated`；全部租约失效，持有者收到失效通知 |
 | 任意 | 父实例开始停止 | 同步关闭接纳；存活子实例依次进入 `stopping` |
@@ -103,6 +103,7 @@ owners:
 5. Nuxt/Nitro hook 只连接一个明确的应用装配入口。Component Lab 不成为该入口的底层依赖；后续 Lab 清单与产品清单分开，浏览器是否访问产品服务取决于明确装配，而不是路由名称的隐式豁免。
 6. 第一切片交付 B/S 所需的浏览器与后端环境入口，另有受控测试宿主用于故障验证；Desktop/Worker 仅保留可适配边界，尚无该环境实测时不得宣称支持。
 7. 产品启动链迁入内核的目标合同（`planned`）见 [`runtime.server-host`](server-host.md)、[`runtime.browser-host`](browser-host.md) 与 [`runtime.stall-watchdog`](stall-watchdog.md)。
+8. **已知限制**：显式关闭的 dirty 与在途工作协商由调用方在调用 `stop()` 之前完成，内核不提供否决接口；强制终止后的“未知”由外部观察者（持久化与领域 owner）判断，不属于实例自身可报告的结果。`project` 位置的运行实例由服务端为每个项目起的子进程里的项目宿主建立，项目管理与服务端停止顺序见 [`runtime.projects`](projects.md)、[`runtime.server-host`](server-host.md)。
 
 ## 验收与 Smoke
 
@@ -111,7 +112,7 @@ owners:
 - **启动与关闭竞态**：初始化未完成时停止，迟到完成没有重开接纳；已得到的资源释放一次。消费者关闭时仍能完成依赖清理；依赖关闭失败则不报整实例 closed。
 - **真实宿主事件**：后端合作停止信号和浏览器显式销毁都走同一生命周期合同；移除适配器后重复事件不能调用旧实例。浏览器强制卸载只报告无法保证，不以测试中的异步回调成功假定真实卸载可靠。
 - **隔离与伸缩**：两个浏览器实例、两个本地子作用域的提供者不串实例；一个窗口释放不发送共享后端全局关闭。更换受控装配的能力集合不修改机制实现。
-- **子实例与租约**：状态表每个转换各一例（宽限期用注入时钟）；按代次取得在宽限期中取消关闭、在停止中与已结束时得到 `generation-gone` 且没有创建新代次（随 t54）；宽限期内新租约取消关闭；`stopping` 中的新租约得到新代次；父实例停止后新租约被拒、子实例先于父实例其余资源停止；强制结束记为外部终止；子实例代次不复用。
+- **子实例与租约**：状态表每个转换各一例（宽限期用注入时钟）；按代次取得在宽限期中取消关闭、在停止中与已结束时得到 `generation-gone` 且没有创建新代次；宽限期内新租约取消关闭；`stopping` 中的新租约得到新代次；父实例停止后新租约被拒、子实例先于父实例其余资源停止；强制结束记为外部终止；子实例代次不复用。
 - 上述五组由 `bun run smoke:runtime-foundation -- --host server|browser` 在真实后端子进程与真实 Chromium 上运行，另由内核与两个适配器的合同测试在进程内覆盖竞态与拒绝分支。运行数据遵守 [测试与临时根合同](../../testing/README.md)；第一切片不初始化产品数据库、不调用 Provider，不以 Component Lab fixture 替代宿主验证。
 
 ## 实现合同
@@ -122,10 +123,10 @@ owners:
   - 浏览器适配器（web）：`packages/neuro-book/src/web/host/browser-host.ts`（`BrowserRuntimeHost.start({instanceId, client?, manifest, page, emergency}) → BrowserHost {application, destroy(), stopSource, detached}`；`page` 是结构化的页面事件目标，不依赖 DOM 类型与 Vue），窗口的启动与状态见 [`runtime.browser-host`](browser-host.md)。
 - **依赖方向**：内核只允许同目录相对导入与 lifecycle / services / plugins 三个入口，源码不引用 `process.`/`window.`/`document.`，由内核包的合同测试守住；新应用的前端代码（含浏览器适配器）不引用后端代码与 Node、Bun 模块，由 `packages/neuro-book/src/architecture.test.ts` 守住。
 - **公开接口**：
-  - `HostContext {identity, stopSignal, stopDeadline?, emergency(report)}`：宿主只提供实例身份、停止来源、首次停止的截止与最小紧急输出。身份为 `{location, instanceId, client?}`，`client` 是客户端实例的客户端身份（随 t55，浏览器窗口传入，服务端与项目实例不给）。`stopDeadline` 是函数，内核在首次停止开始时调用一次取得截止信号；宿主需要有界停止时用 `stopTimeout(ms)` 构造，只接受 1..2^31-1 的整数毫秒（超出定时器范围的值会被运行时缩成立即触发），其余抛 TypeError。
-  - `ApplicationManifest {keys, capabilities?, plugins, requiredPlugins?, gates, observers?, remote?, delegation?}`：`remote` 是本实例的远程节点、`delegation` 是代理允许清单，都原样交给插件宿主；静态受信清单；贡献接收者不在清单中，由定义贡献点的插件在激活时交出（见 [`runtime.plugins`](plugins.md) 输出第 16 条）。`requiredPlugins` 是启动必需的插件 id，登记后激活它们在本位置的全部入口；其它入口以 `activationEvents: ["onStartup"]` 声明启动激活。`CapabilityProvider` 是根作用域 owner 的本地服务提供者，`create` 可以返回 `perConsumer(...)` 按调用方门面提供（规则同 [`runtime.services`](services.md) 的按调用方门面，随 t54）；`StartupGate` 三种：`activate {entry}`、`resolve {key}`、`check {dependencies?, check(ctx)}`（`ctx.services` 只能解析该门禁声明的键）；`required` 缺省 true；`observers` 把三个机制的诊断观察者在创建实例前接上。
+  - `HostContext {identity, stopSignal, stopDeadline?, emergency(report)}`：宿主只提供实例身份、停止来源、首次停止的截止与最小紧急输出。身份为 `{location, instanceId, client?}`，`client` 是客户端实例的客户端身份（浏览器窗口传入，服务端与项目实例不给）。`stopDeadline` 是函数，内核在首次停止开始时调用一次取得截止信号；宿主需要有界停止时用 `stopTimeout(ms)` 构造，只接受 1..2^31-1 的整数毫秒（超出定时器范围的值会被运行时缩成立即触发），其余抛 TypeError。
+  - `ApplicationManifest {capabilities?, plugins, requiredPlugins?, gates, observers?, remote?, delegation?}`：`remote` 是本实例的远程节点、`delegation` 是代理允许清单，都原样交给插件宿主；静态受信清单；贡献接收者不在清单中，由定义贡献点的插件在激活时交出（见 [`runtime.plugins`](plugins.md) 输出第 16 条）。`requiredPlugins` 是启动必需的插件 id，登记后激活它们在本位置的全部入口；其它入口以 `activationEvents: ["onStartup"]` 声明启动激活。`CapabilityProvider` 是根作用域 owner 的本地服务提供者，`create` 可以返回 `perConsumer(...)` 按调用方门面提供（规则同 [`runtime.services`](services.md) 的按调用方门面）；`StartupGate` 三种：`activate {entry}`、`resolve {key}`、`check {dependencies?, check(ctx)}`（`ctx.services` 只能解析该门禁声明的键）；`required` 缺省 true；`observers` 把三个机制的诊断观察者在创建实例前接上。
   - `Application {identity, root, assembly, plugins, startup, stopped, closed, status(), admit(spec), stop(request?), recover(request?)}`：`startup` 共享；`admit` 等启动结果后经根作用域 `accept`，未开放时 `rejected`：启动失败报 `startup-failed`，启动前被宿主停止或已进入停止按根作用域阶段报 `stopping | closed`；`stop` 幂等，宿主截止与调用方截止同时约束首次停止；`recover` 另起一次关闭尝试（只用调用方截止，加入在途尝试时观察同一结果）；`stopped` 是首次停止的结算；`closed` 在首次停止或之后某次恢复结算为 closed 时兑现。停止与恢复只经这两个方法：`root` 用于观察与创建子作用域，直接关闭根作用域会绕过宿主截止与两个通知。
-  - `createChildInstances<Handle>(parent, {create(key, generation), stop(handle, {signal}), graceMs, stopDeadlineMs, clock?}) → ChildInstances {acquire(key, holder, options?), state(key), list(), holds(key, generation, holder), exited(key, generation), diagnostics()}`：`acquire` 返回 `acquired {lease: {key, generation, holder, revoked, release()}}` 或 `rejected {reason: admission-closed | create-failed | generation-gone, detail}`（`options.generation` 与 `generation-gone` 随 t54）；`ChildStatus` 带 `abnormal: forced | exited | stop-failed | null`（`stop-failed` 是宿主停止回调抛错、不知道子实例是否已退出）。`parent` 必须是 `createApplication` 创建的实例。
+  - `createChildInstances<Handle>(parent, {create(key, generation), stop(handle, {signal}), graceMs, stopDeadlineMs, clock?}) → ChildInstances {acquire(key, holder, options?), state(key), list(), holds(key, generation, holder), exited(key, generation), diagnostics()}`：`acquire` 返回 `acquired {lease: {key, generation, holder, revoked, release()}}` 或 `rejected {reason: admission-closed | create-failed | generation-gone, detail}`；`ChildStatus` 带 `abnormal: forced | exited | stop-failed | null`（`stop-failed` 是宿主停止回调抛错、不知道子实例是否已退出）。`parent` 必须是 `createApplication` 创建的实例。
   - `StartupResult = available | failed{stop} | stopped{stop}` 带 `gates: GateOutcome[]`（`passed | failed{reason,error} | skipped`）与 `failures: StartupFailure[]`（`category: manifest | activation | gate | stopped`，`stage: register | activate | gate`；activation 失败的 `source` 为 `插件/入口`，`reason` 为 `blocked:<受阻原因>`、`<失败阶段>/<原因>` 或 `rejected:<原因>`）；`StopResult = closed | incomplete{reason, report}`。
 - **关键不变量**：
   - 清单登记只登记描述（能力提供者向 services 声明，插件向 plugins 登记），不实例化；插件登记顺序没有语义。
@@ -136,9 +137,9 @@ owners:
   - 有界停止：宿主截止触发后首次停止结算为 `incomplete(deadline)`，根作用域保持停止中，挂起的释放继续运行、不被撤销也不重入；适配器随 `stopped` 结算移除监听，进程是否退出由宿主决定。
   - 适配器各自拥有自己的监听，每个实例挂接一次，等 `application.stopped` 结算后移除；`requestStop` / `destroy` / `pagehide` 只有第一次生效并记录来源；`pagehide` 不等待任何 Promise。
   - 停止阶段：首次 `stop()` 的同步段先触发内部的“停止已开始”信号（子实例据此关闭接纳；`status()` 报 `stopping`、`admission: closed`，`admit` 拒绝 `stopping`；启动中的激活与门禁等待立即取消），再跑完登记的停止阶段，最后才关闭根作用域。没有停止阶段时根作用域在同步段里开始关闭，时序与以前相同。停止阶段受首次停止的截止约束；子实例管理另在根作用域登记一项等仍在停止的子实例的资源，截止先到时首次停止结算为 `incomplete(deadline)`。
-  - 子实例代次：同一键的代次单调递增、不复用；`stopping` 的代次不复活，新 `acquire` 等它 `terminated` 后创建新代次；宽限期内的 `acquire` 取消关闭计时。按代次取得（随 t54）不进等待与创建的循环：只看当前代次的阶段，`available` 与 `idle-grace` 取得，其余立即 `generation-gone`。宿主报告的退出只对当前代次生效，过期代次的报告被忽略。
+  - 子实例代次：同一键的代次单调递增、不复用；`stopping` 的代次不复活，新 `acquire` 等它 `terminated` 后创建新代次；宽限期内的 `acquire` 取消关闭计时。按代次取得不进等待与创建的循环：只看当前代次的阶段，`available` 与 `idle-grace` 取得，其余立即 `generation-gone`。宿主报告的退出只对当前代次生效，过期代次的报告被忽略。
   - 实例身份：适配器用内核 `createInstanceTable` 持有实例。同一 instanceId 存活（含停止未完成）期间共享同一实例与监听；`application.closed` 兑现时立即退役该 id（包括恢复后才关闭的实例），再次启动抛 TypeError（重启须分配新身份），表不再持有已关闭实例。内核不维护进程级全局表。
-- **合同测试**：内核的 `packages/nb-runtime/src/application/application.test.ts`（14 例）、`application-startup.test.ts`（启动激活的选择、失败分类与停止竞态，以及依赖链的启动顺序、关闭顺序与诊断）、`children.test.ts`（子实例状态表、按代次取得、父实例停止与 `{project}` 目标的访问核对，15 例，注入时钟）、`capabilities.test.ts`（本地能力按调用方门面，随 t54），在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行；后端适配器由新应用的 `packages/neuro-book/src/server/server.test.ts` 以真实子进程覆盖；浏览器适配器由 `packages/neuro-book/src/web/host/browser-host.test.ts`（真实内核，EventTarget 充当页面）覆盖。
+- **合同测试**：内核的 `packages/nb-runtime/src/application/application.test.ts`（14 例）、`application-startup.test.ts`（启动激活的选择、失败分类与停止竞态，以及依赖链的启动顺序、关闭顺序与诊断）、`children.test.ts`（子实例状态表、按代次取得、父实例停止与 `{project}` 目标的访问核对，15 例，注入时钟）、`capabilities.test.ts`（本地能力按调用方门面），在 `packages/nb-runtime` 经 `bun run test` 与 `bun run typecheck` 运行；后端适配器由新应用的 `packages/neuro-book/src/server/server.test.ts` 以真实子进程覆盖；浏览器适配器由 `packages/neuro-book/src/web/host/browser-host.test.ts`（真实内核，EventTarget 充当页面）覆盖。
 - **实际 smoke**：新应用的后端宿主 `bun run smoke:server`（打包产物上的真实子进程）；浏览器宿主 `bun run test:e2e` 的 `e2e/browser-host.e2e.ts`（本机 Chrome：两个窗口、关闭一个不影响另一个、引导失败不挂载）。新应用的宿主不设停止截止，有界停止（`stopTimeout`）只由内核合同测试覆盖。
 
 ## 证据
@@ -146,9 +147,4 @@ owners:
 - 实现入口：[`application.ts`](../../../packages/nb-runtime/src/application/application.ts)
 - 合同测试：[`application.test.ts`](../../../packages/nb-runtime/src/application/application.test.ts)、[`application-startup.test.ts`](../../../packages/nb-runtime/src/application/application-startup.test.ts)、[`children.test.ts`](../../../packages/nb-runtime/src/application/children.test.ts)、[`capabilities.test.ts`](../../../packages/nb-runtime/src/application/capabilities.test.ts)
 - Smoke：[`smoke-server.ts`](../../../packages/neuro-book/scripts/smoke-server.ts)（`bun run smoke:server`）、[`browser-host.e2e.ts`](../../../packages/neuro-book/e2e/browser-host.e2e.ts)（`bun run test:e2e`）。旧应用的双宿主 smoke 见 [w00017 t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)。
-- 2026-09-20 开发者明确要求以“环境适配入口、小内核”为第一切片并落 Spec，再以内置服务插件验证。批准方向与非目标见 [总体提案决策记录](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md#决策记录与下一步)。
-- 实现与验证：[w00017 t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（内核、适配器、双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对、公开面收紧并晋升）。
-- 启动必需插件与 `onStartup` 启动激活：依据 [可扩展应用平台设计](../../proposals/extensible-application-platform.md) P11 与 [`runtime.plugin-manifest`](plugin-manifest.md) 第 7、8 条，实现与验证见 [w00017 t32](../../../.agents/works/w00017-application-runtime-architecture/tasks/t32-kernel-entry-dependencies/README.md)。
-- 清单删除 `receivers`：接收者改由拥有者插件提供，见 [w00017 t33](../../../.agents/works/w00017-application-runtime-architecture/tasks/t33-owner-contribution-points/README.md)。
-- 子实例、租约与远程节点：依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 2 节与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`），实现与验证见 [w00017 t52](../../../.agents/works/w00017-application-runtime-architecture/tasks/t52-kernel-instances-remote/README.md)。按代次取得与 `generation-gone`、本地能力按调用方门面提供，依据开发者 2026-10-07 在 [t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中的确认，随 [t54](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/README.md) 实现；`project` 位置的运行实例由服务端为每个项目起的子进程里的项目宿主建立，项目管理与服务端停止顺序见 [`runtime.projects`](projects.md)、[`runtime.server-host`](server-host.md)。
-- 已知限制：本规范描述第一切片的受控装配入口；产品的进程级服务已迁为启动必需的内置插件（[t34](../../../.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/README.md)），生产进程由自有宿主入口经 `ServerRuntimeHost` 建立实例并处理信号与停止通道，开发模式与 CLI 共用同一启动函数（[t37](../../../.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/README.md)，行为见 [`runtime.server-host`](server-host.md)）。POSIX 信号路径未在本机（Windows）实测：Windows 上外部进程无法合作发送信号，smoke 走 stdin `stop` 通道，适配器的信号翻译由合同测试的进程替身覆盖。显式关闭的 dirty/在途协商由调用方在调用 `stop()` 之前完成，第一切片没有 dirty 参与者，内核不提供否决接口。强制终止后的「未知」由外部观察者（持久化与领域 owner）判断，不属于实例自身可报告的结果。Desktop/Worker 无实测。
+- 批准依据：[总体提案决策记录](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md#决策记录与下一步)（开发者 2026-09-20 要求以“环境适配入口、小内核”为第一切片并落 Spec）；启动必需插件与 `onStartup` 启动激活依据 [可扩展应用平台设计](../../proposals/extensible-application-platform.md) P11 与 [`runtime.plugin-manifest`](plugin-manifest.md) 第 7、8 条；子实例、租约与远程节点依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 2 节与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`），按代次取得与本地能力按调用方门面由开发者 2026-10-07 在 [t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中确认；清单不再有服务键登记表依据 [ADR 0025](../../adr/0025-service-keys-by-id.md)（开发者 2026-10-08）。

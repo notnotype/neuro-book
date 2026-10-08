@@ -10,11 +10,10 @@ const bKey = defineServiceKey("b/service");
 const cKey = defineServiceKey("c/service");
 const browserKey = defineServiceKey("browser/service");
 const missing = defineServiceKey("missing/service");
-const keys = [aKey, bKey, cKey, browserKey, missing];
 
 function setup() {
     const runtime = createRuntimeInstance({instanceId: "entry-contract", location: "server"});
-    const assembly = createServiceAssembly(runtime, {keys});
+    const assembly = createServiceAssembly(runtime);
     const host = createPluginHost(runtime, assembly, {});
     return {runtime, assembly, host};
 }
@@ -134,7 +133,7 @@ describe("入口与服务级依赖合同", () => {
         const {runtime, assembly, host} = setup();
         const empty = defineServiceKey("a/");
         const channel = defineServiceKey("a/channel");
-        const reservedAssembly = createServiceAssembly(runtime, {keys: [empty, channel, bKey]});
+        const reservedAssembly = createServiceAssembly(runtime, {});
         const reservedHost = createPluginHost(runtime, reservedAssembly, {});
         for (const [key, reason] of [[bKey, "foreign-service-id"], [empty, "foreign-service-id"], [channel, "reserved-service-name"]] as const) {
             expect(reservedHost.register({id: "a", entries: [definition("a").entries[0]!, {id: "browser", location: "browser", provides: [key], activate: () => ({})}]}, {scope: runtime.root})).toMatchObject({status: "rejected", rejections: [{reason, detail: key.name}]});

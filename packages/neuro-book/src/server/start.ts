@@ -25,7 +25,6 @@ import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected} from "nbook/p
 import type {DrainClock} from "nbook/plugins/http/server/admission";
 import {projectsKey} from "nbook/shared/projects";
 import {RPC_PATH} from "nbook/shared/rpc-socket";
-import {collectServiceKeys} from "nbook/shared/service-keys";
 
 import {loopbackOrigins} from "./config";
 import type {ServerConfig} from "./config";
@@ -239,7 +238,6 @@ export function startServer(options: StartServerOptions): RunningServer {
     const host = startServerHost({
         instanceId: INSTANCE_ID,
         manifest: {
-            keys: collectServiceKeys(plugins, [projectsKey]),
             capabilities: [{
                 id: "host.projects",
                 key: projectsKey,

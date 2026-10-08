@@ -24,7 +24,6 @@ import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
 import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
 import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
-import {collectServiceKeys} from "nbook/shared/service-keys";
 
 import {browserPluginFactories, builtinBrowserPlugins} from "../plugins";
 import type {BrowserPluginFactory} from "../plugins";
@@ -172,7 +171,6 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                     Reflect.apply(options.console.error, options.console, [JSON.stringify({emergency: report})]);
                 }),
                 manifest: {
-                    keys: collectServiceKeys(plugins, [workbenchRootKey, windowProjectKey]),
                     capabilities: [{id: "window.project", key: windowProjectKey, create: () => Object.freeze({project})}],
                     plugins,
                     requiredPlugins: REQUIRED_PLUGINS,

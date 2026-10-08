@@ -69,7 +69,7 @@ function findCycles(nodes: ReadonlyArray<EntryId>, edges: ReadonlyMap<EntryId, R
 
 export function checkAssembly(entries: ReadonlyArray<EntryNode>): AssemblyReport {
     const lineage = new Map<EntryId, Set<ScopeId>>();
-    const providersByKey = new Map<ServiceKey<unknown>, EntryNode[]>();
+    const providersByKey = new Map<string, EntryNode[]>();
     for (const entry of entries) {
         const ids = new Set<ScopeId>();
         for (let current: Scope | null = entry.scope; current !== null; current = current.parent) {
@@ -77,9 +77,9 @@ export function checkAssembly(entries: ReadonlyArray<EntryNode>): AssemblyReport
         }
         lineage.set(entry.id, ids);
         if (entry.kind === "provider" && entry.key !== null) {
-            const group = providersByKey.get(entry.key) ?? [];
+            const group = providersByKey.get(entry.key.name) ?? [];
             group.push(entry);
-            providersByKey.set(entry.key, group);
+            providersByKey.set(entry.key.name, group);
         }
     }
 
@@ -109,7 +109,7 @@ export function checkAssembly(entries: ReadonlyArray<EntryNode>): AssemblyReport
         const entryVerdicts: DependencyVerdict[] = [];
         const edges: EntryId[] = [];
         for (const dependency of entry.dependencies) {
-            const all = providersByKey.get(dependency.key) ?? [];
+            const all = providersByKey.get(dependency.key.name) ?? [];
             const candidates = all.filter((provider) => own.has(provider.scope.id));
             const clash = candidates.filter((provider) => conflicted.has(provider.id));
             const key = dependency.key.name;

@@ -12,6 +12,7 @@
 - 每个机制一个公开入口，即 `package.json` 的 `exports` 子路径，对应 `src/<机制>/<机制>.ts`；其余文件是实现细节，包外不深导入。
 - 机制之间只引用对方的公开入口，且单向：services 引用 lifecycle，plugins 引用前两者，application 引用前三者，diagnostics 可引用前四者（application 只引用类型）。各机制的边界测试读取同目录源码核对导入，新增文件同样受约束。
 - 模块顶层没有 I/O、单例与计时器。
+- 服务键按服务 id 识别（[ADR 0025](../../docs/adr/0025-service-keys-by-id.md)）：同一 id 定义两次是同一个键，装配不维护受信键清单。内部以 `key.name` 作 Map 的键与比较依据，不按键对象的身份。
 - 源码只用浏览器与 Bun 都有的标准 API。`bun run typecheck` 用两份配置检查：`tsconfig.json` 带 Bun 类型、不带 DOM，拦住只有浏览器才有的全局；`tsconfig.browser.json` 只查源码、带 DOM、不带 Bun/Node 类型，拦住只有 Bun/Node 才有的全局。
 - 运行环境需提供 `Promise.withResolvers`、`AbortSignal.any` 与 `AbortSignal.timeout`；浏览器宿主的最低版本随应用骨架确定。
 

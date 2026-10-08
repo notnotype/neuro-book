@@ -167,7 +167,7 @@ async function start(
     const node = createRemoteNode({instance: descriptor, clock, validateLocalCalls: options.validateLocalCalls, bind: options.bind});
     const app = createApplication(
         {identity: {location: descriptor.kind, instanceId: descriptor.id, client: descriptor.client}, stopSignal: new AbortController().signal, emergency: () => undefined},
-        {keys: [], plugins: plugins(contexts), gates: [], remote: node},
+        {plugins: plugins(contexts), gates: [], remote: node},
     );
     expect(await app.startup).toMatchObject({status: "available"});
     return {app, node, contexts};
@@ -1015,7 +1015,7 @@ describe("Spec plugins 输出 22：远程提供项的位置", () => {
         const node = createRemoteNode({instance: {id: "project-P", kind: "project", role: "project", project: {id: "P", generation: 1}, client: null}});
         const app = createApplication(
             {identity: {location: "project", instanceId: "project-P"}, stopSignal: new AbortController().signal, emergency: () => undefined},
-            {keys: [], plugins: [misplaced], gates: [], remote: node},
+            {plugins: [misplaced], gates: [], remote: node},
         );
         expect(await app.startup).toMatchObject({status: "available", failures: [{source: "demo.misplaced/main", reason: "output/remote-location-mismatch", required: false}]});
     });
@@ -1023,7 +1023,7 @@ describe("Spec plugins 输出 22：远程提供项的位置", () => {
     it("没有远程节点的实例不核对位置", async () => {
         const app = createApplication(
             {identity: {location: "project", instanceId: "project-P"}, stopSignal: new AbortController().signal, emergency: () => undefined},
-            {keys: [], plugins: [misplaced], gates: [], remote: undefined},
+            {plugins: [misplaced], gates: [], remote: undefined},
         );
         expect(await app.startup).toMatchObject({status: "available", failures: []});
     });

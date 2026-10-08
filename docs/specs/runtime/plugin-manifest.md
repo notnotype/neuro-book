@@ -46,7 +46,7 @@ owners:
 | `entries.<id>.main` | 入口代码文件，相对插件目录，必须位于插件目录内 |
 | `entries.<id>.remoteProvides` | 可选，本入口提供的远程服务合同 id 列表；合同 id 以本插件 id 加 `/` 开头 |
 | `entries.<id>.delegates` | 可选，本入口可代表调用方解析的服务 id 列表；只有装配方允许清单内的插件可以声明，第一版只限内置插件 |
-| `entries.<id>.remoteDelegates` | 可选，本入口可代表调用方调用的远程服务合同 id 列表（随 t55）；与 `delegates` 同样只限允许清单内的内置插件 |
+| `entries.<id>.remoteDelegates` | 可选，本入口可代表调用方调用的远程服务合同 id 列表；与 `delegates` 同样只限允许清单内的内置插件 |
 | `entries.<id>.requires` | 必需依赖的服务 id 列表 |
 | `entries.<id>.provides` | 本入口提供的服务 id 列表 |
 | `entries.<id>.activationEvents` | 激活事件列表 |
@@ -126,6 +126,7 @@ owners:
 - **SDK**：作者在代码中声明入口，SDK 构建预设生成清单中的 `entries`，依赖只写一次。SDK 按运行位置提供类型：一个入口只能取得它 `requires` 中服务的类型。
 - **版本**：依赖内置插件的服务不写版本，内置插件的公开 API 跟随 SDK，由 `engines.neurobook` 统一约束。
 - **安全**：清单是完全信任模型下的声明，不构成权限；校验只保证结构与引用正确。
+- **现状**：清单文件、声明 schema 与版本范围（含 `version-mismatch`）尚未实现。代码定义的插件（`PluginDefinition`）已按本合同的入口、按入口的服务依赖与提供项、受阻推导、启停顺序、按单条贡献校验、开放的运行位置、激活事件前缀与内核保留的 `onRemote`、`remoteProvides`、`delegates` 与 `remoteDelegates` 工作，行为见 [`runtime.plugins`](plugins.md) 输出第 11–22 条与 [`runtime.application`](application.md)；服务 id 与清单一样按字符串识别（[ADR 0025](../../adr/0025-service-keys-by-id.md)）。
 - **兼容**：清单格式属于公开接口。新增运行位置或激活事件不改变已有字段的含义；没有对应宿主的运行位置，其入口在所有实例都是 `foreign-location`，插件的其它入口照常工作。
 
 ## 验收与 Smoke
@@ -151,7 +152,4 @@ Smoke：以合同测试覆盖场景 1–16 的推导结果；在真实服务端�
 
 ## 证据
 
-- 批准目标：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P1、P2、P3、P11（2026-09-30 `accepted`；“插件、入口、服务”三层同日由开发者确认）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条。
-- 调研依据：[VS Code 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-vscode/REPORT.md)、[DeepSeek Harness 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-dsh/REPORT.md)。
-- Spec 编写：[w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md)。
-- 实现进展：第 2、3（除 `version-mismatch`）、4、6、7、8、9 条已在内核对代码定义的插件实现，行为写入 [`runtime.plugins`](plugins.md) 输出第 11–14 条与 [`runtime.application`](application.md)，见 [w00017 t32](../../../.agents/works/w00017-application-runtime-architecture/tasks/t32-kernel-entry-dependencies/README.md)。第 10 条（按单条贡献校验）已对代码定义的插件实现，校验由贡献点的 `validate` 函数给出，行为写入 [`runtime.plugins`](plugins.md) 输出第 15–18 条，见 [w00017 t33](../../../.agents/works/w00017-application-runtime-architecture/tasks/t33-owner-contribution-points/README.md)。清单文件与声明 schema、版本范围仍未实现；开放的运行位置、远程服务不构成依赖（第 5 条）、`remoteProvides` 与 `delegates`、拥有者定义的激活事件前缀与内核保留的 `onRemote`（场景 3、13、15、16）已随 [w00017 t52](../../../.agents/works/w00017-application-runtime-architecture/tasks/t52-kernel-instances-remote/README.md) 在内核对代码定义的插件实现（运行时拓扑见 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md)，2026-10-07 `accepted`）。`remoteDelegates` 随 [w00017 t55](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/README.md) 在内核对代码定义的插件实现（第三方插件的清单校验随清单文件）。本 Spec 保持 `planned`。
+- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P1、P2、P3、P11（2026-09-30 `accepted`；“插件、入口、服务”三层同日由开发者确认）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条；开放的运行位置与远程提供项依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md)（2026-10-07 `accepted`）；服务 id 按字符串识别依据 [ADR 0025](../../adr/0025-service-keys-by-id.md)；调研见 [VS Code 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-vscode/REPORT.md)、[DeepSeek Harness 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-dsh/REPORT.md)。

@@ -11,8 +11,9 @@ export type {FailureError} from "../lifecycle/lifecycle";
 declare const serviceType: unique symbol;
 
 /**
- * 类型化服务键：稳定标识一项能力合同。键以对象身份比较，不以 name 比较；
- * `name` 只用于诊断。用 `defineServiceKey<T>(name)` 创建。
+ * 类型化服务键：服务 id（`name`，形如 `<插件 id>/<名>`）配上服务的类型。装配按 id 识别，同一 id 定义两次是
+ * 同一个键（docs/adr/0025-service-keys-by-id.md）；类型只在编译期，同一 id 只在提供方的合同模块里定义一次。
+ * 用 `defineServiceKey<T>(name)` 创建。
  */
 export interface ServiceKey<T> {
     readonly name: string;
@@ -127,7 +128,7 @@ export interface ConsumerDeclaration {
     readonly dependencies: ReadonlyArray<ServiceDependency>;
 }
 
-export type DeclarationRejection = "duplicate-id" | "unknown-key" | "location-mismatch" | "foreign-scope" | "scope-not-alive";
+export type DeclarationRejection = "duplicate-id" | "location-mismatch" | "foreign-scope" | "scope-not-alive";
 
 export type DeclareResult =
     | {readonly status: "accepted"; readonly id: EntryId}
@@ -239,8 +240,6 @@ export interface AssemblyObserver {
 export interface ServiceAssembly {
     readonly instanceId: string;
     readonly location: RuntimeLocation;
-    /** 键是否在受信登记表中；纯查询，供上层在登记前预检声明。 */
-    hasKey(key: ServiceKey<unknown>): boolean;
     /** 登记声明；被拒绝的声明不进入依赖图，只留诊断。登记不实例化任何服务。 */
     declare<T>(declaration: ProviderDeclaration<T>): DeclareResult;
     declare(declaration: ConsumerDeclaration): DeclareResult;
@@ -279,7 +278,5 @@ export interface AccessOptions {
 }
 
 export interface ServiceAssemblyOptions {
-    /** 受信服务键登记表；声明只能引用这里的键。 */
-    readonly keys: ReadonlyArray<ServiceKey<unknown>>;
     readonly observer?: AssemblyObserver;
 }

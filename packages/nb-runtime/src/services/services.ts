@@ -19,7 +19,7 @@ import type {ServiceAssembly, ServiceAssemblyOptions, ServiceKey} from "./contra
 export type * from "./contracts";
 export {perConsumer, ServiceRevokedError} from "./per-consumer";
 
-/** 定义一个类型化服务键；每次调用得到不同身份，同名不等价。 */
+/** 定义一个类型化服务键：给服务 id 配上类型。同一 id 定义两次是同一个键。 */
 export function defineServiceKey<T>(name: string): ServiceKey<T> {
     if (name.trim() === "") {
         throw new TypeError("服务键必须有非空名称");
@@ -27,10 +27,7 @@ export function defineServiceKey<T>(name: string): ServiceKey<T> {
     return Object.freeze({name}) as ServiceKey<T>;
 }
 
-/**
- * 为一个运行实例创建服务装配。两个装配互不共享声明与初始化结果；声明只能引用 `options.keys`
- * 里的受信服务键。
- */
-export function createServiceAssembly(instance: RuntimeInstance, options: ServiceAssemblyOptions): ServiceAssembly {
+/** 为一个运行实例创建服务装配。两个装配互不共享声明与初始化结果。 */
+export function createServiceAssembly(instance: RuntimeInstance, options: ServiceAssemblyOptions = {}): ServiceAssembly {
     return new ServiceAssemblyImpl(instance, options);
 }

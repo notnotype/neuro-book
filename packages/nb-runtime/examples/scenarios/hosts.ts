@@ -13,12 +13,9 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
 import type {RemoteRouter} from "@notnotype/nb-runtime/remote";
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
-import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 export interface InstanceOptions {
     readonly plugins: ReadonlyArray<PluginDefinition>;
-    /** 本实例里会被依赖或提供的服务键（应用包里由宿主从清单收集）。 */
-    readonly keys?: ReadonlyArray<ServiceKey<unknown>>;
     /** 代理允许清单：可以以调用方身份转发的插件。 */
     readonly delegation?: ApplicationManifest["delegation"];
 }
@@ -64,7 +61,7 @@ export class Stage {
         const app = createApplication(
             // 宿主给出的上下文：实例身份、停止来源、紧急输出。
             {identity, stopSignal: new AbortController().signal, emergency: () => undefined},
-            {keys: options.keys ?? [], plugins: options.plugins, gates: [], remote, delegation: options.delegation},
+            {plugins: options.plugins, gates: [], remote, delegation: options.delegation},
         );
         this.#apps.push(app);
         const startup = await app.startup;

@@ -21,7 +21,7 @@ async function windowWith(delegation: (plugin: string) => boolean) {
     const {router} = await stage.server({plugins: [createCloudNotesServerPlugin()]});
     const a = serviceProbe("example.a", "browser", [cloudNotesKey]);
     const b = serviceProbe("example.b", "browser", [cloudNotesKey]);
-    await stage.window(router, "window-1", {plugins: [createCloudNotesBrowserPlugin(), a.definition, b.definition], keys: [cloudNotesKey], delegation});
+    await stage.window(router, "window-1", {plugins: [createCloudNotesBrowserPlugin(), a.definition, b.definition], delegation});
     return {a: a.get(cloudNotesKey), b: b.get(cloudNotesKey)};
 }
 

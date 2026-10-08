@@ -1,10 +1,9 @@
 /**
- * 描述登记的纯结构校验：只看定义、宿主位置、贡献点占用与服务键登记表。
+ * 描述登记的纯结构校验：只看定义、宿主位置与贡献点占用。
  * 贡献点存在性、声明规则与重复贡献属于单条动态结果，不在这里拒绝整个插件。
  */
 
 import type {RuntimeLocation} from "../lifecycle/lifecycle";
-import type {ServiceKey} from "../services/services";
 
 import type {PluginDefinition, RegistrationRejection, RegistrationRejectionReason} from "./contracts";
 
@@ -22,7 +21,6 @@ export function parseActivationEvent(event: string): {readonly prefix: string; r
 
 export interface RegistrationEnvironment {
     readonly location: RuntimeLocation;
-    hasKey(key: ServiceKey<unknown>): boolean;
     /** 本位置存活登记中已被其它插件占用的贡献点 id。 */
     contributionPointTaken(id: string): boolean;
 }
@@ -120,20 +118,12 @@ export function validateDefinition(definition: PluginDefinition, environment: Re
             }
         }
         if (entry.location !== environment.location) {
-            // 其它位置的入口只进目录描述，不在本宿主校验服务依赖与服务键。
+            // 其它位置的入口只进目录描述，不在本宿主校验服务依赖。
             continue;
         }
-        const provides = entry.provides ?? [];
-        for (const key of provides) {
-            if (!environment.hasKey(key)) {
-                rejections.push(rejection("unknown-service-key", {entry: entry.id, detail: key.name}));
-            }
-        }
+        const provides = (entry.provides ?? []).map((key) => key.name);
         for (const dependency of entry.dependencies ?? []) {
-            if (!environment.hasKey(dependency.key)) {
-                rejections.push(rejection("unknown-service-key", {entry: entry.id, detail: dependency.key.name}));
-            }
-            if (provides.includes(dependency.key)) {
+            if (provides.includes(dependency.key.name)) {
                 rejections.push(rejection("self-dependency", {entry: entry.id, detail: dependency.key.name}));
             }
         }

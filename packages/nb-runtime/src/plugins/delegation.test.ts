@@ -103,7 +103,7 @@ function callerPlugin(id: string, key: typeof proxyKey, onActivate: (proxy: Prox
 function setup(allowed: ReadonlyArray<string> = ["proxy", "other"]): Fixture {
     const runtime = createRuntimeInstance({location: "server", instanceId: "server-1"});
     runtime.root.open();
-    const assembly = createServiceAssembly(runtime, {keys: [storeKey, proxyKey, otherProxyKey]});
+    const assembly = createServiceAssembly(runtime, {});
     const host = createPluginHost(runtime, assembly, {delegation: (pluginId) => allowed.includes(pluginId)});
     const events: string[] = [];
     expect(host.register(storePlugin(events), {scope: runtime.root})).toMatchObject({status: "accepted"});

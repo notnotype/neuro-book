@@ -21,7 +21,6 @@ import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins
 import {alive, GRACE_MS, killSpawnedProjects, leaseOf, projectHarness, revoked} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
 import {windowProjectKey} from "nbook/shared/projects";
-import {collectServiceKeys} from "nbook/shared/service-keys";
 import {defineRecord} from "nbook/shared/storage";
 import type {RecordHandle, StorageService} from "nbook/shared/storage";
 
@@ -71,7 +70,6 @@ async function windowOf(h: ProjectHarness, id: string, client: string): Promise<
     const app = createApplication(
         {identity: {location: "browser", instanceId: id, client}, stopSignal: new AbortController().signal, emergency: () => undefined},
         {
-            keys: collectServiceKeys(plugins, [windowProjectKey]),
             capabilities: [{id: "window.project", key: windowProjectKey, create: () => ({project: {id: binding.id, name: binding.name, generation: binding.generation}})}],
             plugins,
             gates: [],

@@ -70,8 +70,8 @@
 | 片 | 对应设计 | 提交边界 | 自跑验证 |
 |---|---|---|---|
 | S0 | — | ADR 0025 | `bun run docs:check`、`bun run governance:check` |
-| S1 | 第 1 节 | 内核按 id 识别、删去 `keys` 与 `unknown-service-key`；内核测试与示例同步；`runtime/services.md`、`plugins.md`、`application.md`、`plugin-manifest.md` 与 `packages/nb-runtime/AGENTS.md` | `bun run --cwd packages/nb-runtime typecheck`、`test`；`docs:check`、`governance:check` |
-| S2 | 第 2、3 节 | 应用包：删去 `collectServiceKeys` 与 `keys:`、工厂只收宿主配置、跨插件引用 `shared/contracts`、边界测试；`packages/neuro-book/AGENTS.md` 的引用规则 | `bun run test:affected --typecheck` |
+| S1 | 第 1 节 | 内核按 id 识别、删去 `keys` 与 `unknown-service-key`，检查门禁在必需依赖静态不可满足时先于检查失败；内核测试与示例同步；应用包删去 `keys:` 与 `collectServiceKeys`（每片提交都要能通过）；`runtime/services.md`、`plugins.md`、`application.md`、`plugin-manifest.md` 与 `packages/nb-runtime/AGENTS.md` | `bun run test:affected --typecheck`；`docs:check`、`governance:check` |
+| S2 | 第 2、3 节 | 应用包：工厂只收宿主配置、跨插件引用 `shared/contracts`、边界测试；`packages/neuro-book/AGENTS.md` 的引用规则 | `bun run test:affected --typecheck` |
 | S3 | 第 4 节 | 后端目录改名（应用包与示例）、边界测试；`packages/neuro-book/AGENTS.md` 的目录约定、Spec 里的路径（`persistence.md`、`server-host.md`、`diagnostics.md`） | 同 S2，另 `build`、`check:dist`、`test:e2e`、`smoke:server` |
 | S4 | 第 5 节 | 示例：工厂参数、项目级插件与场景、README | `bun run --cwd packages/nb-runtime test`、`typecheck` |
 | S5 | — | Task 证据、omp 审查与修正 | `bun run test:affected --typecheck --since <计划提交>`、`test:e2e`、`smoke:server`、`docs:check`、`governance:check` |

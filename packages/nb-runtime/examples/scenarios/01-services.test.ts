@@ -28,7 +28,7 @@ function plugins(clock: ManualClock) {
 
 describe("场景 1：共享服务与依赖", () => {
     it("没有入口依赖时，两个插件都只登记、不激活", async () => {
-        const app = await stage.local({plugins: plugins(new ManualClock()), keys: [clockKey, greeterKey]});
+        const app = await stage.local({plugins: plugins(new ManualClock())});
 
         expect(app.plugins.entryState({plugin: "example.clock", entry: "server"})?.status).toBe("registered");
         expect(app.plugins.entryState({plugin: "example.greeter", entry: "server"})?.status).toBe("registered");
@@ -37,7 +37,7 @@ describe("场景 1：共享服务与依赖", () => {
     it("有插件依赖问候服务时：内核按依赖先激活 clock、再激活 greeter；问候用宿主注入的时钟", async () => {
         const clock = new ManualClock();
         const user = serviceProbe("example.user", "server", [greeterKey]);
-        const app = await stage.local({plugins: [...plugins(clock), user.definition], keys: [clockKey, greeterKey]});
+        const app = await stage.local({plugins: [...plugins(clock), user.definition]});
         const greeter = user.get(greeterKey);
 
         expect(app.plugins.entryState({plugin: "example.clock", entry: "server"})?.status).toBe("available");

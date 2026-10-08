@@ -22,7 +22,6 @@ import {Type} from "typebox";
 
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {windowProjectKey} from "nbook/shared/projects";
-import {collectServiceKeys} from "nbook/shared/service-keys";
 import {defineRecord} from "nbook/shared/storage";
 import type {RecordDefinition, RecordHandle, RecordSnapshot, StorageService, WriteResult} from "nbook/shared/storage";
 
@@ -113,7 +112,7 @@ async function world(): Promise<World> {
     const hubPlugins = [silentDiagnostics("server", "hub"), createStorageServerPlugin({location: "server", storage: storageKey, path: userPath}), consumer("app.notes", "server", seen, "hub"), consumer("app.other", "server", seen, "hub")];
     const hub = createApplication(
         {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
-        {keys: collectServiceKeys(hubPlugins), plugins: hubPlugins, gates: [], remote: hubNode, delegation},
+        {plugins: hubPlugins, gates: [], remote: hubNode, delegation},
     );
     apps.push(hub);
     expect(await hub.startup).toMatchObject({status: "available", failures: []});
@@ -144,7 +143,7 @@ async function world(): Promise<World> {
             const plugins = [silentDiagnostics("project", descriptor.id), createStorageServerPlugin({location: "project", storage: storageKey, path: projectPath}), consumer("app.notes", "project", seen, descriptor.id)];
             const app = createApplication(
                 {identity: {location: "project", instanceId: descriptor.id}, stopSignal: new AbortController().signal, emergency: () => undefined},
-                {keys: collectServiceKeys(plugins), plugins, gates: [], remote: node, delegation},
+                {plugins, gates: [], remote: node, delegation},
             );
             apps.push(app);
             const pair = createLinkPair();
@@ -164,7 +163,6 @@ async function world(): Promise<World> {
             const app = createApplication(
                 {identity: {location: "browser", instanceId: id, client}, stopSignal: new AbortController().signal, emergency: () => undefined},
                 {
-                    keys: collectServiceKeys(plugins, [windowProjectKey]),
                     capabilities: [{id: "window.project", key: windowProjectKey, create: () => ({project})}],
                     plugins,
                     gates: [],

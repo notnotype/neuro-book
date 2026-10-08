@@ -83,7 +83,7 @@ async function startServer(clock: ManualClock): Promise<{readonly server: Server
     };
     const app = createApplication(
         {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
-        {keys: [], plugins: [plugin], gates: [], remote: node},
+        {plugins: [plugin], gates: [], remote: node},
     );
     expect(await app.startup).toMatchObject({status: "available"});
     return {server, router: createRemoteRouter(node)};
@@ -151,7 +151,7 @@ async function setup(allowed: ReadonlyArray<string> = ["app.proxy", "app.other-p
     const node = createRemoteNode({instance: {id: "browser-1", kind: "browser", role: "client", project: null, client: "profile-1"}, clock});
     const runtime = createRuntimeInstance({location: "browser", instanceId: "browser-1", client: "profile-1"});
     runtime.root.open();
-    const assembly = createServiceAssembly(runtime, {keys: [proxyKey, otherProxyKey]});
+    const assembly = createServiceAssembly(runtime, {});
     const host = createPluginHost(runtime, assembly, {delegation: (plugin) => allowed.includes(plugin), remote: node});
     const pair = createLinkPair();
     router.accept(pair.right);

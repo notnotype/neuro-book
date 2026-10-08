@@ -19,7 +19,7 @@ const STOP_DEADLINE_MS = 5000;
 async function parentApplication(manifest: Partial<ApplicationManifest> = {}): Promise<Application> {
     const app = createApplication(
         {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
-        {keys: [], plugins: [], gates: [], ...manifest},
+        {plugins: [], gates: [], ...manifest},
     );
     expect(await app.startup).toMatchObject({status: "available"});
     return app;
@@ -279,7 +279,6 @@ describe("Spec application 子实例与租约：父实例停止", () => {
             }}],
         };
         const parent = await parentApplication({
-            keys: [capabilityKey],
             capabilities: [{id: "demo.capability", key: capabilityKey, create: () => "value", release: () => void order.push("父实例本地能力收口")}],
             plugins: [plugin],
             gates: [{id: "capability", kind: "resolve", key: capabilityKey}],
@@ -353,7 +352,7 @@ describe("Spec plugin-channel 输出 9：{project} 目标核对租约", () => {
         const hubNode = createRemoteNode({instance: {id: "hub", kind: "server", role: "hub", project: null, client: null}, clock});
         const hub = createApplication(
             {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
-            {keys: [], plugins: [callerPlugin], gates: [], remote: hubNode},
+            {plugins: [callerPlugin], gates: [], remote: hubNode},
         );
         expect(await hub.startup).toMatchObject({status: "available"});
         const router = createRemoteRouter(hubNode, {projectAccess: (frame, project, generation) => (frame.plugin !== null && children.holds(project, generation, frame.plugin) ? "allowed" : "denied")});
@@ -367,7 +366,7 @@ describe("Spec plugin-channel 输出 9：{project} 目标核对租约", () => {
                 };
                 const app = createApplication(
                     {identity: {location: "project", instanceId: descriptor.id}, stopSignal: new AbortController().signal, emergency: () => undefined},
-                    {keys: [], plugins: [plugin], gates: [], remote: node},
+                    {plugins: [plugin], gates: [], remote: node},
                 );
                 expect(await app.startup).toMatchObject({status: "available"});
                 const pair = createLinkPair();

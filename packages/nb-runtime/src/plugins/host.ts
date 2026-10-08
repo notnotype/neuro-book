@@ -184,7 +184,8 @@ interface Attempt {
     readonly handlesByContribution: Map<ContributionRecord, HandleImpl>;
     readonly deliveries: Set<DeliveryRecord>;
     readonly connections: ReceiverConnection[];
-    provided: ReadonlyMap<ServiceKey<unknown>, ProvidedRecord>;
+    /** 服务 id → 本代次交出的提供项。 */
+    provided: ReadonlyMap<string, ProvidedRecord>;
     /** 本代次交出的远程提供项：合同 id → 提供项。 */
     remote: ReadonlyMap<string, RemoteProvision>;
     readonly releasedOutputs: Set<ProvidedService>;
@@ -199,7 +200,8 @@ interface EntryRecord {
     readonly scope: Scope;
     readonly activatable: boolean;
     readonly consumerId: EntryId;
-    readonly providerIds: ReadonlyMap<ServiceKey<unknown>, EntryId>;
+    /** 服务 id → 本入口在装配里的提供者 id。 */
+    readonly providerIds: ReadonlyMap<string, EntryId>;
     readonly contributions: ReadonlyArray<ContributionRecord>;
     current: Attempt | null;
 }
@@ -290,7 +292,6 @@ export class PluginHostImpl implements PluginHost {
     register(definition: PluginDefinition, options: {readonly scope: Scope}): RegisterPluginResult {
         const rejections = validateDefinition(definition, {
             location: this.location,
-            hasKey: (key) => this.#assembly.hasKey(key),
             contributionPointTaken: (id) => {
                 for (const plugin of this.#plugins.values()) {
                     if (plugin.scope.phase !== "closed" && plugin.points.has(id)) return true;
@@ -334,7 +335,7 @@ export class PluginHostImpl implements PluginHost {
         for (const entry of definition.entries) {
             const activatable = entry.location === this.location;
             const consumerId = `plugin:${definition.id}/${entry.id}@${this.#registrations}`;
-            const providerIds = new Map<ServiceKey<unknown>, EntryId>();
+            const providerIds = new Map<string, EntryId>();
             const contributions = (entry.contributions ?? []).map((declaration) => {
                 const record = this.#createContribution(pluginRecord, declaration, "entry", entry.location);
                 allContributions.push(record);
@@ -363,7 +364,7 @@ export class PluginHostImpl implements PluginHost {
             this.#declare(this.#assembly.declare({id: consumerId, identity, location: this.location, scope: options.scope, dependencies}));
             for (const key of entry.provides ?? []) {
                 const providerId = `${consumerId}:${key.name}`;
-                providerIds.set(key, providerId);
+                providerIds.set(key.name, providerId);
                 this.#declare(this.#assembly.declare({
                     id: providerId,
                     identity,
@@ -926,7 +927,7 @@ export class PluginHostImpl implements PluginHost {
 
         // 1. 只预解析必需依赖；可选依赖由 activate 按需 resolve，不因声明而初始化。
         const access = this.#assembly.access(record.consumerId, scope, {generation});
-        const required = new Map<ServiceKey<unknown>, unknown>();
+        const required = new Map<string, unknown>();
         for (const dependency of record.definition.dependencies ?? []) {
             if (dependency.required === false) {
                 continue;
@@ -936,7 +937,7 @@ export class PluginHostImpl implements PluginHost {
                 return stopped();
             }
             if (result.status === "resolved") {
-                required.set(dependency.key, result.instance);
+                required.set(dependency.key.name, result.instance);
                 dependencies.push(result.binding.dependency);
                 continue;
             }
@@ -955,10 +956,10 @@ export class PluginHostImpl implements PluginHost {
             remote: this.#remoteAccess(attempt, record, plugin, entry),
             services: {
                 require: <T>(key: ServiceKey<T>): T => {
-                    if (!required.has(key)) {
+                    if (!required.has(key.name)) {
                         throw new TypeError(`${key.name} 不是入口 ${plugin}/${entry} 已解析的必需依赖`);
                     }
-                    return required.get(key) as T;
+                    return required.get(key.name) as T;
                 },
                 resolve: (key, options) => this.#assembly.access(record.consumerId, attempt.work, {generation}).resolve(key, options),
                 resolveFor: async <T>(consumer: ConsumerIdentity, key: ServiceKey<T>, options?: {readonly signal?: AbortSignal}): Promise<ResolveResult<T>> => {
@@ -999,19 +1000,19 @@ export class PluginHostImpl implements PluginHost {
 
         // 3. 产出核对：提供项与 accepted/pending 入口贡献必须有实现，接收者必须与 receives 一致。
         const output = acquired.handle.value;
-        const provided = new Map<ServiceKey<unknown>, ProvidedRecord>();
-        const declaredKeys = record.definition.provides ?? [];
+        const provided = new Map<string, ProvidedRecord>();
+        const declaredKeys = (record.definition.provides ?? []).map((key) => key.name);
         for (const service of output.services ?? []) {
-            if (!declaredKeys.includes(service.key)) {
+            if (!declaredKeys.includes(service.key.name)) {
                 attempt.provided = provided;
                 return fail("output", "undeclared-service", {key: service.key.name});
             }
-            provided.set(service.key, {key: service.key, instance: service.instance, release: service.release?.bind(service), adopted: false, released: false});
+            provided.set(service.key.name, {key: service.key, instance: service.instance, release: service.release?.bind(service), adopted: false, released: false});
         }
         attempt.provided = provided;
         for (const key of declaredKeys) {
             if (!provided.has(key)) {
-                return fail("output", "missing-service", {key: key.name});
+                return fail("output", "missing-service", {key});
             }
         }
         const remoteDeclared = record.definition.remoteProvides ?? [];
@@ -1481,7 +1482,7 @@ export class PluginHostImpl implements PluginHost {
         const services = output.services ?? [];
         for (let index = services.length - 1; index >= 0; index -= 1) {
             const service = services[index]!;
-            const record = attempt.provided.get(service.key);
+            const record = attempt.provided.get(service.key.name);
             const matching = record?.instance === service.instance ? record : undefined;
             if (matching?.adopted || matching?.released || attempt.releasedOutputs.has(service)) {
                 continue;
@@ -1514,7 +1515,7 @@ export class PluginHostImpl implements PluginHost {
             const detail = outcome.status === "failed" ? `${outcome.failure.stage}/${outcome.failure.reason}` : "激活已停止";
             throw new PluginStateError({...identity, generation: attempt.generation, reason: "激活未成功", detail});
         }
-        const provided = attempt.provided.get(key)!;
+        const provided = attempt.provided.get(key.name)!;
         if (provided.adopted) {
             throw new PluginStateError({...identity, generation: attempt.generation, reason: "实例已交付给上一次服务代次", detail: key.name});
         }
@@ -1542,7 +1543,7 @@ export class PluginHostImpl implements PluginHost {
     /** 同一提供项的释放不会并发（lifecycle 不重入在途释放）；成功后才标记，失败留给显式恢复重试。 */
     async #releaseProvided(record: EntryRecord, key: ServiceKey<unknown>, instance: unknown): Promise<void> {
         const attempt = record.current;
-        const provided = attempt?.provided.get(key);
+        const provided = attempt?.provided.get(key.name);
         if (attempt !== null && provided !== undefined && provided.instance === instance && !provided.released) {
             // services 接管实例后可先于 entry-work 收口，撤回必须仍能使用接收者产出。
             await Promise.all(attempt.connections.map((connection) => this.#disconnectReceiver(connection)));

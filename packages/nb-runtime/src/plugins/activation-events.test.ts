@@ -19,7 +19,7 @@ function setup(): Fixture {
     const runtime = createRuntimeInstance({location: "server", instanceId: "server-1"});
     runtime.root.open();
     const diagnostics: PluginDiagnostic[] = [];
-    const host = createPluginHost(runtime, createServiceAssembly(runtime, {keys: []}), {observer: {diagnosticRecorded: (diagnostic) => diagnostics.push(diagnostic)}});
+    const host = createPluginHost(runtime, createServiceAssembly(runtime, {}), {observer: {diagnosticRecorded: (diagnostic) => diagnostics.push(diagnostic)}});
     return {root: runtime.root, host, diagnostics, activated: []};
 }
 

@@ -8,7 +8,7 @@ import {rm} from "node:fs/promises";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {createApplication} from "@notnotype/nb-runtime/application";
-import {createDiagnosticsStore, diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
+import {createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 
 import {createServerDiagnosticsPlugin} from "./plugin";
 
@@ -37,7 +37,7 @@ it("激活期间 console.warn/error 照常输出并记入诊断，关闭后恢�
     const plugin = createServerDiagnosticsPlugin({store, exporter: {directory: root}});
     const application = createApplication(
         {identity: {location: "server", instanceId: "console-bridge"}, stopSignal: new AbortController().signal, emergency: () => undefined},
-        {keys: [diagnosticsKey], plugins: [plugin], requiredPlugins: [plugin.id], gates: []},
+        {plugins: [plugin], requiredPlugins: [plugin.id], gates: []},
     );
     expect((await application.startup).status).toBe("available");
     expect(console.error).not.toBe(recordError);

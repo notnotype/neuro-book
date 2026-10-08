@@ -14,7 +14,7 @@ function host() {
 }
 
 function manifest(overrides: Partial<ApplicationManifest>): ApplicationManifest {
-    return {keys: [], plugins: [], gates: [], ...overrides};
+    return {plugins: [], gates: [], ...overrides};
 }
 
 function dependencyChain() {
@@ -88,7 +88,6 @@ function dependencyChain() {
         }}]},
     ];
     const application = createApplication(host().context, manifest({
-        keys: [receiverKey, aOutput, bKey, bOutput, cKey, cOutput],
         plugins: [commandOwner, ...plugins],
         requiredPlugins: [commandOwner.id],
         observers: {plugins: {diagnosticRecorded: (diagnostic) => {
@@ -104,7 +103,7 @@ describe("启动入口选择与失败", () => {
     it("验收 11：必需入口受阻使启动失败，不强行激活未选中的入口", async () => {
         const missing = defineServiceKey<string>("missing/service");
         const calls: string[] = [];
-        const application = createApplication(host().context, manifest({keys: [missing], requiredPlugins: ["required"], plugins: [
+        const application = createApplication(host().context, manifest({requiredPlugins: ["required"], plugins: [
             {id: "required", entries: [{id: "main", location: "server", dependencies: [{key: missing}], activate: () => {
                 calls.push("required");
                 return {};
@@ -132,7 +131,7 @@ describe("启动入口选择与失败", () => {
     it("验收 11：非必需 onStartup 入口受阻只记录失败，不调用激活", async () => {
         const missing = defineServiceKey<string>("missing/service");
         let called = false;
-        const application = createApplication(host().context, manifest({keys: [missing], plugins: [{id: "optional", entries: [{id: "main", location: "server", activationEvents: ["onStartup"], dependencies: [{key: missing}], activate: () => {
+        const application = createApplication(host().context, manifest({plugins: [{id: "optional", entries: [{id: "main", location: "server", activationEvents: ["onStartup"], dependencies: [{key: missing}], activate: () => {
             called = true;
             return {};
         }}]}]}));
@@ -215,7 +214,7 @@ describe("启动入口选择与失败", () => {
     it("必需插件登记被拒绝只报告一条 manifest 失败，不启动入口", async () => {
         const invalid = defineServiceKey<string>("foreign/service");
         let called = false;
-        const application = createApplication(host().context, manifest({keys: [invalid], requiredPlugins: ["required"], plugins: [{id: "required", entries: [{id: "main", location: "server", provides: [invalid], activate: () => {
+        const application = createApplication(host().context, manifest({requiredPlugins: ["required"], plugins: [{id: "required", entries: [{id: "main", location: "server", provides: [invalid], activate: () => {
             called = true;
             return {services: [provide(invalid, "invalid")]};
         }}]}]}));
@@ -229,16 +228,17 @@ describe("启动入口选择与失败", () => {
     });
 
     it("必需 activate 门禁引用被拒绝插件时报告 manifest 与独立 unknown-entry 门禁失败", async () => {
-        const unregistered = defineServiceKey<string>("required/unregistered");
+        // 服务 id 不以本插件 id 开头：清单结构不合格，整个插件不登记。
+        const foreign = defineServiceKey<string>("elsewhere/value");
         let called = false;
-        const application = createApplication(host().context, manifest({plugins: [{id: "required", entries: [{id: "main", location: "server", activationEvents: ["onStartup"], provides: [unregistered], activate: () => {
+        const application = createApplication(host().context, manifest({plugins: [{id: "required", entries: [{id: "main", location: "server", activationEvents: ["onStartup"], provides: [foreign], activate: () => {
             called = true;
-            return {services: [provide(unregistered, "invalid")]};
+            return {services: [provide(foreign, "invalid")]};
         }}]}], gates: [{id: "required-entry", kind: "activate", entry: {plugin: "required", entry: "main"}}]}));
         const startup = await application.startup;
         expect(startup).toMatchObject({status: "failed", stop: {status: "closed"}});
         expect(startup.failures).toEqual([
-            {category: "manifest", required: true, source: "required", stage: "register", reason: "plugin:main:unknown-service-key", error: null},
+            {category: "manifest", required: true, source: "required", stage: "register", reason: "plugin:main:foreign-service-id", error: null},
             {category: "gate", required: true, source: "required-entry", stage: "gate", reason: "activate:unknown-entry", error: null},
         ]);
         expect(startup.gates).toEqual([{id: "required-entry", required: true, status: "failed", reason: "activate:unknown-entry", error: null}]);
@@ -249,7 +249,7 @@ describe("启动入口选择与失败", () => {
     it("必需插件仅含外位置入口且登记被拒绝时只报告一条 manifest 失败", async () => {
         const invalid = defineServiceKey<string>("foreign/service");
         let called = false;
-        const application = createApplication(host().context, manifest({keys: [invalid], requiredPlugins: ["required"], plugins: [{id: "required", entries: [{id: "foreign", location: "browser", activationEvents: ["onStartup"], provides: [invalid], activate: () => {
+        const application = createApplication(host().context, manifest({requiredPlugins: ["required"], plugins: [{id: "required", entries: [{id: "foreign", location: "browser", activationEvents: ["onStartup"], provides: [invalid], activate: () => {
             called = true;
             return {services: [provide(invalid, "invalid")]};
         }}]}]}));
@@ -272,16 +272,16 @@ describe("启动入口选择与失败", () => {
     });
 
     it("非必需 onStartup 插件登记被拒绝只报告一条 manifest 失败，不阻止应用启动", async () => {
-        const unregistered = defineServiceKey<string>("optional/unregistered");
+        const foreign = defineServiceKey<string>("elsewhere/value");
         let called = false;
-        const application = createApplication(host().context, manifest({plugins: [{id: "optional", entries: [{id: "main", location: "server", activationEvents: ["onStartup"], provides: [unregistered], activate: () => {
+        const application = createApplication(host().context, manifest({plugins: [{id: "optional", entries: [{id: "main", location: "server", activationEvents: ["onStartup"], provides: [foreign], activate: () => {
             called = true;
-            return {services: [provide(unregistered, "invalid")]};
+            return {services: [provide(foreign, "invalid")]};
         }}]}]}));
         const startup = await application.startup;
         expect(startup.status).toBe("available");
         expect(startup.failures).toEqual([
-            {category: "manifest", required: false, source: "optional", stage: "register", reason: "plugin:main:unknown-service-key", error: null},
+            {category: "manifest", required: false, source: "optional", stage: "register", reason: "plugin:main:foreign-service-id", error: null},
         ]);
         expect(called).toBe(false);
         expect(await application.stop()).toEqual({status: "closed"});
@@ -302,7 +302,7 @@ describe("启动入口选择与失败", () => {
         const finish = Promise.withResolvers<void>();
         const released: string[] = [];
         const output = defineServiceKey<string>("required/output");
-        const application = createApplication(context, manifest({keys: [output], requiredPlugins: ["required"], plugins: [
+        const application = createApplication(context, manifest({requiredPlugins: ["required"], plugins: [
             {id: "required", entries: [{id: "main", location: "server", provides: [output], activate: async (context) => {
                 context.scope.register({kind: "owned", label: "required", value: "resource", release: (value) => void released.push(value)});
                 started.resolve();
@@ -442,7 +442,7 @@ describe("启动入口选择与失败", () => {
         const released: string[] = [];
         const called: string[] = [];
         const output = defineServiceKey<string>("healthy/output");
-        const application = createApplication(host().context, manifest({keys: [output], requiredPlugins: ["required"], plugins: [
+        const application = createApplication(host().context, manifest({requiredPlugins: ["required"], plugins: [
             {id: "required", entries: [{id: "main", location: "server", activate: (context) => {
                 context.scope.register({kind: "owned", label: "failed", value: "failed-resource", release: (value) => void released.push(value)});
                 throw new Error("required activation failed");

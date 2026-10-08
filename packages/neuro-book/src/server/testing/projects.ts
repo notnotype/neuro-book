@@ -20,7 +20,6 @@ import type {RemoteNode, RemoteRouter} from "@notnotype/nb-runtime/remote";
 import {FIXTURE_READY_LINE} from "nbook/project/testing/fault-plugin";
 import type {ProjectFault} from "nbook/project/testing/fault-plugin";
 import {projectsKey} from "nbook/shared/projects";
-import {collectServiceKeys} from "nbook/shared/service-keys";
 import type {ProjectAcquireResult, ProjectLease, ProjectRecord} from "nbook/shared/projects";
 
 import {createProjectManager} from "../projects/manager";
@@ -130,7 +129,6 @@ export async function projectHarness(
     const parent = createApplication(
         {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
         {
-            keys: collectServiceKeys(plugins, [projectsKey]),
             capabilities: [{id: "host.projects", key: projectsKey, create: async () => (await managerReady.promise).provision()}],
             plugins,
             gates: [],

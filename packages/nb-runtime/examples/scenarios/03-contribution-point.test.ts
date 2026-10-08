@@ -37,7 +37,7 @@ const careless: PluginDefinition = {
 
 it("场景 3：通过校验的菜单项交给菜单并可执行；不合格的只拒绝那一条，原因可从目录查到", async () => {
     const shell = serviceProbe("example.shell", "server", [menuKey]);
-    const app = await stage.local({plugins: [createMenuServerPlugin(), createFileMenuServerPlugin(), careless, shell.definition], keys: [menuKey]});
+    const app = await stage.local({plugins: [createMenuServerPlugin(), createFileMenuServerPlugin(), careless, shell.definition]});
     const menu = shell.get(menuKey);
 
     expect(menu.items()).toEqual([{id: "example.file-menu.open", title: "打开文件"}, {id: "example.file-menu.close", title: "关闭文件"}]);

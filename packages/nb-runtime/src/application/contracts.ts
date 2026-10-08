@@ -88,11 +88,10 @@ export interface MechanismObservers {
 }
 
 /**
- * 静态受信清单由键登记表、本地能力、插件定义、启动必需插件与门禁组成。
+ * 静态受信清单由本地能力、插件定义、启动必需插件与门禁组成。
  * 登记完成后并发激活选中的启动入口，再按门禁定义顺序执行；插件登记顺序没有语义。
  */
 export interface ApplicationManifest {
-    readonly keys: ReadonlyArray<ServiceKey<unknown>>;
     readonly capabilities?: ReadonlyArray<CapabilityProvider>;
     readonly plugins: ReadonlyArray<PluginDefinition>;
     /** 启动必需的插件；登记后并发激活它们在本位置的全部入口，失败则不开放接纳。 */

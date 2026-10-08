@@ -40,8 +40,6 @@ type Command = () => string;
 
 const clockKey = defineServiceKey<Clock>("clock/clock");
 const loggerKey = defineServiceKey<Logger>("clock/logger");
-const unknownKey = defineServiceKey<unknown>("unknown");
-const keys = [clockKey, loggerKey];
 const receiverKey = defineServiceKey<boolean>("receivers/lifetime");
 
 /** 等待事件循环检查点，不推进真实时间。 */
@@ -104,7 +102,7 @@ interface Host {
 async function setup(location: RuntimeLocation = "server", instanceId = `${location}-1`, receivers: {commands?: RecordingReceiver; views?: RecordingReceiver} = {}, connect = true): Promise<Host> {
     const runtime = createRuntimeInstance({location, instanceId});
     runtime.root.open();
-    const assembly = createServiceAssembly(runtime, {keys: [...keys, receiverKey]});
+    const assembly = createServiceAssembly(runtime, {});
     const commands = receivers.commands ?? recordingReceiver();
     const views = receivers.views ?? recordingReceiver();
     const diagnostics: PluginDiagnostic[] = [];
@@ -219,7 +217,6 @@ describe("描述登记", () => {
             {definition: plugin("empty"), reason: "no-entries"},
             {definition: plugin("a", commandEntry("again", ["a.other"])), reason: "duplicate-plugin"},
             {definition: plugin("dup", commandEntry("e", ["d.1"]), commandEntry("e", ["d.2"])), reason: "duplicate-entry"},
-            {definition: plugin("key", commandEntry("e", [], {provides: [unknownKey]})), reason: "unknown-service-key"},
             {definition: plugin("self", commandEntry("e", [], {provides: [clockKey], dependencies: [{key: clockKey}]})), reason: "self-dependency"},
             {definition: plugin("foreign", commandEntry("e", [])), scope: other.root, reason: "foreign-scope"},
             {definition: plugin("dead", commandEntry("e", [])), scope: closed, reason: "scope-not-alive"},
@@ -793,7 +790,7 @@ describe("提供项与依赖协作", () => {
         const aKey = defineServiceKey<{readonly name: string}>("cascade-a/a");
         const bKey = defineServiceKey<{readonly name: string}>("cascade-b/b");
         const cKey = defineServiceKey<{readonly name: string}>("cascade-c/c");
-        const assembly = createServiceAssembly(runtime, {keys: [aKey, bKey, cKey]});
+        const assembly = createServiceAssembly(runtime, {});
         const host = createPluginHost(runtime, assembly, {});
         let downstreamReleases = 0;
         const releaseDownstream = vi.fn(() => {
@@ -853,7 +850,7 @@ describe("提供项与依赖协作", () => {
     it("观察者异常不影响机制；接收者 revoke 抛错只记诊断", async () => {
         const runtime = createRuntimeInstance({location: "server", instanceId: "server-obs"});
         runtime.root.open();
-        const assembly = createServiceAssembly(runtime, {keys: [...keys, receiverKey]});
+        const assembly = createServiceAssembly(runtime, {});
         const commands = recordingReceiver();
         commands.revoke = () => {
             throw new Error("revoke 崩溃");

@@ -7,7 +7,7 @@ import {describe, expect, it} from "bun:test";
 import {Type} from "typebox";
 
 import {createApplication} from "@notnotype/nb-runtime/application";
-import {createDiagnosticsPlugin, createDiagnosticsStore, diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
+import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
@@ -54,7 +54,7 @@ async function start(location: RuntimeLocation, plugins: ReadonlyArray<PluginDef
     const commands = createCommandsPlugin(location);
     const application = createApplication(
         {identity, stopSignal: new AbortController().signal, emergency: () => undefined},
-        {keys: [diagnosticsKey, commandServiceKey], plugins: [diagnostics, commands, ...plugins], requiredPlugins: [diagnostics.id, commands.id], gates: []},
+        {plugins: [diagnostics, commands, ...plugins], requiredPlugins: [diagnostics.id, commands.id], gates: []},
     );
     expect((await application.startup).status).toBe("available");
     return {application, store};

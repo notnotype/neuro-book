@@ -20,6 +20,7 @@ interface Clock {
 
 const clockKey = defineServiceKey<Clock>("clock");
 const greeterKey = defineServiceKey<{greet(name: string): string}>("greeter/greeter");
+const brokenKey = defineServiceKey<unknown>("broken");
 
 function host(instanceId = "app-1", location: "server" | "browser" = "server") {
     const controller = new AbortController();
@@ -50,7 +51,6 @@ function greeterPlugin(location: "server" | "browser" = "server", activate?: Plu
 
 function manifest(overrides: Partial<ApplicationManifest> & {readonly extraGates?: StartupGate[]; readonly releaseClock?: () => void} = {}): ApplicationManifest {
     return {
-        keys: [clockKey, greeterKey],
         capabilities: [{id: "clock", key: clockKey, create: (): Clock => ({now: () => 1}), release: overrides.releaseClock}],
         plugins: [greeterPlugin()],
         gates: [{id: "greeter", kind: "activate", entry: {plugin: "greeter", entry: "main"}}, ...(overrides.extraGates ?? [])],
@@ -106,7 +106,14 @@ describe("启动与接纳", () => {
         const application = createApplication(
             context,
             manifest({
-                extraGates: [{id: "missing", kind: "resolve", required: false, key: defineServiceKey("missing")}],
+                // 一个创建时抛错的宿主能力：可选门禁解析它，装配留下一条初始化失败的诊断。
+                capabilities: [
+                    {id: "clock", key: clockKey, create: (): Clock => ({now: () => 1})},
+                    {id: "broken", key: brokenKey, create: () => {
+                        throw new Error("能力创建失败");
+                    }},
+                ],
+                extraGates: [{id: "broken", kind: "resolve", required: false, key: brokenKey}],
                 observers: {
                     lifecycle: {phaseChanged: (change) => {
                         phases.push(`${change.scopeId}:${change.from}>${change.to}`);
@@ -122,7 +129,7 @@ describe("启动与接纳", () => {
         // 首个事件是 greeter 激活作用域的创建，早于任何插件可调用；根作用域 open 也被记录。
         expect(phases.some((entry) => entry.endsWith(":creating>available"))).toBe(true);
         expect(phases.at(-1)).toMatch(/^scope-1:creating>available$/u);
-        expect(assemblyDiagnostics).toContain("unknown-key");
+        expect(assemblyDiagnostics).toContain("initialization-failed");
         expect(pluginDiagnostics).toEqual(["activation-started", "published"]);
     });
 
@@ -147,12 +154,12 @@ describe("启动与接纳", () => {
             gates: [
                 {id: "greeter", status: "passed"},
                 {id: "optional", status: "failed", required: false, reason: "check:threw", error: {name: "Error", message: "可选检查失败"}},
-                {id: "required", status: "failed", required: true, reason: "resolve:unknown-key"},
+                {id: "required", status: "failed", required: true, reason: "resolve:missing-provider"},
             ],
             stop: {status: "closed"},
         });
         expect(startup.failures.map((failure) => `${failure.source}:${failure.required}`)).toEqual(["optional:false", "required:true"]);
-        expect(emergencies).toEqual([{instanceId: "app-1", stage: "startup", reason: "必需门禁失败，业务不接纳", detail: "required:resolve:unknown-key"}]);
+        expect(emergencies).toEqual([{instanceId: "app-1", stage: "startup", reason: "必需门禁失败，业务不接纳", detail: "required:resolve:missing-provider"}]);
         expect(releaseClock).toHaveBeenCalledTimes(1);
         expect(await failing.admit({label: "x", run: () => 1})).toEqual({status: "rejected", reason: "startup-failed"});
         expect(failing.status()).toMatchObject({phase: "closed", admission: "closed"});
@@ -166,13 +173,14 @@ describe("启动与接纳", () => {
     });
 
     it("清单被拒绝的插件是结构化失败：被必需门禁引用时启动失败，门禁本身报 unknown-entry", async () => {
-        const unregisteredKey = defineServiceKey<string>("greeter/unregistered");
-        const rejected: PluginDefinition = {id: "greeter", entries: [{id: "main", location: "server", provides: [unregisteredKey], activate: () => ({services: [provide(unregisteredKey, "x")]})}]};
+        // 服务 id 不以本插件 id 开头：清单结构不合格，整个插件不登记。
+        const foreignKey = defineServiceKey<string>("elsewhere/value");
+        const rejected: PluginDefinition = {id: "greeter", entries: [{id: "main", location: "server", provides: [foreignKey], activate: () => ({services: [provide(foreignKey, "x")]})}]};
         const {context} = host();
         const application = createApplication(context, manifest({plugins: [rejected]}));
         const startup = await application.startup;
         expect(startup.status).toBe("failed");
-        expect(startup.failures[0]).toMatchObject({category: "manifest", required: true, source: "greeter", stage: "register", reason: "plugin:main:unknown-service-key"});
+        expect(startup.failures[0]).toMatchObject({category: "manifest", required: true, source: "greeter", stage: "register", reason: "plugin:main:foreign-service-id"});
         expect(startup.gates).toEqual([{id: "greeter", required: true, status: "failed", reason: "activate:unknown-entry", error: null}]);
     });
 });
@@ -357,7 +365,7 @@ describe("检查门禁的服务访问", () => {
             }),
         );
         const startup = await application.startup;
-        expect(startup).toMatchObject({status: "available", gates: [{id: "greeter", status: "passed"}, {id: "reads-clock", status: "passed"}, {id: "missing-dependency", status: "failed", reason: "check:unknown-key"}]});
+        expect(startup).toMatchObject({status: "available", gates: [{id: "greeter", status: "passed"}, {id: "reads-clock", status: "passed"}, {id: "missing-dependency", status: "failed", reason: "check:missing-provider"}]});
         expect(seen).toEqual(["clock:1", "undeclared-dependency"]);
     });
 });

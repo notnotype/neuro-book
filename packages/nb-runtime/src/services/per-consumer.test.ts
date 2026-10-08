@@ -31,7 +31,7 @@ function setup(
     const identity = options.identity ?? {location: "server", instanceId: "server-1", client: null};
     const runtime = createRuntimeInstance(identity);
     runtime.root.open();
-    const assembly = createServiceAssembly(runtime, {keys: [storeKey]});
+    const assembly = createServiceAssembly(runtime, {});
     const released: Fixture["released"] = [];
     const facade = options.facade ?? ((consumer: ConsumerIdentity): Store => ({who: () => consumer, write: (value) => `${consumer.entry ?? "host"}:${value}`}));
     expect(

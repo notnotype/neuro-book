@@ -36,7 +36,6 @@ describe("Spec application 清单：本地能力按调用方门面", () => {
         const app = createApplication(
             {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
             {
-                keys: [registryKey],
                 capabilities: [{
                     id: "host.registry",
                     key: registryKey,

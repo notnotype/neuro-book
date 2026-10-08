@@ -154,7 +154,6 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
     readonly instanceId: string;
     readonly location: RuntimeLocation;
     readonly #client: string | null;
-    readonly #keys: ReadonlySet<ServiceKey<unknown>>;
     readonly #observer: AssemblyObserver | undefined;
     readonly #entries = new Map<EntryId, Entry>();
     /** 服务作用域 → 提供者；把某个访问作用域内发起的等待归属到正在初始化的提供者。 */
@@ -169,12 +168,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         this.instanceId = instance.identity.instanceId;
         this.location = instance.identity.location;
         this.#client = instance.identity.client ?? null;
-        this.#keys = new Set(options.keys);
         this.#observer = options.observer;
-    }
-
-    hasKey(key: ServiceKey<unknown>): boolean {
-        return this.#keys.has(key);
     }
 
     declare<T>(declaration: ProviderDeclaration<T>): DeclareResult;
@@ -288,13 +282,6 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
     #validate(declaration: ProviderDeclaration<unknown> | ConsumerDeclaration, provider: ProviderDeclaration<unknown> | null): DeclarationRejection | null {
         if (this.#entries.has(declaration.id)) {
             return "duplicate-id";
-        }
-        const keys = (declaration.dependencies ?? []).map((dependency) => dependency.key);
-        if (provider !== null) {
-            keys.push(provider.key);
-        }
-        if (keys.some((key) => !this.#keys.has(key))) {
-            return "unknown-key";
         }
         if (declaration.location !== this.location) {
             return "location-mismatch";
@@ -444,7 +431,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
         if (!isAlive(scope)) {
             return unavailable("consumer-stopped");
         }
-        if (!entry.dependencies.some((dependency) => dependency.key === key)) {
+        if (!entry.dependencies.some((dependency) => dependency.key.name === key.name)) {
             return unavailable("undeclared-dependency");
         }
         const report = this.report().entries.find((candidate) => candidate.id === entry.id);
@@ -788,7 +775,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
 
         // 只预解析必需依赖：可选依赖由 create 按需 `services.resolve`，不因声明而初始化。
         const dependencies: ReleaseDependency[] = [];
-        const required = new Map<ServiceKey<unknown>, unknown>();
+        const required = new Map<string, unknown>();
         for (const dependency of provider.dependencies) {
             if (!dependency.required) {
                 continue;
@@ -799,7 +786,7 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
             }
             if (result.status === "resolved") {
                 dependencies.push(result.binding.dependency);
-                required.set(dependency.key, result.instance);
+                required.set(dependency.key.name, result.instance);
                 continue;
             }
             const path = result.path.length > 0 ? result.path : result.providerId === null ? [] : [result.providerId];
@@ -811,10 +798,10 @@ export class ServiceAssemblyImpl implements ServiceAssembly {
             services: {
                 ...this.#accessFor(provider, scope, null),
                 require: <T>(key: ServiceKey<T>): T => {
-                    if (!required.has(key)) {
+                    if (!required.has(key.name)) {
                         throw new TypeError(`${key.name} 不是提供者 ${provider.id} 已解析的必需依赖`);
                     }
-                    return required.get(key) as T;
+                    return required.get(key.name) as T;
                 },
             },
             signal: scope.stopSignal,

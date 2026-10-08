@@ -25,8 +25,6 @@ interface Store {
 const counterKey = defineServiceKey<Counter>("counter");
 const storeKey = defineServiceKey<Store>("store");
 const cacheKey = defineServiceKey<{readonly name: string}>("cache");
-const unknownKey = defineServiceKey<unknown>("unknown");
-const keys = [counterKey, storeKey, cacheKey];
 
 function instance(location: RuntimeLocation = "server", instanceId = `${location}-1`): RuntimeInstance {
     const runtime = createRuntimeInstance({location, instanceId});
@@ -79,7 +77,7 @@ async function isSettled(promise: Promise<unknown>): Promise<boolean> {
 
 /** 根上一个 counter 提供者 + 一个消费者的最小装配。 */
 function minimalAssembly(runtime: RuntimeInstance, create: (context: ServiceCreateContext) => Counter | Promise<Counter> = vi.fn(counterCreate("root"))) {
-    const assembly = createServiceAssembly(runtime, {keys});
+    const assembly = createServiceAssembly(runtime);
     const location = runtime.identity.location;
     const root = runtime.root;
     assembly.declare({id: "counter", key: counterKey, location, scope: root, create});
@@ -102,20 +100,25 @@ describe("runtime.services 机制边界", () => {
         }
     });
 
-    it("服务键以身份区分，同名不等价；空名称拒绝", () => {
+    it("服务键按 id 识别：提供方与消费方各自定义同一 id 的键，解析到同一个实例；空名称拒绝", async () => {
         expect(() => defineServiceKey(" ")).toThrow(TypeError);
         const runtime = instance();
-        const assembly = createServiceAssembly(runtime, {keys: [counterKey]});
-        const sameName = defineServiceKey<Counter>("counter");
-        expect(
-            assembly.declare({id: "p", key: sameName, location: "server", scope: runtime.root, create: counterCreate("p")}),
-        ).toEqual({status: "rejected", id: "p", reason: "unknown-key"});
+        const assembly = createServiceAssembly(runtime);
+        const sameId = defineServiceKey<Counter>("counter");
+        assembly.declare({id: "counter", key: counterKey, location: "server", scope: runtime.root, create: counterCreate("root")});
+        assembly.declare({id: "app", location: "server", scope: runtime.root, dependencies: [{key: sameId}]});
+        const work = openedChild(runtime.root, "app-work");
+
+        const viaConsumerKey = resolved(await assembly.access("app", work).resolve(sameId));
+        const viaProviderKey = resolved(await assembly.access("app", work).resolve(counterKey));
+        expect(viaConsumerKey.instance).toBe(viaProviderKey.instance);
+        expect(viaConsumerKey.instance.name).toBe("root");
     });
 
-    it("声明校验：重复 id、未登记键、位置不符、跨实例作用域与已停止作用域均拒绝且留诊断", async () => {
+    it("声明校验：重复 id、位置不符、跨实例作用域与已停止作用域均拒绝且留诊断", async () => {
         const runtime = instance();
         const other = instance("server", "server-2");
-        const assembly = createServiceAssembly(runtime, {keys});
+        const assembly = createServiceAssembly(runtime);
         const declare = (id: string, extra: Partial<{location: RuntimeLocation; scope: Scope; key: ServiceKey<unknown>}> = {}) =>
             assembly.declare({
                 id,
@@ -126,7 +129,6 @@ describe("runtime.services 机制边界", () => {
             });
         expect(declare("a")).toEqual({status: "accepted", id: "a"});
         expect(declare("a")).toMatchObject({status: "rejected", reason: "duplicate-id"});
-        expect(declare("b", {key: unknownKey})).toMatchObject({status: "rejected", reason: "unknown-key"});
         expect(declare("c", {location: "browser"})).toMatchObject({status: "rejected", reason: "location-mismatch"});
         expect(declare("d", {scope: other.root})).toMatchObject({status: "rejected", reason: "foreign-scope"});
         const closed = openedChild(runtime.root, "closed");
@@ -134,7 +136,6 @@ describe("runtime.services 机制边界", () => {
         expect(declare("e", {scope: closed})).toMatchObject({status: "rejected", reason: "scope-not-alive"});
         expect(assembly.diagnostics().map((diagnostic) => [diagnostic.stage, diagnostic.entryId, diagnostic.reason])).toEqual([
             ["declare", "a", "duplicate-id"],
-            ["declare", "b", "unknown-key"],
             ["declare", "c", "location-mismatch"],
             ["declare", "d", "foreign-scope"],
             ["declare", "e", "scope-not-alive"],
@@ -237,7 +238,7 @@ describe("Spec 验收 1：并发首次解析与 single-flight", () => {
 describe("Spec 验收 2：缺依赖闭包与可选缺失", () => {
     it("必需依赖缺失拒绝提供者自身与必需消费者闭包，健康上游与无关消费者继续可用，可选缺失只让该能力不可用", async () => {
         const runtime = instance();
-        const assembly = createServiceAssembly(runtime, {keys: [counterKey, storeKey, cacheKey]});
+        const assembly = createServiceAssembly(runtime);
         const root = runtime.root;
         const createCounter = vi.fn(counterCreate("counter"));
         const createStore = vi.fn((context: ServiceCreateContext): Store => ({name: "store", counter: context.services.require(counterKey)}));
@@ -285,7 +286,7 @@ describe("Spec 验收 2：缺依赖闭包与可选缺失", () => {
 
     it("必需依赖初始化失败时，依赖它的提供者不调用 create，消费者得到带路径的同一失败；健康上游继续可用", async () => {
         const runtime = instance();
-        const assembly = createServiceAssembly(runtime, {keys});
+        const assembly = createServiceAssembly(runtime);
         const root = runtime.root;
         const createCache = vi.fn((): never => {
             throw new Error("cache boom");
@@ -317,7 +318,7 @@ describe("Spec 验收 2：缺依赖闭包与可选缺失", () => {
 describe("Spec 验收 3：重复提供隔离", () => {
     it("同一祖先链上两个提供者声明同一键时全部隔离，消费者得到冲突原因，不按顺序挑选", async () => {
         const runtime = instance();
-        const assembly = createServiceAssembly(runtime, {keys});
+        const assembly = createServiceAssembly(runtime);
         const root = runtime.root;
         const session = openedChild(root, "session");
         const createA = vi.fn(counterCreate("a"));
@@ -341,7 +342,7 @@ describe("Spec 验收 3：重复提供隔离", () => {
 describe("Spec 验收 4：依赖环检查", () => {
     it("静态依赖环（含可选边）在装配阶段拒绝，无入口被激活", async () => {
         const runtime = instance();
-        const assembly = createServiceAssembly(runtime, {keys});
+        const assembly = createServiceAssembly(runtime);
         const root = runtime.root;
         const createCounter = vi.fn(counterCreate("counter"));
         const createStore = vi.fn((): Store => ({name: "store", counter: makeCounter("c")}));
@@ -362,7 +363,7 @@ describe("Spec 验收 4：依赖环检查", () => {
 
     it("运行时等待环在已开始初始化后被发现：阻断受影响解析、不回滚已发生副作用、本次登记资源被收口", async () => {
         const runtime = instance();
-        const assembly = createServiceAssembly(runtime, {keys});
+        const assembly = createServiceAssembly(runtime);
         const root = runtime.root;
         const sideEffects: string[] = [];
         const releaseTemp = vi.fn();
@@ -496,7 +497,7 @@ describe("Spec 验收 5：初始化失败稳定与显式恢复", () => {
             expect(context.signal.aborted).toBe(true);
             return makeCounter("late");
         });
-        const assembly = createServiceAssembly(runtime, {keys});
+        const assembly = createServiceAssembly(runtime);
         const session = openedChild(runtime.root, "session");
         assembly.declare({id: "counter", key: counterKey, location: "server", scope: session, create, release});
         assembly.declare({id: "app", location: "server", scope: session, dependencies: [{key: counterKey}]});
@@ -516,7 +517,7 @@ describe("Spec 验收 5：初始化失败稳定与显式恢复", () => {
 describe("Spec 验收 6：寿命合法性", () => {
     it("长寿命入口不能解析更短寿命作用域上的提供者；操作级作用域可借用长寿命精确代次并随操作结束释放", async () => {
         const runtime = instance();
-        const assembly = createServiceAssembly(runtime, {keys});
+        const assembly = createServiceAssembly(runtime);
         const root = runtime.root;
         const session = openedChild(root, "session");
         const createCache = vi.fn(() => ({name: "session-cache"}));
@@ -543,7 +544,7 @@ describe("Spec 验收 6：寿命合法性", () => {
     it("消费者先于提供者收口：依赖绑定的消费者资源先释放，提供者实例最后释放", async () => {
         const runtime = instance();
         const order: string[] = [];
-        const assembly = createServiceAssembly(runtime, {keys});
+        const assembly = createServiceAssembly(runtime);
         const root = runtime.root;
         assembly.declare({
             id: "counter",
@@ -576,7 +577,7 @@ describe("Spec 验收 6：寿命合法性", () => {
 describe("Spec 验收 7：精确 factory 绑定", () => {
     it("登记与查询不实例化；绑定指向精确代次；目标换代后旧绑定 stale 且不改投新目标", async () => {
         const runtime = instance();
-        const assembly = createServiceAssembly(runtime, {keys});
+        const assembly = createServiceAssembly(runtime);
         const root = runtime.root;
         const project1 = openedChild(root, "project#1");
         const create1 = vi.fn(counterCreate("gen-1"));
@@ -611,7 +612,6 @@ describe("Spec 验收 8：诊断脱敏", () => {
         const runtime = instance();
         const observed: AssemblyDiagnostic[] = [];
         const assembly = createServiceAssembly(runtime, {
-            keys,
             observer: {
                 diagnosticRecorded: (diagnostic) => {
                     observed.push(diagnostic);
@@ -631,14 +631,14 @@ describe("Spec 验收 8：诊断脱敏", () => {
         assembly.declare(declaration);
         assembly.declare({id: "cache", key: cacheKey, location: "server", scope: root, create: () => Promise.reject(new Error("cache down"))});
         assembly.declare({id: "app", location: "server", scope: root, dependencies: [{key: counterKey}, {key: cacheKey}]});
-        assembly.declare({id: "dup", key: unknownKey, location: "server", scope: root, create: () => secret});
+        assembly.declare({id: "app", key: defineServiceKey<string>("dup"), location: "server", scope: root, create: () => secret});
 
         resolved(await assembly.access("app").resolve(counterKey));
         expect(await assembly.access("app").resolve(cacheKey)).toMatchObject({status: "unavailable", reason: "initialization-failed"});
         const serialized = JSON.stringify({report: assembly.report(), diagnostics: assembly.diagnostics()});
         expect(serialized).not.toContain(secret);
         expect(assembly.diagnostics()).toMatchObject([
-            {stage: "declare", entryId: "dup", key: "unknown", reason: "unknown-key", location: "server", instanceId: "server-1"},
+            {stage: "declare", entryId: "app", key: "dup", reason: "duplicate-id", location: "server", instanceId: "server-1"},
             {stage: "initialize", entryId: "cache", key: "cache", reason: "initialization-failed", error: {name: "Error", message: "cache down"}},
         ]);
         expect(observed).toHaveLength(2);
@@ -648,7 +648,7 @@ describe("Spec 验收 8：诊断脱敏", () => {
 describe("Spec 验收 9：两种作用域 × 两个 host 复用", () => {
     async function assemble(location: RuntimeLocation) {
         const runtime = instance(location);
-        const assembly = createServiceAssembly(runtime, {keys});
+        const assembly = createServiceAssembly(runtime);
         const root = runtime.root;
         const operation = openedChild(root, "operation");
         assembly.declare({id: "counter", key: counterKey, location, scope: root, create: counterCreate(`${location}-counter`)});

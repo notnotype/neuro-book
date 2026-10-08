@@ -44,7 +44,7 @@ async function main(): Promise<number> {
         const node = createRemoteNode({instance: {id: "hub", kind: "server", role: "hub", project: null, client: null}});
         const parent = createApplication(
             {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
-            {keys: [], plugins: [], gates: [], remote: node},
+            {plugins: [], gates: [], remote: node},
         );
         await parent.startup;
         const registry = createProjectRegistry({stateRoot, cwd: root});

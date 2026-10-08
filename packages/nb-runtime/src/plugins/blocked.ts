@@ -23,18 +23,17 @@ export function entryIdentity(entry: EntryRef): string {
 export function deriveBlocked(
     entries: ReadonlyArray<EntrySnapshot>,
     location: RuntimeLocation,
-    // 插件键按对象身份匹配；AssemblyReport 只给出键名，本地能力因此按名称匹配。
     localServices: ReadonlySet<string>,
 ): ReadonlyMap<string, EntryBlocked | null> {
     const local = entries.filter((entry) => entry.location === location);
-    const providers = new Map<ServiceKey<unknown>, EntrySnapshot>();
-    const foreign = new Set<ServiceKey<unknown>>();
+    const providers = new Map<string, EntrySnapshot>();
+    const foreign = new Set<string>();
     for (const entry of entries) {
         for (const key of entry.provides) {
             if (entry.location === location) {
-                providers.set(key, entry);
+                providers.set(key.name, entry);
             } else {
-                foreign.add(key);
+                foreign.add(key.name);
             }
         }
     }
@@ -42,7 +41,7 @@ export function deriveBlocked(
     for (const entry of local) {
         const dependencies = [];
         for (const dependency of entry.dependencies) {
-            const provider = providers.get(dependency.key);
+            const provider = providers.get(dependency.key.name);
             if (dependency.required !== false && provider !== undefined && !localServices.has(dependency.key.name)) {
                 dependencies.push({key: dependency.key, provider});
             }
@@ -137,9 +136,9 @@ export function deriveBlocked(
                 continue;
             }
             const key = dependency.key.name;
-            const provider = providers.get(dependency.key);
+            const provider = providers.get(dependency.key.name);
             if (provider === undefined) {
-                blocked = {reason: foreign.has(dependency.key) ? "location-mismatch" : "missing-service", key, path: [id]};
+                blocked = {reason: foreign.has(dependency.key.name) ? "location-mismatch" : "missing-service", key, path: [id]};
             } else if (provider.status === "failed") {
                 blocked = {reason: "provider-failed", key, path: [id, entryIdentity(provider)]};
             } else {

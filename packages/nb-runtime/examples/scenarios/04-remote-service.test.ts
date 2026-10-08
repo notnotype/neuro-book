@@ -20,7 +20,7 @@ afterEach(async () => {
 it("场景 4：服务端入口在第一次远程调用时才激活；窗口里的插件经本地服务读写、订阅收到每次变化；不合合同的输入被拒", async () => {
     const {app: hub, router} = await stage.server({plugins: [createCounterServerPlugin()]});
     const panel = serviceProbe("example.panel", "browser", [counterKey]);
-    await stage.window(router, "window-1", {plugins: [createCounterBrowserPlugin(), panel.definition], keys: [counterKey]});
+    await stage.window(router, "window-1", {plugins: [createCounterBrowserPlugin(), panel.definition]});
     const counter = panel.get(counterKey);
     expect(hub.plugins.entryState({plugin: "example.counter", entry: "server"})?.status).toBe("registered");
 

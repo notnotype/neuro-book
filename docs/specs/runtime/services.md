@@ -23,7 +23,7 @@ owners:
 
 ## 术语与参与者
 
-- **服务键**：稳定标识一项能力合同的标识；解析以“服务键 + 解析作用域”为单位。
+- **服务键**：稳定标识一项能力合同的标识，以服务 id（形如 `<插件 id>/<名>`）识别：同一 id 定义两次是同一个键。解析以“服务键 + 解析作用域”为单位。
 - **声明**：入口对提供或消费的静态描述，包含服务键、运行位置、作用域与必需性。
 - **提供者**：声明提供某服务键的绑定；其服务实例是一个资源，owner 由声明的作用域承担。
 - **消费者**：声明消费某服务键的入口或插件；消费不取得关闭该服务的权力。
@@ -40,7 +40,7 @@ owners:
 ## 输入与前置条件
 
 - 每个入口提交声明：所提供/消费的服务键、运行位置、作用域与必需性；静态依赖边与运行时等待边都算依赖。
-- 声明中的服务键、位置与作用域必须来自受信登记表；无法识别或字段不合法的声明在装配阶段被拒绝，且不产生业务副作用。静态预校验只能保证校验与声明阶段无副作用，不保证后续动态激活阶段无副作用：动态等待环在已开始激活后才发现时按收口与阻断发布处理。
+- 声明的位置必须与本实例一致、作用域必须属于本实例且存活；字段不合法的声明在装配阶段被拒绝，且不产生业务副作用。服务键不需要预先登记：依赖一个没有任何提供者的 id，按缺少依赖处理（“失败与恢复”）。静态预校验只能保证校验与声明阶段无副作用，不保证后续动态激活阶段无副作用：动态等待环在已开始激活后才发现时按收口与阻断发布处理。
 - 提供者的服务实例必须创建在一个已存在的作用域内，并遵守 [`runtime.lifecycle`](./lifecycle.md) 的登记与收口。
 - 运行期绑定必须由资源 owner 按精确身份/代次签发；绑定回调自身解析服务或等待激活时，该等待边同样进入依赖检查。
 
@@ -153,15 +153,16 @@ owners:
 10. **按调用方门面**：两个插件解析同一按调用方提供的服务，各自得到门面并看到自己的身份；同一激活重复解析得到同一门面；入口停止再激活后旧门面抛 `ServiceRevokedError`、新门面可用；提供者停止后门面作废；释放函数抛错可在诊断中查到；普通共享服务的既有场景不变。
 11. **委托**：插件 A 经代理插件 P 访问服务 S，S 看到的调用方是 A、代理为 P；P 未声明代理能力或不在允许清单、身份对象伪造或来自其它入口、键未声明，各自被拒；A 直接访问 S 与经 P 访问 S 看到的是同一插件身份。
 12. **客户端身份**：运行实例带客户端身份时，本实例里插件入口的调用方身份带同一个客户端身份；不带时为空。
+13. **服务键按 id 识别**：提供方与消费方各自定义同一 id 的键，消费方解析到提供方的那一个实例；依赖一个没有提供者的 id 为缺少依赖。
 
 Smoke：`bun run smoke:runtime-foundation -- --host server|browser` 在真实后端子进程与真实 Chromium 上装配同一份受控清单（场景 9）：宿主注入的能力经本机制声明、解析并随根作用域释放。
 
 ## 实现合同
 
-- **公开入口**：包入口 `@notnotype/nb-runtime/services`：`defineServiceKey`、`createServiceAssembly(instance, {keys, observer?})`、`perConsumer(facade, release?)`、`ServiceRevokedError` 与类型合同；装配对象 `ServiceAssembly` 的 `declare`、`report`、`providerState`、`access(entryId, scope?, {generation?})`（得到 `resolve` 与 `resolveFor`）、`issuedTo`、`recover`、`diagnostics`；调用方身份 `ConsumerIdentity {instanceId, location, client, plugin, entry, generation, via}` 是冻结对象。
+- **公开入口**：包入口 `@notnotype/nb-runtime/services`：`defineServiceKey`、`createServiceAssembly(instance, {observer?})`、`perConsumer(facade, release?)`、`ServiceRevokedError` 与类型合同；装配对象 `ServiceAssembly` 的 `declare`、`report`、`providerState`、`access(entryId, scope?, {generation?})`（得到 `resolve` 与 `resolveFor`）、`issuedTo`、`recover`、`diagnostics`；调用方身份 `ConsumerIdentity {instanceId, location, client, plugin, entry, generation, via}` 是冻结对象。
 - **owner 与依赖方向**：owner 为 runtime。实现只依赖 [`runtime.lifecycle`](./lifecycle.md)，只允许同目录相对导入与 `../lifecycle/lifecycle`，不 import 产品领域实现、框架 hook 或数据库驱动，由合同测试的源码守卫锁定。[`runtime.plugins`](./plugins.md) 与 [`runtime.application`](./application.md) 依赖本能力。
 - **关键内部不变量**：
-  1. 服务键按对象身份区分，声明只能引用装配时登记的键；未登记键、重复 id、位置不符、跨实例作用域、已停止作用域的声明整体拒绝并留诊断。
+  1. 服务键按服务 id 识别，同一 id 在两处定义是同一个键；重复 id、位置不符、跨实例作用域、已停止作用域的声明整体拒绝并留诊断。
   2. 每次初始化在提供者 owner 作用域下新建一个服务作用域作为提供者代次，实例是它的资源；并发首次解析共享这一次初始化。
   3. 解析的借用登记在访问作用域上，访问作用域必须是入口声明作用域自身或其严格后代，长寿命作用域因此无法捕获短寿命实例。
   4. 门面是访问作用域上依赖那次借用的资源，先于借用释放；提供者实例释放时作废它发出的其余门面。
@@ -169,7 +170,7 @@ Smoke：`bun run smoke:runtime-foundation -- --host server|browser` 在真实后
 
 ## 证据
 
-- 批准依据：[应用运行时、生命周期与内置插件架构](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md)（开发者 2026-09-20 接受基础架构与分段推进）；输出第 11–13 条依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4 节、[插件的数据与状态](../../proposals/plugin-data-model.md) 与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)。
+- 批准依据：[应用运行时、生命周期与内置插件架构](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md)（开发者 2026-09-20 接受基础架构与分段推进）；输出第 11–13 条依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4 节、[插件的数据与状态](../../proposals/plugin-data-model.md) 与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)；服务键按 id 识别依据 [ADR 0025](../../adr/0025-service-keys-by-id.md)（开发者 2026-10-08）。
 - 实现入口：[`services.ts`](../../../packages/nb-runtime/src/services/services.ts)
 - 合同测试：[`services.test.ts`](../../../packages/nb-runtime/src/services/services.test.ts)、[`per-consumer.test.ts`](../../../packages/nb-runtime/src/services/per-consumer.test.ts)、[`plugins/per-consumer.test.ts`](../../../packages/nb-runtime/src/plugins/per-consumer.test.ts)、[`plugins/delegation.test.ts`](../../../packages/nb-runtime/src/plugins/delegation.test.ts)、[`remote/delegation.test.ts`](../../../packages/nb-runtime/src/remote/delegation.test.ts)
 - Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`，旧应用宿主上的内核副本）
