@@ -3,6 +3,8 @@ import type {Component} from "vue";
 import type JsonViewer from "nbook/ui/JsonViewer.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
 import type WorkbenchCommandPalette from "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue";
+import type WorkbenchShellLayout from "nbook/plugins/workbench/web/components/WorkbenchShellLayout.vue";
+import type {PanelState} from "nbook/plugins/workbench/web/shell/panel-state";
 
 import type CollapsibleSidePanel from "../components/CollapsibleSidePanel.vue";
 import type EventLogPanel from "../components/EventLogPanel.vue";
@@ -220,6 +222,29 @@ export const labFixtures: LabFixture[] = [
             {id: "commands-unavailable", label: "无活动编辑器"},
         ],
         load: async () => (await import("./WorkbenchCommandPaletteFixture.vue")).default,
+    }),
+    defineLabFixture<typeof WorkbenchShellLayout>({
+        component: "WorkbenchShellLayout",
+        scenes: (() => {
+            const sizes = {sidebarWidth: 340, auxiliarybarWidth: 400, panelHeight: 200, panelWidth: 320};
+            const panel: PanelState = {position: "bottom", alignment: "center", hidden: false, collapsed: false, maximized: false};
+            const scene = (id: string, label: string, override: {panel?: Partial<PanelState>; hiddenParts?: Array<"titlebar" | "activitybar" | "sidebar" | "auxiliarybar">; dragCollapsedParts?: {sidebar?: boolean; auxiliarybar?: boolean; panel?: boolean}}) => ({
+                id,
+                label,
+                input: {props: {sizes, panel: {...panel, ...override.panel}, contextKey: `lab:${id}`, hiddenParts: override.hiddenParts ?? [], dragCollapsedParts: override.dragCollapsedParts ?? {}, disabled: false}},
+            });
+            return [
+                scene("default", "默认（底部居中）", {}),
+                scene("justify", "底部两端对齐", {panel: {alignment: "justify"}}),
+                scene("left", "面板在左侧", {panel: {position: "left"}}),
+                scene("top-right", "顶部靠右", {panel: {position: "top", alignment: "right"}}),
+                scene("collapsed", "面板收起为标题头", {panel: {collapsed: true}}),
+                scene("maximized", "面板最大化", {panel: {maximized: true}}),
+                scene("hidden", "面板隐藏、侧栏拖到零", {panel: {hidden: true}, dragCollapsedParts: {sidebar: true}}),
+                scene("minimal", "只留编辑器与状态栏", {hiddenParts: ["titlebar", "activitybar", "sidebar", "auxiliarybar"], panel: {hidden: true}}),
+            ];
+        })(),
+        load: async () => (await import("./WorkbenchShellLayoutFixture.vue")).default,
     }),
     defineSubjectFixture<typeof SkillChip>({
         component: "SkillChip",
