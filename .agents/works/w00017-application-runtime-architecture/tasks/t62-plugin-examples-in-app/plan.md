@@ -143,3 +143,9 @@ packages/neuro-book/examples/
   - **场景 02 的“门面释放”**：远程门面没有 `ServiceRevokedError`，可观察的是调用方停止后它手里的旧客户端得到 `cancelled`、同一插件下一代读到原来的笔记、别的调用方不受影响。实测 `provideRemote` 的 `release` 在调用方停止时被调用；浏览器入口在门面工厂里取 `remote.on(调用方)` 得到 `denied`，注释据此写。
   - 场地加了 `Stage.attach(app, 定义, 入口)`：把插件装进子作用域并激活，返回停止函数，用于演示调用方停止。
   - 旧场景 03、04、06 在 S4 之前仍用旧的 `scenarios/hosts.ts`，只把探针的导入改到 `testing/probes.ts`；`hosts.ts` 在 S4 删除。README 只改了插件与场景表，S5 重写。
+- **S4**：
+  - **counter 的服务端入口启动即激活**。它向 `nbook.commands` 贡献命令，命令要等贡献方入口激活才进命令表，现在没有按命令触发的激活事件（`packages/neuro-book/AGENTS.md` 的“命令”），所以计划里“服务端入口第一次调用时按需激活”做不到；按需激活改由项目入口演示（场景 04 核对激活前后的入口状态），场景 01 的 notes 也演示了。
+  - **counter 的服务端入口等 store 的字段就绪再完成激活**，否则刚启动时 `current` 与公开键读到的是 `initial`。变异检查去掉这段等待时场景仍通过：服务端分区在本进程里，首个快照在启动完成前就到了，进程内场地制造不出这段空窗；注释写明了在远程分区上才明显。
+  - **menu 加了 `titles()`**（经 `context.declarations` 列出已接受的声明），`items()` 只列已发布、能执行的；菜单服务按数据面约束改为异步，执行结果是结构化的 `unknown-item`。
+  - **旧场景 06 的项目代次结束（`provider-stopped`、`target-gone`、重连 `project-gone`）没有搬进场景 04**：它们是内核行为，内核的 `src/remote/routing.test.ts`、`activation.test.ts` 已覆盖；场景 04 只留示例插件作者要用到的：按绑定到达项目、按需激活、`lookup` 降级、`instances()`。
+  - 窗口里“据此降级”的面板逻辑写在场景 04 的 `projectBadge` 里（面板由探针代替，示例插件没有浏览器入口的 counter）。
