@@ -100,6 +100,7 @@
   - 选择请求（`QuickPickRequest`）的标题、占位、空列表提示与候选说明接受 `LocalizedText`，面板渲染时按当前语言取；`nbook.projects` 的文案函数改为返回 `LocalizedText`（两种语言各格式化一次），不再折成字符串快照。
   - `nbook.commands` 的不满足原因（含缺声明、类型不对的默认原因）改为 `LocalizedText`，求值时按当前语言给出；已记下的诊断保留当时的文字。
   - 首页（`empty-workbench.ts`）的文案改为按当前语言渲染。
+  - “打开项目”登记失败的标题按失败码（`ProjectRegisterFailure` 的八个码）给出中英两份原因，服务端返回的说明原文（中文）只记诊断，不进标题；列不出项目、结果未知的命令失败原因同样按当前语言给出。`runtime/projects.md` 输出 10 同步。
 - 命令 `nbook.settings.switch-locale`（“切换界面语言”，`nbook.settings` 的浏览器 `commands` 入口）：参数可选 `{locale}`，严格 schema；给了参数直接写，不打开选择；没给时经选择服务列出两种语言。
 - 切换后所有窗口即时换语言，不重新加载；工作台同步 `<html lang>`。
 
@@ -137,6 +138,7 @@
 | `docs/specs/theme/system.md` | 事实源与运行时流程改为新应用：配置两项、工作台页面应用、产品页面消费 token、Lab 独立 |
 | `docs/specs/workbench/commands.md` | 三条设置命令进命令表（effect、暴露、参数、结果转换）；不满足原因按当前界面语言给出 |
 | `docs/specs/workbench/quick-open.md` | 选择请求的文字接受 `LocalizedText`、按当前语言显示；打开中的面板随语言切换 |
+| `docs/specs/runtime/projects.md` | 输出 10：登记失败的原因按失败码与当前语言给出 |
 | `docs/specs/README.md` | 注册表加新 Spec |
 | `docs/modules/monorepo-boundaries.md` | 改掉“不能在运行时 import 其它插件模块”的过时说法，指向 ADR 0026 |
 | `packages/neuro-book/AGENTS.md` | 插件对外的配置定义写在 `shared/contracts.ts` |
@@ -175,7 +177,7 @@
 | 浏览器两个入口不成环：工作台、命令与设置命令都能激活 | S4 |
 | `layer: "auto"`：项目层有值写项目层，否则写用户层；只允许用户层的键总写用户层 | S4 |
 | store 的 `setting` 随配置变化；没给 `settings` 时 `create` 抛错 | S5：`store.test.ts` |
-| 切换语言后：已打开的命令面板与“打开项目”选择保留输入与选中项、所有可见文字换语言；不满足原因、首页文案、`<html lang>` 即时变化；Lab 命令场景不受影响 | S6：组件测试；S8：e2e |
+| 切换语言后：已打开的命令面板与“打开项目”选择保留输入与选中项、所有可见文字换语言；不满足原因、首页文案、`<html lang>` 即时变化；Lab 命令场景不受影响；英文界面下登记不存在的目录，标题是英文原因 | S6：组件测试；S8：e2e |
 | 三条设置命令：带有效参数直接写不弹选择；非法参数 `invalid-args` 且不写；Agent 在 plan 模式 `read-only`；写失败转换为命令失败并带配置失败码；取消无副作用 | S6、S7：命令测试 |
 | 主题与明暗写到文档根，首页背景、文字颜色与字体随主题变化（计算样式）；`system` 跟随系统明暗变化、切到显式明暗后不再跟随；Lab 显示期间产品配置变化不写文档根，离开 Lab 后按最新配置应用 | S7：组件测试；S8：e2e |
 | 两个窗口：一处切换语言，另一处即时变化；刷新后保持；`settings.json` 里预先写的注释保留 | S8：`e2e/settings.e2e.ts` |
@@ -206,7 +208,7 @@
 
 ## 审查处理
 
-2026-10-08 三个 omp（默认模型）交叉审查：通读并对照 VS Code（12 条）、架构与授权的对抗审查（8 条）、文件层实验与使用场景（12 条）。报告存为 [evidences/plan-review-vscode.txt](evidences/plan-review-vscode.txt)、[evidences/plan-review-arch.txt](evidences/plan-review-arch.txt)、[evidences/plan-review-scenarios.txt](evidences/plan-review-scenarios.txt)，实验脚本留在审查者的临时目录。主 Agent 逐条对照代码核实，全部成立，已并入上文：
+2026-10-08 三个 omp（默认模型）交叉审查：通读并对照 VS Code（14 条）、架构与授权的对抗审查（8 条）、文件层实验与使用场景（12 条）。报告存为 [evidences/plan-review-vscode.txt](evidences/plan-review-vscode.txt)、[evidences/plan-review-arch.txt](evidences/plan-review-arch.txt)、[evidences/plan-review-scenarios.txt](evidences/plan-review-scenarios.txt)，实验脚本留在审查者的临时目录。主 Agent 逐条对照代码核实，全部成立，已并入上文：
 
 | 问题（几位审查者提出） | 处理 |
 |---|---|
@@ -223,6 +225,7 @@
 | 浏览器引导只列有浏览器入口的插件，声明目录各实例不一致（1） | `pluginsAt` 一条规则覆盖装配与引导（第 2 节） |
 | 读到的对象值可被改动，绕过只写自己的授权（2） | 深冻结、`DeepReadonly`；写入值先复制（第 4、5 节） |
 | schema 合格的值不一定能无损落盘（1） | 默认值与写入值走严格 JSON 规则；删除用显式操作（第 2、3、4 节） |
+| “打开项目”失败标题插入服务端的中文说明，英文界面仍混排（1） | 按失败码给出两种语言的原因，说明原文进诊断（第 6 节） |
 | 打开中的选择与面板不随语言变、Lab 共享面板缺语言输入、首页文案与样式没接入（2） | 文字显示时才选语言、面板收 `locale` 输入、首页翻译并消费 token（第 6、7 节） |
 | “不重复发布”、50 毫秒合并、先截断再写的测试缺少可观察的边界（3） | 注入时钟 `clockKey`；以后续外部修改作屏障；验收逐条改写 |
 | 拥有者停止、重读与写入的顺序没有写（1） | 同一串行队列；停止步骤（第 3 节） |

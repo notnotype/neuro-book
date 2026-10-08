@@ -2,6 +2,8 @@
 
 审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-plan-review/.agents/works/w00017-application-runtime-architecture/tasks/t64-plugin-settings/plan.md`；源码基线按审查说明为 `854121f8`。VS Code 对照源码为审查说明指定的 `38d9885c`。
 
+本文仓库路径相对 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-plan-review/`；VS Code 路径相对 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/vscode/src/vs/`；实验脚本与结果路径相对本报告目录。
+
 计划尚未实施；下述结果区分现有代码与 Spec 核实、临时目录实验，以及从计划推导的后果。Context 中六条已定产品决定作为约束接受。
 
 发现按影响排序；严重程度针对照计划实施的后果，不把实验脚本当作尚不存在的 settings 实现。
@@ -105,9 +107,18 @@
 - **现象**：窗口 A 打开“打开项目”选择，标题、占位、空态与“运行中”说明已按旧语言构成 `QuickPickRequest`；窗口 B 切换语言。即使 A 的设置与命令模式已更新，该请求仍是旧字符串。换成在 `projectsText` 中读 settings，只影响下次构造请求，不影响正在等待用户选择的这一次。
 - **为什么是问题**：第 83 行承诺所有窗口即时换语言。现有选择服务把文案值捕获在打开时，与这一承诺不相容。重新 `pick` 会取消原选择、清空输入或改变焦点，也不能作为无感更新手段。第 143 行只验收命令面板文案，没有单列保留已打开选择的判据，S0 也未列选择服务合同变更。
 - **依据**：`packages/neuro-book/src/plugins/workbench/shared/contracts.ts:38-46` 的 title/placeholder/items/empty 都是字符串；`projects/web/open-project.ts:34-49` 打开前完成本地化，`workbench/web/commands/palette-host.ts:134-147` 保存原请求；`workbench/web/components/WorkbenchCommandPalette.vue:77-93,155-156` 直接渲染捕获的字段。`docs/proposals/plugin-data-model.md:198` 定的是渲染时取语言、客户端无需重启；`workbench.quick-open` 输出“选择模式”（第 47 行）与组件 `.md:23,34` 仍是原合同。这是当前接口与计划的核实，尚无 settings 产品浏览器运行证据。
-- **建议改法**：S6 将本地选择请求改为在渲染时求值的响应式呈现（例如请求提供只读 computed 的标题、占位与候选视图），保留一次 pick 的 Promise、查询、候选 id 与焦点。Lab 传自己的固定语言，不依赖产品 settings。S0 同步 `workbench/quick-open.md`、选择服务合同与组件同名 Markdown；S8 让一窗口保留“打开项目”选择和输入，再从另一窗口切语言，断言文案更新、输入与选中 id 保留且原选择仍可提交。服务端返回的错误详情作为诊断原文保留，不要求本轮把全部错误转换成翻译键。
+- **建议改法**：S6 将本地选择请求改为在渲染时求值的响应式呈现（例如请求提供只读 computed 的标题、占位与候选视图），保留一次 pick 的 Promise、查询、候选 id 与焦点。Lab 传自己的固定语言，不依赖产品 settings。S0 同步 `workbench/quick-open.md`、选择服务合同与组件同名 Markdown；S8 让一窗口保留“打开项目”选择和输入，再从另一窗口切语言，断言文案更新、输入与选中 id 保留且原选择仍可提交。项目失败提示的语言边界见第 12 项。
 
-### 12. 建议：对象设置值的只读边界尚未定形，`T` 和浅只读 Ref 都允许嵌套写入
+### 12. 重要：项目失败提示直接插入服务端中文详情，英文界面仍有混合语言
+
+- **类别**：正确性；接口；文档覆盖。
+- **计划位置**：关键设计第 6 节 `nbook.projects` 提示文案与即时切换（plan.md:81-83）；语言验收（plan.md:143）；S0 改动表（plan.md:99-110）。
+- **现象**：设置为 en-US 后登记一个不存在的项目目录，外层标题可变成 `Open Project: registration failed (...)`，括号中仍是服务端生成的 `目录不存在：...`。只让 `projectsText` 读取语言设置不能翻译已经生成的 `failure.detail`；列出失败与 unknown-outcome 分支也有固定中文提示。
+- **为什么是问题**：项目提示文案是第 81 行明确列出的语言消费者。当前成功路径的中英表不足以覆盖失败路径，而服务端自由文本不是浏览器可重新求值的文案。若仍把它放到选择标题，初次英文显示及后续切换都不能满足界面语言合同；此问题独立于第 11 项的请求快照生命周期。
+- **依据**：`projects/backend/plugin.ts:33-35` 原样转发 reason/detail，`projects/shared/contracts.ts:36-40` 把它们定义为 string；`server/projects/identity.ts:34-46` 生成中文目录错误，`server/projects/registry.ts:113-119` 生成中文身份冲突。`projects/web/open-project.ts:65-66` 把 failure.detail 直接插入 retryTitle，`46,63-64` 的其它失败分支也写死中文。现有 `src/shared/projects.ts:16-24` 已定义稳定 ProjectRegisterFailure 词表；`docs/specs/runtime/projects.md:85` 要求登记失败在标题里带原因。这是已核对的当前数据流与计划迁移范围，未运行尚不存在的 settings 英文浏览器场景。
+- **建议改法**：先复用已有 reason 词表，在浏览器按当前 locale 给出可行动的失败提示，detail 原文留作诊断；不按中文 detail 解析或分支。需要路径/项目名的具体说明时，再把这些字段作为结构化参数传回。远程 schema 将 reason 固定为现有词表，同步 `runtime/projects.md` 的错误呈现合同；S6/S8 加英文不存在目录、登记冲突及 unknown-outcome 的提示验收，修正 S0 文档表。无需为整个项目管理器新增翻译系统。
+
+### 13. 建议：对象设置值的只读边界尚未定形，`T` 和浅只读 Ref 都允许嵌套写入
 
 - **类别**：不变量；代码质量。
 - **计划位置**：关键设计第 4 节 get/inspect（plan.md:56-58）；第 5 节 `Readonly<Ref<T>>`（plan.md:75）；S2/S5 验收。
@@ -116,7 +127,7 @@
 - **依据**：`plan.md:56,75` 的原签名；`docs/proposals/plugin-data-model.md:196` 的只读访问；`runtime/plugin-api.md:73` 明确内置同步服务可传引用，内核没有通用 clone 保证。现有 store 使用 `DeepReadonly` 与深冻结（`src/shared/store/persisted.ts:31-48,480-491`）。VS Code `workbench/api/common/extHostConfiguration.ts:194-254` 对对象读值做 copy-on-write、数组复制，`265-286` 对 inspect 深复制，防止读者改写权威模型。这是接口核实与设计推导，未做 settings 运行实验。
 - **建议改法**：get、inspect 与 store.setting 统一交深只读视图；在接纳新快照和默认值时完成 JSON 数据的隔离/冻结，读路径复用快照，不每次 get 深复制。update 排队时也捕获输入，避免调用方在等待期间改值。补调用方尝试改嵌套对象/数组不影响 get、另一消费者与磁盘的行为验收。
 
-### 13. 建议：“监视回传不重复通知”不能只等第一条通知验收
+### 14. 建议：“监视回传不重复通知”不能只等第一条通知验收
 
 - **类别**：测试。
 - **计划位置**：关键设计第 3 节 50 毫秒合并（plan.md:46）；S3 与验收映射（plan.md:119,136）；交付变异检查（plan.md:152）。
@@ -152,14 +163,14 @@
 - S3 的文件读写、外部 reload 与快照发布共用同一个拥有者串行队列；否则一次较早启动的异步 reload 可能在 update 返回后发布旧文本。停止时拒绝新操作、结算已接纳写入，关闭监听/合并调度并清临时文件；这属于 owner 不变量，当前映射没有独立停止场景，补入 S3。
 - S4 必须同时覆盖“快照先到、subscribe 后返回”与“建立返回前就结束”，以及一层降级但其它层仍有效；既有测试规范 `docs/testing/README.md:22` 已要求这两个异步顺序。写结果的 revision 比本地较旧时不覆盖；unknown-outcome 不自动重发写请求，以重连快照核对真实结果。
 - `restart: true` 在 S0 定清为消费者何时重新取得生效值，说明是入口重新激活还是实例/进程重启。读到最新已保存值与消费者是否即时应用是两个合同，S2 至少验收声明，未来第一位 restart 消费者补应用行为。
-- 常规 owner 文件场景与真实内核场地均可不用 mock/spy/假计时器实现；第 13 项需要明确 reload barrier。UI 组件验收须保留正在打开的面板而不是重开，系统明暗要在 system 设置已选中时改变，Lab 场景要从另一窗口改变产品设置后仍保留自己的主题。
-- S0 还应同步 `workbench.quick-open` 与组件同名 Markdown 的语言输入/生命周期合同，以及三条设置命令的目录与 Agent 暴露/effect。计划已列 `storage.boundaries` 的旧 Config 文案替换；跨设备同步本期没有通道，未来目标仍保留。
+- 常规 owner 文件场景与真实内核场地均可不用 mock/spy/假计时器实现；第 14 项需要明确 reload barrier。UI 组件验收须保留正在打开的面板而不是重开，系统明暗要在 system 设置已选中时改变，Lab 场景要从另一窗口改变产品设置后仍保留自己的主题。
+- S0 还应同步 `workbench.quick-open` 与组件同名 Markdown 的语言输入/生命周期合同、`runtime.projects` 的失败呈现合同，以及三条设置命令的目录与 Agent 暴露/effect。计划已列 `storage.boundaries` 的旧 Config 文案替换；跨设备同步本期没有通道，未来目标仍保留。
 
 ## 待确认项判断
 
-1. **布尔配置不自动公开：支持。** 保留 K5 声明方拥有公开键的规则，store.setting 加 publish 已足够；自动 `config.<键>` 会引入第二套命名与声明拥有者。按计划追加已批准决策记录。
+1. **布尔配置不自动公开：支持。** 保留 K5 声明方拥有公开键的规则，store.setting 加 publish 已足够；自动 `config.<键>` 会引入第二套命名与声明拥有者。此为审查建议，待开发者决定后按计划追加决策记录。
 2. **描述贡献与放开 no-entries：支持。** 当前目录/汇总合同已允许纯声明插件，统一 definitionAt 比每个位置重复空入口更少；需落实完整 manifest 遍历并保留装配失败门槛。
-3. **默认明暗 light：支持沿用计划默认。** 与现有产品默认一致；system 仍是可选值。默认偏好属于产品选择，没有技术证据要求改成 system。
+3. **默认明暗 light：支持沿用计划默认。** 与旧应用默认一致；system 仍是可选值。默认偏好属于产品选择，没有技术证据要求改成 system。
 
 ## 实际验证与限制
 
@@ -178,4 +189,20 @@
 实验依赖仅在允许的临时目录安装 `jsonc-parser@3.3.1` 与 `typebox@1.3.6`；直接 `bun add` 本地 nb-runtime 包的安装曾解析超时，改为把原样包复制到临时 node_modules，再仅经包的公开 exports 运行，未改仓库依赖。实验脚本与结果保留为审查证据。源码与 VS Code 修订身份按给定说明，未独立核对 Git。
 
 未运行仓库 test、typecheck、build、lint、formatter、docs:check、governance:check、开发服务或 e2e；未改仓库文件，未 commit/push/stash/切分支。settings 未实现，因此文件算法与内核机制实验不能算产品端到端通过；真实浏览器语言更新、system 明暗与 Lab 文档隔离尚未运行，Windows、macOS、网络盘/容器监视同样未验证。
+
+## 审查过程回写判断
+
+- **已有规则足够，无需新增规范**：临时包安装解析超时后改用未修改 runtime 副本；运行中子代理结果读取暂不可用已向工具 QA 报告，最终结果按完成通知收取。这两次绕路没有改变审查范围或产品判断，现有临时根、真实依赖与异步结果规则已覆盖。
+- **实施时回写**：上述发现对应的行为和失败语义进入新 `settings.configuration` 与已列的消费者 Spec；恢复/超时若需改内核接口，同步 `runtime.plugin-channel`。本任务只写审查报告，未修改规范。
+
+## 各级数量
+
+| 严重程度 | 数量 | 发现编号 |
+|---|---:|---|
+| 阻断 | 2 | 1–2 |
+| 重要 | 10 | 3–12 |
+| 建议 | 2 | 13–14 |
+| 合计 | 14 | 1–14 |
+
+优先修正两个启动阻断、并发写入与订阅恢复，再固定文件权限、监听生命周期及消费者合同。六条已定产品决定无需重开；计划末尾三项的审查判断均支持现有建议。
 
