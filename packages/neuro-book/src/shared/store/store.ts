@@ -7,14 +7,15 @@
  * 的预构建清单把 `@vue/reactivity` 与 `vue` 一起列出。
  */
 
-import {effectScope, isRef, readonly} from "@vue/reactivity";
-import type {DeepReadonly, UnwrapRef} from "@vue/reactivity";
+import {computed, effectScope, isRef, readonly} from "@vue/reactivity";
+import type {DeepReadonly, Ref, UnwrapRef} from "@vue/reactivity";
 
 import type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
 import type {ActivationContext} from "@notnotype/nb-runtime/plugins";
 
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateBinding} from "nbook/plugins/state/shared/contracts";
+import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
 import type {RecordDefinition, StorageService} from "nbook/shared/storage";
 
 import {PersistedFieldState} from "./persisted";
@@ -31,6 +32,8 @@ export type {PublicBindings, PublicDeclarations, PublicState} from "./public";
 export interface StoreSetupContext {
     persist<T>(record: RecordDefinition<T>, options: PersistOptions<T>): PersistedField<T>;
     publish<D extends PublicDeclarations>(state: PublicState<D>, bindings: PublicBindings<D>): void;
+    /** 配置项的有效值（docs/specs/settings/configuration.md），随配置变化更新；要在 `when` 里用时再 `publish`。 */
+    setting<T>(definition: SettingDefinition<T>): Readonly<Ref<DeepReadonly<T>>>;
 }
 
 type Actions = Readonly<Record<string, (...args: never[]) => unknown>>;
@@ -48,6 +51,8 @@ export type StoreView<S> = {
 export interface StoreOptions {
     /** 入口解析到的 Storage 服务；setup 里用了 `persist` 时必须给。 */
     readonly storage?: StorageService;
+    /** 入口解析到的配置服务；setup 里用了 `setting` 时必须给。 */
+    readonly settings?: SettingsService;
     /** 写 store 的诊断（`publish` 多出的键、停止时没有发出的修改）。 */
     readonly diagnostics: DiagnosticsService;
 }
@@ -113,6 +118,7 @@ function createStore<S extends object, A extends Actions>(
     const fields: PersistedFieldState<unknown>[] = [];
     const views = new WeakMap<object, PersistedFieldView<unknown>>();
     const published = new Map<string, PublicStateBinding>();
+    let usesSettings = false;
     let inSetup = true;
     const setupContext: StoreSetupContext = {
         persist: (definition, persistOptions) => {
@@ -133,6 +139,13 @@ function createStore<S extends object, A extends Actions>(
                 record("warn", "store.publish-undeclared", `${label} 绑定了没有声明的公开键，已忽略`, {keys: given.extra.map((extra) => `${state.plugin}/${extra}`)});
             }
         },
+        setting: <T>(definition: SettingDefinition<T>) => {
+            if (!inSetup) throw new TypeError(`${label}：setting 只能在 setup 里调用`);
+            usesSettings = true;
+            const settings = options.settings;
+            // 没给 settings 时 create 在 setup 之后抛错，这个 computed 不会被读到。
+            return computed(() => (settings === undefined ? (definition.declaration.default as DeepReadonly<T>) : settings.get(definition)));
+        },
     };
 
     // setup 里建立的 computed、watch 随 store 释放一起停止。
@@ -149,6 +162,10 @@ function createStore<S extends object, A extends Actions>(
     if (fields.length > 0 && options.storage === undefined) {
         scope.stop();
         throw new TypeError(`${label} 有持久化字段，create 时要给 storage`);
+    }
+    if (usesSettings && options.settings === undefined) {
+        scope.stop();
+        throw new TypeError(`${label} 读了配置，create 时要给 settings`);
     }
 
     let accepting = !context.signal.aborted;

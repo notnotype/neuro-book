@@ -8,7 +8,7 @@
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {Database} from "bun:sqlite";
-import {rm} from "node:fs/promises";
+import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {computed, isReadonly, ref, watch} from "@vue/reactivity";
@@ -16,13 +16,19 @@ import type {Ref} from "@vue/reactivity";
 import {Type} from "typebox";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {ActivationContext, ContributionDeclaration, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import {RELOAD_DELAY_MS} from "nbook/plugins/settings/backend/layer-owner";
+import {settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {settingsWorld} from "nbook/plugins/settings/testing/world";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {storageWorld} from "nbook/plugins/storage/testing/world";
 import type {StorageWorld} from "nbook/plugins/storage/testing/world";
+import {defineSetting} from "nbook/shared/settings";
+import type {SettingsService} from "nbook/shared/settings";
 import {defineRecord} from "nbook/shared/storage";
 import type {RecordDefinition, RecordHandle, StorageService} from "nbook/shared/storage";
 
@@ -643,5 +649,64 @@ describe("Spec state.store 输出 17、场景 3：停止时发出", () => {
         const records = w.diagnostics("hub").query({plugin: PLUGIN}).records.filter((record) => record.event === "store.intents-cancelled");
         expect(records.map((record) => record.data)).toEqual([{cancelled: 1}]);
         expect(await valueOf(raw.storage(), pairRecord)).toEqual({left: "抢二", right: ""});
+    });
+});
+
+describe("Spec state.store 输出 19：读配置", () => {
+    const themeSetting = defineSetting({plugin: PLUGIN, name: "theme", schema: Type.Union([Type.Literal("nbook"), Type.Literal("macos")]), default: "nbook", title: {"zh-CN": "主题", "en-US": "Theme"}});
+
+    it("setting 是配置的有效值，随本窗口的写入与外部改文件变化，setup 里的 computed 跟着变；没给 settings 时 create 抛错", async () => {
+        counter += 1;
+        const root = join(tmp, `settings-${String(counter)}`);
+        await mkdir(join(root, "state"), {recursive: true});
+        await writeFile(join(root, "state", "settings.json"), "{\"test.pair/theme\": \"macos\"}");
+        const declared: PluginDefinition = {id: PLUGIN, entries: [], contributions: [themeSetting.contribution]};
+        const settingsWorlds = await settingsWorld(root, [declared]);
+        try {
+            const prefs = defineStore("prefs", ({setting}) => {
+                const theme = setting(themeSetting);
+                const shout = computed(() => theme.value.toUpperCase());
+                return {state: {theme, shout}, actions: {}};
+            });
+            const seen: {store: Store<{theme: Ref<string>; shout: Ref<string>}, Record<string, never>> | null; settings: SettingsService | null; missing: unknown} = {store: null, settings: null, missing: null};
+            const plugin: PluginDefinition = {
+                id: PLUGIN,
+                contributions: [themeSetting.contribution],
+                entries: [defineEntry({
+                    id: "browser",
+                    location: "browser",
+                    activationEvents: ["onStartup"],
+                    dependencies: [{key: settingsKey}, {key: diagnosticsKey}],
+                    activate: (context) => {
+                        const settings = context.services.require(settingsKey);
+                        const diagnostics = context.services.require(diagnosticsKey);
+                        seen.settings = settings;
+                        seen.store = prefs.create(context, {settings, diagnostics}) as never;
+                        try {
+                            prefs.create(context, {diagnostics});
+                        } catch (error) {
+                            seen.missing = error;
+                        }
+                        return {};
+                    },
+                })],
+            };
+            await settingsWorlds.window("w", [plugin], {bound: false});
+            const store = seen.store!;
+            expect(store.state.theme).toBe("macos");
+            expect(store.state.shout).toBe("MACOS");
+            expect(seen.missing).toBeInstanceOf(TypeError);
+            expect(String(seen.missing)).toContain("settings");
+
+            expect(await seen.settings!.update(themeSetting, "nbook")).toEqual({ok: true});
+            expect(store.state.shout).toBe("NBOOK");
+            await writeFile(join(root, "state", "settings.json"), "{\"test.pair/theme\": \"macos\"}");
+            await waitUntil("外部改文件后 store 跟着变", () => {
+                settingsWorlds.clock.advance(RELOAD_DELAY_MS);
+                return store.state.theme === "macos";
+            });
+        } finally {
+            for (const result of await settingsWorlds.close()) expect(result).toMatchObject({status: "closed"});
+        }
     });
 });
