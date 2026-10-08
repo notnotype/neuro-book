@@ -21,9 +21,9 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {defineSetting} from "nbook/shared/settings";
 import type {SettingLayer} from "nbook/shared/settings";
 
-import type {LayerSnapshot} from "../shared/layers";
+import type {DeclaredSetting, LayerSnapshot} from "../shared/layers";
 import {createLayerOwner, RELOAD_DELAY_MS} from "./layer-owner";
-import type {DeclaredSetting, LayerOwner} from "./layer-owner";
+import type {LayerOwner} from "./layer-owner";
 
 const title = {"zh-CN": "项", "en-US": "Item"};
 const theme = defineSetting({plugin: "x.ui", name: "theme", schema: Type.Union([Type.Literal("nbook"), Type.Literal("macos")]), default: "nbook", title});

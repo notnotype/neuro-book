@@ -29,17 +29,17 @@ export const LayerSnapshotSchema = Type.Union([
     Type.Object({status: Type.Literal("invalid"), revision: RevisionSchema, values: ValuesSchema, problems: Type.Array(ProblemSchema), detail: Type.String()}, {additionalProperties: false}),
 ]);
 
-/** 删除用显式的操作，不靠 JSON 保留 undefined。 */
-const WriteInput = Type.Union([
-    Type.Object({key: Type.String(), op: Type.Literal("set"), value: Type.Unknown()}, {additionalProperties: false}),
-    Type.Object({key: Type.String(), op: Type.Literal("delete")}, {additionalProperties: false}),
-]);
-
 const SettingsFailedDetail = Type.Object({code: Type.Enum(SETTINGS_FAILURES), detail: Type.String()}, {additionalProperties: false});
+const Written = Type.Object({snapshot: LayerSnapshotSchema}, {additionalProperties: false});
+const failures = {"settings-failed": SettingsFailedDetail};
 
+/**
+ * 只写调用方插件自己声明的项；成功时带回写后的层快照，调用方据此先更新本实例再结算。删除是单独的方法，不靠 JSON
+ * 保留 undefined。
+ */
 const methods = {
-    /** 只写调用方插件自己声明的项；成功时带回写后的层快照，调用方据此先更新本实例再结算。 */
-    write: {input: WriteInput, output: Type.Object({snapshot: LayerSnapshotSchema}, {additionalProperties: false}), effect: "write", errors: {"settings-failed": SettingsFailedDetail}},
+    set: {input: Type.Object({key: Type.String(), value: Type.Unknown()}, {additionalProperties: false}), output: Written, effect: "write", errors: failures},
+    remove: {input: Type.Object({key: Type.String()}, {additionalProperties: false}), output: Written, effect: "write", errors: failures},
 } as const;
 
 /** 订阅先推一次当前快照，之后层的状态、键值、被丢弃的键或无效原因变化时推送。 */

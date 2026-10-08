@@ -11,8 +11,8 @@ import {Type} from "typebox";
 
 import {defineSetting} from "nbook/shared/settings";
 
+import type {DeclaredSetting} from "../../shared/layers";
 import {createLayerOwner} from "../layer-owner";
-import type {DeclaredSetting} from "../layer-owner";
 
 const [path, prefix, countText] = process.argv.slice(2);
 if (path === undefined || prefix === undefined || countText === undefined) throw new Error("用法：concurrent-writer.ts <路径> <前缀> <个数>");

@@ -14,6 +14,7 @@ import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/p
 import type {HttpAdmission} from "nbook/plugins/http/backend/admission";
 import {createHttpPlugin} from "nbook/plugins/http/backend/plugin";
 import {projectsBackendPlugin} from "nbook/plugins/projects/backend/plugin";
+import {settingsBackendPlugin} from "nbook/plugins/settings/backend/plugin";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {storageBackendPlugin} from "nbook/plugins/storage/backend/plugin";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
@@ -42,6 +43,7 @@ export const serverPluginDefinitions: Readonly<Record<string, PluginDefinition>>
     "nbook.state": statePlugin,
     "nbook.commands": commandsPlugin,
     "nbook.projects": projectsBackendPlugin,
+    "nbook.settings": settingsBackendPlugin,
     "nbook.storage": storageBackendPlugin,
 };
 

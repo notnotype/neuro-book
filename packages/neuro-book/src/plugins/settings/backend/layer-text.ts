@@ -14,7 +14,7 @@ import {freezeJson, isJson} from "nbook/shared/settings";
 import type {SettingDeclaration, SettingLayer} from "nbook/shared/settings";
 
 import {canonical} from "../shared/layers";
-import type {LayerProblem} from "../shared/layers";
+import type {LayerEdit, LayerProblem} from "../shared/layers";
 
 const BOM = "﻿";
 const PARSE_OPTIONS = {allowTrailingComma: true, disallowComments: false, allowEmptyContent: true} as const;
@@ -53,8 +53,6 @@ export function parseLayerText(text: string, declarations: ReadonlyMap<string, S
     problems.sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0));
     return {status: "ok", values: freezeJson(values), problems: Object.freeze(problems)};
 }
-
-export type LayerEdit = {readonly kind: "set"; readonly value: unknown} | {readonly kind: "delete"};
 
 export type EditResult = {readonly ok: true; readonly text: string} | {readonly ok: false; readonly detail: string};
 

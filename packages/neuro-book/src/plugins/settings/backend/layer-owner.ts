@@ -19,21 +19,14 @@ import {isJson} from "nbook/shared/settings";
 import type {SettingDeclaration, SettingLayer, SettingsFailure} from "nbook/shared/settings";
 
 import {canonical, sameContent} from "../shared/layers";
-import type {LayerContent, LayerProblem, LayerSnapshot} from "../shared/layers";
+import type {DeclaredSetting, LayerContent, LayerEdit, LayerProblem, LayerSnapshot, LayerWriteResult} from "../shared/layers";
 import {readLayerFile, writeLayerFile} from "./layer-file";
 import {editLayerText, parseLayerText} from "./layer-text";
-import type {LayerEdit} from "./layer-text";
 import {watchLayer} from "./layer-watch";
 import type {LayerWatch} from "./layer-watch";
 
 /** 最后一次文件事件之后静止多久再重读（VS Code 的用户配置同样以 50 毫秒合并）。 */
 export const RELOAD_DELAY_MS = 50;
-
-/** 一条已接受的声明与它的声明者。 */
-export interface DeclaredSetting {
-    readonly plugin: string;
-    readonly declaration: SettingDeclaration;
-}
 
 export interface LayerOwnerOptions {
     readonly path: string;
@@ -45,7 +38,7 @@ export interface LayerOwnerOptions {
     readonly source: string;
 }
 
-export type OwnerWriteResult = {readonly ok: true; readonly snapshot: LayerSnapshot} | {readonly ok: false; readonly code: SettingsFailure; readonly detail: string};
+export type OwnerWriteResult = LayerWriteResult;
 
 export interface LayerOwner {
     /** 第一次读完并开始监视后完成；之前 `snapshot()` 是空层。 */

@@ -10,6 +10,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {definitionAt, pluginsAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/plugin";
+import {settingsBackendPlugin} from "nbook/plugins/settings/backend/plugin";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {storageBackendPlugin} from "nbook/plugins/storage/backend/plugin";
 
@@ -30,6 +31,7 @@ export type ProjectHostPluginId = "nbook.diagnostics";
 export const projectPluginDefinitions: Readonly<Record<string, PluginDefinition>> = {
     "nbook.state": statePlugin,
     "nbook.storage": storageBackendPlugin,
+    "nbook.settings": settingsBackendPlugin,
 };
 
 /** 宿主适配器：诊断要在内核启动之前就能记录（ADR 0026 决策第 5 条）。 */

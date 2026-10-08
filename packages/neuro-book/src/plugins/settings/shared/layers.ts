@@ -3,13 +3,25 @@
  * 两端共用，不碰文件。
  */
 
-import type {SettingDeclaration, SettingLayer, SettingSource} from "nbook/shared/settings";
+import type {SettingDeclaration, SettingLayer, SettingSource, SettingsFailure} from "nbook/shared/settings";
 
 /** 拥有者进程的启动标识加进程内单调递增的序号；只有启动标识相同的两个修订号可以比较先后。 */
 export interface Revision {
     readonly boot: string;
     readonly seq: number;
 }
+
+/** 一条已接受的声明与它的声明者。 */
+export interface DeclaredSetting {
+    readonly plugin: string;
+    readonly declaration: SettingDeclaration;
+}
+
+/** 对一个键的写入：设成某个值，或从这一层删除。 */
+export type LayerEdit = {readonly kind: "set"; readonly value: unknown} | {readonly kind: "delete"};
+
+/** 拥有者对一次写入的结果：成功带回写后的层快照。 */
+export type LayerWriteResult = {readonly ok: true; readonly snapshot: LayerSnapshot} | {readonly ok: false; readonly code: SettingsFailure; readonly detail: string};
 
 export interface LayerProblem {
     readonly key: string;
