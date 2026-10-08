@@ -1,0 +1,143 @@
+# w00017 t64 `nbook.settings` 计划对抗审查
+
+审查方向：架构、多实例一致性与授权。审查对象为 `.agents/works/w00017-application-runtime-architecture/tasks/t64-plugin-settings/plan.md` 的未提交计划，代码基线为审查 worktree 的 `854121f8`。计划 Context 中开发者已确认的六条产品决定按已定约束处理。
+
+依据区分：代码与 Spec 已核对的事实、真实运行时实验、尚未实现方案的推断。报告随发现核实追加；最终按影响排序。
+
+## 发现
+
+### A1：可选选择服务依赖仍形成静态服务环，窗口不能启动
+
+- **严重程度**：阻断。**类别**：正确性 / 架构。
+- **计划位置**：第 6 节“使用者一：界面语言”，`plan.md:81–82`；第 4 节“每个实例的有效值与服务”。
+- **现象**：`settings → quickPick → commands → settings` 的环不会因 `quickPickKey` 标记可选、推迟到执行命令时解析而消失。命令和工作台的必需入口激活失败，窗口无法就绪，切换语言命令更没有机会执行。
+- **为什么是问题**：插件层受阻推导只看必需边，但底层服务装配把所有已满足的依赖（含可选边）加入静态环图；每个入口的每项服务提供者又复制了该入口全部依赖。方案在两层检查之间漏了一层，且失败发生在执行 `nbook.settings.activate` 之前。
+- **依据**：`docs/specs/runtime/services.md:126` 明确“静态环（可选依赖的边也算）在装配阶段拒绝”，不允许用惰性解析隐藏环。实现为 `packages/nb-runtime/src/services/assembly.ts:104–141`（`edges.push(provider.id)` 不看 `required`）；`src/plugins/host.ts:389–402`（入口依赖复制给每个提供项）、`1002–1019`（必需依赖解析失败即激活失败）；`src/services/composition.ts:416–429`（`provider-rejected`）；`packages/neuro-book/src/web/host/window.ts:80–84,193–219`（命令与工作台为窗口启动必需）。对照实验中另一个无环入口在激活结束后 `resolve` 可选服务成功，说明问题是这张静态环图，并非上下文不能在激活后使用。
+- **实验**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp-arch/runtime-review.ts`。只用公开 `createApplication`、服务和插件 API，重现计划的三个插件与依赖；`optional-cycle` 的 startup 为 `failed`，命令、工作台均为 `dependencies/dependency-unavailable`，`settingsActivated: false`；`optional-later` 返回 `resolved`、`en-US`。实例停止均 `closed`。
+- **改法实验证据**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp-arch/recovery-review.ts` 的 `split-settings-entries` 把 settings 核心与语言选择功能分为同插件两个入口，命令、工作台仍为必需插件；startup、core、command 均为 `available`，选择功能取得 `zh-CN -> en-US`。实例停止为 `closed`。
+- **建议改法**：把配置核心与语言选择命令拆成同插件的两个浏览器入口。核心入口只提供 `settingsKey`，不依赖工作台；命令入口依赖配置核心和 `quickPickKey`，启动后贡献命令。由已有入口机制表达单向依赖，避免为一个 UI 命令改内核静态环语义。若坚持修改可选边语义，必须另行明确静态检查、动态等待环和关闭借用环的一整套合同；本片最小改法是拆入口。
+
+### A2：首快照订阅没有激活期截止，计划的超时降级不会发生
+
+- **严重程度**：阻断。**类别**：正确性 / 就绪。
+- **计划位置**：第 4 节“就绪”，`plan.md:67`；“风险”，`plan.md:167`。
+- **现象**：服务端拥有者激活或读文件一直未完成、链路仍保持连接时，订阅建立与首个事件可以一直挂起。依赖配置的命令、工作台以及项目实例启动随之等待；“受内核激活期调用上限约束，超时按默认继续”不成立。
+- **为什么是问题**：10 秒限制只加在远程方法调用上，订阅不创建 deadline；订阅成功 ACK 也先于拥有者的 `subscribe` 推首快照，所以仅给建立过程加超时仍不够，首快照等待也需有边界。把所有下游启动必需能力挂在无界等待上，远端慢会演变成空白窗口；项目子进程还受宿主 30000 毫秒启动截止，会因此被作为启动失败收口。
+- **依据**：`packages/nb-runtime/src/remote/node.ts:599–600`（方法调用上限）、`612–650,977–1011`（订阅没有 timeout）、`841–893`（等待拥有者激活后 ACK，ACK 先于调用订阅实现）；`src/remote/peer.ts:151–163`（建立 Promise 没有计时）；`docs/specs/runtime/plugin-channel.md` 输出 6 与 7（`94–95`）；`docs/specs/runtime/projects.md:50,69`（项目启动 30000 毫秒默认截止、就绪才报告成功）。
+- **实验**：同上 `runtime-review.ts` 的 `subscription-no-deadline`：真实服务端与浏览器实例、真实 JSON 进程内链路、通过公开 `maxActivationCallMs` 与 `ManualClock` 注入时钟；在同一个激活期间同时发读方法与订阅。到 `10001` 毫秒时读为 `timeout`，订阅仍 `pending`，浏览器 `startup: null`、入口 `activating`。放行拥有者后才收到首快照并就绪。没有直接调用内核私有函数或手造帧。
+- **建议改法**：为配置入口明确一个覆盖“建立订阅 + 首快照”的有界就绪步骤，超时只标该层 unavailable 并发布默认合成值，仍接收后来到达的有效快照；停止时必须释放建立中的订阅和首快照等待。也可增加受 K1 上限约束的读方法来取首次基线，订阅只承担后续变化，但要定义读与订阅的 revision 去重以免漏更新。不要把普通订阅默认当成有调用超时。
+
+### A6：同一项目可被两个服务端打开，进程内串行不足以保护设置文件
+
+- **严重程度**：重要。**类别**：正确性 / 多实例所有权。
+- **计划位置**：第 3 节“层的拥有者”“写入”，`plan.md:43–45`；“风险”，`168`；验收映射，`139`。
+- **现象**：两个服务端进程使用不同状态根并打开同一项目是现有合同允许的操作，因而同一个 `.nbook/settings.json` 可以有两个项目层拥有者。二者分别串行，但可以同时读同一旧文本，各改不同键，后 rename 的整份文件覆盖先写者的修改；两个 update 都返回成功仍会丢一个键。每个拥有者的 revision / boot 又各自独立，不能帮助它们仲裁。
+- **为什么是问题**：计划把 Storage 的“分区归实例”搬成 JSON 文件拥有权，却没搬 Storage 保障这种共享打开正确性的事务。另一进程的普通产品写入不能只被算作用户偶尔外部编辑的“极短竞态”；这是 K3 明确支持的拓扑，不是未支持的文件系统。每进程一个 owner 并不等于每文件一个 owner。
+- **依据**：`docs/specs/runtime/projects.md:21,131` 明确不锁项目目录、两个服务端可同时打开同一项目，并要求项目级持久数据自己提供保护；`133` 只保证项目子进程与其父进程同一构建，不保证两个服务端之间同一构建；`docs/specs/storage/persistence.md:170,185` 明确跨进程条件保存靠 SQLite 事务。VS Code `workbench/services/configuration/common/configurationEditing.ts:163–168` 也使用实例内队列，但 `220–225,272–273` 另有 `FILE_MODIFIED_SINCE` 检测及重读重写，并不把队列当作全部保护。
+- **核实方式**：已核对允许的 K3 拓扑及 K4 的跨进程判据；设置实现尚未存在，丢写时序为**从计划算法推断**，没有用手写文件算法冒充产品复现。本条不重审开发者已定的“无项目目录锁”，要求新持久介质满足该决定带来的后果。
+- **建议改法**：对合作的设置写入者，以最终真实目标文件为键做跨进程的窄写入锁，锁覆盖重读、单键编辑、rename，或明确签发每文件唯一写入者；锁不阻塞整个项目。外部编辑仍需修改检测，且“改名前检查 mtime”不是原子比较并替换，不能单独宣称解决合作进程之间的竞态。S3/S4 补两服务端、两拥有者改不同键的验收，确认两键都保留，或一个明确冲突失败。
+
+### A3：首次订阅失败后没有可重建的订阅，重连不能恢复配置
+
+- **严重程度**：重要。**类别**：正确性 / 多实例恢复。
+- **计划位置**：第 4 节“就绪”，`plan.md:67`；验收映射“就绪与降级”，`plan.md:140`。
+- **现象**：首次建立订阅返回 unavailable / not-provided / cancelled 等失败后，入口按计划降级为默认值；连接随后恢复，内核不会重试这条失败订阅，文件值仍不会来到该实例。建立成功后因提供方停止而终结的订阅，也不属于“仍有效”的重建集合。
+- **为什么是问题**：计划把业务恢复交给内核，但内核只保存已成功建立且未终结的订阅，不保存业务上“想订阅”的意图。这样窗口可能一直显示默认语言、主题，直到整页刷新，违反计划的连接恢复后重推基线承诺。
+- **依据**：`packages/nb-runtime/src/remote/node.ts:636–648`（失败直接 return，成功才进 `#subscriptions`）、`991–1000`（非 disconnected 结束后移出集合）、`1070–1086`（重连只遍历已有集合）；`docs/specs/runtime/plugin-channel.md` 输出 7（`95`）明确“只重建仍有效的订阅”。另外 `src/remote/node.ts:119–126` 的插件访问面只有 use / lookup / instances，没有连接恢复事件；`onResync` 只能挂在成功建立的订阅上，因此方案不能凭空依赖一个插件可见的 online 回调。
+- **实验**：同上 `runtime-review.ts` 的 `failed-subscription-not-rebuilt`：第一次为 `not-provided`，真实登记提供插件后对同一服务端断线重连成功；`seen: []`、`resyncs: 0`、拥有者 `subscriptions: 0`。显式重新订阅随即收到 `en-US`，`subscriptions: 1`。这条实验仅证明失败订阅不在重建集合，不宣称本期要实现插件热插拔；启动中瞬时失败采用同一条返回路径。
+- **启动故障补充实验**：同上 `recovery-review.ts` 的 `initial-disconnect-not-rebuilt` 不使用动态插件登记：拥有者从一开始就声明，激活期间真实链路断开，首次订阅为 `unavailable` / `disconnected`；消费者按默认继续启动。拥有者随后完成激活，原实例重连成功，仍为 `effective: "zh-CN"`、`seen: []`、`subscriptions: 0`、`resyncs: 0`。显式重新订阅才变为 `en-US`，证明正常启动故障就能触发此缺口。
+- **建议改法**：在 `nbook.settings` 中明确失败层的重试触发与订阅意图寿命。若坚持自动恢复，最少只在 settings 管理 user / project 两条层订阅，并经现有宿主能力边界暴露连接状态，或定义有界、可停止的失败重试；不能依赖不存在的插件 online 回调。提供方停止等终结原因应显式处理；`server-restarted` / `project-gone` 按现有 K1 宿主终态收口，不能自动改投新代次。补“首次失败后恢复”和“已成功后终结”的验收。
+
+### A5：配置读取没有深只读合同，对象值可以绕过写入门面
+
+- **严重程度**：重要。**类别**：不变量 / 授权。
+- **计划位置**：第 4 节“读取服务”，`plan.md:55–58`；第 5 节，`75`。
+- **现象**：公开签名 `get<T>(definition): T` 允许调用方直接修改对象/数组配置。`inspect` 的默认值、各层值与有效值也没规定深只读；store 的 `Readonly<Ref<T>>` 只阻止替换 `.value`，不阻止改 `.value.nested`。若按最直接的实现返回本地层缓存里的对象，插件能修改别人的有效配置，既不经过声明者授权，也不写盘、增加 revision 或发变化通知，各窗口随即分歧。
+- **为什么是问题**：只写自己的授权不能仅覆盖 `update`。本地共享引用也属于写入口。第一批消费者都是字符串，S4 授权用例只测 update，这种漏洞不会被当前验收发现。
+- **依据**：`docs/proposals/plugin-data-model.md:196` 和 ADR 0024 第 6 条（`docs/adr/0024-multi-instance-runtime-topology.md:45`）规定其它插件只读；K5 已有 `docs/specs/state/store.md:93,100`（只读视图、冻结的输入）与 `70–76`（`DeepReadonly` 字段）。VS Code `workbench/api/common/extHostConfiguration.ts:194–254` 给 `get` 的对象提供写时克隆、数组深克隆，`265–286` 的 inspect 返回值逐个深克隆，`300–313` 用只读代理防共享状态被修改。
+- **核实方式**：已核对接口与现有 K5 / VS Code 合同；设置实现还不存在，**不能声称已复现引用泄漏**。确定的是计划没有禁止该行为、返回类型允许它，按计划实现可以违背只读授权。
+- **建议改法**：配置只取 JSON 数据，在边界复制一次并深冻结快照及声明默认值，`get` 与 inspect 返回 `DeepReadonly<T>`，store 用 `Readonly<Ref<DeepReadonly<T>>>`；每次读可直接返回冻结对象，避免热路径重复克隆。写入的调用方对象也要在首次接受时复制，防排队中被调用方继续修改。补对象/数组的嵌套修改与两消费者隔离验收；不需要引入可变对象的双向同步机制。
+
+### A4：浏览器引导仍按运行入口筛选，声明目录不能在每个实例一致
+
+- **严重程度**：重要。**类别**：不变量 / 多实例声明目录。
+- **计划位置**：第 2 节“声明：写在插件描述里，每个实例都登记”，`plan.md:31–34`；S1 与该片验收，`117,131`。
+- **现象**：服务端与项目装配改为 `definitionAt` 后会包含无本位置入口但有设置声明的插件；浏览器仍只收到 `locations` 包含 browser 的插件，并只装配引导返回的集合。因此只有 server / project 入口、或真正 `locations: []` 的声明插件，其设置在后端已声明，窗口却无声明和默认值。当前语言与主题都有浏览器入口，会掩盖这个缺口。
+- **为什么是问题**：计划改变了“登记”含义，却只安排三个 `plugins.ts` 的装配，浏览器宿主真正的选集边界在引导与 `window.ts`。只向现有浏览器定义合并描述贡献不能实现“每个实例登记全部设置”，更不能校验配置声明的版本一致性；引导也不会比较仅后端插件的版本。窗口读这种项若用调用方传来的 `SettingDefinition.default` 兜底，则配置默认值又由调用方编译产物决定。
+- **依据**：`packages/neuro-book/src/server/browser-bootstrap.ts:18–24`（只列 browser id/version，revision 也只含它们）；`src/shared/browser-bootstrap.ts:19–20`（协议只含浏览器入口插件）；`src/web/plugins.ts:49–50`、`src/web/development-plugins.ts:10`（产品与开发的浏览器清单同样筛选）；`src/web/host/window.ts:127–130,175–179,264–285`（仅装配引导集合，缺定义直接失败，版本仅逐个 browser 插件比较）；`docs/specs/runtime/plugin-manifest.md` 输出 6、副作用与数据（`78,110`）允许无入口声明插件并规定浏览器以服务端集合为准。VS Code `workbench/api/browser/mainThreadConfiguration.ts:29–41` 向扩展宿主送主线程的配置投影；`workbench/api/common/extHostConfiguration.ts:126–131,148–153` 从该投影初始化，不让仅运行位置的选集另定配置目录。
+- **核实方式**：已逐处核对真实引导、开发入口、浏览器宿主与目录实现；这是计划遗漏的集成边界，设置代码未实现，运行后果标为**从代码推断**。不要求本片实现动态热插拔；固定清单下就能发生。
+- **建议改法**：明确区分运行入口集合与全量声明集合。最少改动是引导、browser builtin 及 `selectPlugins` 全部走同一描述集合：无浏览器入口但有顶层贡献的项由 `definitionAt` 生成声明定义，运行位置无需伪加 browser；产品与开发清单一致处理，比较全量声明来源的版本或配置目录指纹。也可由服务端向窗口与项目交出权威声明投影，减少各端独立默认值与 schema 目录。S1 补“只有后端入口的配置项”“无任何入口的声明插件”“仅声明来源版本变化”的真实浏览器宿主合同测试。
+
+### A8：按键值去重会吞掉层损坏与修复的状态变化
+
+- **严重程度**：重要。**类别**：正确性 / 快照与失败恢复。
+- **计划位置**：第 3 节“层快照”“外部修改”，`plan.md:44,46`；第 4 节“读取服务”，`57–60`。
+- **现象**：一份有效文件被外部编辑成坏 JSON 时，按计划 `status` 变为 `invalid`，`values` 保留上一份有效内容；因此各键的值都没变。若按“逐键比较，只有变了才推新快照”去重，远程窗口仍显示层为 `ok`，但拥有者已拒绝写入。修好文件且恢复成原值，同样没有键值变化，状态恢复也不会送到窗口。`problems` 的变化也有同类遗漏。
+- **为什么是问题**：有效值变化与层快照变化是两种合同。`inspect` 明确交出各层状态，写入错误也依赖层状态；保留旧有效值是容错行为，不能把损坏和恢复隐藏在拥有者本地。只测“坏文件拒写”“修好后最终值正确”无法捕获这个跨实例错误。
+- **依据**：计划 `44` 把状态、问题与值都定义为层快照的一部分，`46` 却只约定逐键差异触发推送，`57–58` 承诺消费者可检查各层状态，`59–60` 的有效值通知另有窄语义。现有 K5 `docs/specs/state/store.md` 输出 16（`107`）把读取错误与恢复独立于显示值处理；K1 `docs/specs/runtime/plugin-channel.md` 输出 7（`95`）只保障事件送达，不替业务补出未发布的状态变化。
+- **核实方式**：已核对计划中互相不兼容的转换与去重条件；设置实现尚未存在，后果为**从计划推断**，没有用手写层实现冒充产品实验。
+- **建议改法**：层快照按 `status`、`values`、`problems` / `detail` 的语义变化递增 revision 并推送；只改注释或格式、这些字段都不变时才去重。`onDidChange` 仍只列有效值变化的键，但 `inspect` 读取的响应式状态也要失效。补真实拥有者到窗口的 `ok → invalid → ok` 验收：三次有效值相同，inspect 状态必须依次变化。
+
+### A7：新增 `shared/settings.ts` 跨插件入口与现行合同边界冲突
+
+- **严重程度**：建议。**类别**：架构 / 既有合同。
+- **计划位置**：第 2 节“一份常量，三处使用”，`plan.md:34`。
+- **现象**：计划要求其它插件在运行时导入对方 `shared/settings.ts`，并以 ADR 0025 作为依据；实际 ADR 0025 / 0026 只允许跨插件运行时引用 `shared/contracts.ts`，已有架构门禁也只接受这个文件。
+- **为什么是问题**：按计划执行会直接违反已生效的模块边界，S6 的语言消费方和其它配置读者会在架构检查失败。配置定义本身就是跨插件合同，没有必要为它新增第二条公共入口或放宽整个边界检查。
+- **依据**：`docs/adr/0025-service-keys-by-id.md` 决策 2 与后果（`31,37`）；`docs/adr/0026-plugin-definitions-as-constants.md` 决策 2（`25`）；`packages/neuro-book/src/architecture.test.ts:77,94–97` 只接受对方 `shared/contracts.ts`，其它跨插件运行时导入产生违规项。
+- **核实方式**：已核对计划、两个 ADR 和真实检查代码；设置文件尚未实现，没有跑一份尚不存在的产品 diff 来声称门禁已失败。
+- **建议改法**：各插件的公开配置定义直接写在 `shared/contracts.ts`，描述和消费者引用同一常量。通用 `defineSetting` 保持平台共享模块；不要新增 `shared/settings.ts` 再做转导出，也不必改 ADR 和边界门禁。
+
+## 未发现问题的方面
+
+- **内核填入的身份与委托判据成立，已运行验证。** `authorization-review.ts` 经真实内核的按调用方门面、路由与 JSON 链路验证：settings 自身直接调用为 `{plugin:"nbook.settings", via:null}`；工作台代理写的身份为 `{plugin:"nbook.workbench", via:"nbook.settings"}`；其它插件仍是其它插件，克隆身份并改成 settings 的请求以 `denied` / “调用方身份不是装配签发的”拒绝。因此将 settings 加入代理允许清单不会自动赋予它的消费者用户编辑权限。未来用户编辑用独立方法、核对 settings 自身且 `via:null`，和普通语言写入用普通方法并不冲突；owner 仍须在两个方法各自核验声明、schema 与层，不能从输入参数取插件身份。两应用都正常 `closed`。这里只证明身份机制，不宣称尚未实现的配置 owner 授权已经通过。
+- **服务端只合成默认与用户层，当前消费者正确；未来项目读取不能隐式借用一个“当前项目”。** 语言是 user-only，服务端命令读它不会丢项目覆盖。窗口命令在目标窗口执行并本地复查（`docs/specs/workbench/commands.md:70–75`）。ADR 0024 第 7 条（`docs/adr/0024-multi-instance-runtime-topology.md:47–49`）与拓扑稿第 9 节要求服务端 Agent 同时操作多个项目，项目数据在项目入口经租约取；未来项目配置同样应显式选定项目并在该实例合成，不能把某个项目层挂到共享服务端 settings。VS Code `platform/configuration/common/configurationRegistry.ts:37–49` 也明确共享 agent host root 不镜像 workspace 值。当前片无需为未来会话再造进程级配置层。
+- **无入口插件的目录汇总、远程查询边界已有合适实现，从代码核对。** `packages/nb-runtime/src/plugins/host.ts:408–430` 已管理顶层贡献的登记与撤回；`433–446` 对没有本地入口的插件自然汇总为 available。`641–671,678–718` 的远程 lookup / describe 只看本地可激活入口的 `remoteProvides`，纯声明插件不会伪造远程能力。`src/application/bootstrap.ts:214–237` 的必需启动集合只激活本位置入口，不会等待一个根本不存在的声明入口。需要改登记的 no-entries 拒绝与 A4 的宿主选集；不需要为纯声明插件造空激活函数或特殊远程提供项。尚未对修改后的内核运行测试，因为修改还不存在。
+- **激活后解析可选服务可行，已运行验证。** 无静态环时 `context.services.resolve` 返回真实实例；A1 不应被误修为禁止在命令执行期间用激活上下文。
+- **同一拥有者代次内，写结果带快照并按 revision 过滤可以防倒退，从合同推断。** 单层订阅按序，读写结果可能和事件交错，因此只接收更大序号是合适的合并规则；并发写后 update 返回时可以已看到别人的更晚写入，应把“读到自己的写入”表述为“本实例至少已应用本次写入的 revision”，不要求与并发写后更晚的值相矛盾。启动标识只界定序号可比较的范围，不按字典序或时间把不同标识排大小。现有 K1 在 `server-restarted` / `project-gone` 时结束旧订阅并要求新窗口，`packages/neuro-book/src/web/host/window.ts:149–154` 会销毁旧宿主；普通重连保持同一进程与项目代次（`docs/specs/runtime/plugin-channel.md:95,118–123`）。本期没有证据证明旧窗口必须跨拥有者重启继续比较序号；不要额外引入跨进程全序、冲突合并或自动改投。
+- **K5 配置读取接入与公开状态分工合适。** setup 中的 `setting` 可以由既有响应式读取生成 computed，随 store 的 effectScope 释放；配置保留三层合成，持久化字段仍沿 Storage 的独立条件保存合同。布尔项要进 `when` 时由声明者的 store `publish`，符合 `docs/specs/state/public-state.md:18–21` 的本实例、只读边界；应按计划补正文决策记录。
+- **第三方 API、用户编辑与密钥的阶段边界没有发现冲突。** 同步 get 及响应式对象仅限内置插件，符合 `docs/specs/runtime/plugin-api.md:47–49,73`；本期登记拒绝 secret 声明，避免合同尚未实现却落成明文。Lab 独立偏好不消费产品配置，抽出无状态主题应用函数不需要把 Lab 拉入配置依赖图。
+
+## 待确认项的审查判断
+
+1. **布尔配置不自动进入公开状态**：建议采用，理由是 K5 已有声明者 owns / publish 的机制；把提案正文与决策记录对齐即可，不新增第二个公开键命名体系。
+2. **声明在描述里、放开 no-entries**：机制方向可行，应同时覆盖 A4 的完整浏览器声明选集；不要用每位置伪造空运行入口代替声明登记。
+3. **主题默认明暗为 light**：两项默认都是产品偏好，本审查没有架构依据要求改成 system；light 与计划的现状一致。
+
+以上是审查建议，不代表开发者批准；未改计划或仓库规范。
+
+## 实际验证与边界
+
+运行目录均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-plan-review-arch`。以下是本次已观察的执行结果，没有重复运行通过的检查：
+
+| 实际命令 | 结果 | 保存的输出 |
+|---|---|---|
+| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp-arch/runtime-review.ts` | 退出 0，0.17 秒；可选环、无环延迟解析、订阅无截止、失败订阅不重建四组断言通过，全部实例正常 closed | 同目录 `runtime-review.txt` |
+| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp-arch/authorization-review.ts` | 退出 0，0.18 秒；真实签发、委托、伪造拒绝与 caller 种类拒绝断言通过，全部实例正常 closed | 同目录 `authorization-review.txt` |
+| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp-arch/recovery-review.ts` | 退出 0，0.17 秒；拆入口修法及首次断线后重连场景断言通过，全部实例正常 closed | 同目录 `recovery-review.txt` |
+
+依赖预备命令 `prox bun install --frozen-lockfile --ignore-scripts` 成功（1559 packages installed），只安装被忽略的 node_modules，未运行 postinstall。LSP 返回 `No language servers configured for this project`，代码定位随后使用只读查找。实验使用真实公开运行时与 JSON 编码链路，ManualClock 仅通过公开接口控制远程方法截止；不是产品配置实现验收。
+
+未运行：仓库全量测试、类型检查、开发服务、e2e、生产打包与 smoke:server。未修改任何仓库源码、计划或文档；设置插件未实现，A4 / A5 / A6 / A8 的行为后果明确为计划推断，A7 是已核对的现行边界冲突。文件层完整实验由另一审查切片负责，本报告不声称测过设置文件写入、监视、符号链接或跨进程文件锁。
+
+只读范围核对：`git status --porcelain=v1 --untracked-files=normal` 退出 0，仅列预置的 `?? .agents/works/w00017-application-runtime-architecture/tasks/t64-plugin-settings/`；目录读取显示只有预置 `plan.md` 与 `README.md`，无 tracked 改动。
+
+## 规范回写建议
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| R1 | 规范缺陷 | A2 的公开运行时实验在 10001 毫秒时方法已 timeout、订阅仍 pending；现有输出 6 只写“调用”，输出 7 没明示首基线等待的时限边界 | 在输出 7 追加：“订阅建立与首事件等待不受激活期方法调用上限约束；把首基线作为启动前置条件的消费者须自行定义有界等待、失败降级与恢复。” | `docs/specs/runtime/plugin-channel.md` 的“输出与可观察行为”第 7 条 |
+
+仅向主 Agent 提出，经开发者批准后再回写；本审查未改规范。可选边静态环和项目级数据自行保护的规则已经分别存在于 services 的“失败与恢复”及 projects 的“边界与兼容”，不再建议重复追加。
+
+## 各级数量
+
+| 严重程度 | 数量 | 编号 |
+|---|---|---|
+| 阻断 | 2 | A1、A2 |
+| 重要 | 5 | A6、A3、A5、A4、A8 |
+| 建议 | 1 | A7 |
+| 合计 | 8 | 按影响排序，编号保留核实时的稳定标识 |
+
+最先修订 A1、A2：分别把 UI 命令依赖从配置核心拆走、给层首快照真正的截止与恢复路径；这两处都已有真实启动实验。持久文件补合作进程之间的写入保护，读取边界补深只读，再对齐全量声明选集与状态变化快照。无需扩大到新配置层、目录级锁、跨设备同步或第三方配置 API。
+

@@ -1,0 +1,181 @@
+# w00017 t64 `nbook.settings` 实施计划只读审查
+
+审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-plan-review/.agents/works/w00017-application-runtime-architecture/tasks/t64-plugin-settings/plan.md`；源码基线按审查说明为 `854121f8`。VS Code 对照源码为审查说明指定的 `38d9885c`。
+
+计划尚未实施；下述结果区分现有代码与 Spec 核实、临时目录实验，以及从计划推导的后果。Context 中六条已定产品决定作为约束接受。
+
+发现按影响排序；严重程度针对照计划实施的后果，不把实验脚本当作尚不存在的 settings 实现。
+
+## 已核实发现
+
+### 1. 阻断：`quickPickKey` 写成可选并延迟解析，仍会形成静态服务环
+
+- **类别**：正确性；不变量。
+- **计划位置**：关键设计第 6 节“避免依赖环”（plan.md:81-82）；S6（plan.md:122）。
+- **现象**：计划新增 `settings → quickPick（可选）`、`commands → settings`，现有工作台已有 `quickPick → commands`。内核服务装配对可选边同样查环，所以 settingsKey、commandServiceKey、quickPickKey 三个提供者被判 cycle；命令与工作台的必需依赖解析失败。命令执行时才 resolve 不能消掉声明图里的边。
+- **为什么是问题**：这是窗口的必需启动链，不仅是没参数时无法弹选择。计划第 82 行的避环措施在当前内核下不成立，会使工作台根服务无法就绪。
+- **依据**：`docs/specs/runtime/services.md:126` 明定“静态环（可选依赖的边也算）”；`packages/nb-runtime/src/services/assembly.ts:111-139` 把所有满足的声明边加入 providerEdges；`workbench/web/plugin.ts:32-33` 的依赖与提供项、`commands/shared/plugin.ts` 的 commandServiceKey 提供项闭合该环。运行 `bun runtime-optional-cycle-experiment.ts`，只经公开 `createApplication`、`provide`、`defineServiceKey` 装配计划同形的三入口：`runtime-optional-cycle-results.json` 记录三个提供者的 `kind: "cycle"`，commands 与 workbench 激活为 `dependency-unavailable`；settings 的 activate 能完成，但其提供服务仍被装配隔离。实验没有提前调用 quickPick，也没有内部函数或假的内核。
+- **建议改法**：设置数据入口只提供 settingsKey，不依赖工作台；另设一个浏览器命令入口，依赖 settingsKey 与 quickPickKey，贡献“切换界面语言”，从它签发的 settings 门面写本插件的 locale。命令入口不提供 settingsKey，不形成反馈边。S6/S4 加真实三插件启动并解析工作台根的验收；不要改内核为忽略可选依赖环。
+
+### 2. 阻断：首份快照等待不受计划引用的内核激活超时保护
+
+- **类别**：正确性；不变量。
+- **计划位置**：关键设计第 4 节“就绪”（plan.md:67）；风险“等待受内核激活期调用的上限约束”（plan.md:167）；S4 就绪与降级验收（plan.md:140）。
+- **现象**：拥有者入口仍在激活时，窗口发出的 `subscribe` 会等它；同一激活上下文里的远程读方法已按上限返回 `timeout`，订阅 Promise 却仍未结算，首份快照也未到。即使订阅已被接受，单独等待第一个事件的 Promise 也没有内核截止。
+- **为什么是问题**：工作台与命令依赖 `settingsKey`，入口要等每层的第一份快照才交出服务。按现有机制照第 67 行实施，会把拥有者慢启动/读盘挂住放大为窗口无限等待；第 167 行给出的保护不存在。这里需要固定就绪截止、失败分支和资源收口，不能等编码时碰运气。
+- **依据**：通过公开 `createApplication`、`createRemoteNode`、`createRemoteRouter`、`createLinkPair` 启动真实内核实例，运行 `bun runtime-subscription-experiments.ts`。`runtime-subscription-results.json.activationDeadline`：激活上限设为 `20` ms，实际约 `26.07` ms 时远程方法为 `timeout`，`subscriptionReturned: false`、`snapshotSeen: false`；放行真实提供方激活后才收到快照并完成启动。没有直接调用内部函数、伪造订阅帧或假计时器。源码：`packages/nb-runtime/src/remote/node.ts:599-600` 仅为方法建立 `timeoutMs`；`610-659,977-1011` 的订阅没有该参数；`peer.ts:150-164` 也没有计时器；`remote/contract.ts:191-196` 订阅选项不含 timeout/signal。Spec：`runtime/plugin-channel.md` 输出 6、7（第 94、95 行）。VS Code 对照：`workbench/api/common/extHostConfiguration.ts:122-131` 的初始化 barrier 在宿主主动提供初始化数据后打开，不假定任意首个 change event 自带截止。
+- **建议改法**：显式设计一个“订阅加首份基线”的有界建立流程，并支持取消建立中订阅；超时后按本层 unavailable 完成设置入口激活，后续快照仍可恢复。若要复用内核上限，S1/S4 必须包含订阅建立的 timeout/signal 合同和实现，不能只加 `Promise.race` 留下挂住的订阅。补慢拥有者启动、订阅已接受但基线迟到、停止早于建立完成三条真实内核验收。
+
+### 3. 重要：单键写入仍会丢掉外部保存或另一拥有者写入的其它键
+
+- **类别**：正确性；数据丢失。
+- **计划位置**：关键设计第 3 节“写入”（plan.md:45）；风险中的修改标记窗口（plan.md:168）。
+- **现象**：拥有者读出 `{theme: "nbook", locale: "zh-CN"}` 并准备切换主题；外部编辑器随后保存 `locale: "en-US"`；拥有者把按旧文本生成的临时文件改名，语言回到 `zh-CN`。规范还允许两个服务端同时打开同一个项目：两个项目拥有者读到相同文本，各改一个键，两次 rename 均成功，后写者会撤销先写者改的键。
+- **为什么是问题**：串行队列只隔离本进程收到的请求。第 168 行虽识别编辑器窗口，却未固定冲突判据与验收；双服务端是 `runtime.projects` 允许的正常拓扑，不是极端编辑器时序。文件监视只能看到已被覆盖的文件，不能恢复丢写。这重新引入配套稿第 6 节要消除的连带修改。
+- **依据**：`bun watch-race-experiments.ts` 的 `watch-race-results.json.concurrentFileEdit`：外部已保存 `en-US`，最终为 `zh-CN`。补充 `bun two-process-file-experiment.ts`：两个真实 Bun 子进程经 IPC 对齐自然可发生的读/核对/rename 交错，不调用产品内部函数；两个写者均通过 inode、mtime、size 核对并退出 `0`，`two-process-file-results.json.afterFirst` 的主题为 `macos`，`final` 却为 `nbook`，只剩另一个写者的 `dark`。实验是计划算法的真实文件/JSONC 行为，尚无 settings 产品实现。`docs/specs/runtime/projects.md:21,131` 明确不防止双服务端打开同项目；Storage 靠跨进程 SQLite 事务保持写入正确（`partition.ts:137-151`），JSON 算法没有等价保护。VS Code 的 `configurationEditing.ts:220-227` 映射 `FILE_MODIFIED_SINCE`，`265-273` 从最新文件重建编辑。配套稿：`plugin-data-model.md:196,209-212`。
+- **建议改法**：两个内部拥有者之间明确文件级的写入串行化或条件提交机制，不加项目目录全局锁；锁/拥有者协议须覆盖读至 rename，并有异常退出收口。外部编辑器不遵守协议，另以读盘时文件身份/修改标记在提交前核对，冲突重读重算单键或返回 `file-modified-since`，含“原来不存在、现在被创建”。单次核对不能提供绝对 CAS，不能把它写成双拥有者并发已解决。S3/S4 加真实两个进程改不同键均保留，以及外部保存交错时其它键保留的验收。
+
+### 4. 重要：首次订阅失败后的降级不能靠内核重连恢复
+
+- **类别**：正确性；多实例。
+- **计划位置**：关键设计第 4 节“就绪”（plan.md:67）；S4 就绪与降级（plan.md:140）。
+- **现象**：首次订阅得到 `unavailable`，设置入口按默认值完成激活；连接恢复后没有那条订阅的初值或变化。主动重新调用 subscribe 才有快照。拥有者停止后的 `provider-stopped`、重连重建失败也会把订阅移出内核表。
+- **为什么是问题**：第 67 行把“已成功建立的订阅断线后重建”扩大成“订阅失败也会自动恢复”。这会让用默认值启动的窗口在服务恢复后一直保留默认语言/主题，而另一窗口与拥有者使用文件值；读值分歧没有结束条件。
+- **依据**：补充真实已连接窗口实验 `bun runtime-provider-recovery-experiment.ts`：首连为 `ok` 后在真实插件 `activate` 内 subscribe，提供入口激活失败使它得到 `unavailable`；窗口正常完成启动。随后经公开 `serverApp.plugins.recover()` 恢复提供入口，远程 ping 成功，但 `runtime-provider-recovery-results.json.afterProviderRecovery` 为 `[]`；再与同服务端重连成功、ping 成功，`afterReconnect` 仍为 `[]`；主动重新订阅才收到 `file-value`。没有绕过运行时调用内部函数。早先断线首订阅实验结果另见 `runtime-subscription-results.json.initialFailureRecovery`。源码：`remote/node.ts:636-648` 只登记建立成功且未结束的订阅，`1070-1086` 只遍历已有登记，失败后删除；`991-1000` 将 `provider-stopped` 等非断线原因永久结束。Spec：`runtime/plugin-channel.md:95` 明说“只重建仍有效的订阅”，`state/store.md:107` 对同一问题要求显式 reopen；Storage 样板 `plugins/storage/shared/remote-route.ts:39-42` 没有承诺首次失败恢复。
+- **建议改法**：由 `nbook.settings` 拥有每层的建立/降级/重新建立状态；首次失败与终止性失败不能依赖 `onResync`。选一个显式恢复触发（例如连接已恢复时重新建层订阅，或受控重试），明确拥有者停止的处理。沿用内核规则：同服务端进程/项目代次重连才恢复；`server-restarted`、`project-gone` 由宿主重启客户端实例，而非把旧订阅改投新代次。S4 分别测首次失败后恢复和原活动订阅断线恢复。
+
+### 5. 重要：原子替换会绕过文件只读权限，验收所述拒写不会自然成立
+
+- **类别**：正确性；安全与性能。
+- **计划位置**：关键设计第 3 节“写入”（plan.md:45）；验收映射“只读文件为 `write-failed` 且快照不变”（plan.md:135）。
+- **现象**：`settings.json` 为 `0444`、所在目录可写时，直接打开写入得到 `EACCES`，但“在目录中新建临时文件，再 rename 覆盖”的路径成功，文件内容改变，并由 `0444` 变成 `0644`。符号链接最终目标同样受影响。
+- **为什么是问题**：计划同时承诺原子替换和尊重只读文件，但只实现第 45 行的算法就会覆盖用户刻意设为只读的配置。替换还丢失原文件 mode；不能把只读文件的断言寄托在 OS 拒绝 rename 上。
+- **依据**：在普通用户 uid `1000` 的真实 Linux 文件系统运行 `bun file-jsonc-experiments.ts`，`file-jsonc-results.json` 的 `readonly` 为 `directCode: "EACCES"`、`atomicReplace: "ok"`、`mode: "644"`。实验与结果均在本报告同目录，没有绕过文件系统。VS Code 的写入不是裸 rename：`workbench/services/configuration/common/configurationEditing.ts:178-227` 经 text-file service 保存，并将写失败转为结构化错误；其错误码在同文件 `34-103`。
+- **建议改法**：S3 明定现有文件/最终链接目标的可写校验及权限保留。写前检查目标，明确只读为 `write-failed`；临时文件使用原文件权限，新文件使用约定权限，成功 rename 前后都不报虚假的已保存。真实 `0444` 文件置于可写目录，验收内容和 mode 均不变；再加一条可写但非默认 mode 的保存用例。
+
+### 6. 重要：符号链接目标变化后，原来的两个目录监听不能继续保证外部修改生效
+
+- **类别**：正确性；不变量。
+- **计划位置**：关键设计第 3 节“外部修改”（plan.md:46）；验收映射外部修改与符号链接（plan.md:135-136）。
+- **现象**：`settings.json` 链接初始指向目录 A；dotfiles 工具、切分支或用户把它替换为指向目录 B 的链接。配置目录的 rename 会触发一次 reload，读到 B 的当前内容；此后直接修改 B 中的文件，只触发 B 的事件，配置目录与 A 都没有该事件。计划只规定同时监视“文件所在目录”和“目标所在目录”，未规定重解析后撤旧、建新的监听。
+- **为什么是问题**：这是本地 Linux 文件系统上的正常事件行为，并非计划已列出的网络盘/容器限制。链接保留但监听跟错目录，会造成新目标的外部保存长期不生效；同样需要处理目标被删后重建、目标父目录被替换或消失、监听器 `error`，否则只是首次解析支持符号链接。
+- **依据**：运行 `bun watch-race-experiments.ts`，同目录 `watch-race-results.json` 的 `symlinkRetarget`：改指向时 `linkEvents` 有 `settings.json` 的 rename；随后写新目标时只有 `newTargetEvents` 有 `settings.json` 的 change，`originalTargetEvents` 只有用于事件收口的 barrier。真实 `fs.watch` 和文件 rename/写入，没有模拟事件。另实测监视不存在的父目录得到 `ENOENT`。VS Code 对照：`platform/configuration/common/configurationModels.ts:563-569` 同时监视父目录和资源；`workbench/services/configuration/browser/configuration.ts:259-274` 对配置资源采用相同模式，依赖 file service，而非把初始 realpath 永久当作资源身份。
+- **建议改法**：把“解析实际落点、重建必需目录监听、读取快照”做成一个拥有者 reconcile 流程，在相关 rename、链接/目标变化与监听错误时执行；找不到目标时继续保留能发现重建的父目录监听。每次重建释放旧监听，不增加另一个全局 watcher。S3 增补真实链接 A→B、B 后续保存、目标删除再创建，以及 `.nbook/` 被替换后再次保存的用例。
+
+### 7. 重要：两条主题命令使用未登记的 `workbench` 域，会被现有命令校验拒绝
+
+- **类别**：正确性；合同。
+- **计划位置**：关键设计第 7 节两条命令（plan.md:90）；S0 `workbench/commands.md` 改动表（plan.md:108）。
+- **现象**：`nbook.workbench.switch-theme`、`nbook.workbench.switch-appearance` 的中间段是 `workbench`。现有内置命令域词表没有这一项，贡献登记会返回“未登记的命令域：workbench”，两条命令不会进入命令面板。
+- **为什么是问题**：命令 id 的 domain 与贡献插件 id 独立。计划直接用工作台插件名当 domain，却只计划更新“不满足原因按当前语言给出”，没有计划修改命令域合同或命令目录。S7 的主题消费者无法按现有机制使用这两个 id。
+- **依据**：`packages/neuro-book/src/plugins/commands/shared/registry.ts:73-76,114-125` 明确白名单并拒绝缺席的 domain；`docs/specs/workbench/commands.md:115-118` 的域词表包含 `settings`，不含 `workbench`；`packages/neuro-book/AGENTS.md:17` 明说域来自词表，不是插件 id。此处为当前源码/Spec 与计划的直接矛盾，无须运行尚不存在的命令。
+- **建议改法**：两条命令直接使用已有 `settings` 域：`nbook.settings.switch-theme`、`nbook.settings.switch-appearance`，仍由 `nbook.workbench` 贡献和写自己的设置。S0 同步三条设置命令的目录，S7/S8 从真实命令服务枚举并执行它们；无需扩充域词表。
+
+### 8. 重要：按逐键值去重会漏掉层变坏和修复，远端 `inspect` 留在旧状态
+
+- **类别**：正确性；接口。
+- **计划位置**：关键设计第 3 节层快照/外部修改（plan.md:44,46）；第 4 节 `inspect`、`onDidChange`（plan.md:57-60）。
+- **现象**：有效用户层内容 A 被外部改为语法错误；按第 44 行层变为 invalid、values 仍为 A。第 46 行若只逐键比较 values，两次没有差异，不推快照。窗口仍会把该层报为 ok；修复为同一个 A 时也不会有新值变化。新增一条非法键但其它值不变，`problems` 同样无法传到远端。
+- **为什么是问题**：保留最后有效值是合理降级，但状态和 problems 是快照合同的一部分。不能把“有效值变化”与“层状态变化”作为同一去重判据：用户得到 `layer-invalid` 拒写时，`inspect` 却仍显示层正常。当前验收只要求 `inspect` 来源层，没有保护这个状态转换。
+- **依据**：计划第 44 行显式允许 status 改变而 values 不变，第 46 行只规定“逐键比较”；第 57 行承诺 inspect 包含 ok/invalid/unavailable。VS Code 的 `platform/configuration/common/configurationModels.ts:949-955,967-973` 比较来源层模型，`1219-1243` 的 `affectedKeys` 加上来源键；`workbench/services/configuration/browser/configurationService.ts:821-830` 按层触发，不只比较合成后的最终值。NeuroBook 当前公开状态也把“已就绪、取值恰好相同”与“未就绪”区分：`docs/specs/state/public-state.md` 输出 5（第 67 行）。这是设计推导，尚无 settings 实现可运行。
+- **建议改法**：拥有者的快照去重比较 status、values 与 problems/detail；修复、IO 恢复和基线重建即使值相同也下发元数据。`onDidChange` 可以继续只通知有效值变化，但 `inspect` 的来源/状态需要独立响应式失效。S3/S4 加 A→invalid 保留 A→修好仍为 A，断言两个窗口的层状态与拥有者一致。
+
+### 9. 重要：跨插件读取 `shared/settings.ts` 与当前合同入口规则冲突
+
+- **类别**：不变量；代码质量。
+- **计划位置**：关键设计第 2 节“一份常量，三处使用”（plan.md:34）；S1/S2 提交边界（plan.md:117-118）；S0 文档改动表。
+- **现象**：计划要求别的插件运行时导入声明方的 `shared/settings.ts` 读取设置定义，并把它归因于 ADR 0025；现行架构只允许跨插件运行时导入 `shared/contracts.ts`，不是任意 shared 模块。照计划添加这些消费者会被包内依赖方向检查拒绝。
+- **为什么是问题**：设置定义确实是跨插件合同，但计划建立了第二个合同入口，却没有设计这项规则变更。只按 S1/S2 的文件范围实施，核心 `get` 使用方式与原有导入约束矛盾；更不应通过仅放宽测试消除冲突。
+- **依据**：`packages/neuro-book/src/architecture.test.ts:77,94-98` 只放行对方的 `shared/contracts.ts`；`docs/specs/runtime/plugin-api.md:35` 与最新 `docs/adr/0026-plugin-definitions-as-constants.md:25` 同样限定该入口。`plan.md:34` 指定的 `shared/settings.ts` 无此例外。这是源码与合同的直接对照，未运行仓库测试。
+- **建议改法**：将各插件导出的设置定义直接放在已有 `shared/contracts.ts`，`defineSetting` 仍作为应用共用库里的纯 helper。消费者沿用原合同入口，不需要新增 re-export、白名单或另一套约定；S0/S2 的路径与例子同步修正。
+
+### 10. 重要：schema 合格不等于值可无损落盘；默认值与写入值缺少 JSON 边界
+
+- **类别**：正确性；接口。
+- **计划位置**：关键设计第 2 节声明校验（plan.md:36）；第 3 节 JSONC 编辑（plan.md:45）；第 4 节写入核对（plan.md:68）；S2 声明验收（plan.md:132）。
+- **现象**：可 JSON 序列化的 `Type.Unknown()` schema 通过计划规则；它的 `undefined`、NaN、Date、Map 默认值或输入值均通过 `Value.Check`。JSONC 编辑把它们分别当作删除、写成 null、字符串、空对象，值已不再是调用方传入的值。同一个非 JSON 输入在远程路径会被严格编码拒绝，而本地拥有者直写若只按 schema 校验却能走到改写。
+- **为什么是问题**：首批三个字符串枚举不触发此问题，但本期交付的是可声明任意 schema 的设置服务。只验证 schema 的可序列化与值的 schema 合规，无法保证本地/远程写入边界一致以及保存后无损读回。默认值也须符合设置的数据合同；`undefined` 只用于删除，不能又是合法默认值。
+- **依据**：运行 `bun settings-value-experiment.ts`，`settings-value-results.json` 记录上述四项 `checked: true`、schema 文本 `{}`，JSONC 保存分别发生改写；公开内核 `encodeJsonValue` 对四项均抛 `FrameEncodingError`。这是实际 TypeBox 1.3.6、jsonc-parser 3.3.1 与内核 JSON 编码的实验，不是 settings 产品测试。现成 Storage 边界 `packages/neuro-book/src/plugins/storage/backend/partition.ts:333-339` 同时做 `Value.Check` 与 `encodeJsonValue`；`packages/nb-runtime/src/remote/json-codec.ts:4-6,67-75` 明定落盘/远程值不能被 JSON 改写。
+- **建议改法**：S2 在声明默认值与普通写入值的拥有边界复用严格 JSON 值编码规则，拒绝非有限数、类实例、函数、循环值与顶层 undefined 默认值；删除先按独立分支处理。默认值不合规则拒绝这条声明，update 输入不合规则为 `invalid-value`，文件不变；不要另写第二个近似的 JSON 检查器。补非 JSON 默认/写入拒绝以及合法嵌套对象数组无损读回的验收。
+
+### 11. 重要：已打开选择模式保存本地化字符串，替换语言读取点不足以即时更新
+
+- **类别**：正确性；接口；文档覆盖。
+- **计划位置**：关键设计第 6 节读取语言与即时切换（plan.md:81-83）；S6（plan.md:122）；语言验收（plan.md:143）；S0 改动表（plan.md:99-110）。
+- **现象**：窗口 A 打开“打开项目”选择，标题、占位、空态与“运行中”说明已按旧语言构成 `QuickPickRequest`；窗口 B 切换语言。即使 A 的设置与命令模式已更新，该请求仍是旧字符串。换成在 `projectsText` 中读 settings，只影响下次构造请求，不影响正在等待用户选择的这一次。
+- **为什么是问题**：第 83 行承诺所有窗口即时换语言。现有选择服务把文案值捕获在打开时，与这一承诺不相容。重新 `pick` 会取消原选择、清空输入或改变焦点，也不能作为无感更新手段。第 143 行只验收命令面板文案，没有单列保留已打开选择的判据，S0 也未列选择服务合同变更。
+- **依据**：`packages/neuro-book/src/plugins/workbench/shared/contracts.ts:38-46` 的 title/placeholder/items/empty 都是字符串；`projects/web/open-project.ts:34-49` 打开前完成本地化，`workbench/web/commands/palette-host.ts:134-147` 保存原请求；`workbench/web/components/WorkbenchCommandPalette.vue:77-93,155-156` 直接渲染捕获的字段。`docs/proposals/plugin-data-model.md:198` 定的是渲染时取语言、客户端无需重启；`workbench.quick-open` 输出“选择模式”（第 47 行）与组件 `.md:23,34` 仍是原合同。这是当前接口与计划的核实，尚无 settings 产品浏览器运行证据。
+- **建议改法**：S6 将本地选择请求改为在渲染时求值的响应式呈现（例如请求提供只读 computed 的标题、占位与候选视图），保留一次 pick 的 Promise、查询、候选 id 与焦点。Lab 传自己的固定语言，不依赖产品 settings。S0 同步 `workbench/quick-open.md`、选择服务合同与组件同名 Markdown；S8 让一窗口保留“打开项目”选择和输入，再从另一窗口切语言，断言文案更新、输入与选中 id 保留且原选择仍可提交。服务端返回的错误详情作为诊断原文保留，不要求本轮把全部错误转换成翻译键。
+
+### 12. 建议：对象设置值的只读边界尚未定形，`T` 和浅只读 Ref 都允许嵌套写入
+
+- **类别**：不变量；代码质量。
+- **计划位置**：关键设计第 4 节 get/inspect（plan.md:56-58）；第 5 节 `Readonly<Ref<T>>`（plan.md:75）；S2/S5 验收。
+- **现象**：对对象设置，`settings.get(definition).nested.value = ...` 和 `setting(definition).value.items.push(...)` 都是当前签名允许的写法。计划没有规定返回隔离副本或深只读快照；若交出本地合成/默认值的原引用，读取方就能绕过 update 改变本实例看到的值，其它窗口和文件保持原值。
+- **为什么是问题**：只读不是只能禁止替换 Ref.value；它应覆盖配置对象与数组。首批枚举不受影响，因此列为合同补强建议，不宣称尚不存在的 settings 已发生引用泄漏。读服务是内部对象引用接口，不能假定 RPC 自动替它隔离。
+- **依据**：`plan.md:56,75` 的原签名；`docs/proposals/plugin-data-model.md:196` 的只读访问；`runtime/plugin-api.md:73` 明确内置同步服务可传引用，内核没有通用 clone 保证。现有 store 使用 `DeepReadonly` 与深冻结（`src/shared/store/persisted.ts:31-48,480-491`）。VS Code `workbench/api/common/extHostConfiguration.ts:194-254` 对对象读值做 copy-on-write、数组复制，`265-286` 对 inspect 深复制，防止读者改写权威模型。这是接口核实与设计推导，未做 settings 运行实验。
+- **建议改法**：get、inspect 与 store.setting 统一交深只读视图；在接纳新快照和默认值时完成 JSON 数据的隔离/冻结，读路径复用快照，不每次 get 深复制。update 排队时也捕获输入，避免调用方在等待期间改值。补调用方尝试改嵌套对象/数组不影响 get、另一消费者与磁盘的行为验收。
+
+### 13. 建议：“监视回传不重复通知”不能只等第一条通知验收
+
+- **类别**：测试。
+- **计划位置**：关键设计第 3 节 50 毫秒合并（plan.md:46）；S3 与验收映射（plan.md:119,136）；交付变异检查（plan.md:152）。
+- **现象**：update 已立即发出第一条通知，测试等到它后断言通知数为 1 就结束；随后 fs.watch 引起的 50 ms reload 尚未完成。删掉去重逻辑后，同一个测试仍可能通过。“最终值正确”也不证明截断后的中间快照处理正确或确实执行过 reload。
+- **为什么是问题**：正向状态等待只能证明至少一个事件已经到达，不能证明后面的负向判据。不能为等不到第二条事件加固定 sleep，也不宜把测试转成 fake watcher。计划要按真实文件事件做变异检查，就需要一个可观察的 reload 完成点。
+- **依据**：计划第 45 行自身写入立即通知、第 46 行真实 watcher 延后合并读；本审查 `watch-race-results.json.regular.events` 显示一次替换可产生多条 rename/change，不能把单个通知当作事件队列结尾。`docs/testing/README.md:18,22,24` 要求状态等待、异步订阅两种顺序与变异检查。此为验收时序推导，尚无 owner.test.ts 可运行。
+- **建议改法**：让拥有者的 reload 队列有可等待的批次完成点（不扩充给插件的 SettingsService），真实 fs.watch 触发后等这批处理完，再断言没有重复通知；50 ms 调度仍走真实计时器。先截断再写分别测同批次合并与跨两批次，后者需验证 invalid 保留 last-good 然后恢复。停止场景核对待执行 reload、监听与临时文件都收口。
+
+## 未发现问题的方面
+
+这里表示设计选择与现有机制相容，不表示尚未实现的功能已通过测试。
+
+| 对照项 | 判断与依据 |
+|---|---|
+| 清单登记 schema，独立于激活与运行位置 | 方向正确。VS Code `workbench/api/common/configurationExtensionPoint.ts:244-262,288-289,374` 经 registry 登记清单 schema；t64 描述贡献让服务端知道 browser-only 设置。S1 已计划修改三个宿主，不能把现有位置过滤重复报成遗漏；实施时须遍历完整 manifest，并保留“声明本地入口却缺实现或 id 不符”的装配失败。 |
+| `no-entries` 放开、目录与汇总 | 与 `runtime/plugin-manifest.md:44,78`、`runtime/plugins.md:67` 相容。现有 `plugins/host.ts:433-449` 在没有本地入口时汇总 available，受阻推导只针对入口；不需要给纯声明插件制造假 activate。 |
+| 浏览器引导集合 | 仍应表达有 browser 入口的插件 id/version，不因服务端登记声明而塞入所有 server-only 插件。现有 `server/browser-bootstrap.ts:18-24` 的集合/revision 规则与该含义相容；跨位置声明登记和浏览器代码装载是不同边界。 |
+| 三层、逐键整体覆盖 | 用户/项目层与默认值的拆分充分；不做 Profile、memory、policy、语言/资源覆盖和对象深合并是已定范围，不要求照搬 VS Code 的全部层。服务端不绑定项目，所以同一键在服务端与绑定窗口不同是正常合成结果。 |
+| 项目文件的影响范围 | 将程序路径、网络地址、凭据与数据位置类设置限制到 user 层是明确的作者约束。VS Code `configurationRegistry.ts:193-233` 用 scope 与 restricted/trust，t64 用更窄的允许层，当前三个安全的外观枚举不需要新增工作区信任机制。 |
+| 写入 target 与默认值 | auto 优先现有项目覆盖，避免写 user 层后界面不变；与 VS Code `themeConfiguration.ts:391-400` 相容。VS Code `413-421` 可把等于默认值的 user 写入删掉，t64 的显式等值覆盖可以保留，代表用户固定选择，不必复制其省略优化；来源改变仍按第 8 项保持可观察。 |
+| 外部编辑与脏编辑器 | t64 尚无内部 settings 编辑器，不能照搬 VS Code `configurationEditing.ts:577-579` 的内部 dirty buffer 检查来检测外部编辑器未保存文本；应用只能以已保存文件为准。已保存的并发修改则必须处理，见第 3 项。 |
+| JSONC 与错误内容保护 | 选 `jsonc-parser` 合理。实际样例证明剥离/恢复 BOM 并传入 CRLF、tab 格式后可以保留未修改字段与注释。根数组、重复键、坏 JSON、非法值和未知键在计划中已有明确规则；重复键要遍历 AST，parser 本身不会报错。坏文件保留 last-good、拒写而不“修复”原文件合理。 |
+| 目录监视常规替换 | 真 `fs.watch` 实验已观察到编辑器式临时文件 rename、替换后再次原地写入和截断/写回的事件。监视目录方向正确；链接/目录生命周期补齐见第 6 项，网络盘/容器的未保证行为已列限制。 |
+| 授权与委托 | 按原调用方身份写、拥有者再核对声明者是正确边界；`via` 不是原插件。复用签发记录、`delegatingPlugins` 与入口 `remoteDelegates` 即可；本地 owner 路径同样核对 caller。未来用户编辑只认内核填写的 settings 身份且无 via，与已定决定一致，不需要另造用户编辑令牌。 |
+| revision 与重连代次 | 启动标识 + 单调序号足以区分拥有者进程；比较需先核对同一标识，再比数值，不能把 UUID 当全序。服务端换 boot、项目代次结束时宿主进入终态、销毁窗口实例（`web/host/window.ts:149-154`），不存在旧窗口透明接入新进程的承诺。S4 应覆盖写结果迟于更高序号事件时不回退；不能强求竞争写之后 get 仍等于自己较早的值。 |
+| 即时语言与主题两轴 | 与已定产品行为相符。主题 id + appearance 决定 `defaultColorway`，system 是明暗的输入，不是第三套配色；无须持久化派生 colorway。Lab 与产品保持独立偏好、共享无状态主题应用函数，`reloadOnLeave` 的文档级隔离与现有 `ui.component-lab` 一致。已打开选择模式的语言合同需按第 11 项补齐。 |
+| store 接入 | `setting` 放在现有 setup 和 create 的 options 上，沿用 effectScope/入口资源收口即可，不需全局配置 store 或第二套状态库；缺 settings 时显式抛错合理。布尔设置经声明方 publish，见待确认判断。 |
+| 密钥、本期非目标 | 注册阶段拒绝 secret 声明，防止未实现的存储退化为明文；本期只定服务端值/客户端状态与只写接口，没有假实现。异步第三方 SDK、菜单与快捷键、同步、TUI 和 Windows 限制已明确。 |
+
+## 切片与验收收口
+
+- S0→S1→S2→S3/S4→S5→消费者→S8/S9 的主顺序可实施；S1 先建立描述贡献装配，S2 定纯模型，S3/S4 分别处理拥有者与实例投影。第 1、2、4 项需先修就绪/订阅与入口边界，再写消费者，不能把它们留到 S9 编码审查才决定。
+- S3 的文件读写、外部 reload 与快照发布共用同一个拥有者串行队列；否则一次较早启动的异步 reload 可能在 update 返回后发布旧文本。停止时拒绝新操作、结算已接纳写入，关闭监听/合并调度并清临时文件；这属于 owner 不变量，当前映射没有独立停止场景，补入 S3。
+- S4 必须同时覆盖“快照先到、subscribe 后返回”与“建立返回前就结束”，以及一层降级但其它层仍有效；既有测试规范 `docs/testing/README.md:22` 已要求这两个异步顺序。写结果的 revision 比本地较旧时不覆盖；unknown-outcome 不自动重发写请求，以重连快照核对真实结果。
+- `restart: true` 在 S0 定清为消费者何时重新取得生效值，说明是入口重新激活还是实例/进程重启。读到最新已保存值与消费者是否即时应用是两个合同，S2 至少验收声明，未来第一位 restart 消费者补应用行为。
+- 常规 owner 文件场景与真实内核场地均可不用 mock/spy/假计时器实现；第 13 项需要明确 reload barrier。UI 组件验收须保留正在打开的面板而不是重开，系统明暗要在 system 设置已选中时改变，Lab 场景要从另一窗口改变产品设置后仍保留自己的主题。
+- S0 还应同步 `workbench.quick-open` 与组件同名 Markdown 的语言输入/生命周期合同，以及三条设置命令的目录与 Agent 暴露/effect。计划已列 `storage.boundaries` 的旧 Config 文案替换；跨设备同步本期没有通道，未来目标仍保留。
+
+## 待确认项判断
+
+1. **布尔配置不自动公开：支持。** 保留 K5 声明方拥有公开键的规则，store.setting 加 publish 已足够；自动 `config.<键>` 会引入第二套命名与声明拥有者。按计划追加已批准决策记录。
+2. **描述贡献与放开 no-entries：支持。** 当前目录/汇总合同已允许纯声明插件，统一 definitionAt 比每个位置重复空入口更少；需落实完整 manifest 遍历并保留装配失败门槛。
+3. **默认明暗 light：支持沿用计划默认。** 与现有产品默认一致；system 仍是可选值。默认偏好属于产品选择，没有技术证据要求改成 system。
+
+## 实际验证与限制
+
+所有实验命令的工作目录都是本报告所在的 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp/`。
+
+| 已执行命令 | 结果与保留产物 |
+|---|---|
+| `bun file-jsonc-experiments.ts` | 退出 0；真实 Linux uid 1000 权限、symlink 与 JSONC 格式样例；`file-jsonc-results.json`。 |
+| `bun watch-race-experiments.ts` | 退出 0；真实 fs.watch、链接 A→B、普通替换/覆写、截断和外部保存交错；`watch-race-results.json`。 |
+| `bun runtime-subscription-experiments.ts` | 退出 0；公开真实内核 20 ms 激活方法超时而订阅仍 pending、首次失败后连接恢复；`runtime-subscription-results.json`。 |
+| `bun runtime-provider-recovery-experiment.ts` | 退出 0；已首连窗口首次订阅失败，公开 recover 后 provider 可调用，重连仍无旧订阅，主动重订才恢复；`runtime-provider-recovery-results.json`。 |
+| `bun runtime-optional-cycle-experiment.ts` | 退出 0；真实静态服务装配隔离可选依赖环，commands/workbench 为 dependency-unavailable；`runtime-optional-cycle-results.json`。 |
+| `bun two-process-file-experiment.ts` | 退出 0、两个子进程均 0；两次修改标记核对通过后仍丢掉先写者的其它键；`two-process-file-results.json`。 |
+| `bun settings-value-experiment.ts` | 退出 0；TypeBox 检查通过但 JSONC 改写的四种非 JSON 值，内核严格编码均拒绝；`settings-value-results.json`。 |
+
+实验依赖仅在允许的临时目录安装 `jsonc-parser@3.3.1` 与 `typebox@1.3.6`；直接 `bun add` 本地 nb-runtime 包的安装曾解析超时，改为把原样包复制到临时 node_modules，再仅经包的公开 exports 运行，未改仓库依赖。实验脚本与结果保留为审查证据。源码与 VS Code 修订身份按给定说明，未独立核对 Git。
+
+未运行仓库 test、typecheck、build、lint、formatter、docs:check、governance:check、开发服务或 e2e；未改仓库文件，未 commit/push/stash/切分支。settings 未实现，因此文件算法与内核机制实验不能算产品端到端通过；真实浏览器语言更新、system 明暗与 Lab 文档隔离尚未运行，Windows、macOS、网络盘/容器监视同样未验证。
+

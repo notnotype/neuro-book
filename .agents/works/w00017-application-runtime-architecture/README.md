@@ -30,6 +30,7 @@ issueId: null
 - 第二片 `implemented`：[runtime.diagnostics](../../../docs/specs/runtime/diagnostics.md)、[platform.files](../../../docs/specs/platform/files.md)、[platform.sqlite](../../../docs/specs/platform/sqlite.md)（真实服务插件；产品日志器与既有数据库尚未迁入）。
 - Files 首版 `planned`：[workspace.files](../../../docs/specs/workspace/files.md)、[workbench.files-explorer](../../../docs/specs/workbench/files-explorer.md)；F1–F9 产品交互、Project owner、单机浏览器主链与 t25 合同复核已落地；Windows 原子 no-replace 移动本机验证及完整产品镜像构建通过，Linux/macOS、其它文件系统及跨机器基础操作未验收，不等于整体 `implemented`。
 - [Files 第一版设计](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md)：`accepted`，设计理由与性能依据；[第二版草案](../../../packages/neuro-book-legacy/docs/proposals/files-explorer-v2.md)：`draft`，新增目标与待审风险；[产品装配设计](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-product-integration.md)：跨功能接入细化，`reviewing`。
+- [待开发者确认](pending-confirmations.md)：2026-10-08 起按 autonomous-delivery 自主推进到第 6 步 Files 竖切完成，期间按推荐先做、待开发者追认的事项。
 - [整体实施路径](implementation-plan.md)：各切片模块、文件边界、依赖、实际smoke、旧入口退出与worktree前提；是工程计划，不复制行为合同。
 - 既有命令、Storage、Lab、Workbench等能力沿同一Spec修订，不建“插件版”副本。
 
@@ -100,6 +101,7 @@ issueId: null
 | [t61](tasks/t61-kernel-catalog-failure-codes/README.md) | 远程提供方查询 `context.remote.lookup` 与失败码 `not-provided`；写请求从帧发出起被中断即 `unknown-outcome`；wire 升为 4；作者 API 的取服务写法与内核一致；同步服务注明只限内置插件；2026-10-08 计划确认（[plan.md](tasks/t61-kernel-catalog-failure-codes/plan.md)）并完成：omp 计划审查 9 条、实现审查 4 条均已处理；内核 299 例、应用 333 与组件 57 例、e2e 48 例、`smoke:server` S1–S8 通过 |
 | [t62](tasks/t62-plugin-examples-in-app/README.md) | 示例插件搬到应用包并重组：合并为 5 个插件与 5 个场景、直接用内置插件（Storage、store、公开状态、命令）、教学注释；`testing/` 目录的约定与架构检查；2026-10-08 计划（[plan.md](tasks/t62-plugin-examples-in-app/plan.md)）由子代理在独立 worktree 实施，主 Agent 审查后合回并完成 |
 | [t63](tasks/t63-plugin-activation-trigger/README.md) | 插件触发自己定义的激活事件：激活上下文的触发入口、内核认定拥有者；第一个使用者是 `nbook.commands` 的 `onCommand` 按需激活；2026-10-08 先建，未开工 |
+| [t64](tasks/t64-plugin-settings/README.md) | NeuroBook v2 第 5 步 K6：配置插件 `nbook.settings`：插件在描述里声明配置项，按默认值、用户层（`<状态根>/settings.json`）、项目层（`.nbook/settings.json`）合成有效值并推到各实例，所有已声明项可读、只写自己的；外部改文件即时生效；第一批使用者是界面语言与主题；设置界面、用户编辑与密钥存储只定合同；2026-10-08 设计轮决定经开发者确认，计划（[plan.md](tasks/t64-plugin-settings/plan.md)）经三个 omp 审查后修订，按 autonomous-delivery 实施中 |
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 
