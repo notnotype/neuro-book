@@ -92,7 +92,7 @@ export function orThrow<T, Code extends string>(result: RemoteResult<T, Code>): 
 规则（取代三处现有说法，写进 `plugin-api.md` 与示例 README）：
 
 1. **接口只传数据、调用方可能在别的实例**：定义远程服务合同。所有调用方都直接 `context.remote.use(合同)`，同一实例里的调用方也一样（走本地路径，不序列化，身份与代次照样核对）。
-2. **接口要同步调用，或要传函数、组件、响应式值**：本地服务（`provide`、`providePerConsumer`），只在同一实例可用。
+2. **接口只在同一实例里用**：本地服务（`provide`、`providePerConsumer`）。给第三方插件的本地服务仍按 [ADR 0022](../../../../../docs/adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条的数据面约束写（异步、可序列化）；要同步调用或传响应式值、对象引用的接口只限内置插件之间，或属于宿主适配的对象（回调与句柄、`signal`、交给贡献点拥有者的组件与实现）。
 3. **许多插件各交“声明 + 实现”、由一个拥有者统一管理**（命令、页面、公开状态键）：贡献点。
 4. **在远程服务之上加东西**（同步的响应式视图、缓存、按分区选路、代调用方身份访问）：本地服务包装远程服务，包装处的注释写明加了什么。只原样转发的包装不写。
 
@@ -118,7 +118,7 @@ export function orThrow<T, Code extends string>(result: RemoteResult<T, Code>): 
 | `docs/specs/runtime/services.md` | 删去本地委托（输出第 13 条及对应验收）；签发记录只服务远程委托 |
 | `docs/specs/runtime/plugins.md` | 删去 `delegates` 与 `resolveFor`（输出第 20 条）；校验函数只看单条声明，`declarations` 只在激活上下文里（输出第 23 条）；接收者三个回调与新的交付事务（术语、状态与转换、输出第 15–18、24 条、验收）；`remoteProvides`、`remoteDelegates` 在代码定义里写合同对象；`defineEntry` 的编译期核对；“边界与兼容”记下按拓扑角色匹配入口的设计（Context 第 9 条），标明未实现、随 TUI 实现 |
 | `docs/specs/runtime/plugin-channel.md` | `orThrow` 与 `RemoteCallError`；同实例的调用方同样直接用合同；新增“调用方 → 目标”可达表，把输出第 1 条的目标规则与 [`runtime.projects`](../../../../../docs/specs/runtime/projects.md) 输出第 9 条的项目访问规则合成一张表（窗口不能到别的项目、项目实例之间不能互调等） |
-| `docs/specs/runtime/plugin-api.md`（planned） | “远程形态约束”一节改写为第 7 节的选用规则：数据约束只对远程合同成立并由内核按 schema 强制，本地服务可以同步、可以传任意值；结构化结果的形状改为现行的 `{ok: false, code, cause?, detail?}`；`defineEntry` 的字段名与内核一致（`dependencies`、`contributions`），删去 `requires`、`contributes`。新增“可选功能”一节：单独的入口加依赖、可选依赖加 `resolve`（同实例里按 `missing-provider` 判断没装）、向别人的贡献点贡献、远程调用失败即不在、公开状态加 `when`，各写适用场合；引 2026-09-30 “不提供检测后持有引用”的决定说明为什么没有“先查再拿” |
+| `docs/specs/runtime/plugin-api.md`（planned） | 在“远程形态约束”之前加第 7 节的选用规则，保留 ADR 0022 第 3 条的三类划分（数据面、宿主适配的对象、内置插件之间的内部服务），远程合同归入数据面并由内核按 schema 强制；结构化结果的形状改为现行的 `{ok: false, code, cause?, detail?}`；`defineEntry` 的字段名与内核一致（`dependencies`、`contributions`），删去 `requires`、`contributes`。新增“可选功能”一节：单独的入口加依赖、可选依赖加 `resolve`（同实例里按 `missing-provider` 判断没装）、向别人的贡献点贡献、远程调用失败即不在、公开状态加 `when`，各写适用场合；引 2026-09-30 “不提供检测后持有引用”的决定说明为什么没有“先查再拿” |
 | `docs/specs/runtime/plugin-manifest.md` | 删去清单字段 `delegates` 及其无效规则；“现状”一句：代码定义写合同对象，清单 JSON 写 id |
 | `docs/specs/workbench/commands.md` | `when` 引用未声明或非布尔的键：由登记期拒绝改为求值时不可用、原因写明、记一次诊断（产品与 Lab 同口径） |
 | `packages/nb-runtime/examples/README.md` | 第 7 节的规则与示例变化；“几个概念”补一张插件、入口、服务、依赖的关系图，“入口能做什么”清单（静态声明、激活时能用的、激活产出、内核替它做的），并写明一个运行位置可以有多个入口、各自激活与受阻 |
@@ -169,3 +169,7 @@ export function orThrow<T, Code extends string>(result: RemoteResult<T, Code>): 
 - 风险：第 2 节让 `when` 写错的键晚一点暴露（面板里显示不可用，而不是登记时拒绝）。缓解：原因写明“未声明的键”，诊断记一次。
 - 风险：`defineEntry` 的类型错误信息较长。缓解：`define.ts` 注释与 `plugins.md` 写明“按 `provides` 的顺序给出”，反例测试固定下来。
 - 风险：规则 1 让远程合同成为插件对外的公开接口，改合同要按版本处理。这是选用规则本身的代价，写进 `plugin-api.md`。
+
+## 实施中的调整
+
+- 2026-10-08 写 S0 时发现：本计划第 7 节原写“本地服务可以同步、可以传任意值”，与已 `accepted` 的 [ADR 0022](../../../../../docs/adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条（给第三方的公开 API 全部异步、可序列化）冲突。改为在 ADR 0022 的三类划分之内写选用规则，不改该决定；第 7 节规则 2 与 Spec 改动表 `plugin-api.md` 一行随之修改。

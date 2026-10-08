@@ -35,7 +35,7 @@ owners:
 - **装配诊断**：描述声明、冲突、缺失、环与初始化失败的运行实例内记录。
 - **调用方身份**：解析发起方的身份：运行实例、运行位置、插件、入口、入口激活代次与客户端身份；非插件消费者（宿主能力、门禁）的插件与入口为空；客户端身份是调用方实例跨重新加载稳定的标识，只有客户端实例（浏览器、TUI）有，服务端与项目实例为空。同一入口停止后再激活是另一个调用方。
 - **按调用方门面**：提供者为每个调用方单独生成的服务对象。底层数据由提供者按插件归属自行维护；门面只是这次激活看到的入口，寿命跟随调用方的这次激活。
-- **委托**：声明了代理能力的入口在处理某个调用方的请求时，以该调用方的身份取得另一项服务的门面；调用方身份由内核签发，代理不能自报。
+- **委托**：声明了代理能力的入口在处理某个调用方的请求时，以该调用方的身份发出远程调用；调用方身份由内核签发，代理不能自报。本能力负责签发与核对身份，调用本身归 [远程服务与 RPC 协议](./plugin-channel.md)。
 
 ## 输入与前置条件
 
@@ -67,7 +67,7 @@ owners:
     - 门面里的内存状态随门面释放，不跨激活代次保留；需要跨代次保留的数据由 Storage、配置等持久拥有者负责。
     - 门面应是由函数组成的普通对象；需要交出响应式对象等运行期值的接口仍按普通共享服务提供。
     - 普通共享服务（不按调用方提供）的全部行为不变。
-13. **委托**：入口声明可代理的服务键，且所属插件在装配方给出的允许清单内，才能在处理调用方请求时以该调用方身份取得这些服务的门面；目标服务看到的调用方是原调用方，另附代理身份。调用方身份对象只由内核签发、只对收到它的门面所属入口有效；伪造、转交给其它入口或用于未声明的键都被拒绝。经代理取得的门面挂在代理交给该调用方的门面下：后者的释放函数运行时仍可使用它们，结束之后它们才按逆序释放并作废。经代理取得的门面本身也是签发出去的身份，目标服务若也是代理，可以继续委托。第一版只允许内置插件代理；可代理的键必须同时声明为依赖，否则为 `undeclared-dependency`。代理还可以以签发给它的身份发出跨实例的远程调用（[远程服务与 RPC 协议](./plugin-channel.md) 的“经代理的远程调用”）：核对与本条相同，经它建立的远程门面与订阅同样挂在签发记录下，在代理门面的释放函数结束之后结束。
+13. **签发调用方身份**：按调用方门面工厂收到的调用方身份对象由内核签发，只对收到它的门面所属入口有效，门面释放后失效。代理入口以它发出跨实例的远程调用与订阅（[远程服务与 RPC 协议](./plugin-channel.md) 的“经代理的远程调用”），目标看到的调用方是原调用方，另附代理身份；同一实例里的目标同样经远程服务的本地路径到达，本能力不提供“以调用方身份取另一项本地服务门面”的接口。核对：所属插件在装配方给出的允许清单内（第一版只有内置插件）、身份是签发给本入口门面的、签发它的门面还没释放；伪造或转交给其它入口的身份被拒。经代理建立的远程门面与订阅挂在签发记录下，在签发它的门面的释放函数结束之后结束。
 
 ## 状态与转换
 
@@ -109,7 +109,7 @@ owners:
 
 **时序与寿命**（调用方可以依赖）：
 
-- 签发在门面工厂返回之后完成：工厂运行期间，代理不能以收到的身份委托（`resolveFor`、`remote.on` 都被拒）；在门面方法里委托。
+- 签发在门面工厂返回之后完成：工厂运行期间，代理不能以收到的身份委托（`remote.on` 被拒）；在门面方法里委托。
 
 ## 副作用与数据
 
@@ -128,7 +128,7 @@ owners:
 - **作用域停止/取消**：拒绝新解析与新激活；已接纳解析按 [`runtime.lifecycle`](./lifecycle.md) 的取消/收口推进；某个等待方取消不取消共享初始化（只有提供者 owner 作用域停止/取消才收口共享初始化）；迟到初始化成功不发布。
 - **绑定失效**：旧代次绑定返回 stale/失效原因，不自动绑定到新目标；调用方经显式协议重新确认代次后才能继续。
 - **门面作废**：作废或已释放的门面被访问时抛 `ServiceRevokedError`，携带服务键、调用方与原因：`released`（调用方这次激活结束）或 `provider-stopped`（调用方提前结束了借用，提供者实例先于门面释放）；提供者的释放函数抛错只记诊断，不阻断调用方作用域的其余释放，收口结果按 [`runtime.lifecycle`](./lifecycle.md) 报告。
-- **委托被拒**：未声明代理能力、不在允许清单、身份对象不是内核签发给本入口的、或键未声明，`resolveFor` 返回结构化拒绝原因，不取得门面。
+- **委托被拒**：未声明代理能力、不在允许清单、身份对象不是内核签发给本入口的、或签发它的门面已释放，经 `remote.on` 发出的调用与订阅得到 `denied`，不发出请求（[远程服务与 RPC 协议](./plugin-channel.md) 输出第 10 条）。
 
 ## 边界与兼容
 
@@ -151,7 +151,7 @@ owners:
 8. **诊断脱敏**：声明与错误上下文包含敏感字段时，查询到的诊断只含位置/作用域/服务键/阶段/原因，不含敏感值。
 9. **两种作用域 × 两个 host 复用**：同一机制在两个 host（浏览器运行实例与后端进程实例）与两种作用域（实例级、操作级）上装配：各自独立解析、独立失败、互不串实例；机制实现不含产品领域 import 与框架适配依赖。
 10. **按调用方门面**：两个插件解析同一按调用方提供的服务，各自得到门面并看到自己的身份；同一激活重复解析得到同一门面；入口停止再激活后旧门面抛 `ServiceRevokedError`、新门面可用；提供者停止后门面作废；释放函数抛错可在诊断中查到；普通共享服务的既有场景不变。
-11. **委托**：插件 A 经代理插件 P 访问服务 S，S 看到的调用方是 A、代理为 P；P 未声明代理能力或不在允许清单、身份对象伪造或来自其它入口、键未声明，各自被拒；A 直接访问 S 与经 P 访问 S 看到的是同一插件身份。
+11. **签发身份**：P 的门面工厂收到 A 的身份；字段相同的伪造对象、签发给其它入口的身份、门面释放之后的身份都不能用于委托；跨实例的经代理调用见 [远程服务与 RPC 协议](./plugin-channel.md) 场景 19。
 12. **客户端身份**：运行实例带客户端身份时，本实例里插件入口的调用方身份带同一个客户端身份；不带时为空。
 13. **服务键按 id 识别**：提供方与消费方各自定义同一 id 的键，消费方解析到提供方的那一个实例；依赖一个没有提供者的 id 为缺少依赖。
 
@@ -159,18 +159,18 @@ Smoke：`bun run smoke:runtime-foundation -- --host server|browser` 在真实后
 
 ## 实现合同
 
-- **公开入口**：包入口 `@notnotype/nb-runtime/services`：`defineServiceKey`、`createServiceAssembly(instance, {observer?})`、`perConsumer(facade, release?)`、`ServiceRevokedError` 与类型合同；装配对象 `ServiceAssembly` 的 `declare`、`report`、`providerState`、`access(entryId, scope?, {generation?})`（得到 `resolve` 与 `resolveFor`）、`issuedTo`、`recover`、`diagnostics`；调用方身份 `ConsumerIdentity {instanceId, location, client, plugin, entry, generation, via}` 是冻结对象。
+- **公开入口**：包入口 `@notnotype/nb-runtime/services`：`defineServiceKey`、`createServiceAssembly(instance, {observer?})`、`perConsumer(facade, release?)`、`ServiceRevokedError` 与类型合同；装配对象 `ServiceAssembly` 的 `declare`、`report`、`providerState`、`access(entryId, scope?, {generation?})`（得到 `resolve`）、`issuedTo`、`recover`、`diagnostics`；调用方身份 `ConsumerIdentity {instanceId, location, client, plugin, entry, generation, via}` 是冻结对象。
 - **owner 与依赖方向**：owner 为 runtime。实现只依赖 [`runtime.lifecycle`](./lifecycle.md)，只允许同目录相对导入与 `../lifecycle/lifecycle`，不 import 产品领域实现、框架 hook 或数据库驱动，由合同测试的源码守卫锁定。[`runtime.plugins`](./plugins.md) 与 [`runtime.application`](./application.md) 依赖本能力。
 - **关键内部不变量**：
   1. 服务键按服务 id 识别，同一 id 在两处定义是同一个键；重复 id、位置不符、跨实例作用域、已停止作用域的声明整体拒绝并留诊断。
   2. 每次初始化在提供者 owner 作用域下新建一个服务作用域作为提供者代次，实例是它的资源；并发首次解析共享这一次初始化。
   3. 解析的借用登记在访问作用域上，访问作用域必须是入口声明作用域自身或其严格后代，长寿命作用域因此无法捕获短寿命实例。
   4. 门面是访问作用域上依赖那次借用的资源，先于借用释放；提供者实例释放时作废它发出的其余门面。
-  5. 调用方身份以对象身份登记签发记录，字段相同的伪造对象查不到；委托取得的门面与经代理的远程访问挂在签发记录下，在签发它的门面的释放函数结束之后逆序释放。
+  5. 调用方身份以对象身份登记签发记录，字段相同的伪造对象查不到；经代理的远程访问挂在签发记录下，在签发它的门面的释放函数结束之后逆序释放。
 
 ## 证据
 
-- 批准依据：[应用运行时、生命周期与内置插件架构](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md)（开发者 2026-09-20 接受基础架构与分段推进）；输出第 11–13 条依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4 节、[插件的数据与状态](../../proposals/plugin-data-model.md) 与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)；服务键按 id 识别依据 [ADR 0025](../../adr/0025-service-keys-by-id.md)（开发者 2026-10-08）。
+- 批准依据：[应用运行时、生命周期与内置插件架构](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md)（开发者 2026-09-20 接受基础架构与分段推进）；输出第 11–13 条依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4 节、[插件的数据与状态](../../proposals/plugin-data-model.md) 与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)；服务键按 id 识别依据 [ADR 0025](../../adr/0025-service-keys-by-id.md)（开发者 2026-10-08）；删去以调用方身份取本地服务门面的本地委托，依据开发者 2026-10-08 确认的 [t60 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md)。
 - 实现入口：[`services.ts`](../../../packages/nb-runtime/src/services/services.ts)
 - 合同测试：[`services.test.ts`](../../../packages/nb-runtime/src/services/services.test.ts)、[`per-consumer.test.ts`](../../../packages/nb-runtime/src/services/per-consumer.test.ts)、[`plugins/per-consumer.test.ts`](../../../packages/nb-runtime/src/plugins/per-consumer.test.ts)、[`plugins/delegation.test.ts`](../../../packages/nb-runtime/src/plugins/delegation.test.ts)、[`remote/delegation.test.ts`](../../../packages/nb-runtime/src/remote/delegation.test.ts)
 - Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`，旧应用宿主上的内核副本）

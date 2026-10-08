@@ -12,13 +12,33 @@ bun run --cwd packages/nb-runtime test                # 连同内核测试一起
 | 概念 | 是什么 | 范围 | 代码里 |
 |---|---|---|---|
 | 插件 | 发布、启用、版本的单位，一个目录 | 跨所有运行位置 | `plugin.ts` 的插件描述 `PluginDescriptor`（id、版本、运行位置） |
-| 入口 | 插件在某一种运行位置上的代码，单独激活，有自己的激活代次 | 一个运行实例 | 插件定义常量 `PluginDefinition` 的 `entries`，每个实例只激活本位置的入口 |
-| 服务 | 一个入口交给**同一实例里**其它入口用的对象：同步调用、声明依赖、按依赖顺序激活与释放 | 同一实例 | `provide`（共享一份）、`providePerConsumer`（每个调用方一份） |
+| 入口 | 插件在某一种运行位置上的代码，单独激活、单独受阻，有自己的激活代次；同一位置可以有多个入口 | 一个运行实例 | 插件定义常量 `PluginDefinition` 的 `entries`，每个实例只激活本位置的入口 |
+| 服务 | 一个入口交给**同一实例里**其它入口用的对象，以服务 id 标识 | 同一实例 | `provide`（共享一份）、`providePerConsumer`（每个调用方一份） |
+| 依赖 | **入口**声明“我需要服务 id 为 S 的服务”；只在本实例里解析，提供方先激活、后停止，缺了只有这个入口受阻 | 同一实例 | 入口的 `dependencies`，激活时 `context.services.require(键)` |
 | 宿主能力 | 宿主交给本实例插件的东西（时钟、状态根、整页导航），插件像依赖服务一样声明 | 同一实例 | 宿主在应用清单的 `capabilities` 里给出；插件在 `dependencies` 里声明 |
-| 远程服务 | 跨实例的协议：异步、可序列化、有失败码，不构成依赖；第一次调用时激活提供方 | 跨实例 | `defineRemoteService`、`provideRemote`；调用方 `context.remote.use(合同).at(目标)` |
+| 远程服务 | 跨实例的协议：异步、可序列化、有失败码，不构成依赖；第一次调用时激活提供方。同一实例里的调用方也直接用合同 | 任意实例之间 | `defineRemoteService`、`provideRemote`；调用方 `context.remote.use(合同).at(目标)` |
 | 贡献与贡献点 | 声明式扩展：拥有者定义扩展点，别的插件交“声明 + 实现”，彼此没有依赖 | 同一实例 | 命令、页面、菜单项 |
 
-典型结构：**插件两端之间用远程服务，对外用本地服务**。一个插件的后端入口与浏览器入口以远程服务通信，这是插件自己两端的协议；浏览器入口再把它包成本地服务交给窗口里的其它插件。别的插件只依赖本地服务，不直接调远程合同。`counter`、`board`、`cloud-notes` 都是这样，`nbook.storage` 也是。
+几个概念之间的关系：
+
+```text
+插件 example.writer（发布单位，本身不运行）
+├─ 入口 server（server）──依赖──▶ 服务 nbook.storage/storage        由同一服务端实例里 nbook.storage 的 server 入口提供
+├─ 入口 main（browser） ──依赖──▶ 服务 nbook.workbench/quick-pick   由同一窗口里 nbook.workbench 的 browser 入口提供
+│                       ──远程调用──▶ 合同 example.writer/remote     不是依赖
+└─ 入口 tts（browser）  ──依赖──▶ 服务 example.tts/speak             缺了只有这个入口受阻
+```
+
+依赖属于入口，指向服务 id，只在入口所在的实例里解析；插件和插件之间没有依赖。远程调用与贡献都不是依赖：不会让任何入口受阻。
+
+一个入口能做的事：
+
+- **静态声明**（激活前内核就知道）：`location`、`activationEvents`、`dependencies`、`provides`、`remoteProvides`、`receives`、`contributions`，内置代理插件另有 `remoteDelegates`。
+- **激活时能用的**（`activate(context)`）：`context.services.require` 与 `resolve` 拿本地服务；`context.remote.use(合同).at(目标)` 调用、订阅远程服务，`instances()` 列出实例；`context.declarations` 查询已接受的贡献声明；`context.scope` 登记资源，`context.signal` 得知自己被停止。
+- **激活产出**：本地服务、远程服务、贡献的实现，以及本插件贡献点的接收者；用 `defineEntry` 定义时，产出与静态声明不一致在编译期报错。
+- **内核替它做的**：依赖的服务先激活；停止时先停依赖它的入口；撤回它交出去的服务、贡献、远程门面与订阅；关闭它的作用域。
+
+选哪种方式（全文见 [`runtime.plugin-api`](../../../docs/specs/runtime/plugin-api.md) 的“选用规则”与“可选功能”）：只传数据、调用方可能在别的实例的接口定义成远程服务合同，所有调用方直接用合同，不写只原样转发的本地服务包装；只在同一实例里用的接口是本地服务（给第三方插件的仍按数据面约束写：异步、可序列化；要同步调用或传运行期对象的只限内置插件之间）；许多插件各交声明与实现的是贡献点；在远程服务之上加东西（缓存、选路、代调用方身份访问）时才用本地服务包装远程服务，`cloud-notes` 与 `nbook.storage` 就是这样。
 
 ## 运行位置与目录
 

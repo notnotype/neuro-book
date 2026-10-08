@@ -59,14 +59,14 @@ owners:
 - **命令身份**：内置插件（`nbook.*`）的命令 id 使用三段式命名空间 `nbook.<domain>.<action>`，全小写 kebab-case 分段（与 View descriptor 的 id 规则一致），域词表见「边界与兼容」；其它插件的命令 id 以自己的插件 id 开头、再接一段动作（`<插件 id>.<action>`），不能占用 `nbook` 命名空间。
 - **标题**：`title` 与可选的 `category` 是中英两份文本 `{zh-CN, en-US}`，界面按显示语言取其中一份（设置插件加入前固定简体中文）；`description` 是稳定的英文语义说明，不随界面语言变化。
 - **登记与冲突**：
-  - 经贡献点：内核要求贡献 id 在贡献点内唯一，两个插件贡献同一命令 id 时两条一起被拒绝，原因可查，与加载顺序无关；不合格的声明（id 不合规则、未登记的 `when` 键、标注与 `effect` 冲突、结构不符）只拒绝这一条，插件的其它贡献照常。
+  - 经贡献点：内核要求贡献 id 在贡献点内唯一，两个插件贡献同一命令 id 时两条一起被拒绝，原因可查，与加载顺序无关；不合格的声明（id 不合规则、标注与 `effect` 冲突、结构不符）只拒绝这一条，插件的其它贡献照常。
   - 直接向本地命令表登记（Lab 场景）：同一定义对象重复登记幂等，返回同一个释放函数；不同对象登记同一 id 时拒绝后来者、保留首个，同一原因只报告一次。
 - **释放**：贡献撤回时命令离开命令表，之后执行得到 `unknown-command`。本地命令表的释放函数只删除自己登记时的条目；命令被释放后重新登记同 id 时，旧释放函数不得影响新条目。别名在目标释放时级联清除。
 - **枚举**：任何消费者可获取本运行位置全部 canonical 命令及其元数据（id、贡献方、标题、描述、参数形状、`when`、默认键位、暴露策略、`effect`）；别名不出现在 canonical 枚举中，审计的 `id` 用 canonical，`requestedId` 保留输入。两个运行位置的命令表互不相见。
 - **执行顺序**（固定，不可交换）：解析白名单 → agent 暴露检查 → 严格参数校验 → 当前 `when` → agent 只读检查 → 必要确认 → 复查条目身份/参数不变性/`when`/模式 → `run` → 单次审计。
 - **结果合同**：成功为 `{ok:true, value}`（void 命令显式 `null`，不把 Promise rejection 当成功）；失败为 `{ok:false, code, reason}`，失败码固定九个：`unknown-command`、`unavailable`、`invalid-args`、`not-exposed`、`read-only`、`confirmation-required`、`denied`、`execution-error`、`stale-target`。
-- **可用性求值**：`when` 是上下文键的 all-of 正条件；未登记的键在登记时被拒，登记的键缺失按 false 求值。求值失败/不满足返回 `unavailable` 与缺失原因。
-- **`when` 读公开状态**：产品命令表登记时，`when` 引用的每个键必须是本运行位置入口声明的、已被接受的布尔公开键，否则这一条以 `invalid-declaration` 被拒；求值时键未就绪按 false，原因取声明的 `reason`。`when` 只在命令所在的实例求值，不跨实例读状态；拥有键的入口激活、停止与值的变化即时反映在可用性上，命令面板开着时候选随之变化。
+- **可用性求值**：`when` 是上下文键的 all-of 正条件；登记的键缺失按 false 求值。`when` 引用的键是否存在在求值时判断，不在登记时判断：未登记（或不是布尔）的键使命令不可用，原因写明是哪个键，命令表对同一命令的同一个键只记一次诊断；之后这个键被登记，命令按它的值求值。求值失败/不满足返回 `unavailable` 与缺失原因。
+- **`when` 读公开状态**：产品命令表里，`when` 引用的键是本运行位置入口声明的、已被接受的布尔公开键；求值时键未就绪按 false，原因取声明的 `reason`；键未声明、只在别的运行位置声明或不是布尔，按上一条为不可用。`when` 只在命令所在的实例求值，不跨实例读状态；拥有键的入口激活、停止与值的变化即时反映在可用性上，命令面板开着时候选随之变化。
 - **跨实例列出与执行**：浏览器的 `nbook.commands` 入口提供远程服务 `nbook.commands/remote`，第一版只允许服务端调用，服务端插件以 `.at({client: 窗口实例 id})` 选定窗口：
   - `list({})`（读）：该窗口命令表里 `expose.agent` 不为 `never` 的命令元数据，每条带此刻按该窗口公开状态求出的可用性与不满足的原因；
   - `execute({id, args})`（写）：以 `{source: "agent", callerId: 调用方插件}` 走该窗口命令表的执行管线，执行前按该窗口此刻的状态复查 `when`，返回结果合同里的结果；`expose.agent` 为 `never` 的命令为 `not-exposed`。
@@ -161,7 +161,7 @@ owners:
 | `editor-line-navigation` | 活动编辑器支持行导航 | 编辑器 |
 | `quick-open-visible` | 命令面板可见 | 面板所在的界面宿主 |
 
-`when` 引用未登记键在登记时被拒。新增键必须同步更新本规范。
+`when` 引用未登记的键时命令不可用（见“可用性求值”）。新增键必须同步更新本规范。
 
 ### 默认键位（第一批）
 
@@ -195,7 +195,8 @@ owners:
 12. **两端各自的命令表**：同一份 `nbook.commands` 入口在服务端与浏览器各自装配；服务端插件贡献的命令只在服务端的命令表里，浏览器窗口的命令表里只有浏览器入口贡献的命令。
 13. **产品页的命令面板**：Given 生产构建的 `/` 页；When 按 `Ctrl/Cmd+Shift+P`；Then 打开命令面板（面板入口命令由 `nbook.workbench` 贡献，不进候选，产品命令表里暂时没有别的人类可见命令时显示空态）；Escape 关闭并把焦点还回去。
 14. **两个窗口的状态不同**：Given 两个窗口都有一条 `when` 引用某插件布尔公开键的命令，只在一个窗口里该键为 true；Then 各自的命令面板只在那一个窗口列出它；服务端经 `nbook.commands/remote` 分别问两个窗口，得到的可用性各按那个窗口此刻的状态；对另一个窗口执行为 `unavailable`、不执行。
-15. **懒激活插件的键**：Given 命令的 `when` 引用一个懒激活插件声明的键；Then 命令通过登记期校验；入口未激活时不可执行并给出声明的原因；激活后按值求值；入口停止后回到不可用。
+15. **懒激活插件的键**：Given 命令的 `when` 引用一个懒激活插件声明的键；Then 命令登记成功；入口未激活时不可执行并给出声明的原因；激活后按值求值；入口停止后回到不可用。
+16. **未声明的键**：Given 命令的 `when` 引用一个没有任何插件声明的键（或非布尔键）；Then 命令登记成功、出现在枚举里，但不可用，面板不列出、执行为 `unavailable`，原因写明那个键；同一命令同一个键只记一次诊断；Lab 的本地命令表同样如此。
 
 ## 实现合同
 
@@ -205,8 +206,8 @@ owners:
   - `plugin.ts` 是插件描述，两个运行位置都有入口。
   - `shared/contracts.ts` 定义贡献点 `commands.definitions`、声明的 TypeBox schema、命令服务接口与 `commandServiceKey`。
   - `shared/registry.ts` 是命令表与执行管线，声明校验 `commandDeclarationProblems` 由贡献点校验与本地登记共用。
-  - `shared/context-keys.ts` 负责上下文键的登记表与 `when` 求值。
-  - `shared/plugin.ts` 的 `commandsPlugin` 是插件定义，含服务端与浏览器两个入口，每个实例的入口各自一份命令表：接收者在提交时登记、撤回时释放，每次执行经 `implementation()` 取实现，执行异常记入诊断。
+  - `shared/context-keys.ts` 负责上下文键的登记表与 `when` 求值；键是否存在只在求值时判断。
+  - `shared/plugin.ts` 的 `commandsPlugin` 是插件定义，含服务端与浏览器两个入口，每个实例的入口各自一份命令表：接收者在贡献发布后（`published`）登记、撤回时释放，每次执行经 `implementation()` 取实现，执行异常记入诊断。
   - 装配在 `src/server/plugins.ts` 与 `src/web/plugins.ts` 的定义表。
 - 中英文本：`packages/neuro-book/src/shared/localized-text.ts`。
 - 浏览器界面 `packages/neuro-book/src/plugins/workbench/web/`：
@@ -224,4 +225,4 @@ owners:
 - 实现入口：[`registry.ts`](../../../packages/neuro-book/src/plugins/commands/shared/registry.ts)、[`plugin.ts`](../../../packages/neuro-book/src/plugins/commands/shared/plugin.ts)
 - 合同测试：[`registry.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/registry.test.ts)（场景 1–8）、[`context-keys.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/context-keys.test.ts)、[`plugin.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/plugin.test.ts)（经真实内核：场景 1、8、11、12、15 与 `when` 读公开状态）、[`remote.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/remote.test.ts)（跨实例列出与执行、跨实例调用失败、场景 14）、[`keymap.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/keymap.test.ts)（场景 3、9）、[`editor-commands.test.ts`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/editor-commands.test.ts)；组件测试 [`lab-command-scene.dom.test.ts`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/lab-command-scene.dom.test.ts)（场景 5 的确认界面）、[`WorkbenchCommandHost.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/WorkbenchCommandHost.dom.test.ts)
 - Smoke：[`e2e/lab-commands.e2e.ts`](../../../packages/neuro-book/e2e/lab-commands.e2e.ts)（场景 10，开发会话，真实 Chrome）、[`e2e/commands.e2e.ts`](../../../packages/neuro-book/e2e/commands.e2e.ts)（场景 13，生产构建）、[`e2e/state.e2e.ts`](../../../packages/neuro-book/e2e/state.e2e.ts)（场景 14，测试外壳）
-- 批准依据：[命令系统提案](../../proposals/workbench-commands.md)（2026-09-14 起草，2026-09-18 需求讨论修订）；命令改由内置插件提供，见[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3（2026-10-06）；一份定义含服务端与浏览器两个入口依据 [ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)（2026-10-08）；`when` 读公开状态、跨实例命令直接问目标窗口由开发者 2026-10-08 在 [t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md) 中确认。
+- 批准依据：[命令系统提案](../../proposals/workbench-commands.md)（2026-09-14 起草，2026-09-18 需求讨论修订）；命令改由内置插件提供，见[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3（2026-10-06）；一份定义含服务端与浏览器两个入口依据 [ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)（2026-10-08）；`when` 读公开状态、跨实例命令直接问目标窗口由开发者 2026-10-08 在 [t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md) 中确认；`when` 的键改在求值时判断由开发者 2026-10-08 在 [t60 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md) 中确认。
