@@ -1,0 +1,94 @@
+# w00017 t67 实施计划对抗审查：意图、记录与多窗口不变量
+
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t67-workbench-shell-dnd/plan.md`，审查 worktree 固定于 `55716953`。本次只读审查计划；外壳三代码尚未实现。
+
+已确认的拖放行为、方向与命中、半区公式、拖影与键盘合同作为依据，不重议。`@dnd-kit/vue` 的推荐选择不作为未追认的阻断项。
+
+## 已核实发现
+
+### M01 — 阻断 — 自建容器的无条件删项与 t66 重放机制不能同时保持引用完整性
+
+- **类别**：不变量 / 正确性。
+- **计划位置（节名）**：“关键设计 / 1. 自建容器与记录”（第 16–17 行）；“关键设计 / 2. 意图”（第 22–27 行）；“验收映射 / 自建容器”（第 85 行）。
+- **现象**：计划把“源自建容器搬空”在接纳时算成同一补丁中的删项，但保存时重放的是固定补丁。共同底本中 `custom:X` 只有 A：窗口 B 先把 B 移入 X，窗口 A 的旧显示仍认为 X 只有 A，随后把 A 移走并删除 X。最终 B 的归属记录仍指向 X，X 的记录却被删除。另一条可达路径是 B 先搬空并删除目标 `custom:Y`，A 再用旧显示把成员移进 Y；固定补丁不会补回 Y。两个窗口从同一隐式容器把同一个 A 分别 detach 为 X、Y 时，后保存的归属胜出，但先创建的 X 留下零成员记录。
+- **为什么是问题**：按照计划第 17 行，新应用会把“成员有归属、容器没记录”的成员退回默认位置；因此另一窗口已经完成的移动会被一次不涉及该成员的删除撤销，或本次拖放显示成功却不能恢复目标归属。稳定 UUID 只保证重放不另造身份，不能保证引用与删除一致；“实际搬空时清记录”也没有覆盖重放时从另一处夺回成员的实际来源。
+- **依据**：`web/views/intents.ts:3-6,162-197` 规定只重放已生成补丁，`applyPatch` 对 `containers[id] = null` 直接删除；`web/state/layout-store.ts:179-182` 在接纳时合成一次，保存 closure 不再求落位；`src/shared/store/persisted.ts:272-283,364-385` 的订阅只更新 base，发首个保存也会把 change 作用在最新 base，因此无需刻意制造 CAS 冲突即可走到上述状态。Spec `ui/workbench-shell.md:154-169` 同时要求保留其它字段、同字段后保存胜出、创建与归属同次保存、搬空清记录。
+- **核实**：`replay-probe.ts` 用真实 `defineStore`、内核路由、`nbook.storage` 和 SQLite，按计划只扩展容器 schema，继续调用未改动的 `applyPatch`。`delete-occupied-custom` 实测保留 `views[test.b].container = X` 但删除 `containers[X]`；`move-into-deleted-target` 实测成员与 `selected` 指向不存在的 Y；`two-detaches-one-view` 实测两个 origin 同为 A 的记录都保留、A 只属于 Y。三例均正常保存且全部应用关闭。**已验证的是现有补丁与真实保存机制的结果；t67 尚未实现，按计划导致成员回默认的后果为推断。**
+- **核实（并发追加）**：`parallel-detaches-one-view` 的两个真实窗口都从 revision `1` 同步提交，两个保存均 `saved`，最终 A 属于 Y、X/Y 记录都在，确认真实 CAS 路径仍留下零成员 X。`parallel-same-uuid` 以同一 X 同时提交，两个保存均 `saved`、只留一个 X，证明固定 UUID 对去重有用，但不能代替成员与删除的收口。`same-uuid-repeated` 连续重放同一补丁两次，也只留一个 X、原 height=240 保留。
+- **建议改法**：把自建容器的“身份确保与搬空收口”放在唯一补丁应用边界，作用于每次保存使用的记录值：先应用主动字段，再只检查本次涉及的源、最新记录中被这些视图离开的 custom 容器，以及目标身份；有成员或需保留的未知引用时不得删记录。对已删除的目标明确采用按捕获身份恢复，或整条保存失败并保留未保存意图，不能留下悬空归属；不要重新用旧 `sourceContainerId` 拒绝已接纳的普通移动而破坏后保存胜出。验收增加上述三种双窗口时序，以及同一 UUID 重放两次不新增、不改活跃身份字段。
+
+### M04 — 阻断 — 半区公式尚未解决实测像素与现有尺寸意图权重的单位转换
+
+- **类别**：正确性 / 不变量。
+- **计划位置（节名）**：“关键设计 / 2. 意图”（第 24、27 行）；Context 的旧 `resolveSplitSizes` 参照（第 7 行）；S1“两个例子逐数核对”（第 67 行）；“验收映射 / 半区与来源比例”（第 82 行）。
+- **现象**：当前容器网格把 `views[id].height/width` 当比例权重，没写过时权重为 240；split 两张表却是释放时实测像素。目标 A/B/C/D 原来各 400px，记录没有 height，E/F 等比：按实测 S=400 算出并仅写 D=200、E=100、F=100 后，权重变成 `240:240:240:200:100:100`，最终 A/B/C 各 21.4286%，D 17.8571%，E/F 各 8.9286%，不符合 25%、12.5%、6.25%。直接照搬旧 `resolveSplitSizes` 会把 A/B/C 的测量值 400 也落账，虽然恢复比例，却违背“其它目标成员的尺寸意图不变”；并且会把另一窗口主动改变的 A/B/C 尺寸覆盖成旧测量值。
+- **为什么是问题**：公式本身已批准且正确，缺的是进入 t66 记录模型前的单位转换。测得的 S/2 不能与保留的旧权重混算；两组算术例子或只读记录都不足以证明实际呈现正确。跨轴时也必须用目标轴的意图单位分配，来源轴只提供相对比例；不能把当前可见像素直接塞进目标权重。既有 `setViewSizes` 的按 min/max 夹取也不能直接用于意图权重，否则合法比例小权重会被当作过小像素夹大。
+- **依据**：Spec `ui/workbench-shell.md:129,168,227-228`；`container-grid.ts:5,28-41` 使用保存尺寸或 240 为叶 size；`grid.md:3,11,22` 区分尺寸意图、当前 min/max 与呈现像素。旧 `view-placements.ts:977-989,1334-1343` 确实输出并保存整张目标几何表。当前 `intents.ts:108-115` 是像素夹取，不能证明新的比例意图合法。
+- **核实**：`grid-probe.ts` 在真实 nb-ui grid 中验证两组数；随后在隔离端口 `42863` 挂载未修改的真实 `WorkbenchViewContainerHost` / `GridRenderer`，Chromium 稳定几何复现：局部像素 1:1 的 A/B/C=342.421875px、D=285.34375px、E/F=142.671875px；局部像素 3:1 的 E=214.015625px、F=71.328125px。改用命中叶原意图 240 分半，只写 D=120、E/F=60，或 E=90/F=30，两组都得到 A/B/C=399.5px、D=199.75px，分别 E/F=99.875px 或 149.8125/49.9375px（叶总量 1598px，扣除新增 sash 后百分比与 Spec 完全一致），A/B/C 记录不变。截图 `pixels-only-3to1.png`，稳定测量 `browser-results.json`。**已验证现有真实渲染链路对拟定补丁的结果；新拖放会话尚不存在，未声称实际拖放已复现。**
+- **建议改法**：S1 明确定义一次半区求解输出的是目标轴的尺寸意图，先在当前目标权重单位中分掉命中叶的原份额，再用来源的相对比例分给新增叶；未记录值用同一默认意图 240。min/max 作用于重新布局后的呈现像素，不夹取反解权重；若命中叶触约束，使用现有 grid 反解能力或明确拒绝无法满足的整条并入，不通过重写未主动目标叶规避。两组验收应从“逐数与读记录”扩成“未记录尺寸 + 与测量值不同的保存意图 + 实际 grid/DOM 比例”，同时断言 A/B/C、另一轴、隐藏成员的尺寸记录不变。
+
+### M02 — 重要 — 现有整项容器补丁与 placement 三字段补丁会让顺序重排覆盖归属
+
+- **类别**：不变量 / 正确性。
+- **计划位置（节名）**：“关键设计 / 1. 自建容器与记录”（第 18 行，“同一种写法”）；“关键设计 / 2. 意图”（第 22、24、26、28 行）；S1。
+- **现象**：计划要求“只改主动字段”，但 t66 的容器补丁类型是 `Record<id, ContainerEntry | null>`，对容器整项替换；视图换序也只能借 `placement:{container,order,fingerprint}` 一起写。在同区域容器换序、容器插入导致的目标集合 rerank，或同容器视图换序 / 越界 rerank 中，主动变化只是 order，旧 location / container 却随之进入保存补丁。另一窗口先迁移该容器或视图，之后重放换序补丁会把它拉回旧区域或旧容器。自建容器若照同一写法重排，还会覆盖原有 origin。
+- **为什么是问题**：另一窗口修改的是 location 或 container，本次用户只改 order；这不是“同字段后保存胜出”。容器和视图两套补丁目前都不能表达这一差别，搬入 `resolveInsertion` 只解决数字求解，不解决写哪些字段。整项赋值也不满足计划引用的未知字段原样保留。
+- **依据**：`web/views/intents.ts:32-49,88-98,173-176,189-194`；旧 `view-placements.ts:503-538` 的插入求解返回独立的 `order` 与 `rerank`，并不要求覆盖 location / container。Spec `ui/workbench-shell.md:160,168` 与 accepted 设计稿第 8 节要求主动字段合成。当前 `computePlacement` 对视图位置仍要求 container / order / fingerprint 完整（`placement.ts:74-78`），因此不能只把最终记录 schema 改成散字段就完事。
+- **核实**：同一真实 Storage 脚本 `rerank-container-location` 实测 B 先存 `location=panel`，A 的 order-only 全项补丁最后保存为 `location=sidebar,order=50`；`rerank-view-membership` 实测 B 先把成员迁到 `view:test.other`，A 的 rerank 补丁把它拉回 `view:test.target`。两例正常保存。**这是 t66 API 对计划拟写补丁的实测；t67 若新增窄字段补丁则可避免，计划尚未列这项改造。**
+- **建议改法**：S1 明确改造现有 `CustomizationsPatch`：容器逐字段补丁，视图 order 与归属修改分开；创建时提供必要的身份 / 默认元数据，已有记录只合成主动字段。rerank 只对仍属于捕获目标集合的项生效；已迁走的项不应被拉回或写入它的新集合。缺覆盖的条目需要基于保存底本补齐完整记录，不能使用旧显示覆盖最新归属。新旧意图共用一个 `applyPatch`，无需另建拖放专用写入路径。补双窗口“顺序与区域 / 归属互不覆盖”的真实 Storage 场景。
+
+### M03 — 重要 — 边缘并入缺少保存时的目标轴与命中叶校验，会保存不完整的分屏结果
+
+- **类别**：不变量 / 正确性。
+- **计划位置（节名）**：“关键设计 / 2. 意图”（第 24、27 行）；“关键设计 / 4. 拖动会话”（第 39–41 行）；“验收映射 / 换轴”（第 83 行）。
+- **现象**：split 在接纳时按目标轴生成绝对的 width / height 补丁，后续保存继续直接重放。在窗口 A 显示目标位于 Panel 时，B 可先把目标搬到 Sidebar；A 不采用外来订阅，仍能接纳横向边缘并入。保存后目标在 Sidebar，成员归属已搬入，命中叶与新成员的 width 被分半，当前轴的 height 却完全没分，`selected.panel` 还指向 Sidebar 的容器。同样，命中叶被 B 搬走后，A 的旧补丁仍会修改该叶在另一容器的尺寸。会话的“布局代次变化取消”看不到只更新 base 的外来变化，不能替代保存边界的校验。
+- **为什么是问题**：Spec 要求归属、顺序、尺寸、选择同一次原子并入，命中窗格失效时整组拒绝；这里最终保存的是搬成员成功、当前目标轴未分屏的半状态。若改成重放时自动把 width 转为 height，则又会把旧像素当新轴尺寸，并提交用户没有看见的分配；保留另一窗口的 location 仍必须处理这一组合。
+- **依据**：Spec `ui/workbench-shell.md:129,156-162,168,179`；`layout-store.ts:60-61,179-182` 只根据 display 判定；`persisted.ts:277-283,373-385` 的最新 base 与 display 分离且重放固定 change；计划只把 axis 放在 split，未把目标 Part / 命中叶前提带入可重放补丁。旧 `view-placements.ts:1400-1403,1460-1488` 的目标位置与命中叶验证是在重合成时做的，这层保障不能随算法一起删去。
+- **核实**：真实 Storage 脚本 `split-after-target-axis-change` 保存结果为目标 `location=sidebar`、命中叶和新成员 `width=200`，但 height 仍分别是 300、200，选择仍写在 panel。**实测证明现有保存机制不会校验这些前提；t67 尚未实现，此为依照计划固定补丁写法的推断。**
+- **建议改法**：在同一补丁边界为几何并入保留最小前提：目标容器所在 Part / 轴、命中可见叶归属，以及冻结成员集合；对最新保存底本不成立时整条失败、保留当前显示和未保存意图，使用已有保存失败通道。已接纳的普通移动仍按同字段后保存胜出；不要把旧应用所有来源重校验与抑制状态搬回来。补两窗口“目标跨轴 / 命中叶移走 / 源成员变化”后保存的场景，逐项断言归属、尺寸、选择和删项没有半更新，并区分接纳前拒绝与接纳后的保存失败。
+
+### M05 — 重要 — 全收起剩余区的意图不能区分“展开拖入成员”与普通 move-view
+
+- **类别**：正确性 / 接口合同。
+- **计划位置（节名）**：“关键设计 / 2. 意图”（第 24、27 行）；“关键设计 / 3. 落点判定”（第 34 行）；“验收映射 / 全收起”（第 84 行）。
+- **现象**：计划规定全收起剩余区可投，但 `move-view` / `merge-container` 只增加插入位与可选 split；全收起没有命中展开叶，旧解析器对此不带 split，生成普通移动。t66 明确保留 collapsed 记录，single 暂不应用、重新进入 multiple 又应用。来源 single 中一个显示为展开但保留 `collapsed:true` 的视图，拖进全收起目标后会变成第五条 32px 细条，剩余区域继续空着。直接参照旧公式 / 普通移动不会自动清收起位。
+- **为什么是问题**：Spec 输出 20 与验收 25 要求“拖入视图在那里展开，原有视图保持收起”；靠目标成员数变化、给新的尺寸或选中目标都不会覆盖已有 collapsed 意图。全局清掉移动视图的收起位又会影响普通菜单移动和外壳二的收起记忆合同，因此意图需保留这是剩余区的显式展开动作。
+- **依据**：Spec `ui/workbench-shell.md:104,128,168,216,229`；`presentation.ts:94-105` 的 multiple 才应用收起；`intents.ts:98-100,178-181` 的普通移动保留 collapsed；旧 `workbench-drop.ts:494-515,713-719,779-787` 在 remainder 不生成 split，只生成普通 move / merge。计划没有能表达该落点与展开结果的字段。
+- **核实**：`grid-probe.ts` 先核对 single 的 E 生效收起为 false，再用现有 `applyIntent(move-view)` 并入全收起目标，E 变为 true。真实 Chromium 的未修改 `WorkbenchViewContainerHost` 同样实测移动前源 E 展开、高 100px；移动后 A/B/C/D/E 都 `data-view-collapsed=true`、各 32px，记录中 E 的 collapsed 仍为 true。截图 `collapsed-remainder.png`。**已验证现有模型与真实组件组合；t67 解析器未写，这一遗漏的拖放后果为推断。**
+- **建议改法**：在现有四种意图内保留最小剩余区语义（例如明确的展开拖入成员列表）；落点解析器仅为 remainder 指定它，合成时同一补丁清除拖入的可见成员 collapsed，原有成员和隐藏成员不动。不要另加第二次 set-view-collapsed 保存。验收加入“来源 single 保留收起记忆”和“整组含收起 / 隐藏成员”，同时断言原有细条保持收起、拖入可见成员展开、一次保存。
+
+## 未发现问题的方面
+
+- `custom:<UUID>` 与 `view:<id>` 的身份空间分离、一次生成后把同一 id 放进固定意图的方向正确；重放不在 change 中调用随机生成器。自建项无声明默认位置，用 origin 作标题来源而不伪造默认指纹，与 t66 的视图默认指纹分工相容。指纹 / origin 都可选、由落位模型按 id 种类校验，能保持 v1 旧记录结构合法。这里“二选一”仍需落实为 **view 项只认 fingerprint、custom 项只认 origin**，且无效项只诊断与忽略，不能退化为仅检查任一字段存在；本次不把计划明确交给落位校验的工作另报缺陷。
+- 实际成员决定容器存在，隐藏不影响实际成员、收起仍计数，这与 t66 `ContainerPresentation.members` / `.views` 的分层相容。整组并入的 `sourceViewIds` 已明确是包含隐藏成员的冻结有序列表；其校验必须逐项与当前实际成员序列相同，重复、未知成员或任何不可移动成员整批拒绝，不能过滤后继续。目标里有不可移动成员本身不应禁止接收或让目标成员被迁移。本次未发现计划明确采用了与这些合同相反的策略。
+- 四种意图覆盖 Spec 九行行为表，单 View 投 Switcher 创建新身份、整容器迁区保留原身份、同容器边缘仅换序的分工合理；无需额外抑制标记、第二份成员表或第五种持久化意图。旧 `resolveInsertion` 只用于数字求解，调用前验证 anchor；其“未知锚点按追加”兜底不能变成已失效落点的语义。计划已要求轴、来源与目标失效整批拒绝，因此不另把旧 helper 的兜底列为缺陷。
+- `applyPatch` 的视图尺寸字段逐项合成能保留另一轴、collapsed 与未主动修改的字段；单纯容器迁区不应把成员原宽度当作新高度写回。M03、M04、M05 需要补的是几何并入前提、单位和显式展开语义，不需要新的尺寸记录或另一套保存队列。
+- `@dnd-kit/vue` 作为会话库、纯 drop 决策与预览同源、每帧同步判定、只提交已显示动作，都沿用旧应用已验证的边界。库选择的追认不阻断本轮规划。
+- “移动到”增加新建容器属于 t66 已推迟给 t67 的范围；用同一 detach 意图有利于减少部件。本轮未发现引入声明式容器、跨窗口拖动、外部文件拖入等范围外实现。
+
+## 需要开发者决定的点
+
+- **现有待确认项**：按推荐用 `@dnd-kit/vue ^0.5.0`，同意计划选择；待确认清单已有记录，不因此判阻断。新增依赖需按应用包前端依赖约定登记、按现有 Vite 预构建策略核实其依赖，实际增量体积在实现收口量。
+- **冲突时目标已被删除的结果**：现行 Spec 同时要求“已接纳移动后保存胜出”与“失效目标整组拒绝”，但未精确区分保存底本中的 custom 身份已经消失。建议在唯一保存边界将几何并入判为整条保存失败，保留当前显示与未保存意图；普通移动如仍按后保存胜出，则应同次恢复捕获的 custom 身份。若选择两类都保存失败，需要在 Spec“状态与转换”明确这是对已接纳移动的例外。不能采用成功保存悬空归属这一结果。此为 M01/M03 所需的小范围冲突政策说明，不重议拖放行为表或即时同步。
+- “新建容器”是否增加命令参数不是本轮不变量的前提；计划默认直接走已有布局 store 意图可以实现当前 UI 合同，不把扩大命令 API 当必改项。
+
+## 核实与边界
+
+- 从审查 worktree 根执行 `prox bun install --frozen-lockfile --ignore-scripts`：成功，1560 packages installed，Bun v1.4.2；未执行 postinstall。
+- 从同一根执行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/model bun --tsconfig-override ./packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/model/replay-probe.ts`：最初 6 个真实 Storage 场景通过断言。随后分别在同一命令前加 `T67_PROBE_CASE=same-uuid-repeated`、`T67_PROBE_CASE=parallel-detaches-one-view`、`T67_PROBE_CASE=parallel-same-uuid` 运行追加的 3 个场景，均通过断言；共执行 9 个场景，全部内核应用正常关闭。容器 schema 仅在实验脚本中按计划扩展；新意图尚未实现，实验提交的是计划拟产生的补丁，未声称产品拖放已运行。脚本每次使用独立临时运行目录，可原样重跑。
+- 同根执行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/model bun --tsconfig-override ./packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/model/grid-probe.ts`：两个比例 × 三种写法及收起记忆场景通过断言。首次实验声明默认 min=64，使 3:1 的 49.9375px 被实际约束改变；改为合法声明 min=33 后，满足 Spec“空间满足最小尺寸”的前提，未改产品代码或放宽断言。
+- 隔离 Vite 入口：同根执行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/model bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/model/serve-probe.ts`，地址 `http://127.0.0.1:42863/`；内置 Chromium 挂载真实 `WorkbenchViewContainerHost` / nb-ui 渲染链路，按钮只提交实验补丁。截图与 `browser-results.json` 均在实验目录。取值等待 DOM 更新及几何动画结束；浏览器无页面异常。浏览器已关闭，Vite 收到 SIGINT 后退出 0。实验是实际组件运行，不替代尚未存在的 t67 拖放 e2e。
+- 同根执行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/model bun test ./packages/neuro-book/src/plugins/workbench/web/views/model.test.ts ./packages/neuro-book/src/plugins/workbench/web/views/container-grid.test.ts ./packages/neuro-book/src/plugins/workbench/web/state/layout-store.test.ts`：37 pass、0 fail、311 expect() calls，3 files。该结果只验证 t66 既有合同，不证明 t67 计划没有缺口。
+- 未运行产品构建、全量测试、typecheck、产品 e2e；没有 t67 实现可做完整拖放验收。没有修改仓库源码与文档，没有 commit / push / stash / 切换分支。
+- 实验基础设施：Bun `--tsconfig-override` 在断言完成后输出 `Internal error: directory mismatch ... tsconfig.json`；无产品异常证据，未据此报计划缺陷。语言服务器不可用，符号引用退回只读字面检索。外部 TS 实验中的类型规则提示已按要求纠正；不建议新增重复规则。
+
+## 回写建议（仅交主 Agent 汇总，未写入仓库）
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| R01 | 规范缺陷 | M01/M03：同字段后保存胜出与失效目标拒绝在 custom 记录删除 / 目标换轴后的保存底本上缺少时点划分 | 改写：“接纳时按当前显示验证来源、成员与落点；保存时保证 custom 引用完整，并复核几何并入的目标 Part、轴与命中叶。前提失效整条保存失败，保留显示与未保存意图；普通移动的已接纳归属继续按同字段后保存胜出。”已删除 custom 目标的恢复 / 失败政策由开发者选择后写实 | `docs/specs/ui/workbench-shell.md` 的“状态与转换”“副作用与数据”“失败与恢复” |
+
+## 数量
+
+阻断 **2** 条（M01、M04）；重要 **3** 条（M02、M03、M05）；建议 **0** 条；合计 **5** 条。编号按核实顺序稳定，正文按影响排序。
+

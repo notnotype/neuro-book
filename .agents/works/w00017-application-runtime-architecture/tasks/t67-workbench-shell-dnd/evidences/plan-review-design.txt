@@ -1,0 +1,139 @@
+# t67 外壳三拖放实施计划对抗审查
+
+审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t67-plan-design/.agents/works/w00017-application-runtime-architecture/tasks/t67-workbench-shell-dnd/plan.md`，固定版本 `55716953`。审查只读；本报告和实验材料均在指定仓库外目录。开发者已确认的行为表、命中规则、半区公式、拖影与键盘按键作为合同，不重议。`@dnd-kit/vue` 按推荐先做、待追认，不因此判阻断。
+
+以下依据路径除实验文件外均相对上述 worktree。计划未实现：发现是计划缺口或明确的合同偏离，不能当作已复现的新产品 bug。
+
+## D03 — 重要 — 不变量：按发起时成员数生成删除补丁，会在冲突重放中删掉仍有成员的自建容器
+
+- **计划位置（节名）**：“关键设计 / 1. 自建容器与记录”“关键设计 / 2. 意图”“验收映射”（plan.md:16–17、22–27、85）。
+- **现象**：计划规定自建容器只有同时存在记录项与实际成员才能成立，搬空时把删除和移动合成一个补丁；同时沿用 t66 的 `applyView`，接纳时合成补丁，保存冲突时只把同一补丁作用在最新值上。映射只列“身份复用、搬空清记录、刷新一致”，没有“另一窗口已经移入成员”的场景。
+- **为什么是问题（推断）**：两个窗口共用记录，但订阅不强改本窗口显示。假设自建容器 C 只有 A：窗口一把 B 移入 C 并保存；窗口二仍看见 C 只含 A，把 A 移走，接纳时会冻结 `containers[C] = null`。冲突后把该补丁应用到最新值，会保留 B 的归属却删除 C 的身份记录，触发计划第 1 节“成员回默认”的规则，窗口一已接纳的 B 移动被无关操作推翻。反向场景也有缺口：两窗口分别搬走 C 的最后两个成员，各自接纳时都不空，重放后 C 真空却无人清记录。问题来自把按最终成员决定的清理当成无条件字段写入。
+- **依据**：`docs/specs/ui/workbench-shell.md:156–162、169`（只重放主动字段、别的窗口其它字段保留、实际搬空时清记录）；`packages/neuro-book/src/plugins/workbench/web/state/layout-store.ts:178–182`；`packages/neuro-book/src/plugins/workbench/web/views/intents.ts:163–196`（`applyPatch` 对容器 null 无条件删除）；`packages/neuro-book-legacy/app/utils/workbench/view-placements.ts:1346–1379`（在候选表的最终成员上只清本次涉及的空自建容器）。
+- **核实方式**：代码与合同逐行对照。两窗口时序是按真实 store 订阅/重放合同推断的新设计后果；尚无 t67 代码可运行，不宣称已复现 t67 缺陷。
+- **建议改法**：保持 t66“接纳时检查来源、已接纳主动字段后写胜出”，不搬旧 CAS 会话或第三方移动冲突规则。把清理改成同一次 `change(latest)` 的最后一步：先应用本次归属/顺序/尺寸字段，再按最新候选记录计算本次涉及自建容器的实际成员；涉及集合包括发起时来源、目标，以及最新记录中被主动改归属视图的原容器。有成员保留身份，真空才清对应容器项与失效选中项，未知项不做全局清扫。创建仍复用已生成的 id。S2 真实 Storage 增加上述两个双窗口场景，以及同一个视图先后移入/移出不同自建容器的重放场景。
+
+## D04 — 重要 — 不变量：旧半区算法把整张呈现尺寸表写回，违反未命中成员意图不变
+
+- **计划位置（节名）**：“Context / 已定的”“关键设计 / 2. 意图”“验收映射”（plan.md:7、24、27、82）。
+- **现象**：计划把旧 `resolveSplitSizes` 列为迁移参照，只说明按固定半区公式生成尺寸意图；S1 与 S5 的尺寸验证只列无约束的两组等比数。旧函数输出全部目标可见叶的实测 px，`applyViewSizes` 把这一整张表写进当前轴；它没有区分命中叶与未命中叶，也没有保留收起叶的展开意图。
+- **为什么是问题**：v2 的记录是尺寸意图，不是当前像素；当前像素可能因 min/max、窄盒或收起而夹取。Spec 输出 21 明确要求“其它目标成员的尺寸意图不变”。真实组件实验中，目标 A 保存 `height:1000`、声明 `maximumSize.height:100`，实际显示 100；把 E 并到 D 的半区，照旧算法写整张表后 A 的记录变为 100，B/C 原本未记录的尺寸也被写成 205.65625。A 没参与分屏，其恢复意图却被改写。推断：若 A 收成 32px，照旧函数还会把 32 写成展开尺寸；跨窗口重放时这类非主动字段同样会覆盖别的窗口的合法调整。仅通过四个 25% 的例子抓不到此问题。
+- **依据**：`docs/specs/ui/workbench-shell.md:129、153、168`；`docs/specs/ui/nested-grid.md:65–67`；`packages/neuro-book-legacy/app/utils/workbench/view-placements.ts:928–989、1334–1343`；`packages/neuro-book/src/plugins/workbench/web/views/presentation.ts:38–41、105–108` 与 `packages/neuro-book/src/plugins/workbench/web/views/container-grid.ts:26–44、53–66`（意图、呈现与主动字段分离）。
+- **核实方式**：本机 Chrome 的现有 `WorkbenchViewContainerHost`、真实 nb-ui Grid 与现有意图/补丁链路，目标盒 400×720；从真实 DOM 读四叶几何，再按旧函数的输出规则写入新应用现有尺寸意图入口。`browser-probe-result.json` 记录 A 的 `1000 → 100`、B/C 的 `缺省 → 205.65625`。实验没有 t67 的原子拖放实现，证明的是直接迁移该尺寸表不可行，不能宣称 t67 已有此 bug；其余潜在后果标为推断。
+- **建议改法**：仍用已定半区公式，但在合成边界明确坐标与权重单位：来源实测几何只作相对比例，目标命中叶的份额转换到目标当前轴的意图单位后分半；补丁只含命中叶与拖入可见成员，未命中叶、收起叶的展开意图、另一轴与未知字段原样保留。同容器重排不产出任何尺寸字段。S1 增加未命中叶触界、未命中叶收起、目标尺寸从未保存三种记录级判据；S5 同时核对几何分配与未命中记录逐字段不变。
+
+## D01 — 重要 — 正确性：新增“移动到”目标绕过现有命令合同
+
+- **计划位置（节名）**：“关键设计 / 2. 意图”“关键设计 / 6. 命令”“Spec 与文档改动（S0）”（plan.md:29、51–60）。
+- **现象**：新建容器菜单项直接走 `detach-view` / store `applyView`；计划明确保持 `move-view` 命令参数不变，并把是否经过命令留给审查者判断。S0 只列修改外壳 Spec，不列命令 Spec。
+- **为什么是问题**：外壳二输出 24 已规定“移动到”经 `nbook.view.move-view` 执行；命令 Spec 又规定菜单等触发面共用具名动作和单一执行入口。同一菜单新增项直接写 store，会缺少原有命令可用性检查、结构化结果与单次审计；命令面板的第二步也无法选择新建容器，菜单和命令的目标集合开始分叉。这是当前合同的明确偏离，不是要求把拖动逐帧命令化。
+- **依据**：`docs/specs/ui/workbench-shell.md:107`；`docs/specs/workbench/commands.md:14–16、24、66–77`；`packages/neuro-book/src/plugins/workbench/web/commands/view-commands.ts:25–35、65–99、104–115`（现有命令只接已有容器，第二步目标与菜单同源）；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.md:30、54`。
+- **核实方式**：逐行读取计划、外壳输出 24、命令合同与现有处理函数；未运行新行为，代码尚未实现。
+- **建议改法**：采用计划自己列出的较小改法：给现有 `move-view` 增加与 `targetContainerId` 互斥的 `newContainerIn` 目标，菜单和无参命令面板共用一份目标表；命令处理函数只把新目标翻成 `detach-view`，稳定 id 在这次动作接纳时生成一次。拖放仍直接提交结构化意图。S0 补命令 Spec，S3 增加命令面板新建、选择取消、来源过期零写入的验收。
+
+## D02 — 重要 — 正确性：键盘拖放需要的新适配没有落到设计中，旧传感器与 Tabs 不能原样复用
+
+- **计划位置（节名）**：“Context / 需要先定的一项”“关键设计 / 4. 拖动会话”“关键设计 / 5. 组件”“验收映射”（plan.md:8、41、47、86）。
+- **现象**：计划把键盘按键合同列出来，并推荐沿用旧会话，但没有定义键盘传感器改配、目标区域遍历、拖动期间标签导航的处理。旧 `workbenchDropSensors()` 直接使用默认 `KeyboardSensor`；同版默认把 `Tab` 列在结束键里。计划同时要求新的标签带照搬 Tabs 的方向键自动激活，而活动内容变化又必须取消拖动。
+- **为什么是问题**：照旧传感器接线时，Tab 会结束手势，无法切换目标区域；照搬 Tabs 的导航时，拖动中的方向键仍可能触发选择保存、切活动内容并取消手势。已有库只给坐标移动与生命周期，不能凭空提供 Spec 的区域遍历。新 ViewSection 的可聚焦节点目前是收起按钮，标题行本身不能聚焦；旧传感器默认又要求 `event.target` 就是 handle，所以拿起的焦点入口也必须明确。S5 “键盘各走一遍”需要以这些具体冲突为判据，否则容易只测空格和 Enter 的局部路径。
+- **依据**：`docs/specs/ui/workbench-shell.md:131、223`；`packages/neuro-book-legacy/app/composables/useWorkbenchDrop.ts:962–970`；`packages/nb-ui/src/components/controls/Tabs.md:24–29` 与 `packages/nb-ui/src/components/controls/Tabs.vue:45–73`；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewSection.vue:37–51`。发布版本原始类型与源码：<https://unpkg.com/@dnd-kit/dom@0.5.0/index.d.ts> 的 `KeyboardSensorOptions`；<https://unpkg.com/@dnd-kit/dom@0.5.0/index.js> 的 `defaults`、`handleKeyDown`、`handleMove`（默认 start 为 Space/Enter，end 为 Space/Enter/Tab，方向键只移动 10px，不负责区域遍历）。
+- **核实方式**：锁定 `0.5.0` 发布源码并在本机 Chrome 运行 `DragDropProvider + KeyboardSensor + 当前 Tabs`，直接按 Space → ArrowRight → Tab。实测 ArrowRight 先产生 `{x:10,y:0}` 位移，再发出 `select(tab.b, duringDrag:true)`；Tab 发出 `end(canceled:false)`。数据在本目录 `browser-probe-result.json`，脚本 `run-browser-probe.mjs`，截图 `probe-before.png`、`probe-after.png`。这是推荐接线的真实浏览器组合实验；尚无 t67 实现，不能当作已复现的 t67 产品缺陷。
+- **建议改法**：在同一个 `drag-session.ts` 内定义显式键盘适配：start 只取 Space、end 只取 Enter；Tab/Shift+Tab 按已登记且可见的目标区域循环，方向键只沿该目标轴更新坐标/插入位，然后调用同一纯判定。手势进行中阻断普通标签导航、收起 click 与选择保存，结束后恢复；为 multiple 标题与 Sidebar single 标题明确一个可聚焦 handle 和放下/取消后的焦点。S5 从 Sidebar、AuxiliaryBar、Panel 各拿起，Tab 跨区、方向换位、Enter 提交、Escape 取消，断言 Tab 后仍在拖动、过程中无布局 revision 增长。
+
+## 合同与验收逐条核对
+
+以下“覆盖”只表示计划给出设计或验证落点，不表示 t67 已通过运行验收。输出 19 的九行没有整行遗漏；问题集中在已列出的行为如何落实到命令、键盘和补丁边界。
+
+| 输出 19 的行为表行 | 设计与验收落点 | 核对结论 |
+|---|---|---|
+| 1：单 View → Switcher 插入位，新建而不并入悬停容器 | 第 2 节 `detach-view`、第 3 节 Switcher；映射行 79、81；验收 20、22 | 路径与稳定身份已覆盖；清理受 D03 影响 |
+| 2：容器 → 同区 Switcher，整容器换序、原位不提交 | 第 2 节 `move-container`、`resolveInsertion`；映射行 78；验收 19 | 保留内部成员顺序；须将相邻原位与排序越界作为验收 19 的子例 |
+| 3：容器 → 另一区 Switcher，迁区并选中 | 第 2 节 `move-container`、第 3 节 v2 ToolPart；映射行 78、83；验收 19、24 | 换轴由目标 Part 求值，保持成员与实例；来源隐藏时仍须能起拖 |
+| 4：单 View → 允许内容边缘，n=1 半区并入 | 第 2 节 `move-view.split`、第 3 节内容判定；映射行 82；验收 23 | 公式覆盖；主动尺寸字段集合受 D04 影响 |
+| 5：整容器 → 另一容器边缘，全部成员原子并入 | 第 2 节 `merge-container`、来源/目标尺寸表；映射行 78、82；验收 19、23 | 隐藏成员归属与冻结顺序已列；清理与尺寸分别受 D03、D04 影响 |
+| 6：禁用方向，零状态变化、零落点反馈 | 第 3 节轴限制；映射行 78、83；验收 19、24 | 已覆盖；Panel 外壳移到左右仍只允许内部左右 |
+| 7：单 View → 空内容区或空标签带，新建并选中 | 第 2 节 `detach-view`、第 5 节空区；映射行 79；验收 20 | 四条空区路径有明确验收；标题与工具区不能代替真正条目带 |
+| 8：整容器 → 空内容区或空标签带，不嵌套 | 第 2 节 `move-container`、第 5 节空区；映射行 79；验收 20 | 已覆盖；必须保留原容器身份，不调用 `detach-view` |
+| 9：标题文字、工具区、外部遮挡，不接收 | 第 3 节旧 DOM 命中结构、第 4 节交互排除；映射行 78、79；验收 19、20 | 标题/按钮路径明确；外部遮挡验收要使用下表的可见命中机制，库默认碰撞不能替代 |
+
+| 其余输出与验收 | 计划位置 | 核对结论 |
+|---|---|---|
+| 输出 20；验收 24、25：前后 50%、中点归后、全收起剩余区、自动换轴 | 第 3 节；映射行 83、84 | 命中规则齐备。全收起子例还应读取记录，检查拖入可见成员展开、原有成员仍收起，不能只断言剩余区矩形 |
+| 输出 21；验收 23：两组比例、其它目标意图不变、来源实时几何/未活动意图、隐藏不占份额、同容器只换序 | 第 2、3 节；映射行 82、83 | 两组数字与跨轴已列。未命中意图不变缺少机制和记录级验收，见 D04；来源比例的取值顺序见迁移清单 |
+| 输出 22；验收 21、25：图标文字、4px 插入线、连续半区反馈、源不动、结束释放 | 第 4 节 nb-ui Overlay；映射行 80、84 | 责任分层正确。库反馈需要显式用常驻自定义拖影接管，防止移动源节点或空闲占位 |
+| 输出 23；验收 19：键盘与指针同一判定、按键、结构变化取消、锚点丢失不追加 | 第 3、4、5 节；映射行 78、86 | 按键表有覆盖，库配置与标签事件仲裁未落实，见 D02；丢失锚点须在接受前拒绝 |
+| 外壳二输出 24：“移动到”经既有命令、来源代际/模式失效零写入 | 第 2、6 节与 S0、S3；映射行 87 | 新建目标绕过命令，见 D01；旧菜单失效门禁应保留 |
+
+## 数据、副作用、失败与恢复
+
+| 合同条目 | 对应设计或继承边界 | 核对结论 |
+|---|---|---|
+| 只写三条布局记录、不写领域数据、不另建尺寸持久化；补偿、测量、临时夹取、0 不保存 | 第 2 节只改主动字段，所有意图经现有 `applyView` | 数据所有者一致；旧尺寸表整体写回会违反此边界，见 D04 |
+| 记录版本不变、旧项合法、长度域与 64 KiB 上限 | 第 1 节 `origin`/`fingerprint` 形状；S1 记录模型；现有 Storage | 改形状不等于换存储。原长度/顺序/尺寸约束应保留；原有 64 KiB 失败场景本次已运行 |
+| 部分尺寸逐字段合成，只改当前轴，另一轴、收起与未知字段保留；空补丁不建记录、非法条目整批拒绝 | 第 2 节原子意图，现有 `ViewFieldPatch`/`applyPatch` | 可复用字段合成；原子并入必须在构造完整补丁后才应用，不能拆成多次 `applyView`。全收起剩余区的“拖入展开”是显式行为，应只清本次拖入可见成员的收起位 |
+| 自建身份生成一次、创建/归属/顺序/选择/清理同次保存、重放复用 id | 第 1、2 节；映射行 85 | 稳定身份与单次保存方向正确；最新成员条件清理缺口见 D03 |
+| 结构化意图、写入与领域数据分别归拥有者 | 第 2、4 节，`drop.ts` 只产出意图/预览 | 已覆盖；Files 不应参与记录写入或命中策略 |
+| 默认显示、读失败临时调整；损坏/不支持回默认并诊断，保留原件，不部分恢复 | 继承现有 layout store、records 与状态 store | 从代码核对继承路径；本次未重新运行这些恢复子例，不能把既有 Task 证据当本次验证 |
+| 同值、临时夹取、拖动中不保存；最大化、紧凑、焦点、预览只在内存 | 第 4 节会话，接受动作经 `applyView` | 同值/拒绝零写入的 t66 子例本次通过；t67 应把整个 gesture 内无 revision 增长并入验收 19/D02 的检查 |
+| 未知项忽略但原件保留、默认指纹失效不删原件、下一次针对该项才改写 | 第 1 节隐式容器仍带指纹，现有落位/补丁 | 保留机制可复用；未知项写回保留子例本次通过。清空容器不可全局清扫未知项 |
+| 订阅只更新已确认值，保存冲突主动字段重放、同字段后保存胜出 | 继承 t66 `applyView`；映射行 85 | 双窗口不同视图/同视图子例本次通过；自建容器清理仍需新双窗口子例，见 D03 |
+| 保存确定失败或 `unknown-outcome` 保留当前显示/未保存意图，仅暂停该条，重试/放弃 | 继承 layout store 与状态栏 | 64 KiB 拒写及放弃本次通过；本次未运行断线、结果未知、读取失败。不要把保存失败混成“拖放被拒绝”：后者接纳前零变化，前者已接纳后保留未保存显示 |
+| 呈现降级只影响显示与诊断，不触发保存；视图加载失败/入口停止不拖垮其它视图 | 继承 t66 呈现模型与两个实例层 | 计划未引入替代实例/恢复层；新拖动应观察真正的结构和代际失效，不能把 DOM 停放误判成删除声明 |
+| 创建/迁移/半区计算失败保留原归属，不留空标签、不丢视图；非法方向无保存意图 | 第 2 节整批拒绝、第 3 节尺寸缺失拒绝；映射行 78、79 | 拒绝路径有落点；验收 19 应同时检查记录、成员和标签，不能只检查提示消失 |
+| Escape、pointercancel、失焦、页面隐藏、目标失效清反馈、不提交旧预览 | 第 4 节布局代次取消、每帧同步命中、只提交已显示动作；映射行 78、86 | 设计已列生命周期取消与显示/提交一致性；应在 S4/S5 展开为独立触发场景，最新测量变成另一动作时只拒绝，不在松手时先发布再提交 |
+
+## 旧实现迁移清单
+
+这些是参照旧实现时应保留或改写的边界，不另计为发现；计划已点名相关文件，不能把每个尚未展开的接线细节都当成产品决策遗漏。
+
+| 边界 | 可保留的部分 | v2 必须改写或补上的部分 |
+|---|---|---|
+| 可见与遮挡命中 | `workbench-drop-dom.ts:81–151`：视口/祖先 overflow client 盒裁剪、`hidden`/`inert` 排除、最上层业务元素检查、跳过拖影 | 不能只用 dnd 的 bounding rect 或 shape 相交回退；停放目标和弹出菜单遮住的目标都不可接收 |
+| 会话一致性 | `useWorkbenchDrop.ts:558–559、761–807、917–919`：每帧按当前坐标同步计算，滚动/resize/盒变化重新测量，只接纳最后已显示的同一动作 | 布局/成员/轴/活动内容与真实视图代际替换旧工作面 context/generation；动作相等比较要含来源顺序、锚点和尺寸意图，不只比较 id |
+| 插入位 | `view-placements.ts:503`：中间序号、精度耗尽时只重排目标集合 | 丢失 `beforeId` 的 append 回退不能复制成业务规则；接受前检查锚点，保持 t66 已接纳主动字段的后写胜出 |
+| 来源比例 | `workbench-drop.ts:552–623`：可测量来源当前轴几何 → 未活动来源当前轴展开意图 → 单可见 View 比例 1；隐藏成员随组迁移但不造尺寸，缺所需比例整组拒绝 | 来源当前轴与目标写入轴分开；不把旧 width 当 height，目标表只作几何输入，最终主动写入集见 D04 |
+| 全收起剩余区 | `workbench-drop.ts:498–515`：独立 remainder 分支，不按普通命中叶拆半；旧测试 `workbench-drop.test.ts:333–359` 只证明矩形与无 split | 接纳时明确将拖入可见成员展开，保留目标原收起成员；不能只复制旧“无 split 的普通移动”，其记录合成保留原 `collapsed` |
+| 起拖登记与点击 | `useWorkbenchDrag.ts:107–109、142、165–183`：每实例 `useId()`、激活时冻结 payload、6px/200ms 与 touch 容差 6px、动作/链接/可编辑区排除、激活后抑制尾随 click | single/multiple 与停放重挂会使 DOM 实例变动；反登记比对元素身份，不能只按业务 id 清理。新 Tabs 起拖不能让尾随 click 再选中/收起；键盘仲裁见 D02 |
+| 拖影与反馈 | `WorkbenchDragOverlay.vue:16–18、35、47`：激活前常驻、空闲绝对定位、`drop-animation=null`；反馈共用 nb-ui 皮肤 | 假位移、源 placeholder 和重复叠加反馈都不引入；`DropFeedbackOverlay` 只画宿主提供的 client 几何与公告，不重算业务命中 |
+| 容器、位置、保存 | 纯判定结构、几何公式、整组校验可以改写复用 | `left/right` → `sidebar/auxiliarybar/panel`；隐式容器按成员存在，不搬 `suppressedContainers`；不搬静态 descriptor/product catalog、旧 Project/user 工作面、CAS 会话与“第三方移走后跳过”的重放策略；自建容器条件清理见 D03 |
+
+## 拖动依赖与更小替代
+
+保留 `@dnd-kit/vue` 推荐，待开发者追认；它已有旧应用集成经验，真实浏览器组合可运行。锁定依赖是 `0.5.0`、MIT、`sideEffects:false`，peer 为 Vue `^3.5.0`；`@dnd-kit/dom` 同为 `0.5.0`、MIT。依据为本 worktree 的 `node_modules/@dnd-kit/{vue,dom}/package.json` 与上述发布类型/源码。许可检查到包元数据为止，未做完整第三方许可审计。
+
+| 选择 | 能减少什么 | 仍须负责的工作 | 判断 |
+|---|---|---|---|
+| `@dnd-kit/vue` + 集中的 `drag-session.ts` | 复用 Provider、Vue composables、拖影与传感器，避免重写会话资源管理 | 产品键盘区域导航、v2 结构失效、可见/遮挡命中、原子意图；D02 不能依靠默认行为 | 本任务推荐；业务判定保持纯函数，库只留在会话/组件边界 |
+| 直接 `@dnd-kit/dom` | 少一个 Vue 适配包；公开 `DragDropManager`/`Draggable`/`Droppable` 已有同一传感器接口 | 手动把 Vue ref、挂载/卸载、登记反登记与自定义 overlay 接起来，仍依赖 abstract/collision/geometry/state 核心 | API 层面可行的较小依赖集合；未测实际构建节省，不能声称减少多少 B。不能省掉键盘产品适配 |
+| 原生 Pointer Events + 项目键盘会话 | 不增加 dnd 第三方运行时，复用 nb-ui 几何与反馈 | 门槛、pointer capture/cancel、触摸、blur/visibility、焦点、登记、反馈、尾随 click 和释放一致性均须重做 | 名义第三方依赖更少，总代码/验证成本未证明更小；本任务不推荐替换已验证的会话基础 |
+| 只用 nb-ui 现有 grid/drop 原语 | 没有新增拖动库 | 现有 `grid-drop.ts` 求插入与 `DropFeedbackOverlay` 渲染反馈，都不提供视图/容器的完整起拖会话 | 无法单独替代源、传感器和生命周期管理，适合继续作为几何/皮肤层 |
+
+实际浏览器构建增量未测，t67 尚未加依赖；应在计划已有 S6 用相同构建口径量新增前后 raw/gzip，不能把探针优化缓存或旧 Task 的 720,357 B / gzip 230,437 B 当当前增量。第 8 行写“体积在 S8 量”与切片到 S6 不一致，改为 S6 即可，属编辑性修正，不另计发现。
+
+## 本次验证与限制
+
+- worktree 根运行 `prox bun install --frozen-lockfile --ignore-scripts`：成功，Bun `1.4.2 (744846f84)`，1560 packages installed，约 1.48s。
+- 在 `packages/neuro-book`，`NBOOK_AGENT_TEMP_ROOT` 指向本报告目录，运行 `bun test src/plugins/workbench/web/state/layout-store.test.ts --test-name-pattern '视图与容器'`：4 pass、14 filtered out、0 fail、45 expect() calls。该组包含 `focusedPart`；不把四例都算作冲突/持久化证据。Storage 与 SQLite 使用真实运行时。
+- 同一临时根运行 `node run-browser-probe.mjs`：本机 Chrome、真实 Vue/dnd-kit、nb-ui Tabs/Grid 和现有 v2 模型/组件，最终运行约 2.50s。按键事件与记录数据在 [browser-probe-result.json](browser-probe-result.json)，脚本 [run-browser-probe.mjs](run-browser-probe.mjs)，截图 [probe-before.png](probe-before.png)、[probe-after.png](probe-after.png)。D04 是 scratch 中按旧尺寸表规则构造后走当前意图链路的迁移实验，没有调用尚不存在的 t67 原子拖放；后续放大几何不确定，未用于发现依据。
+- 浏览器最终日志有一条 `Failed to load resource: the server responded with a status of 404 (Not Found)`，资源来源未查明；以上机制判断依据实际交互和记录值，不把该日志计为产品发现。
+- 探针最初遗漏 nb-ui utility stylesheet，使 section 只有 32px；已补 `@notnotype/nb-ui/styles.css` 再运行并读取真实 DOM。首次超时、错误 Vue 插件入口、内置浏览器 30000ms 超时均属实验接线/工具问题；CLI 不可用后复用已安装的 `@playwright/test` 驱动 Chrome。没有伪计时器、固定等待或业务 mock。
+- Vite 服务 `t67-readonly-review-browser` 已发送 SIGTERM；宿主记录退出码 143。`curl --max-time 3 http://127.0.0.1:42673/` 得到 `curl: (7) Failed to connect ... Could not connect to server`，确认端口已关闭；Chrome 在脚本 `finally` 关闭。
+- `git status --porcelain=v1 --untracked-files=normal` 无输出，仓库无被跟踪或未跟踪的改动。依赖安装生成被忽略的 `node_modules`；报告与实验均在仓库外；未提交、push、stash 或切分支。
+- 未运行 t67 产品 e2e、全量测试、typecheck、生产构建/体积、四主题双配色矩阵、触屏与多 DPR。新代码尚未存在，不以当前组件探针代替这些验收；D03 的并发新设计后果明确为推断。
+
+## 未发现问题的方面
+
+- `drop.ts` 纯判定、`drag-session.ts` 生命周期、store 单一布局写者与 nb-ui 几何/反馈的分层符合已接受设计；预览/提交同源、每帧同步命中与“只提交已显示动作”抓住了旧实现的重要边界。
+- 两类源、三类落点、九行行为表与验收 19–25 均有计划落点；自动换轴、隐藏成员完整迁移、非法方向无反馈、空区不嵌套、同容器只排序方向正确。上表指出的接线判据需随对应验收保留，不能由旧人工验证直接代替。
+- 三类容器身份、`custom:<UUID>` 单次生成与旧记录兼容方向一致；`origin` 只作标题回落，不需要另建容器贡献点。
+- 外壳二已经提供 `workbench.views`、命令与两个实例停放层。`.agents/works/w00017-application-runtime-architecture/pending-confirmations.md:20–23` 记录贡献点提前、单视图分离推迟至外壳三；t67 正是在完成这个缺口。Files 作为下一真实消费者使用现有合同，不需要在本任务重做插件视图接口。
+- 不做编辑器分组/文档标签、跨窗口拖放、外部文件拖入、声明式容器、`when` 与标题贡献的范围，与设计分步推进一致；未发现必须为 Files 提前加入这些能力的理由。双窗口保存重放仍属于布局数据合同，不因跨窗口拖放不在范围而免验。
+
+## 需要开发者决定的点
+
+现有待确认清单第 26 行的 `@dnd-kit/vue` 采用仍待追认，本审查支持按推荐继续，未因此判阻断。没有新增的产品取舍：D01–D04 是把已接受合同落实到计划与验收，主 Agent 可据此修订。实验绕路属于当前接线细节；未发现需新增全局规范的可复用规则，不提额外反思回写门禁。
+
+## 严重程度数量
+
+阻断 **0**；重要 **4**（D03、D04、D01、D02，按影响排序）；建议 **0**。实施前应修订这四处计划边界，现有推荐依赖与已确认产品行为不需重议。
+

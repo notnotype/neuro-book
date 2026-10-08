@@ -19,4 +19,4 @@ taskId: t67-workbench-shell-dnd
 
 ## 当前状态
 
-- 2026-10-08 计划起草，按 [autonomous-delivery](../../../../skills/autonomous-delivery/SKILL.md) 交三个 omp 审查。
+- 2026-10-08 计划起草，按 [autonomous-delivery](../../../../skills/autonomous-delivery/SKILL.md) 交三个 omp 审查（对照 Spec 与旧应用、意图与多窗口不变量、可实现性与测试）；14 条意见按推荐并入计划（见计划“审查处理”），拖放的保存冲突政策记入[待确认清单](../../pending-confirmations.md)。下一步 S0。

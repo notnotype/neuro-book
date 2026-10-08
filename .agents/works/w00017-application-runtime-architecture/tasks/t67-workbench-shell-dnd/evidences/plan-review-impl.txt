@@ -1,0 +1,110 @@
+# w00017 t67 实施计划对抗审查：可实现性、交互与测试
+
+审查对象：[t67 plan.md](/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t67-plan-impl/.agents/works/w00017-application-runtime-architecture/tasks/t67-workbench-shell-dnd/plan.md)，固定基线 `55716953`。仓库路径均相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t67-plan-impl`。源码、计划、分支与 Git 历史未修改；执行了获准的 frozen 依赖安装。实验与报告均在指定实验目录。已接受的设计与已确认的拖放规则按既定合同检查，不重新讨论；`@dnd-kit/vue` 的选型按推荐先做、待开发者追认，不据此判阻断。
+
+结论：**阻断 0、重要 3、建议 2**。优先补键盘适配与所有权、常驻空标签带/整区正文、可运行的验收场地。依赖选型可以继续按推荐推进；完整替换 Tabs 尚没有必要性证据。下列按影响排序，编号保留发现时顺序；源码推断与真实浏览器实测分别标明。
+
+## I-02：默认键盘传感器与已定按键合同不一致，照搬 Tabs 会在拖动中切换活动容器
+
+- **严重程度**：重要；**类别**：正确性 / 键盘交互。
+- **计划位置**：第 4 节“拖动会话”、第 5 节“Switcher”、S4、“风险”的 Tabs 键盘合同。
+- **现象**：计划要求 Space 拿起、方向键沿目标轴移动、Tab 换区域、Enter 放下，同时要求新 Switcher 照搬 Tabs 的方向键自动激活。`@dnd-kit/vue 0.5.0` 的默认键盘传感器却把 Tab 当作非取消放下，四个方向均按像素平移；移动键只 `preventDefault`，仍传播到 Tabs 的自动激活处理器。
+- **为什么是问题**：Tab 不会切区；照搬当前 Tabs 后，Arrow 同时触发拖动与活动容器切换，违反会话期间键盘所有权，并与计划“活动内容变化时取消”冲突。原样迁移旧会话不能填上这个缺口。当前 multiple 标题与 Sidebar single 标题也没有可聚焦的标题 handle；默认传感器要求事件目标就是 handle，聚焦其子折叠按钮不能自然起拖。计划尚未定义这些适配边界。
+- **依据**：浏览器实际运行 `@dnd-kit/vue@0.5.0`、Vue `3.5.39`、Vite `8.1.4`：默认源 Space 起拖后 Tab 得到 `canceled:false, nativeCode:'Tab'`；导入基线真实 `Tabs.vue` 并登记两个实际按钮，Space 起拖后 ArrowRight 的 manager 当前 x 从 281 到 291，同时得到 `selected:'source-b'`，selection 记录 `duringDrag:true`，焦点也移到 B；随后 Tab 发出非取消结束。原始状态见实验目录 `real-tabs-keyboard.json`、`real-tabs-arrow-current.json`。真实基线 Lab 外壳中 multiple 标题均无 tabindex/role、tabIndex=-1，未选容器在 inert 停放区为零矩形，见 `actual-shell-structure.json`。源码：`@dnd-kit/dom/index.js:1628-1643,1715-1787`；`Tabs.vue:45-74`；`WorkbenchViewSection.vue:37-51`；`WorkbenchToolPartHost.vue:45-50`。这是已实测的依赖/现有组件组合；t67 尚未实现，不声称已发生产品数据错误。
+- **建议改法**：S4 明确一个键盘适配器：完整覆盖 start/end/cancel 键表，枚举当前可用区域与轴，Tab/Shift+Tab 输出新区域的合法 client 坐标，方向键只沿目标轴移动；复用指针判定。idle 才执行标签自动激活，拖动期间相关键由适配器独占。为每类标题定义可聚焦 handle、可访问名称和焦点环，Space 起拖不触发折叠/选择，结束后恢复普通导航。验收至少断言 Tab 后会话仍在、revision 不变，Arrow 不改活动容器，Enter 才提交一次，Escape 只取消。
+
+## I-01：空标签带没有 DOM 目标，四条空 Switcher 路径缺少实现接点
+
+- **严重程度**：重要；**类别**：正确性 / 交互。
+- **计划位置**：第 5 节“组件”、S3/S4、验收映射“空 Switcher 四条路径”。
+- **现象**：计划把落点列为“标签带与 ActivityBar 条目带”及“ToolPartHost 的空区”，但仅安排替换已有 Tabs，未安排让无标签时的 AuxiliaryBar、Panel 标签带继续存在。当前 AuxiliaryBar 的整个标签 header 受 `presentation.switcher.length > 0` 控制，Panel 的导航槽受 `panelTabs.length > 0` 控制；清空后根本没有标签带。Panel 此时显示的标题文字不能冒充标签落点。
+- **为什么是问题**：Spec 验收 20 明确要求三个 ToolPart 中，单 View / 整容器分别投空内容区 / 真正条目带的四条路径。只接空正文可以通过“建容器”的测试，却漏掉空标签带两条路径；放大到整个 header 又会让标题文字与框架按钮违规接收。现有 `.workbench-tool-part__empty` 还只包提示文字，没有填满剩余正文，直接登记它也不能满足整区接收。
+- **依据**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchToolPartHost.vue:52-66,134-145`；`WorkbenchShell.vue:227-242`；Lab `shell-scene/ShellViewsScene.vue:189-195` 有同一条件；`docs/specs/ui/workbench-shell.md:223-225`。真实挂载基线 Lab 外壳，经实际“移动到”菜单依次搬空右栏与 Panel：右栏 header/tablist 都为 0；再搬空 Panel 后所有 tablist 为 0，仅剩标题“面板”。空提示高度均 28.5px，对应可用正文分别为 830px 与 168px，见 `actual-empty-auxiliarybar.json`、`actual-empty-panel.json`，Vue errors 均为空。ActivityBar 的空条目带已常驻（`WorkbenchActivityBar.vue:27-39`），不能据它存在推断另两区也存在。实测是基线装配空态，尚未实现的 t67 接收行为仍为计划缺口。
+- **建议改法**：沿用两个既有 32px 标题行的唯一拥有者，AuxiliaryBar 标签带与 Panel 的 nav 槽在空态也常驻，空带占用框架按钮之外的正面积；让空正文填满余下区域，再只登记这块空带与空正文。S3 先交付可测的空带/空正文，S4 绑定登记。e2e 按三个 Part × 两类源 × 两类空落点分别定位真实元素，确认标题/动作区零反馈、零 revision 变化。
+
+## I-04：验收宣称全链路覆盖，但现有五视图场地不能承载六视图比例与隐藏成员场景
+
+- **严重程度**：重要；**类别**：测试可执行性 / 验收覆盖。
+- **计划位置**：S1/S4/S5、验收映射“行为表九行”“半区与来源比例”“中点 / 全收起”、验证“真实环境”。
+- **现象**：计划把两组 A/B/C/D + E/F 比例映射到 S5，并指定沿用 `test.sample-views` 全链路。现有测试插件与 Lab 只有五个视图；全部可移动，只有加载/激活/渲染失败与入口停止开关，没有隐藏成员或不可移动成员场景。布局 store 调 `buildPresentation` 时也不提供 hidden 集合，产品当前没有 `when` 消费者。S4“组件测试”用 happy-dom，不能量到真实比例、裁剪与落点。计划未列出补齐场地的提交内容。
+- **为什么是问题**：六视图例子无法在五个唯一实例上建立；把记录数值算对不能证明仍可操作的真实半区比例。默认最小尺寸 64px 下，3.125% 要求六叶净主轴至少 2048px；在 1440px 内也不可能保持此比例，更不用说还扣除 ActivityBar、侧栏与右栏。隐藏成员不是入口停止或加载失败，两者不能替代它来声称验收 19 已全链路覆盖。
+- **依据**：`src/web/testing/sample-views.ts:20-26,37-59`、`shared/testing/sample-views-contract.ts:14-28`、Lab `ShellViewsScene.vue:41-47,60-61`、`state/layout-store.ts:60-61`、`shared/views.ts:25-26`、`vitest.config.ts:1-4,19-25`。真实浏览器挂载原 `WorkbenchViewContainerHost` 与 `GridRenderer`，直接提供符合合同的六叶 25/25/25/12.5/9.375/3.125 意图作为呈现探针：主轴 1440px 时 F 从 44.84375 被夹到 64、A/B/C 各变为 353.796875；主轴 2080px 时六叶分别为 518.75/518.75/518.75/259.375/194.53125/64.84375，符合比例。结果见 `actual-ratio.json`。探针只证明现有真实网格的夹取；未模拟尚未实现的拖放与 Storage。
+- **建议改法**：S1 纯模型覆盖隐藏、非法/不可移动成员与整批拒绝；S4 把局部 Lab 场景扩为至少六个真实视图，加 hidden/不可移动/失效/全收起开关；S5 测试插件补第六个视图，使用足够大的真实 ToolPart，或为比例专用样例声明合法的 33px 最小值并保证净主轴至少 1056px，先实测前置条件再逐数断言。几何和事件传播留给 Chrome，DOM 测试只测受控选择/可达性/生命周期。隐藏成员的纯模型与 Lab 证据单列，不为满足这次 e2e 扩建范围外 `when` 功能，也不用产品测试分支伪造它。提交次数以真实 revision 与完整记录结果核对；每个场景独立初态。
+
+## I-03：把 Tabs 判作“不能拖”并重写整套标签带，缺少与小扩展方案的比较
+
+- **严重程度**：建议；**类别**：维护性 / 过度设计。
+- **计划位置**：Context“现状”、第 5 节“Switcher”、S3、“风险”的 Tabs 替换。
+- **现象**：计划直接以 `Tabs` 不能当拖动源为由，新增 `WorkbenchSwitcherTabs` 并照搬键盘合同。当前缺的其实是逐项元素绑定入口：`Tabs` 没有 slot、expose 或逐项 attrs/ref，根 attrs 只落标签栏；控件本身的按钮可以被实际 dnd-kit 登记。
+- **为什么是问题**：完整替换要再维护禁用项跳过、首尾绕回、Home/End、roving tabindex、焦点跟随、长标签横向滚动、底线不制造竖向滚动条，以及 Panel 框架按钮始终可达。改个逐项绑定入口即可保留这些已有行为；同一标签同时承担拖动源与插入几何，也不要求它拥有业务判定。重写不是错误，但当前计划没有证明收益大于这个代价。
+- **依据**：`Tabs.md:20-31,69-82`、`Tabs.vue:45-74,84-114`；真实组件浏览器指针探针通过外层 DOM 取按钮并登记，得到目标 `real-target`，源保持 140×40、零占位，见 `real-tabs-pointer.json` 与截图 `real-tabs-pointer.png`。探针的 DOM 查询仅证明机制可行，不建议成为产品扩展接口。
+- **建议改法**：优先保留 nb-ui `Tabs`，补一个类型约束的通用逐项绑定入口（交付元素 ref 与 null 注销、必要 attrs），及已被上游消费按键的门禁；业务、容器身份与 dnd-kit 留在工作台薄包装。补空标签带由宿主保证正面积。若仍选完整替换，把它列作明确取舍，并复用实际合同测试和窄屏实测，不只复制文字。两种方案都要落实 I-02 的拖动期间键盘所有权。
+
+## I-05：S4 把可独立验证的适配与全装配放进一次提交，容易到 S5 才定位接线问题
+
+- **严重程度**：建议；**类别**：切片 / 可验证性。
+- **计划位置**：切片 S4、S5、验收映射、Context 的体积检查位置。
+- **现象**：S4 一次加入依赖、会话、全部源/落点登记、拖影、反馈和键盘，只有“组件测试；Lab 场景本机 Chrome 探针”作为完成判据；逐行产品 e2e 全在 S5。指针释放护栏、三层 Teleport 登记、原子模型提交和专用键盘适配会同时变化。
+- **为什么是问题**：这不是工作量大小的问题：这些边界需要不同运行环境与观测量，happy-dom 无法替代真实坐标/传播，键盘也不是给指针加一个默认传感器。组合失败时无法区分是依赖 API、ref 登记、几何或业务意图；会话“最后已显示动作”与取消收口等时序风险会积到末片。
+- **依据**：计划 `:69-71,78-86`；真实 Tabs 与默认传感器的 I-02、空态 I-01、场地 I-04 均落在这个提交；`vitest.config.ts:1-4` 明确几何走浏览器。Node + Playwright（Chrome `151.0.7922.71`）实际三轮指针放下各 1 次、键盘 Enter 放下各 1 次、Escape 零提交，脚本使用元素矩形、6px 门槛和状态等待，表明可先建立小而真实的运行切片，见 `playwright-smoke.mjs`、`playwright-three-runs.json`，不能据此当作九行产品验收已通过。
+- **建议改法**：保留同一会话与模型，按可运行交付拆 S4a/S4b/S4c，不新增通用框架：S4a 加依赖与指针会话，先接一对真实源/目标及两种覆盖层，证明源不动、预览后释放提交一次、Escape/失焦/卸载清理；S4b 接完产品与 Lab 三类目标、四类起拖表面、停放几何回退与空带，并覆盖九行和结构失效；S4c 增加键盘适配并逐类验证可聚焦 handle、轴、Tab 换区、Enter、Escape。每片带最小产品/真实 Lab 浏览器证据；S5 再收齐矩阵和连跑三次。真实 Storage 的 UUID 冲突重放测试放 S1 模型接入 store 时，S2 仍保持纯判定。Context 说“体积在 S8 量”但只有 S0–S6，统一写到 S6。
+
+## 未发现问题的方面
+
+- **已实测：当前工具链能运行该依赖。** `@dnd-kit/vue/dom/abstract` 锁为 `0.5.0`，Vue `3.5.39`、Vite `8.1.4`、plugin-vue `6.0.7`；Bun `1.4.2`、Node `v26.10.0`。开发探针在 `noDiscovery:true`、仅预构建 `vue` 与 `@vue/reactivity` 时可运行；生产构建与预览的 Space/Arrow/Escape 也正常。没有证据支持“未预构建必然 CJS 崩溃”；正式接入仍应遵守固定 include 约定、显式登记实际直接导入包，不依赖传递提升。独立包体积不是产品增量。
+- **已核实：接口与许可有实际发布物。** Provider、Ref 源/目标登记、自定义碰撞、manager 当前坐标与 DragOverlay 均有发布实现与类型；Vue peer 是 `^3.5.0`。dnd 六包和 signals-core 为 MIT，tslib 为 0BSD，未发现许可阻断。`0.5.0` 无 prerelease 标记，风险表宜写“0.x API 版本线”，产品产物版权/许可留存另在 S6 核对。固定首方版本见 [发布元数据](https://registry.npmjs.org/@dnd-kit%2Fvue/0.5.0) 与 [KeyboardSensor 源码](https://github.com/clauderic/dnd-kit/blob/cc98bdd52c06e55221e8cf77aaa0c2ec0f55b86f/packages/dom/src/core/sensors/keyboard/KeyboardSensor.ts)。
+- **从代码推断：三层 Teleport 不要求新实例层。** Vue provide/inject 随逻辑组件树，不随 DOM 搬家；Provider 应包住 `WorkbenchShellLayout` 与并列 `WorkbenchViewInstances` 两者，而不是只包布局的网格或 Part DOM。当前容器/视图各有唯一常驻宿主与共用 `TeleportMemory`，可以复用。停放宿主仍在、只是 inert/零矩形，已在真实 Lab 装配观察到；不要把“存在 DOM”当作可命中。
+- **从代码推断：sash 已有仲裁，不需要再造手势调度器。** `useSashGesture.ts:326-350,536-549` 在 scope 根的捕获阶段选赢家，成功后阻断 dnd-kit 源的冒泡 pointerdown；`nested-grid.md:43` 定义独立 renderer 的赢家。此处未运行二者组合手势，实施验收保留热区抢占与非热区起拖检查。
+- **已核实坐标合同：反馈不需要新坐标转换层。** `grid-drop.ts:1-10`、`DropFeedbackOverlay.vue:5-23,293-295,358-371` 都用 viewport client 坐标；Overlay 自己 Teleport 到 body、fixed、不拦指针。从实际 `getBoundingClientRect` 读源/目标，不能把 Grid 的局部布局数直接当 client 坐标，也不乘 DPR。共享 Overlay 已负责内缩与过渡；工作台只提供语义几何和文案。
+- **从代码推断：模型 / 判定 / 会话 / 保存的分工合理。** 一次意图合成按字段补丁，store 冲突重放同一补丁；纯判定一次返回动作与预览，释放复核最后已显示动作，与 Spec 一致。旧实现的稳定来源比例回退、真实可见矩形/遮挡 reader、动作比较都可参考，不需要改 nb-ui 的 50% / 插入位原语。
+- **已实测：Playwright 能稳定发出两种真实输入。** Node + 本机 Chrome 的三轮探针均通过，不用固定等待或假事件。该结果只证明输入机制与最小源/目标；九行行为表、三个区域四条空态路径、Storage、结构变化取消仍要在 t67 实现后验收。
+
+## 实施接线与验收分工
+
+这些是已定合同的落地检查，不额外计为发现，也不要求新通用模块。
+
+| 边界 | 最小接法与可观察判据 |
+|---|---|
+| Provider / 登记生命周期 | 同一个 Provider 包布局与实例兄弟；源和几何 reader 跟稳定宿主登记，元素替换/卸载只注销自己那一份，不能由旧 ref 的 null 抹掉新登记。取消时清业务会话并停止库 manager；两种 Overlay、帧、监听、观察器均释放。 |
+| 目标几何 | 按 presentation 顺序读当前容器、当前分节；缺失应呈现成员使整份几何无效，被裁掉/零面积成员不冒充新锚点。过滤 hidden/inert/断连、祖先 overflow 裁剪和浮层遮挡。View 标题/动作与正文应按合同区分。 |
+| 来源比例 | 活动可测来源在释放时读当前源轴；未活动容器用当前轴展开意图，`ViewSlot.size === null` 需和 `VIEW_DEFAULT_SIZE=240` 的实际权重一致；hidden 随归属迁移、不占比例。不能用停放零矩形、32px 收起条或另一轴像素充当展开来源比例。 |
+| S1 / 真实 store | 四种意图、同容器原位与排序、全部实际成员、非法整批拒绝、两个逐数例子、自建容器搬空清理；真实 Storage 验 UUID 冲突复用、未知字段保留、刷新一致与零写入。 |
+| S2 纯判定 | 九行逐行、同区锚点不降级、50% 中点后半、跨轴/禁投方向、空区和空带、全收起剩余区、缺几何/非法成员/失效目标、preview 与 intent 同源。 |
+| DOM / Lab Chrome | DOM 测受控标签、禁用/聚焦/idle 键盘、菜单过期与注销；真实 Chrome 测裁剪、遮挡、源尺寸保留、拖影图标文字、唯一插线、反馈连续过渡、停住时 scroll/resize 重算和取消清理。 |
+| S5 产品 Chrome | 先独立建立可观测初态和合适几何，鼠标 down→越 6px→等 overlay/preview→up；键盘聚焦合法 handle→Space→等拿起→Arrow/Tab→等语义反馈→Enter/Escape。有效释放核对 `afterRevision === beforeRevision + 1`、完整记录、来源/目标成员、实例编号/输入/滚动；拒绝与取消核对 `afterRevision === beforeRevision`，不能只用 `revision > before` 证明一次提交。失效发生在可观察拖动后再触发，不能只让内部函数接受伪造时序。 |
+
+## 本次命令与证据
+
+实验根为 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/impl/`，下表的相对产物路径均在此根内。所有启动均设置 `NBOOK_AGENT_TEMP_ROOT` 为该根；服务只使用 5197、5198、5199。
+
+| 实际命令或操作 | 结果与覆盖边界 |
+|---|---|
+| worktree 根：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/impl prox bun install --frozen-lockfile --ignore-scripts` | 退出 0，1560 packages installed；不代表产品拖放已通过。 |
+| `bun --version`；`node --version` | `1.4.2`；`v26.10.0`。 |
+| `dependency/` 内 `bun run dev` | Bun 启动 Vite `8.1.4`，5197；默认 noDiscovery 探针实际完成指针与键盘路径。 |
+| `dependency/` 内 `bun run build` | 退出 0，27 modules；JS 165.60 kB / gzip 58.47 kB。这是包含 Vue 与探针页的独立产物，不是产品增量。后续仅修改观测坐标与新增独立 Lab 页，未重新构建；生产结果对应这次已构建版本。 |
+| `dependency/` 内 `bunx --bun vite preview --host 127.0.0.1 --port 5199 --strictPort` | 已构建产物 Space 拿起、Arrow 当前 x +10、Escape 取消，errors=[]；`dependency-production.json`。 |
+| worktree 根：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/impl node /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/impl/playwright-smoke.mjs` | 退出 0，Chrome `151.0.7922.71`，三轮 pointer/Enter 各结束 1 次、Escape 零提交；`playwright-three-runs.json`。 |
+| `dependency/` 内 `bunx --bun vite --config vite.actual.config.js --host 127.0.0.1 --port 5198 --strictPort` | 读取真实产品 Vite/UnoCSS、组件与 Lab fixture，所有 cache/output 改到实验目录；三层实例停放、菜单搬空和真实网格比例实测见 `actual-shell-structure.json`、`actual-empty-auxiliarybar.json`、`actual-empty-panel.json`、`actual-ratio.json`。实验没有启动内核/Storage，不算产品 e2e 或主题验收。 |
+| 内置浏览器：`/?real=1` 的真实 Tabs 登记探针 | 原始状态 `real-tabs-keyboard.json`、`real-tabs-arrow-current.json`、`real-tabs-pointer.json`；视觉 `real-tabs-pointer.png`。|
+
+外壳适配探针初次因实验 root 的依赖解析、Vue compiler 的 TypeScript 载入与 typebox 子路径 alias 顺序失败，均在实验配置修正后完成上述场景；这些不列为产品缺陷。真实 Tabs 初版通过组件 `$el` 查询失败，改用外层真实 DOM ref；最终交互观测 errors=[]。其他工具参数错误未作为产品证据。
+
+实验资源已收口：两个内置浏览器标签均释放，Node Playwright 的 Chrome 在 `finally` 关闭。5197 开发探针、5198 外壳适配、5199 生产预览均发送 `Ctrl+C` 停止，宿主报告三个服务退出码均为 1；这是人工中断常驻服务的结果，不作构建或 smoke 的失败。保留实验目录中的脚本、JSON 与截图供交叉审查复核。
+
+最终在审查 worktree 执行 `git status --short --untracked-files=normal`，退出 0、无输出；未发现 tracked/untracked 仓库文件变更。测试切片的源码发现已交叉核对并合入 I-04/I-05，不重复计数。其“1440×2080 仍 clip”转述不采纳：实际记录是容器主轴 1440px 时夹取、2080px 时符合比例。场地不足评级为重要；Spec 验收 23 已声明“空间满足最小尺寸”，这是补齐可运行场地，不是行为合同阻断。也不从 Grid 夹取推导“小场地必须零提交”的新规则。
+
+**未运行 / 未验证**：仓库产品 build、既有全量 e2e、typecheck、`test:affected`、`smoke:server`、`docs:check`、`governance:check`；尚未实现的完整拖放/九行/Tab 换区/Storage 冲突/结构取消；触摸、各 DPR 对照、Firefox/Safari/Edge、产品增量体积与分发 notice。审查未写仓库文件，因此不运行无关产品门禁。
+
+## 开发者待决点与数量
+
+- 既有待追认项只有 `@dnd-kit/vue ^0.5.0` 选型。本次接口、许可与最小运行证据支持继续按推荐；无需因为待追认停工。
+- Tabs 小扩展与工作台完整替换属于可逆实施取舍，优先小扩展；键盘适配、空态可达和验收场地是既定合同，不需要另作产品决定。
+- 本次没有新增需要开发者裁定的产品规则或不可逆动作。反思中涉及的版本 API 查证、真实几何验收与少部件设计已由现有规范覆盖，不另提全局回写。
+
+| 严重程度 | 数量 | 编号 |
+|---|---:|---|
+| 阻断 | 0 | — |
+| 重要 | 3 | I-02、I-01、I-04 |
+| 建议 | 2 | I-03、I-05 |
+
