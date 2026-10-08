@@ -46,15 +46,13 @@ function point(id: string, calls: {count: number} = {count: 0}): ContributionPoi
     };
 }
 
-/** 插件至少要有一个入口；这些插件只有声明，入口什么也不做。 */
-const IDLE = [{id: "main", location: "server", activate: () => ({})}];
-
+/** 这些插件只有贡献点或顶层声明，没有入口：只含声明的定义照常登记（runtime.plugins 实现合同）。 */
 function owner(id: string, points: ReadonlyArray<string>, calls?: {count: number}): PluginDefinition {
-    return {id, contributionPoints: points.map((point_) => point(point_, calls)), entries: IDLE};
+    return {id, contributionPoints: points.map((point_) => point(point_, calls)), entries: []};
 }
 
 function contributor(id: string, contributions: ReadonlyArray<{readonly capability: string; readonly id: string; readonly declaration: Ref}>): PluginDefinition {
-    return {id, contributions, entries: IDLE};
+    return {id, contributions, entries: []};
 }
 
 /** 入口激活时拿到的查询。 */

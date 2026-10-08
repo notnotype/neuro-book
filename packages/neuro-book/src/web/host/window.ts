@@ -17,13 +17,14 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import {Value} from "typebox/value";
 
-import {delegatingPlugins} from "nbook/manifest";
+import {definitionAt, delegatingPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
 import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
-import {windowNavigationKey} from "nbook/shared/host";
+import {clockKey, windowConnectionKey, windowNavigationKey} from "nbook/shared/host";
+import type {WindowConnection, WindowConnectionState} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
 
@@ -136,6 +137,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
 
         const instanceId = crypto.randomUUID();
         const store = createDiagnosticsStore({identity: {location: "browser", instanceId}});
+        const link = createLinkState((error) => store.record({level: "warn", event: "browser-host.connection-listener.failed", message: "连接状态的监听抛错", error}));
         const node = createRemoteNode({
             instance: {id: instanceId, kind: "browser", role: "client", project: null, client: clientIdentity},
             bind: options.project === undefined || options.project === null ? null : {project: options.project},
@@ -147,6 +149,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             node,
             clock,
             onState: (next, reason) => {
+                if (next === "online" || next === "offline") link.set(next);
                 // 只改写这一次启动的 ready；窗口已关闭或已换成别的状态时不再理会旧链路。
                 if (state.status !== "ready" || state.instanceId !== instanceId) return;
                 if (next === "online" || next === "offline") setState({...state, connection: next});
@@ -166,6 +169,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             current.close();
             return;
         }
+        link.set("online");
         let root: WorkbenchRoot | null = null;
         // 首连之后绑定已定，窗口一生不变。
         const project: WindowProject["project"] = node.binding === null ? null : {id: node.binding.id, name: node.binding.name, generation: node.binding.generation};
@@ -188,6 +192,8 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                     capabilities: [
                         {id: "window.project", key: windowProjectKey, create: () => Object.freeze({project})},
                         {id: "window.navigation", key: windowNavigationKey, create: () => navigation},
+                        {id: "window.connection", key: windowConnectionKey, create: () => link.connection},
+                        {id: "clock", key: clockKey, create: () => clock},
                     ],
                     plugins,
                     requiredPlugins: REQUIRED_PLUGINS,
@@ -279,15 +285,51 @@ function selectPlugins(
         if (local === undefined || local.version !== plugin.version) {
             throw new BootstrapRejected("incompatible", `本页面没有服务端启用的浏览器插件 ${plugin.id}@${plugin.version}`);
         }
+        if (isBrowserHostPlugin(plugin.id)) {
+            selected.push({id: plugin.id, kind: "host", factory: hostPlugins[plugin.id]});
+            continue;
+        }
+        // 没有浏览器入口的插件只登记描述里的顶层声明（runtime/plugin-manifest.md 输出 11）。
         const definition = definitions[plugin.id];
-        if (isBrowserHostPlugin(plugin.id)) selected.push({id: plugin.id, kind: "host", factory: hostPlugins[plugin.id]});
-        else if (definition !== undefined) selected.push({id: plugin.id, kind: "definition", definition});
-        else throw new BootstrapRejected("startup-failed", `浏览器插件 ${plugin.id} 没有装配定义`);
+        if (local.locations.includes("browser") && definition === undefined) throw new BootstrapRejected("startup-failed", `浏览器插件 ${plugin.id} 没有装配定义`);
+        try {
+            selected.push({id: plugin.id, kind: "definition", definition: definitionAt("browser", local, definition)});
+        } catch (error) {
+            throw new BootstrapRejected("startup-failed", describe(error));
+        }
     }
     for (const id of REQUIRED_PLUGINS) {
         if (!selected.some((item) => item.id === id)) throw new BootstrapRejected("startup-failed", `引导集合缺少必需插件 ${id}`);
     }
     return {selected, endpoint: raw.rpc};
+}
+
+/** 一次启动的链路状态与交给插件的只读视图；监听抛错交给 `report`，不影响其它监听与链路。 */
+function createLinkState(report: (error: unknown) => void): {readonly connection: WindowConnection; set(next: WindowConnectionState): void} {
+    let current: WindowConnectionState = "offline";
+    const listeners = new Set<(state: WindowConnectionState) => void>();
+    return {
+        connection: Object.freeze({
+            state: () => current,
+            onChange(listener: (state: WindowConnectionState) => void): () => void {
+                listeners.add(listener);
+                return () => {
+                    listeners.delete(listener);
+                };
+            },
+        }),
+        set(next) {
+            if (next === current) return;
+            current = next;
+            for (const listener of [...listeners]) {
+                try {
+                    listener(next);
+                } catch (error) {
+                    report(error);
+                }
+            }
+        },
+    };
 }
 
 function describe(error: unknown): string {

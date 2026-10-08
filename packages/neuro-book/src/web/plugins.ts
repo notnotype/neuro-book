@@ -1,5 +1,5 @@
 /**
- * 浏览器插件装配：产品清单里有浏览器入口的插件，在这里对应一份定义。与 `src/server/plugins.ts` 对称：普通插件的
+ * 浏览器插件装配：产品清单里有浏览器入口的插件，在这里对应一份定义；只有顶层声明式贡献的插件由宿主按描述生成定义。与 `src/server/plugins.ts` 对称：普通插件的
  * 定义是常量，宿主的东西经宿主能力取得；只有诊断是宿主适配器的工厂（docs/adr/0026-plugin-definitions-as-constants.md）。
  * 清单写了浏览器入口而两张表都没有时，窗口以启动失败结束，不静默少装。
  */
@@ -7,7 +7,7 @@
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {productPlugins} from "nbook/manifest";
+import {pluginsAt, productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
@@ -46,5 +46,5 @@ export const browserHostPlugins: Readonly<Record<BrowserHostPluginId, BrowserHos
     "nbook.diagnostics": (context) => createBrowserDiagnosticsPlugin({store: context.store, console: context.console}),
 };
 
-/** 本外壳构建进去的浏览器插件：清单中有浏览器运行位置的插件。 */
-export const builtinBrowserPlugins: ReadonlyArray<PluginDescriptor> = productPlugins.filter((plugin) => plugin.locations.includes("browser"));
+/** 本外壳构建进去的浏览器插件：清单中有浏览器运行位置的插件，加上只有顶层声明式贡献的插件（只登记它们的声明）。 */
+export const builtinBrowserPlugins: ReadonlyArray<PluginDescriptor> = pluginsAt("browser", productPlugins);

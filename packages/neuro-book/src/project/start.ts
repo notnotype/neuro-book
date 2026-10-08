@@ -10,6 +10,7 @@ import {writeSync} from "node:fs";
 
 import type {StartupResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency, serializeDiagnosticError} from "@notnotype/nb-runtime/diagnostics";
+import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import type {InstanceDescriptor} from "@notnotype/nb-runtime/remote";
@@ -20,6 +21,7 @@ import {startServerHost} from "nbook/server/host";
 import type {FatalKind, ProcessEvents, ServerHost} from "nbook/server/host";
 import {createEnvelopeLink, parseEnvelope} from "nbook/server/projects/ipc";
 import type {EnvelopeChannel} from "nbook/server/projects/ipc";
+import {clockKey} from "nbook/shared/host";
 import {currentProjectKey} from "nbook/shared/projects";
 
 import type {ProjectConfig} from "./config";
@@ -124,7 +126,7 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
         instanceId: instance.id,
         location: "project",
         manifest: {
-            capabilities: [{id: "project.current", key: currentProjectKey, create: () => current}],
+            capabilities: [{id: "project.current", key: currentProjectKey, create: () => current}, {id: "host.clock", key: clockKey, create: () => systemClock}],
             plugins,
             requiredPlugins: plugins.map((plugin) => plugin.id),
             gates: [],

@@ -7,6 +7,7 @@
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
+import {definitionAt, pluginsAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/plugin";
@@ -60,19 +61,16 @@ export const serverHostPlugins: Readonly<Record<ServerHostPluginId, ServerHostPl
     }),
 };
 
-/** 清单里一个有后端入口的插件对应的定义；两张表都没有时直接失败，不静默少装。 */
-export function serverPlugin(id: string, context: ServerPluginContext): PluginDefinition {
-    const definition = isServerHostPlugin(id) ? serverHostPlugins[id](context) : serverPluginDefinitions[id];
-    if (definition === undefined) throw new Error(`清单中的插件 ${id} 没有后端入口定义`);
-    if (definition.id !== id) throw new Error(`后端入口定义的插件 id ${definition.id} 与清单 ${id} 不一致`);
-    return definition;
+/** 清单里一个有后端入口的插件对应的定义（还没并上描述的顶层贡献）；两张表都没有时为 undefined。 */
+export function serverPlugin(id: string, context: ServerPluginContext): PluginDefinition | undefined {
+    return isServerHostPlugin(id) ? serverHostPlugins[id](context) : serverPluginDefinitions[id];
 }
 
 function isServerHostPlugin(id: string): id is ServerHostPluginId {
     return Object.hasOwn(serverHostPlugins, id);
 }
 
-/** 按清单装配后端插件。 */
+/** 按清单装配服务端实例的插件：有后端入口的，加上只有顶层声明式贡献的；有后端入口而两张表都没有时直接失败。 */
 export function manifestServerPlugins(context: ServerPluginContext): PluginDefinition[] {
-    return context.manifest.filter((plugin) => plugin.locations.includes("server")).map((plugin) => serverPlugin(plugin.id, context));
+    return pluginsAt("server", context.manifest).map((plugin) => definitionAt("server", plugin, plugin.locations.includes("server") ? serverPlugin(plugin.id, context) : undefined));
 }

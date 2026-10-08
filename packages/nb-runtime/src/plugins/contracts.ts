@@ -149,8 +149,8 @@ export interface DelegatedRemoteAccess {
 }
 
 /**
- * 插件描述：插件包一级的身份、版本与有入口的运行位置，写在插件目录的 `plugin.ts`。宿主按它装配各运行位置的
- * 入口、核对两端的插件集合；内核登记的是各运行位置的插件定义，不读它。插件清单文件实现后
+ * 插件描述：插件包一级的身份、版本、有入口的运行位置与顶层声明式贡献，写在插件目录的 `plugin.ts`。宿主按它
+ * 装配各运行位置的入口、核对两端的插件集合；内核登记的是各运行位置的插件定义，不读它。插件清单文件实现后
  * （docs/specs/runtime/plugin-manifest.md）由清单生成。
  */
 export interface PluginDescriptor {
@@ -158,6 +158,11 @@ export interface PluginDescriptor {
     /** semver。 */
     readonly version: string;
     readonly locations: ReadonlyArray<RuntimeLocation>;
+    /**
+     * 只有声明、不需要实现的顶层贡献（例如设置项）。宿主把它们登记进每个运行实例，不论本位置有没有入口
+     * （plugin-manifest.md 输出 11）；插件定义不再另写顶层 `contributions`。
+     */
+    readonly contributions?: ReadonlyArray<ContributionDeclaration>;
 }
 
 /** 随产品发布的静态描述；不是已激活实例。 */

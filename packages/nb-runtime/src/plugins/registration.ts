@@ -43,7 +43,8 @@ export function validateDefinition(definition: PluginDefinition, environment: Re
     if (definition.id.trim() === "") {
         rejections.push(rejection("empty-id"));
     }
-    if (definition.entries.length === 0) {
+    // 只含顶层声明式贡献或贡献点的定义是合法的：设置项这类声明要在每个实例登记，本位置不一定有入口。
+    if (definition.entries.length === 0 && (definition.contributions ?? []).length === 0 && (definition.contributionPoints ?? []).length === 0) {
         rejections.push(rejection("no-entries"));
     }
 

@@ -12,6 +12,7 @@ import {EventEmitter} from "node:events";
 import {mkdir, rm} from "node:fs/promises";
 import {join} from "node:path";
 
+import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import type {RemoteResult} from "@notnotype/nb-runtime/remote";
@@ -33,6 +34,8 @@ import {startTcpProxy} from "nbook/server/testing/tcp-proxy";
 import {createRemoteProbePlugin, newRemoteProbeState} from "nbook/server/testing/test-plugins";
 import type {RemoteProbeState} from "nbook/server/testing/test-plugins";
 import {BROWSER_BOOTSTRAP_PATH, BROWSER_PROTOCOL_VERSION} from "nbook/shared/browser-bootstrap";
+import {clockKey, windowConnectionKey} from "nbook/shared/host";
+import type {WindowConnectionState} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
 import {projectProbeContract, remoteProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
@@ -267,6 +270,36 @@ describe("窗口运行实例", () => {
         stub.stop();
     });
 
+    it("只有顶层声明的插件：引导集合列出它，窗口登记它的声明而不需要定义；描述写了浏览器入口却没有定义仍启动失败", async () => {
+        // test.notes-owner 定义一个只有声明的贡献点并在激活时读声明；test.notes 没有任何入口，只在描述里声明一条。
+        const seen: {listed: string[] | null} = {listed: null};
+        const owner = {
+            descriptor: {id: "test.notes-owner", version: "0.1.0", locations: ["browser"] as const},
+            definition: {
+                id: "test.notes-owner",
+                contributionPoints: [{id: "test.notes", implementation: "none" as const, validate: () => null}],
+                entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], activate: (context: ActivationContext) => {
+                    seen.listed = context.declarations.list("test.notes").map((declaration) => `${declaration.plugin}:${declaration.id}`);
+                    return {};
+                }}],
+            } satisfies PluginDefinition,
+        };
+        const declarationOnly: PluginDescriptor = {id: "test.notes", version: "0.1.0", locations: [], contributions: [{capability: "test.notes", id: "test.notes/first", declaration: {}}]};
+        const builtin = [...builtinBrowserPlugins, owner.descriptor, declarationOnly];
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins: builtin.map(({id, version}) => ({id, version}))}));
+        const {browserWindow} = openWindow({url: stub.url, builtin, definitions: {...browserPluginDefinitions, [owner.descriptor.id]: owner.definition}});
+        await browserWindow.start();
+        expect(browserWindow.state.status).toBe("ready");
+        expect(seen.listed).toEqual(["test.notes:test.notes/first"]);
+        await browserWindow.stop();
+
+        const missing = {...declarationOnly, locations: ["browser"] as const};
+        const {browserWindow: broken} = openWindow({url: stub.url, builtin: [...builtinBrowserPlugins, owner.descriptor, missing], definitions: {...browserPluginDefinitions, [owner.descriptor.id]: owner.definition}});
+        await broken.start();
+        expect(failureOf(broken.state)).toMatchObject({status: "startup-failed", reason: expect.stringContaining("test.notes")});
+        stub.stop();
+    });
+
     it("宿主适配器的表只收适配器：普通插件放进去编译不过", () => {
         const options: Partial<BrowserWindowOptions> = {
             // @ts-expect-error 普通插件的定义是常量，不能经宿主适配器的工厂取宿主上下文
@@ -336,6 +369,10 @@ interface CallerRecord {
     readonly ticks: number[];
     resyncs: number;
     readonly ends: string[];
+    /** 宿主能力 `windowConnectionKey`：激活时的状态，加上之后的每次变化。 */
+    readonly connection: WindowConnectionState[];
+    /** 宿主能力 `clockKey` 交出的时钟。 */
+    clock: RuntimeClock | null;
 }
 
 /**
@@ -352,7 +389,12 @@ function remoteCaller(record: CallerRecord, holdName: string | null = null): {de
                 id: "browser",
                 location: "browser",
                 activationEvents: ["onStartup"],
+                dependencies: [{key: windowConnectionKey}, {key: clockKey}],
                 activate: async (context) => {
+                    const link = context.services.require(windowConnectionKey);
+                    record.connection.push(link.state());
+                    link.onChange((state) => record.connection.push(state));
+                    record.clock = context.services.require(clockKey);
                     const atServer = context.remote.use(remoteProbeContract);
                     record.echo = await atServer.echo({});
                     record.instances = await context.remote.instances();
@@ -371,7 +413,7 @@ function remoteCaller(record: CallerRecord, holdName: string | null = null): {de
 }
 
 function newRecord(): CallerRecord {
-    return {echo: null, instances: null, ticks: [], resyncs: 0, ends: []};
+    return {echo: null, instances: null, ticks: [], resyncs: 0, ends: [], connection: [], clock: null};
 }
 
 /** 引导集合加上 `test.remote-caller`，RPC 端点由 `rpc()` 给出（每次引导时取，可以随测试改变）。 */
@@ -412,6 +454,7 @@ describe("窗口的远程服务链路（场景 6、8、9）", () => {
         expect(ready.connection).toBe("online");
         expect(record.echo).toEqual({ok: true, value: {instanceId: ready.instanceId, location: "browser", plugin: "test.remote-caller", entry: "browser", generation: 1}});
         expect(record.instances?.ok ? record.instances.value.find((instance) => instance.id === ready.instanceId) : record.instances).toMatchObject({client: "profile-test"});
+        expect(record.connection).toEqual(["online"]);
         await browserWindow.stop();
         stub.stop();
     });
@@ -480,6 +523,9 @@ describe("窗口的远程服务链路（场景 6、8、9）", () => {
         await waitUntil("再次离线", () => browserWindow.state.status === "ready" && browserWindow.state.connection === "offline");
         clock.advance(500);
         await waitUntil("再次回到在线", () => browserWindow.state.status === "ready" && browserWindow.state.connection === "online");
+        // 插件经宿主能力看到同样的变化，拿到的时钟就是窗口的时钟。
+        expect(record.connection).toEqual(["online", "offline", "online", "offline", "online"]);
+        expect(record.clock).toBe(clock);
         await browserWindow.stop();
         stub.stop();
         proxy.stop();

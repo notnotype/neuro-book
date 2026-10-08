@@ -10,7 +10,7 @@ import {join} from "node:path";
 import {Value} from "typebox/value";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {productPlugins} from "nbook/manifest";
+import {pluginsAt, productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {BROWSER_BOOTSTRAP_PATH, BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema} from "nbook/shared/browser-bootstrap";
 
@@ -47,7 +47,7 @@ describe("浏览器引导接口", () => {
         expect(text).not.toContain(tmp);
         const body: unknown = JSON.parse(text);
         expect(Value.Check(BrowserBootstrapSchema, body)).toBe(true);
-        const expected = productPlugins.filter((plugin) => plugin.locations.includes("browser")).map(({id, version}) => ({id, version}));
+        const expected = pluginsAt("browser", productPlugins).map(({id, version}) => ({id, version}));
         expect(body).toMatchObject({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: {port: Number(new URL(server.rpcUrl).port), path: "/"}});
         expect((body as {plugins: unknown[]}).plugins).toEqual(expect.arrayContaining(expected));
         expect((body as {plugins: unknown[]}).plugins).toHaveLength(expected.length);
@@ -63,5 +63,15 @@ describe("浏览器引导接口", () => {
         expect(browserBootstrap([a, b], {port: 4200, path: "/"}).revision).toBe(revision);
         expect(browserBootstrap([{...a, version: "1.0.1"}, b], rpc).revision).not.toBe(revision);
         expect(browserBootstrap([a], rpc).revision).not.toBe(revision);
+    });
+
+    it("只有顶层声明式贡献的插件也列出（浏览器要登记它的声明），只有服务端入口、没有声明的不列；声明的插件版本变化改变修订号", () => {
+        const browser: PluginDescriptor = {id: "a", version: "1.0.0", locations: ["browser"]};
+        const declared: PluginDescriptor = {id: "d", version: "1.0.0", locations: ["server"], contributions: [{capability: "settings.properties", id: "d/x", declaration: {}}]};
+        const serverOnly: PluginDescriptor = {id: "s", version: "1.0.0", locations: ["server"]};
+        const rpc = {port: 4100, path: "/"};
+        const body = browserBootstrap([serverOnly, declared, browser], rpc);
+        expect(body.plugins).toEqual([{id: "a", version: "1.0.0"}, {id: "d", version: "1.0.0"}]);
+        expect(browserBootstrap([serverOnly, {...declared, version: "1.0.1"}, browser], rpc).revision).not.toBe(body.revision);
     });
 });

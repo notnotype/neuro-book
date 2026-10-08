@@ -5,9 +5,10 @@
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {developmentPlugins} from "nbook/development-manifest";
+import {pluginsAt} from "nbook/manifest";
 import {labBrowserPlugin} from "nbook/plugins/lab/web/plugin";
 
-export const developmentBrowserPlugins = developmentPlugins.filter((plugin) => plugin.locations.includes("browser"));
+export const developmentBrowserPlugins = pluginsAt("browser", developmentPlugins);
 
 export const developmentBrowserPluginDefinitions: Readonly<Record<string, PluginDefinition>> = {
     "nbook.lab": labBrowserPlugin,

@@ -4,6 +4,7 @@
  * `currentProjectKey`）在 `projects.ts`。
  */
 
+import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
@@ -24,3 +25,21 @@ export interface WindowNavigation {
 
 /** 浏览器宿主提供给本窗口的插件。 */
 export const windowNavigationKey: ServiceKey<WindowNavigation> = defineServiceKey<WindowNavigation>("nbook/window-navigation");
+
+/**
+ * 宿主的时钟：插件的计时、合并与截止经它（例如配置文件变化后的合并重读）。三个宿主都提供系统时钟；测试场地换成
+ * `ManualClock`，不用固定等待。
+ */
+export const clockKey: ServiceKey<RuntimeClock> = defineServiceKey<RuntimeClock>("nbook/clock");
+
+/** 本窗口远程服务链路的在线状态。首连成功之前是 `offline`；服务端换进程、项目代次结束这类终态之后窗口整体失效。 */
+export type WindowConnectionState = "online" | "offline";
+
+export interface WindowConnection {
+    state(): WindowConnectionState;
+    /** 状态变化时调用；返回取消函数。监听抛错只记诊断，不影响其它监听与链路。 */
+    onChange(listener: (state: WindowConnectionState) => void): () => void;
+}
+
+/** 浏览器宿主提供给本窗口的插件；建立失败的远程订阅不会被内核重建，插件据此在回到在线时重新订阅。 */
+export const windowConnectionKey: ServiceKey<WindowConnection> = defineServiceKey<WindowConnection>("nbook/window-connection");

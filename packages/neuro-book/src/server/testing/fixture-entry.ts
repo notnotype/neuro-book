@@ -7,7 +7,7 @@
 
 import {join} from "node:path";
 
-import {productPlugins} from "nbook/manifest";
+import {definitionAt, pluginsAt, productPlugins} from "nbook/manifest";
 import {readServerConfig} from "nbook/server/config";
 import {serverPlugin} from "nbook/server/plugins";
 import {startServer} from "nbook/server/start";
@@ -28,7 +28,7 @@ const server = startServer({
     projectEntry: join(import.meta.dir, "..", "..", "project", "testing", "fixture-entry.ts"),
     // 产品插件按产品清单取定义（测试插件不在产品的表里），宿主适配器拿到的上下文仍是含测试插件的清单。
     plugins: (context) => [
-        ...productPlugins.filter((plugin) => plugin.locations.includes("server")).map((plugin) => serverPlugin(plugin.id, context)),
+        ...pluginsAt("server", productPlugins).map((plugin) => definitionAt("server", plugin, plugin.locations.includes("server") ? serverPlugin(plugin.id, context) : undefined)),
         ...requested.map((id) => createTestPlugin(id as TestPluginId)),
     ],
     onListening: (url) => {

@@ -15,6 +15,7 @@ import {join} from "node:path";
 
 import type {Application, StartupResult, StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency, serializeDiagnosticError} from "@notnotype/nb-runtime/diagnostics";
+import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
@@ -23,7 +24,7 @@ import {delegatingPlugins, productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected} from "nbook/plugins/http/backend/admission";
 import type {DrainClock} from "nbook/plugins/http/backend/admission";
-import {stateRootKey} from "nbook/shared/host";
+import {clockKey, stateRootKey} from "nbook/shared/host";
 import {projectsKey} from "nbook/shared/projects";
 import {RPC_PATH} from "nbook/shared/rpc-socket";
 
@@ -241,6 +242,7 @@ export function startServer(options: StartServerOptions): RunningServer {
         manifest: {
             capabilities: [
                 {id: "host.state-root", key: stateRootKey, create: () => stateRoot},
+                {id: "host.clock", key: clockKey, create: () => systemClock},
                 {
                     id: "host.projects",
                     key: projectsKey,

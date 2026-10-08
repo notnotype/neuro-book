@@ -5,7 +5,8 @@
  * 各自按清单装配本侧入口，清单里写了某个运行位置、宿主却没有对应实现时装配直接失败。
  */
 
-import type {PluginDescriptor} from "@notnotype/nb-runtime/plugins";
+import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
+import type {PluginDefinition, PluginDescriptor} from "@notnotype/nb-runtime/plugins";
 
 import {descriptor as commands} from "./plugins/commands/plugin";
 import {descriptor as diagnostics} from "./plugins/diagnostics/plugin";
@@ -28,3 +29,23 @@ export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, htt
  * 三个宿主都按它给内核的 `delegation`；第一版只有内置插件，第三方插件一律不允许。
  */
 export const delegatingPlugins: ReadonlyArray<string> = [storage.id];
+
+/**
+ * 在某个运行位置登记的插件：本位置有入口的，加上描述里有顶层声明式贡献的（runtime/plugin-manifest.md 输出 11）。
+ * 只有浏览器入口的工作台声明的设置项，服务端也要知道，才能校验用户的设置文件。三个宿主的装配与浏览器引导都按它取集合。
+ */
+export function pluginsAt(location: RuntimeLocation, descriptors: ReadonlyArray<PluginDescriptor>): PluginDescriptor[] {
+    return descriptors.filter((descriptor) => descriptor.locations.includes(location) || (descriptor.contributions ?? []).length > 0);
+}
+
+/**
+ * 一个插件在本位置登记的定义：描述写了本位置时必须有定义（`definition`），并上描述的顶层贡献；没写时只登记顶层
+ * 贡献（`entries` 为空）。描述写了本位置却没有定义、或定义的 id 不符，直接失败，不静默少装。
+ */
+export function definitionAt(location: RuntimeLocation, descriptor: PluginDescriptor, definition: PluginDefinition | undefined): PluginDefinition {
+    const contributions = descriptor.contributions ?? [];
+    if (!descriptor.locations.includes(location)) return {id: descriptor.id, entries: [], contributions};
+    if (definition === undefined) throw new Error(`清单中的插件 ${descriptor.id} 没有 ${location} 入口定义`);
+    if (definition.id !== descriptor.id) throw new Error(`${location} 入口定义的插件 id ${definition.id} 与清单 ${descriptor.id} 不一致`);
+    return contributions.length === 0 ? definition : {...definition, contributions: [...(definition.contributions ?? []), ...contributions]};
+}

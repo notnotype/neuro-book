@@ -7,6 +7,7 @@
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
+import {definitionAt, pluginsAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/plugin";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
@@ -36,14 +37,10 @@ export const projectHostPlugins: Readonly<Record<ProjectHostPluginId, ProjectHos
     "nbook.diagnostics": (context) => createServerDiagnosticsPlugin({store: context.store, exporter: {directory: context.config.logDirectory}, location: "project"}),
 };
 
-/** 按清单装配项目入口；清单写了 `project` 入口而两张表都没有时直接失败，不静默少装。 */
+/** 按清单装配项目实例的插件：有项目入口的，加上只有顶层声明式贡献的；有项目入口而两张表都没有时直接失败。 */
 export function manifestProjectPlugins(context: ProjectPluginContext): PluginDefinition[] {
-    return context.manifest
-        .filter((plugin) => plugin.locations.includes("project"))
-        .map((plugin) => {
-            const definition = plugin.id === "nbook.diagnostics" ? projectHostPlugins[plugin.id](context) : projectPluginDefinitions[plugin.id];
-            if (definition === undefined) throw new Error(`清单中的插件 ${plugin.id} 没有项目入口定义`);
-            if (definition.id !== plugin.id) throw new Error(`项目入口定义的插件 id ${definition.id} 与清单 ${plugin.id} 不一致`);
-            return definition;
-        });
+    return pluginsAt("project", context.manifest).map((plugin) => {
+        if (!plugin.locations.includes("project")) return definitionAt("project", plugin, undefined);
+        return definitionAt("project", plugin, plugin.id === "nbook.diagnostics" ? projectHostPlugins[plugin.id](context) : projectPluginDefinitions[plugin.id]);
+    });
 }

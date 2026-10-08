@@ -238,6 +238,17 @@ describe("描述登记", () => {
         expect(commands.prepare).not.toHaveBeenCalled();
     });
 
+    it("只含顶层贡献或贡献点、没有入口的定义照常登记，汇总为 available；什么都没有的定义仍是 no-entries", async () => {
+        const {host, root} = await setup("server", "declaration-only", {}, false);
+        accepted(host, {id: "decl", entries: [], contributions: [{capability: "settings", id: "decl/theme", declaration: {}}]}, root);
+        accepted(host, {id: "points", entries: [], contributionPoints: [{id: "points.things", implementation: "none", validate: () => null}]}, root);
+        const result = host.register({id: "nothing", entries: [], contributions: [], contributionPoints: []}, {scope: root});
+        expect(result.status === "rejected" ? result.rejections.map((rejection) => rejection.reason) : []).toEqual(["no-entries"]);
+        const plugins = host.catalog().plugins.filter((entry) => entry.id === "decl" || entry.id === "points");
+        expect(plugins.map((entry) => [entry.id, entry.summary, entry.entries.length])).toEqual([["decl", "available", 0], ["points", "available", 0]]);
+        expect(host.contribution("settings", "decl/theme")[0]).toMatchObject({plugin: "decl", entry: null});
+    });
+
     it("登记不创建资源、不调用 activate；目录列出依赖、提供项与贡献描述；其它位置的入口只进描述", async () => {
         const {host, root, assembly} = await setup("server", "catalog", {}, false);
         const activate = vi.fn(async () => ({contributions: {commands: {"p.run": () => "run"}}, services: [provide(clockKey, {now: () => 1})]}));
