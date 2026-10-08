@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: storage.persistence
 owners:
   - nbook.storage
@@ -174,6 +174,16 @@ type SubscribeResult = {ok: true; handle: {release(): void}} | {ok: false; code:
 8. **寿命**：服务端停止后 user 分区关闭，已打开的句柄为 `unavailable`；项目子进程退出前关闭 project 分区；一条订阅的 `onEnd` 抛错时，其余订阅照样结束、库照样关闭。
 
 Smoke：`smoke:server` 经打包产物保存、读回一条 user 记录，重启后读到同一个值；`e2e/storage.e2e.ts` 在本机 Chrome 里覆盖场景 3、4、7 与项目记录跨窗口共享。
+
+## 实现合同
+
+- **公开入口**：`nbook/shared/storage`（`defineRecord`、`StorageService`、`RecordHandle`、`RecordSnapshot`、`WriteResult`、`STORAGE_FAILURES`）；`nbook/plugins/storage/shared/contracts` 的 `storageKey` 与远程合同 `userStorageContract`、`projectStorageContract`；插件工厂 `createStorageServerPlugin`（服务端与项目实例共用，宿主给出位置与库路径）、`createStorageBrowserPlugin`。
+- **owner 与依赖方向**：`nbook.storage` 依赖内核的按调用方门面、远程服务与跨实例委托（`remoteDelegates`、`context.remote.on`），服务端与项目入口依赖 `nbook.diagnostics`，浏览器入口依赖窗口的项目绑定；分区库直接用 `bun:sqlite`。别的插件只依赖 `storageKey`，不依赖分区库与远程合同。
+- **关键不变量**：
+  - 分区库只在拥有它的实例里打开；别的实例经远程服务到达，拥有者按内核填写的调用方身份取 owner 与客户端身份，不信任输入里的身份（场景 1、2）。
+  - 先认库再改库：只有一张表都没有的库才在写锁里再认一次并建表，其余文件为 `io-error` 且不改写（输出 1、场景 5）。
+  - 条件写入在 `BEGIN IMMEDIATE` 事务里比较 revision 再写；通知在提交之后按提交顺序排队派发，监听跳过已收到的 revision，派发途中被停掉的监听不再收到（场景 4、7）。
+  - 一条订阅至多结束一次，结束早于建立返回时不登记为活订阅；服务对象释放与分区关闭逐条隔离 `onEnd` 的异常，全部收口后再报告第一个（场景 7、8）。
 
 ## 证据
 

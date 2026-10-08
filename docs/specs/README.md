@@ -165,6 +165,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | 内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式重启与停止、内核 RPC 端口与项目子进程；看门狗属 `runtime.stall-watchdog` |
 | 平台文件 | [`platform/files.md`](platform/files.md) | 受根约束的 I/O、授予隔离、watch 与锁、关闭门禁，不是业务文件树服务；**实现迁移中** |
 | SQLite 机制 | [`platform/sqlite.md`](platform/sqlite.md) | 具名资源 owner、连接借用、单库事务、代次与关闭，不自动迁移；**实现迁移中** |
+| Storage 插件记录 | [`storage/persistence.md`](storage/persistence.md) | `nbook.storage` 的记录定义、user 与 project 分区、读取分类、条件保存与订阅 |
 
 ## 待实现规范
 
@@ -174,7 +175,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 |---|---|---|
 | Workbench 外壳接入 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | Part、容器与视图的层级，拖放行为表与布局记录 |
 | Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config、Storage、内存与领域数据的归属，插件与 grid 的消费边界 |
-| Storage 插件记录 | [`storage/persistence.md`](storage/persistence.md) | `nbook.storage` 的记录定义、user 与 project 分区、读取分类、条件保存与订阅；**待晋升** |
 | 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量与宿主、scope 仲裁与绝对指针跟随 |
 | 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | 文件读写、目录与批量操作、无覆盖冲突、逐项失败与取消 |
 | 资源寻址与文件服务 | [`workspace/resources.md`](workspace/resources.md) | `方案://路径` 寻址、提供者注册与能力声明、写入来源与变更事件、bash 的真实路径规则 |
