@@ -26,17 +26,24 @@ taskId: t62-plugin-examples-in-app
 
 ## 当前状态
 
-进行中：实施计划见 [plan.md](plan.md)。开发者 2026-10-08 要求写好计划后派子代理在独立 worktree 实施，与 t61 的收口并行。拥有者定义的激活事件暂不演示（插件没有触发入口，见计划“不做与风险”）；开发者 2026-10-08 决定补上插件一侧，记为 [t63](../t63-plugin-activation-trigger/README.md)。
+2026-10-08 完成。实施计划见 [plan.md](plan.md)。开发者 2026-10-08 要求写好计划后派子代理在独立 worktree 实施，与 t61 的收口并行。拥有者定义的激活事件暂不演示（插件没有触发入口，见计划“不做与风险”）；开发者 2026-10-08 决定补上插件一侧，记为 [t63](../t63-plugin-activation-trigger/README.md)。
 
-子代理已在 `refactor/w00017-t62-examples` 完成 S0–S5，待主 Agent 审查与合回；实施中与计划不同的地方记在计划末尾的“实施中的调整”。
+子代理在 `refactor/w00017-t62-examples` 完成 S0–S5；主 Agent 审查后把分支变基到 `0fe5ad99`（t61 的修正之后）、快进合回 `refactor/w00017-runtime-foundation`，下表是变基后的提交。实施中与计划不同的地方记在计划末尾的“实施中的调整”。
 
 | 片 | 提交 | 结果 |
 |---|---|---|
-| S0 | `6bbe0225` | 注释规则给示例开教学例外（根 `AGENTS.md`、`common.md`）；`testing/` 约定写进测试规范；内核“零依赖”改为“运行时依赖只有 TypeBox” |
-| S1 | `6a3f7848` | `git mv` 把示例原样搬到 `packages/neuro-book/examples/`，两包 tsconfig 与 `AGENTS.md` 随之改，场景照旧通过 |
-| S2 | `6cdd21f2` | 架构检查拦住产品代码引用 `testing/`、内核 `*/testing` 入口与 `examples/`，示例插件按插件规则检查；三条规则各改成不报时反例用例失败 |
-| S3 | `0364a84c` | 新场地装真实内置插件；clock、notes（合并 notes、cloud-notes、greeter）重写；场景 01、02、05 |
-| S4 | `3f803a42` | counter（合并 board）、menu、file-menu 重写；场景 03、04；删去 board、旧场景 06 与旧场地 |
-| S5 | 本片 | `examples/README.md` 重写；收口验证 |
+| S0 | `90ddeb96` | 注释规则给示例开教学例外（根 `AGENTS.md`、`common.md`）；`testing/` 约定写进测试规范；内核“零依赖”改为“运行时依赖只有 TypeBox” |
+| S1 | `c360c358` | `git mv` 把示例原样搬到 `packages/neuro-book/examples/`，两包 tsconfig 与 `AGENTS.md` 随之改，场景照旧通过 |
+| S2 | `58cc112d` | 架构检查拦住产品代码引用 `testing/`、内核 `*/testing` 入口与 `examples/`，示例插件按插件规则检查；三条规则各改成不报时反例用例失败 |
+| S3 | `695e3043` | 新场地装真实内置插件；clock、notes（合并 notes、cloud-notes、greeter）重写；场景 01、02、05 |
+| S4 | `e728df8f` | counter（合并 board）、menu、file-menu 重写；场景 03、04；删去 board、旧场景 06 与旧场地 |
+| S5 | `967a02cb` | `examples/README.md` 重写；收口验证 |
 
-收口验证：[evidences/test-affected-typecheck.txt](evidences/test-affected-typecheck.txt)：`--since 4d4e3465` 选中内核与应用，内核 292 例、应用 333 例与组件 57 例、两包类型检查通过；示例的 20 例场景最慢约 25 ms。`docs:check`、`governance:check` 无告警。
+收口验证：
+
+- 子代理在变基前：[evidences/test-affected-typecheck.txt](evidences/test-affected-typecheck.txt)：`--since 4d4e3465` 选中内核与应用，内核 292 例、应用 333 例与组件 57 例、两包类型检查通过；示例的 20 例场景最慢约 25 ms。
+- 主 Agent 在变基后、合回前：[evidences/merge-check.txt](evidences/merge-check.txt)：两包类型检查、内核 298 例、应用 333 例与组件 57 例；应用包 `build` 与 `check:dist` 通过（产物不含开发插件，示例不进产品构建）。
+- 合回后与 t61 一起：e2e 48 例、`smoke:server` S1–S8 通过，证据在 [t61 的 evidences](../t61-kernel-catalog-failure-codes/evidences/)。
+- `docs:check`、`governance:check` 无告警。
+
+计划没安排 omp 审查；主 Agent 审查了治理文档、架构检查与示例代码。未验证：示例只在进程内链路上运行，真实浏览器与真实子进程里的同样用法由产品 e2e 覆盖。

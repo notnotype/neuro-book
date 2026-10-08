@@ -1,0 +1,108 @@
+# t62 变基到 0fe5ad99 之后、合回前的核对（HEAD 967a02cb）
+
+## bun run test:affected --typecheck --package nb-runtime --with-consumers
+$ bun scripts/cli/test-affected.ts --typecheck --package nb-runtime --with-consumers
+选中 2 项（test）：
+  nb-runtime（指定的包）：bun run typecheck；bun run test
+  neuro-book（依赖指定的包）：bun run typecheck；bun run test:bun；bun run test:vitest
+
+==> nb-runtime：bun run typecheck
+$ tsc --noEmit && tsc --noEmit -p tsconfig.browser.json
+
+==> nb-runtime：bun run test
+$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-FcIp1H/nb-runtime-1.xml"
+bun test v1.4.2 (744846f84)
+
+ 298 pass
+ 0 fail
+ 2519 expect() calls
+Ran 298 tests across 24 files. [503.00ms]
+
+==> neuro-book：bun run typecheck
+$ tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json
+
+==> neuro-book：bun run test:bun
+$ bun test "--reporter=junit" "--reporter-outfile=/tmp/neuro-book/test-affected/junit-FcIp1H/neuro-book-1.xml"
+bun test v1.4.2 (744846f84)
+
+src/server/server-projects.test.ts:
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+
+src/server/server.test.ts:
+remote-probe server entry closed
+remote-probe server entry closed
+
+src/web/host/window.test.ts:
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+remote-probe server entry closed
+
+ 333 pass
+ 0 fail
+ 1704 expect() calls
+Ran 333 tests across 47 files. [13.55s]
+
+==> neuro-book：bun run test:vitest
+$ vitest run
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t62-examples/packages/neuro-book
+
+
+ Test Files  12 passed (12)
+      Tests  57 passed (57)
+   Start at  14:39:05
+   Duration  5.17s (transform 7.29s, setup 415ms, import 15.71s, tests 3.37s, environment 6.34s)
+
+
+超过 200ms 的测试 14 个（列出最慢的 10 个）：
+    1248ms  neuro-book/src/server/dev/run.test.ts  页面经 Vite 提供、API 经代理、页面直连后端 RPC 端口；改后端文件有序重启；SIGTERM 时先停后端再关页面，以 0 退出
+     641ms  neuro-book/src/server/server-projects.test.ts  项目子进程不响应停止：到 NBOOK_PROJECT_STOP_MS 强制结束，记为停止问题，服务端以 1 退出
+     587ms  neuro-book/src/server/dev/run.test.ts  第二个停止信号不等排空：在途请求拖住排空时直接结束后端，以 1 退出
+     554ms  neuro-book/src/server/dev/run.test.ts  终端 Ctrl+C（监督进程与后端同时收到 SIGINT）：两个停止请求汇合，仍有序结束，以 0 退出
+     543ms  neuro-book/src/server/dev/supervisor.test.ts  新进程启动失败：报告后等待改动，不循环重启，门直接给不可用；再次改动后恢复
+     385ms  neuro-book/src/server/dev/supervisor.test.ts  重启中的请求等新进程就绪；重启中的新改动不追加重启
+     367ms  neuro-book/src/server/dev/run.test.ts  页面端口被占用：以 1 退出，不启动后端
+     362ms  neuro-book/src/server/dev/supervisor.test.ts  改动去抖后有序重启：旧进程经标准输入停止并以 0 退出之后，新进程才在同一端口启动
+     336ms  neuro-book/src/server/server-projects.test.ts  SIGTERM：项目子进程先于服务端插件收口并退出，服务端以 0 退出
+     326ms  neuro-book/src/plugins/storage/project-child.test.ts  两个窗口经代理共用项目里的记录；项目子进程退出时关库；下一代项目实例读到磁盘上的值
+
+全部通过。
+affected exit=0
+
+## bun run --cwd packages/neuro-book build
+$ bun run build:server && bun run build:web && bun run check:dist
+$ bun build src/server/main.ts --target bun --outdir dist/server && bun build src/project/main.ts --target bun --outfile dist/server/project.js
+Bundled 779 modules in 30ms
+
+  main.js  0.81 MB  (entry point)
+
+Bundled 733 modules in 26ms
+
+  project.js  0.67 MB  (entry point)
+
+$ vite build
+vite v8.1.4 building client environment for production...
+[2Ktransforming...✓ 1584 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/web/index.html                                 0.99 kB │ gzip:  0.59 kB
+dist/web/assets/index-KQ416kWw.css                164.43 kB │ gzip: 21.17 kB
+dist/web/assets/rolldown-runtime-DK3Fl9T5.js        0.15 kB │ gzip:  0.15 kB
+dist/web/assets/WorkbenchCommandHost-DtOq0LiJ.js   51.76 kB │ gzip: 18.26 kB
+dist/web/assets/localized-text-DguMPsJB.js        155.80 kB │ gzip: 55.27 kB
+dist/web/assets/index-D4PNVJNB.js                 219.63 kB │ gzip: 68.51 kB
+
+✓ built in 2.46s
+$ bun scripts/check-dist.ts
+[check:dist] 产物不含开发插件与本机路径
+build exit=0
