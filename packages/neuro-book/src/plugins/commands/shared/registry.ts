@@ -179,13 +179,15 @@ export function createCommandRegistry(options: CommandRegistryOptions): CommandR
     function availability(entry: CommandEntry): {ok: true} | {ok: false; reason: string} {
         const evaluation = evaluateContextWhen(options.contextKeys, entry.metadata.when);
         if (!evaluation.ok) {
-            // 键不能用是写命令的人的问题：每次求值都给出原因，诊断按命令与原因只记一次。
-            const key = `when:${entry.metadata.id}:${evaluation.reason}`;
-            if (!reported.has(key)) {
-                reported.add(key);
-                options.report(new Error(`命令 ${entry.metadata.id} 的 ${evaluation.reason}`));
+            // 键不能用是写命令的人的问题：每次求值都给出原因，诊断按命令与键只记一次。
+            for (const item of evaluation.invalid) {
+                const key = JSON.stringify(["when", entry.metadata.id, item.key]);
+                if (!reported.has(key)) {
+                    reported.add(key);
+                    options.report(new Error(`命令 ${entry.metadata.id} 的 ${item.reason}`));
+                }
             }
-            return evaluation;
+            return {ok: false, reason: evaluation.reason};
         }
         return evaluation.value.matches ? {ok: true} : {ok: false, reason: evaluation.value.reasons.join("；")};
     }

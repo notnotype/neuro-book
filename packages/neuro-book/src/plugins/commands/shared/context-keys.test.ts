@@ -17,7 +17,13 @@ describe("validateWhen", () => {
     });
 
     it("未登记的键被拒绝并指名；原型上的属性名不算登记", () => {
-        expect(validateWhen(contextTable(keys), {requires: ["offline"]})).toEqual({ok: false, reason: "未登记的 when 取值：offline"});
+        expect(validateWhen(contextTable(keys), {requires: ["offline"]})).toEqual({ok: false, reason: "未登记的 when 取值：offline", invalid: [{key: "offline", reason: "未登记的 when 取值：offline"}]});
+        // 不在第一个坏键处停下：每个坏键各给一条，合起来的原因按引用顺序。
+        expect(validateWhen(contextTable(keys), {requires: ["offline", "editor-active", "remote"]})).toEqual({
+            ok: false,
+            reason: "未登记的 when 取值：offline；未登记的 when 取值：remote",
+            invalid: [{key: "offline", reason: "未登记的 when 取值：offline"}, {key: "remote", reason: "未登记的 when 取值：remote"}],
+        });
         expect(validateWhen(contextTable(keys), {requires: ["constructor"]}).ok).toBe(false);
         expect(validateWhen(contextTable(keys), {requires: ["toString"]}).ok).toBe(false);
     });

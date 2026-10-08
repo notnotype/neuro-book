@@ -140,7 +140,7 @@ describe("登记、释放与冲突", () => {
         }
     });
 
-    it("when 引用未登记的键：照常登记，但不可用、原因写明；执行为 unavailable；同一命令同一原因只报告一次", async () => {
+    it("when 引用未登记的键：照常登记，但不可用、原因写明；执行为 unavailable；同一命令同一个键只报告一次", async () => {
         const {registry, reported} = harness();
         let runs = 0;
         expect(registry.register(command("nbook.edit.undo", {when: {requires: ["editor-active", "offline"]}, run: () => {
@@ -154,6 +154,22 @@ describe("登记、释放与冲突", () => {
         expect(await registry.execute("nbook.edit.undo")).toMatchObject({ok: false, code: "unavailable", reason: "未登记的 when 取值：offline"});
         expect(runs).toBe(0);
         expect(reported).toEqual(["命令 nbook.edit.undo 的 未登记的 when 取值：offline"]);
+    });
+
+    it("一条命令引用两个坏键、另一条命令引用其中一个：每个（命令，键）各报告一次，反复求值不再报告", async () => {
+        const {registry, reported} = harness();
+        value(registry.register(command("nbook.edit.undo", {when: {requires: ["offline", "remote"]}})));
+        value(registry.register(command("nbook.edit.redo", {when: {requires: ["offline"]}})));
+        for (let round = 0; round < 3; round += 1) {
+            expect(registry.isEnabled("nbook.edit.undo")).toEqual({ok: false, code: "unavailable", reason: "未登记的 when 取值：offline；未登记的 when 取值：remote"});
+            expect(registry.isEnabled("nbook.edit.redo")).toEqual({ok: false, code: "unavailable", reason: "未登记的 when 取值：offline"});
+            expect(await registry.execute("nbook.edit.undo")).toMatchObject({ok: false, code: "unavailable"});
+        }
+        expect(reported).toEqual([
+            "命令 nbook.edit.undo 的 未登记的 when 取值：offline",
+            "命令 nbook.edit.undo 的 未登记的 when 取值：remote",
+            "命令 nbook.edit.redo 的 未登记的 when 取值：offline",
+        ]);
     });
 
     it("非内置插件的命令 id 必须以自己的插件 id 开头，不能占用 nbook 命名空间", () => {

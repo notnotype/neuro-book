@@ -13,6 +13,15 @@
 - **依据**：`composition.ts:334–340` 返回 `issue.closing.signal` 并追加 `issue.attached`；`#admitIssued` 在 374 行只靠 `issue.closed` 拒绝释放后身份；`host.ts:609–624` 用同一记录进行每次准入、取消及远程释放。远程测试 `src/remote/delegation.test.ts:213–265` 已有对应真实实例场景。这里是从现行代码核实的计划遗漏，不宣称实施者已写错代码。
 - **建议改法**：删除 `delegated` 数组与本地分支，保留一个签发记录收口函数（可改名 `#closeIssued`）：在提供者的门面释放回调结束后设置 `closed`、触发 `closing`、逆序尝试全部 `attached`，并保留错误传播。把 `ServiceAccess.resolveFor` 与 `ServiceCreateContext.services` 的低层暴露也明确列入删除面；`IssuedConsumer.attach` 的文档去掉本地委托语义。S1 直接用既有远程委托寿命测试验收。
 
+## 发现：补交的“prepare 成功立即 published”漏掉整批屏障与失败隔离
+
+- **严重程度**：重要；**类别**：交付事务 / 验收遗漏。
+- **位置**：`plan.md:40,152`；`docs/specs/runtime/plugins.md:70,138,174`；`packages/nb-runtime/src/plugins/host.ts:1261–1295,1427–1476`。
+- **现象**：计划与验收把补交写成 `prepare` 成功后立即 `published`，未限定为“同一贡献方代次的整批 prepare 全部成功后”；同时把 `prepare` 抛错一概描述为激活失败，没保留补交失败只标记该批、两侧激活结果不变的区别。
+- **为什么是问题**：贡献方已经发布时，若按单项 `prepare → published` 循环，第一项已进命令/路由表、可触发外部副作用，第二项 `prepare` 再失败就已经破坏整批交付门禁。补交发生在拥有者发布前，不能因此让拥有者激活失败。删除 `commit` 可以成立，删除整批屏障不成立。
+- **依据**：现行交付先整批准备，再设置交付可用并通知；真实 host 的 `real-delivery.ts` 第二场景用已发布贡献方的 a、b 两项补交，b 的 `prepare` 拒绝，事件只有 `prepare:a`、`prepare:b`、`revoke:a:delivery-failed`，没有 `published:a`，两侧仍 available。现有 owner-contribution-points 测试场景 7 也锁定整批补交与失败隔离，但其失败点在将被删除的 commit，需要迁往第二项 prepare。
+- **建议改法**：明确两种路径共用“整批 prepare → 完成后的存活检查 → 整批交付就绪”的屏障；激活路径等贡献方发布再逐项通知，补交路径在整批成功后同步通知。补交准备失败逆序撤回已准备项，记录 delivery-failed/backfill-failed，两侧仍成功。保留每连接账本、排序锁、准备完成标记和撤回前置标志；去掉 commit 循环即可，不新增第二套事务。
+
 ## 发现：S3 漏迁移工作台页面接收者
 
 - **严重程度**：重要；**类别**：实施遗漏 / 切片可执行性。
@@ -31,51 +40,14 @@
 - **依据**：在指定 scratch 下按计划公开形状构造 `entry-types.ts`，使用本 worktree 的 TypeScript `6.0.3`。最终小样让未声明类别为 `undefined`、非空类别必需，声明元组并集使用非分配条件；给数组显式 `as const` 后，同步、异步、条件入口与简化分区入口没有诊断。非空接收者/贡献的多写反例的 `@ts-expect-error` 均报告 TS2578（未使用）。这是对计划形状的可重跑实验，不是对尚未实现的 `define.ts` 的判定。
 - **建议改法**：若保留“键恰好一致”，需要捕获激活函数实际返回类型，再对 `Awaited<ReturnType<...>>` 的接收者键、贡献点键及点内贡献 id 做额外键检查，而不只把它赋给映射类型。补上非空声明下的多写、从变量/辅助函数返回对象的反例。若不值得增加这部分类型复杂度，明确缩小静态保证为“必需项齐全 + 类型相容”，准确说明哪些由运行期核对；同时把额外贡献实现的现行行为说清，不能声称运行期全兜底。
 
-## 发现：入口辅助函数的宽类型会挡住 S6，需加入正例与迁移步骤
+## 发现：命令求值只返回首个错误文案，不能直接兑现按（命令，键）诊断
 
-- **严重程度**：建议；**类别**：写法 / 类型验收。
-- **位置**：`plan.md:65–74,110,140,153`；`packages/neuro-book/src/plugins/commands/shared/plugin.ts:105,133–153`；`src/plugins/diagnostics/backend/plugin.ts:31–44,79–95`。
-- **现象**：现有 `remoteCommands()` 显式返回未带合同参数的 `RemoteProvision`；后端诊断插件从 `PluginDefinition.entries` 取宽类型的 `baseEntry`，并经返回 `ActivationOutput` 的辅助函数改写服务。计划只写“全部入口改用 defineEntry”，没有迁移这些擦除后的返回类型。
-- **为什么是问题**：一旦提供项保留类型参数，宽 `RemoteProvision` 无法赋给具体合同元组；宽 `ActivationOutput` 的任意数组也无法保证固定提供项与禁用类别。只在入口外套 `defineEntry` 会误报合法现有入口；为了通过而加断言又会撤销静态保证。
-- **依据**：scratch 小样中，`remoteHelper(): RemoteProvision` 的旧注解导致 TS2322，改为 `RemoteProvision<typeof remote>` 后消失。加入“未声明类别禁用、非空类别必需”后，条件类型令同步/async 字面量数组丢失元组上下文；最终以显式 `as const` 和对远程声明元组并集的非分配条件隔离了问题，正例仅剩预期反例的 TS2578。最初的全 optional 版本能直接推导数组，但不满足缺项保证，不能作为完成的设计证明。真实 `partitionEntry` 的两份合同形状不同；小样只验证了简化的分支结构。
-- **建议改法**：保留推导或给辅助函数精确的合同参数；诊断插件在内核工厂边界保留精确入口/产出类型，使桥接只装饰释放回调而不擦除元组。加入不靠类型断言的同步字面量、async、真实 `commandsEntry(location)`、真实 `partitionEntry`、包装已有入口的编译成功正例；核对禁用类别的条件类型与声明元组并集是否保留元组上下文。必要的 `as const` 要在作者写法里明确，不能只用全 optional 小样声称普通写法成立。不要复制多个入口或用 `as ActivationOutput` 绕过。
-
-## 发现：逐片提交后，S7 的默认 `test:affected` 不会运行本 Task 的测试
-
-- **严重程度**：重要；**类别**：验收。
-- **位置**：`plan.md:21,130,141,161`；`scripts/ci/test-affected.ts:100–123,226–227`；`scripts/ci/change-scope.ts:74–89`。
-- **现象**：计划每片验证后单独提交，收口却执行未给基准的 `bun run test:affected --typecheck`。该命令默认只按未提交改动选包；S1–S6 全部提交后，S7 剩余 Task/Spec 证据文件不选中内核与应用，命令可成功退出且没有运行任何 typecheck 或测试。
-- **为什么是问题**：收口证据会把空选集当作完成检验；示例与产品整合后的测试并没有由这条命令覆盖。每片的有效验证可以保留，但不能把这条命令当最终整合门禁。
-- **依据**：在固定计划提交的干净审查 worktree 实际执行 `bun run test:affected --typecheck --dry-run`，输出 `改动文件 0 个（未提交的改动）。没有要运行的测试。`，退出码 0。实现按 `changedFiles(repoRoot, since?)` 取范围，缺 `since` 不看已提交改动。
-- **建议改法**：S7 显式写 `bun run test:affected --typecheck --since 8aa26b09`，或指定 `--package nb-runtime --with-consumers`；docs/governance 若要逐条展示本 Task 的已提交警告，也用同一 `--since` 基准。每片不必扩大验证，最终核对实际选中项。
-
-## 发现：类型上的提供项参数只保服务形状，不能核对服务与合同的 id
-
-- **严重程度**：建议；**类别**：类型合同边界。
-- **位置**：`plan.md:19,66–72,163`；`packages/nb-runtime/src/services/contracts.ts:18–20`；`src/remote/contract.ts:60–73,82–93`。
-- **现象**：`ServiceKey<T>` 的 `name` 与 `RemoteContract` 的 `id` 都是 `string`。两个不同 id 若具有相同服务类型或相同合同形状，类型层无法区分。按顺序元组与 `ProvidedService<T>` / `RemoteProvision<Contract>` 仍会接受“声明 A、产出同形 B”。
-- **为什么是问题**：计划以“静态声明与激活产出不一致时编译期报错”作为期望，风险只提错误文案与条件入口，却没有列这项必然的静态边界；作者会以为恒等函数已经前移全部 runtime 核对。现行 `missing-service`、`undeclared-remote` 等运行期核对仍必不可少。
-- **依据**：最终 scratch 小样中，同服务类型不同 id、同合同方法形状不同 id 的两个反例同样得到 TS2578，合法正例没有其它诊断。类型定义公开暴露 string id，因此无需以品牌断言推测。
-- **建议改法**：最少部件的做法是保留当前键与合同设计，在合同和计划里准确写静态保证为“项数、服务类型/合同形状、可静态推导的声明键”，注明身份仍由 runtime 按 id 核对；不要声称全部不一致都前移。若要连 id 也保证，需要另行让键和合同保留字面量 id 泛型，属于更大的接口改动，不应暗中加入 S4。
-
-## 发现：补交的“prepare 成功立即 published”漏掉整批屏障与失败隔离
-
-- **严重程度**：重要；**类别**：交付事务 / 验收遗漏。
-- **位置**：`plan.md:40,152`；`docs/specs/runtime/plugins.md:70,138,174`；`packages/nb-runtime/src/plugins/host.ts:1261–1295,1427–1476`。
-- **现象**：计划与验收把补交写成 `prepare` 成功后立即 `published`，未限定为“同一贡献方代次的整批 prepare 全部成功后”；同时把 `prepare` 抛错一概描述为激活失败，没保留补交失败只标记该批、两侧激活结果不变的区别。
-- **为什么是问题**：贡献方已经发布时，若按单项 `prepare → published` 循环，第一项已进命令/路由表、可触发外部副作用，第二项 `prepare` 再失败就已经破坏整批交付门禁。补交发生在拥有者发布前，不能因此让拥有者激活失败。删除 `commit` 可以成立，删除整批屏障不成立。
-- **依据**：现行交付先整批准备，再设置交付可用并通知；真实 host 的 `real-delivery.ts` 第二场景用已发布贡献方的 a、b 两项补交，b 的 `prepare` 拒绝，事件只有 `prepare:a`、`prepare:b`、`revoke:a:delivery-failed`，没有 `published:a`，两侧仍 available。现有 owner-contribution-points 测试场景 7 也锁定整批补交与失败隔离，但其失败点在将被删除的 commit，需要迁往第二项 prepare。
-- **建议改法**：明确两种路径共用“整批 prepare → 完成后的存活检查 → 整批交付就绪”的屏障；激活路径等贡献方发布再逐项通知，补交路径在整批成功后同步通知。补交准备失败逆序撤回已准备项，记录 delivery-failed/backfill-failed，两侧仍成功。保留每连接账本、排序锁、准备完成标记和撤回前置标志；去掉 commit 循环即可，不新增第二套事务。
-
-## 发现：HTTP“同一插件第二次挂载被 prepare 拒绝”不是完整内核可产生的验收场景
-
-- **严重程度**：建议；**类别**：验收模型 / 可简化之处。
-- **位置**：`plan.md:14,43,152`；`packages/neuro-book/src/plugins/http/backend/dispatch.ts:23–26,41–47`；`dispatch.test.ts:23–50,104–108`。
-- **现象**：现有路由表测试直接构造句柄并调用接收者，确实能打到重复挂载的 prepare；但合法 `http.routes` 贡献 id 必须等于插件 id，同一插件两个入口提交同 id 会先被内核判为 `duplicate-contribution`，不会进入接收者。
-- **为什么是问题**：计划把这个防御性分支当作唯一需要否决激活的真实产品场景，验收又要求使用真实内核依赖；照此安排的集成测试到不了声明的 prepare 拒绝路径。删 commit 的方向仍成立，只是这条证明选错了层级。
-- **依据**：`real-delivery.ts` 第一个真实 host 场景登记 RouteTable 接收者与同插件两个路由入口；实际输出为两条 `duplicate-contribution`、两个入口 activated、prepare 调用 0 次、没有挂载。`validateRouteContribution` 排除了用两个不同合法贡献 id 绕过该冲突；整个定义第二次登记又会先被 `duplicate-plugin` 拒绝。
-- **建议改法**：真实内核验收应写“两条重复路由都不挂载”；prepare 否决与逆序撤回由自定义贡献点的真实内核场景验证。若保留 RouteTable 的重复预占保护，明确它是单独边界防御测试；若只考虑当前完全受内核管理的入口，可以评估删除 HTTP 的 pending Set 与 prepare，直接在 published 挂载、revoke 摘下，少一张状态表。该精简是建议，不要求超出批准范围实施。
-
+- **严重程度**：重要；**类别**：求值接口 / 验收遗漏。
+- **位置**：`plan.md:35,151,169`；`packages/neuro-book/src/plugins/commands/shared/context-keys.ts:18,35–53`；`registry.ts:181–185`；`workbench/web/components/WorkbenchCommandPalette.vue:48`。
+- **现象**：计划以“evaluateContextWhen 已调 validateWhen”为依据，把坏键核对从登记移到求值，并要求按（命令，键）各记一次。现行 helper 遇第一条坏键即返回 `{ok: false, reason}`，没有结构化键，也不访问后续坏键；命令表的 availability 直接转交这个结果，未记诊断。现行面板又会过滤所有不可用命令，因此计划风险里的“面板里显示不可用”也不成立。
+- **为什么是问题**：只去掉登记期核对并在 availability 的失败分支记日志，无法稳定按键去重，只能依赖解析文案；同命令多个坏键会只暴露首项，其余永远未查，面板隐藏又使用户难以发现拼错。通过一个未声明键的测试不足以证明计划的诊断保证。
+- **依据**：真实 `evaluateContextWhen` 的 scratch 调用传入两个未声明键，实际只访问 a，返回 reason 文案且无 key 字段。源码确认命令面板、键位、isEnabled、执行和远程 list 都共用 registry 可用性求值。公开状态 declaration() 先读响应式 bindings.get(key)，后来绑定使 computed 失效的链路已具备，不需要另加事件总线。
+- **建议改法**：在命令表求值边界逐键取得 `problem(key)`，以现成的 key 和命令 id 去重并诊断，再求值合法键；或让纯求值结果携带结构化坏键集合。不要解析文案、重复核对或给每个界面另加诊断。补两个坏键、同键被两条命令引用、反复从列表/执行求值不重复、键后来声明且绑定后恢复的测试；保持现行面板过滤，把风险文案改为“面板隐藏，诊断与 isEnabled/远程 list 原因可查”。
 ## 发现：可选功能的“远程调用失败即不在”会错误解释协议失败
 
 - **严重程度**：重要；**类别**：作者规则 / 失败语义。
@@ -91,5 +63,42 @@
 - **位置**：`plan.md:10,92,113–134`；`docs/adr/0024-multi-instance-runtime-topology.md:35–37`；`docs/specs/runtime/plugin-api.md:33–35,65,77,124,132`；`docs/specs/runtime/plugin-channel.md:84–86`。
 - **现象**：目标说取代三处互相不一致的选用规则，S0 却没列 ADR 0024；按表实施后它仍要求“同一实例内用本地服务”。作者 API 还要求其它插件的接口只用 `import type`、构建后不留运行时引用，这不能提供 `context.remote.use(合同)` 所需的合同值。表中只点名改 defineEntry 的字段名，未覆盖上下文/命令用法与验收里残留的 `requires` 和字符串服务 id；远程委托段仍把核对规则指向将删除的 services 输出第 13 条。
 - **为什么是问题**：这是该任务要解决的写法冲突本身，不能靠文档检查发现：链接合法、字段仍是可读文本，但作者照另一份规范就会继续包本地服务、只发布类型或写旧入口。planned 状态并不取消这些已接受的接口规则。
-- **依据**：逐处读取上述活跃文档；ADR 0024 仍为 accepted，S0/S7 的文档列表只有 7 份 Spec 与示例 README。新方案明确合同仍为 TypeBox 值、声明也直接写合同对象，类型导入不会在运行时留下对象。`require` 现行参数为服务键对象，未声明键抛 PluginStateError，与旧 SDK 字符串/结构化失败表述不同。
+- **依据**：逐处读取上述活跃文档；ADR 0024 仍为 accepted，S0/S7 的文档列表只有 7 份 Spec 与示例 README。新方案明确合同仍为 TypeBox 值、声明也直接写合同对象，类型导入不会在运行时留下对象。`require` 现行参数为服务键对象，未声明键抛 TypeError，与旧 SDK 字符串/结构化失败表述不同。
 - **建议改法**：S0 加一条对 ADR 0024 第 4 条的补充决策或明确修订引用，保留历史批准依据；明确“可导入无副作用的公开合同/键值，不导入提供方实现、宿主内部模块”，并给类型与值各一例。把 plugin-api 的上下文、命令用法、错误与对应验收同步到本地 require/resolve 的现行合同；plugin-channel 的远程委托核对直接引用保留的签发记录规则。清单 JSON 的 requires/contributes 可按其 planned 映射保留，不把源码与 JSON 字段混成一套。
+
+## 发现：入口辅助函数的宽类型会挡住 S6，需加入正例与迁移步骤
+
+- **严重程度**：建议；**类别**：写法 / 类型验收。
+- **位置**：`plan.md:65–74,110,140,153`；`packages/neuro-book/src/plugins/commands/shared/plugin.ts:105,133–153`；`src/plugins/diagnostics/backend/plugin.ts:31–44,79–95`。
+- **现象**：现有 `remoteCommands()` 显式返回未带合同参数的 `RemoteProvision`；后端诊断插件从 `PluginDefinition.entries` 取宽类型的 `baseEntry`，并经返回 `ActivationOutput` 的辅助函数改写服务。计划只写“全部入口改用 defineEntry”，没有迁移这些擦除后的返回类型。
+- **为什么是问题**：一旦提供项保留类型参数，宽 `RemoteProvision` 无法赋给具体合同元组；宽 `ActivationOutput` 的任意数组也无法保证固定提供项与禁用类别。只在入口外套 `defineEntry` 会误报合法现有入口；为了通过而加断言又会撤销静态保证。
+- **依据**：scratch 小样中，`remoteHelper(): RemoteProvision` 的旧注解导致 TS2322，改为 `RemoteProvision<typeof remote>` 后消失。加入“未声明类别禁用、非空类别必需”后，条件类型令同步/async 字面量数组丢失元组上下文；最终以显式 `as const` 和对远程声明元组并集的非分配条件隔离了问题，正例仅剩预期反例的 TS2578。最初的全 optional 版本能直接推导数组，但不满足缺项保证，不能作为完成的设计证明。真实 `partitionEntry` 的两份合同形状不同；小样只验证了简化的分支结构。
+- **建议改法**：保留推导或给辅助函数精确的合同参数；诊断插件在内核工厂边界保留精确入口/产出类型，使桥接只装饰释放回调而不擦除元组。加入不靠类型断言的同步字面量、async、真实 `commandsEntry(location)`、真实 `partitionEntry`、包装已有入口的编译成功正例；核对禁用类别的条件类型与声明元组并集是否保留元组上下文。必要的 `as const` 要在作者写法里明确，不能只用全 optional 小样声称普通写法成立。不要复制多个入口或用 `as ActivationOutput` 绕过。
+
+## 发现：逐片提交后，S7 的默认 `test:affected` 不会运行本 Task 的测试
+
+- **严重程度**：重要；**类别**：验收。
+- **位置**：`plan.md:21,130,141,161`；`scripts/cli/test-affected.ts:100–123,226–227`；`scripts/ci/change-scope.ts:74–89`。
+- **现象**：计划每片验证后单独提交，收口却执行未给基准的 `bun run test:affected --typecheck`。该命令默认只按未提交改动选包；S1–S6 全部提交后，S7 剩余 Task/Spec 证据文件不选中内核与应用，命令可成功退出且没有运行任何 typecheck 或测试。
+- **为什么是问题**：收口证据会把空选集当作完成检验；示例与产品整合后的测试并没有由这条命令覆盖。每片的有效验证可以保留，但不能把这条命令当最终整合门禁。
+- **依据**：在固定计划提交的干净审查 worktree 实际执行 `bun run test:affected --typecheck --dry-run`，输出 `改动文件 0 个（未提交的改动）。没有要运行的测试。`，退出码 0。实现按 `changedFiles(repoRoot, since?)` 取范围，缺 `since` 不看已提交改动。
+- **建议改法**：S7 显式写 `bun run test:affected --typecheck --since 8aa26b09`，或指定 `--package nb-runtime --with-consumers`；docs/governance 若要逐条展示本 Task 的已提交警告，也用同一 `--since` 基准。显式选包的 dry-run 已实测选中 nb-runtime 的 typecheck/test 与 neuro-book 的 typecheck/test:bun/test:vitest；未运行这些全量命令。
+
+## 发现：类型上的提供项参数只保服务形状，不能核对服务与合同的 id
+
+- **严重程度**：建议；**类别**：类型合同边界。
+- **位置**：`plan.md:19,66–72,163`；`packages/nb-runtime/src/services/contracts.ts:18–20`；`src/remote/contract.ts:60–73,82–93`。
+- **现象**：`ServiceKey<T>` 的 `name` 与 `RemoteContract` 的 `id` 都是 `string`。两个不同 id 若具有相同服务类型或相同合同形状，类型层无法区分。按顺序元组与 `ProvidedService<T>` / `RemoteProvision<Contract>` 仍会接受“声明 A、产出同形 B”。
+- **为什么是问题**：计划以“静态声明与激活产出不一致时编译期报错”作为期望，风险只提错误文案与条件入口，却没有列这项必然的静态边界；作者会以为恒等函数已经前移全部 runtime 核对。现行 `missing-service`、`undeclared-remote` 等运行期核对仍必不可少。
+- **依据**：最终 scratch 小样中，同服务类型不同 id、同合同方法形状不同 id 的两个反例同样得到 TS2578，合法正例没有其它诊断。类型定义公开暴露 string id，因此无需以品牌断言推测。
+- **建议改法**：最少部件的做法是保留当前键与合同设计，在合同和计划里准确写静态保证为“项数、服务类型/合同形状、可静态推导的声明键”，注明身份仍由 runtime 按 id 核对；不要声称全部不一致都前移。若要连 id 也保证，需要另行让键和合同保留字面量 id 泛型，属于更大的接口改动，不应暗中加入 S4。
+
+## 发现：HTTP“同一插件第二次挂载被 prepare 拒绝”不是完整内核可产生的验收场景
+
+- **严重程度**：建议；**类别**：验收模型 / 可简化之处。
+- **位置**：`plan.md:14,43,152`；`packages/neuro-book/src/plugins/http/backend/dispatch.ts:23–26,41–47`；`dispatch.test.ts:23–50,104–108`。
+- **现象**：现有路由表测试直接构造句柄并调用接收者，确实能打到重复挂载的 prepare；但合法 `http.routes` 贡献 id 必须等于插件 id，同一插件两个入口提交同 id 会先被内核判为 `duplicate-contribution`，不会进入接收者。
+- **为什么是问题**：计划把这个防御性分支当作唯一需要否决激活的真实产品场景，验收又要求使用真实内核依赖；照此安排的集成测试到不了声明的 prepare 拒绝路径。删 commit 的方向仍成立，只是这条证明选错了层级。
+- **依据**：`real-delivery.ts` 第一个真实 host 场景登记 RouteTable 接收者与同插件两个路由入口；实际输出为两条 `duplicate-contribution`、两个入口 activated、prepare 调用 0 次、没有挂载。`validateRouteContribution` 排除了用两个不同合法贡献 id 绕过该冲突；整个定义第二次登记又会先被 `duplicate-plugin` 拒绝。
+- **建议改法**：真实内核验收应写“两条重复路由都不挂载”；prepare 否决与逆序撤回由自定义贡献点的真实内核场景验证。若保留 RouteTable 的重复预占保护，明确它是单独边界防御测试；若只考虑当前完全受内核管理的入口，可以评估删除 HTTP 的 pending Set 与 prepare，直接在 published 挂载、revoke 摘下，少一张状态表。该精简是建议，不要求超出批准范围实施。
+

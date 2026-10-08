@@ -16,7 +16,16 @@ export type ContextValues = Readonly<Record<string, boolean | undefined>>;
 /** 谓词只有一种形态：`requires` 是 all-of，空数组恒真。 */
 export type WhenPredicate = Readonly<{requires?: readonly string[]}>;
 
-export type WhenEvaluation = {ok: true; value: {matches: boolean; reasons: string[]}} | {ok: false; reason: string};
+/** 不能用于 `when` 的一个键与原因。 */
+export interface InvalidWhenKey {
+    readonly key: string;
+    readonly reason: string;
+}
+
+/** 键不能用时 `invalid` 列出每一个，`reason` 是它们合起来给人看的说明。 */
+export type WhenValidation = {ok: true} | {ok: false; reason: string; invalid: ReadonlyArray<InvalidWhenKey>};
+
+export type WhenEvaluation = {ok: true; value: {matches: boolean; reasons: string[]}} | Extract<WhenValidation, {ok: false}>;
 
 export interface ContextKeySource {
     /** 键不能用于 `when` 的原因；能用为 null。 */
@@ -33,13 +42,14 @@ export function contextTable(keys: ContextKeyTable, values: () => ContextValues 
     };
 }
 
-/** 只回答“键是否都能用”，不求值；第一个不能用的键给出原因。 */
-export function validateWhen(keys: Pick<ContextKeySource, "problem">, when: WhenPredicate | undefined): {ok: true} | {ok: false; reason: string} {
+/** 只回答“键是否都能用”，不求值；逐个核对，命令表按键记诊断，所以不在第一个坏键处停下。 */
+export function validateWhen(keys: Pick<ContextKeySource, "problem">, when: WhenPredicate | undefined): WhenValidation {
+    const invalid: InvalidWhenKey[] = [];
     for (const key of when?.requires ?? []) {
-        const problem = keys.problem(key);
-        if (problem !== null) return {ok: false, reason: problem};
+        const reason = keys.problem(key);
+        if (reason !== null) invalid.push({key, reason});
     }
-    return {ok: true};
+    return invalid.length === 0 ? {ok: true} : {ok: false, reason: invalid.map((item) => item.reason).join("；"), invalid};
 }
 
 /** 求值期：需要但不为 true 的键各产生一条原因，`matches` 是 all-of 的结果。 */
