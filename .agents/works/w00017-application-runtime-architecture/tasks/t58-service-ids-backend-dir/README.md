@@ -19,4 +19,14 @@ taskId: t58-service-ids-backend-dir
 
 ## 当前状态
 
-2026-10-08 计划起草，同日开发者确认（3 项待确认均同意：删去 `keys` 与 `unknown-service-key`、插件之间可在运行时引用对方的 `shared/contracts.ts`、写 ADR 0025），开始实施。
+2026-10-08 计划确认（3 项待确认均同意），S0–S4 已实现，S5 的 omp 只读审查进行中。实施中两处偏离计划，已改 plan.md：文档随它描述的代码同片提交（Spec 里的源码链接要指向存在的文件）；应用包删 `keys` 并入 S1，保证每片提交都能通过。
+
+| 片 | 提交 | 结果 |
+|---|---|---|
+| S0 | `ae722e40` | ADR 0025 |
+| S1 | `71ab6a69` | 内核按 `key.name` 识别服务键，删去 `keys`、`hasKey`、`unknown-key`、`unknown-service-key`；检查门禁原来靠“登记时拒绝未登记的键”在检查前失败，改为先看装配报告，必需依赖静态不可满足时以同一次解析的原因（`missing-provider`）失败；应用包删去 `collectServiceKeys`；`runtime/services.md`、`plugins.md`、`application.md`、`plugin-manifest.md` 修订并清理旧格式。把内核提供者分组改回按对象身份的变异被新用例抓住 |
+| S2 | `15fdb425` | workbench、projects、storage 的工厂不再收服务键，宿主上下文去掉 `projects`、`currentProject`；工作台对外合同移到 `plugins/workbench/shared/contracts.ts`；边界测试改为“跨插件运行时导入只能指向对方的 `shared/contracts.ts`”（去掉这条放行的变异被抓住）；`browser-host.md`、`quick-open.md` 路径修订并清理 |
+| S3 | `2fe76f80` | `src/plugins/{diagnostics,http,projects,storage}/server` 与示例改名 `backend`；`nbook.http` 的合同挪到 `http/shared/contracts.ts`；边界测试的后端判定改为宿主 `server/`、`project/` 与插件 `backend/`（项目宿主原来不在判定里）；目录约定与 `persistence.md`、`server-host.md`、`diagnostics.md` 的路径修订，后两份清理旧格式 |
+| S4 | `7b9dcd57` | 示例按新约定改写；新增项目级插件 `board` 与场景 6（场景宿主可起项目实例、按项目名绑定窗口）；README 补概念表、运行位置与目录、工厂参数规则 |
+
+收口验证：[test-affected-typecheck.txt](evidences/test-affected-typecheck.txt)（`--since d49ae4e3`：内核 282 例含示例场景 9 例，应用 276 例与组件 57 例，两包类型检查）、[test-e2e.txt](evidences/test-e2e.txt)（45 例，含构建与打包检查；S4 只改示例）、[smoke-server.txt](evidences/smoke-server.txt)（S1–S8）；`docs:check`、`governance:check` 无失败。
