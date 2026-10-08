@@ -503,8 +503,11 @@ export class RemoteNodeImpl implements RemoteNode {
                     if (!outcome.ok) {
                         return outcome;
                     }
-                    owned.add(subscription);
-                    this.#subscriptions.add(subscription);
+                    // 结束可能早于建立返回（例如首个事件的监听里停了提供方）：已结束的不再登记，否则它留在两张表里不会删掉。
+                    if (!subscription.ended) {
+                        owned.add(subscription);
+                        this.#subscriptions.add(subscription);
+                    }
                     return {
                         ok: true,
                         value: {
