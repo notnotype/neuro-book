@@ -12,6 +12,7 @@ import {ref} from "@vue/reactivity";
 import {Type} from "typebox";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import type {RemoteResult, RemoteUse} from "@notnotype/nb-runtime/remote";
 
@@ -121,7 +122,7 @@ function probeStore(seen: PairValue[]) {
 export function createRemoteProbeBrowserPlugin(): PluginDefinition {
     return {
         id: remoteProbeDescriptor.id,
-        entries: [{
+        entries: [defineEntry({
             id: "browser",
             location: "browser",
             activationEvents: ["onStartup"],
@@ -164,7 +165,7 @@ export function createRemoteProbeBrowserPlugin(): PluginDefinition {
                 window.__nbRemoteProbe = debug;
                 return {contributions: {...store.contributions, [COMMANDS_POINT]: {[PROBE_GO_COMMAND]: {run: () => ({ok: true, value: "went"})}}}};
             },
-        }],
+        })],
     };
 }
 

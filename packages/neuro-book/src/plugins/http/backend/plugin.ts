@@ -8,6 +8,7 @@
 
 import {Hono} from "hono";
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {descriptor} from "../plugin";
@@ -47,7 +48,7 @@ export function createHttpPlugin(options: HttpPluginOptions): PluginDefinition {
     return {
         id: descriptor.id,
         contributionPoints: [{id: HTTP_ROUTES_POINT, implementation: "required", validate: validateRouteContribution}],
-        entries: [{
+        entries: [defineEntry({
             id: "server",
             location: "server",
             dependencies: [{key: diagnosticsKey}],
@@ -85,6 +86,6 @@ export function createHttpPlugin(options: HttpPluginOptions): PluginDefinition {
                 options.onListening(url);
                 return {receivers: {[HTTP_ROUTES_POINT]: routes.receiver()}};
             },
-        }],
+        })],
     };
 }

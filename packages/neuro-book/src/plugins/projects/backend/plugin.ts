@@ -4,6 +4,7 @@
  */
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
@@ -14,7 +15,7 @@ import {projectsRemoteContract} from "../shared/contracts";
 
 export const projectsBackendPlugin: PluginDefinition = {
     id: descriptor.id,
-    entries: [{
+    entries: [defineEntry({
         id: "server",
         location: "server",
         dependencies: [{key: diagnosticsKey}, {key: projectsKey}],
@@ -37,5 +38,5 @@ export const projectsBackendPlugin: PluginDefinition = {
             }));
             return {remote: [remote]};
         },
-    }],
+    })],
 };

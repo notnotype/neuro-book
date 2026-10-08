@@ -8,7 +8,7 @@
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
 import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
-import {provide} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 import type {RemoteProvision} from "@notnotype/nb-runtime/remote";
 import type {ContributionDescriptor, ContributionHandle, ContributionReceiver, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
@@ -103,7 +103,7 @@ function receiverOf(registry: CommandRegistry, diagnostics: DiagnosticsService):
  * 窗口里的命令表交给服务端（`nbook.commands/remote`）：列出与执行都按本窗口此刻的公开状态；执行以调用方插件的
  * Agent 身份走同一条执行管线，`expose.agent` 为 `never` 的命令不列出、执行为 `not-exposed`。
  */
-function remoteCommands(registry: CommandRegistry): RemoteProvision {
+function remoteCommands(registry: CommandRegistry): RemoteProvision<typeof commandsRemoteContract> {
     return provideRemote(commandsRemoteContract, (consumer) => ({
         methods: {
             list: async () => ({
@@ -132,13 +132,14 @@ function remoteCommands(registry: CommandRegistry): RemoteProvision {
 
 /** 命令表在 activate 里建：每个实例的入口各一份，常量本身不持有状态。 */
 function commandsEntry(location: RuntimeLocation): PluginEntryDefinition {
-    return {
+    const browser = location === "browser";
+    return defineEntry({
         id: location,
         location,
         dependencies: [{key: diagnosticsKey}, {key: publicStateKey}],
         provides: [commandServiceKey],
         receives: [COMMANDS_POINT],
-        remoteProvides: location === "browser" ? [commandsRemoteContract] : [],
+        remoteProvides: browser ? [commandsRemoteContract] : [],
         activate: (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const registry = createCommandRegistry({
@@ -150,10 +151,11 @@ function commandsEntry(location: RuntimeLocation): PluginEntryDefinition {
             return {
                 services: [provide(commandServiceKey, serviceOf(registry))],
                 receivers: {[COMMANDS_POINT]: receiverOf(registry, diagnostics)},
-                remote: location === "browser" ? [remoteCommands(registry)] : [],
+                // 只有窗口把命令表交给服务端；按位置整段加上 remote，类型才能与按位置的 remoteProvides 对上。
+                ...(browser ? {remote: [remoteCommands(registry)]} : {}),
             };
         },
-    };
+    });
 }
 
 export const commandsPlugin: PluginDefinition = {

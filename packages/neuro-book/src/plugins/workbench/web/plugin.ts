@@ -7,7 +7,7 @@
 import {defineAsyncComponent, h} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
-import {provide} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
@@ -26,7 +26,7 @@ const CommandHost = defineAsyncComponent(() => import("./commands/WorkbenchComma
 export const workbenchBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     contributionPoints: [{id: WORKBENCH_PAGES_POINT, implementation: "required", validate: validatePageContribution}],
-    entries: [{
+    entries: [defineEntry({
         id: "browser",
         location: "browser",
         dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}],
@@ -49,5 +49,5 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 contributions: {[COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command}},
             };
         },
-    }],
+    })],
 };

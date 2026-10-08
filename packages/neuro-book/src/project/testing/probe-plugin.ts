@@ -5,6 +5,7 @@
  * 入口关闭时打印一行，测试据此核对服务端停止时项目子进程先于服务端插件收口。只由测试启动。
  */
 
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
@@ -19,7 +20,7 @@ export const PROJECT_PROBE_CLOSED_LINE = "remote-probe project entry closed";
 export function createRemoteProbeProjectPlugin(): PluginDefinition {
     return {
         id: remoteProbeDescriptor.id,
-        entries: [{
+        entries: [defineEntry({
             id: "project",
             location: "project",
             activationEvents: ["onStartup"],
@@ -63,6 +64,6 @@ export function createRemoteProbeProjectPlugin(): PluginDefinition {
                 }));
                 return {remote: [probe]};
             },
-        }],
+        })],
     };
 }

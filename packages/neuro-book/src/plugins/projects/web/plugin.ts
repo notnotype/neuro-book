@@ -6,6 +6,7 @@
 import {Type} from "typebox";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";
@@ -21,7 +22,7 @@ const DECLARATION: CommandDeclaration = {...OPEN_PROJECT_DECLARATION, args: Type
 
 export const projectsBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
-    entries: [{
+    entries: [defineEntry({
         id: "browser",
         location: "browser",
         // 命令随贡献方入口激活才进命令表（还没有按命令触发的激活事件）：启动即激活，面板里才列得出“打开项目”。
@@ -34,5 +35,5 @@ export const projectsBrowserPlugin: PluginDefinition = {
             const remote = context.remote.use(projectsRemoteContract);
             return {contributions: {[COMMANDS_POINT]: {[OPEN_PROJECT_COMMAND]: {run: () => openProject(remote, quickPick, (href) => navigation.navigateDocument(href))}}}};
         },
-    }],
+    })],
 };

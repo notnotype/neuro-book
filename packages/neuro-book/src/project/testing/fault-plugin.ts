@@ -5,7 +5,7 @@
  */
 
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import {provide} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 
 import {currentProjectKey} from "nbook/shared/projects";
@@ -26,7 +26,7 @@ function never(): Promise<never> {
 export function createProjectFaultPlugin(fault: ProjectFault): PluginDefinition {
     return {
         id: "test.project-fault",
-        entries: [{
+        entries: [defineEntry({
             id: "main",
             location: "project",
             provides: [hookKey],
@@ -47,6 +47,6 @@ export function createProjectFaultPlugin(fault: ProjectFault): PluginDefinition 
                     : fault === "stop-hangs" ? never : undefined;
                 return {services: [provide(hookKey, {}, release)]};
             },
-        }],
+        })],
     };
 }

@@ -19,6 +19,7 @@
 
 import {Hono} from "hono";
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
@@ -52,14 +53,14 @@ type RouteApp = Hono<{Bindings: HttpRouteEnv}>;
 export function routePlugin(id: string, routes: (context: ActivationContext) => RouteApp): PluginDefinition {
     return {
         id,
-        entries: [{
+        entries: [defineEntry({
             id: "server",
             location: "server",
             activationEvents: ["onStartup"],
             dependencies: [{key: diagnosticsKey}],
             contributions: [{capability: HTTP_ROUTES_POINT, id, declaration: {}}],
             activate: (context) => ({contributions: {[HTTP_ROUTES_POINT]: {[id]: routes(context)}}}),
-        }],
+        })],
     };
 }
 
@@ -121,7 +122,7 @@ export function createRemoteProbePlugin(state: RemoteProbeState = newRemoteProbe
     const id = remoteProbeDescriptor.id;
     return {
         id,
-        entries: [{
+        entries: [defineEntry({
             id: "server",
             location: "server",
             activationEvents: ["onStartup"],
@@ -193,7 +194,7 @@ export function createRemoteProbePlugin(state: RemoteProbeState = newRemoteProbe
                 }));
                 return {remote: [probe], contributions: {[HTTP_ROUTES_POINT]: {[id]: routes}}};
             },
-        }],
+        })],
     };
 }
 
@@ -221,7 +222,7 @@ export function createTestPlugin(id: TestPluginId, hold?: Promise<void>): Plugin
         case "test.fail-activate":
             return {
                 id,
-                entries: [{
+                entries: [defineEntry({
                     id: "server",
                     location: "server",
                     dependencies: [{key: diagnosticsKey}],
@@ -229,12 +230,12 @@ export function createTestPlugin(id: TestPluginId, hold?: Promise<void>): Plugin
                         await hold;
                         throw new Error("测试注入的激活失败");
                     },
-                }],
+                })],
             };
         case "test.fail-close":
             return {
                 id,
-                entries: [{
+                entries: [defineEntry({
                     id: "server",
                     location: "server",
                     dependencies: [{key: diagnosticsKey}],
@@ -249,7 +250,7 @@ export function createTestPlugin(id: TestPluginId, hold?: Promise<void>): Plugin
                         });
                         return {};
                     },
-                }],
+                })],
             };
     }
 }

@@ -5,7 +5,7 @@
  */
 
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import {providePerConsumer} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, providePerConsumer} from "@notnotype/nb-runtime/plugins";
 
 import {windowProjectKey} from "nbook/shared/projects";
 import type {StorageService} from "nbook/shared/storage";
@@ -18,7 +18,7 @@ import {remoteRoute} from "../shared/remote-route";
 
 export const storageBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
-    entries: [{
+    entries: [defineEntry({
         id: "browser",
         location: "browser",
         dependencies: [{key: windowProjectKey}],
@@ -41,5 +41,5 @@ export const storageBrowserPlugin: PluginDefinition = {
             );
             return {services: [storage]};
         },
-    }],
+    })],
 };

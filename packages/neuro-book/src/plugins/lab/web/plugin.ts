@@ -1,5 +1,6 @@
 /** `nbook.lab` 浏览器入口：向工作台贡献 `/lab` 页面，页面组件在导航到它时才加载。 */
 
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {WORKBENCH_PAGES_POINT} from "nbook/plugins/workbench/shared/contracts";
@@ -16,11 +17,11 @@ const page: WorkbenchPageImplementation = {load: async () => (await import("./La
 
 export const labBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
-    entries: [{
+    entries: [defineEntry({
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
         contributions: [{capability: WORKBENCH_PAGES_POINT, id: LAB_PATH, declaration}],
         activate: () => ({contributions: {[WORKBENCH_PAGES_POINT]: {[LAB_PATH]: page}}}),
-    }],
+    })],
 };

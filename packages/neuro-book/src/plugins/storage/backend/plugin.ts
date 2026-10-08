@@ -9,7 +9,7 @@
 import {join} from "node:path";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
-import {providePerConsumer} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, providePerConsumer} from "@notnotype/nb-runtime/plugins";
 import type {ActivationContext, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
@@ -33,7 +33,7 @@ import {createPartition} from "./partition";
 function partitionEntry(location: "server" | "project", placement: ServiceKey<unknown>, locate: (context: ActivationContext) => string): PluginEntryDefinition {
     const scope = location === "server" ? "user" : "project";
     const owned = scope === "user" ? userStorageContract : projectStorageContract;
-    return {
+    return defineEntry({
         id: location,
         location,
         dependencies: [{key: diagnosticsKey}, {key: placement}],
@@ -66,7 +66,7 @@ function partitionEntry(location: "server" | "project", placement: ServiceKey<un
             );
             return {services: [storage], remote: [provideRemote(owned, (consumer) => owner.remote(consumer))]};
         },
-    };
+    });
 }
 
 export const storageBackendPlugin: PluginDefinition = {
