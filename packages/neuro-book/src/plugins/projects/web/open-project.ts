@@ -58,6 +58,9 @@ export async function openProject(remote: RemoteClient<typeof projectsRemoteCont
             navigateDocument(projectUrl(registered.value.name));
             return {ok: true, value: null};
         }
+        // 登记按目录幂等：同一目录再登记得到同一个项目。所以写请求结果未知（unknown-outcome）也折成命令的
+        // unavailable、让用户再试是安全的，命令失败码不必另加一个；原因如实写明结果未知。
+        if (registered.code === "unknown-outcome") return {ok: false, code: "unavailable", reason: `登记结果未知，再试一次即可：${registered.cause ?? registered.code}`};
         if (registered.code !== "register-failed") return {ok: false, code: "unavailable", reason: `登记没有完成：${registered.code}`};
         const failure = registered.detail as {readonly reason: string; readonly detail: string};
         title = projectsText("retryTitle", {reason: failure.detail});
