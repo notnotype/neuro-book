@@ -7,6 +7,7 @@ import type {Application} from "../application/application";
 import type {RuntimeClock} from "../lifecycle/lifecycle";
 import {ManualClock} from "../lifecycle/testing/manual-clock";
 import type {ActivationContext, PluginDefinition} from "../plugins/plugins";
+import type {Scope} from "../lifecycle/lifecycle";
 import type {ConsumerIdentity} from "../services/services";
 
 import {createRemoteNode, createRemoteRouter, defineRemoteService, provideRemote, WIRE_PROTOCOL_VERSION} from "./remote";
@@ -149,6 +150,40 @@ function provider(id: string, location: string, probe: Probe): PluginDefinition 
             },
         }],
     };
+}
+
+/**
+ * 提供 late 的插件，测试按需登记。激活作用域里有一项释放要等 `release`：停用插件时它停在“正在停止”。
+ * `id` 不同的两份同时登记就是多个入口声明同一合同。
+ */
+function latePlugin(release: Promise<void>, id = "demo.late"): PluginDefinition {
+    return {
+        id,
+        entries: [{
+            id: "main",
+            location: "server",
+            remoteProvides: [late],
+            activate: (context) => {
+                context.scope.register({kind: "test-gate", label: "等测试放行", value: release, release: (gate) => gate});
+                return {remote: [provideRemote(late, () => ({methods: {ping: () => ({ok: true, value: "late"})}}))]};
+            },
+        }],
+    };
+}
+
+/** 声明 late、激活即失败的插件。 */
+const brokenLatePlugin: PluginDefinition = {
+    id: "demo.broken",
+    entries: [{id: "main", location: "server", remoteProvides: [late], activate: () => {
+        throw new Error("激活失败");
+    }}],
+};
+
+/** 在服务端实例上另开一个登记作用域；关闭它就是停用其中的插件。 */
+function hubRegistration(t: Topology, label: string): Scope {
+    const scope = t.hub.app.root.createChild(label);
+    scope.open();
+    return scope;
 }
 
 /** 调用方插件：启动时激活，把激活上下文交给测试。 */
@@ -330,23 +365,9 @@ describe("Spec plugin-channel 输出 1–3、5：调用、寻址与按需激活"
         expect(await fromHub.ping({})).toMatchObject({ok: false, code: "not-provided"});
         expect(await fromBrowser.events.pulse.subscribe({}, () => undefined)).toMatchObject({ok: false, code: "not-provided"});
 
-        // 提供方的激活作用域里有一项释放要等测试放行：停用插件时它停在“正在停止”。
-        const registration = t.hub.app.root.createChild("demo.late");
-        registration.open();
+        const registration = hubRegistration(t, "demo.late");
         const release = Promise.withResolvers<void>();
-        const latePlugin: PluginDefinition = {
-            id: "demo.late",
-            entries: [{
-                id: "main",
-                location: "server",
-                remoteProvides: [late],
-                activate: (context) => {
-                    context.scope.register({kind: "test-gate", label: "等测试放行", value: release.promise, release: (gate) => gate});
-                    return {remote: [provideRemote(late, () => ({methods: {ping: () => ({ok: true, value: "late"})}}))]};
-                },
-            }],
-        };
-        expect(t.hub.app.plugins.register(latePlugin, {scope: registration})).toMatchObject({status: "accepted"});
+        expect(t.hub.app.plugins.register(latePlugin(release.promise), {scope: registration})).toMatchObject({status: "accepted"});
         expect(await fromBrowser.ping({})).toEqual({ok: true, value: "late"});
 
         const closing = registration.close();
@@ -357,13 +378,7 @@ describe("Spec plugin-channel 输出 1–3、5：调用、寻址与按需激活"
         expect(await closing).toMatchObject({status: "closed"});
         expect(await fromBrowser.ping({})).toMatchObject({ok: false, code: "not-provided"});
 
-        const broken: PluginDefinition = {
-            id: "demo.broken",
-            entries: [{id: "main", location: "server", remoteProvides: [late], activate: () => {
-                throw new Error("激活失败");
-            }}],
-        };
-        expect(t.hub.app.plugins.register(broken, {scope: t.hub.app.root})).toMatchObject({status: "accepted"});
+        expect(t.hub.app.plugins.register(brokenLatePlugin, {scope: t.hub.app.root})).toMatchObject({status: "accepted"});
         expect(await fromBrowser.ping({})).toMatchObject({ok: false, code: "unavailable"});
     });
 
@@ -371,6 +386,69 @@ describe("Spec plugin-channel 输出 1–3、5：调用、寻址与按需激活"
         const t = await topology();
         const listed = await t.remote(t.browser1).instances();
         expect(listed.ok ? listed.value.map((instance) => instance.id).sort() : listed).toEqual(["browser-1", "browser-2", "hub", "project-P"]);
+    });
+});
+
+describe("Spec plugin-channel 输出 11：查询提供方", () => {
+    it("提供方未激活时为 provided/registered 且查询不激活它；激活后为 available；服务端、绑定的项目、另一客户端与同实例都一样", async () => {
+        const t = await topology();
+        const targets: ReadonlyArray<RemoteTarget> = ["server", "project", {client: "browser-2"}];
+        for (const target of targets) {
+            expect(await t.remote(t.browser1).lookup(echo, target), JSON.stringify(target)).toEqual({ok: true, value: {status: "provided", state: "registered"}});
+        }
+        expect(await t.remote(t.hub).lookup(echo, "server")).toEqual({ok: true, value: {status: "provided", state: "registered"}});
+        expect([t.probes.hub.activations, t.probes.project.activations, t.probes.browser2.activations]).toEqual([0, 0, 0]);
+        expect([t.probes.hub.consumers, t.probes.project.consumers, t.probes.browser2.consumers]).toEqual([[], [], []]);
+
+        expect(await t.remote(t.browser1).use(echo).at("project").whoami({})).toMatchObject({ok: true});
+        expect(await t.remote(t.browser1).lookup(echo, "project")).toEqual({ok: true, value: {status: "provided", state: "available"}});
+        expect(await t.remote(t.project).lookup(echo, "project")).toEqual({ok: true, value: {status: "provided", state: "available"}});
+    });
+
+    it("没有提供方为 not-provided；版本不同为 version-changed 并带提供方的版本；调用方种类不允许为 denied；省略目标按提供方位置", async () => {
+        const t = await topology();
+        const fromBrowser = t.remote(t.browser1);
+        expect(await fromBrowser.lookup(late)).toEqual({ok: true, value: {status: "not-provided"}});
+        expect(await fromBrowser.lookup(echoV2, "server")).toEqual({ok: true, value: {status: "version-changed", version: 1}});
+        expect(await fromBrowser.lookup(restricted)).toMatchObject({ok: false, code: "denied"});
+        expect(await t.remote(t.hub).lookup(restricted)).toMatchObject({ok: false, code: "denied"});
+        expect(t.probes.hub.activations).toBe(0);
+    });
+
+    it("提供入口的状态：插件正在停止为 stopping、停用后为 not-provided；激活失败为 failed；多个入口声明同一合同为 unavailable", async () => {
+        const t = await topology();
+        const fromBrowser = t.remote(t.browser1);
+        const registration = hubRegistration(t, "demo.late");
+        const release = Promise.withResolvers<void>();
+        expect(t.hub.app.plugins.register(latePlugin(release.promise), {scope: registration})).toMatchObject({status: "accepted"});
+        expect(await fromBrowser.use(late).ping({})).toEqual({ok: true, value: "late"});
+
+        const closing = registration.close();
+        expect(await fromBrowser.lookup(late)).toEqual({ok: true, value: {status: "provided", state: "stopping"}});
+        release.resolve();
+        expect(await closing).toMatchObject({status: "closed"});
+        expect(await fromBrowser.lookup(late)).toEqual({ok: true, value: {status: "not-provided"}});
+
+        const brokenScope = hubRegistration(t, "demo.broken");
+        expect(t.hub.app.plugins.register(brokenLatePlugin, {scope: brokenScope})).toMatchObject({status: "accepted"});
+        expect(await fromBrowser.use(late).ping({})).toMatchObject({ok: false, code: "unavailable"});
+        expect(await fromBrowser.lookup(late)).toEqual({ok: true, value: {status: "provided", state: "failed"}});
+
+        expect(t.hub.app.plugins.register(latePlugin(Promise.resolve(), "demo.late-again"), {scope: t.hub.app.root})).toMatchObject({status: "accepted"});
+        expect(await fromBrowser.lookup(late)).toMatchObject({ok: false, code: "unavailable"});
+    });
+
+    it("寻址与连接：目标不在为 target-gone；{project} 无权访问为 denied；没连上服务端为 unavailable；目标与提供方位置不符为 invalid-input", async () => {
+        const t = await topology();
+        const fromBrowser = t.remote(t.browser1);
+        expect(await fromBrowser.lookup(echo, {client: "nobody"})).toMatchObject({ok: false, code: "target-gone"});
+        expect(await t.remote(t.hub).lookup(echo, {project: "P"})).toMatchObject({ok: false, code: "denied"});
+        expect(t.probes.project.activations).toBe(0);
+        expect(await fromBrowser.lookup(late, {client: "browser-2"} as never)).toMatchObject({ok: false, code: "invalid-input"});
+
+        t.links.get("browser-1")!.left.close();
+        await drain();
+        expect(await fromBrowser.lookup(echo, "server")).toMatchObject({ok: false, code: "unavailable"});
     });
 });
 

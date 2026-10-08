@@ -203,6 +203,11 @@ export type RemoteUse<Contract extends RemoteContract> = Contract["provider"] ex
     ? RemoteClient<Contract> & {at(target: RemoteTargetFor<Contract["provider"]>): RemoteClient<Contract>}
     : {at(target: RemoteTargetFor<Contract["provider"]>): RemoteClient<Contract>};
 
+/** `context.remote.lookup(合同, 目标?)` 的目标参数：写法与 `use(合同).at(目标)` 相同，`server`、`project` 合同可以省略。 */
+export type LookupTarget<Contract extends RemoteContract> = Contract["provider"] extends "server" | "project"
+    ? [target?: RemoteTargetFor<Contract["provider"]>]
+    : [target: RemoteTargetFor<Contract["provider"]>];
+
 /** 调用方拿到的客户端：方法返回结构化结果，不抛业务失败。 */
 export type RemoteClient<Contract extends RemoteContract> = {
     readonly [Name in keyof Contract["methods"]]: (

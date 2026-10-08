@@ -11,10 +11,20 @@ import {perConsumer} from "../services/services";
 import type {ConsumerIdentity, PerConsumerProvision} from "../services/services";
 
 import {providerAccepts} from "./contract";
-import type {RemoteClient, RemoteContract, RemoteImplementation, RemoteProviderLocation, RemoteSubscribeOptions, RemoteUse} from "./contract";
+import type {LookupTarget, RemoteClient, RemoteContract, RemoteImplementation, RemoteProviderLocation, RemoteSubscribeOptions, RemoteUse} from "./contract";
 import {Peer} from "./peer";
 import type {Reply, RequestOptions, SubscribeHandlers, SubscriptionChannel} from "./peer";
-import {failureFor, REMOTE_FAILURE_CODES, reservedKeys, validationProblems, WIRE_PROTOCOL_VERSION} from "./protocol";
+import {
+    CATALOG_CONTRACT,
+    CATALOG_VERSION,
+    CatalogLookupInputSchema,
+    failureFor,
+    REMOTE_FAILURE_CODES,
+    RemoteProviderInfoSchema,
+    reservedKeys,
+    validationProblems,
+    WIRE_PROTOCOL_VERSION,
+} from "./protocol";
 import type {
     BindRequest,
     CallerFrame,
@@ -23,6 +33,8 @@ import type {
     Outcome,
     ProjectBinding,
     ReleaseFrame,
+    RemoteProviderInfo,
+    RemoteProviderState,
     RemoteResult,
     RemoteTarget,
     RequestFrame,
@@ -66,9 +78,20 @@ export type ProviderLookup =
     | {readonly status: "missing"}
     | {readonly status: "unavailable"; readonly reason: string; readonly cause?: "activation-cycle"};
 
+/**
+ * 不激活地描述本实例的提供方：`found` 带提供入口静态声明的合同（版本与 `callers` 以目标的声明为准）与入口此刻
+ * 的状态；`missing` 与 `unavailable` 的条件和 `ProviderLookup` 相同。
+ */
+export type ProviderDescription =
+    | {readonly status: "found"; readonly contract: RemoteContract; readonly state: RemoteProviderState}
+    | {readonly status: "missing"}
+    | {readonly status: "unavailable"; readonly reason: string};
+
 /** 插件宿主实现：按合同 id 找本实例的提供入口，必要时按 onRemote 激活它。 */
 export interface RemoteProviderSource {
     lookup(contractId: string, chain: ReadonlyArray<ChainLink>, signal: AbortSignal): Promise<ProviderLookup>;
+    /** 提供方查询用：只读静态声明与入口状态，不激活、不生成门面、不记诊断。 */
+    describe(contractId: string): ProviderDescription;
 }
 
 /** 插件宿主为每次入口激活提供的调用方上下文。 */
@@ -95,6 +118,11 @@ export interface RemoteCallerContext {
 /** 激活上下文里的 `context.remote`。 */
 export interface RemoteAccess {
     use<Contract extends RemoteContract>(contract: Contract): RemoteUse<Contract>;
+    /**
+     * 查询目标实例此刻是否提供这份合同，不激活提供方、不生成门面、不建立订阅（runtime/plugin-channel.md 输出
+     * 第 11 条）。结果只是此刻的信息：查到 `provided` 之后的调用照样可能得到 `not-provided` 或 `unavailable`。
+     */
+    lookup<Contract extends RemoteContract>(contract: Contract, ...target: LookupTarget<Contract>): Promise<RemoteResult<RemoteProviderInfo>>;
     instances(): Promise<RemoteResult<ReadonlyArray<InstanceDescriptor>>>;
 }
 
@@ -430,8 +458,102 @@ export class RemoteNodeImpl implements RemoteNode {
                 // 类型上 RemoteUse 按合同的提供方位置二选一；这里按同一判据构造，交出时只能断言。
                 return (fallback === null ? {at} : Object.assign(at(fallback), {at})) as unknown as RemoteUse<Contract>;
             },
+            // 查询不激活、不生成门面，不记进 contacted：调用方入口停止时没有要为它释放的东西。
+            lookup: (contract, ...target) => this.#lookupProvider(contract, target[0], caller),
             instances: () => this.#instances(caller),
         };
+    }
+
+    async #lookupProvider(contract: RemoteContract, target: RemoteTarget | undefined, caller: RemoteCallerContext): Promise<RemoteResult<RemoteProviderInfo>> {
+        const resolved = target ?? defaultTarget(contract.provider);
+        if (resolved === null || !providerAccepts(contract.provider, resolved)) {
+            return {ok: false, code: "invalid-input", detail: `目标 ${resolved === null ? "（未写）" : targetKey(resolved)} 与合同 ${contract.id} 的提供方位置 ${contract.provider} 不符`};
+        }
+        const refusal = caller.admit?.() ?? null;
+        if (refusal !== null) {
+            return {ok: false, code: "denied", detail: refusal};
+        }
+        const frame: Omit<RequestFrame, "type" | "id"> = {
+            target: resolved,
+            contract: CATALOG_CONTRACT,
+            version: CATALOG_VERSION,
+            method: "lookup",
+            effect: "read",
+            input: {contract: contract.id, version: contract.version},
+            $nbConsumer: toCallerFrame(caller.consumer),
+            $nbChain: [],
+        };
+        const options: RequestOptions = {signal: caller.signal, timeoutMs: caller.activating() ? this.#activationLimit : undefined};
+        const outcome = this.#isLocal(resolved)
+            ? await this.#localRequest(frame, options)
+            : this.#upstream === null
+              ? this.#offline()
+              : await this.#upstream.request(frame, options);
+        if (outcome.ok) {
+            const problems = validationProblems(RemoteProviderInfoSchema, outcome.value);
+            if (problems !== null) {
+                this.#record("output-invalid", CATALOG_CONTRACT, problems);
+                return {ok: false, code: "provider-error", detail: `查询结果不符合协议：${problems}`};
+            }
+            return {ok: true, value: outcome.value as RemoteProviderInfo};
+        }
+        if (!(REMOTE_FAILURE_CODES as ReadonlyArray<string>).includes(outcome.code)) {
+            this.#record("undeclared-error", CATALOG_CONTRACT, outcome.code);
+            return {ok: false, code: "provider-error", detail: `收到协议之外的失败码 ${outcome.code}`};
+        }
+        return outcome as RemoteResult<RemoteProviderInfo>;
+    }
+
+    /**
+     * 回答提供方查询：与调用相同地以目标的声明核对调用方种类与版本，但不激活提供方。调用方种类先于版本核对，
+     * 不允许调用的实例连版本也看不到。
+     */
+    #answerLookup(frame: RequestFrame, reply: Reply): void {
+        const fail = (code: "invalid-input" | "denied" | "unavailable" | "version-changed", detail: string): void => reply.result({ok: false, code, detail});
+        if (frame.method !== "lookup") {
+            fail("invalid-input", `${CATALOG_CONTRACT} 没有方法 ${frame.method}`);
+            return;
+        }
+        if (frame.version !== CATALOG_VERSION) {
+            fail("version-changed", `${CATALOG_CONTRACT} 的版本为 ${String(CATALOG_VERSION)}，调用方期望 ${String(frame.version)}`);
+            return;
+        }
+        const problems = validationProblems(CatalogLookupInputSchema, frame.input);
+        if (problems !== null) {
+            fail("invalid-input", problems);
+            return;
+        }
+        const input = frame.input as {readonly contract: string; readonly version: number};
+        if (this.#source === null) {
+            fail("unavailable", "本实例没有插件宿主");
+            return;
+        }
+        let described: ProviderDescription;
+        try {
+            described = this.#source.describe(input.contract);
+        } catch (error) {
+            this.#record("describe-threw", input.contract, error instanceof Error ? error.message : String(error));
+            fail("unavailable", "查询提供入口失败");
+            return;
+        }
+        if (described.status === "unavailable") {
+            fail("unavailable", described.reason);
+            return;
+        }
+        if (described.status === "found" && !described.contract.callers.includes(frame.$nbConsumer.location)) {
+            fail("denied", `合同 ${input.contract} 不允许 ${frame.$nbConsumer.location} 调用`);
+            return;
+        }
+        let value: RemoteProviderInfo;
+        if (described.status === "missing") {
+            value = {status: "not-provided"};
+        } else if (described.contract.version !== input.version) {
+            value = {status: "version-changed", version: described.contract.version};
+        } else {
+            value = {status: "provided", state: described.state};
+        }
+        reply.ack();
+        reply.result({ok: true, value});
     }
 
     #client<Contract extends RemoteContract>(
@@ -617,6 +739,10 @@ export class RemoteNodeImpl implements RemoteNode {
 
     /** 入站请求：核对 → ACK → 按调用方取门面 → 执行 → 核对结果。ACK 之前的失败都是确定的。 */
     async handleRequest(frame: RequestFrame, reply: Reply, signal: AbortSignal): Promise<void> {
+        if (frame.contract === CATALOG_CONTRACT) {
+            this.#answerLookup(frame, reply);
+            return;
+        }
         const fail = (code: Extract<Outcome, {ok: false}>["code"], detail?: string, cause?: "activation-cycle"): void =>
             reply.result({ok: false, code, ...(cause === undefined ? {} : {cause}), ...(detail === undefined ? {} : {detail})});
         if (reservedKeys(frame.input).length > 0) {

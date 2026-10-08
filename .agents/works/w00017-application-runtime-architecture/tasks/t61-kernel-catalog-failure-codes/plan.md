@@ -62,7 +62,7 @@
   - 寻址、路由与访问规则和调用相同，按读请求结算：目标不在为 `target-gone`，`{project}` 无权访问为 `denied`，本端没连上为 `unavailable`；
   - 结果只是此刻的信息，查到 `provided` 之后的调用照样可能得到 `not-provided` 或 `unavailable`，调用方照常处理失败；
   - 版本按调用时的同一规则核对（整数精确匹配），不一致返回提供方的版本；
-  - 多个入口声明同一合同、声明它的插件正在停止时，与调用一样为 `unavailable`；
+  - 多个入口声明同一合同时，与调用一样为 `unavailable`；声明它的插件正在停止时为 `provided` 与 `stopping`（实施时改：omp 计划审查第 2 条，查询与调用共用候选规则，调用为 `unavailable`）；
   - 调用方种类不在合同的 `callers` 内为 `denied`，与调用相同。
   - 状态补上 `closed`：插件仍存活、入口这一代已结束且不复活时调用为 `unavailable`（实施时补）。
 - **线上**：查询是发往目标实例的普通请求帧，合同 `runtime/catalog`、方法 `lookup`、`effect: "read"`，输入 `{contract, version}`。目标节点的 `handleRequest` 先认出这个合同：校验输入，ACK 后直接回答，不走提供方查找与激活。经服务端路由转发时与普通请求相同；目标是服务端时由服务端节点自己回答。节点不把查询的目标记进“联系过的目标”，调用方入口停止时不为它发释放帧。

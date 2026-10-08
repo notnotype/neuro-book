@@ -180,6 +180,38 @@ export const ProjectBindingSchema = Type.Object({id: Type.String({minLength: 1})
 
 export type ProjectBinding = Static<typeof ProjectBindingSchema>;
 
+/**
+ * 提供方查询（runtime/plugin-channel.md 输出第 11 条）走普通请求帧：合同为内核保留的 `runtime/catalog`、方法
+ * `lookup`，输入是被查询的合同 id 与调用方期望的版本。目标节点直接回答，不激活提供方，所以经路由转发、访问规则
+ * 与读请求的阶段结算都和普通调用一样，不需要新的帧类型。
+ */
+export const CATALOG_CONTRACT = `${KERNEL_CONTRACT_PREFIX}catalog`;
+export const CATALOG_VERSION = 1;
+export const CatalogLookupInputSchema = Type.Object({contract: Type.String({minLength: 1}), version: Type.Integer({minimum: 1})}, {additionalProperties: false});
+
+/** 提供入口此刻的状态；名字与插件目录的入口状态相同。`registered` 表示还没激活，调用时按需激活。 */
+const ProviderStateSchema = Type.Union([
+    Type.Literal("registered"),
+    Type.Literal("activating"),
+    Type.Literal("available"),
+    Type.Literal("blocked"),
+    Type.Literal("failed"),
+    Type.Literal("stopping"),
+    Type.Literal("closed"),
+]);
+
+export type RemoteProviderState = Static<typeof ProviderStateSchema>;
+
+export const RemoteProviderInfoSchema = Type.Union([
+    Type.Object({status: Type.Literal("provided"), state: ProviderStateSchema}, {additionalProperties: false}),
+    Type.Object({status: Type.Literal("not-provided")}, {additionalProperties: false}),
+    /** `version` 是提供方的合同版本。 */
+    Type.Object({status: Type.Literal("version-changed"), version: Type.Integer({minimum: 1})}, {additionalProperties: false}),
+]);
+
+/** 提供方查询的结果：只是此刻的信息，不是引用。 */
+export type RemoteProviderInfo = Static<typeof RemoteProviderInfoSchema>;
+
 const OutcomeSchema = Type.Union([
     Type.Object({ok: Type.Literal(true), value: Type.Unknown()}, {additionalProperties: false}),
     Type.Object({

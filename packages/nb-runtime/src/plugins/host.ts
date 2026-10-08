@@ -14,7 +14,7 @@
 
 import {LifecycleStateError, summarizeFailure} from "../lifecycle/lifecycle";
 import type {CloseResult, FailureError, ReleaseDependency, RuntimeInstance, RuntimeLocation, Scope} from "../lifecycle/lifecycle";
-import type {ChainLink, ProviderLookup, RemoteAccess, RemoteHostBinding, RemoteProvision} from "../remote/remote";
+import type {ChainLink, ProviderDescription, ProviderLookup, RemoteAccess, RemoteHostBinding, RemoteProvision} from "../remote/remote";
 import type {ConsumerIdentity, EntryId, ServiceAssembly, ServiceCreateContext, ServiceKey} from "../services/services";
 
 import {PluginStateError} from "./contracts";
@@ -310,7 +310,10 @@ export class PluginHostImpl implements PluginHost {
         this.#observer = options.observer;
         this.#delegation = options.delegation ?? null;
         this.#remote = options.remote ?? null;
-        this.#remote?.attach({lookup: (contractId, chain, signal) => this.#lookupRemote(contractId, chain, signal)});
+        this.#remote?.attach({
+            lookup: (contractId, chain, signal) => this.#lookupRemote(contractId, chain, signal),
+            describe: (contractId) => this.#describeRemote(contractId),
+        });
     }
 
     register(definition: PluginDefinition, options: {readonly scope: Scope}): RegisterPluginResult {
@@ -666,6 +669,28 @@ export class PluginHostImpl implements PluginHost {
             return {status: "unavailable", reason: `提供入口 ${record.plugin}/${record.definition.id} 已换代`};
         }
         return {status: "found", provision, entry: {plugin: record.plugin, entry: record.definition.id, generation: attempt.generation}, stopSignal: attempt.scope.stopSignal};
+    }
+
+    /**
+     * 提供方查询：候选与 `#lookupRemote` 相同（存活插件优先，没有时看正在停止的插件），但只读静态声明与入口状态，
+     * 不激活、不记诊断。
+     */
+    #describeRemote(contractId: string): ProviderDescription {
+        const alive = this.#remoteProviders(contractId, isAlive);
+        if (alive.length > 1) {
+            return {status: "unavailable", reason: `多个入口提供 ${contractId}`};
+        }
+        const [record] = alive.length > 0 ? alive : this.#remoteProviders(contractId, (scope) => scope.phase === "stopping");
+        const contract = record?.definition.remoteProvides?.find((item) => item.id === contractId);
+        if (record === undefined || contract === undefined) {
+            return {status: "missing"};
+        }
+        if (alive.length === 0) {
+            return {status: "found", contract, state: "stopping"};
+        }
+        const {status} = this.#stateOf(record);
+        // 候选都是本位置的入口，不会是 foreign-location；类型上仍要排除它。
+        return status === "foreign-location" ? {status: "missing"} : {status: "found", contract, state: status};
     }
 
     /** 本位置在 `remoteProvides` 里声明了这份合同的入口，只看登记作用域满足 `phase` 的插件。 */
@@ -1777,8 +1802,7 @@ function lockOrder(connections: ReadonlyArray<ReceiverConnection>): ReceiverConn
     return [...new Set(connections)].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
-/** 没有远程节点的实例：远程调用与订阅一律得到 unavailable，而不是抛错。 */
-/** 一律以同一失败码结算的远程访问：没有远程节点（`unavailable`），或代理核对不过（`denied`）。 */
+/** 一律以同一失败码结算的远程访问：没有远程节点（`unavailable`），或代理核对不过（`denied`）；不抛错。 */
 function refusedRemote(code: "unavailable" | "denied", detail: string): RemoteAccess {
     const failure = (): Promise<{readonly ok: false; readonly code: "unavailable" | "denied"; readonly detail: string}> => Promise.resolve({ok: false, code, detail});
     const events = new Proxy({}, {get: () => ({subscribe: failure})});
@@ -1786,7 +1810,7 @@ function refusedRemote(code: "unavailable" | "denied", detail: string): RemoteAc
         {},
         {get: (_target, property) => (property === "then" ? undefined : property === "events" ? events : property === "at" ? () => client : failure)},
     );
-    return {use: () => client as never, instances: failure};
+    return {use: () => client as never, lookup: failure, instances: failure};
 }
 
 /** 任一信号触发即触发。 */

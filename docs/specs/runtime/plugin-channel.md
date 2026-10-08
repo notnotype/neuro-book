@@ -101,11 +101,11 @@ owners:
     - 只有本实例签发的身份能用：提供方收到的远程调用方身份不是签发出去的，不能再经它代理到第三个实例。
     - 经代理的访问只代调用与订阅，不提供第 11 条的查询。
 11. **查询提供方。** `context.remote.lookup(合同, 目标?)` 回答目标实例此刻是否提供这份合同，不激活提供方、不生成门面、不建立订阅。目标写法与调用相同，`server`、`project` 合同可以省略目标（第 1 条的表）。成功时 `value` 为：
-    - `{status: "provided", state}`：有入口声明这份合同、版本一致、调用方种类在 `callers` 内。`state` 是提供入口此刻的状态：`registered`（还没激活，调用时按需激活）、`activating`、`available`，或 `blocked`、`failed`、`stopping`、`closed`（这四种时调用得到 `unavailable`）。
+    - `{status: "provided", state}`：有入口声明这份合同、版本一致、调用方种类在 `callers` 内。`state` 是提供入口此刻的状态：`registered`（还没激活，调用时按需激活）、`activating`、`available`，或 `blocked`、`failed`、`stopping`、`closed`（这四种时调用得到 `unavailable`）；声明它的插件正在停止时为 `stopping`。
     - `{status: "not-provided"}`：条件与第 5 条的 `not-provided` 相同。
     - `{status: "version-changed", version}`：提供方的合同版本与调用方的不同，`version` 是提供方的版本。
 
-    查询按读请求结算，路由与访问规则与调用相同：目标不在为 `target-gone`，`{project}` 无权访问、调用方种类不在 `callers` 内为 `denied`，多个入口声明同一合同、声明它的插件正在停止为 `unavailable`，本端没连上为 `unavailable`。结果只是此刻的信息，不是引用：查到 `provided` 之后的调用照样可能得到 `not-provided` 或 `unavailable`，调用方照常处理失败。查询是发往目标实例的普通请求帧，合同为内核保留的 `runtime/catalog`，由目标节点直接回答；它不算联系过目标，调用方入口停止时不为它发释放帧。
+    查询按读请求结算，路由与访问规则与调用相同：目标不在为 `target-gone`，`{project}` 无权访问、调用方种类不在 `callers` 内为 `denied`，多个入口声明同一合同为 `unavailable`，本端没连上为 `unavailable`。调用方种类先于版本核对：不允许调用的实例看不到版本。结果只是此刻的信息，不是引用：查到 `provided` 之后的调用照样可能得到 `not-provided` 或 `unavailable`，调用方照常处理失败。查询是发往目标实例的普通请求帧，合同为内核保留的 `runtime/catalog`，由目标节点直接回答。
 
 ## WebSocket 传输与握手
 
@@ -203,7 +203,7 @@ owners:
 19. **经代理的远程调用**。代理以签发给它的身份调用另一实例的服务，提供方看到原调用方与 `via`；伪造或签发给别的入口的身份、未在 `remoteDelegates` 里的合同、不在允许清单的插件各自为 `denied`；原调用方入口停止（代理入口仍在）后经代理建立的订阅结束、提供方为它生成的门面释放，代理门面的释放函数运行期间经代理的调用仍可用。
 20. **只取值。** `orThrow` 对成功结果返回值；对路由层失败、带 `cause` 的 `unknown-outcome` 与合同声明的业务失败都抛 `RemoteCallError`，`failure` 与原结果相同。
 21. **没有提供方。** 目标实例没有入口声明合同时，调用与订阅为 `not-provided`；声明它的插件停用后同样为 `not-provided`；提供入口激活失败、受阻时仍为 `unavailable`；`runtime/` 开头的合同 id 在定义时被拒。
-22. **查询提供方。** 提供方未激活时查询得到 `provided` 与 `registered`，且查询后提供方仍未激活；激活后为 `available`；没有提供方为 `not-provided`；版本不同为 `version-changed` 并带提供方的版本；经服务端到达项目实例与另一客户端；`{project}` 无权访问为 `denied`；没连上服务端为 `unavailable`；同实例查询与跨实例查询结果一致。
+22. **查询提供方。** 提供方未激活时查询得到 `provided` 与 `registered`，且查询后提供方仍未激活；激活后为 `available`；声明它的插件正在停止为 `stopping`，停用后为 `not-provided`；激活失败为 `failed`；没有提供方为 `not-provided`；版本不同为 `version-changed` 并带提供方的版本；调用方种类不在 `callers` 内为 `denied`；多个入口声明同一合同为 `unavailable`；经服务端到达项目实例与另一客户端；`{project}` 无权访问为 `denied`；没连上服务端为 `unavailable`；同实例查询与跨实例查询结果一致。
 
 Smoke：场景 1–9、15、16、18–22 由内核合同测试以真实内核实例与进程内链路覆盖；场景 10–14 由内核合同测试与服务端宿主的真实 Bun WebSocket 测试覆盖，真实 Chrome 上的连接、断线重连、刷新与服务端重启由 `packages/neuro-book/e2e/rpc.e2e.ts` 核对；场景 17 与绑定由真实子进程与真实 Chrome 核对（`e2e/projects.e2e.ts`）；经代理的 Storage 访问在真实 Chrome 里由 `e2e/storage.e2e.ts` 核对。
 
