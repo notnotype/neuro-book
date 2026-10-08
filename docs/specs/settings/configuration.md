@@ -199,6 +199,20 @@ type SettingWriteResult = {ok: true} | {ok: false; code: SettingsFailure; detail
 
 Smoke：`smoke:server` 经打包产物在带注释的 `settings.json` 上以客户端身份写一个键，注释保留；文件损坏时服务端照常启动并记诊断。`e2e/settings.e2e.ts` 在本机 Chrome 覆盖场景 2、3 与界面语言、主题的显示。
 
+## 实现合同
+
+- **公开入口**：`nbook/shared/settings`（`defineSetting`、`settingDeclarationProblem`、`SettingDefinition`、`SettingsService`、`SettingInspection`、`SettingWriteResult`、`SETTINGS_FAILURES`、`SETTINGS_POINT`）；`nbook/plugins/settings/shared/contracts`（服务键 `settingsKey`、配置项 `localeSetting`、`displayLocale(设置服务)`、三条设置命令共用的 `switchSetting`，远程合同 `userSettingsContract`、`projectSettingsContract`：方法 `set`、`remove`，事件 `layer`）；插件定义 `settingsBackendPlugin`（服务端入口拥有用户层，文件在宿主能力 `stateRootKey` 给出的状态根下；项目入口拥有项目层，文件在 `currentProjectKey.root` 下）与 `settingsBrowserPlugin`（配置核心入口 `browser` 与贡献“切换界面语言”的 `commands` 入口；不装工作台的测试实例用只有核心入口的 `settingsBrowserCore`）。各插件的配置定义写在自己的 `shared/contracts.ts`（工作台的 `themeSetting`、`appearanceSetting`），描述的 `contributions` 引用同一常量。
+- **owner 与依赖方向**：`nbook.settings` 依赖内核的顶层贡献登记（`runtime.plugin-manifest` 输出 11，宿主经 `nbook/manifest` 的 `pluginsAt`、`definitionAt` 装配）、按调用方门面、远程服务与跨实例委托（`remoteDelegates`、`context.remote.on`，`nbook.settings` 在代理允许清单里）；三个位置的入口都依赖诊断与宿主时钟 `clockKey`，浏览器另依赖窗口的项目绑定与连接状态 `windowConnectionKey`。文件解析与单键编辑用 `jsonc-parser`，写入锁用 `proper-lockfile`，都只在服务端与项目子进程里。命令系统、工作台与项目界面依赖 `settingsKey` 取显示语言；配置核心不依赖它们，“切换界面语言”在另一个入口里，免得服务装配的静态环（可选依赖也算）。
+- **关键不变量**：
+  - 层文件只在拥有它的实例里读写；别的实例经远程服务到达，拥有者按内核填写的调用方身份核对声明者，不信任输入（输出 11，验收 2）。
+  - 同一文件的重读与写入在拥有者的同一个串行队列里，核对通过的写入同步排进队列，停止时等它走完；快照内容变了才换修订号并发布（输出 10、15，“时序与寿命”）。
+  - 编辑后的文本重新解析并通过读取的检查才落盘；写入持锁、改名前核对文件身份，悬空链接与只读文件不写（输出 13、14，验收 4、5、7）。
+  - 监视路径与链接目标上最近存在的目录，目录身份变了先关旧监视再建新的；合并与截止都经注入的时钟（输出 9、16）。
+  - 实例只应用同一启动标识下修订号更大的快照；远程快照逐层冻结；首个快照的截止不取消订阅，建立失败或结束的层在窗口回到在线时重新订阅，终态原因不重订（输出 7、15–17）。
+
 ## 证据
 
 - 批准依据：[插件的数据与状态](../../proposals/plugin-data-model.md) 第 6、7、8 节、[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 6、11 节、[ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)；设计轮决定由开发者 2026-10-08 确认，见 [t64 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t64-plugin-settings/plan.md)。
+- 实现入口：[`src/shared/settings.ts`](../../../packages/neuro-book/src/shared/settings.ts)、[`plugins/settings/backend/plugin.ts`](../../../packages/neuro-book/src/plugins/settings/backend/plugin.ts)、[`plugins/settings/web/plugin.ts`](../../../packages/neuro-book/src/plugins/settings/web/plugin.ts)、[`plugins/settings/shared/instance.ts`](../../../packages/neuro-book/src/plugins/settings/shared/instance.ts)、[`plugins/settings/backend/layer-owner.ts`](../../../packages/neuro-book/src/plugins/settings/backend/layer-owner.ts)
+- 合同测试：[`settings.test.ts`](../../../packages/neuro-book/src/plugins/settings/settings.test.ts)、[`commands.test.ts`](../../../packages/neuro-book/src/plugins/settings/commands.test.ts)、[`layer-owner.test.ts`](../../../packages/neuro-book/src/plugins/settings/backend/layer-owner.test.ts)、[`layer-text.test.ts`](../../../packages/neuro-book/src/plugins/settings/backend/layer-text.test.ts)、[`instance.test.ts`](../../../packages/neuro-book/src/plugins/settings/shared/instance.test.ts)、[`layers.test.ts`](../../../packages/neuro-book/src/plugins/settings/shared/layers.test.ts)、[`settings.test.ts`（声明）](../../../packages/neuro-book/src/shared/settings.test.ts)
+- Smoke：[`smoke-server.ts`](../../../packages/neuro-book/scripts/smoke-server.ts)（S9）、[`settings.e2e.ts`](../../../packages/neuro-book/e2e/settings.e2e.ts)

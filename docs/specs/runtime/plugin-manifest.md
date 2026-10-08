@@ -85,7 +85,7 @@ owners:
     - 没有任何已登记插件定义该贡献点：贡献处于“待校验”，并在插件详情中标注“未知贡献点”，便于发现拼写错误。
 
     贡献只经贡献点协作，不构成依赖、不触发受阻。
-11. **顶层声明式贡献在每个运行实例都登记。** 顶层 `contributes` 不需要实现，不随入口装配：插件在任何运行位置有没有入口，它的顶层贡献都进入每个运行实例的目录（服务端、项目实例、每个窗口），例如只有浏览器入口的插件声明的设置项，服务端也能据此校验用户的设置文件（[`settings.configuration`](../settings/configuration.md)）。因此浏览器从服务端取得的插件集合也包含只有顶层贡献、没有浏览器入口的插件（planned）。
+11. **顶层声明式贡献在每个运行实例都登记。** 顶层 `contributes` 不需要实现，不随入口装配：插件在任何运行位置有没有入口，它的顶层贡献都进入每个运行实例的目录（服务端、项目实例、每个窗口），例如只有浏览器入口的插件声明的设置项，服务端也能据此校验用户的设置文件（[`settings.configuration`](../settings/configuration.md)）。因此浏览器从服务端取得的插件集合也包含只有顶层贡献、没有浏览器入口的插件。
 
 ## 状态与转换
 
@@ -126,7 +126,7 @@ owners:
 - **SDK**：作者在代码中声明入口，SDK 构建预设生成清单中的 `entries`，依赖只写一次。SDK 按运行位置提供类型：一个入口只能取得它 `requires` 中服务的类型。
 - **版本**：依赖内置插件的服务不写版本，内置插件的公开 API 跟随 SDK，由 `engines.neurobook` 统一约束。
 - **安全**：清单是完全信任模型下的声明，不构成权限；校验只保证结构与引用正确。
-- **现状**：清单文件、声明 schema 与版本范围（含 `version-mismatch`）尚未实现。代码定义的插件（`PluginDefinition`）已按本合同的入口、按入口的服务依赖与提供项、受阻推导、启停顺序、按单条贡献校验、开放的运行位置、激活事件前缀与内核保留的 `onRemote`、`remoteProvides` 与 `remoteDelegates` 工作，行为见 [`runtime.plugins`](plugins.md) 输出第 11–22 条与 [`runtime.application`](application.md)；代码定义里 `remoteProvides`、`remoteDelegates` 写合同对象，清单 JSON 写合同 id；内置插件的描述（`plugins/<插件>/plugin.ts`）是它的清单，顶层声明式贡献写在描述的 `contributions` 里，宿主据此在每个运行实例登记（输出 11，planned）；服务 id 与清单一样按字符串识别，不同位置的入口可以提供同一 id（[ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)）。
+- **现状**：清单文件、声明 schema 与版本范围（含 `version-mismatch`）尚未实现。代码定义的插件（`PluginDefinition`）已按本合同的入口、按入口的服务依赖与提供项、受阻推导、启停顺序、按单条贡献校验、开放的运行位置、激活事件前缀与内核保留的 `onRemote`、`remoteProvides` 与 `remoteDelegates` 工作，行为见 [`runtime.plugins`](plugins.md) 输出第 11–22 条与 [`runtime.application`](application.md)；代码定义里 `remoteProvides`、`remoteDelegates` 写合同对象，清单 JSON 写合同 id；内置插件的描述（`plugins/<插件>/plugin.ts`）是它的清单，顶层声明式贡献写在描述的 `contributions` 里，宿主据此在每个运行实例登记（输出 11）；服务 id 与清单一样按字符串识别，不同位置的入口可以提供同一 id（[ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)）。
 - **兼容**：清单格式属于公开接口。新增运行位置或激活事件不改变已有字段的含义；没有对应宿主的运行位置，其入口在所有实例都是 `foreign-location`，插件的其它入口照常工作。
 
 ## 验收与 Smoke

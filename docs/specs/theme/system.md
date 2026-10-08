@@ -15,7 +15,7 @@ NeuroBook 的主题由 **nb-ui 的两条轴**承担：**主题包**（形状 / �
 
 业务组件只消费 CSS 变量，不维护第二套颜色源。
 
-新应用（`packages/neuro-book`）的事实源与运行时流程见下两节（planned）；旧应用（`packages/neuro-book-legacy`）的做法见其源码，只作参照。
+新应用（`packages/neuro-book`）的事实源与运行时流程见下两节；旧应用（`packages/neuro-book-legacy`）的做法见其源码，只作参照。
 
 ## 事实源
 
@@ -99,7 +99,7 @@ NotificationViewport 挂在页面根节点之外，但配色变量写在 `<html>
 ## 验证
 
 - 变量新增、删除、重命名时同步 nb-ui 侧契约（`colorway-contract.ts` / `tokens.css`）与主题包，本参考只记映射与规则。
-- 四个组合（nbook / macos × light / dark）写到文档根的取值与主题包逐项一致，`system` 跟随系统明暗，由 `src/ui/theme/` 的组件测试锁定；产品页面随配置换主题、Lab 显示期间不被改写，由 `e2e/settings.e2e.ts` 验证（planned）。
+- 四个组合（nbook / macos × light / dark）写到文档根的取值与主题包逐项一致，`system` 跟随系统明暗，由 `src/ui/theme/` 的组件测试锁定；产品页面随配置换主题、Lab 显示期间不被改写，由 `e2e/settings.e2e.ts` 验证。
 - 常用命令：
   - `bun run --cwd packages/neuro-book typecheck`
   - `bun run --cwd packages/neuro-book test`

@@ -65,7 +65,7 @@ owners:
    - 创建失败：请求方得到 `create-failed`，附原因（启动超时、启动中退出带退出码、实例启动失败带失败入口）；子进程不残留。
 4. **项目子进程。** 服务端用自己的 Bun 可执行文件运行项目宿主入口（打包产物的 `project.js`；开发模式与测试使用各自的源码入口），经 Bun 的进程间通信建立链路，帧与客户端链路使用同一 JSON 编码（[远程服务与 RPC 协议](plugin-channel.md) 的“进程间链路”）。项目宿主：
    - 建立远程节点，实例描述 `{id: "project:<项目 id>#<代次>", kind: "project", role: "project", project: {id, generation}, client: null}`；服务端路由只接受与此完全一致的描述。
-   - 建立 `project` 位置的运行实例，装配清单中有 `project` 运行位置的入口，本地能力 `currentProjectKey` 提供 `{id, name, generation, root}`（`root` 是项目目录的真实路径），`clockKey` 与服务端相同（planned）。
+   - 建立 `project` 位置的运行实例，装配清单中有 `project` 运行位置的入口，本地能力 `currentProjectKey` 提供 `{id, name, generation, root}`（`root` 是项目目录的真实路径），`clockKey` 与服务端相同。
    - 运行实例可用之后才报告“已启动”；启动失败报告“启动失败”与失败原因，然后按停止序列收口并退出。
    - 诊断写入每个项目自己的日志位置 `<状态根>/logs/projects/<短名>/`（诊断文件出口按位置持有授予，与服务端的 `<状态根>/logs/` 各自持有）；标准输出与标准错误由服务端逐行转发到自己的输出，每行加前缀 `[project <短名>#<代次>]`。
    - 收到服务端的停止请求，或与服务端的进程间链路断开（服务端已不在），即按停止序列停止：依赖逆序关闭插件，正常以 0 退出，停止中有步骤失败以 1 退出。
@@ -82,7 +82,7 @@ owners:
    浏览器窗口只持有握手时为它取得的那份租约，平时用 `project` 目标；项目实例之间第一版不能互相取得租约。
 10. **`nbook.projects`。**
     - 服务端入口依赖 `projectsKey`，提供远程服务 `nbook.projects/projects`（提供方位置 `server`，调用方 `browser`、`tui`）：`list` 返回短名、项目目录路径与运行状态；`register(路径)` 登记目录。
-    - 浏览器入口提供命令 `nbook.project.open`（“打开项目”）：经命令面板的选择模式（[`workbench.quick-open`](../workbench/quick-open.md)）列出已登记项目（短名、路径、是否运行），选中即整页导航到 `/?project=<短名>`；输入一个目录路径并确认，先登记，成功后导航；登记失败时带着原因（标题里）重新打开选择，用户可以改了再试或取消；原因按失败码（`invalid-path`、`not-directory` 等）以当前显示语言给出，服务端返回的说明原文只进诊断（planned）。窗口绑定了项目时，工作台显示当前项目的短名（取自窗口的绑定结果，不另外调用服务）。
+    - 浏览器入口提供命令 `nbook.project.open`（“打开项目”）：经命令面板的选择模式（[`workbench.quick-open`](../workbench/quick-open.md)）列出已登记项目（短名、路径、是否运行），选中即整页导航到 `/?project=<短名>`；输入一个目录路径并确认，先登记，成功后导航；登记失败时带着原因（标题里）重新打开选择，用户可以改了再试或取消；原因按失败码（`invalid-path`、`not-directory` 等）以当前显示语言给出，服务端返回的说明原文只进诊断。窗口绑定了项目时，工作台显示当前项目的短名（取自窗口的绑定结果，不另外调用服务）。
 11. **服务端停止。** 服务端停止序列一开始就同步关闭项目管理器的接纳：之后的 `acquire` 与客户端绑定都以 `admission-closed`（客户端看到 `project-unavailable`，说明服务端正在停止）拒绝；内核停止时先停全部项目子进程并等真实退出，再关闭服务端插件（[`runtime.server-host`](server-host.md)）。
 12. **资源占用。** 每个打开的项目常驻一个 Bun 子进程。2026-10-07 在本机 Linux、Bun 1.4.2 上用生产打包产物实测（`bun scripts/measure-project.ts`，冷启动 10 次）：从请求打开到取得租约 p50 约 55 ms、最大约 70 ms，就绪后常驻约 49 MB；当时项目实例里只有内核与 `nbook.diagnostics`，项目入口变多后需重测。只带 IPC 的空子进程约 26 ms 就绪、常驻约 30 MB，可作为下限参照。
 
