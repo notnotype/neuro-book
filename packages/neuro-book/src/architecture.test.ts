@@ -7,7 +7,10 @@
  * `src/ui/` 是宿主与插件共用的前端组件，只用前端库与共用代码；`import.meta.glob` 只给 Lab 的组件索引用：
  * 它把扫描到的模块全部带进构建图，用在别处会把整片目录打进产品。
  * 前端误引后端代码时打包与类型检查不一定失败（Bun 能解析两侧），所以按导入语句检查。
- * 测试文件与 `testing/` 不受限：它们要在同一进程里搭真实后端或运行环境。
+ * 测试文件与 `testing/` 不受限：它们要在同一进程里搭真实后端或运行环境。反过来，产品代码不引用 `testing/`、内核的
+ * `@notnotype/nb-runtime/<机制>/testing` 入口与 `examples/`（docs/testing/README.md 的“测试文件组织”）：它们不进产品构建。
+ * 示例插件（`examples/plugins/`）按第三方插件的写法，与 `src/plugins/` 同样检查，跨插件只引用对方（含内置插件）的
+ * `shared/contracts.ts`；它们的路径相对 src，带 `../examples/` 前缀。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -15,6 +18,7 @@ import {readdirSync, readFileSync} from "node:fs";
 import {dirname, join, relative, resolve} from "node:path";
 
 const SRC = join(import.meta.dir);
+const EXAMPLE_PLUGINS = join(SRC, "..", "examples", "plugins");
 
 interface ImportUse {
     readonly file: string;
@@ -61,14 +65,18 @@ function targetInSrc(use: ImportUse): string | null {
 const has = (path: string, segment: string): boolean => path.split("/").includes(segment);
 /** 后端代码：服务端与项目子进程两个宿主，以及插件的 `backend/`（两种进程共用）。 */
 const isBackend = (path: string): boolean => path.startsWith("server/") || path.startsWith("project/") || has(path, "backend");
-const pluginOf = (path: string): string | null => /^plugins\/([^/]+)\//u.exec(path)?.[1] ?? null;
+/** 插件目录（`plugins/<插件>` 或 `../examples/plugins/<插件>`）；同名的内置插件与示例插件是两个插件。 */
+const pluginOf = (path: string): string | null => /^((?:\.\.\/examples\/)?plugins\/[^/]+)\//u.exec(path)?.[1] ?? null;
+const isExample = (path: string): boolean => path.startsWith("../examples/");
 const isPlatformModule = (specifier: string): boolean => specifier.startsWith("node:") || specifier === "bun" || specifier.startsWith("bun:");
 const isFrontendPackage = (specifier: string): boolean => specifier === "vue" || specifier.startsWith("vue/") || specifier.startsWith("@vitejs/");
 const TEST_LIBRARIES = ["vitest", "@vue/test-utils", "happy-dom", "@playwright/test"];
 /** 静态引用开发清单的只有这几个开发入口；开发插件的代码另外允许开发清单引用它的描述。 */
 const DEVELOPMENT_ENTRIES = ["server/development-main.ts", "project/development-main.ts", "web/development-plugins.ts"];
 const isDevelopmentPlugin = (path: string): boolean => path.startsWith("plugins/lab/");
-const isPluginContracts = (target: string): boolean => /^plugins\/[^/]+\/shared\/contracts(?:\.ts)?$/u.test(target);
+const isPluginContracts = (target: string): boolean => /^(?:\.\.\/examples\/)?plugins\/[^/]+\/shared\/contracts(?:\.ts)?$/u.test(target);
+/** 路径段含 `testing`：本包的测试支持目录，或内核的 `@notnotype/nb-runtime/<机制>/testing` 入口。 */
+const importsTesting = (use: ImportUse, target: string | null): boolean => use.specifier.split("/").includes("testing") || (target !== null && has(target, "testing"));
 const labSceneMayImport = (file: string, target: string): boolean => file.startsWith("plugins/lab/web/fixtures/") && /^plugins\/[^/]+\/(?:web|shared)\//u.test(target);
 const isTestLibrary = (specifier: string): boolean => TEST_LIBRARIES.some((name) => specifier === name || specifier.startsWith(`${name}/`));
 
@@ -79,7 +87,7 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
         const where = `${use.file} → ${use.specifier}`;
         const web = has(use.file, "web") || use.file.startsWith("ui/");
         const server = isBackend(use.file);
-        const neutral = use.file.startsWith("shared/") || has(use.file, "shared") || /^plugins\/[^/]+\/plugin\.ts$/u.test(use.file) || use.file === "manifest.ts" || use.file === "development-manifest.ts";
+        const neutral = use.file.startsWith("shared/") || has(use.file, "shared") || /^(?:\.\.\/examples\/)?plugins\/[^/]+\/plugin\.ts$/u.test(use.file) || use.file === "manifest.ts" || use.file === "development-manifest.ts";
         if (web && (isPlatformModule(use.specifier) || (target !== null && isBackend(target)))) found.push(`前端引用了后端或运行平台：${where}`);
         if (server && (isFrontendPackage(use.specifier) || (target !== null && has(target, "web")))) found.push(`后端引用了前端：${where}`);
         if (neutral && target !== null && (isBackend(target) || has(target, "web"))) found.push(`共用代码引用了一侧的实现：${where}`);
@@ -90,6 +98,8 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
         }
         if ((use.specifier === "vite" || use.specifier.startsWith("vite/")) && !use.file.startsWith("server/dev/")) found.push(`只有开发监督进程能引用 Vite：${where}`);
         if (isTestLibrary(use.specifier)) found.push(`产品代码引用了测试库：${where}`);
+        if (importsTesting(use, target)) found.push(`产品代码引用了测试支持代码（testing/ 或内核的 */testing 入口）：${where}`);
+        if (target !== null && isExample(target) && !isExample(use.file)) found.push(`产品代码引用了示例：${where}`);
         if (target === "development-manifest" && !DEVELOPMENT_ENTRIES.includes(use.file)) found.push(`只有开发入口能引用开发清单：${where}`);
         if (target !== null && isDevelopmentPlugin(target) && !isDevelopmentPlugin(use.file) && use.file !== "development-manifest.ts" && !DEVELOPMENT_ENTRIES.includes(use.file)) {
             found.push(`只有开发入口能引用开发插件：${where}`);
@@ -102,7 +112,7 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
 
 describe("包内依赖方向", () => {
     it("前后端、共用代码与插件之间只按目录约定引用", () => {
-        expect(violationsOf(sourceFiles(SRC).flatMap(importsOf))).toEqual([]);
+        expect(violationsOf([...sourceFiles(SRC), ...sourceFiles(EXAMPLE_PLUGINS)].flatMap(importsOf))).toEqual([]);
     });
 
     it("import.meta.glob 只出现在 Lab", () => {
@@ -134,6 +144,14 @@ describe("包内依赖方向", () => {
             use("plugins/lab/web/LabShell.vue", "nbook/plugins/workbench/web/commands/keymap"),
             use("plugins/projects/web/plugin.ts", "nbook/plugins/workbench/web/contracts"),
             use("plugins/projects/web/plugin.ts", "nbook/plugins/commands/shared/registry"),
+            use("server/start.ts", "nbook/server/testing/test-plugins"),
+            use("plugins/storage/backend/plugin.ts", "./testing/partition-writer"),
+            use("web/host/window.ts", "@notnotype/nb-runtime/remote/testing"),
+            use("server/main.ts", "../../examples/plugins/notes/backend/plugin"),
+            use("../examples/plugins/notes/backend/plugin.ts", "nbook/plugins/storage/backend/plugin"),
+            use("../examples/plugins/notes/backend/plugin.ts", "../../clock/backend/plugin"),
+            use("../examples/plugins/notes/web/plugin.ts", "../backend/plugin"),
+            use("../examples/plugins/notes/backend/plugin.ts", "../web/plugin"),
         ];
         expect(cases.map((item) => violationsOf([item]).length)).toEqual(cases.map(() => 1));
         expect(violationsOf([
@@ -146,6 +164,10 @@ describe("包内依赖方向", () => {
             use("web/development-plugins.ts", "nbook/plugins/lab/web/plugin"),
             use("plugins/lab/web/fixtures/command-scene/lab-command-scene.ts", "nbook/plugins/commands/shared/registry"),
             use("plugins/lab/web/fixtures/command-scene/LabCommandSceneLayer.vue", "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue"),
+            use("../examples/plugins/notes/backend/plugin.ts", "nbook/plugins/storage/shared/contracts"),
+            use("../examples/plugins/notes/backend/plugin.ts", "../../clock/shared/contracts"),
+            use("../examples/plugins/notes/web/plugin.ts", "../shared/contracts"),
+            use("../examples/plugins/notes/backend/plugin.ts", "nbook/plugins/storage/backend/plugin", true),
         ])).toEqual([]);
 
         expect(importsOf(join(SRC, "web", "main.ts")).some((item) => item.specifier === "./development-plugins" && item.dynamic === true)).toBe(true);
@@ -153,5 +175,8 @@ describe("包内依赖方向", () => {
         const parsed = importsOf(join(SRC, "web", "host", "window.ts"));
         expect(parsed.some((item) => item.specifier === "nbook/shared/browser-bootstrap" && !item.typeOnly)).toBe(true);
         expect(parsed.some((item) => item.specifier === "nbook/manifest" && item.typeOnly)).toBe(true);
+        // 示例插件确实在扫描范围里，路径带 `../examples/` 前缀。
+        const example = importsOf(join(EXAMPLE_PLUGINS, "notes", "backend", "plugin.ts"));
+        expect(example.some((item) => item.file === "../examples/plugins/notes/backend/plugin.ts" && item.specifier === "../shared/contracts")).toBe(true);
     });
 });
