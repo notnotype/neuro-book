@@ -11,12 +11,14 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";
 import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
+import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {quickPickKey} from "nbook/plugins/workbench/shared/contracts";
 import {windowNavigationKey} from "nbook/shared/host";
 
 import {descriptor} from "../plugin";
 import {projectsRemoteContract} from "../shared/contracts";
 import {OPEN_PROJECT_COMMAND, OPEN_PROJECT_DECLARATION, openProject} from "./open-project";
+import type {OpenProjectHost} from "./open-project";
 
 const DECLARATION: CommandDeclaration = {...OPEN_PROJECT_DECLARATION, args: Type.Object({}, {additionalProperties: false})};
 
@@ -27,13 +29,22 @@ export const projectsBrowserPlugin: PluginDefinition = {
         location: "browser",
         // 命令随贡献方入口激活才进命令表（还没有按命令触发的激活事件）：启动即激活，面板里才列得出“打开项目”。
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: quickPickKey}, {key: windowNavigationKey}],
+        dependencies: [{key: diagnosticsKey}, {key: quickPickKey}, {key: windowNavigationKey}, {key: settingsKey}],
         contributions: [{capability: COMMANDS_POINT, id: OPEN_PROJECT_COMMAND, declaration: DECLARATION}],
         activate: (context) => {
             const quickPick = context.services.require(quickPickKey);
             const navigation = context.services.require(windowNavigationKey);
             const remote = context.remote.use(projectsRemoteContract);
-            return {contributions: {[COMMANDS_POINT]: {[OPEN_PROJECT_COMMAND]: {run: () => openProject(remote, quickPick, (href) => navigation.navigateDocument(href))}}}};
+            const settings = context.services.require(settingsKey);
+            const diagnostics = context.services.require(diagnosticsKey);
+            const host: OpenProjectHost = {
+                remote,
+                quickPick,
+                navigateDocument: (href) => navigation.navigateDocument(href),
+                locale: () => displayLocale(settings),
+                recordFailure: (reason, detail) => diagnostics.record({level: "info", event: "projects.register-failed", message: "登记项目失败", data: {reason, detail}, source: {plugin: descriptor.id}}),
+            };
+            return {contributions: {[COMMANDS_POINT]: {[OPEN_PROJECT_COMMAND]: {run: () => openProject(host)}}}};
         },
     })],
 };

@@ -1,6 +1,8 @@
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
+import type {DisplayText} from "nbook/shared/localized-text";
+
 /**
  * `nbook.workbench` 对其它插件公开的合同：页面贡献点 `workbench.pages` 与它的声明、命令面板的选择服务。
  * 其它插件在运行时只引用本文件（docs/adr/0025-service-keys-by-id.md）；页面实现与窗口根这类依赖 Vue 的
@@ -23,12 +25,12 @@ export interface WorkbenchPageDeclaration {
     readonly reloadOnLeave?: boolean;
 }
 
-/** 选择模式的一项候选。 */
+/** 选择模式的一项候选。文字显示时才按当前语言取（`DisplayText`），面板开着时切换语言随之换文字。 */
 export interface QuickPickItem {
     readonly id: string;
-    readonly label: string;
+    readonly label: DisplayText;
     /** 第二行的说明（例如项目目录路径）。 */
-    readonly detail?: string;
+    readonly detail?: DisplayText;
 }
 
 /**
@@ -36,13 +38,13 @@ export interface QuickPickItem {
  * 提交输入的文字或取消。只有一步，不是向导。
  */
 export interface QuickPickRequest {
-    readonly title: string;
-    readonly placeholder: string;
+    readonly title: DisplayText;
+    readonly placeholder: DisplayText;
     readonly items: ReadonlyArray<QuickPickItem>;
     /** 给了它时，输入的文字本身也可以提交：候选末尾多一项，文案由它给出。 */
-    readonly text?: {readonly label: (text: string) => string};
+    readonly text?: {readonly label: (text: string) => DisplayText};
     /** 没有候选时的空态文案。 */
-    readonly empty?: string;
+    readonly empty?: DisplayText;
 }
 
 /** 选择的结果在浮层关闭完成（焦点已归还）后才给出；当前页面没有命令面板时为 `unavailable`。 */

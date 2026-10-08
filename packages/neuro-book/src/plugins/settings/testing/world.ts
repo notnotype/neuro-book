@@ -17,13 +17,17 @@ import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote
 import type {InstanceDescriptor, RemoteRouter} from "@notnotype/nb-runtime/remote";
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 
+import {definitionAt} from "nbook/manifest";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
+import {quickPickKey} from "nbook/plugins/workbench/shared/contracts";
+import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
 import {clockKey, stateRootKey, windowConnectionKey} from "nbook/shared/host";
 import type {WindowConnection, WindowConnectionState} from "nbook/shared/host";
 import {currentProjectKey, windowProjectKey} from "nbook/shared/projects";
 
 import {settingsBackendPlugin} from "../backend/plugin";
-import {settingsBrowserPlugin} from "../web/plugin";
+import {descriptor} from "../plugin";
+import {settingsBrowserCore, settingsBrowserPlugin} from "../web/plugin";
 
 export interface WorldWindow {
     readonly app: Application;
@@ -40,8 +44,11 @@ export interface SettingsWorld {
     readonly projectFile: string;
     diagnostics(instanceId: string): DiagnosticsStore;
     project(generation: number, plugins: ReadonlyArray<PluginDefinition>): Promise<Application>;
-    /** `connected: false`：链路建好后、实例激活前就断开（首次订阅失败）。 */
-    window(id: string, plugins: ReadonlyArray<PluginDefinition>, options?: {readonly bound?: boolean; readonly connected?: boolean}): Promise<WorldWindow>;
+    /**
+     * `connected: false`：链路建好后、实例激活前就断开（首次订阅失败）。`quickPick`：给窗口一个选择服务，并装上带
+     * “切换界面语言”入口的完整 `nbook.settings`（产品里选择服务由工作台提供）。
+     */
+    window(id: string, plugins: ReadonlyArray<PluginDefinition>, options?: {readonly bound?: boolean; readonly connected?: boolean; readonly quickPick?: QuickPick}): Promise<WorldWindow>;
     close(): Promise<ReadonlyArray<StopResult>>;
 }
 
@@ -80,7 +87,7 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
                 }},
                 {id: "host.clock", key: clockKey, create: () => clock},
             ],
-            plugins: [diagnosticsFor("server", "hub"), settingsBackendPlugin, ...hubPlugins],
+            plugins: [diagnosticsFor("server", "hub"), definitionAt("server", descriptor, settingsBackendPlugin), ...hubPlugins],
             gates: [],
             remote: hubNode,
             delegation: DELEGATION,
@@ -116,24 +123,24 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
         },
         project: async (next, plugins) => {
             generation = next;
-            const descriptor: InstanceDescriptor = {id: `project:P#${String(next)}`, kind: "project", role: "project", project: {id: "P", generation: next}, client: null};
-            const node = createRemoteNode({instance: descriptor, clock});
+            const instance: InstanceDescriptor = {id: `project:P#${String(next)}`, kind: "project", role: "project", project: {id: "P", generation: next}, client: null};
+            const node = createRemoteNode({instance, clock});
             const current = {id: "P", name: "book", generation: next, root: join(root, "Book")};
             const app = createApplication(
-                {identity: {location: "project", instanceId: descriptor.id}, stopSignal: new AbortController().signal, emergency: () => undefined},
+                {identity: {location: "project", instanceId: instance.id}, stopSignal: new AbortController().signal, emergency: () => undefined},
                 {
                     capabilities: [
                         {id: "project.current", key: currentProjectKey, create: () => current},
                         {id: "host.clock", key: clockKey, create: () => clock},
                     ],
-                    plugins: [diagnosticsFor("project", descriptor.id), settingsBackendPlugin, ...plugins],
+                    plugins: [diagnosticsFor("project", instance.id), definitionAt("project", descriptor, settingsBackendPlugin), ...plugins],
                     gates: [],
                     remote: node,
                     delegation: DELEGATION,
                 },
             );
             const pair = createLinkPair();
-            router.accept(pair.right, {expect: descriptor});
+            router.accept(pair.right, {expect: instance});
             const connected = await node.connect(pair.left);
             if (!connected.ok) throw new Error(`项目实例连不上路由：${JSON.stringify(connected)}`);
             return started(app);
@@ -159,8 +166,9 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
                         {id: "window.project", key: windowProjectKey, create: () => ({project})},
                         {id: "window.connection", key: windowConnectionKey, create: () => link.connection},
                         {id: "clock", key: clockKey, create: () => clock},
+                        ...(windowOptions.quickPick === undefined ? [] : [{id: "test.quick-pick", key: quickPickKey, create: () => windowOptions.quickPick!}]),
                     ],
-                    plugins: [diagnosticsFor("browser", id), settingsBrowserPlugin, ...plugins],
+                    plugins: [diagnosticsFor("browser", id), definitionAt("browser", descriptor, windowOptions.quickPick === undefined ? settingsBrowserCore : settingsBrowserPlugin), ...plugins],
                     gates: [],
                     remote: node,
                     delegation: DELEGATION,

@@ -15,9 +15,9 @@ import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/pl
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
+import {settingsWorld} from "nbook/plugins/settings/testing/world";
+import type {SettingsWorld, WorldWindow} from "nbook/plugins/settings/testing/world";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
-import {storageWorld} from "nbook/plugins/storage/testing/world";
-import type {StorageWorld, WorldWindow} from "nbook/plugins/storage/testing/world";
 
 import {COMMANDS_POINT, commandServiceKey, commandsRemoteContract} from "./contracts";
 import type {CommandDeclaration} from "./contracts";
@@ -27,7 +27,7 @@ const REASON = {"zh-CN": "这个窗口没有准备好", "en-US": "This window is
 
 let tmp = "";
 let counter = 0;
-const worlds: StorageWorld[] = [];
+const worlds: SettingsWorld[] = [];
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-commands", "remote-commands");
@@ -111,7 +111,7 @@ function caller(id: string, location: string): {readonly plugin: PluginDefinitio
 async function setup(): Promise<{readonly agent: ReturnType<typeof caller>; readonly windows: ReadonlyArray<{readonly id: string; readonly armed: Ref<boolean>; readonly window: WorldWindow; readonly observed: Observed}>; readonly peer: ReturnType<typeof caller>}> {
     counter += 1;
     const agent = caller("example.agent", "server");
-    const world = await storageWorld(join(tmp, `case-${String(counter)}`), [agent.plugin]);
+    const world = await settingsWorld(join(tmp, `case-${String(counter)}`), [agent.plugin]);
     worlds.push(world);
     const peer = caller("example.peer", "browser");
     const windows = [];
@@ -121,7 +121,7 @@ async function setup(): Promise<{readonly agent: ReturnType<typeof caller>; read
         let opened: WorldWindow | null = null;
         const plugins = [statePlugin, commandsPlugin, tools(armed, () => opened?.disconnect(), observed)];
         if (id === "browser-a") plugins.push(peer.plugin);
-        opened = await world.window(id, "profile-1", plugins, {bound: false});
+        opened = await world.window(id, plugins, {bound: false});
         windows.push({id, armed, window: opened, observed});
     }
     return {agent, windows, peer};

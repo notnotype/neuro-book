@@ -8,11 +8,12 @@
 import {computed} from "vue";
 
 import JsonViewer from "nbook/ui/JsonViewer.vue";
-import {DISPLAY_LOCALE, localize} from "nbook/shared/localized-text";
+import {localize} from "nbook/shared/localized-text";
 import {contextTable, evaluateContextWhen} from "nbook/plugins/commands/shared/context-keys";
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
 import {effectiveAgentExposure} from "nbook/plugins/commands/shared/registry";
 
+import {LAB_LOCALE} from "../../lab-locale";
 import {LAB_CONTEXT_KEYS} from "./lab-context-keys";
 import type {LabCommandScene} from "./lab-command-scene";
 
@@ -41,7 +42,7 @@ const rows = computed<readonly CommandRow[]>(() => {
         const verdict = evaluation.ok ? (evaluation.value.matches ? "满足" : `缺少：${evaluation.value.reasons.join("；")}`) : `求值失败：${evaluation.reason}`;
         return {
             command,
-            title: localize(command.title, DISPLAY_LOCALE),
+            title: localize(command.title, LAB_LOCALE),
             whenText: requires.length === 0 ? "无 requires" : `${requires.join("、")} → ${verdict}`,
             exposeText: exposeTextOf(command),
         };

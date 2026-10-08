@@ -8,10 +8,12 @@ import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 
 import type {CommandDeclaration, CommandResult} from "nbook/plugins/commands/shared/contracts";
 import type {QuickPick, QuickPickRequest} from "nbook/plugins/workbench/shared/contracts";
+import {localize} from "nbook/shared/localized-text";
+import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/localized-text";
 
 import {OPEN_PROJECT_COMMAND, projectsRemoteContract} from "../shared/contracts";
 import type {ProjectView} from "../shared/contracts";
-import {projectsText} from "./messages";
+import {projectsText, retryTitle} from "./messages";
 
 export {OPEN_PROJECT_COMMAND};
 
@@ -31,20 +33,32 @@ export function projectUrl(name: string): string {
 
 const ACTIVE_STATES: ReadonlySet<ProjectView["state"]> = new Set(["starting", "running", "idle-grace"]);
 
-function request(projects: ReadonlyArray<ProjectView>, title: string): QuickPickRequest {
+function request(projects: ReadonlyArray<ProjectView>, title: DisplayText): QuickPickRequest {
     return {
         title,
         placeholder: projectsText("placeholder"),
-        items: projects.map((project) => ({id: project.name, label: project.name, detail: ACTIVE_STATES.has(project.state) ? `${project.path} · ${projectsText("running")}` : project.path})),
+        items: projects.map((project) => ({id: project.name, label: project.name, detail: ACTIVE_STATES.has(project.state) ? projectsText("running", {path: project.path}) : project.path})),
         text: {label: (path) => projectsText("registerAndOpen", {path})},
         empty: projectsText("empty"),
     };
 }
 
-export async function openProject(remote: RemoteClient<typeof projectsRemoteContract>, quickPick: QuickPick, navigateDocument: (url: string) => void): Promise<CommandResult<null>> {
+export interface OpenProjectHost {
+    readonly remote: RemoteClient<typeof projectsRemoteContract>;
+    readonly quickPick: QuickPick;
+    navigateDocument(url: string): void;
+    /** 当前显示语言：命令失败的原因按它给出。 */
+    locale(): DisplayLocale;
+    /** 登记失败时服务端给的说明原文（中文）记到诊断，不进界面。 */
+    recordFailure(reason: string, detail: string): void;
+}
+
+export async function openProject(host: OpenProjectHost): Promise<CommandResult<null>> {
+    const {remote, quickPick, navigateDocument} = host;
+    const fail = (text: LocalizedText): CommandResult<null> => ({ok: false, code: "unavailable", reason: localize(text, host.locale())});
     const listed = await remote.list({});
-    if (!listed.ok) return {ok: false, code: "unavailable", reason: `列不出已登记的项目：${listed.code}`};
-    let title = projectsText("title");
+    if (!listed.ok) return fail(projectsText("listFailed", {code: listed.code}));
+    let title: DisplayText = projectsText("title");
     for (;;) {
         const picked = await quickPick.pick(request(listed.value, title));
         if (picked.kind === "cancelled") return {ok: true, value: null};
@@ -60,9 +74,10 @@ export async function openProject(remote: RemoteClient<typeof projectsRemoteCont
         }
         // 登记按目录幂等：同一目录再登记得到同一个项目。所以写请求结果未知（unknown-outcome）也折成命令的
         // unavailable、让用户再试是安全的，命令失败码不必另加一个；原因如实写明结果未知。
-        if (registered.code === "unknown-outcome") return {ok: false, code: "unavailable", reason: `登记结果未知，再试一次即可：${registered.cause ?? registered.code}`};
-        if (registered.code !== "register-failed") return {ok: false, code: "unavailable", reason: `登记没有完成：${registered.code}`};
+        if (registered.code === "unknown-outcome") return fail(projectsText("unknownOutcome", {cause: registered.cause ?? registered.code}));
+        if (registered.code !== "register-failed") return fail(projectsText("notCompleted", {code: registered.code}));
         const failure = registered.detail as {readonly reason: string; readonly detail: string};
-        title = projectsText("retryTitle", {reason: failure.detail});
+        host.recordFailure(failure.reason, failure.detail);
+        title = retryTitle(failure.reason);
     }
 }

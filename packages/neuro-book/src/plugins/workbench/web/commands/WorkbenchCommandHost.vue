@@ -6,8 +6,10 @@
  * （ui.component-lab 场景 16）。监听用捕获阶段，页面里的控件先处理按键会让组合键漏掉。
  */
 import {onBeforeUnmount, onMounted} from "vue";
+import type {Ref} from "vue";
 
 import type {CommandService, Release} from "nbook/plugins/commands/shared/contracts";
+import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import WorkbenchCommandPalette from "../components/WorkbenchCommandPalette.vue";
 import {createKeymapDispatcher, currentKeyPlatform} from "./keymap";
@@ -20,9 +22,11 @@ const props = defineProps<{
     attach: (host: PaletteHost) => Release;
     /** 键位不合法、冲突与快捷键执行失败的去处。 */
     report: (error: Error) => void;
+    /** 当前显示语言（从配置读）。 */
+    locale: Readonly<Ref<DisplayLocale>>;
 }>();
 
-const host = createPaletteHost({commands: props.commands});
+const host = createPaletteHost({commands: props.commands, locale: props.locale});
 const detach = props.attach(host);
 const keymap = createKeymapDispatcher(props.commands, currentKeyPlatform(), props.report);
 

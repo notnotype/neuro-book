@@ -2,12 +2,13 @@
  * 示例场景的场地：像产品宿主（`src/server/`、`src/project/`、`src/web/`）那样，把内置插件与示例插件装进运行实例，
  * 并给出宿主能力。只由场景测试使用，不含断言。
  *
- * 每个实例装的内置插件与产品宿主的定义表一致：诊断、`nbook.state`、`nbook.storage`，服务端与窗口另有
- * `nbook.commands`。内置插件都不在启动时激活，有入口依赖它们、或有远程调用到达时才激活，所以场景只为用到的东西付出
- * 启动成本。
+ * 每个实例装的内置插件与产品宿主的定义表一致：诊断、`nbook.state`、`nbook.settings`、`nbook.storage`，服务端与窗口
+ * 另有 `nbook.commands`。除了 `nbook.settings` 的服务端与项目入口（启动即读配置文件、开始监视），内置插件都不在启动
+ * 时激活，有入口依赖它们、或有远程调用到达时才激活，所以场景只为用到的东西付出启动成本。
  *
- * 宿主能力：服务端给状态根（`<root>/state`，`nbook.storage` 的 user 分区就在它下面）与时钟；项目实例给当前项目
- * （目录 `<root>/projects/<名>`）；窗口给它绑定的项目。时钟是 `StageClock`，只在场景调用 `advance` 时前进。
+ * 宿主能力：服务端给状态根（`<root>/state`，`nbook.storage` 的 user 分区与用户的 `settings.json` 都在它下面）与时钟；
+ * 项目实例给当前项目（目录 `<root>/projects/<名>`）；窗口给它绑定的项目与连接状态。时钟是 `StageClock`，只在场景
+ * 调用 `advance` 时前进；内置插件用的产品时钟（`clockKey`）与示例插件用的时钟（`hostClockKey`）是同一个。
  *
  * 跨实例：服务端带路由，项目实例与窗口经 `@notnotype/nb-runtime/remote/testing` 的进程内链路连上它，帧照样经 JSON
  * 编解码；产品里项目实例在子进程里经 Bun IPC 连接，窗口经 WebSocket 连接。窗口按项目名绑定项目此刻运行的那一代，
@@ -30,13 +31,16 @@ import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote
 import type {InstanceDescriptor, RemoteLink, RemoteNode, RemoteRouter} from "@notnotype/nb-runtime/remote";
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 
-import {delegatingPlugins} from "nbook/manifest";
+import {definitionAt, delegatingPlugins} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
+import {settingsBackendPlugin} from "nbook/plugins/settings/backend/plugin";
+import {descriptor as settingsDescriptor} from "nbook/plugins/settings/plugin";
+import {settingsBrowserCore} from "nbook/plugins/settings/web/plugin";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {storageBackendPlugin} from "nbook/plugins/storage/backend/plugin";
 import {storageBrowserPlugin} from "nbook/plugins/storage/web/plugin";
-import {stateRootKey} from "nbook/shared/host";
+import {clockKey, stateRootKey, windowConnectionKey} from "nbook/shared/host";
 import {currentProjectKey, windowProjectKey} from "nbook/shared/projects";
 
 import {hostClockKey} from "../shared/host";
@@ -113,9 +117,12 @@ export class Stage {
      */
     async server(options: InstanceOptions & {readonly clock?: boolean}): Promise<{readonly app: Application; readonly router: RemoteRouter}> {
         const node = createRemoteNode({instance: {id: "hub", kind: "server", role: "hub", project: null, client: null}});
-        const capabilities: Capabilities = [{id: "host.state-root", key: stateRootKey, create: () => ({path: join(this.#root, "state")})}];
+        const capabilities: Capabilities = [
+            {id: "host.state-root", key: stateRootKey, create: () => ({path: join(this.#root, "state")})},
+            {id: "host.product-clock", key: clockKey, create: () => this.clock},
+        ];
         if (options.clock !== false) capabilities.push({id: "host.clock", key: hostClockKey, create: () => this.clock});
-        const app = await this.#start({location: "server", instanceId: "hub"}, [statePlugin, commandsPlugin, storageBackendPlugin], capabilities, options, node);
+        const app = await this.#start({location: "server", instanceId: "hub"}, [statePlugin, definitionAt("server", settingsDescriptor, settingsBackendPlugin), commandsPlugin, storageBackendPlugin], capabilities, options, node);
         const router = createRemoteRouter(node, {
             // 窗口按项目名绑定到它此刻运行的那一代。产品里由项目管理器负责（打开、租约、宽限期）；场地只按名字找。
             bindProject: async (request) => {
@@ -151,8 +158,8 @@ export class Stage {
         const connected = await node.connect(link.left);
         if (!connected.ok) throw new Error(`项目 ${name} 连不上服务端：${connected.reason}`);
         const current = {id: name, name, generation, root: join(this.#root, "projects", name)};
-        const capabilities: Capabilities = [{id: "project.current", key: currentProjectKey, create: () => current}];
-        const app = await this.#start({location: "project", instanceId: descriptor.id}, [statePlugin, storageBackendPlugin], capabilities, options, node);
+        const capabilities: Capabilities = [{id: "project.current", key: currentProjectKey, create: () => current}, {id: "host.product-clock", key: clockKey, create: () => this.clock}];
+        const app = await this.#start({location: "project", instanceId: descriptor.id}, [statePlugin, definitionAt("project", settingsDescriptor, settingsBackendPlugin), storageBackendPlugin], capabilities, options, node);
         project.current = {app, link: link.left, stopping: false};
         return app;
     }
@@ -181,8 +188,13 @@ export class Stage {
         if (!connected.ok) throw new Error(`窗口 ${id} 连不上服务端：${connected.reason}`);
         this.#windows.set(id, {node, link: link.left});
         const binding = node.binding === null ? null : {id: node.binding.id, name: node.binding.name, generation: node.binding.generation};
-        const capabilities: Capabilities = [{id: "window.project", key: windowProjectKey, create: () => ({project: binding})}];
-        return this.#start({location: "browser", instanceId: id, client}, [statePlugin, commandsPlugin, storageBrowserPlugin], capabilities, options, node);
+        const capabilities: Capabilities = [
+            {id: "window.project", key: windowProjectKey, create: () => ({project: binding})},
+            {id: "window.product-clock", key: clockKey, create: () => this.clock},
+            // 场地不演示窗口的断线恢复（场景直接重连节点），连接状态一直是在线。
+            {id: "window.connection", key: windowConnectionKey, create: () => ({state: () => "online" as const, onChange: () => () => undefined})},
+        ];
+        return this.#start({location: "browser", instanceId: id, client}, [statePlugin, definitionAt("browser", settingsDescriptor, settingsBrowserCore), commandsPlugin, storageBrowserPlugin], capabilities, options, node);
     }
 
     /** 窗口 `id` 断线后换一条链路重连（产品里是浏览器的退避重连），返回握手结果。 */

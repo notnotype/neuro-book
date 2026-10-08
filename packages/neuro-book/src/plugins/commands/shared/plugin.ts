@@ -15,7 +15,9 @@ import type {ContributionDescriptor, ContributionHandle, ContributionReceiver, P
 
 import {publicStateKey} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateDeclaration, PublicStateService} from "nbook/plugins/state/shared/contracts";
-import {DISPLAY_LOCALE, localize} from "nbook/shared/localized-text";
+import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {formatText, localize} from "nbook/shared/localized-text";
+import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {descriptor} from "../plugin";
 import type {ContextKeySource} from "./context-keys";
@@ -28,9 +30,20 @@ import type {CommandRegistry} from "./registry";
  * 产品命令表的上下文键是公开状态里的布尔键（docs/specs/workbench/commands.md 的“when 读公开状态”）：`when` 引用的
  * 键要是本运行位置入口声明的、已被接受的布尔公开键，否则命令不可用；求值只读本实例。
  */
-function keyProblem(key: string, declaration: PublicStateDeclaration | null): string | null {
-    if (declaration === null) return `when 引用的 ${key} 不是本运行位置声明的公开键`;
-    return declaration.type === "boolean" ? null : `when 引用的 ${key} 不是布尔公开键`;
+const REASONS = {
+    undeclared: {"zh-CN": "when 引用的 {key} 不是本运行位置声明的公开键", "en-US": "{key} in when is not a public key declared at this location"},
+    notBoolean: {"zh-CN": "when 引用的 {key} 不是布尔公开键", "en-US": "{key} in when is not a boolean public key"},
+    notTrue: {"zh-CN": "{key} 不为 true", "en-US": "{key} is not true"},
+} as const;
+
+/** 不满足的原因按求值时的显示语言给出（docs/specs/workbench/commands.md“可用性求值”）；已记下的诊断保留当时的文字。 */
+function reasonOf(template: (typeof REASONS)[keyof typeof REASONS], key: string, locale: DisplayLocale): string {
+    return localize(formatText(template, {key}), locale);
+}
+
+function keyProblem(key: string, declaration: PublicStateDeclaration | null, locale: DisplayLocale): string | null {
+    if (declaration === null) return reasonOf(REASONS.undeclared, key, locale);
+    return declaration.type === "boolean" ? null : reasonOf(REASONS.notBoolean, key, locale);
 }
 
 /**
@@ -43,14 +56,14 @@ function validateCommandContribution(contribution: ContributionDescriptor): stri
 }
 
 /** 命令表的键来源：本实例的公开状态。未就绪按 false，原因取声明的 reason。 */
-function publicStateKeys(state: PublicStateService): ContextKeySource {
+function publicStateKeys(state: PublicStateService, locale: () => DisplayLocale): ContextKeySource {
     return {
-        problem: (key) => keyProblem(key, state.declaration(key)),
+        problem: (key) => keyProblem(key, state.declaration(key), locale()),
         evaluate: (key) => {
             const read = state.read(key);
             if (read.status === "ready" && read.value === true) return {matches: true};
             const declaration = state.declaration(key);
-            const reason = declaration?.type === "boolean" && declaration.reason !== undefined ? localize(declaration.reason, DISPLAY_LOCALE) : `${key} 不为 true`;
+            const reason = declaration?.type === "boolean" && declaration.reason !== undefined ? localize(declaration.reason, locale()) : reasonOf(REASONS.notTrue, key, locale());
             return {matches: false, reason};
         },
     };
@@ -136,14 +149,15 @@ function commandsEntry(location: RuntimeLocation): PluginEntryDefinition {
     return defineEntry({
         id: location,
         location,
-        dependencies: [{key: diagnosticsKey}, {key: publicStateKey}],
+        dependencies: [{key: diagnosticsKey}, {key: publicStateKey}, {key: settingsKey}],
         provides: [commandServiceKey],
         receives: [COMMANDS_POINT],
         remoteProvides: browser ? [commandsRemoteContract] : [],
         activate: (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
+            const settings = context.services.require(settingsKey);
             const registry = createCommandRegistry({
-                contextKeys: publicStateKeys(context.services.require(publicStateKey)),
+                contextKeys: publicStateKeys(context.services.require(publicStateKey), () => displayLocale(settings)),
                 report: (error) => {
                     diagnostics.record({level: "warn", event: "commands.registry", message: error.message, source: {plugin: descriptor.id}});
                 },

@@ -5,10 +5,11 @@
 
 import {mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {nextTick} from "vue";
+import {nextTick, ref} from "vue";
 
 import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
+import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {OPEN_COMMANDS_DECLARATION, OPEN_COMMANDS_ID, PaletteSlot} from "./open-commands";
 import WorkbenchCommandHost from "./WorkbenchCommandHost.vue";
@@ -32,7 +33,7 @@ describe("WorkbenchCommandHost", () => {
         expect(registered.ok).toBe(true);
 
         const wrapper = mount(WorkbenchCommandHost, {
-            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message)},
+            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message), locale: ref<DisplayLocale>("zh-CN")},
             attachTo: document.body,
         });
         await nextTick();

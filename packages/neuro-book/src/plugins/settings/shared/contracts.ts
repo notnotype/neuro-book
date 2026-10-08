@@ -12,13 +12,32 @@ import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import {Type} from "typebox";
 
-import {SETTINGS_FAILURES, SETTINGS_POINT} from "nbook/shared/settings";
-import type {SettingsService} from "nbook/shared/settings";
+import type {CommandFailureCode, CommandResult} from "nbook/plugins/commands/shared/contracts";
+import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
+import {formatText, localize} from "nbook/shared/localized-text";
+import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/localized-text";
+import {defineSetting, SETTINGS_FAILURES, SETTINGS_POINT} from "nbook/shared/settings";
+import type {SettingDefinition, SettingsFailure, SettingsService} from "nbook/shared/settings";
 
 export {SETTINGS_POINT};
 
 /** 插件依赖它取得按调用方生成的配置服务。 */
 export const settingsKey: ServiceKey<SettingsService> = defineServiceKey<SettingsService>("nbook.settings/settings");
+
+/** 界面语言：平台级设置，只允许用户层（项目文件可能来自别人的仓库，不该替用户换语言）。 */
+export const localeSetting = defineSetting({
+    plugin: "nbook.settings",
+    name: "locale",
+    schema: Type.Union([Type.Literal("zh-CN"), Type.Literal("en-US")]),
+    default: "zh-CN",
+    title: {"zh-CN": "界面语言", "en-US": "Display Language"},
+    layers: ["user"],
+});
+
+/** 当前显示语言；在 computed 或 effect 里读时随设置变化重新求值。 */
+export function displayLocale(settings: SettingsService): DisplayLocale {
+    return settings.get(localeSetting);
+}
 
 const RevisionSchema = Type.Object({boot: Type.String(), seq: Type.Integer({minimum: 0})}, {additionalProperties: false});
 const ProblemSchema = Type.Object({key: Type.String(), reason: Type.Union([Type.Literal("invalid-value"), Type.Literal("layer-not-allowed")])}, {additionalProperties: false});
@@ -50,3 +69,60 @@ export const userSettingsContract = defineRemoteService({id: "nbook.settings/use
 export const projectSettingsContract = defineRemoteService({id: "nbook.settings/project", version: 1, provider: "project", callers: ["browser", "tui"], methods, events});
 
 export type SettingsContract = typeof userSettingsContract | typeof projectSettingsContract;
+
+/** 切换某个配置项的选项：值与它的显示文字。 */
+export interface SettingChoice<T extends string> {
+    readonly id: T;
+    readonly label: DisplayText;
+}
+
+const COMMAND_TEXT = {
+    current: {"zh-CN": "当前", "en-US": "current"},
+    placeholder: {"zh-CN": "选中后立即生效", "en-US": "Takes effect immediately"},
+    failed: {"zh-CN": "配置写入失败（{code}）：{detail}", "en-US": "Settings write failed ({code}): {detail}"},
+} satisfies Record<string, LocalizedText>;
+
+/**
+ * 三条设置命令（切换界面语言、主题、明暗）共用的执行：给了值就直接写，不打开选择；没给时经命令面板的选择模式列出
+ * 选项，取消为成功、无副作用。写入失败按 docs/specs/workbench/commands.md 的“命令目录（设置）”转换为命令失败。
+ */
+export async function switchSetting<T extends string>(options: {
+    readonly settings: SettingsService;
+    readonly quickPick: QuickPick;
+    readonly setting: SettingDefinition<T>;
+    readonly value: T | undefined;
+    readonly choices: ReadonlyArray<SettingChoice<T>>;
+    readonly title: LocalizedText;
+}): Promise<CommandResult<null>> {
+    const {settings, setting} = options;
+    let value = options.value;
+    if (value === undefined) {
+        const current = settings.get(setting) as T;
+        const picked = await options.quickPick.pick({
+            title: options.title,
+            placeholder: COMMAND_TEXT.placeholder,
+            items: options.choices.map((choice) => ({id: choice.id, label: choice.label, ...(choice.id === current ? {detail: COMMAND_TEXT.current} : {})})),
+        });
+        if (picked.kind === "cancelled") return {ok: true, value: null};
+        if (picked.kind === "unavailable") return {ok: false, code: "unavailable", reason: picked.reason};
+        const chosen = options.choices.find((choice) => choice.id === (picked.kind === "item" ? picked.id : picked.text));
+        if (chosen === undefined) return {ok: true, value: null};
+        value = chosen.id;
+    }
+    const result = await settings.update(setting, value);
+    if (result.ok) return {ok: true, value: null};
+    const reason = localize(formatText(COMMAND_TEXT.failed, {code: result.code, detail: result.detail}), displayLocale(settings));
+    return {ok: false, code: COMMAND_FAILURES[result.code], reason};
+}
+
+const COMMAND_FAILURES: Record<SettingsFailure, CommandFailureCode> = {
+    "denied": "denied",
+    "unavailable": "unavailable",
+    "no-project": "unavailable",
+    "invalid-value": "invalid-args",
+    "undeclared": "execution-error",
+    "layer-not-allowed": "execution-error",
+    "layer-invalid": "execution-error",
+    "write-failed": "execution-error",
+    "unknown-outcome": "execution-error",
+};

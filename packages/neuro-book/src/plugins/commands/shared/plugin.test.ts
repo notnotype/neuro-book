@@ -4,7 +4,8 @@
  * 各自一份命令表。
  */
 
-import {describe, expect, it} from "bun:test";
+import {afterAll, beforeAll, describe, expect, it} from "bun:test";
+import {rm} from "node:fs/promises";
 import {computed, ref} from "@vue/reactivity";
 import type {Ref} from "@vue/reactivity";
 import {Type} from "typebox";
@@ -13,8 +14,10 @@ import {createApplication} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
+import {standaloneSettings} from "nbook/plugins/settings/testing/standalone";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
 
@@ -23,6 +26,17 @@ import type {CommandDeclaration, CommandImplementation, CommandService} from "./
 import {commandsPlugin} from "./plugin";
 
 const silent = {error: () => undefined};
+
+/** 命令系统依赖配置服务（不满足原因按界面语言给出）；服务端的配置文件放在这里（不存在，按默认值）。 */
+let tmp = "";
+
+beforeAll(async () => {
+    tmp = await createTestTmpRoot("neuro-book-commands", "commands-plugin");
+});
+
+afterAll(async () => {
+    if (tmp !== "") await rm(tmp, {recursive: true, force: true});
+});
 const NAME_ARGS = Type.Object({name: Type.String()}, {additionalProperties: false});
 
 function declaration(overrides: Partial<CommandDeclaration> = {}): CommandDeclaration {
@@ -56,9 +70,10 @@ async function start(location: RuntimeLocation, plugins: ReadonlyArray<PluginDef
     const identity = {location, instanceId: `commands-${location}`};
     const store = createDiagnosticsStore({identity});
     const diagnostics = createDiagnosticsPlugin({location, store, exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)});
+    const settings = standaloneSettings(location === "server" ? "server" : "browser", tmp);
     const application = createApplication(
         {identity, stopSignal: new AbortController().signal, emergency: () => undefined},
-        {plugins: [diagnostics, statePlugin, commandsPlugin, ...plugins], requiredPlugins: [diagnostics.id, commandsPlugin.id], gates: []},
+        {capabilities: settings.capabilities, plugins: [diagnostics, statePlugin, ...settings.plugins, commandsPlugin, ...plugins], requiredPlugins: [diagnostics.id, commandsPlugin.id], gates: []},
     );
     expect((await application.startup).status).toBe("available");
     return {application, store};

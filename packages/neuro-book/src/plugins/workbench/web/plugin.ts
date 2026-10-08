@@ -4,13 +4,14 @@
  * （命令面板与浏览器键位分发）。
  */
 
-import {defineAsyncComponent, h} from "vue";
+import {computed, defineAsyncComponent, h} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
+import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {windowProjectKey} from "nbook/shared/projects";
 
 import {descriptor} from "../plugin";
@@ -22,6 +23,7 @@ import {createEmptyWorkbench} from "./empty-workbench";
 import {PageTable, validatePageContribution} from "./pages";
 
 const CommandHost = defineAsyncComponent(() => import("./commands/WorkbenchCommandHost.vue"));
+const WorkbenchDocument = defineAsyncComponent(() => import("./document/WorkbenchDocument.vue"));
 
 export const workbenchBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
@@ -29,7 +31,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "browser",
         location: "browser",
-        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}],
+        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: settingsKey}],
         provides: [workbenchRootKey, quickPickKey],
         receives: [WORKBENCH_PAGES_POINT],
         contributions: [{capability: COMMANDS_POINT, id: OPEN_COMMANDS_ID, declaration: OPEN_COMMANDS_DECLARATION}],
@@ -41,7 +43,9 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 diagnostics.record({level: "warn", event: "workbench.commands", message: error.message, source: {plugin: descriptor.id}});
             };
             const project = context.services.require(windowProjectKey).project;
-            const home = createEmptyWorkbench(() => h(CommandHost, {commands, report, attach: (host: PaletteHost) => palettes.attach(host)}), project?.name ?? null);
+            const settings = context.services.require(settingsKey);
+            const locale = computed(() => displayLocale(settings));
+            const home = createEmptyWorkbench(() => h(CommandHost, {commands, report, locale, attach: (host: PaletteHost) => palettes.attach(host)}), () => h(WorkbenchDocument, {locale}), project?.name ?? null, locale);
             const pages = new PageTable([{path: "/", title: "NeuroBook", load: async () => home}]);
             return {
                 services: [provide(workbenchRootKey, {pages: () => pages.list()}), provide(quickPickKey, palettes.quickPick)],

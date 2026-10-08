@@ -1,7 +1,7 @@
 /** 命令面板自己的文案。插件没有翻译表：中英两份写在一起，按显示语言取一份。 */
 
-import {DISPLAY_LOCALE, localize} from "nbook/shared/localized-text";
-import type {LocalizedText} from "nbook/shared/localized-text";
+import {localize} from "nbook/shared/localized-text";
+import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
 const MESSAGES = {
     title: {"zh-CN": "命令面板", "en-US": "Command Palette"},
@@ -20,7 +20,7 @@ const MESSAGES = {
 
 export type PaletteMessage = keyof typeof MESSAGES;
 
-/** 取显示语言的文案并代入 `{name}` 占位。 */
-export function paletteText(key: PaletteMessage, params: Readonly<Record<string, string | number>> = {}): string {
-    return localize(MESSAGES[key], DISPLAY_LOCALE).replace(/\{(\w+)\}/gu, (placeholder, name: string) => (name in params ? String(params[name]) : placeholder));
+/** 取当前显示语言的文案并代入 `{name}` 占位。 */
+export function paletteText(locale: DisplayLocale, key: PaletteMessage, params: Readonly<Record<string, string | number>> = {}): string {
+    return localize(MESSAGES[key], locale).replace(/\{(\w+)\}/gu, (placeholder, name: string) => (name in params ? String(params[name]) : placeholder));
 }

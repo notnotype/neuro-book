@@ -9,14 +9,15 @@
 import {QuickInput} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 
-import {DISPLAY_LOCALE} from "nbook/shared/localized-text";
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
+import {textOf} from "nbook/shared/localized-text";
 
 import {parseCommandQuery, parseLineNumber, searchCommands, searchPickItems} from "../commands/command-query";
 import type {PaletteItem} from "../commands/command-query";
 import {sameDocument} from "../commands/palette-host";
 import type {DocumentTarget, PaletteHost} from "../commands/palette-host";
-import {paletteText} from "../commands/palette-messages";
+import {paletteText as messageOf} from "../commands/palette-messages";
+import type {PaletteMessage} from "../commands/palette-messages";
 
 const props = defineProps<{host: PaletteHost}>();
 
@@ -30,6 +31,11 @@ const PICK_TEXT_ID = "quick-pick:text";
 
 const host = props.host;
 const activeId = ref<string | null>(null);
+
+/** 面板文案按宿主给的显示语言取：语言变化时打开中的面板随之换文字，输入与选中项不变。 */
+function paletteText(key: PaletteMessage, params: Readonly<Record<string, string | number>> = {}): string {
+    return messageOf(host.locale.value, key, params);
+}
 
 interface PendingSelection {
     readonly id: string;
@@ -77,19 +83,21 @@ const items = computed<readonly PaletteItem[]>(() => {
     if (picking !== null) {
         // 选择模式不做前缀路由：输入的就是要匹配或提交的文字。
         const text = host.query.value.trim();
-        const found = searchPickItems(picking.items, text);
-        return picking.text === undefined || text === "" ? found : [...found, {id: PICK_TEXT_ID, label: picking.text.label(text)}];
+        const locale = host.locale.value;
+        const shown = picking.items.map((item) => ({id: item.id, label: textOf(item.label, locale), ...(item.detail === undefined ? {} : {detail: textOf(item.detail, locale)})}));
+        const found = searchPickItems(shown, text);
+        return picking.text === undefined || text === "" ? found : [...found, {id: PICK_TEXT_ID, label: textOf(picking.text.label(text), locale)}];
     }
     if (parsedQuery.value.mode === "line") {
         const state = lineState.value;
         return state.line === null ? [] : [{id: LINE_ITEM_ID, label: paletteText("goToLine", {line: state.line})}];
     }
-    return searchCommands(visibleCommands.value, parsedQuery.value.text, host.recent.value, DISPLAY_LOCALE);
+    return searchCommands(visibleCommands.value, parsedQuery.value.text, host.recent.value, host.locale.value);
 });
 
 const emptyText = computed(() => {
     const picking = host.pick.value;
-    if (picking !== null) return picking.empty ?? paletteText("pickEmpty");
+    if (picking !== null) return picking.empty === undefined ? paletteText("pickEmpty") : textOf(picking.empty, host.locale.value);
     return parsedQuery.value.mode === "line" ? lineState.value.message : paletteText("empty");
 });
 
@@ -152,8 +160,8 @@ onBeforeUnmount(() => {
         :query="host.query.value"
         :items="items"
         :active-id="activeId"
-        :title="host.pick.value?.title ?? paletteText('title')"
-        :placeholder="host.pick.value?.placeholder ?? paletteText('placeholder')"
+        :title="host.pick.value === null ? paletteText('title') : textOf(host.pick.value.title, host.locale.value)"
+        :placeholder="host.pick.value === null ? paletteText('placeholder') : textOf(host.pick.value.placeholder, host.locale.value)"
         :empty-text="emptyText"
         :focus-request="host.focusRequest.value"
         :restore-focus="true"

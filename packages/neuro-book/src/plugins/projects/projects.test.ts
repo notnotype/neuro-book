@@ -17,6 +17,7 @@ import type {RemoteUse} from "@notnotype/nb-runtime/remote";
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+import {ref} from "vue";
 
 import {commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
@@ -24,6 +25,7 @@ import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
+import {standaloneSettings} from "nbook/plugins/settings/testing/standalone";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {quickPickKey} from "nbook/plugins/workbench/shared/contracts";
 import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
@@ -32,12 +34,15 @@ import type {PaletteHost} from "nbook/plugins/workbench/web/commands/palette-hos
 import {killSpawnedProjects, leaseOf, projectHarness} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
 import {windowNavigationKey} from "nbook/shared/host";
+import {textOf} from "nbook/shared/localized-text";
+import type {DisplayLocale} from "nbook/shared/localized-text";
 import {windowProjectKey} from "nbook/shared/projects";
 import {browserHostPlugins, browserPluginDefinitions} from "nbook/web/plugins";
 
 import {projectsBackendPlugin} from "./backend/plugin";
 import {projectsRemoteContract} from "./shared/contracts";
 import {openProject} from "./web/open-project";
+import type {OpenProjectHost} from "./web/open-project";
 import {projectsBrowserPlugin} from "./web/plugin";
 
 const silentConsole = {error: () => undefined};
@@ -98,14 +103,16 @@ async function commandWindow(h: ProjectHarness, host: PaletteHost, navigations: 
     let commands: CommandService | null = null;
     const store = createDiagnosticsStore({identity: {location: "browser", instanceId: "browser-2"}});
     const node = createRemoteNode({instance: {id: "browser-2", kind: "browser", role: "client", project: null, client: "profile-2"}});
+    const settings = standaloneSettings("browser", tmp);
     const app = createApplication(
         {identity: {location: "browser", instanceId: "browser-2"}, stopSignal: new AbortController().signal, emergency: () => undefined},
         {
             capabilities: [
                 {id: "window.navigation", key: windowNavigationKey, create: () => ({navigateDocument: (href: string) => navigations.push(href)})},
                 {id: "test.quick-pick", key: quickPickKey, create: (): QuickPick => ({pick: (request) => host.openPick(request)})},
+                ...settings.capabilities,
             ],
-            plugins: [browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}), statePlugin, commandsPlugin, projectsBrowserPlugin, commandReader((service) => {
+            plugins: [browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}), statePlugin, ...settings.plugins, commandsPlugin, projectsBrowserPlugin, commandReader((service) => {
                 commands = service;
             })],
             gates: [],
@@ -143,12 +150,14 @@ describe("Spec projects 输出 10：nbook.projects/projects", () => {
 });
 
 describe("Spec projects 场景 11：打开项目", () => {
+    /** 面板与命令失败原因的显示语言；用例里切换它来验证文字在显示时才按语言取。 */
+    const locale = ref<DisplayLocale>("zh-CN");
     /** 真实的命令面板宿主作为选择服务；`opened` 等它进入选择模式（流程里先要经远程服务读登记表），返回这次的请求。 */
     async function picker(): Promise<{readonly host: PaletteHost; readonly opened: (match?: (title: string) => boolean) => Promise<NonNullable<PaletteHost["pick"]["value"]>>}> {
-        const host = createPaletteHost({commands: createCommandRegistry({contextKeys: contextTable({}), report: (error) => {
+        const host = createPaletteHost({locale, commands: createCommandRegistry({contextKeys: contextTable({}), report: (error) => {
             throw error;
         }})});
-        return {host, opened: (match = () => true) => waitUntil("进入选择模式", () => (host.pick.value !== null && match(host.pick.value.title) ? host.pick.value : null))};
+        return {host, opened: (match = () => true) => waitUntil("进入选择模式", () => (host.pick.value !== null && match(textOf(host.pick.value.title, locale.value)) ? host.pick.value : null))};
     }
 
     /** 像面板那样提交：选中、关闭，再报告关闭完成。 */
@@ -173,22 +182,36 @@ describe("Spec projects 场景 11：打开项目", () => {
         expect((await app.stop()).status).toBe("closed");
     });
 
-    it("输入目录路径：先登记再导航；登记失败带着原因重新选择，取消则什么也不做", async () => {
+    it("输入目录路径：先登记再导航；登记失败带着按失败码给出的原因重新选择（显示时按当前语言，说明原文进诊断），取消则什么也不做", async () => {
         const {h, projects} = await setup();
         const {host, opened} = await picker();
         const navigations: string[] = [];
+        const failures: Array<{reason: string; detail: string}> = [];
         const fresh = await directory("Fresh");
+        const openHost = (): OpenProjectHost => ({
+            remote: projects,
+            quickPick: {pick: (request) => host.openPick(request)},
+            navigateDocument: (url) => navigations.push(url),
+            locale: () => locale.value,
+            recordFailure: (reason, detail) => failures.push({reason, detail}),
+        });
 
-        const registering = openProject(projects, {pick: (request) => host.openPick(request)}, (url) => navigations.push(url));
+        const registering = openProject(openHost());
         await opened();
         submit(host, {kind: "text", text: join(tmp, "dirs", "nowhere")});
-        expect((await opened((title) => title.includes("登记失败"))).title).toContain("目录不存在");
+        const retry = await opened((title) => title.includes("登记失败"));
+        expect(textOf(retry.title, "zh-CN")).toBe("打开项目：登记失败（路径无效或不存在）");
+        // 选择开着时换成英文：同一个请求按新语言显示，标题里没有服务端给的中文说明。
+        locale.value = "en-US";
+        expect(textOf(retry.title, locale.value)).toBe("Open Project: registration failed (the path is invalid or does not exist)");
+        locale.value = "zh-CN";
+        expect(failures).toEqual([{reason: "invalid-path", detail: expect.stringContaining("nowhere")}]);
         submit(host, {kind: "text", text: fresh});
         expect(await registering).toEqual({ok: true, value: null});
         expect(navigations).toEqual(["/?project=fresh"]);
         expect(await h.manager.registry.resolve("fresh")).toMatchObject({ok: true, value: {path: fresh}});
 
-        const cancelled = openProject(projects, {pick: (request) => host.openPick(request)}, (url) => navigations.push(url));
+        const cancelled = openProject(openHost());
         await opened();
         submit(host, "cancel");
         expect(await cancelled).toEqual({ok: true, value: null});
@@ -202,7 +225,7 @@ describe("Spec projects 输出 10：命令登记", () => {
         let commands: CommandService | null = null;
         const plugins = [
             browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}),
-            ...["nbook.state", "nbook.commands", "nbook.workbench", "nbook.projects"].map((id) => browserPluginDefinitions[id]!),
+            ...["nbook.state", "nbook.settings", "nbook.commands", "nbook.workbench", "nbook.projects"].map((id) => browserPluginDefinitions[id]!),
             commandReader((service) => {
                 commands = service;
             }),
@@ -213,6 +236,7 @@ describe("Spec projects 输出 10：命令登记", () => {
                 capabilities: [
                     {id: "window.project", key: windowProjectKey, create: () => ({project: null})},
                     {id: "window.navigation", key: windowNavigationKey, create: () => ({navigateDocument: () => undefined})},
+                    ...standaloneSettings("browser", tmp, {windowProject: false}).capabilities,
                 ],
                 plugins,
                 requiredPlugins: ["nbook.diagnostics", "nbook.commands", "nbook.workbench"],

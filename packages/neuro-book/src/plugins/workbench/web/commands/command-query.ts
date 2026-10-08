@@ -9,7 +9,6 @@ import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
 
-import type {QuickPickItem} from "../../shared/contracts";
 
 type QueryMode = "commands" | "line";
 
@@ -158,11 +157,18 @@ export function searchCommands(commands: readonly CommandMetadata[], query: stri
     return scored.map((entry) => entry.item);
 }
 
+/** 已按当前语言取好文字的选择候选。 */
+export interface ShownPickItem {
+    readonly id: string;
+    readonly label: string;
+    readonly detail?: string;
+}
+
 /**
  * 选择模式的候选：标签与说明都参与匹配、取较低分，只有标签命中才渲染片段；按匹配分排，同分保持请求里的次序
  * （请求方已经排好，例如登记顺序）。
  */
-export function searchPickItems(items: ReadonlyArray<QuickPickItem>, query: string): readonly PaletteItem[] {
+export function searchPickItems(items: ReadonlyArray<ShownPickItem>, query: string): readonly PaletteItem[] {
     const scored: {item: PaletteItem; score: number; index: number}[] = [];
     items.forEach((candidate, index) => {
         const labelMatch = matchCommandText(candidate.label, query);

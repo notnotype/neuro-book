@@ -6,12 +6,13 @@
 import {mount} from "@vue/test-utils";
 import {Type} from "typebox";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {nextTick, shallowRef} from "vue";
+import {nextTick, ref, shallowRef} from "vue";
 
 import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import type {ContextValues} from "nbook/plugins/commands/shared/context-keys";
 import type {CommandDeclaration, CommandExecutionEvent, CommandResult} from "nbook/plugins/commands/shared/contracts";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
+import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {createPaletteHost} from "../commands/palette-host";
 import type {PaletteHost} from "../commands/palette-host";
@@ -37,7 +38,8 @@ function harness() {
     });
     const executed: CommandExecutionEvent[] = [];
     registry.onDidExecute((event) => executed.push(event));
-    const host = createPaletteHost({commands: registry});
+    const locale = ref<DisplayLocale>("zh-CN");
+    const host = createPaletteHost({commands: registry, locale});
     const opener = document.createElement("button");
     opener.textContent = "打开前的焦点";
     document.body.append(opener);
@@ -50,7 +52,7 @@ function harness() {
         const result = registry.register({id, source: "nbook.test", declaration: {title: {"zh-CN": id, "en-US": id}, description: id, args: NO_ARGS, effect: "read", ...declaration}, run});
         if (!result.ok) throw new Error(result.reason);
     };
-    return {host, context, executed, opener, register};
+    return {host, context, executed, opener, register, locale};
 }
 
 async function open(host: PaletteHost, mode: "commands" | "line" = "commands"): Promise<void> {
@@ -265,5 +267,42 @@ describe("WorkbenchCommandPalette", () => {
         app.host.openPalette("commands");
         expect(await replaced).toEqual({kind: "cancelled"});
         await vi.waitFor(() => expect(options()).toEqual(["nbook.app.alpha"]));
+    });
+
+    it("显示语言：打开中的选择与面板随语言切换换文字，输入与选中项保留；字符串原样显示", async () => {
+        const app = harness();
+        const request = {
+            title: {"zh-CN": "切换主题", "en-US": "Change Theme"},
+            placeholder: {"zh-CN": "选中后立即生效", "en-US": "Takes effect immediately"},
+            items: [{id: "nbook", label: "NeuroBook", detail: {"zh-CN": "当前", "en-US": "current"}}, {id: "macos", label: "macOS"}],
+            empty: {"zh-CN": "没有匹配的项", "en-US": "No matching items"},
+        };
+        const result = app.host.openPick(request);
+        await vi.waitFor(() => expect(input()).not.toBeNull());
+        expect(document.body.textContent).toContain("切换主题");
+        expect(document.body.textContent).toContain("当前");
+        await type("o");
+        await press("ArrowDown");
+        const chosen = selected();
+
+        app.locale.value = "en-US";
+        await nextTick();
+        expect(document.body.textContent).toContain("Change Theme");
+        expect(document.body.textContent).toContain("current");
+        expect(document.body.textContent).not.toContain("切换主题");
+        expect(input()?.placeholder).toBe("Takes effect immediately");
+        expect(input()?.value).toBe("o");
+        expect(selected()).toBe(chosen);
+        await type("zzz");
+        expect(document.body.textContent).toContain("No matching items");
+        await press("Escape");
+        expect(await result).toEqual({kind: "cancelled"});
+
+        // 命令模式的面板文案同样按当前语言。
+        await open(app.host);
+        expect(input()?.placeholder).toBe("Type a command, or : to go to a line");
+        app.locale.value = "zh-CN";
+        await nextTick();
+        expect(input()?.placeholder).toBe("输入命令，或输入 : 跳到某一行");
     });
 });
