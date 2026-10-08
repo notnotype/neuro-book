@@ -99,6 +99,7 @@ issueId: null
 | [t60](tasks/t60-plugin-api-ergonomics/README.md) | 插件写法收敛与内核精简：声明写合同对象、`defineEntry` 编译期核对、`orThrow`、本地服务、远程服务与贡献点的选用规则；删去本地委托、贡献点校验的跨点查询与接收者的 `commit`；概念与规则补进术语表与作者 API；2026-10-08 计划确认（[plan.md](tasks/t60-plugin-api-ergonomics/plan.md)）并完成：omp 计划审查 12 条、实现审查 2 条均已处理，HTTP 路由表按开发者决定去掉预占；内核 294 例、应用 313 与组件 57 例、e2e 48 例、`smoke:server` S1–S8 通过 |
 | [t61](tasks/t61-kernel-catalog-failure-codes/README.md) | 远程提供方查询与失败码 `not-provided`；结果未知的写请求改报 `unknown-outcome`；作者 API 的取服务写法与内核一致；同步服务注明只限内置插件；进行中，计划已确认 |
 | [t62](tasks/t62-plugin-examples-in-app/README.md) | 示例插件搬到应用包并重组：合并为 5 个、补齐未演示的机制、直接用内置插件、教学注释；`testing/` 目录的约定与检查；进行中，子代理在独立 worktree 实施 |
+| [t63](tasks/t63-plugin-activation-trigger/README.md) | 插件触发自己定义的激活事件：激活上下文的触发入口、内核认定拥有者；第一个使用者是 `nbook.commands` 的 `onCommand` 按需激活；2026-10-08 先建，未开工 |
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 
