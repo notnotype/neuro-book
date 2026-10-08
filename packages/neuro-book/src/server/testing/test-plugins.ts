@@ -12,7 +12,8 @@
  *   列出各 `hold` 是否收到终止信号、是否已放行，`POST /project/<id>/echo` 不取租约调用该项目的探针（核对宽限期中
  *   不唤醒项目）。`GET /storage/<记录>` 与 `POST /storage/<记录>`（正文 `{text, expect}`）以本插件的身份直用
  *   Storage 读写探针示例记录（`src/shared/testing/probe-storage.ts`）；`/project/<id>/storage/<记录>` 同样两种方法，
- *   转给该项目的探针，由项目入口直用 Storage。入口关闭时打印一行。同进程测试可传入自己的状态对象直接读写。项目入口见
+ *   转给该项目的探针，由项目入口直用 Storage。`GET /commands/<窗口实例 id>` 与 `POST /commands/<窗口实例 id>/<命令 id>`
+ *   经 `nbook.commands/remote` 列出与执行那个窗口里的命令。入口关闭时打印一行。同进程测试可传入自己的状态对象直接读写。项目入口见
  *   `src/project/testing/probe-plugin.ts`。
  */
 
@@ -21,6 +22,7 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
+import {commandsRemoteContract} from "nbook/plugins/commands/shared/contracts";
 import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
 import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
@@ -142,6 +144,8 @@ export function createRemoteProbePlugin(state: RemoteProbeState = newRemoteProbe
                     })
                     .get("/holds", (c) => c.json([...state.holds].map(([name, hold]) => ({name, aborted: hold.aborted, released: hold.released}))))
                     .post("/project/:id/echo", async (c) => c.json(await atProject(c.req.param("id")).echo({})))
+                    .get("/commands/:client", async (c) => c.json(await context.remote.use(commandsRemoteContract).at({client: c.req.param("client")}).list({})))
+                    .post("/commands/:client/:id", async (c) => c.json(await context.remote.use(commandsRemoteContract).at({client: c.req.param("client")}).execute({id: c.req.param("id")})))
                     .get("/storage/:name", async (c) => {
                         const name = recordName(c.req.param("name"));
                         return name === null ? c.notFound() : c.json(await storage.read(name));

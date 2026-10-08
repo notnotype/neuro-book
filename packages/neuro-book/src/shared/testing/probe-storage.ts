@@ -18,6 +18,18 @@ export const probeRecords = {
 };
 
 export type ProbeRecordName = keyof typeof probeRecords;
+
+/**
+ * 插件状态 store 的探针记录：同一客户端的两个标签页共用一份，值是两个独立字段，用来证明两边各自的窄修改都保留
+ * （docs/specs/state/store.md 验收 1）。
+ */
+export const probePairRecord = defineRecord({
+    key: "probe-pair",
+    scope: "user",
+    locality: "local",
+    version: 1,
+    schema: Type.Object({left: Type.String(), right: Type.String()}, {additionalProperties: false}),
+});
 export const PROBE_RECORD_NAMES = ["shared", "local", "project"] as const satisfies ReadonlyArray<ProbeRecordName>;
 export type ProbeSnapshot = RecordSnapshot<{readonly text: string}>;
 /** 读的结果：快照，或 `open` 的失败。 */
