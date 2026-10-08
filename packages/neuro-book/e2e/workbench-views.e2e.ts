@@ -8,11 +8,14 @@
  */
 
 import {mkdir, rm} from "node:fs/promises";
+import {DatabaseSync} from "node:sqlite";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
 import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+
+import {SAMPLE_VIEWS_SWITCHES} from "nbook/shared/testing/sample-views-contract";
 
 import {startProbeServer} from "./fixtures";
 import type {ProbeServer} from "./fixtures";
@@ -24,6 +27,34 @@ const D = "test.sample-views.delta";
 const E = "test.sample-views.omega";
 
 const sample = (page: Page, viewId: string) => page.locator(`[data-sample-view="${viewId}"]`);
+
+/** 打开命令面板（命令宿主随页面异步加载，按到面板出现为止），输入命令后按回车执行第一项。 */
+async function runCommand(page: Page, text: string): Promise<void> {
+    const combobox = page.getByRole("combobox");
+    await expect(async () => {
+        await page.keyboard.press("Control+Shift+P");
+        await expect(combobox).toBeFocused({timeout: 500});
+    }).toPass();
+    await combobox.fill(`>${text}`);
+    await expect(page.getByRole("option").first()).toBeVisible();
+    await page.keyboard.press("Enter");
+}
+
+/** 选择模式里选一项：等这一步的输入框（名称是选择请求的占位）出现，过滤到只剩目标再回车。 */
+async function pick(page: Page, placeholder: string, text: string): Promise<void> {
+    const combobox = page.getByRole("combobox", {name: placeholder});
+    await expect(combobox).toBeFocused();
+    await combobox.fill(text);
+    await expect(page.getByRole("option")).toHaveCount(1);
+    await page.keyboard.press("Enter");
+}
+
+/** 经“移动到”菜单移动：`trigger` 是菜单按钮所在的范围（侧栏、右栏、面板或视图分节）。 */
+async function moveVia(page: Page, scope: string, viewId: string, target: string): Promise<void> {
+    await page.locator(`${scope} [data-move-view="${viewId}"]`).click();
+    await page.getByRole("menuitem", {name: new RegExp(`^${target}`, "u")}).click();
+    await expect(page.getByRole("menu")).toHaveCount(0);
+}
 
 async function instanceOf(page: Page, viewId: string): Promise<{instance: string | null; generation: string | null; location: string | null}> {
     return sample(page, viewId).evaluate((element) => ({instance: element.getAttribute("data-instance"), generation: element.getAttribute("data-generation"), location: element.getAttribute("data-location")}));
@@ -46,6 +77,31 @@ test.describe("产品页：测试插件贡献的视图", () => {
 
     test.use({viewport: {width: 1440, height: 900}});
 
+    const userDatabase = (): string => join(tmp, "state", "storage", "user.sqlite");
+
+    /** 工作台定制记录的最新值与修订号。 */
+    function customizations(): {value: Record<string, unknown> | null; revision: number} {
+        const db = new DatabaseSync(userDatabase());
+        try {
+            const row = db.prepare("SELECT value, revision FROM records WHERE owner = 'nbook.workbench' AND key = 'views-customizations' ORDER BY revision DESC LIMIT 1").get() as {value: string; revision: number} | undefined;
+            return row === undefined ? {value: null, revision: 0} : {value: JSON.parse(row.value) as Record<string, unknown>, revision: Number(row.revision)};
+        } finally {
+            db.close();
+        }
+    }
+
+    /** 在最新一条工作台定制记录（本窗口刚写的）里加上隐藏 Sidebar。 */
+    function hideSidebarInRecord(): void {
+        const db = new DatabaseSync(userDatabase());
+        try {
+            const row = db.prepare("SELECT rowid AS id, value FROM records WHERE owner = 'nbook.workbench' AND key = 'views-customizations' ORDER BY revision DESC LIMIT 1").get() as {id: number; value: string};
+            const value = JSON.parse(row.value) as Record<string, unknown>;
+            db.prepare("UPDATE records SET value = ?1 WHERE rowid = ?2").run(JSON.stringify({...value, hiddenParts: ["sidebar"]}), row.id);
+        } finally {
+            db.close();
+        }
+    }
+
     async function open(page: Page): Promise<void> {
         await page.goto(server.url);
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
@@ -61,5 +117,305 @@ test.describe("产品页：测试插件贡献的视图", () => {
         // 侧栏的乙、丙在没选中的容器里：还没加载。
         await expect(page.locator(`[data-view-frame="${B}"]`)).toHaveCount(0);
         await expect(page.locator("[data-activity-container]")).toHaveCount(3);
+    });
+
+    test("活动栏：选择互斥；Sidebar 被隐藏或拖到零时点容器同时打开它，拖到零的按记忆尺寸展开", async ({page}) => {
+        await open(page);
+        const item = (viewId: string) => page.locator(`[data-activity-container="view:${viewId}"]`);
+        await expect(item(A)).toHaveAttribute("aria-pressed", "true");
+        await item(B).click();
+        await expect(item(B)).toHaveAttribute("aria-pressed", "true");
+        await expect(item(A)).toHaveAttribute("aria-pressed", "false");
+        await expect(sample(page, B)).toBeVisible();
+        await expect(sample(page, A)).toBeHidden();
+
+        // 隐藏 Sidebar（Part 显隐，外壳二还没有隐藏它的界面）：把本窗口刚写下的定制记录改成隐藏，刷新后生效。
+        await expect.poll(() => (customizations().value?.selected as Record<string, string> | undefined)?.sidebar).toBe(`view:${B}`);
+        hideSidebarInRecord();
+        await page.reload();
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        await expect(page.locator('[data-tool-part="sidebar"]')).toBeHidden();
+        await expect(item(B)).toHaveAttribute("aria-pressed", "false");
+        await item(B).click();
+        await expect(page.locator('[data-tool-part="sidebar"]')).toBeVisible();
+        await expect(item(B)).toHaveAttribute("aria-pressed", "true");
+
+        // 拖到零：内容停放；点另一项切换并按记忆尺寸展开。
+        const width = (await page.locator('[data-leaf="sidebar"]').boundingBox())!.width;
+        const sash = page.getByRole("separator", {name: "调整 sidebar 与 panel-stack 的宽度"});
+        await sash.focus();
+        await page.keyboard.press("Enter");
+        await expect(page.locator('[data-tool-part="sidebar"]')).toBeHidden();
+        await item(C).click();
+        await expect(sample(page, C)).toBeVisible();
+        await expect.poll(async () => Math.round((await page.locator('[data-leaf="sidebar"]').boundingBox())!.width)).toBe(Math.round(width));
+    });
+
+    test("移动到：乙并进甲的容器（single→multiple，乙的实例不变）；甲移到面板后操作甲的容器，乙不随甲走；重置后回到初始；刷新后一致", async ({page}) => {
+        await open(page);
+        const before = customizations().revision;
+        await page.locator(`[data-activity-container="view:${B}"]`).click();
+        await sample(page, B).locator("input").fill("乙的草稿");
+        const beta = await instanceOf(page, B);
+        await moveVia(page, '[data-tool-part="sidebar"]', B, "样例甲");
+        await expect(page.locator(`[data-container-host="view:${A}"]`)).toHaveAttribute("data-container-mode", "multiple");
+        await expect(page.locator(`[data-activity-container="view:${B}"]`)).toHaveCount(0);
+        expect(await instanceOf(page, B)).toEqual(beta);
+        await expect(sample(page, B).locator("input")).toHaveValue("乙的草稿");
+
+        // 甲移进面板的戊；view:甲 仍在，只剩乙，标题回落到乙。
+        await moveVia(page, `[data-view-section="${A}"]`, A, "样例戊");
+        await expect(page.locator(`[data-container-host="view:${E}"]`)).toHaveAttribute("data-container-mode", "multiple");
+        await expect(page.locator(`[data-activity-container="view:${A}"]`)).toHaveAttribute("aria-label", "样例乙");
+        await expect(page.locator(`[data-container-host="view:${A}"]`)).toHaveAttribute("data-container-mode", "single");
+        // 操作 view:甲 的菜单（现在是乙的上提菜单）：把乙移进右栏的丁，乙走、甲不受影响。
+        await moveVia(page, '[data-tool-part="sidebar"]', B, "样例丁");
+        expect(await instanceOf(page, A)).toMatchObject({location: "panel"});
+        expect(await instanceOf(page, B)).toMatchObject({location: "auxiliarybar", instance: beta.instance});
+
+        await page.reload();
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        await expect(page.locator(`[data-container-host="view:${D}"]`)).toHaveAttribute("data-container-mode", "multiple");
+        await expect(page.locator(`[data-container-host="view:${E}"]`)).toHaveAttribute("data-container-mode", "multiple");
+
+        await moveVia(page, `[data-view-section="${A}"]`, A, "重置位置");
+        await moveVia(page, `[data-view-section="${B}"]`, B, "重置位置");
+        await expect(page.locator("[data-activity-container]")).toHaveCount(3);
+        expect(customizations().revision).toBeGreaterThan(before);
+        expect(customizations().value?.views ?? {}).toEqual({});
+    });
+
+    test("命令面板的移动视图：先选视图、再选目标；取消任一步不写", async ({page}) => {
+        await open(page);
+        const before = customizations().revision;
+        await runCommand(page, "移动视图");
+        await pick(page, "选择要移动的视图", "样例丙");
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("combobox")).toHaveCount(0);
+        expect(customizations().revision).toBe(before);
+
+        await runCommand(page, "移动视图");
+        await pick(page, "选择要移动的视图", "样例丙");
+        await pick(page, "移动到", "样例丁");
+        await expect(page.locator(`[data-container-host="view:${D}"]`)).toHaveAttribute("data-container-mode", "multiple");
+        await expect.poll(() => customizations().revision).toBeGreaterThan(before);
+    });
+
+    test("收起：multiple 收起甲 → 乙移出后甲在 single 展开但记录不变 → 乙回来甲重新收起；面板横向收起成竖条、键盘展开", async ({page}) => {
+        await open(page);
+        await page.locator(`[data-activity-container="view:${B}"]`).click();
+        await moveVia(page, '[data-tool-part="sidebar"]', B, "样例甲");
+        const section = (viewId: string) => page.locator(`[data-view-section="${viewId}"]`);
+        await section(A).locator("[data-view-toggle]").click();
+        await expect(section(A)).toHaveAttribute("data-view-collapsed", "true");
+        await expect.poll(() => ((customizations().value?.views as Record<string, {collapsed?: boolean}> | undefined)?.[A]?.collapsed)).toBe(true);
+
+        // 重置把乙送回自己的容器并选中它；切回甲的容器看。
+        await moveVia(page, `[data-view-section="${B}"]`, B, "重置位置");
+        await page.locator(`[data-activity-container="view:${A}"]`).click();
+        await expect(page.locator(`[data-container-host="view:${A}"]`)).toHaveAttribute("data-container-mode", "single");
+        await expect(section(A)).toHaveAttribute("data-view-collapsed", "false");
+        await expect(sample(page, A)).toBeVisible();
+        expect(((customizations().value?.views as Record<string, {collapsed?: boolean}>)[A])?.collapsed).toBe(true);
+
+        await page.locator(`[data-activity-container="view:${B}"]`).click();
+        await moveVia(page, '[data-tool-part="sidebar"]', B, "样例甲");
+        await expect(section(A)).toHaveAttribute("data-view-collapsed", "true");
+
+        // 面板横向：丁并进戊的容器，收起丁成 32px 竖条，键盘展开。
+        await moveVia(page, '[data-tool-part="auxiliarybar"]', D, "样例戊");
+        await section(D).locator("[data-view-toggle]").click();
+        await expect(section(D)).toHaveAttribute("data-view-collapsed", "true");
+        await expect.poll(async () => Math.round((await section(D).boundingBox())!.width)).toBe(32);
+        await section(D).locator("[data-view-toggle]").focus();
+        await page.keyboard.press("Enter");
+        await expect(section(D)).toHaveAttribute("data-view-collapsed", "false");
+        await expect(sample(page, D)).toBeVisible();
+    });
+
+    test("容器网格：拖动视图之间的边界只写主动视图的当前轴；键盘调整；Escape 取消不写", async ({page}) => {
+        await open(page);
+        await page.locator(`[data-activity-container="view:${B}"]`).click();
+        await moveVia(page, '[data-tool-part="sidebar"]', B, "样例甲");
+        const sash = page.getByRole("separator", {name: `调整 ${A} 与 ${B} 的高度`});
+        await expect(sash).toBeVisible();
+        const before = customizations().revision;
+        const heightOf = async (viewId: string) => (await page.locator(`[data-view-section="${viewId}"]`).boundingBox())!.height;
+        const startA = await heightOf(A);
+        const bounds = (await sash.boundingBox())!;
+        await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2 - 80, {steps: 5});
+        await page.mouse.up();
+        await expect.poll(() => customizations().revision).toBeGreaterThan(before);
+        const views = customizations().value?.views as Record<string, {height?: number; width?: number}>;
+        expect(views[A]?.height).toBeCloseTo(startA - 80, 0);
+        expect(views[A]?.width).toBeUndefined();
+
+        const afterDrag = customizations().revision;
+        await sash.focus();
+        await page.keyboard.down("ArrowUp");
+        await page.keyboard.press("Escape");
+        await page.keyboard.up("ArrowUp");
+        await expect(page.locator(`[data-view-section="${A}"]`)).toHaveJSProperty("offsetHeight", Math.round(await heightOf(A)));
+        expect(customizations().revision).toBe(afterDrag);
+
+        await sash.focus();
+        await page.keyboard.press("ArrowDown");
+        await expect.poll(() => customizations().revision).toBeGreaterThan(afterDrag);
+        expect((customizations().value?.views as Record<string, {height?: number}>)[A]?.height).toBeCloseTo(startA - 70, 0);
+    });
+
+    test("实例保留：fill 与 scroll 两种视图在 1→2→1、跨容器、跨 Part、Part 拖到零再展开之后，输入、滚动与焦点都还在，实例不重建", async ({page}) => {
+        await open(page);
+        const fillScroll = sample(page, A).locator("[data-sample-scroll]");
+        await sample(page, A).locator("input").fill("甲的草稿");
+        await fillScroll.evaluate((element) => {
+            element.scrollTop = 240;
+        });
+        const alpha = await instanceOf(page, A);
+        // scroll 布局的视图由视图框负责滚动：滚动盒随实例一起搬动。
+        const scrollerOf = (viewId: string) => page.locator(`[data-view-frame="${viewId}"] [data-reka-scroll-area-viewport]`);
+        await page.locator(`[data-activity-container="view:${B}"]`).click();
+        await scrollerOf(B).evaluate((element) => {
+            element.scrollTop = 200;
+        });
+        const beta = await instanceOf(page, B);
+
+        await moveVia(page, '[data-tool-part="sidebar"]', B, "样例甲");
+        await moveVia(page, `[data-view-section="${B}"]`, B, "样例戊");
+        await moveVia(page, `[data-view-section="${B}"]`, B, "重置位置");
+        await page.locator(`[data-activity-container="view:${A}"]`).click();
+        await sample(page, A).locator("input").focus();
+        await moveVia(page, '[data-tool-part="sidebar"]', A, "样例丁");
+        await moveVia(page, `[data-view-section="${A}"]`, A, "重置位置");
+
+        const sash = page.getByRole("separator", {name: "调整 sidebar 与 panel-stack 的宽度"});
+        await sash.focus();
+        await page.keyboard.press("Enter");
+        await expect(page.locator('[data-tool-part="sidebar"]')).toBeHidden();
+        await page.keyboard.press("Enter");
+        await expect(sample(page, A)).toBeVisible();
+
+        expect(await instanceOf(page, A)).toEqual(alpha);
+        await expect(sample(page, A).locator("input")).toHaveValue("甲的草稿");
+        await expect.poll(() => fillScroll.evaluate((element) => element.scrollTop)).toBe(240);
+        await page.locator(`[data-activity-container="view:${B}"]`).click();
+        expect(await instanceOf(page, B)).toEqual(beta);
+        await expect.poll(() => scrollerOf(B).evaluate((element) => element.scrollTop)).toBe(200);
+    });
+
+    test("入口激活失败：原位显示原因与重试，布局项保留；消除原因后重试，以新代次交付", async ({page}) => {
+        await open(page);
+        await moveVia(page, '[data-tool-part="auxiliarybar"]', D, "样例戊");
+        await page.evaluate((key) => localStorage.setItem(key, "1"), SAMPLE_VIEWS_SWITCHES.failActivation);
+        await page.reload();
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        const frame = page.locator(`[data-view-frame="${E}"]`);
+        await expect(frame).toHaveAttribute("data-view-state", "entry-failed");
+        await expect(frame).toContainText("样例视图入口按开关激活失败");
+        // 布局项保留：丁仍在戊的容器里（声明在，只是没有交付）。
+        await expect(page.locator(`[data-container-host="view:${E}"]`)).toHaveAttribute("data-container-mode", "multiple");
+
+        await page.evaluate((key) => localStorage.removeItem(key), SAMPLE_VIEWS_SWITCHES.failActivation);
+        await frame.locator("[data-view-retry-entry]").click();
+        await expect(sample(page, E)).toBeVisible();
+        expect(await instanceOf(page, E)).toMatchObject({generation: "1", location: "panel"});
+        await expect(sample(page, D)).toBeVisible();
+    });
+
+    test("入口停止：组件卸载、原位显示停止原因，布局项保留；刷新后回到原位置", async ({page}) => {
+        await open(page);
+        await moveVia(page, '[data-tool-part="auxiliarybar"]', D, "样例戊");
+        await expect(sample(page, D)).toBeVisible();
+        await runCommand(page, "停止样例视图入口");
+        await expect(page.locator(`[data-view-frame="${D}"]`)).toHaveAttribute("data-view-state", "entry-stopped");
+        await expect(sample(page, D)).toHaveCount(0);
+        await expect(page.locator(`[data-container-host="view:${E}"]`)).toHaveAttribute("data-container-mode", "multiple");
+        await page.reload();
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        await expect(sample(page, D)).toBeVisible();
+        expect(await instanceOf(page, D)).toMatchObject({location: "panel"});
+    });
+
+    test("加载失败与渲染出错：各自原位给出按钮，只有对应视图换代，同容器的视图不受影响", async ({page}) => {
+        await open(page);
+        await page.evaluate(([load, render, beta, delta]) => {
+            localStorage.setItem(load, beta);
+            localStorage.setItem(render, delta);
+        }, [SAMPLE_VIEWS_SWITCHES.failLoad, SAMPLE_VIEWS_SWITCHES.failRender, B, D] as const);
+        await page.reload();
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        const omega = await instanceOf(page, E);
+        const delta = page.locator(`[data-view-frame="${D}"]`);
+        await expect(delta).toHaveAttribute("data-view-state", "render-failed");
+        await expect(delta).toContainText("按开关渲染出错");
+        await page.locator(`[data-activity-container="view:${B}"]`).click();
+        const beta = page.locator(`[data-view-frame="${B}"]`);
+        await expect(beta).toHaveAttribute("data-view-state", "load-failed");
+
+        await page.evaluate(([load, render]) => {
+            localStorage.removeItem(load);
+            localStorage.removeItem(render);
+        }, [SAMPLE_VIEWS_SWITCHES.failLoad, SAMPLE_VIEWS_SWITCHES.failRender] as const);
+        await beta.locator("[data-view-reload]").click();
+        await expect(sample(page, B)).toBeVisible();
+        expect(await instanceOf(page, B)).toMatchObject({generation: "2"});
+        await page.locator(`[data-activity-container="view:${A}"]`).click();
+        await delta.locator("[data-view-retry-render]").click();
+        await expect(sample(page, D)).toBeVisible();
+        expect(await instanceOf(page, D)).toMatchObject({generation: "2"});
+        expect(await instanceOf(page, E)).toEqual(omega);
+    });
+
+    test("390 × 844：面板的单标签可用键盘聚焦，五个框架按钮都在视口内，键盘打开“移动到”、Escape 关闭并把焦点还给按钮，页面无横向溢出", async ({page}) => {
+        await page.setViewportSize({width: 390, height: 844});
+        await open(page);
+        // 测试插件的面板里只有戊一个容器（外壳二不能新建容器）：多个标签的键盘切换由 nb-ui Tabs 的合同覆盖。
+        await page.getByRole("tab", {name: "样例戊"}).focus();
+        await expect(page.getByRole("tab", {name: "样例戊"})).toBeFocused();
+        for (const action of ["set-panel-position", "set-panel-alignment", "set-panel-collapsed", "toggle-panel-maximized", "set-panel-hidden"]) {
+            const button = page.locator(`[data-panel-action="nbook.view.${action}"]`);
+            await expect(button).toBeVisible();
+            const box = (await button.boundingBox())!;
+            expect(box.x + box.width).toBeLessThanOrEqual(390);
+        }
+        const moveButton = page.locator(`[data-tool-part="panel"], .workbench-panel-surface`).locator(`[data-move-view="${E}"]`).first();
+        await moveButton.focus();
+        await page.keyboard.press("Enter");
+        await expect(page.getByRole("menu")).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("menu")).toHaveCount(0);
+        await expect(moveButton).toBeFocused();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    });
+
+    test("活动栏、工具区域卡片、视图标题行与选中标记的颜色取主题 token 的解析值", async ({page}) => {
+        await open(page);
+        await page.locator(`[data-activity-container="view:${B}"]`).click();
+        await moveVia(page, '[data-tool-part="sidebar"]', B, "样例甲");
+        // 按钮的颜色有过渡：等过渡走完，没有对不上的项为止。
+        const mismatches = () => page.evaluate(() => {
+            const read = (selector: string, pairs: Readonly<Record<string, string>>) => {
+                const element = document.querySelector(selector)!;
+                const probe = document.createElement("div");
+                probe.style.cssText = Object.entries(pairs).map(([property, token]) => `${property}: var(${token}); border-style: solid`).join("; ");
+                element.append(probe);
+                const own = getComputedStyle(element);
+                const expected = getComputedStyle(probe);
+                const result = Object.keys(pairs).map((property) => ({selector, property, own: own.getPropertyValue(property), token: expected.getPropertyValue(property)}));
+                probe.remove();
+                return result;
+            };
+            return [
+                ...read(".workbench-activity-bar", {"background-color": "--panel-surface", "border-top-color": "--panel-outline"}),
+                ...read(".workbench-activity-bar__item--active", {"color": "--accent-text", "background-color": "--bg-hover"}),
+                ...read('[data-tool-part="sidebar"]', {"background-color": "--panel-surface", "border-top-color": "--panel-outline"}),
+                ...read('[data-tool-part="auxiliarybar"] .workbench-tool-part__head', {"border-bottom-color": "--divider"}),
+                ...read(".workbench-view-section__head", {"border-bottom-color": "--divider"}),
+                ...read(".workbench-view-section__title", {"color": "--text-secondary"}),
+            ].filter((item) => item.own !== item.token);
+        });
+        await expect.poll(mismatches).toEqual([]);
     });
 });

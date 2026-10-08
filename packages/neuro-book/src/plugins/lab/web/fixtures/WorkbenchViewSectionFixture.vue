@@ -25,10 +25,10 @@ const rows = computed(() => (props.scene === "short" ? 4 : 40));
                 <IconButton size="sm" icon-class="i-lucide-arrow-right-left" aria-label="移动到" />
             </template>
             <template v-if="subject.slots.value.default" #default>
-                <ul v-if="subject.bindings.value.layout === 'scroll'" class="text-sm">
+                <!-- 外框不滚动：滚动归视图实例（产品里是 WorkbenchViewFrame），这里的样例内容自己滚。 -->
+                <ul class="h-full overflow-auto p-2 text-sm">
                     <li v-for="row in rows" :key="row" class="rounded px-2 py-1 hover:bg-[var(--bg-hover)]">条目 {{ row }}</li>
                 </ul>
-                <div v-else class="flex h-full items-center justify-center text-sm text-[var(--text-muted)]">fill：视图占满、自己滚动</div>
             </template>
         </WorkbenchViewSection>
     </div>

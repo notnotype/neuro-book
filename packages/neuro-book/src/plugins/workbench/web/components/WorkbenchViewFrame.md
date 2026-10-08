@@ -11,7 +11,7 @@
 
 ## 布局
 
-填满分节的内容区。状态说明居中、可换行；视图组件占满。
+填满分节的内容区。状态说明居中、可换行。视图组件按声明的 `layout`：`scroll` 包在 nb-ui `ScrollArea` 里并留内边距（滚动由这里负责），`fill` 占满、自己滚动。滚动盒在这里而不在分节：视图移动时分节会在新容器里重建，滚动盒随实例一起搬动，滚动位置才留得住。
 
 ## 交互
 
@@ -31,6 +31,8 @@ type ViewFrameStatus = "waiting" | "loading" | "ready" | "load-failed" | "render
 type Props = {
     viewId: string;
     locale: DisplayLocale;
+    /** 视图声明的内容布局。 */
+    layout: "scroll" | "fill";
     /** 交付状态；不是 available 时只显示它，不看 status。 */
     delivery: ViewDelivery;
     status: ViewFrameStatus;
@@ -54,7 +56,7 @@ type Emits = {
 };
 ```
 
-没有 slot、没有 expose；attrs 落在根上。根带 `data-view-frame`（视图 id）、`data-view-state`（交付状态或实例状态）与 `data-view-generation`。
+没有 slot、没有 expose；attrs 落在根上。根带 `data-view-frame`（视图 id）、`data-view-state`（交付状态或实例状态）、`data-view-generation` 与 `data-view-layout`。
 
 ## 状态
 

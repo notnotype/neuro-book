@@ -1,6 +1,6 @@
 <script setup lang="ts">
-/** 视图外框（同名 .md）：multiple 的标题行与收起、按 layout 给内容区滚动；内容由宿主搬进默认插槽，不在这里创建。 */
-import {IconButton, ScrollArea} from "@notnotype/nb-ui/components";
+/** 视图外框（同名 .md）：multiple 的标题行与收起；内容由宿主搬进默认插槽，不在这里创建，滚动也归内容。 */
+import {IconButton} from "@notnotype/nb-ui/components";
 
 defineOptions({name: "WorkbenchViewSection"});
 
@@ -11,7 +11,6 @@ defineProps<{
     axis: "vertical" | "horizontal";
     chrome: boolean;
     collapsed: boolean;
-    layout: "scroll" | "fill";
     collapseLabel: string;
     expandLabel: string;
 }>();
@@ -34,7 +33,6 @@ defineSlots<{
         :aria-label="title"
         :data-view-section="viewId"
         :data-view-collapsed="chrome && collapsed ? 'true' : 'false'"
-        :data-view-layout="layout"
     >
         <header v-if="chrome" class="workbench-view-section__head">
             <IconButton
@@ -53,14 +51,7 @@ defineSlots<{
             </div>
         </header>
         <div v-show="!(chrome && collapsed)" class="workbench-view-section__body">
-            <ScrollArea v-if="layout === 'scroll'" class="workbench-view-section__scroll">
-                <div class="workbench-view-section__padding">
-                    <slot></slot>
-                </div>
-            </ScrollArea>
-            <div v-else class="workbench-view-section__fill">
-                <slot></slot>
-            </div>
+            <slot></slot>
         </div>
     </section>
 </template>
@@ -117,20 +108,7 @@ defineSlots<{
     flex: 1 1 auto;
     min-width: 0;
     min-height: 0;
-}
-
-.workbench-view-section__scroll,
-.workbench-view-section__fill {
-    width: 100%;
-    height: 100%;
-}
-
-.workbench-view-section__fill {
     overflow: hidden;
-}
-
-.workbench-view-section__padding {
-    padding: var(--space-2) var(--space-3);
 }
 
 /* 横向容器收起成 32px 竖条：标题行转成竖排，展开按钮在顶部。 */

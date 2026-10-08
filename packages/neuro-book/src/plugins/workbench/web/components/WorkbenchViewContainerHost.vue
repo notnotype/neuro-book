@@ -107,7 +107,6 @@ const ViewTarget = defineComponent({
                     :axis="container.axis"
                     :chrome="container.mode === 'multiple'"
                     :collapsed="views.get(node.id)!.collapsed"
-                    :layout="views.get(node.id)!.layout"
                     :collapse-label="collapseLabel"
                     :expand-label="expandLabel"
                     @toggle-collapsed="(collapsed: boolean) => emit('toggle-collapsed', node.id, collapsed)"

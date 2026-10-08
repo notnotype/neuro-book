@@ -40,7 +40,7 @@ function onResize(payload: {sizes: Record<string, number>}): void {
         <WorkbenchViewContainerHost data-lab-subject v-bind="subject.bindings.value" @target="onTarget" @toggle-collapsed="onToggle" @resize="onResize" />
         <div class="hidden" aria-hidden="true" inert>
             <Teleport v-for="view in container().views" :key="view.id" :to="targets.get(view.id) ?? undefined" :disabled="targets.get(view.id) === undefined">
-                <ul class="text-sm" :data-sample-view="view.id">
+                <ul class="h-full overflow-auto p-2 text-sm" :data-sample-view="view.id">
                     <li v-for="row in 30" :key="row" class="rounded px-2 py-1 hover:bg-[var(--bg-hover)]">{{ view.title["zh-CN"] }} · 条目 {{ row }}</li>
                 </ul>
             </Teleport>

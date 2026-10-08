@@ -355,7 +355,7 @@ export const labFixtures: LabFixture[] = [
         events: ["retry-entry", "reload", "retry-render", "render-error"],
         class: "h-full w-full",
         scenes: (() => {
-            const base = {viewId: "test.files", locale: "zh-CN" as const, error: null, component: null, context: null, generation: 1, busy: false};
+            const base = {viewId: "test.files", locale: "zh-CN" as const, layout: "scroll" as const, error: null, component: null, context: null, generation: 1, busy: false};
             return [
                 {id: "declared", label: "等待入口启动", input: {props: {...base, delivery: {kind: "declared" as const}, status: "waiting" as const}}},
                 {id: "blocked", label: "入口受阻", input: {props: {...base, delivery: {kind: "entry-blocked" as const, reason: "missing-dependency：nbook/storage"}, status: "waiting" as const}}},
@@ -372,14 +372,13 @@ export const labFixtures: LabFixture[] = [
         component: "WorkbenchViewSection", slots: ["default", "actions"],
         scenes: (() => {
             const base = {viewId: "nbook.files", title: "资源管理器", icon: "i-lucide-files", collapseLabel: "收起视图", expandLabel: "展开视图"};
-            const scene = (id: string, label: string, props: {axis: "vertical" | "horizontal"; chrome: boolean; collapsed: boolean; layout: "scroll" | "fill"}) => ({id, label, input: {props: {...base, ...props}, slots: {default: true, actions: true}}});
+            const scene = (id: string, label: string, props: {axis: "vertical" | "horizontal"; chrome: boolean; collapsed: boolean}) => ({id, label, input: {props: {...base, ...props}, slots: {default: true, actions: true}}});
             return [
-                scene("multiple", "multiple：标题行与动作", {axis: "vertical", chrome: true, collapsed: false, layout: "scroll"}),
-                scene("collapsed", "纵向收起为 32px 标题", {axis: "vertical", chrome: true, collapsed: true, layout: "scroll"}),
-                scene("horizontal-collapsed", "横向收起为 32px 竖条", {axis: "horizontal", chrome: true, collapsed: true, layout: "scroll"}),
-                scene("single", "single：没有标题行", {axis: "vertical", chrome: false, collapsed: false, layout: "scroll"}),
-                scene("fill", "fill：视图占满", {axis: "vertical", chrome: true, collapsed: false, layout: "fill"}),
-                scene("short", "内容不满一屏", {axis: "vertical", chrome: true, collapsed: false, layout: "scroll"}),
+                scene("multiple", "multiple：标题行与动作", {axis: "vertical", chrome: true, collapsed: false}),
+                scene("collapsed", "纵向收起为 32px 标题", {axis: "vertical", chrome: true, collapsed: true}),
+                scene("horizontal-collapsed", "横向收起为 32px 竖条", {axis: "horizontal", chrome: true, collapsed: true}),
+                scene("single", "single：没有标题行", {axis: "vertical", chrome: false, collapsed: false}),
+                scene("short", "内容不满一屏", {axis: "vertical", chrome: true, collapsed: false}),
             ];
         })(),
         load: async () => (await import("./WorkbenchViewSectionFixture.vue")).default,

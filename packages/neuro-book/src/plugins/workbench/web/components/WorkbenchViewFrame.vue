@@ -3,7 +3,7 @@
 import {computed, defineComponent, h, onErrorCaptured} from "vue";
 import type {Component, PropType} from "vue";
 
-import {Button, Spinner} from "@notnotype/nb-ui/components";
+import {Button, ScrollArea, Spinner} from "@notnotype/nb-ui/components";
 
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
@@ -18,6 +18,7 @@ defineOptions({name: "WorkbenchViewFrame"});
 const props = withDefaults(defineProps<{
     viewId: string;
     locale: DisplayLocale;
+    layout: "scroll" | "fill";
     delivery: ViewDelivery;
     status: ViewFrameStatus;
     error: string | null;
@@ -71,10 +72,19 @@ function reportRenderError(generation: number, message: string): void {
 </script>
 
 <template>
-    <div class="workbench-view-frame" :data-view-frame="viewId" :data-view-state="state" :data-view-generation="generation">
-        <ErrorBoundary v-if="state === 'ready' && component !== null && context !== null" :key="generation" :generation="generation" :on-failed="reportRenderError">
-            <component :is="component" :context="context" />
-        </ErrorBoundary>
+    <div class="workbench-view-frame" :data-view-frame="viewId" :data-view-state="state" :data-view-generation="generation" :data-view-layout="layout">
+        <template v-if="state === 'ready' && component !== null && context !== null">
+            <ScrollArea v-if="layout === 'scroll'" class="workbench-view-frame__scroll">
+                <div class="workbench-view-frame__padding">
+                    <ErrorBoundary :key="generation" :generation="generation" :on-failed="reportRenderError">
+                        <component :is="component" :context="context" />
+                    </ErrorBoundary>
+                </div>
+            </ScrollArea>
+            <ErrorBoundary v-else :key="generation" :generation="generation" :on-failed="reportRenderError">
+                <component :is="component" :context="context" />
+            </ErrorBoundary>
+        </template>
         <div v-else class="workbench-view-frame__notice" role="status">
             <template v-if="delivery.kind === 'declared'">{{ text(TEXT.declared) }}</template>
             <template v-else-if="delivery.kind === 'entry-blocked'">{{ text(TEXT.blocked, delivery.reason) }}</template>
@@ -105,6 +115,16 @@ function reportRenderError(generation: number, message: string): void {
     height: 100%;
     min-width: 0;
     min-height: 0;
+    overflow: hidden;
+}
+
+.workbench-view-frame__scroll {
+    width: 100%;
+    height: 100%;
+}
+
+.workbench-view-frame__padding {
+    padding: var(--space-2) var(--space-3);
 }
 
 .workbench-view-frame__notice {

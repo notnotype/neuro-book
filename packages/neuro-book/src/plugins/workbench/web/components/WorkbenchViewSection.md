@@ -5,9 +5,9 @@
 
 # WorkbenchViewSection
 
-容器里一个视图的外框：multiple 时有 32px 标题行（收起开关、图标、标题、动作区），single 时没有标题行、只有内容区（标题与动作由宿主上提，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳二输出 16、17）。内容区按视图声明的 `layout` 给内边距与滚动：`scroll` 由外框负责滚动并留内边距，`fill` 让视图占满、自己滚动。
+容器里一个视图的外框：multiple 时有 32px 标题行（收起开关、图标、标题、动作区），single 时没有标题行、只有内容区（标题与动作由宿主上提，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳二输出 16、17）。
 
-视图内容不由它创建：宿主把视图实例搬进默认插槽里的落点，切模式、收起都不卸载内容。
+视图内容不由它创建：宿主把视图实例搬进默认插槽里的落点，切模式、收起都不卸载内容。内容区不滚动、不加内边距：视图移动时外框会在新容器里重建，滚动盒放在这里就会随之换新、丢掉滚动位置，所以按 `layout` 给的滚动与内边距归随实例一起搬动的 [`WorkbenchViewFrame`](WorkbenchViewFrame.md)。
 
 ## 布局
 
@@ -36,7 +36,6 @@ type Props = {
     chrome: boolean;
     /** 生效的收起（single 时宿主给 false）。受控。 */
     collapsed: boolean;
-    layout: "scroll" | "fill";
     /** 收起开关的可访问名称：展开时与收起时各一份，已按当前语言取好。 */
     collapseLabel: string;
     expandLabel: string;
@@ -54,7 +53,7 @@ type Slots = {
 };
 ```
 
-没有 expose；attrs 落在根 `<section>` 上。根上带 `data-view-section`（视图 id）、`data-view-collapsed` 与 `data-view-layout`，供宿主与测试定位。
+没有 expose；attrs 落在根 `<section>` 上。根上带 `data-view-section`（视图 id）与 `data-view-collapsed`，供宿主与测试定位。
 
 ## 不支持
 

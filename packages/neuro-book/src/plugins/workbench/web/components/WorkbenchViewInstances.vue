@@ -79,6 +79,13 @@ const visible = computed(() => {
     return ids;
 });
 
+/** 视图声明的内容布局：从呈现模型里它所在容器的成员取（隐藏的视图不在可见列表里，默认 scroll）。 */
+const layoutOfView = computed(() => {
+    const layouts = new Map<string, "scroll" | "fill">();
+    for (const container of containers.value) for (const view of container.views) layouts.set(view.id, view.layout);
+    return layouts;
+});
+
 const partOfView = computed(() => {
     const parts = new Map<string, ViewLocation>();
     for (const container of containers.value) for (const id of container.members) parts.set(id, container.part);
@@ -200,6 +207,16 @@ watch(() => props.root, (element, _previous, onCleanup) => {
     if (element !== null) onCleanup(props.memory.track(element));
 }, {immediate: true});
 
+/**
+ * 视图收起再展开、所在 Part 隐藏再显示时内容没有搬动，但隐藏（`display: none`）同样清掉了滚动位置：可见集合一变就在
+ * 渲染之后按记忆还原一次。
+ */
+watch(visible, () => {
+    void nextTick(() => {
+        void nextTick(() => props.memory.restore(null, props.root));
+    });
+});
+
 /** 落点一变，下一轮 Teleport 就要搬内容：搬之前记下焦点，搬完（两轮之后）还原；原焦点被停放时交给外壳根。 */
 watch([containerTargets, () => [...viewTargets.entries()]], () => {
     const focus = props.memory.capture(props.root);
@@ -242,6 +259,7 @@ watch([containerTargets, () => [...viewTargets.entries()]], () => {
                 <WorkbenchViewFrame
                     :view-id="viewId"
                     :locale="locale"
+                    :layout="layoutOfView.get(viewId) ?? 'scroll'"
                     :delivery="source.delivery(viewId)"
                     :status="instance.status"
                     :error="instance.error"
