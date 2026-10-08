@@ -24,6 +24,13 @@ export interface BrowserPluginContext {
 
 export type BrowserHostPluginFactory = (context: BrowserPluginContext) => PluginDefinition;
 
+/** 浏览器的宿主适配器只有诊断；表的键收窄到它，普通插件进不了这张表。 */
+export type BrowserHostPluginId = "nbook.diagnostics";
+
+export function isBrowserHostPlugin(id: string): id is BrowserHostPluginId {
+    return id === "nbook.diagnostics";
+}
+
 /** 普通插件：只能放定义常量。 */
 export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>> = {
     "nbook.commands": commandsPlugin,
@@ -33,7 +40,7 @@ export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>
 };
 
 /** 宿主适配器：诊断的存储在窗口运行实例建立之前就要能记录（ADR 0026 决策第 5 条）。 */
-export const browserHostPlugins: Readonly<Record<string, BrowserHostPluginFactory>> = {
+export const browserHostPlugins: Readonly<Record<BrowserHostPluginId, BrowserHostPluginFactory>> = {
     "nbook.diagnostics": (context) => createBrowserDiagnosticsPlugin({store: context.store, console: context.console}),
 };
 

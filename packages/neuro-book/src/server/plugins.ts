@@ -32,6 +32,9 @@ export interface ServerPluginContext {
 
 export type ServerHostPluginFactory = (context: ServerPluginContext) => PluginDefinition;
 
+/** 服务端的宿主适配器只有这两个；表的键收窄到它们，普通插件进不了这张表。 */
+export type ServerHostPluginId = "nbook.diagnostics" | "nbook.http";
+
 /** 普通插件：只能放定义常量。 */
 export const serverPluginDefinitions: Readonly<Record<string, PluginDefinition>> = {
     "nbook.commands": commandsPlugin,
@@ -43,7 +46,7 @@ export const serverPluginDefinitions: Readonly<Record<string, PluginDefinition>>
  * 宿主适配器：诊断要在内核启动之前就能记录，HTTP 的准入与监听结果参与宿主就绪和停机前的排空，所以随宿主装配、
  * 配置随工厂传入（ADR 0026 决策第 5 条）。新增一项要说明同样的启动或停机依赖。
  */
-export const serverHostPlugins: Readonly<Record<string, ServerHostPluginFactory>> = {
+export const serverHostPlugins: Readonly<Record<ServerHostPluginId, ServerHostPluginFactory>> = {
     "nbook.diagnostics": (context) => createServerDiagnosticsPlugin({store: context.store, exporter: {directory: context.config.logDirectory}}),
     "nbook.http": (context) => createHttpPlugin({
         admission: context.admission,
@@ -57,11 +60,14 @@ export const serverHostPlugins: Readonly<Record<string, ServerHostPluginFactory>
 
 /** 清单里一个有后端入口的插件对应的定义；两张表都没有时直接失败，不静默少装。 */
 export function serverPlugin(id: string, context: ServerPluginContext): PluginDefinition {
-    const factory = serverHostPlugins[id];
-    const definition = factory === undefined ? serverPluginDefinitions[id] : factory(context);
+    const definition = isServerHostPlugin(id) ? serverHostPlugins[id](context) : serverPluginDefinitions[id];
     if (definition === undefined) throw new Error(`清单中的插件 ${id} 没有后端入口定义`);
     if (definition.id !== id) throw new Error(`后端入口定义的插件 id ${definition.id} 与清单 ${id} 不一致`);
     return definition;
+}
+
+function isServerHostPlugin(id: string): id is ServerHostPluginId {
+    return Object.hasOwn(serverHostPlugins, id);
 }
 
 /** 按清单装配后端插件。 */

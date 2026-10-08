@@ -207,7 +207,6 @@ owners:
   - `commands/WorkbenchCommandHost.vue` 是 `/` 页上的界面宿主。
   - `commands/open-commands.ts` 是面板入口命令与“当前面板”槽位。
   - 命令面板见 [`workbench.quick-open`](quick-open.md)。
-  - 工作台依赖命令服务的键由宿主装配时交进来。
 - Lab 命令场景 `packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/`：
   - `lab-command-scene.ts` 是局部宿主：本地命令表、确认闸门、审计转 Lab 事件，切场景即释放。
   - `editor-commands.ts` 是四条编辑器命令，第 5 步随编辑器插件迁走。

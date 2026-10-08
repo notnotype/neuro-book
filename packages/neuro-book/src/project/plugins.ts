@@ -21,13 +21,16 @@ export interface ProjectPluginContext {
 
 export type ProjectHostPluginFactory = (context: ProjectPluginContext) => PluginDefinition;
 
+/** 项目宿主的宿主适配器只有诊断；表的键收窄到它，普通插件进不了这张表。 */
+export type ProjectHostPluginId = "nbook.diagnostics";
+
 /** 普通插件：只能放定义常量。 */
 export const projectPluginDefinitions: Readonly<Record<string, PluginDefinition>> = {
     "nbook.storage": storageBackendPlugin,
 };
 
 /** 宿主适配器：诊断要在内核启动之前就能记录（ADR 0026 决策第 5 条）。 */
-export const projectHostPlugins: Readonly<Record<string, ProjectHostPluginFactory>> = {
+export const projectHostPlugins: Readonly<Record<ProjectHostPluginId, ProjectHostPluginFactory>> = {
     "nbook.diagnostics": (context) => createServerDiagnosticsPlugin({store: context.store, exporter: {directory: context.config.logDirectory}, location: "project"}),
 };
 
@@ -36,8 +39,7 @@ export function manifestProjectPlugins(context: ProjectPluginContext): PluginDef
     return context.manifest
         .filter((plugin) => plugin.locations.includes("project"))
         .map((plugin) => {
-            const factory = projectHostPlugins[plugin.id];
-            const definition = factory === undefined ? projectPluginDefinitions[plugin.id] : factory(context);
+            const definition = plugin.id === "nbook.diagnostics" ? projectHostPlugins[plugin.id](context) : projectPluginDefinitions[plugin.id];
             if (definition === undefined) throw new Error(`清单中的插件 ${plugin.id} 没有项目入口定义`);
             if (definition.id !== plugin.id) throw new Error(`项目入口定义的插件 id ${definition.id} 与清单 ${plugin.id} 不一致`);
             return definition;

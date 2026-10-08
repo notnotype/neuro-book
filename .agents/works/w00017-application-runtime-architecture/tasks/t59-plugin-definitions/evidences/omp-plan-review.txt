@@ -2,13 +2,16 @@
 
 审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t59-plugin-definitions/plan.md` 与同目录 `README.md`。
 
-审查基于当前 worktree 中的计划、实现与合同；每条发现核实后即时写入。仓库保持只读，实验与报告仅写入指定 scratchpad；不运行 e2e 与开发服务。
+**当前结论：修订版 0 阻断、0 重要、1 建议（验收映射缺具体 Spec 编号）。** 初稿曾核实 1 阻断、3 重要、2 建议，设计阻断与主要遗漏已被并行修订吸收。先列初稿发现及关闭状态，结尾给修订版复核与最终数量；本报告不替代正在进行的实现验收。
 
-## 已核实的发现
+审查从未提交初稿开始，每条发现核实后即时写入。审查期间，另一执行者已修订计划并推进 S0–S2；本报告保留初稿发现与实验，另记当前状态。下文 1–5 不再是修订版的待解决问题，第 6 条的真实消费路径与变异区分已吸收，仅剩 Spec 场景编号映射建议。所有下文未另标注的 `plan.md` 行号与代码引用指初稿读取时的版本。本 Agent 对仓库保持只读，仅写指定 scratchpad，未运行 e2e 或开发服务。
+
+## 设计错误与遗漏
 
 ### 1. 阻断：双位置定义会被现有内核作为重复服务整体拒绝
 
 - **严重程度**：阻断；**类别**：设计错误 / 正确性 / 合同与改动面遗漏。
+- **当前状态**：计划层面已关闭。修订版 `plan.md:19–23,72,86` 已加入内核前置片与两个 Spec；本次重读 `registration.ts` 已为 `providedByLocation`。初稿 smoke 的失败是改动前证据，不能用于判断现实现。
 - **位置**：`plan.md:30–31`（`commandsPlugin` 含 server/browser、`storageBackendPlugin` 含 server/project）；`plan.md:45–54`、`plan.md:63–65`（未列内核与对应合同变更）。
 - **现象**：把现有 commands 两侧入口放入同一份定义，在 server 与 browser 都启动失败，原因 `plugin:browser:duplicate-service`；把 Storage 的 server/project 入口放入同一份定义，在两类宿主都启动失败，原因 `plugin:project:duplicate-service`。失败发生在登记阶段，尚未进入能力解析或激活。
 - **为什么是问题**：当前内核以整份插件定义为范围检查 `provides` 的服务 id 唯一性。commands 两入口都必须提供 `nbook.commands/service`，Storage 两入口都必须提供 `nbook.storage/storage`；计划不能仅改应用插件与宿主便完成。S1 按原边界不能通过，验收中的 foreign-location 与缺能力受阻也会先被登记失败挡住。
@@ -19,15 +22,48 @@
 ### 2. 重要：S1 的装配范围漏了真正消费工厂表的窗口宿主和测试宿主
 
 - **严重程度**：重要；**类别**：改动面遗漏 / 验收可执行性。
+- **当前状态**：计划层面已关闭。修订版 `plan.md:43–54` 明确列出窗口/boot/开发/e2e/fixture/projectHarness 与自建测试宿主，产品迁移现归 S2；完整实现验收不属于本次计划审查。
 - **位置**：`plan.md:25`、`plan.md:33–34`、`plan.md:63`（只列“各宿主”“三个宿主的定义表、相关测试”）。
 - **现象**：三张表改成“定义或工厂”后，现有调用方仍全部按函数调用。浏览器实际装配与能力提供在 `src/web/host/window.ts`，并非只在 `src/web/plugins.ts`；`boot.ts` 及产品/开发/e2e 入口又把工厂表类型一路传到窗口宿主。Storage 的真实项目子进程测试使用的 `projectHarness` 另建服务端应用，当前只提供 `projectsKey`，没有新增的 `state-root` 能力。
 - **为什么是问题**：若照表中列出的文件实现，窗口里的 `factory(...)`、开发 Lab/e2e 引导仍无法消费常量，新增导航能力也没有提供者；仅把测试中 `createStorageServerPlugin(...)` 换成常量，会让真实子进程验收的父实例 Storage 缺能力受阻。计划应明确这些必改接点与各自责任，不能把普通测试插件仍可带参数理解为测试宿主不必迁移。
 - **依据**：`packages/neuro-book/src/web/host/window.ts:56–58,91–93,165–175,243–263` 存在工厂类型、选择与直接调用，并在这里给 `ApplicationManifest.capabilities`；`web/boot.ts:22–43`、`web/main.ts:5–12`、`web/development-plugins.ts:5–13`、`web/testing/e2e-main.ts:8–15` 传递/合并工厂表。`server/testing/fixture-entry.ts:31–34` 直接调用服务端工厂表。`server/testing/projects.ts:108–136` 在内部选择状态根、创建父应用且只提供 `projectsKey`；`plugins/storage/project-child.test.ts:47–52,98` 目前在外部给另一条 user 库路径。`plugins/storage/storage.test.ts:103–166` 自建 server/project/browser 应用；`plugins/projects/projects.test.ts:158–164` 自建浏览器应用。现有 `web/host/window.test.ts`、`web/mount.dom.test.ts` 也消费该表。
 - **建议改法**：给 S1 增加明确装配清单：`server/start.ts` 提供状态根，`web/host/window.ts` 提供窗口导航并解析常量/例外工厂；更新 `web/boot.ts`、`main.ts`、`development-plugins.ts`、`testing/e2e-main.ts` 与服务端 fixture。测试辅助宿主 `server/testing/projects.ts` 从自己选出的状态根提供能力，删掉测试外部拼 user 库路径的额外入口；三个自建应用的测试补对应 capability。`web/mount.ts` 的导航属于宿主路由，行为可保持，若统一导航对象则和 `boot.ts` 一起复用它，不必强迫宿主内部再经内核解析自己的能力。
 
-### 3. 重要：按 `export function create…Plugin(` 扫描不能守住“定义是常量”的边界
+### 3. 建议：例外应按宿主启动与停止的接点说明，现有“进程级资源”判据不精确
+
+- **严重程度**：建议；**类别**：设计判据 / 文档。
+- **当前状态**：已关闭。修订版 `plan.md:61–65` 与新 ADR 0026 第 5 条按启动/停机依赖解释两项例外，不再用“进程级资源”放行。
+- **位置**：`plan.md:8,32,43,88`。
+- **现象**：计划说“需要在插件激活之前就建立、或由宿主直接持有生命周期的进程级资源才留在工厂”。但 HTTP 监听在插件激活时才建立、归插件激活作用域释放；浏览器 diagnostics 根本不是进程级资源。反之，HTTP 的 host/port/staticRoot、diagnostics 的 exporter directory 都是每实例不变的配置，也同时符合前半句“数据走能力”。
+- **为什么是问题**：当前两个例外的名单已获同意，执行上没有障碍；长期判据却无法解释它们的全部参数，容易让以后任何持有文件/数据库的普通插件也自称“基础设施”保留工厂，或迫使人把已同意的例外再次拆分。
+- **依据**：`packages/neuro-book/src/plugins/http/backend/plugin.ts:55–85` 在 activate 中 `Bun.serve` 并以 `context.scope.register` 释放监听；`server/start.ts:116–117,206–227` 提前建立并持有 admission、在内核停止之前排空；`plugins/diagnostics/backend/plugin.ts:5,17–29` 与 `plugins/diagnostics/web/plugin.ts:14–25` 接收运行实例建立前创建的 store，浏览器还接收宿主 console。`nb-runtime/src/application/contracts.ts:49–56` 本地能力本来就能表达有生命周期的资源，资源是否进程级本身不足以决定要不要工厂。
+- **建议改法**：保持两个明确例外，不增加新的通用“基础设施插件”类别。ADR 写实因果：diagnostics 的宿主 store/紧急出口必须覆盖内核启动前的诊断；HTTP 的 admission 与监听结果参与宿主就绪和停机前排空，故整体作为宿主适配器装配，其配置随适配器工厂传入。普通插件的依赖和配置仍从声明的能力取得；新增例外需要说明同样的启动/停机循环依赖，不能仅凭使用文件、端口或“按实例不变”放行。
+
+## 待确认论证
+
+### 4. 重要：ADR 只写“取代第 3 条”而未安排旧决策的状态与仍有效条款
+
+- **严重程度**：重要；**类别**：合同治理 / 待确认论证。
+- **当前状态**：已关闭。修订版 `plan.md:63–65,71,85` 列出完整动作；本次重读已见 0025 的 superseded frontmatter、0026 的继承条款及索引取代关系。提交号只见于 Task 自述，未以 Git 独立核对。
+- **位置**：`plan.md:49,62,94`。
+- **现象**：S0 只列新增 ADR 0026，文档表没有 `docs/adr/0025-service-keys-by-id.md` 的 frontmatter 或 ADR 索引变更。当前规则以整份 ADR 的 `accepted | superseded` 与单个 `superseded-by` 表达取代，没有逐条决策的状态字段。
+- **为什么是问题**：若只新增 0026，0025 仍作为 accepted 明确要求普通插件工厂只收宿主配置，其“工厂签名统一、宿主按清单取工厂”的后果也仍存在；若把 0025 整份标为 superseded 却只写第 3 条的新决策，又容易让 0025 第 1、2 条的服务 id 与合同导入约定看似一起失效。计划引用不可改正文是正确的，但没有写完规则要求的取代动作与语义。
+- **依据**：`docs/adr/README.md:5–18` 要求旧 ADR 保留正文、在 frontmatter 记录状态与取代者；`0025-service-keys-by-id.md:1–5,30–38` 当前仍是 accepted，三项决策与工厂后果并存。`scripts/ci/check-documentation.ts:212–237` 只检查整份文档状态及 superseded-by，不能替计划处理部分条款的含义；检查通过也无法证明没有相互冲突的 accepted 决策。
+- **建议改法**：无需新增“部分取代”机制。S0 同片写 0026 的完整当前决策：明确继承 0025 第 1、2 条及身份对象等未变约束，只替换第 3 条与相关工厂后果；0025 正文不动，将 frontmatter 置 `status: superseded`、`superseded-by: docs/adr/0026-plugin-definitions-as-constants.md`；ADR 索引加 0026 并指出 0025 的取代关系。这样旧链接仍能追溯理由，新文档给出一个不冲突的当前决策。
+
+## 三项待确认的判断
+
+1. **新增两项宿主能力，并复用 `currentProjectKey.root`：赞成。** `state-root: {readonly path: string}` 与 `window-navigation: {navigateDocument(href: string): void}` 足够表达当前需求；键放 `src/shared/host.ts` 与现有宿主合同同层、只依赖内核服务键类型，不放进 `nb-runtime` 或 Storage 自己的公开合同。服务端 `server/start.ts` 提供状态根，浏览器 `web/host/window.ts` 提供本窗口导航，项目宿主继续提供 `currentProjectKey`，不要把服务端状态根复制给浏览器。Storage 的库落点由 Storage 在 activate 内拼接；无需再加只给 SQLite 文件路径的宿主能力，否则宿主需知道 Storage 的介质和目录布局。选择 state-root 的充分理由是宿主拥有根定位、Storage 拥有内部布局，“以后别的插件也要用”只能算未验证推断。`project/start.ts:122–127` 把当前 `config.root` 原样冻结提供，旧 `project/plugins.ts:27` 正是用这个 root 拼库路径；manager 创建子进程前以 `checkProjectDirectory` 重新求真实路径，故项目切换不会改变当前代次的 root。唯一需澄清的形状语义：计划 `:22` 写“真实路径”，现 `server/config.ts:70` 只有 `resolve`、不消除符号链接，首启时状态根还可不存在。建议维持已有语义、写“宿主已解析的绝对路径”；若确需 canonical realpath，就把建立目录/归一化/错误处理显式列入宿主变更，不能当现有保证。
+2. **按代码所在侧导出常量：赞成，但先处理发现 1。** `backend/plugin.ts` 放 server/project 激活代码、`web/plugin.ts` 放浏览器激活代码、真正不依赖 DOM/Bun/Node/Vue 的实现才放 shared，符合当前 `architecture.test.ts:75–89`。`commands/shared/plugin.ts` 现有命令注册逻辑没有环境 API，单常量含两个入口成立；命令表须继续在 activate 内创建，每个实例各一份。普通插件的可变 owner、WeakMap、订阅与 Map 同样留在 activate 内，常量只保存静态描述及激活函数。`manifest.ts` 继续只引根级 descriptor，各宿主各选本侧常量；不要把 backend/browser 两常量同时登记在同一实例（会 duplicate-plugin）。浏览器引导来自 descriptor 的 `locations` 与 id/version（`server/browser-bootstrap.ts:18–24`），不读取定义的 entries，故 commands 双入口不会把后端专有插件引入浏览器集合；内核只选择本位置启动入口，foreign 入口不进入服务装配，汇总也只计算本位置（`application/bootstrap.ts:227`、`plugins/host.ts:337–378,410–414`）。根级 descriptor 是现阶段跨两侧的身份描述，无需再加合并器；未来清单承接它。
+3. **新增 ADR 0026：赞成记录新决策，需补完整取代流程。** 只读保留 0025 正文正确；按发现 4 补旧 frontmatter、索引和 0026 的未变条款即可，无需为一个部分条款变化扩展 ADR schema。S0 可以只做决策记录，但 0026 应清楚区分已接受的方向与尚待 S1 实施的现状，不能让文档先宣称代码已经支持双位置同服务。
+
+
+## 写法与验收
+
+### 5. 重要：按 `export function create…Plugin(` 扫描不能守住“定义是常量”的边界
 
 - **严重程度**：重要；**类别**：测试设计 / 漏报与误报。
+- **当前状态**：已关闭。修订版 `plan.md:45–49` 删除源码形状门禁，普通定义与宿主适配器分表，普通项类型为 `PluginDefinition`；无需继续完善正则。
 - **位置**：`plan.md:36–38`、`plan.md:76`。
 - **现象**：拟议规则只识别直接导出的、特定名称的带参函数声明。`export const createXPlugin = (options) => …`、局部函数后 `export {createXPlugin}`、别名重导出都绕过；现有的无参工厂也照样通过。按字符判断括号内“有参数”还会把注释当参数，若扫描原始文本也会命中注释里的示例。
 - **为什么是问题**：已批准目标是普通插件导出定义常量，规则却仅阻止一种写法的带参工厂，重写为箭头函数便失守。只给这种形状配一条反例只能证明它会匹配自己，不能证明禁止项被覆盖；额外放宽命名/空白正则无法解决导出绑定的语义问题。
@@ -35,40 +71,17 @@
 - **运行核实**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t59-plan/export-shape-probe.ts`，退出 0，逐例打印预期策略与形状判定差异。另运行 `bun test src/architecture.test.ts src/plugins/commands/shared/plugin.test.ts`（cwd 为本 worktree 的 `packages/neuro-book`），当前基线 8 pass / 0 fail；它没有覆盖新增规则。
 - **建议改法**：优先删除这条脆弱的源码形状检查，以三张宿主表中普通项必须为 `PluginDefinition` 的类型约束和独立的两个例外字段守住消费边界；迁移时删掉全部普通工厂。确需源码门禁时，用已有 TypeScript 编译器解析实际 `backend/web/shared/plugin.ts` 的导出绑定，约束普通入口导出为 `PluginDefinition` 常量，并明确定义允许的初始化形式；至少覆盖箭头、局部导出、重导出、无参函数、注释和两个例外。不要以遍历所有插件源码时禁止名字含 Plugin 的函数代替入口合同检查。
 
-### 4. 建议：例外应按宿主启动与停止的接点说明，现有“进程级资源”判据不精确
-
-- **严重程度**：建议；**类别**：设计判据 / 文档。
-- **位置**：`plan.md:8,32,43,88`。
-- **现象**：计划说“需要在插件激活之前就建立、或由宿主直接持有生命周期的进程级资源才留在工厂”。但 HTTP 监听在插件激活时才建立、归插件激活作用域释放；浏览器 diagnostics 根本不是进程级资源。反之，HTTP 的 host/port/staticRoot、diagnostics 的 exporter directory 都是每实例不变的配置，也同时符合前半句“数据走能力”。
-- **为什么是问题**：当前两个例外的名单已获同意，执行上没有障碍；长期判据却无法解释它们的全部参数，容易让以后任何持有文件/数据库的普通插件也自称“基础设施”保留工厂，或迫使人把已同意的例外再次拆分。
-- **依据**：`packages/neuro-book/src/plugins/http/backend/plugin.ts:55–85` 在 activate 中 `Bun.serve` 并以 `context.scope.register` 释放监听；`server/start.ts:116–117,206–227` 提前建立并持有 admission、在内核停止之前排空；`plugins/diagnostics/backend/plugin.ts:5,17–29` 与 `plugins/diagnostics/web/plugin.ts:14–25` 接收运行实例建立前创建的 store，浏览器还接收宿主 console。`nb-runtime/src/application/contracts.ts:49–56` 本地能力本来就能表达有生命周期的资源，资源是否进程级本身不足以决定要不要工厂。
-- **建议改法**：保持两个明确例外，不增加新的通用“基础设施插件”类别。ADR 写实因果：diagnostics 的宿主 store/紧急出口必须覆盖内核启动前的诊断；HTTP 的 admission 与监听结果参与宿主就绪和停机前排空，故整体作为宿主适配器装配，其配置随适配器工厂传入。普通插件的依赖和配置仍从声明的能力取得；新增例外需要说明同样的启动/停机循环依赖，不能仅凭使用文件、端口或“按实例不变”放行。
-
-### 5. 重要：ADR 只写“取代第 3 条”而未安排旧决策的状态与仍有效条款
-
-- **严重程度**：重要；**类别**：合同治理 / 待确认论证。
-- **位置**：`plan.md:49,62,94`。
-- **现象**：S0 只列新增 ADR 0026，文档表没有 `docs/adr/0025-service-keys-by-id.md` 的 frontmatter 或 ADR 索引变更。当前规则以整份 ADR 的 `accepted | superseded` 与单个 `superseded-by` 表达取代，没有逐条决策的状态字段。
-- **为什么是问题**：若只新增 0026，0025 仍作为 accepted 明确要求普通插件工厂只收宿主配置，其“工厂签名统一、宿主按清单取工厂”的后果也仍存在；若把 0025 整份标为 superseded 却只写第 3 条的新决策，又容易让 0025 第 1、2 条的服务 id 与合同导入约定看似一起失效。计划引用不可改正文是正确的，但没有写完规则要求的取代动作与语义。
-- **依据**：`docs/adr/README.md:5–18` 要求旧 ADR 保留正文、在 frontmatter 记录状态与取代者；`0025-service-keys-by-id.md:1–5,30–38` 当前仍是 accepted，三项决策与工厂后果并存。`scripts/ci/check-documentation.ts:212–237` 只检查整份文档状态及 superseded-by，不能替计划处理部分条款的含义；检查通过也无法证明没有相互冲突的 accepted 决策。
-- **建议改法**：无需新增“部分取代”机制。S0 同片写 0026 的完整当前决策：明确继承 0025 第 1、2 条及身份对象等未变约束，只替换第 3 条与相关工厂后果；0025 正文不动，将 frontmatter 置 `status: superseded`、`superseded-by: docs/adr/0026-plugin-definitions-as-constants.md`；ADR 索引加 0026 并指出 0025 的取代关系。这样旧链接仍能追溯理由，新文档给出一个不冲突的当前决策。
-
 ### 6. 建议：验收映射要补到新增能力的真实消费路径，不能仅沿用 helper 测试
 
 - **严重程度**：建议；**类别**：验收映射 / 测试。
+- **当前状态**：真实能力消费、双实例隔离与变异区分已由修订版 `plan.md:95–103` 吸收；`projects.test.ts` 现有真实命令窗口用例也已出现。剩余仅为验收表缺 Spec 场景编号的建议，见下节，不再按初稿整个缺口计数。
 - **位置**：`plan.md:68–82`。
 - **现象**：“打开项目”目前的 `projects.test.ts` 导航用例直接给 `openProject` 一个回调，绕过浏览器插件的 dependencies、激活与宿主能力；另一个真实装配用例只断言命令已登记。`commands/shared/plugin.test.ts` 目前每次只装单位置定义，没有 foreign-location 断言。能力缺失的“变异示例”又是在宿主删掉提供者后期待受阻，这是正确的负向行为，不是证明正向验收会发现错误的变异检查。
 - **为什么是问题**：上述文件都能用真实依赖补齐，但仅更换 import/构造方式不能证明新增能力被真正消费，甚至把导航能力解析删掉、改回直接使用全局 location 时，helper 测试仍通过。把合法负向情形当变异证据，也无法证明状态根错配或 foreign 入口误激活会被现有验收抓住。
 - **依据**：`packages/neuro-book/src/plugins/projects/projects.test.ts:114–146` 直接调用 `openProject`，`:151–169` 只查命令元数据；`plugins/commands/shared/plugin.test.ts:50–59,64–86` 只建一个位置。`e2e/projects.e2e.ts:59–82` 确实走真实命令、选择和整页跳转，可保留端到端映射；`plugins/storage/project-child.test.ts:101–123` 确实核对项目目录库文件及跨代次持久值；`scripts/smoke-server.ts:220–250` 的 S8 确实核对 user 库落点、关库与重启读回。实施计划 Skill 要求映射到 Spec 条目/场景编号，目前表格只有行为复述。
-- **建议改法**：把现有导航用例提升到真实浏览器内核中，经 `commandServiceKey.execute("nbook.project.open")` 触发 projects 常量入口、真实项目远程服务与选择宿主，导航输出仅在宿主 capability 接点记录；可把现有直接 helper 测试替换或合并，避免重复。commands 用同一个常量在两真实实例并行启动，断言各自命令表隔离、另一入口 foreign-location，并保留同位置重复提供的拒绝覆盖。缺能力用例断言结构化 blocked reason/key/path；真正的变异则移除插件依赖、改错库落点或误选 foreign 入口，要求对应正向验收失败。映射补具体 Spec 场景与增补用例，S8 标明只证明 user 分区，project 由 project-child 覆盖。
+- **建议改法**：把现有导航用例提升到真实浏览器内核中，从 `commandServiceKey` 取得 `CommandService`，执行 `execute("nbook.project.open")` 触发 projects 常量入口、真实项目远程服务与选择宿主，导航输出仅在宿主 capability 接点记录；可把现有直接 helper 测试替换或合并，避免重复。commands 用同一个常量在两真实实例并行启动，断言各自命令表隔离、另一入口 foreign-location，并保留同位置重复提供的拒绝覆盖。缺能力用例断言结构化 blocked reason/key/path；真正的变异则移除插件依赖、改错库落点或误选 foreign 入口，要求对应正向验收失败。映射补具体 Spec 场景与增补用例，S8 标明只证明 user 分区，project 由 project-child 覆盖。
 
-## 三项待确认的判断
-
-1. **新增两项宿主能力，并复用 `currentProjectKey.root`：赞成。** `state-root: {readonly path: string}` 与 `window-navigation: {navigateDocument(href: string): void}` 足够表达当前需求；键放 `src/shared/host.ts` 与现有宿主合同同层、只依赖内核服务键类型，不放进 `nb-runtime` 或 Storage 自己的公开合同。服务端 `server/start.ts` 提供状态根，浏览器 `web/host/window.ts` 提供本窗口导航，项目宿主继续提供 `currentProjectKey`，不要把服务端状态根复制给浏览器。Storage 的库落点由 Storage 在 activate 内拼接；无需再加只给 SQLite 文件路径的宿主能力，否则宿主需知道 Storage 的介质和目录布局。选择 state-root 的充分理由是宿主拥有根定位、Storage 拥有内部布局，“以后别的插件也要用”只能算未验证推断。`project/start.ts:122–127` 把当前 `config.root` 原样冻结提供，旧 `project/plugins.ts:27` 正是用这个 root 拼库路径；manager 创建子进程前以 `checkProjectDirectory` 重新求真实路径，故项目切换不会改变当前代次的 root。唯一需澄清的形状语义：计划 `:22` 写“真实路径”，现 `server/config.ts:70` 只有 `resolve`、不消除符号链接，首启时状态根还可不存在。建议维持已有语义、写“宿主已解析的绝对路径”；若确需 canonical realpath，就把建立目录/归一化/错误处理显式列入宿主变更，不能当现有保证。
-2. **按代码所在侧导出常量：赞成，但先处理发现 1。** `backend/plugin.ts` 放 server/project 激活代码、`web/plugin.ts` 放浏览器激活代码、真正不依赖 DOM/Bun/Node/Vue 的实现才放 shared，符合当前 `architecture.test.ts:75–89`。`commands/shared/plugin.ts` 现有命令注册逻辑没有环境 API，单常量含两个入口成立；命令表须继续在 activate 内创建，每个实例各一份。普通插件的可变 owner、WeakMap、订阅与 Map 同样留在 activate 内，常量只保存静态描述及激活函数。`manifest.ts` 继续只引根级 descriptor，各宿主各选本侧常量；不要把 backend/browser 两常量同时登记在同一实例（会 duplicate-plugin）。浏览器引导来自 descriptor 的 `locations` 与 id/version（`server/browser-bootstrap.ts:18–24`），不读取定义的 entries，故 commands 双入口不会把后端专有插件引入浏览器集合；内核只选择本位置启动入口，foreign 入口不进入服务装配，汇总也只计算本位置（`application/bootstrap.ts:227`、`plugins/host.ts:337–378,410–414`）。根级 descriptor 是现阶段跨两侧的身份描述，无需再加合并器；未来清单承接它。
-3. **新增 ADR 0026：赞成记录新决策，需补完整取代流程。** 只读保留 0025 正文正确；按发现 5 补旧 frontmatter、索引和 0026 的未变条款即可，无需为一个部分条款变化扩展 ADR schema。S0 可以只做决策记录，但 0026 应清楚区分已接受的方向与尚待 S1 实施的现状，不能让文档先宣称代码已经支持双位置同服务。
-
-## 切片与文档覆盖结论
+## 初稿切片与文档覆盖结论（后续修订已吸收）
 
 - **S0** 补 0025 frontmatter 和 ADR 索引后可以独立；现计划没有包含这些必要元数据。
 - **S1** 原边界不能独立通过。先做 `(location, service id)` 的内核前置片及 `runtime.plugins` / `runtime.plugin-manifest` 合同，再把三侧装配、真实宿主 capability 和自建测试宿主一起迁移；也可明确合成同一个原子提交，但应包含 nb-runtime 的测试与 typecheck，不能只把它算应用改动。
@@ -76,3 +89,95 @@
 - **S3** 在当前公开 capabilities 机制上独立可行：Stage 的 InstanceOptions 与 `#start` 可直接传 `ApplicationManifest["capabilities"]`，01-services 两例改为提供手动时钟能力，不必给每个示例插件再加适配器。其余示例工厂逐一替换常量并迁移场景即可；clock 的宿主键模块必须保持平台中立，避免把 scenarios 的测试宿主/测试器传进插件的浏览器类型检查。现 `tsconfig.json` 覆盖全部 examples，`tsconfig.browser.json` 覆盖 examples/plugins，插件导入的键模块也会被递归检查。
 - **S4** 能复用计划中的真实进程与浏览器验收，但应把缺能力负向用例与真正变异检查分开。审查本轮遵守只读限制，没有运行它列出的 e2e、开发服务或构建 smoke。
 - 文档表必须新增 `runtime/plugins.md`、`runtime/plugin-manifest.md`、ADR 0025 frontmatter 与 ADR 索引；Task `README.md:14` 的合同列表也同步。`runtime/application.md` 现有 capabilities 已支持本方案，无须为产品键改内核接口；`plugin-code-loading.md` 的 CommonJS“登记工厂”是模块求值机制，不是收宿主配置的插件定义工厂，不应因术语相同删掉。已在表中的 persistence 和 browser-host 除入口名称外还要清理现存 `persistence.md:64` 的“装配者交键给工厂”及 `browser-host.md:139` 的“跨插件只 import type”旧约定；这两处属于前置 t58 修正可能覆盖的文档，不另算 t59 设计缺陷。
+
+- S3 的 README 改动不能只替换 `:41` 的工厂规则；`:15` 的入口概念、`:34–35` 的目录注释也明确称入口是工厂，需同片改为导出定义常量，`:49` 的 clock 描述说明依赖宿主时钟能力。`:71` 的“时间由注入的时钟推进”依然准确，无需改写。示例装配点包括 clock/greeter、notes、menu/file-menu、counter 两侧、board 两侧、cloud-notes 两侧；`serviceProbe` 仍是测试辅助工厂，不纳入普通插件迁移。这是已列 README 范围的具体提醒，不另计一条问题。
+
+## 已运行验证与限制
+
+以下均为本次主 Agent 实际运行结果；这组测试与 smoke 来自并行修订被发现之前的基线，不证明当前 S2/S3 实现。源文件持续变化，未固定 checkout；类型检查只能证明命令运行时读取的文件集没有诊断。
+
+| 工作目录 | 实际命令 | 结果与覆盖 |
+|---|---|---|
+| 本 worktree 的 `packages/neuro-book` | `bun test src/architecture.test.ts src/plugins/commands/shared/plugin.test.ts` | 8 pass / 0 fail，37 expect；现有目录边界与真实命令内核装配 |
+| 本 worktree 的 `packages/neuro-book` | `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t59-plan TMPDIR=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t59-plan bun test src/plugins/storage/storage.test.ts src/plugins/storage/project-child.test.ts src/plugins/projects/projects.test.ts` | 21 pass / 0 fail，196 expect；SQLite、真实项目子进程及项目命令；临时数据落指定 scratchpad，测试自行收口 |
+| 本 worktree 的 `packages/nb-runtime` | `bun test examples/scenarios/01-services.test.ts` | 2 pass / 0 fail，7 expect；真实 Stage 内核、ManualClock 推进问候变化 |
+| 本 worktree 的 `packages/nb-runtime` | `bun run typecheck` | 完成、无类型诊断；实际脚本 `tsc --noEmit && tsc --noEmit -p tsconfig.browser.json`，包含服务端和浏览器约束 |
+| 本 worktree 根 | `bun --tsconfig-override /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t59-plan/multi-location-smoke.ts` | 退出 0；4 组双位置真实定义登记失败、2 组现有 commands 对照 available，全部 closed；见发现 1 |
+| 本 worktree 根 | `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t59-plan/export-shape-probe.ts` | 退出 0；确认计划所述形状判据的漏报；见发现 5 |
+
+- 合计现有测试 **31 pass / 0 fail，240 expect**。未运行产品包 typecheck、全量测试、`docs:check`、`governance:check`、`test:e2e`、`smoke:server`、开发服务或真实模型；e2e 与 S8 的覆盖结论来自代码阅读，标为代码推断，不冒充本次运行证明。
+- smoke 运行同时出现 Bun 原文诊断：`Internal error: directory mismatch for directory "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/tsconfig.json", fd 3. You don't need to do anything, but this indicates a bug.` 六组结构化结果与停止断言均完成；未调查 Bun 自身错误。
+- LSP 当前返回 `No language servers configured for this project`，引用点由文件检索核实；这是工具限制，不是产品失败。
+- 所有仓库读取只针对本 Task 的依赖；未修改仓库文件，未 commit、push、stash、切换分支、删除仓库文件；未检查 t56 或改动 t58。两个只读 scout 未运行检查，其结论用于文档/示例交叉核查，运行证据均来自主 Agent。
+
+## 未发现问题的方面（初稿范围）
+
+- **产品普通工厂的覆盖完整**：计划已包含三个带参普通工厂 `createCommandsPlugin`、`createStorageServerPlugin`、`createProjectsBrowserPlugin`，以及四个无参普通工厂 `createProjectsServerPlugin`、`createStorageBrowserPlugin`、`createWorkbenchBrowserPlugin`、`createLabBrowserPlugin`。遗漏发生在消费它们的宿主与测试接点，不是插件名单。HTTP 与 diagnostics 的三个产品工厂属于已批准例外。
+- **宿主能力机制可复用**：现有 `ApplicationManifest.capabilities` 和入口 `dependencies` 已能表达两个新能力，无须扩展内核 API、引入配置注册器或额外的库路径服务。Storage 项目库路径复用 `currentProjectKey.root` 与旧装配的路径来源相同；这是代码核对结论，迁移后的路径仍需由真实子进程验收。
+- **按侧导出与浏览器引导成立**：backend/web 隔离，commands 的平台中立代码放 shared，符合现有目录约束。浏览器引导按 descriptor 过滤插件集合，不会因 commands 的另一个入口引入后端插件。foreign-location 的选择与汇总机制已有实现；仍须先修发现 1 的登记唯一性冲突。
+- **真实验收资源已有**：Storage 的 SQLite 与项目子进程测试、commands 的真实内核装配、示例的 Stage 与 ManualClock 本次均运行通过。项目导航的端到端用例和服务端 S8 有真实用户/进程路径，代码上可以保留；本轮未运行这两条路径。
+- **示例切片可以独立迁移**：公开 capability、RuntimeClock 与 ManualClock 已具备，S3 不必等待产品新能力接口；S2 只扫描应用产品源码，按计划先 S1 后 S2 即可。测试辅助 `serviceProbe` 和产品测试插件可保留按需工厂。
+- **范围与前置明确**：Task 等待 t58 审查修正后实施，清单文件与第三方代码装载明确不做；未发现必须在 t59 引入这些机制的依赖。
+
+## 初稿各级数量与审查结论
+
+| 严重程度 | 数量 | 发现 |
+|---|---:|---|
+| 阻断 | 1 | 1：多位置同服务的定义无法登记 |
+| 重要 | 3 | 2：宿主/测试装配范围；4：ADR 取代；5：导出形状门禁 |
+| 建议 | 2 | 3：例外判据；6：验收消费路径与变异含义 |
+| 合计 | 6 | 示例 README 的具体残留提示并入文档覆盖，不重复计数 |
+
+**初稿结论：不能按原 S1 边界直接实施。** 已同意的常量与宿主能力方向成立；多位置服务唯一性、宿主装配与 ADR 取代缺口已在并行修订中吸收，此结论不适用于当前修订版。
+
+## 修订版复核：剩余建议
+
+### 当前建议 1：验收表关联具体 Spec 条目与场景编号
+
+- **严重程度**：建议；**类别**：计划写法 / 验收可追溯性；是初稿发现 6 的剩余部分，不新增计入初稿数量。
+- **位置**：当前 `plan.md:91–103`。
+- **现象**：最新表格已正确要求真实能力消费、双实例隔离、缺能力受阻，并区分负向用例与变异；表头仍是“行为 → 测试”，没有具体 Spec 条目与场景编号。
+- **为什么是问题**：测试路径与变异设计可以执行，但目前仍需实施者自行确认哪些合同条目已经覆盖；新增的能力来源与受阻情形若没有写入对应 Spec 的验收场景，表格会先于行为真相源定义验收。
+- **依据**：实施计划 Skill 的“验收映射”明确要求 Spec 编号 → 覆盖测试；现有 `runtime.plugins` 验收 14、`runtime.plugin-manifest` 验收 17 已明确跨位置同服务，`runtime.projects` 输出 10 / 验收 11 明确“打开项目”，`runtime.plugins` 输出 11 明确缺服务的原因与路径，`storage.persistence` 验收 8 明确关闭与跨代次寿命。最新表格没有引用这些编号。
+- **建议改法**：直接在现有表格第一列改为这些 Spec 条目/场景编号，右列保留当前具体测试和正负向用例；库路径与能力来源若需增加判据，同片把它们补进 Storage 的验收场景再引用。无需增加新的验收文档或新一套测试。
+
+## 修订版关闭情况与新证据
+
+| 初稿发现 | 当前状态 | 本次复核依据 |
+|---|---|---|
+| 1：跨位置服务 id 被整体拒绝 | 计划已吸收，内核改动已出现 | `plan.md:19–23,72,86`；`registration.ts:75–93` 已按位置分组；下述新测试通过 |
+| 2：宿主与测试接点遗漏 | 计划已吸收 | `plan.md:43–54` 明确列出全部接点，产品迁移归 S2；未做完整实现审查 |
+| 3：例外判据不准确 | 已关闭 | `plan.md:61–65`、ADR 0026 第 5 条按启动/停机依赖写因果 |
+| 4：ADR 部分取代流程遗漏 | 已关闭 | 新 ADR 重述未变条款，0025 frontmatter 指向 0026，索引注明取代关系 |
+| 5：源码形状门禁不可靠 | 已关闭 | `plan.md:45–49` 改为定义与适配器分表、普通项 `PluginDefinition` 类型约束 |
+| 6：验收消费路径/变异含义 | 核心缺口已吸收，仅余上述编号建议 | `plan.md:95–103`；重读 `projects.test.ts` 现有经命令服务与宿主导航能力的用例，`storage.test.ts` 有缺能力受阻用例；未运行当前完整产品测试 |
+
+**本次新运行**（cwd：本 worktree 的 `packages/nb-runtime`）：
+
+```sh
+bun test src/plugins/plugins.test.ts --test-name-pattern '一份定义在两个运行位置的入口提供同一服务 id'
+```
+
+结果：**1 pass / 0 fail，27 filtered out，8 expect，37 ms**。真实的两个插件宿主与服务装配使用同一份定义，各自解析到本位置的 `now()` 值，另一入口为 `foreign-location`；它不是浏览器界面验收，也未覆盖全部 Application 启停链。此结果针对修订后的新用例，与初稿 smoke 的改动前失败分别记录。
+
+SDK 疑点未计为设计错误：`runtime.plugin-api` 当前是 `planned`，第三方 SDK 的数据面要求 Promise/结构化结果/终止信号；本次新增导航是当前实例的本地能力，实际消费者是内置 `nbook.projects`，第三方装载明确不在范围。ADR 的“同一路径”说明依赖取得机制，尚不足以证明第三方 SDK 会直接公开相同的同步签名。SDK 实施时应明确公共能力签名或适配，但本轮没有据此要求改同步导航。AGENTS 与 Storage 依赖文档也已明确纳入计划，不能因为并行实现未收口便再报一次计划遗漏。
+
+原三项待确认已在修订版 `plan.md:116–120` 变为“已确认”，本轮不再设置确认门禁：两个能力与现有项目根复用成立；按侧定义与 commands 共享实现成立；ADR 0026 的整份取代及未变条款继承成立。`currentProjectKey` 移到 `src/shared/projects.ts` 是修订版明确记录的模块归属调整；状态根仅保证绝对路径的语义也已修正。
+
+## 未发现问题的方面（修订版）
+
+- 服务唯一性先改内核合同再迁移产品，S0 决策、S1 内核、S2 宿主/产品、S3 示例的提交边界有真实依赖依据；S3 使用现有公开能力机制，可独立执行。
+- 两个新增能力的形状、声明归属和提供者明确，Storage 拥有库目录布局，项目入口复用当前代次的项目根；不用增加 SQLite 路径能力或内核配置 API。
+- 后端与浏览器定义按侧隔离，commands 的平台中立实现可共享，状态在 activate 内建立；浏览器引导继续按 descriptor 过滤集合。
+- 两项工厂例外有实际启动/停机原因；普通项与例外分表减少源码扫描部件。测试辅助工厂不被误纳入普通插件迁移。
+- ADR 状态、取代链接、索引和继承条款已相容。Spec 文档表包含跨位置唯一性与具体宿主能力；模块装载工厂仍与插件定义分层。
+- 已有真实内核、SQLite、子进程、命令与导航接点支撑拟议验收；本次最新运行只确认双位置提供项，不宣称完整 S2/S3 已验收。
+
+## 最终各级数量与结论
+
+| 口径 | 阻断 | 重要 | 建议 | 合计 |
+|---|---:|---:|---:|---:|
+| 初稿已核实发现 | 1 | 3 | 2 | 6 |
+| 当前修订版仍待处理 | 0 | 0 | 1 | 1 |
+
+**最终结论：修订版已吸收初稿的设计阻断与主要遗漏，计划层面没有剩余阻断或重要问题。** 剩余 1 项为验收映射的 Spec 编号建议；本次保持只读，未替另一执行者完成产品实现或全量验收，旧运行证据不作为当前实现通过证明。

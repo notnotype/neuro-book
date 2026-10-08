@@ -37,7 +37,7 @@ import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
 import {projectProbeContract, remoteProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 
-import {browserPluginDefinitions, builtinBrowserPlugins} from "../plugins";
+import {browserHostPlugins, browserPluginDefinitions, builtinBrowserPlugins} from "../plugins";
 import {createConnection} from "./connection";
 import {createBrowserWindow} from "./window";
 import type {BrowserWindowOptions, WindowState} from "./window";
@@ -240,6 +240,39 @@ describe("窗口运行实例", () => {
         const failure = failureOf(browserWindow.state);
         expect(failure?.status).toBe("startup-failed");
         expect(failure?.reason).toContain("诊断装配失败（测试注入）");
+    });
+
+    it("定义表的表项与定义的插件 id 不一致：启动失败并指名两个 id，错配的定义不激活", async () => {
+        const optional = {id: "nbook.optional", version: "0.1.0", locations: ["browser"] as const};
+        const plugins = [...builtinBrowserPlugins, optional].map(({id, version}) => ({id, version}));
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins}));
+        const activated: string[] = [];
+        const {browserWindow} = openWindow({
+            url: stub.url,
+            builtin: [...builtinBrowserPlugins, optional],
+            definitions: {...browserPluginDefinitions, "nbook.optional": {
+                id: "example.rogue",
+                entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], activate: () => {
+                    activated.push("example.rogue");
+                    return {};
+                }}],
+            }},
+        });
+        await browserWindow.start();
+        const failure = failureOf(browserWindow.state);
+        expect(failure?.status).toBe("startup-failed");
+        expect(failure?.reason).toContain("nbook.optional");
+        expect(failure?.reason).toContain("example.rogue");
+        expect(activated).toEqual([]);
+        stub.stop();
+    });
+
+    it("宿主适配器的表只收适配器：普通插件放进去编译不过", () => {
+        const options: Partial<BrowserWindowOptions> = {
+            // @ts-expect-error 普通插件的定义是常量，不能经宿主适配器的工厂取宿主上下文
+            hostPlugins: {"nbook.diagnostics": browserHostPlugins["nbook.diagnostics"], "nbook.commands": () => browserPluginDefinitions["nbook.commands"]!},
+        };
+        expect(options.hostPlugins).toBeDefined();
     });
 
     it("非必需插件的入口激活失败：只影响该入口，窗口照常 ready", async () => {

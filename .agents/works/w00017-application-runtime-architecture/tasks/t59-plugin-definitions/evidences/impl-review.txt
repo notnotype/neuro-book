@@ -1,0 +1,83 @@
+# w00017 t59 只读实现审查
+
+审查对象：`2aab9e25`、`06847f12`、`e862b1e0`、`8930532b`。排除 `df14480c`、`62d1f37a` 与 `079f7544` 的 t56 计划。工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation`。
+
+开始时已核对 `git log --oneline 079f7544~1..HEAD` 与 `git status`，分支为 `refactor/w00017-runtime-foundation`、HEAD 为 `8930532b`，当时唯一未提交改动为 t59 README。审查期间只读取仓库，实验、临时配置、缓存与报告仅写入指定 `omp-t59/` 目录。
+
+结论：阻断 0 条、重要 2 条、建议 1 条。两个重要项都落在应用装配边界；未发现内核按运行位置放宽唯一性导致的下游回归。建议先修正两项装配约束，再按 Task S4 收口。
+
+## 已核实的发现
+
+### 1. 重要：浏览器装配没有核对表项与实际定义的插件 id，可激活不在引导集合中的插件
+
+- **严重程度**：重要；**类别**：正确性 / 装配不变量。
+- **位置**：`packages/neuro-book/src/web/host/window.ts:174`、`:277`；对照 `src/server/plugins.ts:63` 与 `src/project/plugins.ts:42`。
+- **现象**：把浏览器定义表的 `"nbook.projects"` 项错配成 `id: "example.rogue"` 的合法定义，引导集合仍只有产品插件，真实窗口宿主却执行 `example.rogue` 的激活函数，并以 `ready` 结束；`nbook.projects` 的“打开项目”贡献被静默丢掉。缺少定义表项则能正确失败，只有 id 错配被放行。适配器工厂返回错 id 时同样没有核对。
+- **为什么是问题**：按清单装配必须保证“选中的 id 就是登记的 id”，否则浏览器的有效插件集合与服务端的引导集合不一致。必需插件的集合检查只针对 `SelectedPlugin.id`，内核登记却看实际 `PluginDefinition.id`；非必需插件错配不会被 requiredPlugins 补抓。计划第 3 节明确要求产出 id 与清单不一致直接失败，server/project 已保留这项检查，browser 迁移后的两张表没有落实。旧浏览器工厂路径也缺这项核对；这是本次触及的装配边界遗留缺陷，不能称为按位置唯一性引入的回归。
+- **如何核实**：仓库外 `window-boundary-probe.ts` 经公开 `createBrowserWindow` 启动，连接真实 `createRemoteNode` / `createRemoteRouter`，链路为公开进程内 JSON 传输；未直接调用私有装配函数。命令：`bun --tsconfig-override /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t59/tsconfig.probe.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t59/window-boundary-probe.ts`，退出 0；输出 `missing-definition → startup-failed`、`ACTIVATED_UNLISTED_PLUGIN`、`mismatched-definition-id → ready`。各窗口均正常 `closed`。Bun 另输出已存在的 `directory mismatch` 内部诊断，不影响业务结果。
+- **建议改法**：在同一个 `selected.map` 装配步骤中得到定义后核对 `definition.id === plugin.id`，不符合就抛错，沿现有启动失败与会话清理路径收口；定义表与适配器返回值共用这一次检查。窗口合同测试补一个可选插件 id 错配，断言 `startup-failed` 且错误指名两个 id，错误定义的激活没有产生副作用。
+
+### 2. 重要：适配器表仍接受任意插件 id，普通插件可以重新通过工厂取得宿主参数
+
+- **严重程度**：重要；**类别**：不变量 / 类型边界。
+- **位置**：`packages/neuro-book/src/server/plugins.ts:46`、`:60`；`src/project/plugins.ts:30`、`:39`；`src/web/plugins.ts:36`；`src/web/host/window.ts:64`、`:277`；`docs/adr/0026-plugin-definitions-as-constants.md:35`。
+- **现象**：三端的适配器表都是 `Readonly<Record<string, …HostPluginFactory>>`，键完全开放。把 `"nbook.commands": (context) => …` 放入浏览器适配器表，类型检查通过，真实窗口启动时优先调用它，收到 `store` 等宿主上下文，再返回 `commandsPlugin`；定义表已有的 commands 常量被绕过。同样的类型允许服务端 commands 工厂、项目 Storage 工厂读取 config。
+- **为什么是问题**：普通定义表本身能挡住函数值，但第二张任意键工厂表提供了同等有效的旁路，未守住“只有 nbook.http、nbook.diagnostics 保留工厂”的边界。ADR 的“普通插件能不能带参数由表的类型挡住”和计划的类型验收因此不成立；此处没有证明当前内置插件共享状态或运行错误，而是已批准长期装配约束仍可被合法代码绕过。
+- **如何核实**：仓库外 `window-boundary-probe.ts` 构造 `typeof serverHostPlugins`、`typeof projectHostPlugins` 与 `typeof browserHostPlugins` 三份有普通插件工厂的表；`bun x tsc --noEmit -p /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t59/tsconfig.probe.json` 退出 0。前述真实窗口实验输出 `ordinary-plugin-in-adapter-table → ready`、`ordinaryFactoryCalls: 1`，工厂断言拿到了真实 DiagnosticsStore。该 typecheck 首次缺应用的 proper-lockfile 与 Vue 声明输入，加入现有 `src/types` 后通过；没有安装依赖或修改产品。
+- **建议改法**：把适配器表收窄为明确的适配器 id：server 只允许 `nbook.diagnostics | nbook.http`，project/browser 只允许 `nbook.diagnostics`；装配只对这些 id 查询工厂，其余 id 必须查询定义表。可用显式属性或窄联合键类型配合按已知 id 分支，不需要品牌标记、源码扫描或第三种注册机制。测试插件继续在仓库外或 `testing/` 中带参数构造后交入定义表，无需开放产品适配器名单。
+
+### 3. 建议：commands 的实现合同仍说工作台的命令服务键由宿主传入
+
+- **严重程度**：建议；**类别**：文档。
+- **位置**：`docs/specs/workbench/commands.md:210`；实际代码 `packages/neuro-book/src/plugins/workbench/web/plugin.ts:13`、`:32`、`:38`。
+- **现象**：同一份修订后的 Spec 先写 `commandsPlugin` 与定义表，后面仍保留“工作台依赖命令服务的键由宿主装配时交进来”。实际工作台常量直接从 commands 的 `shared/contracts.ts` 导入 `commandServiceKey`，静态声明 dependency，宿主不再传键。
+- **为什么是问题**：这句仍描述已经删除的工厂接线方式，和 ADR 0026 第 2、3 条相矛盾；插件作者按实现合同照做会重新依赖宿主参数。它是存量遗漏，位于本次明确修订的 commands 实现合同中。
+- **如何核实**：逐行对照 `workbenchBrowserPlugin` 的 import、dependencies 与 activate；本轮已运行 commands 的真实内核合同测试与整个应用 typecheck，现行代码无普通工作台工厂，也没有宿主传键入口。
+- **建议改法**：直接删掉这句旧接线描述；`shared/contracts.ts` 的公开键与静态 dependencies 已由同节及 ADR 0026 说明，不再添加重复的机制说明。
+
+## 本轮验证
+
+命令从本 worktree 根运行，表中注明包目录的例外。应用合同测试的 `NBOOK_AGENT_TEMP_ROOT` 均显式设为本报告所在的 `omp-t59/` 目录。以下是本审查新跑的结果；提交信息里的旧验证不计入。
+
+| 命令 | 本轮结果 | 覆盖 |
+|---|---|---|
+| `bun run --cwd packages/nb-runtime test` | 286 pass / 0 fail，28 文件 | 全部内核合同测试与示例场景 |
+| `env NBOOK_AGENT_TEMP_ROOT=<本报告目录> bun test src/architecture.test.ts src/plugins/commands/shared/plugin.test.ts src/plugins/projects/projects.test.ts src/plugins/storage/storage.test.ts src/plugins/storage/project-child.test.ts src/web/host/window.test.ts src/server/browser-bootstrap.test.ts`（cwd `packages/neuro-book`） | 56 pass / 0 fail，7 文件 | 应用插件、真实窗口内核 / WebSocket、项目子进程、装配边界与引导响应 |
+| `env NBOOK_AGENT_TEMP_ROOT=<本报告目录> bun test src/server/server.test.ts src/server/server-projects.test.ts src/server/projects/manager.test.ts src/server/projects/projects-capability.test.ts`（cwd `packages/neuro-book`） | 42 pass / 0 fail，4 文件 | 迁移后的测试入口、真实子进程、项目管理与宿主能力 |
+| `bun run --cwd packages/nb-runtime typecheck` | 退出 0 | tsc 主配置与浏览器配置 |
+| `bun run --cwd packages/neuro-book typecheck` | 退出 0 | tsc、前端 vue-tsc 与浏览器测试 vue-tsc |
+| `env NBOOK_AGENT_TEMP_ROOT=<本报告目录> bun x vitest run src/web/mount.dom.test.ts --config <本报告目录>/vitest.readonly.ts --configLoader runner`（cwd `packages/neuro-book`） | 1 文件、6 用例通过 | happy-dom 中窗口挂载、命令宿主、失败页、离线与重连；临时配置只把 Vite 缓存改到报告目录 |
+| `bun x tsc --noEmit -p <本报告目录>/tsconfig.probe.json` | 退出 0 | 发现 2 的三端适配器表类型旁路 |
+| `bun --tsconfig-override <本报告目录>/tsconfig.probe.json <本报告目录>/window-boundary-probe.ts` | 退出 0 | 发现 1 / 2 的真实窗口宿主实验，缺表项失败对照，结束时正常关闭 |
+| `bun <本报告目录>/multi-location-runtime-probe.ts` | 退出 0 | 同一常量含 server/browser 同 id 本地与远程服务：各自选对本位置提供方；per-consumer 身份与 resolveFor 的 via.entry 正确；目录 foreign-location 正确；published 诊断属于本入口；一实例停止不作废另一实例门面；本位置缺依赖时 provider-blocked 的路径指向本地入口 |
+
+`<本报告目录>` 的完整值：`/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t59`。
+
+未运行：e2e、`smoke:server`、开发服务、构建、真实模型与 docs/governance 检查，遵守本次只读审查范围。没有修改、提交或删除仓库文件。
+
+## 未发现问题的方面
+
+- **内核按位置唯一性**：登记校验仍拒绝同一入口内或同位置多入口重复提供，并允许跨位置提供同 id；本地装配仅声明本位置入口，受阻推导先找本地提供方，远程候选也筛选本位置。catalog 与诊断保留入口身份，调用方门面与委托签发记录不按整份定义的第一个同名入口识别。除完整内核测试外，仓库外真实应用实验同时验证本地 / 远程提供项、按调用方门面、委托、foreign-location、受阻路径和停止隔离。
+- **当前内置插件的实例状态**：commands 的表与接收者、Storage 的 partition owner / WeakMap、workbench 的 PageTable / PaletteSlot，以及示例插件的笔记、计数、订阅与条目，都在 activate 内创建；没有查到常量化后跨实例共享这些可变状态。commands 的双实例隔离测试和 Storage 的真实项目子进程跨代次测试本轮通过。
+- **宿主能力与库落点**：stateRootKey 只由服务端提供，Storage 自己拼 `storage/user.sqlite`；项目入口从 currentProjectKey.root 拼 `.nbook/storage.sqlite`。服务端与项目缺对应能力时受阻，项目目录能力冻结且代次内不变。currentProjectKey 已迁到共享合同模块，活跃调用方没有残留旧 import。浏览器引导和窗口本地能力没有发送或提供状态根。
+- **导航与项目测试改写**：生产适配仍把 `location.assign` 交给窗口导航能力；mount 的路由整页导航保持原语义。新增项目测试经真实浏览器内核的 commandServiceKey 执行“打开项目”，调用真实远程链路，再经能力记录导航；输入路径、失败重选与取消用例仍保留。QuickPick 在该 Bun 用例由真实 PaletteHost 接入的宿主能力提供，因此该用例证明的是命令 / 项目插件与导航接点；PaletteSlot、Vue 与真实 DOM 的完整接线不由这个用例证明。窗口挂载组件测试本轮通过，真实页面 e2e 由主 Agent 负责，本审查未运行。
+- **测试宿主迁移**：fixture-entry 按 productPlugins 取产品定义，适配器仍获得含测试插件的真实清单；testing 插件的工厂不受普通产品插件常量约束。storage、project-child、commands、window、browser-bootstrap 与 server/project 合同测试的原行为断言未被放宽，没有发现用固定成功返回值替代真实内核状态的改写。
+- **文档及示例规则**：ADR 0025 只修改取代状态与指向，正文保留；ADR 0026 继承服务 id 与 shared/contracts.ts 规则并解释 diagnostics / HTTP 的例外因果。Spec、应用包约定与示例 README 已说明常量、宿主能力及跨位置同 id；见发现 3 的一处旧句遗漏。projects / commands 的证据段清理保留了批准依据、当前实现、合同测试、Smoke 与验收映射，未发现删除仍需要的行为信息。
+
+独立只读审查的细项见同目录 `examples-review.md` 与 `docs-review.md`；两位审查者没有运行测试或修改仓库。示例审查未提出发现；文档审查补充确认发现 3 是旧行保留的准确性遗漏。因此主报告把它列为建议，并明确它不是本次新增行为回归。
+
+## 审查边界与工作区状态
+
+结束时执行 `git status --short`：除原有 t59 README 修改外，还出现 `bun.lock`、`packages/neuro-book/package.json`、`docs/proposals/multi-instance-runtime-topology.md`、`docs/proposals/plugin-data-model.md`、`docs/specs/README.md`、`docs/specs/runtime/plugin-api.md` 的修改，以及 `docs/specs/state/`、`packages/neuro-book/src/plugins/state/`、`packages/neuro-book/src/plugins/storage/testing/`、`packages/neuro-book/src/shared/store/` 的未跟踪内容。它们在审查开始后的工作区变化中出现，未由本审查写入，保持原样，未纳入本次四个提交的审查。t59 README 的只读 diff 仍仅为 S3 补上 `8930532b`。
+
+本轮证据是上表各命令实际运行时的结果，不是上述并行改动完成后的全仓库验证。发现 1 也明确区分了遗留边界问题与本次内核行为变更。没有宣称第三方插件清单文件、模块装载或其他尚未实现功能已验证。
+
+## 严重程度数量
+
+| 级别 | 数量 |
+|---|---:|
+| 阻断 | 0 |
+| 重要 | 2 |
+| 建议 | 1 |
+
+代码质量方面没有额外的确定性发现；优先采用报告中对两张现有表与统一装配核对的局部改法，无需引入新注册机制。

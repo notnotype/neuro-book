@@ -90,15 +90,14 @@
 
 ## 验收映射
 
-| 行为 | 测试 |
+| Spec 条目 | 测试 |
 |---|---|
-| 同一份定义的两个位置入口在各自实例可用、另一侧为 `foreign-location`；同位置重复提供仍被拒绝 | nb-runtime 登记测试增补（S1）；`plugins/commands/shared/plugin.test.ts` 用 `commandsPlugin` 同时起 server、browser 两个真实实例，命令表互相隔离 |
-| 服务端 Storage 入口在状态根下打开 user 库，路径来自 `nbook/state-root` | `storage.test.ts`（hub 实例提供状态根能力）；`smoke:server` S8 只证明 user 分区 |
-| 项目入口在项目目录下打开 project 库，路径来自 `currentProjectKey.root` | `project-child.test.ts`（真实项目子进程，跨代次读回） |
-| 宿主没有提供能力时，依赖它的入口按 `missing-service` 受阻，结构化原因含 key | `storage.test.ts` 增补 |
-| 浏览器的“打开项目”经命令服务执行、导航经 `nbook/window-navigation` | `projects.test.ts` 把直接调 `openProject` 的用例提升为真实浏览器内核：经 `commandServiceKey.execute("nbook.project.open")` 触发，只在宿主能力接点记录导航；`e2e/projects.e2e.ts` 走真实页面 |
-| 普通插件不能以带参数的工厂进入宿主 | 定义表的类型约束（`typecheck`） |
-| 示例的时钟来自宿主能力，测试推进时钟后问候改变 | `examples/scenarios/01-services.test.ts` |
+| `runtime/plugins.md` 验收 14、`runtime/plugin-manifest.md` 验收 17：一份定义在两个位置的入口提供同一服务 id，各实例只装配本位置的提供者，另一侧为 `foreign-location`；同位置重复仍被拒绝 | nb-runtime `src/plugins/plugins.test.ts`、`review-regressions.test.ts`；`plugins/commands/shared/plugin.test.ts` 用 `commandsPlugin` 同时起 server、browser 两个真实实例，命令表互相隔离 |
+| `storage/persistence.md`“副作用与数据”的落点：user 库在状态根下、project 库在项目目录下 | `storage.test.ts`（hub 实例提供状态根能力）；`project-child.test.ts`（真实项目子进程，跨代次读回）；`smoke:server` S8 只证明 user 分区 |
+| `runtime/plugins.md` 输出 11：宿主没有提供能力时入口按 `missing-service` 受阻，结构化原因含 key | `storage.test.ts`“库文件位置来自宿主能力”一例 |
+| `runtime/projects.md` 输出 10、验收 11：“打开项目”经命令服务执行、导航经宿主能力 | `projects.test.ts` 在真实浏览器内核里经 `commandServiceKey.execute("nbook.project.open")` 触发，只在宿主能力接点记录导航；`e2e/projects.e2e.ts` 走真实页面 |
+| ADR 0026 决策 3、5：普通插件只能以定义常量进宿主的定义表，适配器表只收适配器；表项与定义的 id 不一致时不装 | 定义表与适配器表的类型（`typecheck`，`window.test.ts` 里的 `@ts-expect-error`）；`window.test.ts`“表项与定义的插件 id 不一致”一例 |
+| 示例的时钟来自宿主能力，测试推进时钟后问候改变；宿主不给时钟时受阻 | `examples/scenarios/01-services.test.ts` |
 
 变异检查与负向用例分开：缺能力受阻是负向行为；变异是去掉插件对能力的依赖或改错库落点、让 foreign 入口误激活，要求上表对应的正向用例失败。
 

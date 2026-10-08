@@ -27,8 +27,8 @@ import {windowNavigationKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
 
-import {browserHostPlugins, browserPluginDefinitions, builtinBrowserPlugins} from "../plugins";
-import type {BrowserHostPluginFactory, BrowserPluginContext} from "../plugins";
+import {browserHostPlugins, browserPluginDefinitions, builtinBrowserPlugins, isBrowserHostPlugin} from "../plugins";
+import type {BrowserHostPluginFactory, BrowserHostPluginId, BrowserPluginContext} from "../plugins";
 import {BrowserRuntimeHost} from "./browser-host";
 import type {BrowserHost, PageLifecycleTarget} from "./browser-host";
 import type {Connection, RpcEndpoint} from "./connection";
@@ -61,7 +61,7 @@ export interface BrowserWindowOptions {
      */
     readonly builtin?: ReadonlyArray<PluginDescriptor>;
     readonly definitions?: Readonly<Record<string, PluginDefinition>>;
-    readonly hostPlugins?: Readonly<Record<string, BrowserHostPluginFactory>>;
+    readonly hostPlugins?: Readonly<Record<BrowserHostPluginId, BrowserHostPluginFactory>>;
     /** 客户端身份（`client-identity.ts`），随握手发给服务端；缺省每个窗口各取一个随机值，不跨刷新。 */
     readonly clientIdentity?: string;
     /** 重连退避与远程调用超时的时钟；缺省系统时钟。 */
@@ -171,7 +171,12 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         const project: WindowProject["project"] = node.binding === null ? null : {id: node.binding.id, name: node.binding.name, generation: node.binding.generation};
         try {
             const context: BrowserPluginContext = {store, console: options.console};
-            const plugins = selected.map((plugin) => (plugin.kind === "host" ? plugin.factory(context) : plugin.definition));
+            // 登记看的是定义里的 id，引导集合与必需插件看的是表项的 id：两者不一致时不装，否则会装进集合之外的插件。
+            const plugins = selected.map((plugin) => {
+                const definition = plugin.kind === "host" ? plugin.factory(context) : plugin.definition;
+                if (definition.id !== plugin.id) throw new Error(`浏览器插件 ${plugin.id} 的装配定义是插件 ${definition.id}`);
+                return definition;
+            });
             host = adapter.start({
                 instanceId,
                 client: clientIdentity,
@@ -260,7 +265,7 @@ function selectPlugins(
     raw: unknown,
     builtin: ReadonlyArray<PluginDescriptor>,
     definitions: Readonly<Record<string, PluginDefinition>>,
-    hostPlugins: Readonly<Record<string, BrowserHostPluginFactory>>,
+    hostPlugins: Readonly<Record<BrowserHostPluginId, BrowserHostPluginFactory>>,
 ): {readonly selected: SelectedPlugin[]; readonly endpoint: RpcEndpoint} {
     const version = declaredProtocolVersion(raw);
     if (version !== null && version !== BROWSER_PROTOCOL_VERSION) {
@@ -274,9 +279,8 @@ function selectPlugins(
         if (local === undefined || local.version !== plugin.version) {
             throw new BootstrapRejected("incompatible", `本页面没有服务端启用的浏览器插件 ${plugin.id}@${plugin.version}`);
         }
-        const factory = hostPlugins[plugin.id];
         const definition = definitions[plugin.id];
-        if (factory !== undefined) selected.push({id: plugin.id, kind: "host", factory});
+        if (isBrowserHostPlugin(plugin.id)) selected.push({id: plugin.id, kind: "host", factory: hostPlugins[plugin.id]});
         else if (definition !== undefined) selected.push({id: plugin.id, kind: "definition", definition});
         else throw new BootstrapRejected("startup-failed", `浏览器插件 ${plugin.id} 没有装配定义`);
     }
