@@ -1,10 +1,10 @@
-# nb-runtime 示例插件
+# 示例插件
 
 一组按生产格式写的示例插件，演示内核的典型用法，也可以当写新插件的样板。插件放在 `plugins/`，示例宿主给插件的本地能力的键放在 `shared/host.ts`，把插件装进运行实例、核对行为的场景放在 `scenarios/`。
 
 ```text
-bun test packages/nb-runtime/examples                 # 只跑示例的场景
-bun run --cwd packages/nb-runtime test                # 连同内核测试一起跑
+bun test packages/neuro-book/examples                 # 只跑示例的场景
+bun run --cwd packages/neuro-book test:bun            # 连同应用包的其它 bun 测试一起跑
 ```
 
 ## 几个概念
@@ -56,7 +56,7 @@ plugins/<插件>/
 └── web/plugin.ts        # 浏览器代码的插件定义常量
 ```
 
-目录格式与应用包的内置插件相同（[`packages/neuro-book/AGENTS.md`](../../neuro-book/AGENTS.md) 的“目录约定”）：
+目录格式与应用包的内置插件相同（[`packages/neuro-book/AGENTS.md`](../AGENTS.md) 的“目录约定”）：
 
 - 服务键按服务 id 识别，只在提供方的 `shared/contracts.ts` 定义一次（[ADR 0026](../../../docs/adr/0026-plugin-definitions-as-constants.md) 沿用 ADR 0025 的这条约定）。别的插件在运行时只引用对方的这个文件，类型可以 `import type`。
 - 插件定义是常量，没有工厂参数（[ADR 0026](../../../docs/adr/0026-plugin-definitions-as-constants.md)）：要宿主的东西就依赖宿主能力（例如 `clock` 依赖 `shared/host.ts` 的 `hostClockKey`），对别的插件的依赖同样写在入口的 `dependencies` 里。定义按代码所在的一侧导出，后端不能引用浏览器代码；一份后端定义可以含 `server` 与 `project` 两个位置的入口，它们可以提供同一个服务 id，各在本位置的实例里提供。只有宿主自己的适配器（应用包的诊断与 HTTP）是工厂，例外要说明启动或停机依赖。
