@@ -2,10 +2,13 @@ import type {Component} from "vue";
 
 import type JsonViewer from "nbook/ui/JsonViewer.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
+import type WorkbenchActivityBar from "nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue";
 import type WorkbenchCommandPalette from "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue";
+import type WorkbenchMoveViewMenu from "nbook/plugins/workbench/web/components/WorkbenchMoveViewMenu.vue";
 import type WorkbenchPanelSurface from "nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue";
 import type WorkbenchShellLayout from "nbook/plugins/workbench/web/components/WorkbenchShellLayout.vue";
 import type WorkbenchStatusBar from "nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue";
+import type WorkbenchViewSection from "nbook/plugins/workbench/web/components/WorkbenchViewSection.vue";
 import type {PanelState} from "nbook/plugins/workbench/web/shell/panel-state";
 
 import type CollapsibleSidePanel from "../components/CollapsibleSidePanel.vue";
@@ -282,6 +285,59 @@ export const labFixtures: LabFixture[] = [
             {id: "hidden", label: "面板已隐藏、按钮不可用", input: {props: {locale: "en-US", project: null, panelHidden: true, panelToggleDisabled: true, problems: []}}},
         ],
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue"),
+    }),
+    defineSubjectFixture<typeof WorkbenchActivityBar>({
+        component: "WorkbenchActivityBar",
+        events: ["select"],
+        class: "h-full w-[48px]",
+        scenes: (() => {
+            const containers = [
+                {id: "view:nbook.files", label: "资源管理器", icon: "i-lucide-files"},
+                {id: "view:nbook.search", label: "搜索", icon: "i-lucide-search"},
+                {id: "view:nbook.outline", label: "大纲", icon: "i-lucide-list-tree"},
+            ];
+            const many = Array.from({length: 24}, (_, index) => ({id: `view:test.v${String(index)}`, label: `视图 ${String(index + 1)}`, icon: "i-lucide-square"}));
+            return [
+                {id: "default", label: "三个容器、Sidebar 可见", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true}}},
+                {id: "sidebar-hidden", label: "Sidebar 隐藏：没有选中标记", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: false}}},
+                {id: "empty", label: "没有容器", input: {props: {label: "活动栏", containers: [], selected: null, sidebarVisible: true}}},
+                {id: "many", label: "放不下时卡片内滚动", input: {props: {label: "活动栏", containers: many, selected: "view:test.v3", sidebarVisible: true}}},
+            ];
+        })(),
+        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue"),
+    }),
+    defineSubjectFixture<typeof WorkbenchMoveViewMenu>({
+        component: "WorkbenchMoveViewMenu",
+        events: ["move", "reset"],
+        scenes: (() => {
+            const groups = [
+                {label: "侧栏", targets: [{id: "view:nbook.search", label: "搜索", icon: "i-lucide-search"}, {id: "view:nbook.outline", label: "大纲", icon: "i-lucide-list-tree"}]},
+                {label: "面板", targets: [{id: "view:nbook.terminal", label: "终端", icon: "i-lucide-terminal"}]},
+            ];
+            const base = {label: "移动到", viewId: "nbook.files", sourceContainerId: "view:nbook.files", identity: "nbook.files|view:nbook.files|1|single"};
+            return [
+                {id: "default", label: "两个 Part 的目标", input: {props: {...base, groups, resetLabel: null}}},
+                {id: "reset", label: "不在默认位置：可重置", input: {props: {...base, sourceContainerId: "view:nbook.search", groups, resetLabel: "重置位置"}}},
+                {id: "none", label: "没有目标：禁用", input: {props: {...base, groups: [], resetLabel: null}}},
+            ];
+        })(),
+        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchMoveViewMenu.vue"),
+    }),
+    defineLabFixture<typeof WorkbenchViewSection>({
+        component: "WorkbenchViewSection", slots: ["default", "actions"],
+        scenes: (() => {
+            const base = {viewId: "nbook.files", title: "资源管理器", icon: "i-lucide-files", collapseLabel: "收起视图", expandLabel: "展开视图"};
+            const scene = (id: string, label: string, props: {axis: "vertical" | "horizontal"; chrome: boolean; collapsed: boolean; layout: "scroll" | "fill"}) => ({id, label, input: {props: {...base, ...props}, slots: {default: true, actions: true}}});
+            return [
+                scene("multiple", "multiple：标题行与动作", {axis: "vertical", chrome: true, collapsed: false, layout: "scroll"}),
+                scene("collapsed", "纵向收起为 32px 标题", {axis: "vertical", chrome: true, collapsed: true, layout: "scroll"}),
+                scene("horizontal-collapsed", "横向收起为 32px 竖条", {axis: "horizontal", chrome: true, collapsed: true, layout: "scroll"}),
+                scene("single", "single：没有标题行", {axis: "vertical", chrome: false, collapsed: false, layout: "scroll"}),
+                scene("fill", "fill：视图占满", {axis: "vertical", chrome: true, collapsed: false, layout: "fill"}),
+                scene("short", "内容不满一屏", {axis: "vertical", chrome: true, collapsed: false, layout: "scroll"}),
+            ];
+        })(),
+        load: async () => (await import("./WorkbenchViewSectionFixture.vue")).default,
     }),
     defineSubjectFixture<typeof SkillChip>({
         component: "SkillChip",

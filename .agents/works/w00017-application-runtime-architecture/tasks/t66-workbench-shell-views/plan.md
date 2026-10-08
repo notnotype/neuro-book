@@ -51,7 +51,8 @@
 ### 4. 组件（`plugins/workbench/web/components/`，同名 `.md` 先写）
 
 - `WorkbenchActivityBar`：通高卡片，上段是 Sidebar 的 Switcher（容器图标按钮，至多一个选中；点非选中项切换并打开 Sidebar，重复点选中项保持选择并打开被隐藏或拖到零的 Sidebar），底段全局项（本 Task 无，保留区域）。受控零件。
-- `WorkbenchSwitcherTabs`：AuxiliaryBar 与 Panel 的容器标签带（只有一个容器也保留），用 nb-ui Tabs 的键盘合同。
+- AuxiliaryBar 与 Panel 的容器标签带（只有一个容器也保留）直接用 nb-ui `Tabs`，不另包一层组件（实施时改定：包一层只转发属性）。
+- `WorkbenchMoveViewMenu`：“移动到”菜单（nb-ui `Dropdown`，按 Part 分级），single 上提与 multiple 标题共用；菜单目标身份在这里（下一条）。
 - **Panel 标题行的唯一拥有者**（审查 impl 5）：`WorkbenchPanelSurface` 仍是唯一的 32px 标题行与内容显隐拥有者，新增左侧导航槽；ToolPartHost 在 Panel 分支把标签带放进这个槽，不另画标签头。空、单、多容器时的焦点目标、可访问名称、标签与内容的关联、溢出优先级写进两个组件的 `.md`。
 - `WorkbenchToolPartHost`：一个 ToolPart 的宿主：Switcher（Sidebar 的由 ActivityBar 承担）+ 选中容器的挂载目标 + single 模式的动作上提（视图动作位，本片无贡献 → 容器管理“移动到” → Part 框架）。空 Part 的框架按钮仍可达。
 - `WorkbenchViewContainerHost`：容器内部的单轴网格（`useLayoutExtent`、`useGridLayout`，每个可见视图一个叶，叶里是 `WorkbenchViewSection`）；手势只把主动叶折成视图尺寸补丁；降级与补偿不写盘。
@@ -99,7 +100,7 @@
 | S1 | 第 2 节 | 注册表、落位、呈现模型与意图合成（纯 TS）及测试 | `bun test` 该目录 |
 | S2 | 第 3 节 | 记录字段、store 的 action 与 `presentation`、`focusedPart` | store 测试（真实 Storage 场地） |
 | S3 | 第 1、5 节 | 贡献点、注册表两种输入、`window.plugins`、加载门禁、`move-view` | 贡献点与命令测试（真实内核与命令系统） |
-| S4 | 第 4 节零件 | ActivityBar、SwitcherTabs、ViewSection 与同名 `.md`、Lab 场景 | 组件测试 |
+| S4 | 第 4 节零件 | ActivityBar、MoveViewMenu、ViewSection 与同名 `.md`、Lab 场景 | 组件测试 |
 | S5a | 第 4 节 | `teleport-memory.ts`（外壳层改用它）、ViewContainerHost 单轴网格 | 组件测试；Lab 里一次真实 sash 调整 |
 | S5b | 第 4 节 | 两个实例层、加载与错误代际、集成 Lab 场景 | 组件测试（延迟 Promise、连续移动） |
 | S5c | 第 4 节 | ToolPartHost、PanelSurface 导航槽、`WorkbenchShell` 接线 | 组件测试；t65 外壳 e2e 不退化 |

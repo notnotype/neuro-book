@@ -1,0 +1,61 @@
+---
+标签: []
+别名: ["视图分节", "View Section"]
+---
+
+# WorkbenchViewSection
+
+容器里一个视图的外框：multiple 时有 32px 标题行（收起开关、图标、标题、动作区），single 时没有标题行、只有内容区（标题与动作由宿主上提，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳二输出 16、17）。内容区按视图声明的 `layout` 给内边距与滚动：`scroll` 由外框负责滚动并留内边距，`fill` 让视图占满、自己滚动。
+
+视图内容不由它创建：宿主把视图实例搬进默认插槽里的落点，切模式、收起都不卸载内容。
+
+## 布局
+
+- 纵向容器（Sidebar、AuxiliaryBar）：标题行在上，内容在下。收起时只剩 32px 标题行。
+- 横向容器（Panel）：标题行同样在上；收起时整个分节是 32px 宽的竖条，标题竖排，展开按钮在顶部，名称与展开控件始终可达。
+- 收起时内容区隐藏（`v-show`），不卸载。分节的尺寸由宿主的网格叶决定，这里只填满叶。
+- 标题放不下时截断，动作区不让位。
+
+## 交互
+
+- 标题行的收起开关是一个按钮，`aria-expanded` 表示展开；点了发 `toggle-collapsed`，值是点了之后应有的收起状态。键盘用 Tab 到开关后按 Enter 或空格。
+- 动作区由宿主经 `actions` 插槽放（产品里是“移动到”菜单）。
+- 整个分节是 `role="region"`，名称是视图标题。
+
+## 数据
+
+```ts
+type Props = {
+    viewId: string;
+    /** 视图标题（已按当前语言取好）。 */
+    title: string;
+    icon: string;
+    /** 容器的排列轴：vertical 是侧栏与右栏，horizontal 是 Panel。 */
+    axis: "vertical" | "horizontal";
+    /** multiple 为 true：画标题行；single 为 false：只有内容区。 */
+    chrome: boolean;
+    /** 生效的收起（single 时宿主给 false）。受控。 */
+    collapsed: boolean;
+    layout: "scroll" | "fill";
+    /** 收起开关的可访问名称：展开时与收起时各一份，已按当前语言取好。 */
+    collapseLabel: string;
+    expandLabel: string;
+};
+
+type Emits = {
+    (event: "toggle-collapsed", collapsed: boolean): void;
+};
+
+type Slots = {
+    /** 标题行右侧的动作区；没有标题行时不渲染。 */
+    actions?(): unknown;
+    /** 内容区；收起时隐藏不卸载。 */
+    default?(): unknown;
+};
+```
+
+没有 expose；attrs 落在根 `<section>` 上。根上带 `data-view-section`（视图 id）、`data-view-collapsed` 与 `data-view-layout`，供宿主与测试定位。
+
+## 不支持
+
+不从标题起拖（外壳三）；不处理尺寸手势；不读写任何状态。
