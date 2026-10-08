@@ -1,0 +1,188 @@
+# w00017 t56 实施计划只读审查
+
+审查对象：worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation` 的 `.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md` 与同目录 `README.md`。
+
+按影响排序，共 **12 项：阻断 2、重要 10、建议 0**。持久化结果未知的重试和无值记录 revision 的模型应先修正，再固定队列、公开绑定和响应式失效合同；六项待确认的逐项判断见后文。
+
+状态依据：审查开始时 `git log --oneline -5 && git status`；HEAD `c9f45762`，分支 `refactor/w00017-runtime-foundation`，t56 目录未跟踪。新 K5 API 尚未实现；报告分别标明计划合同推导、现有实现核对与实际实验，不能把依赖测试通过解释为 K5 已通过验收。
+
+## 1. unknown-outcome 被普通 retry 重放会重复应用已落盘意图
+
+- **严重程度**：阻断；**类别**：正确性。
+- **位置**：计划第 3 节 `plan.md:64`、验收 `plan.md:118-120`；`docs/specs/storage/persistence.md:106,127-128,154`；`docs/specs/runtime/plugin-channel.md:75`；`packages/neuro-book/src/plugins/storage/shared/remote-route.ts:32-37,61-62`。
+- **现象**：计划把所有失败都归成保留 reducer 的 `failed`，`retry()` 重来，未区分保存确定失败与 `unknown-outcome`。后者可能已经提交，只是回包丢了；重连订阅只给当前基线，不能还原每一次意图的完成记录。
+- **为什么是问题**：窄 reducer 不等于幂等 reducer。`count => count + 1` 已写成 1 后断线，重连看到别处又写成 2，再从当前基线重试会写成 3；同一主动意图执行两次。若等订阅精确出现那次写入的 revision 才结算，也可能因重连不重放中间状态而永久等待。Storage 只返回新 revision，不替 store 记操作 id。
+- **如何核实**：已在真实两个内核实例、内核路由、进程内链路与真实 SQLite 上复现：在真实保存完成后的传输回包处切断连接，保存返回 `unknown-outcome`，数据库已是 count=1；离线期间另一保存写成 2，重连基线为 2；按计划的重算 retry 写成 3。实验 `storage-runtime-smoke.ts` 位于指定 scratch 目录，两个应用最终均 `closed`。这是现有 Storage 的真实行为，不是把假的 Storage 结果喂给 store；K5 本身尚未实现。
+- **建议改法**：为结果未知保留“发送时基线 revision + 具体待写值”，与确定失败分开。最少机制的方案是只重新发送同一个具体值和原 expect，不对新基线自动重放 reducer；若已冲突且不能确认该意图是否生效，返回单独的 unresolved 状态，由调用方显式核对/放弃后再决定新意图，不能宣称普通 retry 已安全完成。若要自动且精确恢复任意 reducer，则需持久化操作 id/去重合同，属于额外设计，不应藏在 retry 内。补派发前失败、落盘后丢回包、断线期间同记录后续写入、重连跳过中间 revision 的真实链路验收。
+
+## 2. 持久化基线丢失无值记录的 revision
+
+- **严重程度**：阻断；**类别**：正确性。
+- **位置**：计划第 3 节，`plan.md:61-64`；`docs/specs/storage/persistence.md:78-82,104-105,115-119`；`packages/neuro-book/src/plugins/storage/server/partition.ts:140-146,314-319`。
+- **现象**：基线只有 `confirmed: {value, revision} | null`；`status` 只有分类。删除后的 `missing` 带非空 revision，`corrupt`、`unsupported-version` 也带 revision，却没有可放进 `confirmed` 的合法值。计划又要求以 `confirmed.revision` 条件保存、对保护记录显式 `reset`。
+- **为什么是问题**：从未写过、已删除和损坏记录不能都归成 `confirmed = null`。已删除记录以 `expect: null` 保存必定 `conflict`；保护记录丢失 revision 后无法构造合法的条件重置。若沿用上次正常值的 revision，同样使用过期条件。正常首次缺失时 reducer 的 `base` 取哪里也未定义，显示用 `initial` 不能自动充当已确认值。
+- **如何核实**：Storage 输出 4、5 与状态表明确要求所有写入按当前 revision；实现先比 revision，再判 protected。读取分类将删除标记保留为 `{status: "missing", revision}`，保护记录保留 revision 而不给 value。
+- **建议改法**：把已确认基线改为带分类的完整快照，直接复用 `RecordSnapshot<T>` 的非 error 分支，保留无值状态的 revision；显示继续单独保存。明确 `missing` 下 reducer 使用 `initial` 作为本地计算起点，但 `expect` 仍来自该 missing 快照；保护状态只允许 `reset` 使用当前快照的 revision。补从未写过、删除标记、corrupt、unsupported-version 四条真实 SQLite 用例。
+
+## 3. 失败队首与后续提交、retry/discard/adopt 的规则未固定
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：计划第 3 节，`plan.md:63-65`；`docs/proposals/plugin-data-model.md:128-133`。
+- **现象**：同字段可排多个意图，但失败时只有一个 `save = failed`，没有定义失败是否暂停队列、后续意图的显示如何投影、`retry/discard` 处理队首还是全部意图、在途时 `discard/adopt` 是否允许。
+- **为什么是问题**：A 的窄修改失败后，B 如果仍从 confirmed 执行，会把显示改成只含 B 的值，A 虽保存在队列里却从当前显示消失。若 A 后来重试，又打破提交顺序。`discard` 若清空队列会丢 B，只清 A 则必须重算 B；在途 discard 也不能撤销已派发的保存。照此计划无法确定哪些结果满足“失败保留意图与当前显示”。
+- **如何核实**：配套稿要求同记录按提交顺序串行、失败保留意图与显示；Storage 不拥有本地队列，也不回滚已发生的写入。属于合同遗漏，K5 代码尚不存在，未宣称实测。
+- **建议改法**：固定一个简单规则：失败的队首暂停发送，后续意图继续保留；`retry` 只重试队首，`discard` 只移除失败队首并重新投影余下意图；`adopt` 只改显示、不能静默清意图。若允许在途 discard，必须明确只是放弃本地意图、不能宣称取消保存，否则直接拒绝该时机。给这些操作写结构化返回与状态表，补 A失败→B入队→retry/discard、在途 adopt/discard、关闭时结算每个排队 Promise 的验收。
+
+## 4. readonly 视图仍能调用持久化字段的写方法
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：计划第 3 节，`plan.md:58,60-64`；`docs/proposals/plugin-data-model.md:115-117`。
+- **现象**：计划以 Vue `readonly` 对外交出视图，但 `s.$fields.<名>` 同时含 `show/commit/reset/discard/adopt` 等可改变显示或保存记录的方法，没有定义只读视图是否剔除这些方法。
+- **为什么是问题**：readonly 只约束属性写入，不阻止调用对象上的函数。若公开视图保留相同的 `$fields`，组件可直接 `store.$fields.sizes.commit(...)` 绕过 action；如果函数闭包持有内部可写状态，类型 readonly 与运行时代理都不拦截。这会破坏已定的“只有 actions 写”的单一写入边界。
+- **如何核实**：配套稿第 3 节明确只经 actions；计划既公开 readonly 视图又把写能力挂在字段对象上。独立 `readonly-smoke.ts` 实测：Vue 3.5.39 的 readonly 对象仍可调用 `$fields.sizes.commit`，内部 display 从 300 改为 600，保存计数为 1。K5 新 store 尚未实现，此为计划未约束的接口边界。
+- **建议改法**：分别定义 action 内部字段句柄与对外字段快照；对外仅含读取分类、confirmed、display、意图/保存状态，剔除所有写方法。actions 作为显式可调用入口独立暴露。补消费方无法通过公开字段方法或嵌套赋值写入、action 仍可提交的行为与类型验收。
+
+## 5. 缺失 public getter 的常量实现无法表达 unready
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 2、3 节，`plan.md:33-34,59`；`docs/proposals/plugin-data-model.md:157`；`docs/specs/runtime/plugins.md:68,194`；`packages/nb-runtime/src/plugins/host.ts:1035-1044`。
+- **现象**：每条入口贡献必须给实现，因此助手为没有 getter 的声明补 `{read(): 标量}`，返回声明的 unready 值。但是公开服务的 ready/unready 判定只有“有无绑定”和读取异常/类型不符；这个补出的函数已绑定、类型正确，会被报告为 ready。
+- **为什么是问题**：合法 getter 也完全可以返回与 unready 相同的标量，不能按数值判断是否未就绪。常量补齐满足了内核输出检查，却丢掉配套稿要求的“声明了却没绑定”状态，读取者无法区分真实 ready=false 与 unready=false。
+- **如何核实**：核心检查只看贡献实现是否为 undefined，不要求改内核才能承载未就绪；公开服务的两种状态是计划新增的可观察合同。此发现为接口语义核对，尚无新实现可运行。
+- **建议改法**：贡献实现显式区分未绑定与已绑定，例如 `{kind: "unbound"}` 或 `{kind: "bound", read(): 标量}`。助手给缺失 getter 交出 unbound 对象，公开服务据它返回 unready，不把默认标量当假 getter。补真实 getter 返回 unready 同值但仍 ready、缺失 getter 为 unready、停止后为 unready 的独立断言。
+
+## 6. 一层嵌套禁令使同一声明的 accepted 结果依赖查询入口
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 5 节，`plan.md:76-78`；`docs/specs/runtime/plugins.md:68,165,187`；`packages/nb-runtime/src/plugins/host.ts:757-787`。
+- **现象**：A 的校验查询 B，B 的校验查询 C，C 只做结构校验。这是无环引用。直接查询 B 时 B→C 可以成功；经 A 查询 B 时 B→C 被“被查询点不能再查”禁止。B 在两种路径中分别成为 accepted 与 invalid-declaration。
+- **为什么是问题**：`get/list` 承诺只返回“此刻 accepted”的声明，不能把同一条 B 在 A 内临时判为 rejected。禁令防住了递归，却也拒绝无环组合，且“外层这条”是哪条、异常是否会被 B 的 `#validation` 捕获后转为空查询，也未定义。以后配置贡献校验若再依赖公开声明，会直接触碰这条限制。
+- **如何核实**：从计划所写嵌套规则推导；新 API 尚未实现，未宣称实测。现有 `#validation` 对每条声明独立推导、捕获校验异常并返回 invalid-declaration；Spec 输出 15 要求按存活登记推导，与登记顺序无关、查询不产生诊断。
+- **建议改法**：查询保留本次推导的访问路径，只有重新进入路径中的同一贡献身份时判环；允许 A→B→C 的无环嵌套。定义环错误如何向依赖方传播，使顶层查询与嵌套查询得到相同判定。补无环三级链、两点互查、同点自查、get/list 及打乱登记顺序的行为测试；保持查询不记诊断。
+
+## 7. 公开键来源没有固定绑定、撤回时的响应式失效规则
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：计划第 2、4 节 `plan.md:33-34,70-71`、验收 `plan.md:116-117`；`packages/neuro-book/src/plugins/commands/shared/contracts.ts:114-115`；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue:45-49`；`packages/neuro-book/src/plugins/workbench/web/commands/palette-host.ts:86-88`。
+- **现象**：新键来源只有 problem/value，公开读取服务只有 read/declaration；没有约定绑定表变化如何被 Vue 消费者跟踪。getter 内的 store 值虽可响应式，合法但未绑定键的读取尚无 getter 可供跟踪，绑定和撤回也不是 store 字段变化。
+- **为什么是问题**：命令由 A 提供、when 引用懒激活 B 的键时，面板第一次求值未就绪；B 随后只交付公开状态、不增减命令，现有命令 onDidChange 不会通知。若公开服务用普通 Map，面板缓存会一直保留不可用，撤回也可能保留旧候选；快捷键和直接 execute 重新求值却得到另一结果。单次 read 正确不能保证验收要求的面板更新。
+- **如何核实**：从计划缺失的响应式合同与现有实现推断，新 API 未实现。命令服务明确 onDidChange 只通知命令增减；面板 computed 仅依赖 host.revision 与读取期间收集的响应式依赖。Lab 当前 context 回调直接读取 ref，保留这种依赖即可适配。
+- **建议改法**：固定公开读取的响应式合同：每次 read 包括 unready 路径都读取可跟踪的绑定 Map 或 revision，绑定、撤回在同一响应式内核中使它失效，再同步调用 getter。这样不必增加另一套通知总线，也不必改变命令 onDidChange 的含义。补命令已登记且面板保持打开→独立状态插件激活/撤回→候选即时变化，以及值变化后的快捷键不拦截、确认等待后本地复查。
+
+## 8. 直接引入 @vue/reactivity 缺少浏览器共享模块的构建接线
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划 `plan.md:39,105-109,144`；`packages/neuro-book/vite.config.ts:22-29`；`node_modules/@vue/reactivity/package.json:17-24`。
+- **现象**：计划仅添加 @vue/reactivity 的直接依赖并要求与 Vue 同版本，未把新的浏览器直接依赖纳入 Vite optimizeDeps。当前 noDiscovery 为 true，清单预构建 Vue，却没有 @vue/reactivity。
+- **为什么是问题**：相同版本不等于同一个响应式运行时。现有预构建 Vue 已内嵌 reactivity 的 activeSub/targetMap；新库直接加载原始 reactivity 模块会有另一份依赖跟踪状态。组件的 computed 读取 store 后不会被 store 修改触发，命令与布局可能只在首次读取时正确。生产构建可以合并模块，不能代替开发模式验收。
+- **如何核实**：读取当前 Vite 缓存仅作为模块形状证据，未把旧缓存当新浏览器验证。scratch 的 reactivity-smoke.ts 实际同时加载当前预构建 Vue 与直接依赖的 ESM：独立模块的 state=true 而 computed=false；都经同一 Vue 模块时 state=true 且 computed=true。未启动开发服务或浏览器；新依赖进入后 Vite 实际图仍待实施期验证。
+- **建议改法**：将 @vue/reactivity 加入现有显式预构建清单，确认它与 Vue 的 reactivity 被提取为同一共享模块；若选另一个浏览器导出入口，也必须保证同一运行时。保持三端库分层，不需把 Vue 放进内核。S2/S4 的接线边界列入 vite.config.ts，实施期增加开发模式实际表面的响应式 smoke，不能只靠版本一致和 Bun/Vitest 通过。
+
+## 9. provider-stopped 不保证 store 所属实例结束，永久停订阅的前提错误
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：计划第 3 节 `plan.md:66`；`docs/specs/storage/persistence.md:125-127`；`docs/specs/runtime/plugins.md:129`；`packages/nb-runtime/src/remote/node.ts:723-724,831-840`；`packages/neuro-book/src/web/host/window.ts:145-147`。
+- **现象**：计划说 provider-stopped/project-gone 都伴随实例或项目代次结束，store 会换代，因此不用恢复订阅。
+- **为什么是问题**：provider-stopped 表示提供方入口停止，跨实例调用方没有依赖停止传播。浏览器的 store 可以继续活着；项目实例经代理订阅服务端 user 分区也一样。将字段永久置 error 是可选失败策略，但不能靠“store 必然换代”证明无需恢复；server-restarted、released、provider-error 和重建失败也未纳入结束规则。订阅结束后 canSave 必须立即失效，失败/排队意图必须有出口。
+- **如何核实**：真实内核与 SQLite 实验先按依赖顺序停止服务端本地消费入口、再关闭 nbook.storage 提供入口；浏览器收到 onEnd("provider-stopped")，浏览器调用方工作作用域仍为 available，服务端应用 admission 仍 open，后续读为 error/unavailable。两个应用最后均 closed。项目结束与服务端换进程在真实窗口宿主中会触发 destroy，但 provider-stopped 不进入那个分支。首次独立关闭提供方因本地借用未释放而超时，修正实验按正常依赖顺序释放后得到上述结果，未把超时当产品缺陷。
+- **建议改法**：分清“调用方自己结束”“连接/实例终态”“提供方入口结束/订阅重建失败”。可保留不自动重开的简单策略，但必须给仍活 store 一个显式恢复/重建入口或明确要求重建 store/刷新，并同步 ready/canSave、队列失败与返回值；不要承诺所有 onEnd 都随 store 换代。补提供方单独停止而调用方存活、恢复/刷新、结束早于建立返回的验收。
+
+## 10. 释放时丢弃意图的论证误用了 Storage 门面的释放顺序
+
+- **严重程度**：重要；**类别**：文档。
+- **位置**：待确认 5 `plan.md:147`、第 3 节 `plan.md:58,65`；`docs/specs/runtime/plugins.md:66,190`；`docs/specs/runtime/services.md:166-168`；`packages/neuro-book/src/web/host/window.ts:195-199`。
+- **现象**：计划以“入口停止时 Storage 服务对象也随之释放，发不出去”为由，建议丢弃尚未发出的保存意图。
+- **为什么是问题**：正常收口时，store 登记的入口工作资源先释放，必需依赖借用后释放；Storage 按调用方门面位于必需借用一侧。浏览器宿主也在插件收口完后才关链路。因此至少正常关闭路径仍有使用 Storage 完成收口的时段，丢弃不是机制强制，而是主动选择数据丢失。另一边，队列不能继续接受新意图或无限等待，因而也不应简单改成无界 flush。
+- **如何核实**：runtime.plugins 输出 13 明确依赖者资源先于必需借用结束；实现合同把 `context.scope` 放在持有必需借用的激活作用域的子层。runtime.services 的门面先于自身借用释放；窗口实现注释和 stopped 回调明确链路最后关闭。
+- **建议改法**：保留待确认，但换成真实取舍：停止信号到达时封闭 actions、暂停新发送；可选策略为丢弃尚未发出的意图，或在宿主截止内结算已接纳队列，强制退出仍不保证。若推荐丢弃，说明正常关闭也可能丢掉已经由 action 接纳的修改、每个调用必须返回 cancelled/unsaved，外壳的正常退出协商需要另行承接；只记诊断不足以向消费者结算保存结果。补 action 已接纳→入口正常关闭与队列 Promise 全部结算的验收。
+
+## 11. 推迟镜像的代价少算了整条跨实例命令验收链
+
+- **严重程度**：重要；**类别**：文档。
+- **位置**：计划 `Context` 的 `plan.md:12`、第 2 节 `plan.md:35`、待确认 1 `plan.md:143`；`docs/proposals/multi-instance-runtime-topology.md:321,361,373,380`；`docs/proposals/plugin-data-model.md:158`。
+- **现象**：待确认 1 把代价写成“两窗口只测本地求值”和“不验证断线撤回”；但拓扑 K5 的范围还明确包含“命令跨实例执行”。计划没有给出这条范围推迟后如何重新分配、哪些消费者会被阻断；S0 文档表也未记录拓扑 K5 行的范围偏离。
+- **为什么是问题**：两个本地命令表各自正确，不能证明服务端显式选窗口后列出/执行正确，也不覆盖客户端收到命令后的本地复查、连接和入口代次失效。这是已接受 K5 的一段完整能力后移，不能按少测两个场景表达其代价。“现在没有消费者”也不能当成验收不需要它：K1–K4 与本片都已采用真实测试插件验证平台机制。
+- **如何核实**：拓扑稿 K5 行同时列出客户端镜像键空间、跨实例命令范围和断线镜像验收；配套稿第 4 节明确了目标客户端选择和到达客户端后复查。代码事实确有服务端清单只装配本位置入口的限制，因此需要设计，但限制不等于消费者缺席就可验收该能力。
+- **建议改法**：若保留推迟建议，明确交开发者批准的是 K5 范围调整，列出延期项：远程命令目录/执行、目标客户端上下文、镜像来源入口代次与连接收口、本地复查；给出一个确定承接 Task 的触发条件与前置设计工作，并在拓扑稿决策记录追加本次范围决定、Task README 和相关 Spec 边界同步。若不批准缩减，则把这条真实远程链并入本计划；内核路由和测试插件已可用于验收，不必等 Agent/TUI 产品消费者。
+
+## 12. 验收映射没有给出真实依赖下强制时序的办法，且漏掉关键边界
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：计划 `plan.md:116-124,130,135`；`packages/neuro-book/src/plugins/storage/server/partition.ts:158-159`、`server/owner.ts:95-96`；`packages/nb-runtime/src/remote/node.ts:662-675,329-345,898-913`；`docs/specs/README.md:20,77,129-130`。
+- **现象**：表中写了“保存结果早于本次快照”“两个 store 以同 revision 提交”“第二次冲突”，却没有控制这些顺序的真实切口；e2e 顺序操作两个自动订阅的 store，第二个执行前很可能已经拿到新基线，根本不会冲突。另未映射删除 revision、unsupported-version、首次/结束早于订阅建立返回、readonly/action 写边界、同字段排队、unknown-outcome、provider 独立停止与读取函数返回错误类型。新 Spec 编号也尚未分配。
+- **为什么是问题**：现有正常活订阅路径先通知后返回保存结果；不能为了覆盖“结果先到”把假 Storage 或任意重排 FIFO 帧当真实依赖。光断言最后成功不能证明冲突重放发生；两次全文替换同一个 text 字段也不能证明窄修改保留了对方修改。缺失的边界正好会漏掉前述设计错误。
+- **如何核实**：真实 SQLite write 在返回结果前同步派发通知；远程保存实现返回 write 结果，节点再 await 后回包。重连订阅重建是异步启动、不等基线再让 connect 返回，所以可利用这个真实边界或未建立完成阶段覆盖相反顺序。现有 e2e 的显式 expect 能固定冲突，计划新 store 自动选 confirmed 后则不再具有同一切口。Spec/计划规则要求按编号映射验收；本片还未写 Spec，编号需在 S0 后收口。
+- **建议改法**：S0 后把表换成稳定 Spec 编号到具体场景；补上述边界。合同测试用真实内核/Storage，利用连接、订阅建立和受控传输发送门闩暂停发送真实请求，同时保留同链路 FIFO，先让两个提交取得同 revision 再释放；第二次冲突在真实订阅/读快照回调或第二个真实写者处安排。e2e 探针提供明确的准备/释放门闩并输出结构化冲突次数/保存结果，记录值至少有两个独立字段，由两个窗口分别窄改，最终同时保留。不能在传输或初始化阶段制造所需顺序的场景，应删除该假时序判据或标明真实适用阶段。
+
+## 六项待确认的逐项判断
+
+| 项 | 审查判断 |
+|---|---|
+| 1. 镜像与跨实例命令推迟 | 可以提出，但这是缩减 accepted K5 的范围，需完整列出远程目录/执行、目标客户端与代次、镜像撤回及本地复查，并明确承接 Task；当前代价描述不足。 |
+| 2. store 放应用包共享库 | 同意：复用三端无 DOM 的响应式库，保持内核不依赖框架；补浏览器共享响应式模块的接线，公开 API 包出口可按既定插件 API 阶段交付。 |
+| 3. state.public 由 nbook.state 拥有 | 同意：静态声明、接收者、撤回和去重都可复用现有贡献机制，状态服务的消费者不限于命令；先修正 unbound 表达与响应式绑定表，不需新增内核领域概念。 |
+| 4. K5 只有测试探针消费者 | 同意：真实探针可以覆盖机制且外壳已经是确定的下一消费者；把会话 MRU 改成持久化既不符合其现行合同，也无法代表窄修改和多窗口布局冲突。 |
+| 5. 停止时丢弃未发意图 | 不能认可现有理由：必需 Storage 门面晚于 store 释放；应明确正常关闭时丢已接纳修改与有截止的结算之间的取舍，并让每个调用结算，不能只记诊断。 |
+| 6. Lab 保留本地键表 | 同意：accepted 配套稿明确 Lab 不依赖产品配置/Storage；problem/value 适配可复用，但 value 必须直接读取其 ref 以保留面板响应式依赖，不复制成不变快照。 |
+
+## 切片与真实验收可行性
+
+- S0 → S1 声明查询 → S2 公开状态 → S3 命令来源 → S4 内存 store → S5 持久化 → S6 组合探针 → S7 收口的依赖顺序可行；S3 不需要等待 store，公开状态提供者可以交付真实读取函数。
+- S0 需先固定前述状态与失败合同并分配 Spec 编号，之后验收映射引用编号；S2/S4 的接线边界需包含 Vite 共享响应式模块，S5 不能把队列、unknown-outcome 和关闭时结算留到编码时临时决定。
+- 真实内核、进程内 JSON 链路、SQLite、贡献接收者均已有可复用实现；无需 mock/spy。首事件与结束早于建立返回已是现有 Storage 合同，store 自己仍需验收这两条顺序。
+- 当前 e2e 外壳通过 src/web/testing/remote-probe.ts 加入测试插件，Vite 测试构建与产品共用配置；fixtures 启动真实服务端/项目子进程。storage.e2e.ts 已使用同一 browser context 的两个标签页共享客户端身份，与 probe-local 的分区语义匹配。
+- 现有 probe-local 值只有 {text}，只能证明同字段覆盖，不能证明不同窄修改并存；新增独立双字段记录和真实发送门闩是本片验收的必要配套。需保持同链路 FIFO，不靠固定等待或重排不可能的帧时序。
+
+## 未发现问题的方面
+
+- 静态声明与激活实现分开，可让懒激活公开键在不运行插件代码的描述层被识别；贡献目录、去重、接收者补交和撤回均有现成机制。跨位置目录缺席已被计划明确识别。
+- publicStateKey 在三个运行位置各自装配、读取只在本实例进行，与同步 when 和各窗口独立内存状态一致；不是服务端数据副本缓存。
+- 用 action 决定何时保存、默认值不落盘、显示与已确认基线分离、另一窗口写入不强行覆盖当前布局，符合 accepted 配套稿。revision 不比较大小也与 Storage 的不透明条件标识一致。
+- nbook.state 作为独立拥有者、store 放应用包共享库、Lab 适配本地键来源，职责与依赖方向可维持现有内核无领域/框架依赖的边界。
+- config 声明形状归 K5、真实来源与变更链归 K6，K5 不接受 config 而不提供桩实现；查询缓存与只读检视推迟到其消费者阶段，未发现与本片合同冲突。
+- 计划采用真实内核、Storage、SQLite、同客户端双标签页和现有测试外壳，基础设施确实存在；切片先声明查询再状态服务再命令、store 与组合验证的顺序无循环依赖。
+- Task README 与计划起草状态一致，明确开发者确认前不改产品代码，前置 t55 已登记；此次审查没有改产品、计划或 Spec。
+
+## 实际验证与边界
+
+以下命令从 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation` 运行，包内命令的 cwd 另列。它们验证现有依赖与审查依据，不代表尚未实现的 K5 通过验收。
+
+| 实际命令 | 结果 |
+|---|---|
+| `bun run --cwd packages/neuro-book test:bun src/plugins/commands/shared/plugin.test.ts src/plugins/storage/storage.test.ts src/plugins/storage/server/partition.test.ts` | 37 pass、0 fail、258 expect() calls，3 文件，661.00 ms |
+| `bun test src/plugins/owner-contribution-points.test.ts`，cwd 为 worktree 的 `packages/nb-runtime` | 18 pass、0 fail、152 expect() calls，1 文件，51.00 ms |
+| `bun --tsconfig-override /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t56-plan/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t56-plan/storage-runtime-smoke.ts` | 最终 0.16 s，真实内核/传输/SQLite 的 unknown-outcome、删除 revision、provider 停止寿命三个场景完成；两个应用均 closed |
+| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t56-plan/reactivity-smoke.ts` | 0.08 s；独立响应式模块 computed 未刷新，共用模块正常刷新 |
+| `git status --short` | 与审查开始一致，只有 `?? .agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/` |
+
+真实链路实验的关键结果：
+
+```json
+{"ambiguous":{"ok":false,"code":"unknown-outcome","detail":"unknown-outcome（disconnected）"},"resync":{"status":"ok","value":{"count":2},"revision":"3"},"afterRetry":{"status":"ok","value":{"count":3},"revision":"4"}}
+{"case":"missing-revision","missing":{"status":"missing","revision":"5"},"stale":{"ok":false,"code":"conflict","detail":"revision 已变：期望 null，当前 5"},"correct":{"ok":true,"revision":"6"}}
+{"case":"provider-stop-lifetime","reason":"provider-stopped","browserScope":"available","hubAdmission":"open","readAfterProvider":{"status":"error","code":"unavailable","detail":"unavailable：提供入口 nbook.storage/server 不可用：rejected:scope-closed"}}
+{"case":"resource-closeout","stops":["closed","closed"]}
+```
+
+另外，`readonly-smoke.ts` 已实际执行，输出 `{"case":"readonly-method","display":{"size":600},"saves":1}`；它证明 readonly 不撤销闭包写方法，不把该独立实验说成 K5 store 的实测。
+
+响应式模块实验输出：
+
+```json
+{"case":"reactivity-module-identity","separate":{"state":true,"computed":false},"shared":{"state":true,"computed":true}}
+```
+
+- 首次 provider 独立关闭实验在本地消费方仍持有借用时被阻住，工具在 60 s 截停；按依赖顺序先释放该本地入口后，最终实验正常完成。这是实验编排修正，没有以超时推定产品缺陷。
+- Bun 对带 scratch tsconfig override 的命令另输出 `Internal error: directory mismatch ... You don't need to do anything, but this indicates a bug.`；断言和应用关闭结果均已输出，未把此 Bun 提示列为仓库问题。
+- 未运行类型检查、e2e、开发服务、smoke:server、构建、docs:check 或 governance:check；遵守只读审查边界，没有仓库改动需要这些门禁。未运行真实模型或人工评测。
+- 浏览器响应式模块接线尚未在改动后的 Vite 图与真实页面验证；当前 smoke 只验证两个实际模块分离时的行为。嵌套查询、unbound 与队列等新合同尚无实现，只按计划与现有内核合同核对。
+- 实验脚本、配置、数据库和本报告只写在指定 scratch 目录；没有添加永久测试，未执行 commit、push、stash、分支切换或删除仓库文件。
+
+## 数量
+
+| 严重程度 | 数量 |
+|---|---:|
+| 阻断 | 2 |
+| 重要 | 10 |
+| 建议 | 0 |
+| 合计 | 12 |
