@@ -9,6 +9,8 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
 import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
 import {provide} from "@notnotype/nb-runtime/plugins";
+import {provideRemote} from "@notnotype/nb-runtime/remote";
+import type {RemoteProvision} from "@notnotype/nb-runtime/remote";
 import type {ContributionDeclarations, ContributionDescriptor, ContributionHandle, ContributionReceiver, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
@@ -17,9 +19,9 @@ import {DISPLAY_LOCALE, localize} from "nbook/shared/localized-text";
 
 import {descriptor} from "../plugin";
 import type {ContextKeySource} from "./context-keys";
-import {COMMANDS_POINT, commandServiceKey} from "./contracts";
+import {COMMANDS_POINT, commandServiceKey, commandsRemoteContract} from "./contracts";
 import type {CommandDeclaration, CommandImplementation, CommandResult, CommandService, Release} from "./contracts";
-import {commandDeclarationProblems, createCommandRegistry} from "./registry";
+import {commandDeclarationProblems, createCommandRegistry, effectiveAgentExposure} from "./registry";
 import type {CommandRegistry} from "./registry";
 
 /**
@@ -96,6 +98,37 @@ function receiverOf(registry: CommandRegistry, diagnostics: DiagnosticsService):
     };
 }
 
+/**
+ * 窗口里的命令表交给服务端（`nbook.commands/remote`）：列出与执行都按本窗口此刻的公开状态；执行以调用方插件的
+ * Agent 身份走同一条执行管线，`expose.agent` 为 `never` 的命令不列出、执行为 `not-exposed`。
+ */
+function remoteCommands(registry: CommandRegistry): RemoteProvision {
+    return provideRemote(commandsRemoteContract, (consumer) => ({
+        methods: {
+            list: async () => ({
+                ok: true,
+                value: registry.list().flatMap((command) => {
+                    const agent = effectiveAgentExposure(command.expose);
+                    if (agent === "never") return [];
+                    const enabled = registry.isEnabled(command.id);
+                    return [{
+                        id: command.id,
+                        source: command.source,
+                        title: command.title,
+                        description: command.description,
+                        args: command.args,
+                        effect: command.effect,
+                        agent,
+                        available: enabled.ok && enabled.value,
+                        reason: enabled.ok ? null : enabled.reason,
+                    }];
+                }),
+            }),
+            execute: async ({id, args}) => ({ok: true, value: await registry.execute(id, args, {source: "agent", callerId: consumer.plugin ?? consumer.instanceId})}),
+        },
+    }));
+}
+
 /** 命令表在 activate 里建：每个实例的入口各一份，常量本身不持有状态。 */
 function commandsEntry(location: RuntimeLocation): PluginEntryDefinition {
     return {
@@ -104,6 +137,7 @@ function commandsEntry(location: RuntimeLocation): PluginEntryDefinition {
         dependencies: [{key: diagnosticsKey}, {key: publicStateKey}],
         provides: [commandServiceKey],
         receives: [COMMANDS_POINT],
+        remoteProvides: location === "browser" ? [commandsRemoteContract.id] : [],
         activate: (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const registry = createCommandRegistry({
@@ -115,6 +149,7 @@ function commandsEntry(location: RuntimeLocation): PluginEntryDefinition {
             return {
                 services: [provide(commandServiceKey, serviceOf(registry))],
                 receivers: {[COMMANDS_POINT]: receiverOf(registry, diagnostics)},
+                remote: location === "browser" ? [remoteCommands(registry)] : [],
             };
         },
     };

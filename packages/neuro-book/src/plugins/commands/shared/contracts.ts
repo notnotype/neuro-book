@@ -9,6 +9,7 @@
 import {Type} from "typebox";
 import type {Static, TSchema} from "typebox";
 
+import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
@@ -118,3 +119,47 @@ export interface CommandService {
 }
 
 export const commandServiceKey: ServiceKey<CommandService> = defineServiceKey<CommandService>("nbook.commands/service");
+
+/** 远程列出的一条命令：元数据加上此刻在那个窗口里按它的公开状态求出的可用性。 */
+const RemoteCommandSchema = Type.Object({
+    id: Type.String(),
+    source: Type.String(),
+    title: LocalizedTextSchema,
+    description: Type.String(),
+    /** 参数的 JSON Schema。 */
+    args: Type.Unknown(),
+    effect: Type.Union([Type.Literal("read"), Type.Literal("write")]),
+    /** 对 Agent 的实际暴露级别；`never` 的不列出。 */
+    agent: Type.Union([Type.Literal("confirm"), Type.Literal("auto")]),
+    available: Type.Boolean(),
+    /** 不可用时的原因；可用为 null。 */
+    reason: Type.Union([Type.String(), Type.Null()]),
+}, {additionalProperties: false});
+
+export type RemoteCommand = Static<typeof RemoteCommandSchema>;
+
+const RemoteCommandResultSchema = Type.Union([
+    Type.Object({ok: Type.Literal(true), value: Type.Unknown()}, {additionalProperties: false}),
+    Type.Object({ok: Type.Literal(false), code: Type.String(), reason: Type.String()}, {additionalProperties: false}),
+]);
+
+/**
+ * 跨实例列出与执行某个窗口里的命令（docs/specs/workbench/commands.md 的“跨实例列出与执行”）：浏览器的
+ * `nbook.commands` 入口提供，第一版只允许服务端调用，服务端插件以 `.at({client: 窗口实例 id})` 选定窗口。
+ * `when` 只在命令所在的窗口求值：服务端问到的是那个窗口此刻的状态，不保存窗口状态的副本。
+ */
+export const commandsRemoteContract = defineRemoteService({
+    id: "nbook.commands/remote",
+    version: 1,
+    provider: "client",
+    callers: ["server"],
+    methods: {
+        list: {input: Type.Object({}, {additionalProperties: false}), output: Type.Array(RemoteCommandSchema), effect: "read"},
+        execute: {
+            input: Type.Object({id: Type.String({minLength: 1}), args: Type.Optional(Type.Unknown())}, {additionalProperties: false}),
+            output: RemoteCommandResultSchema,
+            effect: "write",
+        },
+    },
+});
+
