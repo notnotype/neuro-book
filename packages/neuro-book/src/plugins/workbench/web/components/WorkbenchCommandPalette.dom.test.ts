@@ -244,6 +244,24 @@ describe("WorkbenchCommandPalette", () => {
         expect(app.executed).toEqual([]);
     });
 
+    it("选择模式：新的选择请求从第一项开始，不沿用上一次的选中项（候选 id 相同也一样）", async () => {
+        const app = harness();
+        const request = {title: "面板位置", placeholder: "选中后立即生效", items: [{id: "bottom", label: "底部"}, {id: "left", label: "左侧"}]};
+        const first = app.host.openPick(request);
+        await vi.waitFor(() => expect(input()).not.toBeNull());
+        await press("ArrowDown");
+        expect(selected()).toBe("left");
+        await press("Enter");
+        expect(await first).toEqual({kind: "item", id: "left"});
+        await vi.waitFor(() => expect(input()).toBeNull());
+
+        const second = app.host.openPick(request);
+        await vi.waitFor(() => expect(input()).not.toBeNull());
+        expect(selected()).toBe("bottom");
+        await press("Enter");
+        expect(await second).toEqual({kind: "item", id: "bottom"});
+    });
+
     it("选择模式：提交输入的文字为 text，Escape 为 cancelled；切回命令模式取消这次选择", async () => {
         const app = harness();
         app.register("nbook.app.alpha");

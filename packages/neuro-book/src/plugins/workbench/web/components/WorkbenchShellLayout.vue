@@ -120,34 +120,39 @@ watch(projection, (next) => {
 /** 当前网格里各 Part 的叶落点；没有的 Part 内容留在停放区。 */
 const targets = shallowRef<Partial<Record<ShellPartId, Element>>>({});
 
-interface FocusMemory {
-    readonly element: HTMLElement;
-    readonly scroller: HTMLElement | null;
-    readonly top: number;
-    readonly left: number;
-}
+/**
+ * 浏览器把节点移到别处时会清掉它的滚动位置，焦点也会丢；停放区是 `display: none`，在那里设滚动位置不生效。所以滚动
+ * 位置记在一张跨多次变化的表里：每次结构变化前记下仍可见的元素，搬完后给回到可见落点的元素还原。焦点只记这一次。
+ */
+const scrollMemory = new Map<Element, {readonly top: number; readonly left: number}>();
 
-/** 焦点在外壳里时记下它与最近一个有滚动位置的祖先：搬动 DOM 会丢掉这两样。 */
-function captureFocus(): FocusMemory | null {
-    const active = document.activeElement;
+function captureMemory(): HTMLElement | null {
     const root = rootEl.value;
-    if (!(active instanceof HTMLElement) || root === null || !root.contains(active)) return null;
-    let scroller: HTMLElement | null = active.parentElement;
-    while (scroller !== null && scroller !== root && scroller.scrollTop === 0 && scroller.scrollLeft === 0) scroller = scroller.parentElement;
-    if (scroller === root) scroller = null;
-    return {element: active, scroller, top: scroller?.scrollTop ?? 0, left: scroller?.scrollLeft ?? 0};
+    if (root === null) return null;
+    for (const element of root.querySelectorAll("[data-shell-slot] *")) {
+        if (parkingEl.value?.contains(element) === true) continue;
+        if (element.scrollTop !== 0 || element.scrollLeft !== 0) scrollMemory.set(element, {top: element.scrollTop, left: element.scrollLeft});
+        else scrollMemory.delete(element);
+    }
+    const active = document.activeElement;
+    return active instanceof HTMLElement && root.contains(active) ? active : null;
 }
 
-/** 搬完 DOM 后恢复：原节点仍可见、用户也没有把焦点移出外壳时才拿回焦点，不抢菜单与对话框的焦点。 */
-function restoreFocus(memory: FocusMemory | null): void {
-    if (memory === null || !memory.element.isConnected || parkingEl.value?.contains(memory.element) === true) return;
+/** 搬完 DOM 后还原：可见的元素还原滚动位置；焦点只在原节点仍可见、用户也没有把焦点移出外壳时拿回，不抢菜单与对话框。 */
+function restoreMemory(focus: HTMLElement | null): void {
+    for (const [element, {top, left}] of scrollMemory) {
+        if (!element.isConnected) {
+            scrollMemory.delete(element);
+            continue;
+        }
+        if (parkingEl.value?.contains(element) === true) continue;
+        element.scrollTop = top;
+        element.scrollLeft = left;
+    }
+    if (focus === null || !focus.isConnected || parkingEl.value?.contains(focus) === true) return;
     const current = document.activeElement;
     const inside = current !== null && (current === document.body || rootEl.value?.contains(current) === true);
-    if (inside && current !== memory.element) memory.element.focus({preventScroll: true});
-    if (memory.scroller?.isConnected === true) {
-        memory.scroller.scrollTop = memory.top;
-        memory.scroller.scrollLeft = memory.left;
-    }
+    if (inside && current !== focus) focus.focus({preventScroll: true});
 }
 
 /** 焦点所在内容被停放时给它一个可见的去处；焦点已在外壳之外时不动。 */
@@ -176,7 +181,7 @@ let wasMaximized = projection.value.effectivePanel.maximized;
 
 // 结构变化前（flush: pre）记下焦点：渲染会换掉叶落点，Teleport 随后在下一轮搬内容，所以等两轮再恢复。
 watch(projection, (next) => {
-    const memory = typeof document === "undefined" ? null : captureFocus();
+    const memory = captureMemory();
     const becameHidden = props.panel.hidden && !wasHidden;
     const becameMaximized = next.effectivePanel.maximized && !wasMaximized;
     wasHidden = props.panel.hidden;
@@ -184,7 +189,7 @@ watch(projection, (next) => {
     void nextTick(() => {
         syncTargets();
         void nextTick(() => {
-            restoreFocus(memory);
+            restoreMemory(memory);
             if (becameHidden) focusTarget("panel-toggle");
             else if (becameMaximized) focusTarget("panel-title");
         });
@@ -241,10 +246,14 @@ const shellStyle = {"--workbench-shell-gutter": `${String(SHELL_GUTTER_PX)}px`};
 </template>
 
 <style scoped>
-/* ActivityBar 与侧栏、右栏的卡片四周留白归外壳：留白加在叶上，卡片是叶的内接盒，组件自己不写宽度与外边距。 */
-:deep([data-leaf="activitybar"]),
-:deep([data-leaf="sidebar"]),
-:deep([data-leaf="auxiliarybar"]) {
+/*
+ * ActivityBar 与侧栏、右栏的卡片四周留白归外壳，组件自己不写宽度与外边距。留白加在叶里的内容包装上而不是叶上：
+ * 拖到零的叶宽为 0，加在叶上的内边距会把它撑出 12px；加在里面，叶的 overflow: hidden 把它裁掉。
+ */
+[data-shell-slot="activitybar"],
+[data-shell-slot="sidebar"],
+[data-shell-slot="auxiliarybar"] {
+    box-sizing: border-box;
     padding: var(--workbench-shell-gutter);
 }
 </style>

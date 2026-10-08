@@ -19,7 +19,7 @@
 
 - 拖动边界：边界在流内占 1px，命中区更宽；拖过最小或最大值停在边界。松手一次落账，组件按这次提交发出一个 `resize`；从拖到零的边界拉回时跟随指针。
 - 键盘：边界可聚焦，方向键 10px、Shift 1px、Home/End 到端点、Enter 收起或恢复相邻可拖到零的 Part。Escape、pointercancel、失焦、容器尺寸或 `contextKey` 变化取消整场手势，不发 `resize`。
-- 焦点：结构变化（换位置、对齐、隐藏、最大化、紧凑往返）时，Part 内容在落点之间搬动，搬完后恢复原焦点与滚动位置；焦点所在内容被停放时，隐藏面板把焦点交给 `data-shell-focus-target="panel-toggle"`，最大化交给 `data-shell-focus-target="panel-title"`（这两个标记由插槽内容提供，找不到时落到组件根）。焦点已在外壳之外（菜单、对话框）时不动。
+- 焦点与滚动：结构变化（换位置、对齐、隐藏、最大化、紧凑往返）时，Part 内容在落点之间搬动，搬完后还原 Part 内容里所有元素的滚动位置，并恢复原焦点；焦点所在内容被停放时，隐藏面板把焦点交给 `data-shell-focus-target="panel-toggle"`，最大化交给 `data-shell-focus-target="panel-title"`（这两个标记由插槽内容提供，找不到时落到组件根）。焦点已在外壳之外（菜单、对话框）时不动。
 - `disabled` 为 true 时边界不能拖动、键盘不能调整，进行中的手势取消。
 
 ## 数据
