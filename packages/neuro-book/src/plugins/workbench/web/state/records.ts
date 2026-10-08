@@ -3,8 +3,9 @@
  *
  * - 两条尺寸记录在窗口绑定了项目时用 project 分区，没有绑定时用 user 分区：同一 schema 定义两份，窗口一生只绑定一个
  *   项目，不会中途换分区。
- * - `views-customizations` 在 user 分区。本切片只用面板与 Part 两组字段；外壳二加容器与视图时作为可选字段加入、
- *   版本不变（旧记录仍然合法）。action 只改自己的字段，别的字段原样带回去。
+ * - `views-customizations` 在 user 分区：面板与 Part 两组字段（外壳一），容器、选中项与视图三组字段（外壳二，可选、
+ *   版本不变，旧记录仍然合法）。action 只改自己的字段，别的字段原样带回去。容器与视图的键是 id，键的合法性（未知的
+ *   视图、不认识的容器 id）由落位模型在呈现时判断，记录原件不删（`web/views/placement.ts`）。
  *
  * 字段都可缺省：缺的按默认显示，只有用户主动改过的才写进记录。
  */
@@ -23,6 +24,12 @@ const PanelSizesSchema = Type.Object({panelHeight: Type.Optional(Size), panelWid
 
 // 取值域与 `shell/panel-state.ts`、`shell/layout.ts` 的常量表一致；这里逐个写出字面量，读出的值才有准确的类型。
 const PartName = Type.Union([Type.Literal("titlebar"), Type.Literal("activitybar"), Type.Literal("sidebar"), Type.Literal("auxiliarybar")]);
+const ToolPartName = Type.Union([Type.Literal("sidebar"), Type.Literal("auxiliarybar"), Type.Literal("panel")]);
+/** 容器 id 是视图 id 加前缀（`view:`），比视图 id 的 128 个字符上限稍长。 */
+const Id = Type.String({minLength: 1, maxLength: 160});
+const Order = Type.Number({minimum: -1_000_000, maximum: 1_000_000});
+/** 覆盖基于的默认位置（`web/views/placement.ts` 的 `defaultFingerprint`）。 */
+const Fingerprint = Type.String({minLength: 1, maxLength: 64});
 
 const CustomizationsSchema = Type.Object({
     panel: Type.Optional(Type.Object({
@@ -37,11 +44,31 @@ const CustomizationsSchema = Type.Object({
         auxiliarybar: Type.Optional(Type.Boolean()),
         panel: Type.Optional(Type.Boolean()),
     }, {additionalProperties: false})),
+    containers: Type.Optional(Type.Record(Type.String(), Type.Object({
+        location: ToolPartName,
+        order: Order,
+        fingerprint: Fingerprint,
+    }, {additionalProperties: false}))),
+    selected: Type.Optional(Type.Object({
+        sidebar: Type.Optional(Id),
+        auxiliarybar: Type.Optional(Id),
+        panel: Type.Optional(Id),
+    }, {additionalProperties: false})),
+    views: Type.Optional(Type.Record(Type.String(), Type.Object({
+        container: Type.Optional(Id),
+        order: Type.Optional(Order),
+        fingerprint: Type.Optional(Fingerprint),
+        width: Type.Optional(Size),
+        height: Type.Optional(Size),
+        collapsed: Type.Optional(Type.Boolean()),
+    }, {additionalProperties: false}))),
 }, {additionalProperties: false});
 
 export type SideSizes = Static<typeof SideSizesSchema>;
 export type PanelSizes = Static<typeof PanelSizesSchema>;
 export type Customizations = Static<typeof CustomizationsSchema>;
+export type ContainerEntry = NonNullable<Customizations["containers"]>[string];
+export type ViewEntry = NonNullable<Customizations["views"]>[string];
 
 export interface LayoutRecords {
     readonly side: RecordDefinition<SideSizes>;
