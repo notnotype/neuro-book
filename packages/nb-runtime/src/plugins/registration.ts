@@ -99,6 +99,16 @@ export function validateDefinition(definition: PluginDefinition, environment: Re
             }
         }
 
+        // 一个入口里每份远程合同只声明一次：提供方查询按 id 读声明回答版本与调用方种类，同 id 两份（例如两个版本）时
+        // 一项产出能同时满足两项声明，查询与调用就会各按一个版本回答（docs/specs/runtime/plugins.md 输出第 22 条）。
+        const remoteIds = new Set<string>();
+        for (const contract of entry.remoteProvides ?? []) {
+            if (remoteIds.has(contract.id)) {
+                rejections.push(rejection("duplicate-remote-contract", {entry: entry.id, detail: contract.id}));
+            }
+            remoteIds.add(contract.id);
+        }
+
         const receives = entry.receives ?? [];
         const localReceivers = receiversByLocation.get(entry.location) ?? new Set<string>();
         for (const pointId of receives) {

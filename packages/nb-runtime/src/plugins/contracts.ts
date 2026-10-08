@@ -215,6 +215,7 @@ export type RegistrationRejectionReason =
     | "duplicate-plugin"
     | "duplicate-entry"
     | "duplicate-service"
+    | "duplicate-remote-contract"
     | "unknown-contribution-point"
     | "duplicate-receiver"
     | "duplicate-contribution-point"
