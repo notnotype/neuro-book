@@ -72,7 +72,8 @@ export function validateDefinition(definition: PluginDefinition, environment: Re
     }
 
     const entryIds = new Set<string>();
-    const providedNames = new Set<string>();
+    // 服务属于实例：同一运行位置的入口之间不重复，不同位置的入口可以提供同一个 id（docs/adr/0026-plugin-definitions-as-constants.md）。
+    const providedByLocation = new Map<RuntimeLocation, Set<string>>();
     const receiversByLocation = new Map<RuntimeLocation, Set<string>>();
     for (const entry of definition.entries) {
         if (entry.id.trim() === "") {
@@ -83,11 +84,13 @@ export function validateDefinition(definition: PluginDefinition, environment: Re
         }
         entryIds.add(entry.id);
 
+        const localProvided = providedByLocation.get(entry.location) ?? new Set<string>();
+        providedByLocation.set(entry.location, localProvided);
         for (const key of entry.provides ?? []) {
-            if (providedNames.has(key.name)) {
+            if (localProvided.has(key.name)) {
                 rejections.push(rejection("duplicate-service", {entry: entry.id, detail: key.name}));
             }
-            providedNames.add(key.name);
+            localProvided.add(key.name);
             const prefix = `${definition.id}/`;
             if (!key.name.startsWith(prefix) || key.name.slice(prefix.length).trim() === "") {
                 rejections.push(rejection("foreign-service-id", {entry: entry.id, detail: key.name}));

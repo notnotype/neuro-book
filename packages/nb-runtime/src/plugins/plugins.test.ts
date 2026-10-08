@@ -391,6 +391,26 @@ describe("Spec 验收 3、8：入口独立与跨位置非原子", () => {
         expect(tui.host.contribution("commands", "shell.split")).toMatchObject([{status: "available", location: "tui"}]);
     });
 
+    it("一份定义在两个运行位置的入口提供同一服务 id：每个实例只装配本位置的提供者，另一侧入口是 foreign-location", async () => {
+        const server = await setup("server");
+        const browser = await setup("browser", "browser-1");
+        const definition = plugin(
+            "clock",
+            {id: "server", location: "server", provides: [clockKey], activate: () => ({services: [provide(clockKey, {now: () => 1})]})},
+            {id: "browser", location: "browser", provides: [clockKey], activate: () => ({services: [provide(clockKey, {now: () => 2})]})},
+        );
+        accepted(server.host, definition, server.root);
+        accepted(browser.host, definition, browser.root);
+
+        for (const [instance, entry, foreign, now] of [[server, "server", "browser", 1], [browser, "browser", "server", 2]] as const) {
+            instance.assembly.declare({id: "consumer", location: entry, scope: instance.root, dependencies: [{key: clockKey}]});
+            const resolved = await instance.assembly.access("consumer").resolve(clockKey);
+            expect(resolved.status === "resolved" ? resolved.instance.now() : resolved).toBe(now);
+            expect(instance.host.entryState({plugin: "clock", entry})).toMatchObject({status: "available"});
+            expect(instance.host.entryState({plugin: "clock", entry: foreign})).toMatchObject({status: "foreign-location"});
+        }
+    });
+
     it("同一位置的两个入口不共享激活状态", async () => {
         const {host, root} = await setup();
         const activateA = vi.fn(commandEntry("a", ["p.a"]).activate);

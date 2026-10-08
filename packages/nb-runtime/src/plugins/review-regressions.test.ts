@@ -11,17 +11,17 @@ const lastKey = defineServiceKey<string>("owner/last");
 const foreignKey = defineServiceKey<string>("foreign/service");
 
 describe("第一轮审查边界回归", () => {
-    it.each(["同入口", "跨入口", "同名不同键"] as const)("%s 重复提供服务 id 时整个插件拒绝且无部分登记", async (scenario) => {
+    it.each(["同入口", "同位置两个入口", "同名不同键"] as const)("%s 重复提供服务 id 时整个插件拒绝且无部分登记", async (scenario) => {
         const runtime = createRuntimeInstance({instanceId: "duplicates", location: "server"});
         const sameName = defineServiceKey("owner/first");
         const assembly = createServiceAssembly(runtime, {});
         const host = createPluginHost(runtime, assembly, {});
         const activate = vi.fn(() => ({}));
-        const entries: PluginDefinition["entries"] = scenario === "跨入口" ? [
-            {id: "server", location: "server", provides: [firstKey], activate},
-            {id: "browser", location: "browser", provides: [firstKey], activate},
+        const entries: PluginDefinition["entries"] = scenario === "同位置两个入口" ? [
+            {id: "main", location: "server", provides: [firstKey], activate},
+            {id: "worker", location: "server", provides: [firstKey], activate},
         ] : [{id: "main", location: "server", provides: [firstKey, scenario === "同名不同键" ? sameName : firstKey], activate}];
-        expect(host.register({id: "owner", entries}, {scope: runtime.root})).toEqual({status: "rejected", plugin: "owner", rejections: [{reason: "duplicate-service", entry: scenario === "跨入口" ? "browser" : "main", capability: null, contribution: null, detail: firstKey.name}]});
+        expect(host.register({id: "owner", entries}, {scope: runtime.root})).toEqual({status: "rejected", plugin: "owner", rejections: [{reason: "duplicate-service", entry: scenario === "同位置两个入口" ? "worker" : "main", capability: null, contribution: null, detail: firstKey.name}]});
         expect(host.catalog().plugins).toEqual([]);
         expect(assembly.report().entries).toEqual([]);
         expect(activate).not.toHaveBeenCalled();
