@@ -30,7 +30,7 @@ K4 [t55](../t55-plugin-storage/README.md)（`nbook.storage`，持久化字段建
 | S3 | `d1fa5eca` | 命令的键来源接口，产品命令表读公开状态，Lab 包本地表；`plugin.test.ts` 增补，两个变异被抓住 |
 | S6 | `3bc2006f` | `nbook.commands/remote`（`remote.test.ts` 2 例），三个变异各被抓住 |
 | S7 | `a8aa3729` | 探针与 `e2e/state.e2e.ts`（3 例） |
-| S8 | （待提交） | Spec 证据与已实现条目（`1e381563`）；omp 实现审查（[evidences/impl-review.txt](evidences/impl-review.txt)）阻断 1、重要 6、建议 4，全部成立并修正：`change` 抛错按 `change-threw` 失败（原来提交永不结算、停止卡住）；`change` 拿到的值冻结（原来就地修改会被算两次）；读取错误也暂停队首、可 `reopen`；嵌套的持久化字段在 `create` 时拒绝；释放时固定只读视图第一层的值（`effectScope` 停不了 computed）；释放路径用 `finally` 收口；停止中的公开读取按未就绪；内核在一次最外层推导里复用已得出的结果（无环共享依赖原来指数展开）；Spec 补环判定的前提、删去旧条款，证据只写实际覆盖。新增的用例各有对应变异被抓住 |
+| S8 | `1e381563`、`ceed74db` | Spec 证据与已实现条目（`1e381563`）；omp 实现审查（[evidences/impl-review.txt](evidences/impl-review.txt)）阻断 1、重要 6、建议 4，全部成立并修正：`change` 抛错按 `change-threw` 失败（原来提交永不结算、停止卡住）；`change` 拿到的值冻结（原来就地修改会被算两次）；读取错误也暂停队首、可 `reopen`；嵌套的持久化字段在 `create` 时拒绝；释放时固定只读视图第一层的值（`effectScope` 停不了 computed）；释放路径用 `finally` 收口；停止中的公开读取按未就绪；内核在一次最外层推导里复用已得出的结果（无环共享依赖原来指数展开）；Spec 补环判定的前提、删去旧条款，证据只写实际覆盖。新增的用例各有对应变异被抓住 |
 
 收口验证（[test-affected-typecheck.txt](evidences/test-affected-typecheck.txt)、[test-e2e.txt](evidences/test-e2e.txt)、[smoke-server.txt](evidences/smoke-server.txt)）：审查修正后内核 294 例、应用 310 例与组件 57 例、两包类型检查，e2e 48 例，`smoke:server` S1–S8 全部通过；`docs:check`、`governance:check` 无失败。
 
