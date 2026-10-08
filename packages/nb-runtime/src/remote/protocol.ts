@@ -12,11 +12,13 @@ import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
 
 /**
- * 握手时核对；不兼容时在处理任何业务帧前拒绝链路。帧格式变化时提升（2：握手加入项目绑定；3：调用方身份
- * 加入客户端身份）。`hello` 的
- * `wire` 字段与 `reject` 帧的形状跨版本不变：任何版本的客户端都能让服务端读出版本、读懂服务端的拒绝。
+ * 握手时核对；不兼容时在处理任何业务帧前拒绝链路。帧格式或结果的含义变化时提升（2：握手加入项目绑定；3：调用方
+ * 身份加入客户端身份；4：失败码 `not-provided`、写请求从帧发出起结果未知、保留合同 `runtime/catalog`）。4 的帧形状
+ * 与 3 相同，但旧端会把 `not-provided` 当成未声明的码、仍按 ACK 结算写请求；浏览器首次握手前没有别的同构建核对，
+ * 只能靠这里拦住旧页面。`hello` 的 `wire` 字段与 `reject` 帧的形状跨版本不变：任何版本的客户端都能让服务端读出
+ * 版本、读懂服务端的拒绝。
  */
-export const WIRE_PROTOCOL_VERSION = 3;
+export const WIRE_PROTOCOL_VERSION = 4;
 
 /**
  * 路由层失败码，对所有远程服务相同；业务失败码由各合同声明。`not-provided` 与 `unavailable` 分开：前者是目标
