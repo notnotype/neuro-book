@@ -27,7 +27,7 @@ function containerOf(location: ViewLocation, extra: Customizations = {}): Contai
         const presentation = buildPresentation({catalog, placement, customizations});
         const result = applyIntent({catalog, placement, presentation, customizations}, {kind: "move-view", viewId, sourceContainerId: `view:${viewId}`, targetContainerId: "view:test.a"});
         if (result.kind !== "patch") throw new Error(`合并 ${viewId} 失败`);
-        customizations = applyPatch(customizations, result.patch);
+        customizations = applyPatch(customizations, result.patch, catalog).value;
     }
     const placement = computePlacement(catalog, customizations);
     return buildPresentation({catalog, placement, customizations}).containers.get("view:test.a")!;

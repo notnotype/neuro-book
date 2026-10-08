@@ -77,7 +77,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 store.actions.acceptViewCatalog(views.catalog);
                 // 落位与呈现的诊断（未知引用、默认位置已变、起源声明不在）：同一条只记一次。
                 const recorded = new Set<string>();
-                const stop = watch(() => store.state.presentation.diagnostics, (lines) => {
+                const stop = watch(() => [...store.state.presentation.diagnostics, ...store.state.patchProblems], (lines) => {
                     for (const line of lines) {
                         if (recorded.has(line)) continue;
                         recorded.add(line);

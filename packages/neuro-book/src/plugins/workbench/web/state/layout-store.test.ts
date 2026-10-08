@@ -478,3 +478,53 @@ describe("视图与容器（外壳二）", () => {
         expect(workbenchStateBindings(shallowRef(null)).focusedPart.value).toBe("editor");
     });
 });
+
+describe("拖放的保存冲突（外壳三）", () => {
+    const view = (name: string, location: ViewLocation, order = 0): ViewDeclaration => ({title: {"zh-CN": name, "en-US": name}, icon: `i-${name}`, location, layout: "scroll", order});
+    const catalog: ViewCatalog = new Map([["t.a", view("A", "sidebar")], ["t.b", view("B", "sidebar", 1)], ["t.d", view("D", "panel")], ["t.e", view("E", "panel", 1)]]);
+    const N1 = "custom:11111111-1111-4111-8111-111111111111";
+
+    async function pair(w: StorageWorld): Promise<[LayoutWindow, LayoutWindow]> {
+        const a = await openLayout(w, "a", "c");
+        const b = await openLayout(w, "b", "c");
+        a.store.actions.acceptViewCatalog(catalog);
+        b.store.actions.acceptViewCatalog(catalog);
+        return [a, b];
+    }
+
+    it("本窗口移进自建容器时，它已被另一个窗口搬空清掉：保存按本次捕获的身份重建，不留悬空归属", async () => {
+        const w = await world();
+        const [a, b] = await pair(w);
+        expect(a.store.actions.applyView({kind: "detach-view", viewId: "t.a", sourceContainerId: "view:t.a", containerId: N1, targetPart: "panel"}).kind).toBe("patch");
+        await saved(a.store);
+        await waitUntil("另一窗口读到自建容器", () => b.store.state.customizations.base?.status === "ok" && (b.store.state.customizations.base.value as Customizations).containers?.[N1] !== undefined);
+        // 另一个窗口（显示跟着已确认值重开一次）把 A 重置回去，N1 搬空被清掉。
+        const other = await openLayout(w, "other", "c");
+        other.store.actions.acceptViewCatalog(catalog);
+        expect(other.store.actions.applyView({kind: "reset-view", viewId: "t.a"}).kind).toBe("patch");
+        await saved(other.store);
+        // 本窗口的显示里 N1 还在：把 B 移进去，保存冲突后在最新值上重放。
+        expect(a.store.actions.applyView({kind: "move-view", viewId: "t.b", sourceContainerId: "view:t.b", targetContainerId: N1}).kind).toBe("patch");
+        await saved(a.store);
+        const value = await read(a.storage, LAYOUT_RECORDS.user.customizations) as Customizations;
+        expect(value.containers?.[N1]).toMatchObject({location: "panel", origin: "t.a"});
+        expect(value.views?.["t.b"]?.container).toBe(N1);
+        expect(value.views?.["t.a"]?.container).toBeUndefined();
+    });
+
+    it("带半区的并入在保存时前提不成立（目标容器已被另一个窗口挪到侧栏）：整条不写，原因进 patchProblems", async () => {
+        const w = await world();
+        const [a] = await pair(w);
+        a.store.actions.applyView({kind: "move-view", viewId: "t.e", sourceContainerId: "view:t.e", targetContainerId: "view:t.d"});
+        await saved(a.store);
+        const other = await openLayout(w, "other", "c");
+        other.store.actions.acceptViewCatalog(catalog);
+        expect(other.store.actions.applyView({kind: "move-container", containerId: "view:t.d", sourcePart: "panel", targetPart: "sidebar"}).kind).toBe("patch");
+        await saved(other.store);
+        const before = await read(a.storage, LAYOUT_RECORDS.user.customizations);
+        expect(a.store.actions.applyView({kind: "move-view", viewId: "t.a", sourceContainerId: "view:t.a", targetContainerId: "view:t.d", split: {hitViewId: "t.e", side: "after", sourceSizes: {"t.a": 1}}}).kind).toBe("patch");
+        await saved(a.store);
+        expect(await read(a.storage, LAYOUT_RECORDS.user.customizations)).toEqual(before);
+        expect(a.store.state.patchProblems).toHaveLength(1);
+    });
+});

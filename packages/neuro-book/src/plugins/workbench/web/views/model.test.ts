@@ -34,7 +34,7 @@ function model(catalog: ViewCatalog, customizations: Customizations, hidden?: Re
 /** 合成一次意图并写回；被拒或无变化时原值不动。 */
 function act(catalog: ViewCatalog, customizations: Customizations, intent: ViewIntent): {readonly result: IntentResult; readonly next: Customizations} {
     const result = applyIntent(model(catalog, customizations), intent);
-    return {result, next: result.kind === "patch" ? applyPatch(customizations, result.patch) : customizations};
+    return {result, next: result.kind === "patch" ? applyPatch(customizations, result.patch, catalog).value : customizations};
 }
 
 function patched(catalog: ViewCatalog, customizations: Customizations, intent: ViewIntent): Customizations {
@@ -233,7 +233,7 @@ describe("意图合成", () => {
             selected: {panel: "view:test.c"},
         }});
         const other: Customizations = {panel: {position: "left"}, views: {[B]: {height: 300}}, futureField: 1} as Customizations;
-        const replayed = applyPatch(other, (result as Extract<IntentResult, {kind: "patch"}>).patch);
+        const replayed = applyPatch(other, (result as Extract<IntentResult, {kind: "patch"}>).patch, catalog).value;
         expect(replayed).toEqual({
             panel: {position: "left"},
             views: {[B]: {height: 300}, [A]: {container: "view:test.c", order: 1, fingerprint: "sidebar#0"}},
@@ -242,20 +242,20 @@ describe("意图合成", () => {
         } as Customizations);
         // 同字段后保存胜出：另一窗口先把 A 移去了 view:test.b，本窗口的补丁重放后 A 在 view:test.c。
         const conflicting: Customizations = {views: {[A]: {container: "view:test.b", order: 1, fingerprint: "sidebar#0", height: 90}}};
-        expect(applyPatch(conflicting, (result as Extract<IntentResult, {kind: "patch"}>).patch).views?.[A]).toEqual({container: "view:test.c", order: 1, fingerprint: "sidebar#0", height: 90});
+        expect(applyPatch(conflicting, (result as Extract<IntentResult, {kind: "patch"}>).patch, catalog).value.views?.[A]).toEqual({container: "view:test.c", order: 1, fingerprint: "sidebar#0", height: 90});
     });
 
     it("顺序越界时只重排目标容器的成员", () => {
         const crowded: Customizations = {views: {[B]: {container: "view:test.c", order: 1_000_000, fingerprint: "sidebar#0"}}};
         const next = patched(catalog, crowded, {kind: "move-view", viewId: A, sourceContainerId: "view:test.a", targetContainerId: "view:test.c"});
         expect(model(catalog, next).placement.containers.get("view:test.c")?.members).toEqual([C, B, A]);
-        expect(next.views?.[A]?.order).toBe(3);
+        expect(next.views?.[A]?.order).toBeGreaterThan(next.views?.[B]?.order ?? Number.POSITIVE_INFINITY);
         expect(next.views?.["test.d"]).toBeUndefined();
 
         // 重放到另一个窗口改过的最新值：乙已被那边移进 view:test.a，重排只改顺序，不把乙搬回来。
         const {result} = act(catalog, crowded, {kind: "move-view", viewId: A, sourceContainerId: "view:test.a", targetContainerId: "view:test.c"});
         const elsewhere: Customizations = {views: {[B]: {container: "view:test.a", order: 1, fingerprint: "sidebar#0", height: 88}}};
-        const replayed = applyPatch(elsewhere, (result as Extract<IntentResult, {kind: "patch"}>).patch);
+        const replayed = applyPatch(elsewhere, (result as Extract<IntentResult, {kind: "patch"}>).patch, catalog).value;
         expect(replayed.views?.[B]).toEqual({container: "view:test.a", order: 1, fingerprint: "sidebar#0", height: 88});
         expect(replayed.views?.[A]?.container).toBe("view:test.c");
     });

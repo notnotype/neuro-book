@@ -44,10 +44,12 @@ const CustomizationsSchema = Type.Object({
         auxiliarybar: Type.Optional(Type.Boolean()),
         panel: Type.Optional(Type.Boolean()),
     }, {additionalProperties: false})),
+    // 隐式容器项有 `fingerprint`（覆盖基于的默认），自建容器项有 `origin`（创建时的视图）；二者必有其一由落位模型核对。
     containers: Type.Optional(Type.Record(Type.String(), Type.Object({
         location: ToolPartName,
         order: Order,
-        fingerprint: Fingerprint,
+        fingerprint: Type.Optional(Fingerprint),
+        origin: Type.Optional(Id),
     }, {additionalProperties: false}))),
     selected: Type.Optional(Type.Object({
         sidebar: Type.Optional(Id),

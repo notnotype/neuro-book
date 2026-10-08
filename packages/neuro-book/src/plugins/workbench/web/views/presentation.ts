@@ -7,7 +7,6 @@ import type {LocalizedText} from "nbook/shared/localized-text";
 
 import {VIEW_LOCATIONS, viewSizeLimits} from "../../shared/views";
 import type {ViewLocation} from "../../shared/views";
-import {originViewOf} from "./placement";
 import type {LayoutCustomizations, Placement, ViewCatalog} from "./placement";
 
 /** 容器内部的排列轴：侧栏与右栏纵向（视图尺寸是高度），Panel 横向（宽度），与 Panel 停在哪一侧无关。 */
@@ -109,7 +108,7 @@ export function buildPresentation(input: PresentationInput): Presentation {
             };
         });
         // 标题与图标的回落：首个可见成员 → 首个实际成员 → 起源视图的声明 → 容器 id（诊断）。
-        const source = catalog.get(visibleIds[0] ?? container.members[0] ?? originViewOf(container.id) ?? "");
+        const source = catalog.get(visibleIds[0] ?? container.members[0] ?? container.origin ?? "");
         if (source === undefined) diagnostics.push(`容器 ${container.id} 找不到标题来源，按容器 id 显示`);
         containers.set(container.id, {
             id: container.id,

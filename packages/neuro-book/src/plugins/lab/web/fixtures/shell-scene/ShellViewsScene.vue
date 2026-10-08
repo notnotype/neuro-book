@@ -54,7 +54,7 @@ function preset(): Customizations {
     const placement = computePlacement(catalog, {});
     const presentation = buildPresentation({catalog, placement, customizations: {}});
     const result = applyIntent({catalog, placement, presentation, customizations: {}}, {kind: "move-view", viewId: "test.outline", sourceContainerId: "view:test.outline", targetContainerId: "view:test.files"});
-    return result.kind === "patch" ? applyPatch({}, result.patch) : {};
+    return result.kind === "patch" ? applyPatch({}, result.patch, catalog).value : {};
 }
 
 // shallowRef：记录值是普通对象（意图合成用 structuredClone 复制它，代理对象复制不了）。
@@ -64,7 +64,7 @@ const presentation = computed(() => buildPresentation({catalog, placement: place
 
 function apply(intent: ViewIntent): void {
     const result = applyIntent({catalog, placement: placement.value, presentation: presentation.value, customizations: customizations.value}, intent);
-    if (result.kind === "patch") customizations.value = applyPatch(customizations.value, result.patch);
+    if (result.kind === "patch") customizations.value = applyPatch(customizations.value, result.patch, catalog).value;
 }
 
 // ── 视图来源：交付状态与加载都按场景开关 ────────────────────────────────

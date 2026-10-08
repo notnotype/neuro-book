@@ -55,6 +55,8 @@ function defineLayoutStore(records: LayoutRecords) {
         const maximized = shallowRef(false);
         const facts = shallowRef<ShellLayoutFacts | null>(null);
         const catalog = shallowRef<ViewCatalog>(new Map());
+        /** 保存时前提不成立、整条没写的补丁（例如目标已换轴的半区并入）：工作台入口把它们记进诊断。 */
+        const patchProblems = shallowRef<ReadonlyArray<string>>([]);
         /** 最近获得焦点的 Part（输出 27）：焦点移到外壳之外时不变，所以只有外壳里的 focusin 会改它。 */
         const focusedPart = shallowRef<ShellPartId>("editor");
         const placement = computed(() => computePlacement(catalog.value, customizations.display));
@@ -116,7 +118,7 @@ function defineLayoutStore(records: LayoutRecords) {
         };
 
         return {
-            state: {side, panelSize, customizations, maximized, facts, sizes, panel, hiddenParts, dragCollapsed, ready, problems, catalog, placement, presentation, focusedPart},
+            state: {side, panelSize, customizations, maximized, facts, sizes, panel, hiddenParts, dragCollapsed, ready, problems, catalog, placement, presentation, focusedPart, patchProblems},
             actions: {
                 setPanelPosition: (position: PanelPosition): boolean => (PANEL_POSITIONS as ReadonlyArray<string>).includes(position) && setPanel({position}),
                 setPanelAlignment: (alignment: PanelAlignment): boolean => (PANEL_ALIGNMENTS as ReadonlyArray<string>).includes(alignment) && setPanel({alignment}),
@@ -178,7 +180,14 @@ function defineLayoutStore(records: LayoutRecords) {
                 /** 一次视图或容器的意图；拒绝与无变化都不写。返回合成结果，命令据此给出失败码。 */
                 applyView: (intent: ViewIntent): IntentResult => {
                     const result = applyIntent({catalog: catalog.value, placement: placement.value, presentation: presentation.value, customizations: customizations.display}, intent);
-                    if (result.kind === "patch") void customizations.commit((value) => applyPatch(value, result.patch));
+                    if (result.kind === "patch") {
+                        void customizations.commit((value) => {
+                            const outcome = applyPatch(value, result.patch, catalog.value);
+                            // 修改函数可能被调用多次：同一条原因只记一次。
+                            if (outcome.problem !== null && !patchProblems.value.includes(outcome.problem)) patchProblems.value = [...patchProblems.value, outcome.problem].slice(-20);
+                            return outcome.value;
+                        });
+                    }
                     return result;
                 },
                 focusPart: (part: ShellPartId): void => {

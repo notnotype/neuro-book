@@ -2,8 +2,9 @@
  * 落位：由视图声明与用户定制求出每个视图的实际容器与顺序、每个容器的实际 Part 与顺序、每个 Part 的选中容器
  * （docs/specs/ui/workbench-shell.md 外壳二，外壳设计稿第 3 节）。纯函数，不碰组件与运行时。
  *
- * - 外壳二只有隐式容器 `view:<起源视图 id>`：每个视图默认在自己的隐式容器里；容器是否存在只看实际成员，容器本身
- *   不单独记“存在”，所以恢复默认不会制造空入口。
+ * - 两类容器：隐式容器 `view:<起源视图 id>`（每个视图默认在自己的隐式容器里）与自建容器 `custom:<UUID>`（拖放或
+ *   “新建容器”时生成，记录里有 `{location, order, origin}`）。容器是否出现只看实际成员，隐式容器本身不单独记“存在”，
+ *   所以恢复默认不会制造空入口；自建容器还要有记录项，成员归零的那次保存同时删掉它（`intents.ts` 的 `applyPatch`）。
  * - 用户覆盖带它基于的默认指纹：默认位置变了，旧覆盖在呈现中失效、回到新默认并诊断；原件不删，下一次针对该项的
  *   意图才改写它。
  * - 起源视图的声明不在（插件暂时缺失或已被禁用）而容器仍有成员时，容器照常存在；没有容器覆盖时，位置回落到首个
@@ -17,6 +18,15 @@ import type {ViewDeclaration, ViewLocation} from "../../shared/views";
 import type {Customizations, ViewEntry} from "../state/records";
 
 const IMPLICIT_PREFIX = "view:";
+const CUSTOM_PREFIX = "custom:";
+
+export function customContainerId(uuid: string): string {
+    return `${CUSTOM_PREFIX}${uuid}`;
+}
+
+export function isCustomContainer(containerId: string): boolean {
+    return containerId.startsWith(CUSTOM_PREFIX) && containerId.length > CUSTOM_PREFIX.length;
+}
 
 export function implicitContainerId(viewId: string): string {
     return `${IMPLICIT_PREFIX}${viewId}`;
@@ -46,8 +56,10 @@ export interface ContainerPlacement {
     readonly id: string;
     readonly part: ViewLocation;
     readonly order: number;
-    /** record：有效的容器覆盖；default：起源视图的声明；member：起源声明不在，按首个实际成员回落。 */
+    /** record：有效的容器覆盖（自建容器总是）；default：起源视图的声明；member：起源声明不在，按首个实际成员回落。 */
     readonly source: "record" | "default" | "member";
+    /** 起源视图：隐式容器取 id 里的，自建容器取记录里的 `origin`；标题回落的第 3 级用它。 */
+    readonly origin: string | null;
     /** 实际成员，按 (order, id) 排好。 */
     readonly members: ReadonlyArray<string>;
 }
@@ -68,8 +80,8 @@ function byOrderThenId(left: {readonly order: number; readonly id: string}, righ
     return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
 }
 
-/** 视图的实际容器：有效覆盖优先，否则自己的隐式容器。 */
-function placeView(viewId: string, declaration: ViewDeclaration, entry: DeepReadonly<ViewEntry> | undefined, diagnostics: string[]): ViewPlacement {
+/** 视图的实际容器：有效覆盖优先，否则自己的隐式容器。`customKnown` 回答自建容器在记录里有没有身份。 */
+function placeView(viewId: string, declaration: ViewDeclaration, entry: DeepReadonly<ViewEntry> | undefined, customKnown: (containerId: string) => boolean, diagnostics: string[]): ViewPlacement {
     const fallback: ViewPlacement = {container: implicitContainerId(viewId), order: 0, source: "default"};
     if (entry === undefined || (entry.container === undefined && entry.order === undefined && entry.fingerprint === undefined)) return fallback;
     if (entry.container === undefined || entry.order === undefined || entry.fingerprint === undefined) {
@@ -84,7 +96,7 @@ function placeView(viewId: string, declaration: ViewDeclaration, entry: DeepRead
         diagnostics.push(`视图 ${viewId} 的默认位置已变（覆盖基于 ${entry.fingerprint}），覆盖失效并回到新默认位置`);
         return fallback;
     }
-    if (originViewOf(entry.container) === null) {
+    if (isCustomContainer(entry.container) ? !customKnown(entry.container) : originViewOf(entry.container) === null) {
         diagnostics.push(`视图 ${viewId} 的位置覆盖指向不认识的容器 ${entry.container}，已忽略`);
         return fallback;
     }
@@ -94,8 +106,10 @@ function placeView(viewId: string, declaration: ViewDeclaration, entry: DeepRead
 export function computePlacement(catalog: ViewCatalog, customizations: LayoutCustomizations): Placement {
     const diagnostics: string[] = [];
     const recordedViews = customizations.views ?? {};
+    const recordedContainers = customizations.containers ?? {};
+    const customKnown = (containerId: string): boolean => recordedContainers[containerId]?.origin !== undefined;
     const views = new Map<string, ViewPlacement>();
-    for (const [viewId, declaration] of catalog) views.set(viewId, placeView(viewId, declaration, recordedViews[viewId], diagnostics));
+    for (const [viewId, declaration] of catalog) views.set(viewId, placeView(viewId, declaration, recordedViews[viewId], customKnown, diagnostics));
     for (const viewId of Object.keys(recordedViews)) {
         if (!catalog.has(viewId)) diagnostics.push(`记录里有未登记视图 ${viewId} 的布局项，已忽略（原件保留）`);
     }
@@ -107,10 +121,14 @@ export function computePlacement(catalog: ViewCatalog, customizations: LayoutCus
         membersOf.set(placement.container, members);
     }
 
-    const recordedContainers = customizations.containers ?? {};
     const containers = new Map<string, ContainerPlacement>();
     for (const [containerId, unsorted] of membersOf) {
         const members = unsorted.sort(byOrderThenId).map((member) => member.id);
+        const custom = recordedContainers[containerId];
+        if (isCustomContainer(containerId) && custom !== undefined) {
+            containers.set(containerId, {id: containerId, part: custom.location, order: custom.order, source: "record", origin: custom.origin ?? null, members});
+            continue;
+        }
         const originId = originViewOf(containerId) as string;
         const origin = catalog.get(originId);
         const override = recordedContainers[containerId];
@@ -119,7 +137,7 @@ export function computePlacement(catalog: ViewCatalog, customizations: LayoutCus
             const fingerprint = defaultFingerprint(origin);
             if (override !== undefined && override.fingerprint === fingerprint) located = {part: override.location, order: override.order, source: "record"};
             else {
-                if (override !== undefined) diagnostics.push(`容器 ${containerId} 的默认位置已变（覆盖基于 ${override.fingerprint}），覆盖失效并回到新默认位置`);
+                if (override !== undefined) diagnostics.push(`容器 ${containerId} 的默认位置已变（覆盖基于 ${override.fingerprint ?? "（缺指纹）"}），覆盖失效并回到新默认位置`);
                 located = {part: origin.location, order: origin.order ?? 0, source: "default"};
             }
         } else if (override !== undefined) {
@@ -130,10 +148,14 @@ export function computePlacement(catalog: ViewCatalog, customizations: LayoutCus
             diagnostics.push(`容器 ${containerId} 的起源视图 ${originId} 的声明不在，按首个成员 ${members[0] as string} 的默认位置放置`);
             located = {part: first.location, order: first.order ?? 0, source: "member"};
         }
-        containers.set(containerId, {id: containerId, ...located, members});
+        containers.set(containerId, {id: containerId, ...located, origin: originId, members});
     }
     for (const containerId of Object.keys(recordedContainers)) {
         if (containers.has(containerId)) continue;
+        if (isCustomContainer(containerId)) {
+            diagnostics.push(`记录里有没有成员的自建容器 ${containerId}，已忽略（原件保留）`);
+            continue;
+        }
         const originId = originViewOf(containerId);
         // 起源视图仍登记、只是暂时没有成员（成员都被移走）的容器覆盖是正常的旧数据，不诊断。
         if (originId === null || !catalog.has(originId)) diagnostics.push(`记录里有不存在的容器 ${containerId} 的布局项，已忽略（原件保留）`);
