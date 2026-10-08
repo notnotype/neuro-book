@@ -11,7 +11,7 @@ import type {RemoteRouter, RemoteUse} from "@notnotype/nb-runtime/remote";
 import {boardContract} from "../plugins/board/shared/contracts";
 import {boardBackendPlugin} from "../plugins/board/backend/plugin";
 import {Stage} from "./hosts";
-import {remoteProbe} from "./probes";
+import {remoteProbe} from "../testing/probes";
 
 const stage = new Stage();
 

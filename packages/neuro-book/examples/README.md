@@ -38,7 +38,7 @@ bun run --cwd packages/neuro-book test:bun            # 连同应用包的其它
 - **激活产出**：本地服务、远程服务、贡献的实现，以及本插件贡献点的接收者；用 `defineEntry` 定义时，产出与静态声明不一致在编译期报错。
 - **内核替它做的**：依赖的服务先激活；停止时先停依赖它的入口；撤回它交出去的服务、贡献、远程门面与订阅；关闭它的作用域。
 
-选哪种方式（全文见 [`runtime.plugin-api`](../../../docs/specs/runtime/plugin-api.md) 的“选用规则”与“可选功能”）：只传数据、调用方可能在别的实例的接口定义成远程服务合同，所有调用方直接用合同，不写只原样转发的本地服务包装；只在同一实例里用的接口是本地服务（给第三方插件的仍按数据面约束写：异步、可序列化；要同步调用或传运行期对象的只限内置插件之间）；许多插件各交声明与实现的是贡献点；在远程服务之上加东西（缓存、选路、代调用方身份访问）时才用本地服务包装远程服务，`cloud-notes` 与 `nbook.storage` 就是这样。
+选哪种方式（全文见 [`runtime.plugin-api`](../../../docs/specs/runtime/plugin-api.md) 的“选用规则”与“可选功能”）：只传数据、调用方可能在别的实例的接口定义成远程服务合同，所有调用方直接用合同，不写只原样转发的本地服务包装；只在同一实例里用的接口是本地服务（给第三方插件的仍按数据面约束写：异步、可序列化；要同步调用或传运行期对象的只限内置插件之间）；许多插件各交声明与实现的是贡献点；在远程服务之上加东西（缓存、选路、代调用方身份访问）时才用本地服务包装远程服务，`notes` 的浏览器入口与 `nbook.storage` 就是这样。
 
 ## 运行位置与目录
 
@@ -67,28 +67,27 @@ plugins/<插件>/
 
 | 插件 | 运行位置 | 演示什么 |
 |---|---|---|
-| [clock](plugins/clock/) | server | 依赖宿主能力里的时钟，包成共享的报时服务（`provide`）；不声明激活事件，有入口依赖它时才激活 |
-| [greeter](plugins/greeter/) | server | 依赖另一个插件的服务：服务键从对方的合同模块引用，激活前内核先解析依赖 |
-| [notes](plugins/notes/) | server | 按调用方生成门面（`providePerConsumer`）：每个插件只看到自己的数据，门面随调用方释放 |
+| [clock](plugins/clock/) | server | 依赖宿主能力里的时钟，包成共享的报时服务（`provide`）；不声明激活事件，有入口依赖它时才激活；`context.scope` 登记宿主计时器，`context.signal` 得知停止 |
+| [notes](plugins/notes/) | server、browser | 服务端：必需依赖 `nbook.storage`、可选依赖 clock（`resolve`），`provideRemote` 按调用方生成门面；浏览器：按调用方提供笔记视图，以调用方身份代理（`remote.on`、`remoteDelegates`、代理允许清单），维护同步可读的缓存，`nbook.storage` 的同款结构 |
 | [menu](plugins/menu/) | server | 定义贡献点：逐条校验声明、贡献方发布后接收者经 `published` 放进表、每次执行经 `implementation()` 取实现 |
 | [file-menu](plugins/file-menu/) | server | 向贡献点提交声明与实现，与拥有者之间没有服务依赖 |
 | [counter](plugins/counter/) | server | 远程服务：合同、第一次调用时按需激活、订阅、提供方看到的调用方；窗口里的插件直接用合同，不经本地服务转发 |
 | [board](plugins/board/) | project | 项目级插件：每个项目实例一份，窗口里的插件省略 `.at()` 即到达窗口绑定的那个项目 |
-| [cloud-notes](plugins/cloud-notes/) | server、browser | 浏览器入口以调用方身份代理（`remote.on`、`remoteDelegates`、代理允许清单），`nbook.storage` 的同款结构 |
 
 ## 场景
 
 | 场景 | 用到的插件 | 行为合同 |
 |---|---|---|
-| [01-services](scenarios/01-services.test.ts) | clock、greeter（宿主给时钟能力；不给时 clock 受阻） | [services](../../../docs/specs/runtime/services.md)、[plugins](../../../docs/specs/runtime/plugins.md)、[application](../../../docs/specs/runtime/application.md) |
-| [02-per-consumer](scenarios/02-per-consumer.test.ts) | notes | [services](../../../docs/specs/runtime/services.md) 输出第 11–12 条 |
+| [01-services](scenarios/01-services.test.ts) | clock、notes（宿主给时钟能力；不给时 clock 受阻、notes 照常） | [services](../../../docs/specs/runtime/services.md)、[plugins](../../../docs/specs/runtime/plugins.md)、[application](../../../docs/specs/runtime/application.md) |
+| [02-per-consumer](scenarios/02-per-consumer.test.ts) | notes（服务端） | [services](../../../docs/specs/runtime/services.md) 输出第 11–12 条 |
 | [03-contribution-point](scenarios/03-contribution-point.test.ts) | menu、file-menu | [plugins](../../../docs/specs/runtime/plugins.md) 输出第 15–18 条 |
 | [04-remote-service](scenarios/04-remote-service.test.ts) | counter（窗口里的面板直接调用；`orThrow` 只取值；订阅归发起它的入口，入口停止即结束） | [plugin-channel](../../../docs/specs/runtime/plugin-channel.md) |
-| [05-delegating-proxy](scenarios/05-delegating-proxy.test.ts) | cloud-notes | [services](../../../docs/specs/runtime/services.md) 输出第 13 条、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md) 输出第 10 条 |
+| [05-delegating-proxy](scenarios/05-delegating-proxy.test.ts) | notes（浏览器端） | [services](../../../docs/specs/runtime/services.md) 输出第 13 条、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md) 输出第 10 条 |
 | [06-project-instance](scenarios/06-project-instance.test.ts) | board | [projects](../../../docs/specs/runtime/projects.md)、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md) |
 
 - [`hosts.ts`](scenarios/hosts.ts) 像应用包的宿主那样把插件与宿主能力装进运行实例：服务端带路由，项目实例与窗口经 `@notnotype/nb-runtime/remote/testing` 的进程内链路连上它（产品里项目实例经 Bun IPC、窗口经 WebSocket，帧同样经 JSON 编解码），窗口按项目名绑定项目、可以断线重连；同一项目上一代停完才能起下一代。每个场景在 `afterEach` 里停止全部实例并核对正常关闭。
-- [`probes.ts`](scenarios/probes.ts) 的探针站在“使用这些服务的插件”的位置上，把拿到的本地服务（`serviceProbe`）或以探针身份的远程访问（`remoteProbe`）交给场景；产品里没有这样的插件。
+- [`testing/stage.ts`](testing/stage.ts) 是新场景用的场地：同样的装配，另外把内置插件（诊断、`nbook.state`、`nbook.commands`、`nbook.storage`）装进各实例，并给出状态根与时钟。
+- [`probes.ts`](testing/probes.ts) 的探针站在“使用这些服务的插件”的位置上，把拿到的本地服务（`serviceProbe`）或以探针身份的远程访问（`remoteProbe`）交给场景；产品里没有这样的插件。
 - 场景遵守 [测试写法](../../../docs/testing/README.md#测试写法)：真实内核实例，不用 mock、spy、假计时器与固定等待，时间由注入的时钟推进。
 
 ## 写法与维护

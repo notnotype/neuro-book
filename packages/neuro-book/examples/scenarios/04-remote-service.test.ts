@@ -10,7 +10,7 @@ import {orThrow, RemoteCallError} from "@notnotype/nb-runtime/remote";
 import {counterContract} from "../plugins/counter/shared/contracts";
 import {counterBackendPlugin} from "../plugins/counter/backend/plugin";
 import {Stage} from "./hosts";
-import {remoteProbe} from "./probes";
+import {remoteProbe} from "../testing/probes";
 
 const stage = new Stage();
 

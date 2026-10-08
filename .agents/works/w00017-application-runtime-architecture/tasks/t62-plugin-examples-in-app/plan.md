@@ -128,3 +128,18 @@ packages/neuro-book/examples/
 - **风险**：
   - 示例装进真实内置插件后场景变慢。场地按需装插件，每个场景只起需要的实例；超过 200 毫秒的场景在收口报告里列出。
   - 示例第一次真正使用 `defineStore` 与服务端的 `nbook.storage`，可能暴露这些内置插件的问题。属于内置插件的缺陷，记下并交主 Agent，不在示例里绕开。
+
+## 实施中的调整
+
+实施时发现的事实与改法，按切片记录。
+
+- **S1**：`packages/nb-runtime/AGENTS.md` 的“边界”里也写着“运行时零依赖”，与 `monorepo-boundaries.md` 同一处过时，一并改为“运行时依赖只有 TypeBox”。`runtime/plugins.md` 里没有指向示例目录的引用（只有“证据”一节指向 t57 Task 的历史链接），不改。
+- **S3**：
+  - **宿主时钟的键留在 `examples/shared/host.ts`**。第 1 节的目录树没有 `shared/`；但产品宿主没有时钟能力，示例插件又不能引用 `testing/`（规则 1 的精神），键只能放在插件与场地都能引用的平台中立处。`HostClock` 加了 `schedule`，与内核 `RuntimeClock` 同形。
+  - **可选依赖的原因分两种**。实测 clock 装了但因缺宿主时钟受阻时，notes 解析可选依赖得到 `provider-rejected`，不是计划写的 `missing-provider`；只有根本没装 clock 才是 `missing-provider`。场景 01 两种都覆盖，notes 按原因记 `info` 或 `warn` 诊断，正好对应 `runtime.plugin-api` “可选功能”表的两种情况。
+  - **clock 不做“当前小时”缓存**，改为 `until(at)`：入口只占一个宿主计时器，对准最早的等待；计时器登记在 `context.scope` 上、收口时释放；`context.signal` 一触发就把还在等的调用以 `stopped` 答复。这样两者分工不同、各自可以观察（场地时钟数出未释放的计时器；停止完成后等待已结算），变异检查也能分别打到。实测整个实例停止时，内核先向所有入口发出 signal、再按依赖逆序释放资源，注释里的说法以此为据。
+  - **clock 的服务改为异步方法**（`now()`、`until()` 返回 Promise）：示例按第三方插件的写法，本地服务按数据面约束写（`runtime.plugin-api` 的“远程形态约束”）。
+  - **notes 的笔记带 `via` 字段**（经哪个插件代理写入），场景 05 用它观察“服务端看到 via”；合同 `callers` 为 `server`、`browser`，服务端插件直接用合同。
+  - **场景 02 的“门面释放”**：远程门面没有 `ServiceRevokedError`，可观察的是调用方停止后它手里的旧客户端得到 `cancelled`、同一插件下一代读到原来的笔记、别的调用方不受影响。实测 `provideRemote` 的 `release` 在调用方停止时被调用；浏览器入口在门面工厂里取 `remote.on(调用方)` 得到 `denied`，注释据此写。
+  - 场地加了 `Stage.attach(app, 定义, 入口)`：把插件装进子作用域并激活，返回停止函数，用于演示调用方停止。
+  - 旧场景 03、04、06 在 S4 之前仍用旧的 `scenarios/hosts.ts`，只把探针的导入改到 `testing/probes.ts`；`hosts.ts` 在 S4 删除。README 只改了插件与场景表，S5 重写。

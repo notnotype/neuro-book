@@ -11,7 +11,7 @@ import {fileMenuBackendPlugin} from "../plugins/file-menu/backend/plugin";
 import {MENU_POINT, menuKey} from "../plugins/menu/shared/contracts";
 import {menuBackendPlugin} from "../plugins/menu/backend/plugin";
 import {Stage} from "./hosts";
-import {serviceProbe} from "./probes";
+import {serviceProbe} from "../testing/probes";
 
 const stage = new Stage();
 

@@ -1,6 +1,6 @@
 /**
- * 测试探针：站在“使用这些服务的插件”的位置上。启动即激活，把拿到的本地服务或远程访问交给场景。
- * 产品里没有这样的插件；应用包的同类探针见 `packages/neuro-book/src/server/testing/`。
+ * 测试探针：站在“使用这些服务的插件”的位置上。启动即激活，把拿到的本地服务或远程访问交给场景，场景就能以这个
+ * 插件的身份调用。产品里没有这样的插件；产品测试的同类探针见 `src/server/testing/`。
  */
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
