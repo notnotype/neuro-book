@@ -5,7 +5,7 @@
 | 改动路径 | 必读规范 |
 |---|---|
 | `packages/neuro-book/src/web/**`、`packages/neuro-book/src/plugins/*/web/**`、`uno.config.ts` | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md)、[`frontend.md`](frontend.md)；新增或修改 `.vue` 组件时追加 [`components.md`](components.md) |
-| `packages/neuro-book/src/server/**`、`packages/neuro-book/src/plugins/*/server/**` | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md)、[`packages/neuro-book/AGENTS.md`](../../../packages/neuro-book/AGENTS.md) 的“后端”一节（旧应用的 Nitro 后端规范已归档） |
+| `packages/neuro-book/src/server/**`、`packages/neuro-book/src/project/**`、`packages/neuro-book/src/plugins/*/backend/**` | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md)、[`packages/neuro-book/AGENTS.md`](../../../packages/neuro-book/AGENTS.md) 的“后端”一节（旧应用的 Nitro 后端规范已归档） |
 | `packages/neuro-book/src/plugins/*/shared/**`、`packages/neuro-book/src/manifest.ts` | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md)、[`contracts.md`](contracts.md) |
 | `packages/**`（应用之外的包） | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md)、[`packages.md`](packages.md) |
 | `vite.config.ts`、`vitest.config.ts`、`*.d.ts`、`bunfig.toml` 等工具链配置 | [`common.md`](common.md)、对应语言规范 |

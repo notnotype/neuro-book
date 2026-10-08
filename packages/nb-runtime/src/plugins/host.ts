@@ -163,6 +163,8 @@ class HandleImpl implements ContributionHandle {
 }
 
 interface ProvidedRecord {
+    /** 记录来自激活产出里的哪一项：清理按产出项对账，同一实例在别的产出项里出现不算。 */
+    readonly output: ProvidedService;
     readonly key: ServiceKey<unknown>;
     readonly instance: unknown;
     readonly release: ((instance: unknown) => void | Promise<void>) | undefined;
@@ -967,7 +969,7 @@ export class PluginHostImpl implements PluginHost {
                         this.#record("activate", "delegation-denied", {plugin, entry, generation});
                         return {status: "unavailable", key: key.name, reason: "delegation-denied", providerId: null, error: {name: "DelegationDenied", message}, path: []};
                     };
-                    if (!(record.definition.delegates ?? []).includes(key)) {
+                    if (!(record.definition.delegates ?? []).some((declared) => declared.name === key.name)) {
                         return denied(`入口 ${plugin}/${entry} 没有声明可代理 ${key.name}`);
                     }
                     if (this.#delegation?.(plugin) !== true) {
@@ -1003,11 +1005,12 @@ export class PluginHostImpl implements PluginHost {
         const provided = new Map<string, ProvidedRecord>();
         const declaredKeys = (record.definition.provides ?? []).map((key) => key.name);
         for (const service of output.services ?? []) {
-            if (!declaredKeys.includes(service.key.name)) {
+            // 同一个服务 id 只能产出一次：再出现一次与未声明同样处理，不让后一项覆盖前一项。
+            if (!declaredKeys.includes(service.key.name) || provided.has(service.key.name)) {
                 attempt.provided = provided;
                 return fail("output", "undeclared-service", {key: service.key.name});
             }
-            provided.set(service.key.name, {key: service.key, instance: service.instance, release: service.release?.bind(service), adopted: false, released: false});
+            provided.set(service.key.name, {output: service, key: service.key, instance: service.instance, release: service.release?.bind(service), adopted: false, released: false});
         }
         attempt.provided = provided;
         for (const key of declaredKeys) {
@@ -1483,7 +1486,7 @@ export class PluginHostImpl implements PluginHost {
         for (let index = services.length - 1; index >= 0; index -= 1) {
             const service = services[index]!;
             const record = attempt.provided.get(service.key.name);
-            const matching = record?.instance === service.instance ? record : undefined;
+            const matching = record?.output === service ? record : undefined;
             if (matching?.adopted || matching?.released || attempt.releasedOutputs.has(service)) {
                 continue;
             }

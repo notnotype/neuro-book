@@ -16,10 +16,11 @@
     "include": [
         "src/*.ts",
         "src/server",
+        "src/project",
         "src/shared",
         "src/types",
         "src/plugins/*/plugin.ts",
-        "src/plugins/*/server",
+        "src/plugins/*/backend",
         "src/plugins/*/shared",
         "src/**/*.test.ts",
         "scripts",

@@ -43,21 +43,25 @@ describe("第一轮审查边界回归", () => {
         await runtime.root.close();
     });
 
-    it("undeclared-service 中途失败后全部实际产出逆序恰好释放一次", async () => {
+    // 同一服务 id 第二次产出用另一份同 id 的键、同一个实例：按 id 建产出表时，后一项不能覆盖前一项、也不能让前一项漏掉释放。
+    it.each([
+        ["未声明的服务", foreignKey],
+        ["同一服务 id 第二次产出", defineServiceKey<string>("owner/first")],
+    ] as const)("undeclared-service（%s）中途失败后全部实际产出逆序恰好释放一次", async (_scenario, badKey) => {
         const runtime = createRuntimeInstance({instanceId: "invalid-output", location: "server"});
         const assembly = createServiceAssembly(runtime, {});
         const host = createPluginHost(runtime, assembly, {});
         const released: string[] = [];
         host.register({id: "owner", entries: [{id: "main", location: "server", provides: [firstKey, lastKey], activate: () => ({services: [
-            provide(firstKey, "first", (value) => {released.push(value);}),
-            provide(foreignKey, "foreign", (value) => {released.push(value);}),
-            provide(lastKey, "last", (value) => {released.push(value);}),
+            provide(firstKey, "shared", () => {released.push("first");}),
+            provide(badKey, "shared", () => {released.push("bad");}),
+            provide(lastKey, "last", () => {released.push("last");}),
         ]})}]}, {scope: runtime.root});
-        expect(await host.activate({plugin: "owner", entry: "main"})).toMatchObject({status: "failed", stage: "output", reason: "undeclared-service", key: foreignKey.name});
+        expect(await host.activate({plugin: "owner", entry: "main"})).toMatchObject({status: "failed", stage: "output", reason: "undeclared-service", key: badKey.name});
         expect((await runtime.root.close()).status).toBe("closed");
-        expect(released).toEqual(["last", "foreign", "first"]);
+        expect(released).toEqual(["last", "bad", "first"]);
         await runtime.root.recover();
-        expect(released).toEqual(["last", "foreign", "first"]);
+        expect(released).toEqual(["last", "bad", "first"]);
     });
 
     it("未校验产出释放失败后恢复只重试失败实例，不重复释放已成功实例", async () => {

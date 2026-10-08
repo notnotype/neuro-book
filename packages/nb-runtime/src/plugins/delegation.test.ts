@@ -21,6 +21,8 @@ interface Proxy {
 }
 
 const storeKey = defineServiceKey<Store>("store/data");
+/** 代理委托时用的另一份同 id 键：服务键按 id 识别（docs/adr/0025-service-keys-by-id.md），和声明里的那份等价。 */
+const storeKeyElsewhere = defineServiceKey<Store>("store/data");
 const proxyKey = defineServiceKey<Proxy>("proxy/data");
 const otherProxyKey = defineServiceKey<Proxy>("other/data");
 
@@ -60,7 +62,7 @@ function proxyPlugin(id: string, key: typeof proxyKey, events: string[], options
             activate: (context: ActivationContext) => {
                 const delegated = new Map<ConsumerIdentity, Store>();
                 const storeFor = async (consumer: ConsumerIdentity): Promise<Store> => {
-                    const result = await context.services.resolveFor(consumer, storeKey);
+                    const result = await context.services.resolveFor(consumer, storeKeyElsewhere);
                     if (result.status !== "resolved") {
                         throw new Error(`委托失败：${result.reason} ${result.error?.message ?? ""}`);
                     }
@@ -70,7 +72,7 @@ function proxyPlugin(id: string, key: typeof proxyKey, events: string[], options
                 return {
                     services: [providePerConsumer(key, (consumer): Proxy => ({
                         whoAtStore: async () => (await storeFor(consumer)).who(),
-                        delegateAs: (other) => context.services.resolveFor(other, storeKey),
+                        delegateAs: (other) => context.services.resolveFor(other, storeKeyElsewhere),
                         identity: () => consumer,
                     }), {
                         release: (_facade, consumer) => {
