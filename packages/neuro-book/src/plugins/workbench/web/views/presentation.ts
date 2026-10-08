@@ -143,7 +143,10 @@ export interface MoveTargetGroup {
 export interface MoveTargets {
     readonly viewId: string;
     readonly sourceContainerId: string;
-    /** 除来源外的全部容器，含同一 Part 的，按 Part 分组；没有目标的 Part 不列出。 */
+    /**
+     * 除来源外的全部容器，含同一 Part 的，按 Part 分组；三个 Part 都列出（没有已有容器的组只剩“新建容器（在 X）”，
+     * 那一项由显示方按组补上）。
+     */
     readonly groups: ReadonlyArray<MoveTargetGroup>;
     /** 视图不在默认位置时可以“重置位置”。 */
     readonly canReset: boolean;
@@ -157,6 +160,6 @@ export function moveTargetsOf(presentation: Presentation, placement: Placement, 
     const groups = VIEW_LOCATIONS.map((part) => ({
         part,
         targets: presentation.parts[part].switcher.filter((item) => item.containerId !== current.container),
-    })).filter((group) => group.targets.length > 0);
+    }));
     return {viewId, sourceContainerId: current.container, groups, canReset: current.source === "record"};
 }

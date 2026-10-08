@@ -44,8 +44,9 @@ describe("WorkbenchActivityBar", () => {
 
 describe("WorkbenchMoveViewMenu", () => {
     const groups = [
-        {label: "侧栏", targets: [{id: "view:b", label: "搜索", icon: "i-lucide-search"}]},
-        {label: "面板", targets: [{id: "view:c", label: "终端", icon: "i-lucide-terminal"}]},
+        {part: "sidebar", label: "侧栏", targets: [{id: "view:b", label: "搜索", icon: "i-lucide-search"}], createLabel: "新建容器（在侧栏）"},
+        {part: "auxiliarybar", label: "右栏", targets: [], createLabel: "新建容器（在右栏）"},
+        {part: "panel", label: "面板", targets: [{id: "view:c", label: "终端", icon: "i-lucide-terminal"}], createLabel: "新建容器（在面板）"},
     ];
     const base = {label: "移动到", viewId: "a", sourceContainerId: "view:a", groups, resetLabel: "重置位置", identity: "a|view:a|1|single"};
 
@@ -62,14 +63,19 @@ describe("WorkbenchMoveViewMenu", () => {
         item.click();
     }
 
-    it("一层平铺列出目标，右侧注明 Part；选中后发 move，来源是打开时记下的；重置位置发 reset", async () => {
+    it("一层平铺列出目标，右侧注明 Part，每段末尾是新建容器；选中后发 move，来源是打开时记下的；重置位置发 reset", async () => {
         const wrapper = mount(WorkbenchMoveViewMenu, {props: base, attachTo: document.body});
         wrappers.push(wrapper);
         await open(wrapper);
-        expect(menuItems().map((item) => item.textContent?.replace(/\s+/gu, ""))).toEqual(["搜索侧栏", "终端面板", "重置位置"]);
+        expect(menuItems().map((item) => item.textContent?.replace(/\s+/gu, ""))).toEqual(["搜索侧栏", "新建容器（在侧栏）", "新建容器（在右栏）", "终端面板", "新建容器（在面板）", "重置位置"]);
         click("终端");
         await flush();
         expect(wrapper.emitted("move")).toEqual([[{viewId: "a", sourceContainerId: "view:a", targetContainerId: "view:c"}]]);
+
+        await open(wrapper);
+        click("新建容器（在右栏）");
+        await flush();
+        expect(wrapper.emitted("move")?.[1]).toEqual([{viewId: "a", sourceContainerId: "view:a", newContainerIn: "auxiliarybar"}]);
 
         await open(wrapper);
         click("重置位置");

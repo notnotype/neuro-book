@@ -197,7 +197,7 @@ describe("呈现模型", () => {
         expect(next.containers).toEqual(customizations.containers);
     });
 
-    it("移动目标：除来源外的全部容器，含同一 Part 的，按 Part 分组；不在默认位置时可重置；不可移动没有目标表", () => {
+    it("移动目标：除来源外的全部容器，含同一 Part 的，按 Part 分组，三个 Part 都列（供“新建容器”）；不在默认位置时可重置；不可移动没有目标表", () => {
         const catalog = catalogOf({[A]: titled("A", "sidebar"), [B]: titled("B", "sidebar"), [C]: titled("C", "panel"), "test.d": titled("D", "sidebar", {movable: false})});
         let state = model(catalog, {});
         expect(moveTargetsOf(state.presentation, state.placement, catalog, A)).toEqual({
@@ -205,6 +205,7 @@ describe("呈现模型", () => {
             sourceContainerId: "view:test.a",
             groups: [
                 {part: "sidebar", targets: [{containerId: "view:test.b", title: {"zh-CN": "B", "en-US": "B"}, icon: "i-B"}, {containerId: "view:test.d", title: {"zh-CN": "D", "en-US": "D"}, icon: "i-D"}]},
+                {part: "auxiliarybar", targets: []},
                 {part: "panel", targets: [{containerId: "view:test.c", title: {"zh-CN": "C", "en-US": "C"}, icon: "i-C"}]},
             ],
             canReset: false,

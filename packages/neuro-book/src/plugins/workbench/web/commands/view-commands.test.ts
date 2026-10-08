@@ -105,6 +105,31 @@ describe("移动视图", () => {
         expect(silent.requests).toEqual([]);
     });
 
+    it("newContainerIn：建一个只装这个视图的自建容器放到 Part 末尾并选中；与 targetContainerId 同给为 invalid-args；来源过期为 stale-target", async () => {
+        const store = await layout();
+        const silent = picker(() => ({kind: "cancelled"}));
+        expect(await run(store, silent, {viewId: "test.a", sourceContainerId: "view:test.a", targetContainerId: "view:test.c", newContainerIn: "panel"})).toMatchObject({ok: false, code: "invalid-args"});
+        expect(await run(store, silent, {viewId: "test.a", newContainerIn: "panel"})).toMatchObject({ok: false, code: "invalid-args"});
+        expect(store.state.customizations.queue).toBe(0);
+        expect(await run(store, silent, {viewId: "test.a", sourceContainerId: "view:test.a", newContainerIn: "panel"})).toEqual({ok: true, value: null});
+        const created = store.state.placement.views.get("test.a")?.container ?? "";
+        expect(created).toMatch(/^custom:[0-9a-f-]{36}$/u);
+        expect(store.state.placement.parts.panel).toEqual(["view:test.c", created]);
+        expect(store.state.placement.selected.panel).toBe(created);
+        expect(store.state.placement.containers.get(created)?.members).toEqual(["test.a"]);
+        await waitUntil("保存完成", () => store.state.customizations.queue === 0);
+        expect(store.state.customizations.display.containers?.[created]).toEqual({location: "panel", order: expect.any(Number), origin: "test.a"});
+        expect(await run(store, silent, {viewId: "test.a", sourceContainerId: "view:test.a", newContainerIn: "sidebar"})).toMatchObject({ok: false, code: "stale-target"});
+        // 再新建一次：身份每次执行各生成一个，旧的自建容器搬空后连记录一起消失。
+        expect(await run(store, silent, {viewId: "test.a", sourceContainerId: created, newContainerIn: "auxiliarybar"})).toEqual({ok: true, value: null});
+        const second = store.state.placement.views.get("test.a")?.container ?? "";
+        expect(second).not.toBe(created);
+        expect(store.state.placement.parts.auxiliarybar).toEqual([second]);
+        expect(store.state.placement.containers.has(created)).toBe(false);
+        await waitUntil("保存完成", () => store.state.customizations.queue === 0);
+        expect(store.state.customizations.display.containers?.[created]).toBeUndefined();
+    });
+
     it("无参：先选视图、再选目标（含同一 Part 的容器与重置位置）；取消任一步成功且不写", async () => {
         const store = await layout();
         const cancelFirst = picker(() => ({kind: "cancelled"}));
@@ -114,7 +139,7 @@ describe("移动视图", () => {
 
         const cancelSecond = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.a"} : {kind: "cancelled"}));
         expect(await run(store, cancelSecond, {})).toEqual({ok: true, value: null});
-        expect(labels(cancelSecond.requests[1])).toEqual(["view:test.b:B/侧栏", "view:test.d:D/侧栏", "view:test.c:C/面板"]);
+        expect(labels(cancelSecond.requests[1])).toEqual(["view:test.b:B/侧栏", "view:test.d:D/侧栏", "new:sidebar:新建容器（在侧栏）", "new:auxiliarybar:新建容器（在右栏）", "view:test.c:C/面板", "new:panel:新建容器（在面板）"]);
         expect(store.state.customizations.queue).toBe(0);
 
         const move = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.a"} : {kind: "item", id: "view:test.b"}));
@@ -125,6 +150,12 @@ describe("移动视图", () => {
         expect(await run(store, reset, {})).toEqual({ok: true, value: null});
         expect(labels(reset.requests[1]).at(-1)).toBe("reset::重置位置");
         expect(store.state.placement.views.get("test.a")?.container).toBe("view:test.a");
+
+        const create = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.c"} : {kind: "item", id: "new:sidebar"}));
+        expect(await run(store, create, {})).toEqual({ok: true, value: null});
+        const created = store.state.placement.views.get("test.c")?.container ?? "";
+        expect(created.startsWith("custom:")).toBe(true);
+        expect(store.state.placement.parts.sidebar.at(-1)).toBe(created);
     });
 
     it("两步选择之间视图被别处移走：按 stale-target 拒绝且不写", async () => {

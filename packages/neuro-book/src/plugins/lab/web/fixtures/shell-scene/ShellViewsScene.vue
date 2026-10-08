@@ -13,6 +13,7 @@ import {computed, reactive, ref, shallowRef} from "vue";
 
 import WorkbenchActivityBar from "nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue";
 import WorkbenchMoveViewMenu from "nbook/plugins/workbench/web/components/WorkbenchMoveViewMenu.vue";
+import type {MovePayload} from "nbook/plugins/workbench/web/components/WorkbenchMoveViewMenu.vue";
 import WorkbenchPanelSurface from "nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue";
 import WorkbenchShellLayout from "nbook/plugins/workbench/web/components/WorkbenchShellLayout.vue";
 import WorkbenchToolPartHost from "nbook/plugins/workbench/web/components/WorkbenchToolPartHost.vue";
@@ -26,7 +27,7 @@ import {TeleportMemory} from "nbook/plugins/workbench/web/shell/teleport-memory"
 import type {Customizations} from "nbook/plugins/workbench/web/state/records";
 import {applyIntent, applyPatch} from "nbook/plugins/workbench/web/views/intents";
 import type {ViewIntent} from "nbook/plugins/workbench/web/views/intents";
-import {computePlacement} from "nbook/plugins/workbench/web/views/placement";
+import {computePlacement, customContainerId} from "nbook/plugins/workbench/web/views/placement";
 import {buildPresentation, moveTargetsOf} from "nbook/plugins/workbench/web/views/presentation";
 import type {ContainerPresentation} from "nbook/plugins/workbench/web/views/presentation";
 import type {ViewDelivery, ViewSource} from "nbook/plugins/workbench/web/views/registry";
@@ -146,11 +147,17 @@ function menuOf(viewId: string) {
     if (targets === null) return null;
     const container = presentation.value.containers.get(targets.sourceContainerId);
     return {
-        groups: targets.groups.map((group) => ({label: PART_LABELS[group.part], targets: group.targets.map((target) => ({id: target.containerId, label: target.title["zh-CN"], icon: target.icon}))})),
+        groups: targets.groups.map((group) => ({part: group.part, label: PART_LABELS[group.part], targets: group.targets.map((target) => ({id: target.containerId, label: target.title["zh-CN"], icon: target.icon})), createLabel: `新建容器（在${PART_LABELS[group.part]}）`})),
         source: targets.sourceContainerId,
         resetLabel: targets.canReset ? "重置位置" : null,
         identity: `${viewId}|${targets.sourceContainerId}|${container?.mode ?? ""}|${source.delivery(viewId).kind}|${String(generations.value.get(viewId) ?? 0)}`,
     };
+}
+
+/** 与 `nbook.view.move-view` 同一种翻译：新建容器时在这里生成身份。 */
+function move(payload: MovePayload): void {
+    if ("targetContainerId" in payload) apply({kind: "move-view", ...payload});
+    else apply({kind: "detach-view", viewId: payload.viewId, sourceContainerId: payload.sourceContainerId, containerId: customContainerId(crypto.randomUUID()), targetPart: payload.newContainerIn as ViewLocation});
 }
 
 const singleViewOf = (container: ContainerPresentation | null): string | null => (container?.mode === "single" ? (container.views[0]?.id ?? null) : null);
@@ -185,7 +192,7 @@ const position = computed({get: () => panel.value.position, set: (value: string 
             <template v-for="part in (['sidebar', 'auxiliarybar'] as const)" :key="part" #[part]>
                 <WorkbenchToolPartHost :part="part" :presentation="presentation.parts[part]" :selected="selectedOf(part)" locale="zh-CN" :label="PART_LABELS[part]" empty-text="这里还没有视图" id-prefix="lab-views" @select="(id) => apply({kind: 'select-container', part, containerId: id})" @target="(element) => setTarget(part, element)">
                     <template #actions="{container}">
-                        <WorkbenchMoveViewMenu v-if="singleViewOf(container) !== null && menuOf(singleViewOf(container)!) !== null" label="移动到" :view-id="singleViewOf(container)!" :source-container-id="menuOf(singleViewOf(container)!)!.source" :groups="menuOf(singleViewOf(container)!)!.groups" :reset-label="menuOf(singleViewOf(container)!)!.resetLabel" :identity="menuOf(singleViewOf(container)!)!.identity" @move="(payload) => apply({kind: 'move-view', ...payload})" @reset="(viewId) => apply({kind: 'reset-view', viewId})" />
+                        <WorkbenchMoveViewMenu v-if="singleViewOf(container) !== null && menuOf(singleViewOf(container)!) !== null" label="移动到" :view-id="singleViewOf(container)!" :source-container-id="menuOf(singleViewOf(container)!)!.source" :groups="menuOf(singleViewOf(container)!)!.groups" :reset-label="menuOf(singleViewOf(container)!)!.resetLabel" :identity="menuOf(singleViewOf(container)!)!.identity" @move="move" @reset="(viewId) => apply({kind: 'reset-view', viewId})" />
                     </template>
                 </WorkbenchToolPartHost>
             </template>
@@ -196,7 +203,7 @@ const position = computed({get: () => panel.value.position, set: (value: string 
                 <WorkbenchPanelSurface title="面板" :collapsed="collapsed" :actions="[{id: 'collapse', label: '收起', icon: 'i-lucide-chevrons-down', disabled: false, pressed: panel.collapsed}]" @action="panel = {...panel, collapsed: !panel.collapsed}">
                     <template v-if="panelTabs.length > 0" #nav>
                         <Tabs class="min-w-0 flex-1" size="sm" :model-value="presentation.parts.panel.selected ?? ''" :items="panelTabs" aria-label="面板" @update:model-value="(id: string) => apply({kind: 'select-container', part: 'panel', containerId: id})" />
-                        <WorkbenchMoveViewMenu v-if="singleViewOf(selectedOf('panel')) !== null && menuOf(singleViewOf(selectedOf('panel'))!) !== null" label="移动到" :view-id="singleViewOf(selectedOf('panel'))!" :source-container-id="menuOf(singleViewOf(selectedOf('panel'))!)!.source" :groups="menuOf(singleViewOf(selectedOf('panel'))!)!.groups" :reset-label="menuOf(singleViewOf(selectedOf('panel'))!)!.resetLabel" :identity="menuOf(singleViewOf(selectedOf('panel'))!)!.identity" @move="(payload) => apply({kind: 'move-view', ...payload})" @reset="(viewId) => apply({kind: 'reset-view', viewId})" />
+                        <WorkbenchMoveViewMenu v-if="singleViewOf(selectedOf('panel')) !== null && menuOf(singleViewOf(selectedOf('panel'))!) !== null" label="移动到" :view-id="singleViewOf(selectedOf('panel'))!" :source-container-id="menuOf(singleViewOf(selectedOf('panel'))!)!.source" :groups="menuOf(singleViewOf(selectedOf('panel'))!)!.groups" :reset-label="menuOf(singleViewOf(selectedOf('panel'))!)!.resetLabel" :identity="menuOf(singleViewOf(selectedOf('panel'))!)!.identity" @move="move" @reset="(viewId) => apply({kind: 'reset-view', viewId})" />
                     </template>
                     <WorkbenchToolPartHost part="panel" :presentation="presentation.parts.panel" :selected="selectedOf('panel')" locale="zh-CN" label="面板" empty-text="这里还没有视图" id-prefix="lab-views" @select="(id) => apply({kind: 'select-container', part: 'panel', containerId: id})" @target="(element) => setTarget('panel', element)" />
                 </WorkbenchPanelSurface>
@@ -207,7 +214,7 @@ const position = computed({get: () => panel.value.position, set: (value: string 
         </WorkbenchShellLayout>
         <WorkbenchViewInstances :presentation="presentation" :source="source" :part-targets="partTargets" :shown-parts="shownParts" :memory="memory" :root="hostEl" locale="zh-CN" @intent="apply" @generations="(next) => (generations = next)">
             <template #view-actions="{viewId}">
-                <WorkbenchMoveViewMenu v-if="menuOf(viewId) !== null" label="移动到" :view-id="viewId" :source-container-id="menuOf(viewId)!.source" :groups="menuOf(viewId)!.groups" :reset-label="menuOf(viewId)!.resetLabel" :identity="menuOf(viewId)!.identity" @move="(payload) => apply({kind: 'move-view', ...payload})" @reset="(id) => apply({kind: 'reset-view', viewId: id})" />
+                <WorkbenchMoveViewMenu v-if="menuOf(viewId) !== null" label="移动到" :view-id="viewId" :source-container-id="menuOf(viewId)!.source" :groups="menuOf(viewId)!.groups" :reset-label="menuOf(viewId)!.resetLabel" :identity="menuOf(viewId)!.identity" @move="move" @reset="(id) => apply({kind: 'reset-view', viewId: id})" />
             </template>
             <template #empty>
                 <div class="p-3 text-xs text-[var(--text-muted)]">容器里的视图都已隐藏</div>

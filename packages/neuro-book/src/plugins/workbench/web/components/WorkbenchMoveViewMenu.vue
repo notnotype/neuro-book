@@ -12,9 +12,17 @@ export interface MoveTarget {
 }
 
 export interface MoveTargetGroup {
+    /** 组对应的 Part，“新建容器”一项原样带回。 */
+    readonly part: string;
     readonly label: string;
     readonly targets: ReadonlyArray<MoveTarget>;
+    /** 组末“新建容器（在 X）”的文字。 */
+    readonly createLabel: string;
 }
+
+export type MovePayload =
+    | {readonly viewId: string; readonly sourceContainerId: string; readonly targetContainerId: string}
+    | {readonly viewId: string; readonly sourceContainerId: string; readonly newContainerIn: string};
 
 defineOptions({name: "WorkbenchMoveViewMenu"});
 
@@ -28,12 +36,13 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-    (event: "move", payload: {viewId: string; sourceContainerId: string; targetContainerId: string}): void;
+    (event: "move", payload: MovePayload): void;
     (event: "reset", viewId: string): void;
 }>();
 
 const RESET = "reset";
 const MOVE_PREFIX = "move:";
+const CREATE_PREFIX = "create:";
 
 const open = ref(false);
 /**
@@ -43,7 +52,7 @@ const open = ref(false);
 const origin = ref<{readonly viewId: string; readonly sourceContainerId: string} | null>(null);
 
 /**
- * 一层平铺：按 Part 分段、段间分隔线，每项右侧注明所在 Part。不用级联子菜单：子菜单浮层在菜单原语看来是“外部”，
+ * 一层平铺：按 Part 分段、段间分隔线，每项右侧注明所在 Part，段末是“新建容器（在 X）”。不用级联子菜单：子菜单浮层在菜单原语看来是“外部”，
  * 真实浏览器里指针点进去会先触发外部点击关闭整个菜单，选择到不了。
  */
 const items = computed<DropdownItem[]>(() => {
@@ -51,6 +60,7 @@ const items = computed<DropdownItem[]>(() => {
     props.groups.forEach((group, index) => {
         if (index > 0) result.push({label: "", value: `separator:${String(index)}`, separator: true});
         for (const target of group.targets) result.push({label: target.label, value: `${MOVE_PREFIX}${target.id}`, iconClass: target.icon, shortcut: group.label});
+        result.push({label: group.createLabel, value: `${CREATE_PREFIX}${group.part}`, iconClass: "i-lucide-square-plus"});
     });
     if (props.resetLabel !== null) {
         if (result.length > 0) result.push({label: "", value: "separator:reset", separator: true});
@@ -78,6 +88,7 @@ function select(value: string): void {
     if (from === null) return;
     if (value === RESET) emit("reset", from.viewId);
     else if (value.startsWith(MOVE_PREFIX)) emit("move", {viewId: from.viewId, sourceContainerId: from.sourceContainerId, targetContainerId: value.slice(MOVE_PREFIX.length)});
+    else if (value.startsWith(CREATE_PREFIX)) emit("move", {viewId: from.viewId, sourceContainerId: from.sourceContainerId, newContainerIn: value.slice(CREATE_PREFIX.length)});
 }
 </script>
 

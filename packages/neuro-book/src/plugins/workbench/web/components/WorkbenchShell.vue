@@ -18,7 +18,7 @@ import {
     SET_PANEL_POSITION_COMMAND,
     TOGGLE_PANEL_MAXIMIZED_COMMAND,
 } from "../commands/panel-commands";
-import {MOVE_VIEW_COMMAND, PART_LABELS} from "../commands/view-commands";
+import {MOVE_VIEW_COMMAND, PART_LABELS, newContainerLabel} from "../commands/view-commands";
 import {SHELL_PART_IDS} from "../shell/sizes";
 import type {ShellLayoutFacts, ShellPartId, ShellSizePatch} from "../shell/sizes";
 import {TeleportMemory} from "../shell/teleport-memory";
@@ -29,7 +29,7 @@ import type {ContainerPresentation} from "../views/presentation";
 import type {ViewSource} from "../views/registry";
 import WorkbenchActivityBar from "./WorkbenchActivityBar.vue";
 import WorkbenchMoveViewMenu from "./WorkbenchMoveViewMenu.vue";
-import type {MoveTargetGroup} from "./WorkbenchMoveViewMenu.vue";
+import type {MovePayload, MoveTargetGroup} from "./WorkbenchMoveViewMenu.vue";
 import WorkbenchPanelSurface from "./WorkbenchPanelSurface.vue";
 import type {PanelFrameAction} from "./WorkbenchPanelSurface.vue";
 import WorkbenchShellLayout from "./WorkbenchShellLayout.vue";
@@ -162,7 +162,12 @@ function moveMenuOf(viewId: string): {groups: MoveTargetGroup[]; source: string;
     if (targets === null) return null;
     const container = presentation.value.containers.get(targets.sourceContainerId);
     return {
-        groups: targets.groups.map((group) => ({label: text(PART_LABELS[group.part]), targets: group.targets.map((target) => ({id: target.containerId, label: text(target.title), icon: target.icon}))})),
+        groups: targets.groups.map((group) => ({
+            part: group.part,
+            label: text(PART_LABELS[group.part]),
+            targets: group.targets.map((target) => ({id: target.containerId, label: text(target.title), icon: target.icon})),
+            createLabel: text(newContainerLabel(group.part)),
+        })),
         source: targets.sourceContainerId,
         resetLabel: targets.canReset ? text(TEXT.resetLocation) : null,
         // 菜单目标身份：视图、来源容器、容器模式、交付状态与实例代际任一变化，已打开的菜单就关闭。
@@ -170,7 +175,7 @@ function moveMenuOf(viewId: string): {groups: MoveTargetGroup[]; source: string;
     };
 }
 
-function moveView(payload: {viewId: string; sourceContainerId: string; targetContainerId: string}): void {
+function moveView(payload: MovePayload): void {
     void props.commands.execute(MOVE_VIEW_COMMAND, payload, {source: "user"});
 }
 

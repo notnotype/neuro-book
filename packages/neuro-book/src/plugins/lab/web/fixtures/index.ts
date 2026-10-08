@@ -316,12 +316,13 @@ export const labFixtures: LabFixture[] = [
         events: ["move", "reset"],
         scenes: (() => {
             const groups = [
-                {label: "侧栏", targets: [{id: "view:nbook.search", label: "搜索", icon: "i-lucide-search"}, {id: "view:nbook.outline", label: "大纲", icon: "i-lucide-list-tree"}]},
-                {label: "面板", targets: [{id: "view:nbook.terminal", label: "终端", icon: "i-lucide-terminal"}]},
+                {part: "sidebar", label: "侧栏", targets: [{id: "view:nbook.search", label: "搜索", icon: "i-lucide-search"}, {id: "view:nbook.outline", label: "大纲", icon: "i-lucide-list-tree"}], createLabel: "新建容器（在侧栏）"},
+                {part: "auxiliarybar", label: "右栏", targets: [], createLabel: "新建容器（在右栏）"},
+                {part: "panel", label: "面板", targets: [{id: "view:nbook.terminal", label: "终端", icon: "i-lucide-terminal"}], createLabel: "新建容器（在面板）"},
             ];
             const base = {label: "移动到", viewId: "nbook.files", sourceContainerId: "view:nbook.files", identity: "nbook.files|view:nbook.files|1|single"};
             return [
-                {id: "default", label: "两个 Part 的目标", input: {props: {...base, groups, resetLabel: null}}},
+                {id: "default", label: "三个 Part 的目标与新建容器", input: {props: {...base, groups, resetLabel: null}}},
                 {id: "reset", label: "不在默认位置：可重置", input: {props: {...base, sourceContainerId: "view:nbook.search", groups, resetLabel: "重置位置"}}},
                 {id: "none", label: "没有目标：禁用", input: {props: {...base, groups: [], resetLabel: null}}},
             ];
