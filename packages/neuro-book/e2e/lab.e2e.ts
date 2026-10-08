@@ -218,9 +218,9 @@ test("偏好存储被写坏：合法的字段照常恢复，不合法的回到�
     await broken.close();
 });
 
-test("离开 Lab 回到工作台是整页加载：新的窗口运行实例，Lab 写在 <html> 上的主题不留下（场景 17）", async ({page}) => {
-    await openLab(page, "?c=JsonViewer");
-    await expect.poll(() => htmlTheme(page)).toBe("nbook");
+test("离开 Lab 回到工作台是整页加载：新的窗口运行实例，Lab 写在 <html> 上的主题不留下，换成产品配置的主题（场景 17）", async ({page}) => {
+    await openLab(page, "?c=JsonViewer&theme=macos");
+    await expect.poll(() => htmlTheme(page)).toBe("macos");
     const labInstance = await page.locator("[data-lab-page]").getAttribute("data-window-instance");
     expect(labInstance).toBeTruthy();
     await page.evaluate(() => {
@@ -230,5 +230,7 @@ test("离开 Lab 回到工作台是整页加载：新的窗口运行实例，Lab
     const workbench = page.locator("[data-workbench-root]");
     await expect(workbench).toHaveAttribute("data-window-state", "ready");
     expect(await workbench.getAttribute("data-window-instance")).not.toBe(labInstance);
-    expect(await htmlTheme(page)).toBeNull();
+    // 产品页按配置写自己的主题（默认 nbook、浅色，docs/specs/theme/system.md），Lab 的 macOS 与深色不留下。
+    await expect.poll(() => htmlTheme(page)).toBe("nbook");
+    expect(await page.evaluate(() => document.documentElement.dataset.nbAppearance ?? null)).toBe("light");
 });

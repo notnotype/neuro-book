@@ -114,7 +114,7 @@ fixture 使用脱敏的静态或内存数据，不调用真实 Provider/Model、
 
 Lab 消费的组件索引是派生产物，由扫描同名 Markdown 与 Vue 实现生成；缺少任一侧的条目被跳过。组件名、文档第一条 H1 派生出的显示名、frontmatter 别名、分组、能力标签、挂载结论和阻断原因来自文档与标签推导；场景由 fixture 按组件名关联，仓库不保留第二份组件或场景索引。`needsSnapshot` 当前只是索引标记，不代表 Lab 已提供或验证状态快照。
 
-Lab 的主题/配色仅是开发工具自身的界面状态，写入 Lab 专属浏览器存储，不改变产品 `theme.system`、Global Config 或产品主题 authority。新应用的产品主题随工作台外壳接入（w00017 t50）；t09 `LabShell.vue` 拆分已延期且不由本规范宣称完成。
+Lab 的主题/配色仅是开发工具自身的界面状态，写入 Lab 专属浏览器存储，不改变产品 `theme.system`、Global Config 或产品主题 authority。新应用的产品主题由工作台页面按配置（`nbook.workbench/theme`、`nbook.workbench/appearance`）写在文档根（[`theme.system`](../theme/system.md)），Lab 不读这两项，离开 Lab 整页加载后由产品页重新应用；t09 `LabShell.vue` 拆分已延期且不由本规范宣称完成。
 
 Lab 落地本身不授权删除任何既有的 preview 页面。既有 preview 的清退条件、组件迁移进度与场景归属属于对应的重构工作，不属于本规范。
 ## 验收与 Smoke
