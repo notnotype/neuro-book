@@ -17,7 +17,7 @@ owners:
 
 **本批（命令底座与 Lab 闭环）**交付六条命令——`nbook.editor.focus`、`nbook.edit.undo`、`nbook.edit.redo`、`nbook.editor.go-to-line`、`nbook.quick-open.open-commands`、`nbook.quick-open.open-line`——以及机制底座与 Component Lab 可见闭环。
 
-**第二批（外壳与 View 标题操作，2026-09-19）**交付 `view` 域的七条命令：面板位置/对齐/隐藏/收起/最大化切换、工具视图移动，以及一个真实 View 贡献的刷新入口。它们复用同一命令表与同一执行入口，不新开命令总线；面板标题的框架控件与 View 贡献操作分别调用这两组命令。新应用里随工作台外壳一起迁入（[`ui.workbench-shell`](../ui/workbench-shell.md) 定义视图描述与 `when` / authority 的求值口径）。
+**第二批（外壳与 View 标题操作，2026-09-19）**交付 `view` 域的七条命令：面板位置/对齐/隐藏/收起/最大化切换、工具视图移动，以及一个真实 View 贡献的刷新入口。它们复用同一命令表与同一执行入口，不新开命令总线；面板标题的框架控件与 View 贡献操作分别调用这两组命令。新应用里五条面板命令随外壳一、移动视图随外壳二、刷新文件随 Files 迁入（[`ui.workbench-shell`](../ui/workbench-shell.md) 定义外壳的行为与公开状态）。
 
 **非目标**：
 
@@ -149,22 +149,22 @@ owners:
 
 ### 命令目录（第二批 · 外壳与 View 标题）
 
-新应用里随工作台外壳一起迁入。
+五条面板命令由 `nbook.workbench` 的浏览器入口贡献（随外壳一），`when` 读工作台的公开状态（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 13）；移动视图随外壳二，刷新文件随 Files。
 
-| 命令 id | 标题 | 参数 | `when` | `effect` | agent 暴露 |
+| 命令 id | 标题 | 参数 | `when.requires` | `effect` | agent 暴露 |
 |---|---|---|---|---|---|
-| `nbook.view.set-panel-position` | 面板位置 / Panel Position | `{position}`（`bottom`\|`top`\|`left`\|`right`） | 外壳就绪且非紧凑呈现 | write | never |
-| `nbook.view.set-panel-alignment` | 面板对齐 / Panel Alignment | `{alignment}`（`center`\|`left`\|`right`\|`justify`） | 水平位置且非紧凑呈现 | write | never |
-| `nbook.view.set-panel-hidden` | 隐藏/显示面板 / Hide or Show Panel | `{hidden}`（布尔） | 外壳就绪 | write | never |
-| `nbook.view.set-panel-collapsed` | 收起为标题头 / Collapse to Title Bar | `{collapsed}`（布尔） | 水平位置 | write | never |
-| `nbook.view.toggle-panel-maximized` | 最大化/还原面板 / Maximize or Restore Panel | `{}` | 左右位置或水平居中且非紧凑呈现 | write | never |
+| `nbook.view.set-panel-position` | 面板位置 / Panel Position | `{position?}`（`bottom`\|`top`\|`left`\|`right`）；省略时经选择列出四个位置、标出当前 | `nbook.workbench/layoutReady`、`nbook.workbench/nonCompact` | write | never |
+| `nbook.view.set-panel-alignment` | 面板对齐 / Panel Alignment | `{alignment?}`（`center`\|`left`\|`right`\|`justify`）；省略时经选择 | `nbook.workbench/panelHorizontal`、`nbook.workbench/nonCompact` | write | never |
+| `nbook.view.set-panel-hidden` | 隐藏/显示面板 / Hide or Show Panel | `{hidden?}`（布尔）；省略时切换 | `nbook.workbench/layoutReady` | write | never |
+| `nbook.view.set-panel-collapsed` | 收起为标题头 / Collapse to Title Bar | `{collapsed?}`（布尔）；省略时切换 | `nbook.workbench/panelHorizontal` | write | never |
+| `nbook.view.toggle-panel-maximized` | 最大化/还原面板 / Maximize or Restore Panel | `{}` | `nbook.workbench/panelMaximizable`、`nbook.workbench/nonCompact` | write | never |
 | `nbook.view.move-view` | 移动视图 / Move View | `{viewId, sourceContainerId, targetContainerId}` | 视图可移动且目标容器可接收 | write | never |
 | `nbook.view.refresh-files` | 刷新文件 / Refresh Files | `{viewId, generation}`（精确实例代际） | 该实例贡献了 refresh 动作 | read | never |
 
-- 参数一律严格校验（`additionalProperties: false`）：缺字段、未知取值都是失败，不静默补齐。
+- 参数一律严格校验（`additionalProperties: false`）：多余字段、未知取值都是 `invalid-args`，不静默补齐；四条面板命令的参数可以省略（命令面板对普通候选执行 `{}`，与设置命令同一写法），选择被取消为成功且不写。
 - 前六条写的是**同一份用户定制记录**（面板状态）或既有移动写入路径；尺寸（高度/宽度）不在这里写，只由手势落点提交，避免两个写者。
 - `refresh-files` 是 View 贡献动作的样例：命令只携带 `{viewId, generation}`，命中句柄与代际校验归宿主；活动 View 或实例代际变化后的迟到点击按 `stale-target` 拒绝。
-- 令牌语义：保存类返回 `saved`/`unchanged`/`pending`/`rejected`；`pending` 是「已接纳未保存」，不得在标题控件里显示成已保存。
+- 面板命令返回时布局已按新值显示；保存在后台进行，失败由状态栏的“布局未保存”给出（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 11），命令不等保存完成、也不把“已接纳”说成“已保存”。
 
 ### 上下文键（第一批）
 
