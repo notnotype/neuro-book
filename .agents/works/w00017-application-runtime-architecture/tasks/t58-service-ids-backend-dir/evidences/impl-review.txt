@@ -1,6 +1,6 @@
 # w00017 t58 只读审查
 
-审查对象：`d49ae4e3..HEAD` 的已提交差异；本报告的实现基准固定为 `7b9dcd57`。计划提交 `d49ae4e3` 作为上下文，计划、ADR 0025、S1–S4 共 6 个提交；审查期间主 Agent 新增 `5ba2750b`，仅补 S5 验证证据与 Task 进展，提交内代码未变。当前分支：`refactor/w00017-runtime-foundation`。发现的文件:行均指该实现基准，末尾另记并行修复状态。
+审查请求范围：`d49ae4e3..HEAD` 的 t58 已提交差异；本报告的实现基准固定为 `7b9dcd57`。计划提交 `d49ae4e3` 作为上下文，计划、ADR 0025、S1–S4 共 6 个提交；审查期间主 Agent 新增 `5ba2750b`，仅补 S5 验证证据与 Task 进展，提交内代码未变。当前分支：`refactor/w00017-runtime-foundation`。发现的文件:行均指该实现基准。收口时 HEAD 已推进到 t59 的 `06847f12`，t59 不纳入本审；t58 并行修复与最终状态另记于末尾。
 
 开始时工作区已有 t58 README 未提交修改、t58 `evidences/` 与 t56 `tasks/t56-plugin-state/` 未跟踪内容；t58 快照和证据随后由主 Agent 提交。t56 与稍后出现的 t59 均不在审查范围。审查者未修改仓库文件；所有实验与本报告都位于指定 scratch 目录。未另行启动开发服务，未运行 e2e 或 `smoke:server`。
 
@@ -29,9 +29,9 @@
 - **严重程度**：重要；**类别**：正确性与示例合同。
 - **位置**：`packages/nb-runtime/examples/scenarios/hosts.ts:48`、`:51`。
 - **现象**：窗口首次绑定 `alpha` 第 1 代后断线，宿主停止这一代；同一个客户端节点带原绑定代次重连，实际得到 `project-unavailable`，合同要求 `project-gone`。
-- **为什么是问题**：绑定回调先用 `running === null` 拒绝，再检查请求里的代次，把首次找不到项目与旧代次已经结束混成一种失败。内核只把 `project-gone` 作为项目终态；错误码使调用方继续把此连接当作可重试失败，保留旧订阅的恢复预期，而不能完成项目已结束的终态处理。问题限于新增示例宿主，产品项目管理器已有正确的重连路径。
+- **为什么是问题**：绑定回调先用 `running === null` 拒绝，再检查请求里的代次，把首次找不到项目与旧代次已经结束混成一种失败。内核只把 `project-gone` 作为项目终态；错误码使调用方继续把此连接当作可重试失败，保留旧订阅的恢复预期，而不能完成项目已结束的终态处理。这一分支已由示例实现，错误分类不是租约管理的省略。问题限于新增示例宿主。
 - **如何核实**：运行 scratch 中 `project-reconnect-smoke.ts`；通过真实 `Stage` 与公开 `createRemoteNode` 首次握手获得 `{id: "alpha", name: "alpha", generation: 1}`，关闭链路、`await stopProject("alpha")`，然后用同一节点的新 JSON 链路重连。实际输出 `reason: "project-unavailable"`、`message: "项目 alpha 没有打开"`；`project-gone` 断言失败（退出 1），`finally` 正常关闭链路和全部实例。未直接调用绑定回调或内部函数。
-- **建议改法**：先处理带 `generation` 的请求：项目不存在、这一代已停止或代次不符都返回 `project-gone`；只有首次按名字绑定且项目没运行时返回 `project-unavailable`。在场景 6 里保留同一客户端节点，补停止后重连的行为断言，无需改内核或建立第二套失败分类。
+- **建议改法**：先处理带 `generation` 的请求：项目不存在、这一代已停止或代次不符都返回 `project-gone`；只有首次按名字绑定且项目没运行时返回 `project-unavailable`。在场景 6 里保留同一客户端节点，补停止后重连的行为断言，无需实现租约管理器、改内核或建立第二套失败分类。
 
 ### 4. 后端目录改名后，TypeScript include 仍指向旧目录，已漏掉独立子进程入口
 
@@ -77,6 +77,7 @@
 - `bun run governance:check --since d49ae4e3`：failures 0、范围内 warnings 0，范围外警告 222 条。
 - `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/project-stage-smoke.ts`：真实示例宿主验证发现 5，全部实例正常收口。
 - `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/project-reconnect-smoke.ts`：真实示例宿主验证发现 3，预期断言失败，链路与全部实例正常收口。
+- `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/project-binding-stop-smoke.ts`：观察到正常停止后窗口仍在线，链路关闭预期断言失败，链路与全部实例正常收口。经合同核对，不将这一观察单列为缺陷：示例明确省略租约回收，场景 6 有意验证有序停止的 `provider-stopped` 与之后的 `target-gone`。
 
 ## 未发现问题的方面
 
@@ -96,12 +97,17 @@
 
 ## 审查期间的并行修复
 
-主 Agent 已依据实时发现修改 `host.ts` 的委托比较、重复产出拒绝与实际产出对账，并修改 `delegation.test.ts`、`review-regressions.test.ts`、`services.ts`、`tsconfig.json`。本审只确认看到了这些未提交修改，没有重跑它们的测试或复审最终 diff；上面的失败实验与通过测试全部属于修复前的审查基准，不能当作修复完成证据。
+主 Agent 已依据实时发现修改 `host.ts` 的委托比较、重复产出拒绝与实际产出对账，并修改 `delegation.test.ts`、`review-regressions.test.ts`、`services.ts`、`tsconfig.json`；这些改动随后提交为 `60146ff5`。`df14480c` 保存了 t58 的审查与修正记录，之后进入 t59。最后一次 `git status --short` 输出为空。本审没有重跑修复后的全套测试或复审修复提交最终 diff；上面的合同测试、类型检查及前两项内核失败实验均属于修复前基准，不能当作修复完成证据。新增示例实验核实了所读 `Stage` 的绑定与代次行为，没有据此验收并行的内核修复。
 
 ## 独立切片意见的核实
 
 - 应用切片提出的 TypeScript include 遗漏经实际编译程序确认，合并为发现 4；跨插件非字面量动态导入绕过是现有正则守卫的能力限制，当前产品没有使用该路径，本轮不以此要求引入 AST 或新增检查部件。
-- 示例切片提出的旧项目重连失败码经真实节点握手确认，合并为发现 3；同名两代重叠经真实 `Stage` 复现，合并为发现 5。后者限于示例辅助宿主，按建议处理，未升级为产品项目管理器缺陷。
+- 示例切片提出的旧项目重连失败码经真实节点握手确认，合并为发现 3；同名两代重叠经真实 `Stage` 复现，合并为发现 5，限于示例辅助宿主，按建议处理。窗口绑定未主动撤销也已实际观察，但 `Stage` 明确省略租约回收，且有序停止场景的 `provider-stopped`、`target-gone` 符合现有合同；不因简化宿主未实现全部产品生命周期而追加缺陷，也不单凭计划的 `project-gone` 用词否定有序停止的实际订阅原因。
+
+## 回写建议
+
+- **任务记录类**：并行修复和 t59 提交在审查期间推进，证据对应的实现基准与收口 HEAD 必须分别记录。本报告已补齐；本审只读，不代写仓库 Task 或证据。
+- **通用规则类**：无新增规则建议。LSP 未配置、实验漏传参数与子代理结构化返回缺字段属于本次环境或执行问题，不据此新增检查部件或修改通用规范。
 
 ## 数量
 

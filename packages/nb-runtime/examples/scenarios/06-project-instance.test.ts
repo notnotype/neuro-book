@@ -58,3 +58,13 @@ it("场景 6：项目实例结束时，窗口里的订阅随白板的项目入�
     expect(seen).toEqual(["结束前"]);
     expect(await alpha.items()).toMatchObject({ok: false, code: "target-gone"});
 });
+
+it("场景 6：项目这一代结束后，绑定它的窗口重连得到终态 project-gone；上一代停完之前不能起下一代", async () => {
+    const {router} = await stage.server({plugins: []});
+    await stage.project(router, "alpha", {plugins: [createBoardProjectPlugin()]});
+    await windowBoard(router, "window-a", "alpha");
+    await expect(stage.project(router, "alpha", {plugins: [createBoardProjectPlugin()]})).rejects.toThrow("还没停止");
+
+    expect(await stage.stopProject("alpha")).toEqual({status: "closed"});
+    expect(await stage.reconnect(router, "window-a")).toMatchObject({ok: false, reason: "project-gone"});
+});
