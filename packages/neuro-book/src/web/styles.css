@@ -57,6 +57,16 @@ html {
     max-width: 40rem;
 }
 
+/*
+ * 工作台的页面消费产品主题（docs/specs/theme/system.md 的“运行时流程”）：背景、文字与字体取 nb-ui 的 token，换主题
+ * 与明暗看得见。宿主页仍只用上面的系统颜色。
+ */
+.nb-empty-workbench {
+    background: var(--bg-main);
+    color: var(--text-main);
+    font-family: var(--font-ui);
+}
+
 .nb-host-reason {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.875rem;

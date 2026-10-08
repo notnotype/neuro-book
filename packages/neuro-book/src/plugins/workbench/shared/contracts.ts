@@ -1,7 +1,10 @@
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
+import {Type} from "typebox";
+
 import type {DisplayText} from "nbook/shared/localized-text";
+import {defineSetting} from "nbook/shared/settings";
 
 /**
  * `nbook.workbench` 对其它插件公开的合同：页面贡献点 `workbench.pages` 与它的声明、命令面板的选择服务。
@@ -60,3 +63,21 @@ export interface QuickPick {
 
 /** 工作台提供的选择服务；需要它的插件在入口依赖里声明。 */
 export const quickPickKey: ServiceKey<QuickPick> = defineServiceKey<QuickPick>("nbook.workbench/quick-pick");
+
+/** 产品主题包（docs/specs/theme/system.md）；两层都允许，项目可以给自己定一套。 */
+export const themeSetting = defineSetting({
+    plugin: "nbook.workbench",
+    name: "theme",
+    schema: Type.Union([Type.Literal("nbook"), Type.Literal("macos")]),
+    default: "nbook",
+    title: {"zh-CN": "主题", "en-US": "Theme"},
+});
+
+/** 明暗；`system` 跟随系统，配色取主题包的 `defaultColorway[明暗]`。 */
+export const appearanceSetting = defineSetting({
+    plugin: "nbook.workbench",
+    name: "appearance",
+    schema: Type.Union([Type.Literal("light"), Type.Literal("dark"), Type.Literal("system")]),
+    default: "light",
+    title: {"zh-CN": "明暗", "en-US": "Appearance"},
+});

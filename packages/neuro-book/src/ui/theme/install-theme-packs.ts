@@ -4,8 +4,8 @@ import type {InstalledTheme, NbThemeModule} from "@notnotype/nb-ui/theme";
 /**
  * 装入一批主题包：**缺则装，已装过则复用已有登记项**。
  *
- * 同一页面里两处代码各装各的清单是常态：产品侧装 nbook / macos（`theme-packs.ts`），
- * `/lab` 还要拿 editorial / aurora 当对照（`component-lab/lab-theme.ts`）。
+ * 同一页面里两处代码各装各的清单是常态：产品侧装 nbook / macos（`product-themes.ts`），
+ * `/lab` 还要拿 editorial / aurora 当对照（`plugins/lab/web/lab-theme.ts`）。
  * 而 `installTheme` 对重复 id 直接抛 duplicate-id——这条不许放宽：装载是带全局副作用的动作
  * （写 fallback 兜底层、往文档里挂 svgDefs），装两遍没有意义。于是后求值的那个模块必须让路。
  *

@@ -18,7 +18,13 @@ import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/c
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
+import {descriptor as workbenchDescriptor} from "nbook/plugins/workbench/plugin";
+import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
+import {SWITCH_APPEARANCE_COMMAND, SWITCH_THEME_COMMAND} from "nbook/plugins/workbench/web/commands/theme-commands";
+import {workbenchBrowserPlugin} from "nbook/plugins/workbench/web/plugin";
+import {quickPickKey} from "nbook/plugins/workbench/shared/contracts";
 import type {QuickPick, QuickPickRequest, QuickPickResult} from "nbook/plugins/workbench/shared/contracts";
+import {definitionAt} from "nbook/manifest";
 import {textOf} from "nbook/shared/localized-text";
 
 import {RELOAD_DELAY_MS} from "./backend/layer-owner";
@@ -144,5 +150,56 @@ describe("切换界面语言", () => {
             created.clock.advance(RELOAD_DELAY_MS);
             return (await a.commands!.execute(SWITCH_LOCALE_COMMAND, {locale: "en-US"}, {source: "user"})).ok;
         });
+    });
+});
+
+describe("切换主题与明暗（工作台贡献）", () => {
+    /** 服务端与项目实例只登记工作台描述里的声明；窗口装真实的工作台（选择服务由它的命令面板提供，这里没挂页面）。 */
+    async function themeWorld(files: {readonly user?: string; readonly project?: string}): Promise<SettingsWorld> {
+        counter += 1;
+        const root = join(tmp, `theme-${String(counter)}`);
+        for (const [path, text] of [[join(root, "state", "settings.json"), files.user], [join(root, "Book", ".nbook", "settings.json"), files.project]] as const) {
+            if (text === undefined) continue;
+            await mkdir(join(path, ".."), {recursive: true});
+            await writeFile(path, text);
+        }
+        await mkdir(join(root, "Book"), {recursive: true});
+        const created = await settingsWorld(root, [definitionAt("server", workbenchDescriptor, undefined)]);
+        worlds.push(created);
+        await created.project(1, [definitionAt("project", workbenchDescriptor, undefined)]);
+        return created;
+    }
+
+    async function workbenchWindow(created: SettingsWorld, id: string, bound: boolean): Promise<Reader> {
+        const target: Reader = {commands: null, settings: null};
+        // 产品窗口里工作台是必需插件、启动即激活；这里由一个依赖选择服务的插件把它拉起来。
+        const activator: PluginDefinition = {id: "x.activator", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: quickPickKey}], activate: () => ({})})]};
+        await created.window(id, [statePlugin, commandsPlugin, definitionAt("browser", workbenchDescriptor, workbenchBrowserPlugin), activator, reader(target)], {bound});
+        return target;
+    }
+
+    it("项目层覆盖着主题时，绑定项目的窗口里切换主题写项目层；未绑定的窗口写用户层；明暗同样；非法参数不写", async () => {
+        const created = await themeWorld({project: "{\"nbook.workbench/theme\": \"macos\"}"});
+        const bound = await workbenchWindow(created, "w-bound", true);
+        const free = await workbenchWindow(created, "w-free", false);
+        expect(bound.settings!.get(themeSetting)).toBe("macos");
+        expect(free.settings!.get(themeSetting)).toBe("nbook");
+
+        expect(await bound.commands!.execute(SWITCH_THEME_COMMAND, {theme: "nbook"}, {source: "agent", callerId: "x.agent"})).toEqual({ok: true, value: null});
+        expect(JSON.parse(await readFile(join(created.projectFile), "utf8"))).toEqual({"nbook.workbench/theme": "nbook"});
+        expect(await free.commands!.execute(SWITCH_THEME_COMMAND, {theme: "macos"}, {source: "user"})).toEqual({ok: true, value: null});
+        expect(JSON.parse(await readFile(created.userFile, "utf8"))).toEqual({"nbook.workbench/theme": "macos"});
+        // 绑定窗口仍按项目层：用户层的改动不覆盖项目的选择。
+        await waitUntil("用户层的写入到达绑定窗口", () => {
+            const user = bound.settings!.inspect(themeSetting).user;
+            return user.status === "ok" && user.value === "macos";
+        });
+        expect(bound.settings!.get(themeSetting)).toBe("nbook");
+
+        expect(await free.commands!.execute(SWITCH_APPEARANCE_COMMAND, {appearance: "system"}, {source: "user"})).toEqual({ok: true, value: null});
+        expect(free.settings!.get(appearanceSetting)).toBe("system");
+        expect(await free.commands!.execute(SWITCH_THEME_COMMAND, {theme: "solarized"}, {source: "user"})).toMatchObject({ok: false, code: "invalid-args"});
+        // 没给参数时经命令面板选择；这个窗口没有挂页面，选择不可用。
+        expect(await free.commands!.execute(SWITCH_THEME_COMMAND, {}, {source: "user"})).toMatchObject({ok: false, code: "unavailable"});
     });
 });
