@@ -96,6 +96,7 @@ issueId: null
 | [t57](tasks/t57-runtime-examples/README.md) | nb-runtime 示例插件：`packages/nb-runtime/examples/` 按内置插件目录格式写的七个插件（服务与依赖、按调用方门面、贡献点、远程服务、代理）与五个场景测试，只经公开入口；插件描述类型移进内核；随插件系统完善继续补充；2026-10-08 完成 |
 | [t58](tasks/t58-service-ids-backend-dir/README.md) | 服务键按服务 id 识别（删去应用清单的 `keys` 与 `unknown-service-key`，插件之间可引用对方的 `shared/contracts.ts`，ADR 0025）、插件工厂只收宿主配置、插件后端目录 `server/` 改名 `backend/`、补项目级示例；2026-10-08 计划确认（[plan.md](tasks/t58-service-ids-backend-dir/plan.md)），S0–S5 完成，omp 实现审查 4 条均已修正；2026-10-08 完成 |
 | [t59](tasks/t59-plugin-definitions/README.md) | 插件定义统一为常量（ADR 0026 取代 0025）：宿主的东西走宿主能力服务（`nbook/state-root`、`nbook/window-navigation`），只有 `nbook.http`、`nbook.diagnostics` 保留工厂；内核允许一个插件在不同运行位置提供同一服务 id；2026-10-08 计划确认（[plan.md](tasks/t59-plugin-definitions/plan.md)），S0–S4 完成，omp 实现审查 3 条均已修正；2026-10-08 完成 |
+| [t60](tasks/t60-plugin-api-ergonomics/README.md) | 插件写法收敛与内核精简：声明写合同对象、`defineEntry` 编译期核对、`orThrow`、本地服务、远程服务与贡献点的选用规则；删去本地委托、贡献点校验的跨点查询与接收者的 `commit`；概念与规则补进术语表与作者 API；2026-10-08 计划确认（[plan.md](tasks/t60-plugin-api-ergonomics/plan.md)），实施中 |
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 
