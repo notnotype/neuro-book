@@ -85,7 +85,7 @@ interface PersistedField<T> {
     adopt(): void;
     reopen(): Promise<void>;
 }
-type CommitResult = "saved" | "failed" | "unknown" | "protected" | "cancelled" | "discarded";
+type CommitResult = "saved" | "unchanged" | "failed" | "unknown" | "protected" | "cancelled" | "discarded";
 ```
 
 ## 输出与可观察行为
@@ -99,8 +99,8 @@ type CommitResult = "saved" | "failed" | "unknown" | "protected" | "cancelled" |
 7. **新的 base 不改显示**：订阅带来新的 `base` 时 `display` 不变；`adopt()` 把排队意图依次作用在最新 `base` 上，结果作为 `display`，不清意图。
 8. **show**：只改 `display`（例如拖动中），不排意图、不保存。
 9. **commit**：`display` 立即变为 `change(display)`，意图排到队尾；返回的 Promise 以这条意图**第一次**尝试的结果结算。同一字段的意图按提交顺序一条一条发送。`change` 会被调用多次（算显示、首发、冲突重放、重新投影），拿到的值都是冻结的，必须返回新值：改参数会抛错。在显示上就抛错时 `commit` 直接抛出、不排队。
-10. **队首发送**：以 `base` 的值为基础算出要写的值（`missing` 时以 `initial` 为基础），以 `base` 的 revision 作 `expect` 条件保存；成功则这条以 `saved` 结算。`change` 在 `base` 或冲突后的最新快照上抛错时，这条以 `failed`（失败码 `change-threw`）结算并记诊断，队列暂停。
-11. **冲突重放一次**：条件保存得到 `conflict` 时，读最新快照，把同一个 `change` 作用在它上面再保存一次；仍冲突或得到其它确定的失败，队首以 `failed` 结算并记失败码，**队列暂停**，后面的意图保留不发、仍体现在 `display` 里。
+10. **队首发送**：以 `base` 的值为基础算出要写的值（`missing` 时以 `initial` 为基础），以 `base` 的 revision 作 `expect` 条件保存；成功则这条以 `saved` 结算。记录已存在且算出的值与 `base` 的值相同（修改本身是空的，或它的前提在这份值上不成立）时不写、revision 不动，这条以 `unchanged` 结算，`display` 改为剩余意图作用在 `base` 上的结果（同 `discard`）；记录还不存在时即使等于 `initial` 也写。`change` 在 `base` 或冲突后的最新快照上抛错时，这条以 `failed`（失败码 `change-threw`）结算并记诊断，队列暂停。
+11. **冲突重放一次**：条件保存得到 `conflict` 时，读最新快照，把同一个 `change` 作用在它上面再保存一次（结果与最新值相同时按第 10 条以 `unchanged` 结算、不写）；仍冲突或得到其它确定的失败，队首以 `failed` 结算并记失败码，**队列暂停**，后面的意图保留不发、仍体现在 `display` 里。
 12. **受保护的记录**：`base` 为 `corrupt` 或 `unsupported-version` 时 `commit` 直接以 `protected` 结算、不写；只能 `reset(value)` 覆盖，`expect` 取该快照的 revision。
 13. **结果不确定**：保存得到 `unknown-outcome`（写可能已经落盘）时队首以 `unknown` 结算，保留这次要写的**具体值与 `expect`**，队列暂停；不在新 `base` 上重算 `change`。
 14. **retry**：只作用于暂停的队首。`failed` 时按第 10、11 条重来；`unknown` 时，若 `base` 的值已等于要写的值则以 `saved` 结算，否则以原值、原 `expect` 重发，除成功外的结果都仍为 `unknown`。返回这次尝试的结果；队首正在发送时返回 `busy`，没有暂停的队首时返回 `nothing`；字段此刻不能保存（`failure` 来自打开失败或订阅结束）时不发送，返回队首当前的结果。
@@ -116,8 +116,8 @@ type CommitResult = "saved" | "failed" | "unknown" | "protected" | "cancelled" |
 
 | `save.state` | 进入 | 离开 |
 |---|---|---|
-| `idle` | 创建；队列空；队首结算为 `saved` 后下一条也已发完 | 有意图要发 → `saving` |
-| `saving` | 队首开始发送 | `saved` → 下一条或 `idle`；确定失败 → `failed`；`unknown-outcome` → `unknown` |
+| `idle` | 创建；队列空；队首结算为 `saved` 或 `unchanged` 后下一条也已发完 | 有意图要发 → `saving` |
+| `saving` | 队首开始发送 | `saved`、`unchanged` → 下一条或 `idle`；确定失败 → `failed`；`unknown-outcome` → `unknown` |
 | `failed` / `unknown`（暂停） | 见输出第 11、13 条 | `retry` → `saving`；`discard` → 下一条或 `idle` |
 
 时序与寿命：
@@ -138,6 +138,7 @@ type CommitResult = "saved" | "failed" | "unknown" | "protected" | "cancelled" |
 | 结果 | 含义 | 拥有者怎么办 |
 |---|---|---|
 | `saved` | 这条意图已落盘 | 无 |
+| `unchanged` | 作用在最新值上没有变化，没有写 | 无 |
 | `failed` | 冲突重放后仍冲突、确定的失败、`change` 抛错（`change-threw`），或字段此刻不能保存（失败码随 `save.code`） | `retry`、`discard`，或 `adopt` 后重新提交；不能保存时先 `reopen` |
 | `unknown` | 写可能已落盘 | `retry`（不会重复应用）或 `discard` |
 | `protected` | 记录损坏或版本不认识 | 用 `reset` 覆盖，或保持只读 |
@@ -176,4 +177,4 @@ Smoke：`e2e/state.e2e.ts`，同一浏览器两个标签页窄改探针记录的
 - 实现入口：[`store.ts`](../../../packages/neuro-book/src/shared/store/store.ts)、[`persisted.ts`](../../../packages/neuro-book/src/shared/store/persisted.ts)、[`public.ts`](../../../packages/neuro-book/src/shared/store/public.ts)
 - 合同测试：[`store.test.ts`](../../../packages/neuro-book/src/shared/store/store.test.ts)（输出 1–17、验收 1–4；“首个快照或结束早于 subscribe 返回”的字段层顺序与“停止时字段还没拿到首个快照”没有单独用例，输出 19 随配置能力）
 - Smoke：[`state.e2e.ts`](../../../packages/neuro-book/e2e/state.e2e.ts)（测试外壳与真实服务端，本机 Chrome：两个标签页窄改都保留，两边是否真的冲突取决于时序，确定的冲突重放由合同测试验证；另含开发模式的响应式运行时核对）
-- 批准依据：[插件的数据与状态](../../proposals/plugin-data-model.md) 第 3、11 节与待定项 1（2026-10-07 `accepted`）；开发者 2026-10-08 在 [t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md) 中确认：setup 写法、用 `@vue/reactivity` 自己实现、不用 Pinia、放应用包共享库，正常停止时发出已接受的意图。
+- 批准依据：[插件的数据与状态](../../proposals/plugin-data-model.md) 第 3、11 节与待定项 1（2026-10-07 `accepted`）；开发者 2026-10-08 在 [t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md) 中确认：setup 写法、用 `@vue/reactivity` 自己实现、不用 Pinia、放应用包共享库，正常停止时发出已接受的意图。输出 10 的 `unchanged`（作用在最新值上没有变化时不写）随 t67 实现审查加入：工作台的半区并入在保存时前提不成立、原样返回最新值时，旧实现仍写一次并推进 revision（[t67 审查记录](../../../.agents/works/w00017-application-runtime-architecture/tasks/t67-workbench-shell-dnd/evidences/impl-review-correctness.txt) C01），待开发者确认，见 [待确认项](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md)。

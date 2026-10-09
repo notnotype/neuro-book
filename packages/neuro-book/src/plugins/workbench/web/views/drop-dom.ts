@@ -4,7 +4,9 @@
  *
  * 标记（组件负责写，会话只读）：
  * - 拖动源：`data-drag-view="<viewId>"`（multiple 的视图标题）、`data-drag-container="<containerId>"`（标签、活动条目、
- *   Sidebar single 的容器标题行）；源里 `data-no-drag` 的区域（动作区、菜单）不起拖。
+ *   Sidebar single 的容器标题行）。
+ * - 工具区：`data-no-drag`（动作区、菜单按钮、收起开关）既不起拖，也不接收投递，哪怕它在落点里面（面板标签带里的
+ *   “移动到”）。
  * - 落点：`data-switcher-band="<part>"`（标签带、ActivityBar 条目带）与其中的 `data-switcher-entry="<containerId>"`；
  *   `data-container-host="<containerId>"`（容器内容）与其中的 `data-view-section="<viewId>"`；`data-empty-part="<part>"`。
  * - 拖动反馈（拖影、落点覆盖层）带 `data-drag-feedback`，不算业务元素，也不挡命中。
@@ -22,8 +24,9 @@ import type {ContentRects, DropTarget, SwitcherRects} from "./drop";
 const FEEDBACK_SELECTOR = "[data-drag-feedback]";
 const TARGET_SELECTOR = "[data-switcher-band], [data-container-host], [data-empty-part]";
 const SOURCE_SELECTOR = "[data-drag-view], [data-drag-container]";
-/** 拖动源里不起拖的部分：显式标记的动作区与菜单，以及表单控件、链接与可编辑区域。 */
-const BLOCKING_SELECTOR = "[data-no-drag], input, textarea, select, a[href], [contenteditable='true'], [contenteditable='']";
+const TOOLS_SELECTOR = "[data-no-drag]";
+/** 拖动源里不起拖的部分：工具区，以及表单控件、链接与可编辑区域。 */
+const BLOCKING_SELECTOR = `${TOOLS_SELECTOR}, input, textarea, select, a[href], [contenteditable='true'], [contenteditable='']`;
 /** 声明隐藏或惰性化的子树（`hidden="until-found"` 仍占位）：不当落点。 */
 const HIDDEN_SELECTOR = "[hidden], [inert]";
 /** 会裁剪后代的 overflow 计算值。 */
@@ -103,13 +106,15 @@ export interface DropHit {
 
 /**
  * 指针处的落点：`elementsFromPoint` 从最上层往下，跳过拖动反馈，第一个业务元素所在的最近落点就是命中；第一个业务
- * 元素不在任何落点里（框架按钮、Part 之间的缝、浮层）就没有命中。落点必须在 `root` 里。
+ * 元素不在任何落点里（框架按钮、Part 之间的缝、浮层），或在落点里的工具区上，就没有命中。落点必须在 `root` 里。
  */
 export function dropHitAt(root: Element, point: GridDropPoint, partOf: (containerId: string) => ViewLocation | null): DropHit | null {
     for (const element of root.ownerDocument.elementsFromPoint(point.x, point.y)) {
         if (element.closest(FEEDBACK_SELECTOR) !== null) continue;
         const hit = element.closest<HTMLElement>(TARGET_SELECTOR);
         if (hit === null || !root.contains(hit)) return null;
+        const tools = element.closest(TOOLS_SELECTOR);
+        if (tools !== null && hit.contains(tools)) return null;
         const band = locationOf(hit.dataset.switcherBand);
         if (band !== null) return {element: hit, target: {kind: "switcher", part: band}};
         const empty = locationOf(hit.dataset.emptyPart);
@@ -148,6 +153,18 @@ export function readContentRects(host: HTMLElement): ContentRects | null {
         if (box !== null) members.push({id: section.dataset.viewSection, rect: box});
     }
     return {containerId, rect, members};
+}
+
+/** 区域里某个视图自己的分节（不含嵌在别的宿主里的）。 */
+export function sectionIn(region: Element, viewId: string): HTMLElement | null {
+    for (const section of region.querySelectorAll<HTMLElement>("[data-view-section]")) if (section.dataset.viewSection === viewId && section.closest("[data-container-host]") === region) return section;
+    return null;
+}
+
+/** 条目带里某个容器的条目。 */
+export function entryIn(region: Element, containerId: string): HTMLElement | null {
+    for (const entry of region.querySelectorAll<HTMLElement>("[data-switcher-entry]")) if (entry.dataset.switcherEntry === containerId) return entry;
+    return null;
 }
 
 /** 容器宿主元素（来源比例要读来源容器的几何）。 */

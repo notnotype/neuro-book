@@ -19,6 +19,7 @@ import type {GridDropMember, GridDropPoint, GridDropRect, GridInsertion, GridOri
 
 import {VIEW_LOCATIONS} from "../../shared/views";
 import type {ViewLocation} from "../../shared/views";
+import {immovableMemberOf} from "./intents";
 import type {ViewIntent} from "./intents";
 import type {ViewCatalog} from "./placement";
 import type {ContainerPresentation, Presentation} from "./presentation";
@@ -234,13 +235,17 @@ function resolveContent(input: DropInput, target: Extract<DropTarget, {kind: "co
     if (typeof from === "string") return rejection(from);
     if (from.id === container.id) return noop();
     if (source.viewIds.length === 0) return noop();
+    // 与意图合成同一条前提：整组里有不可移动的成员就不显示可接收的半区（预览与动作一致）。
+    const immovable = immovableMemberOf(input.catalog, source.viewIds);
+    if (immovable !== undefined) return rejection(`视图 ${immovable} 声明不可移动，整组不并入`);
     const hit = contentHitOf(input, container, geometry);
     if (hit === null) return noop();
     const count = source.viewIds.length;
     const base = {kind: "merge-container" as const, sourceContainerId: from.id, targetContainerId: container.id, sourceViewIds: [...source.viewIds]};
     if (hit.kind === "remainder") return {kind: "commit", intent: {...base, expand: true}, preview: {indicator: null, areaRect: hit.area, orientation, count}};
-    const visible = from.views.map((view) => view.id);
-    return {kind: "commit", intent: {...base, split: {hitViewId: hit.hitViewId, side: hit.side, sourceSizes: sourceRatios(input, from, visible)}}, preview: {indicator: null, areaRect: hit.halfRect, orientation, count}};
+    // 只有展开的成员参与半区：收起成员的细条几何不是它的份额（intents.ts 的并入同此）。
+    const expanded = from.views.filter((view) => !view.collapsed).map((view) => view.id);
+    return {kind: "commit", intent: {...base, split: {hitViewId: hit.hitViewId, side: hit.side, sourceSizes: sourceRatios(input, from, expanded)}}, preview: {indicator: null, areaRect: hit.halfRect, orientation, count}};
 }
 
 function resolveEmpty(input: DropInput, target: Extract<DropTarget, {kind: "empty"}>): DropDecision {
@@ -292,11 +297,18 @@ function resolveSwitcher(input: DropInput, target: Extract<DropTarget, {kind: "s
 }
 
 /**
- * 布局代次：各 Part 的容器顺序与每个容器的实际成员。拖动开始时冻结，求值时不一致就整条拒绝（结构变了，冻结的来源与
- * 锚点不再可信）；只切换选中的容器不改变它。
+ * 布局代次：各 Part 的容器顺序与选中项，每个容器的实际成员、可见成员与轴（外壳三输出 23：成员、轴、活动内容变化时
+ * 取消）。拖动开始时冻结，求值时不一致就整条拒绝：结构或看到的内容变了，冻结的来源与锚点不再可信。
  */
 export function layoutKeyOf(presentation: Presentation): string {
-    return VIEW_LOCATIONS.map((part) => `${part}:${presentation.parts[part].switcher.map((item) => `${item.containerId}(${(presentation.containers.get(item.containerId)?.members ?? []).join(",")})`).join("|")}`).join(";");
+    return VIEW_LOCATIONS.map((part) => {
+        const slice = presentation.parts[part];
+        const containers = slice.switcher.map((item) => {
+            const container = presentation.containers.get(item.containerId);
+            return `${item.containerId}(${(container?.members ?? []).join(",")}/${(container?.views ?? []).map((view) => view.id).join(",")}/${container?.axis ?? ""})`;
+        });
+        return `${part}[${slice.selected ?? ""}]:${containers.join("|")}`;
+    }).join(";");
 }
 
 export function resolveDrop(input: DropInput): DropDecision {

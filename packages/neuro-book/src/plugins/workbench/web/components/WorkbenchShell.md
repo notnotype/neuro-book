@@ -15,7 +15,7 @@
 - ActivityBar：[`WorkbenchActivityBar`](WorkbenchActivityBar.md)，Sidebar 的容器切换。
 - 侧栏与右栏：各一个 [`WorkbenchToolPartHost`](WorkbenchToolPartHost.md)；区域里没有视图时一句空状态说明。
 - 编辑器：稳定内容槽，现在放欢迎文字（应用名与“工作台已就绪”一句，语言跟随配置）；最大化、换位置时停放不卸载。
-- 面板：[`WorkbenchPanelSurface`](WorkbenchPanelSurface.md)，框架按钮依次是位置、对齐、收起、最大化、隐藏；有容器时导航槽里是容器标签带（与 single 时上提的“移动到”），内容区是 Panel 的 `WorkbenchToolPartHost`。
+- 面板：[`WorkbenchPanelSurface`](WorkbenchPanelSurface.md)，框架按钮依次是位置、对齐、收起、最大化、隐藏；有容器时导航槽里是容器标签带（与 single 时上提的“移动到”，它包在 `data-no-drag` 里：标签带是落点，这个按钮不是），内容区是 Panel 的 `WorkbenchToolPartHost`。
 - 容器与视图实例：[`WorkbenchViewInstances`](WorkbenchViewInstances.md) 放在外壳根里、布局组件旁边，把容器宿主与视图实例搬进三个工具区域的落点；三层 Teleport 共用外壳自己的一份滚动与焦点记忆。
 - 状态栏：[`WorkbenchStatusBar`](WorkbenchStatusBar.md)。
 

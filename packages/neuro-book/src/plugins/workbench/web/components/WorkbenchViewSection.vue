@@ -44,6 +44,7 @@ defineSlots<{
                 :title="collapsed ? expandLabel : collapseLabel"
                 :aria-expanded="!collapsed"
                 data-view-toggle
+                data-no-drag
                 @click="emit('toggle-collapsed', !collapsed)"
             />
             <span class="workbench-view-section__icon" :class="icon" aria-hidden="true"></span>

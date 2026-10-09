@@ -20,7 +20,7 @@ import type {RecordDefinition, RecordHandle, RecordSnapshot, Revision, StorageSe
 
 export type FieldSnapshot<T> = Exclude<RecordSnapshot<T>, {status: "error"}>;
 
-export type CommitResult = "saved" | "failed" | "unknown" | "protected" | "cancelled" | "discarded";
+export type CommitResult = "saved" | "unchanged" | "failed" | "unknown" | "protected" | "cancelled" | "discarded";
 
 /** 修改：拿当前值（冻结）返回新值；可能被调用多次，不能有副作用。 */
 export type Change<T> = (current: DeepReadonly<T>) => T;
@@ -89,6 +89,7 @@ interface Intent<T> {
 
 type Outcome<T> =
     | {readonly result: "saved"}
+    | {readonly result: "unchanged"}
     | {readonly result: "failed"; readonly code: string}
     | {readonly result: "unknown"; readonly code: string; readonly pending: {readonly value: T; readonly expect: Revision | null}};
 
@@ -346,11 +347,13 @@ export class PersistedFieldState<T> {
             return {result: "failed", code: "unavailable"};
         }).then((outcome) => {
             this.#inFlight = null;
-            if (outcome.result === "saved") {
+            if (outcome.result === "saved" || outcome.result === "unchanged") {
                 this.#queue.shift();
                 this.#queueLength.value = this.#queue.length;
-                this.#settleFirst(head, "saved");
+                this.#settleFirst(head, outcome.result);
                 this.#save.value = {state: "idle"};
+                // 没写的那条不会有快照送来改正显示：与 discard 一样，显示改为剩余意图作用在 base 上的结果。
+                if (outcome.result === "unchanged") this.#display.value = this.#project();
                 this.#pump();
             } else {
                 this.#pause(head, outcome);
@@ -372,6 +375,8 @@ export class PersistedFieldState<T> {
         }
         const value = this.#apply(head.change, this.#valueOf(base));
         if (value === CHANGE_THREW) return {result: "failed", code: "change-threw"};
+        // 作用在已有记录上没有变化（修改本身是空的，或它的前提在这份值上不成立）：不写，revision 不动。
+        if (head.operation === "save" && unchangedRecord(base, value)) return {result: "unchanged"};
         const first = await write(value, base.revision);
         if (first.ok) return {result: "saved"};
         if (first.code === "unknown-outcome") return {result: "unknown", code: first.code, pending: {value, expect: base.revision}};
@@ -382,13 +387,14 @@ export class PersistedFieldState<T> {
         if (latest.status === "corrupt" || latest.status === "unsupported-version") return {result: "failed", code: "protected"};
         const replayed = this.#apply(head.change, this.#valueOf(frozenCopy(latest)));
         if (replayed === CHANGE_THREW) return {result: "failed", code: "change-threw"};
+        if (unchangedRecord(latest, replayed)) return {result: "unchanged"};
         const second = await write(replayed, latest.revision);
         if (second.ok) return {result: "saved"};
         if (second.code === "unknown-outcome") return {result: "unknown", code: second.code, pending: {value: replayed, expect: latest.revision}};
         return {result: "failed", code: second.code};
     }
 
-    #pause(head: Intent<T>, outcome: Exclude<Outcome<T>, {result: "saved"}>): void {
+    #pause(head: Intent<T>, outcome: Exclude<Outcome<T>, {result: "saved" | "unchanged"}>): void {
         head.state = outcome.result;
         head.pending = outcome.result === "unknown" ? outcome.pending : null;
         this.#save.value = {state: outcome.result, code: outcome.code};
@@ -506,6 +512,11 @@ function deepFreeze<V>(value: V): V {
         for (const item of Object.values(value)) deepFreeze(item);
     }
     return value;
+}
+
+/** 记录已存在且值与要写的相同。记录还不存在时即使等于 `initial` 也要写：写下它才建出记录。 */
+function unchangedRecord<V>(snapshot: FieldSnapshot<V>, value: V): boolean {
+    return snapshot.status === "ok" && sameValue(snapshot.value, value);
 }
 
 /** JSON 数据的结构相等：Storage 的值经 JSON 往返，键的顺序可能不同。 */

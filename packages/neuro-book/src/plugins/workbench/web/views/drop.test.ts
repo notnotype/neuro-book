@@ -88,6 +88,17 @@ describe("Switcher 插入位", () => {
         const stale = {...input({}, {kind: "view", viewId: "t.d", containerId: "view:t.d", part: "panel"}, {kind: "switcher", part: "sidebar"}, {x: 20, y: 46}, {switcher: activityBand}), layoutKey: "别的布局"};
         expect(resolveDrop(stale).kind).toBe("rejected");
     });
+
+    it("布局代次随选中项、可见成员变化（外壳三输出 23：活动内容与成员变化取消）", () => {
+        const merged = applies({}, {kind: "move-view", viewId: "t.b", sourceContainerId: "view:t.b", targetContainerId: "view:t.a"});
+        const key = layoutKeyOf(world(merged).presentation);
+        const selected = applies(merged, {kind: "select-container", part: "sidebar", containerId: "view:t.c"});
+        expect(layoutKeyOf(world(selected).presentation)).not.toBe(key);
+        const placement = computePlacement(catalog, merged);
+        const hidden = buildPresentation({catalog, placement, customizations: merged, hidden: new Set(["t.b"])});
+        expect(layoutKeyOf(hidden)).not.toBe(key);
+        expect(layoutKeyOf(world(merged).presentation)).toBe(key);
+    });
 });
 
 describe("内容区", () => {
@@ -137,6 +148,25 @@ describe("内容区", () => {
         expect(fixed.kind).toBe("rejected");
         const extra = resolveDrop(input(merged, {kind: "container", containerId: "view:t.a", part: "sidebar", viewIds: ["t.a", "t.b", "t.c"]}, {kind: "content", containerId: "view:t.c", part: "sidebar"}, {x: 100, y: 50}, {content: {containerId: "view:t.c", rect: rect(60, 0, 400, 400), members: [{id: "t.c", rect: rect(60, 0, 400, 400)}]}}));
         expect(extra.kind).toBe("rejected");
+    });
+
+    it("容器源含不可移动的成员：不显示可接收的半区（与意图合成的整组拒绝一致）", () => {
+        const withFixed = applies({}, {kind: "move-view", viewId: "t.a", sourceContainerId: "view:t.a", targetContainerId: "view:t.x"});
+        const target = {containerId: "view:t.c", rect: rect(60, 0, 400, 400), members: [{id: "t.c", rect: rect(60, 0, 400, 400)}]};
+        const viewIds = world(withFixed).placement.containers.get("view:t.x")!.members;
+        expect(viewIds).toEqual(["t.x", "t.a"]);
+        const decision = resolveDrop(input(withFixed, {kind: "container", containerId: "view:t.x", part: "sidebar", viewIds}, {kind: "content", containerId: "view:t.c", part: "sidebar"}, {x: 100, y: 300}, {content: target}));
+        expect(decision).toEqual({kind: "rejected", reason: expect.stringContaining("t.x")});
+    });
+
+    it("容器源里收起的成员不参与来源比例：半区只分给展开的成员", () => {
+        let source = applies({}, {kind: "move-view", viewId: "t.e", sourceContainerId: "view:t.e", targetContainerId: "view:t.d"});
+        source = applies(source, {kind: "set-view-collapsed", viewId: "t.e", collapsed: true});
+        const sourceContent = {containerId: "view:t.d", rect: rect(100, 600, 700, 800), members: [{id: "t.d", rect: rect(100, 600, 668, 800)}, {id: "t.e", rect: rect(668, 600, 700, 800)}]};
+        const target = {containerId: "view:t.c", rect: rect(60, 0, 400, 400), members: [{id: "t.c", rect: rect(60, 0, 400, 400)}]};
+        const decision = resolveDrop(input(source, {kind: "container", containerId: "view:t.d", part: "panel", viewIds: ["t.d", "t.e"]}, {kind: "content", containerId: "view:t.c", part: "sidebar"}, {x: 100, y: 300}, {content: target, sourceContent}));
+        expect(decision).toMatchObject({kind: "commit", intent: {split: {sourceSizes: {"t.d": 568}}}});
+        expect(Object.keys((decision as {intent: {split: {sourceSizes: Record<string, number>}}}).intent.split.sourceSizes)).toEqual(["t.d"]);
     });
 
     it("全部可见视图收成细条：落点是细条之后的剩余区，拖入的视图展开、原有细条保持收起", () => {

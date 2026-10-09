@@ -190,6 +190,12 @@ async function valueOf<T>(storage: StorageService, record: RecordDefinition<T>):
     return snapshot.status === "ok" ? snapshot.value : snapshot.status;
 }
 
+async function revisionOf<T>(handle: RecordHandle<T>): Promise<string | null> {
+    const snapshot = await handle.read();
+    if (snapshot.status === "error") throw new Error(`读记录失败：${snapshot.code} ${snapshot.detail}`);
+    return snapshot.revision;
+}
+
 /** 关闭入口这一代的激活作用域，等同于这个入口停止。 */
 function stopEntry(context: ActivationContext): Promise<unknown> {
     const activation = context.scope.parent;
@@ -425,6 +431,41 @@ describe("Spec state.store 输出 9–11、场景 1：提交与冲突重放", ()
         expect(store.state.pair.queue).toBe(0);
         expect(store.state.pair.display).toEqual({left: "抢二", right: ""});
         expect(await valueOf(storage, pairRecord)).toEqual({left: "抢二", right: ""});
+    });
+});
+
+describe("Spec state.store 输出 10–11：修改没有带来变化", () => {
+    it("作用在已有记录上没有变化：以 unchanged 结算、不写，revision 不动；冲突重放后才发现没变化的同样不写，显示改为 base 上的投影；记录不存在时等于 initial 也写", async () => {
+        const changes = changesOf();
+        const probe = hosted(pairStore(pairRecord, changes), "server");
+        await world([probe.plugin]);
+        const {store, storage} = probe.get();
+        await waitUntil("字段就绪", () => store.state.pair.ready);
+        const handle = await opened(storage, pairRecord);
+        expect(await store.actions.setLeft("")).toBe("saved");
+        expect(await valueOf(storage, pairRecord)).toEqual(EMPTY);
+
+        await waitUntil("base 收到第一次写入", () => store.state.pair.base?.status === "ok");
+        const first = await revisionOf(handle);
+        expect(await store.actions.setLeft("")).toBe("unchanged");
+        expect(await revisionOf(handle)).toBe(first);
+        expect(store.state.pair.save).toEqual({state: "idle"});
+
+        // 首发之前另一个写者写下了同一个值：首发冲突，重放在最新值上没有变化。
+        let calls = 0;
+        changes.onChange = () => {
+            calls += 1;
+            if (calls === 2) void handle.save({left: "同值", right: "别处"}, {expect: store.state.pair.base?.revision ?? null});
+        };
+        const pending = store.actions.setLeft("同值");
+        expect(store.state.pair.display).toEqual({left: "同值", right: ""});
+        expect(await pending).toBe("unchanged");
+        const other = await revisionOf(handle);
+        expect(other).not.toBe(first);
+        expect(store.state.pair.display).toEqual({left: "同值", right: "别处"});
+        expect(store.state.pair.queue).toBe(0);
+        await waitUntil("base 收到另一个写者的值", () => store.state.pair.base?.status === "ok" && store.state.pair.base.value.right === "别处");
+        expect(await revisionOf(handle)).toBe(other);
     });
 });
 

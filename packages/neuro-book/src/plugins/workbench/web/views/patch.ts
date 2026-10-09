@@ -45,6 +45,11 @@ export interface ContainerFieldPatch {
     readonly order?: number;
     readonly fingerprint?: string;
     readonly origin?: string;
+    /**
+     * 只改顺序：重放时容器在最新值里仍在 `location` 才写（连同 `fingerprint`），否则整项不动。给插入时被动挪位的容器
+     * 用，与视图的 `reorder` 同理：它们的区域不是本次意图，不能盖掉另一个窗口已保存的迁区。
+     */
+    readonly reorder?: {readonly location: ViewLocation; readonly order: number; readonly fingerprint?: string};
 }
 
 export interface CustomizationsPatch {
@@ -98,8 +103,10 @@ function applyViews(next: Customizations, patch: CustomizationsPatch, left: Set<
     else next.views = views;
 }
 
-function applyContainers(next: Customizations, patch: CustomizationsPatch): void {
+function applyContainers(next: Customizations, patch: CustomizationsPatch, catalog: ViewCatalog): void {
     if (patch.containers === undefined && patch.ensure === undefined) return;
+    // 被动重排要知道容器在最新值里的区域：没有记录项的隐式容器按声明求，所以在改容器项之前按最新值求一次落位。
+    const located = Object.values(patch.containers ?? {}).some((fields) => fields?.reorder !== undefined) ? computePlacement(catalog, next) : null;
     const containers = {...next.containers};
     for (const [containerId, fields] of Object.entries(patch.containers ?? {})) {
         if (fields === null) {
@@ -107,6 +114,13 @@ function applyContainers(next: Customizations, patch: CustomizationsPatch): void
             continue;
         }
         const current = containers[containerId];
+        if (fields.reorder !== undefined) {
+            if (located?.containers.get(containerId)?.part !== fields.reorder.location) continue;
+            const entry: ContainerEntry = {...current, location: fields.reorder.location, order: fields.reorder.order};
+            if (fields.reorder.fingerprint !== undefined) entry.fingerprint = fields.reorder.fingerprint;
+            containers[containerId] = entry;
+            continue;
+        }
         const location = fields.location ?? current?.location;
         const order = fields.order ?? current?.order;
         if (location === undefined || order === undefined) continue;
@@ -169,7 +183,7 @@ export function applyPatch(value: DeepReadonly<Customizations>, patch: Customiza
     }
     const left = new Set<string>(patch.settle);
     applyViews(next, patch, left);
-    applyContainers(next, patch);
+    applyContainers(next, patch, catalog);
     applySelected(next, patch);
     settle(next, left);
     return {value: next, problem: null};

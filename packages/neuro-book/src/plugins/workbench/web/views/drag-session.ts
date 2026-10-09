@@ -6,12 +6,14 @@
  * - 指针的激活门槛：鼠标与笔移动 6px；触摸按住 200ms 且不超过 6px（先动了就让给滚动）。没过门槛的按下照常是点击。
  * - 键盘：焦点在拖动源本身（或源里标了 `data-drag-handle` 的把手）上按空格拿起；Tab / Shift+Tab 在可见的落点区域间
  *   循环，方向键沿区域的轴逐个位置移动，Enter 放下，Escape 取消。每个位置是区域里的一个坐标，命中与判定与指针同一份。
- *   拖动中这些键归会话：在窗口捕获阶段拦下，标签带的方向键、收起开关与选择都收不到。放下或取消后焦点回到源。
+ *   拖动中这些键归会话：在窗口捕获阶段拦下，标签带的方向键、收起开关与选择都收不到；指针拖动同样拦下它们（只有
+ *   Escape 有动作），按着鼠标按方向键不会切换标签。放下或取消后焦点回到源。
  * - 冻结：拿起时冻结拖动源与布局代次（`layoutKeyOf`）、生成这场拖动建自建容器用的 id。之后布局代次变了，整场取消。
  * - 每次指针移动（一帧一次）或每次按键用当下坐标同步求一次命中与判定，发布预览；放下时用那一刻的坐标再判一次，与
  *   最后发布过的提交动作逐字段相同才提交（`isSameDropAction`），用户没看到过的动作不写。
- * - Escape、`pointercancel`、窗口失焦、页面隐藏、会话销毁都取消且不提交。指针拖动结束后吞掉同一手势末尾的 click
- *   （松手在源自己身上时，标签会被选中、收起开关会被切换）。
+ * - Escape、`pointercancel`、窗口失焦、页面隐藏、焦点移到外壳之外（命令面板、对话框打开）、会话销毁都取消且不提交。
+ *   指针拖动结束时释放指针捕获，并吞掉同一手势末尾的那一次指针 click（松手在源自己身上时，标签会被选中、收起开关会
+ *   被切换）；键盘触发的 click（`detail` 为 0）不吞。
  *
  * 由旧应用 `useWorkbenchDrag.ts` 与 `useWorkbenchDrop.ts`（已人工验证）改写；手势不再经拖动库（取舍见 t67 计划）。
  */
@@ -24,7 +26,7 @@ import type {GridDropPoint} from "@notnotype/nb-ui/layout";
 import type {ViewIntent} from "./intents";
 import {isSameDropAction, layoutKeyOf, resolveDrop} from "./drop";
 import type {DropDecision, DropRects, DropSource} from "./drop";
-import {containerHostIn, dragSourceAt, dropHitAt, keyboardRegions, keyboardStops, readContentRects, readDropRect, readSwitcherRects} from "./drop-dom";
+import {containerHostIn, dragSourceAt, dropHitAt, entryIn, keyboardRegions, keyboardStops, readContentRects, readDropRect, readSwitcherRects, sectionIn} from "./drop-dom";
 import {customContainerId} from "./placement";
 import type {ViewCatalog} from "./placement";
 import type {Presentation} from "./presentation";
@@ -122,7 +124,7 @@ export function createDragSession(options: DragSessionOptions): DragSession {
     let pending: Pending | null = null;
     let active: Active | null = null;
     let frame = 0;
-    /** 指针拖动刚结束：同一手势末尾的 click 要吞掉。下一次按下时清。 */
+    /** 指针拖动刚结束：同一手势末尾的指针 click 要吞掉。被吞掉或下一次按下时清。 */
     let swallowClick = false;
     let detachSession: (() => void) | null = null;
 
@@ -203,8 +205,13 @@ export function createDragSession(options: DragSessionOptions): DragSession {
         state.value = null;
         delete document.documentElement.dataset.workbenchDragging;
         if (current === null) return;
-        if (current.keyboard === null) swallowClick = true;
-        else if (focus) returnFocus(current);
+        if (current.pointerId !== null) {
+            // Escape 取消时指针可能还按着：捕获不释放，之后的松手、移动仍归源。
+            if (current.origin.isConnected && current.origin.hasPointerCapture(current.pointerId)) current.origin.releasePointerCapture(current.pointerId);
+            swallowClick = true;
+        } else if (focus) {
+            returnFocus(current);
+        }
     }
 
     /**
@@ -235,13 +242,8 @@ export function createDragSession(options: DragSessionOptions): DragSession {
 
     function onSessionKey(event: KeyboardEvent): void {
         const current = active;
-        if (current === null) return;
+        if (current === null || !SESSION_KEYS.has(event.key)) return;
         const cursor = current.keyboard;
-        if (cursor === null) {
-            if (event.key !== "Escape") return;
-        } else if (!SESSION_KEYS.has(event.key)) {
-            return;
-        }
         event.preventDefault();
         event.stopPropagation();
         if (event.key === "Escape") {
@@ -281,9 +283,14 @@ export function createDragSession(options: DragSessionOptions): DragSession {
         const onPointerDown = (): void => {
             if (active !== null && active.keyboard !== null) end();
         };
+        // 焦点进了外壳之外（命令面板、对话框）：用户已经转去操作那里，按键不能再归拖动；焦点留在那边，不还给源。
+        const onFocusIn = (event: FocusEvent): void => {
+            if (event.target instanceof Node && !root.contains(event.target)) end(false);
+        };
         view.addEventListener("keydown", onSessionKey, true);
         view.addEventListener("keyup", onKeyUp, true);
         view.addEventListener("pointerdown", onPointerDown, true);
+        document.addEventListener("focusin", onFocusIn, true);
         // 不加捕获：子元素失焦也会冒到这里，只要窗口自己失焦那一种。
         view.addEventListener("blur", cancel);
         document.addEventListener("visibilitychange", onHidden);
@@ -293,6 +300,7 @@ export function createDragSession(options: DragSessionOptions): DragSession {
             view.removeEventListener("keydown", onSessionKey, true);
             view.removeEventListener("keyup", onKeyUp, true);
             view.removeEventListener("pointerdown", onPointerDown, true);
+            document.removeEventListener("focusin", onFocusIn, true);
             view.removeEventListener("blur", cancel);
             document.removeEventListener("visibilitychange", onHidden);
             view.removeEventListener("scroll", schedule, {capture: true});
@@ -302,12 +310,21 @@ export function createDragSession(options: DragSessionOptions): DragSession {
             publish();
             return;
         }
-        // 从源所在的位置开始：Switcher 条目是它自己的前缘（原位），视图是它所在内容区的第一个位置。
+        // 从源自己的原位开始，直接 Enter 是无操作：容器源是它在条目带上的条目的前缘，视图源是它自己分节里的位置。
+        // 都找不到（源条目不可见）时停在源的中心，不落到区域的第一个位置（那是一次真实的移动）。
         const cursor = next.keyboard;
         const stops = keyboardStops(cursor.regions[cursor.region]!).points;
-        const own = next.origin.getBoundingClientRect();
-        const at = stops.findIndex((point) => point.x >= own.left && point.x <= own.right && point.y >= own.top && point.y <= own.bottom);
-        moveKeyboard(next, cursor, cursor.region, Math.max(0, at));
+        const home = cursor.regions[cursor.region]!;
+        const own = (next.source.kind === "view" ? sectionIn(home, next.source.viewId) : entryIn(home, next.source.containerId)) ?? next.origin;
+        const box = own.getBoundingClientRect();
+        const at = stops.findIndex((point) => point.x >= box.left && point.x <= box.right && point.y >= box.top && point.y <= box.bottom);
+        if (at !== -1) {
+            moveKeyboard(next, cursor, cursor.region, at);
+            return;
+        }
+        cursor.stop = -1;
+        next.point = {x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2};
+        publish();
     }
 
     function activatePointer(): void {
@@ -362,7 +379,7 @@ export function createDragSession(options: DragSessionOptions): DragSession {
     }
 
     function onClick(event: MouseEvent): void {
-        if (!swallowClick) return;
+        if (!swallowClick || event.detail === 0) return;
         swallowClick = false;
         event.preventDefault();
         event.stopPropagation();

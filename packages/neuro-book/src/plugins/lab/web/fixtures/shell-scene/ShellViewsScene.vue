@@ -44,7 +44,7 @@ const props = defineProps<LabFixtureProps>();
 const subject = useLabSubject<typeof WorkbenchShellLayout>(() => props.input, ["resize", "layout"]);
 
 const view = (name: string, location: ViewLocation, icon: string, extra: Partial<ViewDeclaration> = {}): ViewDeclaration => ({title: {"zh-CN": name, "en-US": name}, icon, location, layout: "scroll", ...extra});
-const catalog = new Map<string, ViewDeclaration>([
+const declarations = new Map<string, ViewDeclaration>([
     ["test.files", view("资源管理器", "sidebar", "i-lucide-files", {layout: "fill"})],
     ["test.outline", view("大纲", "sidebar", "i-lucide-list-tree", {order: 1})],
     ["test.timeline", view("时间线", "sidebar", "i-lucide-clock", {order: 2})],
@@ -55,22 +55,25 @@ const catalog = new Map<string, ViewDeclaration>([
 /** 场景预设：merged 把大纲并进资源管理器的容器，看 multiple 与容器网格。 */
 function preset(): Customizations {
     if (props.scene !== "views-merged") return {};
-    const placement = computePlacement(catalog, {});
-    const presentation = buildPresentation({catalog, placement, customizations: {}});
-    const result = applyIntent({catalog, placement, presentation, customizations: {}}, {kind: "move-view", viewId: "test.outline", sourceContainerId: "view:test.outline", targetContainerId: "view:test.files"});
-    return result.kind === "patch" ? applyPatch({}, result.patch, catalog).value : {};
+    const placement = computePlacement(declarations, {});
+    const presentation = buildPresentation({catalog: declarations, placement, customizations: {}});
+    const result = applyIntent({catalog: declarations, placement, presentation, customizations: {}}, {kind: "move-view", viewId: "test.outline", sourceContainerId: "view:test.outline", targetContainerId: "view:test.files"});
+    return result.kind === "patch" ? applyPatch({}, result.patch, declarations).value : {};
 }
 
 // shallowRef：记录值是普通对象（意图合成用 structuredClone 复制它，代理对象复制不了）。
 const customizations = shallowRef<Customizations>(preset());
-const placement = computed(() => computePlacement(catalog, customizations.value));
+/** 声明不可移动的视图：场景里用开关摆出“容器里有不可移动成员”的整组并入（应整组拒绝、不显示可接收的半区）。 */
+const fixedViews = reactive(new Set<string>());
+const catalog = computed(() => new Map([...declarations].map(([id, declaration]) => [id, fixedViews.has(id) ? {...declaration, movable: false} : declaration])));
+const placement = computed(() => computePlacement(catalog.value, customizations.value));
 /** 隐藏的成员：产品里要等视图的 `when`，场景里用开关摆出“容器有隐藏成员”的拖放（整组并入要带上它）。 */
 const hiddenViews = reactive(new Set<string>());
-const presentation = computed(() => buildPresentation({catalog, placement: placement.value, customizations: customizations.value, hidden: new Set(hiddenViews)}));
+const presentation = computed(() => buildPresentation({catalog: catalog.value, placement: placement.value, customizations: customizations.value, hidden: new Set(hiddenViews)}));
 
 function apply(intent: ViewIntent): void {
-    const result = applyIntent({catalog, placement: placement.value, presentation: presentation.value, customizations: customizations.value}, intent);
-    if (result.kind === "patch") customizations.value = applyPatch(customizations.value, result.patch, catalog).value;
+    const result = applyIntent({catalog: catalog.value, placement: placement.value, presentation: presentation.value, customizations: customizations.value}, intent);
+    if (result.kind === "patch") customizations.value = applyPatch(customizations.value, result.patch, catalog.value).value;
 }
 
 // ── 视图来源：交付状态与加载都按场景开关 ────────────────────────────────
@@ -148,7 +151,7 @@ const PART_LABELS: Readonly<Record<ViewLocation, string>> = {sidebar: "侧栏", 
 const generations = shallowRef<ReadonlyMap<string, number>>(new Map());
 
 function menuOf(viewId: string) {
-    const targets = moveTargetsOf(presentation.value, placement.value, catalog, viewId);
+    const targets = moveTargetsOf(presentation.value, placement.value, catalog.value, viewId);
     if (targets === null) return null;
     const container = presentation.value.containers.get(targets.sourceContainerId);
     return {
@@ -169,15 +172,15 @@ function move(payload: MovePayload): void {
 
 const drag = shallowRef<DragSession | null>(null);
 onMounted(() => {
-    drag.value = createDragSession({root: hostEl.value!, presentation: () => presentation.value, catalog: () => catalog, enabled: () => true, commit: apply});
+    drag.value = createDragSession({root: hostEl.value!, presentation: () => presentation.value, catalog: () => catalog.value, enabled: () => true, commit: apply});
 });
 onBeforeUnmount(() => drag.value?.dispose());
 const dragState = computed(() => drag.value?.state.value ?? null);
 const dragGhost = computed(() => {
     const current = dragState.value;
     if (current === null) return null;
-    const title = current.source.kind === "view" ? catalog.get(current.source.viewId)?.title : presentation.value.containers.get(current.source.containerId)?.title;
-    const icon = current.source.kind === "view" ? catalog.get(current.source.viewId)?.icon : presentation.value.containers.get(current.source.containerId)?.icon;
+    const title = current.source.kind === "view" ? catalog.value.get(current.source.viewId)?.title : presentation.value.containers.get(current.source.containerId)?.title;
+    const icon = current.source.kind === "view" ? catalog.value.get(current.source.viewId)?.icon : presentation.value.containers.get(current.source.containerId)?.icon;
     return title === undefined ? null : {label: title["zh-CN"], icon: icon ?? "", x: current.point.x, y: current.point.y};
 });
 const DROP_LABELS: Readonly<Record<string, string>> = {"move-view": "移到这里", "detach-view": "新建容器", "move-container": "移动容器", "merge-container": "并入视图"};
@@ -259,6 +262,7 @@ const position = computed({get: () => panel.value.position, set: (value: string 
             <Button size="sm" variant="secondary" data-lab-toggle="entry-stopped" @click="toggleDelivery('test.terminal', {kind: 'entry-stopped', reason: 'scope-closed'})">终端：模拟入口停止 / 模拟重新交付</Button>
             <Button size="sm" variant="secondary" data-lab-toggle="entry-failed" @click="toggleDelivery('test.terminal', {kind: 'entry-failed', reason: '样例入口启动失败'})">终端：入口启动失败</Button>
             <Button size="sm" variant="secondary" data-lab-toggle="hidden-member" @click="toggle(hiddenViews, 'test.outline')">{{ hiddenViews.has("test.outline") ? "大纲：取消隐藏" : "大纲：隐藏成员" }}</Button>
+            <Button size="sm" variant="secondary" data-lab-toggle="fixed-member" @click="toggle(fixedViews, 'test.files')">{{ fixedViews.has("test.files") ? "资源管理器：恢复可移动" : "资源管理器：不可移动" }}</Button>
             <Button size="sm" variant="secondary" @click="togglePart('sidebar')">{{ hiddenParts.includes("sidebar") ? "显示侧栏" : "隐藏侧栏" }}</Button>
             <span class="text-[var(--text-secondary)]">面板位置</span>
             <SegmentedControl v-model="position" :options="positions" size="xs" aria-label="面板位置" />

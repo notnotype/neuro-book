@@ -512,7 +512,7 @@ describe("拖放的保存冲突（外壳三）", () => {
         expect(value.views?.["t.a"]?.container).toBeUndefined();
     });
 
-    it("带半区的并入在保存时前提不成立（目标容器已被另一个窗口挪到侧栏）：整条不写，原因进 patchProblems", async () => {
+    it("带半区的并入在保存时前提不成立（目标容器已被另一个窗口挪到侧栏）：整条不写、revision 不动，显示回到最新值，原因进 patchProblems", async () => {
         const w = await world();
         const [a] = await pair(w);
         a.store.actions.applyView({kind: "move-view", viewId: "t.e", sourceContainerId: "view:t.e", targetContainerId: "view:t.d"});
@@ -521,10 +521,17 @@ describe("拖放的保存冲突（外壳三）", () => {
         other.store.actions.acceptViewCatalog(catalog);
         expect(other.store.actions.applyView({kind: "move-container", containerId: "view:t.d", sourcePart: "panel", targetPart: "sidebar"}).kind).toBe("patch");
         await saved(other.store);
-        const before = await read(a.storage, LAYOUT_RECORDS.user.customizations);
+        const handle = await a.storage.open(LAYOUT_RECORDS.user.customizations);
+        if (!handle.ok) throw new Error(handle.code);
+        const before = await handle.handle.read();
         expect(a.store.actions.applyView({kind: "move-view", viewId: "t.a", sourceContainerId: "view:t.a", targetContainerId: "view:t.d", split: {hitViewId: "t.e", side: "after", sourceSizes: {"t.a": 1}}}).kind).toBe("patch");
         await saved(a.store);
-        expect(await read(a.storage, LAYOUT_RECORDS.user.customizations)).toEqual(before);
+        const after = await handle.handle.read();
+        expect(after).toEqual(before);
         expect(a.store.state.patchProblems).toHaveLength(1);
+        // 没写的修改不会有快照来改正显示：显示是最新值，A 没有进 D。
+        if (before.status !== "ok") throw new Error(`最新值应已存在：${before.status}`);
+        expect(a.store.state.customizations.display).toEqual(before.value);
+        expect(a.store.state.placement.views.get("t.a")?.container).toBe("view:t.a");
     });
 });

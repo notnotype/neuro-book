@@ -309,17 +309,22 @@ const dropFeedback = computed(() => {
             <WorkbenchPanelSurface :title="text(TEXT.panel)" :collapsed="collapsed" :actions="frameActions" @action="run">
                 <template #nav>
                     <Tabs v-if="panelTabs.length > 0" class="workbench-shell__panel-tabs" size="sm" :model-value="presentation.parts.panel.selected ?? ''" :items="panelTabs" :aria-label="text(TEXT.panel)" @update:model-value="(id: string) => selectContainer('panel', id)" />
-                    <WorkbenchMoveViewMenu
-                        v-if="selectedOf('panel') !== null && singleViewOf(selectedOf('panel')!) !== null && moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null"
-                        :label="text(TEXT.moveTo)"
-                        :view-id="singleViewOf(selectedOf('panel')!)!"
-                        :source-container-id="moveMenuOf(singleViewOf(selectedOf('panel')!)!)!.source"
-                        :groups="moveMenuOf(singleViewOf(selectedOf('panel')!)!)!.groups"
-                        :reset-label="moveMenuOf(singleViewOf(selectedOf('panel')!)!)!.resetLabel"
-                        :identity="moveMenuOf(singleViewOf(selectedOf('panel')!)!)!.identity"
-                        @move="moveView"
-                        @reset="resetView"
-                    />
+                    <!--
+                        标签带里的工具区：不起拖、不接收投递（外壳三输出 19 行为表最后一行）。条件写在包装上：槽里什么都没渲染时
+                        面板要回落显示标题，常驻的空包装会挡掉回落。
+                    -->
+                    <span v-if="selectedOf('panel') !== null && singleViewOf(selectedOf('panel')!) !== null && moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null" class="workbench-shell__panel-tools" data-no-drag>
+                        <WorkbenchMoveViewMenu
+                            :label="text(TEXT.moveTo)"
+                            :view-id="singleViewOf(selectedOf('panel')!)!"
+                            :source-container-id="moveMenuOf(singleViewOf(selectedOf('panel')!)!)!.source"
+                            :groups="moveMenuOf(singleViewOf(selectedOf('panel')!)!)!.groups"
+                            :reset-label="moveMenuOf(singleViewOf(selectedOf('panel')!)!)!.resetLabel"
+                            :identity="moveMenuOf(singleViewOf(selectedOf('panel')!)!)!.identity"
+                            @move="moveView"
+                            @reset="resetView"
+                        />
+                    </span>
                 </template>
                 <WorkbenchToolPartHost
                     part="panel"
@@ -389,6 +394,11 @@ const dropFeedback = computed(() => {
     min-width: 0;
     min-height: 0;
     outline: none;
+}
+
+/* 只是工具区的标记，不另占布局。 */
+.workbench-shell__panel-tools {
+    display: contents;
 }
 
 .workbench-shell__panel-tabs {

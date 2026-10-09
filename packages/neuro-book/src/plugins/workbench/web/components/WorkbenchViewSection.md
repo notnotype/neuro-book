@@ -56,7 +56,7 @@ type Slots = {
 };
 ```
 
-没有 expose；attrs 落在根 `<section>` 上。根上带 `data-view-section`（视图 id）与 `data-view-collapsed`，供宿主、拖放会话与测试定位。标题行带 `data-drag-view`（视图的拖动源），动作区带 `data-no-drag`，标题文字是 `data-drag-handle` 把手。
+没有 expose；attrs 落在根 `<section>` 上。根上带 `data-view-section`（视图 id）与 `data-view-collapsed`，供宿主、拖放会话与测试定位。标题行带 `data-drag-view`（视图的拖动源），收起开关与动作区带 `data-no-drag`（工具区：不起拖、不接收投递），标题文字是 `data-drag-handle` 把手。
 
 ## 不支持
 

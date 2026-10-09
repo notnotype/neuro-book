@@ -135,9 +135,14 @@ function reorderViews(catalog: ViewCatalog, containerId: string, rerank: Readonl
     for (const [id, order] of rerank) views[id] = {...views[id], reorder: {container: containerId, order, fingerprint: defaultFingerprint(catalog.get(id)!)}};
 }
 
-/** 被动挪位的容器只改顺序（位置不变）。 */
+/** 被动挪位的容器只改顺序：保存时它已不在 `part` 就不动。 */
 function reorderContainers(catalog: ViewCatalog, part: ViewLocation, rerank: ReadonlyMap<string, number>, containers: Record<string, ContainerFieldPatch | null>): void {
-    for (const [id, order] of rerank) containers[id] = {location: part, order, ...containerIdentity(catalog, id)};
+    for (const [id, order] of rerank) containers[id] = {reorder: {location: part, order, ...containerIdentity(catalog, id)}};
+}
+
+/** 整组并入的成员里第一个声明不可移动的；拖放判定与意图合成共用这一条前提。 */
+export function immovableMemberOf(catalog: ViewCatalog, viewIds: ReadonlyArray<string>): string | undefined {
+    return viewIds.find((id) => catalog.get(id)?.movable === false);
 }
 
 /** 插在命中视图的哪一侧，换成“插在谁之前”。 */
@@ -282,9 +287,8 @@ function mergeContainer(state: IntentState, intent: Extract<ViewIntent, {kind: "
     if (source.members.length !== intent.sourceViewIds.length || source.members.some((id, index) => intent.sourceViewIds[index] !== id)) {
         return rejected("stale-source", `容器 ${source.id} 的成员已变化`);
     }
-    for (const id of source.members) {
-        if (catalog.get(id)?.movable === false) return rejected("not-movable", `视图 ${id} 声明不可移动，整组不并入`);
-    }
+    const immovable = immovableMemberOf(catalog, source.members);
+    if (immovable !== undefined) return rejected("not-movable", `视图 ${immovable} 声明不可移动，整组不并入`);
     const movers = new Set(source.members);
     const anchor = intent.split === undefined ? intent.beforeViewId : anchorOfSplit(placement, target.id, intent.split, movers);
     if (anchor === null) return rejected("invalid", `命中视图 ${intent.split?.hitViewId ?? ""} 不是容器 ${target.id} 的成员`);
@@ -300,9 +304,11 @@ function mergeContainer(state: IntentState, intent: Extract<ViewIntent, {kind: "
         else if (placement.views.get(id)!.order !== order) views[id] = {reorder: {container: target.id, order, fingerprint: defaultFingerprint(catalog.get(id)!)}};
     });
     const sourceSlice = state.presentation.containers.get(source.id);
-    const visibleMovers = source.members.filter((id) => sourceSlice?.views.some((view) => view.id === id) === true);
-    if (intent.expand === true) for (const id of visibleMovers) views[id] = {...views[id], collapsed: null};
-    if (intent.split !== undefined && !splitSizes(state, target.part, intent.split, visibleMovers, views)) {
+    const visibleMovers = sourceSlice?.views ?? [];
+    if (intent.expand === true) for (const view of visibleMovers) views[view.id] = {...views[view.id], collapsed: null};
+    // 半区只分给展开的拖入成员：收起成员的尺寸是它的展开记忆，随归属迁移、不改。全部收起时只并入，不拆命中窗格。
+    const expandedMovers = visibleMovers.filter((view) => !view.collapsed).map((view) => view.id);
+    if (intent.split !== undefined && expandedMovers.length > 0 && !splitSizes(state, target.part, intent.split, expandedMovers, views)) {
         return rejected("invalid", "量不出半区的来源比例");
     }
     return {kind: "patch", patch: {

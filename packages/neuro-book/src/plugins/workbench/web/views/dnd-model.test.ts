@@ -128,8 +128,32 @@ describe("补丁边界：保存冲突重放（另一个窗口改过的最新值�
         expect(outcome.problem).not.toBeNull();
         expect(outcome.value).toEqual(moved);
         const hitGone = step(base, {kind: "reset-view", viewId: "t.e"});
-        expect(applyPatch(hitGone, patch, catalog).problem).not.toBeNull();
+        expect(applyPatch(hitGone, patch, catalog)).toEqual({value: hitGone, problem: expect.any(String)});
         expect(applyPatch(base, patch, catalog).problem).toBeNull();
+    });
+
+    it("插入引起的容器重排：被动挪位的容器在最新值里已迁到别的 Part，只改顺序的那一项不动", () => {
+        // A、B、C 的容器顺序相同（合法的声明输入）：插到 A、B 之间没有中点，整个侧栏重排。
+        const equal: Customizations = {containers: {
+            "view:t.a": {location: "sidebar", order: 5, fingerprint: "sidebar#0"},
+            "view:t.b": {location: "sidebar", order: 5, fingerprint: "sidebar#1"},
+            "view:t.c": {location: "sidebar", order: 5, fingerprint: "sidebar#2"},
+        }};
+        const patch = patchOf(equal, {kind: "move-container", containerId: "view:t.d", sourcePart: "panel", targetPart: "sidebar", beforeContainerId: "view:t.b"});
+        expect(model(applyPatch(equal, patch, catalog).value).placement.parts.sidebar).toEqual(["view:t.a", "view:t.d", "view:t.b", "view:t.c"]);
+        // 别处：B 已迁到右栏。
+        const elsewhere = step(equal, {kind: "move-container", containerId: "view:t.b", sourcePart: "sidebar", targetPart: "auxiliarybar"});
+        const replayed = applyPatch(elsewhere, patch, catalog).value;
+        expect(replayed.containers?.["view:t.b"]).toEqual(elsewhere.containers?.["view:t.b"]);
+        expect(model(replayed).placement.parts.auxiliarybar).toContain("view:t.b");
+        expect(model(replayed).placement.parts.sidebar).toEqual(["view:t.a", "view:t.d", "view:t.c"]);
+    });
+
+    it("只收口本次涉及的自建容器：记录里另一个没有成员的自建容器项与指向它的选中项不受一次无关移动影响", () => {
+        const orphan: Customizations = {containers: {[N2]: {location: "panel", order: 0, origin: "t.d"}}, selected: {panel: N2}};
+        const moved = step(orphan, {kind: "move-view", viewId: "t.b", sourceContainerId: "view:t.b", targetContainerId: "view:t.a"});
+        expect(moved.containers?.[N2]).toEqual(orphan.containers?.[N2]);
+        expect(moved.selected?.panel).toBe(N2);
     });
 
     it("容器换序只写容器的位置字段；另一个窗口改的视图归属与选中项保留", () => {
@@ -213,6 +237,24 @@ describe("移动与并入", () => {
         expect(merged.views?.["t.d"]?.width).toBe(120);
         expect(merged.views?.["t.a"]?.width).toBe(120);
         expect(model(merged).placement.selected.panel).toBe("view:t.d");
+    });
+
+    it("整组半区并入：来源里收起的成员随归属迁移，展开记忆与收起状态不变；全部收起时只并入、不拆命中窗格", () => {
+        let base = step({}, {kind: "move-view", viewId: "t.b", sourceContainerId: "view:t.b", targetContainerId: "view:t.a"});
+        base = step(base, {kind: "set-view-sizes", containerId: "view:t.a", axis: "vertical", sizes: {"t.b": 150}});
+        base = {...base, views: {...base.views, "t.b": {...base.views?.["t.b"], width: 150}}};
+        base = step(base, {kind: "set-view-collapsed", viewId: "t.b", collapsed: true});
+        // 意图里即使带了收起成员的比例，也只分给展开的成员。
+        const merged = step(base, {kind: "merge-container", sourceContainerId: "view:t.a", targetContainerId: "view:t.d", sourceViewIds: ["t.a", "t.b"], split: {hitViewId: "t.d", side: "after", sourceSizes: {"t.a": 1, "t.b": 1}}});
+        expect(model(merged).placement.containers.get("view:t.d")?.members).toEqual(["t.d", "t.a", "t.b"]);
+        expect(merged.views?.["t.b"]).toMatchObject({width: 150, height: 150, collapsed: true});
+        expect(merged.views?.["t.d"]?.width).toBe(120);
+        expect(merged.views?.["t.a"]?.width).toBe(120);
+        const allCollapsed = step(base, {kind: "set-view-collapsed", viewId: "t.a", collapsed: true});
+        const quiet = step(allCollapsed, {kind: "merge-container", sourceContainerId: "view:t.a", targetContainerId: "view:t.d", sourceViewIds: ["t.a", "t.b"], split: {hitViewId: "t.d", side: "after", sourceSizes: {}}});
+        expect(model(quiet).placement.containers.get("view:t.d")?.members).toEqual(["t.d", "t.a", "t.b"]);
+        expect(quiet.views?.["t.d"]?.width).toBeUndefined();
+        expect(quiet.views?.["t.a"]?.width).toBeUndefined();
     });
 
     it("落在全收起容器的剩余区：拖入成员同次展开，原有细条保持收起", () => {
