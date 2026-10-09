@@ -181,3 +181,6 @@ Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、
 ## 证据
 
 - 批准依据：[NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 第 5 节（编辑器组件从旧包迁入）与推进顺序第 6 条；[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（沿用第一版切换设计）；本 Spec 的取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t71 条目（按推荐先做，待开发者追认）。
+- 实现入口：[`editor/plugin.ts`](../../../packages/neuro-book/src/plugins/editor/plugin.ts)、[`editor/web/area.ts`](../../../packages/neuro-book/src/plugins/editor/web/area.ts)、[`documents/store.ts`](../../../packages/neuro-book/src/plugins/editor/web/documents/store.ts)
+- 合同测试：[`editor/documents.test.ts`](../../../packages/neuro-book/src/plugins/editor/documents.test.ts)、[`editor/area.test.ts`](../../../packages/neuro-book/src/plugins/editor/area.test.ts)、[`groups.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/groups/groups.test.ts)、[`source-merge.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/source-merge.test.ts)、[`explorer/documents.test.ts`](../../../packages/neuro-book/src/plugins/explorer/documents.test.ts)
+- Smoke：[`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts)（产品页）、[`lab-editor.e2e.ts`](../../../packages/neuro-book/e2e/lab-editor.e2e.ts)（Lab 集成场景）
