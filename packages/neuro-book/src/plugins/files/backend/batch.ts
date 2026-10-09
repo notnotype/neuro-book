@@ -248,13 +248,13 @@ export function createBatch(options: BatchOptions): Batch {
             if (encodedBytes(items) > TEXT_BUDGET_BYTES) return {ok: false, code: "too-large", detail: {detail: "批量的地址太长，超过一次请求的上限"}};
             const prepared = await prepare(items.map((item) => ({path: item.source, ...(item.expected === undefined ? {} : {expected: item.expected})})));
             const results = await execute(prepared, items, control, (item, input) => (kind === "move" ? move(item, input, source) : copy(item, input, source)));
-            return {ok: true, value: {items: fit(results)}};
+            return {ok: true, value: {items: fitBudget(results)}};
         },
         remove: async (items, source, control) => {
             if (encodedBytes(items) > TEXT_BUDGET_BYTES) return {ok: false, code: "too-large", detail: {detail: "批量的地址太长，超过一次请求的上限"}};
             const prepared = await prepare(items);
             const results = await execute(prepared, items, control, (item, input) => remove(item, input, source));
-            return {ok: true, value: {items: fit(results)}};
+            return {ok: true, value: {items: fitBudget(results)}};
         },
     };
 }
@@ -264,7 +264,7 @@ function clip(detail: string): string {
 }
 
 /** 结果编码后超过预算：清空范围里的路径、标 `truncated`，调用方重新列出核对。说明已截短，项数有上限，这样一定装得下。 */
-export function fit(results: ItemResult[]): ItemResult[] {
+export function fitBudget(results: ItemResult[]): ItemResult[] {
     if (encodedBytes(results) <= TEXT_BUDGET_BYTES) return results;
     return results.map((result) => {
         if (result.status !== "failed" || result.partial === undefined) return result;

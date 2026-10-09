@@ -17,7 +17,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {holdLock} from "nbook/backend/locked-replace";
 
-import {fit} from "./backend/batch";
+import {fitBudget} from "./backend/batch";
 import {BATCH_DELAY_MS} from "./backend/changes";
 import {projectFilesContract, TEXT_BUDGET_BYTES} from "./shared/contracts";
 import type {FileChange, ItemResult, WatchMessage} from "./shared/contracts";
@@ -235,11 +235,11 @@ describe("Spec workspace.files 批量删除与复制的部分完成", () => {
     it("结果编码后超过一条消息的预算：清空范围里的路径并标 truncated", () => {
         const long = "x".repeat(2000);
         const results: ItemResult[] = Array.from({length: 1000}, () => ({status: "failed", code: "io-failed", detail: "d", partial: {residual: {paths: [long], truncated: false}}}));
-        const fitted = fit(results);
+        const fitted = fitBudget(results);
         expect(new TextEncoder().encode(JSON.stringify(fitted)).length).toBeLessThanOrEqual(TEXT_BUDGET_BYTES);
         expect(fitted[0]).toEqual({status: "failed", code: "io-failed", detail: "d", partial: {residual: {paths: [], truncated: true}}});
         const small: ItemResult[] = [{status: "failed", code: "io-failed", detail: "d", partial: {removed: {paths: ["a"], truncated: false}}}];
-        expect(fit(small)).toEqual(small);
+        expect(fitBudget(small)).toEqual(small);
     });
 
     it("输入超过预算：客户端不发出，提供者也拒绝；没有副作用", async () => {
