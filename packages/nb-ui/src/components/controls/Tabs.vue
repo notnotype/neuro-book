@@ -23,15 +23,9 @@ const props = withDefaults(defineProps<{
     items: TabsItem[];
     ariaLabel?: string;
     size?: TabsSize;
-    /** 为真时方向键、Home、End 不切换选中项：标签栏里的键另有用途时（例如拖动进行中）由消费方门住。 */
-    keyboardDisabled?: boolean;
-    /** 每个标签元素挂上时以元素、移除时以 null 调用；同一元素可能重复报，消费方按值去重。 */
-    tabRef?: (value: string, element: HTMLElement | null) => void;
 }>(), {
     ariaLabel: "",
     size: "md",
-    keyboardDisabled: false,
-    tabRef: undefined,
 });
 
 const emit = defineEmits<{
@@ -55,9 +49,6 @@ function select(item: TabsItem): void {
 
 /** 方向键/Home/End 在启用的标签间移动选中项，并把焦点跟到新标签上 */
 function handleKeydown(event: KeyboardEvent): void {
-    if (props.keyboardDisabled) {
-        return;
-    }
     const enabled = enabledItems.value;
     if (enabled.length === 0) {
         return;
@@ -88,11 +79,6 @@ function handleKeydown(event: KeyboardEvent): void {
     });
 }
 
-/** 模板里拿不到 `HTMLElement` 这个全局名，元素判断放在这里。 */
-function reportTab(value: string, element: unknown): void {
-    props.tabRef?.(value, element instanceof HTMLElement ? element : null);
-}
-
 function tabClass(item: TabsItem): string {
     if (isSelected(item)) {
         return "text-[var(--text-main)] after:bg-[var(--accent-main)]";
@@ -117,7 +103,6 @@ function tabClass(item: TabsItem): string {
         <button
             v-for="item in props.items"
             :key="item.value"
-            :ref="(element) => reportTab(item.value, element)"
             v-bind="item.attrs"
             type="button"
             role="tab"

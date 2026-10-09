@@ -34,6 +34,8 @@ type Props = {
     /** 收起开关的可访问名称（已按当前语言取好）。 */
     collapseLabel: string;
     expandLabel: string;
+    /** 分节标题把手的可访问名称模板，`{title}` 换成视图标题。 */
+    dragLabel: string;
     /** 视图标题按它取语言。 */
     locale: DisplayLocale;
 };
@@ -61,4 +63,4 @@ type Slots = {
 
 ## 不支持
 
-不处理拖放（外壳三）、不写记录、不加载视图。
+不处理拖放手势（根上的 `data-container-host` 与各分节是拖放会话认的内容落点）、不写记录、不加载视图。

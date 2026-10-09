@@ -15,6 +15,8 @@ defineProps<{
     containers: ReadonlyArray<ActivityContainer>;
     selected: string | null;
     sidebarVisible: boolean;
+    /** 条目作为拖动源的说明（写到 `aria-description`），例如“按空格拿起并拖动”。 */
+    dragHint: string;
 }>();
 
 const emit = defineEmits<{
@@ -24,13 +26,16 @@ const emit = defineEmits<{
 
 <template>
     <nav class="workbench-activity-bar" :aria-label="label">
-        <div class="workbench-activity-bar__containers">
+        <div class="workbench-activity-bar__containers" data-switcher-band="sidebar">
             <Tooltip v-for="container in containers" :key="container.id" :text="container.label" placement="right">
                 <IconButton
                     :icon-class="container.icon"
                     :aria-label="container.label"
                     :aria-pressed="sidebarVisible && container.id === selected"
                     :data-activity-container="container.id"
+                    :data-switcher-entry="container.id"
+                    :data-drag-container="container.id"
+                    :aria-description="dragHint"
                     class="workbench-activity-bar__item"
                     :class="{'workbench-activity-bar__item--active': sidebarVisible && container.id === selected}"
                     @click="emit('select', container.id)"
@@ -82,6 +87,8 @@ const emit = defineEmits<{
     height: 40px;
     border-radius: var(--radius-control);
     color: var(--text-muted);
+    /* 活动条目也是整容器的拖动源：触摸按住起拖。 */
+    touch-action: none;
 }
 
 .workbench-activity-bar .workbench-activity-bar__item:hover {

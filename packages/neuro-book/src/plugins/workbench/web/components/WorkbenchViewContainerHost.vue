@@ -21,6 +21,8 @@ const props = withDefaults(defineProps<{
     disabled?: boolean;
     collapseLabel: string;
     expandLabel: string;
+    /** 分节标题把手的可访问名称模板，`{title}` 换成视图标题。 */
+    dragLabel: string;
     locale: DisplayLocale;
 }>(), {disabled: false});
 
@@ -125,6 +127,7 @@ const ViewTarget = defineComponent({
                     :collapsed="views.get(node.id)!.collapsed"
                     :collapse-label="collapseLabel"
                     :expand-label="expandLabel"
+                    :drag-label="dragLabel.replace('{title}', localize(views.get(node.id)!.title, locale))"
                     @toggle-collapsed="(collapsed: boolean) => emit('toggle-collapsed', node.id, collapsed)"
                 >
                     <template #actions>

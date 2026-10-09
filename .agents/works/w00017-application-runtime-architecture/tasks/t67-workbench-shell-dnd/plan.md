@@ -5,7 +5,7 @@
 - **为什么做**：外壳二（t66）交付了容器与视图、两个实例层与“移动到”菜单，但只能移进已有容器：单个视图分离出来、整个容器换区域或换序、整组并入、半区按来源比例分配都还没有（t66 待确认清单的“不提供新建容器”一项就等外壳三）。按 [外壳设计稿](../../../../../docs/proposals/workbench-shell-abstractions.md)（2026-10-07 `accepted`）第 11 节，外壳三做拖放：视图与容器两类拖动源、三类落点、自建容器 `custom:<UUID>`、整组并入、半区来源比例、键盘拖放、拖影与落点反馈。之后是第 6 步 Files。
 - **依据**：[`ui/workbench-shell.md`](../../../../../docs/specs/ui/workbench-shell.md) 外壳三输出 19–23 与验收 19–25、“副作用与数据”的自建容器与视图尺寸两条、“失败与恢复”的拖放失败；设计稿第 3 节（三类容器身份、标题回落）、第 6 节（记录）；nb-ui [`ui-development-spec.md` 拖放反馈](../../../../../packages/nb-ui/docs/ui-development-spec.md) 与 `layout/grid-drop.ts`（`resolveGridInsertion`、`resolveListInsertion`）、`DropFeedbackOverlay`。
 - **已定的**：拖放行为表、方向与命中、半区分配公式、拖影与反馈、键盘拖放的按键都已在 Spec 定稿（2026-09-20、09-22 开发者确认，v2 改写时保留）。旧应用的拖放经开发者 2026-10-08 人工验证，可以参照：落点判定纯函数 `packages/neuro-book-legacy/app/utils/workbench/workbench-drop.ts`（1021 行）与 `workbench-drop-dom.ts`（命中检测）、拖动会话 `app/composables/useWorkbenchDrag.ts`、`useWorkbenchDrop.ts`（dnd-kit 会话、每帧同步求命中与判定、松手只提交已显示过的动作）、`app/components/workbench/` 的 `WorkbenchDragOverlay`、`WorkbenchDropOverlay`、`WorkbenchActivityContainerEntry`、`WorkbenchActivitySwitcherBand`、`WorkbenchContainerTab`；落位里的自建容器、整组并入与半区分配在 `view-placements.ts` 的 `detach-view`、`merge-container`、`resolveSplitSizes`。
-- **需要先定的一项（按推荐写，记入待确认清单）**：拖动手势用旧应用同一个库 `@dnd-kit/vue`（`^0.5.0`，含指针与键盘传感器、碰撞检测扩展点），而不是自写指针会话。理由：旧应用的拖放已经人工验证，其会话层的难点（每帧同步求命中、键盘拖动的坐标、取消条件）都建在这个库上；自写要重做这些且没有已验证的参照。代价是新应用多一个运行时依赖（`@dnd-kit/vue` 与 `@dnd-kit/dom` 0.5.0，MIT；体积在 S6 量）。
+- **需要先定的一项（按推荐写，记入待确认清单）**：拖动手势自写指针会话，不引入 `@dnd-kit`。原计划沿用旧应用的 `@dnd-kit/vue` 0.5；S4a 实现时（2026-10-09）读旧会话层改判：命中与判定每帧同步自算、键盘拖放的键表按 Spec 自写，库只剩指针激活门槛一项，旧代码还要用 Proxy 改写库在微任务里才更新的坐标；0.5 是预发布版本线。
 - **推进方式**：按 [autonomous-delivery](../../../../skills/autonomous-delivery/SKILL.md)，与 t65、t66 相同（worktree 逐片提交并 push；真实内核、Storage、nb-ui 与本机 Chrome；不用 mock、spy、假计时器、固定等待；变异检查；三个 omp 审查计划与实现）。不修改 `packages/neuro-book-legacy`。
 - **现状**：t66 的纯模型（`web/views/{placement,presentation,intents}.ts`）只认隐式容器；`intents.ts` 有 `move-view`（追加到末尾）与 `reset-view`；记录 `views-customizations` 的 `containers` 项必有默认指纹；Switcher 用 nb-ui `Tabs`（不能当拖动源）；“移动到”菜单一层平铺。
 
@@ -48,9 +48,9 @@ t66 的补丁是“发起时算好、保存冲突时原样作用在最新值上�
 - 规则按 Spec 输出 19–21：内容区用 nb-ui `resolveGridInsertion` 前后各 50%、中点归后半；Switcher 用 `resolveListInsertion({edgeGap: 4})` 只有插入位；侧栏只接上下、Panel 只接左右；全收起时落点是剩余区；空 Part 整区一个落点；量不出半区比例时整条拒绝，不降级成追加。
 - 旧口径换成 v2：位置就是 ToolPart id，容器身份三类，意图换成第 3 节的形状；旧的静态容器抑制标记、工作面代际不搬。
 
-### 6. 拖动会话（`web/views/drag-session.ts` 与组件接线）
+### 6. 拖动会话（`web/views/drag-session.ts`、`web/views/drop-dom.ts` 与组件接线）
 
-- 依赖 `@dnd-kit/vue`（待确认）。会话在外壳一级提供：拖动源与落点各自登记（落点的 `data` 是命中目标声明，几何读法随落点登记）；每个显示帧用当下坐标同步求一次命中与判定（不读库在 microtask 里更新的 `operation.target`）；松手只提交最后一次已显示过的动作；Escape、`pointercancel`、失焦、页面隐藏、布局代次或呈现结构变化都取消且不提交。
+- 自写（2026-10-09 改判，见 Context）。组件只加 DOM 标记：拖动源 `data-drag-view` / `data-drag-container`，Switcher 带 `data-switcher-band` 与其中的条目 `data-switcher-entry`，容器内容 `data-container-host` 与其中的分节 `data-view-section`，空 Part `data-empty-part`，不拖的区域 `data-no-drag`。会话装在外壳根上：按下时找拖动源，过门槛后冻结源与布局代次；每个显示帧用当下坐标经 `elementsFromPoint` 求命中（最上层的业务元素决定落点，被浮层挡住的不接收），按标记读可见几何（祖先裁剪后的矩形），交给 `resolveDrop`；松手只提交最后一次已显示过的动作；Escape、`pointercancel`、失焦、页面隐藏、布局代次变化都取消且不提交；拖动结束后吞掉同一手势末尾的 click。
 - 激活门槛同旧应用：鼠标与笔移动 6px、触摸按住 200ms；动作区、菜单、表单控件与 `data-no-drag` 不起拖。拖动手势与网格 sash 手势互斥（sash 在自己的命中带里起手势，标题行不是 sash）。
 - **键盘适配**（审查 D02、I-02，Spec 输出 23）：同一个会话里显式写键表：Space 在拖动源上拿起，Enter 放下，Escape 取消；Tab / Shift+Tab 在已登记且可见的目标区域间循环，方向键只沿当前区域的轴移动插入位；之后都走同一份纯判定。拖动进行中这些键由会话独占：标签带的方向键自动激活、收起开关的点击、选择保存都不发生；结束后焦点回到拿起时的源。multiple 的视图标题、Sidebar single 的容器标题行、标签、活动条目各有一个可聚焦的拖动源（可访问名称写明“拖动 X”）。
 - 拖影 `WorkbenchDragOverlay`（图标加文字，两类源同一种）；落点反馈用 nb-ui `DropFeedbackOverlay`。源标题、标签与活动条目保持原样，不插占位。
@@ -58,7 +58,7 @@ t66 的补丁是“发起时算好、保存冲突时原样作用在最新值上�
 ### 7. 组件
 
 - 拖动源：`WorkbenchViewSection` 的标题行（multiple）、`WorkbenchToolPartHost` 的 Sidebar single 容器标题行、Switcher 的标签、ActivityBar 的容器项。
-- Switcher 的标签（审查 I-03）：优先给 nb-ui `Tabs` 加一个通用的逐项入口（每个标签的元素回调与额外属性），拖动源由会话按元素登记；会话进行中 `Tabs` 的键盘自动激活要能被门住（加一个 `keyboardDisabled` 一类的受控开关）。只有这条路走不通才自写标签带，并在 Task 里写明取舍。
+- Switcher 的标签（审查 I-03）：给 nb-ui `Tabs` 加通用的逐项属性 `attrs`，拖动源与条目的标记经它写上（会话按 DOM 标记找元素，不需要元素回调）。会话进行中标签带的键盘自动激活由会话在窗口捕获阶段拦下按键门住（S4c 实现时确认够用，没有给 `Tabs` 另加开关）。
 - 落点：标签带与 ActivityBar 条目带（插入位）、`WorkbenchViewContainerHost` 的内容盒（边缘并入与剩余区）、空 Part（整区，显示“将视图拖动到此处显示”）。**空标签带常驻**（审查 I-01）：AuxiliaryBar 的标签带与 Panel 导航槽在没有容器时也占着标题行里框架按钮之外的正面积，空正文填满其余区域，两块各登记一个落点。
 - Lab：外壳的 `views` 系列场景接上拖放，场景扩到能摆出隐藏成员、不可移动成员、全收起与失效目标的开关（隐藏成员的产品来源要等视图的 `when`，产品 e2e 不伪造它）。
 
@@ -68,7 +68,7 @@ t66 的补丁是“发起时算好、保存冲突时原样作用在最新值上�
 |---|---|
 | `docs/specs/ui/workbench-shell.md` | 输出 24 加“新建容器（在 X）”；“副作用与数据”写自建容器记录项的形状（`origin`）与指纹、`origin` 二选一、半区写在意图单位里只写命中叶与拖入成员；“状态与转换”写保存边界的冲突政策（普通移动重建被清掉的目标、几何并入前提不成立整条不写）；外壳三输出与验收按实现细化（键盘拖放的焦点去向、空标签带落点）；需要时追加编号 |
 | `docs/specs/workbench/commands.md` | `move-view` 的 `newContainerIn` |
-| `docs/proposals/workbench-shell-abstractions.md` | 只追加决策记录：拖动手势用 `@dnd-kit/vue`（待确认） |
+| `docs/proposals/workbench-shell-abstractions.md` | 只追加决策记录：拖动手势自写指针会话（待确认） |
 
 ## 切片
 
@@ -78,7 +78,7 @@ t66 的补丁是“发起时算好、保存冲突时原样作用在最新值上�
 | S1 | 第 1–3 节 | 自建容器、补丁边界的确保与收口、四种意图、半区与剩余区（纯 TS）；接入 store | `bun test`；Spec 输出 21 的两组例子按意图单位逐数核对；真实 Storage 的双窗口场景（UUID 重放不新增、目标被另一窗口清掉后重建、几何并入前提失效整条不写、顺序与归属互不覆盖） |
 | S2 | 第 5 节 | 落点判定纯函数及测试 | `bun test`；行为表逐行 |
 | S3 | 第 4 节、第 7 节标签与空带 | `move-view` 的 `newContainerIn` 与菜单项、`Tabs` 逐项入口、空标签带常驻 | 命令与组件测试；t66 e2e 不退化 |
-| S4a | 第 6 节 | 依赖与指针会话，先接一对真实源与落点、拖影与反馈 | 本机 Chrome：源不动、预览后松手只提交一次、Escape 与失焦与卸载清理 |
+| S4a | 第 6 节 | 指针会话与 DOM 适配，先接一对真实源与落点、拖影与反馈 | 本机 Chrome：源不动、预览后松手只提交一次、Escape 与失焦与卸载清理 |
 | S4b | 第 6、7 节 | 产品与 Lab 的全部拖动源与三类落点、停放时的几何回退 | 组件测试；Lab 与产品页探针覆盖行为表九行 |
 | S4c | 第 6 节键盘适配 | 键盘拖放 | Chrome：三个 Part 各拿起一次，Tab 换区后仍在拖动、过程中无写入，Enter 只提交一次，Escape 只取消 |
 | S5 | — | `e2e/workbench-dnd.e2e.ts` 与截图；测试插件按需要加视图与尺寸约束，比例场景先实测前提再逐数断言 | 新 e2e 连跑三次 |
@@ -114,7 +114,7 @@ t66 的补丁是“发起时算好、保存冲突时原样作用在最新值上�
 ## 风险
 
 - 旧 `workbench-drop.ts` 以旧口径（位置枚举、静态容器抑制标记）写成：只搬判定结构与几何算法，意图与容器身份按 v2 改写；改写后行为表逐行重测，不信旧测试的结论。
-- `@dnd-kit/vue` 0.5 是预发布版本线：会话层只经少数扩展点（传感器、碰撞检测、拖影），升级风险集中在一处；新增依赖要过体积与许可检查。
+- 自写指针会话要自己处理库原本覆盖的细节：触摸的 `touch-action`、拖动中的文字选择、拖动末尾的 click；触摸只按代码推断，本机没有触屏验证。
 - 把 nb-ui `Tabs` 换成自己的标签带会重做一遍键盘合同：照搬 `Tabs` 的文档与测试，避免两套行为。
 
 ## 审查处理

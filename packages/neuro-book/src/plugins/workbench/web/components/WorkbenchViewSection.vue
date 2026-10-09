@@ -13,6 +13,8 @@ defineProps<{
     collapsed: boolean;
     collapseLabel: string;
     expandLabel: string;
+    /** 标题这个键盘拖动把手的可访问名称，例如“拖动 资源管理器”。 */
+    dragLabel: string;
 }>();
 
 const emit = defineEmits<{
@@ -34,7 +36,7 @@ defineSlots<{
         :data-view-section="viewId"
         :data-view-collapsed="chrome && collapsed ? 'true' : 'false'"
     >
-        <header v-if="chrome" class="workbench-view-section__head">
+        <header v-if="chrome" class="workbench-view-section__head" :data-drag-view="viewId">
             <IconButton
                 size="sm"
                 :icon-class="collapsed ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'"
@@ -45,8 +47,9 @@ defineSlots<{
                 @click="emit('toggle-collapsed', !collapsed)"
             />
             <span class="workbench-view-section__icon" :class="icon" aria-hidden="true"></span>
-            <h3 class="workbench-view-section__title">{{ title }}</h3>
-            <div v-if="!collapsed" class="workbench-view-section__actions">
+            <!-- 标题文字是键盘拖动的把手：聚焦后按空格拿起（外壳三输出 23）；指针拖动用整个标题行。 -->
+            <h3 class="workbench-view-section__title"><span class="nb-ui-focus-ring workbench-view-section__handle" role="button" tabindex="0" :aria-label="dragLabel" data-drag-handle>{{ title }}</span></h3>
+            <div v-if="!collapsed" class="workbench-view-section__actions" data-no-drag>
                 <slot name="actions"></slot>
             </div>
         </header>
@@ -76,6 +79,9 @@ defineSlots<{
     min-width: 0;
     padding-inline: var(--space-1);
     border-bottom: var(--border-w) solid var(--divider);
+    /* 标题整块是视图的拖动源：不扩选文字，触摸按住起拖而不是滚动。 */
+    touch-action: none;
+    user-select: none;
 }
 
 .workbench-view-section__icon {
@@ -83,6 +89,10 @@ defineSlots<{
     width: 14px;
     height: 14px;
     color: var(--text-muted);
+}
+
+.workbench-view-section__handle {
+    border-radius: var(--radius-control);
 }
 
 .workbench-view-section__title {

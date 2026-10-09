@@ -21,6 +21,10 @@ const props = defineProps<{
     emptyText: string;
     /** 标签与内容面板关联用的 id 前缀（`switcher-ids.ts`）。 */
     idPrefix: string;
+    /** Sidebar 容器标题这个键盘拖动把手的可访问名称模板，`{title}` 换成容器标题。 */
+    dragLabel: string;
+    /** 标签作为拖动源的说明（写到 `aria-description`），例如“按空格拿起并拖动”。 */
+    dragHint: string;
 }>();
 
 const emit = defineEmits<{
@@ -38,6 +42,8 @@ const tabs = computed(() => props.presentation.switcher.map((item) => ({
     iconClass: item.icon,
     id: switcherTabId(props.idPrefix, props.part, item.containerId),
     controls: switcherPanelId(props.idPrefix, props.part),
+    // 标签是 Switcher 的条目，也是整容器的拖动源（拖放会话按这两个标记找）。
+    attrs: {"data-switcher-entry": item.containerId, "data-drag-container": item.containerId, "aria-description": props.dragHint},
 })));
 /** 右栏与面板的内容是标签带的 tabpanel；Sidebar 的切换在 ActivityBar，不是标签。 */
 const tabbed = computed(() => props.part !== "sidebar" && props.selected !== null);
@@ -53,10 +59,11 @@ onBeforeUnmount(() => {
 
 <template>
     <section class="workbench-tool-part" :class="`workbench-tool-part--${part}`" :aria-label="label" :data-tool-part="part">
-        <header v-if="showTitleRow && selected !== null" class="workbench-tool-part__head">
+        <header v-if="showTitleRow && selected !== null" class="workbench-tool-part__head workbench-tool-part__head--drag" :data-drag-container="selected.id">
             <span class="workbench-tool-part__icon" :class="selected.icon" aria-hidden="true"></span>
-            <h2 class="workbench-tool-part__title">{{ localize(selected.title, locale) }}</h2>
-            <div class="workbench-tool-part__actions">
+            <!-- 标题文字是键盘拖动的把手；指针拖动用整个标题行。 -->
+            <h2 class="workbench-tool-part__title"><span class="nb-ui-focus-ring workbench-tool-part__handle" role="button" tabindex="0" :aria-label="dragLabel.replace('{title}', localize(selected.title, locale))" data-drag-handle>{{ localize(selected.title, locale) }}</span></h2>
+            <div class="workbench-tool-part__actions" data-no-drag>
                 <slot name="actions" :container="selected"></slot>
             </div>
         </header>
@@ -73,7 +80,7 @@ onBeforeUnmount(() => {
                     @update:model-value="(value: string) => emit('select', value)"
                 />
             </div>
-            <div v-if="selected !== null && selected.mode === 'single'" class="workbench-tool-part__actions">
+            <div v-if="selected !== null && selected.mode === 'single'" class="workbench-tool-part__actions" data-no-drag>
                 <slot name="actions" :container="selected"></slot>
             </div>
         </header>
@@ -120,6 +127,12 @@ onBeforeUnmount(() => {
     border-bottom: var(--border-w) solid var(--divider);
 }
 
+/* 容器标题行整块是拖动源：不扩选文字，触摸按住起拖而不是滚动。 */
+.workbench-tool-part__head--drag {
+    touch-action: none;
+    user-select: none;
+}
+
 .workbench-tool-part__head--tabs {
     padding-inline-start: var(--space-1);
 }
@@ -154,6 +167,10 @@ onBeforeUnmount(() => {
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.workbench-tool-part__handle {
+    border-radius: var(--radius-control);
 }
 
 .workbench-tool-part__actions {

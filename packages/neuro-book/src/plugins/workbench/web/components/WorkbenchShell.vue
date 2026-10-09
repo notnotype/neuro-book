@@ -4,7 +4,7 @@
  * （外壳二），实例层搬进各区域的落点。
  */
 import {Tabs} from "@notnotype/nb-ui/components";
-import {computed, reactive, ref, shallowRef, useId} from "vue";
+import {computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId} from "vue";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import {formatText, localize} from "nbook/shared/localized-text";
@@ -24,10 +24,13 @@ import type {ShellLayoutFacts, ShellPartId, ShellSizePatch} from "../shell/sizes
 import {TeleportMemory} from "../shell/teleport-memory";
 import type {LayoutStore} from "../state/layout-store";
 import type {ViewLocation} from "../../shared/views";
+import {createDragSession} from "../views/drag-session";
+import type {DragSession} from "../views/drag-session";
 import {moveTargetsOf} from "../views/presentation";
 import type {ContainerPresentation} from "../views/presentation";
 import type {ViewSource} from "../views/registry";
 import WorkbenchActivityBar from "./WorkbenchActivityBar.vue";
+import WorkbenchDragFeedback from "./WorkbenchDragFeedback.vue";
 import WorkbenchMoveViewMenu from "./WorkbenchMoveViewMenu.vue";
 import type {MovePayload, MoveTargetGroup} from "./WorkbenchMoveViewMenu.vue";
 import WorkbenchPanelSurface from "./WorkbenchPanelSurface.vue";
@@ -57,6 +60,12 @@ const TEXT = {
     activityBar: {"zh-CN": "活动栏", "en-US": "Activity Bar"},
     moveTo: {"zh-CN": "移动到", "en-US": "Move To"},
     resetLocation: {"zh-CN": "重置位置", "en-US": "Reset Location"},
+    dragLabel: {"zh-CN": "拖动 {title}", "en-US": "Drag {title}"},
+    dragHint: {"zh-CN": "按空格拿起并拖动", "en-US": "Press Space to pick up and drag"},
+    dropMoveView: {"zh-CN": "移到这里", "en-US": "Move here"},
+    dropDetachView: {"zh-CN": "新建容器", "en-US": "New container"},
+    dropMoveContainer: {"zh-CN": "移动容器", "en-US": "Move container"},
+    dropMergeContainer: {"zh-CN": "并入 {count} 个视图", "en-US": "Merge {count} views"},
 } satisfies Record<string, LocalizedText>;
 
 const text = (value: LocalizedText): string => localize(value, props.locale);
@@ -147,6 +156,7 @@ function selectContainer(part: ViewLocation, containerId: string): void {
 const idPrefix = useId();
 const panelTabs = computed(() => presentation.value.parts.panel.switcher.map((item) => ({
     value: item.containerId,
+    attrs: {"data-switcher-entry": item.containerId, "data-drag-container": item.containerId, "aria-description": text(TEXT.dragHint)},
     label: text(item.title),
     iconClass: item.icon,
     id: switcherTabId(idPrefix, "panel", item.containerId),
@@ -194,6 +204,47 @@ function onFocusIn(event: FocusEvent): void {
 
 /** single 时上提到区域标题行的动作：容器里唯一可见的视图的“移动到”。 */
 const singleViewOf = (container: ContainerPresentation): string | null => (container.mode === "single" ? (container.views[0]?.id ?? null) : null);
+
+// ── 拖放（外壳三） ─────────────────────────────────────────────────────────
+
+/** 拖放会话装在外壳根上：组件只写拖动源与落点的标记，按下、命中、判定与提交都在会话里。 */
+const drag = shallowRef<DragSession | null>(null);
+onMounted(() => {
+    drag.value = createDragSession({
+        root: hostEl.value!,
+        presentation: () => presentation.value,
+        catalog: () => state.value.catalog,
+        enabled: () => state.value.ready,
+        commit: (intent) => {
+            props.layout.actions.applyView(intent);
+        },
+    });
+});
+onBeforeUnmount(() => drag.value?.dispose());
+
+const dragState = computed(() => drag.value?.state.value ?? null);
+const dragGhost = computed(() => {
+    const current = dragState.value;
+    if (current === null) return null;
+    const {source, point} = current;
+    const declaration = source.kind === "view" ? state.value.catalog.get(source.viewId) : undefined;
+    const container = presentation.value.containers.get(source.containerId);
+    const title = declaration?.title ?? container?.title;
+    const icon = declaration?.icon ?? container?.icon ?? "";
+    return title === undefined ? null : {label: text(title), icon, x: point.x, y: point.y};
+});
+const dropFeedback = computed(() => {
+    const decision = dragState.value?.decision ?? null;
+    const preview = decision === null || decision.kind === "rejected" ? null : (decision.preview ?? null);
+    if (preview === null) return {preview: null, label: "", kind: "", count: 0};
+    const kind = decision!.kind === "commit" ? decision!.intent.kind : "noop";
+    const label = kind === "move-view" ? text(TEXT.dropMoveView)
+        : kind === "detach-view" ? text(TEXT.dropDetachView)
+            : kind === "move-container" ? text(TEXT.dropMoveContainer)
+                : kind === "merge-container" ? text(formatText(TEXT.dropMergeContainer, {count: preview.count}))
+                    : "";
+    return {preview: {areaRect: preview.areaRect, entryRect: null, indicator: preview.indicator, orientation: preview.orientation}, label, kind, count: preview.count};
+});
 </script>
 
 <template>
@@ -217,7 +268,7 @@ const singleViewOf = (container: ContainerPresentation): string | null => (conta
             </div>
         </template>
         <template #activitybar>
-            <WorkbenchActivityBar :label="text(TEXT.activityBar)" :containers="activityContainers" :selected="presentation.parts.sidebar.selected" :sidebar-visible="sidebarVisible" @select="selectSidebarContainer" />
+            <WorkbenchActivityBar :label="text(TEXT.activityBar)" :containers="activityContainers" :selected="presentation.parts.sidebar.selected" :sidebar-visible="sidebarVisible" :drag-hint="text(TEXT.dragHint)" @select="selectSidebarContainer" />
         </template>
         <template v-for="part in (['sidebar', 'auxiliarybar'] as const)" :key="part" #[part]>
             <WorkbenchToolPartHost
@@ -228,6 +279,8 @@ const singleViewOf = (container: ContainerPresentation): string | null => (conta
                 :label="text(PART_LABELS[part])"
                 :empty-text="text(TEXT.emptyPart)"
                 :id-prefix="idPrefix"
+                :drag-label="text(TEXT.dragLabel)"
+                :drag-hint="text(TEXT.dragHint)"
                 @select="(id) => selectContainer(part, id)"
                 @target="(element) => setPartTarget(part, element)"
             >
@@ -275,7 +328,9 @@ const singleViewOf = (container: ContainerPresentation): string | null => (conta
                     :locale="locale"
                     :label="text(PART_LABELS.panel)"
                     :empty-text="text(TEXT.emptyPart)"
-                :id-prefix="idPrefix"
+                    :id-prefix="idPrefix"
+                    :drag-label="text(TEXT.dragLabel)"
+                    :drag-hint="text(TEXT.dragHint)"
                     @select="(id) => selectContainer('panel', id)"
                     @target="(element) => setPartTarget('panel', element)"
                 />
@@ -323,6 +378,7 @@ const singleViewOf = (container: ContainerPresentation): string | null => (conta
             <div class="workbench-shell__empty">{{ text(TEXT.emptyContainer) }}</div>
         </template>
     </WorkbenchViewInstances>
+    <WorkbenchDragFeedback :ghost="dragGhost" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :count="dropFeedback.count" />
     </div>
 </template>
 

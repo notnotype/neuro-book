@@ -4,6 +4,7 @@ import type JsonViewer from "nbook/ui/JsonViewer.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
 import type WorkbenchActivityBar from "nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue";
 import type WorkbenchCommandPalette from "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue";
+import type WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue";
 import type WorkbenchMoveViewMenu from "nbook/plugins/workbench/web/components/WorkbenchMoveViewMenu.vue";
 import type WorkbenchPanelSurface from "nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue";
 import type WorkbenchShellLayout from "nbook/plugins/workbench/web/components/WorkbenchShellLayout.vue";
@@ -303,10 +304,10 @@ export const labFixtures: LabFixture[] = [
             ];
             const many = Array.from({length: 24}, (_, index) => ({id: `view:test.v${String(index)}`, label: `视图 ${String(index + 1)}`, icon: "i-lucide-square"}));
             return [
-                {id: "default", label: "三个容器、Sidebar 可见", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true}}},
-                {id: "sidebar-hidden", label: "Sidebar 隐藏：没有选中标记", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: false}}},
-                {id: "empty", label: "没有容器", input: {props: {label: "活动栏", containers: [], selected: null, sidebarVisible: true}}},
-                {id: "many", label: "放不下时卡片内滚动", input: {props: {label: "活动栏", containers: many, selected: "view:test.v3", sidebarVisible: true}}},
+                {id: "default", label: "三个容器、Sidebar 可见", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, dragHint: "按空格拿起并拖动"}}},
+                {id: "sidebar-hidden", label: "Sidebar 隐藏：没有选中标记", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: false, dragHint: "按空格拿起并拖动"}}},
+                {id: "empty", label: "没有容器", input: {props: {label: "活动栏", containers: [], selected: null, sidebarVisible: true, dragHint: "按空格拿起并拖动"}}},
+                {id: "many", label: "放不下时卡片内滚动", input: {props: {label: "活动栏", containers: many, selected: "view:test.v3", sidebarVisible: true, dragHint: "按空格拿起并拖动"}}},
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue"),
@@ -329,6 +330,16 @@ export const labFixtures: LabFixture[] = [
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchMoveViewMenu.vue"),
     }),
+    defineSubjectFixture<typeof WorkbenchDragFeedback>({
+        component: "WorkbenchDragFeedback",
+        events: [],
+        scenes: [
+            {id: "line", label: "Switcher 插入线与拖影", input: {props: {ghost: {label: "资源管理器", icon: "i-lucide-files", x: 220, y: 140}, preview: {areaRect: null, entryRect: null, indicator: {left: 180, top: 96, right: 182, bottom: 128}, orientation: "horizontal"}, label: "新建容器", kind: "detach-view", count: 1}}},
+            {id: "area", label: "边缘并入的半区", input: {props: {ghost: {label: "终端", icon: "i-lucide-terminal", x: 320, y: 260}, preview: {areaRect: {left: 120, top: 200, right: 520, bottom: 320}, entryRect: null, indicator: null, orientation: "vertical"}, label: "移到这里", kind: "move-view", count: 1}}},
+            {id: "idle", label: "没有拖动", input: {props: {ghost: null, preview: null, label: "", kind: "", count: 0}}},
+        ],
+        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue"),
+    }),
     defineLabFixture<typeof WorkbenchViewContainerHost>({
         component: "WorkbenchViewContainerHost",
         scenes: (() => {
@@ -340,7 +351,7 @@ export const labFixtures: LabFixture[] = [
                 mode: views.length === 0 ? ("empty" as const) : views.length === 1 ? ("single" as const) : ("multiple" as const), members: views.map((view) => view.id), views, showContainerTitle: part === "sidebar" && views.length === 1,
             });
             const scene = (id: string, label: string, part: "sidebar" | "panel", views: ReturnType<typeof slot>[]) => ({
-                id, label, input: {props: {container: container(part, views), contextKey: `lab:${id}`, disabled: false, collapseLabel: "收起视图", expandLabel: "展开视图", locale: "zh-CN" as const}},
+                id, label, input: {props: {container: container(part, views), contextKey: `lab:${id}`, disabled: false, collapseLabel: "收起视图", expandLabel: "展开视图", dragLabel: "拖动 {title}", locale: "zh-CN" as const}},
             });
             return [
                 scene("vertical", "侧栏纵向三个视图", "sidebar", [slot("test.a", "资源管理器"), slot("test.b", "大纲", {size: 160}), slot("test.c", "时间线")]),
@@ -372,7 +383,7 @@ export const labFixtures: LabFixture[] = [
     defineLabFixture<typeof WorkbenchViewSection>({
         component: "WorkbenchViewSection", slots: ["default", "actions"],
         scenes: (() => {
-            const base = {viewId: "nbook.files", title: "资源管理器", icon: "i-lucide-files", collapseLabel: "收起视图", expandLabel: "展开视图"};
+            const base = {viewId: "nbook.files", title: "资源管理器", icon: "i-lucide-files", collapseLabel: "收起视图", expandLabel: "展开视图", dragLabel: "拖动 资源管理器"};
             const scene = (id: string, label: string, props: {axis: "vertical" | "horizontal"; chrome: boolean; collapsed: boolean}) => ({id, label, input: {props: {...base, ...props}, slots: {default: true, actions: true}}});
             return [
                 scene("multiple", "multiple：标题行与动作", {axis: "vertical", chrome: true, collapsed: false}),

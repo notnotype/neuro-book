@@ -521,8 +521,7 @@ describe("nb-ui new primitives", () => {
         wrapper.unmount();
     });
 
-    it("exposes each tab element and per-tab attrs; keyboardDisabled leaves arrow keys alone", async () => {
-        const seen = new Map<string, HTMLElement | null>();
+    it("writes per-tab attrs without overriding the attributes the component owns", () => {
         const wrapper = mount(Tabs, {
             props: {
                 modelValue: "a",
@@ -530,26 +529,14 @@ describe("nb-ui new primitives", () => {
                     {value: "a", label: "A", attrs: {"data-drag": "a", role: "button"}},
                     {value: "b", label: "B"},
                 ],
-                tabRef: (value: string, element: HTMLElement | null) => seen.set(value, element),
             },
             attachTo: document.body,
         });
         const tabs = wrapper.findAll("[role='tab']");
-        expect(seen.get("a")).toBe(tabs[0]?.element);
-        expect(seen.get("b")).toBe(tabs[1]?.element);
         // 组件自己管的属性不被覆盖。
         expect(tabs[0]?.attributes("data-drag")).toBe("a");
         expect(tabs[0]?.attributes("role")).toBe("tab");
-
-        await wrapper.setProps({keyboardDisabled: true});
-        await wrapper.get("[role='tablist']").trigger("keydown", {key: "ArrowRight"});
-        expect(wrapper.emitted("update:modelValue")).toBeUndefined();
-        await wrapper.setProps({keyboardDisabled: false});
-        await wrapper.get("[role='tablist']").trigger("keydown", {key: "ArrowRight"});
-        expect(wrapper.emitted("update:modelValue")?.[0]).toEqual(["b"]);
-
-        await wrapper.setProps({items: [{value: "a", label: "A"}]});
-        expect(seen.get("b")).toBeNull();
+        expect(tabs[1]?.attributes("data-drag")).toBeUndefined();
         wrapper.unmount();
     });
 

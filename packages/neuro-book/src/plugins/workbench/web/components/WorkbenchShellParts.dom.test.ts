@@ -28,7 +28,7 @@ describe("WorkbenchActivityBar", () => {
     const containers = [{id: "view:a", label: "资源管理器", icon: "i-lucide-files"}, {id: "view:b", label: "搜索", icon: "i-lucide-search"}];
 
     it("点任何一项都发 select（包括已选中的）；选中标记只在 Sidebar 可见时出现", async () => {
-        const wrapper = mount(WorkbenchActivityBar, {props: {label: "活动栏", containers, selected: "view:a", sidebarVisible: true}});
+        const wrapper = mount(WorkbenchActivityBar, {props: {label: "活动栏", containers, selected: "view:a", sidebarVisible: true, dragHint: "按空格拿起并拖动"}});
         wrappers.push(wrapper);
         const button = (id: string) => wrapper.get(`[data-activity-container="${id}"]`);
         expect(wrapper.get("nav").attributes("aria-label")).toBe("活动栏");
@@ -103,7 +103,7 @@ describe("WorkbenchMoveViewMenu", () => {
 });
 
 describe("WorkbenchToolPartHost", () => {
-    const base = {locale: "zh-CN" as const, label: "右栏", emptyText: "将视图拖动到此处显示", idPrefix: "t"};
+    const base = {locale: "zh-CN" as const, label: "右栏", emptyText: "将视图拖动到此处显示", idPrefix: "t", dragLabel: "拖动 {title}", dragHint: "按空格拿起并拖动"};
 
     it("右栏没有容器：标签带仍在（落点），不出现空的 tablist；空正文显示说明", () => {
         const wrapper = mount(WorkbenchToolPartHost, {props: {...base, part: "auxiliarybar", presentation: {switcher: [], selected: null, axis: "vertical"}, selected: null}});
@@ -122,7 +122,7 @@ describe("WorkbenchToolPartHost", () => {
 });
 
 describe("WorkbenchViewSection", () => {
-    const base = {viewId: "a", title: "资源管理器", icon: "i-lucide-files", axis: "vertical" as const, chrome: true, collapsed: false, layout: "scroll" as const, collapseLabel: "收起视图", expandLabel: "展开视图"};
+    const base = {viewId: "a", title: "资源管理器", icon: "i-lucide-files", axis: "vertical" as const, chrome: true, collapsed: false, layout: "scroll" as const, collapseLabel: "收起视图", expandLabel: "展开视图", dragLabel: "拖动 资源管理器"};
 
     it("multiple 有标题行与动作；收起开关发应有的收起值；收起时内容隐藏不卸载；single 没有标题行", async () => {
         let unmounted = 0;

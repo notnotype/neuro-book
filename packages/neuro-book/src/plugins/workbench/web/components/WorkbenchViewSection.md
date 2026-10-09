@@ -20,6 +20,7 @@
 
 - 标题行的收起开关是一个按钮，`aria-expanded` 表示展开；点了发 `toggle-collapsed`，值是点了之后应有的收起状态。键盘用 Tab 到开关后按 Enter 或空格。
 - 动作区由宿主经 `actions` 插槽放（产品里是“移动到”菜单）。
+- 标题行是这个视图的拖动源（外壳三输出 19–23）：指针按住标题行（含收起开关，不含动作区）移动起拖；标题文字是可聚焦的把手（`role="button"`，名称是 `dragLabel`），聚焦后按空格拿起。收起开关保留自己的 Enter 与空格。拖动本身由外壳的拖放会话处理。
 - 整个分节是 `role="region"`，名称是视图标题。
 
 ## 数据
@@ -39,6 +40,8 @@ type Props = {
     /** 收起开关的可访问名称：展开时与收起时各一份，已按当前语言取好。 */
     collapseLabel: string;
     expandLabel: string;
+    /** 标题文字这个键盘拖动把手的可访问名称，例如“拖动 资源管理器”。 */
+    dragLabel: string;
 };
 
 type Emits = {
@@ -53,8 +56,8 @@ type Slots = {
 };
 ```
 
-没有 expose；attrs 落在根 `<section>` 上。根上带 `data-view-section`（视图 id）与 `data-view-collapsed`，供宿主与测试定位。
+没有 expose；attrs 落在根 `<section>` 上。根上带 `data-view-section`（视图 id）与 `data-view-collapsed`，供宿主、拖放会话与测试定位。标题行带 `data-drag-view`（视图的拖动源），动作区带 `data-no-drag`，标题文字是 `data-drag-handle` 把手。
 
 ## 不支持
 
-不从标题起拖（外壳三）；不处理尺寸手势；不读写任何状态。
+不处理拖放手势（外壳的拖放会话按标记处理）；不处理尺寸手势；不读写任何状态。

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * 外壳二的集成场景（docs/specs/ui/workbench-shell.md 外壳二），登记为 WorkbenchShellLayout 的 views 系列场景：真实的外壳
- * 布局、活动栏、工具区域、面板框架与两层实例，落位、呈现与意图合成用产品的纯模型；外壳的尺寸与面板状态是场景输入
+ * 外壳二与外壳三的集成场景（docs/specs/ui/workbench-shell.md），登记为 WorkbenchShellLayout 的 views 系列场景：真实的外壳
+ * 布局、活动栏、工具区域、面板框架、两层实例与拖放会话，落位、呈现、意图合成与落点判定用产品的纯模型；外壳的尺寸与面板状态是场景输入
  * （数据面板里看得到），视图定制只在场景里（不连产品的布局 store、Storage 与插件宿主）。视图来源是一份局部实现：按
  * 场景开关让某个视图加载失败、渲染出错、所属入口停止或启动失败。这份来源只用来摆出界面的各种状态，交付寿命的
  * 证据在真实内核与产品页的测试里（`views/registry.test.ts`、`e2e/workbench-views.e2e.ts`）。
@@ -9,9 +9,10 @@
  * 样例视图带实例编号、代际与可见标记：在同一场景里连续移动、切容器、隐藏 Part，实例编号不变就说明没有重挂。
  */
 import {Button, SegmentedControl, Tabs} from "@notnotype/nb-ui/components";
-import {computed, reactive, ref, shallowRef} from "vue";
+import {computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef} from "vue";
 
 import WorkbenchActivityBar from "nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue";
+import WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue";
 import WorkbenchMoveViewMenu from "nbook/plugins/workbench/web/components/WorkbenchMoveViewMenu.vue";
 import type {MovePayload} from "nbook/plugins/workbench/web/components/WorkbenchMoveViewMenu.vue";
 import WorkbenchPanelSurface from "nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue";
@@ -25,6 +26,8 @@ import {mergeShellSizePatch, SHELL_SIZE_DEFAULTS} from "nbook/plugins/workbench/
 import type {ShellDragCollapseMap, ShellHideablePart, ShellSizePatch} from "nbook/plugins/workbench/web/shell/sizes";
 import {TeleportMemory} from "nbook/plugins/workbench/web/shell/teleport-memory";
 import type {Customizations} from "nbook/plugins/workbench/web/state/records";
+import {createDragSession} from "nbook/plugins/workbench/web/views/drag-session";
+import type {DragSession} from "nbook/plugins/workbench/web/views/drag-session";
 import {applyIntent, applyPatch} from "nbook/plugins/workbench/web/views/intents";
 import type {ViewIntent} from "nbook/plugins/workbench/web/views/intents";
 import {computePlacement, customContainerId} from "nbook/plugins/workbench/web/views/placement";
@@ -61,7 +64,9 @@ function preset(): Customizations {
 // shallowRef：记录值是普通对象（意图合成用 structuredClone 复制它，代理对象复制不了）。
 const customizations = shallowRef<Customizations>(preset());
 const placement = computed(() => computePlacement(catalog, customizations.value));
-const presentation = computed(() => buildPresentation({catalog, placement: placement.value, customizations: customizations.value}));
+/** 隐藏的成员：产品里要等视图的 `when`，场景里用开关摆出“容器有隐藏成员”的拖放（整组并入要带上它）。 */
+const hiddenViews = reactive(new Set<string>());
+const presentation = computed(() => buildPresentation({catalog, placement: placement.value, customizations: customizations.value, hidden: new Set(hiddenViews)}));
 
 function apply(intent: ViewIntent): void {
     const result = applyIntent({catalog, placement: placement.value, presentation: presentation.value, customizations: customizations.value}, intent);
@@ -160,10 +165,34 @@ function move(payload: MovePayload): void {
     else apply({kind: "detach-view", viewId: payload.viewId, sourceContainerId: payload.sourceContainerId, containerId: customContainerId(crypto.randomUUID()), targetPart: payload.newContainerIn as ViewLocation});
 }
 
+// ── 拖放：与产品同一个会话，提交走场景的意图合成 ──────────────────────
+
+const drag = shallowRef<DragSession | null>(null);
+onMounted(() => {
+    drag.value = createDragSession({root: hostEl.value!, presentation: () => presentation.value, catalog: () => catalog, enabled: () => true, commit: apply});
+});
+onBeforeUnmount(() => drag.value?.dispose());
+const dragState = computed(() => drag.value?.state.value ?? null);
+const dragGhost = computed(() => {
+    const current = dragState.value;
+    if (current === null) return null;
+    const title = current.source.kind === "view" ? catalog.get(current.source.viewId)?.title : presentation.value.containers.get(current.source.containerId)?.title;
+    const icon = current.source.kind === "view" ? catalog.get(current.source.viewId)?.icon : presentation.value.containers.get(current.source.containerId)?.icon;
+    return title === undefined ? null : {label: title["zh-CN"], icon: icon ?? "", x: current.point.x, y: current.point.y};
+});
+const DROP_LABELS: Readonly<Record<string, string>> = {"move-view": "移到这里", "detach-view": "新建容器", "move-container": "移动容器", "merge-container": "并入视图"};
+const dropFeedback = computed(() => {
+    const decision = dragState.value?.decision ?? null;
+    const preview = decision === null || decision.kind === "rejected" ? null : (decision.preview ?? null);
+    if (preview === null) return {preview: null, label: "", kind: "", count: 0};
+    const kind = decision!.kind === "commit" ? decision!.intent.kind : "noop";
+    return {preview: {areaRect: preview.areaRect, entryRect: null, indicator: preview.indicator, orientation: preview.orientation}, label: DROP_LABELS[kind] ?? "", kind, count: preview.count};
+});
+
 const singleViewOf = (container: ContainerPresentation | null): string | null => (container?.mode === "single" ? (container.views[0]?.id ?? null) : null);
 
 const activityContainers = computed(() => presentation.value.parts.sidebar.switcher.map((item) => ({id: item.containerId, label: item.title["zh-CN"], icon: item.icon})));
-const panelTabs = computed(() => presentation.value.parts.panel.switcher.map((item) => ({value: item.containerId, label: item.title["zh-CN"], iconClass: item.icon, id: switcherTabId("lab-views", "panel", item.containerId), controls: switcherPanelId("lab-views", "panel")})));
+const panelTabs = computed(() => presentation.value.parts.panel.switcher.map((item) => ({value: item.containerId, label: item.title["zh-CN"], iconClass: item.icon, id: switcherTabId("lab-views", "panel", item.containerId), controls: switcherPanelId("lab-views", "panel"), attrs: {"data-switcher-entry": item.containerId, "data-drag-container": item.containerId, "aria-description": "按空格拿起并拖动"}})));
 
 const positions = [{value: "bottom", label: "底部"}, {value: "left", label: "左侧"}, {value: "right", label: "右侧"}];
 const position = computed({get: () => panel.value.position, set: (value: string | number | boolean) => {
@@ -187,10 +216,10 @@ const position = computed({get: () => panel.value.position, set: (value: string 
                 <div class="flex h-full items-center px-3 text-xs text-[var(--text-secondary)]">NeuroBook · 视图场景</div>
             </template>
             <template #activitybar>
-                <WorkbenchActivityBar label="活动栏" :containers="activityContainers" :selected="presentation.parts.sidebar.selected" :sidebar-visible="sidebarVisible" @select="selectSidebar" />
+                <WorkbenchActivityBar label="活动栏" :containers="activityContainers" :selected="presentation.parts.sidebar.selected" :sidebar-visible="sidebarVisible" drag-hint="按空格拿起并拖动" @select="selectSidebar" />
             </template>
             <template v-for="part in (['sidebar', 'auxiliarybar'] as const)" :key="part" #[part]>
-                <WorkbenchToolPartHost :part="part" :presentation="presentation.parts[part]" :selected="selectedOf(part)" locale="zh-CN" :label="PART_LABELS[part]" empty-text="将视图拖动到此处显示" id-prefix="lab-views" @select="(id) => apply({kind: 'select-container', part, containerId: id})" @target="(element) => setTarget(part, element)">
+                <WorkbenchToolPartHost :part="part" :presentation="presentation.parts[part]" :selected="selectedOf(part)" locale="zh-CN" :label="PART_LABELS[part]" empty-text="将视图拖动到此处显示" id-prefix="lab-views" drag-label="拖动 {title}" drag-hint="按空格拿起并拖动" @select="(id) => apply({kind: 'select-container', part, containerId: id})" @target="(element) => setTarget(part, element)">
                     <template #actions="{container}">
                         <WorkbenchMoveViewMenu v-if="singleViewOf(container) !== null && menuOf(singleViewOf(container)!) !== null" label="移动到" :view-id="singleViewOf(container)!" :source-container-id="menuOf(singleViewOf(container)!)!.source" :groups="menuOf(singleViewOf(container)!)!.groups" :reset-label="menuOf(singleViewOf(container)!)!.resetLabel" :identity="menuOf(singleViewOf(container)!)!.identity" @move="move" @reset="(viewId) => apply({kind: 'reset-view', viewId})" />
                     </template>
@@ -205,7 +234,7 @@ const position = computed({get: () => panel.value.position, set: (value: string 
                         <Tabs v-if="panelTabs.length > 0" class="min-w-0 flex-1" size="sm" :model-value="presentation.parts.panel.selected ?? ''" :items="panelTabs" aria-label="面板" @update:model-value="(id: string) => apply({kind: 'select-container', part: 'panel', containerId: id})" />
                         <WorkbenchMoveViewMenu v-if="singleViewOf(selectedOf('panel')) !== null && menuOf(singleViewOf(selectedOf('panel'))!) !== null" label="移动到" :view-id="singleViewOf(selectedOf('panel'))!" :source-container-id="menuOf(singleViewOf(selectedOf('panel'))!)!.source" :groups="menuOf(singleViewOf(selectedOf('panel'))!)!.groups" :reset-label="menuOf(singleViewOf(selectedOf('panel'))!)!.resetLabel" :identity="menuOf(singleViewOf(selectedOf('panel'))!)!.identity" @move="move" @reset="(viewId) => apply({kind: 'reset-view', viewId})" />
                     </template>
-                    <WorkbenchToolPartHost part="panel" :presentation="presentation.parts.panel" :selected="selectedOf('panel')" locale="zh-CN" label="面板" empty-text="将视图拖动到此处显示" id-prefix="lab-views" @select="(id) => apply({kind: 'select-container', part: 'panel', containerId: id})" @target="(element) => setTarget('panel', element)" />
+                    <WorkbenchToolPartHost part="panel" :presentation="presentation.parts.panel" :selected="selectedOf('panel')" locale="zh-CN" label="面板" empty-text="将视图拖动到此处显示" id-prefix="lab-views" drag-label="拖动 {title}" drag-hint="按空格拿起并拖动" @select="(id) => apply({kind: 'select-container', part: 'panel', containerId: id})" @target="(element) => setTarget('panel', element)" />
                 </WorkbenchPanelSurface>
             </template>
             <template #statusbar>
@@ -220,6 +249,7 @@ const position = computed({get: () => panel.value.position, set: (value: string 
                 <div class="p-3 text-xs text-[var(--text-muted)]">容器里的视图都已隐藏</div>
             </template>
         </WorkbenchViewInstances>
+        <WorkbenchDragFeedback :ghost="dragGhost" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :count="dropFeedback.count" />
     </div>
 
     <LabFixtureControls>
@@ -228,6 +258,7 @@ const position = computed({get: () => panel.value.position, set: (value: string 
             <Button size="sm" variant="secondary" data-lab-toggle="render-failure" @click="toggle(renderFailing, 'test.notes')">{{ renderFailing.has("test.notes") ? "笔记：恢复渲染" : "笔记：渲染出错" }}</Button>
             <Button size="sm" variant="secondary" data-lab-toggle="entry-stopped" @click="toggleDelivery('test.terminal', {kind: 'entry-stopped', reason: 'scope-closed'})">终端：模拟入口停止 / 模拟重新交付</Button>
             <Button size="sm" variant="secondary" data-lab-toggle="entry-failed" @click="toggleDelivery('test.terminal', {kind: 'entry-failed', reason: '样例入口启动失败'})">终端：入口启动失败</Button>
+            <Button size="sm" variant="secondary" data-lab-toggle="hidden-member" @click="toggle(hiddenViews, 'test.outline')">{{ hiddenViews.has("test.outline") ? "大纲：取消隐藏" : "大纲：隐藏成员" }}</Button>
             <Button size="sm" variant="secondary" @click="togglePart('sidebar')">{{ hiddenParts.includes("sidebar") ? "显示侧栏" : "隐藏侧栏" }}</Button>
             <span class="text-[var(--text-secondary)]">面板位置</span>
             <SegmentedControl v-model="position" :options="positions" size="xs" aria-label="面板位置" />

@@ -49,6 +49,7 @@ defineSlots<{
 const TEXT = {
     collapse: {"zh-CN": "收起视图", "en-US": "Collapse View"},
     expand: {"zh-CN": "展开视图", "en-US": "Expand View"},
+    drag: {"zh-CN": "拖动 {title}", "en-US": "Drag {title}"},
 };
 
 // ── 容器层 ──────────────────────────────────────────────────────────────────
@@ -245,6 +246,7 @@ watch([containerTargets, () => [...viewTargets.entries()]], () => {
                         :disabled="disabled"
                         :collapse-label="localize(TEXT.collapse, locale)"
                         :expand-label="localize(TEXT.expand, locale)"
+                        :drag-label="localize(TEXT.drag, locale)"
                         :locale="locale"
                         @target="onTarget"
                         @resize="(payload) => emit('intent', {kind: 'set-view-sizes', containerId: payload.containerId, axis: payload.axis, sizes: payload.sizes})"

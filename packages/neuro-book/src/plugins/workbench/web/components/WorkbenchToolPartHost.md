@@ -40,6 +40,10 @@ type Props = {
     emptyText: string;
     /** 标签与内容面板关联用的 id 前缀；外壳用 `useId()` 取一次，面板框架里的标签带用同一个前缀。 */
     idPrefix: string;
+    /** Sidebar 容器标题这个键盘拖动把手的可访问名称模板，`{title}` 换成容器标题。 */
+    dragLabel: string;
+    /** 标签作为拖动源的说明，写到每个标签的 `aria-description`。 */
+    dragHint: string;
 };
 
 type Emits = {
@@ -54,7 +58,7 @@ type Slots = {
 };
 ```
 
-没有 expose；attrs 落在根上。根带 `data-tool-part`（区域）；落点带 `data-container-target`；右栏的标签带带 `data-switcher-band`，空正文带 `data-empty-part`（拖放会话按它们找落点元素）。
+没有 expose；attrs 落在根上。根带 `data-tool-part`（区域）；落点带 `data-container-target`；右栏的标签带带 `data-switcher-band`，标签带 `data-switcher-entry` 与 `data-drag-container`，Sidebar 的容器标题行带 `data-drag-container`（标题文字是 `data-drag-handle` 把手），动作区带 `data-no-drag`，空正文带 `data-empty-part`（拖放会话按这些标记找拖动源与落点）。
 
 ## 不支持
 

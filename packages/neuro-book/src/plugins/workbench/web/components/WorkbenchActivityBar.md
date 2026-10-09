@@ -14,6 +14,7 @@
 ## 交互
 
 - 点任何一个按钮都发 `select(id)`，包括已选中的那个（宿主据此打开被隐藏或拖到零的 Sidebar）。
+- 每个按钮也是整容器的拖动源，上段是 Sidebar 的 Switcher 条目带（外壳三输出 19–23）：组件只写标记，拖动由外壳的拖放会话处理。按住移动或聚焦后按空格拿起；按钮带 `aria-description`（`dragHint`）说明这一点。
 - 每个按钮是普通按钮，各自是一个 Tab 停靠点；`aria-pressed` 表示它是 Sidebar 当前显示的容器；悬停提示与可访问名称是容器标题。
 - 整条是一个 `nav` 地标，名称由 `label` 给出。
 
@@ -38,6 +39,8 @@ type Props = {
     selected: string | null;
     /** Sidebar 此刻看得见（未隐藏、未拖到零）；受控。 */
     sidebarVisible: boolean;
+    /** 按钮作为拖动源的说明，写到 `aria-description`，例如“按空格拿起并拖动”。 */
+    dragHint: string;
 };
 
 type Emits = {
@@ -45,8 +48,8 @@ type Emits = {
 };
 ```
 
-没有 slot、没有 expose；attrs 落在根 `<nav>` 上。
+没有 slot、没有 expose；attrs 落在根 `<nav>` 上。上段带 `data-switcher-band="sidebar"`，每个按钮带 `data-switcher-entry` 与 `data-drag-container`（容器 id）。
 
 ## 不支持
 
-不做拖放（外壳三）、角标、右键菜单与溢出菜单；不读写任何状态。
+不处理拖放手势（会话按标记处理）；没有角标、右键菜单与溢出菜单；不读写任何状态。
