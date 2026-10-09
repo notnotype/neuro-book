@@ -11,17 +11,17 @@ import {chmod, readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import type {SettingsWorld} from "nbook/plugins/settings/testing/world";
 
 import {encodedTextBytes, projectFilesContract, TEXT_BUDGET_BYTES, userFilesContract} from "./shared/contracts";
-import type {Listing} from "./shared/contracts";
+import type {Listing, WatchMessage} from "./shared/contracts";
 import {extraWindow, files, filesScene, hash, remote} from "./testing/scene";
 import type {Layout, Scene} from "./testing/scene";
 
 let tmp = "";
 let counter = 0;
-const worlds: SettingsWorld[] = [];
+const scenes: Scene[] = [];
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-files", "files-plugin");
@@ -29,7 +29,10 @@ beforeAll(async () => {
 
 afterEach(async () => {
     const results = [];
-    for (const world of worlds.splice(0)) results.push(...(await world.close()));
+    for (const created of scenes.splice(0)) {
+        results.push(...(await created.world.close()));
+        await rm(created.root, {recursive: true, force: true});
+    }
     for (const result of results) expect(result).toMatchObject({status: "closed"});
 });
 
@@ -40,7 +43,7 @@ afterAll(async () => {
 async function scene(layout: {readonly project?: Layout; readonly user?: Layout} = {}): Promise<Scene> {
     counter += 1;
     const created = await filesScene(join(tmp, `world-${String(counter)}`), layout);
-    worlds.push(created.world);
+    scenes.push(created);
     return created;
 }
 
@@ -91,12 +94,29 @@ describe("Spec workspace.resources 读与列出：三种调用方经同一份合
         expect(await readFile(join(project, "a.md"), "utf8")).toBe("A");
     });
 
-    it("未绑定项目的窗口访问 project:// 得到路由层的失败，不是空目录", async () => {
+    it("未绑定项目的窗口访问 project:// 得到路由层的失败，不是空目录；订阅建立失败以一次 ended 结束", async () => {
         const created = await scene();
         const free = await extraWindow(created, "free", {bound: false});
         const listed = await files(free).list("project://");
         expect(listed.ok).toBe(false);
         expect(await files(free).list("user://")).toMatchObject({ok: true});
+
+        const messages: WatchMessage[] = [];
+        files(free).watch("project", (message) => messages.push(message));
+        await waitUntil("订阅建立失败的 ended", () => messages.length > 0);
+        expect(messages).toEqual([{kind: "ended", reason: expect.any(String)}]);
+        // 之后用户资产根的订阅照常可用：失败的那条不影响别的方案。
+        const user: WatchMessage[] = [];
+        files(free).watch("user", (message) => user.push(message));
+        await waitUntil("user:// 的订阅就绪", () => user.some((message) => message.kind === "ready"));
+        expect(messages).toHaveLength(1);
+    });
+
+    it("写请求发出后链路断开：结果未知，带上路由层的原因", async () => {
+        const created = await scene({project: {"a.md": "A"}});
+        const pending = files(created.window).write("project://a.md", "A2", {hash: hash("A")});
+        created.windowLink.disconnect();
+        expect(await pending).toMatchObject({ok: false, code: "unknown-outcome", cause: "disconnected"});
     });
 });
 
@@ -157,6 +177,8 @@ describe("Spec workspace.folder-kinds 列出：三类文件夹", () => {
             ["dup.content", "<content><item name=\"b\"/><item name=\"b\"/></content>", "invalid"],
             ["nested.content", "<content><item name=\"a/b\"/></content>", "invalid"],
             ["other.content", "<content><group/></content>", "invalid"],
+            // 解析器自己抛错（实体展开超过上限）：同样按不合法报告。
+            ["entity.content", `<!DOCTYPE content [<!ENTITY a "${"x".repeat(20_000)}">]><content><item name="&a;"/></content>`, "invalid"],
             ["empty.content", null, "absent"],
         ];
         const layout: Record<string, string> = {};
@@ -165,8 +187,10 @@ describe("Spec workspace.folder-kinds 列出：三类文件夹", () => {
             layout[`${folder}/a.md`] = "";
             if (text !== null) layout[`${folder}/content.xml`] = text;
         }
-        const {window} = await scene({project: layout});
-        for (const [folder, , status] of cases) {
+        const {project, window} = await scene({project: {...layout, "dir.content/a.md": "", "dir.content/b.md": "", "dir.content/content.xml/x": "", "closed.content/a.md": "", "closed.content/b.md": "", "closed.content/content.xml": "<content/>"}});
+        await chmod(join(project, "closed.content", "content.xml"), 0o000);
+        const all: ReadonlyArray<readonly [string, string | null, string]> = [...cases, ["dir.content", null, "unreadable"], ["closed.content", null, "unreadable"]];
+        for (const [folder, , status] of all) {
             const listed = await files(window).list(`project://${folder}`);
             expect(`${folder}：${listed.ok ? String(listed.value.manifest?.status) : listed.code}`).toBe(`${folder}：${status}`);
             expect(names(listed).filter((name) => name !== "content.xml")).toEqual(["a.md", "b.md"]);

@@ -1,0 +1,74 @@
+# w00017 t68 实现审查：正确性与合同
+
+审查对象：`ab0a3e91..5b07cb0e`，审查 worktree：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t68-impl-correctness`。
+
+依据：t68 `plan.md`、2026-10-09 t68 待确认清单、`workspace/resources.md`、`workspace/folder-kinds.md`、`workspace/files.md`、`runtime/plugin-channel.md`、`runtime/projects.md`，以及引用的 `platform/files.md`。接受待确认清单中的既定取舍，不把推迟能力当作遗漏。
+
+只读审查；实验只写本报告所在目录。下面只收录核实的发现；运行证据与静态推断分别标明。报告随发现追加，最后按影响排序并补数量。
+
+## 发现
+
+### 1. 阻断｜安全与边界
+- **位置**：`packages/neuro-book/src/plugins/files/backend/rooted.ts:88-120`
+- **现象**：受根约束原语没有自行拒绝 `..`（也没有拒绝绝对路径、空段、`.`、反斜杠、NUL 等非根内路径）。`resolve()` 直接把每个 segment 交给 `join()`；`..` 会先把当前路径退到根外，再由 `stat()` 返回成功。
+- **为什么是问题**：`RootedRoot` 是实际文件服务使用的受根约束边界；它的公开方法 `resolve/list/read/replace` 可以被后端消费者直接调用。只要有调用方绕过上层 `files-service` 的 `pathProblem()`，就能读、列出或替换方案根外文件，违反 `workspace.files` “根内相对路径”与 `platform.files` “任何路径形态经包含校验拒绝”的合同，且不是 `outside-root`/`invalid-address` 失败。
+- **依据与核实**：`workspace/resources.md` 输入与前置条件第 35 行、`workspace/files.md` 读取与保存第 61-63 行、`platform/files.md` 输入与前置条件第 43-46 行要求边界在文件能力处拒绝；运行命令（从 worktree 根执行）：
+  `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/correctness bun -e '... openRoot(...).read("../outside/secret.md", 1024) ...'`
+  实际结果为 `{ok: true, bytes: Uint8Array(...SECRET...), resolved.realPath: "../outside/secret.md"}`；不是推断。
+- **建议改法**：在 `rooted.ts` 的原语入口统一调用与资源地址同等严格的相对路径校验（至少拒绝绝对路径、`..`、`.`、空段、反斜杠、NUL、盘符形式，并以字节上限拒绝过长路径），再进入逐段解析；上层保留合同映射，但不能承担唯一安全边界。加入直接调用 `RootedRoot` 的越界读、列出、保存均被拒绝且根外数据不变的行为测试。
+### 2. 阻断｜安全与竞态边界
+- **位置**：`packages/neuro-book/src/backend/locked-replace.ts:105-149`；调用入口 `packages/neuro-book/src/plugins/files/backend/rooted.ts:168-180`
+- **现象**：`RootedRoot.replace()` 只在取锁前解析并校验目标路径；`replaceLocked()` 持锁重读时直接对原始字符串 `file` 执行 `stat/readFile/access/rename`，没有重新确认父目录和最终解析路径仍在根内。等待锁期间把根内父目录替换为根外符号链接后，`rename(temporary, file)` 跟随该链接，向根外文件发布新内容。
+- **为什么是问题**：文件能力合同要求任何路径操作都只作用于根内，且检测到目标类型或身份变化时失败，不能把已校验路径名交给会跟随已替换链接的后续操作。这里可由普通外部编辑/目录替换触发，不需要恶意 HTTP 入参；成功结果会掩盖根外写入，直接突破 `platform.files` 的根边界。
+- **依据与核实**：先通过真实 `proper-lockfile` 占住目标锁，再经真实 `files(scene.window).write()` 发起保存；确认保存进入等待后，将根内 `dir` 改为指向根外目录，释放锁。实际输出为 `save.ok: true`、根外 `outside: "OVERWRITTEN"`、原根内 `old-dir/a.md: "ORIGINAL"`，随后读取请求才返回 `outside-root`。命令为从 worktree 根执行的 `NBOOK_AGENT_TEMP_ROOT=... strace -f -o ... bun .../probe.ts race`；不是直接调用内部替换函数。
+- **建议改法**：锁内每次重试都重新执行受根约束解析，并把解析得到的最终目标/父目录传给替换；在无法用 `openat`/`renameat` 保证原子包含性时，至少在 `rename` 前后核对根身份、父目录与目标身份，发现变化返回 `io-failed`，不得报告成功。补“等待锁期间父目录换成根外链接”的真实回归并核对根外字节不变。
+
+### 3. 重要｜安全与边界
+- **位置**：`packages/neuro-book/src/plugins/files/backend/rooted.ts:126-141`
+- **现象**：根目录列出只按目录项名字过滤 `.nbook`，不解析根下的符号链接。根中存在 `meta -> .nbook` 时，`list("")` 返回 `{name: "meta", kind: "link"}`。
+- **为什么是问题**：合同明确要求项目控制目录不列出，且词法路径与解析后的真实路径都检查，`alias -> .nbook` 也拒绝；计划进一步写明“列根时不出现”。当前实现把控制目录的链接别名暴露给文件树，且后续对这个别名的资源操作虽会返回 `protected-path`，浏览器仍会看到一个不能访问的伪节点。
+- **依据与核实**：`workspace/files.md`“控制目录”第 61 行、`plan.md`第 47 行；运行命令从 worktree 根执行，创建 `.nbook` 与 `meta -> .nbook` 后调用 `openRoot(...).list("")`，实际输出：`[{"name":"meta","kind":"link"}]`。现有 `rooted.test.ts:80-92` 只验证 `list("meta")` 被拒，没有验证根列表过滤别名。
+- **建议改法**：根列表对根项的符号链接解析其最终目标并按真实相对路径应用控制目录判定；无法解析的链接保留 `link`/按合同错误处理，但不能把已确认指向控制目录的别名列出。补充根列出别名不出现的行为测试，并保持普通用户根不启用该过滤。
+
+### 3. 重要｜正确性
+- **位置**：`packages/neuro-book/src/backend/locked-replace.ts:125-129`
+- **现象**：临时文件的创建模式为 `before.mode & 0o777`，既丢弃特殊权限位，也受进程 `umask` 再次过滤；没有在写入后恢复模式。普通权限同样丢失：当前 `umask 0022` 下保存 `0666` 文件变为 `0644`。
+- **为什么是问题**：`workspace.files`“读取与保存”第 60 行与 t68 计划第 49 行要求临时文件沿用原文件权限位。保存会静默撤销其他用户的写权限；共用的替换实现也用于 settings。特殊权限位丢失不是本轮抽取才引入，但新 Files 的权限保留合同仍未满足。
+- **依据与核实**：本次 `probe.ts basics` 经真实窗口、远程路由和 Files 提供者保存：输出 `permissionsBefore: 438`（`0666`）、`permissionsSave.ok: true`、`permissionsAfter: 420`（`0644`）。此前真实 `RootedRoot.replace()` 实验也得到 `04755 → 0755`（`{before: 2541, after: 493}`）。两者都为实际文件系统结果。
+- **建议改法**：在写完临时文件后、同步与改名前通过句柄恢复原文件约定的完整权限字段，避免创建模式受 `umask` 再过滤；只改掩码为 `0o7777` 仍无法解决 `umask`，也可能在写入时被系统清除特殊位。补 `0666 + umask 0022` 与特殊位的保存回归。
+### 4. 重要｜正确性
+- **位置**：`packages/neuro-book/src/backend/locked-replace.ts:125-129`
+- **现象**：临时文件的创建模式为 `before.mode & 0o777`，既丢弃特殊权限位，也受进程 `umask` 再次过滤；没有在写入后恢复模式。普通权限同样丢失：当前 `umask 0022` 下保存 `0666` 文件变为 `0644`。
+- **为什么是问题**：`workspace.files`“读取与保存”第 60 行与 t68 计划第 49 行要求临时文件沿用原文件权限位。保存会静默撤销其他用户的写权限；共用的替换实现也用于 settings。特殊权限位丢失不是本轮抽取才引入，但新 Files 的权限保留合同仍未满足。
+- **依据与核实**：本次 `probe.ts basics` 经真实窗口、远程路由和 Files 提供者保存：输出 `permissionsBefore: 438`（`0666`）、`permissionsSave.ok: true`、`permissionsAfter: 420`（`0644`）。此前真实 `RootedRoot.replace()` 实验也得到 `04755 → 0755`（`{before: 2541, after: 493}`）。两者都为实际文件系统结果。
+- **建议改法**：在写完临时文件后、同步与改名前通过句柄恢复原文件约定的完整权限字段，避免创建模式受 `umask` 再过滤；只改掩码为 `0o7777` 仍无法解决 `umask`，也可能在写入时被系统清除特殊位。补 `0666 + umask 0022` 与特殊位的保存回归。
+### 4. 重要｜正确性
+- **位置**：`packages/neuro-book/src/plugins/files/backend/changes.ts:57-58,94-105`
+- **现象**：临时文件过滤正则的 `.*` 不匹配换行符；保存名字含换行符的合法文件时，临时文件事件没有被丢弃。真实运行中收到临时文件的 `deleted` 外部事件。
+- **为什么是问题**：计划与 `workspace.resources.md` 的订阅合同要求“自己的临时文件”不作为外部变化发出；资源地址规则没有禁止文件名换行，因此这是可达的合法输入。消费者会把一次保存错误地看成额外的用户删除事件，可能刷新一个不存在的节点。
+- **依据与核实**：运行真实 `fs.watch` 与真实 `filesScene`：文件名为 `"line\\nname.md"`，经窗口 `write()` 保存后再写屏障文件，收到的事件为：
+  `changed line\\nname.md (user)`、`deleted .line\\nname.md.nbook-<token>-<uuid>.tmp (external)`、`changed barrier.md (external)`。过滤器是 `new RegExp("^\\\\..*\\\\.nbook-...\\\\.tmp$","u")`，缺少 `s` 标记；不是推断。
+- **建议改法**：不要用会受文件名字符集影响的 `.*` 识别临时名，直接按固定前缀、固定 `.nbook-${token}-` 标记与 UUID 后缀解析，或给正则加 `s`；对任意合法文件名（含换行）补保存回声测试。
+### 5. 重要｜传输合同
+- **位置**：`packages/neuro-book/src/plugins/files/backend/changes.ts:141-152`；上限定义在 `packages/neuro-book/src/shared/rpc-socket.ts:15-16`
+- **现象**：变更批次只按路径数量限制（超过 1000 才发 `resync`），没有按编码后的消息字节数限制；`broadcast({kind: "batch", events})` 会把所有事件作为一条 RPC 消息发送。RPC 合同声明单条消息上限为 1 MiB。
+- **为什么是问题**：合法的长路径与 1000 个合法变更可以构造超过 RPC 上限的单帧。当前实现把“事件数量上限”误当成“消息大小上限”，消费者或其他 RPC 宿主可能因超大帧拒收、断开或产生无法同步的延迟；即使当前 Bun WebSocket 接受，也已经违反声明的传输合同。
+- **依据与核实**：通过真实 `startServer`、真实 Bun RPC WebSocket、真实 `filesScene` 监听，创建 1000 个路径长度约 1212 字节的文件并同时修改，实际收到 `ready`、`batch`，批次含 1000 个事件；`JSON.stringify(batch)` 的 UTF-8 长度为 `1269917`，而 `RPC_MAX_MESSAGE_BYTES` 为 `1048576`。不是只调用内部 `flush()` 的实验。
+- **建议改法**：在批次广播前按实际编码帧大小检查；超限时发送小的 `resync`，或按字节拆分并保持每批事件顺序。增加长路径大批量变更的真实传输回归，断言不会发送超过 1 MiB 的单帧。
+
+### 6. 重要｜正确性
+- **位置**：`packages/neuro-book/src/plugins/files/web/client.ts:168-173`（`SchemeWatch.#end`）
+- **现象**：`#end()` 先快照全部监听者并清空 `#listeners`，再逐个发送 `ended`。第一个监听者在自己的 `ended` 回调中释放第二个监听者时，第二个释放函数已无法改变待广播的快照，仍会收到一次回调。
+- **为什么是问题**：`shared/contracts.ts:167` 和计划第 86 行承诺释放后不再有回调。合法的消费者收口时序会违反此合同，例如一个结束回调卸载另一个视图并释放其监听后，已卸载视图仍被调用。普通 `#broadcast()` 已检查监听者是否仍活跃，但结束广播绕过了这条约束。
+- **依据与核实**：从 worktree 根执行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/correctness bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/correctness/probe.ts ended`，使用真实应用实例、远程路由和 `fs.watch`；移走根触发真实 `root-gone`。第一个 `ended` 回调先调用第二个监听者的释放函数，实际 `releasedSecond` 仍为 `[{"kind":"ready"},{"kind":"ended","reason":"root-gone"}]`。
+- **建议改法**：每个监听句柄保留独立的活跃标志，释放时先清除，再从集合移除；包括结束快照在内的所有投递都核对此标志。补真实结束回调中交叉释放的用例，同时保持新订阅不被旧订阅的结束清理抹掉。
+
+## 未发现问题的方面
+
+- 业务失败码与路由失败码已分离：`FILES_FAILURES` 不占用 `denied`，调用方也不会把路由错误降级成业务未知错误；相关聚焦测试通过。
+- `workspace.files` 的文本预算、BOM/UTF-8 严格解码、NUL 拒绝、仅允许已有文件写入、资源地址边界及项目子进程路由，现有实现与测试覆盖一致。
+- 锁定替换的并发冲突、只读文件拒绝、普通 `0755` 模式保留、目标文件为符号链接时不替换目标、根身份校验及根外符号链接拒绝均通过已有测试；本报告仅额外指出特殊权限位未保留。
+- 变化监视的丢失事件重同步、根消失结束、批量路径数量上限、哈希去重与相同 mtime 的外部变化检测已有测试或真实运行证据；本报告仅额外指出换行文件名临时文件回声和批次字节上限。
+- 浏览器侧共享监听的建立前释放、单监听者释放、结束通知及项目子进程集成测试通过；未将待确认清单中已接受的 source 语义取舍当作缺陷。
+
+数量：阻断 1 项，重要 5 项，建议 0 项。

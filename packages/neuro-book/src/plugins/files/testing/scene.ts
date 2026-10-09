@@ -13,7 +13,7 @@ import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/pl
 
 import {definitionAt} from "nbook/manifest";
 import {settingsWorld} from "nbook/plugins/settings/testing/world";
-import type {SettingsWorld} from "nbook/plugins/settings/testing/world";
+import type {SettingsWorld, WorldWindow} from "nbook/plugins/settings/testing/world";
 
 import {filesBackendPlugin} from "../backend/plugin";
 import {descriptor} from "../plugin";
@@ -60,11 +60,15 @@ export function remote(of: Probe): ActivationContext["remote"] {
 
 export interface Scene {
     readonly world: SettingsWorld;
+    /** 场景的根目录：用例结束时由调用方删除。 */
+    readonly root: string;
     readonly project: string;
     readonly user: string;
     readonly hub: Probe;
     readonly inProject: Probe;
     readonly window: Probe;
+    /** 窗口 `w1` 的链路：断线与重连。 */
+    readonly windowLink: WorldWindow;
 }
 
 export type Layout = Readonly<Record<string, string | Uint8Array>>;
@@ -86,8 +90,8 @@ export async function filesScene(root: string, layout: {readonly project?: Layou
         const inProject = probe();
         await world.project(1, [definitionAt("project", descriptor, filesBackendPlugin), probePlugin("x.project", "project", inProject)]);
         const window = probe();
-        await world.window("w1", [definitionAt("browser", descriptor, filesBrowserPlugin), probePlugin("x.explorer", "browser", window)]);
-        return {world, project, user, hub, inProject, window};
+        const windowLink = await world.window("w1", [definitionAt("browser", descriptor, filesBrowserPlugin), probePlugin("x.explorer", "browser", window)]);
+        return {world, root, project, user, hub, inProject, window, windowLink};
     } catch (error) {
         await world.close();
         throw error;

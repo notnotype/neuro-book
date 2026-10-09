@@ -15,7 +15,6 @@ import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import type {SettingsWorld} from "nbook/plugins/settings/testing/world";
 
 import {BATCH_DELAY_MS, MAX_BATCH_PATHS} from "./backend/changes";
 import {projectFilesContract, userFilesContract} from "./shared/contracts";
@@ -25,7 +24,9 @@ import type {Layout, Probe, Scene} from "./testing/scene";
 
 let tmp = "";
 let counter = 0;
-const worlds: SettingsWorld[] = [];
+const scenes: Scene[] = [];
+/** 读 `/proc` 的用例只在 Linux 上跑。 */
+const linux = process.platform === "linux";
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-files", "changes");
@@ -33,7 +34,10 @@ beforeAll(async () => {
 
 afterEach(async () => {
     const results = [];
-    for (const world of worlds.splice(0)) results.push(...(await world.close()));
+    for (const created of scenes.splice(0)) {
+        results.push(...(await created.world.close()));
+        await rm(created.root, {recursive: true, force: true});
+    }
     for (const result of results) expect(result).toMatchObject({status: "closed"});
 });
 
@@ -44,7 +48,7 @@ afterAll(async () => {
 async function scene(layout: {readonly project?: Layout; readonly user?: Layout} = {}): Promise<Scene> {
     counter += 1;
     const created = await filesScene(join(tmp, `world-${String(counter)}`), layout);
-    worlds.push(created.world);
+    scenes.push(created);
     return created;
 }
 
@@ -69,6 +73,21 @@ function settle<T>(created: Scene, description: string, check: () => T) {
         created.world.clock.advance(BATCH_DELAY_MS);
         return check();
     });
+}
+
+/** 写好之后等本测试自己的监视器看到最后一个文件：它与文件服务的监视器由同一个 Bun 监视线程投递。 */
+async function writeAndSee(directory: string, names: ReadonlyArray<string>): Promise<void> {
+    let seen = false;
+    const last = names.at(-1)!;
+    const probe = watch(directory, {recursive: true}, (_event, filename) => {
+        if (filename !== null && filename.endsWith(last)) seen = true;
+    });
+    try {
+        for (const name of names) await writeFile(join(directory, name), "");
+        await waitUntil(`${last} 的原始事件`, () => seen);
+    } finally {
+        probe.close();
+    }
 }
 
 /** 屏障：外部写一个文件，等它的外部事件到达。 */
@@ -161,6 +180,15 @@ describe("Spec workspace.resources 变更事件：自己写入的回声", () => 
         await settle(created, "外部修改的事件", () => changes(project).some((change) => change.path === "chapter.md" && change.source.kind === "external"));
     });
 
+    it("文件名含换行：保存时的临时文件同样不发出", async () => {
+        const name = "line\nname.md";
+        const created = await scene({project: {[name]: "L"}});
+        const project = await watching(created.window, "project");
+        expect(await files(created.window).write(`project://${name}`, "L2", {hash: hash("L")})).toMatchObject({ok: true});
+        await barrier(created, project, "barrier.md");
+        expect(changes(project).filter((change) => change.path !== "barrier.md")).toEqual([{type: "changed", path: name, source: {kind: "user", plugin: "x.explorer"}}]);
+    });
+
     it("经目录链接保存：请求地址与真实地址各一条带来源的事件，真实路径的回声不记为外部", async () => {
         const created = await scene({project: {"actual/story.md": "S"}});
         await symlink("actual", join(created.project, "alias"));
@@ -175,7 +203,7 @@ describe("Spec workspace.resources 变更事件：自己写入的回声", () => 
 });
 
 describe("Spec workspace.resources 订阅：共享、释放与失同步", () => {
-    it("同一窗口两个监听者共用订阅：释放一个，另一个继续收到；最后一个释放后监视器关闭", async () => {
+    it.skipIf(!linux)("同一窗口两个监听者共用订阅：释放一个，另一个继续收到；最后一个释放后监视器关闭", async () => {
         // 有子目录：递归监视为它们各加一项，监视器开关在目录数上看得出来（根目录本身可能已被配置的监视占着）。
         const created = await scene({project: {"vol/a/x.md": "", "vol/b/y.md": ""}});
         const before = await inotifyCount();
@@ -192,7 +220,7 @@ describe("Spec workspace.resources 订阅：共享、释放与失同步", () => 
         await waitUntil("最后一个监听者释放后监视器关闭", async () => (await inotifyCount()) === before);
     });
 
-    it("订阅还没建立就释放：监视器最终关闭，监听者不被回调", async () => {
+    it.skipIf(!linux)("订阅还没建立就释放：监视器最终关闭，监听者不被回调", async () => {
         const created = await scene({project: {"vol/a/x.md": ""}});
         const before = await inotifyCount();
         const messages: WatchMessage[] = [];
@@ -209,28 +237,62 @@ describe("Spec workspace.resources 订阅：共享、释放与失同步", () => 
     it("一批待处理的路径过多：只推 resync，不逐条发出", async () => {
         const created = await scene();
         const project = await watching(created.window, "project");
-        // 本测试自己的监视器与文件服务的监视器由同一个 Bun 监视线程投递：它看到最后一个文件，文件服务也看到了。
-        let seen = false;
-        const last = `f${String(MAX_BATCH_PATHS)}.md`;
-        const probe = watch(created.project, {recursive: true}, (_event, filename) => {
-            if (filename === last) seen = true;
-        });
-        try {
-            for (let index = 0; index <= MAX_BATCH_PATHS; index += 1) await writeFile(join(created.project, `f${String(index)}.md`), "");
-            await waitUntil("最后一个文件的原始事件", () => seen);
-        } finally {
-            probe.close();
-        }
+        await writeAndSee(created.project, Array.from({length: MAX_BATCH_PATHS + 1}, (_unused, index) => `f${String(index)}.md`));
         await settle(created, "resync", () => project.messages.some((message) => message.kind === "resync"));
         expect(changes(project)).toEqual([]);
     });
 
-    it("根目录被移走：订阅以 root-gone 结束，之后不再有回调", async () => {
+    it("一批编码后装不进一条 RPC 消息（路径很长、条数在上限内）：只推 resync", async () => {
+        const deep = Array.from({length: 5}, (_unused, index) => `${String(index)}${"d".repeat(239)}`).join("/");
+        const created = await scene({project: {[`${deep}/seed.md`]: ""}});
+        const project = await watching(created.window, "project");
+        const count = 900;
+        expect(count).toBeLessThan(MAX_BATCH_PATHS);
+        await writeAndSee(join(created.project, deep), Array.from({length: count}, (_unused, index) => `f${String(index)}.md`));
+        await settle(created, "resync", () => project.messages.some((message) => message.kind === "resync"));
+        expect(changes(project)).toEqual([]);
+    });
+
+    it("处理中的一批在最后一个订阅释放时作废：之后的新订阅收不到之前的变化", async () => {
+        const created = await scene();
+        const old = await watching(created.window, "project");
+        await writeAndSee(created.project, Array.from({length: 500}, (_unused, index) => `race-${String(index)}.md`));
+        // 推进时钟开始处理这一批（逐个 lstat，要一些时间），紧接着释放旧订阅、建立新订阅。
+        created.world.clock.advance(BATCH_DELAY_MS);
+        old.release();
+        const other = await extraWindow(created, "w2");
+        const fresh = await watching(other, "project");
+        await barrier(created, fresh, "barrier.md");
+        expect(changes(fresh).filter((change) => change.path.startsWith("race-"))).toEqual([]);
+    });
+
+    it("同一项目代次内断线重连：订阅由内核重建，监听者收到 resync，之后的变化照常到达", async () => {
         const created = await scene();
         const project = await watching(created.window, "project");
+        created.windowLink.disconnect();
+        expect(await created.windowLink.reconnect()).toMatchObject({ok: true});
+        await waitUntil("重连后的 resync", () => project.messages.some((message) => message.kind === "resync"));
+        await barrier(created, project, "after.md");
+    });
+
+    it("根目录被移走：同一窗口的全部监听者各收到一次 root-gone；在结束回调里被释放的监听者不再回调", async () => {
+        const created = await scene();
+        // 先加的先收到：`first` 在自己的结束回调里释放排在它后面的 `late`。
+        const first: WatchMessage[] = [];
+        let releaseLate = (): void => undefined;
+        files(created.window).watch("project", (message) => {
+            first.push(message);
+            if (message.kind === "ended") releaseLate();
+        });
+        const late: WatchMessage[] = [];
+        releaseLate = files(created.window).watch("project", (message) => late.push(message));
+        const second = await watching(created.window, "project");
+        await waitUntil("三个监听者都就绪", () => [late, first].every((messages) => messages.some((message) => message.kind === "ready")));
         await rename(created.project, `${created.project}-moved`);
-        await settle(created, "订阅结束", () => project.messages.some((message) => message.kind === "ended"));
-        expect(project.messages.at(-1)).toEqual({kind: "ended", reason: "root-gone"});
+        await settle(created, "订阅结束", () => second.messages.some((message) => message.kind === "ended"));
+        expect(first.filter((message) => message.kind === "ended")).toEqual([{kind: "ended", reason: "root-gone"}]);
+        expect(second.messages.filter((message) => message.kind === "ended")).toEqual([{kind: "ended", reason: "root-gone"}]);
+        expect(late.filter((message) => message.kind === "ended")).toEqual([]);
         await rename(`${created.project}-moved`, created.project);
     });
 });

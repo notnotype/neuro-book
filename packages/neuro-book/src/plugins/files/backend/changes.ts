@@ -10,7 +10,8 @@
  *   或后缀忽略（会吞掉用户的真实文件）。
  * - 失同步：Bun 在 inotify 队列溢出时回调 `change` 且文件名为 null、根自身被移动时文件名为空，都不报 `error`。这时
  *   溢出期间新建的子目录没有加上监视，只让订阅方重列补不回来：先核对根还在，在就关掉旧监视器重建再推 `resync`，不在
- *   就以 `root-gone` 结束全部订阅。监视器的 `error` 同样处理；一批待处理路径过多只推 `resync`。
+ *   就以 `root-gone` 结束全部订阅。监视器的 `error` 同样处理；一批待处理路径过多、或编码后装不进一条 RPC 消息时
+ *   只推 `resync`。
  */
 
 import {randomUUID} from "node:crypto";
@@ -21,6 +22,7 @@ import {basename, dirname, join, sep} from "node:path";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
+import {TEXT_BUDGET_BYTES} from "../shared/contracts";
 import type {ChangeSource, ChangesMessage, FileChange} from "../shared/contracts";
 import {hashOf} from "./files-service";
 import {isControlName} from "./rooted";
@@ -55,7 +57,8 @@ type Sink = (message: ChangesMessage) => void;
 export function createChangeHub(options: ChangeHubOptions): ChangeHub {
     const {root, clock} = options;
     const token = randomUUID().slice(0, 8);
-    const temporaryPattern = new RegExp(`^\\..*\\.nbook-${token}-[0-9a-f-]{36}\\.tmp$`, "u");
+    // `s`：文件名可以含换行。
+    const temporaryPattern = new RegExp(`^\\..*\\.nbook-${token}-[0-9a-f-]{36}\\.tmp$`, "su");
     const sinks = new Set<Sink>();
     /** 真实路径 → 本服务最近一次写入的内容 hash。只在监视期间记。 */
     const own = new Map<string, string>();
@@ -65,6 +68,8 @@ export function createChangeHub(options: ChangeHubOptions): ChangeHub {
     let lost = false;
     let cancelFlush: (() => void) | null = null;
     let flushing: Promise<void> = Promise.resolve();
+    /** 监视轮次：每次关掉或重建监视器加一。处理中的一批完成时轮次已变，就不投给之后的订阅。 */
+    let round = 0;
     let closed = false;
 
     const broadcast = (message: ChangesMessage): void => {
@@ -82,6 +87,7 @@ export function createChangeHub(options: ChangeHubOptions): ChangeHub {
     };
 
     const stopWatcher = (): void => {
+        round += 1;
         watcher?.close();
         watcher = null;
         cancelFlush?.();
@@ -120,10 +126,12 @@ export function createChangeHub(options: ChangeHubOptions): ChangeHub {
     const flush = async (): Promise<void> => {
         const paths = pending;
         pending = new Set();
+        const started = round;
+        const current = (): boolean => !closed && watcher !== null && round === started;
         if (lost) {
             lost = false;
             const check = await root.resolve("");
-            if (closed || watcher === null) return;
+            if (!current() || watcher === null) return;
             if ("ok" in check) {
                 options.record("warn", "files.watch.root-gone", "监视的根目录已不在，结束订阅", {root: root.real, detail: check.detail});
                 const ended = [...sinks];
@@ -134,6 +142,7 @@ export function createChangeHub(options: ChangeHubOptions): ChangeHub {
             }
             watcher.close();
             own.clear();
+            round += 1;
             startWatcher();
             broadcast({kind: "resync"});
             return;
@@ -147,7 +156,12 @@ export function createChangeHub(options: ChangeHubOptions): ChangeHub {
             const event = await classify(path);
             if (event !== null) events.push(event);
         }
-        if (closed || watcher === null || events.length === 0) return;
+        if (!current() || events.length === 0) return;
+        // 一批要装进一条 RPC 消息：路径很长时 1000 条以内也可能超过，超过就只推 resync。
+        if (new TextEncoder().encode(JSON.stringify(events)).length > TEXT_BUDGET_BYTES) {
+            broadcast({kind: "resync"});
+            return;
+        }
         broadcast({kind: "batch", events});
     };
 

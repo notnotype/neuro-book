@@ -21,6 +21,7 @@ import {describe, errno, replaceLocked} from "nbook/backend/locked-replace";
 import type {CurrentFile, ReplaceDecision} from "nbook/backend/locked-replace";
 
 import type {FilesFailureCode} from "../shared/failures";
+import {pathProblem} from "../shared/resource";
 
 export type RootedFailure = {readonly ok: false; readonly code: FilesFailureCode; readonly detail: string; readonly cause?: string};
 
@@ -86,6 +87,9 @@ class Root implements RootedRoot {
     }
 
     async resolve(path: string): Promise<Resolved | RootedFailure> {
+        // 原语自己核对路径形状：后端插件可以绕过文件服务直接用它，`..` 一类的段会在逐段解析前就退到根外。
+        const problem = pathProblem(path);
+        if (problem !== null) return fail("invalid-address", `${path}：${problem}`);
         const gone = await this.#checkRoot();
         if (gone !== null) return gone;
         const segments = path === "" ? [] : path.split("/");
@@ -133,11 +137,11 @@ class Root implements RootedRoot {
         } catch (error) {
             return errno(error) === "EACCES" || errno(error) === "EPERM" ? fail("permission-denied", `无权列出 ${display(path)}`, error) : missing(error, path);
         }
-        const atRoot = resolved.realPath === "";
+        const hidden = resolved.realPath === "" && this.#options.controlDirectory ? await this.#controlAliases(resolved.real, entries) : new Set<string>();
         return {
             ok: true,
             resolved,
-            entries: entries.filter((entry) => !(atRoot && this.#options.controlDirectory && isControlName(entry.name))).map((entry) => ({name: entry.name, kind: kindOf(entry)})),
+            entries: entries.filter((entry) => !hidden.has(entry.name)).map((entry) => ({name: entry.name, kind: kindOf(entry)})),
         };
     }
 
@@ -188,6 +192,23 @@ class Root implements RootedRoot {
             case "failed":
                 return fail("io-failed", `保存 ${path} 失败`, replaced.detail);
         }
+    }
+
+    /** 根下不列出的目录项：控制目录本身，以及解析后指向控制目录里的符号链接。解析不了的链接照常列出。 */
+    async #controlAliases(real: string, entries: ReadonlyArray<Dirent>): Promise<Set<string>> {
+        const hidden = new Set<string>();
+        for (const entry of entries) {
+            if (isControlName(entry.name)) {
+                hidden.add(entry.name);
+                continue;
+            }
+            if (!entry.isSymbolicLink()) continue;
+            const target = await realpath(join(real, entry.name)).catch(() => null);
+            if (target === null || (target !== this.real && !target.startsWith(this.real + sep))) continue;
+            const first = relative(this.real, target).split(sep)[0] as string;
+            if (isControlName(first)) hidden.add(entry.name);
+        }
+        return hidden;
     }
 
     async #checkRoot(): Promise<RootedFailure | null> {

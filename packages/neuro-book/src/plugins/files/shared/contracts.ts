@@ -7,7 +7,7 @@
  */
 
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
-import type {RemoteFailureCode} from "@notnotype/nb-runtime/remote";
+import type {RemoteCause, RemoteFailureCode} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import {Type} from "typebox";
@@ -148,10 +148,10 @@ export function contractOf(scheme: Scheme): FilesContract {
     return scheme === "project" ? projectFilesContract : userFilesContract;
 }
 
-/** 浏览器文件客户端的结果：业务失败与路由层失败都原样带码，不转成空结果。 */
+/** 浏览器文件客户端的结果：业务失败与路由层失败都原样带码，路由层的中断原因（`cause`）也原样带出，不转成空结果。 */
 export type FilesResult<T> =
     | {readonly ok: true; readonly value: T}
-    | {readonly ok: false; readonly code: FilesFailureCode | RemoteFailureCode; readonly detail: string; readonly current?: Baseline};
+    | {readonly ok: false; readonly code: FilesFailureCode | RemoteFailureCode; readonly detail: string; readonly current?: Baseline; readonly cause?: RemoteCause};
 
 /**
  * `watch` 的监听者收到的消息。`resync` 另包括同一项目代次内断线重连（断线期间的事件不补发）；`ended` 另包括订阅建立

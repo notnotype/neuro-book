@@ -17,6 +17,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {createFilesService} from "../src/plugins/files/backend/files-service";
 import {openRoot} from "../src/plugins/files/backend/rooted";
 import {planSample, writeSample} from "./files-sample";
+import type {SamplePlan} from "./files-sample";
 
 const LISTED = ["", "notes/wide", "notes/archive/2026/q1", "manuscripts/volume-01", "lorebook.content", "lorebook.content/characters", "lorebook.content/characters/char-0001"];
 
@@ -24,16 +25,39 @@ async function child(root: string): Promise<void> {
     const opened = await openRoot(root, {controlDirectory: true, lockDirectory: join(root, ".nbook", "locks", "files"), report: () => undefined});
     if ("ok" in opened) throw new Error(opened.detail);
     const service = createFilesService({root: opened, diagnose: () => undefined});
+    const counts: Record<string, number> = {};
     for (const path of LISTED) {
         const listed = await service.list(path);
         if (!listed.ok) throw new Error(`${path}：${listed.code}`);
-        console.log(`${path === "" ? "<根>" : path}：${String(listed.value.entries.length)} 项`);
+        counts[path] = listed.value.entries.length;
     }
+    console.log(JSON.stringify(counts));
 }
 
 interface Access {
     readonly call: string;
     readonly path: string;
+}
+
+/**
+ * 由样本计划推出每个目录应列出的项数：磁盘上的直接子项（文件与目录），加上清单里有、磁盘上没有的缺失条目。
+ * 列出结果与它不符（例如什么都没列出）时同样判失败：访问记录只有在列出确实完成时才说明问题。
+ */
+function expectedCounts(plan: SamplePlan): Record<string, number> {
+    const children = new Map<string, Set<string>>();
+    const add = (path: string): void => {
+        const segments = path.split("/");
+        for (let depth = 0; depth < segments.length; depth += 1) {
+            const parent = segments.slice(0, depth).join("/");
+            const set = children.get(parent) ?? new Set<string>();
+            set.add(segments[depth] as string);
+            children.set(parent, set);
+        }
+    };
+    for (const file of plan.files) add(file.path);
+    add(`${plan.description.contentRoot}/content.xml`);
+    for (const missing of plan.description.contentCases.missing) add(missing);
+    return Object.fromEntries(LISTED.map((path) => [path, children.get(path)?.size ?? 0]));
 }
 
 /** strace 记录里对样本文件（`files`，绝对路径）的打开与读取；打开目录不算。 */
@@ -66,13 +90,17 @@ async function main(): Promise<void> {
         const traced = Bun.spawn(["strace", "-f", "-yy", "-e", "trace=open,openat,openat2,read,pread64,readv,preadv,preadv2,mmap", "-o", log, process.execPath, resolve(import.meta.path), "--child", root], {stdout: "pipe", stderr: "pipe"});
         const [code, stdout, stderr] = await Promise.all([traced.exited, new Response(traced.stdout).text(), new Response(traced.stderr).text()]);
         if (code !== 0) throw new Error(`列出失败（${String(code)}）：${stderr}`);
+        const plan = planSample({count: description.count, seed: description.seed});
+        const listedCounts = JSON.parse(stdout.trim().split("\n").at(-1) as string) as Record<string, number>;
+        const expected = expectedCounts(plan);
+        const mismatched = LISTED.filter((path) => listedCounts[path] !== expected[path]);
         const real = await realpath(root);
-        const files = new Set([...planSample({count: description.count, seed: description.seed}).files.map((file) => join(real, file.path)), join(real, description.contentRoot, "content.xml")]);
+        const files = new Set([...plan.files.map((file) => join(real, file.path)), join(real, description.contentRoot, "content.xml")]);
         const found = accesses(await readFile(log, "utf8"), files);
         const manifest = found.filter((access) => access.path.endsWith("/lorebook.content/content.xml"));
         const violations = found.filter((access) => !access.path.endsWith("/lorebook.content/content.xml"));
-        console.log(JSON.stringify({sample: {seed: description.seed, count: description.count, totalBytes: description.totalBytes}, listed: stdout.trim().split("\n"), manifestAccesses: manifest.length, violations: violations.slice(0, 20), violationCount: violations.length}, null, 2));
-        if (violations.length > 0 || manifest.length === 0) process.exitCode = 1;
+        console.log(JSON.stringify({sample: {seed: description.seed, count: description.count, totalBytes: description.totalBytes}, listed: listedCounts, expected, mismatched, manifestAccesses: manifest.length, violations: violations.slice(0, 20), violationCount: violations.length}, null, 2));
+        if (mismatched.length > 0 || violations.length > 0 || manifest.length === 0) process.exitCode = 1;
     } finally {
         await rm(tmp, {recursive: true, force: true});
     }

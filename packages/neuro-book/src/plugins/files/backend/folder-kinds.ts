@@ -54,9 +54,15 @@ type OrderedNode = Record<string, unknown>;
 
 /** 解析清单：根是 `content`，下面只有嵌套的 `item`（`name` 必填，`title`、`icon` 可选）。 */
 export function parseManifest(text: string): ParsedManifest {
-    const valid = XMLValidator.validate(text);
-    if (valid !== true) return {ok: false, detail: `第 ${String(valid.err.line)} 行：${valid.err.msg}`};
-    const roots = elements(parser.parse(text) as OrderedNode[]);
+    let roots: OrderedNode[];
+    try {
+        const valid = XMLValidator.validate(text);
+        if (valid !== true) return {ok: false, detail: `第 ${String(valid.err.line)} 行：${valid.err.msg}`};
+        roots = elements(parser.parse(text) as OrderedNode[]);
+    } catch (error) {
+        // 清单是用户文件：解析器对超限实体等输入直接抛错，按清单不合法报告，不让整次列出失败。
+        return {ok: false, detail: `XML 无法解析：${error instanceof Error ? error.message : String(error)}`};
+    }
     if (roots.length !== 1 || tagOf(roots[0] as OrderedNode) !== "content") return {ok: false, detail: "根元素必须是唯一的 <content>"};
     try {
         return {ok: true, items: itemsOf(roots[0] as OrderedNode, "content")};

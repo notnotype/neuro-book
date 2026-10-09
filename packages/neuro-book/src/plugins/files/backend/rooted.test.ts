@@ -5,7 +5,7 @@
  * 只读用例要求以普通用户运行（root 不受文件权限约束）。
  */
 
-import {afterAll, beforeAll, describe, expect, it} from "bun:test";
+import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {createHash} from "node:crypto";
 import {chmod, lstat, mkdir, readdir, readFile, readlink, rename, rm, stat, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
@@ -19,9 +19,15 @@ import type {RootedFailure, RootedRoot} from "./rooted";
 
 let tmp = "";
 let counter = 0;
+/** 本用例建的目录：用例结束时删除。 */
+const created: string[] = [];
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-files", "rooted");
+});
+
+afterEach(async () => {
+    for (const directory of created.splice(0)) await rm(directory, {recursive: true, force: true});
 });
 
 afterAll(async () => {
@@ -43,6 +49,7 @@ function conditional(baseline: string, text: string): (current: CurrentFile) => 
 /** 一个新的项目根（有控制目录），外加根外的一个目录。 */
 async function project(): Promise<{readonly dir: string; readonly outside: string; readonly root: RootedRoot}> {
     counter += 1;
+    created.push(join(tmp, `p${String(counter)}`));
     const dir = join(tmp, `p${String(counter)}`, "project");
     const outside = join(tmp, `p${String(counter)}`, "outside");
     await mkdir(join(dir, ".nbook"), {recursive: true});
@@ -88,6 +95,10 @@ describe("Spec workspace.files 读取与保存：包含校验与控制目录", (
         }
         expect(failure(await root.list("meta")).code).toBe("protected-path");
         expect(failure(await root.list(".nbook")).code).toBe("protected-path");
+        // 列根时链接别名也不出现：它们解析后在控制目录里。
+        await mkdir(join(dir, "notes"));
+        const listed = await root.list("");
+        expect(listed.ok && listed.entries.map((entry) => entry.name)).toEqual(["notes"]);
         expect(await readFile(join(dir, ".nbook", "project.json"), "utf8")).toBe("CONTROL");
     });
 
@@ -112,6 +123,16 @@ describe("Spec workspace.files 读取与保存：包含校验与控制目录", (
 
         const viaAlias = await root.read("alias/story.md", 1024);
         expect(viaAlias).toMatchObject({ok: true, resolved: {realPath: "actual/story.md"}});
+    });
+
+    it("原语自己拒绝不合法的路径：直接调用也出不了根，根外数据不变", async () => {
+        const {outside, root} = await project();
+        for (const path of ["../outside/secret.md", "a/../../outside/secret.md", "/etc/hostname", "./a.md", "a//b.md", "a\\b.md"]) {
+            expect({path, code: failure(await root.read(path, 1024)).code}).toEqual({path, code: "invalid-address"});
+            expect({path, code: failure(await root.replace(path, conditional(hash("OUTSIDE"), "OVERWRITTEN"))).code}).toEqual({path, code: "invalid-address"});
+        }
+        expect(failure(await root.list("..")).code).toBe("invalid-address");
+        expect(await readFile(join(outside, "secret.md"), "utf8")).toBe("OUTSIDE");
     });
 
     it("类型不符：列文件为 not-a-directory，读目录为 not-a-file", async () => {
@@ -178,7 +199,16 @@ describe("Spec workspace.files 读取与保存：加锁提交", () => {
         await writeFile(join(dir, "run.sh"), "#!/bin/sh\n");
         await chmod(join(dir, "run.sh"), 0o750);
         expect(await root.replace("run.sh", conditional(hash("#!/bin/sh\n"), "#!/bin/sh\necho\n"))).toMatchObject({ok: true});
-        expect((await stat(join(dir, "run.sh"))).mode & 0o777).toBe(0o750);
+        expect((await stat(join(dir, "run.sh"))).mode & 0o7777).toBe(0o750);
+
+        // 组可写与 setuid：建临时文件时 umask 会削掉组写位，特殊位也要原样保留。
+        for (const mode of [0o664, 0o4755]) {
+            const name = `m${mode.toString(8)}.md`;
+            await writeFile(join(dir, name), "M");
+            await chmod(join(dir, name), mode);
+            expect(await root.replace(name, conditional(hash("M"), "M2"))).toMatchObject({ok: true});
+            expect({name, mode: ((await stat(join(dir, name))).mode & 0o7777).toString(8)}).toEqual({name, mode: mode.toString(8)});
+        }
     });
 
     it("经文件链接保存：替换最终目标，链接保留；经目录链接保存落在真实目录", async () => {

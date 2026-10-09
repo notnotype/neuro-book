@@ -1,0 +1,97 @@
+# w00017 t68 实现审查：测试与验收
+
+审查对象：`ab0a3e91..5b07cb0e`。审查范围：验收映射、真实入口与完成判据、变异检出、重复运行、资源收口、列出访问记录判读。仓库保持只读，变异仅在指定实验目录的副本进行。
+
+## 已核实发现
+
+### 1. 重要｜测试｜项目子进程测试没有停止父应用与项目管理器
+
+- **位置**：`packages/neuro-book/src/plugins/files/project-child.test.ts:31-42`；`packages/neuro-book/src/server/testing/projects.ts:92-176`
+- **现象**：`project-child.test.ts` 的 `afterEach` 只调用 `killSpawnedProjects()`，而 `projectHarness()` 返回的 `h.parent`、`h.manager` 没有被记录或停止。测试体只释放租约、窗口和部分链接；没有在失败路径及正常路径调用已存在的 `await h.parent.stop()`。
+- **为什么是问题**：每个用例创建一个真实服务端 `Application`、项目路由和管理器。只杀项目子进程不能结算父应用的入口、路由和监听；后续用例在同一个 Bun 进程中继续叠加这些对象，不能证明“测试起的资源在失败时也收口”，并可能使跨用例状态、事件监听或句柄泄漏。`server/projects/manager.test.ts:171` 已把 `h.parent.stop()`作为正常收口路径，说明该测试场地具备且需要这个边界。
+- **依据**：测试规范 `docs/testing/README.md:20,91-96` 要求测试起的应用实例和子进程在 `afterEach` 失败时也收口；`projectHarness` 明确返回 `parent`（`projects.ts:92-103`），但 t68 测试的 `afterEach` 不接收每个 harness。实际命令 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/tests bun test src/plugins/files` 在 `packages/neuro-book` 目录连跑 5 次均为 `40 pass, 0 fail`，只能证明当前运行未暴露泄漏，不能替代关闭调用。
+- **建议改法**：让 `project-child.test.ts` 登记每个 `ProjectHarness`，在 `afterEach` 的 `finally` 中先关闭所有窗口/释放租约，再对每个 harness 调用 `await h.parent.stop()`并断言 `{status: "closed"}`；保留 `killSpawnedProjects()`作为失败兜底，且把 harness 自己的收口封装进测试支持，避免新增用例漏收口。
+
+### 2. 重要｜测试｜内容清单“目录/读不出”失败分支没有被验收测试覆盖
+
+- **位置**：`packages/neuro-book/src/plugins/files/files.test.ts:154-173`
+- **现象**：测试只覆盖了非法 XML、重复名、嵌套路径、错误节点和清单缺失；没有创建 `content.xml/` 目录，也没有验证清单不可读时的 `manifest.status`。计划的 S2 验证要求“清单不存在、是目录或读不出分开报告”。
+- **为什么是问题**：`files-service.ts:77-88` 将 `not-found` 映射为 `absent`，其它读失败（包括 `not-a-file` 和权限错误）映射为 `unreadable`；这两个分支是规范可观察结果。一个把 `not-a-file` 错报为 `absent` 的变异，在仓库外副本中运行 `bun test src/plugins/files/files.test.ts` 仍为 `11 pass, 0 fail`，说明现有测试拦不住这类合同回归。
+- **依据**：`docs/specs/workspace/folder-kinds.md:70` 与 `plan.md:62` 要求清单不存在、是目录或读不出与 XML 不合法分开报告并按普通文件夹显示。变异：仅把 `files-service.ts` 的 `read.code === "not-a-file"` 归入 `absent`，测试结果 `11 pass, 0 fail, 98 expect() calls`。
+- **建议改法**：在同一个测试中追加清单路径为目录、权限/读失败（普通用户运行）两组，分别断言 `manifest.status` 为 `unreadable`、列表仍成功且按普通排序；不要只断言“列出不失败”。
+
+### 3. 重要｜测试｜断线重连的失同步通知完全未覆盖
+
+- **位置**：`packages/neuro-book/src/plugins/files/web/client.ts:141-143`；`packages/neuro-book/src/plugins/files/changes.test.ts:177-235`；`plan.md:130`
+- **现象**：当前 Files 测试从未断开并重连一个仍在同一项目代次的窗口。只删除客户端 `onResync` 中的广播，整套 Files 测试仍为 `40 pass, 0 fail`。
+- **为什么是问题**：Files 客户端必须把内核重建订阅的 `onResync` 转成公开的 `resync`；否则消费者不知道离线期间的事件未补发，可能继续显示旧树或旧正文。内核自身的重连测试无法拦截 Files 客户端漏转发这一层。
+- **依据**：`docs/specs/workspace/resources.md:78`、`docs/specs/workspace/files.md:92`、`plan.md:85,130`。仓库外 `scripts/reconnect-review.ts` 装真实服务端、项目、浏览器内核和真实 Files 插件，经场地的真实链路 `disconnect()`/`reconnect()`：变异实现重连 `{ok:true}`，等第二条 `ready` 后只收到 `[ready, ready]`，退出 1；还原实现同一场景收到 `[ready, ready, resync]`，退出 0。四个内核实例均收口为 `{status:"closed"}`。没有伪造回调或直接调用客户端内部方法。
+- **建议改法**：直接复用 `SettingsWorld.window()` 现有的断开/重连入口；等重连后的 `ready`，断言公开监听者收到 `resync`，再外部修改文件并等新批次，避免只验证内核回调。
+
+### 4. 重要｜测试｜`ended` 没有验证共享订阅的全部监听者都收到
+
+- **位置**：`packages/neuro-book/src/plugins/files/web/client.ts:168-173`；`packages/neuro-book/src/plugins/files/changes.test.ts:177-235`
+- **现象**：共享订阅测试只验证一个监听者释放后另一个仍继续接收；项目代次/根结束测试也只有一个监听者。把 `#end` 的 `for (const listener of ended)` 变异为只投递 `ended.slice(0, 1)` 后，原 Files 套件仍为 `40 pass, 0 fail`。
+- **为什么是问题**：合同要求同一窗口共享的一条订阅结束时向全部当时监听者广播，且之后均不再收事件；漏发会让部分资源管理器/编辑器继续持有已失效的项目绑定。
+- **依据**：`docs/specs/workspace/resources.md:78,90`、`plan.md:85,126`；仓库外真实场地的双监听者实验：变异时输出 `first=[ready, ended(root-gone)]`、`second=[ready]`并退出 1；还原时两者都收到 `ended(root-gone)`，退出 0。场景实际移走真实项目根，并在真实 `filesKey` 上建立两个监听者。
+- **建议改法**：在现有“根被移走”用例中同一窗口再建立第二个监听者，分别断言两者各收到且仅收到一条 `ended`；同时核对第二个监听者结束后外部变化不会再回调。
+
+### 5. 重要｜测试｜订阅建立失败没有被覆盖
+
+- **位置**：`packages/neuro-book/src/plugins/files/web/client.ts:148-156`；`packages/neuro-book/src/plugins/files/files.test.ts:94-100`
+- **现象**：未绑定窗口只测试了 `list("project://")` 返回路由失败，没有测试 `watch("project")` 在订阅建立失败时向监听者发送一次 `ended`。把建立失败分支的 `this.#end(result.code)` 变异为空操作，原 Files 套件仍为 `40 pass, 0 fail`。
+- **为什么是问题**：订阅建立失败时若不结算，调用方只拿到一个永远没有消息的监听者和一个泄漏的逻辑订阅；合同要求建立失败也发送 `ended`，之后不再回调。
+- **依据**：`docs/specs/workspace/resources.md:78,90`、`docs/specs/workspace/files.md:85`。仓库外真实场地用未绑定的真实窗口调用 `filesKey.watch("project")`：变异等待 5 秒后无消息并退出 1；还原收到 `[{"kind":"ended","reason":"target-gone"}]`并退出 0；场地收口结果四个实例均为 `{status:"closed"}`。
+- **建议改法**：在 `files.test.ts` 的未绑定窗口场景中建立 `project` 监听，等待 `ended`，断言原因透传且恰好一次；再做一次外部变化，确认没有迟到回调。
+
+### 6. 重要｜测试｜`files-list-trace.ts` 的退出判据会接受“完全没列出目录”的实现
+
+- **位置**：`packages/neuro-book/scripts/files-list-trace.ts:23-30,71-75`
+- **现象**：判定只要求没有样本文件违规访问且至少打开过一次 `content.xml`；没有校验子进程真的对 `LISTED` 中的每个路径完成列出，也没有校验输出的项数。把副本中的 `createFilesService.list` 变异为“每次只读 `lorebook.content/content.xml`，返回空 `entries`”后，脚本输出七个路径均为 `0 项`，`manifestAccesses: 21`、`violationCount: 0`，仍以退出码 0 结束。
+- **为什么是问题**：S4 的脚本证据可能被误读为“3000 个文件的根与各层已按合同列出且没有预读”。实际它只证明观测到的样本文件访问集合没有违规；空结果、漏调用某些层或列出数量退化都能通过，验收完成条件因此不可靠。
+- **依据**：`plan.md:114,127`要求以样本上的真实列出和访问记录验收；正常实现命令 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/tests bun scripts/files-list-trace.ts` 在 `packages/neuro-book` 目录输出根 `3` 项、宽目录 `400` 项、内容根 `4` 项等并退出 0。仓库外副本的上述变异输出七个路径均为 `0`、仍退出 0，说明存在已复现的漏判，不是推断。
+- **建议改法**：让 child 输出结构化的每个路径及数量，主进程用同一 `SamplePlan` 推导的最小/精确期望校验路径集合与数量后再检查访问记录；至少拒绝缺失路径、全零结果和与样本描述不符的数量，并在异常时非零退出。
+
+### 7. 建议｜测试｜样本测试没有触及 `writeSample` 的真实落盘路径
+
+- **位置**：`packages/neuro-book/scripts/files-sample.test.ts:9-30`；`packages/neuro-book/scripts/files-sample.ts:138-149`
+- **现象**：测试只调用 `planSample` 和 `renderSample`，不调用 `writeSample`，因此不验证目录创建、父目录生成、实际文件写入和 `content.xml` 落盘。把仓库外副本的 `writeSample` 变异为只返回描述、不写任何文件后，`bun test scripts/files-sample.test.ts` 仍为 `2 pass, 0 fail`。
+- **为什么是问题**：脚本的实际入口可以在“计划和正文生成都正确”的情况下完全不落盘，单文件测试仍通过；这会让样本验收或 t72 复用时拿到空目录。正常 `files-list-trace.ts` 会间接调用 `writeSample`，但它的判读缺口见上一条，不能替代直接的落盘断言。
+- **依据**：`plan.md:93,114`要求样本生成器产生约 3000 个文件、宽目录、内容清单和机器可读描述；变异运行结果如上。建议在真实临时目录调用 `writeSample`，按返回描述检查文件数、总字节、清单和代表路径，再在 `finally` 删除目录。
+
+### 8. 建议｜测试｜每个用例创建的临时目录没有按规范在 `afterEach` 收口
+
+- **位置**：`packages/neuro-book/src/plugins/files/files.test.ts:22-37`、`changes.test.ts:26-41`、`backend/rooted.test.ts:20-28`
+- **现象**：这些文件的 `afterAll` 才递归删除整个 `tmp`；每个 `scene`/`project` 创建的 `world-N`/`pN` 目录在 `afterEach` 中只关闭实例，不删除。测试失败后目录会一直保留到整个文件结束，进程被强杀则依赖全局 stale-root 回收。
+- **为什么是问题**：测试规范要求测试自身在 `afterEach` 删除自己创建的目录，不把目录删除和应用/文件句柄关闭混为一谈；长期运行时会积累失败用例的真实文件，降低失败隔离和资源收口证据的可信度。
+- **依据**：`docs/testing/README.md:91-96`；同一文件已有 `afterEach` 关闭 world（`files.test.ts:30-34`），但没有删除场景目录；实际连续 5 次当前套件通过不证明失败路径收口。
+- **建议改法**：让场景返回并登记其独立目录，在 `afterEach` 的 `finally` 中先关闭 world/root，再逐个 `rm`；`afterAll` 仅保留整个运行根的兜底清理。
+
+### 9. 建议｜测试｜Linux 专属监视断言没有按平台跳过
+
+- **位置**：`packages/neuro-book/src/plugins/files/changes.test.ts:80-90,177-206`；`project-child.test.ts:145-172`
+- **现象**：`inotifyCount()` 直接读取 `/proc/self/fd`/`fdinfo`，溢出测试直接读取 `/proc/sys/fs/inotify/max_queued_events`并发送 `SIGSTOP`；用例没有 `it.skipIf(process.platform === "win32")`或等价平台门禁。
+- **为什么是问题**：仓库测试规范要求 POSIX 专有信号/路径语义在 Windows 跳过；当前文件测试在 Windows 不是“未验证”，而是会把环境不支持误报为产品失败，且没有保护其它跨平台 Files 合同测试继续运行。
+- **依据**：`docs/testing/README.md:129-130`；当前代码上述位置无平台分支。计划本身也把 macOS/Windows 递归监视列为未验证边界（`plan.md:139`）。建议只对 Linux 的 inotify 观测与溢出场景跳过，不跳过普通文件、合同和 WebSocket 测试。
+
+## 未发现问题的方面
+
+- `resource.test.ts` 覆盖了方案地址格式、路径段、盘符形式、NUL、UTF-8 字节上限和纯函数；本轮未发现违反合同的测试替身。
+- `rooted.test.ts` 用真实临时目录验证了根身份、根外/悬空/根内链接、控制目录大小写与别名、同基线并发、只读权限、权限位保留和链接保留。并发锁、控制目录别名变异均使对应测试失败后恢复。
+- `files.test.ts` 的窗口/项目/服务端实例、真实文件和真实合同覆盖了基础读写、冲突、清单投影、正文入口、BOM、NUL/非法 UTF-8 与进程内双侧正文上限；清单顺序变异被拦住。
+- `changes.test.ts` 的来源、外部写删改名、新建深层目录、回声去重、保留时间戳的外部修改、目录链接、共享订阅释放、根丢失和批量失同步均使用真实监视；来源、回声和阈值相关变异被拦住。
+- `project-child.test.ts` 真实启动项目子进程，覆盖了两个窗口共享、外部修改、代次结束、旧窗口失败、新代次读取和真实 inotify 溢出重建；溢出重建变异被拦住。`transport.test.ts` 真实启动 WebSocket RPC 端口并验证正文上限，客户端预检变异被拦住。
+- 目标测试未发现 `mock.module`、`vi.mock`、`spyOn`、假计时器、固定时长等待或 focused/skip 测试；变化批次用手动时钟，异步状态用 `waitUntil`/事件屏障。
+
+## 验证记录
+
+- 依赖：`prox bun install --frozen-lockfile --ignore-scripts`，成功安装 1568 个包。
+- **稳定性**：在 `packages/neuro-book` 执行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/tests bun test src/plugins/files` 连续 5 次，每次 `40 pass, 0 fail`；执行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/tests bun test scripts/files-sample.test.ts` 为 `2 pass, 0 fail`。
+- 真实脚本：执行完整 `files-list-trace.ts` 退出 0，输出 `manifestAccesses: 9`、`violations: []`、`violationCount: 0`；脚本空列出变异仍退出 0，已列为发现 6。
+- 本轮没有运行全量 `test:affected --typecheck`、全量 e2e、`smoke:server`、`docs:check`、`governance:check`；它们不作为本报告通过依据。
+
+## 数量
+
+- 阻断：0
+- 重要：6
+- 建议：3

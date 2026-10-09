@@ -63,6 +63,12 @@ export function createFilesClient(remote: Remote, consumer: ConsumerIdentity, wa
 
 type Listener = (message: WatchMessage) => void;
 
+/** 一个监听者；释放即置为不活跃，之后包括结束广播在内的投递都跳过它。 */
+interface Entry {
+    readonly listener: Listener;
+    active: boolean;
+}
+
 export interface WatchRegistry {
     /** 加一个监听者；返回它的释放函数（幂等）。 */
     add(scheme: Scheme, listener: Listener): () => void;
@@ -98,7 +104,7 @@ type Subscribe = (onMessage: (message: ChangesMessage) => void, options: RemoteS
 class SchemeWatch {
     readonly #subscribe: Subscribe;
     readonly #report: (error: unknown) => void;
-    readonly #listeners = new Set<Listener>();
+    readonly #listeners = new Set<Entry>();
     #subscription: RemoteSubscription | null = null;
     #establishing = false;
     #ready = false;
@@ -114,21 +120,23 @@ class SchemeWatch {
     add(listener: Listener): () => void {
         if (this.#closed) return () => undefined;
         // 同一个函数加两次也是两个监听者：各自释放。
-        const own: Listener = (message) => listener(message);
-        this.#listeners.add(own);
+        const entry: Entry = {listener, active: true};
+        this.#listeners.add(entry);
         if (this.#subscription === null && !this.#establishing) void this.#establish();
-        else if (this.#ready) this.#deliver(own, {kind: "ready"});
-        return () => this.#remove(own);
+        else if (this.#ready) this.#deliver(entry, {kind: "ready"});
+        return () => this.#remove(entry);
     }
 
     close(): void {
         this.#closed = true;
+        for (const entry of this.#listeners) entry.active = false;
         this.#listeners.clear();
         this.#reset();
     }
 
-    #remove(listener: Listener): void {
-        if (!this.#listeners.delete(listener) || this.#listeners.size > 0) return;
+    #remove(entry: Entry): void {
+        entry.active = false;
+        if (!this.#listeners.delete(entry) || this.#listeners.size > 0) return;
         this.#reset();
     }
 
@@ -169,7 +177,11 @@ class SchemeWatch {
         const ended = [...this.#listeners];
         this.#listeners.clear();
         this.#reset();
-        for (const listener of ended) this.#deliver(listener, {kind: "ended", reason});
+        // 一个监听者在自己的 `ended` 回调里释放了别的：被释放的不再回调。
+        for (const entry of ended) {
+            this.#deliver(entry, {kind: "ended", reason});
+            entry.active = false;
+        }
     }
 
     #reset(): void {
@@ -180,15 +192,14 @@ class SchemeWatch {
     }
 
     #broadcast(message: WatchMessage): void {
-        for (const listener of [...this.#listeners]) {
-            // 前一个监听者的回调里可能释放了后面的：已释放的不再回调。
-            if (this.#listeners.has(listener)) this.#deliver(listener, message);
-        }
+        // 前一个监听者的回调里可能释放了后面的：`#deliver` 跳过已释放的。
+        for (const entry of [...this.#listeners]) this.#deliver(entry, message);
     }
 
-    #deliver(listener: Listener, message: WatchMessage): void {
+    #deliver(entry: Entry, message: WatchMessage): void {
+        if (!entry.active) return;
         try {
-            listener(message);
+            entry.listener(message);
         } catch (error) {
             this.#report(error);
         }
@@ -204,5 +215,5 @@ function fromRemote(failure: RemoteFailure<RemoteFailureCode | FilesFailureCode>
         return {ok: false, code: failure.code, detail: detail.detail, ...(detail.current === undefined ? {} : {current: detail.current})};
     }
     const reason = typeof failure.detail === "string" ? failure.detail : failure.cause === undefined ? failure.code : `${failure.code}（${failure.cause}）`;
-    return {ok: false, code: failure.code, detail: reason};
+    return {ok: false, code: failure.code, detail: reason, ...(failure.cause === undefined ? {} : {cause: failure.cause})};
 }

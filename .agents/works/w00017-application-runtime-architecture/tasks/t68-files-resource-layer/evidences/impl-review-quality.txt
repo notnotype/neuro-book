@@ -1,0 +1,58 @@
+# w00017 t68 实现审查：代码质量与架构
+
+- **审查对象**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t68-impl-quality`
+- **固定版本**：`5b07cb0e`，对比范围 `ab0a3e91..5b07cb0e`
+- **范围**：T68 S0–S4 的 `nbook.files` 后端、远程合同、浏览器门面、变更监视、锁定替换抽取，以及必要的宿主接线和测试。
+- **结论**：发现 4 项重要问题；未发现阻断问题。
+- **限制**：除获准的依赖安装外，未修改仓库源码或文档；未执行 Git 写操作。实验文件仅位于用户指定的外部 scratchpad。
+
+## 发现
+
+### 1. 重要｜正确性、错误处理：XML 解析器异常越过业务边界，清单错误使整次列出失败
+
+- **位置**：`packages/neuro-book/src/plugins/files/backend/folder-kinds.ts:56-65`、`packages/neuro-book/src/plugins/files/backend/files-service.ts:85-88`。
+- **现象**：`parseManifest()` 只捕获 `ManifestError`，没有捕获 XML 解析器本身抛出的异常。解析包含 20,000 字符实体的 `content.xml` 时，`fast-xml-parser` 抛出 `Error: Entity "a" size (20000) exceeds maximum allowed size (10000)`；该异常从 `list()` 冒出，被远程层归类为 `provider-error`，而不是返回普通目录列出结果并标记清单不可用。
+- **为什么是问题**：`docs/specs/workspace/folder-kinds.md:70,98` 要求清单缺失、非法、不可读时按普通文件夹显示并报告状态，不让整次列出失败。外部清单是用户文件，解析器的异常必须在边界内转换成受控清单失败状态；当前输入可使一个目录的基础列出失败，调用方只看到泛化的提供方错误。
+- **依据/核实**：真实 `filesScene` 实验 `contracts-smoke.ts` 写入实体超限 XML，调用真实 `files(window).list(...)` 得到 `{ok:false,code:"provider-error",detail:"提供方执行失败"}`；直接调用同一解析器得到上述异常原文。命令：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality/contracts-smoke.ts`。
+- **建议改法**：在 `parseManifest()` 的解析边界捕获解析器异常，转换为受控的清单失败状态；不要按错误文案分支，可用错误类型/解析阶段统一映射。增加实体超限、截断 XML、解析器抛异常时“list 成功、manifest 失败、普通排序仍正确”的真实文件测试。
+
+### 2. 重要｜正确性、文件提交：加锁替换不保持原文件权限位
+
+- **位置**：`packages/neuro-book/src/backend/locked-replace.ts:125-130`、`packages/neuro-book/src/plugins/files/backend/rooted.ts:168-180`。
+- **现象**：临时文件通过 `open(tempPath, "wx", mode)` 创建，`mode` 会受进程 `umask` 影响；随后没有对临时文件执行 `fchmod` 或等价的精确权限设置。真实实验中，原文件权限为 `0666` 时保存后为 `0644`；设置 `umask 077`、原文件权限为 `0755` 时保存后为 `0700`。
+- **为什么是问题**：`docs/specs/workspace/files.md:60` 要求临时文件沿用原文件的权限位。替换采用 rename 后，新 inode 的权限受 `umask` 改变，保存一个文件会意外收紧权限，且结果随宿主进程环境变化。该错误在当前抽取前的 settings 实现中已存在，因此不是本次抽取新引入的回归；但它现在直接违反 T68 Files 合同，共享抽取也使它成为两个后端的共同实现点。
+- **依据/核实**：真实磁盘 smoke 的输出为 `permissions-before 666`、`permissions-after 644`，以及 `permissions-strict-after 700`；同一实验确认保存成功但权限不精确。命令同上 `contracts-smoke.ts`。
+- **建议改法**：创建临时文件后立即对已打开句柄执行精确 `fchmod`，再写入和替换；保留现有锁、临时文件清理与 rename 收口逻辑。增加不同 `umask` 下覆盖 `0644`、`0600`、可执行位和组权限的真实保存测试。
+
+### 3. 重要｜生命周期不变量、正确性：旧监视批次会串入新订阅
+
+- **位置**：`packages/neuro-book/src/plugins/files/backend/changes.ts:67-71,84-92,120-152`。
+- **现象**：`flush()` 通过共享的 `flushing` Promise 异步执行；最后一个监听者释放时 `stopWatcher()` 只关闭 watcher、清空 `pending`，没有使已经开始的 `flush` 失效。若在该 flush 完成前重新订阅，旧 flush 的末尾条件只检查 `closed` 与当前 `watcher !== null`；新 watcher 已非空后，旧批次会广播给新订阅者。
+- **为什么是问题**：新订阅先收到 `ready`，随后却收到旧监视轮次积压的事件；关停未隔离在途批次。`docs/specs/workspace/resources.md:78,95` 定义就绪、结束与按订阅持有监视器的生命周期，`docs/specs/runtime/plugin-channel.md:95` 要求取消订阅后丢弃迟到事件。快速释放再订阅时，旧批次借新 watcher 存在而恢复投递；文件事实没有被改错，但监视轮次已混淆。
+- **依据/核实**：真实 `filesScene`、真实 Bun `fs.watch` 和手动时钟实验 `watch-round-race.ts`：写入 500 个 `race-*.md` 后推进 75 ms，立即释放旧监听并建立新监听；输出 `oldBatchCount:0`、`staleCount:500`，新监听依次收到 `ready` 与包含旧积压路径的 `batch`。命令：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality/watch-round-race.ts`。
+- **建议改法**：给 watcher/订阅轮次增加单调代际 token；`stopWatcher()` 递增 token，`flush()` 捕获启动时 token，并在分类完成后只有 token 仍相等才广播。旧 flush 可自然结束，但不得投递给新轮次；补“批次在关停时在途、立即重订阅”的真实测试。
+
+### 4. 重要｜合同一致性：文件门面丢弃远程失败的 `cause`
+
+- **位置**：`packages/neuro-book/src/plugins/files/web/client.ts:200-208`、`packages/neuro-book/src/plugins/files/shared/contracts.ts:151-154`。
+- **现象**：`fromRemote()` 对非业务失败只把 `failure.code`、字符串 `detail` 或拼接后的文字放进 `FilesResult.detail`，没有返回 `RemoteFailure.cause`。例如 `unknown-outcome` 的 `target-gone`、`timeout`、`cancelled`、`disconnected` 被压成不可结构化的中文字符串；`FilesResult` 类型也没有 `cause` 字段。
+- **为什么是问题**：`docs/specs/workspace/resources.md:118` 要求路由层失败原样交回，远程合同保留可结构化判定的 `cause`。当前门面仍保留 `unknown-outcome`，因此调用方仍能判断结果未知、不可自动重试；但断开、超时、取消的原因只剩展示文案，调用方无法依据类型与字段区分原因。这是跨层合同信息丢失。
+- **依据/核实**：真实多实例 `filesScene` 新建窗口，在文件写请求发出后关闭窗口链路；直接远程合同返回 `{ok:false,code:"unknown-outcome",cause:"disconnected"}`，同一窗口的 Files 门面返回 `{ok:false,code:"unknown-outcome",detail:"unknown-outcome（disconnected）"}`，`Object.hasOwn(result,"cause")` 为 `false`。四个应用关闭结果均为 `{status:"closed"}`。命令：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality/remote-cause-smoke.ts`，exit 0。`docs/specs/workspace/resources.md:118` 要求路由层失败原样交回，`docs/specs/runtime/plugin-channel.md:92` 明确保留写请求的 `cause`；超时与取消经过同一转换路径，其原因丢失为代码推断，本轮未单独运行。
+- **建议改法**：给 `FilesResult` 增加与远程合同兼容的可选 `cause`，非业务失败保留原始失败字段；业务失败继续解包 `detail/current`。补浏览器文件客户端经真实路由断开/超时的断言，确保 `code` 与 `cause` 同时保留，而不是只比较拼接后的文案。
+
+## 未发现问题的方面
+
+- 插件边界和依赖方向：`architecture.test.ts` 通过；`nbook.files` 的 server/project/browser 宿主清单、远程代理清单和测试宿主清单均已接线。
+- 本轮聚焦行为测试：`bun run --cwd packages/neuro-book test:bun src/plugins/files src/plugins/settings src/architecture.test.ts scripts/files-sample.test.ts`，`105 pass`、`0 fail`、`720 expect() calls`，覆盖 14 个文件。
+- 类型检查：`bun run --cwd packages/neuro-book typecheck` 通过；实际运行 `tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json`，exit 0。
+- 真实多实例与磁盘场景：文件列出、读取、条件保存、来源事件、项目子进程与真实 WebSocket 相关测试在本轮通过；外部 watch 的丢失/重建路径也有现有覆盖。
+- 目录访问记录：`NBOOK_AGENT_TEMP_ROOT=<指定外部实验目录> bun packages/neuro-book/scripts/files-list-trace.ts`，exit 0；真实样本含 3000 条资源，输出 `manifestAccesses: 9`、`violations: []`、`violationCount: 0`。此结果只证明被记录的目录列出没有读取正文，不证明延迟或内存性能。
+- 文档与治理：`bun run docs:check --since ab0a3e91 && bun run governance:check --since ab0a3e91`，exit 0；两项 `failures: []`，治理 `warnings: []`。文档检查对 `docs/specs/workbench/files-explorer.md`、`docs/specs/workspace/files.md` 的证据标签/正文 Task 引用给出 4 条非阻断 warning，未计入代码缺陷数量。
+- 未运行：全仓测试、主页面 UI、Windows/macOS、网络文件系统，以及文件门面超时/取消的独立场景。本报告沿用同一固定版本在本轮已经执行的验证输出，没有重跑已通过项。
+- 资源收口：各场景的应用、连接与 watcher 已关闭；本轮创建的 smoke 脚本与样本已删除，报告和宿主保存的运行记录留在指定外部目录。
+
+## 统计
+
+- 阻断：0
+- 重要：4
+- 建议：0

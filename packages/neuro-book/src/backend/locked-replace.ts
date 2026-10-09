@@ -10,7 +10,7 @@
  * - 锁被判为残留、被别的进程接管后，本次写入失去资格：proper-lockfile 接管时删掉锁目录再建，所以改名前比对锁目录的
  *   身份（连同 `onCompromised` 报告的失效）就能发现，此时放弃写入。核对与改名之间仍有一个很小的窗口。
  * - 外部编辑器不走锁，改名前的身份核对只能缩小窗口：核对与改名之间仍可能被写入。
- * - 改名替换会绕过文件的只读位，所以目标存在时先核对可写；临时文件沿用原文件的权限位。
+ * - 改名替换会绕过文件的只读位，所以目标存在时先核对可写；临时文件沿用原文件的全部权限位（不受 umask 影响）。
  * - `file` 必须已解析到最终目标（不是符号链接）：对链接改名会把链接换成普通文件。
  */
 
@@ -124,9 +124,12 @@ async function replaceOnce<T, W extends Uint8Array | string>(file: string, optio
     }
     const temporary = options.temporaryPath?.(file) ?? join(dirname(file), `.${basename(file)}.${randomUUID()}.tmp`);
     try {
-        const handle = await open(temporary, "wx", before === null ? 0o644 : before.mode & 0o777);
+        const handle = await open(temporary, "wx", before === null ? 0o644 : before.mode & 0o7777);
         try {
             await handle.writeFile(decision.write);
+            // 建文件时的权限位会被进程的 umask 削掉：按原文件的权限位（含 setuid、setgid、sticky）精确设一次。要在写入之后：
+            // 写入会清掉 setuid 与 setgid。
+            if (before !== null) await handle.chmod(before.mode & 0o7777);
             await handle.sync();
         } finally {
             await handle.close();

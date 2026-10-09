@@ -29,14 +29,28 @@ import {hash, probe, probePlugin} from "./testing/scene";
 import {filesBrowserPlugin} from "./web/plugin";
 
 let tmp = "";
+/** 本用例起的窗口与服务端场地：用例结束时（失败也一样）先关窗口，再停服务端实例，最后结束残留的项目子进程。 */
+const windows: Window[] = [];
+const harnesses: ProjectHarness[] = [];
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-files", "project-child");
 });
 
-afterEach(() => {
-    killSpawnedProjects();
+afterEach(async () => {
+    try {
+        for (const window of windows.splice(0)) await window.close();
+        for (const harness of harnesses.splice(0)) expect(await harness.parent.stop()).toMatchObject({status: "closed"});
+    } finally {
+        killSpawnedProjects();
+    }
 });
+
+async function harness(): Promise<ProjectHarness> {
+    const created = await projectHarness(tmp);
+    harnesses.push(created);
+    return created;
+}
 
 afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
@@ -72,13 +86,18 @@ async function windowOf(h: ProjectHarness, id: string): Promise<Window> {
         },
     );
     expect(await app.startup).toMatchObject({status: "available", failures: []});
-    return {
+    let closed = false;
+    const window: Window = {
         files: tester.files!,
         close: async () => {
+            if (closed) return;
+            closed = true;
             await app.stop();
             pair.left.close();
         },
     };
+    windows.push(window);
+    return window;
 }
 
 function watching(window: Window): {readonly messages: WatchMessage[]; readonly release: () => void; readonly changes: () => FileChange[]} {
@@ -89,7 +108,7 @@ function watching(window: Window): {readonly messages: WatchMessage[]; readonly 
 
 describe("Spec workspace.resources 项目子进程里的 project://", () => {
     it("两个窗口共用项目：读写、写入与外部修改的通知；关掉一个窗口，另一个照常读写与收到通知", async () => {
-        const h = await projectHarness(tmp);
+        const h = await harness();
         await writeFile(join(h.project.path, "chapter.md"), "初稿");
         const keep = leaseOf(await h.manager.acquire("book", "test"));
         await h.ready(1);
@@ -115,7 +134,7 @@ describe("Spec workspace.resources 项目子进程里的 project://", () => {
     }, 30_000);
 
     it("项目代次结束（子进程崩溃）：旧窗口的请求失败、订阅以结束收场；新代次的窗口读到磁盘上的内容", async () => {
-        const h = await projectHarness(tmp);
+        const h = await harness();
         await writeFile(join(h.project.path, "chapter.md"), "初稿");
         const keep = leaseOf(await h.manager.acquire("book", "test"));
         const pid = await h.ready(1);
@@ -142,9 +161,10 @@ describe("Spec workspace.resources 项目子进程里的 project://", () => {
         again.release();
     }, 30_000);
 
-    it("inotify 队列溢出：订阅收到 resync，溢出期间新建的子目录随后的修改仍能收到（监视已重建）", async () => {
+    // `SIGSTOP`、`/proc` 与 inotify 只在 Linux 上有。
+    it.skipIf(process.platform !== "linux")("inotify 队列溢出：订阅收到 resync，溢出期间新建的子目录随后的修改仍能收到（监视已重建）", async () => {
         const limit = Number(await readFile("/proc/sys/fs/inotify/max_queued_events", "utf8"));
-        const h = await projectHarness(tmp);
+        const h = await harness();
         // 灌满队列的目录要在监视建立前就在：暂停期间新建的目录还没加上监视，往里写不产生事件。放在控制目录里，事件
         // 进得了 inotify 队列、却不进文件服务的待处理批（不触发“一批路径过多”的 resync）。
         await mkdir(join(h.project.path, ".nbook", "flood"), {recursive: true});
