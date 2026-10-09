@@ -1,0 +1,33 @@
+# t68 S4：列出不读内容的访问记录
+
+日期：2026-10-09。机器：本机 Linux（Bun 1.4.2、strace），临时根为 tmpfs。
+命令（packages/neuro-book）：bun scripts/files-list-trace.ts（缺省 3000 个文件、seed 42017）
+
+## 正常实现：退出 0
+
+{
+  "sample": {
+    "seed": 42017,
+    "count": 3000,
+    "totalBytes": 53798932
+  },
+  "listed": [
+    "<根>：3 项",
+    "notes/wide：400 项",
+    "notes/archive/2026/q1：400 项",
+    "manuscripts/volume-01：90 项",
+    "lorebook.content：4 项",
+    "lorebook.content/characters：301 项",
+    "lorebook.content/characters/char-0001：1 项"
+  ],
+  "manifestAccesses": 9,
+  "violations": [],
+  "violationCount": 0
+}
+
+## 变异：列出时逐个预读文件、读失败也继续（临时改 backend/files-service.ts，验证后还原）：退出 1
+
+  "manifestAccesses": 12,
+  "violations": [
+    {
+  "violationCount": 2673
