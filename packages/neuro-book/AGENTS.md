@@ -8,6 +8,7 @@
 
 - `src/manifest.ts`：产品清单，列出本应用加载的全部插件，是“加载了什么”的唯一入口；只引用各插件的 `plugin.ts` 描述。`src/development-manifest.ts` 是开发清单（Component Lab），只由后端开发入口 `src/server/development-main.ts`、项目子进程的开发入口 `src/project/development-main.ts` 与前端的 `src/web/development-plugins.ts` 引用，后者只在 `import.meta.env.DEV` 分支里动态加载；生产构建不含它们，`check:dist` 检查。
 - `src/server/`：后端宿主（进程入口、启动参数、停止来源与退出码、按清单装配插件，`src/server/projects/` 是项目管理：身份、登记表、项目子进程与租约）；`src/project/`：项目宿主（项目子进程的入口，建立 `project` 位置的运行实例，见 [`runtime.projects`](../../docs/specs/runtime/projects.md)）；`src/web/`：前端宿主（Vite 入口、浏览器宿主、根组件）。
+- `src/backend/`：服务端与项目子进程共用、不属于某个插件的后端工具（例如加锁替换文件 `locked-replace.ts`），可用 Node 与 Bun API；只由后端代码（宿主与插件的 `backend/`）引用，不引用插件。
 - `src/ui/`：宿主与插件共用的前端组件（同名 `.md` 文档并列，Lab 自动收录），只引用前端库、`ui/` 与 `shared/`；只属于某个插件的界面组件放在插件的 `web/components/`。
 - `src/shared/`：前后端宿主共用、与运行位置无关的代码：宿主之间的协议（例如浏览器引导的 TypeBox schema 与常量）、宿主提供给插件的能力的键（`host.ts`、`projects.ts`）、装配工具，以及各插件都要用的小工具（例如界面文本的中英两份 `localized-text.ts`）；不引用任何一侧的实现。插件自己的合同放在插件的 `shared/`。
 - `src/plugins/<插件>/`：一个插件一个目录，`plugin.ts` 为插件描述（id、版本与运行位置）。`backend/` 放后端代码，服务端（`server`，应用级，一个进程）与项目子进程（`project`，每个打开的项目一个）共用这份代码，一份定义里按运行位置各写一个入口；`web/` 放浏览器窗口（`browser`，每个窗口一个）的代码；`shared/` 放两端共用、与运行位置无关的代码（TypeBox 合同，以及不碰 DOM、Bun 与 Node API 的逻辑，例如命令表），其中 `shared/contracts.ts` 是对其它插件公开的合同。`web/` 不引用 `backend/`，反之亦然，只经 `shared/` 交换类型与 schema。
