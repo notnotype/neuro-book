@@ -69,6 +69,7 @@ const emit = defineEmits<{
     (event: "display-commit", title: string, icon: string): void;
     (event: "dialog-close"): void;
     (event: "collision", choice: CollisionChoice, all: boolean): void;
+    (event: "dirty-copy", choice: "save" | "disk" | "cancel"): void;
     (event: "recheck"): void;
     (event: "abandon"): void;
     (event: "drag-hover", over: {readonly id: string; readonly zone: DropZone} | null): void;
@@ -107,6 +108,7 @@ const menuItems = computed((): ContextMenuItem[] => (props.menu?.entries ?? []).
 
 const deleteDialog = computed(() => (props.dialog?.kind === "delete" ? props.dialog : null));
 const displayDialog = computed(() => (props.dialog?.kind === "display" ? props.dialog : null));
+const dirtyCopyDialog = computed(() => (props.dialog?.kind === "dirty-copy" ? props.dialog : null));
 const displayTitle = ref("");
 const displayIcon = ref("");
 watch(displayDialog, (dialog) => {
@@ -223,8 +225,34 @@ defineExpose({focusTree});
                 <ul class="mt-2 max-h-[40vh] overflow-y-auto break-words text-xs" data-explorer-delete-items>
                     <li v-for="item in deleteDialog?.items ?? []" :key="item.address">{{ item.address }}</li>
                 </ul>
+                <template v-if="(deleteDialog?.unsaved.length ?? 0) > 0">
+                    <p class="mt-3 text-[var(--status-danger)]">{{ explorerText(locale, "deleteUnsaved") }}</p>
+                    <ul class="mt-1 max-h-[20vh] overflow-y-auto break-words text-xs" data-explorer-delete-unsaved>
+                        <li v-for="address in deleteDialog?.unsaved ?? []" :key="address">{{ address }}</li>
+                    </ul>
+                </template>
             </template>
         </AlertDialog>
+        <Dialog
+            :model-value="dirtyCopyDialog !== null"
+            :title="explorerText(locale, 'dirtyCopyTitle')"
+            size="sm"
+            @request-close="emit('dirty-copy', 'cancel')"
+        >
+            <div class="flex flex-col gap-2 text-sm" data-explorer-dirty-copy>
+                <p>{{ explorerText(locale, "dirtyCopyBody") }}</p>
+                <ul class="max-h-[30vh] overflow-y-auto break-words text-xs">
+                    <li v-for="address in dirtyCopyDialog?.documents ?? []" :key="address">{{ address }}</li>
+                </ul>
+            </div>
+            <template #footer>
+                <div class="flex flex-wrap justify-end gap-2">
+                    <Button variant="ghost" size="sm" data-explorer-dirty-copy-cancel @click="emit('dirty-copy', 'cancel')">{{ explorerText(locale, "cancel") }}</Button>
+                    <Button variant="secondary" size="sm" data-explorer-dirty-copy-disk @click="emit('dirty-copy', 'disk')">{{ explorerText(locale, "dirtyCopyDisk") }}</Button>
+                    <Button variant="primary" size="sm" data-explorer-dirty-copy-save @click="emit('dirty-copy', 'save')">{{ explorerText(locale, "dirtyCopySave") }}</Button>
+                </div>
+            </template>
+        </Dialog>
         <Dialog
             :model-value="displayDialog !== null"
             :title="explorerText(locale, 'displayTitle', {name: displayDialog?.name ?? ''})"

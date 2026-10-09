@@ -158,7 +158,7 @@ describe("Spec workbench.files-explorer 删除：确认与逐项结果", () => {
         await until(at, "sub 列出", () => row(controller, "project://plain/sub/x.md") !== undefined);
         select(controller, "project://plain/sub", "project://plain/sub/x.md");
         expect(await controller.delete()).toEqual({ok: true});
-        expect(controller.dialog.value).toEqual({kind: "delete", items: [{address: "project://plain/sub", token: expect.any(String)}], busy: false});
+        expect(controller.dialog.value).toEqual({kind: "delete", items: [{address: "project://plain/sub", token: expect.any(String)}], busy: false, unsaved: []});
         controller.closeDialog();
         expect(controller.dialog.value).toBeNull();
         await barrier(at);

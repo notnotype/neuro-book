@@ -31,6 +31,7 @@ const CODES: Readonly<Record<string, ExplorerMessage>> = {
     "busy": "codeBusy",
     "not-found": "codeNotFound",
     "unknown-outcome": "codeUnknown",
+    "document-unsettled": "codeUnsettled",
 };
 
 export function actionText(locale: DisplayLocale, action: ActionName): string {
@@ -65,6 +66,8 @@ export function nameErrorText(locale: DisplayLocale, error: NameError): string {
             return explorerText(locale, "codeConflict");
         case "failed":
             return error.detail;
+        case "unsettled":
+            return explorerText(locale, "codeUnsettledAt", {documents: error.detail});
     }
 }
 

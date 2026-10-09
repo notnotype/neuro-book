@@ -146,17 +146,30 @@ describe("FilesExplorerView：右键菜单", () => {
 
 describe("FilesExplorerView：确认框与结果区", () => {
     it("删除确认列出受影响项，焦点默认在取消上；确认与取消各自发出", async () => {
-        const dialog: Dialog = {kind: "delete", items: [{address: "project://plain", token: "t1"}, {address: "project://a.md", token: "t2"}], busy: false};
+        const dialog: Dialog = {kind: "delete", items: [{address: "project://plain", token: "t1"}, {address: "project://a.md", token: "t2"}], busy: false, unsaved: ["project://plain/x.md"]};
         const wrapper = view({dialog});
         await flushPromises();
         const panel = document.querySelector("[role=alertdialog]") as HTMLElement;
         expect(panel.textContent).toContain("删除 2 项？");
         expect([...document.querySelectorAll("[data-explorer-delete-items] li")].map((item) => item.textContent)).toEqual(["project://plain", "project://a.md"]);
+        // 会丢失未保存修改的打开文档单独列出。
+        expect(panel.textContent).toContain("这些打开的文件有未保存的修改，删除后会丢失");
+        expect([...document.querySelectorAll("[data-explorer-delete-unsaved] li")].map((item) => item.textContent)).toEqual(["project://plain/x.md"]);
         expect(document.activeElement?.textContent?.trim()).toBe("取消");
         (document.activeElement as HTMLButtonElement).click();
         await flushPromises();
         expect(wrapper.emitted("dialog-close")).toHaveLength(1);
         expect(wrapper.emitted("delete-confirm")).toBeUndefined();
+    });
+
+    it("复制有未保存修改的文件：列出文档，三个按钮各自发出；关闭等于取消", async () => {
+        const dialog: Dialog = {kind: "dirty-copy", documents: ["project://plain/a.md"]};
+        const wrapper = view({dialog});
+        await flushPromises();
+        expect(document.querySelector("[data-explorer-dirty-copy]")?.textContent).toContain("project://plain/a.md");
+        for (const choice of ["cancel", "disk", "save"]) document.querySelector<HTMLButtonElement>(`[data-explorer-dirty-copy-${choice}]`)?.click();
+        await flushPromises();
+        expect(wrapper.emitted("dirty-copy")).toEqual([["cancel"], ["disk"], ["save"]]);
     });
 
     it("展示名对话框：带上当前值，保存发出新的展示名与图标", async () => {

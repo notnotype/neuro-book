@@ -11,6 +11,7 @@ import {computed, shallowRef, watch} from "@vue/reactivity";
 import type {ComputedRef, ShallowRef} from "@vue/reactivity";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
+import type {DocumentCoordinator, DocumentLease} from "nbook/plugins/editor/shared/contracts";
 import type {BatchHandle, BatchResult, FilesResult, FilesService, ItemResult, ManifestIssue, OperationDone, Scheme} from "nbook/plugins/files/shared/contracts";
 
 import {resolveDrop} from "./actions/drop";
@@ -48,7 +49,7 @@ export type Notice =
     | {readonly kind: "manifest"; readonly action: ActionName; readonly address: string; readonly issues: ReadonlyArray<ManifestIssue>};
 
 /** 内联输入的名字错误：空、含 `/` 等不合法字符、同名，或服务端的失败码与说明。 */
-export type NameError = {readonly code: "empty" | "invalid" | "conflict"} | {readonly code: "failed"; readonly detail: string};
+export type NameError = {readonly code: "empty" | "invalid" | "conflict"} | {readonly code: "failed" | "unsettled"; readonly detail: string};
 
 export type Editing =
     | {readonly mode: "create"; readonly creating: Creating; readonly name: string; readonly error: NameError | null; readonly busy: boolean}
@@ -78,7 +79,10 @@ export interface Clipboard {
 }
 
 export type Dialog =
-    | {readonly kind: "delete"; readonly items: ReadonlyArray<Frozen>; readonly busy: boolean}
+    /** `unsaved`：删除后会丢掉未保存修改的打开文档（编辑器的文档协调给出）。 */
+    | {readonly kind: "delete"; readonly items: ReadonlyArray<Frozen>; readonly busy: boolean; readonly unsaved: ReadonlyArray<string>}
+    /** 复制的源里有未保存修改的打开文档：先保存再复制、复制磁盘版本或取消（docs/specs/workbench/editor.md 输出 23）。 */
+    | {readonly kind: "dirty-copy"; readonly documents: ReadonlyArray<string>}
     | {readonly kind: "display"; readonly address: string; readonly name: string; readonly title: string; readonly icon: string; readonly busy: boolean}
     /** 粘贴或拖动移入时同名：源与目标的真实地址、预填的候选名，以及改名输入的错误。 */
     | {readonly kind: "collision"; readonly action: "copy" | "move"; readonly source: string; readonly target: string; readonly candidate: string; readonly error: NameError | null; readonly busy: false};
@@ -149,6 +153,8 @@ export interface ExplorerControllerOptions {
     readonly expanded?: Iterable<string>;
     readonly onExpandedChange?: (expanded: ReadonlySet<string>) => void;
     readonly showManifests?: boolean;
+    /** 编辑器的文档协调：复制、移动、改名与删除前结算未保存的修改；编辑器没有加载时为空，直接放行。 */
+    readonly documents?: DocumentCoordinator;
     readonly report: (error: unknown) => void;
 }
 
@@ -209,6 +215,8 @@ export interface ExplorerController {
     commitDisplay(title: string, icon: string): Promise<void>;
     /** 碰撞对话框的回答；`all` 为真时对其余同名项都这样（改名用各自的候选名）。 */
     resolveCollision(choice: CollisionChoice, all: boolean): void;
+    /** 回答“复制有未保存修改的文档”的询问。 */
+    answerDirtyCopy(choice: "save" | "disk" | "cancel"): void;
     closeDialog(): void;
     dispose(): void;
 }
@@ -497,6 +505,39 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         return value;
     };
 
+    /** “复制有未保存修改的文档”在等的回答。 */
+    let dirtyCopy: ((choice: "save" | "disk" | "cancel") => void) | null = null;
+    /** 结果未知的移动还占着的文档租约：资源管理器放弃或核对之后才结束。 */
+    let pendingLease: DocumentLease | null = null;
+    /** 冻结的源经编辑器的身份链换成本窗口保存后的令牌（保存会换掉目录项）；外部替换不在链上，仍是源已换。 */
+    const translated = (address: string, token: string): string => options.documents?.translate(address, token) ?? token;
+
+    /**
+     * 复制的源里有未保存修改的打开文档时，在提交之前问：先保存再复制、复制磁盘版本或取消（默认取消）。先保存失败时不
+     * 复制。返回 false 表示不复制。
+     */
+    const settleCopy = async (sources: ReadonlyArray<string>): Promise<boolean> => {
+        const documents = options.documents;
+        if (documents === undefined) return true;
+        const unsaved = documents.affected(sources).map((document) => document.address);
+        if (unsaved.length === 0) return true;
+        const choice = await new Promise<"save" | "disk" | "cancel">((resolve) => {
+            dirtyCopy?.("cancel");
+            dialog.value = {kind: "dirty-copy", documents: unsaved};
+            dirtyCopy = resolve;
+        });
+        refocus();
+        if (choice === "cancel" || disposed) return false;
+        if (choice === "disk") return true;
+        const saved = await documents.save(sources);
+        const bad = saved.find((result) => !result.ok);
+        if (bad !== undefined) {
+            notice.value = {kind: "failed", action: "copy", address: bad.address, code: bad.code ?? "failed", detail: ""};
+            return false;
+        }
+        return true;
+    };
+
     /** 碰撞对话框在等的回答，以及改名不能用的名字。 */
     let collision: {readonly taken: ReadonlySet<string>; readonly resolve: (choice: CollisionChoice, all: boolean) => void} | null = null;
 
@@ -509,7 +550,10 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         if (moving.length === 0) return;
         preparing.value = true;
         let asked = false;
+        let lease: DocumentLease | null = null;
         try {
+            if (action === "copy" && !(await settleCopy(moving.map((item) => item.address)))) return;
+            if (disposed || !live(target)) return;
             const listed = await files.list(target);
             if (disposed) return;
             if (!listed.ok) {
@@ -546,8 +590,28 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 return;
             }
             const items = plan.items.map((item) => ({address: item.source.address, target: childAddress(target, item.name)}));
-            const batch = plan.items.map((item) => ({source: item.source.address, target: childAddress(target, item.name), expected: item.source.token}));
+            // 移动之前取租约：编辑器结算视图输入、等在途保存，再挡住这些文档的新保存，直到移动有结果（输出 24）。
+            if (action === "move" && options.documents !== undefined) {
+                const begun = await options.documents.begin(items.map((item) => item.address));
+                if (!begun.ok) {
+                    unsettled(action, begun.documents.map((document) => document.address));
+                    return;
+                }
+                lease = begun.lease;
+                if (disposed || !live(target)) return;
+            }
+            const batch = plan.items.map((item) => ({source: item.source.address, target: childAddress(target, item.name), expected: translated(item.source.address, item.source.token)}));
             const value = await runBatch(action, items, action === "copy" ? files.copy(batch) : files.move(batch), declined, clip?.id ?? null);
+            if (lease !== null) {
+                if (value === null && unknown.value !== null) {
+                    // 结果未知：租约保持到放弃或核对，期间这些文档不保存，免得写到可能已经移走的旧路径。
+                    pendingLease?.end({kind: "done"});
+                    pendingLease = lease;
+                } else {
+                    lease.end({kind: "done", moved: value === null ? [] : items.filter((_, index) => value.items[index]?.status === "done").map((item) => ({from: item.address, to: item.target}))});
+                }
+                lease = null;
+            }
             if (value === null || clip?.mode !== "cut") return;
             const moved = new Set(plan.items.filter((_, index) => value.items[index]?.status === "done").map((item) => item.source));
             const now = clipboard.value;
@@ -555,8 +619,15 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             const rest = now.items.filter((item) => !moved.has(item));
             clipboard.value = rest.length === 0 ? null : {...now, items: rest};
         } finally {
+            // 提交之前就退出（取消、根结束、停止）时还给编辑器。
+            lease?.end({kind: "done"});
             preparing.value = false;
         }
+    };
+
+    /** 有未裁决输入或磁盘冲突的文档挡住了文件操作：说明，先在编辑器里处理。 */
+    const unsettled = (action: ActionName, documents: ReadonlyArray<string>): void => {
+        notice.value = {kind: "failed", action, address: documents[0] as string, code: "document-unsettled", detail: documents.join("、")};
     };
 
     const collect = async (mode: "copy" | "cut"): Promise<ActionResult> => {
@@ -595,11 +666,14 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         const edit = editing.value;
         if (edit !== null && gone(edit.mode === "create" ? edit.creating.parent : edit.address)) editing.value = null;
         const open = dialog.value;
-        if (open !== null && gone(open.kind === "delete" ? (open.items[0] as Frozen).address : open.kind === "display" ? open.address : open.source)) {
+        if (open !== null && gone(open.kind === "delete" ? (open.items[0] as Frozen).address : open.kind === "display" ? open.address : open.kind === "dirty-copy" ? (open.documents[0] as string) : open.source)) {
             const waiting = collision;
+            const asking = dirtyCopy;
             collision = null;
+            dirtyCopy = null;
             dialog.value = null;
             waiting?.resolve({kind: "cancel"}, false);
+            asking?.("cancel");
         }
         if ((drag.value?.sources ?? dropping?.sources ?? []).some(gone)) cancelDrag();
     });
@@ -702,7 +776,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             const intent = beginIntent();
             const frozen = await freeze("delete", outermost(selectedEntries.value.map((row) => row.address)));
             if (frozen === null || intent !== intentSeq || !frozen.every((item) => live(item.address))) return OK;
-            dialog.value = {kind: "delete", items: frozen, busy: false};
+            dialog.value = {kind: "delete", items: frozen, busy: false, unsaved: options.documents?.affected(frozen.map((item) => item.address)).map((document) => document.address) ?? []};
             return OK;
         },
         createContent: async () => {
@@ -774,6 +848,8 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         abandon: () => {
             const current = unknown.value;
             if (current === null) return;
+            pendingLease?.end({kind: "done"});
+            pendingLease = null;
             if (current.clipboard !== null && clipboard.value?.id === current.clipboard) clipboard.value = null;
             unknown.value = null;
         },
@@ -844,9 +920,28 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 return;
             }
             editing.value = {...current, busy: true};
-            const result = current.mode === "create"
-                ? await files.create(childAddress(current.creating.parent, name), current.creating.entry, current.creating.before === null ? {} : {before: current.creating.before})
-                : await files.rename(current.address, name, {expected: current.token});
+            // 改名像移动一样取租约（输出 24）：编辑器结算输入、等在途保存、挡住新保存，改名成功后文档跟到新名字。
+            let lease: DocumentLease | null = null;
+            if (current.mode === "rename" && options.documents !== undefined) {
+                const begun = await options.documents.begin([current.address]);
+                if (!begun.ok) {
+                    if (editing.value?.busy === true) editing.value = {...current, busy: false, error: {code: "unsettled", detail: begun.documents.map((document) => document.address).join("、")}};
+                    return;
+                }
+                lease = begun.lease;
+            }
+            const renamedTo = current.mode === "rename" ? childAddress(parentAddress(current.address) as string, name) : null;
+            let result: FilesResult<OperationDone>;
+            try {
+                result = current.mode === "create"
+                    ? await files.create(childAddress(current.creating.parent, name), current.creating.entry, current.creating.before === null ? {} : {before: current.creating.before})
+                    : await files.rename(current.address, name, {expected: translated(current.address, current.token)});
+            } catch (error) {
+                lease?.end({kind: "done"});
+                throw error;
+            }
+            // 改名成功：文档与标签跟到新名字（`renamed` 事件先到时幂等）。
+            lease?.end(result.ok && renamedTo !== null && current.mode === "rename" ? {kind: "done", moved: [{from: current.address, to: renamedTo}]} : {kind: "done"});
             if (editing.value?.busy !== true) return;
             if (!result.ok) {
                 // 同名、源已换、失败：留在输入框里原位提示，不关闭输入。
@@ -876,7 +971,10 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             refocus();
             if (focusAfter !== null) selection.value = {selected: [focusAfter], focus: focusAfter, anchor: focusAfter};
             const handle = files.delete(current.items.map((item) => ({address: item.address, expected: item.token})));
-            await runBatch("delete", current.items.map((item) => ({address: item.address, target: null})), handle, [], null);
+            const value = await runBatch("delete", current.items.map((item) => ({address: item.address, target: null})), handle, [], null);
+            // 用户在确认框里看到了“未保存的修改会丢失”：删除成功的项连同打开的文档一起关闭（输出 25）。
+            const deleted = value === null ? [] : current.items.filter((_, index) => value.items[index]?.status === "done").map((item) => item.address);
+            if (deleted.length > 0) options.documents?.close(deleted);
         },
         commitDisplay: async (title, icon) => {
             const current = dialog.value;
@@ -890,6 +988,13 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             dialog.value = null;
             refocus();
             settle("display", current.address, result);
+        },
+        answerDirtyCopy: (choice) => {
+            const asking = dirtyCopy;
+            if (asking === null || dialog.value?.kind !== "dirty-copy") return;
+            dirtyCopy = null;
+            dialog.value = null;
+            asking(choice);
         },
         resolveCollision: (choice, all) => {
             const waiting = collision;
@@ -910,7 +1015,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             waiting.resolve(decided, all);
         },
         closeDialog: () => {
-            if (dialog.value === null || dialog.value.busy) return;
+            if (dialog.value === null || ("busy" in dialog.value && dialog.value.busy)) return;
             if (dialog.value.kind === "collision") {
                 // 关掉碰撞对话框就是取消剩余；焦点由粘贴收尾时放回。
                 const waiting = collision;
@@ -926,6 +1031,10 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             disposed = true;
             collision?.resolve({kind: "cancel"}, false);
             collision = null;
+            dirtyCopy?.("cancel");
+            dirtyCopy = null;
+            pendingLease?.end({kind: "done"});
+            pendingLease = null;
             cancelDrag();
             stopPrune();
             stopRoots();

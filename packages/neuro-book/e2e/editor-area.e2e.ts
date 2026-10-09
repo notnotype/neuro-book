@@ -52,6 +52,9 @@ test.beforeAll(async () => {
         "notes/e.md": "第五章\n",
         "data/f.json": "{\"f\": 1}\n",
         "notes/h.md": "甲\n",
+        "moving/m.md": "迁\n",
+        "moving/k.md": "复\n",
+        "target/.keep": "",
         "notes/i.md": "乙\n",
         "notes/dialect.md": DIALECT,
         "data/g.json": "{\"g\": 2}\n",
@@ -196,6 +199,8 @@ test("有未保存的修改时离开页面先请求确认；保存之后不再�
     await prose(page).click();
     await page.keyboard.press("Control+s");
     await expect.poll(() => disk("notes/b.md")).toBe("第二章x\n");
+    // 磁盘写好了不等于回复到了：保存在途时离开同样要确认。等标签的未保存标记消失（保存完成）再离开。
+    await expect(page.locator("[data-editor-tab][aria-selected=\"true\"]")).not.toHaveAttribute("data-editor-tab-dirty", "");
     await page.close({runBeforeUnload: true});
     await expect.poll(() => page.isClosed()).toBe(true);
     expect(dialogs).toEqual(["beforeunload"]);
@@ -213,12 +218,11 @@ test("Markdown：打开、切走、关闭都不改磁盘字节；编辑最后一
     expect(await disk("notes/dialect.md")).toBe(DIALECT);
 
     await item(page, "project://notes/dialect.md").dblclick();
-    await prose(page).getByText("雨下了一整夜。").click();
-    await page.keyboard.press("End");
-    await page.keyboard.press("Backspace");
-    await page.keyboard.type("，天亮了。");
+    // 最后一段是正文末尾：Ctrl+End 把光标放到它的末尾再接着写。
+    await atEnd(page);
+    await page.keyboard.type("天亮了。");
     await page.keyboard.press("Control+s");
-    await expect.poll(() => disk("notes/dialect.md")).toBe(DIALECT.replace("雨下了一整夜。", "雨下了一整夜，天亮了。"));
+    await expect.poll(() => disk("notes/dialect.md")).toBe(DIALECT.replace("雨下了一整夜。", "雨下了一整夜。天亮了。"));
     await closeAll(page);
 });
 
@@ -240,6 +244,50 @@ test("Markdown：A 输入、切到 B 输入、回 A 撤销只作用于 A；重�
     await expect(prose(page)).toHaveText("甲一");
     await page.locator("[data-editor-tab-label]", {hasText: "i.md"}).click();
     await expect(prose(page)).toHaveText("乙二");
+    await closeAll(page);
+});
+
+test("资源管理器的结算：未保存时剪切、保存、粘贴，标签跟到新路径、正文保留；复制先问；删除确认列出未保存的文档", async ({page}) => {
+    await open(page);
+    await closeAll(page);
+    for (const folder of ["project://moving", "project://target"]) {
+        if (await item(page, folder).getAttribute("aria-expanded") !== "true") await item(page, folder).click();
+    }
+    await item(page, "project://moving/m.md").dblclick();
+    await atEnd(page);
+    await page.keyboard.type("动");
+    await item(page, "project://moving/m.md").click();
+    await page.keyboard.press("Control+x");
+    await prose(page).click();
+    await page.keyboard.press("Control+s");
+    await expect.poll(() => disk("moving/m.md")).toBe("迁动\n");
+    await atEnd(page);
+    await page.keyboard.type("再");
+    await item(page, "project://target").click();
+    await page.keyboard.press("Control+v");
+    // 点目录会切换它的展开：按磁盘与标签核对，不看行。
+    await expect.poll(() => disk("target/m.md").catch(() => "")).toBe("迁动\n");
+    await expect(page.locator("[data-editor-tab-label]")).toHaveText(["m.md"]);
+    await expect(page.locator("[data-editor-tab]").first()).toHaveAttribute("title", "project://target/m.md");
+    await expect(prose(page)).toHaveText("迁动再");
+
+    await item(page, "project://moving/k.md").dblclick();
+    await atEnd(page);
+    await page.keyboard.type("改");
+    await item(page, "project://moving/k.md").click();
+    await page.keyboard.press("Control+c");
+    await item(page, "project://target").click();
+    await page.keyboard.press("Control+v");
+    await expect(page.locator("[data-explorer-dirty-copy]")).toContainText("project://moving/k.md");
+    await page.locator("[data-explorer-dirty-copy-disk]").click();
+    await expect.poll(() => disk("target/k.md").catch(() => "")).toBe("复\n");
+
+    await item(page, "project://moving/k.md").click();
+    await page.keyboard.press("Delete");
+    await expect(page.locator("[data-explorer-delete-unsaved]")).toHaveText("project://moving/k.md");
+    await page.getByRole("alertdialog").getByRole("button", {name: "取消"}).click();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    expect(await disk("moving/k.md")).toBe("复\n");
     await closeAll(page);
 });
 

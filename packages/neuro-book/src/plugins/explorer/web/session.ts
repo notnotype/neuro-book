@@ -8,6 +8,7 @@ import {computed, shallowRef, watch} from "@vue/reactivity";
 import type {ComputedRef, Ref, ShallowRef} from "@vue/reactivity";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
+import type {DocumentCoordinator} from "nbook/plugins/editor/shared/contracts";
 import {parseResource} from "nbook/plugins/files/shared/contracts";
 import type {FilesService, Scheme} from "nbook/plugins/files/shared/contracts";
 
@@ -27,6 +28,8 @@ export interface AttachedView {
 export interface ExplorerSessionOptions {
     readonly files: FilesService;
     readonly commands: Pick<CommandService, "execute">;
+    /** 编辑器的文档协调；编辑器没有加载时不给。 */
+    readonly documents?: DocumentCoordinator;
     readonly bound: boolean;
     /** 第一次挂上视图时调用：打开偏好记录。 */
     readonly createStore: () => ExplorerStore;
@@ -91,6 +94,7 @@ export function createExplorerSession(options: ExplorerSessionOptions): Explorer
         const initial = expandedOf(current);
         controller.value = createExplorerController({
             files: options.files,
+            ...(options.documents === undefined ? {} : {documents: options.documents}),
             commands: options.commands,
             bound: options.bound,
             expanded: initial,

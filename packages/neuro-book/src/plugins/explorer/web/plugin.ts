@@ -11,6 +11,7 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
+import {documentCoordinatorKey} from "nbook/plugins/editor/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
@@ -39,13 +40,14 @@ export const explorerBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}],
+        // 编辑器的文档协调是可选的：编辑器没有加载时复制、移动、删除直接放行。
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: documentCoordinatorKey, required: false}],
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: EXPLORER_VIEW_ID, declaration: VIEW},
             ...Object.entries(EXPLORER_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...explorerState.contributions,
         ],
-        activate: (context) => {
+        activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const commands = context.services.require(commandServiceKey);
             const storage = context.services.require(storageKey);
@@ -55,8 +57,10 @@ export const explorerBrowserPlugin: PluginDefinition = {
             const report = (error: unknown): void => {
                 diagnostics.record({level: "error", event: "explorer.error", message: error instanceof Error ? error.message : String(error), error, source: {plugin: descriptor.id}});
             };
+            const documents = await context.services.resolve(documentCoordinatorKey);
             const session = createExplorerSession({
                 files: context.services.require(filesKey),
+                ...(documents.status === "resolved" ? {documents: documents.instance} : {}),
                 commands,
                 bound,
                 createStore: () => explorerStoreFor(bound).create(context, {storage, diagnostics}),

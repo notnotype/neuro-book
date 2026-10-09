@@ -119,6 +119,7 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
                     onDisplayCommit: (title: string, icon: string) => void controller?.commitDisplay(title, icon),
                     onDialogClose: () => controller?.closeDialog(),
                     onCollision: (choice: CollisionChoice, all: boolean) => controller?.resolveCollision(choice, all),
+                    onDirtyCopy: (choice: "save" | "disk" | "cancel") => controller?.answerDirtyCopy(choice),
                     onRecheck: () => controller?.recheck(),
                     onAbandon: () => controller?.abandon(),
                     onDragHover: (over: {readonly id: string; readonly zone: DropZone} | null) => controller?.hoverDrag(over),

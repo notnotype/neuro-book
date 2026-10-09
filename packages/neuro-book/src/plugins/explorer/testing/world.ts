@@ -10,7 +10,9 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
+import type {DocumentCoordinator} from "nbook/plugins/editor/shared/contracts";
 import {BATCH_DELAY_MS} from "nbook/plugins/files/backend/changes";
+import type {FilesService} from "nbook/plugins/files/shared/contracts";
 import {files, filesScene} from "nbook/plugins/files/testing/scene";
 import type {Layout, Probe, Scene} from "nbook/plugins/files/testing/scene";
 import {createLinkTap} from "nbook/plugins/files/testing/tap";
@@ -26,9 +28,14 @@ export interface ExplorerWorld {
     readonly controller: ExplorerController;
 }
 
+export interface WorldOptions {
+    /** 给控制器接上编辑器的文档协调（用同一个窗口的文件客户端建）；不给时与编辑器没有加载一样。 */
+    readonly documents?: (files: FilesService) => DocumentCoordinator;
+}
+
 export interface ExplorerWorlds {
     /** 写好项目目录（与可选的用户资产根）、起场地与控制器，等 `ready` 里的行都列出。 */
-    world(layout: Layout, expanded: ReadonlyArray<string>, ready: ReadonlyArray<string>, user?: Layout): Promise<ExplorerWorld>;
+    world(layout: Layout, expanded: ReadonlyArray<string>, ready: ReadonlyArray<string>, user?: Layout, options?: WorldOptions): Promise<ExplorerWorld>;
     /** 在某个窗口（例如 `extraWindow` 起的第二个窗口）上再建一个控制器。 */
     controller(window: Probe, expanded: ReadonlyArray<string>): ExplorerController;
     /** 释放控制器、关场地、删目录；`beforeRemove` 在删目录之前（例如恢复权限）。 */
@@ -39,9 +46,12 @@ export function explorerWorlds(root: () => string): ExplorerWorlds {
     let counter = 0;
     const scenes: Scene[] = [];
     const controllers: ExplorerController[] = [];
-    const controllerOf = (window: Probe, expanded: ReadonlyArray<string>): ExplorerController => {
+    const controllerOf = (window: Probe, expanded: ReadonlyArray<string>, options: WorldOptions = {}): ExplorerController => {
+        const client = files(window);
+        const documents = options.documents?.(client);
         const controller = createExplorerController({
-            files: files(window),
+            files: client,
+            ...(documents === undefined ? {} : {documents}),
             commands: createCommandRegistry({contextKeys: contextTable({}), report: (error) => {
                 throw error;
             }}),
@@ -55,12 +65,12 @@ export function explorerWorlds(root: () => string): ExplorerWorlds {
         return controller;
     };
     return {
-        world: async (layout, expanded, ready, user = {}) => {
+        world: async (layout, expanded, ready, user = {}, options = {}) => {
             counter += 1;
             const tap = createLinkTap();
             const scene = await filesScene(join(root(), `world-${String(counter)}`), {project: layout, user}, {wrapLink: tap.wrap});
             scenes.push(scene);
-            const controller = controllerOf(scene.window, expanded);
+            const controller = controllerOf(scene.window, expanded, options);
             const at = {scene, tap, controller};
             await until(at, "目录列出", () => ready.every((id) => row(controller, id) !== undefined));
             return at;
