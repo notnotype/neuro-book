@@ -1,5 +1,9 @@
 import type {Component} from "vue";
 
+import type ExplorerFeedback from "nbook/plugins/explorer/web/components/ExplorerFeedback.vue";
+import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.vue";
+import type ExplorerTree from "nbook/plugins/explorer/web/components/ExplorerTree.vue";
+import type FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
 import type JsonViewer from "nbook/ui/JsonViewer.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
 import type WorkbenchActivityBar from "nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue";
@@ -23,6 +27,7 @@ import type SurfaceTierDemo from "../components/SurfaceTierDemo.vue";
 import type ViewportCanvas from "../components/ViewportCanvas.vue";
 import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab-subject";
 
+import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
 import {defineSubjectFixture} from "./subject-fixture";
 
 /**
@@ -394,6 +399,65 @@ export const labFixtures: LabFixture[] = [
             ];
         })(),
         load: async () => (await import("./WorkbenchViewSectionFixture.vue")).default,
+    }),
+    defineSubjectFixture<typeof ExplorerRow>({
+        component: "ExplorerRow",
+        events: ["press", "activate", "context", "retry"],
+        class: "w-full",
+        scenes: (() => {
+            const scene = (id: string, label: string, index: number, extra: {selected?: boolean; active?: boolean} = {}) => ({id, label, input: {props: {row: EXPLORER_ROWS[index] as (typeof EXPLORER_ROWS)[number], locale: "zh-CN" as const, domId: `lab-row-${id}`, selected: extra.selected ?? false, active: extra.active ?? false, height: 26}}});
+            return [
+                scene("node", "内容节点：展示名与真实名字", 3),
+                scene("selected", "选中并有焦点框", 3, {selected: true, active: true}),
+                scene("no-body", "无正文的节点", 2),
+                scene("missing", "缺失条目", 4),
+                scene("unlisted", "未列入项", 5),
+                scene("binder", "活页夹：需要剧情插件", 9),
+                scene("manifest-error", "清单不合法", 7),
+                scene("error", "读取失败", 13),
+                scene("root", "根", 0),
+            ];
+        })(),
+        subject: () => import("nbook/plugins/explorer/web/components/ExplorerRow.vue"),
+    }),
+    defineSubjectFixture<typeof ExplorerTree>({
+        component: "ExplorerTree",
+        events: ["row-press", "row-activate", "row-context", "retry", "focus-change"],
+        class: "h-full w-full",
+        scenes: [
+            {id: "kinds", label: "三类文件夹与状态行", input: {props: {rows: EXPLORER_ROWS, selected: ["project://lore.content/bob"], focus: "project://lore.content/bob", locale: "zh-CN", label: "文件"}}},
+            {id: "many", label: "五百行：虚拟滚动与长名字", input: {props: {rows: manyRows(500), selected: [], focus: null, locale: "zh-CN", label: "文件"}}},
+            {id: "english", label: "英文界面", input: {props: {rows: EXPLORER_ROWS, selected: [], focus: null, locale: "en-US", label: "Files"}}},
+        ],
+        runtimeProps: async () => ({handleKey: () => false}),
+        subject: () => import("nbook/plugins/explorer/web/components/ExplorerTree.vue"),
+    }),
+    defineSubjectFixture<typeof ExplorerFeedback>({
+        component: "ExplorerFeedback",
+        events: ["dismiss"],
+        class: "w-full",
+        scenes: [
+            {id: "editor-missing", label: "编辑器尚未接入", input: {props: {locale: "zh-CN", notice: {kind: "editor-missing", address: "project://lore.content/bob/index.md"}}}},
+            {id: "open-failed", label: "打开失败、长路径", input: {props: {locale: "zh-CN", notice: {kind: "open-failed", address: "project://一个非常深的目录/再深一层/还有一层/第一百二十三章 一个相当长的章节标题.md", reason: "not-text：文件含 NUL，不是文本"}}}},
+            {id: "none", label: "没有提示", input: {props: {locale: "zh-CN", notice: null}}},
+        ],
+        subject: () => import("nbook/plugins/explorer/web/components/ExplorerFeedback.vue"),
+    }),
+    defineSubjectFixture<typeof FilesExplorerView>({
+        component: "FilesExplorerView",
+        events: ["toolbar", "row-press", "row-activate", "row-context", "retry", "reconnect", "open-project", "dismiss-notice", "prefs-retry", "prefs-discard", "focus-change"],
+        class: "h-full w-full",
+        scenes: (() => {
+            const base = {locale: "zh-CN" as const, rows: EXPLORER_ROWS, selected: [], focus: null, showManifests: false, ready: true, notice: null, problem: null};
+            return [
+                {id: "default", label: "浏览", input: {props: base}},
+                {id: "unbound", label: "未打开项目、用户资产停止同步", input: {props: {...base, rows: UNBOUND_ROWS}}},
+                {id: "unsaved", label: "偏好未保存、编辑器尚未接入", input: {props: {...base, showManifests: true, problem: {kind: "unsaved" as const, code: "conflict"}, notice: {kind: "editor-missing" as const, address: "project://plain/a.md"}}}},
+                {id: "loading", label: "偏好还在读取", input: {props: {...base, ready: false}}},
+            ];
+        })(),
+        runtimeProps: async () => ({handleKey: () => false}),
+        subject: () => import("nbook/plugins/explorer/web/components/FilesExplorerView.vue"),
     }),
     defineSubjectFixture<typeof SkillChip>({
         component: "SkillChip",

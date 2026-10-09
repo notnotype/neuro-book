@@ -71,7 +71,7 @@ return {contributions: store.contributions};
 interface PersistedField<T> {
     readonly base: DeepReadonly<Snapshot<T>> | null;  // Storage 快照的非 error 分支；打开中为 null
     readonly failure: StorageFailure | null;
-    readonly ready: boolean;                     // base 已有或 failure 已定
+    readonly ready: boolean;                     // 首个快照已投影到 display，或 failure 已定
     readonly canSave: boolean;                   // failure 为 null 且 base 是 missing 或 ok
     readonly display: DeepReadonly<T>;
     readonly queue: number;                      // 排队意图数
@@ -94,7 +94,7 @@ type CommitResult = "saved" | "unchanged" | "failed" | "unknown" | "protected" |
 2. **只读视图**：`store.state` 是只读视图：读取方写它不改变状态；其中的持久化字段只有数据（`base`、`failure`、`ready`、`canSave`、`display`、`queue`、`save`），不带方法。
 3. **只经 action 写**：`store.actions` 是唯一的写入口；可写的 ref 与字段方法只在 setup 闭包里。
 4. **公开绑定**：`store.contributions` 是交给内核的激活产出，把 `publish` 的绑定交给 `state.public`。绕过类型检查时，`bindings` 里多出的键不绑定并记诊断；声明里有、`bindings` 没给的键交“未绑定”（[`state.public`](public-state.md) 输出第 5 条）。
-5. **字段的初值**：字段打开成功前 `ready` 为 false、`display` 为 `initial`；拿到首个快照后 `base` 为它，`display` 为它的值，`missing` 时为 `initial`。`initial` 只用于呈现，不自动保存。
+5. **字段的初值**：字段打开成功前 `ready` 为 false、`display` 为 `initial`；拿到首个快照后 `base` 为它，`display` 为它的值，`missing` 时为 `initial`。`ready` 在 `display` 换成首个快照的值之后才变为 true，同步观察 `ready` 的一方读到的不会是 `initial`。`initial` 只用于呈现，不自动保存。
 6. **base 只来自订阅**：`base` 只随 Storage 订阅送来的快照更新，按订阅顺序；保存的结果只结算意图，不改 `base`。迟到的保存结果因此不会让 `base` 倒退。
 7. **新的 base 不改显示**：订阅带来新的 `base` 时 `display` 不变；`adopt()` 把排队意图依次作用在最新 `base` 上，结果作为 `display`，不清意图。
 8. **show**：只改 `display`（例如拖动中），不排意图、不保存。

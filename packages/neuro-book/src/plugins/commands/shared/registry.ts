@@ -71,7 +71,7 @@ interface AliasEntry {
 }
 
 /** 内置命令的域词表（`nbook.<domain>.<action>`）。 */
-const COMMAND_DOMAINS: readonly string[] = ["view", "editor", "edit", "quick-open", "settings", "account", "project", "app", "help"];
+const COMMAND_DOMAINS: readonly string[] = ["view", "editor", "edit", "quick-open", "settings", "account", "project", "app", "help", "files"];
 
 const BUILTIN_COMMAND_ID = /^nbook\.([a-z0-9][a-z0-9-]*)\.([a-z0-9][a-z0-9-]*)$/u;
 

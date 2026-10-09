@@ -313,6 +313,25 @@ describe("Spec state.store 输出 5–8：初值、base 与显示", () => {
     });
 });
 
+describe("Spec state.store 输出 5–8：就绪时显示已是读到的值", () => {
+    it("记录已有值：同步观察 ready 的一方在它变为 true 的那一刻读到的显示就是记录的值，不是 initial", async () => {
+        const preset = writer("server");
+        let seen: unknown = "未就绪";
+        const plugin: PluginDefinition = {id: PLUGIN, entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: diagnosticsKey}, {key: storageKey}], activate: (context) => {
+            const store = pairStore(pairRecord, changesOf()).create(context, {storage: context.services.require(storageKey), diagnostics: context.services.require(diagnosticsKey)});
+            watch(() => store.state.pair.ready, (ready) => {
+                if (ready) seen = store.state.pair.display;
+            });
+            return {};
+        }}]};
+        const w = await world([preset.plugin]);
+        expect(await (await opened(preset.storage(), pairRecord)).save({left: "已存", right: ""}, {expect: null})).toMatchObject({ok: true});
+        await w.window("browser-a", "profile-1", [plugin]);
+        await waitUntil("字段就绪", () => seen !== "未就绪");
+        expect(seen).toEqual({left: "已存", right: ""});
+    });
+});
+
 describe("Spec state.store 输出 8–9：show 与 change 的约束", () => {
     it("show 只改显示，不排队、不保存；change 拿到冻结的值，改参数时 commit 直接抛错、不排队，已确认的值不变", async () => {
         const definition = defineStore("strict", ({persist}) => {

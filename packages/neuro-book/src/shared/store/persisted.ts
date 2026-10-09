@@ -104,6 +104,8 @@ export class PersistedFieldState<T> {
     readonly #options: PersistOptions<T>;
     readonly #label: string;
     readonly #base = shallowRef<FieldSnapshot<T> | null>(null);
+    /** 首个快照已经投影到显示上：`ready` 看它而不是 `base`，同步观察 `ready` 的一方才不会读到还是 initial 的显示。 */
+    readonly #applied = shallowRef(false);
     readonly #failure = shallowRef<{readonly kind: FailureKind; readonly code: string} | null>(null);
     readonly #display: ShallowRef<T>;
     readonly #queueLength = shallowRef(0);
@@ -126,7 +128,7 @@ export class PersistedFieldState<T> {
         this.#options = options;
         this.#label = label;
         this.#display = shallowRef(deepFreeze(options.initial));
-        const ready = computed(() => this.#base.value !== null || this.#failure.value !== null);
+        const ready = computed(() => this.#applied.value || this.#failure.value !== null);
         const canSave = computed(() => {
             const base = this.#base.value;
             return this.#failure.value === null && base !== null && (base.status === "missing" || base.status === "ok");
@@ -280,7 +282,10 @@ export class PersistedFieldState<T> {
         this.#settled.resolve();
         if (this.#failure.value?.kind === "read") this.#failure.value = null;
         // 首个快照之前显示的是 initial（加上已排队的修改）；拿到它之后换成它的值。之后的快照不改显示。
-        if (first) this.#display.value = this.#project();
+        if (first) {
+            this.#display.value = this.#project();
+            this.#applied.value = true;
+        }
         this.#pump();
     }
 

@@ -6,8 +6,8 @@
  * 类型。清单不是 `ok` 时退回普通目录的呈现，`index.md` 照常成行。
  */
 
-import type {DirectoryEntry, Listing} from "nbook/plugins/files/shared/contracts";
-import type {Scheme} from "nbook/plugins/files/shared/resource";
+import type {DirectoryEntry, FolderKind, Listing} from "nbook/plugins/files/shared/contracts";
+import type {Scheme} from "nbook/plugins/files/shared/contracts";
 
 import {childAddress, resourceOf} from "./address";
 import type {DirectorySlot, RootState, RootStatus} from "./model";
@@ -35,7 +35,7 @@ export interface EntryRow {
     readonly subtitle: string | null;
     readonly icon: string | null;
     readonly type: DirectoryEntry["kind"];
-    readonly folder: DirectoryEntry["folder"] | null;
+    readonly folder: FolderKind | null;
     /** 这一层按内容文件夹呈现：目录是节点，排序与展示名改清单。 */
     readonly content: boolean;
     /** 内容文件夹里的目录：节点行，打开区打开它的正文。 */

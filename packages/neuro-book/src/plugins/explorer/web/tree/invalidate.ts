@@ -8,7 +8,7 @@
  */
 
 import type {FileChange} from "nbook/plugins/files/shared/contracts";
-import type {Scheme} from "nbook/plugins/files/shared/resource";
+import type {Scheme} from "nbook/plugins/files/shared/contracts";
 
 import {addressOf, isWithin, parentAddress} from "./address";
 

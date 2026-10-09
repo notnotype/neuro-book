@@ -13,7 +13,7 @@ import {shallowRef, triggerRef} from "@vue/reactivity";
 import type {ShallowRef} from "@vue/reactivity";
 
 import type {FilesService, Listing, WatchMessage} from "nbook/plugins/files/shared/contracts";
-import type {Scheme} from "nbook/plugins/files/shared/resource";
+import type {Scheme} from "nbook/plugins/files/shared/contracts";
 
 import {childAddress, isWithin, parentAddress, rebase, rootAddress, schemeOf} from "./address";
 import {invalidation} from "./invalidate";

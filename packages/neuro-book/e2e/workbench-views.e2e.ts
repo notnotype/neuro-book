@@ -70,7 +70,8 @@ test.describe("产品页：测试插件贡献的视图", () => {
     test.beforeAll(async () => {
         tmp = await createTestTmpRoot("neuro-book-e2e", "workbench-views");
         await mkdir(join(tmp, "state"), {recursive: true});
-        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views"}});
+        // 产品的资源管理器视图会占住侧栏：这里只看测试插件的视图。
+        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views", NBOOK_EXCLUDE_PLUGINS: "nbook.explorer"}});
     });
 
     test.afterAll(async () => {

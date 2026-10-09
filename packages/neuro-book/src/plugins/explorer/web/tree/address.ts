@@ -3,8 +3,8 @@
  * `a/bc` 的前缀；方案根（路径为空）是同方案全部地址的前缀。
  */
 
-import {formatResource, joinResource, parentOf, parseResource} from "nbook/plugins/files/shared/resource";
-import type {Resource, Scheme} from "nbook/plugins/files/shared/resource";
+import {formatResource, joinResource, parentOf, parseResource} from "nbook/plugins/files/shared/contracts";
+import type {Resource, Scheme} from "nbook/plugins/files/shared/contracts";
 
 export function rootAddress(scheme: Scheme): string {
     return formatResource({scheme, path: ""});

@@ -7,10 +7,14 @@ import type {DisplayText} from "nbook/shared/localized-text";
 import {defineSetting} from "nbook/shared/settings";
 
 /**
- * `nbook.workbench` 对其它插件公开的合同：页面贡献点 `workbench.pages` 与它的声明、命令面板的选择服务。
+ * `nbook.workbench` 对其它插件公开的合同：页面贡献点 `workbench.pages` 与它的声明、视图贡献点 `workbench.views` 与它的
+ * 声明（定义在 `views.ts`）、命令面板的选择服务。
  * 其它插件在运行时只引用本文件（docs/adr/0025-service-keys-by-id.md）；页面实现与窗口根这类依赖 Vue 的
  * 浏览器合同在 `web/contracts.ts`。
  */
+
+export {WORKBENCH_VIEWS_POINT} from "./views";
+export type {ViewDeclaration, ViewLocation} from "./views";
 
 /** 贡献点 id。 */
 export const WORKBENCH_PAGES_POINT = "workbench.pages";
