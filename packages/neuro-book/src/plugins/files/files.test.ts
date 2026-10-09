@@ -1,65 +1,23 @@
 /**
  * `nbook.files` 三端入口（docs/specs/workspace/resources.md 验收 1、7 的列出部分，folder-kinds.md，files.md 的“读取与
  * 保存”）：服务端、项目实例与浏览器窗口都是真实的内核实例，经进程内链路连到服务端路由，帧走 JSON 编解码；文件是真实
- * 临时目录里的文件。场地借用配置的多实例场地（它同时装了 `nbook.settings`，与本测试无关）。
+ * 临时目录里的文件（场景见 `testing/scene.ts`）。
  *
  * 权限用例要求以普通用户运行（root 不受文件权限约束）。
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
-import {createHash} from "node:crypto";
-import {chmod, mkdir, readFile, rm, writeFile} from "node:fs/promises";
-import {dirname, join} from "node:path";
+import {chmod, readFile, rm} from "node:fs/promises";
+import {join} from "node:path";
 
-import {defineEntry} from "@notnotype/nb-runtime/plugins";
-import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {definitionAt} from "nbook/manifest";
-import {settingsWorld} from "nbook/plugins/settings/testing/world";
 import type {SettingsWorld} from "nbook/plugins/settings/testing/world";
 
-import {filesBackendPlugin} from "./backend/plugin";
-import {descriptor} from "./plugin";
-import {encodedTextBytes, filesKey, projectFilesContract, TEXT_BUDGET_BYTES, userFilesContract} from "./shared/contracts";
-import type {FilesService, Listing} from "./shared/contracts";
-import {filesBrowserPlugin} from "./web/plugin";
-
-interface Probe {
-    files: Omit<FilesService, "watch"> | null;
-    remote: ActivationContext["remote"] | null;
-}
-
-/** 测试插件：启动即激活；浏览器里取文件客户端，服务端与项目实例里留下 `context.remote` 直接用合同。 */
-function probePlugin(id: string, location: "server" | "project" | "browser", probe: Probe): PluginDefinition {
-    return {
-        id,
-        entries: [defineEntry({
-            id: location,
-            location,
-            activationEvents: ["onStartup"],
-            dependencies: location === "browser" ? [{key: filesKey}] : [],
-            activate: (context) => {
-                if (location === "browser") probe.files = context.services.require(filesKey);
-                probe.remote = context.remote;
-                return {};
-            },
-        })],
-    };
-}
-
-const probe = (): Probe => ({files: null, remote: null});
-const hash = (bytes: Uint8Array | string): string => createHash("sha256").update(bytes).digest("hex");
-
-function files(of: Probe): Omit<FilesService, "watch"> {
-    if (of.files === null) throw new Error("测试插件还没激活");
-    return of.files;
-}
-
-function remote(of: Probe): ActivationContext["remote"] {
-    if (of.remote === null) throw new Error("测试插件还没激活");
-    return of.remote;
-}
+import {encodedTextBytes, projectFilesContract, TEXT_BUDGET_BYTES, userFilesContract} from "./shared/contracts";
+import type {Listing} from "./shared/contracts";
+import {extraWindow, files, filesScene, hash, remote} from "./testing/scene";
+import type {Layout, Scene} from "./testing/scene";
 
 let tmp = "";
 let counter = 0;
@@ -79,36 +37,11 @@ afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-interface Scene {
-    readonly world: SettingsWorld;
-    readonly project: string;
-    readonly user: string;
-    readonly hub: Probe;
-    readonly inProject: Probe;
-    readonly window: Probe;
-}
-
-/** 写好文件（相对项目目录或用户资产根）后起服务端、项目实例 `P#1` 与绑定它的窗口。 */
-async function scene(layout: {readonly project?: Readonly<Record<string, string | Uint8Array>>; readonly user?: Readonly<Record<string, string | Uint8Array>>} = {}): Promise<Scene> {
+async function scene(layout: {readonly project?: Layout; readonly user?: Layout} = {}): Promise<Scene> {
     counter += 1;
-    const root = join(tmp, `world-${String(counter)}`);
-    const project = join(root, "Book");
-    const user = join(root, "state", "user");
-    await mkdir(project, {recursive: true});
-    for (const [base, entries] of [[project, layout.project ?? {}], [user, layout.user ?? {}]] as const) {
-        for (const [path, content] of Object.entries(entries)) {
-            await mkdir(dirname(join(base, path)), {recursive: true});
-            await writeFile(join(base, path), content);
-        }
-    }
-    const hub = probe();
-    const world = await settingsWorld(root, [definitionAt("server", descriptor, filesBackendPlugin), probePlugin("x.hub", "server", hub)]);
-    worlds.push(world);
-    const inProject = probe();
-    await world.project(1, [definitionAt("project", descriptor, filesBackendPlugin), probePlugin("x.project", "project", inProject)]);
-    const window = probe();
-    await world.window("w1", [definitionAt("browser", descriptor, filesBrowserPlugin), probePlugin("x.explorer", "browser", window)]);
-    return {world, project, user, hub, inProject, window};
+    const created = await filesScene(join(tmp, `world-${String(counter)}`), layout);
+    worlds.push(created.world);
+    return created;
 }
 
 function names(listing: {readonly ok: boolean; readonly value?: Listing}): string[] {
@@ -159,9 +92,8 @@ describe("Spec workspace.resources 读与列出：三种调用方经同一份合
     });
 
     it("未绑定项目的窗口访问 project:// 得到路由层的失败，不是空目录", async () => {
-        const {world} = await scene();
-        const free = probe();
-        await world.window("w-free", [definitionAt("browser", descriptor, filesBrowserPlugin), probePlugin("x.free", "browser", free)], {bound: false});
+        const created = await scene();
+        const free = await extraWindow(created, "free", {bound: false});
         const listed = await files(free).list("project://");
         expect(listed.ok).toBe(false);
         expect(await files(free).list("user://")).toMatchObject({ok: true});

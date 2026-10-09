@@ -122,11 +122,15 @@ export type ChangeSource = Static<typeof SourceSchema>;
 const ChangeSchema = Type.Object({type: Type.Union([Type.Literal("created"), Type.Literal("changed"), Type.Literal("deleted")]), path: Type.String(), source: SourceSchema}, {additionalProperties: false});
 export type FileChange = Static<typeof ChangeSchema>;
 
-/** 订阅先推 `ready`，之后成批推变化；`resync` 表示有变化可能漏掉，订阅方按当前状态重新核对。 */
+/**
+ * 订阅先推 `ready`，之后成批推变化；`resync` 表示有变化可能漏掉，订阅方按当前状态重新核对；`ended` 是提供方结束了
+ * 这个订阅（例如根目录不在），之后不再推送。远程事件的提供方只能推送、不能结束订阅，所以结束也是一条消息。
+ */
 const ChangesPayload = Type.Union([
     Type.Object({kind: Type.Literal("ready")}, {additionalProperties: false}),
     Type.Object({kind: Type.Literal("batch"), events: Type.Array(ChangeSchema)}, {additionalProperties: false}),
     Type.Object({kind: Type.Literal("resync")}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("ended"), reason: Type.String()}, {additionalProperties: false}),
 ]);
 export type ChangesMessage = Static<typeof ChangesPayload>;
 
@@ -149,14 +153,19 @@ export type FilesResult<T> =
     | {readonly ok: true; readonly value: T}
     | {readonly ok: false; readonly code: FilesFailureCode | RemoteFailureCode; readonly detail: string; readonly current?: Baseline};
 
-/** `watch` 的监听者收到的消息：比远程事件多一个 `ended`（订阅建立失败或结束，之后不再有回调）。 */
-export type WatchMessage = ChangesMessage | {readonly kind: "ended"; readonly reason: string};
+/**
+ * `watch` 的监听者收到的消息。`resync` 另包括同一项目代次内断线重连（断线期间的事件不补发）；`ended` 另包括订阅建立
+ * 失败与内核结束订阅（提供者停止、项目代次结束等），原因原样带出；`ended` 之后不再有回调。
+ */
+export type WatchMessage = ChangesMessage;
 
 export interface FilesService {
     list(address: string, options?: {readonly signal?: AbortSignal}): Promise<FilesResult<Listing>>;
     read(address: string, options?: {readonly signal?: AbortSignal}): Promise<FilesResult<FileText>>;
     /** 只保存已有文件；正文超过上限时不发出请求，直接 `too-large`。 */
     write(address: string, text: string, baseline: Baseline): Promise<FilesResult<{readonly baseline: Baseline}>>;
+    /** 订阅一个方案的变更：同一窗口同一方案共用一条远程订阅。返回释放函数（幂等），释放后不再有回调。 */
+    watch(scheme: Scheme, listener: (message: WatchMessage) => void): () => void;
 }
 
 /** 浏览器里的插件依赖它取得按调用方的文件客户端。 */
