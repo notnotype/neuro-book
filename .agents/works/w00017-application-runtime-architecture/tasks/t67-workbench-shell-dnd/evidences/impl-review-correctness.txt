@@ -1,0 +1,98 @@
+# t67 外壳三：正确性与不变量审查
+
+审查范围：`b6322cd5..7d74a100`。工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t67-impl-correctness`。仅在指定实验目录写入实验与报告，仓库源码只读。
+
+以下逐条记录已核实的问题；未核实的运行时假设不定性为已验证缺陷。
+
+## C02 — 重要 — 被动容器重排回写 location，覆盖另一窗口的迁区
+
+- **类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/views/intents.ts:139`；`views/patch.ts:109`。
+- **现象**：Sidebar 的 A/B/C 都使用合法默认 order=0。窗口乙把 B 迁到 AuxiliaryBar；窗口甲仍显示旧布局，把 Panel 的 D 插到 A/B 之间。中点不存在，触发 rerank，甲生成的补丁给 A/B/C 全部写 `{location:"sidebar", order:10/20/30}`。保存后 B 被搬回 Sidebar，AuxiliaryBar 变空。
+- **为什么是问题**：B 的区域没有被本次用户操作主动修改，违反只重放主动字段、重排只改顺序的合同。equal order 是合法且常见的声明输入，不需要浮点精度耗尽或恶意记录。问题同时影响 `detach-view`、`move-container` 调用的 `reorderContainers`。这是计划审查 M02 的实现修正未到位：视图已有独立 `reorder`，容器 rerank 仍回写旧区域。
+- **如何核实**：在真实内核、真实 Storage/SQLite 双窗口场地，经公开 `LayoutStore.actions.applyView` 重现，未绕开保存运行时。仓库根运行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-impl/correctness bun --tsconfig-override ./packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-impl/correctness/storage-probe.ts`，`storage-probe.json` 的 `passive-container-rerank`：保存前 B.location=`auxiliarybar`，保存后=`sidebar`，fresh 窗口的右栏容器数从 1 变 0。
+- **建议改法**：给容器被动重排采用与视图 `reorder` 同样的独立字段操作：只在最新值里仍处于原 Part 时修改 order，保留 location 与身份。不要让 passive rerank 复用主动迁区补丁。
+
+## C07 — 重要 — 半区并入覆盖收起成员的展开尺寸记忆
+
+- **类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/views/intents.ts:303`、`:163`；`views/drop.ts:242`。
+- **现象**：通过“移动到”把乙并到甲，再收起乙，保持甲展开；拖动整个甲容器到 Panel 戊的后半区，乙仍保持收起，但其原本未记录的 width 被保存为 `4.643288996372431`，甲 width=`115.35671100362757`，戊 width=`120`。以后展开乙使用已被改小的权重，原展开记忆丢失。
+- **为什么是问题**：Spec“副作用与数据”明确要求“收起成员的展开意图……不变”。实现把 `sourceSlice.views` 中所有可见成员都纳入 `visibleMovers`，其中包含 collapsed 的成员，`splitSizes` 不分收起与展开，给它们全部写当前轴尺寸；固定 32px 的细条几何还参与来源比例。
+- **如何核实**：真实 Chromium、真实菜单点击与鼠标拖放，`collapsed-source.json` 记录移动前后的收起状态；随后只读查询真实 `browser-state/storage/user.sqlite`：`SELECT revision, json_extract(value, '$.views."test.sample-views.beta".width') AS beta_width, json_extract(value, '$.views."test.sample-views.beta".collapsed') AS beta_collapsed FROM records`，revision=`15`、beta_width=`4.643288996372431`、beta_collapsed=`1`。收起状态稳定后乙仍为 32px 细条，甲 291.125px、戊 302.859375px；再真实点击乙的展开按钮，`collapsed-source-expanded.json` 的稳定宽度为乙 64px（触及最小值）、甲 275.453125px、戊 286.53125px。预先通过普通菜单合并和收起，没有执行尺寸调整。第一次 JSON 的 before 几何采在收起动画中，不用它证明 32px 或比例。
+- **建议改法**：在半区求解边界区分实际成员、可见成员与参与当前分配的展开成员；收起成员随归属/顺序迁移，但不覆盖其展开尺寸。复用同一个过滤结果求比例和写尺寸，不再增加一套尺寸状态。
+
+## C01 — 重要 — 半区前提失败仍执行保存并推进 revision
+
+- **类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/state/layout-store.ts:184`；`views/patch.ts:166`；`state/layout-store.test.ts:524`。
+- **现象**：另一窗口将半区目标从 Panel 迁到 Sidebar 后，本窗口用旧显示提交半区并入。`applyPatch` 记“这次并入没有保存”并返回原记录值，但 `customizations.commit` 仍调用真实 Storage.save：revision 从 `"2"` 增到 `"3"`，queue=0、save.state=`idle`。实测 display 仍是并入后的本地值，磁盘 value 没有并入；从代码推断，刷新会恢复后者。
+- **为什么是问题**：Spec 与本次重点要求前提失败时整条零写入；返回相同 JSON 不能表达“跳过保存”。当前接口把拒绝当作已保存消费掉，既造成一次不应发生的写入/订阅通知，也让屏幕上的并入结果处于无需重试的 idle 状态。现有测试只比较 value，漏检 revision。
+- **如何核实**：同上 `storage-probe.ts`，真实内核/Storage/SQLite 场地的 `requires-failed` 记录保存前后快照、revision、display、queue 与 patchProblems。value 完全相同，revision 确实 +1；诊断与实际写入相矛盾。
+- **建议改法**：在持久化修改结果中显式表达“本次不写”，让队列跳过 save 并按已定政策结束该意图；不要用“返回旧值”冒充零写入。现有两窗口用例增加 revision 不变与显示最终状态的断言。
+
+## C03 — 重要 — 拖放会话与命令面板并存，面板的方向键和 Enter 被拖放吞掉
+
+- **类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/views/drag-session.ts:236`、`:265`；`components/WorkbenchShell.vue:213`。
+- **现象**：面板标签空格拿起、ArrowLeft 选到换序落点，然后按 `Ctrl+Shift+P`，命令面板已打开且 combobox 获得焦点，但拖放仍 active。ArrowDown 不改变命令候选；Enter 只结束拖放，命令面板仍开着；Escape 的第一次也只结束拖放，不能关闭命令面板。
+- **为什么是问题**：会话在 window 捕获阶段按键，却不观察焦点是否已经进入外壳外的模态界面，也不与命令宿主共享手势所有权。用户面对已聚焦的命令面板，实际按键仍控制背后的布局手势；两层交互同时存活。
+- **如何核实**：真实内置 Chromium `Chrome/151.0.0.0`，1440×900，生产 e2e 工作台 `http://127.0.0.1:5197/`，真实 `page.keyboard`。`modal-during-drag.json` 记录打开前后 `drag=true`；ArrowDown 前后 `aria-activedescendant` 都是 `nb-quick-input-v-2-0-listbox-option-nbook.project.open`；Enter 后 `drag=false` 而 combobox 仍存在。截图 `modal-during-drag.png`。未伪造键盘事件。
+- **建议改法**：在外壳拥有会话与命令浮层互斥：焦点进入外壳外的菜单/对话框时取消拖放；会话按键处理前核对当前交互所有权。不要在每个浮层里补一份拖放键表。
+
+## C04 — 重要 — 工具按钮区仍被最近祖先落点接收，释放会迁移容器
+
+- **类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/views/drop-dom.ts:108`；`components/WorkbenchShell.vue:312`。
+- **现象**：把 Sidebar 的“样例丙”容器拖到 Panel 标题行里的“移动到”按钮中心，会显示 `move-container` 插入线；松手后丙实际迁到 Panel 末尾。
+- **为什么是问题**：行为表第九行明确工具按钮区不接收。`dropHitAt` 只找最上层元素的最近 `TARGET_SELECTOR`，Panel 导航槽把 Tabs 和 single 的管理按钮一起包在 `data-switcher-band` 内；它既没有过滤控件区，也没有核对 `data-no-drag`。从代码推断，同一机制也会把 multiple 分节的标题文字/收起按钮/动作区作为内容半区接收；本条运行证据只针对 Panel“移动到”按钮。
+- **如何核实**：真实 Chromium，真实 `page.mouse`，1440×900。`tool-zone-drop.json`：释放点 `{x:872,y:694}`，最上层命中是“移动到”按钮的图标；释放前 kind=`move-container`，Sidebar 有 A/B/C、Panel 有 E/F；释放后 Sidebar 只剩 A/B、Panel 有 E/F/C。截图 `tool-zone-drop.png`。
+- **建议改法**：DOM 命中在寻找落点前排除工具/标题禁投区，或收窄条目带标记的包裹范围，使管理按钮不属于 Switcher 落点。对源和落点用清楚的独立排除标记，避免仅加 `data-no-drag` 却仍不在命中时使用。
+
+## C05 — 重要 — 指针拖动时方向键漏到 Tabs，活动内容变化后会话仍有效
+
+- **类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/views/drag-session.ts:240`；`views/drop.ts:298`。
+- **现象**：按住已选中的 Panel 标签“样例戊”并移过 6px，拖影出现；鼠标仍按着时按 ArrowRight，标签带立即选中“样例己”，活动内容换了，但拖影和会话保持 active。
+- **为什么是问题**：按键拦截只覆盖 keyboard cursor，不覆盖指针会话；而 `layoutKeyOf` 又有意排除 selected，导致这条真实可达的活动内容变化既写入选择又不取消拖动。违反拖动期间标签方向键不切换容器、活动内容变化取消的合同。不是伪造 presentation 或内部时序。
+- **如何核实**：真实 Chromium 与真实鼠标、键盘，`pointer-key-leak.json`：操作前 `drag=true` 且 E selected；ArrowRight 后 `drag=true` 且 F selected，`data-selected-container` 从 E 变 F。
+- **建议改法**：同一会话无论从鼠标还是键盘开始，都独占会改变拖动上下文的键；冻结源与当前目标相关的选中/可见成员/轴状态并监听失效，不能只依赖包含实际成员的全局字符串。
+
+## C06 — 建议 — Escape 取消未释放指针捕获，首个无关键盘点击被吞
+
+- **类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/views/drag-session.ts:195`、`:319`、`:364`。
+- **现象**：鼠标拖动过程中按 Escape 取消、保持鼠标按下，原标签仍 `hasPointerCapture(1)=true`。随后聚焦 Panel“收起为标题头”并按 Enter，第一次被 `swallowClick` 吞掉（collapsed 仍 false），第二次 Enter 才变 true。
+- **为什么是问题**：取消已清掉 active 与全局样式，却没有清掉自己持有的指针捕获，吞点击布尔位也没有限定本手势的尾随 pointer click；它会拦截别的控件的键盘 click。结束时资源与输入所有权没有同次收口。
+- **如何核实**：真实 Chromium，首次 `cancel-capture.json` 用 focus 辅助聚焦；随后 `cancel-capture-trusted.json` 改成全程真实鼠标按住与 Escape、3 次 Tab、Enter，结果仍为 `{capture:{captured:true,active:false},first:"false",second:"true"}`。未派发合成指针或键盘事件。
+- **建议改法**：结束时显式释放当前 pointerId 的捕获；吞点击记录本次指针手势身份，只消费匹配的尾随 click，排除键盘 `detail=0` 的点击，不保留无期限的布尔位。
+
+## 验证与边界
+
+本轮独立执行，未把 Task README 中作者自报的通过结果计入：
+
+- worktree 根执行 `prox bun install --frozen-lockfile --ignore-scripts`：成功，Bun `v1.4.2`，`1560 packages installed [1.51s]`。
+- `packages/neuro-book` 下执行 `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-impl/correctness bun test src/plugins/workbench/web/views/dnd-model.test.ts src/plugins/workbench/web/views/drop.test.ts src/plugins/workbench/web/state/layout-store.test.ts src/plugins/workbench/web/commands/view-commands.test.ts`：**51 pass、0 fail、385 expect() calls**，4 files，1337ms。
+- 同目录执行 `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-impl/correctness bun run build && env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-impl/correctness bun run build:e2e`：全部退出 0，`check:dist` 报“产物不含开发插件与本机路径”。原始日志 `agent/2026-10-09T00-59-08-147Z_01a11e2b-c7f3-74c5-bed4-0484e72cdb56/6.bash-original.log`。
+- 仓库根执行 C02 中的 `storage-probe.ts` 命令：真实 Storage 双窗口两例完成，应用均正常关闭；输出 `storage-probe.json`。Bun 另输出 `Internal error: directory mismatch ... tsconfig.json`，不把宿主告警当产品缺陷，已报工具问题。
+- 真实产品 e2e 构建页：`env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-impl/correctness NBOOK_STATE_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-impl/correctness/browser-state NBOOK_PORT=5197 NBOOK_WEB_ROOT=dist/e2e/web NBOOK_TEST_PLUGINS=test.sample-views bun src/server/testing/fixture-entry.ts --stop-stdin`；内置真实 Chromium `Chrome/151.0.0.0`，1440×900、DPR 1.25。C03–C07 为实际菜单、指针、键盘运行证据，JSON 与截图均在本报告同目录。
+- Lab 开发场景尝试未完成：动态导入 `http://127.0.0.1:5198/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t67-impl-correctness/packages/neuro-book/src/plugins/lab/web/LabPage.vue` 失败，标签页之后超时并被浏览器工具关闭；不宣称 Lab 运行通过，也未归因为本范围产品缺陷。
+- 既有 e2e：在 `packages/neuro-book` 下执行 `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-impl/correctness node ../../node_modules/@playwright/test/cli.js test -c e2e/playwright.config.ts --output /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-impl/correctness/e2e-default-sockets workbench-dnd.e2e.ts`：**10 passed、3 failed，28.8s**。失败分别在 `:257`（把手 accessible name 空）、`:316`（sidebar view→band 无反馈）、`:380`（`Target crashed`）。保留 `e2e-default-sockets/` 的 error-context 与 trace，未将前两条断言直接定为产品缺陷。
+- 对上述三次失败只读核对 trace 和系统崩溃记录：`coredumpctl list --since '2026-10-09 02:22:00' --until '2026-10-09 02:23:00' --no-pager /opt/google/chrome/chrome` 显示 `02:22:16` PID `1410385`、`02:22:23` PID `1410682`、`02:22:29` PID `1410922` 三次 `SIGTRAP`，与失败时点对应。最后一条明确因 Chrome crash 中止；前两条也处于对应崩溃时段，因果关系和 Chrome 崩溃根因未确定，不据此新增发现。`e2e-failure-times.json` 保留轨迹时序。
+- e2e 的前两次启动尝试：首次错误地使用包内 CLI 路径，`MODULE_NOT_FOUND`，随后改用根安装入口；第二次把长实验路径同时设成 `TMPDIR`，13 条均在 Chrome 启动阶段以 `Socket path too long` 失败、业务未执行。移除自加的 `TMPDIR` 后得到上面的 10/3 结果。业务临时根仍使用指定 `NBOOK_AGENT_TEMP_ROOT`；未把环境失败算作产品缺陷。
+- 收口已核实：产品 fixture 服务 `t67-correctness-surface` 经标准输入 `stop` 退出 **0**；Lab 服务 `t67-correctness-lab` 经 SIGINT 退出 **0**；内置浏览器已关闭，`browser.tabs()` 返回空数组。
+- 未运行 typecheck、Vitest 组件测试、全量测试、真实触摸/笔、完整帧间压力实验、各类浮层/停放/滚动/裁剪矩阵；未验证的边界不计作通过。代码核对不替代这些运行证据。
+- `/usr/bin/git status --short`：无输出。未修改仓库跟踪文件，未 commit、push、stash、切换分支或删除仓库文件。依赖与构建产物为已授权的被忽略生成物。
+
+## 未发现问题的方面
+
+- 已执行的模型测试中，同一个 UUID 重放不新增容器；来源自建容器在最新值中仍有成员时保留，普通移动进入被清掉的自建目标时按捕获身份重建；重放带走最新自建容器的最后成员时同次收口。没有发现另一条全局清扫或无条件删目标路径。
+- 已执行的模型/命令测试中，冻结的整容器实际成员按顺序核对，隐藏成员随归属移动但不分尺寸，不可移动成员整组拒绝；过期菜单来源、新建容器与现有容器参数互斥均有拒绝证据。
+- 已执行的纯模型测试中，同容器边缘只改顺序，原位不提交；中点归后半、锚点不一致拒绝、全收起剩余区显式 expand；等比与 3:1 半区的意图数值符合 Spec，保留其它目标成员与另一轴。收起来源的缺口另列 C07。
+- 从代码核对，指针释放会取消待发帧、按最终坐标重算，并通过 `isSameDropAction` 比较最后已发布动作后才 commit；未找到绕过此门槛的第二条提交路径。未以静态核对宣称所有 rAF 竞争时序均已通过。
+- 既有真实 Chrome e2e 的 10 条通过覆盖了活动栏迁区、整组内容并入、视图分离为新容器、空正文、原位尾随点击抑制、容器键盘换序与焦点归还、三个 Part 的键盘取消、反馈形状、全收起剩余区和 Escape 取消。这些通过不覆盖本报告的并发重排、工具按钮禁投、浮层按键所有权和收起来源尺寸记忆。
+- t67 待确认项按说明采用现有推荐，不重新讨论依赖选择、名称或保存冲突产品取舍。C02 是计划审查处理未到位的实测，其他已处理计划发现不重复列数。
+
+## 数量
+
+阻断 **0** 条；重要 **6** 条（C02、C07、C01、C03、C04、C05）；建议 **1** 条（C06）；合计 **7** 条。编号按核实顺序稳定，正文按影响排序。

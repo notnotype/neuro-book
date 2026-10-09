@@ -1,0 +1,251 @@
+# t67 外壳三（拖放）：测试与验收映射审查
+
+审查范围：`b6322cd5..7d74a100`；固定 worktree：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t67-impl-tests`。
+
+以下6条按影响排序。编号保留逐条追加时的标识；T05（Lab缺少不可移动成员入口）已合并进T07，不重复计数。仓库源码只读；变异副本和实验输出仅写入本报告所在实验目录。
+
+## 已核实问题
+
+### T07 — 重要 — 正确性：含不可移动成员的整组并入仍显示有效半区，松手却拒绝，预览与动作不一致
+
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/views/drop.ts:233-243`；`packages/neuro-book/src/plugins/workbench/web/views/intents.ts:285-286`；`packages/neuro-book/src/plugins/workbench/web/views/drop.test.ts:133-139`；`packages/neuro-book/src/plugins/lab/web/fixtures/shell-scene/ShellViewsScene.vue:47-53,255-265`。
+- **现象**：仅在仓库外Lab场景输入中给资源管理器声明加 `movable:false`（其容器还有可移动的大纲），真实鼠标把整个容器拖到笔记后半区，仍显示 `merge-container`、count=2和有效接收半区。松手后源仍为资源管理器、大纲，目标仍只有笔记。即界面承诺并入2个视图，实际执行整组拒绝。
+- **为什么是问题**：Spec验收19要求预览与动作一致、非法成员整组拒绝。判定只核对容器成员快照，没有检查并入成员的movable；写入层才检查。名为“不可移动的视图不能起拖”的纯测试只测试单View源，不测试含不可移动成员的容器源。计划要求Lab摆出不可移动成员，但5个Lab视图和6个产品测试视图全可移动，也没有相应开关，所以13例e2e没有触达此问题。
+- **如何核实**：原样运行的Lab场景`views-merged`，只改实验副本catalog的一个输入字段，未改产品判定、会话或意图实现；内置Chromium真实指针两次复现同一结果。见实验目录 `lab-invalid-member-preview.json`、`lab-invalid-member-preview.png`。与纯内部调用不同，证据通过真实界面起拖、显示反馈、释放。
+- **建议改法**：在内容区产生整组并入预览之前，对全部实际成员复用与意图层同一movable前提；不把检查扩大到无关的容器换序。给现有Lab场景增加不可移动成员开关，并在已有整组并入测试里覆盖“无有效接收半区且成员/记录全不变”。
+
+### T04 — 重要 — 测试：移除放下时的已显示动作门禁，13个真实Chrome用例全部通过
+
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/views/drag-session.ts:214-221`；`packages/neuro-book/src/plugins/workbench/web/views/drop.test.ts:180-186`；`packages/neuro-book/e2e/workbench-dnd.e2e.ts:58-65`；`docs/specs/ui/workbench-shell.md:224,274`。
+- **现象**：仅删除会话提交条件中的 `&& isSameDropAction(shown, final)`，重新构建 e2e 外壳并运行全部13例，结果13通过（36.9s）。纯测试只直接调用比较函数，没有证明真实会话必须经过它。
+- **为什么是问题**：这条门禁防止最后一次指针移动尚未呈现就松手时，提交用户没看到的另一插入位/半区。现有 e2e 均先等待落点或分8步移动后才释放，覆盖不到最后一帧的分歧；即使该核心不变量整体删除仍绿。
+- **如何核实**：仓库外副本一行变异；执行 `bun run build:e2e` 后执行本报告“实际命令与结果”中的全部拖放 e2e 命令。观察到的是测试漏检，当前未变异产品的门禁仍存在。
+- **建议改法**：在既有真实指针测试中加最后一帧场景：先等插入位A被显示，再将可信指针移动与释放连续送到不同动作B且不经过下一次呈现；核对没有保存、归属和顺序不变。不要另加只重复调用 `isSameDropAction` 的布尔测试。结构变化取消、页面隐藏、`pointercancel` 与目标锚点失效同样应走会话路径，而不只在纯模型伪造 `layoutKey`。
+
+### T02 — 重要 — 测试：没有保护“只收口本次涉及的容器”，全局清扫变异仍通过67例
+
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/views/dnd-model.test.ts:78-82,85-142`；`packages/neuro-book/src/plugins/workbench/web/views/patch.ts:170-174`；`.agents/works/w00017-application-runtime-architecture/tasks/t67-workbench-shell-dnd/plan.md:25`。
+- **现象**：把 `settle(next, left)` 改为 `settle(next, new Set([...left, ...Object.keys(next.containers ?? {})]))`，使任意补丁全局删除无成员的自建容器记录和选中项。与拖放相关的5个 Bun 测试文件仍为67通过、0失败、487个断言。
+- **为什么是问题**：合同要求未涉及记录原样保留，临时缺少插件不能成为删除用户布局的理由。`没有成员的自建容器项只诊断不删` 用例只调用 `computePlacement` / `buildPresentation`，没有执行一次不相关补丁，所以无法保护真正执行清理的 `applyPatch` 边界。其它“未知项保留”用例仅放了未知视图，没有未涉及的自建容器记录。
+- **如何核实**：仅在实验目录副本改动上述一行；在副本包目录执行 `NBOOK_AGENT_TEMP_ROOT=<本实验目录> bun test src/plugins/workbench/web/views/dnd-model.test.ts src/plugins/workbench/web/views/drop.test.ts src/plugins/workbench/web/views/model.test.ts src/plugins/workbench/web/state/layout-store.test.ts src/plugins/workbench/web/commands/view-commands.test.ts`，67通过。原仓库未改。本项报告的是已运行的变异漏检，不声称当前产品已经采用全局清扫。
+- **建议改法**：在既有未知项保留的真实 Storage 用例里，放入一个本次不涉及、当前无成员的自建容器记录，再做一次正常移动，核对该记录及指向它的选中项仍在；同时保留涉及容器实际搬空才删除的正例。
+
+### T06 — 重要 — 测试：命中成员失效只断言诊断，失败时先应用半份补丁仍通过67例
+
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/views/dnd-model.test.ts:123-132`；`packages/neuro-book/src/plugins/workbench/web/state/layout-store.test.ts:515-528`；`packages/neuro-book/src/plugins/workbench/web/views/patch.ts:166-167`。
+- **现象**：在 `requires` 失败分支返回诊断之前，仅对“容器仍在同一Part、但命中成员被移走”的情况调用 `applyViews(next, patch, new Set<string>())`。这样错误仍被报告，归属和尺寸却已经改变。5个相关Bun文件仍为67通过、0失败、487个断言。
+- **为什么是问题**：测试名称承诺“整条不写”，但对命中视图消失的子例只检查 `.problem` 非空；只有目标换Part的子例检查整个 `.value` 不变。真实Storage两窗口测试也只覆盖换Part，未覆盖命中叶被移走。因此可以保留错误文案/诊断、同时破坏原子性而不触发任何测试。
+- **如何核实**：实验副本 `patch.ts` 的失败分支插入一行 `if (target !== undefined && target.part === part) applyViews(next, patch, new Set<string>());`，运行与T02同一5文件命令，67通过。移除成员前提判断本身则准确被 `dnd-model.test.ts:131` 抓到：33通过、1失败；两种变异说明“有诊断”受到保护，“零变更”没有。
+- **建议改法**：在现有命中叶失效子例核对 `.value` 与最新底本完全相等；把同一场景加入既有真实Storage两窗口用例，检查归属、尺寸、选择和自建容器项全不变，并用审计计数证明零写入。
+
+### T03 — 重要 — 测试：验收23第二组比例和验收24多成员往返换轴没有全链路覆盖
+
+- **位置**：`packages/neuro-book/e2e/workbench-dnd.e2e.ts:328-342,362-411`；`packages/neuro-book/src/plugins/workbench/web/views/drop.test.ts:119-131`；`.agents/works/w00017-application-runtime-architecture/tasks/t67-workbench-shell-dnd/plan.md:95-96`。
+- **现象**：唯一的比例 e2e 只做等比 E:F；3:1 由 `dnd-model.test.ts:198-199` 手工传入 `sourceSizes`，`drop.test.ts:123-127` 用手写的450px/149px来源几何保护测量与回退。换轴 e2e 只搬单成员 F 从 Panel 到 Sidebar，既没有多视图容器内部顺序，也没有搬回 Panel。
+- **为什么是问题**：计划把“两组数、换轴与禁投”明确映射到 S5，现有真实浏览器证据只覆盖等比并入和单成员单向迁区。手填比例与几何能保护纯函数，不能保护 DOM 来源测量与释放时比例更新；单成员迁区不能证明多成员顺序不变。13例连跑三次不会补齐这些场景。禁投方向没有具名纯测试或浏览器断言，其坐标判据尚需明确，列入后面的映射表，不据此认定产品失败。
+- **如何核实**：逐条读完13个 e2e、`drop.test.ts` 与 `dnd-model.test.ts` 的断言；本次仓库外原样构建的真实 Chrome 拖放 e2e 为13通过（37.2s）。此处报告测试缺口，未把未运行场景断言为产品失败。
+- **建议改法**：扩展既有比例 e2e：先通过真实 sash 把来源调到3:1，实测当前来源轴比例后拖入并逐数核对9.375%/3.125%、目标标签数及可操作状态；在同一多成员容器上完成 Panel→侧栏→Panel，核对成员序列、实际轴和另一轴记录。禁投方向先明确可观察坐标语义，再用真实指针断言只有拖影、无区域/插线且零保存，不新增一套替身几何。
+
+
+### T01 — 建议 — 测试：以整个 user 分区的 MAX(revision) 代替写入计数，断言依赖 Storage 的非合同实现
+
+- **位置**：`packages/neuro-book/e2e/workbench-dnd.e2e.ts:84-98,116-121,201-219,255-271`；`docs/specs/storage/persistence.md:33,129`。
+- **现象**：`revisionOf` 查询全部 owner、key、client 的 `MAX(revision)`，随后以 `revision + 1` 断言一次写入；读取本页 client 的返回值被丢弃。Storage 只保证 revision 单调且不复用，明确不保证连续。`expect.poll(...).toBe(revision + 1)` 也只证明某个时刻达到该值，不能排除之后再写一次。
+- **为什么是问题**：合法的 revision 分配策略改变会误报；其它记录或客户端写入会污染计数。首条用例到拖动预览之后才取基线，不能证明拖动期间没有写入。现有注释承认依赖，但没有把“只接纳一次结果”变成稳定的验收证据。
+- **如何核实**：逐行对照上述 SQL、所有 `revisionOf` 调用及 Storage Spec；本项为已核实的测试合同缺陷，不据此声称当前产品重复写入。
+- **建议改法**：在测试专用 SQLite 库中对 `records` 的 INSERT/UPDATE 建审计计数（触发器随事务回滚），按 `owner='nbook.workbench'`、`key='views-customizations'` 和本页 client 过滤；从拿起前记录基线，并在手势完成及持久化队列空后核对增量为 1。revision 仅作标识和条件保存使用。
+
+## 输出19–23与验收19–25的实际映射
+
+下表区分纯函数、真实Storage、组件和浏览器证据。`drop.test.ts`、`dnd-model.test.ts` 位于 `packages/neuro-book/src/plugins/workbench/web/views/`；其它测试路径在相应行写明。表中的“缺少”指现有断言，不等于产品已失败；本审查实际执行的范围见下一节。
+
+### 输出19的九行行为表
+
+| 行为 | 实际断言 | 覆盖边界与缺口 |
+|---|---|---|
+| 1. 单View投Switcher建新容器，悬停标签成员不变 | `drop.test.ts:57-65` 检查插入锚点、最终容器顺序与悬停B的成员；`e2e/workbench-dnd.e2e.ts:141-163` 从multiple标题投ActivityBar，核对新身份、实际入口位置、选中和源降回single | 浏览器只测悬停项前插，未测后插及横向标签；没有对悬停C的成员或其实例内容作最终断言。源搬空移除有模型正例，未在这个单View投标签链路触发 |
+| 2. 同Switcher整容器换序，原位零提交 | `drop.test.ts:67-79` 逐一检查换序与两个原位；浏览器`:183-197` 检查原位不选中、正常点击仍选中，`:199-219` 用键盘换序并核对最终标签顺序 | 可信鼠标吞点击回归已被变异抓到；写入计数边界见T01。多成员的内部序列未在换序浏览器例中核对 |
+| 3. 整容器迁到另一Switcher并选中，自动换轴 | `drop.test.ts:80-83` 检查意图与水平轴；`dnd-model.test.ts:146-154` 检查插入位、选中和轴；浏览器`:106-121` 检查活动项迁到右栏与源消失，`:328-342` 检查Panel单成员迁侧栏变纵排 | 缺多成员Panel→侧栏→Panel的往返和成员顺序，见T03 |
+| 4. 单View边缘并入，拆分命中窗格、不增加目标标签 | `drop.test.ts:98-105` 核对半区、命中叶、中点和最终成员顺序；浏览器`:248-272` 用标题把手键盘并入并核对D、B顺序及焦点 | 纯模型有尺寸公式；该浏览器例未断言具体拆分数值和目标标签数。指针主要用整容器源覆盖内容并入 |
+| 5. 整组边缘并入，隐藏成员跟迁、原子拒绝、源消失 | `drop.test.ts:119-139` 检查来源几何/回退、成员快照与源容器消失；`dnd-model.test.ts:202-215` 检查非法成员、隐藏成员归属且不分尺寸；浏览器`:124-138,384-410` 检查合并与等比分配；Lab真实指针确认隐藏成员跟迁 | 容器含不可移动成员的预览与动作实际不一致，见T07；命中叶失效只保诊断而不保零变更，见T06；全局清扫漏检见T02 |
+| 6. 禁投方向零状态变化、零落点反馈，拖影可保留 | 当前没有对应的具名`drop.test.ts`或拖放e2e断言 | `DropTarget`没有方向字段，展开窗格传`edgeRatio:0.5`沿目标轴覆盖全部半区；“侧栏左右/Panel上下”仍缺精确的可观察坐标判据。未把靠侧边但同时位于合法半区的点直接认定为非法；需在Spec中明确判据后补真实指针零反馈/零写入证据 |
+| 7. 单View投空正文或空条目带，建一个容器、选中、填满 | `drop.test.ts:169-173` 检查新建与身份；浏览器`:275-326` 遍历三个Part×单View×空正文/空条目带，核对唯一入口、自建身份与选中 | 有真实12路径矩阵中的6条单View路径；矩阵未计写入、读记录或量实际填满尺寸 |
+| 8. 整容器投空正文或空条目带，不额外嵌套 | `drop.test.ts:174-176` 保证意图保留容器身份；同一浏览器矩阵遍历另外6条路径 | 浏览器只检查入口数量与选中，没有核对原容器身份保持、内部成员顺序或写入次数；身份合同目前主要由纯模型保护 |
+| 9. 标题文字、工具按钮、外部遮挡不接收 | 原样实现的DOM reader与会话有过滤，13个拖放e2e没有针对这三类拒绝区的用例 | 没有真实遮挡浮层、禁拖按钮或容器标题落点的零反馈/零写入断言；读源码不能替代计划承诺的S4b九行探针 |
+
+### 输出20–23
+
+| 输出 | 实际证据 | 未覆盖或弱断言 |
+|---|---|---|
+| 20. 方向、前后50%、中点归后半、全收起剩余区、空Part和自动换轴 | `drop.test.ts:98-105,142-155,169-176`；浏览器`:275-326,328-359`；Lab全收起真实操作 | 中点有纯函数的精确值，浏览器没有连续跨中点的轨迹；多成员往返换轴与禁投方向边界见T03及上表 |
+| 21. 两组比例、跨轴、隐藏成员、同容器只换序、来源实测/保存回退 | `dnd-model.test.ts:157-166,169-215`逐数检查意图单位；`drop.test.ts:119-127`输入450px/149px来源几何与240回退；浏览器`:384-410`实测等比分配 | 来源3:1没有真实sash→DOM测量→释放→记录→几何全链路；没有“拖动中来源比例变化、释放读当前值”的断言；保存回退用的是默认240，没有非默认记录对照；同容器不写尺寸未在浏览器做 |
+| 22. 同源图文拖影、唯一插线、无额外高亮、连续半区、源不动、结束释放 | 浏览器`:106-121`检查ActivityBar源矩形不变，`:328-337`检查横向标签源的图标/文字/1条线/0区域/0entry；`:124-132`取半区截图，`:414-433`检查取消后释放 | ActivityBar源没有图标+文字的e2e断言；标签源没有矩形保持断言。两张作者截图都从横向标签源起拖，单张静图不能证明半区过渡或源尺寸前后相等；本审查补拍ActivityBar全页图，证明该源可捕获 |
+| 23. Space、方向键、Tab/Shift+Tab、Enter、Escape与焦点归还，结构变化取消 | 浏览器`:199-272`三例覆盖标签换序、三个Part循环取消、标题把手并入；焦点恢复变异被`:272`抓到；标签方向键不自动切换有真实断言 | 结构成员/轴/活动内容变化、页面隐藏、pointercancel、卸载、目标锚点失效缺真实会话断言；`:429`的失焦是派发`FocusEvent`，只证明处理器响应，不证明浏览器真实失焦。Sidebar single标题把手没有键盘起拖例；Tab用例只查拖影仍在，没有逐区域核对登记顺序或循环落点；键盘整容器内容并入、单View投空Switcher未逐行执行 |
+
+### 验收19–25与计划新增映射
+
+| 验收/计划项 | 核对结果 |
+|---|---|
+| 19. 两类源、指针/键盘、预览一致、单结果、隐藏/非法/失效 | 常规指针与键盘正例已跑；隐藏成员Lab实测通过。非法成员预览有T07实际缺陷，已显示动作门禁有T04漏检，原子失效有T06漏检，单结果计数有T01弱证据；没有把行为表每行分别用指针和键盘执行 |
+| 20. 三Part×两类源×空正文/真条目带 | `:275-326`确实执行12条路径，目标唯一入口与选中有断言；写一次、整容器身份不变和按钮/标题拒绝未包含在矩阵断言内。另一个`:165-181`的测试名写“视图建新容器”，实际只拖整容器；完整矩阵承担了该标题缺失的路径，故不另计问题 |
+| 21. 40×40活动项与横向标签、图文拖影、唯一插线、释放 | 横向标签有完整DOM断言和截图；活动项只检查源矩形、预览与迁区。作者图片不覆盖活动项对照，也没有量40×40；本审查ActivityBar Lab全页图看到图文拖影和唯一插线，不能据此扩大为全部主题与DPR通过 |
+| 22. 单View前/后插，悬停成员不变，源搬空消失 | 纯函数覆盖悬停成员保持；真实浏览器只测前插、源multiple→single，没有后插和最后单成员搬空的全链路。模型搬空清理正例见`dnd-model.test.ts`的自建容器与补丁边界用例 |
+| 23. 25%→12.5%/6.25%与3:1→9.375%/3.125%，不增目标标签、同层可操作 | 两组公式有精确纯模型断言；浏览器只有等比最终比例，见T03。该例没有先量四个目标叶和两个来源叶的实际等比前提；没有最终标签数与各叶控件可操作断言 |
+| 24. 多视图Panel→侧栏→Panel、序列与换轴、禁投方向、跨轴按来源比例 | 等比Panel→Sidebar跨轴并入和单成员迁区已跑；不等比跨轴、完整多成员往返未覆盖，见T03。禁投方向未核实产品失败，缺执行判据与测试 |
+| 25. 中点、无中央禁投、连续过渡、全收起剩余区 | 中点归后半有纯函数断言；全收起同时有e2e与本审查Lab实测，反馈区域在末条之后、原两成员保持收起、新成员展开。连续移动跨前后半区与无中央反馈断档没有浏览器轨迹断言 |
+| 自建容器身份一次生成、重放复用、目标重建、搬空清记录、刷新 | `dnd-model.test.ts:85-142`覆盖重放、重建与按最新底本收口；真实Storage`:495-513`覆盖目标被别处清掉后的重建。没有拖放创建自建容器后刷新/重新进入的e2e；t66的reload例验证的是隐式容器迁区，不是自建容器记录 |
+| “移动到”与命令面板新建容器、来源过期零写入 | `commands/view-commands.test.ts:108-130,154-169`核对新身份、末尾、选中、记录与过期码；组件`:67-95`仅核对菜单项/emits/身份变化关闭。拖放e2e中的菜单只用于移入已有容器，t66浏览器用例没有点击“新建容器（在X）”；计划S5的新菜单与无参命令面板新建链路未覆盖 |
+
+## 六项核心不变量变异
+
+所有变异仅作用于 `mirror/packages/neuro-book`。被测源码原样与变异的改法、结果已记录在同目录 `mutation-results.json`；M1、M6以纯函数/真实Storage测试证明漏检，不作为未变异产品的运行缺陷。浏览器实验在每个变异后重新构建。
+
+| 编号 | 唯一行为变异 | 执行范围 | 实测结果 |
+|---|---|---|---|
+| M1 | 把涉及容器收口改成全局收口 | 五个Bun文件，含旧`model.test.ts` | 67通过、0失败、487断言，漏检（T02） |
+| M2 | 删除半区并入的命中成员仍属目标的前提 | `dnd-model.test.ts`与`layout-store.test.ts` | 33通过、1失败，`:131`诊断断言抓到 |
+| M3 | 删除`isSameDropAction(shown, final)`会话提交门禁 | 真实Chrome全部拖放e2e | 13通过，36.9s，漏检（T04） |
+| M4 | 删除键盘放下后的`requestAnimationFrame(returnFocus)` | 真实Chrome三条“键盘：”e2e | 2通过、1失败，19.8s，`:272`标题把手未聚焦 |
+| M5 | 在`onClick`开头直接返回，关闭拖动末尾点击拦截 | 真实Chrome“松手在源自己身上” | 独立复核1失败，18.61s，`:192`未选中标签被选中；原样`patch.ts`、只有`onClick`变异 |
+| M6 | 命中叶失效时先应用views半份补丁，再返回原诊断 | 与M1相同五个Bun文件 | 67通过、0失败、487断言，漏检（T06） |
+
+本次未重复作者自报的“键盘不拦截”变异与纯判定21处变异；没有把作者自报计入上表。
+
+## Lab与截图证据
+
+- `lab-hidden-members.json`：隐藏大纲，真实拖资源管理器整组到笔记。预览`merge-container`、count=2；隐藏时看到笔记、资源管理器，取消隐藏后看到笔记、资源管理器、大纲。隐藏成员确实随归属迁移。
+- `lab-collapsed.json`：资源管理器、大纲都收起后拖入时间线。末条为`{x:417,y:226,width:326,height:32}`，接收区为`{x:423,y:264,width:314,height:882}`；释放后前两者仍收起，时间线展开。
+- `lab-invalid-member-preview.{json,png}`：只给Lab输入中的资源管理器加`movable:false`；真实鼠标两次复现有效半区/count=2但释放拒绝，见T07。输入修改已恢复。
+- 作者的`product-switcher-line-1440x900.png`确有图文拖影、一个Switcher插入线；`product-content-half-1440x900.png`确有命中内容的半区反馈，两张都由横向标签源起拖。没有ActivityBar源对照、键盘焦点或连续半区移动证据；截图不能单独证明零写入。
+- 本审查的`lab-activity-switcher.png`在内置Chromium用ActivityBar真实起拖取得，全页截图包含传送到`body`的图文拖影和唯一插入线（DOM观测1条线、0区域）。作者所述Lab“舞台截图拍不到覆盖层”属裁剪边界；全页截图可以取证。该图只覆盖nbook-light、1920×1300视口、DPR1.25，没有宣称四主题/双配色/移动端矩阵已验证。
+- 最后读取Lab浏览器错误为`{entries:[],nextSeq:343,dropped:0}`。开发服务日志在页面reload/关闭时有`receiver-closed`撤回警告，不把“页面错误为空”扩大为没有任何日志警告。
+
+## 实际命令与结果
+
+为便于原样重跑，下面先定义与本次工具调用相同的绝对路径；每组注明工作目录。`verification-log.json`保存已提取的命令与输出，浏览器配置为`playwright.config.ts`（Chrome、headless、workers=1、retries=0，仅匹配拖放文件）。失败变异的运行结果与原样基线分开列出。
+
+```sh
+TEST_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-impl/tests
+WORKTREE=/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t67-impl-tests
+```
+
+1. 依赖安装，工作目录`$WORKTREE`：
+
+   ```sh
+   prox bun install --frozen-lockfile --ignore-scripts
+   ```
+
+   Bun v1.4.2，1560 packages installed；只写被忽略的依赖。
+
+2. 原仓库Bun基线，工作目录`$WORKTREE/packages/neuro-book`：
+
+   ```sh
+   env NBOOK_AGENT_TEMP_ROOT="$TEST_ROOT" bun test src/plugins/workbench/web/views/dnd-model.test.ts src/plugins/workbench/web/views/drop.test.ts src/plugins/workbench/web/state/layout-store.test.ts src/plugins/workbench/web/commands/view-commands.test.ts
+   ```
+
+   **51通过、0失败、385断言**，1.33s。
+
+3. 原仓库组件基线，同一工作目录：
+
+   ```sh
+   env NBOOK_AGENT_TEMP_ROOT="$TEST_ROOT" npx vitest run src/plugins/workbench/web/components/WorkbenchShellParts.dom.test.ts src/plugins/workbench/web/components/WorkbenchPanelSurface.dom.test.ts
+   ```
+
+   **2个文件通过、10例通过**，4.33s。此前在实验副本运行同一命令因`/@fs/.../neuro-book-test-support/src/vitest.ts`解析失败，0例执行；环境错误不计产品失败。
+
+4. nb-ui受影响合同，工作目录`$WORKTREE/packages/nb-ui`：
+
+   ```sh
+   env NBOOK_AGENT_TEMP_ROOT="$TEST_ROOT" npx vitest run src/components/components.test.ts -t 'per-tab attrs|renders tabs with tab semantics'
+   ```
+
+   **2例通过、118例未选中**，5.17s。没有把定向运行记成整个nb-ui套件通过。
+
+5. 原样镜像构建与全部拖放e2e，工作目录`$TEST_ROOT/mirror/packages/neuro-book`：
+
+   ```sh
+   env NBOOK_AGENT_TEMP_ROOT="$TEST_ROOT" bun run build:e2e
+   env NBOOK_AGENT_TEMP_ROOT="$TEST_ROOT" npx playwright test -c "$TEST_ROOT/playwright.config.ts"
+   ```
+
+   原样构建成功（Vite 2.89s）；**13例通过，37.2s**。M3删除动作门禁后重新构建（3.22s），同一e2e命令仍**13例通过，36.9s**。初次配置误指向包内`node_modules/@playwright/test/index.mjs`时未执行测试，修正为根`node_modules`后才取得这两组结果。
+
+6. M1全局收口、M6拒绝前部分应用，工作目录同上，各自只保留对应补丁变异后运行：
+
+   ```sh
+   env NBOOK_AGENT_TEMP_ROOT="$TEST_ROOT" bun test src/plugins/workbench/web/views/dnd-model.test.ts src/plugins/workbench/web/views/drop.test.ts src/plugins/workbench/web/views/model.test.ts src/plugins/workbench/web/state/layout-store.test.ts src/plugins/workbench/web/commands/view-commands.test.ts
+   ```
+
+   两次分别**67通过、0失败、487断言**，1.32s、1.37s；没有把两个存活变异合在同一次Bun运行。
+
+7. M2删除命中成员前提，工作目录同上：
+
+   ```sh
+   env NBOOK_AGENT_TEMP_ROOT="$TEST_ROOT" bun test src/plugins/workbench/web/views/dnd-model.test.ts src/plugins/workbench/web/state/layout-store.test.ts
+   ```
+
+   **33通过、1失败**，1.16s，退出1。`dnd-model.test.ts:131`要求`.problem`非空而实际为`null`。
+
+8. M4删除提交后键盘焦点恢复，工作目录同上：
+
+   ```sh
+   env NBOOK_AGENT_TEMP_ROOT="$TEST_ROOT" bun run build:e2e
+   env NBOOK_AGENT_TEMP_ROOT="$TEST_ROOT" npx playwright test -c "$TEST_ROOT/playwright.config.ts" --grep '键盘：'
+   ```
+
+   构建成功（3.08s）；**2通过、1失败，19.8s**，退出1。`:272`的标题把手未聚焦。两个没有搬离原DOM位置的例子仍通过，搬到另一个容器的例子才准确抓到恢复缺失。
+
+9. M5关闭吞点击，工作目录同上：
+
+   ```sh
+   env NBOOK_AGENT_TEMP_ROOT="$TEST_ROOT" bun run build:e2e
+   env NBOOK_AGENT_TEMP_ROOT="$TEST_ROOT" npx playwright test -c "$TEST_ROOT/playwright.config.ts" --grep '松手在源自己身上'
+   ```
+
+   首轮构建成功（4.93s），1例失败，`:192`期望`aria-selected=false`而收到`true`。首轮构建与M6编辑并行，另用已恢复的原样`patch.ts`重建（3.45s），独立复核同一命令：**1例失败，18.61s，退出1**，仍准确失败在`:192`。最终只以该独立复核作为M5证据；随后已恢复`onClick`源码。
+
+10. Lab服务，工作目录`$TEST_ROOT/lab-mirror/packages/neuro-book`：
+
+    ```sh
+    env NBOOK_AGENT_TEMP_ROOT="$TEST_ROOT" NBOOK_STATE_ROOT="$TEST_ROOT/lab-state" NBOOK_DEV_PORT=0 NBOOK_DEV_BACKEND_PORT=0 bun run dev
+    ```
+
+    监督名`t67-tests-lab-ephemeral`，本次页面端口39749、后端45755、RPC32831，均使用系统分配端口。最初固定端口5197已被占用，该启动退出后改为0。内置浏览器打开`/lab?theme=nbook&cw=light&vp=desktop&c=WorkbenchShellLayout&s=views-merged`，使用真实鼠标与键盘；操作代码留在`lab-scenarios.js`，输出和截图见前节。
+
+11. 原worktree只读核对，工作目录`$WORKTREE`：
+
+    ```sh
+    env GIT_OPTIONAL_LOCKS=0 /usr/bin/git status --porcelain=v1 --untracked-files=normal
+    ```
+
+    **输出为空，退出0**。未改仓库源码、未提交、未切分支。Lab输入实验已恢复，Lab标签已关闭，监督服务已停止。`ps -p 1397855,1398016 -o pid=,ppid=,stat=,args=`无输出、退出1，两个已记录PID都不再存在；`browser.tabs()`为空。
+
+## 本次未运行与推断边界
+
+- 没有复跑作者自报的全量93例e2e、拖放13例连跑三次、三份typecheck、`test:affected --typecheck`、`smoke:server`、`docs:check`、`governance:check`。这些旧结果不算本次验证。
+- 触摸、真实浏览器失焦/页面隐藏、pointercancel、卸载与结构变化取消、拖动期间滚动/尺寸变化、被浮层遮挡、禁投方向、3:1来源与多成员往返没有独立真实运行验证；映射表据实际测试断言标缺口。
+- T04仅证明门禁删除后测试仍绿，没有伪造不可能的事件顺序来宣称当前产品失败。T02、T06仅证明补丁不变量的测试漏检；T07通过真实界面复现当前判定与执行不一致。
+- 审计触发器是T01的建议改法，本次未把新的计数器装进库，也未据分区revision断言推定当前产品重复写入。
+
+## 回写建议（未修改仓库规范）
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| R1 | 踩坑 | 会话门禁删除后13例仍绿；只核对诊断的失效子例也漏掉部分应用；现有测试规范已要求逐判据变异，但未点明选择边界 | 改写变异检查条目，补充：“验收包含会话、适配和持久化时，在真正执行该约束的边界做变异；纯模型通过不能替代会话路径。拒绝场景同时核对诊断、状态不变和零持久化。” | `docs/testing/README.md`的“变异检查”条目 |
+
+本建议交给主Agent汇总；不请求远端操作或阻塞报告交付。
+
+## 未发现问题的方面
+
+- 常规两类源迁区、内容并入、三个Part的12条空落点路径及键盘基本操作均在本次原样Chrome运行通过。
+- 隐藏成员归属与全收起剩余区在实际Lab指针路径通过；没有以纯模型替代这两项观察。
+- 两组比例的意图单位纯模型断言是精确值，保留另一轴与未命中成员；等比浏览器例读取真实SQLite记录和实际几何，没有用与实现同一公式计算期望。
+- 目标已被另一窗口清掉后的重建、目标换Part时整条拒绝有真实Storage测试；不是mock写入回声。
+- 现有焦点归还与吞点击测试能抓到对应浏览器回归；原位结束后的普通点击仍可选中，避免只证明拦截存在。
+- 已审阅的拖放e2e与新纯模型文件没有固定毫秒等待；依赖可观察DOM状态、保存结果或队列状态。120000ms是超时上限，不是固定等待。
+- 两张作者图片所示横向标签图文拖影、唯一插入线与内容半区可直接看见；Lab全页截图可补活动项源的证据，未发现传送覆盖层本身无法截图的问题。
+
+## 数量
+
+**阻断0，重要5（T07、T04、T02、T06、T03），建议1（T01），共6条。** T05已并入T07；R1是规范回写建议，不计问题数量。
+

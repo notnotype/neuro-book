@@ -1,0 +1,80 @@
+# w00017 t67 外壳三实现审查：代码质量与 Spec 一致
+
+审查范围：`b6322cd5..7d74a100`，固定 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t67-impl-quality`。
+
+本报告只记录核实后的具体问题；运行时未复现的结论标为“推断”。审查中逐条追加发现，最终按影响排序。
+
+## 1. 后续视图标题按空格拿起后直接 Enter，会被移到容器首位
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/views/drag-session.ts:305`。
+- **现象**：Lab merged 场景初始成员 `[test.files, test.outline]`。聚焦第二个视图“大纲”的拖动把手，按空格拿起，不按任何方向键或 Tab，直接 Enter；成员立即变为 `[test.outline, test.files]`，拿起时就已经显示 `move-view` 预览。
+- **为什么是问题**：拿起尚未选择其它插入位，起点应是来源的原位。当前用标题行矩形去匹配 `keyboardStops` 产生的正文 25%/75% 坐标，两者通常不相交，`findIndex` 返回 -1 后无条件退到整个容器的第 0 个位置。因此第二个及后续视图的“拿起—放下”会变成非预期换序，违反原位不提交与键盘操作的来源锚点语义；这不是迟到事件或伪造时序。
+- **如何核实**：真实 Chrome 1800×1100，开发服务的 `lab?c=WorkbenchShellLayout&s=views-merged`。真实鼠标点击 `[data-drag-view="test.outline"] [data-drag-handle]`，真实键盘依次 `Space`、`Enter`；容器分节顺序由 `[test.files, test.outline]` 变为 `[test.outline, test.files]`。又在真实产品页 1440×900、客户端 `quality-title-enter` 先把乙并入甲，然后对乙把手依次 Space、Enter：`[alpha, beta]` 变为 `[beta, alpha]`；只读 SQLite 记录乙的 `order` 为 9、甲为 10，刷新仍是乙在前，焦点恢复到“拖动 样例乙”。现有 e2e 只在拿起后继续 Tab/方向键，没有原位放下用例。
+- **建议改法**：视图源按所属分节和自身在内容位置表中的索引初始化游标，选择代表原位的无操作落点；不要拿标题矩形匹配正文停点，再降级到第一个成员。对后续视图的空格后直接 Enter 保持顺序且零写入。
+
+## 2. 禁投的视图标题与 Panel 工具按钮会接收拖放并迁移容器
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelSurface.vue:40`、`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:312`、`packages/neuro-book/src/plugins/workbench/web/views/drop-dom.ts:111`。
+- **现象**：Panel 导航整块标为 `data-switcher-band="panel"`，其中还放了选中视图的“移动到”按钮。把 Sidebar 的“样例丙”拖到该按钮中心 `(872, 694)`，出现 `data-drop-kind="move-container"` 和插入线；释放后 `view:test.sample-views.gamma` 实际迁到 Panel 并选中，Sidebar 原入口消失。Lab merged 场景里，把“时间线”拖到“大纲”的标题文字中心 `(474, 570.75)`，同样出现 `merge-container`；释放后资源管理器容器的成员从 `[files, outline]` 变为 `[files, timeline, outline]`。
+- **为什么是问题**：`docs/specs/ui/workbench-shell.md:126` 明确规定标题文字、工具按钮区不接收且无有效反馈。`dropHitAt` 从最上层元素直接向上找最近落点，未排除 multiple 视图标题，Panel 又把操作区包含在标签带里；`data-no-drag` 只参与源识别。因此禁投区会持久化一次非预期迁移，标题还可能被误读成它自己的内容前半区。
+- **如何核实**：构建并启动带 `test.sample-views` 的真实测试产品页；Chrome 1440×900，真实鼠标从活动条目中心 `(30, 149)` 按下，移动超过 6px，拖到 Panel “移动到”中心并松手。浏览器读取到预览 `move-container`，松手后新入口位于 `data-switcher-band="panel"` 且 `aria-selected="true"`，原 Sidebar 入口数量为 0。另在真实开发服务的 Lab `WorkbenchShellLayout/views-merged`、1800×1100，用真实鼠标拖到大纲标题并核对成员变化。截图：本报告同目录 `panel-tool-drop.png`、`view-title-drop.png`。定向模型测试 51 条全部通过，未覆盖这些 DOM 边界。
+- **建议改法**：在 DOM 命中拥有者统一声明并排除标题/工具操作区；同时把 Panel 的 Switcher 落点标记收窄到标签与标签空白所占的容器，动作区沿用右栏的外置结构。不要仅改一个按钮，留下同一命中规则下的其它禁投区。
+
+## 3. 整容器边缘并入会覆盖收起成员保存的展开尺寸
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/views/drop.ts:242`、`packages/neuro-book/src/plugins/workbench/web/views/intents.ts:303`、`packages/neuro-book/src/plugins/workbench/web/views/intents.ts:163`。
+- **现象**：真实产品页把乙并进甲，两者保存高度均为 120；收起乙，再把甲的整个容器拖到右栏丁内容后半区。并入后乙仍 `collapsed: true`，但保存的展开高度从 120 被改为 `4.643288996372431`；甲获得 `115.35671100362757`，丁为 120。收起条的当前几何被当成展开份额参与了半区分配。
+- **为什么是问题**：Spec“副作用与数据”明确要求其它目标成员、收起成员的展开意图与另一轴不变（`docs/specs/ui/workbench-shell.md:170`）。`sourceRatios` 和 `visibleMovers` 只排除隐藏成员，不排除 `collapsed` 成员；`splitSizes` 因而重写收起成员的当前轴。之后展开乙会使用被压成约 4.64 的新权重，而不是用户此前保存的 120，改变了原本应保留的布局。
+- **如何核实**：真实 Chrome 1440×900，客户端 `quality-collapsed-split`。真实鼠标将活动条目乙拖到甲正文后半并释放，点乙的收起按钮，再将活动条目甲拖到丁正文后半并释放。用只读 `bun:sqlite` 查询 `product-state/storage/user.sqlite` 中该客户端 `nbook.workbench/views-customizations`：前值乙为 `{height:120, collapsed:true}`，后值为 `{height:4.643288996372431, collapsed:true}`；两次记录均来自真实保存。现有 14 条模型测试覆盖隐藏成员与全收起目标，没有覆盖来源的部分收起成员。
+- **建议改法**：统一以参与新半区分配的展开成员集合计算来源比例与写入尺寸；收起成员仅迁移归属和顺序，原展开意图保持不变。避免在判定层和意图层各维护一份口径不同的“可见成员”。
+
+## 4. 指针拖动放行标签切换键，活动内容或可见成员变化后没有取消
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/views/drag-session.ts:240`、`packages/neuro-book/src/plugins/workbench/web/views/drop.ts:298`。
+- **现象**：按下 Panel 当前“样例戊”标签并拖到 Sidebar 插入位，保持鼠标按住时按 `End`，Panel 立即切到“样例己”，拖影仍存在；再移动 1px 并释放，旧拖动照样把“样例戊”容器迁到 Sidebar。Lab 里拖动“大纲”期间通过真实 Tab/Enter 操作“隐藏成员”开关，来源标题已移除，下一次指针移动后落点反馈消失，但“大纲”拖影和根 `data-workbench-dragging` 仍保留到松手。
+- **为什么是问题**：Spec 输出 23 要求拖动期间标签带不切换容器，且活动内容/成员变化时取消。指针模式的 `onSessionKey` 只处理 Escape，`End`/方向键会继续进入 `Tabs.handleKeydown`；`layoutKeyOf` 仅包含实际归属与容器顺序，不包含选中项或可见成员。活动内容变化后仍可持久化旧迁移；来源隐藏时，判定仅返回 rejected，没有结束会话、清除拖影。
+- **如何核实**：真实 Chrome、1440×900，使用新客户端身份 `quality-active-switch`。鼠标从 `view:test.sample-views.omega` 标签起拖到 Sidebar 的丙入口前；按真实键盘 `End` 前 Panel 选中 omega，按键后选中 zeta、焦点落到 zeta、拖影仍为 true。移动 1px 后松手，`data-activity-container="view:test.sample-views.omega"` 出现且 `aria-pressed="true"`。另在 Lab merged 场景，保持鼠标按下，用 25 次真实 Tab 到 `data-lab-toggle="hidden-member"`，Enter 隐藏大纲；移动 1px 后反馈无、拖影“大纲”仍在且根标记为 true。没有直接调用内部函数或修改 DOM。
+- **建议改法**：把拖动键的独占放在统一会话边界，指针拖动也不能把标签导航键交回 Tabs；会话的失效签名应包含 Spec 指定的活动内容与可见成员/轴事实，并在这些事实变化时结束会话。不要通过忽略活动内容变化来维持旧预览。
+
+## 实际验证与边界
+
+以下命令从固定 worktree 的 `packages/neuro-book` 运行，均设置 `NBOOK_AGENT_TEMP_ROOT` 为本报告所在目录。
+
+| 命令或实验 | 本次结果 |
+|---|---|
+| `bun test src/plugins/workbench/web/views/dnd-model.test.ts src/plugins/workbench/web/views/drop.test.ts src/plugins/workbench/web/state/layout-store.test.ts src/plugins/workbench/web/commands/view-commands.test.ts` | 51 pass、0 fail、385 expect() calls |
+| `bun run build && bun run build:e2e` | 通过；`check:dist` 确认生产产物不含开发插件与本机路径 |
+| `bun run typecheck` | `tsc --noEmit`、`vue-tsc --noEmit -p tsconfig.web.json`、`vue-tsc --noEmit -p tsconfig.browser-test.json` 全部通过 |
+| `node ../../node_modules/@playwright/test/cli.js test -c e2e/playwright.config.ts workbench-dnd.e2e.ts --output=<本报告目录>/playwright --reporter=line` | 12 passed、1 failed（24.0s）。失败用例为“ 三个 Part 搬空后各自的四条空落点路径”；错误 `Protocol error (Runtime.callFunctionOn): Page crashed.`，发生于 `dropAt` 等待拖影消失。未把该次浏览器崩溃归因为产品缺陷，未重跑掩盖失败；原始 trace 与 error-context 留在 `playwright/` |
+| 真实 Chrome 鼠标/键盘实验 | 上述 4 条问题均在真实页面输入下复现；第 1、3 条另读取真实 SQLite 保存值，第 1 条刷新确认 |
+| Lab 主题与动效 | nbook、macos、editorial、aurora × nbook-light/nbook-dark 八组合均读到有效主题色；拖影在 body。减少动效前过渡为 `0.16s, 0.16s, 0.16s, 0.16s, 0.1s`、动画 0.1s，启用后均 0s |
+| 390×844 产品页 | 页面 `scrollWidth=380`、`innerWidth=390`；真实拖动活动条目到右栏标签带得到 `move-container`，Escape 取消后源仍在 |
+| `git status --short`（worktree 根） | 无输出；未修改仓库跟踪文件，未 commit、push、stash、切换分支或删除文件 |
+
+浏览器因宿主直启 Chrome 超时，改为显式隔离 Chrome + 内置浏览器 CDP 接入；实验仍使用真实鼠标/键盘，没有直接调用内部拖放函数。产品服务 42683、Lab 42684/42685、隔离 Chrome 42686 已停止。结构化运行读数保存在同目录 `runtime-evidence.json`，截图亦在同目录。
+
+未运行全仓测试、全量 e2e、`docs:check`、`governance:check` 与人工评测。触摸、真实高 DPR 设备及浏览器盒子尺寸变化但指针不移动的重算路径未完成运行核实，不据此另列问题。语言服务器返回 `No language servers configured for this project`；类型检查结果以上表为准。
+
+## 未发现问题的方面
+
+- 计划审查已经收口的自建容器目标重建、最新值上仅清理真正搬空的涉及容器、被动重排不覆盖他窗口的视图归属、半区前提失效整条不写：本次阅读 `patch.ts` 并运行模型/真实 Storage 合同测试，未发现新的具体缺陷，没有重复报告旧意见。
+- `move-view` 的新建容器参数、已有目标与新建目标互斥、来源过期拒绝，以及未知记录保留与 64 KiB 保存失败路径：本次定向合同测试通过。
+- 指针正常迁区、正文边缘并入、投标签创建新容器、源原位点击抑制、键盘导航后提交与焦点恢复、Escape 取消、全收起目标的指针剩余区路径：对应现有 e2e 本次通过。空 Part 的全部组合因上述浏览器崩溃，不能记为全部通过。
+- 拖影与预览复用 nb-ui 反馈皮肤；新组件有同名合同与 Lab 场景，portal/global 理由已经登记。八组合主题、减少动效和窄屏的已测结果见上表；没有基于代码推断宣称完整视觉验收。
+- 自写指针会话、可访问名称与 Tab 区域顺序、普通移动重建目标/几何并入前提检查这四项待确认决定按现行推荐审查，没有重新争论既定取舍。
+
+## 各级数量
+
+| 严重程度 | 数量 |
+|---|---:|
+| 阻断 | 0 |
+| 重要 | 4 |
+| 建议 | 0 |
+| 合计 | 4 |
+
+4 条均有真实运行核实；没有仅靠推断列入数量的发现。
+
