@@ -60,15 +60,19 @@ onBeforeUnmount(() => {
                 <slot name="actions" :container="selected"></slot>
             </div>
         </header>
-        <header v-else-if="part === 'auxiliarybar' && presentation.switcher.length > 0" class="workbench-tool-part__head workbench-tool-part__head--tabs">
-            <Tabs
-                class="workbench-tool-part__tabs"
-                size="sm"
-                :model-value="presentation.selected ?? ''"
-                :items="tabs"
-                :aria-label="label"
-                @update:model-value="(value: string) => emit('select', value)"
-            />
+        <!-- 标签带常驻：没有容器时它仍占着标题行，是“拖到 Switcher”的落点（外壳三输出 20）。 -->
+        <header v-else-if="part === 'auxiliarybar'" class="workbench-tool-part__head workbench-tool-part__head--tabs">
+            <div class="workbench-tool-part__band" :data-switcher-band="part">
+                <Tabs
+                    v-if="tabs.length > 0"
+                    class="workbench-tool-part__tabs"
+                    size="sm"
+                    :model-value="presentation.selected ?? ''"
+                    :items="tabs"
+                    :aria-label="label"
+                    @update:model-value="(value: string) => emit('select', value)"
+                />
+            </div>
             <div v-if="selected !== null && selected.mode === 'single'" class="workbench-tool-part__actions">
                 <slot name="actions" :container="selected"></slot>
             </div>
@@ -83,7 +87,7 @@ onBeforeUnmount(() => {
             data-container-target
             :data-selected-container="selected.id"
         ></div>
-        <div v-else class="workbench-tool-part__empty">{{ emptyText }}</div>
+        <div v-else class="workbench-tool-part__empty" :data-empty-part="part">{{ emptyText }}</div>
     </section>
 </template>
 
@@ -118,6 +122,14 @@ onBeforeUnmount(() => {
 
 .workbench-tool-part__head--tabs {
     padding-inline-start: var(--space-1);
+}
+
+.workbench-tool-part__band {
+    display: flex;
+    flex: 1 1 auto;
+    align-self: stretch;
+    align-items: center;
+    min-width: 0;
 }
 
 .workbench-tool-part__tabs {
@@ -159,6 +171,8 @@ onBeforeUnmount(() => {
 }
 
 .workbench-tool-part__empty {
+    flex: 1 1 auto;
+    min-height: 0;
     padding: var(--space-3);
     color: var(--text-muted);
     font-size: var(--text-xs);

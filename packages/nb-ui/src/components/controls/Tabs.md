@@ -26,6 +26,7 @@
   - `Home` 跳到第一个启用项，`End` 跳到最后一个启用项。
   - 当前值不落在任何启用项内时（例如它指向一个禁用项，或指向已被移除的值），移动起点按第一个启用项算：`ArrowRight` 会落到**第二个**启用项，`ArrowLeft` 落到最后一个。
   - 全部标签都禁用时，方向键与 `Home` / `End` 不做任何事。
+  - `keyboardDisabled` 为真时，方向键与 `Home` / `End` 同样不做任何事（不改选中、不移焦点、不阻止默认行为）：标签栏里的键另有用途时（例如消费方的拖动进行中）由消费方门住。
 - 焦点模型是 roving tabindex：只有选中项 `tabindex="0"`，其余（含禁用项）都是 `-1`，整条标签栏只有一个 Tab 停靠点。
 
 无障碍：容器是 `role="tablist"`，`ariaLabel` 非空时同时设 `aria-label`（默认为空，此时标签栏没有可访问名）；每个标签是 `role="tab"` 并带 `aria-selected`。组件不生成 `id`，也不渲染 `role="tabpanel"` 的内容区：消费方给标签项传 `id` 与 `controls`，组件原样写到标签的 `id` 与 `aria-controls`，内容面板的 `role="tabpanel"`、`aria-labelledby` 与显隐由消费方负责。
@@ -49,6 +50,8 @@ export type TabsItem = {
     id?: string;
     /** 这个标签控制的内容面板 id，写到 aria-controls；默认不设 */
     controls?: string;
+    /** 写到这个标签元素上的额外属性（data-*、aria-roledescription 等）；与组件自己管的属性（role、id、aria-selected、aria-controls、tabindex、disabled、type、data-tab-value）同名时以组件为准 */
+    attrs?: Readonly<Record<string, string>>;
 };
 
 export type TabsSize = "sm" | "md";
@@ -62,6 +65,10 @@ type TabsProps = {
     ariaLabel?: string;
     /** 尺寸；默认 "md" */
     size?: TabsSize;
+    /** 为真时键盘不切换选中项；默认 false */
+    keyboardDisabled?: boolean;
+    /** 每个标签元素挂上时以 (value, 元素)、移除时以 (value, null) 调用；同一元素可能重复报。默认不设 */
+    tabRef?: (value: string, element: HTMLElement | null) => void;
 };
 
 type TabsEmits = {
@@ -70,7 +77,7 @@ type TabsEmits = {
 };
 ```
 
-扩展面：组件不提供任何 slot；不 expose 任何方法或属性；未声明的 attribute、`class`、`style` 按 Vue 默认行为落到**标签栏根节点**上，不是落到单个标签上。
+扩展面：组件不提供任何 slot；不 expose 任何方法或属性；未声明的 attribute、`class`、`style` 按 Vue 默认行为落到**标签栏根节点**上，不是落到单个标签上。要给单个标签加属性用标签项的 `attrs`，要拿到单个标签元素（例如登记为拖动源）用 `tabRef`。
 
 ## 状态
 
@@ -83,7 +90,7 @@ type TabsEmits = {
 
 - 不支持内容面板：不渲染 `tabpanel`；关联用的 `id` 与 `aria-controls` 由消费方经标签项传入，组件不生成。
 - 不支持换行：标签过多时横向滚动，不做多行排列。
-- 不支持关闭按钮、拖拽重排、溢出菜单（没有 `closable` / `draggable` / 「更多」入口）。
+- 不支持关闭按钮、拖拽重排、溢出菜单（没有 `closable` / `draggable` / 「更多」入口）。拖动由消费方经 `tabRef` 与 `attrs` 自己接，组件不认识拖动。
 - 不支持纯图标标签（`label` 必填）与垂直朝向（没有 `orientation`）。
 
 ## 注意事项

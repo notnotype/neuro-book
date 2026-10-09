@@ -52,7 +52,7 @@ const TEXT = {
     ready: {"zh-CN": "工作台已就绪。没有打开项目。", "en-US": "The workbench is ready. No project is open."},
     readyWithProject: {"zh-CN": "工作台已就绪。当前项目：{name}", "en-US": "The workbench is ready. Current project: {name}"},
     panel: {"zh-CN": "面板", "en-US": "Panel"},
-    emptyPart: {"zh-CN": "这里还没有视图", "en-US": "No views here yet"},
+    emptyPart: {"zh-CN": "将视图拖动到此处显示", "en-US": "Drag a view here to show it"},
     emptyContainer: {"zh-CN": "容器里的视图都已隐藏", "en-US": "All views in this container are hidden"},
     activityBar: {"zh-CN": "活动栏", "en-US": "Activity Bar"},
     moveTo: {"zh-CN": "移动到", "en-US": "Move To"},
@@ -254,8 +254,8 @@ const singleViewOf = (container: ContainerPresentation): string | null => (conta
         </template>
         <template #panel="{collapsed}">
             <WorkbenchPanelSurface :title="text(TEXT.panel)" :collapsed="collapsed" :actions="frameActions" @action="run">
-                <template v-if="panelTabs.length > 0" #nav>
-                    <Tabs class="workbench-shell__panel-tabs" size="sm" :model-value="presentation.parts.panel.selected ?? ''" :items="panelTabs" :aria-label="text(TEXT.panel)" @update:model-value="(id: string) => selectContainer('panel', id)" />
+                <template #nav>
+                    <Tabs v-if="panelTabs.length > 0" class="workbench-shell__panel-tabs" size="sm" :model-value="presentation.parts.panel.selected ?? ''" :items="panelTabs" :aria-label="text(TEXT.panel)" @update:model-value="(id: string) => selectContainer('panel', id)" />
                     <WorkbenchMoveViewMenu
                         v-if="selectedOf('panel') !== null && singleViewOf(selectedOf('panel')!) !== null && moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null"
                         :label="text(TEXT.moveTo)"

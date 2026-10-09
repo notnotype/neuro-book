@@ -1,5 +1,5 @@
 /**
- * 外壳二的受控零件（同名 .md）：活动栏、“移动到”菜单、视图外框。菜单走 nb-ui Dropdown 的真实原语与键盘路径。
+ * 外壳的受控零件（同名 .md）：活动栏、“移动到”菜单、工具区域的框、视图外框。菜单走 nb-ui Dropdown 的真实原语与键盘路径。
  */
 
 import {mount} from "@vue/test-utils";
@@ -9,6 +9,7 @@ import {defineComponent, h, nextTick, onBeforeUnmount} from "vue";
 
 import WorkbenchActivityBar from "./WorkbenchActivityBar.vue";
 import WorkbenchMoveViewMenu from "./WorkbenchMoveViewMenu.vue";
+import WorkbenchToolPartHost from "./WorkbenchToolPartHost.vue";
 import WorkbenchViewSection from "./WorkbenchViewSection.vue";
 
 const wrappers: VueWrapper[] = [];
@@ -98,6 +99,25 @@ describe("WorkbenchMoveViewMenu", () => {
         const wrapper = mount(WorkbenchMoveViewMenu, {props: {...base, groups: [], resetLabel: null}});
         wrappers.push(wrapper);
         expect(wrapper.get("[data-move-view]").attributes("disabled")).toBeDefined();
+    });
+});
+
+describe("WorkbenchToolPartHost", () => {
+    const base = {locale: "zh-CN" as const, label: "右栏", emptyText: "将视图拖动到此处显示", idPrefix: "t"};
+
+    it("右栏没有容器：标签带仍在（落点），不出现空的 tablist；空正文显示说明", () => {
+        const wrapper = mount(WorkbenchToolPartHost, {props: {...base, part: "auxiliarybar", presentation: {switcher: [], selected: null, axis: "vertical"}, selected: null}});
+        wrappers.push(wrapper);
+        expect(wrapper.find("[data-switcher-band='auxiliarybar']").exists()).toBe(true);
+        expect(wrapper.find("[role='tablist']").exists()).toBe(false);
+        expect(wrapper.get("[data-empty-part='auxiliarybar']").text()).toBe("将视图拖动到此处显示");
+    });
+
+    it("右栏有容器：标签在标签带里", () => {
+        const switcher = [{containerId: "view:a", title: {"zh-CN": "甲", "en-US": "A"}, icon: "i-a"}];
+        const wrapper = mount(WorkbenchToolPartHost, {props: {...base, part: "auxiliarybar", presentation: {switcher, selected: "view:a", axis: "vertical"}, selected: null}});
+        wrappers.push(wrapper);
+        expect(wrapper.get("[data-switcher-band='auxiliarybar']").find("[role='tab']").text()).toBe("甲");
     });
 });
 

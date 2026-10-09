@@ -202,6 +202,8 @@ test.describe("产品页：测试插件贡献的视图", () => {
         const before = (await customizations(page)).revision;
         await runCommand(page, "移动视图");
         await pick(page, "选择要移动的视图", "样例丙");
+        // 第二步打开后再取消：Escape 早于它到达会落空。
+        await expect(page.getByRole("combobox", {name: "移动到"})).toBeFocused();
         await page.keyboard.press("Escape");
         await expect(page.getByRole("combobox")).toHaveCount(0);
         expect((await customizations(page)).revision).toBe(before);

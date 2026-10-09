@@ -190,7 +190,7 @@ const position = computed({get: () => panel.value.position, set: (value: string 
                 <WorkbenchActivityBar label="活动栏" :containers="activityContainers" :selected="presentation.parts.sidebar.selected" :sidebar-visible="sidebarVisible" @select="selectSidebar" />
             </template>
             <template v-for="part in (['sidebar', 'auxiliarybar'] as const)" :key="part" #[part]>
-                <WorkbenchToolPartHost :part="part" :presentation="presentation.parts[part]" :selected="selectedOf(part)" locale="zh-CN" :label="PART_LABELS[part]" empty-text="这里还没有视图" id-prefix="lab-views" @select="(id) => apply({kind: 'select-container', part, containerId: id})" @target="(element) => setTarget(part, element)">
+                <WorkbenchToolPartHost :part="part" :presentation="presentation.parts[part]" :selected="selectedOf(part)" locale="zh-CN" :label="PART_LABELS[part]" empty-text="将视图拖动到此处显示" id-prefix="lab-views" @select="(id) => apply({kind: 'select-container', part, containerId: id})" @target="(element) => setTarget(part, element)">
                     <template #actions="{container}">
                         <WorkbenchMoveViewMenu v-if="singleViewOf(container) !== null && menuOf(singleViewOf(container)!) !== null" label="移动到" :view-id="singleViewOf(container)!" :source-container-id="menuOf(singleViewOf(container)!)!.source" :groups="menuOf(singleViewOf(container)!)!.groups" :reset-label="menuOf(singleViewOf(container)!)!.resetLabel" :identity="menuOf(singleViewOf(container)!)!.identity" @move="move" @reset="(viewId) => apply({kind: 'reset-view', viewId})" />
                     </template>
@@ -201,11 +201,11 @@ const position = computed({get: () => panel.value.position, set: (value: string 
             </template>
             <template #panel="{collapsed}">
                 <WorkbenchPanelSurface title="面板" :collapsed="collapsed" :actions="[{id: 'collapse', label: '收起', icon: 'i-lucide-chevrons-down', disabled: false, pressed: panel.collapsed}]" @action="panel = {...panel, collapsed: !panel.collapsed}">
-                    <template v-if="panelTabs.length > 0" #nav>
-                        <Tabs class="min-w-0 flex-1" size="sm" :model-value="presentation.parts.panel.selected ?? ''" :items="panelTabs" aria-label="面板" @update:model-value="(id: string) => apply({kind: 'select-container', part: 'panel', containerId: id})" />
+                    <template #nav>
+                        <Tabs v-if="panelTabs.length > 0" class="min-w-0 flex-1" size="sm" :model-value="presentation.parts.panel.selected ?? ''" :items="panelTabs" aria-label="面板" @update:model-value="(id: string) => apply({kind: 'select-container', part: 'panel', containerId: id})" />
                         <WorkbenchMoveViewMenu v-if="singleViewOf(selectedOf('panel')) !== null && menuOf(singleViewOf(selectedOf('panel'))!) !== null" label="移动到" :view-id="singleViewOf(selectedOf('panel'))!" :source-container-id="menuOf(singleViewOf(selectedOf('panel'))!)!.source" :groups="menuOf(singleViewOf(selectedOf('panel'))!)!.groups" :reset-label="menuOf(singleViewOf(selectedOf('panel'))!)!.resetLabel" :identity="menuOf(singleViewOf(selectedOf('panel'))!)!.identity" @move="move" @reset="(viewId) => apply({kind: 'reset-view', viewId})" />
                     </template>
-                    <WorkbenchToolPartHost part="panel" :presentation="presentation.parts.panel" :selected="selectedOf('panel')" locale="zh-CN" label="面板" empty-text="这里还没有视图" id-prefix="lab-views" @select="(id) => apply({kind: 'select-container', part: 'panel', containerId: id})" @target="(element) => setTarget('panel', element)" />
+                    <WorkbenchToolPartHost part="panel" :presentation="presentation.parts.panel" :selected="selectedOf('panel')" locale="zh-CN" label="面板" empty-text="将视图拖动到此处显示" id-prefix="lab-views" @select="(id) => apply({kind: 'select-container', part: 'panel', containerId: id})" @target="(element) => setTarget('panel', element)" />
                 </WorkbenchPanelSurface>
             </template>
             <template #statusbar>

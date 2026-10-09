@@ -24,7 +24,7 @@ const emit = defineEmits<{
 }>();
 
 defineSlots<{
-    /** 标题行左侧的导航（容器标签带）；不给时显示标题。 */
+    /** 标题行左侧的导航（容器标签带）；不给或什么都没渲染时显示标题。 */
     nav?(): unknown;
     default?(): unknown;
 }>();
@@ -33,10 +33,15 @@ defineSlots<{
 <template>
     <section class="workbench-panel-surface" :aria-label="title" :data-panel-collapsed="collapsed ? 'true' : 'false'">
         <header class="workbench-panel-surface__head">
-            <div v-if="$slots.nav" class="workbench-panel-surface__nav" tabindex="-1" data-shell-focus-target="panel-title">
-                <slot name="nav"></slot>
+            <!--
+                导航区常驻，占着标题行里框架按钮之外的部分：它是“拖到 Switcher”的落点（外壳三输出 20），面板里没有容器、
+                槽里什么都没渲染时也在，这时回落显示标题。
+            -->
+            <div class="workbench-panel-surface__nav" tabindex="-1" data-shell-focus-target="panel-title" data-switcher-band="panel">
+                <slot name="nav">
+                    <h2 class="workbench-panel-surface__title">{{ title }}</h2>
+                </slot>
             </div>
-            <h2 v-else class="workbench-panel-surface__title" tabindex="-1" data-shell-focus-target="panel-title">{{ title }}</h2>
             <div class="workbench-panel-surface__actions">
                 <IconButton
                     v-for="action in actions"
@@ -106,9 +111,8 @@ defineSlots<{
     overflow: hidden;
 }
 
-/* 标题与导航区是可编程聚焦的落点（最大化时外壳把焦点交给它），不是交互控件，不画焦点环。 */
-.workbench-panel-surface__nav:focus,
-.workbench-panel-surface__title:focus {
+/* 导航区是可编程聚焦的落点（最大化时外壳把焦点交给它），不是交互控件，不画焦点环。 */
+.workbench-panel-surface__nav:focus {
     outline: none;
 }
 

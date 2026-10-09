@@ -521,6 +521,38 @@ describe("nb-ui new primitives", () => {
         wrapper.unmount();
     });
 
+    it("exposes each tab element and per-tab attrs; keyboardDisabled leaves arrow keys alone", async () => {
+        const seen = new Map<string, HTMLElement | null>();
+        const wrapper = mount(Tabs, {
+            props: {
+                modelValue: "a",
+                items: [
+                    {value: "a", label: "A", attrs: {"data-drag": "a", role: "button"}},
+                    {value: "b", label: "B"},
+                ],
+                tabRef: (value: string, element: HTMLElement | null) => seen.set(value, element),
+            },
+            attachTo: document.body,
+        });
+        const tabs = wrapper.findAll("[role='tab']");
+        expect(seen.get("a")).toBe(tabs[0]?.element);
+        expect(seen.get("b")).toBe(tabs[1]?.element);
+        // 组件自己管的属性不被覆盖。
+        expect(tabs[0]?.attributes("data-drag")).toBe("a");
+        expect(tabs[0]?.attributes("role")).toBe("tab");
+
+        await wrapper.setProps({keyboardDisabled: true});
+        await wrapper.get("[role='tablist']").trigger("keydown", {key: "ArrowRight"});
+        expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+        await wrapper.setProps({keyboardDisabled: false});
+        await wrapper.get("[role='tablist']").trigger("keydown", {key: "ArrowRight"});
+        expect(wrapper.emitted("update:modelValue")?.[0]).toEqual(["b"]);
+
+        await wrapper.setProps({items: [{value: "a", label: "A"}]});
+        expect(seen.get("b")).toBeNull();
+        wrapper.unmount();
+    });
+
     it("keeps the tabs indicator inside the scroll box", () => {
         // tablist 是 overflow-x-auto，而 CSS 规定另一轴的 visible 会跟着计算成 auto。
         // 指示线只要有 1px 落在 padding box 外，26px 高的标签栏就会多出一条竖向滚动条。

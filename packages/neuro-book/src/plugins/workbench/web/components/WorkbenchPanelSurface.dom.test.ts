@@ -28,6 +28,15 @@ describe("WorkbenchPanelSurface", () => {
         expect(wrapper.attributes("aria-label")).toBe("面板");
     });
 
+    it("导航区常驻（拖到 Switcher 的落点）：导航槽渲染了内容时显示它，什么都没渲染时回落显示标题", () => {
+        const withTabs = mount(WorkbenchPanelSurface, {props: {title: "面板"}, slots: {nav: () => h("div", {role: "tablist"}, "标签")}});
+        expect(withTabs.get("[data-switcher-band='panel']").text()).toBe("标签");
+        const empty = mount(WorkbenchPanelSurface, {props: {title: "面板"}, slots: {nav: () => []}});
+        expect(empty.get("[data-switcher-band='panel']").text()).toBe("面板");
+        withTabs.unmount();
+        empty.unmount();
+    });
+
     it("收起时内容区隐藏但不卸载", async () => {
         let unmounted = 0;
         const Content = defineComponent({setup: () => {
