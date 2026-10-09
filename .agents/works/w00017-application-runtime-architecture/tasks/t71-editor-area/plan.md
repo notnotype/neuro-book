@@ -143,7 +143,12 @@
 | files-explorer 验收 9：删除 | Bun：dirty 与未裁决输入列入；DOM 列表、默认取消；e2e 删除 dirty 文件的确认与关闭 |
 | files 验收 1 | e2e：打开、输入、Ctrl+S；读磁盘字节；第二个页面（另一窗口的 Files 客户端）打开同一文件看到新正文 |
 | files 验收 4 | Bun `documents.test.ts`：外部写入后保存得到冲突；扣住保存期间输入，完成后仍 dirty |
-| editor.md 各条目与场景（S0 写定编号） | 逐条映射到上面三层，S0 提交时把映射表补进本节 |
+| editor.md 输出 1–5（组与标签、持久化） | Bun `groups.test.ts`；DOM `EditorTabBar`/`EditorGroup`；e2e 场景 1、8 |
+| editor.md 输出 6–10（打开与切换、撤销恢复） | Bun 意图序号与迟到；DOM 手动时钟 799/800 ms；e2e 场景 9 |
+| editor.md 输出 11–18（读取与监视、回执与未裁决输入、保存队列、冲突、回声核对、改名、删除与重建、resync/ended） | Bun `documents.test.ts`（每条一组，Files 场地 + 闸门）；e2e 场景 3、4、6、11 |
+| editor.md 输出 19–20（编辑器、字节保持） | Bun `source-merge.test.ts` 与方言往返；e2e 场景 5 |
+| editor.md 输出 21–22（离开、终态抢救） | DOM 离开确认的结算；`window.test.ts` 的抢救收集；e2e 场景 10 |
+| editor.md 输出 23–25（资源管理器结算） | 见上面 files-explorer 验收 9 三行；e2e 场景 7 |
 | Markdown 字节保持 | Bun：合并与往返（CRLF、BOM、无尾换行、frontmatter、`*` 列表、标准 ruby、硬换行、链接、方言全集）；e2e：打开不编辑字节不变；编辑一段后保存只那一段变化 |
 | 撤销与视图状态 | e2e：Monaco 与 Tiptap 各一例 A 输入 → B 输入 → 回 A 撤销与重做互不串；两组同文档各自撤销 |
 

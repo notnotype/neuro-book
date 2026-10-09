@@ -121,12 +121,12 @@ owners:
 
 | 命令 id | 标题 | 参数 | `when` | `effect` | agent 暴露 | 提供方 |
 |---|---|---|---|---|---|---|
-| `nbook.editor.focus` | 聚焦编辑器 / Focus Editor | `{}` | 活动编辑器 | read | auto | 编辑器（第 5 步编辑器插件迁入前由 Lab 命令场景在样板编辑器上登记） |
+| `nbook.editor.focus` | 聚焦编辑器 / Focus Editor | `{}` | 活动编辑器 | read | auto | `nbook.editor`（[workbench.editor](editor.md)，planned；此前由 Lab 命令场景在样板编辑器上登记） |
 | `nbook.edit.undo` | 撤销 / Undo | `{}` | 活动编辑器且可写 | write | confirm | 同上 |
 | `nbook.edit.redo` | 重做 / Redo | `{}` | 活动编辑器且可写 | write | never | 同上 |
 | `nbook.editor.go-to-line` | 跳转到行 / Go to Line | `{target, line}`（`target` 为编辑器文档身份四字段，`line` 为 1 起正整数） | 活动编辑器且支持行导航 | read | auto | 同上 |
 | `nbook.quick-open.open-commands` | 命令面板 / Command Palette | `{}` | 无 | read | never | `nbook.workbench`（产品命令表）；Lab 命令场景另登记一份 |
-| `nbook.quick-open.open-line` | 跳转到行… / Go to Line… | `{}` | 活动编辑器且支持行导航 | read | never | 随编辑器插件接入；现阶段只在 Lab 命令场景登记 |
+| `nbook.quick-open.open-line` | 跳转到行… / Go to Line… | `{}` | 活动编辑器且支持行导航 | read | never | `nbook.workbench`（命令面板的行号模式，planned）；现阶段只在 Lab 命令场景登记 |
 
 ### 命令目录（项目）
 
@@ -194,6 +194,10 @@ owners:
 - 树内按键不是命令声明里的默认键位：由资源管理器的树在自己拥有焦点时处理并执行这条命令（宿主的键位分发是全局的，`Delete` 不能在树之外删文件）。从命令面板执行时作用于当前选择，不要求树有焦点。
 - 资源管理器尚未打开时为 `unavailable`；需要界面输入的命令（新建、改名、展示名、带碰撞的粘贴、删除）还要求视图已挂上且可见。
 - `when` 只表示有没有可作用的选择；执行时再按选择核对（例如选中项里有根行时改名不可用），不合格返回 `unavailable` 与原因。
+
+### 命令目录（编辑器）（planned）
+
+由 `nbook.editor` 的浏览器入口贡献，作用于活动编辑组的活动标签；参数、`when`、`effect`、Agent 暴露与编辑器区内的键位见 [workbench.editor](editor.md#输入与前置条件)：`nbook.editor.open`、`save`、`save-all`、`revert`、`close`、`close-others`、`split-right`、`split-down`、`reopen-with`。第一批的四条编辑器命令同时由它登记，`when` 改用公开键 `nbook.editor/active`、`nbook.editor/writable`、`nbook.editor/lineNavigation`；Lab 命令场景改以 `lab.` 前缀的 id 登记样板编辑器自己的命令。
 
 ### 上下文键（第一批）
 
@@ -263,7 +267,7 @@ owners:
   - 命令面板见 [`workbench.quick-open`](quick-open.md)。
 - Lab 命令场景 `packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/`：
   - `lab-command-scene.ts` 是局部宿主：本地命令表、确认闸门、审计转 Lab 事件，切场景即释放。
-  - `editor-commands.ts` 是四条编辑器命令，第 5 步随编辑器插件迁走。
+  - `editor-commands.ts` 是四条编辑器命令，随 `nbook.editor`（planned）改为 `lab.` 前缀的样板命令。
   - `SampleTextEditor.vue` 是 textarea 样板编辑器，`LabCommandInspector.vue` 是命令检视。
 
 ## 证据

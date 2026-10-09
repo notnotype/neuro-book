@@ -17,7 +17,7 @@ owners:
 
 **非目标**：
 
-- 编辑器分组与文档标签：归编辑器插件（选型未定），外壳只提供稳定的编辑器内容槽。旧应用的 EditorWorkbench 拖放行为表不在本 Spec，编辑器插件立项时从归档的旧口径 Spec（[`docs/archived/specs/ui/workbench-shell.md`](../../archived/specs/ui/workbench-shell.md)）取回。
+- 编辑器分组与文档标签：归编辑器插件（[workbench.editor](../workbench/editor.md)），外壳只提供稳定的编辑器内容槽。槽的内容由贡献点 `workbench.editor-area` 提供：声明 `{order}`，实现 `{load(): Promise<Component>}`，组件收到只读的 `context.visible`；外壳取 `order` 最小的一个挂一次，布局变化时停放不重挂，第二个提供者记诊断、不挂，没有贡献时显示欢迎文字（planned）。旧应用的 EditorWorkbench 拖放行为表不在本 Spec，编辑器拖放立项时从归档的旧口径 Spec（[`docs/archived/specs/ui/workbench-shell.md`](../../archived/specs/ui/workbench-shell.md)）取回。
 - 插件面向的视图合同（`workbench.views` 的声明、实例生命周期、撤回与失败）：见 [workbench.views](../workbench/views.md)，随外壳二实现。
 - 标题栏的应用菜单、搜索与桌面窗口控制；状态栏与标题栏条目的贡献点；跨窗口浮动；第三方可执行插件。
 - 不读写领域数据（项目文件、会话、历史），不建第二套 resize 边界或第二套布局存储。
