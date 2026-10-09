@@ -34,6 +34,6 @@ type Emits = {
 
 ## 交互
 
-`role="tablist"`，标签是 `role="tab"` 的按钮，只有活动标签在 Tab 顺序里（roving tabindex）。←/→ 换到相邻标签（循环）并激活，Home/End 到首末，Delete 关闭当前标签，Alt+←/→ 移动；中键点击关闭。关闭按钮不进 Tab 顺序，键盘用 Delete。标签放不下时横向滚动。
+`role="tablist"`，标签是 `role="tab"` 的按钮，只有活动标签在 Tab 顺序里（roving tabindex）。←/→ 换到相邻标签（循环）并激活，Home/End 到首末，Delete 关闭当前标签，Alt+←/→ 移动；中键点击关闭。关闭按钮不进 Tab 顺序，键盘用 Delete。标签放不下时横向滚动；活动标签换了（新打开、键盘切换）时滚到它完整可见。
 
 `state:local`：标签列表元素的引用，用来在键盘切换后把焦点放到新的活动标签上。

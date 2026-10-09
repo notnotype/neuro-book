@@ -375,6 +375,15 @@ test("Markdown 的撤销历史属于各组：拆分之后原组仍能撤销拆�
     // 拆分后新组是活动组、焦点在它里面：原组重挂不把焦点与活动组抢回去。
     await expect(page.locator("[data-editor-group]").nth(1)).toHaveAttribute("data-editor-group-active", "");
     await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[data-editor-group]")?.getAttribute("data-editor-group-active"))).toBe("");
+    // 窄组里标签放不下：新打开的标签滚到完整可见。
+    for (const name of ["a.md", "b.md", "c.md", "d.md"]) await item(page, `project://notes/${name}`).dblclick();
+    const strip = page.locator("[data-editor-group-active] [data-editor-tabs]");
+    await expect.poll(() => strip.evaluate((element) => {
+        const active = element.querySelector("[data-editor-tab][aria-selected=\"true\"]")?.parentElement?.getBoundingClientRect();
+        const view = element.getBoundingClientRect();
+        return active !== undefined && active.left >= view.left - 0.5 && active.right <= view.right + 0.5 && element.scrollWidth > element.clientWidth;
+    })).toBe(true);
+    await page.locator("[data-editor-group-active] [data-editor-tab]", {hasText: "u.md"}).click();
     await atEnd(page, left);
     await page.keyboard.press("Control+z");
     await expect(left).toHaveText("基线");

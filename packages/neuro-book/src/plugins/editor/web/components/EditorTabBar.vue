@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 编辑组的标签条（同名 .md）。 */
-import {nextTick, ref} from "vue";
+import {nextTick, ref, watch} from "vue";
 
 export interface TabItem {
     readonly id: string;
@@ -21,6 +21,23 @@ const emit = defineEmits<{
 }>();
 
 const list = ref<HTMLElement | null>(null);
+
+// 活动标签换了（新打开、键盘切换）：横向滚到它完整可见；只动标签条自己的滚动，不牵动页面。
+watch(() => props.tabs.find((tab) => tab.active)?.id, (id) => {
+    if (id === undefined) return;
+    // 等下一帧再量：新标签刚插入时宽度还没落定，太早量会差几像素。
+    void nextTick(() => requestAnimationFrame(() => {
+        const strip = list.value;
+        // 整个标签（含关闭按钮）的外框。
+        const tab = strip?.querySelector<HTMLElement>(`[data-editor-tab="${id}"]`)?.parentElement;
+        if (strip === null || strip === undefined || tab === null || tab === undefined) return;
+        const box = tab.getBoundingClientRect();
+        const view = strip.getBoundingClientRect();
+        // 滚动量向外取整：`scrollLeft` 会被截到整像素，差的零点几像素会让标签边缘仍被裁掉。
+        if (box.left < view.left) strip.scrollLeft -= Math.ceil(view.left - box.left);
+        else if (box.right > view.right) strip.scrollLeft += Math.ceil(box.right - view.right);
+    }));
+}, {immediate: true});
 
 const focusTab = (index: number): void => {
     const tab = props.tabs[(index + props.tabs.length) % props.tabs.length];
