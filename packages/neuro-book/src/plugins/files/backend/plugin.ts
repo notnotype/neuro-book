@@ -26,6 +26,8 @@ import {createChangeHub} from "./changes";
 import type {ChangeHub} from "./changes";
 import {createFilesService} from "./files-service";
 import type {FilesService} from "./files-service";
+import {createBatch} from "./batch";
+import type {Batch, BatchControl} from "./batch";
 import {createOperations} from "./operations";
 import type {Operations} from "./operations";
 import {openRoot} from "./rooted";
@@ -53,14 +55,30 @@ async function tracked<T>(scope: Scope, label: string, run: () => Promise<T>): P
 interface Backend {
     readonly service: FilesService;
     readonly operations: Operations;
+    readonly batch: Batch;
     readonly changes: ChangeHub;
     readonly scope: Scope;
 }
 
 /** 两份合同的方法与事件相同，实现也相同；`consumer` 是内核填写的调用方身份，写入来源由它确定。 */
 function implementation(backend: Backend, consumer: ConsumerIdentity): RemoteImplementation<typeof userFilesContract> {
-    const {service, operations, changes, scope} = backend;
+    const {service, operations, batch, changes, scope} = backend;
     const source = sourceOf(consumer);
+    /**
+     * 这个调用方在途的批量：门面按调用方生成，别的窗口命中不了这里的操作 id。同一 id 正在执行时再发为 `busy`，
+     * 结算后删除。
+     */
+    const active = new Map<string, BatchControl>();
+    const run = async <T>(operation: string, signal: AbortSignal, label: string, body: (control: BatchControl) => Promise<T>): Promise<T | {readonly ok: false; readonly code: "busy"; readonly detail: {readonly detail: string}}> => {
+        if (active.has(operation)) return {ok: false, code: "busy", detail: {detail: `操作 ${operation} 正在执行`}};
+        const control: BatchControl = {operation, cancelled: false, signal};
+        active.set(operation, control);
+        try {
+            return await tracked(scope, label, () => body(control));
+        } finally {
+            active.delete(operation);
+        }
+    };
     return {
         methods: {
             list: (input) => service.list(input.path),
@@ -80,6 +98,14 @@ function implementation(backend: Backend, consumer: ConsumerIdentity): RemoteImp
             display: (input) => tracked(scope, "files.display", () => operations.display(input, source)),
             include: (input) => tracked(scope, "files.include", () => operations.include(input, source)),
             drop: (input) => tracked(scope, "files.drop", () => operations.drop(input, source)),
+            move: (input, {signal}) => run(input.operation, signal, "files.move", (control) => batch.transfer("move", input.items, source, control)),
+            copy: (input, {signal}) => run(input.operation, signal, "files.copy", (control) => batch.transfer("copy", input.items, source, control)),
+            delete: (input, {signal}) => run(input.operation, signal, "files.delete", (control) => batch.remove(input.items, source, control)),
+            cancel: async (input) => {
+                const control = active.get(input.operation);
+                if (control !== undefined) control.cancelled = true;
+                return {ok: true, value: {found: control !== undefined}};
+            },
         },
         events: {
             changes: {
@@ -108,7 +134,13 @@ function rootEntry(location: "server" | "project", contract: FilesContract, loca
             const changes = createChangeHub({root, controlDirectory: placed.options.controlDirectory, clock: context.services.require(clockKey), record});
             context.scope.register({kind: "files-changes", label: `${descriptor.id} ${location}`, value: changes, release: (value) => value.close()});
             const operations = createOperations({root, changes, diagnose: (event, detail, cause) => record("warn", event, detail, {cause})});
-            const backend: Backend = {service, operations, changes, scope: context.scope};
+            const batch = createBatch({
+                root,
+                changes,
+                diagnose: (event, detail, cause) => record("warn", event, detail, {cause}),
+                stopped: (operation, detail) => record("info", "files.batch.stopped", detail, {operation}),
+            });
+            const backend: Backend = {service, operations, batch, changes, scope: context.scope};
             return {remote: [provideRemote(contract, (consumer) => implementation(backend, consumer))]};
         },
     });

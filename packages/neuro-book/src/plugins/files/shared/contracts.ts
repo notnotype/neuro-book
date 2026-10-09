@@ -133,7 +133,31 @@ export type ManifestIssue = Static<typeof ManifestIssueSchema>;
 const DoneSchema = Type.Object({manifests: Type.Optional(Type.Array(ManifestIssueSchema, {maxItems: 2}))}, {additionalProperties: false});
 export type OperationDone = Static<typeof DoneSchema>;
 
+/** 部分完成的范围：路径装不下一条消息时清空并标 `truncated`，调用方重新列出核对。 */
+const RangeSchema = Type.Object({paths: Type.Array(Type.String()), truncated: Type.Boolean()}, {additionalProperties: false});
+const Manifests = Type.Optional(Type.Array(ManifestIssueSchema, {maxItems: 2}));
+
+/** 批量的一项结果，与输入按下标对齐（docs/specs/workspace/files.md 的“逐项结果”）。 */
+const ItemResultSchema = Type.Union([
+    Type.Object({status: Type.Literal("done"), manifests: Manifests}, {additionalProperties: false}),
+    Type.Object({
+        status: Type.Literal("failed"),
+        code: Type.String(),
+        detail: Type.String(),
+        partial: Type.Optional(Type.Object({removed: Type.Optional(RangeSchema), residual: Type.Optional(RangeSchema)}, {additionalProperties: false})),
+        manifests: Manifests,
+    }, {additionalProperties: false}),
+    Type.Object({status: Type.Literal("skipped"), reason: Type.Union([Type.Literal("duplicate"), Type.Literal("covered")])}, {additionalProperties: false}),
+    Type.Object({status: Type.Literal("not-run"), reason: Type.Union([Type.Literal("root-gone"), Type.Literal("stopped")])}, {additionalProperties: false}),
+    Type.Object({status: Type.Literal("cancelled")}, {additionalProperties: false}),
+]);
+export type ItemResult = Static<typeof ItemResultSchema>;
+
+const BatchSchema = Type.Object({items: Type.Array(ItemResultSchema)}, {additionalProperties: false});
+export type BatchResult = Static<typeof BatchSchema>;
+
 const Expected = Type.Optional(Type.String());
+const Operation = Type.String({minLength: 1, maxLength: 64});
 const Name = Type.String();
 const Display = Type.Optional(Type.Union([Type.String(), Type.Null()]));
 
@@ -150,6 +174,11 @@ const methods = {
     display: {input: Type.Object({path: Type.String(), title: Display, icon: Display}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
     include: {input: Type.Object({path: Type.String(), before: Type.Optional(Name)}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
     drop: {input: PathInput, output: DoneSchema, effect: "write", errors},
+    move: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({source: Type.String(), target: Type.String(), expected: Expected}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
+    copy: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({source: Type.String(), target: Type.String(), expected: Expected}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
+    delete: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({path: Type.String(), expected: Expected}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
+    /** 只命中同一调用方在途的批量；不等批量结束。 */
+    cancel: {input: Type.Object({operation: Operation}, {additionalProperties: false}), output: Type.Object({found: Type.Boolean()}, {additionalProperties: false}), effect: "write", errors},
 } as const;
 
 /** 写入来源（docs/specs/workspace/resources.md 的“写入来源”）。 */
@@ -207,6 +236,22 @@ export type FilesResult<T> =
  */
 export type WatchMessage = ChangesMessage;
 
+export interface BatchTransfer {
+    readonly source: string;
+    readonly target: string;
+    /** `identify` 的令牌：源被替换或移走时该项为 `source-changed`。 */
+    readonly expected?: string;
+}
+
+/**
+ * 一次批量：`result` 是逐项结果；`cancel` 让它在项与项之间停下（正在执行的项做完，已完成的不回滚），回答是否命中了
+ * 在途的批量。操作 id 与方案都在句柄里。
+ */
+export interface BatchHandle {
+    readonly result: Promise<FilesResult<BatchResult>>;
+    cancel(): Promise<FilesResult<{readonly found: boolean}>>;
+}
+
 export interface FilesService {
     list(address: string, options?: {readonly signal?: AbortSignal}): Promise<FilesResult<Listing>>;
     read(address: string, options?: {readonly signal?: AbortSignal}): Promise<FilesResult<FileText>>;
@@ -230,6 +275,12 @@ export interface FilesService {
     include(address: string, options?: {readonly before?: string}): Promise<FilesResult<OperationDone>>;
     /** 只改清单：移除一个条目，不动磁盘。 */
     drop(address: string): Promise<FilesResult<OperationDone>>;
+    /** 批量移动：源与目标是完整地址，必须同一方案；目标已存在为该项冲突，不覆盖、不合并。立即返回句柄。 */
+    move(items: ReadonlyArray<BatchTransfer>): BatchHandle;
+    /** 批量复制，规则同移动；源不变。 */
+    copy(items: ReadonlyArray<BatchTransfer>): BatchHandle;
+    /** 批量删除。 */
+    delete(items: ReadonlyArray<{readonly address: string; readonly expected?: string}>): BatchHandle;
     /** 订阅一个方案的变更：同一窗口同一方案共用一条远程订阅。返回释放函数（幂等），释放后不再有回调。 */
     watch(scheme: Scheme, listener: (message: WatchMessage) => void): () => void;
 }

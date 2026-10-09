@@ -34,7 +34,7 @@ export type EntryResult = {readonly ok: true} | EntryFailure;
 export interface CopyOptions {
     /** 单个文件先复制到这个临时名（同目录、带实例标记，监视不把它当外部变化），再排他改名到目标。 */
     readonly temporaryPath: (file: string) => string;
-    /** 每产生一个目录项（复制完成之后）回调一次：回声登记用。 */
+    /** 每产生一个目录项回调一次（目录在建好时，文件与链接在写完时）：回声登记用，中途失败时已产生的也都报过。 */
     readonly created?: (absolute: string, path: string) => void;
 }
 
@@ -89,6 +89,7 @@ export async function copyEntry(entry: ResolvedEntry, slot: ResolvedSlot, option
     } catch (error) {
         return failure(error, `新建 ${slot.path}`);
     }
+    options.created?.(slot.absolute, slot.path);
     const copied = await copyTree(entry.absolute, entry.stats, slot.absolute, slot.path, entry.path, options);
     if (copied.ok) return copied;
     // 目标目录是本次排他创建的，里面已有的东西都是这次复制产生的：留在原处，整棵报告为残留。
@@ -183,6 +184,7 @@ async function copyTree(source: string, stats: Stats, target: string, path: stri
         } else if (child.isDirectory()) {
             try {
                 await mkdir(to);
+                options.created?.(to, childPath);
                 copied = await copyTree(from, child, to, childPath, childSource, options);
             } catch (error) {
                 copied = failure(error, `复制 ${childSource}`);
@@ -197,7 +199,6 @@ async function copyTree(source: string, stats: Stats, target: string, path: stri
     } catch (error) {
         return failure(error, `设置 ${path} 的权限`);
     }
-    options.created?.(target, path);
     return {ok: true};
 }
 

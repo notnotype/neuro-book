@@ -185,6 +185,8 @@ function attributesOf(node: OrderedNode): Record<string, string> {
     return (node[":@"] ?? {}) as Record<string, string>;
 }
 
+/** 没有 XML 声明时构建器在第一个元素前多出空行。 */
 function finish(text: string): string {
-    return text.endsWith("\n") ? text : `${text}\n`;
+    const trimmed = text.replace(/^\n+/u, "");
+    return trimmed.endsWith("\n") ? trimmed : `${trimmed}\n`;
 }

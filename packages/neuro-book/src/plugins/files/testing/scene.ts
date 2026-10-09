@@ -9,6 +9,7 @@ import {mkdir, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
+import type {Application} from "@notnotype/nb-runtime/application";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {definitionAt} from "nbook/manifest";
@@ -66,6 +67,8 @@ export interface Scene {
     readonly user: string;
     readonly hub: Probe;
     readonly inProject: Probe;
+    /** 项目实例 `P#1`：停止它即提供入口停止。 */
+    readonly projectApp: Application;
     readonly window: Probe;
     /** 窗口 `w1` 的链路：断线与重连。 */
     readonly windowLink: WorldWindow;
@@ -88,10 +91,10 @@ export async function filesScene(root: string, layout: {readonly project?: Layou
     const world = await settingsWorld(root, [definitionAt("server", descriptor, filesBackendPlugin), probePlugin("x.hub", "server", hub)]);
     try {
         const inProject = probe();
-        await world.project(1, [definitionAt("project", descriptor, filesBackendPlugin), probePlugin("x.project", "project", inProject)]);
+        const projectApp = await world.project(1, [definitionAt("project", descriptor, filesBackendPlugin), probePlugin("x.project", "project", inProject)]);
         const window = probe();
         const windowLink = await world.window("w1", [definitionAt("browser", descriptor, filesBrowserPlugin), probePlugin("x.explorer", "browser", window)]);
-        return {world, root, project, user, hub, inProject, window, windowLink};
+        return {world, root, project, user, hub, inProject, projectApp, window, windowLink};
     } catch (error) {
         await world.close();
         throw error;
