@@ -14,7 +14,7 @@ import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
-import type {InstanceDescriptor, RemoteRouter} from "@notnotype/nb-runtime/remote";
+import type {InstanceDescriptor, RemoteLink, RemoteRouter} from "@notnotype/nb-runtime/remote";
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 
 import {definitionAt, delegatingPlugins} from "nbook/manifest";
@@ -46,9 +46,10 @@ export interface SettingsWorld {
     project(generation: number, plugins: ReadonlyArray<PluginDefinition>): Promise<Application>;
     /**
      * `connected: false`：链路建好后、实例激活前就断开（首次订阅失败）。`quickPick`：给窗口一个选择服务，并装上带
-     * “切换界面语言”入口的完整 `nbook.settings`（产品里选择服务由工作台提供）。
+     * “切换界面语言”入口的完整 `nbook.settings`（产品里选择服务由工作台提供）。`wrapLink`：包住窗口这一端的链路（每次
+     * 连接与重连都包），测试据此观察发出的请求或推迟结果的交付。
      */
-    window(id: string, plugins: ReadonlyArray<PluginDefinition>, options?: {readonly bound?: boolean; readonly connected?: boolean; readonly quickPick?: QuickPick}): Promise<WorldWindow>;
+    window(id: string, plugins: ReadonlyArray<PluginDefinition>, options?: {readonly bound?: boolean; readonly connected?: boolean; readonly quickPick?: QuickPick; readonly wrapLink?: (link: RemoteLink) => RemoteLink}): Promise<WorldWindow>;
     close(): Promise<ReadonlyArray<StopResult>>;
 }
 
@@ -149,9 +150,10 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
         window: async (id, plugins, windowOptions = {}) => {
             const bound = windowOptions.bound ?? true;
             const node = createRemoteNode({instance: {id, kind: "browser", role: "client", project: null, client: `client-${id}`}, bind: bound ? {project: "book"} : null, clock});
+            const wrap = windowOptions.wrapLink ?? ((link: RemoteLink) => link);
             let pair = createLinkPair();
             router.accept(pair.right);
-            const connected = await node.connect(pair.left);
+            const connected = await node.connect(wrap(pair.left));
             if (!connected.ok) throw new Error(`窗口 ${id} 连不上路由：${JSON.stringify(connected)}`);
             const link = linkState();
             link.set("online");
@@ -184,7 +186,7 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
                 reconnect: async () => {
                     pair = createLinkPair();
                     router.accept(pair.right);
-                    const result = await node.connect(pair.left);
+                    const result = await node.connect(wrap(pair.left));
                     if (result.ok) link.set("online");
                     return result;
                 },

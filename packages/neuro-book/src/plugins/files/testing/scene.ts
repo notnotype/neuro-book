@@ -11,6 +11,7 @@ import {dirname, join} from "node:path";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {Application} from "@notnotype/nb-runtime/application";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {RemoteLink} from "@notnotype/nb-runtime/remote";
 
 import {definitionAt} from "nbook/manifest";
 import {settingsWorld} from "nbook/plugins/settings/testing/world";
@@ -76,8 +77,15 @@ export interface Scene {
 
 export type Layout = Readonly<Record<string, string | Uint8Array>>;
 
+export interface SceneOptions {
+    /** 窗口 `w1` 的额外插件（例如要测的界面插件）。 */
+    readonly windowPlugins?: ReadonlyArray<PluginDefinition>;
+    /** 包住窗口 `w1` 的链路（见 `tap.ts`）。 */
+    readonly wrapLink?: (link: RemoteLink) => RemoteLink;
+}
+
 /** 在 `root` 下写好文件（相对项目目录或用户资产根）后起三个实例；场地由调用方在用例结束时 `close()`。 */
-export async function filesScene(root: string, layout: {readonly project?: Layout; readonly user?: Layout} = {}): Promise<Scene> {
+export async function filesScene(root: string, layout: {readonly project?: Layout; readonly user?: Layout} = {}, options: SceneOptions = {}): Promise<Scene> {
     const project = join(root, "Book");
     const user = join(root, "state", "user");
     await mkdir(project, {recursive: true});
@@ -93,7 +101,7 @@ export async function filesScene(root: string, layout: {readonly project?: Layou
         const inProject = probe();
         const projectApp = await world.project(1, [definitionAt("project", descriptor, filesBackendPlugin), probePlugin("x.project", "project", inProject)]);
         const window = probe();
-        const windowLink = await world.window("w1", [definitionAt("browser", descriptor, filesBrowserPlugin), probePlugin("x.explorer", "browser", window)]);
+        const windowLink = await world.window("w1", [definitionAt("browser", descriptor, filesBrowserPlugin), probePlugin("x.explorer", "browser", window), ...(options.windowPlugins ?? [])], options.wrapLink === undefined ? {} : {wrapLink: options.wrapLink});
         return {world, root, project, user, hub, inProject, projectApp, window, windowLink};
     } catch (error) {
         await world.close();
@@ -102,8 +110,9 @@ export async function filesScene(root: string, layout: {readonly project?: Layou
 }
 
 /** 在场景里再起一个绑定同一项目的窗口，测试插件为 `id`。 */
-export async function extraWindow(scene: Scene, id: string, options: {readonly bound?: boolean} = {}): Promise<Probe> {
+export async function extraWindow(scene: Scene, id: string, options: {readonly bound?: boolean; readonly plugins?: ReadonlyArray<PluginDefinition>} = {}): Promise<Probe> {
     const extra = probe();
-    await scene.world.window(id, [definitionAt("browser", descriptor, filesBrowserPlugin), probePlugin(`x.${id}`, "browser", extra)], options);
+    const {plugins = [], ...windowOptions} = options;
+    await scene.world.window(id, [definitionAt("browser", descriptor, filesBrowserPlugin), probePlugin(`x.${id}`, "browser", extra), ...plugins], windowOptions);
     return extra;
 }
