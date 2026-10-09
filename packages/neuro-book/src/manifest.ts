@@ -10,6 +10,7 @@ import type {PluginDefinition, PluginDescriptor} from "@notnotype/nb-runtime/plu
 
 import {descriptor as commands} from "./plugins/commands/plugin";
 import {descriptor as diagnostics} from "./plugins/diagnostics/plugin";
+import {descriptor as files} from "./plugins/files/plugin";
 import {descriptor as http} from "./plugins/http/plugin";
 import {descriptor as projects} from "./plugins/projects/plugin";
 import {descriptor as settings} from "./plugins/settings/plugin";
@@ -23,13 +24,13 @@ import {descriptor as workbench} from "./plugins/workbench/plugin";
  */
 export type {PluginDescriptor};
 
-export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, http, state, settings, commands, storage, workbench, projects];
+export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, http, state, settings, commands, storage, workbench, projects, files];
 
 /**
  * 代理允许清单：可以以调用方的身份代为解析服务、发出远程调用的插件（runtime/services.md 输出第 13 条）。
  * 三个宿主都按它给内核的 `delegation`；第一版只有内置插件，第三方插件一律不允许。
  */
-export const delegatingPlugins: ReadonlyArray<string> = [storage.id, settings.id];
+export const delegatingPlugins: ReadonlyArray<string> = [storage.id, settings.id, files.id];
 
 /**
  * 在某个运行位置登记的插件：本位置有入口的，加上描述里有顶层声明式贡献的（runtime/plugin-manifest.md 输出 11）。

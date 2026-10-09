@@ -27,6 +27,7 @@
     "dependencies": {
         "@notnotype/nb-runtime": "workspace:*",
         "@vue/reactivity": "^3.5.39",
+        "fast-xml-parser": "^5.11.2",
         "hono": "^4.12.30",
         "jsonc-parser": "^3.3.1",
         "proper-lockfile": "4.1.2",
