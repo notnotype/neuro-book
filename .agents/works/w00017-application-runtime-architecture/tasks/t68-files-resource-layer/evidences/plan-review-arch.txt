@@ -1,0 +1,208 @@
+# w00017 t68 实施计划对抗审查：运行时架构与对抗场景
+
+审查对象：固定在 `ab0a3e91` 的 `.agents/works/w00017-application-runtime-architecture/tasks/t68-files-resource-layer/plan.md`。代码尚未实现；报告区分现有真实运行时的结果、计划所述原语的等价实验与推断。已接受的文件底座、竖切顺序及 VS Code 体验目标作为前提。
+
+本报告随核实结果追加，最终按影响排序。实验全部位于本报告所在目录；不修改仓库源码。
+
+## R1 — 阻断 — 正确性：业务失败码 `denied` 与远程协议保留码冲突
+
+- **计划位置**：“4. 读、列出与三类文件夹”的失败码表（第 57 行）；“6. 浏览器文件客户端”（第 69 行）。
+- **现象**：计划明确把 `denied` 列为两份远程合同的业务失败码。现有内核不允许业务失败码与路由失败码重名，按此定义合同会在模块加载时抛 `TypeError`，三个入口尚未激活就失败。
+- **为什么是问题**：这是实施方案与现有公开 API 的直接不兼容，不能靠浏览器原样透出来解决；业务拒绝与路由拒绝也会失去区别。
+- **依据**：`packages/nb-runtime/src/remote/contract.ts:125–140` 在 `defineRemoteService` 时拒绝 `REMOTE_FAILURE_CODES` 中的码；`packages/neuro-book/src/plugins/settings/shared/contracts.ts:4–7,51–53` 已明确说明同一约束，并以 `settings-failed` 包装业务失败。
+- **建议改法**：两份 Files 合同复用一个 `files-failed` 业务失败，详情带 `{code, detail}`；浏览器门面仅解包这个失败，其余远程失败保留整个结果（含 `cause`）。不新增第二套远程失败体系。
+- **实测**：`runtime-probe.ts` 用真实 `defineRemoteService` 构造带 `errors: {denied: ...}` 的合同，立即得到 `TypeError: 远程服务合同 probe.files/invalid 不合法：方法 read 的业务失败码不合法或与路由层失败码重名：denied`。运行命令及完整结果见末尾实验索引。
+
+## R3 — 重要 — 接口与失败语义：8 MiB 文本合同会撞上 1 MiB RPC 帧限制并断开整窗连接
+
+- **计划位置**：“4. 读、列出与三类文件夹”（第 55–56 行）、“6. 浏览器文件客户端”（第 69 行）、“7. 测试场地与样本”（第 74 行）。
+- **现象**：计划支持读取至 8 MiB 的文本，并用单次 RPC 传 `text` 写回。实际 RPC 监听只接受 1 MiB JSON 帧。2 MiB ASCII 保存经过真实 WebSocket 即关闭连接，失败为 `{code: "unknown-outcome", cause: "disconnected"}`，文件没有写入；64 KiB 保存成功。即使正文不足 1 MiB，JSON 对控制字符的转义也能让帧超过上限。
+- **为什么是问题**：领域明确允许的输入变成断线、其它订阅同时失同步与写结果未知，不能得到计划里的 `too-large`。JSON 进程内链路不施加 WebSocket 的消息上限，S4 的场地会漏掉它。
+- **依据**：`packages/neuro-book/src/shared/rpc-socket.ts:15–16` 为 1048576 字节；`src/server/rpc/listener.ts:75–79` 将其传给 Bun `maxPayloadLength`。`docs/specs/runtime/plugin-channel.md`“WebSocket 传输与握手”第 2 条明确超限即断开。实测命令见末尾 `runtime-probe.ts`；结果见 `runtime-output.json` 的 `rpc-message-limit`，关闭码 `1006`。
+- **建议改法**：在 t68 定清文本及编码后帧的预算，发送前明确拒绝超限，保证读/写/目录列表/事件不会破坏窗口连接；若必须保留 8 MiB 文本，按既有大块内容经 HTTP 的边界设计传输。不要只把服务侧限制写成 8 MiB、把破坏连接留给编辑器处理。补真实 WebSocket 边界与 JSON 转义场景。
+
+## R4 — 重要 — 生命周期：共享 `watch` 没有建立失败、终止和重连失同步的合同
+
+- **计划位置**：“5. 来源与变更事件”的订阅（第 64 行）、“6. 浏览器文件客户端”（第 69–70 行）、S4 与验收映射（第 94、104 行）。
+- **现象**：`watch(scheme, onEvent) → 释放函数` 只定义了 `ready/batch/resync` 内容回调；未定义异步订阅建立失败、`onEnd`、断线与重连的 `onResync` 如何送给共享使用方，也没有最后一个监听在建立返回前释放、调用方门面释放及后来加入监听者的 ready 状态规则。方法的结构化失败不能代替订阅失败。
+- **为什么是问题**：项目结束、提供入口停止或建立失败时，资源管理器和独立存活的编辑器无法通过此门面得知监视已停止；同一方案的一条失效订阅还会被后来的消费者复用。断线期间没有文件事件补发，重连必须重新核对全部已展开目录及打开文档。内核只负责远程句柄，不知道 Files 门面里每个消费者的监听，不能自动替共享门面收口它们。
+- **依据**：`docs/specs/runtime/plugin-channel.md` 输出 7 明定建立失败不进入重建集合、重连调用 `onResync`、终态调用结束；真实 `remote/node.ts:636–658,991–1000,1070–1086` 分开实现建立结果、`onEnd`、`onResync`。`runtime-probe.ts` 两条真实订阅对照：断线提供方 live 从 2 到 0；重连收到新 `ready` 与独立的 `onResync`；项目结束重连得到 `project-gone`，带 `onEnd` 的收到结束，只有 payload 回调的仍只保留两次 `ready`。
+- **建议改法**：在 t68 给共享 watch 一个最小状态合同：建立结果、失同步与结束原因各有通道；共享订阅把内核 `onResync` 广播为领域 `resync`，把 `onEnd` 广播并清掉失效句柄。每个按调用方门面的 `release` 移除其监听，最后监听结束时取消在建或已建句柄；在建句柄稍后到达也立即释放。补首次失败后恢复、建立前全部释放、一个调用方停止但另一个继续、项目结束与同代重连四组真实运行时场景。断线实时状态可直接消费已有 `windowConnectionKey`，不要另造连接管理器。
+
+
+## R2 — 重要 — 接口与不变量：照搬 Settings 的 `callers` 会封死系统插件的 Files 入口
+
+- **计划位置**：“1. 插件与位置”（第 28–31 行）、“5. 来源与变更事件”（第 61 行）、验收映射中的 resources 验收 2（第 102 行）。
+- **现象**：`nbook.files/project` 只允许 `browser`、`tui`，`nbook.files/user` 只允许 `browser`、`tui`、`project`；项目入口与服务端入口均未提供本地 `filesKey`。项目实例内的系统插件调用自己的项目合同会被 `denied`，服务端系统插件既不能调用 `user://`，也不能按 `{project: id}` 调用正在运行的项目。
+- **为什么是问题**：当前验收要求系统写项目且带 `{kind: "system", plugin}` 来源；计划按字面实现没有任何路径可做到。后续 History 读取、剧情操作及服务端后台任务同样不能消费这个唯一文件入口。Settings 能用这份允许表，是因为它的两端同时提供本地 `settingsKey`；Files 计划只有浏览器门面，不能只复制它的允许表。
+- **依据**：`packages/nb-runtime/src/remote/node.ts:683–693,780–783,858–860` 的本地调用仍经过相同的 `callers` 核对；`docs/specs/runtime/plugin-channel.md` 输出 2 与 `docs/specs/runtime/projects.md` 输出 9 已允许服务端按 `{project}` 到达运行项目；`packages/neuro-book/src/plugins/settings/backend/plugin.ts:38–39,64` 同时提供本地服务与远程合同。
+- **建议改法**：优先只保留现有两份远程合同，允许本地 `project` 与 `server` 消费（项目合同为 `browser/tui/project/server`，用户合同含 `server`）；同项目本地调用仍经合同，来源由真实调用方工厂生成，无需另包一层转发服务。补项目插件本地写、服务端插件本地写用户根与服务端访问运行项目三条真实内核场景。
+- **实测**：`runtime-probe.ts` 装配真实服务端、项目、浏览器三个 Application 与路由，经 JSON 链路调用。项目插件本地调用项目合同、服务端插件本地调用用户合同、服务端插件访问项目合同，均得到 `denied`；同一浏览器对项目合同成功。没有直接调用内核私有函数。
+
+
+## R5 — 重要 — 不变量：控制目录保护只按地址名判断，根内链接可读写 `.nbook/`
+
+- **计划位置**：“3. 受根约束的文件原语”（第 43–44 行）、S1 与 files 验收 6（第 91、109 行）。
+- **现象**：`meta -> .nbook`、`identity.md -> .nbook/project.json` 都是根内链接，包含校验放行；原始地址首段不是 `.nbook`，控制目录过滤也放行。真实内核场地中，直接读 `.nbook/project.json` 被拒，读两个别名都返回 `CONTROL-A`；通过 `meta/project.json` 条件写成功，实际控制文件变成 `CONTROL-B`。
+- **为什么是问题**：项目身份、配置与 Storage 都落在控制目录，隐藏根列表不是访问保护。这里没有竞态，也不需要伪造身份；根内合法链接即可改变保护数据。计划只明确校验链接是否出根，遗漏了解析后是否进入控制目录。
+- **依据**：计划第 44 行要求“任何读写都 denied”；`workspace/files.md:74,78–79` 要求控制数据、权限与身份保护在服务端生效；`runtime/projects.md:30,47` 与 `storage/persistence.md` 的项目分区落点定义这些文件的实际用途。
+- **复现与观察**：`root-runtime-probe.ts` 的 `control-directory-alias`：创建临时项目 `.nbook/project.json` → 建上述两个链接 → 经两个真实 Application、RemoteNode、Router 与 JSON 链路读/写。结果在 `root-runtime-output.json`；本轮命令见实验索引。Files 尚未实现，此实验验证计划明确描述的路径原语，不声称是现有产品 Files 漏洞。
+- **建议改法**：在同一个根内解析函数中统一产生经链接解析的目标与父目录，按实际目标相对根的位置再拒绝控制目录；原始地址过滤仅用于早拒。控制目录的事件也用同一规则过滤。新增别名到控制文件、别名到控制目录及不存在目标的已存在父目录三组用例，不另建权限包装层。硬链接需单独定边界，见文末已检查项。
+
+## R6 — 重要 — 正确性：哈希比较再 `rename` 不是条件提交，两个窗口都可成功并互相覆盖
+
+- **计划位置**：“4. 读、列出与三类文件夹”的条件写入（第 56 行）、S2 与 files 验收 4（第 92、107 行）。
+- **现象**：两个窗口拿同一旧哈希，同时保存不同内容，两个请求都在替换前读到旧内容。经真实运行时和 JSON 链路并发提交 12 组 256 KiB 文本，12 组均返回两个 `ok`；每组磁盘只保留 B 或 C 之一。没有实验屏障、私有函数调用或人为暂停处理器。
+- **为什么是问题**：前一个成功提交会被持过期基线的另一个请求覆盖，消费者看不到应有的 `conflict`，直接丢失修改。原子 rename 只保证完整内容发布，不保证“比较基线与替换”不可分割。现有 RPC 明定同方法并发各自执行，项目同进程不自动串行；项目合同还明确允许两个服务端进程打开同一目录，进程内队列也不足以覆盖全部合法拓扑。
+- **依据**：`workspace/files.md:45,101` 要求过期基线不覆盖；`runtime/plugin-channel.md:152` 明定并发不合并；`runtime/projects.md:21,131` 不防双开。已有 `settings/backend/layer-file.ts:7–11,98–127,177–181` 用文件旁协作锁、持锁重读与改名前身份复核处理同一拓扑，计划没有沿用此约束。
+- **复现与观察**：`root-runtime-probe.ts` 的 `two-window-conditional-save`：磁盘写 A → 两个浏览器实例同时用 `hash(A)` 写 B/C → 核对两个返回及最终字节。`root-runtime-output.json` 记录 `attempts: 12, doubleSuccess: 12`。这是计划写入步骤的等价服务在真实内核中运行；不把尚未编写的产品代码写成已失败。
+- **建议改法**：t68 就把条件提交的比较与发布纳入同一目标的互斥区，锁内重读并核对基线，改名前核对父目录、目标身份与锁资格。复用 Settings 已有文件旁锁的规则以覆盖双服务端；外部不协作写入仍只缩小窗口，沿已有明确限制。锁按解析后的实际目标取名，根内链接别名不能各拿一把锁。补双窗口、两个进程同旧基线、别名与原路径并发场景，不能推给 t69 的“排他提交”。
+
+## R7 — 重要 — 不变量：缓存根路径而不核对根身份，会把旧项目请求送到替换后的根
+
+- **计划位置**：“3. 受根约束的文件原语”（第 43 行）、失败码表（第 57 行）、S1（第 91 行）。
+- **现象**：激活时缓存项目根的 realpath；把该目录移走，再在原路径放一个指向实验根外目录的 symlink。下一次请求发生前替换已完成。计划逐级检查的是根下面的路径，根本身不再 `lstat`；`secret.md` 在替换后的根下仍是普通文件，因此读到根外 `OUTSIDE`，条件写也成功把它改成 `OVERWRITTEN`。
+- **为什么是问题**：缓存的是可重新指向别处的路径名，不是原目录身份。根已经改变时，旧项目代次仍能运行，内核项目绑定无法保护磁盘根。移走、删除或重建项目目录不会由项目管理器结束代次。这个例子是两次请求之间已完成的可检测替换，不依赖能力明确不承诺抵御的恶意并发目录竞态。
+- **依据**：`runtime/projects.md:123` 将运行中根移动/删除交给插件处理；`platform/files.md:20,36,86,89` 要求拒绝可检测身份变化，且操作前后缩小校验与使用窗口；`workspace/files.md:34,78` 要求提交重验身份、类型变化可区分。计划既没有复核，也没有 `identity-changed` 一类结果。
+- **复现与观察**：`root-runtime-probe.ts` 的 `root-replacement-before-request` 经真实内核验证；`root-probe.ts` 的 `directory-swap-toctou` 另展示子目录在检查后换成根外链接，已检查路径读到根外内容且写改了根外文件。后一项是原语边界实验，不据它宣称能完全消除外部恶意竞态。结果分别在 `root-runtime-output.json` 与 `root-output.json`。
+- **建议改法**：激活时记录根的设备、inode 与类型；请求前确认仍是原根，根丢失/替换明确失败，不自动 realpath 重绑。解析时持有父目录和目标的身份，临时写后、发布前重新核对；读操作使用打开句柄核对读取身份，检测到变化不交出内容。保留平台合同的外部恶意并发竞态限制，无需为本切片新造全平台沙箱。
+
+## R8 — 重要 — 正确性：同目录临时文件替换绕过只读位并重置文件权限
+
+- **计划位置**：“3. 受根约束的文件原语”的写入（第 45 行）、“4. 读、列出与三类文件夹”的失败与条件写（第 56–57 行）、files 验收 6（第 109 行）。
+- **现象**：在可写目录里把现有文件设为 `0444`。以 uid 1000 实测 `access(W_OK)` 为 `EACCES`，但按计划写同目录临时文件再 rename，远程写返回 `ok`，文件内容已替换、权限变成 `0644`。原子发布要求的是目录权限，不要求旧文件可写。
+- **为什么是问题**：Spec 明定服务端仍拒绝只读资源；发布完整文件不等于拥有改写权限。默认权限的新临时文件还会把原来的 `0600` 等权限放宽，计划没有权限保留规则。
+- **依据**：`workspace/files.md:78–79,103` 要求权限失败可区分、只读调用拒绝；同仓 `settings/backend/layer-file.ts:12,156–165` 已注明该 OS 行为并在替换前核对可写、按原权限创建临时文件；`settings.configuration` 输出 14 有对应行为合同。
+- **复现与观察**：`root-runtime-probe.ts` 的 `readonly-save` 经真实远程调用得到 `accessError: "EACCES"`、`roWrite.ok: true`、`originalMode: "444"`、`finalMode: "644"`、正文 `REPLACED`；`root-output.json` 也记录原语对照。
+- **建议改法**：替换前核对现有目标可写，临时文件沿用目标权限；按 errno 映射 `EACCES/EPERM` 到独立业务权限失败，保留 R1 的路由码隔离。补可写目录中只读文件、`0600` 文件与不可写父目录，不只测目录读写成功。
+
+## R9 — 重要 — 正确性：读取跟随根内链接，保存却替换链接目录项
+
+- **计划位置**：“3. 受根约束的文件原语”（第 43、45 行）、“4. 读、列出与三类文件夹”（第 55–56 行）。
+- **现象**：项目内 `chapter-link.md -> chapter.md`。读取会返回 `chapter.md` 的内容和哈希，保存同一地址按该哈希成功，但 rename 落在链接名：链接被普通文件替换，`chapter.md` 仍是 `CHAPTER`，`chapter-link.md` 变成 `SAVED`。读写不是同一个真实目标。
+- **为什么是问题**：一次正文保存隐式删除链接、创建另一份文件，改变磁盘布局且原文档没有更新；通过别名与原路径打开同一资源的消费者立即分叉。t69 的文件改名/删除尚未开始，t68 不应让普通保存先发生目录项替换。
+- **依据**：`platform/files.md:87` 区分目标型读写与目录项型操作；`workspace/files.md:44–45` 要求指定资源的读取与提交一致；现有 `settings/backend/layer-file.ts:13,38–52,84–85` 已明确“解析最终目标、保持链接、悬空链接不替换”。计划第 43 行只把 realpath 用来校验，未明确把实际写入落点改为最终目标。
+- **复现与观察**：`root-runtime-probe.ts` 的 `within-root-symlink-save` 经真实内核调用，记录 `viaLink.ok: true, linkSurvives: false, originalContent: "CHAPTER", aliasContent: "SAVED"`；`root-probe.ts` 有等价原语结果。
+- **建议改法**：目标型操作复用同一解析结果，替换最终目标且保留链接；按最终目标目录选择临时文件并做 R5/R7 的控制目录、根与身份核对。若首片不支持链接写入，明确拒绝而不是返回成功并拆链接；优先沿用 Settings 的现有语义。补根内文件链接、目录链接、链接改指与悬空链接。
+
+## R10 — 重要 — 正确性：保留时间戳的外部修改会被确定性吞掉，不是“同一毫秒”的小概率碰撞
+
+- **计划位置**：“5. 来源与变更事件”的自己的写入（第 63 行）；“不做与风险”的回声去重取舍（第 122 行）。
+- **现象**：文件服务保存 `chapter.md = AAAA` 并登记基线；外部写成同样 4 字节的 `BBBB`，用 `touch -r` 恢复保存时的时间戳。真实 `fs.watch` 已收到 `chapter.md` 的 `change`，但 75 ms 后 `mtimeMs + size` 与旧基线相同，远程订阅没有收到该文件的任何通知或 `resync`。本次外部修改与服务保存相隔约 79 ms，已超过合并窗口；修改后的 `ctimeMs` 已不同。
+- **为什么是问题**：计划把漏洞限定为“同一毫秒、概率低”，据此推给 t70 的焦点刷新，依据不成立。`cp -p`、保留时间戳的恢复/同步工具都能在任意稍后时间重现该条件；计划没有去重记录的有效期或消费规则。即便改成收到一条回声后删除，服务写与外部保留元数据写合并在同一批时仍会丢掉唯一的真实外部修改。持续聚焦的编辑器与后台订阅者可一直保留旧正文，t70 的焦点刷新不能修复 t68 的错误判定。
+- **依据**：计划第 63、122 行；`docs/specs/workspace/files.md:50,102` 要求外部文件变化可观察，`docs/specs/workspace/resources.md:64–65,90` 要求外部修改通知与失同步恢复。`events-review-probe.ts content` 经真实 Application、RemoteNode、Router 与 JSON 链路，文件服务先原子保存，再执行真实 `cp -p` / `touch -r`；`events-review-content-output.json` 的 `preserved-mtime-size-write` 记录 `mtimeMs` 前后均为 `1791518042697.957`、`size: 4`、磁盘为 `BBBB`、原始 `change` 存在、领域事件为空。未直接改写去重表，未调用内核私有函数。这是计划原语的等价实验，Files 尚未实现。
+- **建议改法**：最少部件的正确方案是允许监视回声作为重复的失效通知，来源明确为 `external/unknown` 的磁盘观察，不把它当成可可靠记账的第二次业务写入；若必须避免重复，则在实际目标上核对已计算的内容哈希，不能用元数据相等证明内容相同。t68 明确这一合同，补“服务保存 → 外部同大小内容并保留 mtime → 聚焦状态仍收到失效”的验收；不要将已知漏报交给资源管理器补救。
+
+## R11 — 重要 — 正确性：只登记请求路径去回声，同一次保存的临时路径与根内别名都会被记成外部操作
+
+- **计划位置**：“3. 受根约束的文件原语”的同目录临时文件替换（第 45 行）；“5. 来源与变更事件”的“同一路径”去重（第 63 行）。
+- **现象**：一次普通保存会收到 `.owned-save-1.tmp` 的创建/修改/改名和 `chapter.md` 的改名；75 ms 后临时路径已不存在，计划的 `lstat` 流程将它发布成 `{type: "deleted", source: {kind: "external"}}`。更直接的来源错误：`alias -> actual` 是合法根内目录链接，保存 `alias/story.md` 立即发 `user`，Bun 监视却以 `actual/story.md` 报事件；按字符串路径登记的基线不匹配，又为同一提交发布 `actual/story.md` 的 `external` 事件。
+- **为什么是问题**：“调用方来源正确且自己写入不重复”的验收失败不需要任何外部程序、并发或元数据碰撞。每次保存都可给刷新与未来 History 注入不存在的临时资源操作；通过别名保存会把同一正文提交归成两种来源，并让按资源地址维护的编辑器/缓存分叉。单纯忽略所有点文件会误吞用户真实文件，不能作为修复。
+- **依据**：计划第 43、45、63 行允许根内链接且使用同目录临时文件；`docs/specs/workspace/resources.md:26,64–65,83` 定义唯一来源入口与刷新/记账的消费者。真实运行时等价实验 `events-review-probe.ts content` 的 `own-save-temporary-events`：目录最终仅有 `chapter.md` 与实验屏障，却向订阅方发布临时文件的外部删除；`directory-alias-own-write`：磁盘只写一次 `actual/story.md = alias-save`，订阅方收到 `alias/story.md/user`、`actual/story.md/external` 与临时路径外部删除。完整原始事件与领域事件在 `events-review-content-output.json`，没有伪造调用方身份。
+- **建议改法**：在唯一根内解析边界确定实际目标，写入基线、去重与发布的资源身份采用一致规则；明确别名地址是否保留及如何使同一真实目标的别名消费者失效。仅对文件服务自己分配、登记过的精确临时路径过滤监视事件，在完成/失败及待处理批次收口后释放登记；不按点文件名或后缀全局忽略。补普通保存只产生真实目标通知、根内目录链接保存不被误记外部、写入失败临时文件清理三组场景。这些是 t68 的事件正确性，不能推给 t69 的文件操作。
+
+## R12 — 重要 — 不变量：入口身份只证明“哪个插件执行”，不能证明写作者发起；现有远程命令会被错归为 `user`
+
+- **计划位置**：“5. 来源与变更事件”的来源（第 61 行）；S0 的来源取值修订（第 81 行）；“验收映射”的来源正确且不可冒充（第 102 行）。
+- **现象**：服务端插件通过现有 `nbook.commands/remote` 执行窗口里的写入命令，命令系统审计明确记为 `{source: "agent", callerId: "example.agent"}`。命令贡献方的浏览器入口随后调用文件服务，提供方只看到 `{location: "browser", plugin: "example.writer", entry: "browser", generation: 1, via: null}`；按计划得到 `{kind: "user"}`，实际磁盘已写为 `AGENT-COMMAND`。没有用户操作，也没有伪造身份或业务来源字段。
+- **为什么是问题**：`ConsumerIdentity` 的寿命是入口的一次激活，`providePerConsumer` 为该身份复用门面；同一入口处理真人操作、远程命令或定时任务时身份相同。内核保证身份不可随意伪造，不保证因果链里的发起者不丢失。`remote.on(consumer)` 同样只保留原入口身份和 `via`，不会加入这次操作是人/Agent/后台任务的信息。“Agent 会话来源以后加”不能使现在的远程自动执行被可靠归成人；一旦 History 按来源分审查收件箱，这类写入会被隐藏为写作者自己的修改。反向情形也成立但本轮仅从代码推断：真人点命令、由项目插件实际落盘会被无条件记为 `system`。
+- **依据**：`packages/nb-runtime/src/services/composition.ts:566–593` 按入口/激活代次生成固定身份；`packages/nb-runtime/src/plugins/host.ts:557–565,585–618` 的远程身份与委托字段没有逐操作触发来源。真实命令实现 `packages/neuro-book/src/plugins/commands/shared/plugin.ts:88–90,119–141` 在远程边界指定 Agent 来源，但贡献实现只收到 `args`；`shared/registry.ts:264,335–337` 没有把 invocation 传给命令实现。`source-review-probe.ts` 装真实 Settings 多实例场地、真实 `nbook.commands`、贡献点与路由，只有尚未存在的 Files 提供方使用计划分类器；`source-review-output.json` 同时记录命令审计 `agent`、Files 来源 `user` 和真实磁盘内容。
+- **建议改法**：t68 先区分执行入口身份与本次操作的发起来源；缺少受信触发上下文时保守记执行插件 `system` 或明确未知，不能仅因在浏览器/TUI 上执行就声称是写作者。只有宿主确认的用户交互入口能签发 `user`，现有命令调用链应把受信 invocation 传到执行边界；逐步加入 Agent 会话 id 时沿用同一上下文。若产品只需要“执行位置”而不需要“谁发起”，需开发者明确改掉 Spec 的写作者/系统语义和验收，不可把字段名字保留后宣称验收已覆盖。`filesKey` 若用委托保留执行插件，还须按 Settings 的现有写法登记 `remoteDelegates` 并加入 `manifest.ts` 的 `delegatingPlugins`，仅 `providePerConsumer` 本身不会传播远程身份。
+
+## R13 — 重要 — 正确性：Bun 的队列溢出与根移动不报 `error`；计划漏掉真实的 `resync` 触发通道
+
+- **计划位置**：“5. 来源与变更事件”的监视与订阅（第 62、64 行）；“风险”的大目录与事件洪水（第 121 行）；files 验收 5 的映射（第 108 行）。
+- **现象**：Bun 1.4.2/Linux 实际发生 inotify 队列溢出时，`fs.watch` 发出 `change`，`filename === null`，`error` 数为 0。真实运行时等价实验中，操作系统暂停提供进程（含 Bun 原生监视线程），独立子进程创建 50000 个文件后恢复；41807 个文件路径缺少逐项通知，唯一失同步信号是这个无文件名回调。另一个实际场景：整体移走监视根并在原路径重建，Bun 发 `rename` 且文件名为 `undefined`，同样没有 `error`；旧 watcher 继续跟着旧目录，新根文件没有事件。
+- **为什么是问题**：计划把“丢事件”绑定到 `fs.watch` 的 `error`，即使内核已经显式通知溢出，方案仍不能据此要求消费者核对。未命名事件无法靠对一个路径 `lstat` 分类；把 `undefined` 转为字符串还会伪造名为 `undefined` 的文件事件。根移动后只通知重列也不足以恢复后续覆盖：监视器仍指向旧 inode。R7 已讨论请求的根身份保护，本条是独立的事件失同步触发与监视恢复缺口，不重复共享 `watch` 的建立/结束合同。
+- **依据**：`events-review-probe.ts overflow` 经真实 Application、RemoteNode、Router 与 JSON 链路运行，`events-review-overflow-output.json` 记录 `diskFiles: 50000`、`missingRawPaths: 41807`、`missingDomainPaths: 41807`、`noFilename: [{event: "change", path: null, filenameType: "object"}]`、`errors: []`。实验在无文件名分支主动发 `resync` 作为对照，因此输出 `resyncs: 1`；按计划只处理 `error` 则此分支不会存在。`events-review-root-loss-output.json` 记录根 inode 不同、`filenameType: "undefined"`、旧根事件仍到达、新根正文确已写入。源码事实与其它平台不外推；暂停是人为故障注入，证明溢出信号合同，不证明普通负载下的溢出频率。
+- **建议改法**：t68 把 `null/undefined` 或无法归属根内资源的监视回调明确视为失同步，合并成一次 `resync`；同时废弃该批的局部分类与旧回声判断。根丢失/替换先按记录的根身份核对，结束失效监视并报告不可用，不悄悄重绑新目录；若允许恢复则需显式重新建立后再次 `resync`。给待处理路径数/编码字节设上限，超过直接降为根失效通知，不继续攒无界批次；其传输帧问题归既有 R3。补真实 inotify 溢出、无文件名事件、监视根移走/删除三种恢复验收，不能只人为 `emit('error')` 验证。
+
+## 续审验证与边界
+
+本轮新增 R10–R13。R1–R9 是前两轮留下的发现，本轮未重新运行它们的失败场景，不把旧证据列为最新验证。没有重复另两位审查者的“事后 `lstat` 不能区分新建与原子替换”；共享 `watch` 的建立失败与结束缺口沿既有 R4，本轮不重新编号。
+
+实验使用 Bun `1.4.2 (744846f84)`、Linux、真实磁盘；`events-review-probe.ts` 的提供方等价实现计划原语，经过真实 Application、RemoteNode、Router 与 JSON 订阅。`source-review-probe.ts` 使用现有真实 `nbook.commands`、Settings 多实例场地和贡献点，Files 的分类器才是计划等价实现。未修改、新建仓库文件，未 commit、push、stash 或切分支；所有实验文件与证据只写入指定 `arch/`。安装按授权执行，结果为 `Checked 1663 installs across 1908 packages (no changes)`。没有开发服务、浏览器或真实模型调用。
+
+从审查 worktree 根执行的命令：
+
+```sh
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/arch prox bun install --frozen-lockfile --ignore-scripts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/arch bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/arch/events-review-probe.ts content
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/arch bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/arch/events-review-probe.ts directories
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/arch bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/arch/events-review-probe.ts lifetime
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/arch bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/arch/events-review-probe.ts flood
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/arch bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/arch/events-review-probe.ts ready
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/arch bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/arch/events-review-probe.ts root-loss
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/arch bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/arch/source-review-probe.ts
+sysctl fs.inotify.max_queued_events fs.inotify.max_user_watches fs.inotify.max_user_instances
+```
+
+以上安装与七个 probe 模式均退出 0；`sysctl` 为 `16384`、`524288`、`1024`。输出分别保存在 `events-review-<模式>-output.json` 与 `source-review-output.json`。负例实验证明计划漏洞，并不表示尚未实现的产品通过验收。
+
+溢出模式首轮经 zsh 前台命令执行时，`SIGSTOP` 使 shell 把作业报告为停止、退出 148；独立创建进程按 `finally` 恢复了父进程，证据仍生成。为得到完整退出结果，随后由 Eval 的 `Bun.spawn` 直接启动相同模式，绕开 shell 作业控制，退出 0、stderr 为空，完整结果保存为 `overflow-execution.json`；统计以这次直接运行的 `41807` 为准。可重跑的直接启动代码（在审查 worktree 根的 Bun 中执行）为：
+
+```js
+const scratch = '/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/arch';
+const child = Bun.spawn([process.execPath, `${scratch}/events-review-probe.ts`, 'overflow'], {
+  cwd: '/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t68-plan-arch',
+  env: {...process.env, NBOOK_AGENT_TEMP_ROOT: scratch},
+  stdout: 'pipe', stderr: 'pipe',
+});
+const [exit, stdout, stderr] = await Promise.all([
+  child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
+]);
+console.log(JSON.stringify({exit, stdout, stderr}));
+```
+
+正常洪水实测补充既有 R3 的预算讨论：40000 个长名字文件全部收到通知，75 ms 后领域单批最大 `19983` 条、JSON `2957511` 字节，5 个批次，无 `error`、无 `resync`。这是进程内 JSON 链路的批大小实测，未验证该出站事件在真实 Chrome WebSocket 上会断线；当前 `listener.ts` 的 `maxPayloadLength` 是服务端入站限制，不据它外推浏览器出站接收上限。它仍证明“攒 75 ms”不会自动限制批次体积/工作量，应在 t68 的事件门禁定有限队列和降为 `resync` 的规则，具体性能参数留 t72 测量。
+
+目录监视的额外观察：填充子树搬入、根内改名的后代路径均正确；整个子树搬出根后，修改已在根外的文件仍收到旧相对路径 `renamed/deep/chapter.md`，`error: []`。本轮没有将它另立重要发现，因为只观察到旧路径的多余删除通知，没有证明数据读写越界；根范围与身份重验、结构失同步后的监视重建应纳入 R13 的修正。没有运行 macOS、Windows、网络文件系统、用户监视配额耗尽或真实产品 Files；未运行全套产品测试、typecheck、e2e、构建与浏览器。
+
+## 未发现问题的方面
+
+- **递归覆盖的基本假设已实测成立**：6000 个监视前就存在的子目录，在 `ready` 后立即写最后一个目录的文件能收到正确路径；填充的三层子树搬入、根内目录改名后的后代修改都能收到正确新路径。没有把 Node 旧版“Linux 不支持递归”当成本机 Bun 的事实。普通 40000 文件洪水也没有丢逐项事件；这不构成对任意负载的可靠性承诺。
+- **内核能承担两端寿命与迟到投递门禁**：双窗口共用一个提供方 watcher，释放一窗后 watcher 仍在；最后窗口断线后提供方 `signal` 收口监听、watcher 关闭；同代重连重新创建一个 watcher 并收到独立 `onResync`；项目代次撤销后 watcher 关闭，重连 `project-gone`，没有改投新代次。`events-review-lifetime-output.json` 完整记录 starts `1 → 2`、closes `0 → 1 → 2`、最终 pending/在途批均为 0。领域只需把这些信号接进既有共享 watch，另造项目连接管理器无必要。
+- **内核身份机制本身没有新增冒充漏洞**：本轮读到本地身份冻结、装配签发记录核对、委托允许清单与 `remoteDelegates` 的逐次准入；路由覆盖客户端自报的 location/client。结合前轮已记录的真实 `remote.on` 伪造身份被 `denied` 的证据，执行入口身份可按现有信任边界使用。R12 指的是它不含逐操作发起语义，并非声称签发机制失效；第一版完全信任的恶意代码隔离不属于审查目标。
+- **不持久化平台事件、恢复时重取当前状态的方向正确**：Linux 不提供可以直接信赖的全量逐项流；不需要为 t68 添加事件日志、全项目内容索引或 History 实现。t68 应把 R13 的真实失同步通道与有限队列定清，树的刷新呈现归 t70、文档 dirty/外部修改协调归 t71、具体延迟参数测量归 t72。
+
+## 需要开发者决定的点
+
+| 点 | 判断与推荐 |
+|---|---|
+| 来源究竟表示发起者还是执行入口（R12） | 当前 accepted 提案与 Spec 表示写作者/Agent/系统发起者。推荐保持该语义，t68 接入受信操作上下文；信息不可得时不要声称 `user`。若改成纯执行位置，属于产品取舍，须明确改合同与验收。会话 id 随 nb-harness 延后可以，自动操作错记成人不能据此延后。 |
+| 去回声是否值得复杂化（R10、R11） | 推荐在 t68 定清“有来源的服务提交”与“磁盘状态失效”各自用途，允许重复失效则部件最少；若事件仍承担业务记账语义，保留内容哈希核对与精确内部临时路径过滤，不接受 `mtimeMs + size` 的静默漏报。焦点刷新只能是额外恢复时机，不能当正确性保证。 |
+| 第 6 步拆分与推迟边界 | 不反对已确定的资源层 → 资源管理器 → 编辑器顺序。t69 的操作、t70 的界面、t71 的文档模型与 t72 的性能验收可按当前边界推进；有限事件队列、失同步触发、来源语义和最终 watcher 收口必须由 t68 保证。无需把后续 UI 或全部 URI 提供者拉入本切片。 |
+| 待确认清单的外部写入竞态取舍 | `pending-confirmations.md` 第 15 条仅接受无法完全互斥的外部编辑器竞态，不授权 R10 这种已收到原始事件却主动吞掉的可避免漏报。第 16 条沿内核撤销按调用方门面可复用；Files 的门面释放应清掉自身监听，再让内核结束远程访问。其余待确认条目不涉及本轮事件与来源，无新增判断。 |
+
+## 本轮回写建议
+
+| 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|
+| 踩坑 | 只堵 JavaScript 回调未复现 inotify 溢出；暂停整个 Bun 进程后才让原生读取也停止。zsh 前台作业在 `SIGSTOP` 时直接报告停止，直接 `Bun.spawn` 则能等到恢复及 exit 0。 | 新增：“验证原生事件队列溢出时须暂停或阻塞实际读取者；只堵语言层回调不证明原生队列未被后台线程排空。进程暂停类故障注入由直接父进程启动，独立控制者在 `finally` 恢复，再核对完整退出。” | `docs/testing/README.md` 的“测试写法”或真实进程实验说明 |
+| 规范缺陷 | R12 实测同一真实命令链的审计为 `agent`、文件来源为 `user`。 | 改写：“执行入口身份与本次写入的发起来源分别定义；来源由受信触发边界沿操作传递，不能仅按运行位置归类。” | `docs/specs/workspace/resources.md` 的“输入与前置条件”及“写入来源”；t68 计划第 5 节 |
+
+以上只作建议，未修改仓库真相源。临时脚本曾使用宽类型与按实现推导类型，已按收到的规则修正；现有 TypeScript 规范已涵盖命名类型与边界收窄，不重复增加条目。
+
+## R13 的补充核实：重列不能恢复溢出期间漏掉的子目录监视
+
+在相同真实运行时里追加 `overflow-structure` 场景：暂停整个提供进程，先创建 12000 个文件使 inotify 队列超限，再创建 `missed/deep/chapter.md`，再继续创建 12000 个文件。恢复后订阅收到一次无文件名回调转换的 `resync`；确实重新 `readdir(missed/deep)` 得到 `chapter.md`。随后外部写入该文件为 `after-resync-and-list`，等根内屏障事件到达并结算后，原始 watcher 仍只有屏障事件，领域通知为空，`errors: []`。直接 `Bun.spawn` 执行退出 0，stdout/stderr 在 `overflow-structure-execution.json`，场景结果在 `events-review-overflow-structure-output.json`。
+
+这补强 R13 的恢复要求：在丢失目录新建事件时，Bun 没有给该子目录安装 inotify watch；通知消费者重列只能修正当时的列表，不会恢复持续监视。监视层必须在核对根身份后重建递归覆盖，再通知消费者取基线；不能发一次 `resync` 就继续把原 watcher 视为健康。该缺口仍归 R13，不新增编号。
+
+已与 Bun 固定提交 `744846f844374847c902b5e7fd59b4342a51ef99` 的一手源码交叉核对，父审查者亲读相关分支：
+
+- [`path_watcher.rs:293–318`](https://github.com/oven-sh/bun/blob/744846f844374847c902b5e7fd59b4342a51ef99/src/runtime/node/path_watcher.rs#L293-L318) 的 `emit_overflow` 明确说明 lost events，给所有 handler 发 `('change', null)`；[`959–968`](https://github.com/oven-sh/bun/blob/744846f844374847c902b5e7fd59b4342a51ef99/src/runtime/node/path_watcher.rs#L959-L968) 的 `IN_Q_OVERFLOW` 分支仅广播后继续，没有 error 或覆盖重建。
+- [`node_fs_watcher.rs:896–905`](https://github.com/oven-sh/bun/blob/744846f844374847c902b5e7fd59b4342a51ef99/src/runtime/node/node_fs_watcher.rs#L896-L905) 将 `NoFilename(Change)` 转为 JS `null`；[`path_watcher.rs:1090–1113`](https://github.com/oven-sh/bun/blob/744846f844374847c902b5e7fd59b4342a51ef99/src/runtime/node/path_watcher.rs#L1090-L1113) 保留递归根自身事件的空相对路径，与根移动实验的 `undefined` 文件名相符。
+- [`path_watcher.rs:1118–1165`](https://github.com/oven-sh/bun/blob/744846f844374847c902b5e7fd59b4342a51ef99/src/runtime/node/path_watcher.rs#L1118-L1165) 只在收到目录的 `CREATE/MOVED_TO` 时给新子树逐级加 watch，并合成发现项事件。目录创建事件在溢出中丢失后，重列消费方不能触发这个分支。
+
+VS Code 的固定一手源码仅用于约束建议，不作为 Bun 的替代运行证据：[`parcelWatcher.ts:166–185`](https://github.com/microsoft/vscode/blob/a5b500951314efd502d07465bd138dfbd714a960/src/vs/platform/files/node/watcher/parcel/parcelWatcher.ts#L166-L185) 在 75 ms 后仍设 500 条批次、200 ms 间隔与 30000 条缓冲上限；[`470–485`](https://github.com/microsoft/vscode/blob/a5b500951314efd502d07465bd138dfbd714a960/src/vs/platform/files/node/watcher/parcel/parcelWatcher.ts#L470-L485) 超限仅记 warning，不能直接照搬其丢弃行为。删除目录影响后代的合同在 [`files.ts:1073–1103`](https://github.com/microsoft/vscode/blob/a5b500951314efd502d07465bd138dfbd714a960/src/vs/platform/files/common/files.ts#L1073-L1103) 明定；t68 的目录失效事件应有相同的子树影响说明，具体树与文档处理留后续 Task。
+
+`overflow-structure` 可用上文相同直接启动代码重跑，把最后一个参数 `'overflow'` 换为 `'overflow-structure'`；该次独立执行的 exit 0 和完整输出已留存。所有实验实例、监视器与创建子进程已退出，未留下开发服务。
+
+## 总结：R1 起的全部编号与数量
+
+- **阻断：1 条** — R1（业务失败码与内核保留码冲突）。
+- **重要：12 条** — R2（系统调用入口被 `callers` 封死）、R3（文本与事件的帧预算）、R4（共享订阅建立/结束/重连合同）、R5（控制目录别名绕过）、R6（条件保存并发覆盖）、R7（根身份替换）、R8（只读与权限保留）、R9（链接读写落点不一致）、R10（保留时间戳写被吞）、R11（临时路径与别名的来源回声）、R12（执行入口不能证明写作者发起）、R13（溢出与根移动的无文件名失同步信号）。
+- **建议：0 条编号发现**；回写建议与未验证观察单列，不混入发现数量。
+
+累计 **13 条**。本轮新增 **4 条，全部重要（R10、R11、R12、R13）**；未新增阻断或建议级发现。R1–R9 保持前轮结论与证据；新增项的实测边界、最小改法及需要开发者决定的来源语义已写在对应条目与上文。
