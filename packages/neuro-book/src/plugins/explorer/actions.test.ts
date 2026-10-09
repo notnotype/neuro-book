@@ -13,7 +13,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {Layout} from "nbook/plugins/files/testing/scene";
 import {filesWrites} from "nbook/plugins/files/testing/tap";
 
-import {entry, exists, explorerWorlds, row, select, until} from "./testing/world";
+import {barrier, entry, exists, explorerWorlds, row, select, until} from "./testing/world";
 import type {ExplorerWorld} from "./testing/world";
 
 /** 权限用例要求以普通用户运行，root 时跳过。 */
@@ -122,6 +122,11 @@ describe("Spec workbench.files-explorer 改名：冻结身份", () => {
         expect(controller.editing.value).toMatchObject({mode: "rename", address: "project://plain/a.md", name: "a.md"});
         await controller.commitEdit();
         expect(controller.editing.value).toBeNull();
+        // Escape 取消改了一半的名字：同样不写（同字节写回也算写入，看写请求，不看字节）。
+        await controller.rename();
+        controller.editName("half.md");
+        controller.cancelEdit();
+        await barrier(at);
         expect(filesWrites(at.tap.requests)).toEqual([]);
         await controller.rename();
         controller.editName("b.md");
@@ -156,6 +161,7 @@ describe("Spec workbench.files-explorer 删除：确认与逐项结果", () => {
         expect(controller.dialog.value).toEqual({kind: "delete", items: [{address: "project://plain/sub", token: expect.any(String)}], busy: false});
         controller.closeDialog();
         expect(controller.dialog.value).toBeNull();
+        await barrier(at);
         expect(filesWrites(at.tap.requests)).toEqual([]);
 
         select(controller, "project://plain/sub");

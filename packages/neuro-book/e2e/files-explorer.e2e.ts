@@ -52,6 +52,8 @@ test.beforeAll(async () => {
         "ops/doomed.md": "D",
         "ops/old.md": "O",
         "plain/index.md": "PI",
+        "story.binder/binder.xml": "<binder/>",
+        "story.binder/ch1.md": "C1",
         "plain/a.md": "PA",
         "moves/m1.md": "M1",
         "moves/m2.md": "M2",
@@ -96,6 +98,7 @@ test("三类文件夹按呈现规则显示；点普通目录展开、点文件�
     await expect(item(page, "project://lore.content/alice")).toContainText("无正文");
     await expect(item(page, "project://lore.content/bob")).toContainText("鲍勃");
     await expect(item(page, "project://lore.content/content.xml")).toHaveCount(0);
+    await expect(item(page, "project://story.binder")).toContainText("需要剧情插件");
     await item(page, "project://plain").click();
     await expect(item(page, "project://plain/index.md")).toBeVisible();
     await item(page, "project://plain/a.md").click();
@@ -146,8 +149,38 @@ test("大目录：只渲染视口附近的行；键盘走到末尾，焦点行�
     expect(await item(page, "project://big/file-0000.md").count()).toBe(0);
     await page.keyboard.press("Home");
     await expect(item(page, "project://")).toBeInViewport();
-    await item(page, "project://big").click();
+
+    // 焦点在顶上，滚到中段；外部在前面插入一项：阅读位置不动，不被拉回焦点行。
+    await item(page, "project://big/file-0000.md").click();
+    await tree(page).evaluate((element) => {
+        element.scrollTop = 5200;
+    });
+    const middle = item(page, "project://big/file-0200.md");
+    await expect(middle).toBeInViewport();
+    const before = (await middle.boundingBox())?.y;
+    await writeFile(join(projectDir, "big", "000-inserted.md"), "I");
+    await expect(item(page, "project://big/file-0200.md")).toHaveAttribute("aria-setsize", String(MANY + 1));
+    await expect(middle).toBeInViewport();
+    const after = (await middle.boundingBox())?.y;
+    expect(Math.abs((after ?? 0) - (before ?? 0))).toBeLessThan(2);
+    await rm(join(projectDir, "big", "000-inserted.md"));
+
+    await page.locator("[data-explorer-tool=\"collapse-all\"]").click();
     await expect(item(page, "project://big/file-0000.md")).toHaveCount(0);
+});
+
+test("命令面板执行资源管理器的命令：全部收起", async ({page}) => {
+    await open(page);
+    if (await item(page, "project://ops").getAttribute("aria-expanded") !== "true") await item(page, "project://ops").click();
+    await expect(item(page, "project://ops/keep.md")).toBeVisible();
+    await page.keyboard.press("Control+Shift+P");
+    const palette = page.getByRole("combobox", {name: "输入命令，或输入 : 跳到某一行"});
+    await expect(palette).toBeFocused();
+    await page.keyboard.type("全部收起");
+    await expect(page.getByRole("option").filter({hasText: "全部收起"})).toHaveCount(1);
+    await page.keyboard.press("Enter");
+    await expect(item(page, "project://ops/keep.md")).toHaveCount(0);
+    await expect(item(page, "project://")).toHaveAttribute("aria-expanded", "true");
 });
 
 test("外部新建的文件出现在已展开的目录里", async ({page}) => {
@@ -169,6 +202,20 @@ test("没有绑定项目：提示“尚未打开项目”，用户资产照常�
 });
 
 const exists = (path: string): Promise<boolean> => lstat(path).then(() => true, () => false);
+
+/**
+ * 页面经窗口的 RPC 套接字发给 Files 的写请求（方法名），在打开页面之前挂上。“没有写入”看它而不只看字节：同字节的
+ * 写回也换了文件身份、发了事件。断言前先等屏障（`barrier`），让之前发出的请求都已记下。
+ */
+function recordWrites(page: Page): string[] {
+    const writes: string[] = [];
+    page.on("websocket", (socket) => socket.on("framesent", (frame) => {
+        if (typeof frame.payload !== "string" || !frame.payload.includes("\"type\":\"request\"")) return;
+        const parsed = JSON.parse(frame.payload) as {type?: string; effect?: string; contract?: string; method?: string};
+        if (parsed.type === "request" && parsed.effect === "write" && parsed.contract?.startsWith("nbook.files/") === true) writes.push(parsed.method ?? "");
+    }));
+    return writes;
+}
 const manifest = (): Promise<string> => readFile(join(projectDir, "lore.content", "content.xml"), "utf8");
 const focused = (page: Page) => page.locator(":focus");
 
@@ -222,6 +269,7 @@ test("只用键盘：创建内容、修改展示名、加入清单、上移，�
 });
 
 test("只用键盘：F2 改名（Escape 取消不写）、Delete 删除（确认框默认在取消上，删除后焦点回到树）", async ({page}) => {
+    const sent = recordWrites(page);
     await open(page);
     if (await item(page, "project://ops").getAttribute("aria-expanded") !== "true") await item(page, "project://ops").click();
     await expect(item(page, "project://ops/old.md")).toBeVisible();
@@ -230,12 +278,19 @@ test("只用键盘：F2 改名（Escape 取消不写）、Delete 删除（确认
     await page.keyboard.press("F2");
     const input = page.locator("[data-explorer-edit] input");
     await expect(input).toBeFocused();
-    // 输入框里的 Delete 与快捷键属于输入框，不删文件。
+    // 输入框里的 Delete 与剪切快捷键属于输入框：不删文件，也不改文件剪贴板。
     await page.keyboard.press("Delete");
+    await page.keyboard.press("Control+X");
     await page.keyboard.press("Escape");
     await expect(input).toHaveCount(0);
     await expect(tree(page)).toBeFocused();
+    await barrier(page, "ops");
+    expect(sent).toEqual([]);
     expect(await readFile(join(projectDir, "ops", "old.md"), "utf8")).toBe("O");
+    await item(page, "project://ops").click({button: "right"});
+    await expect(page.getByRole("menuitem", {name: /粘贴/u})).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await pick(page, "project://ops/old.md");
 
     await page.keyboard.press("F2");
     await expect(input).toBeFocused();
@@ -257,6 +312,8 @@ test("只用键盘：F2 改名（Escape 取消不写）、Delete 删除（确认
     await expect.poll(() => exists(join(projectDir, "ops", "doomed.md"))).toBe(false);
     await expect(tree(page)).toBeFocused();
     expect(await readFile(join(projectDir, "ops", "keep.md"), "utf8")).toBe("K");
+    // 记录器确实看得到写请求：前面的“没有写入”不是空断言。
+    expect(sent).toEqual(["rename", "delete"]);
 });
 
 test("工具栏新建：输入行出现在选中的目录里，Enter 后排他新建空文件并选中它", async ({page}) => {
@@ -332,6 +389,7 @@ test("拖动：移入目录显示“移入”反馈并移动；内容文件夹�
 });
 
 test("拖动中按 Escape、切换显示清单文件、滚动后原地放下：都不写", async ({page}) => {
+    const sent = recordWrites(page);
     await open(page);
     await item(page, "project://moves").click();
     await expect(item(page, "project://moves/m2.md")).toBeVisible();
@@ -365,6 +423,7 @@ test("拖动中按 Escape、切换显示清单文件、滚动后原地放下：�
     await page.mouse.up();
 
     await barrier(page, "moves");
+    expect(sent).toEqual([]);
     expect(await readFile(join(projectDir, "moves", "m2.md"), "utf8")).toBe("M2");
     expect(await exists(join(projectDir, "moves", "keep", "m2.md"))).toBe(false);
     await page.locator("[data-explorer-tool=\"collapse-all\"]").click();

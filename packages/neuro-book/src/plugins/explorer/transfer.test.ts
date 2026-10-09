@@ -13,11 +13,11 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {holdLock} from "nbook/backend/locked-replace";
-import {extraWindow} from "nbook/plugins/files/testing/scene";
+import {extraWindow, files} from "nbook/plugins/files/testing/scene";
 import type {Layout, Scene} from "nbook/plugins/files/testing/scene";
 import {filesWrites} from "nbook/plugins/files/testing/tap";
 
-import {entry, exists, explorerWorlds, row, select, until} from "./testing/world";
+import {barrier, entry, exists, explorerWorlds, row, select, until} from "./testing/world";
 import type {ExplorerWorld} from "./testing/world";
 import type {ExplorerController} from "./web/controller";
 
@@ -254,6 +254,20 @@ describe("Spec workbench.files-explorer 验收 6：粘贴目标与源", () => {
         expect(controller.report.value?.items).toEqual([{address: "user://notes/u.md", target: "user://notes/u.md", result: {status: "declined", reason: "cancel"}}]);
     });
 
+    it("根行不能改名、删除、复制、剪切或拖动，也不发写请求", async () => {
+        const w = await world();
+        const {controller} = w;
+        select(controller, "project://");
+        expect(controller.available.value).toMatchObject({rename: false, delete: false, copy: false, cut: false});
+        expect(await controller.rename()).toEqual({ok: false, reason: "no-selection"});
+        expect(await controller.delete()).toEqual({ok: false, reason: "no-selection"});
+        expect(await controller.copy()).toEqual({ok: false, reason: "no-selection"});
+        expect(await controller.cut()).toEqual({ok: false, reason: "no-selection"});
+        expect(controller.startDrag("project://")).toBe(false);
+        await barrier(w);
+        expect(writes(w)).toEqual([]);
+    });
+
     it("多个选中的目录不猜；跨根粘贴拒绝且两端不变", async () => {
         const w = await world();
         const {controller} = w;
@@ -264,6 +278,7 @@ describe("Spec workbench.files-explorer 验收 6：粘贴目标与源", () => {
         expect(await controller.paste()).toEqual({ok: false, reason: "no-target"});
         select(controller, "user://notes");
         expect(await controller.paste()).toEqual({ok: false, reason: "cross-root"});
+        await barrier(w);
         expect(writes(w)).toEqual([]);
         expect(await exists(join(w.scene.user, "notes", "a.md"))).toBe(false);
         expect(await text(at(w.scene, "plain/a.md"))).toBe("PA");
@@ -322,6 +337,7 @@ describe("Spec workbench.files-explorer 验收 7：碰撞", () => {
         await asked(w, "project://plain/z.md");
         controller.resolveCollision({kind: "cancel"}, false);
         await pasting;
+        await barrier(w);
         expect(writes(w)).toEqual([]);
         expect(controller.report.value).toEqual({action: "copy", manifests: [], truncated: false, items: [
             {address: "project://plain/a.md", target: "project://dest/a.md", result: {status: "declined", reason: "skip"}},
@@ -362,6 +378,40 @@ describe("Spec workbench.files-explorer 验收 7：碰撞", () => {
     });
 });
 
+describe("Spec workbench.files-explorer 验收 4、8：切换显示与取消", () => {
+    it("切换显示清单文件：仍可见的选择、焦点与展开保留，新建的目标不变", async () => {
+        const w = await world();
+        const {controller} = w;
+        select(controller, "project://plain/a.md");
+        controller.setShowManifests(true);
+        await until(w, "清单行出现", () => row(controller, "project://lore.content/content.xml") !== undefined);
+        expect(controller.selection.value).toEqual({selected: ["project://plain/a.md"], focus: "project://plain/a.md", anchor: "project://plain/a.md"});
+        expect(controller.model.expanded.value.has("project://plain")).toBe(true);
+        controller.create("file");
+        expect(controller.editing.value).toMatchObject({creating: {parent: "project://plain"}});
+    });
+
+    it("取消在途的剪切粘贴：已完成的项不回滚，后面的项为已取消、留在原处并留在剪贴板里", async () => {
+        const w = await world();
+        const {controller} = w;
+        select(controller, "project://plain/a.md", "project://plain/z.md");
+        await controller.cut();
+        const release = await holdManifest(w.scene, "lore.content");
+        select(controller, "project://lore.content/stray.md");
+        const pasting = controller.paste();
+        await waitUntil("第一项的文件已移动", () => exists(at(w.scene, "lore.content/a.md")));
+        controller.running.value?.cancel();
+        // 取消请求先送到提供方，再放开清单锁让第一项结算。
+        await waitUntil("取消已发出", () => w.tap.requests.some((request) => request.method === "cancel"));
+        await release();
+        await pasting;
+        expect(controller.report.value?.items.map((item) => item.result.status)).toEqual(["done", "cancelled"]);
+        expect(await text(at(w.scene, "lore.content/a.md"))).toBe("PA");
+        expect(await text(at(w.scene, "plain/z.md"))).toBe("Z");
+        expect(controller.clipboard.value?.items.map((item) => item.address)).toEqual(["project://plain/z.md"]);
+    });
+});
+
 describe("Spec workbench.files-explorer 验收 8、15：结果未知", () => {
     it("批量在途时断线：结果未知，复制、剪切、粘贴、拖动与删除都不可用、不发第二批；重新列出不解除，放弃后恢复并清掉剪贴板", async () => {
         const w = await world();
@@ -393,6 +443,7 @@ describe("Spec workbench.files-explorer 验收 8、15：结果未知", () => {
         expect(controller.startDrag("project://plain/sub")).toBe(false);
         controller.recheck();
         expect(controller.unknown.value).not.toBeNull();
+        await barrier(w);
         expect(filesWrites(w.tap.requests.slice(sent))).toEqual([]);
 
         controller.abandon();
@@ -412,6 +463,7 @@ describe("Spec workbench.files-explorer 验收 5：窗口与项目", () => {
         select(other, "project://plain/sub");
         expect(other.available.value.paste).toBe(false);
         expect(await other.paste()).toEqual({ok: false, reason: "empty-clipboard"});
+        await barrier(w);
         expect(writes(w)).toEqual([]);
     });
 
@@ -427,6 +479,7 @@ describe("Spec workbench.files-explorer 验收 5：窗口与项目", () => {
         expect(controller.clipboard.value).toBeNull();
         controller.resolveCollision({kind: "rename", name: "a2.md"}, false);
         await pasting;
+        await barrier(w, "user");
         expect(writes(w)).toEqual([]);
         expect(await exists(at(w.scene, "plain/a2.md"))).toBe(false);
     });
@@ -444,6 +497,7 @@ describe("Spec workbench.files-explorer 拖动：判定与提交", () => {
         // 放下时指针下已经是另一行：与显示的不同，不写。
         await controller.dropDrag({id: "project://dest", zone: "inside"});
         expect(controller.drag.value).toBeNull();
+        await barrier(w);
         expect(writes(w)).toEqual([]);
 
         controller.startDrag("project://plain/a.md");
@@ -499,6 +553,7 @@ describe("Spec workbench.files-explorer 拖动：判定与提交", () => {
         await rm(at(w.scene, "plain/z.md"));
         await until(w, "源失效，拖动取消", () => controller.drag.value === null);
         await controller.dropDrag({id: "project://plain/sub", zone: "inside"});
+        await barrier(w);
         expect(writes(w)).toEqual([]);
 
         // 服务端算出令牌之后（回复已到、还没交付），在同一路径换成同字节的新文件。
@@ -512,5 +567,151 @@ describe("Spec workbench.files-explorer 拖动：判定与提交", () => {
         await controller.dropDrag({id: "project://plain/sub", zone: "inside"});
         expect(controller.report.value?.items).toEqual([{address: "project://plain/a.md", target: "project://plain/sub/a.md", result: expect.objectContaining({status: "failed", code: "source-changed"})}]);
         expect(await exists(at(w.scene, "plain/sub/a.md"))).toBe(false);
+    });
+});
+
+describe("Spec workbench.files-explorer 冻结的意图：迟到的结果与失效", () => {
+    it("选中的行在改名后等待重列：新建与粘贴不可用，不改投到当前根", async () => {
+        const w = await world();
+        const {controller} = w;
+        controller.click("project://plain/sub", {toggle: false, range: false}, "twisty");
+        await until(w, "sub 列出", () => row(controller, "project://plain/sub/x.md") !== undefined);
+        select(controller, "project://plain/sub/x.md");
+        await controller.copy();
+        const relisting = w.tap.hold((request) => request.method === "list" && (request.input as {path: string}).path === "renamed/sub");
+        let held = false;
+        void relisting.arrived.then(() => {
+            held = true;
+        });
+        // 经文件服务改名才有 `renamed` 事件（外部改名只看得到删除与新建），展开与选择据它改写。
+        expect((await files(w.scene.window).rename("project://plain", "renamed")).ok).toBe(true);
+        await until(w, "新地址的列出发出并被扣住", () => held);
+        await until(w, "选择跟到新地址", () => controller.selection.value.focus === "project://renamed/sub/x.md");
+        expect(row(controller, "project://renamed/sub/x.md")).toBeUndefined();
+        expect(controller.available.value).toMatchObject({create: false, paste: false});
+        expect(controller.create("file")).toEqual({ok: false, reason: "no-target"});
+        expect(await controller.paste()).toEqual({ok: false, reason: "no-target"});
+        relisting.release();
+        await until(w, "行回来", () => row(controller, "project://renamed/sub/x.md") !== undefined);
+        expect(writes(w).map((request) => request.method)).toEqual(["rename"]);
+    });
+
+    it("放下后还在等令牌时取消（切换显示）：令牌到了也不写", async () => {
+        const w = await world();
+        const {controller} = w;
+        const identified = w.tap.hold((request) => request.method === "identify");
+        controller.startDrag("project://plain/a.md");
+        controller.hoverDrag({id: "project://dest", zone: "inside"});
+        const dropping = controller.dropDrag({id: "project://dest", zone: "inside"});
+        await identified.arrived;
+        controller.setShowManifests(true);
+        identified.release();
+        await dropping;
+        await barrier(w);
+        expect(writes(w)).toEqual([]);
+        expect(await text(at(w.scene, "plain/a.md"))).toBe("PA");
+    });
+
+    it("项目结束：打开着的删除确认随之关闭，确认不发写", async () => {
+        const w = await world();
+        const {controller} = w;
+        select(controller, "project://plain/z.md");
+        await controller.delete();
+        expect(controller.dialog.value?.kind).toBe("delete");
+        await w.scene.projectApp.stop();
+        await until(w, "根已停止同步", () => controller.model.roots.value[0]?.status.kind === "ended");
+        expect(controller.dialog.value).toBeNull();
+        await controller.confirmDelete();
+        await barrier(w, "user");
+        expect(writes(w)).toEqual([]);
+    });
+
+    it("项目结束：结束后才到的令牌不装进剪贴板，迟到的列出不再应用", async () => {
+        const w = await world();
+        const {controller} = w;
+        const identified = w.tap.hold((request) => request.method === "identify");
+        select(controller, "project://plain/a.md");
+        const cutting = controller.cut();
+        await identified.arrived;
+        const listing = w.tap.hold((request) => request.method === "list" && (request.input as {path: string}).path === "plain/sub");
+        controller.click("project://plain/sub", {toggle: false, range: false}, "twisty");
+        await listing.arrived;
+
+        await w.scene.projectApp.stop();
+        await until(w, "根已停止同步", () => controller.model.roots.value[0]?.status.kind === "ended");
+        identified.release();
+        await cutting;
+        expect(controller.clipboard.value).toBeNull();
+        listing.release();
+        await until(w, "迟到的列出已交付", () => controller.model.slots.value.get("project://plain/sub")?.loading === false);
+        expect(controller.model.slots.value.get("project://plain/sub")?.listing ?? null).toBeNull();
+    });
+
+    it("父目录的列出在途时子目录改名：旧列出不把改写后的展开当成不在，改名后的分支保持展开", async () => {
+        const w = await world();
+        const {controller} = w;
+        controller.click("project://plain/sub", {toggle: false, range: false}, "twisty");
+        await until(w, "sub 列出", () => row(controller, "project://plain/sub/x.md") !== undefined);
+        const stale = w.tap.hold((request) => request.method === "list" && (request.input as {path: string}).path === "plain");
+        controller.model.refresh();
+        await stale.arrived;
+        expect((await files(w.scene.window).rename("project://plain/sub", "sub2")).ok).toBe(true);
+        await until(w, "展开改写到新地址", () => controller.model.expanded.value.has("project://plain/sub2"));
+        stale.release();
+        await until(w, "改名后的分支列出", () => row(controller, "project://plain/sub2/x.md") !== undefined);
+        expect(controller.model.expanded.value.has("project://plain/sub2")).toBe(true);
+    });
+
+    it("焦点行被外部删除：焦点回到最近的存活祖先", async () => {
+        const w = await world();
+        const {controller} = w;
+        controller.click("project://plain/sub", {toggle: false, range: false}, "twisty");
+        await until(w, "sub 列出", () => row(controller, "project://plain/sub/x.md") !== undefined);
+        select(controller, "project://plain/sub/x.md");
+        await rm(at(w.scene, "plain/sub/x.md"));
+        await until(w, "行消失", () => row(controller, "project://plain/sub/x.md") === undefined);
+        await until(w, "焦点回到父目录", () => controller.selection.value.focus === "project://plain/sub");
+        expect(controller.selection.value.selected).toEqual([]);
+    });
+
+    it("等令牌的改名、剪切迟到：不顶掉用户随后开始的新建输入，也不顶掉更新的剪贴板", async () => {
+        const w = await world();
+        const {controller} = w;
+        const renameToken = w.tap.hold((request) => request.method === "identify");
+        select(controller, "project://plain/a.md");
+        const renaming = controller.rename();
+        await renameToken.arrived;
+        select(controller, "project://dest");
+        controller.create("file");
+        controller.editName("typed-new.md");
+        renameToken.release();
+        await renaming;
+        expect(controller.editing.value).toMatchObject({mode: "create", name: "typed-new.md", creating: {parent: "project://dest"}});
+        controller.cancelEdit();
+
+        const cutToken = w.tap.hold((request) => request.method === "identify");
+        select(controller, "project://plain/a.md");
+        const cutting = controller.cut();
+        await cutToken.arrived;
+        select(controller, "project://dest/a.md");
+        await controller.copy();
+        cutToken.release();
+        await cutting;
+        expect(controller.clipboard.value).toMatchObject({mode: "copy", items: [{address: "project://dest/a.md"}]});
+    });
+
+    it("新建后用户已经选了别的行：新项的列出迟到也不抢走选择", async () => {
+        const w = await world();
+        const {controller} = w;
+        select(controller, "project://plain/a.md");
+        controller.create("file");
+        controller.editName("new.md");
+        const relisting = w.tap.hold((request) => request.method === "list" && (request.input as {path: string}).path === "plain");
+        await controller.commitEdit();
+        await relisting.arrived;
+        select(controller, "project://dest/a.md");
+        relisting.release();
+        await until(w, "新项出现", () => row(controller, "project://plain/new.md") !== undefined);
+        expect(controller.selection.value).toMatchObject({selected: ["project://dest/a.md"], focus: "project://dest/a.md"});
     });
 });

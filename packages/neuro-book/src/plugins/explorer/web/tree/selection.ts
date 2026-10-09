@@ -67,14 +67,19 @@ export function toggleFocused(state: Selection): Selection {
     return {...state, selected: has ? state.selected.filter((item) => item !== state.focus) : [...state.selected, state.focus], anchor: state.focus};
 }
 
-/** 改名与删除事件：选择、焦点与锚点跟着改写到新地址，被删除的移除。 */
+/**
+ * 改名与删除事件：选择、焦点与锚点跟着改写到新地址，被删除的从选择与锚点里移除。被删除的焦点保留原地址：行消失后
+ * `prune` 据它找最近的存活祖先，清成 null 就没有地址可找了。
+ */
 export function followPaths(state: Selection, changes: PathChanges): Selection {
+    const removed = (id: string): boolean => changes.removed.some((prefix) => isWithin(id, prefix));
     const map = (id: string | null): string | null => {
-        if (id === null || changes.removed.some((prefix) => isWithin(id, prefix))) return null;
+        if (id === null || removed(id)) return null;
         return changes.moves.reduce((current, move) => rebase(current, move.from, move.to), id);
     };
     const selected = state.selected.map(map).filter((id): id is string => id !== null);
-    return {selected: [...new Set(selected)], focus: map(state.focus), anchor: map(state.anchor)};
+    const focus = state.focus !== null && removed(state.focus) ? state.focus : map(state.focus);
+    return {selected: [...new Set(selected)], focus, anchor: map(state.anchor)};
 }
 
 /**

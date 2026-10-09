@@ -103,21 +103,21 @@ watch(() => props.rows, (rows) => {
     });
 });
 
-watch(editIndex, (index) => {
-    if (index < 0) return;
+/**
+ * 焦点换了一行（键盘移动、点击）或开始编辑另一行时，把它滚入视口。按 id 的变化触发，不按下标：前方插入或删除行只
+ * 改变下标，那时由上面的锚点保持阅读位置，不能被拉回焦点行。
+ */
+const reveal = (id: string | null | undefined): void => {
+    if (id == null) return;
     void nextTick(() => {
+        const index = props.rows.findIndex((row) => row.id === id);
+        if (index < 0) return;
         setScroll(revealTop(index, rowHeight.value, viewport.value, scrollTop.value));
         remember();
     });
-});
-
-watch(focusIndex, (index) => {
-    if (index < 0) return;
-    void nextTick(() => {
-        setScroll(revealTop(index, rowHeight.value, viewport.value, scrollTop.value));
-        remember();
-    });
-});
+};
+watch(() => props.editing?.id, reveal);
+watch(() => props.focus, reveal);
 
 const onScroll = (): void => {
     if (root.value === null) return;

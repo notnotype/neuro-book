@@ -280,8 +280,10 @@ describe("Spec workbench.files-explorer 增量刷新的依赖", () => {
         expect(row(controller, "project://plain/sub/x.md")).toBeUndefined();
     });
 
-    it("订阅建立之前已经列出的目录：订阅就绪后重新核对，不漏其间的变化", async () => {
+    it("订阅就绪之前发出的列出：就绪后重列一次，不漏其间的变化", async () => {
         const at = await world();
+        // 发送闸门把订阅推迟到列出之后：这是“订阅就绪晚于列出结果”的完成先后，不是网络重排的仿真（同一条链路按发送
+        // 顺序交付）。证明的是模型的规则：`ready` 之前发出的列出，在 `ready` 后重列一次。
         const subscribe = at.tap.holdSend((frame) => frame.type === "subscribe" && frame.contract === "nbook.files/project");
         const controller = explorer(at, {expanded: ["project://"]});
         await subscribe.arrived;

@@ -123,6 +123,13 @@ const marks = computed(() => {
 const position = computed(() => (props.row.kind === "entry" ? {posinset: props.row.position, setsize: props.row.siblings} : props.row.kind === "root" ? {posinset: props.row.scheme === "project" ? 1 : 2, setsize: 2} : null));
 
 const description = computed(() => (props.row.kind === "entry" ? props.row.address : undefined));
+
+/** 输入框的可访问名称：说明在给什么起名字，当前值另由输入框自己读出。 */
+const inputLabel = computed(() => {
+    const row = props.row;
+    if (row.kind === "edit") return explorerText(props.locale, row.entry === "directory" ? "newFolderName" : "newFileName");
+    return row.kind === "entry" ? explorerText(props.locale, "renameLabel", {name: row.name}) : undefined;
+});
 </script>
 
 <template>
@@ -135,6 +142,10 @@ const description = computed(() => (props.row.kind === "entry" ? props.row.addre
         :data-explorer-edit="row.id"
         :aria-level="row.depth + 1"
         :aria-selected="row.kind === 'entry' ? selected : undefined"
+        :aria-setsize="row.kind === 'entry' ? position?.setsize : undefined"
+        :aria-posinset="row.kind === 'entry' ? position?.posinset : undefined"
+        :aria-expanded="row.kind === 'entry' && expandable ? expanded : undefined"
+        :aria-description="description"
     >
         <span class="h-4 w-4 shrink-0" aria-hidden="true"></span>
         <span v-if="icon" :class="icon" class="h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
@@ -143,6 +154,7 @@ const description = computed(() => (props.row.kind === "entry" ? props.row.addre
                 size="sm"
                 :model-value="edit?.name ?? ''"
                 :readonly="edit?.busy === true"
+                :aria-label="inputLabel"
                 :aria-invalid="edit?.error ? 'true' : undefined"
                 :aria-describedby="edit?.error ? errorId : undefined"
                 data-explorer-input

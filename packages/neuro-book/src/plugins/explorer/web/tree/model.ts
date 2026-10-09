@@ -69,6 +69,8 @@ export interface TreeModel {
     retry(address: string): void;
     /** 根的订阅结束后重新订阅并重列。 */
     reconnect(scheme: Scheme): void;
+    /** 整体换成一组展开的目录（偏好的重读与放弃）。 */
+    setExpanded(addresses: Iterable<string>): void;
     dispose(): void;
 }
 
@@ -137,7 +139,8 @@ export function createTreeModel(options: TreeModelOptions): TreeModel {
                 owner.listing = result.value;
                 owner.error = null;
                 owner.stale = false;
-                prune(address, result.value);
+                // 在途期间已经变了（例如子目录改了名、展开已改写到新地址）：旧快照不能证明谁不在了，等重列的结果再修剪。
+                if (!owner.dirty) prune(address, result.value);
             } else {
                 owner.error = {code: result.code, detail: result.detail};
             }
@@ -207,6 +210,14 @@ export function createTreeModel(options: TreeModelOptions): TreeModel {
         if (message.kind === "ended") {
             ready.delete(scheme);
             watches.delete(scheme);
+            // 结束之后到达的列出结果属于旧的资格：撤销在途请求，迟到的结果按请求不再归属丢弃。
+            for (const [address, slot] of store) {
+                if (schemeOf(address) !== scheme || slot.request === null) continue;
+                slot.request.abort.abort();
+                slot.request = null;
+                slot.dirty = false;
+                publish(address);
+            }
             roots.value = roots.value.map((root) => (root.scheme === scheme ? {...root, status: {kind: "ended", reason: message.reason}} : root));
             return;
         }
@@ -273,6 +284,11 @@ export function createTreeModel(options: TreeModelOptions): TreeModel {
             // 断开期间的变化都可能漏掉：已缓存的全部按订阅之前发出处理，`ready` 后重列。
             for (const [address, slot] of store) if (schemeOf(address) === scheme) slot.early = true;
             watch(scheme);
+            ensureVisible();
+        },
+        setExpanded: (addresses) => {
+            expanded.value = new Set(addresses);
+            options.onExpandedChange?.(expanded.value);
             ensureVisible();
         },
         dispose: () => {

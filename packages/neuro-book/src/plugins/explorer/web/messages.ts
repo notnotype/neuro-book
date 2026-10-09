@@ -118,6 +118,9 @@ const MESSAGES = {
     itemDeclinedCancel: {"zh-CN": "未执行（已取消剩余）", "en-US": "not run (rest cancelled)"},
     dropInto: {"zh-CN": "移入 {name}", "en-US": "Move into {name}"},
     dropReorder: {"zh-CN": "调整顺序", "en-US": "Reorder"},
+    newFileName: {"zh-CN": "新文件的名字", "en-US": "New file name"},
+    newFolderName: {"zh-CN": "新文件夹的名字", "en-US": "New folder name"},
+    renameLabel: {"zh-CN": "重命名 {name}", "en-US": "Rename {name}"},
 } satisfies Record<string, LocalizedText>;
 
 export type ExplorerMessage = keyof typeof MESSAGES;

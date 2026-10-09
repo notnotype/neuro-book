@@ -67,6 +67,8 @@ const session: ExplorerSession = {
         };
     },
     setShowManifests: (show) => controller.value?.setShowManifests(show),
+    retryPreferences: async () => undefined,
+    discardPreferences: () => undefined,
     dispose: () => {
         controller.value?.dispose();
         controller.value = null;

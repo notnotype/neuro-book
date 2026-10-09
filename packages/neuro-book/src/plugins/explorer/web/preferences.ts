@@ -10,7 +10,7 @@ import {Type} from "typebox";
 
 import {defineRecord, MAX_RECORD_MAX_BYTES} from "nbook/shared/storage";
 import {defineStore} from "nbook/shared/store/store";
-import type {CommitResult, PersistedField} from "nbook/shared/store/store";
+import type {PersistedField} from "nbook/shared/store/store";
 
 import {isWithin, parentAddress} from "./tree/address";
 
@@ -59,39 +59,41 @@ function defineExplorerStore(bound: boolean) {
         const expanded = bound ? persist(EXPLORER_RECORDS.expanded, {initial: {paths: [""]}}) : null;
         const userExpanded = persist(EXPLORER_RECORDS.userExpanded, {initial: {paths: []}});
         const fields: Array<PersistedField<ExplorerPreferences> | PersistedField<ExpandedPaths>> = [preferences, ...(expanded === null ? [] : [expanded]), userExpanded];
-        /** 暂停期间的最后一份展开：恢复保存后提交。 */
-        const latest = new Map<PersistedField<ExpandedPaths>, ExpandedPaths>();
+        /** 暂停期间每份记录的最后一个值：恢复保存后只提交它。 */
+        const latest = new Map<PersistedField<unknown>, () => void>();
 
-        const commitPaths = (field: PersistedField<ExpandedPaths>, value: ExpandedPaths): Promise<CommitResult> | null => {
+        /** 提交一个新值；保存暂停时只改显示并记下这最后一份，中间值没有意义，不在队列里堆积。 */
+        const commitLatest = <T>(field: PersistedField<T>, value: T): void => {
             if (paused(field as PersistedField<unknown>)) {
                 field.show(value);
-                latest.set(field, value);
-                return null;
+                latest.set(field as PersistedField<unknown>, () => void field.commit(() => value));
+                return;
             }
-            return field.commit(() => ({paths: [...value.paths]}));
+            void field.commit(() => value);
         };
 
         return {
             state: {preferences, expanded, userExpanded},
             actions: {
-                setShowManifests: (show: boolean): Promise<CommitResult> => preferences.commit(() => ({showManifests: show})),
+                setShowManifests: (show: boolean): void => commitLatest(preferences, {showManifests: show}),
                 saveExpanded: (record: ExpandedRecord, paths: ReadonlyArray<string>): void => {
                     const field = record === "expanded" ? expanded : userExpanded;
                     if (field === null) return;
                     const current = field.display.paths;
                     if (current.length === paths.length && current.every((path, index) => path === paths[index])) return;
-                    void commitPaths(field, {paths});
+                    commitLatest(field, {paths: [...paths]});
                 },
                 /** 重试暂停的保存；打开失败或订阅结束的记录先重新打开。之后提交暂停期间记下的最后一份展开。 */
                 retry: async (): Promise<void> => {
                     for (const field of fields) {
+                        // 重开成功后同一次动作里接着重试暂停的队首（首读失败期间的修改就停在那里）。
                         if (field.failure !== null) await field.reopen();
-                        else if (paused(field as PersistedField<unknown>)) await field.retry();
+                        if (field.failure === null && paused(field as PersistedField<unknown>)) await field.retry();
                     }
-                    for (const [field, value] of [...latest]) {
-                        if (paused(field as PersistedField<unknown>)) continue;
+                    for (const [field, commit] of [...latest]) {
+                        if (paused(field)) continue;
                         latest.delete(field);
-                        void commitPaths(field, value);
+                        commit();
                     }
                 },
                 /** 放弃没保存上的修改：显示回到已保存的值。 */

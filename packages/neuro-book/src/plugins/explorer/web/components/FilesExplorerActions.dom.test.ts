@@ -51,6 +51,7 @@ describe("FilesExplorerView：内联输入", () => {
         await flushPromises();
         const input = wrapper.get("[data-explorer-edit] input");
         expect(document.activeElement).toBe(input.element);
+        expect(input.attributes("aria-label")).toBe("新文件的名字");
         const order = wrapper.findAll("[data-explorer-row], [data-explorer-edit]").map((item) => item.attributes("data-explorer-row") ?? "edit");
         expect(order.indexOf("edit")).toBe(order.indexOf("project://lore.content/gone") - 1);
 
@@ -85,6 +86,9 @@ describe("FilesExplorerView：内联输入", () => {
         await flushPromises();
         const editing = wrapper.get("[data-explorer-edit=\"project://a.md\"]");
         expect(editing.attributes("role")).toBe("treeitem");
+        // 改名的行仍带完整的同层位置；输入框有说明在改哪个资源的名称。
+        expect(editing.attributes()).toMatchObject({"aria-posinset": "3", "aria-setsize": "3", "aria-description": "project://a.md"});
+        expect(input.attributes("aria-label")).toBe("重命名 a.md");
         const error = wrapper.get("[data-explorer-input-error]");
         expect(error.text()).toBe("已存在同名项");
         expect(error.attributes("role")).toBe("alert");

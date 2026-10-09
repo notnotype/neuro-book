@@ -243,15 +243,23 @@ describe("Spec workbench.files-explorer 验收 16：保存暂停时的重试与�
         current.controller.value!.model.expand("project://lore.content");
         expect(expanded.display.paths).toEqual(["", "plain", "lore.content"]);
         expect(expanded.queue).toBe(1);
+        // 显示偏好同样：暂停后来回切换只记最后一份，不在队列里堆积。
+        const preferences = store.state.preferences;
+        current.setShowManifests(true);
+        await waitUntil("显示偏好的保存暂停", () => preferences.save.state === "failed" || preferences.save.state === "unknown");
+        for (const show of [false, true, false, true]) current.setShowManifests(show);
+        expect(preferences.queue).toBe(1);
+        expect(preferences.display.showManifests).toBe(true);
 
         await link.reconnect();
-        await store.actions.retry();
-        await waitUntil("最后一份保存上", () => expanded.save.state === "idle" && expanded.queue === 0 && expanded.base?.status === "ok" && expanded.base.value.paths.length === 3);
+        await current.retryPreferences();
+        await waitUntil("最后一份保存上", () => expanded.save.state === "idle" && expanded.queue === 0 && expanded.base?.status === "ok" && expanded.base.value.paths.length === 3 && preferences.queue === 0 && preferences.save.state === "idle");
+        expect(preferences.base).toMatchObject({value: {showManifests: true}});
         expect(expanded.base).toMatchObject({value: {paths: ["", "plain", "lore.content"]}});
         expect(current.problem.value).toBeNull();
     });
 
-    it("放弃：没保存上的修改丢掉，记录的显示回到已保存的值", async () => {
+    it("放弃：没保存上的修改丢掉，记录的显示与树都回到已保存的值", async () => {
         const at = await worlds();
         const {create, link} = await storeWindow(at.storage, "w1", "c");
         const current = session(at, create);
@@ -265,8 +273,35 @@ describe("Spec workbench.files-explorer 验收 16：保存暂停时的重试与�
         current.controller.value!.model.expand("project://plain");
         await waitUntil("保存暂停", () => current.problem.value?.kind === "unsaved");
         current.controller.value!.model.expand("project://lore.content");
-        store.actions.discard();
+        current.setShowManifests(true);
+        // 在途的队首不能放弃（store.md）：等显示偏好的保存也停下来。
+        const preferences = store.state.preferences;
+        await waitUntil("显示偏好的保存暂停", () => preferences.save.state === "failed" || preferences.save.state === "unknown");
+        current.discardPreferences();
         expect(expanded.display.paths).toEqual([""]);
+        expect(current.controller.value!.showManifests.value).toBe(false);
         expect(current.problem.value).toBeNull();
+        // 树也回到记录：放弃的展开不再显示，之后也不会被存回去。
+        expect([...current.controller.value!.model.expanded.value]).toEqual(["project://"]);
+    });
+
+    it("首读失败时照常浏览：期间的展开没保存上；重连后点一次“重新读取”就重开记录并保存暂停的修改", async () => {
+        const at = await worlds();
+        const {create, link} = await storeWindow(at.storage, "w1", "c");
+        link.disconnect();
+        const current = session(at, create);
+        current.attach(view);
+        await waitUntil("首读失败后照常建控制器", () => current.controller.value !== null && current.problem.value?.kind === "unread");
+        await listed(at, current, "project://plain");
+        current.controller.value!.model.expand("project://plain");
+        const expanded = current.store.value!.state.expanded!;
+        await waitUntil("修改停在队里", () => expanded.queue > 0 && expanded.save.state !== "saving");
+
+        await link.reconnect();
+        await current.retryPreferences();
+        await waitUntil("一次重试就保存上", () => expanded.queue === 0 && expanded.save.state === "idle" && expanded.base?.status === "ok");
+        expect(expanded.base).toMatchObject({value: {paths: ["", "plain"]}});
+        expect(current.problem.value).toBeNull();
+        expect([...current.controller.value!.model.expanded.value]).toEqual(["project://", "project://plain"]);
     });
 });

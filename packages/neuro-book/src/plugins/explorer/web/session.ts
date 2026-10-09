@@ -40,6 +40,9 @@ export interface ExplorerSession {
     readonly problem: ComputedRef<PreferenceProblem | null>;
     attach(view: AttachedView): () => void;
     setShowManifests(show: boolean): void;
+    /** 偏好提示上的“重试 / 重新读取”与“放弃”：之后树与显示按记录此刻的值。 */
+    retryPreferences(): Promise<void>;
+    discardPreferences(): void;
     dispose(): void;
 }
 
@@ -52,12 +55,25 @@ export function createExplorerSession(options: ExplorerSessionOptions): Explorer
 
     const fieldsOf = (current: ExplorerStore) => [current.state.preferences, ...(current.state.expanded === null ? [] : [current.state.expanded]), current.state.userExpanded];
 
+    const expandedOf = (current: ExplorerStore): string[] => [
+        ...(current.state.expanded?.display.paths ?? []).map((path) => addressOf("project", path)),
+        ...current.state.userExpanded.display.paths.map((path) => addressOf("user", path)),
+    ];
+    /**
+     * 控制器的显示与展开是记录的一份拷贝，平时由控制器改、再存回记录；重读与放弃反过来改了记录的显示值，要拷回控制器，
+     * 否则提示消失了、树却还是被放弃的样子，之后的保存又把它带回去。拷回时展开集合与记录相同，不会再触发保存。
+     */
+    const adopt = (): void => {
+        const current = store.value;
+        const active = controller.value;
+        if (current === null || active === null) return;
+        active.setShowManifests(current.state.preferences.display.showManifests);
+        active.model.setExpanded(expandedOf(current));
+    };
+
     const start = (current: ExplorerStore): void => {
         const {state, actions} = current;
-        const initial = [
-            ...(state.expanded?.display.paths ?? []).map((path) => addressOf("project", path)),
-            ...state.userExpanded.display.paths.map((path) => addressOf("user", path)),
-        ];
+        const initial = expandedOf(current);
         controller.value = createExplorerController({
             files: options.files,
             commands: options.commands,
@@ -111,7 +127,15 @@ export function createExplorerSession(options: ExplorerSessionOptions): Explorer
             const current = controller.value;
             if (current === null) return;
             current.setShowManifests(show);
-            void store.value?.actions.setShowManifests(show);
+            store.value?.actions.setShowManifests(show);
+        },
+        retryPreferences: async () => {
+            await store.value?.actions.retry();
+            adopt();
+        },
+        discardPreferences: () => {
+            store.value?.actions.discard();
+            adopt();
         },
         dispose: () => {
             disposed = true;

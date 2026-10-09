@@ -248,6 +248,12 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
     /** 粘贴或拖动移入在预判同名（列出目标、问用户）：这期间不能再起一个批量。 */
     const preparing = shallowRef(false);
     let clipSeq = 0;
+    /**
+     * 交互意图的代次：开始改名、删除、新建、展示名、复制剪切、粘贴、拖动都推进它。改名、删除与复制剪切要先等身份
+     * 令牌，回来时代次变了说明用户已经开始了别的意图，旧的不再发布（不顶掉新的输入框、确认框或剪贴板）。
+     */
+    let intentSeq = 0;
+    const beginIntent = (): number => ++intentSeq;
     /** 碰撞对话框等着的回答。 */
     let answer: ((choice: CollisionChoice) => void) | null = null;
     const focusRequest = shallowRef(0);
@@ -337,7 +343,9 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         const row = id === null ? null : find(id);
         let parent: string | null;
         let before: string | null = null;
-        if (row === undefined || row === null) parent = currentRoot.value;
+        if (row === null) parent = currentRoot.value;
+        // 选中的行暂时不在（改名后等待重列）：不是“没有选择”，不能改投到当前根。
+        else if (row === undefined) parent = null;
         else if (row.kind === "root") parent = row.status.kind === "live" ? row.address : null;
         else if (row.kind === "entry" && row.expandable) parent = row.address;
         else if (row.kind === "entry") {
@@ -553,21 +561,47 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
 
     const collect = async (mode: "copy" | "cut"): Promise<ActionResult> => {
         if (!available.value[mode]) return unavailable(unknown.value !== null ? "unknown-outcome" : "no-selection");
+        const intent = beginIntent();
         const items = await freezeItems(mode, selectedEntries.value);
-        if (items === null || disposed) return OK;
+        // 取令牌期间根结束了、或用户已经开始了新的意图：旧的引用不装进剪贴板。
+        if (items === null || disposed || intent !== intentSeq || !live((items[0] as ClipItem).address)) return OK;
         clipboard.value = {id: ++clipSeq, mode, scheme: resourceOf((items[0] as ClipItem).address).scheme, items};
         return OK;
     };
 
     /** 拖动的源冻结出的令牌：拿起时开始取，放下时等它。 */
     let dragItems: Promise<ClipItem[] | null> | null = null;
+    /**
+     * 放下了、正在等令牌的那次放下：取消入口（`cancelDrag`、切换显示、根结束、停止）把它清掉，令牌到齐时不是它就不写。
+     * 拖动状态在放下时已经清空，没有这个标记，等待中的放下就脱离了全部取消入口。
+     */
+    let dropping: {readonly sources: ReadonlyArray<string>} | null = null;
+    const cancelDrag = (): void => {
+        drag.value = null;
+        dragItems = null;
+        dropping = null;
+    };
     const NO_DROP: DropAction = {kind: "none"};
     const dropAction = (sources: ReadonlyArray<string>, over: {readonly id: string; readonly zone: DropZone} | null): DropAction => (over === null ? NO_DROP : resolveDrop(sources, find(over.id), over.zone, manifestOrder));
 
-    // 项目代次结束：本窗口的剪贴板引用随之作废。
+    /**
+     * 根结束（项目代次结束、订阅终止）：属于它的未提交意图全部作废——剪贴板、内联输入、确认框与碰撞对话框、拖动与
+     * 等待令牌的放下。之后到达的回调另有提交前的 `live` 核对兜底。
+     */
     const stopRoots = watch((): ReadonlyArray<RootState> => model.roots.value, (roots: ReadonlyArray<RootState>) => {
-        const current = clipboard.value;
-        if (current !== null && roots.find((root) => root.scheme === current.scheme)?.status.kind !== "live") clipboard.value = null;
+        const dead = new Set(roots.filter((root) => root.status.kind !== "live").map((root) => root.scheme));
+        const gone = (address: string): boolean => dead.has(resourceOf(address).scheme);
+        if (clipboard.value !== null && dead.has(clipboard.value.scheme)) clipboard.value = null;
+        const edit = editing.value;
+        if (edit !== null && gone(edit.mode === "create" ? edit.creating.parent : edit.address)) editing.value = null;
+        const open = dialog.value;
+        if (open !== null && gone(open.kind === "delete" ? (open.items[0] as Frozen).address : open.kind === "display" ? open.address : open.source)) {
+            const waiting = collision;
+            collision = null;
+            dialog.value = null;
+            waiting?.resolve({kind: "cancel"}, false);
+        }
+        if ((drag.value?.sources ?? dropping?.sources ?? []).some(gone)) cancelDrag();
     });
 
     return {
@@ -592,6 +626,8 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 toggle(row);
                 return;
             }
+            // 用户自己选了：之前新建、改名留下的“出现时选中它”不再生效。
+            pendingFocus = null;
             selection.value = click(selection.value, rows.value, id, modifiers);
             // 修饰选择不打开、不展开。
             if (modifiers.toggle || modifiers.range) return;
@@ -604,6 +640,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             if (row?.kind === "entry" && row.opens !== null) void open(row.opens, "permanent");
         },
         contextSelect: (id) => {
+            pendingFocus = null;
             selection.value = contextSelect(selection.value, id);
         },
         key: (key, page) => {
@@ -612,6 +649,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 case "none":
                     return "none";
                 case "select":
+                    pendingFocus = null;
                     selection.value = effect.selection;
                     return "handled";
                 case "expand":
@@ -633,8 +671,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         setShowManifests: (show) => {
             showManifests.value = show;
             // 投影变了，拖动看到的落点不再成立。
-            drag.value = null;
-            dragItems = null;
+            cancelDrag();
         },
         dismissNotice: () => {
             notice.value = null;
@@ -646,6 +683,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         create: (entry) => {
             const target = createTarget.value;
             if (!available.value.create || target === null) return unavailable("no-target");
+            beginIntent();
             model.expand(target.parent);
             editing.value = {mode: "create", creating: {...target, entry}, name: "", error: null, busy: false};
             return OK;
@@ -653,15 +691,17 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         rename: async () => {
             const row = single.value;
             if (!available.value.rename || row === null) return unavailable("no-selection");
+            const intent = beginIntent();
             const frozen = await freeze("rename", [row.address]);
-            if (frozen === null) return OK;
+            if (frozen === null || intent !== intentSeq || !live(row.address)) return OK;
             editing.value = {mode: "rename", address: row.address, token: (frozen[0] as Frozen).token, name: row.name, error: null, busy: false};
             return OK;
         },
         delete: async () => {
             if (!available.value.delete) return unavailable(blocked("no-selection"));
+            const intent = beginIntent();
             const frozen = await freeze("delete", outermost(selectedEntries.value.map((row) => row.address)));
-            if (frozen === null) return OK;
+            if (frozen === null || intent !== intentSeq || !frozen.every((item) => live(item.address))) return OK;
             dialog.value = {kind: "delete", items: frozen, busy: false};
             return OK;
         },
@@ -675,7 +715,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             const row = single.value;
             if (!available.value.convert || row === null) return unavailable("not-applicable");
             const frozen = await freeze("convert", [row.address]);
-            if (frozen === null) return OK;
+            if (frozen === null || !live(row.address)) return OK;
             const to = row.folder === "content" ? "plain" : "content";
             const result = await files.convert(row.address, to, {expected: (frozen[0] as Frozen).token});
             if (settle("convert", row.address, result)) {
@@ -687,6 +727,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         editDisplay: () => {
             const row = single.value;
             if (!available.value.display || row === null) return unavailable("not-applicable");
+            beginIntent();
             dialog.value = {kind: "display", address: row.address, name: row.name, title: row.subtitle === null ? "" : row.label, icon: row.icon ?? "", busy: false};
             return OK;
         },
@@ -718,6 +759,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 const directory = createTarget.value?.parent ?? null;
                 return unavailable(blocked(directory !== null && resourceOf(directory).scheme !== current.scheme ? "cross-root" : "no-target"));
             }
+            beginIntent();
             await transfer(current.mode === "copy" ? "copy" : "move", current.items, target, current);
             return OK;
         },
@@ -741,6 +783,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             // 拖已选的行拖整个选择；拖未选的行只拖它。
             const chosen = selection.value.selected.includes(id) ? selectedEntries.value : [row];
             if ((chosen === selectedEntries.value && chosen.length !== selection.value.selected.length) || !transferable(chosen)) return false;
+            beginIntent();
             const sources = outermost(chosen.map((entry) => entry.address));
             const items = freezeItems("move", chosen);
             dragItems = items;
@@ -762,20 +805,20 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         dropDrag: async (over) => {
             const current = drag.value;
             const items = dragItems;
-            drag.value = null;
-            dragItems = null;
+            cancelDrag();
             if (current === null || items === null) return;
             const action = dropAction(current.sources, over);
             if (action.kind === "none" || !sameDrop(action, current.action)) return;
+            const token = {sources: current.sources};
+            dropping = token;
             const frozen = await items;
-            if (frozen === null || disposed || !idle.value) return;
+            // 等令牌期间被取消，或树变得让同一个落点不再是同一个动作：不写。
+            if (dropping !== token || frozen === null || disposed || !idle.value || !sameDrop(dropAction(current.sources, over), action)) return;
+            dropping = null;
             if (action.kind === "move") await transfer("move", frozen, action.target, null);
             else settle("reorder", action.parent, await files.reorder(action.parent, action.names));
         },
-        cancelDrag: () => {
-            drag.value = null;
-            dragItems = null;
-        },
+        cancelDrag,
 
         editName: (name) => {
             const current = editing.value;
@@ -791,6 +834,10 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 return;
             }
             const name = current.name.trim();
+            if (!live(current.mode === "create" ? current.creating.parent : current.address)) {
+                editing.value = null;
+                return;
+            }
             if (current.mode === "rename" && name === nameOf(current.address)) {
                 editing.value = null;
                 refocus();
@@ -820,6 +867,10 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         confirmDelete: async () => {
             const current = dialog.value;
             if (current?.kind !== "delete" || current.busy) return;
+            if (!current.items.every((item) => live(item.address))) {
+                dialog.value = null;
+                return;
+            }
             const focusAfter = focusAfterDelete(current.items.map((item) => item.address));
             dialog.value = null;
             refocus();
@@ -830,6 +881,10 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         commitDisplay: async (title, icon) => {
             const current = dialog.value;
             if (current?.kind !== "display" || current.busy) return;
+            if (!live(current.address)) {
+                dialog.value = null;
+                return;
+            }
             dialog.value = {...current, busy: true};
             const result = await files.display(current.address, {title: title.trim() === "" ? null : title.trim(), icon: icon.trim() === "" ? null : icon.trim()});
             dialog.value = null;
@@ -871,8 +926,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             disposed = true;
             collision?.resolve({kind: "cancel"}, false);
             collision = null;
-            drag.value = null;
-            dragItems = null;
+            cancelDrag();
             stopPrune();
             stopRoots();
             model.dispose();

@@ -3,7 +3,7 @@
  * 经窗口里的文件客户端工作。变化的合并用场地的手动时钟推进。只由测试使用。
  */
 
-import {lstat, rm} from "node:fs/promises";
+import {lstat, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -104,3 +104,29 @@ export function select(controller: ExplorerController, first: string, ...rest: s
 }
 
 export const exists = (path: string): Promise<boolean> => lstat(path).then(() => true, () => false);
+
+let barriers = 0;
+
+/**
+ * “期间没有写入”的观察窗口终点（t70 计划的验收映射）：动作结算之后，在项目根外部写一个屏障文件，等它的变化经同一个
+ * 窗口的订阅到达。之后再断言窗口链路上记下的写请求：屏障之前发出的请求都已经记下，字节相同的写入也看得到。
+ */
+export async function barrier(at: {readonly scene: Scene}, scheme: "project" | "user" = "project"): Promise<void> {
+    barriers += 1;
+    const name = `barrier-${String(barriers)}.md`;
+    let ready = false;
+    let seen = false;
+    // 项目已经结束的用例用用户资产根：那条订阅还在，同一个窗口链路照样把它送到。
+    const release = files(at.scene.window).watch(scheme, (message) => {
+        if (message.kind === "ready") ready = true;
+        if (message.kind === "batch" && message.events.some((event) => event.path === name)) seen = true;
+    });
+    try {
+        // 断线重连后订阅要重新建立：建立之前的变化只以 resync 补报，屏障要等订阅就绪再写。
+        await until(at, "屏障的订阅就绪", () => ready);
+        await writeFile(join(scheme === "project" ? at.scene.project : at.scene.user, name), "B");
+        await until(at, `屏障 ${name} 的事件`, () => seen);
+    } finally {
+        release();
+    }
+}

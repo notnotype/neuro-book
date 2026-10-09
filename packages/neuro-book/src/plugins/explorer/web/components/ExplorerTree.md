@@ -1,5 +1,5 @@
 ---
-标签: [state:local, env:global, env:portal]
+标签: [state:local, env:global, env:portal, env:timer]
 别名: ["文件树", "File Tree"]
 ---
 
@@ -15,7 +15,7 @@
 
 - 点行：选择与打开交给宿主（带 Ctrl/Meta、Shift 修饰）；点展开箭头只展开收起；双击以常驻方式打开；右键交出行与坐标。
 - 按下行时把焦点放到树上（不滚动），之后的按键都在树上处理；行里的按钮与输入框的按键不交给 `handleKey`。
-- 焦点行变了（键盘移动）先滚入视口再更新 `aria-activedescendant`；开始内联输入时输入行同样滚入视口。
+- 焦点换了一行（键盘移动）先滚入视口再更新 `aria-activedescendant`；开始内联输入时输入行同样滚入视口。按行 id 的变化触发：前方插入或删除行只改变下标，阅读位置由滚动锚点保持，不被拉回焦点行。
 - Shift+F10 与 ContextMenu 键经 `handleKey` 返回要开菜单的行，树按那一行的位置发出 `row-context`。
 - 树获得与失去焦点时发出 `focus-change`。
 - 拖动（手势在 `web/tree-drag.ts`）：在资源行上按下，鼠标与笔移动 6px、触摸按住 200ms 后经 `startDrag` 问宿主能不能拖；能拖时捕获指针，每帧把指针下的行与它在行里的位置（目录行上中下三段、其余行上下两半）经 `drag-hover` 交出，宿主算出动作后经 `drag` 传回，树按它画落点反馈（nb-ui `DropFeedbackOverlay`：移入画整行、调整顺序画插入线，标签说明动作）；松手时把那一刻的落点经 `drag-drop` 交出，由宿主决定提交与否。滚动或行变了而指针没动时撤下落点，原地松手不提交。Escape、指针取消、失去捕获、窗口失焦、页面隐藏发出 `drag-cancel`；`drag` 变为 null（宿主那边取消了）时手势随之收场。拖动结束吞掉末尾的 click。
@@ -65,6 +65,7 @@ type Emits = {
 ## 隐藏通道理由
 
 - `env:portal`：拖动的落点反馈经 nb-ui `DropFeedbackOverlay` 渲染到 `body`，坐标是视口坐标，要脱离侧栏的裁剪与层叠上下文。
+- `env:timer`：触摸按住 200ms 才起拖，用一个计时器；抬起、移动超过容差、取消或卸载时清掉。
 - `env:global`：拖动期间在窗口上监听指针移动、松手、Escape、失焦与页面隐藏，并用 `document.elementFromPoint` 找指针下的行：指针捕获在树上，移出树与窗口后的移动与松手只有窗口收得到。拖动结束或组件卸载即拆掉。
 
 ## 不支持
