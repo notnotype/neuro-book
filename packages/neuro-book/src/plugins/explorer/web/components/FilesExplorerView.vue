@@ -137,7 +137,7 @@ defineExpose({focusTree});
 </script>
 
 <template>
-    <div class="grid h-full min-h-0 w-full grid-rows-[auto_auto_minmax(0,1fr)_auto] text-sm" data-explorer-view>
+    <div class="grid h-full min-h-0 w-full grid-rows-[auto_auto_minmax(0,1fr)_fit-content(40%)] text-sm" data-explorer-view>
         <Toolbar :aria-label="explorerText(locale, 'title')" class="flex items-center justify-end gap-0.5 px-2 py-1">
             <IconButton
                 v-for="tool in tools"
@@ -204,7 +204,7 @@ defineExpose({focusTree});
             @recheck="emit('recheck')"
             @abandon="emit('abandon')"
         />
-        <ContextMenu :visible="menu != null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" data-explorer-menu @close="closeMenu" />
+        <ContextMenu :visible="menu != null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" @close="closeMenu" />
         <AlertDialog
             :open="deleteDialog !== null"
             :title="explorerText(locale, 'deleteTitle', {count: deleteDialog?.items.length ?? 0})"

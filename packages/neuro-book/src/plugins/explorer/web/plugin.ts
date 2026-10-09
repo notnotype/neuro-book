@@ -23,11 +23,10 @@ import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
 import {EXPLORER_COMMAND_DECLARATIONS, explorerCommands} from "./commands";
-import type {Availability} from "./controller";
 import {explorerLocalized} from "./messages";
 import {explorerStoreFor} from "./preferences";
 import {createExplorerSession} from "./session";
-import {explorerState} from "./state";
+import {explorerState, explorerStateValues} from "./state";
 import {createExplorerViewHost} from "./view-host";
 
 export const EXPLORER_VIEW_ID = "nbook.explorer";
@@ -72,20 +71,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
                     report: (id, reason) => diagnostics.record({level: "warn", event: "explorer.command", message: `${id} 执行失败：${reason}`, source: {plugin: descriptor.id}}),
                 }),
             };
-            const available = (pick: (available: Availability) => boolean) => computed(() => {
-                const controller = session.controller.value;
-                return controller !== null && pick(controller.available.value);
-            });
-            const published = bindingsOf(explorerState, {
-                ready: computed(() => session.controller.value !== null),
-                canCreate: available((can) => can.create),
-                hasSelection: computed(() => (session.controller.value?.selection.value.selected.length ?? 0) > 0),
-                canPaste: available((can) => can.paste),
-                canReorder: available((can) => can.moveUp || can.moveDown),
-                canCreateContent: available((can) => can.createContent),
-                canConvert: available((can) => can.convert),
-                canEditManifest: available((can) => can.display || can.include || can.drop),
-            });
+            const published = bindingsOf(explorerState, explorerStateValues(session.controller));
             return {
                 contributions: {
                     [WORKBENCH_VIEWS_POINT]: {[EXPLORER_VIEW_ID]: view},

@@ -53,7 +53,7 @@ const reportView = computed(() => {
 </script>
 
 <template>
-    <div v-if="notice !== null || reportView !== null || running || unknown" class="flex max-h-[40%] min-h-0 flex-col gap-2 overflow-y-auto border-t border-[var(--divider)] px-3 py-2 text-xs text-[var(--text-secondary)]" data-explorer-feedback>
+    <div v-if="notice !== null || reportView !== null || running || unknown" class="flex max-h-full min-h-0 flex-col gap-2 overflow-y-auto border-t border-[var(--divider)] px-3 py-2 text-xs text-[var(--text-secondary)]" data-explorer-feedback>
         <div v-if="running" class="flex items-center gap-2" role="status" data-explorer-running>
             <span class="i-lucide-loader-circle h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true"></span>
             <span class="min-w-0 flex-1">{{ explorerText(locale, "running", {action: actionText(locale, running.action), count: running.count}) }}</span>
@@ -64,14 +64,15 @@ const reportView = computed(() => {
                 <span class="i-lucide-circle-help mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--status-warning)]" aria-hidden="true"></span>
                 <p class="min-w-0 flex-1 break-words text-[var(--text-main)]">{{ explorerText(locale, "unknownTitle", {action: actionText(locale, unknown.action), count: unknown.items.length}) }}</p>
             </div>
-            <ul class="flex flex-col gap-0.5 pl-5">
-                <li v-for="item in unknown.items" :key="item.address" class="break-words">{{ item.target === null ? item.address : `${item.address} → ${item.target}` }}</li>
-            </ul>
+            <!-- 按钮紧跟说明：受影响项多时列表在限高的结果区里滚动，动作不被推出视野。 -->
             <p class="pl-5">{{ explorerText(locale, "abandonHint") }}</p>
             <div class="flex flex-wrap gap-2 pl-5">
                 <button type="button" class="nb-ui-focus-ring rounded px-1.5 py-0.5 text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" data-explorer-recheck @click="emit('recheck')">{{ explorerText(locale, "recheck") }}</button>
                 <button type="button" class="nb-ui-focus-ring rounded px-1.5 py-0.5 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" data-explorer-abandon @click="emit('abandon')">{{ explorerText(locale, "abandon") }}</button>
             </div>
+            <ul class="flex flex-col gap-0.5 pl-5">
+                <li v-for="item in unknown.items" :key="item.address" class="break-words">{{ item.target === null ? item.address : `${item.address} → ${item.target}` }}</li>
+            </ul>
         </div>
         <div v-if="notice !== null" class="flex items-start gap-2" data-explorer-notice>
             <span class="i-lucide-info mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>

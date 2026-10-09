@@ -25,7 +25,7 @@ import {createLinkTap} from "nbook/plugins/files/testing/tap";
 import type {LinkTap} from "nbook/plugins/files/testing/tap";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {storageWorld} from "nbook/plugins/storage/testing/world";
-import type {StorageWorld} from "nbook/plugins/storage/testing/world";
+import type {StorageWorld, WorldWindow} from "nbook/plugins/storage/testing/world";
 
 import {descriptor} from "./plugin";
 import {COLLAPSE_ALL_COMMAND, EXPLORER_COMMAND_DECLARATIONS, explorerCommands, REFRESH_FILES_COMMAND, RENAME_COMMAND, TOGGLE_MANIFESTS_COMMAND} from "./web/commands";
@@ -80,6 +80,11 @@ async function worlds(): Promise<Worlds> {
 
 /** 在 Storage 场地里以 `nbook.explorer` 的身份开一个窗口，返回建资源管理器 store 的函数（记录地址与产品一致）。 */
 async function storeFactory(world: StorageWorld, id: string, client: string): Promise<() => ExplorerStore> {
+    return (await storeWindow(world, id, client)).create;
+}
+
+/** 同 `storeFactory`，另带窗口的 Storage 链路（断线与重连）。 */
+async function storeWindow(world: StorageWorld, id: string, client: string): Promise<{readonly create: () => ExplorerStore; readonly link: WorldWindow}> {
     const hosted: {create: (() => ExplorerStore) | null} = {create: null};
     const plugin: PluginDefinition = {
         id: descriptor.id,
@@ -96,9 +101,10 @@ async function storeFactory(world: StorageWorld, id: string, client: string): Pr
             },
         }],
     };
-    await world.window(id, client, [plugin], {bound: true});
-    if (hosted.create === null) throw new Error("没有激活");
-    return hosted.create;
+    const link = await world.window(id, client, [plugin], {bound: true});
+    const create = hosted.create as (() => ExplorerStore) | null;
+    if (create === null) throw new Error("没有激活");
+    return {create, link};
 }
 
 function registry(session: ExplorerSession): CommandRegistry {
@@ -214,5 +220,53 @@ describe("Spec workbench.files-explorer 持久化：按分支淘汰", () => {
         expect(limitBranches(["user://", "project://a", "project://b"], 2)).toEqual(["user://", "project://b"]);
         const many = Array.from({length: EXPANDED_LIMIT + 5}, (_, index) => `project://d${String(index)}`);
         expect(limitBranches(many, EXPANDED_LIMIT)).toEqual(many.slice(5));
+    });
+});
+
+describe("Spec workbench.files-explorer 验收 16：保存暂停时的重试与放弃", () => {
+    it("Storage 断线时展开没保存上：视图得到“未保存”；暂停期间的展开只改显示、合并成最后一份；重连后重试提交最后一份", async () => {
+        const at = await worlds();
+        const {create, link} = await storeWindow(at.storage, "w1", "c");
+        const current = session(at, create);
+        current.attach(view);
+        await listed(at, current, "project://plain");
+        const store = current.store.value!;
+        const expanded = store.state.expanded!;
+        await waitUntil("记录就绪", () => expanded.ready && expanded.save.state === "idle" && expanded.queue === 0);
+
+        link.disconnect();
+        current.controller.value!.model.expand("project://plain");
+        await waitUntil("保存暂停", () => current.problem.value?.kind === "unsaved");
+        await listed(at, current, "project://plain/sub");
+        current.controller.value!.model.expand("project://plain/sub");
+        current.controller.value!.model.collapse("project://plain/sub");
+        current.controller.value!.model.expand("project://lore.content");
+        expect(expanded.display.paths).toEqual(["", "plain", "lore.content"]);
+        expect(expanded.queue).toBe(1);
+
+        await link.reconnect();
+        await store.actions.retry();
+        await waitUntil("最后一份保存上", () => expanded.save.state === "idle" && expanded.queue === 0 && expanded.base?.status === "ok" && expanded.base.value.paths.length === 3);
+        expect(expanded.base).toMatchObject({value: {paths: ["", "plain", "lore.content"]}});
+        expect(current.problem.value).toBeNull();
+    });
+
+    it("放弃：没保存上的修改丢掉，记录的显示回到已保存的值", async () => {
+        const at = await worlds();
+        const {create, link} = await storeWindow(at.storage, "w1", "c");
+        const current = session(at, create);
+        current.attach(view);
+        await listed(at, current, "project://plain");
+        const store = current.store.value!;
+        const expanded = store.state.expanded!;
+        await waitUntil("记录就绪", () => expanded.ready && expanded.save.state === "idle" && expanded.queue === 0);
+
+        link.disconnect();
+        current.controller.value!.model.expand("project://plain");
+        await waitUntil("保存暂停", () => current.problem.value?.kind === "unsaved");
+        current.controller.value!.model.expand("project://lore.content");
+        store.actions.discard();
+        expect(expanded.display.paths).toEqual([""]);
+        expect(current.problem.value).toBeNull();
     });
 });

@@ -444,13 +444,13 @@ export const labFixtures: LabFixture[] = [
         ],
         subject: () => import("nbook/plugins/explorer/web/components/ExplorerFeedback.vue"),
     }),
-    defineSubjectFixture<typeof FilesExplorerView>({
+    defineLabFixture<typeof FilesExplorerView>({
         component: "FilesExplorerView",
-        events: ["toolbar", "row-press", "row-activate", "row-context", "retry", "reconnect", "open-project", "dismiss-notice", "prefs-retry", "prefs-discard", "focus-change", "collision", "recheck", "abandon", "dialog-close"],
-        class: "h-full w-full",
         scenes: (() => {
             const base = {locale: "zh-CN" as const, rows: EXPLORER_ROWS, selected: [], focus: null, showManifests: false, ready: true, notice: null, problem: null};
             return [
+                // 集成场景：真实的视图宿主、控制器与命令，文件换成内存适配器；输入只是占位，场景不读它。
+                {id: "live", label: "内存数据：真实控制器与命令", input: {props: base}},
                 {id: "default", label: "浏览", input: {props: base}},
                 {id: "unbound", label: "未打开项目、用户资产停止同步", input: {props: {...base, rows: UNBOUND_ROWS}}},
                 {id: "unsaved", label: "偏好未保存、编辑器尚未接入", input: {props: {...base, showManifests: true, problem: {kind: "unsaved" as const, code: "conflict"}, notice: {kind: "editor-missing" as const, address: "project://plain/a.md"}}}},
@@ -474,8 +474,7 @@ export const labFixtures: LabFixture[] = [
                 }}},
             ];
         })(),
-        runtimeProps: async () => ({handleKey: () => "none" as const}),
-        subject: () => import("nbook/plugins/explorer/web/components/FilesExplorerView.vue"),
+        load: async () => (await import("./FilesExplorerViewFixture.vue")).default,
     }),
     defineSubjectFixture<typeof SkillChip>({
         component: "SkillChip",
