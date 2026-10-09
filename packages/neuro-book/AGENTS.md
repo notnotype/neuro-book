@@ -49,5 +49,6 @@ bun run test:e2e         # 构建后用本机 Chrome 跑浏览器验收（Playwr
 bun run build            # 打包后端到 dist/server、前端到 dist/web，最后 check:dist 确认产物不含开发插件与本机路径
 bun run smoke:server     # 打包后对产物运行进程级 smoke
 bun run lab:shot -- -c <组件> --url <开发页面地址>   # 对 Lab 场景截图并检查溢出（Node 运行，对着 bun run dev）
+bun run perf:files       # Files 的性能验收（files-explorer 验收 12）：生成 3000 个文件的样本、生产构建，本机 Chrome 逐项测；在参考机器上跑，浏览器部分由 Node 运行
 NBOOK_STATE_ROOT=<目录> bun run start   # 运行打包产物（同时提供页面）
 ```
