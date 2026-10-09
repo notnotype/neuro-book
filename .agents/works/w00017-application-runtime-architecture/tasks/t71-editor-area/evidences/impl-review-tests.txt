@@ -1,0 +1,223 @@
+# t71 实现审查：测试与验收覆盖
+
+审查范围：`5152002b..e3ea21c7`；worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-impl-tests`，初始 `git status --short` 无输出，HEAD 为 `e3ea21c76fcf09ce60340b35d002ef9b9f2f4e68`。
+
+依据：t71 `plan.md`、`README.md`；`docs/specs/workbench/editor.md` 的输出 1–25、验收 1–11；`files-explorer.md` 验收 9；2026-10-09 t71 已接受取舍；`docs/testing/README.md`。计划不做范围、命令面板行号模式与已接受取舍本身不计缺陷。
+
+本报告区分实际运行与“从代码推断”。审查不提交产品修复；变异逐项恢复。实验脚本与日志位于本报告目录。
+
+## 已核实发现
+
+### F1：连续规范化区域的一处编辑会改写整片未编辑行
+
+- **严重程度：重要；类别：正确性 / 测试。**
+- **位置：** `packages/neuro-book/src/plugins/editor/web/markdown/source-merge.ts:176`（稳定点要求 base 的行同时精确出现在 ours 与 theirs；183–184 两侧有差异就整片取 theirs）；测试 `source-merge.test.ts:35`、`:54`；`e2e/editor-area.e2e.ts:209`。
+- **现象：** 原文 `* 甲\r\n* 乙\r\n* 丙\r\n`，真实产品页打开 `list.md`，只在第二项末尾输入“改”并 Ctrl+S，磁盘变为 `- 甲\r\n- 乙改\r\n- 丙\r\n`。第一、三项并未编辑，列表标记也被改写。连续标准 ruby 同样会把未编辑行改成属性式。
+- **为什么是问题 / 依据：** `docs/specs/workbench/editor.md:110` 输出 19、`:171` 验收 5 要求未编辑的行字节不变。已接受的行级取舍仅允许编辑过的行规范化，不能放宽到整片。当前三方合并在连续序列化差异中没有稳定点，把序列化规范化与真正编辑合并成一个区域。
+- **如何核实：** `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-impl/tests/markdown-probe.ts`（真实编辑器扩展工厂 + MarkdownManager）；另在 `http://127.0.0.1:46371/?project=review` 走真实 Files 与浏览器，双击列表文件、点击第二项、End、输入“改”、Ctrl+S；磁盘前后字节见 `list-saved.json`。
+- **为什么测试验不出：** 7 个 `source-merge.test.ts` 与现有 18 个方言往返用例全部通过。前者只编辑与规范化列表隔着空行的普通段落；e2e 同样只改最后一个普通段落。方言测试只验证 canonical 序列化，没有检查编辑某个规范化行后的邻行字节。
+- **建议改法：** 将 base→theirs 的实际编辑 hunk 与 base→ours 的序列化对应关系分开，逐行映射可保留的原文；缺少完全相等稳定行时也不能把整个规范化片段当成用户编辑。补真实编辑器的连续列表、连续 ruby 中项编辑，以及删除/插入其中一项的字节断言。
+
+### F2：删除末段时额外保留一个换行，删光时仍写出换行
+
+- **严重程度：重要；类别：正确性 / 测试。**
+- **位置：** `packages/neuro-book/src/plugins/editor/web/markdown/source-merge.ts:149`、`:187`、`:192`；覆盖缺口 `source-merge.test.ts:35`、`:47` 与 `e2e/editor-area.e2e.ts:209`。
+- **现象：** 真实产品中原文 `甲\r\n\r\n乙\r\n`，选中末段“乙”，Backspace 删除文字，再 Backspace 合并空段，富文本只剩 `<p>甲</p>`；Ctrl+S 后磁盘为 `甲\r\n\r\n`，多一个 CRLF。纯函数的 `mergeSource("a\nb\nc\n", "a\nb\nc", "a\nb")` 得到 `a\nb\n\n`；`mergeSource("甲\n", "甲", "")` 得到 `\n`。
+- **为什么是问题 / 依据：** editor 输出 19 要按编辑后的语义写回编辑行、保存未编辑行字节。实现同时保留最后一个稳定原文行的 EOL，并在末尾再加 `finalEol`，删除末段时尾换行被计了两遍；删除空文档的情况没有正文却仍加尾换行。
+- **如何核实：** `markdown-probe.ts` 中 4 个末尾删除输入均不符合期待；另用真实 Tiptap、真实 Files 的页面操作重现，结果见 `delete-saved.json`（保存的 DOM 与磁盘）。
+- **为什么测试验不出：** 现有删除用例删的是中间段落，尾部行保留；末尾换行测试只切换相同正文的末尾符号，没有删除最后一个块/最后一行；e2e 只追加。
+- **建议改法：** 合并内部统一处理行分隔符，输出完成后只附加一次尾换行；正文为空时不要凭打开时的尾换行造一行。补真实编辑器删末段、删末项、全选删光、原文有/无尾换行与 CRLF 的断言。
+
+### F3：外部删除后的文档仍可编辑，测试只检查提示
+
+- **严重程度：重要；类别：正确性 / 测试。**
+- **位置：** `packages/neuro-book/src/plugins/editor/web/documents/store.ts:345`；`EditorGroup.vue:113`；测试 `documents.test.ts:353`、`e2e/lab-editor.e2e.ts:78`。
+- **现象：** 真实 Files 打开 `deleted.md` 后在磁盘删除文件；页面显示“文件已被删除”，但富文本 `contenteditable="true"`。继续输入成功，标签变 dirty（结果见 `deleted-editable.json`）。
+- **为什么是问题 / 依据：** editor 输出 18（`docs/specs/workbench/editor.md:106`）要求外部删除后“标已删除并只读，正文保留”；输出 20 要求只读视图不接受输入。`writable` 把 `deleted` 与 `ready` 一同视作可编辑，导致控件不切只读。允许 dirty 文档保存重建不意味着允许删除后继续输入，保存与视图写入资格需要分开。
+- **如何核实：** 生产构建、真实产品页、报告目录的隔离项目；打开文件→`unlink` 原路径→等待删除提示→检查 `contenteditable`→输入文字并失焦，文字与 dirty 变化可观察。
+- **为什么测试验不出：** Bun 删除用例只断言状态、正文保留与重建保存；Lab e2e 删除后只断言 banner，没有检查输入是否被拒绝，之后立即切场景。只有订阅 ended 用例检查 `writable=false`。
+- **建议改法：** `writable` 仅用于 ready 的可输入资格；保存重建单独检查 deleted + dirty，不借用 UI writable。补真实 Markdown/Monaco 的外部删除后键盘输入无效、正文保留和 dirty 保存重建场景。
+
+### F4：800 ms 阈值测试用产品常量计算期望，400 ms 变异存活
+
+- **严重程度：重要；类别：测试。**
+- **位置：** `packages/neuro-book/src/plugins/editor/area.test.ts:20`、`:86`；计划 `plan.md:147`；实现 `web/area.ts:22`。
+- **现象：** 临时仅把产品的 `PROGRESS_DELAY_MS = 800` 改成 `400`；运行 `bun test src/plugins/editor/area.test.ts` 得到 **8 pass / 0 fail / 41 expect**。该错误实现会在 400 ms 显示进度条，测试名仍写 800 ms，测试仍通过。日志 `mutation-progress.log`。恢复 `800` 后 `git status --short` 无输出。
+- **为什么是问题 / 依据：** editor 输出 6、验收 2 与 files-explorer 的“打开与切换”给定具体 799/800 ms 边界。`docs/testing/README.md:9` 禁止由被测逻辑生成期望的同义反复；当前测试按修改后的常量推进 399/400 ms，永远只能证明实现和自己一致。
+- **覆盖实况：** plan 声称 `EditorGroup.dom.test.ts` 验 799/800 ms，但实际 editor 目录的 DOM 测试只有标签条与方言，没有该文件。现有 e2e 正常快速打开没有制造慢读，也未断言进度条，因此不能补足该缺口。
+- **建议改法：** 直接按合同推进 799、再 1 ms；不导入阈值常量作为期待。另用真实组件挂载与手动时钟验证空白内容、顶部进度条出现和消失，至少保持独立于产品阈值的行为断言。
+
+### F5：方言验收没有覆盖真实编辑器追加的硬换行，丢换行变异存活
+
+- **严重程度：重要；类别：测试。**
+- **位置：** `packages/neuro-book/src/plugins/editor/web/markdown/markdown-dialect.test.ts:15`、`markdown-empty-document.dom.test.ts:16`、`source-merge.test.ts:55`；产品 `markdown-editor-extensions.ts:20`；e2e `editor-area.e2e.ts:18`、`:209`。
+- **现象：** 临时把 `MarkdownHardBreak.renderMarkdown` 从 `"\n"` 改为 `""`：编辑器 Bun **61/0**、DOM **10/0**、重新构建后的产品 editor-area e2e **9/0**，全部通过。真实产品 Shift+Enter 插入的 `<br>` 在保存时丢失；`hardbreak-mutated.json` 的 DOM 有 `<br>`，磁盘没有对应换行。真实扩展工厂的显式 `hardBreak` 节点原本应序列化 `前\n后`，变异后为 `前后`（`mutation-hardbreak-probe.log`）。
+- **为什么是问题 / 依据：** editor 输出 19 与验收 5 包括硬换行语义保持；测试只用方言核心 `createMarkdownDialectExtensions()`，其中禁用了 StarterKit 的 hardBreak/link，实际控件追加的 `MarkdownHardBreak`、`MarkdownLink` 不在这套测试 schema 中。e2e 的 DIALECT 也没有硬换行；不能据迁入往返测试声称全集已验。
+- **如何核实：** `mutation-hardbreak-bun.log`、`mutation-hardbreak-dom.log`、`mutation-hardbreak-e2e.log` 保留实际命令、退出码与计数；真实产品输入与磁盘见 `hardbreak-mutated.json`。实验后恢复原序列化并重新 `bun run build:web`，`git status --short` 无输出。
+- **建议改法：** 至少一组真实 Editor/MarkdownManager 使用与控件相同的 `createMarkdownEditorExtensions()`；从用户输入生成硬换行并按磁盘/重开后的行结构断言，同时覆盖工作区/领域链接。验收 5 的全方言 fixture 应真正包含每个声明的方言。
+
+### F6：磁盘冲突阻止移动的分支没有测到，放行变异存活
+
+- **严重程度：重要；类别：测试。**
+- **位置：** `packages/neuro-book/src/plugins/editor/documents.test.ts:432`；`src/plugins/explorer/documents.test.ts:147`、`:160`；产品 `editor/web/documents/store.ts:509`。
+- **现象：** 临时删除租约 blocked 谓词中的 `state === "conflict"`，保留 unresolved；运行文档模型与资源管理器结算两份 Bun 测试，**27 pass / 0 fail / 183 expect**。真实 Files 探针先创建实际磁盘基线冲突，再调用公开 `coordinator.begin`，得到 `leaseAllowed=true`，违反合同（`mutation-conflict-lease-probe.log`）。
+- **为什么是问题 / 依据：** editor 输出 24（`:121`）要求磁盘冲突文档不提交移动、拖动与改名；files-explorer 验收 9 也明确 dirty/冲突目录结算。名为“未裁决输入或磁盘冲突”的现有用例只构造了未裁决输入，没有制造磁盘冲突；相邻 explorer 用例也是同一路径，因此不能阻止这一实际错误实现。
+- **如何核实：** `mutation-conflict-lease.log`、`conflict-lease-probe.ts` 与日志。探针使用真实内核、真实 Files、真实保存返回 conflict，不直接改文档私有状态；实验后恢复原谓词，`git status --short` 无输出。
+- **建议改法：** 在同一验收用例里加入真实外部写入→保存冲突→树剪切/拖动/改名，断言没有文件写操作、正文与身份不动；冲突裁决后再证明移动恢复可用。
+
+### F7：内存 Files 的条件保存不是原子提交，契约测试只验串行
+
+- **严重程度：重要；类别：测试 / 正确性。**
+- **位置：** `packages/neuro-book/src/plugins/lab/web/fixtures/explorer-scene/memory-files.ts:425`；契约测试 `src/plugins/lab/memory-files.test.ts:167`。
+- **现象：** 同一个旧 baseline 并发提交两个不同正文：真实 Files **一个成功、一个 conflict**；内存适配器 **两个都成功**，且两个回执的 `identity.before` 都是同一个旧令牌。实际磁盘/内存正文只有最后一次。日志 `memory-save-probe.log`。
+- **为什么是问题 / 依据：** `workspace/files.md:60` 明定“比较基线、替换、确认”是一次原子提交，同一基线的两次并发保存恰好一次成功；`docs/testing/README.md:16` 要求 fake 与真实依赖契约一致。内存实现先抓住 node，再异步算 `hashOf(node.text)`，两个调用跨 await 持有同一旧节点；之后没有重验/串行边界，均通过条件。Lab 依赖此适配器验证编辑器保存与身份链，会掩盖错误的并发与回执语义。
+- **如何核实：** `bun --tsconfig-override /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-impl-tests/packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-impl/tests/memory-save-probe.ts`；两端执行完全相同公开 Files 调用，真实内核与真目录，不伪造私有状态。
+- **为什么测试验不出：** memory-files 的正文用例串行 read/write/read，再用全零哈希构造冲突；没有同 baseline 并发写，也没核对保存事件与回执在异步时序下的身份链连续性。
+- **建议改法：** 按地址串行化“当前节点→基线校验→替换→回执”，或预计算哈希后在无 await 区间重验实际节点/版本并落账；同一契约用例在真实与内存端都并发写，断言恰一成功、一冲突，前后身份可跟到实际结果。
+
+### F8：拆分组使原组 Markdown 撤销历史丢失，现有拆分验收只看共享正文
+
+- **严重程度：重要；类别：正确性 / 测试。**
+- **位置：** `packages/neuro-book/src/plugins/editor/web/components/MarkdownControl.vue:48`、`:98`；`EditorArea.vue:65`；测试 `area.test.ts:110`、`e2e/editor-area.e2e.ts:156`、`:229`。
+- **现象：** 同一真实产品页中，原组 `g2` 输入“甲”：正文 `基线甲`；拆分前 Ctrl+Z 得到 `基线`、Ctrl+Shift+Z 恢复 `基线甲`；Ctrl+\ 拆分后，两组均为 `基线甲`。准确定位回原组 `g2`，Ctrl+Z 不再改变正文。逐步 DOM 与组标识见 `history-split-trace.json`。
+- **为什么是问题 / 依据：** editor 输出 2 要求拆分后各有自己的撤销历史；`:142` 明确视图的编辑状态与撤销历史保留到标签关闭，当前原标签仍打开且 dirty，不满足淘汰条件。Grid 从 leaf 改为 branch 时原组控件重挂；`rebuilt` 用 `EditorState.create` 重建文档与选区，未恢复旧 history 插件状态，已有历史因此消失。`MarkdownControl.md` 对丢历史的描述不属于已接受取舍，不能替代 Spec。
+- **如何核实：** 生产构建、真实 Files 与真实 Ctrl+Z/重做/拆分键；同组拆分前成功、拆分后失败，排除了原组本来没有历史或焦点错误。源码均已恢复，不在变异构建上复现。
+- **为什么测试验不出：** area 用例只放任意 `{caret: 1}` 对象到 slot 再断言对象复用；e2e 拆分场景只看组数和正文，撤销场景只在同组 A→B→A 间切换。计划 `plan.md:153` 的“两组同文档各自撤销”没有实际用例。
+- **建议改法：** 拆分/关闭相邻组时保留原控件实例，或在控件之外持有可恢复的 schema 与 history 状态；补“输入→拆分→原组撤销与重做”、关闭相邻组后历史仍在，以及同文档双组各自撤销的真实用户行为断言。
+
+### F9：另一组的正文同步清空本组已有撤销历史
+
+- **严重程度：重要；类别：正确性 / 测试。**
+- **位置：** `packages/neuro-book/src/plugins/editor/web/components/MarkdownControl.vue:123`、`:130`、`:82`；测试 `e2e/editor-area.e2e.ts:156`、`:229`。
+- **现象：** 已拆分的同文档两组中，原组 `g2` 输入“左”、失焦结算，两组均显示 `基线甲左`；另一组 `g6` 输入“右”、失焦结算，两组均显示 `基线甲左右`。回到 `g2` Ctrl+Z，无法撤销自己的“左”；`g6` 此时仍可撤销自己的“右”，两组恢复 `基线甲左`。完整操作后文本见 `history-shared-trace.json`。
+- **为什么是问题 / 依据：** editor 输出 2、12 与 `:142` 要求各组拥有并保留自己的撤销历史，另一组的更新不进入本组历史；当前收到别组修订时调用 `load()`，创建全新的 `EditorState`，把本组已有用户历史也清掉。现象在拆分后的新输入上重现，与 F8 的拆分重挂清空历史是两个触发边界。
+- **如何核实：** 同一真实产品、真实控件与用户键盘；每次失焦结算后等待两组正文相等，再撤销并检查两组文本，不调用内部 editor/store 方法。未修改产品。
+- **为什么测试验不出：** 双组用例只测一组输入、另一组同步；A→B→A 用例只测不同文档，未让另一组修改同一文档。计划中的“两组同文档各自撤销”未落到用户行为测试。
+- **建议改法：** 将别组输入作为不进入本组历史的正文变换，并映射本组既有撤销步骤；不要借“外部内容不进历史”清空用户历史。补双组轮流输入后各自撤销/重做，断言另一组输入仍在。
+
+## 逐条覆盖映射
+
+下列代码路径相对本报告开头给出的 worktree；`documents`、`area` 是 `packages/neuro-book/src/plugins/editor/` 下的测试，`groups` 是其 `web/groups/groups.test.ts`；E2E 是 `packages/neuro-book/e2e/editor-area.e2e.ts`。模型与控制器公开结果可以作为合同证据；把任意对象塞进私有状态槽后取出，不足以证明真实控件的光标、滚动或撤销行为。表中的缺失是静态核对，标为 **从代码推断**；F1–F9 另有实际实验。
+
+### editor 输出 1–25
+
+| 输出 | 实际测试与断言 | 覆盖缺口或验不出的缺陷 |
+|---|---|---|
+| 1：preview 替换、激活、转正 | `groups.test.ts:15`；`area.test.ts:110` 编辑转正；`EditorTabBar.dom.test.ts:42` 激活/双击事件；E2E `:105` 真单击替换、双击转正、编辑保留 | 主路径有真实产品证据；DOM 的 emits 本身不证明控制器完成标签转换。 |
+| 2：活动组、右/下拆分、共享正文与独立历史 | `groups.test.ts:45` 右拆分和活动组、`:100` 向下拆分；E2E `:156` 两组共享正文 | 没有拆分后原组历史保留/双组各自撤销的用例；实际 F8、F9 均漏过。 |
+| 3：关标签选右/左、空组关闭与焦点 | `groups.test.ts:45`、`:76` 选择邻标签/组；E2E `:181` 收尾只检查组数 | 无真实关闭后的键盘焦点断言；不能凭 activeGroup 字段证明焦点去了相邻组。 |
+| 4：最后视图关闭/preview 替换的三选询问 | `area.test.ts:151` 取消/保存/共享视图不问，`:178` 丢弃且磁盘不变；E2E `:156` 取消关闭 | 未覆盖未裁决输入的询问、preview 替换结算、默认取消焦点与关闭对话框等同取消。 |
+| 5：project/local 会话恢复，未绑定只内存 | `groups.test.ts:117`、`:136` 快照恢复/损坏回退；`area.test.ts:192` 标签先于读取；E2E `:175` 刷新恢复 | E2E 只有同文件两个标签，没验全部组标签/preview/活动项；未验未绑定窗口不持久化和项目记录隔离。 |
+| 6：当帧切换、空白、799/800 ms 顶部进度条 | `area.test.ts:79` 手动时钟、扣住真实读取 | 期望跟着产品常量改变，F4 的 400 ms 变异存活；没有计划中的 `EditorGroup.dom.test.ts`，也没有 DOM/e2e 进度条断言。 |
+| 7：正确正文可编辑、失败原因/重试、切回不读不重建 | `area.test.ts:99` 没绑定/失败码；`documents.test.ts:157` 失败后 retry；E2E `:229`、`:297` 切回后输入历史 | 无真实用户看到读取失败再点击重试的路径；没有直接证明切回不读磁盘与控件不重建的用户/资源断言。slot 对象复用不能补足。 |
+| 8：最后打开意图生效，迟到不抢焦点 | `area.test.ts:79` A 的回复扣住、先打开 B，再放 A，检查 B 标签与正文 | 有真实 Files/控制器主路径；无 DOM/e2e 迟到结果不抢实际焦点的断言。 |
+| 9：换文档前结算，未裁决不换 | `documents.test.ts:197` attach 回调结算；`area.test.ts:130` binding 冲突后拒绝打开、裁决再打开；E2E 切文档后保留刚输入的内容 | 未裁决路径由直接公开模型提交产生，缺真实双控件缓冲输入/裁决条/无法切换的 UI 证据。 |
+| 10：光标、滚动、撤销/重做按组恢复 | `area.test.ts:110` 人工 `{caret: 1}` slot；E2E `:229` Tiptap A→B→A 撤销与重做、`:297` Monaco 撤销 | 无光标/滚动/选区恢复，Monaco 缺重做；F8/F9 的同文档双组历史没有测。 |
+| 11：同地址只读一次、订阅先就绪、在途变化重读 | `documents.test.ts:118`、`:132`、`:144`，真实 Files/闸门核对读与结果 | 主要路径有覆盖；缺订阅建立返回前就 ended、ready 回调中停止提供方的两种建立边界。 |
+| 12：多组共享正文，回灌不进其历史 | `documents.test.ts:173` 修订回执；E2E `:156` 另一组显示输入 | 只验证正文相等，未验证既有本组历史仍在；F9 被漏过。 |
+| 13：过期输入保留，两种裁决、阻止保存和计入询问 | `documents.test.ts:173` 接受/冲突/两裁决/不可保存；`area.test.ts:130` 不换文档 | 没有真实双视图冲突、顶部两按钮、点击后视图更新、裁决再次冲突的 DOM/e2e；关闭/离开询问的 unresolved 条件没验。 |
+| 14：快照、保存排队、新输入 dirty、失败/结果未知 | `documents.test.ts:217` 快照与两次写、`:273` 真实断线未知结果后 resync；E2E 正常保存 | 快照错误变异被击中，见下表；文档层无 permission-denied/io-failed 保持 dirty、未知结果读到不同内容仍 dirty 的专门用例。 |
+| 15：磁盘冲突裁决，普通保存不写 | `documents.test.ts:248` 冲突/再保存/重载/覆盖；E2E `:136` 冲突与点击重载 | 模型两种裁决均验；产品只走重载，没有点击覆盖后磁盘为编辑正文的路径。 |
+| 16：变更核对、自己保存回声、dirty 外改只标记 | `documents.test.ts:294` 正常/在途回声与外改、`:326` 重连 resync；E2E `:136` 外部变更 | 主要路径有真实链路；未测订阅 ended 之后的迟到事件不再改变正文。 |
+| 17：改名/移动后代、身份 path、正文/dirty/视图保留 | `documents.test.ts:337` 目录与后代改名/保存；`explorer/documents.test.ts:92`、`:110`；E2E `:250` 移动后的路径与正文 | 未覆盖多项部分成功仅成功项重绑定，以及真实视图的选区/滚动/历史/未裁决状态保留。 |
+| 18：外删只读/排他重建、resync/ended、上限 | `documents.test.ts:353` 外删/重建/占用、`:386` ended；`:157` too-large；E2E Lab `lab-editor.e2e.ts:78` 删除提示 | F3 的外删输入资格完全没断言；重建失败后的 UI 也没验。 |
+| 19：Markdown 字节与方言、frontmatter | `source-merge.test.ts:14`、`:30`、`:54`；`markdown-dialect.test.ts:21` 起 18 例；2 份方言 DOM；E2E `:209` | F1/F2 实际原文/删除边界失败；F5 丢硬换行变异仍全绿。e2e fixture 只有列表、ruby、行内批注，非全部方言；真实编辑扩展的硬换行/普通链接未进入方言测试 schema。 |
+| 20：源码编辑器、重新打开、只读、活动视图命令 | `groups.test.ts:86` setEditor；E2E `:297` 真 Monaco 输入/保存/撤销；Lab `:82` 两种控件渲染 | 未覆盖“用源码编辑器重新打开 Markdown”的产品命令、只读输入拒绝、Monaco 重做/跳转行；F3 说明提示不能代替输入能力断言。命令面板行号模式按已记录范围排除。 |
+| 21：dirty/unresolved/saving 离开前结算与确认 | `area.test.ts:211` attach 结算；E2E `:185` 真 beforeunload dirty/保存后不确认 | 无 unresolved/saving 离开；未明确扣住真实 Tiptap 输入结算计时器后立刻离开的路径。 |
+| 22：三种终态抢救 dirty/未裁决正文 | `documents.test.ts:466`、`area.test.ts:211` 抢救数组；`FailurePage.dom.test.ts:60` 只读正文；E2E `:336` 服务端重启 | 产品只有 dirty 文档，没有 unresolved 候选；复制按钮只验呈现、未验实际剪贴板。终态选择器容许 server-restarted 或 project-gone，不能独立证明重启原因判定；`window.test.ts` 没有 provider 汇集/抛错隔离断言。 |
+| 23：复制三选、先保存失败不复制 | `explorer/documents.test.ts:69` 取消/磁盘/保存的实际文件；`FilesExplorerActions.dom.test.ts:165` 三按钮；E2E `:274` 复制磁盘版 | 没有先保存失败/冲突后目标不产生的用例；询问后冻结新复制源与粘贴旧冻结源的顺序需各验，当前不能仅凭成功结果证明冻结边界。 |
+| 24：租约、身份链、阻止冲突/未知时保持 | `documents.test.ts:398` 租约保存/未知、`:440` 多次保存身份链；`explorer/documents.test.ts:92`、`:110`、`:134`、`:147`、`:160`；E2E `:250` 剪切→保存→粘贴 | F6 忽略磁盘 conflict 的变异存活；批量部分成功/失败重绑定缺组合用例；拖动的 dirty 文档协调没有独立用户路径。 |
+| 25：删除列出未保存影响、成功后关标签丢正文 | `explorer/documents.test.ts:184` 删除目录含一个 dirty 文档；`FilesExplorerActions.dom.test.ts:148` 范围与默认取消；E2E `:285` 删除确认后取消 | 已测单个 dirty 子文档；未测目录多个 dirty/conflict/unresolved、部分成功仅关闭成功项。产品 e2e 没确认删除后的标签关闭/正文释放。 |
+
+### editor 验收 1–11
+
+| 场景 | 实际落到的用例 | 判断与剩余缺口 |
+|---|---|---|
+| 1 | `groups.test.ts:15`、`area.test.ts:110`、E2E `:105` | 单击替换、双击转正、编辑转正与新 preview 保留旧标签都有证据。 |
+| 2 | `area.test.ts:79` | 模型/真实读取闸门覆盖意图与空绑定；799/800 的独立判据失效（F4），组件空白/进度条/焦点未验。 |
+| 3 | `documents.test.ts:248`、E2E `:136` | 模型覆盖重载与覆盖磁盘；产品只有重载，覆盖按钮未走。 |
+| 4 | `documents.test.ts:217` | 真实 Files 与真实回复闸门覆盖保存快照、继续输入 dirty 与串行第二次保存；快照变异被杀死。没有产品层扣住保存的 e2e。 |
+| 5 | `source-merge.test.ts:54`、18 个方言用例、E2E `:209` | 合同不能按现有绿色结果认定满足：F1/F2/F5，且 fixture 不是全部方言。 |
+| 6 | `documents.test.ts:173`、`area.test.ts:130`、E2E `:156` | 模型回执与保存屏障有证据，产品只验证正文同步；裁决条两按钮没有真实路径。 |
+| 7 | `explorer/documents.test.ts:69`、`:92`、`:110`、`:184`；DOM `FilesExplorerActions`；E2E `:250` | 三选、在途保存移动、身份换新、删除范围有部分组合；先保存失败、磁盘冲突屏障与多文档删除不足。 |
+| 8 | `groups.test.ts:117`、`area.test.ts:192`、E2E `:175` | 模型有三标签两组快照；产品刷新仅两个同文档标签，未逐项验三标签两组与活动项。 |
+| 9 | E2E `:229`、`:297` | Tiptap A→B→A 撤销/重做，Monaco 仅撤销；无光标/滚动/双组独立历史，实际 F8/F9。 |
+| 10 | E2E `:336`，`FailurePage.dom.test.ts:60` | 真重启后正文可见；终态原因断言容许 project-gone，复制动作未验，未裁决正文仅模型。 |
+| 11 | `documents.test.ts:480`、E2E `:128` 第二页面 | 两个真实消费者看到新正文，已验证。 |
+
+### files-explorer 验收 9
+
+| 子判据 | 实际证据 | 缺口 |
+|---|---|---|
+| dirty 复制先保存/磁盘/取消 | `explorer/documents.test.ts:69` 三个真实磁盘结果；DOM `:165`；E2E `:274` 磁盘版 | 先保存失败/冲突时不得复制缺用例；DOM 没验默认取消焦点。 |
+| 在途保存移动，继续输入随成功目标，失败仍属原文档 | `explorer/documents.test.ts:110`；`:92` 身份链；`:134` 外部替换失败；`documents.test.ts:398`；E2E `:250` | F6：已有磁盘冲突不提交未测；外部替换失败用例只看 report，没有核对正文/dirty/目标 path；批量部分成功与拖动未单独验。 |
+| dirty/冲突目录删除影响范围、风险、默认取消 | `explorer/documents.test.ts:184` 一个 dirty 子文件；DOM `:148` 范围/默认取消；E2E `:285` 取消保留磁盘 | 缺多个 dirty/冲突/未裁决文档范围、部分成功只关闭成功项、实际产品确认删除后标签收口；不存在“编辑器撤销恢复文件”的承诺，未当作缺陷。 |
+
+## 测试写法与等待边界
+
+- **已核对：** 本次聚焦 editor、explorer 文档结算、memory-files 与两份 e2e，没有发现 mock、spy、全局假计时器或固定时长等待。文档/资源管理器的 Bun 用例使用真实内核、RPC/Files 客户端与磁盘；闸门扣住真实请求/回复，变化由注入 `ManualClock` 推进，符合规范。DOM 是真实 Vue/Tiptap schema；Lab 替换 Files，但同一控制器与控件未替换。
+- **已核实不足：** F4 用产品常量生成时间期望；F5 的测试扩展组缺真实控件追加的 hardBreak/link；F6 名称包含 conflict 却只造 unresolved；F7 的 fake 契约只验串行。`area.test.ts:118` 的任意状态槽镜像没有证明真实光标/滚动/history；该问题在 F8/F9 中变成可见错误。
+- **从代码推断的时序风险：** E2E `atEnd()`（`:82`）只等编辑元素可点击，没有独立等当前文件正文/可输入就绪；多数用例后面有文本、dirty 或磁盘断言，会发现失败，但 `:256`、`:339` 等直接双击后输入的步骤把控件可点击与文档就绪隐含相连。当前模板（`EditorGroup.vue:109`）只有绑定就绪才显示，因此本次没有把它报成已发生竞态；连跑三次亦未观察到业务偶发失败。
+- **从代码推断的等待不足：** `explorer/documents.test.ts:122` 等的是目标 list 请求已发出，未等租约确实开始等待保存；`:124` 紧接着检查尚无 move 可能早于被测错误分支执行。`documents.test.ts:410` 所等的 `write === 1` 在调用 begin 前就成立，只证明这一刻没得到租约，不能单独证明等待屏障。现有后续磁盘/dirty 断言有价值，但屏障断言应等可观察的入队/闸门状态。
+- **不计为当前产品缺陷：** 独立视图审查一度读到临时移除 conflict 的变异快照；恢复后的 `store.ts:509` 同时拒绝 unresolved 与 conflict，真实探针 `restored-conflict-lease-probe.log` 返回 `leaseAllowed=false`，已剔除误报。F6 只记录测试缺口。
+
+## 变异实验
+
+一次只改一个产品边界，运行现有测试，再恢复原字节并检查 `git status --short`；未变更测试期待。
+
+| 变异 | 对应实际命令（包根） | 结果 | 恢复证据 |
+|---|---|---|---|
+| `PROGRESS_DELAY_MS` 800→400 | `bun test src/plugins/editor/area.test.ts` | 存活：8 pass / 0 fail / 41 expect；F4 | 原常量 800 已恢复，status 无输出；`mutation-progress.log` |
+| `MarkdownHardBreak.renderMarkdown` 换行→空串 | `bun test src/plugins/editor`；`node ../../node_modules/vitest/vitest.mjs run src/plugins/editor`；重建后产品 editor-area e2e | 存活：Bun 61/0、DOM 10/0、e2e 9/0；实际 `<br>` 保存丢换行；F5 | 原序列化已恢复、重新 `bun run build:web`；`hardbreak-restored.json` 有换行，status 无输出 |
+| coordinator begin 不拒绝 conflict | `bun test src/plugins/editor/documents.test.ts src/plugins/explorer/documents.test.ts` | 存活：27/0、183 expect；真 Files 冲突探针仍发租约；F6 | 恢复后同探针拒绝租约，status 无输出 |
+| 保存成功把 saved 设为当前正文而非提交快照 | `bun test src/plugins/editor/documents.test.ts` | 被杀死：19 pass / 1 fail，`:232` 期待两次 write、实际一次；`mutation-save-snapshot.log` | 恢复后同命令 20 pass / 0 fail / 154 expect，`restored-save-snapshot.log`；status 无输出 |
+
+## 实际验证记录
+
+以下均在本次审查运行，非复用实现者旧证据。工作目录为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-impl-tests/packages/neuro-book`；报告目录内 `baseline-run-results.log` 归档本会话基线通知原文，变异/探针的同名 `.log` 含命令与退出码。
+
+| 命令或场景 | 实际结果 |
+|---|---|
+| `env TMPDIR=<报告目录> bun test src/plugins/editor src/plugins/explorer/documents.test.ts src/plugins/lab/memory-files.test.ts src/plugins/files/files.test.ts` | 86 pass / 0 fail；515 expect；8 files；2.05 s |
+| `env TMPDIR=<报告目录> node ../../node_modules/vitest/vitest.mjs run src/plugins/editor src/plugins/explorer/web/components/FilesExplorerActions.dom.test.ts --reporter=verbose` | 4 files / 22 tests 全通过 |
+| `bun run typecheck` | `tsc` + web/browser-test 两份 `vue-tsc`，退出 0；46.30 s |
+| `bun run build && bun run build:e2e` | 两构建退出 0；`check:dist` 确认产物不含开发插件与本机路径；原始构建日志在 `session/2026-10-09T19-39-48-645Z_01a1222d-ca25-708f-91fd-def26f2c17d2/6.bash-original.log` |
+| `env TMPDIR=/tmp NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp NBOOK_AGENT_TEMP_ROOT=<报告目录> node ../../node_modules/@playwright/test/cli.js test -c <报告目录>/playwright.config.ts editor-area.e2e.ts lab-editor.e2e.ts --repeat-each=3 --output=<报告目录>/e2e-short-tmp` | 30 passed（9+1 例各三次），1.6 m；没有业务偶发失败 |
+| `bun <报告目录>/markdown-probe.ts` | 使用真实完整扩展工厂；连续列表/ruby、末行/末段/全删暴露 F1/F2；混合 EOL 无尾换行、所选工作区/领域链接输入保持；恢复后 hardBreak 显式节点正确序列化 |
+| `bun --tsconfig-override <包根>/tsconfig.json <报告目录>/conflict-lease-probe.ts` | 真实 Files 保存 conflict；变异时允许租约、恢复后拒绝 |
+| `bun --tsconfig-override <包根>/tsconfig.json <报告目录>/memory-save-probe.ts` | 真 Files 一成功一 conflict，memory 双成功；F7 |
+| 生产产品页 `http://127.0.0.1:46371/?project=review` | 真实 Files 与浏览器复现 F1/F2/F3/F8/F9；变异/恢复硬换行保存前后另有磁盘证据 |
+
+证据文件：`list-saved.json`、`delete-saved.json`、`deleted-editable.json`、`hardbreak-mutated.json`、`hardbreak-restored.json`、`history-split-trace.json`、`history-shared-trace.json`；视觉证据 `list-middle.webp`、`history-shared.webp`。
+
+环境失败与限制：首次给 Chrome 指定过长 `TMPDIR`，30 例均在业务前因 `SingletonSocket` 路径过长启动失败；用短 `/tmp` 重跑后 30 例全通过，失败不计产品缺陷。仓外 Bun `--tsconfig-override` 探针退出 0、观察结果完整，但 stderr 有 `Internal error: directory mismatch ... this indicates a bug.`，未隐藏。未跑全仓 Bun/Vitest/e2e、`docs:check`、`governance:check`；本次为聚焦只读审查，未改规范或产品。未验证跨机器/其它浏览器、参考机性能、真实输入法/读屏、终态实际复制和多主题截图全集；不以本机结果宣称这些已完成。
+
+收口已验证：审查浏览器 `t71-product-review` 已关闭，`browser.tabs()` 返回空数组；`t71-review-product` 经 stdin `stop` 有序退出，exit=0。`ps -o pid,ppid,args -p 2401258,2402332` 只输出表头（两个自己启动的父/项目进程均已退出）。最终 `git status --short` 无输出；`area.ts`、`markdown-editor-extensions.ts`、`documents/store.ts` 与实验前备份逐字节相同（`restoration-check.json`）。未在仓库创建探针文件，未提交产品修复。
+
+## 回写建议
+
+只有下列环境经验值得新增；测试行为、fake 契约、独立期望与变异要求已经在现有规范中，未建议重复追加。建议尚未写入仓库，不阻塞本次报告交付。
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| 1 | 踩坑 | 本次长 `TMPDIR` 使 Chrome 的 `SingletonSocket` 在业务前失败，短路径后 30 例全过 | 新增：“浏览器运行时目录使用系统短临时路径；项目数据、日志与验收产物仍放受控测试根。不要把深路径任务目录作为 Chrome 的 `TMPDIR`，以免 Unix socket 超过路径长度上限。” | `docs/testing/README.md` 的“浏览器 E2E”环境说明 |
+
+## 数量
+
+| 严重程度 | 已核实发现数量 |
+|---|---:|
+| 阻断 | 0 |
+| 重要 | 9 |
+| 建议 | 0 |
+| 合计 | 9 |
+
+其中 6 条是行为/契约错误（F1/F2/F3/F7/F8/F9；F7 位于 Lab fake），3 条是以存活变异证明的测试缺口（F4/F5/F6）。覆盖表另列未运行子路径，不把它们冒充已发生的产品错误。变异共 4 项：3 存活、1 被杀死。
+
+## 未发现问题的方面
+
+- 已执行范围的类型检查、生产/e2e 构建、86 个 Bun、22 个 DOM 及三次共 30 个 e2e 基线均通过；测试使用真 Files、真内核和真浏览器，未发现本次所查禁用测试机制。
+- preview/permanent 主路径、正常编辑 Ctrl+S、第二窗口读取新正文有真实产品证据；保存快照与排队测试能击中错误 baseline/dirty 推进变异。
+- 真实 Files 的保存前后身份令牌与冻结旧身份拒绝有实际测试，编辑器身份链经多次保存转换；剪切→保存→粘贴、外部替换仍 source-changed 的主要路径有真实文件证据。内存并发契约不足已单列 F7。
+- 外部修改的 clean 回灌、dirty 标记、磁盘冲突不覆盖、重载/模型覆盖、在途保存回声核对与重连 resync 的主要路径已通过；不能由此覆盖表中未测试的失败/终态分支。
+- 同组 A→B→A 的 Tiptap 撤销/重做与 Monaco 撤销、会话的基础刷新恢复、dirty 离开确认、服务端重启后 dirty 正文呈现已有产品证据；双组/重挂 history 问题已单列 F8/F9。
+

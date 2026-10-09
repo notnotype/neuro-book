@@ -919,16 +919,22 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 refocus();
                 return;
             }
-            editing.value = {...current, busy: true};
+            const committing = {...current, busy: true};
+            editing.value = committing;
             // 改名像移动一样取租约（输出 24）：编辑器结算输入、等在途保存、挡住新保存，改名成功后文档跟到新名字。
             let lease: DocumentLease | null = null;
             if (current.mode === "rename" && options.documents !== undefined) {
                 const begun = await options.documents.begin([current.address]);
                 if (!begun.ok) {
-                    if (editing.value?.busy === true) editing.value = {...current, busy: false, error: {code: "unsettled", detail: begun.documents.map((document) => document.address).join("、")}};
+                    if (editing.value === committing) editing.value = {...current, busy: false, error: {code: "unsettled", detail: begun.documents.map((document) => document.address).join("、")}};
                     return;
                 }
                 lease = begun.lease;
+                // 等保存期间取消了这次改名、视图停了或根不在了：意图已失效，不提交。
+                if (editing.value !== committing || disposed || !live(current.address)) {
+                    lease.end({kind: "done"});
+                    return;
+                }
             }
             const renamedTo = current.mode === "rename" ? childAddress(parentAddress(current.address) as string, name) : null;
             let result: FilesResult<OperationDone>;

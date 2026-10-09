@@ -51,7 +51,7 @@ owners:
   | `nbook.editor.close-others` | `{}` | `active` | read | auto | — |
   | `nbook.editor.split-right` | `{}` | `active` | read | auto | Ctrl+\\ |
   | `nbook.editor.split-down` | `{}` | `active` | read | auto | — |
-  | `nbook.editor.reopen-with` | `{editor}` | `active` | read | auto | — |
+  | `nbook.editor.reopen-with` | `{editor?}`（不给时换成另一种） | `active` | read | auto | — |
 
   `when` 列写 `nbook.editor/` 下的公开键名。`revert` 丢弃未保存修改，对 Agent 不开放。键位只在编辑器区有焦点时由编辑器区处理并执行同一命令，不写成全局键位，`when` 也不含焦点：命令面板取得焦点时这些命令仍可选。第一批的 `nbook.editor.focus`、`nbook.edit.undo`、`nbook.edit.redo`、`nbook.editor.go-to-line` 由本插件登记，`when` 改用下面的公开键，其余声明不变。
 - 公开状态（布尔）：`nbook.editor/focused`（编辑区获得焦点）、`nbook.editor/active`（有活动视图）、`nbook.editor/writable`（活动视图可写）、`nbook.editor/lineNavigation`（活动视图支持行导航）、`nbook.editor/dirty`（活动文档 dirty），对应命令目录第一批的 `editor-focus`、`editor-active`、`editor-writable`、`editor-line-navigation`。

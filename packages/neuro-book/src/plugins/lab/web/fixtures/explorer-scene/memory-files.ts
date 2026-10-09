@@ -419,11 +419,17 @@ export function createMemoryFiles(seed: MemorySeed): MemoryFiles {
         await Promise.resolve();
         const at = resolve(address);
         if ("ok" in at) return at;
-        const node = at.root.nodes.get(at.path);
-        if (node === undefined) return fail("not-found", `${address} 不存在`);
-        if (node.kind !== "file") return fail("not-a-file", `${address} 不是文件`);
-        const current = await hashOf(node.text);
-        if (current !== baseline.hash) return {ok: false, code: "conflict", detail: `${address} 在读取后被修改过`, current: {hash: current}};
+        let node: Node | undefined;
+        // 比较基线、替换、确认是一次原子提交（workspace/files.md）：算哈希要等，等的期间文件被换了就按新的当前文件再比。
+        for (;;) {
+            node = at.root.nodes.get(at.path);
+            if (node === undefined) return fail("not-found", `${address} 不存在`);
+            if (node.kind !== "file") return fail("not-a-file", `${address} 不是文件`);
+            const current = await hashOf(node.text);
+            if (at.root.nodes.get(at.path) !== node) continue;
+            if (current !== baseline.hash) return {ok: false, code: "conflict", detail: `${address} 在读取后被修改过`, current: {hash: current}};
+            break;
+        }
         // 与真实实现一样，保存经“写临时文件再改名”替换目录项：身份换新。
         const replaced: Node = {kind: "file", ino: ++ino, text};
         at.root.nodes.set(at.path, replaced);

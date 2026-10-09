@@ -155,7 +155,9 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
             }, temporaryPath);
             if (!replaced.ok) return failed(replaced, "files.write.failed");
             if ("done" in replaced) return replaced.done;
-            const identity = replaced.before !== null && replaced.resolved.realPath === path ? {before: entryToken(replaced.before), after: entryToken(replaced.after)} : null;
+            // 经祖先目录的链接保存，替换的仍是这个目录项指向的普通文件，身份照样推进；最后一段本身是链接时目录项（链接）
+            // 没有被替换，不给身份。
+            const identity = replaced.before !== null && !replaced.resolved.viaLink ? {before: entryToken(replaced.before), after: entryToken(replaced.after)} : null;
             return {ok: true, value: {baseline: {hash: hashOf(bytes)}, realPath: replaced.resolved.realPath, bytes, ...(identity === null ? {} : {identity})}};
         },
     };

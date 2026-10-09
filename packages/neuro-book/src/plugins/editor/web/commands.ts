@@ -39,7 +39,8 @@ const OPEN_ARGS = Type.Object({
     editor: Type.Optional(Type.Union([Type.Literal("markdown"), Type.Literal("code")])),
 }, {additionalProperties: false});
 
-const REOPEN_ARGS = Type.Object({editor: Type.Union([Type.Literal("markdown"), Type.Literal("code")])}, {additionalProperties: false});
+/** 不给 `editor` 时换成另一种（命令面板里不必手写参数）。 */
+const REOPEN_ARGS = Type.Object({editor: Type.Optional(Type.Union([Type.Literal("markdown"), Type.Literal("code")]))}, {additionalProperties: false});
 
 const GO_TO_LINE_ARGS = Type.Object({
     target: Type.Object({
@@ -60,7 +61,7 @@ export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, CommandDeclara
     [CLOSE_OTHERS_COMMAND]: {title: title("关闭其它编辑器", "Close Other Editors"), category: EDITOR, description: "Close the other tabs in the active group.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [SPLIT_RIGHT_COMMAND]: {title: title("向右拆分编辑器", "Split Editor Right"), category: EDITOR, description: "Open the active document in a new group to the right.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [SPLIT_DOWN_COMMAND]: {title: title("向下拆分编辑器", "Split Editor Down"), category: EDITOR, description: "Open the active document in a new group below.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
-    [REOPEN_WITH_COMMAND]: {title: title("用其它编辑器重新打开", "Reopen Editor With"), category: EDITOR, description: "Reopen the active tab with the Markdown or the source editor.", args: REOPEN_ARGS, effect: "read", when: when("active"), expose: {human: false, agent: "auto"}},
+    [REOPEN_WITH_COMMAND]: {title: title("用其它编辑器重新打开", "Reopen Editor With"), category: EDITOR, description: "Reopen the active tab with the Markdown or the source editor; without an editor, switch to the other one.", args: REOPEN_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [FOCUS_COMMAND]: {title: title("聚焦编辑器", "Focus Editor"), category: EDITOR, description: "Focus the active editor.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [UNDO_COMMAND]: {title: title("撤销", "Undo"), category: EDIT, description: "Undo the latest edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "confirm"}},
     [REDO_COMMAND]: {title: title("重做", "Redo"), category: EDIT, description: "Redo the latest undone edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "never"}},
@@ -111,7 +112,12 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>): R
         }),
         [SPLIT_RIGHT_COMMAND]: run((current) => fromAction(current.split("right"))),
         [SPLIT_DOWN_COMMAND]: run((current) => fromAction(current.split("down"))),
-        [REOPEN_WITH_COMMAND]: run((current, args) => fromAction(current.reopenWith((args as Static<typeof REOPEN_ARGS>).editor))),
+        [REOPEN_WITH_COMMAND]: run((current, args) => {
+            const chosen = (args as Static<typeof REOPEN_ARGS>).editor;
+            const tab = current.groups.activeTab();
+            if (tab === null) return unavailable("没有活动标签");
+            return fromAction(current.reopenWith(chosen ?? (tab.editor === "markdown" ? "code" : "markdown")));
+        }),
         [FOCUS_COMMAND]: run((current) => {
             const handle = current.activeHandle.value;
             if (handle === null) return unavailable("当前没有可聚焦的编辑器");

@@ -1,0 +1,198 @@
+# t71 编辑器区实现边界正确性审查
+
+审查范围：`5152002b..e3ea21c7`（S0–S8）。工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-impl-correctness`。
+
+依据：t71 `plan.md`、`README.md`，编辑器及关联 Files、资源管理器、工作台、浏览器宿主 Spec，2026-10-09 已接受的 t71 取舍。只读审查；实验及产物位于本报告目录。
+
+发现逐条记录；运行复现与从代码推断分开注明。Task 明确不做的范围和已接受取舍不作为缺陷。
+
+## 发现 1：改名进入已删除但仍打开的地址，原文档脱离索引与抢救
+
+- 严重程度：阻断；类别：正确性 / 不变量。
+- 位置：`packages/neuro-book/src/plugins/editor/web/documents/store.ts:383–398`（尤其 `entries.set(next, entry)` 第 396 行）；关联 `groups/groups.ts:213–216`。
+- 现象：同时打开 A、B 并各有未保存正文；在磁盘删除 B，编辑器保留 B 的标签与正文；再经真实 Files 把 A 改名为 B，操作成功，文档表直接以 A 覆盖 B。原 B 仍 dirty，却不再被 `get`、`entryOf`、`rescue` 枚举，保存将报已关闭；终态抢救只列出 A 的正文，漏掉 B 的未保存正文。
+- 为什么是问题：合法的排他改名目标在磁盘上确实不存在，但内存里仍拥有这份已删除文档。覆盖索引使保留正文失去所有者与恢复路径，并可能导致两个同地址标签绑定不同文档。
+- 依据：`docs/specs/workbench/editor.md` 输出 17、18、22；“文档”按地址唯一与最后标签关闭前持有正文的生命周期要求。
+- 核实：运行 `bun --tsconfig-override ./tsconfig.json <报告目录>/probes.ts`（cwd `packages/neuro-book`）；真实 Files 场地与 `files.rename` 事件。`probes.json` 中 `bDirty: true`、`bStillTracked: false`、`aTracked: true`；抢救仅有 `A unsaved`，没有 `B unsaved`。场地三实例全部正常关闭。
+- 建议改法：重绑定前处理内存目标碰撞；不得覆盖仍被标签引用的文档。保留被删除目标的独立身份与正文并提供明确裁决/抢救，或在有保留文档的目标上阻止本窗口移动；外部改名同样必须保全两份正文。
+
+## 发现 2：已删除文档仍可继续编辑
+
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/editor/web/documents/store.ts:345`、`:590–598`；`components/EditorGroup.vue:113` 据此给控件传只读状态。
+- 现象：真实磁盘删除已打开文件并收到 `deleted` 后，`status` 是 `deleted`，但 `writable` 仍为 `true`，后续输入回执仍 `accepted` 并改写正文。
+- 为什么是问题：合同规定外部删除后保留正文并只读，dirty 文档仍允许显式保存重建。当前把“可以重建保存”与“继续接受新编辑”合并，界面宣称文件已删除却仍开放编辑。
+- 依据：`docs/specs/workbench/editor.md` 输出 18、20（已删除只读、只读视图不接受输入）。
+- 核实：真实 Files 探针 `deleted-writable` 为 `writable: true`、`commit.status: accepted`、`text: typed after delete`。生产浏览器显示“文件已被删除。”后，富文本仍 `contenteditable=true`，键盘输入后显示 `Deleted STILL EDITABLE` 并出现 dirty 标记；截图 `deleted-editable.png`。
+- 建议改法：把 deleted 的控件可编辑性设为 false，保留专门的保存重建分支；转换只读前缓冲的输入仍须同步结算，避免影响终态抢救。
+
+## 发现 3：关闭选择保存后，保存在途的新输入被无条件丢弃
+
+- 严重程度：阻断；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/editor/web/area.ts:342–352`。
+- 现象：dirty 文档关闭时选择“保存”；保存等待期间编辑器仍可输入。保存成功只确认开始时的快照，但 `closeTab` 不再结算或复查 dirty/unresolved/saving，就关闭标签并释放最后引用。期间的新正文丢失，磁盘仍是旧快照，抢救列表为空。
+- 为什么是问题：关闭询问只授权保存当前文档，并没有授权丢弃保存期间产生的未保存输入。这直接破坏“保存期间输入保持 dirty”与“最后标签关闭前结算”的不变量，且无二次提醒。
+- 依据：`docs/specs/workbench/editor.md` 输出 4、14、21 与时序寿命的关闭前同步结算；`docs/specs/workspace/files.md` 验收 4。
+- 核实：真实 Files 场地 `probes.ts` 的 `close-save-input`：写回复扣住后输入 `A2 during close save`，放行后 `result: closed`、磁盘 `A1`、文档不再被追踪、`rescue: []`。生产浏览器另持有真实 Files 跨进程写锁，点关闭→保存，等 Dialog 遮罩真实移除后用键盘输入，页面正文为 `Close FIRST SNAPSHOT SAVE-SNAPSHOT-2 LATE-INPUT-2`；释放锁后标签数为 0，磁盘只有 `Close FIRST SNAPSHOT SAVE-SNAPSHOT-2\n`。完整成功结果见 `close-browser.json`，截图 `close-data-loss.png`。
+- 建议改法：保存结束后重新同步结算视图，复查文档仍存活且无 dirty、未裁决输入、在途保存；有新输入则保持标签并继续明确的保存/关闭裁决。或关闭结算期间禁用编辑，但仍须先结算禁用前输入。
+
+## 发现 4：旧视图绑定的回调未按 token 失效
+
+- 严重程度：重要；类别：不变量。
+- 位置：`packages/neuro-book/src/plugins/editor/web/area.ts:233–240`；`documents/store.ts:588–603`。
+- 现象：A 切到 B 后保留旧 `ViewBinding`，旧绑定 `commit` 仍能以当前 revision 返回 `accepted` 并修改 A。store 只检查 document 仍存在、修订是否相同，从不验证 token 是否仍属于当前绑定。旧 `attach` 也能重新登记结算函数。
+- 为什么是问题：绑定 token 只是候选输入 Map 的 key，不能阻止换文档/关闭组之后的迟到回调；文档仍由其它标签引用时，旧视图可以修改活文档或制造永远无法在现视图裁决的候选。
+- 依据：`docs/specs/workbench/editor.md` 时序寿命明确“每次视图绑定签发新标识；换文档、关闭标签、项目换代后旧绑定回调不改变任何文档或视图”。
+- 核实：真实 Files 场地经 `createEditorArea` 的公开绑定接口，A→B 后旧绑定提交 `late callback A`，结果 `accepted`、A 正文变为该内容（`probes.json` 的 `stale-token`）。未在生产控件制造自然迟到回调，故控件实际触发频率未验证；缺失守卫是已运行核实的公开合同违反。
+- 建议改法：绑定拥有者维护有效 token 集合，换下/关闭时先同步结算再注销；`commit` 与 `attach` 均检查当前绑定身份，不符合直接 stale。卸载时只允许结算有效旧绑定的最后一次输入，不恢复其长期有效性。
+
+## 发现 5：多文档租约逐项等待，已经检查过的文档可在等待其它文档时开始保存
+
+- 严重程度：重要；类别：不变量 / 正确性。
+- 位置：`packages/neuro-book/src/plugins/editor/web/documents/store.ts:500–512`。
+- 现象：目录下 A、B 两份文档，B 保存回复在途；`begin([目录])` 先看 A 无保存，再等待 B。等待期间 A 开始保存，B 一完成就直接给两份文档加租约并返回成功，A 仍在保存。
+- 为什么是问题：租约已成功时相关保存尚未完成，资源管理器可以移动目录；A 的在途写请求仍指向旧路径。与“先等全部保存，再挡住新保存”的原子边界不一致。
+- 依据：`docs/specs/workbench/editor.md` 输出 24 与文档协调 `begin` 合同；`docs/specs/workspace/files.md:119`。
+- 核实：`lease-probes.ts` 真实 Files 场地中扣住 B 的实际写回复，`begin` 等 B 时再启动 A 并扣住其实际写回复；释放 B 后返回 `{ok:true}`，A 的 `saving` 仍为 true。进一步运行 `transfer-probes.ts`，真实资源管理器剪切目录→粘贴，B 阻塞结算时再保存 A（A 等真实写锁），放行 B 后目录移动成功，目标 A 仍为旧正文 `A`，原保存返回 `io-failed：保存 plain/a.md 失败`。见 `lease-probes.json`、`transfer-probes.json`；未伪造任何 Files 返回值。
+- 建议改法：先对整个受影响集合同步建立保存闸门，再等待闸门前已接纳的保存完成；或每次等待后整体重新核对，最终在同一同步段内确认全部队列空并加租约。须区分闸门前队列与闸门后新保存，避免相互等待死锁。
+
+## 发现 6：改名等待文档结算后，不再检查取消与控制器停止
+
+- 严重程度：重要；类别：正确性 / 不变量。
+- 位置：`packages/neuro-book/src/plugins/explorer/web/controller.ts:925–938`。
+- 现象：改名提交等待相关在途保存；期间取消内联编辑或停止控制器。保存一结束，原 `commitEdit` 仍向 Files 发出 rename，真实磁盘和文档地址都变成新名称。
+- 为什么是问题：新增 `await documents.begin` 扩大了“尚未提交”的窗口，却没有在之后重新验证该意图及控制器仍有效。视图/入口停止后仍执行副作用；与 transfer 对同一结算等待后的 `disposed/live` 检查不一致。
+- 依据：`docs/specs/workbench/files-explorer.md` 冻结意图、根失效后旧意图不再提交及操作取消要求；`workspace/files.md` 绑定/授权失效不接纳新操作。`ExplorerRow.md:44–50` 承诺 Escape 取消，`ExplorerRow.vue:52–62,156` 在 busy 时只读但仍响应 Escape，取消路径在界面上可达。
+- 核实：`lease-probes.ts` 经真实资源管理器控制器与 Files：保存回复扣住，提交改名后 `cancelEdit()` 或 `dispose()`，再释放保存；两者均产生真实 `rename` 写请求。生产浏览器中持有 A 的真实写锁，输入→Ctrl+S→资源管理器 F2→Enter 提交新名→等待 readonly→Escape；内联输入框消失后释放锁，磁盘仍被改为 `renamed.md`，内容 `A SAVE-BEFORE-RENAME\n`。记录 `rename-cancel-browser.json`，截图 `rename-after-escape.png`。
+- 建议改法：取租约后立即复查 `disposed`、根 live、当前编辑意图的身份；失效则结束租约并返回。使用意图 token，不能只用 `editing.busy` 判断是否仍是原编辑。
+
+## 发现 7：保存全部先按 dirty 筛选，未结算的视图输入被跳过
+
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/editor/web/documents/store.ts:527–533`；`area.ts:422–425`。
+- 现象：文档当前仍 clean、控件有尚未提交的输入时，“保存全部”在调用 `save`/`flush` 之前就跳过文档，并返回成功。保存单文档会结算，但协调服务 `save` 不会。
+- 为什么是问题：Markdown 有 150 ms 输入延迟；保存全部的合同要求同步结算全部相关视图，不能用结算前的 dirty 状态决定跳过。用户得到成功而最新正文未落盘。
+- 依据：`docs/specs/workbench/editor.md` 时序寿命“保存……之前先同步结算视图输入”；计划第 3 节文档协调 save 与第 8 节 save-all。
+- 核实：真实 Files 场地给已打开 clean 文档登记公开的 `attachView` 结算函数，再执行 `coordinator.save([目录])`；结果 `saved: []`、`flushed: 0`、正文/磁盘都为 `A`，延迟输入未处理（`lease-probes.json` 的 `save-all-buffered`）。该实验覆盖公开协调合同；生产 Markdown 的真实 150 ms 窗口未运行复现。
+- 建议改法：遍历相关文档时先 flush，再按结算后的 dirty/候选/冲突决定保存；save-all 与资源管理器的“先保存再复制”共用这条结算路径。
+
+## 发现 8：拆分编辑组重建原组控件，富文本已有撤销历史丢失
+
+- 严重程度：重要；类别：正确性 / 不变量。
+- 位置：`packages/neuro-book/src/plugins/editor/web/components/EditorArea.vue:65–76`；`MarkdownControl.vue:45–50,98`；关联 `MarkdownControl.md:33`、t71 `README.md:34`。
+- 现象：在原组的 Markdown 文档输入 `BEFORE-SPLIT`，向右拆分，再回原组撤销；正文完全不变。拆分使 grid 层级改变并卸载/重建原组的控件；`rebuilt` 仅重建 doc、selection、plugins，未恢复 history。
+- 为什么是问题：拆分只是新增文档视图，不应破坏原组既有撤销历史。实现说明承认重挂丢历史，但该项不在已接受取舍中，且与“控件不重建、视图保留到标签关闭”冲突；同文档两组各自撤销的验收缺少拆分前输入这一边界。
+- 依据：`docs/specs/workbench/editor.md` 输出 2、7、10 与视图状态保留的寿命；计划第 5 节三层寿命。
+- 核实：生产浏览器真实 Tiptap 输入→Ctrl+\\→两组→点击原组 Ctrl+Z；拆分前后原组始终为 `Undo BEFORE-SPLIT`，撤销没有效果，新组也仍同正文。截图 `split-undo.png`。该行为与实现 `rebuilt` 丢 history 一致。
+- 建议改法：让编辑组控件宿主按稳定 groupId 存活，grid 仅停放/搬动宿主；或在重挂时完整重建相容的 history 状态，而不是只恢复正文与选区。补真实浏览器“拆分前输入、拆分后原组撤销”场景。
+
+## 发现 9：冲突后正文改回旧基线，再点覆盖会静默成功但完全不写盘
+
+- 严重程度：阻断；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/editor/web/documents/store.ts:648–656` 与 `:435`。
+- 现象：原文 `Copy`，改成 `Copy MINE`；外部文件变为 `EXTERNAL`，保存得到冲突。此时把视图正文改回 `Copy`，它与旧的 `saved` 相同，所以 dirty 为 false。点击“覆盖磁盘版本”仅把 baseline 换成冲突的 current、清掉 conflict，然后 `saveNow` 的 `!isDirty` 直接返回成功；磁盘仍为 `EXTERNAL`，界面却显示 `Copy`、无 dirty、无冲突提示。
+- 为什么是问题：覆盖分支假设“冲突来自 dirty，所以现在仍 dirty”，但冲突期间正文可继续编辑。它推进了基线而没有推进 `saved` 或真正写盘，使界面声明的 clean 正文与磁盘内容不一致；没有后续变化事件时也不会自动再读，用户会误以为覆盖成功。
+- 依据：`docs/specs/workbench/editor.md` 输出 15（覆盖以 current 基线写入）、dirty 定义（正文与基线对应正文不同）与输出 14；`workspace/files.md` 条件保存。
+- 核实：生产浏览器真实 Markdown 编辑、外部文件写入、Ctrl+S 冲突、Ctrl+A 改回 `Copy`、点击覆盖。结果正文 `Copy`、磁盘 `EXTERNAL\n`、dirty 标签 0、banner 0。记录 `overwrite-browser.json`，截图 `overwrite-no-write.png`。
+- 建议改法：覆盖操作必须用 current 基线明确提交当前正文，不以旧 `saved` 判为无需写入；成功后才同时推进 baseline/saved，失败保留冲突与正文。补冲突期间正文回到旧 saved 的浏览器/真实 Files 场景。
+
+## 发现 10：关闭非活动标签也重签活动绑定，使未裁决输入失去裁决入口
+
+- 严重程度：重要；类别：正确性 / 不变量。
+- 位置：`packages/neuro-book/src/plugins/editor/web/area.ts:348–352`（无条件 `bindings.delete(current.group.id)`）、`:439–442`。
+- 现象：组内同时有 B、A，A 是活动标签且持有未裁决输入。关闭非活动 B 时也删除整个组的活动绑定；下次取得 A 绑定签发新 token，原候选仍属于旧 token。当前绑定 `unresolved()` 为 false，状态条没有裁决按钮，`resolve` 处理新 token 不产生效果，保存持续返回 unresolved。
+- 为什么是问题：关闭其它文档不应改动 A 的绑定身份，更不能使候选不可裁决；用户只能关闭文档丢弃正文或到终态抢救。
+- 依据：`docs/specs/workbench/editor.md` 输出 9、13、视图状态与候选的寿命。
+- 核实：独立审查首先从代码定位，主审运行 `view-probes.ts`（真实 Files 场地、公开 area 绑定合同）。关闭 B 前 token `v2` 有候选，关闭后 token `v4` 无裁决入口而 candidates 仍 `[v2]`，调用 `area.resolve` 后保存仍 `unresolved`（`view-probes.json` 的 `close-inactive-tab`）。两组基于同修订的输入由公开绑定接口提交；未在生产控件制造自然冲突时序。
+- 建议改法：只有关掉当前绑定对应的标签时才撤销该绑定；关其它标签保持活动绑定与 token。补同组非活动标签关闭不影响当前候选裁决的合同场景。
+
+## 发现 11：关闭共享文档中有未裁决输入的视图，候选永远遗留
+
+- 严重程度：重要；类别：正确性 / 不变量。
+- 位置：`packages/neuro-book/src/plugins/editor/web/area.ts:329–352`；`documents/store.ts:617–623` 的 `discardInput` 未在此路径使用。
+- 现象：同一文档在两组打开，右组有未裁决输入；关闭右组时 shared 为 true，不询问，随后释放右组绑定和视图状态，但 store 仍持有右组 token 的候选。左组没有这个 token 的裁决入口，保存一直被拒。
+- 为什么是问题：允许关闭共享标签并不等于可以留下失去所有视图拥有者的候选。这里没有保留可裁决视图，也没有清理已关闭视图的候选。
+- 依据：`docs/specs/workbench/editor.md` 输出 4、13、关闭标签释放视图状态的寿命。
+- 核实：独立审查代码定位，主审 `view-probes.ts` 真实 Files 场地通过两个公开绑定按同一修订提交不同文本，关闭候选组：返回 closed、dialog 为 null，剩余绑定 `unresolved=false`，候选仍 `[v2]`，保存返回 unresolved（`close-candidate-view`）。未在生产控件制造自然冲突时序。
+- 建议改法：在关闭候选视图前要求明确裁决，或按已定义的共享关闭语义清除该绑定候选；必须保证存活候选都有存活且可访问的裁决拥有者。
+
+## 发现 12：会话恢复的未激活标签不持引用，关闭另一组会误丢共享正文
+
+- 严重程度：重要；类别：正确性 / 不变量。
+- 位置：`packages/neuro-book/src/plugins/editor/web/area.ts:145–151,329–333`。
+- 现象：恢复两个组：左组活动 A，右组标签 A、B 且活动 B。右组 A 尚未读取，所以 references 没有它。编辑左组 A 后关闭，控制器误判为最后标签并询问；选择不保存后释放 A 正文。右组仍有 A 标签，激活时却重新读取磁盘，先前共享的未保存正文已丢。
+- 为什么是问题：是否还有文档标签应基于组模型，而不是是否已经触发过懒读取。恢复优化改变了同文档跨组共享与最后标签的行为。
+- 依据：`docs/specs/workbench/editor.md` 输出 4（仍在别组打开时不问）、5、文档在最后标签关闭时才丢弃。
+- 核实：独立审查代码定位，主审用真实 `createEditorGroups` 生成合法快照并用 `createEditorArea` 恢复，在真实 Files 场地编辑左组 A 后关闭；错误出现 A 的询问，discard 后右组 A 标签 `r2` 仍在，激活却只有磁盘 `A`（`view-probes.json` 的 `restore-lazy-shared-ref`）。
+- 建议改法：恢复时为所有标签建立轻量文档引用，读取仍可懒加载；或标签存在性与读取引用分开计数，但最后标签判断和正文丢弃必须使用全部标签。
+
+## 发现 13：经祖先目录链接保存漏掉身份回执，冻结操作无法换新令牌
+
+- 严重程度：重要；类别：正确性 / 不变量。
+- 位置：`packages/neuro-book/src/plugins/files/backend/files-service.ts:158`；关联 `editor/web/documents/store.ts` 身份链。
+- 现象：项目中 `alias -> real`，经 `project://alias/a.md` 保存确实原子替换了 `real/a.md`。保存前后 identify 的令牌不同，但保存回执因真实路径与请求路径不同而省略 identity，编辑器 `translate` 仍返回保存前的令牌；接着用该令牌改名被拒为 source-changed。
+- 为什么是问题：祖先目录链接与最终文件链接的目录项语义不同。最终文件链接本身没有被保存替换，省略其身份回执正确；祖先只是解析父目录，identify 与 rename 作用于被替换的普通文件，其冻结令牌应随本窗口保存推进。当前用完整路径相等判断，把两种情况混在一起。
+- 依据：`docs/specs/workspace/files.md` 磁盘基线及目录项与目标规则；t71 已接受的保存后冻结令牌换新取舍（`pending-confirmations.md:64`）。README 的“经链接保存时没有”不能保证此合法路径满足剪切后保存再粘贴合同。
+- 核实：独立审查定位，主审 `identity-probe.ts` 真实 Files 场地运行：祖先目录链接保存成功，before `4f781ea34b3051cb78bf2705a6ee357d`、after `0fd8eb9f2b98040edd081c73828c1d45`，translate 仍为 before，随后的真实 rename 返回 source-changed；另一次经相同路径的 write 回执确无 identity。最终文件链接保存也无 identity，符合其目录项未替换的语义。结果 `identity-probe.json`，场地三实例全部 closed。
+- 建议改法：分别识别最终目录项是否为链接；普通文件即使祖先含链接，也返回替换目标的 before/after；最终文件链接仍省略。补祖先目录链接的 identify→保存→translate→冻结操作与最终文件链接的对照场景。
+
+## 发现 14：损坏会话的布局叶 id 与组 ref 不一致仍被接受，恢复标签不可见
+
+- 严重程度：重要；类别：正确性 / 验收缺口。
+- 位置：`packages/neuro-book/src/plugins/editor/web/groups/groups.ts:242–245`；`components/EditorArea.vue:74–75`；`session-record.ts:23`。
+- 现象：真实会话中组 id/ref 为 `g6`，只把布局叶 id 改为 `alien`。Storage schema 接受，组模型恢复也接受并仍有两个标签；实际渲染却按 node.id 查 `alien` 组，显示空态，原两个标签都不可见。
+- 为什么是问题：恢复只核对 ref 集合与 groups，没有核对渲染所用的叶 id。损坏记录既没有被拒绝回退，也没有被规范化，用户失去现存标签的操作入口。
+- 依据：t71 计划及 `groups.ts:237` 的“布局的叶与组一一对应，否则从空组开始”；`docs/specs/workbench/editor.md` 输出 5 的会话恢复；`session-record.ts:22` 声明具体布局结构由恢复校验。
+- 核实：独立审查定位，主审 `session-probe.ts` 用真实 Storage 分区及 `EDITOR_SESSION_RECORD` 写入本次临时项目的会话记录，返回 ok/revision 27，读取 status ok；组模型仍恢复两个标签、根为 `{id: "alien", ref: "g6"}`。生产浏览器刷新后实际 groupId 为 alien、标签数 0、空态“在资源管理器里打开一个文件”，无页面异常。记录 `session-probe.json`、`session-browser.json`，截图 `session-blank.png`。只改本次审查临时项目数据，仓库文件未修改。
+- 建议改法：在恢复边界校验每个布局叶 id 与组 ref 的一致性，或统一按 ref 渲染；拒绝时保持原记录并回退可操作空组。补结构合法但跨字段不一致的真实 Storage 恢复场景。
+
+## 本次验证
+
+以下命令均由主审在 `packages/neuro-book` 执行，针对被审查的 `e3ea21c7`；没有修改实现来让检查通过。
+
+| 实际命令 | 结果 |
+|---|---|
+| `bun test src/plugins/editor/documents.test.ts src/plugins/editor/area.test.ts src/plugins/editor/web/groups/groups.test.ts src/plugins/explorer/documents.test.ts src/plugins/files/files.test.ts` | 56 pass，0 fail，390 expect() calls |
+| `bun test src/backend/locked-replace.test.ts src/plugins/files/backend/rooted.test.ts src/web/host/window.test.ts src/web/host/remote-session.test.ts src/plugins/explorer/transfer.test.ts` | 72 pass，0 fail，337 expect() calls |
+| `node ../../node_modules/vitest/vitest.mjs run src/plugins/editor src/plugins/explorer/web/components/FilesExplorerActions.dom.test.ts` | 4 files passed，22 tests passed |
+| `bun run typecheck` | 通过，含 tsc 与两份 vue-tsc 配置 |
+| `bun run build && bun run build:e2e` | 通过；生产产物检查通过 |
+| `node ../../node_modules/@playwright/test/cli.js test -c e2e/playwright.config.ts editor-area.e2e.ts` | 本机 Chrome，9 passed |
+
+对抗实验实际执行 `bun --tsconfig-override ./tsconfig.json <本报告目录>/<脚本>`：`probes.ts`、`lease-probes.ts`、`transfer-probes.ts`、`view-probes.ts`、`identity-probe.ts`、`session-probe.ts`。相邻 JSON 为结果；浏览器额外操作经生产 `dist/server/main.js`、真实项目、真实磁盘和键盘完成。链路闸门只扣住真实请求或回复，不伪造 Files 结果；跨进程写入等待使用真实 Files 锁。注入的 `ManualClock` 仅用于仓库既有场地的时钟，不替换全局计时器。
+
+发现 2、3、6、8、9、14 有实际生产页面操作证据。发现 1、5、12、13 有真实 Files/资源管理器/恢复合同运行证据。发现 4、7、10、11 验证了公开绑定或协调合同；尚未在生产控件中制造自然迟到回调、150 ms 内远程 save-all、双视图自然并发候选时序，不能据此推断用户实际触发频率。所有发现均有运行证据；这些控件时序的限制已在各项说明。
+
+未运行：全仓全量测试、Lab 浏览器套件、变异检查、Windows/macOS 平台验收、参考机器性能测量；本次不修改源码，故未跑文档或治理检查。没有调用真实 Provider/Model。
+
+外部 Bun 探针在实验与正常场地关闭完成后打印了 `Internal error: directory mismatch for directory "…/packages/neuro-book/tsconfig.json", fd 3`；JSON 结果已落盘，未作为产品发现。该 Bun/工具现象与浏览器工具关闭应用未停止进程的现象已报宿主 QA。
+
+## 收口
+
+- 仓库源文件、配置、测试、Spec 与 Work 文件未修改；实验脚本和数据仅在本报告目录。未 commit、push、stash 或切换分支，未删除仓库文件。
+- 本次服务 `t71-correctness-browser` 使用 HTTP 40523、RPC 36643，经 `stop\n` 标准输入正常停止，退出码 0；没有使用 3000、3917。
+- `t71-review` 浏览器标签已释放，`browser.tabs()` 返回 `[]`。工具未按 `kill:true` 停止本次启动的应用，随后通过受管进程接口停止 `omp.browser.headless`；停止结果为 exited。两位独立审查者已交付且未启动服务。
+- 在 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-impl-correctness` 执行 `git status --short`，退出码 0、输出为空，工作区干净。
+
+## 数量
+
+| 严重程度 | 数量 | 发现编号 |
+|---|---:|---|
+| 阻断 | 3 | 1、3、9 |
+| 重要 | 11 | 2、4、5、6、7、8、10、11、12、13、14 |
+| 建议 | 0 | — |
+| 合计 | 14 | 去除了独立审查结果中的重复项 |
+
+三项阻断分别涉及保留正文脱离索引并漏抢救、关闭保存期间丢输入、覆盖静默成功但未写盘。现有检查通过不能代替这些缺失边界的验收。
+
+## 未发现问题的方面
+
+仅表示以下已运行场景或代码阅读范围未发现额外问题，不扩大为全面正确性承诺。
+
+- **已运行**：同地址并发打开只读一次；读取等待订阅 ready；读在途变化触发重读；800 ms 进度边界及迟到读取不抢活动标签；普通 preview/permanent、关闭后左右激活与相邻组切换。
+- **已运行**：普通保存按快照与队列推进；保存期间新输入保持 dirty；保存回声与在途哈希核对；未知写结果经重连/resync 核对；单文档租约阻止新保存、unknown 保持、done 后按新路径继续保存；未裁决输入阻止保存与租约。
+- **已运行**：普通直接路径的 Files before/after 与前后 identify 一致；旧冻结令牌拒绝、新令牌可移动；本窗口多次保存的身份链可换新令牌；外部替换不被该链放行；最终文件符号链接的目录项未替换，保存省略 identity 符合预期。
+- **已运行**：外部删除后的保留正文、排他保存重建及占用冲突；经本窗口资源管理器确认删除后的正文丢弃；普通复制三选、剪切后保存再粘贴、批量取消与结果未知门禁。发现 2、5、6、13 是这些正常路径之外的边界缺陷。
+- **已运行**：Markdown 的 CRLF/frontmatter/方言与未编辑字节保持、编辑时只改相应行、A→B→A 撤销与重做；Monaco 按需加载、保存、同组切回撤销。拆分前的富文本撤销另有发现 8。
+- **已运行**：普通离页确认、服务端重启终态页显示 dirty 正文、文档抢救列出 dirty 正文与候选。**从代码阅读**：终态先 collect 再停止插件，提供者抛错记录诊断并继续收集，单提供者登记与释放没有额外重复收集路径；项目关闭/版本不一致下正文的完整浏览器场景未另跑。发现 1、3 导致正文已在终态前失去所有者，正常抢救场景不足以覆盖。
+- **从代码阅读**：Monaco 异步加载完成前卸载通过 unmounted 守卫避免创建迟到实例；Markdown 卸载清理输入计时器、控件同步 binding watcher 换文档先结算。尚未运行自然迟到回调场景，发现 4 的公开绑定守卫缺失仍需修复。

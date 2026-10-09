@@ -4,7 +4,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
-import {readFile, rm, writeFile} from "node:fs/promises";
+import {chmod, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -268,6 +268,32 @@ describe("Spec workbench.editor 输出 14–15：保存", () => {
         expect(await at.store.overwrite(document)).toEqual({ok: true});
         expect(await disk(at, "a.md")).toBe("A（我的二）");
         expect(document.dirty.value).toBe(false);
+
+        // 冲突之后正文改回了已保存的正文（不 dirty），磁盘却是别人的版本：覆盖照样写入。
+        at.store.commit(document, "v", document.revision.value, "A（我的三）");
+        await writeFile(join(at.scene.project, "a.md"), "A（外部三）");
+        await until(at, "磁盘已变化", () => document.diskChanged.value);
+        expect(await at.store.save(document)).toMatchObject({ok: false, code: "conflict"});
+        at.store.commit(document, "v", document.revision.value, "A（我的二）");
+        expect(document.dirty.value).toBe(false);
+        expect(await at.store.overwrite(document)).toEqual({ok: true});
+        expect(await disk(at, "a.md")).toBe("A（我的二）");
+        expect(document.conflict.value).toBeNull();
+
+        // 覆盖本身写不进去（目录只读）：冲突与正文都保持，之后仍可重新载入或再覆盖。
+        at.store.commit(document, "v", document.revision.value, "A（我的四）");
+        await writeFile(join(at.scene.project, "a.md"), "A（外部四）");
+        await until(at, "磁盘已变化", () => document.diskChanged.value);
+        expect(await at.store.save(document)).toMatchObject({ok: false, code: "conflict"});
+        await chmod(at.scene.project, 0o555);
+        try {
+            expect(await at.store.overwrite(document)).toMatchObject({ok: false});
+        } finally {
+            await chmod(at.scene.project, 0o755);
+        }
+        expect(document.conflict.value).not.toBeNull();
+        expect(document.text.value).toBe("A（我的四）");
+        expect(await disk(at, "a.md")).toBe("A（外部四）");
     });
 
     it("保存的结果未知：先说明，之后的核对（重连后的 resync）读到快照的内容即为已保存", async () => {
@@ -345,7 +371,7 @@ describe("Spec workbench.editor 输出 17–18：改名、删除与订阅结束"
         expect(document.text.value).toBe("C（未保存）");
         expect(document.dirty.value).toBe(true);
         expect(at.store.get("project://moved/c.md")).toBe(document);
-        expect(at.events).toContainEqual({kind: "rebound", from: "project://dir", to: "project://moved"});
+        expect(at.events).toContainEqual({kind: "rebound", from: "project://dir", to: "project://moved", kept: []});
         expect(await at.store.save(document)).toEqual({ok: true});
         expect(await disk(at, "moved/c.md")).toBe("C（未保存）");
     });
@@ -357,6 +383,8 @@ describe("Spec workbench.editor 输出 17–18：改名、删除与订阅结束"
         await rm(join(at.scene.project, "a.md"));
         await until(at, "已删除", () => document.status.value === "deleted");
         expect(document.text.value).toBe("A（留着）");
+        // 已删除的文档只读：视图不再接受输入，dirty 的正文仍可保存重建。
+        expect(document.writable.value).toBe(false);
         expect(await at.store.save(document)).toEqual({ok: true});
         expect(await disk(at, "a.md")).toBe("A（留着）");
         expect(document.status.value).toBe("ready");
@@ -377,6 +405,33 @@ describe("Spec workbench.editor 输出 17–18：改名、删除与订阅结束"
         recreate.release();
         expect(await disk(at, "b.md")).toBe("B（别人建的）");
         expect(other.dirty.value).toBe(true);
+    });
+
+    it("改名到一个外部删除后仍打开着的地址：那份要结算时两份正文都留着（移过来的留在旧地址、标已删除），不用结算时关掉它", async () => {
+        const at = await world();
+        const client = files(at.scene.window);
+        const a = await opened(at, "project://a.md");
+        const b = await opened(at, "project://b.md");
+        at.store.commit(a, "v", a.revision.value, "A（未保存）");
+        at.store.commit(b, "v", b.revision.value, "B（未保存）");
+        await rm(join(at.scene.project, "b.md"));
+        await until(at, "b 已删除", () => b.status.value === "deleted");
+        expect(await client.rename("project://a.md", "b.md")).toMatchObject({ok: true});
+        await until(at, "a 标为已删除", () => a.status.value === "deleted");
+        await until(at, "b 看到文件又出现了", () => b.diskChanged.value);
+        expect(at.store.get("project://a.md")).toBe(a);
+        expect(at.store.get("project://b.md")).toBe(b);
+        expect(at.store.rescue()).toEqual([{path: "project://a.md", text: "A（未保存）"}, {path: "project://b.md", text: "B（未保存）"}]);
+
+        // 目标那份不用结算：关掉它，移过来的这份照常改地址。
+        const c = await opened(at, "project://dir/c.md");
+        at.store.commit(c, "v", c.revision.value, "C（未保存）");
+        const d = at.store.acquire("project://dir/d.md").document;
+        await until(at, "d 读不到", () => d.status.value === "failed");
+        expect(await client.rename("project://dir/c.md", "d.md")).toMatchObject({ok: true});
+        await until(at, "c 改到 d", () => c.target.value.path === "project://dir/d.md");
+        expect(at.store.get("project://dir/d.md")).toBe(c);
+        expect(at.events).toContainEqual({kind: "closed", addresses: ["project://dir/d.md"]});
     });
 
     it("删除后重建用空正文的基线", () => {
@@ -435,6 +490,53 @@ describe("Spec workbench.editor 输出 22–25：文档协调与抢救", () => {
         at.store.commit(document, "v1", document.revision.value, "A1");
         at.store.commit(document, "v2", document.revision.value - 1, "A2");
         expect(await at.store.coordinator.begin(["project://a.md"])).toEqual({ok: false, reason: "blocked", documents: [{address: "project://a.md", state: "unresolved"}]});
+
+        const other = await opened(at, "project://b.md");
+        at.store.commit(other, "v", other.revision.value, "B（我的）");
+        await writeFile(join(at.scene.project, "b.md"), "B（外部）");
+        await until(at, "磁盘已变化", () => other.diskChanged.value);
+        expect(await at.store.save(other)).toMatchObject({ok: false, code: "conflict"});
+        expect(await at.store.coordinator.begin(["project://b.md"])).toEqual({ok: false, reason: "blocked", documents: [{address: "project://b.md", state: "conflict"}]});
+    });
+
+    it("多份文档的租约：等其中一份的保存时另一份开始保存，租约等到全部保存结束才给", async () => {
+        const at = await world();
+        const a = await opened(at, "project://a.md");
+        const b = await opened(at, "project://b.md");
+        at.store.commit(a, "v", a.revision.value, "A1");
+        at.store.commit(b, "v", b.revision.value, "B1");
+        const writing = (name: string) => (request: {method: string; input: unknown}): boolean => request.method === "write" && JSON.stringify(request.input).includes(name);
+        const heldB = at.tap.hold(writing("b.md"));
+        const savingB = at.store.save(b);
+        await heldB.arrived;
+        const granted: {value: {readonly ok: boolean; readonly aSaving: boolean} | null} = {value: null};
+        const leasing = at.store.coordinator.begin(["project://"]).then((result) => {
+            granted.value = {ok: result.ok, aSaving: a.saving.value};
+            return result;
+        });
+        const heldA = at.tap.hold(writing("a.md"));
+        const savingA = at.store.save(a);
+        await heldA.arrived;
+        heldB.release();
+        expect(await savingB).toEqual({ok: true});
+        await until(at, "b 的保存已经结算", () => !b.saving.value);
+        expect(granted.value).toBeNull();
+        heldA.release();
+        expect(await savingA).toEqual({ok: true});
+        const result = await leasing;
+        expect(granted.value).toEqual({ok: true, aSaving: false});
+        if (result.ok) result.lease.end({kind: "done"});
+    });
+
+    it("保存全部先结算视图里还没交出的输入，再决定要不要保存", async () => {
+        const at = await world();
+        const document = await opened(at, "project://a.md");
+        const detach = at.store.attachView(document, () => {
+            at.store.commit(document, "v", document.revision.value, "A（延迟中）");
+        });
+        expect(await at.store.coordinator.save(["project://"])).toEqual([{address: "project://a.md", ok: true}]);
+        expect(await disk(at, "a.md")).toBe("A（延迟中）");
+        detach();
     });
 
     it("身份链：保存前冻结的令牌经 translate 换成保存后的，移动成功；外部替换后的令牌不在链上", async () => {

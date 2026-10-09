@@ -1,0 +1,125 @@
+# t71 编辑器区实现边界审查
+
+审查对象：`5152002b..e3ea21c7`（S0–S8），工作区 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-impl-ui`，检出 `e3ea21c7`。
+
+审查范围：界面、编辑器集成、主题、键盘焦点、可访问性、原文字节保持、离开确认与终态抢救。按 plan.md、README.md、editor.md 及相关 Spec 和 2026-10-09 的已接受取舍判断；已声明不做的功能不列为缺陷。
+
+初始工作区：`git status --short --branch` 输出 `## HEAD (no branch)`，无修改。
+
+发现仅在核实后追加；未运行的结论标注“从代码推断”。
+
+## 已核实发现
+
+### UI-01：关闭标签和组后焦点丢到页面根
+
+- **严重程度**：重要；**类别**：正确性 / 可访问性；**核实状态**：真实产品浏览器已复现。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/area.ts:350`（`closeTab`）；`src/plugins/editor/web/components/EditorTabBar.vue:55`（Delete 只发关闭意图）。以上均相对于审查 worktree。
+- **现象**：真实 Files 项目打开 `a.md`、`b.md`，聚焦 `b.md` 标签并按 Delete。标签关闭、`a.md` 被激活，但 `document.activeElement.tagName` 为 `BODY`。随后在 `a.md` 拆分两组，聚焦当前组唯一标签并按 Delete，组数从 2 变 1，焦点仍为 `BODY`，没有进入存活的相邻组。
+- **为什么是问题 / 依据**：键盘用户关闭后失去所在编辑器的操作位置，后续方向键、Delete 和编辑器区内 Ctrl+S/W 不再作用于邻接标签。`docs/specs/workbench/editor.md:85`（输出 3）明确要求空组关闭后焦点到相邻组；`docs/standards/code/components.md:48` 和 `docs/standards/code/frontend.md:62` 要求出现/消失的焦点交接可用。
+- **如何核实**：生产构建，产品服务 HTTP `45199`，内置 Chromium 的真实 click/focus/Delete；以 DOM 标签数与活动标签等待，不用固定等待。观测结果：关闭前 `BUTTON / project://notes/b.md`，关闭后 `BODY / activeTab=project://notes/a.md`；关组后组数从 2 变 1，焦点为 `BODY`。现有 `EditorTabBar.dom.test.ts:53` 只检查 emit，`e2e/editor-area.e2e.ts:156` 只检查标签/组数量，没有断言实际焦点。
+- **建议改法**：关闭完成后由视图宿主按关闭目标选择仍存在的右侧/左侧标签或相邻组的活动控件，等待 DOM 更新再聚焦；取消关闭保留原焦点，异步保存期间用户移到其它区域时不抢焦点。给现有真实浏览器关闭场景加焦点及下一次键盘动作断言。
+
+### UI-02：Monaco 未编辑文件切换后变 dirty，保存删除 BOM 或改写混合换行
+
+- **严重程度**：重要；**类别**：正确性；**核实状态**：真实产品浏览器与真实磁盘字节已复现。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/components/MonacoControl.vue:38`、`:79`（`ITextModel.getValue()`），`:65`（原文交给 Monaco 模型）。
+- **现象**：真实文件 `data/bom.txt` 初始为 `EF BB BF` 加 `甲\r\n乙\r\n`，用源码编辑器打开，不输入；切换到其它标签后 `bom.txt` 出现未保存标记。切回后 Ctrl+S，磁盘字节变为 `[231,148,178,13,10,228,185,153,13,10]`，初始三个 BOM 字节消失。
+- **为什么是问题 / 依据**：Monaco 模型把 BOM 单独保存，默认 `getValue()` 不包含 BOM；结算把它与含 BOM 的权威原文比较，误判为用户输入并提交。无编辑的浏览产生修改，保存破坏原始字节。`docs/specs/workspace/files.md:57` 要求 UTF-8 BOM 保留、未改内容的读写往返字节不变，`:109` 要求浏览不改变文件内容；编辑器不能在进入 Files 保存前先把原文改掉。
+- **如何核实**：产品页通过资源树双击 `bom.txt`，未输入，点 `a.md` 标签再切回，Ctrl+S；用 `Bun.file(.../runtime/Book/data/bom.txt).arrayBuffer()` 读真实磁盘。打开时 dirty=false，切换后 dirty=true，保存后 BOM 消失。源码核对两处 `getValue()` 都未传 `preserveBOM=true`。
+- **同边界的第二个真实 Files 复现**：`data/mixed.txt` 原文 `甲\r\n乙\n丙\r\n`，打开不输入、切到其它标签后也变 dirty；切回 Ctrl+S，真实磁盘变成 `甲\r\n乙\r\n丙\r\n`。Monaco 的模型原文与磁盘原始字节不能直接用默认 `getValue()` 等同，混合换行同样被结算伪造成用户修改。
+- **建议改法**：提交及结算统一保留 BOM（Monaco `getValue(undefined, true)`）；结算应只提交真实用户变更，不以模型规范化后的全文与原始字节差异推断输入。对混合换行保留源映射/原文合并，让未编辑部分仍沿原始换行；至少覆盖 BOM 与混合换行文件的“不输入、切换、保存，磁盘字节不变”真实浏览器场景。
+
+### UI-03：外部删除后的文档仍接受编辑，没有转为只读
+
+- **严重程度**：重要；**类别**：正确性；**核实状态**：真实 Lab 的 Monaco 与真实 Files 产品的 Markdown 均已复现。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/documents/store.ts:345`（`writable` 把 `deleted` 当作可编辑）；`src/plugins/editor/web/components/EditorGroup.vue:113`（该值原样传入两种控件）。
+- **现象**：Lab `EditorArea/split` 打开真实 Monaco 控件的 `设定.json`，点外部删除，出现“文件已被删除。关闭会丢弃保留的正文。”；点击正文，Ctrl+End 并输入 `deleted-edit`，正文变为 `{…}deleted-edit`，标签变 dirty，状态条改称“保存会在原位置重新创建它”。
+- **为什么是问题 / 依据**：`docs/specs/workbench/editor.md:106`（输出 18）明确规定外部删除后标已删除并只读、保留正文，只允许原有 dirty 保存重建；输出 20 也要求只读视图不接受输入。当前判据让本应只读的删除态成为正常编辑态，两种控件均受影响。
+- **如何核实**：真实 dev Lab `45403/lab?c=EditorArea&s=split`，通过场景控件触发适配器契约内的外部删除，再真实键盘输入；读取可见 JSON 正文与 dirty 标记。输入前原文是 JSON 三行，输入后可见末尾 `deleted-edit`。不是直接调用编辑器内部函数制造时序。
+- **补充真实 Files 复现**：在报告目录内真实项目删除 `notes/close.md`（Node `unlink`），产品文件监视到达已删除状态后，以真实键盘追加“仍可写”。可见正文由“关闭测试1”变为“关闭测试1仍可写”，`contenteditable` 仍为 `true`。确认不是内存适配器单独造成的偏差。
+- **建议改法**：把“允许输入”与“删除后仍可保存重建”分开；视图可写仅 `status === ready && ended === null`，删除态保存重建逻辑继续保留。切只读前同步结算已产生的输入，并在产品的外部删除场景断言两种控件的新输入均被拒绝。
+
+### UI-04：800 ms 慢读进度条透明且被读屏隐藏；Monaco 光标也未消费正确 token
+
+- **严重程度**：重要；**类别**：正确性 / 可访问性；**核实状态**：真实 Lab 浏览器已复现。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue:89`、`:90`；同一错名 token 也用于 `src/plugins/editor/web/code/monaco-theme.ts:32`。
+- **现象**：Lab `EditorArea/live` 选择“扣住读取”，点击“打开设定.json”。800 ms 后 `[data-editor-progress]` 真实出现（220×2 px），但计算 `backgroundColor` 为 `rgba(0, 0, 0, 0)`；其 `--accent` 为空，正确合同变量 `--accent-main` 是 `#0a84ff`。父元素 `aria-hidden=true`，内容区和编辑器区无 `aria-busy`、无可播报加载文本。用户看到空白，读屏也得不到任何加载状态。主题切换实验还确认 Monaco 光标一直为 `rgb(59,130,246)`，没有跟随 light 的 `rgb(0,122,255)` 或 dark 的 `rgb(10,132,255)` 强调色。
+- **为什么是问题 / 依据**：`docs/specs/workbench/editor.md:91`（输出 6）及 `files-explorer.md:127` 承诺 800 ms 后显示进度条，当前 DOM 存在但像素透明；`packages/nb-ui/docs/ui-development-spec.md:66` 要求加载可播报；颜色 token 唯一真相源为 `nb-ui/src/colorway/colorway-contract.ts:40` 的 `--accent-main`，组件不能消费未登记变量。
+- **如何核实**：真实 dev Lab 的读取闸门只扣住客户端合法读取，用浏览器等待 `[data-editor-progress]` 后读取计算样式、几何和 ARIA；证据截图 `lab-held-read.png`。主题样式观测记录在 `theme-samples.json`。现有控制器进度测试只验布尔值，未发现像素始终透明。
+- **建议改法**：进度条和 Monaco 光标改为消费 `--accent-main`；800 ms 阈值后提供可访问加载状态（不提前打破合同的 800 ms 空白），不把唯一反馈整体 `aria-hidden`。把现有加载场景的浏览器断言补为实际颜色非透明、加载信息可访问。
+
+### UI-05：拆分会清空原组的富文本撤销历史，随后切回也无法撤销
+
+- **严重程度**：重要；**类别**：不变量 / 正确性；**核实状态**：真实产品浏览器已复现；README 和同名文档已说明实现限制，但它导致主 Spec 的验收不成立。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/components/MarkdownControl.vue:48`（`rebuilt` 创建无历史的新状态）、`:98`；触发来自 `EditorArea.vue:74` 的 grid 叶挂载。
+- **现象**：产品 `close.md` 初始“关闭测试”，输入 `1`，撤销恢复初始文字、重做恢复“关闭测试1”，证明历史可用。Ctrl+\ 拆分后回原组 Ctrl+Z，左右仍都是“关闭测试1”，原组已有撤销历史已丢。证据 `split-history.png`。关闭组也会重挂现有组并经过同一重建路径，此项从代码推断，未单独运行关闭后的 undo。
+- **为什么是问题 / 依据**：同名 `.md:33` 与 Task README 的 S6 段记录了丢历史，但并非 pending-confirmations 的已接受产品取舍；`docs/specs/workbench/editor.md:95`（输出 10）与 `:142` 承诺状态/历史保留到标签关闭，验收 9 要求 A→B→A 后 A 的撤销仍可用。拆分是本期核心动作，不是历史失效边界；只在组件文档说明丢历史不足以满足主合同。
+- **如何核实**：真实产品 Files/浏览器键盘输入与 undo/redo 对照，随后拆分回原组再 undo。操作前可撤销、拆分后不可撤销；未直接调用 `rebuilt` 或手造旧 schema。
+- **补充完整切换路径**：真实项目另建 `history.md`，输入“输入”得到“历史甲输入”，拆分后在原组切到 `dialect.md` 再回 `history.md`，聚焦原组正文 Ctrl+Z，仍为“历史甲输入”。与只在拆分后直接 undo 的第一条实验结果一致。
+- **建议改法**：保持已有组及其控件的 DOM/实例在 grid 结构变化时稳定（稳定组宿主搬到新叶，而不是由递归 grid 销毁重建）；或提供完整跨重挂状态恢复，包括历史。扩展现有 A→B→A 真实浏览器验收，在 A 输入后拆分/关闭其它组，再回 A 撤销，确保主合同仍成立。
+
+### UI-06：Markdown“用源码编辑器重新打开”没有任何人类可用入口
+
+- **严重程度**：重要；**类别**：正确性 / 集成；**核实状态**：真实产品命令面板已核实，调用点由全源码精确搜索核对。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/commands.ts:63`（`REOPEN_WITH_COMMAND` 的 `expose.human=false`）；`src/plugins/editor/web/components/EditorTabBar.vue:89`（标签只有激活/转正/关闭）；`MarkdownControl.md:43`（把 frontmatter 编辑交给源码模式）。
+- **现象**：产品打开 Markdown 后 Ctrl+Shift+P，命令候选有保存、拆分、还原等，但没有“用其它编辑器重新打开”；搜索“重新打开”显示“没有匹配的命令”。标签与内容区也没有切换入口。全 `src` 精确检索 `reopen-with` / `reopenWith` / `REOPEN_WITH_COMMAND` 只有 `area.ts` 的接口/实现与 `commands.ts` 的声明/处理，没有组件/菜单/宿主调用。默认选择只为非 `.md` 文件打开源码编辑器。
+- **为什么是问题 / 依据**：`docs/specs/workbench/editor.md:111`（输出 20）及 plan.md:7 明确承诺 Markdown 可以用源码重开，frontmatter 的唯一编辑方式也是源码模式（plan.md:74、MarkdownControl.md:43）。现在只提供隐藏命令，普通用户无法完成合同内的切换与 frontmatter 编辑；这不属于 README 已说明的命令面板行号未实现项。
+- **如何核实**：真实产品命令面板列出全部人类候选，再键入 `>重新打开`；结果候选 0。`grep` 覆盖全部产品源码的精确字符串确认没有其它入口。LSP references 尝试返回“No language server found for this action”，因此引用核对用可见源码搜索，不声称已获 LSP 结果。
+- **建议改法**：在人类入口提供无需手写 JSON 的编辑器选择（例如标签菜单或命令面板选择 Markdown / 源码），最终执行同一 `nbook.editor.reopen-with`；或拆为两条固定参数的人类命令。用真实产品 Markdown 切源码、编辑 frontmatter、保存、切回富文本并读真实磁盘验收。
+
+## 实际验证与结果
+
+以下命令均在本轮审查的 `packages/neuro-book` 目录执行；没有修改实现后重新跑出的修复结果。
+
+| 命令 | 结果 |
+|---|---|
+| `bun run build && bun run build:e2e` | 通过；`check:dist` 通过。Vite 提示部分 chunk 大于 500 kB，未发生构建错误。 |
+| `bun run typecheck` | 通过：后端 `tsc` 与两份 `vue-tsc` 检查。 |
+| `bun test src/plugins/editor/area.test.ts src/plugins/editor/web/markdown/source-merge.test.ts src/plugins/editor/documents.test.ts` | 35 pass、0 fail、216 expect() calls。 |
+| `node ../../node_modules/vitest/vitest.mjs run src/plugins/editor/web/components/EditorTabBar.dom.test.ts` | 1 文件、3 测试通过。 |
+| `bun test src/plugins/editor/web/markdown/markdown-dialect.test.ts` | 18 pass、0 fail、52 expect() calls。 |
+| `node ../../node_modules/vitest/vitest.mjs run src/plugins/editor/web/markdown/markdown-dialect-fallback.dom.test.ts src/plugins/editor/web/markdown/markdown-empty-document.dom.test.ts` | 2 文件、7 测试通过。 |
+| `node ../../node_modules/@playwright/test/cli.js test -c e2e/playwright.config.ts e2e/editor-area.e2e.ts e2e/lab-editor.e2e.ts --output=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-impl/ui/playwright-results` | 10 passed (42.0s)。 |
+
+额外使用内置 Chromium 在真实生产产品页与开发 Lab 操作、观察正文/焦点/计算样式/可访问树，并读取报告目录内真实项目的磁盘字节。运行生产产品 HTTP `45199` 与 Lab HTTP `45403`；未用 `3000`、`3917`。实验等待 DOM、文件监视、dirty、终态等可观察状态，没有固定等待、mock、spy 或假计时器。
+
+日志边界：最后一次采集的 Lab 标签 `console` 告警/错误与 `pageerror` 均为空；整个开发服务日志仍记录了三次 `ResizeObserver loop completed with undelivered notifications.`，所以不声称全程无告警。产品日志包含取消关闭的诊断、服务停止后的配置层/门面撤销诊断；另有一次 Monaco `Canceled: Canceled` pageerror，未观察到正文丢失或操作失败，不据此增加行为缺陷。`querySelector('1')` 的错误来自本轮浏览器探针参数，已改用 Puppeteer 的键盘操作，不归为应用问题。
+
+## 验证范围与局限
+
+- 运行了上述定向检查与真实浏览器场景；没有跑全仓测试、治理检查、参考机器性能测量或人工读屏。毫秒性能合同仍按已接受取舍归 t72，未将开发机观测当作其验收。
+- ARIA 核查包含 DOM 与 Chromium 可访问树。富文本有文件名与 `editable=richtext`，未把缺少显式 `textbox` 单独列为消费者行为错误；标签缺少 panel 关联也未在无读屏影响证据时另列一条。已核实的焦点与慢读反馈缺陷见 UI-01、UI-04。
+- Lab 四套主题均实际切换；正文/背景采样随当前生效 token 变化。`theme-samples.json` 保存 7 个组合，`editorial/dark` 另行观测过但未写进该 JSON。Lab 只提供 `nbook-light` / `nbook-dark` 配色是既有取舍，不将其视为错误。
+- Markdown 源码重开的功能本身未能通过普通用户入口运行，原因作为 UI-06 记录；未用内部服务调用替代这个缺失入口。
+- 服务重启终态在本轮独立服务上实际验证；项目关闭、版本不一致两种终态没有另行触发。离开确认由已通过的真实产品 e2e 覆盖，未用手工派发 `beforeunload` 冒充浏览器导航。
+- 本轮只读审查，没有实现修复或新增永久测试。现有测试全通过不能排除已列的 6 条缺陷，它们的具体覆盖缺口已随发现说明。
+
+## 收口
+
+- 产品原服务 `t71-ui-review-product`、重启服务 `t71-ui-review-product-restarted` 均已停止，退出码 `0`；Lab 服务 `t71-ui-review-lab` 已有序停止后端与页面，退出码 `0`。
+- 本轮创建的 `t71-product-review`、`t71-lab-review` 标签均已关闭；共享浏览器宿主没有强制停止，以免影响其它会话。
+- 实验脚本、真实项目、截图、日志和报告仅在本报告目录；没有入仓探针，无须删除仓库文件。
+- 结束检查 `git status --short --branch` 输出仍为 `## HEAD (no branch)`，无修改或未跟踪项；没有 commit、push、stash 或切换分支。
+
+## 数量
+
+| 严重程度 | 数量 | 编号 |
+|---|---:|---|
+| 阻断 | 0 | — |
+| 重要 | 6 | UI-01、UI-02、UI-03、UI-04、UI-05、UI-06 |
+| 建议 | 0 | — |
+| 合计 | 6 | 全部有实际浏览器复现；局部未运行的延伸已标“从代码推断”。 |
+
+## 未发现问题的方面
+
+以下仅对应本轮运行或可见源码覆盖的范围，不代表全产品验收通过。
+
+- **组件与接线**：五个编辑器组件都有同名 `.md`；组件通过意图/控制器端口接宿主命令。代码读取未发现跨包深导入旧应用或组件直持 Files 网络连接；类型检查通过。
+- **正常打开、保存与恢复**：现有产品 e2e 的 preview 替换/转正、条件保存、外部正文换入/保存冲突、关闭确认、布局会话恢复、资源管理器复制/移动/删除前结算均通过。
+- **加载与状态隔离**：Monaco 首次源码文件前不请求的 e2e 通过。两种控件普通 A→B→A 的撤销隔离通过；本轮额外确认 Monaco 拆分后原模型可撤销，另一组同步显示结果。同步更新用 `setValue` 清空目标模型历史是从代码推断，未额外操作另一组 undo。富文本拆分丢历史的例外已列 UI-05。
+- **Markdown 字节保持**：真实 `dialect.md` 含 BOM、frontmatter、CRLF、`*` 列表、标准 ruby 与批注；只在最后一段追加后保存，逐字比较确认只有目标行变化，其余前缀完全相等，首字节仍 `[239,187,191,45,45,45,13]`、没有裸 LF。证据 `real-file-results.json`。方言往返 18 测试与兜底/空文档 7 DOM 测试通过。Monaco 的原文字节例外已列 UI-02。
+- **输入结算**：最后一次输入约 `2.9 ms` 后 Ctrl+S，真实磁盘为 `结算检查即时\n`；最后一次输入约 `4.9 ms` 后用键盘切标签再切回，正文保留 `结算检查即时切换快切`。清洁 Markdown 经外部文件监视换成新正文后 Ctrl+Z 不回到旧文、不变 dirty；实际外部内容未进入用户历史。
+- **对话框与窄屏**：关闭确认初始焦点在“取消”，Shift+Tab 到“保存”、Tab 回“取消”，Escape 后回原正文且标签保留。`390×844` 产品确认框全部按钮在视口内；Lab 双组正文在 390 画布内，无根横向溢出，标签条的少量水平溢出由自身 `overflow-x-auto` 承接。证据 `product-dialog-390.png`、`lab-split-390.png`。
+- **主题与 Lab 隔离**：已采样组合下 Monaco 的正文前景/背景与富文本文字跟随当前主题 token；光标错误单列 UI-04。Lab 编辑器场景的请求记录没有 `/api`、`/rpc` 产品请求；现有 Lab 集成 e2e 通过。
+- **离开与终态抢救**：真实产品 e2e 的 dirty 离开确认、保存后取消确认及服务重启抢救通过。本轮独立服务重启后页面保持终态，列出 6 份未保存正文，每项路径、只读正文框与可访问名称正确；`rescue.md` 的“复制正文”实际写入剪贴板，回读为 `抢救测试重启前未保存\n`。浏览器读取权限临时授予后已恢复。`390×844` 下正文框宽 `348px`、根 `scrollWidth=380`，未溢出。证据 `terminal-results.json`、`product-rescued-1440.png`、`product-rescued-390.png`。
+

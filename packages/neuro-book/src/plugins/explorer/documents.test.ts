@@ -180,6 +180,29 @@ describe("Spec workbench.editor 输出 24：移动与改名", () => {
     });
 });
 
+describe("Spec workbench.editor 输出 24：改名等保存期间取消", () => {
+    it("改名的租约在等在途保存：期间取消输入，保存结束后不发改名请求", async () => {
+        const p = await pair();
+        const {controller} = p.at;
+        const document = await dirty(p, "project://plain/a.md", "A1");
+        const held = p.at.tap.hold((request) => request.method === "write");
+        const saving = p.store.save(document);
+        await held.arrived;
+        select(controller, "project://plain/a.md");
+        await controller.rename();
+        controller.editName("c.md");
+        const committing = controller.commitEdit();
+        await until(p.at, "改名在等", () => controller.editing.value?.busy === true);
+        controller.cancelEdit();
+        held.release();
+        await saving;
+        await committing;
+        expect(p.at.tap.requests.some((request) => request.method === "rename")).toBe(false);
+        expect(await disk(p.at, "plain/a.md")).toBe("A1");
+        expect(document.target.value.path).toBe("project://plain/a.md");
+    });
+});
+
 describe("Spec workbench.editor 输出 25：删除", () => {
     it("确认框列出会丢失未保存修改的文档；删除成功后关闭这些文档", async () => {
         const p = await pair();

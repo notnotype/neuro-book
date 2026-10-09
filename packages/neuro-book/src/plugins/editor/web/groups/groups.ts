@@ -65,8 +65,8 @@ export interface EditorGroups {
     move(tabId: string, delta: -1 | 1): void;
     /** 用另一种编辑器打开同一标签。 */
     setEditor(tabId: string, editor: EditorKind): void;
-    /** 地址改名或移动：标签跟到新地址。 */
-    rebind(from: string, to: string): void;
+    /** 地址改名或移动：标签跟到新地址；`kept` 里的地址留在原处。 */
+    rebind(from: string, to: string, kept?: ReadonlyArray<string>): void;
     /** 关闭这些地址及其后代的标签，返回被关的标签。 */
     closeWithin(addresses: ReadonlyArray<string>): ReadonlyArray<EditorTab>;
     snapshot(): GroupsSnapshot;
@@ -210,9 +210,10 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null): Edito
             if (found === null || found.tab.editor === editor) return;
             replace({...found.group, tabs: found.group.tabs.map((tab) => (tab.id === tabId ? {...tab, editor} : tab))});
         },
-        rebind: (from, to) => {
-            groups.value = groups.value.map((group) => (group.tabs.some((tab) => isWithin(tab.address, from))
-                ? {...group, tabs: group.tabs.map((tab) => (isWithin(tab.address, from) ? {...tab, address: rebase(tab.address, from, to)} : tab))}
+        rebind: (from, to, kept = []) => {
+            const follows = (address: string): boolean => isWithin(address, from) && !kept.includes(address);
+            groups.value = groups.value.map((group) => (group.tabs.some((tab) => follows(tab.address))
+                ? {...group, tabs: group.tabs.map((tab) => (follows(tab.address) ? {...tab, address: rebase(tab.address, from, to)} : tab))}
                 : group));
         },
         closeWithin: (addresses) => {
@@ -241,8 +242,9 @@ function restore(snapshot: GroupsSnapshot): {grid: Grid<string>; groups: EditorG
     const grid = createGrid<string>(null);
     const restored = grid.restore(snapshot.layout, (ref) => (ids.has(ref) ? {ref} : null));
     if (!restored.ok || restored.dropped.length > 0) return null;
-    const leaves = leavesOf(grid.root());
-    if (leaves.length !== ids.size || leaves.some((leaf) => !ids.has(leaf))) return null;
+    // 渲染按叶的 id 找组：叶的 id 与 ref 不一致的记录同样当作坏了。
+    const leaves = leafNodesOf(grid.root());
+    if (leaves.length !== ids.size || leaves.some((leaf) => leaf.id !== leaf.ref || !ids.has(leaf.ref))) return null;
     let tab = 0;
     const groups = snapshot.groups.map((group): EditorGroup => {
         const tabs = group.tabs.map((saved): EditorTab => {
@@ -255,8 +257,8 @@ function restore(snapshot: GroupsSnapshot): {grid: Grid<string>; groups: EditorG
     return {grid, groups, activeGroup: snapshot.activeGroup};
 }
 
-function leavesOf(node: GridNode<string> | null): string[] {
+function leafNodesOf(node: GridNode<string> | null): Array<{readonly id: string; readonly ref: string}> {
     if (node === null) return [];
-    if (node.kind === "leaf") return [node.ref];
-    return node.children.flatMap(leavesOf);
+    if (node.kind === "leaf") return [{id: node.id, ref: node.ref}];
+    return node.children.flatMap(leafNodesOf);
 }

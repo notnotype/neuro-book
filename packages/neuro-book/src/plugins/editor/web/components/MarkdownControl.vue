@@ -1,17 +1,17 @@
 <script setup lang="ts">
 /** Markdown 富文本控件（同名 .md）：一个 Tiptap 编辑器实例，按编辑器控件合同（`control.ts`）绑定文档。 */
 import {Editor} from "@tiptap/core";
-import {EditorState, Selection} from "@tiptap/pm/state";
+import {EditorState} from "@tiptap/pm/state";
 import {onBeforeUnmount, onMounted, ref, watch} from "vue";
 
-import type {EditorControlHandle, ViewBinding} from "../area";
+import type {EditorControlHandle, ViewBinding, ViewStateSlot} from "../area";
 import type {EditorControlEmits} from "../control";
 import {createMarkdownEditorExtensions} from "../markdown/markdown-editor-extensions";
 import {normalizeMarkdownDialectBlocks} from "../markdown/markdown-workbench";
 import {mergeSource, splitFrontmatter} from "../markdown/source-merge";
 import type {SourceSplit} from "../markdown/source-merge";
 
-const props = defineProps<{binding: ViewBinding | null; readonly: boolean; visible: boolean; label: string; placeholder?: string}>();
+const props = defineProps<{binding: ViewBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; placeholder?: string}>();
 const emit = defineEmits<EditorControlEmits>();
 
 /** 停止输入这么久才把正文交给文档；保存、切换与离开之前会立即结算。 */
@@ -38,17 +38,18 @@ let detach: (() => void) | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 /** 程序换内容时不当成用户输入。 */
 let loading = false;
+/** 要过焦点、还没拿到（Tiptap 在下一帧才聚焦）：这期间组件重挂，焦点要跟到新位置。 */
+let focusPending = false;
 
 const stateOf = (binding: ViewBinding): MarkdownViewState | null => binding.slot.state as MarkdownViewState | null;
 
-/**
- * 编辑状态绑定着创建它的编辑器（每个 Tiptap 编辑器有自己的 schema 与插件实例）。组件重挂（例如拆分让 grid 重建了这一
- * 组）后是另一个编辑器：按本编辑器的 schema 重建文档与选区。撤销历史的步骤引用旧 schema，带不过来，随之丢掉。
- */
-function rebuilt(state: EditorState, target: Editor): EditorState {
-    const doc = target.schema.nodeFromJSON(state.doc.toJSON());
-    return EditorState.create({doc, plugins: target.state.plugins, selection: Selection.fromJSON(doc, state.selection.toJSON())});
+/** 组的实例槽里存的：编辑器实例，以及卸载时焦点是否在它里面（重挂后还给它）。 */
+interface KeptEditor {
+    readonly editor: Editor;
+    refocus: boolean;
 }
+
+const attributes = (): Record<string, string> => ({"aria-label": props.label, "class": "markdown-control__prose", "data-editor-prose": ""});
 
 /** 编辑器里的正文交给文档：只把编辑过的行换成编辑器的写法，其余保持原文字节（`source-merge.ts`）。 */
 const commitNow = (): void => {
@@ -72,7 +73,7 @@ const commitNow = (): void => {
     }
 };
 
-/** 按文档的正文重建编辑状态：新的撤销历史（外部内容不进用户的撤销栈），记下原文拆分与打开时的序列化结果。 */
+/** 按文档的正文新建编辑状态：新的撤销历史，记下原文拆分与打开时的序列化结果。 */
 const load = (binding: ViewBinding): MarkdownViewState | null => {
     if (editor === null) return null;
     const split = splitFrontmatter(binding.document.text.value);
@@ -88,14 +89,48 @@ const load = (binding: ViewBinding): MarkdownViewState | null => {
     return view;
 };
 
+/**
+ * 正文被别处改了（另一组的输入、磁盘的新内容、裁决）：只把不同的那一段换掉，这次替换不进撤销历史（输出 12），本组已有
+ * 的撤销步骤映射过这次替换后仍可用。原文拆分与序列化结果按新正文重记，之后的保存以它为准。
+ */
+const reload = (binding: ViewBinding, view: MarkdownViewState): void => {
+    if (editor === null || editor.markdown === undefined) return;
+    const split = splitFrontmatter(binding.document.text.value);
+    const next = editor.schema.nodeFromJSON(editor.markdown.parse(normalizeMarkdownDialectBlocks(split.body)));
+    const current = editor.state.doc;
+    const start = current.content.findDiffStart(next.content);
+    const end = current.content.findDiffEnd(next.content);
+    if (start !== null && end !== null) {
+        let {a: endA, b: endB} = end;
+        const overlap = start - Math.min(endA, endB);
+        if (overlap > 0) {
+            endA += overlap;
+            endB += overlap;
+        }
+        loading = true;
+        try {
+            editor.view.dispatch(editor.state.tr.replace(start, endA, next.slice(start, endB)).setMeta("addToHistory", false));
+        } finally {
+            loading = false;
+        }
+    }
+    view.state = editor.state;
+    view.split = split;
+    view.base = editor.getMarkdown();
+    view.confirmed = binding.document.revision.value;
+    view.held = false;
+};
+
 const enter = (binding: ViewBinding): void => {
     if (editor === null) return;
     bound = binding;
     let view = stateOf(binding);
-    if (view === null || (!view.held && view.confirmed !== binding.document.revision.value)) {
+    // 同一个编辑器实例（存在组的实例槽里）的编辑状态才能直接换回；其余情况按正文新建。
+    if (view === null || view.state.schema !== editor.schema) {
         view = load(binding);
     } else {
-        editor.view.updateState(view.state.schema === editor.schema ? view.state : rebuilt(view.state, editor));
+        editor.view.updateState(view.state);
+        if (!view.held && view.confirmed !== binding.document.revision.value) reload(binding, view);
     }
     editor.setEditable(!props.readonly);
     if (scroller.value !== null) scroller.value.scrollTop = view?.scroll ?? 0;
@@ -119,7 +154,7 @@ watch(() => props.binding, (next, previous) => {
     if (next !== null) enter(next);
 }, {flush: "sync"});
 
-// 正文被别处改了，或自己的未裁决输入被裁决了：按文档的正文重建。
+// 正文被别处改了，或自己的未裁决输入被裁决了：按文档的正文更新。
 watch(() => [props.binding?.document.revision.value, props.binding?.unresolved()] as const, () => {
     const binding = props.binding;
     if (binding === null || binding !== bound) return;
@@ -127,45 +162,83 @@ watch(() => [props.binding?.document.revision.value, props.binding?.unresolved()
     if (view === null) return;
     if (view.held && binding.unresolved()) return;
     if (!view.held && view.confirmed === binding.document.revision.value) return;
-    load(binding);
+    reload(binding, view);
 });
 
+// 变成只读（例如文件被外部删除）之前敲下、还在延迟里的输入照常由计时器交出：文档在已删除时仍接受输入回执。
 watch(() => props.readonly, (readonly) => editor?.setEditable(!readonly));
 
 const handle: EditorControlHandle = {
-    focus: () => editor?.commands.focus(),
+    focus: () => {
+        if (editor === null) return;
+        focusPending = true;
+        editor.commands.focus();
+    },
     undo: () => editor?.commands.undo(),
     redo: () => editor?.commands.redo(),
     flushPendingChange: commitNow,
 };
 
+const onUpdate = ({transaction}: {transaction: {docChanged: boolean}}): void => {
+    if (loading || !transaction.docChanged) return;
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(commitNow, COMMIT_DELAY_MS);
+};
+const onFocus = (): void => {
+    focusPending = false;
+    emit("focus", true);
+};
+const onBlur = (): void => {
+    focusPending = false;
+    commitNow();
+    emit("focus", false);
+};
+
 onMounted(() => {
     if (root.value === null) return;
-    editor = new Editor({
-        element: root.value,
-        extensions: createMarkdownEditorExtensions({placeholder: props.placeholder ?? ""}),
-        editable: !props.readonly,
-        editorProps: {attributes: {"aria-label": props.label, "class": "markdown-control__prose", "data-editor-prose": ""}},
-        onUpdate: ({transaction}) => {
-            if (loading || !transaction.docChanged) return;
-            if (timer !== null) clearTimeout(timer);
-            timer = setTimeout(commitNow, COMMIT_DELAY_MS);
-        },
-        onFocus: () => emit("focus", true),
-        onBlur: () => {
-            commitNow();
-            emit("focus", false);
-        },
-    });
+    // 组的实例槽里已有编辑器（组件因布局变化重挂）：挂到新的位置接着用，撤销历史还在。实例的寿命归槽：`unmount` 之后
+    // Tiptap 的 `isDestroyed` 也为真，不能用它判断实例还能不能用。
+    const kept = props.host.state as KeptEditor | null;
+    let refocus = false;
+    if (kept !== null) {
+        editor = kept.editor;
+        editor.mount(root.value);
+        editor.setOptions({editorProps: {attributes: attributes()}});
+        refocus = kept.refocus;
+    } else {
+        const created = new Editor({
+            element: root.value,
+            extensions: createMarkdownEditorExtensions({placeholder: props.placeholder ?? ""}),
+            editable: !props.readonly,
+            editorProps: {attributes: attributes()},
+        });
+        props.host.state = {editor: created, refocus: false} satisfies KeptEditor;
+        props.host.dispose = () => created.destroy();
+        editor = created;
+    }
+    // 事件处理器属于这一次挂载的组件，卸载时摘掉；实例本身留在槽里。
+    editor.on("update", onUpdate);
+    editor.on("focus", onFocus);
+    editor.on("blur", onBlur);
     if (props.binding !== null) enter(props.binding);
     emit("ready", handle);
+    // 卸载前焦点在编辑器里（例如关闭相邻组让这一组重挂）：还给它，键盘用户不至于落到页面根。
+    if (refocus) editor.commands.focus();
 });
 
-watch(() => props.label, (label) => editor?.setOptions({editorProps: {attributes: {"aria-label": label, "class": "markdown-control__prose", "data-editor-prose": ""}}}));
+watch(() => props.label, () => editor?.setOptions({editorProps: {attributes: attributes()}}));
 
 onBeforeUnmount(() => {
     if (props.binding !== null) leave(props.binding);
-    editor?.destroy();
+    if (editor !== null) {
+        editor.off("update", onUpdate);
+        editor.off("focus", onFocus);
+        editor.off("blur", onBlur);
+        // 只从 DOM 上拿下：组还在时实例由组的实例槽保留，组关闭时编辑器区释放它。
+        const kept = props.host.state as KeptEditor | null;
+        if (kept !== null) kept.refocus = editor.isFocused || focusPending;
+        editor.unmount();
+    }
     editor = null;
     emit("ready", null);
 });

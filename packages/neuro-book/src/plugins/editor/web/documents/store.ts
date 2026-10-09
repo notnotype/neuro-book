@@ -64,7 +64,8 @@ export type CommitResult = {readonly status: "accepted"; readonly revision: numb
 export type SaveResult = {readonly ok: true} | {readonly ok: false; readonly code: string; readonly detail?: string};
 
 export type StoreEvent =
-    | {readonly kind: "rebound"; readonly from: string; readonly to: string}
+    /** `kept`：地址在 from 之下、却没有跟过去的文档（目标地址上有一份要保留的文档，见 `rebind`）。 */
+    | {readonly kind: "rebound"; readonly from: string; readonly to: string; readonly kept: ReadonlyArray<string>}
     | {readonly kind: "closed"; readonly addresses: ReadonlyArray<string>};
 
 export interface DocumentReference {
@@ -129,6 +130,8 @@ interface Entry {
     readonly flushers: Set<() => void>;
     /** 结果未知的那次保存的快照：之后的核对读到它的哈希就算已保存。 */
     uncertain: {readonly text: string; readonly hash: Promise<string>} | null;
+    /** 用户选了“覆盖磁盘版本”：下一次保存以这个基线写入（正文与旧的已保存正文相同也写）。 */
+    overwrite: Baseline | null;
     /** 正在提交的快照：回声核对用它的哈希。 */
     readonly inflight: Ref<{readonly text: string; readonly hash: Promise<string>} | null>;
     /** 排队还没开始的保存：重复保存合并到它。 */
@@ -342,7 +345,8 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             ended,
             saveProblem: ref(null),
             unresolved: computed(() => [...candidates.value.keys()]),
-            writable: computed(() => (status.value === "ready" || status.value === "deleted") && ended.value === null),
+            // 外部删除后只读（输出 18）：dirty 的正文仍可保存重建，那是保存的事，不是继续输入。
+            writable: computed(() => status.value === "ready" && ended.value === null),
         };
         const entry: Entry = {
             address,
@@ -363,6 +367,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             candidates,
             flushers: new Set(),
             uncertain: null,
+            overwrite: null,
             inflight,
             pending,
             queue: Promise.resolve(),
@@ -380,9 +385,36 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
         entry.flushers.clear();
     };
 
+    /** 需要结算的文档：关掉它会丢东西。 */
+    const holdsWork = (entry: Entry): boolean => isDirty(entry) || entry.candidates.value.size > 0 || entry.inflight.value !== null || entry.pending.value !== null || entry.conflict.value !== null;
+
+    /**
+     * 改名或移动：from 之下的文档改到新地址。目标地址上已经有一份文档时（磁盘上没有这个文件，它是外部删除后保留着的，
+     * 或还没读到），地址只能归一份：那份文档要结算时它留在原地并核对磁盘（会看到文件又出现了），移过来的这份留在旧
+     * 地址、标为已删除，两份正文都不丢；不用结算时关掉它，移过来的这份照常改地址。
+     */
     const rebind = (from: string, to: string): void => {
         if (from === to) return;
-        const moved = [...entries.values()].filter((entry) => isWithin(entry.address, from));
+        const candidates = [...entries.values()].filter((entry) => isWithin(entry.address, from));
+        const movedSet = new Set(candidates);
+        const kept: Entry[] = [];
+        const displaced: Entry[] = [];
+        for (const entry of candidates) {
+            const occupant = entries.get(rebase(entry.address, from, to));
+            if (occupant === undefined || movedSet.has(occupant)) continue;
+            if (holdsWork(occupant)) kept.push(entry);
+            else displaced.push(occupant);
+        }
+        if (displaced.length > 0) {
+            for (const entry of displaced) drop(entry);
+            emit({kind: "closed", addresses: displaced.map((entry) => entry.address)});
+        }
+        for (const entry of kept) {
+            entry.status.value = "deleted";
+            const occupant = entries.get(rebase(entry.address, from, to));
+            if (occupant !== undefined) recheck(occupant);
+        }
+        const moved = candidates.filter((entry) => !kept.includes(entry));
         for (const entry of moved) entries.delete(entry.address);
         for (const entry of moved) {
             const next = rebase(entry.address, from, to);
@@ -395,7 +427,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             entry.target.value = {...entry.target.value, path: next};
             entries.set(next, entry);
         }
-        if (moved.length > 0) emit({kind: "rebound", from, to});
+        if (moved.length > 0) emit({kind: "rebound", from, to, kept: kept.map((entry) => entry.address)});
     };
 
     const flush = (entry: Entry): void => {
@@ -425,20 +457,23 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
     };
 
     const saveNow = async (entry: Entry): Promise<SaveResult> => {
+        const overwrite = entry.overwrite;
+        entry.overwrite = null;
         if (entry.closed) return {ok: false, code: "closed"};
         flush(entry);
         if (entry.candidates.value.size > 0) return {ok: false, code: "unresolved"};
-        if (entry.conflict.value !== null) return {ok: false, code: "conflict"};
+        if (entry.conflict.value !== null && overwrite === null) return {ok: false, code: "conflict"};
         if (entry.ended.value !== null) return {ok: false, code: "ended", detail: entry.ended.value};
         const status = entry.status.value;
         if (status === "loading" || status === "failed") return {ok: false, code: "not-ready"};
-        if (status !== "deleted" && !isDirty(entry)) return {ok: true};
+        // 覆盖时正文可能已改回旧的已保存正文（不 dirty），磁盘却是别人的版本：照样写。
+        if (status !== "deleted" && !isDirty(entry) && overwrite === null) return {ok: true};
         const address = entry.address;
         const text = entry.text.value;
         const hash = textHash(text);
         entry.inflight.value = {text, hash};
         try {
-            let baseline = entry.baseline;
+            let baseline = overwrite ?? entry.baseline;
             if (status === "deleted") {
                 const created = await files.create(address, "file");
                 if (!created.ok) return failed(entry, created.code === "conflict" ? "exists" : created.code, created.detail);
@@ -453,6 +488,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             if (result.ok) {
                 entry.baseline = result.value.baseline;
                 entry.saved.value = text;
+                entry.conflict.value = null;
                 entry.diskChanged.value = false;
                 entry.saveProblem.value = null;
                 const identity = result.value.identity;
@@ -498,11 +534,15 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             return state === null ? [] : [{address: entry.address, state}];
         }),
         begin: async (addresses): Promise<LeaseResult> => {
-            const affected = within(addresses);
-            for (const entry of affected) flush(entry);
-            // 等在途与排队的保存都结束；之后同步加租约，中间不让出执行权。
-            for (const entry of affected) {
-                while (entry.inflight.value !== null || entry.pending.value !== null) await entry.queue;
+            for (const entry of within(addresses)) flush(entry);
+            // 等在途与排队的保存都结束。等一份的时候另一份可能开始保存，所以每次等完都整体重查；全部空闲的那一刻同步
+            // 加租约，中间不让出执行权，之后的保存等租约结束。
+            let affected = within(addresses);
+            for (;;) {
+                const busy = affected.find((entry) => entry.inflight.value !== null || entry.pending.value !== null);
+                if (busy === undefined) break;
+                await busy.queue;
+                affected = within(addresses);
             }
             const blocked = affected.flatMap((entry): AffectedDocument[] => {
                 const state = settleState(entry);
@@ -527,6 +567,8 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
         save: async (addresses) => {
             const results = [];
             for (const entry of within(addresses)) {
+                // 先结算视图输入再看要不要保存：控件的输入延迟里可能还有没交出的修改。
+                flush(entry);
                 if (!isDirty(entry) && entry.candidates.value.size === 0 && entry.conflict.value === null) continue;
                 const result = await save(entry);
                 results.push(result.ok ? {address: entry.address, ok: true} : {address: entry.address, ok: false, code: result.code});
@@ -649,10 +691,8 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             const entry = live(document);
             const current = entry.conflict.value;
             if (current === null) return save(entry);
-            // 以磁盘的当前基线写入。冲突来自保存 dirty 的正文，正文仍 dirty，这次保存一定发出。
-            entry.conflict.value = null;
-            entry.baseline = current;
-            entry.diskChanged.value = false;
+            // 以磁盘的当前基线写入；成功之后才推进基线、清掉冲突，失败时冲突与正文都保持。
+            entry.overwrite = current;
             return save(entry);
         },
         retry: (document) => {

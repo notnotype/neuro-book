@@ -87,8 +87,10 @@ const kinds = computed((): EditorKind[] => {
             @move="(id: string, delta: -1 | 1) => area.groups.move(id, delta)"
         />
         <div class="relative h-0.5 shrink-0 overflow-hidden" aria-hidden="true">
-            <div v-if="area.progress(groupId)" class="editor-group__progress absolute inset-y-0 w-1/3 bg-[var(--accent)]" data-editor-progress></div>
+            <div v-if="area.progress(groupId)" class="editor-group__progress absolute inset-y-0 w-1/3 bg-[var(--accent-main)]" data-editor-progress></div>
         </div>
+        <!-- 进度条本身只是装饰：同一时刻给读屏一句可播报的“正在读取”。 -->
+        <p v-if="area.progress(groupId)" class="sr-only" role="status">{{ editorText(locale, "loading") }}</p>
         <div
             v-if="banner !== null"
             class="flex shrink-0 flex-wrap items-center gap-2 border-b border-[color:var(--divider)] px-3 py-1.5 text-xs"
@@ -99,7 +101,7 @@ const kinds = computed((): EditorKind[] => {
             <span class="min-w-0 flex-1">{{ banner.text }}</span>
             <Button v-for="action in banner.actions" :key="action.id" size="sm" variant="secondary" :data-editor-banner-action="action.id" @click="action.run()">{{ action.label }}</Button>
         </div>
-        <div class="relative min-h-0 flex-1" data-editor-content>
+        <div class="relative min-h-0 flex-1" :aria-busy="area.progress(groupId) ? 'true' : undefined" data-editor-content>
             <p v-if="activeTab === null" class="p-6 text-sm text-[var(--text-muted)]" data-editor-empty>{{ editorText(locale, "empty") }}</p>
             <div v-else-if="failure !== null" class="flex flex-col items-start gap-2 p-6 text-sm" role="alert" data-editor-failure>
                 <p>{{ failure }}</p>
@@ -110,6 +112,7 @@ const kinds = computed((): EditorKind[] => {
                     <component
                         :is="control(kind)"
                         :binding="binding !== null && binding.kind === kind ? binding : null"
+                        :host="area.controlSlot(groupId, kind)"
                         :readonly="document?.writable.value !== true"
                         :visible="binding !== null && binding.kind === kind"
                         :label="activeTab === null ? '' : nameOf(activeTab.address)"

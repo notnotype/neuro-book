@@ -29,7 +29,7 @@ export function buildMonacoTheme(root: HTMLElement): Monaco.editor.IStandaloneTh
     const background = hex(token(style, "--bg-main", dark ? "#1f1f1f" : "#ffffff"), dark ? "#1f1f1f" : "#ffffff");
     const foreground = hex(token(style, "--text-main", dark ? "#e6e6e6" : "#1f2328"), dark ? "#e6e6e6" : "#1f2328");
     const muted = hex(token(style, "--text-muted", dark ? "#8b949e" : "#6e7781"), dark ? "#8b949e" : "#6e7781");
-    const accent = hex(token(style, "--accent", "#3b82f6"), "#3b82f6");
+    const accent = hex(token(style, "--accent-main", "#3b82f6"), "#3b82f6");
     const hover = hex(token(style, "--bg-hover", dark ? "#2a2a2a" : "#f3f4f6"), dark ? "#2a2a2a" : "#f3f4f6");
     return {
         base: dark ? "vs-dark" : "vs",

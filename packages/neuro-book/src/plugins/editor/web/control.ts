@@ -6,12 +6,16 @@
  *   传给别的视图；裁决之后（`binding.unresolved()` 变假）按文档的正文重设。
  * - 文档的正文被别处改了（修订前进且不是自己交的）时重设内容，这次重设不进撤销历史。
  * - 交出句柄（聚焦、撤销、重做、结算、行号导航）；卸载时交出 null。
+ * - 组件会因布局变化重挂（拆分、关闭相邻组让 grid 重建了这一叶）：撤销历史在编辑器实例里的控件把实例存进 `host`，卸载
+ *   时只从 DOM 上拿下，重挂时接着用；实例由编辑器区在组关闭时释放。
  */
 
-import type {EditorControlHandle, ViewBinding} from "./area";
+import type {EditorControlHandle, ViewBinding, ViewStateSlot} from "./area";
 
 export interface EditorControlProps {
     readonly binding: ViewBinding | null;
+    /** 组 × 编辑器种类的实例槽（`EditorArea.controlSlot`）：重挂时接着用存在这里的编辑器实例。 */
+    readonly host: ViewStateSlot;
     readonly readonly: boolean;
     readonly visible: boolean;
 }

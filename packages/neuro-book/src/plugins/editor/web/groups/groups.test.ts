@@ -111,6 +111,14 @@ describe("Spec workbench.editor 输出 2–3：拆分与关闭", () => {
         expect(groups.groups.value).toHaveLength(1);
         expect(addresses(groups)).toEqual(["project://other.md"]);
     });
+
+    it("改名时留在原处的地址（目标上有一份要保留的文档）不跟过去", () => {
+        const groups = createEditorGroups();
+        groups.open("project://dir/a.md", {mode: "permanent", ...md});
+        groups.open("project://dir/b.md", {mode: "permanent", ...md});
+        groups.rebind("project://dir", "project://moved", ["project://dir/b.md"]);
+        expect(addresses(groups)).toEqual(["project://moved/a.md", "project://dir/b.md"]);
+    });
 });
 
 describe("Spec workbench.editor 输出 5：会话快照", () => {
@@ -141,6 +149,8 @@ describe("Spec workbench.editor 输出 5：会话快照", () => {
             {...snapshot, activeGroup: "nope"},
             {...snapshot, groups: [...snapshot.groups, {id: "extra", tabs: [], active: null}]},
             {...snapshot, layout: {version: 1, root: null}},
+            // 叶的 id 与组的 ref 不一致：渲染按叶的 id 找组，会找不到这些标签。
+            JSON.parse(JSON.stringify(snapshot).replace(/"kind":"leaf","id":"[^"]+"/u, '"kind":"leaf","id":"alien"')),
         ]) {
             const restored = createEditorGroups(broken as never);
             expect(restored.groups.value).toEqual([{id: "g0", tabs: [], active: null}]);

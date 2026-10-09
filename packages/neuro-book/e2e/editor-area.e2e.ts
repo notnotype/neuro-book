@@ -58,11 +58,16 @@ test.beforeAll(async () => {
         "notes/i.md": "乙\n",
         "notes/dialect.md": DIALECT,
         "data/g.json": "{\"g\": 2}\n",
+        "notes/u.md": "基线\n",
+        "notes/v.md": "收\n",
+        "notes/w.md": "尾\n",
+        "data/mixed.txt": "甲\r\n乙\n丙\r\n",
     };
     for (const [path, text] of Object.entries(files)) {
         await mkdir(dirname(join(projectDir, path)), {recursive: true});
         await writeFile(join(projectDir, path), text);
     }
+    await writeFile(join(projectDir, "data/bom.txt"), new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode("甲\r\n乙\r\n")]));
     await mkdir(join(stateRoot, "user"), {recursive: true});
     await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: projectDir}]}));
     server = await startProductServer(stateRoot);
@@ -330,6 +335,110 @@ test("源码文件用 Monaco：第一次打开源码文件之前不加载它；�
     await expect.poll(() => monacoText(page)).toBe("{\"f\": 1}\n//");
     await page.locator("[data-editor-tab-label]", {hasText: "g.json"}).click();
     await expect.poll(() => monacoText(page)).toBe("{\"g\": 2}\n// g");
+    await closeAll(page);
+});
+
+/** 焦点在编辑器区里（不是落到页面根）。 */
+const focusInEditor = (page: Page) => page.evaluate(() => document.activeElement?.closest("[data-editor-area]") !== null && document.activeElement !== document.body);
+
+test("关闭标签与空组之后焦点留在编辑器区：交给关闭后的活动视图", async ({page}) => {
+    await open(page);
+    await closeAll(page);
+    await item(page, "project://notes/v.md").dblclick();
+    await item(page, "project://notes/w.md").dblclick();
+    await page.locator("[data-editor-tab]", {hasText: "w.md"}).focus();
+    await page.keyboard.press("Delete");
+    await expect(labels(page)).toHaveText(["v.md"]);
+    await expect.poll(() => focusInEditor(page)).toBe(true);
+
+    await prose(page).click();
+    await page.keyboard.press("Control+\\");
+    await expect(page.locator("[data-editor-group]")).toHaveCount(2);
+    await page.locator("[data-editor-group-active] [data-editor-tab]").focus();
+    await page.keyboard.press("Delete");
+    await expect(page.locator("[data-editor-group]")).toHaveCount(1);
+    await expect.poll(() => focusInEditor(page)).toBe(true);
+    await closeAll(page);
+});
+
+test("Markdown 的撤销历史属于各组：拆分之后原组仍能撤销拆分前的输入；两组轮流输入，各自撤销只撤自己的", async ({page}) => {
+    await open(page);
+    await closeAll(page);
+    await item(page, "project://notes/u.md").dblclick();
+    await atEnd(page);
+    await page.keyboard.type("甲");
+    await page.keyboard.press("Control+\\");
+    await expect(page.locator("[data-editor-group]")).toHaveCount(2);
+    const left = page.locator("[data-editor-group]").first().locator("[data-editor-prose]");
+    const right = page.locator("[data-editor-group]").nth(1).locator("[data-editor-prose]");
+    await expect(right).toHaveText("基线甲");
+    await atEnd(page, left);
+    await page.keyboard.press("Control+z");
+    await expect(left).toHaveText("基线");
+    await expect(right).toHaveText("基线");
+    await page.keyboard.press("Control+Shift+z");
+    await expect(left).toHaveText("基线甲");
+
+    await atEnd(page, left);
+    await page.keyboard.type("左");
+    await atEnd(page, right);
+    await expect(right).toHaveText("基线甲左");
+    await page.keyboard.type("右");
+    await atEnd(page, left);
+    await expect(left).toHaveText("基线甲左右");
+    await page.keyboard.press("Control+z");
+    // 原组撤销自己的输入（时间相近的输入可能合成一步，所以只看“左”没了、另一组的“右”还在）。
+    await expect(left).not.toContainText("左");
+    await expect(left).toContainText("右");
+    await expect(right).not.toContainText("左");
+    await closeAll(page);
+});
+
+test("Monaco 保持原文字节：BOM 与混用的换行打开、切走、切回不变 dirty；输入后保存只改动的那一行", async ({page}) => {
+    await open(page);
+    await closeAll(page);
+    if (await item(page, "project://data").getAttribute("aria-expanded") !== "true") await item(page, "project://data").click();
+    const editor = page.locator("[data-editor-kind=\"code\"]:visible .monaco-editor");
+    // BOM 的文件在第一行开头输入（BOM 所在的那一行被改了也要留住它），混用换行的在末尾输入。
+    for (const [name, key, typed, expected] of [
+        ["bom.txt", "Control+Home", "零", [0xef, 0xbb, 0xbf, ...new TextEncoder().encode("零甲\r\n乙\r\n")]],
+        ["mixed.txt", "Control+End", "丁", [...new TextEncoder().encode("甲\r\n乙\n丙\r\n丁")]],
+    ] as const) {
+        await item(page, `project://data/${name}`).dblclick();
+        await expect(editor).toBeVisible();
+        await item(page, "project://data/f.json").dblclick();
+        await page.locator("[data-editor-tab-label]", {hasText: name}).click();
+        await expect(page.locator("[data-editor-tab]", {hasText: name})).not.toHaveAttribute("data-editor-tab-dirty", "");
+        await editor.click();
+        await page.keyboard.press(key);
+        await page.keyboard.type(typed);
+        await page.keyboard.press("Control+s");
+        await expect.poll(async () => [...new Uint8Array(await readFile(join(projectDir, "data", name)))]).toEqual([...expected]);
+    }
+    await closeAll(page);
+});
+
+test("命令面板里“用其它编辑器重新打开”：Markdown 换成源码编辑器，看得到 frontmatter；再换回富文本", async ({page}) => {
+    await open(page);
+    await closeAll(page);
+    // 前面的用例改过这个文件：以打开前的字节为准。
+    const before = await disk("notes/dialect.md");
+    await item(page, "project://notes/dialect.md").dblclick();
+    await expect(prose(page)).toContainText("雨下了一整夜。");
+    const combobox = page.getByRole("combobox", {name: "输入命令，或输入 : 跳到某一行"});
+    const run = async (): Promise<void> => {
+        await expect(async () => {
+            await page.keyboard.press("Control+Shift+P");
+            await expect(combobox).toBeFocused({timeout: 500});
+        }).toPass();
+        await combobox.fill("用其它编辑器重新打开");
+        await page.getByRole("option", {name: /用其它编辑器重新打开/u}).click();
+    };
+    await run();
+    await expect.poll(() => monacoText(page)).toContain("title: 第三章");
+    await run();
+    await expect(prose(page)).toContainText("雨下了一整夜。");
+    expect(await disk("notes/dialect.md")).toBe(before);
     await closeAll(page);
 });
 

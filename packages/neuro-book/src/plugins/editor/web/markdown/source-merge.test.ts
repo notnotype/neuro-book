@@ -9,6 +9,7 @@ import {MarkdownManager} from "@tiptap/markdown";
 import type {JSONContent} from "@tiptap/core";
 
 import {createMarkdownDialectExtensions} from "./markdown-dialect-extensions";
+import {createMarkdownEditorExtensions} from "./markdown-editor-extensions";
 import {mergeSource, splitFrontmatter} from "./source-merge";
 
 describe("frontmatter 的拆分", () => {
@@ -42,6 +43,21 @@ describe("按行三方合并", () => {
 
     it("换行符混用的原文：没改的行各自保留自己的换行符", () => {
         expect(mergeSource("a\r\nb\nc\r\nd\r\n", "a\nb\nc\nd", "a\nb\nc\nD")).toBe("a\r\nb\nc\r\nD\r\n");
+    });
+
+    it("连续的规范化行里改、删、插一行：只有那一行换成编辑器的写法，相邻的未编辑行保持原文", () => {
+        const ours = "* 甲\r\n* 乙\r\n* 丙\r\n";
+        const base = "- 甲\n- 乙\n- 丙";
+        expect(mergeSource(ours, base, "- 甲\n- 乙改\n- 丙")).toBe("* 甲\r\n- 乙改\r\n* 丙\r\n");
+        expect(mergeSource(ours, base, "- 甲\n- 丙")).toBe("* 甲\r\n* 丙\r\n");
+        expect(mergeSource(ours, base, "- 甲\n- 乙\n- 新\n- 丙")).toBe("* 甲\r\n* 乙\r\n- 新\r\n* 丙\r\n");
+    });
+
+    it("删掉最后一段或最后一项：不多留换行；删光为空", () => {
+        expect(mergeSource("a\nb\nc\n", "a\nb\nc", "a\nb")).toBe("a\nb\n");
+        expect(mergeSource("甲\r\n\r\n乙\r\n", "甲\n\n乙", "甲")).toBe("甲\r\n");
+        expect(mergeSource("* 甲\n* 乙\n", "- 甲\n- 乙", "- 甲")).toBe("* 甲\n");
+        expect(mergeSource("甲\n", "甲", "")).toBe("");
     });
 
     it("两边都改的区域取编辑后的写法；末尾换行的有无跟着编辑结果", () => {
@@ -89,5 +105,22 @@ describe("按行三方合并", () => {
         const after = saved.split("\r\n");
         expect(after).toHaveLength(before.length);
         expect(before.flatMap((line, index) => (line === after[index] ? [] : [[line, after[index]]]))).toEqual([["雨下了一整夜。", "雨停了。"]]);
+    });
+
+    it("控件实际用的扩展（含硬换行与链接）：硬换行写成单个换行，链接原样往返；连续列表里改一项只动那一行", () => {
+        const manager = new MarkdownManager({extensions: createMarkdownEditorExtensions({placeholder: ""})});
+        const paragraph: JSONContent = {type: "doc", content: [{type: "paragraph", content: [{type: "text", text: "前"}, {type: "hardBreak"}, {type: "text", text: "后"}]}]};
+        expect(manager.serialize(paragraph)).toBe("前\n后");
+        expect(manager.serialize(manager.parse("见[第一章](project://chapters/a.md)。"))).toBe("见[第一章](project://chapters/a.md)。");
+
+        const source = "* 线索一\r\n* 线索二\r\n* 线索三\r\n";
+        const parsed = manager.parse(source);
+        const base = manager.serialize(parsed);
+        const edited = structuredClone(parsed);
+        const items = edited.content?.[0]?.content ?? [];
+        const second = items[1]?.content?.[0];
+        if (second === undefined) throw new Error("没有第二项");
+        second.content = [{type: "text", text: "线索二（改）"}];
+        expect(mergeSource(source, base, manager.serialize(edited))).toBe("* 线索一\r\n- 线索二（改）\r\n* 线索三\r\n");
     });
 });

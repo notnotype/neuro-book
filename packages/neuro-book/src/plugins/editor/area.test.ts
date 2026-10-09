@@ -17,8 +17,9 @@ import type {Scene} from "nbook/plugins/files/testing/scene";
 import {createLinkTap} from "nbook/plugins/files/testing/tap";
 import type {LinkTap} from "nbook/plugins/files/testing/tap";
 
-import {createEditorArea, defaultEditor, PROGRESS_DELAY_MS} from "./web/area";
+import {createEditorArea, defaultEditor} from "./web/area";
 import type {EditorArea} from "./web/area";
+import {createEditorGroups} from "./web/groups/groups";
 import type {GroupsSnapshot} from "./web/groups/groups";
 
 let tmp = "";
@@ -83,7 +84,8 @@ describe("Spec workbench.editor 输出 6–8：打开与切换", () => {
         expect(at.area.groups.activeTab()?.address).toBe("project://a.md");
         await held.arrived;
         expect(at.area.binding(groupId(at))).toBeNull();
-        at.clock.advance(PROGRESS_DELAY_MS - 1);
+        // 阈值按合同写死（输出 6），不取产品常量。
+        at.clock.advance(799);
         expect(at.area.progress(groupId(at))).toBe(false);
         at.clock.advance(1);
         expect(at.area.progress(groupId(at))).toBe(true);
@@ -103,7 +105,7 @@ describe("Spec workbench.editor 输出 6–8：打开与切换", () => {
         await until(at, "失败", () => document?.status.value === "failed");
         expect(at.area.binding(groupId(at))).toBeNull();
         expect(document?.failure.value?.code).toBe("not-found");
-        at.clock.advance(PROGRESS_DELAY_MS);
+        at.clock.advance(800);
         expect(at.area.progress(groupId(at))).toBe(false);
     });
 
@@ -124,6 +126,9 @@ describe("Spec workbench.editor 输出 6–8：打开与切换", () => {
         const back = at.area.binding(groupId(at));
         expect(back?.slot.state).toEqual({caret: 1});
         expect(back?.token).not.toBe(binding.token);
+        expect(back?.document.text.value).toBe("A1");
+        // 换下的旧绑定的迟到回调不改变文档（“时序与寿命”）。
+        expect(binding.commit(binding.document.revision.value, "迟到")).toEqual({status: "stale"});
         expect(back?.document.text.value).toBe("A1");
     });
 
@@ -204,6 +209,94 @@ describe("Spec workbench.editor 输出 3–5：关闭、拆分与会话", () => 
         expect(restored.area.documents.get("project://a.md")).toBeNull();
         restored.area.activate(restored.area.groups.groups.value[0]?.tabs[0]?.id ?? "");
         await until(restored, "a 就绪", () => restored.area.binding(groupId(restored))?.document.text.value === "A");
+    });
+});
+
+describe("Spec workbench.editor 输出 4、13：关闭时的结算", () => {
+    it("选“保存”后保存期间又有输入：保存完再问一次，不丢新输入", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        await ready(at);
+        const binding = at.area.binding(groupId(at));
+        if (binding === null) throw new Error("没有绑定");
+        binding.commit(binding.document.revision.value, "A1");
+        const held = at.tap.hold((request) => request.method === "write");
+        const closing = at.area.close(at.area.groups.activeTab()?.id ?? "");
+        await until(at, "问", () => at.area.dialog.value !== null);
+        at.area.answer("save");
+        await held.arrived;
+        binding.commit(binding.document.revision.value, "A2（保存期间）");
+        held.release();
+        await until(at, "再问", () => at.area.dialog.value !== null);
+        expect(await readFile(join(at.scene.project, "a.md"), "utf8")).toBe("A1");
+        at.area.answer("save");
+        expect(await closing).toBe("closed");
+        expect(await readFile(join(at.scene.project, "a.md"), "utf8")).toBe("A2（保存期间）");
+    });
+
+    it("关同组里别的标签不动活动视图的绑定，它的未裁决输入仍可裁决", async () => {
+        const at = await world();
+        at.area.open("project://b.md", {mode: "permanent"});
+        at.area.open("project://a.md", {mode: "permanent"});
+        await ready(at);
+        at.area.split("right");
+        await ready(at);
+        const right = at.area.binding(groupId(at));
+        const leftGroup = at.area.groups.groups.value[0]?.id ?? "";
+        const left = at.area.binding(leftGroup);
+        if (right === null || left === null) throw new Error("没有绑定");
+        const base = left.document.revision.value;
+        right.commit(base, "右");
+        expect(left.commit(base, "左")).toMatchObject({status: "conflict"});
+        const bTab = at.area.groups.groups.value[0]?.tabs.find((tab) => tab.address === "project://b.md")?.id ?? "";
+        expect(await at.area.close(bTab)).toBe("closed");
+        expect(at.area.binding(leftGroup)?.token).toBe(left.token);
+        expect(at.area.binding(leftGroup)?.unresolved()).toBe(true);
+        at.area.resolve(leftGroup, "keep-view");
+        expect(left.document.text.value).toBe("左");
+        expect(await at.area.documents.save(left.document)).toEqual({ok: true});
+    });
+
+    it("同一文档还在别的组：关掉有未裁决输入的视图要问；不保存只丢这个视图的输入，文档仍可保存", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        await ready(at);
+        at.area.split("right");
+        await ready(at);
+        const right = at.area.binding(groupId(at));
+        const left = at.area.binding(at.area.groups.groups.value[0]?.id ?? "");
+        if (right === null || left === null) throw new Error("没有绑定");
+        const base = left.document.revision.value;
+        left.commit(base, "左");
+        expect(right.commit(base, "右")).toMatchObject({status: "conflict"});
+        const closing = at.area.close(at.area.groups.activeTab()?.id ?? "");
+        await until(at, "问", () => at.area.dialog.value !== null);
+        at.area.answer("discard");
+        expect(await closing).toBe("closed");
+        expect(left.document.unresolved.value).toEqual([]);
+        expect(await at.area.documents.save(left.document)).toEqual({ok: true});
+        expect(await readFile(join(at.scene.project, "a.md"), "utf8")).toBe("左");
+    });
+
+    it("恢复出来、还没读到的标签也算同一文件的标签：关另一组的标签不问，正文留给它", async () => {
+        // 用真实的组模型造一份合法记录：左组 a，右组 a、b（活动 b），活动组在左。
+        const model = createEditorGroups();
+        model.open("project://a.md", {mode: "permanent", editor: "markdown"});
+        const leftId = model.activeGroup.value;
+        model.split(model.activeTab()?.id ?? "", "right");
+        const rightId = model.activeGroup.value;
+        model.open("project://b.md", {mode: "permanent", editor: "markdown"});
+        model.focusGroup(leftId);
+        const at = await world(model.snapshot());
+        await ready(at);
+        const left = at.area.binding(leftId);
+        if (left === null) throw new Error("没有绑定");
+        left.commit(left.document.revision.value, "A（未保存）");
+        expect(await at.area.close(at.area.groups.activeTab()?.id ?? "")).toBe("closed");
+        expect(at.area.dialog.value).toBeNull();
+        const aTab = at.area.groups.groups.value.find((group) => group.id === rightId)?.tabs[0]?.id ?? "";
+        at.area.activate(aTab);
+        await until(at, "右组的 a 就绪", () => at.area.binding(rightId)?.document.text.value === "A（未保存）");
     });
 });
 

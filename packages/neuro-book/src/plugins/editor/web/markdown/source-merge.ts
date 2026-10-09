@@ -7,8 +7,9 @@
  * - `theirs`：编辑后的序列化结果。
  *
  * 只有 `theirs` 改了的行取 `theirs`，只有序列化规范化造成的差异（`ours` 与 `base` 不同、`theirs` 与 `base` 相同）保留
- * 原文，两边都改的区域取 `theirs`。行按文字比较、不看换行符；原文的行连同它自己的换行符原样写出，`theirs` 的行用原文
- * 主导的换行符。`theirs` 与 `base` 相同时原样返回原文。
+ * 原文。两边都改的区域里，`base` 与原文行数相同时规范化是逐行发生的（列表标记、ruby 写法），按位置对应，仍只把 `theirs`
+ * 改了的行换掉；行数不同才整片取 `theirs`。行按文字比较、不看换行符；原文的行连同它自己的换行符原样写出，`theirs` 的行
+ * 用原文主导的换行符。`theirs` 与 `base` 相同时原样返回原文。
  *
  * 另有 frontmatter 的拆分：按原始字符串的偏移切出开头的 `---` 块（BOM 留在前缀里），不归一化换行、不补换行，正文才交给
  * 编辑器与合并。
@@ -44,26 +45,27 @@ export function splitFrontmatter(source: string): SourceSplit {
     return {prefix: bom, body: rest};
 }
 
-/** 一行：文字与它自己的换行符（最后一行可能没有）。 */
+/** 一行：文字与它自己的换行符（最后一行没有）。 */
 interface Line {
     readonly text: string;
     readonly eol: string;
 }
 
+/** 按 `\n` 切行；最后一行可能是空串（原文以换行结尾）。空串没有行。 */
 function linesOf(source: string): Line[] {
+    if (source === "") return [];
     const lines: Line[] = [];
     let start = 0;
-    while (start < source.length) {
+    for (;;) {
         const next = source.indexOf("\n", start);
         if (next < 0) {
             lines.push({text: source.slice(start), eol: ""});
-            break;
+            return lines;
         }
         const crlf = next > start && source[next - 1] === "\r";
         lines.push({text: source.slice(start, crlf ? next - 1 : next), eol: crlf ? "\r\n" : "\n"});
         start = next + 1;
     }
-    return lines;
 }
 
 /** 原文用得最多的换行符；没有换行时为 `\n`。 */
@@ -144,25 +146,25 @@ function matches(a: ReadonlyArray<Line>, b: ReadonlyArray<Line>): Array<readonly
 /** 按行三方合并，见模块头。 */
 export function mergeSource(ours: string, base: string, theirs: string): string {
     if (theirs === base) return ours;
+    // 编辑把正文删光了：没有行，也就没有换行。
+    if (theirs === "") return "";
     // 文件末尾的换行单独决定：编辑器的序列化从不以换行结尾，所以 base 与 theirs 末尾一样时沿用原文的，编辑本身改了
-    // 末尾（例如删光再写）才跟着编辑结果。之后各行都有换行符，按文字比较。
+    // 末尾（例如删光再写）才跟着编辑结果。之后按行合并，行之间的换行在拼接时补。
     const [oEnd, bEnd, tEnd] = [trailing(ours), trailing(base), trailing(theirs)];
-    const finalEol = (bEnd.eol === "") === (tEnd.eol === "") ? oEnd.eol : tEnd.eol === "" ? "" : dominantEol(linesOf(ours));
+    const eol = dominantEol(linesOf(ours));
+    const finalEol = (bEnd.eol === "") === (tEnd.eol === "") ? oEnd.eol : tEnd.eol === "" ? "" : eol;
     const o = linesOf(oEnd.text);
     const b = linesOf(bEnd.text);
     const t = linesOf(tEnd.text);
-    const eol = dominantEol(linesOf(ours));
     const toOurs = new Map(matches(b, o));
     const toTheirs = new Map(matches(b, t));
-    const out: string[] = [];
+    /** 输出的行：原文的行带自己的换行符，编辑器的行用主导换行符（空串表示“用主导的”）。 */
+    const out: Line[] = [];
     const emitOurs = (from: number, to: number): void => {
-        for (let index = from; index < to; index += 1) out.push((o[index] as Line).text + (o[index] as Line).eol);
+        for (let index = from; index < to; index += 1) out.push(o[index] as Line);
     };
     const emitTheirs = (from: number, to: number): void => {
-        for (let index = from; index < to; index += 1) {
-            const line = t[index] as Line;
-            out.push(line.text + (index === t.length - 1 ? "" : eol));
-        }
+        for (let index = from; index < to; index += 1) out.push({text: (t[index] as Line).text, eol: ""});
     };
     const equalSlices = (left: ReadonlyArray<Line>, from: number, to: number, right: ReadonlyArray<Line>, rFrom: number, rTo: number): boolean => {
         if (to - from !== rTo - rFrom) return false;
@@ -176,25 +178,27 @@ export function mergeSource(ours: string, base: string, theirs: string): string 
     for (let index = 0; index <= b.length; index += 1) {
         const stable = index === b.length || (toOurs.has(index) && toTheirs.has(index));
         if (!stable) continue;
-        const oEnd = index === b.length ? o.length : (toOurs.get(index) as number);
-        const tEnd = index === b.length ? t.length : (toTheirs.get(index) as number);
-        // 稳定点之前的区域：base[bi, index)、ours[oi, oEnd)、theirs[ti, tEnd)。
-        if (equalSlices(b, bi, index, t, ti, tEnd)) emitOurs(oi, oEnd);
-        else if (equalSlices(b, bi, index, o, oi, oEnd)) emitTheirs(ti, tEnd);
-        else emitTheirs(ti, tEnd);
+        const oStop = index === b.length ? o.length : (toOurs.get(index) as number);
+        const tStop = index === b.length ? t.length : (toTheirs.get(index) as number);
+        // 稳定点之前的区域：base[bi, index)、ours[oi, oStop)、theirs[ti, tStop)。
+        if (equalSlices(b, bi, index, t, ti, tStop)) emitOurs(oi, oStop);
+        else if (equalSlices(b, bi, index, o, oi, oStop)) emitTheirs(ti, tStop);
+        else if (index - bi === oStop - oi) {
+            // 逐行的规范化：base 的第 k 行就是原文的第 k 行。theirs 里对上 base 的行写原文，其余（改过、插入的）写 theirs。
+            let tj = ti;
+            for (const [bk, tk] of matches(b.slice(bi, index), t.slice(ti, tStop))) {
+                emitTheirs(tj, ti + tk);
+                emitOurs(oi + bk, oi + bk + 1);
+                tj = ti + tk + 1;
+            }
+            emitTheirs(tj, tStop);
+        } else emitTheirs(ti, tStop);
         if (index === b.length) break;
         // 稳定行本身：原文的字节。
-        emitOurs(oEnd, oEnd + 1);
+        emitOurs(oStop, oStop + 1);
         bi = index + 1;
-        oi = oEnd + 1;
-        ti = tEnd + 1;
+        oi = oStop + 1;
+        ti = tStop + 1;
     }
-    return trimJoin(out, eol) + finalEol;
-}
-
-/**
- * 各段已经带着各自的换行符；原文的最后一行没有换行，却可能被放到中间（编辑在它后面加了行）：补上主导换行符。
- */
-function trimJoin(parts: ReadonlyArray<string>, eol: string): string {
-    return parts.map((part, index) => (index < parts.length - 1 && !part.endsWith("\n") ? part + eol : part)).join("");
+    return out.map((line, index) => (index < out.length - 1 ? line.text + (line.eol === "" ? eol : line.eol) : line.text)).join("") + finalEol;
 }

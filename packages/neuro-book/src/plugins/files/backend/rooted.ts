@@ -40,6 +40,8 @@ export interface Resolved {
     /** 相对根、用 `/` 分隔；根本身为空字符串。 */
     readonly realPath: string;
     readonly stats: Stats;
+    /** 最后一段本身是符号链接（祖先目录经链接解析不算）：替换的是链接的目标，不是这个目录项。 */
+    readonly viaLink: boolean;
 }
 
 export type DirectoryEntry = {readonly name: string; readonly kind: "file" | "directory" | "link" | "other"};
@@ -131,6 +133,7 @@ class Root implements RootedRoot {
         if (this.#options.controlDirectory && segments.length > 0 && isControlName(segments[0] as string)) return fail("protected-path", `${path} 在项目控制目录里`);
         if (process.platform === "win32" && segments.some((segment) => segment.includes(":"))) return fail("invalid-address", `${path}：Windows 上的名字不能含 :`);
         let current = this.real;
+        let viaLink = false;
         for (const segment of segments) {
             const next = join(current, segment);
             let info: Stats;
@@ -139,7 +142,8 @@ class Root implements RootedRoot {
             } catch (error) {
                 return missing(error, path);
             }
-            if (!info.isSymbolicLink()) {
+            viaLink = info.isSymbolicLink();
+            if (!viaLink) {
                 current = next;
                 continue;
             }
@@ -156,7 +160,7 @@ class Root implements RootedRoot {
         const realPath = relative(this.real, current).split(sep).join("/");
         if (this.#options.controlDirectory && realPath !== "" && isControlName(realPath.split("/")[0] as string)) return fail("protected-path", `${path} 经符号链接指向项目控制目录`);
         try {
-            return {real: current, realPath, stats: await stat(current)};
+            return {real: current, realPath, stats: await stat(current), viaLink};
         } catch (error) {
             return missing(error, path);
         }

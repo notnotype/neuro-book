@@ -85,6 +85,11 @@ export interface EditorArea {
     binding(groupId: string): ViewBinding | null;
     /** 组的活动标签的文档；没有为 null。 */
     documentOf(groupId: string): TextDocument | null;
+    /**
+     * 每组每种编辑器一个、活到组关闭的槽：控件把编辑器实例存在这里，布局变化（拆分、关闭相邻组）让组件重挂时接着用，
+     * 撤销历史与编辑状态不丢（输出 2、10）。
+     */
+    controlSlot(groupId: string, kind: EditorKind): ViewStateSlot;
     /** 组顶部的进度条：活动文档 800 ms 后仍在读取。 */
     progress(groupId: string): boolean;
     /** 活动组的活动文档。 */
@@ -152,10 +157,17 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         return reference;
     };
 
+    /** 标签已从组模型移除之后调用：释放它的文档引用。 */
     const releaseTab = (tab: EditorTab, groupId: string): void => {
         const reference = references.get(tab.id);
         if (reference === undefined) return;
         references.delete(tab.id);
+        // 同一地址还有恢复出来、还没读到的标签：它们没有引用，先替它们拿上，正文才不会随这次释放丢掉。
+        for (const group of groups.groups.value) {
+            for (const other of group.tabs) {
+                if (other.address === tab.address && !references.has(other.id)) references.set(other.id, documents.acquire(other.address));
+            }
+        }
         const key = slotKey(groupId, tab.editor, reference.document);
         const stillShown = groups.groups.value.some((group) => group.id === groupId && group.tabs.some((other) => other.editor === tab.editor && references.get(other.id)?.document === reference.document));
         if (!stillShown) dropSlot(key);
@@ -199,6 +211,21 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         }
     };
 
+    const controlSlots = new Map<string, ViewStateSlot>();
+    const dropControlSlot = (key: string): void => {
+        const slot = controlSlots.get(key);
+        if (slot === undefined) return;
+        controlSlots.delete(key);
+        try {
+            slot.dispose?.();
+        } catch (error) {
+            options.report(error);
+        }
+    };
+    stops.push(watch(() => groups.groups.value.map((group) => group.id), (live) => {
+        for (const key of [...controlSlots.keys()]) if (!live.includes(key.slice(0, key.indexOf("|")))) dropControlSlot(key);
+    }));
+
     const bindings = new Map<string, ViewBinding>();
     const binding = (groupId: string): ViewBinding | null => {
         const group = groups.groups.value.find((candidate) => candidate.id === groupId);
@@ -224,6 +251,9 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         }
         nextToken += 1;
         const token = `v${String(nextToken)}`;
+        // 换下的绑定（换文档、关闭标签、换编辑器）不再改变任何文档：换下之前，切换的路径已经结算过它的输入（`leave`、
+        // `closeTab`），之后迟到的回调一律当作过时。
+        const current = (): boolean => bindings.get(groupId) === created;
         const created: ViewBinding = {
             token,
             tabId: tab.id,
@@ -231,12 +261,13 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             document,
             slot,
             commit: (baseRevision, text) => {
+                if (!current()) return {status: "stale"};
                 const result = documents.commit(document, token, baseRevision, text);
                 // 在 preview 标签里编辑即转正（输出 1）：只看真正改了正文的输入。
                 if (result.status === "accepted" && result.revision > baseRevision && groups.find(tab.id)?.tab.preview === true) groups.pin(tab.id);
                 return result;
             },
-            attach: (flush) => documents.attachView(document, flush),
+            attach: (flush) => (current() ? documents.attachView(document, flush) : () => undefined),
             unresolved: () => document.unresolved.value.includes(token),
         };
         bindings.set(groupId, created);
@@ -283,7 +314,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     // 文档模型改了地址或关闭了文档：标签随之改地址或关闭。
     stops.push(documents.subscribe((event) => {
         if (event.kind === "rebound") {
-            groups.rebind(event.from, event.to);
+            groups.rebind(event.from, event.to, event.kept);
             return;
         }
         for (const group of groups.groups.value) {
@@ -303,6 +334,13 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     }
 
     const activeDocument = computed(() => documentOf(groups.activeGroup.value));
+    /** 活动视图的控件还没挂上（例如换了一种编辑器）：挂上时再聚焦。 */
+    let focusWhenReady = false;
+    const focusActive = (): void => {
+        const handle = activeHandle.value;
+        if (handle !== null) handle.focus();
+        else focusWhenReady = groups.activeTab() !== null;
+    };
     const activeHandle = computed(() => {
         const group = groups.groups.value.find((candidate) => candidate.id === groups.activeGroup.value);
         const tab = group?.tabs.find((candidate) => candidate.id === group.active);
@@ -323,33 +361,51 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
 
     const needsSettle = (document: TextDocument): boolean => document.dirty.value || document.unresolved.value.length > 0 || document.saving.value;
 
+    const ask = (address: string): Promise<CloseChoice> => new Promise<CloseChoice>((resolve) => {
+        answerDialog?.("cancel");
+        dialog.value = {address};
+        answerDialog = resolve;
+    });
+
+    /**
+     * 关闭一个标签（输出 3、4、13、14）。同一文件还有别的标签（包括恢复出来、还没读到的）时文档留给它们，只问这个视图
+     * 自己的未裁决输入；否则文档需要结算时问。选“保存”后保存期间还能输入：保存完回到开头再结算、再看要不要问，直到没有
+     * 要结算的东西或用户取消。
+     */
     const closeTab = async (tabId: string): Promise<"closed" | "cancelled"> => {
-        const found = groups.find(tabId);
-        if (found === null) return "cancelled";
-        const reference = references.get(tabId);
-        const document = reference?.document ?? null;
-        const shared = document !== null && [...references.entries()].some(([id, other]) => id !== tabId && other.document === document);
-        if (document !== null && !shared) {
+        const hadFocus = focused.value;
+        for (;;) {
+            const found = groups.find(tabId);
+            if (found === null) return "cancelled";
+            const document = references.get(tabId)?.document ?? null;
+            if (document === null) break;
             documents.settle(document);
-            if (needsSettle(document)) {
-                const choice = await new Promise<CloseChoice>((resolve) => {
-                    answerDialog?.("cancel");
-                    dialog.value = {address: found.tab.address};
-                    answerDialog = resolve;
-                });
-                if (choice === "cancel") return "cancelled";
-                // “不保存”：最后一个引用释放时文档连同未裁决输入一起丢弃，不必逐个丢。
-                if (choice === "save") {
-                    const saved = await documents.save(document);
-                    if (!saved.ok) return "cancelled";
-                }
+            const shown = bindings.get(found.group.id);
+            const own = shown !== undefined && shown.tabId === tabId ? shown : null;
+            const ownInput = own !== null && own.unresolved();
+            const shared = groups.groups.value.some((group) => group.tabs.some((tab) => tab.id !== tabId && tab.address === found.tab.address));
+            if (shared ? !ownInput : !needsSettle(document)) break;
+            const choice = await ask(found.tab.address);
+            if (choice === "cancel") return "cancelled";
+            if (choice === "discard") {
+                // 文档还有别的标签时只丢这个视图的未裁决输入；否则最后一个引用释放时整份文档连同输入一起丢弃。
+                if (own !== null) documents.discardInput(document, own.token);
+                break;
             }
+            // 保存这个视图看到的内容：它的未裁决输入先成为正文。
+            if (own !== null && ownInput) documents.resolve(document, own.token, "keep-view");
+            const saved = await documents.save(document);
+            if (!saved.ok) return "cancelled";
         }
         const current = groups.find(tabId);
         if (current === null) return "closed";
-        bindings.delete(current.group.id);
+        // 只换下这个标签自己的绑定：关同组里别的标签不动活动视图的绑定与它的未裁决输入。
+        if (bindings.get(current.group.id)?.tabId === tabId) bindings.delete(current.group.id);
         groups.close(tabId);
         releaseTab(current.tab, current.group.id);
+        // 开始关闭时焦点在编辑器区：交给关闭后的活动视图，键盘用户不至于落到页面根（输出 3）。不看此刻的 `focused`：
+        // 被关的标签按钮、询问对话框都会先把它置假。
+        if (hadFocus) focusActive();
         return "closed";
     };
 
@@ -358,6 +414,15 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         groups,
         binding,
         documentOf,
+        controlSlot: (groupId, kind) => {
+            const key = `${groupId}|${kind}`;
+            let slot = controlSlots.get(key);
+            if (slot === undefined) {
+                slot = {state: null, dispose: null};
+                controlSlots.set(key, slot);
+            }
+            return slot;
+        },
         progress: (groupId) => progress.value.has(groupId),
         activeDocument,
         activeHandle,
@@ -447,6 +512,10 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (handle === null) next.delete(`${groupId}|${kind}`);
             else next.set(`${groupId}|${kind}`, handle);
             handles.value = next;
+            if (focusWhenReady && handle !== null && activeHandle.value === handle) {
+                focusWhenReady = false;
+                handle.focus();
+            }
         },
         dismissNotice: () => {
             notice.value = null;
@@ -469,6 +538,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             for (const stop of stops.splice(0)) stop();
             for (const timer of timers.values()) timer.cancel();
             for (const key of [...slots.keys()]) dropSlot(key);
+            for (const key of [...controlSlots.keys()]) dropControlSlot(key);
             documents.dispose();
         },
     };

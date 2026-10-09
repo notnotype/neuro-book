@@ -210,7 +210,7 @@ describe("Spec workspace.folder-kinds 列出：三类文件夹", () => {
 });
 
 describe("Spec workspace.files 读取与保存：文本与上限", () => {
-    it("保存回执带替换前后的目录项身份：前者等于保存前 identify 的令牌、后者等于保存后的；冻结旧令牌的移动被拒、换成新令牌后成功；经链接保存没有这一对", async () => {
+    it("保存回执带替换前后的目录项身份：前者等于保存前 identify 的令牌、后者等于保存后的；冻结旧令牌的移动被拒、换成新令牌后成功；最后一段是链接时没有这一对，经祖先目录的链接保存照样有", async () => {
         const {project, window} = await scene({project: {"a.md": "A", "dir/.keep": ""}});
         const client = files(window);
         const token = async (address: string): Promise<string> => {
@@ -233,6 +233,13 @@ describe("Spec workspace.files 读取与保存：文本与上限", () => {
         await symlink(join(project, "dir", "a.md"), join(project, "link.md"));
         const viaLink = await client.write("project://link.md", "A3", {hash: hash("A2")});
         expect(viaLink).toEqual({ok: true, value: {baseline: {hash: hash("A3")}}});
+
+        // 祖先目录是链接：目录项仍是那个普通文件，保存替换了它，身份照样推进。
+        await symlink(join(project, "dir"), join(project, "alias"));
+        const beforeAlias = await token("project://alias/a.md");
+        const viaAncestor = await client.write("project://alias/a.md", "A4", {hash: hash("A3")});
+        if (!viaAncestor.ok) throw new Error(viaAncestor.detail);
+        expect(viaAncestor.value.identity).toEqual({before: beforeAlias, after: await token("project://alias/a.md")});
     });
 
     it("BOM 与 CRLF 原样往返：读到的文本带 BOM，原样保存后字节不变", async () => {

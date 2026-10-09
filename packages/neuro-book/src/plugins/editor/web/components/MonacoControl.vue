@@ -3,21 +3,29 @@
 import {onBeforeUnmount, onMounted, ref, watch} from "vue";
 import type * as Monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 
-import type {EditorControlHandle, ViewBinding} from "../area";
+import type {EditorControlHandle, ViewBinding, ViewStateSlot} from "../area";
 import {languageOf, loadMonaco} from "../code/load-monaco";
 import type {MonacoApi} from "../code/load-monaco";
 import {buildMonacoTheme, MONACO_THEME} from "../code/monaco-theme";
 import type {EditorControlEmits} from "../control";
+import {mergeSource} from "../markdown/source-merge";
 
-const props = defineProps<{binding: ViewBinding | null; readonly: boolean; visible: boolean; label: string}>();
+// `host`：撤销栈在模型里、模型在视图状态槽里，重挂只重建编辑器实例；槽里只记卸载时焦点是否在编辑器里，重挂后还给它。
+const props = defineProps<{binding: ViewBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string}>();
 const emit = defineEmits<EditorControlEmits>();
 
-/** 每“文档 × 组”一份，存在绑定的槽里：模型（含撤销栈）、视图状态、确认过的修订与“有未裁决输入”标记。 */
+/**
+ * 每“文档 × 组”一份，存在绑定的槽里：模型（含撤销栈）、视图状态、确认过的修订与“有未裁决输入”标记，以及换入模型时的
+ * 原文与模型给出的文本。Monaco 的模型把换行统一成一种、把 BOM 单独存放：交给文档的正文按行三方合并回原文
+ * （`source-merge.ts`），没改的行连同自己的换行符原样保留，BOM 也不丢（workspace/files.md 的字节往返）。
+ */
 interface CodeViewState {
     readonly model: Monaco.editor.ITextModel;
     view: Monaco.editor.ICodeEditorViewState | null;
     confirmed: number;
     held: boolean;
+    source: string;
+    base: string;
 }
 
 const root = ref<HTMLElement | null>(null);
@@ -33,9 +41,15 @@ let themeObserver: MutationObserver | null = null;
 
 const stateOf = (binding: ViewBinding): CodeViewState | null => binding.slot.state as CodeViewState | null;
 
+/** 模型的文本带上 BOM（`getValue` 默认去掉它）。 */
+const valueOf = (model: Monaco.editor.ITextModel): string => model.getValue(undefined, true);
+
+/** 模型的当前内容对应的正文：没改的行取原文的字节。 */
+const textOf = (state: CodeViewState): string => mergeSource(state.source, state.base, valueOf(state.model));
+
 const commit = (binding: ViewBinding, state: CodeViewState): void => {
     if (props.readonly) return;
-    const result = binding.commit(state.confirmed, state.model.getValue());
+    const result = binding.commit(state.confirmed, textOf(state));
     if (result.status === "accepted") {
         state.confirmed = result.revision;
         state.held = false;
@@ -46,7 +60,7 @@ const commit = (binding: ViewBinding, state: CodeViewState): void => {
 
 /** 换成文档的正文：`setValue` 清掉这个模型的撤销栈，外部内容不进用户的撤销历史（输出 12）。 */
 const adopt = (binding: ViewBinding, state: CodeViewState): void => {
-    if (state.model.getValue() !== binding.document.text.value) {
+    if (textOf(state) !== binding.document.text.value) {
         applying = true;
         try {
             state.model.setValue(binding.document.text.value);
@@ -54,6 +68,8 @@ const adopt = (binding: ViewBinding, state: CodeViewState): void => {
             applying = false;
         }
     }
+    state.source = binding.document.text.value;
+    state.base = valueOf(state.model);
     state.confirmed = binding.document.revision.value;
     state.held = false;
 };
@@ -63,7 +79,7 @@ const enter = (binding: ViewBinding): void => {
     let state = stateOf(binding);
     if (state === null) {
         const model = monaco.editor.createModel(binding.document.text.value, languageOf(binding.document.target.value.path));
-        state = {model, view: null, confirmed: binding.document.revision.value, held: false};
+        state = {model, view: null, confirmed: binding.document.revision.value, held: false, source: binding.document.text.value, base: valueOf(model)};
         binding.slot.state = state;
         binding.slot.dispose = () => model.dispose();
     } else if (!state.held && state.confirmed !== binding.document.revision.value) {
@@ -76,7 +92,7 @@ const enter = (binding: ViewBinding): void => {
     // 每次输入立即交出，没有缓冲；结算只需补交与文档不同的内容（例如回执冲突后）。
     detach = binding.attach(() => {
         const current = stateOf(binding);
-        if (current !== null && !current.held && current.model.getValue() !== binding.document.text.value) commit(binding, current);
+        if (current !== null && !current.held && textOf(current) !== binding.document.text.value) commit(binding, current);
     });
 };
 
@@ -167,6 +183,11 @@ onMounted(async () => {
     themeObserver.observe(document.documentElement, {attributes: true, attributeFilter: ["style", "class", "data-nb-appearance", "data-nb-theme"]});
     if (props.binding !== null) enter(props.binding);
     emit("ready", handle);
+    const kept = props.host.state as {refocus: boolean} | null;
+    if (kept?.refocus === true) {
+        kept.refocus = false;
+        editor.focus();
+    }
 });
 
 watch(() => props.label, (label) => editor?.updateOptions({ariaLabel: label}));
@@ -175,6 +196,7 @@ onBeforeUnmount(() => {
     unmounted = true;
     if (props.binding !== null) leave(props.binding);
     themeObserver?.disconnect();
+    props.host.state = {refocus: editor?.hasTextFocus() === true};
     // 模型归视图状态槽，由编辑器区在标签关闭或淘汰时释放；这里只释放编辑器实例。
     editor?.dispose();
     editor = null;

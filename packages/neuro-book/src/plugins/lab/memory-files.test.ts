@@ -179,6 +179,12 @@ describe("Lab 内存文件适配器：与真实 Files 同形", () => {
         }
         await both(pair, (files) => files.write("project://plain/a.md", "旧基线", {hash: "0".repeat(64)}));
         await both(pair, (files) => files.write("project://plain/nope.md", "N", {hash: "0".repeat(64)}));
+        // 同一基线的两次并发保存恰好一次成功（比较、替换、确认是一次原子提交）。
+        for (const side of [pair.real, pair.memory]) {
+            const read = ok(await side.files.read("project://plain/a.md"));
+            const results = await Promise.all([side.files.write("project://plain/a.md", "甲", read.baseline), side.files.write("project://plain/a.md", "乙", read.baseline)]);
+            expect(results.map((result) => (result.ok ? "ok" : result.code)).sort()).toEqual(["conflict", "ok"]);
+        }
     });
 
     it("变化：订阅先 ready，经文件服务的新建与改名推出对应路径的事件", async () => {

@@ -75,9 +75,25 @@ test("Lab 集成场景：输入后保存清掉未保存标记；外部改写进�
     await expect(prose(page)).toContainText("另一个程序改写于");
     await expect(prose(page)).not.toContainText("雨停了。");
 
-    // 外部删除：文档留在标签里，提示文件已被删除。
+    // 外部删除：文档留在标签里，提示文件已被删除，正文只读（输入不进去）。
     await page.locator("[data-lab-editor-external-delete]").click();
     await expect(stage(page).locator("[data-editor-group-active] [data-editor-banner]")).toContainText("文件已被删除。");
+    await expect(prose(page)).toHaveAttribute("contenteditable", "false");
+    const deletedText = await prose(page).textContent();
+    await prose(page).click();
+    await page.keyboard.type("删后");
+    await expect(prose(page)).toHaveText(deletedText ?? "");
+
+    // 读取扣住：800 ms 后显示进度条，颜色取主题的强调色，读屏能读到“正在读取”；放行后打开。
+    await page.locator("[data-lab-editor-controls]").getByRole("radio", {name: "扣住读取"}).click();
+    await page.locator("[data-lab-editor-controls]").getByRole("button", {name: "打开设定.json"}).click();
+    const bar = stage(page).locator("[data-editor-progress]");
+    await expect(bar).toBeVisible();
+    expect(await bar.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+    await expect(stage(page).getByRole("status").filter({hasText: "正在读取"})).toHaveCount(1);
+    await page.locator("[data-lab-editor-controls]").getByRole("radio", {name: "正常"}).click();
+    await expect(bar).toHaveCount(0);
+    await expect(stage(page).locator("[data-editor-monaco]")).toContainText("临川");
 
     // 拆分场景：左组是 Markdown 富文本，右组是 Monaco 打开的 JSON。
     await chooseScene(page, "向右拆分的两组");
