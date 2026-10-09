@@ -12,6 +12,7 @@ import type {PluginDescriptor} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {createBrowserDiagnosticsPlugin} from "nbook/plugins/diagnostics/web/plugin";
+import {editorBrowserPlugin} from "nbook/plugins/editor/web/plugin";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
 import {filesBrowserPlugin} from "nbook/plugins/files/web/plugin";
 import {projectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
@@ -45,6 +46,7 @@ export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>
     "nbook.storage": storageBrowserPlugin,
     "nbook.files": filesBrowserPlugin,
     "nbook.explorer": explorerBrowserPlugin,
+    "nbook.editor": editorBrowserPlugin,
 };
 
 /** 宿主适配器：诊断的存储在窗口运行实例建立之前就要能记录（ADR 0026 决策第 5 条）。 */

@@ -45,10 +45,11 @@ export interface ProductServer extends ProcessHandle {
     stop(): Promise<number | null>;
 }
 
-export async function startProductServer(stateRoot: string): Promise<ProductServer> {
+/** `port` 给定时监听这个 HTTP 端口：在同一地址上起第二个进程，看页面的“服务端已重启”。 */
+export async function startProductServer(stateRoot: string, port = 0): Promise<ProductServer> {
     const child = spawn("bun", ["dist/server/main.js", "--stop-stdin"], {
         cwd: PACKAGE_ROOT,
-        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_WEB_ROOT: "dist/web"},
+        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: String(port), NBOOK_WEB_ROOT: "dist/web"},
     });
     const handle = track(child);
     const url = (await handle.waitFor(/Listening on (\S+)/u))[1] as string;

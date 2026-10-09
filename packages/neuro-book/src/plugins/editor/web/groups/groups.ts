@@ -7,8 +7,9 @@
 import {shallowRef} from "@vue/reactivity";
 import type {ShallowRef} from "@vue/reactivity";
 
-import {createGrid} from "@notnotype/nb-ui/layout";
-import type {Grid, GridNode, GridSnapshot} from "@notnotype/nb-ui/layout";
+// 只要 grid 的结构与快照，不要渲染器：`./grid` 不依赖 Vue 与 DOM，插件激活时就能用、Bun 里也能测。
+import {createGrid} from "@notnotype/nb-ui/grid";
+import type {Grid, GridNode, GridSnapshot} from "@notnotype/nb-ui/grid";
 
 import {isWithin, rebase} from "../documents/address";
 

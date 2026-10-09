@@ -72,7 +72,7 @@ test.describe("产品页：拖放", () => {
         tmp = await createTestTmpRoot("neuro-book-e2e", "workbench-dnd");
         await mkdir(join(tmp, "state"), {recursive: true});
         // 产品的资源管理器视图会占住侧栏：这里只看测试插件的视图。
-        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views", NBOOK_EXCLUDE_PLUGINS: "nbook.explorer"}});
+        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views", NBOOK_EXCLUDE_PLUGINS: "nbook.explorer,nbook.editor"}});
     });
 
     test.afterAll(async () => {

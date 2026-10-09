@@ -89,7 +89,7 @@ async function open(page: Page, bound = true): Promise<void> {
     await expect(tree(page)).toBeVisible();
 }
 
-test("三类文件夹按呈现规则显示；点普通目录展开、点文件提示编辑器尚未接入；用户资产根默认折叠", async ({page}) => {
+test("三类文件夹按呈现规则显示；点普通目录展开、点文件在编辑器里以预览打开；用户资产根默认折叠", async ({page}) => {
     await open(page);
     await expect(item(page, "project://lore.content")).toBeVisible();
     await expect(item(page, "user://")).toHaveAttribute("aria-expanded", "false");
@@ -103,7 +103,8 @@ test("三类文件夹按呈现规则显示；点普通目录展开、点文件�
     await expect(item(page, "project://plain/index.md")).toBeVisible();
     await item(page, "project://plain/a.md").click();
     await expect(item(page, "project://plain/a.md")).toHaveAttribute("aria-selected", "true");
-    await expect(page.locator("[data-explorer-feedback]")).toContainText("编辑器尚未接入，不能打开 project://plain/a.md");
+    await expect(page.locator("[data-editor-tab][data-editor-tab-preview] [data-editor-tab-label]")).toHaveText("a.md");
+    await expect(page.locator("[data-explorer-feedback]")).toHaveCount(0);
 });
 
 test("显示清单文件与展开记录：重新加载后恢复；收起再展开不丢", async ({page}) => {

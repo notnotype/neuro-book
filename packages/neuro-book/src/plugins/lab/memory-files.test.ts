@@ -64,7 +64,7 @@ async function sides(): Promise<{readonly real: Side; readonly memory: Side}> {
     }});
     scenes.push(scene);
     const memory = createMemoryFiles({
-        project: ["lore.content/content.xml", "lore.content/alice/notes.md", "lore.content/bob/index.md", "lore.content/stray.md", "plain/a.md", "plain/sub/x.md"],
+        project: [["lore.content/content.xml", MANIFEST], ["lore.content/alice/notes.md", "A"], ["lore.content/bob/index.md", "B"], ["lore.content/stray.md", "S"], ["plain/a.md", "PA"], ["plain/sub/x.md", "X"]],
         user: [],
         manifests: {"project://lore.content": [{name: "alice", title: "爱丽丝"}, {name: "bob"}, {name: "gone", title: "已删除"}]},
     });
@@ -162,6 +162,23 @@ describe("Lab 内存文件适配器：与真实 Files 同形", () => {
         await both(pair, (files) => files.list("project://plain/bob"));
         await both(pair, async (files) => ok(await files.delete([{address: "project://plain/bob", expected: await tokenOf(files, "project://plain/bob")}, {address: "project://plain/nope"}]).result));
         await sameListings(pair);
+    });
+
+    it("正文：读到正文与基线；按基线保存，旧基线为冲突并带当前基线；保存换掉目录项身份并回报前后令牌；读目录与不存在的文件失败", async () => {
+        const pair = await sides();
+        await both(pair, (files) => files.read("project://plain/a.md"));
+        await both(pair, (files) => files.read("project://plain"));
+        await both(pair, (files) => files.read("project://plain/nope.md"));
+        for (const side of [pair.real, pair.memory]) {
+            const read = ok(await side.files.read("project://plain/a.md"));
+            const before = await tokenOf(side.files, "project://plain/a.md");
+            const saved = ok(await side.files.write("project://plain/a.md", "PA2", read.baseline));
+            expect(saved.identity).toEqual({before, after: await tokenOf(side.files, "project://plain/a.md")});
+            expect(saved.identity?.after).not.toBe(before);
+            expect(ok(await side.files.read("project://plain/a.md"))).toEqual({text: "PA2", baseline: saved.baseline});
+        }
+        await both(pair, (files) => files.write("project://plain/a.md", "旧基线", {hash: "0".repeat(64)}));
+        await both(pair, (files) => files.write("project://plain/nope.md", "N", {hash: "0".repeat(64)}));
     });
 
     it("变化：订阅先 ready，经文件服务的新建与改名推出对应路径的事件", async () => {

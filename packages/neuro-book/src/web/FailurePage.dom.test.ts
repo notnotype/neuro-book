@@ -57,6 +57,18 @@ describe("宿主页", () => {
         expect(page.emitted()).toHaveProperty("reload");
     });
 
+    it("终态带未保存的正文：逐项列出地址与只读正文，可复制；没有时不出现这一节", async () => {
+        const rescued = [{path: "project://a.md", text: "第一章\n未保存"}, {path: "user://u.md", text: "U"}];
+        const page = mount(FailurePage, {props: {state: {status: "server-restarted", reason: "boot changed", rescued}}});
+        const items = page.findAll("[data-host-rescued-item]");
+        expect(items.map((item) => item.get("code").text())).toEqual(["project://a.md", "user://u.md"]);
+        expect(items.map((item) => (item.get("textarea").element as HTMLTextAreaElement).value)).toEqual(["第一章\n未保存", "U"]);
+        expect(items[0]?.get("textarea").attributes("readonly")).toBeDefined();
+        expect(page.findAll("button").map((button) => button.text())).toEqual(["刷新页面", "复制正文", "复制正文"]);
+        const plain = mount(FailurePage, {props: {state: {status: "server-restarted", reason: "boot changed"}}});
+        expect(plain.find("[data-host-rescued]").exists()).toBe(false);
+    });
+
     it("启动中：没有动作，按状态播报", () => {
         const page = mount(FailurePage, {props: {state: {status: "starting"}}});
         expect(page.get("[data-browser-host-status]").attributes("role")).toBe("status");

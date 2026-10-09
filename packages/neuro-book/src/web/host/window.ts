@@ -23,7 +23,8 @@ import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exp
 import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
 import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
-import {clockKey, windowConnectionKey, windowNavigationKey, windowPluginsKey} from "nbook/shared/host";
+import {clockKey, windowConnectionKey, windowNavigationKey, windowPluginsKey, windowRescueKey} from "nbook/shared/host";
+import type {RescuedText, WindowRescue} from "nbook/shared/host";
 import type {WindowConnection, WindowConnectionState} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
@@ -44,8 +45,11 @@ export type WindowState =
     | {readonly status: "idle" | "starting" | "closed"}
     /** `connection` 是远程服务链路：断开时界面保留、标注离线，重连成功后回到 online。 */
     | {readonly status: "ready"; readonly instanceId: string; readonly root: WorkbenchRoot; readonly connection: "online" | "offline"; readonly project: WindowProject["project"]}
-    /** connection-failed 可以原地重试；其余要刷新页面（换外壳，或与新的服务端进程重新握手）才可能恢复。 */
-    | {readonly status: WindowFailure; readonly reason: string};
+    /**
+     * connection-failed 可以原地重试；其余要刷新页面（换外壳，或与新的服务端进程重新握手）才可能恢复。`rescued` 是
+     * 转入终态时插件交出的未保存正文。
+     */
+    | {readonly status: WindowFailure; readonly reason: string; readonly rescued?: ReadonlyArray<RescuedText>};
 
 export type ReadyWindowState = Extract<WindowState, {status: "ready"}>;
 
@@ -137,6 +141,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         }
 
         const instanceId = crypto.randomUUID();
+        const rescue = createRescue((error) => store.record({level: "warn", event: "browser-host.rescue.failed", message: "抢救未保存正文的提供者抛错", error}));
         const store = createDiagnosticsStore({identity: {location: "browser", instanceId}});
         const link = createLinkState((error) => store.record({level: "warn", event: "browser-host.connection-listener.failed", message: "连接状态的监听抛错", error}));
         const node = createRemoteNode({
@@ -153,8 +158,13 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                 if (next === "online" || next === "offline") link.set(next);
                 // 只改写这一次启动的 ready；窗口已关闭或已换成别的状态时不再理会旧链路。
                 if (state.status !== "ready" || state.instanceId !== instanceId) return;
-                if (next === "online" || next === "offline") setState({...state, connection: next});
-                else setState({status: next, reason: reason ?? next});
+                if (next === "online" || next === "offline") {
+                    setState({...state, connection: next});
+                    return;
+                }
+                // 插件停止之前先收集未保存的正文：停止之后它们就随插件一起没了。
+                const rescued = rescue.collect();
+                setState(rescued.length === 0 ? {status: next, reason: reason ?? next} : {status: next, reason: reason ?? next, rescued});
                 if (next === "server-restarted" || next === "project-gone" || next === "incompatible") void host?.destroy();
             },
             onRetryFailed: (reason) => store.record({level: "info", event: "browser-host.reconnect.failed", message: "重连没有成功，稍后再试", data: {reason}}),
@@ -198,6 +208,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                         {id: "window.connection", key: windowConnectionKey, create: () => link.connection},
                         {id: "clock", key: clockKey, create: () => clock},
                         {id: "window.plugins", key: windowPluginsKey, create: () => windowPlugins.capability},
+                        {id: "window.rescue", key: windowRescueKey, create: () => rescue.capability},
                     ],
                     plugins,
                     requiredPlugins: REQUIRED_PLUGINS,
@@ -341,4 +352,30 @@ function createLinkState(report: (error: unknown) => void): {readonly connection
 
 function describe(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+}
+
+/** 一个窗口实例的抢救提供者表：提供者抛错只记诊断，不挡住其它提供者与终态页。 */
+function createRescue(report: (error: unknown) => void): {readonly capability: WindowRescue; collect(): RescuedText[]} {
+    const providers = new Set<() => ReadonlyArray<RescuedText>>();
+    return {
+        capability: {
+            register: (provider) => {
+                providers.add(provider);
+                return () => {
+                    providers.delete(provider);
+                };
+            },
+        },
+        collect: () => {
+            const rescued: RescuedText[] = [];
+            for (const provider of [...providers]) {
+                try {
+                    rescued.push(...provider());
+                } catch (error) {
+                    report(error);
+                }
+            }
+            return rescued;
+        },
+    };
 }

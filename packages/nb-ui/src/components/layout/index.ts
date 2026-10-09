@@ -3,7 +3,8 @@
  *
  * 给不渲染组件树、只做几何与结构的消费者（会话、存储宿主、编辑组工具）用——
  * 它们不该为了一个 `createGrid` 把整个组件桶（几十个控件与表单组件）拉进模块图。
- * 组件消费者继续走 `@notnotype/nb-ui/components`。
+ * 组件消费者继续走 `@notnotype/nb-ui/components`。只要 grid 的结构、几何与快照、不能带上 Vue 与 DOM 的消费者（插件激活时
+ * 就要建的模型、Bun 里的测试）走 `@notnotype/nb-ui/grid`。
  */
 export * from "./grid";
 export * from "./grid-splitter";

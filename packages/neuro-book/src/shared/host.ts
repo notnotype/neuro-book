@@ -64,5 +64,21 @@ export interface WindowPlugins {
     retry(ref: EntryRef): Promise<WindowPluginRetry>;
 }
 
+/** 一份没保存的正文：文件地址与正文。 */
+export interface RescuedText {
+    readonly path: string;
+    readonly text: string;
+}
+
+/**
+ * 终态时的抢救（docs/specs/runtime/browser-host.md 的“失败呈现”）：插件登记提供者，宿主转入服务端已重启、项目已关闭或
+ * 版本不一致的终态时，在停止插件之前同步调用它们，把未保存的正文列在终态页上。提供者必须同步返回，不能依赖远程调用。
+ */
+export interface WindowRescue {
+    register(provider: () => ReadonlyArray<RescuedText>): () => void;
+}
+
+export const windowRescueKey: ServiceKey<WindowRescue> = defineServiceKey<WindowRescue>("nbook/window-rescue");
+
 /** 浏览器宿主提供给本窗口的插件。 */
 export const windowPluginsKey: ServiceKey<WindowPlugins> = defineServiceKey<WindowPlugins>("nbook/window-plugins");

@@ -1,6 +1,8 @@
 import type {Component} from "vue";
 
 import type ExplorerFeedback from "nbook/plugins/explorer/web/components/ExplorerFeedback.vue";
+import type EditorArea from "nbook/plugins/editor/web/components/EditorArea.vue";
+import type EditorTabBar from "nbook/plugins/editor/web/components/EditorTabBar.vue";
 import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.vue";
 import type ExplorerTree from "nbook/plugins/explorer/web/components/ExplorerTree.vue";
 import type FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
@@ -475,6 +477,32 @@ export const labFixtures: LabFixture[] = [
             ];
         })(),
         load: async () => (await import("./FilesExplorerViewFixture.vue")).default,
+    }),
+    defineLabFixture<typeof EditorArea>({
+        component: "EditorArea",
+        // 集成场景：真实的编辑器区控制器、文档模型与控件，文件换成内存适配器；输入只给界面语言。
+        scenes: [
+            {id: "live", label: "内存数据：两个标签", input: {props: {locale: "zh-CN"}}},
+            {id: "split", label: "向右拆分的两组", input: {props: {locale: "zh-CN"}}},
+            {id: "english", label: "英文界面", input: {props: {locale: "en-US"}}},
+        ],
+        load: async () => (await import("./editor-scene/EditorAreaFixture.vue")).default,
+    }),
+    defineSubjectFixture<typeof EditorTabBar>({
+        component: "EditorTabBar",
+        events: ["activate", "pin", "close", "move"],
+        class: "w-full",
+        scenes: (() => {
+            const tab = (id: string, label: string, extra: {preview?: boolean; dirty?: boolean; active?: boolean} = {}) => ({id, label, title: `project://chapters/${label}`, preview: extra.preview ?? false, dirty: extra.dirty ?? false, active: extra.active ?? false});
+            const base = {label: "打开的编辑器", unsavedLabel: "未保存"};
+            return [
+                {id: "mixed", label: "预览、未保存与活动标签", input: {props: {...base, tabs: [tab("t1", "第一章.md", {dirty: true}), tab("t2", "第二章.md", {active: true}), tab("t3", "第三章.md", {preview: true})]}}},
+                {id: "many", label: "放不下时横向滚动", input: {props: {...base, tabs: Array.from({length: 18}, (_, index) => tab(`t${String(index)}`, `第${String(index + 1)}章 一个相当长的章节标题.md`, {active: index === 9, dirty: index % 4 === 0}))}}},
+                {id: "single", label: "只有一个预览标签", input: {props: {...base, tabs: [tab("t1", "第一章.md", {preview: true, active: true})]}}},
+            ];
+        })(),
+        runtimeProps: async () => ({closeLabel: (name: string) => `关闭 ${name}`}),
+        subject: () => import("nbook/plugins/editor/web/components/EditorTabBar.vue"),
     }),
     defineSubjectFixture<typeof SkillChip>({
         component: "SkillChip",

@@ -113,3 +113,47 @@ html {
     text-align: center;
     pointer-events: none;
 }
+
+/* 终态页抢救出来的未保存正文：宽度跟随页面，文本框可选中复制，不撑出横向滚动。 */
+.nb-host-rescued {
+    width: 100%;
+    max-width: 48rem;
+    margin-top: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    text-align: start;
+}
+
+.nb-host-rescued h2 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.nb-host-rescued-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.nb-host-rescued-head code {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 0.875rem;
+}
+
+.nb-host-rescued-head button {
+    margin-top: 0;
+    flex-shrink: 0;
+}
+
+.nb-host-rescued textarea {
+    box-sizing: border-box;
+    width: 100%;
+    margin-top: 0.25rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.875rem;
+    resize: vertical;
+}

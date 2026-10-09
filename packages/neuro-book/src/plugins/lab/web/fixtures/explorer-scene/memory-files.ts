@@ -1,15 +1,15 @@
 /**
  * 资源管理器 Lab 场景的内存文件适配器（docs/specs/workbench/files-explorer.md 验收 13、docs/specs/ui/component-lab.md 的
  * 受控接缝）：实现资源管理器实际调用的全部 `FilesService` 方法——列出、监视、`identify`、单项操作、三种批量与取消——
- * 操作真正改变场景里的数据，并按 Files 合同的形状推送变化。正文读写不在资源管理器的范围内，返回 `unavailable`，不假报
- * 成功。与真实实现的形状对照见 `plugins/lab/memory-files.test.ts`。
+ * 操作真正改变场景里的数据，并按 Files 合同的形状推送变化；编辑器区的场景另用正文的读取与按基线保存（基线是正文的
+ * SHA-256，保存换掉目录项身份并回报前后令牌，与真实实现一致）。与真实实现的形状对照见 `plugins/lab/memory-files.test.ts`。
  *
  * 内容文件夹的清单按层记（每个内容层一份有序条目），与真实实现“一份 `content.xml` 里的嵌套条目”在列出结果上等价；
  * 清单错误用 `brokenManifests` 声明。批量的走法由 `next` 决定一次（正常、第二项失败、结果未知、慢速可取消），用来在
  * Lab 里看结果区与门禁。
  */
 
-import {shallowRef} from "@vue/reactivity";
+import {shallowRef, watch} from "@vue/reactivity";
 import type {ShallowRef} from "@vue/reactivity";
 
 import type {
@@ -54,6 +54,12 @@ export interface MemoryFiles {
     readonly next: ShallowRef<BatchMode>;
     /** 场景外部的变化（另一个程序新建了文件）：推一条 `external` 来源的变化。 */
     externalCreate(address: string, text: string): void;
+    /** 另一个程序改写了已有文件（没有时新建）：推一条 `external` 来源的 `changed`。 */
+    externalWrite(address: string, text: string): void;
+    /** 另一个程序删除了文件或目录：推一条 `external` 来源的 `deleted`。 */
+    externalDelete(address: string): void;
+    /** 扣住此后的正文读取，直到再设为 false：在 Lab 里看读取慢时的空白与进度条。 */
+    readonly readsHeld: ShallowRef<boolean>;
     dispose(): void;
 }
 
@@ -66,6 +72,14 @@ interface Root {
 }
 
 const SOURCE = {kind: "user", plugin: "nbook.explorer"} as const;
+/** 正文的保存来自编辑器。 */
+const EDITOR_SOURCE = {kind: "user", plugin: "nbook.editor"} as const;
+
+/** 正文按 UTF-8 编码后的 SHA-256（十六进制），与 Files 的磁盘基线同一算法。 */
+async function hashOf(text: string): Promise<string> {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 const SLOW_STEP_MS = 700;
 
 const parentOf = (path: string): string | null => (path === "" ? null : path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
@@ -382,15 +396,48 @@ export function createMemoryFiles(seed: MemorySeed): MemoryFiles {
         };
     };
 
-    const unavailable = (): Promise<Failure> => later(fail("unavailable", "Lab 的内存适配器不提供正文读写"));
+    const readsHeld = shallowRef(false);
+    const heldReads: Array<() => void> = [];
+    const stopHeld = watch(readsHeld, (held) => {
+        if (!held) for (const release of heldReads.splice(0)) release();
+    });
+    const waitForReads = async (): Promise<void> => {
+        while (readsHeld.value) await new Promise<void>((resolve) => heldReads.push(resolve));
+    };
+
+    const readText = async (address: string): Promise<FilesResult<{readonly text: string; readonly baseline: {readonly hash: string}}>> => {
+        await waitForReads();
+        const at = resolve(address);
+        if ("ok" in at) return at;
+        const node = at.root.nodes.get(at.path);
+        if (node === undefined) return fail("not-found", `${address} 不存在`);
+        if (node.kind !== "file") return fail("not-a-file", `${address} 不是文件`);
+        return {ok: true, value: {text: node.text, baseline: {hash: await hashOf(node.text)}}};
+    };
+
+    const writeText = async (address: string, text: string, baseline: {readonly hash: string}): Promise<FilesResult<{readonly baseline: {readonly hash: string}; readonly identity?: {readonly before: string; readonly after: string}}>> => {
+        await Promise.resolve();
+        const at = resolve(address);
+        if ("ok" in at) return at;
+        const node = at.root.nodes.get(at.path);
+        if (node === undefined) return fail("not-found", `${address} 不存在`);
+        if (node.kind !== "file") return fail("not-a-file", `${address} 不是文件`);
+        const current = await hashOf(node.text);
+        if (current !== baseline.hash) return {ok: false, code: "conflict", detail: `${address} 在读取后被修改过`, current: {hash: current}};
+        // 与真实实现一样，保存经“写临时文件再改名”替换目录项：身份换新。
+        const replaced: Node = {kind: "file", ino: ++ino, text};
+        at.root.nodes.set(at.path, replaced);
+        emit(at.scheme, [{type: "changed", path: at.path, source: EDITOR_SOURCE}]);
+        return {ok: true, value: {baseline: {hash: await hashOf(text)}, identity: {before: tokenOf(at.scheme, node), after: tokenOf(at.scheme, replaced)}}};
+    };
 
     const files: FilesService = {
         list: (address) => {
             const at = resolve(address);
             return later("ok" in at ? at : listing(at.root, at.path));
         },
-        read: () => unavailable(),
-        write: () => unavailable(),
+        read: (address) => readText(address),
+        write: (address, text, baseline) => writeText(address, text, baseline),
         identify: (addresses) => {
             const items: Identified["items"] = addresses.map((address) => {
                 const at = resolve(address);
@@ -460,8 +507,26 @@ export function createMemoryFiles(seed: MemorySeed): MemoryFiles {
             roots[at.scheme].nodes.set(at.path, {kind: "file", ino: ++ino, text});
             emit(at.scheme, [{type: "changed", path: at.path, source: {kind: "external"}}]);
         },
+        externalWrite: (address, text) => {
+            const at = parse(address);
+            if (at === null) return;
+            const node = roots[at.scheme].nodes.get(at.path);
+            if (node !== undefined && node.kind !== "file") return;
+            if (node === undefined) roots[at.scheme].nodes.set(at.path, {kind: "file", ino: ++ino, text});
+            else node.text = text;
+            emit(at.scheme, [{type: "changed", path: at.path, source: {kind: "external"}}]);
+        },
+        externalDelete: (address) => {
+            const at = parse(address);
+            if (at === null || !roots[at.scheme].nodes.has(at.path) || at.path === "") return;
+            for (const path of [...roots[at.scheme].nodes.keys()]) if (within(path, at.path)) roots[at.scheme].nodes.delete(path);
+            emit(at.scheme, [{type: "deleted", path: at.path, source: {kind: "external"}}]);
+        },
+        readsHeld,
         dispose: () => {
             disposed = true;
+            stopHeld();
+            readsHeld.value = false;
             listeners.project.clear();
             listeners.user.clear();
             count();
