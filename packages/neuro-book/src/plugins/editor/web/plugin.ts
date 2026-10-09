@@ -89,15 +89,21 @@ export const editorBrowserPlugin: PluginDefinition = {
             };
             const area: EditorAreaImplementation = {
                 load: async (): Promise<Component> => {
-                    const [{default: EditorArea}, {default: PlainTextControl}] = await Promise.all([import("./components/EditorArea.vue"), import("./components/PlainTextControl.vue")]);
+                    const {default: EditorArea} = await import("./components/EditorArea.vue");
                     // 源码编辑器（Monaco）第一次挂上源码控件时才加载，首屏不含它。
                     const MonacoControl = defineAsyncComponent(() => import("./components/MonacoControl.vue"));
-                    const controls: Readonly<Record<EditorKind, Component>> = {markdown: PlainTextControl, code: MonacoControl};
+                    // Markdown 富文本（Tiptap）同样第一次挂上时才加载。
+                    const MarkdownControl = defineAsyncComponent(() => import("./components/MarkdownControl.vue"));
+                    const controls: Readonly<Record<EditorKind, Component>> = {markdown: MarkdownControl, code: MonacoControl};
                     const control = (kind: EditorKind): Component => controls[kind];
                     return defineComponent({
                         name: "EditorAreaHost",
                         props: {context: {type: Object as PropType<EditorAreaContext>, required: true}},
-                        setup: () => () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, locale: locale.value, control, onIntent: (intent: "save" | "close" | "split-right") => execute(INTENTS[intent])})),
+                        setup: () => () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, locale: locale.value, control, onIntent: (intent: "save" | "close" | "split-right") => {
+                            // 控件有输入延迟：先把活动视图里还没交出的输入交给文档，命令的 `when`（例如保存要求 dirty）才看得到它。
+                            session.area.value?.activeHandle.value?.flushPendingChange();
+                            execute(INTENTS[intent]);
+                        }})),
                     });
                 },
             };

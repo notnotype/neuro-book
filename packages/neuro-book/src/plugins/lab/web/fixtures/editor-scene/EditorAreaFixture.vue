@@ -11,15 +11,17 @@ import type {Component} from "vue";
 
 import {createEditorArea} from "nbook/plugins/editor/web/area";
 import EditorArea from "nbook/plugins/editor/web/components/EditorArea.vue";
-import PlainTextControl from "nbook/plugins/editor/web/components/PlainTextControl.vue";
 import type {EditorKind} from "nbook/plugins/editor/web/groups/groups";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {useLabEventSink} from "../../lab-event-sink";
+import type {LabFixtureProps} from "../../lab-subject";
 import LabFixtureControls from "../../LabFixtureControls.vue";
 import {createMemoryFiles} from "../explorer-scene/memory-files";
 
-const props = defineProps<{scene: string; locale: DisplayLocale}>();
+const props = defineProps<LabFixtureProps>();
+/** 场景输入只给界面语言。 */
+const locale = computed((): DisplayLocale => (props.input?.props?.locale === "en-US" ? "en-US" : "zh-CN"));
 const record = useLabEventSink();
 
 const memory = createMemoryFiles({
@@ -47,7 +49,8 @@ if (props.scene === "split") {
 }
 
 const MonacoControl = defineAsyncComponent(() => import("nbook/plugins/editor/web/components/MonacoControl.vue"));
-const control = (kind: EditorKind): Component => (kind === "code" ? MonacoControl : PlainTextControl);
+const MarkdownControl = defineAsyncComponent(() => import("nbook/plugins/editor/web/components/MarkdownControl.vue"));
+const control = (kind: EditorKind): Component => (kind === "code" ? MonacoControl : MarkdownControl);
 
 const active = computed(() => area.activeDocument.value?.target.value.path ?? null);
 const externalWrite = (): void => {
@@ -77,7 +80,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <EditorArea :area="area" :locale="props.locale" :control="control" class="h-full w-full" data-lab-subject @intent="onIntent" />
+    <EditorArea :area="area" :locale="locale" :control="control" class="h-full w-full" data-lab-subject @intent="onIntent" />
     <LabFixtureControls>
         <div class="flex flex-wrap items-center gap-3 text-xs" data-lab-editor-controls>
             <span class="text-[var(--text-secondary)]">正文读取</span>

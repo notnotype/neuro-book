@@ -298,6 +298,8 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             }
         }
         if (baseline.hash === entry.baseline?.hash) return;
+        // 视图里可能还有没交出的输入（控件有输入延迟）：先结算，再按 dirty 决定换不换正文。
+        flush(entry);
         const inflight = entry.inflight.value;
         if (inflight !== null && baseline.hash === (await inflight.hash)) return;
         if (entry.closed) return;
@@ -585,7 +587,9 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
         get: (address) => entries.get(address)?.document ?? null,
         commit: (document, token, baseRevision, text) => {
             const entry = entryOf(document);
-            if (entry === null || !document.writable.value) return {status: "stale"};
+            // 订阅结束只挡保存，不挡输入进入正文：结束之前敲下、还没交出的输入要能抢救（输出 22）。
+            const status = entry?.status.value;
+            if (entry === null || (status !== "ready" && status !== "deleted")) return {status: "stale"};
             const revision = entry.revision.value;
             if (text === entry.text.value) return {status: "accepted", revision};
             if (baseRevision === revision) {
