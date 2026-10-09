@@ -1,0 +1,139 @@
+# t71 实施计划架构与不变量审查
+
+- 审查对象：`.worktree/w00017-t71-plan-architecture/.agents/works/w00017-application-runtime-architecture/tasks/t71-editor-area/plan.md`（指定提交 `04317a82`）。
+- 范围：只读；文档模型寿命、Files 事件和保存并发、工作台贡献与停放、插件合同与命令、资源管理器冻结意图和结果未知门禁。
+- 判定：只记录会导致实现错误、无法完成或无法验收的问题；已登记的范围取舍不作为缺陷。
+- 证据：源码和合同推导标记“从代码推断”；运行证据另列具体命令与结果。
+- 路径基准：除实验与报告文件外，所有引用均相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-plan-architecture`；`plan.md` 专指本 Task 的实施计划。已核实 HEAD 为 `04317a824b8124179637823ac1e87c901752f3e5`。
+
+## 已核实发现
+
+### 1. 删除成功后的 `forget` 与“保留已删除文档”合同互相矛盾
+
+- 严重程度：阻断
+- 位置：`plan.md:32`（`forget(addresses)` 的“删除成功后丢弃”语义）、`plan.md:65`（打开文档删除后保留标签、正文和“已删除”状态）、`plan.md:72`（删除成功后调用 `documents?.forget(addresses)`）。
+- 现象：计划第 2、8 节要求资源管理器删除成功后通过 `forget` 丢弃文档；第 7 节又要求删除后的打开文档保留标签和正文，允许保存重建。计划未区分本窗口删除与其它来源删除，也未规定删除标签或引用的另一条路径。
+- 问题：按 `forget` 的字面语义实现，会失去已删除标签所引用的模型及重建正文；将 `forget` 实现为标记删除又不符合“丢弃”定义。S2 和 S7 对同一删除结果没有一致的生命周期合同，验收预期互相冲突（从计划与代码合同推断，编辑器尚未实现）。
+- 依据：`plan.md:32,65,72` 的直接矛盾；`docs/specs/workbench/files-explorer.md:119-121` 要求删除前结算 dirty/未决冲突，`docs/specs/workspace/files.md:119,123` 将文档结算交给文档消费者，不能用成功事件代替。
+- 建议：将删除后的动作改为明确的 `markDeleted(addresses)`（目录操作按路径段边界覆盖子文档），保留打开模型、正文、标签和 dirty 状态；`forget` 仅用于无引用且已结算、或用户明确丢弃的模型。为“已删除模型保存重建”单独定义成功、目标已被外部重建、冲突和未知结果四种收口。
+
+### 2. 删除后重建保存未定义新空文件基线与两步失败收口
+
+- 严重程度：重要
+- 位置：`plan.md:29`（带基线写入）、`plan.md:65`（删除后保存为 `files.create` 后 `write`）。
+- 现象：`create` 排他创建的是空文件，成功结果仅为 `OperationDone`；`write` 必须带基线。被删文档的旧基线对应非空正文时，不能直接用于新空文件。计划没有规定这一步如何取得空文件基线，也没有定义创建成功但后续写入失败或结果未知时的模型状态。
+- 问题：照常复用模型的旧基线会使重建保存得到 `conflict`；若为取得基线直接采用新一次 `read` 的结果，则可能无提示覆盖创建后被其它窗口改写的正文。两步之间的失败还可能留下空文件，不能因此把正文标 clean 或下一次再报“文件已存在”（从合同推断）。
+- 依据：`packages/neuro-book/src/plugins/files/shared/contracts.ts:85-92,132-134,169-175`：`create` 不返回基线，`write` 的 `baseline` 必填；`docs/specs/workspace/files.md:56,59-60,71,90`：基线为内容字节 SHA-256，排他新建文件为空，写入可返回冲突或结果未知。
+- 运行核实：同一 `files-smoke.ts` 的 `deleted-create-write`：排他 create 返回 `{}`，复用已删非空文档基线 write 得到 `conflict/current.hash = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`，磁盘仍为空；使用该空字节 SHA-256 后写入成功，磁盘为 `retained-document`。退出 0；只证明现有 Files 行为。
+- 建议：沿现有 Files 合同明确空文件的已知 SHA-256 基线；若先 `read`，仅在仍为空且未被替换时继续，不把任意后来正文当成可覆盖基线。为创建与写入分别记录已确认结果，写失败保留正文与 dirty，写结果未知先核对并保持保护，成功仅确认实际提交的那份正文。
+
+### 3. `read` 合并与 `watch` 的 ready/失效没有定义共同收口
+
+- 严重程度：重要
+- 位置：`plan.md:27`（同地址并发打开合并为一次 read）、`plan.md:30`（changed/resync 重读），`plan.md:31`（旧回调按目标失效）。
+- 现象：计划没有规定首次读取是否等到 watch 的 `ready`，也未规定变化发生在合并读取期间时是否补读。先读后订阅的间隙可能漏事件；在途 read 被 changed/resync 标记失效后，若处理器只复用那次 read，旧快照返回时可能被确认为最新结果。
+- 问题：同一目标未换代、未换路径时，`DocumentTarget` 比对不能识别这种旧磁盘快照。另一个必要边界是重读发起时 clean、返回前已经接受输入：只在事件到达时判断 dirty 会覆盖后来的未保存正文。t71 对两者尚未规定接纳条件（从代码推断，未声称已有 t71 运行时复现）。
+- 依据：`packages/neuro-book/src/plugins/files/web/client.ts:131-135,172-180,195-226` 显示订阅异步建立，`ready` 只代表监视就绪，没有文档 read 序列号；`shared/contracts.ts:85,201-215` 的读取与变化消息也没有共享版本。现有资源管理器合同 `docs/specs/workbench/files-explorer.md:99-105` 已明确“正在列出时标脏，结果到达后再列一次”。
+- 运行核实：`files-timing-smoke.ts` 的 `read-before-watch-ready` 在真实链路扣住订阅发送：首次读取为 `early-original`，另一窗口完成写入后才建立订阅；ready 时没有该文件的历史事件，再读为 `early-updated`。`changed-before-read-reply` 扣住真实 read 回复，等待另一窗口写入及 changed 已到，再放行 read，旧回复仍为 `race-original`，随后读取为 `race-updated`。两项断言通过；只证明 Files 无共同快照屏障，不声称 t71 已丢数据。发送闸门与回复闸门分别制造完成先后，不模拟底层链路的帧乱序。
+- 建议：先建立监视屏障，或在 ready 时重新核对屏障前的读取；按文档保存 read epoch/invalidation，read 在途收到相关变化时完成后补读。接纳结果时复查目标、存活性、输入 revision、dirty/冲突/在途保存，而非仅在发起时检查；dirty 时只登记外部事实，不替换权威正文。
+
+### 4. 保存替换会使冻结源令牌失效，dirty 结算后的复制/移动/改名被自身保存拒绝
+
+- 严重程度：阻断
+- 位置：`plan.md:32`（`settle` 等在途保存，但返回值没有身份更新）、`plan.md:70-73`（先保存再复制；移动/改名提交前 settle）。
+- 现象：资源管理器在剪切、拖动、改名前用 `identify` 冻结源身份，提交时继续携带同一 `expected`；Files 保存通过临时文件改名替换，inode 与目录项令牌随之变化。因而“冻结 → 等本窗口保存成功 → 继续原文件操作”会被服务端拒绝为 `source-changed`。
+- 问题：t71 只是加入等待/保存，没有设计如何将这次已确认的自身替换与冻结身份衔接。“先保存再复制”以及拖动/剪切期间在途保存的正常成功路径无法成立；去掉 expected 或无条件重新 identify 又会放过外部替换，破坏 t70 的旧意图保护。
+- 依据：`packages/neuro-book/src/plugins/explorer/web/controller.ts:427-443,548-550,562-568,691-697,847-849` 冻结并提交旧令牌；`packages/neuro-book/src/plugins/files/backend/rooted.ts:62-68` 令牌含 dev/inode/birthtime/type；`packages/neuro-book/src/backend/locked-replace.ts:158-180` 保存替换目录项；`packages/neuro-book/src/plugins/files/backend/commit.ts:62-69` 重验 expected。`pending-confirmations.md:44,51` 明确保护冻结意图，不允许因改名回流悄悄改投。
+- 运行核实：`bun --tsconfig-override <报告目录>/tsconfig-smoke.json <报告目录>/files-smoke.ts`，退出 0。真实内核与 Files 客户端、真实隔离文件，先 identify 再 write；新旧 token 不同，携旧 token 的 move/copy 单项均为 `failed/source-changed`，rename 为 `source-changed`，源仍保留 `saved-input`。输出见 `files-smoke-result.json` 的 `freeze-save-transfer`；这是现有 Files 接缝证据，不声称运行了尚未实现的 t71。
+- 建议：先定义冻结意图允许接纳的“本窗口保存完成”身份转换，由可核实的保存结果把旧 token 更新为新 token；只有确证属于该保存、路径及绑定未变时更新，否则让用户重新冻结。复制 dirty 的选择时序也应在取得这次操作身份前完成保存，或显式实现同样的转换。S7 加“剪切/拖动冻结后在途保存完成”和“先保存再复制”真实场地验收，不能仅覆盖未保存但无在途保存的移动。
+
+### 5. “来源加基线且不重读”的自身回声判定无法从现有事件计算
+
+- 严重程度：重要
+- 位置：`plan.md:30`（来源为 nbook.editor 且“读到的基线等于刚保存的”就“不重读”）、`plan.md:133`（按来源与基线判定）。
+- 现象：Files 的 changed 事件只给 path/source，没有 baseline、窗口身份或操作 id。两个窗口的同名编辑器插件写入都带 `{kind: "user", plugin: "nbook.editor"}`。此外成功变化在保存 RPC 返回前发布，“刚保存的”确认基线可能尚未写入本窗口状态。
+- 问题：若按计划省略重读，无法取得事件对应的磁盘基线，不能区分另一窗口保存与自己的回声；拿本地已有 baseline 与本地 lastSaved 比较只是在比较两个缓存值。若确实 read 来核对，应明确“不回灌/不重置视图”而非“不重读”，并定义 save 结果与事件不同先后顺序。当前是消费现有 Files 合同的实施缺口（从代码推断）。
+- 依据：`packages/neuro-book/src/plugins/files/shared/contracts.ts:189-215` 的事件与来源 schema；`packages/neuro-book/src/plugins/files/backend/plugin.ts:36-38,86-90` 丢弃调用方 instanceId，并先 saved 再返回保存结果；`packages/neuro-book/src/plugins/files/backend/changes.ts:284-289` 立即广播不带基线的 changed。
+- 运行核实：同一 `files-smoke.ts` 的 `two-editor-windows` 建立真实内核里的两个浏览器实例，同名 `nbook.editor` 测试调用方依次保存。两窗口都收到两条完全相同的 changed（只有 path/source），磁盘最终为 `saved-by-second`；没有事件基线或窗口标识可供判别。退出 0；没有实现或测试 t71 的回声处理器。
+- 建议：沿现有 Files 合同对来源为同插件的事件也读一次核对；结果等于本窗口该文档已提交正文 hash 时只跳过正文回灌，否则按外部变化处理。保存事件先到时用在途提交快照进行归属判断，保存失败/未知后不得凭 source 自行确认成功；若要免读，再由 Files owner 明确扩充事件的关联数据。
+
+### 6. 输入修订冲突没有纳入文档 dirty/离开保护，clean 文档仍可能有未保存候选
+
+- 严重程度：重要
+- 位置：`plan.md:26-28`（conflict 仅定义为保存得到的磁盘基线，commit 又能返回 conflict）、`plan.md:43`（冲突视图保留到标签关闭）、`plan.md:64`（只关闭 dirty 标签时确认，只存在 dirty 文档时 beforeunload）。
+- 现象：多组共享权威正文，但候选留在产生它的视图。另一组已接受并保存新正文后，权威模型可以 `text === saved`；落后修订的组仍可能持有 `commit` 拒绝的未决候选。这种候选既不是模型 dirty，也不是“保存冲突的磁盘基线”。关闭该标签或刷新窗口按第 7 节的谓词均不会确认。
+- 问题：迁入旧回执的同时，计划没有给未决输入登记与裁决定义 owner，也没有把它纳入关闭、重新打开、preview 替换和窗口离开的保护。“冲突视图留到标签关闭”并不能阻止标签关闭时丢掉该视图的唯一候选；普通 dirty 提示也不能解决两个不同来源的冲突（从代码推断，未运行旧包测试）。
+- 依据：`packages/neuro-book-legacy/app/components/editor-workbench/editor-view.types.ts:22-38,63-72` 区分候选输入冲突与保存；`EditorViewHost.md:31-35` 要求显式 token 裁决、flush conflict 阻止隐藏/重挂；`CodeEditorView.vue:32-57,59-76,91-100` 的候选留在实例；旧 `novel-ide.ts:643-657,690-710,1118-1123` 有单独未决登记并阻止保存。新计划 `:26,64` 的保护谓词未包含这类输入。
+- 建议：给未决视图输入按 documentId + token 登记，明确“采用权威正文 / 保留此视图内容”的独立裁决；保存、关闭、preview 顶替、reopen-with、组删除均先同步 flush 并检查未决登记。beforeunload 同步结算全部存活实例，以 dirty、未决候选、待确认提交为保护条件；不能等到 pagehide 再依赖异步保存。加“文档已保存 clean、兄弟视图仍有候选”离开与关闭验收。
+
+### 7. `settle` 是一次等待，没有覆盖路径操作在途期间的新保存与未知结果
+
+- 严重程度：重要
+- 位置：`plan.md:32`（协调接口只有 settle/saveAll/rebind/forget）、`plan.md:71-73`（settle 后立即提交，成功再重绑定），`plan.md:61-64`（保存命令与关闭仍独立可用）。
+- 现象：移动/改名前 settle 等完现有保存后，文件操作仍异步在途；这段时间用户可再 Ctrl+S。计划没有受影响文档的操作租约/冻结状态，也没有规定 watch 的 renamed 先到、请求回复后到时如何收口；批量结果未知后的现有门禁只覆盖资源管理器自己的动作。
+- 问题：新保存可能替换已冻结的源，使移动失败；或在路径已移动、文档还未 rebind 时写旧地址；后者若旧地址已被外部重建且同字节，基线保护也不能识别“这是另一文件”。按旧 target 丢掉迟到保存成功回调又会漏记已提交正文。一次 settle 不等于整个路径操作期间禁止新磁盘写入，资源管理器 unknown-outcome 门禁也不能阻止编辑器 save（从代码推断）。
+- 依据：`packages/neuro-book/src/plugins/explorer/web/controller.ts:381-412,484-491` 的 idle/unknown 仅影响 explorer 动作；`packages/neuro-book/src/plugins/files/backend/commit.ts:104-116` 文件先移动再发事件再返回；`docs/specs/workspace/files.md:59-60` 保存按路径和内容 hash，不含目录项身份；旧 `novel-ide.ts:1044-1045,1365-1388,1406-1432` 显式用 movingWorkspacePaths 阻止新保存，`novel-ide-editor.test.ts:222-240` 对这条边界已有合同测试（本次未运行旧测试）。
+- 运行核实：`files-timing-smoke.ts` 的 `stale-path-write-after-move` 扣住真实移动回复，文件已移至目标而客户端操作仍在途；旧地址 read 为 `not-found`。实验主动在旧地址重建同字节的另一文件，identify 确认 token 不同；携移动前的正文基线向旧地址 write 仍成功，目标文件保持 `move-original`，新源文件被写成 `late-editor-input`。全部断言通过；这是现有 Files 只按内容基线保存的边界实验，未实现 t71，亦未声称发生了该编辑器竞态。
+- 建议：给协调端口增加按 documentId/方案代次/路径范围的 begin/end 操作句柄；先保护受影响模型并阻断新磁盘写入，再 flush、等在途保存、重验身份、提交。成功按事件/结果幂等 rebind，并在签发新视图 token 前再结算操作期间的新输入；明确失败释放，结果未知保留保护直到核对并由用户明确结算，不能仅因 Promise 返回就清门禁。无需全局锁或跨窗口事务。
+
+### 8. 将 `editor-focus` 写进命令 `when` 会隐藏命令面板中的保存与拆分
+
+- 严重程度：重要
+- 位置：`plan.md:62`（保存、关闭、拆分的“when 带 editor-focus”）、`plan.md:117`（命令面板执行向右拆分和保存）、`plan.md:63`（沿用 editor-focus 含义）。
+- 现象：打开命令面板会把焦点放到 QuickInput 输入框，真实的“编辑区获得焦点”随之为 false。产品面板每次列出候选都求值同一条命令的 `when`；带 editor-focus 的编辑器动作会从候选消失。
+- 问题：计划将焦点条件放在命令的通用可用性上，但该条件对快捷键和面板语义不同。即使随后关闭面板能还焦点，用户也无法选中已经被过滤的保存/拆分命令；这直接冲突于验收映射，而将 editor-focus 改成“曾聚焦”又不符合命令 Spec 现有定义（从代码推断，未运行 UI）。
+- 依据：`docs/specs/workbench/commands.md:41-42,68-69,204-207`；`packages/nb-ui/src/components/feedback/QuickInput.md:15-21` 打开取得输入焦点；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue:51-55` 按 isEnabled 过滤候选；`web/commands/keymap.ts:129-133` 键位分发与面板共用同一命令条件。已有 focus/undo/go-to-line 声明按 editor-active、editor-writable、editor-line-navigation 求值，不要求 editor-focus（`plugins/lab/web/fixtures/command-scene/editor-commands.ts:48-49,58-59,78-87`）。
+- 建议：逐命令以限定的 editor-active/writable/dirty 等业务条件声明 when，保留已有迁入命令的 effect 与 Agent 暴露。编辑器焦点的键位限制放在局部键位处理或独立键位条件，不放到人类面板与 Agent 共用的执行条件；若首期不扩键位合同，可由 EditorArea 的键位入口执行同一命令。S0 列精确矩阵，验收在面板拥有焦点时仍可选择保存与拆分。
+
+### 9. 项目代次失效时宿主会销毁入口，`ended` 只置不可保存无法保住未保存正文
+
+- 严重程度：重要
+- 位置：`plan.md:25`（文档 store 活到编辑器入口停止）、`plan.md:30-31`（ended 置不可保存、旧回调失效）、`plan.md:64`（只在页面离开时确认、不跨刷新留草稿）、`plan.md:85`（S0 没有浏览器宿主合同的调整）。
+- 现象：浏览器重连发现项目代次结束或服务端重启时，现有 `createBrowserWindow` 直接转入失败状态并调用 `host.destroy()`；PageOutlet 随状态切掉工作台。编辑器入口及其窗口文档 store 会停止。这不是浏览器导航，beforeunload 不触发。
+- 问题：t71 定义了 ended 后不可保存，却没有让这份 dirty 正文继续可见、可复制的存活边界。项目子进程崩溃或开发服务端重启即可在当前页面内丢失未保存输入，而非只有用户确认离开后才丢失。仅增加 generation/token 比对解决迟到回调，不能解决现有 owner 被销毁（从代码推断，未运行带 t71 编辑器的宿主）。
+- 依据：`packages/neuro-book/src/web/host/window.ts:152-159` 失败状态即 destroy；`web/host/browser-host.ts:63-71` destroy 停止运行实例；`web/PageOutlet.vue:21-32` 非 ready 卸载路由页面；`docs/specs/runtime/browser-host.md:56-58,103-105` 新代次不可改投且服务重启不自动刷新，理由包括避免丢失未保存内容。
+- 建议：在 S0 明确终端失效时内存正文的 owner 与呈现收口，协调宿主提供不可保存、可复制正文的恢复面，并撤销旧操作/目标；或明确保存这份内存快照后再停止插件。无需承诺跨刷新草稿，但不能只依赖 beforeunload 或把 dirty store 随 host.destroy 清空。增加项目失效、服务重启且文档 dirty 的真实宿主验收。
+
+## 运行证据与未运行项
+
+实际执行的两个命令：
+
+```sh
+bun --tsconfig-override /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/architecture/tsconfig-smoke.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/architecture/files-smoke.ts
+bun --tsconfig-override /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/architecture/tsconfig-smoke.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/architecture/files-timing-smoke.ts
+```
+
+- `files-smoke.ts`：退出 0；冻结令牌后保存、删除后创建写入、同名编辑器两个窗口的事件来源断言通过。证据为同目录 `files-smoke-result.json`。
+- `files-timing-smoke.ts`：订阅 ready 之前读取、changed 先于旧 read 回复交付、移动后旧地址同字节重建再保存的全部断言通过，生成 `files-timing-smoke-result.json`。命令输出同时出现 Bun 的 `Internal error: directory mismatch for directory "<报告目录>/tsconfig-smoke.json", fd 3. You don't need to do anything, but this indicates a bug.`；这是运行器诊断，不计作 t71 缺陷，也不隐去。
+- 两个实验均使用指定 worktree 的真实 Files 客户端、内核实例、JSON 编解码链路和隔离磁盘文件；闸门只扣住真实请求发送或真实回复交付。第三方依赖经 scratch tsconfig 借用 `.worktree/w00017-runtime-foundation/node_modules`，产品与内核源码均指向审查 worktree。
+- 两次实验都释放 watch、放行自己持有的闸门，并断言全部四个应用实例的关闭结果为 `closed`；没有遗留自己启动的服务或子进程。隔离文件与脚本留在报告目录作证据。
+- 没有运行全量 typecheck/build/Bun/Vitest/e2e、旧包测试或浏览器 UI；t71 尚为计划。运行实验证明现有接缝，不证明 t71 的视图、协调器、命令或宿主恢复行为已实现。
+- 仓库保持只读；本次所有写入均在报告目录，没有 commit、push、stash、切分支或删除仓库文件。
+
+## 数量
+
+| 严重程度 | 数量 | 发现编号 |
+|---|---:|---|
+| 阻断 | 2 | 1、4 |
+| 重要 | 7 | 2、3、5、6、7、8、9 |
+| 建议 | 0 | 无 |
+| 合计 | 9 | 1–9 |
+
+## 未发现问题的方面
+
+以下是合同与代码核对结论，不是尚未实现功能的运行验收：
+
+- 工作台仅定义编辑器槽贡献点、编辑器插件提供组件，资源管理器经 editor 的 `shared/contracts.ts` 消费协调服务；设计的依赖方向符合现有包边界。没有必要让 Files 依赖界面或让工作台导入 editor 私有实现。
+- 编辑器槽挂一次、布局变化时停放并交出只读 visible 的目标，与 `WorkbenchShellLayout.vue:225-231` 的稳定 Teleport 宿主及 `workbench.views` 的可见性合同相容。异步加载与撤回可复用 `web/views/registry.ts:112-136` 的句柄核对与 stale 收口，未发现必须另建生命周期机制的矛盾。
+- 按窗口持有共享权威正文、按组持有视图和撤销历史，引用最后释放时保护 dirty/保存/冲突的总体分层成立；保存成功只推进实际提交正文的基线，保留期间新输入 dirty 的设计符合 Files 验收。具体缺口见发现 3、6、7、9。
+- `DocumentTarget` 四字段与每次视图绑定的 token 能隔离同路径重开、组内控件复用和旧代次回调；按路径段边界处理目录改名也符合 Files 事件合同。读取失效、操作期输入与结果双重到达仍须落实前述收口，不把目标比对当成全部并发保护。
+- 可选协调依赖在没有编辑器时保留资源管理器现有动作，符合已登记取舍；现有服务的缺失、失败、撤销与依赖关闭合同可复用。没有据此新增“可选就必然绕过 dirty”的推测性发现。
+- 已有四条编辑器命令执行时读取活动句柄，go-to-line 按目标四字段拒绝过期请求；既有 `effect` 与 Agent 暴露可沿迁入合同保留。除发现 8 的明确焦点矛盾外，不因计划简写未列完整元数据矩阵或限定键名而另报缺陷。
+- Tiptap/Monaco 选型、Markdown 迁移边界、手动保存、不跨刷新存草稿、项目窗口的 `editor.session`、只取最低 order 提供者，以及拖放/固定标签/多行标签推迟均已登记；本次未将这些取舍计为问题。
+
+## 执行反思
+
+- 技术意外：worktree 未安装依赖，直接使用包 tsconfig 的首次实验出现 Bun 解析错误；改用报告目录中的显式路径映射后完成真实实验。后续仍出现上述运行器诊断，已保留其边界。
+- 规则纠正：实验脚本中的具体函数 ReturnType、无必要包装、any 与行内对象类型断言已按现有规则修正；新输入的 path 读取使用 `typeof`/`in` 缩窄。
+- 回写建议：无新增治理规则建议。当前问题已有类型与工具规范覆盖，不修改仓库规则或产品 Spec；报告中的行为修订建议交由计划 owner 处理。
+

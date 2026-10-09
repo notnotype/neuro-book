@@ -1,0 +1,108 @@
+# t71 实施计划参考实现审查
+
+- 审查对象：提交 `04317a82` 的 `.agents/works/w00017-application-runtime-architecture/tasks/t71-editor-area/plan.md`。
+- 工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-plan-reference`。下文仓库路径均相对于此工作区。
+- 只读审查；仅在本报告目录创建审查产物。已记录的“不做”与待确认取舍仅在破坏既定合同或内容完整性时列为发现。
+- 核实等级逐条注明；代码阅读不冒充运行证据。
+
+## 已核实的发现
+
+### 1. 输入修订冲突没有裁决与保护的落点，磁盘冲突按钮不能替代它
+
+- **严重程度：重要；类别：正确性 / 不变量。核实等级：从代码推断，未运行新应用实现。**
+- **位置**：计划 `plan.md:25-32,43,64,85,132`；旧实现 `packages/neuro-book-legacy/app/stores/novel-ide.ts:643-657,685-714,1114-1141`；`packages/neuro-book-legacy/app/components/editor-workbench/editor-view.types.ts:23-38,63-72`；`EditorViewHost.md:16-20,31-35,39`。
+- **现象**：计划保留 `commit → accepted | conflict | stale` 和同文档拆分视图，却只定义了保存产生的磁盘 `conflict`；没有输入候选登记、所属 token、显式 `adopt-current / keep-view` 裁决入口及未裁决输入的关闭/保存/淘汰规则。旧宿主依赖 `protectedTokens` 防止把正文 clean、但仍持有被拒绝输入的实例淘汰；旧 Store 也单独登记该候选并阻止保存/切换/文件操作。
+- **为什么是问题**：两个视图基于同一修订提交不同内容时，第二份内容不进入权威 `text`，也不是磁盘基线冲突。按计划当前状态字段和“关闭 dirty 标签”规则，无法定位或裁决这份内容；仅检查 `text !== saved` 也不能证明视图可以销毁。磁盘“重新载入 / 覆盖”不能决定采用哪个视图候选。直接迁入 `EditorViewHost` 仍缺少提供这些 props、处理裁决结果的文档 owner。
+- **依据与核实**：旧 `commitEditorChange` 在过期修订且内容不同的情况下登记候选并返回冲突；旧 `saveCurrentFile`、`settleBeforeWorkspaceMutation` 明确检查结算结果和候选登记。`docs/proposals/project-file-foundation.md:162` 保留冲突模型不淘汰；`docs/specs/workbench/files-explorer.md:121,171,196` 要求未决冲突显式结算。这不是要求新增差异比较界面，也不反对待确认清单中的磁盘双选裁决。
+- **建议改法**：把输入修订冲突与磁盘保存冲突分开建模；保留候选的实例 token 和保护登记，给明确的采用权威正文/重提视图候选通道，并在 save、close、reopen-with、控件换绑、删除及 LRU 前检查它。S0 写入对应合同；验收增加双组同文档冲突、权威正文 clean 但候选未裁决时不可淘汰，以及重提再次冲突仍保留输入。
+
+### 2. 富文本编辑正文会把未编辑的 CRLF frontmatter 改成 LF，违背文件字节与 frontmatter 保留合同
+
+- **严重程度：重要；类别：正确性。核实等级：已运行实验。**
+- **位置**：计划 `plan.md:56,116`；迁入的 `packages/neuro-book-legacy/shared/editor-workbench.ts:118-149`；合同 `docs/specs/workspace/files.md:56-59`。
+- **现象**：计划要求 frontmatter “原样保留”、并要求“打开含方言的章节、不编辑切走”字节不变；但采用的 `splitMarkdownFrontmatter` 先对整个输入执行 `content.replace(/\r\n/g, "\n")`，返回的 `prefix` 和 `body` 已经是 LF。富文本编辑正文后再拼回时，原本 CRLF 的 frontmatter 和正文换行都会变成 LF。
+- **为什么是问题**：用户只改正文，未改 frontmatter，却会产生未请求的 frontmatter 字节变化；这违反 `workspace.files` 的“换行不归一化、未改内容读写字节不变”，也会让“编辑只改动到的部分”失效。若只保留前缀但不保存原始换行形态，Tiptap 的下次切换/保存会扩大修改范围。
+- **如何核实**：在仓库根执行：`bun -e 'import {splitMarkdownFrontmatter, composeMarkdownFrontmatter} from "./packages/neuro-book-legacy/shared/editor-workbench.ts"; const source="---\r\ntitle: x\r\n---\r\n\r\n正文\r\n"; const split=splitMarkdownFrontmatter(source); const output=composeMarkdownFrontmatter(split.prefix, split.body+"改"); console.log(JSON.stringify({source, prefix:split.prefix, output, sourceBytes:[...new TextEncoder().encode(source)], outputBytes:[...new TextEncoder().encode(output)]}));'`。实测输出的 `prefix` 与 `output` 全为 `\n`，输入与输出字节数组不同；该实验直接调用旧 helper，未启动新应用运行时，因此只证明迁入 helper 的确定行为。
+- **建议改法**：不要把 normalized `prefix` 当原文；split 结果应保存原始 frontmatter 前缀及正文分隔方式（或记录换行样式并按原字节拼回），只在用户明确编辑 frontmatter/对应正文范围时改写。把 CRLF、BOM、无尾换行、空 frontmatter 和正文首行分隔加入往返测试；验收同时核对“改正文后 frontmatter 字节不变”和 Files 的原始字节基线。
+
+### 3. Monaco 的“控件复用”与“每个视图实例一份 model”没有闭合，A→B→A 的撤销/视图状态会无处保存
+
+- **严重程度：重要；类别：正确性 / 不变量。核实等级：从代码推断，未运行新应用实现。**
+- **位置**：计划 `plan.md:43,50,57,105,132`；旧实现 `packages/neuro-book-legacy/app/components/editor-workbench/MonacoCodeEditor.vue:193-217`、`CodeEditorView.vue:34-37`；旧组件合同 `packages/neuro-book-legacy/app/components/editor-workbench/MonacoCodeEditor.md:20-30`；设计依据 `packages/neuro-book-legacy/docs/proposals/files-explorer.md:103-109`。
+- **现象**：计划一方面要求同组同类编辑器换文档时复用一个控件并 `setModel`，另一方面只规定“每个视图实例一份 model”，没有定义按“文档 × 编辑组 × 编辑器类型”保留 Monaco model、撤销栈和 `saveViewState` 的缓存/引用/释放规则。若把“视图实例”理解为 A 或 B 的文档视图，直接迁入旧代码会为每个文档创建 `MonacoCodeEditor`；若理解为同组的复用控件，则 A→B 后 A 的 model/undo/view state 没有所有者，回到 A 只能重建或共享错误的撤销栈。
+- **为什么是问题**：验收要求 A→B→A 保留编辑状态，VS Code 调研也把 model 与 control 分层并单独保存 view state；共享同一 Monaco model 会跨组隐式合并撤销栈，重建 model 会丢撤销/滚动/选区。两种实现都不能靠“控件复用”一句话自动满足。
+- **依据与核实**：旧 `MonacoCodeEditor` 的 `createEditorModel` 每个组件实例按 `modelPath` 创建独占 model，`CodeEditorView` 的 `modelPath` 同时含文档身份与 `viewInstanceId`；旧提案明确推荐 model 按文档身份 + 编辑组/编辑器类型管理、控件按组复用、A→B→A 保留 model/撤销/视图状态。VS Code 调研 `docs/research/vscode/06-editor-architecture.md:20-34,85-103,175-197` 也把 text model、control、view state 分成不同寿命。
+- **建议改法**：在计划中明确三层 owner：每组/编辑器类型一个 Monaco control；每个文档 × 组 × 编辑器类型一个 model 与 view-state/撤销所有者；绑定时只 `control.setModel(model)` 并恢复该文档状态，关闭标签或 clean LRU 时 dispose；dirty、冲突、在途保存的 model 不得淘汰。为 A→B→A、跨组同文档、关闭后重开各加真实 Monaco 行为验收，避免只测 DOM 文本。
+
+### 4. 迁入的方言模块依赖新应用不存在的共享与 UI 模块，计划没有闭合迁移边界
+
+- **严重程度：重要；类别：正确性 / 可实施性。核实等级：从代码推断，未运行新应用实现。**
+- **位置**：计划 `plan.md:52-57,81-89`；旧方言模块 `packages/neuro-book-legacy/app/components/markdown-studio/tiptap/Comment.ts:1-12`、`HtmlFallback.ts:1-3`、`HtmlEmbed.ts:1-4`、`MarkdownRuby.ts:1-3`、`MarkdownBilingual.ts:1-7`、`MarkdownAlign.ts:1-8`；新应用目标包 `packages/neuro-book/package.json:27-56` 与目录 `packages/neuro-book/src/`。
+- **现象**：计划列出要迁入的 `HtmlEmbed`、Comment、Ruby、Bilingual、Align 等扩展，但这些文件仍 import 旧包专属模块：多个扩展依赖 `nbook/shared/markdown-workbench` 的 tokenizer/规范化函数，`HtmlEmbed` 依赖 `nbook/app/utils/theme/host`，Comment 还依赖旧包的批注解析/渲染 helper。`packages/neuro-book` 目前没有这些模块，也没有可用的旧 `nbook` alias；新包 manifest 也尚未声明这些扩展所需的直接 Tiptap 子包。
+- **为什么是问题**：照计划的迁入列表直接复制会在 S6 编译失败；只把扩展文件搬到 `src/plugins/editor/web/markdown` 不能得到可运行的方言 schema。若临时保留旧包深导入，则违反新应用“跨包只经公开入口、旧包只作参照”的边界；若漏掉 `markdown-workbench`，方言 parser 的回退与规范化行为会静默缺失，往返测试不能证明真实编辑器使用了同一 schema。
+- **如何核实**：逐项阅读上述旧文件的 import；可以看到 retained `HtmlFallback`/`HtmlEmbed`/`Comment`/`MarkdownRuby`/`MarkdownBilingual`/`MarkdownAlign` 均引用 `nbook/shared/markdown-workbench`，而 `packages/neuro-book/src` 的搜索没有对应模块。该结论未运行新应用编译，因为计划尚未实施；是依赖图的静态核实。
+- **建议改法**：在计划“关键设计”明确新增或迁移的共享模块（建议放 `src/plugins/editor/shared/markdown-workbench.ts`，由编辑器插件自己拥有），并说明 `HtmlEmbed` 的主题宿主改接新应用 token、Comment 的 UI 回调改为无侧栏可用的 no-op/公开合同；逐项列出 `@tiptap/extension-link`、`hard-break`、`code`、`paragraph`、`table`、`image`、`placeholder` 等直接依赖并更新 `packages/neuro-book/package.json`/`bun.lock`。S6 先用真实扩展工厂创建 `MarkdownManager`，再跑真实 `TipTapMarkdownEditor` 往返测试，避免只测复制后的孤立 helper。
+
+### 5. 计划把已生效的编辑器性能门槛推迟到 t72，验收映射因此不完整
+
+- **严重程度：重要；类别：可验收性 / 性能合同。核实等级：从文档对照推断，未运行新应用实现。**
+- **位置**：计划 `plan.md:45,96-105,111-124`；`docs/specs/workbench/files-explorer.md:123-139`；VS Code 调研 `docs/research/vscode/16-file-service-explorer-editor-latency.md:61-71`。
+- **现象**：计划只为切换验收“同帧切标签、800 ms 后显示进度、迟到结果不抢、失败显示原因”，并在 `plan.md:124` 把“性能标准”列为未验证边界、推给 t72。但当前 Files Explorer 合同已经规定生产构建下标签/选择 16 ms 内切换、已打开正文 100 ms 内出现、普通章节正文 200 ms 内出现；VS Code 调研还明确记录了旧请求取消、先清空旧正文、控件按类型复用和模型已有时后台核对。
+- **为什么是问题**：S4/S5/S6 都可能在功能语义正确但首屏/切换明显超标的情况下通过计划中的测试；到 t72 才发现模型、动态导入、组状态或异步读取结构不达标，返工会跨越已完成的编辑器合同。800 ms 进度条是“慢时何时提示”，不是正文 100/200 ms 完成门槛，也不能替代 16 ms 的同步标签切换门槛。
+- **如何核实**：对照规格的“打开与切换”性能表与计划的 S4、S5、S6 自跑表；计划验收矩阵没有对应生产构建、参考机器、p50/超时判据，也没有把 VS Code 调研中的取消/后台核对落成可观察场景。未运行新应用，因为计划尚未实施。
+- **建议改法**：把 16/100/200 ms 的生产构建验收写回 t71 的 S4–S6，并明确测量起止、样本与超时判据；至少覆盖已有模型切换、首次 Markdown、首次源码（动态 import）三条路径。若有意延期，必须先在 Spec/pending-confirmations 中写明 t71 不承诺这些门槛，而不能只在计划风险栏口头推迟。
+
+### 6. Tiptap 的文档状态与撤销历史复用没有可执行的 owner/释放合同
+
+- **严重程度：重要；类别：正确性 / 生命周期。核实等级：从代码与 API 约束推断，未运行新应用实现。**
+- **位置**：计划 `plan.md:40-45,56-57,99-105,132`；旧 `packages/neuro-book-legacy/app/components/markdown-studio/TipTapMarkdownEditor.vue:222-253,386-438,1076-1080`；旧宿主合同 `packages/neuro-book-legacy/app/components/editor-workbench/EditorViewHost.md:27-43`。
+- **现象**：计划写“切换文档时重建 Tiptap 的 `EditorState`、保留控件”，又写“撤销历史按文档 × 视图保存在宿主里”，但没有定义保存的是完整 `EditorState`、history plugin state、还是事务/文本快照；也没有定义选区、滚动、frontmatter prefix、未结算防抖输入、Comment 插件状态与这些历史的绑定和释放。计划的 LRU 只约束“clean 视图最多 3 个”，没有说明淘汰一个 clean Markdown 视图时历史如何丢弃，或标签关闭/generation 改变时如何销毁其 ProseMirror plugins/NodeView。
+- **为什么是问题**：ProseMirror/Tiptap 的撤销栈是 plugin state，不能仅靠重新 `setContent` 得到；完整 `EditorState` 又绑定 schema、plugins、selection 与扩展状态。旧实现实际每个组件用 `useEditor` 建立自己的 state，并在外部同步时用 `addToHistory:false` 重设 history 基线，而不是提供一个可直接迁移的跨实例历史 API。没有明确 owner，A→B→A 可能退化为只恢复正文、把外部同步放进撤销栈、把旧文档的 history 带到新文档，或因不释放 NodeView/listener 泄漏。
+- **如何核实**：阅读旧组件的真实创建、`resetHistoryBaseline` 与卸载逻辑，以及 Tiptap/ProseMirror 的 state/plugin 约束；计划的验收表只写“Markdown 往返”和 DOM/e2e，没有列 A→B→A 的富文本撤销、选区、外部同步后 Ctrl+Z、clean LRU 淘汰/重开等行为。
+- **建议改法**：选择并写死一种实现：要保留撤销与视图状态，就按“文档 × 编辑组 × markdown 编辑器类型”持有完整 Markdown editor state/滚动快照，绑定时以同一 schema/plugin 工厂恢复，外部权威更新用 `addToHistory:false` 并重设基线；或明确只保留正文、不承诺 Tiptap undo。补充状态 owner、引用计数、LRU 保护/淘汰/销毁，以及真实 A→B→A、跨组、外部更新、关闭重开验收。
+
+### 7. 去掉 WorkspaceReference / AgentHardBreak 后，Markdown 语法保留只得到部分证明
+
+- **严重程度：重要；类别：Markdown 往返 / 内容完整性。核实等级：从代码与 Tiptap 源码推断，未运行新应用实现。**
+- **位置**：计划 `plan.md:54-56,116,130`；待确认清单 `pending-confirmations.md:56-58`；旧 `WorkspaceReference.ts:75-85,175-210`、`MarkdownLink.ts:9-21`、`AgentHardBreak.ts:1-8`；缓存中的 Tiptap `extension-hard-break` `src/hard-break.ts:35-73`。
+- **核实结果**：WorkspaceReference 节点自身确实序列化为标准 `[label](target)`，保留普通 `MarkdownLink` 后，基础链接字节并非必然丢失；但 WorkspaceReference tokenizer 原本会抢先把工作区/领域链接解析成 atom，去掉后只剩普通 link mark，点击/工作区引用语义消失。计划没有把相对路径、`chapter://` 等领域 target、标题/转义链接列入往返样本，因此“语法还能保存”没有被真实新 schema 证明。
+- **已确认的改写差异**：旧 `AgentHardBreak` 把 hard break 序列化为单个 `\n`；Tiptap 基础 `HardBreak` 的 `renderMarkdown` 是两个空格加 `\n`（`  \n`）。若按计划/待确认清单不迁自定义扩展，用户在富文本中产生一次编辑后，已有 hard-break 节点会按基础扩展的规范重新输出；它仍是合法 Markdown，但不是原字节，也不满足计划“编辑只改动到的部分”。“不编辑切走字节不变”的捷径不能证明编辑后未触及的 hard break。
+- **为什么是问题**：计划把“迁入旧包往返测试”作为方言正确性证据，但旧方言测试没有覆盖 WorkspaceReference 或 hard break；测试通过仍可能漏掉已接受的“工作区引用标签不迁”取舍带来的语义降级，以及 hard-break canonicalization 对局部修改的影响。
+- **建议改法**：在 S6 明确降级合同：工作区/领域 link 的标准 Markdown 源码必须保留，但不再承诺 atom/chip/打开行为；加入普通相对 link、`chapter://`、带 title/fragment/转义字符的真实 `MarkdownManager` round-trip。对 hard break 选择保留 `AgentHardBreak` 的纯序列化逻辑（不带 Agent 菜单）或把基础 `  \n` 改写明确列为预期 canonicalization，并把“修改正文后未触及 hard break 字节不变”从验收承诺中删除。
+
+### 8. 保存的快照与同一文档并发保存没有定义，`saveAll` 可能制造自冲突
+
+- **严重程度：重要；类别：保存正确性 / 可验收性。核实等级：从代码与合同对照推断，未运行新应用实现。**
+- **位置**：计划 `plan.md:26-32,67-74,112-115`；旧 `packages/neuro-book-legacy/app/stores/novel-ide.ts:1041-1063,1066-1111`；`docs/specs/workspace/files.md:56-60,119`。
+- **现象**：计划有 `saving` 字段、`save(document)` 和 `saveAll(addresses)`，但没有规定一次保存开始时捕获的 `{text, baseline, revision}`、同一文档第二次 `save` 是加入已有 Promise 还是排队、`saveAll` 是否按文档去重/串行，以及第一笔保存成功后如何让等待中的第二笔使用新基线。旧实现按文档 `inflightSaves` 等待前一笔，并在写入完成后只推进被提交快照，期间新输入保留 dirty。
+- **为什么是问题**：两个视图或 Ctrl+S/保存命令同时调用同一文档时，若都以旧 baseline 发出，Files 合同会让其中一笔返回 `conflict`；这不是用户与外部编辑器的真实冲突，却会错误打开冲突态。保存期间输入后再次保存还可能把第二笔与第一笔交错，错误清掉新输入或把路径重绑定到已失效的目标。仅有 `saving` 布尔值不能表达快照身份与等待队列。
+- **如何核实**：Files 合同规定同一基线并发保存恰好一次成功；旧 store 的 `saveDocumentByTarget` 在同一路径先等待 `inflightSaves`，`writeDocument` 以保存开始时的 `content/baseContent` 写入，并只更新对应快照。计划的 S2/S7 映射只验证“保存期间继续输入仍 dirty”，未覆盖双调用、save-all 去重、保存完成后再次保存、移动/关闭同时保存。
+- **建议改法**：把每个文档的保存 owner 写成单飞队列：首笔固定快照，后续调用复用或排在同一文档队列；每笔完成后按 revision 比较，只推进该快照的 saved/baseline，若当前 revision 更大则继续 dirty 并允许下一笔以新基线保存。`settle`/`saveAll` 以该队列结算，验收加入两个视图同时 Ctrl+S、保存期间输入后再次保存、冲突后队列不丢输入。
+
+## 数量表
+
+| 严重程度 | 数量 | 编号 |
+|---|---:|---|
+| 严重 | 0 | — |
+| 重要 | 8 | 1–8 |
+| 一般 | 0 | — |
+| **合计** | **8** | **1–8** |
+
+## 未发现额外问题的方面
+
+以下是与旧实现、Spec、VS Code 调研和 t71 待确认条目对照后，未发现计划层面额外缺口的部分；均为静态审查结论，不代表新实现已运行通过：
+
+- `DocumentTarget` 含 `workspaceKey`、`generation`、`documentId`、`path`，改名保留文档身份、项目换代使旧回调失效；这与旧 `matchesEditorDocument` 和资源管理器的项目代次要求一致。
+- 磁盘条件保存使用 Files 返回的 baseline，保存冲突给“重新载入磁盘版本 / 覆盖磁盘版本”两种裁决；删除后保留正文、关闭或保存重建原路径；计划已覆盖待确认清单中的 t71 产品取舍。未发现需要增加第三种磁盘冲突 UI 的问题。
+- 移动前 `settle`、成功后按实际目标 `rebind`、删除后 `forget`，以及复制 dirty 的三选对话框，方向符合 `files-explorer` 与 `workspace.files` 的文档 owner 边界；发现 1、8 仅补充输入候选与保存队列的细节，不否定这些入口本身。
+- 编辑器槽只由插件贡献、工作台不反向认识编辑器；项目窗口只保存组/标签会话而不把正文复制进 Storage；预览标签、双击转 permanent、向右/向下拆分和空组收口均有明确模型动作。
+- 乐观切换的“当帧切标签、编辑区空白、800 ms 后进度、迟到结果不得抢占、失败显示原因”与现行打开合同和 VS Code 的清空旧输入顺序一致。发现 5 只指出性能数字与异步取消没有进入可运行验收，不否定该时序定义。
+- `HtmlEmbed` 默认拒绝数据接口、方言兜底保留未知 HTML、批注只保留语法往返而不迁侧栏，均与旧实现默认行为和 t71 待确认范围一致；没有把不迁批注侧栏误列为缺陷。
+- 计划明确不跨组共享 Monaco model、Markdown 不迁 Milkdown、frontmatter 不提供富文本面板，这些取舍本身与待确认清单一致；问题在于其生命周期和字节保持合同没有写到可执行程度。
+
+## 审查边界与验证记录
+
+- 读取并对照：t71 `plan.md`、Task README、Work README、2026-10-09 的 t71 待确认条目、`docs/specs/workbench/files-explorer.md`、`docs/specs/workspace/files.md`、旧编辑器宿主/视图/Store/Markdown 方言实现、VS Code 两份调研。
+- 已运行：frontmatter CRLF 实验（见发现 2）；另用缓存中的 Tiptap `HardBreak` 源码核对默认 `renderMarkdown` 为 `  \n`（发现 7）。
+- 未运行：新应用实现、构建、测试、浏览器或 e2e；计划尚未实施，故其余发现均标为静态核实。
+- 未修改仓库文件、未提交、未启动长期进程；仅追加本报告。

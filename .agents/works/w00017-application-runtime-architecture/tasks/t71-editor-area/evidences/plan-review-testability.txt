@@ -1,0 +1,231 @@
+# t71 实施计划：实验、真实场景与可测性审查
+
+- 审查对象：`.worktree/w00017-t71-plan-testability/.agents/works/w00017-application-runtime-architecture/tasks/t71-editor-area/plan.md`。只读命令 `/usr/bin/git rev-parse HEAD` 返回 `04317a824b8124179637823ac1e87c901752f3e5`，与指定提交一致。
+- 只读审查：仓库不写入；实验与输出只放在本报告目录。
+- 下文仓库路径均相对 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-plan-testability/`。
+- “从代码推断”表示没有执行相应产品路径；实验结果单独注明命令、运行器与边界。
+
+## 已核实发现
+
+### 1. 重要：原样迁入的方言往返测试不会进入新应用 Vitest 的测试集合
+
+- **类别**：测试；**核实状态**：从代码推断，已核对运行器配置。
+- **位置**：计划 `plan.md:54,101,116`；`packages/neuro-book/vitest.config.ts:18-25`；旧测试 `packages/neuro-book-legacy/app/components/markdown-studio/tiptap/markdown-editor-extensions.test.ts:1-13`、`dialect-fallback-dom.test.ts:1`。
+- **现象**：计划要求迁入旧包的往返测试并用 Vitest 验证，但新应用 Vitest 只 include `src/**/*.dom.test.ts`；旧文件是 `*.test.ts`，其中还直接导入 Vitest。原样迁入后，`test:vitest` 不收集；Bun 会把它们当普通测试收集，却不是 Vitest 运行时。
+- **为什么是问题**：计划把这些测试作为 Markdown 正确性的主要门禁，按当前文件名与命令实施会漏跑或跑错运行器，不是“已经有测试”即可保证被执行。
+- **依据**：`docs/testing/README.md:114-124` 明确要求测试进入对应 include，新应用纯 TS 测试用 Bun，组件测试用 Vitest。
+- **建议改法**：S6 明确逐文件的目标运行器与命名：纯 MarkdownManager 往返改用 `bun:test`；需要真实 DOM 的 Editor 测试命名 `*.dom.test.ts` 并去掉旧 jsdom 指令，使用新应用 happy-dom；需要布局与原生输入的行为进浏览器 e2e。S6 验证命令列出实际文件并记录收集的用例数。
+
+### 2. 阻断：计划没有给真实生产 e2e 制造“慢读 / 800 ms 前后”的可用接缝
+
+- **类别**：测试；**核实状态**：从代码推断，辅以现有测试场地检查。
+- **位置**：计划 `plan.md:14,45,79,99,111-123`；`packages/neuro-book/src/plugins/files/testing/scene.ts:80-105`；`packages/neuro-book/src/plugins/files/testing/tap.ts:24-35,46-83`；`packages/neuro-book/e2e/fixtures.ts:48-62,74-90`；`packages/neuro-book/src/web/host/window.ts:65-70,191-200`。
+- **现象**：`LinkTap` 只能作为 `filesScene(..., {wrapLink})` 的窗口内链路包装器扣住真实 RPC 回复；它不接入 `startProductServer` 的生产进程。现有 e2e 生产启动器只给状态根、端口和静态产物，没有慢读注入、测试项目插件或浏览器时钟注入入口。浏览器窗口的 `clockKey` 默认由 `systemClock` 提供，产品启动路径没有传入可推进的时钟。
+- **为什么是问题**：计划明确要求“真实 Chrome + 真实 build + Files 测试链路扣住慢读”，但按已定义接口没有把这三者接在一起：Bun 场地能扣 RPC 回复，生产页面却没有该包装与可推进时钟的测试入口。现有 e2e 测试外壳能加测试插件，`BrowserWindowOptions.clock` 也已经支持注入，说明无需重造内核；计划需要把连接与控制方式分配到 S4。假造 Files 结果、改全局计时器或固定等待不符合测试规范，Lab 不能替代真实产品链路。
+- **依据**：`files-explorer.md:125-126` 要求 800 ms 前无提示、之后仍未就绪才显示进度条，且计划 `plan.md:122` 明确把它放在产品页 e2e；测试规范要求等待可观察状态或注入时钟，不用固定时长。
+- **建议改法**：S4 明确复用 e2e 外壳、`BrowserWindowOptions.clock` 与真实 `RemoteLink` 回复包装，向测试暴露局部时钟推进和指定 read 回复释放。控制窗口时钟、扣住已实际读取的回复，在阈值前/后观察空白与进度条，释放后观察正确正文；迟到结果不得抢当前意图。若用可控真实组件/内核场景证明精确阈值，另用未加测试插件的生产构建证明打开结果，计划应明确两层证据责任。此阻断针对当前写定的验收路径，不表示产品行为无法实现。
+
+### 3. 复核撤回：happy-dom 的 Monaco 限制不单独计为计划缺陷
+
+实际 Node Vitest 证明 Tiptap 无布局 EditorState 路径可运行，Monaco `editor.create` 因 Canvas 2D context 缺失失败；早期手工复制 DOM globals 的 `CSS is not defined` 不作为证据。S5 已写“Vitest 加 e2e”，没有要求真实 Monaco 必须在 happy-dom 创建，因此不能仅凭环境限制报独立“重要”缺陷。该实验保留为运行器分工依据；未列真实撤销旅程的问题见发现 8，精确命令与限制见报告后面的实验记录。
+
+### 4. 重要：验收映射把 files-explorer 验收 3 编成了“打开与切换”，编号与合同不一致
+
+- **类别**：文档 / 测试；**核实状态**：已核对 Spec 与现有 t70 测试。
+- **位置**：计划 `plan.md:107-115`；实际合同 `docs/specs/workbench/files-explorer.md:184-197`，尤其 `190`；t70 计划 `.agents/works/w00017-application-runtime-architecture/tasks/t70-files-explorer/plan.md:153-158`；现有行为测试 `packages/neuro-book/src/plugins/explorer/browse.test.ts:328-352`。
+- **现象**：计划称“files-explorer 验收 3（打开与切换：当帧切换、800 ms 进度条、迟到结果不抢、失败显示原因、不串正文）”，但该 Spec 的验收 3 实际是上下/左右、Space、Ctrl/Meta、Shift、Ctrl/Meta+A、preview/permanent、修饰点击不打开等资源管理器交互；打开与切换是 Spec 的独立小节 `123-127`，不是验收 3。t70 已有对应验收 3 的纯函数/Bun/DOM覆盖，t71 表没有引用这些既有证据，也没有给打开与切换一个正确的合同条目标识。
+- **为什么是问题**：按表执行会把错误的测试当成验收 3 的覆盖证明，收口报告无法回答“实际验收 3 的每个子判据由谁覆盖”以及“编辑器新增的打开/切换场景由哪条合同覆盖”。这会导致重复测打开而漏审资源树键盘与 preview/permanent 的责任归属。
+- **依据**：t70 计划明确把实际验收 3 分为 `tree.test.ts` / DOM / e2e；其实现快照还明确列出打开与切换并未在 t70 接入编辑器。
+- **建议改法**：把表头改为实际 Spec 编号并引用 t70 的既有证据；为打开/切换引用 `files-explorer.md`“打开与切换”及新 `editor.md` 的具体验收编号。若产品团队确实想新增一个“打开与切换”编号，先在 Spec 增加明确编号，再在计划中逐条列出当帧、空白、800 ms、迟到、失败、不串正文的入口、失败制造与观察点。
+
+### 5. 重要：files-explorer 验收 9 的三个用户可见分支没有分层到可观察 UI 测试
+
+- **类别**：测试；**核实状态**：从计划与合同映射推断，已对照 t70 的测试分层。
+- **位置**：计划 `plan.md:67-74,102,112`；实际合同 `docs/specs/workbench/files-explorer.md:119-121,196`；t70 分层计划 `.agents/works/w00017-application-runtime-architecture/tasks/t70-files-explorer/plan.md:130,137-139`。
+- **现象**：验收 9 同时要求：复制 dirty 文件时让用户选择“先保存 / 磁盘版本 / 取消”；移动时等待在途保存并继续输入后随成功目标重绑定、失败留在原文档；删除 dirty/冲突目录时显示影响范围与不可恢复风险、默认取消且不把编辑器撤销当文件恢复。t71 的映射只有一个笼统的 Bun 文件名 `explorer/documents.test.ts`，以及 e2e 的“编辑未保存时剪切粘贴”；没有 DOM/e2e 条目分别观察复制三选和删除确认，也没有写出保存闸门、继续输入、成功/失败两条结果的每个序列。
+- **为什么是问题**：Bun 文档模型/控制器测试可以证明状态或对话模型，但不能证明主页面真实的选择文案、默认取消、影响范围展示和按钮交接；单个移动 e2e 也不能证明复制和删除分支。按现有测试规范，Lab 或模型状态不能替代主页面真实链路，验收 9 的“用户让它怎么结算”会不可验或被错误标成通过。
+- **依据**：t70 已把确认框/对话框交接归 DOM，把真实产品动作归 e2e（`plan.md:137-139`）；t70 当前快照也只列出本 Task 未覆盖的 dirty 文档结算随 t71。
+- **建议改法**：在 S7 明确三层矩阵：Bun + 真实 Files scene/tap 验证基线、保存闸门、输入回执与重绑定；`*.dom.test.ts` 挂真实 `FilesExplorerView` 与 coordinator 合同，验证复制三选、删除影响范围/默认取消/冲突取消；生产 Chrome e2e 至少覆盖一次复制选择与一次删除 dirty/冲突确认，并用真实磁盘确认副作用。移动 e2e 必须明确“保存被扣住 → 释放前继续输入 → 成功/失败分别观察正文地址与 dirty”。
+
+### 6. 重要：files 验收 1 的“另一合法消费者取得同一结果”没有进入 t71 验收步骤
+
+- **类别**：测试；**核实状态**：已核对 Spec 与计划映射。
+- **位置**：计划 `plan.md:107-117`，具体 `113`；合同 `docs/specs/workspace/files.md:133-145`，具体验收 1 在 `137`；已有 Files 测试 `packages/neuro-book/src/plugins/files/files.test.ts:55-81`。
+- **现象**：`files.md` 验收 1 的完整判据是主页面打开隔离项目、读正文、编辑保存、重新读磁盘确认，并且“另一合法文件消费者取得同一结果”。计划只写生产 e2e“打开、输入、Ctrl+S、读磁盘字节”，没有第二个消费者、第二窗口或项目/服务端合同读取的步骤。
+- **为什么是问题**：磁盘字节相同只能证明写入落盘，不能证明编辑器通过的 Files 浏览器客户端、另一窗口或项目实例消费者看到同一提交；这正是 `workspace.files` 的共享消费者合同，验收 1 的后半条会被漏验。
+- **依据**：现有真实 Files 测试已经区分窗口 `filesKey` 与项目/服务端远程消费者（`files.test.ts:75-81`），说明“读磁盘”与“另一合法消费者读取”不是同一断言。
+- **建议改法**：在 files 验收 1 映射中新增明确步骤：保存成功后，在同一产品 e2e 起第二窗口/第二页面读取同一地址，或通过真实项目实例消费者读取并断言正文与新基线；若编辑器只允许浏览器入口，至少在真实 Files 场景用第二浏览器窗口的 `filesKey` 读取，不能以 `fs.readFile` 代替。
+
+### 7. 复核撤回：S0 新建 editor.md 并写定编号的顺序本身成立
+
+计划 `plan.md:85,95,115` 已要求 S0 写验收场景、写定编号后逐条映射。新合同尚不存在是计划内工作，不能推出映射要拖到 S8，更不能要求预先冻结尚未编写的编号。因此本条撤回、不计数量。S0 完成时应核对完整矩阵，这是当前测试规范的执行要求；现阶段可证实的具体漏项分别记录在发现 2、4、5、6、8、9。
+
+### 8. 重要：A→B→A 的撤销恢复没有被真实编辑器场景覆盖，S4 的 textarea/DOM 测试不能证明该合同
+
+- **类别**：测试 / 正确性；**核实状态**：从计划与旧测试推断覆盖缺口；已运行真实编辑器可行性实验，未运行尚不存在的新实现。
+- **位置**：计划 `plan.md:40-45,57,99-105,111-116,132`；旧宿主测试 `packages/neuro-book-legacy/app/components/editor-workbench/EditorViewHost.test.ts:29-53,184-212`；旧宿主合同 `packages/neuro-book-legacy/app/components/editor-workbench/EditorViewHost.md:37-43`。
+- **现象**：计划在 S4 用 `textarea` 占位贯通切换，并只把“A→B→A 期间旧回调到达”的 DOM 测试列在风险；设计却要求“撤销历史按文档 × 视图保存，A→B→A 回来时恢复”。S4 的 textarea 没有 Monaco/Tiptap 撤销栈，计划的 e2e 只写 A→B 快速切换不串正文、打开/输入/保存等，没有“在 A 输入 → B 输入 → 回 A → Ctrl+Z/Redo 观察 A 的历史”的真实旅程。旧宿主测试也明确使用 textarea 替身，且 `vi.fn` 只验证宿主回执，不是实际编辑器历史。
+- **为什么是问题**：按现计划全部通过仍可能在真实 Monaco/Tiptap 绑定重建时丢 A 的 undo history，或把 B 的历史误套到 A；这正是本 Task 的跨文档/跨视图核心不变量，无法由正文显示和 token 迟到测试推出。
+- **依据**：旧合同把“控件复用”与“文档/视图状态”分开，并要求每组独立宿主、隐藏前结算；测试规范要求公开合同、边界与恢复场景必须有行为测试，替身不能冒充真实依赖。
+- **实验补证**：仓库外 Vite 产物在 Chromium `151.0.7922.71` 中创建真实 Tiptap 和旧 loader 加载的 Monaco。两者均经原生键盘得到 A1、B2，回 A 撤销为 A、重做为 A1，再回 B 撤销为 B；断言通过，结果见 `browser-editor-results.json`。这证明无需替身也能写出真实旅程，不是新插件已满足合同的证据。
+- **建议改法**：S5、S6 各增加真实 Chrome 场景（Monaco 与 Tiptap 分别至少一例）：真实键盘输入 A，切 B 输入，回 A，执行撤销/重做，断言 A 的正文与 B 的正文/历史互不串；至少覆盖同组与分组共享文档的预期差异。S4 只保留宿主 token/结算的 textarea 合同测试，并明确不计入编辑器撤销验收。
+
+### 9. 重要：旧方言序列化会改写未触碰的字节，“不编辑切走”用例抓不到该路径
+
+- **类别**：测试 / 正确性；**核实状态**：从代码与计划推断，辅以实际方言实验。
+- **位置**：计划 `plan.md:52-57,105,116,130`；旧方言实现 `packages/neuro-book-legacy/app/components/markdown-studio/tiptap/markdown-dialect-extensions.ts:21-30,30-56`；旧测试 `packages/neuro-book-legacy/app/components/markdown-studio/tiptap/markdown-editor-extensions.test.ts:56-239`。
+- **现象**：计划 `plan.md:54` 把迁入方言扩展与旧测试称为“编辑只改动到的部分”的保证；但旧测试 `markdown-editor-extensions.test.ts:69-73,95-101` 明确允许旧 comment/ruby 写成 canonical 形式。实际 manager 实验还把 CRLF 转 LF、删除末尾换行，把 `*` 列表改成 `-`，标准 `<ruby>…<rt>…` 改成属性式。计划 `plan.md:56,116` 的“未编辑切走”刻意不序列化，无法抓到正文编辑后全文 serialize 改动其它段落的情况。
+- **为什么是问题**：按计划字面迁入、全部旧测试通过，仍不能满足“只改动到的部分”；字节改写并不一定被“发现丢内容就降级源码”的条件捕获。纯 manager 测试也不经过真实组件的 frontmatter 拼回（该具体风险另见发现 11）。
+- **如何核实**：`bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/run-tiptap-build.ts` 的 canonical comment/ruby 单样本 109 字节相同；随后实际 Vitest 的序列化实验记录 4 个样本：canonical comment 相同，CRLF、标准 ruby、`*` 列表均改变，具体输入/输出见 `native-editor-results.json`。Vitest 同次共 3 例、2 通过、1 Monaco 环境失败，未把失败写成整体通过。
+- **建议改法**：S0/S6 明确既定字节承诺怎样成立：按原始来源保留未触碰片段并回写，或在进入富文本前比较真实解析/序列化结果、不能无损的文件按计划的源码降级路径处理。降低字节承诺需作为新的产品取舍明确批准，不能由旧测试默认接受。保留 no-write 场景，另用“编辑另一段并保存”观察未触碰段、方言与前缀的原始字节；输入后撤销回基线还须直接观察真实序列化结果，不能因 dirty 恢复为 false 而绕开序列化。
+
+### 10. 建议：首屏分块应核对静态依赖闭包，不能只看动态 chunk 名称与体积表
+
+- **类别**：测试 / 性能；**核实状态**：从配置推断计划缺少判定步骤；已运行仓库外 Vite 产物实验。
+- **位置**：计划 `plan.md:48-50,99-105,121-132`，具体 `50,131`；`packages/neuro-book/vite.config.ts:16-49`；`packages/neuro-book/scripts/check-dist.ts:1-56`；`packages/neuro-book/package.json:18-23`。
+- **现象**：Vite 正常 build 会输出各 chunk 原始/gzip 体积表，早期“没有输出报告”的表述不准确；但现有配置没有 manifest/模块归属报告，`check:dist` 只查 Lab 与本机路径。计划 `plan.md:131` 没有写清“首屏不含它”怎样从产物表判定。实际实验里动态 `editor.api` 入口仅 452 字节，真正主体在它依赖的另一个 2,557,259 字节 chunk，说明只看入口 chunk 会漏算。
+- **为什么是问题**：若后续静态运行时 import 或预加载把 Monaco 依赖拉进入口，有独立动态入口仍不足以证明懒加载。缺少静态闭包/真实请求观察，首屏判据可能被错误验为通过；本 Task 没承诺总性能或体积门槛，不把 t72 的性能范围算缺陷。
+- **如何核实**：命令 `node /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/build-browser-probe.mjs` 使用 Vite `8.1.4` 构建真实旧 Monaco loader，输出全部在报告目录。`generateBundle` 捕获 chunk 模块归属与 imports，静态闭包未含 Monaco；浏览器点击前只请求主入口，点击后才请求 Monaco。详细数据见 `browser-chunk-summary.json`，不是新应用实际构建数据。
+- **建议改法**：S5 的“构建报告核对”明确记录 HTML 初始 module 的静态闭包、相关模块归属与原始/gzip 字节，再用首次打开源码前后的请求核对无提前加载。manifest + `generateBundle` 可实现，或采用等价产物分析；不要新增未经批准的性能阈值，也不要求首版只有一个 Monaco chunk。
+
+### 11. 重要：指定沿用的 frontmatter 拆分函数已违反“原样保留”，CRLF 和结尾换行会被改写
+
+- **类别**：正确性 / 测试；**核实状态**：已运行实际旧函数实验；新实现尚不存在。
+- **位置**：计划 `plan.md:54-56,116,130`；`packages/neuro-book-legacy/shared/editor-workbench.ts:118-140,148-149`；合同 `docs/specs/workspace/files.md:57`；待确认清单 `pending-confirmations.md:57`。
+- **现象**：计划明确沿 `splitMarkdownFrontmatter` 拆分并原样保留前缀，但该函数先对全文件做 `content.replace(/\r\n/g, "\n")`，并在关闭分隔符位于 EOF 时人为补 `\n`。报告目录 `frontmatter-probe.ts` 直接调用实际函数，再用实际 `composeMarkdownFrontmatter` 拼回，命令 `bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/frontmatter-probe.ts` 退出码 0：LF 样本相同；`---\r\ntitle: 第一章\r\n---\r\n\r\n正文` 全变 LF；`---\ntitle: 第一章\n---` 被补末尾换行。原始与输出写在 `frontmatter-results.json`。
+- **为什么是问题**：即使 S6 去掉 YAML 面板，只要沿用该函数并在正文编辑后拼回，未编辑的 frontmatter 也会被改字节。S8 的“不编辑切走”场景绕开写回，抓不到这个已证实的迁移风险；纯方言测试没有这条前缀路径。
+- **建议改法**：S6 的迁移边界明确改成按原始字符串偏移识别分隔符、直接切出原始前缀，保留 CRLF/LF、BOM 与 EOF 状态，不全文件归一化、不补换行；补“只编辑正文后保存，frontmatter 原始字节不变”的用例，含 CRLF、BOM 与末尾分隔符样本。它是既定原样保留合同的实现修正，不需要改变待确认产品取舍。
+
+### 12. 建议：Lab 适配器扩展及正文契约对照应列入 S8，现有目录迁移本身不提供读写
+
+- **类别**：测试 / 可实施性；**核实状态**：从代码推断，已核对适配器及其契约测试。
+- **位置**：计划 `plan.md:74,78-79,103`；`packages/neuro-book/src/plugins/lab/web/fixtures/explorer-scene/memory-files.ts:1-9,47-57,385-393,457-461`；`packages/neuro-book/src/plugins/lab/memory-files.test.ts:120-185`。
+- **现象**：计划说把 t70 内存适配器“移到共享位置”，用于同一文档模型的 `EditorArea/live`，提供外部修改、外部删除、下一次保存冲突、读取变慢。现有 `read` 与 `write` 一律返回 `unavailable`；`next` 只控制批量，`externalCreate` 不会改已有文件。现有对照测试只覆盖资源树列出、目录项/批量操作及事件，没有正文基线、条件保存、冲突 `current` 或慢读闸门。
+- **为什么是问题**：新场景当然可以在 S8 扩展该适配器，但现有资源树契约覆盖不能证明新增正文 fake 的等价性；仅移目录或补一个内存协调器，live 场景会打开失败。若新增能力没有对照真实 Files 的基线、来源和回复/事件顺序，场景就会隐藏计划核心时序。建议把这份必要实现与契约验证直接列为 S8 的完成条件。
+- **建议改法**：S8 提交边界明确新增内存正文提供者能力及其与 `filesScene` 的对照：实际文本/基线、带 `current` 的冲突、外部改写与删除、真实形状的保存来源事件、可释放的读/保存回复闸门；与正文场景需要的顺序逐项对过契约。目录迁移复用 t70 逻辑即可，不再把已有资源树契约测试当成编辑器读写的证明。生产验收仍走真实 Files。
+
+## 处理优先级
+
+按影响排序；发现编号保留追加时的编号，便于追溯，撤回项不计数量。
+
+| 顺序 | 发现 | 处理重点 |
+|---|---|---|
+| 1 | 2（阻断） | S4 指定生产页面/测试外壳怎样接可推进时钟与真实 read 回复闸门 |
+| 2 | 9、11（重要） | S6 修正字节承诺与已证实会归一化的旧序列化/frontmatter 路径 |
+| 3 | 4、5、6、8（重要） | 修正验收编号，补复制/移动/删除、第二消费者、真实撤销旅程 |
+| 4 | 1（重要） | 明确迁移测试的运行器与收集规则 |
+| 5 | 10、12（建议） | 写定产物依赖闭包核对与 Lab 正文契约对照 |
+
+## 逐子判据核对
+
+本表核对的是计划覆盖责任，不声称新产品已通过；t70 的既有证据只查代码/计划，未重跑。合同引用：`files-explorer.md:190,196`、`files.md:137,140`。
+
+| 合同 | 子判据 | 当前计划 / 既有责任 | 核对结果与可执行观察 |
+|---|---|---|---|
+| files-explorer 3 | 上下/左右、Space | t70 的选择/按键纯函数与 DOM，t70 plan:156 | 既有责任已定义；t71 应引用它，不能拿“800 ms”冒充验收 3 |
+| files-explorer 3 | Ctrl/Meta 加选、Shift 范围、Ctrl/Meta+A、只选可见资源 | 同上，树模型与受控组件 | 沿既有责任；新编辑器接入后做集成焦点回归 |
+| files-explorer 3 | 单击 preview、双击/Enter permanent | t70 plan:157、browse.test.ts:328-352；t71 plan:122 产品页 | 命令发起已覆盖；新页必须观察实际标签替换/转正与正文 |
+| files-explorer 3 | 右键选择、修饰选择不打开 | t70 的选择/菜单 DOM 与 browse.test.ts | 沿既有责任；t71 表头须纠正，见发现 4 |
+| files-explorer 3 | 编辑器/输入框聚焦时树不拦截按键 | t70 plan:158 覆盖内联编辑元素；t71 加真实 Monaco/Tiptap | 用真实编辑器聚焦后 Delete、方向键、复制/剪切/粘贴观察正文，资源树路径与选中不改变；新产品未验证 |
+| files-explorer 9 | 复制 dirty：先保存 | t71 plan:70,112 的 Bun 笼统映射 | 必须分别观察副本是已确认新正文；保存冲突不发 copy，见发现 5 |
+| files-explorer 9 | 复制 dirty：磁盘版本 | 同上 | 源内存 dirty 保留、副本是旧磁盘正文；选择 UI/真实副作用均须观察 |
+| files-explorer 9 | 复制 dirty：取消 | 同上 | 默认取消，结算后无 copy/write 请求和副本；用 tap 与事件屏障收口 |
+| files-explorer 9 | 移动等待在途保存，期间继续输入 | t71 plan:71,114；scene/tap 可实现 | 扣保存回复而不扣事件，期间输入；未释放前无 move，回执不清除新 dirty |
+| files-explorer 9 | 移动成功保留新正文并重绑定 | t71 plan:112 剪切粘贴 e2e | 增补上述在途序列；成功后标签/文档指向实际目标，正文与 dirty 保留 |
+| files-explorer 9 | 移动失败仍属原文档 | 设计 plan:71 有“失败不动”，映射未列失败序列 | 实际目标已占用或身份令牌失效制造失败；源地址与未保存正文保留 |
+| files-explorer 9 | 删除 dirty/冲突目录展示影响与不可恢复风险 | t71 plan:72,112，仅 Bun 文件与移动 e2e | 缺真实确认观察；含干净/dirty/冲突后代分别检查范围与明确结算 |
+| files-explorer 9 | 删除默认取消、撤销不承诺文件恢复 | 设计引用已有确认合同，映射未单列 | 默认焦点/取消无副作用；确认删除后不得把 Ctrl+Z 展示成文件恢复，见发现 5 |
+| files 1 | 主页面隔离项目读树/正文、编辑保存 | t71 plan:113,122 | 入口与实际 build/e2e 已写；新实现未运行 |
+| files 1 | 重新读磁盘确认提交 | t71 plan:113 | 已有明确步骤 |
+| files 1 | 另一合法消费者取得同一结果 | 未列 | `extraWindow` 可起真实第二消费者，实验已证明可用；须接保存旅程，见发现 6 |
+| files 4 | 过期基线冲突、不静默覆盖 | t71 plan:114；两种裁决 UI 在 plan:122 | 可用真实外部写入制造，实验已返回 conflict/current 且磁盘未被 LOCAL 覆盖 |
+| files 4 | 保存期间新输入保持 dirty | t71 plan:114 回复闸门期间输入 | 场地足够；文档模型实现后断言提交 A1、当前 A2、确认基线 A1，不能仅测 Files write 成功 |
+
+## 切片独立验证与 editor.md 的可测路径
+
+“每片产品页可运行”应按依赖理解：S0 是文档，S2/S3 是底层模型；S1 可用样例贡献，S4 首次贯通用户链路，S5/S6 接真实编辑器。没有发现必须把 S2/S3 单独挂页面的理由，也不把 S4 的临时 textarea 视图算作最终交付。
+
+| 切片 | 可独立验证入口与依赖 | 结论 |
+|---|---|---|
+| S0 | 新 Spec、注册表、docs:check/governance:check | 先写编号再映射成立；完成时按本表与测试规范核对，不计发现 7 |
+| S1 | 样例贡献 + WorkbenchShell DOM/e2e | 不依赖真实编辑器；可测只挂一次、停放不重建、无贡献欢迎页、第二贡献诊断 |
+| S2 | Bun，真实 filesScene 与注入 clock | 可独立测 acquire/引用、读失败、保存期间输入、冲突/外部变化/寿命；不直接导入 Node DOM 运行器，scene 含 bun:ffi |
+| S3 | 纯组模型与真实 Storage 场地 | 可独立测 preview/permanent、拆分/关闭、记录恢复与错误；不把恢复标签当正文读成功 |
+| S4 | 插件装配 + textarea 的真实主页面、宿主 DOM | 能贯通模型；慢读与阈值的浏览器接缝须先补，见发现 2 |
+| S5 | 同一宿主接真实 Monaco；Chrome 生命周期/输入/历史 | 默认 happy-dom 不创建真实 Monaco；S5 已有 e2e，运行器限制不单独计缺陷 |
+| S6 | 真实方言 manager、happy-dom EditorState、Chrome 真实视图 | 运行器收集、字节路径与历史旅程按发现 1、8、9、11 补齐 |
+| S7 | Bun 真实 coordinator/Files + 受控选择 DOM + 产品动作 | 复制三分支、移动成功/失败、dirty/冲突删除逐项测，见发现 5 |
+| S8 | 同一模型的 Lab 受控场景、构建产物、证据收口 | 正文 fake 扩展须对契约；不以 Lab 替代产品 Files 与首屏证据 |
+
+新 editor.md 尚未写，不能预言其编号或说它已经漏验。下列是依据 plan:25-65 所能定义的真实时序，供 S0 逐条矩阵使用：
+
+| 场景 | 合法制造方式 | 完成观察与运行器 |
+|---|---|---|
+| 同地址并发打开、最后 clean 引用释放 | scene + tap 扣一次真实 read，两个 acquire；释放后再打开 | 返回同正文，无重复在途读取；实际释放后重新读取，Bun |
+| 读失败与迟到结果 | 不存在/不可读真实文件；扣 A read 后打开 B，再释放 A | failed 原因不伪装空文件；活动正文是 B，Bun + S4 Chrome |
+| 800 ms 前后 | 注入窗口 RuntimeClock，扣真实 read 回复 | 标签先变、旧正文消失；阈值前无提示、后有条、释放后正确可编辑；实际组件浏览器 |
+| 保存期间输入与回声 | 扣 write 回复，事件不扣；提交 A1 后接受 A2 | 保存基线只确认 A1、A2 仍 dirty，自己的早到事件不丢 A2；Bun + 聚焦浏览器 |
+| clean / dirty 外部修改 | 对真实文件 fs.writeFile，先订阅 ready，再等 external 事件并推进合并时钟 | clean 同步新正文；dirty 保留本地输入并提示，后保存冲突；Bun + Chrome |
+| 冲突重新载入 | 外部写 E，持旧基线保存 L，读真实当前 E | UI 明确丢弃本地，正文/基线更新为 E、dirty 清理；Chrome 真实选择 |
+| 冲突覆盖 | 同一冲突后带 current 基线提交 L；期间再外部写可制造二次冲突 | 磁盘与另一消费者为 L；再冲突不得静默覆盖；Bun + Chrome |
+| A→B→A 撤销/重做 | 两种真实控件键盘输入，保存各自 model/EditorState，实际标签切换 | A/B 历史各自恢复，同组与分组语义一致；Chrome |
+| 项目换代、关闭后同路径重开、旧 token 回调 | 真实场地 stop/restart 项目；扣旧 read 或持旧句柄后重开 | 旧结果/回执不得落新目标，旧订阅结束一次；Bun + 宿主 DOM |
+| 外部删除与原路径重建 | fs.unlink，等 deleted；保存调用 create + write；竞争者可先占地址 | 删除态正文保留，排他冲突不覆盖，新建失败不假报已保存；Bun + Chrome |
+| 改名/移动重绑定 | 真实 Files rename/move 及成功/失败实际结果 | 按段边界更新 path，不换 documentId，不把失败标成新路径；Bun + S7 Chrome |
+| 刷新恢复与 dirty 关闭 | 真实 project/local Storage；UI 保存/不保存/取消、beforeunload | 标签/布局恢复并实际读取；默认取消与未保存正文保留，Chrome |
+
+这些路径不需要 mock、spy、全局假计时器或固定等待；“保存完成”“订阅 ready”“回复 arrived”“对话关闭”“正文可编辑”是等待边界。只有场地/引擎可行性已实验，其余等待新实现，未宣称通过。
+
+## 实验记录与限制
+
+以下命令均从审查 worktree 执行，输出都在本报告目录；初始失败配置和最终成功配置均保留。没有在仓库运行安装、Nuxt prepare、dist 构建或文件修改。
+
+1. `bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/run-tiptap-build.ts`：退出 0；canonical comment/ruby 单样本 `{"ok":true,"bytes":109}`，不能外推所有 Markdown。
+2. `node /home/notnotype/CodeRepository/neuro-book/node_modules/vitest/vitest.mjs run --config /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/vitest-editors.config.mjs --reporter=json --outputFile=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/native-editor-vitest.json`：退出 1；3 例，Tiptap 状态恢复与序列化观察 2 例通过、Monaco Canvas 环境失败 1 例。仓库外配置用 esbuild 转译旧 TS，happy-dom 无额外 Canvas shim；没有运行新应用完整 suite。
+3. `bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/frontmatter-probe.ts`：退出 0；实际旧 helper 的 LF 一例相同，CRLF 与分隔符 EOF 两例变字节，见 `frontmatter-results.json`。
+4. `bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/run-files-timing-probe.ts`：退出 0；读回复跨手动 799/800 ms 仍被扣住、释放后为 A；保存回复未到时磁盘/另一消费者为 A1，自己的事件已到；真实 external 事件、过期基线 conflict/current、不覆盖磁盘，真实 read 重载与带 current 写入都成立。四个内核实例全部 `closed`，真实临时目录在 finally 删除。`files-timing-results.json` 保留结果。该脚本不伪造文档模型，因此没有验证新输入的 dirty 或两种 UI 按钮。
+5. `node /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/build-browser-probe.mjs`：退出 0；Vite `8.1.4` 转换 1111 个模块，旧真实 loader 与 workers 构建成功，500 kB chunk 警告未抑制；产物在 `browser-dist`。旧包没有 Nuxt 生成 tsconfig，实验用仓库外 transform 和 Rolldown `tsconfig: false`，没有改旧包。
+6. `node /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/audit-browser-artifacts.mjs`：退出 0；读取最终磁盘文件而非 generateBundle 中间文本。初始 JS 493,698 字节，gzip 151,089 字节；静态闭包无 Monaco。两个 Monaco 主体 chunk 分别为 2,557,259 / 1,077,054 字节，默认 gzip 为 652,977 / 267,944 字节。此数值是实验页面，不是新产品体积，也没有与产品基线比较或设预算。
+7. `bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/serve-browser-probe.ts` 加内置 `browser.open`：真实 Chromium `151.0.7922.71` 从 Vite 产物加载，原生键盘输入/撤销/重做两种编辑器均有明确断言通过；截图 `browser-editors.png`。实际 `EditorState`/Monaco model 切换保留 A/B 历史；不经过新插件、文档 store、标签 UI 或真实 Files。点击 Monaco 前只请求入口，点击后才请求 Monaco 及 editor worker。收到 3 条 `Canceled: Canceled` 页面错误（栈涉及 Monaco 模型切换取消），原文保留在 `browser-editor-results.json`；本实验不宣称零错误或完整 worker 生命周期通过，也不把尚未定位的引擎错误算计划缺陷。JSON 语言 worker 已构建但没有触发 JSON 编辑验收。
+
+环境绕路：最初旧 TS 的 Vitest/Vite 转换因 `.nuxt/tsconfig.json` 缺失失败；手工 Bun + DOM globals 实验的 CSS 错误不是实际 Vitest 证据。Files 临时脚本最初别名/依赖不可解析，随后 Bun 打包 typebox 相对动态路径失败；最终 resolver 只重定向到指定 checkout 的源码与已安装真实依赖，第三方包保持 external 原入口。该 checkout 没有安装对应 node_modules，实验只读复用 `w00017-runtime-foundation/node_modules`，没有安装/修改它。
+
+未运行：新 editor 插件产品页 e2e（实现尚不存在）、新应用生产 `bun run build`、typecheck、全量 Bun/Vitest、docs:check/governance:check、变异检查、四主题与 390 px 产品截图。800 ms UI、保存期间输入 dirty、真实冲突按钮、分组共享文档与释放内存尚无产品证据；不把引擎实验或旧 t24 证据当成最新产品验收。
+
+## 2026-10-09 t71 待确认项判断
+
+七项逐条对应 `pending-confirmations.md:55-61`；审查者判断不等于开发者追认。
+
+| 条目 | 判断 |
+|---|---|
+| 编辑器拖放、固定标签、多行条延到 t72 后 | 已明确承接和范围，向右/向下拆分可独立交付，不列缺陷。 |
+| 新增 Tiptap 与 Monaco、Milkdown 不迁 | 与旧主编辑器/v2 迁入方向一致，真实运行器可行，不列选型缺陷。 |
+| 只迁方言核心与基本扩展、不迁领域菜单和 frontmatter 面板 | 取舍成立；“frontmatter 原样保留”是承诺，旧 helper 必须修正，见发现 11。 |
+| 手动保存、无跨刷新草稿、beforeunload | 明确记录的产品取舍，需默认取消与离开确认验收，不算数据自动恢复遗漏。 |
+| 冲突只给重新载入/覆盖、无差异 UI | 两种动作都能由真实 Files 实现，读/带 current 写的底层实验通过，不要求补第三种界面。 |
+| 项目窗口 editor.session project/local、未绑定只内存 | 范围明确，不把未绑定会话不跨刷新恢复算缺陷。 |
+| workbench.editor-area 只认最低 order 的一个贡献 | 单向依赖和单提供者选择可测；S1 样例贡献可验证无贡献/重复贡献，不列缺陷。 |
+
+## 回写建议判断
+
+本次使用 task-reflection 复核环境绕路与新类型规则。现有 `docs/testing/README.md:18,115-124,133-134` 已规定真实宿主、运行器收集、无固定等待与无 Nuxt 生成态的转译；`docs/standards/code/languages/typescript.md:7` 已规定命名类型。ReturnType 实验声明已改用 Monaco 的 `IStandaloneCodeEditor`；浏览器实验 Map 会运行期插入与 clear，符合动态集合例外。没有提出重复规范，也没有回写仓库；计划专属修正都留在本报告。
+
+## 数量
+
+| 严重程度 | 数量 | 发现编号 |
+|---|---:|---|
+| 阻断 | 1 | 2 |
+| 重要 | 7 | 1、4、5、6、8、9、11 |
+| 建议 | 2 | 10、12 |
+| 合计 | 10 | 撤回 3、7，不计入 |
+
+## 未发现问题的方面
+
+- S0 写新 editor.md、写定编号再映射的顺序本身成立；不能把未实现的新文件当缺陷。
+- S2/S3 的模型切片可在真实内核/Storage 场地独立验证；S4 textarea 可以作为中间贯通入口，S5/S6 接真实控件的依赖方向成立。
+- `filesScene`、`createLinkTap`、手动时钟确实能支持慢回复、保存回声早于回执、外部事件与基线冲突；第二消费者同样可用，实验已运行。
+- Tiptap 的独立 EditorState 历史可保留，Monaco model 可保留独立历史；真实浏览器原生输入/撤销旅程可实现。
+- 旧 Monaco loader 的 Vite 动态加载与 worker 产物可构建，实验入口静态闭包没有提前包含 Monaco；不需要修改选型才能达到懒加载。
+- 已记录的拖放延期、手动保存、无刷新草稿、无差异比较 UI、未绑定只内存、Milkdown 不迁等取舍不作为缺陷。
+- 本次创建的真实 Files 场地四个实例均正常关闭并清理临时目录；Tiptap/Monaco 的 dispose 已调用、对应控件 DOM 移除，实验 tab 已关闭，临时静态服务与本次启动的 Chromium 服务已停止。保留脚本、产物与报告供复核；未执行 commit、push、stash、切换分支或仓库删除。
+
