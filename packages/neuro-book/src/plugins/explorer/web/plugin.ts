@@ -67,8 +67,17 @@ export const explorerBrowserPlugin: PluginDefinition = {
                 report,
             });
             context.signal.addEventListener("abort", () => session.dispose(), {once: true});
+            // 偏好记录的首读与视图代码的下载都在激活时开始，与工作台外壳的挂载同时进行；控制器仍等视图第一次挂上
+            // （打开项目到可操作的文件树，files-explorer 的性能标准，w00017 t72 的测量）。
+            session.prepare();
+            const importView = (): Promise<typeof import("./components/FilesExplorerView.vue")> => import("./components/FilesExplorerView.vue");
+            let viewModule: ReturnType<typeof importView> | null = importView();
+            // 预取失败只丢掉这次的结果：`load` 重新下载，失败照常由视图宿主原位显示并可重试（不能让重试拿到同一个已失败的结果）。
+            viewModule.catch(() => {
+                viewModule = null;
+            });
             const view: ViewImplementation = {
-                load: async () => createExplorerViewHost((await import("./components/FilesExplorerView.vue")).default, {
+                load: async () => createExplorerViewHost((await (viewModule ?? importView())).default, {
                     session,
                     commands,
                     locale,

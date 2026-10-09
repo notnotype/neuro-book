@@ -1,7 +1,8 @@
 /**
  * 一个窗口里的资源管理器（docs/specs/workbench/files-explorer.md 的“新应用的插件、命令与界面”）：入口激活时建立，活到
- * 入口停止。视图第一次挂上时才打开偏好记录，偏好首读结束（读到或失败）后才建控制器，缺省值因此不会覆盖记录；之后视图
- * 停放、移动、渲染重试只解绑再绑定同一个控制器。命令经它找到控制器与当前挂着的视图。
+ * 入口停止。入口激活时就打开偏好记录（`prepare`），让首读与工作台的挂载同时进行；控制器仍在视图第一次挂上、且偏好首读
+ * 结束（读到或失败）之后才建，缺省值因此不会覆盖记录；之后视图停放、移动、渲染重试只解绑再绑定同一个控制器。命令经它
+ * 找到控制器与当前挂着的视图。
  */
 
 import {computed, shallowRef, watch} from "@vue/reactivity";
@@ -42,6 +43,8 @@ export interface ExplorerSession {
     readonly view: Readonly<ShallowRef<AttachedView | null>>;
     /** 偏好记录此刻的问题（读不到、损坏、没保存上），给视图显示一条提示；没有为 null。 */
     readonly problem: ComputedRef<PreferenceProblem | null>;
+    /** 打开偏好记录、开始首读；不建控制器。入口激活时调用，重复调用无事。 */
+    prepare(): void;
     attach(view: AttachedView): () => void;
     setShowManifests(show: boolean): void;
     /** 偏好提示上的“重试 / 重新读取”与“放弃”：之后树与显示按记录此刻的值。 */
@@ -56,6 +59,8 @@ export function createExplorerSession(options: ExplorerSessionOptions): Explorer
     const view = shallowRef<AttachedView | null>(null);
     let stopWaiting: (() => void) | null = null;
     let disposed = false;
+    /** 视图挂上过：控制器在这之后才建（Spec：入口在视图第一次挂上时建控制器）。 */
+    const attachedOnce = shallowRef(false);
 
     const fieldsOf = (current: ExplorerStore) => [current.state.preferences, ...(current.state.expanded === null ? [] : [current.state.expanded]), current.state.userExpanded];
 
@@ -113,7 +118,7 @@ export function createExplorerSession(options: ExplorerSessionOptions): Explorer
         const current = options.createStore();
         store.value = current;
         // 首读结束（读到或失败）之前不建控制器：缺省值不能先显示、再被当成修改保存。
-        const settled = computed(() => fieldsOf(current).every((field) => field.ready || field.failure !== null));
+        const settled = computed(() => attachedOnce.value && fieldsOf(current).every((field) => field.ready || field.failure !== null));
         stopWaiting = watch(settled, (done) => {
             if (!done || controller.value !== null || disposed) return;
             stopWaiting?.();
@@ -135,8 +140,10 @@ export function createExplorerSession(options: ExplorerSessionOptions): Explorer
             }
             return null;
         }),
+        prepare: acquire,
         attach: (attached) => {
             acquire();
+            attachedOnce.value = true;
             view.value = attached;
             return () => {
                 if (view.value === attached) view.value = null;

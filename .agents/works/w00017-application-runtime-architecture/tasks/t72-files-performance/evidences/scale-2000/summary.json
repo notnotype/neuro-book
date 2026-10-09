@@ -1,0 +1,215 @@
+{
+  "date": "2026-10-09T23:42:10.042Z",
+  "revision": "a4674aec",
+  "command": "bun run perf:files -- --count 2000 --skip-build --only A1+A2,B1,C1-md --iterations 10 --opens 10 --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/scale-2000",
+  "options": {
+    "count": 2000,
+    "seed": 42017,
+    "wide": 400,
+    "sources": 60,
+    "iterations": 10,
+    "opens": 10,
+    "only": [
+      "A1+A2",
+      "B1",
+      "C1-md"
+    ],
+    "serverProfile": false,
+    "skipBuild": true,
+    "keepTemp": false,
+    "out": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/scale-2000"
+  },
+  "machine": {
+    "loadBefore": [
+      1.59,
+      1.97,
+      2
+    ],
+    "loadAfter": [
+      1.55,
+      1.91,
+      1.98
+    ]
+  },
+  "sample": {
+    "count": 2000,
+    "sources": 60,
+    "wide": {
+      "path": "notes/wide",
+      "entries": 400
+    },
+    "totalBytes": 36757397,
+    "seed": 42017
+  },
+  "chrome": "151.0.7922.71",
+  "unsupported": [],
+  "progress": [],
+  "results": [
+    {
+      "id": "A1+A2",
+      "name": "打开项目：服务刚启动 / 宽限期内再打开",
+      "status": "ok",
+      "samples": 10,
+      "values": {
+        "服务启动到监听（脚本侧）": {
+          "count": 10,
+          "min": 102.9,
+          "p50": 108.3,
+          "p95": 111.9,
+          "max": 111.9
+        },
+        "A1 第一次打开：导航到树可操作": {
+          "count": 10,
+          "min": 531.3,
+          "p50": 534.8,
+          "p95": 629.3,
+          "max": 629.3
+        },
+        "A2 宽限期内再打开：导航到树可操作": {
+          "count": 10,
+          "min": 400,
+          "p50": 417.2,
+          "p95": 441.6,
+          "max": 441.6
+        }
+      }
+    },
+    {
+      "id": "B1",
+      "name": "未打开过的章节：选中与标签 / 正文（富文本）",
+      "status": "ok",
+      "samples": 10,
+      "feedback": {
+        "committed": {
+          "count": 10,
+          "min": 14.2,
+          "p50": 14.5,
+          "p95": 14.9,
+          "max": 14.9
+        },
+        "presented": {
+          "count": 10,
+          "min": 30.7,
+          "p50": 31,
+          "p95": 31.4,
+          "max": 31.4
+        },
+        "frames": {
+          "count": 10,
+          "min": 2,
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      },
+      "done": {
+        "committed": {
+          "count": 10,
+          "min": 30.7,
+          "p50": 31,
+          "p95": 31.4,
+          "max": 31.4
+        },
+        "presented": {
+          "count": 10,
+          "min": 47.6,
+          "p50": 47.8,
+          "p95": 48.3,
+          "max": 48.3
+        },
+        "frames": {
+          "count": 10,
+          "min": 3,
+          "p50": 3,
+          "p95": 3,
+          "max": 3
+        }
+      },
+      "values": {
+        "第一次（含控件代码）：选中与标签 presented": {
+          "count": 1,
+          "min": 30.3,
+          "p50": 30.3,
+          "p95": 30.3,
+          "max": 30.3
+        },
+        "第一次（含控件代码）：正文 presented": {
+          "count": 1,
+          "min": 107.9,
+          "p50": 107.9,
+          "p95": 107.9,
+          "max": 107.9
+        }
+      },
+      "longFrames": {
+        "count": 0,
+        "longest": 0
+      },
+      "requests": {
+        "nbook.storage/project save": 11,
+        "nbook.files/project read": 11
+      }
+    },
+    {
+      "id": "C1-md",
+      "name": "已打开过：来回点标签（富文本，单组）",
+      "status": "ok",
+      "samples": 10,
+      "feedback": {
+        "committed": {
+          "count": 10,
+          "min": 8.4,
+          "p50": 10,
+          "p95": 10.3,
+          "max": 10.3
+        },
+        "presented": {
+          "count": 10,
+          "min": 25,
+          "p50": 26.5,
+          "p95": 27,
+          "max": 27
+        },
+        "frames": {
+          "count": 10,
+          "min": 2,
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      },
+      "done": {
+        "committed": {
+          "count": 10,
+          "min": 8.4,
+          "p50": 10,
+          "p95": 10.3,
+          "max": 10.3
+        },
+        "presented": {
+          "count": 10,
+          "min": 25,
+          "p50": 26.5,
+          "p95": 27,
+          "max": 27
+        },
+        "frames": {
+          "count": 10,
+          "min": 2,
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      },
+      "longFrames": {
+        "count": 0,
+        "longest": 0
+      },
+      "requests": {
+        "nbook.storage/project save": 11
+      }
+    }
+  ],
+  "serverProfiles": [],
+  "problems": []
+}

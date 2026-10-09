@@ -60,6 +60,7 @@ const session: ExplorerSession = {
     store: shallowRef(null),
     view,
     problem: computed(() => null),
+    prepare: () => undefined,
     attach: (attached) => {
         view.value = attached;
         return () => {

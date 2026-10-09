@@ -10,6 +10,7 @@
 
 import type {TSchema} from "typebox";
 import {Value} from "typebox/value";
+import {Compile} from "typebox/compile";
 
 import {evaluateContextWhen} from "./context-keys";
 import type {ContextKeySource} from "./context-keys";
@@ -101,7 +102,15 @@ function snapshot(args: unknown): unknown {
     return structuredClone(args);
 }
 
+/**
+ * 插件宿主每次查询贡献都按存活登记重新校验（runtime.plugins 输出 23，不缓存），启动时一条命令声明会被问几十次：
+ * 用编译过的检查器先放行合格的声明，`Errors` 只在不合格时才跑。解释执行的 `Value.Errors` 与 `Value.Check`
+ * 曾分别占到打开项目的五十多与四十多毫秒（w00017 t72 的测量）。
+ */
+const declarationValidator = Compile(CommandDeclarationSchema);
+
 function schemaProblems(declaration: unknown): string[] {
+    if (declarationValidator.Check(declaration)) return [];
     return [...Value.Errors(CommandDeclarationSchema, declaration)].map((error) => `${error.instancePath === "" ? "/" : error.instancePath}：${error.message}`);
 }
 

@@ -1,0 +1,759 @@
+{
+  "date": "2026-10-09T23:40:03.237Z",
+  "revision": "a4674aec",
+  "command": "bun run perf:files -- --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/baseline-3000",
+  "options": {
+    "count": 3000,
+    "seed": 42017,
+    "wide": 400,
+    "sources": 60,
+    "iterations": 30,
+    "opens": 10,
+    "only": [],
+    "serverProfile": false,
+    "skipBuild": false,
+    "keepTemp": false,
+    "out": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/baseline-3000"
+  },
+  "machine": {
+    "loadBefore": [
+      1.69,
+      2.05,
+      2.01
+    ],
+    "loadAfter": [
+      1.85,
+      2.09,
+      2.04
+    ]
+  },
+  "sample": {
+    "count": 3000,
+    "sources": 60,
+    "wide": {
+      "path": "notes/wide",
+      "entries": 400
+    },
+    "totalBytes": 54922594,
+    "seed": 42017
+  },
+  "chrome": "151.0.7922.71",
+  "unsupported": [],
+  "progress": [],
+  "results": [
+    {
+      "id": "A1+A2",
+      "name": "打开项目：服务刚启动 / 宽限期内再打开",
+      "status": "ok",
+      "samples": 10,
+      "values": {
+        "服务启动到监听（脚本侧）": {
+          "count": 10,
+          "min": 109.8,
+          "p50": 113.3,
+          "p95": 130.5,
+          "max": 130.5
+        },
+        "A1 第一次打开：导航到树可操作": {
+          "count": 10,
+          "min": 540.6,
+          "p50": 562.9,
+          "p95": 655.4,
+          "max": 655.4
+        },
+        "A2 宽限期内再打开：导航到树可操作": {
+          "count": 10,
+          "min": 418.5,
+          "p50": 427.8,
+          "p95": 450.6,
+          "max": 450.6
+        }
+      }
+    },
+    {
+      "id": "A3",
+      "name": "打开项目：子进程退出后重开",
+      "status": "ok",
+      "samples": 10,
+      "values": {
+        "导航到树可操作": {
+          "count": 10,
+          "min": 525.8,
+          "p50": 567.6,
+          "p95": 587.1,
+          "max": 587.1
+        }
+      }
+    },
+    {
+      "id": "A4",
+      "name": "打开项目：恢复多个已展开目录",
+      "status": "ok",
+      "samples": 10,
+      "values": {
+        "导航到树可操作": {
+          "count": 10,
+          "min": 411.1,
+          "p50": 432.9,
+          "p95": 463.5,
+          "max": 463.5
+        }
+      },
+      "notes": [
+        "展开后 DOM 里的行 44（虚拟列表只渲染可见区）"
+      ]
+    },
+    {
+      "id": "B1",
+      "name": "未打开过的章节：选中与标签 / 正文（富文本）",
+      "status": "ok",
+      "samples": 30,
+      "feedback": {
+        "committed": {
+          "count": 30,
+          "min": 13.9,
+          "p50": 14.5,
+          "p95": 14.8,
+          "max": 14.8
+        },
+        "presented": {
+          "count": 30,
+          "min": 30.5,
+          "p50": 31,
+          "p95": 31.2,
+          "max": 31.2
+        },
+        "frames": {
+          "count": 30,
+          "min": 2,
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      },
+      "done": {
+        "committed": {
+          "count": 30,
+          "min": 30.5,
+          "p50": 31,
+          "p95": 31.2,
+          "max": 31.2
+        },
+        "presented": {
+          "count": 30,
+          "min": 47.3,
+          "p50": 47.8,
+          "p95": 48,
+          "max": 48.1
+        },
+        "frames": {
+          "count": 30,
+          "min": 3,
+          "p50": 3,
+          "p95": 3,
+          "max": 3
+        }
+      },
+      "values": {
+        "第一次（含控件代码）：选中与标签 presented": {
+          "count": 1,
+          "min": 30.1,
+          "p50": 30.1,
+          "p95": 30.1,
+          "max": 30.1
+        },
+        "第一次（含控件代码）：正文 presented": {
+          "count": 1,
+          "min": 98,
+          "p50": 98,
+          "p95": 98,
+          "max": 98
+        }
+      },
+      "longFrames": {
+        "count": 0,
+        "longest": 0
+      },
+      "requests": {
+        "nbook.storage/project save": 31,
+        "nbook.files/project read": 31
+      }
+    },
+    {
+      "id": "B2",
+      "name": "未打开过的源码文件：选中与标签 / 正文（源码）",
+      "status": "ok",
+      "samples": 30,
+      "feedback": {
+        "committed": {
+          "count": 30,
+          "min": 14,
+          "p50": 14.4,
+          "p95": 15,
+          "max": 15.3
+        },
+        "presented": {
+          "count": 30,
+          "min": 17.2,
+          "p50": 33.7,
+          "p95": 35.2,
+          "max": 35.4
+        },
+        "frames": {
+          "count": 30,
+          "min": 2,
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      },
+      "done": {
+        "committed": {
+          "count": 30,
+          "min": 64,
+          "p50": 64.4,
+          "p95": 65.4,
+          "max": 67.1
+        },
+        "presented": {
+          "count": 30,
+          "min": 80.5,
+          "p50": 80.9,
+          "p95": 81.6,
+          "max": 83.5
+        },
+        "frames": {
+          "count": 30,
+          "min": 5,
+          "p50": 5,
+          "p95": 5,
+          "max": 6
+        }
+      },
+      "values": {
+        "第一次（含控件代码）：选中与标签 presented": {
+          "count": 1,
+          "min": 51.1,
+          "p50": 51.1,
+          "p95": 51.1,
+          "max": 51.1
+        },
+        "第一次（含控件代码）：正文 presented": {
+          "count": 1,
+          "min": 384.6,
+          "p50": 384.6,
+          "p95": 384.6,
+          "max": 384.6
+        }
+      },
+      "longFrames": {
+        "count": 0,
+        "longest": 0
+      },
+      "requests": {
+        "nbook.storage/project save": 32,
+        "nbook.files/project read": 31
+      }
+    },
+    {
+      "id": "C1-md",
+      "name": "已打开过：来回点标签（富文本，单组）",
+      "status": "ok",
+      "samples": 30,
+      "feedback": {
+        "committed": {
+          "count": 30,
+          "min": 6,
+          "p50": 10.3,
+          "p95": 10.8,
+          "max": 10.9
+        },
+        "presented": {
+          "count": 30,
+          "min": 22.5,
+          "p50": 27,
+          "p95": 27.6,
+          "max": 27.6
+        },
+        "frames": {
+          "count": 30,
+          "min": 2,
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      },
+      "done": {
+        "committed": {
+          "count": 30,
+          "min": 6,
+          "p50": 10.3,
+          "p95": 10.8,
+          "max": 10.9
+        },
+        "presented": {
+          "count": 30,
+          "min": 22.5,
+          "p50": 27,
+          "p95": 27.6,
+          "max": 27.6
+        },
+        "frames": {
+          "count": 30,
+          "min": 2,
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      },
+      "longFrames": {
+        "count": 0,
+        "longest": 0
+      },
+      "requests": {
+        "nbook.storage/project save": 31
+      }
+    },
+    {
+      "id": "C2-md",
+      "name": "已打开过：从资源树再点（富文本）",
+      "status": "ok",
+      "samples": 30,
+      "feedback": {
+        "committed": {
+          "count": 30,
+          "min": 14,
+          "p50": 14.5,
+          "p95": 14.8,
+          "max": 14.8
+        },
+        "presented": {
+          "count": 30,
+          "min": 30.5,
+          "p50": 31,
+          "p95": 31.3,
+          "max": 38.7
+        },
+        "frames": {
+          "count": 30,
+          "min": 2,
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      },
+      "done": {
+        "committed": {
+          "count": 30,
+          "min": 14,
+          "p50": 14.5,
+          "p95": 14.8,
+          "max": 14.8
+        },
+        "presented": {
+          "count": 30,
+          "min": 30.5,
+          "p50": 31,
+          "p95": 31.3,
+          "max": 38.7
+        },
+        "frames": {
+          "count": 30,
+          "min": 2,
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      },
+      "longFrames": {
+        "count": 0,
+        "longest": 0
+      },
+      "requests": {
+        "nbook.storage/project save": 30
+      }
+    },
+    {
+      "id": "C1-code",
+      "name": "已打开过：来回点标签（源码，单组）",
+      "status": "ok",
+      "samples": 30,
+      "feedback": {
+        "committed": {
+          "count": 30,
+          "min": 9.5,
+          "p50": 10.4,
+          "p95": 10.9,
+          "max": 11
+        },
+        "presented": {
+          "count": 30,
+          "min": 26.1,
+          "p50": 27,
+          "p95": 27.6,
+          "max": 27.7
+        },
+        "frames": {
+          "count": 30,
+          "min": 2,
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      },
+      "done": {
+        "committed": {
+          "count": 30,
+          "min": 26.1,
+          "p50": 27,
+          "p95": 27.6,
+          "max": 27.7
+        },
+        "presented": {
+          "count": 30,
+          "min": 42.2,
+          "p50": 43.6,
+          "p95": 44.2,
+          "max": 44.3
+        },
+        "frames": {
+          "count": 30,
+          "min": 3,
+          "p50": 3,
+          "p95": 3,
+          "max": 3
+        }
+      },
+      "longFrames": {
+        "count": 0,
+        "longest": 0
+      },
+      "requests": {
+        "nbook.storage/project save": 31
+      }
+    },
+    {
+      "id": "C2-code",
+      "name": "已打开过：从资源树再点（源码）",
+      "status": "ok",
+      "samples": 30,
+      "feedback": {
+        "committed": {
+          "count": 30,
+          "min": 8.5,
+          "p50": 14.5,
+          "p95": 14.7,
+          "max": 14.7
+        },
+        "presented": {
+          "count": 30,
+          "min": 20,
+          "p50": 31.1,
+          "p95": 31.5,
+          "max": 32.2
+        },
+        "frames": {
+          "count": 30,
+          "min": 2,
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      },
+      "done": {
+        "committed": {
+          "count": 30,
+          "min": 20,
+          "p50": 31.1,
+          "p95": 31.5,
+          "max": 32.2
+        },
+        "presented": {
+          "count": 30,
+          "min": 36.2,
+          "p50": 47.6,
+          "p95": 47.9,
+          "max": 47.9
+        },
+        "frames": {
+          "count": 30,
+          "min": 3,
+          "p50": 3,
+          "p95": 3,
+          "max": 3
+        }
+      },
+      "longFrames": {
+        "count": 0,
+        "longest": 0
+      },
+      "requests": {
+        "nbook.storage/project save": 30
+      }
+    },
+    {
+      "id": "C1-md-split",
+      "name": "已打开过：来回点标签（富文本，双组）",
+      "status": "ok",
+      "samples": 30,
+      "feedback": {
+        "committed": {
+          "count": 30,
+          "min": 4.7,
+          "p50": 10.5,
+          "p95": 11.2,
+          "max": 11.2
+        },
+        "presented": {
+          "count": 30,
+          "min": 19.9,
+          "p50": 27,
+          "p95": 27.7,
+          "max": 27.7
+        },
+        "frames": {
+          "count": 30,
+          "min": 2,
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      },
+      "done": {
+        "committed": {
+          "count": 30,
+          "min": 4.7,
+          "p50": 10.5,
+          "p95": 11.2,
+          "max": 11.2
+        },
+        "presented": {
+          "count": 30,
+          "min": 19.9,
+          "p50": 27,
+          "p95": 27.7,
+          "max": 27.7
+        },
+        "frames": {
+          "count": 30,
+          "min": 2,
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      },
+      "longFrames": {
+        "count": 0,
+        "longest": 0
+      },
+      "requests": {
+        "nbook.storage/project save": 31
+      }
+    },
+    {
+      "id": "F1",
+      "name": "资源保留：打开再关闭 20 个文件 × 5 轮",
+      "status": "ok",
+      "samples": 5,
+      "values": {
+        "每轮 GC 后的堆（MB）": {
+          "count": 5,
+          "min": 31.5,
+          "p50": 31.8,
+          "p95": 32.1,
+          "max": 32.1
+        }
+      },
+      "notes": [
+        "各轮堆：31.5 / 31.6 / 31.8 / 32 / 32.1 MB",
+        "关闭全部标签后挂载的控件：富文本 0、Monaco 0（DOM 计数；模型与编辑状态的释放由 t71 的控制器测试证明）"
+      ],
+      "raw": {
+        "heaps": [
+          31.5,
+          31.6,
+          31.8,
+          32,
+          32.1
+        ],
+        "mounted": {
+          "prose": 0,
+          "monaco": 0
+        }
+      }
+    },
+    {
+      "id": "D1",
+      "name": "展开 400 项的目录",
+      "status": "ok",
+      "samples": 10,
+      "feedback": {
+        "committed": {
+          "count": 10,
+          "min": 10.3,
+          "p50": 10.5,
+          "p95": 33,
+          "max": 33
+        },
+        "presented": {
+          "count": 10,
+          "min": 27,
+          "p50": 27.2,
+          "p95": 42.5,
+          "max": 42.5
+        },
+        "frames": {
+          "count": 10,
+          "min": 2,
+          "p50": 2,
+          "p95": 3,
+          "max": 3
+        }
+      },
+      "done": {
+        "committed": {
+          "count": 10,
+          "min": 43.4,
+          "p50": 43.7,
+          "p95": 59.1,
+          "max": 59.1
+        },
+        "presented": {
+          "count": 10,
+          "min": 60.2,
+          "p50": 60.4,
+          "p95": 75.8,
+          "max": 75.8
+        },
+        "frames": {
+          "count": 10,
+          "min": 4,
+          "p50": 4,
+          "p95": 5,
+          "max": 5
+        }
+      },
+      "longFrames": {
+        "count": 0,
+        "longest": 0
+      }
+    },
+    {
+      "id": "D2",
+      "name": "展开内容目录（lorebook.content/characters）",
+      "status": "ok",
+      "samples": 10,
+      "feedback": {
+        "committed": {
+          "count": 10,
+          "min": 13.4,
+          "p50": 13.8,
+          "p95": 64.9,
+          "max": 64.9
+        },
+        "presented": {
+          "count": 10,
+          "min": 24.5,
+          "p50": 27,
+          "p95": 67,
+          "max": 67
+        },
+        "frames": {
+          "count": 10,
+          "min": 2,
+          "p50": 2,
+          "p95": 4,
+          "max": 4
+        }
+      },
+      "done": {
+        "committed": {
+          "count": 10,
+          "min": 41.1,
+          "p50": 43.7,
+          "p95": 76.8,
+          "max": 76.8
+        },
+        "presented": {
+          "count": 10,
+          "min": 57.9,
+          "p50": 60.3,
+          "p95": 93.5,
+          "max": 93.5
+        },
+        "frames": {
+          "count": 10,
+          "min": 4,
+          "p50": 4,
+          "p95": 6,
+          "max": 6
+        }
+      },
+      "longFrames": {
+        "count": 0,
+        "longest": 0
+      },
+      "requests": {
+        "nbook.storage/project save": 19,
+        "nbook.files/project list": 1
+      }
+    },
+    {
+      "id": "D3",
+      "name": "滚动展开后的文件树（滚轮从顶到底）",
+      "status": "ok",
+      "samples": 5,
+      "values": {
+        "帧间隔": {
+          "count": 617,
+          "min": 8.8,
+          "p50": 16.7,
+          "p95": 17.1,
+          "max": 27.1
+        },
+        "每次滚动的最长帧间隔": {
+          "count": 5,
+          "min": 17.7,
+          "p50": 17.9,
+          "p95": 27.1,
+          "max": 27.1
+        }
+      },
+      "longFrames": {
+        "count": 0,
+        "longest": 0
+      }
+    },
+    {
+      "id": "E1",
+      "name": "外部改写 500 个文件时连续键入",
+      "status": "ok",
+      "samples": 5,
+      "values": {
+        "第一次写入到树里出现哨兵、已打开文件提示磁盘已变化": {
+          "count": 5,
+          "min": 251.4,
+          "p50": 259.4,
+          "p95": 271.7,
+          "max": 271.7
+        }
+      },
+      "longFrames": {
+        "count": 1,
+        "longest": 51
+      },
+      "requests": {
+        "nbook.files/project list": 15,
+        "nbook.files/project read": 5
+      },
+      "received": {
+        "event": 5
+      },
+      "notes": [
+        "键入事件（Event Timing，≥16 ms 才记录）共 0 个"
+      ]
+    }
+  ],
+  "serverProfiles": [],
+  "problems": []
+}

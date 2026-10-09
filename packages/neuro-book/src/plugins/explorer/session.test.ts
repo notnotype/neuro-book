@@ -151,7 +151,7 @@ describe("Spec workbench.commands 命令目录（资源管理器）：声明", (
 });
 
 describe("Spec workbench.files-explorer 新应用的插件、命令与界面：会话与命令", () => {
-    it("视图挂上之前命令为 unavailable；挂上并首读结束后可用；刷新带错的代次为 stale-target", async () => {
+    it("视图挂上之前命令为 unavailable（预先打开了记录也一样）；挂上并首读结束后可用；刷新带错的代次为 stale-target", async () => {
         const at = await worlds();
         const current = session(at, await storeFactory(at.storage, "w", "c"));
         const commands = registry(current);
@@ -159,6 +159,14 @@ describe("Spec workbench.files-explorer 新应用的插件、命令与界面：�
         // 视图没挂上之前不打开偏好记录、不列目录。
         expect(current.store.value).toBeNull();
         expect(at.tap.requests.filter((request) => request.method === "list")).toEqual([]);
+        // 入口激活时预先打开记录（与工作台的挂载同时首读）：记录读完了也不建控制器、不列目录，命令仍不可用。
+        current.prepare();
+        const store = current.store.value;
+        if (store === null) throw new Error("prepare 没有打开记录");
+        await waitUntil("偏好首读结束", () => store.state.preferences.ready && store.state.userExpanded.ready);
+        expect(current.controller.value).toBeNull();
+        expect(at.tap.requests.filter((request) => request.method === "list")).toEqual([]);
+        expect(await commands.execute(COLLAPSE_ALL_COMMAND)).toEqual({ok: false, code: "unavailable", reason: "资源管理器尚未打开"});
 
         current.attach(view);
         await listed(at, current, "project://plain");
