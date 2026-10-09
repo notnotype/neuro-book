@@ -93,7 +93,7 @@ export interface RootedRoot {
     /** 读普通文件的全部字节；超过 `maxBytes` 为 too-large，不读内容。 */
     read(path: string, maxBytes: number): Promise<{readonly ok: true; readonly bytes: Uint8Array; readonly resolved: Resolved} | RootedFailure>;
     /** 在锁内按当前字节决定是否替换；路径是链接时替换最终目标、链接保留。目标不存在时 `decide` 收到 `null`。 */
-    replace<T>(path: string, decide: (current: CurrentFile) => ReplaceDecision<T, Uint8Array | string>, temporaryPath?: (file: string) => string): Promise<{readonly ok: true; readonly done: T} | {readonly ok: true; readonly written: Uint8Array | string; readonly resolved: Resolved} | RootedFailure>;
+    replace<T>(path: string, decide: (current: CurrentFile) => ReplaceDecision<T, Uint8Array | string>, temporaryPath?: (file: string) => string): Promise<{readonly ok: true; readonly done: T} | {readonly ok: true; readonly written: Uint8Array | string; readonly resolved: Resolved; readonly before: Stats | null; readonly after: Stats} | RootedFailure>;
 }
 
 /** 打开一个根；路径不存在或不是目录为 root-gone。 */
@@ -244,7 +244,7 @@ class Root implements RootedRoot {
         }
     }
 
-    async replace<T>(path: string, decide: (current: CurrentFile) => ReplaceDecision<T, Uint8Array | string>, temporaryPath?: (file: string) => string): Promise<{readonly ok: true; readonly done: T} | {readonly ok: true; readonly written: Uint8Array | string; readonly resolved: Resolved} | RootedFailure> {
+    async replace<T>(path: string, decide: (current: CurrentFile) => ReplaceDecision<T, Uint8Array | string>, temporaryPath?: (file: string) => string): Promise<{readonly ok: true; readonly done: T} | {readonly ok: true; readonly written: Uint8Array | string; readonly resolved: Resolved; readonly before: Stats | null; readonly after: Stats} | RootedFailure> {
         const resolved = await this.resolve(path);
         if ("ok" in resolved) return resolved;
         if (!resolved.stats.isFile()) return fail("not-a-file", `${path} 不是普通文件`);
@@ -256,7 +256,7 @@ class Root implements RootedRoot {
             return fail("io-failed", "无法建立写入锁的目录", error);
         }
         const replaced = await replaceLocked(resolved.real, {lockPath, decide, report: this.#options.report, ...(temporaryPath === undefined ? {} : {temporaryPath})});
-        if (replaced.ok) return "done" in replaced ? replaced : {ok: true, written: replaced.written, resolved};
+        if (replaced.ok) return "done" in replaced ? replaced : {ok: true, written: replaced.written, resolved, before: replaced.before, after: replaced.after};
         switch (replaced.reason) {
             case "read-only":
                 return fail("permission-denied", `${path} 是只读的`, replaced.detail);

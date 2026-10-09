@@ -1,6 +1,7 @@
 /**
  * e2e 用的浏览器测试插件 `test.sample-views`（docs/specs/workbench/views.md 的 e2e）：一个浏览器入口贡献六个视图（侧栏
- * 三个、右栏一个、面板两个，各在自己的隐式容器）与测试命令 `test.sample-views.stop`。开关见
+ * 三个、右栏一个、面板两个，各在自己的隐式容器）、编辑器槽的样例内容（docs/specs/ui/workbench-shell.md 非目标第一条）
+ * 与测试命令 `test.sample-views.stop`。开关见
  * `src/shared/testing/sample-views-contract.ts`；它们只在测试外壳里读，产品清单与产品构建不含本插件。
  */
 
@@ -12,12 +13,13 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";
 import type {CommandDeclaration, CommandImplementation} from "nbook/plugins/commands/shared/contracts";
+import {WORKBENCH_EDITOR_AREA_POINT} from "nbook/plugins/workbench/shared/contracts";
 import {WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/views";
 import type {ViewDeclaration} from "nbook/plugins/workbench/shared/views";
-import type {ViewContext, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
+import type {EditorAreaContext, EditorAreaImplementation, ViewContext, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
 import {publicStateKey} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateRead} from "nbook/plugins/state/shared/contracts";
-import {SAMPLE_VIEW_IDS, SAMPLE_VIEWS_STOP_COMMAND, SAMPLE_VIEWS_SWITCHES, sampleViewsDescriptor} from "nbook/shared/testing/sample-views-contract";
+import {SAMPLE_EDITOR_AREA_ID, SAMPLE_VIEW_IDS, SAMPLE_VIEWS_STOP_COMMAND, SAMPLE_VIEWS_SWITCHES, sampleViewsDescriptor} from "nbook/shared/testing/sample-views-contract";
 
 const view = (name: string, location: ViewDeclaration["location"], icon: string, extra: Partial<ViewDeclaration> = {}): ViewDeclaration => ({title: {"zh-CN": name, "en-US": name}, icon, location, layout: "scroll", ...extra});
 
@@ -47,6 +49,18 @@ function focusedPartOf(read: PublicStateRead): string {
     return read.status === "undeclared" ? "undeclared" : `${read.status}:${String(read.value)}`;
 }
 
+/** 编辑器槽的样例内容：显示创建次数与 `visible`，e2e 经它核对布局变化只停放、不重挂。 */
+const editorAreaMounts = {count: 0};
+const SampleEditorArea = defineComponent({
+    name: "SampleEditorArea",
+    props: {context: {type: Object as PropType<EditorAreaContext>, required: true}},
+    setup: (props) => {
+        editorAreaMounts.count += 1;
+        const instance = editorAreaMounts.count;
+        return () => h("div", {"data-sample-editor-area": "", "data-instance": String(instance), "data-visible": props.context.visible.value ? "true" : "false"}, `样例编辑器 #${String(instance)}`);
+    },
+});
+
 function switchOn(key: string): ReadonlyArray<string> {
     return (globalThis.localStorage?.getItem(key) ?? "").split(",").filter(Boolean);
 }
@@ -62,6 +76,7 @@ export function createSampleViewsBrowserPlugin(): PluginDefinition {
             contributions: [
                 ...Object.entries(VIEWS).map(([id, declaration]) => ({capability: WORKBENCH_VIEWS_POINT, id, declaration})),
                 {capability: COMMANDS_POINT, id: SAMPLE_VIEWS_STOP_COMMAND, declaration: STOP_DECLARATION},
+                {capability: WORKBENCH_EDITOR_AREA_POINT, id: SAMPLE_EDITOR_AREA_ID, declaration: {order: 0}},
             ],
             activate: (context) => {
                 if (switchOn(SAMPLE_VIEWS_SWITCHES.failActivation).includes("1")) throw new Error("样例视图入口按开关激活失败");
@@ -83,8 +98,10 @@ export function createSampleViewsBrowserPlugin(): PluginDefinition {
                     void context.scope.parent?.close();
                     return {ok: true, value: null};
                 }};
+                const editorArea: EditorAreaImplementation = {load: async () => SampleEditorArea};
                 return {contributions: {
                     [WORKBENCH_VIEWS_POINT]: Object.fromEntries(Object.keys(VIEWS).map((id) => [id, implementation(id)])),
+                    [WORKBENCH_EDITOR_AREA_POINT]: {[SAMPLE_EDITOR_AREA_ID]: editorArea},
                     [COMMANDS_POINT]: {[SAMPLE_VIEWS_STOP_COMMAND]: stop},
                 }};
             },

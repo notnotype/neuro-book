@@ -7,7 +7,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
-import {chmod, readFile, rm} from "node:fs/promises";
+import {chmod, readFile, rm, symlink} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -61,7 +61,7 @@ describe("Spec workspace.resources 读与列出：三种调用方经同一份合
         const read = await client.read("project://chapter.md");
         expect(read).toEqual({ok: true, value: {text: "第一章", baseline: {hash: hash("第一章")}}});
         const baseline = read.ok ? read.value.baseline : {hash: ""};
-        expect(await client.write("project://chapter.md", "第一章（改）", baseline)).toEqual({ok: true, value: {baseline: {hash: hash("第一章（改）")}}});
+        expect(await client.write("project://chapter.md", "第一章（改）", baseline)).toEqual({ok: true, value: {baseline: {hash: hash("第一章（改）")}, identity: {before: expect.any(String), after: expect.any(String)}}});
         expect(await readFile(join(project, "chapter.md"), "utf8")).toBe("第一章（改）");
         expect(await client.write("project://chapter.md", "旧基线", baseline)).toEqual({ok: false, code: "conflict", detail: expect.any(String), current: {hash: hash("第一章（改）")}});
         expect(await readFile(join(project, "chapter.md"), "utf8")).toBe("第一章（改）");
@@ -210,12 +210,37 @@ describe("Spec workspace.folder-kinds 列出：三类文件夹", () => {
 });
 
 describe("Spec workspace.files 读取与保存：文本与上限", () => {
+    it("保存回执带替换前后的目录项身份：前者等于保存前 identify 的令牌、后者等于保存后的；冻结旧令牌的移动被拒、换成新令牌后成功；经链接保存没有这一对", async () => {
+        const {project, window} = await scene({project: {"a.md": "A", "dir/.keep": ""}});
+        const client = files(window);
+        const token = async (address: string): Promise<string> => {
+            const identified = await client.identify([address]);
+            if (!identified.ok) throw new Error(identified.detail);
+            return (identified.value.items[0] as {token: string}).token;
+        };
+        const frozen = await token("project://a.md");
+        const saved = await client.write("project://a.md", "A2", {hash: hash("A")});
+        if (!saved.ok) throw new Error(saved.detail);
+        expect(saved.value.identity).toEqual({before: frozen, after: await token("project://a.md")});
+        expect(saved.value.identity?.after).not.toBe(frozen);
+
+        const stale = await client.move([{source: "project://a.md", target: "project://dir/a.md", expected: frozen}]).result;
+        expect(stale).toMatchObject({ok: true, value: {items: [{status: "failed", code: "source-changed"}]}});
+        const moved = await client.move([{source: "project://a.md", target: "project://dir/a.md", expected: saved.value.identity?.after as string}]).result;
+        expect(moved).toMatchObject({ok: true, value: {items: [{status: "done"}]}});
+        expect(await readFile(join(project, "dir", "a.md"), "utf8")).toBe("A2");
+
+        await symlink(join(project, "dir", "a.md"), join(project, "link.md"));
+        const viaLink = await client.write("project://link.md", "A3", {hash: hash("A2")});
+        expect(viaLink).toEqual({ok: true, value: {baseline: {hash: hash("A3")}}});
+    });
+
     it("BOM 与 CRLF 原样往返：读到的文本带 BOM，原样保存后字节不变", async () => {
         const bytes = new Uint8Array([0xef, 0xbb, 0xbf, 0x61, 0x0d, 0x0a]);
         const {project, window} = await scene({project: {"bom.md": bytes}});
         const read = await files(window).read("project://bom.md");
         expect(read).toEqual({ok: true, value: {text: "﻿a\r\n", baseline: {hash: hash(bytes)}}});
-        expect(await files(window).write("project://bom.md", "﻿a\r\n", {hash: hash(bytes)})).toEqual({ok: true, value: {baseline: {hash: hash(bytes)}}});
+        expect(await files(window).write("project://bom.md", "﻿a\r\n", {hash: hash(bytes)})).toMatchObject({ok: true, value: {baseline: {hash: hash(bytes)}}});
         expect(new Uint8Array(await readFile(join(project, "bom.md")))).toEqual(bytes);
     });
 

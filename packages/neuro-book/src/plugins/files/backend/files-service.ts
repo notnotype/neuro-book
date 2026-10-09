@@ -10,12 +10,13 @@ import {createHash} from "node:crypto";
 import {lstat} from "node:fs/promises";
 import {join} from "node:path";
 
-import type {Baseline, DirectoryEntry, FileText, Listing, ManifestState} from "../shared/contracts";
+import type {Baseline, DirectoryEntry, FileText, Listing, ManifestState, SavedIdentity} from "../shared/contracts";
 import {encodedTextBytes, TEXT_BUDGET_BYTES} from "../shared/contracts";
 import type {FilesFailureCode} from "../shared/failures";
 import {pathProblem} from "../shared/resource";
 import {BODY_NAME, compareEntries, folderKindOf, itemsAt, MANIFEST_NAME, parseManifest} from "./folder-kinds";
 import type {ManifestItem} from "./folder-kinds";
+import {entryToken} from "./rooted";
 import type {RootedFailure, RootedRoot} from "./rooted";
 
 /** 清单文件的读取上限。 */
@@ -39,6 +40,8 @@ export interface SavedFile {
     readonly realPath: string;
     /** 写入的字节：回声判断用它的 hash。 */
     readonly bytes: Uint8Array;
+    /** 替换前后目录项的身份令牌；经链接保存时目录项本身没换，没有这一对。 */
+    readonly identity?: SavedIdentity;
 }
 
 export interface FilesService {
@@ -152,7 +155,8 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
             }, temporaryPath);
             if (!replaced.ok) return failed(replaced, "files.write.failed");
             if ("done" in replaced) return replaced.done;
-            return {ok: true, value: {baseline: {hash: hashOf(bytes)}, realPath: replaced.resolved.realPath, bytes}};
+            const identity = replaced.before !== null && replaced.resolved.realPath === path ? {before: entryToken(replaced.before), after: entryToken(replaced.after)} : null;
+            return {ok: true, value: {baseline: {hash: hashOf(bytes)}, realPath: replaced.resolved.realPath, bytes, ...(identity === null ? {} : {identity})}};
         },
     };
 }

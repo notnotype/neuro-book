@@ -5,6 +5,7 @@ import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {LayoutHost} from "./state/layout-host";
+import type {EditorAreaSource} from "./editor-area";
 import type {ViewSource} from "./views/registry";
 
 /**
@@ -24,6 +25,8 @@ export interface HomePageParts {
     readonly commands: CommandService;
     /** 视图注册表：交付状态、加载与重试。 */
     readonly views: ViewSource;
+    /** 编辑器槽的提供者。 */
+    readonly editorArea: EditorAreaSource;
     readonly projectName: string | null;
     readonly locale: Readonly<Ref<DisplayLocale>>;
 }
@@ -35,7 +38,7 @@ export function createHomePage(parts: HomePageParts): Component {
             const layout = parts.layout.acquire();
             return () => h("div", {"class": "nb-workbench-page", "data-workbench-root": "", ...(parts.projectName === null ? {} : {"data-workbench-project": parts.projectName})}, [
                 parts.renderDocument(),
-                h(parts.shell, {layout, commands: parts.commands, views: parts.views, project: parts.projectName, locale: parts.locale.value}),
+                h(parts.shell, {layout, commands: parts.commands, views: parts.views, editorArea: parts.editorArea, project: parts.projectName, locale: parts.locale.value}),
                 parts.renderCommandHost(),
             ]);
         },

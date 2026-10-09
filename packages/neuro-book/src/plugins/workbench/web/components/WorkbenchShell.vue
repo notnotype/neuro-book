@@ -4,7 +4,8 @@
  * （外壳二），实例层搬进各区域的落点。
  */
 import {Tabs} from "@notnotype/nb-ui/components";
-import {computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId} from "vue";
+import {computed, defineAsyncComponent, defineComponent, h, markRaw, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId} from "vue";
+import type {Component} from "vue";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import {formatText, localize} from "nbook/shared/localized-text";
@@ -29,6 +30,8 @@ import type {DragSession} from "../views/drag-session";
 import {moveTargetsOf} from "../views/presentation";
 import type {ContainerPresentation} from "../views/presentation";
 import type {ViewSource} from "../views/registry";
+import type {EditorAreaContext} from "../contracts";
+import type {EditorAreaSource} from "../editor-area";
 import WorkbenchActivityBar from "./WorkbenchActivityBar.vue";
 import WorkbenchDragFeedback from "./WorkbenchDragFeedback.vue";
 import WorkbenchMoveViewMenu from "./WorkbenchMoveViewMenu.vue";
@@ -47,6 +50,8 @@ const props = defineProps<{
     layout: LayoutStore;
     commands: CommandService;
     views: ViewSource;
+    /** 编辑器槽的提供者；没有时（或没有贡献）槽里是欢迎文字。 */
+    editorArea?: EditorAreaSource;
     project: string | null;
     locale: DisplayLocale;
 }>();
@@ -55,6 +60,7 @@ const TEXT = {
     ready: {"zh-CN": "工作台已就绪。没有打开项目。", "en-US": "The workbench is ready. No project is open."},
     readyWithProject: {"zh-CN": "工作台已就绪。当前项目：{name}", "en-US": "The workbench is ready. Current project: {name}"},
     panel: {"zh-CN": "面板", "en-US": "Panel"},
+    editorFailed: {"zh-CN": "编辑器加载失败：{reason}", "en-US": "The editor failed to load: {reason}"},
     emptyPart: {"zh-CN": "将视图拖动到此处显示", "en-US": "Drag a view here to show it"},
     emptyContainer: {"zh-CN": "容器里的视图都已隐藏", "en-US": "All views in this container are hidden"},
     activityBar: {"zh-CN": "活动栏", "en-US": "Activity Bar"},
@@ -72,6 +78,24 @@ const text = (value: LocalizedText): string => localize(value, props.locale);
 const welcome = computed(() => (props.project === null ? text(TEXT.ready) : text(formatText(TEXT.readyWithProject, {name: props.project}))));
 
 const state = computed(() => props.layout.state);
+
+/**
+ * 编辑器槽的内容：提供者换了才换组件（重挂），布局变化只改 `visible`。面板最大化时编辑器内容停放（外壳一验收 6），
+ * 对提供者就是不可见。
+ */
+const EditorAreaFailed = markRaw(defineComponent({
+    props: {error: {type: Error, required: true}},
+    setup: (failed) => () => h("p", {"class": "workbench-shell__editor-failed", "role": "alert"}, text(formatText(TEXT.editorFailed, {reason: failed.error.message}))),
+}));
+const editorContext: EditorAreaContext = {visible: computed(() => state.value.facts?.effectivePanel.maximized !== true)};
+const editorComponent = computed((): Component | null => {
+    const provider = props.editorArea?.current.value ?? null;
+    if (provider === null) return null;
+    return markRaw(defineAsyncComponent({
+        loader: () => provider.load(),
+        errorComponent: EditorAreaFailed,
+    }));
+});
 /** 面板看不见：隐藏或拖到零。状态栏按钮此时是“显示面板”，执行时同时清除这两种（与命令的省略参数同一判断）。 */
 const panelHidden = computed(() => state.value.panel.hidden || state.value.dragCollapsed.panel === true);
 
@@ -300,7 +324,8 @@ const dropFeedback = computed(() => {
             </WorkbenchToolPartHost>
         </template>
         <template #editor>
-            <div class="workbench-shell__welcome">
+            <component :is="editorComponent" v-if="editorComponent !== null" :key="props.editorArea?.current.value?.id" :context="editorContext" data-workbench-editor-area />
+            <div v-else class="workbench-shell__welcome">
                 <h1>NeuroBook</h1>
                 <p>{{ welcome }}</p>
             </div>
@@ -448,6 +473,11 @@ const dropFeedback = computed(() => {
 
 .workbench-shell__panel-empty {
     height: 100%;
+}
+
+.workbench-shell__editor-failed {
+    padding: var(--space-4);
+    color: var(--status-danger);
 }
 
 .workbench-shell__welcome {

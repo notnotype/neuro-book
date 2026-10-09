@@ -31,6 +31,17 @@ export interface ViewImplementation {
     load(): Promise<Component>;
 }
 
+/** 编辑器槽贡献的实现：外壳挂编辑器槽时才加载组件。 */
+export interface EditorAreaImplementation {
+    load(): Promise<Component>;
+}
+
+/** 编辑器槽的组件经只读的 `context` 属性收到它。 */
+export interface EditorAreaContext {
+    /** 编辑器槽有效可见；面板最大化时为假（内容停放、不卸载）。 */
+    readonly visible: Readonly<Ref<boolean>>;
+}
+
 /** 视图组件经只读的 `context` 属性收到它。 */
 export interface ViewContext {
     readonly id: string;

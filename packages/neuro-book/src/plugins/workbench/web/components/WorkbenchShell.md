@@ -14,7 +14,7 @@
 - 标题栏：应用名与当前项目短名；没有菜单与搜索（未实现的不以可操作的假入口呈现）。
 - ActivityBar：[`WorkbenchActivityBar`](WorkbenchActivityBar.md)，Sidebar 的容器切换。
 - 侧栏与右栏：各一个 [`WorkbenchToolPartHost`](WorkbenchToolPartHost.md)；区域里没有视图时一句空状态说明。
-- 编辑器：稳定内容槽，现在放欢迎文字（应用名与“工作台已就绪”一句，语言跟随配置）；最大化、换位置时停放不卸载。
+- 编辑器：稳定内容槽。`editorArea` 有提供者时挂它的组件（属性 `context: {visible}`，面板最大化时 `visible` 为假），提供者换了才重挂，加载失败显示原因；没有提供者时放欢迎文字（应用名与“工作台已就绪”一句，语言跟随配置）。最大化、换位置时停放不卸载。
 - 面板：[`WorkbenchPanelSurface`](WorkbenchPanelSurface.md)，框架按钮依次是位置、对齐、收起、最大化、隐藏；有容器时导航槽里是容器标签带（与 single 时上提的“移动到”，它包在 `data-no-drag` 里：标签带是落点，这个按钮不是），内容区是 Panel 的 `WorkbenchToolPartHost`。
 - 容器与视图实例：[`WorkbenchViewInstances`](WorkbenchViewInstances.md) 放在外壳根里、布局组件旁边，把容器宿主与视图实例搬进三个工具区域的落点；三层 Teleport 共用外壳自己的一份滚动与焦点记忆。
 - 状态栏：[`WorkbenchStatusBar`](WorkbenchStatusBar.md)。
@@ -39,6 +39,8 @@ type Props = {
     commands: CommandService;
     /** 视图注册表（`views/registry.ts`）：交付状态、加载与重试，交给实例层。 */
     views: ViewSource;
+    /** 编辑器槽的提供者（`editor-area.ts`）：`workbench.editor-area` 里 `order` 最小的贡献；可选，缺省为欢迎文字。 */
+    editorArea?: EditorAreaSource;
     /** 当前项目的显示名；没有绑定项目为 null。 */
     project: string | null;
     /** 当前显示语言。 */

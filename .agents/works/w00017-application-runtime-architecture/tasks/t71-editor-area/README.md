@@ -20,3 +20,5 @@ Files 竖切三 [t70](../t70-files-explorer/README.md)。
 ## 当前状态
 
 - 2026-10-09 计划起草；三个 omp 计划审查（对照参考实现、架构与不变量、可测性）共 27 条发现（阻断 3 条：删除后丢弃与保留的矛盾、保存换掉冻结令牌、生产 e2e 没有制造慢读的接缝），全部核实成立并入计划，报告见 `evidences/plan-review-*.txt`，取舍记入待确认清单。
+- 2026-10-09 S0 新 Spec `workbench/editor.md`（25 条输出、11 个验收场景），files、files-explorer、commands、workbench-shell、browser-host 随之修订。
+- 2026-10-09 S1 工作台的编辑器槽贡献点 `workbench.editor-area`（取 `order` 最小的一个，其余记诊断；面板最大化时 `visible` 为假、不重挂）；Files 保存回执带替换前后的目录项身份（远程合同版本 3，经链接保存时没有）。变异 7 个杀死 6 个，存活的一个等价（内核本来就拒绝撤回句柄的实现），已简化掉多余的查找。

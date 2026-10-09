@@ -8,7 +8,7 @@ import {defineSetting} from "nbook/shared/settings";
 
 /**
  * `nbook.workbench` 对其它插件公开的合同：页面贡献点 `workbench.pages` 与它的声明、视图贡献点 `workbench.views` 与它的
- * 声明（定义在 `views.ts`）、命令面板的选择服务。
+ * 声明（定义在 `views.ts`）、编辑器槽贡献点 `workbench.editor-area` 与它的声明、命令面板的选择服务。
  * 其它插件在运行时只引用本文件（docs/adr/0025-service-keys-by-id.md）；页面实现与窗口根这类依赖 Vue 的
  * 浏览器合同在 `web/contracts.ts`。
  */
@@ -18,6 +18,17 @@ export type {ViewDeclaration, ViewLocation} from "./views";
 
 /** 贡献点 id。 */
 export const WORKBENCH_PAGES_POINT = "workbench.pages";
+
+/**
+ * 编辑器槽的贡献点（docs/specs/ui/workbench-shell.md 非目标第一条）：外壳的编辑器槽挂 `order` 最小的一个贡献；
+ * 工作台不认识编辑器插件，依赖方向是“编辑器插件 → 工作台”。
+ */
+export const WORKBENCH_EDITOR_AREA_POINT = "workbench.editor-area";
+
+export interface EditorAreaDeclaration {
+    /** 几个提供者同时在时取最小的；相同时按贡献 id。 */
+    readonly order: number;
+}
 
 /** 页面贡献的声明：登记时校验，路径在页面表里唯一。 */
 export interface WorkbenchPageDeclaration {

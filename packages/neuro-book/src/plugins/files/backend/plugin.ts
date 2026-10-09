@@ -87,7 +87,7 @@ function implementation(backend: Backend, consumer: ConsumerIdentity): RemoteImp
                 const saved = await service.write(input.path, input.text, input.baseline, changes.temporaryPath);
                 if (!saved.ok) return saved;
                 changes.saved({path: input.path, realPath: saved.value.realPath, bytes: saved.value.bytes}, source);
-                return {ok: true as const, value: {baseline: saved.value.baseline}};
+                return {ok: true as const, value: {baseline: saved.value.baseline, ...(saved.value.identity === undefined ? {} : {identity: saved.value.identity})}};
             }),
             identify: (input) => operations.identify(input.paths),
             create: (input) => tracked(scope, "files.create", () => operations.create(input, source)),

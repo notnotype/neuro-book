@@ -132,6 +132,19 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(page.locator("[data-activity-container]")).toHaveCount(3);
     });
 
+    test("编辑器槽：挂测试插件贡献的内容；面板最大化时停放（visible 为假）不重挂，还原后同一实例", async ({page}) => {
+        await open(page);
+        const area = page.locator("[data-sample-editor-area]");
+        await expect(area).toHaveAttribute("data-visible", "true");
+        await expect(page.locator("[data-shell-slot=\"editor\"] [data-sample-editor-area]")).toHaveCount(1);
+        const instance = await area.getAttribute("data-instance");
+        await page.locator("[data-panel-action=\"nbook.view.toggle-panel-maximized\"]").click();
+        await expect(area).toHaveAttribute("data-visible", "false");
+        await page.locator("[data-panel-action=\"nbook.view.toggle-panel-maximized\"]").click();
+        await expect(area).toHaveAttribute("data-visible", "true");
+        expect(await area.getAttribute("data-instance")).toBe(instance);
+    });
+
     test("活动栏：选择互斥；Sidebar 被隐藏或拖到零时点容器同时打开它，拖到零的按记忆尺寸展开", async ({page}) => {
         await open(page);
         const item = (viewId: string) => page.locator(`[data-activity-container="view:${viewId}"]`);

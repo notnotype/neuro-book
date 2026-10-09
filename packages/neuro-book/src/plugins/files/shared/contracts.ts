@@ -85,7 +85,12 @@ export type Listing = Static<typeof ListingSchema>;
 const FileTextSchema = Type.Object({text: Type.String(), baseline: BaselineSchema}, {additionalProperties: false});
 export type FileText = Static<typeof FileTextSchema>;
 
-const Saved = Type.Object({baseline: BaselineSchema}, {additionalProperties: false});
+/** 保存回执：`identity` 是替换前后目录项的身份令牌（与 `identify` 同一算法），冻结了旧令牌的调用方据此换成新的。 */
+const SavedIdentitySchema = Type.Object({before: Type.String(), after: Type.String()}, {additionalProperties: false});
+export type SavedIdentity = Static<typeof SavedIdentitySchema>;
+
+const Saved = Type.Object({baseline: BaselineSchema, identity: Type.Optional(SavedIdentitySchema)}, {additionalProperties: false});
+export type SavedText = Static<typeof Saved>;
 
 const Detail = Type.Object({detail: Type.String()}, {additionalProperties: false});
 /** 保存冲突带回磁盘上的当前基线；文件操作的冲突（目标已存在）不带。 */
@@ -220,10 +225,10 @@ const events = {changes: {filter: Type.Object({}, {additionalProperties: false})
 
 const CALLERS = ["browser", "tui", "project", "server"];
 
-/** 版本 2：t69 加了文件操作与 `renamed` 事件（版本 1 的订阅方会丢掉改名事件）。 */
-export const projectFilesContract = defineRemoteService({id: "nbook.files/project", version: 2, provider: "project", callers: CALLERS, methods, events});
+/** 版本 2：t69 加了文件操作与 `renamed` 事件（版本 1 的订阅方会丢掉改名事件）。版本 3：t71 的保存回执带目录项身份。 */
+export const projectFilesContract = defineRemoteService({id: "nbook.files/project", version: 3, provider: "project", callers: CALLERS, methods, events});
 
-export const userFilesContract = defineRemoteService({id: "nbook.files/user", version: 2, provider: "server", callers: CALLERS, methods, events});
+export const userFilesContract = defineRemoteService({id: "nbook.files/user", version: 3, provider: "server", callers: CALLERS, methods, events});
 
 export type FilesContract = typeof projectFilesContract | typeof userFilesContract;
 
@@ -262,7 +267,7 @@ export interface FilesService {
     list(address: string, options?: {readonly signal?: AbortSignal}): Promise<FilesResult<Listing>>;
     read(address: string, options?: {readonly signal?: AbortSignal}): Promise<FilesResult<FileText>>;
     /** 只保存已有文件；正文超过上限时不发出请求，直接 `too-large`。 */
-    write(address: string, text: string, baseline: Baseline): Promise<FilesResult<{readonly baseline: Baseline}>>;
+    write(address: string, text: string, baseline: Baseline): Promise<FilesResult<SavedText>>;
     /** 冻结一组目录项的身份（剪贴板、拖动）；地址必须同一方案。结果与输入按下标对齐。 */
     identify(addresses: ReadonlyArray<string>): Promise<FilesResult<Identified>>;
     /** 排他新建空文件或目录；`before` 是内容文件夹里同层另一项的名字。 */

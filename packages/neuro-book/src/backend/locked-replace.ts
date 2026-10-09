@@ -44,7 +44,11 @@ export type ReplaceDecision<T, W extends Uint8Array | string> = {readonly write:
  */
 export type ReplaceFailure = {readonly ok: false; readonly reason: "read-only" | "not-a-file" | "unstable" | "failed"; readonly detail: string};
 
-export type ReplaceResult<T, W extends Uint8Array | string> = {readonly ok: true; readonly done: T} | {readonly ok: true; readonly written: W} | ReplaceFailure;
+/**
+ * 写入成功时另给替换前后的文件状态：替换换掉了目录项（新 inode），调用方要把替换前冻结的身份换成替换后的，就靠这一对。
+ * `before` 为 null 是新建。
+ */
+export type ReplaceResult<T, W extends Uint8Array | string> = {readonly ok: true; readonly done: T} | {readonly ok: true; readonly written: W; readonly before: Stats | null; readonly after: Stats} | ReplaceFailure;
 
 export interface ReplaceOptions<T, W extends Uint8Array | string> {
     /** 锁目录的路径；它的父目录必须已存在。 */
@@ -158,12 +162,15 @@ async function replaceOnce<T, W extends Uint8Array | string>(file: string, optio
     const temporary = options.temporaryPath?.(file) ?? join(dirname(file), `.${basename(file)}.${randomUUID()}.tmp`);
     try {
         const handle = await open(temporary, "wx", before === null ? 0o644 : before.mode & 0o7777);
+        let after: Stats;
         try {
             await handle.writeFile(decision.write);
             // 建文件时的权限位会被进程的 umask 削掉：按原文件的权限位（含 setuid、setgid、sticky）精确设一次。要在写入之后：
             // 写入会清掉 setuid 与 setgid。
             if (before !== null) await handle.chmod(before.mode & 0o7777);
             await handle.sync();
+            // 改名不换 inode 与创建时间：临时文件此刻的状态就是替换后目录项的状态。
+            after = await handle.stat();
         } finally {
             await handle.close();
         }
@@ -177,7 +184,7 @@ async function replaceOnce<T, W extends Uint8Array | string>(file: string, optio
             return "modified";
         }
         await rename(temporary, file);
-        return {ok: true, written: decision.write};
+        return {ok: true, written: decision.write, before, after};
     } catch (error) {
         await unlink(temporary).catch((cleanup: unknown) => {
             if (errno(cleanup) !== "ENOENT") options.report("temporary.cleanup-failed", cleanup);

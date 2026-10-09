@@ -20,6 +20,9 @@ export const SAMPLE_VIEW_IDS = {
     zeta: "test.sample-views.zeta",
 } as const;
 
+/** 编辑器槽的样例贡献。 */
+export const SAMPLE_EDITOR_AREA_ID = "test.sample-views.editor-area";
+
 /** 测试命令：入口关闭自己这一代的激活作用域（真实的 `scope-closed` 撤回，声明仍在）。 */
 export const SAMPLE_VIEWS_STOP_COMMAND = "test.sample-views.stop";
 
