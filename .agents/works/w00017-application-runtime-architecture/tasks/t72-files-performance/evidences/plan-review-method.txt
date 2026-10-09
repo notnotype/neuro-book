@@ -1,0 +1,157 @@
+# t72 实施计划只读审查：测量方法有效性
+
+审查对象：提交 `69828b3c` 的 `.agents/works/w00017-application-runtime-architecture/tasks/t72-files-performance/plan.md`。所有仓库路径相对于 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t72-plan-method`。
+
+依据：`docs/specs/workbench/files-explorer.md:125-139,201`、t42 基线方法与结果、t72 Task README，以及 Work `pending-confirmations.md` 的 t68–t71 条目。仅报告影响测量正确性、实现完成或验收成立的问题；不重议已登记取舍。
+
+## 已核实发现
+
+### 1. 重要：300 文件的小样本与规模扫描无法按现有生成器运行
+
+- **类别**：测试 / 可实施性。
+- **位置**：`plan.md:20-21,55,81`；`packages/neuro-book/scripts/files-sample.ts:52-57,66-91,139-147`。
+- **现象**：计划直接复用 `planSample`，S1 明定 `--count 300 --iterations 5`，规模扫描也包括 300。但生成器默认 `wide=400`，并在 `count < wide + 100` 时抛错。实际执行 `bun scripts/files-sample.ts <报告目录>/sample-300-default --count 300` 以退出码 1 结束：`error: 文件数 300 至少要比宽目录多 100`。
+- **为什么是问题**：S1 的全场景 smoke 与 300 档扫描在生成样本阶段就失败，不能支撑“先小样本跑通再正式测量”。简单去掉检查也不成立：300 个文件只分配 120 个普通笔记，实际宽目录不会有报告声明的 400 项。
+- **依据**：计划 S1 与规模扫描自己的完成标准；生成器要求样本描述对应实际布局。
+- **核实方式**：在 `packages/neuro-book` 执行上述真实 CLI，小样本目录位于报告目录；未生成正式 3000 样本、未运行正式测量。
+- **建议改法**：明确小规模模式的宽目录参数，约束 `wide <= count - floor(count*0.3)*2` 且满足生成器最低数量要求；300 档报告实际宽度，并将正式 400 项目录场景保留在能够容纳它的规模。给 CLI/脚本传入该参数，而不是只在计划中更改次数。
+
+### 2. 重要：用 rAF 回调时间戳作为“这一帧已经呈现”会系统性低估切换延迟
+
+- **类别**：测试 / 性能。
+- **位置**：`plan.md:29-35,88-92`。
+- **现象**：计划在 `requestAnimationFrame` 回调里第一次看到 `aria-selected`、标签选中或编辑器条件满足时，直接用该回调的时间戳减 `pointerdown`，并把它解释为“这一帧已经呈现”。
+- **为什么是问题**：浏览器 API 的语义不是“回调返回后这一帧已经绘制”。`requestAnimationFrame` 回调发生在下一次重绘之前；回调参数时间戳表示上一帧渲染结束时间。DOM 条件可以在回调中已经满足，但用户看到该 DOM 的 paint 还在回调之后。于是 60 Hz 下可能把实际下一帧呈现报告成接近 0–16 ms，直接影响 Spec 的“16 ms 内切换”判定。计划还只取首次满足帧，没有要求下一帧仍满足，不能排除中间状态。
+- **依据**：MDN `Window.requestAnimationFrame()` 的参数语义明确写为“上一帧渲染结束时间”，回调执行在下一次 repaint 前；`docs/specs/workbench/files-explorer.md:127,136` 的合同要求下一帧反馈，而不是 DOM 在 paint 前已变更。
+- **如何核实**：读取官方 API 说明 `https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame`；该语义足以推出计时点早于可见呈现，未把此推断冒充为新应用运行结果。
+- **建议改法**：把 rAF 只作为“状态已进入渲染队列”的辅助观察；用 Event Timing 的 interaction-to-next-paint / Chrome trace Paint 事件作为呈现证据，并同时记录 DOM 状态首次满足与下一帧稳定状态。报告明确区分“状态提交延迟”和“下一次呈现延迟”，不要用单个 rAF 时间戳直接验收 16 ms。
+
+### 3. 重要：`contenteditable` / Monaco 输入区属性不能证明正文真的可编辑
+
+- **类别**：正确性 / 测试。
+- **位置**：`plan.md:34,101`；`packages/neuro-book/src/plugins/editor/web/components/MarkdownControl.vue:135,197-224`；`packages/neuro-book/src/plugins/editor/web/components/MonacoControl.vue:154-185`。
+- **现象**：正文终点只要求可见控件含目标 marker，并检查富文本 `contenteditable="true"`，或源码编辑器存在输入区且未标记只读。计划把这作为“正确正文可编辑”并称“标记确实出现就不会给假快数字”。
+- **为什么是问题**：这些是 DOM/控件属性，不是用户输入路径已经成功工作的证据。富文本在挂载时通过 Tiptap `setEditable`，源码编辑器还要异步加载 Monaco、创建 editor/model 并安装输入宿主；任一事件绑定、焦点转移、当前模型或写入回调仍未就绪，属性检查都可能先通过。目标 marker 只能证明显示的字符串，不能证明真实键盘输入能进入当前文档。这样会把“正文出现但不可编辑”的失败计入 100/200 ms 成功样本。
+- **依据**：旧版 t42 观察器同样只用 DOM 判据，但紧接着在计时窗口外调用 `verifyInput`，其注释明确说明“不能只凭一个可编辑属性宣布成功”（`packages/neuro-book-legacy/scripts/perf/files-baseline-browser.ts:156-180`）；旧脚本真实键入 token、撤销并核对 dirty 状态。Spec 的完成点是“正确正文可编辑”（`docs/specs/workbench/files-explorer.md:128,137`）。
+- **如何核实**：对照旧脚本的真实输入验证与新计划的正文终点；新应用实现显示 Markdown/Monaco 的可编辑状态和控件 ready 都在异步挂载链路中完成（从代码推断，未把 DOM 属性判据当作真实输入运行结果）。
+- **建议改法**：计时终点保留无副作用的 DOM 判据，但每个编辑器类型和组数在计时窗口外追加真实键盘输入、撤销、正文恢复、dirty 状态恢复的验证；失败样本不得进入统计。用可观察状态等待，不用固定睡眠。
+
+### 4. 重要：打开项目的终点可能早于文件树可操作
+
+- **类别**：正确性 / 测试。
+- **位置**：`plan.md:35,90`；`packages/neuro-book/src/plugins/explorer/web/view-host.ts:71-78`；`packages/neuro-book/src/plugins/explorer/web/components/FilesExplorerView.vue:175-199`；`packages/neuro-book/src/plugins/explorer/web/tree/rows.ts:110-128`。
+- **现象**：计划用 `[data-explorer-tree]` 存在、根行 `aria-expanded` 与记录一致的第一帧作为“可操作”。但应用的 `ready` 只代表 controller 已建立；`FilesExplorerView` 在 controller 存在时就挂树。根行由 `projectRows` 无条件产生，根目录尚未列出时仍会显示根行与 `loading` 状态行。
+- **为什么是问题**：该判据不要求根目录 listing 已到达、首批实际资源可见，也不执行一次真实键盘或鼠标操作。服务端/项目子进程打开成功后，前端可以先有一个可聚焦的树壳，计时因此结束，而用户仍不能操作任何文件资源。结果会虚构“1 秒内可操作文件树”，尤其在按需列目录和项目首次启动路径上。
+- **依据**：Spec 标准是“看到可操作的文件树”（`docs/specs/workbench/files-explorer.md:135`），不是树元素存在；实现中 `ready` 与目录 listing 明确是两层状态。
+- **如何核实**：代码路径可直接复现该时序：`view-host.ts:77` 把 `controller !== null` 作为 ready，`rows.ts:125-128` 在 slot 尚无 listing 时仍返回 loading 行。因此这是从代码推断，未把一个真实页面时间当作证据。
+- **建议改法**：将终点拆成“工作台/树壳 ready”和“可操作 ready”。后者至少要求根目录的 listing 成功、预期根下资源行可见且命中测试，并对树聚焦后执行一次 `ArrowDown`/`Space` 或点击资源，观察焦点/选择状态改变；分别报告两段时间。若合同只要求根行可操作，应在报告中明确定义该较弱语义，不能把它称作文件树可操作。
+
+### 5. 重要：第二次打开没有隔离项目子进程代次与 5 分钟宽限缓存
+
+- **类别**：测试 / 性能。
+- **位置**：`plan.md:22,45-46`；`packages/neuro-book/src/server/projects/manager.ts:167-186,253-265`；`packages/neuro-book/src/server/config.ts:45-46`；`docs/specs/runtime/projects.md:61-74`。
+- **现象**：计划定义“服务刚启动”每次重启服务，“第二次打开”在同一服务上新开标签页再导航，但没有规定第一标签页是否关闭、项目绑定是否释放、宽限期如何处理，也没有记录项目 generation/PID。
+- **为什么是问题**：同一服务的多个浏览器窗口共用一个项目代次。第一窗口仍打开时，第二窗口只是追加租约；即使第一窗口已关闭，默认宽限期也是 300000 ms，宽限期内再次绑定会复活同一子进程代次。于是“第二次打开”可能仍复用已启动的项目子进程、文件监视器和内核缓存，不能与 t42 的 `reopen` 或 Spec 的“第二次打开”稳定对应。没有代次/PID证据，结果无法说明到底测了 warm child 还是重新启动。
+- **依据**：运行时合同明确 `running` 立即取得租约、`idle-grace` 取消关闭计时并复用代次，多个窗口共用代次；默认宽限期由代码为 5 分钟。t42 旧脚本在 reopen 前显式关项目并轮询关闭接口（`packages/neuro-book-legacy/scripts/perf/files-baseline.ts:234-251`），其报告也明确记录两类项目生命周期（`t42.../evidences/baseline-report.md:14`）。
+- **如何核实**：代码与旧脚本对照核实；未启动服务验证，不把计划探路数字当作本条证据。
+- **建议改法**：先定义两个不同场景：`same-generation-second-window`（保留同代次，记录 generation/PID）与 `new-generation-reopen`（关闭全部页面，等待 manager 状态 `stopped`/项目子进程退出后再开）。如果要测冷服务与第二次页导航，报告同时记录服务 boot、项目 generation/PID、页面是否共存、OS 文件缓存策略，避免把多个缓存维度混成“第二次打开”。
+
+### 6. 重要：未定义预热与缓存隔离，冷打开与未打开文件的统计会被动态模块和浏览器缓存污染
+
+- **类别**：测试 / 性能。
+- **位置**：`plan.md:20-24,43-55,60-64`；`packages/neuro-book/src/plugins/editor/web/plugin.ts:91-97`；`packages/neuro-book/src/plugins/editor/web/code/load-monaco.ts:8-34`。
+- **现象**：计划把“未打开过的章节”作为 30 次样本，并把第一次编辑器动态导入列为候选瓶颈，但没有规定预热样本、浏览器 context/cache 策略、场景顺序或首个 Markdown/Monaco 模块加载样本是否进入统计。每个场景新标签页并不等于新浏览器缓存或新服务/项目状态。
+- **为什么是问题**：Markdown 和 Monaco 控件本身懒加载，Monaco 还并行加载 API、语言包和 worker。首个样本可能包含 chunk 解析/执行、worker 启动和 HTTP cache miss，后续样本只测文件读取与控件绑定；若前一个场景已加载同一 chunk，另一个场景的“未打开过”又会得到 warm-module 数字。p50/p95 的含义因此取决于场景执行顺序，不能区分文件冷读、编辑器冷启动、页面/HTTP 缓存和 OS 磁盘缓存。
+- **依据**：旧 t42 报告明确写出“预热与 profiling 不进入常规统计”并区分 cold file、hot-tree、hot-tab（`t42.../evidences/baseline-report.md:83-85`）；新应用实现确认编辑器组件和 Monaco API 是按需动态加载。
+- **如何核实**：代码与 t42 方法对照核实；未运行完整测量。动态加载机制由 `plugin.ts` 与 `load-monaco.ts` 直接可见。
+- **建议改法**：预先定义并单独报告至少四类状态：浏览器/页面冷、编辑器模块冷、文件冷、同文档热。先做不纳入统计的固定预热，再随机化或固定且记录场景顺序；需要测真实首次体验时保留首样本为独立 cold-module 组，不把它与 30 次 warm-module 样本混合。报告浏览器 context、HTTP cache、服务 boot、项目 generation 和 OS cache 的策略。
+
+### 7. 重要：规模扫描每个规模只跑一次，不能可靠支持“随文件数增长”的结论
+
+- **类别**：测试 / 性能。
+- **位置**：`plan.md:54-55,90-96`。
+- **现象**：计划要求 300、1000、3000 个文件各跑一次主要场景，然后据此判断耗时是否随规模增长；正式场景才有 10/30 次与 p50/p95。
+- **为什么是问题**：单次观测无法区分规模效应与启动、项目代次、浏览器模块缓存、OS 文件缓存、后台 watcher 扫描和共享机器负载。特别是打开项目和“已打开过”切换都受跨进程与缓存状态影响，一次三点曲线可能给出假线性或假非线性，随后会错误触发 S3 修正。
+- **依据**：t42 的规模扫描实际对 300、1000、3000 至少各跑 10 次（`t42-files-baseline-research/README.md:44-53`），而计划明确把新的规模扫描定义为每档一次。
+- **如何核实**：对照 t42 已记录的方法与新计划次数；未运行正式测量。
+- **建议改法**：每档至少对目标场景重复足够次数并报告分布，或明确把一次扫描降级为探索性曲线，不用它判定性能退化/线性趋势。每档复用同一构建、seed、缓存与项目生命周期协议，记录负载和失败样本。
+
+### 8. 重要：计划引用的现有 800 ms 进度条证据不能证明独立阈值
+
+- **类别**：测试 / 验收。
+- **位置**：`plan.md:52,101-103`；`packages/neuro-book/src/plugins/editor/area.test.ts:80-91`；`packages/neuro-book/src/plugins/editor/web/area.ts:21-23,283-310`。
+- **现象**：计划把“超过 800 ms 才出现进度条”交给现有 controller/e2e 证明，性能脚本只断言正常打开时没有 `[data-editor-progress]`。现有 controller 测试按 `at.clock.advance(799)`、`advance(1)` 验证，但测试文件直接从产品实现导出的 `PROGRESS_DELAY_MS` 计算实现路径；t71 的实现审查已做 800→400 变异，`area.test.ts` 仍通过。现有 Lab e2e 只等待进度条出现，没有独立的 799/800 合同边界。
+- **为什么是问题**：正常快速打开不显示只能证明样本没超过当前实现延迟，不能证明合同阈值为 800 ms；进度条提前到 400 ms 或延后到 1200 ms 都可能让计划当前证据通过。于是验收矩阵声称覆盖“800 ms 规则”，实际仍无法验证该行为。
+- **依据**：Spec 的性能/交互合同要求 800 ms 前不显示、超过后才显示（`docs/specs/workbench/files-explorer.md:125-127`）；t71 已存的变异记录 `evidences/impl-review-tests.txt:41-48` 明确记录 400 ms 变异存活；测试实现与产品常量位置见上。
+- **如何核实**：读取独立阈值测试和 t71 已有变异报告；没有改仓库重跑变异，也未把历史报告当作新运行结果。
+- **建议改法**：在 t72 计划中明确列出独立于 `PROGRESS_DELAY_MS` 的 799/800 ms 判据，并指定如何制造真实慢读、观察空白与进度条出现/消失。若继续由 t71 负责，验收矩阵应引用一条合同驱动且能杀死 400/1200 变异的测试；t72 的正常生产浏览器场景另负责真实页面结果。
+
+### 9. 重要：500 文件外部改写场景没有可复现的测量窗口与收敛屏障
+
+- **类别**：测试 / 可实施性。
+- **位置**：`plan.md:51-52,94-96`；`packages/neuro-book/src/plugins/files/backend/changes.ts:36-41,132-155`。
+- **现象**：计划只写“重写 500 个磁盘文件，覆盖展开/打开状态，5 次”，未规定 500 次写入是串行还是并发、何时开始录制、是否先等待 watcher 订阅 ready、何时认定最后一批变化已到达、连续输入与外部写入如何交错、何时结束录制。
+- **为什么是问题**：文件监视器先把原始事件收集到集合，再经过固定 75 ms 合批；批量超过 1000 路径还会切换为 resync。若脚本写完立即停止或关闭页面，浏览器可能尚未收到最后一批，LoAF、longtask、Event Timing 和 RPC 数量会被截断；若无起始屏障，不同迭代实际覆盖的 watcher 状态也不同。这样得到的“无冻结”可能只是没有在观察窗口内发生任何事件，不能比较 500 次改写对连续输入的影响。
+- **依据**：`changes.ts` 明确 `BATCH_DELAY_MS = 75`、原始事件延迟 flush；仓库现有真实监视测试采用“先订阅 ready、写入、再用最后一个文件/屏障等待事件到达”的做法（`packages/neuro-book/src/plugins/files/changes.test.ts:60-96`）。计划没有把这套屏障协议落入性能脚本。
+- **如何核实**：对照 watcher 实现和现有 `writeAndSee`/`barrier` 测试；未启动 500 文件压力场景。
+- **建议改法**：定义固定实验协议：订阅 ready 后建立基线，记录第一笔外部写入到最后一批 `external/resync` 到达的完整窗口；用最后一个文件或专用 barrier 等待观察端确认，另加可观察的 quiet 条件而非固定 sleep；规定写入速率、并发度、连续键入操作序列及每轮成功/超时判定。对 500 路径是否触发 `resync` 单独分类，不能与逐文件事件混为一类。
+
+### 10. 重要：Event Timing 的 `duration` 被计划误称为事件处理时长
+
+- **类别**：测试 / 指标语义。
+- **位置**：`plan.md:36-38,91-96`。
+- **现象**：计划设置 Event Timing `durationThreshold: 16`，并把采集结果描述为“点击与键入的处理时长”，再与 longtask/LoAF 一起报告。
+- **为什么是问题**：`PerformanceEventTiming.duration` 是从事件开始到下一次呈现的总时长，不等于事件处理函数耗时；实际处理区间是 `processingEnd - processingStart`，输入延迟还要看 `processingStart - startTime`。把三者混成“处理时长”会错误归因：可能把渲染慢归咎于 handler，也可能漏掉 handler 很短但主线程排队很长的输入。浏览器不支持该观察器或不产出某类事件时，若脚本把空数组当作 0，又会把“不支持”报告成“无卡顿”。
+- **依据**：MDN `PerformanceEventTiming` 说明 `duration` 直到下一次 paint，且 `processingStart`/`processingEnd` 分别界定事件处理；`durationThreshold` 最小有效值为 16 ms。计划当前没有字段定义、支持性记录或缺失值规则。
+- **如何核实**：读取官方 API 说明 `https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEventTiming` 并对照计划字段；未把 API 语义推断成新应用实测。
+- **建议改法**：原始 JSON 同时保存 `startTime`、`processingStart`、`processingEnd`、`duration`、事件类型与 `interactionId`，报告分别命名 input delay、handler duration、next-paint latency；记录 `supportedEntryTypes` 和观察器是否实际产生条目，不支持时标为 unavailable，不计为 0。把 16 ms 是采集下限还是验收阈值写清楚，不能用 `durationThreshold` 代替合同判定。
+
+### 11. 重要：LoAF/longtask 不记录支持性会把“未观测”误报为“无长任务”
+
+- **类别**：测试 / 指标完整性。
+- **位置**：`plan.md:36-38,91-96,103-105`。
+- **现象**：计划要求每个场景报告 LoAF 次数/最大值与 longtask，但没有规定 `PerformanceObserver.supportedEntryTypes`、观察器建立失败、条目丢失或浏览器不支持时的输出值；计划只在风险段提到 headless 差异，没有把 unsupported 与 0 分开。
+- **为什么是问题**：`0` 既可能表示观察窗口确实没有长任务，也可能表示该指标没有被浏览器实现、观察器创建失败或条目未采集。使用“0 LoAF”证明后台无冻结会形成假阴性，尤其计划明确只跑 headless Chrome 并允许不同本机/Chrome 版本。
+- **依据**：旧版性能脚本在初始化时先读取并记录 `PerformanceObserver.supportedEntryTypes`（`packages/neuro-book-legacy/scripts/perf/files-baseline-browser.ts:17-29`），说明仓库已有正确的能力记录模式；新计划没有继承该输出要求。
+- **如何核实**：对照旧脚本的 observer 能力记录与新计划的原始字段列表；未运行新脚本。
+- **建议改法**：每个报告记录浏览器版本、supportedEntryTypes、观察器创建/回调状态和丢失计数；不支持或失败统一输出 `unavailable`，不进入“无长任务”统计。保留 longtask 作为可用时的 fallback，但说明它不能替代 LoAF 的脚本/容器归因。
+
+### 12. 重要：`performance.memory` 加 DOM 数量不足以证明编辑器资源已释放
+
+- **类别**：测试 / 资源生命周期。
+- **位置**：`plan.md:39,96`；`packages/neuro-book/src/plugins/editor/web/components/MonacoControl.vue:13-20,77-90,195-203`；`packages/neuro-book/src/plugins/editor/web/components/MarkdownControl.vue:197-217,231-243`；`packages/neuro-book/src/plugins/editor/web/documents/store.ts:601-626`。
+- **现象**：计划只在 CDP `HeapProfiler.collectGarbage` 后读取 `performance.memory.usedJSHeapSize`，再统计 `.ProseMirror`、`.monaco-editor` DOM 数量；关闭全部标签后要求这些计数归零或回到基线。
+- **为什么是问题**：`performance.memory` 是非标准、Chromium 专有的近似值，不能完整代表 worker、共享 heap 或 iframe 的占用；Monaco worker 和模型可能不在这个数值里。与此同时实现把 Monaco `ITextModel`（含撤销栈）和 Tiptap editor 实例放在视图状态槽，控件卸载只移除 DOM/编辑器实例，模型/富文本实例要等槽释放；文档引用也在最后一个引用释放时才 drop。于是 DOM 计数归零并不等于模型、撤销历史或 worker 已释放，单次 heap 前后差值也不能区分 GC 抖动与真正泄漏。
+- **依据**：MDN `Performance.memory` 明确说明其非标准、heap 定义不可靠，可能高估共享 heap、低估 worker/iframe；实现注释明确模型“归视图状态槽”，生命周期与 DOM 控件不同。
+- **如何核实**：读取官方说明 `https://developer.mozilla.org/en-US/docs/Web/API/Performance/memory` 与上述生命周期代码；未把 CDP 探针运行结果当作新产品证据。
+- **建议改法**：将 DOM 控件数标为“已卸载”而非“资源已释放”；用隔离浏览器 context 的多轮打开/关闭、稳定后多次采样来观察 heap plateau，并另采 CDP heap snapshot/`Runtime.getHeapUsage`、worker/浏览器进程资源。对模型、Tiptap 实例和文档引用分别定义可观察的释放条件；只有在标签、组和槽都真正释放后才宣称资源归零。
+
+## 数量与覆盖
+
+| 严重程度 | 数量 | 影响重点 |
+|---|---:|---|
+| 阻断 | 0 | 没有发现使整个 t72 无法开始的单一阻断；但 S1/300 档本身被发现 1 阻塞。 |
+| 重要 | 12 | 影响样本可生成、起止点、冷热隔离、规模结论、后台窗口、指标语义与资源释放结论。 |
+| 建议 | 0 | 未把纯格式或可选增强单列为问题。 |
+| 合计 | 12 | 均有计划/源码/Spec/既有实验或官方 API 语义依据。 |
+
+## 待确认项判断
+
+- t68 的样本规模、文件类型/大小和宽目录取舍：属于已接受范围；唯一与 t72 直接冲突的是小样本仍沿用 `wide=400`，已列发现 1。
+- t70 的虚拟树、行模型与键盘交互边界：属于已接受范围；本审查只指出 t72 的“可操作”终点没有等待实际 listing/动作，不重议虚拟化设计。
+- t71 的编辑器类型、动态加载、手动保存、固定标签/拖放等取舍：属于已接受范围；本审查只指出 t72 对真实可编辑、800 ms 阈值与资源生命周期的测量证据不足，不把已登记产品取舍列为缺陷。
+- “性能毫秒标准由 t72 承担”的责任划分成立，但不能用责任划分替代独立可执行的测量合同；发现 2、4、5、8、10、12 是该责任边界内的证据缺口。
+
+## 未发现问题的方面
+
+- 计划使用生产构建、本机 Chrome、真实 Files 与 `startProductServer`，方向与 Spec 的生产/参考机要求一致；未把 Lab 或 happy-dom 当作正式毫秒结果。
+- 3000 样本的主场景次数（项目打开 10 次、交互/正文场景 30 次）与 t42 的正式测量量级相容；问题只在 scale scan 的单次设计与状态隔离。
+- 现有 WebSocket RPC 帧格式包含 `type`、`contract`、`method`，仓库已有 e2e 用 `framesent` 过滤 `type=request` 与 `nbook.files/` 的先例；请求计数方向可实施，计划需要把该过滤与时间窗口写实，但本审查未将其单独列为缺陷。
+- 计划要求每场景保留原始 JSON、Markdown、浏览器/机器信息，并区分 HTTP 与 WebSocket；可审查性方向正确。
+- 计划明确停止 server/browser、临时样本不入库、纯函数统计单测不替代真实浏览器场景；这些治理与证据保留要求没有发现问题。
+- 资源监视器的真实 75 ms 合批、外部变化与重写的产品行为本身已有测试；本审查的问题是 t72 没有把 ready/barrier/settle 协议落实到压力测量窗口，而不是否定 watcher 实现。
+
+## 审查限制
+
+- 未执行正式 `bun run build`、生产服务、3000 文件生成或 30 次浏览器测量；计划目标是只读方法审查，且用户要求不做长时间/高 CPU 正式测量。
+- 未修改仓库文件、未启动服务或浏览器；唯一执行实验是报告目录内的小样本生成命令，已记录在发现 1。
