@@ -8,7 +8,8 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
-import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {createHash} from "node:crypto";
+import {lstat, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createApplication} from "@notnotype/nb-runtime/application";
@@ -20,7 +21,8 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
-import {killSpawnedProjects, leaseOf, projectHarness, revoked} from "nbook/server/testing/projects";
+import {holdLock} from "nbook/backend/locked-replace";
+import {alive, killSpawnedProjects, leaseOf, projectHarness, revoked} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
 import {windowProjectKey} from "nbook/shared/projects";
 
@@ -190,4 +192,71 @@ describe("Spec workspace.resources 项目子进程里的 project://", () => {
         await window.close();
         keep.release();
     }, 60_000);
+
+    it("经窗口对子进程里的项目做一组操作：另一个窗口收到带来源的精确事件，没有外部回声", async () => {
+        const h = await harness();
+        await mkdir(join(h.project.path, "lore.content", "alice"), {recursive: true});
+        await writeFile(join(h.project.path, "lore.content", "content.xml"), "<content>\n  <item name=\"alice\" title=\"爱丽丝\"/>\n</content>\n");
+        await writeFile(join(h.project.path, "draft.md"), "D");
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const actor = await windowOf(h, "w1");
+        const observer = await windowOf(h, "w2");
+        const seen = watching(observer);
+        await waitUntil("订阅就绪", () => seen.messages.some((message) => message.kind === "ready"));
+
+        expect(await actor.files.create("project://lore.content/bob", "directory", {before: "alice"})).toEqual({ok: true, value: {}});
+        expect(await actor.files.rename("project://lore.content/alice", "alicia")).toEqual({ok: true, value: {}});
+        expect(await actor.files.move([{source: "project://draft.md", target: "project://lore.content/bob/draft.md"}]).result).toEqual({ok: true, value: {items: [{status: "done"}]}});
+        expect(await actor.files.delete([{address: "project://lore.content/alicia"}]).result).toEqual({ok: true, value: {items: [{status: "done"}]}});
+        expect(await readFile(join(h.project.path, "lore.content", "content.xml"), "utf8")).toBe("<content>\n  <item name=\"bob\">\n    <item name=\"draft.md\"/>\n  </item>\n</content>\n");
+
+        // 屏障：外部写一个文件；它的通知到了，之前操作的回声也已处理完。
+        await writeFile(join(h.project.path, "barrier.md"), "B");
+        await waitUntil("屏障的通知", () => seen.changes().some((change) => change.path === "barrier.md"));
+        const user = {kind: "user", plugin: "x.w1"} as const;
+        expect(seen.changes().filter((change) => change.path !== "barrier.md")).toEqual([
+            {type: "created", path: "lore.content/bob", source: user},
+            {type: "changed", path: "lore.content/content.xml", source: user},
+            {type: "renamed", path: "lore.content/alicia", from: "lore.content/alice", source: user},
+            {type: "changed", path: "lore.content/content.xml", source: user},
+            {type: "renamed", path: "lore.content/bob/draft.md", from: "draft.md", source: user},
+            {type: "changed", path: "lore.content/content.xml", source: user},
+            {type: "deleted", path: "lore.content/alicia", source: user},
+            {type: "changed", path: "lore.content/content.xml", source: user},
+        ]);
+        seen.release();
+        await actor.close();
+        await observer.close();
+        keep.release();
+    }, 30_000);
+
+    it("项目子进程收到停止：等在途批量的当前项结算后退出，后续项没有执行", async () => {
+        const h = await harness();
+        await mkdir(join(h.project.path, "lore.content", "alice"), {recursive: true});
+        await writeFile(join(h.project.path, "lore.content", "content.xml"), "<content>\n  <item name=\"alice\"/>\n</content>\n");
+        await writeFile(join(h.project.path, "draft.md"), "D");
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        const pid = await h.ready(1);
+        const window = await windowOf(h, "w1");
+        // 测试持有清单的写入锁：第一项提交文件后等这把锁，停在执行中。
+        const locks = join(h.project.path, ".nbook", "locks", "files");
+        await mkdir(locks, {recursive: true});
+        const held = await holdLock(join(locks, `${createHash("sha256").update("lore.content/content.xml").digest("hex")}.lock`), () => undefined);
+        if (!held.ok) throw new Error(held.detail);
+        const handle = window.files.move([
+            {source: "project://lore.content/alice", target: "project://lore.content/alice2"},
+            {source: "project://draft.md", target: "project://moved.md"},
+        ]);
+        await waitUntil("第一项的文件已移动", () => lstat(join(h.project.path, "lore.content", "alice2")).then(() => true, () => false));
+        process.kill(pid, "SIGTERM");
+        await held.release();
+        await waitUntil("项目子进程退出", () => !alive(pid), {timeoutMs: 10_000});
+        expect(await readFile(join(h.project.path, "lore.content", "content.xml"), "utf8")).toContain("name=\"alice2\"");
+        expect(await readFile(join(h.project.path, "draft.md"), "utf8")).toBe("D");
+        expect(await lstat(join(h.project.path, "moved.md")).then(() => true, () => false)).toBe(false);
+        await handle.result;
+        await window.close();
+        keep.release();
+    }, 30_000);
 });

@@ -20,4 +20,5 @@ Files 竖切一 [t68](../t68-files-resource-layer/README.md)。
 ## 当前状态
 
 - 2026-10-09 计划起草，交三个 omp 审查（[设计与旧行为](evidences/plan-review-design.txt)、[运行时与边界](evidences/plan-review-runtime.txt)、[可实现性与测试](evidences/plan-review-tests.txt)，共 31 条），全部并入计划：源身份令牌、批量停止接内核信号、RPC 字节预算、内容树操作锁、部分完成的结果形状、复制与删除的失败政策、回声按目录项身份。取舍记入待确认清单。
-- 下一步：S0 修订 Spec。
+- 2026-10-09 S0–S4 完成并逐片提交：Spec 修订；目录项写原语（排他改名经 `bun:ffi`）；单项操作与清单维护、内容树操作锁、回声的预期状态；批量（预处理、逐项结果、取消、停止、字节预算）；真实项目子进程与真实 WebSocket 的组合用例。每片自跑测试并做变异检查（S1 20 个、S2 19 个、S3 19 个、S4 3 个；未拦住的只有回声身份里的创建时间比较：测试所在的 tmpfs 删掉重建后不复用 inode，造不出这个场景，保留这项比较，记为未验证）。收口验证：`neuro-book` 全量 634 通过、typecheck 通过、`smoke:server` 通过、e2e 101 通过。
+- 下一步：S5 三个 omp 实现审查与修正。

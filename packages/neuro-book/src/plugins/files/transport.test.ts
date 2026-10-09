@@ -103,6 +103,25 @@ async function windowOf(id: string): Promise<Window> {
     };
 }
 
+describe("Spec workspace.files 批量的大小上限：真实 WebSocket", () => {
+    it("预算内的 1000 项批量经真实 RPC 端口往返；超出预算的在窗口里就被拒绝，连接不断，之后的调用照常", async () => {
+        const window = await windowOf("w2");
+        // 每项一个约 900 字节的不存在路径（单段不超过 250 字节）：输入接近预算，逐项结果是 1000 个 not-found。
+        const segment = "p".repeat(220);
+        const near = Array.from({length: 1000}, (_unused, index) => ({address: `user://${segment}/${segment}/${segment}/${segment}/${String(index).padStart(4, "0")}.md`}));
+        const result = await window.files.delete(near).result;
+        expect(result.ok && result.value.items.length).toBe(1000);
+        expect(result.ok && result.value.items.every((item) => item.status === "failed" && item.code === "not-found")).toBe(true);
+
+        const over = Array.from({length: 1000}, (_unused, index) => ({address: `user://${segment}/${segment}/${segment}/${segment}/${segment}/${String(index)}.md`}));
+        expect(await window.files.delete(over).result).toMatchObject({ok: false, code: "too-large"});
+        await writeFile(join(stateRoot, "user", "keep.md"), "K");
+        expect(await window.files.copy([{source: "user://keep.md", target: "user://keep-copy.md"}]).result).toEqual({ok: true, value: {items: [{status: "done"}]}});
+        expect(await readFile(join(stateRoot, "user", "keep-copy.md"), "utf8")).toBe("K");
+        await window.close();
+    }, 30_000);
+});
+
 describe("Spec workspace.files 正文上限：真实 WebSocket", () => {
     it("恰在上限内的正文经真实 RPC 端口读写；超出上限的保存在窗口里就被拒绝，连接不断，之后的调用照常", async () => {
         expect(TEXT_BUDGET_BYTES).toBe(RPC_MAX_MESSAGE_BYTES - 64 * 1024);
