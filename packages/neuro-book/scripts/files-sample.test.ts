@@ -51,8 +51,28 @@ describe("Files 样本生成器", () => {
         await expect(writeSample(target, {count: 600, wide: 120})).rejects.toThrow("不是空目录");
     });
 
+    it("源码文件：缺省没有，样本逐字节不变；要了就放在 data/ 下，是合法 JSON、带标记、字节数精确，不占 Markdown 的名额", () => {
+        const plain = planSample({count: 1000});
+        expect(plain.description.sources).toEqual([]);
+        const withSources = planSample({count: 1000, sources: 5});
+        expect(withSources.files.slice(0, plain.files.length)).toEqual([...plain.files]);
+        expect(withSources.description.count).toBe(1000);
+        expect(withSources.description.sources).toEqual(["project://data/source-001.json", "project://data/source-002.json", "project://data/source-003.json", "project://data/source-004.json", "project://data/source-005.json"]);
+        for (const file of withSources.files.slice(plain.files.length)) {
+            const text = renderSample(file);
+            expect(new TextEncoder().encode(text).length).toBe(file.bytes);
+            expect(JSON.parse(text)).toMatchObject({marker: file.marker});
+        }
+    });
+
+    it("宽目录放不下（超出笔记的名额）时报错，不写出与描述不符的样本", () => {
+        expect(() => planSample({count: 600})).toThrow("放不下 400 项的宽目录");
+        expect(planSample({count: 600, wide: 240}).files.filter((file) => file.path.startsWith("notes/wide/"))).toHaveLength(240);
+        expect(() => planSample({count: 600, wide: 241})).toThrow("放不下");
+    });
+
     it("正文按 UTF-8 精确到计划的字节数，第一行是标记", () => {
-        for (const file of planSample({count: 600}).files.slice(0, 50)) {
+        for (const file of planSample({count: 600, wide: 100}).files.slice(0, 50)) {
             const text = renderSample(file);
             expect(new TextEncoder().encode(text).length).toBe(file.bytes);
             expect(text.startsWith(`# ${file.marker}\n`)).toBe(true);

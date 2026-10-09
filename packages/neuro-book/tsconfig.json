@@ -35,5 +35,5 @@
         "vite.e2e.config.ts",
         "vitest.config.ts"
     ],
-    "exclude": ["src/**/*.dom.test.ts", "src/plugins/*/web/**/*.test.ts", "scripts/lab-shot.ts"]
+    "exclude": ["src/**/*.dom.test.ts", "src/plugins/*/web/**/*.test.ts", "scripts/lab-shot.ts", "scripts/perf/files-perf.ts", "scripts/perf/page-agent.ts", "scripts/perf/browser-runner.ts"]
 }
