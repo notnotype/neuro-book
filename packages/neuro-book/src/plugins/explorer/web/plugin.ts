@@ -23,6 +23,7 @@ import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
 import {EXPLORER_COMMAND_DECLARATIONS, explorerCommands} from "./commands";
+import type {Availability} from "./controller";
 import {explorerLocalized} from "./messages";
 import {explorerStoreFor} from "./preferences";
 import {createExplorerSession} from "./session";
@@ -71,9 +72,18 @@ export const explorerBrowserPlugin: PluginDefinition = {
                     report: (id, reason) => diagnostics.record({level: "warn", event: "explorer.command", message: `${id} 执行失败：${reason}`, source: {plugin: descriptor.id}}),
                 }),
             };
+            const available = (pick: (available: Availability) => boolean) => computed(() => {
+                const controller = session.controller.value;
+                return controller !== null && pick(controller.available.value);
+            });
             const published = bindingsOf(explorerState, {
                 ready: computed(() => session.controller.value !== null),
-                treeFocused: session.treeFocused,
+                canCreate: available((can) => can.create),
+                hasSelection: computed(() => (session.controller.value?.selection.value.selected.length ?? 0) > 0),
+                canReorder: available((can) => can.moveUp || can.moveDown),
+                canCreateContent: available((can) => can.createContent),
+                canConvert: available((can) => can.convert),
+                canEditManifest: available((can) => can.display || can.include || can.drop),
             });
             return {
                 contributions: {

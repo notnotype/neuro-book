@@ -28,7 +28,7 @@ import {storageWorld} from "nbook/plugins/storage/testing/world";
 import type {StorageWorld} from "nbook/plugins/storage/testing/world";
 
 import {descriptor} from "./plugin";
-import {COLLAPSE_ALL_COMMAND, EXPLORER_COMMAND_DECLARATIONS, explorerCommands, REFRESH_FILES_COMMAND, TOGGLE_MANIFESTS_COMMAND} from "./web/commands";
+import {COLLAPSE_ALL_COMMAND, EXPLORER_COMMAND_DECLARATIONS, explorerCommands, REFRESH_FILES_COMMAND, RENAME_COMMAND, TOGGLE_MANIFESTS_COMMAND} from "./web/commands";
 import {EXPANDED_LIMIT, explorerStoreFor, limitBranches} from "./web/preferences";
 import type {ExplorerStore} from "./web/preferences";
 import {createExplorerSession} from "./web/session";
@@ -137,7 +137,7 @@ describe("Spec workbench.commands 命令目录（资源管理器）：声明", (
         const declared = new Set((Object.keys(explorerState.declarations) as Array<keyof typeof explorerState.declarations>).map((name) => explorerState.key(name)));
         for (const [id, declaration] of Object.entries(EXPLORER_COMMAND_DECLARATIONS)) {
             expect(commandDeclarationProblems(id, descriptor.id, declaration), id).toEqual([]);
-            for (const key of declaration.when.requires) expect(declared.has(key), key).toBe(true);
+            for (const key of declaration.when?.requires ?? []) expect(declared.has(key), key).toBe(true);
         }
     });
 });
@@ -161,6 +161,23 @@ describe("Spec workbench.files-explorer 新应用的插件、命令与界面：�
         await waitUntil("刷新后重新列出", () => at.tap.requests.filter((request) => request.method === "list").length > before);
         expect(await commands.execute(TOGGLE_MANIFESTS_COMMAND)).toEqual({ok: true, value: null});
         expect(current.controller.value?.showManifests.value).toBe(true);
+    });
+
+    it("需要界面输入的命令要求视图可见；可见时按选择核对，不合格的原因说明", async () => {
+        const at = await worlds();
+        const current = session(at, await storeFactory(at.storage, "w", "c"));
+        const commands = registry(current);
+        const visible = shallowRef(false);
+        current.attach({id: "nbook.explorer", generation: 1, visible});
+        await listed(at, current, "project://plain");
+        expect(await commands.execute(RENAME_COMMAND)).toEqual({ok: false, code: "unavailable", reason: "资源管理器没有显示"});
+        // 不需要输入的命令不看可见性。
+        expect(await commands.execute(COLLAPSE_ALL_COMMAND)).toEqual({ok: true, value: null});
+        visible.value = true;
+        expect(await commands.execute(RENAME_COMMAND)).toEqual({ok: false, code: "unavailable", reason: "没有选中可以操作的项"});
+        current.controller.value!.contextSelect("project://plain");
+        expect(await commands.execute(RENAME_COMMAND)).toEqual({ok: true, value: null});
+        expect(current.controller.value!.editing.value).toMatchObject({mode: "rename", address: "project://plain"});
     });
 
     it("显示偏好与两棵树的展开写进记录；同一客户端的下一个会话按记录恢复（项目树、用户资产树、显示清单文件）", async () => {

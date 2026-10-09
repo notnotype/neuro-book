@@ -338,7 +338,7 @@ describe("Spec workbench.files-explorer 验收 2、3：点击与打开", () => {
         expect(controller.selection.value.selected).toEqual(["project://lore.content/alice"]);
         controller.click("project://plain/a.md", {toggle: true, range: false}, "row");
         controller.click("project://plain/index.md", {toggle: false, range: true}, "row");
-        expect(controller.key({key: "Enter", shift: false, toggle: false, alt: false}, 10)).toBe(true);
+        expect(controller.key({key: "Enter", shift: false, toggle: false, alt: false}, 10)).toBe("handled");
         await waitUntil("打开的命令执行完", () => opened.length === 4);
         expect(opened).toEqual([
             {address: "project://plain/a.md", mode: "preview"},

@@ -205,13 +205,20 @@ describe("Spec workbench.files-explorer 基础文件操作：树内按键", () =
         expect(treeKey(all, at("project://plain"), key("Enter"), 10)).toEqual({kind: "collapse", address: "project://plain"});
     });
 
-    it("Ctrl+A 全选；Shift+F10 与 ContextMenu 键在焦点行开菜单；Alt 组合与其它键交给命令键位", () => {
+    it("Ctrl+A 全选；Shift+F10 与 ContextMenu 键在焦点行开菜单；其它键不处理", () => {
         expect(treeKey(all, at("project://plain/a.md"), key("a", {toggle: true}), 10)).toMatchObject({kind: "select"});
         expect(treeKey(all, at("project://plain/a.md"), key("F10", {shift: true}), 10)).toEqual({kind: "menu", id: "project://plain/a.md"});
         expect(treeKey(all, at("project://plain/a.md"), key("ContextMenu"), 10)).toEqual({kind: "menu", id: "project://plain/a.md"});
-        expect(treeKey(all, at("project://plain/a.md"), key("ArrowUp", {alt: true}), 10)).toEqual({kind: "none"});
-        expect(treeKey(all, at("project://plain/a.md"), key("Delete"), 10)).toEqual({kind: "none"});
-        expect(treeKey(all, at("project://plain/a.md"), key("F2"), 10)).toEqual({kind: "none"});
+        expect(treeKey(all, at("project://plain/a.md"), key("x"), 10)).toEqual({kind: "none"});
+    });
+
+    it("具名动作的键给出命令 id：F2 改名、Delete 删除、Alt+上下 上移下移；带别的修饰键不算", () => {
+        expect(treeKey(all, at("project://plain/a.md"), key("F2"), 10)).toEqual({kind: "command", id: "nbook.files.rename"});
+        expect(treeKey(all, at("project://plain/a.md"), key("Delete"), 10)).toEqual({kind: "command", id: "nbook.files.delete"});
+        expect(treeKey(all, at("project://plain/a.md"), key("ArrowUp", {alt: true}), 10)).toEqual({kind: "command", id: "nbook.files.move-up"});
+        expect(treeKey(all, at("project://plain/a.md"), key("ArrowDown", {alt: true}), 10)).toEqual({kind: "command", id: "nbook.files.move-down"});
+        expect(treeKey(all, at("project://plain/a.md"), key("ArrowDown", {alt: true, shift: true}), 10)).toEqual({kind: "none"});
+        expect(treeKey(all, at("project://plain/a.md"), key("Delete", {toggle: true}), 10)).toEqual({kind: "none"});
     });
 });
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** 资源管理器的一行：根、资源或状态行（同名 .md）。 */
-import {computed} from "vue";
+import {FormInput} from "@notnotype/nb-ui/components";
+import {computed, nextTick, onMounted, ref, watch} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
@@ -14,6 +15,8 @@ const props = defineProps<{
     selected: boolean;
     active: boolean;
     height: number;
+    /** 内联输入（新建与改名）：名字、已换成文字的错误、是否在提交。 */
+    edit?: {readonly name: string; readonly error: string | null; readonly busy: boolean} | null;
 }>();
 
 const emit = defineEmits<{
@@ -21,7 +24,43 @@ const emit = defineEmits<{
     (event: "activate"): void;
     (event: "context", mouse: MouseEvent): void;
     (event: "retry"): void;
+    (event: "edit-input", name: string): void;
+    (event: "edit-commit"): void;
+    (event: "edit-cancel"): void;
 }>();
+
+const inputBox = ref<HTMLElement | null>(null);
+const errorId = computed(() => `${props.domId}-error`);
+
+/** 输入行挂上时把焦点放进输入框；改名时选中扩展名之前的部分。 */
+const focusInput = async (): Promise<void> => {
+    await nextTick();
+    const input = inputBox.value?.querySelector("input");
+    if (input === null || input === undefined) return;
+    input.focus();
+    const dot = input.value.lastIndexOf(".");
+    input.setSelectionRange(0, dot > 0 ? dot : input.value.length);
+};
+onMounted(() => {
+    if (props.edit != null) void focusInput();
+});
+// 改名时同一行从资源行换成输入框：组件不重建，按 `edit` 出现再放焦点。
+watch(() => props.edit != null, (editing, before) => {
+    if (editing && before === false) void focusInput();
+});
+
+const onEditKeydown = (event: KeyboardEvent): void => {
+    // 输入法组字中的 Enter 是确认候选，不是提交。
+    if (event.isComposing) return;
+    if (event.key === "Enter") {
+        event.preventDefault();
+        emit("edit-commit");
+    } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        emit("edit-cancel");
+    }
+};
 
 const INDENT = 12;
 
@@ -31,6 +70,7 @@ const label = computed(() => {
     const row = props.row;
     if (row.kind === "root") return explorerText(props.locale, row.scheme === "project" ? "projectRoot" : "userRoot");
     if (row.kind === "entry") return row.label;
+    if (row.kind === "edit") return "";
     switch (row.status) {
         case "loading":
             return explorerText(props.locale, "loading");
@@ -47,6 +87,7 @@ const label = computed(() => {
 const icon = computed(() => {
     const row = props.row;
     if (row.kind === "root") return row.scheme === "project" ? "i-lucide-book-open" : "i-lucide-user";
+    if (row.kind === "edit") return row.entry === "directory" ? "i-lucide-folder" : "i-lucide-file";
     if (row.kind !== "entry") return null;
     if (row.type === "missing") return "i-lucide-file-x";
     if (row.type === "link") return "i-lucide-link";
@@ -64,7 +105,7 @@ const expandable = computed(() => {
     return row.kind === "entry" && row.expandable;
 });
 
-const expanded = computed(() => (props.row.kind === "status" ? false : props.row.expanded));
+const expanded = computed(() => (props.row.kind === "root" || props.row.kind === "entry" ? props.row.expanded : false));
 
 const marks = computed(() => {
     const row = props.row;
@@ -85,7 +126,38 @@ const description = computed(() => (props.row.kind === "entry" ? props.row.addre
 
 <template>
     <div
-        v-if="row.kind !== 'status'"
+        v-if="row.kind === 'edit' || (row.kind === 'entry' && edit != null)"
+        :id="domId"
+        :role="row.kind === 'edit' ? 'none' : 'treeitem'"
+        class="relative flex w-full min-w-0 items-center gap-1 pr-2 text-sm"
+        :style="{height: `${height}px`, paddingLeft: indent}"
+        :data-explorer-edit="row.id"
+        :aria-level="row.depth + 1"
+        :aria-selected="row.kind === 'entry' ? selected : undefined"
+    >
+        <span class="h-4 w-4 shrink-0" aria-hidden="true"></span>
+        <span v-if="icon" :class="icon" class="h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
+        <div ref="inputBox" class="min-w-0 flex-1" @keydown="onEditKeydown" @focusout="emit('edit-commit')" @click.stop @dblclick.stop>
+            <FormInput
+                size="sm"
+                :model-value="edit?.name ?? ''"
+                :readonly="edit?.busy === true"
+                :aria-invalid="edit?.error ? 'true' : undefined"
+                :aria-describedby="edit?.error ? errorId : undefined"
+                data-explorer-input
+                @update:model-value="(value: string) => emit('edit-input', value)"
+            />
+        </div>
+        <span
+            v-if="edit?.error"
+            :id="errorId"
+            role="alert"
+            class="pointer-events-none absolute left-8 right-2 top-full z-10 truncate rounded bg-[var(--status-danger)] px-1.5 py-0.5 text-xs text-white"
+            data-explorer-input-error
+        >{{ edit.error }}</span>
+    </div>
+    <div
+        v-else-if="row.kind !== 'status'"
         :id="domId"
         role="treeitem"
         class="explorer-row flex w-full min-w-0 cursor-default select-none items-center gap-1 pr-2 text-sm"

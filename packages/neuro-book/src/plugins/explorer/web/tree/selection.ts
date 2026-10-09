@@ -21,9 +21,9 @@ export interface Modifiers {
     readonly range: boolean;
 }
 
-/** 可以被选中的行：根与资源行；状态行不是资源。 */
+/** 可以被选中的行：根与资源行；状态行与新建的输入行不是资源。 */
 export function selectable(row: Row): boolean {
-    return row.kind !== "status";
+    return row.kind === "root" || row.kind === "entry";
 }
 
 /** Ctrl/Meta+A 选入的行：可见的资源行，不含根、缺失条目与状态行（隐藏的正文本来就不在可见行里）。 */

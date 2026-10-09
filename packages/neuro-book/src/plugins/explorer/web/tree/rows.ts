@@ -68,13 +68,35 @@ export interface StatusRow {
     readonly detail: string | null;
 }
 
-export type Row = RootRow | EntryRow | StatusRow;
+/** 新建时的内联输入行：插在目标目录的第一个子项之前，内容文件夹里插在 `before` 之前。 */
+export interface EditRow {
+    readonly kind: "edit";
+    readonly id: string;
+    readonly depth: number;
+    readonly parent: string;
+    readonly entry: "file" | "directory";
+}
+
+export type Row = RootRow | EntryRow | StatusRow | EditRow;
+
+/** 正在新建的项：目标目录、类型与插入位置。 */
+export interface Creating {
+    readonly parent: string;
+    readonly entry: "file" | "directory";
+    readonly before: string | null;
+}
+
+/** 新建输入行的 id。 */
+export function creatingId(parent: string): string {
+    return `${parent}#new`;
+}
 
 export interface ProjectionInput {
     readonly roots: ReadonlyArray<RootState>;
     readonly slots: ReadonlyMap<string, DirectorySlot>;
     readonly expanded: ReadonlySet<string>;
     readonly showManifests: boolean;
+    readonly creating?: Creating | null;
 }
 
 export function contentLayer(listing: Listing): boolean {
@@ -109,8 +131,13 @@ function directory(input: ProjectionInput, address: string, depth: number, rows:
     }
     if (slot.error !== null) status("error", slot.error.code, slot.error.detail);
     const shown = listing.entries.filter((entry) => (entry.role !== "body" || !content) && (entry.role !== "manifest" || input.showManifests));
-    if (shown.length === 0 && slot.error === null) status("empty");
+    const creating = input.creating?.parent === address ? input.creating : null;
+    const editRow: EditRow | null = creating === null ? null : {kind: "edit", id: creatingId(address), depth, parent: address, entry: creating.entry};
+    if (shown.length === 0 && slot.error === null && editRow === null) status("empty");
+    const insertAt = editRow === null ? -1 : Math.max(0, creating?.before === null ? 0 : shown.findIndex((entry) => entry.name === creating?.before));
+    if (editRow !== null && insertAt >= shown.length) rows.push(editRow);
     shown.forEach((entry, index) => {
+        if (index === insertAt && editRow !== null) rows.push(editRow);
         const child = childAddress(address, entry.name);
         const isDirectory = entry.kind === "directory";
         const expanded = isDirectory && input.expanded.has(child);

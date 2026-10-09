@@ -1,11 +1,13 @@
 <script setup lang="ts">
 /** 资源管理器视图的界面（同名 .md）。 */
-import {IconButton, Toolbar} from "@notnotype/nb-ui/components";
-import {computed, ref} from "vue";
+import {AlertDialog, ContextMenu, Dialog, FormInput, IconButton, Toolbar} from "@notnotype/nb-ui/components";
+import type {ContextMenuItem} from "@notnotype/nb-ui/components";
+import {computed, nextTick, ref, watch} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
-import type {Notice} from "../controller";
+import type {Dialog as ExplorerDialog, KeyOutcome, Notice, OperationReport} from "../controller";
+import type {MenuEntry} from "../menu";
 import {explorerText} from "../messages";
 import type {PreferenceProblem} from "../preferences";
 import type {TreeKey} from "../tree/keys";
@@ -14,7 +16,7 @@ import type {Modifiers} from "../tree/selection";
 import ExplorerFeedback from "./ExplorerFeedback.vue";
 import ExplorerTree from "./ExplorerTree.vue";
 
-type ToolbarAction = "refresh" | "collapse-all" | "toggle-manifests";
+type ToolbarAction = "new-file" | "new-folder" | "refresh" | "collapse-all" | "toggle-manifests";
 
 const props = defineProps<{
     locale: DisplayLocale;
@@ -25,7 +27,17 @@ const props = defineProps<{
     ready: boolean;
     notice: Notice | null;
     problem: PreferenceProblem | null;
-    handleKey: (key: TreeKey, page: number) => boolean;
+    handleKey: (key: TreeKey, page: number) => KeyOutcome;
+    /** 新建工具按钮是否可用；默认 false。 */
+    canCreate?: boolean;
+    editing?: {readonly id: string; readonly name: string; readonly error: string | null; readonly busy: boolean} | null;
+    /** 打开着的右键菜单：位置与菜单项。 */
+    menu?: {readonly x: number; readonly y: number; readonly entries: ReadonlyArray<MenuEntry>} | null;
+    dialog?: ExplorerDialog | null;
+    report?: OperationReport | null;
+    running?: {readonly action: "delete"; readonly count: number} | null;
+    /** 每次变化都把焦点放回树上（编辑与确认结束后）。 */
+    focusRequest?: number;
 }>();
 
 const emit = defineEmits<{
@@ -37,12 +49,26 @@ const emit = defineEmits<{
     (event: "reconnect", scheme: "project" | "user"): void;
     (event: "open-project"): void;
     (event: "dismiss-notice"): void;
+    (event: "dismiss-report"): void;
+    (event: "cancel-running"): void;
     (event: "prefs-retry"): void;
     (event: "prefs-discard"): void;
     (event: "focus-change", focused: boolean): void;
+    (event: "edit-input", name: string): void;
+    (event: "edit-commit"): void;
+    (event: "edit-cancel"): void;
+    (event: "menu-command", command: string): void;
+    (event: "menu-close"): void;
+    (event: "delete-confirm"): void;
+    (event: "display-commit", title: string, icon: string): void;
+    (event: "dialog-close"): void;
 }>();
 
 const tree = ref<InstanceType<typeof ExplorerTree> | null>(null);
+const focusTree = (): void => {
+    void nextTick(() => tree.value?.focus());
+};
+watch(() => props.focusRequest, focusTree);
 
 const roots = computed(() => props.rows.flatMap((row) => (row.kind === "root" ? [row] : [])));
 const unbound = computed(() => roots.value.some((root) => root.status.kind === "unbound"));
@@ -56,12 +82,34 @@ const problemText = computed(() => {
 });
 
 const tools = computed(() => [
-    {action: "refresh" as const, icon: "i-lucide-refresh-cw", label: explorerText(props.locale, "refresh"), pressed: undefined},
-    {action: "collapse-all" as const, icon: "i-lucide-copy-minus", label: explorerText(props.locale, "collapseAll"), pressed: undefined},
-    {action: "toggle-manifests" as const, icon: "i-lucide-file-code", label: explorerText(props.locale, "showManifests"), pressed: props.showManifests},
+    {action: "new-file" as const, icon: "i-lucide-file-plus", label: explorerText(props.locale, "newFile"), pressed: undefined, enabled: props.canCreate === true},
+    {action: "new-folder" as const, icon: "i-lucide-folder-plus", label: explorerText(props.locale, "newFolder"), pressed: undefined, enabled: props.canCreate === true},
+    {action: "refresh" as const, icon: "i-lucide-refresh-cw", label: explorerText(props.locale, "refresh"), pressed: undefined, enabled: true},
+    {action: "collapse-all" as const, icon: "i-lucide-copy-minus", label: explorerText(props.locale, "collapseAll"), pressed: undefined, enabled: true},
+    {action: "toggle-manifests" as const, icon: "i-lucide-file-code", label: explorerText(props.locale, "showManifests"), pressed: props.showManifests, enabled: true},
 ]);
 
-defineExpose({focusTree: () => tree.value?.focus()});
+const menuItems = computed((): ContextMenuItem[] => (props.menu?.entries ?? []).map((entry) => (entry.kind === "separator"
+    ? {separator: true}
+    : {label: entry.label, disabled: entry.disabled, tone: entry.danger ? "danger" : "default", ...(entry.shortcut === null ? {} : {shortcut: entry.shortcut}), action: () => emit("menu-command", entry.command)})));
+
+const deleteDialog = computed(() => (props.dialog?.kind === "delete" ? props.dialog : null));
+const displayDialog = computed(() => (props.dialog?.kind === "display" ? props.dialog : null));
+const displayTitle = ref("");
+const displayIcon = ref("");
+watch(displayDialog, (dialog) => {
+    if (dialog === null) return;
+    displayTitle.value = dialog.title;
+    displayIcon.value = dialog.icon;
+}, {immediate: true});
+
+/** 菜单关闭：焦点回到树上；菜单项开始的内联输入或对话框随后会再拿走焦点。 */
+const closeMenu = (): void => {
+    emit("menu-close");
+    focusTree();
+};
+
+defineExpose({focusTree});
 </script>
 
 <template>
@@ -75,7 +123,7 @@ defineExpose({focusTree: () => tree.value?.focus()});
                 :aria-label="tool.label"
                 :title="tool.label"
                 :aria-pressed="tool.pressed"
-                :disabled="!ready"
+                :disabled="!ready || !tool.enabled"
                 :data-explorer-tool="tool.action"
                 @click="emit('toolbar', tool.action)"
             />
@@ -104,13 +152,58 @@ defineExpose({focusTree: () => tree.value?.focus()});
             :locale="locale"
             :label="explorerText(locale, 'tree')"
             :handle-key="handleKey"
+            :editing="editing ?? null"
             @row-press="(id, modifiers, part) => emit('row-press', id, modifiers, part)"
             @row-activate="(id) => emit('row-activate', id)"
             @row-context="(id, x, y) => emit('row-context', id, x, y)"
             @retry="(address) => emit('retry', address)"
             @focus-change="(focused) => emit('focus-change', focused)"
+            @edit-input="(name) => emit('edit-input', name)"
+            @edit-commit="emit('edit-commit')"
+            @edit-cancel="emit('edit-cancel')"
         />
         <div v-else class="px-3 py-2 text-xs text-[var(--text-muted)]" data-explorer-loading>{{ explorerText(locale, "loading") }}</div>
-        <ExplorerFeedback :locale="locale" :notice="notice" @dismiss="emit('dismiss-notice')" />
+        <ExplorerFeedback :locale="locale" :notice="notice" :report="report ?? null" :running="running ?? null" @dismiss="emit('dismiss-notice')" @dismiss-report="emit('dismiss-report')" @cancel="emit('cancel-running')" />
+        <ContextMenu :visible="menu != null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" data-explorer-menu @close="closeMenu" />
+        <AlertDialog
+            :open="deleteDialog !== null"
+            :title="explorerText(locale, 'deleteTitle', {count: deleteDialog?.items.length ?? 0})"
+            :confirm-text="explorerText(locale, 'delete')"
+            :cancel-text="explorerText(locale, 'cancel')"
+            tone="danger"
+            @confirm="emit('delete-confirm')"
+            @cancel="emit('dialog-close')"
+            @closed="focusTree"
+        >
+            <template #description>
+                <p>{{ explorerText(locale, "deleteDescription") }}</p>
+                <ul class="mt-2 max-h-[40vh] overflow-y-auto break-words text-xs" data-explorer-delete-items>
+                    <li v-for="item in deleteDialog?.items ?? []" :key="item.address">{{ item.address }}</li>
+                </ul>
+            </template>
+        </AlertDialog>
+        <Dialog
+            :model-value="displayDialog !== null"
+            :title="explorerText(locale, 'displayTitle', {name: displayDialog?.name ?? ''})"
+            :busy="displayDialog?.busy === true"
+            :show-cancel="true"
+            :confirm-label="explorerText(locale, 'save')"
+            :cancel-label="explorerText(locale, 'cancel')"
+            size="sm"
+            @confirm="emit('display-commit', displayTitle, displayIcon)"
+            @request-close="emit('dialog-close')"
+        >
+            <div class="flex flex-col gap-3 text-sm" data-explorer-display>
+                <label class="flex flex-col gap-1">
+                    <span class="text-xs text-[var(--text-secondary)]">{{ explorerText(locale, "displayName") }}</span>
+                    <FormInput v-model="displayTitle" size="sm" data-explorer-display-title />
+                </label>
+                <label class="flex flex-col gap-1">
+                    <span class="text-xs text-[var(--text-secondary)]">{{ explorerText(locale, "displayIcon") }}</span>
+                    <FormInput v-model="displayIcon" size="sm" data-explorer-display-icon />
+                </label>
+                <p class="text-xs text-[var(--text-muted)]">{{ explorerText(locale, "displayHint") }}</p>
+            </div>
+        </Dialog>
     </div>
 </template>

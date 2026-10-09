@@ -169,14 +169,14 @@ owners:
 
 ### 命令目录（资源管理器）
 
-由 `nbook.explorer` 的浏览器入口贡献，作用于本窗口资源管理器的选择；行为、公开键与键位见 [`workbench.files-explorer`](files-explorer.md#新应用的插件命令与界面)。参数一律 `{}`，Agent 暴露一律 `never`；键位的 `when` 都要求 `nbook.explorer/treeFocused`（树的列表元素本身拥有焦点）。
+由 `nbook.explorer` 的浏览器入口贡献，作用于本窗口资源管理器的选择；行为、公开键与树内按键见 [`workbench.files-explorer`](files-explorer.md#新应用的插件命令与界面)。参数一律 `{}`，Agent 暴露一律 `never`。`when` 都另要求 `nbook.explorer/ready`。
 
-| 命令 id | 标题 | `when.requires` | `effect` | 默认键位 |
+| 命令 id | 标题 | `when.requires`（除 `ready`） | `effect` | 树内按键 |
 |---|---|---|---|---|
-| `nbook.files.new-file` | 新建文件 / New File | `nbook.explorer/ready` | write | — |
-| `nbook.files.new-folder` | 新建文件夹 / New Folder | `nbook.explorer/ready` | write | — |
-| `nbook.files.collapse-all` | 全部收起 / Collapse All | `nbook.explorer/ready` | read | — |
-| `nbook.files.toggle-manifests` | 显示清单文件 / Show Manifest Files | `nbook.explorer/ready` | write | — |
+| `nbook.files.new-file` | 新建文件 / New File | `nbook.explorer/canCreate` | write | — |
+| `nbook.files.new-folder` | 新建文件夹 / New Folder | `nbook.explorer/canCreate` | write | — |
+| `nbook.files.collapse-all` | 全部收起 / Collapse All | — | read | — |
+| `nbook.files.toggle-manifests` | 显示清单文件 / Show Manifest Files | — | write | — |
 | `nbook.files.rename` | 重命名 / Rename | `nbook.explorer/hasSelection` | write | F2 |
 | `nbook.files.delete` | 删除 / Delete | `nbook.explorer/hasSelection` | write，`destructive` | Delete |
 | `nbook.files.copy` | 复制 / Copy | `nbook.explorer/hasSelection` | read | `Mod+C` |
@@ -186,13 +186,13 @@ owners:
 | `nbook.files.move-down` | 下移 / Move Down | `nbook.explorer/canReorder` | write | `Alt+ArrowDown` |
 | `nbook.files.create-content` | 创建内容 / Create Content | `nbook.explorer/canCreateContent` | write | — |
 | `nbook.files.convert` | 转换文件夹类型 / Convert Folder | `nbook.explorer/canConvert` | write | — |
-| `nbook.files.set-display` | 修改展示名与图标 / Edit Display | `nbook.explorer/canEditManifest` | write | — |
+| `nbook.files.set-display` | 修改展示名与图标 / Edit Display Name and Icon | `nbook.explorer/canEditManifest` | write | — |
 | `nbook.files.include` | 加入清单 / Add to Manifest | `nbook.explorer/canEditManifest` | write | — |
 | `nbook.files.drop-entry` | 从清单移除 / Remove from Manifest | `nbook.explorer/canEditManifest` | write | — |
-| `nbook.files.clear-cut` | 清除剪切标记 / Clear Cut | `nbook.explorer/treeFocused` | read | Escape |
+| `nbook.files.clear-cut` | 清除剪切标记 / Clear Cut | — | read | Escape |
 
-- 键位命令的 `when` 另加 `nbook.explorer/treeFocused`；从命令面板执行时不要求树有焦点。
-- 资源管理器尚未打开时为 `unavailable`；需要界面输入的命令（新建、改名、展示名、带碰撞的粘贴、删除确认）还要求视图已挂上且可见；确认与内联输入的迟到回调按 `stale-target` 丢弃。
+- 树内按键不是命令声明里的默认键位：由资源管理器的树在自己拥有焦点时处理并执行这条命令（宿主的键位分发是全局的，`Delete` 不能在树之外删文件）。从命令面板执行时作用于当前选择，不要求树有焦点。
+- 资源管理器尚未打开时为 `unavailable`；需要界面输入的命令（新建、改名、展示名、带碰撞的粘贴、删除）还要求视图已挂上且可见。
 - `when` 只表示有没有可作用的选择；执行时再按选择核对（例如选中项里有根行时改名不可用），不合格返回 `unavailable` 与原因。
 
 ### 上下文键（第一批）

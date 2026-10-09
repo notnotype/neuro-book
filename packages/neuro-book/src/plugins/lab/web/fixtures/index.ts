@@ -405,7 +405,7 @@ export const labFixtures: LabFixture[] = [
         events: ["press", "activate", "context", "retry"],
         class: "w-full",
         scenes: (() => {
-            const scene = (id: string, label: string, index: number, extra: {selected?: boolean; active?: boolean} = {}) => ({id, label, input: {props: {row: EXPLORER_ROWS[index] as (typeof EXPLORER_ROWS)[number], locale: "zh-CN" as const, domId: `lab-row-${id}`, selected: extra.selected ?? false, active: extra.active ?? false, height: 26}}});
+            const scene = (id: string, label: string, index: number, extra: {selected?: boolean; active?: boolean; edit?: {name: string; error: string | null; busy: boolean}} = {}) => ({id, label, input: {props: {row: EXPLORER_ROWS[index] as (typeof EXPLORER_ROWS)[number], locale: "zh-CN" as const, domId: `lab-row-${id}`, selected: extra.selected ?? false, active: extra.active ?? false, height: 26, edit: extra.edit ?? null}}});
             return [
                 scene("node", "内容节点：展示名与真实名字", 3),
                 scene("selected", "选中并有焦点框", 3, {selected: true, active: true}),
@@ -416,6 +416,7 @@ export const labFixtures: LabFixture[] = [
                 scene("manifest-error", "清单不合法", 7),
                 scene("error", "读取失败", 13),
                 scene("root", "根", 0),
+                scene("rename", "改名：名字冲突的提示", 3, {selected: true, edit: {name: "alice", error: "已存在同名项", busy: false}}),
             ];
         })(),
         subject: () => import("nbook/plugins/explorer/web/components/ExplorerRow.vue"),
@@ -429,7 +430,7 @@ export const labFixtures: LabFixture[] = [
             {id: "many", label: "五百行：虚拟滚动与长名字", input: {props: {rows: manyRows(500), selected: [], focus: null, locale: "zh-CN", label: "文件"}}},
             {id: "english", label: "英文界面", input: {props: {rows: EXPLORER_ROWS, selected: [], focus: null, locale: "en-US", label: "Files"}}},
         ],
-        runtimeProps: async () => ({handleKey: () => false}),
+        runtimeProps: async () => ({handleKey: () => "none" as const}),
         subject: () => import("nbook/plugins/explorer/web/components/ExplorerTree.vue"),
     }),
     defineSubjectFixture<typeof ExplorerFeedback>({
@@ -454,9 +455,15 @@ export const labFixtures: LabFixture[] = [
                 {id: "unbound", label: "未打开项目、用户资产停止同步", input: {props: {...base, rows: UNBOUND_ROWS}}},
                 {id: "unsaved", label: "偏好未保存、编辑器尚未接入", input: {props: {...base, showManifests: true, problem: {kind: "unsaved" as const, code: "conflict"}, notice: {kind: "editor-missing" as const, address: "project://plain/a.md"}}}},
                 {id: "loading", label: "偏好还在读取", input: {props: {...base, ready: false}}},
+                {id: "delete", label: "删除确认：多项与长路径", input: {props: {...base, dialog: {kind: "delete" as const, items: Array.from({length: 12}, (_, index) => ({address: `project://一个很深的目录/第${String(index + 1)}章 一个相当长的章节标题.md`, token: `t${String(index)}`})), busy: false}}}},
+                {id: "report", label: "删除部分失败、进行中", input: {props: {...base, running: {action: "delete" as const, count: 3}, report: {action: "delete" as const, items: [
+                    {address: "project://plain", result: {status: "failed" as const, code: "permission-denied", detail: "没有权限", partial: {removed: {paths: ["plain/a.md", "plain/b.md"], truncated: false}}}},
+                    {address: "project://a.md", result: {status: "done" as const}},
+                    {address: "project://b.md", result: {status: "not-run" as const, reason: "stopped" as const}},
+                ], manifests: [{path: "lore.content/content.xml", status: "failed" as const, detail: "写不进去"}], truncated: false}}}},
             ];
         })(),
-        runtimeProps: async () => ({handleKey: () => false}),
+        runtimeProps: async () => ({handleKey: () => "none" as const}),
         subject: () => import("nbook/plugins/explorer/web/components/FilesExplorerView.vue"),
     }),
     defineSubjectFixture<typeof SkillChip>({

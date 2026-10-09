@@ -5,6 +5,7 @@ import {computed, nextTick, ref, useId, watch} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
+import type {KeyOutcome} from "../controller";
 import type {TreeKey} from "../tree/keys";
 import type {Row} from "../tree/rows";
 import type {Modifiers} from "../tree/selection";
@@ -17,7 +18,9 @@ const props = defineProps<{
     focus: string | null;
     locale: DisplayLocale;
     label: string;
-    handleKey: (key: TreeKey, page: number) => boolean;
+    handleKey: (key: TreeKey, page: number) => KeyOutcome;
+    /** 正在内联输入的行：新建的输入行或改名的资源行，以及名字、错误文字与是否在提交。 */
+    editing?: {readonly id: string; readonly name: string; readonly error: string | null; readonly busy: boolean} | null;
 }>();
 
 const emit = defineEmits<{
@@ -26,6 +29,9 @@ const emit = defineEmits<{
     (event: "row-context", id: string, x: number, y: number): void;
     (event: "retry", address: string): void;
     (event: "focus-change", focused: boolean): void;
+    (event: "edit-input", name: string): void;
+    (event: "edit-commit"): void;
+    (event: "edit-cancel"): void;
 }>();
 
 /** 探针还没量出尺寸（没有布局的环境）时的行高与视口高度。 */
@@ -50,7 +56,8 @@ const treeFocused = ref(false);
 
 const selectedSet = computed(() => new Set(props.selected));
 const focusIndex = computed(() => (props.focus === null ? -1 : props.rows.findIndex((row) => row.id === props.focus)));
-const rendered = computed(() => renderedRows({count: props.rows.length, rowHeight: rowHeight.value, viewport: viewport.value, scrollTop: scrollTop.value, keep: [focusIndex.value]}).map((index) => ({index, row: props.rows[index] as Row})));
+const editIndex = computed(() => (props.editing == null ? -1 : props.rows.findIndex((row) => row.id === props.editing?.id)));
+const rendered = computed(() => renderedRows({count: props.rows.length, rowHeight: rowHeight.value, viewport: viewport.value, scrollTop: scrollTop.value, keep: [focusIndex.value, editIndex.value]}).map((index) => ({index, row: props.rows[index] as Row})));
 const page = computed(() => Math.max(1, Math.floor(viewport.value / rowHeight.value)));
 
 const domId = (id: string): string => `${prefix}-${encodeURIComponent(id)}`;
@@ -82,6 +89,14 @@ watch(() => props.rows, (rows) => {
     });
 });
 
+watch(editIndex, (index) => {
+    if (index < 0) return;
+    void nextTick(() => {
+        setScroll(revealTop(index, rowHeight.value, viewport.value, scrollTop.value));
+        remember();
+    });
+});
+
 watch(focusIndex, (index) => {
     if (index < 0) return;
     void nextTick(() => {
@@ -105,8 +120,14 @@ const focusTree = (): void => {
 const onKeydown = (event: KeyboardEvent): void => {
     // 行里的按钮与输入框自己处理按键。
     if (event.target !== root.value) return;
-    const handled = props.handleKey({key: event.key, shift: event.shiftKey, toggle: event.ctrlKey || event.metaKey, alt: event.altKey}, page.value);
-    if (handled) event.preventDefault();
+    const outcome = props.handleKey({key: event.key, shift: event.shiftKey, toggle: event.ctrlKey || event.metaKey, alt: event.altKey}, page.value);
+    if (outcome === "none") return;
+    event.preventDefault();
+    if (outcome === "handled") return;
+    // 键盘打开的右键菜单落在焦点行下方。
+    const element = document.getElementById(domId(outcome.menu));
+    const rect = element?.getBoundingClientRect();
+    emit("row-context", outcome.menu, (rect?.left ?? 0) + 24, rect?.bottom ?? 0);
 };
 
 const onFocus = (event: FocusEvent): void => {
@@ -123,13 +144,13 @@ const onBlur = (event: FocusEvent): void => {
 
 const press = (row: Row, event: MouseEvent, part: "twisty" | "row"): void => {
     focusTree();
-    if (row.kind === "status") return;
+    if (row.kind === "status" || row.kind === "edit") return;
     emit("row-press", row.id, {toggle: event.ctrlKey || event.metaKey, range: event.shiftKey}, part);
 };
 
 const context = (row: Row, event: MouseEvent): void => {
     focusTree();
-    if (row.kind !== "status") emit("row-context", row.id, event.clientX, event.clientY);
+    if (row.kind === "root" || row.kind === "entry") emit("row-context", row.id, event.clientX, event.clientY);
 };
 
 defineExpose({focus: focusTree});
@@ -163,8 +184,12 @@ defineExpose({focus: focusTree});
                 :selected="selectedSet.has(item.row.id)"
                 :active="treeFocused && item.row.id === focus"
                 :height="rowHeight"
+                :edit="editing != null && editing.id === item.row.id ? editing : null"
+                @edit-input="(name) => emit('edit-input', name)"
+                @edit-commit="emit('edit-commit')"
+                @edit-cancel="emit('edit-cancel')"
                 @press="(event, part) => press(item.row, event, part)"
-                @activate="item.row.kind !== 'status' && emit('row-activate', item.row.id)"
+                @activate="(item.row.kind === 'root' || item.row.kind === 'entry') && emit('row-activate', item.row.id)"
                 @context="(event) => context(item.row, event)"
                 @retry="item.row.kind === 'status' && emit('retry', item.row.parent)"
             />

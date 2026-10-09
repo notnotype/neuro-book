@@ -5,7 +5,7 @@
 
 # ExplorerTree
 
-资源管理器的虚拟树（[`workbench/files-explorer.md`](../../../../../../../docs/specs/workbench/files-explorer.md) 的“焦点”与验收 1、3）：几千行的目录只渲染视口内的行与上下各 10 行余量，焦点行滚出视口也保持挂载。键盘焦点留在树的列表元素上，当前行经 `aria-activedescendant` 指出；按键交给宿主的 `handleKey` 决定，宿主说处理了才阻止默认行为。nb-ui 的 `FileTree` 单选、行高 32px、没有虚拟化，所以这里另写。
+资源管理器的虚拟树（[`workbench/files-explorer.md`](../../../../../../../docs/specs/workbench/files-explorer.md) 的“焦点”与验收 1、3）：几千行的目录只渲染视口内的行与上下各 10 行余量，焦点行滚出视口也保持挂载。键盘焦点留在树的列表元素上，当前行经 `aria-activedescendant` 指出；按键交给宿主的 `handleKey` 决定，宿主处理了才阻止默认行为，宿主要求开菜单时在焦点行下方发出 `row-context`。正在内联输入的行与焦点行一样保持挂载。nb-ui 的 `FileTree` 单选、行高 32px、没有虚拟化，所以这里另写。
 
 ## 布局
 
@@ -15,7 +15,8 @@
 
 - 点行：选择与打开交给宿主（带 Ctrl/Meta、Shift 修饰）；点展开箭头只展开收起；双击以常驻方式打开；右键交出行与坐标。
 - 按下行时把焦点放到树上（不滚动），之后的按键都在树上处理；行里的按钮与输入框的按键不交给 `handleKey`。
-- 焦点行变了（键盘移动）先滚入视口再更新 `aria-activedescendant`。
+- 焦点行变了（键盘移动）先滚入视口再更新 `aria-activedescendant`；开始内联输入时输入行同样滚入视口。
+- Shift+F10 与 ContextMenu 键经 `handleKey` 返回要开菜单的行，树按那一行的位置发出 `row-context`。
 - 树获得与失去焦点时发出 `focus-change`，宿主据此维护 `nbook.explorer/treeFocused`。
 
 ## 数据
@@ -30,8 +31,10 @@ type Props = {
     locale: DisplayLocale;
     /** 树的可访问名称。 */
     label: string;
-    /** 树内按键；返回是否处理了。`page` 是视口能放下的行数。 */
-    handleKey: (key: TreeKey, page: number) => boolean;
+    /** 树内按键：没处理、处理了，或要在某一行开右键菜单。`page` 是视口能放下的行数。 */
+    handleKey: (key: TreeKey, page: number) => "none" | "handled" | {menu: string};
+    /** 正在内联输入的行（新建的输入行或改名的资源行）与它的名字、错误文字、是否在提交；默认 null。 */
+    editing?: {id: string; name: string; error: string | null; busy: boolean} | null;
 };
 
 type Emits = {
@@ -41,6 +44,9 @@ type Emits = {
     /** 读取失败的目录点了“重试”。 */
     (event: "retry", address: string): void;
     (event: "focus-change", focused: boolean): void;
+    (event: "edit-input", name: string): void;
+    (event: "edit-commit"): void;
+    (event: "edit-cancel"): void;
 };
 ```
 
@@ -49,4 +55,4 @@ type Emits = {
 
 ## 不支持
 
-不支持变高行；不处理拖动（随后续切片）；不在树内渲染内联输入（随后续切片）。
+不支持变高行；不处理拖动。

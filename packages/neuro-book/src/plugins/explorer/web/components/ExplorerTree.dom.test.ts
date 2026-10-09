@@ -9,6 +9,7 @@ import {describe, expect, it} from "vitest";
 
 import type {DirectoryEntry, Listing} from "nbook/plugins/files/shared/contracts";
 
+import type {KeyOutcome} from "../controller";
 import type {TreeKey} from "../tree/keys";
 import type {DirectorySlot, RootState} from "../tree/model";
 import {projectRows} from "../tree/rows";
@@ -29,9 +30,10 @@ function rowsOf(count: number, extra: Array<[string, DirectorySlot]> = [], expan
 }
 
 const keys: TreeKey[] = [];
-const handleKey = (key: TreeKey): boolean => {
+const handleKey = (key: TreeKey): KeyOutcome => {
     keys.push(key);
-    return key.key === "ArrowDown";
+    if (key.key === "ContextMenu") return {menu: "project://chapter-0001.md"};
+    return key.key === "ArrowDown" ? "handled" : "none";
 };
 
 function tree(props: Partial<{rows: ReturnType<typeof rowsOf>; selected: string[]; focus: string | null}> = {}) {
@@ -84,6 +86,11 @@ describe("ExplorerTree", () => {
         expect(keys).toHaveLength(2);
         await wrapper.get("[data-explorer-retry]").trigger("click");
         expect(wrapper.emitted("retry")).toEqual([["project://broken"]]);
+        // 宿主要在某一行开菜单：按那一行的位置发出 row-context。
+        const menu = new KeyboardEvent("keydown", {key: "ContextMenu", cancelable: true, bubbles: true});
+        root.element.dispatchEvent(menu);
+        expect(menu.defaultPrevented).toBe(true);
+        expect(wrapper.emitted("row-context")).toEqual([["project://chapter-0001.md", expect.any(Number), expect.any(Number)]]);
         wrapper.unmount();
     });
 

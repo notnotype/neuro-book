@@ -18,7 +18,7 @@ const LIVE: RootState[] = [
 ];
 
 function view(props: Record<string, unknown> = {}) {
-    return mount(FilesExplorerView, {props: {locale: "zh-CN", rows: rows(LIVE), selected: [], focus: null, showManifests: false, ready: true, notice: null, problem: null, handleKey: () => false, ...props}});
+    return mount(FilesExplorerView, {props: {locale: "zh-CN", rows: rows(LIVE), selected: [], focus: null, showManifests: false, ready: true, notice: null, problem: null, handleKey: () => "none" as const, ...props}});
 }
 
 describe("FilesExplorerView", () => {

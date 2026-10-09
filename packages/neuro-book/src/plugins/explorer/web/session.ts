@@ -36,7 +36,6 @@ export interface ExplorerSession {
     readonly controller: Readonly<ShallowRef<ExplorerController | null>>;
     readonly store: Readonly<ShallowRef<ExplorerStore | null>>;
     readonly view: Readonly<ShallowRef<AttachedView | null>>;
-    readonly treeFocused: ShallowRef<boolean>;
     /** 偏好记录此刻的问题（读不到、损坏、没保存上），给视图显示一条提示；没有为 null。 */
     readonly problem: ComputedRef<PreferenceProblem | null>;
     attach(view: AttachedView): () => void;
@@ -48,7 +47,6 @@ export function createExplorerSession(options: ExplorerSessionOptions): Explorer
     const controller = shallowRef<ExplorerController | null>(null);
     const store = shallowRef<ExplorerStore | null>(null);
     const view = shallowRef<AttachedView | null>(null);
-    const treeFocused = shallowRef(false);
     let stopWaiting: (() => void) | null = null;
     let disposed = false;
 
@@ -93,7 +91,6 @@ export function createExplorerSession(options: ExplorerSessionOptions): Explorer
         controller,
         store,
         view,
-        treeFocused,
         problem: computed(() => {
             const current = store.value;
             if (current === null) return null;
@@ -107,10 +104,7 @@ export function createExplorerSession(options: ExplorerSessionOptions): Explorer
             acquire();
             view.value = attached;
             return () => {
-                if (view.value === attached) {
-                    view.value = null;
-                    treeFocused.value = false;
-                }
+                if (view.value === attached) view.value = null;
             };
         },
         setShowManifests: (show) => {

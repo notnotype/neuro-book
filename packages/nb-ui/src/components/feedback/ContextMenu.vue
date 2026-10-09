@@ -71,6 +71,8 @@ watch(() => [props.visible, props.x, props.y] as const, async ([visible, x, y]) 
     const position = clampMenuPosition(x, y, {width: rect.width, height: rect.height}, {width: window.innerWidth, height: window.innerHeight});
     adjustedX.value = position.x;
     adjustedY.value = position.y;
+    // 打开即把焦点放到第一个可用项，方向键从这里开始；焦点在关闭后回到哪里由宿主决定。
+    if (!menuRef.value.contains(document.activeElement)) menuRef.value.querySelector<HTMLElement>("[role^='menuitem']:not([disabled])")?.focus({preventScroll: true});
 });
 
 function setMenuRef(element: unknown): void {
