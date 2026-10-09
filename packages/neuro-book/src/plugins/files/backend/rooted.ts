@@ -18,7 +18,7 @@ import {lstat, mkdir, open, readdir, realpath, stat} from "node:fs/promises";
 import {join, relative, sep} from "node:path";
 
 import {describe, errno, holdLock, replaceLocked} from "nbook/backend/locked-replace";
-import type {CurrentFile, ReplaceDecision} from "nbook/backend/locked-replace";
+import type {CurrentFile, HeldLock, ReplaceDecision} from "nbook/backend/locked-replace";
 
 import type {FilesFailureCode} from "../shared/failures";
 import {pathProblem} from "../shared/resource";
@@ -73,10 +73,8 @@ export function isControlName(name: string): boolean {
     return name.toLowerCase() === CONTROL;
 }
 
-/** 内容树操作锁在锁目录里的名字；`tree` 是内容根相对根的真实路径。 */
-export function treeLockName(tree: string): string {
-    return `tree-${createHash("sha256").update(tree).digest("hex")}.lock`;
-}
+/** 操作锁在锁目录里的名字。 */
+export const OPERATIONS_LOCK = "operations.lock";
 
 export interface RootedRoot {
     /** 根的真实路径。 */
@@ -87,10 +85,10 @@ export interface RootedRoot {
     /** 新建、移动、复制的目标位置；不核对它是否已存在（排他提交时才核对）。 */
     resolveSlot(path: string): Promise<ResolvedSlot | RootedFailure>;
     /**
-     * 内容树的操作锁（docs/specs/workspace/folder-kinds.md 的“操作锁”）：按内容根的真实相对路径取锁，跨进程有效；多个时按
-     * 次序依次取，避免两个操作反向等待。等不到为 `busy`。返回的函数释放全部锁。
+     * 这个根的操作锁（docs/specs/workspace/folder-kinds.md 的“操作锁”），跨进程有效。整根一把：搬动目录会连带搬走其中的
+     * 内容根，按内容根分锁时要找出子树里的全部内容根才能锁全。等不到为 `busy`。
      */
-    lockTrees(trees: ReadonlyArray<string>): Promise<{readonly ok: true; readonly release: () => Promise<void>} | RootedFailure>;
+    lockOperations(): Promise<{readonly ok: true; readonly lock: HeldLock} | RootedFailure>;
     list(path: string): Promise<{readonly ok: true; readonly entries: ReadonlyArray<DirectoryEntry>; readonly resolved: Resolved} | RootedFailure>;
     /** 读普通文件的全部字节；超过 `maxBytes` 为 too-large，不读内容。 */
     read(path: string, maxBytes: number): Promise<{readonly ok: true; readonly bytes: Uint8Array; readonly resolved: Resolved} | RootedFailure>;
@@ -193,27 +191,15 @@ class Root implements RootedRoot {
         return {...slot, stats};
     }
 
-    async lockTrees(trees: ReadonlyArray<string>): Promise<{readonly ok: true; readonly release: () => Promise<void>} | RootedFailure> {
-        const keys = [...new Set(trees)].sort();
-        const held: Array<() => Promise<void>> = [];
-        const release = async (): Promise<void> => {
-            for (const unlock of held.reverse()) await unlock();
-        };
+    async lockOperations(): Promise<{readonly ok: true; readonly lock: HeldLock} | RootedFailure> {
         try {
             await mkdir(this.#options.lockDirectory, {recursive: true});
         } catch (error) {
             return fail("io-failed", "无法建立锁目录", error);
         }
-        for (const key of keys) {
-            const lockPath = join(this.#options.lockDirectory, treeLockName(key));
-            const locked = await holdLock(lockPath, this.#options.report);
-            if (!locked.ok) {
-                await release();
-                return locked.reason === "locked" ? fail("busy", `${display(key)} 里有别的操作正在进行`) : fail("io-failed", `无法锁定 ${display(key)}`, locked.detail);
-            }
-            held.push(locked.release);
-        }
-        return {ok: true, release};
+        const held = await holdLock(join(this.#options.lockDirectory, OPERATIONS_LOCK), this.#options.report);
+        if (!held.ok) return held.reason === "locked" ? fail("busy", "有别的文件操作正在进行") : fail("io-failed", "无法取得操作锁", held.detail);
+        return {ok: true, lock: held.lock};
     }
 
     async list(path: string): Promise<{readonly ok: true; readonly entries: ReadonlyArray<DirectoryEntry>; readonly resolved: Resolved} | RootedFailure> {

@@ -9,7 +9,7 @@ import type {RemoteFailure, RemoteFailureCode, RemoteResult, RemoteSubscribeOpti
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
 import {encodedBytes, encodedTextBytes, FILES_FAILURES, MAX_OPERATION_ITEMS, parseResource, projectFilesContract, TEXT_BUDGET_BYTES, userFilesContract} from "../shared/contracts";
-import type {Baseline, BatchHandle, BatchResult, ChangesMessage, FilesFailureCode, FilesResult, FilesService, OperationDone, Scheme, WatchMessage} from "../shared/contracts";
+import type {Baseline, BatchHandle, BatchResult, BatchTransfer, ChangesMessage, FilesFailureCode, FilesResult, FilesService, OperationDone, Scheme, WatchMessage} from "../shared/contracts";
 
 type Remote = ActivationContext["remote"];
 
@@ -31,16 +31,19 @@ export function createFilesClient(remote: Remote, consumer: ConsumerIdentity, wa
         return result.ok ? result : fromRemote(result);
     };
     /**
-     * 一次批量：先在发出前核对方案与大小，再以客户端生成的操作 id 发出；句柄的 `cancel` 带着同一个 id 与方案发往同一个
-     * 提供者。核对不过时不发出，`cancel` 回答没有命中。
+     * 一次批量：先核对方案，按客户端生成的操作 id 构造出要发出的完整请求，核对它编码后的大小，再发出这同一个请求；句柄的
+     * `cancel` 带着同一个 id 与方案发往同一个提供者。核对不过时不发出，`cancel` 回答没有命中。
      */
-    const batch = (addresses: ReadonlyArray<string>, perItem: number, send: (files: ReturnType<typeof client>, operation: string, paths: string[]) => Promise<RemoteResult<BatchResult, RemoteFailureCode | FilesFailureCode>>): BatchHandle => {
+    const batch = <I>(addresses: ReadonlyArray<string>, perItem: number, build: (operation: string, paths: ReadonlyArray<string>) => I, send: (files: ReturnType<typeof client>, input: I) => Promise<RemoteResult<BatchResult, RemoteFailureCode | FilesFailureCode>>): BatchHandle => {
         const checked = sameScheme(addresses, MAX_OPERATION_ITEMS * perItem);
-        if (!checked.ok) return {result: Promise.resolve(checked), cancel: () => Promise.resolve({ok: true, value: {found: false}})};
+        const refused = (failure: Extract<FilesResult<never>, {readonly ok: false}>): BatchHandle => ({result: Promise.resolve(failure), cancel: () => Promise.resolve({ok: true, value: {found: false}})});
+        if (!checked.ok) return refused(checked);
         const operation = crypto.randomUUID();
+        const input = build(operation, checked.paths);
+        if (encodedBytes(input) > TEXT_BUDGET_BYTES) return refused(tooLarge);
         const files = client(checked.scheme);
         return {
-            result: send(files, operation, checked.paths).then((result) => (result.ok ? result : fromRemote(result))),
+            result: send(files, input).then((result) => (result.ok ? result : fromRemote(result))),
             cancel: async () => {
                 const result = await files.cancel({operation});
                 return result.ok ? result : fromRemote(result);
@@ -71,7 +74,9 @@ export function createFilesClient(remote: Remote, consumer: ConsumerIdentity, wa
         identify: async (addresses) => {
             const batch = sameScheme(addresses);
             if (!batch.ok) return batch;
-            const result = await client(batch.scheme).identify({paths: batch.paths});
+            const input = {paths: [...batch.paths]};
+            if (encodedBytes(input) > TEXT_BUDGET_BYTES) return tooLarge;
+            const result = await client(batch.scheme).identify(input);
             return result.ok ? result : fromRemote(result);
         },
         create: (address, kind, options) => operate(address, (files, path) => files.create({path, kind, ...(options?.before === undefined ? {} : {before: options.before})})),
@@ -79,15 +84,18 @@ export function createFilesClient(remote: Remote, consumer: ConsumerIdentity, wa
         rename: (address, name, options) => operate(address, (files, path) => files.rename({path, name, ...(options?.expected === undefined ? {} : {expected: options.expected})})),
         convert: (address, to, options) => operate(address, (files, path) => files.convert({path, to, ...(options?.expected === undefined ? {} : {expected: options.expected})})),
         reorder: async (directory, names) => {
-            if (names.length > MAX_OPERATION_ITEMS || encodedBytes(names) > TEXT_BUDGET_BYTES) return {ok: false, code: "too-large", detail: "条目太多，超过一次请求的上限"};
-            return operate(directory, (files, path) => files.reorder({directory: path, names: [...names]}));
+            if (names.length > MAX_OPERATION_ITEMS) return tooLarge;
+            return operate(directory, async (files, path) => {
+                const input = {directory: path, names: [...names]};
+                return encodedBytes(input) > TEXT_BUDGET_BYTES ? {ok: false, code: "too-large", detail: {detail: TOO_LARGE}} : files.reorder(input);
+            });
         },
         display: (address, display) => operate(address, (files, path) => files.display({path, ...(display.title === undefined ? {} : {title: display.title}), ...(display.icon === undefined ? {} : {icon: display.icon})})),
         include: (address, options) => operate(address, (files, path) => files.include({path, ...(options?.before === undefined ? {} : {before: options.before})})),
         drop: (address) => operate(address, (files, path) => files.drop({path})),
-        move: (items) => batch(items.flatMap((item) => [item.source, item.target]), 2, (files, operation, paths) => files.move({operation, items: items.map((item, at) => ({source: paths[2 * at] as string, target: paths[2 * at + 1] as string, ...(item.expected === undefined ? {} : {expected: item.expected})}))})),
-        copy: (items) => batch(items.flatMap((item) => [item.source, item.target]), 2, (files, operation, paths) => files.copy({operation, items: items.map((item, at) => ({source: paths[2 * at] as string, target: paths[2 * at + 1] as string, ...(item.expected === undefined ? {} : {expected: item.expected})}))})),
-        delete: (items) => batch(items.map((item) => item.address), 1, (files, operation, paths) => files.delete({operation, items: items.map((item, at) => ({path: paths[at] as string, ...(item.expected === undefined ? {} : {expected: item.expected})}))})),
+        move: (items) => batch(items.flatMap((item) => [item.source, item.target]), 2, (operation, paths) => transferInput(operation, items, paths), (files, input) => files.move(input)),
+        copy: (items) => batch(items.flatMap((item) => [item.source, item.target]), 2, (operation, paths) => transferInput(operation, items, paths), (files, input) => files.copy(input)),
+        delete: (items) => batch(items.map((item) => item.address), 1, (operation, paths) => ({operation, items: items.map((item, at) => ({path: paths[at] as string, ...(item.expected === undefined ? {} : {expected: item.expected})}))}), (files, input) => files.delete(input)),
         watch: (scheme, listener) => {
             const release = watches.add(scheme, listener);
             const once = (): void => {
@@ -252,9 +260,17 @@ class SchemeWatch {
 
 const BUSINESS: ReadonlySet<string> = new Set(FILES_FAILURES);
 
+const TOO_LARGE = "超过一次请求的上限";
+const tooLarge = {ok: false, code: "too-large", detail: TOO_LARGE} as const;
+
+/** 移动与复制的请求：`paths` 是源与目标交替的方案内路径。 */
+function transferInput(operation: string, items: ReadonlyArray<BatchTransfer>, paths: ReadonlyArray<string>) {
+    return {operation, items: items.map((item, at) => ({source: paths[2 * at] as string, target: paths[2 * at + 1] as string, ...(item.expected === undefined ? {} : {expected: item.expected})}))};
+}
+
 /**
- * 一组地址：必须同一方案（只支持方案内的操作），项数与编码后的字节在发出前核对：超过一条 RPC 消息的请求会被断开连接、
- * 写请求成为结果未知（docs/specs/workspace/files.md 的“大小上限”）。
+ * 一组地址：必须同一方案（只支持方案内的操作），项数有上限。编码后的大小由调用方对要发出的完整请求核对：超过一条 RPC
+ * 消息的请求会被断开连接、写请求成为结果未知（docs/specs/workspace/files.md 的“大小上限”）。
  */
 export function sameScheme(addresses: ReadonlyArray<string>, limit = MAX_OPERATION_ITEMS): {readonly ok: true; readonly scheme: Scheme; readonly paths: string[]} | Extract<FilesResult<never>, {readonly ok: false}> {
     if (addresses.length === 0) return {ok: false, code: "invalid-address", detail: "没有给出任何地址"};
@@ -268,7 +284,6 @@ export function sameScheme(addresses: ReadonlyArray<string>, limit = MAX_OPERATI
         scheme = parsed.resource.scheme;
         paths.push(parsed.resource.path);
     }
-    if (encodedBytes(paths) > TEXT_BUDGET_BYTES) return {ok: false, code: "too-large", detail: "地址太长，超过一次请求的上限"};
     return {ok: true, scheme: scheme as Scheme, paths};
 }
 

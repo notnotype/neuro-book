@@ -19,6 +19,7 @@ import {describe, errno} from "nbook/backend/locked-replace";
 
 import type {FilesFailureCode} from "../shared/failures";
 import {renameNoReplace} from "./exclusive";
+import type {ExclusiveRename} from "./exclusive";
 import {fail} from "./rooted";
 import type {ResolvedEntry, ResolvedSlot, RootedFailure} from "./rooted";
 
@@ -34,8 +35,8 @@ export type EntryResult = {readonly ok: true} | EntryFailure;
 export interface CopyOptions {
     /** 单个文件先复制到这个临时名（同目录、带实例标记，监视不把它当外部变化），再排他改名到目标。 */
     readonly temporaryPath: (file: string) => string;
-    /** 每产生一个目录项回调一次（目录在建好时，文件与链接在写完时）：回声登记用，中途失败时已产生的也都报过。 */
-    readonly created?: (absolute: string, path: string) => void;
+    /** 每产生一个目录项回调一次（目录在建好时，文件与链接在写完时），等它结束再继续：回声紧跟副作用登记。 */
+    readonly created?: (path: string) => Promise<void>;
 }
 
 export async function createFile(slot: ResolvedSlot): Promise<EntryResult> {
@@ -61,20 +62,24 @@ export async function createDirectory(slot: ResolvedSlot): Promise<EntryResult> 
 export function moveEntry(entry: ResolvedEntry, slot: ResolvedSlot): EntryResult {
     if (inside(entry, slot)) return fail("into-itself", `不能把 ${entry.path} 移到它自己里面`);
     const moved = renameNoReplace(entry.absolute, slot.absolute);
-    if (moved.ok) return {ok: true};
+    return moved.ok ? {ok: true} : renameFailure(moved, entry.path, slot.path);
+}
+
+/** 排他改名的失败：移动与复制的最后一步共用一份映射。 */
+function renameFailure(moved: Exclude<ExclusiveRename, {readonly ok: true}>, from: string, to: string): RootedFailure {
     switch (moved.reason) {
         case "exists":
-            return fail("conflict", `${slot.path} 已存在`);
+            return fail("conflict", `${to} 已存在`);
         case "missing":
-            return fail("not-found", `${entry.path} 不存在`);
+            return fail("not-found", `${from} 不存在`);
         case "cross-device":
-            return fail("unsupported", `${entry.path} 与 ${slot.path} 不在同一个设备上，不支持移动`);
+            return fail("unsupported", `${from} 与 ${to} 不在同一个设备上，不支持移动`);
         case "unsupported":
-            return fail("unsupported", `文件系统不支持排他改名（${moved.code}）`);
+            return fail("unsupported", `不支持排他改名（${moved.code}）`);
         case "denied":
-            return fail("permission-denied", `无权移动 ${entry.path}`, moved.code);
+            return fail("permission-denied", `无权移动 ${from}`, moved.code);
         case "failed":
-            return fail("io-failed", `移动 ${entry.path} 失败`, moved.code);
+            return fail("io-failed", `移动 ${from} 失败`, moved.code);
     }
 }
 
@@ -89,17 +94,20 @@ export async function copyEntry(entry: ResolvedEntry, slot: ResolvedSlot, option
     } catch (error) {
         return failure(error, `新建 ${slot.path}`);
     }
-    options.created?.(slot.absolute, slot.path);
+    await options.created?.(slot.path);
     const copied = await copyTree(entry.absolute, entry.stats, slot.absolute, slot.path, entry.path, options);
     if (copied.ok) return copied;
     // 目标目录是本次排他创建的，里面已有的东西都是这次复制产生的：留在原处，整棵报告为残留。
     return {...copied, partial: {residual: [slot.path]}};
 }
 
-/** 删除目录项本身；目录递归删除，遇到第一个失败就停。 */
-export async function deleteEntry(entry: ResolvedEntry): Promise<EntryResult> {
+/**
+ * 删除目录项本身；目录递归删除，遇到第一个失败就停。`removing` 在删每一项之前调用、等它结束再删：回声在副作用之前
+ * 登记为“不存在”（删不掉时路径仍在，登记不会吞掉什么）。
+ */
+export async function deleteEntry(entry: ResolvedEntry, removing?: (path: string) => Promise<void>): Promise<EntryResult> {
     const removed: string[] = [];
-    const outcome = await remove(entry.absolute, entry.stats, entry.path, removed);
+    const outcome = await remove(entry.absolute, entry.stats, entry.path, removed, removing ?? (() => Promise.resolve()));
     if (outcome === null) return {ok: true};
     return removed.length === 0 ? outcome : {...outcome, partial: {removed}};
 }
@@ -120,11 +128,10 @@ async function copyFileAtomically(entry: ResolvedEntry, slot: ResolvedSlot, opti
     }
     const moved = renameNoReplace(temporary, slot.absolute);
     if (moved.ok) {
-        options.created?.(slot.absolute, slot.path);
+        await options.created?.(slot.path);
         return {ok: true};
     }
-    const failed = moved.reason === "exists" ? fail("conflict", `${slot.path} 已存在`) : fail("io-failed", `复制 ${entry.path} 失败`, moved.code);
-    return cleanUp(temporary, slot, failed);
+    return cleanUp(temporary, slot, renameFailure(moved, entry.path, slot.path));
 }
 
 /** 删掉复制用的临时文件；删不掉时报告为残留（临时名在目标目录里）。 */
@@ -144,7 +151,7 @@ async function copyLink(source: string, target: string, path: string, options: C
     try {
         // 链接原文照抄，不解析：相对链接搬到别的目录后可能指向别处，这是“复制链接”本身的含义。
         await symlink(await readlink(source), target);
-        options.created?.(target, path);
+        await options.created?.(path);
         return {ok: true};
     } catch (error) {
         return failure(error, `复制链接 ${path}`);
@@ -174,7 +181,7 @@ async function copyTree(source: string, stats: Stats, target: string, path: stri
         if (child.isFile()) {
             try {
                 await copyFile(from, to, constants.COPYFILE_EXCL);
-                options.created?.(to, childPath);
+                await options.created?.(childPath);
                 copied = {ok: true};
             } catch (error) {
                 copied = failure(error, `复制 ${childSource}`);
@@ -184,7 +191,7 @@ async function copyTree(source: string, stats: Stats, target: string, path: stri
         } else if (child.isDirectory()) {
             try {
                 await mkdir(to);
-                options.created?.(to, childPath);
+                await options.created?.(childPath);
                 copied = await copyTree(from, child, to, childPath, childSource, options);
             } catch (error) {
                 copied = failure(error, `复制 ${childSource}`);
@@ -203,7 +210,7 @@ async function copyTree(source: string, stats: Stats, target: string, path: stri
 }
 
 /** 删除一个目录项；成功返回 null。`removed` 收集已删掉的最外层路径（目录整棵删掉时只记目录本身）。 */
-async function remove(absolute: string, stats: Stats, path: string, removed: string[]): Promise<RootedFailure | null> {
+async function remove(absolute: string, stats: Stats, path: string, removed: string[], removing: (path: string) => Promise<void>): Promise<RootedFailure | null> {
     if (stats.isDirectory()) {
         let names: string[];
         try {
@@ -221,10 +228,11 @@ async function remove(absolute: string, stats: Stats, path: string, removed: str
                 if (errno(error) === "ENOENT") continue;
                 return failure(error, `删除 ${path}/${name}`);
             }
-            const failed = await remove(child, childStats, `${path}/${name}`, removed);
+            const failed = await remove(child, childStats, `${path}/${name}`, removed, removing);
             if (failed !== null) return failed;
         }
         try {
+            await removing(path);
             await rmdir(absolute);
         } catch (error) {
             return failure(error, `删除 ${path}`);
@@ -244,6 +252,7 @@ async function remove(absolute: string, stats: Stats, path: string, removed: str
         }
     }
     try {
+        await removing(path);
         await unlink(absolute);
     } catch (error) {
         if (errno(error) === "ENOENT") return null;

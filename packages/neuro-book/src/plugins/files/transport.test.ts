@@ -106,19 +106,35 @@ async function windowOf(id: string): Promise<Window> {
 describe("Spec workspace.files 批量的大小上限：真实 WebSocket", () => {
     it("预算内的 1000 项批量经真实 RPC 端口往返；超出预算的在窗口里就被拒绝，连接不断，之后的调用照常", async () => {
         const window = await windowOf("w2");
-        // 每项一个约 900 字节的不存在路径（单段不超过 250 字节）：输入接近预算，逐项结果是 1000 个 not-found。
-        const segment = "p".repeat(220);
-        const near = Array.from({length: 1000}, (_unused, index) => ({address: `user://${segment}/${segment}/${segment}/${segment}/${String(index).padStart(4, "0")}.md`}));
-        const result = await window.files.delete(near).result;
-        expect(result.ok && result.value.items.length).toBe(1000);
-        expect(result.ok && result.value.items.every((item) => item.status === "failed" && item.code === "not-found")).toBe(true);
+        try {
+            // 每项一个约 900 字节的不存在路径（单段不超过 250 字节）：输入接近预算，逐项结果是 1000 个 not-found。
+            const segment = "p".repeat(220);
+            const near = Array.from({length: 1000}, (_unused, index) => ({address: `user://${segment}/${segment}/${segment}/${segment}/${String(index).padStart(4, "0")}.md`}));
+            const result = await window.files.delete(near).result;
+            expect(result.ok && result.value.items.length).toBe(1000);
+            expect(result.ok && result.value.items.every((item) => item.status === "failed" && item.code === "not-found")).toBe(true);
 
-        const over = Array.from({length: 1000}, (_unused, index) => ({address: `user://${segment}/${segment}/${segment}/${segment}/${segment}/${String(index)}.md`}));
-        expect(await window.files.delete(over).result).toMatchObject({ok: false, code: "too-large"});
-        await writeFile(join(stateRoot, "user", "keep.md"), "K");
-        expect(await window.files.copy([{source: "user://keep.md", target: "user://keep-copy.md"}]).result).toEqual({ok: true, value: {items: [{status: "done"}]}});
-        expect(await readFile(join(stateRoot, "user", "keep-copy.md"), "utf8")).toBe("K");
-        await window.close();
+            const over = Array.from({length: 1000}, (_unused, index) => ({address: `user://${segment}/${segment}/${segment}/${segment}/${segment}/${String(index)}.md`}));
+            expect(await window.files.delete(over).result).toMatchObject({ok: false, code: "too-large"});
+
+            // 地址数组本身在预算内，但带上字段名与身份令牌的完整请求超过一条消息：按完整请求核对，在窗口里就拒绝。
+            await writeFile(join(stateRoot, "user", "token.md"), "T");
+            const identified = await window.files.identify(["user://token.md"]);
+            const token = identified.ok ? (identified.value.items[0] as {readonly token: string}).token : "";
+            // 源路径 968 字节：只算地址时恰在预算内，完整请求（字段名与令牌）超过一条 RPC 消息。
+            const tail = "q".repeat(77);
+            const edge = Array.from({length: 1000}, (_unused, index) => ({source: `user://${segment}/${segment}/${segment}/${segment}/${tail}${String(index).padStart(4, "0")}.md`, target: `user://t/${String(index).padStart(4, "0")}.md`, expected: token}));
+            const flat = edge.flatMap((item) => [item.source.slice(7), item.target.slice(7)]);
+            expect(new TextEncoder().encode(JSON.stringify(flat)).length).toBeLessThan(TEXT_BUDGET_BYTES);
+            const full = {operation: crypto.randomUUID(), items: edge.map((item) => ({source: item.source.slice(7), target: item.target.slice(7), expected: item.expected}))};
+            expect(new TextEncoder().encode(JSON.stringify(full)).length).toBeGreaterThan(RPC_MAX_MESSAGE_BYTES);
+            expect(await window.files.move(edge).result).toMatchObject({ok: false, code: "too-large"});
+            await writeFile(join(stateRoot, "user", "keep.md"), "K");
+            expect(await window.files.copy([{source: "user://keep.md", target: "user://keep-copy.md"}]).result).toEqual({ok: true, value: {items: [{status: "done"}], manifests: []}});
+            expect(await readFile(join(stateRoot, "user", "keep-copy.md"), "utf8")).toBe("K");
+        } finally {
+            await window.close();
+        }
     }, 30_000);
 });
 
@@ -130,20 +146,23 @@ describe("Spec workspace.files 正文上限：真实 WebSocket", () => {
         await writeFile(join(stateRoot, "user", "big.md"), fits);
         await writeFile(join(stateRoot, "user", "small.md"), "s");
         const window = await windowOf("w1");
+        try {
 
-        const read = await window.files.read("user://big.md");
-        expect(read).toMatchObject({ok: true, value: {baseline: {hash: hash(fits)}}});
-        const edited = `${fits.slice(1)}改`;
-        expect(await window.files.write("user://big.md", edited, {hash: hash(fits)})).toMatchObject({ok: true});
-        expect(await readFile(join(stateRoot, "user", "big.md"), "utf8")).toBe(edited);
+            const read = await window.files.read("user://big.md");
+            expect(read).toMatchObject({ok: true, value: {baseline: {hash: hash(fits)}}});
+            const edited = `${fits.slice(1)}改`;
+            expect(await window.files.write("user://big.md", edited, {hash: hash(fits)})).toMatchObject({ok: true});
+            expect(await readFile(join(stateRoot, "user", "big.md"), "utf8")).toBe(edited);
 
-        // 换行在 JSON 里编码成两个字节：原字节不到上限，编码后超过一条消息。
-        const escaped = "\n".repeat(Math.ceil(RPC_MAX_MESSAGE_BYTES / 2) + 1);
-        expect(await window.files.write("user://small.md", escaped, {hash: hash("s")})).toMatchObject({ok: false, code: "too-large"});
-        expect(await window.files.write("user://small.md", `${fits}${fits}`, {hash: hash("s")})).toMatchObject({ok: false, code: "too-large"});
-        expect(await window.files.list("user://")).toMatchObject({ok: true});
-        expect(await window.files.write("user://small.md", "s2", {hash: hash("s")})).toMatchObject({ok: true});
-        expect(await readFile(join(stateRoot, "user", "small.md"), "utf8")).toBe("s2");
-        await window.close();
+            // 换行在 JSON 里编码成两个字节：原字节不到上限，编码后超过一条消息。
+            const escaped = "\n".repeat(Math.ceil(RPC_MAX_MESSAGE_BYTES / 2) + 1);
+            expect(await window.files.write("user://small.md", escaped, {hash: hash("s")})).toMatchObject({ok: false, code: "too-large"});
+            expect(await window.files.write("user://small.md", `${fits}${fits}`, {hash: hash("s")})).toMatchObject({ok: false, code: "too-large"});
+            expect(await window.files.list("user://")).toMatchObject({ok: true});
+            expect(await window.files.write("user://small.md", "s2", {hash: hash("s")})).toMatchObject({ok: true});
+            expect(await readFile(join(stateRoot, "user", "small.md"), "utf8")).toBe("s2");
+        } finally {
+            await window.close();
+        }
     }, 30_000);
 });

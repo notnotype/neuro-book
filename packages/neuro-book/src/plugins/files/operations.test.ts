@@ -8,6 +8,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
+import {createHash} from "node:crypto";
 import {chmod, lstat, mkdir, readdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
@@ -17,7 +18,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {holdLock} from "nbook/backend/locked-replace";
 
 import {BATCH_DELAY_MS} from "./backend/changes";
-import {treeLockName} from "./backend/rooted";
+import {OPERATIONS_LOCK} from "./backend/rooted";
 import type {FileChange, FilesService, WatchMessage} from "./shared/contracts";
 import {extraWindow, files, filesScene} from "./testing/scene";
 import type {Layout, Scene} from "./testing/scene";
@@ -314,7 +315,7 @@ describe("Spec workspace.folder-kinds 清单失败与操作锁", () => {
     it("内容树的操作锁被别的进程占着：操作等不到返回 busy，磁盘与清单都不变", async () => {
         const created = await scene();
         await mkdir(join(created.project, ".nbook", "locks", "files"), {recursive: true});
-        const held = await holdLock(join(created.project, ".nbook", "locks", "files", treeLockName("lore.content")), () => undefined);
+        const held = await holdLock(join(created.project, ".nbook", "locks", "files", OPERATIONS_LOCK), () => undefined);
         if (!held.ok) throw new Error(held.detail);
         try {
             expect(await files(created.window).rename("project://lore.content/alice", "alicia")).toMatchObject({ok: false, code: "busy"});
@@ -323,8 +324,47 @@ describe("Spec workspace.folder-kinds 清单失败与操作锁", () => {
             // 普通文件夹里的操作不取锁。
             expect(await files(created.window).rename("project://plain/a.md", "b.md")).toEqual({ok: true, value: {}});
         } finally {
-            await held.release();
+            await held.lock.release();
         }
+    });
+});
+
+describe("Spec workspace.folder-kinds 清单失败的失败码与交错改名", () => {
+    it("只改清单的操作等不到清单的写入锁：报 io-failed（不是权限），原因进诊断", async () => {
+        const created = await scene();
+        const locks = join(created.project, ".nbook", "locks", "files");
+        await mkdir(locks, {recursive: true});
+        const held = await holdLock(join(locks, `${createHash("sha256").update("lore.content/content.xml").digest("hex")}.lock`), () => undefined);
+        if (!held.ok) throw new Error(held.detail);
+        try {
+            expect(await files(created.window).display("project://lore.content/alice", {title: "x"})).toMatchObject({ok: false, code: "io-failed"});
+        } finally {
+            await held.lock.release();
+        }
+        expect(created.world.diagnostics("project:P#1").query({}).records.some((record) => record.event === "files.manifest.write-failed")).toBe(true);
+        expect(await manifest(created)).toBe(MANIFEST);
+    }, 15_000);
+
+    it("窗口 A 改名 alice→ally 等清单时，窗口 B 改名 ally→alina：B 等 A 完成，最后清单与磁盘一致", async () => {
+        const created = await scene();
+        const other = await extraWindow(created, "w2");
+        const locks = join(created.project, ".nbook", "locks", "files");
+        await mkdir(locks, {recursive: true});
+        const held = await holdLock(join(locks, `${createHash("sha256").update("lore.content/content.xml").digest("hex")}.lock`), () => undefined);
+        if (!held.ok) throw new Error(held.detail);
+        let first: Promise<unknown>;
+        let second: Promise<unknown>;
+        try {
+            first = files(created.window).rename("project://lore.content/alice", "ally");
+            await waitUntil("A 的文件已改名", () => exists(join(created.project, "lore.content", "ally")));
+            second = files(other).rename("project://lore.content/ally", "alina");
+        } finally {
+            await held.lock.release();
+        }
+        expect(await first).toEqual({ok: true, value: {}});
+        expect(await second).toEqual({ok: true, value: {}});
+        expect(await exists(join(created.project, "lore.content", "alina", "notes.md"))).toBe(true);
+        expect(await manifest(created)).toContain(`<item name="alina" title="爱丽丝" icon="person"/>`);
     });
 });
 

@@ -207,8 +207,8 @@ describe("Spec workspace.resources 项目子进程里的 project://", () => {
 
         expect(await actor.files.create("project://lore.content/bob", "directory", {before: "alice"})).toEqual({ok: true, value: {}});
         expect(await actor.files.rename("project://lore.content/alice", "alicia")).toEqual({ok: true, value: {}});
-        expect(await actor.files.move([{source: "project://draft.md", target: "project://lore.content/bob/draft.md"}]).result).toEqual({ok: true, value: {items: [{status: "done"}]}});
-        expect(await actor.files.delete([{address: "project://lore.content/alicia"}]).result).toEqual({ok: true, value: {items: [{status: "done"}]}});
+        expect(await actor.files.move([{source: "project://draft.md", target: "project://lore.content/bob/draft.md"}]).result).toEqual({ok: true, value: {items: [{status: "done"}], manifests: []}});
+        expect(await actor.files.delete([{address: "project://lore.content/alicia"}]).result).toEqual({ok: true, value: {items: [{status: "done"}], manifests: []}});
         expect(await readFile(join(h.project.path, "lore.content", "content.xml"), "utf8")).toBe("<content>\n  <item name=\"bob\">\n    <item name=\"draft.md\"/>\n  </item>\n</content>\n");
 
         // 屏障：外部写一个文件；它的通知到了，之前操作的回声也已处理完。
@@ -248,9 +248,12 @@ describe("Spec workspace.resources 项目子进程里的 project://", () => {
             {source: "project://lore.content/alice", target: "project://lore.content/alice2"},
             {source: "project://draft.md", target: "project://moved.md"},
         ]);
-        await waitUntil("第一项的文件已移动", () => lstat(join(h.project.path, "lore.content", "alice2")).then(() => true, () => false));
-        process.kill(pid, "SIGTERM");
-        await held.release();
+        try {
+            await waitUntil("第一项的文件已移动", () => lstat(join(h.project.path, "lore.content", "alice2")).then(() => true, () => false));
+            process.kill(pid, "SIGTERM");
+        } finally {
+            await held.lock.release();
+        }
         await waitUntil("项目子进程退出", () => !alive(pid), {timeoutMs: 10_000});
         expect(await readFile(join(h.project.path, "lore.content", "content.xml"), "utf8")).toContain("name=\"alice2\"");
         expect(await readFile(join(h.project.path, "draft.md"), "utf8")).toBe("D");

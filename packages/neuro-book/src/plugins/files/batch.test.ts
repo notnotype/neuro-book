@@ -20,7 +20,7 @@ import {holdLock} from "nbook/backend/locked-replace";
 import {fitBudget} from "./backend/batch";
 import {BATCH_DELAY_MS} from "./backend/changes";
 import {projectFilesContract, TEXT_BUDGET_BYTES} from "./shared/contracts";
-import type {FileChange, ItemResult, WatchMessage} from "./shared/contracts";
+import type {FileChange, ItemResult, ManifestIssue, WatchMessage} from "./shared/contracts";
 import {extraWindow, files, filesScene, remote} from "./testing/scene";
 import type {Layout, Scene} from "./testing/scene";
 
@@ -29,12 +29,15 @@ const privileged = process.getuid?.() === 0;
 let tmp = "";
 let counter = 0;
 const scenes: Scene[] = [];
+/** 测试自己持有的锁：用例失败时也在关场地之前放掉。 */
+const heldLocks: Array<() => Promise<void>> = [];
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-files", "batch");
 });
 
 afterEach(async () => {
+    for (const release of heldLocks.splice(0)) await release();
     for (const created of scenes.splice(0)) {
         const results = await created.world.close();
         for (const result of results) expect(result).toMatchObject({status: "closed"});
@@ -92,10 +95,11 @@ async function holdManifest(created: Scene, tree: string): Promise<() => Promise
     await mkdir(directory, {recursive: true});
     const held = await holdLock(join(directory, `${createHash("sha256").update(`${tree}/content.xml`).digest("hex")}.lock`), () => undefined);
     if (!held.ok) throw new Error(held.detail);
-    return held.release;
+    heldLocks.push(held.lock.release);
+    return held.lock.release;
 }
 
-const ok = (items: ReadonlyArray<ItemResult>) => ({ok: true as const, value: {items: [...items]}});
+const ok = (items: ReadonlyArray<ItemResult>, manifests: ReadonlyArray<ManifestIssue> = []) => ({ok: true as const, value: {items: [...items], manifests: [...manifests]}});
 const user = {kind: "user", plugin: "x.explorer"} as const;
 
 async function watching(created: Scene): Promise<WatchMessage[]> {
@@ -195,10 +199,19 @@ describe("Spec workspace.folder-kinds 批量的清单维护", () => {
         const created = await scene();
         await chmod(at(created, "other.content/content.xml"), 0o444);
         expect(await files(created.window).move([{source: "project://lore.content/alice", target: "project://other.content/alice"}]).result)
-            .toEqual(ok([{status: "done", manifests: [expect.objectContaining({path: "other.content/content.xml", status: "failed"})]}]));
+            .toEqual(ok([{status: "done", manifests: [0]}], [expect.objectContaining({path: "other.content/content.xml", status: "failed"})]));
         expect(await exists(at(created, "other.content/alice/notes.md"))).toBe(true);
         expect(await text(at(created, "other.content/content.xml"))).toBe("<content>\n</content>\n");
         expect(await text(at(created, "lore.content/content.xml"))).not.toContain("alice");
+    });
+
+    it.skipIf(privileged)("源清单只读：目标仍带走展示名与嵌套条目，只报告源清单没改成", async () => {
+        const created = await scene();
+        await chmod(at(created, "lore.content/content.xml"), 0o444);
+        expect(await files(created.window).move([{source: "project://lore.content/bob", target: "project://other.content/bob"}]).result)
+            .toEqual(ok([{status: "done", manifests: [0]}], [expect.objectContaining({path: "lore.content/content.xml", status: "failed"})]));
+        expect(await text(at(created, "other.content/content.xml"))).toContain(`<item name="bob" title="鲍勃">\n    <item name="sword" title="宝剑"/>`);
+        expect(await text(at(created, "lore.content/content.xml"))).toBe(LORE);
     });
 });
 
@@ -232,15 +245,38 @@ describe("Spec workspace.files 批量删除与复制的部分完成", () => {
         expect(await untilBarrier(created, messages)).toEqual([{type: "created", path: "copy", source: user}]);
     });
 
-    it("结果编码后超过一条消息的预算：清空范围里的路径并标 truncated", () => {
-        const long = "x".repeat(2000);
-        const results: ItemResult[] = Array.from({length: 1000}, () => ({status: "failed", code: "io-failed", detail: "d", partial: {residual: {paths: [long], truncated: false}}}));
-        const fitted = fitBudget(results);
-        expect(new TextEncoder().encode(JSON.stringify(fitted)).length).toBeLessThanOrEqual(TEXT_BUDGET_BYTES);
-        expect(fitted[0]).toEqual({status: "failed", code: "io-failed", detail: "d", partial: {residual: {paths: [], truncated: true}}});
-        const small: ItemResult[] = [{status: "failed", code: "io-failed", detail: "d", partial: {removed: {paths: ["a"], truncated: false}}}];
-        expect(fitBudget(small)).toEqual(small);
+    it("结果的大小：清单说明按清单去重成表；超过预算时依次省略范围、截短说明、省略清单表，结果总在预算内", () => {
+        const issue = {path: "lore.content/content.xml", status: "failed", detail: "只读"} as const;
+        expect(fitBudget([{status: "done", manifests: [issue]}, {status: "done", manifests: [issue, {...issue, path: "b.content/content.xml"}]}, {status: "cancelled"}]))
+            .toEqual({items: [{status: "done", manifests: [0]}, {status: "done", manifests: [0, 1]}, {status: "cancelled"}], manifests: [issue, {...issue, path: "b.content/content.xml"}]});
+
+        const size = (value: unknown): number => new TextEncoder().encode(JSON.stringify(value)).length;
+        const ranges = fitBudget(Array.from({length: 1000}, () => ({status: "failed" as const, code: "io-failed", detail: "d", partial: {residual: {paths: ["x".repeat(2000)], truncated: false}}, manifests: []})));
+        expect(size(ranges)).toBeLessThanOrEqual(TEXT_BUDGET_BYTES);
+        expect(ranges.items[0]).toEqual({status: "failed", code: "io-failed", detail: "d", partial: {residual: {paths: [], truncated: true}}});
+
+        // 控制字符编码成六个字节：按字数截短装不下，要按编码字节截。
+        const details = fitBudget(Array.from({length: 1000}, () => ({status: "failed" as const, code: "io-failed", detail: "\u0001".repeat(400), manifests: []})));
+        expect(size(details)).toBeLessThanOrEqual(TEXT_BUDGET_BYTES);
+
+        const paths = fitBudget(Array.from({length: 1000}, (_unused, index) => ({status: "done" as const, manifests: [{path: `${String(index)}${"m".repeat(2000)}/content.xml`, status: "invalid" as const, detail: "坏"}]})));
+        expect(size(paths)).toBeLessThanOrEqual(TEXT_BUDGET_BYTES);
+        expect(paths).toMatchObject({manifests: [], truncated: true});
+        expect(paths.items[0]).toEqual({status: "done"});
     });
+
+    it.skipIf(privileged)("真实的大范围部分删除：结果省略路径并标 truncated，仍经窗口取回，之后的调用照常", async () => {
+        const created = await scene();
+        const big = at(created, "big");
+        await mkdir(big);
+        for (let index = 0; index < 5000; index += 1) await writeFile(join(big, `${String(index).padStart(4, "0")}${"n".repeat(200)}.md`), "");
+        await writeFile(join(big, "zz.md"), "RO");
+        await chmod(join(big, "zz.md"), 0o444);
+        const result = await files(created.window).delete([{address: "project://big"}]).result;
+        expect(result).toEqual(ok([{status: "failed", code: "permission-denied", detail: expect.any(String), partial: {removed: {paths: [], truncated: true}}}]));
+        expect(await readdir(big)).toEqual(["zz.md"]);
+        expect(await files(created.window).list("project://")).toMatchObject({ok: true});
+    }, 30_000);
 
     it("输入超过预算：客户端不发出，提供者也拒绝；没有副作用", async () => {
         const created = await scene();
@@ -320,7 +356,107 @@ describe("Spec workspace.files 停止与取消", () => {
         await rename(created.project, `${created.project}-moved`);
         await release();
         const result = await handle.result;
-        expect(result).toMatchObject(ok([{status: "done"}, {status: "not-run", reason: "root-gone"}]));
+        expect(result).toMatchObject({ok: true, value: {items: [{status: "done"}, {status: "not-run", reason: "root-gone"}]}});
         expect(await exists(`${created.project}-moved/plain/a.md`)).toBe(true);
+    });
+});
+
+describe("Spec workspace.folder-kinds 操作锁：并发的操作", () => {
+    it("内容树里的改名在等清单时，另一窗口改名内容根本身：等前者完成，最后的清单与磁盘一致", async () => {
+        const created = await scene();
+        const other = await extraWindow(created, "w2");
+        const release = await holdManifest(created, "lore.content");
+        const inner = files(created.window).rename("project://lore.content/alice", "alicia");
+        await waitUntil("前者的文件已改名", () => exists(at(created, "lore.content/alicia")));
+        const outer = files(other).rename("project://lore.content", "moved.content");
+        await release();
+        expect(await inner).toEqual({ok: true, value: {}});
+        expect(await outer).toEqual({ok: true, value: {}});
+        expect(await exists(at(created, "moved.content/alicia/notes.md"))).toBe(true);
+        expect(await text(at(created, "moved.content/content.xml"))).toContain(`<item name="alicia" title="爱丽丝"`);
+    });
+
+    it("复制在锁内读源条目：源正在改名、清单还没改时，复制等它完成，带上改名后的条目", async () => {
+        const created = await scene();
+        const other = await extraWindow(created, "w2");
+        const release = await holdManifest(created, "lore.content");
+        const renaming = files(created.window).rename("project://lore.content/alice", "alicia");
+        await waitUntil("改名的文件已落盘", () => exists(at(created, "lore.content/alicia")));
+        const copying = files(other).copy([{source: "project://lore.content/alicia", target: "project://other.content/alicia-copy"}]).result;
+        await release();
+        expect(await renaming).toEqual({ok: true, value: {}});
+        expect(await copying).toEqual(ok([{status: "done"}]));
+        expect(await text(at(created, "other.content/content.xml"))).toContain(`<item name="alicia-copy" title="爱丽丝" icon="person"/>`);
+    });
+
+    it("两个窗口同时复制到同一目标：恰好一个成功，另一个 conflict，清单里只有一条", async () => {
+        const created = await scene();
+        const other = await extraWindow(created, "w2");
+        const results = await Promise.all([
+            files(created.window).copy([{source: "project://lore.content/alice", target: "project://other.content/twin"}]).result,
+            files(other).copy([{source: "project://lore.content/bob", target: "project://other.content/twin"}]).result,
+        ]);
+        const statuses = results.map((result) => (result.ok ? result.value.items[0]?.status : "rejected"));
+        expect(statuses.sort()).toEqual(["done", "failed"]);
+        expect(results.flatMap((result) => (result.ok ? result.value.items : [])).find((item) => item.status === "failed")).toMatchObject({code: "conflict"});
+        expect((await text(at(created, "other.content/content.xml"))).match(/name="twin"/g)).toHaveLength(1);
+    });
+
+    it("冻结的令牌：同目标移动也先核对身份；冻结的源被移走为 source-changed", async () => {
+        const created = await scene();
+        const client = files(created.window);
+        const identified = await client.identify(["project://plain/a.md", "project://solo.md"]);
+        const tokens = identified.ok ? identified.value.items.map((item) => (item as {readonly token: string}).token) : [];
+        await rename(at(created, "plain/a.md"), at(created, "plain/kept.md"));
+        await writeFile(at(created, "plain/a.md"), "NEW");
+        await rename(at(created, "solo.md"), at(created, "solo-moved.md"));
+        expect(await client.move([
+            {source: "project://plain/a.md", target: "project://plain/a.md", expected: tokens[0] as string},
+            {source: "project://solo.md", target: "project://solo2.md", expected: tokens[1] as string},
+        ]).result).toEqual(ok([expect.objectContaining({status: "failed", code: "source-changed"}), expect.objectContaining({status: "failed", code: "source-changed"})]));
+        expect(await client.rename("project://solo.md", "x.md", {expected: tokens[1] as string})).toMatchObject({ok: false, code: "source-changed"});
+        expect(await client.delete([{address: "project://solo.md", expected: tokens[1] as string}]).result).toEqual(ok([expect.objectContaining({status: "failed", code: "source-changed"})]));
+    });
+
+    // 交换可能发生在移动第一次解析目标之前，也可能在它等锁期间：没有不加产品钩子就能看到“正在等锁”的屏障，这里只验
+    // 两种先后下都不会提交到根外；等锁期间的那一种由锁内重新解析目标保证（变异检查未能确定性地覆盖）。
+    it("目标的父目录被换成指向根外的链接（在等操作锁前后）：不提交，根外不出现文件", async () => {
+        const created = await scene();
+        const outside = join(created.root, "outside");
+        await mkdir(outside);
+        const release = await holdManifest(created, "lore.content");
+        // 前一项占着操作锁、停在清单更新；后一个窗口的移动解析完目标后等锁。
+        const blocking = files(created.window).rename("project://lore.content/alice", "alicia");
+        await waitUntil("前一项的文件已改名", () => exists(at(created, "lore.content/alicia")));
+        const other = await extraWindow(created, "w2");
+        const moving = files(other).move([{source: "project://plain/a.md", target: "project://other.content/a.md"}]).result;
+        await rename(at(created, "other.content"), at(created, "kept.content"));
+        await symlink(outside, at(created, "other.content"));
+        await release();
+        expect(await blocking).toEqual({ok: true, value: {}});
+        const moved = await moving;
+        expect(moved.ok && moved.value.items[0]?.status).toBe("failed");
+        expect(await readdir(outside)).toEqual([]);
+        expect(await text(at(created, "plain/a.md"))).toBe("PA");
+    });
+
+    it("清单更新等锁期间监视处理了一批：之后只有带来源的精确事件，没有外部回声", async () => {
+        const created = await scene();
+        const messages = await watching(created);
+        const release = await holdManifest(created, "lore.content");
+        const renaming = files(created.window).rename("project://lore.content/alice", "alicia");
+        await waitUntil("改名的文件已落盘", () => exists(at(created, "lore.content/alicia")));
+        // 让监视在操作完成之前处理一批：屏障文件的事件到了，改名的原始事件也已处理过。
+        await writeFile(at(created, "early.md"), "E");
+        await waitUntil("先到的屏障", () => {
+            created.world.clock.advance(BATCH_DELAY_MS);
+            return messages.some((message) => message.kind === "batch" && message.events.some((event) => event.path === "early.md"));
+        });
+        await release();
+        expect(await renaming).toEqual({ok: true, value: {}});
+        expect((await untilBarrier(created, messages)).filter((change) => change.path !== "early.md")).toEqual([
+            {type: "renamed", path: "lore.content/alicia", from: "lore.content/alice", source: user},
+            {type: "changed", path: "lore.content/content.xml", source: user},
+        ]);
     });
 });

@@ -1,0 +1,147 @@
+# w00017 t69 实现审查：测试与验收覆盖
+
+审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-impl-tests`，`06d78a55`。本报告仅审查测试与验收覆盖；仓库保持只读，变异在本报告目录下的源码副本执行。
+
+依据：Task `plan.md` 的验收映射与 S1–S4 自跑判据；`docs/specs/workspace/files.md`、`folder-kinds.md`、`resources.md`、`platform/files.md`；`runtime/plugin-channel.md`、`lifecycle.md`；`docs/testing/README.md`。已定 t68/t69 取舍作为前提。
+
+依赖安装：在审查 worktree 根执行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/tests prox bun install --frozen-lockfile --ignore-scripts`，退出 0；Bun `1.4.2 (744846f84)`，1568 packages installed。
+
+本次核实 4 条发现：重要 3、建议 1、阻断 0。重要项包括一个真实 WebSocket 可复现的实现缺陷、两个验收覆盖缺口；下文按影响排序，编号保留核实顺序。
+
+## T03（重要）：批量客户端漏算结构与 expected 字节，合法输入会断开真实 WebSocket
+
+- **类别**：正确性 / 测试。
+- **位置**：`packages/neuro-book/src/plugins/files/web/client.ts:37`、`:88`、`:271`；`transport.test.ts:107`。
+- **现象**：`sameScheme` 只对字符串数组 `paths` 算编码大小；真正发出的 `items` 另含字段名、对象括号、每项 `expected`，还有 `operation`。真实探针使用 1000 个 `move` 项，每个源由 4 段 240 字节名字与 `a.md` 组成，目标 `t/0000.md` 等，每项带 32 字符身份令牌。地址数组 `983001` 字节，小于预算 `983040`；完整业务输入 `1049062` 字节，已大于 WebSocket 上限 `1048576`，帧包络还会增加字节。原实现发出了请求，调用得到 `{ok:false,code:"unknown-outcome",cause:"disconnected"}`；随后 `list("user://")` 得到 `unavailable/disconnected`。
+- **为什么是问题**：Spec 要求超限在客户端发出前确定拒绝并保持连接；用户已冻结身份的正常批量不能被算成预算内再意外断线。提供者核对 `items` 来不及，因为超限帧在传输层就已被拒绝。现有传输测试只测 `delete` 地址数组、不带身份令牌，覆盖不了 `move/copy` 的结构开销。
+- **依据**：`docs/specs/workspace/files.md:89`、`:90`；`docs/specs/runtime/plugin-channel.md:115`；Task `plan.md:67`、`:91`、`:112`。仓库源码未变异；仅在实验副本的 `transport.test.ts` 复用生产 `startServer`、RPC listener、Bun WebSocket、浏览器内核与 `filesKey` 客户端追加真实探针。命令 `NBOOK_AGENT_TEMP_ROOT=<本报告目录> bun test --tsconfig-override <本报告目录>/tsconfig.json <本报告目录>/app-src/plugins/files/transport.test.ts --test-name-pattern '完整 move 帧'`：0 pass、1 fail（25.73ms），失败原文为预期 `too-large`、实际 `unknown-outcome/disconnected`；第二次调用也已记录失败。全部路径段合法且小于 255 字节，条数为上限内。
+- **建议改法**：在 `batch` 中先构造一次实际 `{operation,items}` 输入，再按其完整 JSON 字节预算判断，随后发送同一对象；三种批量共用该边界，减少 `sameScheme` 与 `send` 闭包之间的分离计算。增加真实 WebSocket 的 `move/copy/delete` 临界输入，包含 `expected` 和 JSON 转义，超限断言 `too-large` 且下一调用成功。
+
+## T01（重要）：计划要求的交错改名与复制竞态没有对应测试
+
+- **类别**：测试。
+- **位置**：`packages/neuro-book/src/plugins/files/operations.test.ts:156`、`:314`；`batch.test.ts:175`；Task `plan.md:110`、`:121`、`:124`。
+- **现象**：S2 计划明确要求两个窗口交错执行 `a→b`、`b→c` 并核对清单/磁盘一致，验收 8 映射要求两个窗口同时复制到同一目标恰好一个成功；实际唯一双窗口竞争是新建同名文件。操作锁用例只验证外部持锁时 `rename` 得到 `busy`，没有验证首次文件提交至清单更新这段区间的串行化。批量测试中的跨内容树搬运也是串行调用。
+- **为什么是问题**：可移除新建/复制路径的操作锁、缩短持锁区间，仍可能通过“改名等锁”和顺序操作；跨窗口磁盘与清单一致是独立的合同，不由锁能获取或顺序调用成功推出。
+- **依据**：`docs/specs/workspace/folder-kinds.md:75`、验收 8（`:121`）；`docs/specs/workspace/files.md:144`；`docs/testing/README.md:12`、`:24`。逐行检查全部 10 个 Files 测试文件：没有交错改名测试，也没有同目标复制竞争测试。运行 `NBOOK_AGENT_TEMP_ROOT=<本报告目录> bun test ./packages/neuro-book/src/plugins/files`：93 pass、0 fail、710 expect，10.85s。M02 变异证据见下一条。
+- **建议改法**：复用现有 `filesScene`、`extraWindow` 与真实清单锁，把第一窗口的文件提交挡在清单更新；第二窗口改名已落盘的新名字，释放屏障后核对最终清单、磁盘及精确事件一致。复制竞争分别覆盖普通目录与内容树，只要求一份目标与一条清单条目。把计划中的 `manifest-edit.test.ts`、`primitives.test.ts` 更新为实际文件，并写出实际用例名。
+- **变异补证**：M02 仅把 `backend/operations.ts:226` 新建的 `locked([place?.root ?? null], ...)` 改成 `locked([], ...)`；`operations.test.ts` 与 `project-child.test.ts` 22 pass、0 fail、182 expect（6.00s），包括同名新建竞争仍然通过。还原后 `cmp` 对备份及原源码退出 0。这证明测试没有覆盖新建与其它清单/目录操作之间的串行化；不据此声称已复现原版产品的交错损坏。
+
+## T02（重要）：结果超预算只测裁剪函数，移除真实返回路径的裁剪也全绿
+
+- **类别**：测试。
+- **位置**：`packages/neuro-book/src/plugins/files/batch.test.ts:235`；`backend/batch.ts:251`、`:257`；`transport.test.ts:107`。
+- **现象**：唯一 `truncated` 用例手工构造 1000 个结果并直接调用 `fitBudget`，没有真实文件操作产生的大范围结果；WebSocket 用例的 1000 项全部 `not-found`、每项详情已截短，不触发裁剪。单点变异把 `backend/batch.ts:251` 的 `{items: fitBudget(results)}` 改成 `{items: results}`，保持裁剪函数及删除路径不变，`batch.test.ts`、`project-child.test.ts`、`transport.test.ts` 21 pass、0 fail。
+- **为什么是问题**：调用方实际取得结果的关键路径完全绕过裁剪仍能交付；目录部分删除能产生远大于输入的大范围返回，违反“结果装进一条消息、范围超限标 truncated”的公开合同。辅助函数测试只证明函数本身的算法，未证明批量入口遵守结果预算。真实补证见下文：未裁剪返回被客户端收到，未发生断线，不把断线当作这项发现的实测依据。
+- **依据**：`docs/specs/workspace/files.md:89`、验收 9（`:145`）；Task `plan.md:111`、`:129`；`docs/testing/README.md:16`、`:24`。变异命令在 worktree 根运行：`NBOOK_AGENT_TEMP_ROOT=<本报告目录> bun test --tsconfig-override <本报告目录>/tsconfig.json <本报告目录>/app-src/plugins/files/batch.test.ts <本报告目录>/app-src/plugins/files/project-child.test.ts <本报告目录>/app-src/plugins/files/transport.test.ts`；6.19s、153 expect。原 worktree 93/93 通过，实验源码副本基线同样 93/93；还原后以 `cmp` 核对备份和原源码字节。
+- **建议改法**：复用真实文件系统和 WebSocket 场地，造一个输入很小、部分删除范围很大的目录；让末项权限失败，断言真实返回 `partial.removed.truncated`、消息仍可往返且后续调用可用。对 transfer 与 delete 的真实返回路径分别变异；保留纯函数测试亦可，但不能将其作为这条验收的完成证据。
+- **变异补证**：M08 仅绕过 `backend/batch.ts:257` 删除返回路径的 `fitBudget`，transfer 保持原样；`batch.test.ts` 与 `transport.test.ts` 16 pass、0 fail、108 expect（4.16s），还原 `cmp` 退出 0。删除的大范围结果确实没有验收入口；这是与 M01 分开执行的第二个单点变异。
+- **真实入口补证**：在实验副本的传输场地追加单项删除目录：4500 个长名字空文件在前，末项 `z.md` 为 0444。原实现 1 pass（493ms）：真实返回 `permission-denied + removed:{paths:[],truncated:true}`，磁盘只余 `z.md`，后续 list 成功；再次只变异删除返回的裁剪，同一真实场景 0 pass、1 fail（324.08ms），实际返回 4500 条 removed 路径、`truncated:false`。此场景无产品钩子、无 mock、无需大文件；已有 helper 测试未覆盖的判据能以真实入口直接测试。该次输出没有断线，不将“输出超限一定断线”当作实测结论。
+
+## T04（建议）：锁屏障与 WebSocket 窗口只在成功路径释放，失败等待会跑到下一用例
+
+- **类别**：测试 / 不变量。
+- **位置**：`packages/neuro-book/src/plugins/files/batch.test.ts:263`、`:278`、`:289`、`:302`、`:317`；`project-child.test.ts:245`；`transport.test.ts:108`、`:121`、`:132`、`:147`；`batch.test.ts:295`。
+- **现象**：测试自己持有的清单锁没有 `try/finally`，`afterEach` 只关场地、删目录，不释放测试持锁句柄；锁获取后的等待或断言失败会跳过 `release`。WebSocket 的浏览器应用和 socket 只在用例最后 `window.close()`，没有登记到失败收口。断线例的状态等待与 Bun 用例均用 5000ms 截止，M05 实际出现测试已经超时后 `waitUntil` 才抛错的 `Unhandled error between tests`。
+- **为什么是问题**：从代码推断，故障时继续持锁可能令场地关闭等到清单写的约 3.3s 退避预算耗尽；删目录不等于释放 proper-lockfile 的刷新计时器，也不关闭浏览器应用。M05 已实测原始失败后多出超时/后台错误，使变异结果和相邻测试难以归因。`transport` 两例共用一个后端和用户根，未正常结束的窗口可能带到下一例；本次没有复现原版窗口泄漏。
+- **依据**：`docs/testing/README.md:20`、`:91`；`docs/specs/runtime/lifecycle.md:50`、`:54`。源代码直接核实正常路径以外无锁/窗口收口（推断失败后的持锁影响）；M05 的实际输出核实了跨用例异步错误。正常基线和 5 次重复均通过，不把它报告成常态资源泄漏。
+- **建议改法**：所有测试持锁在 `try/finally` 释放；窗口统一登记到 `afterEach`，同时断言 `app.stop()` 返回 closed。条件等待截止小于用例截止，留出 finally/afterEach 的时间，失败时先结束自己启动的异步任务再结束用例。复用现有场地资源数组，不再建一套收口框架。
+
+## 已知未检出项复核（不新增发现编号）
+
+M03 仅移除 `backend/changes.ts:240` 的 `birthtimeMs` 比较，保留 dev/ino/ctime：`operations.test.ts`、`batch.test.ts`、`project-child.test.ts` 36 pass、0 fail、271 expect（9.68s）。恢复后与备份、原 worktree 源码 `cmp` 均退出 0。本次实验根 `findmnt -T` 为 tmpfs；此结果复核 Task README 已披露的未检出，不把未验证的 inode 复用场景报成产品缺陷。后续外部重建目录用例仍通过，说明该夹具不能独立检出创建时间条件。
+
+## 时序与稳定性证据
+
+在原审查 worktree 根执行 `NBOOK_AGENT_TEMP_ROOT=<本报告目录> bun test ./packages/neuro-book/src/plugins/files/operations.test.ts ./packages/neuro-book/src/plugins/files/batch.test.ts ./packages/neuro-book/src/plugins/files/project-child.test.ts --rerun-each 5`：180 pass、0 fail、1355 expect（47.00s）。每个 36 场景跑 5 次，包括锁屏障、断线诊断、提供方停止、项目 SIGTERM 与真实 inotify 溢出；本次未观察到偶发失败。
+
+预算审查：`locked-replace.ts:28` 的 12 次退避合计约 3297.7ms（20ms 起、1.5 倍、600ms 封顶），而 `waitUntil` 缺省 5000ms，普通用例的 Bun 缺省截止也是 5000ms。锁不是无限屏障：重负载下如果观察第一项/发出 cancel 已耗掉约 3.3s，当前项可能先结算清单失败；这是推断，本次 5 次重复未复现。真实项目停止用例在 SIGTERM 后立即放锁，没有等待子进程已接纳停止的可观察信号，存在次序竞争的推断风险；本次原版重复通过，M05 在该入口成功检出忽略 signal，不将其定为已复现偶发失败。可等现有机制的停止诊断到达再放锁，并为等待截止留出收口余量。
+
+## 变异检出补证
+
+- M04：`exclusive.ts:63` 的 Linux `RENAME_NOREPLACE=1` 改成 0，真实 `renameat2` 变为覆盖提交。`backend/exclusive.test.ts`、`backend/entry-ops.test.ts`、`batch.test.ts` 23 pass、4 fail（3.94s）：已有目标原语、移动冲突、复制冲突与窗口同目录复制均失败。复原后备份/原源码 `cmp` 退出 0。
+- M05：`batch.ts:108` 改成 `false && control.signal.aborted`。过滤运行断线、提供入口停止、真实项目子进程停止三例：0 pass、3 fail（5.45s）。提供入口停止和子进程停止都观察到第二项源消失；断线例等不到 `files.batch.stopped` 诊断、5s 超时。恢复后 `cmp` 退出 0。诊断屏障足以检出“完全不看 signal”；其终点是循环确定不执行余下项，不是仅客户端拿到 unknown-outcome。
+- M05 的断线例还产生 `Unhandled error between tests`：用例的 Bun 5000ms 截止先触发，`waitUntil` 后续才抛同样 5000ms 的等待错误。属于失败用例异步等待没有先于测试截止结算的测试风险，原版 5 次重复未出现。
+- M06：`batch.ts:107` 改成 `false && control.cancelled`；过滤运行“第一项执行中取消”：0 pass、1 fail（87.51ms），逐项结果第二项实际 `done`、预期 `cancelled`，确实检出。复原后 `cmp` 退出 0。
+- M07：`batch.ts:129` 去掉冻结源的令牌比较；过滤运行“冻结的令牌”：0 pass、1 fail（55.97ms），旧令牌下第一项实际 `done`、预期 `source-changed`，确实检出；复原后 `cmp` 退出 0。
+- M09：`changes.ts:240` 移除文件/链接的 ctime 比较，只保留 dev/ino/birthtime；过滤运行“改名之后外部把同名目录换掉”：0 pass、1 fail（5.16s），外部写入移入子文件的通知不再到达、用例超时；恢复 `cmp` 退出 0。真实外部修改不会仅以目录身份判定的关键条件已被检出。
+- M10：`batch.ts:185` 跨内容树移动的条目替换成 `plainItem`，丢掉展示名及嵌套条目；过滤运行“移到另一个内容文件夹带走条目子树”：0 pass、1 fail（71.05ms），磁盘清单实际只有 `<item name="bob"/>`，期望保留 `title` 与 `sword` 子项。复原 `cmp` 退出 0。
+- M11：`changes.ts:247` 让 `expectEntry` 在任何状态都提前返回，单点去掉新建/移入目录项的回声登记；过滤运行普通新建、目录改名与真实项目操作组：0 pass、3 fail（657ms），三个屏障后的完整事件数组都含多余 external changed，分别指向新建项、移入目录及其子文件。恢复 `cmp` 退出 0。该结果证明现行 Linux/Bun/inotify 路径下，外部文件屏障能检出实际回声，而不是瞬时断言“还没收到”。
+- M12：`batch.ts:63` 丢弃 `EntryFailure.partial`；权限下的部分删除、目录复制两例 0 pass、2 fail（261ms），真实窗口取得的 `removed/residual` 字段均被断言检出；复原 `cmp` 退出 0。
+
+## 验收映射逐项核对
+
+下列文件均相对审查 worktree 的 `packages/neuro-book/src/plugins/files/`；合同与计划相对 worktree 根。`窗口` 指真实浏览器内核内的 `filesKey` 门面，经过真实路由与 JSON 编解码；`远程` 指真实 `context.remote.use(projectFilesContract)`，不是直接后端调用。S1 的原语测试是分层证据，不将其冒充窗口验收。
+
+| 计划行 / Spec 判据 | 实际入口、用例与可观察断言 | 判断与缺口 |
+|---|---|---|
+| plan:119 / files 验收 2：普通文件/目录的新建 | 窗口 `operations.test.ts:106`、`:125`：零字节文件、真实目录、冲突后旧字节不变、清单插入位置与列出结果 | 有真实入口。普通与内容树均覆盖。父目录不存在不建中间目录由窗口和原语覆盖 |
+| 同行：普通文件/含正文目录的改名、移动、删除 | 窗口 `operations.test.ts:181` 核对移后深层正文字节；`batch.test.ts:120` 核对移动目录子项、硬链接两名内容；`:206` 核对删除剩余范围/独立项；子进程 `project-child.test.ts:196` 核对清单与精确事件 | 有真实入口；附件字节与整目录成功删除的完整范围主要由 S1 原语证据支撑，窗口没有按“普通/内容 × 每方法”完整交叉断言 |
+| 同行：副本正文、附件、源不变 | 原语 `backend/entry-ops.test.ts:169` 核对 `index.md`、二进制附件、嵌套正文、链接原文；`:154` 核对普通文件字节/权限/源不变。窗口 `batch.test.ts:175` 的成功目录 copy 主要断言清单，真实 WebSocket `transport.test.ts:119` 只核对普通文件副本字节 | 分层真实 FS 证据存在；正文/附件目录副本没有窗口/真实远程路径上的完整字节判据。宜把已有原语夹具经窗口复用，补在原验收行而非另建镜像测试 |
+| 同行：createContent 排他空正文、已有冲突保字节 | 窗口 `operations.test.ts:165`，真实读磁盘零字节、已有 `BOB` 不变、普通目录/内容根拒绝无文件 | 有真实入口与可观察断言，不测 frontmatter 字段，不把内容格式当创建前提 |
+| plan:120 / files 验收 3：父子覆盖、重复源、独立项 | 窗口 `batch.test.ts:120` 的 move：父/子、经目录链接重复、两个硬链接名不是同目录项；逐项结果与路径对齐 | move 有完整判据；copy/delete 没有各自的父子/重复组合。共享预处理代码降低风险，不等于三种入口已经逐条验收 |
+| 同行：into-itself、move 同目标无操作、copy 同目标冲突、失败继续 | 窗口 `batch.test.ts:137`，结果、独立移动/复制精确事件、后代目标不存在；链接别名 containment 原语 `entry-ops.test.ts:136`、`:193` | 有真实入口和反向结果，M04 检出 no-replace 回归。move/copy 的根内目录别名直接原语覆盖 |
+| 同行：绑定/授权寿命失效停止 | 窗口 `batch.test.ts:287` 断线诊断屏障、`:300` 提供入口关闭、`:315` 根移走；真实项目 `project-child.test.ts:234` SIGTERM 后退出、首项清单完成/次项源保留 | 这些入口真实且 M05 全部检出。计划另写“调用方窗口关闭”：没有批量在途时的 `windowLink.app.stop()` 用例；断线不覆盖调用方入口停止的另一条信号来源。不争论单独平台授予模型（t68 已定不先抽平台插件） |
+| plan:121 / files 验收 8：目标不覆盖、不合并、同目录 copy 要改名 | 原语 `exclusive.test.ts:24`：文件/空目录/悬空链接；`entry-ops.test.ts:154`、`:169`：文件冲突、已有非空目录不合并；窗口 `operations.test.ts:194`、`batch.test.ts:137` | 有真实 FS/窗口证据、M04 检出。预检后抢占的确定性场景已在计划明确作为未验证边界；没有产品预检分支，排他原语承担提交检查。计划承诺的两窗口 copy 竞争缺失，见 T01 |
+| plan:122 / files 验收 9：部分 copy 残留、源不变 | 普通用户窗口 `batch.test.ts:225`：第二个源文件 0000，目标只余首项、返回 residual、目标 created；原语 `entry-ops.test.ts:214`：后续子项未复制、源项名保持 | 故障前提真实，uid=1000，本次均执行；M12 检出漏范围。0000 是不可读文件，未把 0555 源目录误作复制失败前提 |
+| 同行：取消不回滚当前/已完成项，不执行后续 | 窗口 `batch.test.ts:261`：目标已落盘、cancel found、释放清单锁、第一项 done/第二项 cancelled、第一项清单完成；`:274` 核对同 id busy/别窗口不能取消/结算删除登记 | 有真实锁与入口、M06 检出。测试观察目标出现加 cancel 命中，不以 Promise pending 单独证明在途；失败收口见 T04 |
+| plan:123 / files-explorer 源消失或身份改变拒绝旧意图 | 窗口 `operations.test.ts:204`、`batch.test.ts:158`：原对象保留改名后同路径换同字节，旧 expected 为 source-changed、新令牌可成功 | 有真实入口、M07 检出。copy/delete/convert 的 expected 与“提交前等待时源被换”没有独立场景；当前夹具只换了请求发起前的对象 |
+| plan:124 / folder-kinds 子项维护、正文不进清单 | 窗口 `operations.test.ts:125` 新建/正文；`:181` 改名保展示名与子树；`batch.test.ts:175` 跨树移入/移出/复制；`:206` 部分删除不去目录条目 | 有真实入口，XML/列出/磁盘为公开状态；M10/M12 检出。跨树只一侧清单失败 `batch.test.ts:194` 真实 0444；未只测整批布尔值 |
+| 同行：reorder/display 只改清单、include/drop 修正不动磁盘 | 窗口 `operations.test.ts:254`、`:277`：XML 展示字段/顺序、invalid-order、实际文件名与正文不动、list 的 listed 状态 | 有真实入口；“每个内容专属方法在普通目录拒绝”只覆盖 createContent/reorder，display/include/drop 没有各自普通目录拒绝；重复 reorder 名称也无单独失败场景 |
+| 同行：转换、已有非法清单不覆盖、来回保字节 | 窗口 `operations.test.ts:227`、`:244`：目录优先生成 XML、后缀和父清单条目、手写清单字节保留、不合法清单保留 | 有真实入口与可观察字节。转换已有目标冲突、转换 expected 没有独立场景 |
+| 同行：清单失败指明 path、字节不变、不发 changed；操作锁 | 窗口 `operations.test.ts:292` 0444 新建仍成功、manifests.failed、无 changed；`:305` 非法清单改名仍完成、manifests.invalid；`:314` 改名锁 busy；`batch.test.ts:194` 跨树一侧 failed | 大部分有真实入口；非法清单那例没订阅验证“不发清单 changed”；busy 用例持锁在测试进程，不是测试名所说的“别的进程”。交错改名与新建串行化缺口见 T01/M02 |
+| plan:125 / resources 验收 5：renamed 的 from、来源、无回声，外部后续变化仍发出 | 窗口 `operations.test.ts:181`、`:331`、`:351`；批量 `batch.test.ts:137`、`:206`、`:225`；真实项目 `project-child.test.ts:196`，均经 ready 后真实 fs.watch、外部屏障 | 有真实入口；完整事件数组为公开事件合同，M11 检出多余 external 回声，M09 检出吞掉移入文件的外部修改，M03 creation-time 未检出已披露。目录后代由 renamed 前缀语义 + 子文件场景支撑 |
+| S3/S4：输入/输出预算、1000 项、结果未知 | 窗口/真实远程 `batch.test.ts:245` 超输入；真实 WebSocket `transport.test.ts:107` 1000 delete 与超限后 copy；输出仅 helper `batch.test.ts:235`；断线 `batch.test.ts:287` unknown-outcome | 输入完整结构漏算是真实 T03；结果入口裁剪缺口 T02；1001 项的客户端/合同拒绝无独立用例。超限“没有副作用”那例没有检查磁盘，也没证明客户端未发出，实际 WebSocket 后续调用比进程内错误码更有力 |
+
+这些表中缺口是验收证据边界，不声称每一缺口都是当前产品缺陷；优先处理有真实复现或变异证据的 T01–T03。`folder-kinds` 活页夹、其它方案、History、UI、dirty 文档和独立平台能力仍按已定 t68/t69 范围由后续片承接，不作为漏实现。`smoke:server`、e2e 的旧通过记录本次未复跑，不算本次证据。
+
+## 测试写法、权限与隔离
+
+- Files 目录检索未发现 `mock.module`、`spyOn`、假计时器、固定非零等待、快照、`.only` 或直接 `.skip`。手动时钟只推进注入时钟，真实 watcher 与 proper-lockfile 均未替换。
+- 本次 `id -u` 为 1000，权限用例未跳过；t69 的 operations/batch/entry-ops 用 `skipIf(process.getuid?.() === 0)`，夹具 0444/0000/0555 按目标能力分别触发真实权限失败。旧 t68 `files.test.ts:174`、`:200` 与 `rooted.test.ts:191` 没有 root 跳过，这是继承的测试前提限制；不能把 root 全量通过当作已覆盖权限。
+- 所有被审查新夹具通过 `createTestTmpRoot` 落在 `NBOOK_AGENT_TEMP_ROOT` 下；afterEach 先关真实场地再删目录，正常关闭结果有断言。部分权限清理由 chmodTree 还原；每场景独立根，重用名称不跨真实文件根。
+- 真实项目场地有窗口/parent 收口和 finally 中 `killSpawnedProjects`；正常用例均退出。project-child 的临时子目录只在 afterAll 删除，窗口 close 没核对 app.stop 返回；失败流程的锁/窗口及等待余量详见 T04。
+- 外部事件屏障在本次 Linux/Bun 的一个有序 inotify 队列和串行 flush 上有效：M11 切断回声登记在两种真实入口都失败。它不构成其它平台的顺序保证；macOS/Windows 本次未验证。
+
+## 变异数量
+
+12 个不同单点变异，按 M01–M12 顺序逐一执行，每次先备份、没有重叠变异、还原后 `cmp` 字节相同。8 个被已有测试拦住；4 个未拦住：M01 transfer 返回裁剪、M02 create 操作锁、M03 创建时间比较、M08 delete 返回裁剪。另对 M08 做同一个变异的真实入口补证，原版通过、变异失败，不重复计数。M03 属已披露边界；其余三个未检出不能以 Task README “未拦住的只有创建时间”描述为已全覆盖。
+
+实验收口已完成：在全目录 `diff -qr` 退出 0 后删除自己创建的 `app-src`、五份变异备份、实验 `tsconfig.json` 与 `node_modules` 符号链接；未删除 worktree 依赖。保留本报告、`real-websocket-budget.log` 和 `agent/` 中的原始验证证据，任务说明与会话宿主文件未触碰。
+
+## 本次验证与只读核对
+
+所有命令在审查 worktree 根运行，测试均设置 `NBOOK_AGENT_TEMP_ROOT=<本报告目录>`。`--tsconfig-override` 仅用于实验副本路径映射；原 worktree 没有改源码或测试。
+
+| 命令或场景 | 实际结果 |
+|---|---|
+| `prox bun install --frozen-lockfile --ignore-scripts`（带上述临时根） | 退出 0；Bun 1.4.2，1568 packages installed |
+| `bun test ./packages/neuro-book/src/plugins/files` | 93 pass、0 fail、710 expect，10.85s，10 个文件 |
+| `bun test --tsconfig-override <本报告目录>/tsconfig.json <本报告目录>/app-src/plugins/files` | 实验副本基线 93 pass、0 fail、710 expect，10.76s |
+| operations / batch / project-child 三文件 `--rerun-each 5` | 180 pass、0 fail、1355 expect，47.00s |
+| 12 个逐个单点变异 | 已有测试检出 8 个；未检出 4 个，全部还原并 `cmp` 退出 0；M08 同变异的新增真实场景另检出，不重复计数 |
+| 完整 move 输入预算，真实 WebSocket（未变异产品） | 0 pass、1 fail；预期 too-large，实际 unknown-outcome/disconnected，下一调用 unavailable/disconnected |
+| 4500 条删除范围，真实 WebSocket | 未变异产品 1 pass、0 fail；仅去掉 delete 返回裁剪后 0 pass、1 fail；磁盘只余只读末项，原版后续 list 成功 |
+| `diff -qr packages/neuro-book/src <本报告目录>/app-src` | 退出 0、无输出；最终副本整棵源码与 worktree 字节一致 |
+| `/usr/bin/git status --short --branch`、`/usr/bin/git rev-parse HEAD` | 只有 `## HEAD (no branch)`，无文件变更；HEAD 为 `06d78a55caf450934da481d789744aa65983bbef` |
+| `/usr/bin/ps -C bun -o pid,ppid,stat,args` | 未发现本审查 worktree 或实验副本的测试/项目子进程残留；所列为其它工作区开发进程，未触碰 |
+
+未运行：全包 634 测试、`typecheck`、`smoke:server`、e2e、`docs:check`、`governance:check`。Task 的旧通过记录不算本次验证。平台范围仅本机 Linux；root、ACL、macOS、Windows 未验证。副本运行时 Bun 发出 `Internal error: directory mismatch ... tsconfig.json` 警告，但副本基线与真实探针均实际运行，不把该警告归为 t69 产品问题。
+
+## 回写建议（未修改仓库）
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| R01 | 踩坑 | M05 的条件等待和 Bun 用例均为 5000ms；用例先超时，随后等待抛错为 `Unhandled error between tests`。现有资源收口条款没有等待截止与用例截止的关系 | 改写现有资源收口条款，补一句：“条件等待的截止应早于用例截止并留出失败收口时间；用例结束前结算或取消自己启动的等待，避免超时后异步错误污染下一用例。” | `docs/testing/README.md` 的“测试起的资源要收口” |
+
+验收计划的过时文件名和遗漏判据属于本 Task 的证据修正，改法已列入 T01，不需要新增通用规则。
+
+## 未发现问题的方面
+
+- 分层入口确实使用真实窗口门面、真实远程合同、项目子进程与 WebSocket；原语层直接测试没有被当作唯一的传输验收证据。
+- 排他提交、已存在目标保护、目录不合并、源身份、业务取消、请求终止、跨内容树子项及部分完成范围，都有可观察断言；对应单点变异 M04–M07、M10、M12 能使测试失败。
+- 本次 Linux 的事件屏障能检出新建/目录改名/真实项目操作的外部回声；后续外部改动仍通知的 ctime 条件也被 M09 检出。没有发现用瞬时“尚未收到”代替屏障的这些关键用例。
+- 权限夹具在普通 uid=1000 下实际执行；文件系统、锁、项目进程和端口没有用 mock/spy 替代。临时根与正常场地关闭遵循现有测试支持。
+- 36 个相关场景各重复 5 次，未观察到原版偶发失败；该结论限于本次负载，未覆盖慢机与其它平台。
+
+各级数量：**阻断 0、重要 3、建议 1，共 4 条**。T03 为真实实现缺陷，T01/T02 为变异实证的验收覆盖缺口，T04 为失败收口建议。

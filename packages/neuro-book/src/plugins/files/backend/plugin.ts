@@ -98,9 +98,9 @@ function implementation(backend: Backend, consumer: ConsumerIdentity): RemoteImp
             display: (input) => tracked(scope, "files.display", () => operations.display(input, source)),
             include: (input) => tracked(scope, "files.include", () => operations.include(input, source)),
             drop: (input) => tracked(scope, "files.drop", () => operations.drop(input, source)),
-            move: (input, {signal}) => run(input.operation, signal, "files.move", (control) => batch.transfer("move", input.items, source, control)),
-            copy: (input, {signal}) => run(input.operation, signal, "files.copy", (control) => batch.transfer("copy", input.items, source, control)),
-            delete: (input, {signal}) => run(input.operation, signal, "files.delete", (control) => batch.remove(input.items, source, control)),
+            move: (input, {signal}) => run(input.operation, signal, "files.move", (control) => batch.transfer("move", input, source, control)),
+            copy: (input, {signal}) => run(input.operation, signal, "files.copy", (control) => batch.transfer("copy", input, source, control)),
+            delete: (input, {signal}) => run(input.operation, signal, "files.delete", (control) => batch.remove(input, source, control)),
             cancel: async (input) => {
                 const control = active.get(input.operation);
                 if (control !== undefined) control.cancelled = true;
@@ -133,11 +133,12 @@ function rootEntry(location: "server" | "project", contract: FilesContract, loca
             const service = createFilesService({root, diagnose: (event, detail, cause) => record("warn", event, detail, {cause})});
             const changes = createChangeHub({root, controlDirectory: placed.options.controlDirectory, clock: context.services.require(clockKey), record});
             context.scope.register({kind: "files-changes", label: `${descriptor.id} ${location}`, value: changes, release: (value) => value.close()});
-            const operations = createOperations({root, changes, diagnose: (event, detail, cause) => record("warn", event, detail, {cause})});
+            const diagnose = (event: string, detail: string, cause: string): void => record("warn", event, detail, {cause});
+            const operations = createOperations({root, changes, diagnose});
             const batch = createBatch({
                 root,
                 changes,
-                diagnose: (event, detail, cause) => record("warn", event, detail, {cause}),
+                diagnose,
                 stopped: (operation, detail) => record("info", "files.batch.stopped", detail, {operation}),
             });
             const backend: Backend = {service, operations, batch, changes, scope: context.scope};

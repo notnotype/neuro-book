@@ -55,14 +55,18 @@ export interface ChangeHub {
     temporaryPath(file: string): string;
     /** 经文件服务保存成功：立即以真实来源发出；经链接保存时真实路径也发一条。 */
     saved(change: {readonly path: string; readonly realPath: string; readonly bytes: Uint8Array}, source: ChangeSource): void;
-    /** 经文件服务的操作完成：登记回声并立即以真实来源发出精确事件。路径都是相对根的真实路径。 */
-    operated(change: OperationChange, source: ChangeSource): Promise<void>;
+    /**
+     * 登记自己操作的回声：每个副作用落盘后立刻调用（在等清单锁等耗时步骤之前），监视这时处理一批也不会把它当外部变化；
+     * 登记离副作用越近，外部恰在其间的修改被认作自己的窗口越小。路径都是相对根的真实路径。
+     */
+    expect(change: Expectation): Promise<void>;
+    /** 以真实来源立即发出经文件服务的操作的精确事件。 */
+    emit(events: ReadonlyArray<OperationEvent>, source: ChangeSource): void;
     /** 提供者入口停止：关监视器，不再发出。 */
     close(): void;
 }
 
-export interface OperationChange {
-    readonly events: ReadonlyArray<OperationEvent>;
+export interface Expectation {
     /** 现在不存在的路径（删除、移出）；覆盖后代。 */
     readonly absent?: ReadonlyArray<string>;
     /** 新出现的目录项（新建、复制产生的每一项、移入的目标）：登记它们现在的身份。 */
@@ -284,9 +288,8 @@ export function createChangeHub(options: ChangeHubOptions): ChangeHub {
             if (change.realPath !== change.path) events.push({type: "changed", path: change.realPath, source});
             broadcast({kind: "batch", events});
         },
-        operated: async (change, source) => {
+        expect: async (change) => {
             if (closed || watcher === null) return;
-            const started = round;
             for (const [path, entry] of expected) if (clock.now() - entry.at > EXPECT_TTL_MS) expected.delete(path);
             for (const path of change.absent ?? []) expected.set(path, {state: {kind: "absent"}, at: clock.now()});
             for (const {path, bytes} of change.written ?? []) expected.set(path, {state: {kind: "hash", hash: hashOf(bytes)}, at: clock.now()});
@@ -300,11 +303,11 @@ export function createChangeHub(options: ChangeHubOptions): ChangeHub {
                 }
                 for (const child of below) await expectEntry(child);
             }
-            // 登记期间监视被关掉或重建：这一轮的订阅方已经不在或已收到 resync。
-            if (closed || round !== started) return;
-            const events: FileChange[] = change.events.map((event) => ({...event, source}));
-            if (events.length === 0) return;
-            broadcast(new TextEncoder().encode(JSON.stringify(events)).length > TEXT_BUDGET_BYTES ? {kind: "resync"} : {kind: "batch", events});
+        },
+        emit: (events, source) => {
+            if (closed || watcher === null || events.length === 0) return;
+            const stamped: FileChange[] = events.map((event) => ({...event, source}));
+            broadcast(new TextEncoder().encode(JSON.stringify(stamped)).length > TEXT_BUDGET_BYTES ? {kind: "resync"} : {kind: "batch", events: stamped});
         },
         close: () => {
             closed = true;

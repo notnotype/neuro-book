@@ -17,8 +17,18 @@ let native: Native | null = null;
 
 /** `source` 与 `target` 都是绝对路径；目标的父目录必须已存在。 */
 export function renameNoReplace(source: string, target: string): ExclusiveRename {
-    native ??= load();
+    native ??= loadOrUnsupported();
     return native(source, target);
+}
+
+/** 系统库或符号加载不了（缺库、平台差异）：记住原因，之后每次都报 `unsupported`，不退回覆盖式改名。 */
+function loadOrUnsupported(): Native {
+    try {
+        return load();
+    } catch (error) {
+        const reason = `无法加载系统的排他改名：${error instanceof Error ? error.message : String(error)}`;
+        return () => ({ok: false, reason: "unsupported", code: reason});
+    }
 }
 
 const cString = (value: string): Buffer => Buffer.from(`${value}\0`, "utf8");

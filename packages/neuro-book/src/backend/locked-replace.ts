@@ -58,54 +58,73 @@ export interface ReplaceOptions<T, W extends Uint8Array | string> {
 
 /** 加锁替换 `file`；`file` 所在目录必须已存在。 */
 export async function replaceLocked<T, W extends Uint8Array | string>(file: string, options: ReplaceOptions<T, W>): Promise<ReplaceResult<T, W>> {
-    let release: () => Promise<void>;
-    let compromised: unknown = null;
-    let lost = false;
+    const held = await holdLock(options.lockPath, options.report);
+    if (!held.ok) return failure("failed", held.reason === "locked" ? "写入锁一直被别的进程占着" : held.detail);
     try {
-        release = await lock(file, {realpath: false, lockfilePath: options.lockPath, stale: LOCK_STALE_MS, retries: LOCK_RETRIES, onCompromised: (error) => {
-            compromised = error;
-        }});
-    } catch (error) {
-        return failure("failed", errno(error) === "ELOCKED" ? "写入锁一直被别的进程占着" : `无法取得写入锁：${describe(error)}`);
-    }
-    try {
-        let held: Stats;
-        try {
-            held = await stat(options.lockPath);
-        } catch (error) {
-            return failure("failed", `无法核对写入锁：${describe(error)}`);
-        }
-        const stillHeld = async (): Promise<string | null> => {
-            if (compromised !== null) return `写入锁在写入期间失效：${describe(compromised)}`;
-            const now = await statOrNull(options.lockPath);
-            if (now !== null && now.dev === held.dev && now.ino === held.ino) return null;
-            lost = true;
-            return "写入锁在写入期间被判为残留、已被别的进程接管";
-        };
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-            const outcome = await replaceOnce(file, options, stillHeld);
+            const outcome = await replaceOnce(file, options, () => held.lock.stillHeld());
             if (outcome !== "modified") return outcome;
         }
         return failure("unstable", "写入期间文件反复被别的程序改动");
     } finally {
-        // 锁已归别人时不释放：释放会删掉接管者的锁目录，proper-lockfile 的刷新计时器随后发现锁目录变了，自行停下。
-        // 已报告失效的锁 proper-lockfile 已经放下，也不必释放。
-        if (!lost && compromised === null) await releaseLock(release, options.report);
+        await held.lock.release();
     }
 }
 
+/** 持有中的锁。 */
+export interface HeldLock {
+    /** 仍持有时为 `null`，否则是失去锁的原因（被判为残留后由别的进程接管，或 proper-lockfile 报告失效）。 */
+    stillHeld(): Promise<string | null>;
+    /** 幂等。锁已归别人时不释放：释放会删掉接管者的锁目录。 */
+    release(): Promise<void>;
+}
+
 /**
- * 只取锁、不替换文件：覆盖多步操作的锁（Files 的内容树操作锁）。与替换用同一套残留判定与等锁退避；等不到为 `locked`。
- * 持有期间锁被接管只记诊断：多步操作已经做了一部分，不能凭锁失效撤回。
+ * 取一把跨进程的锁（proper-lockfile 的锁目录）：加锁替换与 Files 的操作锁共用。锁被判为残留、被别的进程接管时，
+ * proper-lockfile 删掉锁目录再建，所以比对锁目录的身份（连同 `onCompromised` 报告的失效）就能发现；持有者在提交前
+ * 用 `stillHeld` 核对，核对与提交之间仍有一个很小的窗口。等不到为 `locked`。
  */
-export async function holdLock(lockPath: string, report: (event: string, error: unknown) => void): Promise<{readonly ok: true; readonly release: () => Promise<void>} | {readonly ok: false; readonly reason: "locked" | "failed"; readonly detail: string}> {
-    let release: () => Promise<void>;
+export async function holdLock(lockPath: string, report: (event: string, error: unknown) => void): Promise<{readonly ok: true; readonly lock: HeldLock} | {readonly ok: false; readonly reason: "locked" | "failed"; readonly detail: string}> {
+    let unlock: () => Promise<void>;
+    let compromised: unknown = null;
     try {
-        release = await lock(lockPath, {realpath: false, lockfilePath: lockPath, stale: LOCK_STALE_MS, retries: LOCK_RETRIES, onCompromised: (error) => report("lock.compromised", error)});
+        unlock = await lock(lockPath, {realpath: false, lockfilePath: lockPath, stale: LOCK_STALE_MS, retries: LOCK_RETRIES, onCompromised: (error) => {
+            compromised = error;
+            report("lock.compromised", error);
+        }});
     } catch (error) {
-        return errno(error) === "ELOCKED" ? {ok: false, reason: "locked", detail: "锁一直被别的操作占着"} : {ok: false, reason: "failed", detail: `无法取得锁：${describe(error)}`};
+        return errno(error) === "ELOCKED" ? {ok: false, reason: "locked", detail: "锁一直被别的进程占着"} : {ok: false, reason: "failed", detail: `无法取得锁：${describe(error)}`};
     }
-    return {ok: true, release: () => releaseLock(release, report)};
+    let identity: Stats;
+    try {
+        identity = await stat(lockPath);
+    } catch (error) {
+        await releaseLock(unlock, report);
+        return {ok: false, reason: "failed", detail: `无法核对锁：${describe(error)}`};
+    }
+    let lost = false;
+    let released = false;
+    const stillHeld = async (): Promise<string | null> => {
+        if (compromised !== null) return `锁在持有期间失效：${describe(compromised)}`;
+        const now = await statOrNull(lockPath).catch(() => null);
+        if (now !== null && now.dev === identity.dev && now.ino === identity.ino) return null;
+        lost = true;
+        return "锁在持有期间被判为残留、已被别的进程接管";
+    };
+    return {
+        ok: true,
+        lock: {
+            stillHeld,
+            release: async () => {
+                if (released) return;
+                released = true;
+                // 已报告失效的锁 proper-lockfile 已经放下；锁目录换了主人时 proper-lockfile 的刷新计时器会自行停下。
+                if (compromised !== null) return;
+                if (!lost && (await stillHeld()) !== null) return;
+                if (!lost) await releaseLock(unlock, report);
+            },
+        },
+    };
 }
 
 async function releaseLock(release: () => Promise<void>, report: (event: string, error: unknown) => void): Promise<void> {

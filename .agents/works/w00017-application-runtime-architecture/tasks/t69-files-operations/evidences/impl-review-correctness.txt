@@ -1,0 +1,466 @@
+# w00017 t69 实现审查：正确性与边界
+
+审查对象：`06d78a55`。工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-impl-correctness`。
+
+只读审查已完成；按影响排序，共 9 项：阻断 2、重要 7、建议 0。实验均在报告所在目录；发现编号保留核实顺序，方便与其它审查报告交叉核对。
+
+## C7 · 阻断 · 不变量：等操作锁后不重解析目标父目录，根外链接替换被直接用于提交
+
+- **位置**：`packages/neuro-book/src/plugins/files/backend/batch.ts:166`、`:172`、`:175`；`backend/operations.ts:223`、`:226`、`:227`；`backend/entry-ops.ts:63`。
+- **现象**：持有目标树 `other.content` 的操作锁，发起 `lore.content/alice→other.content/alice`。等到源树锁已取得，证明源与目标已解析、请求正在等待目标锁；此时把目标父目录保留到另一名字，并将原名换成指向项目根外实验目录的链接。释放目标锁后，文件被移到根外，结果为 `done`，只将后续清单的 `outside-root` 报成 `manifests`。
+- **为什么是问题**：源在取锁后重解析，目标仍使用取锁前的 `ResolvedSlot.absolute`；多秒等待可横跨任意目录变化。提交时系统沿已替换父目录的链接，把项目数据移动到未授权根外。此实验在锁等待期间完成替换，不是 Spec 接受的“最后一次核对与系统调用之间”的残余窗口。
+- **依据**：`docs/specs/platform/files.md:85`、`:86`、`:89` 拒绝可检测的根外链接、身份改变，不把已校验路径交给会跟随替换链接的后续操作；`docs/specs/workspace/files.md:34` 提交时重验身份，`:82` 父目录包含规则。真实两个窗口内核、真实多树锁等待：`edges.ts target-parent` 输出 `OUTSIDE_BODY A`、`SOURCE_REMAINS false`，`MOVE` 为 `done` 且目标清单 `detail:"other.content/content.xml 经符号链接指向根外"`，所有内核 `closed`。
+- **建议改法**：锁内靠近提交处重新 `resolveSlot` 并核对父目录身份，与源复核共用一次提交准备；新建、改名、转换、移动、复制最终提交都使用这份最新结果。递归操作在进入目录和发布子项时也要维持相同边界。保留现有对最后极短恶意竞争窗口的明确限制，不承诺完整 OS 沙箱。
+
+## C6 · 阻断 · 正确性：客户端预算只算扁平地址，合法批量突破消息上限并断开窗口
+
+- **位置**：`packages/neuro-book/src/plugins/files/web/client.ts:37`、`:88`、`:271`；`backend/batch.ts:248`；`shared/contracts.ts:177`。
+- **现象**：1000 项移动，每条源/目标路径约 488 字节、带 `identify` 正常取得的 32 字符令牌。扁平地址数组编码为 `983001` 字节，小于预算 `983040`；实际 `{operation,items}` 为 `1049062` 字节，已超过 RPC 消息上限 `1048576`，尚未算帧包络。客户端照常发送，得到 `unknown-outcome`、`cause: disconnected`，同一窗口下一次 `list` 为 `unavailable/disconnected`。
+- **为什么是问题**：`sameScheme` 只检查字符串数组，遗漏每项 `source/target/expected` 的属性与令牌；后端检查 `items` 太晚，超限帧在提供者收到之前就断开。合法路径、正常令牌、最多 1000 项都满足，却破坏窗口连接、在途结果和订阅。无 `expected` 时属性包络也可使请求超过 Spec 的业务预算。
+- **依据**：`docs/specs/workspace/files.md:89` 双端按输入 JSON 核对，超限客户端 `too-large` 且不发出；`docs/specs/runtime/plugin-channel.md:115` 单消息上限与断线；`:88` 已发写请求结果未知。`budget-ws.ts` 使用真实产品后端 `startServer`、端口均 `0`、真实 WebSocket、浏览器内核和文件门面；实测发送一帧 `1049414` 字节并得到上述结果。实验源为不存在路径，`expected` 是 `keep.md` 的真实 identify 令牌；此处验证完整报文的预发送门禁，不宣称这些项本应完成移动。应用 `closed`、服务端 exitCode `0`。
+- **建议改法**：先构造要发出的完整业务请求，再对该请求统一调用 `encodedBytes`，通过才交给远程方法；后端同样核对完整请求。`identify` 与删除复用该边界，不让 `sameScheme` 承担不完整的大小检查。保持现有 64 KiB 帧余量，无需分片或大块通道。
+
+## C9 · 重要 · 不变量：`holdLock` 无锁身份复核，旧释放会删除新持有者的锁
+
+- **位置**：`packages/neuro-book/src/backend/locked-replace.ts:101`、`:104`、`:108`；`packages/neuro-book/src/plugins/files/backend/rooted.ts:199`。
+- **现象**：真实窗口改名已提交、等清单锁时，删除它的操作锁目录，另一持有者重新取到同路径锁。放行清单后改名返回成功，旧操作释放把新锁目录删掉；第二次释放报告 `Lock is already released`。
+- **为什么是问题**：新增 `holdLock` 没有 `replaceLocked` 已具备的锁目录 dev/ino 检查，持有期间失效也只记诊断、不阻止后续清单提交。锁被 stale 接管或外部破坏后，旧 owner 继续写且释放新 owner 的锁，破坏协作互斥。检测延迟是已接受取舍，但释放前从不复核身份不是检测延迟。
+- **依据**：`docs/specs/platform/files.md:57`、`:90` 探测失效后停止依赖；`:59` 释放失败明确留痕。真实内核窗口门面与独立 Bun 子进程持锁：`edges.ts lock-loss`、`lock-holder.ts`，第二 owner PID `1816219` 在 marker 写出后保持在途；旧操作 `RENAME {ok:true,value:{}}`，随后 `SECOND_OWNER_LOCK_REMAINS false`。持有者由 stdin 正常结束、exitCode `0`，全部内核 `closed`。同进程复现另外得到新 owner 的 `Lock is already released`，跨进程复验确认新锁被删除，未伪称等待了心跳失效通知。
+- **建议改法**：复用 `replaceLocked` 的锁身份与 compromised 状态，返回持有资格检查和幂等 release；各提交前检查资格，失效则按已发生文件事实报告部分完成，旧 owner 不得释放新 owner 的锁。不要保留两套失效语义。
+
+## C1 · 重要 · 正确性：改名内容根不取该树的操作锁，两个成功操作留下错误清单
+
+- **位置**：`packages/neuro-book/src/plugins/files/backend/operations.ts:53`、`:260`；`backend/batch.ts:170`。
+- **现象**：窗口 A 把 `lore.content/alice` 改为 `alicia`，文件已提交，等待清单文件锁。窗口 B 随即把内容根 `lore.content` 改为 `moved.content`，返回成功。释放清单锁后 A 也返回成功、无 `manifests`，但磁盘是 `moved.content/alicia/notes.md`，新位置清单仍是 `<item name="alice" title="爱丽丝">…</item>`。
+- **为什么是问题**：`placeOf` 只取祖先，顶层内容根本身返回 `null`。内容根改名、移动、删除因此不与树内操作互斥；旧清单路径消失又被当作无需维护，不报告部分完成。两项成功后清单与磁盘不一致，违反跨窗口一致性合同。
+- **依据**：`docs/specs/workspace/folder-kinds.md:75` 操作锁覆盖读源条目、提交文件、更新清单、事件；`:121` 两窗口交错操作结束后清单与磁盘一致。真实四内核场景、两个窗口门面、真实清单锁屏障：`edges.ts root-rename` 输出 `ROOT_RENAME {ok:true,value:{}}`、`INNER_RENAME {ok:true,value:{}}`、`FINAL_CHILD true`，`FINAL_MANIFEST` 仍含 `name="alice"`。所有内核关闭为 `closed`。
+- **建议改法**：统一由操作范围求锁集合；目录自身是内容根或包含内容树时，搬移/删除它也纳入受影响的树锁，目标名对应的锁也参加顺序取锁。锁内重解析源与目标、确认清单所在位置，再完成提交与事件。不要只在 `convert` 特判锁目录自身。
+
+## C2 · 重要 · 正确性：复制不在源树锁内捕获条目，合法交错静默丢展示名与子树
+
+- **位置**：`packages/neuro-book/src/plugins/files/backend/batch.ts:198`、`:204`、`:214`。
+- **现象**：A 改名 `alice→alicia`，文件已提交但清单等待锁；B 复制当前磁盘上的 `alicia` 到另一内容树。复制先返回 `done`，A 随后成功；源清单保留展示名与嵌套 `notes.md`，目标清单却只有 `<item name="alice-copy"/>`。
+- **为什么是问题**：复制直接 `recheck`、`sourceItem`，未取源树操作锁，只在最后插入目标清单时取目标锁；读到了文件与清单过渡状态。两份清单都可写且两个操作均成功，丢失用户的展示名、图标、条目子树。
+- **依据**：`docs/specs/workspace/folder-kinds.md:73` 条目子树复制一份；`:75` 复制读源条目与最后提交时持锁。计划 `plan.md:73` 同样要求开始与提交时持锁。真实四内核/两个窗口/真实锁屏障：`edges.ts copy-capture` 输出复制与改名均成功，源清单 `alicia title="爱丽丝"` 下有 `notes.md title="笔记"`，目标只含无属性、无子项的 `alice-copy`。关闭均 `closed`。
+- **建议改法**：复制开始时在源内容树操作锁内重解析源并捕获条目子树，随后释放锁复制字节；最终提交、更新目标清单、登记事件在目标操作锁内完成。复用同一锁编排，不新增独立缓存。
+
+## C3 · 重要 · 正确性：跨树移动把子树捕获绑定在源清单写成功上
+
+- **位置**：`packages/neuro-book/src/plugins/files/backend/batch.ts:175`、`:180`、`:182`、`:185`。
+- **现象**：源清单合法但权限为 `0444`，将 `lore.content/alice` 移到 `other.content/alice`。文件成功移动，结果仅报告源清单写失败；可写的目标清单只得到 `<item name="alice"/>`，原展示名与嵌套条目消失。
+- **为什么是问题**：读取合法源清单并不需要它可写，目标仍应带走子树。实现先移动文件，再尝试删源条目；只有 `editManifest` 非 `issue` 时才把 `removed` 作为携带子树。源清单写失败被错误地传播成目标信息丢失，目标清单的错误更新没有单独报告。
+- **依据**：`docs/specs/workspace/folder-kinds.md:73`、`:102`：子树随目录移动，两份清单分别报告失败。真实窗口门面 `edges.ts readonly-source`：`MOVE` 为 `done` 且仅有源 `manifests[0].status:"failed"`，`TARGET_MANIFEST` 为无展示名、无嵌套的普通项。运行用户非 root，关闭均 `closed`。
+- **建议改法**：在两树操作锁内、文件提交前独立读取并捕获源条目，源清单移除与目标清单插入分别结算；目标用已捕获子树，与源清单是否写成解耦。
+
+## C4 · 重要 · 不变量：副作用完成后才采集回声状态，重复报自操作并吞掉真实外部修改
+
+- **位置**：`packages/neuro-book/src/plugins/files/backend/operations.ts:268`、`:272`；`backend/batch.ts:194`、`:219`、`:241`；`backend/changes.ts:244`、`:287`。
+- **现象一**：改名文件已落盘、清单更新被锁挡住，监视先 flush。订阅收到 `deleted(alice, external)`、`changed(alicia, external)`、`changed(alicia/notes.md, external)`；放锁后又收到用户来源的精确 `renamed` 与清单 `changed`。
+- **现象二**：同一窗口期间外部将目标子文件写为 `EXTERNAL`，先不 flush，放锁后完成操作，再推进监视直到外部屏障到达。磁盘已是 `EXTERNAL`，订阅只有用户 `renamed` 与清单 `changed`，没有子文件的外部修改事件。
+- **为什么是问题**：回声在整个清单修改完成、树锁释放后才 `lstat` 捕获“现在的身份/ctime”；早于登记的自操作事件无法过滤，早于采样的外部变化反而被记成自己的预期状态。遗漏真实变化、来源误标与重复事件都违反订阅合同；这不是恶意 TOCTOU，也未扩大最后一次系统调用的承诺。
+- **依据**：`docs/specs/workspace/resources.md:78` 自操作回声不重复发、之后外部修改仍发；`folder-kinds.md:75` 锁覆盖事件。真实窗口订阅/递归 fs.watch/真实锁屏障：`edges.ts echo-duplicate`、`edges.ts echo-swallow`，前者确有上述三条外部回声，后者 `BODY EXTERNAL` 而 `EVENTS` 仅两条用户事件；均用真实外部文件事件作屏障，关闭均 `closed`。
+- **建议改法**：在 owning I/O 边界记录提交时的已知目录项状态，并在副作用出现时同步登记，清单等待不能留下未登记窗口；精确事件仍在树锁内按操作顺序完成。监视处理与尚未完成操作竞态时保留待核对路径，无法区分则发 `resync`，不要事后快照认领外部 ctime。
+
+## C5 · 重要 · 正确性：同目标移动绕过 `expected`，源已换身份仍报告完成
+
+- **位置**：`packages/neuro-book/src/plugins/files/backend/batch.ts:169`；`backend/batch.ts:126`；`backend/operations.ts:254`。
+- **现象**：`identify` 后保留原文件、同路径新建字节为 `NEW` 的另一个文件，带旧令牌执行同路径移动；结果是 `done`。旧令牌源消失后，改名与删除结果为 `not-found`。
+- **为什么是问题**：“同目标无操作”不能跳过冻结操作意图的身份核对。资源管理器需知道选择对象已失效；此处成功把旧意图误认成当前对象。源被移走时合同也要求 `source-changed`，实现因早期解析失败没有使用 `expected`。
+- **依据**：`docs/specs/workspace/files.md:83` 执行前与提交前核对令牌，身份不符为 `source-changed`；`docs/specs/workspace/resources.md:117` 包含被移走。真实窗口 `edges.ts identity` 输出 `SAME_TARGET {ok:true,value:{items:[{status:"done"}]}}`；`MISSING_RENAME` 与 `MISSING_DELETE` 是 `not-found`。关闭均 `closed`。
+- **建议改法**：先统一执行源身份核对，再判同目标 no-op；带 `expected` 的源不存在统一为 `source-changed`，未带令牌继续保持 `not-found`，无需增加结果形态。
+
+## C8 · 重要 · 正确性：结果裁剪只清空 `partial`，超预算的详情与清单路径仍原样返回
+
+- **位置**：`packages/neuro-book/src/plugins/files/backend/batch.ts:262`、`:267`、`:270`。
+- **现象**：两种真实 WebSocket 请求都突破结果预算。第一种输入 1000 个不存在的合法路径，每个名字含 156 个可编码控制字符和四位编号；完整业务输入 `952062` 字节，返回 `1001031` 字节，大于预算 `983040`。第二种经根内目录链接 `alias` 复制 1000 个文件到约 1.8 KiB 的实际内容树路径，清单不合法；请求帧仅 `47194` 字节，返回 1000 个 `done` 与对应清单问题，结果 `2077031` 字节，超过 1 MiB。
+- **为什么是问题**：按字符截到 200 不能约束 JSON 字节数（字符可转义成六字节）；`fitBudget` 没有第二阶段详情裁剪或再次核对，非 `partial` 结果完全不处理。`done.manifests[].path` 重复携带完整实际清单路径，使短合法输入也能生成很大的结果。两例都已真实往返，证明预算与一条消息上限的合同未被实现；此环境没有因这两份结果断线，不将输入超限的断线证据移用到输出。
+- **依据**：`docs/specs/workspace/files.md:89` 超预算结果先省略范围、再截短详情、保证一条消息；计划 `plan.md:67`。真实产品后端/浏览器内核/真实 WebSocket，`budget-ws.ts` 输出 `RESULT_BUDGET {inputBytes:952062,outputBytes:1001031,budget:983040,ok:true,length:1000}` 与 `MANIFEST_RESULT_BUDGET {inputBytes:60781,outputBytes:2077031,budget:983040,ok:true,length:1000}`；后一个 `inputBytes` 是含地址方案的门面输入数组，实际请求帧更小，为 `47194`。输出字节计入 `{ok,value}` 门面包络，扣除该固定包络仍明显超预算。正常关闭 exitCode `0`。
+- **建议改法**：由一处按最终 `{items}` JSON 字节预算收敛结果；清空范围后若仍超限，按编码字节裁剪详情并约束清单路径的可重复表示，最后再断言整份结果在预算内。不能假定字符数等于字节数或结果只有 `partial` 会变大。
+
+## 验证记录与边界
+
+所有命令从上述 worktree 根执行，Bun 为 `v1.4.2 (744846f84)`。依赖安装按审查任务授权执行：
+
+```sh
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness prox bun install --frozen-lockfile --ignore-scripts
+```
+
+结果：1568 packages installed。两组定向测试实际命令：
+
+```sh
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness bun test ./packages/neuro-book/src/plugins/files/operations.test.ts ./packages/neuro-book/src/plugins/files/batch.test.ts ./packages/neuro-book/src/plugins/files/backend/entry-ops.test.ts ./packages/neuro-book/src/plugins/files/backend/exclusive.test.ts ./packages/neuro-book/src/plugins/files/backend/manifest-edit.test.ts ./packages/neuro-book/src/plugins/files/project-child.test.ts ./packages/neuro-book/src/plugins/files/transport.test.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness bun test ./packages/neuro-book/src/plugins/files/backend/rooted.test.ts ./packages/neuro-book/src/plugins/files/shared/resource.test.ts ./packages/neuro-book/src/plugins/files/changes.test.ts ./packages/neuro-book/src/plugins/files/files.test.ts
+```
+
+- 第一组：`51 pass / 0 fail / 377 expect() calls`，6 个文件，10.06 s。命令中的 `backend/manifest-edit.test.ts` 不存在，没有计入已运行测试；清单行为由 `operations.test.ts` 与 `batch.test.ts` 覆盖。
+- 第二组：`42 pass / 0 fail / 333 expect() calls`，4 个文件，1167 ms。
+- 合计：93 项通过、0 项失败、710 次断言、10 个实际测试文件。未运行全量测试、typecheck、构建、浏览器页面检查；本次没有 UI 改动。
+
+真实运行复现命令；`edges.ts` 的单项参数为 `identity`、`root-rename`、`readonly-source`、`copy-capture`、`echo-duplicate`、`echo-swallow`、`target-parent`、`caller-stop`、`copy-special-bits`、`echo-expiry`、`moved-limit`、`lock-loss`，均已分别执行。下列列出根越界、真实 WebSocket 与跨设备三条实际命令，其余参数使用同一单项调用形式：
+
+```sh
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness/edges.ts target-parent
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness/budget-ws.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness unshare -Ur -m bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness/cross-device.ts
+```
+
+复现通过真实应用内核与文件门面执行，锁、文件系统、递归 fs.watch、子进程与 WebSocket 都使用真实实现；事件批处理及过期实验使用测试世界的手动时钟，并用外部文件事件作屏障。WebSocket 服务使用端口 `0`。每次世界关闭均为 `closed`，真实后端退出码 `0`；跨设备实验已卸载 tmpfs，第二持锁进程正常退出。实验数据目录均在各脚本 `finally` 中删除。
+
+平台覆盖仅 Linux。macOS `renamex_np`、Windows `MoveFileExW` 及对应 errno 行为没有本机运行证据；不宣称验证。LSP 返回 `No language servers configured for this project`，引用行号通过源码核对。Bun 每次仓库外脚本结束会打印 `Internal error: directory mismatch for directory "…/packages/neuro-book/tsconfig.json", fd 3`；退出码为 `0`，该环境诊断没有计入产品缺陷。
+
+最终只读 Git 查询：`git rev-parse --short=8 HEAD` 为 `06d78a55`，`git status --short --branch` 仅输出 `## HEAD (no branch)`。未修改仓库跟踪文件，未提交、切分支或进行远端写操作。
+
+## 复现源代码
+
+为满足实验产物清理要求，独立脚本与依赖软链在交付前删除；源代码保存在以下折叠附录中，不另留数据目录。需要重跑时先设置 `NBOOK_AGENT_TEMP_ROOT` 为本报告所在目录，从附录恢复这四个同名文件，并创建 `node_modules` 软链指向 worktree 根的 `node_modules`，再执行上面的原命令。
+
+<details>
+<summary>edges.ts</summary>
+
+<!-- repro:edges.ts -->
+```typescript
+import {chmod, lstat, mkdir, readFile, rename, rm, symlink, writeFile} from "node:fs/promises";
+import {createHash} from "node:crypto";
+import {join} from "node:path";
+import {filesScene, files, extraWindow} from "nbook/plugins/files/testing/scene";
+import {holdLock} from "nbook/backend/locked-replace";
+import {BATCH_DELAY_MS} from "nbook/plugins/files/backend/changes";
+import {waitUntil} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-impl-correctness/packages/neuro-book-test-support/src/wait";
+import type {WatchMessage} from "nbook/plugins/files/shared/contracts";
+const base = process.env.NBOOK_AGENT_TEMP_ROOT!;
+const kind = process.argv[2];
+const root = join(base, `edge-${kind}`);
+const scene = await filesScene(root, {project: {
+    "lore.content/content.xml": '<content>\n  <item name="alice" title="爱丽丝"><item name="notes.md" title="笔记"/></item>\n</content>\n',
+    "lore.content/alice/notes.md": "A",
+    "other.content/content.xml": "<content>\n</content>\n",
+    "plain/a.md": "A",
+}});
+let unlock: (() => Promise<void>) | null = null;
+try {
+    const client = files(scene.window);
+    const other = files(await extraWindow(scene, "w2"));
+    const exists = (path: string) => lstat(join(scene.project, path)).then(() => true, () => false);
+    const text = (path: string) => readFile(join(scene.project, path), "utf8");
+    const lockManifest = async () => {
+        const locks = join(scene.project, ".nbook", "locks", "files");
+        await mkdir(locks, {recursive: true});
+        const held = await holdLock(join(locks, `${createHash("sha256").update("lore.content/content.xml").digest("hex")}.lock`), (event, error) => console.log("LOCK", event, String(error)));
+        if (!held.ok) throw new Error(held.detail);
+        unlock = held.release;
+    };
+    if (kind === "identity") {
+        const id = await client.identify(["project://plain/a.md"]);
+        if (!id.ok || !("token" in id.value.items[0]!)) throw new Error("身份查询失败");
+        const expected = id.value.items[0].token;
+        await rename(join(scene.project, "plain", "a.md"), join(scene.project, "plain", "old.md"));
+        await writeFile(join(scene.project, "plain", "a.md"), "NEW");
+        console.log("SAME_TARGET", JSON.stringify(await client.move([{source: "project://plain/a.md", target: "project://plain/a.md", expected}]).result));
+        await rm(join(scene.project, "plain", "a.md"));
+        console.log("MISSING_RENAME", JSON.stringify(await client.rename("project://plain/a.md", "b.md", {expected})));
+        console.log("MISSING_DELETE", JSON.stringify(await client.delete([{address: "project://plain/a.md", expected}]).result));
+    } else if (kind === "root-rename") {
+        await lockManifest();
+        const inner = client.rename("project://lore.content/alice", "alicia");
+        await waitUntil("内层改名已提交", () => exists("lore.content/alicia"));
+        console.log("ROOT_RENAME", JSON.stringify(await other.rename("project://lore.content", "moved.content")));
+        await unlock!(); unlock = null;
+        console.log("INNER_RENAME", JSON.stringify(await inner));
+        console.log("FINAL_MANIFEST", JSON.stringify(await text("moved.content/content.xml")));
+        console.log("FINAL_CHILD", await exists("moved.content/alicia/notes.md"));
+    } else if (kind === "readonly-source") {
+        await chmod(join(scene.project, "lore.content", "content.xml"), 0o444);
+        console.log("MOVE", JSON.stringify(await client.move([{source: "project://lore.content/alice", target: "project://other.content/alice"}]).result));
+        console.log("TARGET_MANIFEST", JSON.stringify(await text("other.content/content.xml")));
+        await chmod(join(scene.project, "lore.content", "content.xml"), 0o644);
+    } else if (kind === "copy-capture") {
+        await lockManifest();
+        const inner = client.rename("project://lore.content/alice", "alicia");
+        await waitUntil("源文件已改名", () => exists("lore.content/alicia"));
+        console.log("COPY_DURING_RENAME", JSON.stringify(await other.copy([{source: "project://lore.content/alicia", target: "project://other.content/alice-copy"}]).result));
+        await unlock!(); unlock = null;
+        console.log("RENAME", JSON.stringify(await inner));
+        console.log("TARGET_MANIFEST", JSON.stringify(await text("other.content/content.xml")));
+        console.log("SOURCE_MANIFEST", JSON.stringify(await text("lore.content/content.xml")));
+    } else if (kind === "echo-duplicate" || kind === "echo-swallow") {
+        const messages: WatchMessage[] = [];
+        other.watch("project", (message) => messages.push(message));
+        await waitUntil("订阅就绪", () => messages.some((message) => message.kind === "ready"));
+        await lockManifest();
+        const pending = client.rename("project://lore.content/alice", "alicia");
+        await waitUntil("改名已提交", () => exists("lore.content/alicia"));
+        const events = () => messages.flatMap((message) => message.kind === "batch" ? message.events : []);
+        if (kind === "echo-duplicate") {
+            await waitUntil("自己的改名被误报为外部", () => {
+                scene.world.clock.advance(BATCH_DELAY_MS);
+                return events().some((event) => event.source.kind === "external" && event.path === "lore.content/alicia");
+            });
+        } else {
+            await writeFile(join(scene.project, "lore.content", "alicia", "notes.md"), "EXTERNAL");
+        }
+        await unlock!(); unlock = null;
+        console.log("RENAME", JSON.stringify(await pending));
+        await writeFile(join(scene.project, "barrier.md"), "B");
+        await waitUntil("外部屏障", () => {
+            scene.world.clock.advance(BATCH_DELAY_MS);
+            return events().some((event) => event.path === "barrier.md");
+        });
+        console.log("EVENTS", JSON.stringify(events().filter((event) => event.path !== "barrier.md")));
+        console.log("BODY", await text("lore.content/alicia/notes.md"));
+    } else if (kind === "target-parent") {
+        const locks = join(scene.project, ".nbook", "locks", "files");
+        await mkdir(locks, {recursive: true});
+        const held = await holdLock(join(locks, `tree-${createHash("sha256").update("other.content").digest("hex")}.lock`), (event, error) => console.log("LOCK", event, String(error)));
+        if (!held.ok) throw new Error(held.detail);
+        unlock = held.release;
+        const outside = join(scene.root, "outside");
+        await mkdir(outside);
+        const pending = client.move([{source: "project://lore.content/alice", target: "project://other.content/alice"}]).result;
+        await waitUntil("第一棵树锁已取得，目标已解析", () => lstat(join(locks, `tree-${createHash("sha256").update("lore.content").digest("hex")}.lock`)).then(() => true, () => false));
+        await rename(join(scene.project, "other.content"), join(scene.project, "other-kept.content"));
+        await symlink(outside, join(scene.project, "other.content"));
+        await unlock!(); unlock = null;
+        console.log("MOVE", JSON.stringify(await pending));
+        console.log("OUTSIDE_BODY", await readFile(join(outside, "alice", "notes.md"), "utf8"));
+        console.log("SOURCE_REMAINS", await exists("lore.content/alice"));
+    } else if (kind === "caller-stop") {
+        await lockManifest();
+        const pending = client.move([
+            {source: "project://lore.content/alice", target: "project://lore.content/alicia"},
+            {source: "project://plain/a.md", target: "project://plain/b.md"},
+        ]).result;
+        await waitUntil("第一项已提交", () => exists("lore.content/alicia"));
+        console.log("CALLER_CLOSE", JSON.stringify(await scene.windowLink.app.stop()));
+        console.log("CALL_RESULT", JSON.stringify(await pending));
+        await unlock!(); unlock = null;
+        await waitUntil("停止诊断", () => scene.world.diagnostics("project:P#1").query({}).records.some((record) => record.event === "files.batch.stopped"));
+        console.log("SECOND_SOURCE", await exists("plain/a.md"), "SECOND_TARGET", await exists("plain/b.md"));
+        console.log("SOURCE_MANIFEST", JSON.stringify(await text("lore.content/content.xml")));
+    } else if (kind === "copy-special-bits") {
+        await chmod(join(scene.project, "plain", "a.md"), 0o6750);
+        console.log("COPY", JSON.stringify(await client.copy([{source: "project://plain/a.md", target: "project://plain/b.md"}]).result));
+        console.log("MODES", (await lstat(join(scene.project, "plain", "a.md"))).mode & 0o7777, (await lstat(join(scene.project, "plain", "b.md"))).mode & 0o7777);
+    } else if (kind === "echo-expiry") {
+        const messages: WatchMessage[] = [];
+        other.watch("project", (message) => messages.push(message));
+        await waitUntil("订阅就绪", () => messages.some((message) => message.kind === "ready"));
+        console.log("CREATE", JSON.stringify(await client.create("project://plain/dir", "directory")));
+        await writeFile(join(scene.project, "first-barrier.md"), "B");
+        const events = () => messages.flatMap((message) => message.kind === "batch" ? message.events : []);
+        await waitUntil("第一屏障", () => {scene.world.clock.advance(BATCH_DELAY_MS); return events().some((event) => event.path === "first-barrier.md");});
+        scene.world.clock.advance(60001);
+        await chmod(join(scene.project, "plain", "dir"), 0o750);
+        await writeFile(join(scene.project, "last-barrier.md"), "B");
+        await waitUntil("末屏障", () => {scene.world.clock.advance(BATCH_DELAY_MS); return events().some((event) => event.path === "last-barrier.md");});
+        console.log("EXPIRED_EVENTS", JSON.stringify(events().filter((event) => event.path === "plain/dir")));
+    } else if (kind === "moved-limit") {
+        const folder = join(scene.project, "large");
+        await mkdir(folder);
+        await Promise.all(Array.from({length: 1001}, (_unused, index) => writeFile(join(folder, `f-${String(index)}`), "X")));
+        const messages: WatchMessage[] = [];
+        other.watch("project", (message) => messages.push(message));
+        await waitUntil("订阅就绪", () => messages.some((message) => message.kind === "ready"));
+        console.log("RENAME", JSON.stringify(await client.rename("project://large", "large-new")));
+        await waitUntil("大树失同步", () => {scene.world.clock.advance(BATCH_DELAY_MS); return messages.some((message) => message.kind === "resync");});
+        console.log("RESYNC_COUNT", messages.filter((message) => message.kind === "resync").length);
+    } else if (kind === "result-budget") {
+        const paths = Array.from({length: 1000}, (_unused, at) => "\u0001".repeat(156) + String(at).padStart(4, "0"));
+        const input = {operation: "budget-result", items: paths.map((path) => ({path}))};
+        const result = await client.delete(paths.map((path) => ({address: `project://${path}`}))).result;
+        console.log("RESULT_BUDGET", JSON.stringify({inputBytes: new TextEncoder().encode(JSON.stringify(input)).length, outputBytes: new TextEncoder().encode(JSON.stringify(result)).length, budget: 983040, ok: result.ok, length: result.ok ? result.value.items.length : -1}));
+    } else if (kind === "lock-loss") {
+        await lockManifest();
+        const pending = client.rename("project://lore.content/alice", "alicia");
+        await waitUntil("文件已提交", () => exists("lore.content/alicia"));
+        const treeLock = join(scene.project, ".nbook", "locks", "files", `tree-${createHash("sha256").update("lore.content").digest("hex")}.lock`);
+        await rm(treeLock, {recursive: true});
+        const marker = join(root, "second-lock-ready");
+        const logPath = join(root, "second-lock.txt");
+        const acquired = Bun.spawn([process.execPath, "--tsconfig-override", "packages/neuro-book/tsconfig.json", join(base, "lock-holder.ts"), treeLock, marker], {stdin: "pipe", stdout: Bun.file(logPath), stderr: Bun.file(logPath)});
+        try {
+            await waitUntil("另一个进程已持有锁", () => lstat(marker).then(() => true, () => false));
+            console.log("SECOND_OWNER", await readFile(marker, "utf8"));
+            await unlock!(); unlock = null;
+            console.log("RENAME", JSON.stringify(await pending));
+            console.log("SECOND_OWNER_LOCK_REMAINS", await lstat(treeLock).then(() => true, () => false));
+        } finally {
+            acquired.stdin.end("stop");
+            console.log("SECOND_OWNER_EXIT", await acquired.exited);
+            console.log("SECOND_OWNER_LOG", await readFile(logPath, "utf8"));
+        }
+    }
+} finally {
+    await unlock?.();
+    console.log("CLOSE", JSON.stringify(await scene.world.close()));
+    await rm(root, {recursive: true, force: true});
+}
+```
+
+</details>
+
+<details>
+<summary>budget-ws.ts</summary>
+
+<!-- repro:budget-ws.ts -->
+```typescript
+import {EventEmitter} from "node:events";
+import {mkdir, rm, symlink, writeFile} from "node:fs/promises";
+import {join} from "node:path";
+import {createApplication} from "@notnotype/nb-runtime/application";
+import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
+import {createRemoteNode} from "@notnotype/nb-runtime/remote";
+import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
+import {PROJECT_LIMIT_DEFAULTS} from "nbook/server/config";
+import {manifestServerPlugins} from "nbook/server/plugins";
+import {startServer} from "nbook/server/start";
+import {windowProjectKey} from "nbook/shared/projects";
+import {createSocketLink, RPC_MAX_MESSAGE_BYTES} from "nbook/shared/rpc-socket";
+import {encodedBytes, TEXT_BUDGET_BYTES, userFilesContract} from "nbook/plugins/files/shared/contracts";
+import {probe, probePlugin} from "nbook/plugins/files/testing/scene";
+import {filesBrowserPlugin} from "nbook/plugins/files/web/plugin";
+const root = join(process.env.NBOOK_AGENT_TEMP_ROOT!, "budget-ws-data");
+const stateRoot = join(root, "state");
+const backend = startServer({
+    config: {host: "127.0.0.1", port: 0, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
+    plugins: (context) => manifestServerPlugins(context), process: new EventEmitter(), writeFatal: console.error,
+});
+await backend.ready;
+const socket = new WebSocket(backend.rpcUrl);
+let sentCalls = 0;
+const link = createSocketLink({
+    send: (text) => {
+        if (JSON.parse(text).type === "request") {
+            sentCalls += 1;
+            console.log("ACTUAL_CALL_BYTES", new TextEncoder().encode(text).length);
+        }
+        socket.send(text);
+    },
+    close: () => socket.close(),
+});
+const closed = Promise.withResolvers<void>();
+socket.addEventListener("message", (event) => link.receive(event.data));
+socket.addEventListener("close", () => {link.closed(); closed.resolve();});
+await new Promise<void>((resolve, reject) => {
+    socket.addEventListener("open", () => resolve(), {once: true});
+    socket.addEventListener("error", () => reject(new Error("RPC 连接失败")), {once: true});
+});
+const node = createRemoteNode({instance: {id: "budget-window", kind: "browser", role: "client", project: null, client: "budget-client"}, bind: null});
+console.log("CONNECT", JSON.stringify(await node.connect(link)));
+const tester = probe();
+const quiet = {error: () => undefined};
+const app = createApplication(
+    {identity: {location: "browser", instanceId: "budget-window", client: "budget-client"}, stopSignal: new AbortController().signal, emergency: console.error},
+    {capabilities: [{id: "window.project", key: windowProjectKey, create: () => ({project: null})}], plugins: [
+        createDiagnosticsPlugin({location: "browser", store: createDiagnosticsStore({identity: {location: "browser", instanceId: "budget-window"}}), exporter: createConsoleExporterFactory(quiet), fallback: createConsoleFallback(quiet)}),
+        filesBrowserPlugin, probePlugin("x.budget", "browser", tester),
+    ], gates: [], remote: node, delegation: (plugin) => plugin === "nbook.files"},
+);
+try {
+    console.log("START", JSON.stringify(await app.startup));
+    const client = tester.files!;
+    await mkdir(join(stateRoot, "user"), {recursive: true});
+    await writeFile(join(stateRoot, "user", "keep.md"), "K");
+    const identified = await client.identify(["user://keep.md"]);
+    if (!identified.ok || !("token" in identified.value.items[0]!)) throw new Error("身份查询失败");
+    const expected = identified.value.items[0].token;
+    console.log("OVER_COUNT", JSON.stringify(await tester.remote!.use(userFilesContract).delete({operation: "count", items: Array.from({length: 1001}, (_unused, at) => ({path: `missing-${String(at)}`}))})));
+    const outputPaths = Array.from({length: 1000}, (_unused, at) => "\u0001".repeat(156) + String(at).padStart(4, "0"));
+    const outputResult = await client.delete(outputPaths.map((path) => ({address: `user://${path}`}))).result;
+    console.log("RESULT_BUDGET", JSON.stringify({inputBytes: encodedBytes({operation: "x".repeat(36), items: outputPaths.map((path) => ({path}))}), outputBytes: encodedBytes(outputResult), budget: TEXT_BUDGET_BYTES, ok: outputResult.ok, length: outputResult.ok ? outputResult.value.items.length : -1}));
+    const contentPath = `${Array.from({length: 8}, (_unused, at) => `${"d".repeat(220)}${String(at)}`).join("/")}/tree.content`;
+    const contentAbsolute = join(stateRoot, "user", contentPath);
+    await mkdir(contentAbsolute, {recursive: true});
+    await writeFile(join(contentAbsolute, "content.xml"), "<broken");
+    await symlink(contentPath, join(stateRoot, "user", "alias"));
+    await Promise.all(Array.from({length: 1000}, (_unused, at) => writeFile(join(stateRoot, "user", `src-${String(at)}`), "S")));
+    const manifestItems = Array.from({length: 1000}, (_unused, at) => ({source: `user://src-${String(at)}`, target: `user://alias/copy-${String(at)}`}));
+    const manifestResult = await client.copy(manifestItems).result;
+    console.log("MANIFEST_RESULT_BUDGET", JSON.stringify({inputBytes: encodedBytes(manifestItems), outputBytes: encodedBytes(manifestResult), budget: TEXT_BUDGET_BYTES, ok: manifestResult.ok, length: manifestResult.ok ? manifestResult.value.items.length : -1}));
+    const raw = Array.from({length: 1000}, (_unused, at) => {
+        const path = `${"p".repeat(239)}/${"q".repeat(at < 500 ? 243 : 244)}/${String(at).padStart(4, "0")}`;
+        return {source: path, target: path, expected};
+    });
+    console.log("BUDGETS", JSON.stringify({flat: encodedBytes(raw.flatMap((item) => [item.source, item.target])), full: encodedBytes({operation: "x".repeat(36), items: raw}), budget: TEXT_BUDGET_BYTES, message: RPC_MAX_MESSAGE_BYTES}));
+    const before = sentCalls;
+    console.log("MOVE", JSON.stringify(await client.move(raw.map((item) => ({...item, source: `user://${item.source}`, target: `user://${item.target}`}))).result));
+    console.log("MOVE_SENT_CALLS", sentCalls - before);
+    console.log("AFTER", JSON.stringify(await client.list("user://")));
+} finally {
+    console.log("APP_CLOSE", JSON.stringify(await app.stop()));
+    socket.close(); await closed.promise;
+    backend.requestStop("review");
+    console.log("SERVER_CLOSE", JSON.stringify(await backend.stopped));
+    await rm(root, {recursive: true, force: true});
+}
+```
+
+</details>
+
+<details>
+<summary>lock-holder.ts</summary>
+
+<!-- repro:lock-holder.ts -->
+```typescript
+import {writeFile} from "node:fs/promises";
+import {holdLock} from "nbook/backend/locked-replace";
+const lockPath = process.argv[2]!;
+const readyPath = process.argv[3]!;
+const held = await holdLock(lockPath, (event, error) => console.log(event, String(error)));
+if (!held.ok) throw new Error(held.detail);
+try {
+    await writeFile(readyPath, JSON.stringify({pid: process.pid}));
+    for await (const _chunk of Bun.stdin.stream()) break;
+} finally {
+    await held.release();
+}
+```
+
+</details>
+
+<details>
+<summary>cross-device.ts</summary>
+
+<!-- repro:cross-device.ts -->
+```typescript
+import {lstat, readFile, rm} from "node:fs/promises";
+import {join} from "node:path";
+import {filesScene, files} from "nbook/plugins/files/testing/scene";
+const root = join(process.env.NBOOK_AGENT_TEMP_ROOT!, "cross-device-data");
+const scene = await filesScene(root, {project: {"src.md": "KEEP", "disk2/seed.md": "S"}});
+const targetRoot = join(scene.project, "disk2");
+let mounted = false;
+try {
+    const mount = Bun.spawnSync(["mount", "-t", "tmpfs", "tmpfs", targetRoot]);
+    if (mount.exitCode !== 0) throw new Error(mount.stderr.toString());
+    mounted = true;
+    console.log("DEVICES", (await lstat(join(scene.project, "src.md"))).dev, (await lstat(targetRoot)).dev);
+    console.log("MOVE", JSON.stringify(await files(scene.window).move([{source: "project://src.md", target: "project://disk2/moved.md"}]).result));
+    console.log("SOURCE", await readFile(join(scene.project, "src.md"), "utf8"));
+    console.log("TARGET", await lstat(join(targetRoot, "moved.md")).then(() => true, () => false));
+} finally {
+    console.log("CLOSE", JSON.stringify(await scene.world.close()));
+    if (mounted && Bun.spawnSync(["umount", targetRoot]).exitCode !== 0) throw new Error("卸载实验 tmpfs 失败");
+    await rm(root, {recursive: true, force: true});
+}
+```
+
+</details>
+
+## 未发现问题的方面
+
+- **排他与静态路径边界，已运行验证**：Linux 上目标为既有文件、空目录、悬空链接时不覆盖；源/目标控制目录及链接别名拒绝，根本身不能作为目录项操作对象。改名与删除根外链接只影响链接项，复制保留链接原文，不复制根外内容。具体竞争窗口例外见 C7。
+- **跨设备与复制/删除事实，已运行验证**：独立 user/mount namespace 内真实 tmpfs 的设备号为 `51` 与 `65`；移动返回逐项 `unsupported`，源仍是 `KEEP`，目标不存在。文件复制保留字节和权限位，另测 `0o6750` 得到源/目标均 `3560`；FIFO 导致 `unsupported` 与残留范围，只读删除拒绝、递归遇错停下并报告最外层已删范围。
+- **批量预处理与结果对齐，已运行验证**：按目录项去重、目录覆盖、链接别名去重、同 inode 两个硬链接名分别处理；普通同目标移动无事件、复制同目标冲突、后代目标拒绝、单项失败后独立项继续。1000 项结果与输入对齐；源身份的两处例外见 C5。直接合同调用 1001 项在 schema 边界为 `invalid-input`，未将其误记为业务执行后的 `too-large`。
+- **清单非并发路径，已运行验证**：正常改名与跨树移动/复制保留展示名和嵌套条目；清单注释、声明与顺序由有序编辑保留；无效或只读清单不覆盖，转换来回保留已有清单；树锁超时报告 `busy`。并发和源清单写失败的例外见 C1–C3、C9。
+- **停止、取消与代次，已运行验证**：业务取消只命中同一调用方，在途 id 重复为 `busy`，别的窗口取消不到；当前项按真实结果结算，后续项按取消、根消失或停止分别处理。提供入口与真实项目子进程停止等待当前项结束。补测调用方入口停止得到 `unknown-outcome/cancelled`，放锁后当前项清单完成，第二项源保留、目标不存在。
+- **事件常规收口，已运行验证**：来源按调用方归属、控制目录隐藏、订阅释放后不复活、根消失结束、断线重连 resync 的既有测试通过。推进超过 60000 ms 后外部 chmod 仍发出外部变化；移动含 1001 个子文件的目录得到一次 resync。锁等待期间的回声例外见 C4。
+
+## 各级数量
+
+| 严重程度 | 数量 | 编号 |
+|---|---:|---|
+| 阻断 | 2 | C7、C6 |
+| 重要 | 7 | C9、C1、C2、C3、C4、C5、C8 |
+| 建议 | 0 | 无 |
+| 合计 | 9 | 均有真实运行证据 |
+

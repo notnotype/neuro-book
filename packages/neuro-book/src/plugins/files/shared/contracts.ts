@@ -135,7 +135,8 @@ export type OperationDone = Static<typeof DoneSchema>;
 
 /** 部分完成的范围：路径装不下一条消息时清空并标 `truncated`，调用方重新列出核对。 */
 const RangeSchema = Type.Object({paths: Type.Array(Type.String()), truncated: Type.Boolean()}, {additionalProperties: false});
-const Manifests = Type.Optional(Type.Array(ManifestIssueSchema, {maxItems: 2}));
+/** 这一项涉及的、没改成的清单：批量结果里清单表的下标。 */
+const Manifests = Type.Optional(Type.Array(Type.Integer({minimum: 0}), {maxItems: 2}));
 
 /** 批量的一项结果，与输入按下标对齐（docs/specs/workspace/files.md 的“逐项结果”）。 */
 const ItemResultSchema = Type.Union([
@@ -153,7 +154,11 @@ const ItemResultSchema = Type.Union([
 ]);
 export type ItemResult = Static<typeof ItemResultSchema>;
 
-const BatchSchema = Type.Object({items: Type.Array(ItemResultSchema)}, {additionalProperties: false});
+/**
+ * 批量结果：逐项结果，加上没改成的清单表（按清单去重，项里只放下标）。`truncated` 表示结果装不进一条消息、清单表被省略，
+ * 调用方重新列出核对。
+ */
+const BatchSchema = Type.Object({items: Type.Array(ItemResultSchema), manifests: Type.Array(ManifestIssueSchema), truncated: Type.Optional(Type.Literal(true))}, {additionalProperties: false});
 export type BatchResult = Static<typeof BatchSchema>;
 
 const Expected = Type.Optional(Type.String());
@@ -215,9 +220,10 @@ const events = {changes: {filter: Type.Object({}, {additionalProperties: false})
 
 const CALLERS = ["browser", "tui", "project", "server"];
 
-export const projectFilesContract = defineRemoteService({id: "nbook.files/project", version: 1, provider: "project", callers: CALLERS, methods, events});
+/** 版本 2：t69 加了文件操作与 `renamed` 事件（版本 1 的订阅方会丢掉改名事件）。 */
+export const projectFilesContract = defineRemoteService({id: "nbook.files/project", version: 2, provider: "project", callers: CALLERS, methods, events});
 
-export const userFilesContract = defineRemoteService({id: "nbook.files/user", version: 1, provider: "server", callers: CALLERS, methods, events});
+export const userFilesContract = defineRemoteService({id: "nbook.files/user", version: 2, provider: "server", callers: CALLERS, methods, events});
 
 export type FilesContract = typeof projectFilesContract | typeof userFilesContract;
 

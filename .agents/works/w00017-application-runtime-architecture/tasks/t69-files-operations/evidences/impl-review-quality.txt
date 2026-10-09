@@ -1,0 +1,124 @@
+# w00017 t69 实现审查：代码质量与架构
+
+审查 checkout：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-impl-quality`，固定提交 `06d78a55`。
+
+审查范围：S0–S4 与 `fitBudget` 改名；结构、依赖、类型、错误处理、注释与合同演进。t68 的已有行为只核对兼容与被影响的边界；2026-10-09 pending-confirmations 中推荐先做的决定视为既定取舍。
+
+结论：阻断 **0**、重要 **7**、建议 **1**。其中 6 条重要发现经真实运行时复现，Q07 为代码推断，Q01 为静态结构建议；以下按影响排序，保留核实时分配的编号。
+
+## 发现
+
+### Q02（重要）源清单只读时，跨内容树移动丢失可读取的展示信息与条目子树
+
+- **类别**：正确性／架构。
+- **位置**：`packages/neuro-book/src/plugins/files/backend/batch.ts:175–186`；`packages/neuro-book/src/plugins/files/backend/operations.ts:82–126`。
+- **现象**：移动在文件已经提交之后，才通过 `editManifest(remove)` 的返回值取得要携带的条目；源清单写不进时返回 `issue`，其中不保留已读到的 `removed`。目标因此插入 `plainItem`，没有源条目的 `title`、`icon` 和嵌套展示信息。
+- **为什么是问题**：源清单只读是允许的部分完成，不能把源元数据也当成不可读。文件与子目录已经成功移动，目标清单也成功写入，却静默丢掉内容树的展示名与子树；调用方只收到“源清单只读”，不知道目标元数据已经被丢弃。
+- **依据**：`docs/specs/workspace/folder-kinds.md:73` 要求条目子树随目录搬，`:102` 要求两份清单分别报告失败；计划 `plan.md:72–74` 同一合同。真实服务端／项目／浏览器内核，通过 `filesKey` 门面运行 `quality-smoke.ts` 的 `readonly-source`：源合法清单有 `bob(title=鲍勃, icon=person)` 与 `sword(title=宝剑)`，仅 `chmod 0444`；移动返回 `done` 并只报告源清单失败，目标清单实际为 `<content>\n  <item name="bob"/>\n</content>\n`，目标列出没有展示名，磁盘子正文仍为 `SWORD`，源清单字节不变。三实例均 `closed`，临时数据已删除。
+- **建议改法**：在已有操作锁内、文件提交前读取并捕获源条目，独立于源清单的删除成功与否；两侧更新分别报告。复用复制所需的条目捕获逻辑，让元数据的读取与写入结果解耦，不增加补救写入或回滚路径。
+
+### Q05（重要）批量发出前只量路径数组，合法身份令牌让实际请求超限并断开窗口
+
+- **类别**：正确性／合同。
+- **位置**：`packages/neuro-book/src/plugins/files/web/client.ts:37–43,88–90,259–272`；`packages/neuro-book/src/plugins/files/backend/batch.ts:247–254`。
+- **现象**：客户端 `sameScheme` 只计算扁平 `paths` 的 JSON 字节，没有计算实际 `{operation, items}`、对象键与 `expected`。提供者仅检查 `items`，且已在 WebSocket 收到后执行，无法阻止传输先断开。
+- **为什么是问题**：路径本身都合法、项数不超 1000、令牌确实由 `identify` 签发，却可能由“发出前确定的 too-large”变成写请求 `unknown-outcome/disconnected`，同窗口之后的查询也失败。64 KiB 包络余量被逐项字段占掉，预算检查没有覆盖它声称保护的请求。
+- **依据**：`docs/specs/workspace/files.md:89`、计划 `plan.md:67,91` 要求输入 JSON 预算超限不发出；`runtime/plugin-channel.md:88–92,115` 给出断线和 1 MiB 上限。`socket-smoke.ts` 使用生产 `startServer`、真实 RPC WebSocket、真实浏览器内核和 `FilesService`：1000 个复制项，源 488 字节、目标 489 字节，每段至多 220 字节，`expected` 为真实 `identify` 的 32 位令牌；路径数组 **983001 B**（小于 **983040 B**），实际业务输入 **1049062 B**，发出的真实帧 **1049431 B**（超过 **1048576 B**）。结果实际为 `unknown-outcome`、`cause: disconnected`；下一次读取为 `unavailable/disconnected`。源仍为 `SOURCE`、目标不存在。服务端退出 0、窗口收口、数据清理。
+- **建议改法**：先一次性生成实际远程输入，再按这份输入的 JSON 字节数检查并发送，双方用同一算法；避免先扁平化地址再按下标重建对象。这同时减少 `as string`、临时数组与遗漏字段的机会，不增加新的消息通道。
+
+### Q04（重要）复制捕获源条目时没有取得内容树操作锁
+
+- **类别**：不变量／架构。
+- **位置**：`packages/neuro-book/src/plugins/files/backend/batch.ts:198–215`，模块注释 `:7–8`。
+- **现象**：`copy` 直接 `recheck`、`sourceItem`、`copyEntry`；唯一的 `locked` 只覆盖目标清单插入。源条目捕获没有取源内容树锁，目标文件排他提交也在目标锁之外。
+- **为什么是问题**：计划为复制保留了“捕获源条目和最后提交时持锁，复制过程不持锁”的规则；实现只保留最后的清单写锁。复制可以在另一个清单编辑持有源操作锁时读出旧条目，绕过已定的顺序保证。与改名／删除交错时是否造成更多丢失，本轮未单独复现，不扩张结论。
+- **依据**：`docs/specs/workspace/folder-kinds.md:75`、计划 `plan.md:73`、pending-confirmations `:43` 明确源捕获持锁。`quality-smoke.ts` 的 `copy-source-lock` 在真实运行时用真实清单写锁挡住 `display`，等磁盘上的 `treeLockName("lore.content")` 出现确认源操作锁已被其持有；锁释放前，窗口的 `copy(bob → other.content/bob-copy)` 已返回 `done`，目标清单带旧展示名“鲍勃”，`sourceTreeLocked:true`；之后释放写锁，`display` 完成，源变为“新展示名”。三实例均 `closed`、实验清理。
+- **建议改法**：与移动复用一个锁内源条目捕获步骤；长复制过程放在锁外，最后提交和目标清单／事件在目标锁内。明确区分文件的暂存与排他提交，避免让 `copyEntry` 同时隐藏这两个阶段而使上层无法遵守既定锁合同。
+
+### Q08（重要）新增 renamed 事件仍用版本 1，t68 订阅方接受连接后丢弃改名通知
+
+- **类别**：合同演进／兼容性。
+- **位置**：`packages/neuro-book/src/plugins/files/shared/contracts.ts:196–199,218–220`。
+- **现象**：t69 给 `changes` 的事件集合加 `renamed` 与必需的 `from`，两份远程合同仍为版本 1。t68 的版本 1 事件 schema 只接受 `created`、`changed`、`deleted`，并拒绝额外字段。
+- **为什么是问题**：增加方法不影响旧的 `list/read/write`，但扩大提供方会推送的判别联合会破坏旧事件消费者。版本相同让旧窗口通过订阅，随后新事件被其运行时 schema 丢弃；没有变更通知或 `resync`，窗口的旧路径状态可以持续陈旧。版本号不能再识别这次不兼容变化。
+- **依据**：`docs/specs/runtime/plugin-channel.md:50,53` 要求严格 schema 与合同版本整数精确匹配。旧 schema 已与 t68 收口基线 `4e96ef3f` 比对。`compat-smoke.ts` 经生产 `startServer`、真实 WebSocket 和浏览器内核，用原 t68 的版本 1 事件 schema 订阅：收到 `ready`，新门面 `rename(legacy-a.md → legacy-b.md)` 返回成功；旧节点记录 `payload-invalid`，消息只含后续外部屏障 `barrier.md` 的 `changed`，没有改名或 `resync`。旧 `read(legacy-b.md)` 仍成功返回 `LEGACY`，证明不是整体连接失败。窗口 `closed`、服务端退出 0、数据清理。
+- **建议改法**：将这次不兼容的两份合同统一升到版本 2，迁移本仓库所有消费者；旧调用方收到明确 `version-changed` 后重载。保留精确 `renamed` 语义，无需兼容别名、旧合同并行提供或客户端猜测事件。
+
+### Q06（重要）结果压缩只处理 partial，含清单失败的结果仍超过预算
+
+- **类别**：正确性／合同。
+- **位置**：`packages/neuro-book/src/plugins/files/backend/batch.ts:145–154,266–276`。
+- **现象**：`fitBudget` 超限后仅改 `status: failed` 的 `partial`；`done.manifests` 完全不处理。清单路径不截断，`detail` 固定 200 个字符仍不足以保证 1000 项装进消息；同一内容树内移动还会在每项重复两份同路径清单 issue。
+- **为什么是问题**：函数名、注释和已定合同承诺结果适配预算，但有效运行结果超限后原样返回。这不是仅有“理论最坏值”：普通长路径、1000 个文件和一份不合法清单就能触发。当前 Bun WebSocket 客户端收到了大结果，因此本轮不声称返回方向已断线；已证明结果预算与压缩保证未实现。
+- **依据**：`docs/specs/workspace/files.md:89`、计划 `plan.md:67`；`batch.test.ts:235–242` 仅测试含 `partial.residual` 的失败结果。`quality-smoke.ts` 和生产真实 WebSocket 的 `socket-smoke.ts` 都经窗口门面运行：1000 项同树移动，合法路径约 300 字节，清单 `<content><item/></content>`；业务输入 **639842 B**，1000 个文件都实际移走；返回成功值 **1144011 B**，真实结果帧 **1144069 B**，均超过 **983040 B** 预算与 **1048576 B** 单消息上限。每项为 `done` 且含重复的清单 invalid issue，没有 `partial`，`fitBudget` 不作修改。服务与窗口正常收口，数据清理。
+- **建议改法**：在唯一结果归一化处对整个实际结果做预算处理，先合并同项重复清单 issue，再按实际剩余字节压缩所有 detail 和范围；仍超限时用合同规定的可重新核对表示，不能只假定固定字符数一定够。若清单路径占据主要大小，可在当前内部合同调整时一次性去重并以结构化引用表达，避免引入结果存储系统。
+
+### Q03（重要）清单编辑把锁超时等 I/O 失败改报权限错误，并丢弃诊断原因
+
+- **类别**：正确性／错误处理。
+- **位置**：`packages/neuro-book/src/plugins/files/backend/operations.ts:114–118,172–177`。
+- **现象**：`editManifest` 将 `RootedFailure` 压成不含 `code`／`cause` 的 `ManifestIssue`；`manifestOnly` 再把所有 `status: failed` 返回成 `permission-denied`。这条路径也没有调用 `diagnose`。
+- **为什么是问题**：清单锁一直被占、磁盘 I/O 失败与只读不是同一种失败，调用方恢复行为不同。丢掉原始 cause 后，维护者只看到泛化的“保存失败”，无法知道是占锁还是系统错误。t68 `files-service.ts:68–70,82` 会保留业务失败码并将 cause 记入诊断，新增路径退化。
+- **依据**：`docs/specs/workspace/resources.md:101–123` 要求可区分失败及原样传递；`docs/standards/code/languages/typescript.md:9` 要求保留底层原因。`quality-smoke.ts` 的 `manifest-failure-code` 经真实三实例与窗口门面，用真实 `holdLock` 占住 `content.xml` 写入锁：`display` 实际返回 `{ok:false, code:"permission-denied", detail:"保存 lore.content/content.xml 失败"}`，文件仍可写；同样条件下 `create` 完成文件并报告清单失败；项目诊断中 `files.*` 记录为 `[]`。三实例均 `closed`、锁释放、数据清理。不是伪造异常。
+- **建议改法**：在清单写入的内部结果中保留 `RootedFailure`；只改清单的方法用同一失败适配返回原 code，伴随文件操作的方法转换成公开 `ManifestIssue`。转换时在拥有 I/O 的一处记录 cause，不增加第二套错误码或按文案判断。
+
+### Q07（重要，代码推断）FFI 不可用与文件复制的原生失败没有维持同一个失败合同
+
+- **类别**：错误处理／平台封装。
+- **位置**：`packages/neuro-book/src/plugins/files/backend/exclusive.ts:19–21,55–94`；`packages/neuro-book/src/plugins/files/backend/entry-ops.ts:113–127`。
+- **现象**：`load()` 中三平台 `dlopen` 与符号解析异常没有转成 `ExclusiveRename`；有这些异常时 `renameNoReplace` 直接抛出。即使原语正常返回失败，`copyFileAtomically` 也只保留 `exists`，把 `unsupported`、`denied`、`missing` 等全部改报 `io-failed`，与 `moveEntry` 的穷尽分派不同。
+- **为什么是问题**：计划已经决定 FFI 不可用为 `unsupported`，不是泛化的 `provider-error`。文件复制已产生同目录临时文件后才调用原语，加载时抛错还会越过 `cleanUp`，造成未报告的临时残留；正常返回 `unsupported` 时又被改报 I/O 失败。Linux 写死 `libc.so.6` 对未有该库／符号的环境会进入此路径；本轮没有该平台条件，不把它说成已实测。
+- **依据**：计划 `plan.md:14,135`、`docs/specs/workspace/files.md:81`、`resources.md:118,121`；源码 `entry-ops.ts:65–78` 证明已有正确的原语结果映射，而 `:126` 丢弃它；真实远程异常的处理在 `packages/nb-runtime/src/remote/node.ts:817–819` 统一为 `provider-error`。Linux 普通路径的真实排他测试通过；缺库、缺符号、macOS、Windows 不可用路径未运行，本条后果明确为代码推断。
+- **建议改法**：在原生加载的拥有位置捕获加载／解析失败，缓存一个带结构化原因的 `unsupported` 结果并记录诊断，避免每个请求重复加载；让移动和文件复制复用一份穷尽失败映射，复制的清理放在始终会执行的收尾路径。保留系统排他改名，不增加覆盖式降级。
+
+### Q01（建议）单项与批量各自拥有同一套项执行编排
+
+- **类别**：代码质量／架构。
+- **位置**：`packages/neuro-book/src/plugins/files/backend/operations.ts:138–169,253–273`；`packages/neuro-book/src/plugins/files/backend/batch.ts:125–155,165–195`。
+- **现象**：`recheck`、`locked`、清单结算在两文件各实现一次；同目录改名与批量移动也分别编排源身份、排他移动、清单、回声和事件。`batch.ts:23–24` 同时反向借用单项入口文件中的 `TreePlace`、`ManifestWrite`、`editManifest` 等底座知识。
+- **为什么是问题**：批量真正新增的是预处理、逐项执行、取消与结果预算，不需要另一份文件提交政策。现在修改锁范围、身份规则或清单部分完成需要同步修改两个实现，且清单机制与单项门面混放，维护者不能只在拥有该规则的一处修改。
+- **依据**：静态逐行核对，两份 `locked` 的取锁／finally 释放完全相同，`recheck` 都比较 `expected ?? entryToken(首次状态)`，结算都向事件和 `written` 追加同一形状。`docs/standards/code/common.md:7,19,32` 要求抽象减少真实重复、原因归拥有它的位置、按职责组织；`docs/specs/workspace/folder-kinds.md:73–75` 给单项与批量同一维护和锁合同。未据此单独断言运行错误。
+- **建议改法**：收拢成一个项执行入口，拥有“锁内重查 → 文件提交 → 清单结算 → 回声与事件”；单项方法只构造操作意图，`batch` 只负责去重、循环和取消。可直接合并现有 `operations.ts` 与 `batch.ts` 的项实现，不必增加新的通用操作框架；清单位置与编辑结果不再由单项门面文件向批量泄漏。
+
+## 本轮验证与限制
+
+所有命令在审查 worktree 根运行。执行代码时 `NBOOK_AGENT_TEMP_ROOT` 均为 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/quality/`；生产服务实验的 HTTP／RPC 端口均为 `0`，由系统分配。未修改产品源码，未提交、推送、暂存或切换分支；依赖安装按任务授权执行。
+
+| 实际命令 | 本轮结果 |
+|---|---|
+| `prox bun install --frozen-lockfile --ignore-scripts` | Bun `1.4.2 (744846f84)`，安装 1568 packages，成功 |
+| `bun run --cwd packages/neuro-book test:bun src/plugins/files/operations.test.ts src/plugins/files/batch.test.ts src/plugins/files/backend/entry-ops.test.ts src/plugins/files/backend/exclusive.test.ts src/plugins/files/files.test.ts src/plugins/files/changes.test.ts src/plugins/files/transport.test.ts` | **72 pass、0 fail、519 expect() calls**，7 个文件，`8.73s` |
+| `bun run --cwd packages/neuro-book test:bun src/architecture.test.ts src/plugins/files/project-child.test.ts -t '包内依赖方向\|经窗口对子进程\|项目子进程收到停止'` | **5 pass、3 filtered out、0 fail、30 expect() calls**，2 个文件，`807.00ms` |
+| `bun run --cwd packages/neuro-book typecheck` | `tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json`，退出 0 |
+| `bun --tsconfig-override packages/neuro-book/tsconfig.json <实验目录>/quality-smoke.ts` | 真实三实例／窗口门面的 4 场景完成：源清单只读、真实清单锁超时、源操作锁内交错、1000 项结果预算；每场景三实例均 `closed` |
+| `bun <实验目录>/socket-smoke.ts` | 生产服务与真实 WebSocket 证实 Q05、Q06；最后旧合同诊断探针误查独立诊断存储而超时，脚本退出 1；`finally` 完成两窗口与服务收口、服务退出 0。未将这次探针失败算成产品缺陷 |
+| `bun <实验目录>/compat-smoke.ts` | 改用 `RemoteNode.diagnostics()` 的公开快照，真实旧合同订阅场景完成，证实 Q08；退出 0，窗口 `closed`、服务退出 0 |
+
+`quality-smoke.ts` 退出时 Bun 额外打印 `Internal error: directory mismatch … tsconfig.json … You don't need to do anything, but this indicates a bug.`；场景已完成，作为工具异常报告，未计入产品发现。LSP 返回 `No language servers configured for this project`，引用关系按已知符号检索核对。
+
+未运行全量测试、完整浏览器 E2E、`smoke:server`、变异检查或真实模型；作者交付记录中的 634、101 与变异数量不属于本轮验证。macOS、Windows、缺库／缺符号条件与 inode 复用条件未实测。审查没有 UI 改动，浏览器侧证明限于真实窗口内核和 WebSocket 门面，不包含可视界面验收。
+
+临时脚本只在任务指定目录创建；运行时数据均由各场景的 `finally` 关闭并删除。报告保留复现所需的输入形状、实际结果与命令；临时脚本、别名配置和依赖软链已清理，启动器原有的 `brief.md`、`omp.out`、`agent/` 保留。
+
+## 未发现问题的方面
+
+- **依赖方向**：本轮架构测试通过。FFI 和真实文件系统留在后端，`shared` 与浏览器没有导入后端原语；没有产品代码引用 `testing/`。批量从单项入口借底座知识的职责问题另见 Q01。
+- **排他与根边界的常规路径**：本轮相关测试通过，Linux 上目标碰撞不覆盖、链接作为目录项处理、控制目录拒绝、真实路径的自身／后代判定与源身份拒绝有真实文件系统证据。没有把已接受的跨设备限制或外部不守锁进程的竞态窗口作为问题。
+- **批量句柄与寿命**：`{result, cancel()}` 保存同一方案和操作 id，不需调用方另存 id；取消表按消费者隔离，重复在途 id 为 `busy`，结算后 `finally` 删除。已有真实测试覆盖当前项结算、后续项停止、断线结果未知和项目子进程停止；本轮均通过。`tracked` 等执行方 `termination`，没有把等待方取消当成执行结束。
+- **错误码分支与调用方路径**：已读新增代码按 `code`／原语 `reason` 分支，没有按错误文案决定程序行为。通常的系统原文由 `cause` 进入诊断，公开 detail 使用根内相对路径；本轮门面结果未见宿主绝对路径泄露。清单路径丢原因、FFI 非正常路径另见 Q03、Q07。
+- **类型断言**：没有确认新的类型断言本身造成运行错误。远程 detail 有运行时 schema 门禁；大部分索引断言有长度／查找判定；有序 XML 树的断言集中在库边界。`tracked` 的闭包赋值与双断言可简化，但完成／失败的运行时不变量成立，不另列低价值发现。
+- **注释、命名与 t68 风格**：多数模块注释解释为什么排他提交、为什么跨进程锁、为什么保存 hash／目录身份回声，与 t68 的风格一致。复制锁范围的注释已与合同偏离、预算注释的“一定装得下”已被实测否定，分别并入 Q04、Q06，不另列措辞意见。
+- **ChangeHub 的范围**：新增的 `OperationChange` 仅在后端使用；实际回声匹配、后代遍历、超限 `resync` 仍由 hub 拥有，没有泄漏到远程 schema。`events/absent/present/moved/written` 五组平行信息使项执行者知道回声细节，建议随 Q01 的收拢在拥有边界一次生成；本轮未确认由接口宽度本身导致独立故障。
+- **旧方法的兼容**：t68 的 `list/read/write` 入出形状保持，真实旧合同 `read` 仍成功；不兼容的是事件 payload，已单列 Q08。
+
+## 各级数量
+
+| 严重程度 | 数量 | 编号 |
+|---|---:|---|
+| 阻断 | 0 | — |
+| 重要 | 7 | Q02、Q05、Q04、Q08、Q06、Q03、Q07（代码推断） |
+| 建议 | 1 | Q01 |
+| 合计 | 8 | 6 条真实运行时发现，1 条代码推断，1 条结构建议 |
+
+回写分类：产品问题与相关测试缺口已在各条建议中给出；本轮探针超时和 Bun 异常属于实验／工具问题，不建议新增治理规则。只读审查未回写仓库规范。
+
