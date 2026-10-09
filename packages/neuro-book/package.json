@@ -45,6 +45,7 @@
         "happy-dom": "^20.11.2",
         "json-editor-vue": "^0.18.1",
         "marked": "^17.0.3",
+        "monaco-editor": "^0.55.1",
         "the-new-css-reset": "^1.11.3",
         "typescript": "^6.0.3",
         "unocss": "^66.7.5",

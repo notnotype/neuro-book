@@ -4,7 +4,7 @@
  * 文件），绑定项目的窗口先读会话记录。
  */
 
-import {computed, defineComponent, h} from "vue";
+import {computed, defineAsyncComponent, defineComponent, h} from "vue";
 import type {Component, PropType} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -90,7 +90,9 @@ export const editorBrowserPlugin: PluginDefinition = {
             const area: EditorAreaImplementation = {
                 load: async (): Promise<Component> => {
                     const [{default: EditorArea}, {default: PlainTextControl}] = await Promise.all([import("./components/EditorArea.vue"), import("./components/PlainTextControl.vue")]);
-                    const controls: Readonly<Record<EditorKind, Component>> = {markdown: PlainTextControl, code: PlainTextControl};
+                    // 源码编辑器（Monaco）第一次挂上源码控件时才加载，首屏不含它。
+                    const MonacoControl = defineAsyncComponent(() => import("./components/MonacoControl.vue"));
+                    const controls: Readonly<Record<EditorKind, Component>> = {markdown: PlainTextControl, code: MonacoControl};
                     const control = (kind: EditorKind): Component => controls[kind];
                     return defineComponent({
                         name: "EditorAreaHost",

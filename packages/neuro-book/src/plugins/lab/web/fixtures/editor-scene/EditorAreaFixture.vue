@@ -6,7 +6,7 @@
  */
 import {SegmentedControl} from "@notnotype/nb-ui/components";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
-import {computed, onBeforeUnmount} from "vue";
+import {computed, defineAsyncComponent, onBeforeUnmount} from "vue";
 import type {Component} from "vue";
 
 import {createEditorArea} from "nbook/plugins/editor/web/area";
@@ -46,7 +46,8 @@ if (props.scene === "split") {
     area.open("project://notes/设定.json", {mode: "permanent"});
 }
 
-const control = (_kind: EditorKind): Component => PlainTextControl;
+const MonacoControl = defineAsyncComponent(() => import("nbook/plugins/editor/web/components/MonacoControl.vue"));
+const control = (kind: EditorKind): Component => (kind === "code" ? MonacoControl : PlainTextControl);
 
 const active = computed(() => area.activeDocument.value?.target.value.path ?? null);
 const externalWrite = (): void => {
