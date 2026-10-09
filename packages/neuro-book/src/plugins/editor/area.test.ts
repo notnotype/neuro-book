@@ -4,7 +4,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
-import {readFile, rm} from "node:fs/promises";
+import {readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
@@ -96,6 +96,19 @@ describe("Spec workbench.editor 输出 6–8：打开与切换", () => {
         await ready(at);
         expect(at.area.groups.activeTab()?.address).toBe("project://b.md");
         expect(at.area.binding(groupId(at))?.document.text.value).toBe("B");
+    });
+
+    it("preview 连续替换多于保留上限：换下的视图状态随标签释放，不再进最近列表，切换照常", async () => {
+        const at = await world();
+        for (let index = 1; index <= 6; index += 1) await writeFile(join(at.scene.project, `p${String(index)}.md`), `P${String(index)}`);
+        for (let index = 1; index <= 6; index += 1) {
+            at.area.open(`project://p${String(index)}.md`, {mode: "preview"});
+            await until(at, `p${String(index)} 就绪`, () => at.area.binding(groupId(at))?.document.text.value === `P${String(index)}`);
+        }
+        at.area.open("project://a.md", {mode: "permanent"});
+        await ready(at);
+        expect(at.area.binding(groupId(at))?.document.text.value).toBe("A");
+        expect(at.area.groups.groups.value[0]?.tabs.map((tab) => tab.address)).toEqual(["project://p6.md", "project://a.md"]);
     });
 
     it("读取失败：没有绑定，文档带原因；进度条不显示", async () => {

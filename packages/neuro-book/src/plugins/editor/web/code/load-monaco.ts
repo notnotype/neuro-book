@@ -22,6 +22,12 @@ export function loadMonaco(): Promise<MonacoApi> {
             import("monaco-editor/esm/vs/editor/editor.worker.js?worker"),
             import("monaco-editor/esm/vs/language/json/json.worker.js?worker"),
         ]);
+        // 语言服务在模型释放后取消在途的请求，用 Monaco 自己的取消错误（名字与消息都是 "Canceled"）reject，没有人接，
+        // 页面上就多一条未处理的拒绝。取消不是失败（VS Code 的 onUnexpectedError 同样忽略它）：只认这一种，其余照常报出。
+        window.addEventListener("unhandledrejection", (event) => {
+            const reason: unknown = event.reason;
+            if (reason instanceof Error && reason.name === "Canceled" && reason.message === "Canceled") event.preventDefault();
+        });
         // JSON 的语言服务要自己的 worker，其余走通用的 editor worker。
         globalThis.MonacoEnvironment = {
             getWorker: (_moduleId: string, label: string) => (label === "json" ? new jsonWorker.default() : new editorWorker.default()),

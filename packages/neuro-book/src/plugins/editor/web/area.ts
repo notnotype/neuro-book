@@ -175,13 +175,14 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     };
 
     const dropSlot = (key: string): void => {
-        const slot = slots.get(key);
-        if (slot === undefined) return;
-        slots.delete(key);
+        // 先从最近列表里摘掉：淘汰循环靠它让列表变短，槽已经不在时也要摘。
         for (const list of recent.values()) {
             const index = list.indexOf(key);
             if (index >= 0) list.splice(index, 1);
         }
+        const slot = slots.get(key);
+        if (slot === undefined) return;
+        slots.delete(key);
         try {
             slot.dispose?.();
         } catch (error) {
@@ -191,6 +192,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
 
     /** 换下来的视图状态进最近列表；超出上限时淘汰最早的、确定 clean 的那一份。 */
     const retire = (groupId: string, kind: EditorKind, key: string): void => {
+        // 换下的绑定的槽可能已经随标签释放（preview 被替换）：没有槽就没有可保留的视图状态。
+        if (!slots.has(key)) return;
         const listKey = `${groupId}|${kind}`;
         const list = recent.get(listKey) ?? [];
         const at = list.indexOf(key);
@@ -334,12 +337,21 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     }
 
     const activeDocument = computed(() => documentOf(groups.activeGroup.value));
-    /** 活动视图的控件还没挂上（例如换了一种编辑器）：挂上时再聚焦。 */
+    /**
+     * 把焦点交给活动视图。布局变化（关闭组、拆分）会让 grid 重挂控件：现在聚焦的可能是马上被拿下的那个 DOM，所以活动视图
+     * 的控件在同一个任务里重新登记时再聚焦一次；控件还没挂上（例如换了一种编辑器、Monaco 还在加载）就等它登记。只聚焦
+     * 活动视图：其它组的控件重挂不抢焦点，也就不会把活动组改掉。
+     */
     let focusWhenReady = false;
+    let refocusOnRemount = false;
     const focusActive = (): void => {
         const handle = activeHandle.value;
         if (handle !== null) handle.focus();
         else focusWhenReady = groups.activeTab() !== null;
+        refocusOnRemount = true;
+        options.clock.schedule(() => {
+            refocusOnRemount = false;
+        }, 0);
     };
     const activeHandle = computed(() => {
         const group = groups.groups.value.find((candidate) => candidate.id === groups.activeGroup.value);
@@ -466,8 +478,11 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         split: (direction) => {
             const tab = groups.activeTab();
             if (tab === null) return {ok: false, reason: "没有活动标签"};
+            const hadFocus = focused.value;
             const created = groups.split(tab.id, direction);
             if (created === null) return {ok: false, reason: "不能再拆分"};
+            // 焦点在编辑器区时交给新组（新组是活动组）。
+            if (hadFocus) focusActive();
             return {ok: true};
         },
         reopenWith: (editor) => {
@@ -512,7 +527,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (handle === null) next.delete(`${groupId}|${kind}`);
             else next.set(`${groupId}|${kind}`, handle);
             handles.value = next;
-            if (focusWhenReady && handle !== null && activeHandle.value === handle) {
+            if ((focusWhenReady || refocusOnRemount) && handle !== null && activeHandle.value === handle) {
                 focusWhenReady = false;
                 handle.focus();
             }

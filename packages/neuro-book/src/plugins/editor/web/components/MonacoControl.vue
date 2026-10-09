@@ -10,7 +10,7 @@ import {buildMonacoTheme, MONACO_THEME} from "../code/monaco-theme";
 import type {EditorControlEmits} from "../control";
 import {mergeSource} from "../markdown/source-merge";
 
-// `host`：撤销栈在模型里、模型在视图状态槽里，重挂只重建编辑器实例；槽里只记卸载时焦点是否在编辑器里，重挂后还给它。
+// `host`：撤销栈在模型里、模型在视图状态槽里，重挂只重建编辑器实例，不需要把实例留在组的实例槽。
 const props = defineProps<{binding: ViewBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string}>();
 const emit = defineEmits<EditorControlEmits>();
 
@@ -183,11 +183,6 @@ onMounted(async () => {
     themeObserver.observe(document.documentElement, {attributes: true, attributeFilter: ["style", "class", "data-nb-appearance", "data-nb-theme"]});
     if (props.binding !== null) enter(props.binding);
     emit("ready", handle);
-    const kept = props.host.state as {refocus: boolean} | null;
-    if (kept?.refocus === true) {
-        kept.refocus = false;
-        editor.focus();
-    }
 });
 
 watch(() => props.label, (label) => editor?.updateOptions({ariaLabel: label}));
@@ -196,7 +191,6 @@ onBeforeUnmount(() => {
     unmounted = true;
     if (props.binding !== null) leave(props.binding);
     themeObserver?.disconnect();
-    props.host.state = {refocus: editor?.hasTextFocus() === true};
     // 模型归视图状态槽，由编辑器区在标签关闭或淘汰时释放；这里只释放编辑器实例。
     editor?.dispose();
     editor = null;

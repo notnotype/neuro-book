@@ -38,15 +38,12 @@ let detach: (() => void) | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 /** 程序换内容时不当成用户输入。 */
 let loading = false;
-/** 要过焦点、还没拿到（Tiptap 在下一帧才聚焦）：这期间组件重挂，焦点要跟到新位置。 */
-let focusPending = false;
 
 const stateOf = (binding: ViewBinding): MarkdownViewState | null => binding.slot.state as MarkdownViewState | null;
 
-/** 组的实例槽里存的：编辑器实例，以及卸载时焦点是否在它里面（重挂后还给它）。 */
+/** 组的实例槽里存的编辑器实例（焦点在重挂后由编辑器区交还给活动视图，见 `area.ts` 的 `focusActive`）。 */
 interface KeptEditor {
     readonly editor: Editor;
-    refocus: boolean;
 }
 
 const attributes = (): Record<string, string> => ({"aria-label": props.label, "class": "markdown-control__prose", "data-editor-prose": ""});
@@ -169,11 +166,7 @@ watch(() => [props.binding?.document.revision.value, props.binding?.unresolved()
 watch(() => props.readonly, (readonly) => editor?.setEditable(!readonly));
 
 const handle: EditorControlHandle = {
-    focus: () => {
-        if (editor === null) return;
-        focusPending = true;
-        editor.commands.focus();
-    },
+    focus: () => editor?.commands.focus(),
     undo: () => editor?.commands.undo(),
     redo: () => editor?.commands.redo(),
     flushPendingChange: commitNow,
@@ -184,12 +177,8 @@ const onUpdate = ({transaction}: {transaction: {docChanged: boolean}}): void => 
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(commitNow, COMMIT_DELAY_MS);
 };
-const onFocus = (): void => {
-    focusPending = false;
-    emit("focus", true);
-};
+const onFocus = (): void => emit("focus", true);
 const onBlur = (): void => {
-    focusPending = false;
     commitNow();
     emit("focus", false);
 };
@@ -199,12 +188,10 @@ onMounted(() => {
     // 组的实例槽里已有编辑器（组件因布局变化重挂）：挂到新的位置接着用，撤销历史还在。实例的寿命归槽：`unmount` 之后
     // Tiptap 的 `isDestroyed` 也为真，不能用它判断实例还能不能用。
     const kept = props.host.state as KeptEditor | null;
-    let refocus = false;
     if (kept !== null) {
         editor = kept.editor;
         editor.mount(root.value);
         editor.setOptions({editorProps: {attributes: attributes()}});
-        refocus = kept.refocus;
     } else {
         const created = new Editor({
             element: root.value,
@@ -212,7 +199,7 @@ onMounted(() => {
             editable: !props.readonly,
             editorProps: {attributes: attributes()},
         });
-        props.host.state = {editor: created, refocus: false} satisfies KeptEditor;
+        props.host.state = {editor: created} satisfies KeptEditor;
         props.host.dispose = () => created.destroy();
         editor = created;
     }
@@ -222,8 +209,6 @@ onMounted(() => {
     editor.on("blur", onBlur);
     if (props.binding !== null) enter(props.binding);
     emit("ready", handle);
-    // 卸载前焦点在编辑器里（例如关闭相邻组让这一组重挂）：还给它，键盘用户不至于落到页面根。
-    if (refocus) editor.commands.focus();
 });
 
 watch(() => props.label, () => editor?.setOptions({editorProps: {attributes: attributes()}}));
@@ -235,8 +220,6 @@ onBeforeUnmount(() => {
         editor.off("focus", onFocus);
         editor.off("blur", onBlur);
         // 只从 DOM 上拿下：组还在时实例由组的实例槽保留，组关闭时编辑器区释放它。
-        const kept = props.host.state as KeptEditor | null;
-        if (kept !== null) kept.refocus = editor.isFocused || focusPending;
         editor.unmount();
     }
     editor = null;

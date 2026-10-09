@@ -372,6 +372,9 @@ test("Markdown 的撤销历史属于各组：拆分之后原组仍能撤销拆�
     const left = page.locator("[data-editor-group]").first().locator("[data-editor-prose]");
     const right = page.locator("[data-editor-group]").nth(1).locator("[data-editor-prose]");
     await expect(right).toHaveText("基线甲");
+    // 拆分后新组是活动组、焦点在它里面：原组重挂不把焦点与活动组抢回去。
+    await expect(page.locator("[data-editor-group]").nth(1)).toHaveAttribute("data-editor-group-active", "");
+    await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[data-editor-group]")?.getAttribute("data-editor-group-active"))).toBe("");
     await atEnd(page, left);
     await page.keyboard.press("Control+z");
     await expect(left).toHaveText("基线");
