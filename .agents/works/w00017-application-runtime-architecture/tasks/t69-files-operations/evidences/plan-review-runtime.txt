@@ -1,0 +1,162 @@
+# t69 实施计划审查：运行时与边界正确性
+
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t69-files-operations/plan.md`，固定 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-plan-runtime`（`c8607f7a`）。只读审查；实验仅在本报告所在目录。下文 `plan.md` 指该计划，`src/` 指 `packages/neuro-book/src/`，省略 `docs/specs/` 的 Spec 路径均相对它。t69 尚未实现：运行结果证明现有 OS、传输与运行时的行为；计划按字面实现的产品后果是推断，不是已经复现的 t69 缺陷。
+
+审查完成。发现按影响排序；保留逐条追加时的稳定编号，便于交叉核对。
+
+## R8 · 阻断 · 不变量：`resolveEntry` 只校验父目录，漏掉顶层控制目录源项
+
+- **计划位置**：“关键设计 / 1. 原语”第 14 行；“切片”S1 第 74 行。
+- **现象**：新 `resolveEntry(path)` 的定义是“父目录按 resolve 解析……最后一段只 lstat”；仅在 `resolveSlot` 中明确项目根目标名不得为控制目录。源 `.nbook` / `.NBOOK` 的父路径为空，`resolve("")` 允许，最后一段 lstat 得到真实控制目录。若照这个算法且不补完整输入门禁，控制目录就能进入改名、移动、递归删除（推断）。
+- **为什么是问题**：项目身份、Storage 与锁目录都在这个目录里；服务端必须拒绝直接控制目录源项，不能寄希望于资源管理器不显示或根行菜单禁止。按计划的字面解析算法会放宽 t68 已有保护集合，属于破坏项目数据的边界缺口。目录项型操作允许移动/删除根外链接本身是正确的，两者应明确区分。
+- **依据**：`plan.md:14,33`；`docs/specs/workspace/files.md:61,84`；`docs/specs/platform/files.md:87,98`；`src/plugins/files/backend/rooted.ts:95-96,121-122` 检查的是传入**完整路径**。`entry.ts` 实验使用现有 RootedRoot：`resolve(".nbook") → protected-path`，按计划解析其父 `resolve("")` 然后 lstat `.nbook`，输出 `parentAllowed:true,finalDirectory:true,data:"CONTROL"`。未实际删除控制目录；只在隔离临时根证明整个源项已被此算法接纳。根外链接、悬空链接目录项改名均成功且链接目标不动。
+- **建议改法**：`resolveEntry` / `resolveSlot` 共用完整输入的词法保护门禁，再解析父路径；非空源路径、父目录必须为目录、源项的 dev/ino/类型都在入口核对。顶层控制目录源名与目标名都拒绝；根空路径也明确拒绝改名/移动/删除/转换。控制目录链接别名默认保留 t68 的拒绝规则；若要允许移除仅指向控制目录的链接本身，应先在 S0 明确例外，沿 alias 操作控制目标仍拒绝。
+
+## R9 · 重要 · 不变量：只传路径、只排他核对目标，无法拒绝已经换了身份的源
+
+- **计划位置**：“关键设计 / 2. 单项操作”方法表第 28、31 行；“3. 批量操作”第 38–39 行；S1/S3。
+- **现象**：操作只传源路径；预处理按真实目录项去重，但没有捕获身份后在每项提交前复核。现有 `list` 只返回 name/kind 等呈现信息，也没有供剪贴板保存的目录项身份。预处理或用户选择后，同一路径的源被外部替换，排他改名仍能成功移动新项。
+- **为什么是问题**：目标不覆盖并不保护源对象。批量等待前面的长目录复制时，后面的源有足够时间变成另一个资源；按旧意图删除/移动会误操作后来放到同名位置的数据。只在 t70 重新列出不能辨认同名同类型替换，也不能消除检查与提交间窗口。t71 的 dirty 文档结算不负责这个服务侧身份合同。
+- **依据**：`plan.md:28,31,38-39`；`docs/specs/workbench/files-explorer.md:61` 要求“源消失或身份变化时拒绝旧意图”；`workspace/files.md:69,88`；`platform/files.md:86,89,120` 要求身份复核、同时明确不承诺抵御恶意外部并发替换；`src/plugins/files/shared/contracts.ts:52-61` 的现有目录项没有 identity；`backend/rooted.ts:159-161` 的现有读取用 dev/ino 核对。`operation-race.ts` 经真实服务器内核、两个浏览器内核与 `renameat2`：预处理源 inode 12134414，屏障期间外部将它移为 preserved，再放入 inode 12134415 的同名文件；放行后 `{success:true,errno:0}`，destination 字节为 `external-replacement`，原选择字节 `selected` 留在 preserved。另实际 Files `list("user://")` 返回源 `{name:"stale",kind:"file"}`。这是计划未定义复核时的反例，不是 t69 已实现缺陷；它发生在普通异步等待期间，不是要推翻 Spec 接受的最后一次 OS 竞争窗口。
+- **建议改法**：t69 定义目录项基线（dev/ino/类型，公开时可用不暴露宿主路径的 token），列出/选择取得，移动、删除等带预期基线；批量预处理捕获后，每项开始与提交前复核，变化明确拒绝。别用内容 hash 代替身份，也别按 inode 单独去重两个硬链接名：目录项键是实际父目录身份 + 名字。t70 只保存此引用并传回；最后一次核对与 OS 调用间残余竞态沿现有 platform 合同说明，不增加绝对沙箱承诺。
+
+## R5 · 重要 · 不变量：批量只看业务 cancel/root-gone，遗漏内核终止信号与在途工作登记
+
+- **计划位置**：“关键设计 / 3. 批量操作”第 40–41 行；“切片”S3/S4 第 76–77 行。
+- **现象**：停止条件只写取消与根不存在。项目代次结束、调用方入口结束、提供者停止时，根目录通常还存在；单独的 `cancel` RPC 也可能已经不可达。计划没有把方法收到的内核 `signal` 接到逐项停止条件，没有把整条批量登记到提供者入口作用域。
+- **为什么是问题**：内核会触发 signal，但不强行停止 JavaScript 循环，也不会自动将任意远程方法 Promise 计入插件的关闭门禁。照现有 Files 门面的写法（方法忽略第二参数，`backend/plugin.ts:40-46`），剩余项可在提供者已报告关闭后继续操作用户文件；事件 hub 此时已关闭，副作用也不再有精确事件。不能把“别用 AbortSignal 主动取消 RPC”误读成“实现不用处理内核 signal”。
+- **依据**：`plan.md:40-41,76-77`；`docs/specs/workspace/files.md:52,71-76,83`；`docs/specs/runtime/plugin-channel.md:59,165,167`；`packages/nb-runtime/src/remote/node.ts:794-816` 只传 signal、调用 run；`packages/nb-runtime/src/plugins/host.ts:1024-1029` 分别提供工作 scope 与入口 signal；`lifecycle/contracts.ts:149-160,279-294` 区分等待方与执行方寿命。真实后端 + WebSocket `rpc.ts` 先验证：关闭真实激活 scope 后 `{status:"closed"}`，暂停的远程方法仍可继续写。随后 `app-stop.ts` 用公开的 `project Application.stop()` 再验证，没有直接关内部子 scope：第一项已写、第二项未开始时停止，输出 `public-project-application-stop: {close:{status:"closed"},signalAborted:true,rootPhase:"closed"}`；之后放行旧方法，输出 `project-method-after-application-closed: {call:{ok:true},bytes:"second"}`，三个应用最终均 `closed`。这是实际应用停止与真实路由派发上的反例；项目子进程崩溃用例另外已运行，但尚不存在 t69 批量，未声称验证批量崩溃收口。
+- **建议改法**：后端批量接入方法的内核 signal，在每项开始前核对；业务 cancel 与 signal 共用“停止后续项”的标记，正在执行项按实际结算。用现有 `context.scope.accept` 覆盖整条批量及临时资源清理；远程逐项结果应等待实际 run 完成，不能把提前结算的 `OperationHandle.outcome: cancelled` 当作终止，关闭门禁以 `termination` 为准。截止时报告关闭未完成，不宣称清理完成。加真实提供者停止与真实项目子进程结束的批量验收，不新增平台文件插件或第二套项目租约。
+
+## R6 · 重要 · 正确性：只锁清单读改写，无法保持它与文件操作的同一顺序
+
+- **计划位置**：“关键设计 / 4. 清单维护”第 47–49 行；“切片”S2/S3。
+- **现象**：窗口 A 完成磁盘 `a.md → b.md` 后尚未更新清单；窗口 B 随即完成 `b.md → c.md`，先取得清单锁，当前清单仍只有 a。B 找不到 b；A 之后将清单 a 改为 b。两次调用都可返回成功，而磁盘只有 c、清单只有 b。跨清单移动若在删除源条目之后才提取子树，也会丢展示名（推断，未运行该交错）；文件改变路径前就应捕获所属内容根。
+- **为什么是问题**：`replaceLocked.decide` 读最新字节只保证清单自身不发生丢更新，不能保证文件事实与清单修改排序一致。计划承诺“并发的两个操作不会互相丢条目”不成立；这不是被明确接受的“清单写失败时部分完成”，因为两步都成功也会产生错误状态。
+- **依据**：`plan.md:47-49`；`docs/specs/workspace/folder-kinds.md:73,85,100`；`src/backend/locked-replace.ts:60-94,110-117,142-147` 只覆盖清单文件的读改写；`runtime/plugin-channel.md:152` 并发方法各自执行。`manifest-race.ts` 经三个真实内核、两个浏览器实例、真实文件系统、真实 `replaceLocked` 运行上述时序（屏障暂停合法的异步间隔，未直接调用远程内部实现）：输出 `first.ok:true,second.ok:true,manifest:<item name="b.md" title="标题"/>,diskC:"body",diskB:false`，现有 `parseManifest` 确认 XML 合法。这是按计划步骤构造的反例，不是 t69 现有实现。
+- **建议改法**：用一处协作操作锁覆盖“捕获源条目/子树与所属清单 → 文件提交 → 清单更新 → 精确事件”，同一方案根即可，避免引入多套路径锁；跨进程采用 t68 相同锁机制，锁路径固定在控制目录/用户锁目录。文件提交仍先于清单写、失败仍部分完成，不需要多文件事务。清单内部的纯读改写继续用现有 replace；两个内容根先捕获源条目再依次写，分别报告失败。加 `a→b→c` 与跨根移动/展示名修改并发用例。
+
+## R1 · 重要 · 正确性：`unlink` 与“不 force”不会保护只读文件，验收也用了错误的失败条件
+
+- **计划位置**：“关键设计 / 1. 原语”第 17 行；“切片”S1 第 74 行；“验收映射”第 87 行。
+- **现象**：计划直接对文件执行 `unlink`，并以“不改权限、不 force”推导只读子项删不掉；又用“只读子目录”制造复制中途失败。Linux 上这些推导都不成立。
+- **为什么是问题**：POSIX 删除取决于父目录的写入/搜索权限，文件的 `0444` 不阻止 `unlink`；可读、可遍历的 `0555` 源目录可以正常复制。照计划实现会删除界面标为只读的文件，违反 `docs/specs/workspace/files.md:89` 的“显示为只读……仍在服务端拒绝对应操作”，而复制失败验收不会进入失败路径。
+- **依据**：`plan.md:17,74,87`；`docs/specs/workspace/files.md:49,89`；`primitives.ts` 实验命令（worktree 根执行）：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/runtime/ bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/runtime/primitives.ts`。非 root 用户 uid 1000，在 tmpfs 内新建文件、`chmod 0444`、`unlink`，输出 `readonly-unlink: {exists:false}`；源目录 `chmod 0555` 后复制，输出 `readonly-source-copy: {sourceMode:365,bytes:"payload"}`。另将含文件的父目录设为 `0555`，输出 `partial-delete: {code:"EACCES",deleted:true,remaining:"keep"}`，才真实进入部分失败。
+- **建议改法**：明确应用层只读拒绝政策，并在拥有删除语义的边界检查，不能依赖 `unlink` 或 `force:false`。递归删除逐个记录已删与失败范围，失败不补 chmod、不强删。复制失败用不可读源文件/无搜索权限目录（例如 `0000`，非 root 运行）或真实提交失败，删除失败用无写权限的父目录；把这些条件写进 S1/S3 验收。
+
+## R2 · 重要 · 正确性：1000 项不保证批量能装进 RPC，合法请求会直接断开窗口
+
+- **计划位置**：“关键设计 / 3. 批量操作”第 42 行；“6. 浏览器客户端”第 58 行；“切片”S3/S4。
+- **现象**：计划仅限制项数 1000，并据此承诺结果装进一条消息。资源地址允许 4096 字节，源与目标各有一个；本次合法形状的 1000 项输入编码后达 8,064,031 字节，连输入都发不出去。逐项 `detail`、残留范围与清单失败详情也没有字节界限。
+- **为什么是问题**：真实 RPC 服务端单条上限是 1 MiB，超限断开链路，不是普通业务失败。调用方得到 `unknown-outcome/disconnected` 并丢失其它订阅；不能满足逐项结果与取消的承诺。t68 已对正文做双端 JSON 字节预算，t69 没沿用到批量。
+- **依据**：`plan.md:38,40,42,58`；`docs/specs/workspace/resources.md:35`；`docs/specs/runtime/plugin-channel.md:88-92,115`；`src/plugins/files/shared/contracts.ts:27-35` 与 `web/client.ts:42-44`（t68 字节预算）；`src/shared/rpc-socket.ts:15-16`。真实后端 `startServer` + 真实 WebSocket + 两个浏览器内核的 `rpc.ts` 实验：每段 200 字节、共 20 段的源/目标均为 4019 字节；1000 项 JSON 输入输出 `inputBytes:8064031,limit:1048576`。调用结果 `unknown-outcome/cause:disconnected`，提供者标记文件不存在，确认本次在派发前就被消息上限断开。实验没有调用尚不存在的 t69 方法；复现的是它依赖的真实传输边界。
+- **建议改法**：保持一个批量 RPC，补双端按 JSON 编码字节的输入预算（沿用 64 KiB 包络余量），超出在发出前明确拒绝；同时定结果预算与有界的残留表示（目录范围、计数、必要时截断标记）。本次约 4 MiB 的大返回结果在 Bun WebSocket 客户端成功接收；已证实的断线是服务端接收超大输入，不能据此声称输出方向也已复现同样断线。结果预算仍是“一条消息”合同必须明确的边界。
+
+## R3 · 重要 · 不变量：取消句柄的返回时机、方案路由与调用方隔离未定义
+
+- **计划位置**：“关键设计 / 3. 批量操作”第 38–41 行；“6. 浏览器客户端”第 58 行。
+- **现象**：浏览器批量方法自行生成 `operation`，但写成返回 `{operation, result}`。若方法像现有 `filesKey` 方法一样 `await` 结果后返回，拿到 id 时批量已经结束；若 `result` 是 Promise，需要明确这个公开形状。`cancel(operation)` 不含方案/提供者，无法从 id 选择 `project` 还是 `user` 合同。服务端只按 operation 命中也没限定调用方与入口代次，没定义重复 id、完成后注销和 cancel 先到的结果。
+- **为什么是问题**：t70 无法在批量进行中可靠取消；跨窗口、跨插件或同一窗口操作两个方案时存在误取消/漏取消。随机 UUID 降低偶然碰撞，不代替调用方所有权边界。
+- **依据**：`plan.md:38-41,58`；当前 `src/plugins/files/web/client.ts:22-45` 按方案选合同、异步方法在结果结算后返回；`docs/specs/runtime/plugin-channel.md:35,100,152` 与 `packages/nb-runtime/src/services/contracts.ts:36-44`（身份含实例、插件、入口、激活代次与 via；并发不合并）。真实后端 + 两个真实浏览器内核的 `rpc.ts` 使用只按 operation 查询、不核对 owner 的探针：windowA 发 `same-id`、windowB 查询同 id，得到 `{hit:true,owner:"windowA"}`。探针没有真正执行取消；此结果只确认内核会派发第二窗口的请求并提供不同的可信身份，业务层须自行限定所有权。它不证明现有 Files 有跨窗口取消漏洞。
+- **建议改法**：浏览器同步返回最小句柄 `{result: Promise<逐项结果>, cancel(): Promise<取消确认>}`，闭包捕获方案和 operation，省掉全局反查的 `cancel(operation)`。后端用每个按调用方门面的私有登记表，直接复用内核对提供者合同、代次与完整 ConsumerIdentity 的隔离（`remote/node.ts:924-965`），不再造一份身份键算法；同一门面内重复 operation 明确拒绝，不覆盖登记；结束后有界清理。明确取消未找到/已完成、cancel 先到的处理，验两个窗口相同 id 与两个方案独立操作。
+
+## R7 · 重要 · 正确性：预期状态没有目录身份、链接状态与可行的子树匹配语义
+
+- **计划位置**：“关键设计 / 5. 自己操作的回声”第 54 行；“3. 批量操作 / 事件”第 43 行；“切片”S4 第 77 行。
+- **现象**：登记目录只保存 `directory`，目录被外部删掉再重建仍满足预期，会被吞掉。状态没有 symlink 表示，复制/移动链接产生的真实回声无法匹配。移动或复制目录后，本机 `fs.watch` 会在**最终目标名**下报告全部后代；目标只登记 directory 不能压掉文件后代，而将整棵后代无条件视作匹配又会吞掉外部子项变化。计划没有给出目标子树快照、登记时机、失配后的子树撤销规则与寿命。
+- **为什么是问题**：目录删除重建是可观察的身份变化（旧后代可能全丢失），不能因为类型相同就当作自操作回声；单目录事件也无法弥补被吞的外部变化。简单的子树屏蔽会扩大漏报。若为了匹配移动后代回声散列整棵树，会新增 O(子树总字节数) 的正文读取，不能把它隐含在一次路径改名里。
+- **依据**：`plan.md:43,54,77`；`docs/specs/workspace/resources.md:77-78`；`src/plugins/files/backend/changes.ts:63-64,168-185`（t68 保存内容 hash 的语义不能直接推广到目录）。真实 Bun `fs.watch` 的 `watcher.ts` 输出移动后 `move-dst/child/body`、临时树放到位后 `copy-dst/link` 与 `copy-dst/child/body`。`echo.ts` 使用第 54 行的匹配谓词、真实 lstat/目录变化、按最终路径屏障判定：目录 inode 从 12114910 变为 12114912，`paths:["mine"],suppressed:["mine"],external:[]`；复制所有已登记文件 hash 都匹配，仍漏链接回声 `external:["copy/link"]`；移动只登记目录状态，仍有 `external:["moved/child/body"]`。它验证状态模型反例，不声称运行了未实现的 ChangeHub 扩展。
+- **建议改法**：目录与链接以目录项的 dev/ino/类型及 readlink 内容表示；精确路径匹配优先于子树范围，失配撤销对应登记并作为外部变化/失同步报告。复制过程中顺手收集目标项的已知身份，无需事后扫描；移动若要严格消回声，采用有界的事件屏障/重核并允许不确定时 `resync`，不要永久用 directory/absent 的宽泛子树状态屏蔽。明确 S4 覆盖外部删除重建、最终名下文件/链接子项、失配后再次自操作、操作尚未结束时监视先 flush。
+
+## R10 · 重要 · 正确性：部分删除时根目录仍存在，不能发目录 `deleted` 或不发已删变化
+
+- **计划位置**：“关键设计 / 1. 原语”第 17 行；“3. 批量操作”第 40、43 行；“5. 自己操作的回声”第 54 行。
+- **现象**：计划承认目录删除可部分失败，但精确事件只有“目录只发目录本身，订阅方按前缀推断子项”；没有定义根目录保留、若干后代已删时的事件与清单结算。只在整项成功时发事件会漏已删事实；沿目录规则发 `deleted(root)` 会错误宣称仍存在的目录及未删后代都已删除。
+- **为什么是问题**：批量结果只有发起窗口拿到，其它订阅者需要准确刷新已经受影响的范围。精确事件的含义必须与实际文件事实相符；不能用根 deleted 表示部分成功，也不能把自操作丢给外部监视分类来碰运气。清单仍有根目录时应保留根条目，并按实际已删后代更新或报告清单部分失败。
+- **依据**：`plan.md:17,40,43,54`；`docs/specs/workspace/files.md:50,52,70,91` 与 `resources.md:77-78`；`partial-event.ts` 使用真实 Files 三实例场地、真实监视与浏览器订阅：先删 `dir/ok`，再删 `0555` 父目录中的 `dir/locked/kept`，得到 `EACCES`；`parentExists:true,remaining:["locked"]`，当前真实订阅收到 `deleted(path:"dir/ok",source:"external")`，没有目录根 deleted。它证明部分成功的文件事实与需要通知的后代范围，未运行 t69 尚未实现的精确事件分支。
+- **建议改法**：仅在根实际移除时发压缩的目录 deleted；部分失败发实际已删后代的最小已删除前缀集合（不存在的目录才可覆盖其子树），来源仍为调用方；范围超出事件预算推 `resync`，结果带有界的已删/未删范围。目录移动的 `renamed {from,path}` 在 S0 明确定义对子路径的前缀替换规则，携带 kind 或范围标记；不要让 t71 根据事件恰好出现的路径猜目录与文件。
+
+## R4 · 建议 · 正确性：结果未知后“重新列出”不能证明旧操作已终止
+
+- **计划位置**：“关键设计 / 3. 批量操作”第 40–41 行；“6. 浏览器客户端”第 58 行。
+- **现象**：计划结果未知只要求重新列出核对；没有查询该 operation 是否仍在执行、没有等待终止确认。路径当前不存在，并不证明旧请求不会稍后创建/移动/删除它。
+- **为什么是问题**：断线、超时或入口停止会先结算等待方，内核不保证执行方已经结束。若调用方据一次列出把未知项当成未执行并重试，会与旧操作交错（推断）；删除、移动尤其不能靠现在的路径状态判定执行归属。计划没有要求自动重试，所以本条是恢复合同的补强建议，不认定它已承诺错误的重试行为。
+- **依据**：`plan.md:40-41,58`；`docs/specs/workspace/files.md:52,72,76,91`；`docs/specs/runtime/plugin-channel.md:88-92,167`。真实后端 + 真实 WebSocket `rpc.ts`：批量写出 first 后在第二项前保持在途，关闭 windowA 套接字，调用先返回 `unknown-outcome/cause:disconnected`；当场读取 second 为不存在；随后放行原方法，磁盘 second 为 `"second"`。整个场景经过远程服务派发，未直接调用内核内部函数；实验的暂停用于稳定地观察合法在途时序。
+- **建议改法**：最小方案是明确“列出只描述当前状态，不能据此允许重试；执行终止无法证明时保持未知”。若产品需要同一提供者代次内可重试，再沿 R3 的操作记录补有界的“在途/已终止 + 逐项已知结果”核对入口；取消回应区分“已请求停止”和“已终止”。记录不可取得或提供者换代时维持未知，不自动重试副作用、不清理后来产生的用户目标；无需持久任务系统或自动重放。
+
+## 未发现问题的方面
+
+- **Linux 排他提交可行**：`bun:ffi → libc.renameat2(..., RENAME_NOREPLACE)` 实际对文件、目录和悬空目标链接返回 `EEXIST`（errno 17），源与已有目标都保留；没有退回覆盖式 rename。`open("wx")` 两个并发调用为一个成功、一个 `EEXIST`。`operation-race.ts` 的两个真实窗口同时移动同一源为一个成功、一个 `ENOENT`（errno 2），只产生一个目标。
+- **目录项与链接目标分开是正确方向**：悬空链接、指向根外的链接都能作为目录项改名/删除，目标不动；`cp({dereference:false,verbatimSymlinks:true,errorOnExist:true,force:false})` 保留链接文本，不读目标正文。链接相对文本不变并不保证搬到另一父目录后仍指向原对象，这是计划已选的“复制为链接”语义，未据此报缺陷。
+- **跨设备边界与暂存方向正确**：在实验目录内 `unshare -Ur -m` 新挂一个 tmpfs；源设备 51、目标父目录设备 65，排他移动为 `EXDEV`（errno 18），源字节保留。先复制到目标父目录的临时名再排他改名为成功，源与副本都是 `cross-device`。与 `plan.md:94` 的“不支持跨设备移动”一致，无需 copy+delete 后备路径。
+- **t68 的根身份保护有效**：把原根移走、同名建立新目录，现有 `resolve("")` 为 `root-gone`，不改投新目录。词法与真实目标的控制目录保护已有，只是新增目录项路径要保留它（R8）。根内目录链接别名解析为同一实际父目录；两个硬链接的 inode 相同但仍是不同目录项，去重不能只看 inode。
+- **正常完整目录事件可以压缩**：成功删除后，`deleted(dir)` 表示 dir 及段边界内全部后代失效；成功改名的 `from → path` 足以按前缀替换重定位后代，不必每个后代都发精确事件。S0 需把 kind/范围、段边界与部分失败写明（R10），无须把 dirty 文档结算提前到 t69。
+- **已接受的范围边界合理**：复用同一 Files owner、两份远程合同与现有锁工具，不新增平台授予插件，不先做跨根搬运、回收站或持久批量任务；清单写失败不回滚文件事实可继续保留。t68 于 2026-10-09 已记录的取舍没有重新作为问题提出。
+
+## 验证命令与结果
+
+所有命令在上述 worktree 根执行。除安装外，均使用 Bun `1.4.2 (744846f84)`；临时数据根统一为本报告目录：
+
+```sh
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/runtime/ prox bun install --frozen-lockfile --ignore-scripts
+```
+
+安装成功，1568 packages installed。随后各测试均保留相同 `NBOOK_AGENT_TEMP_ROOT`：
+
+| 实际命令（表内省略同一环境变量前缀） | 结果 |
+|---|---|
+| `bun test --tsconfig-override packages/neuro-book/tsconfig.json ./packages/neuro-book/src/plugins/files/backend/rooted.test.ts` | 12 pass / 0 fail / 113 expect() calls |
+| `bun test --tsconfig-override packages/neuro-book/tsconfig.json ./packages/neuro-book/src/plugins/files/project-child.test.ts` | 3 pass / 0 fail / 26 expect() calls；真实子进程、旧代次结束、监视重建 |
+| `bun test --tsconfig-override packages/neuro-book/tsconfig.json ./packages/neuro-book/src/plugins/files/changes.test.ts` | 14 pass / 0 fail / 74 expect() calls |
+| `git status --porcelain=v1 --untracked-files=all` | 无输出；仓库无修改或未跟踪文件 |
+
+临时探针采用同一环境变量，脚本绝对路径均在本报告目录：
+
+| 运行入口 | 本次实际核实内容 |
+|---|---|
+| `bun <实验目录>/primitives.ts` | 排他改名/新建、悬空链接、复制链接、只读与部分删除 |
+| `bun <实验目录>/watcher.ts`、`bun <实验目录>/echo.ts` | 真实递归监视产生的子树路径、预期状态模型反例 |
+| `bun --tsconfig-override packages/neuro-book/tsconfig.json <实验目录>/entry.ts` | 控制目录最后一段、根外/悬空链接目录项、根身份替换 |
+| 同上前缀，脚本为 `rpc.ts` | 真实后端 HTTP/RPC 端口均 0、真实 WebSocket、输入上限、断线后旧执行、提供者关闭 |
+| 同上前缀，脚本为 `manifest-race.ts` | 两个真实浏览器内核交错改名与真实加锁替换 XML |
+| 同上前缀，脚本为 `operation-race.ts` | 两窗口竞争同一源、预处理后外部替换源、真实 Files 列出形状 |
+| 同上前缀，脚本为 `partial-event.ts` | 真实 Files 订阅观察部分删除；`cp` 到自身后代拒绝为 `ERR_FS_CP_EINVAL` |
+| 同上前缀，脚本为 `app-stop.ts` | 公开 `Application.stop()` 返回 closed 后，未登记方法仍可继续写盘 |
+| `unshare -Ur -m bun <实验目录>/cross-device.ts` | 隔离 mount namespace 内跨设备移动拒绝、目标设备暂存复制提交成功 |
+
+这些是机制探针，不是尚未实现的 t69 通过证明。探针数据均由脚本 finally 收口；探针源码与临时依赖链接在交付时删除，报告保留操作步骤、命令与实际结果，预置 `agent/` 会话日志、`brief.md`、`omp.out` 保留。
+
+Bun 在带 `--tsconfig-override` 的调用中打印过以下内部诊断，测试与最终探针仍正常结算；不把它记成应用失败，也不隐藏：
+
+```text
+Internal error: directory mismatch for directory "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-plan-runtime/packages/neuro-book/tsconfig.json", fd 3. You don't need to do anything, but this indicates a bug.
+```
+
+测试调用的 fd 也出现 4、6。探针调试期间出现过屏障未释放/错误前置导致超时，及消费者错误声明 `filesKey` 依赖导致 `blocked:missing-service`；修正探针后才取得文中最终证据，超时不作为产品缺陷依据。
+
+## 未验证与证据边界
+
+- 没有 macOS/Windows 主机，未验证 `renamex_np`、`MoveFileExW` 的绑定、UTF-16、错误码读取、大小写不敏感卷与 reparse 行为。不能把 Linux 成功推广到这些平台，也不能凭旧印象断言 Windows 的 Bun FFI 不可用。最低声明版本为 `>=1.3.14`（`packages/neuro-book/package.json:8-9`）；该版本上游 [ffi.ts](https://github.com/oven-sh/bun/blob/bun-v1.3.14/src/js/bun/ffi.ts) 与 [ffi.zig](https://github.com/oven-sh/bun/blob/bun-v1.3.14/src/runtime/ffi/ffi.zig) 已有 Windows 分支，[build.zig](https://github.com/oven-sh/bun/blob/bun-v1.3.14/build.zig) 将 `enable_tinycc` 默认设为 true。源码证据不等于 Windows 实跑；保留计划的 unsupported 失败通道。
+- 复制到自身后代：当前 Bun `cp` 明确拒绝；自写递归复制若先在源内建暂存目录，`readdir(source)` 会枚举它，需在计划补复制后代拒绝或明确排除暂存。完整自写算法尚不存在，未断言已复现无限递归。
+- 未跑全量 `test:affected`、typecheck、e2e、`smoke:server`、docs/governance 检查；这是只读计划审查，无产品代码改动。真实后端与真实 Files 场景已运行，不把局部测试当作 t69 验收完成。
+- 未运行完整 t69 批量取消、批量遇到项目子进程退出、临时树清理失败、跨内容根条目子树迁移；实现尚不存在。已验证其依赖机制与合法交错反例，S1–S4 应补对应最终消费者行为验收。
+
+## 需要开发者决定的点
+
+1. **只读删除的政策（R1）**：保留现行 `workspace/files.md:89` 的“显示只读仍服务端拒绝”并增加显式检查；若改为严格沿 OS 的目录项删除权限，必须同步修改 Spec 与界面呈现，不能悄悄用 unlink 行为代替该取舍。建议保留现行合同。
+2. **未知结果后的恢复能力（R4）**：最小方案维持未知、只允许核对当前磁盘；若要同代次内可靠重试，再补有界操作状态核对。不建议为本片加入持久任务系统。
+
+其余建议属于保留既有边界/合同所需的计划补全；控制目录链接别名默认继续拒绝，不需额外决定。计划没有独立的 t69 待确认表；macOS/Windows 未验继续如实标注，跨设备移动拒绝已获得实际证据。
+
+## 回写建议
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| 1 | 规范缺陷 | R10：部分删除后根仍存在，成功时的根 deleted 不能表达已删后代 | 新增：“目录删除仅在该目录实际移除时发可覆盖子树的 deleted；部分失败按实际已删除范围发事件，装不下则推 resync，不用目录根 deleted 表示部分完成。” | `docs/specs/workspace/resources.md` 的“变更事件”，由 t69 S0 合并 |
+
+终止与取消不是同一件事、路径身份复核等已有 Spec 覆盖，不再向全局 AGENTS 重复追加规则。回写建议未写入仓库。
+
+## 数量
+
+阻断 **1**（R8）；重要 **8**（R9、R5、R6、R1、R2、R3、R7、R10）；建议 **1**（R4）。共 **10** 条。
+

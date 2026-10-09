@@ -1,0 +1,210 @@
+# w00017 t69 实施计划审查：可实现性、切片与测试
+
+审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-plan-tests/.agents/works/w00017-application-runtime-architecture/tasks/t69-files-operations/plan.md`。已核对 HEAD 为 `c8607f7a4b20911df5b5f8d271ae8fe1cf0c9a99`、detached，`git status --short --branch` 只有 `## HEAD (no branch)`。代码尚未实现；本报告区分合同的静态缺口、现有真实运行时/文件系统的实验事实，以及对将来实现的推断。已接受的 2026-10-09 t68 取舍作为前提。
+
+结论：计划的原语 → 单项/清单 → 批量 → 真实项目/传输顺序可行，但当前验收映射不足以阻止关键回归。实施前应补齐绑定失效停止、消息字节预算、源身份前置条件与部分完成合同，并纠正竞争/权限故障夹具。没有证据要求新增操作框架、持久身份库或通用取消总线。
+
+## 发现（按影响排序，编号保留核实顺序）
+
+### F08（重要）停止条件只覆盖根丢失与显式 cancel，没有接远程请求的寿命信号
+
+- **类别**：不变量 / 遗漏。
+- **计划位置**：“批量操作”，plan.md:40–41；“验收映射”，plan.md:85,87；“验证”，plan.md:94。
+- **现象**：计划逐项循环的停止条件只有 root-gone 与业务 cancel；files 验收 3 原文的绑定/授权失效被映射成了根不在。断线、调用方入口停止或提供入口停止时，根可以仍然存在。
+- **为什么是问题**：一条批量 RPC 的路由授权只在接纳时通过，内核不会逐项重新派发、也不会中止方法内部的文件 I/O。若新循环不消费 `{signal}`，调用方已释放或项目正在收口后，余下 999 项仍可能继续修改文件。把客户端结果原样透出为 unknown-outcome 不等于停止这些尚未开始的副作用。
+- **依据**：`docs/specs/workspace/files.md:52,71,73,110` 要求绑定/授权失效后停止后续项；`docs/specs/runtime/plugin-channel.md:59,95,165,167` 区分终止信号与物理终止。现有真实内核 `packages/nb-runtime/src/remote/node.ts:809–816` 在一次 ACK 后调用提供方法，并合并请求与提供方的 stopSignal；`backend/plugin.ts:37–47` 的短保存方法当前不消费此信号，不能直接复制到批量。此项是 t69 循环未规定消费边界的静态核实，实际批量还未实现。
+- **建议改法**：把提供方法的真实 signal 传入同一个批量 runner；每项开始前检查它与显式 cancel。寿命失效与用户取消保留不同停止原因，已完成项不重复，当前项按实际结算；继续工作的 Promise/句柄登记到结算后再收口。用真实 content.xml 锁把第一项挡在清单提交中，窗口入口停止/断线/提供入口停止各验一次，释放锁后核对第二项没有文件或清单副作用，路由结果未知只按真实结果报告。不要另造一套项目代次表。
+
+### F04（重要）“最多 1000 项”不能保证请求与逐项结果装进一条 RPC 消息
+
+- **类别**：正确性 / 测试。
+- **计划位置**：“批量操作”，plan.md:42；“浏览器客户端”，plan.md:58；“验证”，plan.md:93–94。
+- **现象**：只有项数上限，没有 JSON 编码后的请求/结果字节预算或超限结算。1000 个各自合法且远小于 4096 字节的路径已经能超过真实 WebSocket 的 1 MiB 限制。
+- **为什么是问题**：合法批量在客户端发出后会断线，调用方得到结果未知而不是可预测的输入拒绝；失败详情、清单诊断与递归残留还会增大返回消息。快速场地的进程内链路不限消息大小，不能自证这条约束。t68 已有正文的字节预算，但这里未复用同一边界。
+- **依据**：实跑 `runtime-probe.ts`，通过生产 `startServer` 的真实 RPC 监听器连接 WebSocket：1000 个 path、每个约 1110 字节，按真实 `Frame` 编码为 `1115236` 字节，限制是 `1048576`；发出后实际 socket 关闭。所有路径段均为单段合法名、每段小于 255 字节，每条路径小于资源地址 4096 字节上限。该实验在提供方法存在与否的校验之前就被传输拒绝，因此无需伪造 t69 提供者。`docs/specs/runtime/plugin-channel.md:88–92,115` 规定已发出的写请求断线为 unknown-outcome；`docs/specs/workspace/resources.md:35` 固定地址上限；`shared/contracts.ts:27–35` 已有同类正文边界；`src/server/rpc/listener.ts:74–79` 使用该真实上限。
+- **建议改法**：在发出前按编码字节做输入预算，两份合同提供者也核对；1000 仍可作为计算量上限，不称为消息保证。固定有界逐项结构与限长 detail，残留按最外层范围压缩；根据输入与最坏返回预算，不能同时容纳输入对齐结果的整批在任何副作用前拒绝。这样保留逐项结果而无需另建分页/结果存储协议。增加真实 WebSocket 的预算内/超限用例，变异掉客户端预算时必须观察到断线或断言失败。
+
+### F09（重要）“同目标无操作”没有限定 move，复制自身/后代的拒绝判据缺失
+
+- **类别**：正确性 / 测试。
+- **计划位置**：“批量操作”，plan.md:39；“切片”，plan.md:76；“验收映射”，plan.md:85–86。
+- **现象**：move/copy 共用的预处理写“目标等于源为 done（无操作）”，只给 move 写自身/后代拒绝；S3 也笼统验证“同目标无操作”。另一验收行却要求“同目录复制要求改名”，冲突没有在输入/用例上分开。
+- **为什么是问题**：按这条测试实现，copy(A,A) 会错误报 done，消费方以为副本已生成。copy(dir,dir/child) 若没有单独拒绝，staging 就建在源树里，递归遍历可能把自己正在写的副本再次作为来源，至少不再是一个只读源的有限快照。这是循环结构带来的推断，t69 尚无代码，未运行这种可能无限生成的实验。
+- **依据**：`docs/specs/workspace/files.md:47–48,52,115` 只对同目标移动承诺 no-op，对复制承诺实际副本、同目录须明确新名称；旧应用真实入口的合同测试 `workspace-files.test.ts:177–187` 对 copy(source,source/chapter/copy) 拒绝，给出既有边界参照。计划没有包含这一 copy 拒绝用例。
+- **建议改法**：固定 move(A,A)=done 且零事件；copy(A,A)=conflict 且源不变；目录 copy 到自身后代=into-itself，必须在建 staging 前拒绝，并按 resolveEntry/resolveSlot 得到的真实父路径判断，不能只比字符串。分别覆盖普通路径与根内目录链接别名；后续独立项仍继续。变异掉 copy 的 containment 检查必须被这条真实入口测试拦住。
+
+### F06（重要）只有源路径，t70 无法兑现“剪贴板源已被替换就拒绝”的合同
+
+- **类别**：接口 / 遗漏。
+- **计划位置**：“批量操作”，plan.md:38–39；“浏览器客户端”，plan.md:58；“不做与风险”，plan.md:98。
+- **现象**：move/copy 输入只有 `{source,target}`，delete 只有 paths；没有捕获源目录项身份的入口，也没有提交时携带/核对 expected identity。t68 list/read 合同也不提供目录项身份。计划只把“剪贴板”整体交给 t70。
+- **为什么是问题**：用户复制/剪切 A 后，外部把 A 改名并在同路径新建 B，稍后粘贴仍会按路径对 B 操作。即使 t70 先做一次 stat 检查，检查与提交之间再替换仍要服务端验证；这个服务端合同属于 t69。它不要求普通文件有永久 id，只要求冻结此次操作意图的源目录项。推给 t70 会返工 t69 的合同与实现。
+- **依据**：`docs/specs/workbench/files-explorer.md:61,140` 明确“源消失或身份变化时拒绝旧意图”；`docs/specs/workspace/files.md:34,88` 要求提交时重验身份、类型/身份改变可区分；`shared/contracts.ts:52–61,80,105–111` 的列出、读取与现有方法没有此信息。旧应用只作可行性参照：`shared/dto/workspace-file-operation.dto.ts:11–25` 有 expectedSources；`server/workspace-history/tracked-workspace-files.ts:288–299` 比对 dev/ino/birthtime 后拒绝被替换的来源。此项是合同缺口的静态核实，未对尚未实现的 t69 操作运行复现。
+- **建议改法**：在 t69 增加一个只读的批量目录项捕获入口，或在明确需要身份的列出查询中返回不暴露绝对路径的临时身份 token；避免为每次普通列出额外 stat 整层。操作输入携带该基线，在每项提交前按目录项（链接不跟随）核对。t70 只负责何时冻结/过期这个 token。测真实冻结 A → 外部换成 B → copy/move 拒绝、B 保留、后续独立项继续；另测父目录链接别名去重与硬链接两个目录项不误去重。无需引入持久身份数据库。
+
+### F05（重要）把目录回声记成“还是 directory”会吞掉后续真实外部替换
+
+- **类别**：正确性 / 状态设计。
+- **计划位置**：“自己操作的回声”，plan.md:54；“切片”，plan.md:77。
+- **现象**：预期登记的目录状态只有 `directory`；匹配就丢事件，只有不匹配才撤销。服务创建/移动了目录后，外部程序将它移走并换入另一目录，状态仍是 directory。若两次原始事件合并在一批，计划无法发现目录身份已经不同。
+- **为什么是问题**：这不是同一次写入的回声，子树内容可能完全改变；已有消费者要重列父目录或该目录才能同步。只断言“没有外部重复事件”的 S4 用例会奖励这个错误实现。移动/复制目标整棵子树的回声处理也没有明确：不登记子文件会重复发外部事件，按 directory/subtree 直接忽略则会吞掉子文件的真实修改。
+- **依据**：已通过原版 Files 的真实 `filesScene` 与 `fs.watch` 复现：外部移走 `target/`，换入包含 `nested/new.md` 的另一个目录，再等外部 barrier；旧 inode `12114807`、新 inode `12114808`，原版正确发出 `target`、`target/nested`、`target/nested/new.md` 的 external changed。两者 isDirectory 均为 true。按 plan.md:54 的谓词，父目录这条会被丢掉——这是对尚未写出的状态设计的推断，未变异仓库。`docs/specs/workspace/resources.md:77–78` 要求外部变化可观察、只去掉自己的回声；t68 的文件 hash 已在 `changes.test.ts:172–180` 保护“同长且恢复 mtime 的外部修改”。
+- **建议改法**：目录登记最少携带操作后 dev/ino（链接另用 lstat 身份/readlink 内容）；匹配自己登记的目录项身份才抑制，身份改变即撤销并发 changed。沿操作已经遍历的 copy 子项登记其结果，不再额外全树扫描；move 若无法低成本证明子树各项状态，推有界 resync，不能粗略忽略整个目标子树。补“操作后同路径换目录”和“移动/复制后外部改子文件”的真实 watcher 用例；两者在 directory-only/blanket-subtree 变异下都必须失败。
+
+### F10（重要）部分完成的结果字段未闭合，验收无法据返回值定位残留与两端清单
+
+- **类别**：接口 / 验收映射。
+- **计划位置**：“原语”，plan.md:16–17；“单项操作”，plan.md:24–31；“批量操作”，plan.md:40；“清单维护”，plan.md:47–49；“验收映射”，plan.md:87–88。
+- **现象**：原语承诺复制清理失败报告残留、递归删除报告已删与未删；单项表只返回 `{path}`；批量结果列 `status/code/detail/path/manifest`，没有这些范围的结构；“清单维护”节却以 `done + manifest.status` 描述部分完成。在同一方案内跨两个内容树移动，涉及源、目标两份清单，只有一个未带地址的 manifest 诊断。
+- **为什么是问题**：调用方不能仅据结果区分“全树已删”与“部分子项已删”，也不能判断迁移失败的是哪份清单。将范围塞进不固定的 detail 文案虽然能给人看，却不能支撑 t70 的逐项反馈、重列范围与不重复已成功项；验收“列出结果与清单文本”只证明某些文件变化，不证明调用方取得了完整部分结果。
+- **依据**：`docs/specs/workspace/files.md:52,91,100,116` 要求返回逐项成功、残留与未知，部分成功不标全批完成；`docs/specs/workbench/files-explorer.md:63,100,143` 要求残留范围可见；`docs/specs/workspace/folder-kinds.md:100` 要求文件已改/清单未改的部分完成。t69 plan 在同一文件内的输出表与失败承诺不对应，静态核实成立，不需要伪造失败实现。
+- **建议改法**：在 S0/S2 固定一个有界的 ItemResult，单项返回这一结构，批量返回其数组，减少两套结果约定。仅在相应状态带结构化的已改/残留范围；清单诊断包含相对资源地址，跨内容树为两条独立结果（成功与失败各可分辨）。残留压缩成最外层范围并与 F04 的字节预算一起定。补“文件成功/清单失败仍发文件事件、不发虚假的清单 changed”“只一端清单失败”和“递归删除部分失败仍报告范围及真实事件”的明确用例。
+
+### F03（重要）取消句柄的交付时机和跨方案分派未定
+
+- **类别**：接口 / 可实现性。
+- **计划位置**：“批量操作”，plan.md:38–41；“浏览器客户端”，plan.md:58；“验收映射”，plan.md:87。
+- **现象**：客户端生成 operation，返回 `{operation, result}`，取消入口是 `cancel(operation)`；但没有说明返回对象是同步句柄、`result` 是 Promise，还是沿现有客户端风格 await RPC 后返回的对象。也没有说明只拿 operation 的 cancel 如何在 project/user 两份合同间选目标。
+- **为什么是问题**：沿现有 async 方法照字面实现，operation 只能在批量完成后取得，无法在第一项中发出取消；改为同步句柄也必须现在固定公开合同。为 cancel 再加 operation→scheme 注册表虽可实现，却让客户端多一份生命周期状态，正好是计划可减少的部件。t70 是调用方，不应到 UI 实施时才修这个合同。
+- **依据**：`packages/neuro-book/src/plugins/files/web/client.ts:26–45` 的现有方法都等待远程结果；`shared/contracts.ts:162–166` 均为 Promise 返回；`docs/specs/workspace/files.md:76` 规定取消尚未开始项且不回滚；`docs/specs/runtime/plugin-channel.md:88–92` 证明直接中止已发出写 RPC 会丢失逐项结果。此项是公开返回形状的计划缺口，未声称现有实现已经有此 bug。
+- **建议改法**：明确同步返回最小句柄，例如 `{result: Promise<FilesResult<BatchResult>>, cancel: () => Promise<CancelResult>}`，闭包捕获 operation 与 scheme；operation id 只在 RPC 边界存在，调用方无需再传回它或维护额外映射。服务端登记按完整调用方身份与 operation 分区，在 finally 删除，重用活动 id 明确拒绝；cancel 返回是否命中活动操作，以此为测试屏障。若保留 operation 公开，则直接规定调用方提供它和明确的方案目标。补真实窗口中“result 仍 pending 时能 cancel，第一项完成、第二项无副作用”的用例。
+
+### F01（重要）“目标预先存在”的测试不能证明预检后的抢占仍被拒绝
+
+- **类别**：测试。
+- **计划位置**：“验收映射”，plan.md:86；“原语”，plan.md:13；“切片”，plan.md:74。
+- **现象**：验收行写“预检后被占用时仍拒绝”，对应方法却只有“先建好目标再提交，得到 conflict、目标不变”。S1 同样只列目标已存在的测试。
+- **为什么是问题**：在开始前检查 `exists(target)`、随后用普通 `rename` 的错误实现，也会通过这些测试；真正的回归只在检查之后、提交之前目标被其它进程占用时出现。因此这行与 files 验收 8 不对齐，逐判据变异检查也拦不住把排他提交改成覆盖式提交。
+- **依据**：`docs/specs/workspace/files.md:34,52,115` 要求服务端在提交时排他重验，预检不授予资格；`docs/testing/README.md:24` 要求每条验收判据做变异检查。另实跑仓库外的 Linux syscall 屏障：先核对目标不存在，再通过 ptrace 停在真实 rename 系统调用入口，外部创建目标后继续。文件与空目录两种场景中，Bun FFI 的 `renameat2(RENAME_NOREPLACE)` 均返回 -1、源与外部目标均保留；普通 `rename` 均返回 0、覆盖外部目标。四个子进程退出码均为 0。这证明原语与变异判据可测，不是尚未实现的 t69 远程操作的运行结论。
+- **建议改法**：保留“目标一开始就存在”的用例；另列直接调用排他原语的文件/空目录用例，以及真实远程 copy 的竞争用例。Linux 可从仓库外跟踪真实项目子进程，在最后提交目标的排他 rename 入口暂停、外部占用目标、再继续；必须匹配目标路径并跟踪实际执行 I/O 的线程。把 no-replace 变为普通 rename 时，外部目标保留的断言必须失败。`content.xml` 锁在计划的文件提交之后才取得，不能拿它当提交前竞争的屏障。若只能观察临时目录后抢占、不能保证仍未提交，标为竞态 smoke；其它平台的确定性屏障未验证。不要引入产品内测试专用 hook。
+
+### F02（重要）权限故障夹具不成立，且“不 force”不能实现只读删除拒绝
+
+- **类别**：测试 / 正确性。
+- **计划位置**：“原语”，plan.md:16–17；“切片”，plan.md:74；“验收映射”，plan.md:87。
+- **现象**：复制中途失败只给出“只读子目录”；删除以“不改权限、不 force”解释“只读子项删不掉”。真实 Linux 文件系统下，两者都不是充分条件。
+- **为什么是问题**：源目录只读并不禁止读取/复制；普通文件的只读位不禁止在可写父目录里 unlink。照该夹具写测试会拿不到预期故障，或错误地以为它验证了故障路径。若希望产品按只读状态拒绝删除，仅依赖 OS unlink/rm 也会违反既有 files 的失败合同。
+- **依据**：Bun `1.4.2`、uid `1000` 的真实权限实验中，源子目录 `0555` 时 `cp` 成功且副本字节为 `SOURCE`；`0444` 文件在可写父目录中 `unlink` 成功；源子目录 `0000` 时 `cp` 为 `EACCES`；含已创建文件的 staging 子目录 `0555` 时非 force 递归清理为 `EACCES`。另在独立子进程设置 `RLIMIT_FSIZE=4096`：小文件先复制成功，8192 字节文件实际产生 4096 字节副本后返回 `EFBIG`，源仍为 8192 字节，子进程退出 0。这些是计划所依赖的 OS 条件的真实实验，未冒充尚未实现的 t69 运行结果。`docs/specs/workspace/files.md:49,89` 要求不自动升级强删、服务端拒绝只读/无删除权限；`docs/testing/README.md:16,18` 要求真实依赖与状态等待。实际命令与证明范围列在报告后文。
+- **建议改法**：复制故障可在隔离 Linux 子进程上设文件大小限制，以单个超过限制的真实文件证明复制过程中已有写入后失败；这不依赖 readdir 顺序。不可读源也可用，但必须先证明已有复制副作用。成功清理与清理失败分成两例，后者用真实不可写的 staging 子目录核对残留范围；不能把原语实验当成服务端结算通过。删除明确区分“只读文件位的产品拒绝”与“父目录无 write/search 权限的 OS 拒绝”，分别核对已删与未删范围。root、ACL、Windows 的权限场景按可制造的条件验收。
+
+### F07（建议）S2/S3 的验证入口未固定，事件自证又依赖 S4 的回声实现
+
+- **类别**：切片 / 测试。
+- **计划位置**：“切片”，plan.md:75–77；“验收映射”，plan.md:84,88–89。
+- **现象**：S2/S3 用“快速场地”验证单项、批量与事件，浏览器客户端方法直到 S4 才加；S2 已承诺核对磁盘、清单、事件，新的 absent/directory 回声到 S4 才实现。按计划的输入前置条件，reorder/display/createContent 只用于内容树，“每个单项操作在普通与内容文件夹各验一次”应区分支持与拒绝场景。
+- **为什么是问题**：若沿 t68 的 `files(scene.window)` 门面写测试，S2/S3 的新方法不存在；若要求事件集合准确，则原版 watcher 会给新建/删除再发 external 回声。用直接内部 operations 函数验证虽能过，却不能证明远程接线和合同。切片本身能实现，但现在的“自跑验证”容易静默依赖后片，或者最后再补真实入口。
+- **依据**：`testing/scene.ts:25–44,51–58,87–94` 同时提供真实 remote 与 filesKey 两个入口；`web/client.ts:26–55` 现阶段只提供 list/read/write/watch；`backend/changes.ts:168–185,199–205` 只登记保存 hash，缺失路径一定发 external deleted。这些机制已存在，故无需假设新的场地。
+- **建议改法**：S2/S3 明确经 `remote(scene.window).use(projectFilesContract/userFilesContract)` 调新方法（真实窗口身份、真实路由、真实 Files），避免调用 operations 内部函数；每片只断言本片承诺的事件，精确且无回声的集合放在 S4。更好的切片是每加入一种写操作就同时补它的客户端入口和最小回声状态，S4 只留下真实项目进程/传输组合，减少一个暂时不完整的阶段。把“支持的场景”和“在普通文件夹拒绝且无副作用”的场景分开列，固定 S2/S3/S4 的实际测试文件、用例与命令。
+
+## 每片是否能独立自证
+
+下表是对计划的判断与建议入口；不是尚未实现的切片已经通过的验证记录。
+
+| 切片 | 独立性判断 | 入口与最低完成条件 |
+|---|---|---|
+| S0 | 可独立完成文档检查；文档检查不证明运行行为 | 保留计划中的 `docs:check`、`governance:check`；先固定 F03/F04/F06/F10 的公开输入、输出与边界。 |
+| S1 | 原语可独立自证，不需要未来客户端 | 在真实临时目录直接调用原语；文件/空目录已有目标均拒绝且双方不变，链接目录项不跟随，复制包含真实字节与权限，故障后清理或结构化残留与磁盘一致。补 F01/F02/F09 的反向判据。 |
+| S2 | 使用现有真实合同入口即可独立，事件精确去重依赖后片 | 经 `remote(scene.window).use(projectFilesContract).at("project")` 或 user 合同的 server 目标调用；核对返回、磁盘、list 投影与原始清单。此片断言服务产生的事件，S4 再断言无 external 回声。内容专属方法在普通目录应验拒绝/无副作用。 |
+| S3 | 可复用 S2 的真实入口；取消握手与结果字段须先闭合 | 两个独立源、重复/父子重叠、源/目标别名、单项拒绝后继续、复制自身/后代拒绝；以真实屏障制造取消、根消失及入口寿命失效。结果按输入一一对应，未执行项无磁盘/清单副作用。 |
+| S4 | 可独立补组合证据，不能只有“操作返回成功” | 经真实窗口客户端、真实项目子进程与生产 WebSocket 调用；等 watcher ready，等公开精确事件与外部屏障，核对来源、from、无临时名、无重复回声且真实外部替换不被吞；验证消息字节边界。 |
+| S5 | 属于收口检查，不应承担补齐前片行为 | 保留既有范围检查、e2e、smoke 与三份实现审查；不把全量检查成功替代前片的状态判据与变异检出。 |
+
+可以保留当前提交分片，不必为自证再建场地。更少的临时不完整状态是：客户端方法和该操作的最小回声处理随 S2/S3 加入，S4 只做真实进程与传输组合。计划应填写实际测试文件与用例名，当前只有 `bun test`/“快速场地”不足以把每条变异对应到命令。
+
+## 验收映射逐行核对
+
+| 计划位置 | 判断 | 应补的可观察条件与最小变异 |
+|---|---|---|
+| plan.md:84，files 验收 2 | 路径/字节可观察，但集合太宽 | 普通文件与含 `index.md`/附件的目录分别覆盖每种操作；复制后源字节不变，副本正文与附件完全一致；创建内容初始为零字节，已有时 conflict 且原字节/其它子项不变。去掉附件复制或把排他创建改成覆盖，必须失败。 |
+| plan.md:85，files 验收 3 | 不完整，见 F08/F09 | duplicate/covered 与输入索引对齐；独立项继续；move 同目标零副作用，copy 同目标拒绝；绑定/入口寿命失效也停止，不能仅测试 root-gone。去掉覆盖去重、项间停止或 copy containment，分别必须失败。 |
+| plan.md:86，files 验收 8 | 测试时序错误，见 F01 | 预先存在与预检后抢占分开；文件与空目录都保留外部目标和源。同目录 copy 必须显式不同名。把排他提交变普通 rename 的变异必须失败。 |
+| plan.md:87，files 验收 9 | 权限触发条件错误、取消缺屏障，见 F02/F03/F10 | 证明第一项有真实副作用且仍未结算，再等 cancel 命中活动操作；第二项零副作用。复制故障必须发生在写入后，清理成功与清理失败分别核对残留；忽略 cancel、把部分结果报全 done、漏残留范围都必须失败。 |
+| plan.md:88，folder-kinds | list 与 XML 是正确观察面，但缺失败的返回/事件判据 | 新建、改名、移入/移出、跨两个内容树移动的子树元数据；reorder/display 只改清单，普通子项与正文字节不变；非法/只读清单保持原字节，文件已改时结果为部分完成；两端清单各自有状态。去掉锁内重读、只更新一端、失败后伪发 manifest changed，分别必须失败。 |
+| plan.md:89，resources 验收 5 | 收到 renamed 太弱 | 核对完整旧/新资源地址、调用方来源、磁盘事实；操作完成后的 watcher 屏障内只有应有事件，无 external 重复；外部替换与后续子文件修改仍可见。漏 from、伪来源、directory-only/整个子树忽略的变异分别必须失败。 |
+
+上述变异是实施时的检出要求。本次只在仓库外对真实 rename 原语做了普通 rename 对照，没有变异尚不存在的 t69 产品代码，没有改动现有仓库测试。
+
+## 五类故障的确定性制造与证明范围
+
+| 场景 | 无 mock、无固定等待的制造方法 | 观察屏障及应核对结果 | 本次证明范围 |
+|---|---|---|---|
+| 复制中途失败 | 隔离 Linux 子进程设 `RLIMIT_FSIZE=4096`，复制 8192 字节文件；真实不可读源可作另一例 | 本机实际副本写到 4096 字节后 `EFBIG`；目标最终名未提交。清理成功则无 staging；清理失败则报告与实际最外层残留一致，源完整、后续独立项仍执行 | 文件大小限制与实际部分复制已实测；也实测不可写 staging 清理 EACCES。未来 t69 的递归复制/清理/结算未实现；不能把两次分离实验当成服务端全链通过。 |
+| 取消在第一项执行中 | 外部持有真实 content.xml 锁，第一项在内容树内执行，文件操作后被清单更新阻塞 | 等第一项目标实际出现、清单仍旧、批量 result 未结算；再等 cancel 返回命中活动 id；释放锁后第一项按事实结算、第二项 cancelled 且无副作用 | 原版真实 RPC write 被锁挡住、另一 RPC 可同时完成、放锁后提交，已实测。t69 第一项副作用与 cancel 命中未实测；只看 Promise pending 不能证明第一项已开始。持锁重试有上限，须在真实截止内完成握手。 |
+| 预检后目标被占用 | 外部 ptrace 跟踪真实子进程，停在最终目标 rename 系统调用入口，占用目标后继续 | 停止点在目标预检之后、实际提交之前；源与外部目标保留、conflict。文件与空目录分别验；普通 rename 对照应覆盖并被断言拦住 | Linux/Bun FFI 原语四种对照已实测。当前 supervisor 只覆盖主线程中的试验 FFI；产品异步 I/O 要跟踪全部线程并匹配目标路径。真实 t69 远程入口及其它平台未验证。 |
+| 根在批量中途消失 | 第一项真实 I/O 提交前的 syscall 屏障暂停，把整根 rename 到同挂载点的保留位置，再继续 | 当前项按事实失败/部分完成，后续 not-run；保留位置中第二项的源、目标与清单不变。只在请求前移根只能验证入口拒绝 | 原版服务启动后移走根，真实 RPC 返回 root-gone，已实测。批量中途时序未实现，属于可执行方法建议；不能声称已测。若用清单锁，锁路径随根移动，必须在新位置收口，避免把锁释放错误混入产品判断。 |
+| 清单写失败 | 普通用户把现有 content.xml 设为 `0444`，其父目录可写，让文件操作成功后更新清单失败；非法 XML 分开验 | 文件路径/字节实际改变，清单原字节保留，ItemResult 清单诊断指明地址；文件精确事件存在，失败清单不伪发 changed；两个内容树只一端只读也要验 | 原版真实 RPC write 返回 permission-denied、字节不变且 list 仍成功，已实测。t69 文件成功/清单失败的整体结果尚未实现；root/ACL/其它 OS 条件未验证。 |
+
+相同的清单锁可用于调用方入口停止、断线与提供方入口停止：根保留，第一项已产生文件副作用且 result pending 后触发真实停止，再放锁，核对下一项不开始。调用方可能已经收到 unknown-outcome；不能依赖其返回来证明提供方工作结束，应等提供入口/项目实际收口再查磁盘。以上三种寿命场景本次未运行；F08 是合同与信号消费边界的静态发现。
+
+回声的否定判据沿 t68 的注入时钟/真实事件屏障，不使用等待若干毫秒。测试应覆盖外部修改先于自己回声批次结算的顺序；“这一刻还没收到 external”本身不是无重复证明。
+
+## 实际运行记录
+
+所有实验在指定 worktree 根执行，`NBOOK_AGENT_TEMP_ROOT` 均设为本报告目录。下列脚本路径记录已执行命令；脚本、二进制与 JSON 中间结果在交付前删除，关键步骤与结果已写入本报告。重做时按上面的夹具/屏障重建仓库外脚本，不能把历史命令当成仍存在的入口。
+
+```sh
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests prox bun install --frozen-lockfile --ignore-scripts
+
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/permission-probe.ts
+
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/runtime-probe.ts
+
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/directory-probe.ts
+
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/copy-limit-probe.ts
+
+cc -Wall -Wextra -O2 -o /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/race-supervisor /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/race-supervisor.c
+
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/race-probe.ts
+
+git rev-parse HEAD && git status --short --branch
+```
+
+| 运行 | 实际结果 |
+|---|---|
+| 依赖安装 | Bun `1.4.2 (744846f84)`，1568 packages installed，退出 0；按请求不运行安装脚本。 |
+| permission-probe | 退出 0；`0555` 源目录复制成功，`0444` 文件 unlink 成功，`0000` 源目录 cp 为 EACCES，`0555` staging 内已有文件的 rm 为 EACCES；uid=1000。 |
+| runtime-probe | 退出 0；真实锁下 write pending、独立 RPC read 成功；放锁提交成功；只读清单写拒绝且 list 成功；根 rename 后 root-gone；生产 WebSocket 中 `1115236 > 1048576` 字节请求导致 socket 关闭。所有 scene 实例 closed，生产服务 stopped.exitCode=0。 |
+| directory-probe | 退出 0；真实 watcher 外部换目录后 `ino 12114807 → 12114808`，外部 changed 含 `target`、`target/nested`、`target/nested/new.md` 与 barrier；场地 closed。 |
+| copy-limit-probe | 退出 0、stderr 空；`{"firstCopied":true,"largeCopied":false,"code":"EFBIG","leftoverLargeBytes":4096}`，源保持 8192 字节。另一次仓库外 Eval 启动 `prlimit --core=0:0 --fsize=4096:4096 bun -e …`，未设置 SIGXFSZ 处理器，同样 EFBIG/4096 字节、exitCode=0、signalCode=null。 |
+| race-supervisor 编译 | 退出 0，无编译器诊断。 |
+| race-probe | 初次退出 1：ordinary 分支用异步 fs.rename，实际在未被跟踪的 I/O 线程执行，supervisor 报 `no matching real syscall observed`。只将仓库外对照分支改为主线程 FFI 后退出 0，四个子进程均退出 0：file/directory 的 exclusive=-1 且源/外部目标保留，ordinary=0 且外部目标被覆盖。失败实验产物也已收口，不把第一次当通过。 |
+| Git 只读核对 | HEAD=`c8607f7a4b20911df5b5f8d271ae8fe1cf0c9a99`，状态仅 `## HEAD (no branch)`；没有 tracked 或非忽略 untracked 变化。 |
+
+runtime/directory 命令成功后 Bun 另输出：`Internal error: directory mismatch for directory "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-plan-tests/packages/neuro-book/tsconfig.json", fd 3. You don't need to do anything, but this indicates a bug.` 本次未诊断这一 Bun 提示，未归为 t69 产品问题。
+
+未运行：未来 t69 切片、产品批量/取消/清单结算、产品代码变异、全量 `bun test`、`test:affected --typecheck`、e2e、`smoke:server`、`docs:check`、`governance:check`；macOS、Windows、大小写不敏感卷、跨设备与生产性能。没有把 t68 README 中的历史通过记录当作本次验证。
+
+进程核对：`/usr/bin/ps -C bun,cc,race-supervisor,prlimit -o pid,ppid,stat,args` 中没有本次实验路径/脚本或 race-supervisor 进程；已有其它工作区服务未触碰。临时服务与子进程均已按上述结果收口，夹具目录随各实验 finally 删除。
+
+产物清理已完成：本次创建的探针源码、编译二进制、JSON 中间结果与实验目录 `node_modules` 链接均已删除；目录仅保留 `report.md` 与原有 `brief.md`、`omp.out`、`agent/`。worktree 中按要求安装的依赖保留；未修改产品源码、计划、Spec 或仓库测试，未执行 commit/push/stash/分支切换。
+
+## 未发现问题的方面
+
+- 沿现有 RootedFiles、replaceLocked、两份 Files 合同与 filesScene 扩展，清单锁内重读是正确复用；没有理由另建平行文件权威或第二套项目代次表。
+- `resolveEntry`/`resolveSlot` 分开目标内容与目录项，符合平台合同；改名/删除链接本身、复制链接不跟随根外内容，是合理边界。
+- 原生 no-replace 封装在一处，不支持时报 unsupported、不退回覆盖式 rename，方向正确；本次 Linux 实验支持该原语，未扩大平台结论。
+- 文件操作后改清单、失败报告部分完成、不回滚已经完成的文件操作，符合既有部分完成合同；需要补齐的是 F10 的结果结构和失败事件判据。
+- 普通单项失败后继续、取消仅停止未开始项、不用 AbortSignal 做用户业务取消，符合写请求 unknown-outcome 的运行时语义。需要将 F08 的寿命终止信号与业务取消并列处理。
+- create/createContent/reorder/display/convert 各有不同可观察语义；没有证据表明方法数本身过多。保留显式方法比通用 command/action 多态协议更清楚。
+- 不跨根、不做回收站/全局撤销、dirty 文档交给 t71、UI 交给 t70，边界合理。源身份与调用结果合同仍应在 t69 定下，见 F06/F10。
+- 可减少部件的确定改法：取消闭包捕获方案，单项/批量共用 ItemResult，复用内核 signal，使用输入/最坏输出预算提前拒绝；避免客户端 operation 映射、持久身份库和大结果分页协议。
+
+## 需要开发者决定的点
+
+一项产品合同差异需要在 S0 明确：`files.md:116` 当前写“目录复制中途失败保留已产生的残留并报告范围”，计划 `plan.md:16` 改为 staging 内失败后清理、清理失败才留残留。推荐采用计划的 staging 与安全清理，最终名只在整树完成后提交，并同步把验收改为“清理成功无残留；清理失败报告实际残留”。这会减少消费者面对半棵目标树的情况，属于可观察行为取舍，不能仅以“Spec 修订”自动视为已批准。若保留现行合同，则调整复制算法与验收，不能两种结果同时称为通过。
+
+其余发现有明确合同依据，可在计划修订中补齐，不需要增加用户确认门禁。没有修改本 worktree 的计划或 Spec。
+
+## 回写建议
+
+规范缺陷：复制失败残留的计划与现行验收不一致，按上面的产品取舍修订 `docs/specs/workspace/files.md`；取消返回形状、字节预算与部分结果结构按 F03/F04/F10 写入各自负责的合同。其余属于本次计划/测试遗漏，不新增全局 Agent 规则。以上为建议，本次未执行规范回写。
+
+## 数量与处理顺序
+
+- 阻断：0。
+- 重要：9（F08、F04、F09、F06、F05、F10、F03、F01、F02）。
+- 建议：1（F07）。
+- 共 10 条；另有 1 项复制失败残留的产品合同取舍，不重复计数。
+
+建议先补停止/字节/源身份/结果合同，再改竞争与权限夹具，最后固定切片入口与事件反向判据。报告中的重要级别针对计划缺口及其消费方影响，不是断言未实现的 t69 已有可复现产品 bug。

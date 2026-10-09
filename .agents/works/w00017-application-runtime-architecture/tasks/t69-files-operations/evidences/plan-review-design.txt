@@ -1,0 +1,189 @@
+# w00017 t69 实施计划审查：Spec、提案与旧行为
+
+审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-plan-design/.agents/works/w00017-application-runtime-architecture/tasks/t69-files-operations/plan.md`。
+
+本报告审查计划合同；t69 尚无实现。核对的 HEAD 为 `c8607f7a4b20911df5b5f8d271ae8fe1cf0c9a99`。没有修改仓库源码、规范、计划或锁文件；按审查说明安装依赖，报告与实验均写于指定实验目录。逐条对照当前 Spec、accepted 提案、t68 底座与旧应用实现；设计后果未经运行验证时明确标为推断。t68 的 2026-10-09 已选取舍作为前置，不重新讨论。
+
+## 已核实发现（按影响排序，保留初始编号）
+
+### R7（阻断）`reorder` 的业务拒绝使用内核保留码 `invalid-input`
+
+- **类别**：接口合同／可实现性。
+- **计划位置**：“关键设计 → 2. 单项操作”，`plan.md:29`。
+- **现象**：`names` 包含不在清单里的名字时计划返回 `invalid-input`；这是合法形状输入在读取当前清单后才能判断的业务错误，不能由入站 schema 判定。
+- **为什么是问题**：两份 Files 远程合同禁止在 `errors` 中声明与路由码重名的业务失败。照字面声明会在加载时抛 `TypeError`；不声明而由方法返回这个码会被运行时改报为 `provider-error`，t70 看不到约定的拒绝含义。
+- **依据**：`packages/nb-runtime/src/remote/protocol.ts:27–38` 把 `invalid-input` 列为内核保留码；`contract.ts:125–140` 在 `defineRemoteService` 中拒绝重名；`node.ts:789–792,832–838` 区分 schema 失败与未声明业务失败。`docs/specs/runtime/plugin-channel.md:50,83–90,163–164` 对应同一边界。已核对源码，并在下条经公开入口运行复现。
+- **本轮运行核实**：`transport-probe.ts` 使用真实公开入口 `defineRemoteService` 声明 `reorder.errors["invalid-input"]`，立即得到 `TypeError: 远程服务合同 x.probe/reorder 不合法：方法 reorder 的业务失败码不合法或与路由层失败码重名：invalid-input`。这是合同定义入口的实际结果，无须伪造运行时。
+- **建议改法**：schema 不合法继续用路由 `invalid-input`；清单成员不合法用一个非保留业务码（例如 `invalid-order`），放进 Files 方法的 errors 与客户端结果类型。逐项载荷里的状态／原因不是 RPC 顶层失败码，不必另造转译层。
+
+### R2（重要）复制／剪切缺少可捕获并在提交时核对的源身份
+
+- **类别**：不变量／接口遗漏。
+- **计划位置**：“关键设计 → 2. 单项操作”“3. 批量操作”“6. 浏览器客户端”，`plan.md:24–41,58`。
+- **现象**：方法输入只有路径／名字，批量 `items` 只有 `{source,target}`。t68 的 `list` 返回名字、类型与清单展示信息，`read` 返回内容 hash；没有目录项身份查询或令牌。计划中的“源按真实目录项去重”只核对当前批次，不提供剪贴板捕获时身份与粘贴时身份的比较。
+- **为什么是问题**：从代码与计划推断：用户剪切 `a.md` 后，外部程序把它移走并在同路径放入另一文件，t70 再提交旧剪贴板引用时服务会操作替换后的文件。单纯重新列出只能知道名字仍在；内容 hash 也不能识别字节相同的替换文件，且不能捕获目录身份。t70 无法履行源身份变化拒绝合同，后续必须新增 t69 方法与输入字段。
+- **依据**：`docs/specs/workbench/files-explorer.md:61,140` 明定“源消失或身份变化时拒绝旧意图”；`docs/specs/workspace/files.md:33–37,88` 要求真实源及类型／身份变化可区分。当前 `packages/neuro-book/src/plugins/files/shared/contracts.ts:52–81,107–110,162–166` 没有身份结果与查询。旧 `shared/dto/workspace-file-operation.dto.ts:11–25` 有 `expectedSources`，旧 `server/workspace-history/tracked-workspace-files.ts:288–300` 在提交侧比对 `dev/ino/birthtimeMs`；旧 `app/components/novel-ide/workspace/WorkspaceFilePanel.vue:87–99,196–216` 在捕获与粘贴时使用它。未运行 t69，设计后果为推断。
+- **本轮运行核实**：指定目录的 `probe.ts` 通过 `filesScene` 建真实服务端／项目／浏览器内核及 Files 门面；捕获后把旧 `a.md` 保留在另一地址，再创建字节相同的新 `a.md`。实际结果 `actualIdentityChanged:true`、`publicEntryEqual:true`、`publicReadEqual:true`，两次条目均为 `{name:"a.md",kind:"file"}`；三实例关闭均 `closed`。证明当前公开查询无法区分替换；未运行尚不存在的 t69 粘贴行为。命令与完整输出见报告末尾“本轮运行证据”。
+- **建议改法**：提供一次按目录项取得身份的读方法（或给现有查询提供按需身份结果），批量源带捕获的 `expected` 令牌，服务端执行每项前重新核对；父目录链接别名与目录项本身的身份分清。令牌只证明本次操作对象，不创建普通文件稳定 id 或引用维护层。验收“剪切后同路径替换，即使字节相同也拒绝”和目录替换。
+
+### R9（重要）停止条件只认 `root-gone`，没接入在途绑定／调用资格失效
+
+- **类别**：不变量／失败与恢复。
+- **计划位置**：“关键设计 → 3. 批量操作”“6. 浏览器客户端”“验收映射”，`plan.md:40–41,58,85,87`。
+- **现象**：批量明确只在 `root-gone` 或业务 `cancel(operation)` 时停止，其余错误继续；验收 3 把“绑定／授权失效后停止”缩成“根不在后停止”。未写提供方收到的 RPC `signal` 在断线、调用方入口停止、提供方停止时如何阻止下一项，也未列该时序验收。
+- **为什么是问题**：根仍存在不代表旧窗口／入口还具有执行资格。内核只让调用方的写结果变成 `unknown-outcome`，不会强制终止服务方法。忽略提供方信号会使用户关闭／切换窗口后，旧批次仍执行后续移动或删除；再列目录核对未知结果也可能和仍在推进的旧批次竞争。这是计划未定义的行为风险（推断），不能靠路由失败原样透出补足。
+- **依据**：`docs/specs/workspace/files.md:52,71–76,110`、`docs/specs/workbench/files-explorer.md:64,101,143` 均要求绑定／授权失效停止后续；`docs/specs/runtime/plugin-channel.md:59,88–92,167` 提供终止信号且明确链路断开不证明请求终止；`packages/nb-runtime/src/remote/peer.ts:251–254,337–356` 在取消／断线触发入站信号，`node.ts:805–816` 将请求及提供方停止信号交给方法，`:829` 只负责回结果，不代服务遍历停止。旧 `server/workspace-history/tracked-workspace-files.ts:247–256,334–337` 每项重新核对并保留停止原因。未运行 t69。
+- **建议改法**：分清业务取消（保留批量 RPC 的结果）与生命周期／连接中止（调用方为未知）；两者都只允许当前项结算，下一项之前检查信号／有效资格并停止。复用内核已传的信号，不建立第二套 Project 代次。局部 OS `permission-denied` 是否继续与全局资格失效区分；补第一项执行中断线、调用方停止／项目停止，第二项真实文件不变，恢复核对后才能继续。
+
+### R3（重要）复制误用“同目标成功无操作”，且未规定自身后代拒绝
+
+- **类别**：正确性／旧行为回退。
+- **计划位置**：“关键设计 → 3. 批量操作”“验收映射”，`plan.md:38–40,85–86`。
+- **现象**：`move`、`copy` 共用预处理，写成“目标等于源为 `done`（无操作）”，自身／后代拒绝只写“移动”。复制输入 `{source:"a.md",target:"a.md"}` 因此可按计划返回成功但没有副本；目录复制到自身后代的规则没有落到复制路径。
+- **为什么是问题**：Spec 只为同目标移动授予无操作语义；同目录复制须明确新名称，冲突不能伪装成成功。目录复制采用目标父目录内的临时树，如果该父目录在源树内，复制时创建的临时树也会成为源的一部分；是否反复递归取决于尚未写的算法（推断），但应在原语前拒绝这种目标，而不是靠复制失败收场。
+- **依据**：`docs/specs/workspace/files.md:47–48,52,110,115` 及 `docs/specs/workbench/files-explorer.md:62–63,141–142` 明确区分同目标移动与同目录复制；旧 `packages/neuro-book-legacy/server/workspace-files/workspace-files.ts:138–140` 对复制到自身及后代明确拒绝，`:568–580` 对移动允许同目标但拒绝后代。计划 `:16` 把临时复制树放在目标目录，`:39` 未按操作分支。静态核对，t69 尚未运行。
+- **建议改法**：预处理只给 `move` 的同一目录项目标返回 `done`；`copy` 的同目标返回 `conflict`／要求新名，目录复制与移动均按解析后的实际父目录拒绝自身后代。补直接合同调用（不能只测 t70 预检）、父目录链接别名绕入源树、原源／目标字节不变。
+
+### R4（重要）结果表缺少结构化部分完成信息，且单项清单失败没有返回位置
+
+- **类别**：正确性／接口合同。
+- **计划位置**：“关键设计 → 1. 原语”“2. 单项操作”“3. 批量操作”“4. 清单维护”，`plan.md:16–17,26–31,40,47–49`。
+- **现象**：复制要报告清理不了的残留，删除要报告已删／未删，复制特殊类型还要跳过计入结果；但逐项结果只列 `status,code?,detail?,path?,manifest?`，没有任何这些范围的结构。`create`、`rename`、`convert` 的结果更只列 `{path}`，虽然它们同样可能在文件已改后清单失败。跨两个内容根移动时两份 `content.xml` 可分别成功／失败，当前单个 `manifest:{status,detail}` 没有清单地址或两侧结果。
+- **为什么是问题**：计划的文字承诺与公开结果形状不闭合。只给错误文案，t70 无法稳定展示、定位与核对具体残留／未删资源，也无法区分“源已成功移走、目标清单没写好”和文件操作本身失败；按顶层失败保留剪切源会再次提交不存在的源，按 `done` 显示整项完成又漏掉清单错误。从计划推断，这会迫使调用者新增文案解析或返工服务 schema。
+- **依据**：`docs/specs/workspace/files.md:52,70–72,91,100,116` 要求逐项实际结果、部分范围、未知核对与不重放已成功副作用；`docs/specs/workbench/files-explorer.md:61,63–64,100,143` 要求逐成功源清除与可见残留；`docs/specs/workspace/folder-kinds.md:85,100` 要求清单失败为部分完成。旧 `shared/dto/workspace-file-operation.dto.ts:34–40`、`server/workspace-history/tracked-workspace-files.ts:319–337` 直接返回 `residualPaths`，旧 `workspace-files.ts:184–186` 在排他打开后立即登记可能残留的路径。静态核对，未运行 t69。
+- **建议改法**：单项与批量共用一份操作结果类型，明确磁盘动作是否完成；给需要的失败附资源地址范围（残留、已删／未删、内部跳过），清单附带每个受影响 `content.xml` 地址及结算。结果与输入一一对应可继续按索引关联，无需再增整套任务系统；t70 依据磁盘移动完成清剪切意图，并独立展示清单部分失败。补单项清单失败、两内容根仅一侧清单失败与目录内部部分删除。
+
+### R10（重要）1000 项上限不能保证 RPC 可传，缺少发出前的字节预算
+
+- **类别**：接口合同／失败与恢复。
+- **计划位置**：“关键设计 → 3. 批量操作”“6. 浏览器客户端”“验收映射”，`plan.md:38,40,42,58,84–87`。
+- **现象**：只限制项数 1000，且只说“结果要装进一条 RPC 消息”；入站请求含每项源／目标路径，没有客户端 JSON 字节预算。单项合法路径可达 4096 字节，1000 个中等长度路径就超过 1 MiB；单个目录的残留／未删范围也不受项数限制。
+- **为什么是问题**：真实运输层在调用提供方前断开连接，把这次写与同连接其它在途写变成未知；本可在客户端确定拒绝的输入失去明确结果，t70 无法得到逐项反馈。补 R4 的路径范围之后，回复也需要定义上限内的形状，不能仅限“1000 个顶层源”。
+- **依据与运行核实**：`docs/specs/workspace/resources.md:35` 路径上限 4096 字节；`docs/specs/runtime/plugin-channel.md:88–92,115` 单帧 1 MiB，发出写中断为未知；生产 `packages/neuro-book/src/server/rpc/listener.ts:76` 设 `maxPayloadLength`。本轮 1000 项，每条路径 1003–1005 字节、单段至多 250 字节，业务输入 JSON 为 **2,035,820 字节**（尚未算帧包络）。将该输入经真实 `browser` 位置内核、生产 RPC 监听器、真实服务端内核调用具有同样输入形状的实验写合同：返回 `{ok:false,code:"unknown-outcome",cause:"disconnected"}`，关闭码 **1006**，提供方法执行次数 **0**；两内核收口均 `closed`。内核与 WebSocket 客户端运行于 Bun，未启动浏览器页面。t69 尚未实现，实验只证明现有真实运输与计划形状不兼容。
+- **建议改法**：沿 t68 已有正文预算做法，客户端在发出前核对整次批量 JSON 字节数并留帧包络，超限返回确定的 `too-large`；提供方复核。同一结果类型给目录范围定义有界表达（例如失败子树前缀与“须核对此子树”，不能假称逐路径完整），事件继续按已有字节预算发 `resync`。不为此先做持久任务／分页协议；t70 可以按预算分批并保留已成功项。补真实 WebSocket 的上限两侧及返回范围过大的验收。
+
+### R1（重要）清单缺少“加入未列入项／移除缺失条目”的服务操作
+
+- **类别**：正确性／接口遗漏。
+- **计划位置**：“关键设计 → 2. 单项操作”“4. 清单维护”，`plan.md:26–31,47–50`。
+- **现象**：`reorder` 明确拒绝不在清单里的名字；`display` 只编辑清单已有项。自动维护仅由新建、移动、复制、改名、删除真实文件触发。没有只改清单、接纳现有未列入资源或移除缺失条目的方法。
+- **为什么是问题**：外部增删产生的两种不一致是 Spec 明确支持的日常状态，用户必须能在资源管理器修正。未列入项不能用 `create` 补录（真实文件已存在），缺失条目不能用 `delete` 清除（源不存在）；t70 只实现界面时无法按现有表履约，必须返工 t69 的服务合同。未经清单专用操作改 `content.xml` 原文会让 t70 重复 XML 层级、锁与校验逻辑。
+- **依据**：`docs/specs/workspace/folder-kinds.md:98–100` 明确规定“不自动修复清单；用户可以在资源管理器中把未列入项加入清单或移除缺失条目”；同文件 `:73,85` 规定操作与清单 owner；`docs/proposals/project-file-foundation.md:133–137` 保留未列入与缺失状态；计划 `:29–30` 仅开放已有条目编辑。静态逐项核对，未执行 t69（尚未实现）。
+- **建议改法**：在同一个清单编辑入口定义添加／移除条目的变更（添加核对实际目录项，移除只删指定清单条目），复用 `manifest-edit.ts` 的当前字节解析与锁；不为 t70 开第二套清单编辑器。补验收：外部创建后加入清单、外部删除后移除条目，真实文件不变且事件带来源。
+
+### R11（重要）转换没有定义现存 `content.xml` 的保护与清单生成失败的结算
+
+- **类别**：正确性／失败与恢复。
+- **计划位置**：“关键设计 → 2. 单项操作”“4. 清单维护”“验收映射”，`plan.md:31,34,48–49,88`。
+- **现象**：转为内容文件夹要“按当前子项与真实名字生成清单”，但只规定目录后缀的排他改名；没有规定已有 `content.xml` 时保留、拒绝还是重建，也没有给生成新清单的排他创建规则。去后缀保留清单，因此现存清单不是异常输入，而是一次来回转换的正常状态。
+- **为什么是问题**：从计划推断，若每次生成都覆盖，就会把用户保留的清单／其它同名文件字节静默替换；若一律拒绝现存清单，则一次正常来回转换也无法完成。计划的清单锁只防并发丢更新，不能替代现存文件的保留政策。若目录改名成功而生成清单失败，表中的 `{path}` 也没有独立失败结果（同 R4），需要返回实际已完成的转换范围。
+- **依据**：`docs/specs/workspace/folder-kinds.md:75,85,92,98–100,115–116` 规定退回普通时清单保留并由用户决定删除、文件／清单任一步失败须报告、不合法清单不改写；`docs/specs/workspace/files.md:46,52` 新建排他且不覆盖；accepted `docs/proposals/project-file-foundation.md:133–137` 保留同一转换／清单数据规则。当前 `rooted.ts:172–175` 的替换要求文件已存在，而 `locked-replace.ts:110–117` 可处理空目标；实现应选清楚新建与编辑边界。静态核实，未运行 t69 转换。
+- **建议改法**：转换前按现存清单状态明确最小政策：缺失时排他新建；已有有效清单保留；同名其它文件／非法清单明确拒绝或单列用户确认的重建动作，不自动覆盖。新建清单沿同一根约束和来源／事件，生成时排除清单本身与节点正文；改后缀后若写失败按统一部分完成结果返回实际路径。补普通→内容→普通→内容的字节保留、现存非法／普通 `content.xml` 不被覆盖、生成失败实际类型与结果对齐。
+
+### R5（重要）临时整树复制加自动清理改变了验收 9，不能标成原合同已覆盖
+
+- **类别**：正确性／产品取舍。
+- **计划位置**：“关键设计 → 1. 原语”“Spec 与文档改动（S0）”“验收映射”，`plan.md:16,64,87`。
+- **现象**：原语承诺“中途失败删掉自己的临时目录，不留半棵树”，只有删不掉才报告残留；验收映射仍称其覆盖 files 验收 9。还新增链接复制与设备／FIFO 内部跳过行为，未把这些与旧行为的差异列为待确认项。
+- **为什么是问题**：当前已批准验收 9 明确要求目录复制中途失败保留已产生的残留并报告范围，旧实现也直接保留并返回实际副本范围。计划采用的是另一种可见结果：普通中途失败没有目标副本、还需一次排他目录改名和一次失败清理。此策略可以选，但不能通过 S0 改文字并以旧验收编号宣称等价；普通文件操作“全部实际资源”的承诺也需要明确内部跳过如何构成部分完成（结果缺口见 R4）。
+- **依据**：`docs/specs/workspace/files.md:48,52,116`（尤其验收 9“保留已产生的残留”）；`docs/specs/workbench/files-explorer.md:63,143` 要求用户看到残留范围；旧 `packages/neuro-book-legacy/server/workspace-files/workspace-files.ts:147–158,161–180,184–199` 排他生成目标、累积映射、失败不清理，链接／特殊类型使项失败；计划 `:16` 采用不同策略、`:87` 没有对应的“无目标／临时残留”验收。静态核对，尚无 t69 实现。
+- **建议改法**：优先沿当前合同直接排他创建目标并返回部分路径，省掉整树暂存、最终改名与自动清理；若要原子发布副本，明确登记为改变失败／恢复行为的产品取舍，修订验收 9 与 t70 的反馈条件，测试清理成功及清理失败两支。链接按链接复制不跟随可作为独立兼容扩展说明；特殊类型不得默默把不完整目录标 `done`。
+
+### R6（建议）补明取消句柄的返回时机、方案路由与 id 作用域
+
+- **类别**：接口合同／可执行性。
+- **计划位置**：“关键设计 → 3. 批量操作”“6. 浏览器客户端”，`plan.md:38,41,58`。
+- **现象**：服务端 `operation` 由调用方生成，但浏览器门面“另生成 `operation` 并返回 `{operation,result}`”，没有说明 `result` 是在途 Promise；若沿现有方法全部返回 `Promise<FilesResult<…>>`，调用方取得 id 时批量已结束。`cancel(operation)` 也不带方案，而批量同时分派到 `project` 与 `user` 两个不同提供者。
+- **为什么是问题**：这是接口歧义，尚不能断言实现一定会等批量结束才返回；若照现有异步门面写法实现，t70 就无法在第一项执行中取得 id 并取消。只用 id 分派还需要未说明的 id→方案表和释放规则。服务合同 `:41` 没有定义重复 id、取消不存在 id 的结果与调用方作用域；这些细节应在 t69 的公开类型与验收中固定，避免 t70 自建另一套操作登记。
+- **依据**：`docs/specs/workspace/files.md:76,116` 与 `docs/specs/workbench/files-explorer.md:64,143` 规定停止未开始项；现有 `packages/neuro-book/src/plugins/files/shared/contracts.ts:162–168` 方法为异步结果，`web/client.ts:24–45` 按资源方案路由；`docs/specs/runtime/plugin-channel.md:35,152` 提供调用方身份且并发调用各自执行，内核不会把业务 `operation` 自动关联到取消。设计缺口，t69 尚未运行。
+- **建议改法**：在现有文件客户端同步返回 `{result: Promise<FilesResult<…>>, cancel(): Promise<FilesResult<…>>}` 的在途句柄，闭包捕获方案与操作 id，省掉单独的客户端路由表；或让调用方在发出前生成并传入 id 与方案。服务端把登记限定在调用方门面和根内，明定活动 id 重复拒绝、未找到／已结束取消的幂等结果，结算后删除登记。验收经 `filesKey` 在第一项未结束时取消第二项。
+
+### R8（建议）权限失败夹具把“只读”当成“不能读／不能删”，验收不能按此触发
+
+- **类别**：测试。
+- **计划位置**：“切片 → S1”“验收映射 → files 验收 9”，`plan.md:74,87`。
+- **现象**：S1 写“只读子项的目录删除失败”，验收 9 用“只读子目录让复制中途失败”。POSIX 复制源只需要读／搜索权限；删文件检查父目录的写／搜索权限，不检查子文件能否写。
+- **为什么是问题**：若用 `chmod 0444` 文件或 `0555` 目录做该夹具，计划的失败路径不会触发；实现者可能把通过该测试变成额外“只读位禁止删除／复制”的产品政策，或者只验证一个碰巧发生的其它错误。从计划推断，无论哪种都会偏离想要证明的实际失败与范围报告。
+- **依据**：本轮普通用户（uid 1000）执行真实 `unlink`：子文件模式 `0444`、父目录可写，结果为 `removed`；不是 root 绕权。`docs/specs/platform/files.md:45,55,85–89` 按实际操作授予与 OS 拒绝定义失败；旧 `packages/neuro-book-legacy/server/workspace-files/workspace-files.ts:598–609` 同样用目录项删除。t69 未实现，本轮只核实夹具的 OS 前提。
+- **建议改法**：复制中途失败用有序的一项可读文件后遇到缺读／搜索权限的子树（例如该子树 `000`，普通用户运行）；删除部分失败用一项可删路径后遇到父目录没有写权限的剩余项。验收核对具体路径与字节；如产品希望只读文件也禁删，单独明确服务政策，不用 `force:false` 当证明。
+
+## 未发现问题的方面
+
+以下只表示计划方向与当前合同一致，不表示尚不存在的实现已通过验收。
+
+- **边界分工合理**：t69 提供落盘与清单合同，t70 负责界面、多选、剪贴板状态、拖动与碰撞交互，t71 负责 dirty／在途保存协商及文档重绑定，符合 t68 `plan.md:16–20` 与本计划 `:98`。但 R1、R2、R4、R9、R10、R11 是 t70 必须消费的服务合同，不能只留作后续界面细节。
+- **排他提交方向正确**：文件 `wx`、目录非递归 `mkdir`、改名用系统 no-replace 原语，不支持就明确 `unsupported`，未计划退回覆盖／递归合并；符合 `workspace/files.md:46–52,115`。Linux 先例是计划作者的已有证据，本轮没有重跑 FFI；macOS／Windows 仍须实测。
+- **目录项与目标分开正确**：改名／删除链接本身、父目录仍校验包含和控制目录，读写正文继续沿 t68 的最终目标解析，符合 `platform/files.md` 的链接边界。不把复制链接解释为授予读取根外链接目标。
+- **内容节点创建保持基础行为**：`create` 文件为空，`createContent` 只排他创建缺失的空白 `index.md`，不注入模板／frontmatter，与 `workspace/files.md:46,93,109`、`folder-kinds.md:118` 一致。旧面板同样创建空字符串：`packages/neuro-book-legacy/app/components/novel-ide/workspace/WorkspaceFilePanel.vue:440–448,462–476`。
+- **清单修改复用正确 owner**：锁内重读当前字节再编辑、外部变化不自动同步清单、排序／展示名只改清单、清单失败不回滚已完成文件动作，这些方向符合 `folder-kinds.md:73–75,98–100`。缺的是上述公开入口与结果边界，而非另建清单数据库或事务系统。
+- **旧领域行为不应搬入**：现行 `workspace/files.md:101` 明确普通文件操作不自动重写 Markdown／外部引用；旧 accepted 提案 `packages/neuro-book-legacy/docs/proposals/files-explorer.md:17,70,79–81,91` 允许移除领域模板／明细耦合并保留基础文件能力。计划没有引入领域模板、引用重构器、普通文件稳定 id、回收站或全局撤销，符合边界。History 与其它方案按 t68 2026-10-09 决定处理，不在本报告重新争论。
+
+## 名字与旧行为的差异说明
+
+- 旧批量目标名 `TargetNameSchema` 拒绝全空白和首尾空白，见 `packages/neuro-book-legacy/shared/dto/workspace-file-operation.dto.ts:7–9`；旧 `resolveFilePath` 还对路径 `trim()` 并规范化，见 `server/runtime/paths/file-path.ts:27–34`。新计划引用的当前段规则明确拒绝空段、`.`、`..`、反斜杠、NUL、首段盘符形状和超长路径，但**不拒绝名字空白**，见 `docs/specs/workspace/resources.md:35` 与 `packages/neuro-book/src/plugins/files/shared/resource.ts:37–46,65–69`。因此两者并非所有方面等价或更严格。
+- 本报告不把允许字面空格单独列为缺陷：当前 Spec 以真实资源地址表达名字，已经没有旧 `trim()` 合同；不要在新后端静默裁剪而让请求指向另一个名字。t70 若为用户输入增加空白提醒，应保留真实文件的可定位能力，并在操作测试中覆盖字面空格与旧空白输入差异。
+- 复制的同目标、失败残留和特殊类型差异见 R3、R4、R5；旧 `copyWorkspacePath` 在 `workspace-files.ts:138–144,170–178` 拒绝自身／后代和链接／特殊类型，新方案不能以旧行为等价宣称通过。删除沿目录项操作且不主动改权限；OS 的只读语义与夹具问题见 R8，不应通过扩大“强删”使失败消失。
+
+## 需要开发者决定的点与待确认项判断
+
+- **R5 的复制失败政策**：推荐沿当前批准合同保留并报告已产生副本；若选择“整树暂存、失败自动清理”，这是可选的产品取舍，需要明确记录相对验收 9 的变化，并让 t70 按新结果反馈。链接按链接复制与特殊类型内部跳过也应作为行为差异记录；跳过不完整内容不得返回无诊断的整项成功。
+- 其它发现主要是履行现有合同所需的补全；R11 默认保留现存清单即可符合数据保护，不需要先引入重建入口。若希望转换时自动重建现存清单，则另外明确字节覆盖的用户意图与政策。
+- 计划末尾没有显式“待确认项”表；不跨根、无回收站／撤销和界面／dirty 延期符合本片范围。`bun:ffi` 实验性风险已写明，不据此要求恢复 Koffi；保持一个 no-replace 封装和实际平台验证。文件与清单非事务可接受，前提是 R4 的部分完成可由调用者消费。
+
+## 本轮运行证据
+
+所有命令工作目录均为审查 worktree 根：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-plan-design`。实验目录记为 `design` 的下列命令均使用完整绝对路径，未使用 3000 或 3917 端口。
+
+### 依赖与版本
+
+```sh
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/design prox bun install --frozen-lockfile --ignore-scripts
+```
+
+成功：`bun install v1.4.2 (744846f84)`；`1568 packages installed [1460.00ms]`，工具 wall time **1.49 s**。`id` 为 `uid=1000(notnotype)`。`/usr/bin/git rev-parse --verify HEAD` 返回 `c8607f7a4b20911df5b5f8d271ae8fe1cf0c9a99`。
+
+### 源替换与真实权限前提（R2、R8）
+
+```sh
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/design bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/design/probe.ts
+```
+
+真实 `filesScene` 中通过公开 Files 门面取得条目和正文后，保留原文件并在原地址新建同字节文件；真实 `lstat` 核对身份不同。权限实验在同一隔离目录中以普通用户 `unlink` 一个 `0444` 子文件。退出码 0，wall time **0.23 s**，完整业务输出如下：
+
+```jsonl
+{"case":"source-replacement","beforeEntry":{"name":"a.md","kind":"file"},"afterEntry":{"name":"a.md","kind":"file"},"publicEntryEqual":true,"publicReadEqual":true,"actualIdentityChanged":true,"retainedBytes":"same-bytes"}
+{"case":"unlink-readonly","childMode":"0444","parentWritable":true,"result":"removed"}
+{"case":"rpc-proposed-batch-size","items":1000,"individualPathBytes":1005,"inputEncodedBytes":2035820,"rpcLimitBytes":1048576}
+{"case":"runtime-close","results":[{"status":"closed"},{"status":"closed"},{"status":"closed"}]}
+```
+
+这里的大小计算只证明编码字节量；R10 的真实运输结论另由下一实验取得。
+
+### 保留错误码与真实 WebSocket 上限（R7、R10）
+
+```sh
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/design bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/design/transport-probe.ts
+```
+
+实验经 `@notnotype/nb-runtime/remote` 公开合同入口复现保留码拒绝，再启动真实 server／browser 位置内核、生产 `startRpcListener({host:"127.0.0.1",port:0,...})` 与 Bun WebSocket。实验写合同采用计划的 `{operation,items:[{source,target}]}` 与 1000 项上限，提供方法只记录到达次数；未伪造 t69 文件副作用。最终输入路径总长 1003–1005 字节、单段至多 250 字节，排除“文件名本身超过 OS 单段限制”这个替代解释。退出码 0，wall time **0.15 s**：
+
+```jsonl
+{"case":"reserved-business-code","error":"TypeError: 远程服务合同 x.probe/reorder 不合法：方法 reorder 的业务失败码不合法或与路由层失败码重名：invalid-input"}
+{"case":"real-ws-connect","result":{"ok":true}}
+{"case":"wire-payload","inputEncodedBytes":2035820,"segmentBytesAtMost":250,"rpcLimitBytes":1048576}
+{"case":"proposed-batch-real-ws","result":{"ok":false,"code":"unknown-outcome","cause":"disconnected"},"closeCode":1006,"providerCalls":0,"rpcLimitBytes":1048576}
+{"case":"client-stop","result":{"status":"closed"}}
+{"case":"hub-stop","result":{"status":"closed"}}
+```
+
+脚本结尾已关闭 WebSocket、生产监听器及两内核；Files 场景在 `finally` 中关闭三实例并删除仅本实验创建的临时根。自建的两个脚本与依赖解析软链已删除，目录读取已确认；报告及宿主的 `agent/`、`brief.md`、`omp.out` 保留。
+
+### 未运行与证据边界
+
+- 未运行 t69 实现或测试，因为尚未实现；目录递归复制、清单转换、在途停止的后果属于计划／代码推断。
+- 未运行全量单测、typecheck、e2e、浏览器页面或 `smoke:server`，未运行 macOS／Windows 原语。静态审查和上述场景不替代这些实施验收。
+- 没有提交、push、stash、分支切换或仓库文档回写。没有创建持久服务；实验监听器随前台脚本退出并显式关闭。
+
+## 数量
+
+共 **11 条**：**阻断 1**（R7）、**重要 8**（R2、R9、R3、R4、R10、R1、R11、R5）、**建议 2**（R6、R8）。
