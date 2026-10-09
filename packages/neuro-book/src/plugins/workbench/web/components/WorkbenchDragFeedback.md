@@ -1,7 +1,6 @@
 ---
 标签: [env:portal, env:global]
 别名: ["拖影", "Drag Feedback"]
-验证入口: WorkbenchShellLayout
 ---
 
 # WorkbenchDragFeedback
@@ -32,7 +31,7 @@ type Props = {
 };
 ```
 
-没有事件、slot 与 expose。拖影根带 `data-workbench-drag-ghost`。
+没有事件、slot 与 expose。组件根是一个 `display: contents` 的空包装，attrs 落在它上面；拖影带 `data-workbench-drag-ghost`。
 
 ## 隐藏通道理由
 

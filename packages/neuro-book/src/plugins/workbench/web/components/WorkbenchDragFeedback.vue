@@ -19,15 +19,22 @@ defineProps<{
 </script>
 
 <template>
-    <Teleport to="body">
-        <div v-if="ghost !== null" class="workbench-drag-ghost" data-drag-feedback data-workbench-drag-ghost :style="{left: `${ghost.x + 12}px`, top: `${ghost.y + 12}px`}">
-            <DropIndicatorLabel :label="ghost.label" :icon-class="ghost.icon" />
-        </div>
-    </Teleport>
-    <DropFeedbackOverlay :preview="preview" :label="label" data-drag-feedback :data-drop-kind="kind" :data-drop-count="count" />
+    <!-- 单一根（不占盒子）：两样反馈都传送到 body，attrs 落在这里。 -->
+    <div class="workbench-drag-feedback">
+        <Teleport to="body">
+            <div v-if="ghost !== null" class="workbench-drag-ghost" data-drag-feedback data-workbench-drag-ghost :style="{left: `${ghost.x + 12}px`, top: `${ghost.y + 12}px`}">
+                <DropIndicatorLabel :label="ghost.label" :icon-class="ghost.icon" />
+            </div>
+        </Teleport>
+        <DropFeedbackOverlay :preview="preview" :label="label" data-drag-feedback :data-drop-kind="kind" :data-drop-count="count" />
+    </div>
 </template>
 
 <style scoped>
+.workbench-drag-feedback {
+    display: contents;
+}
+
 /* 拖影跟着指针，不挡命中：命中按 `elementsFromPoint` 求，`data-drag-feedback` 也会被跳过。 */
 .workbench-drag-ghost {
     position: fixed;

@@ -38,6 +38,22 @@ async function centerOf(locator: Locator): Promise<{x: number; y: number}> {
     return {x: box.x + box.width / 2, y: box.y + box.height / 2};
 }
 
+/** 分节在内容区里的前半或后半（按容器的轴）里的一点。 */
+async function halfOf(page: Page, viewId: string, side: "before" | "after"): Promise<{x: number; y: number}> {
+    const section = page.locator(`[data-view-section="${viewId}"]`);
+    const axis = await section.evaluate((element) => element.closest("[data-container-host]")?.getAttribute("data-container-axis"));
+    const box = (await section.boundingBox())!;
+    const ratio = side === "before" ? 0.25 : 0.75;
+    return axis === "horizontal" ? {x: box.x + box.width * ratio, y: box.y + box.height / 2} : {x: box.x + box.width / 2, y: box.y + box.height * ratio};
+}
+
+/** 一次完整的指针拖放：拖到 `to` 松手，等拖影消失。 */
+async function dropAt(page: Page, source: Locator, to: {x: number; y: number}): Promise<void> {
+    await dragTo(page, source, to);
+    await page.mouse.up();
+    await expect(ghost(page)).toHaveCount(0);
+}
+
 /** 按下源、移过门槛，再分几步移到 `to`：拖动在这一步之后进行中，由调用方决定松手还是取消。 */
 async function dragTo(page: Page, source: Locator, to: {x: number; y: number}): Promise<void> {
     const from = await centerOf(source);
@@ -105,7 +121,7 @@ test.describe("产品页：拖放", () => {
         await expect.poll(() => revisionOf(page)).toBe(revision + 1);
     });
 
-    test("整容器拖到另一个容器内容的边缘：整组并入命中叶的那一侧，预览是那一半；源容器消失", async ({page}) => {
+    test("整容器拖到另一个容器内容的边缘：整组并入命中叶的那一侧，预览是那一半；源容器消失", async ({page}, testInfo) => {
         await open(page);
         const content = (await host(page, `view:${E}`).boundingBox())!;
         // 面板横向：左半是“插到戊之前”。
@@ -113,6 +129,7 @@ test.describe("产品页：拖放", () => {
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "merge-container");
         const area = (await page.locator("[data-drop-feedback-area]").boundingBox())!;
         expect(area.x + area.width).toBeLessThanOrEqual(content.x + content.width / 2 + 1);
+        await page.screenshot({path: testInfo.outputPath("content-half.png")});
         await page.mouse.up();
         await expect(host(page, `view:${E}`)).toHaveAttribute("data-container-mode", "multiple");
         await expect(tabOf(page, "panel", `view:${F}`)).toHaveCount(0);
@@ -253,6 +270,145 @@ test.describe("产品页：拖放", () => {
         expect(sections).toEqual([D, B]);
         await expect.poll(() => revisionOf(page)).toBe(revision + 1);
         await expect(page.locator(`[data-drag-view="${B}"] [data-drag-handle]`)).toBeFocused();
+    });
+
+    test("三个 Part 搬空后各自的四条空落点路径（单视图、整容器 × 空正文、空条目带）都接收：建一个容器并选中", async ({browser}) => {
+        test.setTimeout(120_000);
+        type Setup = {readonly part: "sidebar" | "auxiliarybar" | "panel"; empty(page: Page): Promise<void>; view: string; container: (page: Page) => Locator};
+        const setups: Setup[] = [
+            {
+                part: "sidebar",
+                // 甲、乙、丙三个容器逐个并进右栏丁的末尾：侧栏空，右栏成 multiple。
+                empty: async (page) => {
+                    for (const id of [A, B, C]) await dropAt(page, page.locator(`[data-activity-container="view:${id}"]`), await halfOf(page, (await host(page, `view:${D}`).locator("[data-view-section]").last().getAttribute("data-view-section"))!, "after"));
+                },
+                view: A,
+                container: (page) => tabOf(page, "panel", `view:${F}`),
+            },
+            {
+                part: "auxiliarybar",
+                empty: async (page) => dropAt(page, tabOf(page, "auxiliarybar", `view:${D}`), await halfOf(page, E, "after")),
+                view: D,
+                container: (page) => page.locator(`[data-activity-container="view:${C}"]`),
+            },
+            {
+                part: "panel",
+                empty: async (page) => {
+                    await dropAt(page, tabOf(page, "panel", `view:${E}`), await halfOf(page, D, "after"));
+                    await dropAt(page, tabOf(page, "panel", `view:${F}`), await halfOf(page, E, "after"));
+                },
+                view: E,
+                container: (page) => page.locator(`[data-activity-container="view:${C}"]`),
+            },
+        ];
+        for (const setup of setups) {
+            for (const source of ["view", "container"] as const) {
+                for (const target of ["body", "band"] as const) {
+                    const context = await browser.newContext({viewport: {width: 1440, height: 900}});
+                    const page = await context.newPage();
+                    await open(page);
+                    await setup.empty(page);
+                    const entries = page.locator(`[data-switcher-band="${setup.part}"] [data-switcher-entry]`);
+                    await expect(entries, `${setup.part} 搬空`).toHaveCount(0);
+                    const drag = source === "view" ? page.locator(`[data-drag-view="${setup.view}"]`) : setup.container(page);
+                    const area = page.locator(target === "body" ? `[data-empty-part="${setup.part}"]` : `[data-switcher-band="${setup.part}"]`);
+                    await dragTo(page, drag, await centerOf(area));
+                    await expect(feedback(page), `${setup.part} ${source}→${target}`).toHaveAttribute("data-drop-kind", source === "view" ? "detach-view" : "move-container");
+                    await page.mouse.up();
+                    await expect(entries, `${setup.part} ${source}→${target}`).toHaveCount(1);
+                    const created = (await entries.first().getAttribute("data-switcher-entry"))!;
+                    if (source === "view") expect(created).toMatch(/^custom:/u);
+                    await expect(entries.first()).toHaveAttribute(setup.part === "sidebar" ? "aria-pressed" : "aria-selected", "true");
+                    await context.close();
+                }
+            }
+        }
+    });
+
+    test("拖影有图标与文字；经过 Switcher 只有一条插入线，没有接收区域与条目高亮；整容器跨区换轴", async ({page}, testInfo) => {
+        await open(page);
+        const band = (await page.locator('[data-switcher-band="sidebar"]').boundingBox())!;
+        await dragTo(page, tabOf(page, "panel", `view:${F}`), {x: band.x + band.width / 2, y: band.y + band.height - 20});
+        await expect(ghost(page)).toContainText("样例己");
+        await expect(ghost(page).locator("[class*='i-lucide-']")).toHaveCount(1);
+        await expect(page.locator("[data-drop-feedback-line]")).toHaveCount(1);
+        await expect(page.locator("[data-drop-feedback-area]")).toHaveCount(0);
+        await expect(page.locator("[data-drop-feedback-entry]")).toHaveCount(0);
+        await page.screenshot({path: testInfo.outputPath("switcher-line.png")});
+        await page.mouse.up();
+        // 面板的横排容器到侧栏变纵排。
+        await expect(page.locator(`[data-activity-container="view:${F}"]`)).toHaveAttribute("aria-pressed", "true");
+        await expect(host(page, `view:${F}`)).toHaveAttribute("data-container-axis", "vertical");
+    });
+
+    test("全部可见视图收成细条：落点是细条之后的剩余区，拖入的视图展开、原有细条保持收起", async ({page}) => {
+        await open(page);
+        const sidebar = page.locator('[data-tool-part="sidebar"]');
+        await dropAt(page, page.locator(`[data-activity-container="view:${B}"]`), await halfOf(page, A, "after"));
+        for (const id of [A, B]) await page.locator(`[data-view-section="${id}"] [data-view-toggle]`).click();
+        await expect(page.locator(`[data-view-section="${B}"]`)).toHaveAttribute("data-view-collapsed", "true");
+        const box = (await sidebar.boundingBox())!;
+        await dragTo(page, page.locator(`[data-activity-container="view:${C}"]`), {x: box.x + box.width / 2, y: box.y + box.height - 40});
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "merge-container");
+        const area = (await page.locator("[data-drop-feedback-area]").boundingBox())!;
+        const strips = (await page.locator(`[data-view-section="${B}"]`).boundingBox())!;
+        expect(area.y).toBeGreaterThanOrEqual(strips.y + strips.height - 1);
+        await page.mouse.up();
+        await expect(page.locator(`[data-view-section="${C}"]`)).toHaveAttribute("data-view-collapsed", "false");
+        await expect(page.locator(`[data-view-section="${A}"]`)).toHaveAttribute("data-view-collapsed", "true");
+        await expect(page.locator(`[data-view-section="${B}"]`)).toHaveAttribute("data-view-collapsed", "true");
+    });
+
+    test.describe("半区与来源比例（视口加高，让最小尺寸不夹取）", () => {
+        test.use({viewport: {width: 1440, height: 1700}});
+
+        /** 本页客户端的工作台定制记录里的视图项。 */
+        async function viewEntries(page: Page): Promise<Record<string, {height?: number; width?: number}>> {
+            const client = await page.evaluate((key) => localStorage.getItem(key), CLIENT_IDENTITY_KEY);
+            const db = new DatabaseSync(join(tmp, "state", "storage", "user.sqlite"));
+            try {
+                const row = db.prepare("SELECT value FROM records WHERE owner = 'nbook.workbench' AND key = 'views-customizations' AND client = ?1").get(client) as {value: string} | undefined;
+                return (row === undefined ? {} : (JSON.parse(row.value) as {views?: Record<string, {height?: number; width?: number}>}).views) ?? {};
+            } finally {
+                db.close();
+            }
+        }
+
+        /** 经“移动到”并入：不带半区，成员都没有尺寸记录，各占相同份额。 */
+        async function moveVia(page: Page, scope: string, viewId: string, target: string): Promise<void> {
+            await page.locator(`${scope} [data-move-view="${viewId}"]`).click();
+            await page.getByRole("menuitem", {name: new RegExp(`^${target}`, "u")}).click();
+            await expect(page.getByRole("menu")).toHaveCount(0);
+        }
+
+        test("A、B、C、D 各 25%，等比的 E、F 整组落到 D 的后缘：D 12.5%、E 与 F 各 6.25%，其余不变；记录只写命中叶与拖入成员", async ({page}) => {
+            await open(page);
+            for (const [id, scope] of [[B, '[data-tool-part="sidebar"]'], [C, '[data-tool-part="sidebar"]']] as const) {
+                await page.locator(`[data-activity-container="view:${id}"]`).click();
+                await moveVia(page, scope, id, "样例甲");
+            }
+            await moveVia(page, '[data-tool-part="auxiliarybar"]', D, "样例甲");
+            await tabOf(page, "panel", `view:${F}`).click();
+            await moveVia(page, '[data-switcher-band="panel"]', F, "样例戊");
+            await expect(host(page, `view:${A}`).locator("[data-view-section]")).toHaveCount(4);
+            await expect(host(page, `view:${E}`).locator("[data-view-section]")).toHaveCount(2);
+            expect(await viewEntries(page)).not.toHaveProperty([D, "height"]);
+
+            await dragTo(page, tabOf(page, "panel", `view:${E}`), await halfOf(page, D, "after"));
+            await expect(feedback(page)).toHaveAttribute("data-drop-kind", "merge-container");
+            await expect(feedback(page)).toHaveAttribute("data-drop-count", "2");
+            await page.mouse.up();
+            await expect(host(page, `view:${A}`).locator("[data-view-section]")).toHaveCount(6);
+            await expect.poll(async () => (await viewEntries(page))[D]?.height).toBe(120);
+            const entries = await viewEntries(page);
+            expect([entries[E]?.height, entries[F]?.height]).toEqual([60, 60]);
+            for (const id of [A, B, C]) expect(entries[id]?.height).toBeUndefined();
+
+            const heights = await host(page, `view:${A}`).locator("[data-view-section]").evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().height));
+            const total = heights.reduce((sum, height) => sum + height, 0);
+            const shares = heights.map((height) => height / total);
+            expect(shares.map((share) => Math.round(share * 1000) / 10)).toEqual([25, 25, 25, 12.5, 6.3, 6.3]);
+        });
     });
 
     test("Escape 取消：拖影与预览消失，松手不写；窗口失焦同样取消", async ({page}) => {
