@@ -1,0 +1,160 @@
+# w00017 t70 实现审查：正确性与边界
+
+审查对象：`cd668399..65ff2649`，S0–S4。所有仓库位置相对于审查 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t70-impl-correctness`。只读核对；S5 尚未完成的 Lab 集成场景、截图与 Spec 实现标注，以及已说明的 `DocumentCoordinator` 端口偏离不计缺陷。
+
+依据：t70 `plan.md`、`README.md`、w00017 `pending-confirmations.md` 的 t70 条目，以及 `docs/specs/workbench/files-explorer.md`、`workbench/commands.md`、`workspace/files.md`、`workspace/folder-kinds.md`、`state/store.md`。推荐取舍按已接受处理。
+
+**结论：阻断 0 条、重要 7 条、建议 3 条。** 发现逐条核实后记录，以下按影响排序。主要缺口是异步准备与迟到结果缺少意图所有权，以及树和持久化显示各有一份未同步的状态。每条现象均有真实运行证据；未直接行使的相邻路径和原因推断单独标明。
+
+## 1. 重要：等待重列的选择被新建与粘贴当作“没有选择”，写入改投方案根
+
+- **类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/controller.ts:268`、`:333`、`:340`、`:375`。
+- **现象**：选中 `project://plain/sub/x.md`，经 Files 把 `plain` 改名为 `renamed`，扣住新地址 `renamed/sub` 的列出回复。选择与焦点已跟到 `project://renamed/sub/x.md`，该行尚未重现；此时 `available.create === true`，新建的冻结目标却是 `project://`。提交 `unexpected.md` 后文件真实出现在项目根，选中文件的父目录没有它。粘贴复用同一个 `createTarget`，也会走这个错误目标（代码推断，未另行提交粘贴）。
+- **为什么是问题**：`pending` 保留等待列出的选择，`createTarget` 却把“有选择但暂时找不到行”与“无选择”合并。可用性与执行一致地允许了错误对象；恢复列出不会纠正已冻结的写入。
+- **依据**：Spec `files-explorer.md:95` 规定只有无选择才取当前根；`:107` 与 `workspace/files.md:34` 禁止操作改投。真实内核、磁盘、改名事件与结果交付闸门实验输出 `PENDING_SELECTION_FALLBACK`：`available:true`、`creating.parent:"project://"`、`atRoot:true`、`inSelectedParent:false`；链路实际发出 `create {path:"unexpected.md",kind:"file"}`。复现脚本 `runtime-probe.ts`。
+- **建议改法**：只在 `chosen.length === 0` 时取当前根；已有选择而行尚未恢复时返回 `null`，统一让新建与粘贴暂不可用。无需添加第二套目标状态。
+
+## 2. 重要：放下后等待令牌的拖动已脱离取消状态，取消仍会写入
+
+- **类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/controller.ts:762`、`:770`、`:775`。
+- **现象**：拿起文件并显示移入 `dest`，扣住真实 `identify` 回复；松手调用 `dropDrag` 后，切换显示清单文件并 `cancelDrag`，再交付令牌。文件仍被真实移动到 `dest/a.md`，链路有一条 `move` 写请求。
+- **为什么是问题**：`dropDrag` 在 `await items` 前清空 `drag` 与 `dragItems`，异步闭包仍持有原动作与 Promise。切换显示、取消与视图卸载无法使这条尚未提交的意图失效。等待期间还可开始另一场拖动（代码推断，未另起第二场）。
+- **依据**：Spec `files-explorer.md:111` 规定令牌未齐不能提交，切换显示、视图卸载、源或落点失效取消且不写；计划第 5 节同样约束未提交意图。真实 Files 场地输出 `CANCEL_PENDING_DROP {moved:true,writes:[{method:"move",...}]}`。真实 Chromium 产品页进一步复现：指针拖动显示“移入 dest”，扣住一条真实 `identify` 回复；松手后点击“显示清单文件”，此刻 `aria-pressed:"true"`、`move` 数量为 0；释放回复后实际发出 `move {source:"plain/a.md",target:"dest/a.md",expected:"…"}`。真实磁盘场地确认落盘，浏览器树中源消失、目标出现。证据为 `runtime-probe.ts`、`browser-evidence.json`、`browser-cancelled-drop.png`。
+- **建议改法**：让等待令牌的放下仍归同一场可失效意图，保留会话身份到实际提交前；所有取消入口使身份失效，令牌到齐后核对身份、根状态和原动作再提交。更少状态的做法是令牌未齐时放下直接取消。
+
+## 3. 重要：取身份令牌的迟到动作可覆盖较新的内联输入与剪贴板
+
+- **类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/controller.ts:554`、`:558`、`:653`、`:658`、`:661`、`:665`。
+- **现象**：真实改名的 identify 回复被扣住时，新建仍可用；选择另一目录并新建、输入 `typed-new.md` 后，释放旧改名回复，创建输入被替换为旧源的改名输入，已输入名字丢失。剪贴板同样：先 cut A、扣住 identify，再 copy B 并成功；交付 A 的旧回复后剪贴板从 B 的 copy 换成 A 的 cut。
+- **为什么是问题**：取令牌没有准备状态或请求代次，available 只看已经出现的 editing/dialog。改名迟到后无条件发布输入；delete 采用同一发布方式（代码推断，未复现删除覆盖）。collect 的 clipSeq 直到回复到达才分配，因此旧动作反而取得较大的 id。
+- **依据**：Spec `files-explorer.md:92`、`:107` 的冻结对象与新剪贴板保护合同；计划第 1、2、5 节的迟到回调和意图所有权。真实 Files 链路输出 `LATE_RENAME_REPLACES_CREATE {before:{mode:"create",name:"typed-new.md",creating:{parent:"project://dest"}},after:{mode:"rename",address:"project://plain/a.md",name:"a.md"},writes:[]}`；`LATE_CUT_REPLACES_COPY {newer:{mode:"copy",items:[{address:"project://dest/d.md"}]},after:{mode:"cut",items:[{address:"project://plain/a.md"}]}}`。真实 Chromium 产品页核实：F2 回复被扣住，用户在 dest 新建并输入名字；交付旧回复后输入行与文本全部消失，`create`/`rename` 写请求均为 0。从代码推断，旧输入卸载产生的 focusout 又提交当前改名，名字未变使其取消。证据为 `intent-probe.ts`、`browser-evidence.json`、`browser-late-rename.png`。
+- **建议改法**：交互输入的准备只留一份可失效意图；新动作、取消与入口停止使旧身份失效，identify 返回后核对再发布。剪贴板序号在 collect 开始时分配，发布前只认最新序号。
+
+## 4. 重要：根结束未使在途读取和未提交意图失效，迟到回调恢复旧状态
+
+- **类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/tree/model.ts:132`、`:207`；`packages/neuro-book/src/plugins/explorer/web/controller.ts:554`、`:568`、`:820`。
+- **现象**：真实项目提供方结束后，删除确认框仍保留，点击确认实际发出 `delete` 写请求，服务端以 `not-provided` 拒绝；结束前已计算、结束后才交付的 identify 又把项目剪贴板装回来；迟到 list 仍把已停止根的目录槽更新成 `loading:false,stale:false`。
+- **为什么是问题**：ended 只改根标题，未撤销请求所有权或取消未提交动作。清剪贴板的 watch 只检查结束那一刻的值，collect 返回后只检查 disposed。确认提交也没有根资格再核对。服务端当前拒绝写入，未实测到数据损坏或改投新项目，但客户端违反结束门禁。
+- **依据**：Spec `files-explorer.md:153`、`workspace/files.md:102`；计划第 7 节要求结束后取消未提交意图、丢弃迟到结果、不再发写。真实 `projectApp.stop()` 与交付闸门核实三条：`DELETE_AFTER_END` 有 `method:"delete"`，`CLIPBOARD_AFTER_END` 为旧项目 cut，`LIST_AFTER_END` 在 `provider-stopped` 后应用。复现脚本 `runtime-probe.ts`。
+- **建议改法**：根结束时集中作废该根请求与未提交动作，回调携带并核对同一根代次；提交入口统一检查根仍可写。把剪贴板和待确认动作清理合在根失效边界。
+
+## 5. 重要：偏好重读与“放弃”已更新 store，真实树与显示仍停在旧值
+
+- **类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/preferences.ts:98`；`packages/neuro-book/src/plugins/explorer/web/session.ts:55`、`:110`；`packages/neuro-book/src/plugins/explorer/web/view-host.ts:76`、`:114`。
+- **现象**：已保存展开 plain；通过真实 SQLite 暂时移走 records 表，让显示清单文件与展开 plain/sub 的保存失败。调用界面对应的 discard 后，store 已回到 `showManifests:false,paths:["","plain"]`，问题提示为 null；控制器仍显示清单且 plain/sub 展开。另一个真实首读失败恢复场景：磁盘原已保存 `showManifests:true,paths:["","plain"]`；首读失败使用缺省值浏览，修好库并重新读取后 store 读到原值、提示消失，控制器仍隐藏清单、只展开根。
+- **为什么是问题**：会话只在建立控制器时拷贝一次字段 display，后续界面只读控制器；重读成功和 discardAll 的回落到不了真实树。提示消失让用户误以为已恢复或撤销；后续展开变化会把已放弃的分支带回保存（从数据流推断）。
+- **依据**：Spec `files-explorer.md:117` 的首读失败可重读、放弃后显示回落合同；`state/store.md:107` 已提供回落语义。真实 Storage/Files 输出 `DISCARD_DISPLAY {storeShow:false,controllerShow:true,storePaths:["","plain"],controllerPaths:["project://","project://plain","project://plain/sub"],problem:null}`；`FIRST_READ_RECOVERY {storeShow:true,controllerShow:false,storePaths:["","plain"],controllerPaths:["project://"],problem:null}`。复现脚本 `preferences-probe.ts`、`recovery-probe.ts`。
+- **建议改法**：偏好显示只保留一个 owner。会话将明确的重读、放弃结果应用到控制器的显示和展开，应用期间不反向触发 save；或控制器直接消费 store 显示投影。
+
+## 6. 重要：已标脏的旧列出仍修剪展开集合，目录改名后的分支被永久收起
+
+- **类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/tree/model.ts:136`、`:140`、`:144`、`:175`。
+- **现象**：展开 plain/sub，扣住一次 plain 的旧列出；通过真实 Files 将 sub 改名为 sub2，事件已将展开改写为 `project://plain/sub2`。释放旧列出后，最新父目录清单已有 sub2，展开集合却只剩根与 plain，sub2 子树不再显示。
+- **为什么是问题**：rename 已将旧请求标脏，但应用结果时先用旧 entries 调 prune，再读取 dirty 决定重列。旧快照只有 sub，因而把新地址 sub2 当作确认不存在，连同后代从展开集合删除。最新列出能恢复资源行，无法恢复展开意图；会话挂接持久化时该收起还会保存（代码推断，实验未挂接 store）。
+- **依据**：Spec `files-explorer.md:104` 要求改名展开按地址改写，`:105` 要求标脏后重列，`:117` 只在父目录确认不存在时删展开。真实内核与 Files 输出 `DIRTY_PARENT_PRUNES_RENAMED_BRANCH {before:{expanded:["project://","project://plain","project://plain/sub2"]},after:{expanded:["project://","project://plain"]},listing:["sub2","a.md"]}`。复现脚本 `tree-race-probe.ts`。
+- **建议改法**：已知 dirty 的结果不做破坏性 prune，等当前快照确认不存在再删展开；或直接丢弃已标脏结果并重列。保留现有单在途目录槽即可。
+
+## 7. 重要：外部删除焦点行后焦点变成 null，未回存活祖先
+
+- **类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/tree/selection.ts:71`、`:90`；`packages/neuro-book/src/plugins/explorer/web/controller.ts:262`。
+- **现象**：选中并聚焦 `project://plain/sub/x.md`，通过另一个真实 Files 调用删除它并等待树更新，最终为 `{selected:[],focus:null,anchor:null}`；仍可见的 plain/sub 没有取得逻辑焦点。
+- **为什么是问题**：followPaths 先把被删 focus 清成 null，prune 对 null 直接返回，失去找祖先所需地址。删除不是从本控制器确认框发起时，没有 focusAfterDelete 补救；键盘位置及当前根随之丢失。
+- **依据**：Spec `files-explorer.md:113` 要求焦点行删除后回最近存活祖先。真实 Files 删除输出 `DELETED_FOCUS {selected:[],focus:null,anchor:null}`，父目录与项目根仍可见。复现脚本 `runtime-probe.ts`；此处“外部”指控制器外的真实 Files 删除，未另测操作系统直接删除。
+- **建议改法**：删除事件移除选择与锚点，暂留旧焦点地址，交给统一 prune 选祖先；避免事件处理与修剪各清一半状态。
+
+## 8. 建议：新建后的迟到列出会覆盖用户随后选择的行
+
+- **类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/controller.ts:255`、`:290`、`:810`；`:588`、`:606`、`:609`。
+- **现象**：在 plain 新建 new.md 成功，扣住该目录真实列出。用户已选择 `project://dest/d.md`；旧列出交付后，选择与焦点被 pendingFocus 改回新文件。
+- **为什么是问题**：pendingFocus 只有地址，没有选择意图代次；后来的点击、键盘选择与上下文选择不取消它。后台列出抢占较新的显式选择，随后命令可能作用于不同项（命令影响未另测）。
+- **依据**：Spec `files-explorer.md:113` 的焦点合同与 `:151` 的明确操作对象。真实输出 `LATE_CREATE_STEALS_SELECTION {prior:{selected:["project://dest/d.md"],focus:"project://dest/d.md"},after:{selected:["project://plain/new.md"],focus:"project://plain/new.md"}}`。新建成功默认选中新项合理，本条限定为已发生更新的用户选择后仍抢占。复现脚本 `intent-probe.ts`。
+- **建议改法**：pendingFocus 记下选择代次；显式选择推进代次，仅在没有更新用户选择时应用。路径删除、根结束或明确取消也清掉它。
+
+## 9. 建议：读取失败后“重试”只重开，暂停的保存需要再点一次
+
+- **类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/preferences.ts:86`、`:88`、`:89`。
+- **现象**：真实首读 io-error 后浏览并展开 plain，保存队首失败。修好库再重试一次，基线读取已成功、canSave 为 true，保存仍为 `{state:"failed",code:"io-error"}`、队列 1；第二次重试才清空队列与提示。
+- **为什么是问题**：reopen 与 retry 是互斥分支，同一字段需要重开并继续队首时只能完成第一步。只生成过一条修改时，没有 latest 条目推进队首。
+- **依据**：计划第 6 节、Spec `files-explorer.md:117` 的恢复保存；`state/store.md:108` 明确重开后由 owner retry。真实输出 `FIRST_RETRY_STILL_PAUSED {save:{state:"failed",code:"io-error"},queue:1,problem:{kind:"unsaved",code:"io-error"}}`，随后 `SECOND_RETRY_SETTLED {save:{state:"idle"},queue:0,problem:null}`。无数据丢失。复现脚本 `recovery-probe.ts`。
+- **建议改法**：重开成功后在同一次动作里检查暂停队首并 retry；仍读失败时保留提示。连续两次条件判断即可。
+
+## 10. 建议：显示偏好在保存暂停期间不合并，逐次切换堆进持久化队列
+
+- **类别**：安全与性能。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/preferences.ts:54`、`:65`、`:77`。
+- **现象**：真实 SQLite 保存失败后，显示清单文件再切换 8 次，队列从 1 增至 9，恢复时逐条消化；对照实验中展开字段只保留 1 条失败队首和最后一份显示，最终保存成功。
+- **为什么是问题**：展开使用 paused/latest 合并，preferences 却直接 commit 每次切换。中间布尔值已失去产品意义，仍在暂停时排队并恢复后提交，队列随切换次数增长。
+- **依据**：`plan.md:109` 明确同一记录的新意图合并为最后一份。真实输出 `PAUSED_DISPLAY_QUEUE {queue:9,save:{state:"failed",code:"io-error"},display:{showManifests:true}}`；对照 `PAUSED_EXPANSION_MERGE {queue:1,display:["","plain"]}`。最终值未发现错误。复现脚本 `preferences-probe.ts`。
+- **建议改法**：显示偏好复用展开的暂停合并策略，保留失败或未知的队首及最后一份显示；恢复后仅提交最后值，不另加队列。
+
+## 未发现问题的方面
+
+以下限于已执行场景，不代表全量验收：
+
+- 现有 explorer 的 73 个 Bun 用例全部通过：两个根、按需展开、普通/内容/活页夹投影、嵌套清单依赖、节点正文增删、旧目录删除重建、订阅 ready 前窗口、resync 重连、基本选择与键盘。
+- 冻结剪贴板不跟随改名，源被同字节替换后拒绝；父子去重、跨根拒绝、同目标移动、自身后代边界、逐项剪切结算、粘贴在途换剪贴板保护、碰撞预判后服务端排他重验、窗口隔离均通过现有真实运行时测试。第 3 条限定于剪贴板自身取令牌的乱序完成，第 4 条限定于根结束的未提交与迟到结果。
+- 批量结果未知后复制、剪切、粘贴、拖动、删除被挡；recheck 不解除，abandon 清意图与对应剪贴板；已有测试通过。
+- 19 个 Explorer DOM 用例通过，覆盖虚拟行与 ARIA、输入法组字、内联输入、碰撞选择、结果反馈及受控关闭交接。Bun/DOM 通过没有覆盖上列竞态。
+- shared/store 的 22 个用例通过，包含本片 #applied 修改的同步 ready 观察、首读显示顺序、暂停/冲突/未知、重开、停止与订阅释放。未发现 #applied 本身回归。
+- 补充真实 SQLite 实验：展开暂停期间多次展开/收起只保留最后值，恢复后队列清空，保存 paths 为 `["","plain"]`；视图解绑再绑定至 generation 3 仍是同一控制器。分支淘汰、2000 条上限、方案根不淘汰由现有测试覆盖。
+- 真实 Chromium：移动手势在 2 px 时未激活，超过门槛后只出现树拖动，外壳拖动标记始终为 false；放下前 Escape 取消无新增 move。删除确认默认聚焦取消，按 Enter 取消后关闭、焦点回树，delete 写请求为 0。AlertDialog 明文不提供 Escape 关闭，因此删除框的 Escape 无动作未列缺陷。
+
+## 验证命令与边界
+
+依赖安装在 worktree 根执行：
+
+```sh
+prox bun install --frozen-lockfile --ignore-scripts
+```
+
+结果：Bun `v1.4.2 (744846f84)`，`1568 packages installed [1.58s]`，成功。
+
+下面的命令均在 worktree 的 `packages/neuro-book` 执行，使用：
+
+```sh
+export NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/correctness
+```
+
+| 实际命令 | 结果 |
+|---|---|
+| `bun test src/plugins/explorer` | 73 pass，0 fail，449 expect，6 文件，1.99 s |
+| `node ../../node_modules/vitest/vitest.mjs run src/plugins/explorer/web/components` | 3 文件、19 用例通过，3.60 s |
+| `bun test src/shared/store/store.test.ts` | 22 pass，0 fail，173 expect，518 ms |
+| `bun --tsconfig-override tsconfig.json "$NBOOK_AGENT_TEMP_ROOT/runtime-probe.ts"` | 六个真实 Files 边界输出，上述第 1、2、4、7 条成立；之后 Bun 输出 directory mismatch 内部错误，已报告工具问题，不计产品缺陷 |
+| `bun "$NBOOK_AGENT_TEMP_ROOT/intent-probe.ts"` | 旧改名覆盖创建、旧 cut 覆盖 copy、pendingFocus 覆盖较新选择，退出 0 |
+| `bun "$NBOOK_AGENT_TEMP_ROOT/recovery-probe.ts"` | 首读重读显示不同步、第一次重试仍暂停、第二次结算，退出 0 |
+| `bun "$NBOOK_AGENT_TEMP_ROOT/tree-race-probe.ts"` | dirty 父列出删掉改名后的展开分支，退出 0 |
+| `bun "$NBOOK_AGENT_TEMP_ROOT/preferences-probe.ts"` | 最终版本核实 discard、暂停合并、显示队列增长、恢复保存与视图重绑，退出 0 |
+| `bun "$NBOOK_AGENT_TEMP_ROOT/browser-server.ts"` + 内置 Chromium | 真实产品浏览器，前端 40763、后端自动分配 36267；拖动取消后移动与迟到改名丢输入均复现；服务停止 `BROWSER_STOPPED 0` |
+
+实验只延迟真实请求/结果，不伪造 Files 或 Storage 回复；数据为隔离的自建项目与真实 SQLite。runtime-probe 使用现有 tsconfig-override 入口产生 Bun 内部错误；后续脚本使用实验根 tsconfig 与 node_modules 链接正常运行。扩展 preferences 探针中一次等待“新的保存失败暂停”超时，原因是 discard 后 store 已回保存值，收起已是无变化；修正实验为真正修改后才验证暂停，最终运行通过。
+
+未运行：全量 e2e、生产构建、全应用 typecheck、smoke:server、docs:check、governance:check、S5 Lab 集成与全主题/窄屏截图、真实读屏、跨机器、t71 dirty 文档结算、t72 性能测量。pointercancel、失去捕获、窗口失焦、页面隐藏、触摸门槛与卸载取消检查了代码，未逐项浏览器运行；不要把它们写成已通过。
+
+浏览器错误列表为空，但服务日志有 `data-explorer-menu` 透传到 ContextMenu fragment 的 Vue 开发警告及组件实例枚举警告；本轮未将它们列为正确性发现，也未声称控制台无警告。
+
+只读状态：`git status --short --untracked-files=all` 无输出；未改仓库源码、测试或文档，未 commit、push、stash 或切换分支。浏览器已关闭，独立服务已退出 0；`ss -H -ltnp 'sport = :40763 or sport = :36267'` 无输出。必要复现脚本和最小浏览器证据留在报告同目录；自建业务实验数据与缓存已删除。
+
+## 回写建议（未写入仓库）
+
+交给主 Agent 汇总，经开发者批准后再写。
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| 1 | 踩坑 | 73 个 explorer Bun 用例与 19 个 DOM 用例通过，仍漏掉第 2、3 条的准备阶段取消和较新意图覆盖；现有测试写法只专门列出了异步订阅建立的两种顺序 | 新增：“操作需要异步准备后才能提交时，覆盖准备期间取消或失效、出现较新意图、旧准备结果迟到的顺序；核对旧结果不恢复资格或覆盖新意图，取消时尚未提交的操作不发写请求。” | `docs/testing/README.md` 的“测试写法” |
+
+## 数量
+
+- 阻断：0。
+- 重要：7（第 1–7 条）。
+- 建议：3（第 8–10 条）。
+- 合计：10；全部有运行证据，相邻路径推断已注明。

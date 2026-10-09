@@ -104,6 +104,21 @@ watch(() => props.rows, (rows) => {
 });
 
 /**
+ * 行高变了（主题、字号）：同一个 scrollTop 在新行高下指向别的行，按锚点换算，行内偏移按行高等比缩放。要在内容高度随
+ * 新行高改变、浏览器夹紧滚动位置并发出 scroll 之前读锚点，所以这里不等布局，直接用旧锚点算。
+ */
+watch(rowHeight, (height, previous) => {
+    if (anchor === null || previous === undefined || previous <= 0) return;
+    const index = props.rows.findIndex((row) => row.id === anchor?.id);
+    if (index < 0) return;
+    const top = index * height + Math.min(anchor.offset * (height / previous), height - 1);
+    void nextTick(() => {
+        setScroll(clampTop(top, props.rows.length, height, viewport.value));
+        remember();
+    });
+});
+
+/**
  * 焦点换了一行（键盘移动、点击）或开始编辑另一行时，把它滚入视口。按 id 的变化触发，不按下标：前方插入或删除行只
  * 改变下标，那时由上面的锚点保持阅读位置，不能被拉回焦点行。
  */

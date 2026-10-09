@@ -2,7 +2,7 @@
 import {nextTick, onMounted, onUnmounted, ref, watch} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
 import {clampMenuPosition} from "./menu-cascade";
-import type {ContextMenuItem} from "./context-menu.types";
+import type {ContextMenuCloseReason, ContextMenuItem} from "./context-menu.types";
 import ContextMenuPanel from "./ContextMenuPanel.vue";
 
 // 右键菜单：固定定位浮层。子菜单层级不限，每一级都由 ContextMenuPanel 按共享几何定位。
@@ -18,7 +18,7 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-    (e: "close"): void;
+    (e: "close", reason: ContextMenuCloseReason): void;
 }>();
 
 const menuRef = ref<HTMLElement | null>(null);
@@ -27,7 +27,7 @@ const adjustedY = ref(props.y);
 const isMounted = ref(false);
 
 function close(): void {
-    emit("close");
+    emit("close", "select");
 }
 
 /** 点击/右键菜单外部时关闭 */
@@ -35,12 +35,16 @@ function closeOnOutside(event: MouseEvent): void {
     if (!props.visible || menuRef.value?.contains(event.target as Node)) {
         return;
     }
-    emit("close");
+    emit("close", "outside");
 }
 
 function handleKeydown(event: KeyboardEvent): void {
-    if (props.visible && event.key === "Escape") {
-        emit("close");
+    if (!props.visible) return;
+    if (event.key === "Escape") emit("close", "escape");
+    // Tab 不在菜单项之间移动（那是方向键的事），而是离开菜单：关闭，焦点去向交给宿主，不让它落进页面末尾的浮层之后。
+    else if (event.key === "Tab" && menuRef.value?.contains(document.activeElement)) {
+        event.preventDefault();
+        emit("close", "tab");
     }
 }
 

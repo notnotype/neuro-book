@@ -33,6 +33,13 @@ export function parseResource(address: string): ParsedResource {
     return problem === null ? {ok: true, resource: {scheme, path: match[2] as string}} : invalid(`${address}：${problem}`);
 }
 
+/**
+ * `pathProblem` 的结构规则写成 JSON Schema 的 `pattern`，给持久化记录里存相对路径的字段用：记录被外部改坏时 Storage 按
+ * schema 判为损坏并保护原件，不把非法路径交给地址运算。字节上限正则表达不了，字段另配 `maxLength: MAX_PATH_BYTES`
+ * （按字符数，比字节宽松），读出后仍要经 `parseResource`。
+ */
+export const RESOURCE_PATH_PATTERN = "^(?:(?![A-Za-z]:)(?!\\.{1,2}(?:/|$))[^/\\\\\\u0000]+(?:/(?!\\.{1,2}(?:/|$))[^/\\\\\\u0000]+)*)?$";
+
 /** 相对路径不合法的原因；合法为 `null`。 */
 export function pathProblem(path: string): string | null {
     if (path === "") return null;

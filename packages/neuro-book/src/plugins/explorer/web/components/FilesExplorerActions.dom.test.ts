@@ -114,6 +114,34 @@ describe("FilesExplorerView：右键菜单", () => {
         const gone = rows().find((row) => row.id === "project://lore.content/gone") as EntryRow;
         expect(menuEntries(gone, ALL, "zh-CN").map((entry) => (entry.kind === "item" ? entry.command : "-"))).toContain("nbook.files.drop-entry");
     });
+
+    it("Tab 关闭菜单、焦点回到树；点菜单外关闭时焦点留在被点的按钮上", async () => {
+        const alice = rows().find((row) => row.id === "project://lore.content/alice") as EntryRow;
+        const menu = {x: 10, y: 20, entries: menuEntries(alice, ALL, "zh-CN")};
+        // 菜单在打开（visible 变真）时聚焦首项，所以先挂上再打开。
+        const wrapper = view();
+        await flushPromises();
+        await wrapper.setProps({menu});
+        await flushPromises();
+        expect(document.activeElement?.getAttribute("role")).toBe("menuitem");
+        const tab = new KeyboardEvent("keydown", {key: "Tab", bubbles: true, cancelable: true});
+        document.activeElement?.dispatchEvent(tab);
+        await flushPromises();
+        expect(tab.defaultPrevented).toBe(true);
+        expect(wrapper.emitted("menu-close")).toHaveLength(1);
+        expect(document.activeElement?.closest("[role=tree]")).not.toBeNull();
+
+        await wrapper.setProps({menu: null});
+        await wrapper.setProps({menu: {...menu}});
+        await flushPromises();
+        expect(document.activeElement?.getAttribute("role")).toBe("menuitem");
+        const refresh = wrapper.get<HTMLButtonElement>("[data-explorer-tool=\"refresh\"]").element;
+        refresh.focus();
+        refresh.click();
+        await flushPromises();
+        expect(wrapper.emitted("menu-close")).toHaveLength(2);
+        expect(document.activeElement).toBe(refresh);
+    });
 });
 
 describe("FilesExplorerView：确认框与结果区", () => {

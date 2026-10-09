@@ -107,7 +107,7 @@ issueId: null
 | [t67](tasks/t67-workbench-shell-dnd/README.md) | NeuroBook v2 外壳三：拖放：视图与容器两类拖动源、三类落点、自建容器、整组并入、半区按来源比例分配、键盘拖放、拖影与落点反馈，“移动到”补上新建容器；2026-10-08 计划（[plan.md](tasks/t67-workbench-shell-dnd/plan.md)）经三个 omp 审查后修订，S0–S5 完成，2026-10-09 三个 omp 实现审查的 9 条缺陷与 5 条测试缺口已修正，完成；待确认 6 条 |
 | [t68](tasks/t68-files-resource-layer/README.md) | NeuroBook v2 Files 竖切一：资源层与文件服务：`nbook.files` 插件、`project://` 与 `user://`、列出一层与三类文件夹、读取与磁盘基线、条件写入与来源、变更事件、浏览器文件客户端；第 6 步拆为 t68–t72；2026-10-09 计划起草（[plan.md](tasks/t68-files-resource-layer/plan.md)），三个 omp 审查共 38 条发现（阻断 3 条，同为业务码 `denied` 与路由保留码冲突），已并入计划，8 项取舍记入待确认清单；S0–S5 完成，三个 omp 实现审查的 18 条发现已修正，完成；待确认 8 条 |
 | [t69](tasks/t69-files-operations/README.md) | NeuroBook v2 Files 竖切二：文件操作：新建、创建内容、改名、移动、复制、删除，批量逐项结果、无覆盖冲突、去重、取消与停止条件，内容文件夹的清单维护、调整顺序、展示名与转换，精确的操作事件；2026-10-09 计划起草（[plan.md](tasks/t69-files-operations/plan.md)），三个 omp 计划审查共 31 条已并入；S0–S5 完成，三个 omp 实现审查的 21 条发现（阻断 2 条：批量请求只按地址数组核对大小、等锁后不重新解析目标）已修正，完成；待确认 6 条 |
-| [t70](tasks/t70-files-explorer/README.md) | NeuroBook v2 Files 竖切三：资源管理器视图：新插件 `nbook.explorer`，两个根、按需展开与增量刷新、虚拟列表、三类文件夹呈现、选择与键盘、右键菜单与工具栏、内联新建与改名、删除确认、窗口内剪贴板、拖动移动与排序、碰撞与逐项反馈；2026-10-09 计划起草（[plan.md](tasks/t70-files-explorer/plan.md)），交三个 omp 审查 |
+| [t70](tasks/t70-files-explorer/README.md) | NeuroBook v2 Files 竖切三：资源管理器视图：新插件 `nbook.explorer`，两个根、按需展开与增量刷新、虚拟列表、三类文件夹呈现、选择与键盘、右键菜单与工具栏、内联新建与改名、删除确认、窗口内剪贴板、拖动移动与排序、碰撞与逐项反馈；2026-10-09 计划起草（[plan.md](tasks/t70-files-explorer/plan.md)），三个 omp 计划审查的 28 条已并入；S0–S5 完成，三个 omp 实现审查的 22 条发现已修正，完成；待确认 8 条 |
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 

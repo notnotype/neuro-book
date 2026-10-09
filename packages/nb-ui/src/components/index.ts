@@ -101,7 +101,7 @@ export type {SkeletonShape} from "./display/Skeleton.vue";
 export type {SpinnerSize} from "./display/Spinner.vue";
 export type {TableColumn, TableDensity} from "./display/Table.vue";
 export type {AlertDialogTone} from "./feedback/AlertDialog.vue";
-export type {ContextMenuItem} from "./feedback/context-menu.types";
+export type {ContextMenuCloseReason, ContextMenuItem} from "./feedback/context-menu.types";
 export type {DrawerDirection} from "./feedback/Drawer.vue";
 export type {NotificationTone} from "./feedback/Notification.vue";
 export type {QuickInputCloseReason, QuickInputItem, QuickInputProps} from "./feedback/QuickInput.vue";

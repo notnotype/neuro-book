@@ -31,7 +31,9 @@ describe("FilesExplorerView", () => {
         await wrapper.setProps({ready: false});
         expect(wrapper.get("[data-explorer-tool=\"refresh\"]").attributes("disabled")).toBeDefined();
         expect(wrapper.find("[role=tree]").exists()).toBe(false);
-        expect(wrapper.get("[data-explorer-loading]").text()).toBe("正在读取…");
+        const loading = wrapper.get("[data-explorer-loading]");
+        expect(loading.text()).toBe("正在读取…");
+        expect([loading.attributes("role"), loading.attributes("aria-busy")]).toEqual(["status", "true"]);
     });
 
     it("没有绑定项目：提示与“打开项目”；某个根停止同步：原因与“重新连接”", async () => {

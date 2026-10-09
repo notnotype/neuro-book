@@ -8,7 +8,8 @@ import {computed, shallowRef, watch} from "@vue/reactivity";
 import type {ComputedRef, Ref, ShallowRef} from "@vue/reactivity";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
-import type {FilesService} from "nbook/plugins/files/shared/contracts";
+import {parseResource} from "nbook/plugins/files/shared/contracts";
+import type {FilesService, Scheme} from "nbook/plugins/files/shared/contracts";
 
 import {createExplorerController} from "./controller";
 import type {ExplorerController} from "./controller";
@@ -55,10 +56,24 @@ export function createExplorerSession(options: ExplorerSessionOptions): Explorer
 
     const fieldsOf = (current: ExplorerStore) => [current.state.preferences, ...(current.state.expanded === null ? [] : [current.state.expanded]), current.state.userExpanded];
 
-    const expandedOf = (current: ExplorerStore): string[] => [
-        ...(current.state.expanded?.display.paths ?? []).map((path) => addressOf("project", path)),
-        ...current.state.userExpanded.display.paths.map((path) => addressOf("user", path)),
-    ];
+    /**
+     * 记录 schema 已挡住结构上非法的路径；剩下字符数没超、按 UTF-8 字节超出上限的，在这里丢掉并报告，不让它在建控制器时
+     * 抛出、把视图停在加载占位上。
+     */
+    const expandedOf = (current: ExplorerStore): string[] => {
+        const addresses: string[] = [];
+        const take = (scheme: Scheme, paths: ReadonlyArray<string>): void => {
+            for (const path of paths) {
+                const address = addressOf(scheme, path);
+                const parsed = parseResource(address);
+                if (parsed.ok) addresses.push(address);
+                else options.report(new RangeError(`展开记录里的 ${parsed.detail}，已忽略`));
+            }
+        };
+        take("project", current.state.expanded?.display.paths ?? []);
+        take("user", current.state.userExpanded.display.paths);
+        return addresses;
+    };
     /**
      * 控制器的显示与展开是记录的一份拷贝，平时由控制器改、再存回记录；重读与放弃反过来改了记录的显示值，要拷回控制器，
      * 否则提示消失了、树却还是被放弃的样子，之后的保存又把它带回去。拷回时展开集合与记录相同，不会再触发保存。

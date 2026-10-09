@@ -67,6 +67,16 @@ describe("ContextMenu 键盘", () => {
         await press("End");
         (document.activeElement as HTMLButtonElement).click();
         expect(chosen).toEqual(["删除"]);
-        expect(wrapper.emitted("close")).toHaveLength(1);
+        expect(wrapper.emitted("close")).toEqual([["select"]]);
+    });
+
+    it("关闭原因：Tab（阻止默认的焦点移动）、Escape、菜单外点击各自带上", async () => {
+        const wrapper = await open();
+        const tab = new KeyboardEvent("keydown", {key: "Tab", shiftKey: true, bubbles: true, cancelable: true});
+        document.activeElement?.dispatchEvent(tab);
+        expect(tab.defaultPrevented).toBe(true);
+        await press("Escape");
+        document.body.dispatchEvent(new MouseEvent("click", {bubbles: true}));
+        expect(wrapper.emitted("close")).toEqual([["tab"], ["escape"], ["outside"]]);
     });
 });

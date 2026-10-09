@@ -362,6 +362,23 @@ describe("Spec workbench.files-explorer 验收 7：碰撞", () => {
         expect(controller.report.value?.items.map((item) => item.result.status)).toEqual(["done", "declined", "declined"]);
     });
 
+    it("目录同名：候选名把整个目录名当名字（不拆扩展名），改名后连同内容与清单整个复制，原目录不变", async () => {
+        const w = await world();
+        const {controller} = w;
+        select(controller, "project://lore.content");
+        await controller.copy();
+        select(controller, "project://");
+        const pasting = controller.paste();
+        await asked(w, "project://lore.content");
+        expect(controller.dialog.value).toMatchObject({kind: "collision", source: "project://lore.content", target: "project://lore.content", candidate: "lore.content (2)"});
+        controller.resolveCollision({kind: "rename", name: "lore.content (2)"}, false);
+        expect(await pasting).toEqual(OK);
+        expect(await text(at(w.scene, "lore.content (2)/bob/index.md"))).toBe("BOB");
+        expect(await text(at(w.scene, "lore.content (2)/content.xml"))).toBe(LAYOUT["lore.content/content.xml"] as string);
+        expect(await text(at(w.scene, "lore.content/alice/notes.md"))).toBe("A");
+        expect(controller.report.value).toBeNull();
+    });
+
     it("对话框开着时外部占用了要改成的名字：确认后仍为该项冲突，不覆盖", async () => {
         const w = await world();
         const {controller} = w;

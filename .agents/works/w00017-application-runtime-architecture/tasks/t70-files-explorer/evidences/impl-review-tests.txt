@@ -1,0 +1,200 @@
+# w00017 t70 实现审查：测试与验收覆盖
+
+审查对象：`cd668399..65ff2649`；专供审查 worktree 固定在 `65ff2649`。按 S0–S4 范围审查，S5 的 Lab 内存集成场景、截图与 Spec 实现标注，以及 t71/t72 和跨机器验收，不作为未完成缺陷。
+
+实验均在指定实验根；变异只作用于源码副本，每次单处变更、运行相关测试后还原并核对 SHA-256。下文 4 条重要、1 条建议中，发现 1 是已复现的当前实现错误，发现 2–4 是已证实的测试缺口，发现 5 是测试时序模型的证据限制。矩阵中的其余遗漏只记录覆盖范围，不另计缺陷。
+
+## 1. 重要：偏好恢复只更新 Store，实际树没有恢复；测试只证明按钮发出事件
+
+- **类别**：正确性 / 测试。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/session.ts:55`、`:103`、`:110`；`web/preferences.ts:86`、`:98`；`web/view-host.ts:113`；`web/components/FilesExplorerView.dom.test.ts:49`；`session.test.ts:183`。
+- **现象**：已保存 `showManifests=true`、展开 `plain` 后断开 Storage 窗口链路，在树中关闭显示与收起 `plain`，保存失败。调用真实“放弃” action 后，Store 的显示回到 `true`、路径回到 `["", "plain"]`，树仍为 `false`、只展开 `project://`，`problem=null`。另一个窗口在首读前断线，恢复后执行“重新读取”，Store 读到同样的保存值，树仍保留首次失败时的缺省值，提示也消失。
+- **为什么是问题**：Spec 持久化（`files-explorer.md:117`）和验收 16 要求首读失败后可重新读取、放弃后显示回落到已保存值。`start()` 只在控制器创建时复制字段的 display；后续 retry/discard 没有把新 display 应用到控制器。现有 DOM 测试直接传 `problem` 再断言 emitted，真实 Storage 测试仅覆盖正常保存和新会话重载，无法抓住恢复时状态断开。
+- **依据**：在源码副本运行 `env NBOOK_AGENT_TEMP_ROOT=<本报告目录> bun review-storage-smoke.ts`（cwd=`<本报告目录>/source/packages/neuro-book`），真实 `filesScene`、真实 `storageWorld`、真实 SQLite、真实断线/重连，未替换 Storage 返回值。输出：`discard.after={store:true,tree:false,storePaths:["","plain"],treePaths:["project://"]},problem:null`；`first-read-retry.after` 同样；7 个应用关闭均为 `closed`。实验直接使用产品会话与 Store 的公开 action；UI 的两个按钮分别接同一 action（`view-host.ts:113-114`）。
+- **建议改法**：让会话在明确 retry/discard 完成后统一应用三份字段的 display 到同一个控制器，避免继续保留未同步的偏好副本；不要重建控制器而丢失选择/剪贴板。补真实 Storage 的失败→重试、失败→放弃、首读失败→重新读取用例，断言可见行、显示开关和提示消失后的状态。
+
+## 2. 重要：批量取消没有从资源管理器入口到终态的测试；把取消变成空操作后全部现有相关测试仍通过
+
+- **类别**：验收覆盖 / 变异。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/controller.ts:477`；`transfer.test.ts:365`；`web/components/FilesExplorerActions.dom.test.ts:144`；`e2e/files-explorer.e2e.ts:334`。
+- **现象**：只将 `runBatch` 的 `cancel: () => void handle.cancel()` 改为 `cancel: () => undefined`，explorer 的 Bun 73 项、DOM 19 项全部通过。DOM 只从传入的 `running` props 断言 `cancel-running` 被 emit；e2e 的 Escape 是未提交拖动取消，没有任何用例取消已经提交的批量。
+- **为什么是问题**：`plan.md:171` 和 Spec 验收 8 要证明取消不回滚首项并停止后续项。底层 Files 有真实取消测试（`files/batch.test.ts:297`），它不经过资源管理器的 Running action，无法抓住这处用户入口失效。这是测试缺口，当前取消实现本身在真实实验中正常。
+- **依据**：真实 `filesScene`、磁盘与 `holdLock` 锁住 `lore.content/content.xml`，等第一项移动落盘后经同一 Running action 取消；同链路 list 回复作请求处理屏障，再放锁并等 paste 终态。原实现结果为 `[done,cancelled]`，第二源仍在，cancel 帧 1；空操作变异下两项都移走、结果区为空（整批成功）、cancel 帧 0。`review-cancel-smoke.ts` 在原实现退出 0、变异退出 1（`unexpected cancellation result`）。还原 SHA-256 与备份相等：`7bb0230b07c03660e8a8c17309186c01e76673a197b49ad8aa4164d6e869e421`。
+- **建议改法**：在现有“逐项结果”用例组补资源管理器真实取消场景，走 Running action 或产品按钮，持有真实清单锁，等首项落盘再取消，放锁后等 result；断言首项内容保留、第二源未移动、结果逐项 `[done,cancelled]`、剪切仅清首项。至少覆盖删除或移动的一个完整入口，不能只断言取消事件或 ACK。
+
+## 3. 重要：切换显示时保留选择没有断言；清空选择的变异在三层测试全部存活
+
+- **类别**：验收覆盖 / 变异。
+- **位置**：`packages/neuro-book/e2e/files-explorer.e2e.ts:106`；`src/plugins/explorer/browse.test.ts:183`；`web/controller.ts:633`。
+- **现象**：只在 `setShowManifests` 中增加 `selection.value = EMPTY_SELECTION`，Bun 73 项与 DOM 19 项通过；重新构建 web 后，产品 Chrome 的全部 10 项 e2e 也通过。`显示清单文件与展开记录` 用例只核对清单行、按下状态与展开恢复，没有在切换前选资源并核对切换后的选择和逻辑焦点。
+- **为什么是问题**：`plan.md:159`、Spec 验收 4 要求可见资源选择与展开保留。清空选择会改变下一次新建/粘贴的实际目标：本来以选中文件父目录为目标，变成当前根；这是用户可见的操作合同，不是内部默认值。
+- **依据**：真实 `filesScene` 选中 `project://plain/a.md` 再切换，变异后 `{selected:[],focus:null,anchor:null}`，展开仍为 `[project://,project://plain]`，throwaway smoke 抛 `selection or expansion lost on projection toggle`；三层现有测试仍通过，日志 `M02-selection-1.txt`、`M02-selection-dom-1.txt`、`M02-product-e2e-1.txt`。源码副本已还原到备份 SHA-256 `7bb0230b07c03660e8a8c17309186c01e76673a197b49ad8aa4164d6e869e421`。
+- **建议改法**：扩展现有显示切换的产品用例：先选仍可见的资源，切换后检查 `aria-selected`、`aria-activedescendant` 与展开状态，再用新建/粘贴结果核对目标仍为其父目录。另测被隐藏的清单行选择按既定 prune 规则回落，不能对所有选择清空。
+
+## 4. 重要：零写入判据没有闭合观察窗口；取消改名的同字节写入变异未被拦住
+
+- **类别**：测试 / 否定判据。
+- **位置**：`packages/neuro-book/e2e/files-explorer.e2e.ts:224`、`:238`、`:301`；`src/plugins/explorer/browse.test.ts:189`；`actions.test.ts:125`、`:159`；`transfer.test.ts:307`、`:396`。
+- **现象**：取消改名的产品用例在输入行消失、焦点回树后只读取旧文件字节。Bun 有 Files 写帧记录，但没有调用取消改名的这一行为，也没有按 `plan.md:143` 在否定断言前等待同根屏障。拖动取消的 e2e 有树屏障（`:367`），仍只看源字节/目标不存在，没有写帧观察。
+- **为什么是问题**：同字节写入仍然修改资源身份并发事件，字节相等不能证明没有写入。只看即时帧数组也不能证明动作触发的异步后续工作没有写入。不能将本次所有零写入测试一概判为无效：已 await 完整 action/result 的帧断言能覆盖同步发起写入；具体漏检已由取消改名的存活变异证实。
+- **依据**：单处在 `cancelEdit` 中读取冻结地址，再经真实 Files 写回相同正文；Bun 73 项全部通过，重新构建后 `files-explorer` 中 `--grep 'F2 改名'` 的产品 Chrome 用例也通过。真实 `review-negative-smoke.ts` 等该路径 changed 及同根 `barrier.md` 事件后输出 `bytes:"A",inodeChanged:true,writes:["write"]`，两个事件分别为用户写入与外部屏障。副本已还原，SHA-256 与备份相等。日志 `M05-cancel-write-1.txt`、`M05-product.txt`、`negative-observed.json`。
+- **建议改法**：在现有取消/浏览/原位无操作场景建立共同的完成点：先等动作或批量终态，再等同根外部事件屏障，随后核对该窗口完整区间的 Files `effect=write`/`read` 帧与排除屏障后的业务事件。产品取消入口应记录 WebSocket 请求帧或经真实产品链路 tap；继续保留字节比较作补充，不用增加固定等待。树屏障能推进 watcher，但不应在注释中声称单个外部文件能结束任意仍在等待锁或 Promise 的写操作。
+
+## 5. 建议：订阅首列竞态通过重排同一链路帧制造，不能作为产品真实时序的证据
+
+- **类别**：测试模型 / 竞态真实性。
+- **位置**：`packages/neuro-book/src/plugins/explorer/browse.test.ts:283`；`packages/neuro-book/src/plugins/files/testing/tap.ts:65`、`:103`；`packages/neuro-book/src/shared/rpc-socket.ts:38`；`packages/nb-runtime/src/remote/testing/in-process.ts:44`。
+- **现象**：`holdSend` 扣住先发出的 subscribe，只延迟这一帧，后发的 request 继续到达提供者。测试等 list 返回并外部写文件后，才交付 subscribe。实际 WebSocket send 与正常 in-process JSON 链路按发送顺序交付；窗口不能在同一连接上让后发 request 越过先发 subscribe。
+- **为什么是问题**：该用例保护 `ready` 前的防漏变化逻辑有价值，但没有证明产品里能发生所声称的竞态。回复 `hold` 同样可让后发事件越过已到窗口的 result；它是抽象完成闸门，不是原样网络时序。真实清单锁实验则不重排帧，首项落盘→事件→批量结果是成立的。仅判为测试证据建议，不据此声称当前产品有漏项缺陷。
+- **依据**：无发送重排的真实场地记录为 `hello, subscribe, subscribe, request, request`；延迟真实 list 结果、外部写 `early.md` 后，现有模型最终看到它，三应用关闭为 `closed`。服务端 changes 订阅建立 watcher 并同步发 ready（`files/backend/changes.ts:273`），`RemoteNode` 则先异步 lookup（`node.ts:763,847`）；订阅完成与请求完成仍可能不同序，不能据此宣称所有首列竞态不可能。已核实的限制只在于此 `holdSend` 实验改变了 transport 帧顺序，没有给出等价的真实完成顺序证据。脚本为 `review-ready-smoke.ts`，正常退出 0。
+- **建议改法**：保留帧记录；将竞态门放到真实异步建立/调用完成边界，或用真实清单锁、提供入口生命周期制造事件先于尚未结算的调用，而不让同一 transport 的帧互相超车。若确实只能作为完成闸门，应明确测试名和证据范围，并另以产品有序链路证明对应竞态；不要将该门面当 WebSocket 的仿真。
+
+## 计划验收映射逐行核对
+
+下表对应 `plan.md:147-175`。路径简写：`browse`、`actions`、`transfer`、`session` 均在 `packages/neuro-book/src/plugins/explorer/`；`tree`=`web/tree/tree.test.ts`，`plan`=`web/actions/plan.test.ts`，`DOM`=`web/components/*.dom.test.ts`；`e2e`=`packages/neuro-book/e2e/files-explorer.e2e.ts`。纯函数与受控 DOM 可以证明各自公开行为，不能替代未覆盖的产品接线或实际磁盘链路。
+
+| 计划行 / 验收 | 已有入口与可观察断言 | 覆盖判断与遗漏 |
+|---|---|---|
+| 147 / 1 普通目录、index、不读正文 | `browse:166` 真实列出，真实名称、正文成行，`read` 帧为空；`e2e:90` 普通目录展开与 index 可见 | 主路径覆盖；否定窗口无同根屏障，见发现 4 |
+| 148 / 1 内容标签、顺序、副标题、嵌套刷新 | `tree:76` 投影标签与路径、`browse:218` 内外改清单后嵌套标题更新；DOM 树/行属性 | 真实磁盘刷新覆盖；实际标题顺序也由后续排序动作覆盖 |
+| 149 / 1 隐藏正文、打开同一 index、坏清单回退 | `browse:166,327`、`tree:76,96`；真实命令 Registry 记录打开 address/mode，坏清单 index 成行 | Controller 与组件分层覆盖；编辑器正文就绪属 t71 |
+| 150 / 1 活页夹降级 | `browse:166`、`tree:88` 核对 binder 标记与 binder.xml 普通行；ExplorerRow 显示标记 | 真实磁盘/投影覆盖；e2e 名称称“三类”，实际 fixture 没有 binder，不能把该浏览器用例算活页夹证据 |
+| 151 / 1 根禁写与用户根折叠 | `FilesExplorerActions.dom.test.ts:96` 根菜单只有新建/粘贴；`e2e:90` 用户根默认折叠；Controller 可用性排除 root | 默认折叠与菜单覆盖；经实际根行键盘尝试改名/剪切/删除并核对零 Files 写帧未覆盖 |
+| 152 / 1 按需列出、虚拟化、焦点入视口 | `browse:166` 折叠后代不列；`ExplorerTree.dom.test.ts:60` 远焦点挂载；`e2e:130` 真实滚动、最后文件在视口、ARIA id 存在 | 主路径覆盖；主题/字号变化、停放恢复、前方插入删行的滚动锚点暂无产品判据 |
+| 153 / 2 点击分区、无正文只选中 | `browse:327`、`ExplorerTree.dom.test.ts:97`；`e2e:90` 普通目录展开 | 分层覆盖；尚无浏览器节点箭头/打开区成对操作，但 Bun 检查真实命令地址与无正文选择 |
+| 154 / 2 创建内容零字节、不覆盖、失败保持无正文 | `actions:193` 真实空 index、事件后节点可打开、有正文不可用；e2e 键盘创建内容 | 成功与已有正文资格覆盖；选择仍基于旧列出时外部占用目标、或权限失败后节点仍无正文且不能打开的完整 Controller 场景缺失 |
+| 155 / 2 浏览/展开/切换零写帧 | `browse:166` 检查 read/write 帧空 | 有真实帧记录；观察截止点不足，见发现 4 |
+| 156 / 3 选择与导航规则 | `tree:133-215` 明确输入输出；`browse:327`、Tree DOM 按键/点击；`e2e:130` Home/End | 纯规则与若干 DOM/产品路径覆盖，Ctrl/Meta、Shift、Space 的完整产品组合未逐项走通 |
+| 157 / 3 preview/permanent、修饰不打开 | `browse:327` 真实 Registry 接受四次打开并核对独立期待；DOM 单击/双击事件 | 分层覆盖；浏览器仅显示编辑器缺失，不能证明模式不同的真实编辑器表现（t71） |
+| 158 / 3 输入框不拦 Delete/F2/C/X/V | Tree DOM 对 retry 按钮不转交；Actions DOM 组字/Enter/Escape；`e2e:224` 内联 Delete 不删资源 | 输入 Delete/Escape 与组字有证据；F2/C/X/V 在实际内联 FormInput、相邻编辑元素中的逐键否定路径缺失 |
+| 159 / 4 缺省、重载、切换保选择/展开 | `session:183` 真实 SQLite 同 client 恢复三记录；`e2e:106` 同页面重载开关/两根展开 | 保存/重载覆盖；切换保选择未断言，M02 三层存活，见发现 3 |
+| 160 / 4 切换取消菜单/拖动、在途目标不变 | `transfer:484` 切换后 drag=null；`e2e:334` 真拖动切换后取消 | 拖动覆盖；真实打开的菜单随切换关闭、锁住已提交批量切换后仍按原目标结算均缺失 |
+| 161 / 4 排序/展示名只改清单 | `actions:205` 清单 XML、路径集合与 BOB 字节；`transfer:473` reorder 帧；`e2e:194,308` 清单顺序与正文 | 主路径覆盖；附件/全部正文未完整比对，Bun 展示名场景未限制写方法白名单，不能声称所有同字节额外写都被拦截 |
+| 162 / 5 重复复制、剪切逐项、Escape | `transfer:94,146` 真实副本字节、冲突目标、失败源保留、clip 逐项与标记 | 真实行为覆盖；实际复制/剪切/粘贴浏览器完整旅程没有用例 |
+| 163 / 5 旧源身份/项目结束 | `transfer:201,418` 真改名、同字节替换、source-changed 与项目 stop 后零写 | 真实链路覆盖；剪贴板实际项目重新绑定另属整页 reload，未声称跨新项目模型复用 |
+| 164 / 5 窗口与正文剪贴板隔离 | `transfer:406` 第二真实窗口空 clip，粘贴 empty-clipboard | 窗口隔离覆盖；实际输入框 C/X/V 不改变文件意图与系统剪贴板内容保持未覆盖 |
+| 165 / 6 三种目标、两根、多目录、跨根 | `transfer:227,257` 项目目录/文件父目录/空选择根；用户根成功，用户目录碰撞取消；跨根零帧与源字节 | 项目三类覆盖；用户根与目录路径进入，但没有用户“选中文件父目录成功粘贴”的第三类端到端结果 |
+| 166 / 6 父子/重复、整目录含正文附件 | `transfer:272` 父子 clip 只取外层、复制内容节点 index 与附件；下层 Files 有重复源测试 | 父子与目录副本覆盖；UI 选择本身去重，重复输入只在 Files 合同层有意义，不要求伪造 Controller 选择 |
+| 167 / 6 后代拒绝、原位无操作、零事件屏障 | `transfer:290` 后代失败 into-itself；原位 paste 后写帧数不增、clip 不变 | 请求否定覆盖；要求的同根屏障后无业务事件未实现，见发现 4 |
+| 168 / 7 同名改名/跳过/取消/其余、同目录保源 | `transfer:94,130,313,334` 真实字节与逐项报告；Actions DOM 三按钮与其余勾选 | 文件场景覆盖；目录同名完整 Controller 场景未覆盖，候选目录名只有纯函数表 |
+| 169 / 7 外部占用、拖动同流程 | `transfer:349` 碰撞框时抢占目标，真实 conflict 保字节；`:457` 拖动碰撞改名成功 | Bun 流程覆盖；没有真实产品浏览器的碰撞、抢占、拖动冲突/权限完整路径 |
+| 170 / 8 复制残留、失败继续、提供方停机余项 | `actions:169` 真权限部分删除，成功项继续；DOM 传入的删除 partial；Files 下层 `batch.test.ts:238,336` 真残留与 stop | Explorer 层未从真实 copy 中途失败取回 residual，也没从 Controller 在途提供方 stop 验证逐项 not-run；仅底座/受控结果呈现覆盖 |
+| 171 / 8 取消、未知门禁、截断提示 | `transfer:366` 真锁/断线 unknown→禁写→recheck 不解除→abandon；DOM partial/truncated | unknown 覆盖并杀死 M06；用户 Running cancel 没测、M01 存活，见发现 2；DOM 用传入数据验截断，未有真实 Explorer 大范围截断结果 |
+| 172 / 10 未绑定/加载/空/读取错误/权限/失效/旧结果 | `browse:194,203,251,265,306,316` 真权限、交付门、删除重建、resync、stop；Tree/View DOM；`e2e:162` 无项目 | 核心状态有分层证据；首列在途时根 ended 后迟到 list 的处理没有独立用例。由 `model.ts:207-211` 推断 ended 分支没有 abort/drop 旧请求；真实有序链路是否产生可见旧结果尚未验证，不据此另报实现缺陷 |
+| 173 / 11 领域零写装配 | 产品正常构建只装当前 Files/Explorer，基本 e2e 已通过 | 计划明确 S5；角色/世界书/frontmatter fixture 与零写帧证据延期，不算本片缺陷 |
+| 174 / 13 Lab 内存控制器、切出释放、零产品请求 | 当前 Lab 零件 props 场景 `fixtures/explorer-rows.ts` 与 index 登记 | 用户明确允许到 S5，尚无内存适配器完整集成证据，不算缺陷 |
+| 175 / 9、12、13 跨机器 | 无本次相应入口 | t71 dirty/编辑器、t72 性能、跨机器保持未验证，不计入 S0–S4 缺陷 |
+
+## Spec 验收 1–16 核对
+
+| 验收 | 本片已覆盖部分 | 不能算通过的部分 |
+|---|---|---|
+| 1 | 普通/内容/活页夹投影、隐藏正文、真实路径与命令正文地址、用户根默认折叠 | 产品 binder fixture、实际根行禁写尝试、完整不读正文截止点；编辑器正文成功属 t71 |
+| 2 | 目录展开、节点分区、无正文选择、明确排他创建空 index | 创建内容失败后不可打开、零写入截止点；可编辑保存属 t71 |
+| 3 | 纯规则、组件输入事件、真实 Registry preview/permanent；产品焦点与 Home/End | 实际输入框 F2/C/X/V 与完整修饰键组合未走产品；真实编辑器隔离属 t71 |
+| 4 | 三条记录正常恢复、显示开关、真实排序/展示名清单结果 | 保选择 M02 未检出；菜单切换关闭与在途批量切换未测；dirty 属 t71 |
+| 5 | 真复制/剪切/部分失败、旧源身份、第二窗口隔离 | 输入/系统剪贴板隔离缺完整用户路径 |
+| 6 | 项目三种目标、用户部分目标、后代/原位、重叠、目录正文附件 | 用户文件父目录成功粘贴缺一支；原位零事件屏障缺失 |
+| 7 | 文件碰撞全选项与外部抢占，Bun 拖动复用碰撞流程 | 同名目录、浏览器实际碰撞/抢占/权限缺场景 |
+| 8 | 真权限部分删除、真实 unknown 门禁、受控 DOM 逐项提示 | Running 取消 M01 未检出；Explorer 的真实 copy residual、provider-stop not-run 缺完整入口 |
+| 9 | 本片无 dirty 协调，已接受偏离 | 明确 t71 范围，不计缺陷 |
+| 10 | 无项目、空、权限、错误、加载、删除重建旧结果隔离、resync/ended | ended 与在途首列组合、旧结果晚到独立用例未覆盖 |
+| 11 | 产品没有角色/世界书依赖的基本 Files 行为 | 领域文件字节/零帧专门装配计划 S5 |
+| 12 | 虚拟化与焦点几何有实际 Chrome 验证 | 性能分位数、参考机器、正文加载均 t72/t71，不计缺陷 |
+| 13 | Lab 零件与产品磁盘/事件路径分别存在 | 同一控制器内存集成、切场景资源、跨机器均延期 |
+| 14 | 真 CommandRegistry 需要输入命令可见性，真实键盘创建内容/展示名/加入/上移 | 所有具名动作从命令面板逐个执行、下移与文件传输实际菜单旅程未覆盖 |
+| 15 | unknown 再操作门禁、recheck/abandon、旧源身份，拖动切换/滚动/源替换 | 实际另一个窗口改名到同一意图只有 Files 场地替代入口，浏览器结果未知与碰撞未覆盖 |
+| 16 | 纯分支淘汰 2000 上限、DOM 失败提示；正常 SQLite 保存/恢复 | 首读失败重读与放弃实际显示已确认错误，见发现 1；保存暂停合并最后一份/重试提交已登记 S5 |
+
+
+## 变异结果
+
+每项从完整备份开始，只改变副本的一处，等待对应运行结束再还原。未对原 worktree 源码变异。还原既比较 SHA-256，也比较字节；所有 `equalBytes=true`，记录在 [logs/mutations.json](logs/mutations.json)。M04 的第一次候选改法将目录设为 stale，会被 `ensureVisible()` 重新列出，属于等价尝试，未运行也未计入；最终计入的 M04 明确取消再次列出。
+
+| 编号 | 单点变异 | 实际运行 | 结果 |
+|---|---|---|---|
+| M01 | 批量 Running.cancel 变为空操作 | Bun 73、DOM 19；另以真实清单锁 smoke 对比 | 存活；原实现 `[done,cancelled]`，变异两项全移动，见发现 2 |
+| M02 | 显示切换清空 selection | Bun 73、DOM 19；web 重构建后的产品 e2e 10 | 存活；真实 smoke 选择/焦点丢失，见发现 3 |
+| M03 | 放下时不核对与最后显示动作相同 | Bun 全目录，72 pass / 1 fail / 1 error | 杀死；拖动完整场景 5000ms 超时，后续源已不在原路径；不是纯语法或导入失败 |
+| M04 | 在途目录变脏后不再列出 | browse 14 项，13 pass / 1 fail / 1 error | 杀死；真实外部新建不能出现在树上，等待“新项出现”超时 |
+| M05 | 取消改名异步 read 后同字节 write | Bun 73；web 重构建后产品 `F2 改名` 用例 1 | 存活；真实 write 帧、changed、inode 改变，见发现 4 |
+| M06 | unknown-outcome 不建立门禁 | transfer 19 项，18 pass / 1 fail | 杀死；真实锁/断线用例预期冻结 Unknown、实际 null |
+
+三项存活、三项杀死。当前实现的取消与切换保选择在原实现 smoke 中正常，不能把这两个存活变异说成当前实现 bug。
+
+还原校验值：
+
+- `web/controller.ts`：`7bb0230b07c03660e8a8c17309186c01e76673a197b49ad8aa4164d6e869e421`。
+- `web/tree/model.ts`：`d37595d87d39c2fd7c2e79aab20ef26c8f658a00d950c4b3a598aa381bbb7591`。
+
+## 实际运行与稳定性
+
+源码副本来自 `git archive 65ff2649`，依赖安装在原 worktree，并在副本将 workspace 链接指向副本对应包。首次完整产品 `bun run build` 已包含 `build:server`、`build:web`、`check:dist`，成功输出“产物不含开发插件与本机路径”。没有使用 e2e mock/probe 构建代替产品构建。
+
+下面命令中的变量是实际路径，运行器在 `source/packages/neuro-book` 执行命令，日志写到 `logs`，每轮编号只区分重复运行。
+
+```sh
+REVIEW_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/tests
+```
+
+| 实际命令 / cwd | 实际结果与证据 |
+|---|---|
+| `prox bun install --frozen-lockfile --ignore-scripts` / 原 worktree 根 | 成功，1568 packages installed，Bun `1.4.2 (744846f84)`；只安装依赖，没有改 lockfile |
+| `env NBOOK_AGENT_TEMP_ROOT="$REVIEW_ROOT" bun test ./src/plugins/explorer` / 原 worktree 的 `packages/neuro-book` | 73 pass，0 fail，449 expect，6 files，1.94s |
+| `node "$REVIEW_ROOT/run-check.mjs" bun 5 baseline-bun` | 副本连续 5 轮，全部 73 pass / 0 fail / 449 expect / 6 files；[baseline-bun-1.txt](logs/baseline-bun-1.txt) 至第 5 轮 |
+| `node "$REVIEW_ROOT/run-check.mjs" dom 4 baseline-dom` | 连续 4 轮，全部 19 tests / 3 files；[baseline-dom-1.txt](logs/baseline-dom-1.txt) 至第 4 轮；实际 Vitest 命令为 `node ../../node_modules/vitest/vitest.mjs run src/plugins/explorer/web/components/` |
+| `node "$REVIEW_ROOT/run-check.mjs" build 1 baseline-build` | 完整产品构建成功，check:dist 通过；[baseline-build-1.txt](logs/baseline-build-1.txt) |
+| `node "$REVIEW_ROOT/run-check.mjs" e2e 3 verified-e2e` | 连续 3 轮全部 10 passed，12.5s / 14.1s / 12.6s；[verified-e2e-1.txt](logs/verified-e2e-1.txt) 至第 3 轮 |
+| `node "$REVIEW_ROOT/run-check.mjs" bun 1 restored-bun` | 六项变异还原后 73 pass / 0 fail / 449 expect，2.70s |
+| `node "$REVIEW_ROOT/run-focused.mjs" web restored-web && node "$REVIEW_ROOT/run-check.mjs" e2e 1 restored-e2e` | 还原后的 web 构建成功，产品 10 passed，14.5s；[restored-e2e-1.txt](logs/restored-e2e-1.txt) |
+| `env NBOOK_AGENT_TEMP_ROOT="$REVIEW_ROOT" node ../../node_modules/vitest/vitest.mjs run src/components/feedback/ContextMenu.test.ts` / 副本 `packages/nb-ui` | 2 tests / 1 file 全部通过，菜单箭头/Home/End 与子菜单返回 |
+| `env NBOOK_AGENT_TEMP_ROOT="$REVIEW_ROOT" bun review-storage-smoke.ts` / 副本 `packages/neuro-book` | 两个真实 Storage 恢复场景复现发现 1；7 个应用 closed；[recovery-observed.json](logs/recovery-observed.json) |
+| `env NBOOK_AGENT_TEMP_ROOT="$REVIEW_ROOT" bun review-cancel-smoke.ts` / 同上 | 原实现退出 0、变异退出 1，first done/second cancelled 对比全移动；[cancellation-observed.json](logs/cancellation-observed.json)、[cancellation-mutated-observed.json](logs/cancellation-mutated-observed.json) |
+| `env NBOOK_AGENT_TEMP_ROOT="$REVIEW_ROOT" bun review-selection-smoke.ts` / 同上 | 原实现退出 0、变异退出 1；[selection-observed.json](logs/selection-observed.json) |
+| `env NBOOK_AGENT_TEMP_ROOT="$REVIEW_ROOT" bun review-ready-smoke.ts` / 同上 | 有序发送、延迟真实 list 结果后仍看到 early.md，3 个应用 closed；[ordered-ready-observed.json](logs/ordered-ready-observed.json) |
+| `env NBOOK_AGENT_TEMP_ROOT="$REVIEW_ROOT" bun review-negative-smoke.ts` / 仅 M05 副本时 | write 帧 1、changed、相同字节但 inode 变化；[negative-observed.json](logs/negative-observed.json) |
+| `git status --short --untracked-files=all && git rev-parse HEAD` / 原 worktree 根 | status 无输出；HEAD `65ff2649437f0b9fbeb81f8b6e8128b9a87ef9a8` |
+
+环境绕路单列，不算偶发产品失败：最初 e2e 3 轮 Chrome 启动因深 `TMPDIR` 下 Unix socket 路径失败，所有用例未真正运行；随后 3 轮把 `TMPDIR` 换成 `/proc/<runner>/fd/<dirfd>`，但未指定 `NBOOK_HOST_SYSTEM_TEMP_ROOT`，临时根校验因 proc symlink 失败，仍未启动产品。最终运行器同时设置真实宿主根 `/tmp` 与上述短 Chrome 路径，目录项仍实际写在本实验根。修正后 3 轮及还原后 1 轮全部通过，无重试，workers=1、retries=0。早期失败日志保留为 `baseline-e2e-*`、`product-e2e-*`，不得将其汇入产品稳定性失败率。
+
+本次没有运行全仓 `test:affected`、全量 e2e、typecheck、`smoke:server`、`docs:check`、`governance:check`；这是聚焦只读审查，不声称完整 S5 门禁通过。未验证真实读屏朗读、笔/触摸拖动、跨机器与参考机器性能、t71 dirty/编辑器。
+
+## 测试规则、跨测试状态与资源
+
+- 已检查本次 explorer Bun、DOM、files-explorer e2e 与 ContextMenu 测试，未发现 mock.module/vi.mock/jest.mock、spyOn、假计时器、固定非零等待。产品 `tree-drag.ts` 的触摸门槛 setTimeout 是交互实现，不属于测试固定等待。
+- 权限用例本次 UID=1000，root 条件没有跳过；真实不可读/只读目录已进入测试。
+- Bun 场地控制器在 afterEach dispose，再关闭真实应用，核对 `closed`，最后移除目录；transfer 清单锁在 afterEach 释放。DOM 受控组件按约定只证明 DOM 合同，真实布局由产品 Chrome 用例负责。
+- E2E beforeAll 共用一个产品服务与磁盘项目，但每个 Playwright 用例建立独立浏览器 context，正常 client identity 随该 context 的 localStorage 隔离；同一用例 reload 保持 identity。磁盘使用 `lore.content`、`ops`、`moves`、`order.content` 分区，独立用例的已修改路径没有被后面当成初始数据。三轮整套运行与单独 F2 用例均通过，未观察到顺序依赖或污染导致失败；没有跑任意重排，不把它写成“可任意排序”的证明。
+- 产品服务通过 `--stop-stdin` 有序停止，每轮 afterAll 核对退出码 0 后删除项目根。初始化失败时 `afterAll` 直接引用未建立的 `server` 会附带 TypeError（环境失败日志已见），不掩盖原失败；若 `startProductServer` 在 ready 前抛错，外部资源收口仍需要 fixture finally，但本次没有该失败下的残留进程证据，未另报缺陷。
+- 本轮结束后按实际进程 cwd 核查实验源码副本下的 Bun/Node/Chrome：0 个残留。没有启动持久开发服务，产品测试端口为随机 `NBOOK_PORT=0`；没有占用 3000 或 3917。
+
+## 实验产物收口与复现
+
+保留本报告、`logs/` 的实际完整输出和最小观测 JSON、`backups/` 的两份原字节，以及 `evidence/` 的 5 份短实验脚本。已删除本轮创建的 36 个实验目录：源码副本及其中 dist/Vite cache、Playwright/Node cache、30 份 Chrome 临时目录与测试 locator 空目录；原 worktree 的已安装依赖保留。详见 [logs/cleanup-observed.json](logs/cleanup-observed.json)。
+
+运行命令记录的是运行当时的完整入口。复现辅助入口为 `node "$REVIEW_ROOT/restore-source.mjs"`：在本实验根重新 `git archive 65ff2649` 建立 `source/`，关联原 worktree 已安装依赖并复制 `evidence/review-*.ts`，之后可执行上表命令。该辅助入口经 `node --check` 语法检查通过，清理后没有重新创建整份副本执行它。`review-negative-smoke.ts` 只验证 M05 注入的同字节写入，原实现没有该事件；不能在原实现运行它并把超时当作产品 bug。
+
+## 反思回写建议
+
+仅向主 Agent 提交建议，不修改仓库规范。`docs/testing/README.md` 已写 Windows 深路径与真实 Temp locator，但没有覆盖 Chromium 在 Linux 的 Unix socket 路径限制。
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| 1 | 踩坑 | 合法的长实验根仍使 Chrome 无法启动；仅将 TMPDIR 换为 proc 短路径后，测试根又因宿主 tmpdir 与 symlink 校验冲突而失败 | 新增：Linux 浏览器验收要同时检查 Chromium 临时 Unix socket 的路径长度；必须保留深证据目录时，浏览器短 Temp 与真实 Agent 数据根分开定位，显式指定真实宿主 Temp locator，并确认短别名下的目录项仍写入受控根 | `docs/testing/README.md` 的“临时目录与环境键” |
+
+
+## 未发现问题的方面
+
+- 三类文件夹投影、嵌套清单依赖刷新、节点正文增删更新上一层、普通错误与空目录分开，在真实 Files/磁盘测试中通过。
+- 目录 rename 后展开/选择跟随、删除重建与列出在途外部变化、断线恢复后核对，已有确定状态断言；M04 确认在途重列判据能抓到漏项。
+- 成功剪切只移除对应意图的项，失败项保留；另一窗口剪贴板隔离、旧源同字节替换拒绝、在途换剪贴板不被迟到结果清掉，有真实链路覆盖。
+- 结果未知后复制/剪切/粘贴/拖动/删除门禁、重新列出不解除、放弃清掉意图，真实锁/断线场景通过并杀死 M06。
+- 虚拟化、焦点目标挂载与滚入视口、键盘删除默认取消与焦点回树、实际鼠标拖动移入/行间排序、切换与滚动取消，产品 Chrome 连续通过。
+- 六项变异均已还原并核对字节，原 worktree status 干净、HEAD 未移动。
+
+## 数量
+
+- 阻断：0。
+- 重要：4（当前实现正确性 1，已证实测试缺口 3）。
+- 建议：1（竞态门的证据范围）。
+- 合计：5；矩阵其余遗漏、S5/t71/t72/跨机器延期与未验证边界不重复计数。

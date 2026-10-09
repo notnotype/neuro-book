@@ -5,6 +5,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
+import {Database} from "bun:sqlite";
 import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
@@ -19,6 +20,7 @@ import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import {commandDeclarationProblems, createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 import type {CommandRegistry} from "nbook/plugins/commands/shared/registry";
 import {BATCH_DELAY_MS} from "nbook/plugins/files/backend/changes";
+import {MAX_PATH_BYTES} from "nbook/plugins/files/shared/contracts";
 import {files, filesScene} from "nbook/plugins/files/testing/scene";
 import type {Scene} from "nbook/plugins/files/testing/scene";
 import {createLinkTap} from "nbook/plugins/files/testing/tap";
@@ -29,7 +31,7 @@ import type {StorageWorld, WorldWindow} from "nbook/plugins/storage/testing/worl
 
 import {descriptor} from "./plugin";
 import {COLLAPSE_ALL_COMMAND, EXPLORER_COMMAND_DECLARATIONS, explorerCommands, REFRESH_FILES_COMMAND, RENAME_COMMAND, TOGGLE_MANIFESTS_COMMAND} from "./web/commands";
-import {EXPANDED_LIMIT, explorerStoreFor, limitBranches} from "./web/preferences";
+import {EXPANDED_LIMIT, EXPLORER_RECORDS, explorerStoreFor, limitBranches} from "./web/preferences";
 import type {ExplorerStore} from "./web/preferences";
 import {createExplorerSession} from "./web/session";
 import type {ExplorerSession} from "./web/session";
@@ -209,6 +211,46 @@ describe("Spec workbench.files-explorer 新应用的插件、命令与界面：�
         await listed(at, second, "user://notes.md");
         await waitUntil("收起全部", async () => (await registry(second).execute(COLLAPSE_ALL_COMMAND)).ok);
         expect([...second.controller.value!.model.expanded.value]).toEqual(["project://", "user://"]);
+    });
+});
+
+describe("Spec workbench.files-explorer 持久化：记录被外部改坏", () => {
+    /** 先由一个会话把用户资产树的展开存进真实 SQLite，再在库里直接改写它的值（模拟外部改坏）。 */
+    async function rewritten(at: Worlds, paths: ReadonlyArray<string>): Promise<void> {
+        const first = session(at, await storeFactory(at.storage, "w1", "c"));
+        first.attach(view);
+        await waitUntil("控制器建立", () => first.controller.value);
+        first.controller.value!.model.expand("user://");
+        const record = first.store.value!.state.userExpanded;
+        await waitUntil("展开保存上", () => record.base?.status === "ok" && record.base.value.paths.length === 1 && record.queue === 0 && record.save.state === "idle");
+        const db = new Database(at.storage.userPath);
+        db.query("UPDATE records SET value = ?1 WHERE owner = ?2 AND key = ?3").run(JSON.stringify({paths}), descriptor.id, EXPLORER_RECORDS.userExpanded.key);
+        db.close();
+    }
+
+    it("路径含 .. 或空段：记录判为损坏并保护，树按缺省展开照常浏览，提示原因", async () => {
+        const at = await worlds();
+        await rewritten(at, ["", ".."]);
+        const second = session(at, await storeFactory(at.storage, "w2", "c"));
+        second.attach(view);
+        await waitUntil("控制器建立", () => second.controller.value);
+        expect(second.problem.value).toEqual({kind: "protected", code: "corrupt"});
+        expect([...second.controller.value!.model.expanded.value]).toEqual(["project://"]);
+        await listed(at, second, "project://plain");
+    });
+
+    it("字符数没超、UTF-8 字节超出上限的路径：报告后忽略，其余展开照常恢复", async () => {
+        const at = await worlds();
+        const long = "字".repeat(Math.floor(MAX_PATH_BYTES / 3) + 1);
+        await rewritten(at, ["", long]);
+        const reported: unknown[] = [];
+        const second = createExplorerSession({files: files(at.scene.window), commands: {execute: async () => ({ok: false, code: "unknown-command", reason: "测试里没有编辑器"})}, bound: true, createStore: await storeFactory(at.storage, "w2", "c"), report: (error) => reported.push(error)});
+        sessions.push(second);
+        second.attach(view);
+        await waitUntil("控制器建立", () => second.controller.value);
+        expect([...second.controller.value!.model.expanded.value]).toEqual(["project://", "user://"]);
+        expect(reported).toEqual([expect.any(RangeError)]);
+        await listed(at, second, "user://notes.md");
     });
 });
 

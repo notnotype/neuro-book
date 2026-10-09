@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 资源管理器视图的界面（同名 .md）。 */
 import {AlertDialog, Button, ContextMenu, Dialog, FormCheckbox, FormInput, IconButton, Toolbar} from "@notnotype/nb-ui/components";
-import type {ContextMenuItem} from "@notnotype/nb-ui/components";
+import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {computed, nextTick, ref, watch} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
@@ -127,10 +127,13 @@ watch(() => collisionDialog.value === null, (closed) => {
 });
 const collisionError = computed(() => (collisionDialog.value?.error == null ? "" : nameErrorText(props.locale, collisionDialog.value.error)));
 
-/** 菜单关闭：焦点回到树上；菜单项开始的内联输入或对话框随后会再拿走焦点。 */
-const closeMenu = (): void => {
+/**
+ * 菜单关闭：选择、Escape 与 Tab 让焦点回到树上（菜单项开始的内联输入或对话框随后会再拿走焦点）；外部点击时焦点已随
+ * 用户落到被点的地方，不抢回。
+ */
+const closeMenu = (reason: ContextMenuCloseReason): void => {
     emit("menu-close");
-    focusTree();
+    if (reason !== "outside") focusTree();
 };
 
 defineExpose({focusTree});
@@ -191,7 +194,7 @@ defineExpose({focusTree});
             @drag-drop="(over) => emit('drag-drop', over)"
             @drag-cancel="emit('drag-cancel')"
         />
-        <div v-else class="px-3 py-2 text-xs text-[var(--text-muted)]" data-explorer-loading>{{ explorerText(locale, "loading") }}</div>
+        <div v-else role="status" aria-busy="true" class="px-3 py-2 text-xs text-[var(--text-muted)]" data-explorer-loading>{{ explorerText(locale, "loading") }}</div>
         <ExplorerFeedback
             :locale="locale"
             :notice="notice"

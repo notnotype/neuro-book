@@ -4,7 +4,10 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {basenameOf, formatResource, joinResource, MAX_PATH_BYTES, parentOf, parseResource} from "./resource";
+import {Type} from "typebox";
+import {Value} from "typebox/value";
+
+import {basenameOf, formatResource, joinResource, MAX_PATH_BYTES, parentOf, parseResource, pathProblem, RESOURCE_PATH_PATTERN} from "./resource";
 
 describe("Spec workspace.resources 资源地址", () => {
     it("合法地址解析为方案与相对路径；根是空路径；名字里的 : 与 .nbook 不由地址规则拒绝", () => {
@@ -23,6 +26,12 @@ describe("Spec workspace.resources 资源地址", () => {
         // 上限按 UTF-8 字节：每个汉字 3 字节。
         expect(parseResource(`project://${"字".repeat(Math.floor(MAX_PATH_BYTES / 3))}`)).toMatchObject({ok: true});
         expect(parseResource(`project://${"字".repeat(Math.floor(MAX_PATH_BYTES / 3) + 1)}`)).toMatchObject({ok: false, code: "invalid-address"});
+    });
+
+    it("记录 schema 用的路径 pattern 与地址规则逐条一致（字节上限除外）", () => {
+        const schema = Type.String({pattern: RESOURCE_PATH_PATTERN});
+        const paths = ["", "a", "a/b.md", "第一卷/第2章.md", "😀/a", ".nbook/x", "...", "..a", "a..", "notes/a:b.md", "x/C:", "/a", "a/", "a//b", ".", "..", "./a", "a/./b", "a/..", "a\\b", "a\0b", "C:", "c:x/y"];
+        for (const path of paths) expect({path, accepted: Value.Check(schema, path)}).toEqual({path, accepted: pathProblem(path) === null});
     });
 
     it("格式合法但没有这个方案为 unknown-scheme", () => {

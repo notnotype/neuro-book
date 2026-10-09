@@ -21,7 +21,7 @@ import type {Scheme} from "./resource";
 
 export {FILES_FAILURES};
 export type {FilesFailureCode};
-export {basenameOf, formatResource, joinResource, parentOf, parseResource, SCHEMES} from "./resource";
+export {basenameOf, formatResource, joinResource, MAX_PATH_BYTES, parentOf, parseResource, RESOURCE_PATH_PATTERN, SCHEMES} from "./resource";
 export type {Resource, Scheme} from "./resource";
 
 /**

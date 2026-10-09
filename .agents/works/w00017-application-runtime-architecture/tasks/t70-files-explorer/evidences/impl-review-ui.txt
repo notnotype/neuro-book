@@ -1,0 +1,170 @@
+# w00017 t70 实现审查：界面、无障碍与代码结构
+
+审查对象：`cd668399..65ff2649`（S0–S4）。仓库：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t70-impl-ui`。只读审查，实验与报告均在指定目录。
+
+依据：t70 `plan.md`、Task `README.md`、待确认清单的 t70 条目、`docs/specs/workbench/files-explorer.md`、`commands.md`、组件规范及 nb-ui 界面开发规范。
+
+范围边界：S5 的 Lab 内存文件适配器集成场景、截图证据与 Spec 实现标注尚未实施，不作为缺陷；`DocumentCoordinator` 端口随 t71 第一个使用者加入的已知偏离不作为缺陷。实际读屏软件朗读不在本次运行证据内。
+
+共 9 条：**阻断 0、重要 5、建议 4**。下文按影响排序，编号保留核实顺序；重要项均有真实产品运行证据，主题锚点项经现有 Lab 的真实组件布局验证。
+
+## UI-08：展开记录只验证字符串类型，非法资源路径使资源管理器停在加载占位
+
+- **严重程度**：重要；**类别**：输入边界、错误恢复。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/preferences.ts:21`；`web/session.ts:57`；`web/tree/address.ts:13`。
+- **现象**：真实 SQLite 展开记录中的 `{"paths":["",".."]}` 通过记录 schema，被直接转换为资源地址。产品重载后抛出 `RangeError: project://..：路径含 . 或 .. 段`，树未挂载、五个工具栏按钮全部禁用、只显示“正在读取…”，没有偏好损坏提示或恢复入口。
+- **为什么是问题**：`Type.Array(Type.String())` 只保护 JSON 形状与数量，未保护树要求的合法相对资源路径不变量；初始化过程中抛错中断 controller 创建。坏记录应保留并进入可诊断的受保护状态，不能伪装成尚未完成的加载。
+- **依据**：只修改本次实验项目的 SQLite 记录后经真实产品页面重载，Chromium 记录上述 pageerror，DOM 为 `tree=false`、`disabledTools=5`、`preferenceProblem=null`。恢复原记录并重载后树正常挂载。运行证据见 `bad-path-evidence.json`。`docs/standards/code/languages/typescript.md:7-8` 要求边界值用 schema/解析器校验；`docs/specs/workbench/files-explorer.md:117` 与验收 16 要求坏记录不覆盖、失败后仍能浏览。子审查 ST-02 候选已在真实运行时确认。
+- **建议改法**：在持久化输入边界用 Files 共享解析规则验证每个路径属于对应 scheme 的合法相对地址；无效整份记录按 corrupt/protected 处理，保留原记录并给可见原因，使用安全缺省状态浏览。不要在地址运算中静默吞掉 RangeError。
+
+## UI-03：结果区限高相对自动网格轨道，短提示被裁切、大批结果挤掉树
+
+- **严重程度**：重要；**类别**：布局、正确性。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/components/FilesExplorerView.vue:140`、`ExplorerFeedback.vue:56`。
+- **现象**：真实产品页单击文件触发“编辑器尚未接入”提示后，视图高 896px，最后一条自动网格轨道高 49px，结果区实际高 19.59375px、`clientHeight=19`、`scrollHeight=48`；26px 高的关闭按钮与提示一起被裁切。真实批量复制 80 个文件至不可写目录，结果全部为权限失败时，树实际高 `0px`，结果轨道占 860px，反馈自身却只显示 344px。
+- **为什么是问题**：`max-h-[40%]` 位于 `auto` 网格轨道中，百分比相对该轨道解析，没有按整个视图分配空间。短提示被裁成不足一行；大批结果先把自动轨道撑大、挤掉树，再把反馈缩成轨道的 40%，留下大片不能用于浏览的空白。
+- **依据**：真实 Chrome 产品页；短提示网格为 `36px 0px 811px 49px`，80 项权限失败时为 `36px 0px 0px 860px`，视图高均为 896px。现有 Lab 的 `report` 场景在 `390×844` 下同样分配 231px 结果轨道，却只显示 92.390625px，截图见 `report-390.png`。`ExplorerFeedback.md:12` 要求不超过视图高度 40%、树始终保有空间、按钮保持可见；计划 `plan.md:73`、`:79` 要求结果区限高内滚。
+- **建议改法**：由拥有高度的 `FilesExplorerView` 给结果轨道确定的上限，并让 `ExplorerFeedback` 占满该轨道且内部滚动；删除反馈自身相对 `auto` 轨道的百分比限高。可用父视图的容器尺寸或既有布局测量传入实际最大高度，避免再加一层滚动包装。
+
+## UI-07：偏好重读与放弃没有同步回控制器，提示消失但实际界面没有恢复
+
+- **严重程度**：重要；**类别**：状态所有权、恢复语义。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/session.ts:55`、`:76`；`web/preferences.ts:86`、`:98`。
+- **现象**：真实数据库已保存 `{"showManifests":true}`。首读遇到真实 SQLite `io-error` 后使用缺省 `false`；恢复数据库并点击“重新读取”后，提示消失，开关仍为 `false`。另一次真实保存失败后点“放弃”同样消除提示却保留未保存的 `false`，未回到数据库的 `true`。
+- **为什么是问题**：session 只在创建控制器时读取字段的 `display`，此后没有把重读、放弃产生的新值同步到控制器。存储字段与实际界面分成两份状态，恢复动作只恢复其中一份；展开记录的回落与下一次保存也有同源风险（展开分支从代码推断）。
+- **依据**：真实产品页与隔离 SQLite：保存开关为 true；将实验库的 `records` 表临时改名，重载得到“资源管理器偏好未读取…（io-error）重新读取”；恢复表并点按钮，提示消失、树存在、`aria-pressed=false`，记录仍为 true。第二次让真实保存遇到 `io-error`，恢复表后点“放弃”，提示消失、开关仍 false、记录仍 true。`session.ts:55-87` 只有首读快照投影；`docs/specs/workbench/files-explorer.md:117` 与验收 16 要求可重新读取及放弃后显示回落。子审查 ST-01 指向相同 owner 缺口。
+- **建议改法**：由 session 的恢复动作在重读或放弃完成后一次性同步控制器的清单显示与展开状态，避免保留相互脱节的字段快照；同步不产生新的保存意图，保持选择、剪贴板与进行中的批量。
+
+## UI-04：前方插入资源时焦点行的下标变化触发 reveal，覆盖用户的滚动锚点
+
+- **严重程度**：重要；**类别**：虚拟树、滚动正确性。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/components/ExplorerTree.vue:94`、`:114`。
+- **现象**：真实页面展开含 400 个文件的 `big`，选择 `file-0000.md` 后将树滚到 `scrollTop=5200`，首个可见行为 `file-0198.md`。从真实磁盘新增排序在前面的 `000-inserted.md`，Files 事件更新树后，滚动位置变成 78，首个可见行退回 `file-0000.md`；逻辑焦点 id 始终没有改变。
+- **为什么是问题**：`watch(focusIndex)` 把“同一个焦点行因前方增删而移动下标”当成键盘移动。行列表 watcher 恢复锚点后，focusIndex watcher 又把屏幕拉回旧焦点，违背前方插入删除时保持首个可见行与行内偏移的合同。编辑行的 `watch(editIndex)` 也有同类风险，尚未单独复现。
+- **依据**：真实产品页与真实文件事件；400 行中只挂载 50 行且远处焦点目标仍存在，新增后同层总数变为 401，`aria-activedescendant` 仍为 `file-0000.md`，却从 5200 跳到 78。计划 `plan.md:76` 要求滚动锚点；`ExplorerTree.md:18` 把 reveal 定义为焦点行变化（键盘移动），不是索引变化。
+- **建议改法**：按逻辑焦点 id 变化触发 reveal，行集合变化只由锚点恢复负责；编辑行按编辑开始或编辑目标变化 reveal。删除重复争抢滚动位置的触发条件，不增加第二套锚点状态。
+
+## UI-02：内联输入没有可访问名称，改名分支丢失行的同层属性
+
+- **严重程度**：重要；**类别**：无障碍、组件合同。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/components/ExplorerRow.vue:129`、`:142`。
+- **现象**：F2 进入改名后，原生 input 没有 label、`aria-label` 或 `aria-labelledby`；新建同样使用这个分支。Chromium 无障碍树显示 `textbox [active]: a.md`，名称为空，`a.md` 只是当前值。改名分支仍为 `treeitem`，但不再带正常行的 `aria-posinset`、`aria-setsize`、`aria-expanded` 与路径描述。
+- **为什么是问题**：键盘焦点移入输入框后，读屏无法知道这是“新名字”或正在改哪个资源；虚拟树无法由 DOM 推断完整同层集合，改名时去掉显式位置会破坏行合同。`docs/standards/code/frontend.md:9` 要求控件有可访问名称，`ExplorerRow.md:49` 与 `docs/specs/workbench/files-explorer.md:113` 承诺完整同层属性。
+- **依据**：真实产品页 `/?project=book`，展开 `ops`，点击 `project://ops/a.md`，按 F2；读取 Chromium ARIA snapshot 与 input `outerHTML`。无障碍快照出现无名 textbox；源码 `:129-150` 未提供名称，`:136-137` 只保留 level/selected。按 Escape 后正常行恢复完整属性。
+- **建议改法**：用 `messages.ts` 提供“新建文件名 / 新建文件夹名 / 重命名 {name}”的中英可访问名称并传给输入框；把正常/编辑行共用的 treeitem 属性绑定集中一处，不让改名模板重复维护一份缩水的 ARIA。
+
+## UI-05：菜单新增键盘导航后仍缺少 Tab 关闭，外点关闭也会把焦点抢回树
+
+- **严重程度**：建议；**类别**：无障碍、菜单焦点。
+- **位置**：`packages/nb-ui/src/components/feedback/ContextMenuPanel.vue:33`、`ContextMenu.vue:41`；`packages/neuro-book/src/plugins/explorer/web/components/FilesExplorerView.vue:130`。
+- **现象**：真实产品页用 Shift+F10 打开菜单，第一项获得焦点；Tab 逐个走过全部可用菜单项，最后焦点离开菜单，菜单仍保持打开。点击菜单外的“刷新”后菜单关闭，焦点却落回树，未留在刚点击的按钮上。
+- **为什么是问题**：本次 S3 新增方向键导航与首次聚焦，移除了“没有完整菜单键盘导航”的不支持说明，但没有补齐菜单的退出与关闭原因。宿主对所有关闭一律 `focusTree()`，无法区分 Escape、执行动作与外部点击；键盘用户必须额外按 Escape，鼠标与键盘交替使用时焦点落点与刚执行的操作不一致。
+- **依据**：真实 Chromium 按键与点击；7 次 Tab 后菜单仍在，外点“刷新”后 `document.activeElement` 为树。`packages/nb-ui/docs/ui-development-spec.md:125` 要求 Tab/Esc 关闭、外点焦点随用户落点。范围 `cd668399..65ff2649` 中 `ContextMenuPanel.vue:33-79` 与菜单首次聚焦为 S3 新增；该条属于新增交互合同未补齐，不主张已有菜单定位行为全部重做。
+- **建议改法**：菜单在 Tab/Shift+Tab 时关闭并让焦点离开菜单；给既有 `close` 事件附上关闭原因，宿主仅在 Escape 或需要回到树的结束路径归还焦点，外部点击保留实际落点。
+
+## UI-06：偏好首读期间的整块加载占位缺少播报和忙碌语义
+
+- **严重程度**：建议；**类别**：无障碍、加载状态。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/components/FilesExplorerView.vue:194`。
+- **现象**：`ready=false` 时树被“正在读取…”替换，但占位只是普通 div，没有 `role="status"`、`aria-live` 或 `aria-busy`；视图内也没有其它负责播报此状态的节点。
+- **为什么是问题**：这是首读偏好完成之前占据整块树区域的加载状态，页面没有向辅助技术提供状态变化与忙碌语义，违反现有异步界面合同。
+- **依据**：现有 Lab 的 `FilesExplorerView/loading` 场景，Chromium 实测占位 outerHTML 为 `<div class="px-3 py-2 text-xs text-[var(--text-muted)]" data-explorer-loading>正在读取…</div>`，视图中的 `[role=status]`、`[aria-live]`、`[aria-busy]` 查询均为空；`packages/nb-ui/docs/ui-development-spec.md:62-68` 明确要求页面级加载容器可播报并声明忙碌。未运行实际读屏软件，不把 DOM 证据当作朗读结果。
+- **建议改法**：在既有占位上补 `role="status"` 与 `aria-busy="true"`，保留独立成立的文字；无需新增播报组件。
+
+## UI-09：主题行高改变后没有按资源锚点换算滚动位置
+
+- **严重程度**：建议；**类别**：虚拟树、主题切换。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/components/ExplorerTree.vue:61`、`:80`。
+- **现象**：现有 Lab 的 500 行虚拟树，macOS 行高 26px、`scrollTop=5200` 时首个可见资源为第 200 章、行内偏移 0；通过 Lab 的真实主题选择器切到 Editorial 行高 28px 后，scrollTop 仍为 5200，首个可见资源变成第 185 章、偏移 20px。所有行和探针的高度均正确更新，阅读位置却漂移。
+- **为什么是问题**：行高变化只参与窗口与行位置的派生，没有触发锚点到新像素位置的换算。锚点合同用于保持资源位置，单纯保留像素值不能在主题或字号变化时保持同一资源。
+- **依据**：现有 Component Lab 的 `ExplorerTree/many`，真实 CSS token、ResizeObserver 与主题选择器；未直接修改内部 rowHeight。证据见 `row-height-evidence.json`。计划 `plan.md:75-76` 要求主题/字号变化重算及资源地址滚动锚点；产品页主题切换入口未另行验证。子审查虚拟树第二条候选经组件真实布局验证。
+- **建议改法**：行高变化前保留首个可见地址与行内偏移，变化后按新行高换算 scrollTop，夹紧偏移与最大值；复用既有 anchor，不再引入一份滚动状态。
+
+## UI-01：组件能力标签没有如实声明本地状态与触摸计时器
+
+- **严重程度**：建议；**类别**：文档、组件合同。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/components/ExplorerRow.md:2`、`ExplorerRow.vue:32`、`ExplorerTree.md:2`、`web/tree-drag.ts:158`。
+- **现象**：`ExplorerRow` 声明 `标签: []`，实际持有 `inputBox` ref，并在挂载和 `edit` 状态切换时移动 DOM 焦点；`ExplorerTree` 声明 local/global/portal，却经 `createTreeDrag` 使用触摸长按计时器而未声明 `env:timer`。
+- **为什么是问题**：标签用于判断零件能否隔离验证及其生命周期。`docs/standards/code/components.md:76`、`:82`、`:84` 要求定时器通道和本地临时状态按实现如实声明；借 helper 使用通道不会消除它。
+- **依据**：静态核对同名 `.md` 与实现。`ExplorerRow.vue:32-50` 存在 ref 与焦点副作用；`tree-drag.ts:158` 建立触摸长按 `setTimeout`，`:82-89`、`:215-222` 负责清理。`ExplorerTree.vue:182` 建立这份手势 owner。
+- **建议改法**：`ExplorerRow` 标签补 `state:local`；`ExplorerTree` 补 `env:timer` 并写明触摸激活计时器的 owner 与清理条件。沿用现有组件文档，不增加包装组件。
+
+## 未发现问题的方面
+
+以下结论只覆盖本次静态核对和已执行场景。
+
+- **职责与依赖方向（静态核对）**：插件入口组合服务与贡献；session 拥有窗口寿命，controller 拥有选择、剪贴板、对话框与批量状态，树模型拥有目录缓存和订阅，view-host 路由事件，commands/menu/messages/feedback-text 各自负责命令入口、菜单投影、文案和结果映射。运行时跨插件引用经 `shared/contracts.ts`；工作台 web 合同仅为 `import type`。未发现循环运行时依赖、第二套文件客户端或 S5 无法注入 FilesService 的问题。
+- **不变量与错误（静态核对）**：命令参数断言由 registry 的 TypeBox 验证支持；控制器多数集合断言由同一处的存在性或长度条件支持。未发现按错误文案分支、静默吞掉文件失败或伪造成功。UI-08 是明确的持久化路径校验缺口，不据此扩大为所有类型断言都有问题。
+- **基础虚拟化（运行与静态核对）**：400 行真实目录滚动时仅挂载 50 行，远处焦点目标仍存在；500 行 Lab 在 Editorial 下挂载 41 行。窗口上下各 10 行余量并保留焦点/编辑行。正常行带同层位置与总数；不把状态行纳入选择。
+- **停放恢复（真实产品页）**：侧栏收起到零尺寸时浏览器将 scrollTop 夹零；重新显示后恢复到约 9985，焦点目标 DOM 仍存在。未发现隐藏后重建控制器或丢剪贴板的独立问题。
+- **主题行高（真实组件布局）**：探针与实际行高从 macOS 26px 一起变到 Editorial 28px，虚拟窗口响应有效。UI-09 只针对阅读锚点漂移。
+- **焦点交接（真实产品页）**：Shift+F10 首项聚焦；菜单进入改名后 input 获得焦点；进入删除确认时默认焦点为取消，点击取消并完成关闭后焦点回树；碰撞对话框默认聚焦有标签的“新名字”。内联 Escape 返回树，输入框按键不被树截获。删除确认的 Escape 不关闭是既有 AlertDialog 合同，不作为缺陷。
+- **390px 局部布局（真实组件布局）**：碰撞长路径折行，三个操作按钮完整位于视口，文档宽度为 390px；现有 12 项删除确认场景的取消/删除按钮均可见。除 UI-03 外未发现这些场景的独立横向溢出；不据此宣称整套主题或任意深度长路径全部通过。
+- **播报结构（DOM 与真实产品页）**：提示和逐项结果标题使用 `role=status`；结果未知使用 `role=alert`；拖动“移入 dest”通过独立 `aria-live=polite`、`aria-atomic=true` 节点输出，Escape 撤销拖动后反馈消失。实际读屏朗读未验证。
+- **文件意图与门禁（已有合同测试）**：已运行的真实内核、真实文件/Storage 测试覆盖复制重复粘贴、剪切逐项结算、旧身份拒绝、窗口隔离、碰撞、未知后第二批禁止、放弃门禁及展开记录分支淘汰；全部通过。该结论不替代完整产品 e2e。
+
+## 实际验证命令与结果
+
+下列路径均指本次固定 worktree 或指定实验目录；配置覆盖缓存位置，不改仓库配置。
+
+1. worktree 根执行锁定依赖安装：
+
+   ```sh
+   NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui prox bun install --frozen-lockfile --ignore-scripts
+   ```
+
+   成功重装：`402 packages installed [742.00ms]`，退出 0。首次把安装缓存放实验目录遇到 `EDQUOT`，随后复用已有默认缓存成功；这属于实验环境，不计产品缺陷。
+
+2. 在 `packages/neuro-book` 执行真实控制器与文件链路合同测试：
+
+   ```sh
+   NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui bun test src/plugins/explorer/browse.test.ts src/plugins/explorer/actions.test.ts src/plugins/explorer/session.test.ts src/plugins/explorer/transfer.test.ts
+   ```
+
+   `48 pass, 0 fail, 338 expect() calls`；4 文件，2.40s。
+
+3. 在 `packages/neuro-book` 执行已有 DOM 测试：
+
+   ```sh
+   NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui node ../../node_modules/vitest/vitest.mjs run src/plugins/explorer/web/components -c /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui/dom.config.mjs --configLoader runner --no-cache
+   ```
+
+   `3 passed` 文件、`19 passed` 测试；4.81s。
+
+4. 在 `packages/nb-ui` 执行已有菜单键盘测试：
+
+   ```sh
+   NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui node ../../node_modules/vitest/vitest.mjs run src/components/feedback/ContextMenu.test.ts -c /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui/menu.config.mjs --configLoader runner --no-cache
+   ```
+
+   `1 passed` 文件、`2 passed` 测试；1.30s。
+
+5. 从 worktree 根启动隔离真实开发会话：
+
+   ```sh
+   NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui TMPDIR=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui/run-dev.ts
+   ```
+
+   Vite 页面 `http://127.0.0.1:38167/`，后端 `http://127.0.0.1:44533/`，RPC `ws://127.0.0.1:41291/`；真实临时项目、文件监视与 SQLite。内置 Chromium 执行各发现的复现路径，几何/ARIA/焦点直接从实际 DOM 取证。浏览器已关闭；`kill -TERM 2054829` 触发有序停止，后端退出 0、`page-closed`、开发会话退出 0（见 `dev-log.txt`）。
+
+6. `git status --short --branch` 结果仅为 `## HEAD (no branch)`：受审 worktree 无跟踪文件或未跟踪文件改动；依赖安装产生的 ignored node_modules 不算源码改动。未 commit、push、stash 或切换分支。
+
+未运行：全量测试、完整 `files-explorer.e2e.ts`、build/typecheck、`smoke:server`、docs/governance 检查、真实模型与人工评测、实际读屏。macOS 明色为产品页主要组合；Editorial 只补证行高变化，没有完成四主题乘明暗的矩阵。S5 尚未实施项按范围排除，不报遗漏。
+
+## 保留证据与审查协作
+
+- `report-390.png`：现有 Lab 390px 结果区几何问题；`collision-390.png`：390px 长路径碰撞布局；`batch-failures.png`：真实 80 项权限失败挤掉树。
+- `bad-path-evidence.json`：真实损坏记录 pageerror 与 DOM；`row-height-evidence.json`：主题切换前后资源锚点；`dev-log.txt`：服务启动与有序收口。
+- `structure-review.md` 的两条结论均由主审真实产品页验证后合并为 UI-07、UI-08；`virtual-review.md` 的两条结论合并为 UI-04、UI-09。它们是本报告的分工材料，不额外计数。
+- 每条正文的 Spec、代码位置及复现步骤是最终判据；旧 Task 自述、子审查自述不计作本轮运行结果。
+- 本次 `review-state/`、`review-project/`、`vite-cache/`、`vitest/`、`test-paths/` 已清理；报告、子审查材料、截图、JSON、开发日志与隔离运行配置保留。没有删除宿主会话日志或无法确认归属的旧产物。再次复现需按正文重建临时文件/SQLite 状态；动态端口可能变化。
+
+## 数量
+
+| 严重程度 | 数量 | 编号 |
+|---|---:|---|
+| 阻断 | 0 | — |
+| 重要 | 5 | UI-08、UI-03、UI-07、UI-04、UI-02 |
+| 建议 | 4 | UI-05、UI-06、UI-09、UI-01 |
+| 合计 | 9 | 编号保留核实顺序，正文按影响排序 |
+

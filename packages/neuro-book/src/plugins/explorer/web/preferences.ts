@@ -8,6 +8,7 @@
 
 import {Type} from "typebox";
 
+import {MAX_PATH_BYTES, RESOURCE_PATH_PATTERN} from "nbook/plugins/files/shared/contracts";
 import {defineRecord, MAX_RECORD_MAX_BYTES} from "nbook/shared/storage";
 import {defineStore} from "nbook/shared/store/store";
 import type {PersistedField} from "nbook/shared/store/store";
@@ -18,7 +19,8 @@ import {isWithin, parentAddress} from "./tree/address";
 export const EXPANDED_LIMIT = 2000;
 
 const PreferencesSchema = Type.Object({showManifests: Type.Boolean()}, {additionalProperties: false});
-const ExpandedSchema = Type.Object({paths: Type.Array(Type.String(), {maxItems: EXPANDED_LIMIT})}, {additionalProperties: false});
+// 路径按资源地址的规则校验：外部改坏的记录（`..`、空段）由 Storage 判为损坏并保护，不让非法地址进到树的地址运算里。
+const ExpandedSchema = Type.Object({paths: Type.Array(Type.String({pattern: RESOURCE_PATH_PATTERN, maxLength: MAX_PATH_BYTES}), {maxItems: EXPANDED_LIMIT})}, {additionalProperties: false});
 
 export type ExplorerPreferences = {readonly showManifests: boolean};
 export type ExpandedPaths = {readonly paths: ReadonlyArray<string>};

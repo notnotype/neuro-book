@@ -164,6 +164,18 @@ test("大目录：只渲染视口附近的行；键盘走到末尾，焦点行�
     const after = (await middle.boundingBox())?.y;
     expect(Math.abs((after ?? 0) - (before ?? 0))).toBeLessThan(2);
     await rm(join(projectDir, "big", "000-inserted.md"));
+    await expect(item(page, "project://big/file-0200.md")).toHaveAttribute("aria-setsize", String(MANY));
+
+    // 主题改了行高（--control-h-sm）：阅读位置停在同一资源上，不按旧的像素位置漂到别的行。
+    const anchorTop = async (): Promise<number> => ((await middle.boundingBox())?.y ?? 0) - ((await tree(page).boundingBox())?.y ?? 0);
+    const anchored = await anchorTop();
+    const height = (await middle.boundingBox())?.height ?? 0;
+    await page.evaluate(() => document.documentElement.style.setProperty("--control-h-sm", "40px"));
+    await expect.poll(async () => (await middle.boundingBox())?.height).toBe(40);
+    await expect.poll(async () => Math.abs(await anchorTop() - anchored * (40 / height))).toBeLessThan(1.5);
+    await page.evaluate(() => document.documentElement.style.removeProperty("--control-h-sm"));
+    await expect.poll(async () => (await middle.boundingBox())?.height).toBe(height);
+    await expect.poll(async () => Math.abs(await anchorTop() - anchored)).toBeLessThan(1.5);
 
     await page.locator("[data-explorer-tool=\"collapse-all\"]").click();
     await expect(item(page, "project://big/file-0000.md")).toHaveCount(0);

@@ -17,3 +17,9 @@ export interface ContextMenuItem {
     /** 为 true 时渲染为分隔线，忽略其它字段 */
     separator?: boolean;
 }
+
+/**
+ * 菜单为什么请求关闭：宿主据此决定焦点去向。选择、Escape 与 Tab 是键盘或菜单内的结束，焦点通常回到打开菜单的地方；
+ * 外部点击时焦点已随用户落到别处，不应抢回。
+ */
+export type ContextMenuCloseReason = "select" | "escape" | "tab" | "outside";

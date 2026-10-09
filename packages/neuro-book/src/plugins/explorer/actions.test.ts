@@ -208,6 +208,32 @@ describe("Spec workbench.files-explorer 验收 2、4：内容文件夹的动作�
         expect(await readFile(join(at.scene.project, "lore.content", "bob", "index.md"), "utf8")).toBe("BOB");
     });
 
+    it.skipIf(privileged)("创建内容失败：列出之后外部已占用为冲突、不覆盖；没有写权限时提示原因，节点仍没有正文", async () => {
+        const at = await world();
+        const {controller} = at;
+        const alice = join(at.scene.project, "lore.content", "alice");
+        // 选择仍基于旧列出（没有正文）时外部写了 index.md：排他创建不覆盖它。
+        select(controller, "project://lore.content/alice");
+        await writeFile(join(alice, "index.md"), "外部");
+        expect(await controller.createContent()).toEqual({ok: true});
+        expect(controller.notice.value).toMatchObject({kind: "failed", action: "create-content", address: "project://lore.content/alice", code: "conflict"});
+        expect(await readFile(join(alice, "index.md"), "utf8")).toBe("外部");
+
+        await rm(join(alice, "index.md"));
+        await until(at, "alice 又没有正文", () => !entry(controller, "project://lore.content/alice").body);
+        await chmod(alice, 0o555);
+        try {
+            controller.dismissNotice();
+            expect(await controller.createContent()).toEqual({ok: true});
+            expect(controller.notice.value).toMatchObject({kind: "failed", action: "create-content", code: "permission-denied"});
+            expect(await exists(join(alice, "index.md"))).toBe(false);
+            await barrier(at);
+            expect(entry(controller, "project://lore.content/alice").body).toBe(false);
+        } finally {
+            await chmod(alice, 0o755);
+        }
+    });
+
     it("展示名、加入清单、从清单移除、上移下移只改清单，文件路径与字节不变", async () => {
         const at = await world();
         const {controller} = at;
