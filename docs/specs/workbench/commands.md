@@ -115,7 +115,7 @@ owners:
 ### 命名与域词表（第一批）
 
 - 格式：内置插件写 `nbook.<domain>.<action>`；`action` 可为复合（如 `go-to-line`）。其它插件写 `<插件 id>.<action>`。
-- 域词表：`view`、`editor`、`edit`、`quick-open`、`settings`、`account`、`project`、`app`、`help`。本批只用 `editor` / `edit` / `quick-open`。
+- 域词表：`view`、`editor`、`edit`、`quick-open`、`settings`、`account`、`project`、`app`、`help`、`files`。本批只用 `editor` / `edit` / `quick-open`；`files` 随资源管理器加入。
 
 ### 命令目录（第一批 · 本批全部交付）
 
@@ -164,8 +164,36 @@ owners:
 - 参数一律严格校验（`additionalProperties: false`）：多余字段、未知取值都是 `invalid-args`，不静默补齐；四条面板命令的参数可以省略（命令面板对普通候选执行 `{}`，与设置命令同一写法），选择被取消为成功且不写。
 - 前六条写的是**同一份用户定制记录**（面板状态）或既有移动写入路径；尺寸（高度/宽度）不在这里写，只由手势落点提交，避免两个写者。
 - `move-view` 的目标是除来源外的已有容器，或 `newContainerIn` 指定的 ToolPart 里新建的自建容器（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 24；自建容器的身份在这次执行接纳时生成一次）。`targetContainerId` 与 `newContainerIn` 互斥，同时给或只给一部分参数为 `invalid-args`；视图不存在、不可移动或目标容器不存在为 `invalid-args`；视图已不在 `sourceContainerId`（菜单或选择过期）为 `stale-target` 且零写入；目标就是当前容器为成功且不写。无参的两步选择之间视图被移走，同样按过期拒绝。
-- `refresh-files` 是 View 贡献动作的样例：命令只携带 `{viewId, generation}`，命中句柄与代际校验归宿主；活动 View 或实例代际变化后的迟到点击按 `stale-target` 拒绝。
+- `refresh-files` 是 View 贡献动作的样例：命令只携带 `{viewId, generation}`，命中句柄与代际校验归宿主；活动 View 或实例代际变化后的迟到点击按 `stale-target` 拒绝。视图标题动作这一触发面做出来之前，资源管理器视图内的工具栏按钮带本实例的视图 id 与代次调用它。
 - 面板命令返回时布局已按新值显示；保存在后台进行，失败由状态栏的“布局未保存”给出（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 11），命令不等保存完成、也不把“已接纳”说成“已保存”。
+
+### 命令目录（资源管理器）
+
+由 `nbook.explorer` 的浏览器入口贡献，作用于本窗口资源管理器的选择；行为、公开键与键位见 [`workbench.files-explorer`](files-explorer.md#新应用的插件命令与界面)。参数一律 `{}`，Agent 暴露一律 `never`；键位的 `when` 都要求 `nbook.explorer/treeFocused`（树的列表元素本身拥有焦点）。
+
+| 命令 id | 标题 | `when.requires` | `effect` | 默认键位 |
+|---|---|---|---|---|
+| `nbook.files.new-file` | 新建文件 / New File | `nbook.explorer/ready` | write | — |
+| `nbook.files.new-folder` | 新建文件夹 / New Folder | `nbook.explorer/ready` | write | — |
+| `nbook.files.collapse-all` | 全部收起 / Collapse All | `nbook.explorer/ready` | read | — |
+| `nbook.files.toggle-manifests` | 显示清单文件 / Show Manifest Files | `nbook.explorer/ready` | write | — |
+| `nbook.files.rename` | 重命名 / Rename | `nbook.explorer/hasSelection` | write | F2 |
+| `nbook.files.delete` | 删除 / Delete | `nbook.explorer/hasSelection` | write，`destructive` | Delete |
+| `nbook.files.copy` | 复制 / Copy | `nbook.explorer/hasSelection` | read | `Mod+C` |
+| `nbook.files.cut` | 剪切 / Cut | `nbook.explorer/hasSelection` | read | `Mod+X` |
+| `nbook.files.paste` | 粘贴 / Paste | `nbook.explorer/canPaste` | write | `Mod+V` |
+| `nbook.files.move-up` | 上移 / Move Up | `nbook.explorer/canReorder` | write | `Alt+ArrowUp` |
+| `nbook.files.move-down` | 下移 / Move Down | `nbook.explorer/canReorder` | write | `Alt+ArrowDown` |
+| `nbook.files.create-content` | 创建内容 / Create Content | `nbook.explorer/canCreateContent` | write | — |
+| `nbook.files.convert` | 转换文件夹类型 / Convert Folder | `nbook.explorer/canConvert` | write | — |
+| `nbook.files.set-display` | 修改展示名与图标 / Edit Display | `nbook.explorer/canEditManifest` | write | — |
+| `nbook.files.include` | 加入清单 / Add to Manifest | `nbook.explorer/canEditManifest` | write | — |
+| `nbook.files.drop-entry` | 从清单移除 / Remove from Manifest | `nbook.explorer/canEditManifest` | write | — |
+| `nbook.files.clear-cut` | 清除剪切标记 / Clear Cut | `nbook.explorer/treeFocused` | read | Escape |
+
+- 键位命令的 `when` 另加 `nbook.explorer/treeFocused`；从命令面板执行时不要求树有焦点。
+- 资源管理器尚未打开时为 `unavailable`；需要界面输入的命令（新建、改名、展示名、带碰撞的粘贴、删除确认）还要求视图已挂上且可见；确认与内联输入的迟到回调按 `stale-target` 丢弃。
+- `when` 只表示有没有可作用的选择；执行时再按选择核对（例如选中项里有根行时改名不可用），不合格返回 `unavailable` 与原因。
 
 ### 上下文键（第一批）
 
