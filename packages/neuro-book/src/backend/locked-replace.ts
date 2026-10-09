@@ -94,6 +94,20 @@ export async function replaceLocked<T, W extends Uint8Array | string>(file: stri
     }
 }
 
+/**
+ * 只取锁、不替换文件：覆盖多步操作的锁（Files 的内容树操作锁）。与替换用同一套残留判定与等锁退避；等不到为 `locked`。
+ * 持有期间锁被接管只记诊断：多步操作已经做了一部分，不能凭锁失效撤回。
+ */
+export async function holdLock(lockPath: string, report: (event: string, error: unknown) => void): Promise<{readonly ok: true; readonly release: () => Promise<void>} | {readonly ok: false; readonly reason: "locked" | "failed"; readonly detail: string}> {
+    let release: () => Promise<void>;
+    try {
+        release = await lock(lockPath, {realpath: false, lockfilePath: lockPath, stale: LOCK_STALE_MS, retries: LOCK_RETRIES, onCompromised: (error) => report("lock.compromised", error)});
+    } catch (error) {
+        return errno(error) === "ELOCKED" ? {ok: false, reason: "locked", detail: "锁一直被别的操作占着"} : {ok: false, reason: "failed", detail: `无法取得锁：${describe(error)}`};
+    }
+    return {ok: true, release: () => releaseLock(release, report)};
+}
+
 async function releaseLock(release: () => Promise<void>, report: (event: string, error: unknown) => void): Promise<void> {
     try {
         await release();

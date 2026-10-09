@@ -32,7 +32,12 @@ export const TEXT_BUDGET_BYTES = RPC_MAX_MESSAGE_BYTES - 64 * 1024;
 
 /** 正文经 JSON 编码后的 UTF-8 字节数；浏览器在发出保存前、提供者在读取与保存时用同一个算法。 */
 export function encodedTextBytes(text: string): number {
-    return new TextEncoder().encode(JSON.stringify(text)).length;
+    return encodedBytes(text);
+}
+
+/** 任意请求或结果经 JSON 编码后的 UTF-8 字节数：批量与身份查询的输入、批量结果都按它核对预算。 */
+export function encodedBytes(value: unknown): number {
+    return new TextEncoder().encode(JSON.stringify(value)).length;
 }
 
 const BaselineSchema = Type.Object({hash: Type.String()}, {additionalProperties: false});
@@ -109,10 +114,42 @@ const errors = {
 
 const PathInput = Type.Object({path: Type.String()}, {additionalProperties: false});
 
+/** 一次批量或身份查询最多这么多项（另受编码后的字节预算约束，见 `TEXT_BUDGET_BYTES`）。 */
+export const MAX_OPERATION_ITEMS = 1000;
+
+const IdentifySchema = Type.Object({
+    items: Type.Array(Type.Union([
+        Type.Object({kind: Type.Union([Type.Literal("file"), Type.Literal("directory"), Type.Literal("link"), Type.Literal("other")]), token: Type.String()}, {additionalProperties: false}),
+        Type.Object({code: Type.String(), detail: Type.String()}, {additionalProperties: false}),
+    ])),
+}, {additionalProperties: false});
+export type Identified = Static<typeof IdentifySchema>;
+
+/** 文件已改而清单没改成（docs/specs/workspace/folder-kinds.md 的“失败与恢复”）：哪份清单、为什么。 */
+const ManifestIssueSchema = Type.Object({path: Type.String(), status: Type.Union([Type.Literal("failed"), Type.Literal("invalid")]), detail: Type.String()}, {additionalProperties: false});
+export type ManifestIssue = Static<typeof ManifestIssueSchema>;
+
+/** 单项操作的成功值：清单都改成了时为空对象。 */
+const DoneSchema = Type.Object({manifests: Type.Optional(Type.Array(ManifestIssueSchema, {maxItems: 2}))}, {additionalProperties: false});
+export type OperationDone = Static<typeof DoneSchema>;
+
+const Expected = Type.Optional(Type.String());
+const Name = Type.String();
+const Display = Type.Optional(Type.Union([Type.String(), Type.Null()]));
+
 const methods = {
     list: {input: PathInput, output: ListingSchema, effect: "read", errors},
     read: {input: PathInput, output: FileTextSchema, effect: "read", errors},
     write: {input: Type.Object({path: Type.String(), text: Type.String(), baseline: BaselineSchema}, {additionalProperties: false}), output: Saved, effect: "write", errors},
+    identify: {input: Type.Object({paths: Type.Array(Type.String(), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: IdentifySchema, effect: "read", errors},
+    create: {input: Type.Object({path: Type.String(), kind: Type.Union([Type.Literal("file"), Type.Literal("directory")]), before: Type.Optional(Name)}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
+    createContent: {input: PathInput, output: DoneSchema, effect: "write", errors},
+    rename: {input: Type.Object({path: Type.String(), name: Name, expected: Expected}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
+    convert: {input: Type.Object({path: Type.String(), to: Type.Union([Type.Literal("content"), Type.Literal("plain")]), expected: Expected}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
+    reorder: {input: Type.Object({directory: Type.String(), names: Type.Array(Name, {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
+    display: {input: Type.Object({path: Type.String(), title: Display, icon: Display}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
+    include: {input: Type.Object({path: Type.String(), before: Type.Optional(Name)}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
+    drop: {input: PathInput, output: DoneSchema, effect: "write", errors},
 } as const;
 
 /** 写入来源（docs/specs/workspace/resources.md 的“写入来源”）。 */
@@ -123,8 +160,14 @@ const SourceSchema = Type.Union([
 ]);
 export type ChangeSource = Static<typeof SourceSchema>;
 
-/** 外部变化只有 `changed`（路径现在存在）与 `deleted`；经文件服务的操作给精确类型。 */
-const ChangeSchema = Type.Object({type: Type.Union([Type.Literal("created"), Type.Literal("changed"), Type.Literal("deleted")]), path: Type.String(), source: SourceSchema}, {additionalProperties: false});
+/**
+ * 外部变化只有 `changed`（路径现在存在）与 `deleted`；经文件服务的操作给精确类型。`renamed` 与 `deleted` 对路径本身及
+ * 按段边界的全部后代生效。
+ */
+const ChangeSchema = Type.Union([
+    Type.Object({type: Type.Union([Type.Literal("created"), Type.Literal("changed"), Type.Literal("deleted")]), path: Type.String(), source: SourceSchema}, {additionalProperties: false}),
+    Type.Object({type: Type.Literal("renamed"), path: Type.String(), from: Type.String(), source: SourceSchema}, {additionalProperties: false}),
+]);
 export type FileChange = Static<typeof ChangeSchema>;
 
 /**
@@ -169,6 +212,24 @@ export interface FilesService {
     read(address: string, options?: {readonly signal?: AbortSignal}): Promise<FilesResult<FileText>>;
     /** 只保存已有文件；正文超过上限时不发出请求，直接 `too-large`。 */
     write(address: string, text: string, baseline: Baseline): Promise<FilesResult<{readonly baseline: Baseline}>>;
+    /** 冻结一组目录项的身份（剪贴板、拖动）；地址必须同一方案。结果与输入按下标对齐。 */
+    identify(addresses: ReadonlyArray<string>): Promise<FilesResult<Identified>>;
+    /** 排他新建空文件或目录；`before` 是内容文件夹里同层另一项的名字。 */
+    create(address: string, kind: "file" | "directory", options?: {readonly before?: string}): Promise<FilesResult<OperationDone>>;
+    /** 在内容文件夹的节点目录里排他新建空白 `index.md`。 */
+    createContent(address: string): Promise<FilesResult<OperationDone>>;
+    /** 同目录改名；`expected` 是 `identify` 的令牌。 */
+    rename(address: string, name: string, options?: {readonly expected?: string}): Promise<FilesResult<OperationDone>>;
+    /** 普通文件夹与内容文件夹互转（加或去 `.content` 后缀）。 */
+    convert(address: string, to: "content" | "plain", options?: {readonly expected?: string}): Promise<FilesResult<OperationDone>>;
+    /** 只改清单：一层的顺序（恰好是这一层清单里的全部条目）。 */
+    reorder(directory: string, names: ReadonlyArray<string>): Promise<FilesResult<OperationDone>>;
+    /** 只改清单：展示名与图标，`null` 去掉。 */
+    display(address: string, display: {readonly title?: string | null; readonly icon?: string | null}): Promise<FilesResult<OperationDone>>;
+    /** 只改清单：把未列入的项加入清单。 */
+    include(address: string, options?: {readonly before?: string}): Promise<FilesResult<OperationDone>>;
+    /** 只改清单：移除一个条目，不动磁盘。 */
+    drop(address: string): Promise<FilesResult<OperationDone>>;
     /** 订阅一个方案的变更：同一窗口同一方案共用一条远程订阅。返回释放函数（幂等），释放后不再有回调。 */
     watch(scheme: Scheme, listener: (message: WatchMessage) => void): () => void;
 }

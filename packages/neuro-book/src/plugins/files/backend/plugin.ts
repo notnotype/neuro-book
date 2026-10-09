@@ -10,6 +10,7 @@ import {join} from "node:path";
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
+import type {Scope} from "@notnotype/nb-runtime/lifecycle";
 import type {ActivationContext, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 import type {RemoteImplementation} from "@notnotype/nb-runtime/remote";
@@ -25,6 +26,8 @@ import {createChangeHub} from "./changes";
 import type {ChangeHub} from "./changes";
 import {createFilesService} from "./files-service";
 import type {FilesService} from "./files-service";
+import {createOperations} from "./operations";
+import type {Operations} from "./operations";
 import {openRoot} from "./rooted";
 import type {RootOptions} from "./rooted";
 
@@ -33,18 +36,50 @@ export function sourceOf(consumer: ConsumerIdentity): ChangeSource {
     return consumer.location === "browser" || consumer.location === "tui" ? {kind: "user", plugin: consumer.plugin} : {kind: "system", plugin: consumer.plugin};
 }
 
+/**
+ * 写方法登记为提供入口作用域上的在途操作：入口停止时等它实际结束才关闭，不在关闭之后继续改用户的文件
+ * （docs/specs/workspace/files.md 的“停止与取消”）。
+ */
+async function tracked<T>(scope: Scope, label: string, run: () => Promise<T>): Promise<T> {
+    let value: {readonly result: T} | null = null;
+    const handle = scope.accept({label, run: async () => {
+        value = {result: await run()};
+    }});
+    const ended = await handle.termination;
+    if (ended.status === "failed") throw ended.error;
+    return (value as {readonly result: T} | null)?.result as T;
+}
+
+interface Backend {
+    readonly service: FilesService;
+    readonly operations: Operations;
+    readonly changes: ChangeHub;
+    readonly scope: Scope;
+}
+
 /** 两份合同的方法与事件相同，实现也相同；`consumer` 是内核填写的调用方身份，写入来源由它确定。 */
-function implementation(service: FilesService, changes: ChangeHub, consumer: ConsumerIdentity): RemoteImplementation<typeof userFilesContract> {
+function implementation(backend: Backend, consumer: ConsumerIdentity): RemoteImplementation<typeof userFilesContract> {
+    const {service, operations, changes, scope} = backend;
+    const source = sourceOf(consumer);
     return {
         methods: {
             list: (input) => service.list(input.path),
             read: (input) => service.read(input.path),
-            write: async (input) => {
+            write: (input) => tracked(scope, "files.write", async () => {
                 const saved = await service.write(input.path, input.text, input.baseline, changes.temporaryPath);
                 if (!saved.ok) return saved;
-                changes.saved({path: input.path, realPath: saved.value.realPath, bytes: saved.value.bytes}, sourceOf(consumer));
-                return {ok: true, value: {baseline: saved.value.baseline}};
-            },
+                changes.saved({path: input.path, realPath: saved.value.realPath, bytes: saved.value.bytes}, source);
+                return {ok: true as const, value: {baseline: saved.value.baseline}};
+            }),
+            identify: (input) => operations.identify(input.paths),
+            create: (input) => tracked(scope, "files.create", () => operations.create(input, source)),
+            createContent: (input) => tracked(scope, "files.create-content", () => operations.createContent(input, source)),
+            rename: (input) => tracked(scope, "files.rename", () => operations.rename(input, source)),
+            convert: (input) => tracked(scope, "files.convert", () => operations.convert(input, source)),
+            reorder: (input) => tracked(scope, "files.reorder", () => operations.reorder(input, source)),
+            display: (input) => tracked(scope, "files.display", () => operations.display(input, source)),
+            include: (input) => tracked(scope, "files.include", () => operations.include(input, source)),
+            drop: (input) => tracked(scope, "files.drop", () => operations.drop(input, source)),
         },
         events: {
             changes: {
@@ -72,7 +107,9 @@ function rootEntry(location: "server" | "project", contract: FilesContract, loca
             const service = createFilesService({root, diagnose: (event, detail, cause) => record("warn", event, detail, {cause})});
             const changes = createChangeHub({root, controlDirectory: placed.options.controlDirectory, clock: context.services.require(clockKey), record});
             context.scope.register({kind: "files-changes", label: `${descriptor.id} ${location}`, value: changes, release: (value) => value.close()});
-            return {remote: [provideRemote(contract, (consumer) => implementation(service, changes, consumer))]};
+            const operations = createOperations({root, changes, diagnose: (event, detail, cause) => record("warn", event, detail, {cause})});
+            const backend: Backend = {service, operations, changes, scope: context.scope};
+            return {remote: [provideRemote(contract, (consumer) => implementation(backend, consumer))]};
         },
     });
 }

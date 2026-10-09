@@ -8,8 +8,8 @@ import type {ActivationContext} from "@notnotype/nb-runtime/plugins";
 import type {RemoteFailure, RemoteFailureCode, RemoteResult, RemoteSubscribeOptions, RemoteSubscription} from "@notnotype/nb-runtime/remote";
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
-import {encodedTextBytes, FILES_FAILURES, parseResource, projectFilesContract, TEXT_BUDGET_BYTES, userFilesContract} from "../shared/contracts";
-import type {Baseline, ChangesMessage, FilesFailureCode, FilesResult, FilesService, Scheme, WatchMessage} from "../shared/contracts";
+import {encodedBytes, encodedTextBytes, FILES_FAILURES, MAX_OPERATION_ITEMS, parseResource, projectFilesContract, TEXT_BUDGET_BYTES, userFilesContract} from "../shared/contracts";
+import type {Baseline, ChangesMessage, FilesFailureCode, FilesResult, FilesService, OperationDone, Scheme, WatchMessage} from "../shared/contracts";
 
 type Remote = ActivationContext["remote"];
 
@@ -23,6 +23,13 @@ export function createFilesClient(remote: Remote, consumer: ConsumerIdentity, wa
     // 两份合同的方法相同；按方案分开取，客户端类型才精确。
     const client = (scheme: Scheme) => (scheme === "project" ? remote.on(consumer).use(projectFilesContract) : remote.on(consumer).use(userFilesContract));
     const releases = new Set<() => void>();
+    /** 单个地址的写操作：解析地址、按方案发出、结果原样带码。 */
+    const operate = async (address: string, call: (files: ReturnType<typeof client>, path: string) => Promise<RemoteResult<OperationDone, RemoteFailureCode | FilesFailureCode>>): Promise<FilesResult<OperationDone>> => {
+        const parsed = parseResource(address);
+        if (!parsed.ok) return parsed;
+        const result = await call(client(parsed.resource.scheme), parsed.resource.path);
+        return result.ok ? result : fromRemote(result);
+    };
     const service: FilesService = {
         list: async (address, options) => {
             const parsed = parseResource(address);
@@ -44,6 +51,23 @@ export function createFilesClient(remote: Remote, consumer: ConsumerIdentity, wa
             const result = await client(parsed.resource.scheme).write({path: parsed.resource.path, text, baseline});
             return result.ok ? result : fromRemote(result);
         },
+        identify: async (addresses) => {
+            const batch = sameScheme(addresses);
+            if (!batch.ok) return batch;
+            const result = await client(batch.scheme).identify({paths: batch.paths});
+            return result.ok ? result : fromRemote(result);
+        },
+        create: (address, kind, options) => operate(address, (files, path) => files.create({path, kind, ...(options?.before === undefined ? {} : {before: options.before})})),
+        createContent: (address) => operate(address, (files, path) => files.createContent({path})),
+        rename: (address, name, options) => operate(address, (files, path) => files.rename({path, name, ...(options?.expected === undefined ? {} : {expected: options.expected})})),
+        convert: (address, to, options) => operate(address, (files, path) => files.convert({path, to, ...(options?.expected === undefined ? {} : {expected: options.expected})})),
+        reorder: async (directory, names) => {
+            if (names.length > MAX_OPERATION_ITEMS || encodedBytes(names) > TEXT_BUDGET_BYTES) return {ok: false, code: "too-large", detail: "条目太多，超过一次请求的上限"};
+            return operate(directory, (files, path) => files.reorder({directory: path, names: [...names]}));
+        },
+        display: (address, display) => operate(address, (files, path) => files.display({path, ...(display.title === undefined ? {} : {title: display.title}), ...(display.icon === undefined ? {} : {icon: display.icon})})),
+        include: (address, options) => operate(address, (files, path) => files.include({path, ...(options?.before === undefined ? {} : {before: options.before})})),
+        drop: (address) => operate(address, (files, path) => files.drop({path})),
         watch: (scheme, listener) => {
             const release = watches.add(scheme, listener);
             const once = (): void => {
@@ -207,6 +231,26 @@ class SchemeWatch {
 }
 
 const BUSINESS: ReadonlySet<string> = new Set(FILES_FAILURES);
+
+/**
+ * 一组地址：必须同一方案（只支持方案内的操作），项数与编码后的字节在发出前核对：超过一条 RPC 消息的请求会被断开连接、
+ * 写请求成为结果未知（docs/specs/workspace/files.md 的“大小上限”）。
+ */
+export function sameScheme(addresses: ReadonlyArray<string>): {readonly ok: true; readonly scheme: Scheme; readonly paths: string[]} | Extract<FilesResult<never>, {readonly ok: false}> {
+    if (addresses.length === 0) return {ok: false, code: "invalid-address", detail: "没有给出任何地址"};
+    if (addresses.length > MAX_OPERATION_ITEMS) return {ok: false, code: "too-large", detail: `一次最多 ${String(MAX_OPERATION_ITEMS)} 项`};
+    const paths: string[] = [];
+    let scheme: Scheme | null = null;
+    for (const address of addresses) {
+        const parsed = parseResource(address);
+        if (!parsed.ok) return parsed;
+        if (scheme !== null && parsed.resource.scheme !== scheme) return {ok: false, code: "invalid-address", detail: "一次操作的地址必须在同一个方案里"};
+        scheme = parsed.resource.scheme;
+        paths.push(parsed.resource.path);
+    }
+    if (encodedBytes(paths) > TEXT_BUDGET_BYTES) return {ok: false, code: "too-large", detail: "地址太长，超过一次请求的上限"};
+    return {ok: true, scheme: scheme as Scheme, paths};
+}
 
 /** 业务失败的详情已由内核按合同的 schema 校验过（`{detail}`，冲突另带 `current`）。 */
 function fromRemote(failure: RemoteFailure<RemoteFailureCode | FilesFailureCode>): FilesResult<never> {
