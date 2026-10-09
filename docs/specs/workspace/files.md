@@ -61,6 +61,35 @@ owners:
 - **控制目录**：项目根下第一段名字不区分大小写等于 `.nbook` 的目录（项目身份、项目层配置与 Storage）不列出、不可读写，失败码 `protected-path`。请求的词法路径与解析符号链接后的真实路径都要检查，`alias -> .nbook` 这类根内链接同样拒绝。用户资产根没有控制目录；嵌套的 `notes/.nbook/` 是普通目录。
 - **根身份**：提供者记下方案根的设备号与 inode，每个请求先核对；根被移走、删除或换成别的目录为 `root-gone`，不重新解析到新目录。
 
+### 文件操作
+
+两份远程合同（`project://`、`user://`）提供同一组操作。只支持同一方案内、同一设备上的移动与复制，不跨根搬运。
+
+| 方法 | 输入 | 结果 |
+|---|---|---|
+| `identify`（读） | `{paths}` | 逐项 `{kind, token}` 或失败：冻结操作意图用的目录项身份令牌 |
+| `create` | `{path, kind: "file" \| "directory", before?}` | 排他新建；文件为空 |
+| `createContent` | `{path}`（内容树里的节点目录） | 排他新建空白 `index.md`，已有为 `conflict` |
+| `rename` | `{path, name, expected?}` | 同目录改名 |
+| `convert` | `{path, to: "content" \| "plain", expected?}` | 加或去 `.content` 后缀（[workspace.folder-kinds](folder-kinds.md) 的“转换”） |
+| `reorder`、`display`、`include`、`drop` | 见 [workspace.folder-kinds](folder-kinds.md) 的“清单编辑” | 只改清单 |
+| `move`、`copy` | `{operation, items: [{source, target, expected?}]}` | 逐项结果 |
+| `delete` | `{operation, items: [{path, expected?}]}` | 逐项结果 |
+| `cancel` | `{operation}` | `{found}`：是否命中本调用方在途的批量 |
+
+- **名字与目标：** 名字是合法的单段（同资源地址的段规则），项目根下不能是控制目录。批量的目标是完整路径：碰撞时改名或跳过由调用方决定，服务端不自动改名、不覆盖、不合并。
+- **排他提交：** 新建文件 `open` 排他，新建目录不递归 `mkdir`，改名、移动、转换用系统的排他改名（Linux `renameat2` 带 `RENAME_NOREPLACE`，macOS `renamex_np` 带 `RENAME_EXCL`，Windows `MoveFileExW` 不带替换标志）；提交本身就是检查，目标在预检之后被占用仍为 `conflict`。文件系统不支持排他改名、跨设备移动为 `unsupported`，不退回会覆盖的改名。父目录不存在为 `not-found`，不建中间目录。
+- **目录项与目标：** 改名、移动、删除作用于目录项本身，不跟随最后一段的符号链接（改名链接就是改名链接，删链接不删目标）；父目录按[读取与保存](#读取与保存)的包含、控制目录与根身份规则解析。根本身不能改名、移动、删除、转换；控制目录作为源或目标都是 `protected-path`。
+- **源身份：** 调用方冻结一次操作意图（剪贴板、拖动）时用 `identify` 取得源的令牌（目录项的设备号、inode、创建时间与类型的摘要，不含宿主路径；同一 inode 的两个硬链接名是两个目录项），提交时带 `expected`；服务端在执行前与提交前各核对一次，不符为 `source-changed`。最后一次核对与系统调用之间仍有窗口，沿 [platform.files](../platform/files.md) 不承诺抵御恶意的并发替换。
+- **复制：** 源不变。文件先写到目标目录里带实例标记的临时名（复制字节与权限位），再排他改名到目标名，失败不留半个文件。目录先排他创建目标目录，再按名字次序逐项复制；中途失败停下，已产生的部分留在目标处并作为残留范围报告。链接复制为链接（复制链接原文，不跟随，不把根外内容拷进来）；设备、FIFO、套接字让该项失败为 `unsupported`。复制到源自身或其后代按真实路径判定，在产生任何东西之前拒绝为 `into-itself`。
+- **删除：** 文件先核对可写，只读为 `permission-denied`（与“显示为只读的资源仍在服务端拒绝”一致，不依赖操作系统只看父目录权限的 `unlink`）。目录递归删除，遇到第一个失败就停，不改权限、不强删，报告已删除的最外层范围；目录仍在时不宣称它已删除。
+- **批量预处理：** 任何副作用之前：源按目录项（父目录真实路径加名字）去重，重复为跳过（`duplicate`），被另一源目录覆盖的为跳过（`covered`）；移动的目标就是源本身为完成且无事件，复制的目标就是源本身照常提交而得到 `conflict`；移动或复制到自身或后代为 `into-itself`。
+- **逐项结果：** 与输入按下标对齐：`done`；`failed`（码、详情，部分完成时带 `partial.removed` 或 `partial.residual` 范围）；`skipped`（`duplicate`、`covered`）；`not-run`（`root-gone`、`stopped`）；`cancelled`。单项与批量的完成项都可带 `manifests`：文件已改而清单没改成（[workspace.folder-kinds](folder-kinds.md)）。
+- **停止与取消：** 每项开始前检查三件事：业务取消、根身份、请求的终止信号（调用方断线、调用方入口停止、提供入口停止、项目代次结束）。正在执行的项按实际结果结算，之后的项分别为 `cancelled`、`not-run: root-gone`、`not-run: stopped`；已完成的项不回滚。单项业务失败记下后继续。取消用单独的 `cancel` 方法，只命中同一调用方在途的操作 id；不用调用方中止写请求来取消（中止已发出的写请求只能得到结果未知，拿不到逐项结果）。提供入口停止时等在途操作结算后才关闭。
+- **大小上限：** 一次批量最多 1000 项，输入经 JSON 编码后不超过与正文相同的预算；客户端在发出前核对、提供者再核一次，超过为 `too-large`、不发出。结果编码后超过预算时，先省略范围里的路径并标 `truncated`，再截短详情，保证装进一条消息；看到 `truncated` 的调用方重新列出核对。
+- **结果未知：** 断线或超时时调用方得到 `unknown-outcome`。列出只说明当前状态，不能证明旧操作已经停下；调用方不自动重试有副作用的操作。
+- **浏览器客户端：** 批量方法立即返回句柄 `{result, cancel()}`：操作 id 由客户端生成，方案与 id 在句柄里，调用方不用记 id；批量里的地址必须同一方案。
+
 ## 状态与转换
 
 | 状态/事件 | 对外结果与约束 |
@@ -117,5 +146,5 @@ owners:
 
 ## 证据
 
-- 批准依据：开发者于 2026-09-26 经访谈确认首版整体意图，随后以“可以，就这么做，收口”批准 F1–F9；见[首版设计决策记录](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)。2026-10-02 接受 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md#决策记录)：按需列目录、三类文件夹、写入来源、用户资产根与插件通道。“读取与保存”一节（基线、文本、正文上限、只保存已有文件）：[w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t68 条目（按推荐先做，待开发者追认）。
+- 批准依据：开发者于 2026-09-26 经访谈确认首版整体意图，随后以“可以，就这么做，收口”批准 F1–F9；见[首版设计决策记录](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)。2026-10-02 接受 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md#决策记录)：按需列目录、三类文件夹、写入来源、用户资产根与插件通道。“读取与保存”一节（基线、文本、正文上限、只保存已有文件）：[w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t68 条目（按推荐先做，待开发者追认）。“文件操作”一节（只读文件删除拒绝、复制与删除的失败政策、源身份令牌、批量的大小上限、结果未知不提供状态查询）：同一清单 2026-10-09 的 t69 条目（按推荐先做，待开发者追认）。
 - 实施与单机验收记录：[w00017 t16–t25](../../../.agents/works/w00017-application-runtime-architecture/README.md#当前-task-与继续条件)，含隔离磁盘/History、HTTP 失败、双窗口、Lab、切换性能与本机逐条复核。路径 move/rename 改用平台原子 no-replace 提交；Windows 在预检后抢占文件/目录目标时确认源与目标不变，未知平台和模拟 Linux 原语不支持会拒绝。完整 Windows 产品镜像构建成功，包含 Koffi 平台原生包；Linux/macOS 及其它文件系统未实测，跨机器基础操作尚未验证，保持 `planned`。
