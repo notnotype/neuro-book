@@ -44,6 +44,29 @@ export interface Resolved {
 
 export type DirectoryEntry = {readonly name: string; readonly kind: "file" | "directory" | "link" | "other"};
 
+/** 将要出现的位置：父目录已解析，名字是合法单段。 */
+export interface ResolvedSlot {
+    readonly parent: Resolved;
+    readonly name: string;
+    readonly absolute: string;
+    /** 相对根的真实路径（父目录的真实路径加名字）。 */
+    readonly path: string;
+}
+
+/** 已存在的目录项：最后一段不跟随符号链接，`stats` 是 `lstat` 的结果。 */
+export interface ResolvedEntry extends ResolvedSlot {
+    readonly stats: Stats;
+}
+
+/**
+ * 目录项身份令牌：冻结一次操作意图的源（docs/specs/workspace/files.md 的“文件操作”）。设备号、inode、创建时间与类型的
+ * 摘要，不含宿主路径；inode 被回收再分配时创建时间不同。
+ */
+export function entryToken(stats: Stats): string {
+    const kind = stats.isFile() ? "file" : stats.isDirectory() ? "directory" : stats.isSymbolicLink() ? "link" : "other";
+    return createHash("sha256").update(`${String(stats.dev)}:${String(stats.ino)}:${String(stats.birthtimeMs)}:${kind}`).digest("hex").slice(0, 32);
+}
+
 const CONTROL = ".nbook";
 
 export function isControlName(name: string): boolean {
@@ -54,6 +77,10 @@ export interface RootedRoot {
     /** 根的真实路径。 */
     readonly real: string;
     resolve(path: string): Promise<Resolved | RootedFailure>;
+    /** 改名、移动、删除、复制的源：作用于目录项本身，链接不跟随。根本身与控制目录（含指向它的链接）拒绝。 */
+    resolveEntry(path: string): Promise<ResolvedEntry | RootedFailure>;
+    /** 新建、移动、复制的目标位置；不核对它是否已存在（排他提交时才核对）。 */
+    resolveSlot(path: string): Promise<ResolvedSlot | RootedFailure>;
     list(path: string): Promise<{readonly ok: true; readonly entries: ReadonlyArray<DirectoryEntry>; readonly resolved: Resolved} | RootedFailure>;
     /** 读普通文件的全部字节；超过 `maxBytes` 为 too-large，不读内容。 */
     read(path: string, maxBytes: number): Promise<{readonly ok: true; readonly bytes: Uint8Array; readonly resolved: Resolved} | RootedFailure>;
@@ -125,6 +152,35 @@ class Root implements RootedRoot {
         } catch (error) {
             return missing(error, path);
         }
+    }
+
+    async resolveSlot(path: string): Promise<ResolvedSlot | RootedFailure> {
+        const problem = pathProblem(path);
+        if (problem !== null) return fail("invalid-address", `${path}：${problem}`);
+        if (path === "") return fail("invalid-address", "根目录本身不能作为新建、改名、移动、复制、删除或转换的对象");
+        const at = path.lastIndexOf("/");
+        const name = path.slice(at + 1);
+        if (process.platform === "win32" && name.includes(":")) return fail("invalid-address", `${path}：Windows 上的名字不能含 :`);
+        const parent = await this.resolve(at < 0 ? "" : path.slice(0, at));
+        if ("ok" in parent) return parent;
+        if (!parent.stats.isDirectory()) return fail("not-a-directory", `${path} 的父路径不是目录`);
+        // 父目录的解析已挡住控制目录里面的路径；`.nbook` 本身的父目录是根，要按名字再挡一次（父路径经链接别名落在根上
+        // 时同样）。
+        if (this.#options.controlDirectory && parent.realPath === "" && isControlName(name)) return fail("protected-path", `${path} 是项目控制目录`);
+        return {parent, name, absolute: join(parent.real, name), path: parent.realPath === "" ? name : `${parent.realPath}/${name}`};
+    }
+
+    async resolveEntry(path: string): Promise<ResolvedEntry | RootedFailure> {
+        const slot = await this.resolveSlot(path);
+        if ("ok" in slot) return slot;
+        let stats: Stats;
+        try {
+            stats = await lstat(slot.absolute);
+        } catch (error) {
+            return missing(error, path);
+        }
+        if (stats.isSymbolicLink() && this.#options.controlDirectory && (await this.#pointsIntoControl(slot.absolute))) return fail("protected-path", `${path} 指向项目控制目录`);
+        return {...slot, stats};
     }
 
     async list(path: string): Promise<{readonly ok: true; readonly entries: ReadonlyArray<DirectoryEntry>; readonly resolved: Resolved} | RootedFailure> {
@@ -202,13 +258,16 @@ class Root implements RootedRoot {
                 hidden.add(entry.name);
                 continue;
             }
-            if (!entry.isSymbolicLink()) continue;
-            const target = await realpath(join(real, entry.name)).catch(() => null);
-            if (target === null || (target !== this.real && !target.startsWith(this.real + sep))) continue;
-            const first = relative(this.real, target).split(sep)[0] as string;
-            if (isControlName(first)) hidden.add(entry.name);
+            if (entry.isSymbolicLink() && (await this.#pointsIntoControl(join(real, entry.name)))) hidden.add(entry.name);
         }
         return hidden;
+    }
+
+    /** 链接解析后落在控制目录里；解析不了的链接不算。 */
+    async #pointsIntoControl(link: string): Promise<boolean> {
+        const target = await realpath(link).catch(() => null);
+        if (target === null || (target !== this.real && !target.startsWith(this.real + sep))) return false;
+        return isControlName(relative(this.real, target).split(sep)[0] as string);
     }
 
     async #checkRoot(): Promise<RootedFailure | null> {
@@ -241,6 +300,6 @@ function display(path: string): string {
     return path === "" ? "根目录" : path;
 }
 
-function fail(code: FilesFailureCode, detail: string, cause?: unknown): RootedFailure {
+export function fail(code: FilesFailureCode, detail: string, cause?: unknown): RootedFailure {
     return cause === undefined ? {ok: false, code, detail} : {ok: false, code, detail, cause: typeof cause === "string" ? cause : describe(cause)};
 }

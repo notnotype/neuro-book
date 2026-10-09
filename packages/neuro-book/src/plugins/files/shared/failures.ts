@@ -16,6 +16,11 @@ export const FILES_FAILURES = [
     "not-text",
     "too-large",
     "conflict",
+    "into-itself",
+    "source-changed",
+    "unsupported",
+    "invalid-order",
+    "busy",
     "io-failed",
 ] as const;
 

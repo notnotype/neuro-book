@@ -83,8 +83,8 @@ export type FileText = Static<typeof FileTextSchema>;
 const Saved = Type.Object({baseline: BaselineSchema}, {additionalProperties: false});
 
 const Detail = Type.Object({detail: Type.String()}, {additionalProperties: false});
-/** 冲突带回磁盘上的当前基线。 */
-const ConflictDetail = Type.Object({detail: Type.String(), current: BaselineSchema}, {additionalProperties: false});
+/** 保存冲突带回磁盘上的当前基线；文件操作的冲突（目标已存在）不带。 */
+const ConflictDetail = Type.Object({detail: Type.String(), current: Type.Optional(BaselineSchema)}, {additionalProperties: false});
 
 /** 每个业务失败码的详情；`unknown-scheme` 只由客户端在发出前给出。 */
 const errors = {
@@ -99,6 +99,11 @@ const errors = {
     "not-text": Detail,
     "too-large": Detail,
     "conflict": ConflictDetail,
+    "into-itself": Detail,
+    "source-changed": Detail,
+    "unsupported": Detail,
+    "invalid-order": Detail,
+    "busy": Detail,
     "io-failed": Detail,
 } as const satisfies Record<Exclude<FilesFailureCode, "unknown-scheme">, TSchema>;
 
