@@ -11,6 +11,7 @@ export const explorerState = definePublicState("nbook.explorer", {
     ready: {type: "boolean", unready: false, reason: reason("资源管理器尚未打开", "The explorer is not open yet")},
     canCreate: {type: "boolean", unready: false, reason: reason("没有可以新建的位置", "No place to create in")},
     hasSelection: {type: "boolean", unready: false, reason: reason("没有选中资源", "Nothing is selected")},
+    canPaste: {type: "boolean", unready: false, reason: reason("剪贴板为空、没有可以粘贴的位置，或上一次批量的结果未知", "The clipboard is empty, there is no place to paste, or the last batch outcome is unknown")},
     canReorder: {type: "boolean", unready: false, reason: reason("选中的项不能在清单里调整顺序", "The selection cannot be reordered")},
     canCreateContent: {type: "boolean", unready: false, reason: reason("选中的不是没有正文的内容节点", "The selection is not a content node without content")},
     canConvert: {type: "boolean", unready: false, reason: reason("选中的不是可以转换的文件夹", "The selection is not a folder that can be converted")},

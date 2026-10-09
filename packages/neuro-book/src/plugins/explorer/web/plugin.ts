@@ -80,6 +80,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
                 ready: computed(() => session.controller.value !== null),
                 canCreate: available((can) => can.create),
                 hasSelection: computed(() => (session.controller.value?.selection.value.selected.length ?? 0) > 0),
+                canPaste: available((can) => can.paste),
                 canReorder: available((can) => can.moveUp || can.moveDown),
                 canCreateContent: available((can) => can.createContent),
                 canConvert: available((can) => can.convert),

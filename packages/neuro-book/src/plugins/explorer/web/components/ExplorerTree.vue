@@ -1,11 +1,18 @@
 <script setup lang="ts">
 /** 资源管理器的虚拟树（同名 .md）。 */
+import {DropFeedbackOverlay} from "@notnotype/nb-ui/components";
+import type {DropFeedbackPreview} from "@notnotype/nb-ui/components";
 import {useLayoutExtent} from "@notnotype/nb-ui/composables";
-import {computed, nextTick, ref, useId, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
+import {zoneOf} from "../actions/drop";
+import type {DropAction, DropZone} from "../actions/drop";
 import type {KeyOutcome} from "../controller";
+import {explorerText} from "../messages";
+import {createTreeDrag} from "../tree-drag";
+import type {TreeDrag, TreeDragPoint} from "../tree-drag";
 import type {TreeKey} from "../tree/keys";
 import type {Row} from "../tree/rows";
 import type {Modifiers} from "../tree/selection";
@@ -21,6 +28,10 @@ const props = defineProps<{
     handleKey: (key: TreeKey, page: number) => KeyOutcome;
     /** 正在内联输入的行：新建的输入行或改名的资源行，以及名字、错误文字与是否在提交。 */
     editing?: {readonly id: string; readonly name: string; readonly error: string | null; readonly busy: boolean} | null;
+    /** 拖动过了门槛：返回 false 时不起拖。缺省不能拖。 */
+    startDrag?: (id: string) => boolean;
+    /** 拖动中最后显示的落点动作；不在拖动为 null。 */
+    drag?: {readonly action: DropAction} | null;
 }>();
 
 const emit = defineEmits<{
@@ -32,6 +43,9 @@ const emit = defineEmits<{
     (event: "edit-input", name: string): void;
     (event: "edit-commit"): void;
     (event: "edit-cancel"): void;
+    (event: "drag-hover", over: {readonly id: string; readonly zone: DropZone} | null): void;
+    (event: "drag-drop", over: {readonly id: string; readonly zone: DropZone} | null): void;
+    (event: "drag-cancel"): void;
 }>();
 
 /** 探针还没量出尺寸（没有布局的环境）时的行高与视口高度。 */
@@ -153,6 +167,63 @@ const context = (row: Row, event: MouseEvent): void => {
     if (row.kind === "root" || row.kind === "entry") emit("row-context", row.id, event.clientX, event.clientY);
 };
 
+// ---- 拖动：手势在 `tree-drag.ts`，落点判定与提交在控制器。 ----
+
+/** 指针下的行与它的矩形：落点反馈画在这里。 */
+const hovered = ref<{readonly id: string; readonly zone: DropZone; readonly rect: DOMRect} | null>(null);
+const overOf = (point: TreeDragPoint | null): {readonly id: string; readonly zone: DropZone; readonly rect: DOMRect} | null => {
+    const row = point === null ? undefined : props.rows.find((candidate) => candidate.id === point.id);
+    return point === null || row === undefined ? null : {id: point.id, zone: zoneOf(row, point.offset), rect: point.rect};
+};
+const strip = (over: {readonly id: string; readonly zone: DropZone} | null) => (over === null ? null : {id: over.id, zone: over.zone});
+let gesture: TreeDrag | null = null;
+onMounted(() => {
+    if (root.value === null) return;
+    gesture = createTreeDrag({
+        root: root.value,
+        start: (id) => props.startDrag?.(id) ?? false,
+        hover: (point) => {
+            hovered.value = overOf(point);
+            emit("drag-hover", strip(hovered.value));
+        },
+        drop: (point) => {
+            hovered.value = null;
+            emit("drag-drop", strip(overOf(point)));
+        },
+        cancel: () => {
+            hovered.value = null;
+            emit("drag-cancel");
+        },
+    });
+});
+onBeforeUnmount(() => gesture?.dispose());
+// 控制器结束了这场拖动（切换显示、源或落点失效）：手势随之收场。
+watch(() => props.drag == null, (ended) => {
+    if (!ended) return;
+    hovered.value = null;
+    gesture?.abort();
+});
+// 行变了而指针没动：指针下已经不是显示的那一行，撤下落点。
+watch(() => props.rows, () => gesture?.invalidate());
+
+const dropPreview = computed((): DropFeedbackPreview | null => {
+    const action = props.drag?.action;
+    const over = hovered.value;
+    if (action === undefined || action.kind === "none" || over === null) return null;
+    const {left, right, top, bottom} = over.rect;
+    if (action.kind === "move") return {areaRect: {left, right, top, bottom}, entryRect: null, indicator: null, orientation: "vertical"};
+    const edge = action.zone === "before" ? top : bottom;
+    return {areaRect: null, entryRect: null, indicator: {left, right, top: edge - 1, bottom: edge + 1}, orientation: "vertical"};
+});
+const dropLabel = computed(() => {
+    const action = props.drag?.action;
+    if (action === undefined || action.kind === "none") return "";
+    if (action.kind === "reorder") return explorerText(props.locale, "dropReorder");
+    const row = props.rows.find((candidate) => candidate.id === action.target);
+    const name = row?.kind === "entry" ? row.label : row?.kind === "root" ? explorerText(props.locale, row.scheme === "project" ? "projectRoot" : "userRoot") : action.target;
+    return explorerText(props.locale, "dropInto", {name});
+});
+
 defineExpose({focus: focusTree});
 </script>
 
@@ -194,10 +265,15 @@ defineExpose({focus: focusTree});
                 @retry="item.row.kind === 'status' && emit('retry', item.row.parent)"
             />
         </div>
+        <DropFeedbackOverlay :preview="dropPreview" :label="dropLabel" :data-explorer-drop="drag?.action.kind" />
     </div>
 </template>
 
 <style scoped>
+.explorer-tree[data-explorer-dragging] {
+    cursor: grabbing;
+}
+
 .explorer-tree {
     scrollbar-gutter: stable;
     scrollbar-width: thin;

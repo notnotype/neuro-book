@@ -3,10 +3,9 @@
  * 不认识的原样带上服务端的说明。
  */
 
-import type {ItemResult} from "nbook/plugins/files/shared/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
-import type {ActionName, NameError, Notice, UnavailableReason} from "./controller";
+import type {ActionName, NameError, Notice, ReportResult, UnavailableReason} from "./controller";
 import {explorerText} from "./messages";
 import type {ExplorerMessage} from "./messages";
 
@@ -20,6 +19,9 @@ const ACTIONS: Readonly<Record<ActionName, ExplorerMessage>> = {
     "include": "actionInclude",
     "drop": "actionDrop",
     "reorder": "actionReorder",
+    "copy": "actionCopy",
+    "cut": "actionCut",
+    "move": "actionMove",
 };
 
 const CODES: Readonly<Record<string, ExplorerMessage>> = {
@@ -66,8 +68,10 @@ export function nameErrorText(locale: DisplayLocale, error: NameError): string {
     }
 }
 
-export function itemText(locale: DisplayLocale, result: ItemResult): string {
+export function itemText(locale: DisplayLocale, result: ReportResult): string {
     switch (result.status) {
+        case "declined":
+            return explorerText(locale, result.reason === "skip" ? "itemDeclinedSkip" : "itemDeclinedCancel");
         case "done":
             return explorerText(locale, "itemDone");
         case "failed":
@@ -87,6 +91,9 @@ const UNAVAILABLE: Readonly<Record<UnavailableReason, ExplorerMessage>> = {
     "not-applicable": "unavailableNotApplicable",
     "busy": "unavailableBusy",
     "stopped": "notReady",
+    "unknown-outcome": "unavailableUnknown",
+    "empty-clipboard": "unavailableEmptyClipboard",
+    "cross-root": "unavailableCrossRoot",
 };
 
 export function unavailableText(locale: DisplayLocale, reason: UnavailableReason): string {

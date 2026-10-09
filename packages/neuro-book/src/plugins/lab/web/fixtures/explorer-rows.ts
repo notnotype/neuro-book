@@ -10,7 +10,7 @@ const entry = (address: string, depth: number, label: string, extra: Partial<Ent
     return {
         kind: "entry", id: address, depth, address, parent: address.slice(0, address.lastIndexOf("/")) || "project://", name, label, subtitle: label === name ? null : name, icon: null,
         type: "file", folder: null, content: false, node: false, body: false, listed: null, manifest: false, binder: false, expandable: false, expanded: false,
-        opens: address, position: 1, siblings: 1, ...extra,
+        opens: address, position: 1, siblings: 1, cut: false, ...extra,
     };
 };
 

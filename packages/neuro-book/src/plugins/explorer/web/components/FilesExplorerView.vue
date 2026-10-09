@@ -1,12 +1,15 @@
 <script setup lang="ts">
 /** 资源管理器视图的界面（同名 .md）。 */
-import {AlertDialog, ContextMenu, Dialog, FormInput, IconButton, Toolbar} from "@notnotype/nb-ui/components";
+import {AlertDialog, Button, ContextMenu, Dialog, FormCheckbox, FormInput, IconButton, Toolbar} from "@notnotype/nb-ui/components";
 import type {ContextMenuItem} from "@notnotype/nb-ui/components";
 import {computed, nextTick, ref, watch} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
-import type {Dialog as ExplorerDialog, KeyOutcome, Notice, OperationReport} from "../controller";
+import type {DropAction, DropZone} from "../actions/drop";
+import type {CollisionChoice} from "../actions/paste-plan";
+import type {BatchAction, Dialog as ExplorerDialog, KeyOutcome, Notice, OperationReport, Unknown} from "../controller";
+import {nameErrorText} from "../feedback-text";
 import type {MenuEntry} from "../menu";
 import {explorerText} from "../messages";
 import type {PreferenceProblem} from "../preferences";
@@ -35,7 +38,10 @@ const props = defineProps<{
     menu?: {readonly x: number; readonly y: number; readonly entries: ReadonlyArray<MenuEntry>} | null;
     dialog?: ExplorerDialog | null;
     report?: OperationReport | null;
-    running?: {readonly action: "delete"; readonly count: number} | null;
+    running?: {readonly action: BatchAction; readonly count: number} | null;
+    unknown?: Unknown | null;
+    startDrag?: (id: string) => boolean;
+    drag?: {readonly action: DropAction} | null;
     /** 每次变化都把焦点放回树上（编辑与确认结束后）。 */
     focusRequest?: number;
 }>();
@@ -62,6 +68,12 @@ const emit = defineEmits<{
     (event: "delete-confirm"): void;
     (event: "display-commit", title: string, icon: string): void;
     (event: "dialog-close"): void;
+    (event: "collision", choice: CollisionChoice, all: boolean): void;
+    (event: "recheck"): void;
+    (event: "abandon"): void;
+    (event: "drag-hover", over: {readonly id: string; readonly zone: DropZone} | null): void;
+    (event: "drag-drop", over: {readonly id: string; readonly zone: DropZone} | null): void;
+    (event: "drag-cancel"): void;
 }>();
 
 const tree = ref<InstanceType<typeof ExplorerTree> | null>(null);
@@ -102,6 +114,18 @@ watch(displayDialog, (dialog) => {
     displayTitle.value = dialog.title;
     displayIcon.value = dialog.icon;
 }, {immediate: true});
+
+const collisionDialog = computed(() => (props.dialog?.kind === "collision" ? props.dialog : null));
+const collisionName = ref("");
+const collisionAll = ref(false);
+// 每次问一项都换成它的候选名；“对其余都这样”只在本次粘贴里有效，换一项时保留勾选。
+watch(() => collisionDialog.value?.source, () => {
+    if (collisionDialog.value !== null) collisionName.value = collisionDialog.value.candidate;
+}, {immediate: true});
+watch(() => collisionDialog.value === null, (closed) => {
+    if (closed) collisionAll.value = false;
+});
+const collisionError = computed(() => (collisionDialog.value?.error == null ? "" : nameErrorText(props.locale, collisionDialog.value.error)));
 
 /** 菜单关闭：焦点回到树上；菜单项开始的内联输入或对话框随后会再拿走焦点。 */
 const closeMenu = (): void => {
@@ -153,6 +177,8 @@ defineExpose({focusTree});
             :label="explorerText(locale, 'tree')"
             :handle-key="handleKey"
             :editing="editing ?? null"
+            :start-drag="startDrag"
+            :drag="drag ?? null"
             @row-press="(id, modifiers, part) => emit('row-press', id, modifiers, part)"
             @row-activate="(id) => emit('row-activate', id)"
             @row-context="(id, x, y) => emit('row-context', id, x, y)"
@@ -161,9 +187,23 @@ defineExpose({focusTree});
             @edit-input="(name) => emit('edit-input', name)"
             @edit-commit="emit('edit-commit')"
             @edit-cancel="emit('edit-cancel')"
+            @drag-hover="(over) => emit('drag-hover', over)"
+            @drag-drop="(over) => emit('drag-drop', over)"
+            @drag-cancel="emit('drag-cancel')"
         />
         <div v-else class="px-3 py-2 text-xs text-[var(--text-muted)]" data-explorer-loading>{{ explorerText(locale, "loading") }}</div>
-        <ExplorerFeedback :locale="locale" :notice="notice" :report="report ?? null" :running="running ?? null" @dismiss="emit('dismiss-notice')" @dismiss-report="emit('dismiss-report')" @cancel="emit('cancel-running')" />
+        <ExplorerFeedback
+            :locale="locale"
+            :notice="notice"
+            :report="report ?? null"
+            :running="running ?? null"
+            :unknown="unknown ?? null"
+            @dismiss="emit('dismiss-notice')"
+            @dismiss-report="emit('dismiss-report')"
+            @cancel="emit('cancel-running')"
+            @recheck="emit('recheck')"
+            @abandon="emit('abandon')"
+        />
         <ContextMenu :visible="menu != null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" data-explorer-menu @close="closeMenu" />
         <AlertDialog
             :open="deleteDialog !== null"
@@ -204,6 +244,41 @@ defineExpose({focusTree});
                 </label>
                 <p class="text-xs text-[var(--text-muted)]">{{ explorerText(locale, "displayHint") }}</p>
             </div>
+        </Dialog>
+        <Dialog
+            :model-value="collisionDialog !== null"
+            :title="explorerText(locale, 'collisionTitle')"
+            :cancel-label="explorerText(locale, 'collisionCancel')"
+            size="sm"
+            @request-close="emit('dialog-close')"
+        >
+            <form class="flex flex-col gap-3 text-sm" data-explorer-collision @submit.prevent="emit('collision', {kind: 'rename', name: collisionName}, collisionAll)">
+                <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+                    <dt class="text-[var(--text-secondary)]">{{ explorerText(locale, "collisionSource") }}</dt>
+                    <dd class="break-words" data-explorer-collision-source>{{ collisionDialog?.source }}</dd>
+                    <dt class="text-[var(--text-secondary)]">{{ explorerText(locale, "collisionTarget") }}</dt>
+                    <dd class="break-words" data-explorer-collision-target>{{ collisionDialog?.target }}</dd>
+                </dl>
+                <label class="flex flex-col gap-1">
+                    <span class="text-xs text-[var(--text-secondary)]">{{ explorerText(locale, "collisionName") }}</span>
+                    <FormInput
+                        v-model="collisionName"
+                        size="sm"
+                        :aria-invalid="collisionError ? 'true' : undefined"
+                        :aria-describedby="collisionError ? 'explorer-collision-error' : undefined"
+                        data-explorer-collision-name
+                    />
+                </label>
+                <p v-if="collisionError" id="explorer-collision-error" role="alert" class="text-xs text-[var(--status-danger)]">{{ collisionError }}</p>
+                <FormCheckbox v-model="collisionAll" :label="explorerText(locale, 'collisionAll')" data-explorer-collision-all />
+            </form>
+            <template #footer>
+                <div class="flex flex-wrap justify-end gap-2">
+                    <Button variant="ghost" size="sm" data-explorer-collision-cancel @click="emit('collision', {kind: 'cancel'}, false)">{{ explorerText(locale, "collisionCancel") }}</Button>
+                    <Button variant="secondary" size="sm" data-explorer-collision-skip @click="emit('collision', {kind: 'skip'}, collisionAll)">{{ explorerText(locale, "collisionSkip") }}</Button>
+                    <Button variant="primary" size="sm" data-explorer-collision-rename @click="emit('collision', {kind: 'rename', name: collisionName}, collisionAll)">{{ explorerText(locale, "collisionRename") }}</Button>
+                </div>
+            </template>
         </Dialog>
     </div>
 </template>

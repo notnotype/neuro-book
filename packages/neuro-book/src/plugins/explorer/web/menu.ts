@@ -1,11 +1,11 @@
 /**
  * 资源管理器的右键菜单（docs/specs/workbench/files-explorer.md 的“新应用的插件、命令与界面”）：固定的动作，每一项执行
- * 一条命令。按右键的那一行与此刻的可用性决定有哪些项、哪些禁用；根行只有合法的根级动作（新建）。
+ * 一条命令。按右键的那一行与此刻的可用性决定有哪些项、哪些禁用；根行只有合法的根级动作（新建与粘贴）。
  */
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
-import {CONVERT_COMMAND, CREATE_CONTENT_COMMAND, DELETE_COMMAND, DROP_ENTRY_COMMAND, INCLUDE_COMMAND, MOVE_DOWN_COMMAND, MOVE_UP_COMMAND, NEW_FILE_COMMAND, NEW_FOLDER_COMMAND, RENAME_COMMAND, SET_DISPLAY_COMMAND} from "./commands";
+import {CONVERT_COMMAND, COPY_COMMAND, CREATE_CONTENT_COMMAND, CUT_COMMAND, DELETE_COMMAND, DROP_ENTRY_COMMAND, INCLUDE_COMMAND, MOVE_DOWN_COMMAND, MOVE_UP_COMMAND, NEW_FILE_COMMAND, NEW_FOLDER_COMMAND, PASTE_COMMAND, RENAME_COMMAND, SET_DISPLAY_COMMAND} from "./commands";
 import type {Availability} from "./controller";
 import {explorerText} from "./messages";
 import type {ExplorerMessage} from "./messages";
@@ -23,6 +23,9 @@ export const MENU_COMMANDS = {
     drop: DROP_ENTRY_COMMAND,
     moveUp: MOVE_UP_COMMAND,
     moveDown: MOVE_DOWN_COMMAND,
+    cut: CUT_COMMAND,
+    copy: COPY_COMMAND,
+    paste: PASTE_COMMAND,
 } as const;
 
 /** 菜单的一项：`command` 是要执行的命令 id；分隔线没有命令。 */
@@ -34,8 +37,17 @@ export function menuEntries(row: Row, available: Availability, locale: DisplayLo
     const item = (command: string, label: ExplorerMessage, enabled: boolean, extra: {danger?: boolean; shortcut?: string} = {}): MenuEntry => ({kind: "item", command, label: explorerText(locale, label), disabled: !enabled, danger: extra.danger ?? false, shortcut: extra.shortcut ?? null});
     const separator: MenuEntry = {kind: "separator"};
     const create = [item(MENU_COMMANDS.newFile, "newFile", available.create), item(MENU_COMMANDS.newFolder, "newFolder", available.create)];
-    if (row.kind !== "entry") return create;
-    const entries: MenuEntry[] = [...create, separator, item(MENU_COMMANDS.rename, "rename", available.rename, {shortcut: "F2"})];
+    const paste = item(MENU_COMMANDS.paste, "paste", available.paste, {shortcut: "Ctrl+V"});
+    if (row.kind !== "entry") return [...create, separator, paste];
+    const entries: MenuEntry[] = [
+        ...create,
+        separator,
+        item(MENU_COMMANDS.cut, "cut", available.cut, {shortcut: "Ctrl+X"}),
+        item(MENU_COMMANDS.copy, "copy", available.copy, {shortcut: "Ctrl+C"}),
+        paste,
+        separator,
+        item(MENU_COMMANDS.rename, "rename", available.rename, {shortcut: "F2"}),
+    ];
     if (row.node && !row.body) entries.push(item(MENU_COMMANDS.createContent, "createContent", available.createContent));
     if (row.type === "directory" && !row.content && !row.binder) entries.push(item(MENU_COMMANDS.convert, row.folder === "content" ? "convertToPlain" : "convertToContent", available.convert));
     if (row.content) {

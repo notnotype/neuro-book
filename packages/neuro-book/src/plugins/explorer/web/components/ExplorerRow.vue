@@ -116,6 +116,7 @@ const marks = computed(() => {
     if (row.listed === false) found.push(explorerText(props.locale, "unlisted"));
     if (row.node && !row.body) found.push(explorerText(props.locale, "noBody"));
     if (row.binder) found.push(explorerText(props.locale, "needsPlot"));
+    if (row.cut) found.push(explorerText(props.locale, "cutMark"));
     return found;
 });
 
@@ -161,7 +162,8 @@ const description = computed(() => (props.row.kind === "entry" ? props.row.addre
         :id="domId"
         role="treeitem"
         class="explorer-row flex w-full min-w-0 cursor-default select-none items-center gap-1 pr-2 text-sm"
-        :class="[selected ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-main)] hover:bg-[var(--bg-hover)]', row.kind === 'entry' && row.type === 'missing' ? 'opacity-60' : '']"
+        :class="[selected ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-main)] hover:bg-[var(--bg-hover)]', row.kind === 'entry' && (row.type === 'missing' || row.cut) ? 'opacity-60' : '']"
+        :data-explorer-cut="row.kind === 'entry' && row.cut ? '' : undefined"
         :style="{height: `${height}px`, paddingLeft: indent}"
         :data-explorer-row="row.id"
         :data-active="active ? 'true' : undefined"

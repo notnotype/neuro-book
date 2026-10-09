@@ -30,6 +30,10 @@ export const INCLUDE_COMMAND = "nbook.files.include";
 export const DROP_ENTRY_COMMAND = "nbook.files.drop-entry";
 export const MOVE_UP_COMMAND = "nbook.files.move-up";
 export const MOVE_DOWN_COMMAND = "nbook.files.move-down";
+export const COPY_COMMAND = "nbook.files.copy";
+export const CUT_COMMAND = "nbook.files.cut";
+export const PASTE_COMMAND = "nbook.files.paste";
+export const CLEAR_CUT_COMMAND = "nbook.files.clear-cut";
 
 const CATEGORY = {"zh-CN": "文件", "en-US": "Files"};
 const NO_ARGS = Type.Object({}, {additionalProperties: false});
@@ -60,6 +64,10 @@ export const EXPLORER_COMMAND_DECLARATIONS = {
     [DROP_ENTRY_COMMAND]: onSelection("drop", "Remove the selected missing entry from its content folder's manifest.", "write", ["ready", "canEditManifest"]),
     [MOVE_UP_COMMAND]: onSelection("moveUp", "Move the selected items up by one in their content folder's manifest order.", "write", ["ready", "canReorder"]),
     [MOVE_DOWN_COMMAND]: onSelection("moveDown", "Move the selected items down by one in their content folder's manifest order.", "write", ["ready", "canReorder"]),
+    [COPY_COMMAND]: onSelection("copy", "Put the selected files and folders on this window's file clipboard for copying; their identity is frozen now.", "read", ["ready", "hasSelection"]),
+    [CUT_COMMAND]: onSelection("cut", "Put the selected files and folders on this window's file clipboard for moving; their identity is frozen now.", "read", ["ready", "hasSelection"]),
+    [PASTE_COMMAND]: onSelection("paste", "Copy or move the clipboard items into the explorer's target folder, asking about name collisions.", "write", ["ready", "canPaste"]),
+    [CLEAR_CUT_COMMAND]: onSelection("clearCut", "Clear the cut items from this window's file clipboard.", "read", ["ready"]),
     [REFRESH_FILES_COMMAND]: {
         title: explorerLocalized("refresh"),
         category: CATEGORY,
@@ -73,7 +81,7 @@ export const EXPLORER_COMMAND_DECLARATIONS = {
 } as const satisfies Readonly<Record<string, CommandDeclaration>>;
 
 /** 需要界面输入（内联输入或确认框）的命令：视图要挂着且可见。 */
-const NEEDS_VIEW = new Set<string>([NEW_FILE_COMMAND, NEW_FOLDER_COMMAND, RENAME_COMMAND, DELETE_COMMAND, SET_DISPLAY_COMMAND]);
+const NEEDS_VIEW = new Set<string>([NEW_FILE_COMMAND, NEW_FOLDER_COMMAND, RENAME_COMMAND, DELETE_COMMAND, SET_DISPLAY_COMMAND, PASTE_COMMAND]);
 
 export function explorerCommands(session: ExplorerSession, locale: () => DisplayLocale): Record<string, CommandImplementation> {
     const unavailable = (reason: string): CommandResult<unknown> => ({ok: false, code: "unavailable", reason});
@@ -107,6 +115,10 @@ export function explorerCommands(session: ExplorerSession, locale: () => Display
         [DROP_ENTRY_COMMAND]: action(DROP_ENTRY_COMMAND, (controller) => controller.drop()),
         [MOVE_UP_COMMAND]: action(MOVE_UP_COMMAND, (controller) => controller.move("up")),
         [MOVE_DOWN_COMMAND]: action(MOVE_DOWN_COMMAND, (controller) => controller.move("down")),
+        [COPY_COMMAND]: action(COPY_COMMAND, (controller) => controller.copy()),
+        [CUT_COMMAND]: action(CUT_COMMAND, (controller) => controller.cut()),
+        [PASTE_COMMAND]: action(PASTE_COMMAND, (controller) => controller.paste()),
+        [CLEAR_CUT_COMMAND]: action(CLEAR_CUT_COMMAND, (controller) => controller.clearCut()),
         [REFRESH_FILES_COMMAND]: {
             run: (args) => {
                 const {viewId, generation} = args as {viewId: string; generation: number};

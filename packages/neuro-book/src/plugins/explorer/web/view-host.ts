@@ -5,7 +5,7 @@
  * 渲染函数写：`bun test` 不能导入 `.vue`。
  */
 
-import {defineComponent, h, onBeforeUnmount, shallowRef} from "vue";
+import {defineComponent, h, onBeforeUnmount, shallowRef, watch} from "vue";
 import type {Component, ComputedRef, PropType} from "vue";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
@@ -14,6 +14,8 @@ import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {COLLAPSE_ALL_COMMAND, NEW_FILE_COMMAND, NEW_FOLDER_COMMAND, REFRESH_FILES_COMMAND, TOGGLE_MANIFESTS_COMMAND} from "./commands";
+import type {DropZone} from "./actions/drop";
+import type {CollisionChoice} from "./actions/paste-plan";
 import type {KeyOutcome} from "./controller";
 import {nameErrorText} from "./feedback-text";
 import {menuEntries} from "./menu";
@@ -46,6 +48,12 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
             onBeforeUnmount(session.attach({id: props.context.id, generation: props.context.generation, visible: props.context.visible}));
             /** 打开着的右键菜单：属于这个视图实例，视图卸载即消失。 */
             const menu = shallowRef<{readonly x: number; readonly y: number; readonly row: string} | null>(null);
+            // 切换显示清单文件：投影变了，未提交的菜单随之关闭（拖动由控制器取消）。
+            onBeforeUnmount(watch(() => session.controller.value?.showManifests.value, () => {
+                menu.value = null;
+            }));
+            // 视图卸载：这个实例上的拖动手势随之消失，控制器里的拖动也取消。
+            onBeforeUnmount(() => session.controller.value?.cancelDrag());
             const toolbar: Readonly<Record<ToolbarAction, () => void>> = {
                 "new-file": () => execute(NEW_FILE_COMMAND),
                 "new-folder": () => execute(NEW_FOLDER_COMMAND),
@@ -80,6 +88,9 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
                     dialog: controller?.dialog.value ?? null,
                     report: controller?.report.value ?? null,
                     running: controller?.running.value ?? null,
+                    unknown: controller?.unknown.value ?? null,
+                    drag: controller?.drag.value ?? null,
+                    startDrag: (id: string): boolean => controller?.startDrag(id) ?? false,
                     focusRequest: controller?.focusRequest.value ?? 0,
                     handleKey: (key: TreeKey, page: number): KeyOutcome => controller?.key(key, page) ?? "none",
                     onToolbar: (action: ToolbarAction) => toolbar[action](),
@@ -107,6 +118,12 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
                     onDeleteConfirm: () => void controller?.confirmDelete(),
                     onDisplayCommit: (title: string, icon: string) => void controller?.commitDisplay(title, icon),
                     onDialogClose: () => controller?.closeDialog(),
+                    onCollision: (choice: CollisionChoice, all: boolean) => controller?.resolveCollision(choice, all),
+                    onRecheck: () => controller?.recheck(),
+                    onAbandon: () => controller?.abandon(),
+                    onDragHover: (over: {readonly id: string; readonly zone: DropZone} | null) => controller?.hoverDrag(over),
+                    onDragDrop: (over: {readonly id: string; readonly zone: DropZone} | null) => void controller?.dropDrag(over),
+                    onDragCancel: () => controller?.cancelDrag(),
                 });
             };
         },

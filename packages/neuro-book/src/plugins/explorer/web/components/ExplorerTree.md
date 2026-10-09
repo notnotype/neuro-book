@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:local, env:global, env:portal]
 别名: ["文件树", "File Tree"]
 ---
 
@@ -17,7 +17,8 @@
 - 按下行时把焦点放到树上（不滚动），之后的按键都在树上处理；行里的按钮与输入框的按键不交给 `handleKey`。
 - 焦点行变了（键盘移动）先滚入视口再更新 `aria-activedescendant`；开始内联输入时输入行同样滚入视口。
 - Shift+F10 与 ContextMenu 键经 `handleKey` 返回要开菜单的行，树按那一行的位置发出 `row-context`。
-- 树获得与失去焦点时发出 `focus-change`，宿主据此维护 `nbook.explorer/treeFocused`。
+- 树获得与失去焦点时发出 `focus-change`。
+- 拖动（手势在 `web/tree-drag.ts`）：在资源行上按下，鼠标与笔移动 6px、触摸按住 200ms 后经 `startDrag` 问宿主能不能拖；能拖时捕获指针，每帧把指针下的行与它在行里的位置（目录行上中下三段、其余行上下两半）经 `drag-hover` 交出，宿主算出动作后经 `drag` 传回，树按它画落点反馈（nb-ui `DropFeedbackOverlay`：移入画整行、调整顺序画插入线，标签说明动作）；松手时把那一刻的落点经 `drag-drop` 交出，由宿主决定提交与否。滚动或行变了而指针没动时撤下落点，原地松手不提交。Escape、指针取消、失去捕获、窗口失焦、页面隐藏发出 `drag-cancel`；`drag` 变为 null（宿主那边取消了）时手势随之收场。拖动结束吞掉末尾的 click。
 
 ## 数据
 
@@ -35,6 +36,10 @@ type Props = {
     handleKey: (key: TreeKey, page: number) => "none" | "handled" | {menu: string};
     /** 正在内联输入的行（新建的输入行或改名的资源行）与它的名字、错误文字、是否在提交；默认 null。 */
     editing?: {id: string; name: string; error: string | null; busy: boolean} | null;
+    /** 拖动过了门槛：返回 false 时不起拖；默认不能拖。 */
+    startDrag?: (id: string) => boolean;
+    /** 拖动中最后显示的落点动作（`web/actions/drop.ts` 的 `DropAction`）；不在拖动为 null。 */
+    drag?: {action: DropAction} | null;
 };
 
 type Emits = {
@@ -47,12 +52,21 @@ type Emits = {
     (event: "edit-input", name: string): void;
     (event: "edit-commit"): void;
     (event: "edit-cancel"): void;
+    /** 拖动中指针下的行与位置；null 是不在行上或撤下落点。 */
+    (event: "drag-hover", over: {id: string; zone: "before" | "inside" | "after"} | null): void;
+    (event: "drag-drop", over: {id: string; zone: "before" | "inside" | "after"} | null): void;
+    (event: "drag-cancel"): void;
 };
 ```
 
 - 根元素 `role="tree"`、`aria-multiselectable="true"`、`tabindex="0"`；行的角色与属性见 `ExplorerRow`。
 - 没有 slots；expose `focus()`（把焦点放回树，不滚动）。attrs 落在根元素上。
 
+## 隐藏通道理由
+
+- `env:portal`：拖动的落点反馈经 nb-ui `DropFeedbackOverlay` 渲染到 `body`，坐标是视口坐标，要脱离侧栏的裁剪与层叠上下文。
+- `env:global`：拖动期间在窗口上监听指针移动、松手、Escape、失焦与页面隐藏，并用 `document.elementFromPoint` 找指针下的行：指针捕获在树上，移出树与窗口后的移动与松手只有窗口收得到。拖动结束或组件卸载即拆掉。
+
 ## 不支持
 
-不支持变高行；不处理拖动。
+不支持变高行；不支持键盘拖动（键盘用剪切粘贴与上移下移达成同样的结果）；拖到视口边缘不自动滚动。

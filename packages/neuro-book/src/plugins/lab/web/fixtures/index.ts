@@ -446,7 +446,7 @@ export const labFixtures: LabFixture[] = [
     }),
     defineSubjectFixture<typeof FilesExplorerView>({
         component: "FilesExplorerView",
-        events: ["toolbar", "row-press", "row-activate", "row-context", "retry", "reconnect", "open-project", "dismiss-notice", "prefs-retry", "prefs-discard", "focus-change"],
+        events: ["toolbar", "row-press", "row-activate", "row-context", "retry", "reconnect", "open-project", "dismiss-notice", "prefs-retry", "prefs-discard", "focus-change", "collision", "recheck", "abandon", "dialog-close"],
         class: "h-full w-full",
         scenes: (() => {
             const base = {locale: "zh-CN" as const, rows: EXPLORER_ROWS, selected: [], focus: null, showManifests: false, ready: true, notice: null, problem: null};
@@ -457,10 +457,21 @@ export const labFixtures: LabFixture[] = [
                 {id: "loading", label: "偏好还在读取", input: {props: {...base, ready: false}}},
                 {id: "delete", label: "删除确认：多项与长路径", input: {props: {...base, dialog: {kind: "delete" as const, items: Array.from({length: 12}, (_, index) => ({address: `project://一个很深的目录/第${String(index + 1)}章 一个相当长的章节标题.md`, token: `t${String(index)}`})), busy: false}}}},
                 {id: "report", label: "删除部分失败、进行中", input: {props: {...base, running: {action: "delete" as const, count: 3}, report: {action: "delete" as const, items: [
-                    {address: "project://plain", result: {status: "failed" as const, code: "permission-denied", detail: "没有权限", partial: {removed: {paths: ["plain/a.md", "plain/b.md"], truncated: false}}}},
-                    {address: "project://a.md", result: {status: "done" as const}},
-                    {address: "project://b.md", result: {status: "not-run" as const, reason: "stopped" as const}},
+                    {address: "project://plain", target: null, result: {status: "failed" as const, code: "permission-denied", detail: "没有权限", partial: {removed: {paths: ["plain/a.md", "plain/b.md"], truncated: false}}}},
+                    {address: "project://a.md", target: null, result: {status: "done" as const}},
+                    {address: "project://b.md", target: null, result: {status: "not-run" as const, reason: "stopped" as const}},
                 ], manifests: [{path: "lore.content/content.xml", status: "failed" as const, detail: "写不进去"}], truncated: false}}}},
+                {id: "collision", label: "粘贴碰撞：长路径与名字不能用", input: {props: {...base, dialog: {kind: "collision" as const, action: "copy" as const, source: "project://一个很深的目录/再深一层/第一百二十三章 一个相当长的章节标题.md", target: "project://另一个目录/第一百二十三章 一个相当长的章节标题.md", candidate: "第一百二十三章 一个相当长的章节标题 (2).md", error: {code: "conflict" as const}, busy: false as const}}}},
+                {id: "unknown", label: "结果未知、剪切中、移动部分失败", input: {props: {
+                    ...base,
+                    rows: EXPLORER_ROWS.map((row) => (row.kind === "entry" && row.id === "project://lore.content/stray.md" ? {...row, cut: true} : row)),
+                    unknown: {action: "move" as const, clipboard: 1, items: [{address: "project://plain/a.md", target: "project://lore.content/a.md"}, {address: "project://plain/z.md", target: "project://lore.content/z.md"}]},
+                    report: {action: "move" as const, manifests: [], truncated: false, items: [
+                        {address: "project://plain/a.md", target: "project://plain/sub/a.md", result: {status: "done" as const}},
+                        {address: "project://plain/z.md", target: "project://plain/sub/z.md", result: {status: "failed" as const, code: "conflict", detail: "目标已存在"}},
+                        {address: "project://plain/y.md", target: "project://plain/sub/y.md", result: {status: "declined" as const, reason: "skip" as const}},
+                    ]},
+                }}},
             ];
         })(),
         runtimeProps: async () => ({handleKey: () => "none" as const}),

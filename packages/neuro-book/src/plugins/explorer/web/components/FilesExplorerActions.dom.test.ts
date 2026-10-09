@@ -1,6 +1,7 @@
 /**
  * FilesExplorerView 的动作界面（同名 .md 与 ExplorerRow、ExplorerFeedback 的 .md）：内联输入的按键与输入法组字、错误的
- * 关联、右键菜单按菜单项发出命令、删除确认框默认在取消上、展示名对话框、结果区的逐项结果与进行中。行数据由真实的投影
+ * 关联、右键菜单按菜单项发出命令、删除确认框默认在取消上、展示名对话框、碰撞对话框各按钮、结果区的逐项结果、进行中
+ * 与结果未知、剪切标记。行数据由真实的投影
  * 算出，菜单项由真实的 `menuEntries` 算出。
  */
 
@@ -9,7 +10,7 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import type {DirectoryEntry, Listing} from "nbook/plugins/files/shared/contracts";
 
-import type {Availability, Dialog, OperationReport} from "../controller";
+import type {Availability, Dialog, OperationReport, Unknown} from "../controller";
 import {menuEntries} from "../menu";
 import type {DirectorySlot, RootState} from "../tree/model";
 import {creatingId, projectRows} from "../tree/rows";
@@ -30,7 +31,7 @@ const SLOTS = new Map<string, DirectorySlot>([
 
 const rows = (creating: {parent: string; entry: "file" | "directory"; before: string | null} | null = null) => projectRows({roots: ROOTS, slots: SLOTS, expanded: new Set(["project://", "project://lore.content"]), showManifests: false, creating});
 
-const ALL: Availability = {create: true, rename: true, delete: true, createContent: true, convert: true, display: true, include: true, drop: true, moveUp: true, moveDown: false};
+const ALL: Availability = {create: true, rename: true, delete: true, createContent: true, convert: true, display: true, include: true, drop: true, moveUp: true, moveDown: false, copy: true, cut: true, paste: false};
 
 const mounted: Array<{unmount(): void}> = [];
 afterEach(() => {
@@ -97,7 +98,7 @@ describe("FilesExplorerView：右键菜单", () => {
         const wrapper = view({menu: {x: 10, y: 20, entries: menuEntries(alice, ALL, "zh-CN")}});
         await flushPromises();
         const labels = [...document.querySelectorAll("[role=menuitem]")].map((item) => item.textContent?.trim());
-        expect(labels).toEqual(["新建文件", "新建文件夹", "重命名F2", "创建内容", "修改展示名与图标", "上移Alt+↑", "下移Alt+↓", "删除Delete"]);
+        expect(labels).toEqual(["新建文件", "新建文件夹", "剪切Ctrl+X", "复制Ctrl+C", "粘贴Ctrl+V", "重命名F2", "创建内容", "修改展示名与图标", "上移Alt+↑", "下移Alt+↓", "删除Delete"]);
         const down = [...document.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].find((item) => item.textContent?.includes("下移"));
         expect(down?.disabled).toBe(true);
         [...document.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].find((item) => item.textContent?.includes("创建内容"))?.click();
@@ -105,7 +106,7 @@ describe("FilesExplorerView：右键菜单", () => {
         expect(wrapper.emitted("menu-close")).toHaveLength(1);
 
         const root = rows().find((row) => row.id === "project://");
-        expect(menuEntries(root!, ALL, "zh-CN").map((entry) => (entry.kind === "item" ? entry.command : "-"))).toEqual(["nbook.files.new-file", "nbook.files.new-folder"]);
+        expect(menuEntries(root!, ALL, "zh-CN").map((entry) => (entry.kind === "item" ? entry.command : "-"))).toEqual(["nbook.files.new-file", "nbook.files.new-folder", "-", "nbook.files.paste"]);
         const gone = rows().find((row) => row.id === "project://lore.content/gone") as EntryRow;
         expect(menuEntries(gone, ALL, "zh-CN").map((entry) => (entry.kind === "item" ? entry.command : "-"))).toContain("nbook.files.drop-entry");
     });
@@ -144,9 +145,9 @@ describe("FilesExplorerView：确认框与结果区", () => {
         const report: OperationReport = {
             action: "delete",
             items: [
-                {address: "project://plain", result: {status: "failed", code: "permission-denied", detail: "没有权限", partial: {removed: {paths: ["plain/a.md"], truncated: false}}}},
-                {address: "project://a.md", result: {status: "done"}},
-                {address: "project://b.md", result: {status: "cancelled"}},
+                {address: "project://plain", target: null, result: {status: "failed", code: "permission-denied", detail: "没有权限", partial: {removed: {paths: ["plain/a.md"], truncated: false}}}},
+                {address: "project://a.md", target: null, result: {status: "done"}},
+                {address: "project://b.md", target: null, result: {status: "cancelled"}},
             ],
             manifests: [{path: "lore.content/content.xml", status: "failed", detail: "写不进去"}],
             truncated: true,
@@ -162,5 +163,68 @@ describe("FilesExplorerView：确认框与结果区", () => {
         expect(section.get("[data-explorer-report-item=\"cancelled\"]").text()).toContain("已取消");
         expect(section.text()).toContain("清单 lore.content/content.xml 没有更新：写不进去");
         expect(section.text()).toContain("结果已省略，请重新列出核对");
+    });
+});
+
+describe("FilesExplorerView：碰撞对话框", () => {
+    const dialog: Dialog = {kind: "collision", action: "copy", source: "project://plain/a.md", target: "project://dest/a.md", candidate: "a (2).md", error: null, busy: false};
+    const button = (marker: string) => document.querySelector<HTMLButtonElement>(`[${marker}]`) as HTMLButtonElement;
+
+    it("显示真实的源与目标、预填候选名；改名带输入框里的名字，“对其余都这样”随跳过一起发出；取消剩余", async () => {
+        const wrapper = view({dialog});
+        await flushPromises();
+        expect(document.querySelector("[data-explorer-collision-source]")?.textContent).toBe("project://plain/a.md");
+        expect(document.querySelector("[data-explorer-collision-target]")?.textContent).toBe("project://dest/a.md");
+        const name = document.querySelector<HTMLInputElement>("[data-explorer-collision-name] input, input[data-explorer-collision-name]") as HTMLInputElement;
+        expect(name.value).toBe("a (2).md");
+        name.value = "b.md";
+        name.dispatchEvent(new Event("input"));
+        button("data-explorer-collision-rename").click();
+        expect(wrapper.emitted("collision")).toEqual([[{kind: "rename", name: "b.md"}, false]]);
+
+        const all = document.querySelector<HTMLInputElement>("[data-explorer-collision-all] input, input[type=checkbox]") as HTMLInputElement;
+        all.click();
+        await flushPromises();
+        button("data-explorer-collision-skip").click();
+        button("data-explorer-collision-cancel").click();
+        expect(wrapper.emitted("collision")?.slice(1)).toEqual([[{kind: "skip"}, true], [{kind: "cancel"}, false]]);
+    });
+
+    it("换到下一项时换成它的候选名；名字不能用时原位提示并与输入框关联", async () => {
+        const wrapper = view({dialog});
+        await flushPromises();
+        await wrapper.setProps({dialog: {...dialog, source: "project://plain/z.md", target: "project://dest/z.md", candidate: "z (2).md", error: {code: "conflict"}}});
+        await flushPromises();
+        const name = document.querySelector<HTMLInputElement>("[data-explorer-collision-name] input, input[data-explorer-collision-name]") as HTMLInputElement;
+        expect(name.value).toBe("z (2).md");
+        const error = document.querySelector("#explorer-collision-error");
+        expect(error?.getAttribute("role")).toBe("alert");
+        expect(error?.textContent).toBe("已存在同名项");
+        expect(name.getAttribute("aria-describedby")).toBe("explorer-collision-error");
+    });
+});
+
+describe("FilesExplorerView：结果未知与剪切标记", () => {
+    it("结果未知列出意图里的源与目标，说明门禁与放弃的后果；重新列出与放弃各自发出", async () => {
+        const unknown: Unknown = {action: "move", clipboard: 1, items: [{address: "project://plain/a.md", target: "project://dest/a.md"}]};
+        const wrapper = view({unknown});
+        const section = wrapper.get("[data-explorer-unknown]");
+        expect(section.attributes("role")).toBe("alert");
+        expect(section.text()).toContain("移动 1 项的结果未知");
+        expect(section.text()).toContain("project://plain/a.md → project://dest/a.md");
+        expect(section.text()).toContain("放弃不会取消可能仍在后台执行的操作");
+        await section.get("[data-explorer-recheck]").trigger("click");
+        await section.get("[data-explorer-abandon]").trigger("click");
+        expect(wrapper.emitted("recheck")).toHaveLength(1);
+        expect(wrapper.emitted("abandon")).toHaveLength(1);
+    });
+
+    it("剪切中的行带标记并淡化", () => {
+        const cut = rows().map((row) => (row.kind === "entry" && row.id === "project://a.md" ? {...row, cut: true} : row));
+        const wrapper = view({rows: cut});
+        const row = wrapper.get("[data-explorer-row=\"project://a.md\"]");
+        expect(row.attributes("data-explorer-cut")).toBe("");
+        expect(row.text()).toContain("剪切中");
+        expect(wrapper.get("[data-explorer-row=\"project://plain\"]").attributes("data-explorer-cut")).toBeUndefined();
     });
 });

@@ -1,13 +1,14 @@
 /**
  * 树内按键（docs/specs/workbench/files-explorer.md 的“基础文件操作”与“焦点”）：纯函数，按键加当前状态给出要做的事。
- * 焦点移动、展开收起、范围与全选、打开是高频交互，直接改状态；F2、Delete、上移下移这些具名动作给出命令 id，由控制器
+ * 焦点移动、展开收起、范围与全选、打开是高频交互，直接改状态；F2、Delete、复制剪切粘贴、Escape（清除剪切）、上移下移
+ * 这些具名动作给出命令 id，由控制器
  * 经命令服务执行，与菜单、工具栏、命令面板同一入口。它们不写成命令声明里的键位：宿主的键位分发是全局的，树没有焦点
  * 时 Delete 不能删文件。
  *
  * 无修饰的方向键同时移动焦点与选择；Ctrl/Meta 加方向键只移动焦点，再用 Space 切换选择。
  */
 
-import {DELETE_COMMAND, MOVE_DOWN_COMMAND, MOVE_UP_COMMAND, RENAME_COMMAND} from "../commands";
+import {CLEAR_CUT_COMMAND, COPY_COMMAND, CUT_COMMAND, DELETE_COMMAND, MOVE_DOWN_COMMAND, MOVE_UP_COMMAND, PASTE_COMMAND, RENAME_COMMAND} from "../commands";
 import {parentAddress} from "./address";
 import type {Row} from "./rows";
 import {range, selectable, selectAll, toggleFocused} from "./selection";
@@ -96,6 +97,17 @@ export function treeKey(rows: ReadonlyArray<Row>, selection: Selection, key: Tre
             return key.toggle && !key.shift ? {kind: "select", selection: selectAll(selection, rows)} : NONE;
         case "ContextMenu":
             return focused === null ? NONE : {kind: "menu", id: focused.id};
+        case "c":
+        case "C":
+            return key.toggle && !key.shift ? {kind: "command", id: COPY_COMMAND} : NONE;
+        case "x":
+        case "X":
+            return key.toggle && !key.shift ? {kind: "command", id: CUT_COMMAND} : NONE;
+        case "v":
+        case "V":
+            return key.toggle && !key.shift ? {kind: "command", id: PASTE_COMMAND} : NONE;
+        case "Escape":
+            return key.shift || key.toggle ? NONE : {kind: "command", id: CLEAR_CUT_COMMAND};
         default:
             return NONE;
     }

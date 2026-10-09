@@ -1,7 +1,7 @@
 /**
  * 资源管理器的单项动作与删除（docs/specs/workbench/files-explorer.md 验收 2、4、8，以及“新应用的插件、命令与界面”的
- * 当前根、剪贴板之外的冻结意图、焦点）：真实内核实例、真实目录与清单，经窗口里的文件客户端。“没有写入”看窗口链路上
- * 记下的请求；变化的合并用场地的手动时钟推进。
+ * 当前根、剪贴板之外的冻结意图、焦点）：真实内核实例、真实目录与清单，经窗口里的文件客户端（`testing/world.ts`）。
+ * “没有写入”看窗口链路上记下的请求。
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
@@ -9,41 +9,25 @@ import {chmod, lstat, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {contextTable} from "nbook/plugins/commands/shared/context-keys";
-import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
-import {BATCH_DELAY_MS} from "nbook/plugins/files/backend/changes";
-import {files, filesScene} from "nbook/plugins/files/testing/scene";
-import type {Layout, Scene} from "nbook/plugins/files/testing/scene";
-import {createLinkTap, filesWrites} from "nbook/plugins/files/testing/tap";
-import type {LinkTap} from "nbook/plugins/files/testing/tap";
+import type {Layout} from "nbook/plugins/files/testing/scene";
+import {filesWrites} from "nbook/plugins/files/testing/tap";
 
-import {createExplorerController} from "./web/controller";
-import type {ExplorerController} from "./web/controller";
-import type {EntryRow} from "./web/tree/rows";
+import {entry, exists, explorerWorlds, row, select, until} from "./testing/world";
+import type {ExplorerWorld} from "./testing/world";
 
 /** 权限用例要求以普通用户运行，root 时跳过。 */
 const privileged = process.getuid?.() === 0;
 
 let tmp = "";
-let counter = 0;
-const scenes: Scene[] = [];
-const controllers: ExplorerController[] = [];
+const worlds = explorerWorlds(() => tmp);
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-explorer", "actions");
 });
 
 afterEach(async () => {
-    for (const controller of controllers.splice(0)) controller.dispose();
-    const results = [];
-    for (const created of scenes.splice(0)) {
-        results.push(...(await created.world.close()));
-        await chmod(join(created.project, "locked"), 0o755).catch(() => undefined);
-        await rm(created.root, {recursive: true, force: true});
-    }
-    for (const result of results) expect(result).toMatchObject({status: "closed"});
+    await worlds.close((scene) => chmod(join(scene.project, "locked"), 0o755).catch(() => undefined));
 });
 
 afterAll(async () => {
@@ -68,60 +52,10 @@ const LAYOUT: Layout = {
     "plain/z.md": "Z",
 };
 
-interface World {
-    readonly scene: Scene;
-    readonly tap: LinkTap;
-    readonly controller: ExplorerController;
-}
-
 const EXPANDED = ["project://", "project://plain", "project://lore.content"];
 
-async function world(layout: Layout = LAYOUT): Promise<World> {
-    counter += 1;
-    const tap = createLinkTap();
-    const scene = await filesScene(join(tmp, `world-${String(counter)}`), {project: layout}, {wrapLink: tap.wrap});
-    scenes.push(scene);
-    const controller = createExplorerController({
-        files: files(scene.window),
-        commands: createCommandRegistry({contextKeys: contextTable({}), report: (error) => {
-            throw error;
-        }}),
-        bound: true,
-        expanded: EXPANDED,
-        report: (error) => {
-            throw error;
-        },
-    });
-    controllers.push(controller);
-    const at = {scene, tap, controller};
-    await until(at, "目录列出", () => row(controller, "project://lore.content/alice") !== undefined && row(controller, "project://plain/a.md") !== undefined);
-    return at;
-}
-
-const row = (controller: ExplorerController, id: string) => controller.rows.value.find((candidate) => candidate.id === id);
-
-function entry(controller: ExplorerController, id: string): EntryRow {
-    const found = row(controller, id);
-    if (found?.kind !== "entry") throw new Error(`没有资源行 ${id}`);
-    return found;
-}
-
-async function until(at: {readonly scene: Scene}, description: string, check: () => boolean): Promise<void> {
-    await waitUntil(description, () => {
-        at.scene.world.clock.advance(BATCH_DELAY_MS);
-        return check();
-    });
-}
-
-/** 选中这些行（第一项单选，其余 Ctrl 加选）：修饰点击不打开、不展开。 */
-const select = (controller: ExplorerController, first: string, ...rest: string[]): void => {
-    controller.contextSelect(first);
-    if (!controller.selection.value.selected.includes(first) || controller.selection.value.selected.length !== 1) controller.click(first, {toggle: false, range: false}, "row");
-    for (const id of rest) controller.click(id, {toggle: true, range: false}, "row");
-};
-
-const manifest = (at: World): Promise<string> => readFile(join(at.scene.project, "lore.content", "content.xml"), "utf8");
-const exists = (path: string): Promise<boolean> => lstat(path).then(() => true, () => false);
+const world = (layout: Layout = LAYOUT): Promise<ExplorerWorld> => worlds.world(layout, EXPANDED, ["project://lore.content/alice", "project://plain/a.md"]);
+const manifest = (at: ExplorerWorld): Promise<string> => readFile(join(at.scene.project, "lore.content", "content.xml"), "utf8");
 
 describe("Spec workbench.files-explorer 新建：内联输入", () => {
     it("目标是选中的目录；空名、含 / 与同名在输入框原位提示且不写；合法名字排他新建空文件，新项被选中", async () => {
@@ -244,8 +178,8 @@ describe("Spec workbench.files-explorer 删除：确认与逐项结果", () => {
         expect(controller.report.value).toEqual({
             action: "delete",
             items: [
-                {address: "project://locked/inner.md", result: expect.objectContaining({status: "failed", code: "permission-denied"})},
-                {address: "project://plain/z.md", result: {status: "done"}},
+                {address: "project://locked/inner.md", target: null, result: expect.objectContaining({status: "failed", code: "permission-denied"})},
+                {address: "project://plain/z.md", target: null, result: {status: "done"}},
             ],
             manifests: [],
             truncated: false,

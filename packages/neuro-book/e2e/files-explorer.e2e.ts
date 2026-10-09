@@ -1,5 +1,5 @@
 /**
- * 资源管理器在真实 Chrome 中的验收（docs/specs/workbench/files-explorer.md 验收 1–4、10、16 的浏览部分）：生产构建的
+ * 资源管理器在真实 Chrome 中的验收（docs/specs/workbench/files-explorer.md 验收 1–4、10、14–16）：生产构建的
  * 后端与前端，项目 `book` 先按 runtime/projects.md 的格式登记好，文件在真实目录里。Storage、项目子进程、文件监视都是
  * 真的；重新加载同一页面是同一个客户端，用来看偏好与展开记录的恢复。
  */
@@ -19,6 +19,14 @@ const MANIFEST = `<?xml version="1.0" encoding="UTF-8"?>
 <content>
   <item name="alice" title="爱丽丝"/>
   <item name="bob" title="鲍勃"/>
+</content>
+`;
+
+const ORDER = `<?xml version="1.0" encoding="UTF-8"?>
+<content>
+  <item name="x"/>
+  <item name="y"/>
+  <item name="z"/>
 </content>
 `;
 
@@ -45,6 +53,14 @@ test.beforeAll(async () => {
         "ops/old.md": "O",
         "plain/index.md": "PI",
         "plain/a.md": "PA",
+        "moves/m1.md": "M1",
+        "moves/m2.md": "M2",
+        "moves/into/i.md": "I",
+        "moves/keep/k.md": "K2",
+        "order.content/content.xml": ORDER,
+        "order.content/x/index.md": "X",
+        "order.content/y/index.md": "Y",
+        "order.content/z/index.md": "Z",
         ...Object.fromEntries(Array.from({length: MANY}, (_, index) => [`big/file-${String(index).padStart(4, "0")}.md`, String(index)])),
     };
     for (const [path, text] of Object.entries(files)) {
@@ -263,3 +279,93 @@ test("工具栏新建：输入行出现在选中的目录里，Enter 后排他�
     await item(page, "project://ops").click();
 });
 
+const center = async (page: Page, address: string): Promise<{x: number; y: number}> => {
+    const box = await item(page, address).boundingBox();
+    if (box === null) throw new Error(`${address} 不在页面上`);
+    return {x: box.x + box.width / 2, y: box.y + box.height / 2};
+};
+
+/** 在一行上按下并越过拖动门槛，停在另一行的 `offset`（相对行高的比例）处，不松手。 */
+async function dragOver(page: Page, from: string, to: string, offset = 0.5): Promise<void> {
+    const start = await center(page, from);
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x, start.y + 8, {steps: 2});
+    const box = await item(page, to).boundingBox();
+    if (box === null) throw new Error(`${to} 不在页面上`);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height * offset, {steps: 6});
+}
+
+const order = async (): Promise<string[]> => [...(await readFile(join(projectDir, "order.content", "content.xml"), "utf8")).matchAll(/name="([^"]+)"/gu)].map((match) => match[1] as string);
+
+/** 写一个屏障文件并等它出现在树上：在它之前发出的写入都已经反映到磁盘与树上。 */
+async function barrier(page: Page, directory: string): Promise<void> {
+    const name = `barrier-${randomUUID()}.md`;
+    await writeFile(join(projectDir, directory, name), "B");
+    await expect(item(page, `project://${directory}/${name}`)).toBeVisible();
+}
+
+test("拖动：移入目录显示“移入”反馈并移动；内容文件夹里两行之间调整顺序，只改清单", async ({page}) => {
+    await open(page);
+    await item(page, "project://moves").click();
+    await expect(item(page, "project://moves/m1.md")).toBeVisible();
+    await dragOver(page, "project://moves/m1.md", "project://moves/into");
+    const feedback = page.locator("[data-explorer-drop=\"move\"]");
+    await expect(feedback).toBeVisible();
+    await expect(page.locator("[data-drop-feedback-live]")).toHaveText("移入 into");
+    await page.mouse.up();
+    await expect(feedback).toHaveCount(0);
+    await expect.poll(() => exists(join(projectDir, "moves", "into", "m1.md"))).toBe(true);
+    expect(await exists(join(projectDir, "moves", "m1.md"))).toBe(false);
+    // 拖动结束吞掉末尾的 click：没有因此打开或选中落点行。
+    await expect(item(page, "project://moves/into")).toHaveAttribute("aria-selected", "false");
+
+    await item(page, "project://order.content").click();
+    await expect(item(page, "project://order.content/z")).toBeVisible();
+    await dragOver(page, "project://order.content/z", "project://order.content/x", 0.1);
+    await expect(page.locator("[data-explorer-drop=\"reorder\"]")).toBeVisible();
+    await page.mouse.up();
+    await expect.poll(order).toEqual(["z", "x", "y"]);
+    expect(await readFile(join(projectDir, "order.content", "z", "index.md"), "utf8")).toBe("Z");
+    await item(page, "project://order.content").click();
+    await item(page, "project://moves").click();
+});
+
+test("拖动中按 Escape、切换显示清单文件、滚动后原地放下：都不写", async ({page}) => {
+    await open(page);
+    await item(page, "project://moves").click();
+    await expect(item(page, "project://moves/m2.md")).toBeVisible();
+
+    await dragOver(page, "project://moves/m2.md", "project://moves/keep");
+    await expect(page.locator("[data-explorer-drop=\"move\"]")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-explorer-drop]")).toHaveCount(0);
+    await page.mouse.up();
+
+    await dragOver(page, "project://moves/m2.md", "project://moves/keep");
+    await expect(page.locator("[data-explorer-drop=\"move\"]")).toBeVisible();
+    // 指针还按着：用 DOM 事件按下工具栏的切换按钮，不动指针。
+    await page.locator("[data-explorer-tool=\"toggle-manifests\"]").dispatchEvent("click");
+    await expect(page.locator("[data-explorer-tool=\"toggle-manifests\"]")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("[data-explorer-drop]")).toHaveCount(0);
+    await page.mouse.up();
+    await page.locator("[data-explorer-tool=\"toggle-manifests\"]").click();
+
+    // 树要能滚动：展开大目录（moves 在它之后），滚到底让 moves 出现，从它开始拖，滚轮让指针下换了一行。
+    await item(page, "project://big").click();
+    await expect(item(page, "project://big/file-0000.md")).toBeVisible();
+    await tree(page).evaluate((element) => {
+        element.scrollTop = element.scrollHeight;
+    });
+    await expect(item(page, "project://moves/keep")).toBeInViewport();
+    await dragOver(page, "project://moves/m2.md", "project://moves/keep");
+    await expect(page.locator("[data-explorer-drop=\"move\"]")).toBeVisible();
+    await page.mouse.wheel(0, -120);
+    await expect(page.locator("[data-explorer-drop]")).toHaveCount(0);
+    await page.mouse.up();
+
+    await barrier(page, "moves");
+    expect(await readFile(join(projectDir, "moves", "m2.md"), "utf8")).toBe("M2");
+    expect(await exists(join(projectDir, "moves", "keep", "m2.md"))).toBe(false);
+    await page.locator("[data-explorer-tool=\"collapse-all\"]").click();
+});

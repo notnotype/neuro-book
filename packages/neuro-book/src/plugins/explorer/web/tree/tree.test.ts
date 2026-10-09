@@ -212,7 +212,13 @@ describe("Spec workbench.files-explorer 基础文件操作：树内按键", () =
         expect(treeKey(all, at("project://plain/a.md"), key("x"), 10)).toEqual({kind: "none"});
     });
 
-    it("具名动作的键给出命令 id：F2 改名、Delete 删除、Alt+上下 上移下移；带别的修饰键不算", () => {
+    it("具名动作的键给出命令 id：F2 改名、Delete 删除、Ctrl/Meta+C/X/V 复制剪切粘贴、Escape 清除剪切、Alt+上下 上移下移；带别的修饰键不算", () => {
+        expect(treeKey(all, at("project://plain/a.md"), key("c", {toggle: true}), 10)).toEqual({kind: "command", id: "nbook.files.copy"});
+        expect(treeKey(all, at("project://plain/a.md"), key("X", {toggle: true}), 10)).toEqual({kind: "command", id: "nbook.files.cut"});
+        expect(treeKey(all, at("project://plain/a.md"), key("v", {toggle: true}), 10)).toEqual({kind: "command", id: "nbook.files.paste"});
+        expect(treeKey(all, at("project://plain/a.md"), key("Escape"), 10)).toEqual({kind: "command", id: "nbook.files.clear-cut"});
+        expect(treeKey(all, at("project://plain/a.md"), key("v", {toggle: true, shift: true}), 10)).toEqual({kind: "none"});
+        expect(treeKey(all, at("project://plain/a.md"), key("c"), 10)).toEqual({kind: "none"});
         expect(treeKey(all, at("project://plain/a.md"), key("F2"), 10)).toEqual({kind: "command", id: "nbook.files.rename"});
         expect(treeKey(all, at("project://plain/a.md"), key("Delete"), 10)).toEqual({kind: "command", id: "nbook.files.delete"});
         expect(treeKey(all, at("project://plain/a.md"), key("ArrowUp", {alt: true}), 10)).toEqual({kind: "command", id: "nbook.files.move-up"});

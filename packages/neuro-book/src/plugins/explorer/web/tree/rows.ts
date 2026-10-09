@@ -54,6 +54,8 @@ export interface EntryRow {
     /** 同层的位置（从 1 开始）与同层总数，按完整的同层集合计。 */
     readonly position: number;
     readonly siblings: number;
+    /** 在本窗口剪贴板里等着剪切粘贴。 */
+    readonly cut: boolean;
 }
 
 export type StatusKind = "loading" | "error" | "empty" | "manifest";
@@ -97,6 +99,8 @@ export interface ProjectionInput {
     readonly expanded: ReadonlySet<string>;
     readonly showManifests: boolean;
     readonly creating?: Creating | null;
+    /** 剪切中的地址：源被改名或移走后地址不再出现，标记随之消失。 */
+    readonly cut?: ReadonlySet<string>;
 }
 
 export function contentLayer(listing: Listing): boolean {
@@ -167,6 +171,7 @@ function directory(input: ProjectionInput, address: string, depth: number, rows:
             opens: entry.kind === "file" ? child : body ? childAddress(child, "index.md") : null,
             position: index + 1,
             siblings: shown.length,
+            cut: input.cut?.has(child) === true,
         });
         if (expanded) directory(input, child, depth + 1, rows);
     });
