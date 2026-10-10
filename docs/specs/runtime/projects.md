@@ -20,7 +20,7 @@ owners:
 
 - 不防止两个服务端进程同时打开同一个项目目录（不加目录锁，见“边界与兼容”）。
 - 项目子进程崩溃后不自动重启；绑定它的窗口由用户刷新后重新打开。
-- 最近打开、重命名短名属于 `nbook.projects` 的后续范围。书架页本身由 [`workbench.bookshelf`](../workbench/bookshelf.md) 定义，本合同提供它的数据与操作：作品信息、新建、移出书架与统计（输出第 13–18 条，planned，随书架页实现）。
+- 最近打开、重命名短名属于 `nbook.projects` 的后续范围。书架页本身由 [`workbench.bookshelf`](../workbench/bookshelf.md) 定义，本合同提供它的数据与操作：作品信息、新建、移出书架与统计（输出第 13–18 条）。
 - 项目实例里的诊断先写各自的日志文件，不汇到服务端的诊断出口。
 - Agent 会话的项目租约与 `projects://` 提供者随 nb-harness；项目内的 Storage 分区随 K4；`project://` 的文件提供者随 Files。
 - 不兼容旧应用的项目目录与数据，不做迁移。
@@ -39,15 +39,15 @@ owners:
 - **宽限期**：最后一个租约释放后到开始停止项目实例的等待时间，缺省 5 分钟。
 - **`projectsKey`**：服务端宿主以本地能力提供给服务端插件的项目管理服务，按调用方门面提供。
 - **`currentProjectKey`**：项目宿主以本地能力提供给项目实例里的插件的当前项目信息（键在 `src/shared/projects.ts`）。项目里的插件要项目目录时依赖它，不经插件工厂传入（[ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)）。
-- **`nbook.projects`**：内置插件，服务端入口把列出与登记包成远程服务，浏览器入口提供“打开项目”命令与当前项目的显示；随书架页增加项目实例里的统计入口与书架页（planned）。
-- **作品信息**：身份文件里的可选字段：书名 `title`、简介 `description`、主题色 `color`。显示名取书名，没有时取短名（planned）。
-- **统计**：项目实例算出的字数、篇数、今天净增与最近编辑，存在 user 分区的记录 `projects.stats` 里；书架只读这份缓存与运行中项目的实时状态，不为显示统计打开项目（planned）。
-- **作品目录**：设置 `nbook.projects/library`（user 层字符串，缺省空），新建作品的缺省父目录；首次新建成功后由书架页写入（planned）。
+- **`nbook.projects`**：内置插件，服务端入口把列出与登记包成远程服务，浏览器入口提供“打开项目”命令与当前项目的显示；随书架页增加项目实例里的统计入口与书架页。
+- **作品信息**：身份文件里的可选字段：书名 `title`、简介 `description`、主题色 `color`。显示名取书名，没有时取短名。
+- **统计**：项目实例算出的字数、篇数、今天净增与最近编辑，存在 user 分区的记录 `projects.stats` 里；书架只读这份缓存与运行中项目的实时状态，不为显示统计打开项目。
+- **作品目录**：设置 `nbook.projects/library`（user 层字符串，缺省空），新建作品的缺省父目录；首次新建成功后由书架页写入。
 
 ## 输入与前置条件
 
 - **登记的目录**：绝对路径；相对路径按服务端进程的工作目录解析后再校验。目录必须存在、是目录、当前用户可读写，且不在状态根之内。登记的是解析符号链接后的真实路径。
-- **项目身份文件**：`.nbook/project.json`，内容 `{schema: 1, id: "<UUID>"}`，可带作品信息 `title`、`description`、`color`（第 13 条，planned）。登记时没有就创建（含 `.nbook/` 目录）；已有则读取并校验，不改写；只有修改作品信息会改写它。
+- **项目身份文件**：`.nbook/project.json`，内容 `{schema: 1, id: "<UUID>"}`，可带作品信息 `title`、`description`、`color`（第 13 条）。登记时没有就创建（含 `.nbook/` 目录）；已有则读取并校验，不改写；只有修改作品信息会改写它。
 - **登记表**：`<状态根>/projects.json`，内容 `{schema: 1, projects: [{id, name, path}]}`。文件不存在视为空表。
 - **打开项目的入口**只有两个：客户端握手的 `bind`（[远程服务与 RPC 协议](plugin-channel.md)）与服务端插件经 `projectsKey` 的 `acquire`。Storage 读取、外部 HTTP 请求、`{project}` 目标的远程调用都不打开项目。
 - **启动参数**（[`runtime.server-host`](server-host.md)）：`NBOOK_PROJECT_GRACE_MS`（宽限期，缺省 300000）、`NBOOK_PROJECT_START_MS`（项目子进程报告启动结果的截止，缺省 30000）、`NBOOK_PROJECT_STOP_MS`（每个项目子进程的停止截止，缺省 20000）。
@@ -76,7 +76,7 @@ owners:
 6. **崩溃。** 子进程在没有被要求停止时退出或进程间链路断开：这一代立即 `terminated`，全部租约失效（租约的 `revoked` 触发），路由关闭绑定这一代的客户端链路；退出码或信号在子进程真正结束后写进诊断 `project.exited`。不自动重启。
 7. **客户端绑定。** 窗口以 `/?project=<引用>` 打开时握手带上绑定请求，项目管理器按第 3 条为它取得租约，握手结果带回 `{id, name, generation}`；窗口的链路关闭时释放这份租约。同一项目的多个窗口共用一个项目代次。重连时只在原代次仍是 `running` 或 `idle-grace` 时恢复原绑定（取得新租约、取消宽限期），原代次正在停止或已结束则拒绝（`project-gone`），绝不改投新代次。绑定过程中服务端开始停止：已取得的租约立即释放，握手以 `project-unavailable` 拒绝。客户端一侧的呈现见 [`runtime.browser-host`](browser-host.md)。
 8. **`projectsKey`。** 服务端插件在入口依赖里声明 `projectsKey` 即可使用；每个调用方入口的每次激活得到自己的门面：
-   - `list()`、`register(路径)`、`resolve(引用)`：同第 1、2 条。`register` 失败返回 `{ok: false, reason, detail}`。随书架页增加 `readMetadata(id)`、`create`、`updateMetadata`、`unregister`（第 13–15 条，planned）；`readMetadata` 读不出身份文件时的原因为 `unknown-project`、`registry-invalid`、`identity-invalid`、`identity-conflict` 或 `read-failed`（读盘出错）。
+   - `list()`、`register(路径)`、`resolve(引用)`：同第 1、2 条。`register` 失败返回 `{ok: false, reason, detail}`。随书架页增加 `readMetadata(id)`、`create`、`updateMetadata`、`unregister`（第 13–15 条）；`readMetadata` 读不出身份文件时的原因为 `unknown-project`、`registry-invalid`、`identity-invalid`、`identity-conflict` 或 `read-failed`（读盘出错）。
    - `acquire(引用)`：返回 `{status: "acquired", lease: {id, name, generation, revoked, release()}}` 或 `{status: "rejected", reason, detail}`，`reason` 为 `unknown-project`、`admission-closed`、`create-failed`。租约的持有者是门面所属的调用方（实例、插件、入口与激活代次）；调用方入口停止时门面释放，未释放的租约一并释放。经委托代理取得的租约同样记在原调用方名下，原调用方直接调用与经代理调用都按它核对；别的入口持有不到它。
 9. **`{project}` 目标的访问。** 发往 `{project: id}` 的远程请求与订阅，只能到达这个项目当前运行的代次，访问本身不打开项目、不取得租约。路由按帧上的调用方身份询问项目管理器：
    - 调用方持有这一代的租约：放行；
@@ -87,9 +87,9 @@ owners:
     - 服务端入口依赖 `projectsKey`，提供远程服务 `nbook.projects/projects`（提供方位置 `server`，调用方 `browser`、`tui`）：`list` 返回短名、项目目录路径与运行状态；`register(路径)` 登记目录。
     - 浏览器入口提供命令 `nbook.project.open`（“打开项目”）：经命令面板的选择模式（[`workbench.quick-open`](../workbench/quick-open.md)）列出已登记项目（短名、路径、是否运行），选中即整页导航到 `/?project=<短名>`；输入一个目录路径并确认，先登记，成功后导航；登记失败时带着原因（标题里）重新打开选择，用户可以改了再试或取消；原因按失败码（`invalid-path`、`not-directory` 等）以当前显示语言给出，服务端返回的说明原文只进诊断。窗口绑定了项目时，工作台显示当前项目的短名（取自窗口的绑定结果，不另外调用服务）。
 11. **服务端停止。** 服务端停止序列一开始就同步关闭项目管理器的接纳：之后的 `acquire` 与客户端绑定都以 `admission-closed`（客户端看到 `project-unavailable`，说明服务端正在停止）拒绝；内核停止时先停全部项目子进程并等真实退出，再关闭服务端插件（[`runtime.server-host`](server-host.md)）。
-12. **资源占用。** 每个打开的项目常驻一个 Bun 子进程。2026-10-07 在本机 Linux、Bun 1.4.2 上用生产打包产物实测（`bun scripts/measure-project.ts`，冷启动 10 次）：从请求打开到取得租约 p50 约 55 ms、最大约 70 ms，就绪后常驻约 49 MB；当时项目实例里只有内核与 `nbook.diagnostics`，项目入口变多后需重测。只带 IPC 的空子进程约 26 ms 就绪、常驻约 30 MB，可作为下限参照。
+12. **资源占用。** 每个打开的项目常驻一个 Bun 子进程。2026-10-07 在本机 Linux、Bun 1.4.2 上用生产打包产物实测（`bun scripts/measure-project.ts`，冷启动 10 次）：从请求打开到取得租约 p50 约 55 ms、最大约 70 ms，就绪后常驻约 49 MB；当时项目实例里只有内核与 `nbook.diagnostics`。只带 IPC 的空子进程约 26 ms 就绪、常驻约 30 MB，可作为下限参照。2026-10-10 书架统计加入后重测（同一脚本，3 组各 10 次冷启动，本机另有负载）：空项目不带统计入口约 97 ms、66 MB（增量来自 storage、settings、files 的项目入口），带统计入口约 113 ms、72 MB；3000 个 `.md`（53.8 MB）的样本打开 117 ms（不等首扫），首扫 p50 约 1.2 s、峰值约 97 MB、5 秒后回落到约 80 MB，首扫耗时主要在共享的字数算法。
 
-下面第 13–18 条随书架页实现（planned）：
+第 13–18 条随书架页实现：
 
 13. **作品信息。** 身份文件可带可选字段 `title`（去掉首尾空白后 1 到 80 个字符）、`description`（至多 500 个字符）、`color`（`#rrggbb` 小写）。
     - 读取仍只认 `schema` 与 `id`；可选字段不合规时当作没有并记诊断 `project.metadata.invalid`，身份照常可用。
@@ -101,13 +101,13 @@ owners:
     - 分阶段执行：排他新建目录；写身份文件（含书名与简介），失败时只装着本次写的东西的目录删掉，结果 `write-failed`；按第 1 条登记，失败保留目录与身份文件，结果 `register-failed`（带路径），再登记该目录按幂等规则接着完成。成功返回 `{id, name, path}`。
 15. **移出书架。** `unregister(id)` 只改登记表，不动目录与身份文件。项目管理器按项目 id 把它与打开（第 3 条）串行：写表完成前不接纳同一 id 的打开。项目不在 `stopped`（`starting`、`running`、`idle-grace`、`stopping`）时拒绝为 `project-running`（带状态）；只限本服务端进程管理的代次，不声称全局停止。移出后再登记该目录，按身份文件里的 id 得到同一 id 与新的短名登记。
 16. **统计。** `nbook.projects` 的 `project` 位置入口 `stats`（`onStartup`，项目一打开就开始）在项目实例里统计本项目：
-    - **口径**：项目目录里所有非隐藏的 `.md` 文件（名字以 `.` 开头的目录与文件不计，含 `.nbook/`）；字数用 [workbench.editor](../workbench/editor.md) 输出 27 的算法，frontmatter 不计；“篇”是计入的文件数。读不出的文件（权限、编码、过大）计入 `unreadable`，不按 0 字计。
-    - **顺序**：以记录（`projects.stats`）为初值，首扫完成前状态为 `counting`；先订阅 `nbook.files/project` 的变更并缓冲事件，再扫描；扫完按顺序结算缓冲的事件。扫描并发读至多 4 个文件、每批让出一次执行权，只留字数与最后一段，不留全文。
-    - **事件**：路径是已计入的文件按文件重读；是已计入文件的上级目录按目录处理；都不是时 `lstat` 一次判定。目录事件（新建、移入、复制、删除、改名）与 `resync` 标记重扫：同一时间至多一次扫描在跑，另外至多排一次。订阅 `ended` 后不再更新，状态为 `ended`。
+    - **口径**：项目目录里所有非隐藏的 `.md` 文件（扩展名不分大小写；名字以 `.` 开头的目录与文件不计，含 `.nbook/`；只计普通文件，符号链接、FIFO 等不计）；字数用 [workbench.editor](../workbench/editor.md) 输出 27 的算法，frontmatter 不计；“篇”是读得出并计入的文件数。读不出的文件（权限、编码、超过文件服务的正文上限）计入 `unreadable`，不按 0 字计。
+    - **顺序**：先读完记录（`projects.stats`，读不出就从空开始）作初值，首扫完成前状态为 `counting`；再订阅 `nbook.files/project` 的变更并缓冲事件，然后扫描；扫完按顺序结算缓冲的事件。扫描并发读至多 4 个文件、每批让出一次执行权，只留字数与最后一段，不留全文；排队的事件超过 2000 条折成一次重扫。
+    - **事件**：路径是已计入的文件按文件重读；是已计入文件的上级目录按目录处理；都不是时 `lstat` 一次判定。目录事件（新建、移入、复制、删除、改名）与 `resync` 标记重扫：同一时间至多一次扫描在跑，另外至多排一次。订阅 `ended` 后不再扫描（结束前已收到的单文件事件仍结算），状态为 `ended`。
     - **今天**：按服务端所在机器的本地日期。运行中跨午夜时先把基线换成当时的总字数，再计入之后的变化；打开时记录里的日期是今天就沿用基线，不是今天就以记录的总字数作基线（离线期间的外部修改算进打开当天）；从没统计过的作品，第一次扫完的总字数就是基线。
-    - **最近编辑**：只由观察到的文件修改更新（经文件服务保存或外部修改都算）：地址、片段名（文件名去掉扩展名）、时间与该文件最后一个非空段落的前 120 字（去掉 Markdown 标记前缀，frontmatter 不算段落）。改名跟到新地址，删除清空；重开后沿用记录，首扫核对该文件还在。扫描不设最近编辑：文件合同不给修改时间，不猜。
+    - **最近编辑**：只由观察到的文件修改（`changed`：经文件服务保存或外部修改）更新：地址、片段名（文件名去掉扩展名）、时间与该文件最后一个非空段落的前 120 个码点（去掉 Markdown 标记前缀，frontmatter 不算段落）；新建与复制产生的 `created` 只计数。改名跟到新地址，删除清空；重开后沿用记录，首扫核对该文件还在。扫描不设最近编辑：文件合同不给修改时间，不猜。
     - **持久化**：user 分区记录 `projects.stats`（owner `nbook.projects`，按资源 id 寻址，资源 id 是项目 id，`locality: shared`，版本 1），值为快照 `{computedAt, words, files, unreadable, today: {date, baseline}, last}`。变化后最多每 30 秒写一次，按 revision 条件保存：冲突时重读，存着的 `computedAt` 更晚就放弃，否则以新 revision 重写；`unknown-outcome` 重读后同样核对；`busy`、`io-error` 保留旧记录、记诊断、下一轮再写；`corrupt`、`unsupported-version` 以条件 `reset` 覆盖（它是可重算的缓存），原件进原件区并记诊断，原件区满时放弃并记诊断。两个服务端进程打开同一作品时，后算完的胜出。
-    - **停止**：在入口登记的资源释放里写最后一次（Storage 门面此时还在）：整轮扫描没完成就不写、保留旧记录；扫描已完成时在途的单文件重读至多再等 1 秒，然后写一次。
+    - **停止**：在入口登记的资源释放里写最后一次（Storage 门面此时还在）：有整轮扫描在跑或排着就不写、保留旧记录（记诊断 `projects.stats.final-skipped`）；否则在途的单文件重读至多再等 1 秒，然后写一次。
 17. **书架与新鲜度。** 远程服务 `nbook.projects/stats`（提供方 `project`，调用方 `server`）的 `current()` 返回 `{status: "counting" | "complete" | "ended", snapshot}`。服务端的 `shelf()` 对每部作品返回登记项、作品信息与统计摘要（`ShelfItem`，schema 在共享合同里）：
     - 处于 `running`：经 `{project}` 目标调用 `current`（服务端插件对运行中的项目无租约访问，不打开项目、不续宽限期；至多等 2 秒，一个卡住的项目实例不拖住整张书架）：`complete` 为 `fresh`，`counting` 为 `counting`（带上次的快照），`ended`、超时或调用失败退回记录、为 `stale`；
     - 处于 `idle-grace`、`starting`、`stopping` 或没在运行：读记录，为 `stale`（宽限期里最多比实际旧 30 秒）；没有记录为 `none`；
@@ -135,12 +135,12 @@ owners:
 | `available`、`idle-grace` | 子进程意外退出 | `terminated`；租约失效，绑定的客户端链路被关闭 |
 | 任意 | 服务端开始停止 | 接纳关闭；存活的项目实例依次停止 |
 
-登记表：未登记 → 已登记 → 已移出（第 15 条，planned），另有路径更新；不提供重命名短名。移出与打开按项目 id 串行，不出现“写表中被打开”的半状态。
+登记表：未登记 → 已登记 → 已移出（第 15 条），另有路径更新；不提供重命名短名。移出与打开按项目 id 串行，不出现“写表中被打开”的半状态。
 
 ## 副作用与数据
 
 - **项目目录**：登记时可能创建 `.nbook/` 目录与 `.nbook/project.json`，这是用户能看到的改动；之后只有修改作品信息（第 13 条）改写身份文件，经 `.nbook/locks/project.json.lock` 与同目录的临时文件；新建作品（第 14 条）创建目录与身份文件。本能力不写项目目录里的其它文件。
-- **user 分区**（planned）：统计记录 `projects.stats`（第 16 条）由项目实例写入；作品目录设置 `nbook.projects/library` 由书架页在新建成功后写入。
+- **user 分区**：统计记录 `projects.stats`（第 16 条）由项目实例写入；作品目录设置 `nbook.projects/library` 由书架页在新建成功后写入。
 - **状态根**：`projects.json` 由服务端进程独占写入，进程内串行，写临时文件后改名替换；项目子进程的诊断日志写在 `logs/` 下。
 - **进程**：项目子进程归服务端进程的项目管理器所有，随宽限期满、崩溃或服务端停止结束；服务端不结束自己没有创建的进程。
 - **输出**：项目子进程的标准输出与标准错误逐行转发到服务端的输出。
@@ -154,10 +154,10 @@ owners:
 - **子进程创建失败、启动超时、启动中退出、实例启动失败**：都按 `create-failed` 收口，子进程不残留，诊断写明原因；同一项目可以再次尝试打开，得到新代次。
 - **停止截止到达**：强制结束子进程，记为外部观察到的终止，不报为正常关闭。
 - **服务端被强制结束**：项目子进程发现进程间链路断开后按停止序列自行退出；服务端不在时它不会继续运行。
-- **作品信息修改失败**（planned）：按第 13 条的失败码；替换是原子的，身份文件不会被改坏。
-- **新建失败**（planned）：按第 14 条分阶段的结果；结果未知时界面重新取书架，路径已在书架上就算成功。
-- **移出被拒**（planned）：`project-running`，关掉全部窗口、等宽限期结束后再试。
-- **统计记录坏了**（planned）：写入方以条件 `reset` 覆盖，原件进原件区；记录读不出的作品按 `none` 显示，别的作品不受影响。
+- **作品信息修改失败**：按第 13 条的失败码；替换是原子的，身份文件不会被改坏。
+- **新建失败**：按第 14 条分阶段的结果；结果未知时界面重新取书架，路径已在书架上就算成功。
+- **移出被拒**：`project-running`，关掉全部窗口、等宽限期结束后再试。
+- **统计记录坏了**：写入方以条件 `reset` 覆盖，原件进原件区；记录读不出的作品按 `none` 显示，别的作品不受影响。
 
 ## 边界与兼容
 
@@ -181,14 +181,14 @@ owners:
 10. **服务端停止。** 停止开始后新握手与新的打开都被拒；绑定进行中的窗口得到 `project-unavailable`、已取得的租约被释放；项目子进程先于服务端插件退出；超过停止截止的子进程被强制结束并记为外部终止。
 11. **“打开项目”命令。** 命令列出已登记项目（短名、路径、是否运行）；选中后整页导航到 `/?project=<短名>`；输入新目录路径先登记再导航；工作台显示当前项目短名。
 12. **打包产物。** 生产打包产物能起项目子进程：登记临时目录，经 RPC 绑定，项目实例报告自己的身份。
-13. **作品信息。**（planned）修改书名、简介与主题色后读回；`null` 清除；不认识的字段与 `id` 保留；两个真实子进程分别改不同字段，两个字段都在；身份文件只读得到 `read-only`；符号链接的身份文件改的是目标、链接仍在；坏字段读取时被忽略并记诊断。
-14. **新建。**（planned）没有作品目录得到 `no-library`；同名目录已存在得到 `exists`；身份文件写失败（父目录只读）时目录被删掉；登记失败时目录与身份文件保留，再登记该目录按幂等规则完成；成功后书架上有它。
-15. **移出书架。**（planned）`running` 与 `idle-grace` 的项目被拒为 `project-running`；宽限期满后移出成功，登记表少一项、目录不动；移出与打开并发时，要么先打开（移出被拒）、要么先移出（打开得到 `unknown-project`），没有半状态。
-16. **统计。**（planned）普通 `.md`、内容文件夹的 `index.md`、活页夹章节都计入，隐藏目录与非 `.md` 不计，读不出的文件计入 `unreadable`；扫描期间的修改、目录移入与删除、`resync` 都反映到结果里；最近编辑随改名跟到新地址、随删除清空、重开后沿用；23:59 写的字算当天，00:05 写的字算次日的首笔；当天重开沿用基线，离线跨日后以记录总数作基线。
-17. **写入与停止。**（planned）两个写者冲突时较新的 `computedAt` 胜出；结果未知后重读核对；坏记录被条件 `reset`、原件在原件区；扫描未完成就停止不写记录，完成后停止写成并能在书架上看到。
-18. **书架。**（planned）运行中的作品为 `fresh` 或 `counting`，停止后为 `stale` 并带统计时间，没有记录为 `none`；`idle-grace` 里按 `stale`；一部作品的身份文件损坏不影响别的作品；打包产物里 `nbook.projects` 的 `project` 入口随项目子进程启动，打开耗时与常驻内存按第 12 条重测。
+13. **作品信息。**修改书名、简介与主题色后读回；`null` 清除；不认识的字段与 `id` 保留；两个真实子进程分别改不同字段，两个字段都在；身份文件只读得到 `read-only`；符号链接的身份文件改的是目标、链接仍在；坏字段读取时被忽略并记诊断。
+14. **新建。**没有作品目录得到 `no-library`；同名目录已存在得到 `exists`；身份文件写失败（父目录只读）时目录被删掉；登记失败时目录与身份文件保留，再登记该目录按幂等规则完成；成功后书架上有它。
+15. **移出书架。**`running` 与 `idle-grace` 的项目被拒为 `project-running`；宽限期满后移出成功，登记表少一项、目录不动；移出与打开并发时，要么先打开（移出被拒）、要么先移出（打开得到 `unknown-project`），没有半状态。
+16. **统计。**普通 `.md`、内容文件夹的 `index.md`、活页夹章节都计入，隐藏目录与非 `.md` 不计，读不出的文件计入 `unreadable`；扫描期间的修改、目录移入与删除、`resync` 都反映到结果里；最近编辑随改名跟到新地址、随删除清空、重开后沿用；23:59 写的字算当天，00:05 写的字算次日的首笔；当天重开沿用基线，离线跨日后以记录总数作基线。
+17. **写入与停止。**两个写者冲突时较新的 `computedAt` 胜出；结果未知后重读核对；坏记录被条件 `reset`、原件在原件区；扫描未完成就停止不写记录，完成后停止写成并能在书架上看到。
+18. **书架。**运行中的作品为 `fresh` 或 `counting`，停止后为 `stale` 并带统计时间，没有记录为 `none`；`idle-grace` 里按 `stale`；一部作品的身份文件损坏不影响别的作品；打包产物里 `nbook.projects` 的 `project` 入口随项目子进程启动，打开耗时与常驻内存按第 12 条重测。
 
-Smoke：场景 1 由登记表与身份的合同测试在真实临时目录上运行；场景 2–10 由服务端宿主的合同测试以真实子进程与真实 WebSocket 运行（宽限期与截止用注入时钟或短参数）；场景 2–6、11 另在本机 Chrome 上由 `e2e/projects.e2e.ts` 运行；场景 12 由 `bun run smoke:server` 运行。场景 13–18（planned）由 `identity.test.ts`、`manager.test.ts`、`registry.test.ts`、`projects-capability.test.ts` 与统计的合同测试以真实临时目录、真实项目子进程与真实 Storage 运行，另在本机 Chrome 上由 `e2e/bookshelf.e2e.ts` 运行。
+Smoke：场景 1 由登记表与身份的合同测试在真实临时目录上运行；场景 2–10 由服务端宿主的合同测试以真实子进程与真实 WebSocket 运行（宽限期与截止用注入时钟或短参数）；场景 2–6、11 另在本机 Chrome 上由 `e2e/projects.e2e.ts` 运行；场景 12 由 `bun run smoke:server` 运行。场景 13–18 由 `identity.test.ts`、`manager.test.ts`、`registry.test.ts`、`projects-capability.test.ts`、`stats-tracker.test.ts`、`stats-writer.test.ts` 与 `projects.test.ts` 以真实临时目录、真实项目子进程与真实 Storage 运行，另在本机 Chrome 上由 `e2e/bookshelf.e2e.ts`（新建、加入、修改信息、移出）与 `e2e/bookshelf-stats.e2e.ts`（统计与继续写作）运行。
 
 ## 实现合同
 
@@ -203,6 +203,6 @@ Smoke：场景 1 由登记表与身份的合同测试在真实临时目录上运
 ## 证据
 
 - 批准依据：[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 2、3、4、8 节与第 11 节 K3 行，[ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`）；开发者 2026-10-07 在 [t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中确认：进程间通信用 Bun IPC、宽限期缺省 5 分钟且崩溃不自动重启、身份写在项目目录 `.nbook/project.json` 而登记表在状态根、短名登记后不变、不加防双开的锁、项目管理由宿主实现并以能力 `projectsKey` 提供、无租约访问只对服务端插件与 `running` 的项目放行、“打开项目”列表带项目目录路径；项目里的插件经宿主能力取项目目录依据 [ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)（2026-10-08）。书架页的数据与操作（第 13–18 条）依据 [书架页](../../proposals/bookshelf.md)（2026-10-10 `accepted`），取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-10 的 t75 条目（按推荐先做，待开发者追认）。
-- 实现入口：[`manager.ts`](../../../packages/neuro-book/src/server/projects/manager.ts)（另有同目录的 `registry.ts`、`identity.ts`、`ipc.ts`）、[`project/start.ts`](../../../packages/neuro-book/src/project/start.ts)、[`projects/backend/plugin.ts`](../../../packages/neuro-book/src/plugins/projects/backend/plugin.ts)、[`projects/web/plugin.ts`](../../../packages/neuro-book/src/plugins/projects/web/plugin.ts)、[`shared/projects.ts`](../../../packages/neuro-book/src/shared/projects.ts)
-- 合同测试：[`registry.test.ts`](../../../packages/neuro-book/src/server/projects/registry.test.ts)（场景 1）、[`manager.test.ts`](../../../packages/neuro-book/src/server/projects/manager.test.ts)、[`projects-capability.test.ts`](../../../packages/neuro-book/src/server/projects/projects-capability.test.ts)、[`server-projects.test.ts`](../../../packages/neuro-book/src/server/server-projects.test.ts)、[`window.test.ts`](../../../packages/neuro-book/src/web/host/window.test.ts)（场景 2–10）、[`projects.test.ts`](../../../packages/neuro-book/src/plugins/projects/projects.test.ts)（场景 11）
-- Smoke：[`projects.e2e.ts`](../../../packages/neuro-book/e2e/projects.e2e.ts)（场景 2–6、11）、[`smoke-server.ts`](../../../packages/neuro-book/scripts/smoke-server.ts)（场景 12，S7）；实测见输出第 12 条
+- 实现入口：[`manager.ts`](../../../packages/neuro-book/src/server/projects/manager.ts)（另有同目录的 `registry.ts`、`identity.ts`、`ipc.ts`）、[`project/start.ts`](../../../packages/neuro-book/src/project/start.ts)、[`projects/backend/plugin.ts`](../../../packages/neuro-book/src/plugins/projects/backend/plugin.ts)（书架 [`backend/shelf.ts`](../../../packages/neuro-book/src/plugins/projects/backend/shelf.ts)）、[`projects/project/plugin.ts`](../../../packages/neuro-book/src/plugins/projects/project/plugin.ts)（统计 [`stats-tracker.ts`](../../../packages/neuro-book/src/plugins/projects/project/stats-tracker.ts)、[`stats-writer.ts`](../../../packages/neuro-book/src/plugins/projects/project/stats-writer.ts)）、[`projects/web/plugin.ts`](../../../packages/neuro-book/src/plugins/projects/web/plugin.ts)（书架页 [`web/shelf-page.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-page.ts)）、[`shared/projects.ts`](../../../packages/neuro-book/src/shared/projects.ts)
+- 合同测试：[`registry.test.ts`](../../../packages/neuro-book/src/server/projects/registry.test.ts)（场景 1、14、15）、[`identity.test.ts`](../../../packages/neuro-book/src/server/projects/identity.test.ts)（场景 13）、[`manager.test.ts`](../../../packages/neuro-book/src/server/projects/manager.test.ts)、[`projects-capability.test.ts`](../../../packages/neuro-book/src/server/projects/projects-capability.test.ts)、[`server-projects.test.ts`](../../../packages/neuro-book/src/server/server-projects.test.ts)、[`window.test.ts`](../../../packages/neuro-book/src/web/host/window.test.ts)（场景 2–10）、[`projects.test.ts`](../../../packages/neuro-book/src/plugins/projects/projects.test.ts)（场景 11、18）、[`stats-tracker.test.ts`](../../../packages/neuro-book/src/plugins/projects/stats-tracker.test.ts)（场景 16）、[`stats-writer.test.ts`](../../../packages/neuro-book/src/plugins/projects/stats-writer.test.ts)（场景 17）、[`shelf-page.test.ts`](../../../packages/neuro-book/src/plugins/projects/shelf-page.test.ts)（书架页的取数与动作）
+- Smoke：[`projects.e2e.ts`](../../../packages/neuro-book/e2e/projects.e2e.ts)（场景 2–6、11）、[`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts) 与 [`bookshelf-stats.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf-stats.e2e.ts)（场景 13–18 的用户路径）、[`smoke-server.ts`](../../../packages/neuro-book/scripts/smoke-server.ts)（场景 12，S7）；实测见输出第 12 条

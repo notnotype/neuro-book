@@ -168,6 +168,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Storage 插件记录 | [`storage/persistence.md`](storage/persistence.md) | `nbook.storage` 的记录定义、user 与 project 分区、读取分类、条件保存与订阅 |
 | 配置 | [`settings/configuration.md`](settings/configuration.md) | 配置项声明、默认值与用户层、项目层的合成、外部改文件即时生效、只写自己声明的项、跨实例分发与就绪；密钥与用户编辑只定合同 |
 | 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则 |
+| 书架页 | [`workbench/bookshelf.md`](workbench/bookshelf.md) | 没有项目时的首页：继续写作、书脊与列表、新建与加入、修改信息与移出书架、新鲜度与刷新 |
 | 公开状态 | [`state/public-state.md`](state/public-state.md) | 公开键的声明与校验、激活时绑定与停止时撤回、本实例内的同步读取与未就绪、响应式失效 |
 | 插件状态 store | [`state/store.md`](state/store.md) | `defineStore` 的 setup 写法、只读视图与 action、持久化字段的已确认值与显示、保存队列、停止时的结算 |
 
@@ -195,7 +196,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
 | 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | 双模式、F1–F9 交互、剪贴板与 dirty 策略 |
 | 编辑器区 | [`workbench/editor.md`](workbench/editor.md) | 编辑组与标签、文档模型（保存、冲突、外部修改）、Markdown 与源码编辑器、资源管理器的 dirty 结算 |
-| 书架页 | [`workbench/bookshelf.md`](workbench/bookshelf.md) | 没有项目时的首页：继续写作、书脊与列表、新建与加入、修改信息与移出书架、新鲜度与刷新 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
 
 ## 旧应用的规范与 Reference（只作参照）

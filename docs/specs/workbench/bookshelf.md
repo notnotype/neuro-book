@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: workbench.bookshelf
 owners:
   - nbook.projects
@@ -122,6 +122,18 @@ owners:
 
 Smoke：`e2e/bookshelf.e2e.ts`（生产构建、真实服务端与项目子进程、本机 Chrome）；Lab 场景 `BookshelfPage`、`SpineShelf`、`ShelfList`、`ShelfTitlePage`、`ContinueCard`、`BookSpine`。
 
+## 实现合同
+
+- **公开入口**：`nbook/plugins/projects/shared/contracts`（远程合同与 `ShelfItemSchema`、`librarySetting`）、`nbook/plugins/projects/shared/shelf`（界面类型与 `projectDisplayName`）；页面模型 `createShelfPage`（`web/shelf-page.ts`）与组件是 `nbook.projects` 的内部实现。
+- **owner 与依赖方向**：书架页只经 `nbook.projects/projects` 的远程服务取数与写入（[`runtime.projects`](../runtime/projects.md) 输出 17、18），用工作台的选择服务（路径输入）、首页贡献点 `workbench.home` 与宿主的整页导航、新标签页、设置与 Storage（偏好记录）；不引用编辑器，继续写作只经地址参数（[`workbench.editor`](editor.md) 输出 29）。
+- **关键不变量**：
+  - 同一时间至多一个书架请求在途，页面隐藏时不刷新，卸载后迟到的响应不改状态（验收 6 与状态表）。
+  - 新建、修改信息、移出成功后以服务端的结果刷新，界面不先行改数据；移出后选中相邻的一部、焦点回到书架（验收 4）。
+  - 首页贡献的组件不取布局 store；没有贡献或贡献多于一个时回到空工作台（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 36）。
+
 ## 证据
 
-- 批准依据：提案 [书架页](../../proposals/bookshelf.md)（开发者 2026-10-10 同意全部推荐）。
+- 批准依据：提案 [书架页](../../proposals/bookshelf.md)（开发者 2026-10-10 同意全部推荐）；取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-10 的 t75 条目（按推荐先做，待开发者追认）。
+- 实现入口：[`web/shelf-page.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-page.ts)（取数、刷新与动作）、[`web/bookshelf-home.ts`](../../../packages/neuro-book/src/plugins/projects/web/bookshelf-home.ts)、[`web/components/BookshelfHost.vue`](../../../packages/neuro-book/src/plugins/projects/web/components/BookshelfHost.vue)、[`web/components/BookshelfPage.vue`](../../../packages/neuro-book/src/plugins/projects/web/components/BookshelfPage.vue) 及同目录的书脊、扉页、列表、继续写作与作品信息对话框组件、[`web/shelf-preferences.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-preferences.ts)；首页贡献点在工作台（[ui.workbench-shell](../ui/workbench-shell.md) 输出 36）
+- 合同测试：[`shelf-page.test.ts`](../../../packages/neuro-book/src/plugins/projects/shelf-page.test.ts)（输出 9–17 与状态表：真实服务端与浏览器实例、注入时钟）、[`shelf-format.test.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-format.test.ts)、组件测试 `SpineShelf.dom.test.ts`
+- Smoke：[`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（验收 1 的无统计部分、3、4、5）、[`bookshelf-stats.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf-stats.e2e.ts)（验收 1、2）；验收 6 由 `shelf-page.test.ts` 的刷新失败一组覆盖；Lab 场景 `BookshelfPage` 等（[`lab:shot` 截图](../../../.agents/works/w00017-application-runtime-architecture/tasks/t75-bookshelf/evidences/)）

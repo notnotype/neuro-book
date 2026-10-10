@@ -38,8 +38,8 @@ owners:
 
 - 插件 `nbook.editor` 只有浏览器入口；依赖 `nbook.files` 的文件客户端、命令服务、Storage、窗口的项目绑定、配置、宿主时钟与宿主的抢救能力（[runtime.browser-host](../runtime/browser-host.md)）。
 - 编辑器槽：工作台的贡献点 `workbench.editor-area`（[ui.workbench-shell](../ui/workbench-shell.md)）。
-- 打开：命令 `nbook.editor.open {address, mode: "preview" | "permanent", editor?: "markdown" | "code", reveal?: "end"}`；`editor` 缺省按类型：`.md` 为 `markdown`，其余可编辑文本为 `code`；`reveal: "end"` 打开后把光标放到末尾（输出 29，planned）。
-- 地址参数（planned）：`/?project=<短名>&open=<地址>&at=end`，书架页的“继续写作”用它跨页传递打开目标（输出 29）。
+- 打开：命令 `nbook.editor.open {address, mode: "preview" | "permanent", editor?: "markdown" | "code", reveal?: "end"}`；`editor` 缺省按类型：`.md` 为 `markdown`，其余可编辑文本为 `code`；`reveal: "end"` 打开后把光标放到末尾（输出 29）。
+- 地址参数：`/?project=<短名>&open=<地址>&at=end`，书架页的“继续写作”用它跨页传递打开目标（输出 29）。
 - 命令（`editor` 域；参数为 `{}` 的作用于活动编辑组的活动标签）：
 
   | 命令 | 参数 | `when` | `effect` | agent 暴露 | 编辑器区内的键位 |
@@ -136,7 +136,7 @@ owners:
 27. 字数取活动文档当前正文：汉字、假名、谚文每字计 1，连续的拉丁字母与数字（中间可夹 `'`、`’`、`-`）计 1 个词，标点、空白与 Markdown 标记不计，开头的 YAML frontmatter 不计。正文变化后在下一帧更新。书架的作品统计用同一套算法（[`runtime.projects`](../runtime/projects.md)）。
 28. 光标位置只由源码编辑器给出：选区活动端的行号与列号，都从 1 起，列按源码编辑器的列计（制表符计 1）。Markdown 富文本编辑器不给出位置：富文本里的段落位置与源文件的行号不同（frontmatter 与写出时的格式都会改变行数），条目在它活动时不显示。控件换文档或卸载时位置随之撤回。
 
-**继续写作**（planned，随书架页实现）
+**继续写作**（随书架页实现）
 
 29. `nbook.editor.open` 的 `reveal: "end"` 与地址参数 `open`、`at=end` 走同一条路径（[workbench.bookshelf](bookshelf.md) 的“继续写作”）：
     - 地址参数一读到就以 `replace` 去掉 `open` 与 `at`：刷新不重复定位，失败也不反复出现。地址必须是 `project://` 下的资源，否则只在组顶部提示、不打开。
@@ -163,7 +163,7 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 - 读取结果只在目标仍存活、输入修订未前进、不 dirty、无在途保存与冲突时替换正文；否则只更新“磁盘已变化”的标记。
 - 项目换代：旧代的文档全部作废，标签按新代重新打开；旧代的读取与保存结果不应用到新代。
 - 同组同种编辑器的视图状态（Monaco 的模型与视图状态、富文本的编辑状态与撤销历史）按“文档 × 组 × 编辑器”保留到标签关闭；只淘汰不 dirty、无未裁决输入、无在途保存的非活动视图状态，每组每种最多 3 份。
-- 继续写作的定位（第 29 条，planned）绑定到打开时记下的标签与组：切换、关闭、窗口停止即取消，迟到的就绪不动光标与焦点。
+- 继续写作的定位（第 29 条）绑定到打开时记下的标签与组：切换、关闭、窗口停止即取消，迟到的就绪不动光标与焦点。
 
 ## 副作用与数据
 
@@ -183,7 +183,7 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 
 ## 边界与兼容
 
-- 公开接口：命令与参数（含 `reveal`，planned）、地址参数 `open`、`at`（planned）、公开状态键、`documentCoordinatorKey`、贡献点 `workbench.editor-area`。
+- 公开接口：命令与参数（含 `reveal`）、地址参数 `open`、`at`、公开状态键、`documentCoordinatorKey`、贡献点 `workbench.editor-area`。
 - 编辑器种类只有 `markdown` 与 `code`；第三方编辑器贡献不在本期。
 
 ## 验收与 Smoke
@@ -202,9 +202,9 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 12. Given 两个组打开同一份 dirty 文档、另有一份非活动的 dirty 文档，When 读状态栏，Then 写“未保存 2 个”；点击后两份都保存、条目消失；一份保存失败时条目为错误状态，提示写明失败的文件与原因。
 13. Given 一个 Markdown 文档，When 输入中文与英文，Then 字数条目按第 27 条计数并随输入更新；frontmatter 里的字不计。
 14. Given 源码编辑器与 Markdown 编辑器各打开一个文档，When 在两者之间切换，Then 光标位置只在源码编辑器活动时出现，移动光标后行列随之更新；两个窗口的状态栏各自显示自己的数据。
-15. （planned）Given 书架上的“继续写作”，When 以 `?open=<地址>&at=end` 打开项目，Then 文件以正式标签打开、光标在末尾、可以接着输入，地址栏里不再有这两个参数，刷新后不再定位；Markdown 与源码两种文件各一例；读取被扣住时切到别的标签再放行，焦点与光标不被抢走；文件不在时项目照常打开、组顶部有提示。
+15. Given 书架上的“继续写作”，When 以 `?open=<地址>&at=end` 打开项目，Then 文件以正式标签打开、光标在末尾、可以接着输入，地址栏里不再有这两个参数，刷新后不再定位；Markdown 与源码两种文件各一例；读取被扣住时切到别的标签再放行，焦点与光标不被抢走；文件不在时项目照常打开、组顶部有提示。
 
-Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15（planned）由编辑器的 Bun 测试（真实 Files 场地、扣住读取）与 `e2e/bookshelf.e2e.ts` 运行。
+Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15 由编辑器的 Bun 测试（`area.test.ts` 的“继续写作”一组、`continue-writing.test.ts`）与 `e2e/bookshelf-stats.e2e.ts` 运行。
 
 ## 证据
 
