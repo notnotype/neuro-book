@@ -15,6 +15,7 @@ taskId: t11-harness-config-models
 
 - 两份 Spec 与实施计划 [`plan.md`](plan.md) 已写，按 [autonomous-delivery](../../../../skills/autonomous-delivery/SKILL.md) 推进。能力拆成 `harness.config` 与 `harness.models` 两份 Spec、一个 Task 实现，记在 [待确认清单](../../pending-confirmations.md)。
 - 真实模型冒烟（`models.llm.test.ts`）只写不跑：真实模型调用要开发者授权（自主推进的停止条件之一）。
+- **实现**（计划 S1、S2，提交 `548ddee6`）：`src/config/`（`schema.ts`、`validate.ts`、`store.ts`、`config.ts`）、`src/models/`（`catalog.ts`、`credentials.ts`、`models.ts`）；`package.json` 两个入口；边界测试模块表登记 `config`、`models`。`bun test src/config src/models` 12 pass、1 skip（冒烟）；整包 143 pass、3 skip；变异检查六处（规则问题只在 schema 通过时报、不填缺省值、`replace` 失败也通知、配置不覆盖内置目录、角色未绑定回落、`apiKeyFor` 走 OMP 的 `getApiKey`）都被报出。实现中实测两件事写进了 Spec 实现合同：OMP 的 `getApiKey` 把环境变量排在存下的 API key 之前（所以直接读存下的凭据，不再用计划里的 `hasNonEnvCredential` 把关取 key，只用它判断 `status`）；`AuthStorage.create` 打开已有库后要 `reload` 才读到凭据。Spec 加“实现合同”与证据行，注册表标“待晋升”。计划审查未开（两个 omp 审查会话仍在跑，排队中）。
 
 ## 依据
 

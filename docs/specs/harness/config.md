@@ -115,6 +115,18 @@ type RoleItem = {id: string; axis: "gradient" | "specialist"; name: string; desc
 
 Smoke：`packages/nb-harness` 的 `bun test src/config`。
 
+## 实现合同
+
+- 公开入口：`@notnotype/nb-harness/config`（`validateHarnessConfig`、`createConfigStore` 与“输入与前置条件”的类型）。
+- owner：`nb-harness` 的 `config` 模块；只依赖 TypeBox，不依赖本包其它模块与 OMP。
+- 内部不变量（都有测试锁定）：
+  1. 校验分三步（JSON 如实表示、schema、唯一性与引用语法），schema 不通过时后两步照跑，问题一次列全；同一字段的 schema 错误按路径合并。
+  2. 快照是输入的深拷贝再深冻结，输入不被修改。
+  3. `replace` 失败不动 `current`、不通知；监听函数抛错互不影响。
+
 ## 证据
 
+- 实现入口：[`packages/nb-harness/src/config/config.ts`](../../../packages/nb-harness/src/config/config.ts)
+- 合同测试：[`config.test.ts`](../../../packages/nb-harness/src/config/config.test.ts)
+- Smoke：不适用——纯函数模块，合同测试即全部可观察行为
 - 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“配置”一节（开发者 2026-10-10 决定：内核只接收合成好的配置快照与变化通知；凭据不进配置；校验失败的配置不被采用，旧快照继续有效，并给出结构化的问题列表）。

@@ -122,6 +122,19 @@ type ModelFailure = "invalid-model-ref" | "unknown-provider" | "unknown-model" |
 
 Smoke：`packages/nb-harness` 的 `bun test src/models`；真实模型冒烟 `bun run test:llm`。
 
+## 实现合同
+
+- 公开入口：`@notnotype/nb-harness/models`（`createModelCatalog`、`openCredentials`、`createCredentials`、`parseModelRef` 与“输入与前置条件”的类型）。
+- owner：`nb-harness` 的 `models` 模块；对 `config` 只 `import type`；运行时依赖 `@oh-my-pi/pi-ai`（`AuthStorage`、OAuth 注册表）与 `@oh-my-pi/pi-catalog`（内置目录、`buildModel`）。
+- 内部不变量（都有测试锁定）：
+  1. 目录只看传入的配置快照；配置里的模型覆盖 OMP 目录里的同名模型。
+  2. 选择链每环命中即返回，角色环的失败不回落。
+  3. API key 直接读存下的凭据，不经 OMP 的 `getApiKey`（它把环境变量排在存下的 key 之前）；只有 OAuth 经 `getApiKey` 换访问令牌。
+  4. `openCredentials` 打开后先 `reload`，否则已有凭据读不到。
+
 ## 证据
 
+- 实现入口：[`packages/nb-harness/src/models/models.ts`](../../../packages/nb-harness/src/models/models.ts)
+- 合同测试：[`catalog.test.ts`](../../../packages/nb-harness/src/models/catalog.test.ts)、[`credentials.test.ts`](../../../packages/nb-harness/src/models/credentials.test.ts)（真实临时目录里的 SQLite 凭据库）
+- Smoke：[`models.llm.test.ts`](../../../packages/nb-harness/src/models/models.llm.test.ts)（真实模型，只在 `bun run test:llm` 下运行；尚未运行，待开发者授权）
 - 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“模型与凭据（直接使用 OMP）”“模型角色”两节（开发者 2026-10-10 决定：不另设适配器层，模型与凭据直接用 OMP；内核不读环境变量；角色按模型角色合同解析）与 [模型角色合同](../../proposals/model-roles-contract.md)（`accepted`）。
