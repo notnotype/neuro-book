@@ -173,7 +173,7 @@
 
 适用于 `packages/agent-*` 这类领域无关通用包；由 Issue #193 的 `D-TEST-01` 决定（记录见 `.agents/works/w00002-neuro-agent-harness-redesign/tasks/t01-product-host-success-research/walkthroughs/006-decision-record.md`）。与本文其余规则叠加；2026-10-03 起测试写法以[测试写法](#测试写法)为准。
 
-2026-09-22 修订：运行器统一为 Bun 自带测试器，原“每包一份 `vitest.config.ts`、`setupFiles` 指向测试支持包”的要求作废；`nb-session`/`nb-profile`/`nb-harness` 已按 `bun test` 实现并发运。
+2026-09-22 修订：运行器统一为 Bun 自带测试器，原“每包一份 `vitest.config.ts`、`setupFiles` 指向测试支持包”的要求作废；`nb-harness` 已按 `bun test` 实现并发运（当时的 `nb-session`、`nb-profile` 两包已于 2026-10-10 并入 `nb-harness` 后删除）。
 
 - **先写测试**：新行为先写失败测试再实现；场景、失败方式与 bug 修复按[测试写法](#测试写法)。
 - **只测关键**：覆盖公共合同、边界与上限、失败与恢复、并发与顺序、资源释放；不写镜像实现、措辞或框架行为的测试；不为可逆小改动强制测试。

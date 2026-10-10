@@ -15,6 +15,7 @@ taskId: t14-harness-runtime
 
 - Spec 与实施计划 [`plan.md`](plan.md) 已写，按 [autonomous-delivery](../../../../skills/autonomous-delivery/SKILL.md) 推进。
 - **实现**（计划 S1，一个提交）：`src/runtime/`（`types.ts`、`fields.ts`、`accept.ts`、`session.ts`、`runtime.ts`；测试装配 `testing/harness.tsx`：真实 config/profile/models（SQLite 凭据库）/tools/compaction/session，模型流经 OMP `streamFn` 脚本化）；`package.json` 入口；模块表登记。`bun test src/runtime` 15 pass（llm 冒烟 1 skip）；整包 196 pass、4 skip；变异检查七处（种子每次都写、abort 不写拒绝应答、`scope: session` 不生效、追加队列在 aborted 后也处理、`maxTurns` 不生效、恢复后不写 resumed、不自动压缩）都被报出。实现中确认并写进 Spec 的事：OMP 的消息对象带值为 `undefined` 的可选字段，写入前按 JSON 往返去掉；插话要在工具批次结束前入队才会在下一次模型调用前送达（OMP 在批次结束时取队列），否则在停止边界送达；`abort` 时不写 `resumed`（拒绝应答后直接 `aborted`）；`close()` 要等调用收口所以是异步。Spec 加证据，注册表标“待晋升”。
+- **删除旧原型与两个包**（计划 S3，一个提交）：`git rm` 掉 `packages/nb-harness/src/prototype/`、`packages/nb-session`、`packages/nb-profile`；包根入口 `.` 改指 `runtime`，`./testing` 入口去掉；`nb-harness` 不再依赖 `pi-natives`、`pi-utils`（剩余模块只用 `pi-agent-core`、`pi-ai`、`pi-catalog`）；根 `package.json` workspaces、`bun.lock`、`scripts/ci/workspace-package-matrix.ts`、两个工作流的路径过滤、`packages/AGENTS.md`、根 `AGENTS.md` 结构图、`README.md`/`README.en.md`、`docs/modules/monorepo-boundaries.md`、`docs/testing/README.md`、`nb-harness/AGENTS.md` 与 `docs/omp-capabilities.md`（使用位置表重写）同步；边界测试去掉原型例外。`bun install` 后 2 个包移除；nb-harness 170 pass、4 skip；CI 矩阵脚本对 `nb-profile` 路径不再产出条目；`docs:check`、`governance:check` 通过。
 
 ## 依据
 

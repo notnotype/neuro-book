@@ -162,7 +162,7 @@ All further development happens in the workspaces listed in the root `package.js
 - Application: [new application (v2)](packages/neuro-book/AGENTS.md) · [nb-runtime kernel](packages/nb-runtime/AGENTS.md) · [legacy application (reference only)](packages/neuro-book-legacy/AGENTS.md)
 - Internal packages: [Owned Process](packages/owned-process/package.json) · [File Snapshot Cache](packages/file-snapshot-cache/README.md) · [NeuroBook Contracts](packages/neuro-book-contracts/package.json) · [Test Support](packages/neuro-book-test-support/package.json)
 - Autonomous packages: [History](packages/nb-history/README.md) · [Workflow](packages/nb-workflow/README.md) · [Memory](packages/nb-memory/README.md) · [UI](packages/nb-ui/README.md) · [Agent Harness](packages/neuro-agent-harness/README.md) · [llmlint](packages/llmlint/README.md)
-- Agent harness rebuild (w00002): [nb-harness](packages/nb-harness/AGENTS.md) · [nb-profile](packages/nb-profile/package.json) · [nb-session](packages/nb-session/package.json)
+- Agent harness rebuild (w00002): [nb-harness](packages/nb-harness/AGENTS.md) (session, profile, config, models, tools, compaction and runtime, exported per module)
 
 See the [Monorepo Module boundaries](docs/modules/monorepo-boundaries.md) and [package governance](packages/AGENTS.md) for dependency direction, inherited governance, and runtime-state ownership.
 

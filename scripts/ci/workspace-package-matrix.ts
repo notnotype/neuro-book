@@ -40,16 +40,6 @@ export const WORKSPACE_PACKAGE_CHECKS: readonly WorkspacePackageCheck[] = [
         commands: "bun run typecheck\nbun run test",
     },
     {
-        name: "nb-profile",
-        directory: "packages/nb-profile",
-        commands: "bun run typecheck\nbun run test",
-    },
-    {
-        name: "nb-session",
-        directory: "packages/nb-session",
-        commands: "bun run typecheck\nbun run test",
-    },
-    {
         name: "nb-runtime",
         directory: "packages/nb-runtime",
         commands: "bun run typecheck\nbun run test",

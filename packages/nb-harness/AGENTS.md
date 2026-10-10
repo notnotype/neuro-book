@@ -10,7 +10,7 @@
 - 模块之间只单向依赖，只经对方的公开入口；允许的模块依赖、外部包与 Node 内置模块登记在 [`src/architecture.test.ts`](src/architecture.test.ts) 的模块表，新增模块或依赖先改表。分层见设计稿的“模块划分与推进顺序”。
 - 每个模块的行为合同是 `docs/specs/harness/<模块>.md`；改变可观察行为时先改 Spec。
 - 模块顶层没有 I/O、单例与计时器；时钟、存储位置、凭据等由使用方传入。
-- `src/prototype/` 是旧原型（原 `src/` 与 `tests/`），没有行为合同，只为过渡期保持可运行，由包根入口 `.` 与 `./testing` 导出；新模块不引用它，它也不引用新模块。`runtime` 模块完成时删除它与 `nb-session`、`nb-profile` 两个包。
+- 包根入口 `.` 就是 `./runtime`（使用方只接触运行时的接口）；旧原型与 `nb-session`、`nb-profile` 两个包已于 2026-10-10 随 `runtime` 完成删除。
 
 ## OMP
 

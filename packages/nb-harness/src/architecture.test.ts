@@ -1,9 +1,9 @@
 /**
  * 包内模块边界（packages/nb-harness/AGENTS.md 的“模块与依赖”）：模块之间只单向依赖，只经对方的公开入口
  * （`package.json` 的 `exports` 指向的文件）；OMP 只按表中允许的方式引用；只有登记了的目录能用 Node 内置模块与动态导入；
- * 新模块不引旧原型，旧原型也不引新模块。类型检查与打包不会拦住这些，所以用 TypeScript 语法树逐个读出导入语句检查。
+ * 类型检查与打包不会拦住这些，所以用 TypeScript 语法树逐个读出导入语句检查。
  *
- * 规则的适用范围：禁止的包、CommonJS 加载、旧原型隔离对全部源码与测试生效；模块表（依赖、外部包、Node 内置模块、
+ * 规则的适用范围：禁止的包、CommonJS 加载对全部源码与测试生效；模块表（依赖、外部包、Node 内置模块、
  * 动态导入）只约束模块的产品代码，测试文件与 `testing/` 目录不受模块表约束，因为它们要搭真实存储与运行环境；
  * 反过来产品代码不能引用 `testing/`。
  */
@@ -16,7 +16,6 @@ import ts from "typescript";
 const SRC = import.meta.dir;
 const PACKAGE_NAME = "@notnotype/nb-harness";
 const PACKAGE_JSON = JSON.parse(readFileSync(join(SRC, "..", "package.json"), "utf8")) as {readonly exports: Record<string, string>};
-const PROTOTYPE = "prototype";
 
 type ExternalRule = "runtime" | "type-only";
 
@@ -205,23 +204,22 @@ function subdirectoryOf(pathInSrc: string): string {
 const insideAny = (directory: string, allowed: readonly string[]): boolean =>
     allowed.some((root) => directory === root || directory.startsWith(`${root}/`));
 
-/** 对全部源码与测试生效的规则：禁止的包、CommonJS 加载、旧原型隔离。 */
+/** 对全部源码与测试生效的规则：禁止的包、CommonJS 加载。 */
 function universalViolation(use: ImportUse): string | null {
     if (use.specifier !== null && FORBIDDEN_PACKAGES.includes(packageName(use.specifier))) return `${use.file} 引用了禁止的包 ${use.specifier}`;
     const from = moduleOf(use.file);
-    if (use.kind === "require" && from !== PROTOTYPE) return `${use.file} 用了 CommonJS 加载（require、module.require、import.meta.require、import = require 或 createRequire）`;
+    if (use.kind === "require") return `${use.file} 用了 CommonJS 加载（require、module.require、import.meta.require、import = require 或 createRequire）`;
     const target = targetInSrc(use);
     if (target === null || target === "unexported") return null;
     const to = moduleOf(target);
     if (from === null || to === null || from === to) return null;
-    if (from === PROTOTYPE || to === PROTOTYPE) return `${use.file} 跨越了旧原型的边界（${use.specifier ?? "非字面量"}）`;
     return null;
 }
 
 /** 只对模块产品代码生效的规则：模块表。 */
 function moduleTableViolation(use: ImportUse): string | null {
     const from = moduleOf(use.file);
-    if (from === null || from === PROTOTYPE) return null;
+    if (from === null) return null;
     const rule = MODULES[from];
     if (rule === undefined || use.kind === "require") return null;   // CommonJS 加载由 universalViolation 报告
 
@@ -262,8 +260,8 @@ describe("nb-harness 模块边界", () => {
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name);
 
-    it("src 下每个模块目录都在模块表里登记（旧原型除外）", () => {
-        expect(moduleDirs.filter((name) => name !== PROTOTYPE && MODULES[name] === undefined)).toEqual([]);
+    it("src 下每个模块目录都在模块表里登记", () => {
+        expect(moduleDirs.filter((name) => MODULES[name] === undefined)).toEqual([]);
     });
 
     it("src 根目录只放测试文件，源码都属于某个模块", () => {
@@ -276,7 +274,7 @@ describe("nb-harness 模块边界", () => {
         expect(missing).toEqual([]);
     });
 
-    it("全部源码与测试：不引禁止的包、不用 CommonJS 加载、新模块与旧原型互不引用", () => {
+    it("全部源码与测试：不引禁止的包、不用 CommonJS 加载", () => {
         expect(uses.map(universalViolation).filter((problem) => problem !== null)).toEqual([]);
     });
 

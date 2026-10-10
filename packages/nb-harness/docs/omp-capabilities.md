@@ -134,7 +134,7 @@ read omp://sdk.md               # 读某一篇
 
 1. **裸 TS 入口**：Node 无法 import（`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`，且加 `--experimental-strip-types` 也一样）；只有 Bun（≥1.3.14）或自备 TS loader 的打包器可用。
 2. **import 期副作用**：`@oh-my-pi/pi-utils` 的 `env` 模块在**顶层**读取 `$HOME/.env` 与 CWD/configRoot/agentDir 的 `.env`、**删除** `Bun.env` 中不合规的键、注入解析值、重算 OMP 目录（`getAgentDir()` 等）。任何 import 到它的进程都会继承这套行为。
-3. **原生包体积**：见 §1；CI 安装成本主要是它（linux 346.5 MB）。
+3. **原生包体积**：见“1. 包清单与体量”；CI 安装成本主要是它（linux 346.5 MB）。
 4. **不要 import `@oh-my-pi/pi-coding-agent`**：47.3 MB 闭包，含 puppeteer-core 与 12 个 OTel 包；其工具层需要约 110 个成员的 `ToolSession` 宿主上下文。需要工具就自己写（本仓库的 `read`/`edit` 就是范例）。
 5. **版本错位**：`hashline@18.1.5` 与其余包 `18.2.5`，且它把 `pi-utils`/`pi-natives` 钉在 18.1.5；混装会出现两份原生包。
 6. **`pi-utils.format` 只有** `formatBytes`/`truncate`/`countNewlines` 等小工具，**没有**行/字节预算截断——需要 `read` 输出预算时得自己写（本仓库 `src/text-budget.ts`）。
@@ -145,8 +145,8 @@ read omp://sdk.md               # 读某一篇
 
 | 能力 | 使用点 |
 | --- | --- |
-| 模型解析 / 环境 key / baseUrl 覆盖 | `packages/nb-harness/src/model.ts` |
-| agent 装配、事件与会话落盘、插件宿主 | `packages/nb-harness/src/harness.ts`、`src/plugins.ts` |
-| read（含 `[path#tag]` 头与快照登记） | `packages/nb-harness/src/tools/read.ts` |
-| edit（`EditSession` 薄层 + 写回 + 写前确认） | `packages/nb-harness/src/tools/edit.ts` |
-| SSE 序列化 / 写入器 | `packages/nb-harness/src/sse.ts`、`src/sse-writer.ts` |
+| 模型目录、`buildModel`、`AuthStorage` 凭据与 OAuth | `packages/nb-harness/src/models/` |
+| `Agent` 循环、队列、`abort`、`transformContext`、`getApiKey` | `packages/nb-harness/src/runtime/session.ts` |
+| `AgentTool` 适配、参数校验、`streamSimple`（审批模型） | `packages/nb-harness/src/tools/` |
+| `prepareCompaction`、`compact`、阈值计算 | `packages/nb-harness/src/compaction/` |
+| 会话条目与 OMP `SessionEntry` 的兼容 | `packages/nb-harness/src/session/`（`omp-compat.test.ts`） |
