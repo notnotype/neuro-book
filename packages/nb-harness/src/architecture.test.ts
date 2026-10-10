@@ -1,15 +1,19 @@
 /**
  * 包内模块边界（packages/nb-harness/AGENTS.md 的“模块与依赖”）：模块之间只单向依赖，只经对方的公开入口
- * （`package.json` 的 `exports` 指向的文件）；OMP 只按表中允许的方式引用；只有声明了 I/O 的入口能用 Node 内置模块；
- * 新模块不引旧原型，旧原型也不引新模块。类型检查与打包不会拦住这些，所以按导入语句检查。
- * 测试文件与 `testing/` 目录不受模块表约束：它们要搭真实存储与运行环境。
+ * （`package.json` 的 `exports` 指向的文件）；OMP 只按表中允许的方式引用；只有登记了的目录能用 Node 内置模块与动态导入；
+ * 新模块不引旧原型，旧原型也不引新模块。类型检查与打包不会拦住这些，所以用 TypeScript 语法树逐个读出导入语句检查。
+ *
+ * 规则的适用范围：禁止的包、CommonJS 加载、旧原型隔离对全部源码与测试生效；模块表（依赖、外部包、Node 内置模块、
+ * 动态导入）只约束模块的产品代码，测试文件与 `testing/` 目录不受模块表约束，因为它们要搭真实存储与运行环境。
  */
 
 import {describe, expect, it} from "bun:test";
 import {readdirSync, readFileSync} from "node:fs";
 import {dirname, join, relative, resolve} from "node:path";
+import ts from "typescript";
 
 const SRC = import.meta.dir;
+const PACKAGE_NAME = "@notnotype/nb-harness";
 const PACKAGE_JSON = JSON.parse(readFileSync(join(SRC, "..", "package.json"), "utf8")) as {readonly exports: Record<string, string>};
 const PROTOTYPE = "prototype";
 
@@ -20,8 +24,10 @@ interface ModuleRule {
     readonly modules: readonly string[];
     /** 可以引用的外部包；`type-only` 表示只能 `import type`。 */
     readonly packages: Readonly<Record<string, ExternalRule>>;
-    /** 可以使用 Node 内置模块的目录（相对模块目录）；只有声明了 I/O 的入口才在这里。 */
+    /** 可以使用 Node 内置模块的子目录（相对模块目录）；只有声明了 I/O 的子入口在这里。 */
     readonly nodeBuiltinsIn: readonly string[];
+    /** 可以用字面量动态导入的子目录：只有会执行外部模块代码的子入口在这里。 */
+    readonly dynamicImportIn: readonly string[];
 }
 
 const TYPEBOX = {typebox: "runtime"} as const;
@@ -32,52 +38,104 @@ const MODULES: Readonly<Record<string, ModuleRule>> = {
         modules: [],
         packages: {...TYPEBOX, "@oh-my-pi/pi-agent-core": "type-only", "@oh-my-pi/pi-ai": "type-only"},
         nodeBuiltinsIn: ["jsonl"],
+        dynamicImportIn: [],
+    },
+    profile: {
+        modules: [],
+        packages: {...TYPEBOX, "@oh-my-pi/pi-ai": "type-only"},
+        nodeBuiltinsIn: ["loader"],
+        dynamicImportIn: ["loader"],
     },
 };
 
 const FORBIDDEN_PACKAGES = ["@oh-my-pi/pi-coding-agent"];
 
+type ImportKind = "static" | "dynamic" | "require";
+
 interface ImportUse {
     readonly file: string;
-    readonly specifier: string;
+    /** 导入目标；动态导入或 require 的参数不是字符串字面量时为 null。 */
+    readonly specifier: string | null;
     readonly typeOnly: boolean;
-    readonly dynamic: boolean;
+    readonly kind: ImportKind;
 }
 
-const IMPORT_PATTERN = /^\s*(?:import|export)\s+(type\s+)?(?:[^"';]*?\sfrom\s+)?["']([^"']+)["']/gmu;
-const DYNAMIC_IMPORT_PATTERN = /\bimport\(\s*["']([^"']+)["']\s*\)/gu;
-
-function sourceFiles(directory: string): string[] {
+function allFiles(directory: string): string[] {
     return readdirSync(directory, {withFileTypes: true}).flatMap((entry) => {
         const path = join(directory, entry.name);
-        if (entry.isDirectory()) return entry.name === "testing" ? [] : sourceFiles(path);
-        return /\.tsx?$/u.test(entry.name) && !/\.test\.tsx?$/u.test(entry.name) ? [path] : [];
+        if (entry.isDirectory()) return allFiles(path);
+        return /\.tsx?$/u.test(entry.name) ? [path] : [];
     });
+}
+
+/** 测试文件与 `testing/` 目录下的文件：不受模块表约束。 */
+function isTestSupport(pathInSrc: string): boolean {
+    return /\.test\.tsx?$/u.test(pathInSrc) || pathInSrc.split("/").includes("testing");
+}
+
+function literalText(node: ts.Node | undefined): string | null {
+    return node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : null;
 }
 
 function importsOf(file: string): ImportUse[] {
     const text = readFileSync(file, "utf8");
+    const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
     const at = relative(SRC, file);
-    return [
-        ...[...text.matchAll(IMPORT_PATTERN)].map((match) => ({file: at, specifier: match[2] as string, typeOnly: match[1] !== undefined, dynamic: false})),
-        ...[...text.matchAll(DYNAMIC_IMPORT_PATTERN)].map((match) => ({file: at, specifier: match[1] as string, typeOnly: false, dynamic: true})),
-    ];
+    const uses: ImportUse[] = [];
+    const visit = (node: ts.Node): void => {
+        if (ts.isImportDeclaration(node)) {
+            uses.push({file: at, specifier: literalText(node.moduleSpecifier), typeOnly: node.importClause?.isTypeOnly === true, kind: "static"});
+        } else if (ts.isExportDeclaration(node) && node.moduleSpecifier !== undefined) {
+            uses.push({file: at, specifier: literalText(node.moduleSpecifier), typeOnly: node.isTypeOnly, kind: "static"});
+        } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+            uses.push({file: at, specifier: literalText(node.moduleReference.expression), typeOnly: node.isTypeOnly, kind: "require"});
+        } else if (ts.isImportTypeNode(node)) {
+            const argument = node.argument;
+            const specifier = ts.isLiteralTypeNode(argument) ? literalText(argument.literal) : null;
+            uses.push({file: at, specifier, typeOnly: true, kind: "static"});
+        } else if (ts.isCallExpression(node)) {
+            if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+                uses.push({file: at, specifier: literalText(node.arguments[0]), typeOnly: false, kind: "dynamic"});
+            } else if (ts.isIdentifier(node.expression) && (node.expression.text === "require" || node.expression.text === "createRequire")) {
+                uses.push({file: at, specifier: node.expression.text === "require" ? literalText(node.arguments[0]) : null, typeOnly: false, kind: "require"});
+            }
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return uses;
 }
 
-/** `src/<模块>/…` 的模块名；不在 src 下返回 null。 */
+/** 去掉源码与 Bun/TypeScript 可解析的产物扩展名，统一成 src 内不带扩展名的路径。 */
+const stripExtension = (path: string): string => path.replace(/\.(tsx?|jsx?|mjs|cjs)$/u, "");
+
+/** 包名自引用的子路径对应的源码（相对 src、不带扩展名）；子路径没有导出时为 undefined。 */
+const EXPORT_TARGETS = new Map(
+    Object.entries(PACKAGE_JSON.exports)
+        .filter(([, target]) => target.startsWith("./src/"))
+        .map(([subpath, target]) => [subpath, stripExtension(target.slice("./src/".length))] as const),
+);
+
+/** 各模块的公开入口文件（相对 src、不带扩展名）。 */
+const PUBLIC_ENTRIES = new Set(EXPORT_TARGETS.values());
+
+/** `src/<模块>/…` 的模块名；src 根目录的文件与 src 之外返回 null。 */
 function moduleOf(pathInSrc: string): string | null {
-    if (pathInSrc.startsWith("..")) return null;
-    const [first] = pathInSrc.split("/");
-    return first === undefined || !pathInSrc.includes("/") ? null : first;
+    if (pathInSrc.startsWith("..") || !pathInSrc.includes("/")) return null;
+    return pathInSrc.split("/")[0] ?? null;
 }
 
-/** 相对导入在 src 内的目标路径（不带扩展名）。 */
-function relativeTarget(use: ImportUse): string | null {
-    if (!use.specifier.startsWith(".")) return null;
-    return relative(SRC, resolve(SRC, dirname(use.file), use.specifier)).replace(/\.tsx?$/u, "");
+/** 导入目标在 src 内的路径；包名自引用按 exports 解析。不是本包的导入返回 null，自引用了未导出的子路径返回 "unexported"。 */
+function targetInSrc(use: ImportUse): string | null | "unexported" {
+    const specifier = use.specifier;
+    if (specifier === null) return null;
+    if (specifier.startsWith(".")) return stripExtension(relative(SRC, resolve(SRC, dirname(use.file), specifier)));
+    if (specifier === PACKAGE_NAME || specifier.startsWith(`${PACKAGE_NAME}/`)) {
+        return EXPORT_TARGETS.get(`.${specifier.slice(PACKAGE_NAME.length)}`) ?? "unexported";
+    }
+    return null;
 }
 
-/** 包名部分：`@scope/name` 或 `name`。 */
 function packageName(specifier: string): string {
     const parts = specifier.split("/");
     return specifier.startsWith("@") ? `${parts[0]}/${parts[1]}` : (parts[0] as string);
@@ -85,46 +143,64 @@ function packageName(specifier: string): string {
 
 const isNodeBuiltin = (specifier: string): boolean => specifier.startsWith("node:") || specifier.startsWith("bun:");
 
-/** 各模块的公开入口文件（相对 src、不带扩展名），取自 package.json 的 exports。 */
-const PUBLIC_ENTRIES = new Set(
-    Object.values(PACKAGE_JSON.exports)
-        .filter((target) => target.startsWith("./src/"))
-        .map((target) => target.slice("./src/".length).replace(/\.tsx?$/u, "")),
-);
+/** 文件在模块里的子目录（相对模块目录），例如 `session/jsonl/jsonl.ts` → `jsonl`。 */
+function subdirectoryOf(pathInSrc: string): string {
+    return pathInSrc.split("/").slice(1, -1).join("/");
+}
 
-/** 一条导入违反的规则；没有违反返回 null。 */
-function violation(use: ImportUse): string | null {
+const insideAny = (directory: string, allowed: readonly string[]): boolean =>
+    allowed.some((root) => directory === root || directory.startsWith(`${root}/`));
+
+/** 对全部源码与测试生效的规则：禁止的包、CommonJS 加载、旧原型隔离。 */
+function universalViolation(use: ImportUse): string | null {
+    if (use.specifier !== null && FORBIDDEN_PACKAGES.includes(packageName(use.specifier))) return `${use.file} 引用了禁止的包 ${use.specifier}`;
     const from = moduleOf(use.file);
-    if (from === null) return null;
-    const rule = from === PROTOTYPE ? null : MODULES[from];
-    if (FORBIDDEN_PACKAGES.includes(packageName(use.specifier))) return `${use.file} 引用了禁止的包 ${use.specifier}`;
+    if (use.kind === "require" && from !== PROTOTYPE) return `${use.file} 用了 CommonJS 加载（require、import = require 或 createRequire）`;
+    const target = targetInSrc(use);
+    if (target === null || target === "unexported") return null;
+    const to = moduleOf(target);
+    if (from === null || to === null || from === to) return null;
+    if (from === PROTOTYPE || to === PROTOTYPE) return `${use.file} 跨越了旧原型的边界（${use.specifier ?? "非字面量"}）`;
+    return null;
+}
 
-    const target = relativeTarget(use);
+/** 只对模块产品代码生效的规则：模块表。 */
+function moduleTableViolation(use: ImportUse): string | null {
+    const from = moduleOf(use.file);
+    if (from === null || from === PROTOTYPE) return null;
+    const rule = MODULES[from];
+    if (rule === undefined) return null;
+
+    if (use.kind === "dynamic") {
+        if (use.specifier === null) return `${use.file} 动态导入的目标不是字符串字面量`;
+        if (!insideAny(subdirectoryOf(use.file), rule.dynamicImportIn)) return `${use.file} 使用了动态导入；只有 ${rule.dynamicImportIn.join("、") || "（无）"} 下可以`;
+    }
+    const target = targetInSrc(use);
+    if (target === "unexported") return `${use.file} 经包名引用了未导出的子路径 ${use.specifier}`;
     if (target !== null) {
         const to = moduleOf(target);
-        if (to === null || to === from) return null;
-        if (from === PROTOTYPE || to === PROTOTYPE) return `${use.file} 跨越了旧原型的边界（${use.specifier}）`;
-        if (rule === undefined || rule === null) return null;
+        if (to === null) return `${use.file} 引用了 src 根目录的文件 ${target}`;
+        if (to === from) return null;
         if (!rule.modules.includes(to)) return `${use.file} 依赖了不允许的模块 ${to}`;
         if (!PUBLIC_ENTRIES.has(target)) return `${use.file} 深导入了 ${to} 的内部文件 ${target}，只能经公开入口`;
         return null;
     }
-
-    if (from === PROTOTYPE || rule === undefined || rule === null) return null;
-    if (isNodeBuiltin(use.specifier)) {
-        const inside = use.file.split("/").slice(1, -1).join("/");
-        return rule.nodeBuiltinsIn.some((dir) => inside === dir || inside.startsWith(`${dir}/`))
+    const specifier = use.specifier as string;
+    if (isNodeBuiltin(specifier)) {
+        return insideAny(subdirectoryOf(use.file), rule.nodeBuiltinsIn)
             ? null
-            : `${use.file} 使用了 Node 内置模块 ${use.specifier}；只有 ${rule.nodeBuiltinsIn.join("、") || "（无）"} 下可以`;
+            : `${use.file} 使用了 Node 内置模块 ${specifier}；只有 ${rule.nodeBuiltinsIn.join("、") || "（无）"} 下可以`;
     }
-    const allowed = rule.packages[packageName(use.specifier)];
-    if (allowed === undefined) return `${use.file} 引用了模块表未登记的包 ${use.specifier}`;
-    if (allowed === "type-only" && !use.typeOnly) return `${use.file} 只能 import type ${use.specifier}`;
-    if (use.specifier.split("/").includes("src")) return `${use.file} 深导入了其它包的源码 ${use.specifier}`;
+    const allowed = rule.packages[packageName(specifier)];
+    if (allowed === undefined) return `${use.file} 引用了模块表未登记的包 ${specifier}`;
+    if (allowed === "type-only" && !use.typeOnly) return `${use.file} 只能 import type ${specifier}`;
+    if (specifier.split("/").includes("src")) return `${use.file} 深导入了其它包的源码 ${specifier}`;
     return null;
 }
 
 describe("nb-harness 模块边界", () => {
+    const files = allFiles(SRC);
+    const uses = files.flatMap(importsOf);
     const moduleDirs = readdirSync(SRC, {withFileTypes: true})
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name);
@@ -133,21 +209,23 @@ describe("nb-harness 模块边界", () => {
         expect(moduleDirs.filter((name) => name !== PROTOTYPE && MODULES[name] === undefined)).toEqual([]);
     });
 
-    it("每个模块的公开入口是 src/<模块>/<模块>.ts，并在 package.json 导出", () => {
+    it("src 根目录只放测试文件，源码都属于某个模块", () => {
+        const rootSources = files.map((file) => relative(SRC, file)).filter((path) => !path.includes("/") && !isTestSupport(path));
+        expect(rootSources).toEqual([]);
+    });
+
+    it("每个已建的模块的公开入口是 src/<模块>/<模块>.ts，并在 package.json 导出", () => {
         const missing = Object.keys(MODULES).filter((name) => moduleDirs.includes(name) && !PUBLIC_ENTRIES.has(`${name}/${name}`));
         expect(missing).toEqual([]);
     });
 
-    it("模块只单向依赖、只经公开入口、只按表引用外部包与 Node 内置模块", () => {
-        const problems = sourceFiles(SRC).flatMap(importsOf).map(violation).filter((problem) => problem !== null);
-        expect(problems).toEqual([]);
+    it("全部源码与测试：不引禁止的包、不用 CommonJS 加载、新模块与旧原型互不引用", () => {
+        expect(uses.map(universalViolation).filter((problem) => problem !== null)).toEqual([]);
     });
 
-    it("新模块不使用动态 import", () => {
-        const dynamic = sourceFiles(SRC)
-            .flatMap(importsOf)
-            .filter((use) => use.dynamic && moduleOf(use.file) !== PROTOTYPE);
-        expect(dynamic.map((use) => use.file)).toEqual([]);
+    it("模块产品代码：只单向依赖、只经公开入口、只按表引用外部包、Node 内置模块与动态导入", () => {
+        const problems = uses.filter((use) => !isTestSupport(use.file)).map(moduleTableViolation).filter((problem) => problem !== null);
+        expect(problems).toEqual([]);
     });
 
     it("模块表的依赖没有环", () => {
