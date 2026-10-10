@@ -163,6 +163,18 @@ type ToolsFailure = "invalid-tool" | "tool-conflict";
 
 Smoke：`packages/nb-harness` 的 `bun test src/tools`。
 
+## 实现合同
+
+- 公开入口：`@notnotype/nb-harness/tools`（`defineTool`、`toolDefinitionProblem`、`evaluateRisk`、`createStaticToolSource`、`visibleTools`、`resolveApprovalMode`、`decideApproval`、`judgeWithModel`、`buildJudgeMessages`、`toAgentTool`、`toAgentToolResult` 与“输入与前置条件”的类型）。
+- owner：`nb-harness` 的 `tools` 模块；对 `config` 只 `import type`；运行时依赖 TypeBox 与 `@oh-my-pi/pi-ai`（`streamSimple`），对 `@oh-my-pi/pi-agent-core`、`@oh-my-pi/pi-catalog` 只用类型。
+- 内部不变量（都有测试锁定）：
+  1. 判定是纯函数，第一个命中的步骤决定结果；审批模型的任何失败路径都是 `escalate`。
+  2. 适配层每一步都不抛出，异常变成带码的错误结果；执行前按次从来源取实现。
+  3. OMP 的循环先按 schema 校验并转换参数，适配层的校验只兜底直接调用与拦截器改写。
+
 ## 证据
 
+- 实现入口：[`packages/nb-harness/src/tools/tools.ts`](../../../packages/nb-harness/src/tools/tools.ts)
+- 合同测试：[`source.test.ts`](../../../packages/nb-harness/src/tools/source.test.ts)、[`approval.test.ts`](../../../packages/nb-harness/src/tools/approval.test.ts)、[`judge.test.ts`](../../../packages/nb-harness/src/tools/judge.test.ts)、[`adapter.test.ts`](../../../packages/nb-harness/src/tools/adapter.test.ts)（真实 OMP `Agent`、脚本化模型）
+- Smoke：[`adapter.test.ts`](../../../packages/nb-harness/src/tools/adapter.test.ts) 的场景 5（真实 OMP `Agent`）
 - 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“工具定义”“工具审批”两节与决策记录（开发者 2026-10-10 决定：审批自建、借用三档等级；缺省模式按是否绑定审批角色取 `auto` 或 `write`；工具进 Profile 按“列出 ∩ 可用”，列表在调用开始时取定；审批等待放在工具执行包装里）。
