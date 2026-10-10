@@ -59,6 +59,8 @@ taskId: t09-harness-foundation-session
 - **S1 条目、内存存储、日志句柄**（本提交，按 [`plan.md`](plan.md) 第 1、2、3、6 节）：`src/session/` 的 `types.ts`、`entries.ts`（TypeBox 按判别字段选变体校验、JSON 如实表示检查、保留类型表、interaction 的关系规则）、`memory-store.ts`（存 JSON 文本）、`log.ts`（Promise 链串行、订阅快照推送、损坏与关闭状态）；两种存储共用的场景在 `testing/store-scenarios.ts`。`bun test src/session` 16 pass，`typecheck` 通过；变异检查四处（订阅者快照、写存储前加入 entries、时间戳单调、监听函数抛错）都被测试报出。计划审查（omp）此时仍在进行，其结论涉及 S1 的部分另起提交处理。
 - **S2 JSONL 存储**（本提交，计划第 3 节）：子入口 `./session/jsonl`；中断尾与行号按字节算；`append` 用 `r+` 在末尾写，会话文件被删除时报错而不是重建无头文件；`list` 逐个读取、损坏的跳过。两种存储跑同一组场景；`bun test src/session` 36 pass；变异检查四处（行号、半行当完整行、repair 截错位置、`a` 标志重建文件）都被报出。
 - **S3 回放与崩溃收口**（本提交，计划第 4 节）：`replay.ts` 的 `buildModelContext`（调用窗口配对、压缩后顺序、改写助手消息）、`sessionStatus`、`sessionSettings`、`fold`/`defineProjection`、`planRecovery`（结果条目的时间戳取最后一个条目，保证确定性）。场景 6 在两种存储上跑，并把上下文交给真实 OMP `Agent`、用自定义 `streamFn` 截下发往模型的请求核对配对；`bun test src/session` 50 pass。变异检查五处（用户消息关窗、清签名、去掉出错消息、收口跳过待审批、种子与摘要顺序）起初两处没被报出，补了两条用例后全部报出。给 runtime 的记录：OMP `Agent` 缺省的 `convertToLlm` 只保留 user、toolResult 与助手消息，developer 角色的种子会被它丢掉，runtime 交上下文时要自己传保留四种角色的 `convertToLlm`（测试里就是这样做的）。
+- **S4 分页与按 id 读取**（本提交，计划第 5 节）：`paging.ts`：轮按用户发出的消息划分（第一条用户消息之前的条目按 Spec 自成一轮），游标是 base64url 的 `{s: 会话 id, q: 一轮起点的序号}`，页大小按截断后的 JSON 计，截断只碰正文、思考、工具参数、custom 数据、摘要，图片数据超预算置空，按字符边界截。场景 15 用三十轮（含 200 KiB 单字段与二十个 15 KiB 字段的一轮）跑完整翻页；`bun test src/session` 55 pass。
+- **计划审查（omp）进行中**：已处理第 1 条（消息按 OMP 必填字段校验，`8dd21b79`）、第 2 条（`append` 入队时取副本）、第 3 条（重开时深冻结存储返回的条目，补测试）。
 
 ## 依据
 
