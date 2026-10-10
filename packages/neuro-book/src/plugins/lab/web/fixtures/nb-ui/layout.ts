@@ -123,7 +123,8 @@ export const layoutFixtures: LabFixture[] = [
     }),
     defineSubjectFixture<typeof Splitter>({
         component: "Splitter",
-        events: ["layout", "gesture-end", "gesture-cancel"],
+        // `gesture-update` 每次指针移动都发，会淹没事件页签，不记。
+        events: ["layout", "gesture-start", "gesture-end", "gesture-cancel"],
         class: "h-full w-full",
         slotPresets: {"panel-outline": block("大纲"), "panel-editor": block("正文"), "panel-notes": block("批注")},
         scenes: [

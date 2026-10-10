@@ -30,6 +30,13 @@ const QUICK_ITEMS = [
     {id: "export", label: "导出为 EPUB", category: "文件", disabled: true, description: "还没有导出插件"},
 ];
 
+const CHAPTER_ITEMS = Array.from({length: 60}, (_, index) => ({
+    id: `chapter-${String(index + 1)}`,
+    label: `第 ${String(index + 1)} 章`,
+    category: index < 30 ? "第一卷 雾港" : "第二卷 雪线",
+    iconClass: "i-lucide-file-text",
+}));
+
 export const feedbackFixtures: LabFixture[] = [
     defineLabFixture<typeof Dialog>({
         component: "Dialog",
@@ -47,7 +54,7 @@ export const feedbackFixtures: LabFixture[] = [
         slots: ["default", "footer"],
         scenes: [
             {id: "default", label: "可拖动", input: {props: {title: "新建作品", size: "md", closable: true, closeOnEsc: true}, model: {modelValue: true}, slots: {default: true, footer: true}}},
-            {id: "resizable", label: "可缩放", input: {props: {title: "素材预览", size: "lg", resizable: true, minWidth: 360, minHeight: 240}, model: {modelValue: true, width: 640}, slots: {default: true}}},
+            {id: "resizable", label: "可缩放", input: {props: {title: "素材预览", size: "lg", resizable: true, minWidth: 360, minHeight: 240}, model: {modelValue: true, width: 640, height: 420}, slots: {default: true}}},
             {id: "busy", label: "忙碌", input: {props: {title: "正在创建", size: "sm", busy: true}, model: {modelValue: true}, slots: {default: true, footer: true}}},
         ],
         load: async () => (await import("./DialogWindowFixture.vue")).default,
@@ -121,14 +128,14 @@ export const feedbackFixtures: LabFixture[] = [
         ],
         subject: nbUiSubject("Notification"),
     }),
-    defineSubjectFixture<typeof QuickInput>({
+    defineLabFixture<typeof QuickInput>({
         component: "QuickInput",
-        events: ["accept", "close", "closed"],
         scenes: [
             {id: "default", label: "命令列表", input: {props: {items: QUICK_ITEMS, title: "命令", placeholder: "输入命令名称", emptyText: "没有匹配的命令"}, model: {open: true, query: "", activeId: "open-project"}}},
             {id: "empty", label: "没有匹配", input: {props: {items: [], title: "命令", placeholder: "输入命令名称", emptyText: "没有匹配的命令"}, model: {open: true, query: "导出 PDF", activeId: null}}},
             {id: "loading", label: "加载中", input: {props: {items: [], title: "打开项目", placeholder: "输入项目名称或路径", emptyText: "没有项目", loading: true, message: "正在列出已登记的项目…"}, model: {open: true, query: "", activeId: null}}},
+            {id: "long-list", label: "长列表", input: {props: {items: CHAPTER_ITEMS, title: "跳到章节", placeholder: "输入章节名", emptyText: "没有匹配的章节"}, model: {open: true, query: "", activeId: "chapter-1"}}},
         ],
-        subject: nbUiSubject("QuickInput"),
+        load: async () => (await import("./QuickInputFixture.vue")).default,
     }),
 ];

@@ -46,7 +46,8 @@ const RULES: readonly Rule[] = [
     },
     {
         rule: "fixed-wait",
-        pattern: /\bBun\.sleep(?:Sync)?\(|\bsetTimeout\(|\.waitForTimeout\(/u,
+        // Playwright 的 `test.setTimeout` 设的是用例的时间上限，不是等待。
+        pattern: /\bBun\.sleep(?:Sync)?\(|(?<!\btest\.)\bsetTimeout\(|\.waitForTimeout\(/u,
         exempt: (line) => ZERO_DELAY.test(line),
         detail: "按固定时长等待：等可观察的状态（test-support 的 waitUntil）或注入时钟",
     },

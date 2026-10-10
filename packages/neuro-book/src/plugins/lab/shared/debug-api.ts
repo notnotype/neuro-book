@@ -35,6 +35,8 @@ export type LabStageMeasure = {
 export type LabDebugApi = {
     version: 1;
     state: () => LabDebugState;
+    /** 登记了场景、且可以挂载的组件名，按组件树的顺序。 */
+    components: () => string[];
     /** 某个组件（缺省为当前组件）登记的场景。 */
     scenes: (component?: string) => Array<{id: string; label: string}>;
     /** 没有舞台（组件不可挂载或还在加载）时为 null。 */

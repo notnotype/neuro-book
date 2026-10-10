@@ -1,4 +1,4 @@
-import {createApp, defineComponent, h, nextTick, type App} from "vue";
+import {createApp, defineComponent, h, nextTick, type App, type SlotsType, type VNodeChild} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 import {LAB_EVENT_SINK, LAB_INPUT_SINK} from "../lab-event-sink";
 import type {LabSceneInput} from "../lab-subject";
@@ -62,6 +62,7 @@ describe("defineSubjectFixture", () => {
     it("插槽预设按场景的 slots 开关填入，登记的插槽就是预设的键；rootless 时不加 data-lab-subject", async () => {
         const Card = defineComponent({
             props: {title: {type: String, required: true}},
+            slots: Object as SlotsType<{default?: () => VNodeChild}>,
             setup(props, {slots}) {
                 return () => h("section", [h("h2", props.title), slots.default?.() ?? "没有内容"]);
             },

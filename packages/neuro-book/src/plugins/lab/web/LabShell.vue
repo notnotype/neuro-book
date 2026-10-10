@@ -23,7 +23,7 @@ import EventLogPanel from "./components/EventLogPanel.vue";
 import HighlightBox from "./components/HighlightBox.vue";
 import {labComponents, findLabComponent, labComponentLabel, matchesLabQuery} from "./component-index";
 import type {LabComponentKind, LabDisplayMode} from "./component-index";
-import {findLabFixture} from "./fixtures";
+import {findLabFixture, labFixtures} from "./fixtures";
 import {LAB_CONTROLS_REGISTER, LAB_DATA_SINK, LAB_EVENT_SINK, LAB_INPUT_SINK} from "./lab-event-sink";
 import {LabSceneInputSchema, type LabSceneInput} from "./lab-subject";
 import type {LabEventEntry} from "./components/event-log.types";
@@ -611,6 +611,7 @@ onMounted(() => {
             themeId: labThemeId.value,
             colorwayId: labColorwayId.value,
         }),
+        components: () => labComponents.filter((entry) => entry.mountable && labFixtures.some((item) => item.component === entry.name)).map((entry) => entry.name),
         scenes: (component) => (findLabFixture(component ?? selectedName.value)?.scenes ?? []).map(({id, label}) => ({id, label})),
     });
 });

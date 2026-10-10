@@ -47,6 +47,11 @@ describe("生产产物检查", () => {
         expect((await scanDist(root, ["/home/someone/repo"])).forbidden).toEqual(["web/assets/lab-xyz.js: nbook.lab", "server/main.js: /home/someone/repo"]);
     });
 
+    it("产品代码误引了 nb-ui 的 lab-sources：组件文档原文进了包，按 frontmatter 拦下", async () => {
+        const root = await dist({...product, "web/assets/index-abc.js": `${product["web/assets/index-abc.js"]} const docs = {"controls/Button.md": "---\\n标签: []\\n---\\n\\n# Button"};`});
+        expect((await scanDist(root, [])).forbidden).toEqual(["web/assets/index-abc.js: 标签: ["]);
+    });
+
     it("缺少产品标记时报告，扫描空目录或别处的输出不会误判通过", async () => {
         const root = await dist({"web/index.html": "", "server/main.js": "Listening on"});
         expect((await scanDist(root, [])).missing).toEqual(["web: nbook.workbench", "web: data-workbench-root", "server: nbook.http"]);

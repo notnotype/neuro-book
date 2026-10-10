@@ -8,8 +8,11 @@
 import {readdir, readFile} from "node:fs/promises";
 import {join, relative, resolve} from "node:path";
 
-/** 只出现在 Lab 代码里的字符串：插件 id、调试接口、偏好键前缀、外壳组件名、源码目录与 DOM 标记。 */
-export const DEVELOPMENT_MARKERS = ["nbook.lab", "__nbLab", "nb-lab:", "LabShell", "plugins/lab/", "data-lab-"];
+/**
+ * 只出现在 Lab 代码里的字符串：插件 id、调试接口、偏好键前缀、外壳组件名、源码目录与 DOM 标记，以及组件文档的
+ * frontmatter（`标签: [`）——Lab 经 `@notnotype/nb-ui/lab-sources` 把组件文档原文打进包，产品代码误引它时由这一项拦下。
+ */
+export const DEVELOPMENT_MARKERS = ["nbook.lab", "__nbLab", "nb-lab:", "LabShell", "plugins/lab/", "data-lab-", "标签: ["];
 
 /** 产品代码一定有的字符串，按产物目录分。 */
 export const PRODUCT_MARKERS: Readonly<Record<"web" | "server", ReadonlyArray<string>>> = {

@@ -70,14 +70,16 @@ function dateScenes(extra: {size?: "sm" | "md" | "lg"} = {}) {
 export const formFixtures: LabFixture[] = [
     defineSubjectFixture<typeof FormInput>({
         component: "FormInput",
-        events: ["clear"],
+        events: ["clear", "focus"],
         class: "w-full max-w-[360px]",
+        slotPresets: {prefix: () => h("span", {class: "i-lucide-book-open shrink-0 text-[var(--text-muted)]", "aria-hidden": "true"})},
         scenes: [
             {id: "default", label: "默认", input: {props: {placeholder: "书名", size: "default"}, model: {modelValue: ""}}},
             {id: "search", label: "搜索、可清空", input: {props: {type: "search", placeholder: "搜组件名", iconClass: "i-lucide-search", clearable: true, size: "sm"}, model: {modelValue: "Tree"}}},
             {id: "password", label: "密码", input: {props: {type: "password", placeholder: "API Key"}, model: {modelValue: "sk-test"}}},
             {id: "readonly", label: "只读", input: {props: {readonly: true}, model: {modelValue: "/home/writer/works/长夜行"}}},
             {id: "disabled", label: "禁用", input: {props: {disabled: true, placeholder: "不可用"}, model: {modelValue: ""}}},
+            {id: "prefix", label: "前缀插槽", input: {props: {placeholder: "书名"}, model: {modelValue: "长夜行"}, slots: {prefix: true}}},
         ],
         subject: nbUiSubject("FormInput"),
     }),
@@ -104,6 +106,7 @@ export const formFixtures: LabFixture[] = [
     }),
     defineSubjectFixture<typeof FormSelect>({
         component: "FormSelect",
+        events: ["focus"],
         class: "w-full max-w-[280px]",
         scenes: [
             {id: "default", label: "界面语言", input: {props: {options: SELECT_OPTIONS, placeholder: "选择语言"}, model: {modelValue: "zh-CN"}}},
@@ -115,11 +118,13 @@ export const formFixtures: LabFixture[] = [
     }),
     defineSubjectFixture<typeof FormCheckbox>({
         component: "FormCheckbox",
+        events: ["focus"],
         scenes: [
             {id: "checked", label: "已勾选", input: {props: {label: "显示清单文件", description: "内容文件夹里的 _manifest.json"}, model: {modelValue: true}}},
             {id: "unchecked", label: "未勾选", input: {props: {label: "显示隐藏文件"}, model: {modelValue: false}}},
             {id: "indeterminate", label: "部分", input: {props: {label: "全选本卷章节", indeterminate: true}, model: {modelValue: "indeterminate"}}},
             {id: "disabled", label: "禁用", input: {props: {label: "同步到云端", disabled: true}, model: {modelValue: false}}},
+            {id: "no-label", label: "没有标签：显示勾选值", input: {props: {}, model: {modelValue: true}}},
         ],
         subject: nbUiSubject("FormCheckbox"),
     }),
@@ -188,6 +193,7 @@ export const formFixtures: LabFixture[] = [
             {id: "default", label: "单选", input: {props: {options: GENRES, variant: "compact", size: "md"}, model: {modelValue: "mystery"}}},
             {id: "card", label: "卡片、多选与操作条", input: {props: {options: GENRES.map((genre, index) => (index === 0 ? {...genre, badge: "常用", badgeTone: "accent" as const} : genre)), variant: "card", multiple: true, showActionBar: true}, model: {modelValue: ["mystery", "romance"]}}},
             {id: "groups", label: "分组与筛选", input: {props: {groups: [{id: "main", label: "主要人物", options: CHARACTER_OPTIONS.slice(0, 2)}, {id: "minor", label: "次要人物", options: CHARACTER_OPTIONS.slice(2)}], showFilter: true, filterPlaceholder: "筛选人物"}, model: {modelValue: "沈屿"}}},
+            {id: "disabled", label: "禁用", input: {props: {options: GENRES, variant: "compact", size: "md", disabled: true}, model: {modelValue: "mystery"}}},
         ],
         subject: nbUiSubject("Listbox"),
     }),
@@ -229,6 +235,7 @@ export const formFixtures: LabFixture[] = [
             {id: "default", label: "时间", input: {props: {placeholder: "提醒时间", step: 15}, model: {modelValue: "21:30"}}},
             {id: "range", label: "限定范围", input: {props: {min: "08:00", max: "18:00", step: 30}, model: {modelValue: "09:00"}}},
             {id: "invalid", label: "不合法", input: {props: {invalid: true}, model: {modelValue: "25:00"}}},
+            {id: "disabled", label: "禁用", input: {props: {disabled: true}, model: {modelValue: "07:00"}}},
         ],
         subject: nbUiSubject("TimePicker"),
     }),

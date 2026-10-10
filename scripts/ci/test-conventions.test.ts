@@ -26,6 +26,7 @@ describe("测试文件规则", () => {
             "vi.advanceTimersByTime(100);",
             "await vi.runAllTimers();",
             "setSystemTime(new Date(0));",
+            "await new Promise((resolve) => window.setTimeout(resolve, 50));",
         ].join("\n");
         expect(rules(source)).toEqual([
             "1:module-mock",
@@ -44,16 +45,18 @@ describe("测试文件规则", () => {
             "14:fake-timer",
             "15:fake-timer",
             "16:fake-timer",
+            "17:fixed-wait",
         ]);
     });
 
-    it("让出一轮事件循环、按条件跳过与注释行不算违反", () => {
+    it("让出一轮事件循环、按条件跳过、注释行与 Playwright 的用例时间上限不算违反", () => {
         const source = [
             "return new Promise((resolve) => setTimeout(resolve, 0));",
             "await Bun.sleep(0);",
             'it.skipIf(process.platform === "win32")("x", () => {});',
             "describe.skipIf(llm === null)(\"真实模型\", () => {});",
             "// 不用 Bun.sleep(100) 等待",
+            "test.setTimeout(120_000);",
         ].join("\n");
         expect(rules(source)).toEqual([]);
     });

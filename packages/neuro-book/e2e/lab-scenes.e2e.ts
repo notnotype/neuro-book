@@ -1,0 +1,95 @@
+/**
+ * Lab 的全部登记场景在真实浏览器里都挂得上（ui.component-lab 验收 2）：覆盖门禁 `fixtures/index.dom.test.ts` 只证明
+ * 登记合法，这里逐个打开，等 fixture 就绪，并要求没有加载失败、页面错误与控制台警告。迁移 nb-ui 场景（w00017 t73）时
+ * 加入，守住“为了凑覆盖登记了一个其实挂不上的场景”。
+ */
+
+import {rm} from "node:fs/promises";
+import {join} from "node:path";
+
+import {expect, test} from "@playwright/test";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+
+import type {LabDebugApi} from "nbook/plugins/lab/shared/debug-api";
+
+import {startDevSession} from "./fixtures";
+import type {DevSession} from "./fixtures";
+
+// 跟踪要记下几百次开发模式整页加载（每次一千多个模块请求）的网络与快照；失败时看的是用例给出的场景与状态，
+// 不需要跟踪。
+test.use({trace: "off"});
+
+let tmp = "";
+let dev: DevSession;
+
+test.beforeAll(async () => {
+    tmp = await createTestTmpRoot("neuro-book-e2e", "lab-scenes");
+    dev = await startDevSession(join(tmp, "state"));
+});
+
+test.afterAll(async () => {
+    dev.child.kill("SIGTERM");
+    expect(await dev.exit).toBe(0);
+    if (tmp !== "") await rm(tmp, {recursive: true, force: true});
+});
+
+test("每个登记场景都能在手机画布上挂上舞台，没有加载失败、页面错误与控制台警告", async ({context}) => {
+    test.setTimeout(20 * 60_000);
+    const problems: string[] = [];
+    // 每个场景一个新标签页：开发服务每次整页加载要请求一千多个模块，同一标签页连续加载四到七次就会报
+    // `ERR_INSUFFICIENT_RESOURCES` 或渲染进程崩溃（2026-10-10 实测，首页同样如此；生产构建连续 20 次正常）。
+    // 新标签页没有这个问题，场景之间的页面状态也因此天然隔离。
+    // 只记从打开到就绪之间的问题：关标签页时插件按 runtime/plugins 以 `receiver-closed` 撤回交付并记警告，
+    // 那是关页面的正常诊断，不属于场景。
+    const openPage = async (label: string) => {
+        const page = await context.newPage();
+        let recording = true;
+        page.on("console", (message) => {
+            if (recording && (message.type() === "error" || message.type() === "warning")) problems.push(`${label} ${message.type()}: ${message.text()}`);
+        });
+        page.on("pageerror", (error) => {
+            if (recording) problems.push(`${label} pageerror: ${error.message}`);
+        });
+        return {
+            page,
+            close: async () => {
+                recording = false;
+                await page.close();
+            },
+        };
+    };
+
+    const first = await openPage("索引");
+    await first.page.goto(`${dev.pageUrl}lab`);
+    await expect.poll(() => first.page.evaluate(() => typeof (window as {__nbLab?: unknown}).__nbLab)).toBe("object");
+    const scenes = await first.page.evaluate(() => {
+        const api = (window as unknown as {__nbLab: LabDebugApi}).__nbLab;
+        return api.components().flatMap((component) => api.scenes(component).map((scene) => ({component, scene: scene.id})));
+    });
+    await first.close();
+    // nb-ui 进 Lab 之后有几百个场景；少于这个数说明组件索引或 nb-ui 来源断了，遍历就失去意义。
+    expect(scenes.length).toBeGreaterThan(200);
+
+    const failed: string[] = [];
+    const openScene = async ({component, scene}: {component: string; scene: string}) => {
+        const label = `${component}/${scene}`;
+        const {page, close} = await openPage(label);
+        await page.goto(`${dev.pageUrl}lab?c=${encodeURIComponent(component)}&s=${encodeURIComponent(scene)}&vp=phone`);
+        // 就绪或加载失败都结束等待；超时时报出当时的状态与地址。
+        await expect.poll(() => page.evaluate(() => {
+            const state = (window as unknown as {__nbLab?: LabDebugApi}).__nbLab?.state();
+            if (state !== undefined && (state.loadError !== "" || (state.ready && state.component === new URLSearchParams(location.search).get("c")))) return "settled";
+            return JSON.stringify({search: location.search, state: state ?? null});
+        }), {message: label}).toBe("settled");
+        const state = await page.evaluate(() => (window as unknown as {__nbLab: LabDebugApi}).__nbLab.state());
+        if (state.loadError !== "" || state.scene !== scene) failed.push(`${label}: ${state.loadError || `打开的是场景 ${state.scene}`}`);
+        await close();
+    };
+    // 几个标签页同时开：逐个打开要近 19 分钟，主要花在每次整页加载上。
+    const queue = [...scenes];
+    await Promise.all(Array.from({length: 4}, async () => {
+        for (let next = queue.shift(); next !== undefined; next = queue.shift()) await openScene(next);
+    }));
+    expect(failed).toEqual([]);
+    expect(problems).toEqual([]);
+});
