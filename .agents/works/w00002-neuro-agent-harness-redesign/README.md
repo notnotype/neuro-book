@@ -31,4 +31,19 @@ issueId: i193
 
 ## 2026-10-01 补规范与审查
 
-开发者要求重写 #193 正文，并给三包补 Spec、README、API 文档与示例，顺带审查。执行位置：worktree `.worktree/w00002-neuro-agent-harness-redesign`，分支 `docs/w00002-harness-specs`。五份 `implemented` Spec 位于 [`docs/specs/harness/`](../../../docs/specs/harness/)；审查发现 16 条（3 条高优先级），均未修复。详见 [`t07-harness-specs-and-docs`](tasks/t07-harness-specs-and-docs/README.md)。
+开发者要求重写 #193 正文，并给三包补 Spec、README、API 文档与示例，顺带审查。执行位置：worktree `.worktree/w00002-neuro-agent-harness-redesign`，分支 `docs/w00002-harness-specs`。当时写的五份 `implemented` Spec（`docs/specs/harness/`）与包文档已于 2026-10-10 按开发者要求删除，内核重做后重新建立；审查发现 16 条（3 条高优先级），均未修复，由内核重做一并解决。详见 [`t07-harness-specs-and-docs`](tasks/t07-harness-specs-and-docs/README.md)。
+
+## 2026-10-10 内核重做
+
+开发者决定：单独开分支与 worktree 做 `nb-harness` 与 Agent 插件；先做内核、不做插件，设计时考虑插件 API。执行位置：worktree `.worktree/w00002-neuro-agent-harness-redesign`，分支 `feat/w00002-harness-kernel`，从 `refactor/w00017-runtime-foundation`（`ebecf836`）开出，并入了 t07 分支；w00017 继续前进时按需合入。设计见 [Agent harness 内核](../../../docs/proposals/agent-harness-kernel.md)（`draft`），设计任务为 [`t08-harness-kernel-design`](tasks/t08-harness-kernel-design/README.md)。
+
+切片（设计获批后按序实施，每片先写或修订 Spec；模块划分见设计稿“模块划分与推进顺序”）。第 0 片是包的底座：模块入口、边界测试、旧原型移到 `src/prototype/`，见 [`t09-harness-foundation-session`](tasks/t09-harness-foundation-session/README.md)。
+
+1. `session`：文件格式与条目、只追加、回放投影、`SessionStore` 与 JSONL 实现、崩溃收口。
+2. `profile`：先讨论扩展性（与 harness 解耦、渲染上下文是否带历史、插件怎样扩展），再做 DSL、`defineProfile`、加载与渲染。
+3. `config` 与 `models`：配置 schema 与问题列表；模型解析（配置的服务与 OMP 目录）；OMP `AuthStorage` 凭据与 OAuth 登录接口；按角色解析模型；真实模型冒烟一条。
+4. `tools`：工具定义、工具来源、审批判定与四种模式、审批模型（`auto`）。
+5. `runtime`：`Agent` 循环、状态与操作矩阵（含排队）、调用结果与错误分类、事件与序号、审批等待与审批恢复；完成时删除旧原型与 `nb-session`、`nb-profile` 两个包。
+6. 内置读写工具：经 `FileAccess` 接口的 `read` 与 `edit`。
+
+`request_user_input`、压缩、子代理等在第一批之后。
