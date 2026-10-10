@@ -11,7 +11,7 @@
 
 ### 1. 条目与校验（`src/session/entries.ts`）
 
-- 用 TypeBox 写出 `SessionHeader`、`EntryInput` 各变体与五种保留类型（`harness/invocation`、`harness/interaction`、`harness/seed`、`harness/reminder`、`harness/profile-state`）的 schema，`Value.Check` 校验。公开类型由 `Static<>` 导出，消息类型引 `@oh-my-pi/pi-ai` 的 `Message`（`import type`），保证与 OMP 的 `SessionEntry` 结构兼容；`message` 条目的消息只校验 Spec 规定的部分（角色、`content` 的块类型），其余字段原样保存。
+- 用 TypeBox 写出 `SessionHeader`、`EntryInput` 各变体与五种保留类型（`harness/invocation`、`harness/interaction`、`harness/seed`、`harness/reminder`、`harness/profile-state`）的 schema，`Value.Check` 校验。公开类型由 `Static<>` 导出，消息类型引 `@oh-my-pi/pi-ai` 的 `Message`（`import type`），保证与 OMP 的 `SessionEntry` 结构兼容；`message` 条目的消息按 OMP 四种角色各自的必填字段校验（user、developer 的 `content`、`timestamp`；assistant 的 `api`、`provider`、`model`、`usage`、`stopReason`、`timestamp` 与 `content` 块类型；toolResult 的 `toolCallId`、`toolName`、`content`、`isError`、`timestamp`），可选字段与 OMP 以后新增的字段原样保存（计划审查第 1 条：`import type` 不查运行时，浅校验会让缺字段的消息写进日志）。
 - “能被 JSON 如实表示”单独一个遍历：拒绝 `undefined`、函数、`NaN`、`Infinity`、`bigint`、循环引用与非普通对象，返回第一处问题的路径，作为 `invalid-entry` 的 `detail`。
 - 与已有条目相关的规则（同一 `interactionId` 至多一个 request、response 在 request 之后、`assistantEntryId` 指向助手 `message`）由日志句柄维护的索引判断，按“这批之前的条目 + 这批前面的输入”逐条校验；任何一条失败整批不写。
 - 条目 id：8 位十六进制随机数，与本会话已有 id 冲突时重取（OMP 的做法）；会话 id 缺省用 `crypto.randomUUID()`（全局对象，不引 Node 内置模块）。

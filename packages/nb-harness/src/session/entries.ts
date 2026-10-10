@@ -30,14 +30,27 @@ const AssistantBlock = Type.Union([
     Type.Object({type: Type.Union([Type.Literal("anthropicFallback"), Type.Literal("anthropicServerTool")])}),
 ]);
 
-// 消息只校验 Spec 规定的部分（角色、content 的块类型），其余字段原样保存，所以这些 schema 都允许额外属性。
+// 消息按 OMP `Message` 的必填字段校验（pi-ai 的 UserMessage、DeveloperMessage、AssistantMessage、ToolResultMessage）：
+// `import type` 只约束编译期，追加时不查这些字段，缺 usage、stopReason 的助手消息会写进日志、到交给 OMP 时才出错。
+// 可选字段与 OMP 以后新增的字段原样保存，所以 schema 允许额外属性。
 // 条目与消息都按判别字段（type、role）先选出变体再校验：对整个 Union 校验时 TypeBox 会把每个变体的错误都列出来，
 // detail 里就全是别的变体缺的字段，看不出真正的问题。
+const Usage = Type.Object({
+    input: Type.Number(), output: Type.Number(), cacheRead: Type.Number(), cacheWrite: Type.Number(), totalTokens: Type.Number(),
+    cost: Type.Object({input: Type.Number(), output: Type.Number(), cacheRead: Type.Number(), cacheWrite: Type.Number(), total: Type.Number()}),
+});
+const StopReason = Type.Union(["stop", "length", "toolUse", "error", "aborted"].map((reason) => Type.Literal(reason)));
 const MESSAGE_SCHEMAS: Readonly<Record<string, TSchema>> = {
-    user: Type.Object({role: Type.Literal("user"), content: UserContent}),
-    developer: Type.Object({role: Type.Literal("developer"), content: UserContent}),
-    assistant: Type.Object({role: Type.Literal("assistant"), content: Type.Array(AssistantBlock)}),
-    toolResult: Type.Object({role: Type.Literal("toolResult"), toolCallId: Type.String(), toolName: Type.String(), content: Type.Array(Type.Union([TextBlock, ImageBlock])), isError: Type.Boolean()}),
+    user: Type.Object({role: Type.Literal("user"), content: UserContent, timestamp: Type.Number()}),
+    developer: Type.Object({role: Type.Literal("developer"), content: UserContent, timestamp: Type.Number()}),
+    assistant: Type.Object({
+        role: Type.Literal("assistant"), content: Type.Array(AssistantBlock), api: Type.String(), provider: Type.String(), model: Type.String(),
+        usage: Usage, stopReason: StopReason, timestamp: Type.Number(),
+    }),
+    toolResult: Type.Object({
+        role: Type.Literal("toolResult"), toolCallId: Type.String(), toolName: Type.String(), content: Type.Array(Type.Union([TextBlock, ImageBlock])),
+        isError: Type.Boolean(), timestamp: Type.Number(),
+    }),
 };
 
 const CustomType = Type.String({pattern: CUSTOM_TYPE_PATTERN.source});

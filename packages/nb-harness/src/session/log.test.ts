@@ -83,10 +83,24 @@ describe("条目校验（输入与前置条件）", () => {
         expect(log.entries.filter((entry) => entry.type === "custom" && (entry.data as {interactionId?: string}).interactionId === "c")).toHaveLength(0);
     });
 
-    test("message 的角色只能是 user、developer、assistant、toolResult；content 的块类型按角色检查", async () => {
+    test("message 的角色只能是 user、developer、assistant、toolResult；content 的块类型与 OMP 的必填字段按角色检查", async () => {
         const log = await fresh();
         expect((await rejection(log, [{type: "message", message: {role: "system", content: "x"} as never}])).detail).toContain("role");
-        expect((await rejection(log, [{type: "message", message: {role: "user", content: [{type: "toolCall", id: "c", name: "n", arguments: {}}]} as never}])).detail).toContain("content");
+        expect((await rejection(log, [{type: "message", message: {role: "user", content: [{type: "toolCall", id: "c", name: "n", arguments: {}}], timestamp: 1} as never}])).detail).toContain("content");
+        expect((await rejection(log, [{type: "message", message: {role: "user", content: "没有时间戳"} as never}])).detail).toContain("timestamp");
+        const complete = assistantMessage([{type: "text", text: "好的"}]);
+        const without = (field: string): EntryInput => {
+            const copy = structuredClone(complete) as unknown as {message: Record<string, unknown>};
+            delete copy.message[field];
+            return copy as unknown as EntryInput;
+        };
+        for (const field of ["api", "provider", "model", "usage", "stopReason", "timestamp"]) {
+            expect((await rejection(log, [without(field)])).detail).toContain(field);
+        }
+        const badStop = structuredClone(complete) as unknown as {message: {stopReason: string}};
+        badStop.message.stopReason = "finished";
+        expect((await rejection(log, [badStop as unknown as EntryInput])).detail).toContain("stopReason");
+        expect((await rejection(log, [{type: "message", message: {role: "toolResult", toolCallId: "c", toolName: "n", content: [], timestamp: 1} as never}])).detail).toContain("isError");
         expect((await log.append([userMessage("好"), assistantMessage([{type: "text", text: "好的"}, {type: "thinking", thinking: "…", thinkingSignature: "sig"}])])).ok).toBe(true);
     });
 });
