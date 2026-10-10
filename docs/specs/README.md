@@ -199,6 +199,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Harness 会话 | [`harness/session.md`](harness/session.md) | `nb-harness` 的只追加会话日志：条目格式、追加与订阅、回放（模型上下文、会话状态与设置）、崩溃收口、分页、存储接口与 JSONL 实现；条目与 OMP 会话条目兼容。待晋升 |
 | Harness 配置 | [`harness/config.md`](harness/config.md) | `nb-harness` 的配置快照：schema 校验与全部问题列表、缺省值、深冻结、替换与变化通知。待晋升 |
 | Harness 模型 | [`harness/models.md`](harness/models.md) | `nb-harness` 的模型目录与解析（配置自建服务加 OMP 内置目录）、角色选择链、能力检查、OMP `AuthStorage` 凭据与 OAuth。待晋升（真实模型冒烟未跑） |
+| Harness 工具 | [`harness/tools.md`](harness/tools.md) | `nb-harness` 的工具协议、来源与可见工具、审批模式与判定顺序、审批模型调用、适配成 OMP `AgentTool`（参数校验、审批关卡、结构化错误、进度） |
 | Harness Profile | [`harness/profile.md`](harness/profile.md) | `nb-harness` 的 Profile：TSX 布局（`System`、`History`、`Appending`）、节点与数据源与字段的注册、渲染、种子与提醒、加载与目录。待晋升 |
 
 ## 旧应用的规范与 Reference（只作参照）
