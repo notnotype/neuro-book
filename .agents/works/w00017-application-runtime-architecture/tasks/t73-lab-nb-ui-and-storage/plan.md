@@ -41,25 +41,29 @@
   - `component-index-model.test.ts` 补重名用例。
 - **挂载规则不变**：由文档标签推导。nb-ui 文档已有 `标签:` frontmatter，格式与新应用一致。
   - `NotificationViewport` 带 `state:shared-write`，会显示为“只能在正式界面验证”；
-  - 只在宿主里成立的零件补 `验证入口:`：`MenuNodes`、`ContextMenuPanel`、`GridBranchRenderer`、`DropIndicatorLabel`、`TimePickerDefault`，实施时逐个核实。
+  - 只在宿主里成立的零件补 `验证入口:`。实施时核实：`MenuNodes`、`ContextMenuPanel`、`GridBranchRenderer` 没有同名文档、不进索引；`DropIndicatorLabel`、`TimePickerDefault` 能独立挂载；只有 `GridRenderer`（布局由宿主算出）标 `验证入口: WorkbenchShellLayout`。
 
 ### 3. nb-ui 场景迁移（`src/plugins/lab/web/fixtures/nb-ui/`）
 
 - **来源**：把 nb-ui playground 的 52 个 fixture（`packages/nb-ui/playground/app/component-lab/fixtures/`）改写成新 Lab 的登记方式。
   - 只需绑定输入、记录事件的，用 `defineSubjectFixture`，不写 `.vue`；
   - 需要组合演示的，写 `.vue` 并用 `defineLabFixture<typeof C>`。
-- **场景与输入怎么换**：
-  - playground `registry.ts` 每个组件的 `scenes` 换成新 Lab 的场景；
-  - `controls`（布尔、文本、选择三类 prop 控件）换成各场景的 `input.props`，在数据页签里编辑；
-  - `events` 名单换成 `useLabSubject` 的事件声明。
+- **场景与输入怎么换**（审查 P04：不是机械搬运，按新 Lab 的规则重写）：
+  - playground `registry.ts` 每个组件的 `scenes` 换成新 Lab 的场景，`controls`（布尔、文本、选择）换成场景的 `input.props`，在数据页签里编辑；受控值进 `model` 层，组件自己回写；
+  - `events` 名单换成事件声明；`targetSelector` 换成 `data-lab-subject`；根是片段或传送门的组件（抽屉等）不加标记；
+  - playground 里在一个场景平铺多套方案、切设计稿（例如 Button 的 BH1-A 到 D）的部分不迁：新 Lab 规定一个场景一个组件，设计实验不是组件合同；
+  - 每个旧 fixture 的去向（新场景、删去的内容与原因）写进证据 `evidences/s2-migration.md`（审查 F03）。
+- **透传登记的两处扩展**（`fixtures/subject-fixture.ts`）：`slotPresets` 给按钮文字、触发器这类固定插槽内容，登记的插槽就是它的键；`rootless` 声明根是片段或传送门、不加 `data-lab-subject`。
+- **值不是 JSON 的组件**：日期与时间组件的值是 `@internationalized/date` 对象，进不了场景输入；场景从空值开始，当非受控组件用，选出的值记进事件页签。泛型组件 `Table` 用实例化表达式按具体行类型检查场景输入。
 - **补齐与登记**：
   - 没有 fixture 的约 30 个组件补场景，例如 `Dialog`、`ContextMenu`、`Tooltip`、`Table`、`TagInput`、`Combobox`、`FileTree`；
   - 登记放在 `fixtures/nb-ui/index.ts`，由 `fixtures/index.ts` 合并，不让一个登记文件涨到几千行。
-- **覆盖门禁**：`fixtures/index.dom.test.ts` 照常要求每个可挂载组件至少一个非空场景，nb-ui 组件同样适用。
+- **覆盖门禁**：`fixtures/index.dom.test.ts` 照常要求每个可挂载组件至少一个非空场景，nb-ui 组件同样适用。它只证明登记合法；场景真的挂得上、没有页面错误，由新增的 e2e 遍历全部登记场景守住（审查 P04）。
 - **排错与样式**：迁移时用 `lab:shot` 扫全部 nb-ui 组件。
   - 组合：手机与 1400×900 两种画布，深色与浅色两种配色；
   - 横向溢出、控制台错误、焦点与键盘问题，在 nb-ui 里修，同时补该组件的 Vitest 合同或场景；
-  - 每处修正记进 Task README，不在原 fixture 里绕过问题。
+  - 每处修正记进 Task README，不在原 fixture 里绕过问题；
+  - 测量本身的误报在 Lab 里修：`window.__nbLab.measure()` 跳过看不见的元素（透明、隐藏、视觉隐藏的读屏元素）。
 
 ### 4. 偏好改存 Storage（`lab-preferences-store.ts`、`use-lab-preferences.ts`、`plugin.ts`）
 
@@ -68,16 +72,24 @@
   - 写法参照 `src/plugins/explorer/web/preferences.ts`；
   - 用 `shared` 而不是 `local`：`local` 记录按客户端身份分开，而客户端身份写在各来源自己的 localStorage 里，换端口就是另一个身份、另一份记录，正好重演现在的问题。Lab 是开发工具，同一状态根下共用一份偏好就够。
 - **store**：`defineStore("lab", ({persist}) => …)`。
-  - action 有 `update(patch)` 和 `resetDefaults()`。`update` 按字段合并后 `commit`；`resetDefaults` 用记录的条件删除；
+  - action 有 `update(patch)`、`resetDefaults()`、`retry()`、`discard()`。`update` 按字段合并后 `commit`；`resetDefaults` 用字段的 `reset({})` 写入空对象（审查 P01：store 的字段没有删除操作，记录里没有的字段就是默认值；`reset` 对受保护的记录同样可用，原件由 Storage 存进原件区）；
+  - 保存暂停（确定失败、结果未知）期间新的修改只改显示，记下最后一份，恢复后再提交，沿用资源管理器偏好的 `commitLatest`；
   - 拖动侧栏宽度或画布尺寸时，拖动中只用 `show` 改显示，松手才 `commit`，不在拖动中连写；
   - 主题、配色、背景这类离散选择立即提交。
 - **装配**：
   - Lab 插件的浏览器入口加依赖 `storageKey` 与 `diagnosticsKey`，激活时 `create` store；
   - 页面贡献的 `load()` 返回一个带着 store 的页面组件，用渲染函数包一层把 store 作为 prop 交给 `LabPage`，与工作台 `home-page.ts` 的做法相同。
-- **首帧**：
-  - 偏好字段 `ready` 之前，Lab 外壳只显示一个占位，不先用默认主题画一帧再跳变；
-  - 读不到（`unavailable`、`io-error`）、记录损坏或版本不认识时，用默认值继续运行，并在 Lab 工具条给一条可见提示，参照资源管理器偏好的提示；
-  - 保存失败时提示可重试。
+- **界面状态**（审查 P03、F01）：偏好只有一条记录，由字段状态推出唯一一种呈现，复用资源管理器的 `fieldProblem` 分类：
+
+  | 字段状态 | 呈现 | 操作 |
+  |---|---|---|
+  | `ready` 为假 | 外壳只显示占位，不先用默认主题画一帧 | 无 |
+  | `failure` 不为空（打开或读取失败） | 用默认值运行；工具条提示“偏好没能读取（失败码）” | 重试：`reopen` |
+  | 快照为 `corrupt`、`unsupported-version` | 用默认值运行；提示“偏好记录损坏或版本不认识，不会覆盖” | 恢复默认：`reset({})` |
+  | `save` 为 `failed`、`unknown` | 显示仍是修改后的值；提示“偏好没保存上（失败码）” | 重试 `retry`、放弃 `discardAll` |
+  | 其余 | 不提示；保存成功也不弹通知 | 无 |
+
+  `ready` 在读取失败时同样会变真（`state.store` 输出），所以不会永远停在占位。
 - **校验**：
   - 记录的 schema 只管结构；
   - 主题、配色、背景是否在当前目录里，仍按现有的逐字段规则在读取后核对，不认识的字段回到默认值，其它字段照常生效；
@@ -93,10 +105,13 @@
   - 现有参数 `c`、`s`、`vp`、`cw`、`theme` 保留；
   - 新增 `zoom`（缩放档位）与 `tab`（检视页签：`docs`、`element`、`events`、`data`）；
   - 不认识或越界的值照旧忽略。
-- **同步方式**：
-  - 选组件、选场景、改画布、改缩放、切页签时，用 `history.replaceState` 写回地址栏；
-  - 切组件用 `pushState`，让浏览器的后退回到上一个组件。这是现在的行为，保留；
+- **同步方式**（审查 P02）：经宿主的 Vue Router 改地址，不直接调 History API，否则 Router 记录的当前路由与地址栏不一致，离开 `reloadOnLeave` 页面时会按旧地址整页加载：
+  - 切组件用 `router.push({query})`，浏览器的后退回到上一个组件；
+  - 选场景、改画布、改缩放、切页签用 `router.replace({query})`；
+  - 后退前进由 Router 的当前路由驱动 Lab 的状态，不再单独监听 `popstate`；
+  - 保留不认识的查询参数，旧别名 `component`、`scene` 读到后换成 `c`、`s`；
   - `cw` 与 `theme` 仍是“地址栏指定、随之写入偏好”。
+- **复制场景链接**（审查 F02）：工具条加一个按钮，复制只含有效参数的规范地址；请求的场景不存在而回落到第一个时，给一条可见提示。
 - **为什么不再需要 sessionStorage**：
   - 刷新：地址栏里就是当前状态；
   - 新标签页：不带参数时打开第一个组件，偏好里的主题照常生效；
@@ -123,7 +138,7 @@
 - **请求**：加载 `/lab` 时，`/api/` 请求仍只有浏览器引导接口一个。读写偏好走 RPC 到 `nbook.storage`，这是 Lab 自己的记录，不是产品数据；
 - **fixture**：fixture 仍不碰 Storage、不发请求，只有外壳读写偏好；
 - **主题**：Lab 的主题与配色仍不读写产品的 `nbook.workbench/theme`，离开 Lab 整页加载；
-- **产物**：`check:dist` 照旧通过，生产产物里没有 Lab 与 fixture，也没有 `@notnotype/nb-ui/lab-sources`；它只被 Lab 引用。
+- **产物**：`check:dist` 照旧通过，生产产物里没有 Lab 与 fixture，也没有 `@notnotype/nb-ui/lab-sources`；它只被 Lab 引用。`check:dist` 的开发标记加上组件文档的 frontmatter 特征 `标签: [`：产品代码误引 `lab-sources` 时文档原文会进包、被拦下（审查 P06，以一次故意误引的变异检查证明）。
 
 ## Spec 与文档改动
 
@@ -138,9 +153,9 @@
 | 片 | 对应设计 | 提交边界 | 自跑验证 |
 |---|---|---|---|
 | S0 | Spec 改动表 | `component-lab.md` 与 nb-ui 文档 | `bun run docs:check`、`bun run governance:check` |
-| S1 | 1、2 | nb-ui 公开入口、索引并入、重名规则 | 索引模型 Bun 测试；`bun run --cwd packages/neuro-book typecheck`；开发模式打开 `/lab` 看到 `nb-ui` 组 |
-| S2 | 3 | nb-ui 场景迁移与补齐（可分两次提交：已有 52 个、补齐其余） | `fixtures/index.dom.test.ts` 覆盖门禁；`lab:shot` 全部 nb-ui 组件 × 2 画布 × 2 配色，零溢出、零控制台错误 |
-| S3 | 4、5 | 偏好改存 Storage、地址栏状态、删去浏览器存储 | 偏好 store 在真实 Storage 上的 Bun 测试；`e2e/lab.e2e.ts` |
+| S1+S2 | 1、2、3 | nb-ui 公开入口、索引并入、重名规则、75 个组件的场景（同一提交，覆盖门禁才是绿的）；已完成 `5c4a5f19` | 索引模型 Bun 测试；nb-ui 与 neuro-book `typecheck`；`build` 与 `check:dist`；`fixtures/index.dom.test.ts`；`lab:shot` 全部 nb-ui 组件 × 2 画布 × 2 配色 |
+| S2b | 3、7 | 迁移对照表、遍历全部登记场景的 e2e、`check:dist` 的 `lab-sources` 标记 | 新 e2e；`check:dist` 的变异检查 |
+| S3 | 4、5 | 偏好改存 Storage、界面状态、Router 维护地址栏、复制场景链接、删去浏览器存储 | 偏好 store 在真实 Storage 上的 Bun 测试；`e2e/lab.e2e.ts` |
 | S4 | 6 | 拆分 `LabShell.vue` | 全部 Lab e2e（`lab*.e2e.ts`）、`lab:shot` 抽查 |
 | S5 | 开发者已定的 2、3 | 变量页签与元素页签的结构检查迁入；playground Lab 退役 | 变量与检查的 DOM 测试；Lab e2e；nb-ui `typecheck` |
 | S6 | 收口 | 证据、omp 审查与修正 | `bun run test:affected --typecheck`、全量 e2e、`docs:check`、`governance:check` |
@@ -151,8 +166,11 @@
 |---|---|
 | component-lab 验收 1（只有引导接口一个 `/api/` 请求，不写 Lab 的浏览器存储键） | `e2e/lab.e2e.ts`：加载后 localStorage 只有 `nbook.client-identity`，sessionStorage 为空 |
 | 验收 2、3（场景切换、不可挂载条目） | 现有 e2e；nb-ui 的 `NotificationViewport` 与带 `验证入口` 的零件各点一个 |
-| 验收 8（偏好恢复、恢复默认） | e2e：改主题、侧栏与画布后刷新恢复；另开第二个窗口读到同一份；“恢复 Lab 默认配置”后记录被删除、界面回默认 |
-| 验收 9（坏记录） | Bun：在真实 Storage 写入不认识的主题 id 与越界宽度，读取后只丢这两项；记录损坏与版本不认识时 Storage 判为受保护，Lab 用默认值并提示 |
+| 验收 8（偏好恢复、恢复默认） | e2e：改主题、侧栏与画布后刷新恢复；另开第二个窗口读到同一份；“恢复 Lab 默认配置”后记录是空对象、界面回默认 |
+| 验收 9（坏记录与失败） | Bun（`storage/testing/world.ts` 的真实 Storage）：写入不认识的主题 id 与越界宽度，读取后只丢这两项；记录损坏、版本不认识时呈现“受保护”，恢复默认后可写；打开失败呈现“没能读取”，重试后恢复；保存失败与结果未知时呈现“没保存上”，暂停期间的多次修改恢复后只提交最后一份 |
+| 新增：两个窗口同时改不同字段 | e2e（审查 P05）：两个 `/lab` 窗口分别改主题与侧栏宽度，制造一次条件冲突，两项都落盘，刷新后两个窗口一致 |
+| 新增：全部场景挂得上 | e2e：按 `window.__nbLab.scenes` 遍历全部登记场景，每个都就绪、没有页面错误与控制台错误 |
+| 新增：地址栏与 Router 一致 | e2e：切组件 A、B，后退，再离开 `/lab`，地址栏、Router 当前路由与整页加载的目标一致 |
 | 验收 12（分层输入） | 每个迁移的 nb-ui 场景经类型化登记，`bun run typecheck` 与覆盖门禁 |
 | 验收 13（地址栏） | e2e：`/lab?c=Button&s=…&vp=phone&zoom=…&tab=data` 直接打开该画面；切场景后刷新仍在原处 |
 | 新增：换端口读到同一份偏好 | e2e：同一状态根先后用两个端口启动开发后端，偏好相同 |
@@ -161,6 +179,7 @@
 
 - **端到端**：开发模式 `bun run dev`，用 Playwright 的本机 Chrome 跑 Lab 的 e2e。另用 `lab:shot` 对全部 nb-ui 组件出截图与溢出报告，存进 Task 证据。
 - **人工观察**：在 `/lab` 检查 nb-ui 组的导航、文档页签与数据页签；四种主题与配色组合各看一遍代表组件。
+- **审查**：计划审查报告见 `evidences/design-review.txt`（omp 一个会话，14 条问题、7 条补充；t73 的 P01–P06、F01–F03 已并入本计划，t74、t75 的条目写进各自的 Task 与提案）。
 - **未验证的边界**：
   - 壁纸保留 IndexedDB，仍按浏览器来源各存一份；
   - Windows、macOS 未实测。

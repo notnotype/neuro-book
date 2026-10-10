@@ -1,0 +1,202 @@
+# w00017 t73–t75 只读设计审查
+
+审查快照：`/home/notnotype/CodeRepository/neuro-book/.worktree/review-t73-design`，提交 `249e01c5`。仅读取仓库；未修改仓库、未提交、未运行产品测试、构建、开发服务或浏览器 E2E。
+
+证据标识：**已核实（合同与代码）**指逐行对照已有规范、类型或实现；**已验证（运行）**仅用于实际执行过的命令。本报告没有“已验证（运行）”结论；“如何核实”给出应补的真实测试或现有合同测试入口。
+
+已按开发者已确认决定审查，不再把以下事项列为问题：Lab → 标题栏 → 书架顺序；nb-ui 进入 Lab；Lab 不再使用 localStorage/sessionStorage；壁纸保留 IndexedDB；变量编辑器迁入第五页签；书架取“书房”方向；新作品默认放作品目录；首版只显示今天与总字数、不做封面图。
+
+## 一、问题
+
+### P01：恢复默认要求“条件删除”，但 store 公开接口没有删除操作
+
+- **对象**：t73 `plan.md` 的偏好 store；**严重程度**：阻断；**类别**：正确性 / 接口。
+- **位置**：`.agents/works/w00017-application-runtime-architecture/tasks/t73-lab-nb-ui-and-storage/plan.md:66-73`；`docs/specs/state/store.md:63-66,68-88`；`packages/neuro-book/src/shared/store/persisted.ts:42-60`。
+- **现象**：计划要求 `resetDefaults()`“用记录的条件删除”，并在验收中要求“记录被删除、界面回默认”。但 `defineStore` setup 只允许通过 `persist` 取得字段；`PersistedField` 只有 `reset(value)`，它是写入一个值，不是 `remove`。底层 Storage 虽有 `remove`，却不是 store setup 的可用能力。
+- **原因**：照字面实现只能把默认对象写回记录，无法得到“missing”状态，也无法满足“记录被删除”的验收；若在 Lab store 里直接取底层 Storage，又会绕过 store 的 owner、队列、冲突与释放合同。
+- **如何核实**：补一个真实 `storageWorld` 场景，调用 `resetDefaults()` 后直接读 `lab.preferences`，断言快照为 `missing`，再在两个窗口同时修改并观察条件写入；当前 `state.store` 的 `reset` 合同测试只能证明写值，不会证明删除。
+- **建议**：二选一并写入 Spec：一是把验收改为“写回默认对象”；二是为持久字段增加明确的 `remove()`/`clear()` 合同（含条件删除、冲突、unknown、protected、队列和释放语义），再让 `resetDefaults()` 调用它。不要在 Lab 中私自直接调用 Storage `remove`。
+
+### P02：计划要求直接用 History API，但会破坏宿主 Router 的当前路由
+
+- **对象**：t73 URL/history 设计；**严重程度**：重要；**类别**：正确性 / 不变量。
+- **位置**：`.agents/works/w00017-application-runtime-architecture/tasks/t73-lab-nb-ui-and-storage/plan.md:90-103`；`packages/neuro-book/src/plugins/lab/web/LabShell.vue:473-481`；`packages/neuro-book/src/web/router.ts:30-43`。
+- **现象**：计划要求选组件用 `pushState`，其它变化用 `replaceState`。现有 Lab 已明确通过 `router.replace` 同步查询，代码注释说明直接改 History 会使 Router 的当前路由与地址栏不一致。宿主 Router 离开 `reloadOnLeave` 页面时使用它自己的 `currentRoute` 决定 `navigateDocument(to.fullPath)`。
+- **原因**：直接 `pushState`/`replaceState` 不会更新 Vue Router 的当前 route，也不会触发 Router 的导航守卫。用户切组件后再点击离开 `/lab`，Router 可能拿旧查询生成目标 URL；后退时 Router 与 Lab 自己的 `popstate` 处理也会出现两个状态源。
+- **如何核实**：真实 Chrome 打开 `/lab`，选择组件 A、组件 B，按后退，再从 `/lab` 离开到 `/`；断言地址栏、`router.currentRoute`、页面实际加载目标三者的 `c/s` 一致。用现有 `reloadOnLeave` 页面路径覆盖该场景。
+- **建议**：由 Router 承担两种历史语义：组件切换调用 `router.push({query})`，场景/画布/缩放/页签调用 `router.replace({query})`；统一保留未知查询参数并规范化旧别名参数。若必须直接用 History，需先给宿主 Router 增加公开的同步/导航入口，不能在组件内另建历史状态机。
+
+### P03：`ready`、受保护记录、保存失败和恢复动作没有形成可执行的 UI 状态合同
+
+- **对象**：t73 Storage 偏好首帧与失败路径；**严重程度**：重要；**类别**：接口 / 正确性 / 测试。
+- **位置**：`.agents/works/w00017-application-runtime-architecture/tasks/t73-lab-nb-ui-and-storage/plan.md:64-88`；`docs/specs/state/store.md:97-109,136-145`。
+- **现象**：计划要求 `ready` 前只显示占位，读取失败/坏记录用默认值继续并提示，保存失败提示重试；但没有规定 UI 何时从占位切到默认值、`corrupt`/`unsupported-version` 时是只读还是允许覆盖、`unknown` 时重试是否复用原值、多个字段中一个失败时工具条如何展示，也没有要求 `update` 观察 `commit` 的结果。现有 store 的 `ready` 在失败已定时也会变为 true，`canSave` 则为 false；受保护记录只能 `reset` 覆盖。
+- **原因**：如果实现只以“读成功”作为 ready，会在不可用时无限占位；如果把任意错误都当普通默认值提交，会触发 `protected`/`failed` 后悄悄停队列；如果 action 丢弃 `CommitResult`，用户看不到可执行的 retry/discard/reopen 路径。
+- **如何核实**：使用 `storageWorld` 真实断线、`endProject`、损坏记录、未知版本、条件冲突和 `unknown-outcome` 场景，逐项断言首帧、提示、按钮、`canSave`、队列以及恢复后是否只重试最后意图。可复用 `packages/neuro-book/src/shared/store/store.test.ts` 的真实 Storage 场地，但需增加 Lab 偏好字段的集成断言。
+- **建议**：在 `component-lab.md` 和计划验收表中显式列出字段状态：`loading`、`defaulted-read-failure`、`protected`、`saving`、`failed`、`unknown`、`ready`；明确每个状态的可操作按钮与按钮结果。按资源管理器偏好的 `fieldProblem`/`retry`/`discard`模式实现，不把失败当成“没有记录”。
+
+### P04：旧 playground 场景不能按 `controls → input.props` 机械迁移，现有覆盖门禁会放过行为丢失
+
+- **对象**：t73 nb-ui 场景迁移；**严重程度**：重要；**类别**：正确性 / 测试 / 迁移。
+- **位置**：`.agents/works/w00017-application-runtime-architecture/tasks/t73-lab-nb-ui-and-storage/plan.md:46-62`；`packages/nb-ui/playground/app/component-lab/registry.ts:32-62,75-100`；`packages/nb-ui/playground/app/component-lab/fixtures/TabsFixture.vue:18-75,79-150`；`packages/neuro-book/src/plugins/lab/web/fixtures/index.ts:60-79`；`packages/neuro-book/src/plugins/lab/web/fixtures/index.dom.test.ts:41-57,129-191`。
+- **现象**：旧 registry 的 `controls` 只是布尔/文本/选择控件，fixture 自己消费 `controls`；旧场景还带 `invalid`、`disabled`、`events`、`targetSelector`。例如 `TabsFixture` 自己维护五套选中状态和方案切换。新合同要求 JSON `props/model/slots`，事件必须重新声明，目标节点优先靠 `data-lab-subject`。计划只写“换成 input.props”和“补至少一个场景”。
+- **原因**：仅满足“每个可挂载组件有一个非空场景”可以把旧的多方案、受控模型、事件、禁用/错误状态和目标定位全部丢掉；`index.dom.test.ts` 只证明登记结构合法，不证明旧 fixture 的可观察行为仍存在。
+- **如何核实**：建立旧 registry 组件/场景/控件/事件/目标与新 fixture 的迁移矩阵；对旧 Lab 每个有多场景或自定义 fixture 的组件，在新 Lab 真实 Chrome 中逐场景操作并断言 model 回写、事件日志、主要目标高亮和交互结果。`lab:shot` 只能补充视觉、溢出和控制台错误，不能替代这些断言。
+- **建议**：把 52 个已有 fixture 和新增约 30 个组件分成“纯输入”“受控模型”“组合宿主”“自维护多方案”“仅正式入口”五类；每类规定转换模板和行为用例。复杂 fixture 保留自己的运行状态，但把辅助控件迁到 `LabFixtureControls`，不要为了通过覆盖门禁删掉场景。
+
+### P05：t73 的验收只验证跨窗口读到同一份，未验证偏好 patch 的冲突重放和用户可恢复性
+
+- **对象**：t73 跨窗口共享偏好；**严重程度**：重要；**类别**：并发 / 测试。
+- **位置**：`.agents/works/w00017-application-runtime-architecture/tasks/t73-lab-nb-ui-and-storage/plan.md:148-158`；`docs/specs/state/store.md:158-163`；`packages/neuro-book/src/shared/store/store.test.ts:40-49,87-107`。
+- **现象**：验收映射只要求第二窗口读到同一份偏好。现有 store 的通用测试覆盖了探针记录的不同字段合并，但没有证明 Lab 的 `update(patch)`、拖动松手提交、离散选择提交在两个真实 Lab 窗口并发时都按预期重放；也没有 t73 级别的失败、重试、放弃和 `adopt` 画面验证。
+- **原因**：Lab 偏好是一个具体 schema；补丁字段白名单、拖动中的 `show`、多个字段连续提交和 UI 提示都可能破坏通用 store 已保证的条件保存语义。仅测“读到同一份”无法发现后写窗口覆盖前写窗口、队列暂停后按钮失效等回归。
+- **如何核实**：真实 Chrome 开两个 `/lab` 窗口，同时改主题与侧栏宽度等不同字段，制造一次条件冲突，断言两项都落盘；再让一侧在保存失败/断线后重连，断言 retry/discard/adopt 与界面显示。复用现有 `e2e/state.e2e.ts` 的双标签页时序，但操作真实 Lab 控件。
+- **建议**：把“共享、冲突重放、失败恢复”拆成 t73 的独立 E2E 验收，不只引用通用 `state.e2e.ts`。记录 `CommitResult` 或字段 `save` 状态，确保工具条给出唯一且可操作的恢复入口。
+
+### P06：`lab-sources` 的包级 TypeScript、Vite 消费和生产排除没有对应门禁
+
+- **对象**：t73 `@notnotype/nb-ui/lab-sources` 公开入口；**严重程度**：建议；**类别**：测试 / 构建。
+- **位置**：`.agents/works/w00017-application-runtime-architecture/tasks/t73-lab-nb-ui-and-storage/plan.md:26-32,121-126,140-146`；`packages/nb-ui/package.json:8-20,22-28`；`packages/nb-ui/tsconfig.json:5-24`；`packages/neuro-book/scripts/check-dist.ts:11-13,33-47`。
+- **现象**：计划只写 `neuro-book typecheck` 和开发模式打开 `/lab`。新入口内含 `import.meta.glob` 与 `vite/client`，但它属于 nb-ui 包的公开类型表面；主应用架构测试只扫描 `packages/neuro-book/src`。现有 `check-dist` 的禁用标记没有 `@notnotype/nb-ui/lab-sources` 或其专属路径标记。
+- **原因**：主应用类型检查通过不等于 nb-ui 自己的 `typecheck`、playground 构建和消费方的 Vite 转换通过；生产误引该入口时，如果公共标记被树摇或路径重写，当前字符串扫描也未必能命中这个新入口。
+- **如何核实**：分别运行 `bun run --cwd packages/nb-ui typecheck`、`bun run --cwd packages/neuro-book typecheck`、主应用开发构建和生产 `build && check:dist`；再做一次故意从产品入口静态导入 `lab-sources` 的变异检查，确认生产门禁失败。
+- **建议**：S1/S6 明确同时执行 nb-ui 包级 typecheck/build 与主应用构建；给 `check-dist` 增加可稳定识别的 Lab source marker，或改为检查生产 Rollup/Vite 模块图中不含该入口。Bun 测试继续只导入纯 `component-index-model`，把 Vite glob 消费限定在 Vitest/浏览器路径。
+
+### P07：旧四组菜单与新命令没有完成语义、参数和能力映射，别名机制不能直接承接它们
+
+- **对象**：t74 标题栏菜单；**严重程度**：阻断；**类别**：接口 / 正确性。
+- **位置**：`.agents/works/w00017-application-runtime-architecture/tasks/t74-workbench-titlebar/README.md:12-21`；`docs/specs/workbench/commands.md:18-27,35-39,120-135,198-200,224-230`；`packages/neuro-book-legacy/app/utils/workbench-chrome.ts:117-145,251-321`；`packages/neuro-book/src/plugins/commands/shared/registry.ts:237-255`；`docs/specs/workbench/editor.md:41-56`。
+- **现象**：旧菜单的 15 个 id 至少包括 `file.open`、`file.settings`、`file.quit`、`edit.cut/copy/paste/select-all`、`view.reload/zoom-in/zoom-out/zoom-reset`、`help.documentation/about`。新命令表目前只有 undo/redo 等编辑命令、`nbook.project.open`、面板/View 命令和文件资源管理器命令；`nbook.editor.open` 还要求 `{address, mode, editor?}`，不是旧的无参 `file.open`。浏览器也不能执行旧模型里的页面代替用户读取剪贴板/桌面退出/桌面缩放动作。
+- **原因**：现有 `registerAlias(alias, targetId)` 只按字符串解析，并要求 target 已登记；它不做参数转换、能力检查或语义适配。把 `file.open` 直接别名到 `nbook.editor.open` 会因参数 schema 不符或缺少 address 失败；把 `file.settings`、`view.zoom-*` 等指向近似命令会改变语义。旧标题栏的“禁用并说明”也不能替代不存在的 canonical 命令。
+- **如何核实**：在真实浏览器命令表中逐个执行旧 15 个 id，记录 `get`/`execute` 的 canonical id、参数 schema、`when` 和失败码；对编辑焦点为 editor、native、none 以及无项目窗口分别核对菜单可见性和禁用原因。
+- **建议**：先在 t74 计划中列完整映射表，每项明确“新 canonical 命令 / 参数适配器 / 浏览器隐藏 / 禁用原因 / 待后续”。需要文件选择的动作新增无参 `nbook.files.open` 或明确使用项目命令面板选择模式；需要适配器的旧 id不能伪装成纯 alias。浏览器不具备的桌面动作按外壳 Spec 不画，不为凑满四组菜单制造假入口。
+
+### P08：标题栏/状态栏贡献点仍是外壳 Spec 的非目标，t74 没有定义贡献合同
+
+- **对象**：t74 标题栏与状态栏贡献点；**严重程度**：重要；**类别**：接口 / 架构。
+- **位置**：`.agents/works/w00017-application-runtime-architecture/tasks/t74-workbench-titlebar/README.md:20-24`；`docs/specs/ui/workbench-shell.md:18-23,42-51,80-82`；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchStatusBar.vue` 及同名 `.md`（当前说明不提供条目贡献点）。
+- **现象**：t74 要求“状态栏条目、标题栏操作”，但现有外壳只定义固定 Part，Spec 明确把这两类贡献点列为非目标；没有声明入口、贡献 id、所有者、排序、撤回、可见性、命令参数、错误呈现和焦点规则。
+- **原因**：如果直接给 `WorkbenchShell`/`WorkbenchStatusBar` 增加任意 slot 或 props，会绕开工作台贡献点生命周期，并无法保证插件停用后条目消失、同 id 冲突可诊断、窄屏顺序稳定；第一批使用者（编辑器光标/未保存数）也没有公开状态或数据读取边界。
+- **如何核实**：先写一个最小真实插件贡献测试：激活后条目出现，重复 id 被拒，撤回后消失，命令不可用时显示原因；再在 36px 标题栏和 22px 状态栏的宽窄视口检查不重叠、不抢编辑器焦点。
+- **建议**：t74 先补 `workbench.titlebar-items`/`workbench.statusbar-items` 合同，定义声明、实现、排序、槽位、`when`/公开状态和释放语义；更新外壳 Spec 的非目标与验收，再迁移组件。真实数据由编辑器/资源管理器 owner 通过公开状态或命令提供，外壳不直接读领域状态。
+
+### P09：标题栏的 36px、紧凑切换和“不画假入口”没有进入 t74 的验收
+
+- **对象**：t74 外壳几何与宿主能力；**严重程度**：重要；**类别**：UI 正确性 / 测试。
+- **位置**：`.agents/works/w00017-application-runtime-architecture/tasks/t74-workbench-titlebar/README.md:12-21`；`docs/specs/ui/workbench-shell.md:66-82`；`packages/neuro-book-legacy/app/utils/workbench-chrome.ts:56-64,115-120,290-321`。
+- **现象**：外壳 Spec 要求标题栏固定 36px、保留最小拖动区；浏览器没有桌面桥时不画退出/窗口控制，未接入动作不画成可用入口，编辑焦点不合适时编辑命令禁用并说明。t74 只列出要迁移的品牌、四组菜单、搜索、项目切换和布局按钮，没有对应的几何、能力裁剪、键盘焦点和错误提示验收。
+- **原因**：照“迁移旧零件”实现容易把桌面菜单组件整体带进 Web：画出 `file.quit`、桌面缩放或无实现的帮助项，或在标题栏夺焦点后把编辑命令错误地判为不可用；窄屏也可能压掉可拖动区域。
+- **如何核实**：真实 Chrome 在宽屏、390px 窄屏、无项目、编辑器/原生输入/不可编辑焦点下检查标题栏计算高度、菜单可见性、disabled reason、焦点回退和后退/ESC 行为；桌面宿主测试另在有真实 bridge 的环境运行，不以 Web mock 代替。
+- **建议**：把 36px/22px、满菜单到 compact 的阈值、`desktop`/`surfaceActive`/编辑焦点能力表、未实现项不渲染和菜单无障碍键盘行为写进 t74 验收。只迁移通用呈现，不迁移桌面能力假设。
+
+### P10：“继续写作”要求定位到章末，但现有编辑器 API 没有可跨编辑器实现的定位合同
+
+- **对象**：t75 继续写作；**严重程度**：重要；**类别**：接口 / 正确性。
+- **位置**：`docs/proposals/bookshelf.md:56-62,113-120,136-140`；`docs/specs/workbench/editor.md:41-56,89-96`；`packages/neuro-book/src/plugins/editor/web/area.ts:48-59,81-126`；`packages/neuro-book/src/plugins/editor/web/commands.ts:129-143`；`packages/neuro-book/src/plugins/editor/web/components/MarkdownControl.vue:168-173`。
+- **现象**：现有 `editor.open` 只接收 address/mode/editor；已有 `go-to-line` 需要四字段文档身份与行号，且只作用于当前活动编辑器。`EditorControlHandle.navigation` 是可选的，Monaco 实现了它，但 Markdown 控件的句柄没有 navigation。提案要求“打开项目，并在编辑器里定位到那一章的末尾”。
+- **原因**：书架无法仅靠现有 `open` 把编辑器光标/滚动定位到末段；即使先打开再调用 `go-to-line`，Markdown 富文本没有该能力，而且“最后一段末尾”不是稳定的行号合同。打开和控件就绪还是异步过程，必须处理目标文件迟到、被删除/移动、项目换代和 stale target。
+- **如何核实**：真实 Chrome 分别以 `.md` 的 Markdown 编辑器和源码编辑器点击“继续写作”，断言文件打开、活动组切换、滚动位置和可继续输入位置；在加载未完成、章节被改名/删除、项目代次变化时断言失败提示而不是定位到旧文档。
+- **建议**：在编辑器 Spec 增加 owner 级 `openAt`/`reveal` 合同，例如 `{address, anchor: {paragraphId/offset, contentHash}}`，由 EditorArea 编排打开后等待句柄就绪，再由 Markdown/Monaco 各自实现；若首版只保证滚动而不移动光标，也必须明示。旧的 `go-to-line` 不应被硬套成章末定位。
+
+### P11：`.nbook/project.json` 当前是独占创建的身份文件，不支持提案所需的元数据更新语义
+
+- **对象**：t75 项目元数据；**严重程度**：重要；**类别**：数据一致性 / 接口。
+- **位置**：`docs/proposals/bookshelf.md:111-126,136-140`；`packages/neuro-book/src/server/projects/identity.ts:12,21,58-94`；`packages/neuro-book/src/server/projects/registry.ts:84-125`。
+- **现象**：当前 `project.json` 的写入函数只独占创建 `{schema: 1, id}`，文件已存在时读回原文件；没有更新书名、简介、主题色的方法。登记表的 `name` 由目录名生成并单独保存，`ProjectView` 也只返回登记表字段。提案要求服务端直接读写同一文件中的元数据且项目目录可移动、复制。
+- **原因**：直接重用 `writeProjectIdentity` 无法编辑元数据；另写 JSON 也可能覆盖并发写入的身份或其它字段。项目运行时、书架编辑、两个服务端进程同时操作同一目录的顺序/冲突没有合同。`schema: 1` 是否允许新增可选字段、坏字段如何保留、元数据写失败是否更新登记表也未定义。
+- **如何核实**：两个真实服务端实例同时修改 `.nbook/project.json` 的不同字段，另一个实例同时登记/移动目录；检查 id 是否保持、未知字段是否保留、文件是否出现半写、书架列表是否与文件最终一致。补充 `identity.test.ts` 的非法 JSON、旧 schema、权限/只读和原子替换场景。
+- **建议**：把身份与元数据定义成版本化记录，提供原子读改写、条件 revision/锁和明确失败码；更新时永远保留 `id` 与未知字段策略。明确项目名的 canonical 来源，再由 `nbook.projects` 统一广播/刷新，而不是让书架和登记表各读一份。
+
+### P12：统计缓存没有读取路径、键模型、失效策略和所有权合同
+
+- **对象**：t75 统计缓存；**严重程度**：重要；**类别**：接口 / 数据一致性 / 性能。
+- **位置**：`docs/proposals/bookshelf.md:44-49,111-126`；`packages/neuro-book/src/plugins/projects/shared/contracts.ts`；`packages/neuro-book/src/plugins/projects/backend/plugin.ts:25-36`；`docs/specs/storage/persistence.md`（user/project owner 规则）。
+- **现象**：提案说项目实例计算统计，写入 user 分区 Storage，书架只读缓存；但现有 `ProjectView` 只有 `id/name/path/state/generation`，远程合同只有 `list/register`。提案拟增加的“三类方法”是新建、修改信息、移除登记，没有说明书架如何读取统计记录，也没有定义按项目 id 的 `keyed/resource`、`user/shared/locality`、版本、上限、写入者和缓存字段。
+- **原因**：书架无法从当前 `list` 获得今日/总字数等字段；若页面逐个直接打开 Storage，又会缺少“只读缓存”的统一合同。若用一条未 keyed 的 user 记录，多项目会互相覆盖；若由多个项目代次/服务端进程写全量快照，后写快照可能覆盖新数据。
+- **如何核实**：从一个没有打开项目的真实浏览器加载书架，观察网络/远程调用是否能得到统计；登记两个项目并分别由项目实例写入，再让一项目换代/停止，断言两份缓存不互串、`list` 与缓存版本一致。
+- **建议**：在 `runtime.projects` 或独立 Spec 中定义统计读取合同：项目 id keyed user record、schema/version、`calculatedAt`、`sourceGeneration`、内容指纹/统计状态；明确 `list` 是内嵌摘要还是另一个批量 `stats` 方法。统计只由项目实例或服务端单一 owner 写，条件保存冲突按代次处理，页面不得为显示统计启动项目。
+
+### P13：统计口径无法由当前文件夹合同推出，“今天”和缓存新鲜度没有定义
+
+- **对象**：t75 字数/章节/最后编辑统计；**严重程度**：重要；**类别**：领域模型 / 正确性。
+- **位置**：`docs/proposals/bookshelf.md:56-70,113-120,142-147`；`docs/specs/workspace/folder-kinds.md:20-25,43-72,92-103`；`docs/specs/runtime/projects.md`（项目不自动重启、同目录并发边界）。
+- **现象**：提案只说统计依赖内容文件夹规则，没有规定普通 Markdown、`.content/index.md`、`.binder` 章节、清单文件、隐藏/辅助文件分别是否计入；“最后编辑章节”和“最后段落”也没有事件来源。第一版只显示今天与总字数，但“今天”使用哪个时区、按保存时间还是输入时间、跨午夜如何结算未定义。
+- **原因**：文件夹合同只定义了目录呈现与 `index.md`/章节识别，不定义写作统计。项目关闭或崩溃前未上报、服务端重启、外部文件管理器修改、两个进程打开同一目录都能让 user Storage 快照陈旧；当前项目规范明确不自动重启且不防同目录并发。
+- **如何核实**：准备同时含普通文件夹、`.content`、`.binder`、清单和辅助 Markdown 的真实项目，分别编辑/移动/删除/跨时区保存，比较项目实例统计、缓存和书架显示；强停项目后检查缓存是否被错误标成最新。
+- **建议**：Spec 先定统计集合与字数算法、段落取样、时间戳来源及时区；缓存带 `fresh/stale/never-calculated` 和来源代次/内容版本。崩溃或外部变化后显示“统计可能过期”，由下次合法项目运行或显式刷新更新，不把旧快照伪装成实时值。
+
+### P14：书架元数据、项目列表和 t74 标题栏没有单一的作品名来源
+
+- **对象**：t74 项目切换与 t75 书架；**严重程度**：重要；**类别**：跨任务接口 / 数据一致性。
+- **位置**：`docs/proposals/bookshelf.md:113-132`；`.agents/works/w00017-application-runtime-architecture/tasks/t74-workbench-titlebar/README.md:14-19`；`packages/neuro-book/src/server/projects/registry.ts:27-43,124-125`；`packages/neuro-book/src/plugins/projects/backend/plugin.ts:25-35`。
+- **现象**：t75 把书名放入 `.nbook/project.json`，t74 又要求标题栏和书架共用一份作品列表；现有列表的 `name` 是由目录 basename 生成且存于状态根 `projects.json`，项目绑定名称也来自登记记录。提案没有说明编辑书名后是否同步登记表、已打开窗口的标题是否更新、目录移动/复制时显示名优先级。
+- **原因**：按当前合同实现会产生至少两种名称：登记表短名和项目元数据书名。标题栏可能继续显示旧短名，书架显示新书名，项目命令按旧名解析；复制目录还涉及 identity id 冲突规则。
+- **如何核实**：真实登记项目后编辑元数据书名、重命名目录、另开窗口和重启服务端，比较 `/` 书架、标题栏、项目选择器、绑定 `project.name` 和 `resolve(reference)` 的结果。
+- **建议**：在 t75 Spec 里确定 canonical display name（建议项目文件元数据），扩展 `ProjectView`/binding/list 的返回字段与刷新事件；登记表只保留索引与路径，短名作为无元数据时的明确回退，并定义旧窗口在运行代次中何时刷新。
+
+## 二、补充的细节与功能
+
+以下不是阻断项，而是建议在修订计划时补入，避免核心合同稳定后再返工。每条给出代价与建议轮次。
+
+### F01：Lab 偏好工具条显示“未保存/只读/默认运行”状态
+
+- **对象**：t73 Lab 偏好；**类别**：可恢复性；**位置**：`plan.md:77-84`、`docs/specs/state/store.md:115-145`。
+- **建议**：工具条按字段显示“正在读取”“使用默认值（读取失败）”“未保存”“记录受保护”，提供重试、放弃和恢复默认；保存成功不弹 toast。代价是增加一套字段状态呈现与 2–3 个断线/坏记录 E2E；建议放 S3。
+
+### F02：生成规范化的“复制此场景链接”入口
+
+- **对象**：t73 Lab URL；**类别**：效率 / 可审查性；**位置**：`plan.md:90-103`。
+- **建议**：统一用 Router 生成只含有效 `c/s/vp/zoom/tab/theme/cw` 的 canonical URL，复制按钮同时去掉旧别名参数；无效场景回落后给出可见提示。代价是一个纯 URL 测试和一个真实浏览器复制/粘贴场景；建议放 S4。
+
+### F03：为 fixture 迁移保留 machine-readable 映射清单
+
+- **对象**：t73 nb-ui 迁移；**类别**：迁移审计；**位置**：`plan.md:46-62`。
+- **建议**：记录旧 fixture、旧 scene/control/event/targetSelector 到新 fixture/input/model/slots/data-lab-subject 的映射，以及明确删除的行为和阻断原因。代价是一次性维护表；收益是后续组件 API 变化时能定位场景为何消失。建议与 S2 同提交。
+
+### F04：标题栏菜单以“能力模型”生成，而不是静态复制旧菜单
+
+- **对象**：t74 标题栏；**类别**：可理解性 / 宿主隔离；**位置**：`README.md:14-21`、旧 `workbench-chrome.ts:115-145`。
+- **建议**：保留四组 IA，但每个菜单项包含 canonical id、可见性条件、disabled reason、参数工厂和 owner；桌面专属动作直接不渲染，Web 不画假退出/缩放。代价是先写一层纯能力模型测试；建议作为 t74 S0，早于 Vue 迁移。
+
+### F05：标题栏/状态栏贡献声明增加稳定排序和撤回诊断
+
+- **对象**：t74 贡献点；**类别**：扩展性；**位置**：`README.md:20-24`。
+- **建议**：声明 `{id, order, title, icon, when, load/execute}`，同 id 拒绝后来者，插件停止时级联撤回；状态栏窄屏按优先级折叠而非截断真实数据。代价是新共享合同与一份真实插件合同测试；建议在外壳四的第一片完成。
+
+### F06：统计卡显示新鲜度和统计来源
+
+- **对象**：t75 书架统计；**类别**：信任感；**位置**：`bookshelf.md:56-70,113-120`。
+- **建议**：除“尚未统计”外区分“统计于某时刻”“项目未运行，数据可能过期”“项目异常退出，待下次打开更新”；不要把缓存时间伪装成最后编辑时间。代价是摘要字段增加 2–3 个、布局增加一行辅助文案；建议与统计合同同轮。
+
+### F07：继续写作失败时保留可恢复目标
+
+- **对象**：t75 继续写作；**类别**：恢复能力；**位置**：`bookshelf.md:56-62`。
+- **建议**：统计快照同时保存项目 id、generation-independent 的资源地址、段落锚点和内容 hash；打开失败时给“项目/文件已移动、章节已删除、定位不可用”的结构化提示，并允许只打开文件或复制片段。代价是编辑器 anchor 合同和 2 个失败 UI；建议与 P10 同轮，不做字符串猜测定位。
+
+## 三、未发现问题的方面
+
+- `user` 分区用于 Lab 偏好、`shared` 用于跨客户端身份共享的方向与 Storage 合同一致：user 由服务端拥有，shared 不按客户端身份分裂；无项目窗口访问 user 记录在现有浏览器 Storage facade 中可解析，project 才返回 `no-project`。
+- Lab 会话状态迁入 URL、壁纸继续用 IndexedDB、宿主 `nbook.client-identity` 不纳入 Lab 存储删除范围，符合已确认决定和当前 Storage 分区边界。
+- 让 nb-ui 自己导出 `lab-sources`，由消费方经公开包入口引用，而不是从主应用跨包深导入 nb-ui 源码，方向正确；fixture 使用 `defineLabFixture<typeof C>`、`data-lab-subject` 与现有分层输入门禁也一致。
+- 生产只在开发 manifest 中加载 Lab、前端开发入口动态加载的隔离方向正确；问题仅在新入口的包级验证和 `check-dist` 专属标记还未补齐。
+- 复用现有 store 的 `base/display/queue/save`、一次冲突重放、`ready` 和 protected/unknown 语义的底层机制是正确方向；本报告指出的是 t73 计划没有把这些语义接成偏好 UI 合同，不是否定 store 本身。
+- t74 保留品牌、项目切换、命令搜索和布局动作作为目标，与开发者“迁移旧标题栏”的范围一致；不在 Web 强行实现桌面窗口控制的约束已有依据。
+- t75 不为了显示统计逐个启动项目、项目元数据随目录保存、统计进入 user Storage 缓存的总体边界合理；需要补的是读取路径、写入并发和新鲜度合同。
+
+## 四、数量统计
+
+### 问题
+
+- 阻断：2（P01、P07）
+- 重要：11（P02–P05、P08–P14）
+- 建议：1（P06）
+- 合计：14
+
+### 补充的细节与功能
+
+- F01–F07：7 条，均为建议，不改变已确认的产品方向。
+
+### 本轮核实范围
+
+- 已读：t73 `README.md`、`plan.md`；t74 `README.md`；t75 `README.md`；`docs/proposals/bookshelf.md`；相关 UI、Storage、store、projects、editor、commands、workspace、testing Spec；对应实现、旧标题栏和 Lab fixture/registry。
+- 未运行：`bun test`、`bun run test:affected`、typecheck、构建、`check:dist`、开发服务、Playwright/Chrome E2E。上述命令或场景仅作为各条“如何核实”的建议，不写成通过证据。

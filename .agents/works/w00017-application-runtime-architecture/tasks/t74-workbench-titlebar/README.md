@@ -23,10 +23,28 @@ taskId: t74-workbench-titlebar
 
 行为合同：[`ui/workbench-shell.md`](../../../../../docs/specs/ui/workbench-shell.md)（新增“外壳四”）、[`workbench/commands.md`](../../../../../docs/specs/workbench/commands.md)。
 
+## 计划须回答的问题（t73 计划审查，2026-10-10）
+
+omp 审查（报告在 [t73 证据](../t73-lab-nb-ui-and-storage/evidences/design-review.txt)）对本 Task 的范围提出的条目，写计划时逐条回答：
+
+- **P07 菜单映射**：旧标题栏 15 个菜单 id 逐个对到新命令。每项写明是现成命令、需要参数适配的命令、浏览器里不画，还是留待以后。
+  - 例子：`file.open` 不能直接别名到要求 `{address, mode}` 的 `nbook.editor.open`；
+  - 剪贴板、退出、缩放这类桌面动作，在浏览器里不画成假入口。
+  - 菜单由“能力模型”生成：每项带 canonical 命令、可见条件、禁用原因、参数工厂（F04）。先写纯模型测试，再迁 Vue 零件。
+- **P08 贡献点合同**：先在外壳 Spec 定义 `workbench.titlebar-items` 与 `workbench.statusbar-items`，内容包括：
+  - 声明、实现、排序、槽位，`when` 与公开状态；
+  - 同 id 冲突、插件停止时撤回、窄屏按优先级折叠（F05）；
+  - 外壳不直接读领域状态，条目数据由 owner 经公开状态提供。
+- **P09 验收**：要验收以下几项：
+  - 标题栏 36px、状态栏 22px，菜单从完整到紧凑的切换阈值；
+  - 无项目时的呈现，以及编辑焦点在编辑器、原生输入或别处时的禁用原因；
+  - 菜单的键盘与焦点行为；
+  - 未实现的项不渲染。
+
 ## 前置
 
 [t73](../t73-lab-nb-ui-and-storage/README.md)。
 
 ## 当前状态
 
-- 2026-10-10 建立，未开工。
+- 2026-10-10 建立，未开工；t73 计划审查对本 Task 的三条意见见上。
