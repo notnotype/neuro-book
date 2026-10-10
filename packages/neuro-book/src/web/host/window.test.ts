@@ -61,7 +61,7 @@ function backendAt(port: number, state: RemoteProbeState = newRemoteProbeState()
     sequence += 1;
     const stateRoot = join(tmp, `state-${String(sequence)}`);
     return startServer({
-        config: {host: "127.0.0.1", port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
+        config: {host: "127.0.0.1", port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
         plugins: (context) => [...manifestServerPlugins(context), createRemoteProbePlugin(state)],
         process: new EventEmitter(),
         writeFatal: () => undefined,
@@ -640,7 +640,7 @@ async function projectBackend(): Promise<{readonly server: RunningServer; readon
     const grace = new ManualClock();
     const forward = trackedProjectOutput(observed<string>());
     const server = startServer({
-        config: {host: "127.0.0.1", port: 0, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: [], projects: {graceMs: 1000, startMs: 10_000, stopMs: 10_000}},
+        config: {host: "127.0.0.1", port: 0, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: {graceMs: 1000, startMs: 10_000, stopMs: 10_000}},
         plugins: (context) => [...manifestServerPlugins(context), createRemoteProbePlugin()],
         process: new EventEmitter(),
         writeFatal: () => undefined,

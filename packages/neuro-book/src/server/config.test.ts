@@ -23,6 +23,7 @@ describe("后端启动参数", () => {
             webRoot: null,
             stopStdin: false,
             rpcPort: 4218,
+            shiftPorts: true,
             allowedOrigins: [],
             projects: {graceMs: 300_000, startMs: 30_000, stopMs: 20_000},
         });
@@ -43,6 +44,10 @@ describe("后端启动参数", () => {
 
     it("RPC 端口可改，0 由系统分配；额外页面来源按 URL 规范化", () => {
         expect(readServerConfig([], {NBOOK_STATE_ROOT: "/data", NBOOK_RPC_PORT: "0"}, "/work").rpcPort).toBe(0);
+        // 只要显式给了其中一个端口，被占用就照旧失败，不顺延。
+        expect(readServerConfig([], {NBOOK_STATE_ROOT: "/data", NBOOK_RPC_PORT: "0"}, "/work").shiftPorts).toBe(false);
+        expect(readServerConfig([], {NBOOK_STATE_ROOT: "/data", NBOOK_PORT: "4217"}, "/work").shiftPorts).toBe(false);
+        expect(readServerConfig([], {NBOOK_STATE_ROOT: "/data", NBOOK_PORT: " ", NBOOK_RPC_PORT: ""}, "/work").shiftPorts).toBe(true);
         const config = readServerConfig([], {NBOOK_STATE_ROOT: "/data", NBOOK_RPC_PORT: "4100", NBOOK_ALLOWED_ORIGINS: " http://127.0.0.1:3000 , http://LOCALHOST:3000/,http://[::1]:3000"}, "/work");
         expect(config.rpcPort).toBe(4100);
         expect(config.allowedOrigins).toEqual(["http://127.0.0.1:3000", "http://localhost:3000", "http://[::1]:3000"]);

@@ -25,7 +25,7 @@ let server: RunningServer;
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-bootstrap", "browser-bootstrap");
     server = startServer({
-        config: {host: "127.0.0.1", port: 0, stateRoot: tmp, logDirectory: join(tmp, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
+        config: {host: "127.0.0.1", port: 0, stateRoot: tmp, logDirectory: join(tmp, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
         process: new EventEmitter(),
         writeFatal: () => undefined,
     });

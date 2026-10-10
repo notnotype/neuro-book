@@ -82,7 +82,7 @@ async function inProcess(fault: ProjectFault = "none"): Promise<InProcess> {
     const output = observed<string>();
     const forward = trackedProjectOutput(output);
     const server = startServer({
-        config: {host: "127.0.0.1", port: 0, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: [], projects: {graceMs: GRACE_MS, startMs: 10_000, stopMs: 10_000}},
+        config: {host: "127.0.0.1", port: 0, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: {graceMs: GRACE_MS, startMs: 10_000, stopMs: 10_000}},
         process: new EventEmitter(),
         writeFatal: () => undefined,
         plugins: (context) => [...manifestServerPlugins(context), createRemoteProbePlugin()],

@@ -23,6 +23,7 @@ import {remoteProbeContract} from "nbook/shared/testing/remote-probe-contract";
 import {PROJECT_LIMIT_DEFAULTS} from "./config";
 import {ServerAssemblyError, startServer} from "./start";
 import {manifestServerPlugins} from "./plugins";
+import {isAddressInUse, PORT_SHIFT_STEP} from "./ports";
 import {helloFrame, openRawRpcSocket, upgradeStatus} from "./testing/rpc-client";
 import {createRemoteProbePlugin, createTestPlugin, newRemoteProbeState, routePlugin} from "./testing/test-plugins";
 
@@ -105,7 +106,7 @@ function spawnServer(options: {readonly plugins?: string[]; readonly entry?: str
     };
 }
 
-type LogLine = {event: string; level: string; data?: {plugin?: string; stage?: string; reason?: string}};
+type LogLine = {event: string; level: string; data?: {plugin?: string; stage?: string; reason?: string; offset?: number; http?: number; rpc?: number}};
 
 async function readLog(stateRoot: string): Promise<LogLine[]> {
     const text = await readFile(join(stateRoot, "logs", "server-current.jsonl"), "utf8");
@@ -241,7 +242,7 @@ describe("后端宿主（真实子进程）", () => {
 });
 
 describe("后端宿主（同进程）", () => {
-    const config = (name: string) => ({host: "127.0.0.1", port: 0, stateRoot: join(tmpRoot, name), logDirectory: join(tmpRoot, name, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS});
+    const config = (name: string) => ({host: "127.0.0.1", port: 0, stateRoot: join(tmpRoot, name), logDirectory: join(tmpRoot, name, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS});
 
     it("两个插件同时提交 http.routes：各自挂在自己的前缀下", async () => {
         const ping = (reply: string) => () => new Hono<{Bindings: HttpRouteEnv}>().get("/ping", (c) => c.text(reply));
@@ -389,7 +390,7 @@ describe("后端宿主（同进程）", () => {
 });
 
 describe("后端宿主的 RPC 端口（同进程，Spec server-host 场景 12、13）", () => {
-    const config = (name: string) => ({host: "127.0.0.1", port: 0, stateRoot: join(tmpRoot, name), logDirectory: join(tmpRoot, name, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS});
+    const config = (name: string) => ({host: "127.0.0.1", port: 0, stateRoot: join(tmpRoot, name), logDirectory: join(tmpRoot, name, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS});
     const tui = {id: "tui-1", kind: "tui", role: "client" as const, project: null, client: null};
     const holdRequest = (id: string, name: string): unknown => ({
         type: "request",
@@ -517,4 +518,47 @@ describe("后端宿主的 RPC 端口（同进程，Spec server-host 场景 12、
         expect(fatalLines[0]).toContain("runtime.startup.failed");
         expect(fatalLines[0]).toContain("RPC");
     });
+
+    /** 端口当前能否监听；被占用以外的失败照常抛出。 */
+    const free = (port: number): boolean => {
+        try {
+            void Bun.serve({hostname: "127.0.0.1", port, fetch: () => new Response(null)}).stop(true);
+            return true;
+        } catch (error) {
+            if (isAddressInUse(error)) return false;
+            throw error;
+        }
+    };
+    /** 占住一个端口，并找一个与它配对的 RPC 端口：两者顺延后的端口都空着，测试才有确定的结果。 */
+    const occupiedPair = (): {readonly occupant: ReturnType<typeof Bun.serve>; readonly other: number} => {
+        for (;;) {
+            const occupant = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response("occupied")});
+            const port = occupant.port!;
+            const other = port + 1;
+            if (port + PORT_SHIFT_STEP + 1 <= 65_535 && free(other) && free(port + PORT_SHIFT_STEP) && free(other + PORT_SHIFT_STEP)) return {occupant, other};
+            void occupant.stop(true);
+        }
+    };
+
+    for (const taken of ["http", "rpc"] as const) {
+        it(`两个端口都取缺省、${taken === "http" ? "HTTP" : "RPC"} 端口被占用：HTTP 与 RPC 成对顺延 100 后启动，记一条 server.ports.shifted`, async () => {
+            const {occupant, other} = occupiedPair();
+            const [httpPort, rpcPort] = taken === "http" ? [occupant.port!, other] : [other, occupant.port!];
+            const name = `ports-shift-${taken}`;
+            try {
+                const server = startServer({config: {...config(name), port: httpPort, rpcPort, shiftPorts: true}, process: new EventEmitter(), writeFatal: () => undefined});
+                await server.ready;
+                expect(Number(new URL(server.url!).port)).toBe(httpPort + PORT_SHIFT_STEP);
+                expect(Number(new URL(server.rpcUrl).port)).toBe(rpcPort + PORT_SHIFT_STEP);
+                expect((await fetch(new URL("api/runtime/health", server.url!))).status).toBe(200);
+                expect(await upgradeStatus(rpcPort + PORT_SHIFT_STEP, {})).toBe(101);
+                server.requestStop("test:done");
+                expect((await server.stopped).exitCode).toBe(0);
+            } finally {
+                void occupant.stop(true);
+            }
+            const shifted = (await readLog(join(tmpRoot, name))).filter((line) => line.event === "server.ports.shifted");
+            expect(shifted.map((line) => ({offset: line.data?.offset, http: line.data?.http, rpc: line.data?.rpc}))).toEqual([{offset: PORT_SHIFT_STEP, http: httpPort + PORT_SHIFT_STEP, rpc: rpcPort + PORT_SHIFT_STEP}]);
+        }, 20_000);
+    }
 });

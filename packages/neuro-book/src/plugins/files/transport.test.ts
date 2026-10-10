@@ -37,7 +37,7 @@ beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-files", "transport");
     stateRoot = join(tmp, "state");
     backend = startServer({
-        config: {host: "127.0.0.1", port: 0, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
+        config: {host: "127.0.0.1", port: 0, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
         plugins: (context) => manifestServerPlugins(context),
         process: new EventEmitter(),
         writeFatal: () => undefined,

@@ -33,6 +33,7 @@ import type {ServerConfig} from "./config";
 import {startServerHost} from "./host";
 import type {FatalKind, ProcessEvents} from "./host";
 import {manifestServerPlugins} from "./plugins";
+import {isAddressInUse, listenWithShift, PORT_SHIFT_ATTEMPTS} from "./ports";
 import type {ServerPluginContext} from "./plugins";
 import {createProjectManager} from "./projects/manager";
 import type {ProjectManager} from "./projects/manager";
@@ -169,24 +170,44 @@ export function startServer(options: StartServerOptions): RunningServer {
         return options.config.allowedOrigins.includes(normalized) || (url !== null && loopbackOrigins(url).includes(normalized));
     };
     let rpc: RpcListener;
+    let config: ServerConfig;
     try {
-        rpc = startRpcListener({
+        const listened = listenWithShift({
             host: options.config.host,
-            port: options.config.rpcPort,
-            router,
-            admit: admitUpgrade,
-            allowOrigin,
-            reportError: (error) => store.record({level: "error", event: "rpc.upgrade.failed", message: "处理 RPC 升级时出错", error}),
+            httpPort: options.config.port,
+            rpcPort: options.config.rpcPort,
+            shift: options.config.shiftPorts,
+            listenRpc: (port) => startRpcListener({
+                host: options.config.host,
+                port,
+                router,
+                admit: admitUpgrade,
+                allowOrigin,
+                reportError: (error) => store.record({level: "error", event: "rpc.upgrade.failed", message: "处理 RPC 升级时出错", error}),
+            }),
         });
+        rpc = listened.rpc;
+        config = {...options.config, port: listened.httpPort, rpcPort: rpc.port};
+        if (listened.offset > 0) {
+            store.record({
+                level: "warn",
+                event: "server.ports.shifted",
+                message: `缺省端口被占用，改用 HTTP ${String(config.port)}、RPC ${String(config.rpcPort)}`,
+                data: {offset: listened.offset, http: config.port, rpc: config.rpcPort},
+            });
+        }
     } catch (error) {
         // 还没有运行实例，没有要关闭的资源。
-        reportFatal("runtime.startup.failed", "内核 RPC 端口监听失败", error);
-        throw new ServerAssemblyError("内核 RPC 端口监听失败", {cause: error});
+        const message = options.config.shiftPorts && isAddressInUse(error)
+            ? `缺省的 HTTP 与内核 RPC 端口及顺延的 ${String(PORT_SHIFT_ATTEMPTS - 1)} 组都被占用`
+            : "内核 RPC 端口监听失败";
+        reportFatal("runtime.startup.failed", message, error);
+        throw new ServerAssemblyError(message, {cause: error});
     }
     options.onRpcListening?.(rpc.url);
 
     const context: ServerPluginContext = {
-        config: options.config,
+        config,
         manifest: options.manifest ?? productPlugins,
         store,
         admission,

@@ -21,6 +21,8 @@ export interface ServerConfig {
     readonly stopStdin: boolean;
     /** 内核 RPC 端口，缺省 4218；0 表示由系统分配。浏览器总是经引导接口得知实际端口。 */
     readonly rpcPort: number;
+    /** 两个端口都取缺省时为 true：被占用就成对顺延（见 `ports.ts`）。 */
+    readonly shiftPorts: boolean;
     /** 额外放行的页面来源（已规范化），给页面不由本进程 HTTP 端口提供的情形，即开发模式的页面服务。 */
     readonly allowedOrigins: ReadonlyArray<string>;
     /** 项目子进程的时限（毫秒）：宽限期、等启动结果的截止、每个子进程的停止截止。 */
@@ -76,7 +78,8 @@ export function readServerConfig(argv: readonly string[], env: Readonly<Record<s
         startMs: parseDuration("NBOOK_PROJECT_START_MS", env.NBOOK_PROJECT_START_MS, PROJECT_LIMIT_DEFAULTS.startMs),
         stopMs: parseDuration("NBOOK_PROJECT_STOP_MS", env.NBOOK_PROJECT_STOP_MS, PROJECT_LIMIT_DEFAULTS.stopMs),
     };
-    return {host, port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot, stopStdin, rpcPort, allowedOrigins, projects};
+    const shiftPorts = isUnset(env.NBOOK_PORT) && isUnset(env.NBOOK_RPC_PORT);
+    return {host, port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot, stopStdin, rpcPort, shiftPorts, allowedOrigins, projects};
 }
 
 function parseDuration(name: string, value: string | undefined, fallback: number): number {
@@ -88,8 +91,12 @@ function parseDuration(name: string, value: string | undefined, fallback: number
     return milliseconds;
 }
 
+function isUnset(value: string | undefined): boolean {
+    return value === undefined || value.trim() === "";
+}
+
 function parsePort(name: string, value: string | undefined, fallback: number): number {
-    if (value === undefined || value.trim() === "") return fallback;
+    if (isUnset(value)) return fallback;
     const port = Number(value);
     if (!Number.isInteger(port) || port < 0 || port > 65_535) {
         throw new ServerConfigError("invalid-port", `${name} 必须是 0..65535 的整数，收到 ${value}`);

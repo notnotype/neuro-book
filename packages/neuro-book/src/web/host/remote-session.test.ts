@@ -36,7 +36,7 @@ function serverAt(port: number): RunningServer {
     sequence += 1;
     const stateRoot = join(tmp, `state-${String(sequence)}`);
     return startServer({
-        config: {host: "127.0.0.1", port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
+        config: {host: "127.0.0.1", port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
         process: new EventEmitter(),
         writeFatal: () => undefined,
     });
