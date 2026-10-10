@@ -1,0 +1,190 @@
+# w00017 t74 实施计划只读审查
+
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t74-workbench-titlebar/plan.md`。证据路径相对审查 worktree：`/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t73-impl/wt`。
+
+证据口径：文档与代码结论注明“已核实（合同与代码）”；执行结果单独记录。计划中的未来行为只判断合同是否足够，不把未实现行为写成已发生的运行缺陷。开发者已定的桌面入口裁剪、作品列表随 t75、同名 `.md` 与 Lab 场景不再讨论。
+
+## 问题
+
+### P1：编辑菜单的焦点条件并不存在，直接取命令可用性无法满足 P09
+
+- **严重程度**：阻断。
+- **位置**：计划“P07 与 F04”第 21、34–41 行；“P09”第 68–69 行。证据：`packages/neuro-book/src/plugins/editor/web/commands.ts:55-69`；`docs/specs/workbench/editor.md:56-57`；`docs/specs/workbench/commands.md:66-69`。
+- **现象**：计划把 `nbook.edit.undo/redo` 写成“when 读编辑器焦点”，并要求编辑器、原生输入框、别处三种焦点得到不同禁用原因。真实声明只要求 `nbook.editor/active`、`nbook.editor/writable`；编辑器 Spec 明确命令的 `when` 不含焦点，以便命令面板取得焦点后仍能操作活动编辑器。
+- **为什么是问题**：仅以 `isEnabled()` 输出生成菜单，焦点在别的输入框时仍可操作最近的活动编辑器。反过来直接把 `focused` 加进 canonical 命令的 `when`，菜单与命令面板夺取焦点后会使它们自己的撤销入口不可用，并破坏现有合同。计划尚未选定菜单的目标语义，P09 无法照字面验收。
+- **建议改法**：保留 canonical 命令的活动编辑器语义，在菜单触发宿主明确捕获“打开前的目标/焦点”，决定何时允许执行并给出菜单专属原因；打开菜单、进入子菜单、Escape、执行后还焦点的全过程使用这一目标。若菜单一律操作活动编辑器，则改 P09 明确这一语义，不承诺原生输入框撤销。增加通过点击与 Alt/F10 打开菜单、随后执行撤销的真实场景，不能只在菜单打开前断言 `isEnabled()`。
+- **核实**：已核实（合同与代码）；尚未运行浏览器。
+
+### P2：整页导航服务不能兑现“刷新当前页”和“新标签打开文档”的合同
+
+- **严重程度**：重要。
+- **位置**：计划第 24、26、78、111 行。证据：`packages/neuro-book/src/shared/host.ts:21-28`；`packages/neuro-book/src/web/host/window.ts:56-61,103-107,205-211`；`packages/neuro-book/src/web/boot.ts:36-52`。
+- **现象**：S1 把两条新命令接到 `windowNavigationKey`，但该服务只有 `navigateDocument(href)`，生产实现是当前页 `location.assign`。`location.reload` 只通过 `mountWindowUi` 的独立参数提供给终态页，插件没有此能力；服务也没有新标签页外部导航能力。
+- **为什么是问题**：以现有接口直接实现文档命令会离开当前工作页，违反新标签页承诺；刷新也缺少保留当前地址的 reload 宿主端口。若实现时直接读 `window/location`，就绕过计划指定的宿主合同，真实内核的 Bun 测试与非 DOM 宿主不能沿用同一路径。命令完成表示“已请求导航”还是“已导航”也未说明；浏览器的离开确认取消不能由 `location.reload()` 的返回值判定。
+- **建议改法**：在 S0/S1 明列最小宿主端口与装配：重载当前文档、用户触发的外部新标签打开；声明文档 URL、开窗拒绝的结果，以及 reload 只确认请求发出。复用编辑器已有 `beforeunload` 结算/确认，不新造第二份离开保护；验收“取消刷新保留正文”“确认后当前 URL 的项目参数不变”“文档打开后原工作页与正文仍在”。新命令的 `effect`、Agent 暴露逐项写明；项目打开已因整页重载中断窗口而声明 `agent: never`（`docs/specs/workbench/commands.md:135`），刷新应采用同一理由。
+- **核实**：已核实（合同与代码）；尚未执行导航实验。
+
+### P3：选择 Menubar 后，禁用原因的展示接口尚未纳入交付切片
+
+- **严重程度**：重要。
+- **位置**：计划第 34、38、83、110–115、122、138 行。证据：`packages/nb-ui/src/components/controls/Menubar.vue:12-29,70-87`；旧 `packages/neuro-book-legacy/app/components/desktop-title-bar/DesktopTitleBarMenus.vue:39-45`。
+- **现象**：计划要求菜单项禁用时“悬停与读屏给出原因”，但 `MenubarItemData` 只有 `disabled`，没有 `title`、描述或禁用原因字段，叶子项交给 `MenuNodes` 渲染。旧标题栏至少把 `disabledReason` 传入 Dropdown 的 `title`；计划的 S0 文档表、S2 模型测试和 S4 接线都没有明确补齐 Menubar 的原因呈现接口，风险段只提 Alt/F10。
+- **为什么是问题**：纯模型里存在原因字符串并不能让用户在最终菜单中读到它；直接丢弃该字段会退步，给整个菜单组加 title 又不能解释各个叶子项。禁用项通常不能选择，读屏如何关联原因也不能由业务组件猜测。
+- **建议改法**：在菜单组件接线前明确 nb-ui 的叶子项描述/禁用原因接口与展示方式，同步 `Menubar.md`、对应叶子组件文档及 Lab 场景。保留简洁的禁用原因，将它关联到菜单项的可访问描述，并覆盖鼠标悬停和键盘/读屏路径。验收实际 DOM 中的原因和关联关系，不能只断言 `menu-model.test.ts` 的输出。
+- **核实**：已核实（组件接口与旧实现）；尚未运行浏览器。
+
+### P4：无项目不等于不可保存，P09 会误禁用用户资产文件
+
+- **严重程度**：重要。
+- **位置**：计划第 31、34、67 行。证据：`packages/neuro-book/src/plugins/editor/web/session.ts:41-58`；`packages/neuro-book/src/plugins/editor/web/commands.ts:57-60`；`docs/specs/workspace/resources.md:40-48`；`docs/specs/workbench/editor.md:87`。
+- **现象**：计划要求未打开项目时“保存等”禁用并说明需要项目；真实编辑器在 `project === null` 时直接建立，`user://` 文件由服务端提供、跨项目共享，并不需要项目绑定。保存只要求活动文档 dirty，全部保存没有项目或活动文档的 `when`。
+- **为什么是问题**：未绑定项目的窗口仍可编辑与保存用户文件；按窗口项目空值禁用文件组会移除这一已有能力。反过来若照计划只取 `isEnabled()`，无项目时的“全部保存”仍可用，P09 又会失败。无项目与无活动文档是不同前提，当前模型只有 `desktop` 也不能得出计划声称的项目禁用原因。
+- **建议改法**：P09 分开“无项目且无活动文档”和“无项目但已编辑 user:// 文件”。是否可保存按实际文档与命令合同判断，不新增统一的项目门禁；确实只接收 project:// 的入口才给项目缺失原因。补无项目用户文件保存成功与有项目但无活动文档两种验收。
+- **核实**：已核实（合同与代码）；尚未运行文件保存实验。
+
+### P5：新显隐命令的必填 part 无法从命令面板执行，参数工厂仍未回答
+
+- **严重程度**：重要。
+- **位置**：计划第 34、41、43、77、111 行；Task `README.md:33` 明确要求参数工厂。证据：`packages/neuro-book/src/plugins/commands/shared/registry.ts:309-315`；`packages/neuro-book/src/plugins/workbench/web/commands/panel-commands.ts:5-6,124-140`；`docs/specs/workbench/commands.md:53,139,164`。
+- **现象**：新命令写成 `set-part-hidden {part, hidden?}`，只有 `hidden` 可省略，却同时承诺标题栏、菜单与命令面板都走这一条。菜单能力模型只写固定参数，不给 F04 要求的参数工厂或省参交互；已有面板命令能从命令面板执行，是因为参数全可省略并由实现打开选择器。
+- **为什么是问题**：命令面板普通候选执行空对象；必填 `part` 会在到达实现前得到 `invalid-args`，无法让用户挑选侧栏/右栏/活动栏。把三个按钮的固定参数照搬到一个候选也没有唯一可选目标。
+- **建议改法**：明确菜单每个条目的参数，以及这条命令在空参数调用时的选择合同。沿已有 `set-panel-position` 模式允许省略 `part` 并选择区域，取消无副作用；或提供完整的人类候选/参数适配入口。S1 先验证从真实命令面板所用的 `{}` 可执行，S2 再测试每个视图菜单条目对应的参数，不能只测命令 id 与 enabled。
+- **核实**：已核实（严格参数合同与已有模式）；尚未运行命令面板。
+
+### P6：侧栏/右栏的“显示”仍可能保持 0px，布局按钮也没有对应公开状态
+
+- **严重程度**：重要。
+- **位置**：计划第 43、77、83 行。证据：`packages/neuro-book/src/plugins/workbench/web/state/layout-store.ts:153-161`；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:155-172`；`packages/neuro-book/src/plugins/workbench/web/state/public-state.ts:18-28,37-51`；`docs/specs/ui/workbench-shell.md:73-78`。
+- **现象**：计划只承诺把 Part hidden 位写进定制记录，并要求三个布局按钮从公开状态取值。现有 `setPartHidden(part, false)` 不清 `dragCollapsed`；真实 Sidebar 选择入口需要另行把拖到零的位清掉。公开状态目前只有 `panelVisible`，没有侧栏/右栏可见键。
+- **为什么是问题**：侧栏或右栏拖到零以后 hidden 为 false，直接据 hidden 切换会先“隐藏”一条已经看不见的区域；随后显示仍是 0px。用户点标题栏按钮不能恢复内容。按钮亮态与菜单勾选态也无法按计划从既有公开键读取，临时直接读布局字段会形成与公开状态承诺不一致的第二套判断。
+- **建议改法**：明确“显示”的最终事实：未 hidden 且未拖到零，显示时恢复记忆尺寸并清这两个位；省参 toggle 基于这一事实。在 S0 同步新增 Sidebar/AuxiliaryBar（及 ActivityBar 如需）的公开可见状态与未就绪值。复用已有恢复意图，保证按字段提交；验收隐藏、拖到零、紧凑往返后按钮的 pressed、菜单勾选与实际可见性一致。
+- **核实**：已核实（布局实现与公开键）；尚未运行界面。
+
+### P7：Menubar 的叶子项没有接入 reka 的导航集合，键盘补齐不只是 Alt/F10
+
+- **严重程度**：重要。
+- **位置**：计划第 69、83、114、124、138 行。证据：`packages/nb-ui/src/components/controls/MenuNodes.vue:22-27,34-46`；`Menubar.vue:78-100`；`packages/nb-ui/src/composables/useMenuCascade.ts:22-43`；当前安装的 `node_modules/reka-ui/src/Menu/MenuContentImpl.vue:143-155,214-250` 与 `MenuItemImpl.vue:75-107`。
+- **现象**：风险段把键盘能力视为依赖 reka，只有 Alt/F10 可能需要补齐。实际叶子是普通 `<button role="menuitem">`，没有 reka `CollectionItem`/菜单项原语，也没有 `data-reka-collection-item`；reka 上下键按该属性查候选。`MenuNodes` 自己只处理带子项的 ArrowRight，手工子面板也没有上下键、ArrowLeft 与焦点进入/返回逻辑。Menubar 还主动阻止 `close-auto-focus`。
+- **为什么是问题**：外层使用 reka 并不会给这些普通按钮补上菜单导航。照现有组件接线，P09 中的方向键移动、紧凑菜单逐级进入/退出、Escape 还焦点都有未实现的前置能力；留到 S4 才发现，会连带返工菜单组件、文档与测试。这里是现有接口与源码证明的缺口，尚未把它当作已复现的浏览器缺陷。
+- **建议改法**：把 nb-ui 菜单叶子与级联的键盘合同列为明确前置切片，复用 reka 的菜单项/子菜单原语或完整实现一套可导航集合。定义完整与紧凑模式的上下、左右、Enter、Escape、禁用项处理和焦点返回；在真实浏览器用键盘从入口执行一个动作，不能只测 Alt/F10 聚焦组标题。
+- **核实**：已核实（组件与当前依赖源码）；按只读审查限制未启动浏览器。
+
+### P8：首批条目的显示条件没有可用公开键，P08 的数据通路也未兑现
+
+- **严重程度**：重要。
+- **位置**：计划第 50、52、59–60、95–96、104 行；Task `README.md:35-37`。证据：`packages/neuro-book/src/plugins/editor/web/state.ts:15-33`；`packages/neuro-book/src/plugins/commands/shared/context-keys.ts:16-17,46-64`；`packages/neuro-book/src/plugins/commands/shared/plugin.ts:44-67`；`docs/specs/state/public-state.md:18-20,39-42,59,65-72`。
+- **现象**：条目只有静态 `when` 能控制显示，复用的谓词仅支持布尔键的 all-of；实现的 `text()` 不允许 `null` 或返回可见位。现有编辑器公开的 `dirty` 只表示活动文档 dirty，`lineNavigation` 只表示句柄有跳行方法，没有“任意文档未保存”“当前有行列读数”两个键。计划只新增句柄 position，却没有新增公开键与绑定；首批条目直接从区域私有状态计算，也没有说明如何满足 README 要求的 owner 经公开状态提供数据。
+- **为什么是问题**：用现有 `dirty` 会在切到干净文档后隐藏其它文档的未保存数量；用 `lineNavigation` 代替 position，会把两种可选能力混为一谈。给 `text()` 返回空串另起隐式显示规则又不符合声明合同。数据和条件在不同窗口、编辑器切换、拥有者停止时取哪份事实没有可执行约定。
+- **建议改法**：S0 列出首批条目的 id、order、priority、command 与准确 `when`，同步定义并绑定 `hasUnsavedDocuments`、`hasCursorPosition` 等必要布尔键；若按 P08 经公开状态提供数值，也列出数量/行/列的标量键、未就绪值和读取路径。所有值在本窗口求值，不读另一窗口或缓存旧句柄。验收“非活动文档仍 dirty”“同一文件分组展示只计一个文档”“切换有/无位置能力的控件”“两个窗口各自显示”及停止后消失。
+- **核实**：已核实（当前状态与谓词合同）。本轮 `bun test packages/neuro-book/src/plugins/commands/shared/plugin.test.ts`：8 pass、0 fail；证明现有公开键求值合同，不证明未来条目实现。
+
+### P9：跳到行不是产品中的现成命令，光标条目的点击还缺编辑器到面板的接线
+
+- **严重程度**：重要。
+- **位置**：计划第 32、60、75–78、111、115 行。证据：`docs/specs/workbench/commands.md:129`；`packages/neuro-book/src/plugins/workbench/web/plugin.ts:59-65,99-116`；`packages/neuro-book/src/plugins/editor/web/plugin.ts:46-50,110-116`；`packages/neuro-book/src/plugins/workbench/web/commands/palette-host.ts:80-84`；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue:63-70,138-145`。
+- **现象**：计划将 `nbook.quick-open.open-line` 列为现成命令。Spec 明确它仍是 planned、现阶段只在 Lab 登记；产品工作台与编辑器贡献表没有它。产品 `PaletteHost.editor` 初值为 null，现有页面接入仅把面板放入 `PaletteSlot`，没有像 Lab 那样写活动文档 target、lineCount 或 editorRevision。
+- **为什么是问题**：依计划“命令不存在就不画”，视图组的跳行入口会消失，光标条目却仍承诺可点击。仅新增 open-line 的实现也不够：行号模式没有活动目标会给“没有活动编辑器”，无法形成 `{target, line}`；直接改点 `go-to-line` 则该命令需要显式目标与行号参数，固定参数无法取代打开行号选择。
+- **建议改法**：把 open-line 从“现成”改为 S1/S5 的明确交付项，指定工作台拥有者；同时定义编辑器向面板提供当前文档身份、行数读取、正文修订和撤回的公开端口，沿 `PaletteHost` 既有目标捕获规则接线。更新 quick-open 与命令 Spec。产品验收必须从真实光标条目点击、输入行号并到达正确文档，不能只复用已填 editor 的 Lab 场景。
+- **核实**：已核实（命令 Spec、产品贡献表与两端装配源码）；本轮未运行产品页或行号跳转。
+
+### P10：第三档窄屏会移除唯一菜单入口，第二个阈值与 720px 边界也没有验收
+
+- **严重程度**：重要。
+- **位置**：计划第 66、83、125、128 行。证据：旧 `packages/neuro-book-legacy/app/components/desktop-title-bar/DesktopTitleBarMenus.vue:131-153` 在紧凑态保留菜单按钮；`DesktopTitleBarShell.vue:278-319` 的更窄档裁剪项目与布局等次要区域；`docs/specs/ui/workbench-shell.md:55-56,248` 以实测容器为输入并要求菜单不裁剪。
+- **现象**：计划只定义 `<720px` 收成“菜单”按钮，随后“再窄时只留品牌、搜索与布局按钮”，会连这一入口一起去掉，却没有第二阈值、迁往何处或 Alt/F10 的新落点。“标题栏可用宽度”也未说明是总容器还是扣掉品牌/操作区后的余量。1440、900、390 三档覆盖不能判定 719/720 的行为或第三档何时发生。
+- **为什么是问题**：迁移后较窄窗口的菜单可达性低于旧紧凑态；键盘合同在入口不存在时也没有定义。完整菜单、居中搜索、长项目名与贡献条目共占一行，单一总宽阈值不能保证它们互不遮挡；只断言页面无横向滚动还可能把被 `overflow:hidden` 裁掉的按钮当成通过。
+- **建议改法**：定义测量盒、两个模式的精确边界与碰撞处理。最窄档保留一个可操作的应用菜单入口，优先收缩品牌文字、搜索文案或收起次要动作；项目入口如收起也注明可达路径。验收 719/720/721、第三阈值两侧、长项目名、中英文与贡献条目共存；检查关键按钮的可见矩形、无遮挡且可点击/键盘执行，不只测 scrollWidth。
+- **核实**：已核实（计划合同与旧组件）；尺寸和碰撞结果未做浏览器测量。
+
+### P11：按优先级收起还不足以定义可复现的溢出行为，纯文字条目在“更多”里也未定形
+
+- **严重程度**：重要。
+- **位置**：计划第 49–55、71、89–91、113、126 行。证据：现有 `packages/neuro-book/src/plugins/workbench/web/components/WorkbenchStatusBar.vue:67-85,108-138` 把项目/布局问题放左、固定面板入口放右；旧 `packages/neuro-book-legacy/app/utils/workbench-chrome.ts:88-110` 已有“溢出时先为 More 预留完整按钮位”的边界规则。
+- **现象**：排序规定了 order/id，收起只规定 priority 由低到高；同 priority 收谁、左右两侧是否共同竞争、固定内容与“更多”占多少预算、动态 text/语言/字体变化何时重算，都未定义。合同同时允许无 command 的纯文字，却说被收起条目在菜单里“可点执行”；当单条文字比整个菜单还宽时，“不截断”与不横向溢出的处理也没有约定。
+- **为什么是问题**：相同声明集会因交付或测量顺序得到不同可见结果；没有预留 More 自身宽度时最后仍会装不下。左侧声明可能没有实际渲染槽，固定“显示面板”与布局失败的重试入口可能被挤走。把纯信息映射为普通菜单动作又会出现没有命令可执行的假入口。
+- **建议改法**：S0 定义左右槽与固定区域的保留预算、More 所属侧/数量和同 priority 的稳定 tie-break（可沿 order/id），测量隐藏条目时不丢尺寸，文本与可见性变化后重算；极长项在溢出层允许换行/滚动而不丢信息。纯信息在 More 中保持不可执行、可读的语义。有 command 的条目明确按命令可用性禁用及原因。S3 覆盖恰好装下、只差一个 More 位、同优先级、两侧竞争、全收起、长文本与开着 More 时更新/撤回；两种贡献点分别验收。
+- **核实**：已核实（计划尚未定义这些分支、现有固定区与旧预算模式）；未运行新收起算法。
+
+### P12：Markdown 的“行列”没有坐标定义，也没有可兑现的跳行能力
+
+- **严重程度**：重要。
+- **位置**：计划第 60、96、115、127、139 行。证据：`packages/neuro-book/src/plugins/editor/web/components/MarkdownControl.md:32-38`；`MarkdownControl.vue:74-84,168-173`；`packages/neuro-book/src/plugins/editor/web/markdown/source-merge.ts:2-15`；`MonacoControl.vue:140-149`。
+- **现象**：计划要求两种控件各自提供 `{line, column}`，但未说明是源文件行、富文本段落还是屏幕折行，是否从 1 起、列按什么单位、选区取哪个端点。Markdown 当前明确不提供行导航；frontmatter 不进富文本，序列化还可能改变行数，位置不能从 ProseMirror 的 doc offset 直接当作源文件行列。风险段又允许拿不到时仅 Monaco 显示，S5 和验收仍写两种控件。
+- **为什么是问题**：例如带 frontmatter 的文档，正文第一段在富文本中的位置与源文件行号不同；窗口缩放还会改变屏幕行而不改变源行。仅提供 position 不会让 open-line 可用，Markdown 光标条目可能成为可见但无法兑现的点击动作。一个“出现了第 L 行”的断言不能证明其含义或跳转正确。
+- **建议改法**：S0 先选择坐标合同并让显示与导航使用同一套含义。低成本方案是在当前无源映射的 Markdown 控件返回 null，仅对有可靠源位置与 navigation 的控件显示可点击行列；把这一范围明确写进正文与验收。若本 Task 要交付 Markdown 源行列，则先定义并验证源映射与导航，不能用序列化偏移或段落号替代。覆盖 frontmatter、多行段落、软折行、emoji/制表符、选区与 A→B→A，位置变化订阅随绑定切换和卸载释放。
+- **核实**：已核实（两种控件与源保留合同）；未运行光标位置实验。
+
+### P13：搜索按钮的 Ctrl+Shift+P 提示与 macOS 实际绑定不符
+
+- **严重程度**：建议。
+- **位置**：计划第 34、83 行。证据：`packages/neuro-book/src/plugins/workbench/web/commands/open-commands.ts:17-24`；`keymap.ts:50-73,146-150`；旧 `packages/neuro-book-legacy/app/components/desktop-title-bar/DesktopTitleBarCommandCenter.vue:25-30`。
+- **现象**：搜索按钮固定显示 `Ctrl+Shift+P`，实际命令声明是 `Mod+Shift+P`，当前分发在 macOS/iOS 把 Mod 解析为 Meta。旧按钮至少按平台调整修饰键提示。
+- **为什么是问题**：macOS 用户按新按钮给出的 Ctrl 组合不能打开命令面板；菜单直接显示原始 `Mod` 文本也不是用户键盘上的键名。另有保存/关闭等键位只定义在编辑器区，命令声明没有 keybinding，不能从全局默认键位推断它们的作用域。
+- **建议改法**：搜索按钮与菜单复用同一按平台格式化的键位显示，来源是实际命令声明；局部键位若要显示，保留“编辑器内”的作用域，沿 owner 的局部键位定义读取，不能为了补文案把它们注册成全局键。验收 Windows/Linux 与 macOS 的实际组合和提示一致。
+- **核实**：已核实（声明与键位解析）；未运行 macOS 浏览器。
+
+## 补充功能
+
+### F1：让“未保存 N 个文档”解释正在保存与保存失败
+
+- **使用者价值**：非活动文档保存失败时，不必逐个切标签找原因；点击全部保存后能区分仍在写入与写入失败，避免把数量未降误认为按钮没响应。
+- **依据与做法**：`TextDocument` 已有 `saving`、`conflict`、`ended`、`saveProblem`、`unresolved`（`packages/neuro-book/src/plugins/editor/web/documents/store.ts:38-59`），贡献实现也已设计 `tooltip()` 与 warning/error 状态。由编辑器 owner 在现有数量旁给保存中/失败状态，tooltip 摘要列出少量有问题的文件及原因；保留现有文档级解决入口，不另造保存机制。
+- **大致成本**：低；在未保存汇总上增加一组派生状态与本地化文案，补“后台文档失败”“保存期间继续输入”两个场景。
+- **放置**：本 Task 的 S5，基于同一份文档去重汇总。
+
+### F2：把已交付的拆分、切换编辑器和关闭其它标签接入菜单
+
+- **使用者价值**：这些能力目前不容易被鼠标用户发现；菜单能直接找到左右/上下并排、Markdown 与源码切换、清理当前组其它标签，不需要新增领域实现。
+- **依据与做法**：`nbook.editor.split-right`、`split-down`、`reopen-with`、`close-others` 已有严格声明与省参行为（`packages/neuro-book/src/plugins/editor/web/commands.ts:61-64`）。按现有能力模型把拆分/编辑器切换放视图组、关闭其它放文件组，复用当前 active 条件与命令服务。
+- **大致成本**：低；菜单定义增加四项与分组，验证从菜单执行和无活动文档时禁用。
+- **放置**：本 Task 的 S2/S4，不改变命令实现。
+
+### F3：t75 项目列表保留“在新标签打开”入口
+
+- **使用者价值**：保留当前项目与未保存正文，同时查看另一个项目；符合每窗口绑定一个项目、窗口间编辑状态独立的现有模型。
+- **依据与做法**：旧项目列表已有 `target="_blank"` 的逐项入口（`packages/neuro-book-legacy/app/components/desktop-title-bar/DesktopTitleBarProjectSwitcher.vue:117-141`）；新窗口绑定合同见 `docs/specs/runtime/browser-host.md:20,29-33`。作品列表交付时，为每项提供独立且有可访问名称的新标签动作，用 canonical 项目地址并复用宿主外部打开合同。
+- **大致成本**：低至中；项目列表每行一个次动作，加新标签 URL、键盘名称及两个窗口互不改绑定的验收；依赖 P2 的宿主端口修订。
+- **放置**：t75，与作品列表一同交付。
+
+## 切片依赖与验收落点
+
+以下是上述问题的实施归属，不另计问题数：
+
+| 顺序 | 应先明确或交付 | 对应问题 |
+|---|---|---|
+| S0 | 菜单目标/焦点语义、项目与文档前提、Part 可见事实、首批条目公开键、行列坐标与溢出预算 | P1、P4、P6、P8、P10–P12 |
+| S0/S1 | 宿主 reload/新标签端口与装配；quick-open 的产品 open-line、编辑器目标端口及相应 Spec；Part 命令的省参选择 | P2、P5、P9 |
+| 早于 S4 | nb-ui 菜单禁用原因与键盘/级联/焦点合同、同名文档与 Lab 场景 | P3、P7 |
+| S3 | 两个点分别验证 published 才出现、停止开始即不可调用旧实现、同 id 双拒与诊断、重新交付使用新代、运行异常只影响本条、排序与溢出确定 | P8、P11；沿现有运行时门禁 |
+| S4/S5 | 从最终菜单/条目执行真实命令，覆盖省参、跳行、拖到零恢复、无项目 user://、窗口隔离、长名称和边界宽度 | P1–P13 |
+
+贡献生命周期继续沿 `ViewRegistry`，无需新造停止机制，但“立即消失”应以 `handle.published` 与入口变化通知为准，不等异步 revoke 回调；每次求值仍经 `handle.implementation()`，缓存的 text/tooltip 或打开中的 More 菜单不能继续调用旧代。当前模式见 `packages/neuro-book/src/plugins/workbench/web/views/registry.ts:63-105,112-140` 与 `packages/nb-runtime/src/plugins/contracts.ts:179-214`。验收应包含撤回回调被接收者串行锁延迟的时段；本轮现有注册表测试已覆盖这种运行时情形。
+
+计划没有单列“待确认项”。第 139 行的 Markdown 降级仍须在 S0 收敛成一个验收范围（P12），不能在 S5 才凭实现难度改交付口径；已确认的作品列表归 t75 不重新提请决定。
+
+## 本轮验证与限制
+
+| 实际命令 | 结果 | 能证明的范围 |
+|---|---|---|
+| `bun test packages/neuro-book/src/plugins/workbench/web/views/registry.test.ts` | 9 pass、0 fail；36 expect() calls | 现有真实内核的发布、停止、撤回延迟、旧结果作废与接收者停止 |
+| `bun test packages/neuro-book/src/plugins/commands/shared/plugin.test.ts` | 8 pass、0 fail；68 expect() calls | 现有命令贡献、同 id 双拒、撤回、公开状态 when 求值与运行位置隔离 |
+
+- 测试执行目录为报告开头的 worktree；本轮使用 `bun test v1.4.2 (744846f84)`。
+- 未运行 e2e、浏览器、开发服务、构建、安装或类型检查，遵守本次只读审查允许的命令范围。菜单键盘、读屏、尺寸遮挡、导航确认、光标显示与最终点击闭环仍需实施者在真实浏览器验收。
+- LSP 返回 `No language servers configured for this project`；接口与调用核对来自源码及 Spec。未把静态结论冒充运行复现，也未把现有合同测试通过当作未来 t74 的验收证据。
+- 只写了本报告；未修改 worktree 被跟踪文件，未 commit、push、stash、切换分支或删除文件。
+
+## 回写建议
+
+按 `task-reflection` 归类，仅提出建议，尚未修改真相源：
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| R1 | 规范缺陷 | P7：组件文档称方向漫游、Escape 与焦点管理交给 reka；叶子和手工级联却未接入其导航集合 | 改写：“顶层组与叶子/级联的键盘能力分别说明；未接入上游集合的手工节点，不继承上游方向键与焦点保证。用真实键盘场景列明上下/左右、Enter、Escape 及焦点返回的已验证范围。”组件修复后再据证据写明已支持行为。 | `packages/nb-ui/src/components/controls/Menubar.md` 的“交互”“上游边界” |
+
+## 数量
+
+- 问题 **13 条**：阻断 **1**（P1），重要 **11**（P2–P12），建议 **1**（P13）。
+- 补充功能 **3 条**：建议本 Task **2**（F1、F2），t75 **1**（F3）。
+- 回写建议 **1 条**（R1），未落盘到仓库真相源。
+
