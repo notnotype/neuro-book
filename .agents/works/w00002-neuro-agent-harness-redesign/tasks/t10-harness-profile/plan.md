@@ -47,7 +47,7 @@
 ### 6. 加载与目录（`src/profile/loader/loader.ts`、`catalog.ts`）
 
 - `defineProfile` 校验字段（TypeBox：id 格式、非空 `name`/`description`、正整数 `version`、`fields` 对象、`prompt` 函数）并给结果打一个模块内的 `Symbol` 标记；`profileFromModule` 认 `default` 导出上的标记（同一进程里两份 `nb-harness` 副本的情况不考虑）。
-- `loadProfile(path)`：`import(pathToFileURL(path).href)`，异常 → `module-load-failed`；再 `profileFromModule`。只在 `loader/` 目录动态导入（模块表已登记）。
+- `loadProfile(path)`：`import(pathToFileURL(path).href)`，异常 → `module-load-failed`；再 `profileFromModule`。只在 `loader/` 目录动态导入（模块表已登记）。Profile 文件在仓库外时解析不到 `@notnotype/nb-harness/profile`（实现时从真实临时目录加载就失败了），所以加载器首次调用时给 Bun 装一个解析钩子（`Bun.plugin` 的 `onResolve`），只把 `@notnotype/nb-harness/profile` 及其三个子路径指回本包源文件；进程内装一次，是本模块唯一的进程级状态（写进 Spec 输出 12）。
 - `createProfileCatalog`：按组顺序合并，后组覆盖前组；同组内 id 重复两者都不收录并在 `issues` 里报 `duplicate-profile`（诊断码补进 Spec）。
 
 ### 7. 边界测试与包配置

@@ -24,4 +24,4 @@ taskId: t10-harness-profile
 
 ## 下一步
 
-omp 计划审查 → 处理 → S1。
+处理 omp 计划审查 → omp 实现审查 → 处理。

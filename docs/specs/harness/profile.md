@@ -188,7 +188,7 @@ type PreparedProfile = object;   // 不透明：只用于传回同一主机的�
 9. **追加消息**：`renderAppending` 按文档顺序渲染 `Appending`：`Input` 的位置放本次用户输入（`kind: "input"`）；消息节点产生 `kind: "message"`；`Reminder` 满足触发条件时产生一条用户消息，内容用 `<system-reminder>\n…\n</system-reminder>` 包起来（`kind: "reminder"`）；注册的有状态节点直接放在 `Appending` 下时，内容非空就产生一条用户消息（`kind: "message"`），放在消息节点里时是那条消息内容的一部分。`Appending` 里没有 `Input` 时，用户输入放在最后；Profile 没有 `Appending` 时只追加用户输入。
 10. **有状态节点与提醒的触发**：有状态节点的 `render` 收到 `state[id]`（没有记录时为 `undefined`），返回的新状态写进输出 `state` 的同一键；本次没有渲染到的节点，其旧状态原样保留。`Reminder` 的各个条件同时成立才出现：`when` 为真；`every` 时距离它上次出现已满 `every` 轮（从未出现过算满足）；`watch` 时其值与上次出现时不同（按 JSON 比较，第一次算不同）；`once` 时从未出现过。没有给任何条件时每次都出现。它的状态记录最后出现的轮次（`PromptContext.turn`）与 `watch` 值。
 11. **文本形式的 History**：`History as="text"` 把本次调用之前的历史（`history` 在 `invocationStart` 之前的部分）渲染为文字：每条消息一段，以角色名开头，工具调用与结果写出工具名与文本内容，图片写成占位说明。
-12. **加载**：`loadProfile` 导入模块并取默认导出，默认导出必须是 `defineProfile` 的结果；模块执行失败为 `module-load-failed`，默认导出不对为 `invalid-profile`；`profileFromModule` 对已导入的模块做同样的检查。
+12. **加载**：`loadProfile` 导入模块并取默认导出，默认导出必须是 `defineProfile` 的结果；模块执行失败为 `module-load-failed`，默认导出不对为 `invalid-profile`；`profileFromModule` 对已导入的模块做同样的检查。Profile 文件可以放在任何目录：它里面对 `@notnotype/nb-harness/profile` 及其子路径的导入（含 `@jsxImportSource`）由加载器解析到本包，不要求文件旁边有 `node_modules`；其它导入按文件所在位置的常规规则解析。
 13. **目录**：`createProfileCatalog` 按 `groups` 的顺序合并，同 id 的 Profile 后面的组覆盖前面的组；同一组内 id 重复时两者都不收录，并在 `issues` 里报告（诊断 `duplicate-profile`，`path` 为 `<组>:<id>`）。
 14. **纯函数**：`renderSeeds`、`renderAppending`、`renderRequest`、`renderSystem` 对同样的输入总得到同样的输出，不调用数据源的取数函数，不修改输入。数据只来自 `prepare` 与 `refresh` 的结果。
 15. **缓存提示**：请求消息出现在第一个布局形式的 `History` 之前时，`prepare` 给出 `cache-unfriendly` 警告：这类消息每次变化都会使后面整段历史的提示词缓存失效。
@@ -253,6 +253,20 @@ type PreparedProfile = object;   // 不透明：只用于传回同一主机的�
 
 Smoke：`packages/nb-harness` 的 `bun test src/profile`（含从真实文件加载 `.profile.tsx`）。
 
+## 实现合同
+
+- 公开入口：`@notnotype/nb-harness/profile`（`createProfileHost`、`defineProfile`、`createProfileCatalog`、内置节点组件、`nodeComponent` 与“注册”一节的类型）、`@notnotype/nb-harness/profile/jsx-runtime`、`@notnotype/nb-harness/profile/jsx-dev-runtime`、`@notnotype/nb-harness/profile/loader`（`loadProfile`、`profileFromModule`）。
+- owner：`nb-harness` 的 `profile` 模块；只依赖 TypeBox 与 OMP 的类型（`import type`），不依赖本包其它模块；`loader` 子目录另用 Node 内置模块与动态导入。
+- 内部不变量（都有测试锁定）：
+  1. 节点一律冻结；JSX 只接受组件函数，字符串元素名报错。
+  2. 内置的消息、内容、有状态节点经同一个注册接口登记；布局节点与 `Fragment` 不在注册表里，注册这些 id 为 `reserved-node`。
+  3. `prepare` 拷注册表快照进准备结果，之后的注册与 `dispose` 不影响它；渲染只读准备结果，不取数。
+  4. 轮按“用户发出的消息”划分，与 `harness.session` 的分页同一规则。
+  5. 加载器注册的虚拟模块导出的是本包已加载的模块实例，`defineProfile` 的标记跨文件可识别。
+
 ## 证据
 
+- 实现入口：[`packages/nb-harness/src/profile/profile.ts`](../../../packages/nb-harness/src/profile/profile.ts)、[`packages/nb-harness/src/profile/loader/loader.ts`](../../../packages/nb-harness/src/profile/loader/loader.ts)
+- 合同测试：[`host.test.tsx`](../../../packages/nb-harness/src/profile/host.test.tsx)、[`prepare.test.tsx`](../../../packages/nb-harness/src/profile/prepare.test.tsx)、[`render.test.tsx`](../../../packages/nb-harness/src/profile/render.test.tsx)、[`request.test.tsx`](../../../packages/nb-harness/src/profile/request.test.tsx)、[`loader.test.tsx`](../../../packages/nb-harness/src/profile/loader/loader.test.tsx)
+- Smoke：[`loader.test.tsx`](../../../packages/nb-harness/src/profile/loader/loader.test.tsx)（从真实临时目录加载 `.profile.tsx`）
 - 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“Profile”一节与决策记录（开发者 2026-10-10 决定：节点、数据源与字段全部走注册；分区为 `System`、`History`、`Appending`，去掉 `ModelContext`；`History` 是会话条目回放的结果，可以有多个或没有，子节点是种子并可标“只在新会话写入”；`Appending` 放即将进入历史的消息且不合并；提醒用 `<system-reminder>`；去掉条件节点与按角色拆分消息节点；Profile 文件全部信任）。
