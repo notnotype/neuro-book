@@ -9,6 +9,9 @@
  * - 卡顿与事件：`long-animation-frame`、`longtask`、`event`（Event Timing）全程收集，按时间窗归给场景；浏览器不支持的
  *   类型记在 `unsupported` 里，报告写“不可用”，不当作 0。
  * - 进度条：`[data-editor-progress]` 每次插入与移除的时刻。
+ * - 点击与按键的 Event Timing 只交出 16 ms 以上的条目：计数另由捕获阶段的监听记下（`keys`；点击每次 `arm` 一个），
+ *   所以“没有条目”能说成“都在 16 ms 以内”，而不是“没有发生”。
+ * - 恢复展开状态：页面上有 `window.__perfRestoreHeight` 时，树的内容高度到达它、且没有加载中的行，记为 `restoredAt`。
  */
 
 export type ArmSpec =
@@ -30,9 +33,14 @@ export interface ArmResult {
     readonly error: string | null;
 }
 
+/** Event Timing 只把 16 ms 以上的条目交出来：点击与按键在这之下就没有条目。 */
+export const EVENT_THRESHOLD_MS = 16;
+
 export interface AgentOptions {
     /** 文件树可操作时必须可见的根下行（资源地址）。 */
     readonly roots: ReadonlyArray<string>;
+    /** Event Timing 的记录门槛，取 `EVENT_THRESHOLD_MS`（函数注入页面，不能引用模块里的常量）。 */
+    readonly eventThreshold: number;
 }
 
 export interface TimedEvent {
@@ -49,6 +57,12 @@ export interface PerfAgent {
     result: Promise<ArmResult> | null;
     /** 文件树可操作的第一帧（相对导航开始）；还没到为 null。 */
     treeReadyAt: number | null;
+    /** 展开状态恢复完的第一帧（见文件头）；没有恢复目标或还没到为 null。 */
+    restoredAt: number | null;
+    /** 每次可信 keydown 的时刻。 */
+    readonly keys: number[];
+    /** 把观察器里还没交给回调的 Event Timing 条目收进 `events`。 */
+    drainEvents(): void;
     readonly unsupported: ReadonlyArray<string>;
     readonly progress: Array<{readonly at: number; readonly kind: "added" | "removed"}>;
     readonly frames: Array<{readonly start: number; readonly duration: number; readonly blocking: number}>;
@@ -62,6 +76,7 @@ export interface PerfAgent {
 declare global {
     interface Window {
         __perf?: PerfAgent;
+        __perfRestoreHeight?: number;
     }
 }
 
@@ -74,6 +89,9 @@ export function pageAgent(options: AgentOptions): void {
         arm: () => undefined,
         result: null,
         treeReadyAt: null,
+        restoredAt: null,
+        keys: [],
+        drainEvents: () => undefined,
         unsupported: wanted.filter((type) => !supported.includes(type)),
         progress: [],
         frames: [],
@@ -108,21 +126,28 @@ export function pageAgent(options: AgentOptions): void {
         }).observe({type: "longtask", buffered: true});
     }
     if (supported.includes("event")) {
-        new PerformanceObserver((list) => {
-            for (const entry of list.getEntries() as PerformanceEventTiming[]) {
+        const take = (entries: PerformanceEntryList): void => {
+            for (const entry of entries as PerformanceEventTiming[]) {
                 agent.events.push({name: entry.name, interactionId: (entry as PerformanceEventTiming & {interactionId?: number}).interactionId ?? 0, start: entry.startTime, processingStart: entry.processingStart, processingEnd: entry.processingEnd, duration: entry.duration});
             }
-        }).observe({type: "event", buffered: true, durationThreshold: 16} as PerformanceObserverInit);
+        };
+        const observer = new PerformanceObserver((list) => take(list.getEntries()));
+        observer.observe({type: "event", buffered: true, durationThreshold: options.eventThreshold} as PerformanceObserverInit);
+        agent.drainEvents = () => take(observer.takeRecords());
     }
+    window.addEventListener("keydown", (event) => {
+        if (event.isTrusted) agent.keys.push(event.timeStamp);
+    }, {capture: true});
 
-    // 文件树可操作：根目录的列出结果已到（根下的这些行都可见），树本身在。
+    // 文件树可操作：根目录的列出结果已到（根下的这些行都可见），树本身在。有恢复目标时接着等恢复完：虚拟列表只渲染可见
+    // 区，按内容高度（行数乘行高）判断全部展开的目录都已列出。
     const watchTree = (): void => {
-        const tree = document.querySelector("[data-explorer-tree]");
-        if (tree !== null && options.roots.every((address) => visible(document.querySelector(`[data-explorer-row="${address}"]`)))) {
-            agent.treeReadyAt = performance.now();
-            return;
-        }
-        requestAnimationFrame(watchTree);
+        const tree = document.querySelector<HTMLElement>("[data-explorer-tree]");
+        const now = performance.now();
+        if (agent.treeReadyAt === null && tree !== null && options.roots.every((address) => visible(document.querySelector(`[data-explorer-row="${address}"]`)))) agent.treeReadyAt = now;
+        const target = window.__perfRestoreHeight;
+        if (agent.treeReadyAt !== null && target !== undefined && tree !== null && tree.scrollHeight >= target && document.querySelector("[data-explorer-status=\"loading\"]") === null) agent.restoredAt = now;
+        if (agent.treeReadyAt === null || (target !== undefined && agent.restoredAt === null)) requestAnimationFrame(watchTree);
     };
     requestAnimationFrame(watchTree);
 
