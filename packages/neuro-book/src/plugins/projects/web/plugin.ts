@@ -21,7 +21,7 @@ import type {WorkbenchHomeImplementation} from "nbook/plugins/workbench/web/cont
 import {clockKey, windowNavigationKey} from "nbook/shared/host";
 
 import {descriptor} from "../plugin";
-import {projectsRemoteContract, projectsRemoteContractV1} from "../shared/contracts";
+import {projectsRemoteContract} from "../shared/contracts";
 import {createBookshelfHome} from "./bookshelf-home";
 import {OPEN_PROJECT_COMMAND, OPEN_PROJECT_DECLARATION, openProject} from "./open-project";
 import type {OpenProjectHost} from "./open-project";
@@ -49,7 +49,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
         activate: (context) => {
             const quickPick = context.services.require(quickPickKey);
             const navigation = context.services.require(windowNavigationKey);
-            const remote = context.remote.use(projectsRemoteContractV1);
+            const remote = context.remote.use(projectsRemoteContract);
             const settings = context.services.require(settingsKey);
             const diagnostics = context.services.require(diagnosticsKey);
             const storage = context.services.require(storageKey);
@@ -65,13 +65,12 @@ export const projectsBrowserPlugin: PluginDefinition = {
             // 偏好记录在书架第一次渲染时才打开：绑定了项目的窗口不读它。
             let store: ShelfPreferencesStore | null = null;
             const preferences = (): ShelfPreferencesStore => (store ??= shelfPreferencesStore.create(context, {storage, diagnostics}));
-            const shelf = context.remote.use(projectsRemoteContract);
             const home: WorkbenchHomeImplementation = {
                 load: async () => createBookshelfHome({
                     component: (await import("./components/BookshelfHost.vue")).default,
                     locale,
                     createPage: () => createShelfPage({
-                        remote: shelf,
+                        remote,
                         clock,
                         locale: () => locale.value,
                         preferences: {

@@ -24,10 +24,22 @@ import type {ConsumerIdentity, PerConsumerProvision} from "@notnotype/nb-runtime
 
 import {PROJECT_ENV} from "nbook/project/config";
 import {projectInstance} from "nbook/project/start";
-import type {ProjectAcquireResult, ProjectLease, ProjectRecord, ProjectRegistryRead, ProjectRunState, ProjectState, ProjectsService} from "nbook/shared/projects";
+import type {
+    ProjectAcquireResult,
+    ProjectLease,
+    ProjectMetadataPatch,
+    ProjectMetadataRead,
+    ProjectRecord,
+    ProjectRegistryRead,
+    ProjectRunState,
+    ProjectState,
+    ProjectsService,
+    ProjectUnregisterResult,
+    ProjectUpdateResult,
+} from "nbook/shared/projects";
 import type {SocketLink} from "nbook/shared/rpc-socket";
 
-import {checkProjectDirectory, readProjectIdentity} from "./identity";
+import {checkProjectDirectory, readProjectIdentity, updateProjectMetadata} from "./identity";
 import {createEnvelopeLink, parseEnvelope} from "./ipc";
 import type {ProjectEnvelope} from "./ipc";
 import type {ProjectRegistry} from "./registry";
@@ -66,6 +78,15 @@ export interface ProjectManager {
      * 接纳关闭后（服务端开始停止）一律 `admission-closed`，在取得之后才关闭的，租约立即释放。
      */
     acquire(reference: string, holder: string, options?: {readonly generation?: number}): Promise<ProjectAcquireResult>;
+    /** 读已登记项目的作品信息（按 id，不按短名）。 */
+    readMetadata(id: string): Promise<ProjectMetadataRead>;
+    /** 修改已登记项目的作品信息（按 id），核对身份文件里的 id 与登记表一致。 */
+    updateMetadata(id: string, patch: ProjectMetadataPatch): Promise<ProjectUpdateResult>;
+    /**
+     * 移出书架（按 id）：与同一 id 的打开串行；项目不在 `stopped` 时拒绝为 `project-running`。只看本服务端进程管理的
+     * 代次，别的进程打开着同一个项目时照样移出（docs/specs/runtime/projects.md 输出第 15 条）。
+     */
+    unregister(id: string): Promise<ProjectUnregisterResult>;
     /** 某持有者是否持有该项目这一代的有效租约。 */
     holds(id: string, generation: number, holder: string): boolean;
     /** 该项目当前代次的状态；没在运行为 null。 */
@@ -81,6 +102,11 @@ export interface ProjectManager {
     /** 宿主能力 `projectsKey` 的提供：每个调用方入口的每次激活一个门面，入口停止时释放它取得的租约。 */
     provision(): PerConsumerProvision<ProjectsService>;
 }
+
+type AcquireRejected = Extract<ProjectAcquireResult, {readonly status: "rejected"}>;
+
+/** 打开在项目 id 队列里的那一段的结果：已进入 starting（`pending` 是内核子实例的取得结果），或被拒。 */
+type AcquireEntered = {readonly status: "entered"; readonly record: ProjectRecord; readonly pending: ReturnType<ChildInstances["acquire"]>} | AcquireRejected;
 
 /** 客户端绑定的租约记在客户端实例名下，不分插件：窗口里的插件都用这一份绑定。 */
 function bindingHolder(instanceId: string): string {
@@ -131,6 +157,11 @@ class ProjectManagerImpl implements ProjectManager {
     /** 项目 id → 当前代次的子进程。 */
     readonly #processes = new Map<string, ProjectChild>();
     readonly #shutdownProblems: string[] = [];
+    /**
+     * 按项目 id 串行的队列尾：打开的“解析登记表并进入 starting”与移出的“检查状态并写表”在同一 id 上互斥，
+     * 不会出现写表中被打开、或打开中被移出的半状态（输出第 15 条）。只覆盖到进入 starting 为止，等子进程启动不在里面。
+     */
+    readonly #serial = new Map<string, Promise<void>>();
     #admission = true;
 
     constructor(options: ProjectManagerOptions) {
@@ -167,14 +198,19 @@ class ProjectManagerImpl implements ProjectManager {
     async acquire(reference: string, holder: string, options: {readonly generation?: number} = {}): Promise<ProjectAcquireResult> {
         if (!this.#admission) return {status: "rejected", reason: "admission-closed", detail: "服务端正在停止"};
         if (options.generation !== undefined) return this.#acquireGeneration(reference, holder, options.generation);
-        const resolved = await this.registry.resolve(reference);
-        if (!resolved.ok) {
-            this.#options.record({level: "error", event: "project.registry.invalid", message: resolved.detail, data: {file: this.registry.file}});
-            return {status: "rejected", reason: "registry-invalid", detail: resolved.detail};
-        }
-        if (resolved.value === null) return {status: "rejected", reason: "unknown-project", detail: `没有登记的项目：${reference}`};
-        const record = resolved.value;
-        const result = await this.#children.acquire(record.id, holder, options.generation === undefined ? {} : {generation: options.generation});
+        // 先解析一次得到 id（引用可能是短名），再在这个 id 的队列里按 id 重新解析：排队期间它可能已被移出。
+        const resolved = await this.#resolve(reference);
+        if (resolved.status === "rejected") return resolved;
+        const entered = await this.#serialized(resolved.record.id, async (): Promise<AcquireEntered> => {
+            const current = await this.#resolve(resolved.record.id);
+            if (current.status === "rejected") return current;
+            if (current.record.id !== resolved.record.id) return {status: "rejected", reason: "unknown-project", detail: `没有登记的项目：${reference}`};
+            // 不在这里等：`#children.acquire` 同步进入 starting（或从 idle-grace 回到 running），队列到此为止。
+            return {status: "entered", record: current.record, pending: this.#children.acquire(current.record.id, holder)};
+        });
+        if (entered.status === "rejected") return entered;
+        const record = entered.record;
+        const result = await entered.pending;
         if (result.status === "rejected") {
             return {status: "rejected", reason: result.reason, detail: result.detail ?? result.reason};
         }
@@ -184,6 +220,72 @@ class ProjectManagerImpl implements ProjectManager {
             return {status: "rejected", reason: "admission-closed", detail: "服务端正在停止"};
         }
         return {status: "acquired", lease: this.#projectLease(record, result.lease)};
+    }
+
+    async #resolve(reference: string): Promise<{readonly status: "resolved"; readonly record: ProjectRecord} | AcquireRejected> {
+        const resolved = await this.registry.resolve(reference);
+        if (!resolved.ok) {
+            this.#options.record({level: "error", event: "project.registry.invalid", message: resolved.detail, data: {file: this.registry.file}});
+            return {status: "rejected", reason: "registry-invalid", detail: resolved.detail};
+        }
+        if (resolved.value === null) return {status: "rejected", reason: "unknown-project", detail: `没有登记的项目：${reference}`};
+        return {status: "resolved", record: resolved.value};
+    }
+
+    /** 在项目 id 的队列里执行 `task`；前一个任务失败不影响后一个。 */
+    #serialized<T>(id: string, task: () => Promise<T>): Promise<T> {
+        const result = (this.#serial.get(id) ?? Promise.resolve()).then(task);
+        const tail = result.then(() => undefined, () => undefined);
+        this.#serial.set(id, tail);
+        // 队列空了就删掉这一项，登记过又移出的 id 不在表里留着。
+        void tail.then(() => {
+            if (this.#serial.get(id) === tail) this.#serial.delete(id);
+        });
+        return result;
+    }
+
+    /** 按 id 找登记项；短名不算（书架与远程合同都按 id 指明项目）。 */
+    async #record(id: string): Promise<{readonly ok: true; readonly record: ProjectRecord} | {readonly ok: false; readonly reason: "unknown-project" | "registry-invalid"; readonly detail: string}> {
+        const resolved = await this.registry.resolve(id);
+        if (!resolved.ok) return resolved;
+        if (resolved.value === null || resolved.value.id !== id) return {ok: false, reason: "unknown-project", detail: `没有登记的项目：${id}`};
+        return {ok: true, record: resolved.value};
+    }
+
+    async readMetadata(id: string): Promise<ProjectMetadataRead> {
+        const found = await this.#record(id);
+        if (!found.ok) return found;
+        let identity;
+        try {
+            identity = await readProjectIdentity(found.record.path);
+        } catch (error) {
+            return {ok: false, reason: "read-failed", detail: `读不出 ${found.record.path} 的身份文件：${error instanceof Error ? error.message : String(error)}`};
+        }
+        switch (identity.status) {
+            case "missing":
+                return {ok: false, reason: "identity-invalid", detail: `${found.record.path} 里没有身份文件`};
+            case "invalid":
+                return {ok: false, reason: "identity-invalid", detail: identity.detail};
+            case "found":
+                if (identity.id !== id) return {ok: false, reason: "identity-conflict", detail: `${found.record.path} 的身份文件里是另一个 id ${identity.id}`};
+                return {ok: true, metadata: identity.metadata, problems: identity.problems};
+        }
+    }
+
+    async updateMetadata(id: string, patch: ProjectMetadataPatch): Promise<ProjectUpdateResult> {
+        const found = await this.#record(id);
+        if (!found.ok) return found;
+        return updateProjectMetadata(found.record.path, id, patch, {
+            report: (event, error) => this.#options.record({level: "warn", event, message: "修改作品信息的收尾步骤出错，修改结果不受影响", error, data: {project: id}}),
+        });
+    }
+
+    unregister(id: string): Promise<ProjectUnregisterResult> {
+        return this.#serialized(id, async () => {
+            const running = this.running(id);
+            if (running !== null) return {ok: false, reason: "project-running", state: running.state, detail: `项目正在运行（${running.state}），关掉全部窗口、等宽限期结束后再移出`};
+            return this.registry.unregister(id);
+        });
     }
 
     /** 按代次取得只认正在运行的那一代，不读登记表：登记表坏了也不影响已打开项目的重连。 */
@@ -222,6 +324,10 @@ class ProjectManagerImpl implements ProjectManager {
                     list: () => this.list(),
                     register: (path) => this.registry.register(path),
                     resolve: (reference) => this.registry.resolve(reference),
+                    readMetadata: (id) => this.readMetadata(id),
+                    create: (input) => this.registry.create(input),
+                    updateMetadata: (id, patch) => this.updateMetadata(id, patch),
+                    unregister: (id) => this.unregister(id),
                     acquire: async (reference) => {
                         // 持有者是这个调用方入口的这次激活（经代理时也是原调用方，见 leaseHolderOf）。
                         const result = await this.acquire(reference, leaseHolderOf(consumer));

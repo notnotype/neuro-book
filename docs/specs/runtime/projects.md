@@ -76,7 +76,7 @@ owners:
 6. **崩溃。** 子进程在没有被要求停止时退出或进程间链路断开：这一代立即 `terminated`，全部租约失效（租约的 `revoked` 触发），路由关闭绑定这一代的客户端链路；退出码或信号在子进程真正结束后写进诊断 `project.exited`。不自动重启。
 7. **客户端绑定。** 窗口以 `/?project=<引用>` 打开时握手带上绑定请求，项目管理器按第 3 条为它取得租约，握手结果带回 `{id, name, generation}`；窗口的链路关闭时释放这份租约。同一项目的多个窗口共用一个项目代次。重连时只在原代次仍是 `running` 或 `idle-grace` 时恢复原绑定（取得新租约、取消宽限期），原代次正在停止或已结束则拒绝（`project-gone`），绝不改投新代次。绑定过程中服务端开始停止：已取得的租约立即释放，握手以 `project-unavailable` 拒绝。客户端一侧的呈现见 [`runtime.browser-host`](browser-host.md)。
 8. **`projectsKey`。** 服务端插件在入口依赖里声明 `projectsKey` 即可使用；每个调用方入口的每次激活得到自己的门面：
-   - `list()`、`register(路径)`、`resolve(引用)`：同第 1、2 条。`register` 失败返回 `{ok: false, reason, detail}`。随书架页增加 `create`、`updateMetadata`、`unregister`（第 13–15 条，planned）。
+   - `list()`、`register(路径)`、`resolve(引用)`：同第 1、2 条。`register` 失败返回 `{ok: false, reason, detail}`。随书架页增加 `readMetadata(id)`、`create`、`updateMetadata`、`unregister`（第 13–15 条，planned）；`readMetadata` 读不出身份文件时的原因为 `unknown-project`、`registry-invalid`、`identity-invalid`、`identity-conflict` 或 `read-failed`（读盘出错）。
    - `acquire(引用)`：返回 `{status: "acquired", lease: {id, name, generation, revoked, release()}}` 或 `{status: "rejected", reason, detail}`，`reason` 为 `unknown-project`、`admission-closed`、`create-failed`。租约的持有者是门面所属的调用方（实例、插件、入口与激活代次）；调用方入口停止时门面释放，未释放的租约一并释放。经委托代理取得的租约同样记在原调用方名下，原调用方直接调用与经代理调用都按它核对；别的入口持有不到它。
 9. **`{project}` 目标的访问。** 发往 `{project: id}` 的远程请求与订阅，只能到达这个项目当前运行的代次，访问本身不打开项目、不取得租约。路由按帧上的调用方身份询问项目管理器：
    - 调用方持有这一代的租约：放行；
@@ -94,9 +94,9 @@ owners:
 13. **作品信息。** 身份文件可带可选字段 `title`（去掉首尾空白后 1 到 80 个字符）、`description`（至多 500 个字符）、`color`（`#rrggbb` 小写）。
     - 读取仍只认 `schema` 与 `id`；可选字段不合规时当作没有并记诊断 `project.metadata.invalid`，身份照常可用。
     - `updateMetadata(id, patch)` 只改给出的字段：`null` 清除，省略不动；保留 `id` 与不认识的字段。写入经跨进程写入锁 `.nbook/locks/project.json.lock`（父目录先建）加原子替换：锁内按当前字节解析，核对文件里的 `id` 与登记表一致；改名前核对文件身份，变了从新字节重做；临时文件沿用权限位。身份文件是符号链接时解析到最终目标再替换（链接保留），悬空链接为 `identity-invalid`。两个进程分别改不同字段，两个字段都保留。
-    - 失败码：`unknown-project`、`registry-invalid`、`identity-invalid`、`identity-conflict`（文件里的 id 与登记表不一致）、`invalid-metadata`（带字段名）、`read-only`、`write-failed`。
+    - 失败码：`unknown-project`、`registry-invalid`、`identity-invalid`（含身份文件不存在：不重建）、`identity-conflict`（文件里的 id 与登记表不一致）、`invalid-metadata`（带字段名）、`read-only`、`write-failed`。
 14. **新建。** `create({title, description?, parent?})`：
-    - `parent` 省略时用作品目录设置；两者都没有为 `no-library`。父目录按第 1 条的目录校验，不过为 `invalid-parent`（带原因）。
+    - `parent` 省略时用作品目录设置（由 `nbook.projects` 的服务端入口读，宿主能力的 `create` 要求给出父目录）；两者都没有为 `no-library`，先于书名校验。父目录按第 1 条的目录校验，不过为 `invalid-parent`（带原因）。
     - 目录名由书名生成：`/ \ : * ? " < > |` 与控制字符换成 `-`，去掉首尾空白与句点，至多 80 个字符；结果为空，或是 `.`、`..`、Windows 保留名时用“作品”。同名目录已存在为 `exists`（带路径），不自动加后缀。
     - 分阶段执行：排他新建目录；写身份文件（含书名与简介），失败时只装着本次写的东西的目录删掉，结果 `write-failed`；按第 1 条登记，失败保留目录与身份文件，结果 `register-failed`（带路径），再登记该目录按幂等规则接着完成。成功返回 `{id, name, path}`。
 15. **移出书架。** `unregister(id)` 只改登记表，不动目录与身份文件。项目管理器按项目 id 把它与打开（第 3 条）串行：写表完成前不接纳同一 id 的打开。项目不在 `stopped`（`starting`、`running`、`idle-grace`、`stopping`）时拒绝为 `project-running`（带状态）；只限本服务端进程管理的代次，不声称全局停止。移出后再登记该目录，按身份文件里的 id 得到同一 id 与新的短名登记。
@@ -109,7 +109,7 @@ owners:
     - **持久化**：user 分区记录 `projects.stats`（owner `nbook.projects`，按资源 id 寻址，资源 id 是项目 id，`locality: shared`，版本 1），值为快照 `{computedAt, words, files, unreadable, today: {date, baseline}, last}`。变化后最多每 30 秒写一次，按 revision 条件保存：冲突时重读，存着的 `computedAt` 更晚就放弃，否则以新 revision 重写；`unknown-outcome` 重读后同样核对；`busy`、`io-error` 保留旧记录、记诊断、下一轮再写；`corrupt`、`unsupported-version` 以条件 `reset` 覆盖（它是可重算的缓存），原件进原件区并记诊断，原件区满时放弃并记诊断。两个服务端进程打开同一作品时，后算完的胜出。
     - **停止**：在入口登记的资源释放里写最后一次（Storage 门面此时还在）：整轮扫描没完成就不写、保留旧记录；扫描已完成时在途的单文件重读至多再等 1 秒，然后写一次。
 17. **书架与新鲜度。** 远程服务 `nbook.projects/stats`（提供方 `project`，调用方 `server`）的 `current()` 返回 `{status: "counting" | "complete" | "ended", snapshot}`。服务端的 `shelf()` 对每部作品返回登记项、作品信息与统计摘要（`ShelfItem`，schema 在共享合同里）：
-    - 处于 `running`：经 `{project}` 目标调用 `current`（服务端插件对运行中的项目无租约访问，不打开项目、不续宽限期）：`complete` 为 `fresh`，`counting` 为 `counting`（带上次的快照），`ended` 或调用失败退回记录、为 `stale`；
+    - 处于 `running`：经 `{project}` 目标调用 `current`（服务端插件对运行中的项目无租约访问，不打开项目、不续宽限期；至多等 2 秒，一个卡住的项目实例不拖住整张书架）：`complete` 为 `fresh`，`counting` 为 `counting`（带上次的快照），`ended`、超时或调用失败退回记录、为 `stale`；
     - 处于 `idle-grace`、`starting`、`stopping` 或没在运行：读记录，为 `stale`（宽限期里最多比实际旧 30 秒）；没有记录为 `none`；
     - 今天的字数只在快照的 `today.date` 是今天时给出（`words - baseline`，可为负），否则为 null；
     - 一部作品的身份文件或记录读不出只影响它自己：作品信息为 null、统计按 `stale` 或 `none`，并记诊断。
@@ -192,8 +192,8 @@ Smoke：场景 1 由登记表与身份的合同测试在真实临时目录上运
 
 ## 实现合同
 
-- **公开入口**：`nbook/shared/projects`（宿主能力 `projectsKey` 与 `ProjectsService`、`ProjectLease`、`ProjectState`，项目实例里的 `currentProjectKey`，窗口里的 `windowProjectKey`）；`nbook/plugins/projects/shared/contracts`（远程合同 `projectsRemoteContract`、命令 `OPEN_PROJECT_COMMAND`；随书架页（planned）升到版本 2，并增加 `projectStatsRemoteContract`、`ShelfItemSchema` 与作品信息、统计快照的 schema；在服务端入口改提供版本 2 之前，入口与“打开项目”用 `projectsRemoteContractV1`）、`nbook/plugins/projects/shared/stats-record`（`PROJECT_STATS_RECORD`，planned）、`nbook/plugins/projects/shared/shelf`（界面类型与 `projectDisplayName`）；插件定义 `projectsBackendPlugin`、`projectsBrowserPlugin`。项目管理器（`createProjectManager`）与项目宿主是宿主内部，插件只经 `projectsKey` 使用。
-- **owner 与依赖方向**：服务端宿主的项目管理器建在内核的子实例与租约（[`runtime.application`](application.md)）与远程路由之上，经 Bun IPC 连项目子进程；项目宿主（`src/project/`）在子进程里装配 `project` 位置的插件并给出 `currentProjectKey`。`nbook.projects` 后端依赖 `projectsKey`，浏览器入口依赖命令面板的 `quickPickKey` 与整页导航的宿主能力。
+- **公开入口**：`nbook/shared/projects`（宿主能力 `projectsKey` 与 `ProjectsService`、`ProjectLease`、`ProjectState`，项目实例里的 `currentProjectKey`，窗口里的 `windowProjectKey`）；`nbook/plugins/projects/shared/contracts`（远程合同 `projectsRemoteContract` 版本 2、`projectStatsRemoteContract`、`ShelfItemSchema` 与作品信息、统计快照的 schema、作品目录设置 `librarySetting`、命令 `OPEN_PROJECT_COMMAND`）、`nbook/plugins/projects/shared/stats-record`（`PROJECT_STATS_RECORD`）、`nbook/plugins/projects/shared/shelf`（界面类型与 `projectDisplayName`）；插件定义 `projectsBackendPlugin`、`projectsBrowserPlugin`。项目管理器（`createProjectManager`）与项目宿主是宿主内部，插件只经 `projectsKey` 使用。
+- **owner 与依赖方向**：服务端宿主的项目管理器建在内核的子实例与租约（[`runtime.application`](application.md)）与远程路由之上，经 Bun IPC 连项目子进程；项目宿主（`src/project/`）在子进程里装配 `project` 位置的插件并给出 `currentProjectKey`。`nbook.projects` 后端依赖 `projectsKey`、配置（作品目录）、Storage（统计记录）与时钟（今天的日期），浏览器入口依赖命令面板的 `quickPickKey`、整页导航的宿主能力、配置、Storage（书架偏好）与时钟（刷新间隔）；宿主的共用代码不引用插件，`ProjectMetadata` 在 `nbook/shared/projects` 与合同的 schema 各有一份、形状相同。
 - **关键不变量**：
   - 身份在项目目录的 `.nbook/project.json`，登记表在状态根；移动目录后 id 与短名不变，复制出的目录得到 `identity-conflict`（场景 1）。
   - 项目代次单调、不复用；`stopping` 中的项目不复活，等子进程真实退出后以新代次创建（场景 5、6）。

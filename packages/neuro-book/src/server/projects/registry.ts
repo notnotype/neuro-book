@@ -1,16 +1,16 @@
 /**
  * 项目登记表：`<状态根>/projects.json`，列出已登记项目的 id、短名与当前路径。只由本服务端进程写入，
  * 进程内串行，写临时文件后改名替换；每次读取都读文件，用户修好或删掉坏掉的登记表后无需重启。
- * 行为合同见 docs/specs/runtime/projects.md（输出第 1、2 条）。
+ * 行为合同见 docs/specs/runtime/projects.md（输出第 1、2、14、15 条）。
  */
 
 import {randomUUID} from "node:crypto";
 import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {basename, join} from "node:path";
 
-import type {ProjectRecord, ProjectRegisterResult, ProjectRegistryRead} from "nbook/shared/projects";
+import type {ProjectCreateInput, ProjectCreateResult, ProjectRecord, ProjectRegisterResult, ProjectRegistryRead, ProjectUnregisterResult} from "nbook/shared/projects";
 
-import {checkProjectDirectory, isProjectId, readProjectIdentity, writeProjectIdentity} from "./identity";
+import {checkProjectDirectory, createProjectDirectory, isProjectId, readProjectIdentity, writeProjectIdentity} from "./identity";
 
 export const PROJECT_REGISTRY_FILE = "projects.json";
 
@@ -22,6 +22,13 @@ export interface ProjectRegistry {
     /** 按引用解析：先比 id、再比短名；没有为 null。 */
     resolve(reference: string): Promise<ProjectRegistryRead<ProjectRecord | null>>;
     register(path: string): Promise<ProjectRegisterResult>;
+    /** 新建作品：建目录、写身份文件，再按 `register` 登记（输出第 14 条）。 */
+    create(input: ProjectCreateInput): Promise<ProjectCreateResult>;
+    /**
+     * 从登记表去掉这个 id，不动目录与身份文件。不看项目是否在运行：那是项目管理器的事，它把检查与这次写表按 id 串行
+     * （输出第 15 条）。
+     */
+    unregister(id: string): Promise<Exclude<ProjectUnregisterResult, {readonly reason: "project-running"}>>;
 }
 
 /** 目录名转短名：小写，非 `[a-z0-9-]` 换成 `-`，合并连续的 `-` 并去掉首尾的 `-`；为空时用 `project`。 */
@@ -45,7 +52,7 @@ function isRecord(value: unknown): value is ProjectRecord {
 
 export function createProjectRegistry(options: {readonly stateRoot: string; readonly cwd: string}): ProjectRegistry {
     const file = join(options.stateRoot, PROJECT_REGISTRY_FILE);
-    // 写入串行：读出、改、写回之间不能插进另一次登记，否则两次登记会互相覆盖或取到同一个短名。
+    // 写入串行：读出、改、写回之间不能插进另一次登记或移出，否则两次写表会互相覆盖或取到同一个短名。
     let queue: Promise<unknown> = Promise.resolve();
 
     async function read(): Promise<ProjectRegistryRead<ReadonlyArray<ProjectRecord>>> {
@@ -125,13 +132,28 @@ export function createProjectRegistry(options: {readonly stateRoot: string; read
         return save([...projects, added], added);
     }
 
-    async function save(projects: ReadonlyArray<ProjectRecord>, project: ProjectRecord): Promise<ProjectRegisterResult> {
+    async function save(projects: ReadonlyArray<ProjectRecord>, project: ProjectRecord): Promise<{readonly ok: true; readonly project: ProjectRecord} | {readonly ok: false; readonly reason: "write-failed"; readonly detail: string}> {
         try {
             await write(projects);
         } catch (error) {
             return {ok: false, reason: "write-failed", detail: `写入项目登记表失败：${error instanceof Error ? error.message : String(error)}`};
         }
         return {ok: true, project};
+    }
+
+    async function unregister(id: string): Promise<Exclude<ProjectUnregisterResult, {readonly reason: "project-running"}>> {
+        const current = await read();
+        if (!current.ok) return current;
+        const project = current.value.find((item) => item.id === id);
+        if (project === undefined) return {ok: false, reason: "unknown-project", detail: `没有登记的项目：${id}`};
+        return save(current.value.filter((item) => item.id !== id), project);
+    }
+
+    function serialized<T>(task: () => Promise<T>): Promise<T> {
+        const result = queue.then(task);
+        // 队列只管先后；这次操作的失败由 `result` 交给调用方。
+        queue = result.catch(() => undefined);
+        return result;
     }
 
     return {
@@ -143,10 +165,18 @@ export function createProjectRegistry(options: {readonly stateRoot: string; read
             return {ok: true, value: current.value.find((project) => project.id === reference) ?? current.value.find((project) => project.name === reference) ?? null};
         },
         register(path) {
-            const result = queue.then(() => register(path));
-            // 队列只管先后；这次登记的失败由 `result` 交给调用方。
-            queue = result.catch(() => undefined);
-            return result;
+            return serialized(() => register(path));
+        },
+        async create(input) {
+            // 建目录与写身份文件不碰登记表，不占写入队列；只有第三个阶段（登记）排队。
+            const created = await createProjectDirectory(input, options);
+            if (!created.ok) return created;
+            const registered = await serialized(() => register(created.path));
+            if (registered.ok) return registered;
+            return {ok: false, reason: "register-failed", cause: registered.reason, path: created.path, detail: registered.detail};
+        },
+        unregister(id) {
+            return serialized(() => unregister(id));
         },
     };
 }

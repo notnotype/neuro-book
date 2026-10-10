@@ -13,7 +13,6 @@ import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
-import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode, provideRemote} from "@notnotype/nb-runtime/remote";
 import type {RemoteUse} from "@notnotype/nb-runtime/remote";
@@ -32,7 +31,6 @@ import {createPaletteHost} from "nbook/plugins/workbench/web/commands/palette-ho
 import type {PaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
 import {projectHarness} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
-import {clockKey} from "nbook/shared/host";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 import type {SettingsService} from "nbook/shared/settings";
 import {browserHostPlugins} from "nbook/web/plugins";
@@ -162,11 +160,8 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
     const script: Script = {items: initial, failShelf: options.failShelf ?? null, holding: false, holds: [], shelfCalls: 0, running: new Set()};
     const silent = {error: () => undefined};
     const diagnostics = createDiagnosticsPlugin({location: "server", store: createDiagnosticsStore({identity: {location: "server", instanceId: "hub"}}), exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)});
-    // 服务端另装配置后端（作品目录设置写在用户层）与它要的时钟；`nbook.projects` 的声明式贡献让两端都认识这项设置。
-    const h = await projectHarness(tmp, {
-        plugins: [diagnostics, shelfProvider(script), ...standaloneSettings("server", tmp).plugins, definitionAt("server", projectsDescriptor, {id: projectsDescriptor.id, entries: []})],
-        capabilities: [{id: "host.clock", key: clockKey, create: () => systemClock}],
-    });
+    // 服务端另装配置后端（作品目录设置写在用户层；时钟由 harness 提供）；`nbook.projects` 的声明式贡献让两端都认识这项设置。
+    const h = await projectHarness(tmp, {plugins: [diagnostics, shelfProvider(script), ...standaloneSettings("server", tmp).plugins, definitionAt("server", projectsDescriptor, {id: projectsDescriptor.id, entries: []})]});
 
     let captured: {remote: ActivationContext["remote"]; settings: SettingsService} | null = null;
     const standalone = standaloneSettings("browser", tmp);
