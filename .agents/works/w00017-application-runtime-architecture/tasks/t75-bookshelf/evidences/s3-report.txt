@@ -1,0 +1,182 @@
+w00017 t75 S3 交付报告：项目实例里的作品统计（tracker、记录写入、nbook.projects/stats）
+
+worktree：/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t75-s3/wt
+分支：t75/s3-stats（基于 be11836a）
+最后提交：4dee116d
+
+提交（按顺序）：
+- 60d2db40 feat(t75): S3 项目实例里的作品统计：tracker、记录写入与 nbook.projects/stats 提供方
+- 9d6c1a2e test(t75): S3 统计的口径、事件顺序、今天与最近编辑，写入协议与真实项目子进程里的停止
+- 345fc46d test(t75): S3 隐藏路径上的变化不计入统计
+- 4dee116d chore(t75): S3 measure-project 加首次统计的口径
+
+一、结论
+
+docs/specs/runtime/projects.md 输出 16（统计）与输出 17 里项目实例一侧（nbook.projects/stats 的提供方）已实现。验收 16、17 里属于项目实例的部分，以及验收 18 里“运行中先 counting 再 fresh、宽限期按记录 stale、停止后看到最后一次写入”，都有测试覆盖。验证命令全部通过：typecheck 退出码 0；聚焦测试 106 个通过、0 个失败。
+
+项目实例里的 Storage 门面经服务端写 user 记录，这条路已在真实项目子进程里验证通过：首扫后写入、停止时写入都落到了服务端的 user.sqlite。
+
+资源方面：空项目打开耗时约增加 15 ms、常驻内存约增加 6 MB。3000 个文件的样本首扫约 1.23 s，几乎全部花在共享的 countWords 上（见第四节）。
+
+二、Spec 输出逐条：做了什么、在哪个文件（路径相对 packages/neuro-book）
+
+1. 装配（输出 16 的“入口”，计划 R6）
+   - src/plugins/projects/plugin.ts：locations 加 "project"，模块注释同步。
+   - src/project/plugins.ts：定义表加 "nbook.projects": projectsProjectPlugin。
+   - src/plugins/projects/project/plugin.ts：新文件，项目入口 stats。
+     - 设置：onStartup；依赖 diagnosticsKey、clockKey、currentProjectKey、storageKey；remoteProvides 为 projectStatsRemoteContract。
+     - 项目目录经 currentProjectKey.root 取；文件变更经 context.remote.use(projectFilesContract) 订阅，走本地路径。
+     - 激活时先 await 读记录作初值，再起 tracker。
+     - context.scope.register 的资源释放里依次执行 tracker.stop() 与 writer.finish()，完成停止时的最后一次写入。
+     - current() 只读内存状态。
+
+2. 口径、顺序、事件、今天、最近编辑（输出 16）：src/plugins/projects/project/stats-tracker.ts
+   - 口径：
+     - 计入：非隐藏的 .md，扩展名不分大小写，与编辑器的判定一致。
+     - 跳过：任一段以 . 开头的路径（含 .nbook/）。
+     - 字数用 nbook/shared/word-count 的 countWords，frontmatter 不计。
+     - files 是可读的计入文件数，unreadable 单独计数（读不出的不进 files，见偏离 1）。
+     - 读不出的情况：权限不足、非 UTF-8 或含 NUL、超过 Files 的正文上限 TEXT_BUDGET_BYTES。
+   - 读文件：直接读项目目录，打开时带 O_NOFOLLOW|O_NONBLOCK，再 fstat，只计普通文件；符号链接与 FIFO 不计，也不会卡住扫描。
+   - 顺序：
+     - 先订阅再扫描。订阅建立前到达的消息也进队列，首扫完成后按到达顺序结算。
+     - 所有改状态的工作串行：一次整轮扫描，或一个事件的结算。
+     - 扫描并发读至多 4 个文件，每批之后 await setImmediate 让出一次执行权（这一点没有用注入时钟）。
+     - 正文读完只留字数；最后一段只在事件触发的重读里计算。
+   - 事件分类：
+     - 已知文件（可读或读不出）：按文件重读。
+     - 已知文件的上级目录：标记重扫。用每级上级目录的引用计数表判定，O(深度)。
+     - 都不是：lstat 一次，目录则重扫，.md 普通文件则重读。
+     - resync 与目录事件只立一个重扫标记：至多一次扫描在跑，另外至多排一次。
+     - 队列超过 2000 条时折成一次 resync，防止扫描期间队列无限增长。
+   - 订阅结束：
+     - 收到 ended 消息或 onEnd 后不再扫描（在跑的扫描作废），状态为 ended。
+     - 此前已收到的单文件事件仍会结算，见偏离 6。
+   - 今天：
+     - 午夜按注入时钟定时；跨日先把基线换成当时的总数，每个事件结算前也核对一次日期。
+     - 打开时，记录日期是今天就沿用基线，否则以记录的总字数作基线；没有记录时，首扫总数就是基线。
+     - 本地日期用 backend/shelf.ts 的 localDate（同一插件内的相对导入，服务端与子进程写法相同）。
+   - 最近编辑：
+     - 由 changed 事件（经文件服务保存与外部修改）设置，created（新建与复制）只计数，见偏离 4。
+     - 地址为 project://<相对路径>；片段名是文件名去掉扩展名；时间取注入时钟；片段是最后一个非空段落去掉行首标记后的前 120 个码点。
+     - 文件改名跟到新地址；目录改名按前缀改写后再重扫。
+     - 删除时清空。每次整轮扫描后核对它指的文件还在，不在就清空（含重开后的首扫）。
+   - 停止：
+     - 退订，取消午夜计时与扫描。
+     - 首扫没完成、或停止时正有整轮扫描在跑或排着：返回 null，不写。
+     - 否则按注入时钟至多等 STOP_DRAIN_MS（1 秒）让在途与已排队的单文件结算完，再返回快照。
+     - 停止开始后不再通知写入方。
+
+3. 写入（输出 16 的“持久化”）：src/plugins/projects/project/stats-writer.ts
+   - 节奏：
+     - 变化后最多每 30 秒写一次（注入时钟）。距上一轮写入已满 30 秒就立即写，所以首扫完成时马上写一次。
+     - 排着的写入到点时取最新快照；写入串行。
+   - 按 revision 条件保存：
+     - conflict、unknown-outcome、protected：先重读。
+     - 存着的 computedAt 更晚：放弃，记 projects.stats.superseded。
+     - 存着的与要写的相同：算写成（结果未知的那次其实已落盘）。
+     - 其余情况：以重读到的 revision 重写。一轮至多 3 次，之后留到下一轮。
+   - 其他失败：
+     - busy、io-error、unavailable：保留旧记录，记诊断，下一轮再写。
+     - corrupt、unsupported-version：以条件 reset 覆盖（原件进原件区），记诊断。
+     - originals-full：放弃并记诊断。
+     - 其余失败码：记 error 并放弃。
+   - 句柄打开失败时下一轮再打开。
+
+4. 停止（输出 16 的“停止”）：在入口登记的资源释放里写最后一次。
+   - 快照与已存的相同则不写；快照为 null 时只收口不写，并记 projects.stats.final-skipped。
+
+5. 提供方（输出 17 的项目实例一侧）
+   - provideRemote(projectStatsRemoteContract)，current() 返回 {status, snapshot}：
+     - counting 时给记录里的快照，没有记录为 null；
+     - complete 时给当前快照；
+     - ended 时给结束前最后的完整快照，没有则给记录。
+
+6. 测试
+   - src/plugins/projects/stats-tracker.test.ts（14 个）：真实 Files 场地，Book 目录与真实 fs.watch，订阅经项目实例里的本地远程调用。
+     - 口径：普通 .md、.content/index.md、活页夹章节、大写扩展名、隐藏目录与文件、非 .md、符号链接、坏 UTF-8、含 NUL、超过上限；无读权限一例在 root 下跳过。
+     - 片段规则。
+     - 扫描期间的保存、目录移入与删除：断言事件到达时状态仍是 counting。
+     - resync：一批超过 1000 个路径时重扫。
+     - 新建文件、新建目录、复制目录。
+     - 隐藏路径上的事件不计入。
+     - 最近编辑：保存与外部修改设置它，文件改名与目录改名跟随，删除清空，重开沿用，首扫时文件不在则清空。
+     - 今天：23:59 写的字算当天、00:05 写的字算次日首笔，无修改也在午夜换基线，当天重开沿用基线，离线跨日以记录总数作基线。
+     - 订阅结束：项目目录被移走后状态为 ended。
+     - 停止：首扫前停止返回 null；完成后停止会等在途的重读。
+     - 停止后不再通知写入方。
+   - src/plugins/projects/stats-writer.test.ts（7 个）：
+     - 真实 Storage 部分用 settingsWorld，服务端装 storageBackendPlugin，窗口经 createLinkTap 包住链路：
+       - 两个写者冲突，较新的 computedAt 胜出（双向各验一次）；
+       - 30 秒节流；
+       - 结果未知且已落盘：重读后不再写，save 请求只发过一次；
+       - 结果未知期间别人写了更晚的快照：放弃；
+       - 写请求交给链路后没送达就断线（结果未知、其实没写成）：重读到没有记录后重写；
+       - 坏 JSON 与版本不同各一例，被条件 reset，原件区里有原件；原件区满时放弃并记诊断。
+     - 真实项目子进程（projectHarness，服务端装诊断、Storage 与一个读统计的测试插件）：
+       - current() 从 counting 到 complete，首扫后立即写记录；
+       - 外部写文件后字数与最近编辑变化，此时记录仍是旧的（未满 30 秒）；
+       - 停止时写成；重开后沿用记录里的快照；
+       - 1500 个文件的首扫没完成就停止：记录逐字节不变，子进程日志里有 projects.stats.final-skipped；首扫前 current() 给的正是记录里的快照。
+   - src/plugins/projects/projects.test.ts：原用例“运行中但没有统计提供方时退回记录”改为新行为：
+     - 运行中先 counting（带上次的快照与今天的字数），再 fresh；
+     - 运行中外部修改；宽限期里按首扫后写下的记录为 stale；
+     - 停止后为 stale，带停止时写下的最后一次统计（字数与最近编辑）。
+
+三、与 Spec 或计划的偏离及原因（Spec 未改，按约定只写在这里）
+
+1. files 只计可读的 .md，读不出的计入 unreadable，不重复计入 files。Spec 写的是“篇是计入的文件数”与“读不出的计入 unreadable、不按 0 字计”，这里按“读不出的不算一篇”理解。若要把读不出的也算进篇数，只需改 build() 里的 files。
+2. 符号链接与特殊文件（FIFO、设备）不计。Spec 没写；跟随链接可能跳出项目或重复计数，读 FIFO 会卡住扫描。
+3. “过大”取 Files 的正文上限 TEXT_BUDGET_BYTES（按原始字节数），不做 Files 读取里那次按 JSON 编码后再核对。
+4. 最近编辑只由 changed 事件设置（经文件服务保存与外部修改）；created（文件服务新建空文件、复制）只计数。外部新建的文件在 Files 里报为 changed，所以也会被设为最近编辑。
+5. “整轮扫描没完成就不写”按任意一次整轮扫描理解：首扫没完成、或停止时有重扫在跑或排着，都不写。在 1 秒的结算窗口里遇到目录事件同样不写。
+6. 订阅 ended 后不再扫描，但 ended 之前已收到、排在队里的单文件事件仍会结算。原因：正常停止时 Files 入口可能先于统计入口收口，用户最后一次保存的事件会卡在队里，丢掉它会让最后一次写入缺这次修改。
+7. 停止时的 1 秒窗口除了等“在途的单文件重读”，也覆盖已排在队里的单文件事件。窗口里不发起扫描。
+8. 片段按码点截到 120（记录 schema 按字形簇计长度，码点数不少于字形簇数，所以一定合规）。段内换行换成空格，分隔线（--- *** ___）不算段落。
+9. 扫描时读不出的子目录跳过并记 warn 诊断，其中的文件既不计字数也不计 unreadable。
+10. 激活时先 await 读记录再起 tracker：provider 一可用就能给出记录里的快照，代价是打开时多一次到服务端的读（计入下面的打开耗时）。
+11. 项目入口代码按任务说明放在 src/plugins/projects/project/。tsconfig.json 的 include 没有列这个目录（只列 src/plugins/*/backend），它经 src/project/plugins.ts 与测试的导入进入类型检查。tsconfig 不在允许修改的范围，没有改。
+12. 首扫期间“扫描中有修改”这类用例靠文件量让首扫跨过几步操作，再在关键处断言 status 仍是 counting，不是严格确定的时序。用到这一做法的有：stats-tracker 用 800 个文件，子进程“没完成就停止”用 1500 个，projects.test.ts 用 400 个。stats-tracker 连跑 7 次、writer 连跑 8 次都通过；在负载很高的机器上前置断言可能失败（会明确失败，不会误报通过）。
+13. projects.test.ts 原来经“没有提供方”覆盖的 shelf 分支（live 调用失败时退回记录、为 stale 并记 projects.shelf.live-unavailable）不再有用例：现在运行中的项目总有提供方，而任务只允许改那一条用例。可以补一个“项目目录被移走、状态 ended 后书架退回记录”的用例，那是 S2 的代码，留给主会话决定。
+
+四、资源测量（本机 Linux x64，Bun 1.4.2；bun run build:server 的生产产物）
+
+测量脚本 scripts/measure-project.ts 的改动：
+- 服务端装诊断与真实 Storage，统计入口经它读写记录，与产品一致；
+- 新增 --sample <文件数>：项目目录放 Files 样本，另记首次统计耗时（子进程诊断 projects.stats.scanned 的 durationMs），RSS 改在首扫完成后读。
+
+A. 空项目，冷启动 10 次，两份产物交替各跑 3 组（同一时段，同一脚本）：
+   - 不带统计入口（把 locations 临时改回 ["server","browser"] 构建）：打开到取得租约 p50 96.4、97.1、97.2 ms；常驻 RSS p50 66.1–66.5 MB。
+   - 带统计入口（本分支）：p50 111.6、112.4、113.1 ms；RSS p50 71.9–72.4 MB。
+   - 净增约 15 ms、6 MB。另做了两份拆分产物：只读记录、不订阅不扫描时约 104.6 ms、68.8 MB；不读记录、只订阅加扫描时约 112.5 ms、72.3 MB。可见大头是启动时就开的 Files 递归监视与首次扫描（统计订阅了变更，Files 的 fs.watch 因此在项目一打开就建立），读记录本身约几毫秒。
+
+B. 3000 个文件的样本（files-sample 缺省参数：3000 个 Markdown，53,798,932 字节），10 轮：
+   - 首次统计 scanMs：p50 1230 ms，p95 1293 ms，最大 1293 ms；
+   - 打开到取得租约：p50 117 ms（不等首扫）；
+   - 首扫刚完成时 RSS：p50 96.6 MB，最大 97.7 MB；另跑 2 轮观察回落，首扫后 1 s 约 82–83 MB，5 s 约 79–80 MB。
+
+C. 首扫耗时归因：把同一份样本的正文单独交给 countWords，共 1232 ms（1853 万字符）。也就是说扫描时间几乎全部在 t74 的共享 countWords 上：它对每个汉字调用一次 replace 的回调。I/O 与并发度不是瓶颈，调并发与批量帮不上忙。每批 4 个文件只占事件循环约 1–2 ms 就让出，扫描期间远程调用照常响应。
+
+与 Spec 输出 12 的 55 ms、49 MB 对照：那是 t54 时只有内核与 nbook.diagnostics 的数字。同一台机器今天测到的 S3 之前的产物已经是约 97 ms、66 MB，增量来自 S3 之前陆续加入项目实例的 storage、settings、files 入口；S3 再加约 15 ms、6 MB。计划“风险”一节的阈值是超出 20% 先调参：打开耗时增量约 15%，首扫耗时取决于 countWords 而不是并发。Spec 第 12 条需要按这些数字重写，那是文档改动，没有做。
+
+注意：本机同时有其它负载，单组测量波动较大（同一产物出现过 p50 113–152 ms），所以上面采用交替测量里比较稳定的几组。
+
+五、测试命令与实际输出（在 packages/neuro-book 下）
+
+- bun run typecheck：tsc 与两个 vue-tsc 都通过，退出码 0。
+- bun test src/plugins/projects/ src/server/projects/ src/server/server-projects.test.ts src/plugins/storage/project-child.test.ts：
+  106 pass，0 fail，622 expect() calls，11 个文件，10.57 s。动手前基线是 85 pass、0 fail；新增 21 个用例（tracker 14、writer 7），projects.test.ts 改一条。
+- 变异检查：对实现做了 19 处改坏（隐藏过滤、扫描时的隐藏过滤、读不出按 0 计、扫描期间丢事件、目录事件不重扫、忽略 resync、改名不跟随、删除不清空、首扫不核对最近编辑、不换午夜基线、打开时不按日期取基线、停止不等在途重读、扫描没完成也写、旧快照胜出、结果未知当成写成、相同快照不算写成、坏记录不 reset、不节流、停止不写），对应测试全部失败（全部被杀死）。第一轮“事件路径的隐藏过滤”没被杀，为此补了隐藏路径的用例（提交 345fc46d）。
+- 范围外顺带跑了 bun test src/architecture.test.ts src/plugins/files/ src/project/ src/server/ src/plugins/storage/ src/plugins/editor/：323 pass，2 fail，两条都是既有的、与本切片无关：
+  - architecture.test.ts 报 plugins/projects/web/shelf-page.ts、plugins/projects/web/plugin.ts 引用 nbook/plugins/workbench/shared/home，plugins/editor/web/plugin.ts 引用 nbook/plugins/workbench/shared/items，都是 S4 与 t74 的前端代码；
+  - src/server/dev/watch.test.ts 失败是环境原因：本 worktree 的 node_modules 是指向主 worktree 的符号链接，nb-runtime 的源码路径解析到了 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/nb-runtime/src。这也说明本 worktree 的测试实际用的是那个 worktree 里的 nb-runtime 源码。
+- 测试规范扫描（scripts/ci/test-conventions.ts 的 scanTestSource）对三个测试文件都没有命中（没有 mock、spy、固定等待或假计时器）。
+
+六、没做完或没把握的地方
+
+- STOP_DRAIN_MS 到点的那条路径（在途重读超过 1 秒）没有测试：真实文件系统上扣不住单个读取。
+- busy 与 io-error 的写入失败没有专门测试：制造 busy 要真实占锁约 2 秒，这两种失败码在协议实现里走“保留、记诊断、下一轮”的同一分支。
+- 运行中跨午夜的定时只在注入时钟下测过；项目子进程里用的是系统时钟。
+- 计划“风险”一节提到的“输入保存的延迟”没有测（需要浏览器与编辑器，属于 e2e 或性能验收范围）。
+- 写记录在服务端那头经路由送到 user 分区。两个服务端进程同开一个作品时“后算完的胜出”，只在同一分区里用两个写者模拟过，没有起两个服务端进程。
+- 构建产物留在本 worktree 的 packages/neuro-book/dist/，该目录被 git 忽略。
