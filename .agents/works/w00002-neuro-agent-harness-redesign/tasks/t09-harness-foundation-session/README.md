@@ -56,6 +56,7 @@ taskId: t09-harness-foundation-session
   边界测试的修改逐种写违规样本确认报出后删除；`bun test` 31 pass、2 skip，`typecheck` 通过。
 
 - **本轮按开发者决定的修订**：条目对齐 OMP 会话条目（harness 状态用 `custom` 条目，保留类型五种）、种子与压缩后的回放顺序、分页（按轮、截断大字段、按 id 读取）、与 OMP `prepareCompaction` 兼容。
+- **S1 条目、内存存储、日志句柄**（本提交，按 [`plan.md`](plan.md) 第 1、2、3、6 节）：`src/session/` 的 `types.ts`、`entries.ts`（TypeBox 按判别字段选变体校验、JSON 如实表示检查、保留类型表、interaction 的关系规则）、`memory-store.ts`（存 JSON 文本）、`log.ts`（Promise 链串行、订阅快照推送、损坏与关闭状态）；两种存储共用的场景在 `testing/store-scenarios.ts`。`bun test src/session` 16 pass，`typecheck` 通过；变异检查四处（订阅者快照、写存储前加入 entries、时间戳单调、监听函数抛错）都被测试报出。计划审查（omp）此时仍在进行，其结论涉及 S1 的部分另起提交处理。
 
 ## 依据
 
