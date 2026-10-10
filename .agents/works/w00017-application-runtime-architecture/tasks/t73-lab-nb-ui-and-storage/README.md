@@ -36,6 +36,15 @@ taskId: t73-lab-nb-ui-and-storage
     - 越界报告多为测量误报（读屏播报区、视觉隐藏的 input），Lab 的测量改为跳过看不见的元素，e2e 补了用例；
     - 真实问题只有 Collapsible：内容区向外扩 6px，在贴边容器里造成 6px 横向溢出。这是保护焦点光环的设计取舍，写进组件文档。
   - **验证**：nb-ui 与 neuro-book 的 typecheck、`build` 与 `check:dist`、Lab 的 Bun 37 例、Vitest 27 例、e2e `lab.e2e.ts` 与 `lab-shot.e2e.ts` 11 例，全部通过。变异 6 个全杀。
+- 2026-10-10 S4 完成：
+  - **拆分**：`LabShell.vue` 从 2045 行降到约 930 行。顶栏 `LabToolbar.vue`、左栏 `LabNavPanel.vue`、右栏 `LabInspectPanel.vue` 只呈现与转发，各带同名 `.md`；侧栏布局在 `use-lab-layout.ts`；样式移到不 scoped 的 `lab-shell.css`，几个外壳零件共用。画布那一条工具条（场景、尺寸、缩放、画布底）与舞台连得紧，留在 LabShell，与计划表里“工具条含场景与画布”不同。
+  - **拆分后的样式对照**：在开发服务上把改动的文件临时换回 HEAD，对 Lab 外壳每个元素记录 16 项计算样式与位置，两种窗口宽度各一份。对照抓到一处回归：直接在窄屏打开时，偏好里展开的侧栏盖掉了自动收起（偏好改成异步读取后时序变了）。已修：偏好放进界面之后按窗口宽度再收一次；`lab.e2e.ts` 补了直接窄屏打开的断言，变异检查确认能拦下。另一处是减少动态的规则：原来写在 LabShell 的 scoped 样式里，改成全局后优先级不够、被 `CollapsibleSidePanel` 自己的转场盖掉，挪进了该组件。修完后外壳样式前后一致，只有舞台里第三方 JSON 编辑器的内部高度稳定多出 1px，原因没有查到，不影响外壳。
+  - **画布作为浮层定位容器**：nb-ui 加 `provideTeleportTarget` 与 `useTeleportTarget`；Dialog、DialogWindow、AlertDialog、Drawer、QuickInput 的缺省传送目标改为宿主提供的、否则 `body`，尺寸从 `vw`、`vh` 改为容器单位 `cqw`、`cqh`（没有容器时等于视口单位，产品页不变）。`ViewportCanvas` 在画布盒子里放浮层落点（尺寸容器加 `contain: layout`）并提供给场景。
+    - 顺带修了 nb-ui 的一个真实问题：Dialog 的 `sm`、`default` 两档宽度写死 360px、420px，在 390px 窄屏溢出，现在按可用宽度收窄。
+    - 实施中踩到：`container-type: size` 不会让 `fixed` 后代以它为包含块（它不带 layout containment）。玻璃主题碰巧靠画布盒子的 `backdrop-filter` 成了包含块，editorial、aurora 主题下命令面板仍按窗口定位。加上 `contain: layout` 后修好；验收 24 的用例改用不开模糊的 editorial 主题，变异检查确认能拦下。
+    - `lab-commands.e2e.ts` 的 390px 用例改为看手机画布：面板按画布宽度收窄，窗口宽度不再决定它的尺寸。
+    - `dist/nb-ui.css` 重新生成：除了 Drawer 换成容器单位的两条，还去掉了 `mx-1`、`ml-2`、`ml-4`、`shrink`、`opacity-80`、`bg-[var(--border-color)]` 六条。这六个类在 nb-ui 组件源码里已经没人用，是之前的提交改了组件却没有重新生成产物。
+  - **验证**：neuro-book 与 nb-ui typecheck；Lab Bun 41 例（含架构测试）；nb-ui Vitest 529 例通过，另有 `colorway.test.ts` 5 例失败。这 5 例与本次改动无关：本机 Node 26 自带的实验性全局 `localStorage` 没有 `--localstorage-file` 时为 undefined，盖住了 happy-dom 的实现，该文件本次没有改动。`build` 与 `check:dist`；e2e：Lab、命令、工作台共 81 例全过。变异 6 个全杀（传送目标 3 个、浮层落点 2 个、窄屏收起 1 个）。
 - 2026-10-10 S3 完成：
   - **偏好**：改存 `nbook.storage` 的 `lab.preferences`（user、shared），`defineStore("lab")` 按字段合并保存、恢复默认写空对象、暂停期间合并成一份、重试与放弃；读到之前只显示占位；问题提示按界面状态表给出操作。“字段问题”分类从资源管理器挪到 `src/shared/store/problem.ts` 共用。localStorage、sessionStorage 的全部路径删去。
   - **地址栏**：`use-lab-session.ts` 经宿主 router 同步，切组件 `push`、其余 `replace`，后退前进由当前路由驱动；参数补 `zoom`、`tab`，不认识的参数保留，旧参数名改写；复制场景链接；地址里的场景不存在时回落并提示。

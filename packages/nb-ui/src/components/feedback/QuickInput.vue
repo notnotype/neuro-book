@@ -9,6 +9,7 @@ import {
 } from "reka-ui";
 import {computed, nextTick, ref, useId, watch} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
+import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import Kbd from "../display/Kbd.vue";
 import Spinner from "../display/Spinner.vue";
 import {moveHighlight, type HighlightAction} from "../form/option-highlight";
@@ -54,7 +55,7 @@ export type QuickInputProps = {
 const props = withDefaults(defineProps<QuickInputProps>(), {
     message: "",
     loading: false,
-    teleportTarget: "body",
+    teleportTarget: undefined,
     restoreFocus: true,
     focusRequest: 0,
 });
@@ -85,21 +86,14 @@ const activeDescendant = computed(() => (activeItem.value === null ? undefined :
 
 const panelStyle = computed(() => ({
     zIndex: NB_Z_INDEX.commandPalette,
-    width: "min(640px, calc(100vw - 24px))",
-    top: "clamp(16px, 8vh, 72px)",
-    maxHeight: "min(560px, calc(100dvh - 48px))",
+    width: "min(640px, calc(100cqw - 24px))",
+    top: "clamp(16px, 8cqh, 72px)",
+    maxHeight: "min(560px, calc(100cqh - 48px))",
     borderRadius: "14px",
     "--nb-popover-radius": "14px",
 }));
 
-// 与 DialogWindow 同一取法：选择器在当前上下文（如 Lab）不存在时回退 body，
-// 否则 Teleport 会静默不渲染整块浮层。
-const portalTarget = computed(() => {
-    if (typeof document !== "undefined" && document.querySelector(props.teleportTarget) !== null) {
-        return props.teleportTarget;
-    }
-    return "body";
-});
+const teleportTo = useTeleportTarget(() => props.teleportTarget);
 
 watch(() => props.focusRequest, () => {
     if (props.open) inputRef.value?.focus();
@@ -284,7 +278,7 @@ function isLowSurrogate(code: number): boolean {
 
 <template>
     <DialogRoot :open="props.open" :modal="true" @update:open="onRootOpenChange">
-        <DialogPortal :to="portalTarget">
+        <DialogPortal :to="teleportTo()">
             <!-- 透明遮罩与面板同为 S4 层级、面板在后绘制：外点落在遮罩上被消费，不穿透底层 -->
             <DialogOverlay class="fixed inset-0" :style="{zIndex: NB_Z_INDEX.commandPalette}" />
             <!-- 面板没有描述节点：先清掉 Reka 默认指向描述 id 的 aria-describedby（否则引用悬空并告警），宿主显式传入时仍以宿主为准 -->

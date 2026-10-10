@@ -3,6 +3,7 @@ import {computed, getCurrentInstance, inject, nextTick, onBeforeUnmount, provide
 import {useWindowSize} from "@vueuse/core";
 import {DialogContent, DialogPortal, DialogRoot, DialogTitle} from "reka-ui";
 import {NB_DIALOG_WINDOW_DEPTH, NB_DIALOG_WINDOW_Z_STEP, NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
+import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import IconButton from "../controls/IconButton.vue";
 
 /**
@@ -91,7 +92,7 @@ const props = withDefaults(defineProps<{
     title: "",
     width: undefined,
     height: undefined,
-    maxHeight: "calc(100dvh - 80px)",
+    maxHeight: "calc(100cqh - 80px)",
     resizable: false,
     minWidth: 320,
     minHeight: 240,
@@ -99,7 +100,7 @@ const props = withDefaults(defineProps<{
     closeOnEsc: true,
     busy: false,
     bodyClass: "overflow-y-auto px-4 py-3",
-    teleportTarget: "body",
+    teleportTarget: undefined,
 });
 
 const emit = defineEmits<{
@@ -122,22 +123,7 @@ let dragCleanup: (() => void) | null = null;
 
 const {width: viewportWidth, height: viewportHeight} = useWindowSize();
 
-const portalTarget = computed(() => {
-    if (props.teleportTarget === false) {
-        return undefined;
-    }
-    if (typeof props.teleportTarget === "string") {
-        if (typeof document !== "undefined") {
-            const el = document.querySelector(props.teleportTarget);
-            if (el) {
-                return props.teleportTarget;
-            }
-        }
-        // 当传入的选择器在当前上下文（如 Lab）中不存在时，平滑回退到 body
-        return "body";
-    }
-    return "body";
-});
+const teleportTo = useTeleportTarget(() => (typeof props.teleportTarget === "string" ? props.teleportTarget : undefined));
 
 /** 尺寸字面量只做缺省：显式传入的 width / height 覆盖对应维度。 */
 const sizePreset = computed(() => DIALOG_WINDOW_SIZE_PRESETS[props.size]);
@@ -438,7 +424,7 @@ onBeforeUnmount(() => {
         :modal="false"
         @update:open="handleRootOpenChange"
     >
-        <DialogPortal :to="portalTarget" :disabled="props.teleportTarget === false">
+        <DialogPortal :to="props.teleportTarget === false ? undefined : teleportTo()" :disabled="props.teleportTarget === false">
             <DialogContent
                 as-child
                 :aria-describedby="undefined"

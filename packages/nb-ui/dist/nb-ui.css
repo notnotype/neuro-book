@@ -162,9 +162,6 @@
 .m-0 {
   margin: 0px;
 }
-.mx-1 {
-  margin-inline: var(--spacing);
-}
 .mx-2 {
   margin-inline: calc(var(--spacing) * 2);
 }
@@ -215,12 +212,6 @@
 }
 .ml-1 {
   margin-left: var(--spacing);
-}
-.ml-2 {
-  margin-left: calc(var(--spacing) * 2);
-}
-.ml-4 {
-  margin-left: calc(var(--spacing) * 4);
 }
 .ml-5 {
   margin-left: calc(var(--spacing) * 5);
@@ -381,8 +372,8 @@
 .max-h-60 {
   max-height: calc(var(--spacing) * 60);
 }
-.max-h-\[85vh\] {
-  max-height: 85vh;
+.max-h-\[85cqh\] {
+  max-height: 85cqh;
 }
 .min-h-0 {
   min-height: 0px;
@@ -519,8 +510,8 @@
 .max-w-72 {
   max-width: calc(var(--spacing) * 72);
 }
-.max-w-\[90vw\] {
-  max-width: 90vw;
+.max-w-\[90cqw\] {
+  max-width: 90cqw;
 }
 .max-w-\[140px\] {
   max-width: 140px;
@@ -584,9 +575,6 @@
 }
 .flex-1 {
   flex: 1;
-}
-.shrink {
-  flex-shrink: 1;
 }
 .shrink-0 {
   flex-shrink: 0;
@@ -1213,9 +1201,6 @@
 .bg-\[var\(--bg-subtle\)\] {
   background-color: var(--bg-subtle);
 }
-.bg-\[var\(--border-color\)\] {
-  background-color: var(--border-color);
-}
 .bg-\[var\(--control-surface\)\] {
   background-color: var(--control-surface);
 }
@@ -1615,9 +1600,6 @@
 }
 .opacity-70 {
   opacity: 70%;
-}
-.opacity-80 {
-  opacity: 80%;
 }
 .opacity-90 {
   opacity: 90%;

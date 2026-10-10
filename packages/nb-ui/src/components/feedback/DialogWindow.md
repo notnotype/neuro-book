@@ -46,7 +46,7 @@ type DialogWindowProps = {
     width?: number;
     /** 高度 CSS 值或 px 数值；默认取 size 预设，传 auto 时按内容自适应 */
     height?: string | number;
-    /** 最大高度 CSS 值；默认 calc(100dvh - 80px) */
+    /** 最大高度 CSS 值；默认 calc(100cqh - 80px)（没有尺寸容器时等于视口高度减 80px） */
     maxHeight?: string;
     /** 是否启用 resize；默认 false */
     resizable?: boolean;
@@ -62,7 +62,7 @@ type DialogWindowProps = {
     busy?: boolean;
     /** body 容器 class；默认 overflow-y-auto px-4 py-3 */
     bodyClass?: string;
-    /** Portal 目标；默认 body；传 false 关闭 Teleport */
+    /** Portal 目标；缺省用宿主提供的目标或 body；传 false 关闭 Teleport */
     teleportTarget?: string | boolean;
 };
 
@@ -88,7 +88,7 @@ type DialogWindowEmits = {
 
 插槽合同：默认插槽是 body 内容；`header` 替换标题栏文字并仍包在 `DialogTitle` 中；`footer` 渲染底部操作区。组件不暴露 `expose` API；attrs 不是稳定公共合同，不应依赖内部 Reka 节点的透传位置。组件不提供业务数据、请求、store 或持久化能力。
 
-`env:portal` 的理由：浮动窗口必须脱离宿主的局部 stacking context 才能稳定覆盖工作区；`teleportTarget` 明确指定目标，默认公共目标为 `body`。产品主题宿主（例如 NeuroBook 的 `.novel-ide-theme`）必须由消费者显式传入，不能由公共包硬编码。目标不存在时保持 Vue/ ReKa Portal 的原有 Teleport 行为，不创建隐式目标。
+`env:portal` 的理由：浮动窗口必须脱离宿主的局部 stacking context 才能稳定覆盖工作区；`teleportTarget` 明确指定目标，默认公共目标为 `body`；宿主可用 `provideTeleportTarget(选择器)` 在组件树上给一个更近的目标（例如组件 Lab 的画布）；组件自己写明的 `teleportTarget` 优先，目标查不到时回退 `body`（`useTeleportTarget`）。产品主题宿主（例如 NeuroBook 的 `.novel-ide-theme`）必须由消费者显式传入，不能由公共包硬编码。目标不存在时保持 Vue/ ReKa Portal 的原有 Teleport 行为，不创建隐式目标。
 
 `env:global` 的理由：标题栏拖动和 pointer resize 需要在一次手势持续期间监听指针移动与释放事件；组件销毁或手势结束时解除监听。该监听不是常驻全局快捷键。
 

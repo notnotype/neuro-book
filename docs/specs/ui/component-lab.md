@@ -79,7 +79,7 @@ fixture 不得要求凭据、网络、真实 Project/Session、Provider/Model �
 - 开发命令 `lab:shot` 按组件、场景（缺省为全部）、画布尺寸与配色的组合逐一打开 Lab 并截取舞台，输出每张截图的溢出测量与期间的页面错误、控制台错误和警告，并写一份 JSON 报告；任一组合有溢出、越界元素或页面问题时以非零退出，`--no-fail` 可改为只报告。它只依赖地址栏参数、`data-lab-stage` 与 `window.__nbLab`，不点击 Lab 外壳的控件。
 - Fixture 容器在声明最大宽度约束时必须携带 `mx-auto` 水平居中，陈列区使用 flex 居中，严禁靠左贴死导致视口失衡；Fixture 必须消费面板级语义材质变量（`var(--panel-surface)`、`var(--bg-panel)` 等），严禁在 Fixture 容器上硬编码页面顶层底色 `var(--bg-main)`，确保与舞台材质层级以及明暗主题对齐。典型夹具示范见 `packages/neuro-book/src/plugins/lab/web/fixtures/FixtureExampleFixture.vue` 与同目录的 `README.md`。
 - 运行中的视口从宽屏进入 `<=700px` 时，左右侧栏自动收起，把空间让给画布；从窄屏恢复宽屏不自动展开，保留使用者最后一次侧栏状态。侧栏宽度切换提供短时转场，`prefers-reduced-motion: reduce` 时关闭新增转场；场景切换不得制造空白退场阶段。
-- 画布是场景浮层的定位容器：传送到页面根上的浮层（对话框、抽屉、快速输入等）落在画布里，按画布居中与裁剪，手机画布上看到的就是手机宽度下的浮层。（planned）
+- 画布是场景里居中类浮层的定位容器：nb-ui 的对话框、确认框、抽屉、快速输入缺省传送到画布里的浮层落点，遮罩铺满画布，浮层按画布居中、按画布宽度收窄，手机画布上看到的就是手机宽度下的浮层。贴着触发器定位的浮层（下拉、气泡）仍按窗口。
 - 左侧组件树的选中行使用整行淡强调底、强调文字与中等字重，不绘制常驻左边框；Tree 的 `data-selected` / `aria-selected` 承载选择语义。
 - 可分发产物中访问 Lab 路径得到前端的“页面不存在”页（服务端按页面路径回退给外壳，不知道前端有哪些页面），且构建产物的文本中不含 Lab 模块、fixture、本机源码路径或识别标记。
 
@@ -157,7 +157,7 @@ Lab 落地本身不授权删除任何既有的 preview 页面。既有 preview �
 21. Given 在 Lab 里先后选中组件 A、B，When 按浏览器后退再从 Lab 进入产品页，Then 后退回到 A，地址栏、宿主路由的当前路由与整页加载的目标三者一致。
 22. Given 同一状态根先后用两个端口启动开发服务，When 各自打开 Lab，Then 偏好相同。
 23. Given 变量 tab 覆盖了一个设计变量，When 导出再清除、导入，Then 覆盖依次生效、消失、再生效；When 刷新，Then 覆盖消失。Given 元素 tab 选中一个按钮，Then 显示它的 ARIA 角色、名称与计算样式读数。（planned）
-24. Given 对话框类组件的场景，When 在手机画布上打开，Then 浮层落在画布里并按画布居中，不越出画布。（planned）
+24. Given 对话框类组件的场景，When 在手机画布上打开，Then 浮层落在画布里并按画布居中，不越出画布；不开背景模糊的主题下同样如此。
 
 ## 实现合同
 
@@ -167,6 +167,7 @@ Lab 落地本身不授权删除任何既有的 preview 页面。既有 preview �
 - **输入边界**：`lab-subject.ts` 持有分层 schema、`LabJsonInput<T>` 投影、`LabInputOf<C>` 类型约束和 `useLabSubject` 接入 API；`fixtures/index.ts` 的 `defineLabFixture<typeof C>` 是唯一类型化登记入口。LabShell 只做编辑值的 JSON 形状校验，不读取运行时组件签名。函数/服务/Date/Set 等运行期 props 由 fixture 固定接线；它们不是第四种调试输入，也不削弱组件实际必填 props 的 Vue 模板类型检查。
 - **透传夹具**：`fixtures/subject-fixture.ts` 的 `defineSubjectFixture<typeof C>` 为只需绑定输入、记录事件、按声明回写受控输入并补运行期 props 的零件生成夹具组件；运行期 props 在加载时异步准备，与被测组件一样按需加载。需要插槽预设、`LabFixtureControls` 或挂载后才准备的服务时仍手写 fixture 并用 `defineLabFixture` 登记。
 - **调试入口**：`lab-url.ts` 解析地址栏参数并持有画布预设；`use-lab-session.ts` 经宿主 router 双向同步地址栏与会话状态；`useLabPreferences` 按“地址参数 > 偏好 > 默认”放进界面状态；`lab-debug.ts` 持有 `window.__nbLab` 与舞台测量，接口类型在 `shared/debug-api.ts`；`scripts/lab-shot.ts`（`bun run lab:shot`，Node 运行）是命令行截图入口，截图与报告默认写入系统临时根。
+- **外壳拆分**：`LabShell.vue` 持有页面编排、舞台与画布工具条；顶栏 `LabToolbar.vue`、左栏 `LabNavPanel.vue`、右栏 `LabInspectPanel.vue` 只呈现与转发，各带同名 `.md`；侧栏布局在 `use-lab-layout.ts`；外壳样式在不 scoped 的 `lab-shell.css`。画布的浮层落点在 `components/ViewportCanvas.vue`，经 nb-ui 的 `provideTeleportTarget` 交给场景。
 - **状态与持久化边界**：LabShell 持有页面编排和当前状态，不持有命令宿主；命令场景的局部宿主在 `web/fixtures/command-scene/`（`lab-command-scene.ts`、样板编辑器 `SampleTextEditor.vue`、命令检视 `LabCommandInspector.vue`）。`lab-preferences-store.ts` 定义偏好记录与 store（按字段合并保存、恢复默认写空对象、暂停期间合并成一份、重试与放弃），问题分类用共享的 `nbook/shared/store/problem`；`useLabPreferences` 把 store 接到界面状态；store 在第一次打开 `/lab` 时由 `web/plugin.ts` 建立，经页面组件的 prop 交给 LabShell；`lab-wallpaper-store` 只负责 Lab 壁纸 Blob。产品主题、Global Config 和业务数据不由 Lab 持有。
 - **关键不变量**：生产构建的入口不引用开发清单，Lab 模块不进构建图（`check:dist` 检查）；Lab 页面声明 `reloadOnLeave`，宿主路由在离开它时整页加载；Tree 对外维持 string-id，Reka 节点对象不泄漏；场景切换/还原不改变 fixture 初始合同；存储异常不阻断 Lab 打开。
 - **验证入口**：`bun test` 跑组件索引模型、`lab-url`、偏好 store 与 `useLabPreferences`（真实 `nbook.storage`，`src/plugins/storage/testing/world.ts`）；Vitest（`*.dom.test.ts`）跑场景登记门禁、分层输入、透传夹具、检查器、HighlightBox 与命令场景的局部宿主；`e2e/lab.e2e.ts`、`e2e/lab-shot.e2e.ts`、`e2e/lab-commands.e2e.ts`、`e2e/lab-scenes.e2e.ts` 在真实开发会话上验收；`check:dist` 与 `e2e/browser-host.e2e.ts` 验收生产排除，`check:dist` 另以组件文档的 frontmatter 特征拦住误引 `lab-sources`。产品 `theme.system` 和渐进组件迁移不属于本实现合同。

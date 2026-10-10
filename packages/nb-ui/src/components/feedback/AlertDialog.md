@@ -67,5 +67,5 @@ Reka UI 负责 Alert Dialog 的模态语义、焦点管理、Portal、受控/非
 
 ## 隐藏通道理由
 
-- `env:portal`：确认框必须脱离宿主的局部层叠上下文显示在页面上方；组件使用 Reka Portal，不提供目标选择 prop。目标位置与目标缺失时的表现由 Reka 决定，当前组件及测试未核实其细节。
+- `env:portal`：确认框必须脱离宿主的局部层叠上下文显示在页面上方；组件使用 Reka Portal，不提供目标选择 prop；默认在 `body`，宿主可用 `provideTeleportTarget(选择器)` 在组件树上给一个更近的目标（例如组件 Lab 的画布）；组件自己写明的 `teleportTarget` 优先，目标查不到时回退 `body`（`useTeleportTarget`）。
 - `env:timer`：`closed` 需等 Reka 的卸载清理结束后才上报；关闭交接使用一次零延迟定时器，并在重开或卸载时作废，避免宿主过早激活下一交互层。

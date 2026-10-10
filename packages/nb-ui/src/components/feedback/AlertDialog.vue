@@ -12,6 +12,7 @@ import {
 } from "reka-ui";
 import {useSlots} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
+import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import Button from "../controls/Button.vue";
 import {useCloseHandoff} from "./close-handoff";
 
@@ -34,6 +35,8 @@ const props = withDefaults(defineProps<{
     cancelText: "取消",
     tone: "danger",
 });
+// 居中类浮层：宿主可以把它收进更近的目标（例如 Lab 的画布），见 useTeleportTarget。
+const teleportTo = useTeleportTarget(() => undefined);
 
 const emit = defineEmits<{
     (e: "update:open", value: boolean): void;
@@ -68,7 +71,7 @@ function onCloseAutoFocus(event: Event): void {
         <AlertDialogTrigger v-if="$slots.trigger" as-child>
             <slot name="trigger" />
         </AlertDialogTrigger>
-        <AlertDialogPortal>
+        <AlertDialogPortal :to="teleportTo()">
             <AlertDialogOverlay
                 :style="{zIndex: NB_Z_INDEX.dialog - 1}"
                 class="fixed inset-0 bg-[color-mix(in_srgb,var(--overlay-scrim)_80%,transparent)] backdrop-blur-[4px] transition-opacity [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"

@@ -145,6 +145,12 @@ watch(() => props.collapsed, (isCollapsed) => {
     transition: width var(--motion-base) var(--ease-standard), flex-basis var(--motion-base) var(--ease-standard);
 }
 
+@media (prefers-reduced-motion: reduce) {
+    .nb-lab-panel {
+        transition: none;
+    }
+}
+
 .nb-lab-panel-toggle {
     display: inline-flex;
     height: var(--control-h-sm);

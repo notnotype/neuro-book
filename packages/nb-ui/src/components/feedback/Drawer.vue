@@ -11,6 +11,7 @@ import {
     DrawerTrigger,
 } from "reka-ui";
 import {NB_Z_INDEX} from "../../theme/z-index";
+import {useTeleportTarget} from "../../composables/useTeleportTarget";
 
 export type DrawerDirection = "top" | "bottom" | "left" | "right";
 
@@ -33,6 +34,8 @@ const props = withDefaults(defineProps<{
     handle: false,
     contentClass: "",
 });
+// 居中类浮层：宿主可以把它收进更近的目标（例如 Lab 的画布），见 useTeleportTarget。
+const teleportTo = useTeleportTarget(() => undefined);
 
 const emit = defineEmits<{
     (e: "update:open", value: boolean): void;
@@ -51,7 +54,7 @@ const emit = defineEmits<{
             <slot name="trigger" />
         </DrawerTrigger>
 
-        <DrawerPortal>
+        <DrawerPortal :to="teleportTo()">
             <DrawerOverlay
                 :style="{zIndex: NB_Z_INDEX.dialog - 1}"
                 class="fixed inset-0 bg-[color-mix(in_srgb,var(--overlay-scrim)_80%,transparent)] backdrop-blur-[4px] transition-opacity [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
@@ -63,10 +66,10 @@ const emit = defineEmits<{
                 }"
                 class="nb-ui-popover-surface nb-ui-dialog-surface fixed flex flex-col text-[var(--text-main)] shadow-[var(--elevation-dialog)] transition-transform [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] outline-none border-[color-mix(in_srgb,var(--text-main)_10%,transparent)]"
                 :class="[
-                    props.direction === 'right' ? 'inset-y-0 right-0 h-full w-[380px] max-w-[90vw] border-l' : '',
-                    props.direction === 'left' ? 'inset-y-0 left-0 h-full w-[380px] max-w-[90vw] border-r' : '',
-                    props.direction === 'bottom' ? 'inset-x-0 bottom-0 max-h-[85vh] rounded-t-[var(--radius-panel)] border-t' : '',
-                    props.direction === 'top' ? 'inset-x-0 top-0 max-h-[85vh] rounded-b-[var(--radius-panel)] border-b' : '',
+                    props.direction === 'right' ? 'inset-y-0 right-0 h-full w-[380px] max-w-[90cqw] border-l' : '',
+                    props.direction === 'left' ? 'inset-y-0 left-0 h-full w-[380px] max-w-[90cqw] border-r' : '',
+                    props.direction === 'bottom' ? 'inset-x-0 bottom-0 max-h-[85cqh] rounded-t-[var(--radius-panel)] border-t' : '',
+                    props.direction === 'top' ? 'inset-x-0 top-0 max-h-[85cqh] rounded-b-[var(--radius-panel)] border-b' : '',
                     props.contentClass,
                 ]"
             >

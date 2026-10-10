@@ -8,9 +8,9 @@
 
 ## 布局
 
-打开时显示模态遮罩和居中面板。面板宽度最多 640px，并在窄屏保留 12px 边距；顶距为视口高度的 8% 并限制在 16–72px，最大高度为 `min(560px, 100dvh - 48px)`。输入框固定在顶部，候选列表占据可滚动中间区域，加载/消息状态固定在底部。每条候选显示主标签，可选图标、分类、说明和快捷键；空列表且未加载时显示 `emptyText`。
+打开时显示模态遮罩和居中面板。面板宽度最多 640px，并在窄屏保留 12px 边距；顶距为视口高度的 8% 并限制在 16–72px，最大高度为 `min(560px, 100cqh - 48px)`。尺寸用容器单位 `cqw`、`cqh`：宿主把目标设成尺寸容器时按目标大小计算，没有容器时等于视口单位。输入框固定在顶部，候选列表占据可滚动中间区域，加载/消息状态固定在底部。每条候选显示主标签，可选图标、分类、说明和快捷键；空列表且未加载时显示 `emptyText`。
 
-输入框使用 `placeholder` 同时作为占位文本和可访问名称；标题关联到列表。活动项由 `aria-activedescendant` 表达。弹层默认传送到 `body`；若 `teleportTarget` 选择器未命中，回退到 `body`。
+输入框使用 `placeholder` 同时作为占位文本和可访问名称；标题关联到列表。活动项由 `aria-activedescendant` 表达。弹层默认传送到 `body`；宿主可用 `provideTeleportTarget(选择器)` 在组件树上给一个更近的目标（例如组件 Lab 的画布）；组件自己写明的 `teleportTarget` 优先，目标查不到时回退 `body`（`useTeleportTarget`）。
 
 ## 交互
 
@@ -56,7 +56,7 @@ type QuickInputProps = {
     message?: string;
     /** 是否显示加载指示器；默认 false。 */
     loading?: boolean;
-    /** CSS 选择器形式的 Portal 目标；默认 "body"，目标未找到时回退 body。 */
+    /** CSS 选择器形式的 Portal 目标；缺省用宿主提供的目标或 "body"，目标未找到时回退 body。 */
     teleportTarget?: string;
     /** 关闭完成后是否恢复打开前焦点；默认 true。 */
     restoreFocus?: boolean;

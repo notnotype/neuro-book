@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import {computed, onBeforeUnmount, onMounted, ref} from "vue";
+import {computed, onBeforeUnmount, onMounted, ref, useId} from "vue";
+import {provideTeleportTarget} from "@notnotype/nb-ui/composables";
 import {LAB_DEFAULT_BACKDROP, LAB_DEFAULT_ZOOM} from "../stage-backdrops";
 
 type ResizeAxis = "width" | "height" | "both";
@@ -22,6 +23,10 @@ const props = withDefaults(defineProps<{
     backdrop: LAB_DEFAULT_BACKDROP,
     displayMode: "tight",
 });
+
+// 画布就是场景的视口：nb-ui 的居中类浮层缺省传送到这块画布里的落点（docs/specs/ui/component-lab.md）。
+const overlayId = useId();
+provideTeleportTarget(`[data-lab-overlay-root="${overlayId}"]`);
 
 const emit = defineEmits<{
     (e: "update:width", value: number): void;
@@ -242,6 +247,10 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
                     <slot></slot>
                 </div>
 
+                <!-- 场景里居中类浮层（对话框、抽屉、快速输入）的落点：它是尺寸容器，`fixed inset-0` 的遮罩铺满画布而不是整个窗口，
+                     浮层按画布居中、按画布宽度收窄。自己不接指针，只有落进来的浮层接。 -->
+                <div class="nb-lab-overlay-root" :data-lab-overlay-root="overlayId"></div>
+
                 <div
                     class="nb-lab-stage-handle nb-lab-stage-handle--e"
                     role="separator"
@@ -280,6 +289,21 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
 </template>
 
 <style scoped>
+.nb-lab-overlay-root {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    /* 尺寸容器：浮层里的 cqw、cqh 按它算。它只带尺寸与样式 containment，不让 fixed 后代以它为包含块；
+       包含块要靠 layout containment，否则只有开了 backdrop-filter 的玻璃主题碰巧把盒子变成了包含块。 */
+    container-type: size;
+    contain: layout;
+}
+
+.nb-lab-overlay-root > :deep(*) {
+    pointer-events: auto;
+}
+
 /* 舞台与盒子的形状走主题 token：换主题时圆角、留白、抬起感应该一起变 */
 
 /* 舞台本身不上色：它是盒子四周的留白，透出 LabShell 铺的窗体底纹。

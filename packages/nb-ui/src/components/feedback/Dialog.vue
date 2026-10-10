@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
+import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import {getFocusable, trapTabKey} from "../../utils/focus-trap";
 import IconButton from "../controls/IconButton.vue";
 
@@ -14,12 +15,12 @@ type DialogSizePreset = {
 };
 
 const DIALOG_SIZE_PRESETS: Record<DialogSize, DialogSizePreset> = {
-    sm: {width: "360px", height: "auto", maxHeight: "85vh"},
-    default: {width: "420px", height: "auto", maxHeight: "85vh"},
-    md: {width: "min(560px, calc(100vw - 32px))", height: "auto", maxHeight: "85vh"},
-    lg: {width: "min(720px, calc(100vw - 32px))", height: "auto", maxHeight: "calc(100vh - 32px)"},
-    xl: {width: "min(1080px, calc(100vw - 20px))", height: "min(780px, calc(100vh - 20px))", maxHeight: "calc(100vh - 20px)"},
-    full: {width: "calc(100vw - 24px)", height: "calc(100vh - 24px)", maxHeight: "calc(100vh - 24px)"},
+    sm: {width: "min(360px, calc(100cqw - 32px))", height: "auto", maxHeight: "85cqh"},
+    default: {width: "min(420px, calc(100cqw - 32px))", height: "auto", maxHeight: "85cqh"},
+    md: {width: "min(560px, calc(100cqw - 32px))", height: "auto", maxHeight: "85cqh"},
+    lg: {width: "min(720px, calc(100cqw - 32px))", height: "auto", maxHeight: "calc(100cqh - 32px)"},
+    xl: {width: "min(1080px, calc(100cqw - 20px))", height: "min(780px, calc(100cqh - 20px))", maxHeight: "calc(100cqh - 20px)"},
+    full: {width: "calc(100cqw - 24px)", height: "calc(100cqh - 24px)", maxHeight: "calc(100cqh - 24px)"},
 };
 
 const props = withDefaults(defineProps<{
@@ -60,7 +61,7 @@ const props = withDefaults(defineProps<{
     showHeader: true,
     closeOnOverlay: true,
     closeOnEsc: true,
-    teleportTarget: "body",
+    teleportTarget: undefined,
     /*
      * 遮罩只压暗，不预模糊。
      *
@@ -117,15 +118,7 @@ const resolvedSizePreset = computed(() => DIALOG_SIZE_PRESETS[props.size]);
 const resolvedWidth = computed(() => props.width ?? resolvedSizePreset.value.width);
 const resolvedHeight = computed(() => props.height ?? resolvedSizePreset.value.height);
 const resolvedMaxHeight = computed(() => props.maxHeight ?? resolvedSizePreset.value.maxHeight);
-const resolvedTeleportTarget = computed(() => {
-    if (typeof props.teleportTarget === "string") {
-        if (typeof document !== "undefined" && !document.querySelector(props.teleportTarget)) {
-            return "body";
-        }
-        return props.teleportTarget;
-    }
-    return "body";
-});
+const teleportTo = useTeleportTarget(() => (typeof props.teleportTarget === "string" ? props.teleportTarget : undefined));
 
 /*
  * 按钮平分整行还是右对齐——Apple 自己就是分两档的，本轮从官方 macOS 27 UI Kit 实测：
@@ -299,7 +292,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <Teleport v-if="isMounted" :to="resolvedTeleportTarget" :disabled="teleportTarget === false">
+    <Teleport v-if="isMounted" :to="teleportTo()" :disabled="teleportTarget === false">
         <Transition name="nb-dialog">
             <div
                 v-if="modelValue"

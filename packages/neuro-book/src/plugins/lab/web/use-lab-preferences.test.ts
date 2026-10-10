@@ -80,7 +80,7 @@ function createState() {
     };
 }
 
-function bind(store: LabStore, options: {requested?: {themeId?: string; colorwayId?: string}; dragging?: () => boolean; wallpaper?: boolean} = {}) {
+function bind(store: LabStore, options: {requested?: {themeId?: string; colorwayId?: string}; dragging?: () => boolean; wallpaper?: boolean; responsive?: () => void} = {}) {
     const state = createState();
     const scope = effectScope();
     scopes.push(scope);
@@ -92,6 +92,7 @@ function bind(store: LabStore, options: {requested?: {themeId?: string; colorway
         hasCustomWallpaper: () => options.wallpaper === true,
         requested: options.requested ?? {},
         dragging: options.dragging ?? (() => false),
+        applyResponsiveLayout: options.responsive ?? (() => undefined),
     }))!;
     return {state, preferences};
 }
@@ -136,6 +137,7 @@ describe("读到之前与读到之后", () => {
             store, catalog, defaults, state, hasCustomWallpaper: () => false,
             requested: {themeId: "macos", colorwayId: "nbook-light"},
             dragging: () => false,
+            applyResponsiveLayout: () => undefined,
             onLookAdopted: () => {
                 adopted += 1;
             },
@@ -191,13 +193,14 @@ describe("写回", () => {
     it("恢复默认：界面回到默认值，记录写成空对象", async () => {
         const {w, storage} = await seeded({themeId: "macos", rightPanelWidth: 500});
         const {store} = await openLab(w, "w", "c");
-        const {state, preferences} = bind(store);
-        await waitUntil("放进界面", () => !preferences.hydrating.value);
         let responsive = 0;
-        await preferences.reset(() => {
+        const {state, preferences} = bind(store, {responsive: () => {
             responsive += 1;
-        });
+        }});
+        await waitUntil("放进界面", () => !preferences.hydrating.value);
         expect(responsive).toBe(1);
+        await preferences.reset();
+        expect(responsive).toBe(2);
         expect(state.themeId.value).toBe("nbook");
         expect(state.rightPanelWidth.value).toBe(380);
         await idle(store);

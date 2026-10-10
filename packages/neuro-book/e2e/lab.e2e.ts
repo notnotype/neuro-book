@@ -243,6 +243,8 @@ test("主题、窄屏与偏好：窄屏自动收起侧栏、恢复宽屏不弹�
     await expect(page.getByText("390 × 844").first()).toBeVisible();
     await page.reload();
     await expect(page.getByText("390 × 844").first()).toBeVisible();
+    // 直接在窄屏打开：偏好里展开的侧栏不能盖掉自动收起。
+    await expect(labPanelHeads(page)).toHaveCount(0);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
     expect(overflow).toBeLessThanOrEqual(0);
 
@@ -363,6 +365,27 @@ test("同一状态根换端口再起一个开发服务：读到同一份偏好�
         other.child.kill("SIGTERM");
         expect(await other.exit).toBe(0);
     }
+});
+
+test("对话框类浮层在手机画布里打开：落在画布里、按画布居中、不越出画布（场景 24）", async ({page}) => {
+    const problems = watchConsole(page);
+    await page.setViewportSize({width: 1440, height: 900});
+    // editorial 不开背景模糊：玻璃主题的 backdrop-filter 会碰巧让画布盒子成为包含块，掩盖浮层落点自己的缺陷。
+    await openLab(page, "?c=Dialog&s=default&vp=phone&theme=editorial&cw=light");
+    await expect.poll(() => labState(page)).toMatchObject({component: "Dialog", ready: true, canvas: {width: 390, height: 844}});
+    const panel = page.locator('[data-lab-overlay-root] [role="dialog"]');
+    await expect(panel).toBeVisible();
+    const [box, dialog] = await Promise.all([
+        page.locator(".lab-main .nb-lab-stage-box").first().boundingBox(),
+        panel.boundingBox(),
+    ]);
+    expect(box).not.toBeNull();
+    expect(dialog).not.toBeNull();
+    if (box === null || dialog === null) return;
+    expect(dialog.x).toBeGreaterThanOrEqual(box.x);
+    expect(dialog.x + dialog.width).toBeLessThanOrEqual(box.x + box.width);
+    expect(Math.abs((dialog.x + dialog.width / 2) - (box.x + box.width / 2))).toBeLessThanOrEqual(1);
+    expect(problems).toEqual([]);
 });
 
 test("离开 Lab 回到工作台是整页加载：新的窗口运行实例，Lab 写在 <html> 上的主题不留下，换成产品配置的主题（场景 17）", async ({page}) => {

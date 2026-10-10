@@ -141,20 +141,22 @@ for (const theme of ["nbook", "macos", "editorial", "aurora"]) {
         test(`面板在 ${theme} / ${colorway}、390 px 下：S4 层级、文字对比度足够、不横向溢出（quick-open 7）`, async ({page}) => {
             const problems = watchConsole(page);
             await page.setViewportSize({width: 390, height: 844});
-            await openScene(page, `c=WorkbenchCommandPalette&s=command-navigation&theme=${theme}&cw=${colorway}`);
+            // 面板是居中类浮层，落在画布里、按画布宽度收窄（ui.component-lab 场景 24）：390 宽看手机画布。
+            await openScene(page, `c=WorkbenchCommandPalette&s=command-navigation&theme=${theme}&cw=${colorway}&vp=phone`);
             await page.keyboard.press("Control+Shift+P");
             await expect(combobox(page)).toBeFocused();
             const panel = page.locator('[role="dialog"]').filter({has: combobox(page)});
             const style = await panel.evaluate((element) => {
                 const computed = getComputedStyle(element);
                 const rect = element.getBoundingClientRect();
+                const canvas = (document.querySelector(".lab-main .nb-lab-stage-box") as Element).getBoundingClientRect();
                 return {
                     zIndex: Number(computed.zIndex),
                     color: getComputedStyle(element.querySelector('[role="combobox"]') as Element).color,
                     background: computed.backgroundColor,
                     backdrop: computed.backdropFilter,
-                    left: rect.left,
-                    right: rect.right,
+                    left: rect.left - canvas.left,
+                    right: rect.right - canvas.left,
                     overflow: document.documentElement.scrollWidth - innerWidth,
                 };
             });

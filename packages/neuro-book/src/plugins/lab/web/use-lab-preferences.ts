@@ -52,6 +52,8 @@ type UseLabPreferencesOptions = {
     readonly onLookAdopted?: () => void;
     /** 正在拖动侧栏边：宽度只改显示，松手后由 `commitPanelWidth` 写。 */
     readonly dragging: () => boolean;
+    /** 偏好放进界面之后按窗口宽度重新收起侧栏：窄屏打开时，偏好里展开的侧栏不能盖掉自动收起。 */
+    readonly applyResponsiveLayout: () => void;
 };
 
 export function useLabPreferences(options: UseLabPreferencesOptions) {
@@ -82,6 +84,7 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
     async function hydrate(saved: LabPreferences): Promise<void> {
         hydrating.value = true;
         apply(saved);
+        options.applyResponsiveLayout();
         await nextTick();
         hydrating.value = false;
     }
@@ -130,10 +133,10 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
             store.actions.update(side === "left" ? {leftPanelWidth: state.leftPanelWidth.value} : {rightPanelWidth: state.rightPanelWidth.value});
         },
         /** 恢复默认：记录写成空对象，界面回到默认值，再按窗口宽度收起侧栏。 */
-        reset: async (applyResponsiveLayout: () => void): Promise<void> => {
+        reset: async (): Promise<void> => {
             hydrating.value = true;
             apply({});
-            applyResponsiveLayout();
+            options.applyResponsiveLayout();
             await nextTick();
             hydrating.value = false;
             await store.actions.resetDefaults();
@@ -147,14 +150,6 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
         discard: async (): Promise<void> => {
             store.actions.discard();
             await hydrate(validLabPreferences(field.display, catalog));
-        },
-        setLeftCollapsed: (value: boolean): void => {
-            state.leftCollapsed.value = value;
-            state.preferredLeftCollapsed.value = value;
-        },
-        setRightCollapsed: (value: boolean): void => {
-            state.rightCollapsed.value = value;
-            state.preferredRightCollapsed.value = value;
         },
     };
 }

@@ -12,18 +12,18 @@
 
 | `size` | 默认宽度 | 默认高度 | 最大高度 |
 | --- | --- | --- | --- |
-| `sm` | `360px` | `auto` | `85vh` |
-| `default`（默认） | `420px` | `auto` | `85vh` |
-| `md` | `min(560px, calc(100vw - 32px))` | `auto` | `85vh` |
-| `lg` | `min(720px, calc(100vw - 32px))` | `auto` | `calc(100vh - 32px)` |
-| `xl` | `min(1080px, calc(100vw - 20px))` | `min(780px, calc(100vh - 20px))` | `calc(100vh - 20px)` |
-| `full` | `calc(100vw - 24px)` | `calc(100vh - 24px)` | `calc(100vh - 24px)` |
+| `sm` | `min(360px, calc(100cqw - 32px))` | `auto` | `85cqh` |
+| `default`（默认） | `min(420px, calc(100cqw - 32px))` | `auto` | `85cqh` |
+| `md` | `min(560px, calc(100cqw - 32px))` | `auto` | `85cqh` |
+| `lg` | `min(720px, calc(100cqw - 32px))` | `auto` | `calc(100cqh - 32px)` |
+| `xl` | `min(1080px, calc(100cqw - 20px))` | `min(780px, calc(100cqh - 20px))` | `calc(100cqh - 20px)` |
+| `full` | `calc(100cqw - 24px)` | `calc(100cqh - 24px)` | `calc(100cqh - 24px)` |
 
 显式 `width`、`height`、`maxHeight` 分别覆盖预设的对应值。`overlayType` 默认为不透明遮罩；`transparent` 为透明遮罩，`blur` 使用 `--overlay-bg` 并增加模糊。
 
 ## 注意事项
 
-`size="default"` 的默认宽度是固定 `420px`，不会按视口自动收窄。若在 `390px` 窄屏需要保留左右各 `16px` 的间距，使用 `size="md"`（宽度为 `calc(100vw - 32px)`）或显式覆盖 `width`。
+各档宽度都按可用宽度收窄，在 `390px` 窄屏保留左右各 `16px` 的间距。尺寸用容器单位 `cqw`、`cqh`：宿主把目标设成尺寸容器时按目标大小计算，没有容器时等于视口单位。
 
 ## 交互
 
@@ -60,7 +60,7 @@ interface DialogProps {
     height?: string;
     /** CSS 最大高度；可选，默认由 size 决定 */
     maxHeight?: string;
-    /** Teleport 选择器；可选，默认 "body"；false 禁用 Teleport */
+    /** Teleport 选择器；可选，缺省用宿主提供的目标或 "body"；false 禁用 Teleport */
     teleportTarget?: string | boolean;
     /** 遮罩样式；可选，默认 "opaque" */
     overlayType?: "transparent" | "blur" | "opaque";
@@ -117,5 +117,5 @@ interface DialogSlots {
 
 ## 隐藏通道理由
 
-- `env:portal`：模态面板与遮罩需脱离宿主裁剪及 stacking context；默认传送到 `body`，可传选择器指定目标，`false` 时禁用 Teleport。字符串目标不存在时回退到 `body`。
+- `env:portal`：模态面板与遮罩需脱离宿主裁剪及 stacking context；默认传送到 `body`，宿主可用 `provideTeleportTarget(选择器)` 在组件树上给一个更近的目标（例如组件 Lab 的画布）；组件自己写明的 `teleportTarget` 优先，目标查不到时回退 `body`（`useTeleportTarget`）。`false` 时禁用 Teleport。
 - `env:global`：打开期间需在 `document` 处理 Escape/Tab，并锁定 `document.body` 滚动；关闭或卸载时移除监听、恢复滚动并归还焦点。这些行为是模态对话框的一部分，不应要求每个宿主重复实现。

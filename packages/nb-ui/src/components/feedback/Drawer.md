@@ -8,7 +8,7 @@
 
 ## 布局与交互
 
-内容通过 Reka Portal 呈现并带遮罩。`left`、`right` 方向占满视口高度，宽度为 380px 且最多为视口宽度的 90%；`top`、`bottom` 占满视口宽度，最大高度为 `85vh`。正文独立纵向滚动。提供 `title` 或 `header` 插槽时显示标题区；有 `footer` 插槽时显示底部操作区。`handle=true` 时在内容顶部显示拖动手柄。
+内容通过 Reka Portal 呈现并带遮罩。`left`、`right` 方向占满视口高度，宽度为 380px 且最多为可用宽度的 90%；`top`、`bottom` 占满可用宽度，最大高度为 `85cqh`。尺寸用容器单位 `cqw`、`cqh`：宿主把目标设成尺寸容器时按目标大小计算，没有容器时等于视口单位。正文独立纵向滚动。提供 `title` 或 `header` 插槽时显示标题区；有 `footer` 插槽时显示底部操作区。`handle=true` 时在内容顶部显示拖动手柄。
 
 `trigger` 插槽作为打开触发器。打开状态变化通过 `update:open` 通知父组件。关闭按钮只在标题区实际渲染时出现：既未传非空 `title`，也未提供 `header` 插槽时，组件不显示该按钮。拖动关闭、Escape、遮罩与焦点等交互由 Reka Drawer 管理；`modal=false` 时使用上游的非模态模式。
 
@@ -65,4 +65,4 @@ Reka UI 负责 Drawer 的打开状态、模态语义、Portal、遮罩、焦点�
 
 ## 隐藏通道理由
 
-`env:portal`：Drawer 内容与遮罩通过 Reka `DrawerPortal` 渲染，以脱离宿主的局部裁剪和层叠上下文。组件没有目标选择 prop；目标位置及目标缺失时的表现由 Reka 决定，当前组件及测试未核实其细节。
+`env:portal`：Drawer 内容与遮罩通过 Reka `DrawerPortal` 渲染，以脱离宿主的局部裁剪和层叠上下文。组件没有目标选择 prop；默认在 `body`，宿主可用 `provideTeleportTarget(选择器)` 在组件树上给一个更近的目标（例如组件 Lab 的画布）；组件自己写明的 `teleportTarget` 优先，目标查不到时回退 `body`（`useTeleportTarget`）。
