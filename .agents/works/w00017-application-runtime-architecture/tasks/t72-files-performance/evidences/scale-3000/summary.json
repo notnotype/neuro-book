@@ -1,9 +1,9 @@
 {
-  "date": "2026-10-10T01:43:55.374Z",
+  "date": "2026-10-10T01:45:47.624Z",
   "revision": "bd222423",
-  "command": "bun run perf:files -- --skip-build --count 1000 --iterations 10 --only A1+A2,B1,C1-md --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/scale3-1000",
+  "command": "bun run perf:files -- --skip-build --count 3000 --iterations 10 --only A1+A2,B1,C1-md --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/scale3-3000",
   "options": {
-    "count": 1000,
+    "count": 3000,
     "seed": 42017,
     "wide": 400,
     "sources": 60,
@@ -17,28 +17,28 @@
     "serverProfile": false,
     "skipBuild": true,
     "keepTemp": false,
-    "out": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/scale3-1000"
+    "out": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/scale3-3000"
   },
   "machine": {
     "loadBefore": [
-      0.96,
-      1.05,
-      0.98
+      0.78,
+      1.04,
+      0.99
     ],
     "loadAfter": [
-      1.09,
-      1.12,
-      1.01
+      0.7,
+      0.99,
+      0.98
     ]
   },
   "sample": {
-    "count": 1000,
+    "count": 3000,
     "sources": 60,
     "wide": {
       "path": "notes/wide",
       "entries": 400
     },
-    "totalBytes": 18899011,
+    "totalBytes": 54922594,
     "seed": 42017
   },
   "chrome": "151.0.7922.71",
@@ -54,24 +54,24 @@
       "values": {
         "服务启动到监听（脚本侧）": {
           "count": 10,
-          "min": 106.1,
-          "p50": 108.2,
-          "p95": 118.4,
-          "max": 118.4
+          "min": 106.9,
+          "p50": 108.4,
+          "p95": 119.5,
+          "max": 119.5
         },
         "A1 第一次打开：导航到树可操作": {
           "count": 10,
-          "min": 454.3,
-          "p50": 458.9,
-          "p95": 559.8,
-          "max": 559.8
+          "min": 452,
+          "p50": 466.3,
+          "p95": 565.5,
+          "max": 565.5
         },
         "A2 宽限期内再打开：导航到树可操作": {
           "count": 10,
-          "min": 341.6,
-          "p50": 353.6,
-          "p95": 377.1,
-          "max": 377.1
+          "min": 342.5,
+          "p50": 352.8,
+          "p95": 365.8,
+          "max": 365.8
         }
       }
     },
@@ -83,17 +83,17 @@
       "feedback": {
         "committed": {
           "count": 10,
-          "min": 11.5,
-          "p50": 13.6,
-          "p95": 15.6,
-          "max": 15.6
+          "min": 12.4,
+          "p50": 13,
+          "p95": 16.3,
+          "max": 16.3
         },
         "presented": {
           "count": 10,
-          "min": 30.3,
-          "p50": 31.1,
-          "p95": 32.6,
-          "max": 32.6
+          "min": 30.1,
+          "p50": 31.4,
+          "p95": 34.6,
+          "max": 34.6
         },
         "frames": {
           "count": 10,
@@ -106,17 +106,17 @@
       "done": {
         "committed": {
           "count": 10,
-          "min": 30.3,
-          "p50": 31.1,
-          "p95": 32.6,
-          "max": 32.6
+          "min": 30.1,
+          "p50": 31.4,
+          "p95": 34.6,
+          "max": 34.6
         },
         "presented": {
           "count": 10,
-          "min": 43,
-          "p50": 45.3,
-          "p95": 45.8,
-          "max": 45.8
+          "min": 44.6,
+          "p50": 45.4,
+          "p95": 46.5,
+          "max": 46.5
         },
         "frames": {
           "count": 10,
@@ -142,17 +142,17 @@
       "values": {
         "第一次（含控件代码）：选中与标签 presented": {
           "count": 1,
-          "min": 29.8,
-          "p50": 29.8,
-          "p95": 29.8,
-          "max": 29.8
+          "min": 32.3,
+          "p50": 32.3,
+          "p95": 32.3,
+          "max": 32.3
         },
         "第一次（含控件代码）：正文 presented": {
           "count": 1,
-          "min": 105,
-          "p50": 105,
-          "p95": 105,
-          "max": 105
+          "min": 111.2,
+          "p50": 111.2,
+          "p95": 111.2,
+          "max": 111.2
         }
       },
       "notes": [
@@ -167,17 +167,17 @@
       "feedback": {
         "committed": {
           "count": 10,
-          "min": 4.2,
-          "p50": 5.2,
-          "p95": 6.5,
-          "max": 6.5
+          "min": 4.9,
+          "p50": 5.4,
+          "p95": 6.9,
+          "max": 6.9
         },
         "presented": {
           "count": 10,
-          "min": 18.7,
-          "p50": 21,
-          "p95": 23.2,
-          "max": 23.2
+          "min": 19.9,
+          "p50": 20.7,
+          "p95": 23.8,
+          "max": 23.8
         },
         "frames": {
           "count": 10,
@@ -190,17 +190,17 @@
       "done": {
         "committed": {
           "count": 10,
-          "min": 4.2,
-          "p50": 5.2,
-          "p95": 6.5,
-          "max": 6.5
+          "min": 4.9,
+          "p50": 5.4,
+          "p95": 6.9,
+          "max": 6.9
         },
         "presented": {
           "count": 10,
-          "min": 18.7,
-          "p50": 21,
-          "p95": 23.2,
-          "max": 23.2
+          "min": 19.9,
+          "p50": 20.7,
+          "p95": 23.8,
+          "max": 23.8
         },
         "frames": {
           "count": 10,

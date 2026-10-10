@@ -1,0 +1,46 @@
+# F1 堆快照差异（第 2 轮与第 20 轮之后，各自 GC 后；3000 个文件的样本，每轮打开再关闭 20 个文件）
+
+## 修正前（6a5bd6a8 的构建）：按构造器，增量字节 / 增量个数
+  1393208    4653 code
+  1005260   16492 native
+   287000    8038 object:Object
+   284112   24771 number
+    40320    1440 closure:
+    35544      37 array
+    28800    1440 object:system / Context / scope @95991
+    28800    1440 object:system / Context / scope @71203
+     6160     126 object shape
+      592      37 object:Array
+
+## 修正前：native 与闭包按名字
+   161280    2880 native:blink::HeapVectorBacking<blink::VectorBackedLinkedListNode<cppgc::internal::Basi
+    40320    1440 closure:
+   218880    1440 native:AbortSignal
+    69120    1440 native:AbortController
+    34560    1440 native:EventListener
+    57600    1440 native:V8EventListener
+    23040    1440 native:blink::RegisteredEventListener
+    80640    1440 native:blink::EventTargetData
+   115200    1440 native:blink::SourceSignalCompositionManager
+    53980     865 native:system / WeakArrayList
+    45024     804 native:DOMRectReadOnly
+     6760     424 native:system / ProtectedFixedArray
+
+## 修正后（nb-runtime 远程调用摘掉派生信号的监听）
+  1389984    4639 code
+   287044    8039 object:Object
+   284160   24780 number
+   265588    3525 native
+    35544      37 array
+     6160     126 object shape
+      560      35 object:Array
+        8   24780 string
+
+    54340     865 native:system / WeakArrayList
+    45024     804 native:DOMRectReadOnly
+     6740     423 native:system / ProtectedFixedArray
+     3384     423 native:system / SharedFunctionInfoWrapper
+    16080     402 native:LayoutShiftAttribution
+    11680     146 native:blink::CSSSelector::RareData
+     3072     142 native:blink::CSSSelectorList
+    35216     142 native:blink::SelectorQuery

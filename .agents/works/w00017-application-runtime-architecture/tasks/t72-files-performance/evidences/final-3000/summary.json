@@ -1,7 +1,7 @@
 {
-  "date": "2026-10-09T23:57:11.278Z",
-  "revision": "d60f1bd8（工作区有未提交的改动）",
-  "command": "bun run perf:files -- --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/final-3000",
+  "date": "2026-10-10T01:42:59.594Z",
+  "revision": "bd222423",
+  "command": "bun run perf:files -- --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/final3-3000",
   "options": {
     "count": 3000,
     "seed": 42017,
@@ -13,18 +13,18 @@
     "serverProfile": false,
     "skipBuild": false,
     "keepTemp": false,
-    "out": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/final-3000"
+    "out": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/final3-3000"
   },
   "machine": {
     "loadBefore": [
-      1.94,
-      2.24,
-      2.13
+      1,
+      0.97,
+      0.91
     ],
     "loadAfter": [
-      2.26,
-      2.4,
-      2.21
+      0.96,
+      1.05,
+      0.98
     ]
   },
   "sample": {
@@ -40,6 +40,7 @@
   "chrome": "151.0.7922.71",
   "unsupported": [],
   "progress": [],
+  "serverProfiles": [],
   "results": [
     {
       "id": "A1+A2",
@@ -49,24 +50,24 @@
       "values": {
         "服务启动到监听（脚本侧）": {
           "count": 10,
-          "min": 113.3,
-          "p50": 121.6,
-          "p95": 152,
-          "max": 152
+          "min": 105.4,
+          "p50": 110.2,
+          "p95": 130,
+          "max": 130
         },
         "A1 第一次打开：导航到树可操作": {
           "count": 10,
-          "min": 486.2,
-          "p50": 514.3,
-          "p95": 619.3,
-          "max": 619.3
+          "min": 455.7,
+          "p50": 468.6,
+          "p95": 572.7,
+          "max": 572.7
         },
         "A2 宽限期内再打开：导航到树可操作": {
           "count": 10,
-          "min": 348.7,
-          "p50": 393.4,
-          "p95": 533.7,
-          "max": 533.7
+          "min": 347.7,
+          "p50": 355.7,
+          "p95": 436.7,
+          "max": 436.7
         }
       }
     },
@@ -78,10 +79,10 @@
       "values": {
         "导航到树可操作": {
           "count": 10,
-          "min": 469.8,
-          "p50": 495.8,
-          "p95": 529.8,
-          "max": 529.8
+          "min": 441.9,
+          "p50": 451.8,
+          "p95": 470.9,
+          "max": 470.9
         }
       }
     },
@@ -91,16 +92,27 @@
       "status": "ok",
       "samples": 10,
       "values": {
-        "导航到树可操作": {
+        "导航到树可操作（根目录已列出）": {
           "count": 10,
-          "min": 351.2,
-          "p50": 360.1,
-          "p95": 376.3,
-          "max": 376.3
+          "min": 330.1,
+          "p50": 339.2,
+          "p95": 349.2,
+          "max": 349.2
+        },
+        "导航到展开状态恢复完（全部已展开目录都已列出）": {
+          "count": 10,
+          "min": 472.4,
+          "p50": 488.4,
+          "p95": 524.6,
+          "max": 524.6
         }
       },
+      "longFrames": {
+        "count": 29,
+        "longest": 136
+      },
       "notes": [
-        "展开后 DOM 里的行 44（虚拟列表只渲染可见区）"
+        "恢复完的树内容高度 34294 px"
       ]
     },
     {
@@ -111,17 +123,17 @@
       "feedback": {
         "committed": {
           "count": 30,
-          "min": 14,
-          "p50": 14.5,
-          "p95": 14.8,
-          "max": 14.8
+          "min": 11.7,
+          "p50": 12.6,
+          "p95": 15,
+          "max": 15.1
         },
         "presented": {
           "count": 30,
-          "min": 30.6,
-          "p50": 31,
-          "p95": 31.2,
-          "max": 31.3
+          "min": 30.4,
+          "p50": 32.1,
+          "p95": 33.4,
+          "max": 33.7
         },
         "frames": {
           "count": 30,
@@ -134,17 +146,17 @@
       "done": {
         "committed": {
           "count": 30,
-          "min": 30.6,
-          "p50": 31,
-          "p95": 31.2,
-          "max": 31.3
+          "min": 30.4,
+          "p50": 32.1,
+          "p95": 33.4,
+          "max": 33.7
         },
         "presented": {
           "count": 30,
-          "min": 47.4,
-          "p50": 47.8,
-          "p95": 48.1,
-          "max": 48.1
+          "min": 44.4,
+          "p50": 45.6,
+          "p95": 46,
+          "max": 46.1
         },
         "frames": {
           "count": 30,
@@ -154,30 +166,38 @@
           "max": 3
         }
       },
-      "values": {
-        "第一次（含控件代码）：选中与标签 presented": {
-          "count": 1,
-          "min": 30,
-          "p50": 30,
-          "p95": 30,
-          "max": 30
-        },
-        "第一次（含控件代码）：正文 presented": {
-          "count": 1,
-          "min": 101.2,
-          "p50": 101.2,
-          "p95": 101.2,
-          "max": 101.2
-        }
+      "eventTiming": {
+        "samples": 30,
+        "slow": 30,
+        "longest": 24
       },
       "longFrames": {
         "count": 0,
         "longest": 0
       },
       "requests": {
-        "nbook.storage/project save": 31,
+        "nbook.storage/project save": 62,
         "nbook.files/project read": 31
-      }
+      },
+      "values": {
+        "第一次（含控件代码）：选中与标签 presented": {
+          "count": 1,
+          "min": 36,
+          "p50": 36,
+          "p95": 36,
+          "max": 36
+        },
+        "第一次（含控件代码）：正文 presented": {
+          "count": 1,
+          "min": 108.6,
+          "p50": 108.6,
+          "p95": 108.6,
+          "max": 108.6
+        }
+      },
+      "notes": [
+        "第一次（含控件代码）的点击 Event Timing：40 ms"
+      ]
     },
     {
       "id": "B2",
@@ -187,17 +207,17 @@
       "feedback": {
         "committed": {
           "count": 30,
-          "min": 11.8,
-          "p50": 14.5,
-          "p95": 14.7,
-          "max": 14.8
+          "min": 13.6,
+          "p50": 14.6,
+          "p95": 15.1,
+          "max": 21.9
         },
         "presented": {
           "count": 30,
-          "min": 32.6,
-          "p50": 33.6,
-          "p95": 35.6,
-          "max": 37.8
+          "min": 33,
+          "p50": 33.9,
+          "p95": 34.7,
+          "max": 39.9
         },
         "frames": {
           "count": 30,
@@ -210,17 +230,17 @@
       "done": {
         "committed": {
           "count": 30,
-          "min": 56.6,
-          "p50": 64.4,
-          "p95": 64.8,
-          "max": 64.8
+          "min": 63.6,
+          "p50": 64.7,
+          "p95": 65.2,
+          "max": 65.4
         },
         "presented": {
           "count": 30,
-          "min": 74.5,
-          "p50": 80.9,
-          "p95": 81.3,
-          "max": 82.5
+          "min": 79.5,
+          "p50": 81.1,
+          "p95": 81.7,
+          "max": 81.8
         },
         "frames": {
           "count": 30,
@@ -230,30 +250,38 @@
           "max": 5
         }
       },
-      "values": {
-        "第一次（含控件代码）：选中与标签 presented": {
-          "count": 1,
-          "min": 57.6,
-          "p50": 57.6,
-          "p95": 57.6,
-          "max": 57.6
-        },
-        "第一次（含控件代码）：正文 presented": {
-          "count": 1,
-          "min": 419.8,
-          "p50": 419.8,
-          "p95": 419.8,
-          "max": 419.8
-        }
+      "eventTiming": {
+        "samples": 30,
+        "slow": 30,
+        "longest": 32
       },
       "longFrames": {
         "count": 0,
         "longest": 0
       },
       "requests": {
-        "nbook.storage/project save": 32,
+        "nbook.storage/project save": 62,
         "nbook.files/project read": 31
-      }
+      },
+      "values": {
+        "第一次（含控件代码）：选中与标签 presented": {
+          "count": 1,
+          "min": 30.5,
+          "p50": 30.5,
+          "p95": 30.5,
+          "max": 30.5
+        },
+        "第一次（含控件代码）：正文 presented": {
+          "count": 1,
+          "min": 382.6,
+          "p50": 382.6,
+          "p95": 382.6,
+          "max": 382.6
+        }
+      },
+      "notes": [
+        "第一次（含控件代码）的点击 Event Timing：24 ms"
+      ]
     },
     {
       "id": "C1-md",
@@ -263,17 +291,17 @@
       "feedback": {
         "committed": {
           "count": 30,
-          "min": 8.6,
-          "p50": 10.6,
+          "min": 5.1,
+          "p50": 6,
           "p95": 11.4,
-          "max": 11.7
+          "max": 12.2
         },
         "presented": {
           "count": 30,
-          "min": 25.3,
-          "p50": 27.3,
-          "p95": 28,
-          "max": 28.2
+          "min": 18.7,
+          "p50": 22.5,
+          "p95": 27.7,
+          "max": 27.9
         },
         "frames": {
           "count": 30,
@@ -286,17 +314,17 @@
       "done": {
         "committed": {
           "count": 30,
-          "min": 8.6,
-          "p50": 10.6,
+          "min": 5.1,
+          "p50": 6,
           "p95": 11.4,
-          "max": 11.7
+          "max": 12.2
         },
         "presented": {
           "count": 30,
-          "min": 25.3,
-          "p50": 27.3,
-          "p95": 28,
-          "max": 28.2
+          "min": 18.7,
+          "p50": 22.5,
+          "p95": 27.7,
+          "max": 27.9
         },
         "frames": {
           "count": 30,
@@ -305,6 +333,11 @@
           "p95": 2,
           "max": 2
         }
+      },
+      "eventTiming": {
+        "samples": 30,
+        "slow": 8,
+        "longest": 16
       },
       "longFrames": {
         "count": 0,
@@ -322,17 +355,17 @@
       "feedback": {
         "committed": {
           "count": 30,
-          "min": 11.9,
-          "p50": 14.6,
-          "p95": 25.7,
-          "max": 35
+          "min": 12,
+          "p50": 12.8,
+          "p95": 14.3,
+          "max": 14.4
         },
         "presented": {
           "count": 30,
-          "min": 25.8,
-          "p50": 31,
-          "p95": 33.6,
-          "max": 39
+          "min": 28.3,
+          "p50": 29,
+          "p95": 30.7,
+          "max": 31
         },
         "frames": {
           "count": 30,
@@ -345,17 +378,17 @@
       "done": {
         "committed": {
           "count": 30,
-          "min": 11.9,
-          "p50": 14.6,
-          "p95": 25.7,
-          "max": 35
+          "min": 12,
+          "p50": 12.8,
+          "p95": 14.3,
+          "max": 14.4
         },
         "presented": {
           "count": 30,
-          "min": 25.8,
-          "p50": 31,
-          "p95": 33.6,
-          "max": 39
+          "min": 28.3,
+          "p50": 29,
+          "p95": 30.7,
+          "max": 31
         },
         "frames": {
           "count": 30,
@@ -364,6 +397,11 @@
           "p95": 2,
           "max": 2
         }
+      },
+      "eventTiming": {
+        "samples": 30,
+        "slow": 30,
+        "longest": 16
       },
       "longFrames": {
         "count": 0,
@@ -381,17 +419,17 @@
       "feedback": {
         "committed": {
           "count": 30,
-          "min": 9.5,
-          "p50": 10.8,
-          "p95": 11.8,
-          "max": 18.2
+          "min": 9.1,
+          "p50": 10.5,
+          "p95": 11.6,
+          "max": 22.1
         },
         "presented": {
           "count": 30,
-          "min": 26.3,
-          "p50": 27.4,
-          "p95": 28.1,
-          "max": 32.9
+          "min": 19.4,
+          "p50": 27.1,
+          "p95": 28.3,
+          "max": 28.3
         },
         "frames": {
           "count": 30,
@@ -404,32 +442,37 @@
       "done": {
         "committed": {
           "count": 30,
-          "min": 26.3,
-          "p50": 27.4,
-          "p95": 28.1,
-          "max": 32.9
+          "min": 19.4,
+          "p50": 27.1,
+          "p95": 28.3,
+          "max": 28.3
         },
         "presented": {
           "count": 30,
-          "min": 42.8,
-          "p50": 43.9,
-          "p95": 44.5,
-          "max": 44.7
+          "min": 25.4,
+          "p50": 43.8,
+          "p95": 44.9,
+          "max": 44.9
         },
         "frames": {
           "count": 30,
-          "min": 3,
+          "min": 2,
           "p50": 3,
           "p95": 3,
           "max": 3
         }
+      },
+      "eventTiming": {
+        "samples": 30,
+        "slow": 30,
+        "longest": 32
       },
       "longFrames": {
         "count": 0,
         "longest": 0
       },
       "requests": {
-        "nbook.storage/project save": 30
+        "nbook.storage/project save": 31
       }
     },
     {
@@ -440,17 +483,17 @@
       "feedback": {
         "committed": {
           "count": 30,
-          "min": 14.1,
+          "min": 13.5,
           "p50": 14.5,
-          "p95": 14.7,
-          "max": 14.7
+          "p95": 15,
+          "max": 15.4
         },
         "presented": {
           "count": 30,
-          "min": 30.8,
-          "p50": 31.2,
-          "p95": 32,
-          "max": 32.2
+          "min": 27.3,
+          "p50": 31.1,
+          "p95": 31.5,
+          "max": 31.5
         },
         "frames": {
           "count": 30,
@@ -463,17 +506,17 @@
       "done": {
         "committed": {
           "count": 30,
-          "min": 30.8,
-          "p50": 31.2,
-          "p95": 32,
-          "max": 32.2
+          "min": 27.3,
+          "p50": 31.1,
+          "p95": 31.5,
+          "max": 31.5
         },
         "presented": {
           "count": 30,
-          "min": 47.3,
+          "min": 43.4,
           "p50": 47.7,
-          "p95": 47.8,
-          "max": 48
+          "p95": 48.1,
+          "max": 48.3
         },
         "frames": {
           "count": 30,
@@ -482,6 +525,11 @@
           "p95": 3,
           "max": 3
         }
+      },
+      "eventTiming": {
+        "samples": 30,
+        "slow": 30,
+        "longest": 32
       },
       "longFrames": {
         "count": 0,
@@ -499,17 +547,17 @@
       "feedback": {
         "committed": {
           "count": 30,
-          "min": 9.1,
-          "p50": 10.4,
+          "min": 4,
+          "p50": 5.9,
           "p95": 11,
-          "max": 11.4
+          "max": 11.9
         },
         "presented": {
           "count": 30,
-          "min": 25.8,
-          "p50": 27,
-          "p95": 27.7,
-          "max": 28
+          "min": 18.9,
+          "p50": 21.7,
+          "p95": 27.5,
+          "max": 27.8
         },
         "frames": {
           "count": 30,
@@ -522,17 +570,17 @@
       "done": {
         "committed": {
           "count": 30,
-          "min": 9.1,
-          "p50": 10.4,
+          "min": 4,
+          "p50": 5.9,
           "p95": 11,
-          "max": 11.4
+          "max": 11.9
         },
         "presented": {
           "count": 30,
-          "min": 25.8,
-          "p50": 27,
-          "p95": 27.7,
-          "max": 28
+          "min": 18.9,
+          "p50": 21.7,
+          "p95": 27.5,
+          "max": 27.8
         },
         "frames": {
           "count": 30,
@@ -542,12 +590,81 @@
           "max": 2
         }
       },
+      "eventTiming": {
+        "samples": 30,
+        "slow": 6,
+        "longest": 16
+      },
       "longFrames": {
         "count": 0,
         "longest": 0
       },
       "requests": {
-        "nbook.storage/project save": 31
+        "nbook.storage/project save": 30
+      }
+    },
+    {
+      "id": "C1-code-split",
+      "name": "已打开过：来回点标签（源码，双组）",
+      "status": "ok",
+      "samples": 30,
+      "feedback": {
+        "committed": {
+          "count": 30,
+          "min": 7.4,
+          "p50": 10.3,
+          "p95": 17.5,
+          "max": 18.3
+        },
+        "presented": {
+          "count": 30,
+          "min": 20.3,
+          "p50": 26.7,
+          "p95": 28.2,
+          "max": 29.1
+        },
+        "frames": {
+          "count": 30,
+          "min": 2,
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      },
+      "done": {
+        "committed": {
+          "count": 30,
+          "min": 17.5,
+          "p50": 26.6,
+          "p95": 27.9,
+          "max": 28.2
+        },
+        "presented": {
+          "count": 30,
+          "min": 20.3,
+          "p50": 43.4,
+          "p95": 44.5,
+          "max": 44.6
+        },
+        "frames": {
+          "count": 30,
+          "min": 2,
+          "p50": 3,
+          "p95": 3,
+          "max": 3
+        }
+      },
+      "eventTiming": {
+        "samples": 30,
+        "slow": 30,
+        "longest": 32
+      },
+      "longFrames": {
+        "count": 0,
+        "longest": 0
+      },
+      "requests": {
+        "nbook.storage/project save": 30
       }
     },
     {
@@ -558,54 +675,41 @@
       "values": {
         "每轮 GC 后的堆（MB）": {
           "count": 5,
-          "min": 31.6,
-          "p50": 31.9,
-          "p95": 32.2,
-          "max": 32.2
+          "min": 34,
+          "p50": 34.3,
+          "p95": 34.3,
+          "max": 34.3
         }
       },
       "notes": [
-        "各轮堆：31.6 / 31.7 / 31.9 / 32 / 32.2 MB",
+        "每轮打开 20 个标签再全部关闭；各轮堆：34 / 34.1 / 34.3 / 34.3 / 34.3 MB",
         "关闭全部标签后挂载的控件：富文本 0、Monaco 0（DOM 计数；模型与编辑状态的释放由 t71 的控制器测试证明）"
-      ],
-      "raw": {
-        "heaps": [
-          31.6,
-          31.7,
-          31.9,
-          32,
-          32.2
-        ],
-        "mounted": {
-          "prose": 0,
-          "monaco": 0
-        }
-      }
+      ]
     },
     {
-      "id": "D1",
-      "name": "展开 400 项的目录",
+      "id": "D1-cold",
+      "name": "展开宽目录：新页面里第一次展开（列出）",
       "status": "ok",
       "samples": 10,
       "feedback": {
         "committed": {
           "count": 10,
-          "min": 10.2,
-          "p50": 11,
-          "p95": 28.5,
-          "max": 28.5
+          "min": 28.1,
+          "p50": 29.2,
+          "p95": 37.1,
+          "max": 37.1
         },
         "presented": {
           "count": 10,
-          "min": 25.8,
-          "p50": 27.2,
-          "p95": 44.1,
-          "max": 44.1
+          "min": 35.2,
+          "p50": 37.5,
+          "p95": 42.7,
+          "max": 42.7
         },
         "frames": {
           "count": 10,
-          "min": 2,
-          "p50": 2,
+          "min": 3,
+          "p50": 3,
           "p95": 3,
           "max": 3
         }
@@ -613,22 +717,22 @@
       "done": {
         "committed": {
           "count": 10,
-          "min": 42.6,
-          "p50": 43.9,
-          "p95": 60.8,
-          "max": 60.8
+          "min": 51.7,
+          "p50": 54.1,
+          "p95": 59.5,
+          "max": 59.5
         },
         "presented": {
           "count": 10,
-          "min": 59.4,
-          "p50": 60.5,
-          "p95": 77.5,
-          "max": 77.5
+          "min": 68.5,
+          "p50": 70.5,
+          "p95": 76.2,
+          "max": 76.2
         },
         "frames": {
           "count": 10,
-          "min": 4,
-          "p50": 4,
+          "min": 5,
+          "p50": 5,
           "p95": 5,
           "max": 5
         }
@@ -636,32 +740,95 @@
       "longFrames": {
         "count": 0,
         "longest": 0
+      },
+      "requests": {
+        "nbook.storage/project save": 10,
+        "nbook.files/project list": 10
       }
     },
     {
-      "id": "D2",
-      "name": "展开内容目录（lorebook.content/characters）",
+      "id": "D1-warm",
+      "name": "展开宽目录：收起再展开（已列出过）",
       "status": "ok",
       "samples": 10,
       "feedback": {
         "committed": {
           "count": 10,
-          "min": 12.6,
-          "p50": 13.1,
-          "p95": 53.4,
-          "max": 53.4
+          "min": 8.5,
+          "p50": 9.1,
+          "p95": 16.5,
+          "max": 16.5
         },
         "presented": {
           "count": 10,
-          "min": 27.1,
-          "p50": 27.6,
-          "p95": 60.5,
-          "max": 60.5
+          "min": 17.6,
+          "p50": 20.4,
+          "p95": 23.3,
+          "max": 23.3
         },
         "frames": {
           "count": 10,
           "min": 2,
           "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      },
+      "done": {
+        "committed": {
+          "count": 10,
+          "min": 34.2,
+          "p50": 37.3,
+          "p95": 39.9,
+          "max": 39.9
+        },
+        "presented": {
+          "count": 10,
+          "min": 50.9,
+          "p50": 53.8,
+          "p95": 56.6,
+          "max": 56.6
+        },
+        "frames": {
+          "count": 10,
+          "min": 4,
+          "p50": 4,
+          "p95": 4,
+          "max": 4
+        }
+      },
+      "longFrames": {
+        "count": 0,
+        "longest": 0
+      },
+      "requests": {
+        "nbook.storage/project save": 20
+      }
+    },
+    {
+      "id": "D2-cold",
+      "name": "展开内容目录 lorebook.content/characters：新页面里第一次展开（列出）",
+      "status": "ok",
+      "samples": 10,
+      "feedback": {
+        "committed": {
+          "count": 10,
+          "min": 45.2,
+          "p50": 49.7,
+          "p95": 51.7,
+          "max": 51.7
+        },
+        "presented": {
+          "count": 10,
+          "min": 48.1,
+          "p50": 52.6,
+          "p95": 55,
+          "max": 55
+        },
+        "frames": {
+          "count": 10,
+          "min": 3,
+          "p50": 3,
           "p95": 4,
           "max": 4
         }
@@ -669,22 +836,22 @@
       "done": {
         "committed": {
           "count": 10,
-          "min": 43.8,
-          "p50": 44.3,
-          "p95": 77.3,
-          "max": 77.3
+          "min": 51.8,
+          "p50": 57.4,
+          "p95": 71.7,
+          "max": 71.7
         },
         "presented": {
           "count": 10,
-          "min": 60.5,
-          "p50": 61,
-          "p95": 93.9,
-          "max": 93.9
+          "min": 68.6,
+          "p50": 74.2,
+          "p95": 88.4,
+          "max": 88.4
         },
         "frames": {
           "count": 10,
-          "min": 4,
-          "p50": 4,
+          "min": 5,
+          "p50": 5,
           "p95": 6,
           "max": 6
         }
@@ -694,8 +861,67 @@
         "longest": 0
       },
       "requests": {
-        "nbook.storage/project save": 19,
-        "nbook.files/project list": 1
+        "nbook.storage/project save": 10,
+        "nbook.files/project list": 10
+      }
+    },
+    {
+      "id": "D2-warm",
+      "name": "展开内容目录 lorebook.content/characters：收起再展开（已列出过）",
+      "status": "ok",
+      "samples": 10,
+      "feedback": {
+        "committed": {
+          "count": 10,
+          "min": 12.3,
+          "p50": 13.3,
+          "p95": 14.4,
+          "max": 14.4
+        },
+        "presented": {
+          "count": 10,
+          "min": 20.3,
+          "p50": 21.1,
+          "p95": 27.1,
+          "max": 27.1
+        },
+        "frames": {
+          "count": 10,
+          "min": 2,
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      },
+      "done": {
+        "committed": {
+          "count": 10,
+          "min": 37,
+          "p50": 37.7,
+          "p95": 43.8,
+          "max": 43.8
+        },
+        "presented": {
+          "count": 10,
+          "min": 53.7,
+          "p50": 54.5,
+          "p95": 60.6,
+          "max": 60.6
+        },
+        "frames": {
+          "count": 10,
+          "min": 4,
+          "p50": 4,
+          "p95": 4,
+          "max": 4
+        }
+      },
+      "longFrames": {
+        "count": 0,
+        "longest": 0
+      },
+      "requests": {
+        "nbook.storage/project save": 20
       }
     },
     {
@@ -705,18 +931,18 @@
       "samples": 5,
       "values": {
         "帧间隔": {
-          "count": 616,
-          "min": 14,
+          "count": 677,
+          "min": 13.4,
           "p50": 16.7,
-          "p95": 17.1,
-          "max": 18.5
+          "p95": 17.7,
+          "max": 19.6
         },
         "每次滚动的最长帧间隔": {
           "count": 5,
-          "min": 17.6,
-          "p50": 17.8,
-          "p95": 18.5,
-          "max": 18.5
+          "min": 18.4,
+          "p50": 19.5,
+          "p95": 19.6,
+          "max": 19.6
         }
       },
       "longFrames": {
@@ -732,28 +958,32 @@
       "values": {
         "第一次写入到树里出现哨兵、已打开文件提示磁盘已变化": {
           "count": 5,
-          "min": 255,
-          "p50": 259.8,
-          "p95": 262.9,
-          "max": 262.9
+          "min": 210.5,
+          "p50": 225.4,
+          "p95": 250,
+          "max": 250
         }
       },
+      "eventTiming": {
+        "samples": 150,
+        "slow": 47,
+        "longest": 32
+      },
       "longFrames": {
-        "count": 1,
-        "longest": 51
+        "count": 2,
+        "longest": 66
       },
       "requests": {
-        "nbook.files/project list": 15,
+        "nbook.files/project list": 25,
         "nbook.files/project read": 5
       },
       "received": {
         "event": 5
       },
       "notes": [
-        "键入事件（Event Timing，≥16 ms 才记录）共 0 个"
+        "每轮改写 500 个文件（章节 250、宽目录 250），同时键入 30 个 ASCII 字符"
       ]
     }
   ],
-  "serverProfiles": [],
   "problems": []
 }

@@ -1,0 +1,119 @@
+# t72 Files 性能实现边界审查
+
+审查范围：`47e3b1fc..4660006f`；工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t72-impl-evidence`。只读审查，不修改被审仓库。以下位置均相对该 worktree。
+
+## 已核实发现
+
+### 1. 重要：16 ms 判据被从 presented 换成 committed，最终“达标”结论不受证据支持
+
+- 类别：结论与证据。
+- 位置：`.agents/works/w00017-application-runtime-architecture/tasks/t72-files-performance/README.md:28,41`；同目录 `plan.md:35-37,104`；`evidences/final-3000/summary.json:111-131,187-207`。
+- 现象：README 将第一帧的 committed 10–15 ms 判为“选中与标签 16 ms 内切换达标”，但已批准的测量计划明确按 presented 与经过帧数判断。最终 B1 的 presented p50/p95 为 31/31.2 ms，B2 为 33.6/35.6 ms，均为 2 帧；源码首次反馈 presented 为 57.6 ms。README 所写“presented 27–31 ms”还遗漏了 B2 的 33.6–37.8 ms 与首次 57.6 ms。
+- 为什么是问题：`docs/specs/workbench/files-explorer.md:127,136` 要求下一帧与 16 ms 内切换；不能在测完后不经确认改变判定端点。无头浏览器下的下一次 rAF 不是精确显示器呈现时刻，但这个局限同样不能反向证明 16 ms 达标。
+- 核实：直接核对 Spec、计划、最终 summary.json 和生成的 `report.md:14-20,37`；这是已落盘测量数据的核验，不把它当作本次重新实测。
+- 建议改法：按原计划把该项标为未达到或实际呈现时间未验证，并列 committed/presented 两种数值；若采用“DOM 在第一次 rAF 前已切换”的替代判据，须明确开发者确认与 Spec/计划口径，而不是保持“16 ms 达标”的断言。
+
+### 2. 重要：E1 实际改写 340 个文件，却以“500 个文件”支持最终不卡顿结论
+
+- 类别：测量正确性。
+- 位置：`packages/neuro-book/scripts/perf/browser-runner.ts:640-642,659`；`packages/neuro-book/scripts/files-sample.ts:72-94`；Task `README.md:30,45`。
+- 现象：E1 从 `volume-03` 取最多 250 个章节、从宽目录取 250 个文件。正式样本只有 900 个章节，均分到 10 卷，`volume-03` 实际只有 90 个。因此正式 E1 是 90 + 250 = 340 个文件；小样本 1000/2000 档分别为 280/310，而场景名、README 与最终表格都写 500。
+- 为什么是问题：正式后台变化负载比承诺少 32%，不能以这组数据证明“外部改写 500 个文件时连续输入不卡顿”；计划的 E1 也明确要求宽目录 250 + 已展开卷 250。
+- 核实：本次运行仓库外 `prepare-sample.ts`，直接调用实际 `planSample` 复核布局，结果写入 `victim-counts.json`；3000 档确认 `volume3=90, wide=400, E1Victims=340`。命令：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/evidence/prepare-sample.ts`。
+- 建议改法：从多个已展开卷选满 250 个章节并断言实际受害文件数为 500，报告写实际数；然后只重跑 E1 更新对应结论。
+
+### 3. 重要：E1 的中文输入不产生 key 事件，0 条样本不能推出“键入事件都在 16 ms 以内”
+
+- 类别：测量正确性、结论与证据。
+- 位置：`packages/neuro-book/scripts/perf/browser-runner.ts:662,666-670,685`；Task `README.md:30,45`；`evidences/final-3000/summary.json:732-753`。
+- 现象：脚本用 `keyboard.type("后台改写期间的输入")` 输入中文，但只统计 `event.name.startsWith("key")`。这些字符走文本插入路径，实际有 `beforeinput`/`input` 而没有 `keydown`/`keyup`；最终汇总也明确写“共 0 个”，没有任何键入延迟分布。README 却把 0 条样本解释为“键入事件都在 16 ms 以内”。
+- 为什么是问题：空集合来自被测事件类型没有发生，不是低延迟证明。即使输入处理超过 16 ms，这个筛选仍会得到 0 条，无法支持“任何时候界面不被后台冻住”的输入响应部分。
+- 核实：本次生产构建成功，在 1000 文件隔离项目的实际 Markdown 编辑器中运行同一句中文 `keyboard.type`，捕获 18 个 `beforeinput`/`input`、0 个 `key*`；页面 Event Timing 已记录到 `beforeinput`/`input` 的 16 ms 条目，现有筛选会全部丢弃。原始结果为报告目录 `chinese-input-events.json`；工具使用内置浏览器真实键盘文本输入路径，本条不声称本次重新测得正式 E1 延迟。
+- 建议改法：使用能产生真实 key 事件的代表输入（例如 ASCII），同时覆盖中文文本插入所对应的 `beforeinput`/`input` 或另测可观察输入到呈现；报告单独说明 Event Timing 的下限与舍入，零条记录只能在确认有对应事件时作为“没有可记录慢事件”的证据。重跑 E1 更新输入延迟结论。
+
+### 4. 重要：源码双组场景未实现、未测量，最终表格却宣称该组合达标
+
+- 类别：验收覆盖、结论与证据。
+- 位置：`packages/neuro-book/scripts/perf/browser-runner.ts:519-540`；Task `plan.md:57`、`README.md:23,42`；`evidences/final-3000/summary.json` 的 `results`。
+- 现象：计划 C1 要求“富文本 / 源码 × 单组 / 双组”各 30 次。runner 只有 `C1-md`、`C1-code`、`C1-md-split`，没有 `C1-code-split`；正式基线和最终 summary 均只有 15 个场景。README 仍写全部 16 个场景通过，最终正文行括号写“富文本与源码、单组与双组”。
+- 为什么是问题：Monaco 双组是单独的性能/焦点/模型组合，富文本双组不能代表它。少一个格子的证据无法支持最终表格所声称的完整组合；runner 也没有核对期望场景集合，所以静默漏测仍整体成功。
+- 核实：解析四份 `summary.json`，基线/最终结果的 id 集合与 runner 的全部 `run` 调用对应，没有源码双组记录。以上为已落盘证据与代码核验；源码双组性能本次未运行。
+- 本次真实运行追加证据：`bun run perf:files -- --count 1000 --iterations 5 --opens 3 --only C1-code-split --skip-build --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/evidence/only-missing-scenario` 退出 0，生成 `results: []`、`problems: []`。请求了计划里的源码双组场景却没有测任何场景，仍报成功；这违反 `docs/testing/README.md:148`“检查没有执行时必须非零退出”。
+- 建议改法：补上独立的 `C1-code-split` 并按同样的真实输入、正确正文和请求数规则运行；核对要求执行的场景集合与各格次数。补测前删去最终表格对源码双组的达标断言。
+
+### 5. 建议：待确认选项②“省 40–50 ms”没有可复核依据，小样本对照也未出现该收益
+
+- 类别：归因与决策证据。
+- 位置：Work `pending-confirmations.md:73-74`；Task `README.md:32-34`；`packages/neuro-book/scripts/perf/browser-runner.ts:399-412`。
+- 现象：待确认项把提前建控制器、列根目录的收益估为 40–50 ms，并将剩余 80–90 ms 归到外壳挂载与这个串行关系。仓库证据只有总时长 summary，没有归因用的 RPC/资源时间线、浏览器 profile、编译校验 55→15 ms 对照或同一上下文 379 ms 的样本；当前 runner 的 A2 每次明确创建新的上下文，不会生成 379 ms 这一组。
+- 为什么是问题：这是开发者在“接受当前性能 / 改懒控制器合同 / 另做外壳优化”之间选择时的主要收益依据。首列延后发出不等于它位于可减少 40–50 ms 的关键路径，不能只用串行关系给出具体收益。
+- 核实：本次在真实生产构建、1000 文件项目上捕获导航时间线：三个暖打开为 377.1/355.6/354.7 ms，首个根 list 往返约 4.8–5.1 ms；CPU 采样确有约 38.8 ms 的 `getBoundingClientRect`，支持外壳/布局成本的方向。随后仅在仓库外 Vite load overlay 中去掉 `attachedOnce` 门槛（模拟选项②），根 list 提前至导航约 209–218 ms，但三个暖打开为 349.9/355.6/361.4 ms，未观测到稳定的 40–50 ms 收益。构建、页面、浏览器和服务全部真实；这是小样本机制实验，不是正式效益估计，不断言3000档没有收益。原始数据：`startup-comparison.json`、`startup.cpuprofile`、`eager-comparison.json`；脚本与命令见 `runtime-probe.mjs`、`eager-vite.config.ts`、`eager-probe.mjs` 及运行日志。
+- 建议改法：把②的收益标为未验证，保留“可提早发请求”的机制事实；在需要开发者按具体数字决策前，对同构建同场景作有足够样本的 A/B，并保留最小时间线/profile 与完整命令。①若接受当前结果，应引用正式 A2 的 393.4/533.7 ms，而不能只给约 380 ms 的无证据口径。
+
+### 6. 重要：Monaco 取消拒绝修复的变异仍通过现有源码 e2e，未被回归测试守住
+
+- 类别：测试覆盖。
+- 位置：`packages/neuro-book/src/plugins/editor/web/code/load-monaco.ts:25-30`；`packages/neuro-book/e2e/editor-area.e2e.ts:302-339`；Task `README.md:24`。
+- 现象：此次修复新增全页 `unhandledrejection` 过滤器。现有源码 e2e 只验模型正文、保存与撤销，不捕获/断言 `pageerror`，也未覆盖连续替换源码模型的取消请求路径。将过滤逻辑移除后，这条现有源码 e2e 仍通过。
+- 为什么是问题：测量已遇到的未处理拒绝是此次明确修正的产品缺陷；依照 `docs/testing/README.md:14,24`，应在相应行为测试里证明修复前失败、修复后通过。当前测试不能守住取消拒绝回归，也不能证明过滤器只屏蔽目标取消、不会掩盖其它拒绝。
+- 核实：原构建上同一现有 e2e 通过；仓库外 Vite load overlay 删除 `event.preventDefault()` 的取消分支，编译真实生产前端到报告目录并运行同一源码 e2e，结果仍 `1 passed (4.8s)`。源码仓库未改。脚本 `mutation-vite.config.ts`，输出 `build-mutation-cancel-filter.txt`、`e2e-mutation-cancel-filter.txt`；本条是已运行的测试覆盖缺口，不据此推断产品当前存在未处理拒绝。
+- 复现边界：另用真实 Monaco 在1000文件项目里连续 preview 替换 20 个 JSON、共3轮并关闭标签；原版和删除过滤的变异版都未触发该取消拒绝（`cancellation-results.json`）。因此本报告不声称已在本机重现旧取消 bug，只报告已核实的回归覆盖缺口。
+- 建议改法：在源码编辑器真实浏览器验收中连续 preview 替换/关闭使语言服务在途请求被取消，监听并断言没有目标取消 pageerror，同时验证普通拒绝仍走诊断通道；对移除过滤分支的变异再次确认失败。若改用 Monaco 的正式错误处理接口，同样以可观察的错误分流为判据。
+
+## 数量
+
+| 级别 | 数量 | 编号 |
+|---|---:|---|
+| 阻断 | 0 | 无 |
+| 重要 | 5 | 1、2、3、4、6 |
+| 建议 | 1 | 5 |
+| 合计 | 6 | |
+
+当前证据不足以支持 README 的完整达标结论。重要项集中在判据、E1 负载与事件采集、漏测场景和取消拒绝回归守卫；没有据此推断其它产品路径存在功能故障。
+
+## 未发现问题的方面
+
+- 已落盘正式样本为 3000 个 Markdown、60 个源码文件、宽目录 400 项；常规格子使用 30 次测量。已记录场景的执行状态均为 `ok`，`problems` 为空；这些字段只证明场景执行成功，不能替代性能阈值判断。逐行数值比对见 `summary-audit.json` 与 `final-table-audit.json`。
+- README 的 A1 514 / 619 ms 与最终 p50/p95 514.3 / 619.3 ms 一致；A2 393.4 / 533.7 ms 确实未达到约 300 ms 的目标，Task 已列入待确认项。未把这项已公开的未达标另报为缺陷。
+- 已测的富文本单组、源码单组与富文本双组正文切回结果支持各自的 100 ms 结论；未打开章节的常规分布支持 200 ms 结论。第一次源码约 420 ms 的加载成本在 README 单独披露，未混入章节标准。
+- 展开、滚动与 F1 的落盘数值和总结没有发现额外矛盾。F1 的五轮观察只能支持该观察窗口内资源有界，不能外推长期无泄漏。
+- preview 淘汰死循环有回归守卫：恢复旧的两个分支后，聚焦 Bun 用例同步挂起，8 秒外部看门终止；当前实现通过。单独删除 `slots.has` 保护仍通过，但该单点变异不等于恢复原死循环，不据此另报缺陷。
+- 拆分焦点与窄组标签自动滚动有真实浏览器守卫：分别删除 `focusActive()` 和标签滚动 watcher，原 e2e 在焦点断言与完整可见断言处失败；当前实现两项通过。
+- Explorer session 的预读和懒控制器合同有守卫：删除 `prepare` 行为或提前建立控制器分别被现有 session 测试检出。生产页面时间线也观察到 Storage 预读发生在视图挂载之前。
+- 命令声明改用编译校验器，现有合法/非法声明、拒绝登记、诊断及内核装配测试共 35 项通过；将声明校验短路为恒真时，非法声明用例失败。代码核对未发现以对象身份缓存检查结果、破坏 `runtime.plugins` 当前声明重检合同的改动。
+- 本范围 Spec 只增加标明 Smoke 的性能脚本入口，没有修改性能行为合同、场景编号或成熟度；AGENTS 的命令登记与实际 `perf:files`、Node runner 用法一致。没有发现独立的 Spec 写法违规。新增 Smoke 行不能替代缺失的源码双组证据。
+
+## 本次验证记录
+
+以下构建与测试命令的工作目录均为 `packages/neuro-book`，实验源码与产物放本报告目录；没有修改仓库源码。
+
+| 实际命令或实验 | 结果 | 证据 |
+|---|---|---|
+| `bun run build` | 成功 | `build.txt` |
+| `bun run build:e2e` | 完成浏览器验收构建 | `build-e2e.txt` |
+| `bun run typecheck` | 退出 0；含三个 TypeScript/Vue 检查 | `typecheck.txt` |
+| `bun test scripts/perf/stats.test.ts scripts/files-sample.test.ts src/plugins/editor/area.test.ts src/plugins/explorer/session.test.ts` | 31 pass，0 fail | `focused-bun-tests.txt` |
+| `bun test src/plugins/commands/shared/registry.test.ts src/plugins/commands/shared/plugin.test.ts` | 35 pass，0 fail | `registry-tests.txt` |
+| `node <worktree>/node_modules/@playwright/test/cli.js test -c <evidence>/external-playwright.config.ts editor-area.e2e.ts --grep '源码文件用 Monaco\|Markdown 的撤销历史属于各组'` | 2 passed；仓库外副本只调整模块与构建路径，保留原断言 | `e2e-baseline-short-tmp.txt`、`browser-tests/` |
+| Bun `--preload` 内存变异 | preview 旧实现挂起；预读删除、提前建控制器、声明恒真被检出 | `mutation-preload.ts`、`mutation-preview-old-focused-result.json`、`mutation-bun-results.json`、`mutation-registry-accept-all.txt` |
+| 仓库外 Vite 源码覆盖构建与同一真实 Chrome e2e | 焦点与标签变异失败；取消过滤变异通过 | `mutation-vite.config.ts`、`mutation-browser-results.json`、`e2e-mutation-*.txt` |
+| 1000 文件生产页面导航、时间线与 CPU profile，以及提前建控制器对照 | 支持首列延后发出及外壳成本方向；不足以建立 40–50 ms 收益估计 | `runtime-probe.mjs`、`eager-probe.mjs`、`startup-comparison.json`、`eager-comparison.json`、`startup.cpuprofile` |
+| 实际 Markdown 编辑器中文输入事件采集 | 9 beforeinput、9 input、0 keydown/keyup；文本进入正文 | `chinese-input-events.json`、`playwright-chinese-events.json` |
+| 60 次源码 preview 替换后关闭标签，原版与取消过滤变异对照 | 两版均未触发目标取消拒绝 | `cancellation-probe.mjs`、`cancellation-results.json` |
+| `bun run perf:files -- --count 1000 --iterations 5 --opens 3 --only C1-code-split --skip-build --out <evidence>/only-missing-scenario` | 退出 0，却生成 0 场景、0 problems | `only-missing-scenario.txt`、`only-missing-scenario/summary.json` |
+
+上表中的 `<worktree>`、`<evidence>` 分别对应本报告开头工作区和本报告所在目录；完整参数保存在实验脚本与第 4 条的实际命令中。正式 3000 档结果来自被审提交中的已有产物，不冒充本次重跑。
+
+## 未运行与证据局限
+
+- 没有重跑全量 3000 文件、每格 30 次正式测量；没有运行全套 Bun/Vitest/浏览器测试。按共享参考机约束，采用聚焦测试、单场景及少量真实导航。
+- 没有测得源码双组的实际性能，也没有在修正负载/事件采集后重跑 E1；这是需被审实现补齐的证据。
+- 没有重建编译声明校验优化前的生产构建，故未复核 `55→15 ms` 的量化因果；本次 profile 只能核实当前调用成本方向。
+- 独立静态审查提出视图预取失败后 Promise 复位的回归建议；本次没有运行该失败/重试时序，不将其列为已核实缺陷。入口预读/预取调用接线也未单独作覆盖率发现。
+- 最初浏览器启动因 `Socket path too long` 失败，使用短临时路径别名后原用例通过；最初 `bun --preload … test` 没有应用变异的运行已标无效，不计入变异证据。标签变异构建的临时探针锚点与 Vue 虚拟模块匹配问题已修正，引用的是后续有效构建。
+
+## 收口
+
+- 本次记录的服务、构建、探针与测试进程均已退出；服务用 stdin `stop` 有序停止。记录的进程核对见 `owned-process-closeout.txt`。
+- 内置浏览器 `browser.tabs()` 返回 `[]`；外部 Playwright 浏览器由各脚本/fixture 关闭。Chrome 短路径临时别名已解除。
+- 最终在被审 worktree 执行 `git status --short`，输出为空。未 commit、push、stash、切换分支或删除仓库文件；仓库外报告和实验产物保留。

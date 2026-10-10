@@ -1,0 +1,203 @@
+# t72 实现只读审查：测量脚本与测量有效性
+
+- 审查范围：`47e3b1fc..4660006f`。
+- 工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t72-impl-harness`。
+- 依据：t72 计划与三份计划审查、Task README 和测量证据；files-explorer“打开与切换”及验收 12；editor；runtime.plugins 输出 23；Work 待确认项；测试规范。
+- 只读边界：不修改仓库源码与登记文件、不执行 Git 写操作；实验与产物放在本报告目录。只做小样本或单场景，不运行完整正式测量。
+
+## 已核实发现
+
+### 1. 重要：16 ms 达标结论没有按采纳的呈现口径判定，已有数据也不支持统一“达标”
+
+- **类别**：测量有效性 / 验收结论。
+- **位置**：`packages/neuro-book/scripts/perf/page-agent.ts:179-205`；`packages/neuro-book/scripts/perf/browser-runner.ts:475-515`；Task `README.md:28,41`；`evidences/final-3000/summary.json:111-132,322-343`。
+- **现象**：计划明确用 `presented`、帧数与点击 Event Timing 验收 16 ms；最终 README 却用 committed 10–15 ms 判“达标”。正式 B1 的 presented p50/p95 为 31/31.2 ms；C2-md 连 committed p95 都是 25.7 ms、最大 35 ms。点击 Event Timing 虽在页面代理收集，却没有写进任何 B/C 场景输出。`feedbackFrames=2` 只是 pointerdown 后该代理 tick 被调用两次，并没有记录输入落在哪个显示帧、实际 Paint 或展示时刻。
+- **为什么是问题**：Spec 要求选中和标签在下一帧、16 ms 内切换；现有实现只提供首次 rAF 观察与再后一帧的上界，不能把首次观察小于 16 ms 和回调计数直接换算成已呈现。即使选择 committed 为较弱判据，C2-md 的长尾也被总体“达标”结论遗漏。产品是否确实达标仍需进一步呈现证据，本条不将 presented 上界直接当作产品真实延迟。
+- **依据**：`docs/specs/workbench/files-explorer.md:127,136,201`；t72 `plan.md:35-37,104`；已采纳的 `plan-review-method.txt:19-27,99-107`。
+- **如何核实**：核对代码与已提交正式 JSON；本条是对现有测量证据和判定的直接核实，未重新运行正式 3000 文件测量。
+- **建议改法**：保留 committed/presented 的观察值但明确它们是采样界限；逐次保留点击的 Event Timing 或 Chrome Paint/Presentation trace，按既定口径给出 p50/p95/最大值和未达项。证据补齐前把“16 ms 达标”改为未验证；不能用 committed 替代计划里的 presented 后继续声称同一标准已满足。
+
+### 2. 重要：多数正文样本未经真实输入核验，属性判据可以产生假成功
+
+- **类别**：测量正确性 / 验收覆盖。
+- **位置**：`packages/neuro-book/scripts/perf/browser-runner.ts:274-286,475-486,500-539`；`packages/neuro-book/scripts/perf/page-agent.ts:142-151`。
+- **现象**：B1/B2 只在全部冷打开完成后对最后一个文件调用一次 `verifyInput`，含控件代码的首次打开与中间样本没有核验；C1-md、C2-md、C1-code、C2-code 完全没有真实输入核验，双组也只有富文本场景末尾一次。`verifyInput` 只核对 DOM 出现记号、撤销后记号消失及 dirty 为 false，未要求输入曾令文档 dirty 为 true。
+- **矩阵遗漏**：计划C1要富文本/源码 × 单/双组各30次，但代码只有 `C1-md-split`，没有 `C1-code-split`。结果只有15个已实现id（A1+A2合并），缺源码双组格；单凭README的“16”本身不算缺陷（拆算A1/A2时也有16个场景），问题是“富文本与源码、单组与双组”宣称超出了已测矩阵。
+- **为什么是问题**：DOM 内文字可输入不代表输入已提交到当前文档；例如控件输入绑定失效时，DOM 修改与撤销仍能通过，dirty 始终为 false 也能通过。其它样本只读 contenteditable/textarea 属性，无法排除首次加载、切换绑定或活动组焦点尚未就绪的假快结果。Task README 与计划声称“每个正文样本”均通过真实输入核验，与实现不符。
+- **依据**：`docs/specs/workbench/files-explorer.md:128,137,201`；`docs/specs/workbench/editor.md:92`；t72 `plan.md:40,57,114`；采纳的 `plan-review-method.txt:29-37`。
+- **如何核实**：直接读取页面判据与 `verifyInput` 全部调用位置（`grep` 的 3 处：定义、冷场景末尾、富文本双组末尾）；本条缺陷影响属于**从代码推断**，未将未发生的输入绑定故障说成当前产品故障。当前 1000 文件小样本全场景通过，只证明现有弱核验能通过。
+- **建议改法**：按计划对每个成功正文样本在计时外验证目标文档的真实输入，等待其 dirty 变 true 或可观察的文档提交，再撤销并等待正文与 dirty 恢复；失败样本不得进入成功统计。至少覆盖两个编辑器、单/双组及首次加载、热切换各路径。
+
+### 3. 重要：展开目录的分布几乎全部测缓存重开，p50/p95 没覆盖真实列出成本
+
+- **类别**：测量有效性 / 样本口径。
+- **位置**：`packages/neuro-book/scripts/perf/browser-runner.ts:561-592`；`packages/neuro-book/src/plugins/explorer/web/tree/model.ts:155-174,259-271`；`evidences/final-3000/summary.json:641-699`。
+- **现象**：D1/D2 在同一页、同一目录上收起再展开 10 次，收起保留 listing 缓存且后续未过期时不再 `list`。正式 D2 的 10 个成功样本合计只有 1 次 Files `list`。本次 1000 文件 smoke 同样 D2 `list ×1`，完成 presented p50/p95 60.4/76.6 ms。报告没有将首次真实列出与其余 9 次缓存展开分开，却把总体 p50/p95 当作“展开内容目录（每项探测 index.md、读 content.xml）”证据。
+- **为什么是问题**：最近秩 p95 在 10 个样本里只是最大值；一条真实列出样本无法给出列出成本的分布，p50 基本只反映固定几帧的缓存 DOM 观察。服务端逐项 lstat、content.xml 读取或大目录列出变慢可以完全不改变 p50。D1 连请求数也不输出，无法从报告辨认冷热比例。
+- **依据**：`docs/specs/workbench/files-explorer.md:138,201` 要逐项测展开几百个子项并记录 p50/p95、请求数；t72 `plan.md:59-60,65` 与采纳的计划审查对内容目录成本及冷/热状态分离的要求。
+- **如何核实**：运行真实生产构建后的小样本命令 `env NBOOK_AGENT_TEMP_ROOT=<本报告目录> bun run perf:files -- --count 1000 --iterations 5 --opens 3 --skip-build --out <本报告目录>/smoke-1000`；输出见 `smoke-1000/report.md:22-23`、`summary.json`。同时核对树模型收起不丢 listing、ensureVisible 只列未缓存/过期目录的实现。上面命令中的实际完整路径见报告末尾验证记录。
+- **建议改法**：把首次展开和缓存展开分组；真实列出格每次用新上下文或不同的等规模未列出目录，至少重复计划要求的次数。两组各自给 p50/p95、样本数与 list/Storage 请求数，不把一个 cold 样本混入九个 warm 样本后宣称已覆盖列出性能。
+
+### 4. 重要：A4 在展开记录仍未恢复完时结束，未测到约 1300 行恢复态的启动成本
+
+- **类别**：测量正确性 / 起止边界。
+- **位置**：`packages/neuro-book/scripts/perf/page-agent.ts:118-127`；`packages/neuro-book/scripts/perf/browser-runner.ts:439-459`；`packages/neuro-book/src/plugins/explorer/web/tree/model.ts:134-152,167-174`。
+- **现象**：A4 与 A1/A2 共用“根下四行存在”的 treeReadyAt，出现这些父目录时便停止计时、随后关闭页面，未等待恢复的子目录列出与树投影完成。真实生产探针恢复 10 卷与宽目录时，treeReadyAt=356.7 ms，DOM 仅有 6 条资源行、2 条 loading，树内容高度 860 px；loading 消失时已到 474.4 ms，高度变成 18642 px。计时漏掉约 117.7 ms 的恢复工作。
+- **为什么是问题**：A4 专门补足计划审查指出的“恢复多目录、完整行数组投影”增长路径，当前数字只表示父目录先到，后续展开与投影不在测量窗口内。正式报告用 A4 360/376 ms 代表恢复多个展开目录不能支撑该结论。A4 也没有采集请求数、长动画帧或每轮恢复状态，因此不能区分成功恢复、仍加载、偏好未落盘。
+- **同一终点的操作核验缺口**：A1/A2的ArrowDown核验只等待 `document.activeElement.closest("[data-explorer-tree]") !== null`（`browser-runner.ts:403-406`），点击目录行已经把焦点放在树上；没有比较按键前后的aria-activedescendant/目标行，故按键不生效也通过。A3/A4甚至没有该核验。页面存在代理但树不接受方向键的情况仍可被记为“可操作”（**从代码推断**）。
+- **依据**：t72 `plan.md:54,65,107`；采纳的 `plan-review-product.txt:74-81`；`docs/specs/workbench/files-explorer.md:135,139,201`。
+- **如何核实**：真实生产构建与 1000 文件隔离项目，执行 `node /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/runtime-probe.mjs`。证据 `runtime-probe.json` 的 `restoredReady`、`restoredAfterLoading` 与 `restored-after.png`；没有伪造 RPC 或替换产品逻辑。
+- **建议改法**：保留根 listing ready 为独立指标；A4另等预置展开集合真正恢复、相应目录listing完成及完整行数/树高度稳定，再结束窗口。准备阶段等待展开记录落盘；每轮核对恢复集合与最终规模，并保存期间LoAF、请求与实际行数。可操作核验须比较ArrowDown前后活动后代/焦点行确实移动，不能只核对焦点容器仍为树。
+
+### 5. 重要：E1 用中文 `keyboard.type` 却只统计 key 事件，输入再慢也会被漏掉
+
+- **类别**：测量正确性 / 假阴性。
+- **位置**：`packages/neuro-book/scripts/perf/browser-runner.ts:662,666-670,683-685`；Task `README.md:30,45`；`evidences/final-3000/summary.json:727-754`。
+- **现象**：E1 输入全是中文 `后台改写期间的输入`，随后只取 `event.name.startsWith("key")`。Playwright 对没有键盘布局映射的中文走文本插入，本次 Chrome 生产页实际只发可信 `beforeinput`/`input`，没有 keydown/keypress/keyup。加入页面级 60 ms beforeinput 工作后，代理确实采到 beforeinput 的 72–80 ms Event Timing 与约 64–74 ms LoAF，但 E1 的 key 过滤仍得到 0；同一页面输入 ASCII 则采到 keydown/keypress duration=64 ms。正式证据和本次 smoke 都为“键入事件共 0 个”。
+- **为什么是问题**：报告把未测到键盘事件当成“键入事件都在 16 ms 以内”，没有输入延迟、处理时长与 next-paint 的有效样本。即使输入路径明显卡顿，该指标仍为空并且 E1 仍可 ok；这不是 durationThreshold 筛掉快事件，而是输入方式与筛选事件类型不匹配。
+- **依据**：`docs/specs/workbench/files-explorer.md:139,201`；t72 `plan.md:37,62,107`；采纳的 `plan-review-method.txt:99-107` 要求观察器不产出时不能当作 0。
+- **如何核实**：执行 `runtime-probe.mjs`，`runtime-probe.json` 的 `typingChinese` 与 `typingAscii` 保留可信 DOM 事件、完整 Event Timing 和 LoAF。仅在本报告目录探针中添加 beforeinput 工作，没有改产品代码；先用真实 Chrome 实证输入路径与过滤结果，不据实验负载声称产品本身卡顿。
+- **建议改法**：用能产生真实键盘事件的固定输入协议（例如 ASCII 按键），或按 beforeinput/input 及其交互语义完整采集中文输入；不要只过滤 key。记录实际发出/观察事件数；没有有效事件时把指标记为不可用、不能给达标结论。更新正式结论并重测该单场景。
+
+### 6. 重要：无效 `--only` 不执行任何场景却返回 0，未执行状态没有闭合
+
+- **类别**：失败处理 / 验收假成功。
+- **位置**：`packages/neuro-book/scripts/perf/files-perf.ts:63,130-153`；`packages/neuro-book/scripts/perf/browser-runner.ts:350-354,698-702`。
+- **现象**：`--only` 只解析字符串，不校验场景名；wanted 不匹配时直接返回，results 没有 not-run 项。实际 `--only not-a-scenario` 执行后退出 0，`summary.json` 为 `results: []`、`problems: []`，Markdown 只有空结果表。使用计划中的 A1/A2/C1 等概念名而不是脚本内部组合 id 也有同类风险。
+- **为什么是问题**：用户/自动化想运行的目标没有执行，却得到成功退出与报告，违背“任一未执行或缺样本非零”的验收合同。当前 `some(status !== ok)` 对空数组为 false，也没有核对请求场景集合与实际结果集合。TypeScript 的 not-run 联合分支从未被构造。
+- **依据**：`docs/testing/README.md:148`；t72 `plan.md:26`；采纳的 `plan-review-feasibility.txt:36-43`。
+- **如何核实**：真实命令 `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun run perf:files -- --count 1000 --iterations 5 --opens 1 --skip-build --only not-a-scenario --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/invalid-only`，退出 0；证据 `invalid-only/summary.json`、`report.md`。
+- **建议改法**：解析阶段按场景注册表拒绝未知 id；为本次要求的全部场景预建 not-run 结果，并在结束时核对每个目标存在、状态与成功样本数齐全，空运行必须非零。省略 `--only` 时也用同一完整性检查。
+
+### 7. 重要：逐次样本、操作起点和点击事件没有落盘，正式分位数与时间窗无法复核
+
+- **类别**：证据完整性 / 可复现性。
+- **位置**：`packages/neuro-book/scripts/perf/browser-runner.ts:309-322,475-492,500-515,698-699`；`packages/neuro-book/scripts/perf/files-perf.ts:132-143`。
+- **现象**：所有 ArmResult 都立即拆成数字数组并汇总，返回时没有 `raw`；首次冷打开也只保留两个汇总值。页面代理的 start、逐次 committed/presented/帧数、点击 Event Timing、longtask 及进度条所属操作没有写进结果。外壳只写 summary.json 与 report.md，计划指定的 samples.json.gz 完全未生成；本次 smoke 输出目录也确实只有这两个文件。
+- **为什么是问题**：统计函数测试通过不能证明输入数据、冷/热划分和归属窗口正确。已提交的正式证据无法重算 p50/p95、找出缺样本或判断异常值对应哪个文件/第一次加载；进度条只有 B–F 这样的大场景标签和页面绝对时间，没有操作 start 可对齐，无法核实是否在 800 ms 前出现。运行临时根默认删除后这些证据不可恢复，不能靠下次重跑补回当前正式结论。
+- **依据**：t72 `plan.md:28,37,44`；采纳的 `plan-review-feasibility.txt:72-79` 明确要求可重算分位数及逐次压缩记录；`docs/testing/README.md:146-147`。
+- **如何核实**：代码读取与本次真实全小样本测量的 `smoke-1000/` 目录核实；不是仅根据计划未勾选作判断。正式 evidence 也仅有 summary.json/report.md。
+- **建议改法**：保存每次操作的场景/轮次、地址、start、全部 ArmResult、事件/进度条归属和失败信息，压缩写入独立 samples.json.gz；汇总从这份同源数据生成。明确哪些指标是不可用或缺采，不把接口中声明但从未输出的 events 当作已有证据。
+
+### 8. 重要：合法的 `--only C1-code` 单场景无法独立运行，依赖被过滤掉的 B2
+
+- **类别**：场景隔离 / 可复现性。
+- **位置**：`packages/neuro-book/scripts/perf/browser-runner.ts:495-505,524-528,563,595-597`。
+- **现象**：源码热切换的前置只双击 data 下的文件，却不展开 data；data 的展开放在 B2 的测量 body 中。`--only C1-code`、`--only C2-code` 时 B2 被跳过，reveal 扫描树后找不到源码行。同样，D3 对 notes 的展开依赖 D1，而 D3 只展开 notes/wide；单跑 D3 的父目录仍折叠。
+- **为什么是问题**：用户需要在共享机器上只跑单场景复测，合法场景仍因前一个场景未执行而失败；全场景跑通掩盖了这种依赖。场景前置与“是否计入测量”必须分离，否则 --only 的入口不具备承诺的可复现性。
+- **依据**：t72 `files-perf.ts:7` 的 `--only` 接口；计划场景矩阵与按单场景复测的 S3 流程。不是要求产品支持额外行为。
+- **如何核实**：真实运行原始 Node runner：`node scripts/perf/browser-runner.ts /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/single-code-config.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/single-code-result.json`，仅 C1-code、iterations=5；退出 1，错误 `树里找不到 [data-explorer-row="project://data/source-059.json"]`。C2-code/D3 同类路径为**从代码推断**。
+- **建议改法**：每个场景显式建立自己依赖的展开、控件与文档预热状态；共享 helper 可以复用，但必须由本场景无条件调用。--only 只选择要统计的场景，不应该跳过它的必需前置。
+
+### 9. 重要：E1 正式样本实际只改写 340 个文件，却按 500 文件压力给结论
+
+- **类别**：样本真实性 / 测量规模。
+- **位置**：`packages/neuro-book/scripts/perf/browser-runner.ts:631-642,659-660`；`packages/neuro-book/scripts/files-sample.ts:72-75,92-94`；Task `README.md:30,45`。
+- **现象**：victims 取 volume-03 前 250 个章节再加宽目录前 250 项，但 3000 文件只分 900 个章节到 10 卷，每卷 90 个。因此正式每轮最多 90+250=340 个被改写文件（另有 1 哨兵），不是 500。1000 文件小样本实际 280，600 文件/宽100 的 smoke 实际 118；结果仍固定命名“外部改写 500 个文件”，没有记录实际 workload。
+- **为什么是问题**：正式证据少施加 160 个变化（32%），不能证明计划规定的 500 文件同步成本与“后台不冻结”。宽目录250+卷250的分布也没有实现；固定场景名掩盖了规模缩水。
+- **依据**：t72 `plan.md:62` 的具体压力协议；`docs/specs/workbench/files-explorer.md:139,201`；采纳的 `plan-review-product.txt:65-72` 明确要求固定事件规模。
+- **如何核实**：导入真实 `planSample` 按原始切片计算 600/1000/2000/3000 的 workload，结果保存 `workload-counts.json`：E1=118/280/310/340。另在磁盘生成的本次 1000 文件项目中，`volume-03` 确实30文件；未运行完整3000测量，3000数量由生成器与脚本原始路径直接计算核实。
+- **建议改法**：跨足够多的已展开卷选满250章节，或明确重新定义经批准的压力规模；正式场景启动前断言500个独立存在目标，结果记录实际路径数、分布及事件/batch数量。小样本应报告实际数量，不能沿用500的名称与结论。
+
+### 10. 重要：准备/构建/runner 结果读取失败时不生成失败报告，违背总是出报告的合同
+
+- **类别**：失败处理 / 证据收口。
+- **位置**：`packages/neuro-book/scripts/perf/files-perf.ts:101-151`。
+- **现象**：summary.json/report.md 都在 try 成功路径内生成；构建失败、生成样本失败或 runner-result 不存在时只写 stderr、删除临时根，finally 仍打印“结果：<out>”。真实 count1000/wide401 的生成失败退出1，out目录为空，没有任何 failed/not-run 状态。若指定已有out，之前成功文件也不会被覆盖为本次失败，调用方可能读到旧结果。
+- **为什么是问题**：虽退出码非零，但报告缺失/旧报告无法说明本次哪些目标未执行和原因，原始现场又默认删除；计划采纳的失败报告合同没有实现。任务要求“无未判定项”的收尾工具不能仅靠先前summary判定当前运行。
+- **依据**：t72 `plan.md:26` 明确“报告在 finally 里总是写出”；`plan-review-feasibility.txt:36-43`；`docs/testing/README.md:148`。
+- **如何核实**：真实命令 `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun run perf:files -- --count 1000 --wide 401 --iterations 5 --opens 1 --skip-build --only A1+A2 --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/sample-failure`，退出1；read该目录确认空。构建/runner结果读取同路径为**从代码推断**。
+- **建议改法**：外壳从开始就建立本次运行清单，捕获准备失败并写入 problems 与所需场景的 not-run；在 finally 原子生成/覆盖本次 summary/report，再清临时根。结果路径应指向确实存在且与本次runId关联的文件。
+
+
+### 11. 重要：规模扫描的冷/热前置协议不同，B1/C1 差异不能仅归于文件数
+
+- **类别**：测量有效性 / 规模可比性。
+- **位置**：`packages/neuro-book/scripts/perf/browser-runner.ts:437-467`；Task `README.md:31`；`evidences/scale-1000/summary.json:4-20`、`scale-2000/summary.json:4-20`、`baseline-3000/summary.json:4-16`。
+- **现象**：1000/2000 档限定 `--only A1+A2,B1,C1-md`，3000档使用完整基线。3000 的 B1/C1 前在同一main服务上先执行 A4，展开全部卷与宽目录、启动该项目代次并保留宽限期中的监视器；1000/2000的main服务则直接首次打开B/C项目。新浏览器上下文隔离了客户端记录，但未隔离同一项目子进程及列目录/监视/OS缓存的前置工作。
+- **为什么是问题**：计划要求同一构建、seed、协议做规模扫描，当前3000格加入了另一类恢复态前置；文件数和生命周期/缓存状态一起变化，不能从这条B1/C1曲线独立推出“不随文件数增长”。本条不声称现有产品确有规模回退；A1/A2每轮重启服务的三档对比不受此处A4影响。
+- **依据**：t72 `plan.md:66`；采纳的 `plan-review-method.txt:59-77` 要求缓存协议与重复样本可比；`plan-review-product.txt:56-63`。
+- **如何核实**：直接核对三份正式命令、runner场景顺序及项目宽限期合同；影响为**从代码推断**，未运行正式三档扫描。没有把样本数10/30不同本身当作统计错误；现有最近秩算法是正确的。
+- **建议改法**：3000规模点也用相同 `--only A1+A2,B1,C1-md` 和前置协议，或让所有规模都经过同一A4准备；记录每格项目代次、缓存/已展开状态。只将同协议指标用于规模趋势，现有B1/C1结论先标为探索性。
+
+
+### 12. 重要：F1 文件候选为空也报告5轮成功，资源保留可被空测量证明
+
+- **类别**：样本完整性 / 假成功。
+- **位置**：`packages/neuro-book/scripts/perf/browser-runner.ts:543-558`。
+- **现象**：F1 选 `volume1.slice(iterations, iterations+20)`，不核对20个文件；1000文件只有30个volume-01章节，默认iterations=30后切片为空。真实原始runner使用1000样本、iterations30、onlyF1，仍退出0、status=ok、samples=5并报告5个GC堆样本，没有打开任何文件。计划600文件/iterations3的小smoke只有15个候选，却也用“20文件×5轮”标题。
+- **为什么是问题**：缺工作量不会被失败/样本数门禁抓住，零文件场景的堆平台能被误当作资源释放证明。正式3000候选有20个，不据此否定那一轮实际工作量；问题在合法小样本与单场景参数的验收输出可以造假成功。
+- **依据**：t72 `plan.md:26,63`；`docs/testing/README.md:148`；参数支持count/iterations与single场景的现有接口。
+- **如何核实**：`workload-counts.json`直接计算候选数；真实执行 `node scripts/perf/browser-runner.ts /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/f1-empty-config.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/f1-empty-result.json`，退出0。没有改源码，探针仅提供脚本本来支持的参数组合。
+- **建议改法**：场景启动前校验实际20个独立目标，或从多个卷取够候选；结果保存每轮实际打开/关闭数，缺样本直接failed/not-run。堆读取与循环轮数不能替代真实文件操作次数。
+
+### 13. 重要：A1/A2 失败后旧页面与服务留到整个runner结束，污染后续场景
+
+- **类别**：失败收口 / 跨场景隔离。
+- **位置**：`packages/neuro-book/scripts/perf/browser-runner.ts:353-363,390-413,695-699`。
+- **现象**：A1/A2 在循环里创建server、context与session，没有每轮finally；只有操作全部成功才 closeSession 与 shut。`openPage`、ArrowDown等待或其它页面步骤失败时，run捕获异常并继续A3/A4/B–F，前面的context/页面仍开着、service仍在servers集合里，直到整个runner的finally才停止。
+- **为什么是问题**：失败后的测量继续跑是设计要求，但旧页面仍持项目租约、持续WebSocket/观察器与后台任务，且本机多一个服务/项目子进程；后续“冷服务”“资源保留”“后台不冻住”不再具有承诺的隔离起点。总体退出非零不等于后续ok样本仍可信。最终清理能避免正常异常返回时长期泄漏，但无法修复中途跨场景污染。
+- **依据**：t72 `plan.md:24-27`、采纳的 `plan-review-feasibility.txt:90-106`；`docs/testing/README.md:20`。
+- **如何核实**：逐分支读取 run 的异常捕获、A1/A2资源拥有范围与最外层finally；这是**从代码推断**，本次真实A1/A2小样本均成功，未人为让实际产品页面失败。未声称观察到常驻进程泄漏。
+- **建议改法**：每轮server与context分别用try/finally拥有；打开失败也关闭刚创建的context，然后停服务并核对退出码，再允许后续场景继续。清理失败保留句柄到最终兜底并记录problems。
+
+### 14. 重要：spawn 的 error 未被接住，启动失败绕过runner的报告与finally
+
+- **类别**：进程生命周期 / 失败处理。
+- **位置**：`packages/neuro-book/scripts/perf/browser-runner.ts:81-86,93-112`；`packages/neuro-book/scripts/perf/files-perf.ts:75-77`。
+- **现象**：启动服务与外壳run都只监听exit，没有error监听；Node进程无法spawn bun时，发出error/close而没有exit。真实原始runner在隔离PATH下启动服务失败，直接抛 `Unhandled 'error' event`、`spawn bun ENOENT` 并退出1，没有生成resultPath，顶层catch/finally没有执行。
+- **为什么是问题**：部署/运行环境里的可执行文件缺失、权限拒绝等创建失败不能进入脚本的failed/not-run模型；如果已有资源在运行，异常退出会跳过显式收口。标准非零退出不等于受控报告与清理完成。正常可执行环境下的本次smoke不触发此路径。
+- **依据**：t72 `plan.md:24,26-27`；采纳的服务启动失败收口要求；`docs/testing/README.md:20,148`。
+- **如何核实**：真实执行 `env PATH=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/empty-bin /usr/bin/node scripts/perf/browser-runner.ts /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/spawn-failure-config.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/spawn-failure-result.json`，退出1，原始Node错误如上，result文件不存在。PATH仅对该命令生效，没有更改全局环境。Bun外壳同类事件边界为**从代码推断**；该探针结束后进程列表未见本次残留Chrome或服务。
+- **建议改法**：每个spawn用一次结算同时处理error与exit/close，把创建失败转换为可await的失败结果；启动器error路径也必须结算等待、记录错误并走finally。避免error与后续close重复结算。
+
+## 本次验证
+
+以下命令均在 worktree `packages/neuro-book` 执行，探针为绝对路径；没有运行正式3000文件测量。
+
+```text
+bun run build
+env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun test scripts/perf/stats.test.ts scripts/files-sample.test.ts
+env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun test src/plugins/commands/shared/registry.test.ts
+env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun test src/plugins/editor/area.test.ts src/plugins/explorer/session.test.ts
+env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun run perf:files -- --count 1000 --iterations 5 --opens 3 --skip-build --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/smoke-1000
+```
+
+- 构建通过，check:dist通过；有Vite大块警告，未作为发现。
+- 纯函数与样本测试8通过、命令声明测试27通过、编辑器区与Explorer会话测试23通过，合计58通过、0失败。
+- 小样本退出0，15个实际已实现场景均ok、problems为空；不把这个结果当作完整16格矩阵已覆盖。
+- `runtime-probe.mjs`、无效only、单场景C1-code、F1空负载、样本准备失败与spawn创建失败的完整命令及结果见相应发现；工作量核实可重跑 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/workload-probe.ts`。探针只改变隔离浏览器页面，没有替换产品源码。
+- 未运行全应用typecheck、全量Bun/Vitest、e2e、正式3000×30测量、有头显示器/桌面/跨机器路径。
+- 内置browser.open启动超时，已尝试close(all,kill)收口；备用使用仓库已装的Node Playwright，无安装动作。此工具失败没有作为产品发现。
+- 测量外壳本次分配的临时根结束后为空；Node探针finally关闭Chrome，独立服务 `t72-review-runtime`（PID2611910，HTTP33301/RPC41789）经stdin停止并以0退出，ps确认该PID不存在。未碰3000或3917端口。
+- 工作区首尾`git status --short`均为空，没有在仓库放探针或产生修改，没有Git写操作。
+
+runtime-probe重跑前可在报告目录建立新样本，并从 `packages/neuro-book` 启动隔离生产服务；实际本次启动命令为 `env NBOOK_STATE_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/runtime/state NBOOK_WEB_ROOT=dist/web NBOOK_PORT=0 bun dist/server/main.js --stop-stdin`。探针URL改为当次监听地址后执行；服务监听曾为HTTP33301，结束已经停止。`create-runtime-sample.ts`要求新空样本目录，已有样本可直接复用。
+
+## 采纳意见核对与审查限制
+
+- 已落实：宽目录份额校验、源码样本不占Markdown名额、Bun外壳/Node浏览器边界、新BrowserContext客户端隔离、宽限期内再打开与子进程退出后重开分列、服务启动失败时尝试stdin收口、真实指针输入与虚拟行揭露、进度条MutationObserver、独立799/800阈值测试、DOM控件数与模型间接证据分开命名。
+- 未完整落实：呈现证据与达标判定（发现1）、每个正文样本真实输入及完整矩阵（发现2）、独立冷/热目录统计（发现3）、恢复全树工作窗口（发现4）、有效输入事件（发现5）、not-run与目标完整性（发现6）、逐次原始证据（发现7）、单场景前置隔离（发现8）、固定后台工作量（发现9）、外壳失败报告（发现10）、规模前置协议（发现11）、资源保留实际目标数（发现12）、失败迭代的场景级收口（发现13）、spawn创建失败（发现14）。
+- 待确认项已记录的“第二次打开约380–390ms尚未达300ms”、源码首次代码加载、禁止Monaco空闲预取、偏好记录提前首读，不重复列为缺陷。模型/实例只做DOM计数和控制器间接证据属于计划明确限定，未将worker全资源不可见本身另列问题。
+- API参考：[MDN requestAnimationFrame](https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame) 明确回调发生于下一次重绘前；没有用两个rAF伪造真实显示器的presentation证明。
+- 本审查没有修改产品、测试或规则；观察器端的额外采集和输入负载仅存在报告目录探针、隔离Chrome页面内。建议改法尚未执行。
+
+## 数量
+
+| 严重程度 | 数量 | 编号 |
+|---|---:|---|
+| 阻断 | 0 | 无 |
+| 重要 | 14 | 1–14 |
+| 建议 | 0 | 无 |
+| 合计 | 14 | 测量与证据缺陷；未据此断言产品所有路径都出错 |
+
+## 未发现问题的方面
+
+- **基础运行链路**：当前提交生产构建与check:dist通过；Chrome151.0.7922.71能运行真实项目，1000文件全已实现场景可完成。Bun外壳与Node Playwright分离解决了已知CDP握手运行时问题。
+- **统计函数**：最近秩分位数、空样本拒绝、RPC帧分类及CPU热点合并的既有测试通过，没有发现算法错算。样本数10与30导致p95估计精度不同，但两者都按同一最近秩定义；未把n不同本身误报为缺陷。
+- **样本生成器扩展**：相同seed/layout可复现，JSON合法、标记唯一、字节数精确，sources不挤占Markdown名额，宽目录超出笔记份额会明确失败；相关8项测试通过。工作量不足问题位于runner选样，不在生成器描述造假。
+- **客户端冷/热边界**：A1/A2/B使用新BrowserContext时身份与localStorage隔离，热切换在同一页内进行，冷模块首样本单列。A2已按登记的宽限期内重开口径实现，A3关闭页面后等待project.js进程退出，没有把并发第二窗口当A2。
+- **计时输入路径**：目标行揭露与居中发生在计时外，window捕获真实pointerdown作为起点；目标标签与文件唯一marker双重核验，避免只高亮就结束正文。问题是后续输入与呈现证据覆盖不足，未发现把Playwright往返直接计入B/C时长。
+- **正常清理**：本次成功smoke、合法单场景失败与空F1都能关闭浏览器并停止服务，临时运行根被删除；探针服务stdin停止退出0。最终进程列表没有本次测量/探针残留服务或Chrome，未动其它Agent与用户进程。
+- **产品修正边界**：命令编译校验器缓存的是schema程序，不是贡献声明接受结果；每次仍Check当前声明，未发现违反runtime.plugins输出23的结果缓存。27项命令声明测试通过。Explorerprepare仍受attachedOnce门禁约束，视图第一次挂上前不建controller；23项编辑器区与会话测试通过。
+- **阈值与已有取舍**：799/800ms测试按Spec字面值独立断言，未再用产品常量作为期望；本次正常快速路径进度条0次。第二次打开约300ms未达到已在待确认清单明确记录，没有把该取舍重复算缺陷。

@@ -1,0 +1,68 @@
+# t72 产品代码边界审查
+
+审查范围：`47e3b1fc..4660006f`，主攻 `2db49dde`、`8a9bf8ef`、`d60f1bd8` 的产品行为边界。
+
+方式：只读审查，核对 Task、Spec、待确认取舍、受影响测试与真实浏览器运行。实验与产物放在本报告目录，不执行完整正式测量。
+
+## 已核实发现
+
+### 1. 重要：等待控件就绪的焦点意图不随用户离开编辑器失效，迟到的 Monaco 抢回焦点
+
+- **类别**：正确性 / 不变量。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/area.ts:345-354,525-533`；`packages/neuro-book/src/plugins/editor/web/components/EditorArea.vue:45-47`。
+- **现象**：同组保留 Markdown 标签 A 和正在首次加载的 JSON 标签 B；回 A，在正文里按 Ctrl+W 关闭 A，B 成为活动标签。Monaco 下载尚未完成时点击资源管理器并在树里操作，焦点已明确在树上；放行 Monaco 下载后，`registerHandle` 又聚焦 B，焦点从树移回编辑器。真实页面结果 `before={tree:true,tag:"DIV"}`，`after={tag:"DIV",group:"g0",tree:false}`，见本目录 `async-focus-result.json`。
+- **为什么是问题**：`focusWhenReady` 只在成功登记活动句柄时清零。用户焦点移出、切组、换标签都不撤销或换代；检查 `activeHandle === handle` 只能挡住非活动组，挡不住活动组里已经失效的聚焦意图。用户在树上继续按键会突然作用于编辑器；这不满足 `editor.md` 输出 8 的“迟到结果不改变焦点”，也破坏 `files-explorer.md:59,61` 的键位按实际焦点隔离。
+- **如何核实**：已运行生产构建与真实 Chromium。用浏览器请求拦截只扣住实际 `assets/editor.api-*.js` 下载，按上述真实点击与键盘路径操作，用户先移到树，再放行网络；未直接调用控制器、未伪造组件登记时序。正常 Markdown / Monaco 拆分和关闭组的焦点已另外验证通过。
+- **建议改法**：把待聚焦意图绑定到目标组、标签/绑定代次，并在用户主动将焦点移出编辑区或改变目标时取消。布局重挂导致的临时失焦与用户的新焦点意图区分；就绪回调只有目标和意图代次仍一致时才聚焦。回归覆盖“尚未就绪 → 关闭/拆分请求聚焦 → 用户回树 → 控件就绪仍留在树”。
+- **来源边界**：关闭路径的 `focusWhenReady` 标记在 `47e3b1fc` 已存在；本项是 t72 将重挂焦点交给 `area.ts` 后仍未覆盖的焦点意图失效边界，不声称它由新增 `refocusOnRemount` 单独引入。新增拆分逻辑也使用同一等待标记，但没有把“首次 Monaco 未就绪时拆分”作为复现前提：产品 `active` 命令门禁此时不允许拆分。
+
+### 2. 重要：清空预取 Promise 不能清空浏览器的失败模块缓存，视图“重新加载”仍永久失败
+
+- **类别**：正确性 / 失败与恢复。
+- **位置**：`packages/neuro-book/src/plugins/explorer/web/plugin.ts:73-80`。
+- **现象**：入口预取 `FilesExplorerView-*.js` 时发生一次暂时网络失败，资源管理器显示“视图加载失败”与“重新加载”。网络恢复后该模块地址用普通 `fetch` 已返回 HTTP 200、47526 字节；点“重新加载”仍立即显示同一失败，文件树没有出现。该次完整实验共两次模块地址请求：失败的 import 和验证恢复的 fetch；重试本身没有第三次网络请求，见本目录 `view-retry-result.json`。
+- **为什么是问题**：`viewModule = null` 只清掉应用层 Promise；同一文档里对同一 URL 的动态 import 失败会留在模块映射里，重复 `importView()` 直接拒绝，不重新下载。预取把失败机会提前到了视图挂载之前，但实现注释与 Task 的“预取失败后下次 load 重试”保证没有成立；暂时网络故障后资源管理器无法经提供的原位恢复入口重新使用。
+- **依据与核实**：已运行真实生产构建与 Chromium。首次请求在真实网络层 abort；随后解除失败、同址 fetch 为 200；真实点击“重新加载”后仍失败且没有新 import 请求。依据 `files-explorer.md:71` 的渲染重试仍接同一控制器、`:34` 的失败可见与恢复入口，以及 `plugin.ts:75` 明确承诺的重新下载行为。
+- **建议改法**：使用实际支持重新取模块的装载入口，重试时变更模块请求的尝试标识并保证构建后的依赖路径可用，或在无法清除原生模块失败缓存时提供明确的页面重载恢复。需要覆盖“预取失败、网络恢复、点击重试、树可操作”，不能只断言缓存变量已置空。
+
+## 验证与覆盖边界
+
+以下命令从 worktree 的 `packages/neuro-book` 执行；本次未修改任何跟踪源码，未创建仓库内探针。
+
+| 实际命令或实验 | 结果 |
+|---|---|
+| `bun run build` | 退出 0；生产前后端构建与 `check:dist` 通过 |
+| `bun test src/plugins/editor/area.test.ts src/plugins/explorer/session.test.ts src/plugins/commands/shared/registry.test.ts` | 50 pass、0 fail、354 断言 |
+| `node ../../node_modules/vitest/vitest.mjs run src/plugins/editor/web/components/EditorTabBar.dom.test.ts` | 1 文件、3 用例通过 |
+| `bun --tsconfig-override tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/product/registry-probe.ts` | 459 个输入：80 接受、379 拒绝，接受结果与完整错误文案差异 0；见 `registry-probe-result.json` |
+| `bun --tsconfig-override tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/product/session-probe.ts` | 预读失败、挂载可浏览、同控制器重挂、一次重试保存与真实内核停止通过；见 `session-probe-result.json` |
+| 内置浏览器运行生产产物，独立客户端身份，14 文件隔离项目 | 正常双组与三组拆分/关闭、Markdown 与 Monaco 混合组、活动标签滚动、dirty 文档跨保留上限的撤销历史通过；发现 1、2 由真实点击/键盘与网络层扣住/失败复现 |
+| 仓库外 `registry-browser.ts` 编译后，在真实 Chromium 加 `Content-Security-Policy: default-src 'self'; script-src 'self'` | 页面自己的动态执行被拒；TypeBox `accelerated=false`、合法声明通过、非法声明拒绝且错误与原实现一致、真实命令执行成功，见 `registry-csp-result.json` |
+
+探针运行出现 Bun `--tsconfig-override` 的 `Internal error: directory mismatch ...` 诊断；命令仍退出 0，实际探针结果已落盘，不作为产品缺陷。浏览器实验早期的固定 `nth-child` 选择器与双击探针没达到前置状态，后来改为可观察组数、实际 Enter permanent 路径；失败探针不作为产品证据。
+
+未运行：完整正式性能测量、`bun run typecheck`、完整既有 `editor-area.e2e.ts` / `lab-editor.e2e.ts`、跨机器或其它操作系统。此次不重新判定“第二次打开约 300 ms”、16 ms 呈现口径和首次源码冷加载时长；已记录的 t72 取舍不另报缺陷。
+
+进程收口：隔离产品服务 `t72-product-review`（HTTP 44037、RPC 34441）经标准输入 `stop` 正常退出 0；CSP 探针临时 HTTP 服务已停止；所有本次浏览器页面已关闭，浏览器页列表为空。未使用 3000、3917。
+
+最终 `git status --short` 无输出，跟踪文件与未跟踪文件均保持审查开始时的洁净状态。
+
+
+## 数量
+
+| 严重程度 | 数量 |
+|---|---:|
+| 阻断 | 0 |
+| 重要 | 2 |
+| 建议 | 0 |
+| 合计 | 2 |
+
+## 未发现问题的方面
+
+- `retire` / `dropSlot` 的死循环修正：先移除 recent 键、不存在槽不再 retire，关闭 preview 后不会把已释放槽重新加入淘汰列表。既有 6 次 preview 替换测试通过；真实页面连续打开与多次切换正常。跨 3 份保留上限后，dirty Markdown 的正文与独立撤销历史仍保留；该结果不宣称直接数过全部内存模型。
+- 正常加载下的焦点：Markdown 两组/三组、Monaco 拆分、Monaco → Markdown 的相邻组关闭、Monaco → Monaco 的相邻组关闭，焦点均在新的活动组。非活动控件重挂未抢走活动组。换编辑器种类由真实命令面板操作、正确控件出现；不把命令面板后的页面根焦点单独定为本提交缺陷。
+- 活动标签滚动：314 px 宽的组、1064 px 标签条，scrollLeft=750；活动标签右边缘与视口差 0.109375 px，在 0.5 px 断言容差内，关闭按钮可见；截图 `tab-scroll.webp`，几何见 `tab-scroll-result.json`。仅确认活动 id 改变与重挂路径，未扩大到未改动的拖放/多行标签合同。
+- Monaco 取消过滤：真实页面只登记 1 个 `unhandledrejection` 监听；仅 `Error` 的 name/message 都为 `Canceled` 被取消，单独同名、单独同消息、普通错误、非 Error 对象均未被吞。过滤边界用真实页面中的合成事件探针验证；不是另起一条伪造语言服务失败。不缓存失败且注册位于全部 import 成功之后，从代码推断正常失败重试不会重复登记监听。
+- TypeBox 编译检查：459 个字段缺失、额外字段、非法类型、空白文案及合法声明的差分无变化；不合格声明仍走原 `Value.Errors`，错误信息保持一致。CSP 禁止动态执行时真实回退成功。这里缓存的是 schema 检查器，不是声明接受结果，未违反 `runtime.plugins` 输出 23 的存活登记重新判定。
+- 资源管理器控制器寿命：`prepare()` 只建 store；首读结束但视图未挂载仍没有控制器或 `list`。视图挂载后控制器建立，停放/重挂复用，首读失败可浏览且一次重试保存先前修改，停止得到真实内核 `closed`。存储订阅由 `context.scope` 的 `plugin-store` 收口；视图代码预取没有提前创建控制器，符合 `files-explorer.md:71` 及待确认清单允许提前读偏好的取舍。
+

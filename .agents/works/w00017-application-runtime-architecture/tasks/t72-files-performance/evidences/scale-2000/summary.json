@@ -1,7 +1,7 @@
 {
-  "date": "2026-10-09T23:42:10.042Z",
-  "revision": "a4674aec",
-  "command": "bun run perf:files -- --count 2000 --skip-build --only A1+A2,B1,C1-md --iterations 10 --opens 10 --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/scale-2000",
+  "date": "2026-10-10T01:44:51.408Z",
+  "revision": "bd222423",
+  "command": "bun run perf:files -- --skip-build --count 2000 --iterations 10 --only A1+A2,B1,C1-md --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/scale3-2000",
   "options": {
     "count": 2000,
     "seed": 42017,
@@ -17,18 +17,18 @@
     "serverProfile": false,
     "skipBuild": true,
     "keepTemp": false,
-    "out": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/scale-2000"
+    "out": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/scale3-2000"
   },
   "machine": {
     "loadBefore": [
-      1.59,
-      1.97,
-      2
+      1.09,
+      1.12,
+      1.01
     ],
     "loadAfter": [
-      1.55,
-      1.91,
-      1.98
+      0.78,
+      1.04,
+      0.99
     ]
   },
   "sample": {
@@ -44,6 +44,7 @@
   "chrome": "151.0.7922.71",
   "unsupported": [],
   "progress": [],
+  "serverProfiles": [],
   "results": [
     {
       "id": "A1+A2",
@@ -53,24 +54,24 @@
       "values": {
         "服务启动到监听（脚本侧）": {
           "count": 10,
-          "min": 102.9,
-          "p50": 108.3,
-          "p95": 111.9,
-          "max": 111.9
+          "min": 106.9,
+          "p50": 109.4,
+          "p95": 121.1,
+          "max": 121.1
         },
         "A1 第一次打开：导航到树可操作": {
           "count": 10,
-          "min": 531.3,
-          "p50": 534.8,
-          "p95": 629.3,
-          "max": 629.3
+          "min": 455.6,
+          "p50": 461.5,
+          "p95": 559.8,
+          "max": 559.8
         },
         "A2 宽限期内再打开：导航到树可操作": {
           "count": 10,
-          "min": 400,
-          "p50": 417.2,
-          "p95": 441.6,
-          "max": 441.6
+          "min": 348.6,
+          "p50": 358,
+          "p95": 372.6,
+          "max": 372.6
         }
       }
     },
@@ -82,17 +83,17 @@
       "feedback": {
         "committed": {
           "count": 10,
-          "min": 14.2,
-          "p50": 14.5,
-          "p95": 14.9,
-          "max": 14.9
+          "min": 13,
+          "p50": 14,
+          "p95": 15.3,
+          "max": 15.3
         },
         "presented": {
           "count": 10,
-          "min": 30.7,
-          "p50": 31,
-          "p95": 31.4,
-          "max": 31.4
+          "min": 30.5,
+          "p50": 31.5,
+          "p95": 35.9,
+          "max": 35.9
         },
         "frames": {
           "count": 10,
@@ -105,17 +106,17 @@
       "done": {
         "committed": {
           "count": 10,
-          "min": 30.7,
-          "p50": 31,
-          "p95": 31.4,
-          "max": 31.4
+          "min": 30.5,
+          "p50": 31.5,
+          "p95": 35.9,
+          "max": 35.9
         },
         "presented": {
           "count": 10,
-          "min": 47.6,
-          "p50": 47.8,
-          "p95": 48.3,
-          "max": 48.3
+          "min": 45.1,
+          "p50": 45.5,
+          "p95": 48,
+          "max": 48
         },
         "frames": {
           "count": 10,
@@ -125,30 +126,38 @@
           "max": 3
         }
       },
-      "values": {
-        "第一次（含控件代码）：选中与标签 presented": {
-          "count": 1,
-          "min": 30.3,
-          "p50": 30.3,
-          "p95": 30.3,
-          "max": 30.3
-        },
-        "第一次（含控件代码）：正文 presented": {
-          "count": 1,
-          "min": 107.9,
-          "p50": 107.9,
-          "p95": 107.9,
-          "max": 107.9
-        }
+      "eventTiming": {
+        "samples": 10,
+        "slow": 10,
+        "longest": 16
       },
       "longFrames": {
         "count": 0,
         "longest": 0
       },
       "requests": {
-        "nbook.storage/project save": 11,
+        "nbook.storage/project save": 22,
         "nbook.files/project read": 11
-      }
+      },
+      "values": {
+        "第一次（含控件代码）：选中与标签 presented": {
+          "count": 1,
+          "min": 32.7,
+          "p50": 32.7,
+          "p95": 32.7,
+          "max": 32.7
+        },
+        "第一次（含控件代码）：正文 presented": {
+          "count": 1,
+          "min": 109.2,
+          "p50": 109.2,
+          "p95": 109.2,
+          "max": 109.2
+        }
+      },
+      "notes": [
+        "第一次（含控件代码）的点击 Event Timing：32 ms"
+      ]
     },
     {
       "id": "C1-md",
@@ -158,17 +167,17 @@
       "feedback": {
         "committed": {
           "count": 10,
-          "min": 8.4,
-          "p50": 10,
-          "p95": 10.3,
-          "max": 10.3
+          "min": 4.1,
+          "p50": 6,
+          "p95": 9.1,
+          "max": 9.1
         },
         "presented": {
           "count": 10,
-          "min": 25,
-          "p50": 26.5,
-          "p95": 27,
-          "max": 27
+          "min": 17.3,
+          "p50": 21.8,
+          "p95": 26.1,
+          "max": 26.1
         },
         "frames": {
           "count": 10,
@@ -181,17 +190,17 @@
       "done": {
         "committed": {
           "count": 10,
-          "min": 8.4,
-          "p50": 10,
-          "p95": 10.3,
-          "max": 10.3
+          "min": 4.1,
+          "p50": 6,
+          "p95": 9.1,
+          "max": 9.1
         },
         "presented": {
           "count": 10,
-          "min": 25,
-          "p50": 26.5,
-          "p95": 27,
-          "max": 27
+          "min": 17.3,
+          "p50": 21.8,
+          "p95": 26.1,
+          "max": 26.1
         },
         "frames": {
           "count": 10,
@@ -200,6 +209,11 @@
           "p95": 2,
           "max": 2
         }
+      },
+      "eventTiming": {
+        "samples": 10,
+        "slow": 0,
+        "longest": null
       },
       "longFrames": {
         "count": 0,
@@ -210,6 +224,5 @@
       }
     }
   ],
-  "serverProfiles": [],
   "problems": []
 }
