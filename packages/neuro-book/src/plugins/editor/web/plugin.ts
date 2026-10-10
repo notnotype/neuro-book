@@ -17,6 +17,7 @@ import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contract
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {WORKBENCH_EDITOR_AREA_POINT} from "nbook/plugins/workbench/shared/contracts";
+import {WORKBENCH_STATUSBAR_ITEMS_POINT} from "nbook/plugins/workbench/shared/items";
 import type {EditorAreaContext, EditorAreaImplementation} from "nbook/plugins/workbench/web/contracts";
 import {clockKey, windowRescueKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
@@ -29,6 +30,7 @@ import type {EditorKind} from "./groups/groups";
 import {editorSessionStore} from "./session-record";
 import {createEditorSession} from "./session";
 import {editorState, editorStateValues} from "./state";
+import {EDITOR_STATUS_ITEMS, editorStatusItems} from "./status-items";
 
 export const EDITOR_AREA_ID = "nbook.editor.area";
 
@@ -47,6 +49,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             {capability: WORKBENCH_EDITOR_AREA_POINT, id: EDITOR_AREA_ID, declaration: {order: 0}},
             ...Object.entries(EDITOR_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...editorState.contributions,
+            ...Object.entries(EDITOR_STATUS_ITEMS).map(([id, declaration]) => ({capability: WORKBENCH_STATUSBAR_ITEMS_POINT, id, declaration})),
         ],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
@@ -114,6 +117,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                     [WORKBENCH_EDITOR_AREA_POINT]: {[EDITOR_AREA_ID]: area},
                     [COMMANDS_POINT]: editorCommands(session.area),
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
+                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, locale),
                 },
             };
         },

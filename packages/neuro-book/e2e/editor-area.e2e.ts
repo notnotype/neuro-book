@@ -500,6 +500,43 @@ test("命令面板里“用其它编辑器重新打开”：Markdown 换成源�
     await closeAll(page);
 });
 
+test("状态栏条目：Markdown 有字数、没有光标位置；输入后出现“未保存 1 个”，点它全部保存；源码编辑器给出行列并随光标移动", async ({page}) => {
+    await open(page);
+    await closeAll(page);
+    const status = (id: string) => page.locator(`[data-workbench-status-bar] [data-workbench-item="${id}"]`);
+    // 前面的用例可能改过 h.md：字数按打开时的正文算。
+    const before = await disk("notes/h.md");
+    await item(page, "project://notes/h.md").dblclick();
+    await expect(prose(page)).toContainText(before.trim());
+    await expect(status("nbook.editor.word-count")).toHaveText(`${String([...before.trim()].length)} 字`);
+    await expect(status("nbook.editor.cursor")).toHaveCount(0);
+    await expect(status("nbook.editor.unsaved")).toHaveCount(0);
+
+    await atEnd(page);
+    await page.keyboard.type("雨夜");
+    await expect(status("nbook.editor.word-count")).toHaveText(`${String([...before.trim()].length + 2)} 字`);
+    await expect(status("nbook.editor.unsaved")).toHaveText("未保存 1 个");
+    await expect(status("nbook.editor.unsaved")).toHaveAttribute("title", "notes/h.md");
+    await status("nbook.editor.unsaved").click();
+    await expect(status("nbook.editor.unsaved")).toHaveCount(0);
+    await expect.poll(() => disk("notes/h.md")).toContain("雨夜");
+
+    if (await item(page, "project://data").getAttribute("aria-expanded") !== "true") await item(page, "project://data").click();
+    await item(page, "project://data/g.json").dblclick();
+    const editor = page.locator("[data-editor-kind=\"code\"]:visible .monaco-editor");
+    await expect(editor).toBeVisible();
+    await editor.click();
+    await page.keyboard.press("Control+Home");
+    await expect(status("nbook.editor.cursor")).toHaveText("第 1 行，第 1 列");
+    await page.keyboard.press("End");
+    await expect(status("nbook.editor.cursor")).toHaveText(/^第 1 行，第 \d+ 列$/u);
+    await expect(status("nbook.editor.cursor")).not.toHaveText("第 1 行，第 1 列");
+    // 切回 Markdown：光标位置不再显示。
+    await page.locator("[data-editor-tab-label]", {hasText: "h.md"}).click();
+    await expect(status("nbook.editor.cursor")).toHaveCount(0);
+    await closeAll(page);
+});
+
 test("服务端重启：终态页列出未保存的正文", async ({page}) => {
     await open(page);
     await closeAll(page);

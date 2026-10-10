@@ -88,3 +88,8 @@ omp 审查（报告在 [t73 证据](../t73-lab-nb-ui-and-storage/evidences/desig
   - 修 nb-ui `Menubar` 的两个真实缺陷（真实 Chrome 复现）：一个菜单关闭后还在退场动画里时，它的外部点击与焦点移出处理仍会关掉整条菜单栏，于是“关掉一组后立刻打开另一组”打不开（指针按在别的组标题上；或新开的一组条目全禁用、焦点落进菜单内容）。改为已关闭的组不再因外部点击或焦点移出关闭菜单栏，按在组标题上也不算外部点击；`lab-nb-ui.e2e.ts` 补了回归。
   - e2e `workbench-titlebar.e2e.ts` 5 例（生产构建，外壳 Spec 验收 32–37）：高度与菜单内容、从菜单撤销（点击与 F10 两条路径）与 Escape 还焦点、宽度边界 959/960 与 599/600 与 390、区域显隐三条路径一致、重新载入的离开确认（取消与确认）与在新标签打开文档（文档站地址被拦到本地回应）。
   - 验证：两个包 typecheck；nb-ui Vitest 515 例（另 5 例为已知环境失败）；工作台与 Lab Vitest 53 例；`workbench-titlebar`、`lab-nb-ui`、`lab-scenes`、`workbench-shell` e2e 全过。
+- 2026-10-10 S6 完成（编辑器的状态栏条目）：
+  - 共享的 `countWords`（`src/shared/word-count.ts`，3 例）：汉字、假名、谚文每字计 1，拉丁字母与数字连成一个词（可夹撇号、连字符），frontmatter 不计；t75 的书架统计用它。
+  - 编辑器区新增 `openDocuments`（按文档去重）；控件句柄新增可选的 `position`，只有源码编辑器实现（选区活动端）。公开键 `hasUnsavedDocuments`、`hasCursorPosition`。
+  - 三个状态栏条目（`status-items.ts`）：未保存数（点击全部保存；提示列出至多 5 个文件，正在保存与保存失败另写，失败时为错误状态）、活动文档字数、光标位置。
+  - 验证：typecheck；`status-items.test.ts` 4 例（真实 Files 场地；保存失败用只读目录造出）；编辑器与宿主 Bun 104 例；`editor-area.e2e.ts` 全部（新增条目一例：字数、未保存与点击保存、Monaco 行列随光标、切回 Markdown 不显示行列）；变异 3 个全杀。

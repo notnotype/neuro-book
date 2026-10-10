@@ -7,7 +7,7 @@
  */
 
 import {computed, shallowRef, watch} from "@vue/reactivity";
-import type {ComputedRef, ShallowRef} from "@vue/reactivity";
+import type {ComputedRef, Ref, ShallowRef} from "@vue/reactivity";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
@@ -52,6 +52,11 @@ export interface EditorControlHandle {
     redo?(): void;
     /** 把还没交出的输入交给文档。 */
     flushPendingChange(): void;
+    /**
+     * 光标位置：选区活动端的行号与列号，都从 1 起（docs/specs/workbench/editor.md 输出 28）。只有能给出源文件行列的
+     * 控件提供（源码编辑器）；Markdown 富文本里的段落位置不是源文件的行号，不提供。没有绑定文档时为 null。
+     */
+    readonly position?: Readonly<Ref<{readonly line: number; readonly column: number} | null>>;
     navigation?: {
         getLineCount(): number | null;
         revealLine(line: number): {ok: true; value: {line: number}} | {ok: false; reason: string};
@@ -94,6 +99,8 @@ export interface EditorArea {
     progress(groupId: string): boolean;
     /** 活动组的活动文档。 */
     readonly activeDocument: ComputedRef<TextDocument | null>;
+    /** 本窗口打开着的文档，按文档去重：同一文件在几个组里打开只算一份。 */
+    readonly openDocuments: ComputedRef<ReadonlyArray<TextDocument>>;
     readonly activeHandle: ComputedRef<EditorControlHandle | null>;
     readonly focused: ShallowRef<boolean>;
     readonly dialog: Readonly<ShallowRef<CloseDialog | null>>;
@@ -339,6 +346,17 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     }
 
     const activeDocument = computed(() => documentOf(groups.activeGroup.value));
+    // 文档在标签打开时同步取得（`acquire`），所以跟着组与标签的变化重算就够了。
+    const openDocuments = computed(() => {
+        const open = new Set<TextDocument>();
+        for (const group of groups.groups.value) {
+            for (const tab of group.tabs) {
+                const document = documents.get(tab.address);
+                if (document !== null) open.add(document);
+            }
+        }
+        return [...open];
+    });
     /**
      * 把焦点交给活动视图。布局变化（关闭组、拆分）会让 grid 重挂控件：现在聚焦的可能是马上被拿下的那个 DOM，所以活动视图
      * 的控件在同一个任务里重新登记时再聚焦一次；控件还没挂上（例如换了一种编辑器、Monaco 还在加载）就等它登记。只聚焦
@@ -440,6 +458,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         },
         progress: (groupId) => progress.value.has(groupId),
         activeDocument,
+        openDocuments,
         activeHandle,
         focused,
         dialog,

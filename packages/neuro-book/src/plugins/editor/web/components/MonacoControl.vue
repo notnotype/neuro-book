@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 源码编辑器控件（同名 .md）：一个 Monaco 编辑器实例，按编辑器控件合同（`control.ts`）绑定文档。 */
-import {onBeforeUnmount, onMounted, ref, watch} from "vue";
+import {onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type * as Monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 
 import type {EditorControlHandle, ViewBinding, ViewStateSlot} from "../area";
@@ -87,6 +87,7 @@ const enter = (binding: ViewBinding): void => {
     }
     editor.setModel(state.model);
     if (state.view !== null) editor.restoreViewState(state.view);
+    readPosition();
     editor.updateOptions({readOnly: props.readonly});
     bound = binding;
     // 每次输入立即交出，没有缓冲；结算只需补交与文档不同的内容（例如回执冲突后）。
@@ -103,6 +104,7 @@ const leave = (binding: ViewBinding): void => {
     detach = null;
     if (bound === binding) bound = null;
     editor?.setModel(null);
+    position.value = null;
 };
 
 watch(() => props.binding, (next, previous) => {
@@ -132,7 +134,15 @@ const applyTheme = (): void => {
     monaco.editor.setTheme(MONACO_THEME);
 };
 
+/** 选区活动端的位置（输出 28）：换文档、卸载时为 null。 */
+const position = shallowRef<{readonly line: number; readonly column: number} | null>(null);
+const readPosition = (): void => {
+    const selection = editor?.getModel() === null ? null : editor?.getSelection() ?? null;
+    position.value = selection === null ? null : {line: selection.positionLineNumber, column: selection.positionColumn};
+};
+
 const handle: EditorControlHandle = {
+    position,
     focus: () => editor?.focus(),
     undo: () => editor?.trigger("nbook", "undo", null),
     redo: () => editor?.trigger("nbook", "redo", null),
@@ -176,6 +186,7 @@ onMounted(async () => {
         const state = stateOf(binding);
         if (state !== null) commit(binding, state);
     });
+    editor.onDidChangeCursorSelection(readPosition);
     editor.onDidFocusEditorText(() => emit("focus", true));
     editor.onDidBlurEditorText(() => emit("focus", false));
     // 主题或明暗变了（文档根上的 token 换了）：重新生成 Monaco 的主题。
