@@ -14,15 +14,15 @@ function errorCode(read: () => unknown): ServerConfigErrorCode | null {
 }
 
 describe("后端启动参数", () => {
-    it("缺省监听 127.0.0.1:3000、RPC 4217、不提供页面，日志在状态根下，相对路径按工作目录解析", () => {
+    it("缺省监听 127.0.0.1:4217、RPC 4218、不提供页面，日志在状态根下，相对路径按工作目录解析", () => {
         expect(readServerConfig([], {NBOOK_STATE_ROOT: "state"}, "/work")).toEqual({
             host: "127.0.0.1",
-            port: 3000,
+            port: 4217,
             stateRoot: "/work/state",
             logDirectory: "/work/state/logs",
             webRoot: null,
             stopStdin: false,
-            rpcPort: 4217,
+            rpcPort: 4218,
             allowedOrigins: [],
             projects: {graceMs: 300_000, startMs: 30_000, stopMs: 20_000},
         });

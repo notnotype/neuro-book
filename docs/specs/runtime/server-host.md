@@ -34,7 +34,7 @@ owners:
 
 ## 输入与前置条件
 
-- 启动参数：环境变量 `NBOOK_STATE_ROOT`（状态根，必填；日志写在 `<状态根>/logs/`）、`NBOOK_HOST`（缺省 `127.0.0.1`）、`NBOOK_PORT`（缺省 3000，0 表示由系统分配）、`NBOOK_WEB_ROOT`（前端构建产物目录，可选；相对路径按工作目录解析）、`NBOOK_RPC_PORT`（内核 RPC 端口，缺省 4217，0 表示由系统分配；浏览器总是经引导接口得知实际端口，固定缺省让 TUI 与脚本不经引导接口也能连上）、`NBOOK_ALLOWED_ORIGINS`（逗号分隔的额外页面来源，给页面不由本进程 HTTP 端口提供的情形，即开发模式的页面服务）、`NBOOK_PROJECT_GRACE_MS`（项目宽限期，缺省 300000）、`NBOOK_PROJECT_START_MS`（项目子进程报告启动结果的截止，缺省 30000）、`NBOOK_PROJECT_STOP_MS`（每个项目子进程的停止截止，缺省 20000；三项都是 1..2^31-1 的整数毫秒）；命令行 `--stop-stdin`。参数无效时写出一行致命诊断并以 1 退出，不建立运行实例。内核不自行扫描替代根。
+- 启动参数：环境变量 `NBOOK_STATE_ROOT`（状态根，必填；日志写在 `<状态根>/logs/`）、`NBOOK_HOST`（缺省 `127.0.0.1`）、`NBOOK_PORT`（缺省 4217，0 表示由系统分配）、`NBOOK_WEB_ROOT`（前端构建产物目录，可选；相对路径按工作目录解析）、`NBOOK_RPC_PORT`（内核 RPC 端口，缺省 4218，0 表示由系统分配；浏览器总是经引导接口得知实际端口，固定缺省让 TUI 与脚本不经引导接口也能连上）、`NBOOK_ALLOWED_ORIGINS`（逗号分隔的额外页面来源，给页面不由本进程 HTTP 端口提供的情形，即开发模式的页面服务）、`NBOOK_PROJECT_GRACE_MS`（项目宽限期，缺省 300000）、`NBOOK_PROJECT_START_MS`（项目子进程报告启动结果的截止，缺省 30000）、`NBOOK_PROJECT_STOP_MS`（每个项目子进程的停止截止，缺省 20000；三项都是 1..2^31-1 的整数毫秒）；命令行 `--stop-stdin`。参数无效时写出一行致命诊断并以 1 退出，不建立运行实例。内核不自行扫描替代根。
 - 未加载鉴权插件时只允许监听回环地址（`127.0.0.1`、`::1`、`localhost`），其它地址按参数无效处理；HTTP 与 RPC 端口监听同一地址。`NBOOK_ALLOWED_ORIGINS` 的每一项必须是回环主机上的 `http` 来源（`http://127.0.0.1:<端口>` 之类，不带路径），否则同样按参数无效处理。
 - 内置插件随产品清单构建；已安装插件来自状态根（[`runtime.plugin-install`](plugin-install.md)，尚未实现）。
 - 生产与开发都运行在 Bun 上。
@@ -87,7 +87,7 @@ owners:
 
 **开发模式：**
 
-- 一条命令 `bun run dev` 同时启动页面服务（Vite，前端热更新）与后端子进程。页面在 `NBOOK_DEV_PORT`（缺省 3000），后端在 `NBOOK_DEV_BACKEND_PORT`（缺省 3001，整个会话固定，0 表示启动时取一个空闲端口），后端的 RPC 端口为 `NBOOK_DEV_RPC_PORT`（缺省 4218，与正式运行的 4217 错开，两者可以同时运行；0 表示每次启动后端由系统分配），都只监听 `127.0.0.1`。监督进程把 RPC 端口与页面服务在三个回环别名上的来源（`NBOOK_ALLOWED_ORIGINS`）传给后端；页面经引导接口得知 RPC 端口后直连后端，不经页面服务代理 WebSocket，后端每次重启对已打开的页面都是服务端重启。未设置 `NBOOK_STATE_ROOT` 时状态根是 `packages/neuro-book/.dev-state/`（git 忽略，每个 worktree 一份）。
+- 一条命令 `bun run dev` 同时启动页面服务（Vite，前端热更新）与后端子进程。页面在 `NBOOK_DEV_PORT`（缺省 3000），后端在 `NBOOK_DEV_BACKEND_PORT`（缺省 3001，整个会话固定，0 表示启动时取一个空闲端口），后端的 RPC 端口为 `NBOOK_DEV_RPC_PORT`（缺省 0，每次启动后端由系统分配，不占正式运行的 4218，两者可以同时运行），都只监听 `127.0.0.1`。监督进程把 RPC 端口与页面服务在三个回环别名上的来源（`NBOOK_ALLOWED_ORIGINS`）传给后端；页面经引导接口得知 RPC 端口后直连后端，不经页面服务代理 WebSocket，后端每次重启对已打开的页面都是服务端重启。未设置 `NBOOK_STATE_ROOT` 时状态根是 `packages/neuro-book/.dev-state/`（git 忽略，每个 worktree 一份）。
 - 页面服务把 `/api` 代理到后端，代理前先过一道门：后端启动或重启中时请求等它就绪；后端启动失败或已退出时直接返回 503 `backend-unavailable`，浏览器显示连接失败页；会话结束中返回 503 `stopping`。
 - 后端子进程跑开发入口 `src/server/development-main.ts`：与产品入口相同，另在产品清单之外加载开发清单（`src/development-manifest.ts`，目前是 Component Lab，见 [`ui.component-lab`](../ui/component-lab.md)），引导接口随之列出它们；生产构建只打包产品入口。项目子进程同样跑项目宿主的开发入口；后端重启时按停止序列先停它打开的项目子进程。
 - 监督进程以 `--stop-stdin` 启动后端子进程，就绪以 `GET /api/runtime/health` 返回 200 为准（`Listening on` 只说明端口已监听）。后端文件（本包 `src/` 与后端用到的 workspace 包源码中的 `.ts`、`.json`；不含前端 `web/` 与 `ui/`、测试、`testing/` 与监督进程自身 `server/dev/`；后端用到的 workspace 包取包的 `dependencies`，只进前端构建的包放在 `devDependencies`）变化时，去抖 100 ms 后经停止通道按停止序列有序停止旧进程，等它退出后再启动新进程；同一时刻只有一个后端进程持有进程级资源。重启中的新改动不追加重启。新进程启动失败或运行中退出时，监督进程报告原因并等待下一次文件变化，不循环重启。
