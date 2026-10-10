@@ -214,6 +214,18 @@ describe("Spec projects 输出 16、验收 16：顺序与事件", () => {
         expect(snapshot.words).toBe(2 + MAX_BATCH_PATHS + 1);
     });
 
+    it("隐藏路径（名字以 . 开头的目录与文件）上的变化不计入，也不算最近编辑", async () => {
+        const created = await scene({"a.md": "天地"});
+        const {tracker} = track(created);
+        await completed(tracker);
+        await writeFile(join(created.project, ".草稿.md"), hanzi(10));
+        await mkdir(join(created.project, ".drafts"));
+        await writeFile(join(created.project, ".drafts", "b.md"), hanzi(10));
+        // 屏障：之后的一次普通修改结算了，之前隐藏路径上的事件也已结算（同一批或更早的批）。
+        await writeFile(join(created.project, "c.md"), "玄黄");
+        expect(await settled(created, tracker, "屏障计入", (current) => current.files === 2)).toMatchObject({words: 4, files: 2, last: {address: "project://c.md"}});
+    });
+
     it("新建空文件只计数、不算最近编辑；新建目录与复制进来的目录触发重扫", async () => {
         const created = await scene({"a.md": "天地"});
         const {tracker} = track(created);
