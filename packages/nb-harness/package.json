@@ -19,7 +19,8 @@
         "./config": "./src/config/config.ts",
         "./models": "./src/models/models.ts",
         "./tools": "./src/tools/tools.ts",
-        "./compaction": "./src/compaction/compaction.ts"
+        "./compaction": "./src/compaction/compaction.ts",
+        "./runtime": "./src/runtime/runtime.ts"
     },
     "scripts": {
         "test": "bun test",

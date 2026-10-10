@@ -70,7 +70,7 @@ interface AgentSession {
     compact(options?: {signal?: AbortSignal}): Promise<RuntimeResult<Compacted | null>>;   // 手动压缩；没有可压的为 null
     setApprovalMode(mode: ApprovalMode | undefined): void;  // 会话的临时审批模式；不写日志
     subscribe(listener: (event: RuntimeEvent) => void): {release(): void};
-    close(): void;                                          // 中止进行中的调用、关闭日志；之后所有操作为 closed
+    close(): Promise<void>;                                 // 中止进行中的调用并等它收口、关闭日志；之后所有操作为 closed
 }
 
 type SessionStatus = {
@@ -78,7 +78,7 @@ type SessionStatus = {
     invocationId?: string;
     pending: PendingInteraction[];                          // harness.session sessionStatus 的 pending
     queue: {steer: number; followUp: number};
-    profileId: string;
+    profileId?: string;                                     // 新建时给定；打开时取最近一次 invocation start 的 detail，从未调用过的会话没有
     model?: string;                                         // 当前生效的模型引用（最近一次调用选中的）
 };
 type PromptOptions = {streamingBehavior?: "steer" | "followUp"; profileId?: string; model?: string; signal?: AbortSignal};
@@ -130,7 +130,7 @@ type RuntimeResult<T> = {ok: true; value: T} | {ok: false; code: RuntimeFailure;
     | `compact` | 受理 | `busy` | `busy` | `busy` |
 
 2. **受理**：`prompt` 依次检查输入、Profile、配置快照、模型选择与能力、凭据、可见工具、`signal` 未中止；任一失败返回对应的 `RuntimeFailure` 与说明（模型选择的失败把 [`harness.models`](models.md) 的失败码写进 `detail`），`log.entries` 不变、不发事件。受理通过后返回 `{invocationId, done}`，此时 `invocation start` 已经写入。
-3. **一次调用的写入顺序**：`invocation start`（`detail: {profileId, model, tools: [...]}`）→ 新会话第一次调用时 Profile 的种子（`renderSeeds("new-session")`，角色按节点）→ 本次输入（`role: "user"`，没有 `attribution`）与 Profile `Appending` 渲染出的其它消息与提醒（`harness/reminder`）→ `harness/profile-state`（状态有变化时）→ 循环中 OMP 每个 `message_end` 的助手消息与工具结果，按发生顺序 → 审批的 `interaction` 条目与 `invocation waiting/resumed` → 终态 `invocation end/error/aborted`。同一次调用里 `model_change` 在选中的模型与会话里记录的不同时写一条（`role` 为经角色命中时的角色）。
+3. **一次调用的写入顺序**：`invocation start`（`detail: {profileId, model, tools: [...]}`）→ 新会话第一次调用时 Profile 的种子（`renderSeeds("new-session")`，角色按节点）→ 本次输入（`role: "user"`，没有 `attribution`）与 Profile `Appending` 渲染出的其它消息（其中的用户消息带 `attribution: "agent"`，不算用户发出的消息）与提醒（`harness/reminder`）→ `harness/profile-state`（状态有变化时）→ 循环中 OMP 每个 `message_end` 的助手消息与工具结果，按发生顺序 → 审批的 `interaction` 条目与 `invocation waiting/resumed` → 终态 `invocation end/error/aborted`。同一次调用里 `model_change` 在选中的模型与会话里记录的不同时写一条（`role` 为经角色命中时的角色）。
 4. **模型看到的**：每次模型调用前，运行时用 Profile 的 `renderRequest({history: 当前消息, invocationStart})` 得到系统提示词与消息（`history` 是从日志回放的模型上下文加上本次调用已产生的消息；`invocationStart` 是本次调用第一条消息的下标），有 `model-call` 数据源的 Profile 先 `refresh`。工具列表与模型在调用开始时取定，调用中途不变（来源中途撤掉的工具按 [`harness.tools`](tools.md) 得到 `tool-unavailable`）。`Agent` 的 `convertToLlm` 保留 developer 消息。
 5. **流式事件**：助手消息流式生成时每个增量发一个 `stream` 事件（消息快照）；工具开始、进度、结束发 `tool` 事件；每条写入日志的条目发 `entry` 事件（带日志序号）；状态变化发 `status`；队列变化发 `queue`。事件序号在会话句柄内从 1 起单调递增；订阅者只收到订阅之后的事件，不补发（断线补齐靠 `status` 与日志）。监听函数抛出只影响它自己（该订阅结束），不影响运行。
 6. **审批**：每个工具调用执行前，运行时在适配层的 `approve` 钩子里按 [`harness.tools`](tools.md) `decideApproval` 判定（`grants` 取会话里 `scope: "session"` 的应答与本次已写入的应答）：`allow` 放行；`deny` 拒绝（理由进工具结果）；`model` 调 `judgeWithModel`（模型角色 `approval`，`recent` 取当前上下文最后几条），`allow`/`deny` 照办，`escalate` 转为询问；`ask` 询问用户：写 `interaction request`（`assistantEntryId` 为含该调用的助手条目、`toolCallId`、`toolName`、`tier`），写 `invocation waiting`（同一批里第二个询问不再写），状态变 `waiting-user`，发 `interaction` 与 `status` 事件，等待 `resolve`。同一批里多个询问可以同时待处理，任意顺序应答；全部处理完才回到 `running`（写 `invocation resumed`）。审批模型的判定（`decidedBy: "approver"`）也写成 `interaction` 的 request 与 response 两条，便于审计。
@@ -227,7 +227,7 @@ Smoke：`packages/nb-harness` 的 `bun test src/runtime`；真实模型 `bun run
 
 ## 证据
 
-- 实现入口：待补
-- 合同测试：待补
-- Smoke：待补
+- 实现入口：[`packages/nb-harness/src/runtime/runtime.ts`](../../../packages/nb-harness/src/runtime/runtime.ts)
+- 合同测试：[`runtime.test.tsx`](../../../packages/nb-harness/src/runtime/runtime.test.tsx)、[`approval.test.tsx`](../../../packages/nb-harness/src/runtime/approval.test.tsx)、[`recovery.test.tsx`](../../../packages/nb-harness/src/runtime/recovery.test.tsx)、[`compaction.test.tsx`](../../../packages/nb-harness/src/runtime/compaction.test.tsx)（真实 OMP `Agent`、真实 SQLite 凭据库、内存与 JSONL 存储，模型流经 OMP `streamFn` 脚本化）
+- Smoke：[`runtime.llm.test.tsx`](../../../packages/nb-harness/src/runtime/runtime.llm.test.tsx)——未运行（真实模型调用待授权）
 - 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“Agent 运行时”“工具审批”“事件、推送与分页”“模块划分与推进顺序”（开发者 2026-10-10 决定：每个会话一个 OMP `Agent`，内核在外面加持久化、状态机与审批；运行中的 `prompt` 用 `streamingBehavior` 入队否则拒绝；队列只在内存；受理错误不写东西、受理后失败写终态；审批自建、等待在工具执行包装里、不开预测执行；只做审批恢复；内核不做 SSE、事件带序号、发起与完成分开；压缩触发只做手动、溢出、一轮结束超阈值）。

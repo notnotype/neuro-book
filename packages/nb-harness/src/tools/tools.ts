@@ -3,7 +3,7 @@
  */
 
 export type {
-    AdapterHooks, ApprovalGrant, ApprovalMode, ApprovalOutcome, Decision, JsonValue, JudgeRequest, Judgement, Risk, RiskDecision, ToolCall, ToolContext,
+    AdapterHooks, ApprovalGrant, ApprovalMode, ApprovalOutcome, ApprovalRequest, Decision, JsonValue, JudgeRequest, Judgement, Risk, RiskDecision, ToolCall, ToolContext,
     ToolDefinition, ToolDescriptor, ToolInterceptor, ToolOutcome, ToolSource, ToolTier, ToolsFailure, ToolsResult,
 } from "./types";
 export {defineTool, evaluateRisk, toolDefinitionProblem} from "./define";

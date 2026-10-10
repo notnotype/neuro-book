@@ -60,6 +60,13 @@ const MODULES: Readonly<Record<string, ModuleRule>> = {
         nodeBuiltinsIn: [],
         dynamicImportIn: [],
     },
+    // 运行时装配全部模块；每个会话一个 OMP Agent（设计稿“Agent 运行时”），pi-ai 用于错误归类。
+    runtime: {
+        modules: ["session", "profile", "config", "models", "tools", "compaction"],
+        packages: {...TYPEBOX, "@oh-my-pi/pi-agent-core": "runtime", "@oh-my-pi/pi-ai": "runtime", "@oh-my-pi/pi-catalog": "type-only"},
+        nodeBuiltinsIn: [],
+        dynamicImportIn: [],
+    },
     // 压缩直接包 OMP 的 prepareCompaction 与 compact（设计稿“压缩”）：运行时依赖；会话只要类型，条目经调用方传入的 SessionLog 写回。
     compaction: {
         modules: ["session"],
