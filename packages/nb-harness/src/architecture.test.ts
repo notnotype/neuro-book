@@ -66,6 +66,13 @@ const MODULES: Readonly<Record<string, ModuleRule>> = {
         nodeBuiltinsIn: [],
         dynamicImportIn: [],
     },
+    // 内置工具：编辑引擎是 OMP 的原生模块（运行时依赖）；只有本地文件访问子入口碰 Node 的文件系统。
+    builtin: {
+        modules: ["tools"],
+        packages: {...TYPEBOX, "@oh-my-pi/pi-natives": "runtime", "@oh-my-pi/pi-ai": "type-only"},
+        nodeBuiltinsIn: ["local"],
+        dynamicImportIn: [],
+    },
     // 压缩直接包 OMP 的 prepareCompaction 与 compact（设计稿“压缩”）：运行时依赖；会话只要类型，条目经调用方传入的 SessionLog 写回。
     compaction: {
         modules: ["session"],

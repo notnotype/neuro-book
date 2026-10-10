@@ -74,18 +74,20 @@ export function buildJudgeMessages(request: JudgeRequest): {systemPrompt: string
     return {systemPrompt: [JUDGE_SYSTEM_PROMPT], messages: [{role: "user", content: lines.join("\n"), timestamp: 0}], argsTooLarge: encoder.encode(args).length > ARGS_TOTAL_LIMIT};
 }
 
+/** 回复里第一个能解析的 JSON 对象：每个 `{` 都当候选起点，每个其后的 `}` 都当候选终点（字符串里的括号靠 JSON.parse 失败跳过）。 */
 function parseJudgement(text: string): Judgement | null {
-    const start = text.indexOf("{");
-    if (start === -1) return null;
-    for (let end = text.indexOf("}", start); end !== -1; end = text.indexOf("}", end + 1)) {
-        try {
-            const parsed: unknown = JSON.parse(text.slice(start, end + 1));
+    for (let start = text.indexOf("{"); start !== -1; start = text.indexOf("{", start + 1)) {
+        for (let end = text.indexOf("}", start); end !== -1; end = text.indexOf("}", end + 1)) {
+            let parsed: unknown;
+            try {
+                parsed = JSON.parse(text.slice(start, end + 1));
+            } catch {
+                continue;
+            }
             if (typeof parsed !== "object" || parsed === null) continue;
             const {decision, reason} = parsed as {decision?: unknown; reason?: unknown};
             if (decision !== "allow" && decision !== "deny" && decision !== "escalate") return null;
             return {decision, reason: typeof reason === "string" ? reason : ""};
-        } catch {
-            // 第一个 } 可能在字符串里，继续找下一个。
         }
     }
     return null;

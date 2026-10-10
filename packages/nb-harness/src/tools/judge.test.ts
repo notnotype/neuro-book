@@ -55,6 +55,9 @@ describe("审批模型（输出 7）", () => {
         expect((await judge("我觉得可以")).decision).toBe("escalate");
         expect((await judge("我觉得可以"))).toMatchObject({reason: "invalid-output"});
         expect((await judge('{"decision": "approve"}'))).toMatchObject({decision: "escalate", reason: "invalid-output"});
+        // 前置片段自己带大括号：跳过解析不出的候选，采用后面第一个能解析的对象；第一个能解析的对象 decision 非法时仍 escalate
+        expect(await judge('example {not JSON}, then {"decision":"deny","reason":"不行"}')).toEqual({decision: "deny", reason: "不行"});
+        expect(await judge('{"a": "}"} {"decision":"allow","reason":"ok"}')).toMatchObject({decision: "escalate", reason: "invalid-output"});
         expect((await judge("throw"))).toMatchObject({decision: "escalate"});
         expect((await judge("throw")).reason).toContain("request-failed");
         expect(await judge("never", {timeoutMs: 20})).toEqual({decision: "escalate", reason: "timeout"});
