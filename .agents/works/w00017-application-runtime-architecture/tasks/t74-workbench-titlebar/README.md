@@ -74,3 +74,4 @@ omp 审查（报告在 [t73 证据](../t73-lab-nb-ui-and-storage/evidences/desig
   - 布局 store 的 `setPartHidden(part, false)` 在同一次提交里清掉隐藏与拖到零；新增 `partVisible`；外壳里活动栏打开侧栏的路径改为只调它（原来分两次提交）。公开键 `sidebarVisible`、`auxiliaryBarVisible`、`activityBarVisible`。
   - `formatKeybinding`（`keymap.ts`）：macOS 写 `⇧⌘P`，其它写 `Ctrl+Shift+P`；命令面板改用它。
   - 验证：typecheck；工作台命令与状态 Bun 60 例（新增 `part-commands.test.ts`、`keymap.test.ts` 一例）；`workbench-shell`、`projects`、`workbench-views` e2e 34 例；变异 2 个全杀。
+- 2026-10-10 S3 完成（菜单能力模型）：`titlebar/menu-model.ts` 的 `buildMenus` 与产品定义 `TITLEBAR_MENUS`。菜单以“节”表达分隔线，空节不画；同一命令带不同参数的条目由定义给自己的标题（侧栏、右栏、活动栏、面板），外壳 Spec 输出 29 补了这一句。`menu-model.test.ts` 5 例（真实命令注册表与上下文键）；变异 2 个全杀。
