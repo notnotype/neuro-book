@@ -41,3 +41,17 @@ describe("溢出预算", () => {
         expect(layoutStrip(items, 20, 30)).toEqual({shown: [], hidden: ["a", "b", "c"]});
     });
 });
+
+describe("间距按实际项数算", () => {
+    const items = [item("a", 40, 10, 1), item("b", 60, 30, 2), item("c", 50, 20, 3)];
+
+    it("全部摆出来时三项之间只有两个间距：158 装下，157 装不下", () => {
+        expect(layoutStrip(items, 158, 30, 4)).toEqual({shown: ["a", "b", "c"], hidden: []});
+        expect(layoutStrip(items, 157, 30, 4)).toEqual({shown: ["b", "c"], hidden: ["a"]});
+    });
+
+    it("收起时“更多”算一项：b、c 加“更多”是 60 + 50 + 30 加两个间距 148，147 只放得下 b", () => {
+        expect(layoutStrip(items, 148, 30, 4)).toEqual({shown: ["b", "c"], hidden: ["a"]});
+        expect(layoutStrip(items, 147, 30, 4)).toEqual({shown: ["b"], hidden: ["a", "c"]});
+    });
+});

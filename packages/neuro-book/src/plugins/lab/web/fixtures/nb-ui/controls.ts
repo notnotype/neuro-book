@@ -115,6 +115,7 @@ export const controlsFixtures: LabFixture[] = [
             {id: "compact", label: "紧凑", input: {props: {items: DROPDOWN_ITEMS, compact: true, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
             {id: "long", label: "很多项时内部滚动", input: {props: {items: Array.from({length: 40}, (_, index) => ({label: `第 ${String(index + 1)} 章`, value: `chapter-${String(index + 1)}`})), menuMaxHeight: "320px", align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
             {id: "disabled", label: "禁用", input: {props: {items: DROPDOWN_ITEMS, disabled: true, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
+            {id: "wrap", label: "长文字换行", input: {props: {items: [{label: "未保存的文档：未保存 3 个（第一章.md、第二章.md、第三章.md）", value: "unsaved"}, {label: "字数：12,345 字", value: "words", disabled: true}, ...DROPDOWN_ITEMS.slice(0, 2)], wrap: true, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
         ],
         subject: nbUiSubject("Dropdown"),
     }),

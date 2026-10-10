@@ -11,7 +11,7 @@ export interface StripItem {
     readonly id: string;
     readonly order: number;
     readonly priority: number;
-    /** 实测宽度（含与相邻条目的间距）。 */
+    /** 实测宽度（不含间距；间距由 `gap` 按实际摆出来的项数算）。 */
     readonly width: number;
 }
 
@@ -26,15 +26,18 @@ function byRank(a: StripItem, b: StripItem): number {
     return b.priority - a.priority || a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
-/** `items` 是显示顺序；`available` 是条目区能用的宽度（固定区已经扣掉）；`more` 是“更多”按钮的宽度。 */
-export function layoutStrip(items: ReadonlyArray<StripItem>, available: number, more: number): StripLayout {
-    const total = items.reduce((sum, item) => sum + item.width, 0);
+/**
+ * `items` 是显示顺序；`available` 是条目区能用的宽度（固定区已经扣掉）；`more` 是“更多”按钮的宽度；`gap` 是相邻两项之间
+ * 的间距，n 项之间有 n - 1 个（“更多”也算一项）。
+ */
+export function layoutStrip(items: ReadonlyArray<StripItem>, available: number, more: number, gap = 0): StripLayout {
+    const total = items.reduce((sum, item) => sum + item.width, 0) + gap * Math.max(0, items.length - 1);
     if (total <= available) return {shown: items.map((item) => item.id), hidden: []};
-    const budget = available - more;
     const kept = new Set<string>();
     let used = 0;
     for (const item of [...items].sort(byRank)) {
-        if (used + item.width > budget) break;
+        // 放进这一项后摆出来的是 kept.size + 1 项加“更多”，之间有 kept.size + 1 个间距。
+        if (used + item.width + more + gap * (kept.size + 1) > available) break;
         kept.add(item.id);
         used += item.width;
     }

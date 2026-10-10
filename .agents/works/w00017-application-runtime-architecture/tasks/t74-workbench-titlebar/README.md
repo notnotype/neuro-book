@@ -108,3 +108,4 @@ omp 审查（报告在 [t73 证据](../t73-lab-nb-ui-and-storage/evidences/desig
   - C7 每次输入全文重算字数（建议）：先用真实长文测基准再决定，记入后续。
   - 审查环境的说明：报告里 `bun run typecheck` 在仓库根没有脚本、Vitest 缺插件，是审查 worktree 的运行方式问题，不是实现问题。
 - 2026-10-10 审查 C2、C3、C6 已修（标题栏的菜单会话：打开前的焦点与是否原生输入框一起记下；原生输入框时撤销、重做禁用并说明；菜单关闭后焦点回到入口那一刻交回打开前的位置；只有菜单入口上的 Escape 还焦点）。验证：`menu-model.test.ts` 新增 1 例、`WorkbenchTitleBar.dom.test.ts` 新增 2 例、变异 4 个全杀、`workbench-titlebar.e2e.ts` 补浮层内 Escape 与挪到搜索按钮后 Escape 两段（5/5 通过）。C4、C5 待修，C7 记入后续。
+- 2026-10-10 审查 C4、C5 已修：`layoutStrip` 的间距按实际摆出来的项数算（“更多”也算一项），测量层改用与显示同一种元素（有命令的是 `Button`）；nb-ui `Dropdown` 新增 `wrap`（菜单最宽 320px、条目换行）与 `MenuNodes` 的 `wrap`，“更多”用它。验证：`item-strip.test.ts` 新增 2 例、变异 2 个全杀；新增 `e2e/lab-item-strip.e2e.ts`（在 Lab 场景上把容器撑到测量层算出的宽度：全放下、差一像素收起且高优先级先摆、摆出来的都在容器内不重叠；“更多”里长文字 `white-space: normal` 且换行）2/2 通过；nb-ui Dropdown 测试 7/7。C7 记入后续。

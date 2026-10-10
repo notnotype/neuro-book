@@ -53,6 +53,8 @@ type DropdownProps = {
     open?: boolean;
     /** 透传到主菜单浮层根节点的原生属性；默认 {} */
     contentProps?: Record<string, unknown>;
+    /** 条目文字允许换行：菜单最宽 320px，长文字完整显示（例如状态栏收进“更多”的条目）；默认 false，单行截断 */
+    wrap?: boolean;
 };
 
 type DropdownEmits = {

@@ -36,14 +36,14 @@ const {width} = useElementSize(root);
 const widths = ref<ReadonlyMap<string, number>>(new Map());
 const moreWidth = ref(0);
 
-/** 读测量层：每个条目的实际宽度加间距，以及“更多”按钮的宽度。 */
+/** 读测量层：每个条目与“更多”按钮的实际宽度；间距由预算按实际摆出来的项数算。 */
 function remeasure(): void {
     const layer = measure.value;
     if (layer === null) return;
     const next = new Map<string, number>();
-    for (const element of layer.querySelectorAll<HTMLElement>("[data-measure-item]")) next.set(element.dataset.measureItem ?? "", element.getBoundingClientRect().width + GAP);
+    for (const element of layer.querySelectorAll<HTMLElement>("[data-measure-item]")) next.set(element.dataset.measureItem ?? "", element.getBoundingClientRect().width);
     widths.value = next;
-    moreWidth.value = (layer.querySelector<HTMLElement>("[data-measure-more]")?.getBoundingClientRect().width ?? 0) + GAP;
+    moreWidth.value = layer.querySelector<HTMLElement>("[data-measure-more]")?.getBoundingClientRect().width ?? 0;
 }
 
 // 文字、语言或条目集合变了：等测量层渲染完再量。
@@ -68,7 +68,7 @@ onBeforeUnmount(() => {
 const layout = computed(() => {
     // 还没量到宽度（首帧、测试环境没有布局）时全部摆出来，不先收起再弹出。
     if (width.value <= 0 || widths.value.size === 0) return {shown: props.entries.map((entry) => entry.id), hidden: [] as string[]};
-    return layoutStrip(props.entries.map((entry) => ({id: entry.id, order: entry.order, priority: entry.priority, width: widths.value.get(entry.id) ?? 0})), width.value, moreWidth.value);
+    return layoutStrip(props.entries.map((entry) => ({id: entry.id, order: entry.order, priority: entry.priority, width: widths.value.get(entry.id) ?? 0})), width.value, moreWidth.value, GAP);
 });
 
 const shown = computed(() => props.entries.filter((entry) => layout.value.shown.includes(entry.id)));
@@ -118,16 +118,19 @@ function tooltipOf(entry: StripEntry): string | undefined {
                 :data-workbench-item="entry.id"
             >{{ entry.text }}</span>
         </template>
-        <Dropdown v-if="hidden.length > 0" :items="moreItems" align="end" side="top" @select="emit('run', $event)">
+        <Dropdown v-if="hidden.length > 0" :items="moreItems" align="end" side="top" wrap @select="emit('run', $event)">
             <Button variant="ghost" size="sm" class="workbench-item-strip__item" :aria-label="localize(MORE, locale)" data-workbench-item-more>
                 <span class="i-lucide-ellipsis h-3.5 w-3.5" aria-hidden="true"></span>
             </Button>
         </Dropdown>
 
-        <!-- 测量层：与显示同样的样式，量每个条目与“更多”的宽度；不可见、不进读屏与 Tab 顺序。 -->
+        <!-- 测量层：与显示同一种元素（有命令的是 Button、没有的是文字），量每个条目与“更多”的宽度；不可见、不进读屏与 Tab 顺序。 -->
         <div ref="measure" class="workbench-item-strip__measure" aria-hidden="true" inert>
-            <span v-for="entry in entries" :key="entry.id" class="workbench-item-strip__item workbench-item-strip__text workbench-item-strip__probe" :data-measure-item="entry.id">{{ entry.text }}</span>
-            <span class="workbench-item-strip__item workbench-item-strip__probe" data-measure-more><span class="i-lucide-ellipsis h-3.5 w-3.5"></span></span>
+            <template v-for="entry in entries" :key="entry.id">
+                <Button v-if="entry.command !== null" variant="ghost" size="sm" class="workbench-item-strip__item" tabindex="-1" :data-measure-item="entry.id">{{ entry.text }}</Button>
+                <span v-else class="workbench-item-strip__item workbench-item-strip__text" :data-measure-item="entry.id">{{ entry.text }}</span>
+            </template>
+            <Button variant="ghost" size="sm" class="workbench-item-strip__item" tabindex="-1" data-measure-more><span class="i-lucide-ellipsis h-3.5 w-3.5" aria-hidden="true"></span></Button>
         </div>
     </div>
 </template>
@@ -171,18 +174,14 @@ function tooltipOf(entry: StripEntry): string | undefined {
     color: var(--status-danger);
 }
 
+/* 测量层与显示用同一种元素、同一组类，量出来的宽度才是摆出来时的宽度；间距不在这里，预算按项数算。 */
 .workbench-item-strip__measure {
     position: absolute;
     top: 0;
     left: 0;
     display: flex;
+    gap: 4px;
     visibility: hidden;
     pointer-events: none;
-}
-
-/* 探针与显示的条目用同一组尺寸类（高度、内边距、320px 上限），量出来的宽度才是摆出来时的宽度。 */
-.workbench-item-strip__probe {
-    display: inline-flex;
-    align-items: center;
 }
 </style>

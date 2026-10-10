@@ -38,6 +38,8 @@ const props = withDefaults(defineProps<{
     open?: boolean;
     /** 浮层内容原生属性透传（用于 data-xxx 等属性） */
     contentProps?: Record<string, unknown>;
+    /** 条目文字允许换行：菜单最宽 320px，长文字完整显示；缺省单行截断。 */
+    wrap?: boolean;
 }>(), {
     menuClass: undefined,
     menuMaxHeight: undefined,
@@ -50,6 +52,7 @@ const props = withDefaults(defineProps<{
     // 显式 undefined 默认值：Boolean 档缺省会被 Vue 转成 false，那样就永远拿不到「未受控」这一档
     open: undefined,
     contentProps: () => ({}),
+    wrap: false,
 });
 
 const emit = defineEmits<{
@@ -108,13 +111,13 @@ const {
     explicitMaxHeight: computed(() => props.menuMaxHeight),
     maxHeightLimit: computed(() => props.menuMaxHeight && !isNaN(parseInt(props.menuMaxHeight, 10)) ? parseInt(props.menuMaxHeight, 10) : undefined),
 });
-const resolvedMenuClass = computed(() => props.menuClass ?? (props.compact ? "min-w-[160px]" : "min-w-[200px]"));
+const resolvedMenuClass = computed(() => [props.menuClass ?? (props.compact ? "min-w-[160px]" : "min-w-[200px]"), props.wrap ? "max-w-[320px]" : ""]);
 
 
 
 
 /** 项级几何：与滚动视口同心贴边，密度随 compact 档切换。 */
-const itemBaseClass = "nb-ui-popover-item flex flex-nowrap whitespace-nowrap w-full items-center justify-between text-left outline-none cursor-pointer select-none transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] motion-reduce:transition-none data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed data-[state=open]:bg-[var(--overlay-item-active)]";
+const itemBaseClass = "nb-ui-popover-item flex flex-nowrap w-full justify-between text-left outline-none cursor-pointer select-none transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] motion-reduce:transition-none data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed data-[state=open]:bg-[var(--overlay-item-active)]";
 
 function itemClass(item: DropdownItem): string {
     if (item.tone === "danger") {
@@ -127,11 +130,12 @@ function itemClass(item: DropdownItem): string {
 }
 
 function itemClassList(item: DropdownItem): (string | Record<string, boolean>)[] {
+    // 换行时高度随内容，上下内边距补出单行时的高度；不换行时固定高度、单行截断。
+    const height = props.wrap ? (props.compact ? "min-h-[24px] py-1 whitespace-normal items-start" : "min-h-[var(--control-h-sm)] py-1.5 whitespace-normal items-start") : (props.compact ? "h-[24px] whitespace-nowrap items-center" : "h-[var(--control-h-sm)] whitespace-nowrap items-center");
     return [
         itemBaseClass,
-        props.compact
-            ? "h-[24px] px-2 gap-2 mb-0.5 last:mb-0 text-[var(--text-xs)]"
-            : "h-[var(--control-h-sm)] px-2.5 gap-2.5 mb-0.5 last:mb-0 text-xs",
+        height,
+        props.compact ? "px-2 gap-2 mb-0.5 last:mb-0 text-[var(--text-xs)]" : "px-2.5 gap-2.5 mb-0.5 last:mb-0 text-xs",
         itemClass(item),
     ];
 }
@@ -183,6 +187,7 @@ function scheduleSubmenu(item: DropdownItem | null, trigger: HTMLElement, depth 
                         :active="cascade.levels.value[0]?.value"
                         :item-class="itemClassList"
                         :item-component="DropdownMenuItem"
+                        :wrap="props.wrap"
                         @select="handleSelect"
                         @hover="(item, trigger, immediate) => scheduleSubmenu(item, trigger, 0, immediate)"
                     >

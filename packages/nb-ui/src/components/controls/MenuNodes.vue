@@ -14,6 +14,8 @@ const props = defineProps<{
     itemClass?: (item: T) => string | (string | Record<string, boolean>)[];
     /** reka 的菜单项原语；只在 reka 的菜单内容里传。 */
     itemComponent?: Component;
+    /** 文字允许换行（宿主的条目类也要允许多行高度）；缺省单行截断。 */
+    wrap?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -81,7 +83,7 @@ function common(item: T): Record<string, unknown> {
         >
             <span class="inline-flex min-w-0 items-center gap-2">
                 <span v-if="item.iconClass" :class="[item.iconClass, 'h-4 w-4 shrink-0']"></span>
-                <slot name="item" :item="item"><span class="truncate" :class="item.tone === 'danger' ? 'text-[var(--status-danger)]' : ''">{{ item.label }}</span></slot>
+                <slot name="item" :item="item"><span :class="[wrap ? 'whitespace-normal break-words' : 'truncate', item.tone === 'danger' ? 'text-[var(--status-danger)]' : '']">{{ item.label }}</span></slot>
             </span>
             <span v-if="hasChildren(item)" class="i-lucide-chevron-right h-3.5 w-3.5 shrink-0"></span>
             <span v-else-if="item.checked" class="i-lucide-check h-3.5 w-3.5 shrink-0"></span>
