@@ -19,7 +19,7 @@ import type {RemoteNode, RemoteRouter} from "@notnotype/nb-runtime/remote";
 
 import {FIXTURE_READY_LINE} from "nbook/project/testing/fault-plugin";
 import type {ProjectFault} from "nbook/project/testing/fault-plugin";
-import {stateRootKey} from "nbook/shared/host";
+import {clockKey, stateRootKey} from "nbook/shared/host";
 import {projectsKey} from "nbook/shared/projects";
 import type {ProjectAcquireResult, ProjectLease, ProjectRecord} from "nbook/shared/projects";
 
@@ -90,6 +90,9 @@ export function readyPid(line: string): number {
 }
 
 export interface ProjectHarness {
+    /** 本用例的工作区：项目目录 `Book` 与状态根都在它下面，相对路径按它解析。 */
+    readonly root: string;
+    readonly stateRoot: string;
     readonly clock: ManualClock;
     readonly parent: Application;
     readonly node: RemoteNode;
@@ -102,14 +105,27 @@ export interface ProjectHarness {
     ready(generation: number): Promise<number>;
 }
 
+/** `prepare` 拿到的位置：服务端实例起来之前，用来预置状态根里的文件（配置、Storage 记录）或别的项目目录。 */
+export interface ProjectHarnessPaths {
+    readonly root: string;
+    readonly stateRoot: string;
+    /** 已登记的 `Book`。 */
+    readonly project: ProjectRecord;
+}
+
 /**
  * 在 `root` 下建一个项目目录 `Book`（短名 `book`）与状态根，起服务端实例与项目管理器。`env` 交给项目子进程
- * （故障插件、探针）；`plugins` 装进服务端实例，宿主能力与产品里一样：状态根 `stateRootKey`，以及以按调用方门面
- * 提供的 `projectsKey`。
+ * （故障插件、探针）；`plugins` 装进服务端实例，宿主能力与产品里一样：状态根 `stateRootKey`、时钟 `clockKey`（同一个
+ * 注入时钟），以及以按调用方门面提供的 `projectsKey`。`prepare` 在登记 `Book` 之后、服务端实例启动之前调用。
  */
 export async function projectHarness(
     root: string,
-    options: {readonly fault?: ProjectFault; readonly env?: Readonly<Record<string, string>>; readonly plugins?: ReadonlyArray<PluginDefinition>} = {},
+    options: {
+        readonly fault?: ProjectFault;
+        readonly env?: Readonly<Record<string, string>>;
+        readonly plugins?: ReadonlyArray<PluginDefinition>;
+        readonly prepare?: (paths: ProjectHarnessPaths) => Promise<void>;
+    } = {},
 ): Promise<ProjectHarness> {
     counter += 1;
     const caseRoot = join(root, `case-${String(counter)}`);
@@ -119,6 +135,7 @@ export async function projectHarness(
     const registry = createProjectRegistry({stateRoot, cwd: caseRoot});
     const registered = await registry.register("Book");
     if (!registered.ok) throw new Error(registered.detail);
+    await options.prepare?.({root: caseRoot, stateRoot, project: registered.project});
     const output = observed<string>();
     const records = observed<DiagnosticInput>();
     const forward = trackedProjectOutput(output);
@@ -133,6 +150,7 @@ export async function projectHarness(
         {
             capabilities: [
                 {id: "host.state-root", key: stateRootKey, create: () => Object.freeze({path: stateRoot})},
+                {id: "host.clock", key: clockKey, create: () => clock},
                 {id: "host.projects", key: projectsKey, create: async () => (await managerReady.promise).provision()},
             ],
             plugins,
@@ -164,6 +182,8 @@ export async function projectHarness(
     expect(await parent.startup).toMatchObject({status: "available"});
     const project = registered.project;
     return {
+        root: caseRoot,
+        stateRoot,
         clock,
         parent,
         node,
