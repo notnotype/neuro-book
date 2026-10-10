@@ -64,4 +64,4 @@ taskId: t09-harness-foundation-session
 
 ## 下一步
 
-`plan.md` → 实现与合同测试（开发者 2026-10-10 确认第二轮的处理，设计稿已 `accepted`）。
+实施计划 [`plan.md`](plan.md) 待开发者确认 → 按计划 S1–S5 实现与合同测试（开发者 2026-10-10 确认第二轮的处理，设计稿已 `accepted`）。
