@@ -36,7 +36,9 @@ type DialogState = {readonly mode: "create"; readonly target: CreateTarget} | {r
 const dialog = ref<DialogState | null>(null);
 const dialogBusy = ref(false);
 const dialogError = ref("");
+/** 问到的那部作品：确认框关闭（Reka 先发 `update:open`，再发 `confirm`）时还要用它，所以不随关闭清空。 */
 const removing = ref<ShelfItem | null>(null);
+const confirmOpen = ref(false);
 /** 本组件自己的提示（移出被拒）；在时盖过模型的提示。 */
 const localNotice = ref<string | null>(null);
 
@@ -91,12 +93,15 @@ async function submit(values: ProjectInfoValues): Promise<void> {
 }
 
 function askRemove(id: string): void {
-    removing.value = item(id);
+    const target = item(id);
+    if (target === null) return;
+    removing.value = target;
+    confirmOpen.value = true;
 }
 
 async function confirmRemove(): Promise<void> {
     const target = removing.value;
-    removing.value = null;
+    confirmOpen.value = false;
     if (target === null) return;
     const outcome = await props.page.remove(target.id);
     if (outcome.ok) {
@@ -151,14 +156,14 @@ function dismissNotice(): void {
         @cancel="dialog = null"
     />
     <AlertDialog
-        :open="removing !== null"
+        :open="confirmOpen"
         :title="text(formatText(TEXT.removeTitle, {title: removing === null ? '' : projectDisplayName(removing)}))"
         :description="text(TEXT.removeDescription)"
         :confirm-text="text(TEXT.remove)"
         :cancel-text="text(TEXT.cancel)"
         tone="danger"
         @confirm="confirmRemove"
-        @cancel="removing = null"
-        @update:open="(open: boolean) => { if (!open) removing = null; }"
+        @cancel="confirmOpen = false"
+        @update:open="(open: boolean) => { if (!open) confirmOpen = false; }"
     />
 </template>
