@@ -47,6 +47,19 @@ const MODULES: Readonly<Record<string, ModuleRule>> = {
         nodeBuiltinsIn: ["loader"],
         dynamicImportIn: ["loader"],
     },
+    config: {
+        modules: [],
+        packages: {...TYPEBOX},
+        nodeBuiltinsIn: [],
+        dynamicImportIn: [],
+    },
+    // 模型与凭据直接用 OMP（设计稿“模型与凭据”）：这是运行时依赖；SQLite 路径交给 OMP，自己不碰 Node 内置模块。
+    models: {
+        modules: ["config"],
+        packages: {...TYPEBOX, "@oh-my-pi/pi-ai": "runtime", "@oh-my-pi/pi-catalog": "runtime"},
+        nodeBuiltinsIn: [],
+        dynamicImportIn: [],
+    },
 };
 
 const FORBIDDEN_PACKAGES = ["@oh-my-pi/pi-coding-agent"];
