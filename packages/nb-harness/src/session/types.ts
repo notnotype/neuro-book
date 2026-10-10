@@ -43,7 +43,7 @@ export type Result<T> = {ok: true; value: T} | {ok: false; code: SessionFailure;
 export type LogEndReason = "closed" | "broken" | "listener-error";
 
 export interface SessionLog {
-    readonly header: SessionHeader;
+    readonly header: Readonly<SessionHeader>;
     /** 按序号排列；每次追加换成新的冻结数组，旧引用不变。 */
     readonly entries: readonly SessionEntry[];
     /** 打开时发现的中断尾；`repair` 成功后为 null。 */

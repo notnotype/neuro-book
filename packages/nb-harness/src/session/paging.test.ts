@@ -183,6 +183,10 @@ describe("分页（输出 20–22）", () => {
         expect(assistant.entry.id).toBe(log.entries[0]!.id);
 
         expect(custom.trimmed).toEqual([{path: "data.items[0].body", originalBytes: 300}]);
+        const rootStrings = readPage(await logWith([[{type: "custom", customType: "plugin.x/s", data: long}, {type: "custom_message", customType: "plugin.x/n", content: "短", display: true, details: long}]], "roots"), {maxTurns: 10, maxBytes: 1024 * KiB, fieldBudget: 64});
+        if (!rootStrings.ok) throw new Error(rootStrings.detail);
+        expect(rootStrings.value.entries.map(({trimmed}) => trimmed)).toEqual([[{path: "data", originalBytes: 300}], [{path: "details", originalBytes: 300}]]);
+        expect((rootStrings.value.entries[0]!.entry as {data: string}).data).toBe("汉".repeat(21));
         expect(note.trimmed.map(({path}) => path)).toEqual(["content[0].text", "details.note"]);
         expect((note.entry as {customType: string}).customType).toBe("plugin.x/note");
         expect(compaction.trimmed).toEqual([{path: "summary", originalBytes: 300}]);

@@ -28,12 +28,14 @@ export function createMemorySessionStore(): SessionStore {
             };
         },
         async append(id, entries) {
+            if (!isValidSessionId(id)) return fail("invalid-session-id", `会话 id 不合规则：${id}`);
             const session = sessions.get(id);
             if (session === undefined) return fail("session-not-found", `会话不存在：${id}`);
             for (const entry of entries) session.lines.push(JSON.stringify(entry));
             return {ok: true, value: undefined};
         },
         async repair(id) {
+            if (!isValidSessionId(id)) return fail("invalid-session-id", `会话 id 不合规则：${id}`);
             if (!sessions.has(id)) return fail("session-not-found", `会话不存在：${id}`);
             return {ok: true, value: {droppedBytes: 0}};
         },

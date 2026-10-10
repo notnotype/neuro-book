@@ -1,6 +1,6 @@
 import {afterAll, describe, expect, test} from "bun:test";
 import {appendFile, chmod, readFile, rm, stat, writeFile} from "node:fs/promises";
-import {join} from "node:path";
+import {basename, join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {createSession, openSession} from "../log";
 import {planRecovery, sessionStatus} from "../replay";
@@ -261,6 +261,53 @@ describe("JSONL 存储：文件", () => {
         }
         const afterRestore = await store.list();
         expect(afterRestore.ok && afterRestore.value.map((summary) => summary.id).sort()).toEqual(["fine", "locked"]);
+    });
+
+    test("存储接口自己查会话 id：append、repair 传 ../ 或绝对路径为 invalid-session-id，root 外的文件不被碰", async () => {
+        const root = await newRoot();
+        const store = createJsonlSessionStore({root});
+        const outside = join(root, "..", `${basename(root)}-outside.jsonl`);
+        await writeFile(outside, "untouched\n", "utf8");
+        try {
+            const escaped = `../${basename(outside, ".jsonl")}`;
+            const entry = {id: "x", parentId: null, timestamp: new Date(0).toISOString(), type: "title_change" as const, title: "t", source: "auto" as const};
+            expect(failure(await store.append(escaped, [entry])).code).toBe("invalid-session-id");
+            expect(failure(await store.repair(escaped)).code).toBe("invalid-session-id");
+            expect(failure(await store.append("/etc/passwd", [entry])).code).toBe("invalid-session-id");
+            expect(await readFile(outside, "utf8")).toBe("untouched\n");
+        } finally {
+            await rm(outside, {force: true});
+        }
+    });
+
+    test("输出 7：完整的行不是合法 UTF-8、或条目之间的 id 与 parentId 链、interaction 关系不自洽时为 corrupt-session 并给出行号", async () => {
+        const root = await newRoot();
+        const store = createJsonlSessionStore({root});
+        const log = await newLog(store, "seq");
+        await appended(log, [userMessage("一"), userMessage("二")]);
+        log.close();
+        const path = join(root, "seq.jsonl");
+        const original = await readFile(path);
+        const lines = original.toString("utf8").split("\n");
+
+        const duplicated = [...lines.slice(0, 3), lines[2], ""].join("\n");
+        await writeFile(path, duplicated, "utf8");
+        expect(failure(await openSession(store, "seq"))).toEqual({code: "corrupt-session", line: 4});
+
+        const second = JSON.parse(lines[2]!) as {parentId: string};
+        second.parentId = "not-the-previous";
+        await writeFile(path, [lines[0], lines[1], JSON.stringify(second), ""].join("\n"), "utf8");
+        expect(failure(await openSession(store, "seq"))).toEqual({code: "corrupt-session", line: 3});
+
+        const first = JSON.parse(lines[1]!) as {id: string};
+        const orphanResponse = {id: "r1", parentId: first.id, timestamp: new Date(0).toISOString(), type: "custom", customType: "harness/interaction", data: {interactionId: "i", kind: "approval", phase: "response", response: {decision: "approve", decidedBy: "user"}}};
+        await writeFile(path, [lines[0], lines[1], JSON.stringify(orphanResponse), ""].join("\n"), "utf8");
+        expect(failure(await openSession(store, "seq"))).toEqual({code: "corrupt-session", line: 3});
+
+        const invalidUtf8 = Buffer.concat([Buffer.from(`${lines[0]}\n${lines[1]}\n{"type":"title_change","title":"`, "utf8"), Buffer.from([0xff]), Buffer.from(`","source":"auto","id":"t","parentId":"${first.id}","timestamp":"2026-10-10T00:00:00.000Z"}\n`, "utf8")]);
+        await writeFile(path, invalidUtf8);
+        expect(failure(await openSession(store, "seq"))).toEqual({code: "corrupt-session", line: 3});
+        expect(Buffer.compare(await readFile(path), invalidUtf8)).toBe(0);
     });
 
     test("输出 17：损坏的会话不列出，有中断尾的照常列出，不是 .jsonl 的文件忽略", async () => {

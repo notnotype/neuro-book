@@ -10,7 +10,7 @@
  * 返回成功，只是没有订阅者可推；`repair` 不会把已关闭的句柄改回可写。关闭后再调用的操作才是 `log-closed`。
  */
 
-import {completeEntry, headerProblem, indexEntry, isValidSessionId, newEntryId, relationProblem, shapeProblem} from "./entries";
+import {completeEntry, deepFreeze, headerProblem, indexEntry, isValidSessionId, newEntryId, relationProblem, sequenceProblem, shapeProblem} from "./entries";
 import type {EntryInput, LogEndReason, Result, SessionEntry, SessionHeader, SessionLog, SessionStore} from "./types";
 
 type LogState = "writable" | "damaged-tail" | "broken" | "closed";
@@ -26,7 +26,9 @@ interface Options {
 }
 
 class Log implements SessionLog {
-    readonly header: SessionHeader;
+    readonly header: Readonly<SessionHeader>;
+    /** 存储操作一律用这个 id：公开的 header 已冻结，但身份不该依赖调用方拿到的对象。 */
+    private readonly id: string;
     entries: readonly SessionEntry[];
     damagedTail: {bytes: number} | null;
     private state: LogState;
@@ -37,7 +39,8 @@ class Log implements SessionLog {
     private readonly context = {ids: new Set<string>(), toolCallsByAssistantEntry: new Map<string, Set<string>>(), interactions: new Map<string, {request: boolean; response: boolean}>()};
 
     constructor(private readonly store: SessionStore, header: SessionHeader, entries: SessionEntry[], damagedTail: {bytes: number} | null, options: Options) {
-        this.header = header;
+        this.header = deepFreeze(structuredClone(header));
+        this.id = header.id;
         this.entries = Object.freeze(entries.map((entry) => deepFreezeEntry(entry)));
         this.damagedTail = damagedTail;
         this.state = damagedTail === null ? "writable" : "damaged-tail";
@@ -62,7 +65,7 @@ class Log implements SessionLog {
         return this.enqueue(async () => {
             const blocked = this.blockedResult<{droppedBytes: number}>();
             if (blocked !== null) return blocked;
-            const result = await this.store.repair(this.header.id);
+            const result = await this.store.repair(this.id);
             if (!result.ok) return result;
             this.damagedTail = null;
             // 等待存储期间可能被 close 或因并行的失败变成 broken；文件修好了，句柄的状态不回退。
@@ -151,7 +154,7 @@ class Log implements SessionLog {
             parentId = id;
         }
 
-        const written = await this.store.append(this.header.id, completed);
+        const written = await this.store.append(this.id, completed);
         if (!written.ok) {
             this.state = "broken";
             this.endAll("broken");
@@ -190,9 +193,13 @@ class Log implements SessionLog {
         subscriber.active = false;
         this.subscribers = this.subscribers.filter((item) => item !== subscriber);
         try {
-            subscriber.onEnd?.(reason);
+            const returned: unknown = subscriber.onEnd?.(reason);
+            // onEnd 是订阅者自己的收尾；它抛错（同步或 async 的 rejection）不能让 close 或 append 中途失败，也不能挡住其它订阅的结束通知。
+            if (typeof returned === "object" && returned !== null && typeof (returned as PromiseLike<unknown>).then === "function") {
+                (returned as PromiseLike<unknown>).then(undefined, () => undefined);
+            }
         } catch {
-            // onEnd 是订阅者自己的收尾；它抛错不能让 close 或 append 中途失败，也不能挡住其它订阅的结束通知。
+            // 同上。
         }
     }
 
@@ -224,5 +231,9 @@ export async function openSession(store: SessionStore, id: string, options: {now
     if (!opened.ok) return opened;
     const problem = headerProblem(opened.value.header);
     if (problem !== null) return {ok: false, code: "corrupt-session", detail: `会话头无效：${problem}`, line: 1};
+    if (opened.value.header.id !== id) return {ok: false, code: "corrupt-session", detail: `会话头的 id 是 ${opened.value.header.id}，不是 ${id}`, line: 1};
+    // 存储接口允许使用方自己实现，读回的序列在这里再查一遍（JSONL 存储自己也查，为的是给出行号）。
+    const sequence = sequenceProblem(opened.value.entries);
+    if (sequence !== null) return {ok: false, code: "corrupt-session", detail: `第 ${sequence.index + 1} 个条目与前面的不一致：${sequence.problem}`, index: sequence.index};
     return {ok: true, value: new Log(store, opened.value.header, opened.value.entries, opened.value.damagedTail, options)};
 }

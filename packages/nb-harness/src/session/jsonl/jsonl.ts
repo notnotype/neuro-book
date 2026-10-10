@@ -7,7 +7,7 @@
 
 import {open, readdir, readFile, truncate, unlink} from "node:fs/promises";
 import {join} from "node:path";
-import {isValidSessionId, storedEntryProblem, headerProblem} from "../entries";
+import {headerProblem, isValidSessionId, sequenceProblem, storedEntryProblem} from "../entries";
 import {summaryOf} from "../summary";
 import type {Result, SessionEntry, SessionFailure, SessionHeader, SessionStore} from "../types";
 
@@ -27,16 +27,29 @@ function describe(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
-/** 把文件内容切成完整的行与中断尾。 */
-function splitLines(bytes: Buffer): {lines: string[]; tailBytes: number} {
+const strictUtf8 = new TextDecoder("utf-8", {fatal: true});
+
+/** 把文件内容切成完整的行与中断尾。每行严格按 UTF-8 解码：非法字节不能被悄悄换成替换字符，那是损坏的行。 */
+function splitLines(bytes: Buffer): {lines: string[]; tailBytes: number} | {badLine: number} {
     const lastNewline = bytes.lastIndexOf(NEWLINE);
-    const complete = lastNewline === -1 ? "" : bytes.subarray(0, lastNewline + 1).toString("utf8");
-    const lines = complete === "" ? [] : complete.slice(0, -1).split("\n");
+    const lines: string[] = [];
+    let start = 0;
+    while (start <= lastNewline) {
+        const end = bytes.indexOf(NEWLINE, start);
+        try {
+            lines.push(strictUtf8.decode(bytes.subarray(start, end)));
+        } catch {
+            return {badLine: lines.length + 1};
+        }
+        start = end + 1;
+    }
     return {lines, tailBytes: bytes.length - (lastNewline + 1)};
 }
 
 function parseSession(bytes: Buffer, expectedId: string): Result<Opened> {
-    const {lines, tailBytes} = splitLines(bytes);
+    const split = splitLines(bytes);
+    if ("badLine" in split) return fail("corrupt-session", `第 ${split.badLine} 行不是合法的 UTF-8`, {line: split.badLine});
+    const {lines, tailBytes} = split;
     if (lines.length === 0) return fail("corrupt-session", "会话头缺失", {line: 1});
     let rawHeader: unknown;
     try {
@@ -65,7 +78,20 @@ function parseSession(bytes: Buffer, expectedId: string): Result<Opened> {
         if (problem !== null) return fail("corrupt-session", `第 ${line} 行不符合条目规则：${problem}`, {line});
         entries.push(raw as SessionEntry);
     }
+    const sequence = sequenceProblem(entries);
+    if (sequence !== null) return fail("corrupt-session", `第 ${sequence.index + 2} 行与前面的条目不一致：${sequence.problem}`, {line: sequence.index + 2});
     return {ok: true, value: {header: rawHeader as SessionHeader, entries, damagedTail: tailBytes === 0 ? null : {bytes: tailBytes}}};
+}
+
+/** 定位写要看实际写入的字节数：短写不抛错，但文件里只有前缀。 */
+async function writeAll(handle: Awaited<ReturnType<typeof open>>, text: string, position: number): Promise<void> {
+    const buffer = Buffer.from(text, "utf8");
+    let offset = 0;
+    while (offset < buffer.length) {
+        const {bytesWritten} = await handle.write(buffer, offset, buffer.length - offset, position + offset);
+        if (bytesWritten <= 0) throw new Error(`写入停在第 ${offset} 字节，共 ${buffer.length} 字节`);
+        offset += bytesWritten;
+    }
 }
 
 export function createJsonlSessionStore(options: {root: string}): SessionStore {
@@ -110,13 +136,15 @@ export function createJsonlSessionStore(options: {root: string}): SessionStore {
             return readSession(id);
         },
         async append(id, entries) {
+            // 存储接口是公开的，id 在这里也要查：不能靠调用方都经过日志句柄。
+            if (!isValidSessionId(id)) return fail("invalid-session-id", `会话 id 不合规则：${id}`);
             // 用 r+ 在文件末尾写而不用 a：会话文件被删除时报错，而不是悄悄造出一个没有会话头的文件。
             const text = entries.map((entry) => `${JSON.stringify(entry)}\n`).join("");
             let handle: Awaited<ReturnType<typeof open>> | null = null;
             try {
                 handle = await open(pathOf(id), "r+");
                 const {size} = await handle.stat();
-                await handle.write(text, size, "utf8");
+                await writeAll(handle, text, size);
                 return {ok: true, value: undefined};
             } catch (error) {
                 return fail("store-failed", `追加会话文件失败：${describe(error)}`);
@@ -125,6 +153,7 @@ export function createJsonlSessionStore(options: {root: string}): SessionStore {
             }
         },
         async repair(id) {
+            if (!isValidSessionId(id)) return fail("invalid-session-id", `会话 id 不合规则：${id}`);
             try {
                 const bytes = await readFile(pathOf(id));
                 const keep = bytes.lastIndexOf(NEWLINE) + 1;

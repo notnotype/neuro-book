@@ -263,3 +263,23 @@ export function storedEntryProblem(value: unknown): string | null {
     const {id: _id, parentId: _parentId, timestamp: _timestamp, ...input} = value as SessionEntry;
     return shapeProblem(input);
 }
+
+/**
+ * 读回的整个序列是否自洽：id 唯一、parentId 接上一条（第一条为 null）、interaction 的关系规则。
+ * 逐行的形状校验在存储里做（它知道行号）；这里补的是单行看不出来的规则，追加时同样的规则由句柄在上下文上检查。
+ */
+export function sequenceProblem(entries: readonly SessionEntry[]): {index: number; problem: string} | null {
+    const context = {ids: new Set<string>(), toolCallsByAssistantEntry: new Map<string, Set<string>>(), interactions: new Map<string, {request: boolean; response: boolean}>()};
+    let previous: string | null = null;
+    for (let index = 0; index < entries.length; index += 1) {
+        const entry = entries[index]!;
+        if (context.ids.has(entry.id)) return {index, problem: `/id：${entry.id} 重复`};
+        if (entry.parentId !== previous) return {index, problem: `/parentId：应为 ${previous === null ? "null" : previous}，实际是 ${String(entry.parentId)}`};
+        const {id: _id, parentId: _parentId, timestamp: _timestamp, ...input} = entry;
+        const relation = relationProblem(input as EntryInput, context);
+        if (relation !== null) return {index, problem: relation};
+        indexEntry(context, entry);
+        previous = entry.id;
+    }
+    return null;
+}

@@ -86,6 +86,12 @@ function trimDeep(value: unknown, path: string, budget: number, trims: Trims): v
     }
 }
 
+/** JsonValue 字段：根值本身是字符串时也截，否则任意深度地截。 */
+function trimField(holder: Record<string, unknown>, key: string, budget: number, trims: Trims): void {
+    if (typeof holder[key] === "string") trimString(holder, key, key, budget, trims);
+    else trimDeep(holder[key], key, budget, trims);
+}
+
 /** 文本块、思考块截短；图片数据超预算时置空（截一半的 base64 没有意义）；工具调用的参数任意深度都截。 */
 function trimBlocks(blocks: unknown[], path: string, budget: number, trims: Trims): void {
     blocks.forEach((block, index) => {
@@ -131,10 +137,10 @@ export function trimEntry(entry: SessionEntry, budget: number): TrimmedEntry["en
             break;
         case "custom_message":
             trimContent(copy as unknown as Record<string, unknown>, "content", budget, trims);
-            trimDeep(copy.details, "details", budget, trims);
+            trimField(copy as unknown as Record<string, unknown>, "details", budget, trims);
             break;
         case "custom":
-            trimDeep(copy.data, "data", budget, trims);
+            trimField(copy as unknown as Record<string, unknown>, "data", budget, trims);
             break;
         case "compaction":
             trimString(copy as unknown as Record<string, unknown>, "summary", "summary", budget, trims);

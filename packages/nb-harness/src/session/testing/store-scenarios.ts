@@ -321,16 +321,46 @@ export function describeStoreScenarios(label: string, makeStore: () => Promise<S
             expect(asyncSeqs).toEqual([1, 2]);
             expect(healthy.seqs).toEqual([1, 2, 3]);
 
-            // onEnd 抛错不影响 close 本身和其它订阅的结束通知。
+            // onEnd 抛错（同步或 async 的 rejection）不影响 close 本身和其它订阅的结束通知。
             log.subscribe(() => undefined, {
                 onEnd: () => {
                     throw new Error("onEnd 坏了");
                 },
             });
+            log.subscribe(() => undefined, {
+                onEnd: (async () => {
+                    await Promise.resolve();
+                    throw new Error("async onEnd 坏了");
+                }) as unknown as () => void,
+            });
             const last = received(log);
             expect(() => log.close()).not.toThrow();
             expect(healthy.ends).toEqual(["closed"]);
             expect(last.ends).toEqual(["closed"]);
+            await Promise.resolve();
+        });
+
+        test("header 是冻结的副本：改它不影响句柄的身份；存储读回的序列不自洽时 openSession 为 corrupt-session", async () => {
+            const store = await makeStore();
+            const log = await opened(store, {id: "identity"});
+            expect(() => {
+                (log.header as {id: string}).id = "other";
+            }).toThrow(TypeError);
+            await appended(log, [userMessage("一")]);
+            expect(log.header.id).toBe("identity");
+
+            const broken: SessionStore = {
+                ...store,
+                async open(id) {
+                    const real = await store.open(id);
+                    if (!real.ok) return real;
+                    const [first] = real.value.entries;
+                    return {ok: true, value: {...real.value, entries: [first!, {...first!, parentId: "nope", id: "second"}]}};
+                },
+            };
+            const reopened = await openSession(broken, "identity");
+            expect(reopened.ok ? null : reopened.code).toBe("corrupt-session");
+            expect(reopened.ok ? null : reopened.index).toBe(1);
         });
 
         test("close 与进行中的写入：已交给存储的 append 照常完成并进入 entries，不再推送；进行中的 repair 不把已关闭的句柄改回可写", async () => {
