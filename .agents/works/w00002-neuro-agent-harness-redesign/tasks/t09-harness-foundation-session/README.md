@@ -60,7 +60,8 @@ taskId: t09-harness-foundation-session
 - **S2 JSONL 存储**（本提交，计划第 3 节）：子入口 `./session/jsonl`；中断尾与行号按字节算；`append` 用 `r+` 在末尾写，会话文件被删除时报错而不是重建无头文件；`list` 逐个读取、损坏的跳过。两种存储跑同一组场景；`bun test src/session` 36 pass；变异检查四处（行号、半行当完整行、repair 截错位置、`a` 标志重建文件）都被报出。
 - **S3 回放与崩溃收口**（本提交，计划第 4 节）：`replay.ts` 的 `buildModelContext`（调用窗口配对、压缩后顺序、改写助手消息）、`sessionStatus`、`sessionSettings`、`fold`/`defineProjection`、`planRecovery`（结果条目的时间戳取最后一个条目，保证确定性）。场景 6 在两种存储上跑，并把上下文交给真实 OMP `Agent`、用自定义 `streamFn` 截下发往模型的请求核对配对；`bun test src/session` 50 pass。变异检查五处（用户消息关窗、清签名、去掉出错消息、收口跳过待审批、种子与摘要顺序）起初两处没被报出，补了两条用例后全部报出。给 runtime 的记录：OMP `Agent` 缺省的 `convertToLlm` 只保留 user、toolResult 与助手消息，developer 角色的种子会被它丢掉，runtime 交上下文时要自己传保留四种角色的 `convertToLlm`（测试里就是这样做的）。
 - **S4 分页与按 id 读取**（本提交，计划第 5 节）：`paging.ts`：轮按用户发出的消息划分（第一条用户消息之前的条目按 Spec 自成一轮），游标是 base64url 的 `{s: 会话 id, q: 一轮起点的序号}`，页大小按截断后的 JSON 计，截断只碰正文、思考、工具参数、custom 数据、摘要，图片数据超预算置空，按字符边界截。场景 15 用三十轮（含 200 KiB 单字段与二十个 15 KiB 字段的一轮）跑完整翻页；`bun test src/session` 55 pass。
-- **计划审查（omp）进行中**：已处理第 1 条（消息按 OMP 必填字段校验，`8dd21b79`）、第 2 条（`append` 入队时取副本）、第 3 条（重开时深冻结存储返回的条目，补测试）。
+- **S5 与 OMP 兼容、Spec 证据**（本提交）：`omp-compat.test.ts` 用真实 `prepareCompaction`（`remoteEnabled: false`）核对条目可直接交给 OMP、切点是我们的条目 id、再次准备时认得前一个压缩条目；类型层面断言每个变体可赋给 OMP 的 `SessionEntry`；记录 OMP 在最后一个条目是压缩条目时不准备压缩（压缩模块要在种子重新写入之后再调用）与 Agent 缺省 `convertToLlm` 丢 developer 的事实。Spec 加“实现合同”与三条证据行，注册表标“待晋升”（晋升由开发者批准）。
+- **计划审查（omp）**：已处理第 1 条（消息按 OMP 必填字段校验，`8dd21b79`）、第 2 条（`append` 入队时取副本）、第 3 条（重开时深冻结存储返回的条目，补测试）、第 4 条（`close` 与进行中的写入：写入照常完成并进入 `entries`，`repair` 不把已关闭的句柄改回可写，这一处是实际的 bug）、第 5 条（订阅快照的规则写进计划并补两种交错的测试；补发途中 `close` 时该订阅也收到结束通知，这一处是实际的缺口）、第 6 条（async 监听函数的 rejection 与 `onEnd` 抛错都接住）。
 
 ## 依据
 

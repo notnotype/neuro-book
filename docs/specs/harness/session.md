@@ -271,6 +271,20 @@ createJsonlSessionStore(options: {root: string}): SessionStore;
 
 Smoke：`packages/nb-harness` 的 `bun test src/session`（JSONL 存储使用真实临时目录与文件）。
 
+## 实现合同
+
+- 公开入口：`@notnotype/nb-harness/session`（`createSession`、`openSession`、`createMemorySessionStore`、回放与分页函数及“接口”一节的类型）与 `@notnotype/nb-harness/session/jsonl`（`createJsonlSessionStore`）。
+- owner：`nb-harness` 的 `session` 模块；只依赖 TypeBox 与 OMP 的类型（`import type`），不依赖本包其它模块。
+- 内部不变量（都有测试锁定）：
+  1. `append` 在入队时就取输入的副本，补全后深冻结；`openSession` 接管存储返回的条目时同样克隆并深冻结。
+  2. 一批条目先交存储写入，成功后整批换进 `entries`，再按这批开始时的订阅者快照逐条推送；同一句柄的 `append` 与 `repair` 排在一条链上依次执行。
+  3. 工具结果只在调用窗口内配对；回放与收口共用同一套窗口划分。
+  4. 分页的字节数按截断后的条目计，游标绑定会话 id 与一轮起点的序号。
+  5. `message` 条目按 OMP 四种角色各自的必填字段校验，可选字段原样保存。
+
 ## 证据
 
 - 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“会话”“模块划分与推进顺序”两节与决策记录（开发者 2026-10-10 决定：会话条目参照 OMP、只追加、事件溯源；存储只定接口并提供 JSONL 实现；先做 `session` 模块）。
+- 实现入口：[`packages/nb-harness/src/session/session.ts`](../../../packages/nb-harness/src/session/session.ts)、[`packages/nb-harness/src/session/jsonl/jsonl.ts`](../../../packages/nb-harness/src/session/jsonl/jsonl.ts)
+- 合同测试：[`log.test.ts`](../../../packages/nb-harness/src/session/log.test.ts)、[`jsonl.test.ts`](../../../packages/nb-harness/src/session/jsonl/jsonl.test.ts)、[`replay.test.ts`](../../../packages/nb-harness/src/session/replay.test.ts)、[`paging.test.ts`](../../../packages/nb-harness/src/session/paging.test.ts)、[`omp-compat.test.ts`](../../../packages/nb-harness/src/session/omp-compat.test.ts)
+- Smoke：[`jsonl.test.ts`](../../../packages/nb-harness/src/session/jsonl/jsonl.test.ts)（真实临时目录与文件）与 [`replay.test.ts`](../../../packages/nb-harness/src/session/replay.test.ts) 的场景 6（真实 OMP `Agent`）
