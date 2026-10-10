@@ -40,7 +40,7 @@ issueId: i193
 切片（设计获批后按序实施，每片先写或修订 Spec；模块划分见设计稿“模块划分与推进顺序”）。第 0 片是包的底座：模块入口、边界测试、旧原型移到 `src/prototype/`，见 [`t09-harness-foundation-session`](tasks/t09-harness-foundation-session/README.md)。
 
 1. `session`：与 OMP 兼容的条目、只追加、回放（含压缩后的顺序）、订阅、崩溃收口、分页、`SessionStore` 与 JSONL 实现（Spec [`harness.session`](../../../docs/specs/harness/session.md)）。
-2. `profile`：TSX 布局、节点与数据源与字段的注册、渲染、种子与提醒、加载与目录（Spec [`harness.profile`](../../../docs/specs/harness/profile.md)）。
+2. `profile`：TSX 布局、节点与数据源与字段的注册、渲染、种子与提醒、加载与目录（Spec [`harness.profile`](../../../docs/specs/harness/profile.md)），见 [`t10-harness-profile`](tasks/t10-harness-profile/README.md)。
 3. `config` 与 `models`：配置 schema 与问题列表；模型解析（配置的服务与 OMP 目录）；OMP `AuthStorage` 凭据与 OAuth 登录接口；按角色解析模型；真实模型冒烟一条。
 4. `tools`：工具定义、工具来源、审批判定与四种模式、审批模型（`auto`）。
 5. `compaction`：压缩方法的注册与选择，内置 `soft`（包 OMP 的 `prepareCompaction` 与 `compact`，关闭远程与原生压缩；`remote` 推迟，见设计稿决策记录），压缩条目与种子重新写入。
