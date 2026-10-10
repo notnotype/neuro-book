@@ -69,7 +69,7 @@ function supervisorWith(clock: ReturnType<typeof manualClock>): DevSupervisor {
         launch: () => spawnBackend({
             command: [process.execPath, FIXTURE, "--stop-stdin"],
             cwd: PACKAGE_ROOT,
-            env: {...process.env, NBOOK_STATE_ROOT: join(tmp, "state"), NBOOK_PORT: String(port), NBOOK_WEB_ROOT: "", NBOOK_TEST_PLUGINS: plugins},
+            env: {...process.env, NBOOK_STATE_ROOT: join(tmp, "state"), NBOOK_PORT: String(port), NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: "", NBOOK_TEST_PLUGINS: plugins},
             output: (line) => backendOutput.push(line),
         }),
     });

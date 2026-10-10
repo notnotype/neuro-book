@@ -195,7 +195,7 @@ interface SpawnedServer {
 /** 真实子进程里的服务端（服务端的测试入口，项目子进程用项目宿主的测试入口）。 */
 function spawnServer(stateRoot: string, env: Readonly<Record<string, string>>): SpawnedServer {
     const child = Bun.spawn(["bun", SERVER_FIXTURE], {
-        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_TEST_PLUGINS: remoteProbeDescriptor.id, ...env},
+        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_RPC_PORT: "0", NBOOK_TEST_PLUGINS: remoteProbeDescriptor.id, ...env},
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",

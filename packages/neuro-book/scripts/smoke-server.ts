@@ -38,7 +38,7 @@ interface Running {
 }
 
 function run(env: Record<string, string>): Running {
-    const child = Bun.spawn(["bun", bundle, "--stop-stdin"], {env: {...process.env, ...env}, stdin: "pipe", stdout: "pipe", stderr: "pipe"});
+    const child = Bun.spawn(["bun", bundle, "--stop-stdin"], {env: {...process.env, NBOOK_RPC_PORT: "0", ...env}, stdin: "pipe", stdout: "pipe", stderr: "pipe"});
     const listening = Promise.withResolvers<string>();
     // 预期启动失败的场景不读地址；不让这条拒绝变成未处理的 Promise 拒绝。
     listening.promise.catch(() => undefined);

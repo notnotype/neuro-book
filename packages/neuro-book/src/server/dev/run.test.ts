@@ -54,7 +54,7 @@ async function startDev(env: Record<string, string> = {}): Promise<DevSession> {
     await mkdir(watchRoot, {recursive: true});
     const child = Bun.spawn([process.execPath, FIXTURE], {
         cwd: PACKAGE_ROOT,
-        env: {...process.env, NBOOK_DEV_PORT: "0", NBOOK_DEV_BACKEND_PORT: "0", NBOOK_STATE_ROOT: join(base, "state"), NBOOK_TEST_WATCH_ROOT: watchRoot, NBOOK_TEST_PLUGINS: "", ...env},
+        env: {...process.env, NBOOK_DEV_PORT: "0", NBOOK_DEV_BACKEND_PORT: "0", NBOOK_DEV_RPC_PORT: "0", NBOOK_STATE_ROOT: join(base, "state"), NBOOK_TEST_WATCH_ROOT: watchRoot, NBOOK_TEST_PLUGINS: "", ...env},
         stdout: "pipe",
         stderr: "pipe",
     });

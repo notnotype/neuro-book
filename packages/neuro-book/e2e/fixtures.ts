@@ -49,7 +49,7 @@ export interface ProductServer extends ProcessHandle {
 export async function startProductServer(stateRoot: string, port = 0): Promise<ProductServer> {
     const child = spawn("bun", ["dist/server/main.js", "--stop-stdin"], {
         cwd: PACKAGE_ROOT,
-        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: String(port), NBOOK_WEB_ROOT: "dist/web"},
+        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: String(port), NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: "dist/web"},
     });
     const handle = track(child);
     const url = (await handle.waitFor(/Listening on (\S+)/u))[1] as string;
@@ -75,7 +75,7 @@ export interface ProbeServer extends ProductServer {
 export async function startProbeServer(stateRoot: string, options: {readonly port?: number; readonly env?: Readonly<Record<string, string>>} = {}): Promise<ProbeServer> {
     const child = spawn("bun", [join("src", "server", "testing", "fixture-entry.ts"), "--stop-stdin"], {
         cwd: PACKAGE_ROOT,
-        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: String(options.port ?? 0), NBOOK_WEB_ROOT: join("dist", "e2e", "web"), NBOOK_TEST_PLUGINS: "test.remote-probe", ...options.env},
+        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: String(options.port ?? 0), NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: join("dist", "e2e", "web"), NBOOK_TEST_PLUGINS: "test.remote-probe", ...options.env},
     });
     const handle = track(child);
     const rpcUrl = (await handle.waitFor(/RPC listening on (\S+)/u))[1] as string;
@@ -98,7 +98,7 @@ export interface DevSession extends ProcessHandle {
 export async function startDevSession(stateRoot: string): Promise<DevSession> {
     const child = spawn("bun", [join("src", "server", "dev", "main.ts")], {
         cwd: PACKAGE_ROOT,
-        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_DEV_PORT: "0", NBOOK_DEV_BACKEND_PORT: "0"},
+        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_DEV_PORT: "0", NBOOK_DEV_BACKEND_PORT: "0", NBOOK_DEV_RPC_PORT: "0"},
     });
     const handle = track(child);
     const pageUrl = (await handle.waitFor(/\[dev\] page-ready (\S+)/u))[1] as string;

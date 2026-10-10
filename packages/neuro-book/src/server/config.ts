@@ -19,7 +19,7 @@ export interface ServerConfig {
     readonly webRoot: string | null;
     /** 是否把标准输入的 `stop` 行作为停止来源（开发监督进程与 smoke 使用）。 */
     readonly stopStdin: boolean;
-    /** 内核 RPC 端口；0 表示由系统分配，浏览器经引导接口得知。 */
+    /** 内核 RPC 端口，缺省 4217；0 表示由系统分配。浏览器总是经引导接口得知实际端口。 */
     readonly rpcPort: number;
     /** 额外放行的页面来源（已规范化），给页面不由本进程 HTTP 端口提供的情形，即开发模式的页面服务。 */
     readonly allowedOrigins: ReadonlyArray<string>;
@@ -41,7 +41,8 @@ export class ServerConfigError extends Error {
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3000;
-const DEFAULT_RPC_PORT = 0;
+/** 固定缺省，TUI 与脚本不经引导接口也能连上；与开发模式的 4218 错开，两者可以同时运行。 */
+const DEFAULT_RPC_PORT = 4217;
 /** 项目子进程时限的缺省值：宽限期 5 分钟、等启动结果 30 秒、每个子进程停止 20 秒。 */
 export const PROJECT_LIMIT_DEFAULTS: ServerConfig["projects"] = {graceMs: 5 * 60_000, startMs: 30_000, stopMs: 20_000};
 /** 计时器能表示的最大毫秒数；更大的值会被运行时缩成立即触发。 */

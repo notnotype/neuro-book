@@ -58,7 +58,7 @@ function spawnServer(options: {readonly plugins?: string[]; readonly entry?: str
     sequence += 1;
     const stateRoot = join(tmpRoot, `state-${String(sequence)}`);
     const child = Bun.spawn(["bun", options.entry ?? FIXTURE, "--stop-stdin"], {
-        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_TEST_PLUGINS: (options.plugins ?? []).join(","), ...options.env},
+        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_RPC_PORT: "0", NBOOK_TEST_PLUGINS: (options.plugins ?? []).join(","), ...options.env},
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",
@@ -216,7 +216,7 @@ describe("后端宿主（真实子进程）", () => {
         sequence += 1;
         const stateRoot = join(tmpRoot, `state-${String(sequence)}`);
         const child = Bun.spawn(["bun", FIXTURE, "--stop-stdin"], {
-            env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_TEST_PLUGINS: ""},
+            env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_RPC_PORT: "0", NBOOK_TEST_PLUGINS: ""},
             stdin: "pipe",
             stdout: "pipe",
             stderr: "pipe",

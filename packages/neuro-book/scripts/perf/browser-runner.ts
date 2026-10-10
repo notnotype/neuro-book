@@ -80,7 +80,7 @@ async function startServer(config: RunnerConfig, label: string, env: Readonly<Re
     const args = [...(profile === null ? [] : ["--cpu-prof", `--cpu-prof-name=${profile}`]), "dist/server/main.js", "--stop-stdin"];
     const child: ChildProcessWithoutNullStreams = spawn("bun", args, {
         cwd: config.packageRoot,
-        env: {...process.env, NBOOK_STATE_ROOT: config.stateRoot, NBOOK_PORT: "0", NBOOK_WEB_ROOT: "dist/web", ...env},
+        env: {...process.env, NBOOK_STATE_ROOT: config.stateRoot, NBOOK_PORT: "0", NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: "dist/web", ...env},
     });
     let output = "";
     const exit = new Promise<number | null>((resolveExit) => child.on("exit", (code) => resolveExit(code)));

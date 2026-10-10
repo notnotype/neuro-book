@@ -14,7 +14,7 @@ function errorCode(read: () => unknown): ServerConfigErrorCode | null {
 }
 
 describe("后端启动参数", () => {
-    it("缺省监听 127.0.0.1:3000、不提供页面，日志在状态根下，相对路径按工作目录解析", () => {
+    it("缺省监听 127.0.0.1:3000、RPC 4217、不提供页面，日志在状态根下，相对路径按工作目录解析", () => {
         expect(readServerConfig([], {NBOOK_STATE_ROOT: "state"}, "/work")).toEqual({
             host: "127.0.0.1",
             port: 3000,
@@ -22,7 +22,7 @@ describe("后端启动参数", () => {
             logDirectory: "/work/state/logs",
             webRoot: null,
             stopStdin: false,
-            rpcPort: 0,
+            rpcPort: 4217,
             allowedOrigins: [],
             projects: {graceMs: 300_000, startMs: 30_000, stopMs: 20_000},
         });
@@ -41,7 +41,8 @@ describe("后端启动参数", () => {
         expect(errorCode(() => readServerConfig(["--watch"], {NBOOK_STATE_ROOT: "/data"}, "/work"))).toBe("unknown-argument");
     });
 
-    it("RPC 端口缺省由系统分配；额外页面来源按 URL 规范化", () => {
+    it("RPC 端口可改，0 由系统分配；额外页面来源按 URL 规范化", () => {
+        expect(readServerConfig([], {NBOOK_STATE_ROOT: "/data", NBOOK_RPC_PORT: "0"}, "/work").rpcPort).toBe(0);
         const config = readServerConfig([], {NBOOK_STATE_ROOT: "/data", NBOOK_RPC_PORT: "4100", NBOOK_ALLOWED_ORIGINS: " http://127.0.0.1:3000 , http://LOCALHOST:3000/,http://[::1]:3000"}, "/work");
         expect(config.rpcPort).toBe(4100);
         expect(config.allowedOrigins).toEqual(["http://127.0.0.1:3000", "http://localhost:3000", "http://[::1]:3000"]);
