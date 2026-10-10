@@ -1,0 +1,107 @@
+# t15 `harness.builtin-tools` 审查报告
+
+审查对象：`docs/specs/harness/builtin-tools.md`、`.agents/works/w00002-neuro-agent-harness-redesign/tasks/t15-harness-builtin-tools/plan.md`、`packages/nb-harness/src/builtin/` 及其测试。
+
+发现按核实顺序追加；末尾汇总按影响排序。
+
+
+## 1. 阻断：edit 的头部预检允许原生引擎读取根外符号链接目标
+
+- **类别**：路径越界、信息泄露
+- **位置**：`packages/nb-harness/src/builtin/edit.ts:80-86`；`packages/nb-harness/src/builtin/local/local.ts:21-25`
+- **现象**：edit 头部只调用同步的 `access.resolve()`。本地实现的 `resolve()` 只做字面规范化，不检查符号链接的真实目标；因此根内 `linked.txt -> 根外/secret.txt` 通过预检。真实 OMP `EditSession.apply()` 随后自行打开 `linked.txt`，伪造标签的拒绝文本直接回显了根外文件的两行内容。
+- **为什么是问题**：合同要求头部路径先经 `FileAccess.resolve`，根外文件“连读都不能读”，并把根外符号链接统一判为 `outside-root`。当前工具在 writer 之前已经把根外内容交给原生引擎并暴露到模型可见错误中，违反根约束和验收中的“不泄露根外文件内容”。
+- **如何核实**：在指定 `lab/` 创建根目录、根外 `secret.txt` 和根内链接 `linked.txt`，执行 `edit.execute({input: "[linked.txt#0000]\\nPUT 1.=1:\\n+CHANGED\\n"})`。真实结果为 `code: "edit-rejected"`，消息含 `ROOT_OUTSIDE_SENTINEL` 与 `second-secret`；没有经过本地 `read` 工具。
+- **建议改法**：在交给 `EditSession` 前增加异步的真实路径授权检查；对现存目标、任一级父目录指向根外或无法证明归属的路径返回 `outside-root`。不能用只做词法检查的同步 `resolve()` 作为原生引擎读盘前的安全闸门。
+
+## 2. 阻断：悬空符号链接可被 write 跟随，在根外创建文件
+
+- **类别**：路径越界、写入安全
+- **位置**：`packages/nb-harness/src/builtin/local/local.ts:28-42,95-105`；`packages/nb-harness/src/builtin/edit.ts:62-69`
+- **现象**：`realInsideRoot()` 对目标 `ENOENT` 逐级回退到最近存在的父目录；根内指向根外、但目标尚不存在的悬空链接因此只按根目录通过。随后 `writeFile()` 跟随该链接，在根外创建了目标文件。真实实验中 `root/dangling.txt -> outside/missing.txt`，`access.write("dangling.txt", ...)` 返回成功，根外 `missing.txt` 出现了写入内容。
+- **为什么是问题**：合同要求指向根外的符号链接为 `outside-root`；平台文件合同进一步要求无法证明根内的目标拒绝。这里产生了真实根外副作用。edit writer 还把 `FileAccess.write()` 的所有失败统一改成 `WriteFailed("io-failed", ...)`，即使访问层已经返回 `outside-root`，也会丢失越界错误码。
+- **如何核实**：在指定 `lab/` 用真实 Node 文件系统创建悬空链接，调用本地 `access.write` 并读取链接目标；结果为 `{ok:true}`，根外目标内容为 `WRITE_ESCAPED`。代码路径不经过测试替身。
+- **建议改法**：对写入目标使用不跟随最终链接的身份检查，并拒绝任何无法证明目标仍在根内的链接；创建新文件时要求父目录和最终目录项身份稳定，必要时使用临时文件加原子替换。writer 保留 `outside-root` 失败码，只有真实 I/O 错误才转换为 `io-failed`。
+
+## 3. 重要：createLocalFileAccess 不执行合同要求的根目录前置校验，且根目录 `/` 被规范化为空串
+
+- **类别**：输入合同、路径解析
+- **位置**：`packages/nb-harness/src/builtin/local/local.ts:18-20`
+- **现象**：构造器只检查 `isAbsolute(options.root)`，不存在路径和普通文件都能构造成功；真实实验中 `missing-root` 与 `root/a.txt` 均返回对象。对合法绝对目录 `/`，`normalize("/").replace(/[\\/]+$/u, "")` 得到空串，`access.root` 变成 `""`，`resolve("tmp")` 指向当前工作目录下的 `tmp`，而不是 `/tmp`。
+- **为什么是问题**：公开合同明确规定 root 是“已存在的目录”，否则构造器抛 `TypeError`。接受文件或不存在路径会把错误推迟到各个操作并改变失败码；丢掉文件系统根的分隔符则使一个合法根解析到另一棵树，破坏 `FileAccess.root` 和所有相对路径语义。
+- **如何核实**：真实调用 `createLocalFileAccess({root: missingPath})`、`{root: existingFile}`、`{root: "/"}`，三次均未按合同拒绝；结果分别显示对象构造成功、文件路径作为 root，以及 `root: ""`。
+- **建议改法**：构造器异步校验不可行时至少由明确的工厂异步入口完成 `realpath`、存在性和目录类型校验；若保留同步 API，应在调用方合同中改成已验证前置条件并补充一致的失败语义。规范化根目录时保留 `/`（以及目标平台的盘符根），再对非根路径去尾部分隔符。
+
+## 4. 建议：合法的 `..foo` 根内名称被误判为越界
+
+- **类别**：路径解析、兼容性
+- **位置**：`packages/nb-harness/src/builtin/local/local.ts:13-16`
+- **现象**：`insideRoot()` 用 `rel.startsWith("..")` 判断越界。真实根内文件 `..foo.txt` 的相对结果正是 `..foo.txt`，因此 `access.readBytes("..foo.txt")` 返回 `outside-root`。
+- **为什么是问题**：合同禁止的是父目录组件 `..` 规范化后越出根，不是所有以两个点开头的合法文件名。当前实现拒绝了可寻址的根内文件，且同一判断被真实路径检查和字面路径检查共同使用。
+- **如何核实**：在真实根内创建 `..foo.txt`，调用 `access.readBytes`；结果为 `code: "outside-root"`，文件内容未被读取。
+- **建议改法**：按路径组件判断越界，例如仅拒绝 `rel === ".."` 或 `rel` 以 `..${sep}` 开头，并保留绝对相对结果检查；补充 `..foo`、`...` 和嵌套组合的测试。
+
+## 5. 阻断：预检与引擎对空格、`~` 的寻址语义不同，无符号链接也能读取根外文件
+
+- **类别**：路径越界、输入解析不一致
+- **位置**：`packages/nb-harness/src/builtin/edit.ts:14,37-47,80-86`；`packages/nb-harness/src/builtin/local/local.ts:21-25`；Spec 输出 6；计划“关键设计”4、“不做与风险”。
+- **现象**：真实引擎接受 `[ ../secret.txt#0127]`，去掉路径前导空格后读取 `../secret.txt`；预检却把空格视为目录名并判为根内。`[~/../secret.txt#0127]` 同样通过：预检将 `~` 当普通目录组件，规范化得到根内 `secret.txt`；引擎先把 `~` 展开为 root，再按 `..` 读到根外。这两种输入都在错误文本中回显了 `HEADER_OUTSIDE_SENTINEL` 和 `private`。
+- **为什么是问题**：这不是外部竞态，也不依赖根内已经存在符号链接；同一输入被两套解析器解释成不同目标。`homeDir = root` 只能限制 `~` 的展开起点，不能保证展开后不越界；`cwd`、`localSandboxRoot` 相同也不是原生编辑引擎的读盘沙箱。当前违反“根外不交给引擎、不读取、不泄露”的合同。
+- **如何核实**：已有 `lab/header-variants-results.json:131-156` 保存了真实 `EditSession` 的两种结果，均为 `edit-rejected` 且含根外正文；对应实验为 `header-variants.ts`。本次收尾只读取这些结果，没有重跑实验。
+- **建议改法**：先用引擎同源的静态解析取得全部目标，再按引擎相同的路径去空格、协议和 `~` 展开规则计算最终目标，随后完成词法与真实路径授权，再创建 `EditSession`；或明确拒绝这些特殊寻址形式。不能只检查正则捕获的原始路径字符串。
+
+## 6. 重要：writer 的失败被原生引擎吞为 edit-rejected，已落盘的文件也不出现在结果中
+
+- **类别**：失败合同、部分写入结果
+- **位置**：`packages/nb-harness/src/builtin/edit.ts:49-70,91-100`；Spec 输出 6、“状态与转换”、失败码表；计划“关键设计”4。
+- **现象**：writer 抛出的 `WriteFailed` 没有以原 JS 类型到达外层 catch；真实原生引擎把它转换成 `outcome.isError`。根外 move 返回 `edit-rejected`，不是合同的 `outside-root`。多文件实验先成功更新 `first.txt`，随后写根外符号链接目标失败，最终也返回 `edit-rejected`、`details.files: []`，而 `first.txt` 已是 `first-updated\ntwo\n`。另一个 move 实验先在根内写入 `moved.txt`，删除源链接失败后同样返回空文件列表。
+- **为什么是问题**：多文件不回滚本身符合已声明合同；问题是结果把“已经产生副作用的写失败”与“引擎拒绝、磁盘不变”混为同一个错误码。模型按失败表重新读取或重试时，不能从空 `files` 判断哪些写入已经完成。计划中“writer 抛错、apply 外接住变成带码结果”的假设被真实引擎行为推翻；访问层的 `outside-root` 还会先在 writer 内被降成 `io-failed`。
+- **如何核实**：已有 `lab/engine-ops-results.json` 的 `externalUpdate`、`externalMove`、`multi`、`escape` 均记录真实引擎和真实文件系统结果：`multi.first` 已变化而 `outcome.details.files` 为空；`escape` 未落盘但错误码为 `edit-rejected`。本次收尾没有重跑。
+- **建议改法**：在 JS writer 边界显式保存失败的类型、码、路径及已完成文件列表，`apply` 返回后据此构造失败结果，不依赖原生层保留 JS 异常身份；保留 `outside-root`，真实写失败才为 `io-failed`。全部目标在第一笔写入前完成授权，以履行越界“整次不落盘”的合同；普通 I/O 失败仍按已批准的非事务语义报告已完成副作用。
+
+## 7. 重要：默认工具来源隐藏 SnapshotStores，已关闭会话的快照没有回收入口
+
+- **类别**：资源生命周期、公开 API 缺口
+- **位置**：`packages/nb-harness/src/builtin/stores.ts:6-19`、`builtin.ts:18-22`；`packages/nb-harness/src/tools/types.ts:29-32`；`packages/nb-harness/src/runtime/session.ts:289-305`；计划“关键设计”2、5。
+- **现象**：已核实的代码事实：`createBuiltinTools()` 内部新建 `SnapshotStores`，只返回含 `list/get` 的静态 `ToolSource`；read/edit 的闭包持续持有该 stores。每个 session id 在 Map 中创建一份原生 `EditStore`，唯一删除入口是 `release(sessionId)`，但默认入口没有暴露它，runtime 的 `close()` 也没有调用路径。`read` 登记的是完整文本快照，而不只是展示窗口。
+- **为什么是问题**：从代码推断，一个长期复用的默认 `ToolSource` 会保留所有曾使用它的会话存储，直到整个来源被丢弃；宿主无法在保持来源可用时回收已结束会话的快照。计划声明的 `release` 生命周期无法经默认公开入口履行。一个来源跨独立 runtime 复用时，相同 id 还会命中同一存储；“按 id 分开”不是“按 runtime 实例分开”。
+- **如何核实**：前一轮已逐处读取 Map、默认装配、ToolSource 接口与真实 runtime `close()`，并搜索了 release 调用；不存在默认来源到 stores 的释放链。未完成 runtime 关闭/重开或共享来源实验，未测量堆增长，因此不把实际内存数值或跨会话放行写成已验证行为。
+- **建议改法**：明确来源和会话快照的所有权与寿命，让装配方能够持有并释放 stores，或提供来源的会话释放合同并由 runtime 在约定时点调用。相同逻辑会话关闭后是否保留到重开、多个句柄是否共享、独立 runtime 的 id 命名空间应写清；不能无条件在任一句柄 close 时删除其他活跃句柄仍使用的存储。
+
+## 8. 重要：标签有效性与会话隔离的合同互相矛盾，验收无法采用同一个判据
+
+- **类别**：合同一致性、验收可判定性
+- **位置**：`docs/specs/harness/builtin-tools.md:27,72,77,93`；`packages/nb-harness/src/builtin/stores.ts:1`、`edit.test.ts:46,59-65`。
+- **现象**：术语说“标签只在同一个会话的存储里有效”，失败表把“标签不是本会话的”列为拒绝原因，状态章节又说进程重启后标签失效；输出 7 却明确规定另一会话拿同样标签、当前文件内容未变时照常接受。测试标题说“另一会话的标签都被拒”，正文反而断言 s2 使用 s1 的标签编辑成功。`stores.ts` 顶部注释继续宣称标签只在登记会话有效。
+- **为什么是问题**：会话隔离的是展示行和历史快照记录，不是内容哈希本身作为不可转移授权令牌的有效性。现有文字让维护者既可以把跨会话接受判为正确，也可以按术语和失败表判为违规；标签来源不是独立的充分拒绝条件。进程重启行为本轮没有运行证据，不能用“失效”断言代替明确的接受条件。
+- **如何核实**：前一轮已对照 Spec 四处文字、stores 注释和 edit 测试正文；这是直接可见的合同与验收矛盾，不需要新实验。本轮没有执行该 edit 测试，也不将它的断言当作本轮通过证据。
+- **建议改法**：沿用已写出的 OMP 内容哈希语义，统一说明“按会话隔离快照历史、展示行和其他编辑状态；当前内容哈希相同时，新存储可能接受该标签”。删除与此相反的术语、失败表说明、注释和测试标题；另行规定并验收 release/重启后的展示行状态，不能承诺哈希必然失效。
+
+## 按影响排序的汇总
+
+- **阻断：3 条**：发现 1、2、5。均能使原生引擎读取根外内容或产生根外写入副作用。
+- **重要：4 条**：发现 3、6、7、8。分别涉及根输入合同、失败结果与部分写入、快照资源寿命、标签隔离合同一致性。
+- **建议：1 条**：发现 4。拒绝合法根内文件名，影响兼容性但不越界。
+- **合计：8 条**。
+
+## 未发现问题的方面
+
+以下结论只限已检查的实现、已有合同测试和本轮真实实验；不是对未覆盖平台或未运行路径的保证：
+
+- 仔细检查后没有发现 `read` 普通成功路径与合同的明显不一致：文件/目录分流、文本头和行号、`offset`/`limit`、展示行登记、NUL 的 `binary` 拒绝、图片 MIME/base64、目录排序与 500 项截断，以及行/字节预算的输出标记都有实现，关键路径有对应合同测试。
+- 仔细检查后没有发现正常根内 hashline 编辑的语义偏差：先读后改、回显新标签、用回显标签连续编辑、未展示行守卫、陈旧标签重映射警告、正常 `delete` 和正常根内 `move` 均与 OMP 实验或已有合同测试一致。
+- 仔细检查后没有发现普通 `FileAccess` 字面路径对 `..` 越界、绝对路径、NUL 或现存根外符号链接读操作的放行；已发现的问题发生在 `..foo` 兼容性误拒，以及原生引擎绕过 `FileAccess` 的读盘路径。
+- 仔细检查后没有发现 builtin 的公开入口、`read`/`edit` 列表顺序、`get` 引用稳定性或风险等级声明与工具协议不一致；已有运行时测试证明 write 模式下脚本化模型可以先 `read` 再 `edit` 并落盘。
+- 仔细检查后没有发现成功多文件编辑必须回滚的合同依据；已落盘后续失败“不回滚”符合 Spec。单独列出的发现 6 是失败码、已完成文件和结果可观察性错误，不是把非事务语义本身判为缺陷。
+
+## 对待确认决定的判断
+
+- **编辑引擎自己读磁盘**：**不应按当前前提接受**；`cwd`、`localSandboxRoot`、`homeDir` 与根相同不足以形成读盘沙箱，真实实验已经证明路径空格和 `~` 形式可以绕过预检并泄露根外内容。除非接入受 `FileAccess` 约束的读取或用与引擎完全一致的解析器预先授权全部目标，否则不能把该决定作为 builtin 的安全实现。
+- **快照存储按 `ToolContext.session.id` 分开**：**保留“展示行按会话隔离”的决定，但不能作为完整生命周期合同接受**；必须同时明确内容哈希可否跨会话复用、`release`/关闭/重开和共享来源的所有权。当前 `Map<sessionId, EditStore>` 能隔离展示记录，却没有默认来源到 runtime close 的回收链，且 Spec 对标签有效性的文字互相矛盾。
+
+## 证据边界
+
+- 发现 1、2、3、4、5、6 均依据指定 `lab/` 中的真实 Node 文件系统结果；其中发现 1、5、6 还依据真实 OMP 原生 `EditSession` 结果。本次报告收尾只读取既有结果，没有重做实验。
+- 发现 7 是已核实的静态生命周期缺口；没有把堆增长、关闭后实际重用或跨 runtime 共享来源的运行结果写成事实。
+- 发现 8 是 Spec、计划、注释和测试源码之间的直接矛盾；进程重启后的标签行为在本轮没有新增运行证据。
+- 未将 Windows 专属路径大小写/分隔符行为、恶意外部进程竞态、真实模型审批质量和失败的临时 runtime 边界脚本当作本报告证据。

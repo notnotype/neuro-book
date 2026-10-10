@@ -28,6 +28,30 @@ async function header(read: ToolDefinition, path: string, sessionId = "s1", limi
     return textOf(result).split("\n")[0]!;
 }
 
+describe("写入失败的结果（输出 6、状态与转换）", () => {
+    test("writer 失败不会被引擎吞成 edit-rejected：保留访问层的码，details.written 列出已落盘的文件", async () => {
+        const base = await createTestTmpRoot("nb-harness-builtin", "edit-fail");
+        roots.push(base);
+        const root = join(base, "project");
+        await mkdir(root, {recursive: true});
+        await writeFile(join(root, "first.txt"), "one\ntwo\n", "utf8");
+        await writeFile(join(root, "second.txt"), "a\nb\n", "utf8");
+        const real = createLocalFileAccess({root});
+        // 第二个文件写入时访问层报越界（模拟悬空链接那类情况）
+        const access = {...real, write: async (path: string, content: string) => (path === "second.txt" ? {ok: false as const, code: "outside-root" as const, detail: "模拟越界"} : real.write(path, content))};
+        const stores = createSnapshotStores();
+        const read = readTool({access, stores});
+        const edit = editTool({access, stores});
+        const h1 = textOf(await read.execute({path: "first.txt"}, context())).split("\n")[0]!;
+        const h2 = textOf(await read.execute({path: "second.txt"}, context())).split("\n")[0]!;
+        const result = await edit.execute({input: `${h1}\nPUT 1.=1:\n+ONE\n${h2}\nPUT 1.=1:\n+A\n`}, context());
+        expect(result.ok ? null : result.code).toBe("outside-root");
+        expect(result.ok ? null : result.details).toEqual({written: ["first.txt"]});
+        expect(await readFile(join(root, "first.txt"), "utf8")).toBe("ONE\ntwo\n");
+        expect(await readFile(join(root, "second.txt"), "utf8")).toBe("a\nb\n");
+    });
+});
+
 describe("edit（输出 6、7）", () => {
     test("场景 3：先读后改落盘正确并回显新标签；用回显的标签连续第二次编辑", async () => {
         const {root, read, edit} = await setup();
@@ -43,7 +67,7 @@ describe("edit（输出 6、7）", () => {
         expect(await readFile(join(root, "a.txt"), "utf8")).toBe("alpha\nBETA\nGAMMA\n");
     });
 
-    test("场景 3：未展示的行、伪造的标签、另一会话的标签都被拒且磁盘不变；文件被外部改动后按 OMP 语义重映射并带警告", async () => {
+    test("场景 3：未展示的行、伪造的标签被拒且磁盘不变；会话隔离的是展示记录（另一会话拿同样的内容哈希标签照常接受）；文件被外部改动后按 OMP 语义重映射并带警告", async () => {
         const {root, read, edit} = await setup();
         await writeFile(join(root, "b.txt"), "alpha\nbeta\ngamma\n", "utf8");
         const partial = await header(read, "b.txt", "s1", 1);
@@ -94,5 +118,11 @@ describe("edit（输出 6、7）", () => {
         expect(viaLink.ok ? null : viaLink.code).toBe("outside-root");
         expect(textOf(viaLink)).not.toContain("SECRET-LINE");
         expect(await readFile(join(root, "..", "secret.txt"), "utf8")).toBe("SECRET-LINE\n");
+        // 引擎会去掉路径前后空白、展开 ~：这些形式本模块不替它猜，直接拒绝，根外内容不回显
+        for (const header of ["[ ../secret.txt#0000]", "[~/../secret.txt#0000]", "[../secret.txt #0000]", "[file://x#0000]"]) {
+            const odd = await edit.execute({input: `${header}\nPUT 1.=1:\n+X\n`}, context());
+            expect(odd.ok ? null : odd.code).toBe("outside-root");
+            expect(textOf(odd)).not.toContain("SECRET-LINE");
+        }
     });
 });

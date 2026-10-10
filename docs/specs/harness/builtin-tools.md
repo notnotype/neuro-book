@@ -24,14 +24,14 @@ owners:
 
 - **根**：`FileAccess` 的绝对目录；所有路径都是根内的相对路径。
 - **根内路径**：相对路径经规范化后仍在根里（不以 `..` 走出根、不是绝对路径）；符号链接按真实路径再判一次。
-- **快照与标签**：`read` 展示文本时把展示过的行登记到 OMP `EditStore`，得到标签 `#XXXX`；`edit` 的输入以 `[path#tag]` 开头，引擎据此核对“先读后改”。标签只在同一个会话的存储里有效。
+- **快照与标签**：`read` 展示文本时把展示过的行登记到 OMP `EditStore`，得到标签 `#XXXX`；`edit` 的输入以 `[path#tag]` 开头，引擎据此核对“先读后改”。标签是文件内容的哈希（OMP 语义），不是会话私有的令牌；按会话隔离的是展示过的行与快照记录。
 - **调用方**：运行时通过 `ToolSource` 取得这两个工具；`ToolContext.session.id` 决定用哪个会话的快照存储。
 
 ## 输入与前置条件
 
 ```ts
 // 公开入口 @notnotype/nb-harness/builtin
-createBuiltinTools(input: {access: FileAccess; read?: {maxLines?: number; maxBytes?: number}}): ToolSource;   // 列出 read、edit
+createBuiltinTools(input: {access: FileAccess; read?: {maxLines?: number; maxBytes?: number}; stores?: SnapshotStores}): ToolSource;   // 列出 read、edit；stores 不传则来源自己持有
 readTool(input: {access: FileAccess; stores: SnapshotStores; maxLines?: number; maxBytes?: number}): ToolDefinition;
 editTool(input: {access: FileAccess; stores: SnapshotStores}): ToolDefinition;
 createSnapshotStores(): SnapshotStores;                      // 每个会话一个 OMP EditStore
@@ -69,15 +69,15 @@ createLocalFileAccess(options: {root: string}): FileAccess;   // root 必须是�
 3. **read 目录**：每个条目一行 `- <name>`，目录带 `/`，按名字排序，最多 500 项（超出加一行说明）；`details.kind: "directory"`、`entries` 为总数。
 4. **read 图片**：扩展名为 png、jpg、jpeg、gif、webp 的文件以图片块返回（base64 与 `mimeType`），`details.bytes` 为字节数；不登记快照。
 5. **read 失败**：`FileAccess` 的失败码照搬为工具错误码（`outside-root`、`not-found`、`io-failed`）；错误消息说明路径。
-6. **edit**：用本会话的快照存储新建一个 OMP `EditSession`（hashline 模式，`cwd` 与 `localSandboxRoot` 都是根，`enforceSeenLines` 开，`allowFuzzy` 开，`homeDir` 也是根所以 `~` 不出根），`input` 原样交给引擎；引擎决定要写的文件后经 `FileAccess.write`（`delete` 操作经 `remove`，`move` 先写目标再删源）落盘；引擎回显的文本（含新标签）原样作为工具内容，`details.files` 列出每个文件的 `path`、`op`、`warnings`。引擎报错（伪造标签、未展示的行、解析失败）→ 错误结果，文本照引擎、`code: "edit-rejected"`，磁盘不变（引擎拒绝时回显的文件内容也算展示过，这是 OMP 的语义）。`input` 里每个 `[path#tag]` 头的 `path` 先经 `FileAccess.locate`（真实路径，符号链接也认得出）：任一不在根内 → 错误 `outside-root`，不交给引擎（引擎会自己读头里的文件来核对标签并把内容回显在错误里，根外的文件连读都不能读）；引擎要写的路径不在根内（例如 `move` 的目标、悬空链接）→ 同样 `outside-root`（访问层的越界码原样保留，只有真正的 I/O 失败才是 `io-failed`），整次不落盘。
+6. **edit**：用本会话的快照存储新建一个 OMP `EditSession`（hashline 模式，`cwd` 与 `localSandboxRoot` 都是根，`enforceSeenLines` 开，`allowFuzzy` 开，`homeDir` 也是根所以 `~` 不出根），`input` 原样交给引擎；引擎决定要写的文件后经 `FileAccess.write`（`delete` 操作经 `remove`，`move` 先写目标再删源）落盘；引擎回显的文本（含新标签）原样作为工具内容，`details.files` 列出每个文件的 `path`、`op`、`warnings`。引擎报错（伪造标签、未展示的行、解析失败）→ 错误结果，文本照引擎、`code: "edit-rejected"`，磁盘不变（引擎拒绝时回显的文件内容也算展示过，这是 OMP 的语义）。`input` 里每个 `[path#tag]` 头的 `path` 必须是干净的根内相对路径——带前后空白、以 `~` 开头、带协议前缀（`://`）的直接按 `outside-root` 拒绝（引擎会去空白、展开 `~`，本模块不替它猜），再经 `FileAccess.locate`（真实路径，符号链接也认得出）：任一不在根内 → 错误 `outside-root`，不交给引擎（引擎会自己读头里的文件来核对标签并把内容回显在错误里，根外的文件连读都不能读）；引擎要写的路径不在根内（例如 `move` 的目标、悬空链接）→ 同样 `outside-root`（访问层的越界码原样保留，只有真正的 I/O 失败才是 `io-failed`），整次不落盘。
 7. **会话隔离**：快照存储按 `ToolContext.session.id` 分开：一个会话 `read` 登记的“展示过的行”不约束也不放行另一个会话。标签本身是文件内容的哈希（OMP 语义）：另一个会话拿同样的标签、文件内容没变时引擎照常接受；文件变了则按它的规则核对。`SnapshotStores.release(sessionId)` 丢弃该会话的存储。
 8. **工具来源**：`createBuiltinTools` 返回的 `ToolSource` 列出 `read`、`edit` 两个描述符，`get` 返回同一份定义（引用稳定）。
 
 ## 状态与转换
 
-本模块的状态只有每个会话的快照存储（标签与展示过的行），随 `release` 丢弃；进程重启后标签失效，模型需要重新 `read`。`FileAccess` 无状态。
+本模块的状态只有每个会话的快照存储（展示过的行与快照记录），随 `release(sessionId)` 丢弃；快照存储的寿命归装配方：自己建一份传给 `createBuiltinTools({stores})` 并在会话结束后 `release`，不传则由来源持有到来源被丢弃（运行时不替来源回收；插件阶段把它接到会话的生命周期上）。`release` 或进程重启后展示记录丢失，模型要重新 `read`；标签本身是内容哈希，文件未变时新存储仍可能接受它。`FileAccess` 无状态。
 
-**时序**：`edit` 在同一次调用里先由引擎读当前文件、核对标签与展示行、计算结果，再逐个文件经 `FileAccess` 写；写失败时后面的文件不再写，已写的不回滚（引擎的多文件编辑本来就不是原子的），结果为错误 `io-failed` 并说明写到哪个文件。
+**时序**：`edit` 在同一次调用里先由引擎读当前文件、核对标签与展示行、计算结果，再逐个文件经 `FileAccess` 写；写失败时后面的文件不再写，已写的不回滚（引擎的多文件编辑本来就不是原子的）。原生引擎会把 writer 的异常吞成它自己的拒绝，所以写失败由本模块自己记录：结果为错误，`code` 是访问层给的码（`outside-root` 或 `io-failed`），`message` 说明哪个文件，`details.written` 列出这次已经落盘（写入或删除）的文件。
 
 ## 副作用与数据
 
@@ -91,8 +91,8 @@ createLocalFileAccess(options: {root: string}): FileAccess;   // root 必须是�
 | `not-found` / `not-a-file` / `not-a-directory` | 目标不存在或类型不对 | 先列目录确认 |
 | `binary` | 文件含 NUL 字节 | 不读它 |
 | `invalid-arguments` | `offset` 越界等 | 修正参数 |
-| `edit-rejected` | 引擎拒绝：标签不是本会话的、改了未展示的行、解析失败 | 按引擎文本重新 `read` 后再改 |
-| `io-failed` | 读写系统错误 | 告诉用户 |
+| `edit-rejected` | 引擎拒绝：标签与当前文件对不上、改了未展示的行、解析失败 | 按引擎文本重新 `read` 后再改 |
+| `io-failed` | 读写系统错误；`edit` 时 `details.written` 列出已落盘的文件 | 告诉用户 |
 
 ## 边界与兼容
 

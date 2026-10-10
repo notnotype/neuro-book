@@ -12,18 +12,24 @@ import type {FileAccess, SnapshotStores} from "./types";
 
 /** hashline 的文件头：`[path#TAG]`；多文件编辑有多个头。 */
 const HEADER = /^\[(.+)#[0-9A-Fa-f]{4}\]\s*$/u;
+/** 引擎解析头里的路径时会去掉前后空白、展开 `~`、认协议前缀；这些形式本模块不替它猜，直接拒绝，只放行干净的根内相对路径。 */
+const UNSAFE_HEADER_PATH = /^\s|\s$|^~|:\/\//u;
 
 const EditParameters = Type.Object({
     input: Type.String({minLength: 1, description: "hashline 原文：首行 [path#tag]，之后是行锚操作"}),
 });
 
-/** 写入失败只在本模块内抛出、在 apply 外接住，不冒泡到工具调用方。 */
+/**
+ * 写入失败只在本模块内抛出。原生引擎会把 writer 抛出的异常吞成 outcome.isError，JS 的异常对象到不了 apply 外面，
+ * 所以失败同时记在 WriteLog 里，apply 返回后据它构造结果。
+ */
 class WriteFailed extends Error {
     constructor(readonly code: "outside-root" | "io-failed", readonly detail: string) {
         super(detail);
         this.name = "WriteFailed";
     }
 }
+type WriteLog = {failure: {code: "outside-root" | "io-failed"; detail: string} | null; written: string[]};
 
 /** 引擎给的是绝对路径；转回根内相对路径交给 FileAccess，不在根内的整次不写。 */
 function relativeToRoot(root: string, absolute: string): string | null {
@@ -46,7 +52,7 @@ export function editTool(input: {access: FileAccess; stores: SnapshotStores}): T
         homeDir: root, // `~` 展开也落在根里
         rawInput: false,
     };
-    const writer = async (request: EditWriteRequest): Promise<EditWriteResponse> => {
+    const writer = async (log: WriteLog, request: EditWriteRequest): Promise<EditWriteResponse> => {
         const path = relativeToRoot(root, request.path);
         if (path === null) throw new WriteFailed("outside-root", `引擎要写的路径不在根内：${request.displayPath}`);
         const checked = input.access.resolve(path);
@@ -56,6 +62,7 @@ export function editTool(input: {access: FileAccess; stores: SnapshotStores}): T
         if (request.content === undefined) {
             const removed = await input.access.remove(path);
             if (!removed.ok && removed.code !== "not-found") throw failed(request.displayPath, removed);
+            log.written.push(path);
             return {written: ""};
         }
         if (request.moveTo !== undefined) {
@@ -63,12 +70,15 @@ export function editTool(input: {access: FileAccess; stores: SnapshotStores}): T
             if (target === null) throw new WriteFailed("outside-root", `引擎要移到的路径不在根内：${request.moveTo}`);
             const written = await input.access.write(target, request.content);
             if (!written.ok) throw failed(target, written);
+            log.written.push(target);
             const removed = await input.access.remove(path);
             if (!removed.ok && removed.code !== "not-found") throw failed(request.displayPath, removed);
+            log.written.push(path);
             return {written: request.content};
         }
         const written = await input.access.write(path, request.content);
         if (!written.ok) throw failed(request.displayPath, written);
+        log.written.push(path);
         return {written: request.content};
     };
 
@@ -83,22 +93,31 @@ export function editTool(input: {access: FileAccess; stores: SnapshotStores}): T
             for (const line of text.split("\n")) {
                 const match = HEADER.exec(line);
                 if (match === null) continue;
-                const checked = await input.access.locate(match[1]!);
+                const raw = match[1]!;
+                if (UNSAFE_HEADER_PATH.test(raw)) return {ok: false, code: "outside-root", message: `头里的路径必须是干净的根内相对路径（不带前后空白、不以 ~ 开头、不带协议）：${raw}`};
+                const checked = await input.access.locate(raw);
                 if (!checked.ok) return {ok: false, code: checked.code === "outside-root" ? "outside-root" : checked.code, message: checked.detail};
             }
             const session = new EditSession(input.stores.forSession(context.session.id), policy, undefined);
+            const log: WriteLog = {failure: null, written: []};
             try {
                 session.setArgsJson(JSON.stringify({input: text}));
                 session.finish();
                 const outcome = await session.apply({lspFlush: false}, async (error, request) => {
                     if (error !== null) throw error;
-                    return writer(request);
+                    try {
+                        return await writer(log, request);
+                    } catch (failure) {
+                        if (failure instanceof WriteFailed) log.failure ??= {code: failure.code, detail: failure.detail};
+                        throw failure;
+                    }
                 });
+                if (log.failure !== null) return {ok: false, code: log.failure.code, message: log.failure.detail, details: {written: log.written}};
                 const files = outcome.files.map((file) => ({path: file.displayPath, op: file.op, warnings: [...file.warnings]}));
                 if (outcome.isError) return {ok: false, code: "edit-rejected", message: outcome.text, details: {files}};
                 return {ok: true, content: outcome.text, details: {files}};
             } catch (error) {
-                if (error instanceof WriteFailed) return {ok: false, code: error.code, message: error.detail};
+                if (log.failure !== null) return {ok: false, code: log.failure.code, message: log.failure.detail, details: {written: log.written}};
                 return {ok: false, code: "edit-rejected", message: error instanceof Error ? error.message : String(error)};
             } finally {
                 session.close();
