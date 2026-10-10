@@ -33,7 +33,10 @@
   - `open`：整读文件，按 `\n` 切行；最后一段不以换行结束就是中断尾（输出 6）；完整行逐行 `JSON.parse` 并按条目 schema 校验，失败给 `corrupt-session` 与行号（输出 7）；会话头 `version` 不是 1 → `unsupported-version`（输出 8）。
   - `append`：一批拼成一个字符串，`appendFile` 一次写入；出错 → `store-failed`。
   - `repair`：截到最后一个换行处（`truncate`）。
-  - `list`：`readdir` 出 `*.jsonl`，逐个 `open`，损坏的跳过（输出 17）。
+  - `list`：`readdir` 出 `*.jsonl`，逐个读取：`corrupt-session`、`unsupported-version`、读取途中文件消失的跳过（输出 17 的“损坏的会话不列出”），读不出来（权限、I/O）的立即返回 `store-failed`（计划审查第 11 条）。v1 的代价是一次 `list` 读全部会话文件的字节之和。
+  - 中断尾、行号与 `repair` 的截断位置都按原始字节算（在 Buffer 里找最后一个换行），切在多字节字符中间也不会错（计划审查第 10 条）。
+  - `open` 核对会话头的 `id` 与文件名一致，不一致为 `corrupt-session`（计划审查第 12 条）。
+  - `create` 用 `wx` 建文件后写会话头失败时删掉文件再报 `store-failed`，删不掉写进 `detail`；已存在的文件不论内容一律 `session-exists`，没有会话头的文件按 `corrupt-session` 由人工处理（计划审查第 13 条，取舍记在待确认清单）。
 - 会话 id 的格式由日志与两种存储共同检查（防止路径穿越）。
 
 ### 4. 回放（`src/session/replay.ts`）

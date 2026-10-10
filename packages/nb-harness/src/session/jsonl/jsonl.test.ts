@@ -1,5 +1,5 @@
 import {afterAll, describe, expect, test} from "bun:test";
-import {appendFile, readFile, rm, stat, writeFile} from "node:fs/promises";
+import {appendFile, chmod, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {createSession, openSession} from "../log";
@@ -208,6 +208,59 @@ describe("JSONL 存储：文件", () => {
         await appended(reopened.value, [userMessage("四")]);
         expect(caughtUp).toEqual([4, 5, 6]);
         reopened.value.close();
+    });
+
+    test("场景 3：中断尾切在一个多字节字符中间时，bytes 仍按文件里的原始字节算，repair 恰好截掉这些字节", async () => {
+        const root = await newRoot();
+        const store = createJsonlSessionStore({root});
+        const log = await newLog(store, "cut");
+        await appended(log, [userMessage("完整的一行")]);
+        log.close();
+        const tail = Buffer.concat([Buffer.from('{"type":"message","x":"汉', "utf8").subarray(0, -1)]);
+        await appendFile(join(root, "cut.jsonl"), tail);
+        const before = (await readFile(join(root, "cut.jsonl"))).length;
+
+        const reopened = await openSession(store, "cut");
+        if (!reopened.ok) throw new Error(reopened.detail);
+        expect(reopened.value.damagedTail).toEqual({bytes: tail.length});
+        const repaired = await reopened.value.repair();
+        expect(repaired.ok && repaired.value).toEqual({droppedBytes: tail.length});
+        expect((await readFile(join(root, "cut.jsonl"))).length).toBe(before - tail.length);
+        await appended(reopened.value, [userMessage("修好后追加")]);
+        reopened.value.close();
+        const again = await openSession(store, "cut");
+        expect(again.ok && again.value.entries.length).toBe(2);
+    });
+
+    test("输出 5、7：文件名与会话头的 id 不一致时为 corrupt-session（第 1 行），list 也不列出它", async () => {
+        const root = await newRoot();
+        const store = createJsonlSessionStore({root});
+        const log = await newLog(store, "b");
+        await appended(log, [userMessage("一")]);
+        log.close();
+        await writeFile(join(root, "a.jsonl"), await readFile(join(root, "b.jsonl")));
+        expect(failure(await openSession(store, "a"))).toEqual({code: "corrupt-session", line: 1});
+        const listed = await store.list();
+        expect(listed.ok && listed.value.map((summary) => summary.id)).toEqual(["b"]);
+    });
+
+    test("输出 17：读不出来的会话文件让 list 返回 store-failed，而不是当作损坏跳过", async () => {
+        const root = await newRoot();
+        const store = createJsonlSessionStore({root});
+        const fine = await newLog(store, "fine");
+        await appended(fine, [userMessage("一")]);
+        const locked = await newLog(store, "locked");
+        await appended(locked, [userMessage("二")]);
+        const lockedPath = join(root, "locked.jsonl");
+        await chmod(lockedPath, 0o000);
+        try {
+            const listed = await store.list();
+            expect(failure(listed).code).toBe("store-failed");
+        } finally {
+            await chmod(lockedPath, 0o644);
+        }
+        const afterRestore = await store.list();
+        expect(afterRestore.ok && afterRestore.value.map((summary) => summary.id).sort()).toEqual(["fine", "locked"]);
     });
 
     test("输出 17：损坏的会话不列出，有中断尾的照常列出，不是 .jsonl 的文件忽略", async () => {

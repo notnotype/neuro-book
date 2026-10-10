@@ -5,7 +5,7 @@
  * 中断尾与行号都按字节算，不按字符：截断发生在字节边界，用 Buffer 找最后一个换行才能和文件里的内容对上。
  */
 
-import {open, readdir, readFile, truncate} from "node:fs/promises";
+import {open, readdir, readFile, truncate, unlink} from "node:fs/promises";
 import {join} from "node:path";
 import {isValidSessionId, storedEntryProblem, headerProblem} from "../entries";
 import {summaryOf} from "../summary";
@@ -35,7 +35,7 @@ function splitLines(bytes: Buffer): {lines: string[]; tailBytes: number} {
     return {lines, tailBytes: bytes.length - (lastNewline + 1)};
 }
 
-function parseSession(bytes: Buffer): Result<Opened> {
+function parseSession(bytes: Buffer, expectedId: string): Result<Opened> {
     const {lines, tailBytes} = splitLines(bytes);
     if (lines.length === 0) return fail("corrupt-session", "会话头缺失", {line: 1});
     let rawHeader: unknown;
@@ -49,6 +49,9 @@ function parseSession(bytes: Buffer): Result<Opened> {
     }
     const headerIssue = headerProblem(rawHeader);
     if (headerIssue !== null) return fail("corrupt-session", `会话头无效：${headerIssue}`, {line: 1});
+    // 文件名与会话头的 id 各自都是身份：误复制、改名的文件不能以另一个 id 打开，否则游标、追加的存储 key 与句柄身份会对不上。
+    const headerId = (rawHeader as SessionHeader).id;
+    if (headerId !== expectedId) return fail("corrupt-session", `会话头的 id 是 ${headerId}，与文件名 ${expectedId} 不一致`, {line: 1});
     const entries: SessionEntry[] = [];
     for (let index = 1; index < lines.length; index += 1) {
         const line = index + 1;
@@ -75,20 +78,29 @@ export function createJsonlSessionStore(options: {root: string}): SessionStore {
         } catch (error) {
             return errorCode(error) === "ENOENT" ? fail("session-not-found", `会话不存在：${id}`) : fail("store-failed", `读取会话文件失败：${describe(error)}`);
         }
-        return parseSession(bytes);
+        return parseSession(bytes, id);
     };
 
     return {
         async create(header) {
             if (!isValidSessionId(header.id)) return fail("invalid-session-id", `会话 id 不合规则：${header.id}`);
+            const path = pathOf(header.id);
             let handle: Awaited<ReturnType<typeof open>> | null = null;
             try {
-                handle = await open(pathOf(header.id), "wx");
-                await handle.writeFile(`${JSON.stringify(header)}\n`, "utf8");
-                return {ok: true, value: undefined};
+                handle = await open(path, "wx");
             } catch (error) {
                 if (errorCode(error) === "EEXIST") return fail("session-exists", `会话已存在：${header.id}`);
                 return fail("store-failed", `创建会话文件失败：${describe(error)}`);
+            }
+            try {
+                await handle.writeFile(`${JSON.stringify(header)}\n`, "utf8");
+                return {ok: true, value: undefined};
+            } catch (error) {
+                // 会话头没写成就把文件删掉，否则这个 id 会永远 session-exists、打开又是 corrupt-session；删不掉时写进 detail。
+                await handle.close();
+                handle = null;
+                const cleanup = await unlink(path).then(() => "", (unlinkError: unknown) => `；清理失败：${describe(unlinkError)}`);
+                return fail("store-failed", `写入会话头失败：${describe(error)}${cleanup}`);
             } finally {
                 await handle?.close();
             }
@@ -130,13 +142,19 @@ export function createJsonlSessionStore(options: {root: string}): SessionStore {
             } catch (error) {
                 return fail("store-failed", `读取会话目录失败：${describe(error)}`);
             }
+            // v1 的代价：每个会话整读并完整校验，list 一次读的字节数是全部会话文件之和（Spec 不承诺列表的检索与分页）。
             const summaries = [];
             for (const name of names) {
                 if (!name.endsWith(".jsonl")) continue;
                 const id = name.slice(0, -".jsonl".length);
                 if (!isValidSessionId(id)) continue;
                 const opened = await readSession(id);
-                if (opened.ok) summaries.push(summaryOf(opened.value.header, opened.value.entries));
+                if (opened.ok) {
+                    summaries.push(summaryOf(opened.value.header, opened.value.entries));
+                    continue;
+                }
+                // 读不出来的文件（权限、I/O）是存储故障，要报出去让调用方重试；文件内容坏了或版本不支持才是“损坏的会话不列出”。
+                if (opened.code === "store-failed") return opened as Result<never>;
             }
             return {ok: true, value: summaries};
         },
