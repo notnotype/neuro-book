@@ -34,3 +34,4 @@ taskId: t75-bookshelf
   - 截图（`lab:shot`，1180×980 与 390×844、明暗两种配色，全部没有溢出与页面问题）：[书脊明](evidences/s1-spines-light.png)、[书脊暗](evidences/s1-spines-dark.png)、[英文](evidences/s1-english-light.png)、[空书架](evidences/s1-empty-light.png)、[手机列表](evidences/s1-list-phone-light.png)、[手机暗色](evidences/s1-phone-dark.png)。本机没有装 nbook 主题的宋体（Source Han Serif、Noto Serif SC），截图里的书名与片段落到了黑体。
   - 验证：typecheck；`shelf-format.test.ts` 10 例、`SpineShelf.dom.test.ts` 4 例、Lab 索引与场景测试；变异 3 个全杀（Home 键、厚度上限、负数今天）。
   - 外观意见按 [待开发者确认](../../pending-confirmations.md) 的做法不阻塞后续切片。
+- 2026-10-10 计划审查：omp 审查 18 条（阻断 2 条：统计写入与条件保存不相容、握手加书名破坏协议），[报告](evidences/plan-review.txt)；修订后交 fable 子代理复核，7 条必须先改与 6 条建议，[报告](evidences/plan-rereview.txt)。全部写进 [plan.md](plan.md) 的“计划审查的处理”。新增书架页 Spec 草稿 [`workbench/bookshelf.md`](../../../../../docs/specs/workbench/bookshelf.md)（`planned`）；5 条产品取舍登记在 [待开发者确认](../../pending-confirmations.md)。

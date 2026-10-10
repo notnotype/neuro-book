@@ -1,0 +1,31 @@
+# w00017 t75 书架页修订计划复核（fable 子代理，2026-10-10）
+
+复核对象：按 omp 计划审查修订后的 plan.md。路径相对 `.worktree/w00017-runtime-foundation/packages/neuro-book/`，Spec 相对仓库根。处理见 plan.md“计划审查的处理”的 R 编号。
+
+总体结论：可以开始 S0，但 S0 的交付物要先写具体，另有 6 处正文合同不可执行或与现有代码不符，建议随 S0 一并改掉。P4、P14 的修订成立；P5、P6、P7、P13、P15、P16 的处理表与正文一致，但各有一处落不了地（见下）。
+
+## 必须先改
+
+1. S0 交付物不具体，S2/S4 会互相阻塞（plan.md:21、166、176、181、216–219）。S4 要对着 `remote.shelf()` 做页面，S2 的“关键设计 1”又把 `src/plugins/projects/shared/` 划给自己。S0 应写明交付：`projects/shared/contracts.ts` v2 的完整 TypeBox 合同（方法、错误码、`ShelfItem` schema）、`shared/shelf.ts` 的 `counting`/`unreadable`、`WORKBENCH_HOME_POINT` 与声明校验、统计记录定义。记录定义必须放 `projects/shared/`，不是 `project/stats-record.ts`：服务端 `shelf` 读停止项目的记录也要用它（docs/specs/storage/persistence.md:28 “三端共用同一份”）。S4 的 `bookshelf.e2e.ts` 只能在 S2+S3 合入后跑，自跑验证应拆成 Vitest 先、e2e 后。
+
+2. 最近编辑在重开后消失（plan.md:64、67、76–80）。正文说最近编辑“只认本次打开后观察到的修改”，又把 `last` 持久化；项目重开后 tracker 的 `current` 若从空开始，运行中的作品显示 `fresh` 却没有继续写作目标，比停止时更差。改法：tracker 以记录为初始状态（含 `last`），首扫时核对该文件仍在，不在则清空。
+
+3. 停止时最后一次写入：可行，但要写清放在哪（plan.md:58、70）。依赖门面在入口登记的资源释放之后才释放（docs/specs/runtime/plugins.md 输出 13），Storage 到服务端的代理调用不挂入口停止信号（packages/nb-runtime/src/plugins/host.ts:594–597），所以在 `context.scope.register` 的 release 里写是通的。但入口自己 `remote.use` 的调用随停止信号取消（host.ts:565），Files 订阅先断；“取消在途读取、不完整就不写”在零宽限期下几乎总是不写。建议只取消整轮扫描，在途单文件重读有界等完再写。
+
+4. 验证场景按现有合同不可判定（plan.md:69、243–246）。关窗后项目处于 `idle-grace`，服务端无租约访问被拒（src/server/projects/manager.ts:208–214），`shelf` 退回记录，记录最多滞后 30 秒。e2e 要么等书架出现新字数（最长 30 秒），要么加启动参数（如 `NBOOK_STATS_FLUSH_MS`，与 `NBOOK_PROJECT_GRACE_MS` 同列 docs/specs/runtime/server-host.md:37）。Spec 要写明 `idle-grace` 按 `stale` 呈现、最多旧 30 秒。
+
+5. 变更事件没有文件/目录种类（plan.md:56）。`FileChange` 只有 `type/path/source`（src/plugins/files/shared/contracts.ts:206–209），外部变化只分 `changed`/`deleted`，`deleted`/`renamed` 按段边界覆盖子树。“事件是文件就重读，是目录就重扫”要给判据：路径是已计文件为文件，是已计文件的前缀为目录，否则 `lstat`。另外 `ended`（根不在、提供方停止）没有处理，应转为不新鲜。
+
+6. 项目实例装配未列入 S3（plan.md:183、218）。`nbook.projects` 的 `locations` 没有 `project`（src/plugins/projects/plugin.ts:7），`src/project/plugins.ts:33–38` 的定义表要加它；入口要 `onStartup`，否则第一次 `shelf` 调用才开始扫描，`counting` 成为常态。docs/specs/runtime/projects.md:87 要求项目入口变多后重测常驻内存，S3 的 t72 样本测试应包含。
+
+7. 既有测试会被“`/` 改成书架”打破（plan.md:127、219、221）。`src/web/host/window.test.ts:145、343` 断言页面表只有 `/`；`e2e/workbench-shell.e2e.ts:103`、`workbench-dnd.e2e.ts:107`、`workbench-views.e2e.ts:119`、`commands.e2e.ts:34`、`state.e2e.ts:40`、`projects.e2e.ts:60` 都以无项目打开 `server.url` 并期待外壳。S4 要把它们迁到 `/workbench`，计划没列这部分工作量。
+
+## 建议
+
+- `/workbench?project=x` 仍会绑定项目（src/web/boot.ts:53 不看路径）。写明绑定窗口里 `/workbench` 的行为（同 `/`，或重定向）。
+- `area.open` 只返回 `{ok}`，不给标签 id（src/plugins/editor/web/area.ts:84、465–474）；S5 要让它返回标签 id 才能“记下这个标签”。
+- `ShelfLastEdit.label`（src/plugins/projects/shared/shelf.ts:13）来源未定；tracker 直接读目录拿不到清单标题，第一版定为文件名去扩展名。
+- 锁目录可用：Files 用 `.nbook/locks/files`（src/plugins/files/backend/plugin.ts:167），`.nbook/locks/project.json.lock` 不冲突；但 `replaceLocked` 要求锁目录的父目录已存在（src/backend/locked-replace.ts:54），先 `mkdir`。临时文件落在 `.nbook/` 内，监视器忽略（src/plugins/files/backend/changes.ts:141），不会触发统计。
+- 写入协议只写了 `conflict`/`unknown-outcome`/坏记录；`busy`、`io-error` 也要“保留旧记录、记诊断、下轮再写”。
+- 首页贡献校验在 workbench 激活时取 `context.declarations.list`，与 `ItemRegistry` 同一做法即可（src/plugins/workbench/web/plugin.ts:93–94）；书架页不要 `layout.acquire()`（home-page.ts:16 的约定）。
+- 其余核对：`{project}` 目标从服务端插件调用 `provider: project` 的合同可行（docs/specs/runtime/plugin-channel.md:64、77；router.ts:398–411），不续宽限期；项目实例内订阅 `nbook.files/project` 走本地路径（node.ts 的 `#isLocal`：`project` 目标对 `role: project` 为本地；`CALLERS` 含 `project`）。
