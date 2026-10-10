@@ -19,7 +19,7 @@ owners:
 - 多个写者：同一会话同一时刻只有一个句柄写入，由使用方保证；另一个进程或另一个句柄追加的条目，本句柄看不到，也不检测。
 - 上下文压缩、附件与大内容外置、会话删除与归档、会话列表的检索与分页。
 - 跨进程的订阅：订阅只在打开会话的进程内有效。
-- 写入的持久性只到“写入调用成功返回”，不调用 `fsync`，断电时最后几条可能丢失。
+- 断电或操作系统崩溃时的持久性：`append` 成功返回只表示数据已交给操作系统；断电后最后几批可能缺失，或留下不完整的末行，重开时按输出 6 处理。
 - 旧原型 `nb-session` 的文件格式：不兼容，不迁移。
 
 ## 术语与参与者
@@ -44,8 +44,8 @@ type SessionHeader = {type: "session"; version: 1; id: string; createdAt: string
 
 type EntryBase = {id: string; parentId: string | null; timestamp: string};
 type SessionEntry = EntryBase & (
-    | {type: "message"; message: AgentMessage}
-    | {type: "custom_message"; customType: string; content: string | MessageContent[]; display: boolean}
+    | {type: "message"; message: Message}
+    | {type: "custom_message"; customType: string; content: string | (TextContent | ImageContent)[]; display: boolean}
     | {type: "invocation"; invocationId: string; phase: InvocationPhase; detail?: JsonValue}
     | {type: "interaction"; interactionId: string; kind: "approval" | "question"; phase: "request" | "response";
        request?: {assistantEntryId: string; toolCallId: string; toolName: string; tier?: "read" | "write" | "exec"; data?: JsonValue};
@@ -55,15 +55,17 @@ type SessionEntry = EntryBase & (
     | {type: "custom"; customType: string; data: JsonValue}
 );
 type InvocationPhase = "start" | "waiting" | "resumed" | "end" | "error" | "aborted" | "interrupted";
-type EntryInput = 去掉 id、parentId、timestamp 后的 SessionEntry;
+type JsonValue = null | boolean | number | string | JsonValue[] | {[key: string]: JsonValue};
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+type EntryInput = DistributiveOmit<SessionEntry, "id" | "parentId" | "timestamp">;
 ```
 
-`AgentMessage` 与 `MessageContent` 是 OMP（`@oh-my-pi/pi-agent-core`、`@oh-my-pi/pi-ai`）的消息与内容块类型。
+`Message`（`UserMessage | DeveloperMessage | AssistantMessage | ToolResultMessage`）、`TextContent`、`ImageContent` 是 `@oh-my-pi/pi-ai` 的类型。OMP `AgentMessage` 中扩展自定义的消息不存为 `message` 条目，需要模型看到的自定义内容用 `custom_message`。
 
 | 规则 | 内容 |
 |---|---|
 | 会话 id | 1–128 个字符，`[A-Za-z0-9._-]`；新建时不给出则由日志生成 |
-| `message.message.role` | `user`、`assistant` 或 `toolResult` |
+| `message.message.role` | `user`、`developer`、`assistant` 或 `toolResult` |
 | `customType` | `<命名空间>/<名称>`：命名空间以 `[a-z0-9]` 开头、由 `[a-z0-9.-]` 组成，名称以 `[a-z0-9]` 开头、由 `[a-z0-9._-]` 组成；命名空间 `harness` 留给本包 |
 | `interaction` | `phase: "request"` 必须有 `request`、不得有 `response`；`"response"` 反之。同一 `interactionId` 至多一个 request、至多一个 response，response 在 request 之后。`request.assistantEntryId` 是含该工具调用的助手 `message` 条目的 id，与 `toolCallId` 一起确定是哪个窗口里的哪个调用 |
 | 值 | 整个条目必须能被 JSON 如实表示：没有 `undefined`、函数、`NaN`、`Infinity`、`bigint` 与循环引用；对象只含普通数据 |
@@ -88,10 +90,12 @@ interface SessionLog {
 type LogEndReason = "closed" | "broken" | "listener-error";
 
 // 回放（纯函数）
-buildModelContext(entries: readonly SessionEntry[]): AgentMessage[];
+buildModelContext(entries: readonly SessionEntry[]): Message[];
 sessionStatus(entries: readonly SessionEntry[]): {phase: "idle" | "running" | "waiting"; invocationId?: string; pending: PendingInteraction[]};
 sessionSettings(entries: readonly SessionEntry[]): {model?: string; role?: string; thinkingLevel?: string; title?: string; approvalGrants: {toolName: string; tier?: string}[]};
-defineProjection<S>(projection: {initial: S; reduce(state: S, entry: SessionEntry): S}): Projection<S>;
+type Projection<S> = {readonly initial: S; reduce(state: S, entry: SessionEntry): S};
+type PendingInteraction = {interactionId: string; kind: "approval" | "question"; request: NonNullable<InteractionEntry["request"]>};
+defineProjection<S>(projection: Projection<S>): Projection<S>;
 fold<S>(entries: readonly SessionEntry[], projection: Projection<S>): S;
 planRecovery(entries: readonly SessionEntry[]): EntryInput[];
 
@@ -104,7 +108,10 @@ interface SessionStore {
     list(): Promise<Result<SessionSummary[]>>;
 }
 type SessionSummary = {id: string; createdAt: string; parentSession?: string; title?: string; updatedAt: string};
-type Result<T> = {ok: true; value: T} | {ok: false; code: SessionFailure; detail: string};
+type Result<T> = {ok: true; value: T} | {ok: false; code: SessionFailure; detail: string; line?: number; index?: number};
+type SessionFailure = "invalid-session-id" | "session-exists" | "session-not-found" | "corrupt-session" | "unsupported-version"
+    | "invalid-entry" | "damaged-tail" | "store-failed" | "log-broken" | "log-closed";
+// InteractionEntry 指 SessionEntry 中 type 为 "interaction" 的那一支
 
 // 子入口 @notnotype/nb-harness/session/jsonl
 createJsonlSessionStore(options: {root: string}): SessionStore;
@@ -114,13 +121,13 @@ createJsonlSessionStore(options: {root: string}): SessionStore;
 
 ## 输出与可观察行为
 
-1. **新建**：`createSession` 写入会话头，返回没有条目的日志句柄。会话 id 已存在为 `session-exists`，不改动已有会话。
+1. **新建**：`createSession` 写入会话头，返回没有条目的日志句柄。会话 id 不合规则为 `invalid-session-id`；已存在为 `session-exists`，不改动已有会话。
 2. **追加**：`append` 给每条输入补上条目 id（会话内唯一）、`parentId`（上一条的 id，第一条为 `null`）与时间戳，经存储写入成功后才把这批条目加入 `entries` 并通知订阅者，返回补全后的条目。空批返回空数组，不写任何东西。
-3. **校验**：一批里任何一条不符合“输入与前置条件”的规则，整批为 `invalid-entry`，不写入；`detail` 指出第几条与原因。
+3. **校验**：一批里任何一条不符合“输入与前置条件”的规则，整批为 `invalid-entry`，不写入；`index` 为第一条不合规则的输入在这批里的位置（从 0 起），`detail` 说明原因。
 4. **时间戳**：取自 `now`（缺省为系统时钟）；同一句柄写出的时间戳单调不减，时钟倒退时沿用上一条的时间。
-5. **打开**：`openSession` 读回会话头与全部条目，`entries` 与写入时补全后的条目逐项相等（JSON 往返）。
+5. **打开**：`openSession` 读回会话头与全部条目，`entries` 与写入时补全后的条目逐项相等（JSON 往返）。会话 id 不合规则为 `invalid-session-id`；会话不存在为 `session-not-found`。
 6. **中断尾**：JSONL 文件末尾不以换行结束的部分是中断尾：`openSession` 照常返回之前的条目并在 `damagedTail` 报告字节数；有中断尾时 `append` 为 `damaged-tail`，`repair` 截掉中断尾后可以继续追加。没有中断尾时 `repair` 返回 `droppedBytes: 0`。
-7. **损坏的条目**：以换行结束、却不能解析或不符合条目规则的一行，`openSession` 为 `corrupt-session`，`detail` 给出行号；不截断、不改写文件。会话头缺失或无效同样为 `corrupt-session`。
+7. **损坏的条目**：以换行结束、却不能解析或不符合条目规则的一行，`openSession` 为 `corrupt-session`，`line` 为该行的行号（会话头为第 1 行）；不截断、不改写文件。会话头缺失或无效同样为 `corrupt-session`。
 8. **版本**：会话头 `version` 不是 1 时为 `unsupported-version`，不改写文件。
 9. **订阅**：`subscribe` 先按序号补发 `afterSeq` 之后已有的条目（缺省 0，即全部），再按写入顺序推送之后成功追加的条目；每个条目对同一订阅只推一次。补发在 `subscribe` 返回前同步完成，之后的推送在对应 `append` 完成之前同步完成。
     1. 监听函数抛出异常时，这个订阅立即以 `onEnd("listener-error")` 结束，不再收到后续条目；其它订阅与 `append` 的结果不受影响。
@@ -147,7 +154,8 @@ createJsonlSessionStore(options: {root: string}): SessionStore;
     3. 其余（已批准但没有结果、没有任何 interaction）：返回一条 `toolResult`（`isError` 为真，内容说明执行被中断、结果未知）。
     然后：仍有待处理事项而最后阶段不是 `waiting` 时，返回一条该调用的 `waiting`；没有待处理事项时，返回一条该调用的 `interrupted`。对追加这些条目之后的条目再次调用，返回空数组或只剩针对新状态的条目（等待中的事项保持不变）。
 17. **列出**：`list` 返回存储中每个会话的摘要：id、创建时间、父会话、最后一个 `title_change` 的标题、最后一个条目的时间（没有条目时为创建时间）；有中断尾的会话照常列出，损坏的会话不列出。
-18. **两种存储**：内存存储与 JSONL 存储对输出 1–11、17 的行为相同；JSONL 存储另外满足输出 6、7 中与文件有关的部分。
+18. **两种存储**：内存存储与 JSONL 存储对输出 1–11、17、19 的行为相同；JSONL 存储另外满足输出 6、7 中与文件有关的部分。
+19. **条目不可变**：`append` 保存输入的副本，返回后再修改传入的对象不影响日志；`entries`、`append` 的返回值与推送给订阅者的条目是同一份冻结的值，修改它们会抛出 `TypeError`，不影响日志与其它订阅者。
 
 ## 状态与转换
 
@@ -193,6 +201,17 @@ createJsonlSessionStore(options: {root: string}): SessionStore;
 | `log-broken` | 句柄已因写入失败损坏 | 同 `store-failed` 来自 `append` 时 |
 | `log-closed` | 句柄已关闭 | 重新打开会话 |
 
+各操作可能返回的失败码（存储接口上的同名操作相同）：
+
+| 操作 | 失败码 |
+|---|---|
+| `createSession` | `invalid-session-id`、`session-exists`、`store-failed` |
+| `openSession` | `invalid-session-id`、`session-not-found`、`corrupt-session`、`unsupported-version`、`store-failed` |
+| `append` | `invalid-entry`、`damaged-tail`、`store-failed`、`log-broken`、`log-closed` |
+| `repair` | `store-failed`、`log-broken`、`log-closed` |
+| `list` | `store-failed`（单个会话损坏不算失败，按输出 17 不列出） |
+| `subscribe`、`close` | 无；订阅的结束经 `onEnd` 通知 |
+
 ## 边界与兼容
 
 - **公开接口**：`@notnotype/nb-harness/session` 与 `@notnotype/nb-harness/session/jsonl` 两个入口中“接口”一节列出的符号；其余是实现细节。
@@ -213,6 +232,7 @@ createJsonlSessionStore(options: {root: string}): SessionStore;
 10. 带签名思考块与两个工具调用、其中一个没有结果的助手消息：`buildModelContext` 去掉无结果的调用与 `redactedThinking`，清除思考签名，保留思考文本。
 11. 写入失败后的恢复：JSONL 写入一批中途失败，文件留下这批的前几条完整条目与半行：原句柄 `append`、`repair` 为 `log-broken`；`openSession` 读回前缀并报告中断尾；`repair` 后按 `sessionStatus`、`planRecovery` 收口并继续追加；以旧订阅最后收到的序号在新句柄上订阅，补到已落盘的前缀。
 12. 订阅的边界：在 `close` 后订阅立即结束；补发中监听函数抛错只结束该订阅；监听函数里 `append` 的条目排在当前这批之后推送；监听函数里 `close` 时其余条目不再推送。
+13. 条目不可变：追加后修改传入的对象、在监听函数里修改收到的条目：日志、重开后的 `entries` 与其它订阅者收到的条目都不变，修改收到的条目抛出 `TypeError`；内存与 JSONL 两种存储结果相同。
 
 
 Smoke：`packages/nb-harness` 的 `bun test src/session`（JSONL 存储使用真实临时目录与文件）。
