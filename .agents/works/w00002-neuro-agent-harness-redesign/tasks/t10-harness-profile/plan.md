@@ -19,7 +19,7 @@
 ### 2. 主机与注册（`src/profile/host.ts`、`definitions.ts`）
 
 - `createProfileHost()` 返回闭包式主机：三张 `Map`（节点类型、数据源、字段），`dispose` 从表里删；`prepare` 时拷一份快照放进 `PreparedProfile`，所以准备结果不随后续注册变化（输出 1）。
-- 定义用 TypeBox 校验（`invalid-definition`）：id 符合 `<命名空间>/<名称>`；`props`、`schema` 是对象 schema（`Type.Object` 产物，检查 `type === "object"`）；`parents` 非空；`category` 三选一且各自的字段齐全。`reserved-node`：id 在内置布局节点与 `Fragment` 的集合里。`duplicate-registration`：表里已有。
+- 定义逐项检查（`invalid-definition`）：id 符合 `<命名空间>/<名称>`；节点的 `props` 是对象 schema（`type === "object"`）；数据源与字段的 `schema` 只要是 TypeBox schema 对象（数组、字符串、布尔都行——Spec 示例的 `harness/tools` 就是数组；计划审查第 2 条）；`parents` 非空；`category` 三选一且各自的字段齐全。`reserved-node`：id 在内置布局节点与 `Fragment` 的集合里。`duplicate-registration`：表里已有。
 - 内置的消息、内容、有状态节点在 `createProfileHost` 里经同一个 `registerNodeType` 登记（`builtin/*.ts`），布局节点不经注册表，由校验与渲染直接认识：这样注册接口被内置节点自己用过一遍，插件照着做就行。
 
 ### 3. 准备与校验（`src/profile/prepare.ts`）
@@ -31,23 +31,23 @@
 ### 4. 渲染（`src/profile/render.ts`、`text.ts`、`history-text.ts`）
 
 - 文本拼接（输出 5）：先把子节点渲染成片段列表 `{kind: "inline" | "block", text}`（字符串与行内节点是 inline，`Tag` 与 `layout: "block"` 的内容节点是 block），再按规则连接：inline 直接相连，block 前后各空一行；整段 `trim`，三个以上换行折叠为两个。`Tag` 渲染为 `<name>\n内容\n</name>`。
-- 消息渲染：消息节点的子节点渲染成 `TextContent`/`ImageContent` 序列：文字片段合并成一个 `TextContent`，`Image` 产生 `ImageContent`；只有文字时 `content` 用字符串。消息带 `timestamp: context.now.getTime()`（pi-ai 必填），不带 `attribution`（`session` 回放种子与提醒时自己加 `attribution: "agent"`，这里只产生要写进会话的 `custom_message` 内容）。
+- 消息渲染：消息节点的子节点渲染成 `TextContent`/`ImageContent` 序列：文字片段合并成一个 `TextContent`，`Image` 产生 `ImageContent`；`User`、`Developer` 只有文字时 `content` 用字符串，`Assistant` 一律块数组并填 OMP 必填的占位元数据（`api`、`provider`、`model` 为 `"profile"`，`usage` 全零，`stopReason: "stop"`；计划审查第 1 条：原来只拼 role/content/timestamp 过不了 session 的校验，Spec 输出 9 已写明）。消息带 `timestamp: context.now.getTime()`（pi-ai 必填），不带 `attribution`（`session` 回放种子与提醒时自己加 `attribution: "agent"`）。
 - `renderSystem`：各 `System` 的文本，空的不列（输出 6）。
 - `renderSeeds`：带子节点的 `History` 的子节点逐条渲染，`once` 从 props 取；`after-compaction` 跳过 `once`（输出 8）。
-- `renderAppending`：按 `Appending` 子节点顺序：`Input` → `{kind: "input"}`（内容就是 `UserInput.content`）；消息节点 → `{kind: "message"}`；`Reminder` → 触发判定（输出 10）后 `{kind: "reminder"}`，内容 `<system-reminder>\n…\n</system-reminder>`；其它有状态节点直接在 `Appending` 下 → 内容非空时 `{kind: "message"}` 的用户消息。没有 `Input` 时输入放最后；没有 `Appending` 时只有输入。状态：`state[id]` 传给 `render`，返回值写回同一键，没渲染到的键原样保留。
-- `renderRequest`（输出 7）：按 `Prompt` 子节点顺序：`System` 跳过（进 `systemPrompt`）；`History` → `history` 全部或最后 `last` 轮（轮按“用户发出的消息”切，与 `session` 的分页同一规则）；直接的消息节点 → 请求消息；`Appending` 跳过。没有布局 `History` 时末尾接 `history.slice(invocationStart)`。`invocationStart` 越界 → 按 `history.length` 处理并给 `invalid-invocation-start` 警告。`History as="text"` 在请求消息内渲染 `history.slice(0, invocationStart)` 为文字（输出 11）。
-- `cache-unfriendly`（输出 15）：`prepare` 时看 `Prompt` 子节点顺序，第一个布局 `History` 之前有消息节点就给警告。
+- `renderAppending`：按 `Appending` 子节点顺序：`Input` → `{kind: "input"}`（内容就是 `UserInput.content`）；消息节点 → `{kind: "message"}`；`Reminder` → 触发判定（输出 11）后 `{kind: "reminder"}`，内容 `<system-reminder>\n…\n</system-reminder>`；其它有状态节点直接在 `Appending` 下 → 内容非空时 `{kind: "message"}` 的用户消息。没有 `Input` 时输入放最后；没有 `Appending` 时只有输入。状态：`state[id]` 传给 `render`，返回值写回同一键，没渲染到的键原样保留。
+- `renderRequest`（输出 7）：按 `Prompt` 子节点顺序：`System` 跳过（进 `systemPrompt`）；`History` → `history` 全部或最后 `last` 轮（轮按“用户发出的消息”切，与 `session` 的分页同一规则）；直接的消息节点 → 请求消息；`Appending` 跳过。没有布局 `History` 时末尾接 `history.slice(invocationStart)`。`invocationStart` 越界 → 按 `history.length` 处理并给 `invalid-invocation-start` 警告。`History as="text"` 在请求消息内渲染 `history.slice(0, invocationStart)` 为文字（输出 12）。
+- `cache-unfriendly`（输出 16）：`prepare` 时看 `Prompt` 子节点顺序，第一个布局 `History` 之前有消息节点就给警告。
 
 ### 5. 内置节点（`src/profile/builtin/`）
 
 - `Tag`（内容、block）、`Image`（内容，只收 `{mimeType, data}`）。Spec 原来写 `Image` 也可以“读取图片的数据源”，但 `NodeTypeDefinition.sources` 是静态列表，数据源 id 写在 props 里就没法在准备时算进待取集合；改为由注册方的内容节点读数据源后返回 `Image`（Spec 已改）。
-- `Reminder`（有状态）：用公开的 `NodeTypeDefinition` 写，`render` 收 `state`（`{lastTurn, watch}`）与 `context.prompt.turn`，按输出 10 判定，返回 `{content, state}`。这样第 2 节的注册接口被内置实现验证过。
+- `Reminder`（有状态）：用公开的 `NodeTypeDefinition` 写，`render` 收 `state`（`{lastTurn, watch}`）与 `context.prompt.turn`，按输出 11 判定，返回 `{content, state}`。这样第 2 节的注册接口被内置实现验证过。
 - `User`、`Developer`、`Assistant`（消息）按 `category: "message"` 注册。
 
 ### 6. 加载与目录（`src/profile/loader/loader.ts`、`catalog.ts`）
 
 - `defineProfile` 校验字段（TypeBox：id 格式、非空 `name`/`description`、正整数 `version`、`fields` 对象、`prompt` 函数）并给结果打一个模块内的 `Symbol` 标记；`profileFromModule` 认 `default` 导出上的标记（同一进程里两份 `nb-harness` 副本的情况不考虑）。
-- `loadProfile(path)`：`import(pathToFileURL(path).href)`，异常 → `module-load-failed`；再 `profileFromModule`。只在 `loader/` 目录动态导入（模块表已登记）。Profile 文件在仓库外时解析不到 `@notnotype/nb-harness/profile`（实现时从真实临时目录加载就失败了），所以加载器首次调用时给 Bun 装一个解析钩子（`Bun.plugin` 的 `onResolve`），只把 `@notnotype/nb-harness/profile` 及其三个子路径指回本包源文件；进程内装一次，是本模块唯一的进程级状态（写进 Spec 输出 12）。
+- `loadProfile(path)`：`import(pathToFileURL(path).href)`，异常 → `module-load-failed`；再 `profileFromModule`。只在 `loader/` 目录动态导入（模块表已登记）。Profile 文件在仓库外时解析不到 `@notnotype/nb-harness/profile`（实现时从真实临时目录加载就失败了），所以加载器首次调用时给 Bun 注册同名的虚拟模块（`Bun.plugin` 的 `build.module`；运行时的 `onResolve` 对解析失败的裸包名不生效，实测），导出就是本包已加载的模块实例；进程内注册一次，是本模块唯一的进程级状态（写进 Spec 输出 13）。
 - `createProfileCatalog`：按组顺序合并，后组覆盖前组；同组内 id 重复两者都不收录并在 `issues` 里报 `duplicate-profile`（诊断码补进 Spec）。
 
 ### 7. 边界测试与包配置
@@ -79,11 +79,11 @@
 | `harness.profile` | 测试 |
 |---|---|
 | 输出 1；场景 5（注册、dispose、reserved）、6（字段） | `src/profile/host.test.ts` |
-| 输出 2、3、4、15；场景 3、5（`source-failed`、`unknown-node`）、13 | `src/profile/prepare.test.ts` |
-| 输出 5、6、8、9、10；场景 1、4、7、11、14 | `src/profile/render.test.ts` |
-| 输出 7、11；场景 2、10、12 | `src/profile/request.test.ts` |
-| 输出 12、13；场景 8、9 | `src/profile/loader/loader.test.ts`（真实 `.profile.tsx`）、`src/profile/catalog.test.ts` |
-| 输出 14 | 每个渲染测试里对同一输入调用两次比较，并断言取数函数的调用次数不变 |
+| 输出 2、3、4、16；场景 3、5（`source-failed`、`unknown-node`）、13 | `src/profile/prepare.test.ts` |
+| 输出 5、6、8、9、10、11；场景 1、4、7、11、14 | `src/profile/render.test.ts` |
+| 输出 7、12；场景 2、10、12 | `src/profile/request.test.ts` |
+| 输出 13、14；场景 8、9 | `src/profile/loader/loader.test.ts`（真实 `.profile.tsx`）、`src/profile/catalog.test.ts` |
+| 输出 15 | 每个渲染测试里对同一输入调用两次比较，并断言取数函数的调用次数不变 |
 | 失败码与诊断码表 | 各测试按码断言；每个码至少一处 |
 
 ## 验证

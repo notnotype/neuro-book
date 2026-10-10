@@ -20,8 +20,9 @@ function wrap(storage: AuthStorage): Credentials {
             const credential = storage.get(model.provider);
             if (credential === undefined) return undefined;
             if (credential.type === "api_key") return credential.key;
-            // OAuth 令牌要经 OMP 换成访问令牌（含刷新）；它的优先级在环境变量之上。
-            return storage.getApiKey(model.provider);
+            // OAuth 走只看存储的入口（含刷新）：getApiKey 在 OAuth 不可用时也会回落到环境变量。
+            const access = await storage.getOAuthAccess(model.provider);
+            return access?.accessToken;
         },
         async setApiKey(provider, key) {
             if (closed) return;
@@ -62,10 +63,11 @@ function wrap(storage: AuthStorage): Credentials {
         },
         accounts(provider) {
             if (closed) return [];
-            return storage
-                .listOAuthAccounts(provider)
-                .filter((account) => account.accountId !== undefined)
-                .map((account) => ({accountId: account.accountId as string, ...(account.email === undefined ? {} : {label: account.email})}));
+            // accountId 在 OMP 里是可选的（Google、Copilot 的登录就没有），不能拿它过滤；credentialId 才是稳定句柄。
+            return storage.listOAuthAccounts(provider).map((account) => {
+                const label = account.email ?? account.projectId ?? account.orgName;
+                return {credentialId: account.credentialId, active: account.active, ...(account.accountId === undefined ? {} : {accountId: account.accountId}), ...(label === undefined ? {} : {label})};
+            });
         },
         close() {
             if (closed) return;
@@ -75,17 +77,39 @@ function wrap(storage: AuthStorage): Credentials {
     };
 }
 
-export async function openCredentials(options: {sqlitePath: string}): Promise<ModelResult<Credentials>> {
+const SQLITE_HEADER = "SQLite format 3\u0000";
+
+/**
+ * OMP 打开库时对损坏的文件做自动恢复：把原文件改名备份、新建空库、照常返回成功，调用方看不出凭据丢了。
+ * 所以先看文件头：已存在但不是 SQLite 的文件直接拒绝、不碰它，由人工处理。文件头正确但内部损坏的情况仍由 OMP 恢复（Spec 输出 5）。
+ */
+async function notSqlite(path: string): Promise<boolean> {
+    const file = Bun.file(path);
+    if (!(await file.exists()) || file.size === 0) return false;
+    const header = await file.slice(0, SQLITE_HEADER.length).text();
+    return header !== SQLITE_HEADER;
+}
+
+async function ready(storage: AuthStorage, label: string): Promise<ModelResult<Credentials>> {
     try {
-        const storage = await AuthStorage.create(options.sqlitePath);
-        // create 只打开库，不把已有凭据读进内存（实测重开后 get 为 undefined）；reload 才读。
+        // 构造或 create 只打开库，不把已有凭据读进内存（实测重开后 get 为 undefined）；reload 才读。
         await storage.reload();
         return {ok: true, value: wrap(storage)};
+    } catch (error) {
+        storage.close();
+        return {ok: false, code: "credentials-unavailable", detail: `读取凭据库失败（${label}）：${error instanceof Error ? error.message : String(error)}`};
+    }
+}
+
+export async function openCredentials(options: {sqlitePath: string}): Promise<ModelResult<Credentials>> {
+    try {
+        if (await notSqlite(options.sqlitePath)) return {ok: false, code: "credentials-unavailable", detail: `${options.sqlitePath} 不是 SQLite 文件，未改动；请人工处理后重试`};
+        return await ready(await AuthStorage.create(options.sqlitePath), options.sqlitePath);
     } catch (error) {
         return {ok: false, code: "credentials-unavailable", detail: `打不开凭据库 ${options.sqlitePath}：${error instanceof Error ? error.message : String(error)}`};
     }
 }
 
-export function createCredentials(store: AuthCredentialStore): Credentials {
-    return wrap(new AuthStorage(store));
+export async function createCredentials(store: AuthCredentialStore): Promise<ModelResult<Credentials>> {
+    return ready(new AuthStorage(store), "自定义存储");
 }

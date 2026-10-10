@@ -1,10 +1,10 @@
 import {afterAll, describe, expect, test} from "bun:test";
-import {rm, writeFile} from "node:fs/promises";
+import {readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {getBundledModels, getBundledProviders} from "@oh-my-pi/pi-catalog";
-import {getEnvApiKeyName} from "@oh-my-pi/pi-ai";
+import {AuthStorage, getEnvApiKeyName, SqliteAuthCredentialStore} from "@oh-my-pi/pi-ai";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import {openCredentials} from "./models";
+import {createCredentials, openCredentials} from "./models";
 import type {Credentials} from "./models";
 
 const roots: string[] = [];
@@ -84,11 +84,67 @@ describe("凭据（输出 5–9）", () => {
         expect(() => credentials.close()).not.toThrow();
     });
 
-    test("输出 5：路径打不开（父路径是一个普通文件）为 credentials-unavailable", async () => {
+    test("输出 5：路径打不开（父路径是一个普通文件）或文件不是 SQLite 时为 credentials-unavailable，文件不被改动", async () => {
         const root = await createTestTmpRoot("nb-harness-credentials", "credentials-bad");
         roots.push(root);
         await writeFile(join(root, "not-a-dir"), "x", "utf8");
         const result = await openCredentials({sqlitePath: join(root, "not-a-dir", "auth.sqlite")});
         expect(result.ok ? null : result.code).toBe("credentials-unavailable");
+
+        const garbage = join(root, "garbage.sqlite");
+        const bytes = Buffer.from("这不是 SQLite 文件，而是一段文字。\n".repeat(20), "utf8");
+        await writeFile(garbage, bytes);
+        const corrupt = await openCredentials({sqlitePath: garbage});
+        expect(corrupt.ok ? null : corrupt.code).toBe("credentials-unavailable");
+        expect(Buffer.compare(await readFile(garbage), bytes)).toBe(0);
+        expect((await readdir(root)).filter((name) => name.includes("corrupt"))).toEqual([]);
+    });
+
+    test("输出 5：自定义存储入口同样先读入已有凭据，与 SQLite 入口行为相同", async () => {
+        const root = await createTestTmpRoot("nb-harness-credentials", "credentials-custom");
+        roots.push(root);
+        const path = join(root, "auth.sqlite");
+        const prefill = await openCredentials({sqlitePath: path});
+        if (!prefill.ok) throw new Error(prefill.detail);
+        await prefill.value.setApiKey(model.provider, "sk-prefilled");
+        prefill.value.close();
+
+        const store = await SqliteAuthCredentialStore.open(path);
+        const custom = await createCredentials(store);
+        if (!custom.ok) throw new Error(custom.detail);
+        opened.push(custom.value);
+        expect(await custom.value.apiKeyFor(model)).toBe("sk-prefilled");
+        expect(custom.value.status(model.provider)).toEqual({kind: "api_key"});
+    });
+
+    test("输出 6、8：OAuth 凭据的访问令牌只从存储取，别的连接删掉后即使环境变量有 key 也是 undefined；accounts 不要求 accountId", async () => {
+        const root = await createTestTmpRoot("nb-harness-credentials", "credentials-oauth");
+        roots.push(root);
+        const path = join(root, "auth.sqlite");
+        const writer = await AuthStorage.create(path);
+        await writer.set(model.provider, {type: "oauth", refresh: "r", access: "access-token-1", expires: Date.now() + 3_600_000, email: "me@example.com"});
+        writer.close();
+
+        const a = await openCredentials({sqlitePath: path});
+        if (!a.ok) throw new Error(a.detail);
+        opened.push(a.value);
+        expect(a.value.status(model.provider)).toEqual({kind: "oauth"});
+        // active 表示被某个会话选中；这里没有会话，所以是 false。
+        expect(a.value.accounts(model.provider)).toEqual([{credentialId: expect.any(Number) as unknown as number, active: false, label: "me@example.com"}]);
+        expect(await a.value.apiKeyFor(model)).toBe("access-token-1");
+
+        const envName = getEnvApiKeyName(model.provider)!;
+        const previous = process.env[envName];
+        process.env[envName] = "sk-from-env";
+        try {
+            const b = await AuthStorage.create(path);
+            await b.reload();
+            await b.remove(model.provider);
+            b.close();
+            expect(await a.value.apiKeyFor(model)).toBeUndefined();
+        } finally {
+            if (previous === undefined) delete process.env[envName];
+            else process.env[envName] = previous;
+        }
     });
 });

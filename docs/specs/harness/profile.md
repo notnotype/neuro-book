@@ -177,7 +177,7 @@ type PreparedProfile = object;   // 不透明：只用于传回同一主机的�
 
 ## 输出与可观察行为
 
-1. **注册**：注册成功返回可撤销的句柄；`dispose` 后该节点类型、数据源或字段不再可用，已经 `prepare` 的结果不受影响。同一主机内 id 重复为 `duplicate-registration`；注册布局节点或 `Fragment` 的 id 为 `reserved-node`；定义本身不合规则（id 格式、schema 不是对象等）为 `invalid-definition`。
+1. **注册**：注册成功返回可撤销的句柄；`dispose` 后该节点类型、数据源或字段不再可用，已经 `prepare` 的结果不受影响。同一主机内 id 重复为 `duplicate-registration`；注册布局节点或 `Fragment` 的 id 为 `reserved-node`；定义本身不合规则（id 格式、节点的 `props` 不是对象 schema、数据源或字段的 `schema` 不是 TypeBox schema、类别对应的字段缺失等）为 `invalid-definition`。数据源与字段的 schema 可以是任何 TypeBox schema（数组、字符串、布尔都行），只有节点的 `props` 必须是对象 schema。
 2. **准备**：`prepare` 调用提示词函数得到节点树（函数抛错或返回的根不是 `Prompt` 为 `invalid-prompt`，诊断 `prompt-threw`），校验每个节点：类型已注册、props 符合 schema、所在父节点与子节点符合上表和注册声明、有状态节点只在 `Appending` 的子树里且 `id` 互不重复、种子只是 `User` 或 `Developer`、`History as="text"` 只在请求消息里、最多一个 `History` 有子节点、最多一个 `Appending`、`Image` 只在 `User` 里、`System` 里只有文字。任一项不合规则，`prepare` 返回 `invalid-prompt`，诊断逐条给出代码与节点路径（例如 `Prompt>Appending>Reminder[0]`）。
 3. **字段**：`fields` 里未注册的字段 id 产生 `unknown-field` 警告并被忽略；已注册字段的值不符合 schema 为 `invalid-prompt`（诊断 `invalid-field`）。
 4. **数据源**：`prepare` 收集节点树中所有节点声明的数据源，各调用一次取数函数，取数结果按 schema 校验。`refresh` 只对时机为 `model-call` 的数据源重新取数，返回新的准备结果：节点树与 `invocation` 数据源的结果与传入的相同；没有 `model-call` 数据源时原样返回。数据源未注册为 `unknown-source`，取数失败或结果不合 schema 为 `source-failed`，都使 `prepare` 或 `refresh` 返回 `invalid-prompt`。`signal` 中止时为 `cancelled`。
@@ -185,13 +185,14 @@ type PreparedProfile = object;   // 不透明：只用于传回同一主机的�
 6. **系统提示词**：`renderSystem` 与 `renderRequest` 的 `systemPrompt` 按文档顺序给出每个 `System` 的文本，空文本不列出。
 7. **请求消息序列**：`renderRequest` 按 `Prompt` 子节点的文档顺序排出消息：布局形式的 `History` 换成调用方给的 `history`（有 `last` 时只取最后几轮）；直接放在 `Prompt` 下的消息节点渲染为请求消息；`Appending`、`Input` 与种子在这里不产生内容（它们已经写进会话，在 `history` 里）。Profile 没有布局形式的 `History` 时，请求的最后接上本次调用的消息（`history` 从 `invocationStart` 起的部分），所以不带历史的 Profile 仍能看到本次输入与本次调用中的工具往来。`invocationStart` 不在 `0` 到 `history.length` 之间时按 `history.length` 处理并给出 `invalid-invocation-start` 诊断。
 8. **种子**：`renderSeeds` 渲染那个有子节点的 `History` 的子节点：`new-session` 时全部渲染，`after-compaction` 时跳过 `once` 的；没有带子节点的 `History` 时返回空。种子的角色是节点的角色（`User` 或 `Developer`）。
-9. **追加消息**：`renderAppending` 按文档顺序渲染 `Appending`：`Input` 的位置放本次用户输入（`kind: "input"`）；消息节点产生 `kind: "message"`；`Reminder` 满足触发条件时产生一条用户消息，内容用 `<system-reminder>\n…\n</system-reminder>` 包起来（`kind: "reminder"`）；注册的有状态节点直接放在 `Appending` 下时，内容非空就产生一条用户消息（`kind: "message"`），放在消息节点里时是那条消息内容的一部分。`Appending` 里没有 `Input` 时，用户输入放在最后；Profile 没有 `Appending` 时只追加用户输入。
-10. **有状态节点与提醒的触发**：有状态节点的 `render` 收到 `state[id]`（没有记录时为 `undefined`），返回的新状态写进输出 `state` 的同一键；本次没有渲染到的节点，其旧状态原样保留。`Reminder` 的各个条件同时成立才出现：`when` 为真；`every` 时距离它上次出现已满 `every` 轮（从未出现过算满足）；`watch` 时其值与上次出现时不同（按 JSON 比较，第一次算不同）；`once` 时从未出现过。没有给任何条件时每次都出现。它的状态记录最后出现的轮次（`PromptContext.turn`）与 `watch` 值。
-11. **文本形式的 History**：`History as="text"` 把本次调用之前的历史（`history` 在 `invocationStart` 之前的部分）渲染为文字：每条消息一段，以角色名开头，工具调用与结果写出工具名与文本内容，图片写成占位说明。
-12. **加载**：`loadProfile` 导入模块并取默认导出，默认导出必须是 `defineProfile` 的结果；模块执行失败为 `module-load-failed`，默认导出不对为 `invalid-profile`；`profileFromModule` 对已导入的模块做同样的检查。Profile 文件可以放在任何目录：它里面对 `@notnotype/nb-harness/profile` 及其子路径的导入（含 `@jsxImportSource`）由加载器解析到本包，不要求文件旁边有 `node_modules`；其它导入按文件所在位置的常规规则解析。
-13. **目录**：`createProfileCatalog` 按 `groups` 的顺序合并，同 id 的 Profile 后面的组覆盖前面的组；同一组内 id 重复时两者都不收录，并在 `issues` 里报告（诊断 `duplicate-profile`，`path` 为 `<组>:<id>`）。
-14. **纯函数**：`renderSeeds`、`renderAppending`、`renderRequest`、`renderSystem` 对同样的输入总得到同样的输出，不调用数据源的取数函数，不修改输入。数据只来自 `prepare` 与 `refresh` 的结果。
-15. **缓存提示**：请求消息出现在第一个布局形式的 `History` 之前时，`prepare` 给出 `cache-unfriendly` 警告：这类消息每次变化都会使后面整段历史的提示词缓存失效。
+9. **消息的形状**：消息节点渲染出的消息是 OMP `Message`：`User`、`Developer` 带 `timestamp`（取 `PromptContext.now`）；`Assistant` 是 Profile 作者写的示例，不来自任何模型，`content` 一律是块数组，OMP 必填的元数据填占位值——`api`、`provider`、`model` 都是 `"profile"`，`usage` 全零，`stopReason` 为 `"stop"`。这些消息能原样写进 [`harness.session`](session.md)。
+10. **追加消息**：`renderAppending` 按文档顺序渲染 `Appending`：`Input` 的位置放本次用户输入（`kind: "input"`）；消息节点产生 `kind: "message"`；`Reminder` 满足触发条件时产生一条用户消息，内容用 `<system-reminder>\n…\n</system-reminder>` 包起来（`kind: "reminder"`）；注册的有状态节点直接放在 `Appending` 下时，内容非空就产生一条用户消息（`kind: "message"`），放在消息节点里时是那条消息内容的一部分。`Appending` 里没有 `Input` 时，用户输入放在最后；Profile 没有 `Appending` 时只追加用户输入。
+11. **有状态节点与提醒的触发**：有状态节点的 `render` 收到 `state[id]`（没有记录时为 `undefined`），返回的新状态写进输出 `state` 的同一键；本次没有渲染到的节点，其旧状态原样保留。`Reminder` 的各个条件同时成立才出现：`when` 为真；`every` 时距离它上次出现已满 `every` 轮（从未出现过算满足）；`watch` 时其值与上次出现时不同（按 JSON 比较，第一次算不同）；`once` 时从未出现过。没有给任何条件时每次都出现。它的状态记录最后出现的轮次（`PromptContext.turn`）与 `watch` 值。
+12. **文本形式的 History**：`History as="text"` 把本次调用之前的历史（`history` 在 `invocationStart` 之前的部分）渲染为文字：每条消息一段，以角色名开头，工具调用与结果写出工具名与文本内容，图片写成占位说明。
+13. **加载**：`loadProfile` 导入模块并取默认导出，默认导出必须是 `defineProfile` 的结果；模块执行失败为 `module-load-failed`，默认导出不对为 `invalid-profile`；`profileFromModule` 对已导入的模块做同样的检查。Profile 文件可以放在任何目录：它里面对 `@notnotype/nb-harness/profile` 及其子路径的导入（含 `@jsxImportSource`）由加载器解析到本包，不要求文件旁边有 `node_modules`；其它导入按文件所在位置的常规规则解析。
+14. **目录**：`createProfileCatalog` 按 `groups` 的顺序合并，同 id 的 Profile 后面的组覆盖前面的组；同一组内 id 重复时两者都不收录，并在 `issues` 里报告（诊断 `duplicate-profile`，`path` 为 `<组>:<id>`）。
+15. **纯函数**：`renderSeeds`、`renderAppending`、`renderRequest`、`renderSystem` 对同样的输入总得到同样的输出，不调用数据源的取数函数，不修改输入。数据只来自 `prepare` 与 `refresh` 的结果。
+16. **缓存提示**：请求消息出现在第一个布局形式的 `History` 之前时，`prepare` 给出 `cache-unfriendly` 警告：这类消息每次变化都会使后面整段历史的提示词缓存失效。
 
 ## 状态与转换
 

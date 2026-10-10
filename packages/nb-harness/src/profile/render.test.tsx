@@ -1,7 +1,8 @@
 import {describe, expect, test} from "bun:test";
 import type {Message} from "@oh-my-pi/pi-ai";
 import {Type} from "typebox";
-import {Appending, createProfileHost, defineProfile, Developer, History, Image, Input, nodeComponent, Prompt, Reminder, System, Tag, User} from "./profile";
+import {createMemorySessionStore, createSession} from "../session/session";
+import {Appending, Assistant, createProfileHost, defineProfile, Developer, History, Image, Input, nodeComponent, Prompt, Reminder, System, Tag, User} from "./profile";
 import type {NodeTypeDefinition, PreparedProfile, Profile, ProfileHost, ProfileState, PromptContext} from "./profile";
 
 const baseContext: PromptContext = {session: {id: "s", title: "第三章", createdAt: "2026-10-10T00:00:00.000Z"}, turn: 1, now: new Date(1_000), fields: {}};
@@ -121,6 +122,33 @@ describe("渲染：种子、追加、系统提示词（输出 6、8、9、10）"
         expect(await run(4, false, "c")).toEqual([]);
         expect(await run(5, true, "c")).toEqual(["w"]);
         expect(state).toEqual({w: {lastTurn: 5, watch: "c"}, o: {lastTurn: 1}});
+    });
+});
+
+describe("消息的形状（输出 9）", () => {
+    test("Assistant 示例带占位元数据、content 是块数组；Appending 与种子渲染出的消息能原样写进 session", async () => {
+        const host = createProfileHost();
+        const p = await prepared(host, defineProfile({
+            id: "p", name: "n", description: "d", version: 1,
+            prompt: () => (
+                <Prompt>
+                    <History><Developer>规则</Developer></History>
+                    <Appending><User>问题</User><Assistant>示例回答</Assistant><Input /></Appending>
+                </Prompt>
+            ),
+        }));
+        const appending = host.renderAppending(p, {input: {content: "输入"}, state: {}});
+        const assistant = appending.messages[1]!.message;
+        expect(assistant).toMatchObject({role: "assistant", api: "profile", provider: "profile", model: "profile", stopReason: "stop", content: [{type: "text", text: "示例回答"}]});
+        const session = await createSession(createMemorySessionStore(), {id: "p"});
+        if (!session.ok) throw new Error(session.detail);
+        const seeds = host.renderSeeds(p, "new-session");
+        const written = await session.value.append([
+            ...seeds.messages.map(({message, once}) => ({type: "custom_message" as const, customType: "harness/seed", content: message.content as string, display: true, details: {role: message.role as "user" | "developer", once}})),
+            ...appending.messages.map(({message}) => ({type: "message" as const, message})),
+        ]);
+        expect(written.ok).toBe(true);
+        expect(written.ok && written.value.length).toBe(4);
     });
 });
 

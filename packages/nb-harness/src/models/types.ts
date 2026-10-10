@@ -28,7 +28,7 @@ export interface Credentials {
     loginProviders(): {id: string; name: string}[];
     login(provider: string, controller: OAuthController): Promise<ModelResult<{accountId?: string}>>;
     logout(provider: string): Promise<void>;
-    accounts(provider: string): {accountId: string; label?: string}[];
+    accounts(provider: string): {credentialId: number; active: boolean; accountId?: string; label?: string}[];
     close(): void;
 }
 

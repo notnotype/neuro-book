@@ -46,7 +46,7 @@ type Capabilities = {tools?: boolean; images?: boolean};
 type CapabilityProblem = {capability: "tools" | "images"; detail: string};
 
 openCredentials(options: {sqlitePath: string}): Promise<ModelResult<Credentials>>;   // OMP 的 SQLite 凭据库；文件不存在则创建
-createCredentials(store: AuthCredentialStore): Credentials;                         // 使用方自己实现的存储（插件阶段接 nbook.settings 的密钥）
+createCredentials(store: AuthCredentialStore): Promise<ModelResult<Credentials>>;   // 使用方自己实现的存储（插件阶段接 nbook.settings 的密钥）；同样先读入已有凭据
 interface Credentials {
     apiKeyFor(model: Model): Promise<string | undefined>;      // 只用凭据存储里的 API key 或 OAuth 令牌，不读环境变量
     setApiKey(provider: string, key: string): Promise<void>;
@@ -55,7 +55,7 @@ interface Credentials {
     loginProviders(): {id: string; name: string}[];
     login(provider: string, controller: OAuthController): Promise<ModelResult<{accountId?: string}>>;
     logout(provider: string): Promise<void>;
-    accounts(provider: string): {accountId: string; label?: string}[];
+    accounts(provider: string): {credentialId: number; active: boolean; accountId?: string; label?: string}[];   // accountId 由服务方决定有没有；credentialId 是稳定句柄
     close(): void;
 }
 type ModelResult<T> = {ok: true; value: T} | {ok: false; code: ModelFailure; detail: string};
@@ -71,10 +71,10 @@ type ModelFailure = "invalid-model-ref" | "unknown-provider" | "unknown-model" |
 2. **解析**：`resolve(ref)` 按模型引用返回 OMP `Model`：配置里有则按 `ProviderConfig` 与 `ProviderModelConfig` 构造（`api`、`baseUrl`、`headers`、`contextWindow`、`maxTokens`、`input`、`reasoning`、`supportsTools` 取配置的值，未给的能力按保守值：`input: ["text"]`、`reasoning: false`、`supportsTools: true`、`contextWindow: null`、`maxTokens: null`）；配置里没有则查 OMP 目录。语法不对为 `invalid-model-ref`，服务两边都没有为 `unknown-provider`，服务有但模型没有为 `unknown-model`。
 3. **选择链**：`select` 依次看 `request.model`（有则解析，失败按解析的失败码返回）、`request.role`（角色不在 `roles.items` 为 `unknown-role`，`modelKey` 为 `null` 为 `role-not-bound`，不沿链继续）、`request.profile.model`、`request.profile.defaultRole`（同角色规则）、`config.models.defaultModel`；全部没有为 `no-default-model`。返回选中的模型与 `via`（命中的那一环）；经角色命中时附 `role`。
 4. **能力检查**：`checkCapabilities` 对 `required.tools` 看 `model.supportsTools`（未声明按支持），对 `required.images` 看 `model.input` 含 `"image"`；不满足的各一条问题。
-5. **凭据存储**：`openCredentials` 打开或创建 SQLite 凭据库；打不开为 `credentials-unavailable`。`createCredentials` 接受使用方实现的存储。两者返回的 `Credentials` 行为相同。
-6. **取 key**：`apiKeyFor(model)` 返回该模型服务在凭据存储里的 API key，或 OAuth 令牌换来的访问令牌；存储里没有该服务的凭据时返回 `undefined`，即使进程的环境变量里有这个服务的 key。
+5. **凭据存储**：`openCredentials` 打开或创建 SQLite 凭据库，并读入已有凭据；路径打不开、或文件已存在却不是 SQLite 文件（文件头不对）为 `credentials-unavailable`，后一种情况文件不被改动。文件头正确但内部损坏时，OMP 把原文件改名为 `<路径>.corrupt-<时间>-<id>` 备份并新建空库：打开成功、凭据为空，本模块不另行报告，恢复由人工用备份处理。`createCredentials` 接受使用方实现的存储，同样先读入已有凭据；读不出为 `credentials-unavailable`。两者返回的 `Credentials` 行为相同。
+6. **取 key**：`apiKeyFor(model)` 返回该模型服务在凭据存储里的 API key，或 OAuth 令牌换来的访问令牌（只经只看存储的 OAuth 入口，含刷新）；存储里没有该服务的凭据、或 OAuth 凭据已被别的连接删除时返回 `undefined`，即使进程的环境变量里有这个服务的 key。
 7. **写 key**：`setApiKey` 写入后 `apiKeyFor` 立即可取、重开存储后仍在；`removeApiKey` 后为 `undefined`；`status` 反映当前凭据的种类。
-8. **OAuth**：`loginProviders` 列出 OMP 支持登录的服务；`login` 用使用方的 `OAuthController` 完成登录并存下凭据，用户取消（`controller.signal` 中止）为 `login-cancelled`，其它失败为 `login-failed`；`logout` 删除该服务的凭据；`accounts` 列出已登录的账号。
+8. **OAuth**：`loginProviders` 列出 OMP 支持登录的服务；`login` 用使用方的 `OAuthController` 完成登录并存下凭据，用户取消（`controller.signal` 中止）为 `login-cancelled`，其它失败为 `login-failed`；`logout` 删除该服务的凭据；`accounts` 列出已登录的账号：每个带 OMP 的 `credentialId` 与是否当前活跃，`accountId` 只在服务方提供时有，`label` 取邮箱、项目或组织名。
 9. **关闭**：`close` 后不再读写存储；再调用 `apiKeyFor` 等方法返回 `undefined` 或空数组，不抛出。
 10. **纯函数式目录**：`createModelCatalog` 只读传入的快照；配置快照被替换时使用方用新快照另建目录。
 
@@ -102,7 +102,7 @@ type ModelFailure = "invalid-model-ref" | "unknown-provider" | "unknown-model" |
 | `unknown-role` | 角色不在配置的 `roles.items` 里 | 修正角色 id 或配置 |
 | `role-not-bound` | 角色存在但没有绑定模型 | 在配置里给角色绑定模型；不沿链回落 |
 | `no-default-model` | 选择链走到底也没有模型 | 配置 `models.defaultModel` |
-| `credentials-unavailable` | 凭据库打不开（路径、权限、文件损坏） | 检查路径与权限 |
+| `credentials-unavailable` | 凭据库打不开（路径、权限、已存在的文件不是 SQLite），或自定义存储读不出 | 检查路径与权限；不是 SQLite 的文件由人工处理 |
 | `login-failed` | OAuth 登录失败 | 看 `detail`，重试 |
 | `login-cancelled` | 登录被使用方取消 | 不需要处理 |
 
@@ -129,8 +129,8 @@ Smoke：`packages/nb-harness` 的 `bun test src/models`；真实模型冒烟 `bu
 - 内部不变量（都有测试锁定）：
   1. 目录只看传入的配置快照；配置里的模型覆盖 OMP 目录里的同名模型。
   2. 选择链每环命中即返回，角色环的失败不回落。
-  3. API key 直接读存下的凭据，不经 OMP 的 `getApiKey`（它把环境变量排在存下的 key 之前）；只有 OAuth 经 `getApiKey` 换访问令牌。
-  4. `openCredentials` 打开后先 `reload`，否则已有凭据读不到。
+  3. 不经 OMP 的 `getApiKey`（它把环境变量排在存下的 key 之前，OAuth 不可用时也回落到环境变量）：API key 直接读存下的凭据，OAuth 经只看存储的 `getOAuthAccess` 换访问令牌。
+  4. 两个入口打开后都先 `reload`，否则已有凭据读不到；`openCredentials` 先看文件头，不是 SQLite 的文件不交给 OMP（OMP 会备份并换成空库）。
 
 ## 证据
 

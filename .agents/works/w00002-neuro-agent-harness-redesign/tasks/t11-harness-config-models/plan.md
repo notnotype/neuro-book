@@ -33,7 +33,8 @@
 ### 5. 凭据（`src/models/credentials.ts`）
 
 - `openCredentials({sqlitePath})` → `AuthStorage.create(path)`（OMP 自带的 `SqliteAuthCredentialStore`），异常 → `credentials-unavailable`；`createCredentials(store)` → `new AuthStorage(store)`。
-- `apiKeyFor(model)`：先 `hasNonEnvCredential(model.provider)`，为假直接 `undefined`（OMP 的 `getApiKey` 内部会回退读环境变量，这一步守住“内核不读环境变量”）；为真再 `getApiKey(model.provider)`。
+- `apiKeyFor(model)`：不用 OMP 的 `getApiKey`（实测它把环境变量排在存下的 API key 之前，OAuth 不可用时也回落到环境变量；计划审查第 1 条）：`get(provider)` 读存下的凭据，API key 直接返回 key，OAuth 经只看存储的 `getOAuthAccess` 换访问令牌，没有就是 `undefined`。
+- 打开：`openCredentials` 先看文件头，已存在但不是 SQLite 的文件直接 `credentials-unavailable`、不交给 OMP（OMP 会把损坏库备份成 `.corrupt-…` 并换成空库，调用方看不出凭据丢了；计划审查第 4 条）；`createCredentials(store)` 改为异步，和 SQLite 入口一样先 `reload`（计划审查第 2 条：构造函数不读已有凭据）。`accounts` 不按 `accountId` 过滤，带 `credentialId` 与 `active`（计划审查第 3 条）。
 - `setApiKey` → `set(provider, {type: "api_key", key})`；`removeApiKey` → `remove(provider)`；`status` 看 `getCredentialOrigin`/`hasOAuth`；`loginProviders` → OMP `getOAuthProviders()`；`login` → `AuthStorage.login(provider, controller)`，`controller.signal` 已中止或登录过程中中止 → `login-cancelled`，其它异常 → `login-failed`（`detail` 不含令牌）；`logout` → `logout`；`accounts` → `listOAuthAccounts`。
 - `close` 后方法返回空值；用一个 `closed` 标志，不再碰 OMP 对象。
 
