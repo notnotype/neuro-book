@@ -13,7 +13,7 @@ import type {ComputedRef, Ref, ShallowRef} from "vue";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 
-import {WORKBENCH_PATH} from "nbook/plugins/workbench/shared/home";
+import {WORKBENCH_PATH} from "nbook/plugins/workbench/shared/contracts";
 import type {QuickPick, QuickPickRequest} from "nbook/plugins/workbench/shared/contracts";
 import type {WindowNavigation} from "nbook/shared/host";
 import {localize} from "nbook/shared/localized-text";

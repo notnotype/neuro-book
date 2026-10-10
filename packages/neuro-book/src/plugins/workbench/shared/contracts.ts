@@ -15,6 +15,11 @@ import {defineSetting} from "nbook/shared/settings";
 
 export {WORKBENCH_VIEWS_POINT} from "./views";
 export type {ViewDeclaration, ViewLocation} from "./views";
+// 条目贡献点与无项目首页贡献点：定义与校验在各自的模块，其它插件只从这里引用（跨插件运行时导入只能指向 shared/contracts）。
+export {WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "./items";
+export type {ItemDeclaration} from "./items";
+export {WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "./home";
+export type {HomeDeclaration} from "./home";
 
 /** 贡献点 id。 */
 export const WORKBENCH_PAGES_POINT = "workbench.pages";

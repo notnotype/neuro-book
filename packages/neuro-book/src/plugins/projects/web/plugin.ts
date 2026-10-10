@@ -14,9 +14,8 @@ import {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";
 import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {quickPickKey} from "nbook/plugins/workbench/shared/contracts";
-import {WORKBENCH_HOME_POINT} from "nbook/plugins/workbench/shared/home";
-import type {HomeDeclaration} from "nbook/plugins/workbench/shared/home";
+import {quickPickKey, WORKBENCH_HOME_POINT} from "nbook/plugins/workbench/shared/contracts";
+import type {HomeDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import type {WorkbenchHomeImplementation} from "nbook/plugins/workbench/web/contracts";
 import {clockKey, windowNavigationKey} from "nbook/shared/host";
 
