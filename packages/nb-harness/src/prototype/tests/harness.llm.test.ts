@@ -9,7 +9,7 @@ import {ProfilePrompt, System} from "@notnotype/nb-profile";
 import {createJsonlSessionLog} from "@notnotype/nb-session";
 import {llmTestConfig} from "@notnotype/neuro-book-test-support/llm";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import {createHarness} from "../src";
+import {createHarness} from "..";
 
 const llm = llmTestConfig();
 let root = "";

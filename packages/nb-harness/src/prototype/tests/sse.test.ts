@@ -10,7 +10,7 @@ import {
     type SseFrame,
     type SseResponse,
     type SseSubscription,
-} from "../src";
+} from "..";
 
 describe("SSE 序列化", () => {
     test("字段顺序固定为 event/id/retry/data，多行 data 拆成多行，以空行结束", () => {

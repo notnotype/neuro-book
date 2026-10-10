@@ -3,7 +3,7 @@ import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {EditStore} from "@oh-my-pi/pi-natives";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import {createReadTool, type PluginReadFormat} from "../src";
+import {createReadTool, type PluginReadFormat} from "..";
 
 let root = "";
 const store = new EditStore();

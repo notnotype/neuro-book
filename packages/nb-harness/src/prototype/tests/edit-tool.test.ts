@@ -4,7 +4,7 @@ import {join} from "node:path";
 import type {AgentTool} from "@oh-my-pi/pi-agent-core";
 import {EditStore} from "@oh-my-pi/pi-natives";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import {createEditTool, createReadTool} from "../src";
+import {createEditTool, createReadTool} from "..";
 
 let root = "";
 

@@ -4,8 +4,8 @@ import type {AgentTool} from "@oh-my-pi/pi-agent-core";
 import {ProfilePrompt, System} from "@notnotype/nb-profile";
 import {createJsonlSessionLog} from "@notnotype/nb-session";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import {createHarness, definePlugin} from "../src";
-import {scriptedStreamFn} from "../src/testing";
+import {createHarness, definePlugin} from "..";
+import {scriptedStreamFn} from "../testing";
 
 let root = "";
 
