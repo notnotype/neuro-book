@@ -160,7 +160,7 @@ owners:
 | `nbook.view.toggle-panel-maximized` | 最大化/还原面板 / Maximize or Restore Panel | `{}` | `nbook.workbench/panelMaximizable`、`nbook.workbench/nonCompact` | write | never |
 | `nbook.view.move-view` | 移动视图 / Move View | `{viewId, sourceContainerId, targetContainerId}` 或 `{viewId, sourceContainerId, newContainerIn}`（`sidebar`\|`auxiliarybar`\|`panel`），或全部省略；省略时经选择先选视图、再选目标 | `nbook.workbench/layoutReady` | write | never |
 | `nbook.view.refresh-files` | 刷新文件 / Refresh Files | `{viewId, generation}`（精确实例代际） | 该实例贡献了 refresh 动作 | read | never |
-| `nbook.view.set-part-hidden`（planned） | 切换区域显隐 / Toggle Area Visibility | `{part?, hidden?}`（`part`：`sidebar`\|`auxiliarybar`\|`activitybar`；`hidden` 布尔）；`part` 省略时经选择列出三个区域并标出可见与否，`hidden` 省略时按可见切换 | `nbook.workbench/layoutReady` | write | never |
+| `nbook.view.set-part-hidden` | 切换区域显隐 / Toggle Area Visibility | `{part?, hidden?}`（`part`：`sidebar`\|`auxiliarybar`\|`activitybar`；`hidden` 布尔）；`part` 省略时经选择列出三个区域并标出可见与否，`hidden` 省略时按可见切换 | `nbook.workbench/layoutReady` | write | never |
 
 - 参数一律严格校验（`additionalProperties: false`）：多余字段、未知取值都是 `invalid-args`，不静默补齐；四条面板命令的参数可以省略（命令面板对普通候选执行 `{}`，与设置命令同一写法），选择被取消为成功且不写。
 - `set-part-hidden` 的“可见”指未隐藏且未拖到零；“显示”同时清掉这两位，按记忆尺寸回来（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 32）。
@@ -169,7 +169,7 @@ owners:
 - `refresh-files` 是 View 贡献动作的样例：命令只携带 `{viewId, generation}`，命中句柄与代际校验归宿主；活动 View 或实例代际变化后的迟到点击按 `stale-target` 拒绝。视图标题动作这一触发面做出来之前，资源管理器视图内的工具栏按钮带本实例的视图 id 与代次调用它。
 - 面板命令返回时布局已按新值显示；保存在后台进行，失败由状态栏的“布局未保存”给出（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 11），命令不等保存完成、也不把“已接纳”说成“已保存”。
 
-### 命令目录（应用）（planned）
+### 命令目录（应用）
 
 由 `nbook.workbench` 的浏览器入口贡献，标题栏的应用菜单引用它们（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 29）。两条都经宿主的整页导航能力执行，命令结果只说明请求已经发出。
 
@@ -235,11 +235,11 @@ owners:
 
 `Mod` 在 macOS 上是 Cmd，其它平台是 Ctrl。浏览器不可拦截或与宿主冲突的系统组合不注册；控件局部按键（对话框 Escape、列表导航、编辑器内部按键）不属于本能力。`Ctrl/Cmd+P` 文件快速打开不在本批。
 
-**快捷键的显示**（planned）：命令面板、应用菜单与标题栏的命令搜索按钮显示同一种写法，取命令声明的 `keybinding`，按平台写出：macOS 用 `⌃⌥⇧⌘` 符号并按这个次序（`Mod+Shift+P` 写作 `⇧⌘P`），其它平台写 `Ctrl+Shift+P`。只显示命令声明的键位；编辑器区、资源管理器树这类局部按键不冒充全局键位。
+**快捷键的显示**：命令面板、应用菜单与标题栏的命令搜索按钮显示同一种写法，取命令声明的 `keybinding`，按平台写出：macOS 用 `⌃⌥⇧⌘` 符号并按这个次序（`Mod+Shift+P` 写作 `⇧⌘P`），其它平台写 `Ctrl+Shift+P`。只显示命令声明的键位；编辑器区、资源管理器树这类局部按键不冒充全局键位。
 
 ### 兼容与安全
 
-- 与桌面菜单契约：旧桌面菜单的 15 个 id 不接别名，各自的去向如下（planned，随外壳四的应用菜单）：
+- 与桌面菜单契约：旧桌面菜单的 15 个 id 不接别名，各自的去向如下（外壳四的应用菜单）：
 
   | 旧 id | 去向 |
   |---|---|
@@ -277,8 +277,8 @@ owners:
 14. **两个窗口的状态不同**：Given 两个窗口都有一条 `when` 引用某插件布尔公开键的命令，只在一个窗口里该键为 true；Then 各自的命令面板只在那一个窗口列出它；服务端经 `nbook.commands/remote` 分别问两个窗口，得到的可用性各按那个窗口此刻的状态；对另一个窗口执行为 `unavailable`、不执行。
 15. **懒激活插件的键**：Given 命令的 `when` 引用一个懒激活插件声明的键；Then 命令登记成功；入口未激活时不可执行并给出声明的原因；激活后按值求值；入口停止后回到不可用。
 16. **未声明的键**：Given 命令的 `when` 引用一个没有任何插件声明的键（或非布尔键）；Then 命令登记成功、出现在枚举里，但不可用，面板不列出、执行为 `unavailable`，原因写明那个键；同一命令同一个键只记一次诊断；Lab 的本地命令表同样如此。
-17. **快捷键的显示**（planned）：Given 声明 `Mod+Shift+P` 的命令；When 在 Windows 或 Linux 与 macOS 上看命令面板候选、应用菜单与命令搜索按钮；Then 三处都写 `Ctrl+Shift+P` 或 `⇧⌘P`，与实际按下能触发的组合一致。
-18. **省参的区域显隐**（planned）：Given 产品页；When 从命令面板执行“切换区域显隐”；Then 先列出侧栏、右栏、活动栏并标出可见与否，选中后切换，取消不写入；带 `{part}` 时直接切换。
+17. **快捷键的显示**：Given 声明 `Mod+Shift+P` 的命令；When 在 Windows 或 Linux 与 macOS 上看命令面板候选、应用菜单与命令搜索按钮；Then 三处都写 `Ctrl+Shift+P` 或 `⇧⌘P`，与实际按下能触发的组合一致。
+18. **省参的区域显隐**：Given 产品页；When 从命令面板执行“切换区域显隐”；Then 先列出侧栏、右栏、活动栏并标出可见与否，选中后切换，取消不写入；带 `{part}` 时直接切换。
 
 ## 实现合同
 
@@ -305,6 +305,6 @@ owners:
 ## 证据
 
 - 实现入口：[`registry.ts`](../../../packages/neuro-book/src/plugins/commands/shared/registry.ts)、[`plugin.ts`](../../../packages/neuro-book/src/plugins/commands/shared/plugin.ts)
-- 合同测试：[`registry.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/registry.test.ts)（场景 1–8、16）、[`context-keys.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/context-keys.test.ts)、[`plugin.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/plugin.test.ts)（经真实内核：场景 1、8、11、12、15、16 与 `when` 读公开状态）、[`remote.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/remote.test.ts)（跨实例列出与执行、跨实例调用失败、场景 14）、[`keymap.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/keymap.test.ts)（场景 3、9）、[`editor-commands.test.ts`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/editor-commands.test.ts)；组件测试 [`lab-command-scene.dom.test.ts`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/lab-command-scene.dom.test.ts)（场景 5 的确认界面）、[`WorkbenchCommandHost.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/WorkbenchCommandHost.dom.test.ts)
+- 合同测试：[`part-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/part-commands.test.ts)（区域显隐与应用命令，场景 18）、[`keymap.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/keymap.test.ts)（含快捷键的显示，场景 17）、[`registry.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/registry.test.ts)（场景 1–8、16）、[`context-keys.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/context-keys.test.ts)、[`plugin.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/plugin.test.ts)（经真实内核：场景 1、8、11、12、15、16 与 `when` 读公开状态）、[`remote.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/remote.test.ts)（跨实例列出与执行、跨实例调用失败、场景 14）、[`keymap.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/keymap.test.ts)（场景 3、9）、[`editor-commands.test.ts`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/editor-commands.test.ts)；组件测试 [`lab-command-scene.dom.test.ts`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/lab-command-scene.dom.test.ts)（场景 5 的确认界面）、[`WorkbenchCommandHost.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/WorkbenchCommandHost.dom.test.ts)
 - Smoke：[`e2e/lab-commands.e2e.ts`](../../../packages/neuro-book/e2e/lab-commands.e2e.ts)（场景 10，开发会话，真实 Chrome）、[`e2e/commands.e2e.ts`](../../../packages/neuro-book/e2e/commands.e2e.ts)（场景 13，生产构建）、[`e2e/state.e2e.ts`](../../../packages/neuro-book/e2e/state.e2e.ts)（场景 14，测试外壳）
 - 批准依据：[命令系统提案](../../proposals/workbench-commands.md)（2026-09-14 起草，2026-09-18 需求讨论修订）；命令改由内置插件提供，见[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3（2026-10-06）；一份定义含服务端与浏览器两个入口依据 [ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)（2026-10-08）；`when` 读公开状态、跨实例命令直接问目标窗口由开发者 2026-10-08 在 [t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md) 中确认；`when` 的键改在求值时判断由开发者 2026-10-08 在 [t60 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md) 中确认。

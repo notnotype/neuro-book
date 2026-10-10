@@ -93,3 +93,8 @@ omp 审查（报告在 [t73 证据](../t73-lab-nb-ui-and-storage/evidences/desig
   - 编辑器区新增 `openDocuments`（按文档去重）；控件句柄新增可选的 `position`，只有源码编辑器实现（选区活动端）。公开键 `hasUnsavedDocuments`、`hasCursorPosition`。
   - 三个状态栏条目（`status-items.ts`）：未保存数（点击全部保存；提示列出至多 5 个文件，正在保存与保存失败另写，失败时为错误状态）、活动文档字数、光标位置。
   - 验证：typecheck；`status-items.test.ts` 4 例（真实 Files 场地；保存失败用只读目录造出）；编辑器与宿主 Bun 104 例；`editor-area.e2e.ts` 全部（新增条目一例：字数、未保存与点击保存、Monaco 行列随光标、切回 Markdown 不显示行列）；变异 3 个全杀。
+- 2026-10-10 S7 收口：
+  - Spec：外壳 Spec、命令 Spec、编辑器 Spec 与浏览器宿主 Spec 里外壳四相关的“planned”去掉，证据补上外壳四的实现入口、合同测试与 Smoke。
+  - 全量 `bun run test:e2e`：148 例通过、1 例失败。失败的是 `files-explorer.e2e.ts` 的“只用键盘”：用例用 `getByRole("menuitem").first()` 找右键菜单的第一项，标题栏的菜单组标题现在也是 menuitem 且排在前面。改为只在打开的菜单里找，这个文件 11 例全过。
+  - omp 实现审查按新的分工启动，不阻塞：报告回来后在空闲时处理，修正单独提交。
+  - 状态：实现完成，实现审查待处理。

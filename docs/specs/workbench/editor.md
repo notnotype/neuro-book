@@ -54,7 +54,7 @@ owners:
   | `nbook.editor.reopen-with` | `{editor?}`（不给时换成另一种） | `active` | read | auto | — |
 
   `when` 列写 `nbook.editor/` 下的公开键名。`revert` 丢弃未保存修改，对 Agent 不开放。键位只在编辑器区有焦点时由编辑器区处理并执行同一命令，不写成全局键位，`when` 也不含焦点：命令面板取得焦点时这些命令仍可选。第一批的 `nbook.editor.focus`、`nbook.edit.undo`、`nbook.edit.redo`、`nbook.editor.go-to-line` 由本插件登记，`when` 改用下面的公开键，其余声明不变。
-- 公开状态（布尔）：`nbook.editor/focused`（编辑区获得焦点）、`nbook.editor/active`（有活动视图）、`nbook.editor/writable`（活动视图可写）、`nbook.editor/lineNavigation`（活动视图支持行导航）、`nbook.editor/dirty`（活动文档 dirty）、`nbook.editor/hasUnsavedDocuments`（本窗口有任一打开的文档需要保存，按文档去重；planned）、`nbook.editor/hasCursorPosition`（活动控件给出光标位置；planned），前四个对应命令目录第一批的 `editor-focus`、`editor-active`、`editor-writable`、`editor-line-navigation`。
+- 公开状态（布尔）：`nbook.editor/focused`（编辑区获得焦点）、`nbook.editor/active`（有活动视图）、`nbook.editor/writable`（活动视图可写）、`nbook.editor/lineNavigation`（活动视图支持行导航）、`nbook.editor/dirty`（活动文档 dirty）、`nbook.editor/hasUnsavedDocuments`（本窗口有任一打开的文档需要保存，按文档去重）、`nbook.editor/hasCursorPosition`（活动控件给出光标位置），前四个对应命令目录第一批的 `editor-focus`、`editor-active`、`editor-writable`、`editor-line-navigation`。
 - 文档协调服务 `documentCoordinatorKey`（`nbook.editor` 的共享合同），资源管理器作为可选依赖使用：
 
   ```ts
@@ -121,7 +121,7 @@ owners:
 24. 移动、拖动与改名提交前取得租约：视图输入结算、在途保存完成、新的保存排队；有未裁决输入或磁盘冲突的文档时不提交并说明。剪贴板或拖动冻结的源身份经 `translate` 换成本窗口保存后的身份：剪切后保存再粘贴照常移动，外部替换仍为 `source-changed`。成功项按第 17 条改地址，失败项不动；结果未知时租约保持，资源管理器核对或放弃后才释放。
 25. 删除确认列出将丢失未保存修改的文档；删除成功的项关闭标签、丢弃正文（第 18 条只适用于其它来源的删除）。
 
-**状态栏条目**（planned）
+**状态栏条目**
 
 编辑器插件向 `workbench.statusbar-items` 贡献下面三个条目，都在右侧（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 33–35）：
 
@@ -189,9 +189,9 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 9. Given Monaco 与富文本各打开 A、B，When A 输入、切 B 输入、回 A 撤销与重做，Then 只作用于 A。
 10. Given 一个 dirty 文档，When 服务端重启，Then 终态页列出该文件与可复制的正文。
 11. Given 保存成功，When 另一窗口打开同一文件，Then 看到新正文。
-12. Given 两个组打开同一份 dirty 文档、另有一份非活动的 dirty 文档（planned），When 读状态栏，Then 写“未保存 2 个”；点击后两份都保存、条目消失；一份保存失败时条目为错误状态，提示写明失败的文件与原因。
-13. Given 一个 Markdown 文档（planned），When 输入中文与英文，Then 字数条目按第 27 条计数并随输入更新；frontmatter 里的字不计。
-14. Given 源码编辑器与 Markdown 编辑器各打开一个文档（planned），When 在两者之间切换，Then 光标位置只在源码编辑器活动时出现，移动光标后行列随之更新；两个窗口的状态栏各自显示自己的数据。
+12. Given 两个组打开同一份 dirty 文档、另有一份非活动的 dirty 文档，When 读状态栏，Then 写“未保存 2 个”；点击后两份都保存、条目消失；一份保存失败时条目为错误状态，提示写明失败的文件与原因。
+13. Given 一个 Markdown 文档，When 输入中文与英文，Then 字数条目按第 27 条计数并随输入更新；frontmatter 里的字不计。
+14. Given 源码编辑器与 Markdown 编辑器各打开一个文档，When 在两者之间切换，Then 光标位置只在源码编辑器活动时出现，移动光标后行列随之更新；两个窗口的状态栏各自显示自己的数据。
 
 Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。
 
@@ -199,5 +199,5 @@ Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、
 
 - 批准依据：[NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 第 5 节（编辑器组件从旧包迁入）与推进顺序第 6 条；[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（沿用第一版切换设计）；本 Spec 的取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t71 条目（按推荐先做，待开发者追认）。
 - 实现入口：[`editor/plugin.ts`](../../../packages/neuro-book/src/plugins/editor/plugin.ts)、[`editor/web/area.ts`](../../../packages/neuro-book/src/plugins/editor/web/area.ts)、[`documents/store.ts`](../../../packages/neuro-book/src/plugins/editor/web/documents/store.ts)
-- 合同测试：[`editor/documents.test.ts`](../../../packages/neuro-book/src/plugins/editor/documents.test.ts)、[`editor/area.test.ts`](../../../packages/neuro-book/src/plugins/editor/area.test.ts)、[`groups.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/groups/groups.test.ts)、[`source-merge.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/source-merge.test.ts)、[`explorer/documents.test.ts`](../../../packages/neuro-book/src/plugins/explorer/documents.test.ts)
+- 合同测试：[`editor/status-items.test.ts`](../../../packages/neuro-book/src/plugins/editor/status-items.test.ts)（状态栏条目，场景 12–14）、[`shared/word-count.test.ts`](../../../packages/neuro-book/src/shared/word-count.test.ts)、[`editor/documents.test.ts`](../../../packages/neuro-book/src/plugins/editor/documents.test.ts)、[`editor/area.test.ts`](../../../packages/neuro-book/src/plugins/editor/area.test.ts)、[`groups.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/groups/groups.test.ts)、[`source-merge.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/source-merge.test.ts)、[`explorer/documents.test.ts`](../../../packages/neuro-book/src/plugins/explorer/documents.test.ts)
 - Smoke：[`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts)（产品页）、[`lab-editor.e2e.ts`](../../../packages/neuro-book/e2e/lab-editor.e2e.ts)（Lab 集成场景）

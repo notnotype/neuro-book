@@ -242,7 +242,8 @@ async function pick(page: Page, address: string): Promise<void> {
 /** 用键盘打开焦点行的右键菜单，用方向键走到 `label` 那一项再按 Enter。 */
 async function menuByKeyboard(page: Page, label: string): Promise<void> {
     await page.keyboard.press("Shift+F10");
-    await expect(page.getByRole("menuitem").first()).toBeFocused();
+    // 只看右键菜单里的项：标题栏的应用菜单组标题也是 menuitem。
+    await expect(page.getByRole("menu").getByRole("menuitem").first()).toBeFocused();
     for (let step = 0; step < 12; step += 1) {
         if ((await focused(page).textContent())?.includes(label) === true) break;
         await page.keyboard.press("ArrowDown");
