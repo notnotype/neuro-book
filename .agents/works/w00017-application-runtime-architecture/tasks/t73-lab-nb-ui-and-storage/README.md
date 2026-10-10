@@ -36,6 +36,12 @@ taskId: t73-lab-nb-ui-and-storage
     - 越界报告多为测量误报（读屏播报区、视觉隐藏的 input），Lab 的测量改为跳过看不见的元素，e2e 补了用例；
     - 真实问题只有 Collapsible：内容区向外扩 6px，在贴边容器里造成 6px 横向溢出。这是保护焦点光环的设计取舍，写进组件文档。
   - **验证**：nb-ui 与 neuro-book 的 typecheck、`build` 与 `check:dist`、Lab 的 Bun 37 例、Vitest 27 例、e2e `lab.e2e.ts` 与 `lab-shot.e2e.ts` 11 例，全部通过。变异 6 个全杀。
+- 2026-10-10 S3 完成：
+  - **偏好**：改存 `nbook.storage` 的 `lab.preferences`（user、shared），`defineStore("lab")` 按字段合并保存、恢复默认写空对象、暂停期间合并成一份、重试与放弃；读到之前只显示占位；问题提示按界面状态表给出操作。“字段问题”分类从资源管理器挪到 `src/shared/store/problem.ts` 共用。localStorage、sessionStorage 的全部路径删去。
+  - **地址栏**：`use-lab-session.ts` 经宿主 router 同步，切组件 `push`、其余 `replace`，后退前进由当前路由驱动；参数补 `zoom`、`tab`，不认识的参数保留，旧参数名改写；复制场景链接；地址里的场景不存在时回落并提示。
+  - **偏离计划一处**：计划写“`cw` 与 `theme` 地址栏指定、随之写入偏好”。偏好搬到服务端后所有窗口共用一份，照此实现 `lab:shot` 每拍一张都会改掉开发者自己的 Lab 主题（以前它用独立的浏览器上下文，碰不到）。改为地址里的主题与配色只作用于这个标签页，在界面上换主题或配色时才写进偏好并从地址栏去掉。Spec 已同步。
+  - **全场景 e2e**：改为每个标签页整页加载一次、之后经 router 在 Lab 里切场景（`pushState` 加 `popstate`，与浏览器前进后退同一条路），用时从 11 分钟降到 34 秒。变异检查：fixture 加载失败、传送门根挂 `data-lab-subject` 的 Vue 警告，都被拦下。
+  - **验证**：typecheck；Bun 162 例（Lab、资源管理器、store、架构）；Vitest 49 例；`build` 与 `check:dist`；`lab.e2e.ts` 13 例（新增场景 9 坏记录、20 双窗口、21 历史与 router、22 换端口、复制链接）；其余 Lab 与资源管理器 e2e 27 例。变异 9 个全杀（按字段合并、恢复默认用 reset、暂停期间合并、拖动不写、地址主题被取代时写两项、宽度核对、读取失败重试后放进界面、保留未知参数、切组件 push）。
 - 2026-10-10 S0 完成：`docs/specs/ui/component-lab.md` 写入 nb-ui 来源与组件名唯一、偏好改存 `lab.preferences`（user、shared）与界面状态表、地址栏作会话状态（`zoom`、`tab`、Router 的 push 与 replace、复制场景链接）、变量页签与结构检查、画布作浮层定位容器；验收 1、8、9、13 改写，新增 18 到 24；删去 localStorage、sessionStorage 的字段表与“拆分已延期”。尚未实现的条目标“（planned）”。nb-ui 的 `AGENTS.md`、`README.md` 与 `docs/ui-development-spec.md` 第 7 节改为在新 Lab 登记，删去与“一个场景一个组件”冲突的多方案矩阵条目。
 - 2026-10-10 S2b 完成：
   - **迁移矩阵**：[evidences/s2-migration.md](evidences/s2-migration.md) 逐个对照旧 playground 的 52 个组件。对照中发现漏迁的场景与事件已补回：FormInput 的前缀插槽、FormCheckbox 无标签、TimePicker 与 Listbox 的禁用、QuickInput 的长列表与“在对话框上打开”、表单控件的 `focus`、Splitter 的 `gesture-start`、DialogWindow 的 `update:height`。其余差异写明了原因。

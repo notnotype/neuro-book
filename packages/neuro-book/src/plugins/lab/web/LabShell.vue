@@ -32,8 +32,9 @@ import type {InspectedNode} from "./inspect";
 import {INSPECT_CLASS_LIMIT, describeNode, nodeLabel, nodeReport} from "./inspect";
 import {clearLabWallpaper, loadLabWallpaper, saveLabWallpaper} from "./lab-wallpaper-store";
 import {useLabPreferences} from "./use-lab-preferences";
+import {useLabSession} from "./use-lab-session";
 import {LAB_PANEL_WIDTH_LIMITS} from "./lab-preferences-store";
-import type {LabPanelSide} from "./lab-preferences-store";
+import type {LabPanelSide, LabStore} from "./lab-preferences-store";
 import {
     LAB_DEFAULT_BACKDROP,
     LAB_DEFAULT_PAGE_BACKDROP,
@@ -51,6 +52,11 @@ import {
     labColorwayMeta,
     labThemes,
 } from "./lab-theme";
+
+const props = defineProps<{
+    /** Lab 的偏好 store，由插件在第一次打开 `/lab` 时建立（见 `plugin.ts`）。 */
+    store: LabStore;
+}>();
 
 const EVENT_LIMIT = 200;
 
@@ -73,31 +79,28 @@ const LAB_CANVAS_MIN_WIDTH = 560;
 const LAB_PANEL_RAIL_WIDTH = 40;
 const leftWidth = ref<number>(LAB_PANEL_DEFAULT_WIDTH.left);
 const rightWidth = ref<number>(LAB_PANEL_DEFAULT_WIDTH.right);
-function getInitialLabSelection(): {name: string; scene: string} {
-    if (typeof window !== "undefined") {
-        const params = new URLSearchParams(window.location.search);
-        const comp = params.get("c") ?? params.get("component") ?? undefined;
-        const scene = params.get("s") ?? params.get("scene") ?? undefined;
-        if (comp && labComponents.some((entry) => entry.name === comp)) {
-            return {
-                name: comp,
-                scene: (scene && /^[a-zA-Z0-9_.-]+$/.test(scene)) ? scene : "",
-            };
-        }
-    }
-    const defaultMountable = labComponents.find((entry) => entry.mountable)?.name ?? "";
-    return {name: defaultMountable, scene: ""};
-}
-
-const initialSelection = getInitialLabSelection();
-const selectedName = ref<string>(initialSelection.name);
-const selectedScene = ref<string>(initialSelection.scene);
+const selectedName = ref<string>("");
+const selectedScene = ref<string>("");
 const rightTab = ref("doc");
 const treeQuery = ref("");
 const expandedGroups = ref<string[]>([...ALL_GROUP_IDS]);
 const canvasWidth = ref(0);
 const canvasHeight = ref(0);
 const canvasZoom = ref(String(LAB_DEFAULT_ZOOM));
+const router = useRouter();
+const session = useLabSession(router, {
+    component: selectedName,
+    scene: selectedScene,
+    canvasWidth,
+    canvasHeight,
+    zoom: canvasZoom,
+    tab: rightTab,
+}, {
+    componentNames: labComponents.map((item) => item.name),
+    zooms: labZooms,
+    defaults: {component: labComponents.find((entry) => entry.mountable)?.name ?? "", zoom: LAB_DEFAULT_ZOOM, tab: "doc"},
+});
+onBeforeUnmount(session.stop);
 const LAB_MOBILE_BREAKPOINT = 700;
 const canvasBackdrop = ref(LAB_DEFAULT_BACKDROP);
 const pageBackdrop = ref(LAB_DEFAULT_PAGE_BACKDROP);
@@ -351,7 +354,7 @@ watch(pageBackdrop, (id) => {
     }
 });
 
-// IndexedDB 与 localStorage 只在浏览器里有，读取必须等挂载之后。
+// IndexedDB 只在浏览器里有，读取必须等挂载之后。
 let mobileQuery: MediaQueryList | null = null;
 
 function collapseForMobile(event: MediaQueryList | MediaQueryListEvent): void {
@@ -366,17 +369,13 @@ onMounted(async () => {
         console.warn("[component-lab] 读不到自定义壁纸，回到默认桌面", error);
         return null;
     }));
-    await restorePreferences();
     ensureSelectedComponentExpanded(selectedName.value);
-    applyLabTheme(labThemeId.value, labColorwayId.value);
-    syncUrlQuery(selectedName.value, selectedScene.value);
-    window.addEventListener("popstate", onPopState);
+    session.start();
     mobileQuery = window.matchMedia(`(max-width: ${LAB_MOBILE_BREAKPOINT}px)`);
     collapseForMobile(mobileQuery);
     mobileQuery.addEventListener("change", collapseForMobile);
 });
 onBeforeUnmount(() => {
-    window.removeEventListener("popstate", onPopState);
     mobileQuery?.removeEventListener("change", collapseForMobile);
     mobileQuery = null;
 });
@@ -419,92 +418,89 @@ const colorwayOptions = computed<FormSelectOption[]>(() =>
         description: meta.appearance === "dark" ? "深色" : "浅色",
     })));
 
-const {
-    hydrating: preferencesHydrating,
-    reset: resetStoredPreferences,
-    restore: restorePreferences,
-    setLeftCollapsed,
-    setRightCollapsed,
-} = useLabPreferences({
-    storage: () => window.localStorage,
-    sessionStorage: () => window.sessionStorage,
-    getUrlParams: () => (typeof window === "undefined" ? {} : parseLabUrl(window.location.search, labColorwayMeta)),
+/** 正在拖动侧栏边：宽度只改显示，松手才写进偏好。 */
+const panelDragging = ref(false);
+const requestedLook = typeof window === "undefined" ? {} : parseLabUrl(window.location.search, labColorwayMeta);
+const preferences = useLabPreferences({
+    store: props.store,
     catalog: {
         themeIds: labThemes.map((theme) => theme.manifest.id),
         colorwayIds: Object.keys(labColorwayMeta),
         canvasBackdropIds: labBackdrops.map((item) => item.id),
         pageBackdropIds: labPageBackdrops.map((item) => item.id),
-        zooms: labZooms,
-        componentNames: labComponents.map((item) => item.name),
     },
     defaults: {
         themeId: LAB_DEFAULT_THEME,
         colorwayId: LAB_DEFAULT_COLORWAY,
         pageBackdropId: LAB_DEFAULT_PAGE_BACKDROP,
         canvasBackdropId: LAB_DEFAULT_BACKDROP,
-        canvasZoom: LAB_DEFAULT_ZOOM,
         leftPanelWidth: LAB_PANEL_DEFAULT_WIDTH.left,
         rightPanelWidth: LAB_PANEL_DEFAULT_WIDTH.right,
-        selectedComponentName: labComponents.find((entry) => entry.mountable)?.name ?? "",
-        selectedSceneId: "",
-        activeInspectTab: "doc",
     },
     state: {
         themeId: labThemeId,
         colorwayId: labColorwayId,
         pageBackdropId: pageBackdrop,
         canvasBackdropId: canvasBackdrop,
-        canvasZoom,
-        canvasWidth,
-        canvasHeight,
         leftCollapsed,
         rightCollapsed,
         preferredLeftCollapsed,
         preferredRightCollapsed,
         leftPanelWidth: leftWidth,
         rightPanelWidth: rightWidth,
-        selectedComponentName: selectedName,
-        selectedSceneId: selectedScene,
-        activeInspectTab: rightTab,
     },
     hasCustomWallpaper: () => wallpaperUrl.value !== "",
+    requested: {
+        ...(requestedLook.themeId === undefined ? {} : {themeId: requestedLook.themeId}),
+        ...(requestedLook.colorwayId === undefined ? {} : {colorwayId: requestedLook.colorwayId}),
+    },
+    dragging: () => panelDragging.value,
+    onLookAdopted: () => session.dropLook(),
+});
+const {hydrating: preferencesHydrating, problem: preferencesProblem, setLeftCollapsed, setRightCollapsed} = preferences;
+
+// 记录读到之后主题与配色才确定；与默认值相同时主题的 watch 不触发，这里补一次。
+watch(preferencesHydrating, (hydrating) => {
+    if (!hydrating) applyLabTheme(labThemeId.value, labColorwayId.value);
 });
 
-// 地址栏经宿主的 router 改写：直接改 History 会让 router 记录的当前路由与地址栏不一致。
-const router = useRouter();
+// 地址把组件换掉时（后退、前进、打开链接），组件树也要展开到它。
+watch(selectedName, ensureSelectedComponentExpanded);
 
-function syncUrlQuery(componentName: string, sceneId: string): void {
-    const {component: _component, scene: _scene, c: _c, s: _s, ...rest} = router.currentRoute.value.query;
-    const query = {...rest, ...(componentName ? {c: componentName} : {}), ...(sceneId ? {s: sceneId} : {})};
-    if (router.resolve({query}).fullPath !== router.currentRoute.value.fullPath) {
-        void router.replace({query});
-    }
+/** 偏好的问题提示（ui.component-lab “状态与转换”的表）：每种问题一句话与对应的操作。 */
+type PreferencesAction = "retry" | "discard" | "reset";
+const preferencesNotice = computed<{text: string; actions: readonly PreferencesAction[]} | null>(() => {
+    const problem = preferencesProblem.value;
+    if (problem === null) return null;
+    if (problem.kind === "unread") return {text: `偏好没能读取（${problem.code}），正在使用默认值`, actions: ["retry"]};
+    if (problem.kind === "protected") return {text: `偏好记录损坏或版本不认识（${problem.code}），不会覆盖`, actions: ["reset"]};
+    return {text: `偏好没保存上（${problem.code}）`, actions: ["retry", "discard"]};
+});
+
+// ——— 复制场景链接 ———
+const linkCopied = ref(false);
+let linkCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function copySceneLink(): Promise<void> {
+    await navigator.clipboard.writeText(session.canonicalHref({themeId: labThemeId.value, colorwayId: labColorwayId.value}));
+    linkCopied.value = true;
+    if (linkCopiedTimer !== null) clearTimeout(linkCopiedTimer);
+    linkCopiedTimer = setTimeout(() => {
+        linkCopied.value = false;
+    }, 1600);
 }
+onBeforeUnmount(() => {
+    if (linkCopiedTimer !== null) clearTimeout(linkCopiedTimer);
+});
 
-function onPopState(): void {
-    if (typeof window === "undefined") {
-        return;
-    }
-    const params = new URLSearchParams(window.location.search);
-    const compParam = params.get("c") ?? params.get("component");
-    const sceneParam = params.get("s") ?? params.get("scene");
-    if (compParam && compParam !== selectedName.value && labComponents.some((c) => c.name === compParam)) {
-        selectedName.value = compParam;
-        ensureSelectedComponentExpanded(compParam);
-    }
-    if (sceneParam && sceneParam !== selectedScene.value) {
-        selectedScene.value = sceneParam;
-    }
-}
-
-watch([selectedName, selectedScene], ([comp, sc]) => {
-    if (!preferencesHydrating.value) {
-        syncUrlQuery(comp, sc);
-    }
+/** 地址里的场景在这个组件里不存在、回落到了首个场景：提示一次，换场景或组件后消失。 */
+const missingScene = ref<{requested: string; fallback: string} | null>(null);
+watch([selectedName, selectedScene], ([, id]) => {
+    if (missingScene.value !== null && id !== missingScene.value.fallback) missingScene.value = null;
 });
 
 async function resetPreferences(): Promise<void> {
-    await resetStoredPreferences(() => {
+    await preferences.reset(() => {
         collapseForMobile(mobileQuery ?? window.matchMedia(`(max-width: ${LAB_MOBILE_BREAKPOINT}px)`));
     });
 }
@@ -546,6 +542,7 @@ function startPanelDrag(side: LabPanelSide, event: PointerEvent): void {
     const direction = side === "left" ? 1 : -1;
     const handle = event.currentTarget as HTMLElement;
     handle.dataset.dragging = "true";
+    panelDragging.value = true;
 
     const onMove = (moveEvent: PointerEvent): void => {
         setPanelWidth(side, startWidth + (moveEvent.clientX - startX) * direction);
@@ -555,6 +552,8 @@ function startPanelDrag(side: LabPanelSide, event: PointerEvent): void {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         panelDragCleanup = null;
+        panelDragging.value = false;
+        preferences.commitPanelWidth(side);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -743,8 +742,14 @@ function selectComponent(id: string): void {
     if (id.startsWith("group:")) {
         return;
     }
+    if (id === selectedName.value) {
+        return;
+    }
+    // 换组件时画布回到随窗口，避免上一个组件拖出来的尺寸影响新组件的判读。地址带来的组件（链接、后退）连同它的
+    // 画布一起恢复，不走这里。
+    canvasWidth.value = 0;
+    canvasHeight.value = 0;
     selectedName.value = id;
-    ensureSelectedComponentExpanded(id);
 }
 
 function recordEvent(name: string, payload?: unknown): void {
@@ -821,16 +826,6 @@ provide(LAB_CONTROLS_REGISTER, (active: boolean) => {
     }
 });
 
-watch(selectedName, () => {
-    // 切换组件时将视口重置回自适应（free），避免上一组件的自定义拖拽尺寸残留影响新组件判读。
-    // 恢复偏好时组件与画布尺寸一起还原，这次换组件不是用户切换，不能清掉刚恢复的尺寸。
-    if (preferencesHydrating.value) {
-        return;
-    }
-    canvasWidth.value = 0;
-    canvasHeight.value = 0;
-});
-
 function resetScene(): void {
     sceneInput.value = structuredClone(scene.value?.input);
     fixtureState.value = undefined;
@@ -848,9 +843,13 @@ watch(fixture, async (next) => {
         return;
     }
 
-    // 保留已选中的合法场景（例如从 storage 恢复或组件自有的有效场景），否则重置为该场景组首项
+    // 保留已选中的合法场景（例如地址里写的），否则换成首个场景。
     if (!selectedScene.value || !next.scenes.some((s) => s.id === selectedScene.value)) {
-        selectedScene.value = next.scenes[0]?.id ?? "";
+        const fallback = next.scenes[0]?.id ?? "";
+        if (selectedScene.value !== "" && selectedScene.value === session.requestedScene && missingScene.value === null) {
+            missingScene.value = {requested: selectedScene.value, fallback};
+        }
+        selectedScene.value = fallback;
     }
 
     // 场景与输入在这次渲染就换成新组件的（见下一个 watch），组件却要等 loader：
@@ -902,7 +901,12 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
 <template>
     <!-- 主题轴管形状与节奏，配色轴管颜色。Lab 自己的界面必须真的消费主题 token，
          否则换主题只有 nb-ui 组件在动，看起来像切换没生效。 -->
+    <!-- 偏好读到之前只显示占位：先用默认主题画一帧再换成保存的主题，会闪一下。 -->
+    <div v-if="preferencesHydrating" class="lab-loading flex h-full items-center justify-center" data-lab-loading>
+        <span class="lab-note">正在读取 Lab 偏好…</span>
+    </div>
     <div
+        v-else
         class="lab-root flex h-full min-h-0 flex-col"
         :class="[inspectOn ? 'lab-root--inspecting' : '', `lab-root--bg-${pageBackdrop}`]"
         :style="pageBackdropStyle"
@@ -965,6 +969,16 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
                 <button
                     type="button"
                     class="lab-btn lab-btn--icon shrink-0"
+                    :aria-label="linkCopied ? '已复制场景链接' : '复制场景链接'"
+                    :title="linkCopied ? '已复制场景链接' : '复制场景链接（带主题与配色）'"
+                    data-lab-copy-link
+                    @click="copySceneLink"
+                >
+                    <span :class="linkCopied ? 'i-lucide-check' : 'i-lucide-link'" class="h-3.5 w-3.5" aria-hidden="true"></span>
+                </button>
+                <button
+                    type="button"
+                    class="lab-btn lab-btn--icon shrink-0"
                     aria-label="恢复 Lab 默认配置"
                     title="恢复 Lab 默认配置"
                     @click="resetPreferences"
@@ -973,6 +987,19 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
                 </button>
             </div>
         </header>
+
+        <div v-if="preferencesNotice !== null || missingScene !== null" class="lab-notice flex shrink-0 flex-wrap items-center" role="status" data-lab-notice>
+            <template v-if="preferencesNotice !== null">
+                <span class="i-lucide-triangle-alert h-3.5 w-3.5 shrink-0 text-[var(--status-warning)]" aria-hidden="true"></span>
+                <span class="min-w-0" data-lab-preferences-problem>{{ preferencesNotice.text }}</span>
+                <button v-if="preferencesNotice.actions.includes('retry')" type="button" class="lab-btn shrink-0" @click="preferences.retry()">重试</button>
+                <button v-if="preferencesNotice.actions.includes('discard')" type="button" class="lab-btn shrink-0" @click="preferences.discard()">放弃修改</button>
+                <button v-if="preferencesNotice.actions.includes('reset')" type="button" class="lab-btn shrink-0" @click="resetPreferences">恢复默认</button>
+            </template>
+            <span v-if="missingScene !== null" class="min-w-0" data-lab-missing-scene>
+                地址里的场景「{{ missingScene.requested }}」不存在，打开了「{{ missingScene.fallback }}」
+            </span>
+        </div>
 
         <div class="lab-columns flex min-h-0 flex-1">
             <CollapsibleSidePanel
@@ -1640,6 +1667,15 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
  * 之前这里是内容高度（26px 控件 + 2×6px 内边距 = 38px）而侧栏头写死 40px，差 2px——
  * 单独看谁都不像错的，并排就是没对齐。两边现在都取 --control-h-lg。
  */
+.lab-notice {
+    gap: var(--space-3);
+    padding: var(--space-2) var(--panel-p);
+    border-bottom: var(--border-w) solid var(--divider);
+    background: color-mix(in srgb, var(--status-warning) 10%, var(--lab-surface));
+    font-size: var(--text-sm);
+    color: var(--text-main);
+}
+
 .lab-bar--tight {
     /*
      * 用 min-height 而不是 height：空间真的不够时（中栏被两侧栏挤到几百像素）宁可这一条长高、

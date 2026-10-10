@@ -12,7 +12,7 @@ import type {BatchAction, Dialog as ExplorerDialog, KeyOutcome, Notice, Operatio
 import {nameErrorText} from "../feedback-text";
 import type {MenuEntry} from "../menu";
 import {explorerText} from "../messages";
-import type {PreferenceProblem} from "../preferences";
+import type {FieldProblem} from "nbook/shared/store/problem";
 import type {TreeKey} from "../tree/keys";
 import type {Row} from "../tree/rows";
 import type {Modifiers} from "../tree/selection";
@@ -29,7 +29,7 @@ const props = defineProps<{
     showManifests: boolean;
     ready: boolean;
     notice: Notice | null;
-    problem: PreferenceProblem | null;
+    problem: FieldProblem | null;
     handleKey: (key: TreeKey, page: number) => KeyOutcome;
     /** 新建工具按钮是否可用；默认 false。 */
     canCreate?: boolean;

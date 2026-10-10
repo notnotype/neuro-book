@@ -1,26 +1,19 @@
 /**
- * Lab 界面偏好与会话状态的持久化（ui.component-lab 场景 8、9）。偏好跨标签页共享（localStorage），选中的组件、
- * 场景与画布尺寸按标签页隔离（sessionStorage）。存储里的内容可能被手改或来自旧版本：逐字段按登记表校验，
- * 不合法的字段丢弃、其余照常恢复；存储不可用（隐私模式、配额）时按“没有偏好”处理，Lab 照常打开。
+ * Lab 的界面偏好（docs/specs/ui/component-lab.md 的“状态与转换”与“副作用与数据”）：`nbook.storage` 的一条记录，
+ * 经 store 读写。标签页自己的状态（组件、场景、画布、缩放、检视 tab）在地址栏，不在这里。
+ *
+ * 记录用 `shared` 而不是 `local`：`local` 按客户端身份分开，而客户端身份存在各浏览器来源自己的 localStorage 里，
+ * 开发服务换个端口就是另一个身份、另一份偏好。Lab 是开发工具，同一状态根下共用一份就够。
+ *
+ * schema 只管结构。主题、配色、背景是否还在当前目录里、侧栏宽度是否在范围内，读出来之后逐字段核对：目录随已装的
+ * 主题包变化，写进 schema 会让整条记录因为一个过时的主题 id 被判为损坏。
  */
 
-/** Web Storage 中 Lab 用到的部分；测试传内存实现。 */
-export interface KeyValueStorage {
-    getItem(key: string): string | null;
-    setItem(key: string, value: string): void;
-    removeItem(key: string): void;
-}
+import {Type} from "typebox";
 
-export const LAB_PREFERENCES_STORAGE_KEY = "nb-lab:preferences:v1";
-
-export type LabPreferenceCatalog = {
-    themeIds: readonly string[];
-    colorwayIds: readonly string[];
-    canvasBackdropIds: readonly string[];
-    pageBackdropIds: readonly string[];
-    zooms: readonly number[];
-    componentNames?: readonly string[];
-};
+import {defineRecord} from "nbook/shared/storage";
+import {defineStore} from "nbook/shared/store/store";
+import type {CommitResult} from "nbook/shared/store/store";
 
 /**
  * 侧栏宽度的边界：拖拽与恢复共用同一组值，避免两处各夹一次。
@@ -34,199 +27,96 @@ export const LAB_PANEL_WIDTH_LIMITS = {
 export type LabPanelSide = keyof typeof LAB_PANEL_WIDTH_LIMITS;
 
 export type LabPreferences = {
-    schema?: 1;
-    themeId?: string;
-    colorwayId?: string;
-    pageBackdropId?: string;
-    canvasBackdropId?: string;
-    canvasZoom?: number;
-    canvasWidth?: number;
-    canvasHeight?: number;
-    leftCollapsed?: boolean;
-    rightCollapsed?: boolean;
+    readonly themeId?: string;
+    readonly colorwayId?: string;
+    readonly pageBackdropId?: string;
+    readonly canvasBackdropId?: string;
+    readonly leftCollapsed?: boolean;
+    readonly rightCollapsed?: boolean;
     /** 左侧栏（组件树）宽度，px */
-    leftPanelWidth?: number;
+    readonly leftPanelWidth?: number;
     /** 右侧栏（检视）宽度，px */
-    rightPanelWidth?: number;
-    /** 当前选中的组件名 */
-    selectedComponentName?: string;
-    /** 当前选中的场景 ID */
-    selectedSceneId?: string;
-    /** 右侧检视栏激活的 Tab */
-    activeInspectTab?: string;
+    readonly rightPanelWidth?: number;
 };
 
-const MAX_CANVAS_SIZE = 16_384;
+const Id = Type.String({maxLength: 100});
+const PreferencesSchema = Type.Object({
+    themeId: Type.Optional(Id),
+    colorwayId: Type.Optional(Id),
+    pageBackdropId: Type.Optional(Id),
+    canvasBackdropId: Type.Optional(Id),
+    leftCollapsed: Type.Optional(Type.Boolean()),
+    rightCollapsed: Type.Optional(Type.Boolean()),
+    leftPanelWidth: Type.Optional(Type.Integer()),
+    rightPanelWidth: Type.Optional(Type.Integer()),
+}, {additionalProperties: false});
 
-export function loadLabPreferences(storage: KeyValueStorage, catalog: LabPreferenceCatalog): LabPreferences {
-    try {
-        const raw = storage.getItem(LAB_PREFERENCES_STORAGE_KEY);
-        if (raw === null) {
-            return {};
-        }
-        const parsed: unknown = JSON.parse(raw);
-        if (!isRecord(parsed) || parsed.schema !== 1) {
-            return {};
-        }
-        const preferences: LabPreferences = {schema: 1};
-        copyAllowedString(parsed, "themeId", catalog.themeIds, preferences);
-        copyAllowedString(parsed, "colorwayId", catalog.colorwayIds, preferences);
-        copyAllowedString(parsed, "pageBackdropId", catalog.pageBackdropIds, preferences);
-        copyAllowedString(parsed, "canvasBackdropId", catalog.canvasBackdropIds, preferences);
-        if (typeof parsed.canvasZoom === "number" && catalog.zooms.includes(parsed.canvasZoom)) {
-            preferences.canvasZoom = parsed.canvasZoom;
-        }
-        copyCanvasSize(parsed, "canvasWidth", preferences);
-        copyCanvasSize(parsed, "canvasHeight", preferences);
-        copyBoolean(parsed, "leftCollapsed", preferences);
-        copyBoolean(parsed, "rightCollapsed", preferences);
-        copyPanelWidth(parsed, "leftPanelWidth", LAB_PANEL_WIDTH_LIMITS.left, preferences);
-        copyPanelWidth(parsed, "rightPanelWidth", LAB_PANEL_WIDTH_LIMITS.right, preferences);
-        if (catalog.componentNames) {
-            copyAllowedString(parsed, "selectedComponentName", catalog.componentNames, preferences);
-        } else if (typeof parsed.selectedComponentName === "string" && parsed.selectedComponentName.length <= 100) {
-            preferences.selectedComponentName = parsed.selectedComponentName;
-        }
-        if (typeof parsed.selectedSceneId === "string" && /^[a-zA-Z0-9_.-]+$/.test(parsed.selectedSceneId) && parsed.selectedSceneId.length <= 100) {
-            preferences.selectedSceneId = parsed.selectedSceneId;
-        }
-        if (typeof parsed.activeInspectTab === "string" && ["doc", "events", "data", "element"].includes(parsed.activeInspectTab)) {
-            preferences.activeInspectTab = parsed.activeInspectTab;
-        }
-        return preferences;
-    } catch {
-        return {};
-    }
-}
+export const LAB_PREFERENCES_RECORD = defineRecord({key: "lab.preferences", scope: "user", locality: "shared", version: 1, schema: PreferencesSchema});
 
-export function saveLabPreferences(storage: KeyValueStorage, preferences: LabPreferences): boolean {
-    try {
-        storage.setItem(LAB_PREFERENCES_STORAGE_KEY, JSON.stringify({...preferences, schema: 1}));
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-export function clearLabPreferences(storage: KeyValueStorage): boolean {
-    try {
-        storage.removeItem(LAB_PREFERENCES_STORAGE_KEY);
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-export const LAB_SESSION_STORAGE_KEY = "nb-lab:session:v1";
-
-export type LabSessionState = {
-    schema?: 1;
-    selectedComponentName?: string;
-    selectedSceneId?: string;
-    activeInspectTab?: string;
-    canvasZoom?: number;
-    canvasWidth?: number;
-    canvasHeight?: number;
+export type LabPreferenceCatalog = {
+    readonly themeIds: readonly string[];
+    readonly colorwayIds: readonly string[];
+    readonly canvasBackdropIds: readonly string[];
+    readonly pageBackdropIds: readonly string[];
 };
 
-export function loadLabSession(storage: KeyValueStorage, catalog: LabPreferenceCatalog): LabSessionState {
-    try {
-        const raw = storage.getItem(LAB_SESSION_STORAGE_KEY);
-        if (raw === null) {
-            return {};
-        }
-        const parsed: unknown = JSON.parse(raw);
-        if (!isRecord(parsed) || parsed.schema !== 1) {
-            return {};
-        }
-        const session: LabSessionState = {schema: 1};
-        if (catalog.componentNames) {
-            copyAllowedString(parsed, "selectedComponentName", catalog.componentNames, session);
-        } else if (typeof parsed.selectedComponentName === "string" && parsed.selectedComponentName.length <= 100) {
-            session.selectedComponentName = parsed.selectedComponentName;
-        }
-        if (typeof parsed.selectedSceneId === "string" && /^[a-zA-Z0-9_.-]+$/.test(parsed.selectedSceneId) && parsed.selectedSceneId.length <= 100) {
-            session.selectedSceneId = parsed.selectedSceneId;
-        }
-        if (typeof parsed.activeInspectTab === "string" && ["doc", "events", "data", "element"].includes(parsed.activeInspectTab)) {
-            session.activeInspectTab = parsed.activeInspectTab;
-        }
-        if (typeof parsed.canvasZoom === "number" && catalog.zooms.includes(parsed.canvasZoom)) {
-            session.canvasZoom = parsed.canvasZoom;
-        }
-        copyCanvasSize(parsed, "canvasWidth", session);
-        copyCanvasSize(parsed, "canvasHeight", session);
-        return session;
-    } catch {
-        return {};
-    }
+/** 只留下当前目录认识、宽度在范围内的字段；其余字段照常生效（验收 9）。 */
+export function validLabPreferences(value: LabPreferences, catalog: LabPreferenceCatalog): LabPreferences {
+    const within = (width: number | undefined, side: LabPanelSide): boolean =>
+        width !== undefined && width >= LAB_PANEL_WIDTH_LIMITS[side].min && width <= LAB_PANEL_WIDTH_LIMITS[side].max;
+    return {
+        ...(value.themeId !== undefined && catalog.themeIds.includes(value.themeId) ? {themeId: value.themeId} : {}),
+        ...(value.colorwayId !== undefined && catalog.colorwayIds.includes(value.colorwayId) ? {colorwayId: value.colorwayId} : {}),
+        ...(value.pageBackdropId !== undefined && catalog.pageBackdropIds.includes(value.pageBackdropId) ? {pageBackdropId: value.pageBackdropId} : {}),
+        ...(value.canvasBackdropId !== undefined && catalog.canvasBackdropIds.includes(value.canvasBackdropId) ? {canvasBackdropId: value.canvasBackdropId} : {}),
+        ...(value.leftCollapsed === undefined ? {} : {leftCollapsed: value.leftCollapsed}),
+        ...(value.rightCollapsed === undefined ? {} : {rightCollapsed: value.rightCollapsed}),
+        ...(within(value.leftPanelWidth, "left") ? {leftPanelWidth: value.leftPanelWidth} : {}),
+        ...(within(value.rightPanelWidth, "right") ? {rightPanelWidth: value.rightPanelWidth} : {}),
+    };
 }
 
-export function saveLabSession(storage: KeyValueStorage, session: LabSessionState): boolean {
-    try {
-        storage.setItem(LAB_SESSION_STORAGE_KEY, JSON.stringify({...session, schema: 1}));
-        return true;
-    } catch {
-        return false;
-    }
-}
+/**
+ * 修改按字段合并进记录：两个窗口同时改不同字段时，条件保存冲突后在新的记录上重放这次的字段，两边都留下（验收 20）。
+ * 保存暂停（确定失败、结果未知）期间的修改只改显示、合并成一份，恢复后提交这一份，不在队列里堆一串过时的值。
+ */
+export const labStore = defineStore("lab", ({persist}) => {
+    const preferences = persist(LAB_PREFERENCES_RECORD, {initial: {}});
+    const paused = (): boolean => preferences.save.state === "failed" || preferences.save.state === "unknown";
+    let held: LabPreferences = {};
 
-export function clearLabSession(storage: KeyValueStorage): boolean {
-    try {
-        storage.removeItem(LAB_SESSION_STORAGE_KEY);
-        return true;
-    } catch {
-        return false;
-    }
-}
+    return {
+        state: {preferences},
+        actions: {
+            update: (patch: LabPreferences): void => {
+                if (paused()) {
+                    held = {...held, ...patch};
+                    preferences.show({...preferences.display, ...patch});
+                    return;
+                }
+                void preferences.commit((current) => ({...current, ...patch}));
+            },
+            /** 写成空对象：记录里没有的字段就是默认值。受保护（损坏、版本不认识）的记录也能这样覆盖，原件由 Storage 保留。 */
+            resetDefaults: (): Promise<CommitResult> => {
+                held = {};
+                return preferences.reset({});
+            },
+            /** 读取失败的先重新打开；暂停的保存重试；之后提交暂停期间合并下来的修改。 */
+            retry: async (): Promise<void> => {
+                if (preferences.failure !== null) await preferences.reopen();
+                if (preferences.failure === null && paused()) await preferences.retry();
+                if (paused() || Object.keys(held).length === 0) return;
+                const patch = held;
+                held = {};
+                void preferences.commit((current) => ({...current, ...patch}));
+            },
+            /** 放弃没保存上的修改：显示回到已保存的值。 */
+            discard: (): void => {
+                held = {};
+                if (paused()) preferences.discardAll();
+            },
+        },
+    };
+});
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function copyAllowedString(
-    source: Record<string, unknown>,
-    key: "themeId" | "colorwayId" | "pageBackdropId" | "canvasBackdropId" | "selectedComponentName",
-    allowed: readonly string[],
-    target: Record<string, unknown>,
-): void {
-    const value = source[key];
-    if (typeof value === "string" && allowed.includes(value)) {
-        target[key] = value;
-    }
-}
-
-function copyCanvasSize(
-    source: Record<string, unknown>,
-    key: "canvasWidth" | "canvasHeight",
-    target: Record<string, unknown>,
-): void {
-    const value = source[key];
-    if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_CANVAS_SIZE) {
-        target[key] = value;
-    }
-}
-
-function copyBoolean(
-    source: Record<string, unknown>,
-    key: "leftCollapsed" | "rightCollapsed",
-    target: LabPreferences,
-): void {
-    const value = source[key];
-    if (typeof value === "boolean") {
-        target[key] = value;
-    }
-}
-
-/** 越界与小数一律丢弃而不是夹紧：夹紧会让「拖动前的旧值」静默变成另一个宽度。 */
-function copyPanelWidth(
-    source: Record<string, unknown>,
-    key: "leftPanelWidth" | "rightPanelWidth",
-    limits: {readonly min: number; readonly max: number},
-    target: LabPreferences,
-): void {
-    const value = source[key];
-    if (typeof value === "number" && Number.isInteger(value) && value >= limits.min && value <= limits.max) {
-        target[key] = value;
-    }
-}
+export type LabStore = ReturnType<typeof labStore.create>;

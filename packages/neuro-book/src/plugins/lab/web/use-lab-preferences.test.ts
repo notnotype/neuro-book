@@ -1,357 +1,226 @@
-import {describe, expect, it} from "bun:test";
-import {nextTick, ref} from "vue";
+/**
+ * 偏好 store 接到界面状态（docs/specs/ui/component-lab.md 的“状态与转换”，验收 8、9）：读到之前不放开界面、读到后
+ * 一次性放进界面状态、地址栏指定的主题写回、只写改了的字段、拖动松手才写、恢复默认。真实 `nbook.storage` 与 SQLite。
+ */
 
-import {LAB_PREFERENCES_STORAGE_KEY, LAB_SESSION_STORAGE_KEY} from "./lab-preferences-store";
-import type {KeyValueStorage} from "./lab-preferences-store";
+import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
+import {Database} from "bun:sqlite";
+import {rm} from "node:fs/promises";
+import {join} from "node:path";
+
+import {effectScope, nextTick, ref} from "vue";
+import type {EffectScope} from "vue";
+
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+
+import {storageWorld} from "nbook/plugins/storage/testing/world";
+import type {StorageWorld} from "nbook/plugins/storage/testing/world";
+import type {StorageService} from "nbook/shared/storage";
+
+import {LAB_PREFERENCES_RECORD} from "./lab-preferences-store";
+import type {LabStore} from "./lab-preferences-store";
+import {openLab} from "./testing/lab-store";
 import {useLabPreferences} from "./use-lab-preferences";
 
-const catalog = {
-    themeIds: ["nbook", "macos"],
-    colorwayIds: ["nbook-light", "nbook-dark"],
-    canvasBackdropIds: ["panel", "checker"],
-    pageBackdropIds: ["theme", "custom"],
-    zooms: [0.5, 1, 2],
-    componentNames: ["EditorWorkbench", "ViewportCanvas", "MarkdownView"],
-};
+const catalog = {themeIds: ["nbook", "macos"], colorwayIds: ["nbook-light", "nbook-dark"], canvasBackdropIds: ["panel", "checker"], pageBackdropIds: ["theme", "custom"]};
+const defaults = {themeId: "nbook", colorwayId: "nbook-dark", pageBackdropId: "theme", canvasBackdropId: "panel", leftPanelWidth: 300, rightPanelWidth: 380};
 
-const defaults = {
-    themeId: "nbook",
-    colorwayId: "nbook-dark",
-    pageBackdropId: "theme",
-    canvasBackdropId: "panel",
-    canvasZoom: 1,
-    leftPanelWidth: 300,
-    rightPanelWidth: 380,
-    selectedComponentName: "EditorWorkbench",
-    selectedSceneId: "",
-};
+let tmp = "";
+let counter = 0;
+const worlds: StorageWorld[] = [];
+const scopes: EffectScope[] = [];
 
-describe("useLabPreferences", () => {
-    it("restores a saved theme and colorway without overwriting them during hydration", async () => {
-        const storage = new MemoryStorage();
-        storage.setItem(LAB_PREFERENCES_STORAGE_KEY, JSON.stringify({
-            schema: 1,
-            themeId: "macos",
-            colorwayId: "nbook-light",
-            canvasZoom: 2,
-            activeInspectTab: "element",
-        }));
-        const state = createState();
-        const preferences = useLabPreferences({
-            storage: () => storage,
-            catalog,
-            defaults,
-            state,
-            hasCustomWallpaper: () => false,
-        });
-
-        await preferences.restore();
-
-        expect(state.themeId.value).toBe("macos");
-        expect(state.colorwayId.value).toBe("nbook-light");
-        expect(state.canvasZoom.value).toBe("2");
-        expect(state.activeInspectTab.value).toBe("element");
-        expect(JSON.parse(storage.getItem(LAB_PREFERENCES_STORAGE_KEY) ?? "{}")).toMatchObject({
-            themeId: "macos",
-            colorwayId: "nbook-light",
-            activeInspectTab: "element",
-        });
-    });
-
-    it("persists the user sidebar preference instead of a responsive forced collapse", async () => {
-        const storage = new MemoryStorage();
-        const state = createState();
-        const preferences = useLabPreferences({
-            storage: () => storage,
-            catalog,
-            defaults,
-            state,
-            hasCustomWallpaper: () => false,
-        });
-        await preferences.restore();
-
-        state.leftCollapsed.value = true;
-        state.rightCollapsed.value = true;
-        await nextTick();
-        expect(storage.getItem(LAB_PREFERENCES_STORAGE_KEY)).toBeNull();
-
-        preferences.setLeftCollapsed(true);
-        await nextTick();
-        expect(JSON.parse(storage.getItem(LAB_PREFERENCES_STORAGE_KEY) ?? "{}")).toMatchObject({
-            leftCollapsed: true,
-            rightCollapsed: false,
-        });
-
-        // 拖动侧栏改的是同一份偏好：宽度也要跟着落盘，否则刷新后又弹回默认值
-        state.leftPanelWidth.value = 420;
-        await nextTick();
-        expect(JSON.parse(storage.getItem(LAB_PREFERENCES_STORAGE_KEY) ?? "{}")).toMatchObject({
-            leftPanelWidth: 420,
-        });
-    });
-
-    it("uses defaults and keeps reset safe when the storage accessor throws", async () => {
-        const state = createState();
-        const preferences = useLabPreferences({
-            storage: () => {
-                throw new Error("SecurityError");
-            },
-            catalog,
-            defaults,
-            state,
-            hasCustomWallpaper: () => false,
-        });
-
-        await expect(preferences.restore()).resolves.toBeUndefined();
-        expect(state.themeId.value).toBe("nbook");
-        expect(state.canvasBackdropId.value).toBe("panel");
-        await expect(preferences.reset(() => undefined)).resolves.toBeUndefined();
-        state.themeId.value = "macos";
-        await nextTick();
-        expect(state.themeId.value).toBe("macos");
-    });
-
-    it("isolates selected component and scene per tab using sessionStorage and keeps localStorage unpolluted", async () => {
-        const sharedLocalStorage = new MemoryStorage();
-        const tab1Session = new MemoryStorage();
-        const tab2Session = new MemoryStorage();
-
-        const stateTab1 = createState();
-        const stateTab2 = createState();
-
-        const tab1 = useLabPreferences({
-            storage: () => sharedLocalStorage,
-            sessionStorage: () => tab1Session,
-            catalog,
-            defaults,
-            state: stateTab1,
-            hasCustomWallpaper: () => false,
-        });
-
-        const tab2 = useLabPreferences({
-            storage: () => sharedLocalStorage,
-            sessionStorage: () => tab2Session,
-            catalog,
-            defaults,
-            state: stateTab2,
-            hasCustomWallpaper: () => false,
-        });
-
-        await tab1.restore();
-        await tab2.restore();
-
-        // 标签页 1 选中 EditorWorkbench，标签页 2 选中 ViewportCanvas
-        stateTab1.selectedComponentName.value = "EditorWorkbench";
-        stateTab1.selectedSceneId.value = "default";
-        stateTab2.selectedComponentName.value = "ViewportCanvas";
-        stateTab2.selectedSceneId.value = "preview";
-        await nextTick();
-
-        // 两个标签页各自的 sessionStorage 存储各自的组件与场景
-        expect(JSON.parse(tab1Session.getItem(LAB_SESSION_STORAGE_KEY) ?? "{}")).toMatchObject({
-            selectedComponentName: "EditorWorkbench",
-            selectedSceneId: "default",
-        });
-        expect(JSON.parse(tab2Session.getItem(LAB_SESSION_STORAGE_KEY) ?? "{}")).toMatchObject({
-            selectedComponentName: "ViewportCanvas",
-            selectedSceneId: "preview",
-        });
-
-        // 关键：共享的 localStorage 绝对不能被写入 selectedComponentName，避免跨标签页污染
-        const localData = JSON.parse(sharedLocalStorage.getItem(LAB_PREFERENCES_STORAGE_KEY) ?? "{}");
-        expect(localData.selectedComponentName).toBeUndefined();
-        expect(localData.selectedSceneId).toBeUndefined();
-
-        // 标签页 1 刷新（restore），依然恢复为 EditorWorkbench
-        const restoredTab1 = createState();
-        const tab1Reload = useLabPreferences({
-            storage: () => sharedLocalStorage,
-            sessionStorage: () => tab1Session,
-            catalog,
-            defaults,
-            state: restoredTab1,
-            hasCustomWallpaper: () => false,
-        });
-        await tab1Reload.restore();
-        expect(restoredTab1.selectedComponentName.value).toBe("EditorWorkbench");
-        expect(restoredTab1.selectedSceneId.value).toBe("default");
-
-        // 标签页 2 刷新（restore），依然恢复为 ViewportCanvas
-        const restoredTab2 = createState();
-        const tab2Reload = useLabPreferences({
-            storage: () => sharedLocalStorage,
-            sessionStorage: () => tab2Session,
-            catalog,
-            defaults,
-            state: restoredTab2,
-            hasCustomWallpaper: () => false,
-        });
-        await tab2Reload.restore();
-        expect(restoredTab2.selectedComponentName.value).toBe("ViewportCanvas");
-        expect(restoredTab2.selectedSceneId.value).toBe("preview");
-    });
-
-    it("prioritizes URL query parameters over sessionStorage and localStorage", async () => {
-        const sharedLocalStorage = new MemoryStorage();
-        const sessionStore = new MemoryStorage();
-        sessionStore.setItem(LAB_SESSION_STORAGE_KEY, JSON.stringify({
-            schema: 1,
-            selectedComponentName: "EditorWorkbench",
-            selectedSceneId: "tab-scene",
-        }));
-        sharedLocalStorage.setItem(LAB_PREFERENCES_STORAGE_KEY, JSON.stringify({
-            schema: 1,
-            selectedComponentName: "MarkdownView",
-            selectedSceneId: "local-scene",
-        }));
-
-        const state = createState();
-        const preferences = useLabPreferences({
-            storage: () => sharedLocalStorage,
-            sessionStorage: () => sessionStore,
-            getUrlParams: () => ({component: "ViewportCanvas", scene: "url-scene"}),
-            catalog,
-            defaults,
-            state,
-            hasCustomWallpaper: () => false,
-        });
-
-        await preferences.restore();
-
-        // URL 参数拥有最高优先级
-        expect(state.selectedComponentName.value).toBe("ViewportCanvas");
-        expect(state.selectedSceneId.value).toBe("url-scene");
-    });
-
-    it("地址参数被采纳后立即写进偏好与会话，不用再在界面上操作一次", async () => {
-        const sharedLocalStorage = new MemoryStorage();
-        const sessionStore = new MemoryStorage();
-        const state = createState();
-        const preferences = useLabPreferences({
-            storage: () => sharedLocalStorage,
-            sessionStorage: () => sessionStore,
-            getUrlParams: () => ({component: "ViewportCanvas", scene: "url-scene", themeId: "macos", canvasSize: {width: 390, height: 844}}),
-            catalog,
-            defaults,
-            state,
-            hasCustomWallpaper: () => false,
-        });
-
-        await preferences.restore();
-
-        expect(JSON.parse(sharedLocalStorage.getItem(LAB_PREFERENCES_STORAGE_KEY) ?? "{}")).toMatchObject({themeId: "macos"});
-        expect(JSON.parse(sessionStore.getItem(LAB_SESSION_STORAGE_KEY) ?? "{}")).toMatchObject({selectedComponentName: "ViewportCanvas", selectedSceneId: "url-scene", canvasWidth: 390, canvasHeight: 844});
-    });
-
-    it("没有地址参数时只恢复，不改写存储", async () => {
-        const sharedLocalStorage = new MemoryStorage();
-        const preferences = useLabPreferences({
-            storage: () => sharedLocalStorage,
-            sessionStorage: () => new MemoryStorage(),
-            getUrlParams: () => ({}),
-            catalog,
-            defaults,
-            state: createState(),
-            hasCustomWallpaper: () => false,
-        });
-
-        await preferences.restore();
-
-        expect(sharedLocalStorage.getItem(LAB_PREFERENCES_STORAGE_KEY)).toBeNull();
-    });
-
-    it("starts in hydrating state and marks hydrating=false after restore completes", async () => {
-        const storage = new MemoryStorage();
-        const state = createState();
-        const preferences = useLabPreferences({
-            storage: () => storage,
-            catalog,
-            defaults,
-            state,
-            hasCustomWallpaper: () => false,
-        });
-
-        // 在 restore 完成前，处于 hydrating 阶段
-        expect(preferences.hydrating.value).toBe(true);
-
-        await preferences.restore();
-
-        // restore 完成后，hydrating 结束
-        expect(preferences.hydrating.value).toBe(false);
-    });
-
-    it("does not apply saved session scene from a different component when URL specifies a new component without scene", async () => {
-        const sessionStore = new MemoryStorage();
-        sessionStore.setItem(LAB_SESSION_STORAGE_KEY, JSON.stringify({
-            schema: 1,
-            selectedComponentName: "EditorWorkbench",
-            selectedSceneId: "tab-scene",
-        }));
-
-        const state = createState();
-        const preferences = useLabPreferences({
-            storage: () => new MemoryStorage(),
-            sessionStorage: () => sessionStore,
-            getUrlParams: () => ({component: "ViewportCanvas"}),
-            catalog,
-            defaults,
-            state,
-            hasCustomWallpaper: () => false,
-        });
-
-        await preferences.restore();
-
-        expect(state.selectedComponentName.value).toBe("ViewportCanvas");
-        // ViewportCanvas 没有在 URL 中给 scene，且不同于 session 中的 EditorWorkbench，不应继承 tab-scene
-        expect(state.selectedSceneId.value).toBe("");
-    });
+beforeAll(async () => {
+    tmp = await createTestTmpRoot("neuro-book-lab", "use-preferences");
 });
+
+afterEach(async () => {
+    for (const scope of scopes.splice(0)) scope.stop();
+    const results = [];
+    for (const world of worlds.splice(0)) results.push(...(await world.close()));
+    for (const result of results) expect(result).toMatchObject({status: "closed"});
+});
+
+afterAll(async () => {
+    if (tmp !== "") await rm(tmp, {recursive: true, force: true});
+});
+
+async function world(): Promise<StorageWorld> {
+    counter += 1;
+    const created = await storageWorld(join(tmp, `case-${String(counter)}`), []);
+    worlds.push(created);
+    return created;
+}
+
+async function read(storage: StorageService): Promise<unknown> {
+    const opened = await storage.open(LAB_PREFERENCES_RECORD);
+    if (!opened.ok) throw new Error(`${opened.code} ${opened.detail}`);
+    const snapshot = await opened.handle.read();
+    return snapshot.status === "ok" ? snapshot.value : snapshot.status;
+}
+
+async function idle(store: LabStore): Promise<void> {
+    await nextTick();
+    await waitUntil("保存完成", () => store.state.preferences.queue === 0);
+}
 
 function createState() {
     return {
-        themeId: ref("nbook"),
-        colorwayId: ref("nbook-dark"),
-        pageBackdropId: ref("theme"),
-        canvasBackdropId: ref("panel"),
-        canvasZoom: ref("1"),
-        canvasWidth: ref(0),
-        canvasHeight: ref(0),
+        themeId: ref(""),
+        colorwayId: ref(""),
+        pageBackdropId: ref(""),
+        canvasBackdropId: ref(""),
         leftCollapsed: ref(false),
         rightCollapsed: ref(false),
         preferredLeftCollapsed: ref(false),
         preferredRightCollapsed: ref(false),
-        leftPanelWidth: ref(300),
-        rightPanelWidth: ref(380),
-        selectedComponentName: ref(""),
-        selectedSceneId: ref(""),
-        activeInspectTab: ref("doc"),
+        leftPanelWidth: ref(0),
+        rightPanelWidth: ref(0),
     };
 }
 
-class MemoryStorage implements KeyValueStorage {
-    private readonly values = new Map<string, string>();
-
-    get length(): number {
-        return this.values.size;
-    }
-
-    clear(): void {
-        this.values.clear();
-    }
-
-    getItem(key: string): string | null {
-        return this.values.get(key) ?? null;
-    }
-
-    key(index: number): string | null {
-        return [...this.values.keys()][index] ?? null;
-    }
-
-    removeItem(key: string): void {
-        this.values.delete(key);
-    }
-
-    setItem(key: string, value: string): void {
-        this.values.set(key, value);
-    }
+function bind(store: LabStore, options: {requested?: {themeId?: string; colorwayId?: string}; dragging?: () => boolean; wallpaper?: boolean} = {}) {
+    const state = createState();
+    const scope = effectScope();
+    scopes.push(scope);
+    const preferences = scope.run(() => useLabPreferences({
+        store,
+        catalog,
+        defaults,
+        state,
+        hasCustomWallpaper: () => options.wallpaper === true,
+        requested: options.requested ?? {},
+        dragging: options.dragging ?? (() => false),
+    }))!;
+    return {state, preferences};
 }
+
+async function seeded(value: object): Promise<{w: StorageWorld; storage: StorageService}> {
+    const w = await world();
+    const seed = await openLab(w, "seed", "c");
+    const opened = await seed.storage.open(LAB_PREFERENCES_RECORD);
+    if (!opened.ok) throw new Error(opened.code);
+    expect(await opened.handle.save(value, {expect: null})).toMatchObject({ok: true});
+    return {w, storage: seed.storage};
+}
+
+describe("读到之前与读到之后", () => {
+    it("记录读到之前界面停在占位；读到后放进认识的字段，其余用默认，放进来的过程不写回", async () => {
+        const {w, storage} = await seeded({themeId: "macos", colorwayId: "nbook-light", leftPanelWidth: 9000, pageBackdropId: "custom", rightCollapsed: true});
+        const lab = await openLab(w, "w", "c", {lazy: true});
+        const store = lab.create();
+        const {state, preferences} = bind(store);
+        expect(preferences.hydrating.value).toBe(true);
+        await waitUntil("放进界面", () => !preferences.hydrating.value);
+
+        expect(state.themeId.value).toBe("macos");
+        expect(state.colorwayId.value).toBe("nbook-light");
+        // 越界宽度回到默认；自定义桌面没有图片时回到默认桌面。
+        expect(state.leftPanelWidth.value).toBe(300);
+        expect(state.pageBackdropId.value).toBe("theme");
+        expect(state.rightCollapsed.value).toBe(true);
+        expect(state.preferredRightCollapsed.value).toBe(true);
+        await idle(store);
+        expect(await read(storage)).toEqual({themeId: "macos", colorwayId: "nbook-light", leftPanelWidth: 9000, pageBackdropId: "custom", rightCollapsed: true});
+    });
+
+    it("地址栏指定的主题与配色优先于记录，但不写进记录；在界面上换配色时把画面上的主题与配色一起写进去", async () => {
+        const {w, storage} = await seeded({themeId: "nbook", leftPanelWidth: 320});
+        const {store} = await openLab(w, "w", "c");
+        let adopted = 0;
+        const state = createState();
+        const scope = effectScope();
+        scopes.push(scope);
+        const preferences = scope.run(() => useLabPreferences({
+            store, catalog, defaults, state, hasCustomWallpaper: () => false,
+            requested: {themeId: "macos", colorwayId: "nbook-light"},
+            dragging: () => false,
+            onLookAdopted: () => {
+                adopted += 1;
+            },
+        }))!;
+        await waitUntil("放进界面", () => !preferences.hydrating.value);
+        expect(state.themeId.value).toBe("macos");
+        await idle(store);
+        expect(await read(storage)).toEqual({themeId: "nbook", leftPanelWidth: 320});
+
+        state.colorwayId.value = "nbook-dark";
+        await idle(store);
+        expect(await read(storage)).toEqual({themeId: "macos", colorwayId: "nbook-dark", leftPanelWidth: 320});
+        expect(adopted).toBe(1);
+        state.colorwayId.value = "nbook-light";
+        await idle(store);
+        expect(adopted).toBe(1);
+        expect(await read(storage)).toEqual({themeId: "macos", colorwayId: "nbook-light", leftPanelWidth: 320});
+    });
+});
+
+describe("写回", () => {
+    it("只写改了的字段：另一个窗口同时改的字段保留", async () => {
+        const w = await world();
+        const a = await openLab(w, "a", "client-a");
+        const b = await openLab(w, "b", "client-b");
+        const left = bind(a.store);
+        const right = bind(b.store);
+        await waitUntil("放进界面", () => !left.preferences.hydrating.value && !right.preferences.hydrating.value);
+        left.state.themeId.value = "macos";
+        right.state.preferredLeftCollapsed.value = true;
+        await Promise.all([idle(a.store), idle(b.store)]);
+        expect(await read(a.storage)).toEqual({themeId: "macos", leftCollapsed: true});
+    });
+
+    it("拖动侧栏时宽度只改显示，松手才写；窄屏收起只改布局，不写偏好", async () => {
+        const w = await world();
+        const {store, storage} = await openLab(w, "w", "c");
+        let dragging = false;
+        const {state, preferences} = bind(store, {dragging: () => dragging});
+        await waitUntil("放进界面", () => !preferences.hydrating.value);
+        dragging = true;
+        state.leftPanelWidth.value = 340;
+        state.leftPanelWidth.value = 360;
+        await idle(store);
+        expect(await read(storage)).toBe("missing");
+        dragging = false;
+        preferences.commitPanelWidth("left");
+        state.leftCollapsed.value = true;
+        await idle(store);
+        expect(await read(storage)).toEqual({leftPanelWidth: 360});
+    });
+
+    it("恢复默认：界面回到默认值，记录写成空对象", async () => {
+        const {w, storage} = await seeded({themeId: "macos", rightPanelWidth: 500});
+        const {store} = await openLab(w, "w", "c");
+        const {state, preferences} = bind(store);
+        await waitUntil("放进界面", () => !preferences.hydrating.value);
+        let responsive = 0;
+        await preferences.reset(() => {
+            responsive += 1;
+        });
+        expect(responsive).toBe(1);
+        expect(state.themeId.value).toBe("nbook");
+        expect(state.rightPanelWidth.value).toBe(380);
+        await idle(store);
+        expect(await read(storage)).toEqual({});
+    });
+
+    it("读取失败时用默认值运行；重试读到后把记录里的偏好放进界面", async () => {
+        const {w} = await seeded({themeId: "macos"});
+        const rename = (from: string, to: string): void => {
+            const db = new Database(w.userPath);
+            db.run(`ALTER TABLE ${from} RENAME TO ${to}`);
+            db.close();
+        };
+        rename("records", "records_away");
+        const lab = await openLab(w, "w", "c", {lazy: true});
+        const {state, preferences} = bind(lab.create());
+        await waitUntil("放进界面", () => !preferences.hydrating.value);
+        expect(preferences.problem.value).toEqual({kind: "unread", code: "io-error"});
+        expect(state.themeId.value).toBe("nbook");
+
+        rename("records_away", "records");
+        await preferences.retry();
+        expect(preferences.problem.value).toBeNull();
+        expect(state.themeId.value).toBe("macos");
+    });
+});

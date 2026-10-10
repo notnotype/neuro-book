@@ -1,205 +1,189 @@
-import {describe, expect, it} from "bun:test";
-import {
-    LAB_PREFERENCES_STORAGE_KEY,
-    LAB_SESSION_STORAGE_KEY,
-    clearLabPreferences,
-    clearLabSession,
-    loadLabPreferences,
-    loadLabSession,
-    saveLabPreferences,
-    saveLabSession,
-} from "./lab-preferences-store";
-import type {KeyValueStorage, LabPreferenceCatalog, LabPreferences, LabSessionState} from "./lab-preferences-store";
+/**
+ * Lab 的偏好记录与 store（docs/specs/ui/component-lab.md 的“状态与转换”，验收 8、9、20、22）：真实内核、真实
+ * `nbook.storage` 与 SQLite，窗口经进程内链路连到服务端。持久化字段的通用语义由 `src/shared/store/store.test.ts`
+ * 覆盖，这里只测 Lab 的写法：按字段合并、恢复默认写空对象、暂停期间合并成一份、受保护记录与读取失败的呈现。
+ */
 
-const catalog: LabPreferenceCatalog = {
-    themeIds: ["nbook", "macos"],
-    colorwayIds: ["nbook-light", "nbook-dark"],
-    canvasBackdropIds: ["panel", "checker"],
-    pageBackdropIds: ["theme", "custom"],
-    zooms: [0.5, 1, 2],
-    componentNames: ["EditorWorkbench", "ViewportCanvas", "MarkdownView"],
-};
+import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
+import {Database} from "bun:sqlite";
+import {rm} from "node:fs/promises";
+import {join} from "node:path";
 
-const preferences: LabPreferences = {
-    schema: 1,
-    themeId: "macos",
-    colorwayId: "nbook-light",
-    pageBackdropId: "custom",
-    canvasBackdropId: "checker",
-    canvasZoom: 2,
-    canvasWidth: 390,
-    canvasHeight: 844,
-    leftCollapsed: true,
-    rightCollapsed: false,
-    leftPanelWidth: 320,
-    rightPanelWidth: 420,
-    selectedComponentName: "EditorWorkbench",
-    selectedSceneId: "mixed",
-    activeInspectTab: "data",
-};
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-describe("Lab preferences store", () => {
-    it("round-trips validated Lab-only UI preferences", () => {
-        const storage = new MemoryStorage();
+import {storageWorld} from "nbook/plugins/storage/testing/world";
+import type {StorageWorld} from "nbook/plugins/storage/testing/world";
+import type {StorageService} from "nbook/shared/storage";
+import {fieldProblem} from "nbook/shared/store/problem";
 
-        expect(saveLabPreferences(storage, preferences)).toBe(true);
-        expect(loadLabPreferences(storage, catalog)).toEqual(preferences);
+import {LAB_PREFERENCES_RECORD, validLabPreferences} from "./lab-preferences-store";
+import type {LabStore} from "./lab-preferences-store";
+import {openLab} from "./testing/lab-store";
 
-        // 命令检视随 LabShell 的产品命令宿主一起撤掉：旧版本存下的 commands 不再是合法 tab，丢弃后回默认。
-        storage.clear();
-        storage.setItem(LAB_PREFERENCES_STORAGE_KEY, JSON.stringify({...preferences, activeInspectTab: "commands"}));
-        const {activeInspectTab: _dropped, ...withoutTab} = preferences;
-        expect(loadLabPreferences(storage, catalog)).toEqual(withoutTab);
+let tmp = "";
+let counter = 0;
+const worlds: StorageWorld[] = [];
+
+beforeAll(async () => {
+    tmp = await createTestTmpRoot("neuro-book-lab", "preferences");
+});
+
+afterEach(async () => {
+    const results = [];
+    for (const world of worlds.splice(0)) results.push(...(await world.close()));
+    for (const result of results) expect(result).toMatchObject({status: "closed"});
+});
+
+afterAll(async () => {
+    if (tmp !== "") await rm(tmp, {recursive: true, force: true});
+});
+
+async function world(): Promise<StorageWorld> {
+    counter += 1;
+    const created = await storageWorld(join(tmp, `case-${String(counter)}`), []);
+    worlds.push(created);
+    return created;
+}
+
+async function read(storage: StorageService): Promise<unknown> {
+    const opened = await storage.open(LAB_PREFERENCES_RECORD);
+    if (!opened.ok) throw new Error(`${opened.code} ${opened.detail}`);
+    const snapshot = await opened.handle.read();
+    return snapshot.status === "ok" ? snapshot.value : snapshot.status;
+}
+
+/** 等队列空了；暂停（保存失败）就直接失败，不空等。 */
+async function saved(store: LabStore): Promise<void> {
+    await waitUntil("保存完成或暂停", () => store.state.preferences.queue === 0 || store.state.preferences.save.state !== "saving");
+    expect(fieldProblem(store.state.preferences)).toBeNull();
+    await waitUntil("保存完成", () => store.state.preferences.queue === 0);
+}
+
+const catalog = {themeIds: ["glass", "paper"], colorwayIds: ["nbook-dark", "nbook-light"], canvasBackdropIds: ["dots"], pageBackdropIds: ["plain", "custom"]};
+
+describe("记录与按字段写", () => {
+    it("没有记录时显示空对象、不写盘；两个窗口（不同客户端）同时改不同字段，两项都保存，另一个客户端读到同一份", async () => {
+        const w = await world();
+        const a = await openLab(w, "a", "client-a");
+        const b = await openLab(w, "b", "client-b");
+        expect(a.store.state.preferences.display).toEqual({});
+        expect(await read(a.storage)).toBe("missing");
+
+        a.store.actions.update({themeId: "paper"});
+        b.store.actions.update({leftPanelWidth: 320});
+        await Promise.all([saved(a.store), saved(b.store)]);
+        expect(await read(a.storage)).toEqual({themeId: "paper", leftPanelWidth: 320});
+
+        // shared：换一个客户端身份（换端口的开发服务就是这样）读到的仍是这一份。
+        const c = await openLab(w, "c", "client-c");
+        expect(c.store.state.preferences.display).toEqual({themeId: "paper", leftPanelWidth: 320});
     });
 
-    it("keeps valid fields and drops untrusted values independently", () => {
-        const storage = new MemoryStorage();
-        storage.setItem(LAB_PREFERENCES_STORAGE_KEY, JSON.stringify({
-            schema: 1,
-            themeId: "macos",
-            colorwayId: "foreign-colorway",
-            pageBackdropId: "theme",
-            canvasBackdropId: "foreign-backdrop",
-            canvasZoom: 3,
-            canvasWidth: -1,
-            canvasHeight: 1200.5,
-            leftCollapsed: true,
-            rightCollapsed: "false",
-            // 越界、非整数与其它类型的宽度都要丢掉：它们是上次拖动留下的，不能静默变成另一个值
-            leftPanelWidth: 9_999,
-            rightPanelWidth: 300.5,
-            selectedComponentName: "NonExistentComponent",
-            selectedSceneId: "invalid scene with spaces!",
-            activeInspectTab: "unsupported-tab",
-            fixtureData: {secret: "must not enter the preference model"},
-        }));
-
-        expect(loadLabPreferences(storage, catalog)).toEqual({
-            schema: 1,
-            themeId: "macos",
-            pageBackdropId: "theme",
-            leftCollapsed: true,
-        });
-    });
-
-    it("ignores malformed JSON and unknown schema versions", () => {
-        const storage = new MemoryStorage();
-        storage.setItem(LAB_PREFERENCES_STORAGE_KEY, "{");
-        expect(loadLabPreferences(storage, catalog)).toEqual({});
-
-        storage.setItem(LAB_PREFERENCES_STORAGE_KEY, JSON.stringify({schema: 2, themeId: "macos"}));
-        expect(loadLabPreferences(storage, catalog)).toEqual({});
-    });
-
-    it("fails open when browser storage rejects writes or deletion", () => {
-        const storage = new ThrowingStorage();
-
-        expect(saveLabPreferences(storage, preferences)).toBe(false);
-        expect(clearLabPreferences(storage)).toBe(false);
-        expect(loadLabPreferences(storage, catalog)).toEqual({});
+    it("恢复默认把记录写成空对象", async () => {
+        const w = await world();
+        const {store, storage} = await openLab(w, "w", "c");
+        store.actions.update({themeId: "paper", rightCollapsed: true});
+        await saved(store);
+        expect(await store.actions.resetDefaults()).toBe("saved");
+        expect(await read(storage)).toEqual({});
+        expect(store.state.preferences.display).toEqual({});
     });
 });
 
-describe("Lab session store", () => {
-    const session: LabSessionState = {
-        schema: 1,
-        selectedComponentName: "EditorWorkbench",
-        selectedSceneId: "mixed",
-        activeInspectTab: "element",
-        canvasZoom: 2,
-        canvasWidth: 800,
-        canvasHeight: 600,
-    };
-
-    it("round-trips validated tab-isolated session state", () => {
-        const storage = new MemoryStorage();
-        expect(saveLabSession(storage, session)).toBe(true);
-        expect(loadLabSession(storage, catalog)).toEqual(session);
-    });
-
-    it("drops invalid components, scenes, tabs and negative sizes", () => {
-        const storage = new MemoryStorage();
-        storage.setItem(LAB_SESSION_STORAGE_KEY, JSON.stringify({
-            schema: 1,
-            selectedComponentName: "NonExistentComponent",
-            selectedSceneId: "bad scene name with spaces",
-            activeInspectTab: "invalid-tab",
-            canvasZoom: 99,
-            canvasWidth: -50,
-            canvasHeight: 600,
-        }));
-        expect(loadLabSession(storage, catalog)).toEqual({
-            schema: 1,
-            canvasHeight: 600,
-        });
-    });
-
-    it("drops the retired commands tab from session state", () => {
-        const storage = new MemoryStorage();
-        storage.setItem(LAB_SESSION_STORAGE_KEY, JSON.stringify({...session, activeInspectTab: "commands"}));
-        const {activeInspectTab: _dropped, ...expected} = session;
-        expect(loadLabSession(storage, catalog)).toEqual(expected);
-    });
-
-    it("clears session cleanly", () => {
-        const storage = new MemoryStorage();
-        saveLabSession(storage, session);
-        expect(loadLabSession(storage, catalog)).toEqual(session);
-        expect(clearLabSession(storage)).toBe(true);
-        expect(loadLabSession(storage, catalog)).toEqual({});
+describe("目录核对", () => {
+    it("不认识的主题与越界的宽度只丢这两项，其余字段照常生效", () => {
+        expect(validLabPreferences({themeId: "gone", colorwayId: "nbook-light", leftPanelWidth: 9000, rightPanelWidth: 400, pageBackdropId: "custom", leftCollapsed: true}, catalog))
+            .toEqual({colorwayId: "nbook-light", rightPanelWidth: 400, pageBackdropId: "custom", leftCollapsed: true});
     });
 });
 
-class MemoryStorage implements KeyValueStorage {
-    private readonly values = new Map<string, string>();
+describe("坏记录与失败", () => {
+    for (const [status, corrupt] of [
+        ["corrupt", (db: Database) => db.query("UPDATE records SET value = ?1 WHERE owner = 'nbook.lab' AND key = 'lab.preferences'").run("{坏的")],
+        ["unsupported-version", (db: Database) => db.query("UPDATE records SET version = 2 WHERE owner = 'nbook.lab' AND key = 'lab.preferences'").run()],
+    ] as const) {
+        it(`${status}：呈现为受保护，修改不覆盖原件；恢复默认覆盖后可以照常写`, async () => {
+            const w = await world();
+            const seed = await openLab(w, "seed", "c");
+            seed.store.actions.update({themeId: "paper"});
+            await saved(seed.store);
+            const db = new Database(w.userPath);
+            corrupt(db);
+            db.close();
 
-    get length(): number {
-        return this.values.size;
+            const {store, storage} = await openLab(w, "w", "c");
+            expect(fieldProblem(store.state.preferences)).toEqual({kind: "protected", code: status});
+            store.actions.update({themeId: "glass"});
+            await waitUntil("修改结算", () => store.state.preferences.queue === 0);
+            expect(await read(storage)).toBe(status);
+
+            expect(await store.actions.resetDefaults()).toBe("saved");
+            expect(await read(storage)).toEqual({});
+            expect(fieldProblem(store.state.preferences)).toBeNull();
+            store.actions.update({themeId: "glass"});
+            await saved(store);
+            expect(await read(storage)).toEqual({themeId: "glass"});
+        });
     }
 
-    clear(): void {
-        this.values.clear();
-    }
+    it("读取失败：呈现为没读到；库恢复后重试读到记录，读取失败期间的修改补写上去", async () => {
+        const w = await world();
+        const seed = await openLab(w, "seed", "c");
+        seed.store.actions.update({leftPanelWidth: 300});
+        await saved(seed.store);
+        const rename = (from: string, to: string): void => {
+            const db = new Database(w.userPath);
+            db.run(`ALTER TABLE ${from} RENAME TO ${to}`);
+            db.close();
+        };
+        rename("records", "records_away");
+        const lab = await openLab(w, "w", "c", {lazy: true});
+        const store = lab.create();
+        await waitUntil("就绪", () => store.state.preferences.ready);
+        expect(fieldProblem(store.state.preferences)).toEqual({kind: "unread", code: "io-error"});
+        store.actions.update({themeId: "paper"});
+        await waitUntil("暂停", () => store.state.preferences.save.state === "failed");
 
-    getItem(key: string): string | null {
-        return this.values.get(key) ?? null;
-    }
+        rename("records_away", "records");
+        await store.actions.retry();
+        await saved(store);
+        expect(fieldProblem(store.state.preferences)).toBeNull();
+        expect(await read(lab.storage)).toEqual({leftPanelWidth: 300, themeId: "paper"});
+    });
 
-    key(index: number): string | null {
-        return [...this.values.keys()][index] ?? null;
-    }
+    it("断线期间的多次修改合并成一份显示；重连后重试只提交合并后的这一份", async () => {
+        const w = await world();
+        const {store, storage, window} = await openLab(w, "w", "c");
+        window.disconnect();
+        store.actions.update({themeId: "paper"});
+        await waitUntil("暂停", () => fieldProblem(store.state.preferences)?.kind === "unsaved");
+        store.actions.update({themeId: "glass"});
+        store.actions.update({leftPanelWidth: 260});
+        expect(store.state.preferences.display).toEqual({themeId: "glass", leftPanelWidth: 260});
+        expect(store.state.preferences.queue).toBe(1);
 
-    removeItem(key: string): void {
-        this.values.delete(key);
-    }
+        expect(await window.reconnect()).toEqual({ok: true});
+        await store.actions.retry();
+        await saved(store);
+        expect(await read(storage)).toEqual({themeId: "glass", leftPanelWidth: 260});
+    });
 
-    setItem(key: string, value: string): void {
-        this.values.set(key, value);
-    }
-}
+    it("放弃：显示回到已保存的值，重连后不再写被放弃的修改", async () => {
+        const w = await world();
+        const {store, storage, window} = await openLab(w, "w", "c");
+        store.actions.update({themeId: "paper"});
+        await saved(store);
+        window.disconnect();
+        store.actions.update({themeId: "glass"});
+        await waitUntil("暂停", () => fieldProblem(store.state.preferences)?.kind === "unsaved");
+        store.actions.update({rightCollapsed: true});
+        store.actions.discard();
+        expect(store.state.preferences.display).toEqual({themeId: "paper"});
+        expect(fieldProblem(store.state.preferences)).toBeNull();
 
-class ThrowingStorage implements Storage {
-    get length(): number {
-        return 0;
-    }
-
-    clear(): void {
-        throw new Error("blocked");
-    }
-
-    getItem(): string | null {
-        throw new Error("blocked");
-    }
-
-    key(): string | null {
-        return null;
-    }
-
-    removeItem(): void {
-        throw new Error("blocked");
-    }
-
-    setItem(): void {
-        throw new Error("quota");
-    }
-}
+        expect(await window.reconnect()).toEqual({ok: true});
+        await store.actions.retry();
+        expect(await read(storage)).toEqual({themeId: "paper"});
+    });
+});

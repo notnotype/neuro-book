@@ -12,11 +12,13 @@ import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import type {DocumentCoordinator} from "nbook/plugins/editor/shared/contracts";
 import {parseResource} from "nbook/plugins/files/shared/contracts";
 import type {FilesService, Scheme} from "nbook/plugins/files/shared/contracts";
+import {fieldProblem} from "nbook/shared/store/problem";
+import type {FieldProblem} from "nbook/shared/store/problem";
 
 import {createExplorerController} from "./controller";
 import type {ExplorerController} from "./controller";
-import {EXPANDED_LIMIT, fieldProblem, limitBranches} from "./preferences";
-import type {ExplorerStore, PreferenceProblem} from "./preferences";
+import {EXPANDED_LIMIT, limitBranches} from "./preferences";
+import type {ExplorerStore} from "./preferences";
 import {addressOf, resourceOf} from "./tree/address";
 
 /** 当前挂着的视图实例：命令与确认按它的代次判断回调是否过期。 */
@@ -42,7 +44,7 @@ export interface ExplorerSession {
     readonly store: Readonly<ShallowRef<ExplorerStore | null>>;
     readonly view: Readonly<ShallowRef<AttachedView | null>>;
     /** 偏好记录此刻的问题（读不到、损坏、没保存上），给视图显示一条提示；没有为 null。 */
-    readonly problem: ComputedRef<PreferenceProblem | null>;
+    readonly problem: ComputedRef<FieldProblem | null>;
     /** 打开偏好记录、开始首读；不建控制器。入口激活时调用，重复调用无事。 */
     prepare(): void;
     attach(view: AttachedView): () => void;

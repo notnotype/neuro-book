@@ -31,7 +31,7 @@ type Props = {
     /** 控制器已建、偏好首读结束：工具栏可用。 */
     ready: boolean;
     notice: Notice | null;
-    problem: PreferenceProblem | null;
+    problem: FieldProblem | null;
     handleKey: (key: TreeKey, page: number) => KeyOutcome;
     /** 新建按钮可用；默认 false。 */
     canCreate?: boolean;

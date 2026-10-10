@@ -36,19 +36,19 @@ test.afterAll(async () => {
 test("每个登记场景都能在手机画布上挂上舞台，没有加载失败、页面错误与控制台警告", async ({context}) => {
     test.setTimeout(20 * 60_000);
     const problems: string[] = [];
-    // 每个场景一个新标签页：开发服务每次整页加载要请求一千多个模块，同一标签页连续加载四到七次就会报
-    // `ERR_INSUFFICIENT_RESOURCES` 或渲染进程崩溃（2026-10-10 实测，首页同样如此；生产构建连续 20 次正常）。
-    // 新标签页没有这个问题，场景之间的页面状态也因此天然隔离。
-    // 只记从打开到就绪之间的问题：关标签页时插件按 runtime/plugins 以 `receiver-closed` 撤回交付并记警告，
-    // 那是关页面的正常诊断，不属于场景。
-    const openPage = async (label: string) => {
+    // 每个标签页只整页加载一次，之后像浏览器的前进后退一样经宿主 router 在 Lab 里切场景：开发服务一次整页加载要请求
+    // 一千多个模块，同一标签页连续整页加载四到七次就会报 `ERR_INSUFFICIENT_RESOURCES` 或渲染进程崩溃（2026-10-10
+    // 实测，首页同样如此；生产构建连续 20 次正常）。在 Lab 里切换也是使用者实际的用法，上一个场景卸载时的问题照样能看到。
+    // 只记从打开到就绪之间的问题：关标签页时插件按 runtime/plugins 以 `receiver-closed` 撤回交付并记警告，那是关页面的
+    // 正常诊断，不属于场景。
+    const openPage = async (label: () => string) => {
         const page = await context.newPage();
         let recording = true;
         page.on("console", (message) => {
-            if (recording && (message.type() === "error" || message.type() === "warning")) problems.push(`${label} ${message.type()}: ${message.text()}`);
+            if (recording && (message.type() === "error" || message.type() === "warning")) problems.push(`${label()} ${message.type()}: ${message.text()}`);
         });
         page.on("pageerror", (error) => {
-            if (recording) problems.push(`${label} pageerror: ${error.message}`);
+            if (recording) problems.push(`${label()} pageerror: ${error.message}`);
         });
         return {
             page,
@@ -59,7 +59,7 @@ test("每个登记场景都能在手机画布上挂上舞台，没有加载失�
         };
     };
 
-    const first = await openPage("索引");
+    const first = await openPage(() => "索引");
     await first.page.goto(`${dev.pageUrl}lab`);
     await expect.poll(() => first.page.evaluate(() => typeof (window as {__nbLab?: unknown}).__nbLab)).toBe("object");
     const scenes = await first.page.evaluate(() => {
@@ -71,25 +71,36 @@ test("每个登记场景都能在手机画布上挂上舞台，没有加载失�
     expect(scenes.length).toBeGreaterThan(200);
 
     const failed: string[] = [];
-    const openScene = async ({component, scene}: {component: string; scene: string}) => {
-        const label = `${component}/${scene}`;
-        const {page, close} = await openPage(label);
-        await page.goto(`${dev.pageUrl}lab?c=${encodeURIComponent(component)}&s=${encodeURIComponent(scene)}&vp=phone`);
-        // 就绪或加载失败都结束等待；超时时报出当时的状态与地址。
-        await expect.poll(() => page.evaluate(() => {
-            const state = (window as unknown as {__nbLab?: LabDebugApi}).__nbLab?.state();
-            if (state !== undefined && (state.loadError !== "" || (state.ready && state.component === new URLSearchParams(location.search).get("c")))) return "settled";
-            return JSON.stringify({search: location.search, state: state ?? null});
-        }), {message: label}).toBe("settled");
-        const state = await page.evaluate(() => (window as unknown as {__nbLab: LabDebugApi}).__nbLab.state());
-        if (state.loadError !== "" || state.scene !== scene) failed.push(`${label}: ${state.loadError || `打开的是场景 ${state.scene}`}`);
+    const queue = [...scenes];
+    const worker = async (): Promise<void> => {
+        let label = "";
+        const {page, close} = await openPage(() => label);
+        let loaded = false;
+        for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+            const {component, scene} = next;
+            label = `${component}/${scene}`;
+            const target = `/lab?c=${encodeURIComponent(component)}&s=${encodeURIComponent(scene)}&vp=phone`;
+            if (loaded) {
+                await page.evaluate((href) => {
+                    history.pushState(null, "", href);
+                    dispatchEvent(new PopStateEvent("popstate", {state: null}));
+                }, target);
+            } else {
+                await page.goto(new URL(target, dev.pageUrl).href);
+                loaded = true;
+            }
+            // 就绪或加载失败都结束等待；超时时报出当时的状态与地址。
+            await expect.poll(() => page.evaluate(({component, scene}) => {
+                const state = (window as unknown as {__nbLab?: LabDebugApi}).__nbLab?.state();
+                if (state !== undefined && state.component === component && state.scene === scene && (state.loadError !== "" || state.ready)) return "settled";
+                return JSON.stringify({search: location.search, state: state ?? null});
+            }, {component, scene}), {message: label}).toBe("settled");
+            const state = await page.evaluate(() => (window as unknown as {__nbLab: LabDebugApi}).__nbLab.state());
+            if (state.loadError !== "") failed.push(`${label}: ${state.loadError}`);
+        }
         await close();
     };
-    // 几个标签页同时开：逐个打开要近 19 分钟，主要花在每次整页加载上。
-    const queue = [...scenes];
-    await Promise.all(Array.from({length: 4}, async () => {
-        for (let next = queue.shift(); next !== undefined; next = queue.shift()) await openScene(next);
-    }));
+    await Promise.all(Array.from({length: 4}, worker));
     expect(failed).toEqual([]);
     expect(problems).toEqual([]);
 });

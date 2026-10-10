@@ -45,12 +45,6 @@ export function limitBranches(addresses: ReadonlyArray<string>, limit: number): 
     return kept;
 }
 
-/** 一条记录的问题：读不到（正在用缺省值浏览）、记录损坏或版本不认识（不覆盖），或有修改没保存上。 */
-export type PreferenceProblem =
-    | {readonly kind: "unread"; readonly code: string}
-    | {readonly kind: "protected"; readonly code: string}
-    | {readonly kind: "unsaved"; readonly code: string};
-
 export type ExpandedRecord = "expanded" | "userExpanded";
 
 const paused = (field: PersistedField<unknown>): boolean => field.save.state === "failed" || field.save.state === "unknown";
@@ -117,14 +111,3 @@ export function explorerStoreFor(bound: boolean): typeof BOUND {
 }
 
 export type ExplorerStore = ReturnType<typeof BOUND.create>;
-
-type FieldView = {readonly failure: string | null; readonly base: {readonly status: string} | null; readonly save: {readonly state: string; readonly code?: string}};
-
-/** 一份字段此刻的问题；没有为 null。 */
-export function fieldProblem(field: FieldView): PreferenceProblem | null {
-    if (field.failure !== null) return {kind: "unread", code: field.failure};
-    if (field.base !== null && (field.base.status === "corrupt" || field.base.status === "unsupported-version")) return {kind: "protected", code: field.base.status};
-    if ((field.save.state === "failed" || field.save.state === "unknown") && field.save.code !== undefined) return {kind: "unsaved", code: field.save.code};
-    return null;
-}
-

@@ -110,7 +110,7 @@
   - 选场景、改画布、改缩放、切页签用 `router.replace({query})`；
   - 后退前进由 Router 的当前路由驱动 Lab 的状态，不再单独监听 `popstate`；
   - 保留不认识的查询参数，旧别名 `component`、`scene` 读到后换成 `c`、`s`；
-  - `cw` 与 `theme` 仍是“地址栏指定、随之写入偏好”。
+  - `cw` 与 `theme` 只作用于这个标签页；在界面上换主题或配色时写进偏好并从地址栏去掉（实施时改，原因见 README 的 S3 记录）。
 - **复制场景链接**（审查 F02）：工具条加一个按钮，复制只含有效参数的规范地址；请求的场景不存在而回落到第一个时，给一条可见提示。
 - **为什么不再需要 sessionStorage**：
   - 刷新：地址栏里就是当前状态；
@@ -155,7 +155,7 @@
 | S0 | Spec 改动表 | `component-lab.md` 与 nb-ui 文档；已完成 | `bun run docs:check`、`bun run governance:check` |
 | S1+S2 | 1、2、3 | nb-ui 公开入口、索引并入、重名规则、75 个组件的场景（同一提交，覆盖门禁才是绿的）；已完成 `5c4a5f19` | 索引模型 Bun 测试；nb-ui 与 neuro-book `typecheck`；`build` 与 `check:dist`；`fixtures/index.dom.test.ts`；`lab:shot` 全部 nb-ui 组件 × 2 画布 × 2 配色 |
 | S2b | 3、7 | 迁移对照表、遍历全部登记场景的 e2e、`check:dist` 的 `lab-sources` 标记；已完成 | 新 e2e；`check:dist` 的变异检查 |
-| S3 | 4、5 | 偏好改存 Storage、界面状态、Router 维护地址栏、复制场景链接、删去浏览器存储；全场景 e2e 改为在 Lab 内切换场景（开发模式整页加载太重，见 README 的 S2b 记录） | 偏好 store 在真实 Storage 上的 Bun 测试；`e2e/lab.e2e.ts` |
+| S3 | 4、5 | 已完成。偏好改存 Storage、界面状态、Router 维护地址栏、复制场景链接、删去浏览器存储；全场景 e2e 改为在 Lab 内切换场景（开发模式整页加载太重，见 README 的 S2b 记录） | 偏好 store 在真实 Storage 上的 Bun 测试；`e2e/lab.e2e.ts` |
 | S4 | 6 | 拆分 `LabShell.vue`；画布成为浮层的传送目标与 `fixed` 包含块，传送到 `body` 的浮层按画布居中 | 全部 Lab e2e（`lab*.e2e.ts`）、`lab:shot` 抽查 |
 | S5 | 开发者已定的 2、3 | 变量页签与元素页签的结构检查迁入；playground Lab 退役 | 变量与检查的 DOM 测试；Lab e2e；nb-ui `typecheck` |
 | S6 | 收口 | 证据、omp 审查与修正 | `bun run test:affected --typecheck`、全量 e2e、`docs:check`、`governance:check` |
