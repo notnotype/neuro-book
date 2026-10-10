@@ -75,6 +75,24 @@ const asRecord = (value: unknown): Record<string, unknown> | null => (typeof val
 const asArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 const asString = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
 const ID_RULE = /^[A-Za-z0-9._-]+$/u;
+/** 普通对象当字典用时这些键会改原型而不是存条目（JSON 文件里就能写出来），一律拒绝。 */
+const RESERVED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function urlProblem(value: string): string | null {
+    let url: URL;
+    try {
+        url = new URL(value);
+    } catch {
+        return "不是合法的 URL";
+    }
+    // http(s) 是 WHATWG 的特殊协议，能解析就一定有主机名，不必再查
+    if (url.protocol !== "http:" && url.protocol !== "https:") return "只支持 http 与 https";
+    return null;
+}
+
+function reservedKeyProblems(record: Record<string, unknown> | null, path: string): ConfigProblem[] {
+    return Object.keys(record ?? {}).filter((key) => RESERVED_KEYS.has(key)).map((key) => ({path: `${path}.${key}`, reason: "保留的键名，不能作为 id"}));
+}
 
 /** schema 说不清的规则：唯一性、模型引用语法、profiles 的键。输入可能没通过 schema，所以每一步都先看类型。 */
 function ruleProblems(input: Record<string, unknown>): ConfigProblem[] {
@@ -84,6 +102,10 @@ function ruleProblems(input: Record<string, unknown>): ConfigProblem[] {
     providers.forEach((provider, index) => {
         if (provider === null) return;
         if (repeatedProviders.has(index)) problems.push({path: `providers[${index}].id`, reason: `服务 id 重复：${String(provider.id)}`});
+        const baseUrl = asString(provider.baseUrl);
+        const badUrl = baseUrl === undefined ? null : urlProblem(baseUrl);
+        if (badUrl !== null) problems.push({path: `providers[${index}].baseUrl`, reason: badUrl});
+        problems.push(...reservedKeyProblems(asRecord(provider.headers), `providers[${index}].headers`));
         const models = asArray(provider.models).map(asRecord);
         const repeatedModels = repeatIndexes(models.map((model) => asString(model?.id)));
         models.forEach((model, modelIndex) => {
@@ -100,8 +122,10 @@ function ruleProblems(input: Record<string, unknown>): ConfigProblem[] {
     });
     const defaultModel = normalizeRef(asString(asRecord(input.models)?.defaultModel));
     if (defaultModel !== undefined && !MODEL_REF_PATTERN.test(defaultModel)) problems.push({path: "models.defaultModel", reason: `模型引用必须是 <providerId>/<modelId>：${defaultModel}`});
+    problems.push(...reservedKeyProblems(asRecord(input.profiles), "profiles"));
+    problems.push(...reservedKeyProblems(asRecord(asRecord(input.approval)?.tools), "approval.tools"));
     for (const [id, profile] of Object.entries(asRecord(input.profiles) ?? {})) {
-        if (!ID_RULE.test(id)) problems.push({path: `profiles.${id}`, reason: "Profile id 必须是 [A-Za-z0-9._-]+"});
+        if (!ID_RULE.test(id) && !RESERVED_KEYS.has(id)) problems.push({path: `profiles.${id}`, reason: "Profile id 必须是 [A-Za-z0-9._-]+"});
         const ref = normalizeRef(asString(asRecord(profile)?.model));
         if (ref !== undefined && !MODEL_REF_PATTERN.test(ref)) problems.push({path: `profiles.${id}.model`, reason: `模型引用必须是 <providerId>/<modelId>：${ref}`});
     }

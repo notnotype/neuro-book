@@ -107,7 +107,7 @@ describe("回放：模型上下文（输出 12）", () => {
         ]]);
         const context = buildModelContext(log.entries);
         expect(context.map((message) => `${message.role}:${textOf(message)}`)).toEqual(["user:一", "assistant:我来读", "user:等等"]);
-        expect(planRecovery([{id: "i", parentId: null, timestamp: new Date(0).toISOString(), type: "custom", customType: "harness/invocation", data: {invocationId: "x", phase: "start"}}, ...log.entries]).map((input) => input.type === "message" ? `${input.message.role}:${(input.message as {toolCallId?: string}).toolCallId ?? ""}` : "invocation")).toEqual(["toolResult:c1", "invocation"]);
+        expect(planRecovery([{id: "i", parentId: null, timestamp: new Date(0).toISOString(), type: "custom", customType: "harness/invocation", data: {invocationId: "x", phase: "start"}}, ...log.entries]).map((input) => input.type === "message" ? `${input.message.role}:${(input.message as {toolCallId?: string}).toolCallId ?? ""}` : "invocation")).toEqual(["invocation"]); // 窗口已被用户消息关闭：不补结果，只收口
     });
 
     test("输出 12.2：出错或中止的助手消息连同窗口里的工具结果一起去掉，即使它还有文字", async () => {
@@ -274,6 +274,35 @@ describe("回放：崩溃收口（输出 16）", () => {
         const after = log.entries.at(-1)!.id;
         await log.append([{type: "compaction", summary: "再压", firstKeptEntryId: after, tokensBefore: 1}, userMessage("三")]);
         expect(buildModelContext(log.entries).map((message) => `${message.role}:${textOf(message).slice(0, 2)}`)).toEqual(["user:Pr", "user:二", "user:三"]);
+    });
+
+    test("只补开放窗口：被用户消息关闭的窗口里的无结果调用不补、不算待处理；收口后再算收敛，追加的结果配进开放窗口", async () => {
+        const log = await logWith(createMemorySessionStore(), [[
+            invocation("inv-1", "start"), userMessage("一"),
+            assistantMessage([toolCall("c1", "read")], {stopReason: "toolUse"}),
+        ]]);
+        const firstAssistant = log.entries.at(-1)!.id;
+        await log.append([interactionRequest("old", firstAssistant, "c1"), userMessage("二"), assistantMessage([toolCall("c2", "edit")], {stopReason: "toolUse"})]);
+        const secondAssistant = log.entries.at(-1)!.id;
+        await log.append([interactionRequest("new", secondAssistant, "c2")]);
+
+        expect(sessionStatus(log.entries)).toMatchObject({phase: "waiting", pending: [{interactionId: "new"}]});
+        const first = planRecovery(log.entries);
+        expect(first).toEqual([invocation("inv-1", "waiting")]);
+        await log.append(first);
+        expect(planRecovery(log.entries)).toEqual([]);
+        expect(sessionStatus(log.entries)).toMatchObject({phase: "waiting", pending: [{interactionId: "new"}]});
+        expect(buildModelContext(log.entries).flatMap(toolCallIds)).toEqual([]);
+
+        await log.append([interactionResponse("new", {decision: "reject", decidedBy: "user"})]);
+        const second = planRecovery(log.entries);
+        expect(second.map((input) => (input.type === "message" ? (input.message as {toolCallId: string}).toolCallId : input.type === "custom" ? (input.data as {phase: string}).phase : input.type))).toEqual(["c2", "interrupted"]);
+        await log.append(second);
+        expect(planRecovery(log.entries)).toEqual([]);
+        expect(sessionStatus(log.entries).phase).toBe("idle");
+        const context = buildModelContext(log.entries);
+        expect(context.flatMap(toolCallIds)).toEqual(["c2"]);
+        expect(context.filter((message) => message.role === "toolResult").map((message) => (message as {toolCallId: string}).toolCallId)).toEqual(["c2"]);
     });
 
     test("已结束的调用不再处理；没有 interaction 的无结果调用补中断结果后调用标为 interrupted", async () => {

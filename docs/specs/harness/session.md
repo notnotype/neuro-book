@@ -39,6 +39,7 @@ owners:
 - **种子**：`customType` 为 `harness/seed` 的 `custom_message` 条目，由 Profile 的 `History` 子节点产生（见 [`harness.profile`](profile.md)），在新会话开始与每次压缩之后写入。
 - **轮**：从一条用户发出的 `message` 条目（`role: "user"`，`attribution` 不是 `"agent"`，`synthetic` 不为真）开始，到下一条这样的条目之前的全部条目；第一条之前的条目算作第一轮。`custom_message` 与压缩条目不开始新的一轮。[`harness.profile`](profile.md) 对回放出的消息用同一划分。
 - **未结束的调用**：最后一个 `invocation` 的最后阶段为 `start`、`resumed` 或 `waiting`；它的**范围**是该调用最后一个 `start` 或 `resumed` 条目之后的条目。
+- **开放窗口**：未结束的调用范围内最后一条助手 `message` 的调用窗口，且它之后没有用户 `message`；用户消息一旦出现，前面的窗口就关闭了，关闭的窗口里没有结果的调用由回放去掉（输出 12），不再补结果。
 
 ## 输入与前置条件
 
@@ -168,10 +169,10 @@ createJsonlSessionStore(options: {root: string}): SessionStore;
     4. 被去掉工具调用的助手消息，同时去掉其中的 `redactedThinking` 块、清除 `thinking` 块的签名；去掉后没有内容的助手消息整条去掉；
     5. 去掉在自己的窗口里配不上工具调用的工具结果。
     按目标模型做的协议转换（工具 id 归一化、跨模型的思考块处理）不在本函数内，由 OMP 在每次请求时完成。
-13. **会话状态**：`sessionStatus` 的 `pending` 列出未结束的调用范围内有 request、没有 response 的 `interaction`（id、kind、request）；`phase` 在没有未结束的调用时为 `idle`，有未结束的调用且 `pending` 非空时为 `waiting`，有未结束的调用且 `pending` 为空时为 `running`；`invocationId` 是未结束的调用的 id。刚打开的会话处于 `running` 或 `waiting`，说明上次运行没有正常收口，调用方先用 `planRecovery` 收口。
+13. **会话状态**：`sessionStatus` 的 `pending` 列出未结束的调用的开放窗口里有 request、没有 response 的 `interaction`（id、kind、request）；关闭的窗口里的 request 不再是待处理事项（它的调用已被回放去掉，应答也配不回去）；`phase` 在没有未结束的调用时为 `idle`，有未结束的调用且 `pending` 非空时为 `waiting`，有未结束的调用且 `pending` 为空时为 `running`；`invocationId` 是未结束的调用的 id。刚打开的会话处于 `running` 或 `waiting`，说明上次运行没有正常收口，调用方先用 `planRecovery` 收口。
 14. **会话设置**：`sessionSettings` 中模型与角色取最后一个 `model_change`，思考档位取最后一个 `thinking_level_change`，标题取最后一个 `title_change`；`approvalGrants` 列出 `decision: "approve"`、`scope: "session"` 的应答所对应 request 的工具名与等级，按出现顺序去重。
 15. **自定义回放**：`fold(entries, defineProjection({initial, reduce}))` 从 `initial` 起按序号对每个条目调用一次 `reduce`，返回最终状态；不认识的条目类型由 `reduce` 自行跳过。
-16. **崩溃收口**：`planRecovery` 只计算、不写入，返回调用方应追加的条目。没有未结束的调用时返回空数组；已经以 `end`、`error`、`aborted` 或 `interrupted` 结束的调用不再处理。有未结束的调用时，只看它范围内的助手消息，对其中在自己窗口里没有工具结果的每个工具调用（按出现顺序）：
+16. **崩溃收口**：`planRecovery` 只计算、不写入，返回调用方应追加的条目。没有未结束的调用时返回空数组；已经以 `end`、`error`、`aborted` 或 `interrupted` 结束的调用不再处理。有未结束的调用时，只看它的开放窗口（追加到末尾的结果只能配进这个窗口；更早窗口里没有结果的调用由回放去掉，不补结果），对窗口里没有工具结果的每个工具调用（按出现顺序）：
     1. 有审批 request、没有 response：不返回结果，它仍是待处理事项；
     2. 有 response 且 `decision` 为 `reject`：返回一条 `toolResult`（`isError` 为真，内容说明用户拒绝并带上 `note`）；
     3. 其余（已批准但没有结果、没有任何 interaction）：返回一条 `toolResult`（`isError` 为真，内容说明执行被中断、结果未知）。

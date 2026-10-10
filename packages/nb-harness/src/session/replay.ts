@@ -169,12 +169,28 @@ function interactionsOf(entries: readonly SessionEntry[]): Map<string, {request?
     return byId;
 }
 
+type ReplayItem = {entry: SessionEntry; message: Message};
+type OpenWindow = {items: ReplayItem[]; assistantIndex: number; assistantEntryId: string; resultIndexes: number[]};
+
+/** 开放窗口（Spec 术语）：范围内最后一条助手消息及其窗口，它之后没有用户消息；没有就是 null。 */
+function openWindow(entries: readonly SessionEntry[], rangeStart: number): OpenWindow | null {
+    const items: ReplayItem[] = entries.slice(rangeStart).filter(isReplayable).map((entry) => ({entry, message: entry.type === "message" ? entry.message : customMessageToMessage(entry)}));
+    const lastUser = lastIndexWhere(items, ({entry, message}) => entry.type === "message" && message.role === "user");
+    const lastAssistant = lastIndexWhere(items, ({entry, message}) => entry.type === "message" && message.role === "assistant");
+    if (lastAssistant === -1 || lastUser > lastAssistant) return null;
+    return {items, assistantIndex: lastAssistant, assistantEntryId: items[lastAssistant]!.entry.id, resultIndexes: callWindows(items).get(lastAssistant) ?? []};
+}
+
+/** 待处理事项只看开放窗口：关闭的窗口里的 request 应答也配不回去（Spec 输出 13）。 */
 function pendingIn(entries: readonly SessionEntry[], rangeStart: number): PendingInteraction[] {
+    const window = openWindow(entries, rangeStart);
+    if (window === null) return [];
     const all = interactionsOf(entries);
     const pending: PendingInteraction[] = [];
     for (const entry of entries.slice(rangeStart)) {
         if (!isInteraction(entry) || entry.data.phase !== "request") continue;
         if (all.get(entry.data.interactionId)?.response !== undefined) continue;
+        if ((entry.data.request as InteractionRequest).assistantEntryId !== window.assistantEntryId) continue;
         pending.push({interactionId: entry.data.interactionId, kind: entry.data.kind, request: entry.data.request as InteractionRequest});
     }
     return pending;
@@ -219,7 +235,6 @@ export function sessionSettings(entries: readonly SessionEntry[]): SessionSettin
 export function planRecovery(entries: readonly SessionEntry[]): EntryInput[] {
     const unfinished = unfinishedInvocation(entries);
     if (unfinished === null) return [];
-    const range = entries.slice(unfinished.rangeStart);
     const interactions = interactionsOf(entries);
     const byCall = new Map<string, {request: InteractionEntry; response?: InteractionEntry}>();
     for (const pair of interactions.values()) {
@@ -230,10 +245,11 @@ export function planRecovery(entries: readonly SessionEntry[]): EntryInput[] {
     const timestamp = entries.length === 0 ? 0 : millis(entries[entries.length - 1]!.timestamp);
     const results: EntryInput[] = [];
 
-    const items = range.filter(isReplayable).map((entry) => ({entry, message: entry.type === "message" ? entry.message : customMessageToMessage(entry)}));
-    for (const [assistantIndex, resultIndexes] of callWindows(items)) {
-        const {entry, message} = items[assistantIndex]!;
-        const answered = new Set(resultIndexes.map((index) => (items[index]!.message as ToolResultMessage).toolCallId));
+    // 只补开放窗口：追加到末尾的结果只能配进它；更早窗口里没有结果的调用由回放去掉。
+    const window = openWindow(entries, unfinished.rangeStart);
+    if (window !== null) {
+        const {entry, message} = window.items[window.assistantIndex]!;
+        const answered = new Set(window.resultIndexes.map((index) => (window.items[index]!.message as ToolResultMessage).toolCallId));
         for (const block of (message as AssistantMessage).content) {
             if (block.type !== "toolCall" || answered.has(block.id)) continue;
             const interaction = byCall.get(`${entry.id}\u0000${block.id}`);

@@ -69,6 +69,8 @@ type RoleItem = {id: string; axis: "gradient" | "specialist"; name: string; desc
 | 未知字段 | 顶层与各对象里未知的键是问题（`未知字段`），不静默忽略 |
 | id | `providers[].id`、`roles.items[].id`、`profiles` 的键是 `[A-Za-z0-9._-]+`；`providers[].models[].id` 按模型 id 的规则（非空、无空白与控制字符）；各自在所属集合内唯一 |
 | 模型引用 | `models.defaultModel`、`roles.items[].modelKey`、`profiles.*.model` 必须符合模型引用的语法；空字符串按未给出处理 |
+| `baseUrl` | 能按 WHATWG 规则解析的 URL，协议是 `http` 或 `https`（这两种协议解析通过就有主机名） |
+| 字典的键 | `profiles`、`approval.tools`、`providers[].headers` 的键不能是 `__proto__`、`constructor`、`prototype`（普通对象当字典用时这些键会改原型而不是存条目） |
 | 数值 | `contextWindow`、`maxTokens` 是正整数 |
 | 值 | 整份配置必须能被 JSON 如实表示（没有 `undefined`、函数、`NaN`、循环引用） |
 

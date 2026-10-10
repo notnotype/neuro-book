@@ -65,7 +65,13 @@ describe("校验与规范化（输出 1、2）", () => {
         expect(problems({profiles: {w: {model: "a b/c"}}})).toEqual(["profiles.w.model"]);
         expect(problems({profiles: {w: {model: "aiand/deepseek-ai/deepseek-v4-flash"}}, models: {defaultModel: "openrouter/org/x:free"}})).toEqual([]);
         expect(problems({providers: [{id: "p", api: "x", baseUrl: "http://a", models: [{id: "org/model:latest"}, {id: "bad id"}]}]})).toEqual(["providers[0].models[1].id"]);
-        expect(problems({profiles: {"bad id": {}}}).length).toBeGreaterThan(0);
+        expect(problems({profiles: {"bad id": {}}})).toEqual(["profiles.bad id"]);
+        // 键坏了，值里的问题也要一次列出；保留的键名（JSON 文件就能写出来）被拒绝；baseUrl 要能解析出主机。
+        expect(problems({profiles: {"bad id": {model: 42, extra: 1}}}).sort()).toEqual(["profiles.bad id", "profiles.bad id.extra", "profiles.bad id.model"].sort());
+        expect(problems(JSON.parse('{"profiles":{"__proto__":{"model":"p/m"}},"approval":{"tools":{"constructor":"allow"}}}'))).toEqual(["profiles.__proto__", "approval.tools.constructor"]);
+        expect(problems({providers: [{id: "p", api: "x", baseUrl: "http://", models: []}]})).toEqual(["providers[0].baseUrl"]);
+        expect(problems({providers: [{id: "p", api: "x", baseUrl: "ftp://host/x", models: []}]})).toEqual(["providers[0].baseUrl"]);
+        expect(problems({providers: [{id: "p", api: "x", baseUrl: "http://localhost:8000/v1", models: []}]})).toEqual([]);
         expect(problems([])).toEqual([""]);
         expect(problems({models: {defaultModel: undefined}})).toEqual(["models.defaultModel"]);
         expect(problems({approval: {tools: {bash: "maybe"}}})).toEqual(["approval.tools.bash"]);

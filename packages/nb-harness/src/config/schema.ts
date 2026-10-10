@@ -32,7 +32,7 @@ const ProviderConfig = Type.Object(
     {
         id: Id,
         api: Type.String({minLength: 1}),
-        baseUrl: Type.String({pattern: "^https?://"}),
+        baseUrl: Type.String(), // 协议与主机名在 validate.ts 的规则里查，schema 只定形状，免得同一字段报两条
         headers: Type.Optional(Type.Record(Type.String(), Type.String())),
         models: Type.Array(ProviderModelConfig),
     },
@@ -57,7 +57,8 @@ export const HarnessConfigSchema = Type.Object(
         providers: Type.Optional(Type.Array(ProviderConfig)),
         models: Type.Optional(Type.Object({defaultModel: Type.Optional(ModelRefOrEmpty)}, {additionalProperties: false})),
         roles: Type.Optional(Type.Object({items: Type.Optional(Type.Array(RoleItem))}, {additionalProperties: false})),
-        profiles: Type.Optional(Type.Record(Type.String({pattern: ID_PATTERN}), ProfileConfig)),
+        // 键的格式在 validate.ts 的规则里查：Record 的键 pattern 会让不匹配的键跳过值的校验，问题就列不全。
+        profiles: Type.Optional(Type.Record(Type.String(), ProfileConfig)),
         approval: Type.Optional(
             Type.Object(
                 {
