@@ -4,7 +4,9 @@ import {createMemorySessionStore} from "../session/session";
 import {withFailingAppend} from "../session/testing/store-scenarios";
 import {createStaticToolSource} from "../tools/tools";
 import type {AgentSession, RuntimeEvent} from "./runtime";
-import {createHarness, echoTool, invocationPhases, kinds, testProfile} from "./testing/harness";
+import Type from "typebox";
+import {Appending, defineProfile, History, Input, nodeComponent, Prompt, System} from "../profile/profile";
+import {createHarness, echoTool, invocationPhases, kinds, shellTool, testProfile} from "./testing/harness";
 import type {Harness} from "./testing/harness";
 
 const harnesses: Harness[] = [];
@@ -69,6 +71,8 @@ describe("一次完整调用（输出 2–5、9）", () => {
         expect(await code(session.prompt({content: "  "}))).toBe("invalid-input");
         expect(await code(session.prompt({content: []}))).toBe("invalid-input");
         expect(await code(session.prompt({content: "x"}, {profileId: "nope"}))).toBe("unknown-profile");
+        // 受理失败不换会话的 Profile：之后不带覆盖的调用照常受理
+        expect(session.status.profileId).toBe("writer");
         expect(await code(session.prompt({content: "x"}, {profileId: "writer", model: "nowhere/m"}))).toBe("model-unavailable");
         expect(await code(session.prompt({content: "x"}, {signal: AbortSignal.abort()}))).toBe("invalid-state");
         expect(session.log.entries.length).toBe(before);
@@ -89,6 +93,42 @@ describe("一次完整调用（输出 2–5、9）", () => {
         const noToolsSession = await noTools.runtime.createSession({profileId: "writer"});
         expect(noToolsSession.ok && (await noToolsSession.value.prompt({content: "x"}))).toMatchObject({ok: false, code: "capability-missing"});
         expect(harness.contexts).toHaveLength(0);
+    });
+});
+
+describe("受理期间的占用（状态与转换）", () => {
+    test("两个 prompt 同时受理：只有一个受理成功，另一个 busy；受理失败后释放占用", async () => {
+        const {harness, session} = await open({script: [{text: "一"}, {text: "二"}]});
+        // 让受理在取凭据处停住：用真实凭据对象包一层门
+        const real = harness.deps.credentials;
+        let release: () => void = () => undefined;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        harness.deps.credentials = {...real, apiKeyFor: async (model) => {
+            await gate;
+            return real.apiKeyFor(model);
+        }};
+        const first = session.prompt({content: "甲"});
+        const second = session.prompt({content: "乙"});
+        release();
+        const [a, b] = await Promise.all([first, second]);
+        expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1);
+        const rejected = a.ok ? b : a;
+        expect(rejected.ok ? null : rejected.code).toBe("busy");
+        const accepted = a.ok ? a : b;
+        if (!accepted.ok) throw new Error("应有一个受理成功");
+        const result = await accepted.value.done;
+        expect(result.status).toBe("completed");
+        expect(invocationPhases(result.entries)).toEqual(["start", "end"]);
+        expect(invocationPhases(session.log.entries)).toEqual(["start", "end"]);
+        // 受理失败不留占用
+        harness.deps.credentials = {...real, apiKeyFor: async () => undefined};
+        expect(await session.prompt({content: "丙"})).toMatchObject({ok: false, code: "credentials-missing"});
+        harness.deps.credentials = real;
+        const again = await session.prompt({content: "丁"});
+        expect(again.ok).toBe(true);
+        await (again.ok ? again.value.done : Promise.resolve());
     });
 });
 
@@ -188,5 +228,107 @@ describe("终态分类与继续（输出 9、10）", () => {
         expect(reopened.ok && reopened.value.status).toMatchObject({phase: "idle", pending: []});
         const listed = await harness.runtime.listSessions();
         expect(listed.ok && listed.value.map((summary) => summary.id)).toEqual(["fixed"]);
+    });
+});
+
+describe("Profile 的数据源与中止（输出 4、8、9）", () => {
+    const Weather = nodeComponent("test/weather");
+    const weatherProfile = (tools: string[] = ["echo"]) => defineProfile({
+        id: "writer", name: "写作助手", description: "带天气", version: 1, fields: {"harness/tools": tools},
+        prompt: () => <Prompt><System>天气<Weather /></System><History /><Appending><Input /></Appending></Prompt>,
+    });
+    function registerWeather(harness: Harness, resolve: () => Promise<string>): void {
+        const node = harness.deps.host.registerNodeType({id: "test/weather", category: "content", props: Type.Object({}), parents: ["*message", "harness/system"], children: "none", sources: ["test/forecast"], render: (_node, ctx) => String(ctx.sources["test/forecast"])});
+        if (!node.ok) throw new Error(node.detail);
+        const source = harness.deps.host.registerSource({id: "test/forecast", schema: Type.String(), phase: "model-call", resolve});
+        if (!source.ok) throw new Error(source.detail);
+    }
+
+    test("model-call 数据源每次模型调用前刷新，刷新后的系统提示词当次就进请求；刷新失败 → failed/profile 且不再请求模型", async () => {
+        let version = 0;
+        const harness = await createHarness({profiles: [weatherProfile()], script: [{calls: [{id: "c1", name: "echo", args: {text: "a"}}]}, {calls: [{id: "c2", name: "echo", args: {text: "b"}}]}, {text: "完"}]});
+        harnesses.push(harness);
+        registerWeather(harness, async () => `数据版本${(version += 1)}`);
+        const created = await harness.runtime.createSession({profileId: "writer"});
+        if (!created.ok) throw new Error(created.code);
+        const started = await created.value.prompt({content: "天气如何"});
+        if (!started.ok) throw new Error(started.code);
+        expect((await started.value.done).status).toBe("completed");
+        // prepare 取一次（版本 1），之后每次模型调用前刷新一次：三次请求看到 2、3、4
+        expect(harness.contexts.map((context) => context.systemPrompt?.[0])).toEqual(["天气数据版本2", "天气数据版本3", "天气数据版本4"]);
+
+        let calls = 0;
+        const failing = await createHarness({profiles: [weatherProfile()], script: [{calls: [{id: "c1", name: "echo", args: {text: "a"}}]}, {text: "不该到"}]});
+        harnesses.push(failing);
+        registerWeather(failing, async () => {
+            calls += 1;
+            if (calls === 3) throw new Error("刷新数据源失败");
+            return `v${calls}`;
+        });
+        const session = await failing.runtime.createSession({profileId: "writer"});
+        if (!session.ok) throw new Error(session.code);
+        const run = await session.value.prompt({content: "天气如何"});
+        if (!run.ok) throw new Error(run.code);
+        const result = await run.value.done;
+        expect(result.status).toBe("failed");
+        expect(result.error).toMatchObject({kind: "profile"});
+        expect(result.error?.message).toContain("刷新数据源失败");
+        expect(failing.contexts).toHaveLength(1);
+        expect(invocationPhases(result.entries)).toEqual(["start", "error"]);
+    });
+
+    test("prepare 期间 abort：数据源收到信号，放行后不开始循环，调用以 aborted 收口；调用的 signal 收口后不再影响下一次调用", async () => {
+        let release: () => void = () => undefined;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let sourceStarted: () => void = () => undefined;
+        const started = new Promise<void>((resolve) => {
+            sourceStarted = resolve;
+        });
+        let sawAbort = false;
+        const harness = await createHarness({profiles: [weatherProfile(["echo", "shell"])], tools: [echoTool(), shellTool()], approvalMode: "write", script: [{text: "一"}, {calls: [{id: "c1", name: "shell", args: {cmd: "ls"}}]}, {text: "二"}]});
+        harnesses.push(harness);
+        const node = harness.deps.host.registerNodeType({id: "test/weather", category: "content", props: Type.Object({}), parents: ["*message", "harness/system"], children: "none", sources: ["test/forecast"], render: (_node, ctx) => String(ctx.sources["test/forecast"])});
+        if (!node.ok) throw new Error(node.detail);
+        let gated = true;
+        const source = harness.deps.host.registerSource({id: "test/forecast", schema: Type.String(), phase: "invocation", resolve: async (_request, signal) => {
+            if (!gated) return "晴";
+            sourceStarted();
+            signal.addEventListener("abort", () => {
+                sawAbort = true;
+            }, {once: true});
+            await gate;
+            return "晴";
+        }});
+        if (!source.ok) throw new Error(source.detail);
+        const created = await harness.runtime.createSession({profileId: "writer"});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        const run = await session.prompt({content: "天气如何"});
+        if (!run.ok) throw new Error(run.code);
+        await started;
+        expect(session.status.phase).toBe("running");
+        expect(session.abort()).toEqual({ok: true, value: undefined});
+        release();
+        const result = await run.value.done;
+        expect(result.status).toBe("aborted");
+        expect(sawAbort).toBe(true);
+        expect(harness.contexts).toHaveLength(0);
+        expect(invocationPhases(result.entries)).toEqual(["start", "aborted"]);
+
+        // 第一次调用带 signal 并正常完成；第二次调用不带 signal、等待审批；这时中止第一次的控制器不能影响第二次
+        gated = false;
+        const controller = new AbortController();
+        const first = await session.prompt({content: "一"}, {signal: controller.signal});
+        if (!first.ok) throw new Error(first.code);
+        expect((await first.value.done).status).toBe("completed");
+        const second = await session.prompt({content: "跑命令"});
+        if (!second.ok) throw new Error(second.code);
+        await waitUntil("等待用户", () => session.status.phase === "waiting-user");
+        controller.abort();
+        expect(session.status.phase).toBe("waiting-user");
+        expect(await session.resolve({interactionId: session.status.pending[0]!.interactionId, decision: "approve"})).toEqual({ok: true, value: undefined});
+        expect((await second.value.done).status).toBe("completed");
     });
 });

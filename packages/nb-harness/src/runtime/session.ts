@@ -22,7 +22,7 @@ import {createStaticToolSource, decideApproval, describeTool, judgeWithModel, to
 import type {AdapterHooks, ApprovalMode, ApprovalOutcome, ApprovalRequest, ToolDescriptor} from "../tools/tools";
 import {accept} from "./accept";
 import type {Accepted} from "./accept";
-import type {AgentSession, InteractionAnswer, Invocation, InvocationResult, PromptOptions, RuntimeDeps, RuntimeEvent, RuntimeResult, SessionStatus, UserInput} from "./types";
+import type {AgentSession, InteractionAnswer, Invocation, InvocationError, InvocationResult, PromptOptions, RuntimeDeps, RuntimeEvent, RuntimeResult, SessionStatus, UserInput} from "./types";
 
 const LLM_ROLES = new Set(["user", "developer", "assistant", "toolResult"]);
 /** OMP 缺省的 convertToLlm 会丢掉 developer 消息（session 的实测），运行时自己保留四种角色。 */
@@ -45,6 +45,10 @@ type Current = {
     entries: SessionEntry[];
     turns: number;
     limitHit: boolean;
+    /** 这次调用的中止控制器：prepare 与数据源、审批等待之外的尾段（自动压缩）都看它；Agent 自己的循环由 Agent.abort 停。 */
+    control: AbortController;
+    /** 循环中途发现的、要以 failed 收口的失败（例如 model-call 数据源刷新失败）。 */
+    failure: InvocationError | null;
     settleDone(result: InvocationResult): void;
     done: Promise<InvocationResult>;
 };
@@ -104,6 +108,12 @@ export class SessionHandle implements AgentSession {
     #writes: Promise<unknown> = Promise.resolve();
     #invocationStart = 0;
     #logError = "";
+    /** 受理（含手动压缩）期间会话被占用：phase 还是 idle，但第二个操作要被拒绝，否则两次受理会争同一个 Agent 与日志。 */
+    #reserved: "prompt" | "continue" | "compact" | null = null;
+    /** 正在应答的事项：两次 resolve 同时到达时，第二次在任何 await 之前就被挡成 already-answered。 */
+    readonly #answering = new Set<string>();
+    /** 恢复执行（进程重启后 resolve 触发的工具执行与继续）的所有权；abort 经它中止，迟到的完成不再写入。 */
+    #recovery: AbortController | null = null;
     #closed = false;
     #suppressWrites = false;
     #releaseLog: () => void;
@@ -175,10 +185,13 @@ export class SessionHandle implements AgentSession {
             if (this.#suppressWrites) return {ok: true, value: []};
             const result = await this.log.append(inputs);
             if (!result.ok) {
-                this.#suppressWrites = true;
-                this.#logError = `${result.code}：${result.detail}`;
-                this.#agent.abort();
-                return {ok: false, code: "log-failed", detail: this.#logError};
+                // 条目校验失败是本层的程序错误（例如同一事项写了两次应答），日志还能用；存储失败、句柄已坏或已关才让会话进入关闭态
+                if (result.code !== "invalid-entry") {
+                    this.#suppressWrites = true;
+                    this.#logError = `${result.code}：${result.detail}`;
+                    this.#agent.abort();
+                }
+                return {ok: false, code: "log-failed", detail: `${result.code}：${result.detail}`};
             }
             this.#current?.entries.push(...result.value);
             return result;
@@ -217,13 +230,20 @@ export class SessionHandle implements AgentSession {
             if (this.#current === null) return {ok: false, code: "invalid-state", detail: "等待用户的调用不在本进程内运行，先 resolve"};
             return {ok: true, value: {invocationId: this.#current.invocationId, done: this.#current.done}};
         }
-        if (options.profileId !== undefined) this.#profileId = options.profileId;
-        if (this.#profileId === undefined) return {ok: false, code: "unknown-profile", detail: "会话没有 Profile"};
-        const accepted = await accept(this.#deps, {log: this.log, profileId: this.#profileId, ...(this.#sessionMode === undefined ? {} : {sessionMode: this.#sessionMode})}, {
-            input, needsInput: true, ...(options.model === undefined ? {} : {model: options.model}), ...(options.signal === undefined ? {} : {signal: options.signal}),
-        });
-        if (!accepted.ok) return accepted;
-        return this.#start(accepted.value, {kind: "prompt", input}, options.signal);
+        if (this.#reserved !== null) return {ok: false, code: "busy", detail: `会话正在${this.#reserved === "compact" ? "压缩" : "受理另一次调用"}`};
+        // 换 Profile 只在受理通过后生效（#start 里记下），受理失败不留痕迹
+        const profileId = options.profileId ?? this.#profileId;
+        if (profileId === undefined) return {ok: false, code: "unknown-profile", detail: "会话没有 Profile"};
+        this.#reserved = "prompt";
+        try {
+            const accepted = await accept(this.#deps, {log: this.log, profileId, ...(this.#sessionMode === undefined ? {} : {sessionMode: this.#sessionMode})}, {
+                input, needsInput: true, ...(options.model === undefined ? {} : {model: options.model}), ...(options.signal === undefined ? {} : {signal: options.signal}),
+            });
+            if (!accepted.ok) return accepted;
+            return await this.#start(accepted.value, {kind: "prompt", input}, options.signal);
+        } finally {
+            this.#reserved = null;
+        }
     }
 
     async continue(options: {signal?: AbortSignal} = {}): Promise<RuntimeResult<Invocation>> {
@@ -235,11 +255,17 @@ export class SessionHandle implements AgentSession {
         const resumable = tail !== undefined && (tail.role === "user" || tail.role === "toolResult");
         // 回放已经去掉了 error 的助手消息，所以“末尾是失败的回复”表现为末尾是它之前的用户消息或工具结果
         if (!resumable) return {ok: false, code: "invalid-state", detail: "末尾不可继续：没有历史，或最后一条已是正常的助手回复"};
-        const accepted = await accept(this.#deps, {log: this.log, profileId: this.#profileId, ...(this.#sessionMode === undefined ? {} : {sessionMode: this.#sessionMode})}, {
-            needsInput: false, ...(options.signal === undefined ? {} : {signal: options.signal}),
-        });
-        if (!accepted.ok) return accepted;
-        return this.#start(accepted.value, {kind: "continue"}, options.signal);
+        if (this.#reserved !== null) return {ok: false, code: "busy", detail: `会话正在${this.#reserved === "compact" ? "压缩" : "受理另一次调用"}`};
+        this.#reserved = "continue";
+        try {
+            const accepted = await accept(this.#deps, {log: this.log, profileId: this.#profileId, ...(this.#sessionMode === undefined ? {} : {sessionMode: this.#sessionMode})}, {
+                needsInput: false, ...(options.signal === undefined ? {} : {signal: options.signal}),
+            });
+            if (!accepted.ok) return accepted;
+            return await this.#start(accepted.value, {kind: "continue"}, options.signal);
+        } finally {
+            this.#reserved = null;
+        }
     }
 
     steer(input: UserInput): RuntimeResult<void> {
@@ -271,14 +297,17 @@ export class SessionHandle implements AgentSession {
             this.#emitQueue();
         }
         if (this.#current === null) {
-            // 恢复出来的等待状态：没有运行中的循环，把待处理的审批写成拒绝、补中断结果、收口
+            // 恢复出来的等待状态：没有运行中的循环；中止正在恢复执行的工具，把待处理的审批写成拒绝、补中断结果、收口
             this.#setPhase("aborting");
+            this.#recovery?.abort();
+            this.#recovery = null;
             void this.#abortRecovered();
             return {ok: true, value: undefined};
         }
         this.#setPhase("aborting");
         void this.#settlePending({aborted: true}, "aborted");
         this.#agent.abort();
+        this.#current.control.abort();
         return {ok: true, value: undefined};
     }
 
@@ -310,8 +339,9 @@ export class SessionHandle implements AgentSession {
     async #start(accepted: Accepted, mode: Mode, signal: AbortSignal | undefined): Promise<RuntimeResult<Invocation>> {
         const invocationId = mode.kind === "resume" ? mode.invocationId : crypto.randomUUID();
         const {promise, resolve} = Promise.withResolvers<InvocationResult>();
-        const current: Current = {invocationId, accepted, prepared: null, entries: [], turns: 0, limitHit: false, settleDone: resolve, done: promise};
+        const current: Current = {invocationId, accepted, prepared: null, entries: [], turns: 0, limitHit: false, control: new AbortController(), failure: null, settleDone: resolve, done: promise};
         this.#current = current;
+        this.#profileId = accepted.profile.id;
         this.#lastModel = accepted.modelRef;
         this.#phase = "running";
         if (mode.kind !== "resume") {
@@ -325,8 +355,12 @@ export class SessionHandle implements AgentSession {
             }
         }
         this.#emit({type: "status", status: this.status});
-        signal?.addEventListener("abort", () => void this.abort(), {once: true});
-        void this.#execute(current, mode).then((result) => this.#finish(current, result));
+        // 调用方的信号只属于这次调用：收口时解除监听，迟到的中止不能波及下一次调用
+        const onAbort = (): void => {
+            if (this.#current === current) void this.abort();
+        };
+        signal?.addEventListener("abort", onAbort, {once: true});
+        void this.#execute(current, mode).then((result) => this.#finish(current, result)).finally(() => signal?.removeEventListener("abort", onAbort));
         return {ok: true, value: {invocationId, done: promise}};
     }
 
@@ -339,7 +373,12 @@ export class SessionHandle implements AgentSession {
             now: new Date(this.#now()),
             fields: accepted.profile.fields,
         };
-        const prepared = await this.#deps.host.prepare(accepted.profile, {context});
+        const abortedBeforeLoop = async (): Promise<InvocationResult> => {
+            await this.#writeInvocation(invocationId, "aborted");
+            return {status: "aborted", entries: current.entries};
+        };
+        const prepared = await this.#deps.host.prepare(accepted.profile, {context, signal: current.control.signal});
+        if (current.control.signal.aborted) return abortedBeforeLoop();
         if (!prepared.ok) {
             await this.#writeInvocation(invocationId, "error", {kind: "profile", message: `${prepared.code}: ${prepared.detail}`});
             return fail("profile", `${prepared.code}: ${prepared.detail}`);
@@ -387,6 +426,8 @@ export class SessionHandle implements AgentSession {
             const written = await this.#write(entries);
             if (!written.ok) return fail("log", written.detail);
         }
+        // 准备期间中止：不开始循环
+        if (current.control.signal.aborted) return abortedBeforeLoop();
 
         // 装配 Agent：历史从日志回放；本次的消息交给 prompt；工具带审批钩子
         this.#agent.replaceMessages(replayed);
@@ -396,28 +437,46 @@ export class SessionHandle implements AgentSession {
         this.#invocationStart = invocationStart;
 
         const release = this.#agent.subscribe((event) => this.#onAgentEvent(current, event));
+        // 每次模型调用前：刷新 model-call 数据源并重渲染系统提示词。放在 OMP 的 before-model-call 钩子里，
+        // 因为 OMP 在它之后才把 state.systemPrompt 放进本轮上下文；放在 transformContext 里会晚一轮才生效。
+        const releaseHook = this.#agent.addBeforeModelCallHook(() => this.#refreshBeforeModelCall(current));
         try {
             if (mode.kind === "prompt") await this.#agent.prompt(forAgent);
             else await this.#agent.continue();
         } catch (error) {
             release();
-            if (this.#suppressWrites) return this.#classify(current);
+            releaseHook();
+            if (this.#suppressWrites || current.failure !== null) return this.#classify(current);
             await this.#writeInvocation(invocationId, "error", {kind: "model", message: errorText(error)});
             return {status: "failed", error: {kind: "model", message: errorText(error)}, entries: current.entries};
         }
         release();
+        releaseHook();
         await this.#writes;
         return this.#classify(current);
     }
 
-    /** 每次模型调用前：刷新 model-call 数据源，按 Profile 渲染请求；系统提示词可能随之变化。 */
+    /** 刷新 model-call 数据源并重渲染系统提示词；刷新失败是 Profile 失败：停下循环，由 classify 以 failed/profile 收口。 */
+    async #refreshBeforeModelCall(current: Current): Promise<void> {
+        if (current.prepared === null || current.failure !== null || current.control.signal.aborted) return;
+        const refreshed = await this.#deps.host.refresh(current.prepared, {signal: current.control.signal});
+        // 中止引起的取消不是 Profile 的失败，由 classify 按 aborted 收口
+        if (!refreshed.ok && (refreshed.code === "cancelled" || current.control.signal.aborted)) return;
+        if (!refreshed.ok) {
+            current.failure = {kind: "profile", message: `${refreshed.code}: ${refreshed.detail}`};
+            this.#agent.abort();
+            // 抛出让 OMP 在发请求之前停下（只 abort 的话这一次请求还是会发出去）
+            throw new Error(`Profile 刷新失败：${refreshed.code}: ${refreshed.detail}`);
+        }
+        current.prepared = refreshed.value;
+        this.#agent.setSystemPrompt(this.#deps.host.renderSystem(current.prepared).systemPrompt);
+    }
+
+    /** 每次模型调用前按 Profile 渲染请求消息（系统提示词已在 before-model-call 钩子里更新）。 */
     async #transformContext(messages: AgentMessage[]): Promise<AgentMessage[]> {
         const current = this.#current;
         if (current === null || current.prepared === null) return messages;
-        const refreshed = await this.#deps.host.refresh(current.prepared, {});
-        if (refreshed.ok) current.prepared = refreshed.value;
         const out = this.#deps.host.renderRequest(current.prepared, {history: keepAllRoles(messages), invocationStart: this.#invocationStart});
-        this.#agent.setSystemPrompt(out.systemPrompt);
         return out.messages;
     }
 
@@ -468,6 +527,10 @@ export class SessionHandle implements AgentSession {
         }
         const last = this.#agent.state.messages.at(-1);
         const lastAssistant = [...this.#agent.state.messages].reverse().find(isAssistant);
+        if (current.failure !== null) {
+            await this.#writeInvocation(invocationId, "error", {kind: current.failure.kind, message: current.failure.message});
+            return {status: "failed", error: current.failure, entries};
+        }
         if (current.limitHit) {
             await this.#writeInvocation(invocationId, "error", {kind: "limit", message: `助手回复达到上限 ${this.#deps.limits?.maxTurns ?? DEFAULT_MAX_TURNS} 轮`});
             return {status: "failed", error: {kind: "limit", message: "助手回复达到上限"}, entries};
@@ -606,6 +669,7 @@ export class SessionHandle implements AgentSession {
     async resolve(answer: InteractionAnswer): Promise<RuntimeResult<void>> {
         if (this.#closed) return {ok: false, code: "closed", detail: "会话句柄已关闭"};
         if (this.#phase !== "waiting-user") return {ok: false, code: "invalid-state", detail: "没有在等待用户"};
+        if (this.#answering.has(answer.interactionId)) return {ok: false, code: "already-answered", detail: `事项 ${answer.interactionId} 正在应答`};
         const replayed = sessionStatus(this.log.entries);
         const pending = replayed.pending.find((item) => item.interactionId === answer.interactionId);
         if (pending === undefined) {
@@ -613,24 +677,37 @@ export class SessionHandle implements AgentSession {
             return {ok: false, code: answered ? "already-answered" : "unknown-interaction", detail: `事项 ${answer.interactionId}`};
         }
         const response: NonNullable<InteractionData["response"]> = {decision: answer.decision, scope: answer.scope ?? "once", decidedBy: "user", ...(answer.note === undefined ? {} : {note: answer.note})};
-        if (this.#current !== null) {
-            const outcome: ApprovalOutcome = answer.decision === "approve" ? {approved: true} : {approved: false, reason: answer.note ?? "用户拒绝"};
-            await this.#settleOne(answer.interactionId, outcome, response);
-            return {ok: true, value: undefined};
+        this.#answering.add(answer.interactionId);
+        try {
+            if (this.#current !== null) {
+                const outcome: ApprovalOutcome = answer.decision === "approve" ? {approved: true} : {approved: false, reason: answer.note ?? "用户拒绝"};
+                await this.#settleOne(answer.interactionId, outcome, response);
+                return {ok: true, value: undefined};
+            }
+            return await this.#resumeAfterRestart(replayed.invocationId!, answer.interactionId, pending.request, response);
+        } finally {
+            this.#answering.delete(answer.interactionId);
         }
-        return this.#resumeAfterRestart(replayed.invocationId!, answer.interactionId, pending.request, response);
     }
 
     /** 输出 13：进程重启后的应答——运行时自己执行（或拒绝）这个调用、写结果，该批齐了再让模型继续。 */
     async #resumeAfterRestart(invocationId: string, interactionId: string, request: {assistantEntryId: string; toolCallId: string; toolName: string}, response: NonNullable<InteractionData["response"]>): Promise<RuntimeResult<void>> {
+        // 恢复执行归一个控制器所有：abort 中止它，中止之后的每一步都不再写入（迟到的工具结果也不写）
+        const recovery = this.#recovery ?? new AbortController();
+        this.#recovery = recovery;
+        const aborted = (): RuntimeResult<never> => ({ok: false, code: "invalid-state", detail: "恢复期间已中止"});
         const written = await this.#writeInteraction(invocationId, {interactionId, kind: "approval", phase: "response", response});
         if (!written.ok) return written;
+        if (recovery.signal.aborted) return aborted();
         const result = response.decision === "reject"
             ? toolResultMessage(request.toolCallId, request.toolName, `denied: ${response.note ?? "用户拒绝"}`, true, this.#now())
-            : await this.#executeRecovered(request);
+            : await this.#executeRecovered(request, recovery.signal);
+        if (recovery.signal.aborted) return aborted();
         const wroteResult = await this.#write([{type: "message", message: result}]);
         if (!wroteResult.ok) return wroteResult;
         if (sessionStatus(this.log.entries).pending.length > 0) return {ok: true, value: undefined};
+        if (recovery.signal.aborted) return aborted();
+        this.#recovery = null;
         const resumed = await this.#writeInvocation(invocationId, "resumed");
         if (!resumed.ok) return resumed;
         this.#phase = "running";
@@ -645,14 +722,14 @@ export class SessionHandle implements AgentSession {
         return started.ok ? {ok: true, value: undefined} : started;
     }
 
-    async #executeRecovered(request: {assistantEntryId: string; toolCallId: string; toolName: string}): Promise<ToolResultMessage> {
+    async #executeRecovered(request: {assistantEntryId: string; toolCallId: string; toolName: string}, signal: AbortSignal): Promise<ToolResultMessage> {
         const entry = this.log.entries.find((item) => item.id === request.assistantEntryId);
         const call = entry?.type === "message" && entry.message.role === "assistant"
             ? entry.message.content.find((block): block is Extract<typeof block, {type: "toolCall"}> => block.type === "toolCall" && block.id === request.toolCallId)
             : undefined;
         const found = this.#descriptorFor(request.toolName);
         if (call === undefined || found === null) return toolResultMessage(request.toolCallId, request.toolName, `tool-unavailable: 工具 ${request.toolName} 此刻不可用`, true, this.#now());
-        const result = await found.tool.execute(request.toolCallId, call.arguments, undefined, undefined);
+        const result = await found.tool.execute(request.toolCallId, call.arguments, signal, undefined);
         return {role: "toolResult", toolCallId: request.toolCallId, toolName: request.toolName, content: result.content, isError: result.isError === true, timestamp: this.#now()};
     }
 
@@ -671,13 +748,20 @@ export class SessionHandle implements AgentSession {
     async compact(options: {signal?: AbortSignal} = {}): Promise<RuntimeResult<Compacted | null>> {
         if (this.#closed) return {ok: false, code: "closed", detail: "会话句柄已关闭"};
         if (this.#phase !== "idle") return {ok: false, code: "busy", detail: "有进行中的调用"};
+        if (this.#reserved !== null) return {ok: false, code: "busy", detail: `会话正在${this.#reserved === "compact" ? "压缩" : "受理另一次调用"}`};
         if (this.#profileId === undefined) return {ok: false, code: "unknown-profile", detail: "会话没有 Profile"};
-        const accepted = await accept(this.#deps, {log: this.log, profileId: this.#profileId}, {needsInput: false});
-        if (!accepted.ok) return accepted;
-        const context: PromptContext = {session: {id: this.id, createdAt: this.log.header.createdAt}, turn: countTurns(this.log.entries), now: new Date(this.#now()), fields: accepted.value.profile.fields};
-        const prepared = await this.#deps.host.prepare(accepted.value.profile, {context});
-        if (!prepared.ok) return {ok: false, code: "invalid-profile", detail: `${prepared.code}: ${prepared.detail}`};
-        return this.#compactWith(accepted.value, prepared.value, options.signal);
+        // 压缩期间会话被占用：第二次压缩与新的调用都 busy，直到写入完成或失败
+        this.#reserved = "compact";
+        try {
+            const accepted = await accept(this.#deps, {log: this.log, profileId: this.#profileId}, {needsInput: false});
+            if (!accepted.ok) return accepted;
+            const context: PromptContext = {session: {id: this.id, createdAt: this.log.header.createdAt}, turn: countTurns(this.log.entries), now: new Date(this.#now()), fields: accepted.value.profile.fields};
+            const prepared = await this.#deps.host.prepare(accepted.value.profile, {context});
+            if (!prepared.ok) return {ok: false, code: "invalid-profile", detail: `${prepared.code}: ${prepared.detail}`};
+            return await this.#compactWith(accepted.value, prepared.value, options.signal);
+        } finally {
+            this.#reserved = null;
+        }
     }
 
     async #compactWith(accepted: Accepted, prepared: PreparedProfile, signal?: AbortSignal): Promise<RuntimeResult<Compacted | null>> {
@@ -696,12 +780,14 @@ export class SessionHandle implements AgentSession {
         return {ok: false, code: "compaction-failed", detail: `${result.code}：${result.detail}`};
     }
 
+    /** 自动压缩是调用终态之后的尾段：写入的条目也算本次调用的；abort 取消它但不改变调用已经 completed 的结果（Spec 输出 14）。 */
     async #autoCompact(current: Current): Promise<void> {
         const {accepted, prepared} = current;
-        if (prepared === null) return;
+        if (prepared === null || current.control.signal.aborted) return;
         const decision = shouldCompact({entries: this.log.entries, contextWindow: accepted.model.contextWindow ?? 0, settings: accepted.compaction});
         if (!decision.compact) return;
-        await this.#compactWith(accepted, prepared);
+        const compacted = await this.#compactWith(accepted, prepared, current.control.signal);
+        if (compacted.ok && compacted.value !== null) current.entries.push(...compacted.value.entries);
     }
 
     // ---- 工具来源与描述（恢复执行用） ----
