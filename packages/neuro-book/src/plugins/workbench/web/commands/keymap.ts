@@ -73,6 +73,23 @@ export function parseKeybinding(binding: string, platform: KeyPlatform): Command
     return {ok: true, value: {key, ...modifiers}};
 }
 
+/** macOS 的修饰键符号，按系统菜单的次序（Control、Option、Shift、Command）。 */
+const MAC_MODIFIERS = [["ctrl", "⌃"], ["alt", "⌥"], ["shift", "⇧"], ["meta", "⌘"]] as const;
+/** 其它平台的写法与次序。 */
+const OTHER_MODIFIERS = [["ctrl", "Ctrl"], ["meta", "Meta"], ["alt", "Alt"], ["shift", "Shift"]] as const;
+
+/**
+ * 键位按平台写给人看（docs/specs/workbench/commands.md 的“快捷键的显示”）：macOS 用 `⌃⌥⇧⌘` 符号连写（`Mod+Shift+P`
+ * 写作 `⇧⌘P`），其它平台写 `Ctrl+Shift+P`。命令面板、应用菜单与命令搜索按钮共用；解析不了的键位原样返回。
+ */
+export function formatKeybinding(binding: string, platform: KeyPlatform): string {
+    const parsed = parseKeybinding(binding, platform);
+    if (!parsed.ok) return binding;
+    const key = parsed.value.key;
+    if (platform === "mac") return MAC_MODIFIERS.filter(([flag]) => parsed.value[flag]).map(([, symbol]) => symbol).join("") + key;
+    return [...OTHER_MODIFIERS.filter(([flag]) => parsed.value[flag]).map(([, name]) => name), key].join("+");
+}
+
 /** 事件键归一：字母按大写比较（按住 Shift 时浏览器给大写），空格与 Esc 有别名，其它不参与键位。 */
 function normalizeEventKey(key: string): string | null {
     if (key === " " || key === "Spacebar") return "Space";

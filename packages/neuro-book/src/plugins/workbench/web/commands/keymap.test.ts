@@ -8,7 +8,7 @@ import type {ContextValues, WhenPredicate} from "nbook/plugins/commands/shared/c
 import type {CommandResult, Release} from "nbook/plugins/commands/shared/contracts";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 
-import {createKeymapDispatcher, parseKeybinding} from "./keymap";
+import {createKeymapDispatcher, formatKeybinding, parseKeybinding} from "./keymap";
 import type {KeyInput, KeyPlatform} from "./keymap";
 
 type Press = Partial<Omit<KeyInput, "preventDefault" | "stopImmediatePropagation" | "getModifierState">> & {key: string; altGraph?: boolean};
@@ -201,5 +201,15 @@ describe("createKeymapDispatcher", () => {
         const after = press({key: "P", ctrlKey: true, shiftKey: true});
         app.dispatcher.handle(after);
         expect(after.prevented).toBe(0);
+    });
+});
+
+describe("快捷键的显示", () => {
+    it("macOS 用符号按 ⌃⌥⇧⌘ 的次序连写，其它平台用 + 连写；解析不了的原样返回", () => {
+        expect(formatKeybinding("Mod+Shift+P", "mac")).toBe("⇧⌘P");
+        expect(formatKeybinding("Shift+Alt+Ctrl+Mod+K", "mac")).toBe("⌃⌥⇧⌘K");
+        expect(formatKeybinding("Mod+Shift+P", "other")).toBe("Ctrl+Shift+P");
+        expect(formatKeybinding("Alt+F10", "other")).toBe("Alt+F10");
+        expect(formatKeybinding("Mod+Mod+P", "other")).toBe("Mod+Mod+P");
     });
 });

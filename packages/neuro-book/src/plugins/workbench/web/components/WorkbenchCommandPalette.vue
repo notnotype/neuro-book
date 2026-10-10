@@ -14,10 +14,14 @@ import {textOf} from "nbook/shared/localized-text";
 
 import {otherTexts, parseCommandQuery, parseLineNumber, searchCommands, searchPickItems} from "../commands/command-query";
 import type {PaletteItem} from "../commands/command-query";
+import {currentKeyPlatform, formatKeybinding} from "../commands/keymap";
 import {sameDocument} from "../commands/palette-host";
 import type {DocumentTarget, PaletteHost} from "../commands/palette-host";
 import {paletteText as messageOf} from "../commands/palette-messages";
 import type {PaletteMessage} from "../commands/palette-messages";
+
+/** 快捷键的写法按平台；一次页面里不会变。 */
+const KEY_PLATFORM = currentKeyPlatform();
 
 const props = defineProps<{host: PaletteHost}>();
 
@@ -97,7 +101,8 @@ const items = computed<readonly PaletteItem[]>(() => {
         const state = lineState.value;
         return state.line === null ? [] : [{id: LINE_ITEM_ID, label: paletteText("goToLine", {line: state.line})}];
     }
-    return searchCommands(visibleCommands.value, parsedQuery.value.text, host.recent.value, host.locale.value);
+    return searchCommands(visibleCommands.value, parsedQuery.value.text, host.recent.value, host.locale.value)
+        .map((item) => (item.shortcut === undefined ? item : {...item, shortcut: formatKeybinding(item.shortcut, KEY_PLATFORM)}));
 });
 
 const emptyText = computed(() => {

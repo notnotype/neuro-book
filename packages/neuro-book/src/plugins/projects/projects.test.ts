@@ -108,7 +108,7 @@ async function commandWindow(h: ProjectHarness, host: PaletteHost, navigations: 
         {identity: {location: "browser", instanceId: "browser-2"}, stopSignal: new AbortController().signal, emergency: () => undefined},
         {
             capabilities: [
-                {id: "window.navigation", key: windowNavigationKey, create: () => ({navigateDocument: (href: string) => navigations.push(href)})},
+                {id: "window.navigation", key: windowNavigationKey, create: () => ({navigateDocument: (href: string) => navigations.push(href), reloadDocument: () => undefined, openExternal: () => "opened" as const})},
                 {id: "test.quick-pick", key: quickPickKey, create: (): QuickPick => ({pick: (request) => host.openPick(request)})},
                 ...settings.capabilities,
             ],
@@ -235,7 +235,7 @@ describe("Spec projects 输出 10：命令登记", () => {
             {
                 capabilities: [
                     {id: "window.project", key: windowProjectKey, create: () => ({project: null})},
-                    {id: "window.navigation", key: windowNavigationKey, create: () => ({navigateDocument: () => undefined})},
+                    {id: "window.navigation", key: windowNavigationKey, create: () => ({navigateDocument: () => undefined, reloadDocument: () => undefined, openExternal: () => "opened" as const})},
                     ...standaloneSettings("browser", tmp, {windowProject: false}).capabilities,
                 ],
                 plugins,

@@ -18,14 +18,16 @@ import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {bindingsOf} from "nbook/shared/store/public";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
-import {windowPluginsKey} from "nbook/shared/host";
+import {windowNavigationKey, windowPluginsKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 
 import {descriptor} from "../plugin";
 import {OPEN_COMMANDS_DECLARATION, OPEN_COMMANDS_ID, PaletteSlot} from "./commands/open-commands";
 import {SWITCH_APPEARANCE_COMMAND, SWITCH_APPEARANCE_DECLARATION, SWITCH_THEME_COMMAND, SWITCH_THEME_DECLARATION, themeCommands} from "./commands/theme-commands";
 import type {PaletteHost} from "./commands/palette-host";
+import {APP_COMMAND_DECLARATIONS, appCommands} from "./commands/app-commands";
 import {PANEL_COMMAND_DECLARATIONS, panelCommands} from "./commands/panel-commands";
+import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands";
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
 import {appearanceSetting, quickPickKey, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
 import {validateViewContribution, WORKBENCH_VIEWS_POINT} from "../shared/views";
@@ -53,7 +55,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "browser",
         location: "browser",
-        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: settingsKey}, {key: storageKey}, {key: windowPluginsKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: windowPluginsKey, required: false}],
         provides: [workbenchRootKey, quickPickKey],
         receives: [WORKBENCH_PAGES_POINT, WORKBENCH_VIEWS_POINT, WORKBENCH_EDITOR_AREA_POINT],
         contributions: [
@@ -61,6 +63,8 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             {capability: COMMANDS_POINT, id: SWITCH_THEME_COMMAND, declaration: SWITCH_THEME_DECLARATION},
             {capability: COMMANDS_POINT, id: SWITCH_APPEARANCE_COMMAND, declaration: SWITCH_APPEARANCE_DECLARATION},
             ...Object.entries(PANEL_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
+            ...Object.entries(PART_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
+            ...Object.entries(APP_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...Object.entries(VIEW_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...workbenchState.contributions,
         ],
@@ -112,7 +116,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 services: [provide(workbenchRootKey, {pages: () => pages.list()}), provide(quickPickKey, palettes.quickPick)],
                 receivers: {[WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver()},
                 contributions: {
-                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick), ...panelCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick)},
+                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey), () => locale.value)},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                 },
             };

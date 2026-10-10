@@ -25,7 +25,7 @@ import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
 import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
 import {clockKey, windowConnectionKey, windowNavigationKey, windowPluginsKey, windowRescueKey} from "nbook/shared/host";
 import type {RescuedText, WindowRescue} from "nbook/shared/host";
-import type {WindowConnection, WindowConnectionState} from "nbook/shared/host";
+import type {WindowConnection, WindowConnectionState, WindowNavigation} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
 
@@ -57,8 +57,8 @@ export interface BrowserWindowOptions {
     readonly connection: Connection;
     readonly page: PageLifecycleTarget;
     readonly console: DiagnosticsConsole;
-    /** 整页加载到 `href`（生产是 `location.assign`）：以本地能力交给需要整页导航的插件，例如“打开项目”。 */
-    readonly navigateDocument: (href: string) => void;
+    /** 整页导航：以本地能力 `windowNavigationKey` 交给需要它的插件，例如“打开项目”“重新载入”。 */
+    readonly navigation: WindowNavigation;
     /** 地址栏 `project` 参数（短名或 id）：首连时请求绑定它；没有则窗口不绑定项目。 */
     readonly project?: string | null;
     /**
@@ -104,7 +104,11 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
     const builtin = options.builtin ?? builtinBrowserPlugins;
     const definitions = options.definitions ?? browserPluginDefinitions;
     const hostPlugins = options.hostPlugins ?? browserHostPlugins;
-    const navigation = Object.freeze({navigateDocument: (href: string) => options.navigateDocument(href)});
+    const navigation: WindowNavigation = Object.freeze({
+        navigateDocument: (href: string) => options.navigation.navigateDocument(href),
+        reloadDocument: () => options.navigation.reloadDocument(),
+        openExternal: (href: string) => options.navigation.openExternal(href),
+    });
     const clock = options.clock ?? systemClock;
     const clientIdentity = options.clientIdentity ?? crypto.randomUUID();
     const adapter = new BrowserRuntimeHost();

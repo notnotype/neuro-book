@@ -18,10 +18,17 @@ export interface StateRoot {
 /** 服务端宿主提供；状态根不发给浏览器。 */
 export const stateRootKey: ServiceKey<StateRoot> = defineServiceKey<StateRoot>("nbook/state-root");
 
-/** 本窗口的整页导航。 */
+/**
+ * 本窗口的整页导航（docs/specs/runtime/browser-host.md 启动序列第 5 步）。三者都只发出请求：页面已有的离开保护
+ * （编辑器的 beforeunload）照常生效，用户取消时什么都不变。
+ */
 export interface WindowNavigation {
     /** 整页加载到 `href`（生产是 `location.assign`）。 */
     navigateDocument(href: string): void;
+    /** 重新载入当前文档，地址不变（生产是 `location.reload`）。 */
+    reloadDocument(): void;
+    /** 在新标签页打开外部地址；浏览器拦截了弹出窗口时为 `blocked`。 */
+    openExternal(href: string): "opened" | "blocked";
 }
 
 /** 浏览器宿主提供给本窗口的插件。 */

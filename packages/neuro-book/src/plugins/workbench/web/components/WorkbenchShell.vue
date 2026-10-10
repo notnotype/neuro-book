@@ -168,8 +168,7 @@ const activityContainers = computed(() => presentation.value.parts.sidebar.switc
 /** ActivityBar：切到这个容器；Sidebar 看不见时同时打开它（被隐藏的显示、拖到零的按记忆尺寸展开）。 */
 function selectSidebarContainer(containerId: string): void {
     props.layout.actions.applyView({kind: "select-container", part: "sidebar", containerId});
-    if (state.value.hiddenParts.includes("sidebar")) props.layout.actions.setPartHidden("sidebar", false);
-    if (state.value.dragCollapsed.sidebar === true) props.layout.actions.commitSizes({dragCollapsed: {sidebar: false}});
+    props.layout.actions.setPartHidden("sidebar", false);
 }
 
 function selectContainer(part: ViewLocation, containerId: string): void {

@@ -16,6 +16,7 @@ import {createWebHistory} from "vue-router";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import type {PluginDescriptor} from "nbook/manifest";
+import type {WindowNavigation} from "nbook/shared/host";
 
 import {readClientIdentity} from "./host/client-identity";
 import {createConnection} from "./host/connection";
@@ -33,11 +34,22 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
     if (container === null) throw new Error("index.html 缺少 #app");
     const clientIdentity = readClientIdentity(() => window.localStorage);
     if (clientIdentity.problem !== null) console.warn(`[nbook] ${clientIdentity.problem}；客户端身份只在本页有效`);
+    const navigation: WindowNavigation = {
+        navigateDocument: (href) => location.assign(href),
+        reloadDocument: () => location.reload(),
+        openExternal: (href) => {
+            // 不用 `noopener` 特性：带上它时 window.open 总是返回 null，分不出是否被拦截；打开后再切断 opener。
+            const opened = window.open(href, "_blank");
+            if (opened === null) return "blocked";
+            opened.opener = null;
+            return "opened";
+        },
+    };
     const browserWindow = createBrowserWindow({
         connection: createConnection(location.origin),
         page: window,
         console,
-        navigateDocument: (href) => location.assign(href),
+        navigation,
         project: new URLSearchParams(location.search).get("project"),
         clientIdentity: clientIdentity.id,
         builtin: options.builtin,
@@ -48,7 +60,7 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
         browserWindow,
         container,
         history: createWebHistory(),
-        navigateDocument: (href) => location.assign(href),
-        reloadDocument: () => location.reload(),
+        navigateDocument: navigation.navigateDocument,
+        reloadDocument: navigation.reloadDocument,
     });
 }

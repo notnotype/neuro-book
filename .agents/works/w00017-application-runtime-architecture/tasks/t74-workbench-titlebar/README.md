@@ -68,3 +68,9 @@ omp 审查（报告在 [t73 证据](../t73-lab-nb-ui-and-storage/evidences/desig
   - 实测：用左右键换组后按 Escape，reka 把焦点还给最初打开菜单的组标题，符合外壳 Spec 输出 31 的“回到打开菜单之前的位置”，已写进 `Menubar.md`。
   - 验证：nb-ui 与 neuro-book typecheck；nb-ui Vitest 515 例（另 5 例是已知的 Node 26 环境失败）；`lab-nb-ui.e2e.ts` 7 例（新增菜单栏与下拉菜单的键盘与禁用原因两例）、`lab-scenes.e2e.ts`；变异 3 个全杀（Dropdown、Menubar 不传 reka 菜单项，不转发菜单开合）。
   - 顺带修正 t75 S1 测试的字面量类型（`SpineShelf.dom.test.ts`，写测试前跑的类型检查没覆盖到）。
+- 2026-10-10 S2 完成（宿主端口与命令）：
+  - `WindowNavigation` 增加 `reloadDocument`、`openExternal`；浏览器窗口的选项从单个 `navigateDocument` 改为整个 `navigation`。`openExternal` 不用 `noopener` 特性（带上时 `window.open` 总返回 null、分不出是否被拦截），打开后再切断 `opener`。
+  - 新命令 `nbook.app.reload`、`nbook.help.documentation`（`app-commands.ts`，文档站 `https://notnotype.github.io/neuro-book/`）与 `nbook.view.set-part-hidden`（`part-commands.ts`，省略 `part` 时经选择）。
+  - 布局 store 的 `setPartHidden(part, false)` 在同一次提交里清掉隐藏与拖到零；新增 `partVisible`；外壳里活动栏打开侧栏的路径改为只调它（原来分两次提交）。公开键 `sidebarVisible`、`auxiliaryBarVisible`、`activityBarVisible`。
+  - `formatKeybinding`（`keymap.ts`）：macOS 写 `⇧⌘P`，其它写 `Ctrl+Shift+P`；命令面板改用它。
+  - 验证：typecheck；工作台命令与状态 Bun 60 例（新增 `part-commands.test.ts`、`keymap.test.ts` 一例）；`workbench-shell`、`projects`、`workbench-views` e2e 34 例；变异 2 个全杀。

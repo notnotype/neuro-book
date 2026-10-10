@@ -150,16 +150,25 @@ function defineLayoutStore(records: LayoutRecords) {
                     maximized.value = true;
                     return true;
                 },
+                /**
+                 * 隐藏或显示一个 Part。“显示”同时清掉隐藏与拖到零，区域按记忆尺寸完整回来（外壳四输出 32）；只清一位会让
+                 * 拖到零的侧栏“显示”之后仍是 0px。两位在同一次提交里改。
+                 */
                 setPartHidden: (part: ShellHideablePart, hidden: boolean): boolean => {
-                    if (hiddenParts.value.includes(part) === hidden) return false;
+                    const isHidden = hiddenParts.value.includes(part);
+                    const dragged = part !== "titlebar" && part !== "activitybar" && dragCollapsed.value[part] === true;
+                    if (hidden ? isHidden : !isHidden && !dragged) return false;
                     void customizations.commit((value) => {
                         const next = editable(value);
                         const others = (next.hiddenParts ?? []).filter((name) => name !== part);
                         next.hiddenParts = hidden ? [...others, part] : others;
+                        if (!hidden && (part === "sidebar" || part === "auxiliarybar") && next.dragCollapsed?.[part] === true) next.dragCollapsed = {...next.dragCollapsed, [part]: false};
                         return next;
                     });
                     return true;
                 },
+                /** 侧栏、右栏、活动栏此刻看得见：未隐藏且未拖到零。 */
+                partVisible: (part: "sidebar" | "auxiliarybar" | "activitybar"): boolean => !hiddenParts.value.includes(part) && (part === "activitybar" || dragCollapsed.value[part] !== true),
                 /** 一次手势的补丁：涉及的记录各提交一次（两条记录不是事务）。 */
                 commitSizes: (patch: ShellSizePatch): void => {
                     commitSizeFields(side, ["sidebarWidth", "auxiliarybarWidth"], patch, (name, value) => clampLeafSize(value, shellLeafLimits(name === "sidebarWidth" ? "sidebar" : "auxiliarybar", Number.MAX_SAFE_INTEGER)));
