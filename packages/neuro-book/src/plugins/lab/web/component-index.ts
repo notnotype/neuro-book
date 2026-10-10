@@ -1,8 +1,10 @@
 /**
- * Lab 组件索引的扫描：共享前端组件（`src/ui/`）与各插件的界面组件（`src/plugins/<插件>/web/components/`），
- * 文档与组件同名并列。扫描结果换成逻辑路径（`ui/…`、`<插件>/…`）交给 `buildLabIndex`；新插件的组件放进约定目录
- * 就会出现在 Lab 里，不用登记。
+ * Lab 组件索引的扫描：共享前端组件（`src/ui/`）、各插件的界面组件（`src/plugins/<插件>/web/components/`）与
+ * nb-ui 的组件（经它的公开入口 `@notnotype/nb-ui/lab-sources`），文档与组件同名并列。扫描结果换成逻辑路径
+ * （`ui/…`、`<插件>/…`、`nb-ui/<分类>/…`）交给 `buildLabIndex`；新插件的组件放进约定目录就会出现在 Lab 里，不用登记。
  */
+
+import {nbUiComponentDocs, nbUiComponentModules} from "@notnotype/nb-ui/lab-sources";
 
 import {buildLabIndex} from "./component-index-model";
 import type {LabComponentEntry} from "./component-index-model";
@@ -28,9 +30,13 @@ function logicalPath(path: string): string {
 }
 
 const rekey = <T>(entries: Record<string, T>): Record<string, T> => Object.fromEntries(Object.entries(entries).map(([path, value]) => [logicalPath(path), value]));
+const nbUi = <T>(entries: Readonly<Record<string, T>>): Record<string, T> => Object.fromEntries(Object.entries(entries).map(([path, value]) => [`nb-ui/${path}`, value]));
 
 export const labComponents: LabComponentEntry[] = buildLabIndex(
-    {docs: {...rekey(sharedDocs), ...rekey(pluginDocs)}, modules: new Set(Object.keys({...rekey(sharedModules), ...rekey(pluginModules)}))},
+    {
+        docs: {...rekey(sharedDocs), ...rekey(pluginDocs), ...nbUi(nbUiComponentDocs)},
+        modules: new Set(Object.keys({...rekey(sharedModules), ...rekey(pluginModules), ...nbUi(nbUiComponentModules)})),
+    },
     (message) => console.warn(`[component-lab] ${message}`),
 );
 

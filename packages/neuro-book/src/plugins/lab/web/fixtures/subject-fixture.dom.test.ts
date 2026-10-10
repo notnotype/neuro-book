@@ -58,4 +58,34 @@ describe("defineSubjectFixture", () => {
         expect(events).toEqual([["toggle", true]]);
         expect(host.querySelector("button")!.textContent).toBe("思考:true:registry");
     });
+
+    it("插槽预设按场景的 slots 开关填入，登记的插槽就是预设的键；rootless 时不加 data-lab-subject", async () => {
+        const Card = defineComponent({
+            props: {title: {type: String, required: true}},
+            setup(props, {slots}) {
+                return () => h("section", [h("h2", props.title), slots.default?.() ?? "没有内容"]);
+            },
+        });
+        const fixture = defineSubjectFixture<typeof Card>({
+            component: "Card",
+            scenes: [{id: "default", label: "默认", input: {props: {title: "标题"}, slots: {default: true}}}],
+            subject: async () => ({default: Card}),
+            slotPresets: {default: () => "预设正文"},
+            rootless: true,
+        });
+        expect(fixture.slots).toEqual(["default"]);
+        const Fixture = await fixture.load();
+        const render = async (on: boolean): Promise<HTMLElement> => {
+            const host = document.createElement("div");
+            app?.unmount();
+            app = createApp({render: () => h(Fixture, {scene: "default", input: {props: {title: "标题"}, slots: {default: on}}})});
+            app.mount(host);
+            await nextTick();
+            return host;
+        };
+        const on = await render(true);
+        expect(on.querySelector("section")!.textContent).toBe("标题预设正文");
+        expect(on.querySelector("section")!.hasAttribute("data-lab-subject")).toBe(false);
+        expect((await render(false)).querySelector("section")!.textContent).toBe("标题没有内容");
+    });
 });

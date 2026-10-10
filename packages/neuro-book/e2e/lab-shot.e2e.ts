@@ -48,7 +48,7 @@ interface ReportEntry {
     readonly problems: string[];
 }
 
-test("measure 报出越出舞台、没有被滚动容器挡住的元素", async ({page}) => {
+test("measure 报出越出舞台、没有被滚动容器挡住的元素；看不见的元素（透明、隐藏、视觉隐藏）不算", async ({page}) => {
     await page.goto(`${dev.pageUrl}lab?c=SkillChip&s=skill`);
     await expect.poll(() => page.evaluate(() => (window as unknown as {__nbLab?: LabDebugApi}).__nbLab?.state().ready ?? false)).toBe(true);
     expect(await page.evaluate(() => (window as unknown as {__nbLab: LabDebugApi}).__nbLab.measure()?.offenders)).toEqual([]);
@@ -57,7 +57,9 @@ test("measure 报出越出舞台、没有被滚动容器挡住的元素", async 
         const wide = () => Object.assign(document.createElement("div"), {style: "width: 4000px; height: 4px"});
         const scroller = Object.assign(document.createElement("div"), {style: "overflow-x: auto"});
         scroller.append(wide());
-        stage.append(wide(), scroller);
+        const hidden = ["opacity: 0", "visibility: hidden", "position: absolute; clip: rect(0 0 0 0)", "position: absolute; clip-path: inset(50%)"]
+            .map((style) => Object.assign(document.createElement("div"), {style: `${style}; width: 4000px; height: 4px`}));
+        stage.append(wide(), scroller, ...hidden);
         return (window as unknown as {__nbLab: LabDebugApi}).__nbLab.measure();
     });
     expect(measure?.overflowX).toBeGreaterThan(0);

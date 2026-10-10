@@ -1,5 +1,6 @@
 ---
 标签: [state:local, state:inject, env:global]
+验证入口: WorkbenchShellLayout
 ---
 
 # GridRenderer

@@ -54,6 +54,16 @@ describe("Lab 组件索引", () => {
         expect(warnings).toEqual(["WorkbenchBadge 的「验证入口」指向不存在的组件：NoSuchHost"]);
     });
 
+    it("组件名在全部来源中唯一：重名时只收路径排在前面的一个并提示，与来源合并的顺序无关", () => {
+        const docs = {"nb-ui/feedback/ContextMenu.md": doc("标签: []", "# 菜单"), "explorer/ContextMenu.md": doc("标签: []", "# 资源管理器菜单")};
+        for (const ordered of [docs, Object.fromEntries(Object.entries(docs).reverse())]) {
+            const {entries, warnings} = index(ordered);
+            expect(entries.map((entry) => entry.groupPath.join("/"))).toEqual(["explorer"]);
+            expect(warnings).toHaveLength(1);
+            expect(warnings[0]).toContain("nb-ui/feedback/ContextMenu.md");
+        }
+    });
+
     it("按组件名、显示名与别名检索，不分大小写，全角空格当空格；别名写坏（不是 JSON 或混有非字符串）时提示并当作没有别名", () => {
         const {byName, warnings} = index({
             "lab/ViewportCanvas.md": doc('标签: []\n别名: ["画布", "Viewport"]', "# 画布容器\n"),

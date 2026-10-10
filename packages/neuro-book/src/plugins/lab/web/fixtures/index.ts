@@ -30,6 +30,7 @@ import type ViewportCanvas from "../components/ViewportCanvas.vue";
 import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab-subject";
 
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
+import {nbUiFixtures} from "./nb-ui";
 import {defineSubjectFixture} from "./subject-fixture";
 
 /**
@@ -514,6 +515,7 @@ export const labFixtures: LabFixture[] = [
         subject: () => import("nbook/ui/SkillChip.vue"),
         class: "max-w-full",
     }),
+    ...nbUiFixtures,
 ];
 
 export function findLabFixture(component: string): LabFixture | null {

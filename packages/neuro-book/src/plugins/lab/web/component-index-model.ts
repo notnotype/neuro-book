@@ -287,12 +287,21 @@ export interface LabIndexSources {
 /** `warn` 收到文档写坏的提示：写坏只影响检索与跳转，不让整个 Lab 打不开，但也不静默。 */
 export function buildLabIndex(sources: LabIndexSources, warn: (message: string) => void): LabComponentEntry[] {
     const entries: LabComponentEntry[] = [];
-    for (const [path, raw] of Object.entries(sources.docs)) {
+    /** 组件名是导航 id、场景键与地址栏参数，几个来源（新应用、nb-ui）合起来必须唯一。 */
+    const pathByName = new Map<string, string>();
+    // 按路径排序再收：重名时留下哪一个不随来源合并的顺序变化。
+    for (const [path, raw] of Object.entries(sources.docs).sort(([a], [b]) => a.localeCompare(b))) {
         const name = path.slice(path.lastIndexOf("/") + 1, -".md".length);
         // 没有同名 .vue 的 .md 不是组件文档，跳过（例如目录里的 README）
         if (!sources.modules.has(`${path.slice(0, -".md".length)}.vue`)) {
             continue;
         }
+        const taken = pathByName.get(name);
+        if (taken !== undefined) {
+            warn(`${name} 重名：${path} 与 ${taken} 只收后者，改掉其中一个的组件名`);
+            continue;
+        }
+        pathByName.set(name, path);
         const groupPath = path.split("/").slice(0, -1);
         // 右栏显示的那一档跳过 components 桶：它是某个组件的私有子目录，不是分类。
         let groupIndex = groupPath.length - 1;
