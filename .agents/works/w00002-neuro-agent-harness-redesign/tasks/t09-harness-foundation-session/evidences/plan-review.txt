@@ -1,0 +1,159 @@
+# w00002 t09 `session` 实施计划设计审查
+
+审查对象：`.agents/works/w00002-neuro-agent-harness-redesign/tasks/t09-harness-foundation-session/plan.md`
+
+依据：`docs/specs/harness/session.md`、`docs/proposals/agent-harness-kernel.md`、`packages/nb-harness/AGENTS.md`、`packages/nb-harness/src/architecture.test.ts`、`docs/testing/README.md`、前两轮设计审查报告及本 worktree 锁定的 OMP 18.2.5 源码。
+
+## 已核实问题
+
+### 1. 重要｜正确性：`import type Message` 不能替代运行时 schema，计划的浅校验会持久化非 OMP 消息
+
+- **位置**：`.../plan.md:12-16`（条目与校验）；`docs/specs/harness/session.md:51-60,79,143,149`。
+- **现象**：计划同时要求用 TypeBox `Static<>` 导出公开类型、用 `Value.Check` 校验，并说 `message` 只校验角色和 content 块类型、其余字段原样保存。`Message` 是 `import type`，没有运行时 schema；唯一可行的 TypeBox 形状是用 `Type.Unsafe<Message>(实际运行时 schema)`，其中 `Static<>` 只把 TypeScript 静态类型投影成 `Message`，不会让 `Value.Check` 验证 `Message` 的必填字段。计划的浅 schema 可以接受缺少 `api`、`provider`、`model`、`usage`、`stopReason`、`timestamp` 的 assistant 消息，也可以接受缺少 `toolName`、`isError`、`timestamp` 的 toolResult。
+- **为什么是问题**：Spec 的 `message.message` 公开类型是 OMP `Message`，输出 3 要拒绝不符合前置条件的条目，输出 23 又承诺条目满足 OMP `SessionEntry`。把 `{role: "assistant"}` 存进日志后，`buildModelContext` 或 OMP provider 转换才会暴露错误；错误发生在追加成功之后，破坏“日志可回放”和“失败以 invalid-entry 返回”的边界。`Static<>` 的可赋值不等于运行时可验证。
+- **如何核实**：实验 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-plan/lab/typebox-omp-compat.ts`：`bun node_modules/typescript/bin/tsc --noEmit --strict --module ESNext --moduleResolution bundler --target ES2022 --skipLibCheck <实验文件>` 通过，说明 `Type.Unsafe<Message>` 可以制造静态 `Message` 类型；随后 `bun <实验文件>` 输出 `{"malformedAccepted":true,"staticMessageIsImportedType":true}`，说明同一 schema 对缺失 OMP 必填字段的消息返回 true。OMP 定义见 `node_modules/@oh-my-pi/pi-ai/src/types.ts:947-1107`。
+- **建议改法**：为四种 `Message` 角色分别写完整的运行时 schema，至少覆盖 OMP 必填字段、判别字段和 `content` 块；未知扩展字段可允许但不能跳过必填字段。若不愿复制 OMP schema，则把公开类型改成明确的逻辑消息类型，追加前转换成 OMP `Message`，不要继续宣称 `Static<>` 直接保证 OMP 兼容。测试同时断言缺必填字段、错误 `stopReason`、错误 toolResult 被 `invalid-entry` 拒绝。
+
+### 2. 重要｜不变量：排队的 `append` 在执行时才 clone，调用方可在入队后改写将要落盘的内容
+
+- **位置**：`.../plan.md:20-25`（日志句柄）；尤其 `:18` 的“写入前 `structuredClone` 输入”；`docs/specs/harness/session.md:102,148,181,199-207`。
+- **现象**：计划把 `append` 与 `repair` 串入 Promise 链，但只规定“写入前”才 clone 输入。若 A 的存储写入尚未完成，调用方调用 B：`const p = log.append([b]); b.message.content = "changed"`，B 的 clone 若在链尾执行，就会看到修改后的对象。调用方还可以替换传入数组的元素或修改嵌套 `details`。
+- **为什么是问题**：输出 19 的“append 保存输入的副本”要求追加边界隔离调用方，不是隔离某个稍后的执行时刻。相同调用序列在快存储与慢存储上会产生不同日志；更严重时 `entries`、订阅事件和 JSONL 内容会记录调用者在 `append` 返回前的竞态状态。Promise 链只保证写入顺序，不会自动形成输入快照。
+- **如何核实**：根据计划的两个明确步骤构造顺序即可判定：先让 A 的 `store.append` 暂停，再调用 B 并改写 B 的输入，最后放行 A；计划没有任何同步 clone 或不可变输入的步骤。此处没有现成 session 实现可供运行时复现。
+- **建议改法**：在 `append` 入队前同步 clone、做 JSON 可表示性检查并固定这批输入；链内只处理已隔离的值。测试用可控的慢存储覆盖“前一个 append 未完成时修改后一个输入”，不能只测 append 完成后的修改。
+
+### 3. 重要｜不变量：重开路径没有承诺把存储返回的可变条目重新冻结
+
+- **位置**：`.../plan.md:18,20-25,27-36`；`docs/specs/harness/session.md:98-105,129-133,181,203-207`。
+- **现象**：计划只在追加输入“补全后深冻结”，并要求内存存储以 JSON 文本保存；没有规定 `openSession` 接收 `SessionStore.open()` 返回的 `SessionEntry[]` 后要 clone/freeze。`SessionStore.open` 的接口本身返回可变 `SessionEntry[]`，内存存储若直接 `JSON.parse` 后交给日志，`log.entries`、`readEntry` 和订阅补发可以暴露同一份可变嵌套对象。
+- **为什么是问题**：输出 19 不只约束新追加条目，也约束 `entries`、订阅者收到的条目；输出 5 还要求重开后与写入值一致。调用方修改重开得到的 `entries[0].message.content` 后，后续回放和分页会被改写，内存存储与 JSONL 的隔离行为也会分叉。只冻结外层数组不够，`message.content`、`details`、`data` 等嵌套值仍可变。
+- **如何核实**：按接口形状即可构造：自定义 `SessionStore.open` 返回可变的嵌套 entry，计划没有任何重开后的所有权步骤；`Object.freeze(entries)` 不会冻结嵌套对象。`append` 的 clone/freeze 步骤不覆盖 `open` 返回值。
+- **建议改法**：`openSession` 在接管 store 返回值时统一 clone、验证并深冻结，再用该快照构造句柄；存储层不承担公开不可变性。合同测试覆盖“修改重开后的 entries、readEntry 和补发 event 后，回放／分页／文件都不变”。
+
+### 4. 重要｜不变量：`close` 不在 Promise 链中，外部关闭与正在进行的写入没有线性化规则
+
+- **位置**：`.../plan.md:20-25`；`docs/specs/harness/session.md:102-107,148,162-163,193-205`。
+- **现象**：计划只把 `append`、`repair` 放进串行链，没有规定 `close` 如何与等待中的 `store.append` 或 `store.repair` 交互。可控存储下，先调用 `append`，在存储 Promise 未完成时调用 `close()`，再让存储成功：若提交本地 entries，已结束句柄仍在改变；若拒绝提交，文件已经写入而句柄返回 `log-closed`，重开后又出现旧句柄没有通知的条目。两种实现都与“成功追加后进入 entries 并推送”或“关闭后操作为 log-closed”中的一部分合同冲突。
+- **为什么是问题**：关闭是同步公开操作，而写入是异步持久化；没有线性化点就无法保证订阅的 `onEnd` 一次性、序号连续和存储／内存一致。监听器里 `close` 的当前批次边界不能替代调用方从另一个任务直接 `close` 的竞态。`repair` 同样会出现“文件已修复但句柄已关闭”的不一致。
+- **如何核实**：用一个 `append` 返回可控 Promise 的 `SessionStore` 按上述三步执行；计划没有状态转换或链操作定义可判定结果。该场景不依赖具体实现，现有仓库也没有 session 实现可直接复现。
+- **建议改法**：把 `close` 也纳入同一串行化机制并规定已受理操作的提交边界，或明确定义 close 只在链尾生效、等待中的操作仍按调用顺序完成；为 append/repair/close 的所有交错补合同测试，尤其核对文件、entries、返回码和 onEnd。
+
+### 5. 重要｜正确性：通知期间新建订阅没有 replay/live 原子边界，容易把同一序号推两次
+
+- **位置**：`.../plan.md:20-25`，尤其 `:24` 的“推送循环每推一条都重新检查订阅与句柄状态”；`docs/specs/harness/session.md:103,155-161,203-206`。
+- **现象**：订阅 A 收到序号 1 时调用 `subscribe(B)`。B 的默认 replay 会同步收到已有的序号 1；如果 `subscribe` 随后把 B 加入订阅者表，A 所在的当前推送循环继续“重新检查订阅者”，就可能再次把序号 1 推给 B。若采用 live 表迭代而不是快照，B 甚至会在当前迭代中直接被访问；若先登记再 replay，则会反过来出现 replay/live 重复。
+- **为什么是问题**：输出 9 要求同一订阅每个条目只推一次，输出时序还要求用最后收到的序号续订不漏不重。只写“按加入顺序保存”和“每条重新检查状态”没有定义新订阅相对于当前 seq 的 admission fence；不同实现会产生重复事件或漏掉当前批次。
+- **如何核实**：按计划给出的同步 replay、同步通知和可重入 listener 规则即可得到上述时序；不依赖异步 I/O，也不依赖未实现的 session 代码。
+- **建议改法**：给每个订阅保存下一个待投递 seq，先确定 replay 上界，再以该上界后的 seq 进入 live；当前通知使用稳定快照或按 seq 去重，订阅建立、关闭和第一条事件到达必须有明确原子边界。加入“listener 内 subscribe、subscribe replay 时结束、subscribe replay 时 append”三组合同测试。
+
+### 6. 重要｜测试／正确性：只捕获同步异常，允许的 async listener rejection 会漏出订阅并制造未处理拒绝
+
+- **位置**：`.../plan.md:20-25`，尤其 `:24` 的“监听函数抛错只结束该订阅”；`docs/specs/harness/session.md:103,155-161,143`。
+- **现象**：公开类型 `listener: (...) => void` 在 TypeScript 中仍接受 `async` 函数，因为返回值可赋给 `void` 回调。`async () => { throw error; }` 调用时不抛同步异常，而是返回 rejected Promise。计划没有规定检查/处理返回的 Promise；按字面只包同步 `try/catch` 会让该订阅继续收到后续条目并产生 unhandled rejection，若直接 `await` 又会破坏“推送在 append Promise resolve 前完成”的同步时序。
+- **为什么是问题**：输出 9.1 的隔离保证是“监听函数抛出异常时订阅立即结束”，不能只覆盖函数体在当前栈抛出的异常。未处理 rejection 还可能让测试进程失败，或被宿主的 rejection policy 终止；`append` 仍可能先成功，调用方看不到结构化失败。
+- **如何核实**：Node/Bun 的函数赋值规则允许 `const listener: (event: E) => void = async () => { throw new Error("x"); };`；调用返回 Promise 而非同步 throw。该结论直接来自 TypeScript `void` 回调规则与 Promise 时序，不依赖 session 实现。
+- **建议改法**：二选一写入合同：严格禁止异步 listener 并在运行时识别 thenable、隔离并诊断；或把 listener 改成可异步且定义订阅结束与 append resolve 的等待规则。若保留同步推送合同，至少对返回 thenable 安装 rejection handler，并让它只结束该订阅；同样明确 `onEnd` 抛错／reject 时不影响其它订阅和 append。
+
+### 7. 重要｜正确性：计划把 OMP `Agent` 场景写成可捕获请求，但没有覆盖其默认 `convertToLlm` 对开发者／自定义消息的过滤
+
+- **位置**：`.../plan.md:38-42`（回放）、`:75,88`（S3 与验收映射）；`docs/specs/harness/session.md:164-170,259`；OMP `node_modules/@oh-my-pi/pi-agent-core/src/agent.ts:63-69`、`agent-loop.ts:1711-1745`。
+- **现象**：计划仅说“把它交给真实 OMP `Agent` 加自定义 `streamFn` 捕获发往模型的上下文”。`Agent` 默认 `convertToLlm` 只保留 `user`、`assistant`、`toolResult`，会过滤 `developer` 和 OMP `AgentMessage` 的 `custom`；而 `buildModelContext` 又按 Spec 返回 `Message[]`，其中种子允许回放为 `developer`，提醒/摘要带 `attribution: 
+### 10. 重要｜正确性：按 UTF-8 文本整读会错误计算多字节中断尾的 `damagedTail.bytes`
+
+- **位置**：`.../plan.md:27-36`（JSONL `open`）；`docs/specs/harness/session.md:101,152,212`。
+- **现象**：计划要求“整读文件，按 `\n` 切行”，并返回中断尾的字节数，但没有规定以原始字节扫描。若文件在一个 UTF-8 字符中间截断，`readFile(path, "utf8")` 会先把非法字节替换为 `�`；随后对尾字符串再做 `TextEncoder`，得到的字节数不再是文件中实际要 `truncate` 的字节数。
+- **为什么是问题**：调用方用 `damagedTail.bytes` 诊断和验证修复范围时会得到错误数字；更糟的是若实现按替换后的文本重写或按该长度截断，会删除错误的前缀。JSONL 的 repair 是字节级 `truncate`，不能以解码后的字符串长度代替。
+- **如何核实**：实验 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-plan/lab/jsonl-tail-bytes.ts` 执行 `bun <实验文件>` 输出 `{"actualBytes":7,"text":"{\"x\":\"�","decodedTailBytes":9}`：实际尾部 7 字节，解码再编码得到 9 字节。该实验使用真实 Bun `readFile`/`TextEncoder`，没有绕过文件系统。
+- **建议改法**：以 `Uint8Array`/`Buffer` 扫描最后一个 `0x0a`，按原始字节数报告和 `truncate`；完整前缀行再用 UTF-8 解码、逐行解析。另加截断在 ASCII、多字节字符中间、多字节字符完整结束三种场景。
+
+### 11. 重要｜正确性：JSONL `list` 逐个复用 `open` 时会把存储故障静默当作“坏会话跳过”
+
+- **位置**：`.../plan.md:27-36`，尤其 `:35` 的“逐个 `open`，损坏的跳过”；`docs/specs/harness/session.md:132,179,227,241`。
+- **现象**：计划没有区分 `open` 返回的 `corrupt-session`、`unsupported-version`、`session-not-found` 与 `store-failed`。若 `list` 对每个文件调用完整 `open` 后把所有失败都跳过，就会吞掉目录读取、权限、磁盘或单文件读取失败；若只跳过 `corrupt-session`，又没有说明完整损坏行、版本不支持和中断尾应怎样分类。失败表明确规定 `list` 的存储故障应返回 `store-failed`，不是静默少列一项。
+- **为什么是问题**：权限变化或文件读取错误会让列表看起来只是少了会话，调用方无法重试；按版本拒绝的文件也不能被误报为“损坏后正常列表”。此外每个文件都整读并完整校验，N 个会话总读取量是所有会话字节数之和，单次 `list` 会触发 N 次完整 JSON 解析；计划没有把这个已决定的 v1 成本写成边界，也没有限制目录中非会话 `.jsonl` 文件的处理。
+- **如何核实**：逐项对照计划的“损坏的跳过”和 Spec 的 `list` 失败表即可得到冲突；用一个自定义 `SessionStore` 的 `open` 对某个 id 返回 `store-failed`，按计划的逐个 open 流程只有“跳过”或“整体失败”两种实现，计划没有可判定选择。
+- **建议改法**：定义错误分类表：只跳过可确定的 `corrupt-session`，`store-failed` 立即返回并保留 detail，`unsupported-version` 按 Spec 明确是跳过还是列表失败；摘要扫描可复用解析器但不得把读取错误降级为坏文件。文档写明 O(total session bytes) 的 v1 代价，并测试一个坏文件与一个 I/O 失败文件同时存在时的结果。
+
+### 12. 重要｜不变量／安全：JSONL `open(id)` 没有核对文件头的 `header.id` 与路径参数
+
+- **位置**：`.../plan.md:27-36`；`docs/specs/harness/session.md:28,48,83,129,151,212`。
+- **现象**：计划只说“会话 id 的格式由日志与两种存储共同检查”，没有说 JSONL 读取后必须检查第一行的 `id` 等于请求的 `id`。一个路径合法的文件 `<root>/a.jsonl` 可以包含合法但 `id: "b"` 的会话头；`openSession(store, "a")` 若直接接受它，会返回 header id 为 `b` 的句柄，`list`、游标绑定和后续 append 的存储 key 指向不同身份。
+- **为什么是问题**：同一文件内容可以被两个请求 id 打开，破坏“游标绑定会话 id”、日志句柄身份和会话隔离；`create` 的 `session-exists` 也不再反映文件所声明的会话。若目录由外部使用方管理，文件替换或误复制很容易触发，不需要恶意路径穿越。
+- **如何核实**：构造真实 JSONL 文件名 `a.jsonl`，第一行 `version:1,id:"b"`，调用计划的 JSONL `open("a")` 流程；现有步骤只校验 version 和 entry 行，没有 header-id 一致性分支。Spec 把 header id 和 open 参数分别作为会话身份，但未给出实现步骤来收口。
+- **建议改法**：`open` 必须校验 `header.type`、`version`、`id` 格式且 `header.id === requestedId`；不一致返回 `corrupt-session`（不改文件）。`list` 从文件头身份生成摘要，并拒绝/分类文件名与 header 不一致的情况。
+
+### 13. 重要｜不变量：JSONL 创建的“占位文件”失败后没有收口，重试会把未完成会话永久变成 `session-exists`
+
+- **位置**：`.../plan.md:27-36`，尤其 `:31` 的 `open(path, "wx")`；`docs/specs/harness/session.md:147,223,237`。
+- **现象**：计划先以 `wx` 创建文件再写会话头；头部写入可能在创建成功后失败或留下半行，计划只映射为 `store-failed`，没有关闭并清理/标记该文件的规则。调用方重试 `createSession` 会得到 `session-exists`，`open` 则得到 `corrupt-session` 或 `damagedTail`，而不是重新创建一个可用会话。
+- **为什么是问题**：一次可恢复的存储失败把会话 id 永久占用，并留下列表扫描必须处理的伪会话；这与 `session-exists` 的“已有完整会话”语义冲突，也使 `createSession` 的失败恢复表不闭合。不能依赖“失败通常发生在写入前”，因为计划明确接受批次部分写入，文件创建后的首行同样可能部分写入。
+- **如何核实**：用真实 `open("wx")` 创建文件后让头部写入返回失败的测试存储/权限场景，随后重跑 create；计划中没有 unlink、临时文件 rename 或 reserved 状态，结果只能是上述卡死状态。该判断针对计划缺失的收口，不声称普通文件系统必然在每次写失败后留下半行。
+- **建议改法**：采用临时文件写完整头后再以排他方式建立最终路径，或在头写失败时 best-effort 删除且把清理失败写入诊断；规定已存在但头无效的文件是 `session-exists` 还是可显式 repair，不能让 `create`/`open` 自行猜测。
+## 截停后的补全
+
+以下只补写已读取材料与已完成实验的结论；没有进行新的核实。第 7 条以本节的完整版本为准，第 8、9 条未核实，不纳入发现数量。
+
+### 第 7 条补全：默认 OMP `Agent` 会过滤开发者种子，验收装配没有说明如何保留它
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`.agents/works/w00002-neuro-agent-harness-redesign/tasks/t09-harness-foundation-session/plan.md` 的“回放”（第 4 节，40 行）、“验收映射”（88 行）；`docs/specs/harness/session.md:165,267`。
+- **现象**：接原文被截断处：提醒与摘要带 `attribution: "agent"`，种子的角色取 `details.role`，可以是 `developer`。OMP `Agent` 的默认 `convertToLlm` 只保留 `user`、非 refusal 的 `assistant` 和 `toolResult`；因此直接 `replaceMessages` 后使用默认装配发请求，开发者种子会在到达 `streamFn` 之前被过滤。计划没有说明验收与后续 runtime 怎样装配 `convertToLlm`，也没有明确把“开发者种子仍在实际请求里”纳入真实 Agent 断言。场景 6 没有开发者种子，单独通过它不能发现这个问题。
+- **为什么是问题**：Spec 输出 12.1 和场景 14 要保留种子角色；仅检查 `buildModelContext` 的返回值，不能发现 OMP 默认请求转换静默丢弃 `developer` 的情况。后续 runtime 如果照计划直接装配默认 Agent，模型收到的历史会少一条开发者规则。
+- **如何核实**：已读取的锁定源码 `node_modules/@oh-my-pi/pi-agent-core/src/agent.ts:65-69,496,501,1074-1077` 定义默认过滤、转换函数注入和 `replaceMessages`；`agent-loop.ts:1711-1758,1868-1882` 显示 `convertToLlm` 先于 `streamFn(model, llmContext, ...)` 执行。**从代码推断；本轮没有通过真实 Agent 公开 API 运行该场景，不声称已有运行时复现。** 原文若被理解为 `Message[]` 不能赋给 `AgentMessage[]`，该理解不成立：已读取的 `types.ts:882` 明确 `AgentMessage` 包含 `Message`；这里的问题是默认运行时过滤，不是类型不可赋值。
+- **建议改法**：在计划中明确 OMP Agent 的 `convertToLlm` 装配，保留 session 已生成的四种 `Message` 角色，并增加“开发者种子 + 已配对工具调用”的真实 Agent 请求观察场景。使用公开 `AssistantMessageEventStream` 提供能正常结束的脚本化流，断言 `streamFn` 第二参数中的消息，而不是只检查 `replaceMessages` 后的 Agent 内存状态。把这个必需的装配约定交给后续 runtime，不在 session 产品代码中引入 OMP 运行时。
+
+### 8. 未核实：恢复结果的 OMP 消息字段与部分追加后的幂等性
+
+- **位置**：计划“回放”（第 4 节，42 行）。
+- **现象**：计划仅引用输出 16 生成 `EntryInput[]`，没有展开恢复 `toolResult` 的消息级 `timestamp` 等必填字段，以及只落盘恢复计划前缀后再次回放的处理；本轮未完成实现或真实路径实验，不能认定存在重复结果或违反纯函数合同，不列严重程度。
+
+### 9. 未核实：压缩切点不存在或不在压缩之前时的回放处理
+
+- **位置**：计划“回放”（第 4 节，40 行）。
+- **现象**：计划没有展开 `firstKeptEntryId` 无法定位时的内部处理；本轮未完成异常切点实验，也未证明这种输入属于当前 Spec 必须接受的范围，不把它认定为计划违反 Spec，不列严重程度。
+
+## 未发现问题的方面
+
+- **TypeBox 与 OMP 的静态连接机制确实存在**：已完成的最小实验证明 `Type.Unsafe<Message>(schema)` 可以把 `import type` 的 OMP 消息类型接入 `Static<>`，并使该 `message` 条目赋给 OMP `SessionEntry`。同一实验中 `[...entries]` 可以传给 `prepareCompaction`，直接传只读数组被预期的编译诊断拦截。这不是所有七种变体、所有可选字段的完整兼容证明；运行时浅校验的问题仍见第 1 条。
+- **Promise 链与同步通知的基本组合没有必然死锁**：按计划不等待 listener 的返回值，listener 内调用 `append` 只把新操作放入链尾；当前批次先推完再执行新追加，与输出 9.3 一致。没有未实现日志代码的运行时验证，不把其它重入边界视为已经通过。
+- **已有配套登记不需要重复新增**：`package.json` 已导出 `./session`，模块表已登记 session 的 OMP type-only 依赖及 `jsonl` 子目录的 Node 内置模块许可；计划已列出新增 `./session/jsonl` 和收口时更新 Spec 注册表。未发现还需要另一份模块登记或新增 capability 的证据。
+- **场景 6 的 `streamFn` 注入点可用**：源码确认 `AgentOptions.streamFn` 被传入真实循环，循环把转换后的 `Context` 交给它；因此无网络的 Agent 装配测试可以观察该边界。该观察点位于具体 provider 的请求编码之前，不能冒充实际 HTTP 请求或各 provider 接受历史的证据。
+- **场景 11 的自定义存储故障注入前提成立**：Spec 输出 10 明确允许失败批次留下完整前缀与不完整尾，存储接口也允许使用方自行实现；委托 JSONL 再制造该文件状态的测试可用于验证句柄作废、重开、repair 与续订。它不能证明产品 JSONL 的 `appendFile` 在真实磁盘满时会留下同样的前缀，二者应分开表述。
+- **远程与原生压缩排除范围一致**：计划明确 v1 只回放文本摘要，OMP 兼容场景关闭 `remoteEnabled`，没有再次承诺重建 `preserveData` 中的原生历史；不重复报告前两轮已经处理的问题。
+- **会话 id 白名单不会直接产生路径穿越**：采用 Spec 的完整匹配 `[A-Za-z0-9._-]`、长度 1–128，并固定追加 `.jsonl` 时，id 不含路径分隔符；`.` 和 `..` 也会成为普通文件名，而非父目录路径。文件头与路径身份一致性是第 12 条的另一个问题。
+
+上述结论不代表 S1–S5 全部可独立通过门禁；切片中的导出时机、跨片测试依赖、完整验收映射、游标与截断边界没有完成逐项验证。
+
+## 严重程度数量与证据边界
+
+- 阻断：0 条。
+- 重要：11 条（第 1–7、10–13 条；第 7 条按本节补全版本归为测试问题）。
+- 建议：0 条。
+- 未核实：2 项（第 8、9 条，不计入发现数量）。
+- 登记的发现合计：11 条。
+
+这是报告登记数量，不是 11 条运行时复现：第 7 条只有锁定源码证据；其它设计遗漏中没有现成 session 实现可运行的情况，按各条“如何核实”所列边界理解。不能用最小机制实验或现有原型测试替代尚未实现的 session 合同验证。
+
+## 对“不做与风险”两条风险的判断
+
+1. **OMP 18.2.5 子集兼容与升级检测**：子集兼容的范围可接受，但“`omp-compat.test.ts` 会先失败”只在测试包含实际类型可赋值检查且执行 `typecheck` 时成立，单独 `bun test` 会擦除类型，不能保证捕获 OMP 类型形状变化。
+2. **message 浅校验**：风险真实，已完成实验表明静态 `Message` 类型与浅 schema 的运行时接受范围不同；应至少把 OMP 必填字段和判别字段的处理写清并测试，不能把“日志成功保存后才暴露形状错误”笼统推迟到出现实际问题时。
+
+## 已运行与未运行
+
+本次只补写报告，没有新增执行。以下为截停前已有证据：
+
+- 从 worktree 根执行：
+  ```text
+  bun node_modules/typescript/bin/tsc --noEmit --strict --module ESNext --moduleResolution bundler --target ES2022 --skipLibCheck /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-plan/lab/typebox-omp-compat.ts
+  bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-plan/lab/typebox-omp-compat.ts
+  ```
+  最终版本类型检查通过；运行输出 `{"malformedAccepted":true,"staticMessageIsImportedType":true}`。前面的依赖解析、Value 导入和实验顶层 `declare` 使用失败属于实验搭建失败，不是产品失败。
+- UTF-8 尾部机制实验：
+  ```text
+  bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-plan/lab/jsonl-tail-bytes.ts
+  ```
+  输出实际尾部 7 字节、解码再编码后 9 字节。该实验使用真实文件系统，但临时数据文件使用了 `/tmp/t09-jsonl-tail-bytes.bin`，没有遵守指定 lab 目录的限制；数据文件已由当时的实验删除，本次没有新增文件清理。
+- 未运行：本 worktree 的 `packages/nb-harness` 包级 `bun test`、`bun run typecheck`，真实 OMP Agent 请求观察实验、真实 provider/模型、e2e、开发服务。前两轮报告里的通过结果是旧证据，不作为本轮验证。
+- 本轮没有修改仓库文件、提交、push、stash 或切换分支；报告与实验脚本位于仓库外。本次按要求仅追加本报告。
+

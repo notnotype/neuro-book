@@ -252,6 +252,30 @@ describe("回放：崩溃收口（输出 16）", () => {
         expect(sessionStatus(log.entries).phase).toBe("idle");
     });
 
+    test("收口计划只写入了一部分（结果条目写了、收尾条目没写）时再次调用，只剩收尾条目；结果条目带消息必填的 timestamp", async () => {
+        const log = await logWith(createMemorySessionStore(), [[
+            invocation("inv-1", "start"), userMessage("一"),
+            assistantMessage([toolCall("c1", "read"), toolCall("c2", "read")], {stopReason: "toolUse"}),
+        ]]);
+        const plan = planRecovery(log.entries);
+        expect(plan).toHaveLength(3);
+        const results = plan.filter((input) => input.type === "message");
+        for (const input of results) expect(input.type === "message" && typeof input.message.timestamp).toBe("number");
+        await log.append(results);
+        expect(planRecovery(log.entries)).toEqual([invocation("inv-1", "interrupted")]);
+        await log.append(planRecovery(log.entries));
+        expect(planRecovery(log.entries)).toEqual([]);
+    });
+
+    test("压缩条目的 firstKeptEntryId 找不到或指向压缩之后时，保留段为空：回放只有种子、摘要与本段历史", async () => {
+        const log = await logWith(createMemorySessionStore(), [[userMessage("一"), assistantMessage([{type: "text", text: "答一"}])]]);
+        await log.append([{type: "compaction", summary: "摘要", firstKeptEntryId: "no-such-entry", tokensBefore: 1}, userMessage("二")]);
+        expect(buildModelContext(log.entries).map((message) => `${message.role}:${textOf(message).slice(0, 2)}`)).toEqual(["user:Pr", "user:二"]);
+        const after = log.entries.at(-1)!.id;
+        await log.append([{type: "compaction", summary: "再压", firstKeptEntryId: after, tokensBefore: 1}, userMessage("三")]);
+        expect(buildModelContext(log.entries).map((message) => `${message.role}:${textOf(message).slice(0, 2)}`)).toEqual(["user:Pr", "user:二", "user:三"]);
+    });
+
     test("已结束的调用不再处理；没有 interaction 的无结果调用补中断结果后调用标为 interrupted", async () => {
         const log = await logWith(createMemorySessionStore(), [[
             invocation("inv-1", "start"), userMessage("一"),

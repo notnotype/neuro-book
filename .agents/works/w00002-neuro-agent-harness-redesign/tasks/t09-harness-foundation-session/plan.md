@@ -42,6 +42,7 @@
 ### 4. 回放（`src/session/replay.ts`）
 
 - `buildModelContext`：按输出 12 的五步实现。先确定本段历史与回放序列（种子、摘要、`firstKeptEntryId` 起的保留部分、其余），再按调用窗口配对工具调用与结果，最后改写被去掉调用的助手消息（去 `redactedThinking`、清思考签名、空消息整条去掉）。`custom_message` 转消息时种子按 `details.role`，其余为用户消息，都带 `attribution: "agent"`；摘要包成一段固定说明加摘要原文的文字（措辞参照 OMP 的 `compaction-summary-context.md`，写在本模块里）：不在运行时导入 OMP，因为 `pi-agent-core` 经 `pi-utils` 在导入时读 `.env`、改写 `Bun.env`（包 `AGENTS.md` 的 OMP 一节）。
+- `firstKeptEntryId` 找不到或指向压缩条目之后时，保留段按空处理，回放只有种子、摘要与本段历史（计划审查第 9 条的未核实项）。OMP `Agent` 缺省的 `convertToLlm` 会丢掉 developer 消息（种子可以是 developer）：runtime 交上下文给 Agent 时要自己传保留四种角色的转换，S5 的测试钉住这个事实（计划审查第 7 条）。
 - `sessionStatus`、`sessionSettings`、`fold`/`defineProjection`：各写成一个 `Projection`，内部用 `fold` 实现，保证与使用方自定义回放走同一条路径。
 - `planRecovery`：找最后一个 `invocation`，判定是否未结束及其范围，按输出 16 的三类与收尾条目产生 `EntryInput[]`；不读句柄状态。
 
