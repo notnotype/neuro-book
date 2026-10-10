@@ -305,7 +305,27 @@ export function describeStoreScenarios(label: string, makeStore: () => Promise<S
             }).toThrow(TypeError);
             expect(other.seqs).toEqual([1]);
             const reopened = await openSession(store, log.header.id);
-            expect(reopened.ok && reopened.value.entries[0]!.type === "message" && reopened.value.entries[0]!.message.content).toBe("原文");
+            if (!reopened.ok) throw new Error(reopened.detail);
+            expect(reopened.value.entries[0]!.type === "message" && reopened.value.entries[0]!.message.content).toBe("原文");
+            // 重开读回的条目同样是深冻结的，存储返回什么样的对象都一样。
+            expect(() => {
+                (reopened.value.entries[0] as {message: {content: string}}).message.content = "改重开的";
+            }).toThrow(TypeError);
+            const replayed: SessionEntry[] = [];
+            reopened.value.subscribe((event) => replayed.push(event.entry));
+            expect(() => {
+                (replayed[0] as {message: {content: string}}).message.content = "改补发的";
+            }).toThrow(TypeError);
+            reopened.value.close();
+
+            // 排队中的 append：入队之后、执行之前改传入的对象，落盘的仍是入队时的内容。
+            const queued = userMessage("入队时的内容");
+            const firstInQueue = log.append([userMessage("占住队列")]);
+            const secondInQueue = log.append([queued]);
+            (queued as {message: {content: string}}).message.content = "入队后改的";
+            await firstInQueue;
+            const written = await secondInQueue;
+            expect(written.ok && written.value[0]!.type === "message" && written.value[0]!.message.content).toBe("入队时的内容");
         });
     });
 }

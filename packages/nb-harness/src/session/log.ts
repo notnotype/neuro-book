@@ -44,7 +44,15 @@ class Log implements SessionLog {
     }
 
     append(inputs: readonly EntryInput[]): Promise<Result<readonly SessionEntry[]>> {
-        return this.enqueue(() => this.appendNow(inputs));
+        // 入队时就取副本：排队期间调用方再改传入的对象，不能改变将要落盘的内容。不能克隆的值（函数等）原样传下去，由校验报出。
+        const snapshot = inputs.map((input) => {
+            try {
+                return structuredClone(input);
+            } catch {
+                return input;
+            }
+        });
+        return this.enqueue(() => this.appendNow(snapshot));
     }
 
     repair(): Promise<Result<{droppedBytes: number}>> {

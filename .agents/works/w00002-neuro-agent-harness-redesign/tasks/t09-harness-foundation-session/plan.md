@@ -15,7 +15,7 @@
 - “能被 JSON 如实表示”单独一个遍历：拒绝 `undefined`、函数、`NaN`、`Infinity`、`bigint`、循环引用与非普通对象，返回第一处问题的路径，作为 `invalid-entry` 的 `detail`。
 - 与已有条目相关的规则（同一 `interactionId` 至多一个 request、response 在 request 之后、`assistantEntryId` 指向助手 `message`）由日志句柄维护的索引判断，按“这批之前的条目 + 这批前面的输入”逐条校验；任何一条失败整批不写。
 - 条目 id：8 位十六进制随机数，与本会话已有 id 冲突时重取（OMP 的做法）；会话 id 缺省用 `crypto.randomUUID()`（全局对象，不引 Node 内置模块）。
-- 写入前 `structuredClone` 输入、补 `id`/`parentId`/`timestamp` 后深冻结（输出 19）。时间戳取 `now()`，比上一条早时沿用上一条（输出 4）。
+- `append` 入队时就 `structuredClone` 输入（计划审查第 2 条：只在链内执行时克隆，排队期间调用方改对象会改变落盘内容），补 `id`/`parentId`/`timestamp` 后深冻结（输出 19）。`openSession` 接管存储返回的条目时同样克隆并深冻结（计划审查第 3 条：`SessionStore.open` 返回的是可变数组，公开不可变性由日志负责，不由存储承担）。时间戳取 `now()`，比上一条早时沿用上一条（输出 4）。
 
 ### 2. 日志句柄（`src/session/log.ts`）
 
