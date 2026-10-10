@@ -9,7 +9,7 @@ taskId: t74-workbench-titlebar
 
 开发者 2026-10-10 要求完善 web 主页面的外壳，把旧应用的标题栏迁过来，迁移中可以排错、优化与调整样式。现在的标题栏只有“NeuroBook”和项目短名两段文字；状态栏只有项目名与“显示面板”，也没有让插件放条目的接口。外壳 Spec 把这些明确留到外壳一到三之后：标题栏的菜单、搜索、窗口控制，以及状态栏与标题栏条目的贡献点。
 
-拟定范围（计划在 t73 确认后起草）：
+实施计划见 [plan.md](plan.md)。拟定范围：
 
 - **标题栏**：迁移旧应用 `DesktopTitleBarShell` 一组零件（`packages/neuro-book-legacy/app/components/desktop-title-bar/`），按新应用的命令重新接线：
   - 品牌；
@@ -48,3 +48,4 @@ omp 审查（报告在 [t73 证据](../t73-lab-nb-ui-and-storage/evidences/desig
 ## 当前状态
 
 - 2026-10-10 建立，未开工；t73 计划审查对本 Task 的三条意见见上。
+- 2026-10-10 计划起草（[plan.md](plan.md)），逐条回答 P07–P09、F04、F05；交 omp 计划审查。
