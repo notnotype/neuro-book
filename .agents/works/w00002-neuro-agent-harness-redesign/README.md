@@ -52,3 +52,17 @@ issueId: i193
 ### 自主推进（2026-10-10 起）
 
 开发者 2026-10-10 指定按 [autonomous-delivery](../../skills/autonomous-delivery/SKILL.md) 推进，商定的目标：从 t09 的计划审查开始，按上面的切片依次推进，直到遇到该 Skill 的停止条件或开发者喊停。提交只留在本地，**不 push**（开发者决定，覆盖 Skill 里“每次提交后 push”的做法）。本该开发者决定的点记在 [待确认清单](pending-confirmations.md)，事后追认。
+
+推进日志（2026-10-10，分支 `feat/w00002-harness-kernel`，全部本地提交）：
+
+| 切片 | Task | 状态 | 审查 |
+|---|---|---|---|
+| 0、1 `session` | [t09](tasks/t09-harness-foundation-session/README.md) | 已实现 | 计划审查 13 条、实现审查 10 条，全部处理 |
+| 2 `profile` | [t10](tasks/t10-harness-profile/README.md) | 已实现 | 计划审查 6 条，全部处理；实现审查未开（留待 runtime 接入后一并审） |
+| 3 `config`、`models` | [t11](tasks/t11-harness-config-models/README.md) | 已实现 | 计划审查 14 条（含实现核实），全部处理 |
+| 4 `tools` | [t12](tasks/t12-harness-tools/README.md) | 已实现 | 计划与实现合一审查 10 条，全部处理 |
+| 5 `compaction` | [t13](tasks/t13-harness-compaction/README.md) | 已实现 | 与 t14 合一审查，进行中 |
+| 6 `runtime` | [t14](tasks/t14-harness-runtime/README.md) | 已实现；旧原型与 `nb-session`、`nb-profile` 已删除 | 与 t13 合一审查，进行中 |
+| 7 内置工具 | [t15](tasks/t15-harness-builtin-tools/README.md) | 已实现 | 审查进行中 |
+
+七份 Spec 都是 `planned`、注册表标“待晋升”；三处真实模型冒烟（models、compaction、runtime）写好未跑，等开发者授权。
