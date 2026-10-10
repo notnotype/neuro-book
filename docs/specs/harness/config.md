@@ -51,7 +51,7 @@ type HarnessConfig = {
 type ModelRef = string;                                                // "<providerId>/<modelId>"
 type ProviderConfig = {
     id: string;                                                        // [A-Za-z0-9._-]+；与 OMP 目录同名时覆盖目录里的该服务
-    api: string;                                                       // OMP 的 Api 名，例如 "openai-completions"、"anthropic-messages"
+    api: string;                                                       // OMP 的 Api 名，[a-z0-9-]+，例如 "openai-completions"；是否能派发由 harness.models 解析时判断
     baseUrl: string;                                                   // http(s) URL
     headers?: Record<string, string>;
     models: ProviderModelConfig[];
@@ -72,7 +72,7 @@ type RoleItem = {id: string; axis: "gradient" | "specialist"; name: string; desc
 | `baseUrl` | 能按 WHATWG 规则解析的 URL，协议是 `http` 或 `https`（这两种协议解析通过就有主机名） |
 | 字典的键 | `profiles`、`approval.tools`、`providers[].headers` 的键不能是 `__proto__`、`constructor`、`prototype`（普通对象当字典用时这些键会改原型而不是存条目） |
 | 数值 | `contextWindow`、`maxTokens` 是正整数 |
-| 值 | 整份配置必须能被 JSON 如实表示（没有 `undefined`、函数、`NaN`、循环引用） |
+| 值 | 整份配置必须能被 JSON 如实表示（没有 `undefined`、函数、`NaN`、循环引用、稀疏数组的空洞） |
 
 ## 输出与可观察行为
 

@@ -41,6 +41,8 @@ export type JudgeRequest = {tool: {id: string; description: string}; args: JsonV
 export type Judgement = {decision: "allow" | "deny" | "escalate"; reason: string};
 
 export type ToolCall = {toolCallId: string; toolId: string; args: unknown};
+/** 审批钩子看到的就是这次要执行的那份定义与中止信号：风险、schema 与 execute 来自同一份快照。 */
+export type ApprovalRequest = ToolCall & {definition: ToolDefinition; signal: AbortSignal};
 export type ApprovalOutcome = {approved: true} | {approved: false; reason: string} | {aborted: true};
 export type ToolInterceptor = {
     beforeExecute?(call: ToolCall): Promise<{args: unknown} | {deny: string}>;
@@ -49,7 +51,7 @@ export type ToolInterceptor = {
 export type AdapterHooks = {
     source: ToolSource;
     session: {id: string};
-    approve(call: ToolCall): Promise<ApprovalOutcome>;
+    approve(request: ApprovalRequest): Promise<ApprovalOutcome>;
     interceptor?: ToolInterceptor;
     report?(call: ToolCall, progress: JsonValue): void;
 };

@@ -5,4 +5,5 @@
 
 export type {Capabilities, CapabilityProblem, Credentials, ModelCatalog, ModelFailure, ModelResult, ModelSummary, SelectRequest, Selected} from "./types";
 export {createModelCatalog, parseModelRef} from "./catalog";
+export {MODEL_FIELD, selectionFromProfile} from "./field";
 export {createCredentials, openCredentials} from "./credentials";

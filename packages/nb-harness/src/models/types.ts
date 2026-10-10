@@ -9,7 +9,7 @@ export type Selected = {model: Model; via: "explicit" | "role" | "profile-model"
 export type Capabilities = {tools?: boolean; images?: boolean};
 export type CapabilityProblem = {capability: "tools" | "images"; detail: string};
 
-export type ModelFailure = "invalid-model-ref" | "unknown-provider" | "unknown-model" | "unknown-role" | "role-not-bound" | "no-default-model"
+export type ModelFailure = "invalid-model-ref" | "unknown-provider" | "unknown-model" | "unsupported-api" | "unknown-role" | "role-not-bound" | "no-default-model"
     | "credentials-unavailable" | "login-failed" | "login-cancelled";
 export type ModelResult<T> = {ok: true; value: T} | {ok: false; code: ModelFailure; detail: string};
 

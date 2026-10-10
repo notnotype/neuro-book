@@ -1,0 +1,188 @@
+# w00002 t11：config、models Spec 与实施计划只读设计审查
+
+审查工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00002-review-t11-plan`。
+
+审查对象：`docs/specs/harness/config.md`、`docs/specs/harness/models.md`、`.agents/works/w00002-neuro-agent-harness-redesign/tasks/t11-harness-config-models/plan.md`。实现与 OMP 源码只用于核实合同和机制。报告逐条追加已核实的发现；本段不声明验证通过。
+
+## 已核实问题
+
+### 1. OAuth 分支仍会返回环境变量凭据，违反已定的凭据隔离
+
+- **严重程度**：阻断；**类别**：不变量。
+- **位置**：`docs/specs/harness/models.md:75`（输出 6）、`:132`（实现合同 3）；`plan.md:36`（凭据设计）、`:78`（变异检查）；实现 `packages/nb-harness/src/models/credentials.ts:20`。
+- **现象**：先从 `get(provider)` 看到缓存里的 OAuth，再调用 `getApiKey(provider)` 并不能保证返回值来自存储。两个真实 SQLite 连接中，A 已打开并缓存 OAuth，B 删除该服务凭据；A 调用 `apiKeyFor`，OMP 在 OAuth 选择时重新读库，找不到 OAuth 后继续走环境变量分支。实验返回 `returnedEnvValue: true`、`returnedUndefined: false`，调用后 `status.kind` 已是 `null`。OAuth 刷新/选择返回无可用结果时也存在同一条回落路径（源码证据，不声称本轮运行了真实刷新）。
+- **为什么是问题**：输出 6 明确规定存储没有凭据时，即使环境变量有 key 也返回 `undefined`。输出 5、寿命合同又允许同库多进程打开，不能把另一个连接删除凭据视为非法时序。默认 OMP 回落会让已登出的服务继续使用宿主环境里的账号。计划原来的 `hasNonEnvCredential → getApiKey` 连普通存储 API key 也挡不住环境变量优先级；变异检查只覆盖空库/静态 key，不能证明 OAuth 隔离。
+- **如何核实**：从 worktree 根执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t11-plan/lab/credential-boundaries.ts`，场景 `oauth-peer-removal`。只使用 OMP 与 harness 的公开 API、真实 SQLite，没有 mock 或真实 provider 请求。OMP `auth-storage.ts:2605` 的 `get` 只返回缓存存储的第一条，不包含 runtime/config/env；`:5223` 会采纳外部修改；`:6047` OAuth 无结果后到 `:6067` 读取环境变量。
+- **建议改法**：OAuth 使用 OMP 的存储专用解析入口（如 `getOAuthAccess`）而非带环境回落的 `getApiKey`，同时保留 OMP 针对具体服务的 key 编码；无存储 OAuth 返回 `undefined`。把计划、待确认清单和验收映射改成同一策略，加入另一个连接登出与 OAuth 无可用令牌的隔离场景。
+
+### 2. 自定义存储入口没有初始化已有凭据，与 SQLite 入口不等价
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`docs/specs/harness/models.md:49`、`:74`（输出 5）、`:87`（时序与寿命）、`:133`（实现合同 4）；`plan.md:35`；实现 `packages/nb-harness/src/models/credentials.ts:89`。
+- **现象**：`createCredentials(store)` 同步包装 `new AuthStorage(store)`，没有读取已有凭据；公开接口也不提供初始化/重载方法。实验预先写入 1 条 API key，再把真实 `SqliteAuthCredentialStore` 传给该入口，得到 `customStoreKeyAvailable: false`、`customStoreStatus: {kind:null}`；同库的 `openCredentials` 得到 `sqliteFactoryKeyAvailable: true`。
+- **为什么是问题**：输出 5 承诺两个入口的 `Credentials` 行为相同，插件阶段要通过自定义存储读取 `nbook.settings` 已有密钥。OMP 构造函数不填 `#data`，已有 API key 和 OAuth 都被包装层最前面的 `get` 检查当成不存在，OAuth 分支甚至到不了 OMP 自动采纳外部修改的入口。调用方不能在不重新写入/覆盖凭据的情况下完成初始化。
+- **如何核实**：同一实验的 `custom-store-initialization`；真实 OMP SQLite 存储正是允许的 `AuthCredentialStore` 实现，不是伪造运行时。OMP `auth-storage.ts:1357,1425,1469` 显示空缓存与构造步骤，`:1678` 才填缓存；harness SQLite 入口在 `:82` 重载，自定义入口没有对应步骤。
+- **建议改法**：让自定义存储工厂也完成初始化后再返回可用句柄；若需异步，改为 `Promise<ModelResult<Credentials>>` 并定义初始化读取失败的结构化结果。实现合同同时约束两个入口，合同测试用预填真实存储验证取 key、status 与 accounts，避免只测从空库写入。
+
+### 3. 账号接口强制 accountId，丢掉 OMP 合法的已登录账号
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`docs/specs/harness/models.md:58`、`:77`（输出 8）；`plan.md:37`；实现 `packages/nb-harness/src/models/credentials.ts:65`。
+- **现象**：`accounts` 把 OMP 返回的 `accountId === undefined` 条目过滤掉。实验存入含 email、projectId 而不含 accountId 的合法 Google OAuth 凭据，OMP `listOAuthAccounts` 返回 1 个账号，harness 返回 0 个，同时 `status.kind` 为 `oauth`。
+- **为什么是问题**：OMP 的 `OAuthCredentials.accountId` 是可选字段；Google Gemini CLI 登录持有 email/projectId，GitHub Copilot 的刷新结果也不提供 accountId。输出 8 说列出已登录账号，接口却只能表达部分服务的账号，合法登录会在查询结果中消失。消费方无法判断已登录账号、显示标签或区分多账号。
+- **如何核实**：同一实验的 `oauth-accounts`；通过公开 OMP 存储写入合法凭据并通过 harness 公开工厂读取。OMP `registry/oauth/types.ts:4` 的字段形状、`auth-storage.ts:6203` 的账号列表、`registry/oauth/google-gemini-cli.ts:235` 的登录后项目补充、`registry/oauth/github-copilot.ts:241` 的凭据返回均支持不含 accountId。未运行交互登录。
+- **建议改法**：保留 OMP 的稳定 `credentialId`（或明确的不含令牌的账号句柄），让 `accountId` 可选，同时按 email/projectId 等元数据提供标签；不要过滤合法账号。验收覆盖无 accountId 的账号与同服务多账号。
+
+### 4. 损坏库会被 OMP 自动替换为空库，实际结果不是 credentials-unavailable
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`docs/specs/harness/models.md:74`（输出 5）、`:92`（副作用与数据）、`:105`（失败表）；`plan.md:35`；实现 `packages/nb-harness/src/models/credentials.ts:80`。
+- **现象**：对含非 SQLite 字节的真实 `auth.sqlite` 调用 `openCredentials`，结果为 `ok:true`、`code:null`、`status.kind:null`。OMP 保留 1 份 `auth.sqlite.corrupt-<时间>-<uuid>` 备份，再在原路径创建新库；实验确认备份字节与原文件相同，新主文件为 12288 字节。返回值没有任何“发生损坏、凭据已不可用”的结构化信息。
+- **为什么是问题**：失败表把文件损坏列为 `credentials-unavailable`，副作用又声称不写别的文件。照字面实现只捕获 `AuthStorage.create` 的异常无法实现这两个承诺，因为 OMP 默认对 `SQLITE_CORRUPT`/`SQLITE_NOTADB` 在内部恢复并返回成功。调用方会把全部账号突然消失当作正常空库，不能按合同触发修复或提示重新登录；备份保留与人工恢复责任也没有定义。
+- **如何核实**：从 worktree 根执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t11-plan/lab/sqlite-recovery.ts`，场景 `corrupt-open`。实验只在 lab 中构造损坏文件并调用公开工厂。OMP `auth/sqlite-credential-store.ts:523` 固定传 `{recoverCorruption:true}`；`pi-utils/src/sqlite.ts:103,156,200` 保留原库/sidecar、替换并重试；harness 捕获不到成功恢复。
+- **建议改法**：在 Spec 中明确选择损坏库的合同，并匹配真实机制：若要求失败且不采用空库，采用 OMP 允许控制恢复的打开方式；若接受 OMP 恢复，返回可判定的恢复信息，列出备份副作用、旧凭据不可用与恢复责任。增加真实损坏文件验收，不用“路径打不开”替代“文件损坏”。文件本来不存在时新建空库符合现有输出 5，不应混成同一个失败。
+
+### 5. 模型引用语法排除了目录中 3347 个模型，list 的多数条目不能 resolve
+
+- **严重程度**：阻断；**类别**：正确性。
+- **位置**：`docs/specs/harness/config.md:27,70,71`（引用与 id 规则）、`:77`（输出 1）；`docs/specs/harness/models.md:70,71`（输出 1、2）；`plan.md:26`（共用引用正则）；实现 `packages/nb-harness/src/models/catalog.ts:11`。
+- **现象**：真实公开 API 中，`createModelCatalog` 的空配置目录列出 69 个服务、5111 个模型；逐个把 `list().ref` 交给 `resolve`，3347 个（65.49%）失败，失败码全部为 `invalid-model-ref`。例如 `aiand/deepseek-ai/deepseek-v4-flash`，provider 是 `aiand`，model id 是 `deepseek-ai/deepseek-v4-flash`；OMP 模型 id 中的 `/`、`:` 等字符被两段白名单拒绝。
+- **为什么是问题**：输出 1 承诺列出 OMP 全部模型，输出 2 与已定设计承诺按引用解析这些模型；实际选择界面给出的多数引用既不能 resolve，也不能填进 defaultModel、角色绑定或 Profile 配置。模型 id 被配置 schema 同样限制，使用方无法靠“在配置里自建服务”绕过。这里不是不存在的模型或错误输入，而是 OMP 自己生成的目录条目。
+- **如何核实**：从 worktree 根执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t11-plan/lab/model-contract-smoke.ts`，场景 `directory-references`，逐条调用真实 harness `list`/`resolve`，无网络。`catalog-config-probe.ts` 另确认 OMP 原始目录中的同样计数。OMP `pi-catalog/src/models.ts:47,56` 直接按 provider 与完整 modelId 查询，不要求 modelId 是该白名单。
+- **建议改法**：按第一个 `/` 分离 provider，保留剩余完整 modelId，定义非空与必要的非法字符边界，而不是把 OMP 模型 id 当作文件 id。两份 Spec 的引用语法、ProviderModelConfig.id、config 与 models 两处解析规则一起改；增加全部目录 ref 都能 resolve、带 `/` 与 `:` 的引用能作为角色/默认值通过配置的验收。
+
+### 6. 冒烟入口硬编码不存在的模型，且绕过共享的真实模型测试配置
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`docs/specs/harness/models.md:121`（场景 4）；`plan.md:42`（真实模型冒烟）、`:73`（验收映射）；实现 `packages/nb-harness/src/models/models.llm.test.ts:10,23,24`。
+- **现象**：计划要求、测试实际写入的默认模型是 `deepseek/deepseek-chat`；锁定 OMP 的 DeepSeek 目录只有 `deepseek-flash`、`deepseek-v4-flash`、`deepseek-v4-flash-vision-exp`、`deepseek-v4-pro` 4 个模型。真实目录与 harness 的无网络选择预检返回 `unknown-model`，测试在 `streamSimple` 之前抛错。测试还手写开关与凭据探测，不使用 `llmTestConfig()`，因此忽略规范允许的 `REAL_MODEL_SMOKE_MODEL`、`DEEPSEEK_API_BASE` 与受限的 `.env` 配置读取，也没有共享 helper 在显式开启但缺 key 时给出的未验证提示。
+- **为什么是问题**：场景 4 应证明目录、存储凭据与 OMP 通信的整条链可跑；当前入口即使以后取得授权和有效 key，也会在解析阶段必然失败。绕过共享配置让运行者不能通过规定的模型覆盖修正它；默认跳过不能作为该场景已具备可执行验收的证据。
+- **如何核实**：同一 `model-contract-smoke.ts` 的 `smoke-model-preflight`，没有设置 `NBOOK_LLM_TESTS=1`、没有调用 provider。源码对照 `docs/testing/README.md:73` 与 `packages/neuro-book-test-support/src/llm.ts:13,34`；规范缺省为 `deepseek/deepseek-flash`。本轮未运行真实模型。Spec `models.md:139`、注册表 `docs/specs/README.md:201`、Task README `:17` 明确写“尚未运行/只写不跑”，该证据表述诚实，不把它另外登记为问题。
+- **建议改法**：按规范使用 `llmTestConfig()` 与 `describe.skipIf(config === null)`，采用 helper 的模型/default/base 配置；通过配置在临时库写入授权凭据，先让无网络解析预检可通过，再在取得授权时运行同一真实模型场景。断言以结构化成功终态与消息类型为准；不要用非空文本替代完成状态。
+
+### 7. 登录错误原文直接透出，不能兑现“不把凭据放进错误信息”
+
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：`docs/specs/harness/models.md:113`（信任边界）、`:77`（输出 8）；`plan.md:37`（detail 不含令牌）；实现 `packages/nb-harness/src/models/credentials.ts:15,56`。
+- **现象**：登录失败把任意 `Error.message` 或 `String(error)` 原样作为 `detail`；只取错误消息没有脱敏效果。真实 `login("deepseek", controller)` 中，OMP 调用使用方的 `onPrompt`，该回调抛出带测试私有值的错误后，harness 返回 `login-failed` 且 `detailContainsPrivateValue:true`。实验没有打印该值，也没有发送 provider 请求。
+- **为什么是问题**：Spec 信任边界是对返回的错误信息作承诺，计划也明说 detail 不含令牌。使用方提供的凭据输入回调、存储和 OMP 协议错误都可携带敏感内容；OMP 自己的 API key 校验/OAuth token exchange 失败也会拼入响应体，不能把错误消息当成安全通道。后续 runtime/UI 正常展示 detail 就会传播私密内容。
+- **如何核实**：从 worktree 根执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t11-plan/lab/login-error-boundary.ts`；真实公共登录流程调用 1 次 prompt 后失败，无 fake provider/no network。OMP `registry/engine/api-key.ts:75` 调回调且不遮盖错误；`registry/api-key-validation.ts:76`、`registry/engine/common.ts:257` 会把上游响应原文拼成错误（源码证据，本轮未运行网络）。
+- **建议改法**：凭据边界返回结构化安全原因（provider、错误类型/状态、取消等），不透出未知回调/存储/协议消息或完整响应体；需要诊断时只保留明确允许的字段。增加带私密标记的真实回调失败验收，断言公开 detail 不包含标记。
+
+### 8. 合法 JSON 的 __proto__ Profile 被规范化丢失，且留下未冻结的原型数据
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`docs/specs/harness/config.md:48,70`（profiles 与 id 规则）、`:77,81`（输出 1、5）；`plan.md:16`；实现 `packages/nb-harness/src/config/validate.ts:121,124`。
+- **现象**：`JSON.parse('{"profiles":{"__proto__":{"model":"p/m","settings":{"nested":{"a":1}}}}}')` 满足 Spec 的 id 与 JSON 规则，校验返回成功；输入 own key 为 `__proto__`，输出 own keys 是空数组，输出 JSON 为 `{}`。赋值没有创建条目，而是改了 `profiles` 的原型；原型条目及嵌套 settings 没被深冻结，实验 `entryFrozen:false`。
+- **为什么是问题**：这不是特殊构造的 JS 原型输入，是普通 JSON 文件可产生的合法键。输出 1 不能把合法 Profile 静默丢掉，输出 5 又承诺深冻结快照。当前代码让配置快照含可变的原型数据，持有的快照与后续枚举/序列化看到的配置不同；“键是 [A-Za-z0-9._-]+”没有排除该输入。
+- **如何核实**：从 worktree 根执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t11-plan/lab/config-diagnostic-smoke.ts`，场景 `json-profile-proto`。公开校验入口返回成功后检查 own key、JSON、原型与冻结状态，未改产品代码。
+- **建议改法**：动态字符串字典使用不会触发原型 setter 的构造方式（无原型对象或 own data-property 定义），并让冻结遍历覆盖实际保存的数据；如果决定保留普通对象，先在合同定义保留键并以 invalid-config 拒绝。加 JSON.parse 产生该键的验收，证明往返不丢且嵌套值不可改。
+
+### 9. baseUrl 只校验前缀，非法 URL 能成为有效快照
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`docs/specs/harness/config.md:55`（baseUrl 输入规则）、`:77`（输出 1）、`:112`（场景 1）；`plan.md:14,15`；实现 `packages/nb-harness/src/config/schema.ts:33`。
+- **现象**：服务 `baseUrl:"http://"` 没有主机，配置校验却返回 `ok:true`；schema 只要求 `^https?://`，规则检查没有 URL 解析。
+- **为什么是问题**：Spec 明确要求 http(s) URL，模型存在性虽延后到解析层，URL 形状不是存在性检查。坏端点被采用会替换有效配置，并在后续请求编码/发送时才失败；这违背已确认的“校验失败的配置不被采用”与配置模块的边界。
+- **如何核实**：同一 `config-diagnostic-smoke.ts` 的 `invalid-url`，真实公开 `validateHarnessConfig` 返回成功。原合同测试只用 `"not a url"`，只能捕捉前缀，不覆盖 `http://` 这类带前缀却不可解析的输入。
+- **建议改法**：规则校验实际 URL，并核对协议为 http/https、主机有效；只把确实可用的 endpoint 形状纳入快照。补 malformed http(s) URL 与有效 localhost URL 的合同验收，replace 同样要保留旧快照。
+
+### 10. 非法 Profile 键会跳过其内容 schema，无法一次列全问题
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`docs/specs/harness/config.md:69,70`（未知字段与 id 规则）、`:77,78`（输出 1、2）、`:123`（实现合同 1）；`plan.md:14,15`；实现 `packages/nb-harness/src/config/schema.ts:58`、`validate.ts:103`。
+- **现象**：`profiles:{"bad id":{model:42,extra:1}}` 一次含 3 处问题：键格式、model 非字符串、extra 未知字段；实际只返回 `profiles.bad id` 1 条。Type.Record 的 patternProperties 只校验合法键下的 ProfileConfig，未匹配的键允许附加值；额外规则只检查 id 与可取得的字符串引用，非字符串 model/未知字段被跳过。
+- **为什么是问题**：配置整体确实被拒绝，但输出 1 要列出全部问题，未知字段又要求不静默忽略。用户修正 Profile 键后才会再看见其它问题，验收映射把“schema 失败规则照跑”当作“全部问题”的充分条件，实际上漏了 schema 从未检查到的可取得子对象。
+- **如何核实**：同一 `config-diagnostic-smoke.ts` 的 `bad-profile-key-nested-errors`。对照 TypeBox schema 与规则检查路径；实验使用普通对象、非循环、非 getter，无绕过真实运行时。
+- **建议改法**：按所有字符串键校验 Profile 值，键格式单独检查；或对未匹配键也运行相同值 schema，再合并结构化问题。验收同时损坏键、值类型与未知字段，要求三处问题都一次返回；不要用仅 `problems.length > 0` 的断言代表完整性。
+
+### 11. 未注册的 API 名可以通过校验，却只能在真正请求时失败
+
+- **严重程度**：重要；**类别**：合同可判定性与正确性。
+- **位置**：`docs/specs/harness/config.md:54`（ProviderConfig.api）、`docs/specs/harness/models.md:71`（配置模型解析）；`plan.md:25`；实现 `packages/nb-harness/src/config/schema.ts:32`、`models/catalog.ts:23`。
+- **现象**：`api:"made-up-api"` 的配置通过 `validateHarnessConfig`，`resolve("custom/model")` 也成功返回 OMP `Model`；调用真实 OMP `streamSimple` 时抛出 `ConfigurationError: Unhandled API in mapOptionsForApi: made-up-api`。无网络请求发出。
+- **为什么是问题**：配置注释只说“OMP 的 Api 名”，没有说明使用方还必须提前调用 OMP 的 `registerCustomApi`，而 t11 公开入口没有注册/前置条件。照字面配置已经有效、模型已经解析成功，但模型通信必然在请求阶段失败；模型模块也没有把它表示为结构化失败。OMP 虽支持运行时自定义 API，这使问题更准确地表现为缺失合同：要么限制为内置可调用 API，要么声明并验证外部注册责任，不能让任意字符串静默进入成功快照。
+- **如何核实**：从 worktree 根执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t11-plan/lab/catalog-integration-probe.tsx` 的 `unknown-api-stream`；真实 `validateHarnessConfig`、`createModelCatalog` 与 OMP `streamSimple`，传入无效 API 后得到上述结构化前的配置异常。
+- **建议改法**：若 t11 不承诺自定义 API，把 `api` 限制为 OMP 当前内置枚举；若承诺扩展 API，定义注册时序、注册入口/依赖与未注册时的结构化失败，并在验收中覆盖两种路径。
+
+### 12. `buildModel` 的目录修正覆盖配置明确给出的模型能力
+
+- **严重程度**：重要；**类别**：正确性与安全边界。
+- **位置**：`docs/specs/harness/models.md:71`（输出 2 明确要求取配置值）；`plan.md:25`；实现 `packages/nb-harness/src/models/catalog.ts:23-36`；OMP `node_modules/@oh-my-pi/pi-catalog/src/build.ts:281-302`。
+- **现象**：配置覆盖 OMP 的 `deepseek/deepseek-flash`，明确给 `reasoning:false`、`contextWindow:1234`、`maxTokens:99`、`input:["text"]`、`supportsTools:false`；解析结果为 `reasoning:true`、`contextWindow:1000000`、`maxTokens:384000`、`input:["text"]`、`supportsTools:false`。`buildModel` 先保留 spec，再把 catalog policy 的 reasoning 与 limits 修正应用回去；因此配置的关闭推理和较小限制没有生效。
+- **为什么是问题**：配置模型的显式能力与预算是自建端点/覆盖模型的调用合同，调用方可用它防止发送不支持的请求或超出预算。当前同名 OMP 目录规则会静默改变这些值，`list` 仍标为 `source:"config"`，无法从结果判断实际采用的字段；这直接违背“取配置的值”，并可能错误启用推理或放大输出上限。
+- **如何核实**：同一 `catalog-integration-probe.tsx` 的 `configured-fields-after-buildModel`，无网络，只经公开配置校验、目录与解析入口。OMP `buildModel` 源码显示 `reasoning` 使用 `spec.reasoning || policy.thinking !== undefined`，并应用 `limitsPatch` 与 `contextWindowFloor`。
+- **建议改法**：构造后重新应用配置明确给出的字段，或为配置模型禁用/隔离 OMP catalog corrections；对同名目录覆盖补齐 reasoning、limits、input 等字段的断言。未提供的字段仍按 Spec 的保守缺省值。
+
+### 13. Profile 示例声明的 `harness/model` 字段既未注册，也没有到模型选择的桥接合同
+
+- **严重程度**：重要；**类别**：跨模块合同缺口。
+- **位置**：`docs/specs/harness/profile.md:51-54`（示例）、`:76,114-119`（字段必须注册）；`docs/specs/harness/models.md:43,72`（SelectRequest 与选择链）；`plan.md:28-31`（选择实现）；实现 `packages/nb-harness/src/profile/host.ts:35-67`、`prepare.ts:242-254`。
+- **现象**：按 Profile Spec 示例定义 `fields:{"harness/model":{role:"main"}}`，用公开 `createProfileHost().prepare` 返回成功但带 `unknown-field@fields.harness/model` 警告，准备后的字段为空。Profile 主机只预注册节点，没有 `harness/model`；t11 的 `SelectRequest.profile` 只接收 `{id, model?, defaultRole?}`，计划没有定义从 Profile 字段提取 role/model 并传给 `select` 的装配步骤。
+- **为什么是问题**：Profile 字段合同允许“由模块注册”，但 t11 的模型模块既没有注册该字段，也没有说明哪个模块转换它。照示例实现，Profile 声明的角色会被静默忽略，选择链可能继续使用 Profile/全局默认模型；这与内核要求字段由模块登记、模型角色合同要求显式绑定的设计不闭合。若本期刻意不接 Profile 字段，示例必须删除或明确这是未实现的示意，不应作为可运行合同。
+- **如何核实**：从 worktree 根执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t11-plan/lab/profile-field-probe.ts`；只用真实 Profile 主机与公开 API，无伪造字段注册。
+- **建议改法**：确定一个 owner：由模型/装配模块注册 `harness/model` 的 schema 并把值映射到 `SelectRequest`，或收窄 Profile 示例与 t11 合同为明确的 `profile.model/defaultRole` 输入。增加“字段声明到最终 selected.via/model”的端到端验收，防止 warning 被误当作成功。
+
+### 14. 稀疏数组绕过 JSON 可表示性检查，校验通过后快照仍不能如实表示
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`docs/specs/harness/config.md:72,77`（JSON 如实表示与校验）；`plan.md:14,16`；实现 `packages/nb-harness/src/config/validate.ts:42`。
+- **现象**：`profiles.writer.settings` 传入 `new Array(1)`，公开 `validateHarnessConfig` 返回 `ok:true`。JSON.stringify 该数组得到 `[null]`，而输入数组有一个空洞；`jsonProblems` 用 `Array.prototype.forEach` 遍历，跳过空洞，没有报告它。
+- **为什么是问题**：输出 1 要求整份配置能被 JSON 如实表示，计划也把 JSON 遍历列为第一步。空洞不是 JSON 数组元素，序列化会把它变成 `null`，所以输入与持久化/传输表示不等价；`structuredClone` 与深冻结不会修复这个差异。
+- **如何核实**：同一 `config-diagnostic-smoke.ts` 的 `sparse-settings`；普通稀疏数组、无 getter、无循环，真实公开校验返回成功，未改产品代码。
+- **建议改法**：数组按下标从 `0` 到 `length - 1` 检查 own property，空洞作为不可如实表示的问题；或明确规范化为 `null` 并把该转换写入合同。增加稀疏数组与显式 `null` 的区分验收。
+
+## 影响排序
+
+共 **14 条**已核实问题：**阻断 2 条，重要 12 条**；未列低优先级问题。排序依据是是否会让已声明的输入/目录在正常使用中不能工作、是否越过凭据/配置边界，以及是否只在真实请求或跨模块装配时才暴露。
+
+### 阻断
+
+1. **#1 OAuth 取 key 会回落到环境变量**：已登出或被另一连接删除后仍可能使用宿主环境凭据，直接违反“内核不读环境变量”与存储优先合同。
+2. **#5 模型引用白名单使目录多数条目不可解析**：OMP 自己列出的 5111 个模型中 3347 个（65.49%）由 `list` 产出后无法交给 `resolve`，默认值、角色和 Profile 也无法使用这些引用。
+
+### 重要
+
+3. **#12 `buildModel` 覆盖配置明确的模型能力与限制**：自建/覆盖模型可能被静默改成错误的 reasoning、contextWindow 和 maxTokens。
+4. **#13 Profile 的 `harness/model` 字段没有注册或选择桥接**：示例声明被 warning 后丢弃，角色选择不生效。
+5. **#11 任意未知 API 通过配置并在请求期失败**：缺少“内置 API”限制或自定义 API 注册前置条件，错误延迟到 OMP 请求分派。
+6. **#2 `createCredentials` 不初始化已有自定义存储**：与 `openCredentials` 不等价，预存的 API key/OAuth 对插件入口不可见。
+7. **#4 损坏 SQLite 被 OMP 自动恢复成空库**：实现返回成功且产生备份，和 `credentials-unavailable` 及“无其它文件副作用”合同相反。
+8. **#3 `accounts` 丢弃没有 `accountId` 的合法 OAuth 账号**：Google/GitHub Copilot 等合法账号无法被查询。
+9. **#7 登录错误原文透出**：回调或上游响应中的私密内容可进入 `detail`，违反信任边界与计划的脱敏承诺。
+10. **#8 `__proto__` Profile 被规范化丢失并污染原型**：合法 JSON 配置通过校验但快照没有该条目，原型数据也未冻结。
+11. **#9 malformed `baseUrl` 通过校验**：`http://` 等无主机地址进入有效快照，失败延迟到模型请求。
+12. **#10 非法 Profile 键跳过值 schema**：一个输入中的类型错误与未知字段没有一次列出，违反“全部问题”合同。
+13. **#14 稀疏数组通过 JSON 表示性检查**：输入与 JSON 序列化后的 `[null]` 不等价，仍可形成“通过但不能如实表示”的快照。
+14. **#6 真实模型冒烟入口不可执行且绕过共享配置**：写死不存在的 `deepseek/deepseek-chat`，不使用 `llmTestConfig()`；真实模型测试未运行这一事实在 Spec/注册表中表述诚实，因此问题限于测试入口，不另升为产品阻断。
+
+## 未发现的方面
+
+以下是本轮在常规合法键、普通双段模型引用和不触发上述边界时未发现新的高把握问题，不等于替代了真实模型或 OAuth 交互验收：
+
+- `config` 的缺省值、输入不变、普通对象的深拷贝/深冻结、`replace` 失败保留旧快照且不通知、成功替换通知一次。
+- 配置 schema 错误按字段路径合并、未知字段逐项报告、schema 失败后仍执行唯一性和引用语法检查；联合类型的同字段错误合并符合当前合同。
+- 常规 Provider/模型重复 id 的后续重复项报告、普通两段引用的配置覆盖 OMP 同名模型、`list` 的 source 标记与其它内置模型解析。
+- `select` 的显式模型、角色、Profile 模型、Profile 缺省角色、全局缺省顺序；未知角色与未绑定角色不回落；能力检查的 tools/images 两类结果。
+- 普通 API key 的写入、删除、SQLite 重开后的读取，以及 `close` 后常规读写不再触碰存储；这些结论不覆盖 #2、#4 的自定义初始化和损坏库边界。
+- 包入口、模块边界与 type-only 的 `config` 依赖关系；允许的合同测试与包类型检查均通过。
+
+## 计划风险判断
+
+计划第 84 行的“OMP 内置目录很大、`list` 每次全量构造”目前是**已测量但未构成缺陷**的性能风险：空配置目录有 69 个服务、5111 个模型；100 次 `list` 生成 511100 条摘要，实验总耗时 132.24 ms，均值 1.322 ms，无网络。计划限定只在列目录时调用，暂接受；后续若 UI 高频刷新，再引入缓存或显式版本化，不影响本轮合同结论。
+
+计划第 85 行的“`hasNonEnvCredential` 是 OMP 非文档化方法名”是**已实现且更严重的语义风险**：不仅可能随 OMP 升级改名，当前 `hasNonEnvCredential → getApiKey` 方案本身不能守住 OAuth 分支的环境变量隔离，已落实为 #1。不能只依赖 typecheck 保护，需先修正 OAuth 读取入口与合同，再考虑升级兼容。
+
+## t11 待确认项判断
+
+1. **拆成 `harness.config` 与 `harness.models` 两份 Spec、一个 Task，`models` 只 type-import `config`：接受。** 两个模块的验收边界清晰，当前入口和 architecture test 也维持了单向类型依赖；没有因拆分本身发现错误。
+2. **用 `hasNonEnvCredential` 守“内核不读环境变量”：拒绝/失效。** 待确认记录与计划已被 #1 的真实 SQLite 双连接实验否定；应改成存储专用 OAuth 解析、存储 API key 直接读取，并在 Spec、计划、待确认清单和验收中统一更新。
+
+## 验证边界
+
+- 已运行：`NBOOK_LLM_TESTS=0 NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t11-plan/lab bun test src/config src/models src/architecture.test.ts`；结果 **18 pass、1 skip、0 fail，79 expect() calls**。
+- 已运行：`bun run typecheck`；`tsc --noEmit` 成功。
+- 只读实验均从 worktree 根调用真实 OMP/harness 公开入口，实验文件只写报告目录的 `lab/`；覆盖目录引用、模型字段、未知 API、Profile 字段、凭据边界、损坏 SQLite、配置诊断与登录错误边界。
+- 未运行：真实模型冒烟、网络请求、交互式 OAuth；原因是 t11 明确要求只写不跑并需开发者授权。报告没有把这些未运行项当作通过证据。
+- 仓库对象未修改；未 commit、push、stash、切分支、安装依赖或删除文件。
+

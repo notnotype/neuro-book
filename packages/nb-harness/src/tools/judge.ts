@@ -84,23 +84,39 @@ function parseJudgement(text: string): Judgement | null {
 export async function judgeWithModel(input: {model: Model; apiKey?: string; request: JudgeRequest; stream?: StreamFn; signal?: AbortSignal; timeoutMs?: number}): Promise<Judgement> {
     const escalate = (reason: string): Judgement => ({decision: "escalate", reason});
     if (input.signal?.aborted) return escalate("aborted");
+
+    // 中止与超时自己结算，不等模型的流配合：AbortSignal 只是请求取消，流可能不结束，也可能在取消后照常带着回复结束。
+    // 先结算的一方胜出：取消先 resolve 再 abort 流，流在 abort 里同步结束也排在取消之后；回复路径再查一次 cancelled 作兜底。
     const controller = new AbortController();
-    const abort = (): void => controller.abort();
-    input.signal?.addEventListener("abort", abort, {once: true});
-    const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? 30_000);
-    try {
+    let cancelled: "aborted" | "timeout" | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort = (): void => undefined;
+    const cancellation = new Promise<Judgement>((resolve) => {
+        onAbort = () => {
+            cancelled ??= "aborted";
+            resolve(escalate("aborted"));
+            controller.abort();
+        };
+        input.signal?.addEventListener("abort", onAbort, {once: true});
+        timer = setTimeout(() => {
+            cancelled ??= "timeout";
+            resolve(escalate("timeout"));
+            controller.abort();
+        }, input.timeoutMs ?? 30_000);
+    });
+    const reply = (async (): Promise<Judgement> => {
         const {systemPrompt, messages} = buildJudgeMessages(input.request);
         const stream = await (input.stream ?? streamSimple)(input.model, {systemPrompt, messages}, {...(input.apiKey === undefined ? {} : {apiKey: input.apiKey}), signal: controller.signal, maxTokens: 200});
-        const reply = await stream.result();
-        if (reply.stopReason === "error" || reply.stopReason === "aborted") return escalate(input.signal?.aborted ? "aborted" : controller.signal.aborted ? "timeout" : `request-failed: ${reply.errorMessage ?? reply.stopReason}`);
-        const text = reply.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+        const message = await stream.result();
+        if (cancelled !== null) return escalate(cancelled);
+        if (message.stopReason === "error" || message.stopReason === "aborted") return escalate(`request-failed: ${message.errorMessage ?? message.stopReason}`);
+        const text = message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
         return parseJudgement(text) ?? escalate("invalid-output");
-    } catch (error) {
-        if (input.signal?.aborted) return escalate("aborted");
-        if (controller.signal.aborted) return escalate("timeout");
-        return escalate(`request-failed: ${error instanceof Error ? error.message : String(error)}`);
+    })().catch((error: unknown) => (cancelled !== null ? escalate(cancelled) : escalate(`request-failed: ${error instanceof Error ? error.message : String(error)}`)));
+    try {
+        return await Promise.race([reply, cancellation]);
     } finally {
         clearTimeout(timer);
-        input.signal?.removeEventListener("abort", abort);
+        input.signal?.removeEventListener("abort", onAbort);
     }
 }

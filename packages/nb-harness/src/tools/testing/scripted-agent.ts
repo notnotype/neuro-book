@@ -4,7 +4,7 @@
  */
 
 import {Agent} from "@oh-my-pi/pi-agent-core";
-import type {AgentMessage, AgentTool} from "@oh-my-pi/pi-agent-core";
+import type {AgentEvent, AgentMessage, AgentTool} from "@oh-my-pi/pi-agent-core";
 import {createAssistantMessageEventStream} from "@oh-my-pi/pi-ai";
 import type {AssistantMessage, Message, ToolCall} from "@oh-my-pi/pi-ai";
 import {buildModel} from "@oh-my-pi/pi-catalog/build";
@@ -20,7 +20,7 @@ export function scriptedModel() {
     });
 }
 
-export async function runScriptedAgent(input: {tools: AgentTool[]; script: ScriptedReply[]; abortAfterFirstCall?: boolean}): Promise<{
+export async function runScriptedAgent(input: {tools: AgentTool[]; script: ScriptedReply[]; abortAfterFirstCall?: boolean; onEvent?(event: AgentEvent, agent: Agent): void}): Promise<{
     toolResults: {toolCallId: string; text: string; isError: boolean}[];
     requests: number;
 }> {
@@ -49,6 +49,7 @@ export async function runScriptedAgent(input: {tools: AgentTool[]; script: Scrip
             if (event.type === "tool_execution_start") agent.abort();
         });
     }
+    if (input.onEvent !== undefined) agent.subscribe((event) => input.onEvent!(event, agent));
     await agent.prompt({role: "user", content: "go", timestamp: 0});
     // OMP 并行执行一批工具调用，结果按完成顺序进历史；按 id 排序，测试只看内容。
     const toolResults = agent.state.messages

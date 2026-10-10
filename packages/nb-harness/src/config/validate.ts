@@ -39,7 +39,13 @@ function jsonProblems(value: unknown): ConfigProblem[] {
                     return;
                 }
                 seen.add(current);
-                if (Array.isArray(current)) current.forEach((item, index) => visit(item, `${path}[${index}]`));
+                if (Array.isArray(current)) {
+                    // 按下标遍历：forEach 会跳过稀疏数组的空洞，而 JSON 会把空洞写成 null，两者不等价
+                    for (let index = 0; index < current.length; index += 1) {
+                        if (index in current) visit(current[index], `${path}[${index}]`);
+                        else problems.push({path: `${path}[${index}]`, reason: "数组有空洞，不能用 JSON 如实表示"});
+                    }
+                }
                 else {
                     const prototype = Object.getPrototypeOf(current);
                     if (prototype !== Object.prototype && prototype !== null) problems.push({path, reason: `只允许普通对象，不允许 ${prototype.constructor?.name ?? "未知类型"}`});

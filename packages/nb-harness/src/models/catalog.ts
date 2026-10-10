@@ -2,8 +2,9 @@
  * 目录、解析、选择链与能力检查（docs/specs/harness/models.md 输出 1–4、10）。只看传入的配置快照；配置里的服务覆盖 OMP 目录里的同名服务。
  */
 
+import {getCustomApi} from "@oh-my-pi/pi-ai";
 import {getBundledModel, getBundledModels, getBundledProviders} from "@oh-my-pi/pi-catalog";
-import type {Model} from "@oh-my-pi/pi-catalog";
+import type {KnownApi, Model} from "@oh-my-pi/pi-catalog";
 import {buildModel} from "@oh-my-pi/pi-catalog/build";
 import type {HarnessConfig, ProviderConfig, ProviderModelConfig} from "../config/config";
 import type {Capabilities, CapabilityProblem, ModelCatalog, ModelResult, ModelSummary, SelectRequest, Selected} from "./types";
@@ -12,6 +13,15 @@ import type {Capabilities, CapabilityProblem, ModelCatalog, ModelResult, ModelSu
 const MODEL_REF_PATTERN = /^([A-Za-z0-9._-]+)\/([^\s\p{Cc}]+)$/u;
 const ZERO_COST = {input: 0, output: 0, cacheRead: 0, cacheWrite: 0};
 
+// 与 OMP 18.2.5 的 KnownApi 对齐：少一个 typecheck 就失败（satisfies）；OMP 没有导出这份运行时清单。
+const KNOWN_API_IDS = [
+    "openai-completions", "openai-responses", "openrouter", "openai-codex-responses", "azure-openai-responses", "anthropic-messages",
+    "bedrock-converse-stream", "google-generative-ai", "google-gemini-cli", "google-vertex", "ollama-chat", "cursor-agent", "gitlab-duo-agent", "devin-agent",
+] as const satisfies readonly KnownApi[];
+type MissingKnownApi = Exclude<KnownApi, (typeof KNOWN_API_IDS)[number]>;
+true satisfies MissingKnownApi extends never ? true : ["KNOWN_API_IDS 缺少", MissingKnownApi];
+const KNOWN_APIS: ReadonlySet<string> = new Set(KNOWN_API_IDS);
+
 type BundledProvider = Parameters<typeof getBundledModel>[0];
 
 export function parseModelRef(ref: string): {providerId: string; modelId: string} | null {
@@ -19,22 +29,29 @@ export function parseModelRef(ref: string): {providerId: string; modelId: string
     return match === null ? null : {providerId: match[1]!, modelId: match[2]!};
 }
 
-/** 配置里的模型构造成 OMP `Model`：未给的能力按保守值（Spec 输出 2）。 */
+/**
+ * 配置里的模型构造成 OMP `Model`：未给的能力按保守值（Spec 输出 2）。
+ * `buildModel` 会按 OMP 目录对同名模型做修正（打开推理、抬高窗口与输出上限），配置明确给出或按缺省决定的字段在构造后再写回。
+ */
 function modelFromConfig(provider: ProviderConfig, model: ProviderModelConfig): Model {
-    return buildModel({
+    const fields = {
+        reasoning: model.reasoning ?? false,
+        input: model.input ?? ["text"],
+        supportsTools: model.supportsTools ?? true,
+        contextWindow: model.contextWindow ?? null,
+        maxTokens: model.maxTokens ?? null,
+    };
+    const built = buildModel({
         id: model.id,
         name: model.name ?? model.id,
         provider: provider.id,
         api: provider.api,
         baseUrl: provider.baseUrl,
         ...(provider.headers === undefined ? {} : {headers: provider.headers}),
-        reasoning: model.reasoning ?? false,
-        input: model.input ?? ["text"],
-        supportsTools: model.supportsTools ?? true,
+        ...fields,
         cost: ZERO_COST,
-        contextWindow: model.contextWindow ?? null,
-        maxTokens: model.maxTokens ?? null,
     });
+    return {...built, ...fields, input: [...fields.input]};
 }
 
 function summaryOf(model: Model, source: ModelSummary["source"]): ModelSummary {
@@ -55,7 +72,11 @@ export function createModelCatalog(input: {config: HarnessConfig}): ModelCatalog
         const parsed = parseModelRef(ref);
         if (parsed === null) return {ok: false, code: "invalid-model-ref", detail: `模型引用必须是 <providerId>/<modelId>：${ref}`};
         const own = configured.get(ref);
-        if (own !== undefined) return {ok: true, value: own};
+        if (own !== undefined) {
+            // 配置里的 api 只查过形状；能不能派发要看 OMP：内置的，或使用方已经用 registerCustomApi 登记的（登记可以晚于目录创建，所以在解析时查）
+            if (!KNOWN_APIS.has(own.api) && getCustomApi(own.api) === undefined) return {ok: false, code: "unsupported-api", detail: `服务 ${parsed.providerId} 的 api ${own.api} 不是 OMP 内置的，也没有注册为自定义 API`};
+            return {ok: true, value: own};
+        }
         if (!configuredProviders.has(parsed.providerId) && !bundledProviders.has(parsed.providerId)) return {ok: false, code: "unknown-provider", detail: `配置与 OMP 目录里都没有服务 ${parsed.providerId}`};
         if (bundledProviders.has(parsed.providerId)) {
             try {

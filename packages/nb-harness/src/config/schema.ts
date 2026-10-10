@@ -31,7 +31,7 @@ const ProviderModelConfig = Type.Object(
 const ProviderConfig = Type.Object(
     {
         id: Id,
-        api: Type.String({minLength: 1}),
+        api: Type.String({pattern: "^[a-z0-9-]+$"}), // OMP 的 Api 名；能不能派发由 models 解析时判断
         baseUrl: Type.String(), // 协议与主机名在 validate.ts 的规则里查，schema 只定形状，免得同一字段报两条
         headers: Type.Optional(Type.Record(Type.String(), Type.String())),
         models: Type.Array(ProviderModelConfig),

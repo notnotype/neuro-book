@@ -41,6 +41,8 @@ interface ModelCatalog {
 }
 type ModelSummary = {ref: string; name: string; provider: string; source: "config" | "bundled"; input: ("text" | "image")[]; supportsTools: boolean; contextWindow: number | null};
 type SelectRequest = {model?: string; role?: string; profile?: {id: string; model?: string; defaultRole?: string}};
+MODEL_FIELD: {id: "harness/model"; schema: TSchema};                 // Profile 字段 {model?: ModelRef; role?: string}；交给 Profile 主机 registerField
+selectionFromProfile(profile: {id: string; fields: Readonly<Record<string, unknown>>}): SelectRequest["profile"];   // 已校验的字段值 → 选择链的 profile 段（role 映射为 defaultRole）
 type Selected = {model: Model; via: "explicit" | "role" | "profile-model" | "profile-role" | "default"; role?: string};
 type Capabilities = {tools?: boolean; images?: boolean};
 type CapabilityProblem = {capability: "tools" | "images"; detail: string};
@@ -59,7 +61,7 @@ interface Credentials {
     close(): void;
 }
 type ModelResult<T> = {ok: true; value: T} | {ok: false; code: ModelFailure; detail: string};
-type ModelFailure = "invalid-model-ref" | "unknown-provider" | "unknown-model" | "unknown-role" | "role-not-bound" | "no-default-model"
+type ModelFailure = "invalid-model-ref" | "unknown-provider" | "unknown-model" | "unsupported-api" | "unknown-role" | "role-not-bound" | "no-default-model"
     | "credentials-unavailable" | "login-failed" | "login-cancelled";
 ```
 
@@ -68,8 +70,9 @@ type ModelFailure = "invalid-model-ref" | "unknown-provider" | "unknown-model" |
 ## 输出与可观察行为
 
 1. **目录**：`list` 给出配置里每个自建服务的每个模型（`source: "config"`）与 OMP 内置目录的全部模型（`source: "bundled"`）；同一个引用两边都有时只列配置里的。
-2. **解析**：`resolve(ref)` 按模型引用返回 OMP `Model`：配置里有则按 `ProviderConfig` 与 `ProviderModelConfig` 构造（`api`、`baseUrl`、`headers`、`contextWindow`、`maxTokens`、`input`、`reasoning`、`supportsTools` 取配置的值，未给的能力按保守值：`input: ["text"]`、`reasoning: false`、`supportsTools: true`、`contextWindow: null`、`maxTokens: null`）；配置里没有则查 OMP 目录。语法不对为 `invalid-model-ref`，服务两边都没有为 `unknown-provider`，服务有但模型没有为 `unknown-model`。
+2. **解析**：`resolve(ref)` 按模型引用返回 OMP `Model`：配置里有则按 `ProviderConfig` 与 `ProviderModelConfig` 构造（`api`、`baseUrl`、`headers`、`contextWindow`、`maxTokens`、`input`、`reasoning`、`supportsTools` 取配置的值，未给的能力按保守值：`input: ["text"]`、`reasoning: false`、`supportsTools: true`、`contextWindow: null`、`maxTokens: null`）；配置里没有则查 OMP 目录。配置的模型经 OMP `buildModel` 构造后，上述字段按配置（或缺省值）再写回，OMP 对同名目录模型的修正（打开推理、抬高窗口与输出上限）不覆盖它们。配置服务的 `api` 必须是 OMP 内置的 Api 名之一，或使用方已用 OMP `registerCustomApi` 登记的名字；否则 `unsupported-api`（在解析时判断，`list` 照常列出）。语法不对为 `invalid-model-ref`，服务两边都没有为 `unknown-provider`，服务有但模型没有为 `unknown-model`。
 3. **选择链**：`select` 依次看 `request.model`（有则解析，失败按解析的失败码返回）、`request.role`（角色不在 `roles.items` 为 `unknown-role`，`modelKey` 为 `null` 为 `role-not-bound`，不沿链继续）、`request.profile.model`、`request.profile.defaultRole`（同角色规则）、`config.models.defaultModel`；全部没有为 `no-default-model`。返回选中的模型与 `via`（命中的那一环）；经角色命中时附 `role`。
+   Profile 的 `harness/model` 字段由本模块登记（`MODEL_FIELD`：`{model?: ModelRef, role?: string}`，未知键是问题），`selectionFromProfile` 把已校验的字段值变成 `request.profile`（`role` 即 `defaultRole`；没有该字段时只有 `id`）；runtime 负责把 `MODEL_FIELD` 注册到 Profile 主机并在选择前调用它。
 4. **能力检查**：`checkCapabilities` 对 `required.tools` 看 `model.supportsTools`（未声明按支持），对 `required.images` 看 `model.input` 含 `"image"`；不满足的各一条问题。
 5. **凭据存储**：`openCredentials` 打开或创建 SQLite 凭据库，并读入已有凭据；路径打不开、或文件已存在却不是 SQLite 文件（文件头不对）为 `credentials-unavailable`，后一种情况文件不被改动。文件头正确但内部损坏时，OMP 把原文件改名为 `<路径>.corrupt-<时间>-<id>` 备份并新建空库：打开成功、凭据为空，本模块不另行报告，恢复由人工用备份处理。`createCredentials` 接受使用方实现的存储，同样先读入已有凭据；读不出为 `credentials-unavailable`。两者返回的 `Credentials` 行为相同。
 6. **取 key**：`apiKeyFor(model)` 返回该模型服务在凭据存储里的 API key，或 OAuth 令牌换来的访问令牌（只经只看存储的 OAuth 入口，含刷新）；存储里没有该服务的凭据、或 OAuth 凭据已被别的连接删除时返回 `undefined`，即使进程的环境变量里有这个服务的 key。
@@ -99,6 +102,7 @@ type ModelFailure = "invalid-model-ref" | "unknown-provider" | "unknown-model" |
 | `invalid-model-ref` | 模型引用不是 `<providerId>/<modelId>` | 修正引用 |
 | `unknown-provider` | 配置与 OMP 目录里都没有这个服务 | 在配置里加自建服务，或改引用 |
 | `unknown-model` | 服务有，模型没有 | 改引用，或在自建服务里加模型 |
+| `unsupported-api` | 配置服务的 `api` 既不是 OMP 内置的，也没有注册为自定义 API | 改成内置 Api 名，或在创建目录前后用 OMP `registerCustomApi` 登记 |
 | `unknown-role` | 角色不在配置的 `roles.items` 里 | 修正角色 id 或配置 |
 | `role-not-bound` | 角色存在但没有绑定模型 | 在配置里给角色绑定模型；不沿链回落 |
 | `no-default-model` | 选择链走到底也没有模型 | 配置 `models.defaultModel` |

@@ -15,6 +15,7 @@ taskId: t12-harness-tools
 
 - Spec 与实施计划 [`plan.md`](plan.md) 已写，按 [autonomous-delivery](../../../../skills/autonomous-delivery/SKILL.md) 推进。
 - **实现**（计划 S1、S2，一个提交）：`src/tools/`（`types.ts`、`define.ts`、`source.ts`、`approval.ts`、`judge.ts`、`adapter.ts`、`tools.ts`；测试辅助 `testing/scripted-agent.ts` 用真实 OMP `Agent` 跑脚本化回复）；`package.json` 入口；模块表登记。`bun test src/tools` 12 pass；整包 155 pass、3 skip；变异检查八处（判定表一格、步骤 3 的等级比较、审批模型失败时放行、跳过参数校验、`tool-unavailable`、`afterExecute`、风险函数抛错、可见工具不报冲突）都被报出。实测两件事写进了 Spec：OMP 的循环先按 schema 校验并转换参数（缺必填字段不到达适配层，数字会被转成字符串），一批工具调用并行执行、结果按完成顺序进历史。Spec 加“实现合同”与证据行，注册表标“待晋升”。计划审查未开（三个 omp 审查会话在跑，排队中）。
+- **审查（omp，计划与实现合一，进行中）**：已写出 3 条，全部成立并已修。第 1 条（阻断：审批模型超时或中止后迟到的回复仍被采用、流不结束会永久挂住）——`judgeWithModel` 自己结算取消：取消或超时先 resolve 再 abort 流，与回复 `Promise.race`，回复路径再查一次取消状态；补“流不理会取消”“取消后才带 allow 结束”“运行中中止”三种用例。第 2 条（阻断：审批钩子拿不到本次取定的定义，来源更新可按另一份定义放行）——`approve` 改收 `ApprovalRequest`（调用 + 适配层按次取到的 `definition` + `signal`），runtime 用它算风险，不再自己取来源；补“等待期间来源换掉同 id 工具”的真实 Agent 用例。第 3 条（重要：钩子缺中止信号，`Agent.abort` 不结束等待、迟到批准仍执行）——适配层把审批与信号竞速（已中止的信号立即结算），批准返回时已中止也不开始 `execute`；`runScriptedAgent` 加 `onEvent` 以便在进入审批后调用真实 `Agent.abort`。Spec 输出 7、8、10 与状态一节同步改。变异检查：judge 不竞速、adapter 不与信号竞速都被报出；“迟到回复照采用”“批准返回时不查中止”“审批前不查中止”三处是竞速之外的兜底（结算顺序已保证），变异存活、保留。
 
 ## 依据
 

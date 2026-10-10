@@ -2,13 +2,14 @@
  * 把内核协议的工具适配成 OMP `AgentTool`（docs/specs/harness/tools.md 输出 8–11）。
  *
  * 执行顺序固定：按次取实现 → 校验参数 → 拦截器 beforeExecute（改写的参数再校验一次）→ 审批钩子 → execute → 拦截器 afterExecute。
- * 每一步都不抛出：异常变成带码的错误结果，OMP 的循环把它当工具错误交给模型。审批等待多久由 runtime 的钩子决定。
+ * 每一步都不抛出：异常变成带码的错误结果，OMP 的循环把它当工具错误交给模型。审批等待多久由 runtime 的钩子决定，
+ * 但中止由本层结算：钩子不配合也能结束等待，迟到的批准不再开始执行。
  */
 
 import type {AgentToolResult} from "@oh-my-pi/pi-agent-core";
 import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
-import type {AdapterHooks, AgentTool, JsonValue, ToolCall, ToolContext, ToolDescriptor, ToolOutcome} from "./types";
+import type {AdapterHooks, AgentTool, ApprovalOutcome, JsonValue, ToolCall, ToolContext, ToolDescriptor, ToolOutcome} from "./types";
 
 const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -21,6 +22,13 @@ function argumentProblems(schema: TSchema, value: unknown): string | null {
 }
 
 const failure = (code: string, message: string, details?: JsonValue): ToolOutcome => ({ok: false, code, message, ...(details === undefined ? {} : {details})});
+
+/** 信号中止（或已经中止）时结算为 aborted；钩子先返回时这个 Promise 永远挂着，没有别的引用，随之回收。 */
+const abortedOn = (signal: AbortSignal): Promise<ApprovalOutcome> =>
+    new Promise((resolve) => {
+        if (signal.aborted) resolve({aborted: true});
+        else signal.addEventListener("abort", () => resolve({aborted: true}), {once: true});
+    });
 
 /** 输出 9：内核的结果到 OMP 的结果。 */
 export function toAgentToolResult(outcome: ToolOutcome): AgentToolResult {
@@ -48,13 +56,15 @@ async function run(descriptor: ToolDescriptor, hooks: AdapterHooks, call: ToolCa
             return failure("execution-failed", `拦截器出错：${describe(error)}`);
         }
     }
-    let approval: Awaited<ReturnType<AdapterHooks["approve"]>>;
+    if (signal.aborted) return failure("aborted", "调用已中止");
+    let approval: ApprovalOutcome;
     try {
-        approval = await hooks.approve({...call, args});
+        approval = await Promise.race([hooks.approve({...call, args, definition, signal}), abortedOn(signal)]);
     } catch (error) {
         return failure("denied", `审批出错：${describe(error)}`);
     }
-    if ("aborted" in approval) return failure("aborted", "调用已中止");
+    // 等待期间或批准刚返回时已中止：尚未开始的执行不再开始
+    if ("aborted" in approval || signal.aborted) return failure("aborted", "调用已中止");
     if (!approval.approved) return failure("denied", approval.reason);
     const context: ToolContext = {signal, session: hooks.session, toolCallId: call.toolCallId, report: onProgress};
     let outcome: ToolOutcome;

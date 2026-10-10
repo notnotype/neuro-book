@@ -50,7 +50,7 @@ import {SkillCatalog} from "<技能模块>";        // 由技能模块注册的�
 
 export default defineProfile({
     id: "writer", name: "写作助手", description: "修改小说章节", version: 1,
-    fields: {"harness/tools": ["read", "edit"], "harness/model": {role: "main"}},
+    fields: {"harness/tools": ["read", "edit"], "harness/model": {role: "main"}},   // 两个字段分别由 tools、models 模块登记（MODEL_FIELD），runtime 注册到主机
     prompt: (ctx) => (
         <Prompt>
             <System>你是写作助手。</System>

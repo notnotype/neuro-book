@@ -75,6 +75,8 @@ describe("校验与规范化（输出 1、2）", () => {
         expect(problems([])).toEqual([""]);
         expect(problems({models: {defaultModel: undefined}})).toEqual(["models.defaultModel"]);
         expect(problems({approval: {tools: {bash: "maybe"}}})).toEqual(["approval.tools.bash"]);
+        expect(problems({profiles: {w: {settings: new Array(1)}}})).toEqual(["profiles.w.settings[0]"]);
+        expect(problems({profiles: {w: {settings: [null]}}})).toEqual([]);
         const circular: Record<string, unknown> = {};
         circular.self = circular;
         expect(problems({profiles: {w: {settings: circular}}})[0]!.startsWith("profiles.w.settings")).toBe(true);

@@ -1,8 +1,10 @@
 import {describe, expect, test} from "bun:test";
+import {registerCustomApi} from "@oh-my-pi/pi-ai";
 import {getBundledModels, getBundledProviders} from "@oh-my-pi/pi-catalog";
+import {Value} from "typebox/value";
 import {validateHarnessConfig} from "../config/config";
 import type {HarnessConfig} from "../config/config";
-import {createModelCatalog} from "./models";
+import {createModelCatalog, MODEL_FIELD, selectionFromProfile} from "./models";
 
 const bundledProvider = getBundledProviders()[0]!;
 const bundledModel = getBundledModels(bundledProvider)[0]!;
@@ -73,6 +75,38 @@ describe("目录与解析（输出 1、2）", () => {
         expect(code("nowhere/model")).toBe("unknown-provider");
         expect(code(`${bundledModel.provider}/does-not-exist`)).toBe("unknown-model");
         expect(code("local/qwen")).toBe("unknown-provider");
+    });
+
+    test("输出 2：配置的 api 不是 OMP 内置的也没有注册为自定义 API → unsupported-api（list 照常列出）；注册之后可以解析；配置明确给出的能力不被 OMP 的目录修正覆盖", () => {
+        const made = {...base(), providers: [{id: "custom", api: "made-up-api", baseUrl: "http://127.0.0.1:9", models: [{id: "m"}]}]};
+        const catalog = createModelCatalog({config: config(made)});
+        expect(catalog.list().some((summary) => summary.ref === "custom/m")).toBe(true);
+        const before = catalog.resolve("custom/m");
+        expect(before.ok ? null : before.code).toBe("unsupported-api");
+        registerCustomApi("made-up-api", () => {
+            throw new Error("测试里不会真的调用");
+        }, "catalog-test");
+        expect(catalog.resolve("custom/m").ok).toBe(true);
+
+        // OMP 目录里的同名模型会被 buildModel 按目录策略修正（deepseek-flash：打开推理、窗口抬到 1M）；配置明确给的值要留住
+        const flash = getBundledModels("deepseek" as never).find((model) => model.id === "deepseek-flash");
+        if (flash === undefined) throw new Error("OMP 目录里应有 deepseek/deepseek-flash");
+        expect(flash.reasoning).toBe(true);
+        const explicit = {...base(), providers: [{id: "deepseek", api: "openai-completions", baseUrl: "http://127.0.0.1:9/v1", models: [{id: "deepseek-flash", reasoning: false, contextWindow: 1234, maxTokens: 99, input: ["text"], supportsTools: false}]}]};
+        const resolved = createModelCatalog({config: config(explicit)}).resolve("deepseek/deepseek-flash");
+        expect(resolved.ok && resolved.value).toMatchObject({reasoning: false, contextWindow: 1234, maxTokens: 99, input: ["text"], supportsTools: false});
+    });
+
+    test("输出 3：Profile 字段 harness/model 的 schema 与到选择链的映射", () => {
+        expect(Value.Check(MODEL_FIELD.schema, {role: "main"})).toBe(true);
+        expect(Value.Check(MODEL_FIELD.schema, {model: "aiand/deepseek-ai/deepseek-v4-flash"})).toBe(true);
+        expect(Value.Check(MODEL_FIELD.schema, {model: "no-slash"})).toBe(false);
+        expect(Value.Check(MODEL_FIELD.schema, {role: "main", extra: 1})).toBe(false);
+        expect(selectionFromProfile({id: "writer", fields: {"harness/model": {role: "main", model: "local/qwen"}}})).toEqual({id: "writer", model: "local/qwen", defaultRole: "main"});
+        expect(selectionFromProfile({id: "writer", fields: {}})).toEqual({id: "writer"});
+        const catalog = createModelCatalog({config: config(base())});
+        const selected = catalog.select({profile: selectionFromProfile({id: "writer", fields: {"harness/model": {role: "main"}}})});
+        expect(selected.ok && [selected.value.via, selected.value.model.id]).toEqual(["profile-role", "extra"]);
     });
 });
 

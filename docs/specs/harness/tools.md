@@ -79,11 +79,12 @@ toAgentTool(descriptor: ToolDescriptor, hooks: AdapterHooks): AgentTool;
 type AdapterHooks = {
     source: ToolSource;                                                       // 执行时按次取实现
     session: {id: string};
-    approve(call: ToolCall): Promise<ApprovalOutcome>;                        // 由 runtime 提供：判定、必要时等用户
+    approve(request: ApprovalRequest): Promise<ApprovalOutcome>;              // 由 runtime 提供：判定、必要时等用户；拿到的是本次要执行的那份定义与中止信号
     interceptor?: ToolInterceptor;
     report?(call: ToolCall, progress: JsonValue): void;
 };
 type ToolCall = {toolCallId: string; toolId: string; args: unknown};
+type ApprovalRequest = ToolCall & {definition: ToolDefinition; signal: AbortSignal};   // definition 就是适配层按次取到、随后执行的那份；风险判定用它
 type ApprovalOutcome = {approved: true} | {approved: false; reason: string} | {aborted: true};
 type ToolInterceptor = {
     beforeExecute?(call: ToolCall): Promise<{args: unknown} | {deny: string}>;
@@ -118,10 +119,10 @@ type ToolsFailure = "invalid-tool" | "tool-conflict";
     5. 配置里该工具为 `allow` → `allow`，为 `ask` → `ask`；
     6. 按模式与等级：`always-ask` 放行 `read`、其余 `ask`；`write` 放行 `read`、`write`，`exec` 为 `ask`；`auto` 放行 `read`，其余 `model`；`yolo` 全部放行。
     `reason` 一句说明命中的依据（含工具声明的 `reason`）。
-7. **审批模型**：`judgeWithModel` 用给定模型做一次不带工具的调用：系统提示词说明任务与只能输出一行 JSON `{"decision": "allow" | "deny" | "escalate", "reason": string}`；用户消息含工具 id 与说明、参数（JSON，超过 4 KiB 的字符串截断）、等级、工具给出的理由、Profile 的 id 与名字、`recent` 里最后至多 6 条消息的角色与文本（各截到 1 KiB）。回复里第一个能解析的 JSON 对象若 `decision` 是三者之一就采用；解析不出、`decision` 不合法、调用失败、`signal` 中止或超过 `timeoutMs`（缺省 30 秒）一律 `{decision: "escalate", reason: <原因>}`，决不因为审批模型出问题而放行。
-8. **适配：执行顺序**：`toAgentTool` 返回的 `AgentTool` 执行时依次：按 `descriptor.id` 从 `source.get` 取实现（取不到 → 结果为错误 `tool-unavailable`）；按 `parameters` 校验参数（不合 → 错误 `invalid-arguments`，说明路径与原因；经 OMP 的循环调用时，OMP 先按同一 schema 校验并做类型转换，缺必填字段等不合的调用由它以自己的错误文本拦下、不到达适配层，这一步为直接调用与拦截器改写的参数兜底）；`interceptor.beforeExecute`（返回 `deny` → 错误 `denied`；返回 `args` 则用它再校验一次）；`hooks.approve`（`approved: false` → 错误 `denied` 带理由；`aborted` → 错误 `aborted`）；`execute`；`interceptor.afterExecute`。每一步都不抛出：异常变成错误结果。
+7. **审批模型**：`judgeWithModel` 用给定模型做一次不带工具的调用：系统提示词说明任务与只能输出一行 JSON `{"decision": "allow" | "deny" | "escalate", "reason": string}`；用户消息含工具 id 与说明、参数（JSON，超过 4 KiB 的字符串截断）、等级、工具给出的理由、Profile 的 id 与名字、`recent` 里最后至多 6 条消息的角色与文本（各截到 1 KiB）。回复里第一个能解析的 JSON 对象若 `decision` 是三者之一就采用；解析不出、`decision` 不合法、调用失败、`signal` 中止或超过 `timeoutMs`（缺省 30 秒）一律 `{decision: "escalate", reason: <原因>}`，决不因为审批模型出问题而放行。中止与超时由本函数自己结算，不依赖模型的流配合：流不响应取消时到点照样返回 `timeout`；取消已触发后流才带着回复结束的，回复不采用（`aborted` 或 `timeout`）。
+8. **适配：执行顺序**：`toAgentTool` 返回的 `AgentTool` 执行时依次：按 `descriptor.id` 从 `source.get` 取实现（取不到 → 结果为错误 `tool-unavailable`）；按 `parameters` 校验参数（不合 → 错误 `invalid-arguments`，说明路径与原因；经 OMP 的循环调用时，OMP 先按同一 schema 校验并做类型转换，缺必填字段等不合的调用由它以自己的错误文本拦下、不到达适配层，这一步为直接调用与拦截器改写的参数兜底）；`interceptor.beforeExecute`（返回 `deny` → 错误 `denied`；返回 `args` 则用它再校验一次）；`hooks.approve`（收到 `ApprovalRequest`：调用、本次取到的定义与中止信号；`approved: false` → 错误 `denied` 带理由；`aborted` → 错误 `aborted`）；`execute`；`interceptor.afterExecute`。每一步都不抛出：异常变成错误结果。审批等待由适配层与中止信号竞速：进入审批前已中止、等待期间中止、或批准返回时已中止，都得到错误 `aborted` 且不开始 `execute`，钩子不配合也一样。来源在等待期间更新同 id 的工具不影响这次调用：审批与执行用的是同一份定义。
 9. **适配：结果**：`ToolOutcome` 为 `ok: true` 时内容原样进 `AgentToolResult.content`（字符串变成一个文本块），`details` 原样；`ok: false` 时 `isError: true`，文本为 `<code>: <message>`，`details` 原样；`execute` 抛出时 `isError: true`，文本为 `execution-failed: <错误消息>`，不带堆栈。
-10. **适配：进度与中止**：`context.report(progress)` 调用 `hooks.report` 并经 OMP 的 `onUpdate` 发出部分结果（`details: progress`）；`context.signal` 就是 OMP 给的中止信号；中止后 `execute` 仍返回的结果照常交回。
+10. **适配：进度与中止**：`context.report(progress)` 调用 `hooks.report` 并经 OMP 的 `onUpdate` 发出部分结果（`details: progress`）；`context.signal` 就是 OMP 给的中止信号，也是 `ApprovalRequest.signal`；已经开始执行的工具在中止后仍返回的结果照常交回，尚未开始的按输出 8 不再开始。
 11. **适配：描述**：`AgentTool` 的 `name`、`description`、`parameters` 来自描述符，`label` 取 id；不设置 OMP 的 `approval` 字段（审批由本模块的包装做）、不开启预测执行。
 
 ## 状态与转换
@@ -131,7 +132,7 @@ type ToolsFailure = "invalid-tool" | "tool-conflict";
 **时序与寿命**：
 
 - 可见工具在每次调用开始时取定（`visibleTools`），调用中途来源的变化不改变列表；中途某工具 `get` 不到时按输出 8 得到 `tool-unavailable`。
-- `hooks.approve` 在参数校验与 `beforeExecute` 之后、`execute` 之前被调用，等待多久由 runtime 决定；等待期间 OMP 的循环停在这一批工具上。
+- `hooks.approve` 在参数校验与 `beforeExecute` 之后、`execute` 之前被调用，等待多久由 runtime 决定；等待期间 OMP 的循环停在这一批工具上；`Agent.abort` 结束等待（适配层按信号结算，不等钩子返回）。
 
 ## 副作用与数据
 

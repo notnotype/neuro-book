@@ -1,6 +1,6 @@
 import {describe, expect, test} from "bun:test";
 import {Type} from "typebox";
-import {createStaticToolSource, defineTool, toAgentTool, toAgentToolResult} from "./tools";
+import {createStaticToolSource, defineTool, evaluateRisk, toAgentTool, toAgentToolResult} from "./tools";
 import type {AdapterHooks, JsonValue, ToolCall, ToolDefinition, ToolSource} from "./tools";
 import {runScriptedAgent} from "./testing/scripted-agent";
 
@@ -72,6 +72,57 @@ describe("适配（输出 8–11）", () => {
         const aborted = inner.list().map((descriptor) => toAgentTool(descriptor, hooks(inner, {approve: async () => ({aborted: true})})));
         const abortedRun = await runScriptedAgent({tools: aborted, script: [{calls: [{id: "c1", name: "echo", args: {text: "x"}}]}]});
         expect(abortedRun.toolResults).toEqual([{toolCallId: "c1", text: "aborted: 调用已中止", isError: true}]);
+    });
+
+    test("场景 5：进入审批后 Agent.abort——等待结束、不执行、迟到的批准不生效；审批前已中止也不执行", async () => {
+        let executed = 0;
+        const counting = createStaticToolSource([defineTool({...echo(), execute: async () => {
+            executed += 1;
+            return {ok: true, content: "不该执行"};
+        }})]);
+        let entered: () => void = () => undefined;
+        const enteredApproval = new Promise<void>((resolve) => {
+            entered = resolve;
+        });
+        let lateApprove: (outcome: {approved: true}) => void = () => undefined;
+        // 钩子不理会信号：等待的结束必须由适配层按信号结算
+        const approve: AdapterHooks["approve"] = () => new Promise((resolve) => {
+            lateApprove = resolve;
+            entered();
+        });
+        const tools = counting.list().map((descriptor) => toAgentTool(descriptor, hooks(counting, {approve})));
+        const run = await runScriptedAgent({
+            tools, script: [{calls: [{id: "c1", name: "echo", args: {text: "x"}}]}],
+            onEvent: (event, agent) => {
+                if (event.type === "tool_execution_start") void enteredApproval.then(() => agent.abort());
+            },
+        });
+        expect(run.toolResults).toEqual([{toolCallId: "c1", text: "aborted: 调用已中止", isError: true}]);
+        lateApprove({approved: true});
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(executed).toBe(0);
+
+        const preAborted = await runScriptedAgent({tools, script: [{calls: [{id: "c1", name: "echo", args: {text: "x"}}]}], abortAfterFirstCall: true});
+        expect(preAborted.toolResults).toEqual([{toolCallId: "c1", text: "aborted: 调用已中止", isError: true}]);
+        expect(executed).toBe(0);
+    });
+
+    test("输出 8：审批钩子拿到的是本次取到、随后执行的那份定义——来源在等待期间换掉同 id 的工具不影响判定与执行", async () => {
+        const restricted = defineTool({id: "echo", description: "受限", parameters: Type.Object({text: Type.String()}), risk: {tier: "exec", policy: "deny", reason: "禁止"}, execute: async () => ({ok: true, content: "受限的实现跑了"})});
+        const open = defineTool({...restricted, description: "放开", risk: "read", execute: async () => ({ok: true, content: "放开的实现跑了"})});
+        let served = 0;
+        const source: ToolSource = {list: () => [restricted].map((definition) => createStaticToolSource([definition]).list()[0]!), get: () => (served++ === 0 ? restricted : open)};
+        const seen: string[] = [];
+        const approve: AdapterHooks["approve"] = async (request) => {
+            seen.push(request.definition.description);
+            const risk = evaluateRisk(request.definition.risk, request.args);
+            return risk.policy === "deny" ? {approved: false, reason: risk.reason ?? "禁止"} : {approved: true};
+        };
+        const tools = source.list().map((descriptor) => toAgentTool(descriptor, hooks(source, {approve})));
+        const run = await runScriptedAgent({tools, script: [{calls: [{id: "c1", name: "echo", args: {text: "x"}}]}]});
+        expect(run.toolResults).toEqual([{toolCallId: "c1", text: "denied: 禁止", isError: true}]);
+        expect(seen).toEqual(["受限"]);
+        expect(served).toBe(1);
     });
 
     test("场景 6：拦截器——beforeExecute 改写参数后工具收到新参数；返回 deny 时工具不执行；afterExecute 改写结果", async () => {
