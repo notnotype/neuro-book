@@ -72,7 +72,8 @@ const ENTRY_SCHEMAS: Readonly<Record<string, TSchema>> = {
 function variantProblem(schemas: Readonly<Record<string, TSchema>>, value: unknown, field: string, at: string): string | null {
     if (typeof value !== "object" || value === null) return `${at}：必须是对象`;
     const tag = (value as Record<string, unknown>)[field];
-    const schema = typeof tag === "string" ? schemas[tag] : undefined;
+    // 判别值来自外部输入：只认表里自己的键，"__proto__"、"toString" 这类继承属性不算
+    const schema = typeof tag === "string" && Object.hasOwn(schemas, tag) ? schemas[tag] : undefined;
     if (schema === undefined) return `${at}${field}：${typeof tag === "string" ? `不认识 ${tag}` : "缺失"}，允许 ${Object.keys(schemas).join("、")}`;
     const problem = schemaProblems(schema, value);
     return problem === null ? null : at === "/" ? problem : problem.split("；").map((part) => `${at.slice(0, -1)}${part}`).join("；");
@@ -198,7 +199,7 @@ export function shapeProblem(input: unknown): string | null {
     }
     if (entry.type !== "custom" && entry.type !== "custom_message") return null;
     if (!entry.customType.startsWith(RESERVED_NAMESPACE)) return null;
-    const reserved = RESERVED[entry.customType];
+    const reserved = Object.hasOwn(RESERVED, entry.customType) ? RESERVED[entry.customType] : undefined;
     if (reserved === undefined) return `/customType：${RESERVED_NAMESPACE} 命名空间只允许 ${Object.keys(RESERVED).join("、")}`;
     if (reserved.entryType !== entry.type) return `/type：${entry.customType} 必须是 ${reserved.entryType} 条目`;
     const payload = entry.type === "custom" ? entry.data : entry.details;

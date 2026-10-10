@@ -126,6 +126,11 @@ describe("JSONL 存储：文件", () => {
         const malformed = await openSession(store, "corrupt");
         expect(failure(malformed)).toEqual({code: "corrupt-session", line: 3});
 
+        // 完整的一行但条目类型是 Object.prototype 的成员名：同样是损坏行
+        lines[2] = JSON.stringify({...JSON.parse(lines[2]!), id: "x", parentId: null, timestamp: new Date(0).toISOString(), type: "toString"});
+        await writeFile(path, lines.join("\n"), "utf8");
+        expect(failure(await openSession(store, "corrupt"))).toEqual({code: "corrupt-session", line: 3});
+
         await writeFile(join(root, "empty.jsonl"), "", "utf8");
         expect(failure(await openSession(store, "empty"))).toEqual({code: "corrupt-session", line: 1});
         await writeFile(join(root, "badhead.jsonl"), `${JSON.stringify({type: "nope", version: 1, id: "badhead"})}\n`, "utf8");

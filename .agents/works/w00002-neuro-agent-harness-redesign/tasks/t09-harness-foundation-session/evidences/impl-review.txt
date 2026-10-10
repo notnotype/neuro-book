@@ -1,0 +1,102 @@
+# w00002 t09 `nb-harness` session 实现审查
+
+审查范围：`1665501a..HEAD` 中 `packages/nb-harness/src/session/**`、`packages/nb-harness/package.json`、`docs/specs/harness/session.md`。
+
+依据：`docs/specs/harness/session.md`、t09 `plan.md`、`evidences/plan-review.txt`、`packages/nb-harness/AGENTS.md`、测试规范、锁定的 OMP 源码。
+
+## 发现
+
+### 1. 重要｜安全与性能：JSONL 存储的 `append`/`repair` 不校验会话 id，可通过公开存储接口越过 root 写入或截断任意相邻 `.jsonl` 文件
+
+- **位置**：`packages/nb-harness/src/session/jsonl/jsonl.ts:112-136`。
+- **现象**：`create` 与 `open` 调用 `isValidSessionId`，但 `append(id, ...)` 和 `repair(id)` 直接把 `id` 拼进 `pathOf(id)`。`id = "../outside"` 会解析到 `root/../outside.jsonl`。`SessionStore` 是公开接口，不应假定所有调用都经过 `Log.append`；计划也明确要求日志与两种存储共同检查会话 id 以防路径穿越。
+- **为什么是问题**：调用方只要拿到 JSONL store，就能让 `append` 修改 root 外已有文件，或让 `repair` 对该文件执行 `truncate`。这绕过了会话文件归属和 JSONL root 边界；即使正常 `Log` 当前传入的是合法 id，也不能用内部调用路径替代公开存储边界的校验。
+- **如何核实**：运行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-impl/lab/jsonl-id-path.ts`。输出 `{"result":{"ok":true},"escapedFileContainsEntry":true,...}`；实验在 `root/../outside.jsonl` 预先写入会话头，再直接调用 `store.append("../outside", [entry])`，真实文件被追加。
+- **建议改法**：`append`、`repair` 与其它按 id 定位文件的 store 操作统一先校验 `isValidSessionId`，非法 id 返回 `invalid-session-id`；内存 store 的同名操作也保持同一失败语义。为直接调用 `SessionStore` 的非法 id、`../`、绝对路径各加真实文件测试。
+
+### 2. 重要｜正确性／不变量：重开只做单行形状校验，不校验跨条目的 id、parentId 与 interaction 关系，损坏会话被当作可写会话接受
+
+- **位置**：`packages/nb-harness/src/session/jsonl/jsonl.ts:55-68`、`packages/nb-harness/src/session/entries.ts:259-265`、`packages/nb-harness/src/session/log.ts:39-47,221-227`；内存存储对应 `packages/nb-harness/src/session/memory-store.ts:21-28`。
+- **现象**：`parseSession` 对每一行只调用 `storedEntryProblem`，而 `storedEntryProblem` 只检查 `EntryBase` 和 `shapeProblem`，没有用上下文逐条调用 `relationProblem`，也没有检查 id 唯一、`parentId` 是否指向上一条。`Log` 构造函数随后只 `indexEntry`，不会重新拒绝这些序列。
+- **为什么是问题**：Spec 输出 2 要求会话内 id 唯一、parentId 按链连接；输入与前置条件还要求 interaction 的 request/response 次序和 request 指向已有助手工具调用；输出 7 要求不符合条目规则的完整行以 `corrupt-session` 打开失败。当前文件可以包含“只有 response、没有 request”的 interaction，重开后仍返回成功，后续回放/恢复在错误历史上继续运行，破坏事件溯源和恢复边界。
+- **如何核实**：运行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-impl/lab/open-relations.ts`。输出 `{"ok":true,"entries":1,"status":"accepted"}`；文件是合法 JSONL，唯一条目是无 request 的 response-only interaction，按合同应为 `corrupt-session`。同样的缺口也接受重复 id 和断开的 parent 链。
+- **建议改法**：打开时维护与追加相同的 `EntryContext`，按文件顺序检查每条完整条目的 id/parent 链、shape 和 `relationProblem`；第一处失败返回 `corrupt-session` 与行号。内存 store 若允许自定义实现返回历史，也应由 `openSession` 做同一轮接管校验，而不是依赖存储自觉。
+
+### 3. 重要｜不变量：公开的 `SessionLog.header` 是可变对象，修改其 id 会把句柄的身份与存储身份分离
+
+- **位置**：`packages/nb-harness/src/session/log.ts:28-46,208-218`；公开类型 `packages/nb-harness/src/session/types.ts:45-50`。
+- **现象**：`SessionLog.header` 的属性是 `readonly`，但 `SessionHeader` 的字段不是只读，`Log` 也没有复制或冻结 header。调用方可以直接写 `log.header.id = "other"`；后续 `append` 使用被改写的 `this.header.id` 作为 store key。
+- **为什么是问题**：这是 TypeScript 公共 API 可以直接编译通过的突变，不是只能靠 `as any` 绕过类型系统。一次普通的 header 读取后修改就会让真实会话句柄向另一 id 写入：内存 store 返回 `store-failed`，JSONL store 会打开另一文件；句柄的 `header.id`、已读条目、文件身份不再一致。
+- **如何核实**：运行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-impl/lab/header-mutation.ts`。输出 `{"result":{"ok":false,"code":"store-failed","detail":"会话不存在：other"},...}`，原 `header-mut` 仍无条目。
+- **建议改法**：句柄接管 header 时深复制并冻结；公开类型同步暴露 `Readonly<SessionHeader>`，内部另持有不可变 id，所有 store 操作使用该固定 id，不从可变公开对象重新读取。
+
+### 4. 重要｜正确性：JSONL 追加忽略 `FileHandle.write` 的实际写入字节数，短写可能被报告为成功
+
+- **位置**：`packages/nb-harness/src/session/jsonl/jsonl.ts:112-125`，尤其第 119 行。
+- **现象**：代码在 `r+` 文件句柄上计算末尾偏移后调用一次 `await handle.write(text, size, "utf8")`，完全丢弃返回的 `bytesWritten`。`FileHandle.write` 的 API 返回实际写入字节数；实现没有循环处理短写，也没有在字节数不足时返回 `store-failed`。
+- **为什么是问题**：只要底层一次定位写返回 `bytesWritten < text` 的 UTF-8 字节长度而未抛错，store 就返回成功，`Log` 随即把整批条目换入内存并通知订阅者，但文件只保存了前缀。重开时会出现中断尾或损坏行，违反“成功追加后可重开读回”和“订阅者收到的条目已经写入存储”。
+- **如何核实**：代码核查 `node_modules/@types/node/fs/promises.d.ts:487-528` 可见 `FileHandle.write` 明确返回 `bytesWritten`；当前实现 `jsonl.ts:119` 未读取该字段。用能返回短写的真实文件系统/文件句柄场景验证时，期望追加结果立即暴露 `store-failed`，当前代码路径不会检查。
+- **建议改法**：把待写内容转为 Buffer，循环以当前位置和剩余切片调用定位写，直到全部字节写完；遇到短写为 0 或异常立即返回 `store-failed`，不要提交句柄内存状态。新增验证写入字节数不足后的文件内容、返回码、重开结果。
+
+### 5. 重要｜正确性：JSONL 以 UTF-8 解码时把非法字节替换成 `�`，完整损坏行因此被接受并改写语义
+
+- **位置**：`packages/nb-harness/src/session/jsonl/jsonl.ts:31-35,38-68`。
+- **现象**：`splitLines` 在原始 Buffer 中找换行后直接调用 `toString("utf8")`。Node/Bun 对非法 UTF-8 默认插入替换字符；之后 `JSON.parse` 与条目 schema 校验都能成功。文件声明为 UTF-8，但实现没有检测解码错误。
+- **为什么是问题**：一个完整行的原始字节不是合法 UTF-8 时，Spec 的 JSONL 内容已损坏，应走 `corrupt-session`，而不是把文件中的一个字节静默变成另一个字符串后返回成功。调用方随后追加会把这份已改变语义的历史继续作为可信日志使用。
+- **如何核实**：运行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-impl/lab/jsonl-invalid-utf8.ts`。实验在合法 JSON 字符串中放入单个原始 `0xff`，输出却为 `{"ok":true,...,"title":"�"}`。
+- **建议改法**：先用严格 UTF-8 解码器（`TextDecoder("utf-8", {fatal: true})`）验证完整前缀字节；解码失败返回带行号的 `corrupt-session`。中断尾仍按原始字节报告和截断。
+
+### 6. 重要｜正确性：`async onEnd` 的 rejection 没有被接住，会产生未处理拒绝
+
+- **位置**：`packages/nb-harness/src/session/log.ts:188-196`。
+- **现象**：`end` 只用同步 `try/catch` 调用 `subscriber.onEnd?.(reason)`。公开回调返回类型是 `void`，但 TypeScript 允许 async 函数赋给该回调；异步函数在 `await` 后抛错只会返回 rejected Promise，当前代码既不识别 thenable，也不安装 rejection handler。
+- **为什么是问题**：关闭或损坏是日志正常的收口路径，订阅者的异步清理失败不应升级成进程级 `unhandledRejection`，也不应影响其它订阅的结束通知。当前行为使调用方在 `close()` 已返回后仍收到未处理拒绝；现有测试只覆盖同步 `onEnd` 抛错，不能锁住该边界。
+- **如何核实**：运行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-impl/lab/async-onend.ts`。输出 `{"unhandled":"async onEnd failed"}`。
+- **建议改法**：保留同步结束时序，但捕获 `onEnd` 返回的 thenable 并安装 rejection handler；异步失败按回调隔离规则记录诊断而不再次调用 `onEnd`、不传播到 append/close。补充 async `onEnd` rejection 与其它订阅仍正常结束的真实测试。
+
+### 7. 重要｜正确性：分页没有截断根级 `custom.data` 与 `custom_message.details` 字符串
+
+- **位置**：`packages/nb-harness/src/session/paging.ts:74-87,132-137`。
+- **现象**：`trimDeep` 只有遇到数组或对象才递归，根值本身是字符串时直接返回。`trimEntry` 对 `custom.data`、`custom_message.details` 直接调用 `trimDeep`，所以这两个 JsonValue 位置如果本身就是长字符串，不会应用 `fieldBudget`，也不会进入 `trimmed`。
+- **为什么是问题**：输出 21 要求 `custom_message` 的 `details` 与 `custom` 的 `data` 中任意深度的字符串都按 UTF-8 budget 截断；根值是深度 0，仍在合同范围内。分页结果因此可以带回超过预算的字段，页面/传输层无法依赖 `fieldBudget` 控制单字段大小。
+- **如何核实**：运行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-impl/lab/paging-root-trim.ts`。`fieldBudget: 3` 时 `custom.data` 仍是 6 字节的 `"汉字"` 且 `trimmed: []`；`details` 同样未截断，只有 `custom_message.content` 被正确截断。
+- **建议改法**：将递归函数改为返回/写入一个根值，或在调用点对根级字符串单独走 `trimString`；为 `data`、`details` 分别补根字符串、嵌套字符串和图片边界测试。
+
+### 8. 重要｜正确性／OMP 兼容：同一窗口内重复的工具调用 id 被 Set 合并，回放漏删无结果的调用，收口也漏补结果
+
+- **位置**：`packages/nb-harness/src/session/replay.ts:123-133,236-238`。
+- **现象**：同一助手消息包含两个 `id: "call_0"` 的工具调用、窗口里只有一个 `call_0` 结果时，追加成功；`callIds` 与 `paired` 按 id 去重，回放判定全部配对，保留两个调用。`planRecovery` 同样以 `answered` 的 Set 判定，返回 0 条结果。输入合同未要求同一消息内工具调用 id 唯一，OMP 本身支持按出现次序规范化重复 id。
+- **为什么是问题**：输出 12、16 要求每个调用在自己的窗口里有结果，无结果调用应去掉或收口。真实 OMP provider 请求把第二个 id 改为 `call_0_dup1` 并补出 `No result provided`；模型因此看到模块承诺不会留下的合成结果。即使两个调用各已有一个同 id 结果，当前逻辑也会丢掉第二个真实结果。
+- **如何核实**：运行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-impl/lab/replay-duplicate-call.ts`。输出 `accepted: true`、`replayedCalls: ["call_0","call_0"]`、`recoveryResults: []`；真实 OMP `Agent` 使用默认 provider 构造路径，在 `onPayload` 网络发送前捕获的 wire 含 `{"role":"tool","content":"No result provided","tool_call_id":"call_0_dup1"}`，未联网、未调用真实模型。
+- **建议改法**：窗口配对按调用／结果的出现次数 FIFO 消费，而不是 Set 成员关系；回放和恢复共用这个配对结果。补充同窗重复 id 的零结果、一个结果、两个结果场景，并断言真实 OMP provider payload 不含合成结果。
+
+### 9. 重要｜正确性／恢复不变量：收口结果统一追加到末尾，无法配回已关闭的调用窗口，待处理会话每次恢复都会重复补同一结果
+
+- **位置**：`packages/nb-harness/src/session/replay.ts:233-245,248-250`，窗口边界在 `replay.ts:83-98`。
+- **现象**：同一未结束 invocation 的合法条目序列包含旧窗口的无结果 `c1`，后续用户消息关闭它，新助手窗口的 `c2` 正等待审批。`planRecovery` 返回 `c1` 结果与 `waiting`；经公开 `append` 追加后，该 `c1` 结果落在 `c2` 窗口里，旧窗口仍被判为未配对。第二、第三次调用都再次返回 `c1` 结果，且回放删除全部这些结果。
+- **为什么是问题**：输出 16 与“时序与寿命”要求对任意条目序列计算收口计划，追加之后重算不再重复结果、待处理事项保持不变。当前行为使恢复循环持续扩张日志，却没有使旧调用获得可回放的结果；调用方按合同执行收口仍不能收敛。已有 `replay.test.ts:101-110` 只验证旧窗口会产出结果，未验证追加后它是否真正配对和幂等。
+- **如何核实**：运行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-impl/lab/recovery-older-window.ts`。全部历史经真实内存 store 的公开 `append` 校验、关闭重开；连续三次“计划→追加”输出 `rounds: [["toolResult:c1","waiting"],["toolResult:c1"],["toolResult:c1"]]`、`c1ResultsInLog: 3`、`replayedCalls: []`，`pending` 始终只有 `c2`。真实 OMP `Agent` 的 provider payload 也只剩用户消息，没有这三份收口结果。该实验验证的是 session 接受的合同序列，没有声称 OMP 自身产生了这个历史时序。
+- **建议改法**：统一明确旧窗口收口的持久化身份和读取规则，让追加到末尾的恢复记录可关联原助手条目；若坚持工具结果只能靠位置配对，则必须先在合同中收紧为仅可恢复末尾窗口，并明确较早未配对调用的处理。无论选哪种合同，增加多窗口、有 pending、部分收口后的“计划→追加→重算→回放”测试，不能只断言首次计划。
+
+### 10. 重要｜正确性／输入校验：判别表读取继承属性，`__proto__`、`constructor`、`toString` 被当作合法条目类型接受
+
+- **位置**：`packages/nb-harness/src/session/entries.ts:43-54,58-79`，尤其 `schemas[tag]`（第 75 行）。
+- **现象**：`ENTRY_SCHEMAS` 与 `MESSAGE_SCHEMAS` 是带 `Object.prototype` 的普通对象。`variantProblem` 只检查读取的结果是否为 `undefined`，`type: "__proto__"`、`"constructor"`、`"toString"` 命中继承属性；TypeBox 对这些并非 schema 的值没有报告失败，公开 `append` 将它们补全并写入。JSONL `openSession` 同样接受这些完整行。
+- **为什么是问题**：输出 3 要求不认识的条目类型整批返回 `invalid-entry`，输出 7 要求这类完整损坏行返回 `corrupt-session`。当前校验可让不属于 `SessionEntry` 联合类型的值进入已冻结历史，后续消费者只能按不真实的类型承诺工作。此前测试只选 `nope`、`system` 这类没有原型成员的判别值，漏掉这条公开输入边界。
+- **如何核实**：运行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-impl/lab/entries-prototype-tag.ts`。真实内存 store 的三次 `append` 均返回 `ok: true`，真实 JSONL 中三种非法 `type` 的 `openSession` 也均成功；没有调用私有校验函数。
+- **建议改法**：判别表使用 `Map`，或仅在 `Object.hasOwn(schemas, tag)` 为真时读取；条目和消息角色共用同一保护。为所有 `Object.prototype` 成员名添加外部输入拒绝与损坏行测试。
+
+### 既有第 4 条的补充核实（保留原记录）
+
+- **真实运行时实验**：`prlimit --fsize=1024:1024 bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-impl/lab/jsonl-short-write.ts`。进程仅对 lab 中自己的普通 JSONL 文件设置 `RLIMIT_FSIZE`，没有替换／模拟 `FileHandle`。
+- **结果**：`{"appendOk":true,"failure":null,"sizeBefore":91,"sizeAfter":1024,"endsWithNewline":false,"seqs":[1],"reopened":{"ok":true,"entries":0,"damagedTail":{"bytes":933}}}`。实际 Bun 定位写在只写出 933 字节时成功返回；句柄却报告整条追加成功并推送 `seq: 1`，关闭重开只能读到会话头与 933 字节中断尾。第 4 条由 API／源码推断补为真实 Bun＋Linux 文件系统已验证，严重程度仍为重要。
+
+## 未发现问题的方面
+
+（核查进行中。）
+
+## 数量
+
+- 阻断：0
+- 重要：7
+- 建议：0

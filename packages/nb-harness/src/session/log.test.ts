@@ -86,6 +86,12 @@ describe("条目校验（输入与前置条件）", () => {
     test("message 的角色只能是 user、developer、assistant、toolResult；content 的块类型与 OMP 的必填字段按角色检查", async () => {
         const log = await fresh();
         expect((await rejection(log, [{type: "message", message: {role: "system", content: "x"} as never}])).detail).toContain("role");
+        // 判别值是 Object.prototype 的成员名时也要拒绝，不能读到继承属性
+        for (const tag of ["__proto__", "constructor", "toString"]) {
+            expect((await rejection(log, [{type: "message", message: {role: tag, content: "x", timestamp: 1} as never}])).detail).toContain("role");
+            expect((await rejection(log, [{type: tag, data: {}} as never])).detail).toContain("type");
+            expect((await rejection(log, [{type: "custom", customType: `harness/${tag}`, data: {}}])).detail).toContain("customType");
+        }
         expect((await rejection(log, [{type: "message", message: {role: "user", content: [{type: "toolCall", id: "c", name: "n", arguments: {}}], timestamp: 1} as never}])).detail).toContain("content");
         expect((await rejection(log, [{type: "message", message: {role: "user", content: "没有时间戳"} as never}])).detail).toContain("timestamp");
         const complete = assistantMessage([{type: "text", text: "好的"}]);
