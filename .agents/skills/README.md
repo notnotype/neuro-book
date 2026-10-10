@@ -10,7 +10,7 @@ current Work/Task 以 [工作入口](../works/AGENTS.md) 为准，legacy provena
 - [task-reflection](task-reflection/SKILL.md)：把意外、用户纠正或新规范整理成回写建议，经开发者批准后写入对应真相源；目标位置由领域 Skill 指定。
 - [implementation-planning](implementation-planning/SKILL.md)：实现非平凡 Task 前写实施计划（plan.md），交开发者确认后再实施。
 - [reviewing](reviewing/SKILL.md)：审查设计稿或一段实现；默认请另一个模型独立审查，可交叉审查，逐条核实后再修改。
-- [autonomous-delivery](autonomous-delivery/SKILL.md)：只在开发者显式指定时用：开发者不在场时按“计划 → 三方审查 → 实施 → 三方审查 → 下一步”自主推进 Work，待确认的点记账事后追认。
+- [autonomous-delivery](autonomous-delivery/SKILL.md)：只在开发者显式指定时用：开发者不在场时按“计划 → omp 审查 → 实施 → omp 审查 → 下一步”自主推进 Work，待确认的点记账事后追认。
 - [writing-specs](writing-specs/SKILL.md)：新建或修改 Spec：能力边界、先列假设、黑盒合同与交互时序、编号验收、实现合同与证据。
 
 新增或修改 Skill 时：`name` 保持稳定；`description` 简述用途与触发条件，供宿主发现，不罗列同义触发词抢占其它 Skill；参数型入口用 `argument-hint` 说明参数。`disable-model-invocation: true` 只关闭模型自动调用，不限制文件读取。只有独立触发用途值得长期维护时才新建 Skill，共享参考能放进已有文件就复用。
