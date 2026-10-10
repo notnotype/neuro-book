@@ -160,12 +160,26 @@ owners:
 | `nbook.view.toggle-panel-maximized` | 最大化/还原面板 / Maximize or Restore Panel | `{}` | `nbook.workbench/panelMaximizable`、`nbook.workbench/nonCompact` | write | never |
 | `nbook.view.move-view` | 移动视图 / Move View | `{viewId, sourceContainerId, targetContainerId}` 或 `{viewId, sourceContainerId, newContainerIn}`（`sidebar`\|`auxiliarybar`\|`panel`），或全部省略；省略时经选择先选视图、再选目标 | `nbook.workbench/layoutReady` | write | never |
 | `nbook.view.refresh-files` | 刷新文件 / Refresh Files | `{viewId, generation}`（精确实例代际） | 该实例贡献了 refresh 动作 | read | never |
+| `nbook.view.set-part-hidden`（planned） | 切换区域显隐 / Toggle Area Visibility | `{part?, hidden?}`（`part`：`sidebar`\|`auxiliarybar`\|`activitybar`；`hidden` 布尔）；`part` 省略时经选择列出三个区域并标出可见与否，`hidden` 省略时按可见切换 | `nbook.workbench/layoutReady` | write | never |
 
 - 参数一律严格校验（`additionalProperties: false`）：多余字段、未知取值都是 `invalid-args`，不静默补齐；四条面板命令的参数可以省略（命令面板对普通候选执行 `{}`，与设置命令同一写法），选择被取消为成功且不写。
+- `set-part-hidden` 的“可见”指未隐藏且未拖到零；“显示”同时清掉这两位，按记忆尺寸回来（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 32）。
 - 前六条写的是**同一份用户定制记录**（面板状态）或既有移动写入路径；尺寸（高度/宽度）不在这里写，只由手势落点提交，避免两个写者。
 - `move-view` 的目标是除来源外的已有容器，或 `newContainerIn` 指定的 ToolPart 里新建的自建容器（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 24；自建容器的身份在这次执行接纳时生成一次）。`targetContainerId` 与 `newContainerIn` 互斥，同时给或只给一部分参数为 `invalid-args`；视图不存在、不可移动或目标容器不存在为 `invalid-args`；视图已不在 `sourceContainerId`（菜单或选择过期）为 `stale-target` 且零写入；目标就是当前容器为成功且不写。无参的两步选择之间视图被移走，同样按过期拒绝。
 - `refresh-files` 是 View 贡献动作的样例：命令只携带 `{viewId, generation}`，命中句柄与代际校验归宿主；活动 View 或实例代际变化后的迟到点击按 `stale-target` 拒绝。视图标题动作这一触发面做出来之前，资源管理器视图内的工具栏按钮带本实例的视图 id 与代次调用它。
 - 面板命令返回时布局已按新值显示；保存在后台进行，失败由状态栏的“布局未保存”给出（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 11），命令不等保存完成、也不把“已接纳”说成“已保存”。
+
+### 命令目录（应用）（planned）
+
+由 `nbook.workbench` 的浏览器入口贡献，标题栏的应用菜单引用它们（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 29）。两条都经宿主的整页导航能力执行，命令结果只说明请求已经发出。
+
+| 命令 id | 标题 | 参数 | `when` | `effect` | agent 暴露 |
+|---|---|---|---|---|---|
+| `nbook.app.reload` | 重新载入 / Reload | `{}` | 无 | read | never（整页重新加载会打断 Agent 所在的窗口） |
+| `nbook.help.documentation` | 文档 / Documentation | `{}` | 无 | read | never（新标签页只对人有用） |
+
+- 重新载入沿用页面已有的离开保护：编辑器有未保存的正文时浏览器先问，用户取消则留在原页面，正文不变。重新载入保持当前地址，项目参数不变。
+- 文档在新标签页打开 NeuroBook 用户文档站（地址是 `nbook.workbench` 的常量）；新标签被浏览器拦截时命令以 `unavailable` 结束，原因说明被拦截。
 
 ### 命令目录（资源管理器）
 
@@ -221,9 +235,25 @@ owners:
 
 `Mod` 在 macOS 上是 Cmd，其它平台是 Ctrl。浏览器不可拦截或与宿主冲突的系统组合不注册；控件局部按键（对话框 Escape、列表导航、编辑器内部按键）不属于本能力。`Ctrl/Cmd+P` 文件快速打开不在本批。
 
+**快捷键的显示**（planned）：命令面板、应用菜单与标题栏的命令搜索按钮显示同一种写法，取命令声明的 `keybinding`，按平台写出：macOS 用 `⌃⌥⇧⌘` 符号并按这个次序（`Mod+Shift+P` 写作 `⇧⌘P`），其它平台写 `Ctrl+Shift+P`。只显示命令声明的键位；编辑器区、资源管理器树这类局部按键不冒充全局键位。
+
 ### 兼容与安全
 
-- 与桌面菜单契约：15 个既有 id 将来以别名兼容；本批只实现别名机制，不接线、不出现双轨。
+- 与桌面菜单契约：旧桌面菜单的 15 个 id 不接别名，各自的去向如下（planned，随外壳四的应用菜单）：
+
+  | 旧 id | 去向 |
+  |---|---|
+  | `file.open` | 不画：没有“选一个文件打开”的无参命令，留待文件快速打开 |
+  | `file.settings` | 不画：留待设置页面 |
+  | `file.quit` | 浏览器不画：只属于桌面宿主 |
+  | `edit.undo`、`edit.redo` | 菜单用 canonical 的 `nbook.edit.undo`、`nbook.edit.redo` |
+  | `edit.cut`、`edit.copy`、`edit.select-all` | 不画：用快捷键，不为它们新造命令 |
+  | `edit.paste` | 浏览器不画：页面不能代替用户读剪贴板 |
+  | `view.reload` | 菜单用 `nbook.app.reload` |
+  | `view.zoom-in`、`view.zoom-out`、`view.zoom-reset` | 浏览器不画：只属于桌面宿主 |
+  | `help.documentation` | 菜单用 `nbook.help.documentation` |
+  | `help.about` | 不画：留待关于页 |
+
 - 与组件标准：纯组件不直接触达命令表；命令作用于域 / 宿主层，组件通过事件或注入端口参与。
 - 白名单：只有已登记的命令（含别名目标）可执行。
 - 参数校验：外部与键位来源的参数在进入执行前校验，不轻信输入。
@@ -247,6 +277,8 @@ owners:
 14. **两个窗口的状态不同**：Given 两个窗口都有一条 `when` 引用某插件布尔公开键的命令，只在一个窗口里该键为 true；Then 各自的命令面板只在那一个窗口列出它；服务端经 `nbook.commands/remote` 分别问两个窗口，得到的可用性各按那个窗口此刻的状态；对另一个窗口执行为 `unavailable`、不执行。
 15. **懒激活插件的键**：Given 命令的 `when` 引用一个懒激活插件声明的键；Then 命令登记成功；入口未激活时不可执行并给出声明的原因；激活后按值求值；入口停止后回到不可用。
 16. **未声明的键**：Given 命令的 `when` 引用一个没有任何插件声明的键（或非布尔键）；Then 命令登记成功、出现在枚举里，但不可用，面板不列出、执行为 `unavailable`，原因写明那个键；同一命令同一个键只记一次诊断；Lab 的本地命令表同样如此。
+17. **快捷键的显示**（planned）：Given 声明 `Mod+Shift+P` 的命令；When 在 Windows 或 Linux 与 macOS 上看命令面板候选、应用菜单与命令搜索按钮；Then 三处都写 `Ctrl+Shift+P` 或 `⇧⌘P`，与实际按下能触发的组合一致。
+18. **省参的区域显隐**（planned）：Given 产品页；When 从命令面板执行“切换区域显隐”；Then 先列出侧栏、右栏、活动栏并标出可见与否，选中后切换，取消不写入；带 `{part}` 时直接切换。
 
 ## 实现合同
 

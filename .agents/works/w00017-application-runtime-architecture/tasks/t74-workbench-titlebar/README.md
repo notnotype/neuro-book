@@ -56,3 +56,8 @@ omp 审查（报告在 [t73 证据](../t73-lab-nb-ui-and-storage/evidences/desig
   - Part 的可见性定义与公开键（P6）；条目的公开键与溢出预算（P8、P11）；宽度三档，任何宽度都保留菜单入口（P10）；
   - 跳到行不接（P9）；光标位置只在源码编辑器显示，另加字数条目（P12）；快捷键按平台格式化（P13）。
   - 产品取舍登记在 [待开发者确认](../../pending-confirmations.md)。
+- 2026-10-10 S0 完成（Spec，新增条目都标“planned”）：
+  - `ui/workbench-shell.md`：新增“外壳四”输出 28–35（标题栏结构、应用菜单的能力模型与条目表、宽度三档、菜单键盘与焦点、Part 可见与 `set-part-hidden`、三个可见性公开键、条目贡献点、溢出、状态栏布局），验收 32–39；非目标改为只剩桌面窗口控制。
+  - `workbench/commands.md`：`set-part-hidden`、应用命令 `nbook.app.reload` 与 `nbook.help.documentation`、快捷键的显示、旧桌面 15 个 id 的去向；验收 17、18。
+  - `workbench/editor.md`：两个公开键、三个状态栏条目（输出 26–28，字数算法与光标坐标）；验收 12–14。
+  - `runtime/browser-host.md`：`windowNavigationKey` 的 `reloadDocument`、`openExternal`。

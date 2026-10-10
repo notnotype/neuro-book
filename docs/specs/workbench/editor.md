@@ -15,7 +15,7 @@ owners:
 
 不承诺：
 
-- 拖动标签换组、拖到边缘拆分、固定标签与多行标签条（随编辑器拖放另行交付）；面包屑、编辑器工具栏、状态栏的文档项。
+- 拖动标签换组、拖到边缘拆分、固定标签与多行标签条（随编辑器拖放另行交付）；面包屑、编辑器工具栏（状态栏的文档项见输出 26–28）。
 - 自动保存；未保存的修改跨页面刷新保留。
 - Markdown 富文本里的批注侧栏、选区浮动菜单、斜杠命令、Agent 与 AI 引用、工作区引用标签、frontmatter 面板（这些语法在正文里原样保留，见输出 19）。
 - 差异比较界面；跨文件撤销；同一文档在两个组里共享撤销历史。
@@ -54,7 +54,7 @@ owners:
   | `nbook.editor.reopen-with` | `{editor?}`（不给时换成另一种） | `active` | read | auto | — |
 
   `when` 列写 `nbook.editor/` 下的公开键名。`revert` 丢弃未保存修改，对 Agent 不开放。键位只在编辑器区有焦点时由编辑器区处理并执行同一命令，不写成全局键位，`when` 也不含焦点：命令面板取得焦点时这些命令仍可选。第一批的 `nbook.editor.focus`、`nbook.edit.undo`、`nbook.edit.redo`、`nbook.editor.go-to-line` 由本插件登记，`when` 改用下面的公开键，其余声明不变。
-- 公开状态（布尔）：`nbook.editor/focused`（编辑区获得焦点）、`nbook.editor/active`（有活动视图）、`nbook.editor/writable`（活动视图可写）、`nbook.editor/lineNavigation`（活动视图支持行导航）、`nbook.editor/dirty`（活动文档 dirty），对应命令目录第一批的 `editor-focus`、`editor-active`、`editor-writable`、`editor-line-navigation`。
+- 公开状态（布尔）：`nbook.editor/focused`（编辑区获得焦点）、`nbook.editor/active`（有活动视图）、`nbook.editor/writable`（活动视图可写）、`nbook.editor/lineNavigation`（活动视图支持行导航）、`nbook.editor/dirty`（活动文档 dirty）、`nbook.editor/hasUnsavedDocuments`（本窗口有任一打开的文档需要保存，按文档去重；planned）、`nbook.editor/hasCursorPosition`（活动控件给出光标位置；planned），前四个对应命令目录第一批的 `editor-focus`、`editor-active`、`editor-writable`、`editor-line-navigation`。
 - 文档协调服务 `documentCoordinatorKey`（`nbook.editor` 的共享合同），资源管理器作为可选依赖使用：
 
   ```ts
@@ -121,6 +121,20 @@ owners:
 24. 移动、拖动与改名提交前取得租约：视图输入结算、在途保存完成、新的保存排队；有未裁决输入或磁盘冲突的文档时不提交并说明。剪贴板或拖动冻结的源身份经 `translate` 换成本窗口保存后的身份：剪切后保存再粘贴照常移动，外部替换仍为 `source-changed`。成功项按第 17 条改地址，失败项不动；结果未知时租约保持，资源管理器核对或放弃后才释放。
 25. 删除确认列出将丢失未保存修改的文档；删除成功的项关闭标签、丢弃正文（第 18 条只适用于其它来源的删除）。
 
+**状态栏条目**（planned）
+
+编辑器插件向 `workbench.statusbar-items` 贡献下面三个条目，都在右侧（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 33–35）：
+
+| id | 文字 | `when` | 点击 | order | priority |
+|---|---|---|---|---|---|
+| `nbook.editor.unsaved` | 未保存 N 个 | `nbook.editor/hasUnsavedDocuments` | `nbook.editor.save-all` | 10 | 30 |
+| `nbook.editor.word-count` | 活动文档的字数，例如“1,234 字” | `nbook.editor/active` | 无 | 20 | 20 |
+| `nbook.editor.cursor` | 第 L 行，第 C 列 | `nbook.editor/hasCursorPosition` | 无 | 30 | 10 |
+
+26. 未保存数按文档计（同一文件在几个组里打开只算一个），含非活动的文档；“需要保存”与第 4 条询问的判据相同（dirty、未裁决输入）。提示列出至多 5 个文件；有文档正在保存时写“正在保存”；有保存失败的文档时条目为 `error` 状态，提示列出失败的文件与原因。点击执行全部保存。
+27. 字数取活动文档当前正文：汉字、假名、谚文每字计 1，连续的拉丁字母与数字（中间可夹 `'`、`’`、`-`）计 1 个词，标点、空白与 Markdown 标记不计，开头的 YAML frontmatter 不计。正文变化后在下一帧更新。书架的作品统计用同一套算法（[`runtime.projects`](../runtime/projects.md)）。
+28. 光标位置只由源码编辑器给出：选区活动端的行号与列号，都从 1 起，列按源码编辑器的列计（制表符计 1）。Markdown 富文本编辑器不给出位置：富文本里的段落位置与源文件的行号不同（frontmatter 与写出时的格式都会改变行数），条目在它活动时不显示。控件换文档或卸载时位置随之撤回。
+
 ## 状态与转换
 
 | 文档状态 | 进入 | 离开 |
@@ -175,6 +189,9 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 9. Given Monaco 与富文本各打开 A、B，When A 输入、切 B 输入、回 A 撤销与重做，Then 只作用于 A。
 10. Given 一个 dirty 文档，When 服务端重启，Then 终态页列出该文件与可复制的正文。
 11. Given 保存成功，When 另一窗口打开同一文件，Then 看到新正文。
+12. Given 两个组打开同一份 dirty 文档、另有一份非活动的 dirty 文档（planned），When 读状态栏，Then 写“未保存 2 个”；点击后两份都保存、条目消失；一份保存失败时条目为错误状态，提示写明失败的文件与原因。
+13. Given 一个 Markdown 文档（planned），When 输入中文与英文，Then 字数条目按第 27 条计数并随输入更新；frontmatter 里的字不计。
+14. Given 源码编辑器与 Markdown 编辑器各打开一个文档（planned），When 在两者之间切换，Then 光标位置只在源码编辑器活动时出现，移动光标后行列随之更新；两个窗口的状态栏各自显示自己的数据。
 
 Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。
 
