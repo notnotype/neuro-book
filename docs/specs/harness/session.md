@@ -32,6 +32,8 @@ owners:
 - **日志句柄**：打开或新建一个会话得到的对象，持有该会话已读回与已写入的全部条目。
 - **回放**：从条目序列计算派生状态的纯函数；同样的条目序列总得到同样的结果。
 - **存储**：持久化会话的接口；本模块附内存存储与 JSONL 存储。
+- **调用窗口**：一条助手 `message` 条目，加上它之后、下一条助手或用户 `message` 之前的全部 `toolResult` 消息。工具结果只与同一窗口里助手消息中 id 相同的工具调用配对；不同窗口里 id 相同的工具调用互不相干。
+- **未结束的调用**：最后一个 `invocation` 的最后阶段为 `start`、`resumed` 或 `waiting`；它的**范围**是该调用最后一个 `start` 或 `resumed` 条目之后的条目。
 
 ## 输入与前置条件
 
@@ -45,8 +47,8 @@ type SessionEntry = EntryBase & (
     | {type: "message"; message: AgentMessage}
     | {type: "custom_message"; customType: string; content: string | MessageContent[]; display: boolean}
     | {type: "invocation"; invocationId: string; phase: InvocationPhase; detail?: JsonValue}
-    | {type: "interaction"; interactionId: string; toolCallId: string; kind: "approval" | "question"; phase: "request" | "response";
-       request?: {toolName: string; tier?: "read" | "write" | "exec"; data?: JsonValue};
+    | {type: "interaction"; interactionId: string; kind: "approval" | "question"; phase: "request" | "response";
+       request?: {assistantEntryId: string; toolCallId: string; toolName: string; tier?: "read" | "write" | "exec"; data?: JsonValue};
        response?: {decision: "approve" | "reject" | "answer"; scope?: "once" | "session"; decidedBy: "user" | "approver"; note?: string; data?: JsonValue}}
     | {type: "model_change"; model?: string; role?: string; thinkingLevel?: string}
     | {type: "title_change"; title: string; source: "auto" | "user"}
@@ -63,7 +65,7 @@ type EntryInput = 去掉 id、parentId、timestamp 后的 SessionEntry;
 | 会话 id | 1–128 个字符，`[A-Za-z0-9._-]`；新建时不给出则由日志生成 |
 | `message.message.role` | `user`、`assistant` 或 `toolResult` |
 | `customType` | `<命名空间>/<名称>`：命名空间以 `[a-z0-9]` 开头、由 `[a-z0-9.-]` 组成，名称以 `[a-z0-9]` 开头、由 `[a-z0-9._-]` 组成；命名空间 `harness` 留给本包 |
-| `interaction` | `phase: "request"` 必须有 `request`、不得有 `response`；`"response"` 反之。同一 `interactionId` 至多一个 request、至多一个 response，response 在 request 之后 |
+| `interaction` | `phase: "request"` 必须有 `request`、不得有 `response`；`"response"` 反之。同一 `interactionId` 至多一个 request、至多一个 response，response 在 request 之后。`request.assistantEntryId` 是含该工具调用的助手 `message` 条目的 id，与 `toolCallId` 一起确定是哪个窗口里的哪个调用 |
 | 值 | 整个条目必须能被 JSON 如实表示：没有 `undefined`、函数、`NaN`、`Infinity`、`bigint` 与循环引用；对象只含普通数据 |
 
 ### 接口
@@ -83,7 +85,7 @@ interface SessionLog {
     repair(): Promise<Result<{droppedBytes: number}>>;
     close(): void;
 }
-type LogEndReason = "closed" | "broken";
+type LogEndReason = "closed" | "broken" | "listener-error";
 
 // 回放（纯函数）
 buildModelContext(entries: readonly SessionEntry[]): AgentMessage[];
@@ -120,20 +122,30 @@ createJsonlSessionStore(options: {root: string}): SessionStore;
 6. **中断尾**：JSONL 文件末尾不以换行结束的部分是中断尾：`openSession` 照常返回之前的条目并在 `damagedTail` 报告字节数；有中断尾时 `append` 为 `damaged-tail`，`repair` 截掉中断尾后可以继续追加。没有中断尾时 `repair` 返回 `droppedBytes: 0`。
 7. **损坏的条目**：以换行结束、却不能解析或不符合条目规则的一行，`openSession` 为 `corrupt-session`，`detail` 给出行号；不截断、不改写文件。会话头缺失或无效同样为 `corrupt-session`。
 8. **版本**：会话头 `version` 不是 1 时为 `unsupported-version`，不改写文件。
-9. **订阅**：`subscribe` 先按序号补发 `afterSeq` 之后已有的条目（缺省 0，即全部），再按写入顺序推送之后成功追加的条目；每个条目对同一订阅只推一次。一个订阅者抛出的异常不影响其它订阅者与 `append` 的结果。`release` 后不再推送，也不调用 `onEnd`。
-10. **写入失败**：存储在 `append` 中失败（I/O 错误）时返回 `store-failed`，这批条目不进入 `entries`、不推送；句柄进入损坏状态：之后的 `append` 为 `log-broken`，订阅以 `onEnd("broken")` 结束。使用方重新打开会话，以文件中实际存在的内容为准。
+9. **订阅**：`subscribe` 先按序号补发 `afterSeq` 之后已有的条目（缺省 0，即全部），再按写入顺序推送之后成功追加的条目；每个条目对同一订阅只推一次。补发在 `subscribe` 返回前同步完成，之后的推送在对应 `append` 完成之前同步完成。
+    1. 监听函数抛出异常时，这个订阅立即以 `onEnd("listener-error")` 结束，不再收到后续条目；其它订阅与 `append` 的结果不受影响。
+    2. 监听函数里调用 `release`：本订阅从下一个条目起不再收到推送（同一批剩下的条目也不推），不调用 `onEnd`。
+    3. 监听函数里调用 `append`：新的追加排在当前追加之后执行（见“并发”），它的条目在当前这批全部推送完之后才推送。
+    4. 监听函数里调用 `close`：当前这批剩下的条目不再推送，所有订阅按输出 11 结束。
+    5. 在已关闭或已损坏的句柄上 `subscribe`：不补发，立即以 `onEnd("closed")` 或 `onEnd("broken")` 结束，返回的 `release` 没有效果。
+    6. `release` 后不再推送，也不调用 `onEnd`。
+10. **写入失败**：存储在 `append` 中失败（I/O 错误）时返回 `store-failed`，这批条目不进入 `entries`、不推送；句柄进入损坏状态：之后的 `append`、`repair` 为 `log-broken`，订阅以 `onEnd("broken")` 结束，只有 `close` 有效。恢复的唯一途径是用 `openSession` 重新打开：文件里可能已经有这批的前几条完整条目（重开后作为普通条目读回）、可能留下中断尾（按输出 6 先 `repair`），也可能整批都已写入。
 11. **关闭**：`close` 后 `append`、`repair` 为 `log-closed`，订阅以 `onEnd("closed")` 结束；重复 `close` 没有效果。
-12. **模型上下文**：`buildModelContext` 按序号取 `message` 与 `custom_message`（后者以用户消息出现在原位置），并：
-    1. 去掉 `stopReason` 为 `error` 或 `aborted` 的助手消息，以及对应其中工具调用的工具结果；
-    2. 去掉没有对应工具结果的工具调用块，但仍有未应答 `interaction` 的工具调用保留；去掉后没有内容的助手消息整条去掉；
-    3. 去掉找不到对应工具调用的工具结果。
-13. **会话状态**：`sessionStatus` 取最后一个 `invocation` 的 `invocationId`：其最后阶段为 `start` 或 `resumed` 时为 `running`，为 `waiting` 时为 `waiting`，其余或没有调用时为 `idle`；`pending` 列出有 request、没有 response 的 `interaction`（id、工具调用 id、kind、request），任何阶段都列出。
+12. **模型上下文**：`buildModelContext` 返回可以直接交给 OMP `Agent`（`replaceMessages`）的消息序列：其中每个工具调用都在自己的调用窗口里有工具结果，每个工具结果都配得上同一窗口里的一个工具调用。规则：
+    1. 按序号取 `message` 与 `custom_message`，后者以用户消息出现在原位置；
+    2. 去掉 `stopReason` 为 `error` 或 `aborted` 的助手消息，以及同一窗口里的工具结果；
+    3. 去掉在自己的窗口里没有工具结果的工具调用，包括还在等待审批的调用（等待中的事项由输出 13 报告，应答并写入结果之后才出现在模型上下文中）；
+    4. 被去掉工具调用的助手消息，同时去掉其中的 `redactedThinking` 块、清除 `thinking` 块的签名；去掉后没有内容的助手消息整条去掉；
+    5. 去掉在自己的窗口里配不上工具调用的工具结果。
+    按目标模型做的协议转换（工具 id 归一化、跨模型的思考块处理）不在本函数内，由 OMP 在每次请求时完成。
+13. **会话状态**：`sessionStatus` 的 `pending` 列出未结束的调用范围内有 request、没有 response 的 `interaction`（id、kind、request）；`phase` 在没有未结束的调用时为 `idle`，有未结束的调用且 `pending` 非空时为 `waiting`，有未结束的调用且 `pending` 为空时为 `running`；`invocationId` 是未结束的调用的 id。刚打开的会话处于 `running` 或 `waiting`，说明上次运行没有正常收口，调用方先用 `planRecovery` 收口。
 14. **会话设置**：`sessionSettings` 中模型、角色、思考档位取最后一个 `model_change` 的对应字段，标题取最后一个 `title_change`；`approvalGrants` 列出 `decision: "approve"`、`scope: "session"` 的应答所对应 request 的工具名与等级，按出现顺序去重。
 15. **自定义回放**：`fold(entries, defineProjection({initial, reduce}))` 从 `initial` 起按序号对每个条目调用一次 `reduce`，返回最终状态；不认识的条目类型由 `reduce` 自行跳过。
-16. **崩溃收口**：`planRecovery` 只计算、不写入，返回调用方应追加的条目：
-    1. 最后一条助手消息里，没有工具结果、也没有未应答 `interaction` 的工具调用，各返回一条 `toolResult` 消息（`isError` 为真，内容说明执行被中断、结果未知）；
-    2. 最后一个调用的最后阶段为 `start` 或 `resumed`、且没有未应答的 `interaction` 时，返回一条该调用的 `interrupted`；
-    3. 没有需要收口的内容时返回空数组。对追加收口条目之后的条目再次调用，返回空数组。
+16. **崩溃收口**：`planRecovery` 只计算、不写入，返回调用方应追加的条目。没有未结束的调用时返回空数组；已经以 `end`、`error`、`aborted` 或 `interrupted` 结束的调用不再处理。有未结束的调用时，只看它范围内的助手消息，对其中在自己窗口里没有工具结果的每个工具调用（按出现顺序）：
+    1. 有审批 request、没有 response：不返回结果，它仍是待处理事项；
+    2. 有 response 且 `decision` 为 `reject`：返回一条 `toolResult`（`isError` 为真，内容说明用户拒绝并带上 `note`）；
+    3. 其余（已批准但没有结果、没有任何 interaction）：返回一条 `toolResult`（`isError` 为真，内容说明执行被中断、结果未知）。
+    然后：仍有待处理事项而最后阶段不是 `waiting` 时，返回一条该调用的 `waiting`；没有待处理事项时，返回一条该调用的 `interrupted`。对追加这些条目之后的条目再次调用，返回空数组或只剩针对新状态的条目（等待中的事项保持不变）。
 17. **列出**：`list` 返回存储中每个会话的摘要：id、创建时间、父会话、最后一个 `title_change` 的标题、最后一个条目的时间（没有条目时为创建时间）；有中断尾的会话照常列出，损坏的会话不列出。
 18. **两种存储**：内存存储与 JSONL 存储对输出 1–11、17 的行为相同；JSONL 存储另外满足输出 6、7 中与文件有关的部分。
 
@@ -144,7 +156,7 @@ createJsonlSessionStore(options: {root: string}): SessionStore;
 | 当前 | 事件 | 结果 |
 |---|---|---|
 | 可写 | `append` 成功 | 可写，条目增加 |
-| 可写 | 存储写入失败 | 损坏：`append` 为 `log-broken`，订阅以 `broken` 结束 |
+| 可写 | 存储写入失败 | 损坏：`append`、`repair` 为 `log-broken`，订阅以 `broken` 结束，只能 `close` |
 | 有中断尾 | `append` | `damaged-tail`，不变 |
 | 有中断尾 | `repair` 成功 | 可写 |
 | 可写、有中断尾、损坏 | `close` | 已关闭：`append`、`repair` 为 `log-closed`，订阅以 `closed` 结束 |
@@ -156,7 +168,7 @@ createJsonlSessionStore(options: {root: string}): SessionStore;
 - `append` 返回成功时，这批条目已经交给存储写入，并已在 `entries` 中、已推送给当时的订阅者；返回失败时三者都没有发生。
 - 订阅者收到某个条目时，该条目已经写入存储。
 - 同一句柄的订阅者看到的序号严格递增且没有空缺；用最后收到的序号作 `afterSeq` 重新订阅，不漏也不重。
-- 句柄只在进程内有效；进程重启后用 `openSession` 重新打开，序号与重启前一致。
+- 句柄只在进程内有效；进程重启后用 `openSession` 重新打开，序号与重启前一致。写入失败后重开的句柄从文件实际内容编号：它的序号与旧句柄已推送过的序号一致，旧句柄没推送过、却已落盘的条目从旧订阅最后收到的序号之后接着编号，所以用最后收到的序号作 `afterSeq` 在新句柄上订阅，能补到它们。
 - 回放与 `planRecovery` 不依赖句柄，可以对任意条目序列调用；对 `entries` 的同一份内容，任何时候调用结果相同。
 
 ## 副作用与数据
@@ -177,8 +189,8 @@ createJsonlSessionStore(options: {root: string}): SessionStore;
 | `unsupported-version` | 会话头的版本不是 1 | 用支持该版本的程序打开 |
 | `invalid-entry` | 追加的某条输入不合规则 | 修正输入；整批未写入 |
 | `damaged-tail` | 有中断尾时追加 | 调用 `repair` 后重试 |
-| `store-failed` | 存储读写出错（目录不存在、权限、磁盘满等） | 追加时句柄已损坏，重新打开会话；其它操作可重试 |
-| `log-broken` | 句柄已因写入失败损坏 | 重新打开会话 |
+| `store-failed` | 存储读写出错（目录不存在、权限、磁盘满等） | 来自 `append` 时句柄已损坏：`close` 后用 `openSession` 重开，有中断尾先 `repair`，再按 `sessionStatus` 与 `planRecovery` 收口；来自 `createSession`、`openSession`、`repair`、`list` 时可以重试 |
+| `log-broken` | 句柄已因写入失败损坏 | 同 `store-failed` 来自 `append` 时 |
 | `log-closed` | 句柄已关闭 | 重新打开会话 |
 
 ## 边界与兼容
@@ -194,8 +206,14 @@ createJsonlSessionStore(options: {root: string}): SessionStore;
 3. JSONL 文件末尾追加半行：打开后条目只到完整的最后一行，`damagedTail` 报告半行字节数；`append` 为 `damaged-tail`；`repair` 后追加成功，再次打开没有中断尾。
 4. JSONL 文件中间一行改成无效 JSON：打开为 `corrupt-session` 并给出行号，文件字节不变。
 5. 写入在中途失败（例如根目录在追加前被删除）：`append` 为 `store-failed`，`entries` 不变，订阅以 `broken` 结束，下一次 `append` 为 `log-broken`。
-6. 模拟崩溃：追加 `invocation` 的 `start`、一条带三个工具调用的助手消息、其中一个调用的工具结果、另一个调用的审批 `interaction` request，然后丢弃句柄、重新打开：`sessionStatus` 为 `waiting` 且列出该审批；`planRecovery` 只为第三个调用返回一条中断结果，不返回 `interrupted`；追加这些条目后再次调用 `planRecovery` 返回空数组；`buildModelContext` 中待审批的工具调用保留。
+6. 模拟崩溃：追加 `invocation` 的 `start`、一条带四个工具调用的助手消息、第一个调用的工具结果、第二个调用的审批 request、第三个调用的审批 request 与 `reject` response、第四个调用的审批 request 与 `approve` response，然后丢弃句柄、重新打开：`sessionStatus` 为 `waiting` 且只列出第二个调用的审批；`planRecovery` 为第三个调用返回拒绝结果、为第四个调用返回中断结果、返回一条 `waiting`；追加这些条目后再次调用，不再返回结果条目；`buildModelContext` 中这条助手消息只保留第一、三、四个调用，第二个调用不出现；把它交给真实的 OMP `Agent`（`replaceMessages`）后，发往模型的请求里每个工具调用都有结果，没有 OMP 合成的结果。
 7. 同一个场景对内存存储与 JSONL 存储各跑一遍，结果相同。
+8. 旧调用失败后开始新调用：`start`、带一个工具调用且 `stopReason: "error"` 的助手消息、`error`、新的用户消息与新调用的 `start`：`planRecovery` 只处理新调用，不为旧调用返回结果；`buildModelContext` 不含那条出错的助手消息。
+9. 两轮使用相同的工具调用 id（例如都为 `call_0`），第一轮有结果、第二轮的结果尚未写入：`buildModelContext` 只保留第一轮的调用，第二轮的调用被去掉，第一轮的结果不会配给第二轮。
+10. 带签名思考块与两个工具调用、其中一个没有结果的助手消息：`buildModelContext` 去掉无结果的调用与 `redactedThinking`，清除思考签名，保留思考文本。
+11. 写入失败后的恢复：JSONL 写入一批中途失败，文件留下这批的前几条完整条目与半行：原句柄 `append`、`repair` 为 `log-broken`；`openSession` 读回前缀并报告中断尾；`repair` 后按 `sessionStatus`、`planRecovery` 收口并继续追加；以旧订阅最后收到的序号在新句柄上订阅，补到已落盘的前缀。
+12. 订阅的边界：在 `close` 后订阅立即结束；补发中监听函数抛错只结束该订阅；监听函数里 `append` 的条目排在当前这批之后推送；监听函数里 `close` 时其余条目不再推送。
+
 
 Smoke：`packages/nb-harness` 的 `bun test src/session`（JSONL 存储使用真实临时目录与文件）。
 
