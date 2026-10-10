@@ -202,6 +202,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Harness 工具 | [`harness/tools.md`](harness/tools.md) | `nb-harness` 的工具协议、来源与可见工具、审批模式与判定顺序、审批模型调用、适配成 OMP `AgentTool`（参数校验、审批关卡、结构化错误、进度）。待晋升 |
 | Harness Profile | [`harness/profile.md`](harness/profile.md) | `nb-harness` 的 Profile：TSX 布局（`System`、`History`、`Appending`）、节点与数据源与字段的注册、渲染、种子与提醒、加载与目录。待晋升 |
 | Harness 压缩 | [`harness/compaction.md`](harness/compaction.md) | `nb-harness` 的压缩：方法注册与按顺序选择、内置 `soft`（包 OMP 本地摘要，关闭远程与原生压缩）、压缩条目与种子一批写入、阈值判断、Profile 字段 `harness/compaction`。待晋升（真实模型冒烟未跑） |
+| Harness 运行时 | [`harness/runtime.md`](harness/runtime.md) | `nb-harness` 的运行时：每会话一个 OMP `Agent`，状态与操作矩阵（含排队）、受理与写入顺序、审批等待与应答、崩溃后的审批恢复、终态分类、压缩触发、带序号的事件。planned |
 
 ## 旧应用的规范与 Reference（只作参照）
 

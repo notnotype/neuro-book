@@ -44,7 +44,7 @@ issueId: i193
 3. `config` 与 `models`：配置 schema 与问题列表；模型解析（配置的服务与 OMP 目录）；OMP `AuthStorage` 凭据与 OAuth 登录接口；按角色解析模型；真实模型冒烟一条（Spec [`harness.config`](../../../docs/specs/harness/config.md)、[`harness.models`](../../../docs/specs/harness/models.md)），见 [`t11-harness-config-models`](tasks/t11-harness-config-models/README.md)。
 4. `tools`：工具定义、工具来源、审批判定与四种模式、审批模型（`auto`）、适配成 OMP `AgentTool`（Spec [`harness.tools`](../../../docs/specs/harness/tools.md)），见 [`t12-harness-tools`](tasks/t12-harness-tools/README.md)。
 5. `compaction`：压缩方法的注册与选择，内置 `soft`（包 OMP 的 `prepareCompaction` 与 `compact`，关闭远程与原生压缩；`remote` 推迟，见设计稿决策记录），压缩条目与种子重新写入（Spec [`harness.compaction`](../../../docs/specs/harness/compaction.md)），见 [`t13-harness-compaction`](tasks/t13-harness-compaction/README.md)。
-6. `runtime`：`Agent` 循环、状态与操作矩阵（含排队）、调用结果与错误分类、事件与序号、审批等待与审批恢复、压缩触发（手动、溢出、一轮结束超阈值）；完成时删除旧原型与 `nb-session`、`nb-profile` 两个包。
+6. `runtime`：`Agent` 循环、状态与操作矩阵（含排队）、调用结果与错误分类、事件与序号、审批等待与审批恢复、压缩触发（手动、溢出、一轮结束超阈值）；完成时删除旧原型与 `nb-session`、`nb-profile` 两个包（Spec [`harness.runtime`](../../../docs/specs/harness/runtime.md)），见 [`t14-harness-runtime`](tasks/t14-harness-runtime/README.md)。
 7. 内置读写工具：经 `FileAccess` 接口的 `read` 与 `edit`。
 
 `request_user_input`、更多压缩方法与触发、子代理等在第一批之后。
