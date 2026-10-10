@@ -46,6 +46,11 @@ export interface EditorAreaImplementation {
     load(): Promise<Component>;
 }
 
+/** 无项目首页贡献的实现（`shared/home.ts`）：没有绑定项目的窗口渲染 `/` 时才加载组件；每次渲染经当前句柄取。 */
+export interface WorkbenchHomeImplementation {
+    load(): Promise<Component>;
+}
+
 /** 编辑器槽的组件经只读的 `context` 属性收到它。 */
 export interface EditorAreaContext {
     /** 编辑器槽有效可见；面板最大化时为假（内容停放、不卸载）。 */

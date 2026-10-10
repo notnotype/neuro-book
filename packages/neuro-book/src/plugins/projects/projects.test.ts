@@ -40,7 +40,7 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {browserHostPlugins, browserPluginDefinitions} from "nbook/web/plugins";
 
 import {projectsBackendPlugin} from "./backend/plugin";
-import {projectsRemoteContract} from "./shared/contracts";
+import {projectsRemoteContractV1} from "./shared/contracts";
 import {openProject} from "./web/open-project";
 import type {OpenProjectHost} from "./web/open-project";
 import {projectsBrowserPlugin} from "./web/plugin";
@@ -62,7 +62,7 @@ afterAll(async () => {
 });
 
 /** 服务端装着 `nbook.projects` 的服务端入口；浏览器是另一个真实内核实例，不绑定项目。 */
-async function setup(): Promise<{readonly h: ProjectHarness; readonly projects: RemoteUse<typeof projectsRemoteContract>}> {
+async function setup(): Promise<{readonly h: ProjectHarness; readonly projects: RemoteUse<typeof projectsRemoteContractV1>}> {
     // 服务端插件都以诊断为依赖图的根；这里的诊断只进内存，不写文件也不打印。
     const silent = {error: () => undefined};
     const diagnostics = createDiagnosticsPlugin({location: "server", store: createDiagnosticsStore({identity: {location: "server", instanceId: "hub"}}), exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)});
@@ -84,7 +84,7 @@ async function setup(): Promise<{readonly h: ProjectHarness; readonly projects: 
     h.router.accept(pair.right);
     expect(await node.connect(pair.left)).toEqual({ok: true});
     expect(await app.startup).toMatchObject({status: "available"});
-    return {h, projects: remote!.use(projectsRemoteContract)};
+    return {h, projects: remote!.use(projectsRemoteContractV1)};
 }
 
 /** 拿到命令服务的测试插件：依赖命令服务，借此把它交给测试。 */

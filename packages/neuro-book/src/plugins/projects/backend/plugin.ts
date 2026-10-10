@@ -11,7 +11,7 @@ import {provideRemote} from "@notnotype/nb-runtime/remote";
 import {projectsKey} from "nbook/shared/projects";
 
 import {descriptor} from "../plugin";
-import {projectsRemoteContract} from "../shared/contracts";
+import {projectsRemoteContractV1} from "../shared/contracts";
 
 export const projectsBackendPlugin: PluginDefinition = {
     id: descriptor.id,
@@ -19,10 +19,10 @@ export const projectsBackendPlugin: PluginDefinition = {
         id: "server",
         location: "server",
         dependencies: [{key: diagnosticsKey}, {key: projectsKey}],
-        remoteProvides: [projectsRemoteContract],
+        remoteProvides: [projectsRemoteContractV1],
         activate: (context) => {
             const projects = context.services.require(projectsKey);
-            const remote = provideRemote(projectsRemoteContract, () => ({
+            const remote = provideRemote(projectsRemoteContractV1, () => ({
                 methods: {
                     list: async () => {
                         const listed = await projects.list();

@@ -8,7 +8,7 @@ import {continueTarget, formatToday, formatWhen, formatWords, SPINE_HEIGHTS, SPI
 function item(id: string, title: string | null, stats: Partial<ShelfStats> = {}): ShelfItem {
     return {
         id, name: id, title, description: null, color: null, path: `/books/${id}`, state: "stopped",
-        stats: {freshness: "stale", computedAt: null, words: 0, files: 0, today: null, last: null, ...stats},
+        stats: {freshness: "stale", computedAt: null, words: 0, files: 0, unreadable: 0, today: null, last: null, ...stats},
     };
 }
 

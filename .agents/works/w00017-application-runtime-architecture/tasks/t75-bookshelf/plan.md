@@ -68,7 +68,7 @@
   - 改名时跟到新地址；删除时清空。
   - 扫描不设最近编辑：Files 合同不给修改时间，不猜。重开后沿用记录里的最近编辑（见“初始状态”）。
 - **持久化**：user 分区记录 `nbook.projects` / `project-stats`（`keyed: true`，资源 id 是项目 id，`locality: shared`）。记录定义放在 `src/plugins/projects/shared/stats-record.ts`：服务端的 `shelf` 读停止项目的记录也用它（`docs/specs/storage/persistence.md` 要求三端共用同一份定义）。
-  - 值：`{version, computedAt, complete, unreadable, words, files, today: {date, baseline}, last}`。
+  - 值：快照 `{computedAt, words, files, unreadable, today: {date, baseline}, last}`（schema `ProjectStatsSnapshotSchema`；版本由记录定义带，记录里只有完整的快照，不另存 `complete`）。
   - 写入合并：变化后最多每 30 秒写一次。
   - **停止时的最后一次写入**：放在入口 `context.scope.register` 的资源释放里。依赖的 Storage 门面在入口登记的资源释放之后才释放，Storage 的代理调用不挂入口停止信号，所以这里还能写（`docs/specs/runtime/plugins.md` 输出 13）。此时 Files 订阅已经断开：
     - 整轮扫描还没完成：取消它，不写，保留旧记录；
@@ -189,7 +189,8 @@
 - 项目管理器（`manager.ts`）与 `projectsKey`：
   - 新增 `create`、`updateMetadata`、`unregister`；
   - 按项目 id 的串行队列，覆盖“打开的解析与进入 starting”和“移除的检查与写表”。
-- 远程合同 `nbook.projects/projects` v2：`shelf`、`create`、`update`、`unregister`；`ShelfItem` 沿用 S1 的 `shared/shelf.ts`，`ShelfFreshness` 增加 `counting`，`ShelfStats` 增加 `unreadable`。S0 写出合同本身（方法、输入输出、错误码、`ShelfItem` 的 schema），S2 只实现。
+- 远程合同 `nbook.projects/projects` v2：`shelf`、`create`、`update`、`unregister`；`ShelfItem` 的 schema 与作品信息、统计快照的 schema 都在 `shared/contracts.ts`，`shared/shelf.ts` 只转发类型并保留 `projectDisplayName`；`ShelfFreshness` 增加 `counting`，`ShelfStats` 增加 `unreadable`。S0 写出合同本身（方法、输入输出、错误码），S2 只实现。
+  - 远程实现必须给全合同的方法，所以 S0 把现有的 v1 留作 `projectsRemoteContractV1`（服务端入口、“打开项目”与 `projects.test.ts` 暂用它），最终名 `projectsRemoteContract` 直接是 v2，S4 的新代码从一开始就用最终名。S2 让服务端入口改提供 v2、把这三处改回最终名并删除 V1；S4 在 S2 合入前不碰这三个文件。
 - 新的远程合同 `nbook.projects/stats`：提供方 `project`，调用方 `server`，方法 `current` 返回本项目实例的统计状态。也在 S0 写出。
 
 ### 2. 统计（`src/plugins/projects/project/`、`src/plugins/projects/shared/stats-record.ts`）

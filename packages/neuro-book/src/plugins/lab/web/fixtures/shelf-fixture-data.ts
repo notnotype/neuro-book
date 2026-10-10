@@ -8,7 +8,7 @@ import type {ShelfItem, ShelfStats} from "nbook/plugins/projects/shared/shelf";
 export const SHELF_NOW = "2026-10-10T16:30:00+01:00";
 
 function stats(partial: Partial<ShelfStats> & Pick<ShelfStats, "freshness">): ShelfStats {
-    return {computedAt: null, words: 0, files: 0, today: null, last: null, ...partial};
+    return {computedAt: null, words: 0, files: 0, unreadable: 0, today: null, last: null, ...partial};
 }
 
 export const SHELF_ITEMS: ShelfItem[] = [

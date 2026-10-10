@@ -1,11 +1,15 @@
 ---
 schema: nbook.proposal/v1
-status: reviewing
+status: accepted
 created: 2026-10-10
-decided: null
+decided: 2026-10-10
 supersedes: []
 superseded-by: null
-specs: []
+specs:
+  - docs/specs/workbench/bookshelf.md
+  - docs/specs/runtime/projects.md
+  - docs/specs/ui/workbench-shell.md
+  - docs/specs/workbench/editor.md
 adrs: []
 ---
 
@@ -176,3 +180,4 @@ omp 设计审查（[t73 证据](../../.agents/works/w00017-application-runtime-a
 
 - 2026-10-10：开发者要求重新设计书架页，可以不沿用旧版；本稿起草，待开发者选方向。
 - 2026-10-10：开发者同意本稿全部推荐：方向取“书房”（继续写作 + 书脊书架，另有列表视图）；新作品默认放在用户设置的作品目录下，首次新建时询问并记住；第一版只显示今天与总字数；第一版不支持封面图。交 omp 审查、补充细节后实施（t75），Lab 静态稿照做，作为实施的第一片。
+- 2026-10-10：Spec 起草完毕（frontmatter 的 `specs`），审查提出的合同缺口由 [`runtime/projects.md`](../specs/runtime/projects.md) 输出第 13–18 条与 [`workbench/editor.md`](../specs/workbench/editor.md) 输出第 29 条回答；本稿 `accepted`。

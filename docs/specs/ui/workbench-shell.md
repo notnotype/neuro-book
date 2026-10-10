@@ -13,7 +13,7 @@ owners:
 
 **目标**：每个窗口一个工作台外壳：七个固定 Part 的几何与可见性、面板的位置与形态、紧凑呈现、布局记录的保存与恢复；工具区域按 Switcher、ViewContainer、View 分层，容器单轴编排，移动、合并与模式切换不销毁视图实例；拖放与保存走同一个模型。外壳由 `nbook.workbench` 拥有，是布局的唯一写者。
 
-按切片实现（[外壳设计稿](../../proposals/workbench-shell-abstractions.md) 第 11 节）：**外壳一**（外壳与布局）、**外壳二**（容器与视图）、**外壳三**（拖放），之后的**外壳四**（标题栏、状态栏与条目贡献点）。下文各节按切片标出所属。
+按切片实现（[外壳设计稿](../../proposals/workbench-shell-abstractions.md) 第 11 节）：**外壳一**（外壳与布局）、**外壳二**（容器与视图）、**外壳三**（拖放），之后的**外壳四**（标题栏、状态栏与条目贡献点）。下文各节按切片标出所属。书架页（[workbench.bookshelf](../workbench/bookshelf.md)）为工作台增加无项目首页的贡献点与 `/workbench` 页（输出 36–37，planned）。
 
 **非目标**：
 
@@ -188,6 +188,17 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
     - 条目文字、显示语言、可见性或容器宽度变化后重算。单个条目最宽 320px，超出时省略并以全文作提示；在“更多”里换行显示全文。
 35. **状态栏**：左侧是项目名或“未打开项目”与布局问题（输出 11），之后是 `alignment: "left"` 的条目；右侧是 `alignment: "right"` 的条目，最右是“显示面板”。条目只显示贡献方给出的真实数据；编辑器提供的第一批条目见 [workbench.editor](../workbench/editor.md) 的“状态栏条目”。
 
+### 无项目首页与第二页
+
+随书架页实现（planned）。
+
+36. **首页贡献点 `workbench.home`**：没有绑定项目的窗口打开 `/` 时，外壳换成首页贡献的内容；文档根（主题、语言）与命令宿主照常挂着。
+    - 声明 `{title}`（本地化文字），实现 `{load(): Promise<Component>}`，只接受浏览器入口的贡献。
+    - 裁决按已接受的声明数量：0 个显示空工作台；1 个采用；多个全部不采用、按 id 排序记诊断。与登记顺序无关。
+    - 每次渲染经当前句柄取实现；贡献撤回、入口停止或加载失败时退回空工作台并记诊断，入口恢复后再次采用。首页不占用布局（不取布局 store），直接打开首页的窗口不读产品布局记录。
+    - 绑定了项目的窗口不受影响。
+37. **`/workbench`**：工作台的第二个内置页面，不打开作品、直接进入空工作台（用户资产、命令面板与状态栏照常）。绑定由 `?project=` 决定、不看路径，所以 `/workbench?project=x` 与 `/?project=x` 相同。书架页上有“进入工作台”的入口。
+
 ## 状态与转换
 
 布局状态（[外壳设计稿](../../proposals/workbench-shell-abstractions.md) 第 6 节）：
@@ -241,7 +252,7 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
 
 - 归属：`nbook.workbench`；嵌套网格与手势原语的合同由 [ui.nested-grid](nested-grid.md) 提供，外壳负责消费接线。
 - 主题与浮层：沿用 [theme.system](../theme/system.md) 与 nb-ui 现有 portal，不新增第二套。外壳与浮层颜色来自主题 token，四主题 × 双配色下不出现 `:root` 兜底底色。
-- 公开合同：公开状态键（输出 13）与面板命令（[workbench.commands](../workbench/commands.md)）是对插件与 Agent 的合同；布局记录的字段是 `nbook.workbench` 的内部合同，靠记录版本演进。
+- 公开合同：公开状态键（输出 13）与面板命令（[workbench.commands](../workbench/commands.md)）是对插件与 Agent 的合同；贡献点 `workbench.editor-area`、`workbench.statusbar-items`、`workbench.titlebar-items` 与 `workbench.home`（planned）是对插件的合同；布局记录的字段是 `nbook.workbench` 的内部合同，靠记录版本演进。
 - 窄屏：`390 × 844` 与桌面共享同一模型，无页面级横向滚动。
 - Lab：外壳的 Lab 场景用局部状态，不读写产品布局记录；直接打开 Lab 的窗口不打开、不订阅产品布局记录（[ui.component-lab](component-lab.md)）。
 
@@ -298,6 +309,10 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
 38. Given 测试插件贡献的状态栏与标题栏条目，When 入口激活、同 id 的第二条贡献、入口停止，Then 条目出现、两条同 id 都被拒并诊断、停止开始时条目消失；When 收窄容器，Then 按 priority 收进“更多”（恰好装下、差一个“更多”的位、同优先级、全部收起、长文字各一例），点开“更多”能执行有命令的条目、纯文字不可执行；“更多”打开时入口停止，菜单里的该条消失。
 39. Given 两个窗口，When 各自编辑不同的文档，Then 各自的状态栏条目只反映本窗口的数据。
 
+### 无项目首页
+
+40. （planned）Given 没有项目的窗口与书架插件，When 打开 `/`，Then 看到书架页而不是外壳，主题 token 与命令面板照常；When 打开 `/workbench`，Then 是空工作台；When 两个插件都贡献首页，Then 都不采用、回到空工作台并有诊断；When 贡献方入口停止，Then 页面退回空工作台，恢复后再次采用。
+
 Smoke 入口：生产构建下打开 `/` 与 `/?project=…`（桌面与 `390 × 844` 各一次）；Lab 外壳场景（`lab:shot` 截图）；`e2e/workbench-shell.e2e.ts`、`e2e/workbench-views.e2e.ts`；`bun run --cwd packages/nb-ui test` 复核布局原语。
 
 ### 旧验收的去向
@@ -341,6 +356,7 @@ Smoke 入口：生产构建下打开 `/` 与 `/?project=…`（桌面与 `390 ×
 - **呈现事实只经 action 进 store**：外壳组件发布的模式与生效面板状态由工作台 store 的一个 action 接收，组件不直接写 store。
 - **外壳二只经纯模型改定制**：落位、呈现与意图合成是纯函数（`views/placement.ts`、`presentation.ts`、`intents.ts`）；store 的 `applyView` 先按当前呈现合成一份按字段的补丁，保存冲突时同一份补丁作用在最新值上。
 - **拖放只有一个会话**：组件只写拖动源与落点的 DOM 标记（`data-drag-view`、`data-drag-container`、`data-switcher-band` 与其中的 `data-switcher-entry`、`data-container-host`、`data-empty-part`，以及既不起拖也不接收投递的工具区 `data-no-drag`），外壳根上的会话（`views/drag-session.ts`）负责指针与键盘手势、按 `elementsFromPoint` 命中、读可见几何，交给纯函数 `views/drop.ts` 判定；预览与提交出自同一次判定，放下时只提交已显示过的动作。保存时前提不成立的并入作用在最新值上没有变化，store 以 `unchanged` 结算、不写（[`state/store.md`](../state/store.md) 输出 10）。
+- **首页只换外壳**（planned）：`createHomePage` 在没有项目且有首页贡献时渲染贡献的组件，文档根与命令宿主不变；`/workbench` 与 `/` 共用同一页面组件，区别只是是否采用首页贡献。首页贡献点的声明与校验在 `shared/home.ts`。
 - **三层 Teleport、一份记忆**：Part 内容、容器宿主、视图实例三层各自 Teleport 到落点，没有落点时退回各自的停放区（登记在共用的 `TeleportMemory`）；滚动位置随滚动事件记下、记录时不用读到的 0 覆盖，滚动盒归视图实例（`WorkbenchViewFrame`）而不归会重建的分节。
 
 ## 证据

@@ -9,7 +9,7 @@ import SpineShelf from "./SpineShelf.vue";
 function item(id: string, title: string): ShelfItem {
     return {
         id, name: id, title, description: null, color: null, path: `/books/${id}`, state: id === "b" ? "running" : "stopped",
-        stats: {freshness: "none", computedAt: null, words: 0, files: 0, today: null, last: null},
+        stats: {freshness: "none", computedAt: null, words: 0, files: 0, unreadable: 0, today: null, last: null},
     };
 }
 
