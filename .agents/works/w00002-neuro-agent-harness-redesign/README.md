@@ -43,8 +43,12 @@ issueId: i193
 2. `profile`：TSX 布局、节点与数据源与字段的注册、渲染、种子与提醒、加载与目录（Spec [`harness.profile`](../../../docs/specs/harness/profile.md)）。
 3. `config` 与 `models`：配置 schema 与问题列表；模型解析（配置的服务与 OMP 目录）；OMP `AuthStorage` 凭据与 OAuth 登录接口；按角色解析模型；真实模型冒烟一条。
 4. `tools`：工具定义、工具来源、审批判定与四种模式、审批模型（`auto`）。
-5. `compaction`：压缩方法的注册与选择，内置 `soft` 与 `remote`（包 OMP 的 `compact`），压缩条目与种子重新写入。
+5. `compaction`：压缩方法的注册与选择，内置 `soft`（包 OMP 的 `prepareCompaction` 与 `compact`，关闭远程与原生压缩；`remote` 推迟，见设计稿决策记录），压缩条目与种子重新写入。
 6. `runtime`：`Agent` 循环、状态与操作矩阵（含排队）、调用结果与错误分类、事件与序号、审批等待与审批恢复、压缩触发（手动、溢出、一轮结束超阈值）；完成时删除旧原型与 `nb-session`、`nb-profile` 两个包。
 7. 内置读写工具：经 `FileAccess` 接口的 `read` 与 `edit`。
 
 `request_user_input`、更多压缩方法与触发、子代理等在第一批之后。
+
+### 自主推进（2026-10-10 起）
+
+开发者 2026-10-10 指定按 [autonomous-delivery](../../skills/autonomous-delivery/SKILL.md) 推进，商定的目标：从 t09 的计划审查开始，按上面的切片依次推进，直到遇到该 Skill 的停止条件或开发者喊停。提交只留在本地，**不 push**（开发者决定，覆盖 Skill 里“每次提交后 push”的做法）。本该开发者决定的点记在 [待确认清单](pending-confirmations.md)，事后追认。
