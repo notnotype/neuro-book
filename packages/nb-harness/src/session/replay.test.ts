@@ -1,14 +1,11 @@
 import {afterAll, describe, expect, test} from "bun:test";
 import {rm} from "node:fs/promises";
-import {Agent} from "@oh-my-pi/pi-agent-core";
-import type {AgentMessage} from "@oh-my-pi/pi-agent-core";
-import {createAssistantMessageEventStream} from "@oh-my-pi/pi-ai";
-import type {AssistantMessage, Message} from "@oh-my-pi/pi-ai";
-import {buildModel} from "@oh-my-pi/pi-catalog/build";
+import type {Message} from "@oh-my-pi/pi-ai";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {createJsonlSessionStore} from "./jsonl/jsonl";
 import {buildModelContext, createMemorySessionStore, createSession, defineProjection, fold, openSession, planRecovery, renderCompactionSummary, sessionSettings, sessionStatus} from "./session";
 import type {EntryInput, SessionEntry, SessionLog, SessionStore} from "./session";
+import {keepAllRoles, requestSeenByModel} from "./testing/agent-capture";
 import {assistantMessage, interactionRequest, interactionResponse, invocation, seed, toolCall, toolResult, userMessage} from "./testing/fixtures";
 
 const roots: string[] = [];
@@ -44,36 +41,6 @@ function toolCallIds(message: Message): string[] {
 
 function textOf(message: Message): string {
     return typeof message.content === "string" ? message.content : message.content.map((block) => ("text" in block ? block.text : "")).join("");
-}
-
-/** 把模型上下文交给真实的 OMP Agent，用自定义 streamFn 截下发往模型的请求（不联网、不花钱）。 */
-async function requestSeenByModel(context: Message[]): Promise<Message[]> {
-    const model = buildModel({
-        id: "capture", name: "capture", provider: "capture", api: "openai-completions", baseUrl: "http://127.0.0.1:1", reasoning: false, input: ["text"],
-        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}, contextWindow: 32_000, maxTokens: 1_000,
-    });
-    let captured: Message[] = [];
-    const agent = new Agent({
-        initialState: {model, systemPrompt: ["test"]},
-        // Agent 缺省的 convertToLlm 会丢掉 developer 消息；runtime 交会话上下文时要像这里一样保留四种角色。
-        convertToLlm: (messages: AgentMessage[]) => messages.filter((m): m is Message => ["user", "developer", "assistant", "toolResult"].includes(m.role)),
-        streamFn: (_model, request) => {
-            captured = structuredClone(request.messages);
-            const reply: AssistantMessage = {
-                role: "assistant", api: model.api, provider: model.provider, model: model.id, content: [{type: "text", text: "done"}],
-                usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0}},
-                stopReason: "stop", timestamp: 99,
-            };
-            const stream = createAssistantMessageEventStream();
-            stream.push({type: "start", partial: reply});
-            stream.push({type: "done", reason: "stop", message: reply});
-            stream.end(reply);
-            return stream;
-        },
-    });
-    agent.replaceMessages(context);
-    await agent.prompt({role: "user", content: "继续", timestamp: 100});
-    return captured;
 }
 
 describe("回放：模型上下文（输出 12）", () => {
@@ -260,7 +227,7 @@ describe("回放：崩溃收口（输出 16）", () => {
             expect(toolCallIds(assistant)).toEqual(["c1", "c3", "c4"]);
             expect(context.filter((message) => message.role === "toolResult").map((message) => (message as {toolCallId: string}).toolCallId)).toEqual(["c1", "c3", "c4"]);
 
-            const seen = await requestSeenByModel(context);
+            const seen = await requestSeenByModel(context, {convertToLlm: keepAllRoles});
             const calls = seen.flatMap(toolCallIds);
             const results = seen.filter((message) => message.role === "toolResult");
             expect(calls).toEqual(["c1", "c3", "c4"]);

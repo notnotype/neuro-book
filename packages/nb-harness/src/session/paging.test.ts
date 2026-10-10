@@ -115,6 +115,32 @@ describe("分页（输出 20–22）", () => {
         expect(readPage(empty, options)).toEqual({ok: true, value: {entries: [], next: null, latestSeq: 0}});
     });
 
+    test("输出 20：带 attribution: agent 或 synthetic 的用户消息不开始新的一轮", async () => {
+        const log = await logWith([[
+            ...turn(1),
+            {type: "message", message: {role: "user", content: "Continue.", attribution: "agent", timestamp: 2}},
+            assistantMessage([{type: "text", text: "继续写"}]),
+            {type: "message", message: {role: "user", content: "自动续写", synthetic: true, timestamp: 3}},
+            assistantMessage([{type: "text", text: "写完了"}]),
+            ...turn(2),
+        ]]);
+        const options = {maxTurns: 1, maxBytes: 1024 * KiB, fieldBudget: 16 * KiB};
+        const last = readPage(log, options);
+        if (!last.ok || last.value.next === null) throw new Error("应有更早的一页");
+        const first = readPage(log, {...options, before: last.value.next});
+        expect(first.ok && first.value.entries.length).toBe(8);
+        expect(first.ok && first.value.next).toBeNull();
+    });
+
+    test("输出 20：页的大小按截断后的条目计，原始很大但截断后很小的几轮可以放进同一页", async () => {
+        const log = await logWith([turn(1, ["a".repeat(100 * KiB)]), turn(2, ["b".repeat(100 * KiB)]), turn(3, ["c".repeat(100 * KiB)])]);
+        const page = readPage(log, {maxTurns: 10, maxBytes: 64 * KiB, fieldBudget: 1 * KiB});
+        if (!page.ok) throw new Error(page.detail);
+        expect(userTurnsIn(page.value.entries)).toBe(3);
+        expect(page.value.next).toBeNull();
+        expect(pageBytes(page.value.entries)).toBeLessThanOrEqual(64 * KiB);
+    });
+
     test("输出 20：游标格式不对、不是一轮的起点或超出当前条目时为 invalid-cursor", async () => {
         const log = await logWith([turn(1), turn(2)]);
         const options = {maxTurns: 1, maxBytes: 1024 * KiB, fieldBudget: 16 * KiB};
