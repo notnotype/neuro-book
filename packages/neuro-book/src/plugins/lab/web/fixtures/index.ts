@@ -6,6 +6,12 @@ import type EditorTabBar from "nbook/plugins/editor/web/components/EditorTabBar.
 import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.vue";
 import type ExplorerTree from "nbook/plugins/explorer/web/components/ExplorerTree.vue";
 import type FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
+import type BookshelfPage from "nbook/plugins/projects/web/components/BookshelfPage.vue";
+import type BookSpine from "nbook/plugins/projects/web/components/BookSpine.vue";
+import type ContinueCard from "nbook/plugins/projects/web/components/ContinueCard.vue";
+import type ShelfList from "nbook/plugins/projects/web/components/ShelfList.vue";
+import type ShelfTitlePage from "nbook/plugins/projects/web/components/ShelfTitlePage.vue";
+import type SpineShelf from "nbook/plugins/projects/web/components/SpineShelf.vue";
 import type JsonViewer from "nbook/ui/JsonViewer.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
 import type WorkbenchActivityBar from "nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue";
@@ -31,6 +37,7 @@ import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab
 
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
 import {nbUiFixtures} from "./nb-ui";
+import {SHELF_ITEM_REVISING, SHELF_ITEMS, SHELF_NOW} from "./shelf-fixture-data";
 import {defineSubjectFixture} from "./subject-fixture";
 
 /**
@@ -515,8 +522,90 @@ export const labFixtures: LabFixture[] = [
         subject: () => import("nbook/ui/SkillChip.vue"),
         class: "max-w-full",
     }),
+    ...shelfFixtures(),
     ...nbUiFixtures,
 ];
+
+/** 书架页（docs/proposals/bookshelf.md）：静态稿给开发者看，也是页面接上真实数据之后的回归场景。 */
+function shelfFixtures(): LabFixture[] {
+    const [first, second, third, , long] = SHELF_ITEMS as [typeof SHELF_ITEMS[number], ...typeof SHELF_ITEMS];
+    const page = {locale: "zh-CN" as const, status: "ready" as const, items: SHELF_ITEMS, now: SHELF_NOW};
+    return [
+        defineSubjectFixture<typeof BookshelfPage>({
+            component: "BookshelfPage",
+            events: ["continue", "open", "open-new-window", "edit", "remove", "create", "add-existing", "enter-workbench", "retry"],
+            class: "h-full w-full",
+            scenes: [
+                {id: "spines", label: "书脊视图，选中一部", input: {props: page, model: {view: "spines", sort: "recent", activeId: first.id}}},
+                {id: "spines-none-selected", label: "书脊视图，未选中", input: {props: page, model: {view: "spines", sort: "title", activeId: null}}},
+                {id: "list", label: "列表视图", input: {props: page, model: {view: "list", sort: "words", activeId: null}}},
+                {id: "one", label: "只有一部", input: {props: {...page, items: [second]}, model: {view: "spines", sort: "recent", activeId: second.id}}},
+                {id: "no-record", label: "有作品但没有写作记录", input: {props: {...page, items: [SHELF_ITEMS[3]!]}, model: {view: "spines", sort: "recent", activeId: null}}},
+                {id: "empty", label: "空书架", input: {props: {...page, items: []}, model: {view: "spines", sort: "recent", activeId: null}}},
+                {id: "loading", label: "加载中", input: {props: {...page, status: "loading", items: []}, model: {view: "spines", sort: "recent", activeId: null}}},
+                {id: "error", label: "取数失败", input: {props: {...page, status: "error", error: "书架没取到：服务端暂时不可用", items: []}, model: {view: "spines", sort: "recent", activeId: null}}},
+                {id: "english", label: "英文界面", input: {props: {...page, locale: "en-US"}, model: {view: "spines", sort: "recent", activeId: third.id}}},
+            ],
+            subject: () => import("nbook/plugins/projects/web/components/BookshelfPage.vue"),
+        }),
+        defineSubjectFixture<typeof ContinueCard>({
+            component: "ContinueCard",
+            events: ["continue"],
+            class: "w-full",
+            scenes: [
+                {id: "fresh", label: "正在写（统计最新）", input: {props: {locale: "zh-CN", item: first, now: SHELF_NOW}}},
+                {id: "stale", label: "前天写的（统计过期）", input: {props: {locale: "zh-CN", item: second, now: SHELF_NOW}}},
+                {id: "revising", label: "今天净删", input: {props: {locale: "zh-CN", item: SHELF_ITEM_REVISING, now: SHELF_NOW}}},
+            ],
+            subject: () => import("nbook/plugins/projects/web/components/ContinueCard.vue"),
+        }),
+        defineSubjectFixture<typeof SpineShelf>({
+            component: "SpineShelf",
+            events: ["open", "remove", "create", "add-existing"],
+            class: "w-full",
+            scenes: [
+                {id: "shelf", label: "一排书", input: {props: {locale: "zh-CN", items: SHELF_ITEMS}, model: {activeId: first.id}}},
+                {id: "many", label: "放不下换层", input: {props: {locale: "zh-CN", items: [...SHELF_ITEMS, ...SHELF_ITEMS, ...SHELF_ITEMS].map((item, index) => ({...item, id: `${item.id}-${String(index)}`}))}, model: {activeId: null}}},
+                {id: "empty", label: "空书架", input: {props: {locale: "zh-CN", items: []}, model: {activeId: null}}},
+            ],
+            subject: () => import("nbook/plugins/projects/web/components/SpineShelf.vue"),
+        }),
+        defineSubjectFixture<typeof BookSpine>({
+            component: "BookSpine",
+            class: "",
+            scenes: [
+                {id: "generated", label: "生成的色档", input: {props: {id: "spine-a", title: "长夜行", width: 52, height: 214, hue: 3, color: null, active: false, running: false, runningLabel: "已在一个窗口里打开"}}},
+                {id: "custom-light", label: "作者给的浅色", input: {props: {id: "spine-b", title: "短篇集", width: 34, height: 200, hue: 0, color: "#d9c9a3", active: false, running: false, runningLabel: "已在一个窗口里打开"}}},
+                {id: "active-running", label: "选中且已打开", input: {props: {id: "spine-c", title: "北方以北", width: 46, height: 220, hue: 0, color: "#7a4b3a", active: true, running: true, runningLabel: "已在一个窗口里打开"}}},
+                {id: "long", label: "书名放不下", input: {props: {id: "spine-d", title: long.title ?? long.name, width: 30, height: 208, hue: 5, color: null, active: false, running: false, runningLabel: "已在一个窗口里打开"}}},
+            ],
+            subject: () => import("nbook/plugins/projects/web/components/BookSpine.vue"),
+        }),
+        defineSubjectFixture<typeof ShelfTitlePage>({
+            component: "ShelfTitlePage",
+            events: ["open", "open-new-window", "edit", "remove"],
+            class: "w-full",
+            scenes: [
+                {id: "running", label: "正在打开", input: {props: {locale: "zh-CN", item: first, now: SHELF_NOW}}},
+                {id: "stale", label: "统计过期", input: {props: {locale: "zh-CN", item: second, now: SHELF_NOW}}},
+                {id: "none", label: "尚未统计、没有书名", input: {props: {locale: "zh-CN", item: SHELF_ITEMS[3]!, now: SHELF_NOW}}},
+                {id: "long", label: "长书名与长路径", input: {props: {locale: "zh-CN", item: long, now: SHELF_NOW}}},
+            ],
+            subject: () => import("nbook/plugins/projects/web/components/ShelfTitlePage.vue"),
+        }),
+        defineSubjectFixture<typeof ShelfList>({
+            component: "ShelfList",
+            events: ["open", "open-new-window", "edit", "remove", "create", "add-existing"],
+            class: "w-full",
+            scenes: [
+                {id: "books", label: "几部作品", input: {props: {locale: "zh-CN", items: SHELF_ITEMS, now: SHELF_NOW}}},
+                {id: "english", label: "英文界面", input: {props: {locale: "en-US", items: SHELF_ITEMS, now: SHELF_NOW}}},
+                {id: "empty", label: "空书架", input: {props: {locale: "zh-CN", items: [], now: SHELF_NOW}}},
+            ],
+            subject: () => import("nbook/plugins/projects/web/components/ShelfList.vue"),
+        }),
+    ];
+}
 
 export function findLabFixture(component: string): LabFixture | null {
     return labFixtures.find((fixture) => fixture.component === component) ?? null;

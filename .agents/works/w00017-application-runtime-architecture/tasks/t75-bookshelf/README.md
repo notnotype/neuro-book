@@ -26,3 +26,11 @@ taskId: t75-bookshelf
 ## 当前状态
 
 - 2026-10-10 建立；提案起草，开发者同意全部推荐（书房方向、作品目录、今天与总字数、不做封面图），交 omp 审查后实施。
+- 2026-10-10 实施计划起草（[plan.md](plan.md)），逐条回答 P10–P14、F06、F07；待 t74 之后交 omp 计划审查。
+- 2026-10-10 S1 Lab 静态稿完成（提案要求先出静态稿给开发者看）：
+  - 组件在 `packages/neuro-book/src/plugins/projects/web/components/`：`BookshelfPage`、`ContinueCard`、`SpineShelf`、`BookSpine`、`ShelfTitlePage`、`ShelfList`，各带同名 `.md`；只呈现数据、发出动作，接真实数据在 S4。
+  - 显示规则 `web/shelf-format.ts`：字数写法（一万以上写“万字”）、今天净增（可为负）、相对时间、书脊厚度（按字数对数插值，30 到 64px）、书脊高度四档与色档（色相从主题强调色起每档转 45°）、排序、继续写作选最近编辑的那部。
+  - Lab 场景：书架页 9 个（书脊与列表、一部、没有写作记录、空书架、加载、出错、英文），其余五个组件各 3 到 4 个；固定数据在 `lab/web/fixtures/shelf-fixture-data.ts`。
+  - 截图（`lab:shot`，1180×980 与 390×844、明暗两种配色，全部没有溢出与页面问题）：[书脊明](evidences/s1-spines-light.png)、[书脊暗](evidences/s1-spines-dark.png)、[英文](evidences/s1-english-light.png)、[空书架](evidences/s1-empty-light.png)、[手机列表](evidences/s1-list-phone-light.png)、[手机暗色](evidences/s1-phone-dark.png)。本机没有装 nbook 主题的宋体（Source Han Serif、Noto Serif SC），截图里的书名与片段落到了黑体。
+  - 验证：typecheck；`shelf-format.test.ts` 10 例、`SpineShelf.dom.test.ts` 4 例、Lab 索引与场景测试；变异 3 个全杀（Home 键、厚度上限、负数今天）。
+  - 外观意见按 [待开发者确认](../../pending-confirmations.md) 的做法不阻塞后续切片。

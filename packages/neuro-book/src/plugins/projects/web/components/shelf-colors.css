@@ -1,0 +1,12 @@
+/*
+ * 书脊色（BookSpine、ShelfTitlePage、ShelfList 共用）：元素挂 `.shelf-spine-color`，经 `spineStyle()` 给出
+ * `--spine-hue`（与可选的 `--spine-color`）。生成的色档从主题强调色起每档转 45°，明度与彩度固定，四个主题、明暗两种
+ * 配色里都是一套和谐的色阶；作者给了颜色时直接用。
+ */
+.shelf-spine-color {
+    --spine-bg: oklch(from var(--accent-main) 0.5 0.085 calc(h + var(--spine-hue) * 45));
+}
+
+.shelf-spine-color--custom {
+    --spine-bg: var(--spine-color);
+}
