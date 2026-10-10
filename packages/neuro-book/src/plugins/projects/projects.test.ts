@@ -347,18 +347,33 @@ describe("Spec projects 输出 17、18：书架（nbook.projects/projects 版本
         });
     });
 
-    it("运行中的作品没有统计提供方（调用失败）：退回记录、为 stale 并记诊断；宽限期里同样按记录", async () => {
-        const {h, projects, store} = await setup(async (paths) => {
+    it("运行中的作品先 counting（带上次的快照）再 fresh；宽限期里按记录为 stale；停止时写下最后一次，停止后在书架上看得到", async () => {
+        const {h, projects} = await setup(async (paths) => {
             writeStats(paths.stateRoot, [{id: paths.project.id, value: snapshot({words: 50, baseline: 20, date: HARNESS_TODAY})}]);
+            // 足够多的文件让书架第一次问到时首扫还没完成。
+            for (let chapter = 1; chapter <= 400; chapter += 1) await writeFile(join(paths.project.path, `第${String(chapter)}章.md`), "字".repeat(1000));
         });
         const lease = leaseOf(await h.manager.acquire("book", "window-1"));
+        expect(await projects.shelf({})).toMatchObject({ok: true, value: [{state: "running", stats: {freshness: "counting", words: 50, today: 30}}]});
+        const total = 400 * 1000;
+        await waitUntil("统计完成", async () => {
+            const shelf = await projects.shelf({});
+            return shelf.ok && shelf.value[0]?.stats.freshness === "fresh" && shelf.value[0].stats.words === total;
+        });
 
-        expect(await projects.shelf({})).toMatchObject({ok: true, value: [{state: "running", stats: {freshness: "stale", words: 50, today: 30}}]});
-        expect(events(store)).toContain("projects.shelf.live-unavailable");
-
+        await writeFile(join(h.project.path, "第1章.md"), "改了");
+        await waitUntil("运行中的修改", async () => {
+            const shelf = await projects.shelf({});
+            return shelf.ok && shelf.value[0]?.stats.words === total - 1000 + 2;
+        });
         lease.release();
-        expect(await projects.shelf({})).toMatchObject({ok: true, value: [{state: "idle-grace", stats: {freshness: "stale", words: 50}}]});
-    });
+        // 宽限期里按记录：首扫完成时写下的那份（距那次写入不到 30 秒，运行中的修改还没写）。
+        expect(await projects.shelf({})).toMatchObject({ok: true, value: [{state: "idle-grace", stats: {freshness: "stale", words: total}}]});
+
+        h.clock.advance(GRACE_MS);
+        await revoked(lease);
+        expect(await projects.shelf({})).toMatchObject({ok: true, value: [{state: "stopped", stats: {freshness: "stale", words: total - 1000 + 2, last: {address: "project://第1章.md", excerpt: "改了"}}}]});
+    }, 30_000);
 
     it("一部作品的身份文件坏了只影响它自己：作品信息为 null、统计照常，并记诊断；不合规的字段当作没有并记 project.metadata.invalid", async () => {
         let broken = {id: "", path: ""};
