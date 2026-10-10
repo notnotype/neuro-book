@@ -98,3 +98,12 @@ omp 审查（报告在 [t73 证据](../t73-lab-nb-ui-and-storage/evidences/desig
   - 全量 `bun run test:e2e`：148 例通过、1 例失败。失败的是 `files-explorer.e2e.ts` 的“只用键盘”：用例用 `getByRole("menuitem").first()` 找右键菜单的第一项，标题栏的菜单组标题现在也是 menuitem 且排在前面。改为只在打开的菜单里找，这个文件 11 例全过。
   - omp 实现审查按新的分工启动，不阻塞：报告回来后在空闲时处理，修正单独提交。
   - 状态：实现完成，实现审查待处理。
+- 2026-10-10 omp 实现审查（非阻塞，[报告](evidences/implementation-review.md)）：阻断 2、重要 4、建议 1。处理：
+  - C1 跨插件运行时导入 `workbench/shared/items`（`architecture.test` 失败）：已修（提交 `66c1068f`，条目与首页贡献点的常量经 `shared/contracts.ts` 再导出）。
+  - C2 应用菜单的撤销、重做在焦点在原生输入框时仍作用于活动编辑器：待修，按 Spec 输出 29 在菜单打开前记下焦点，原生输入框时禁用并说明。
+  - C3 菜单从 portal 内按 Escape 焦点只回到触发器、不回到 F10 前的位置：待修，经 nb-ui 菜单的关闭完成钩子恢复。
+  - C4 “更多”里的长文本不换行（Dropdown 的 `whitespace-nowrap`、MenuNodes 的 `truncate`）：待修。
+  - C5 条目宽度探针与真实 Button 不等价、gap 多算一个：待修，改用与显示同源的测量或按实际项数算 gap。
+  - C6 F10 后标题栏任何子控件的 Escape 都会抢回焦点：待修，只对菜单入口的会话恢复。
+  - C7 每次输入全文重算字数（建议）：先用真实长文测基准再决定，记入后续。
+  - 审查环境的说明：报告里 `bun run typecheck` 在仓库根没有脚本、Vitest 缺插件，是审查 worktree 的运行方式问题，不是实现问题。

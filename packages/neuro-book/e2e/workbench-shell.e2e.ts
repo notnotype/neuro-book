@@ -465,7 +465,8 @@ test.describe("Lab", () => {
             return frames;
         };
         const lab = await watch("lab?c=WorkbenchShellLayout&s=default");
-        const product = await watch("");
+        // 没有项目的 `/` 是书架页、不读布局记录（ui.workbench-shell 输出 36），空工作台在 `/workbench`。
+        const product = await watch("workbench");
         await expect.poll(() => product.some((frame) => frame.includes("views-customizations"))).toBe(true);
         expect(lab.filter((frame) => frame.includes("views-customizations") || frame.includes("layout-sizes"))).toEqual([]);
         await context.close();
