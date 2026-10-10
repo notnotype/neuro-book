@@ -1,11 +1,13 @@
 ---
 schema: nbook.proposal/v1
-status: draft
+status: accepted
 created: 2026-10-10
-decided: null
+decided: 2026-10-10
 supersedes: []
 superseded-by: null
-specs: []
+specs:
+  - docs/specs/harness/session.md
+  - docs/specs/harness/profile.md
 adrs: []
 ---
 
@@ -163,7 +165,7 @@ type HarnessConfig = {
 
 压缩不放进 Profile，由单独的 `compaction` 模块负责（开发者 2026-10-10 同意），位于 `runtime` 之下、`session` 之上：
 
-- **方法走注册**：每个压缩方法声明自己何时可用、执行后返回压缩结果；`methodOrder` 依次尝试，不可用或失败换下一个（用户中止除外）。内置方法直接包 OMP 的函数：第一版只做 `soft`（本地模型摘要，OMP 的 `prepareCompaction` 加 `compact`，关闭 `remoteEnabled`）。`remote`（OpenAI、Anthropic 的原生压缩）的结果是占位摘要加存在 `preserveData` 里的服务方原生历史，会话回放要能还原成带 `providerPayload` 的摘要并处理 `providerReplayThroughEntryId`、换模型后不能复用时的降级，这部分在 OMP 里属于我们不引入的 `pi-coding-agent`，第二轮设计审查后推迟（待开发者确认）；`snapcompact`（把旧历史印成图片）、`handoff`（交接文档）、`shake`（机械删减）以后按需加。
+- **方法走注册**：每个压缩方法声明自己何时可用、执行后返回压缩结果；`methodOrder` 依次尝试，不可用或失败换下一个（用户中止除外）。内置方法直接包 OMP 的函数：第一版只做 `soft`（本地模型摘要，OMP 的 `prepareCompaction` 加 `compact`，关闭 `remoteEnabled`）。`remote`（OpenAI、Anthropic 的原生压缩）的结果是占位摘要加存在 `preserveData` 里的服务方原生历史，会话回放要能还原成带 `providerPayload` 的摘要并处理 `providerReplayThroughEntryId`、换模型后不能复用时的降级，这部分在 OMP 里属于我们不引入的 `pi-coding-agent`，第二轮设计审查后推迟（开发者 2026-10-10 确认）；`snapcompact`（把旧历史印成图片）、`handoff`（交接文档）、`shake`（机械删减）以后按需加。
 - **触发归 runtime**：第一版只做手动、上下文溢出、一轮结束超过阈值三种；多步工具调用中途、空闲、后台提前算好以后再做。
 - **Profile 的参与**：通过注册字段 `harness/compaction` 声明方法顺序、阈值、保留多少与给摘要的额外要求；压缩后重新写入种子。
 - **只追加**：压缩结果追加为 `compaction` 条目；OMP 的工具输出裁剪与删减会改写会话文件，我们以后改成“追加删减记录、回放时生效”。
@@ -370,4 +372,4 @@ runtime     （Agent 循环、状态机、排队、审批等待与恢复、压�
 | 2026-10-10 | 开发者 | Profile：节点、数据源与 Profile 字段全部走注册；去掉 `ModelContext` 分区，`System`、`HistorySet` 之外的内容都是动态上下文，放在哪里由 Profile 作者决定；现有标签可以重新设计；Profile 文件先全部信任，有实际需求再考虑隔离 |
 | 2026-10-10 | 开发者 | 会话条目对齐 OMP 会话条目（harness 状态用 `custom` 条目）；压缩作为单独模块、方法走注册，第一版 `soft` 与 `remote`，触发只做手动、溢出、一轮结束超阈值；`Reminder` 用 `<system-reminder>`；去掉 `If`、`Each`，消息节点按角色拆分；分页按轮、传原始条目并截断大字段、v1 内存读取；内核不做 SSE |
 | 2026-10-10 | 开发者 | 第二轮设计审查后：`Appending` 只在调用开始、ReAct 循环之前产生要写进会话的消息，循环中的往来由 runtime 直接写进会话，不经过 `Appending` |
-| 2026-10-10 | 作者（第二轮审查，待开发者确认） | 没有 `History` 的 Profile 在请求末尾接上本次调用的消息（`renderRequest` 收 `invocationStart`）；种子只能是 `User`、`Developer`，会话记下角色；种子、提醒与摘要回放时带 `attribution: "agent"`，两份 Spec 的“轮”按用户发出的消息划分；一次调用只 `prepare` 一次，另加 `refresh` 刷新每次模型调用的数据源；`remote` 压缩推迟，第一版只做 `soft` |
+| 2026-10-10 | 开发者（确认第二轮审查的处理） | 没有 `History` 的 Profile 在请求末尾接上本次调用的消息（`renderRequest` 收 `invocationStart`）；种子只能是 `User`、`Developer`，会话记下角色；种子、提醒与摘要回放时带 `attribution: "agent"`，两份 Spec 的“轮”按用户发出的消息划分；一次调用只 `prepare` 一次，另加 `refresh` 刷新每次模型调用的数据源；`remote` 压缩推迟，第一版只做 `soft` |

@@ -35,7 +35,7 @@ issueId: i193
 
 ## 2026-10-10 内核重做
 
-开发者决定：单独开分支与 worktree 做 `nb-harness` 与 Agent 插件；先做内核、不做插件，设计时考虑插件 API。执行位置：worktree `.worktree/w00002-neuro-agent-harness-redesign`，分支 `feat/w00002-harness-kernel`，从 `refactor/w00017-runtime-foundation`（`ebecf836`）开出，并入了 t07 分支；w00017 继续前进时按需合入。设计见 [Agent harness 内核](../../../docs/proposals/agent-harness-kernel.md)（`draft`），设计任务为 [`t08-harness-kernel-design`](tasks/t08-harness-kernel-design/README.md)。
+开发者决定：单独开分支与 worktree 做 `nb-harness` 与 Agent 插件；先做内核、不做插件，设计时考虑插件 API。执行位置：worktree `.worktree/w00002-neuro-agent-harness-redesign`，分支 `feat/w00002-harness-kernel`，从 `refactor/w00017-runtime-foundation`（`ebecf836`）开出，并入了 t07 分支；w00017 继续前进时按需合入。设计见 [Agent harness 内核](../../../docs/proposals/agent-harness-kernel.md)（`accepted`），设计任务为 [`t08-harness-kernel-design`](tasks/t08-harness-kernel-design/README.md)。
 
 切片（设计获批后按序实施，每片先写或修订 Spec；模块划分见设计稿“模块划分与推进顺序”）。第 0 片是包的底座：模块入口、边界测试、旧原型移到 `src/prototype/`，见 [`t09-harness-foundation-session`](tasks/t09-harness-foundation-session/README.md)。
 

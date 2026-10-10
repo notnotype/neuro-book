@@ -51,7 +51,7 @@ taskId: t09-harness-foundation-session
   | 12 | 边界测试认出 `require` 的别名、`module.require`、`import.meta.require` |
   | 13 | `loader` 目录允许变量路径的动态导入 |
   | 14 | 产品代码不能引用 `testing/`（含同模块） |
-  | 15 | v1 回放只用文本摘要，`remote` 压缩推迟（待开发者确认） |
+  | 15 | v1 回放只用文本摘要，`remote` 压缩推迟（开发者确认） |
 
   边界测试的修改逐种写违规样本确认报出后删除；`bun test` 31 pass、2 skip，`typecheck` 通过。
 
@@ -59,9 +59,9 @@ taskId: t09-harness-foundation-session
 
 ## 依据
 
-- 设计：[Agent harness 内核](../../../../../docs/proposals/agent-harness-kernel.md)（`draft`）的“会话”“事件、推送与分页”“模块划分与推进顺序”与决策记录。
+- 设计：[Agent harness 内核](../../../../../docs/proposals/agent-harness-kernel.md)（`accepted`，2026-10-10）的“会话”“事件、推送与分页”“模块划分与推进顺序”与决策记录。
 - 开发者 2026-10-10：先打好底座；旧原型移到 `src/prototype/`；先把 `session` 做好；写完后让 omp 审查；分页“没必要一次性做好”。
 
 ## 下一步
 
-开发者确认第二轮的改动后设计稿改为 `accepted` → `plan.md` → 实现与合同测试。
+`plan.md` → 实现与合同测试（开发者 2026-10-10 确认第二轮的处理，设计稿已 `accepted`）。

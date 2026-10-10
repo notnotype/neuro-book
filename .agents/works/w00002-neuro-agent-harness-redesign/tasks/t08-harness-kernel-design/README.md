@@ -14,7 +14,7 @@ taskId: t08-harness-kernel-design
 ## 当前状态（2026-10-10）
 
 - 分支 `feat/w00002-harness-kernel` 从 `refactor/w00017-runtime-foundation`（`ebecf836`）开出，worktree 沿用 `.worktree/w00002-neuro-agent-harness-redesign`；t07 分支 `docs/w00002-harness-specs` 已合入（`8a577b2d`），冲突取 w00017 的版本。
-- 设计稿 `draft`，开发者已逐项决定，待定项为空；决定过程见设计稿的决策记录。最近一轮写入：Profile 重新设计（全部走注册、`System`/`History`/`Appending` 三个布局节点、`History` 子节点为种子、提醒用 `<system-reminder>`、去掉条件节点、按角色拆分消息节点）、会话条目对齐 OMP、压缩模块、事件推送与分页、子代理的接口预留、插件落脚点补 Profile 与压缩的注册。
+- 设计稿 `accepted`（2026-10-10，开发者确认第二轮审查的处理之后），开发者已逐项决定，待定项为空；决定过程见设计稿的决策记录。最近一轮写入：Profile 重新设计（全部走注册、`System`/`History`/`Appending` 三个布局节点、`History` 子节点为种子、提醒用 `<system-reminder>`、去掉条件节点、按角色拆分消息节点）、会话条目对齐 OMP、压缩模块、事件推送与分页、子代理的接口预留、插件落脚点补 Profile 与压缩的注册。
 - `harness.profile` 的 `planned` Spec 写完并登记。
 - 旧原型的五份现状 Spec、三包的 README、API 参考、示例与示例测试，以及 nb-session、nb-profile 的包级 AGENTS.md 已按开发者要求删除（`454a50ab`）；保留 OMP 能力报告 `packages/nb-harness/docs/omp-capabilities.md`。
 
@@ -25,4 +25,4 @@ taskId: t08-harness-kernel-design
 
 ## 下一步
 
-第二轮设计审查已处理（见 [t09](../t09-harness-foundation-session/README.md)）→ 开发者确认后设计稿改为 `accepted` → 按切片实施。
+设计完成；按 Work 的切片实施（session 起步见 [t09](../t09-harness-foundation-session/README.md)）。
