@@ -96,9 +96,13 @@ export const labStore = defineStore("lab", ({persist}) => {
                 }
                 void preferences.commit((current) => ({...current, ...patch}));
             },
-            /** 写成空对象：记录里没有的字段就是默认值。受保护（损坏、版本不认识）的记录也能这样覆盖，原件由 Storage 保留。 */
+            /**
+             * 写成空对象：记录里没有的字段就是默认值。受保护（损坏、版本不认识）的记录也能这样覆盖，原件由 Storage 保留。
+             * 保存暂停时先整条放弃暂停的旧修改：重置排在它们后面会一直等着，之后“放弃修改”还会连重置一起删掉。
+             */
             resetDefaults: (): Promise<CommitResult> => {
                 held = {};
+                if (paused()) preferences.discardAll();
                 return preferences.reset({});
             },
             /** 读取失败的先重新打开；暂停的保存重试；之后提交暂停期间合并下来的修改。 */

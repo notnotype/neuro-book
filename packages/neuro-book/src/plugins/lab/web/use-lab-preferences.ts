@@ -61,14 +61,27 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
     const field = store.state.preferences;
     /** 记录读到结果或失败已定：在此之前界面只显示占位，不先用默认主题画一帧。 */
     const ready = computed(() => field.ready);
-    /** 正在把记录或默认值放进界面状态：期间的变化不是使用者的修改，不写回。 */
+    /** 第一次读到之前为 true：界面只显示占位。 */
     const hydrating = ref(true);
+    /** 正在把记录、默认值或地址里的主题放进界面状态：期间的变化不是使用者的修改，不写回，也不触发“主题跟随配色”。 */
+    let applying = false;
     const problem = computed(() => fieldProblem(field));
+    const allowed = (value: string | undefined, ids: readonly string[]): string | undefined => (value !== undefined && ids.includes(value) ? value : undefined);
+
+    /** 地址里此刻的主题与配色（认识的才算）；在界面上换过之后清空，地址里的已经作废。 */
+    let addressLook: {themeId?: string; colorwayId?: string} = {
+        ...(allowed(options.requested.themeId, catalog.themeIds) === undefined ? {} : {themeId: options.requested.themeId}),
+        ...(allowed(options.requested.colorwayId, catalog.colorwayIds) === undefined ? {} : {colorwayId: options.requested.colorwayId}),
+    };
+    const lookFromAddress = (): boolean => addressLook.themeId !== undefined || addressLook.colorwayId !== undefined;
+
+    function applyLook(saved: LabPreferences): void {
+        state.themeId.value = addressLook.themeId ?? saved.themeId ?? defaults.themeId;
+        state.colorwayId.value = addressLook.colorwayId ?? saved.colorwayId ?? defaults.colorwayId;
+    }
 
     function apply(saved: LabPreferences): void {
-        const allowed = (value: string | undefined, ids: readonly string[]): string | undefined => (value !== undefined && ids.includes(value) ? value : undefined);
-        state.themeId.value = allowed(options.requested.themeId, catalog.themeIds) ?? saved.themeId ?? defaults.themeId;
-        state.colorwayId.value = allowed(options.requested.colorwayId, catalog.colorwayIds) ?? saved.colorwayId ?? defaults.colorwayId;
+        applyLook(saved);
         // 选了自定义桌面却没有图片（换了浏览器来源、被清掉）时回到默认桌面，不自动弹文件选择器。
         state.pageBackdropId.value = saved.pageBackdropId === "custom" && !options.hasCustomWallpaper() ? defaults.pageBackdropId : saved.pageBackdropId ?? defaults.pageBackdropId;
         state.canvasBackdropId.value = saved.canvasBackdropId ?? defaults.canvasBackdropId;
@@ -78,26 +91,23 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
         state.rightCollapsed.value = state.preferredRightCollapsed.value;
         state.leftPanelWidth.value = saved.leftPanelWidth ?? defaults.leftPanelWidth;
         state.rightPanelWidth.value = saved.rightPanelWidth ?? defaults.rightPanelWidth;
+        options.applyResponsiveLayout();
     }
 
-    /** 放进界面状态，等这一轮 watch 跑过再放开写回。 */
-    async function hydrate(saved: LabPreferences): Promise<void> {
-        hydrating.value = true;
-        apply(saved);
-        options.applyResponsiveLayout();
+    /** 改界面状态但不写回：等这一轮 watch 跑过再放开。 */
+    async function quietly(change: () => void): Promise<void> {
+        applying = true;
+        change();
         await nextTick();
-        hydrating.value = false;
+        applying = false;
     }
 
     let loaded = false;
-    /** 画面上的主题配色来自地址栏，还没写进偏好。 */
-    let lookFromAddress = false;
     watch(ready, async (isReady) => {
         if (!isReady || loaded) return;
         loaded = true;
-        await hydrate(validLabPreferences(field.display, catalog));
-        lookFromAddress = (options.requested.themeId !== undefined && state.themeId.value === options.requested.themeId)
-            || (options.requested.colorwayId !== undefined && state.colorwayId.value === options.requested.colorwayId);
+        await quietly(() => apply(validLabPreferences(field.display, catalog)));
+        hydrating.value = false;
     }, {immediate: true});
 
     const fields: Array<[keyof LabPreferences, Ref<string | number | boolean>]> = [
@@ -112,10 +122,10 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
     ];
     for (const [key, source] of fields) {
         watch(source, (value) => {
-            if (hydrating.value) return;
+            if (hydrating.value || applying) return;
             if ((key === "leftPanelWidth" || key === "rightPanelWidth") && options.dragging()) return;
-            if ((key === "themeId" || key === "colorwayId") && lookFromAddress) {
-                lookFromAddress = false;
+            if ((key === "themeId" || key === "colorwayId") && lookFromAddress()) {
+                addressLook = {};
                 store.actions.update({themeId: state.themeId.value, colorwayId: state.colorwayId.value});
                 options.onLookAdopted?.();
                 return;
@@ -132,24 +142,32 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
         commitPanelWidth: (side: LabPanelSide): void => {
             store.actions.update(side === "left" ? {leftPanelWidth: state.leftPanelWidth.value} : {rightPanelWidth: state.rightPanelWidth.value});
         },
-        /** 恢复默认：记录写成空对象，界面回到默认值，再按窗口宽度收起侧栏。 */
+        /** 正在把记录或地址放进界面：调用方据此跳过只该响应使用者修改的 watch。 */
+        isApplying: (): boolean => hydrating.value || applying,
+        /** 恢复默认：记录写成空对象，界面回到默认值（地址里的主题配色仍然优先），再按窗口宽度收起侧栏。 */
         reset: async (): Promise<void> => {
-            hydrating.value = true;
-            apply({});
-            options.applyResponsiveLayout();
-            await nextTick();
-            hydrating.value = false;
+            await quietly(() => apply({}));
             await store.actions.resetDefaults();
+        },
+        /** 别处带来的地址（前进、后退、链接）：主题与配色按地址来、不写偏好；地址里没有时回到偏好。 */
+        followAddress: async (look: {readonly themeId?: string; readonly colorwayId?: string}): Promise<void> => {
+            addressLook = {
+                ...(allowed(look.themeId, catalog.themeIds) === undefined ? {} : {themeId: look.themeId}),
+                ...(allowed(look.colorwayId, catalog.colorwayIds) === undefined ? {} : {colorwayId: look.colorwayId}),
+            };
+            // 还没读到记录时，第一次读到会按这份地址处理。
+            if (!loaded) return;
+            await quietly(() => applyLook(validLabPreferences(field.display, catalog)));
         },
         /** 读取失败的重试成功后，把读到的偏好放进界面；保存失败的重试只补写，不改界面。 */
         retry: async (): Promise<void> => {
             const unread = problem.value?.kind === "unread";
             await store.actions.retry();
-            if (unread && field.failure === null) await hydrate(validLabPreferences(field.display, catalog));
+            if (unread && field.failure === null) await quietly(() => apply(validLabPreferences(field.display, catalog)));
         },
         discard: async (): Promise<void> => {
             store.actions.discard();
-            await hydrate(validLabPreferences(field.display, catalog));
+            await quietly(() => apply(validLabPreferences(field.display, catalog)));
         },
     };
 }

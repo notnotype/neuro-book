@@ -1,0 +1,107 @@
+# w00017 t73 只读实现审查
+
+审查范围：`249e01c5..949a7e00`。只读当前 worktree；实验与报告写在指定仓库外目录。未运行浏览器、e2e、开发服务、构建与安装。
+
+## 问题
+
+### C1 重要｜正确性｜暂停保存时“恢复 Lab 默认配置”会把重置意图一起丢掉
+
+- 位置：`packages/neuro-book/src/plugins/lab/web/lab-preferences-store.ts:100-102,114-117`；底层队列语义为 `packages/neuro-book/src/shared/store/persisted.ts:449-460`。
+- 现象：`resetDefaults()` 只清空 `held`，随后直接向已有暂停队列追加 `preferences.reset({})`。保存队首处于 `failed`/`unknown` 时，重置 Promise 不会结算；随后 UI 的 `discard()` 调用 `discardAll()`，会把队首旧修改和排在其后的重置意图一起删除，记录仍保持旧值。用户点击“恢复 Lab 默认配置”后可以看到界面暂时回到默认，但丢弃失败修改后刷新又恢复旧偏好。
+- 核实：运行仓库外实验 `tmp-reset-failure.test.ts`：`bun test /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t73-impl/tmp-reset-failure.test.ts`，结果 `1 pass / 0 fail`。实验使用真实 `storageWorld`、真实 SQLite 与断线后的 `unknown` 保存结果，确认重置队列为 2、Promise 未结算，`store.actions.discard()` 后队列为 0，重新连接读取到的记录仍为旧值 `{themeId: "paper"}`。
+- 建议：`resetDefaults()` 在暂停状态下先明确丢弃既有暂停队列，再追加一个新的 reset 意图；或为“恢复默认”提供原子“清除旧意图并重置”操作。必须保留受保护记录覆盖和正常成功路径。
+
+### C2 重要｜正确性｜主题与配色的地址状态只在首次挂载读取，浏览器路由切换后不会跟随
+
+- 位置：`packages/neuro-book/src/plugins/lab/web/LabShell.vue:224-225`；`packages/neuro-book/src/plugins/lab/web/use-lab-session.ts:81-93`。
+- 现象：`LabShell` 用一次性的 `window.location.search` 生成 `requestedLook`，并只在 `useLabPreferences` 初始化时传入；`useLabSession` 的路由 watcher 只比较组件、场景、画布、缩放和 tab，从不读取 `theme`/`cw`。因此 Lab 已挂载时通过同一路径的 router 导航、浏览器前进/后退或外部链接改变 `theme`/`cw`，地址栏会变但画面主题/配色仍是旧值，地址不再代表当前标签页。
+- 核实：代码路径核对 `LabShell.vue:224-259` 与 `use-lab-session.ts:81-93`；已有 `lab.e2e.ts:97-125` 只覆盖首次打开参数、刷新和 UI 改主题，未覆盖同一路径 query 改变或前进/后退回到另一组主题参数。未运行浏览器，因此未把浏览器现场结果冒充已验证。
+- 建议：把主题/配色也纳入路由读侧同步；监听当前 route 的 query，在非本组件写入的导航上重新应用并保持“地址优先、UI 改动后采纳并移除参数”的状态机，避免只读 `window.location.search`。
+
+### C3 重要｜不变量｜router.push/replace 失败时状态机会永久留下伪在途地址
+
+- 位置：`packages/neuro-book/src/plugins/lab/web/use-lab-session.ts:62-76,81-85`。
+- 现象：每次写地址前先把 `written` 和 `inFlight` 标成成功前提，随后以 `void router.push(...)`/`void router.replace(...)` 发起导航；没有 `catch`，也没有失败回滚或清除伪在途记录。守卫拒绝、异步加载失败或导航错误时，当前 route 仍是旧地址而 refs 已是新画面；`written`/`inFlight` 还会影响下一次写入和 route watcher 的判定，用户会看到地址栏与画面分离，错误 Promise 还可能成为未处理 rejection。
+- 核实：静态追踪 `write()` 的赋值顺序和两个异步调用，确认路由失败没有任何收口分支；现有 `lab.e2e.ts:138-164` 只验证成功的组件切换，未注入守卫拒绝、异步导航失败或快速切换后的地址/route 一致性。未运行浏览器，未把该路径标成真实现场复现。
+- 建议：保留导航 token 与目标快照，在 `push`/`replace` 的结果或异常中确认仍是当前 token；失败时清除 `written`/`inFlight` 并按 route 重新 apply，向 UI 暴露失败诊断，且显式处理 rejected promise。
+
+### C4 建议｜诊断正确性｜没有 aria-controls 时 combobox 检查会被页面上任意 listbox 欺骗
+
+- 位置：`packages/neuro-book/src/plugins/lab/web/inspect-checks.ts:117-132`。
+- 现象：`aria-expanded="true"` 且没有 `aria-controls` 时，`popupExists` 退化为 `document.querySelector("[role='listbox']") !== null`。页面上只要存在任意其它列表框，当前 combobox 即被报告为“弹出列表存在”，即使它自己的弹层缺失或尚未挂载，结构检查也会给出错误的通过结果。
+- 核实：运行仓库外 DOM 实验 `tmp-inspect-combobox.ts`：`bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t73-impl/tmp-inspect-combobox.ts`，使用 `happy-dom` 构造一个没有 `aria-controls` 的展开 combobox 和一个无关 listbox，实际输出 `{"label":"combobox 展开关系","pass":true,"detail":"弹出列表存在"}`。现有 DOM 测试只覆盖有 `aria-controls` 的路径。
+- 建议：没有明确关联时只检查 combobox 的受控后代或 `aria-controls` 目标；无法建立关联就报告“未声明关联”或不通过，不要扫描整个 document。
+
+### C5 重要｜测试｜全场景 e2e 用 History API 绕过了被审查的 Router 写路径
+
+- 位置：`packages/neuro-book/e2e/lab-scenes.e2e.ts:79-91`；相关同步实现为 `packages/neuro-book/src/plugins/lab/web/use-lab-session.ts:65-76`。
+- 现象：场景遍历在已有页面上直接执行 `history.pushState(...); dispatchEvent(new PopStateEvent("popstate"))`，不是调用 Vue Router 的 `push`/`replace`。它可以验证 popstate 读侧把 fixture 切出来，但不会覆盖组件/场景/尺寸/缩放/tab 变化触发的 Router 写侧、导航失败收口、`inFlight`/`written` 竞态；因此“360 个场景都就绪”可能在地址同步写坏时仍然全绿。
+- 核实：代码检查确认用例没有访问 router 当前路由、没有断言规范化 URL，也没有制造快速点击或失败导航；而 `useLabSession` 的注释明确规定地址只能经 Router 改。未运行 e2e（用户明确禁止开发服务与 e2e）。
+- 建议：保留真实浏览器资源限制的单页遍历，但场景切换至少通过公开的 Router 导航 API，并在独立用例中覆盖快速连续切换、前进/后退、被守卫拒绝后的地址与 refs 一致性。
+
+### C6 重要｜不变量｜外壳与画布的 pointercancel 路径没有按取消语义收口
+
+- 位置：`packages/neuro-book/src/plugins/lab/web/use-lab-layout.ts:96-109,123-125`；`packages/neuro-book/src/plugins/lab/web/components/ViewportCanvas.vue:169-187`。
+- 现象：侧栏拖动只给 `window` 注册 `pointermove`/`pointerup`，没有 `pointercancel`；系统取消或触摸手势中断后，`dragging` 与全局 `pointermove` 监听会继续存活，直到下一次拖动或组件卸载，卸载收口还会调用 `onDragEnd` 写入一次宽度。画布 resize 则把 `pointercancel` 直接绑定到与 `pointerup` 相同的 `finish`，会提交被取消时的草稿尺寸，而不是撤销草稿。
+- 核实：静态追踪了两条手势的注册与清理分支；`useLabLayout` 的 cleanup 只移除 `pointermove`/`pointerup`，`ViewportCanvas` 的 `pointercancel` 明确调用无参数提交函数。未运行浏览器手势场景，因此未把系统级取消标成现场复现。
+- 建议：为侧栏拖动增加 `pointercancel` 的无提交清理分支；画布 resize 将取消分支与提交分支分开，恢复起始草稿并释放 capture/listener。补充真实触摸/系统中断后的监听与持久化断言。
+
+### C7 重要｜正确性｜DialogWindow 传送到画布后仍按浏览器视口计算尺寸与坐标
+
+- 位置：`packages/nb-ui/src/components/feedback/DialogWindow.vue:126,141-180`；画布包含块为 `packages/neuro-book/src/plugins/lab/web/components/ViewportCanvas.vue:250-301`。
+- 现象：Lab 提供 Teleport 目标后，`DialogWindow` 的 `fixed` 元素位于 `.nb-lab-overlay-root` 的包含块内，但 `containerSize`、`effectiveWidth`、`clampedX` 与 `clampedY` 仍读取浏览器 `viewportWidth/viewportHeight`。例如 390×844 的手机画布位于 1600px 窗口时，默认 720px 窗口不会按画布可用宽度收缩，拖动夹紧也以 1600px 为上限，窗口会溢出画布，标题栏和可交互区域不能保证留在画布内。
+- 核实：静态追踪 `useTeleportTarget`、`ViewportCanvas` 的 `contain: layout` 与 `DialogWindow` 的 `containerSize`/clamp 分支；可浏览器复现步骤为打开 `/lab?c=DialogWindow&s=resizable&vp=phone`，检查 `[data-dialog-window]` 与 `[data-lab-overlay-root]` 的矩形。未运行浏览器，因此步骤是未现场验证的复现路径。
+- 建议：定位、初始位置、可用尺寸和夹紧统一读取 Teleport 实际包含块的尺寸与坐标原点；对 `teleportTarget === false` 的内联分支继续保留原有处理。
+
+### C8 重要｜正确性｜产品页缺少查询容器时，cqw/cqh 替换旧 viewport 单位改变浮层尺寸语义
+
+- 位置：`packages/nb-ui/src/components/feedback/Dialog.vue:18-23`、`DialogWindow.vue:95,177`、`Drawer.vue:69-72`、`QuickInput.vue:87-92`；目标查询容器只由 `packages/neuro-book/src/plugins/lab/web/components/ViewportCanvas.vue:27-29,250-301` 提供。
+- 现象：这些公共组件把原有 `vw`/`vh`/`dvh` 尺寸改为 `cqw`/`cqh`，但产品页没有 `provideTeleportTarget` 和尺寸查询容器。没有合格查询容器时，容器查询长度单位回退到 small viewport size，不再保持旧的默认/动态 viewport 语义；移动浏览器地址栏展开、收起或页面高度变化时，Dialog、Drawer、QuickInput 的最大尺寸与旧行为不同，可能留下额外空白或遮挡内容。这个回归发生在没有 Lab 宿主的普通产品页。
+- 核实：静态对照本次公共组件尺寸声明、`useTeleportTarget` 的默认 `body` 路径和 CSS 容器单位规范；未运行浏览器，未把移动端尺寸差异标成现场复现。
+- 建议：只在明确进入画布容器的样式路径使用 `cqw/cqh`，公共组件默认保留原 viewport 单位；或为公共组件建立与旧 `vw/vh/dvh` 等价的全局查询容器并覆盖产品页与 Lab 页的尺寸合同。
+
+### C9 重要｜正确性｜画布浮层的 stacking context 低于调整手柄
+
+- 位置：`packages/neuro-book/src/plugins/lab/web/components/ViewportCanvas.vue:250-305`；调整手柄为同文件 `254-285,430-469`。
+- 现象：`.nb-lab-overlay-root` 同时设置 `contain: layout` 和 `z-index: 1`，成为独立 stacking context；画布调整手柄是兄弟节点且 `z-index: 10`。因此 Dialog、QuickInput、Drawer 等浮层即使在自身上下文里设置更高的 z-index，也不能越过 overlay root 的 `z-index: 1`；浮层遮罩的视觉层和指针层在手柄区域会被手柄压住，模态浮层不能完整阻断画布 resize 交互。
+- 核实：静态核对 overlay root、Teleport 子节点的 `pointer-events` 以及四个 handle 的 z-index；可浏览器复现步骤为打开手机画布里的 Dialog/QuickInput，再在浮层覆盖到画布右侧或底侧手柄处观察遮罩层与指针目标。未运行浏览器。
+- 建议：把 overlay root 的 stacking 层级置于调整手柄之上，并在浮层关闭时保留手柄可用；同时用真实浏览器验证遮罩绘制顺序和指针命中。
+
+### C10 重要｜诊断正确性｜accessibleName 会把隐藏文字和空白 aria-label 判成有效名称
+
+- 位置：`packages/neuro-book/src/plugins/lab/web/inspect-checks.ts:60-74,128`。
+- 现象：名称计算直接回退到 `textContent`，没有排除 `aria-hidden="true"` 子树，也没有对 `aria-label=" "` 做 trim。因而选中 `<div>普通文字</div>`、`<button><span aria-hidden="true">图标</span></button>` 或空白 aria-label 时，结构检查可能通过“可访问名称”，但这些内容不是对应元素的有效可访问名称，Lab 会给出错误的绿色结果。
+- 核实：静态追踪 `accessibleName()` 的回退顺序与“可访问名称”检查的 `name.length > 0` 判据；现有 `inspect-checks.dom.test.ts:17-45` 只覆盖 aria-label、label 关联和缺失名称的基础路径，未覆盖隐藏子树和空白属性。未运行浏览器。
+- 建议：按 ARIA 命名来源和适用角色计算名称，过滤隐藏子树并 trim；空白属性应视为未设置，并为这些边界补 DOM 测试。
+
+### C11 重要｜正确性｜变量覆盖值允许未闭合 CSS 注释，能吞掉整份覆盖样式
+
+- 位置：`packages/neuro-book/src/plugins/lab/web/lab-overrides.ts:15-29`；写入位置为 `packages/neuro-book/src/plugins/lab/web/use-lab-overrides.ts:20-30,43-52`。
+- 现象：`validateOverrideValue()` 只拒绝分号和花括号，`red/*` 这类值会通过校验；`render()` 随后把它直接插入 `<style>` 的自定义属性声明。未闭合注释会把后面的 `!important`、规则结束符和后续声明吞进注释，导致这次覆盖不生效，并可能让同一覆盖样式块后续项目全部失效。面板会把该值当作成功提交，用户看不到对应错误。
+- 核实：静态追踪值校验到 `<style>.textContent` 的完整路径；现有 `lab-overrides.test.ts:18-33` 只覆盖分号、花括号、长度和 schema，不覆盖 `/*`、`*/` 等注释边界。未运行浏览器。
+- 建议：拒绝 CSS 注释起止标记及其它声明边界，或使用 CSSOM/安全的声明写入 API；增加“非法值不改变已有覆盖”的回归测试。
+
+### C12 重要｜迁移完整性｜FormSelect 的富选项与长列表场景行为没有迁入新 Lab
+
+- 位置：新场景 `packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/form.ts:102-116`；旧行为为提交前的 `packages/nb-ui/playground/app/component-lab/fixtures/FormSelectFixture.vue` 中的 `rich` 场景。
+- 现象：迁移后的 `FormSelect` 默认场景只有 `简体中文`、`English` 和禁用的 `日本語` 三个选项；旧 Lab 的 `rich` 场景包含带图标、禁用项以及长列表数据。旧场景中的图标选项、长列表滚动/定位和丰富 option 行为没有被新 fixture 或 `lab-nb-ui.e2e.ts` 的三条组件行为用例替代，因此迁移后的“所有场景就绪”不会覆盖这部分用户可观察行为。
+- 核实：对照 `git show 249e01c5:packages/nb-ui/playground/app/component-lab/fixtures/FormSelectFixture.vue` 与当前 `form.ts:102-116`；迁移说明只列出 FormSelect 的方向键、禁用项和 Escape 行为，未列出富选项/长列表的等价覆盖。未运行 e2e。
+- 建议：把旧 rich 数据拆成新 Lab 场景，或在 `lab-nb-ui.e2e.ts` 增加图标、禁用、长列表和滚动定位的黑盒断言；不要用删掉视觉快照替代行为迁移。
+
+### C13 重要｜测试｜双窗口偏好并发用例没有制造 revision 冲突
+
+- 位置：`packages/neuro-book/e2e/lab.e2e.ts:282-301`。
+- 现象：场景用 `Promise.all` 同时触发两个页面的主题选择和侧栏宽度按键，然后等待 SQLite 最终值包含两项。它没有阻塞任一窗口在读取旧 revision 后再让另一窗口先提交，因此无法稳定进入存储层的 revision 冲突、重试或合并分支；测试通过只证明某次时序下两次写入最终都到达，不能证明真正并发写入时两项都不丢。
+- 核实：静态核对用例的 `Promise.all`、最终记录断言以及未注入存储屏障/冲突响应；当前用例没有控制两个窗口的 read-update-write 交错，也没有断言重试或 conflict 诊断。未运行 e2e。
+- 建议：在真实 storage 测试后端提供可控 barrier，强制两个 writer 基于同一 revision 提交，再断言合并后的两字段、重试次数和最终刷新一致；保留当前真实双页用例作为端到端补充。
+
+## 未发现问题的方面
+
+- 偏好字段的正常读写、受保护记录不覆盖、读取失败重试、断线保存和放弃路径：`lab-preferences-store.test.ts` 8 pass、`use-lab-preferences.test.ts` 6 pass；C1 是这些测试未覆盖的“暂停队列中再 reset”边界。
+- Lab URL 的解析、规范化、别名保留与 query 参数合并：`lab-url.test.ts` 7 pass；C2/C3 是运行时路由双向同步的未覆盖异常路径，不否定这些纯函数的已测合同。
+- 变量快照的 schema、白名单、原子拒绝和序列化往返：`bun test packages/neuro-book/src/plugins/lab/web/lab-overrides.test.ts` 结果为 5 pass、0 fail；C11 是 CSS 注释边界，现有 parser 测试没有覆盖。
+- Reka UI 的 Portal primitive 通过 `useMounted()` 延迟首次 Teleport，已存在的目标优先级/缺失目标回退测试覆盖了显式目标、宿主目标和 body 回退；未把“初始打开浮层找不到画布目标”作为问题报告。未运行浏览器。
+- 迁移计划明确保留的 `/acceptance` splitter/nested-grid 路径与新 `lab-nb-ui.e2e.ts` 中的三条组件行为用例均已存在；本报告只列 FormSelect 富场景这一处具体行为缺口，不把已接受的像素基线删除重复列为问题。
+- 未进行浏览器视觉、触摸、移动地址栏、真实 Router 守卫拒绝、e2e、开发服务、构建或安装验证。Vitest DOM 用例在当前 worktree 还受 workspace support 模块的旧绝对路径配置阻断；这属于验证环境限制，不据此判定产品行为。
+
+严重程度数量：阻断 0，重要 12，建议 1。

@@ -26,6 +26,10 @@ export function validateOverrideValue(value: unknown): string {
     if (/[;{}]/u.test(normalized)) {
         throw new Error("变量值不能包含分号或规则边界");
     }
+    // 没闭合的注释会把后面的 `!important` 与其余覆盖一起吞掉；闭合的注释也没有用处，一并拒绝。
+    if (normalized.includes("/*") || normalized.includes("*/")) {
+        throw new Error("变量值不能包含 CSS 注释");
+    }
     return normalized;
 }
 

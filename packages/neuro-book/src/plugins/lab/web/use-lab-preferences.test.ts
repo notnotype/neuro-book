@@ -158,6 +158,25 @@ describe("读到之前与读到之后", () => {
     });
 });
 
+describe("地址里的主题配色", () => {
+    it("别处带来的地址：主题按地址来、不写偏好；地址里没有时回到偏好", async () => {
+        const {w, storage} = await seeded({themeId: "nbook", colorwayId: "nbook-dark"});
+        const {store} = await openLab(w, "w", "c");
+        const {state, preferences} = bind(store);
+        await waitUntil("放进界面", () => !preferences.hydrating.value);
+        await preferences.followAddress({themeId: "macos", colorwayId: "nbook-light"});
+        expect([state.themeId.value, state.colorwayId.value]).toEqual(["macos", "nbook-light"]);
+        await idle(store);
+        expect(await read(storage)).toEqual({themeId: "nbook", colorwayId: "nbook-dark"});
+
+        await preferences.followAddress({});
+        expect([state.themeId.value, state.colorwayId.value]).toEqual(["nbook", "nbook-dark"]);
+        await idle(store);
+        expect(await read(storage)).toEqual({themeId: "nbook", colorwayId: "nbook-dark"});
+        expect(preferences.hydrating.value).toBe(false);
+    });
+});
+
 describe("写回", () => {
     it("只写改了的字段：另一个窗口同时改的字段保留", async () => {
         const w = await world();
@@ -199,7 +218,10 @@ describe("写回", () => {
         }});
         await waitUntil("放进界面", () => !preferences.hydrating.value);
         expect(responsive).toBe(1);
-        await preferences.reset();
+        const resetting = preferences.reset();
+        // 恢复默认不回到占位：占位会把整个 Lab 卸掉重挂。
+        expect(preferences.hydrating.value).toBe(false);
+        await resetting;
         expect(responsive).toBe(2);
         expect(state.themeId.value).toBe("nbook");
         expect(state.rightPanelWidth.value).toBe(380);

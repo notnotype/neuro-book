@@ -55,6 +55,29 @@ const SELECT_OPTIONS = [
     {value: "en-US", label: "English"},
     {value: "ja-JP", label: "日本語", description: "尚未完整翻译", disabled: true},
 ];
+/** 导出格式：长列表（超过五项时下拉按截半高度收起）与富选项（图标、说明、状态点、禁用项）。 */
+const EXPORT_FORMATS = [
+    {value: "docx", label: "Word 文档（.docx）", iconClass: "i-lucide-file-text", description: "保留标题层级与批注"},
+    {value: "epub", label: "EPUB 电子书（.epub）", iconClass: "i-lucide-book-open", description: "按卷生成目录"},
+    {value: "md", label: "Markdown（.md）", iconClass: "i-lucide-file-code"},
+    {value: "txt", label: "纯文本（.txt）", iconClass: "i-lucide-file"},
+    {value: "pdf", label: "PDF 文档（暂不可用）", iconClass: "i-lucide-file-x", disabled: true, description: "排版插件还没装"},
+    {value: "html", label: "网页（.html）", iconClass: "i-lucide-globe"},
+    {value: "odt", label: "OpenDocument（.odt）", iconClass: "i-lucide-file-text"},
+    {value: "rtf", label: "富文本（.rtf）", iconClass: "i-lucide-file-type"},
+    {value: "fb2", label: "FictionBook（.fb2）", iconClass: "i-lucide-book"},
+    {value: "mobi", label: "Kindle（.mobi）", iconClass: "i-lucide-tablet"},
+    {value: "json", label: "结构化数据（.json）", iconClass: "i-lucide-braces"},
+    {value: "csv", label: "章节统计表（.csv）", iconClass: "i-lucide-table"},
+    {value: "zip", label: "整本打包（.zip）", iconClass: "i-lucide-archive"},
+    {value: "nbook", label: "NeuroBook 备份（.nbook）", iconClass: "i-lucide-save"},
+];
+const STATUS_OPTIONS = [
+    {value: "draft", label: "草稿", indicatorClass: "bg-[var(--status-warning)]", description: "还在写"},
+    {value: "review", label: "待校对", indicatorClass: "bg-[var(--status-info)]", description: "交给编辑"},
+    {value: "done", label: "定稿", indicatorClass: "bg-[var(--status-success)]", description: "不再改动"},
+];
+
 const CHARACTER_OPTIONS = ["沈屿", "林晚", "老港主", "灯塔看守", "无名船夫"].map((name) => ({value: name, label: name}));
 
 /** 日期类组件的共同场景：空值、英文、只读、禁用。值不是 JSON，`model` 层留空，组件非受控。 */
@@ -113,6 +136,8 @@ export const formFixtures: LabFixture[] = [
             {id: "placeholder", label: "未选择", input: {props: {options: SELECT_OPTIONS, placeholder: "选择语言", size: "sm"}, model: {modelValue: ""}}},
             {id: "up", label: "向上展开", input: {props: {options: SELECT_OPTIONS, dropdownDirection: "up"}, model: {modelValue: "en-US"}}},
             {id: "disabled", label: "禁用", input: {props: {options: SELECT_OPTIONS, disabled: true}, model: {modelValue: "zh-CN"}}},
+            {id: "long", label: "长列表（14 项，截半收起）", input: {props: {options: EXPORT_FORMATS, placeholder: "导出格式", dropdownDirection: "down"}, model: {modelValue: "docx"}}},
+            {id: "rich", label: "富选项：状态点与说明", input: {props: {options: STATUS_OPTIONS, placeholder: "章节状态"}, model: {modelValue: "review"}}},
         ],
         subject: nbUiSubject("FormSelect"),
     }),

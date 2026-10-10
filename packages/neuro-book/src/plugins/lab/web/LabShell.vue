@@ -14,7 +14,7 @@ import LabToolbar from "./LabToolbar.vue";
 import LabInspectPanel from "./LabInspectPanel.vue";
 import ViewportCanvas from "./components/ViewportCanvas.vue";
 import {installLabDebugApi} from "./lab-debug";
-import {LAB_VIEWPORT_PRESETS, parseLabUrl} from "./lab-url";
+import {LAB_VIEWPORT_PRESETS, lookFromQuery, parseLabUrl} from "./lab-url";
 import HighlightBox from "./components/HighlightBox.vue";
 import {labComponents, findLabComponent} from "./component-index";
 import type {LabDisplayMode} from "./component-index";
@@ -81,6 +81,8 @@ const session = useLabSession(router, {
     componentNames: labComponents.map((item) => item.name),
     zooms: labZooms,
     defaults: {component: labComponents.find((entry) => entry.mountable)?.name ?? "", zoom: LAB_DEFAULT_ZOOM, tab: "doc"},
+}, {
+    onAddressLook: (query) => void preferences.followAddress(lookFromQuery(query, labColorwayMeta)),
 });
 onBeforeUnmount(session.stop);
 const canvasBackdrop = ref(LAB_DEFAULT_BACKDROP);
@@ -307,7 +309,7 @@ const currentAppearance = computed(() => labColorwayMeta[labColorwayId.value]?.a
 // 换主题时跟到这套主题自带的配色。manifest 把它叫默认值而不是约束：跟过去之后
 // 用户仍可以单独换配色，两条轴独立。
 watch(labThemeId, (id) => {
-    if (preferencesHydrating.value) {
+    if (preferences.isApplying()) {
         return;
     }
     const preferred = labThemes.find((theme) => theme.manifest.id === id)?.manifest.defaultColorway;

@@ -49,28 +49,59 @@ function implicitRole(element: Element): string {
     return "";
 }
 
-/** 元素的角色：role 属性，或原生元素的隐式角色（标“隐式”）。 */
+/** 元素的角色：role 属性，或原生元素的隐式角色；都没有为空串。 */
+function rawRole(element: Element): string {
+    return element.getAttribute("role")?.trim() || implicitRole(element);
+}
+
+/** 读数用的角色：隐式角色标“隐式”，没有角色为“—”。 */
 export function roleOf(element: Element): string {
-    const explicit = element.getAttribute("role");
+    const explicit = element.getAttribute("role")?.trim();
     if (explicit) return explicit;
     const implicit = implicitRole(element);
     return implicit === "" ? "—" : `${implicit}（隐式）`;
 }
 
-/** 近似的可访问名称：aria-label、aria-labelledby、关联的 label、包着它的 label，最后是文字内容。 */
+/** 可以从内容取名的角色（WAI-ARIA 的 name from content）；其它元素的文字不是它的名称。 */
+const NAME_FROM_CONTENT = new Set(["button", "link", "checkbox", "radio", "switch", "tab", "menuitem", "menuitemcheckbox", "menuitemradio", "option", "treeitem", "cell", "gridcell", "columnheader", "rowheader", "heading", "tooltip"]);
+
+/** 读屏能读到的文字：跳过 aria-hidden 与 hidden 的子树。 */
+function visibleText(node: Node): string {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+    if (!(node instanceof Element)) return "";
+    if (node.getAttribute("aria-hidden") === "true" || node.hasAttribute("hidden")) return "";
+    return Array.from(node.childNodes, visibleText).join("");
+}
+
+const squash = (text: string): string => text.replace(/\s+/gu, " ").trim();
+
+/**
+ * 近似的可访问名称，按来源的先后：aria-labelledby、aria-label、关联的 label、可以从内容取名的角色的文字、title。
+ * 空白当作没写；隐藏的文字不算。
+ */
 export function accessibleName(element: Element): string {
-    const ariaLabel = element.getAttribute("aria-label");
-    if (ariaLabel) return ariaLabel;
     const labelledBy = element.getAttribute("aria-labelledby");
     if (labelledBy) {
-        const text = labelledBy.split(/\s+/u).map((id) => document.getElementById(id)?.textContent ?? "").join(" ").trim();
+        const text = squash(labelledBy.split(/\s+/u).map((id) => document.getElementById(id)?.textContent ?? "").join(" "));
         if (text) return text;
     }
+    const ariaLabel = squash(element.getAttribute("aria-label") ?? "");
+    if (ariaLabel) return ariaLabel;
     if (element.id) {
         const label = Array.from(document.querySelectorAll("label")).find((candidate) => candidate.htmlFor === element.id);
-        if (label?.textContent?.trim()) return label.textContent.trim();
+        const text = label === undefined ? "" : squash(visibleText(label));
+        if (text) return text;
     }
-    return element.closest("label")?.textContent?.trim() || element.textContent?.trim() || "";
+    const wrapping = element.closest("label");
+    if (wrapping !== null && wrapping !== element) {
+        const text = squash(visibleText(wrapping));
+        if (text) return text;
+    }
+    if (NAME_FROM_CONTENT.has(rawRole(element))) {
+        const text = squash(visibleText(element));
+        if (text) return text;
+    }
+    return squash(element.getAttribute("title") ?? "");
 }
 
 /**
@@ -115,9 +146,12 @@ export function inspectElement(element: HTMLElement, canvas: HTMLElement | null)
     const describedBy = (element.getAttribute("aria-describedby") ?? "").split(/\s+/u).filter(Boolean);
     const describedByExists = describedBy.every((id) => document.getElementById(id) !== null);
     const expanded = element.getAttribute("aria-expanded");
-    const isCombobox = roleOf(element).startsWith("combobox");
-    const controls = element.getAttribute("aria-controls");
-    const popupExists = controls === null ? document.querySelector("[role='listbox']") !== null : document.getElementById(controls) !== null;
+    const isCombobox = rawRole(element) === "combobox";
+    // 只认明确的关联：aria-controls、aria-owns 指向的元素，或它自己里面的弹出列表。扫整页会把别处的列表框算进来。
+    const related = (element.getAttribute("aria-controls") ?? element.getAttribute("aria-owns") ?? "").split(/\s+/u).filter(Boolean);
+    const popupExists = related.length > 0
+        ? related.some((id) => document.getElementById(id) !== null)
+        : element.querySelector("[role='listbox'], [role='tree'], [role='grid'], [role='dialog']") !== null;
     const name = accessibleName(element);
     const box = canvas?.getBoundingClientRect() ?? null;
     const inCanvas = canvas !== null && canvas.contains(element);
@@ -128,7 +162,7 @@ export function inspectElement(element: HTMLElement, canvas: HTMLElement | null)
         {label: "可访问名称", pass: name.length > 0, detail: name || "缺少名称"},
         {label: "id 唯一", pass: element.id === "" || idCount === 1, detail: element.id ? `${element.id} × ${String(idCount)}` : "未设置 id"},
         {label: "aria-describedby 引用", pass: describedByExists, detail: describedBy.length === 0 ? "未设置" : describedBy.join(", ")},
-        {label: "combobox 展开关系", pass: !isCombobox || expanded !== "true" || popupExists, detail: !isCombobox ? "不是 combobox" : expanded === "true" ? `弹出列表${popupExists ? "存在" : "缺失"}` : "未展开"},
+        {label: "combobox 展开关系", pass: !isCombobox || expanded !== "true" || popupExists, detail: !isCombobox ? "不是 combobox" : expanded !== "true" ? "未展开" : popupExists ? "关联的弹出列表存在" : related.length === 0 ? "展开了但没有关联弹出列表（aria-controls）" : "关联的弹出列表缺失"},
         {label: "画布边界", pass: fits, detail: !inCanvas ? "不在画布里，不判" : fits ? "没有越出画布" : "越出了画布"},
     ];
     return {groups, checks};

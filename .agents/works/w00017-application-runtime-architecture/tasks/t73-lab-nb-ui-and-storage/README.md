@@ -24,6 +24,15 @@ taskId: t73-lab-nb-ui-and-storage
 ## 当前状态
 
 - 2026-10-10 调研完成，计划起草；开发者同意计划与三个待定项的推荐，并要求 omp 审查计划、补充遗漏的细节与更有用的功能，处理后实施 t73–t75。
+- 2026-10-10 计划审查（omp 一个会话，报告 [evidences/design-review.txt](evidences/design-review.txt)）：14 条问题、7 条补充，全部核实成立。
+  - **并入 t73 计划**：P01–P06、F01–F03，包括：
+    - 恢复默认改为写空对象；
+    - 偏好的界面状态表；
+    - 地址栏由 Router 维护；
+    - 迁移对照表与遍历全部场景的 e2e；
+    - 双窗口并发写的验收；
+    - `check:dist` 识别 `lab-sources`。
+  - **写进后续 Task**：P07–P09、F04–F05 写进 t74 README；P10–P14、F06–F07 写进书架页提案。
 - 2026-10-10 S1+S2（`5c4a5f19`）：
   - **入口与索引**：nb-ui 公开入口 `@notnotype/nb-ui/lab-sources`；组件索引并入 nb-ui，组件名全局唯一（重名只收路径在前的一个并提示）。
   - **场景**：75 个 nb-ui 组件的场景，按 nb-ui 分类放在 `fixtures/nb-ui/`。
@@ -36,35 +45,6 @@ taskId: t73-lab-nb-ui-and-storage
     - 越界报告多为测量误报（读屏播报区、视觉隐藏的 input），Lab 的测量改为跳过看不见的元素，e2e 补了用例；
     - 真实问题只有 Collapsible：内容区向外扩 6px，在贴边容器里造成 6px 横向溢出。这是保护焦点光环的设计取舍，写进组件文档。
   - **验证**：nb-ui 与 neuro-book 的 typecheck、`build` 与 `check:dist`、Lab 的 Bun 37 例、Vitest 27 例、e2e `lab.e2e.ts` 与 `lab-shot.e2e.ts` 11 例，全部通过。变异 6 个全杀。
-- 2026-10-10 S5 第二部分完成（playground Lab 退役）：
-  - **删除**：`packages/nb-ui/playground/app/component-lab/`、`pages/lab.vue`、`assets/css/lab.css`，导航里的“诊断实验室”。
-  - **依赖 `/lab` 的 nb-ui 用例逐个处理，不静默丢覆盖**：
-    - `nested-grid.spec.ts`、`splitter.spec.ts`：需要真实指针与布局引擎的手势验收（拖动守恒、键盘只提交一次、坏快照恢复等）。两个 fixture 与它们的外壳、定义搬到 `playground/app/acceptance/`，由新的验收页 `/acceptance/<组件>` 承载（按地址应用主题与配色、场景属性控件、一直可见的事件日志）。两个 spec 只改地址与事件日志的选择器，30 例全过。
-    - `lab.spec.ts` 里测组件行为的三条（下拉的键盘展开、禁用项与 Escape，向上展开，非模态窗口的外部交互与键盘调整尺寸）迁到新应用的 `e2e/lab-nb-ui.e2e.ts`，对新 Lab 里的真实组件场景断言。原用例测的其实是 playground 里的裸 Reka 下拉，新用例测的是 nb-ui 的 FormSelect。其余用例测的是 playground Lab 自身（地址参数、变量覆盖、快照），随它删除；变量覆盖在新 Lab 由 `lab.e2e.ts` 场景 23 覆盖。
-    - `visual.spec.ts`（含像素基线）与 `shots.spec.ts`：经 `/lab` 拍的主题矩阵截图，删除，由新应用的 `lab:shot` 取代。**像素基线对比随之丢失**，`lab:shot` 只报告溢出与页面问题，不比对像素。
-  - **环境**：nb-ui 的 Playwright 配置用 Playwright 自带的 chromium，本机没有下载；这次用会话临时目录里的包装配置换成本机 Chrome 运行，仓库里的配置没有改。
-  - **文档**：nb-ui UI 规范第 7 节、组件规范的示范链接、`Button.vue` 一条指向已删 fixture 的注释。
-  - **验证**：nb-ui typecheck（含 playground）；nb-ui Vitest 515 例通过，`colorway.test.ts` 5 例是已知的环境失败；nb-ui 手势验收 30 例；`lab-nb-ui.e2e.ts` 3 例。
-- 2026-10-10 S5 第一部分完成（变量页签与结构检查）：
-  - **变量页签**：从 playground Lab 迁入。覆盖集的校验与快照（`lab-overrides.ts`，快照格式不变，旧文件可导入）、变量分组从 nb-ui 公开入口取（`lab-tokens.ts`）、覆盖层只在内存（`use-lab-overrides.ts`，不写浏览器存储，刷新后消失）、面板 `LabVariablesPanel.vue`。地址栏的 `tab` 参数多了 `variables`。
-  - **结构检查**：迁入元素页签（`inspect-checks.ts`）。旧的“invalid 语义”检查依赖 playground 场景上的标记，新 Lab 没有，不迁；“预览边界”改为“画布边界”，不在画布里的元素不判。读数里的 role 补上原生元素的隐式角色（迁移时发现原生 `<button>` 显示为“—”）。
-  - **验证**：typecheck；Lab Bun 43 例、Vitest 34 例；`lab.e2e.ts` 新增场景 23；全部 Lab e2e 31 例通过。变异 4 个全杀；其中“导入时合并而不是替换”第一次活了下来，原因是用例导入前刚清空，补了“导入前另有覆盖”的步骤后杀死。
-- 2026-10-10 S4 完成：
-  - **拆分**：`LabShell.vue` 从 2045 行降到约 930 行。顶栏 `LabToolbar.vue`、左栏 `LabNavPanel.vue`、右栏 `LabInspectPanel.vue` 只呈现与转发，各带同名 `.md`；侧栏布局在 `use-lab-layout.ts`；样式移到不 scoped 的 `lab-shell.css`，几个外壳零件共用。画布那一条工具条（场景、尺寸、缩放、画布底）与舞台连得紧，留在 LabShell，与计划表里“工具条含场景与画布”不同。
-  - **拆分后的样式对照**：在开发服务上把改动的文件临时换回 HEAD，对 Lab 外壳每个元素记录 16 项计算样式与位置，两种窗口宽度各一份。对照抓到一处回归：直接在窄屏打开时，偏好里展开的侧栏盖掉了自动收起（偏好改成异步读取后时序变了）。已修：偏好放进界面之后按窗口宽度再收一次；`lab.e2e.ts` 补了直接窄屏打开的断言，变异检查确认能拦下。另一处是减少动态的规则：原来写在 LabShell 的 scoped 样式里，改成全局后优先级不够、被 `CollapsibleSidePanel` 自己的转场盖掉，挪进了该组件。修完后外壳样式前后一致，只有舞台里第三方 JSON 编辑器的内部高度稳定多出 1px，原因没有查到，不影响外壳。
-  - **画布作为浮层定位容器**：nb-ui 加 `provideTeleportTarget` 与 `useTeleportTarget`；Dialog、DialogWindow、AlertDialog、Drawer、QuickInput 的缺省传送目标改为宿主提供的、否则 `body`，尺寸从 `vw`、`vh` 改为容器单位 `cqw`、`cqh`（没有容器时等于视口单位，产品页不变）。`ViewportCanvas` 在画布盒子里放浮层落点（尺寸容器加 `contain: layout`）并提供给场景。
-    - 顺带修了 nb-ui 的一个真实问题：Dialog 的 `sm`、`default` 两档宽度写死 360px、420px，在 390px 窄屏溢出，现在按可用宽度收窄。
-    - 实施中踩到：`container-type: size` 不会让 `fixed` 后代以它为包含块（它不带 layout containment）。玻璃主题碰巧靠画布盒子的 `backdrop-filter` 成了包含块，editorial、aurora 主题下命令面板仍按窗口定位。加上 `contain: layout` 后修好；验收 24 的用例改用不开模糊的 editorial 主题，变异检查确认能拦下。
-    - `lab-commands.e2e.ts` 的 390px 用例改为看手机画布：面板按画布宽度收窄，窗口宽度不再决定它的尺寸。
-    - `dist/nb-ui.css` 重新生成：除了 Drawer 换成容器单位的两条，还去掉了 `mx-1`、`ml-2`、`ml-4`、`shrink`、`opacity-80`、`bg-[var(--border-color)]` 六条。这六个类在 nb-ui 组件源码里已经没人用，是之前的提交改了组件却没有重新生成产物。
-  - **验证**：neuro-book 与 nb-ui typecheck；Lab Bun 41 例（含架构测试）；nb-ui Vitest 529 例通过，另有 `colorway.test.ts` 5 例失败。这 5 例与本次改动无关：本机 Node 26 自带的实验性全局 `localStorage` 没有 `--localstorage-file` 时为 undefined，盖住了 happy-dom 的实现，该文件本次没有改动。`build` 与 `check:dist`；e2e：Lab、命令、工作台共 81 例全过。变异 6 个全杀（传送目标 3 个、浮层落点 2 个、窄屏收起 1 个）。
-- 2026-10-10 S3 完成：
-  - **偏好**：改存 `nbook.storage` 的 `lab.preferences`（user、shared），`defineStore("lab")` 按字段合并保存、恢复默认写空对象、暂停期间合并成一份、重试与放弃；读到之前只显示占位；问题提示按界面状态表给出操作。“字段问题”分类从资源管理器挪到 `src/shared/store/problem.ts` 共用。localStorage、sessionStorage 的全部路径删去。
-  - **地址栏**：`use-lab-session.ts` 经宿主 router 同步，切组件 `push`、其余 `replace`，后退前进由当前路由驱动；参数补 `zoom`、`tab`，不认识的参数保留，旧参数名改写；复制场景链接；地址里的场景不存在时回落并提示。
-  - **偏离计划一处**：计划写“`cw` 与 `theme` 地址栏指定、随之写入偏好”。偏好搬到服务端后所有窗口共用一份，照此实现 `lab:shot` 每拍一张都会改掉开发者自己的 Lab 主题（以前它用独立的浏览器上下文，碰不到）。改为地址里的主题与配色只作用于这个标签页，在界面上换主题或配色时才写进偏好并从地址栏去掉。Spec 已同步。
-  - **全场景 e2e**：改为每个标签页整页加载一次、之后经 router 在 Lab 里切场景（`pushState` 加 `popstate`，与浏览器前进后退同一条路），用时从 11 分钟降到 34 秒。变异检查：fixture 加载失败、传送门根挂 `data-lab-subject` 的 Vue 警告，都被拦下。
-  - **验证**：typecheck；Bun 162 例（Lab、资源管理器、store、架构）；Vitest 49 例；`build` 与 `check:dist`；`lab.e2e.ts` 13 例（新增场景 9 坏记录、20 双窗口、21 历史与 router、22 换端口、复制链接）；其余 Lab 与资源管理器 e2e 27 例。变异 9 个全杀（按字段合并、恢复默认用 reset、暂停期间合并、拖动不写、地址主题被取代时写两项、宽度核对、读取失败重试后放进界面、保留未知参数、切组件 push）。
-- 2026-10-10 S0 完成：`docs/specs/ui/component-lab.md` 写入 nb-ui 来源与组件名唯一、偏好改存 `lab.preferences`（user、shared）与界面状态表、地址栏作会话状态（`zoom`、`tab`、Router 的 push 与 replace、复制场景链接）、变量页签与结构检查、画布作浮层定位容器；验收 1、8、9、13 改写，新增 18 到 24；删去 localStorage、sessionStorage 的字段表与“拆分已延期”。尚未实现的条目标“（planned）”。nb-ui 的 `AGENTS.md`、`README.md` 与 `docs/ui-development-spec.md` 第 7 节改为在新 Lab 登记，删去与“一个场景一个组件”冲突的多方案矩阵条目。
 - 2026-10-10 S2b 完成：
   - **迁移矩阵**：[evidences/s2-migration.md](evidences/s2-migration.md) 逐个对照旧 playground 的 52 个组件。对照中发现漏迁的场景与事件已补回：FormInput 的前缀插槽、FormCheckbox 无标签、TimePicker 与 Listbox 的禁用、QuickInput 的长列表与“在对话框上打开”、表单控件的 `focus`、Splitter 的 `gesture-start`、DialogWindow 的 `update:height`。其余差异写明了原因。
   - **全场景 e2e**：`e2e/lab-scenes.e2e.ts` 在开发会话里逐个打开 360 个场景，要求就绪、没有加载失败、页面错误与控制台警告，4 个标签页并行，用时约 11 分钟。
@@ -77,13 +57,60 @@ taskId: t73-lab-nb-ui-and-storage
     - Dialog、QuickInput 这类传送到 `body` 的浮层按整个窗口居中，手机画布只截到一半。Lab 画布不是真实视口，需要给画布一个传送目标并让它成为 `fixed` 的包含块；S4 拆分时一并处理。
     - `lab.e2e.ts` 的“主题、窄屏与偏好”在连跑时 4 次失败 1 次，单跑与另两轮都通过，失败细节没有留下。这条用例测的是 localStorage 偏好，S3 会重写，届时重点观察。
   - **验证**：neuro-book 与 nb-ui typecheck、`build` 与 `check:dist`、`check-dist.test.ts` 4 例、Lab Vitest 28 例、全场景 e2e、其余 Lab e2e 24 例（两轮全过）。
-- 2026-10-10 计划审查（omp 一个会话，报告 [evidences/design-review.txt](evidences/design-review.txt)）：14 条问题、7 条补充，全部核实成立。
-  - **并入 t73 计划**：P01–P06、F01–F03，包括：
-    - 恢复默认改为写空对象；
-    - 偏好的界面状态表；
-    - 地址栏由 Router 维护；
-    - 迁移对照表与遍历全部场景的 e2e；
-    - 双窗口并发写的验收；
-    - `check:dist` 识别 `lab-sources`。
-  - **写进后续 Task**：P07–P09、F04–F05 写进 t74 README；P10–P14、F06–F07 写进书架页提案。
+- 2026-10-10 S0 完成：`docs/specs/ui/component-lab.md` 写入 nb-ui 来源与组件名唯一、偏好改存 `lab.preferences`（user、shared）与界面状态表、地址栏作会话状态（`zoom`、`tab`、Router 的 push 与 replace、复制场景链接）、变量页签与结构检查、画布作浮层定位容器；验收 1、8、9、13 改写，新增 18 到 24；删去 localStorage、sessionStorage 的字段表与“拆分已延期”。尚未实现的条目标“（planned）”。nb-ui 的 `AGENTS.md`、`README.md` 与 `docs/ui-development-spec.md` 第 7 节改为在新 Lab 登记，删去与“一个场景一个组件”冲突的多方案矩阵条目。
+- 2026-10-10 S3 完成：
+  - **偏好**：改存 `nbook.storage` 的 `lab.preferences`（user、shared），`defineStore("lab")` 按字段合并保存、恢复默认写空对象、暂停期间合并成一份、重试与放弃；读到之前只显示占位；问题提示按界面状态表给出操作。“字段问题”分类从资源管理器挪到 `src/shared/store/problem.ts` 共用。localStorage、sessionStorage 的全部路径删去。
+  - **地址栏**：`use-lab-session.ts` 经宿主 router 同步，切组件 `push`、其余 `replace`，后退前进由当前路由驱动；参数补 `zoom`、`tab`，不认识的参数保留，旧参数名改写；复制场景链接；地址里的场景不存在时回落并提示。
+  - **偏离计划一处**：计划写“`cw` 与 `theme` 地址栏指定、随之写入偏好”。偏好搬到服务端后所有窗口共用一份，照此实现 `lab:shot` 每拍一张都会改掉开发者自己的 Lab 主题（以前它用独立的浏览器上下文，碰不到）。改为地址里的主题与配色只作用于这个标签页，在界面上换主题或配色时才写进偏好并从地址栏去掉。Spec 已同步。
+  - **全场景 e2e**：改为每个标签页整页加载一次、之后经 router 在 Lab 里切场景（`pushState` 加 `popstate`，与浏览器前进后退同一条路），用时从 11 分钟降到 34 秒。变异检查：fixture 加载失败、传送门根挂 `data-lab-subject` 的 Vue 警告，都被拦下。
+  - **验证**：typecheck；Bun 162 例（Lab、资源管理器、store、架构）；Vitest 49 例；`build` 与 `check:dist`；`lab.e2e.ts` 13 例（新增场景 9 坏记录、20 双窗口、21 历史与 router、22 换端口、复制链接）；其余 Lab 与资源管理器 e2e 27 例。变异 9 个全杀（按字段合并、恢复默认用 reset、暂停期间合并、拖动不写、地址主题被取代时写两项、宽度核对、读取失败重试后放进界面、保留未知参数、切组件 push）。
+- 2026-10-10 S4 完成：
+  - **拆分**：`LabShell.vue` 从 2045 行降到约 930 行。顶栏 `LabToolbar.vue`、左栏 `LabNavPanel.vue`、右栏 `LabInspectPanel.vue` 只呈现与转发，各带同名 `.md`；侧栏布局在 `use-lab-layout.ts`；样式移到不 scoped 的 `lab-shell.css`，几个外壳零件共用。画布那一条工具条（场景、尺寸、缩放、画布底）与舞台连得紧，留在 LabShell，与计划表里“工具条含场景与画布”不同。
+  - **拆分后的样式对照**：在开发服务上把改动的文件临时换回 HEAD，对 Lab 外壳每个元素记录 16 项计算样式与位置，两种窗口宽度各一份。对照抓到一处回归：直接在窄屏打开时，偏好里展开的侧栏盖掉了自动收起（偏好改成异步读取后时序变了）。已修：偏好放进界面之后按窗口宽度再收一次；`lab.e2e.ts` 补了直接窄屏打开的断言，变异检查确认能拦下。另一处是减少动态的规则：原来写在 LabShell 的 scoped 样式里，改成全局后优先级不够、被 `CollapsibleSidePanel` 自己的转场盖掉，挪进了该组件。修完后外壳样式前后一致，只有舞台里第三方 JSON 编辑器的内部高度稳定多出 1px，原因没有查到，不影响外壳。
+  - **画布作为浮层定位容器**：nb-ui 加 `provideTeleportTarget` 与 `useTeleportTarget`；Dialog、DialogWindow、AlertDialog、Drawer、QuickInput 的缺省传送目标改为宿主提供的、否则 `body`，尺寸从 `vw`、`vh` 改为容器单位 `cqw`、`cqh`（没有容器时等于视口单位，产品页不变）。`ViewportCanvas` 在画布盒子里放浮层落点（尺寸容器加 `contain: layout`）并提供给场景。
+    - 顺带修了 nb-ui 的一个真实问题：Dialog 的 `sm`、`default` 两档宽度写死 360px、420px，在 390px 窄屏溢出，现在按可用宽度收窄。
+    - 实施中踩到：`container-type: size` 不会让 `fixed` 后代以它为包含块（它不带 layout containment）。玻璃主题碰巧靠画布盒子的 `backdrop-filter` 成了包含块，editorial、aurora 主题下命令面板仍按窗口定位。加上 `contain: layout` 后修好；验收 24 的用例改用不开模糊的 editorial 主题，变异检查确认能拦下。
+    - `lab-commands.e2e.ts` 的 390px 用例改为看手机画布：面板按画布宽度收窄，窗口宽度不再决定它的尺寸。
+    - `dist/nb-ui.css` 重新生成：除了 Drawer 换成容器单位的两条，还去掉了 `mx-1`、`ml-2`、`ml-4`、`shrink`、`opacity-80`、`bg-[var(--border-color)]` 六条。这六个类在 nb-ui 组件源码里已经没人用，是之前的提交改了组件却没有重新生成产物。
+  - **验证**：neuro-book 与 nb-ui typecheck；Lab Bun 41 例（含架构测试）；nb-ui Vitest 529 例通过，另有 `colorway.test.ts` 5 例失败。这 5 例与本次改动无关：本机 Node 26 自带的实验性全局 `localStorage` 没有 `--localstorage-file` 时为 undefined，盖住了 happy-dom 的实现，该文件本次没有改动。`build` 与 `check:dist`；e2e：Lab、命令、工作台共 81 例全过。变异 6 个全杀（传送目标 3 个、浮层落点 2 个、窄屏收起 1 个）。
+- 2026-10-10 S5 第一部分完成（变量页签与结构检查）：
+  - **变量页签**：从 playground Lab 迁入。覆盖集的校验与快照（`lab-overrides.ts`，快照格式不变，旧文件可导入）、变量分组从 nb-ui 公开入口取（`lab-tokens.ts`）、覆盖层只在内存（`use-lab-overrides.ts`，不写浏览器存储，刷新后消失）、面板 `LabVariablesPanel.vue`。地址栏的 `tab` 参数多了 `variables`。
+  - **结构检查**：迁入元素页签（`inspect-checks.ts`）。旧的“invalid 语义”检查依赖 playground 场景上的标记，新 Lab 没有，不迁；“预览边界”改为“画布边界”，不在画布里的元素不判。读数里的 role 补上原生元素的隐式角色（迁移时发现原生 `<button>` 显示为“—”）。
+  - **验证**：typecheck；Lab Bun 43 例、Vitest 34 例；`lab.e2e.ts` 新增场景 23；全部 Lab e2e 31 例通过。变异 4 个全杀；其中“导入时合并而不是替换”第一次活了下来，原因是用例导入前刚清空，补了“导入前另有覆盖”的步骤后杀死。
+- 2026-10-10 S5 第二部分完成（playground Lab 退役）：
+  - **删除**：`packages/nb-ui/playground/app/component-lab/`、`pages/lab.vue`、`assets/css/lab.css`，导航里的“诊断实验室”。
+  - **依赖 `/lab` 的 nb-ui 用例逐个处理，不静默丢覆盖**：
+    - `nested-grid.spec.ts`、`splitter.spec.ts`：需要真实指针与布局引擎的手势验收（拖动守恒、键盘只提交一次、坏快照恢复等）。两个 fixture 与它们的外壳、定义搬到 `playground/app/acceptance/`，由新的验收页 `/acceptance/<组件>` 承载（按地址应用主题与配色、场景属性控件、一直可见的事件日志）。两个 spec 只改地址与事件日志的选择器，30 例全过。
+    - `lab.spec.ts` 里测组件行为的三条（下拉的键盘展开、禁用项与 Escape，向上展开，非模态窗口的外部交互与键盘调整尺寸）迁到新应用的 `e2e/lab-nb-ui.e2e.ts`，对新 Lab 里的真实组件场景断言。原用例测的其实是 playground 里的裸 Reka 下拉，新用例测的是 nb-ui 的 FormSelect。其余用例测的是 playground Lab 自身（地址参数、变量覆盖、快照），随它删除；变量覆盖在新 Lab 由 `lab.e2e.ts` 场景 23 覆盖。
+    - `visual.spec.ts`（含像素基线）与 `shots.spec.ts`：经 `/lab` 拍的主题矩阵截图，删除，由新应用的 `lab:shot` 取代。**像素基线对比随之丢失**，`lab:shot` 只报告溢出与页面问题，不比对像素。
+  - **环境**：nb-ui 的 Playwright 配置用 Playwright 自带的 chromium，本机没有下载；这次用会话临时目录里的包装配置换成本机 Chrome 运行，仓库里的配置没有改。
+  - **文档**：nb-ui UI 规范第 7 节、组件规范的示范链接、`Button.vue` 一条指向已删 fixture 的注释。
+  - **验证**：nb-ui typecheck（含 playground）；nb-ui Vitest 515 例通过，`colorway.test.ts` 5 例是已知的环境失败；nb-ui 手势验收 30 例；`lab-nb-ui.e2e.ts` 3 例。
+- 2026-10-10 S6 收口（实现审查与修正）：
+  - **实现审查**：omp 一个会话（只读，分离 worktree，最高推理档），13 条：重要 12、建议 1，无阻断。到 2 小时上限被截停，用原会话续跑补完报告。报告 [evidences/impl-review.txt](evidences/impl-review.txt)。
+  - **处理**：
 
+    | 编号 | 结论 | 处理 |
+    |---|---|---|
+    | C1 保存暂停时恢复默认被“放弃修改”一并删掉 | 成立（审查者用真实 Storage 复现） | 恢复默认先整条放弃暂停的旧修改；补回归测试，变异杀死 |
+    | C2 地址里的主题配色不随前进后退 | 成立 | 别处带来的地址交给偏好层 `followAddress`：按地址来、不写偏好，地址里没有时回到偏好 |
+    | C3 导航失败留下伪在途地址 | 成立 | 失败时撤掉在途记录、画面回到当前地址；被取代或重复的导航只撤在途记录 |
+    | C4 combobox 检查扫整页的列表框 | 成立 | 只认 aria-controls、aria-owns 或自身里的弹出列表 |
+    | C5 全场景 e2e 绕过 Router 写路径 | 部分采纳 | 这个用例只负责“挂得上”；遍历时加核对 router 当前路由与状态一致，会话层另有真实 vue-router 的单元测试（守卫拒绝、后退、快速连切） |
+    | C6 pointercancel 没按取消收口 | 成立 | 侧栏与画布的取消都不提交、回到拖动前；补组件测试，变异杀死 |
+    | C7 DialogWindow 在画布里仍按窗口尺寸 | 成立 | 传送目标不是 body 时按目标的大小居中与夹紧（解析时同步量一次，再由 ResizeObserver 跟进）；补 e2e |
+    | C8 产品页 cq 单位退回小视口单位 | 部分采纳 | 保留：桌面上与原来相同，移动端按可见区计算更保守；在组件文档与注释里写明，不再说“等于视口单位” |
+    | C9 浮层落点低于画布手柄 | 成立 | 浮层落点层级提到手柄之上；验收 24 补断言 |
+    | C10 可访问名称算进隐藏文字与空白 | 成立 | 按来源顺序计算，跳过隐藏子树，只有允许从内容取名的角色取文字 |
+    | C11 覆盖值可带 CSS 注释 | 成立 | 拒绝 `/*`、`*/` |
+    | C12 FormSelect 富选项与长列表没迁 | 成立 | 补 `long`（14 项）与 `rich` 场景，`lab-nb-ui.e2e.ts` 补长列表用例 |
+    | C13 双窗口用例没有制造 revision 冲突 | 不改用例 | 确定性的冲突重放由 Bun 测试保证（两边同一轮以同一前提提交，按字段合并写错时被变异杀死）；两处写明分工 |
+
+  - **处理中顺带发现并修正**：
+    - 进入时地址已经规范时，第一次切组件用了 `replace`、没有留下历史（会话层测试抓到）；
+    - “放进偏好”的几处（读取失败重试、放弃修改、恢复默认）会把整个 Lab 切回加载占位、卸掉重挂，改为不动界面的应用；
+    - 画布手柄跨在画布边上，画布外那一半不归画布里的遮罩管，验收按画布内的一半写。
+  - **补测时的一处误判**：FormSelect 长列表连按方向键“卡住”，查明是 reka 在 keydown 之后才挪焦点（setTimeout），开发模式下主线程忙时快速连按会合并成一步，不是 nb-ui 的缺陷；用例改用 End 键。
+  - **验证**：neuro-book 与 nb-ui typecheck；Bun 169 例（Lab、资源管理器、store、架构）；Lab Vitest 45 例；nb-ui Vitest 515 例（另 5 例是已知的 Node 26 环境失败）；变异累计：C1 1 个、C2/C3 相关 5 个、C6 2 个、C7–C11 6 个，全杀。全量 e2e 与 nb-ui 手势验收见下面“全量 e2e 的偶发失败”。
+  - **全量 e2e 的偶发失败**：前四次全量各挂一条不同的用例（`workbench-shell.e2e.ts` 两条、`settings.e2e.ts` 一条，表现为页面停在启动中、“Failed to fetch dynamically imported module”），单独跑都过。第五次再挂 `settings.e2e.ts` 的 Lab 用例，从 trace 查明：开发模式整页加载逐个请求了 418 至 658 个 typebox 模块文件，Chrome 以 ERR_INSUFFICIENT_RESOURCES 拒绝其中几个，页面没能启动。原因是 t72 的命令注册表新导入 `typebox/compile`，没列进 `vite.config.ts` 的预构建清单（`typebox` 与 `typebox/value` 在），这个子路径就按源码逐个文件提供，还带出另一份 typebox 实例。补进清单；`dev.e2e.ts` 加断言：Lab 与产品页整页加载不按源码请求 typebox，变异（删掉这一项）被杀。此前“机器负载高加上 Lab 请求多”的推测不成立。
+  - **收口验证**：全量 `bun run test:e2e` 141 例全过（8.4 分钟，修正前 9.8 分钟）；nb-ui 手势验收 30 例（本机 Chrome 包装配置）。

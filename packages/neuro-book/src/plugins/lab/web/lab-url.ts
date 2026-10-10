@@ -134,3 +134,14 @@ export function queryFromSession(session: LabSession, current: LabQuery, catalog
         ...(look === undefined || look === null ? {} : {theme: look.themeId, cw: look.colorwayId}),
     };
 }
+
+/** 查询参数里的主题与配色（`cw` 可写 `light`、`dark`，取第一套外观相符的配色）；是否已安装由偏好那边核对。 */
+export function lookFromQuery(query: LabQuery, colorways: Record<string, {appearance: "light" | "dark"}>): {themeId?: string; colorwayId?: string} {
+    const themeId = first(query, "theme");
+    const colorway = first(query, "cw");
+    const byAppearance = colorway === "light" || colorway === "dark"
+        ? Object.entries(colorways).find(([, meta]) => meta.appearance === colorway)?.[0]
+        : undefined;
+    const colorwayId = byAppearance ?? colorway;
+    return {...(themeId === undefined ? {} : {themeId}), ...(colorwayId === undefined ? {} : {colorwayId})};
+}

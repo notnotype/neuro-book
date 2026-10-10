@@ -70,6 +70,8 @@ describe("记录与按字段写", () => {
         expect(a.store.state.preferences.display).toEqual({});
         expect(await read(a.storage)).toBe("missing");
 
+        // 两边在同一轮里提交，都以“记录不存在”为前提：后到的一方必然冲突，在新的记录上重放自己的字段。按字段合并写错时
+        // （整份覆盖）这里会丢掉先到的那一项。
         a.store.actions.update({themeId: "paper"});
         b.store.actions.update({leftPanelWidth: 320});
         await Promise.all([saved(a.store), saved(b.store)]);
@@ -167,6 +169,25 @@ describe("坏记录与失败", () => {
         await store.actions.retry();
         await saved(store);
         expect(await read(storage)).toEqual({themeId: "glass", leftPanelWidth: 260});
+    });
+
+    it("保存暂停时恢复默认：暂停的旧修改作废，重连后重试写下空对象", async () => {
+        const w = await world();
+        const {store, storage, window} = await openLab(w, "w", "c");
+        store.actions.update({themeId: "paper"});
+        await saved(store);
+        window.disconnect();
+        store.actions.update({themeId: "glass"});
+        await waitUntil("暂停", () => fieldProblem(store.state.preferences)?.kind === "unsaved");
+        const reset = store.actions.resetDefaults();
+        await waitUntil("重置也暂停", () => store.state.preferences.save.state === "failed" || store.state.preferences.save.state === "unknown");
+        expect(store.state.preferences.queue).toBe(1);
+
+        expect(await window.reconnect()).toEqual({ok: true});
+        await store.actions.retry();
+        await saved(store);
+        expect(await read(storage)).toEqual({});
+        expect(["failed", "unknown"]).toContain(await reset);
     });
 
     it("放弃：显示回到已保存的值，重连后不再写被放弃的修改", async () => {

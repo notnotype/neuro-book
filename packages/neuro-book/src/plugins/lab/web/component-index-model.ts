@@ -298,7 +298,7 @@ export function buildLabIndex(sources: LabIndexSources, warn: (message: string) 
         }
         const taken = pathByName.get(name);
         if (taken !== undefined) {
-            warn(`${name} 重名：${path} 与 ${taken} 只收后者，改掉其中一个的组件名`);
+            warn(`${name} 重名：只收 ${taken}，${path} 不进索引；改掉其中一个的组件名`);
             continue;
         }
         pathByName.set(name, path);

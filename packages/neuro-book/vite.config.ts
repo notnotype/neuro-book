@@ -40,10 +40,11 @@ export default defineConfig({
             "vanilla-jsoneditor",
             "marked",
             "dompurify",
-            // 远程服务合同、引导与 Storage 的 schema：不预构建时开发模式每次整页加载要逐个请求几百个模块文件，
-            // Chrome 会以 ERR_INSUFFICIENT_RESOURCES 拒绝其中一些，页面停在启动中。
+            // 远程服务合同、引导与 Storage 的 schema、命令声明的编译检查器。用到的每个子路径都要列：漏一个，开发模式每次
+            // 整页加载就要逐个请求几百个模块文件，Chrome 会以 ERR_INSUFFICIENT_RESOURCES 拒绝其中一些，页面停在启动中。
             "typebox",
             "typebox/value",
+            "typebox/compile",
         ],
     },
     build: {outDir: `${packageRoot}dist/web`, emptyOutDir: true, target: BROWSER_TARGETS},

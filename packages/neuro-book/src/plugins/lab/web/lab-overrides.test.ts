@@ -20,6 +20,8 @@ describe("变量覆盖的快照", () => {
         expect(() => parseLabOverrideSnapshot(JSON.stringify({schema: LAB_OVERRIDE_SCHEMA, version: LAB_OVERRIDE_VERSION, overrides: {"--radius-control": 8}}), allowed)).toThrow("字符串");
         expect(() => parseLabOverrideSnapshot(JSON.stringify({schema: LAB_OVERRIDE_SCHEMA, version: LAB_OVERRIDE_VERSION, overrides: {"--radius-control": "8px; color:red"}}), allowed)).toThrow("规则边界");
         expect(() => parseLabOverrideSnapshot("{坏的", allowed)).toThrow("JSON");
+        expect(() => parseLabOverrideSnapshot(JSON.stringify({schema: LAB_OVERRIDE_SCHEMA, version: LAB_OVERRIDE_VERSION, overrides: {"--radius-control": "8px /*"}}), allowed)).toThrow("注释");
+        expect(() => parseLabOverrideSnapshot(JSON.stringify({schema: LAB_OVERRIDE_SCHEMA, version: LAB_OVERRIDE_VERSION, overrides: {"--radius-control": "*/ 8px"}}), allowed)).toThrow("注释");
     });
 
     it("空值与超长的值被拒", () => {

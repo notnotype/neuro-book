@@ -39,6 +39,19 @@ describe("结构检查", () => {
         expect(checksOf(element)).toMatchObject({"可访问名称": false, "id 唯一": false, "aria-describedby 引用": false});
     });
 
+    it("隐藏的文字、空白的 aria-label、普通块的文字都不算名称；按钮的可见文字算", () => {
+        document.body.innerHTML = [
+            '<button id="icon"><span aria-hidden="true">✕</span></button>',
+            '<button id="blank" aria-label="  "></button>',
+            '<div id="plain">普通文字</div>',
+            '<button id="text"><span aria-hidden="true">✕</span> 关闭</button>',
+        ].join("");
+        expect(checksOf(document.getElementById("icon")!)).toMatchObject({"可访问名称": false});
+        expect(checksOf(document.getElementById("blank")!)).toMatchObject({"可访问名称": false});
+        expect(checksOf(document.getElementById("plain")!)).toMatchObject({"可访问名称": false});
+        expect(checksOf(document.getElementById("text")!)).toMatchObject({"可访问名称": true});
+    });
+
     it("名称可以来自关联的 label", () => {
         document.body.innerHTML = '<label for="title">书名</label><input id="title">';
         expect(checksOf(document.getElementById("title")!)).toMatchObject({"可访问名称": true});
@@ -50,6 +63,11 @@ describe("结构检查", () => {
         expect(checksOf(input)).toMatchObject({"combobox 展开关系": false});
         document.body.insertAdjacentHTML("beforeend", '<ul id="list" role="listbox"></ul>');
         expect(checksOf(input)).toMatchObject({"combobox 展开关系": true});
+    });
+
+    it("没有关联的展开 combobox 不因页面上别的列表框而通过", () => {
+        document.body.innerHTML = '<input role="combobox" aria-label="语言" aria-expanded="true"><ul role="listbox"></ul>';
+        expect(checksOf(document.querySelector("input")!)).toMatchObject({"combobox 展开关系": false});
     });
 
     it("画布外的元素不判画布边界", () => {

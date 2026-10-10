@@ -158,7 +158,7 @@
 | S3 | 4、5 | 已完成。偏好改存 Storage、界面状态、Router 维护地址栏、复制场景链接、删去浏览器存储；全场景 e2e 改为在 Lab 内切换场景（开发模式整页加载太重，见 README 的 S2b 记录） | 偏好 store 在真实 Storage 上的 Bun 测试；`e2e/lab.e2e.ts` |
 | S4 | 6 | 已完成。拆分 `LabShell.vue`；画布成为浮层的传送目标与 `fixed` 包含块，传送到 `body` 的浮层按画布居中 | 全部 Lab e2e（`lab*.e2e.ts`）、`lab:shot` 抽查 |
 | S5 | 开发者已定的 2、3 | 已完成。变量页签与元素页签的结构检查迁入；playground Lab 退役 | 变量与检查的 DOM 测试；Lab e2e；nb-ui `typecheck` |
-| S6 | 收口 | 证据、omp 审查与修正 | `bun run test:affected --typecheck`、全量 e2e、`docs:check`、`governance:check` |
+| S6 | 收口 | 已完成。证据、omp 审查与修正 | `bun run test:affected --typecheck`、全量 e2e、`docs:check`、`governance:check` |
 
 ## 验收映射
 

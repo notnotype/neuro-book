@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import {computed, getCurrentInstance, inject, nextTick, onBeforeUnmount, provide, ref, watch} from "vue";
-import {useWindowSize} from "@vueuse/core";
+import {computed, getCurrentInstance, inject, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch} from "vue";
+import {useElementSize, useWindowSize} from "@vueuse/core";
 import {DialogContent, DialogPortal, DialogRoot, DialogTitle} from "reka-ui";
 import {NB_DIALOG_WINDOW_DEPTH, NB_DIALOG_WINDOW_Z_STEP, NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
 import {useTeleportTarget} from "../../composables/useTeleportTarget";
@@ -124,6 +124,31 @@ let dragCleanup: (() => void) | null = null;
 const {width: viewportWidth, height: viewportHeight} = useWindowSize();
 
 const teleportTo = useTeleportTarget(() => (typeof props.teleportTarget === "string" ? props.teleportTarget : undefined));
+/**
+ * 传送目标不是 body 时（例如组件 Lab 的画布），它就是窗口的定位容器：可用尺寸与拖动夹紧按它算，不按浏览器窗口。
+ * 打开时解析一次；目标在窗口打开期间不换。
+ */
+const portalElement = shallowRef<HTMLElement | null>(null);
+/** 目标的大小：解析时同步量一次（打开时的居中要用），之后由 ResizeObserver 跟进。 */
+const portalSize = ref({width: 0, height: 0});
+const {width: observedWidth, height: observedHeight} = useElementSize(portalElement);
+watch([observedWidth, observedHeight], ([width, height]) => {
+    if (width > 0) portalSize.value = {width, height};
+});
+// 挂载后才查：宿主的目标元素要等整棵树插进文档才在。
+function resolvePortal(): void {
+    if (props.teleportTarget === false) return;
+    const target = teleportTo();
+    const element = target === "body" ? null : document.querySelector<HTMLElement>(target);
+    portalElement.value = element;
+    portalSize.value = element === null ? {width: 0, height: 0} : {width: element.clientWidth, height: element.clientHeight};
+}
+onMounted(() => {
+    if (props.modelValue) resolvePortal();
+});
+watch(() => props.modelValue, (open) => {
+    if (open) resolvePortal();
+});
 
 /** 尺寸字面量只做缺省：显式传入的 width / height 覆盖对应维度。 */
 const sizePreset = computed(() => DIALOG_WINDOW_SIZE_PRESETS[props.size]);
@@ -147,6 +172,9 @@ const containerSize = computed(() => {
                 height: parent.clientHeight,
             };
         }
+    }
+    if (props.teleportTarget !== false && portalElement.value !== null && portalSize.value.width > 0) {
+        return portalSize.value;
     }
     return {
         width: viewportWidth.value,

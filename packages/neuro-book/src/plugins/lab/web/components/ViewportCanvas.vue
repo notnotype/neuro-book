@@ -166,24 +166,27 @@ function startDrag(axis: ResizeAxis, event: PointerEvent): void {
         }
     };
 
-    const finish = (): void => {
+    /** 松手提交草稿；系统取消（触摸被打断、指针丢失）丢掉草稿，尺寸保持拖动前的值。 */
+    const end = (commit: boolean): void => {
         handle.removeEventListener("pointermove", move);
         handle.removeEventListener("pointerup", finish);
-        handle.removeEventListener("pointercancel", finish);
-        if (draftWidth.value !== null) {
+        handle.removeEventListener("pointercancel", cancel);
+        if (commit && draftWidth.value !== null) {
             emit("update:width", Math.round(draftWidth.value));
         }
-        if (draftHeight.value !== null) {
+        if (commit && draftHeight.value !== null) {
             emit("update:height", Math.round(draftHeight.value));
         }
         draftWidth.value = null;
         draftHeight.value = null;
         dragging.value = false;
     };
+    const finish = (): void => end(true);
+    const cancel = (): void => end(false);
 
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", finish);
-    handle.addEventListener("pointercancel", finish);
+    handle.addEventListener("pointercancel", cancel);
 }
 
 /** 按键是离散动作，没有中间过程，因此每按一次就上报一次。 */
@@ -292,7 +295,8 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
 .nb-lab-overlay-root {
     position: absolute;
     inset: 0;
-    z-index: 1;
+    /* 高过调整手柄（z-index 10）：模态浮层的遮罩要盖住手柄。这一层自己不接指针，没有浮层时手柄照常可拖。 */
+    z-index: 20;
     pointer-events: none;
     /* 尺寸容器：浮层里的 cqw、cqh 按它算。它只带尺寸与样式 containment，不让 fixed 后代以它为包含块；
        包含块要靠 layout containment，否则只有开了 backdrop-filter 的玻璃主题碰巧把盒子变成了包含块。 */

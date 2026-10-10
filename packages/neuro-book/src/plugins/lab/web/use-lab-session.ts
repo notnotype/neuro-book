@@ -11,7 +11,8 @@
 
 import {watch} from "vue";
 import type {Ref} from "vue";
-import type {Router} from "vue-router";
+import {isNavigationFailure, NavigationFailureType} from "vue-router";
+import type {LocationQuery, Router} from "vue-router";
 
 import {queryFromSession, sessionFromQuery} from "./lab-url";
 import type {LabSession, LabSessionCatalog} from "./lab-url";
@@ -26,7 +27,10 @@ export type LabSessionRefs = {
     readonly tab: Ref<string>;
 };
 
-export function useLabSession(router: Router, refs: LabSessionRefs, catalog: LabSessionCatalog) {
+export function useLabSession(router: Router, refs: LabSessionRefs, catalog: LabSessionCatalog, options: {
+    /** 别处带来的地址（前进、后退、链接）：主题与配色也按它来，由调用方处理（它们归偏好管）。 */
+    readonly onAddressLook?: (query: LocationQuery) => void;
+} = {}) {
     /** 进入 Lab 时地址里写的场景；组件没有这个场景而回落到首个场景时，界面据此给出提示。 */
     const requested = sessionFromQuery(router.currentRoute.value.query, catalog);
     const path = router.currentRoute.value.path;
@@ -73,7 +77,25 @@ export function useLabSession(router: Router, refs: LabSessionRefs, catalog: Lab
         settled = true;
         written = {fullPath, component: refs.component.value};
         inFlight.add(fullPath);
-        void (pushing ? router.push({path, query}) : router.replace({path, query}));
+        (pushing ? router.push({path, query}) : router.replace({path, query})).then((failure) => {
+            if (failure === undefined) return;
+            // 被更新的导航取代，或目标就是当前地址：这个地址不会再到达，只撤掉在途记录。
+            if (isNavigationFailure(failure, NavigationFailureType.cancelled | NavigationFailureType.duplicated)) {
+                inFlight.delete(fullPath);
+                return;
+            }
+            recover(fullPath);
+        }, (error: unknown) => {
+            console.warn("[component-lab] 地址栏没能更新，画面回到当前地址", error);
+            recover(fullPath);
+        });
+    }
+
+    /** 导航没有成功：撤掉在途记录，画面回到 router 的当前地址，地址与画面不分叉。 */
+    function recover(fullPath: string): void {
+        inFlight.delete(fullPath);
+        if (written?.fullPath === fullPath) written = null;
+        apply(sessionFromQuery(router.currentRoute.value.query, catalog));
     }
 
     // post：切组件时场景随后由 fixture 的 watch 换成首个场景，两处变化合成一次写入，不留下一条中间地址。
@@ -83,6 +105,9 @@ export function useLabSession(router: Router, refs: LabSessionRefs, catalog: Lab
         if (inFlight.delete(route.fullPath)) return;
         inFlight.clear();
         written = null;
+        // 别处带来的地址里的主题配色重新算数，之后写地址时保留它们。
+        look = undefined;
+        options.onAddressLook?.(route.query);
         const next = sessionFromQuery(route.query, catalog);
         const now = current();
         // 地址里没写场景时 Lab 选了首个场景，这不是地址要求换场景。
@@ -100,8 +125,11 @@ export function useLabSession(router: Router, refs: LabSessionRefs, catalog: Lab
 
     return {
         requestedScene: requested.scene,
-        /** 挂载后调一次：把进入时的地址规范化。 */
-        start: write,
+        /** 挂载后调一次：把进入时的地址规范化。之后的切组件都新增历史，哪怕进入时的地址已经是规范的、这次没有写。 */
+        start: (): void => {
+            write();
+            settled = true;
+        },
         /** 在界面上换了主题或配色：地址里的已过时，去掉。 */
         dropLook: (): void => {
             look = null;

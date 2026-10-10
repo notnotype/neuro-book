@@ -279,6 +279,8 @@ test("偏好记录有不认识的值：只有这些字段回到默认；记录�
     expect(problems).toEqual([]);
 });
 
+// 确定性的冲突重放（两边以同一个 revision 提交）由 `lab-preferences-store.test.ts` 在真实 Storage 上保证；这里是端到端补充：
+// 真实浏览器、真实界面操作下两项都留下，刷新后两个窗口一致。
 test("两个 Lab 窗口同时改不同的偏好：两项都保存，刷新后两个窗口一致（场景 20）", async ({browser}) => {
     const first = await browser.newPage({viewport: {width: 1440, height: 900}});
     const second = await browser.newPage({viewport: {width: 1440, height: 900}});
@@ -385,6 +387,11 @@ test("对话框类浮层在手机画布里打开：落在画布里、按画布�
     expect(dialog.x).toBeGreaterThanOrEqual(box.x);
     expect(dialog.x + dialog.width).toBeLessThanOrEqual(box.x + box.width);
     expect(Math.abs((dialog.x + dialog.width / 2) - (box.x + box.width / 2))).toBeLessThanOrEqual(1);
+    // 模态遮罩盖住画布的调整手柄：手柄跨在画布边上，画布里的那一半上最上层是浮层（画布外的一半不归画布里的遮罩管）。
+    const handle = await page.locator('.lab-main [aria-label="调整宽度"]').boundingBox();
+    expect(handle).not.toBeNull();
+    const top = await page.evaluate(({x, y}) => document.elementFromPoint(x, y)?.closest("[data-lab-overlay-root]") !== null, {x: handle!.x + 1, y: handle!.y + handle!.height / 2});
+    expect(top).toBe(true);
     expect(problems).toEqual([]);
 });
 

@@ -5,7 +5,7 @@
  * 只改前者，恢复宽屏不自动展开，也不覆盖偏好。
  */
 
-import {onBeforeUnmount, onMounted, ref} from "vue";
+import {nextTick, onBeforeUnmount, onMounted, ref} from "vue";
 
 import {LAB_PANEL_WIDTH_LIMITS} from "./lab-preferences-store";
 import type {LabPanelSide} from "./lab-preferences-store";
@@ -96,17 +96,34 @@ export function useLabLayout(options: {
         const onMove = (moveEvent: PointerEvent): void => {
             setPanelWidth(side, startWidth + (moveEvent.clientX - startX) * direction);
         };
-        const onUp = (): void => {
+        /** 松手：宽度定下来，交给偏好。系统取消（触摸被打断）或卸载：回到拖动前的宽度，不写偏好。 */
+        const end = (commit: boolean): void => {
             delete handle.dataset.dragging;
             window.removeEventListener("pointermove", onMove);
             window.removeEventListener("pointerup", onUp);
+            window.removeEventListener("pointercancel", onCancel);
             panelDragCleanup = null;
-            dragging.value = false;
-            options.onDragEnd(side);
+            if (commit) {
+                dragging.value = false;
+                options.onDragEnd(side);
+                return;
+            }
+            if (side === "left") {
+                leftWidth.value = startWidth;
+            } else {
+                rightWidth.value = startWidth;
+            }
+            // 复原宽度引起的 watch 要在“还在拖动”时跑过，偏好那边才不把它当成一次修改写进去。
+            void nextTick(() => {
+                dragging.value = false;
+            });
         };
+        const onUp = (): void => end(true);
+        const onCancel = (): void => end(false);
         window.addEventListener("pointermove", onMove);
         window.addEventListener("pointerup", onUp);
-        panelDragCleanup = onUp;
+        window.addEventListener("pointercancel", onCancel);
+        panelDragCleanup = onCancel;
     }
 
     /** 方向键把这条边往按键方向推（Shift 步进 1px），与 DialogWindow 的缩放手柄同一套语义。 */

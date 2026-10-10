@@ -74,6 +74,29 @@ test("下拉选择：指定向上展开时浮层在上方", async ({page}) => {
     await expect(popperSide(page)).toHaveAttribute("data-side", "top");
 });
 
+test("下拉选择的长列表：收起成截半高度，键盘走到最后一项时它滚进可见区；富选项带图标与说明", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 1200});
+    await openScene(page, "c=FormSelect&s=long");
+    await stage(page).locator('[role="combobox"]').click();
+    const viewport = page.locator("[data-reka-select-viewport]");
+    await expect(viewport).toBeVisible();
+    const size = await viewport.evaluate((element) => ({client: element.clientHeight, scroll: element.scrollHeight}));
+    expect(size.scroll).toBeGreaterThan(size.client);
+    // 14 项不全展开：设计规范的截半高度在 194 与 228 之间。
+    expect(size.client).toBeGreaterThanOrEqual(180);
+    expect(size.client).toBeLessThanOrEqual(240);
+    await expect(page.getByRole("option").filter({hasText: "EPUB 电子书"}).locator(".i-lucide-book-open")).toBeAttached();
+    await expect(page.getByRole("option").filter({hasText: "EPUB 电子书"})).toContainText("按卷生成目录");
+
+    // End 一步走到最后一项。reka 在 keydown 之后才挪焦点（setTimeout），连按方向键不等焦点移动会合并成一步。
+    await page.keyboard.press("End");
+    const last = page.getByRole("option").filter({hasText: "NeuroBook 备份"});
+    await expect(last).toHaveAttribute("data-highlighted");
+    const [box, item] = await Promise.all([viewport.boundingBox(), last.boundingBox()]);
+    expect(item!.y).toBeGreaterThanOrEqual(box!.y - 1);
+    expect(item!.y + item!.height).toBeLessThanOrEqual(box!.y + box!.height + 1);
+});
+
 test("非模态窗口：不画遮罩、六个调整手柄、窗口外照常可点，方向键调整宽度一次 10px", async ({page}) => {
     await page.setViewportSize({width: 1600, height: 1000});
     await openScene(page, "c=DialogWindow&s=resizable");
@@ -98,4 +121,14 @@ test("非模态窗口：不画遮罩、六个调整手柄、窗口外照常可�
     await page.keyboard.press("ArrowRight");
     await expect.poll(async () => Math.round((await dialog.boundingBox())!.width - before)).toBe(10);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test("非模态窗口在手机画布里：按画布宽度收窄，落在画布以内", async ({page}) => {
+    await page.setViewportSize({width: 1600, height: 1000});
+    await openScene(page, "c=DialogWindow&s=resizable&vp=phone");
+    const dialog = page.locator("[data-lab-overlay-root] [role='dialog']");
+    await expect(dialog).toBeVisible();
+    const [canvas, window] = await Promise.all([page.locator(".lab-main .nb-lab-stage-box").first().boundingBox(), dialog.boundingBox()]);
+    expect(window!.x).toBeGreaterThanOrEqual(canvas!.x);
+    expect(window!.x + window!.width).toBeLessThanOrEqual(canvas!.x + canvas!.width + 1);
 });

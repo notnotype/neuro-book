@@ -25,11 +25,18 @@ test("开发命令：页面是空工作台、直连后端 RPC 端口，/lab 是 
     const dev = await startDevSession(join(tmp, "state"));
     const entry = join(PACKAGE_ROOT, "src", "server", "main.ts");
     const original = statSync(entry);
+    // typebox 有几百个模块文件：哪个子路径漏了预构建，整页加载就逐个请求它们，Chrome 以 ERR_INSUFFICIENT_RESOURCES
+    // 拒绝其中一些，页面偶发停在启动中。见 vite.config.ts 的 optimizeDeps。
+    const unbundled: string[] = [];
+    page.on("request", (request) => {
+        if (request.url().includes("/node_modules/typebox/")) unbundled.push(request.url());
+    });
     try {
         await page.goto(`${dev.pageUrl}lab`);
         await expect(page.locator("[data-lab-page]")).toHaveAttribute("data-window-state", "ready");
         await page.goto(dev.pageUrl);
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        expect(unbundled).toEqual([]);
         // 页面经引导接口得知后端的 RPC 端口并直连，不经 Vite 代理。
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
 

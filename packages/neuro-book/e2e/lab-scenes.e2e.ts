@@ -89,11 +89,15 @@ test("每个登记场景都能在手机画布上挂上舞台，没有加载失�
                 await page.goto(new URL(target, dev.pageUrl).href);
                 loaded = true;
             }
-            // 就绪或加载失败都结束等待；超时时报出当时的状态与地址。
+            // 就绪或加载失败都结束等待，而且宿主 router 的当前路由与 Lab 的状态一致（地址只经 router 改）；超时时报出当时的
+            // 状态、地址与路由。
             await expect.poll(() => page.evaluate(({component, scene}) => {
                 const state = (window as unknown as {__nbLab?: LabDebugApi}).__nbLab?.state();
-                if (state !== undefined && state.component === component && state.scene === scene && (state.loadError !== "" || state.ready)) return "settled";
-                return JSON.stringify({search: location.search, state: state ?? null});
+                const app = (document.querySelector("#app") as unknown as {__vue_app__?: {config: {globalProperties: {$router: {currentRoute: {value: {query: Record<string, unknown>}}}}}}}).__vue_app__;
+                const route = app?.config.globalProperties.$router.currentRoute.value.query;
+                if (state !== undefined && state.component === component && state.scene === scene && (state.loadError !== "" || state.ready)
+                    && route?.c === component && route.s === scene) return "settled";
+                return JSON.stringify({search: location.search, route: route ?? null, state: state ?? null});
             }, {component, scene}), {message: label}).toBe("settled");
             const state = await page.evaluate(() => (window as unknown as {__nbLab: LabDebugApi}).__nbLab.state());
             if (state.loadError !== "") failed.push(`${label}: ${state.loadError}`);
