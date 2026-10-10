@@ -36,6 +36,7 @@ taskId: t73-lab-nb-ui-and-storage
     - 越界报告多为测量误报（读屏播报区、视觉隐藏的 input），Lab 的测量改为跳过看不见的元素，e2e 补了用例；
     - 真实问题只有 Collapsible：内容区向外扩 6px，在贴边容器里造成 6px 横向溢出。这是保护焦点光环的设计取舍，写进组件文档。
   - **验证**：nb-ui 与 neuro-book 的 typecheck、`build` 与 `check:dist`、Lab 的 Bun 37 例、Vitest 27 例、e2e `lab.e2e.ts` 与 `lab-shot.e2e.ts` 11 例，全部通过。变异 6 个全杀。
+- 2026-10-10 S0 完成：`docs/specs/ui/component-lab.md` 写入 nb-ui 来源与组件名唯一、偏好改存 `lab.preferences`（user、shared）与界面状态表、地址栏作会话状态（`zoom`、`tab`、Router 的 push 与 replace、复制场景链接）、变量页签与结构检查、画布作浮层定位容器；验收 1、8、9、13 改写，新增 18 到 24；删去 localStorage、sessionStorage 的字段表与“拆分已延期”。尚未实现的条目标“（planned）”。nb-ui 的 `AGENTS.md`、`README.md` 与 `docs/ui-development-spec.md` 第 7 节改为在新 Lab 登记，删去与“一个场景一个组件”冲突的多方案矩阵条目。
 - 2026-10-10 S2b 完成：
   - **迁移矩阵**：[evidences/s2-migration.md](evidences/s2-migration.md) 逐个对照旧 playground 的 52 个组件。对照中发现漏迁的场景与事件已补回：FormInput 的前缀插槽、FormCheckbox 无标签、TimePicker 与 Listbox 的禁用、QuickInput 的长列表与“在对话框上打开”、表单控件的 `focus`、Splitter 的 `gesture-start`、DialogWindow 的 `update:height`。其余差异写明了原因。
   - **全场景 e2e**：`e2e/lab-scenes.e2e.ts` 在开发会话里逐个打开 360 个场景，要求就绪、没有加载失败、页面错误与控制台警告，4 个标签页并行，用时约 11 分钟。

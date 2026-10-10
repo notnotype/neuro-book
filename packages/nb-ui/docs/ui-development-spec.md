@@ -109,7 +109,6 @@
 - **滚动条**：内置 4px 悬浮 macOS 胶囊滑块（仅在内容溢出时为视口动态分配 `pr-1.5`，支持自由鼠标拖拽），底层逻辑抽取为 `useFloatingScrollbar.ts`。
 
 #### 6. `FormInput` & `FormNumberInput`（输入框规范）
-- **展示容器**：Lab 展示统一装配 `macos-compact-card` 磨砂卡片容器（75% 半透明底色 + 20px 模糊 + 14px 圆角 + 4 层立体环境阴影）。
 - **状态准则**：常态与悬停态素雅不抖动（不主动改变边框颜色，仅依赖指针样式反馈），聚焦态统一点亮 Apple 原生 Focus 蓝光扩散光晕（`--focus-ring`）。
 - **数值微调**：步进按钮支持滚轮、键盘上下键与 clamp 边界保护。
 
@@ -167,7 +166,7 @@
 - 几何入口在 `@notnotype/nb-ui/layout`：`resolveGridInsertion` 沿目标轴前/后 20% 返回插入位、`targetId`（命中叶）和 `halfRect`（该叶对应半区），中央 60% 返回 `keep`；是否呈现 keep 由宿主行为决定。叶间隙归后一叶，非末叶后缘仍归它自己。`resolveListInsertion` 给列表插入位，一位一线；前一项后半、间隙、后一项前半归同一位。内部线居中、追加锚末个可用成员后缘、空列表锚内容盒前缘。
 - `resolveListInsertion` 可选 `edgeGap`（默认0）仅给首个可见成员前与末个可见成员后留白，内部间隙仍居中，空列表不偏移；空间不足时夹紧，负数/非有限退为0。Editor 标签带与 Workbench 容器切换器条目带都传4px（Editor 配合标签左右6px外边距、内部为5px/2px/5px；Workbench 条目相邻、只在首尾留白）；内容区的边缘插入带不消费它，默认几何不变。
 - 区域及其居中提示首次出现按 `--motion-fast` / `--ease-standard` 淡入；连续换区保留同一节点，矩形的left/top/width/height与提示的left/top按 `--motion-base` / `--ease-standard` 过渡，文案立即更新，不重放淡入。过渡只影响fixed装饰盒，不改变命中、提交或正文布局；插线即时定位，取消立即卸载，无离场残留；reduced-motion取消动画和过渡。
-- 几何与视觉分开：Editor 与 Workbench 的反馈均使用公共覆盖层的 fixed viewport 布局；不要另写业务私有区域框、线宽、提示标签或几何过渡。只需静态/local示意时才直接用绘制原语。playground `drop-indicator` 的 area/entry/line/compact/long-label 五场景提供两轴及窄屏对照，并可在同一场景里打开共享覆盖层（按真实矩形落位）直接 inspect。
+- 几何与视觉分开：Editor 与 Workbench 的反馈均使用公共覆盖层的 fixed viewport 布局；不要另写业务私有区域框、线宽、提示标签或几何过渡。只需静态/local示意时才直接用绘制原语。Component Lab 的 `DropIndicator`（area、entry、line）、`DropIndicatorLabel` 与 `DropFeedbackOverlay` 场景提供对照，共享覆盖层按真实矩形落位。
 - 新接入步骤：宿主先定义来源、目标与原子提交意图；dnd-kit 只管理输入和手势生命周期，纯解析器一次返回动作与预览，宿主只在释放时提交。列表用 `resolveListInsertion`，四边/中心用 `resolveGridEdgeDrop`；不要用默认 `useSortable` 的乐观 DOM 排序来替代“显示落点、释放提交”的合同。
 - Editor 原位落点显示插入线、正文中央保留整区反馈，均以 `action:null` 表示释放不提交。Workbench 展开内容区传 `edgeRatio: 0.5`，前后各半都可提交，中点归后半；非法方向无反馈。全部可见成员收成细条时，剩余内容区作为一个落点，不拆细条。容器原位换序可以 `noop` 显示一条插入线，View 投 Switcher 则创建新容器。Workbench 边缘消费 `halfRect`，条目反馈只有线、没有额外高亮。
 - 登记真实元素，统一使用可见 client 矩形并检查浮层遮挡；过滤拖动反馈与占位节点，不以它们作为排序成员。源码示例为主应用 `EditorDragProvider.vue` / `useEditorTabDrag.ts`；它复用工作台既有的 DOM reader 与输入门槛。需要稳定来源几何时使用 `DragOverlay`，不要误以为 `Feedback` 的 `clone` 模式会让原元素留在原位。
@@ -332,7 +331,7 @@
   2. 在区段元数据里声明 `layout`（`scroll` 由外壳给内边距并拥有滚动，`fill` 自己占满、内部滚动）；
   3. **不接收** `loading` / `loadError`，加载与失败由外壳统一呈现（见 §4.3）；
   4. i18n 键归位：导航用 `settings.section.*`，视图内文案用 `settings.panels.*`；
-  5. 注册进 Component Lab（fixture + 同名 `.md` + `registry`/`index` 场景）。
+  5. 在 Component Lab 登记场景（同名 `.md` 与场景登记）。
 
 ## 5. 表单与无障碍
 
@@ -359,46 +358,15 @@
 6. UI 行为与视觉验收按 [UI 验收分档](../../../docs/testing/README.md#ui-验收分档) 进行，共享基础组件验证四种主题 × 配色组合及 390px，记录实测计算样式、键盘路径、控制台与页面错误；
 7. CSS 生成物变更时提交 `dist/nb-ui.css`，并明确阶段 2 尚未经 NeuroBook 主仓接入验证。
 
-## 7. Component Lab（/lab 诊断实验室）开发与展示规范
+## 7. Component Lab
 
-`/lab` 是组件设计语言推演、动效手感调优、多主题/配色回归与 Token 即时诊断的唯一官方运行台。新增或优化组件时必须遵守以下规范：
+nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/component-lab`](../../../docs/specs/ui/component-lab.md)，登记写法见 `packages/neuro-book/src/plugins/lab/web/fixtures/README.md`。playground 的 `/lab` 已不再登记新场景，随 Lab 迁移完成删除。
 
-### 7.1 三栏仪器式架构规范
-1. **左栏导航（`LabNav` · 260px）**：
-   - 顶部提供高斯磨砂悬浮即时搜索栏，支持跨中文名、英文名、分组与描述进行即时模糊过滤，右上角展示全库组件计数（`N / M`）；
-   - 下部为按分类聚合的组件导航树，各组展示数量指示，所有滚动区域统一消费 macOS 极简悬浮滚动条规范，严禁出现浏览器原生粗重滚动条。
-2. **中栏舞台（`LabStage`）**：
-   - 顶部工具条提供场景（Scene）、视口断点（Responsive/Desktop/Tablet/Mobile）、主题（Theme）与配色（Colorway）切换；
-   - 画布区域承载对应组件的 `*Fixture.vue`，支持透出窗体磨砂底纹。
-3. **右栏检查器（`LabInspectorPanel` · 340px）**：
-   - 提供 Token 即时采样器、CSS 变量实时 Override 注入器、事件日志实时流与可访问性状态检查。
-
-### 7.2 Fixture（测试台用例）开发准则
-1. **磨砂卡片容器（`.macos-compact-card`）**：
-   - 所有组件展示必须包裹在 `.macos-compact-card` 容器中；
-   - 必须使用 **75% 半透明高斯磨砂玻璃标准配方**：`background: color-mix(in srgb, var(--bg-panel) 75%, transparent);` 搭配 `backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);` + 1px 细微环境边框（`color-mix(in srgb, var(--border-color) 70%, transparent)`）+ 2 层立体悬浮环境柔影（`0 20px 48px -12px ...` 与 `0 2px 8px ...`），既能优雅透出窗体背景底纹，又保证前景色高对比度与典雅的 macOS Liquid Glass 质感。
-2. **页面内多方案切换器（In-Page Scheme Switcher）**：
-   - 当组件存在多种设计风格或展示形态（如 Button 的 4 种方案、IconButton 的 5 种风格、Listbox 的 4 种方案）时，**统一在 Fixture 页面顶部使用 `SegmentedControl` 进行就地平滑切换**；
-   - 顶部切换条采用 75% 磨砂底座，配备统一的 `.scheme-banner`（`color-mix(in srgb, var(--bg-panel) 70%, transparent)` + 12px 模糊 + 1px 环境边框 + `scheme-pill` 方案解析胶囊 + <code> 等宽技术参数），直观陈述几何圆角、动效参数、透明度比例与业务适用场景。
-3. **真实小说与工作区领域数据（Domain-Realistic Data）**：
-   - Fixture 数据**严禁使用 `Foo / Bar / Test 1` 等无意义占位符**；
-   - 必须使用与长篇小说创作、桌面写作工作区（NeuroBook）强相关的真实题材数据（如世界观设定集标签、出场人物档案与阵营状态、分卷章节大纲目录、电子书导出排版穿梭等）。
-4. **事件与采样驱动（`lab-event` & `rendered`）**：
-   - Fixture 必须通过 `emit('lab-event', name, payload)` 上报组件交互事件（如 `click`、`update:modelValue`、`change`）；
-   - 在组件挂载与场景切换时，必须通过 `nextTick(() => emit('rendered'))` 触发右侧检查器的 Token 采样刷新；
-   - 必须将核心可交互 DOM 节点绑定 `id="nb-lab-target"`，以便检查器准确定位并高亮目标节点。
-
-### 7.3 注册表（`registry.ts`）声明规范
-每个组件在 `registry.ts` 的 `labComponents` 中必须声明：
-- `id`：kebab-case 唯一标识；
-- `label`：英文原语名称；
-- `labelZh`：中文规范全名；
-- `group`：所属分类（`控制` | `表单` | `导航` | `布局` | `显示` | `反馈`）；
-- `description`：一句话说明组件的定位与写作场景；
-- `scenes`：至少覆盖 `default` 与 `disabled` 场景，多态组件可声明对应专属场景；
-- `controls`：声明右侧控制面板支持的动态调优项（`type: "boolean" | "select" | "text" | "number"`）；
-- `targetSelector`：目标选择器（如 `"#nb-lab-target"`）；
-- `events`：监听的可观察事件列表。
+1. **登记位置**：`packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/` 按组件目录分文件（控制、展示、反馈、表单、布局）。只需绑定输入与记录事件的用 `defineSubjectFixture`，需要组合演示的手写 fixture 并用 `defineLabFixture<typeof C>`。
+2. **一个场景一个组件**：场景表达组件的一种状态或输入组合，不在一个场景里平铺多套设计方案；设计实验不是组件合同。
+3. **输入与事件**：可编辑的值写进场景的 `props`、`model`、`slots` 三层，受控值进 `model` 层由组件回写；要记录的事件显式声明；组件根上的 `data-lab-subject` 供检查器定位，根是片段或传送门的组件不加。
+4. **领域数据**：场景数据用与长篇写作相关的真实题材（作品、分卷章节、人物、设定条目），不用 `Foo`、`Test 1` 这类占位。
+5. **截图回归**：新增或修改组件后用 `bun run lab:shot`（在 `packages/neuro-book`）按手机与宽屏、深浅配色出截图与溢出报告。
 
 ## 8. 全库组件工业级微物理与动效工程规范（Frontend UI Engineering 落地标准）
 
@@ -417,9 +385,6 @@
    - `Tabs`, `SegmentedControl`, `Dropdown`, `Menubar`, `Tree`, `Listbox`, `Combobox` 等复合组件全面支持 `ArrowUp/Down/Left/Right`, `Home/End`, `Enter/Space`, `Escape` 键盘导航并联动焦点环（`.nb-ui-focus-ring` / `--focus-ring`）。
    - `Tree` 的 `modelValue` 对外始终使用节点 `id`：单选为 `string | undefined`，多选为 `string[]`；组件内部负责把 id 映射为 Reka TreeRoot 所需的节点对象，并把更新事件映射回 id，调用方不得持有原语内部节点对象。
    - `Tree` 的选中行使用整行淡强调底、强调文字与中等字重，不使用常驻左边框或指示条；层级只由缩进与展开箭头表达，焦点继续由 `.nb-ui-focus-ring` 独立表达。
-5. **Component Lab 5 方案多态体系（5-Scheme Lab Matrix）**：
-   - 全库 47 个组件 Fixture 均配备完整的 5 方案推演矩阵（macOS 经典、现代极简、悬浮微晶发光、精工工控刻度、实底高反差），并在页面顶部集成 `SegmentedControl` 即时切换与 `.scheme-banner` 设计解析胶囊；
-   - 严格绑定真实长篇小说写作与 NeuroBook 领域数据，保证组件在真实界面场景下的层级与材质一致性。
 
 ## 9. Dropdown 与 Popover 浮层 Surface 黄金标准规范（FormSelect 唯一样式源）
 

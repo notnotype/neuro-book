@@ -145,7 +145,7 @@ Shared style registries (register instead of copying values):
 
 公共组件、主题、token、样式与 playground 的当前工程规范见 [`docs/ui-development-spec.md`](docs/ui-development-spec.md)。
 
-组件调试工作台运行在 `/lab`：它与全量 `/components` 画廊、设计语言 `/workbench` 分工不同，支持组件场景、主题 × 配色、390/768px 预览、CSS 变量覆盖、计算样式、ARIA 检查、事件日志和变量快照导入导出。新增或修改公共组件时，先读规范并在 `playground/app/component-lab/registry.ts` 登记。
+组件场景登记在新应用的 Component Lab（`packages/neuro-book` 的开发模式 `/lab`，合同见 [`ui/component-lab`](../../docs/specs/ui/component-lab.md)）：组件场景、主题 × 配色、手机与平板画布、检查器、事件日志与 `lab:shot` 截图。它与 playground 的全量 `/components` 画廊、设计语言 `/workbench` 分工不同。新增或修改公共组件时，先读规范并在 `packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/` 登记场景。
 
 ## Colourway
 
@@ -301,6 +301,6 @@ pure data so a marketplace can index a theme without executing it.
 
 ## Documentation
 
-- [UI Development Specification](docs/ui-development-spec.md) — Comprehensive engineering contracts, token consumption, core component specifications (Button, IconButton, SegmentedControl, FormCheckbox, FormSelect, Dropdown, Listbox, ScrollArea), and Component Lab (`/lab`) development guidelines.
+- [UI Development Specification](docs/ui-development-spec.md) — Comprehensive engineering contracts, token consumption, core component specifications (Button, IconButton, SegmentedControl, FormCheckbox, FormSelect, Dropdown, Listbox, ScrollArea), and Component Lab scene registration guidelines.
 - [Design Language](docs/design-language.md) — The rationale behind materials, layers, paper vs chrome, Chinese typography, and motion physics.
 - [Theme Authoring Guide](docs/authoring-themes.md) — Theme manifest structure, contracts, and override mechanisms.

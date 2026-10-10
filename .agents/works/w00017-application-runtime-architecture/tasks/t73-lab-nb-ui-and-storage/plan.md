@@ -152,7 +152,7 @@
 
 | 片 | 对应设计 | 提交边界 | 自跑验证 |
 |---|---|---|---|
-| S0 | Spec 改动表 | `component-lab.md` 与 nb-ui 文档 | `bun run docs:check`、`bun run governance:check` |
+| S0 | Spec 改动表 | `component-lab.md` 与 nb-ui 文档；已完成 | `bun run docs:check`、`bun run governance:check` |
 | S1+S2 | 1、2、3 | nb-ui 公开入口、索引并入、重名规则、75 个组件的场景（同一提交，覆盖门禁才是绿的）；已完成 `5c4a5f19` | 索引模型 Bun 测试；nb-ui 与 neuro-book `typecheck`；`build` 与 `check:dist`；`fixtures/index.dom.test.ts`；`lab:shot` 全部 nb-ui 组件 × 2 画布 × 2 配色 |
 | S2b | 3、7 | 迁移对照表、遍历全部登记场景的 e2e、`check:dist` 的 `lab-sources` 标记；已完成 | 新 e2e；`check:dist` 的变异检查 |
 | S3 | 4、5 | 偏好改存 Storage、界面状态、Router 维护地址栏、复制场景链接、删去浏览器存储；全场景 e2e 改为在 Lab 内切换场景（开发模式整页加载太重，见 README 的 S2b 记录） | 偏好 store 在真实 Storage 上的 Bun 测试；`e2e/lab.e2e.ts` |

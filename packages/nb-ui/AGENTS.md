@@ -16,7 +16,7 @@
 - 规范与代码同步演进：开发、审查、微调或重构组件时，随时主动更新 [`docs/ui-development-spec.md`](docs/ui-development-spec.md) 与相关 UI 规范，使规范文档始终作为活文档与代码实现严格对齐。
 - 公共交互优先由 Reka UI 原语承担；原生元素已经提供完整语义和键盘行为时保留原生实现。
 - 组件只消费已登记的语义 token 与 `src/styles.css` 公共基座。新增变量先判断归属，禁止为单个消费点增加公共 token。
-- playground 调试代码留在 `playground/`，不从包入口导出。组件实验必须在 `/lab` 登记；完整组合仍在 `/components` 验收。
+- playground 调试代码留在 `playground/`，不从包入口导出；完整组合仍在 playground 的 `/components` 验收。组件场景登记在新应用的 Component Lab（[`ui/component-lab`](../../docs/specs/ui/component-lab.md)），登记文件在 `packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/`；Lab 经公开入口 `@notnotype/nb-ui/lab-sources` 读取组件文档与实现，组件名在 Lab 的全部来源中唯一。
 - `dist/nb-ui.css` 是需提交的构建产物。组件类名、图标、token 或 `src/styles.css` 变化后运行 `bun run build:css`。
 
 ## 完成门禁
