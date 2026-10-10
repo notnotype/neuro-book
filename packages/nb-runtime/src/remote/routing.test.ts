@@ -1,3 +1,5 @@
+import {getEventListeners} from "node:events";
+
 import {describe, expect, it} from "bun:test";
 
 import {Type} from "typebox";
@@ -75,10 +77,12 @@ interface Probe {
      * 结果这时还在链路上。
      */
     onEnter: (() => void) | null;
+    /** 提供入口这一代的停止信号（激活时记下）。 */
+    signal: AbortSignal | null;
 }
 
 function newProbe(): Probe {
-    return {activations: 0, consumers: [], released: [], gates: new Map(), holdSignals: [], sinks: [], rawSinks: [], onEnter: null};
+    return {activations: 0, consumers: [], released: [], gates: new Map(), holdSignals: [], sinks: [], rawSinks: [], onEnter: null, signal: null};
 }
 
 function implementation(consumer: ConsumerIdentity, probe: Probe): RemoteImplementation<typeof echo> {
@@ -145,8 +149,9 @@ function provider(id: string, location: string, probe: Probe): PluginDefinition 
             id: "main",
             location,
             remoteProvides: location === "server" ? [echo, restricted] : [echo],
-            activate: () => {
+            activate: (context) => {
                 probe.activations += 1;
+                probe.signal = context.signal;
                 const remote = [provideRemote(echo, (consumer) => implementation(consumer, probe), {release: (_implementation, consumer) => void probe.released.push(`${consumer.instanceId}:${consumer.plugin ?? "?"}#${String(consumer.generation)}`)})];
                 return {remote: location === "server" ? [...remote, provideRemote(restricted, () => ({methods: {ping: () => ({ok: true, value: null})}}))] : remote};
             },
@@ -1437,5 +1442,30 @@ describe("Spec plugins 输出 22：远程提供项的位置与合同", () => {
             {plugins: [misplaced], gates: [], remote: undefined},
         );
         expect(await app.startup).toMatchObject({status: "available", failures: []});
+    });
+});
+
+describe("Spec plugin-channel 输出 4、7：调用与订阅结束后不留下对入口寿命的引用", () => {
+    it("一次调用或订阅结束，调用方与提供方入口的停止信号上不多出监听：入口活得比调用长，逐次留下的监听连同派生的信号一直留到入口停止", async () => {
+        const t = await topology();
+        const browserCaller = t.browser1.contexts.get("app.caller") as ActivationContext;
+        const hubCaller = t.hub.contexts.get("app.caller") as ActivationContext;
+        const count = (signal: AbortSignal | null): number => getEventListeners(signal as AbortSignal, "abort").length;
+        // 第一次调用激活提供方、建立门面：之后的监听数作基线。
+        expect(await t.remote(t.browser1).use(echo).at("server").whoami({})).toMatchObject({ok: true});
+        expect(await t.remote(t.hub).use(echo).at("server").whoami({})).toMatchObject({ok: true});
+        const before = [count(browserCaller.signal), count(hubCaller.signal), count(t.probes.hub.signal)];
+
+        for (let index = 0; index < 20; index += 1) {
+            expect(await t.remote(t.browser1).use(echo).at("server").whoami({})).toMatchObject({ok: true});
+            expect(await t.remote(t.hub).use(echo).at("server").whoami({})).toMatchObject({ok: true});
+            const subscribed = await t.remote(t.browser1).use(echo).at("server").events.ticks.subscribe({topic: "leak"}, () => undefined);
+            if (!subscribed.ok) {
+                throw new Error(`订阅失败：${subscribed.code}`);
+            }
+            subscribed.value.release();
+            await drain();
+        }
+        expect([count(browserCaller.signal), count(hubCaller.signal), count(t.probes.hub.signal)]).toEqual(before);
     });
 });

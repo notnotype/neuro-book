@@ -232,9 +232,19 @@ function targetKey(target: RemoteTarget): string {
     return typeof target === "string" ? target : JSON.stringify(target);
 }
 
-/** 任一信号触发即触发；不支持 AbortSignal.any 的环境也能用。 */
-function anySignal(signals: ReadonlyArray<AbortSignal | undefined>): AbortSignal {
+/**
+ * 任一信号触发即触发；不支持 AbortSignal.any 的环境也能用。派生的信号只管一次调用或一条订阅，结束时调用方 `dispose`，
+ * 从源信号上摘掉监听：源信号多是入口这一代的停止信号，活得比调用长得多，不摘的话每次调用都在它上面留一个监听，连同
+ * 派生的控制器一起留到入口停止。任一源触发时同样摘掉其余的。
+ */
+function linkSignals(signals: ReadonlyArray<AbortSignal | undefined>): {readonly signal: AbortSignal; dispose(): void} {
     const controller = new AbortController();
+    const attached: Array<readonly [AbortSignal, () => void]> = [];
+    const dispose = (): void => {
+        for (const [source, listener] of attached.splice(0)) {
+            source.removeEventListener("abort", listener);
+        }
+    };
     for (const signal of signals) {
         if (signal === undefined) {
             continue;
@@ -243,9 +253,17 @@ function anySignal(signals: ReadonlyArray<AbortSignal | undefined>): AbortSignal
             controller.abort(signal.reason);
             break;
         }
-        signal.addEventListener("abort", () => controller.abort(signal.reason), {once: true});
+        const listener = (): void => {
+            dispose();
+            controller.abort(signal.reason);
+        };
+        signal.addEventListener("abort", listener, {once: true});
+        attached.push([signal, listener]);
     }
-    return controller.signal;
+    if (controller.signal.aborted) {
+        dispose();
+    }
+    return {signal: controller.signal, dispose};
 }
 
 export class RemoteNodeImpl implements RemoteNode {
@@ -597,13 +615,18 @@ export class RemoteNodeImpl implements RemoteNode {
                     $nbChain: [...caller.chain()],
                 };
                 const timeoutMs = caller.activating() ? Math.min(options.timeout ?? this.#activationLimit, this.#activationLimit) : options.timeout;
-                const requestOptions: RequestOptions = {signal: anySignal([options.signal, caller.signal]), timeoutMs};
-                const outcome = this.#isLocal(target)
-                    ? await this.#localRequest(frame, requestOptions)
-                    : this.#upstream === null
-                      ? this.#offline()
-                      : await this.#upstream.request(frame, requestOptions);
-                return this.#checkOutcome(contract.id, method, outcome);
+                const linked = linkSignals([options.signal, caller.signal]);
+                try {
+                    const requestOptions: RequestOptions = {signal: linked.signal, timeoutMs};
+                    const outcome = this.#isLocal(target)
+                        ? await this.#localRequest(frame, requestOptions)
+                        : this.#upstream === null
+                          ? this.#offline()
+                          : await this.#upstream.request(frame, requestOptions);
+                    return this.#checkOutcome(contract.id, method, outcome);
+                } finally {
+                    linked.dispose();
+                }
             };
         }
         const events: Record<string, unknown> = {};
@@ -809,15 +832,18 @@ export class RemoteNodeImpl implements RemoteNode {
         reply.ack();
         const run = implementation.methods[frame.method];
         let outcome: Awaited<ReturnType<NonNullable<typeof run>>>;
+        const linked = linkSignals([signal, found.stopSignal]);
         try {
             if (run === undefined) {
                 throw new Error(`实现缺少方法 ${frame.method}`);
             }
-            outcome = await run(frame.input, {signal: anySignal([signal, found.stopSignal])});
+            outcome = await run(frame.input, {signal: linked.signal});
         } catch (error) {
             this.#record("provider-threw", contract.id, error instanceof Error ? error.message : String(error));
             fail("provider-error", "提供方执行失败");
             return;
+        } finally {
+            linked.dispose();
         }
         if (outcome.ok) {
             const problems = validationProblems(method.output, outcome.value);
@@ -873,9 +899,18 @@ export class RemoteNodeImpl implements RemoteNode {
             channel.reject({ok: false, code: "unavailable", detail: "提供方没有实现这个事件或正在停止"});
             return;
         }
-        const ended = anySignal([signal, found.stopSignal]);
+        // 订阅的寿命：调用方退订、链路关闭（`signal`）或提供入口停止。退订与断开时把挂在提供入口停止信号上的监听一并
+        // 摘掉；提供入口停止时不摘：那时停止信号正在派发，摘掉的监听就不会再被调用，订阅方收不到 provider-stopped。
+        const linked = linkSignals([signal, found.stopSignal]);
+        const ended = linked.signal;
         channel.accept();
-        found.stopSignal.addEventListener("abort", () => channel.end("provider-stopped"), {once: true});
+        const onProviderStop = (): void => channel.end("provider-stopped");
+        found.stopSignal.addEventListener("abort", onProviderStop, {once: true});
+        ended.addEventListener("abort", () => {
+            if (!found.stopSignal.aborted) {
+                found.stopSignal.removeEventListener("abort", onProviderStop);
+            }
+        }, {once: true});
         const sink = {
             next: (payload: unknown): void => {
                 if (ended.aborted) {
