@@ -17,7 +17,8 @@
         "./profile/jsx-dev-runtime": "./src/profile/jsx-dev-runtime.ts",
         "./profile/loader": "./src/profile/loader/loader.ts",
         "./config": "./src/config/config.ts",
-        "./models": "./src/models/models.ts"
+        "./models": "./src/models/models.ts",
+        "./tools": "./src/tools/tools.ts"
     },
     "scripts": {
         "test": "bun test",

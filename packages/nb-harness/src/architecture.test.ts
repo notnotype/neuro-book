@@ -53,6 +53,13 @@ const MODULES: Readonly<Record<string, ModuleRule>> = {
         nodeBuiltinsIn: [],
         dynamicImportIn: [],
     },
+    // 审批模型经 OMP 的 streamSimple 发一次请求；AgentTool 等只是类型。
+    tools: {
+        modules: ["config"],
+        packages: {...TYPEBOX, "@oh-my-pi/pi-ai": "runtime", "@oh-my-pi/pi-agent-core": "type-only", "@oh-my-pi/pi-catalog": "type-only"},
+        nodeBuiltinsIn: [],
+        dynamicImportIn: [],
+    },
     // 模型与凭据直接用 OMP（设计稿“模型与凭据”）：这是运行时依赖；SQLite 路径交给 OMP，自己不碰 Node 内置模块。
     models: {
         modules: ["config"],
