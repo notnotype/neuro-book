@@ -6,7 +6,7 @@ import type {EntryInput, SessionLog} from "../session/session";
 import {assistantMessage, seed, userMessage} from "../session/testing/fixtures";
 import {withFailingAppend} from "../session/testing/store-scenarios";
 import {COMPACTION_FIELD, compactSession, createCompactionRegistry, createSoftCompaction, resolveCompactionSettings, shouldCompact} from "./compaction";
-import type {CompactionMethod, CompactionSettings, CompleteImpl} from "./compaction";
+import type {CompactionMethod, CompactionSettings, CompleteImpl, JsonValue} from "./compaction";
 import {Value} from "typebox/value";
 
 const model = buildModel({
@@ -144,6 +144,17 @@ describe("顺序、写入与回放（输出 2–8、11）", () => {
         expect(result.value.method).toBe("scripted-soft");
         const onlyBad = await compactSession({log: await sessionWithTurns(6), registry, methods: ["bogus", "empty"], model, apiKey: "k", settings});
         expect(onlyBad.ok ? null : onlyBad.attempts?.map((item) => item.detail)).toEqual(["失败：结果不合规（firstKeptEntryId 不是输入条目的 id）", "失败：结果不合规（summary 必须是非空字符串）"]);
+        // details、preserveData 不能如实表示时也算该方法失败，换下一个，不会到了写日志才发现
+        const badDetails: CompactionMethod = {id: "bad-details", applicable: () => ({ok: true}), run: async (input) => ({ok: true, value: {summary: "s", firstKeptEntryId: input.entries[0]!.id, tokensBefore: 1, details: (() => undefined) as unknown as JsonValue}})};
+        const badPreserve: CompactionMethod = {id: "bad-preserve", applicable: () => ({ok: true}), run: async (input) => ({ok: true, value: {summary: "s", firstKeptEntryId: input.entries[0]!.id, tokensBefore: 1, preserveData: null as unknown as {[key: string]: JsonValue}}})};
+        const fresh = await sessionWithTurns(6);
+        const before = fresh.entries.length;
+        const recovered = await compactSession({log: fresh, registry: registryWith(badDetails, badPreserve, {...createSoftCompaction({completeImpl}), id: "scripted-soft"}), methods: ["bad-details", "bad-preserve", "scripted-soft"], model, apiKey: "k", settings});
+        if (!recovered.ok) throw new Error(recovered.code);
+        expect(recovered.value.method).toBe("scripted-soft");
+        expect(fresh.entries.length).toBe(before + 1);
+        const onlyJsonBad = await compactSession({log: await sessionWithTurns(6), registry: registryWith(badDetails, badPreserve), methods: ["bad-details", "bad-preserve"], model, apiKey: "k", settings});
+        expect(onlyJsonBad.ok ? null : onlyJsonBad.attempts?.map((item) => item.detail)).toEqual(["失败：结果不合规（details：function 不能用 JSON 表示）", "失败：结果不合规（preserveData 必须是对象）"]);
     });
 
     test("场景 3：append 被拒绝 → log-failed 且不留条目（存储失败后句柄已坏，后续写入都失败）；种子不合会话规则时整批被拒", async () => {

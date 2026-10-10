@@ -9,14 +9,55 @@ import type {Attempt, CompactInput, Compacted, CompactionMethod, CompactionOutpu
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 const CANCELLED: CompactionResult<never> = {ok: false, code: "cancelled", detail: "调用方已中止"};
 
-/** 胜出方法的结果还要能写成 compaction 条目：形状对、切点在输入条目里、摘要非空（输出 4）。 */
+/** 能被 JSON 如实表示：没有 undefined、函数、NaN、循环引用，对象只是普通对象。 */
+function jsonProblem(value: unknown, path: string, seen = new Set<object>()): string | null {
+    switch (typeof value) {
+        case "string":
+        case "boolean":
+            return null;
+        case "number":
+            return Number.isFinite(value) ? null : `${path}：${String(value)} 不能用 JSON 表示`;
+        case "object": {
+            if (value === null) return null;
+            if (seen.has(value)) return `${path}：循环引用`;
+            seen.add(value);
+            if (Array.isArray(value)) {
+                for (let index = 0; index < value.length; index += 1) {
+                    const problem = index in value ? jsonProblem(value[index], `${path}[${index}]`, seen) : `${path}[${index}]：数组有空洞`;
+                    if (problem !== null) return problem;
+                }
+                return null;
+            }
+            const prototype = Object.getPrototypeOf(value) as object | null;
+            if (prototype !== Object.prototype && prototype !== null) return `${path}：只允许普通对象`;
+            for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+                const problem = jsonProblem(item, `${path}.${key}`, seen);
+                if (problem !== null) return problem;
+            }
+            return null;
+        }
+        default:
+            return `${path}：${typeof value} 不能用 JSON 表示`;
+    }
+}
+
+/** 胜出方法的结果还要能写成 compaction 条目：形状对、切点在输入条目里、摘要非空、details 与 preserveData 能如实表示（输出 4）。 */
 function outputProblem(output: unknown, entries: readonly SessionEntry[]): string | null {
     if (typeof output !== "object" || output === null) return "结果不是对象";
-    const {summary, firstKeptEntryId, tokensBefore, shortSummary} = output as Partial<CompactionOutput>;
+    const {summary, firstKeptEntryId, tokensBefore, shortSummary, details, preserveData} = output as Partial<CompactionOutput>;
     if (typeof summary !== "string" || summary === "") return "summary 必须是非空字符串";
     if (typeof firstKeptEntryId !== "string" || !entries.some((entry) => entry.id === firstKeptEntryId)) return "firstKeptEntryId 不是输入条目的 id";
     if (typeof tokensBefore !== "number" || !Number.isFinite(tokensBefore) || tokensBefore < 0) return "tokensBefore 必须是非负数";
     if (shortSummary !== undefined && typeof shortSummary !== "string") return "shortSummary 必须是字符串";
+    if (details !== undefined) {
+        const problem = jsonProblem(details, "details");
+        if (problem !== null) return problem;
+    }
+    if (preserveData !== undefined) {
+        if (typeof preserveData !== "object" || preserveData === null || Array.isArray(preserveData)) return "preserveData 必须是对象";
+        const problem = jsonProblem(preserveData, "preserveData");
+        if (problem !== null) return problem;
+    }
     return null;
 }
 
