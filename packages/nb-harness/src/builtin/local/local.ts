@@ -3,28 +3,42 @@
  * 越界判两次：先按字面规范化，再按真实路径（符号链接指向根外也算越界）。
  */
 
-import {mkdir, readdir, readFile, realpath, rm, stat, writeFile} from "node:fs/promises";
+import {statSync} from "node:fs";
+import {lstat, mkdir, readdir, readFile, realpath, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, isAbsolute, normalize, relative, resolve, sep} from "node:path";
 import type {FileAccess, FileKind, FilesFailure, FilesResult} from "../types";
 
 const fail = <T>(code: FilesFailure, detail: string): FilesResult<T> => ({ok: false, code, detail});
 const errorCode = (error: unknown): string => (error as {code?: string}).code ?? (error instanceof Error ? error.message : String(error));
 
+/** 越界看的是父目录组件 `..`，不是以两个点开头的文件名（`..foo` 是合法的根内名字）。 */
 function insideRoot(root: string, absolute: string): boolean {
     const rel = relative(root, absolute);
-    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+    return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 export function createLocalFileAccess(options: {root: string}): FileAccess {
     if (!isAbsolute(options.root)) throw new TypeError(`根必须是绝对路径：${options.root}`);
-    const root = normalize(options.root).replace(/[\\/]+$/u, "");
+    const normalized = normalize(options.root);
+    // 文件系统的根本身就是一个分隔符，去尾部分隔符时要留住它
+    const root = normalized.length > 1 ? normalized.replace(/[\\/]+$/u, "") : normalized;
+    let rootInfo;
+    try {
+        rootInfo = statSync(root);
+    } catch {
+        throw new TypeError(`根目录不存在：${root}`);
+    }
+    if (!rootInfo.isDirectory()) throw new TypeError(`根不是目录：${root}`);
     const resolvePath = (path: string): FilesResult<string> => {
         if (typeof path !== "string" || path === "" || isAbsolute(path) || path.includes("\0")) return fail("outside-root", `路径必须是根内相对路径：${path}`);
         const absolute = resolve(root, path);
         if (!insideRoot(root, absolute)) return fail("outside-root", `路径不在根内：${path}`);
         return {ok: true, value: absolute};
     };
-    /** 真实路径再判一次：目标或它的某级父目录是指向根外的符号链接时拒绝；不存在的目标按最近存在的父目录判。 */
+    /**
+     * 真实路径再判一次：目标或它的某级父目录是指向根外的符号链接时拒绝；不存在的目标按最近存在的父目录判，
+     * 但那一级若是目标不存在的符号链接（悬空链接）也拒绝——写入会跟着它落到根外，而我们证明不了它在根内。
+     */
     const realInsideRoot = async (absolute: string): Promise<FilesResult<string>> => {
         let probe = absolute;
         for (;;) {
@@ -35,6 +49,8 @@ export function createLocalFileAccess(options: {root: string}): FileAccess {
                 return {ok: true, value: absolute};
             } catch (error) {
                 if (errorCode(error) !== "ENOENT") return fail("io-failed", errorCode(error));
+                const dangling = await lstat(probe).then((info) => info.isSymbolicLink(), () => false);
+                if (dangling) return fail("outside-root", `符号链接的目标不存在，无法证明在根内：${absolute}`);
                 const parent = dirname(probe);
                 if (parent === probe) return {ok: true, value: absolute};
                 probe = parent;
@@ -49,6 +65,7 @@ export function createLocalFileAccess(options: {root: string}): FileAccess {
     return {
         root,
         resolve: resolvePath,
+        locate,
         async stat(path) {
             const target = await locate(path);
             if (!target.ok) return target;

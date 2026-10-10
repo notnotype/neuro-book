@@ -15,6 +15,7 @@ taskId: t15-harness-builtin-tools
 
 - Spec 与实施计划 [`plan.md`](plan.md) 已写，按 [autonomous-delivery](../../../../skills/autonomous-delivery/SKILL.md) 推进。
 - **实现**（计划 S1，一个提交）：`src/builtin/`（`types.ts`、`stores.ts`、`read.ts`、`edit.ts`、`builtin.ts`、`local/local.ts`）；`package.json` 加 `./builtin`、`./builtin/local` 与 `pi-natives` 依赖；模块表登记。`bun test src/builtin` 7 pass；整包 181 pass、4 skip。真实引擎实验（lab）改写了两处 Spec：标签是内容哈希，另一个会话拿同样的标签、文件没变时引擎照常接受，会话隔离的是“展示过的行”的记录；引擎会自己读 `[path#tag]` 头里的文件并在拒绝时回显内容（根外文件也读），所以头里的路径先经 `FileAccess.resolve`，越界不交给引擎。引擎拒绝时回显的内容也算展示过（OMP 语义），测试据此用新文件验证隔离。Spec 加证据，注册表标“待晋升”。
+- **审查（omp，计划与实现合一，进行中）**：已写出 4 条，全部成立并已修。第 1 条（阻断：edit 的头部预检只按字面，根内指向根外的符号链接仍交给引擎读并回显）——`FileAccess` 加异步 `locate`（真实路径判越界），头里的路径改经它；第 2 条（阻断：悬空符号链接被 `write` 跟随、在根外建文件）——目标不存在的符号链接按“证明不了在根内”拒绝，edit 的 writer 保留访问层的 `outside-root` 码；第 3 条——构造器用 `statSync` 校验根是已存在的目录，根 `/` 不再被去成空串；第 4 条——越界只看父目录组件 `..`，`..foo` 这样的根内名字合法。Spec 输入与输出 1、6、验收场景 1 同步改，测试补悬空链接、根外链接经 edit、`..foo.txt`、根校验。
 
 ## 依据
 

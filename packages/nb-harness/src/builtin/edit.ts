@@ -51,22 +51,24 @@ export function editTool(input: {access: FileAccess; stores: SnapshotStores}): T
         if (path === null) throw new WriteFailed("outside-root", `引擎要写的路径不在根内：${request.displayPath}`);
         const checked = input.access.resolve(path);
         if (!checked.ok) throw new WriteFailed("outside-root", checked.detail);
+        // 访问层自己的越界码要留住（例如悬空链接）；只有真正的 I/O 失败才是 io-failed
+        const failed = (where: string, result: {code: string; detail: string}): WriteFailed => new WriteFailed(result.code === "outside-root" ? "outside-root" : "io-failed", `${where}：${result.detail}`);
         if (request.content === undefined) {
             const removed = await input.access.remove(path);
-            if (!removed.ok && removed.code !== "not-found") throw new WriteFailed("io-failed", `${request.displayPath}：${removed.detail}`);
+            if (!removed.ok && removed.code !== "not-found") throw failed(request.displayPath, removed);
             return {written: ""};
         }
         if (request.moveTo !== undefined) {
             const target = relativeToRoot(root, request.moveTo.startsWith("/") ? request.moveTo : `${root}/${request.moveTo}`);
             if (target === null) throw new WriteFailed("outside-root", `引擎要移到的路径不在根内：${request.moveTo}`);
             const written = await input.access.write(target, request.content);
-            if (!written.ok) throw new WriteFailed("io-failed", `${target}：${written.detail}`);
+            if (!written.ok) throw failed(target, written);
             const removed = await input.access.remove(path);
-            if (!removed.ok && removed.code !== "not-found") throw new WriteFailed("io-failed", `${request.displayPath}：${removed.detail}`);
+            if (!removed.ok && removed.code !== "not-found") throw failed(request.displayPath, removed);
             return {written: request.content};
         }
         const written = await input.access.write(path, request.content);
-        if (!written.ok) throw new WriteFailed("io-failed", `${request.displayPath}：${written.detail}`);
+        if (!written.ok) throw failed(request.displayPath, written);
         return {written: request.content};
     };
 
@@ -77,12 +79,12 @@ export function editTool(input: {access: FileAccess; stores: SnapshotStores}): T
         risk: "write",
         async execute(args, context): Promise<ToolOutcome> {
             const {input: text} = args as {input: string};
-            // 引擎会自己读头里的文件来核对标签、并把内容回显在错误里，所以根外的路径要在交给引擎之前拦下
+            // 引擎会自己读头里的文件来核对标签、并把内容回显在错误里，所以根外的路径要在交给引擎之前按真实路径拦下
             for (const line of text.split("\n")) {
                 const match = HEADER.exec(line);
                 if (match === null) continue;
-                const checked = input.access.resolve(match[1]!);
-                if (!checked.ok) return {ok: false, code: "outside-root", message: checked.detail};
+                const checked = await input.access.locate(match[1]!);
+                if (!checked.ok) return {ok: false, code: checked.code === "outside-root" ? "outside-root" : checked.code, message: checked.detail};
             }
             const session = new EditSession(input.stores.forSession(context.session.id), policy, undefined);
             try {

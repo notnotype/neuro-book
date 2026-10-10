@@ -1,5 +1,5 @@
 import {afterAll, describe, expect, test} from "bun:test";
-import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {ToolDefinition} from "../tools/tools";
@@ -87,5 +87,12 @@ describe("edit（输出 6、7）", () => {
         expect(await readFile(join(root, "..", "c.txt"), "utf8")).toBe("OUT1\nOUT2\n");
         const garbage = await edit.execute({input: "不是 hashline"}, context());
         expect(garbage.ok ? null : garbage.code).toBe("edit-rejected");
+        // 根内的符号链接指向根外：字面在根内、真实路径在根外，也不能交给引擎（它会读目标并在拒绝时回显内容）
+        await writeFile(join(root, "..", "secret.txt"), "SECRET-LINE\n", "utf8");
+        await symlink(join(root, "..", "secret.txt"), join(root, "linked.txt"));
+        const viaLink = await edit.execute({input: "[linked.txt#0000]\nPUT 1.=1:\n+CHANGED\n"}, context());
+        expect(viaLink.ok ? null : viaLink.code).toBe("outside-root");
+        expect(textOf(viaLink)).not.toContain("SECRET-LINE");
+        expect(await readFile(join(root, "..", "secret.txt"), "utf8")).toBe("SECRET-LINE\n");
     });
 });
