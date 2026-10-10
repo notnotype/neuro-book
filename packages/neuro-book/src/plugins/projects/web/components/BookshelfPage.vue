@@ -23,12 +23,14 @@ const props = withDefaults(defineProps<{
     locale: DisplayLocale;
     status: "loading" | "ready" | "error";
     error?: string;
-    items: ShelfItem[];
+    items: ReadonlyArray<ShelfItem>;
     now: string;
     view: ShelfView;
     sort: ShelfSort;
     activeId: string | null;
-}>(), {error: ""});
+    /** 顶部的提示（刷新失败、新标签被拦截这类不影响数据的事）；`retry` 为真时带“重试”。 */
+    notice?: {text: string; retry: boolean} | null;
+}>(), {error: "", notice: null});
 
 const emit = defineEmits<{
     (event: "update:view", view: ShelfView): void;
@@ -43,6 +45,7 @@ const emit = defineEmits<{
     (event: "add-existing"): void;
     (event: "enter-workbench"): void;
     (event: "retry"): void;
+    (event: "dismiss-notice"): void;
 }>();
 
 const TEXT = {
@@ -60,6 +63,7 @@ const TEXT = {
     welcome: {"zh-CN": "还没有写作记录。打开一部作品，写下的字会记在这里。", "en-US": "Nothing written yet. Open a book and your progress will show up here."},
     empty: {"zh-CN": "书架还是空的。新建一部作品，或把已有的作品目录加进来。", "en-US": "The shelf is empty. Start a new book, or add a folder you already have."},
     retry: {"zh-CN": "重试", "en-US": "Retry"},
+    dismiss: {"zh-CN": "关闭提示", "en-US": "Dismiss"},
 } satisfies Record<string, LocalizedText>;
 
 /** 不足这个宽度只用列表：书脊太细，竖排书名放不下。 */
@@ -91,6 +95,13 @@ function onView(value: unknown): void {
 function onSort(value: string): void {
     if (value === "recent" || value === "title" || value === "words") emit("update:sort", value);
 }
+
+/** 焦点回到书架：书脊视图是列表框，列表视图是第一行；书架空了时是“新建作品”。 */
+function focusShelf(): void {
+    root.value?.querySelector<HTMLElement>('[role="listbox"], [data-shelf-row] button, [data-shelf-create]')?.focus();
+}
+
+defineExpose({focusShelf});
 </script>
 
 <template>
@@ -100,6 +111,12 @@ function onSort(value: string): void {
                 <p class="bookshelf-page__brand">NeuroBook <span class="bookshelf-page__room">· {{ text(TEXT.brand) }}</span></p>
                 <Button variant="ghost" size="sm" data-enter-workbench @click="emit('enter-workbench')">{{ text(TEXT.workbench) }}</Button>
             </header>
+
+            <div v-if="notice !== null" class="bookshelf-page__notice" role="status" data-bookshelf-notice>
+                <span class="bookshelf-page__notice-text">{{ notice.text }}</span>
+                <Button v-if="notice.retry" variant="secondary" size="sm" @click="emit('retry')">{{ text(TEXT.retry) }}</Button>
+                <Button variant="ghost" size="sm" :aria-label="text(TEXT.dismiss)" @click="emit('dismiss-notice')">×</Button>
+            </div>
 
             <template v-if="status === 'loading'">
                 <Skeleton shape="block" height="196px" />
@@ -260,6 +277,23 @@ function onSort(value: string): void {
 
 .bookshelf-page__sort {
     width: 128px;
+}
+
+.bookshelf-page__notice {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+}
+
+.bookshelf-page__notice-text {
+    flex: 1;
+    min-width: 0;
 }
 
 .bookshelf-page__error {

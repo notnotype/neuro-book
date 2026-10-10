@@ -116,7 +116,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
     }
 
     async function open(page: Page): Promise<void> {
-        await page.goto(server.url);
+        await page.goto(new URL("/workbench", server.url).href);
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
         await expect(page.locator("[data-shell-focus-target=\"panel-toggle\"]")).toBeEnabled();
     }

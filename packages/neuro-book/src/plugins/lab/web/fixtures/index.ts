@@ -9,6 +9,7 @@ import type FilesExplorerView from "nbook/plugins/explorer/web/components/FilesE
 import type BookshelfPage from "nbook/plugins/projects/web/components/BookshelfPage.vue";
 import type BookSpine from "nbook/plugins/projects/web/components/BookSpine.vue";
 import type ContinueCard from "nbook/plugins/projects/web/components/ContinueCard.vue";
+import type ProjectInfoDialog from "nbook/plugins/projects/web/components/ProjectInfoDialog.vue";
 import type ShelfList from "nbook/plugins/projects/web/components/ShelfList.vue";
 import type ShelfTitlePage from "nbook/plugins/projects/web/components/ShelfTitlePage.vue";
 import type SpineShelf from "nbook/plugins/projects/web/components/SpineShelf.vue";
@@ -587,10 +588,11 @@ function shelfFixtures(): LabFixture[] {
     return [
         defineSubjectFixture<typeof BookshelfPage>({
             component: "BookshelfPage",
-            events: ["continue", "open", "open-new-window", "edit", "remove", "create", "add-existing", "enter-workbench", "retry"],
+            events: ["continue", "open", "open-new-window", "edit", "remove", "create", "add-existing", "enter-workbench", "retry", "dismiss-notice"],
             class: "h-full w-full",
             scenes: [
                 {id: "spines", label: "书脊视图，选中一部", input: {props: page, model: {view: "spines", sort: "recent", activeId: first.id}}},
+                {id: "notice", label: "刷新失败的提示", input: {props: {...page, notice: {text: "书架没有更新：服务端暂时不可用", retry: true}}, model: {view: "spines", sort: "recent", activeId: first.id}}},
                 {id: "spines-none-selected", label: "书脊视图，未选中", input: {props: page, model: {view: "spines", sort: "title", activeId: null}}},
                 {id: "list", label: "列表视图", input: {props: page, model: {view: "list", sort: "words", activeId: null}}},
                 {id: "one", label: "只有一部", input: {props: {...page, items: [second]}, model: {view: "spines", sort: "recent", activeId: second.id}}},
@@ -601,6 +603,19 @@ function shelfFixtures(): LabFixture[] {
                 {id: "english", label: "英文界面", input: {props: {...page, locale: "en-US"}, model: {view: "spines", sort: "recent", activeId: third.id}}},
             ],
             subject: () => import("nbook/plugins/projects/web/components/BookshelfPage.vue"),
+        }),
+        defineSubjectFixture<typeof ProjectInfoDialog>({
+            component: "ProjectInfoDialog",
+            events: ["submit", "cancel"],
+            class: "",
+            scenes: [
+                {id: "create", label: "新建作品", input: {props: {locale: "zh-CN", open: true, mode: "create"}}},
+                {id: "edit", label: "编辑信息", input: {props: {locale: "zh-CN", open: true, mode: "edit", initial: {title: first.title ?? first.name, description: first.description ?? "", color: "#7a4b3a"}}}},
+                {id: "rejected", label: "服务端拒绝", input: {props: {locale: "zh-CN", open: true, mode: "create", initial: {title: "长夜行", description: "", color: null}, error: "同名目录已存在（/home/writer/books/长夜行）：改个书名，或用“加入已有目录”"}}},
+                {id: "busy", label: "提交中", input: {props: {locale: "zh-CN", open: true, mode: "edit", initial: {title: "北方以北", description: "", color: null}, busy: true}}},
+                {id: "english", label: "英文界面", input: {props: {locale: "en-US", open: true, mode: "create"}}},
+            ],
+            subject: () => import("nbook/plugins/projects/web/components/ProjectInfoDialog.vue"),
         }),
         defineSubjectFixture<typeof ContinueCard>({
             component: "ContinueCard",

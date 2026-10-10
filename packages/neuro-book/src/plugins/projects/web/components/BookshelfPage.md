@@ -32,6 +32,8 @@ type Props = {
     view: "spines" | "list";
     sort: ShelfSort;
     activeId: string | null;
+    /** 顶部提示：刷新失败（带重试）、新标签被拦截、移出被拒这类不影响数据的事。 */
+    notice?: {text: string; retry: boolean} | null;
 };
 type Emits = {
     "update:view": [view: "spines" | "list"];
@@ -45,9 +47,13 @@ type Emits = {
     create: [];
     "add-existing": [];
     "enter-workbench": [];
+    /** 首次取数失败的“重试”，与提示里的“重试”都发它。 */
     retry: [];
+    "dismiss-notice": [];
 };
 ```
+
+暴露 `focusShelf()`：焦点回到书架——书脊视图是列表框，列表视图是第一行，书架空了时是“新建作品”（移出作品后宿主调它）。
 
 ## 状态
 

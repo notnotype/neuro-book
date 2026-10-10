@@ -14,7 +14,7 @@ defineOptions({name: "SpineShelf"});
 
 const props = defineProps<{
     locale: DisplayLocale;
-    items: ShelfItem[];
+    items: ReadonlyArray<ShelfItem>;
     activeId: string | null;
 }>();
 

@@ -37,7 +37,7 @@ async function twoTabs(browser: Browser): Promise<readonly [Page, Page]> {
     const context = await browser.newContext();
     const pages = [await context.newPage(), await context.newPage()] as const;
     for (const page of pages) {
-        await page.goto(server.url);
+        await page.goto(new URL("/workbench", server.url).href);
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
         await expect.poll(() => page.evaluate(() => window.__nbRemoteProbe?.state.pair().ready ?? false)).toBe(true);
     }

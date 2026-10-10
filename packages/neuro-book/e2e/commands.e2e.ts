@@ -31,7 +31,7 @@ test("`/` 页按 Ctrl+Shift+P 打开命令面板，Escape 关闭并把焦点还�
         if (message.type() === "error" || message.type() === "warning") problems.push(`${message.type()}: ${message.text()}`);
     });
     page.on("pageerror", (error) => problems.push(`pageerror: ${error.message}`));
-    await page.goto(server.url);
+    await page.goto(new URL("/workbench", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
 
     const combobox = page.getByRole("combobox", {name: "输入命令，或输入 : 跳到某一行"});

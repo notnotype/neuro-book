@@ -100,7 +100,7 @@ test.describe("产品页", () => {
 
     /** 每个用例一个新的浏览器上下文：客户端身份不同，`local` 的布局记录互不影响。 */
     async function open(page: Page): Promise<void> {
-        await page.goto(server.url);
+        await page.goto(new URL("/workbench", server.url).href);
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
         await expect(page.locator("[data-workbench-shell]")).toHaveAttribute("data-shell-layout", "split");
         // 记录读完前状态栏的面板按钮与边界都不可用：等按钮可用。

@@ -10,7 +10,7 @@ import {join} from "node:path";
 import {expect} from "bun:test";
 
 import {createApplication} from "@notnotype/nb-runtime/application";
-import type {Application} from "@notnotype/nb-runtime/application";
+import type {Application, CapabilityProvider} from "@notnotype/nb-runtime/application";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
@@ -105,11 +105,11 @@ export interface ProjectHarness {
 /**
  * 在 `root` 下建一个项目目录 `Book`（短名 `book`）与状态根，起服务端实例与项目管理器。`env` 交给项目子进程
  * （故障插件、探针）；`plugins` 装进服务端实例，宿主能力与产品里一样：状态根 `stateRootKey`，以及以按调用方门面
- * 提供的 `projectsKey`。
+ * 提供的 `projectsKey`；装进来的插件还要别的宿主能力（例如配置后端要的时钟）时经 `capabilities` 补。
  */
 export async function projectHarness(
     root: string,
-    options: {readonly fault?: ProjectFault; readonly env?: Readonly<Record<string, string>>; readonly plugins?: ReadonlyArray<PluginDefinition>} = {},
+    options: {readonly fault?: ProjectFault; readonly env?: Readonly<Record<string, string>>; readonly plugins?: ReadonlyArray<PluginDefinition>; readonly capabilities?: ReadonlyArray<CapabilityProvider>} = {},
 ): Promise<ProjectHarness> {
     counter += 1;
     const caseRoot = join(root, `case-${String(counter)}`);
@@ -134,6 +134,7 @@ export async function projectHarness(
             capabilities: [
                 {id: "host.state-root", key: stateRootKey, create: () => Object.freeze({path: stateRoot})},
                 {id: "host.projects", key: projectsKey, create: async () => (await managerReady.promise).provision()},
+                ...(options.capabilities ?? []),
             ],
             plugins,
             gates: [],

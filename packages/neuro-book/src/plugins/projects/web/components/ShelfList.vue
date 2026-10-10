@@ -14,7 +14,7 @@ defineOptions({name: "ShelfList"});
 
 const props = defineProps<{
     locale: DisplayLocale;
-    items: ShelfItem[];
+    items: ReadonlyArray<ShelfItem>;
     now: string;
 }>();
 

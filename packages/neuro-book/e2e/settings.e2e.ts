@@ -58,7 +58,7 @@ function watchConsole(page: Page, problems: string[]): void {
     page.on("pageerror", (error) => problems.push(`pageerror: ${error.message}`));
 }
 
-async function open(page: Page, path = "/"): Promise<void> {
+async function open(page: Page, path = "/workbench"): Promise<void> {
     await page.goto(new URL(path, server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
     await expect(page.locator("[data-workbench-document]")).toHaveCount(1);

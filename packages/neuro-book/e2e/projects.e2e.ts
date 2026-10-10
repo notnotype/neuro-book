@@ -57,7 +57,7 @@ async function generationOf(page: Page): Promise<number> {
 }
 
 test("“打开项目”：登记目录并整页打开它，工作台显示当前项目短名", async ({page}) => {
-    await page.goto(server.url);
+    await page.goto(new URL("/workbench", server.url).href);
     await expect(root(page)).toHaveAttribute("data-window-state", "ready");
     await expect(page.locator("[data-workbench-project]")).toHaveCount(0);
 
