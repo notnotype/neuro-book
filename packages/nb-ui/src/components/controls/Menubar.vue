@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {inject} from "vue";
+import {inject, ref, watch} from "vue";
 import {MenubarContent, MenubarItem, MenubarMenu, MenubarPortal, MenubarRoot, MenubarTrigger} from "reka-ui";
 import MenuNodes from "./MenuNodes.vue";
 import {useMenuCascade} from "../../composables/useMenuCascade";
@@ -60,9 +60,32 @@ function handleItemClick(item: MenubarItemData): void {
  */
 function handleOpenMenu(value: unknown): void {
     const open = typeof value === "string" ? value : "";
+    openMenu.value = open;
     if (open === "") cascade.reset();
     emit("update:modelValue", open);
 }
+/** 此刻打开的组（reka 的 modelValue），空串为都没打开；受控时跟着宿主给的值。 */
+const openMenu = ref(props.modelValue ?? "");
+watch(() => props.modelValue, (value) => {
+    if (value !== undefined) openMenu.value = value;
+});
+
+/**
+ * 菜单内容的“外部点击”“焦点移出”是否要关掉菜单栏。两种情况不关：
+ * - 这一组已经关了、只是还在退场动画里：它的外部处理仍挂着，会把紧接着打开的另一组也关掉（真实 Chrome 复现：关掉
+ *   “帮助”后立刻点“编辑”，焦点进了“编辑”的菜单内容，退场中的“帮助”把这当成焦点移出，整条菜单栏关掉）；
+ * - 按在菜单栏的组标题上：组标题自己负责切换。reka 只对焦点做了这个判断，没管指针。
+ */
+function keepOpen(menuId: string, event: Event): void {
+    if (openMenu.value !== menuId) {
+        event.preventDefault();
+        return;
+    }
+    const target = event.target as Element | null;
+    // reka 的 MenubarRoot 不一定渲染成单个元素，按角色找组标题：菜单栏里带弹出菜单的那一项。
+    if (target?.closest("[role='menubar'] [role='menuitem'][aria-haspopup='menu']") != null) event.preventDefault();
+}
+
 const cascade = useMenuCascade<MenubarItemData>();
 function scheduleLevel(item: MenubarItemData | null, trigger: HTMLElement, depth: number, immediate = false): void {
     cascade.schedule(item, trigger, depth, immediate, Boolean(item?.children?.length));
@@ -94,6 +117,8 @@ function scheduleLevel(item: MenubarItemData | null, trigger: HTMLElement, depth
                     :side-offset="6"
                     :align-offset="-4"
                     :style="{zIndex: popoverZIndex}"
+                    @pointer-down-outside="(event) => keepOpen(menu.id, event)"
+                    @focus-outside="(event) => keepOpen(menu.id, event)"
                     class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion min-w-[200px] p-1.5 text-[var(--text-main)] outline-none select-none"
                 >
                     <MenuNodes :items="menu.items" :active="cascade.levels.value[0]?.value" :item-component="MenubarItem" @select="handleItemClick" @hover="(item, trigger, immediate) => scheduleLevel(item, trigger, 0, immediate)" />

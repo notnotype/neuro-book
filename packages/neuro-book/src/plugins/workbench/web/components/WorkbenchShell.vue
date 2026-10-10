@@ -40,6 +40,10 @@ import WorkbenchPanelSurface from "./WorkbenchPanelSurface.vue";
 import type {PanelFrameAction} from "./WorkbenchPanelSurface.vue";
 import WorkbenchShellLayout from "./WorkbenchShellLayout.vue";
 import WorkbenchStatusBar from "./WorkbenchStatusBar.vue";
+import WorkbenchTitleBar from "./WorkbenchTitleBar.vue";
+import type {ShellChrome} from "../titlebar/titlebar-source";
+import {SET_PART_HIDDEN_COMMAND} from "../commands/part-commands";
+import {OPEN_COMMANDS_ID} from "../commands/open-commands";
 import WorkbenchToolPartHost from "./WorkbenchToolPartHost.vue";
 import {switcherPanelId, switcherTabId} from "./switcher-ids";
 import WorkbenchViewInstances from "./WorkbenchViewInstances.vue";
@@ -52,6 +56,8 @@ const props = defineProps<{
     views: ViewSource;
     /** 编辑器槽的提供者；没有时（或没有贡献）槽里是欢迎文字。 */
     editorArea?: EditorAreaSource;
+    /** 标题栏的菜单与搜索、两侧的条目；没有时标题栏只有品牌与项目名（外壳四之前的样子）。 */
+    chrome?: ShellChrome;
     project: string | null;
     locale: DisplayLocale;
 }>();
@@ -126,6 +132,22 @@ const frameActions = computed<ReadonlyArray<PanelFrameAction>>(() => {
 
 function run(id: string, args: Record<string, unknown> = {}): void {
     void props.commands.execute(id, args, {source: "user"});
+}
+
+/** “打开项目”的命令 id：项目插件的公开合同，工作台不为它依赖项目插件的模块。 */
+const OPEN_PROJECT_COMMAND = "nbook.project.open";
+
+const titleMenus = computed(() => props.chrome?.menus(props.locale) ?? []);
+/** 标题栏三个布局按钮的按下态：区域此刻看得见（未隐藏且未拖到零），与视图菜单的勾选同一判断。 */
+const layoutButtons = computed(() => ({
+    sidebar: {pressed: props.layout.actions.partVisible("sidebar"), disabled: !state.value.ready},
+    panel: {pressed: !panelHidden.value, disabled: !state.value.ready},
+    auxiliarybar: {pressed: props.layout.actions.partVisible("auxiliarybar"), disabled: !state.value.ready},
+}));
+
+function togglePart(part: "sidebar" | "panel" | "auxiliarybar"): void {
+    if (part === "panel") run(SET_PANEL_HIDDEN_COMMAND);
+    else run(SET_PART_HIDDEN_COMMAND, {part});
 }
 
 function onResize(payload: {contextKey: string; patch: ShellSizePatch}): void {
@@ -285,7 +307,21 @@ const dropFeedback = computed(() => {
         @layout="onLayout"
     >
         <template #titlebar>
-            <div class="workbench-shell__titlebar">
+            <WorkbenchTitleBar
+                v-if="chrome !== undefined"
+                :locale="locale"
+                :project="project"
+                :menus="titleMenus"
+                :search-shortcut="chrome.searchShortcut()"
+                :layout="layoutButtons"
+                :items="chrome.titleEntries(locale)"
+                @run="(command, args) => run(command, {...args})"
+                @search="run(OPEN_COMMANDS_ID)"
+                @toggle-part="togglePart"
+                @open-project="run(OPEN_PROJECT_COMMAND)"
+                @run-item="(id) => chrome?.runItem(id)"
+            />
+            <div v-else class="workbench-shell__titlebar">
                 <span class="workbench-shell__app">NeuroBook</span>
                 <span v-if="project !== null" class="workbench-shell__project">{{ project }}</span>
             </div>
@@ -372,6 +408,8 @@ const dropFeedback = computed(() => {
                 :panel-hidden="panelHidden"
                 :panel-toggle-disabled="!state.ready"
                 :problems="state.problems"
+                :items="chrome?.statusEntries(locale) ?? []"
+                @run-item="(id) => chrome?.runItem(id)"
                 @toggle-panel="run(SET_PANEL_HIDDEN_COMMAND, {hidden: !panelHidden})"
                 @retry="(record) => layout.actions.retry(record as 'side' | 'panelSize' | 'customizations')"
                 @discard="(record) => layout.actions.discard(record as 'side' | 'panelSize' | 'customizations')"

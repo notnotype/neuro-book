@@ -38,6 +38,8 @@ import {workbenchRootKey} from "./contracts";
 import {EditorAreaSlot, validateEditorAreaContribution} from "./editor-area";
 import {createHomePage} from "./home-page";
 import {ItemRegistry} from "./items/registry";
+import {currentKeyPlatform} from "./commands/keymap";
+import {createShellChrome} from "./titlebar/titlebar-source";
 import {PageTable, validatePageContribution} from "./pages";
 import {createLayoutHost} from "./state/layout-host";
 import {layoutStoreFor} from "./state/layout-store";
@@ -90,6 +92,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             };
             const statusItems = new ItemRegistry(context.declarations.list<ItemDeclaration>(WORKBENCH_STATUSBAR_ITEMS_POINT), stateService, reportItem, context.signal);
             const titleItems = new ItemRegistry(context.declarations.list<ItemDeclaration>(WORKBENCH_TITLEBAR_ITEMS_POINT), stateService, reportItem, context.signal);
+            const chrome = createShellChrome({commands, state: stateService, statusItems, titleItems, platform: currentKeyPlatform(), signal: context.signal});
             const views = new ViewRegistry(context.declarations.list<ViewDeclaration>(WORKBENCH_VIEWS_POINT), plugins.status === "resolved" ? plugins.instance : null, context.signal);
             const layout = createLayoutHost(() => {
                 const store = layoutStoreFor(project !== null).create(context, {storage, diagnostics});
@@ -119,6 +122,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 commands,
                 views,
                 editorArea,
+                chrome,
                 projectName: project?.name ?? null,
                 locale,
             });

@@ -7,6 +7,7 @@ import type {DisplayLocale} from "nbook/shared/localized-text";
 import type {LayoutHost} from "./state/layout-host";
 import type {EditorAreaSource} from "./editor-area";
 import type {ViewSource} from "./views/registry";
+import type {ShellChrome} from "./titlebar/titlebar-source";
 
 /**
  * 工作台的 `/` 页：外壳（docs/specs/ui/workbench-shell.md 外壳一）、文档根的设置与命令宿主。页面单根：窗口的状态、
@@ -27,6 +28,8 @@ export interface HomePageParts {
     readonly views: ViewSource;
     /** 编辑器槽的提供者。 */
     readonly editorArea: EditorAreaSource;
+    /** 标题栏的菜单与搜索、两侧的条目（外壳四）。 */
+    readonly chrome: ShellChrome;
     readonly projectName: string | null;
     readonly locale: Readonly<Ref<DisplayLocale>>;
 }
@@ -38,7 +41,7 @@ export function createHomePage(parts: HomePageParts): Component {
             const layout = parts.layout.acquire();
             return () => h("div", {"class": "nb-workbench-page", "data-workbench-root": "", ...(parts.projectName === null ? {} : {"data-workbench-project": parts.projectName})}, [
                 parts.renderDocument(),
-                h(parts.shell, {layout, commands: parts.commands, views: parts.views, editorArea: parts.editorArea, project: parts.projectName, locale: parts.locale.value}),
+                h(parts.shell, {layout, commands: parts.commands, views: parts.views, editorArea: parts.editorArea, chrome: parts.chrome, project: parts.projectName, locale: parts.locale.value}),
                 parts.renderCommandHost(),
             ]);
         },

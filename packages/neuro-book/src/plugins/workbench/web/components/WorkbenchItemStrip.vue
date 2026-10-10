@@ -9,9 +9,9 @@ import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {layoutStrip} from "../items/item-strip";
-import type {ShownItem} from "../items/registry";
+import type {StripEntry} from "../items/registry";
 
-export type StripEntry = ShownItem & {readonly disabledReason: string | null};
+export type {StripEntry};
 
 defineOptions({name: "WorkbenchItemStrip"});
 

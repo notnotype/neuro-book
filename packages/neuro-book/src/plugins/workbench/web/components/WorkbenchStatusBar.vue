@@ -6,6 +6,9 @@ import {computed} from "vue";
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
+import type {StripEntry} from "../items/registry";
+import WorkbenchItemStrip from "./WorkbenchItemStrip.vue";
+
 export interface StatusBarProblem {
     readonly record: string;
     readonly kind: "unread" | "unsaved";
@@ -20,13 +23,19 @@ const props = withDefaults(defineProps<{
     panelHidden: boolean;
     panelToggleDisabled?: boolean;
     problems?: ReadonlyArray<StatusBarProblem>;
-}>(), {panelToggleDisabled: false, problems: () => []});
+    /** 贡献的条目（外壳四输出 35）：左侧的排在项目名与布局问题之后，右侧的排在“显示面板”之前。 */
+    items?: StripEntry[];
+}>(), {panelToggleDisabled: false, problems: () => [], items: () => []});
 
 const emit = defineEmits<{
     (event: "toggle-panel"): void;
     (event: "retry", record: string): void;
     (event: "discard", record: string): void;
+    (event: "run-item", itemId: string): void;
 }>();
+
+const leftItems = computed(() => props.items.filter((item) => item.alignment === "left"));
+const rightItems = computed(() => props.items.filter((item) => item.alignment === "right"));
 
 const TEXT = {
     label: {"zh-CN": "状态栏", "en-US": "Status bar"},
@@ -73,7 +82,9 @@ const problemText = computed(() => {
                     <Button size="sm" variant="ghost" class="workbench-status-bar__button" @click="emit('discard', shown.record)">{{ text(TEXT.discard) }}</Button>
                 </template>
             </template>
+            <WorkbenchItemStrip :locale="locale" :entries="leftItems" :item-height="20" align="start" @run="(id) => emit('run-item', id)" />
         </div>
+        <WorkbenchItemStrip :locale="locale" :entries="rightItems" :item-height="20" align="end" @run="(id) => emit('run-item', id)" />
         <div class="workbench-status-bar__right">
             <Button
                 size="sm"
@@ -107,7 +118,7 @@ const problemText = computed(() => {
 
 .workbench-status-bar__left {
     display: flex;
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     align-items: center;
     gap: var(--space-2);
     min-width: 0;

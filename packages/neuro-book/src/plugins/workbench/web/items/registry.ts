@@ -35,6 +35,9 @@ export interface ShownItem {
     readonly state: ItemState;
 }
 
+/** 交给条目条组件的一项：再带上命令此刻不可用的原因（有命令且不可用时）。 */
+export type StripEntry = ShownItem & {readonly disabledReason: string | null};
+
 type ItemHandle = ContributionHandle<ItemDeclaration, ItemImplementation>;
 
 const BROKEN: LocalizedText = {"zh-CN": "这个条目出错了：{message}", "en-US": "This item failed: {message}"};

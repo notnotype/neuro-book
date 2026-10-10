@@ -82,3 +82,9 @@ omp 审查（报告在 [t73 证据](../t73-lab-nb-ui-and-storage/evidences/desig
   - 组件 `WorkbenchItemStrip`（同名 `.md`、Lab 三个场景）：有命令的是 ghost 按钮、没有的是 `role="status"` 文字；隐藏测量层量宽度；收起的进 nb-ui 下拉“更多”。
   - 验证：typecheck；`items/` Bun 11 例（注册表 5 例用真实内核）；`WorkbenchItemStrip.dom.test.ts` 3 例；web 与工作台、命令 Bun 246 例；Lab 截图（手机宽度只留优先级最高的三项，其余进“更多”）；变异 4 个全杀（“不给更多留位”第一次存活，补了能区分的用例）。
   - 我自己长开的开发服务没吃进新组件文件，Lab 打不开新组件；重启后正常。
+- 2026-10-10 S5 完成（标题栏与外壳接线）：
+  - 组件 `WorkbenchTitleBar`（同名 `.md`、Lab 三个场景、组件测试 3 例）：品牌、应用菜单（完整时 nb-ui `Menubar` flat，紧凑时“菜单”按钮按组分节）、居中搜索（带按平台写的快捷键）、项目切换、三个布局按钮、条目区；三档宽度按标题栏边框盒的实测宽度；Alt 单独松开或 F10 聚焦菜单入口，菜单关着时 Escape 还焦点。
+  - `titlebar/titlebar-source.ts` 的 `createShellChrome`：菜单、搜索快捷键、两侧条目与条目执行，命令增减经 `onDidChange` 推进版本号。工作台插件建它、经首页交给外壳；外壳的标题栏换成新组件（没有它时保留原来的品牌与项目名），状态栏接上左右两侧的条目条。
+  - 修 nb-ui `Menubar` 的两个真实缺陷（真实 Chrome 复现）：一个菜单关闭后还在退场动画里时，它的外部点击与焦点移出处理仍会关掉整条菜单栏，于是“关掉一组后立刻打开另一组”打不开（指针按在别的组标题上；或新开的一组条目全禁用、焦点落进菜单内容）。改为已关闭的组不再因外部点击或焦点移出关闭菜单栏，按在组标题上也不算外部点击；`lab-nb-ui.e2e.ts` 补了回归。
+  - e2e `workbench-titlebar.e2e.ts` 5 例（生产构建，外壳 Spec 验收 32–37）：高度与菜单内容、从菜单撤销（点击与 F10 两条路径）与 Escape 还焦点、宽度边界 959/960 与 599/600 与 390、区域显隐三条路径一致、重新载入的离开确认（取消与确认）与在新标签打开文档（文档站地址被拦到本地回应）。
+  - 验证：两个包 typecheck；nb-ui Vitest 515 例（另 5 例为已知环境失败）；工作台与 Lab Vitest 53 例；`workbench-titlebar`、`lab-nb-ui`、`lab-scenes`、`workbench-shell` e2e 全过。

@@ -174,6 +174,14 @@ test("菜单栏：方向键在项之间移动并跳过禁用项，禁用项带�
     await expect(page.locator('[role="menu"][data-state="open"]')).toHaveCount(0);
     // 用左右键换过组之后，Escape 把焦点还给最初打开菜单的组标题（reka 的行为），也就是打开菜单之前焦点所在的位置。
     await expect(edit).toBeFocused();
+
+    // 一个菜单关闭后还在退场动画里时立刻点另一组：那一组照常打开，不被正在退场的菜单当作“点在外面”关掉。
+    await edit.click();
+    await expect(page.locator('[role="menu"][data-state="open"]')).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await stage(page).getByRole("menuitem", {name: "视图"}).click();
+    await expect(page.locator('[role="menu"][data-state="open"]').getByRole("menuitemcheckbox", {name: "显示侧栏"})).toBeVisible();
+    await page.keyboard.press("Escape");
 });
 
 test("下拉菜单：方向键跳过禁用项，禁用项带原因，Enter 选中", async ({page}) => {
