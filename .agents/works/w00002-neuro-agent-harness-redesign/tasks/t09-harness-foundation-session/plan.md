@@ -21,7 +21,8 @@
 
 - `createSession`、`openSession` 组装句柄；状态为 可写 / 有中断尾 / 损坏 / 已关闭（Spec 的状态表），用一个字段表示，不用多个布尔。
 - `append`、`repair` 进同一条 Promise 链依次执行（Spec“并发”）；前一次失败不阻断后一次，损坏状态下后续操作直接返回 `log-broken`。
-- 订阅：订阅者表按加入顺序保存；推送在 `append` 的 Promise resolve 之前同步完成。输出 9 的六条边界逐条实现：监听函数抛错只结束该订阅（`onEnd("listener-error")`）；监听函数里 `release` 从下一条起停推；监听函数里 `append` 进链尾，自然排在当前这批推完之后；监听函数里 `close` 让当前这批剩下的不再推；在关闭或损坏的句柄上订阅立即 `onEnd`。推送循环每推一条都重新检查订阅与句柄状态。
+- 订阅：订阅者表按加入顺序保存；推送在 `append` 的 Promise resolve 之前同步完成。推送用这批开始时的订阅者快照；`subscribe` 先同步补发 `entries` 当时的全部内容（整批条目在推送前已换进 `entries`），补发完再登记进订阅者表，所以推送途中新建的订阅不在快照里、也已经补发过这批，不会收到两次（计划审查第 5 条）。输出 9 的六条边界逐条实现：监听函数抛错只结束该订阅（`onEnd("listener-error")`；调用方传了 async 函数时，返回的 Promise 一旦 rejected 也以同样方式结束，不留下未处理的拒绝，计划审查第 6 条）；监听函数里 `release` 从下一条起停推；监听函数里 `append` 进链尾，自然排在当前这批推完之后；监听函数里 `close` 让当前这批剩下的不再推；在关闭或损坏的句柄上订阅立即 `onEnd`。
+- `close` 不进链、立即生效（计划审查第 4 条）：已交给存储的 `append`、`repair` 照常完成；完成后 `append` 的条目仍进入 `entries`（数据已落盘）并返回成功，只是没有订阅者可推；`repair` 不把已关闭或已损坏的句柄改回可写。关闭后再调用的操作才是 `log-closed`。测试用能扣住写入的存储包装制造交错。
 - 序号就是条目在 `entries` 中的下标加 1；`entries` 对外是同一个冻结数组的只读视图，追加时换成新数组（旧引用不变）。
 
 ### 3. 存储（`src/session/memory-store.ts`、`src/session/jsonl/jsonl.ts`）

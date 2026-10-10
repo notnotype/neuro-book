@@ -5,6 +5,9 @@
  * 一批条目先交存储写入，成功后整批换进 `entries`，再按条目逐个推给订阅者，推完这批 `append` 才 resolve。
  * 推送用的是这批开始时的订阅者快照：监听函数里新加的订阅会自己补发全部条目（含这批），不在快照里，所以不会收到两次；
  * 监听函数里的 `append` 进链尾，自然排在这批推完之后。
+ *
+ * `close` 不进链、立即生效：已经交给存储的 `append`、`repair` 照常完成，完成后条目仍进入 `entries`（数据已落盘，不能当作没写）、
+ * 返回成功，只是没有订阅者可推；`repair` 不会把已关闭的句柄改回可写。关闭后再调用的操作才是 `log-closed`。
  */
 
 import {completeEntry, headerProblem, indexEntry, isValidSessionId, newEntryId, relationProblem, shapeProblem} from "./entries";
@@ -62,7 +65,8 @@ class Log implements SessionLog {
             const result = await this.store.repair(this.header.id);
             if (!result.ok) return result;
             this.damagedTail = null;
-            this.state = "writable";
+            // 等待存储期间可能被 close 或因并行的失败变成 broken；文件修好了，句柄的状态不回退。
+            if (this.state === "damaged-tail") this.state = "writable";
             return result;
         });
     }
@@ -80,7 +84,13 @@ class Log implements SessionLog {
         const snapshot = this.entries;
         for (let seq = (options.afterSeq ?? 0) + 1; seq <= snapshot.length && subscriber.active; seq += 1) {
             this.deliver(subscriber, seq, snapshot[seq - 1]!);
-            if (this.closed) return {release};
+            if (this.closed) break;
+        }
+        // 补发途中监听函数 close 了日志：这个订阅还没登记，endAll 轮不到它，这里补上它的结束通知（输出 9.4 的“所有订阅”）。
+        const terminal = this.terminal;
+        if (terminal !== null) {
+            this.end(subscriber, terminal);
+            return {release};
         }
         if (subscriber.active) this.subscribers.push(subscriber);
         return {release};
@@ -95,6 +105,10 @@ class Log implements SessionLog {
     /** 监听函数可以在推送途中同步 `close()`；经 getter 读状态，TypeScript 才不会把前面检查过的状态当成不变。 */
     private get closed(): boolean {
         return this.state === "closed";
+    }
+
+    private get terminal(): "closed" | "broken" | null {
+        return this.state === "closed" || this.state === "broken" ? this.state : null;
     }
 
     private enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -161,7 +175,11 @@ class Log implements SessionLog {
 
     private deliver(subscriber: Subscriber, seq: number, entry: SessionEntry): void {
         try {
-            subscriber.listener({seq, entry});
+            const returned: unknown = subscriber.listener({seq, entry});
+            // 监听函数按合同是同步的；调用方传了 async 函数时，它的 rejection 没人接会变成进程级的未处理拒绝，这里接住并照样结束订阅。
+            if (typeof returned === "object" && returned !== null && typeof (returned as PromiseLike<unknown>).then === "function") {
+                (returned as PromiseLike<unknown>).then(undefined, () => this.end(subscriber, "listener-error"));
+            }
         } catch {
             this.end(subscriber, "listener-error");
         }
@@ -171,7 +189,11 @@ class Log implements SessionLog {
         if (!subscriber.active) return;
         subscriber.active = false;
         this.subscribers = this.subscribers.filter((item) => item !== subscriber);
-        subscriber.onEnd?.(reason);
+        try {
+            subscriber.onEnd?.(reason);
+        } catch {
+            // onEnd 是订阅者自己的收尾；它抛错不能让 close 或 append 中途失败，也不能挡住其它订阅的结束通知。
+        }
     }
 
     private endAll(reason: LogEndReason): void {

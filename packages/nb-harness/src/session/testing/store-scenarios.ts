@@ -4,6 +4,7 @@
  */
 
 import {describe, expect, test} from "bun:test";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {createSession, openSession} from "../log";
 import type {EntryInput, LogEndReason, SessionEntry, SessionLog, SessionStore} from "../types";
 import {assistantMessage, titleChange, toolCall, toolResult, userMessage} from "./fixtures";
@@ -22,6 +23,41 @@ export function withFailingAppend(store: SessionStore): SessionStore & {failNext
                 return {ok: false, code: "store-failed", detail: "模拟的 I/O 失败"};
             }
             return store.append(id, entries);
+        },
+    };
+}
+
+/** 包一层存储：`hold()` 之后的下一次 append 或 repair 等到 `release()` 才真正执行。用来制造“操作还在等存储时 close”的交错。 */
+export function withHeldWrites(store: SessionStore): SessionStore & {hold(): {release(): void; started: Promise<void>}} {
+    let gate: {proceed: Promise<void>; release(): void; markStarted(): void; started: Promise<void>} | null = null;
+    const waitForGate = async (): Promise<void> => {
+        if (gate === null) return;
+        const current = gate;
+        gate = null;
+        current.markStarted();
+        await current.proceed;
+    };
+    return {
+        ...store,
+        hold() {
+            let release = (): void => undefined;
+            let markStarted = (): void => undefined;
+            const proceed = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const started = new Promise<void>((resolve) => {
+                markStarted = resolve;
+            });
+            gate = {proceed, release, markStarted, started};
+            return {release, started};
+        },
+        async append(id, entries) {
+            await waitForGate();
+            return store.append(id, entries);
+        },
+        async repair(id) {
+            await waitForGate();
+            return store.repair(id);
         },
     };
 }
@@ -233,6 +269,101 @@ export function describeStoreScenarios(label: string, makeStore: () => Promise<S
             log.close();
             expect(selfReleasingEnds).toEqual([]);
             expect(other.ends).toEqual([]);
+        });
+
+        test("输出 9：补发途中的监听函数里 append，新条目在补发完之后只收到一次；补发途中 close，补发停止、所有订阅以 closed 结束一次", async () => {
+            const store = await makeStore();
+            const log = await opened(store);
+            await appended(log, [userMessage("1"), userMessage("2"), userMessage("3")]);
+
+            const appendingSeqs: number[] = [];
+            let nested: Promise<unknown> | null = null;
+            log.subscribe((event) => {
+                appendingSeqs.push(event.seq);
+                if (event.seq === 1) nested = log.append([userMessage("补发时追加的")]);
+            });
+            expect(appendingSeqs).toEqual([1, 2, 3]);
+            await nested;
+            expect(appendingSeqs).toEqual([1, 2, 3, 4]);
+
+            const other = received(log);
+            const closing: number[] = [];
+            const closingEnds: LogEndReason[] = [];
+            log.subscribe((event) => {
+                closing.push(event.seq);
+                if (event.seq === 2) log.close();
+            }, {onEnd: (reason) => closingEnds.push(reason)});
+            expect(closing).toEqual([1, 2]);
+            expect(closingEnds).toEqual(["closed"]);
+            expect(other.ends).toEqual(["closed"]);
+            log.close();
+            expect(closingEnds).toEqual(["closed"]);
+        });
+
+        test("输出 9.1：异步监听函数的 rejection 也结束该订阅，不留下未处理的拒绝", async () => {
+            const store = await makeStore();
+            const log = await opened(store);
+            const healthy = received(log);
+            const asyncSeqs: number[] = [];
+            const asyncEnds: LogEndReason[] = [];
+            log.subscribe(
+                (async (event: {seq: number}) => {
+                    asyncSeqs.push(event.seq);
+                    await Promise.resolve();
+                    if (event.seq === 2) throw new Error("异步监听函数坏了");
+                }) as unknown as (event: {seq: number; entry: SessionEntry}) => void,
+                {onEnd: (reason) => asyncEnds.push(reason)},
+            );
+            await appended(log, [userMessage("1"), userMessage("2")]);
+            await waitUntil("异步监听函数的订阅结束", () => asyncEnds.length === 1);
+            expect(asyncEnds).toEqual(["listener-error"]);
+            await appended(log, [userMessage("3")]);
+            expect(asyncSeqs).toEqual([1, 2]);
+            expect(healthy.seqs).toEqual([1, 2, 3]);
+
+            // onEnd 抛错不影响 close 本身和其它订阅的结束通知。
+            log.subscribe(() => undefined, {
+                onEnd: () => {
+                    throw new Error("onEnd 坏了");
+                },
+            });
+            const last = received(log);
+            expect(() => log.close()).not.toThrow();
+            expect(healthy.ends).toEqual(["closed"]);
+            expect(last.ends).toEqual(["closed"]);
+        });
+
+        test("close 与进行中的写入：已交给存储的 append 照常完成并进入 entries，不再推送；进行中的 repair 不把已关闭的句柄改回可写", async () => {
+            const store = withHeldWrites(await makeStore());
+            const log = await opened(store);
+            await appended(log, [userMessage("1")]);
+            const watcher = received(log);
+
+            const gate = store.hold();
+            const pending = log.append([userMessage("2"), userMessage("3")]);
+            await gate.started;
+            log.close();
+            expect(watcher.ends).toEqual(["closed"]);
+            gate.release();
+            const result = await pending;
+            expect(result.ok && result.value.length).toBe(2);
+            expect(log.entries).toHaveLength(3);
+            expect(watcher.seqs).toEqual([1]);
+            expect(watcher.ends).toEqual(["closed"]);
+            const afterClose = await log.append([userMessage("4")]);
+            expect(afterClose.ok ? null : afterClose.code).toBe("log-closed");
+            const reopened = await openSession(store, log.header.id);
+            expect(reopened.ok && reopened.value.entries.length).toBe(3);
+
+            const second = await opened(store);
+            const repairGate = store.hold();
+            const repairing = second.repair();
+            await repairGate.started;
+            second.close();
+            repairGate.release();
+            expect((await repairing).ok).toBe(true);
+            const stillClosed = await second.append([userMessage("x")]);
+            expect(stillClosed.ok ? null : stillClosed.code).toBe("log-closed");
         });
 
         test("输出 10、11：存储写入失败后这批不进入 entries、订阅以 broken 结束、句柄只能关闭", async () => {
