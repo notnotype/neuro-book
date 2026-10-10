@@ -1,0 +1,57 @@
+# w00002 t10 `profile` 实施计划设计审查
+
+审查对象：`.agents/works/w00002-neuro-agent-harness-redesign/tasks/t10-harness-profile/plan.md`，固定提交 `7fb6e962`，worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00002-review-t10-plan`。
+
+依据：`docs/specs/harness/profile.md`、`docs/specs/harness/session.md`、`docs/proposals/agent-harness-kernel.md`、包规则、`src/architecture.test.ts`、测试规范、t09 审查与处理记录，以及锁定的 OMP 18.2.5 类型。只读审查，仓库文件未修改。以下仅对计划及其依赖机制下结论，不把临时机制实验当作尚未实现的 `profile` 合同测试。
+
+## 已核实问题
+
+### 1. 重要｜正确性：统一消息渲染规则不能产生合法的 OMP 助手消息
+
+- **位置**：`plan.md` 第 4 节（34、37、38 行）与第 5 节（45 行）；`docs/specs/harness/profile.md:136,146-149,176`；OMP `types.ts:1019-1078`。
+- **现象**：计划把 `User`、`Developer`、`Assistant` 都注册为消息节点，统一规定“只有文字时 content 用字符串”，只补消息级 `timestamp`。OMP 的 `AssistantMessage.content` 必须是内容块数组，且必填 `api`、`provider`、`model`、`usage`、`stopReason`。当前 `PromptContext` 和消息节点定义都没有提供这些元数据的来源。
+- **为什么是问题**：合法的 `<Appending><Assistant>示例回答</Assistant></Appending>` 按计划产生的对象既不能赋给公开的 `Message`，也不能追加到已经实现的 session；直接请求消息同样不满足 OMP 合同。不能用“这里只生成 custom_message 内容”解释：Profile 输出类型明确是完整 `Message`，普通追加消息也没有 `harness/seed` 的角色转换。t09 已修好 session 的完整消息校验，t10 的生成端又落回了只拼 role/content/timestamp 的问题。
+- **如何核实**：从 worktree 根执行 `bun <lab>/assistant-session.ts`，通过真实公开 `createSession`、`createMemorySessionStore`、`SessionLog.append` 追加计划形状，得到 `invalid-entry`，detail 同时指出缺五个元数据字段与 `content must be array`；改成数组仍因缺五个字段被拒绝；完整助手消息与普通用户消息成功。另执行 `bun /home/notnotype/CodeRepository/neuro-book/node_modules/typescript/bin/tsc --noEmit --strict --module ESNext --moduleResolution bundler --target ES2022 --skipLibCheck <lab>/assistant-static.ts`，得到两处预期 `TS2322`。未调用模型。
+- **建议改法**：在计划中按角色构造消息；助手内容固定为块数组，并明确 Profile 编写的助手示例如何获得合法的 OMP 元数据（例如有明确语义的合成消息值，或显式输入）。让两个位置的 `Assistant` 输出都经过真实 OMP 静态类型检查，并将追加输出交给现有 session 公开 API 验收；不放宽 session 校验。
+
+下文 `<lab>` 均指 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t10-plan/lab`。
+
+### 2. 重要｜正确性：把字段和数据源 schema 限定为 `Type.Object`，与公开类型和示例值矛盾
+
+- **位置**：`plan.md` 第 2 节（22 行）；`docs/specs/harness/profile.md:53,76,131,142-144,180`。
+- **现象**：计划要求节点 `props` 与数据源、字段的 `schema` 都是 `Type.Object` 产物，并用 `type === "object"` 判定。然而字段和数据源的公开声明是 `TSchema`，Spec 示例的 `harness/tools` 字段值是 `["read", "edit"]`，应使用数组 schema；它无法通过任何要求对象值的 schema。Spec 输出 1 的“schema 不是对象”也把“schema 定义是对象”与“schema 校验的值是对象”混在了一起。
+- **为什么是问题**：插件不能直接注册工具 id 数组、布尔设置或纯文本数据源；照计划实现会在 `registerField`/`registerSource` 返回 `invalid-definition`，而不是用该字段自己的规则校验值。给每个值强行套对象会改变已写示例及后续模块接口。这是当前合同内部矛盾，不能只归咎于未来插件。
+- **如何核实**：`bun <lab>/schema-kind.ts` 使用本仓库真实 TypeBox：`Type.Array(Type.String())` 与 `Type.String()` 都是合法 schema 对象，实际值均通过 `Value.Check`，但计划条件分别因 `schema.type` 是 `array`、`string` 返回 false；`Type.Object` 对照组返回 true。
+- **建议改法**：仅节点 props 限定对象值；数据源和字段接受合法的 `TSchema`，校验 schema 本身的有效性，不以 `schema.type === "object"` 代替。同步澄清 Spec 输出 1，并用示例中的 `harness/tools` 数组及一个标量数据源验收。
+
+### 3. 重要｜不变量：复制注册 Map 并冻结准备结果，不会隔离定义、取数结果和 `Date`
+
+- **位置**：`plan.md` 第 2 节（21 行）、第 3 节（28、29 行）；`docs/specs/harness/profile.md:183,193,200,210`。
+- **现象**：计划的快照只规定拷贝注册表、冻结 `PreparedProfile`、`refresh` 复制旧结果，没有规定复制定义的数组/schema、接管取数结果、隔离 `context` 与状态。`new Map(old)` 仍引用同一个定义和结果对象，`ReadonlyMap` 仅约束 TypeScript；`Object.freeze(prepared)` 也不冻结嵌套值。即使单独 freeze `Date` 和 Map，`setTime`、`set` 仍能修改其内部状态。
+- **为什么是问题**：调用方复用或更新注册定义、source 保留并更新返回对象时，可以改写已准备请求；`refresh` 的新旧结果也可能共享被改写的 invocation 数据。向注册方 render 传入这些活引用，还不能保证其误写不会改变下一次渲染和调用方旧状态。固定一个 `context.now` 引用不等于固定 timestamp。计划需要所有权边界才能支撑输出 14 和整次调用快照，不能只靠外层冻结；这不要求隔离受信任代码。
+- **如何核实**：`bun <lab>/prepared-ownership.ts` 在真实 Bun 上按上述容器机制构造冻结准备结果：同一读取函数先输出 `1000|调用级原值|旧渲染`，再在外部更新 context、source 值和原定义后输出 `2000|改写后的调用级值|新渲染`；`Object.isFrozen(prepared)` 仍为 true；单独冻结的 Date、Map 也分别变为 3000、2 项。**机制已运行，Profile 实现尚不存在；这里核实的是计划中冻结手段不足，未声称产品已发生该 bug。**
+- **建议改法**：明确准备时同步固定哪些值、取数结果何时复制、注册定义哪些数据字段需要不可变快照，`refresh` 只共享已经不可变的 invocation 结果；内部固定 timestamp 而非依赖可变 Date。渲染给注册函数的 node/context/source/state 采用只读快照或隔离副本，输出状态与旧状态脱离。测试覆盖修改保留的定义/source/context 引用后旧 prepared 不变、refresh 不改旧 prepared、渲染不改传入 state。
+
+### 4. 重要｜正确性：允许 render 返回新节点后，静态树校验无法保证图片和父子约束
+
+- **位置**：`plan.md` 第 3 节（27、28 行）、第 4 节（33、34 行）、第 5 节（43 行）；`docs/specs/harness/profile.md:95,104,138,181`。
+- **现象**：计划把 `Image` 改成只收数据，并指定由内容节点读取数据源后返回 `Image`；但所有 props、父子和“System 只有文字”等检查都只在 `prepare` 遍历原始树时执行。一个合法放在 System 的注册内容节点，可以在 render 中返回 Image；Image 当时不在被检查的树里。返回未知节点、带另一数据源的内容节点也有同样的检查边界问题。
+- **为什么是问题**：这条新增的图片使用路径绕过了原始树的保证：System 可能到渲染时才出现图片，准备阶段无法按承诺给出 `image-not-allowed`；忽略图片则静默丢内容，直接接受则违反系统提示词纯文本规则。`renderSystem` 又只有 `{systemPrompt}`，没有诊断或失败通道。单靠原始树验证和静态 source 收集，不能覆盖任意 `ProfileChild` 返回值。
+- **如何核实**：`bun <lab>/jsx-self-reference/src/profile/testing/generated-image.tsx` 使用真实 Bun TSX 与 TypeBox：原始树类型是 `["harness/prompt","harness/system","test/picture"]`、wrapper props 校验成功；内容 render 返回 `harness/image`，但原始树不含该类型（`generatedWasVisibleDuringTreeValidation:false`）。这是计划所依赖的数据流机制实验，未冒充已实现 Profile 的 prepare 结果。
+- **建议改法**：写清生成内容的可接受范围与校验时点：每次展开 render 返回节点时仍带语义父节点并检查图片/节点/props，只允许读取已声明、已准备的数据；同时给动态错误一个完整的返回通道。若坚持所有无效树都在 prepare 拒绝，就必须调整注册返回类型或准备阶段设计，不能继续宣称原始树检查已覆盖生成节点。至少增加“数据源图片在 User 中成功、同一内容节点在 System/Assistant 中失败”的真实文件场景。
+
+### 5. 重要｜正确性：布局索引与请求遍历没有展开结构性 `Fragment`
+
+- **位置**：`plan.md` 第 1 节（14-17 行）、第 3 节（27、29 行）、第 4 节（35-39 行）；`docs/specs/harness/profile.md:94,105,186`。
+- **现象**：JSX 工厂只拍平数组，Fragment 自身保留为 `harness/fragment` 节点；计划随后用 Prompt 子节点建立布局索引、挑选“直接在 Prompt 下”的消息和按子节点顺序渲染，未规定 Fragment 的透明展开。`<Prompt><><System>规则</System><History/><User>请求</User><Appending><Input/></Appending></></Prompt>` 是合法结构，但字面上的 Prompt 子节点只有 Fragment。
+- **为什么是问题**：直接过滤子节点会漏掉系统提示词、History、追加布局和请求消息；没有发现 History 后还会错误走 `history.slice(invocationStart)` 分支。只在最终文本递归 Fragment 不够，位置约束、布局计数、缓存警告和种子索引都必须按相同透明语义处理。
+- **如何核实**：`bun <lab>/jsx-self-reference/src/profile/testing/run.ts` 经包自引用的真实 JSX runtime 得到 `directLayouts:["harness/fragment"]`；再运行 `fragment.ts`，按直接子节点构建的 system/history/appending/user 四项数量全是 0，透明展开后四项都为 1。TypeScript 同时接受该合法 TSX。核实的是树形与索引机制，尚未存在产品渲染器可证明它已经漏消息。
+- **建议改法**：在 S1/S2 明确结构展开规则，校验、收集、索引、顺序和渲染统一使用 Fragment 透明后的语义子节点，同时保留可定位的诊断路径；不得只拍平 JSX 数组。增加有无 Fragment 的等价布局测试，并覆盖其包住 History 种子、Appending 的 Input 和多个同名兄弟的情况。
+
+### 6. 重要｜正确性：`defineProfile` 的校验异常被 loader 统一改报成 `module-load-failed`
+
+- **位置**：`plan.md` 第 6 节（49、50 行）；`docs/specs/harness/profile.md:168,191,225-226`。
+- **现象**：`defineProfile` 同步返回 Profile，并立即校验 id 等字段；非法定义只能抛出异常。该调用通常发生在 Profile 模块顶层，计划又把 `import(pathToFileURL(path).href)` 的所有异常映射为 `module-load-failed`。所以默认导出表达式中的非法 Profile id 不会到达 `profileFromModule`，拿不到失败表要求的 `invalid-profile`。
+- **为什么是问题**：Profile 字段不合规则与语法/依赖/模块执行错误被混成一个结果，Spec 中“Profile 本身的字段不合规则”为 `invalid-profile` 的分支无法在这种真实文件路径出现。只测试没有默认导出的模块，不能发现这处分类错误。
+- **如何核实**：`bun <lab>/jsx-self-reference/src/profile/testing/run.ts` 经真实 Bun 动态导入 `.profile.tsx`；实验的 `defineProfile` 对 `id: "bad id"` 抛出专门错误，loader 按计划 catch 全部导入异常，输出 `{"invalidDefinition":{"ok":false,"code":"module-load-failed","error":"Error"}}`。有效文件加载成功且与静态导入是同一 Profile 对象。这是按计划搭建的最小 loader 分类复现，不是产品 loader 的测试。
+- **建议改法**：给非法定义一个可识别的错误类型，并在动态导入 catch 中将它转换为 `invalid-profile`；只把其余解析、依赖、模块执行错误映射为 `module-load-failed`。`profileFromModule` 对输入做相同的形状校验。真实文件负例应分别覆盖非法定义、无 default、语法错误和缺失依赖。

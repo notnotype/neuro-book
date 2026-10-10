@@ -48,9 +48,17 @@ export function isNode(value: unknown): value is ProfileNode {
     return typeof value === "object" && value !== null && typeof (value as {type?: unknown}).type === "string" && Array.isArray((value as {children?: unknown}).children);
 }
 
+/** 深冻结普通数据；函数与 TypeBox schema 这类对象照常冻结外层，不复制。 */
+export function deepFreeze<T>(value: T): T {
+    if (typeof value !== "object" || value === null || Object.isFrozen(value)) return value;
+    for (const item of Object.values(value as object)) deepFreeze(item);
+    return Object.freeze(value);
+}
+
 export function createNode(type: string, props: Record<string, unknown> = {}): ProfileNode {
     const {children, ...rest} = props;
-    return Object.freeze({type, props: Object.freeze({...rest}), children: Object.freeze(normalizeChildren(children))});
+    // props 里的 watch 这类值可能是作者手里的对象：深冻结，渲染时才不会被外面改动。
+    return Object.freeze({type, props: deepFreeze({...rest}), children: Object.freeze(normalizeChildren(children))});
 }
 
 type WithChildren<P> = P & {readonly children?: unknown};

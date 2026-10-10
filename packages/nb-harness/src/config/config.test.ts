@@ -62,7 +62,9 @@ describe("校验与规范化（输出 1、2）", () => {
             "providers[0].models[1].id", "providers[1].id",
         ].sort());
         expect(problems({roles: {items: [{id: "r", axis: "gradient", name: "n", description: "", modelKey: "nope"}]}})).toEqual(["roles.items[0].modelKey"]);
-        expect(problems({profiles: {w: {model: "a/b/c"}}})).toEqual(["profiles.w.model"]);
+        expect(problems({profiles: {w: {model: "a b/c"}}})).toEqual(["profiles.w.model"]);
+        expect(problems({profiles: {w: {model: "aiand/deepseek-ai/deepseek-v4-flash"}}, models: {defaultModel: "openrouter/org/x:free"}})).toEqual([]);
+        expect(problems({providers: [{id: "p", api: "x", baseUrl: "http://a", models: [{id: "org/model:latest"}, {id: "bad id"}]}]})).toEqual(["providers[0].models[1].id"]);
         expect(problems({profiles: {"bad id": {}}}).length).toBeGreaterThan(0);
         expect(problems([])).toEqual([""]);
         expect(problems({models: {defaultModel: undefined}})).toEqual(["models.defaultModel"]);

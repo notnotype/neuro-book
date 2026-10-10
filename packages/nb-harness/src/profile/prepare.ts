@@ -7,7 +7,7 @@
 
 import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
-import {BUILTIN, LAYOUT_IDS} from "./nodes";
+import {BUILTIN, deepFreeze, LAYOUT_IDS} from "./nodes";
 import type {
     Diagnostic, JsonValue, NodeTypeDefinition, PreparedProfile, Profile, ProfileChild, ProfileIssue, ProfileNode, ProfileResult, PromptContext, SourceDefinition,
 } from "./types";
@@ -22,6 +22,8 @@ export type PromptChild =
 export interface Prepared extends PreparedProfile {
     readonly profile: Profile;
     readonly context: PromptContext;
+    /** 准备时刻（毫秒）；消息时间戳用它，不读 `context.now`（Date 可以被外面 setTime）。 */
+    readonly nowMs: number;
     readonly tree: ProfileNode;
     readonly nodeTypes: ReadonlyMap<string, NodeTypeDefinition>;
     readonly sourceTypes: ReadonlyMap<string, SourceDefinition>;
@@ -215,8 +217,16 @@ async function resolveSources(
             definition.resolve({prompt: context}, signal).then(
                 (value) => {
                     const problem = schemaProblems(definition.schema, value);
-                    if (problem === null) values.set(id, value);
-                    else errors.push({severity: "error", code: "source-failed", path: id, detail: `取数结果不合 schema：${problem}`});
+                    if (problem !== null) {
+                        errors.push({severity: "error", code: "source-failed", path: id, detail: `取数结果不合 schema：${problem}`});
+                        return;
+                    }
+                    // 取数结果接管为冻结副本：数据源之后再改它返回的对象，不影响已准备好的 Profile。
+                    try {
+                        values.set(id, deepFreeze(structuredClone(value)));
+                    } catch (error) {
+                        errors.push({severity: "error", code: "source-failed", path: id, detail: `取数结果不能复制：${error instanceof Error ? error.message : String(error)}`});
+                    }
                 },
                 (error: unknown) => {
                     errors.push({severity: "error", code: "source-failed", path: id, detail: `取数失败：${error instanceof Error ? error.message : String(error)}`});
@@ -251,7 +261,9 @@ export async function prepare(registries: Registries, profile: Profile, input: {
         if (problem === null) fields[id] = value;
         else errors.push({severity: "error", code: "invalid-field", path: `fields.${id}`, detail: problem});
     }
-    const context: PromptContext = {...input.context, fields: Object.freeze(fields)};
+    // 上下文接管为冻结副本，时刻固定成数字：调用方之后改自己的 Date 或 session 对象，不影响这次准备。
+    const nowMs = input.context.now.getTime();
+    const context: PromptContext = deepFreeze({...structuredClone({session: input.context.session, turn: input.context.turn}), now: new Date(nowMs), fields});
 
     let tree: ProfileNode;
     try {
@@ -287,6 +299,7 @@ export async function prepare(registries: Registries, profile: Profile, input: {
         [preparedMarker]: true as const,
         profile,
         context,
+        nowMs,
         tree,
         nodeTypes: new Map(registries.nodeTypes),
         sourceTypes: new Map(registries.sourceTypes),

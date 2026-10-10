@@ -57,6 +57,16 @@ describe("加载（输出 12）", () => {
 
         const nowhere = await loadProfile(join(root, "profiles", "nowhere.tsx"));
         expect(nowhere.ok ? null : nowhere.code).toBe("module-load-failed");
+
+        // 文件里的 defineProfile 定义不合规则：是 Profile 本身的问题，报 invalid-profile 而不是 module-load-failed。
+        const invalid = join(root, "profiles", "invalid.profile.tsx");
+        await writeFile(invalid, PROFILE_SOURCE.replace('id: "loaded"', 'id: "Bad Id"'), "utf8");
+        const badDefinition = await loadProfile(invalid);
+        expect(badDefinition.ok ? null : `${badDefinition.code}:${badDefinition.detail}`).toContain("invalid-profile:");
+        expect(badDefinition.ok ? "" : badDefinition.detail).toContain("id");
+        const syntax = join(root, "profiles", "syntax.profile.tsx");
+        await writeFile(syntax, "export default defineProfile({", "utf8");
+        expect((await loadProfile(syntax)).ok ? null : (await loadProfile(syntax) as {code: string}).code).toBe("module-load-failed");
     });
 
     test("profileFromModule 只认 defineProfile 的结果；defineProfile 拒绝不合规则的定义", () => {

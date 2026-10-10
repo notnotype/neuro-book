@@ -54,6 +54,37 @@ describe("准备与校验（输出 2、15）", () => {
     });
 });
 
+describe("准备结果的所有权", () => {
+    test("注册后改定义、取数后改返回的对象、准备后改 context 的 Date 与传入的状态，都不影响已准备好的渲染", async () => {
+        const host = createProfileHost();
+        const Catalog = nodeComponent("plugin.o/catalog");
+        const definition: NodeTypeDefinition = {id: "plugin.o/catalog", category: "content", props: Type.Object({}), parents: ["*message"], children: "none", sources: ["plugin.o/items"], render: (_n, ctx) => (ctx.sources["plugin.o/items"] as {names: string[]}).names.join("、")};
+        expect(host.registerNodeType(definition).ok).toBe(true);
+        const returned = {names: ["甲"]};
+        host.registerSource({id: "plugin.o/items", schema: Type.Object({names: Type.Array(Type.String())}), phase: "invocation", resolve: async () => returned});
+        const now = new Date(1_000);
+        const profile = defineProfile({id: "p", name: "n", description: "d", version: 1, prompt: () => <Prompt><Appending><User><Catalog /></User><Input /><Reminder id="r" once>x</Reminder></Appending></Prompt>});
+        const prepared = await host.prepare(profile, {context: {...context, now}});
+        if (!prepared.ok) throw new Error(prepared.detail);
+
+        // 注册表里的定义是冻结副本：注册方改自己手里的数组不影响它。
+        (definition.parents as string[]).push("harness/system");
+        returned.names.push("乙");
+        now.setTime(9_000);
+        const state = {r: {lastTurn: 0}};
+        const out = host.renderAppending(prepared.value, {input: {content: "i"}, state});
+        expect(out.messages[0]!.message).toEqual({role: "user", content: "甲", timestamp: 1_000});
+        expect(out.messages.map((m) => m.kind)).toEqual(["message", "input"]);
+        expect(state).toEqual({r: {lastTurn: 0}});
+        (out.state.r as {lastTurn: number}).lastTurn = 99;
+        expect(state.r.lastTurn).toBe(0);
+        // 新的一次准备重新取数，看到的是数据源现在的值；旧的准备结果不变。
+        const again = await host.prepare(profile, {context: {...context, now: new Date(2_000)}});
+        expect(again.ok && host.renderAppending(again.value, {input: {content: "i"}, state: {}}).messages[0]!.message).toEqual({role: "user", content: "甲、乙", timestamp: 2_000});
+        expect(host.renderAppending(prepared.value, {input: {content: "i"}, state: {}}).messages[0]!.message).toEqual({role: "user", content: "甲", timestamp: 1_000});
+    });
+});
+
 describe("数据源（输出 4）", () => {
     const Clock = nodeComponent("plugin.t/clock");
     const Weather = nodeComponent("plugin.t/weather");

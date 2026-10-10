@@ -75,6 +75,18 @@ describe("凭据（输出 5–9）", () => {
         expect(cancelled.ok ? null : cancelled.code).toBe("login-cancelled");
         const failed = await credentials.login("no-such-oauth-provider", {});
         expect(failed.ok ? null : failed.code).toBe("login-failed");
+        // 使用方回调里抛出的错误带着私密值：detail 不能把它透出去。
+        const secret = "private-marker-9f3a";
+        const leaked = await credentials.login(providers[0]!.id, {
+            onPrompt: async () => {
+                throw new Error(`回调失败 ${secret}`);
+            },
+            onAuth: () => {
+                throw new Error(`回调失败 ${secret}`);
+            },
+        });
+        expect(leaked.ok ? null : leaked.code).toBe("login-failed");
+        expect(leaked.ok ? "" : leaked.detail).not.toContain(secret);
         expect(credentials.accounts(providers[0]!.id)).toEqual([]);
 
         credentials.close();

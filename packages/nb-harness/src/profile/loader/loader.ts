@@ -3,7 +3,7 @@
  */
 
 import {pathToFileURL} from "node:url";
-import {profileFromModule} from "../define";
+import {ProfileDefinitionError, profileFromModule} from "../define";
 import * as jsxDevRuntime from "../jsx-dev-runtime";
 import * as jsxRuntime from "../jsx-runtime";
 import * as profileModule from "../profile";
@@ -41,6 +41,8 @@ export async function loadProfile(path: string): Promise<ProfileResult<Profile>>
     try {
         module = await import(pathToFileURL(path).href);
     } catch (error) {
+        // 模块顶层的 defineProfile 抛的定义错误是 Profile 本身的问题，与语法、依赖、执行错误分开报。
+        if (error instanceof ProfileDefinitionError) return {ok: false, code: "invalid-profile", detail: `${path}：${error.message}`, diagnostics: []};
         return {ok: false, code: "module-load-failed", detail: `加载 ${path} 失败：${error instanceof Error ? error.message : String(error)}`, diagnostics: []};
     }
     return profileFromModule(module, path);

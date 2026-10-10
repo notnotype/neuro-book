@@ -81,7 +81,7 @@ type EntryInput = DistributiveOmit<SessionEntry, "id" | "parentId" | "timestamp"
 | 规则 | 内容 |
 |---|---|
 | 会话 id | 1–128 个字符，`[A-Za-z0-9._-]`；新建时不给出则由日志生成 |
-| `message.message.role` | `user`、`developer`、`assistant` 或 `toolResult` |
+| `message.message.role` | `user`、`developer`、`assistant` 或 `toolResult`；消息按 OMP `Message` 各角色的必填字段校验，助手消息里的工具调用 id 互不重复（按 id 配对结果时分不开） |
 | `customType` | `<命名空间>/<名称>`：命名空间以 `[a-z0-9]` 开头、由 `[a-z0-9.-]` 组成，名称以 `[a-z0-9]` 开头、由 `[a-z0-9._-]` 组成；命名空间 `harness` 留给本包 |
 | `interaction` 条目的 `data` | `phase: "request"` 必须有 `request`、不得有 `response`；`"response"` 反之。同一 `interactionId` 至多一个 request、至多一个 response，response 在 request 之后。`request.assistantEntryId` 是含该工具调用的助手 `message` 条目的 id，与 `toolCallId` 一起确定是哪个窗口里的哪个调用 |
 | 保留类型 | `harness/` 开头的 `customType` 只能是上表五种，`data` 或 `details` 必须符合上表的形状 |

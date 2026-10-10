@@ -24,7 +24,7 @@ owners:
 
 - **配置快照**：一份校验通过、填好缺省值、深冻结的 `HarnessConfig`。
 - **配置问题**：校验失败时的一条记录：字段路径与原因。
-- **模型引用**：`<providerId>/<modelId>`，两段都是 `[A-Za-z0-9._-]+`。
+- **模型引用**：`<providerId>/<modelId>`：服务 id 是 `[A-Za-z0-9._-]+`，到第一个 `/` 为止；模型 id 是其后的全部，非空、没有空白与控制字符（OMP 目录里的模型 id 本身可以带 `/`、`:`、`~`，例如 `aiand/deepseek-ai/deepseek-v4-flash`）。
 - **模型角色**：按 [模型角色合同](../../proposals/model-roles-contract.md) 的条目：`id`、`axis`、`name`、`description`、`modelKey`。
 
 ## 输入与前置条件
@@ -67,7 +67,7 @@ type RoleItem = {id: string; axis: "gradient" | "specialist"; name: string; desc
 |---|---|
 | 缺省值 | `providers: []`、`roles.items: []`、`profiles: {}`、`approval.tools: {}`；`models.defaultModel`、`approval.mode` 可以缺省 |
 | 未知字段 | 顶层与各对象里未知的键是问题（`未知字段`），不静默忽略 |
-| id | `providers[].id`、`providers[].models[].id`、`roles.items[].id`、`profiles` 的键都是 `[A-Za-z0-9._-]+`，各自在所属集合内唯一 |
+| id | `providers[].id`、`roles.items[].id`、`profiles` 的键是 `[A-Za-z0-9._-]+`；`providers[].models[].id` 按模型 id 的规则（非空、无空白与控制字符）；各自在所属集合内唯一 |
 | 模型引用 | `models.defaultModel`、`roles.items[].modelKey`、`profiles.*.model` 必须符合模型引用的语法；空字符串按未给出处理 |
 | 数值 | `contextWindow`、`maxTokens` 是正整数 |
 | 值 | 整份配置必须能被 JSON 如实表示（没有 `undefined`、函数、`NaN`、循环引用） |

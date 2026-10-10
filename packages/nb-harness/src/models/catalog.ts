@@ -8,7 +8,8 @@ import {buildModel} from "@oh-my-pi/pi-catalog/build";
 import type {HarnessConfig, ProviderConfig, ProviderModelConfig} from "../config/config";
 import type {Capabilities, CapabilityProblem, ModelCatalog, ModelResult, ModelSummary, SelectRequest, Selected} from "./types";
 
-const MODEL_REF_PATTERN = /^([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)$/u;
+/** 与 config 的 MODEL_REF_PATTERN 同一语法（各自声明，不跨模块导入）：服务 id 到第一个 `/` 为止，其余整个是模型 id。 */
+const MODEL_REF_PATTERN = /^([A-Za-z0-9._-]+)\/([^\s\p{Cc}]+)$/u;
 const ZERO_COST = {input: 0, output: 0, cacheRead: 0, cacheWrite: 0};
 
 type BundledProvider = Parameters<typeof getBundledModel>[0];

@@ -182,7 +182,20 @@ export function shapeProblem(input: unknown): string | null {
     const shape = variantProblem(ENTRY_SCHEMAS, input, "type", "/");
     if (shape !== null) return shape;
     const entry = input as EntryInput;
-    if (entry.type === "message") return variantProblem(MESSAGE_SCHEMAS, entry.message, "role", "/message/");
+    if (entry.type === "message") {
+        const problem = variantProblem(MESSAGE_SCHEMAS, entry.message, "role", "/message/");
+        if (problem !== null) return problem;
+        // 同一条助手消息里工具调用 id 不能重复：按 id 配对结果时分不开，OMP 发请求前也会把重复的 id 改名并合成假结果。
+        if (entry.message.role === "assistant") {
+            const seen = new Set<string>();
+            for (const block of entry.message.content) {
+                if (block.type !== "toolCall") continue;
+                if (seen.has(block.id)) return `/message/content：工具调用 id 重复：${block.id}`;
+                seen.add(block.id);
+            }
+        }
+        return null;
+    }
     if (entry.type !== "custom" && entry.type !== "custom_message") return null;
     if (!entry.customType.startsWith(RESERVED_NAMESPACE)) return null;
     const reserved = RESERVED[entry.customType];

@@ -152,6 +152,50 @@ describe("消息的形状（输出 9）", () => {
     });
 });
 
+describe("渲染期的校验（输出 6）", () => {
+    test("内容节点 render 返回的 Image 在 User 里出现、在 System 里被丢弃并给 image-not-allowed；返回未注册节点给 unknown-node；返回不合父子规则的节点给 invalid-parent", async () => {
+        const host = createProfileHost();
+        const Picture = nodeComponent("plugin.g/picture");
+        const Stranger = nodeComponent("plugin.g/stranger");
+        const Nested = nodeComponent("plugin.g/nested");
+        host.registerNodeType({id: "plugin.g/picture", category: "content", props: Type.Object({}), parents: ["*message", "harness/system"], children: "none", render: () => Image({mimeType: "image/png", data: "QUJD"})});
+        host.registerNodeType({id: "plugin.g/stranger", category: "content", props: Type.Object({}), parents: ["*message", "harness/system"], children: "none", render: () => nodeComponent("plugin.g/unregistered")({})});
+        host.registerNodeType({id: "plugin.g/only-in-user", category: "content", props: Type.Object({}), parents: ["harness/user"], children: "none", render: () => "只能在 User"});
+        host.registerNodeType({id: "plugin.g/nested", category: "content", props: Type.Object({}), parents: ["*message", "harness/system"], children: "none", render: () => nodeComponent("plugin.g/only-in-user")({})});
+        const p = await prepared(host, defineProfile({
+            id: "p", name: "n", description: "d", version: 1,
+            prompt: () => (
+                <Prompt>
+                    <System>前<Picture />后<Stranger /><Nested /></System>
+                    <User>图：<Picture /><Nested /></User>
+                </Prompt>
+            ),
+        }));
+        const system = host.renderSystem(p);
+        expect(system.systemPrompt).toEqual(["前后"]);
+        expect(system.diagnostics.map((d) => `${d.code}@${d.path}`)).toEqual([
+            "image-not-allowed@Prompt>System[0]>plugin.g/picture>harness/image",
+            "unknown-node@Prompt>System[0]>plugin.g/stranger>plugin.g/unregistered",
+            "invalid-parent@Prompt>System[0]>plugin.g/nested>plugin.g/only-in-user",
+        ]);
+        const request = host.renderRequest(p, {history: [], invocationStart: 0});
+        expect(request.messages[0]!.content).toEqual([{type: "text", text: "图："}, {type: "image", mimeType: "image/png", data: "QUJD"}]);
+        expect(request.diagnostics.filter((d) => d.path.startsWith("Prompt>harness/user")).map((d) => d.code)).toEqual(["invalid-parent"]);
+    });
+
+    test("Fragment 是透明的：包住 System、History、Appending 与请求消息的布局与不包等价（场景 2 的补充）", async () => {
+        const host = createProfileHost();
+        const plain = await prepared(host, defineProfile({id: "p", name: "n", description: "d", version: 1, prompt: () => <Prompt><System>s</System><History><User once>种子</User></History><User>请求</User><Appending><Input /></Appending></Prompt>}));
+        const wrapped = await prepared(host, defineProfile({id: "p", name: "n", description: "d", version: 1, prompt: () => <Prompt><><System>s</System><><History><><User once>种子</User></></History></><User>请求</User><><Appending><><Input /></></Appending></></></Prompt>}));
+        const history: Message[] = [{role: "user", content: "h", timestamp: 1}];
+        expect(host.renderSystem(wrapped)).toEqual(host.renderSystem(plain));
+        expect(host.renderSeeds(wrapped, "new-session")).toEqual(host.renderSeeds(plain, "new-session"));
+        expect(host.renderAppending(wrapped, {input: {content: "i"}, state: {}})).toEqual(host.renderAppending(plain, {input: {content: "i"}, state: {}}));
+        expect(host.renderRequest(wrapped, {history, invocationStart: 1})).toEqual(host.renderRequest(plain, {history, invocationStart: 1}));
+        expect(host.renderRequest(wrapped, {history, invocationStart: 1}).messages.map(text)).toEqual(["h", "请求"]);
+    });
+});
+
 describe("文本拼接（输出 5）", () => {
     test("场景 4：相邻字符串直接相连，块级节点前后空一行，首尾空白去掉，三个以上换行折叠为两个", async () => {
         const host = createProfileHost();

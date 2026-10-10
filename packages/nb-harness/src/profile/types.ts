@@ -86,7 +86,7 @@ export interface ProfileHost {
     renderSeeds(prepared: PreparedProfile, occasion: "new-session" | "after-compaction"): SeedOutput;
     renderAppending(prepared: PreparedProfile, input: {input: UserInput; state: ProfileState}): AppendingOutput;
     renderRequest(prepared: PreparedProfile, input: {history: readonly Message[]; invocationStart: number}): RequestOutput;
-    renderSystem(prepared: PreparedProfile): {systemPrompt: string[]};
+    renderSystem(prepared: PreparedProfile): {systemPrompt: string[]; diagnostics: Diagnostic[]};
 }
 
 export interface ProfileCatalog {

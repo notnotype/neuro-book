@@ -121,7 +121,7 @@ interface ProfileHost {
     renderSeeds(prepared: PreparedProfile, occasion: "new-session" | "after-compaction"): SeedOutput;
     renderAppending(prepared: PreparedProfile, input: {input: UserInput; state: ProfileState}): AppendingOutput;
     renderRequest(prepared: PreparedProfile, input: {history: readonly Message[]; invocationStart: number}): RequestOutput;
-    renderSystem(prepared: PreparedProfile): {systemPrompt: string[]};
+    renderSystem(prepared: PreparedProfile): {systemPrompt: string[]; diagnostics: Diagnostic[]};
 }
 type ProfileNode = {type: string; props: Readonly<Record<string, unknown>>; children: readonly ProfileChild[]};
 type ProfileChild = ProfileNode | string | null;
@@ -183,6 +183,7 @@ type PreparedProfile = object;   // 不透明：只用于传回同一主机的�
 4. **数据源**：`prepare` 收集节点树中所有节点声明的数据源，各调用一次取数函数，取数结果按 schema 校验。`refresh` 只对时机为 `model-call` 的数据源重新取数，返回新的准备结果：节点树与 `invocation` 数据源的结果与传入的相同；没有 `model-call` 数据源时原样返回。数据源未注册为 `unknown-source`，取数失败或结果不合 schema 为 `source-failed`，都使 `prepare` 或 `refresh` 返回 `invalid-prompt`。`signal` 中止时为 `cancelled`。
 5. **文本**：节点的文本由子节点按顺序拼接：相邻的字符串与行内节点直接相连；块级节点（`Tag`、注册时 `layout: "block"` 的内容节点）与前后内容之间空一行；整段首尾空白去掉，连续三个以上换行折叠为两个。`Tag name="x"` 的内容渲染为 `<x>\n内容\n</x>`。
 6. **系统提示词**：`renderSystem` 与 `renderRequest` 的 `systemPrompt` 按文档顺序给出每个 `System` 的文本，空文本不列出。
+    **渲染期的校验**：内容节点与有状态节点的 `render` 返回的节点不在准备时校验过的树里，渲染时按同样的规则再查：未注册（`unknown-node`）、props 不合（`invalid-props`）、不能放在当前位置（`invalid-parent`）、消息节点出现在内容里（`invalid-child`）、图片不在 `User` 里（`image-not-allowed`）的节点被丢弃，各在该次渲染输出的 `diagnostics` 里给一条警告（路径从渲染位置起）。
 7. **请求消息序列**：`renderRequest` 按 `Prompt` 子节点的文档顺序排出消息：布局形式的 `History` 换成调用方给的 `history`（有 `last` 时只取最后几轮）；直接放在 `Prompt` 下的消息节点渲染为请求消息；`Appending`、`Input` 与种子在这里不产生内容（它们已经写进会话，在 `history` 里）。Profile 没有布局形式的 `History` 时，请求的最后接上本次调用的消息（`history` 从 `invocationStart` 起的部分），所以不带历史的 Profile 仍能看到本次输入与本次调用中的工具往来。`invocationStart` 不在 `0` 到 `history.length` 之间时按 `history.length` 处理并给出 `invalid-invocation-start` 诊断。
 8. **种子**：`renderSeeds` 渲染那个有子节点的 `History` 的子节点：`new-session` 时全部渲染，`after-compaction` 时跳过 `once` 的；没有带子节点的 `History` 时返回空。种子的角色是节点的角色（`User` 或 `Developer`）。
 9. **消息的形状**：消息节点渲染出的消息是 OMP `Message`：`User`、`Developer` 带 `timestamp`（取 `PromptContext.now`）；`Assistant` 是 Profile 作者写的示例，不来自任何模型，`content` 一律是块数组，OMP 必填的元数据填占位值——`api`、`provider`、`model` 都是 `"profile"`，`usage` 全零，`stopReason` 为 `"stop"`。这些消息能原样写进 [`harness.session`](session.md)。

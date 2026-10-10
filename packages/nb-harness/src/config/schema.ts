@@ -7,7 +7,9 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 
 const ID_PATTERN = "^[A-Za-z0-9._-]+$";
-export const MODEL_REF_PATTERN = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u;
+/** 服务 id 是受限字符集；模型 id 是第一个 `/` 之后的全部（OMP 目录里的模型 id 本身带 `/`、`:`、`~`），只要求非空且没有空白与控制字符。 */
+export const MODEL_ID_PATTERN = "^[^\\s\\p{Cc}]+$";
+export const MODEL_REF_PATTERN = /^[A-Za-z0-9._-]+\/[^\s\p{Cc}]+$/u;
 
 const Id = Type.String({pattern: ID_PATTERN});
 /** 空字符串按未给出处理，所以这里允许空串，由 validate.ts 规范化掉。 */
@@ -15,7 +17,7 @@ const ModelRefOrEmpty = Type.String();
 
 const ProviderModelConfig = Type.Object(
     {
-        id: Id,
+        id: Type.String({pattern: MODEL_ID_PATTERN}),
         name: Type.Optional(Type.String({minLength: 1})),
         contextWindow: Type.Optional(Type.Integer({minimum: 1})),
         maxTokens: Type.Optional(Type.Integer({minimum: 1})),

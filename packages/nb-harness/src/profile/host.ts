@@ -6,7 +6,7 @@
 import type {TSchema} from "typebox";
 import {BUILTIN_DEFINITIONS} from "./builtin/builtin";
 import {fieldDefinitionProblem, nodeDefinitionProblem, sourceDefinitionProblem} from "./definitions";
-import {RESERVED_IDS} from "./nodes";
+import {deepFreeze, RESERVED_IDS} from "./nodes";
 import {isPrepared, prepare, refresh} from "./prepare";
 import type {Prepared} from "./prepare";
 import {renderAppending, renderRequest, renderSeeds, renderSystem} from "./render";
@@ -16,15 +16,26 @@ function register<T extends {id: string}>(table: Map<string, T>, definition: T, 
     if (problem !== null) return {ok: false, code: "invalid-definition", detail: problem, diagnostics: []};
     if (RESERVED_IDS.has(definition.id)) return {ok: false, code: "reserved-node", detail: `${definition.id} 是布局节点或 Fragment，由本模块固定`, diagnostics: []};
     if (table.has(definition.id)) return {ok: false, code: "duplicate-registration", detail: `${definition.id} 已注册`, diagnostics: []};
-    table.set(definition.id, definition);
+    // 注册表里放的是定义的冻结副本（数组另复制一份）：注册方之后改自己手里的 parents、sources，不影响已登记的定义与准备结果。
+    // schema 对象不复制也不冻结：TypeBox 的 schema 按约定不改，而且可能被注册方复用。
+    const stored = deepFreeze(copyDefinition(definition));
+    table.set(definition.id, stored);
     return {
         ok: true,
         value: {
             dispose: () => {
-                if (table.get(definition.id) === definition) table.delete(definition.id);
+                if (table.get(definition.id) === stored) table.delete(definition.id);
             },
         },
     };
+}
+
+function copyDefinition<T extends {id: string}>(definition: T): T {
+    const copy: Record<string, unknown> = {...definition};
+    for (const key of ["parents", "sources"]) {
+        if (Array.isArray(copy[key])) copy[key] = [...(copy[key] as unknown[])];
+    }
+    return copy as T;
 }
 
 function asPrepared(value: PreparedProfile): Prepared {

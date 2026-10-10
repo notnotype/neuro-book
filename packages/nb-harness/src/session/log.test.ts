@@ -102,5 +102,7 @@ describe("条目校验（输入与前置条件）", () => {
         expect((await rejection(log, [badStop as unknown as EntryInput])).detail).toContain("stopReason");
         expect((await rejection(log, [{type: "message", message: {role: "toolResult", toolCallId: "c", toolName: "n", content: [], timestamp: 1} as never}])).detail).toContain("isError");
         expect((await log.append([userMessage("好"), assistantMessage([{type: "text", text: "好的"}, {type: "thinking", thinking: "…", thinkingSignature: "sig"}])])).ok).toBe(true);
+        // 同一条助手消息里工具调用 id 重复：按 id 配不开结果，OMP 发请求前会改名并合成假结果，所以在输入边界拒绝。
+        expect((await rejection(log, [assistantMessage([toolCall("call_0", "read"), toolCall("call_0", "read")], {stopReason: "toolUse"})])).detail).toContain("工具调用 id 重复");
     });
 });

@@ -46,6 +46,20 @@ describe("目录与解析（输出 1、2）", () => {
         expect(extra.ok && extra.value).toMatchObject({supportsTools: false, input: ["text"], reasoning: false, contextWindow: null, maxTokens: null});
     });
 
+    test("输出 1、2：OMP 目录里的每一个引用都能 resolve（模型 id 带 /、:、~ 也行）", () => {
+        const catalog = createModelCatalog({config: config({})});
+        const listed = catalog.list();
+        expect(listed.length).toBeGreaterThan(1000);
+        const failed = listed.filter((summary) => !catalog.resolve(summary.ref).ok).map((summary) => summary.ref);
+        expect(failed).toEqual([]);
+        const withSlash = listed.find((summary) => summary.ref.split("/").length > 2)!;
+        const resolved = catalog.resolve(withSlash.ref);
+        expect(resolved.ok && `${resolved.value.provider}/${resolved.value.id}`).toBe(withSlash.ref);
+        const configured = config({providers: [{id: "mine", api: "openai-completions", baseUrl: "http://127.0.0.1:9", models: [{id: "org/model:latest"}]}], models: {defaultModel: "mine/org/model:latest"}});
+        const own = createModelCatalog({config: configured}).select({});
+        expect(own.ok && own.value.model.id).toBe("org/model:latest");
+    });
+
     test("输出 2 的失败码：语法不对、服务不存在、模型不存在", () => {
         const catalog = createModelCatalog({config: config(base())});
         const code = (ref: string): string | null => {
@@ -53,7 +67,9 @@ describe("目录与解析（输出 1、2）", () => {
             return result.ok ? null : result.code;
         };
         expect(code("no-slash")).toBe("invalid-model-ref");
-        expect(code("a/b/c")).toBe("invalid-model-ref");
+        expect(code("a b/c")).toBe("invalid-model-ref");
+        expect(code("a/")).toBe("invalid-model-ref");
+        expect(code("a/b c")).toBe("invalid-model-ref");
         expect(code("nowhere/model")).toBe("unknown-provider");
         expect(code(`${bundledModel.provider}/does-not-exist`)).toBe("unknown-model");
         expect(code("local/qwen")).toBe("unknown-provider");

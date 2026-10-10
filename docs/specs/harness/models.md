@@ -74,7 +74,7 @@ type ModelFailure = "invalid-model-ref" | "unknown-provider" | "unknown-model" |
 5. **凭据存储**：`openCredentials` 打开或创建 SQLite 凭据库，并读入已有凭据；路径打不开、或文件已存在却不是 SQLite 文件（文件头不对）为 `credentials-unavailable`，后一种情况文件不被改动。文件头正确但内部损坏时，OMP 把原文件改名为 `<路径>.corrupt-<时间>-<id>` 备份并新建空库：打开成功、凭据为空，本模块不另行报告，恢复由人工用备份处理。`createCredentials` 接受使用方实现的存储，同样先读入已有凭据；读不出为 `credentials-unavailable`。两者返回的 `Credentials` 行为相同。
 6. **取 key**：`apiKeyFor(model)` 返回该模型服务在凭据存储里的 API key，或 OAuth 令牌换来的访问令牌（只经只看存储的 OAuth 入口，含刷新）；存储里没有该服务的凭据、或 OAuth 凭据已被别的连接删除时返回 `undefined`，即使进程的环境变量里有这个服务的 key。
 7. **写 key**：`setApiKey` 写入后 `apiKeyFor` 立即可取、重开存储后仍在；`removeApiKey` 后为 `undefined`；`status` 反映当前凭据的种类。
-8. **OAuth**：`loginProviders` 列出 OMP 支持登录的服务；`login` 用使用方的 `OAuthController` 完成登录并存下凭据，用户取消（`controller.signal` 中止）为 `login-cancelled`，其它失败为 `login-failed`；`logout` 删除该服务的凭据；`accounts` 列出已登录的账号：每个带 OMP 的 `credentialId` 与是否当前活跃，`accountId` 只在服务方提供时有，`label` 取邮箱、项目或组织名。
+8. **OAuth**：`loginProviders` 列出 OMP 支持登录的服务；`login` 用使用方的 `OAuthController` 完成登录并存下凭据，用户取消（`controller.signal` 中止）为 `login-cancelled`，其它失败为 `login-failed`，`detail` 只给服务、错误类别与状态码，不含错误消息正文（回调的输入、上游响应都可能带着令牌）；`logout` 删除该服务的凭据；`accounts` 列出已登录的账号：每个带 OMP 的 `credentialId` 与是否当前活跃，`accountId` 只在服务方提供时有，`label` 取邮箱、项目或组织名。
 9. **关闭**：`close` 后不再读写存储；再调用 `apiKeyFor` 等方法返回 `undefined` 或空数组，不抛出。
 10. **纯函数式目录**：`createModelCatalog` 只读传入的快照；配置快照被替换时使用方用新快照另建目录。
 

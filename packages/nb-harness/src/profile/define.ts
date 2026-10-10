@@ -18,9 +18,14 @@ export function profileDefinitionProblem(definition: unknown): string | null {
     return null;
 }
 
+/** `defineProfile` 对不合规则的定义抛它：加载器据此把 Profile 文件里的定义错误报成 `invalid-profile`，而不是和语法、依赖错误混成 `module-load-failed`。 */
+export class ProfileDefinitionError extends TypeError {
+    override readonly name = "ProfileDefinitionError";
+}
+
 export function defineProfile(definition: ProfileDefinition): Profile {
     const problem = profileDefinitionProblem(definition);
-    if (problem !== null) throw new TypeError(`Profile 定义不合规则：${problem}`);
+    if (problem !== null) throw new ProfileDefinitionError(`Profile 定义不合规则：${problem}`);
     const fields: Record<string, JsonValue> = Object.freeze({...(definition.fields ?? {})});
     return Object.freeze({...definition, fields, [profileMarker]: true as const});
 }

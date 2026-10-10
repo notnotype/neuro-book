@@ -12,7 +12,6 @@ import type {Credentials, ModelResult} from "./types";
 
 function wrap(storage: AuthStorage): Credentials {
     let closed = false;
-    const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
     return {
         async apiKeyFor(model: Model) {
             if (closed) return undefined;
@@ -53,8 +52,9 @@ function wrap(storage: AuthStorage): Credentials {
                 return {ok: true, value: identity?.accountId === undefined ? {} : {accountId: identity.accountId}};
             } catch (error) {
                 if (controller.signal?.aborted) return {ok: false, code: "login-cancelled", detail: "登录被取消"};
-                // detail 只带错误消息，不带令牌或凭据内容。
-                return {ok: false, code: "login-failed", detail: describe(error)};
+                // 错误消息可能带着使用方回调里的输入或上游响应原文（含令牌），detail 只给错误类别与状态码，不给消息正文。
+                const status = typeof (error as {status?: unknown}).status === "number" ? `，状态 ${String((error as {status: number}).status)}` : "";
+                return {ok: false, code: "login-failed", detail: `登录 ${provider} 失败（${error instanceof Error ? error.name : typeof error}${status}）`};
             }
         },
         async logout(provider) {
