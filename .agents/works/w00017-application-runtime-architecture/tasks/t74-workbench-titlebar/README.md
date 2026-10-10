@@ -107,3 +107,4 @@ omp 审查（报告在 [t73 证据](../t73-lab-nb-ui-and-storage/evidences/desig
   - C6 F10 后标题栏任何子控件的 Escape 都会抢回焦点：待修，只对菜单入口的会话恢复。
   - C7 每次输入全文重算字数（建议）：先用真实长文测基准再决定，记入后续。
   - 审查环境的说明：报告里 `bun run typecheck` 在仓库根没有脚本、Vitest 缺插件，是审查 worktree 的运行方式问题，不是实现问题。
+- 2026-10-10 审查 C2、C3、C6 已修（标题栏的菜单会话：打开前的焦点与是否原生输入框一起记下；原生输入框时撤销、重做禁用并说明；菜单关闭后焦点回到入口那一刻交回打开前的位置；只有菜单入口上的 Escape 还焦点）。验证：`menu-model.test.ts` 新增 1 例、`WorkbenchTitleBar.dom.test.ts` 新增 2 例、变异 4 个全杀、`workbench-titlebar.e2e.ts` 补浮层内 Escape 与挪到搜索按钮后 Escape 两段（5/5 通过）。C4、C5 待修，C7 记入后续。

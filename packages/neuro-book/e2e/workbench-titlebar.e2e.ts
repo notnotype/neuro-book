@@ -111,6 +111,22 @@ test("从“编辑”菜单撤销：点击与 F10 加方向键两条路径都让
     await expect(titlebar(page).getByRole("menuitem", {name: "文件"})).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(prose(page)).toBeFocused();
+
+    // 菜单从浮层里按 Escape 关闭：焦点同样回到打开前的正文，不停在组标题上。
+    await page.keyboard.press("F10");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Enter");
+    await expect(openMenu(page).getByRole("menuitem", {name: "撤销"})).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(openMenu(page)).toHaveCount(0);
+    await expect(prose(page)).toBeFocused();
+
+    // F10 之后把焦点挪到搜索按钮再按 Escape：与会话无关，焦点留在搜索按钮上。
+    await page.keyboard.press("F10");
+    await page.keyboard.press("Tab");
+    await expect(titlebar(page).locator("[data-titlebar-search]")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(titlebar(page).locator("[data-titlebar-search]")).toBeFocused();
 });
 
 test("宽度三档：959/960 与 599/600 两侧、390；任何宽度都有可点的菜单入口，长项目名下关键按钮完整可见", async ({page}) => {

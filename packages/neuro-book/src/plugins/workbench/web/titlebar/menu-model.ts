@@ -93,6 +93,17 @@ export function buildMenus(definitions: ReadonlyArray<MenuGroupDefinition>, sour
     return groups;
 }
 
+/** 原生输入框自己处理的编辑命令：焦点在输入框里时菜单不代替它（外壳四输出 29）。 */
+export const NATIVE_EDIT_COMMANDS: ReadonlySet<string> = new Set(["nbook.edit.undo", "nbook.edit.redo"]);
+
+/** 焦点在原生输入框里时的菜单：撤销、重做画成禁用并给出原因，其余不变。 */
+export function withNativeEditing(groups: ReadonlyArray<MenuGroup>, reason: string): MenuGroup[] {
+    return groups.map((group) => ({
+        ...group,
+        sections: group.sections.map((section) => section.map((entry) => (NATIVE_EDIT_COMMANDS.has(entry.command) ? {...entry, enabled: false, reason} : entry))),
+    }));
+}
+
 const WORKBENCH = "nbook.workbench";
 
 /** 外壳四输出 29 的条目表。 */

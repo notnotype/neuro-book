@@ -68,4 +68,61 @@ describe("WorkbenchTitleBar", () => {
         wrapper.unmount();
         outside.remove();
     });
+
+    it("F10 之后焦点挪到搜索按钮再按 Escape：不还焦点；点了标题栏之外的地方后会话结束，回到入口按 Escape 也不还", async () => {
+        const outside = document.createElement("button");
+        const elsewhere = document.createElement("button");
+        document.body.append(outside, elsewhere);
+        outside.focus();
+        const wrapper = mountBar();
+        window.dispatchEvent(new KeyboardEvent("keydown", {key: "F10", bubbles: true}));
+        await nextTick();
+        const search = wrapper.get("[data-titlebar-search]").element as HTMLElement;
+        search.focus();
+        search.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        await nextTick();
+        await nextTick();
+        expect(document.activeElement).toBe(search);
+
+        window.dispatchEvent(new KeyboardEvent("keydown", {key: "F10", bubbles: true}));
+        await nextTick();
+        elsewhere.focus();
+        (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        const entry = wrapper.get("[data-titlebar-menu-entry]").element.querySelector<HTMLElement>("[role='menuitem']");
+        entry?.focus();
+        entry?.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        await nextTick();
+        await nextTick();
+        expect(document.activeElement).toBe(entry);
+        wrapper.unmount();
+        outside.remove();
+        elsewhere.remove();
+    });
+
+    it("会话开始时焦点在原生输入框：根上带 data-titlebar-native-editing；编辑器区里的 textarea 不算；会话结束后去掉", async () => {
+        const input = document.createElement("input");
+        const area = document.createElement("div");
+        area.setAttribute("data-editor-area", "");
+        const inner = document.createElement("textarea");
+        area.append(inner);
+        document.body.append(input, area);
+        const wrapper = mountBar();
+        input.focus();
+        window.dispatchEvent(new KeyboardEvent("keydown", {key: "F10", bubbles: true}));
+        await nextTick();
+        expect(wrapper.get("[data-workbench-titlebar]").attributes("data-titlebar-native-editing")).toBe("");
+        (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        await nextTick();
+        await nextTick();
+        expect(document.activeElement).toBe(input);
+        expect(wrapper.get("[data-workbench-titlebar]").attributes("data-titlebar-native-editing")).toBeUndefined();
+
+        inner.focus();
+        window.dispatchEvent(new KeyboardEvent("keydown", {key: "F10", bubbles: true}));
+        await nextTick();
+        expect(wrapper.get("[data-workbench-titlebar]").attributes("data-titlebar-native-editing")).toBeUndefined();
+        wrapper.unmount();
+        input.remove();
+        area.remove();
+    });
 });

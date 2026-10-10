@@ -10,7 +10,7 @@ import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import type {ContextValues} from "nbook/plugins/commands/shared/context-keys";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 
-import {buildMenus, TITLEBAR_MENUS} from "./menu-model";
+import {buildMenus, TITLEBAR_MENUS, withNativeEditing} from "./menu-model";
 import type {MenuGroupDefinition, MenuSource} from "./menu-model";
 
 /** 测试命令的 id：注册表要求 `nbook.<已登记的域>.<动作>`，借用 `view` 域。 */
@@ -105,5 +105,21 @@ describe("产品的菜单定义", () => {
         for (const legacy of ["file.open", "file.settings", "edit.cut", "edit.copy", "edit.paste", "edit.select-all", "view.zoom-in", "help.about"]) {
             expect(commandIds.some((id) => id.endsWith(legacy)), legacy).toBe(false);
         }
+    });
+});
+
+describe("Spec ui.workbench-shell 外壳四输出 29：原生输入框", () => {
+    it("焦点在原生输入框里时撤销、重做禁用并带原因，其余条目与分组不变", () => {
+        const groups = [
+            {id: "edit", label: "编辑", sections: [[
+                {id: "nbook.edit.undo", command: "nbook.edit.undo", args: {}, label: "撤销", enabled: true, reason: null, shortcut: "Ctrl+Z", checked: null},
+                {id: "nbook.edit.redo", command: "nbook.edit.redo", args: {}, label: "重做", enabled: false, reason: "没有活动的编辑器", shortcut: null, checked: null},
+            ]]},
+            {id: "view", label: "视图", sections: [[{id: "nbook.view.x", command: "nbook.view.x", args: {}, label: "侧栏", enabled: true, reason: null, shortcut: null, checked: true}]]},
+        ];
+        const result = withNativeEditing(groups, "焦点在输入框里时由它自己撤销");
+        expect(result[0]?.sections[0]?.map((entry) => [entry.enabled, entry.reason, entry.shortcut])).toEqual([[false, "焦点在输入框里时由它自己撤销", "Ctrl+Z"], [false, "焦点在输入框里时由它自己撤销", null]]);
+        expect(result[1]).toEqual(groups[1]);
+        expect(groups[0]?.sections[0]?.[0]?.enabled).toBe(true);
     });
 });

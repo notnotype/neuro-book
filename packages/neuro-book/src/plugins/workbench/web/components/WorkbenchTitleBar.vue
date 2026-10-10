@@ -3,12 +3,13 @@
 import {Button, Dropdown, IconButton, Menubar} from "@notnotype/nb-ui/components";
 import type {DropdownItem, MenubarItemData, MenubarMenuData} from "@notnotype/nb-ui/components";
 import {useElementSize} from "@vueuse/core";
-import {computed, nextTick, onBeforeUnmount, onMounted, ref} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
 import type {StripEntry} from "../items/registry";
+import {withNativeEditing} from "../titlebar/menu-model";
 import type {MenuEntry, MenuGroup} from "../titlebar/menu-model";
 import WorkbenchItemStrip from "./WorkbenchItemStrip.vue";
 
@@ -43,6 +44,7 @@ const TEXT = {
     sidebar: {"zh-CN": "切换侧栏", "en-US": "Toggle Sidebar"},
     panel: {"zh-CN": "切换面板", "en-US": "Toggle Panel"},
     auxiliarybar: {"zh-CN": "切换右栏", "en-US": "Toggle Auxiliary Bar"},
+    nativeEditing: {"zh-CN": "焦点在输入框里时由它自己撤销", "en-US": "The focused input handles undo itself"},
 } satisfies Record<string, LocalizedText>;
 
 /** 宽度三档的边界（外壳四输出 30）：按四组菜单、居中搜索与项目名的实际宽度估算。 */
@@ -64,7 +66,10 @@ const mode = computed<"full" | "compact" | "minimal">(() => {
     return width.value >= COMPACT_WIDTH ? "compact" : "minimal";
 });
 
-const entries = computed(() => new Map(props.menus.flatMap((group) => group.sections.flat().map((entry) => [entry.id, entry] as const))));
+/** 菜单打开前焦点在原生输入框里：撤销、重做不代替它（外壳四输出 29）。 */
+const nativeEditing = ref(false);
+const menus = computed(() => (nativeEditing.value ? withNativeEditing(props.menus, text(TEXT.nativeEditing)) : props.menus));
+const entries = computed(() => new Map(menus.value.flatMap((group) => group.sections.flat().map((entry) => [entry.id, entry] as const))));
 
 function itemOf(entry: MenuEntry): MenubarItemData {
     return {
@@ -93,13 +98,13 @@ function sectioned<T>(sections: ReadonlyArray<ReadonlyArray<MenuEntry>>, map: (e
     return sections.flatMap((section, index) => [...(index === 0 ? [] : [separator(index)]), ...section.map(map)]);
 }
 
-const menubar = computed<MenubarMenuData[]>(() => props.menus.map((group) => ({
+const menubar = computed<MenubarMenuData[]>(() => menus.value.map((group) => ({
     id: group.id,
     label: group.label,
     items: sectioned(group.sections, itemOf, (index) => ({label: "", value: `${group.id}-sep-${String(index)}`, separator: true})),
 })));
 
-const compactItems = computed<DropdownItem[]>(() => props.menus.flatMap((group, groupIndex) => [
+const compactItems = computed<DropdownItem[]>(() => menus.value.flatMap((group, groupIndex) => [
     ...(groupIndex === 0 ? [] : [{label: "", value: `sep-${group.id}`, separator: true}]),
     {label: group.label, value: `${GROUP_PREFIX}${group.id}`, disabled: true},
     ...sectioned(group.sections, dropdownItemOf, (index) => ({label: "", value: `${group.id}-sep-${String(index)}`, separator: true})),
@@ -117,23 +122,94 @@ function select(value: string): void {
 }
 
 /**
- * Alt 单独按下再松开，或 F10：聚焦菜单入口并记下之前的焦点。Alt 与别的键一起按（Alt+方向键这类组合）不算。
- * 焦点在菜单入口、菜单都关着时按 Escape，把焦点还回去。
+ * 菜单会话（外壳四输出 29、31）：从 F10/Alt 聚焦菜单入口或任一菜单打开起，到菜单关闭、焦点交还为止。记下打开前标题栏之外
+ * 的焦点与它是不是原生输入框：输入框自己处理撤销、重做，菜单里的这两项禁用；菜单关闭后焦点落回入口（Escape、选中一项）时
+ * 还给打开前的位置，用户点了别处则不还。Alt 单独按下再松开，或 F10，开始一次会话；Alt 与别的键一起按（Alt+方向键这类组合）不算。
  */
+interface MenuSession {
+    readonly from: HTMLElement | null;
+}
 let altAlone = false;
-let returnFocus: HTMLElement | null = null;
+let session: MenuSession | null = null;
+/** 最近一次落在标题栏（与菜单浮层）之外的焦点：菜单用指针点开时，打开前的焦点已经不在 activeElement 上了。 */
+let lastOutsideFocus: HTMLElement | null = null;
+const menubarOpen = ref("");
+const dropdownOpen = ref(false);
+const menuOpen = computed(() => menubarOpen.value !== "" || dropdownOpen.value);
+
+const TEXT_INPUT_TYPES = new Set(["text", "search", "url", "tel", "email", "password", "number", "date", "datetime-local", "month", "week", "time"]);
+
+/** 原生输入框：`input`、`textarea`，编辑器区里的除外（源码编辑器用隐藏的 textarea 收输入，它的撤销归编辑器命令）。 */
+function isNativeEditable(element: HTMLElement | null): boolean {
+    if (element === null || element.closest("[data-editor-area]") !== null) return false;
+    if (element instanceof HTMLInputElement) return TEXT_INPUT_TYPES.has(element.type);
+    return element instanceof HTMLTextAreaElement;
+}
 
 function menuEntry(): HTMLElement | null {
     return root.value?.querySelector<HTMLElement>("[data-titlebar-menu-entry] [role='menuitem'], [data-titlebar-menu-entry][role='menuitem'], button[data-titlebar-menu-entry]") ?? null;
+}
+
+function beginSession(): void {
+    if (session !== null) return;
+    const from = lastOutsideFocus !== null && lastOutsideFocus.isConnected ? lastOutsideFocus : null;
+    session = {from};
+    nativeEditing.value = isNativeEditable(from);
+}
+
+function endSession(restore: boolean): void {
+    const ended = session;
+    session = null;
+    nativeEditing.value = false;
+    if (restore && ended !== null && ended.from !== null && ended.from.isConnected) ended.from.focus();
 }
 
 function focusMenu(): void {
     const target = menuEntry();
     if (target === null) return;
     const active = document.activeElement;
-    returnFocus = active instanceof HTMLElement && !root.value?.contains(active) ? active : returnFocus;
+    if (active instanceof HTMLElement && !root.value?.contains(active)) lastOutsideFocus = active;
+    beginSession();
     target.focus();
 }
+
+/** 菜单刚关闭、还在等 nb-ui 把焦点还到入口（浮层退场后才还）：焦点一到入口就交回打开前的位置。 */
+let restoreOnEntryFocus = false;
+
+function finishClose(): void {
+    if (!restoreOnEntryFocus) return;
+    restoreOnEntryFocus = false;
+    endSession(true);
+}
+
+/** 焦点去了标题栏与菜单浮层之外（用户点了别处）：记下位置；菜单关着时会话随之结束，不再还焦点。 */
+function onFocusIn(event: FocusEvent): void {
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || target.closest("[role='menu']") !== null) return;
+    if (root.value?.contains(target) === true) {
+        if (target.closest("[data-titlebar-menu-entry]") !== null) finishClose();
+        return;
+    }
+    lastOutsideFocus = target;
+    restoreOnEntryFocus = false;
+    if (session !== null && !menuOpen.value) endSession(false);
+}
+
+// 菜单打开即开始会话；关闭后焦点落回入口（Escape、选中一项）就还给打开前的位置，点了别处则不还。
+watch(menuOpen, (open) => {
+    if (open) {
+        restoreOnEntryFocus = false;
+        beginSession();
+        return;
+    }
+    if (session === null) return;
+    restoreOnEntryFocus = true;
+    // 没有退场动画时焦点此刻已经在入口上；有的话等 focusin。
+    void nextTick(() => {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && root.value?.contains(active) === true) finishClose();
+    });
+});
 
 function onKeydown(event: KeyboardEvent): void {
     if (event.key === "Alt") {
@@ -155,31 +231,31 @@ function onKeyup(event: KeyboardEvent): void {
 }
 
 function onRootKeydown(event: KeyboardEvent): void {
-    if (event.key !== "Escape" || returnFocus === null) return;
-    const target = event.target as HTMLElement | null;
-    // 菜单开着时 Escape 归菜单（关闭并把焦点还给组标题）；关着、焦点在入口上时才还给之前的位置。
-    if (target === null || target.getAttribute("aria-expanded") === "true" || document.querySelector("[role='menu'][data-state='open']") !== null) return;
-    const back = returnFocus;
-    returnFocus = null;
-    void nextTick(() => back.focus());
+    if (event.key !== "Escape" || session === null || menuOpen.value) return;
+    const target = event.target;
+    // 只有菜单入口上的 Escape 还焦点：焦点挪到搜索、布局按钮等别的控件后按 Escape，与会话无关。菜单开着时 Escape 归菜单。
+    if (!(target instanceof HTMLElement) || target.closest("[data-titlebar-menu-entry]") === null || target.getAttribute("aria-expanded") === "true") return;
+    void nextTick(() => endSession(true));
 }
 
 onMounted(() => {
     window.addEventListener("keydown", onKeydown, true);
     window.addEventListener("keyup", onKeyup, true);
+    document.addEventListener("focusin", onFocusIn, true);
 });
 onBeforeUnmount(() => {
     window.removeEventListener("keydown", onKeydown, true);
     window.removeEventListener("keyup", onKeyup, true);
+    document.removeEventListener("focusin", onFocusIn, true);
 });
 </script>
 
 <template>
-    <header ref="root" class="workbench-titlebar" :class="`workbench-titlebar--${mode}`" :aria-label="text(TEXT.label)" data-workbench-titlebar :data-titlebar-mode="mode" @keydown="onRootKeydown">
+    <header ref="root" class="workbench-titlebar" :class="`workbench-titlebar--${mode}`" :aria-label="text(TEXT.label)" data-workbench-titlebar :data-titlebar-mode="mode" :data-titlebar-native-editing="nativeEditing ? '' : undefined" @keydown="onRootKeydown">
         <div class="workbench-titlebar__start">
             <span v-if="mode !== 'minimal'" class="workbench-titlebar__brand">NeuroBook</span>
-            <Menubar v-if="mode === 'full'" :menus="menubar" size="sm" variant="flat" data-titlebar-menu-entry @select="(item) => select(item.value)" />
-            <Dropdown v-else :items="compactItems" align="start" @select="select">
+            <Menubar v-if="mode === 'full'" v-model="menubarOpen" :menus="menubar" size="sm" variant="flat" data-titlebar-menu-entry @select="(item) => select(item.value)" />
+            <Dropdown v-else :items="compactItems" align="start" @select="select" @update:open="(open: boolean) => { dropdownOpen = open; }">
                 <Button variant="ghost" size="sm" class="workbench-titlebar__button" data-titlebar-menu-entry>
                     <span class="i-lucide-menu h-4 w-4" aria-hidden="true"></span>
                     <span v-if="mode === 'compact'">{{ text(TEXT.menu) }}</span>
