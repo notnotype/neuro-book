@@ -83,12 +83,12 @@
 
 | `harness.session` | 测试 |
 |---|---|
-| 输出 1–4、9–11、19；场景 1、2、5、12、13 | `src/session/log.test.ts`（内存与 JSONL 各一遍，场景 7） |
-| 输出 5–8、17、18；场景 3、4、7、11 | `src/session/jsonl/jsonl.test.ts` |
-| 输出 12；场景 9、10、14 | `src/session/replay.test.ts` |
-| 输出 13、14、15、16；场景 6、8 | `src/session/recovery.test.ts`（场景 6 的末段用真实 OMP `Agent` 加自定义 `streamFn` 捕获发往模型的上下文，不联网） |
+| 输出 1–4、9–11、17、19；场景 1、2、12、13 | `src/session/testing/store-scenarios.ts`（两种存储各跑一遍，场景 7），由 `log.test.ts` 与 `jsonl.test.ts` 调用 |
+| 条目校验规则（输入与前置条件） | `src/session/log.test.ts` |
+| 输出 5–8、17、18；场景 3、4、5、11 | `src/session/jsonl/jsonl.test.ts` |
+| 输出 12–16；场景 1 的回放部分、6、8、9、10、14 | `src/session/replay.test.ts`（场景 6 在两种存储上跑，末段用真实 OMP `Agent` 加自定义 `streamFn` 捕获发往模型的上下文，不联网；辅助在 `testing/agent-capture.ts`） |
 | 输出 20–22；场景 15、16 | `src/session/paging.test.ts` |
-| 输出 23；场景 14 的 OMP 部分 | `src/session/omp-compat.test.ts`（真实 `prepareCompaction`，`remoteEnabled: false`） |
+| 输出 23；场景 14 的 OMP 部分 | `src/session/omp-compat.test.ts`（真实 `prepareCompaction`，`remoteEnabled: false`；另记录 Agent 缺省 `convertToLlm` 丢 developer 消息） |
 | 失败码表 | 各测试按失败码断言；每个失败码至少一处 |
 
 ## 验证
