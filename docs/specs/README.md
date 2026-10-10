@@ -170,6 +170,11 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则 |
 | 公开状态 | [`state/public-state.md`](state/public-state.md) | 公开键的声明与校验、激活时绑定与停止时撤回、本实例内的同步读取与未就绪、响应式失效 |
 | 插件状态 store | [`state/store.md`](state/store.md) | `defineStore` 的 setup 写法、只读视图与 action、持久化字段的已确认值与显示、保存队列、停止时的结算 |
+| Harness 会话日志 | [`harness/session-log.md`](harness/session-log.md) | `harness.session-log`；`nb-session` 的 append-only 日志、JSONL 格式、重启续写与中断尾修复；未接入产品；现状记录，内核重新设计中（w00002 t08） |
+| Harness Profile DSL | [`harness/profile-dsl.md`](harness/profile-dsl.md) | `harness.profile-dsl`；`nb-profile` 的节点、渲染与加载；与产品 Profile SDK 不兼容；现状记录，内核重新设计中（w00002 t08） |
+| Harness 装配与对话轮次 | [`harness/agent-turn.md`](harness/agent-turn.md) | `harness.agent-turn`；`nb-harness` 基于 OMP 的装配、轮次、日志落盘、插件与模型解析；含已知缺口清单，未接入产品；现状记录，内核重新设计中（w00002 t08） |
+| Harness 内置文件工具 | [`harness/file-tools.md`](harness/file-tools.md) | `harness.file-tools`；`read` 与 hashline `edit`；访问范围不受 `cwd` 限制，仅适合受信本机使用；现状记录，内核重新设计中（w00002 t08） |
+| Harness SSE | [`harness/sse.md`](harness/sse.md) | `harness.sse`；SSE 帧序列化与背压写出；现状记录，内核重新设计中（w00002 t08） |
 
 ## 待实现规范
 

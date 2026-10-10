@@ -6,6 +6,7 @@
 
 ## 开工前
 
+- 行为真相源是 [`docs/specs/harness/`](../../docs/specs/harness/) 下的 `agent-turn`、`file-tools`、`sse` 三份 Spec（依赖的 `session-log`、`profile-dsl` 也在同目录）；改变可观察行为时先改 Spec，再同步 [`docs/api.md`](docs/api.md)、[`README.md`](README.md) 与示例。
 - 读 [`docs/omp-capabilities.md`](docs/omp-capabilities.md)：OMP 包族的能力面、最小调用样例、`omp://` 文档入口与陷阱（裸 TS 入口、import 期 env 副作用、原生包体积、编辑语义）。
 - 改公共接口前先确认调用方：`packages/nb-harness/src/index.ts` 的导出面就是本包的合同。
 - 依赖版本**精确锁定**（OMP 日更）；升级要一次改完所有 `@oh-my-pi/*`，并同步更新 `docs/omp-capabilities.md` 的版本表与测试。
@@ -26,4 +27,5 @@ bun test
 ```
 
 - 涉及内核装配或工具的改动，必须跑 `tests/harness.e2e.test.ts`（脚本化流，不调用模型），并用 `bun run test:llm` 跑 `tests/harness.llm.test.ts` 的两条真实模型测试（缺凭据时跳过，记为未验证）。
+- `tests/examples.test.ts` 以子进程运行离线示例，示例输出变化时同步更新断言。
 - 触及包级资产（`docs/`、本文件）时，另跑仓库门禁：`bun run governance:check` 与 `bun run docs:check`。
