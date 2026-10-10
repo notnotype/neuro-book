@@ -1,0 +1,260 @@
+# w00002 t09 设计审查报告
+
+审查对象：`docs/specs/harness/session.md`、`docs/proposals/agent-harness-kernel.md` 的会话与模块划分部分、`packages/nb-harness/` 指定底座文件及旧原型。
+
+审查方式：只读；按 Spec、提案、OMP 源码、包代码与允许的快速验证核实。未运行 e2e、开发服务或真实模型测试。
+
+## 已核实问题
+
+### 1. 阻断｜正确性
+
+**位置**：`docs/specs/harness/session.md:126-130`（输出 12）、`:156-160`（时序与寿命）；`docs/proposals/agent-harness-kernel.md:178-191,219-224`。
+
+**现象**：输出 12 要在模型上下文中保留“有未应答审批”的工具调用，但没有保证上下文中的每个工具调用都已经有结果；输出 16 的验收场景还明确构造“同一助手消息三个调用、一个已有结果、一个待审批、一个无结果”。这不能直接交给 OMP `Agent.replaceMessages()` 后 `continue()`。
+
+当一批调用中已有一个结果而另一个审批仍未应答时，最后一条消息是 `toolResult`。OMP `Agent.continue()` 因此进入普通继续路径，不进入只处理助手尾部未配对调用的分支；实际 Agent 会把未配对的助手消息交给下一次模型调用。OMP 的 provider 变换随后会为缺失结果的调用合成 `toolResult`，文本是 `No result provided`，而不是等待审批。若上下文最后仍是助手消息，OMP 则会把整批未配对调用重新执行；这也不是“只恢复未应答审批”的合同。
+
+**为什么是问题**：模型服务收到一个没有真实结果的工具调用，或收到错误的合成结果；待审批调用可能在用户应答前被当成已中断/已完成。直接使用 OMP Agent 的已定方案无法同时满足“保留待审批调用”和“审批恢复”。`Agent.continue()` 还要求末尾是 `user`/`toolResult`，干净地以 assistant 结束的历史不能直接继续。
+
+**如何核实**：
+
+- 真实 OMP Agent 实验（公开 `Agent`、`replaceMessages`、`continue`，脚本位于审查指定 lab 目录）输出：`observed` 仍含 assistant 的 `c1,c2`，只含 `c1` 的 tool result；Agent 没有替换成安全的已配对上下文。
+- `bun -e` 调用实际 OMP `transformMessages`，输入 assistant 的 `c1,c2` 加 `c1` 的结果，输出额外的 `c2` 结果，内容为 `No result provided`。
+- OMP 源码：`node_modules/@oh-my-pi/pi-agent-core/src/agent.ts:1393-1420`；`node_modules/@oh-my-pi/pi-ai/src/providers/transform-messages.ts:1060-1095,1261-1262`；OMP 自己的会话回放在 `/home/notnotype/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/src/session/session-context.ts:641-702` 反而会从模型上下文去掉所有未配对调用，只有 transcript 模式才有 `keepDanglingToolCalls`。
+
+**建议改法**：先确定恢复边界，不要把“待审批的未配对工具调用”作为普通 `Agent` 模型上下文直接继续。较安全的合同是：模型上下文只交给 Agent 已配对的消息；待审批调用及其 request/response 留在 session 投影中，由 runtime 在 `resolve` 后按实际结果补入，再调用 `continue()`。若必须让 Agent 持有待审批调用，需在 session Spec 中明确定义并实现一套不触发 OMP synthetic result/重执行的 continuation 适配，而不能只依赖 `replaceMessages`。验收场景 6 必须真实启动 Agent，检查 provider-bound messages 和审批应答前没有工具执行/合成结果。
+
+### 2. 重要｜正确性
+
+**位置**：`docs/specs/harness/session.md:43-55`（工具调用形状）、`:126-136`（输出 12、16）。
+
+**现象**：Spec 用 `toolCallId`/工具调用块的 id 判断“有对应工具结果”和“无结果”，但没有规定工具调用 id 在会话内唯一，也没有规定重复 id 时按哪一个 assistant turn、哪一个出现次序配对。OMP 的工具调用 id 可以在历史中重复；OMP 的实际变换会按出现次序重写重复 id 并按 assistant→tool-result 窗口配对。
+
+**为什么是问题**：按全局 id 集合实现会把前一轮的结果错误地配给后一轮同 id 的调用，或者把后一轮结果配给前一轮；`planRecovery` 也可能把已完成调用当成未完成或反过来。这样 `buildModelContext`、`planRecovery` 与 OMP 实际发送的上下文会得出不同结果。Spec 既没有选择“禁止重复 id”，也没有给出 OMP 的按窗口/出现次序规则，runtime 无法照字面实现一致的恢复。
+
+**如何核实**：
+
+- `bun -e` 调用实际 OMP `transformMessages`，输入两轮都使用 id `same`，第一轮有结果、第二轮无结果，输出把第二轮改成 `same_dup1` 并合成它自己的 `No result provided`；这证明 OMP 不把 id 当作全局唯一键。
+- OMP 源码 `node_modules/@oh-my-pi/pi-ai/src/providers/transform-messages.ts:153-247,1018-1095` 记录重复 id 的重写和按结果位置的消费逻辑。
+
+**建议改法**：二选一并写进输入校验与失败码：会话内禁止重复工具调用 id；或定义一个调用 occurrence（assistant 条目 id 加块位置/同一工具结果窗口），所有回放、交互和恢复按 occurrence 配对，并把该规则纳入真实 OMP continuation 测试。不能只写“对应”。
+
+### 3. 重要｜正确性
+
+**位置**：`docs/specs/harness/session.md:130`（输出 13）、`:133-136`（输出 16）。
+
+**现象**：`sessionStatus` 只看最后一个 `invocation` 的最后阶段；`planRecovery` 只在最后阶段为 `start` 或 `resumed` 时追加 `interrupted`。因此以下完整条目序列会卡死：`invocation start` → 带工具调用的 assistant message → `invocation waiting` → approval request → approval response(decision=approve)；此时没有 tool result。
+
+按输出 13，状态是 `waiting`，但 `pending` 已为空；按输出 16，工具调用会得到一条中断结果，却不会得到 `invocation interrupted`。追加返回条目后，最后 invocation 仍是 `waiting`，状态仍然是 `waiting`，没有任何未应答事项可以让 runtime `resolve`，也没有合同规定如何转为 running/idle。`invocation waiting` 后进程在写入 interaction request 前崩溃时更直接：没有 pending interaction，且输出 16 也不处理 `waiting`，会永久显示等待。
+
+**为什么是问题**：审批已经有答复但执行结果尚未落盘是开发者明确要求恢复的路径；“审批恢复”不能把已答复调用留在 WaitingUser。`sessionStatus` 与 `planRecovery` 不能共同产生可继续的状态。对 `reject` 也不能套用“结果未知”：提案 `docs/proposals/agent-harness-kernel.md:278-293` 要求拒绝写拒绝结果，批准后执行失败/中断才是未知结果。
+
+**如何核实**：
+
+- `bun -e` 按上述条目序列直接执行 Spec 13、16 的判定，输出：`{"sessionStatus":{"phase":"waiting","pending":0},"planRecovery":{"toolResult":true,"interrupted":false}`。
+- 逐条对照提案 `:289-295` 的审批恢复规则与 Spec `:130,133-136`，二者对 `waiting`、已批准未结果和已拒绝未结果没有同一转换。
+
+**建议改法**：恢复必须按“未应答 interaction / 已批准 / 已拒绝 / 已完成或终止的 invocation”分类；已批准但无结果要在补结果后写 `resumed` 或 `interrupted` 的明确生命周期，已拒绝要写拒绝结果并关闭调用；`waiting` 没有未应答事项时必须有 fail-closed 的收口规则。把这些状态作为验收场景，而不是只测 `start` 和一个待审批调用。
+
+### 4. 重要｜正确性
+
+**位置**：`docs/specs/harness/session.md:133-136`（输出 16）；`docs/proposals/agent-harness-kernel.md:189-191,221-224`。
+
+**现象**：`planRecovery` 无条件寻找“最后一条助手消息”，没有要求它位于当前日志叶子、属于仍未结束的 invocation，或没有被后续用户消息/终态错误覆盖。有效历史可以是：旧 invocation 的 assistant 工具调用未配结果 → `invocation error` 或 `aborted` → 新的 user message。此时最后一条助手消息仍满足输出 16 的文字条件，函数会在新用户消息之后追加一个旧调用的“结果未知”。
+
+**为什么是问题**：这会把已经结束、且 OMP 模型上下文规则会删除的失败助手消息重新制造成 tool result；结果位于新的 user turn 之后，既不能与原 assistant 配对，也可能被 OMP 作为 orphan result 丢弃或转成 stale-tool-result 用户注释。恢复函数因此会重复收口历史调用，污染新调用的上下文。Spec 还把“最后一个 invocation”和“最后一个 assistant message”分别取最后值，没有规定二者必须属于同一调用。
+
+**如何核实**：用条目序列 `invocation start`、带 tool call 且 `stopReason: "error"` 的 assistant、`invocation error`、新的 user message 逐条套用输出 16：第一步仍返回该 tool call 的 toolResult；再套用输出 12，错误 assistant 与其结果应被同时移除。提案 `:222-224` 也说明 OMP 会把 error/aborted assistant 当终止消息处理，而不是等待新恢复结果。
+
+**建议改法**：恢复只针对当前叶子上的未结束 invocation，并要求 assistant/tool-call/result/interaction 属于同一调用 occurrence；已写入 `error`、`aborted`、`end` 或已有后续 user turn 的调用不再生成恢复结果。将“旧失败后继续新 prompt”和“崩溃停在工具批次中”分别列为组合验收场景。
+
+### 5. 重要｜正确性
+
+**位置**：`docs/specs/harness/session.md:126-129`（输出 12）；`docs/proposals/agent-harness-kernel.md:178-185,221-224`。
+
+**现象**：输出 12 只描述删除工具调用/工具结果/错误助手消息，没有描述 OMP 回放在修改助手消息后必须处理的 thinking 签名、`redactedThinking`、模型切换和 provider-specific 内容。典型路径是一个带签名 thinking block 和两个 tool call 的 assistant 消息，其中一个调用无结果；Spec 删除该 tool-call 但留下原 thinking block，再把结果交给 `Agent.replaceMessages`。OMP 自己的 `buildSessionContext` 在删除 dangling tool call 时会同时清掉 `redactedThinking`、清空 thinking signature；Spec 没有这条规则。
+
+**为什么是问题**：对 Anthropic 等签名约束 provider，修改过的 assistant 消息可能被拒绝为无效签名或“latest assistant thinking blocks cannot be modified”。同样，`model_change` 允许历史跨模型，而 OMP 需要按目标模型处理 thinking、工具 id 与 provider 原生块；简单“取原消息”不是可直接交给 Agent 的 provider-safe 上下文。另一个已确认的差异是：Spec 输出 12.3 直接丢弃 orphan `toolResult`，而 OMP provider 变换在无 pending window 时会把其文本包成低优先级的 stale-tool-result user note；二者不是同一合同。
+
+**如何核实**：对照 OMP `/home/notnotype/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/src/session/session-context.ts:641-702` 的 dangling-call 与 thinking 清理逻辑，以及 `node_modules/@oh-my-pi/pi-ai/src/providers/transform-messages.ts:684-855,1188-1243` 的 provider 变换。用真实 OMP Agent 的 `replaceMessages`/`continue` 只能验证它接收了未清理消息；不能证明各 provider 都接受被 Spec 改写的签名消息，故当前验收并未覆盖这一边界。
+
+**建议改法**：把“可交给 OMP Agent 的模型上下文”定义为 provider-safe 的黑盒结果，至少规定修改消息时的签名/原生块处理、模型切换、工具 id 归一化和 orphan 结果策略；或者明确 `buildModelContext` 只返回逻辑 transcript，runtime 还必须经过一个公开的 OMP 适配步骤，不能把返回值直接 `replaceMessages`。针对 Anthropic、OpenAI Responses 与至少一个 OpenAI-compatible provider 各有结构化回放测试。
+
+### 6. 重要｜不变量／文档
+
+**位置**：`docs/proposals/agent-harness-kernel.md:156-193`；`docs/specs/harness/session.md:115-138,162-167`。
+
+**现象**：提案会话节仍写“`SessionStore` 追加（一批条目原子写入）”，并说“沿用现有 `nb-session` 的中断尾检测与显式修复”；当前 planned Spec 和开发者已确认的规则 3 则明确允许 JSONL 一批只落盘前几条、不保证批次原子性。提案同一节还写“读到旧版本时在内存中迁移、写入新条目前不改写旧文件”，而 Spec 输出 8 明确规定任何非 1 版本返回 `unsupported-version`，不读回迁移。
+
+**为什么是问题**：同一能力同时存在“批次原子”与“批次可部分落盘”、“旧版本可读迁移”与“非 1 拒绝”两套合同。runtime 按提案等待整批持久化时，会错误地假设失败后文件没有前缀；storage 实现按提案迁移旧版本时，又会违反 Spec 的 fail-closed 版本行为。提案虽然当前是 draft，但 Spec 的批准依据仍链接它的会话节，不能把相互冲突的文字留给后续切片自行选择。
+
+**如何核实**：逐条对照提案 `:187,193` 与 Spec 输出 6、8、18；再对照待确认项 3 的已确认规则。当前 `packages/nb-harness/src/session/session.ts` 只有空导出，尚无实现替这两种解释收口。
+
+**建议改法**：在提案会话节中明确覆盖为当前决定：追加调用不保证批次原子性，重开按已落盘完整行恢复；v1 只接受 version 1，旧版本迁移另立决定或明确不支持。把“中断尾”定义为格式判定而不是崩溃原因：完整 JSON 但无终止换行也属于待 repair 丢弃的尾部，完整换行但内容无效才是 `corrupt-session`。
+
+### 7. 重要｜不变量／正确性
+
+**位置**：`docs/specs/harness/session.md:116-125,140-160,169-182`（输出 6、10、11、状态与失败表）。
+
+**现象**：写入失败后的状态与可恢复路径不闭合。输出 10 把句柄置为 broken，后续 `append` 为 `log-broken`、订阅以 `broken` 结束；但 `openSession` 可能成功返回一个带 `damagedTail` 的新句柄，而这个新句柄的 `append` 又必须先 `repair`。`store-failed` 的调用方建议只写“重新打开会话”，没有写“如果重开得到 damagedTail，必须 repair 后才能追加”。状态表也没有 broken 句柄调用 `repair` 的结果/转换，失败表同时说“其它操作可重试”，与 broken 的终态措辞冲突。
+
+在确认了“批次可部分落盘”之后，这不是理论上的旁枝：一次 I/O 失败可能已落盘前几条完整行，也可能留下不带换行的尾。当前句柄的 `entries` 按合同不包含失败批次，而重新打开的句柄会看到实际前缀和 `damagedTail`；runtime 需要丢弃 Agent/订阅句柄、重建投影、repair，再决定是否继续，Spec 没有给出这个收口时序。
+
+**为什么是问题**：后续 `runtime` 照失败表实现会在重开后直接 append，必然得到 `damaged-tail`；若直接对原句柄 retry，则必然得到 `log-broken`。两条恢复路径都会违反调用方以为的“重新打开即可”，并且订阅是否重新建立、旧序号如何续传没有合同。
+
+**如何核实**：逐条套用输出 10、输出 6 和失败码 `store-failed`/`damaged-tail`/`log-broken`；用 JSONL 写入失败后只保留一条完整前缀再加半行的文件状态模拟：`openSession` 可返回前缀加 `damagedTail`，下一次 `append` 不能成功，只有 `repair` 后才可继续。`packages/nb-harness/src/session/session.ts` 当前没有实现可掩盖这一状态缺口。
+
+**建议改法**：明确 broken 句柄只能 `close`，恢复唯一入口是 `openSession`；为重开后的 `damagedTail` 明确要求 `repair`，并定义 `repair` 成功后的句柄/订阅/序号状态。把“失败后文件无前缀、完整前缀、半行尾、整批已落盘但返回失败”各列成验收场景，且让 runtime 的恢复合同链接这些状态。
+
+### 8. 重要｜不变量／测试
+
+**位置**：`docs/specs/harness/session.md:81-86,123-125,154-160`（`subscribe` 与时序）；`packages/nb-harness/src/architecture.test.ts:127-151`（当前测试没有订阅覆盖）。
+
+**现象**：订阅合同只定义了“已有订阅”在 `close`/`broken` 时收到一次 `onEnd`，没有定义终止后新建订阅的行为；因此调用方在句柄已关闭或已损坏后仍可 `subscribe`，得到历史补发却永远收不到结束通知。回放补发阶段 listener 抛异常时也没有定义：`subscribe` 是同步返回句柄，异常发生后句柄是否登记、后续事件是否继续、该异常是否只隔离当前 listener 都不确定。listener 在通知期间调用 `release`、`close` 或再次 `append` 时，回调顺序和“每个条目只推一次”的边界同样未定义。
+
+`afterSeq` 只使用内存数组位置，没有持久化序号字段；这在单写者、按完整 JSONL 行重开时可以成立，但在部分批次失败后，旧订阅已经收到前缀、句柄被 broken、重开并 repair 的续传顺序没有合同说明。尤其不能让调用方把 listener 抛异常后的“最后收到 seq”当作“已处理 seq”。
+
+**为什么是问题**：断线/重开订阅是提案明确要给界面续传的能力。缺少终止后订阅和回调异常的规则会产生永久悬挂的订阅、重复补发或无法判断是否漏事件；`onEnd` 的一次性与 release 不通知也无法覆盖这些时序。
+
+**如何核实**：按以下顺序逐条套用输出 9、11 和时序条款：`close()` → `subscribe(listener, {afterSeq: 0})`；`subscribe` 补发第一条时 listener 抛错；listener 在收到第一个条目时 `close()`；写入失败结束订阅后用旧 `afterSeq` 在新句柄上订阅。当前 Spec 对每个顺序都没有可判定结果；允许的 `bun test` 也只有架构测试，尚无 session 实现/合同测试。
+
+**建议改法**：规定已终止句柄上的 `subscribe` 是立即 `onEnd(reason)`、返回已结束 handle，还是返回结构化失败；规定补发与实时注册的原子边界、listener 异常隔离和重入顺序，并保持每个订阅独立的已投递序号。把“事件先于订阅返回”“建立前结束”“listener 抛错”“终止后订阅”“afterSeq 续传”加入真实内存/JSONL 两套合同测试。
+ 
+### 9. 重要｜测试／不变量
+
+**位置**：`packages/nb-harness/src/architecture.test.ts:47-64,96-124`；`packages/nb-harness/src/architecture.test.ts:50-55,127-151`。
+
+**现象**：边界测试只扫描正则能识别的 `import`/`export` 与字面量 dynamic `import()`。它识别不了字面量 `require("@notnotype/nb-harness/session")`、`import = require(...)`、`createRequire()`，也识别不了变量形式的动态加载；这些写法可以绕过模块依赖、禁止包和旧原型隔离检查。带注释的 import 以及同一行中的第二条静态 import 也可能漏掉。`moduleOf` 对没有 `/` 的 `src` 根级文件返回 null，根级辅助文件可以成为未受模块表约束的绕行点。
+
+**为什么是问题**：边界测试的注释和包规则把它当作模块隔离的门禁，但当前门禁会漏放行真实的跨包依赖。尤其旧原型的 package-name 自引用不会被拦截：`from === "prototype"` 时，非相对导入在 `violation` 中直接返回 null；`src/prototype/testing/` 以及所有 `*.test.ts` 又被 `sourceFiles` 排除，旧原型公开的 testing 入口可以引用新模块而测试不报错。根级文件与模块文件之间的相对导入也可能绕过单向依赖检查。
+
+**如何核实**：
+
+- 运行实际边界函数实验：`bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-design/lab/architecture-boundary-smoke.ts`。`require(...)`、`import X = require(...)`、`import(packageName)`、带注释的 import 与同一行第二条静态 import 均未被识别；`export * from` 与多行 import 能识别，不列为漏洞。
+- 同一实验调用 `violation({file: "prototype/index.ts", specifier: "@notnotype/nb-harness/session", ...})` 返回 `null`；根级文件引用禁止包、session 文件引用根级辅助文件也返回 `null`；`sourceFiles` 不包含 `prototype/testing/index.ts`。这些结果均来自实际函数，未修改仓库。
+- 阅读 `sourceFiles` 的 `entry.name === "testing" ? []` 与 `! /\.test\.tsx?$/u` 过滤，以及 `violation` 的 `from === PROTOTYPE` 提前返回。测试文件与 testing 目录免检是当前测试设计，但与包规则中旧原型“不得引用新模块”的无例外表述不一致。
+
+**建议改法**：不要继续扩张正则作为完整解析器。至少把架构测试改为 TypeScript AST/可靠 parser，覆盖静态 `require`、`import =`、带注释及同文件多条导入，并明确禁止的动态加载；把根级源文件和 `src/prototype/testing` 是否属于隔离边界写成明确规则并纳入扫描。若故意不支持 CommonJS/动态加载，必须在代码规范或测试中把它们变成显式禁止，而不是静默漏过。
+
+### 10. 重要｜测试／不变量
+
+**位置**：`packages/nb-harness/src/architecture.test.ts:75-93,102-110`。
+
+**现象**：公开入口判定对相对 ESM 导入存在误报：`relativeTarget()` 只移除 `.ts`/`.tsx`，不移除 TypeScript bundler 可解析的 `.js` 后缀；因此跨模块导入 `../session/session.js` 得到 `session/session.js`，而 `PUBLIC_ENTRIES` 里登记的入口是 `session/session`，最后被判为深导入。
+
+**为什么是问题**：合法的 ESM/TypeScript 导入会被边界测试拒绝；实现者可能为绕过测试改写导入路径，破坏真实公开入口边界。该问题是入口比较算法的误报，不是 planned session 子入口尚未实现的问题。
+
+**如何核实**：实际边界函数实验中，`../session/session.ts` 返回 `null`，`../session/session.js` 返回“深导入了 session 的内部文件”；TypeScript bundler 解析同一个 `.js` specifier 到 `src/session/session.ts`。
+
+**建议改法**：按 TypeScript/Bun 的实际解析规则归一化 `.js`/`.jsx` 到源码入口后再做公开入口比较，并增加 `.js` 导入测试。
+ 
+### 11. 重要｜文档／接口合同
+
+**位置**：`docs/specs/harness/session.md:40-109`（类型与公开接口）。
+
+**现象**：Spec 使用了但没有定义 `SessionFailure`、`PendingInteraction`、`Projection`、`JsonValue`、`MessageContent`；其中 `MessageContent` 在当前 OMP 类型中也没有这个名称。`EntryInput = 去掉 EntryBase 字段后的 Entry` 是说明性伪语法，不是可引用的类型定义。与此同时，Spec 把 `AgentMessage` 说成 OMP 类型，却在规则中把允许的 message role 限成 `user`、`assistant`、`toolResult`；OMP 的 `AgentMessage` 还包含 developer 等消息形态。
+
+**为什么是问题**：实现者无法从黑盒合同得出唯一的公开类型、失败联合和投影输入；不同实现会自行补齐缺失类型，进而在编译边界和运行时校验上产生不兼容。尤其 `MessageContent` 的名称不能直接从 OMP 导入，照抄接口会先在类型检查阶段失败；把 OMP 的宽类型和 Spec 的窄规则混用，也没有说明是转换、拒绝还是允许。
+
+**如何核实**：
+
+- 在 Spec 文本中搜索上述名称，除接口引用外没有定义；在 `@oh-my-pi/pi-ai` 与 `@oh-my-pi/pi-agent-core` 类型中搜索 `MessageContent` 没有对应导出。
+- 对照 OMP `AgentMessage` 定义：它是消息类型与 custom message 的联合，不等于 Spec 所写的三种 role。当前 `packages/nb-harness/src/session/session.ts` 只有空导出，尚无实现替这些缺口作出选择。
+
+**建议改法**：补齐可编译的公开类型或明确导入的 OMP 类型别名，定义 `SessionFailure` 的完整 code/data 联合；把 `EntryInput`、`Projection`、`PendingInteraction` 与 `JsonValue` 写成实际语法。明确 OMP 宽消息如何映射到 session 合同，不能同时把它作为原样 public type 又用另一套 role 白名单约束。
+
+### 12. 重要｜文档／失败语义
+
+**位置**：`docs/specs/harness/session.md:109,115-123,169-182`（`Result`、输出与失败码）。
+
+**现象**：失败码表没有和公开方法、编号输出一一对上。`session-not-found` 没有对应的 `openSession` 输出或验收场景；`store-failed` 只在追加 I/O 失败的输出 10 中定义，`create`、`open`、`repair`、`list` 的存储读取/写入失败没有返回形状；`invalid-session-id` 只有规则性描述，没有失败输出；`damaged-tail`、`corrupt-session` 对 `open` 有定义，但 `repair` 面对完整损坏行、缺头、版本不支持时的失败 code 没有定义。`SessionFailure` 未定义又使这些 code 无法形成可判定的联合。
+
+**为什么是问题**：调用方只能知道“某个失败 code 可能存在”，不知道每个公开操作在相同故障下应返回哪一种 code、是否带行号/路径/原因、失败后句柄是否建立。测试无法按失败码验收，只能退化为检查“返回了 error”，并且不同实现会把找不到会话、根目录 I/O、坏文件和非法参数互相错报。
+
+**如何核实**：将 `SessionStore` 的 `create/open/append/repair/list` 与 `SessionLog` 的 `append/repair/subscribe` 逐项对照失败表；只有 `append` 的存储失败、`open` 的坏尾/坏 JSON/版本和 `close` 后操作有编号输出，其他组合在 Spec 中没有黑盒结果。
+
+**建议改法**：建立“公开方法 × 失败 code × 返回 data × 句柄状态”的表，并为每个非预期路径增加编号输出或验收场景。至少覆盖不存在、非法 id、根目录/文件 I/O、损坏头、完整损坏行、版本不支持、已损坏尾调用 repair 等边界；失败码必须由错误类别决定，不能由错误文案或实现路径自行推断。
+
+### 13. 建议｜Spec 可测试性／实现独立性
+
+**位置**：`docs/specs/harness/session.md:18-23`。
+
+**现象**：句子“持久性只到调用成功返回，不调用 fsync，断电时最后几条可能丢失”把一个可观察的耐久性边界和一个具体实现调用绑在同一句。断电后的数据丢失可以作为黑盒结果约束，但是否调用 `fsync` 不是调用方可观察的行为；另一种实现只要提供相同的耐久性合同，就必须不必要地改写 Spec。
+
+**为什么是问题**：它不通过“实现替换但行为不变，句子不应改变”的判据；“断电时最后几条可能丢失”也不能在普通测试中稳定复现，若没有格式级模拟或故障注入定义，就不满足可重复验收。
+
+**如何核实**：把实现替换为“调用 `fsync` 但仍只保证成功返回前的写入语义”，外部输出可以保持不变而该句必然改变；当前 Spec 没有故障注入接口或可执行的掉电模拟场景。
+
+**建议改法**：改为可观察合同，例如“成功返回前只保证本进程定义的存储写入顺序；异常终止可能留下完整前缀或不完整尾，重开按输出 6 处理”，并把 `fsync` 作为实现备注而不是 Spec 条款。若确实要保证掉电行为，定义可测试的故障注入和验收模型。
+ 
+### 14. 重要｜不变量／接口合同
+
+**位置**：`docs/specs/harness/session.md:81-86,115-120,138,164-167`（`entries`、`append`、存储等价性与数据边界）。
+
+**现象**：Spec 要求内存与 JSONL “输出 1-11、17 相同”，但没有定义条目及嵌套 `content` 的所有权、拷贝或冻结规则。`SessionLog.entries` 的 `readonly` 只限制 TypeScript 属性赋值，不会阻止调用方修改数组内的 entry、`content` 数组或内容对象；订阅回调收到同一对象时也有同样问题。
+
+**为什么是问题**：调用方在 append 返回后修改传入对象，或在 listener 中修改收到的 entry，可能改变内存日志、后续 replay、`afterSeq` 回放和 `buildModelContext`，而 JSONL 已保存的是修改前的序列化值。这样追加日志不再是 append-only，且内存与 JSONL 不再满足输出 18 的相同合同。
+
+**如何核实**：无需依赖当前空的 session 实现；按 `EntryInput` 含嵌套 JSON 内容的公开类型构造对象，分别保留“传入对象”和“listener 收到对象”的引用，再在 append/通知返回后修改嵌套字段。当前 Spec 没有任何条款规定该修改应被拒绝、隔离还是反映到日志。
+
+**建议改法**：明确边界所有权：append 时深拷贝并向 entries/subscribers 暴露只读快照，或定义不可变值对象并在类型/运行时强制；明确 listener 修改不得影响日志。为内存和 JSONL 都加入“修改输入对象、修改回调对象、再 replay”的合同场景。
+ 
+## 未发现问题的方面
+
+- `session` v1 明确不提供分支、重试、跨进程订阅和多写者协作；在这个限定范围内，`parentId`、单写者前提和“不负责锁/备份/删除”没有额外冲突。
+- Spec 的公开入口、JSONL 格式、失败码、输出与验收场景采用了可定位的编号结构；问题是若干条目内容缺口或相互冲突，不是编号体系本身。
+- “完整 JSON 行但内容无效”归为 `corrupt-session`、“最后一行无换行”归为 `damagedTail`，作为字节格式判定是确定的；未把它误当成能够证明真实崩溃原因的检测机制。
+- 提案给出的模块推进方向 `runtime → tools → models → config → profile → session` 与 session 只依赖 OMP 类型的目标没有发现相反依赖；当前实现底座的具体漏洞已单列在第 9、10 条。
+- `customType` 使用 `<namespace>/<name>` 的语法、列表不列出 corrupt session、version 变更需要迁移/版本提升，这些单独看是可测试且方向一致的合同；保留审批恢复、失败映射和对象所有权的缺口不改变上述判断。
+
+## 严重程度数量
+
+- 阻断：1 条（第 1 条）。
+- 重要：12 条（第 2-12、14 条）。
+- 建议：1 条（第 13 条）。
+- 合计：14 条。
+ 
+## 九个待确认项逐项判断
+
+1. **ID 格式**：成立，Spec 不承诺具体字符串格式是合理的，但仍必须分别承诺会话/条目/工具调用标识的稳定性与配对唯一性，不能以“不承诺格式”代替 occurrence 规则。
+2. **append 失败**：部分成立，失败批次不进入当前句柄的 entries 且不通知是清晰的，但 broken 句柄、重开、damaged tail、repair 的恢复闭环还需按第 7 条补全。
+3. **批次可部分落盘**：成立，按完整 JSONL 行恢复前缀且不保证批次原子性与 Spec 一致，提案中的“原子写入”必须删除或改成非原子合同。
+4. **完整损坏行与中断尾**：成立，完整换行的无效 JSON/entry 与无换行尾可以作确定的格式分类，但这不是崩溃原因证明，边界场景仍应按第 6、13 条写成可测试规则。
+5. **custom_message**：方向成立，把它作为模型上下文中的 user 形态是可行合同，但 OMP 类型、content 转换和 role 白名单必须按第 11 条显式定义。
+6. **待审批恢复**：不成立为当前实现方案，混合工具调用与 approval response 直接交给 OMP Agent continuation 会合成缺失结果或重跑调用，必须按第 1、3 条重新定义恢复适配层。
+7. **customType 命名空间**：语法规则成立，`<namespace>/<name>` 可测试且保留 `harness` 命名空间的政策没有单独问题，但应明确由谁注册/解释保留命名空间。
+8. **list 行为**：成立，damaged session 可列摘要而 corrupt session 不列出的取舍清楚，但 `list` 本身的存储失败和摘要字段失败语义仍需按第 12 条补齐。
+9. **内存与 JSONL 行为相同**：暂不成立，只有在第 14 条所述输入/回调对象所有权和快照规则明确后，才能保证两种存储的输出真正相同。
+
+## 补充核验与更正
+
+以下更正只针对第 9–14 条新增内容；第 1–8 条没有改写。更正后的范围和数量优先于前文。
+
+### 重点 5：实际边界函数实验
+
+命令：在 worktree 的 `packages/nb-harness` 执行 `bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-design/lab/architecture-boundary-smoke.ts`。
+
+实验读取实际 `architecture.test.ts`，只在内存中暴露原函数并调用；未修改仓库文件。结果：
+
+- `require(...)`、`import X = require(...)`、变量形式 `import(packageName)` 均未被识别。
+- 同行第二条静态 import 未被识别；`import/*comment*/{Agent} from "..."` 也未被识别。这两种写法均可漏掉 OMP 运行时导入检查。
+- 多行 import 与 `export * from` 能识别，不列为漏洞。
+- `violation({file: "prototype/index.ts", specifier: "@notnotype/nb-harness/session", ...})` 返回 `null`，验证旧原型经包名引用新模块的漏放行。
+- 根级 `shared.ts` 引用禁止包，及 `session/session.ts` 引用 `../shared.ts`，均返回 `null`：`moduleOf` 的根级路径退出还允许跨模块约束经根级辅助文件绕过。
+- `sourceFiles` 不包含 `prototype/testing/index.ts`。测试文件与 testing 目录免于模块表约束是有意设计，不能把免检本身算作错误；但旧原型隔离是包 `AGENTS.md:13` 的无例外规则，公开 testing 入口仍无隔离检查。
+- 仅在实验内登记一个可依赖 session 的消费者后，`../session/session.ts` 返回 `null`，`../session/session.js` 却报“深导入”；实际 TypeScript bundler 解析将后者解析到 `src/session/session.ts`。这是公开入口识别器对合法解析结果的误报，不是当前尚未实现的消费者已经报错。
+
+**第 9 条更正**：项目要求顶层 `import type`；因此 `import {type T}` 被拒绝不能单独认定为误报，撤回该项。其它漏识别、根级辅助文件绕过与原型隔离漏洞保留，严重程度仍为重要。
+
+**第 10 条更正**：`session` 明确处于 planned 且尚待实现，未登记 `./session/jsonl` 不构成本阶段实现缺陷，撤回该项；也不把 `.js` 写法称为已经核实的仓库强制约定。只保留实际 TypeScript 解析可接受、边界函数却误报的 `.js` 公开入口问题，严重程度仍为重要。
+
+### 允许命令核验
+
+- 在 `packages/nb-harness` 执行 `bun test`：`30 pass`、`2 skip`、`0 fail`，共 `32 tests`、`78 expect() calls`。
+- 在 `packages/nb-harness` 执行 `bun run typecheck`：运行 `tsc --noEmit`，通过。
+- 这两条命令只验证当前底座和旧原型测试；`session` 当前仍是空导出，因此不能把它们当作 session Spec 合同测试通过证据。
+- 报告开头关于“未运行 bun test/typecheck”的旧说明被本节更新；e2e、开发服务和真实模型测试仍未运行。
+
+### 数量复核
+
+第 9–10 条的更正撤回了 planned 子入口缺失和 `import {type ...}` 误报两项，不撤回其余边界漏洞；严重程度数量仍为：阻断 1、重要 12、建议 1、合计 14。

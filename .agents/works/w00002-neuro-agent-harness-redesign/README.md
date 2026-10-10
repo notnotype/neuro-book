@@ -39,11 +39,12 @@ issueId: i193
 
 切片（设计获批后按序实施，每片先写或修订 Spec；模块划分见设计稿“模块划分与推进顺序”）。第 0 片是包的底座：模块入口、边界测试、旧原型移到 `src/prototype/`，见 [`t09-harness-foundation-session`](tasks/t09-harness-foundation-session/README.md)。
 
-1. `session`：文件格式与条目、只追加、回放投影、`SessionStore` 与 JSONL 实现、崩溃收口。
-2. `profile`：先讨论扩展性（与 harness 解耦、渲染上下文是否带历史、插件怎样扩展），再做 DSL、`defineProfile`、加载与渲染。
+1. `session`：与 OMP 兼容的条目、只追加、回放（含压缩后的顺序）、订阅、崩溃收口、分页、`SessionStore` 与 JSONL 实现（Spec [`harness.session`](../../../docs/specs/harness/session.md)）。
+2. `profile`：TSX 布局、节点与数据源与字段的注册、渲染、种子与提醒、加载与目录（Spec [`harness.profile`](../../../docs/specs/harness/profile.md)）。
 3. `config` 与 `models`：配置 schema 与问题列表；模型解析（配置的服务与 OMP 目录）；OMP `AuthStorage` 凭据与 OAuth 登录接口；按角色解析模型；真实模型冒烟一条。
 4. `tools`：工具定义、工具来源、审批判定与四种模式、审批模型（`auto`）。
-5. `runtime`：`Agent` 循环、状态与操作矩阵（含排队）、调用结果与错误分类、事件与序号、审批等待与审批恢复；完成时删除旧原型与 `nb-session`、`nb-profile` 两个包。
-6. 内置读写工具：经 `FileAccess` 接口的 `read` 与 `edit`。
+5. `compaction`：压缩方法的注册与选择，内置 `soft` 与 `remote`（包 OMP 的 `compact`），压缩条目与种子重新写入。
+6. `runtime`：`Agent` 循环、状态与操作矩阵（含排队）、调用结果与错误分类、事件与序号、审批等待与审批恢复、压缩触发（手动、溢出、一轮结束超阈值）；完成时删除旧原型与 `nb-session`、`nb-profile` 两个包。
+7. 内置读写工具：经 `FileAccess` 接口的 `read` 与 `edit`。
 
-`request_user_input`、压缩、子代理等在第一批之后。
+`request_user_input`、更多压缩方法与触发、子代理等在第一批之后。
