@@ -170,6 +170,7 @@ const handle: EditorControlHandle = {
     undo: () => editor?.commands.undo(),
     redo: () => editor?.commands.redo(),
     flushPendingChange: commitNow,
+    revealEnd: () => editor?.commands.focus("end"),
 };
 
 const onUpdate = ({transaction}: {transaction: {docChanged: boolean}}): void => {

@@ -87,7 +87,7 @@ afterAll(async () => {
 
 function openWindow(options: Partial<BrowserWindowOptions> & {readonly url?: string} = {}) {
     const page = new EventTarget();
-    const browserWindow = createBrowserWindow({connection: createConnection(options.url ?? backend.url!), page, console: quietConsole, clientIdentity: "profile-test", navigation: {navigateDocument: () => undefined, reloadDocument: () => undefined, openExternal: () => "opened"}, ...options});
+    const browserWindow = createBrowserWindow({connection: createConnection(options.url ?? backend.url!), page, console: quietConsole, clientIdentity: "profile-test", navigation: {navigateDocument: () => undefined, reloadDocument: () => undefined, openExternal: () => "opened", currentUrl: () => "http://localhost/", replaceUrl: () => undefined}, ...options});
     return {browserWindow, page};
 }
 

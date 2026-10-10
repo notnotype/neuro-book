@@ -108,6 +108,8 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         navigateDocument: (href: string) => options.navigation.navigateDocument(href),
         reloadDocument: () => options.navigation.reloadDocument(),
         openExternal: (href: string) => options.navigation.openExternal(href),
+        currentUrl: () => options.navigation.currentUrl(),
+        replaceUrl: (href: string) => options.navigation.replaceUrl(href),
     });
     const clock = options.clock ?? systemClock;
     const clientIdentity = options.clientIdentity ?? crypto.randomUUID();

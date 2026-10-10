@@ -37,6 +37,8 @@ const OPEN_ARGS = Type.Object({
     address: Type.String(),
     mode: Type.Union([Type.Literal("preview"), Type.Literal("permanent")]),
     editor: Type.Optional(Type.Union([Type.Literal("markdown"), Type.Literal("code")])),
+    /** 打开后把光标放到末尾（docs/specs/workbench/editor.md 输出 29）。 */
+    reveal: Type.Optional(Type.Literal("end")),
 }, {additionalProperties: false});
 
 /** 不给 `editor` 时换成另一种（命令面板里不必手写参数）。 */
@@ -93,8 +95,8 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>): R
     };
     return {
         [OPEN_COMMAND]: run((current, args) => {
-            const {address, mode, editor} = args as Static<typeof OPEN_ARGS>;
-            return fromAction(current.open(address, editor === undefined ? {mode} : {mode, editor}));
+            const {address, mode, editor, reveal} = args as Static<typeof OPEN_ARGS>;
+            return fromAction(current.open(address, {mode, ...(editor === undefined ? {} : {editor}), ...(reveal === undefined ? {} : {reveal})}));
         }),
         [SAVE_COMMAND]: run(async (current) => fromAction(await current.save())),
         [SAVE_ALL_COMMAND]: run(async (current) => fromAction(await current.saveAll())),

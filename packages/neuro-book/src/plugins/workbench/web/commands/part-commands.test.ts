@@ -128,7 +128,7 @@ describe("应用命令", () => {
         return {requests, navigateDocument: (href) => requests.push(`assign ${href}`), reloadDocument: () => requests.push("reload"), openExternal: (href) => {
             requests.push(`open ${href}`);
             return open;
-        }};
+        }, currentUrl: () => "http://localhost/", replaceUrl: () => undefined};
     }
 
     it("重新载入只请求宿主重新载入当前文档；文档在新标签打开文档站，被拦截时 unavailable 并说明", async () => {

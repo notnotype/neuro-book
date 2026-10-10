@@ -159,6 +159,14 @@ const handle: EditorControlHandle = {
             return {ok: true, value: {line}};
         },
     },
+    revealEnd: () => {
+        const model = editor?.getModel();
+        if (editor === null || model === null || model === undefined) return;
+        const line = model.getLineCount();
+        editor.setPosition({lineNumber: line, column: model.getLineMaxColumn(line)});
+        editor.revealLineInCenter(line);
+        editor.focus();
+    },
 };
 
 onMounted(async () => {

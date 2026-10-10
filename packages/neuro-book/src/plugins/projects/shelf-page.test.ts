@@ -219,7 +219,7 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
                 }},
                 settings: captured!.settings,
                 quickPick: {pick: (request) => palette.openPick(request)},
-                navigation: {navigateDocument: (href) => navigations.push(href), reloadDocument: () => undefined, openExternal: () => result.popup},
+                navigation: {navigateDocument: (href) => navigations.push(href), reloadDocument: () => undefined, openExternal: () => result.popup, currentUrl: () => "http://localhost/", replaceUrl: () => undefined},
                 report: (event, message) => reports.push(`${event}: ${message}`),
             });
             closers.push(async () => page.dispose());

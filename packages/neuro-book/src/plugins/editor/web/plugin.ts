@@ -4,7 +4,7 @@
  * 文件），绑定项目的窗口先读会话记录。
  */
 
-import {computed, defineAsyncComponent, defineComponent, h} from "vue";
+import {computed, defineAsyncComponent, defineComponent, h, watch} from "vue";
 import type {Component, PropType} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -18,13 +18,14 @@ import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {EditorAreaContext, EditorAreaImplementation} from "nbook/plugins/workbench/web/contracts";
-import {clockKey, windowRescueKey} from "nbook/shared/host";
+import {clockKey, windowNavigationKey, windowRescueKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
 import {documentCoordinatorKey} from "../shared/contracts";
 import {CLOSE_COMMAND, EDITOR_COMMAND_DECLARATIONS, editorCommands, SAVE_COMMAND, SPLIT_RIGHT_COMMAND} from "./commands";
+import {continueRequestOf, withoutContinueParams} from "./continue-writing";
 import type {EditorKind} from "./groups/groups";
 import {editorSessionStore} from "./session-record";
 import {createEditorSession} from "./session";
@@ -42,7 +43,7 @@ export const editorBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowRescueKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: windowRescueKey, required: false}],
         provides: [documentCoordinatorKey],
         contributions: [
             {capability: WORKBENCH_EDITOR_AREA_POINT, id: EDITOR_AREA_ID, declaration: {order: 0}},
@@ -68,6 +69,27 @@ export const editorBrowserPlugin: PluginDefinition = {
                 report,
             });
             context.signal.addEventListener("abort", () => session.dispose(), {once: true});
+
+            // 继续写作（输出 29）：地址参数一读到就去掉；等编辑器区建好（会话记录读完）再打开并定位。
+            const navigation = context.services.require(windowNavigationKey);
+            const request = continueRequestOf(navigation.currentUrl());
+            if (request !== null) {
+                navigation.replaceUrl(withoutContinueParams(navigation.currentUrl()));
+                let done = false;
+                const stop = watch(session.area, (area) => {
+                    if (area === null || done) return;
+                    done = true;
+                    if (project === null || !request.address.startsWith("project://")) {
+                        area.notify(`不能打开 ${request.address}：继续写作只能打开项目里的文件`);
+                        diagnostics.record({level: "warn", event: "editor.continue", message: `地址参数指向的不是项目里的资源：${request.address}`, source: {plugin: descriptor.id}});
+                        return;
+                    }
+                    const opened = area.open(request.address, {mode: "permanent", ...(request.reveal === null ? {} : {reveal: request.reveal})});
+                    if (!opened.ok) diagnostics.record({level: "warn", event: "editor.continue", message: `按地址参数打开失败：${opened.reason}`, source: {plugin: descriptor.id}});
+                }, {immediate: true});
+                if (done) stop();
+                else context.signal.addEventListener("abort", () => stop(), {once: true});
+            }
 
             // 终态时的抢救：宿主在停止插件之前同步调用。
             const rescue = await context.services.resolve(windowRescueKey);

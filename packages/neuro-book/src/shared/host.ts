@@ -29,6 +29,10 @@ export interface WindowNavigation {
     reloadDocument(): void;
     /** 在新标签页打开外部地址；浏览器拦截了弹出窗口时为 `blocked`。 */
     openExternal(href: string): "opened" | "blocked";
+    /** 当前文档的地址（生产是 `location.href`）；一次性的地址参数（例如继续写作的 `open`、`at`）从这里读。 */
+    currentUrl(): string;
+    /** 不导航地替换地址栏（生产是 `history.replaceState`）：读过一次性参数后去掉它们。 */
+    replaceUrl(href: string): void;
 }
 
 /** 浏览器宿主提供给本窗口的插件。 */

@@ -72,7 +72,7 @@ async function mountAt(path: string, options: {failures?: number; withBrokenPage
     const builtin = options.withBrokenPage === true ? [...builtinBrowserPlugins, brokenPage.descriptor] : builtinBrowserPlugins;
     const definitions = options.withBrokenPage === true ? {...browserPluginDefinitions, [brokenPage.descriptor.id]: brokenPage.definition} : browserPluginDefinitions;
     const remote = connection(builtin, options.failures, options.server);
-    const browserWindow = createBrowserWindow({connection: remote, page: new EventTarget(), console: {error: () => undefined}, navigation: {navigateDocument: () => undefined, reloadDocument: () => undefined, openExternal: () => "opened"}, builtin, definitions, clock: options.clock});
+    const browserWindow = createBrowserWindow({connection: remote, page: new EventTarget(), console: {error: () => undefined}, navigation: {navigateDocument: () => undefined, reloadDocument: () => undefined, openExternal: () => "opened", currentUrl: () => "http://localhost/", replaceUrl: () => undefined}, builtin, definitions, clock: options.clock});
     await browserWindow.start();
     const container = document.createElement("div");
     const history = createMemoryHistory();

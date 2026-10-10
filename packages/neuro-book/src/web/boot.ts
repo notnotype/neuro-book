@@ -44,6 +44,8 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
             opened.opener = null;
             return "opened";
         },
+        currentUrl: () => location.href,
+        replaceUrl: (href) => history.replaceState(history.state, "", href),
     };
     const browserWindow = createBrowserWindow({
         connection: createConnection(location.origin),

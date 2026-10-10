@@ -61,6 +61,8 @@ export interface EditorControlHandle {
         getLineCount(): number | null;
         revealLine(line: number): {ok: true; value: {line: number}} | {ok: false; reason: string};
     };
+    /** 把光标放到文档末尾并聚焦（继续写作，输出 29）：源码编辑器是最后一行行尾，Markdown 编辑器是文档末尾。 */
+    revealEnd?(): void;
 }
 
 export type CloseChoice = "save" | "discard" | "cancel";
@@ -82,6 +84,9 @@ export interface EditorAreaOptions {
 }
 
 export type ActionResult = {readonly ok: true} | {readonly ok: false; readonly reason: string};
+
+/** 打开成功时给出标签 id：继续写作的定位绑定到这个标签。 */
+export type OpenResult = {readonly ok: true; readonly tabId: string} | {readonly ok: false; readonly reason: string};
 
 export interface EditorArea {
     readonly documents: DocumentStore;
@@ -106,7 +111,8 @@ export interface EditorArea {
     readonly dialog: Readonly<ShallowRef<CloseDialog | null>>;
     /** 组顶部的一行提示（例如换文档前有未裁决输入）；没有为 null。 */
     readonly notice: Readonly<ShallowRef<string | null>>;
-    open(address: string, options: {readonly mode: "preview" | "permanent"; readonly editor?: EditorKind}): ActionResult;
+    /** `reveal: "end"`：文档就绪、控件交出句柄后把光标放到末尾（输出 29）；在此之前切走即取消。 */
+    open(address: string, options: {readonly mode: "preview" | "permanent"; readonly editor?: EditorKind; readonly reveal?: "end"}): OpenResult;
     activate(tabId: string): ActionResult;
     pin(tabId: string): void;
     focusGroup(groupId: string): void;
@@ -126,6 +132,8 @@ export interface EditorArea {
     /** 控件交出（或撤回）句柄。 */
     registerHandle(groupId: string, kind: EditorKind, handle: EditorControlHandle | null): void;
     dismissNotice(): void;
+    /** 在组顶部显示一行提示（例如地址参数指向的不是项目里的资源）。 */
+    notify(text: string): void;
     /** 离开页面前：结算全部视图输入，有需要结算的文档时为真。 */
     needsLeaveConfirm(): boolean;
     /** 布局尺寸变了（拖动分隔条）：记下会话。 */
@@ -380,6 +388,36 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         return tab === undefined ? null : handles.value.get(`${groups.activeGroup.value}|${tab.editor}`) ?? null;
     });
 
+    /**
+     * 继续写作的定位（输出 29）：打开时记下标签与组，等它的文档就绪、它所在组的控件交出句柄再定位；在此之前用户切到别的
+     * 标签或组、标签关闭都取消，读取失败在组顶部提示。定位本身推到下一个时钟刻：文档就绪时控件要在它自己的 watch 里先装上
+     * 正文，这里的 watch 是同步的，不能抢在它前面。
+     */
+    const pendingReveal = shallowRef<{readonly groupId: string; readonly tabId: string; readonly address: string} | null>(null);
+    type RevealState = {readonly outcome: "cancelled"} | {readonly outcome: "failed"; readonly address: string} | {readonly outcome: "ready"; readonly handle: EditorControlHandle};
+    stops.push(watch((): RevealState | null => {
+        const pending = pendingReveal.value;
+        if (pending === null) return null;
+        const group = groups.groups.value.find((candidate) => candidate.id === pending.groupId);
+        const tab = group?.tabs.find((candidate) => candidate.id === pending.tabId);
+        if (group === undefined || tab === undefined || group.active !== tab.id || groups.activeGroup.value !== group.id) return {outcome: "cancelled"};
+        const status = referenceOf(tab).document.status.value;
+        if (status === "failed") return {outcome: "failed", address: pending.address};
+        if (status !== "ready" && status !== "deleted") return null;
+        const handle = handles.value.get(`${group.id}|${tab.editor}`);
+        return handle === undefined ? null : {outcome: "ready", handle};
+    }, (state) => {
+        if (state === null) return;
+        pendingReveal.value = null;
+        if (state.outcome === "failed") notice.value = `上次编辑的片段已不在原处：${state.address}`;
+        if (state.outcome !== "ready") return;
+        options.clock.schedule(() => {
+            if (disposed) return;
+            state.handle.revealEnd?.();
+            state.handle.focus();
+        }, 0);
+    }));
+
     /** 换文档前结算活动视图的输入；它有未裁决输入时不换。 */
     const leave = (groupId: string): boolean => {
         const current = bindings.get(groupId);
@@ -469,9 +507,10 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             const editor = open.editor ?? defaultEditor(address);
             const group = groups.activeGroup.value;
             // 文档在标签成为活动标签、第一次被读到时打开（`referenceOf`）：新开的标签就是活动标签。
-            const {replaced} = groups.open(address, {mode: open.mode, editor});
+            const {tab, replaced} = groups.open(address, {mode: open.mode, editor});
             if (replaced !== null) releaseTab(replaced, group);
-            return {ok: true};
+            pendingReveal.value = open.reveal === "end" ? {groupId: group, tabId: tab.id, address} : null;
+            return {ok: true, tabId: tab.id};
         },
         activate: (tabId) => {
             const found = groups.find(tabId);
@@ -561,6 +600,9 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         },
         dismissNotice: () => {
             notice.value = null;
+        },
+        notify: (text) => {
+            notice.value = text;
         },
         needsLeaveConfirm: () => {
             let needed = false;
