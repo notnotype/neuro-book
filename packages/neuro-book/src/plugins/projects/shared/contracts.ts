@@ -5,9 +5,6 @@
  * 列表与书架带项目目录路径，那是用户自己登记的位置，用来区分同名目录；服务端内部路径与子进程信息不在里面。
  * 书架条目、作品信息与统计快照的 schema 也在这里：远程合同的输出、统计记录（`stats-record.ts`）与界面类型（`shelf.ts`）
  * 引用同一份。两端共用，不碰 DOM、Bun 与 Node API。
- *
- * `projectsRemoteContractV1` 是服务端入口此刻提供的版本，只有列出与登记；书架的服务端切片让入口改提供 v2 后删除它，
- * 现有的引用改回 `projectsRemoteContract`。
  */
 
 import {Type} from "typebox";
@@ -151,14 +148,6 @@ const register = {
     effect: "write",
     errors: {"register-failed": ReasonDetail},
 } as const;
-
-export const projectsRemoteContractV1 = defineRemoteService({
-    id: "nbook.projects/projects",
-    version: 1,
-    provider: "server",
-    callers: ["browser", "tui"],
-    methods: {list, register},
-});
 
 export const projectsRemoteContract = defineRemoteService({
     id: "nbook.projects/projects",

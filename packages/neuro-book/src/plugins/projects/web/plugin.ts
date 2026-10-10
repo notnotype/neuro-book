@@ -16,7 +16,7 @@ import {quickPickKey} from "nbook/plugins/workbench/shared/contracts";
 import {windowNavigationKey} from "nbook/shared/host";
 
 import {descriptor} from "../plugin";
-import {projectsRemoteContractV1} from "../shared/contracts";
+import {projectsRemoteContract} from "../shared/contracts";
 import {OPEN_PROJECT_COMMAND, OPEN_PROJECT_DECLARATION, openProject} from "./open-project";
 import type {OpenProjectHost} from "./open-project";
 
@@ -34,7 +34,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
         activate: (context) => {
             const quickPick = context.services.require(quickPickKey);
             const navigation = context.services.require(windowNavigationKey);
-            const remote = context.remote.use(projectsRemoteContractV1);
+            const remote = context.remote.use(projectsRemoteContract);
             const settings = context.services.require(settingsKey);
             const diagnostics = context.services.require(diagnosticsKey);
             const host: OpenProjectHost = {

@@ -11,7 +11,7 @@ import type {QuickPick, QuickPickRequest} from "nbook/plugins/workbench/shared/c
 import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/localized-text";
 
-import {OPEN_PROJECT_COMMAND, projectsRemoteContractV1} from "../shared/contracts";
+import {OPEN_PROJECT_COMMAND, projectsRemoteContract} from "../shared/contracts";
 import type {ProjectView} from "../shared/contracts";
 import {projectsText, retryTitle} from "./messages";
 
@@ -44,7 +44,7 @@ function request(projects: ReadonlyArray<ProjectView>, title: DisplayText): Quic
 }
 
 export interface OpenProjectHost {
-    readonly remote: RemoteClient<typeof projectsRemoteContractV1>;
+    readonly remote: RemoteClient<typeof projectsRemoteContract>;
     readonly quickPick: QuickPick;
     navigateDocument(url: string): void;
     /** 当前显示语言：命令失败的原因按它给出。 */
