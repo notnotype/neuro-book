@@ -197,6 +197,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 编辑器区 | [`workbench/editor.md`](workbench/editor.md) | 编辑组与标签、文档模型（保存、冲突、外部修改）、Markdown 与源码编辑器、资源管理器的 dirty 结算 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
 | Harness 会话 | [`harness/session.md`](harness/session.md) | `nb-harness` 的只追加会话日志：条目格式、追加与订阅、回放（模型上下文、会话状态与设置）、崩溃收口、分页、存储接口与 JSONL 实现；条目与 OMP 会话条目兼容。待晋升 |
+| Harness 配置 | [`harness/config.md`](harness/config.md) | `nb-harness` 的配置快照：schema 校验与全部问题列表、缺省值、深冻结、替换与变化通知 |
+| Harness 模型 | [`harness/models.md`](harness/models.md) | `nb-harness` 的模型目录与解析（配置自建服务加 OMP 内置目录）、角色选择链、能力检查、OMP `AuthStorage` 凭据与 OAuth |
 | Harness Profile | [`harness/profile.md`](harness/profile.md) | `nb-harness` 的 Profile：TSX 布局（`System`、`History`、`Appending`）、节点与数据源与字段的注册、渲染、种子与提醒、加载与目录。待晋升 |
 
 ## 旧应用的规范与 Reference（只作参照）
