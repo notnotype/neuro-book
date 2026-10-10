@@ -65,7 +65,8 @@ export interface PerfAgent {
     drainEvents(): void;
     readonly unsupported: ReadonlyArray<string>;
     readonly progress: Array<{readonly at: number; readonly kind: "added" | "removed"}>;
-    readonly frames: Array<{readonly start: number; readonly duration: number; readonly blocking: number}>;
+    /** 长动画帧，带耗时最长的几段脚本（入口与来源），用来归因。 */
+    readonly frames: Array<{readonly start: number; readonly duration: number; readonly blocking: number; readonly scripts: ReadonlyArray<{readonly invoker: string; readonly source: string; readonly duration: number}>}>;
     readonly tasks: Array<{readonly start: number; readonly duration: number}>;
     readonly events: TimedEvent[];
     /** 记录每一帧的 rAF 时刻，直到 `stopFrames`；滚动场景用来算帧间隔。 */
@@ -117,7 +118,11 @@ export function pageAgent(options: AgentOptions): void {
 
     if (supported.includes("long-animation-frame")) {
         new PerformanceObserver((list) => {
-            for (const entry of list.getEntries()) agent.frames.push({start: entry.startTime, duration: entry.duration, blocking: (entry as PerformanceEntry & {blockingDuration?: number}).blockingDuration ?? 0});
+            for (const entry of list.getEntries()) {
+                const frame = entry as PerformanceEntry & {blockingDuration?: number; scripts?: ReadonlyArray<{invoker: string; sourceURL: string; sourceFunctionName: string; duration: number}>};
+                const scripts = [...(frame.scripts ?? [])].sort((a, b) => b.duration - a.duration).slice(0, 3).map((script) => ({invoker: script.invoker, source: `${script.sourceURL.split("/").pop() ?? ""}:${script.sourceFunctionName}`, duration: Math.round(script.duration)}));
+                agent.frames.push({start: entry.startTime, duration: entry.duration, blocking: frame.blockingDuration ?? 0, scripts});
+            }
         }).observe({type: "long-animation-frame", buffered: true});
     }
     if (supported.includes("longtask")) {

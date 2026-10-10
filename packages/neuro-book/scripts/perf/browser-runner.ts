@@ -373,22 +373,30 @@ async function longFramesBetween(page: Page, from: number, to: number): Promise<
     }, {start: from, end: to});
 }
 
+/** 时间窗里的长动画帧本身（起点、时长、脚本归因），放进逐次样本。 */
+async function framesBetween(page: Page, from: number, to: number): Promise<unknown[]> {
+    return page.evaluate(({start, end}) => (window.__perf?.frames ?? []).filter((frame) => frame.start + frame.duration >= start && frame.start <= end).map((frame) => ({...frame, start: Math.round(frame.start - start), duration: Math.round(frame.duration)})), {start: from, end: to});
+}
+
 const addFrames = (into: {count: number; longest: number} | "unavailable", more: {count: number; longest: number} | "unavailable"): {count: number; longest: number} | "unavailable" =>
     into === "unavailable" || more === "unavailable" ? "unavailable" : {count: into.count + more.count, longest: Math.max(into.longest, more.longest)};
 
 const now = (page: Page): Promise<number> => page.evaluate(() => performance.now());
 
-/** 一次点击的 Event Timing 条目（按下、抬起、click 都在起点之后几毫秒内）里最长的；没有 16 ms 以上的条目为 null。 */
+/**
+ * 一次点击的 Event Timing 条目（按下、抬起、click 都在起点之后几毫秒内）里最长的；没有 16 ms 以上的条目为 null。在页面里
+ * 匹配，只传回每次一个数：整份条目表随会话增长，整份传回来的序列化会自己造出长动画帧。
+ */
 async function clickTimings(page: Page, starts: ReadonlyArray<number>): Promise<Array<number | null>> {
-    const events = await page.evaluate(() => {
+    return page.evaluate((clicks) => {
         window.__perf?.drainEvents();
-        return window.__perf?.events ?? [];
-    });
-    const names = new Set(["pointerdown", "pointerup", "mousedown", "mouseup", "click"]);
-    return starts.map((start) => {
-        const own = events.filter((event) => names.has(event.name) && event.start >= start - 1 && event.start <= start + 50);
-        return own.length === 0 ? null : Math.max(...own.map((event) => event.duration));
-    });
+        const names = new Set(["pointerdown", "pointerup", "mousedown", "mouseup", "click"]);
+        const events = (window.__perf?.events ?? []).filter((event) => names.has(event.name));
+        return clicks.map((start) => {
+            const own = events.filter((event) => event.start >= start - 1 && event.start <= start + 50);
+            return own.length === 0 ? null : Math.max(...own.map((event) => event.duration));
+        });
+    }, [...starts]);
 }
 
 const timingOf = (values: ReadonlyArray<number | null>): EventTimingSummary => {
@@ -638,14 +646,17 @@ async function main(): Promise<number> {
                     return samples;
                 };
                 const openResult = async (samples: ReadonlyArray<Sample>, t0: number, t1: number, extra: Partial<ScenarioResult> = {}): Promise<Omit<ScenarioResult, "id" | "name" | "status">> => {
+                    // 先读长动画帧，再取点击的 Event Timing：后者的调用不落进前者的时间窗。
+                    const longFrames = await longFramesBetween(session.page, t0, t1);
+                    const frames = await framesBetween(session.page, t0, t1);
                     const clicks = await clickTimings(session.page, samples.map((sample) => sample.start));
                     return {
                         ...summaries(samples),
                         eventTiming: timingOf(clicks),
-                        longFrames: await longFramesBetween(session.page, t0, t1),
+                        longFrames,
                         requests: countBy(session.sent),
                         ...extra,
-                        raw: {samples: samples.map((sample, index) => ({...sample, click: clicks[index] ?? null}))},
+                        raw: {samples: samples.map((sample, index) => ({...sample, click: clicks[index] ?? null})), t0, frames},
                     };
                 };
 
@@ -709,6 +720,11 @@ async function main(): Promise<number> {
                         for (const address of files) await openFile(session, address);
                         opened.push(await session.page.locator("[data-editor-tab]").count());
                         await closeAllTabs(session);
+                        // 测量代理自己记下的 Event Timing 与长动画帧也在页面堆里，随点击增长：读堆前清掉，堆里只剩产品的东西。
+                        await session.page.evaluate(() => {
+                            window.__perf?.events.splice(0);
+                            window.__perf?.frames.splice(0);
+                        });
                         await session.cdp.send("HeapProfiler.collectGarbage");
                         heaps.push(await session.page.evaluate(() => Math.round(((performance as Performance & {memory?: {usedJSHeapSize: number}}).memory?.usedJSHeapSize ?? 0) / 1024 / 1024 * 10) / 10));
                     }
