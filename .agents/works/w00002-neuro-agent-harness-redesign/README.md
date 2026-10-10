@@ -61,8 +61,8 @@ issueId: i193
 | 2 `profile` | [t10](tasks/t10-harness-profile/README.md) | 已实现 | 计划审查 6 条，全部处理；实现审查未开（留待 runtime 接入后一并审） |
 | 3 `config`、`models` | [t11](tasks/t11-harness-config-models/README.md) | 已实现 | 计划审查 14 条（含实现核实），全部处理 |
 | 4 `tools` | [t12](tasks/t12-harness-tools/README.md) | 已实现 | 计划与实现合一审查 10 条，全部处理 |
-| 5 `compaction` | [t13](tasks/t13-harness-compaction/README.md) | 已实现 | 与 t14 合一审查，进行中 |
-| 6 `runtime` | [t14](tasks/t14-harness-runtime/README.md) | 已实现；旧原型与 `nb-session`、`nb-profile` 已删除 | 与 t13 合一审查，进行中 |
-| 7 内置工具 | [t15](tasks/t15-harness-builtin-tools/README.md) | 已实现 | 审查进行中 |
+| 5 `compaction` | [t13](tasks/t13-harness-compaction/README.md) | 已实现 | 与 t14 合一审查 12 条，全部处理 |
+| 6 `runtime` | [t14](tasks/t14-harness-runtime/README.md) | 已实现；旧原型与 `nb-session`、`nb-profile` 已删除 | 与 t13 合一审查 12 条，全部处理 |
+| 7 内置工具 | [t15](tasks/t15-harness-builtin-tools/README.md) | 已实现 | 审查 8 条，全部处理 |
 
 七份 Spec 都是 `planned`、注册表标“待晋升”；三处真实模型冒烟（models、compaction、runtime）写好未跑，等开发者授权。

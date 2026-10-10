@@ -1,0 +1,155 @@
+# w00002 t13、t14 `nb-harness` 只读审查
+
+审查范围：固定提交 `fd4708eb` 的 worktree；`docs/specs/harness/compaction.md`、t13 `plan.md`、`packages/nb-harness/src/compaction/`；`docs/specs/harness/runtime.md`、t14 `plan.md`、`packages/nb-harness/src/runtime/`；相关相邻 Spec、提案、OMP 源码与测试。只读审查，不修改仓库。
+
+依据：`docs/proposals/agent-harness-kernel.md` 已接受决定；`.agents/works/w00002-neuro-agent-harness-redesign/pending-confirmations.md`；`harness.session`、`profile`、`config`、`models`、`tools`；包规则与测试规范；前轮 t09 实现审查和 t11 计划审查。
+
+本报告按影响排序。每条发现均在核实后追加；实验只写入本报告目录的 `lab/`，直接使用 worktree 的 `node_modules`，未安装依赖。允许的合同测试与类型检查结果在末尾记录。
+
+## 已核实问题
+
+### 1. 阻断｜正确性与不变量：异步受理没有占用会话，两个 `prompt` 都受理并污染同一调用日志
+
+- 位置：`packages/nb-harness/src/runtime/session.ts:210-226,310-329`。
+- 合同：runtime 输出 1、2 与“每会话一个 Agent”；第二次调用必须按运行中矩阵拒绝或排队，一个 `InvocationResult.entries` 只包含自己的条目。
+- 核实：`bun lab/runtime-probes.ts concurrent-prompt`（完整绝对命令见验证记录）在真实 SQLite 凭据读取前用 Promise gate 控制异步受理；两个公开 `prompt` 都返回 `ok` 和不同 invocationId。放行后真实 OMP `Agent` 拒绝一条，错误为 `Agent is already processing. Use steer() or followUp() to queue messages, or wait for completion.`；失败调用的返回条目为空，另一条调用收集到两条 `start` 和其它调用的 `error`。
+- 原因：`#phase` 在 `await accept()` 期间仍是 `idle`；两个 `#start` 替换同一个 `#current`，`#write` 在实际写入时把条目归给后者；Agent、状态与日志无法隔离。
+- 改法：在任何异步受理前预留会话操作所有权；失败释放预留；整个检查、start 写入与运行期只允许一位持有者。补并发 prompt/continue 和受理期间 close/abort 的消费方行为测试。
+
+### 2. 重要｜并发不变量：手动压缩缺少会话互斥，两次同时成功压缩同一快照
+
+- 位置：`packages/nb-harness/src/runtime/session.ts:671-680`。
+- 合同：compaction“状态与转换”明确由 runtime 保证同一会话同一时间只有一次压缩；runtime 输出 1 的 idle 操作矩阵不能允许压缩与调用并发。
+- 核实：`bun lab/runtime-probes.ts concurrent-compact` 在自定义压缩方法的 `run` 中用 Promise gate 保持第一次压缩执行，第二次公开 `compact()` 同样进入方法。输出 `attempts: 2`、两个结果均 `ok: true`，两条 compaction 都指向同一个 `firstKeptEntryId: c0319447`。
+- 原因：`compact` 只读 `#phase`，从受理到写入都不占用状态或操作锁；此时 `prompt`、`continue` 也能开始。
+- 改法：压缩与调用共用会话所有权，第二次返回 busy；释放必须覆盖方法失败、中止与存储失败。
+
+### 3. 重要｜正确性：自动压缩写入的 compaction 与 seeds 没有进入 `InvocationResult.entries`
+
+- 位置：`packages/nb-harness/src/runtime/session.ts:183,489-490,687,699-704`。
+- 合同：runtime `InvocationResult.entries` 是“本次调用写入的全部条目”；自动压缩在 `done` 前完成。
+- 核实：`auto-entries` 的公开 prompt 最终 completed；日志末尾新增 compaction `620c515c` 与 seed `36c78c94`，但 `done.entries` 缺少这两条。实验使用真实 OMP Agent、SessionLog 和 Profile，只脚本化模型传输与注册压缩方法。
+- 原因：只有 `#write` 把条目加入 `current.entries`，`#compactWith` 直接把日志交给 `compactSession`，遗漏返回批次。
+- 改法：成功自动压缩后把 `Compacted.entries` 归入当前调用，保证返回条目与该次写入及 entry 事件一致。
+
+### 4. 重要｜并发不变量：自动压缩期间仍暴露 running，但 abort 不取消压缩且 done 返回 completed
+
+- 位置：`packages/nb-harness/src/runtime/session.ts:264-282,489-504,699-704`。
+- 合同：runtime 输出 1、8 的 running → aborting → aborted；自动压缩在 done 前执行，没有另一个公开压缩状态。
+- 核实：`abort-after-completed` 把自动压缩的 run 卡住，此时 `status.phase` 为 running；公开 `abort()` 使状态变 aborting。放行压缩后 done 却为 completed，日志只有 start/end，没有 aborted。
+- 原因：end 已写入、result 已定，再进入自动压缩；abort 只中止已经结束的 Agent，压缩没有传入调用 signal。
+- 改法：明确自动压缩这一尾段的中止合同并落实；如仍按 running 处理，就维护贯穿调用与压缩的控制器、避免提前固定终态。不得只把 status 改回 idle 来隐藏竞态。
+
+### 5. 重要｜正确性：受理失败仍替换句柄的 Profile，下一次正常调用也失败
+
+- 位置：`packages/nb-harness/src/runtime/session.ts:220-225`。
+- 合同：runtime“受理”不留痕迹，受理失败不影响当前会话；换 Profile 应在新调用受理通过后生效。
+- 核实：`failed-profile-selection` 从 writer 会话执行 `prompt(..., {profileId: "missing"})`，返回 unknown-profile，但 status.profileId 从 writer 变成 missing；随后不带覆盖的合法 prompt 也返回 unknown-profile。
+- 改法：受理使用局部候选 profileId，仅在成功提交调用时保存。
+
+### 6. 阻断｜正确性与不变量：恢复执行的工具无法中止，abort 后迟到结果重新恢复并完成已终止的调用
+
+- 位置：`packages/nb-harness/src/runtime/session.ts:264-277,625-655,659-668`。
+- 合同：runtime 输出 8、13、16：恢复后执行同普通调用，中止必须收口且之后不得恢复这个调用。
+- 核实：`recovered-abort` 用公开 prompt 产生审批、close 后 openSession、approve 开始真实工具执行。工具由 Promise gate 控制完成；此时 abort 返回 ok，日志写 aborted，工具收到的 signal 却 `aborted: false`。放行工具后同一 invocation 又写 resumed/end，日志阶段变为 `[start, waiting, aborted, resumed, end]`，出现中断结果与迟到成功结果。
+- 原因：`#executeRecovered` 用 `toAgentTool`，但 execute 的 signal 实参为 undefined；恢复执行未登记 `#current` 或独立所有权。abort 把日志收口后，仍在执行的 `#resumeAfterRestart` 无终止检查，继续写结果并启动 Agent。
+- 改法：恢复执行持有可中止控制器和调用所有权；abort/close 等收口并隔离迟到完成；恢复不能从终态写 resumed。补实际工具信号、迟到执行、close 和双应答测试。
+
+### 7. 重要｜并发正确性：同一审批并发应答被误报 log-failed，并毒化正常的会话句柄
+
+- 位置：`packages/nb-harness/src/runtime/session.ts:173-181,606-626`。
+- 合同：runtime 输出 7 的重复应答应是 already-answered；受理错误不能中止另一条合法调用或关闭句柄。
+- 核实：`recovered-concurrent-resolve` 对同一待处理事项 `Promise.all` 两次 approve，第一次 ok，第二次返回 `log-failed`，detail 为 `invalid-entry：/data/interactionId：… 已有 response`；工具只执行一次，但日志阶段停在 start/waiting，公开 status 为 idle 且仍携带未终止 invocationId。
+- 原因：两次 resolve 在 response 落盘前都读到 pending；第二条让 SessionLog 拒绝，但 `#write` 把所有验证失败都当存储损坏，设置 suppressWrites 并中止循环，合法恢复随后无法写终态。
+- 改法：应答在 await 之前原子占用 interactionId；重复请求返回 already-answered。区分条目校验错误与真正不可写状态，避免把可用日志误关闭。
+
+### 8. 重要｜错误传播：Profile.refresh 失败被忽略，仍向模型发送旧数据并完成调用
+
+- 位置：`packages/nb-harness/src/runtime/session.ts:414-421`。
+- 合同：runtime 输出 9 明确 prepare/refresh 失败以 failed/profile 收口。
+- 核实：`profile-signal-probes.ts refresh-failed` 用真实 ProfileHost 注册 model-call 数据源；prepare 首次返回数据，第二次 resolve 抛“刷新数据源失败”。真实 refresh 返回 invalid-prompt 的路径已核对；公开 prompt 却 completed，日志 start/end，模型请求仍收到“数据版本1”。
+- 改法：refresh 非 ok 时停止模型请求、写 profile 终态并完成 done；保留该源的诊断，不回落旧值。
+
+### 9. 重要｜正确性：model-call 刷新的 System 内容晚一轮才进入 OMP 模型请求
+
+- 位置：`packages/nb-harness/src/runtime/session.ts:414-421`；OMP `agent.ts:1583-1589`、`agent-loop.ts:1711-1736`。
+- 合同：runtime 输出 4 的“每次调用前刷新并渲染系统提示词”；Profile 的 model-call 源应影响当次请求。
+- 核实：`profile-signal-probes.ts refresh-system` 的真实源两次返回“数据版本1”“数据版本2”；renderRequest 在刷新后渲染，但实际 streamFn 看到的 systemPrompt 仍是 `["数据版本1"]`。
+- 原因：OMP 在 syncContextBeforeModelCall 时先把 Agent.state.systemPrompt 放进本轮 context，再调用 transformContext；transformContext 内 setSystemPrompt 只替换 state，不更新已经组好的本轮 context。
+- 改法：用 OMP 已提供的 before-model-call 同步钩子，在上下文同步之前完成刷新/系统渲染，或在 provider context 变换中显式更新本轮系统提示词。测试要断言传输真正收到刷新版本。
+
+### 10. 重要｜生命周期不变量：prepare 期间 abort 无法取消数据源或阻止随后启动 Agent
+
+- 位置：`packages/nb-harness/src/runtime/session.ts:264-282,328-342`。
+- 合同：runtime 输出 8、16：running 中止后应 aborted，close 要先中止并等待收口。
+- 核实：`profile-signal-probes.ts abort-prepare` 用真实 Profile 数据源 Promise gate 卡住 prepare。abort 后公开 phase 为 aborting，但源 signal.aborted 为 false；放行源后仍发送模型请求，done completed、日志 start/end。
+- 原因：prepare/refresh 不传调用信号；prepare 时 Agent 还没创建内部运行控制器，Agent.abort 是空操作；准备结束没有检查调用已中止。
+- 改法：调用从 start 起持有控制器，传给 Profile 及 Agent，阶段转换前检查中止；late prepare 不得开始新的循环。
+
+### 11. 重要｜资源释放与生命周期不变量：完成调用的 AbortSignal 监听未释放，会中止后续无关调用
+
+- 位置：`packages/nb-harness/src/runtime/session.ts:328,489-500`。
+- 合同：PromptOptions.signal 属于该次调用，完成后不得影响另一条 invocation。
+- 核实：`profile-signal-probes.ts signal-after-done` 首次调用正常完成，第二次不带 signal 并等待审批；随后 abort 首次调用的 controller，第二次 done 变 aborted，日志阶段 `[start,end,start,waiting,aborted]`。
+- 原因：once 监听只有在触发后消失，调用结束时未 removeEventListener，回调又调用句柄级 abort 而未绑定 invocation 身份。
+- 改法：保存并在所有收口路径释放监听，同时检查仍是该次调用；避免延迟信号越过调用边界。
+### 12. 重要｜正确性：非法的 details/preserveData 绕过方法级校验，阻止后续压缩方法
+
+- 位置：`packages/nb-harness/src/compaction/run.ts:13-20,69-76`；条目最终校验在 `packages/nb-harness/src/session/entries.ts:128-166,65-69`。
+- 合同：`harness.compaction` 输出 4 要求胜出方法的结果形状不合规时记为该方法失败并继续换下一个；`CompactionOutput.details` 必须是 `JsonValue`，`preserveData` 必须是字符串键到 `JsonValue` 的对象。输出 5 规定只有合法批次才进入日志。
+- 核实：`compaction-output-probe.ts` 通过公开 `compactSession`、真实内存 `SessionLog` 和真实 `append`，先注册返回 `details: () => undefined` 或 `preserveData: null` 的 `bad`，再注册合法 `good`。两次结果分别为 `log-failed`，detail 为 `invalid-entry：/details/：function 不能用 JSON 表示` 与 `invalid-entry：/preserveData：must be object`，`good` 没有被尝试，日志条目仍为 2。
+- 原因：`outputProblem()` 只检查 summary、切点、tokensBefore、shortSummary；`compactionEntry()` 原样把这两个字段交给日志，失败发生在方法已经被当作胜出之后。
+- 改法：在 `outputProblem()` 中递归校验 JSON 可表示性、`details` 的 JsonValue 形状和 `preserveData` 的普通对象及值，校验失败追加 attempts 并继续下一个方法；仍保留日志层的最终防线。
+
+
+
+## 归类
+
+- **T14 新问题**：第 1–11 条，分别覆盖异步受理占用、手动/自动压缩与调用并发、Profile 选择提交、恢复执行与审批竞争、refresh 错误传播、刷新后的 System 同步、prepare 中止和调用信号监听寿命。
+- **T13 新问题**：第 12 条，覆盖 `CompactionOutput.details` 与 `preserveData` 的方法级 JSON 形状校验及失败回退。
+- **前轮已知、未重复计数**：t09/t11 审查中关于 SessionStore 路径与跨条目校验、凭据入口与环境变量、模型目录和配置边界的问题只作为背景依据；本报告没有把它们重新算作 T13/T14 发现，也没有在本轮声称它们已修复。
+
+## 未发现问题的方面
+
+- **T13**：注册表内置 `soft`、重复 id/dispose、方法顺序和未知方法、`applicable`/`run` 的异常回退、摘要基础字段校验、一次批量追加、追加失败不留条目、取消、阈值边界、设置缺省与冻结，以及 OMP 本地压缩关闭远程路径均与合同测试和源码一致。
+- **T14**：常规单调用的 start 到输入/工具/终态写入顺序、steer/follow-up 队列、模型错误与 `continue`、`maxTurns`、日志失败关闭、常规审批与多事项应答、运行中/等待中 abort、等待审批 close、事件序号和公开字段注册均在已运行测试覆盖范围内未见新的问题。
+- **相邻合同**：Profile 自身 prepare/refresh 的取消和 source failure 结果、SessionLog 的串行追加与失败收口、OMP `Agent` 的模型调用 hook 和工具结果 sink 已通过源码与现有合同测试核对；问题集中在 runtime 的装配和生命周期桥接。
+
+## 数量
+
+- 阻断：2
+- 重要：10
+- 建议：0
+
+## 待确认决定收口
+
+`pending-confirmations.md` 的表格实际有 7 条记录；最后一条包含 `maxTurns`、事件是否缓冲、审批模型 interaction 记录 3 个子决定，因此不是摘要中所称的“五项”。按原表逐条判断如下：
+
+1. **t09：JSONL create 写头失败后的 best-effort 删除：接受取舍。** 这是 t09 的存储原子性取舍，不是 T13/T14 新行为；本轮不重新计数。当前审查仅将其作为前轮决定读取，未对失败文件清理做新的实验。
+2. **t11：config/models 拆成两份 Spec、models 仅 type-import config：接受。** 模块边界和依赖方向清晰，T13/T14 runtime 通过公开 catalog/config 合同使用它们；拆分本身未产生本轮问题。
+3. **t11：不走 OMP `getApiKey`，隔离环境变量：接受，且当前实现已采用存储专用读取。** `credentials.ts` 直接读取存储 API key，OAuth 使用 `getOAuthAccess`；这项决定不计入本轮问题。
+4. **t11：接受 SQLite 内部损坏由 OMP 自动备份并恢复为空库：接受。** 当前实现另行拒绝非 SQLite 文件头，内部损坏沿用 OMP 恢复；本轮没有把该历史取舍重复算入 runtime 问题。
+5. **t13：`soft` 使用 OMP `compact` 而不是只调用 `generateSummary`：接受。** 当前 `soft.ts` 使用 `prepareCompaction`/`compact`，并固定关闭 remote/native compression；与已定决定一致。
+6. **t14：上下文溢出以 `failed(overflow: true)` 收口，不自动压缩重试：接受。** 当前 `#classify` 根据 OMP 的 overflow 归类写 error，使用方再显式 `compact()` 与 `continue()`；本轮未把不自动重试视为缺陷。
+7. **t14：`maxTurns` 放在 `RuntimeDeps.limits`、事件不缓冲不补发、审批模型判定写两条 interaction：均接受。** 当前公开类型和实现分别采用 `limits.maxTurns`、订阅后事件直发、approver request/response 两条日志记录；这三个子决定按一条原表记录收口。
+
+## 验证记录
+
+- 合同测试：在 `packages/nb-harness` 执行 `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t13-t14/lab NBOOK_LLM_TESTS=0 bun test`，结果 `171 pass`、`3 skip`、`0 fail`、`1115 expect() calls`，共 174 个测试、26 个文件。
+- 类型检查：在同一目录执行 `bun run typecheck`，`tsc --noEmit` 成功。
+- T14 公开运行时实验：`bun lab/runtime-probes.ts` 分支 `concurrent-prompt`、`concurrent-compact`、`auto-entries`、`abort-after-completed`、`failed-profile-selection`、`recovered-abort`、`recovered-concurrent-resolve` 均按报告对应现象返回；实验使用真实 runtime、SessionLog、Profile、SQLite credentials、工具包装和 OMP Agent，只脚本化模型传输。
+- Profile 与信号实验：`bun lab/profile-signal-probes.ts` 分支 `refresh-failed`、`refresh-system`、`abort-prepare`、`signal-after-done` 均按报告对应现象返回；数据源由真实 ProfileHost 注册并执行。
+- T13 输出实验：在报告 `lab/` 目录执行 `bun ./compaction-output-probe.ts`；非法 `details` 与 `preserveData` 两个场景都返回 `log-failed`，合法后备方法未被尝试，日志条目数保持 2。
+- OMP 机制核对：读取 worktree `node_modules/@oh-my-pi/pi-agent-core/src/agent.ts`、`agent-loop.ts`、`compaction/compaction.ts` 及 Profile/工具/Session 实现；确认 Agent 本轮 context 建立、before-model-call 同步、abort、恢复工具 signal 和 compaction 输出字段的实际顺序。
+
+## 覆盖矩阵与未验证边界
+
+- 已覆盖：T13 注册/选择/回退/输出基础校验/批量写入/取消/阈值/设置/OMP soft；T14 受理失败与成功、写入顺序、队列、审批、运行中止、关闭、终态分类、继续、恢复、手动和自动压缩、Profile prepare/refresh 装配。
+- 已由实验补足但现有测试未覆盖：异步受理竞争、压缩互斥、自动压缩结果归属、自动压缩中止、失败 Profile 提交、恢复工具信号与迟到写入、并发 resolve、refresh 失败传播、刷新 System 的同轮传输、prepare 中止和旧 signal 泄漏、非法 compaction payload 回退。
+- 未运行：真实模型/真实 provider 网络调用、`test:llm`、e2e、开发服务和交互式 OAuth；这些不是本次允许的验证项，不能从上述结果推断通过。
+- 未验证：跨进程同时操作同一 runtime 句柄之外的协调策略、OMP 升级后的 API/时序变化、真实 provider 对刷新 System 和中止传播的额外行为、文件系统极端故障下自动压缩尾段的恢复；这些不改变已核实的公开 API 结果。
+
+## 仓库状态
+
+- 本轮没有修改 worktree 内仓库文件，没有 commit、push、stash、切分支、安装依赖或运行真实模型。
+- 实验脚本和本报告只写入指定外部 scratchpad；报告中的问题均为只读审查发现，未直接修复。
