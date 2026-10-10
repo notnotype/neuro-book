@@ -11,7 +11,11 @@
         ".": "./src/prototype/index.ts",
         "./testing": "./src/prototype/testing/index.ts",
         "./session": "./src/session/session.ts",
-        "./session/jsonl": "./src/session/jsonl/jsonl.ts"
+        "./session/jsonl": "./src/session/jsonl/jsonl.ts",
+        "./profile": "./src/profile/profile.ts",
+        "./profile/jsx-runtime": "./src/profile/jsx-runtime.ts",
+        "./profile/jsx-dev-runtime": "./src/profile/jsx-dev-runtime.ts",
+        "./profile/loader": "./src/profile/loader/loader.ts"
     },
     "scripts": {
         "test": "bun test",

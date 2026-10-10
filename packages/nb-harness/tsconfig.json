@@ -4,6 +4,8 @@
         "module": "ESNext",
         "moduleResolution": "bundler",
         "lib": ["ES2022"],
+        "jsx": "react-jsx",
+        "jsxImportSource": "@notnotype/nb-harness/profile",
         "types": ["bun", "node"],
         "strict": true,
         "noEmit": true,
