@@ -88,7 +88,7 @@ const htmlTheme = (page: Page) => page.evaluate(() => document.documentElement.d
 const labPanelHeads = (page: Page) => page.locator(".lab-columns > .nb-lab-panel .nb-lab-panel-head");
 const treeItem = (page: Page, name: string) => page.locator('.lab-columns > .nb-lab-panel--nav [role="treeitem"]').filter({hasText: new RegExp(`^${name}$`, "u")});
 
-test("打开 Lab：组件树、画布与四个检视面板；地址参数直达；只发引导一个接口请求，不写浏览器存储（场景 1、13）", async ({page}) => {
+test("打开 Lab：组件树、画布与五个检视面板；地址参数直达；只发引导一个接口请求，不写浏览器存储（场景 1、13）", async ({page}) => {
     const problems = watchConsole(page);
     const apiRequests: string[] = [];
     page.on("request", (request) => {
@@ -103,7 +103,7 @@ test("打开 Lab：组件树、画布与四个检视面板；地址参数直达�
     expect(recordValue()).toEqual({});
     await expect(page.getByText("read_file").first()).toBeVisible();
     await expect(page.locator('[aria-label="主题"]')).toHaveCount(1);
-    for (const tab of ["文档", "元素", "事件", "数据"]) {
+    for (const tab of ["文档", "元素", "事件", "变量", "数据"]) {
         await page.locator('[role="tab"]').filter({hasText: tab}).click();
         await expect(page.locator("[data-lab-panel]")).toHaveCount(1);
     }
@@ -385,6 +385,56 @@ test("对话框类浮层在手机画布里打开：落在画布里、按画布�
     expect(dialog.x).toBeGreaterThanOrEqual(box.x);
     expect(dialog.x + dialog.width).toBeLessThanOrEqual(box.x + box.width);
     expect(Math.abs((dialog.x + dialog.width / 2) - (box.x + box.width / 2))).toBeLessThanOrEqual(1);
+    expect(problems).toEqual([]);
+});
+
+test("变量页签：覆盖一个变量立即生效，导出、全部清除、再导入，刷新后消失；元素页签给出结构检查与读数（场景 23）", async ({page}) => {
+    const problems = watchConsole(page);
+    await page.setViewportSize({width: 1600, height: 1000});
+    await openLab(page, "?c=Button&s=primary&tab=variables");
+    await expect(page.locator('[data-lab-panel="variables"]')).toBeVisible();
+    const accent = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent-main").trim());
+    const original = await accent();
+    const input = page.getByRole("textbox", {name: "--accent-main 覆盖值"});
+    await input.fill("rgb(255, 0, 0)");
+    await input.press("Enter");
+    await expect.poll(accent).toBe("rgb(255, 0, 0)");
+    await expect(page.locator("[data-lab-override-count]")).toHaveText("1 项覆盖");
+
+    const download = page.waitForEvent("download");
+    await page.locator('[data-lab-panel="variables"] button').filter({hasText: /^导出$/u}).click();
+    const file = join(tmp, "overrides.json");
+    await (await download).saveAs(file);
+    await page.locator('[data-lab-panel="variables"] button').filter({hasText: /^全部清除$/u}).click();
+    await expect.poll(accent).toBe(original);
+    // 导入是整份替换：导入前另有的覆盖被换掉，不是合并。
+    const radius = page.getByRole("textbox", {name: "--radius-control 覆盖值"});
+    await radius.fill("3px");
+    await radius.press("Enter");
+    await expect(page.locator("[data-lab-override-count]")).toHaveText("1 项覆盖");
+    await page.locator("[data-lab-override-file]").setInputFiles(file);
+    await expect(page.locator("[data-lab-override-status]")).toHaveText("已导入 1 项覆盖");
+    await expect.poll(accent).toBe("rgb(255, 0, 0)");
+    await expect(page.locator("[data-lab-override-count]")).toHaveText("1 项覆盖");
+    await expect(radius).toHaveValue("");
+
+    // 不合法的值不生效，原因写在面板上，已有覆盖不变。
+    await input.fill("red; color: blue");
+    await input.press("Enter");
+    await expect(page.locator("[data-lab-override-status]")).toContainText("规则边界");
+    await expect.poll(accent).toBe("rgb(255, 0, 0)");
+
+    await page.reload();
+    await expect.poll(async () => (await labState(page))?.ready).toBe(true);
+    await expect.poll(accent).toBe(original);
+    await expect(page.locator("[data-lab-override-count]")).toHaveText("0 项覆盖");
+
+    await page.locator("button").filter({hasText: "检查"}).click();
+    await page.locator(".lab-main [data-lab-subject]").first().click();
+    const checks = page.locator("[data-lab-checks]");
+    await expect(checks).toBeVisible();
+    await expect(checks.locator('[data-pass="true"]').filter({hasText: "可访问名称"})).toHaveCount(1);
+    await expect(page.locator('[data-lab-readout="aria"]')).toContainText("button");
     expect(problems).toEqual([]);
 });
 

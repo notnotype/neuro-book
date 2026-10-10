@@ -55,7 +55,7 @@ export function parseLabUrl(search: string, colorways: Record<string, {appearanc
 }
 
 /** 检视面板的 tab；`doc` 是缺省。 */
-export const LAB_INSPECT_TABS = ["doc", "element", "events", "data"] as const;
+export const LAB_INSPECT_TABS = ["doc", "element", "events", "data", "variables"] as const;
 
 /** 标签页的会话状态：全部来自地址栏。 */
 export type LabSession = {

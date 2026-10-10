@@ -25,6 +25,10 @@ import type {LabEventEntry} from "./components/event-log.types";
 import type {HighlightRect} from "./components/highlight-box.types";
 import type {InspectedNode} from "./inspect";
 import {describeNode, nodeLabel} from "./inspect";
+import {inspectElement} from "./inspect-checks";
+import type {LabInspection} from "./inspect-checks";
+import {labTokenGroups} from "./lab-tokens";
+import {useLabOverrides} from "./use-lab-overrides";
 import {clearLabWallpaper, loadLabWallpaper, saveLabWallpaper} from "./lab-wallpaper-store";
 import {useLabPreferences} from "./use-lab-preferences";
 import {useLabLayout, LAB_PANEL_DEFAULT_WIDTH} from "./use-lab-layout";
@@ -352,6 +356,33 @@ const hoverRect = ref<HighlightRect | null>(null);
 const hoverLabel = ref("");
 
 const {rect: pickedRect, track: trackPicked, measure: measurePicked} = useElementRect();
+/** 选中的元素本身：结构检查要读它的属性与计算样式；换场景后它就不在了（见 clearPicked 的调用方）。 */
+let pickedElement: HTMLElement | null = null;
+const inspection = ref<LabInspection | null>(null);
+
+function refreshInspection(): void {
+    inspection.value = pickedElement === null || !pickedElement.isConnected
+        ? null
+        : inspectElement(pickedElement, document.querySelector<HTMLElement>(".lab-main .nb-lab-stage-box"));
+}
+
+// ——— 变量页签：覆盖层与取值采样 ———
+const tokenGroups = labTokenGroups();
+const tokenNames = new Set(tokenGroups.flatMap((group) => group.tokens));
+const overrideLayer = useLabOverrides(() => tokenNames);
+const resolvedTokens = ref<Record<string, string>>({});
+
+/** 读每个变量此刻在文档根上的计算值；只在变量页签打开时读，变量有上百个。 */
+function sampleTokens(): void {
+    if (rightTab.value !== "variables") return;
+    const styles = getComputedStyle(document.documentElement);
+    resolvedTokens.value = Object.fromEntries([...tokenNames].map((name) => [name, styles.getPropertyValue(name).trim()]));
+}
+
+// 换主题、换配色、改覆盖之后取值都会变；post：等主题写到文档根上再读。
+watch([rightTab, labThemeId, labColorwayId, overrideLayer.overrides], () => {
+    void nextTick(sampleTokens);
+}, {deep: true, flush: "post"});
 
 const selectionLabel = computed(() => (picked.value === null ? "" : nodeLabel(picked.value)));
 
@@ -393,6 +424,8 @@ function handleInspectCapture(event: MouseEvent): void {
         return;
     }
     picked.value = describeNode(element);
+    pickedElement = element;
+    refreshInspection();
     trackPicked(element);
     rightTab.value = "element";
     // 与 devtools 一致：选中一个就退出取色，不然移开鼠标又变成别的元素
@@ -407,6 +440,8 @@ function stopInspect(): void {
 
 function clearPicked(): void {
     picked.value = null;
+    pickedElement = null;
+    inspection.value = null;
     trackPicked(null);
 }
 
@@ -598,7 +633,10 @@ watch([fixtureComponent, selectedScene], () => {
 });
 // 调试输入变更可能推动所选零件的位置或尺寸。
 watch([sceneInput, canvasWidth, canvasHeight], () => {
-    void nextTick(measurePicked);
+    void nextTick(() => {
+        measurePicked();
+        refreshInspection();
+    });
 }, {deep: true});
 </script>
 
@@ -917,6 +955,16 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
                 @reset-input="resetScene"
                 @edit-input="editInputLayer"
                 @set-slot="setSlotPreset"
+                :inspection="inspection"
+                :token-groups="tokenGroups"
+                :resolved-tokens="resolvedTokens"
+                :overrides="overrideLayer.overrides.value"
+                :override-count="overrideLayer.count.value"
+                :on-override-set="overrideLayer.set"
+                :on-override-reset="overrideLayer.reset"
+                :on-override-reset-all="overrideLayer.resetAll"
+                :on-override-import="overrideLayer.importSnapshot"
+                :on-override-export="overrideLayer.exportSnapshot"
             />
         </div>
 

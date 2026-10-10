@@ -563,3 +563,28 @@
     font-family: var(--font-mono);
 }
 
+
+/* 元素页签的结构检查：一项一行，图形 + 名称 + 说明（说明截断，悬停看全文）。 */
+.lab-checks {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin: 0 0 var(--space-3);
+    padding: 0;
+    list-style: none;
+}
+
+.lab-check {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
+}
+
+.lab-check-swatch {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    border-radius: 3px;
+    border: var(--border-w) solid var(--divider);
+}

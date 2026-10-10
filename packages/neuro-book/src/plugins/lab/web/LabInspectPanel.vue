@@ -17,6 +17,9 @@ import type {LabEventEntry} from "./components/event-log.types";
 import type {LabComponentEntry} from "./component-index";
 import {INSPECT_CLASS_LIMIT, nodeReport} from "./inspect";
 import type {InspectedNode} from "./inspect";
+import type {LabInspection} from "./inspect-checks";
+import type {LabTokenGroup} from "./lab-tokens";
+import LabVariablesPanel from "./LabVariablesPanel.vue";
 import type {LabSceneInput} from "./lab-subject";
 
 const props = defineProps<{
@@ -33,6 +36,18 @@ const props = defineProps<{
     inputEditError: string;
     /** fixture 声明没有可编辑输入的理由；有输入时为 undefined。 */
     noInput: string | undefined;
+    /** 选中元素的结构检查与计算样式读数；没有选中时为 null。 */
+    inspection: LabInspection | null;
+    // 变量页签：覆盖由 LabShell 持有；操作是函数，要拿到同步的返回值与异常（见 LabVariablesPanel）。
+    tokenGroups: readonly LabTokenGroup[];
+    resolvedTokens: Readonly<Record<string, string>>;
+    overrides: Readonly<Record<string, string>>;
+    overrideCount: number;
+    onOverrideSet: (name: string, value: string) => void;
+    onOverrideReset: (name: string) => void;
+    onOverrideResetAll: () => void;
+    onOverrideImport: (raw: string) => number;
+    onOverrideExport: () => string;
 }>();
 
 const tab = defineModel<string>("tab", {required: true});
@@ -51,6 +66,7 @@ const tabItems = computed<TabsItem[]>(() => [
     {value: "element", label: "元素"},
     {value: "events", label: "事件", count: props.events.length},
     {value: "data", label: "数据"},
+    {value: "variables", label: "变量", ...(props.overrideCount > 0 ? {count: props.overrideCount} : {})},
 ]);
 
 const copied = ref(false);
@@ -158,6 +174,29 @@ onBeforeUnmount(() => {
                             </button>
                             <button type="button" class="lab-btn" @click="emit('clear-picked')">取消选中</button>
                         </div>
+
+                        <template v-if="inspection !== null">
+                            <p class="lab-panel-label">结构检查</p>
+                            <ul class="lab-checks" data-lab-checks>
+                                <li v-for="check in inspection.checks" :key="check.label" class="lab-check" :data-pass="check.pass">
+                                    <span :class="check.pass ? 'i-lucide-circle-check text-[var(--status-success)]' : 'i-lucide-circle-x text-[var(--status-danger)]'" class="h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
+                                    <span class="shrink-0">{{ check.label }}</span>
+                                    <span class="lab-note min-w-0 truncate" :title="check.detail">{{ check.detail }}</span>
+                                </li>
+                            </ul>
+                            <template v-for="group in inspection.groups" :key="group.id">
+                                <p class="lab-panel-label">{{ group.label }}</p>
+                                <dl class="lab-meta lab-meta--flush" :data-lab-readout="group.id">
+                                    <div v-for="item in group.items" :key="item.label" class="lab-meta-row">
+                                        <dt class="lab-meta-key">{{ item.label }}</dt>
+                                        <dd class="flex min-w-0 items-center gap-[var(--space-2)] break-all font-mono text-[11px]">
+                                            <span v-if="item.swatch" class="lab-check-swatch" :style="{background: item.swatch}" aria-hidden="true"></span>
+                                            {{ item.value }}
+                                        </dd>
+                                    </div>
+                                </dl>
+                            </template>
+                        </template>
                     </template>
                     <p v-else class="lab-note">
                         点上面的「检查」，再点界面上任意位置——组件、源文件与选择器会落在这里，可以复制。
@@ -248,6 +287,20 @@ onBeforeUnmount(() => {
                         <JsonViewer :value="fixtureState" :read-only="true" :max-height="260" />
                     </section>
                 </div>
+
+                <LabVariablesPanel
+                    v-else-if="tab === 'variables'"
+                    data-lab-panel="variables"
+                    :groups="tokenGroups"
+                    :resolved="resolvedTokens"
+                    :overrides="overrides"
+                    :count="overrideCount"
+                    :on-set="onOverrideSet"
+                    :on-reset="onOverrideReset"
+                    :on-reset-all="onOverrideResetAll"
+                    :on-import="onOverrideImport"
+                    :on-export="onOverrideExport"
+                />
             </div>
         </div>
     </CollapsibleSidePanel>

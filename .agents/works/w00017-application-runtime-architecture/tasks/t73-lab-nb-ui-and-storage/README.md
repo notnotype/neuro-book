@@ -36,6 +36,10 @@ taskId: t73-lab-nb-ui-and-storage
     - 越界报告多为测量误报（读屏播报区、视觉隐藏的 input），Lab 的测量改为跳过看不见的元素，e2e 补了用例；
     - 真实问题只有 Collapsible：内容区向外扩 6px，在贴边容器里造成 6px 横向溢出。这是保护焦点光环的设计取舍，写进组件文档。
   - **验证**：nb-ui 与 neuro-book 的 typecheck、`build` 与 `check:dist`、Lab 的 Bun 37 例、Vitest 27 例、e2e `lab.e2e.ts` 与 `lab-shot.e2e.ts` 11 例，全部通过。变异 6 个全杀。
+- 2026-10-10 S5 第一部分完成（变量页签与结构检查）：
+  - **变量页签**：从 playground Lab 迁入。覆盖集的校验与快照（`lab-overrides.ts`，快照格式不变，旧文件可导入）、变量分组从 nb-ui 公开入口取（`lab-tokens.ts`）、覆盖层只在内存（`use-lab-overrides.ts`，不写浏览器存储，刷新后消失）、面板 `LabVariablesPanel.vue`。地址栏的 `tab` 参数多了 `variables`。
+  - **结构检查**：迁入元素页签（`inspect-checks.ts`）。旧的“invalid 语义”检查依赖 playground 场景上的标记，新 Lab 没有，不迁；“预览边界”改为“画布边界”，不在画布里的元素不判。读数里的 role 补上原生元素的隐式角色（迁移时发现原生 `<button>` 显示为“—”）。
+  - **验证**：typecheck；Lab Bun 43 例、Vitest 34 例；`lab.e2e.ts` 新增场景 23；全部 Lab e2e 31 例通过。变异 4 个全杀；其中“导入时合并而不是替换”第一次活了下来，原因是用例导入前刚清空，补了“导入前另有覆盖”的步骤后杀死。
 - 2026-10-10 S4 完成：
   - **拆分**：`LabShell.vue` 从 2045 行降到约 930 行。顶栏 `LabToolbar.vue`、左栏 `LabNavPanel.vue`、右栏 `LabInspectPanel.vue` 只呈现与转发，各带同名 `.md`；侧栏布局在 `use-lab-layout.ts`；样式移到不 scoped 的 `lab-shell.css`，几个外壳零件共用。画布那一条工具条（场景、尺寸、缩放、画布底）与舞台连得紧，留在 LabShell，与计划表里“工具条含场景与画布”不同。
   - **拆分后的样式对照**：在开发服务上把改动的文件临时换回 HEAD，对 Lab 外壳每个元素记录 16 项计算样式与位置，两种窗口宽度各一份。对照抓到一处回归：直接在窄屏打开时，偏好里展开的侧栏盖掉了自动收起（偏好改成异步读取后时序变了）。已修：偏好放进界面之后按窗口宽度再收一次；`lab.e2e.ts` 补了直接窄屏打开的断言，变异检查确认能拦下。另一处是减少动态的规则：原来写在 LabShell 的 scoped 样式里，改成全局后优先级不够、被 `CollapsibleSidePanel` 自己的转场盖掉，挪进了该组件。修完后外壳样式前后一致，只有舞台里第三方 JSON 编辑器的内部高度稳定多出 1px，原因没有查到，不影响外壳。
