@@ -19,6 +19,7 @@
 - [插件的数据与状态](plugin-data-model.md)：插件数据的归位判据、插件状态 store、公开状态与 `when`、Storage 与配置的归属与读写规则。
 - [规格驱动开发：文档分工与 Spec 写法](spec-and-docs-governance.md)：各类文档的分工与寿命、Spec 写什么不写什么、提案与 ADR 的 frontmatter 与机检、规格驱动与验收先行的开发方式。
 - [Storage 跨设备同步](storage-service-and-sync.md)：跨独立 data 在线同步的身份对齐、复制确认、冲突与删除收敛。
+- [书架页](bookshelf.md)：没打开项目时的首页，继续写作与书脊书架，作品信息与统计的来源。
 
 ### 旧应用的提案（只作参照）
 
