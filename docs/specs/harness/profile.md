@@ -34,7 +34,10 @@ owners:
 - **种子**：`History` 的子节点渲染出的消息；新会话开始时写进会话，每次压缩后再写一次（标了 `once` 的除外）。会话中的形状见 [`harness.session`](session.md)。
 - **追加消息**：`Appending` 渲染出的消息；调用开始时写进会话，之后是历史的一部分。
 - **请求消息**：`History`、`Appending` 之外、直接放在 `Prompt` 下的消息，只用于本次请求，不写进会话。
-- **轮**：从一条用户消息开始、到下一条用户消息之前的消息；第一条用户消息之前的消息算作第一轮。
+- **历史**：调用方从会话条目回放出的 `Message[]`，包括本次调用已经写入的追加消息与 ReAct 循环中的助手消息、工具结果。循环中的消息由 runtime 直接写进会话，不经过 `Appending`。
+- **本次调用的消息**：历史中从本次调用的第一条追加消息起到末尾的部分，调用方以下标 `invocationStart` 指明。
+- **用户发出的消息**：`role: "user"`、`attribution` 不是 `"agent"`、`synthetic` 不为真的消息。种子、提醒与压缩摘要回放后都带 `attribution: "agent"`（见 [`harness.session`](session.md) 输出 12），不算用户发出的消息。
+- **轮**：从一条用户发出的消息开始、到下一条用户发出的消息之前的消息；第一条之前的消息算作第一轮。与 `harness.session` 的“轮”划分相同。
 
 ## 输入与前置条件
 
@@ -91,11 +94,12 @@ type PromptContext = {
 | `Prompt` | 布局（根） | 只能是根 | `System`、`History`（布局形式）、`Appending`、消息节点、`Fragment` |
 | `System` | 布局 | `Prompt` | 文本、内容节点；只能是文字 |
 | `History`（布局形式） | 布局 | `Prompt`；可以有多个，也可以没有 | 种子：消息节点（可带 `once`）；属性 `last?: number`（只取最后几轮）。最多一个 `History` 有子节点 |
-| `History`（文本形式，`as="text"`） | 内容 | 消息节点内 | 无子节点；属性 `last?: number`；把历史渲染成一段文字 |
-| `Appending` | 布局 | `Prompt`，最多一个 | 消息节点、`Reminder`、`Input`；`Input` 至多一个 |
+| `History`（文本形式，`as="text"`） | 内容 | 只能在请求消息（直接放在 `Prompt` 下的消息节点）内 | 无子节点；属性 `last?: number`；把本次调用之前的历史渲染成一段文字 |
+| `Appending` | 布局 | `Prompt`，最多一个 | 消息节点、有状态节点、`Input`；`Input` 至多一个 |
 | `Input` | 布局 | 只能在 `Appending` | 无 |
-| `User`、`Assistant`、`Developer` | 消息 | `Prompt`、`History`（种子）、`Appending` | 文本、内容节点；`Image` 只能放在 `User` 里 |
-| `Reminder` | 有状态 | 只能在 `Appending` | 文本、内容节点；属性 `id`（必填，Profile 内唯一）、`when?: boolean`、`every?: number`、`watch?: JsonValue`、`once?: boolean` |
+| `User`、`Developer` | 消息 | `Prompt`、`History`（种子）、`Appending` | 文本、内容节点；`Image` 只能放在 `User` 里 |
+| `Assistant` | 消息 | `Prompt`、`Appending` | 文本、内容节点 |
+| `Reminder` | 有状态 | 只能在 `Appending` | 文本、内容节点；属性 `id`（必填）、`when?: boolean`、`every?: number`、`watch?: JsonValue`、`once?: boolean` |
 | `Tag` | 内容（块级） | 消息节点、`System`、`Reminder` | 文本、内容节点；属性 `name`（`[a-z][a-z0-9-]*`） |
 | `Image` | 内容 | `User` | 无；属性为图片数据（MIME 类型与 base64）或读取图片的数据源 |
 | `Fragment` | 结构 | 任意位置 | 与它所在的父节点相同 |
@@ -109,59 +113,75 @@ type PromptContext = {
 // 公开入口 @notnotype/nb-harness/profile
 createProfileHost(): ProfileHost;                  // 已注册内置的消息、内容与有状态节点
 interface ProfileHost {
-    registerNodeType(definition: NodeTypeDefinition): Result<{dispose(): void}>;
-    registerSource(definition: SourceDefinition): Result<{dispose(): void}>;
-    registerField(definition: FieldDefinition): Result<{dispose(): void}>;
-    prepare(profile: Profile, input: {context: PromptContext; signal?: AbortSignal}): Promise<Result<PreparedProfile>>;
+    registerNodeType(definition: NodeTypeDefinition): ProfileResult<{dispose(): void}>;
+    registerSource(definition: SourceDefinition): ProfileResult<{dispose(): void}>;
+    registerField(definition: FieldDefinition): ProfileResult<{dispose(): void}>;
+    prepare(profile: Profile, input: {context: PromptContext; signal?: AbortSignal}): Promise<ProfileResult<PreparedProfile>>;
+    refresh(prepared: PreparedProfile, input: {signal?: AbortSignal}): Promise<ProfileResult<PreparedProfile>>;
     renderSeeds(prepared: PreparedProfile, occasion: "new-session" | "after-compaction"): SeedOutput;
     renderAppending(prepared: PreparedProfile, input: {input: UserInput; state: ProfileState}): AppendingOutput;
-    renderRequest(prepared: PreparedProfile, input: {history: readonly Message[]}): RequestOutput;
+    renderRequest(prepared: PreparedProfile, input: {history: readonly Message[]; invocationStart: number}): RequestOutput;
     renderSystem(prepared: PreparedProfile): {systemPrompt: string[]};
 }
+type ProfileNode = {type: string; props: Readonly<Record<string, unknown>>; children: readonly ProfileChild[]};
+type ProfileChild = ProfileNode | string | null;
+type RenderContext = {prompt: PromptContext; sources: Readonly<Record<string, unknown>>};   // 只含本节点声明的数据源
 type NodeTypeDefinition = {
     id: string;                                     // <命名空间>/<名称>
-    category: "message" | "content" | "stateful";
     props: TSchema;
     parents: readonly string[];                     // 可以放在哪些节点类型里
     children: "none" | "content" | readonly string[];
     sources?: readonly string[];                    // 依赖的数据源 id
-    render: (node, context) => 节点或消息或文本;     // 形状按类别，纯函数
-};
-type SourceDefinition = {id: string; schema: TSchema; phase: "invocation" | "model-call"; resolve(request, signal): Promise<unknown>};
+} & (
+    | {category: "message"; role: "user" | "developer" | "assistant"}                           // 内容是子节点渲染出的文字与图片
+    | {category: "content"; layout?: "inline" | "block";                                        // 缺省 inline
+       render(node: ProfileNode, context: RenderContext): ProfileChild}
+    | {category: "stateful";                                                                    // props 必须含 id: string
+       render(node: ProfileNode, context: RenderContext & {state: JsonValue | undefined}): {content: ProfileChild; state: JsonValue}}
+);
+type SourceDefinition = {id: string; schema: TSchema; phase: "invocation" | "model-call";
+    resolve(request: {prompt: PromptContext}, signal: AbortSignal): Promise<unknown>};
 type FieldDefinition = {id: string; schema: TSchema};
+type ProfileState = {[statefulNodeId: string]: JsonValue};
 type SeedOutput = {messages: {message: Message; once: boolean}[]; diagnostics: Diagnostic[]};
 type AppendingOutput = {messages: AppendedMessage[]; state: ProfileState; diagnostics: Diagnostic[]};
 type AppendedMessage = {kind: "input" | "message" | "reminder"; message: Message};
 type RequestOutput = {systemPrompt: string[]; messages: Message[]; diagnostics: Diagnostic[]};
 type Diagnostic = {severity: "error" | "warning"; code: ProfileIssue; path: string; detail: string};
+type ProfileResult<T> = {ok: true; value: T} | {ok: false; code: ProfileFailure; detail: string; diagnostics: Diagnostic[]};
+type ProfileFailure = "duplicate-registration" | "reserved-node" | "invalid-definition" | "invalid-prompt" | "cancelled"
+    | "module-load-failed" | "invalid-profile";
+type ProfileIssue = "unknown-node" | "invalid-props" | "invalid-parent" | "invalid-child" | "duplicate-state-id"
+    | "multiple-seeded-history" | "multiple-appending" | "multiple-input" | "image-not-allowed" | "unknown-field"
+    | "invalid-field" | "unknown-source" | "source-failed" | "cache-unfriendly" | "invalid-invocation-start";
 
 // 子入口 @notnotype/nb-harness/profile/loader（会执行模块代码）
-loadProfile(path: string): Promise<Result<Profile>>;
-profileFromModule(module: unknown, label?: string): Result<Profile>;
+loadProfile(path: string): Promise<ProfileResult<Profile>>;
+profileFromModule(module: unknown, label?: string): ProfileResult<Profile>;
 
 // 目录
 createProfileCatalog(groups: readonly {source: string; profiles: readonly Profile[]}[]): ProfileCatalog;
 interface ProfileCatalog { list(): Profile[]; get(id: string): Profile | undefined; readonly issues: Diagnostic[] }
 ```
 
-`Message`、`TextContent`、`ImageContent` 是 `@oh-my-pi/pi-ai` 的类型；`Result` 与 `JsonValue` 的写法同 [`harness.session`](session.md)；`ProfileState` 是可 JSON 表示的值，调用方原样保存、原样传回。
+`Message`、`TextContent`、`ImageContent` 是 `@oh-my-pi/pi-ai` 的类型；`JsonValue` 与 [`harness.session`](session.md) 的定义相同，本模块自己声明，不从 `session` 导入。`ProfileState` 按有状态节点的 `id` 记录各自的状态，调用方原样保存、原样传回；不认识的键原样保留。失败的 `diagnostics` 在 `invalid-prompt` 时逐条给出原因，其它失败码可以为空。
 
 ## 输出与可观察行为
 
 1. **注册**：注册成功返回可撤销的句柄；`dispose` 后该节点类型、数据源或字段不再可用，已经 `prepare` 的结果不受影响。同一主机内 id 重复为 `duplicate-registration`；注册布局节点或 `Fragment` 的 id 为 `reserved-node`；定义本身不合规则（id 格式、schema 不是对象等）为 `invalid-definition`。
-2. **准备**：`prepare` 调用提示词函数得到节点树，校验每个节点：类型已注册、props 符合 schema、所在父节点与子节点符合上表和注册声明、`Reminder` 的 `id` 不重复、最多一个 `History` 有子节点、最多一个 `Appending`、`Image` 只在 `User` 里、`System` 里只有文字。任一项不合规则，`prepare` 返回 `invalid-prompt`，诊断逐条给出代码与节点路径（例如 `Prompt>Appending>Reminder[0]`）。
+2. **准备**：`prepare` 调用提示词函数得到节点树，校验每个节点：类型已注册、props 符合 schema、所在父节点与子节点符合上表和注册声明、有状态节点只在 `Appending` 的子树里且 `id` 互不重复、种子只是 `User` 或 `Developer`、`History as="text"` 只在请求消息里、最多一个 `History` 有子节点、最多一个 `Appending`、`Image` 只在 `User` 里、`System` 里只有文字。任一项不合规则，`prepare` 返回 `invalid-prompt`，诊断逐条给出代码与节点路径（例如 `Prompt>Appending>Reminder[0]`）。
 3. **字段**：`fields` 里未注册的字段 id 产生 `unknown-field` 警告并被忽略；已注册字段的值不符合 schema 为 `invalid-prompt`（诊断 `invalid-field`）。
-4. **数据源**：`prepare` 收集节点树中所有节点声明的数据源，对时机为 `invocation` 的数据源各调用一次取数函数，取数结果按 schema 校验；时机为 `model-call` 的数据源在每次 `renderRequest` 前由调用方重新 `prepare` 取得。数据源未注册为 `unknown-source`，取数失败或结果不合 schema 为 `source-failed`，都使 `prepare` 返回 `invalid-prompt`。`signal` 中止时为 `cancelled`。
-5. **文本**：节点的文本由子节点按顺序拼接：相邻的字符串与行内节点直接相连；块级节点（`Tag`、注册为块级的内容节点）与前后内容之间空一行；整段首尾空白去掉，连续三个以上换行折叠为两个。`Tag name="x"` 的内容渲染为 `<x>\n内容\n</x>`。
+4. **数据源**：`prepare` 收集节点树中所有节点声明的数据源，各调用一次取数函数，取数结果按 schema 校验。`refresh` 只对时机为 `model-call` 的数据源重新取数，返回新的准备结果：节点树与 `invocation` 数据源的结果与传入的相同；没有 `model-call` 数据源时原样返回。数据源未注册为 `unknown-source`，取数失败或结果不合 schema 为 `source-failed`，都使 `prepare` 或 `refresh` 返回 `invalid-prompt`。`signal` 中止时为 `cancelled`。
+5. **文本**：节点的文本由子节点按顺序拼接：相邻的字符串与行内节点直接相连；块级节点（`Tag`、注册时 `layout: "block"` 的内容节点）与前后内容之间空一行；整段首尾空白去掉，连续三个以上换行折叠为两个。`Tag name="x"` 的内容渲染为 `<x>\n内容\n</x>`。
 6. **系统提示词**：`renderSystem` 与 `renderRequest` 的 `systemPrompt` 按文档顺序给出每个 `System` 的文本，空文本不列出。
-7. **请求消息序列**：`renderRequest` 按 `Prompt` 子节点的文档顺序排出消息：布局形式的 `History` 换成调用方给的 `history`（有 `last` 时只取最后几轮）；直接放在 `Prompt` 下的消息节点渲染为请求消息；`Appending` 与 `Input` 在这里不产生内容（追加消息已在调用方给的历史里）；种子不在这里产生。
-8. **种子**：`renderSeeds` 渲染那个有子节点的 `History` 的子节点：`new-session` 时全部渲染，`after-compaction` 时跳过 `once` 的；没有带子节点的 `History` 时返回空。
-9. **追加消息**：`renderAppending` 按文档顺序渲染 `Appending`：`Input` 的位置放本次用户输入（`kind: "input"`）；消息节点产生 `kind: "message"`；`Reminder` 满足触发条件时产生一条用户消息，内容用 `<system-reminder>\n…\n</system-reminder>` 包起来（`kind: "reminder"`）。`Appending` 里没有 `Input` 时，用户输入放在最后；Profile 没有 `Appending` 时只追加用户输入。
-10. **提醒的触发**：`Reminder` 的各个条件同时成立才出现：`when` 为真；`every` 时距离它上次出现已满 `every` 轮（从未出现过算满足）；`watch` 时其值与上次出现时不同（按 JSON 比较，第一次算不同）；`once` 时从未出现过。没有给任何条件时每次都出现。返回的 `state` 记录每个提醒最后出现的轮次与 `watch` 值；调用方保存后在下次调用时传回。
-11. **只读视图形式的 History**：`History as="text"` 把调用方给的历史渲染为文字：每条消息一段，以角色名开头，工具调用与结果写出工具名与文本内容，图片写成占位说明。
+7. **请求消息序列**：`renderRequest` 按 `Prompt` 子节点的文档顺序排出消息：布局形式的 `History` 换成调用方给的 `history`（有 `last` 时只取最后几轮）；直接放在 `Prompt` 下的消息节点渲染为请求消息；`Appending`、`Input` 与种子在这里不产生内容（它们已经写进会话，在 `history` 里）。Profile 没有布局形式的 `History` 时，请求的最后接上本次调用的消息（`history` 从 `invocationStart` 起的部分），所以不带历史的 Profile 仍能看到本次输入与本次调用中的工具往来。`invocationStart` 不在 `0` 到 `history.length` 之间时按 `history.length` 处理并给出 `invalid-invocation-start` 诊断。
+8. **种子**：`renderSeeds` 渲染那个有子节点的 `History` 的子节点：`new-session` 时全部渲染，`after-compaction` 时跳过 `once` 的；没有带子节点的 `History` 时返回空。种子的角色是节点的角色（`User` 或 `Developer`）。
+9. **追加消息**：`renderAppending` 按文档顺序渲染 `Appending`：`Input` 的位置放本次用户输入（`kind: "input"`）；消息节点产生 `kind: "message"`；`Reminder` 满足触发条件时产生一条用户消息，内容用 `<system-reminder>\n…\n</system-reminder>` 包起来（`kind: "reminder"`）；注册的有状态节点直接放在 `Appending` 下时，内容非空就产生一条用户消息（`kind: "message"`），放在消息节点里时是那条消息内容的一部分。`Appending` 里没有 `Input` 时，用户输入放在最后；Profile 没有 `Appending` 时只追加用户输入。
+10. **有状态节点与提醒的触发**：有状态节点的 `render` 收到 `state[id]`（没有记录时为 `undefined`），返回的新状态写进输出 `state` 的同一键；本次没有渲染到的节点，其旧状态原样保留。`Reminder` 的各个条件同时成立才出现：`when` 为真；`every` 时距离它上次出现已满 `every` 轮（从未出现过算满足）；`watch` 时其值与上次出现时不同（按 JSON 比较，第一次算不同）；`once` 时从未出现过。没有给任何条件时每次都出现。它的状态记录最后出现的轮次（`PromptContext.turn`）与 `watch` 值。
+11. **文本形式的 History**：`History as="text"` 把本次调用之前的历史（`history` 在 `invocationStart` 之前的部分）渲染为文字：每条消息一段，以角色名开头，工具调用与结果写出工具名与文本内容，图片写成占位说明。
 12. **加载**：`loadProfile` 导入模块并取默认导出，默认导出必须是 `defineProfile` 的结果；模块执行失败为 `module-load-failed`，默认导出不对为 `invalid-profile`；`profileFromModule` 对已导入的模块做同样的检查。
 13. **目录**：`createProfileCatalog` 按 `groups` 的顺序合并，同 id 的 Profile 后面的组覆盖前面的组；同一组内 id 重复时两者都不收录，并在 `issues` 里报告。
-14. **纯函数**：`renderSeeds`、`renderAppending`、`renderRequest`、`renderSystem` 对同样的输入总得到同样的输出，不调用数据源的取数函数，不修改输入。
+14. **纯函数**：`renderSeeds`、`renderAppending`、`renderRequest`、`renderSystem` 对同样的输入总得到同样的输出，不调用数据源的取数函数，不修改输入。数据只来自 `prepare` 与 `refresh` 的结果。
 15. **缓存提示**：请求消息出现在第一个布局形式的 `History` 之前时，`prepare` 给出 `cache-unfriendly` 警告：这类消息每次变化都会使后面整段历史的提示词缓存失效。
 
 ## 状态与转换
@@ -172,10 +192,13 @@ interface ProfileCatalog { list(): Profile[]; get(id: string): Profile | undefin
 
 **时序与寿命**（调用方按此使用，runtime 的完整合同见以后的 `harness.runtime`）：
 
-- 新会话开始时：`prepare` → `renderSeeds("new-session")` → 写入种子。
-- 每次调用开始时：`prepare` → `renderAppending` → 写入追加消息与新状态。
-- 每次模型调用前：（有 `model-call` 数据源时重新 `prepare`）→ 以当前历史 `renderRequest`。
-- 每次压缩之后：`renderSeeds("after-compaction")` → 写入种子。
+- 每次调用开始时：`prepare`（新会话时接着 `renderSeeds("new-session")` 并写入种子）→ `renderAppending` → 写入追加消息与新状态。
+- ReAct 循环中：助手消息与工具结果由 runtime 直接写进会话，不经过本模块。
+- 本次调用的第一次模型调用前：以当前历史与本次调用的起点 `renderRequest`。
+- 之后每次模型调用前：（有 `model-call` 数据源时 `refresh`）→ 以当前历史 `renderRequest`。
+- 每次压缩之后：用本次调用的准备结果 `renderSeeds("after-compaction")` → 写入种子。
+
+同一次调用里只 `prepare` 一次，`invocation` 数据源的值在整次调用中不变。
 
 ## 副作用与数据
 
@@ -189,11 +212,11 @@ interface ProfileCatalog { list(): Profile[]; get(id: string): Profile | undefin
 | `reserved-node` | 试图注册布局节点或 `Fragment` | 不注册这些 id |
 | `invalid-definition` | 节点类型、数据源或字段的定义不合规则 | 修正定义 |
 | `invalid-prompt` | 节点树不合规则、字段值不合 schema、数据源未注册或取数失败；诊断逐条给出原因与路径 | 修正 Profile 或注册所需的节点与数据源；预览界面直接展示诊断 |
-| `cancelled` | `prepare` 时 `signal` 已中止 | 不需要处理 |
+| `cancelled` | `prepare` 或 `refresh` 时 `signal` 已中止 | 不需要处理 |
 | `module-load-failed` | Profile 模块执行或导入失败 | 修正 Profile 文件 |
 | `invalid-profile` | 默认导出不是 Profile，或 Profile 本身的字段不合规则 | 修正 Profile 文件 |
 
-诊断码：`unknown-node`、`invalid-props`、`invalid-parent`、`invalid-child`、`duplicate-reminder-id`、`multiple-seeded-history`、`multiple-appending`、`multiple-input`、`image-not-allowed`、`unknown-field`（警告）、`invalid-field`、`unknown-source`、`source-failed`、`cache-unfriendly`（警告）。
+诊断码（`ProfileIssue`）：`unknown-node`、`invalid-props`、`invalid-parent`（含种子不是 `User`、`Developer`，`History as="text"` 不在请求消息里，有状态节点不在 `Appending` 子树里）、`invalid-child`、`duplicate-state-id`、`multiple-seeded-history`、`multiple-appending`、`multiple-input`、`image-not-allowed`、`unknown-field`（警告）、`invalid-field`、`unknown-source`、`source-failed`、`cache-unfriendly`（警告）、`invalid-invocation-start`（`renderRequest` 的警告）。除警告外，诊断都使 `prepare` 返回 `invalid-prompt`。
 
 ## 边界与兼容
 
@@ -205,14 +228,19 @@ interface ProfileCatalog { list(): Profile[]; get(id: string): Profile | undefin
 ## 验收与 Smoke
 
 1. 示例 Profile（“定义 Profile”一节）：`renderSeeds("new-session")` 得到两条种子，`after-compaction` 只得到技能目录那条；`renderAppending` 在第 1 轮得到用户输入与提醒，第 2–5 轮只有用户输入，第 6 轮又有提醒；`renderRequest` 依次为历史、带 `<workspace>` 的请求消息。
-2. 两个布局形式的 `History`（一个 `last={2}`）与一个 `User><History as="text" /></User>`：请求中先后出现完整历史、最后两轮与一段历史文字；两个 `History` 都有子节点时 `prepare` 为 `invalid-prompt`（`multiple-seeded-history`）。
-3. 位置校验：`Reminder` 放在 `Prompt` 下、`Input` 放在 `History` 里、`Image` 放在 `System` 或 `Assistant` 里、两个 `Appending`，各自得到对应诊断码与节点路径。
-4. 文本拼接：`<User>回答使用{"简体中文"}。<Tag name="rules">一</Tag>结尾</User>` 渲染为“回答使用简体中文。”、空行、`<rules>` 块、空行、“结尾”。
+2. 两个布局形式的 `History`（一个 `last={2}`）与一个 `<User><History as="text" /></User>` 请求消息：请求中先后出现完整历史、最后两轮与一段本次调用之前的历史文字；两个 `History` 都有子节点时 `prepare` 为 `invalid-prompt`（`multiple-seeded-history`）；`History as="text"` 放进种子或 `Appending` 的消息里为 `invalid-parent`。
+3. 位置校验：`Reminder` 放在 `Prompt` 下、`Input` 放在 `History` 里、`Image` 放在 `System` 或 `Assistant` 里、`Assistant` 作种子、两个 `Appending`、两个 `id` 相同的 `Reminder`，各自得到对应诊断码与节点路径。
+4. 文本拼接：`<User>回答使用{"简体中文"}。<Tag name="rules">一</Tag>结尾</User>` 渲染为“回答使用简体中文。”、空行、`<rules>` 块、空行、“结尾”；注册为 `layout: "block"` 的内容节点同样前后空一行。
 5. 注册：插件注册一个内容节点与它依赖的数据源，Profile 使用它；取数函数返回不合 schema 的值时 `prepare` 为 `invalid-prompt`（`source-failed`）；`dispose` 后再 `prepare` 为 `unknown-node`；注册 `History` 为 `reserved-node`。
 6. 字段：未注册字段只得到警告；注册后值不合 schema 为 `invalid-field`。
 7. 只取系统提示词：`renderSystem` 只返回各 `System` 的文字，不需要历史与用户输入。
 8. 目录：内置、用户、项目三组各有同 id 的 Profile 时取项目组的；同一组内重复时都不收录并报告。
 9. 加载：从临时目录加载一个 `.profile.tsx`，得到与直接导入相同的 Profile；没有默认导出为 `invalid-profile`。
+10. 没有 `History` 的 Profile（`<Prompt><System>…</System><Appending><Input /></Appending></Prompt>`）：历史有三轮之前的对话，加本次调用的输入、助手的工具调用与工具结果时，`renderRequest` 只给出本次调用的这三条消息。
+11. 种子的角色：`<History><Developer>规则</Developer><User>任务</User></History>` 得到一条 `developer`、一条 `user` 种子。
+12. 轮与提醒：历史为用户输入“修改第三章”、带 `attribution: "agent"` 的提醒、助手回复，再一轮用户输入与回复；`<History last={1} />` 只取第二轮，`last={2}` 取到“修改第三章”。
+13. 数据源时机：一个 `invocation` 数据源与一个 `model-call` 数据源，记录取数次数：`prepare` 后各 1 次；两次 `refresh` 后 `invocation` 仍为 1 次、`model-call` 为 3 次，`refresh` 结果中 `invocation` 数据不变。
+14. 有状态节点：注册一个有状态节点，第一次 `render` 收到 `undefined`、返回状态 `1`；把输出的 `state` 传回后下一次收到 `1`；`state` 里另一个节点的键原样保留。
 
 Smoke：`packages/nb-harness` 的 `bun test src/profile`（含从真实文件加载 `.profile.tsx`）。
 

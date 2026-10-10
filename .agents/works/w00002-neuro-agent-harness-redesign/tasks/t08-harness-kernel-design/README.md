@@ -25,4 +25,4 @@ taskId: t08-harness-kernel-design
 
 ## 下一步
 
-与 t09 一起交 omp 做第二轮设计审查 → 处理后请开发者确认，设计稿改为 `accepted` → 按切片实施。
+第二轮设计审查已处理（见 [t09](../t09-harness-foundation-session/README.md)）→ 开发者确认后设计稿改为 `accepted` → 按切片实施。

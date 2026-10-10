@@ -33,6 +33,28 @@ taskId: t09-harness-foundation-session
   | 13 | 持久性改为可观察的说法 |
   | 14 | 条目不可变 |
 
+- **第二轮 omp 设计审查**（报告 [`evidences/design-review-r2.txt`](evidences/design-review-r2.txt)，审查对象含 `harness.profile` 与设计稿；因模型额度两次中断，用原会话续跑补完）共 15 条：重要 14、建议 1，逐条核实全部成立，已修改：
+
+  | # | 处理 |
+  |---|---|
+  | 1 | `History as="text"` 只能放在请求消息里，渲染本次调用之前的历史 |
+  | 2 | 种子只能是 `User`、`Developer`；`harness/seed` 的 `details.role` 记下角色 |
+  | 3 | 一次调用只 `prepare` 一次；新增 `refresh` 只刷新 `model-call` 数据源 |
+  | 4 | 种子、提醒、摘要回放时带 `attribution: "agent"`；两份 Spec 的“轮”按用户发出的消息划分 |
+  | 5 | `readPage` 收 `{header, entries}`，游标绑定会话 id，追加不影响已发出的游标 |
+  | 6 | 只截断列出的正文类位置，类型、角色、id 等原样；不拆字符 |
+  | 7 | 页大小按截断后计；场景 15 改为真正超预算的一轮，补追加后游标稳定 |
+  | 8 | Profile 自定义 `ProfileResult`、`ProfileFailure`、`ProfileIssue` |
+  | 9 | 节点定义按类别区分：内容节点 `layout`，有状态节点按 `id` 收旧状态、返回新状态 |
+  | 10 | 开发者澄清 `Appending` 只在循环前写入；没有 `History` 时请求末尾接上本次调用的消息（`invocationStart`） |
+  | 11 | 交给 OMP 的是 `entries` 的浅副本 |
+  | 12 | 边界测试认出 `require` 的别名、`module.require`、`import.meta.require` |
+  | 13 | `loader` 目录允许变量路径的动态导入 |
+  | 14 | 产品代码不能引用 `testing/`（含同模块） |
+  | 15 | v1 回放只用文本摘要，`remote` 压缩推迟（待开发者确认） |
+
+  边界测试的修改逐种写违规样本确认报出后删除；`bun test` 31 pass、2 skip，`typecheck` 通过。
+
 - **本轮按开发者决定的修订**：条目对齐 OMP 会话条目（harness 状态用 `custom` 条目，保留类型五种）、种子与压缩后的回放顺序、分页（按轮、截断大字段、按 id 读取）、与 OMP `prepareCompaction` 兼容。
 
 ## 依据
@@ -42,4 +64,4 @@ taskId: t09-harness-foundation-session
 
 ## 下一步
 
-第二轮 omp 设计审查（设计稿、`harness.session`、`harness.profile`、边界测试）→ 处理并请开发者确认 → `plan.md` → 实现与合同测试。
+开发者确认第二轮的改动后设计稿改为 `accepted` → `plan.md` → 实现与合同测试。

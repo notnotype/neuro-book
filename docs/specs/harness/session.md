@@ -37,7 +37,7 @@ owners:
 - **调用条目、交互条目**：正文里的 `invocation` 条目、`interaction` 条目分别指 `customType` 为 `harness/invocation`、`harness/interaction` 的 `custom` 条目，形状见“输入与前置条件”。
 - **本段历史**：最后一个 `compaction` 条目之后的条目；没有压缩时为全部条目。
 - **种子**：`customType` 为 `harness/seed` 的 `custom_message` 条目，由 Profile 的 `History` 子节点产生（见 [`harness.profile`](profile.md)），在新会话开始与每次压缩之后写入。
-- **轮**：从一条用户 `message`（`role: "user"`）开始，到下一条用户 `message` 之前的全部条目；第一条用户消息之前的条目算作第一轮。
+- **轮**：从一条用户发出的 `message` 条目（`role: "user"`，`attribution` 不是 `"agent"`，`synthetic` 不为真）开始，到下一条这样的条目之前的全部条目；第一条之前的条目算作第一轮。`custom_message` 与压缩条目不开始新的一轮。[`harness.profile`](profile.md) 对回放出的消息用同一划分。
 - **未结束的调用**：最后一个 `invocation` 的最后阶段为 `start`、`resumed` 或 `waiting`；它的**范围**是该调用最后一个 `start` 或 `resumed` 条目之后的条目。
 
 ## 输入与前置条件
@@ -72,7 +72,7 @@ type EntryInput = DistributiveOmit<SessionEntry, "id" | "parentId" | "timestamp"
 |---|---|---|---|
 | `harness/invocation` | `custom` | `data: InvocationData` | 调用的生命周期 |
 | `harness/interaction` | `custom` | `data: InteractionData` | 待用户处理的事项：提出与应答 |
-| `harness/seed` | `custom_message` | `details: {once?: boolean}` | `History` 的种子；`once` 为真表示只在新会话写入 |
+| `harness/seed` | `custom_message` | `details: {role: "user" \| "developer"; once?: boolean}` | `History` 的种子；`role` 是种子消息的角色，`once` 为真表示只在新会话写入 |
 | `harness/reminder` | `custom_message` | 无 | `Appending` 里 `Reminder` 产生的提醒，内容已用 `<system-reminder>` 包好 |
 | `harness/profile-state` | `custom` | `data: {profileId: string; state: JsonValue}` | Profile 有状态节点（例如 `Reminder`）的状态快照；后写覆盖前写 |
 
@@ -117,7 +117,7 @@ fold<S>(entries: readonly SessionEntry[], projection: Projection<S>): S;
 planRecovery(entries: readonly SessionEntry[]): EntryInput[];
 
 // 分页（纯函数）
-readPage(entries: readonly SessionEntry[], options: {before?: PageCursor; maxTurns: number; maxBytes: number; fieldBudget: number}):
+readPage(session: {header: SessionHeader; entries: readonly SessionEntry[]}, options: {before?: PageCursor; maxTurns: number; maxBytes: number; fieldBudget: number}):
     Result<{entries: readonly TrimmedEntry[]; next: PageCursor | null; latestSeq: number}>;
 readEntry(entries: readonly SessionEntry[], id: string): Result<{seq: number; entry: SessionEntry}>;
 type PageCursor = string;          // 不透明
@@ -162,7 +162,7 @@ createJsonlSessionStore(options: {root: string}): SessionStore;
 10. **写入失败**：存储在 `append` 中失败（I/O 错误）时返回 `store-failed`，这批条目不进入 `entries`、不推送；句柄进入损坏状态：之后的 `append`、`repair` 为 `log-broken`，订阅以 `onEnd("broken")` 结束，只有 `close` 有效。恢复的唯一途径是用 `openSession` 重新打开：文件里可能已经有这批的前几条完整条目（重开后作为普通条目读回）、可能留下中断尾（按输出 6 先 `repair`），也可能整批都已写入。
 11. **关闭**：`close` 后 `append`、`repair` 为 `log-closed`，订阅以 `onEnd("closed")` 结束；重复 `close` 没有效果。
 12. **模型上下文**：`buildModelContext` 返回可以直接交给 OMP `Agent`（`replaceMessages`）的消息序列：其中每个工具调用都在自己的调用窗口里有工具结果，每个工具结果都配得上同一窗口里的一个工具调用。规则：
-    1. 没有压缩时按序号取 `message` 与 `custom_message`。有压缩时取最后一个 `compaction` 条目，依次是：本段历史里的种子、压缩摘要（以一条用户消息出现）、从 `firstKeptEntryId` 起到该 `compaction` 条目之前的 `message` 与 `custom_message`（其中的种子不再出现）、本段历史里其余的 `message` 与 `custom_message`。`custom_message` 以用户消息出现在原位置；
+    1. 没有压缩时按序号取 `message` 与 `custom_message`。有压缩时取最后一个 `compaction` 条目，依次是：本段历史里的种子、压缩摘要（以一条用户消息出现）、从 `firstKeptEntryId` 起到该 `compaction` 条目之前的 `message` 与 `custom_message`（其中的种子不再出现）、本段历史里其余的 `message` 与 `custom_message`。`custom_message` 出现在原位置：种子的角色取 `details.role`，其它为用户消息；由 `custom_message` 得到的消息与压缩摘要都带 `attribution: "agent"`，因此不开始新的一轮；
     2. 去掉 `stopReason` 为 `error` 或 `aborted` 的助手消息，以及同一窗口里的工具结果；
     3. 去掉在自己的窗口里没有工具结果的工具调用，包括还在等待审批的调用（等待中的事项由输出 13 报告，应答并写入结果之后才出现在模型上下文中）；
     4. 被去掉工具调用的助手消息，同时去掉其中的 `redactedThinking` 块、清除 `thinking` 块的签名；去掉后没有内容的助手消息整条去掉；
@@ -179,10 +179,10 @@ createJsonlSessionStore(options: {root: string}): SessionStore;
 17. **列出**：`list` 返回存储中每个会话的摘要：id、创建时间、父会话、最后一个 `title_change` 的标题、最后一个条目的时间（没有条目时为创建时间）；有中断尾的会话照常列出，损坏的会话不列出。
 18. **两种存储**：内存存储与 JSONL 存储对输出 1–11、17、19 的行为相同；JSONL 存储另外满足输出 6、7 中与文件有关的部分。
 19. **条目不可变**：`append` 保存输入的副本，返回后再修改传入的对象不影响日志；`entries`、`append` 的返回值与推送给订阅者的条目是同一份冻结的值，修改它们会抛出 `TypeError`，不影响日志与其它订阅者。
-20. **按页读取**：`readPage` 以轮为单位从新到旧取一页：不给 `before` 时取最后一页，给出时取该游标之前的一页；一页最多 `maxTurns` 轮、条目合计不超过 `maxBytes` 字节（JSON 按 UTF-8 计），但至少一轮；只有一轮仍超过 `maxBytes` 时整轮单独成页。返回的条目按序号升序，附各自的序号；`next` 是更早一页的游标，已到最早时为 `null`；`latestSeq` 是当前最后一个条目的序号，供调用方从它之后订阅。游标不是这个会话、格式不对或指向已不存在的位置时为 `invalid-cursor`。
-21. **截断大字段**：`readPage` 返回的条目里，长度超过 `fieldBudget` 字节的字符串被截到预算以内，并在 `trimmed` 里列出被截字段的路径与原始字节数；其它字段原样。截断只作用于返回值，不改变日志。
+20. **按页读取**：`readPage` 以轮为单位从新到旧取一页：不给 `before` 时取最后一页，给出时取该游标之前的一页。从游标之前最近的一轮起，按从新到旧的顺序逐轮加入，直到再加一轮会超过 `maxTurns` 轮或 `maxBytes` 字节为止；字节数按截断之后（输出 21）的条目的 JSON 以 UTF-8 计。一页至少一轮：最近的那一轮单独就超过 `maxBytes` 时，它整轮单独成页。返回的条目按序号升序，附各自的序号；`next` 是更早一页的游标，已到最早时为 `null`；`latestSeq` 是当前最后一个条目的序号，供调用方从它之后订阅。游标绑定会话 id 与位置：之后追加的条目不影响已发出的游标；游标属于另一个会话 id、格式不对或位置超出当前条目时为 `invalid-cursor`。
+21. **截断大字段**：`readPage` 返回的条目里，只有下列位置的字符串在超过 `fieldBudget` 字节（UTF-8）时被截短，截短后不超过预算且不拆开一个字符：文本块的 `text`、思考块的 `thinking`、字符串形式的消息 `content`、工具调用 `arguments` 里任意深度的字符串、`custom_message` 的 `content` 与 `details`、`custom` 的 `data` 里任意深度的字符串、`compaction` 的 `summary`；图片块的 `data` 超过预算时置为空字符串。条目类型、角色、各种 id、工具名、`customType` 等其它字段一律原样。`trimmed` 列出被截字段的路径（如 `message.content[2].text`）与原始字节数。截断只作用于返回值，不改变日志。
 22. **按 id 读取**：`readEntry` 返回指定 id 的完整条目与序号，没有该 id 为 `entry-not-found`。
-23. **与 OMP 兼容**：条目（不含会话头）满足 OMP `@oh-my-pi/pi-agent-core` 压缩模块的 `SessionEntry` 类型，`entries` 可以直接交给它的 `prepareCompaction`；它产生的压缩结果按 `compaction` 条目追加后，`buildModelContext` 按输出 12 回放。
+23. **与 OMP 兼容**：条目（不含会话头）满足 OMP `@oh-my-pi/pi-agent-core` 压缩模块的 `SessionEntry` 类型；`entries` 的浅副本（`[...entries]`，OMP 的签名要求可变数组，它不改写条目）可以交给它的 `prepareCompaction`，关闭远程与原生压缩（`remoteEnabled: false`）时它产生的文本摘要按 `compaction` 条目追加后，`buildModelContext` 按输出 12 回放。v1 的回放只使用压缩条目的 `summary` 与 `firstKeptEntryId`：`preserveData`、`providerReplayThroughEntryId` 照样保存与读回，但不参与回放，所以 OMP 的远程原生压缩（摘要只是占位、真正的历史在 `preserveData` 里）在 v1 不可用。
 
 ## 状态与转换
 
@@ -264,8 +264,8 @@ createJsonlSessionStore(options: {root: string}): SessionStore;
 11. 写入失败后的恢复：JSONL 写入一批中途失败，文件留下这批的前几条完整条目与半行：原句柄 `append`、`repair` 为 `log-broken`；`openSession` 读回前缀并报告中断尾；`repair` 后按 `sessionStatus`、`planRecovery` 收口并继续追加；以旧订阅最后收到的序号在新句柄上订阅，补到已落盘的前缀。
 12. 订阅的边界：在 `close` 后订阅立即结束；补发中监听函数抛错只结束该订阅；监听函数里 `append` 的条目排在当前这批之后推送；监听函数里 `close` 时其余条目不再推送。
 13. 条目不可变：追加后修改传入的对象、在监听函数里修改收到的条目：日志、重开后的 `entries` 与其它订阅者收到的条目都不变，修改收到的条目抛出 `TypeError`；内存与 JSONL 两种存储结果相同。
-14. 压缩后的回放：会话开头有种子 A（`once`）与种子 B、五轮对话；追加一条 `compaction`（`firstKeptEntryId` 指向第四轮开头）与重新写入的种子 B，再追加一轮：`buildModelContext` 依次为种子 B、摘要、第四到第六轮，不含种子 A 与前三轮。把同一份条目交给 OMP 的 `prepareCompaction` 不报类型或形状错误。
-15. 分页：一个三十轮、其中一轮含 200 KiB 工具输出的会话，按每页 10 轮、256 KiB、单字段 16 KiB 读取：每页不超过 10 轮且至少一轮；大工具输出单独成页并被截断，`trimmed` 报告原始大小，`readEntry` 取回完整内容；依次用 `next` 读到 `null` 时，各页合起来恰好是全部条目且无重复；用别的会话的游标为 `invalid-cursor`。
+14. 压缩后的回放：会话开头有种子 A（`once`）与种子 B、五轮对话；追加一条 `compaction`（`firstKeptEntryId` 指向第四轮开头）与重新写入的种子 B，再追加一轮：`buildModelContext` 依次为种子 B、摘要、第四到第六轮，不含种子 A 与前三轮。把同一份条目的浅副本交给 OMP 的 `prepareCompaction`（`remoteEnabled: false`）不报类型或形状错误。种子 B 的 `details.role` 为 `developer` 时回放为 `developer` 消息；种子、提醒与摘要都带 `attribution: "agent"`。
+15. 分页：一个三十轮的会话，其中一轮含一个 200 KiB 的工具输出，另一轮含二十个各 15 KiB 的工具输出（截断后合计仍约 300 KiB），按每页 10 轮、256 KiB、单字段 16 KiB 读取：每页不超过 10 轮、不超过 256 KiB，只有那一轮二十个输出的页例外，它单独成页；200 KiB 的输出被截到 16 KiB 以内，`trimmed` 报告原始大小与路径，条目类型与工具调用 id 不变，`readEntry` 取回完整内容；依次用 `next` 读到 `null` 时，各页合起来恰好是全部条目且无重复；读完第一页后再追加一轮，原来的 `next` 仍读到同样的下一页；用另一个会话 id 相同条目的游标为 `invalid-cursor`。
 16. 只读视图不改日志：分页截断与按 id 读取之后，`entries` 与文件内容不变。
 
 

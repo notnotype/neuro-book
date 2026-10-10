@@ -4,7 +4,8 @@
  * 新模块不引旧原型，旧原型也不引新模块。类型检查与打包不会拦住这些，所以用 TypeScript 语法树逐个读出导入语句检查。
  *
  * 规则的适用范围：禁止的包、CommonJS 加载、旧原型隔离对全部源码与测试生效；模块表（依赖、外部包、Node 内置模块、
- * 动态导入）只约束模块的产品代码，测试文件与 `testing/` 目录不受模块表约束，因为它们要搭真实存储与运行环境。
+ * 动态导入）只约束模块的产品代码，测试文件与 `testing/` 目录不受模块表约束，因为它们要搭真实存储与运行环境；
+ * 反过来产品代码不能引用 `testing/`。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -26,7 +27,7 @@ interface ModuleRule {
     readonly packages: Readonly<Record<string, ExternalRule>>;
     /** 可以使用 Node 内置模块的子目录（相对模块目录）；只有声明了 I/O 的子入口在这里。 */
     readonly nodeBuiltinsIn: readonly string[];
-    /** 可以用字面量动态导入的子目录：只有会执行外部模块代码的子入口在这里。 */
+    /** 可以动态导入的子目录：只有会执行外部模块代码的子入口在这里，目标可以是运行时才知道的路径。 */
     readonly dynamicImportIn: readonly string[];
 }
 
@@ -77,6 +78,24 @@ function literalText(node: ts.Node | undefined): string | null {
     return node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : null;
 }
 
+const COMMONJS_LOADERS = new Set(["require", "createRequire"]);
+
+/** 引用了 CommonJS 加载函数的表达式：`require`、`createRequire` 标识符，`module.require`、`import.meta.require`。 */
+function isCommonJsLoader(node: ts.Node): boolean {
+    if (ts.isPropertyAccessExpression(node)) {
+        if (node.name.text !== "require") return false;
+        const object = node.expression;
+        return (ts.isIdentifier(object) && object.text === "module") || ts.isMetaProperty(object);
+    }
+    if (!ts.isIdentifier(node) || !COMMONJS_LOADERS.has(node.text)) return false;
+    // 属性名、对象字面量的键与声明的名字不是引用。
+    const parent = node.parent;
+    if (ts.isPropertyAccessExpression(parent) && parent.name === node) return false;
+    if ((ts.isPropertyAssignment(parent) || ts.isPropertySignature(parent) || ts.isMethodDeclaration(parent)
+        || ts.isPropertyDeclaration(parent) || ts.isMethodSignature(parent)) && parent.name === node) return false;
+    return true;
+}
+
 function importsOf(file: string): ImportUse[] {
     const text = readFileSync(file, "utf8");
     const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
@@ -93,12 +112,13 @@ function importsOf(file: string): ImportUse[] {
             const argument = node.argument;
             const specifier = ts.isLiteralTypeNode(argument) ? literalText(argument.literal) : null;
             uses.push({file: at, specifier, typeOnly: true, kind: "static"});
-        } else if (ts.isCallExpression(node)) {
-            if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-                uses.push({file: at, specifier: literalText(node.arguments[0]), typeOnly: false, kind: "dynamic"});
-            } else if (ts.isIdentifier(node.expression) && (node.expression.text === "require" || node.expression.text === "createRequire")) {
-                uses.push({file: at, specifier: node.expression.text === "require" ? literalText(node.arguments[0]) : null, typeOnly: false, kind: "require"});
-            }
+        } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+            uses.push({file: at, specifier: literalText(node.arguments[0]), typeOnly: false, kind: "dynamic"});
+        } else if (isCommonJsLoader(node)) {
+            // 只认调用会漏掉 `const load = require`、`module.require(…)` 这类间接写法，所以凡是引用到加载函数都算。
+            const call = node.parent;
+            const direct = ts.isCallExpression(call) && call.expression === node && ts.isIdentifier(node) && node.text === "require";
+            uses.push({file: at, specifier: direct ? literalText(call.arguments[0]) : null, typeOnly: false, kind: "require"});
         }
         ts.forEachChild(node, visit);
     };
@@ -155,7 +175,7 @@ const insideAny = (directory: string, allowed: readonly string[]): boolean =>
 function universalViolation(use: ImportUse): string | null {
     if (use.specifier !== null && FORBIDDEN_PACKAGES.includes(packageName(use.specifier))) return `${use.file} 引用了禁止的包 ${use.specifier}`;
     const from = moduleOf(use.file);
-    if (use.kind === "require" && from !== PROTOTYPE) return `${use.file} 用了 CommonJS 加载（require、import = require 或 createRequire）`;
+    if (use.kind === "require" && from !== PROTOTYPE) return `${use.file} 用了 CommonJS 加载（require、module.require、import.meta.require、import = require 或 createRequire）`;
     const target = targetInSrc(use);
     if (target === null || target === "unexported") return null;
     const to = moduleOf(target);
@@ -169,15 +189,18 @@ function moduleTableViolation(use: ImportUse): string | null {
     const from = moduleOf(use.file);
     if (from === null || from === PROTOTYPE) return null;
     const rule = MODULES[from];
-    if (rule === undefined) return null;
+    if (rule === undefined || use.kind === "require") return null;   // CommonJS 加载由 universalViolation 报告
 
     if (use.kind === "dynamic") {
-        if (use.specifier === null) return `${use.file} 动态导入的目标不是字符串字面量`;
         if (!insideAny(subdirectoryOf(use.file), rule.dynamicImportIn)) return `${use.file} 使用了动态导入；只有 ${rule.dynamicImportIn.join("、") || "（无）"} 下可以`;
+        // 登记的目录就是用来执行调用方给出路径的模块（例如 Profile 文件），目标在运行时才知道。
+        if (use.specifier === null) return null;
     }
     const target = targetInSrc(use);
     if (target === "unexported") return `${use.file} 经包名引用了未导出的子路径 ${use.specifier}`;
     if (target !== null) {
+        // 同模块的导入在下面直接放行，所以先挡住产品代码引测试支持（docs/testing/README.md：产品代码不引用 testing/）。
+        if (isTestSupport(target)) return `${use.file} 是产品代码，引用了测试支持 ${target}`;
         const to = moduleOf(target);
         if (to === null) return `${use.file} 引用了 src 根目录的文件 ${target}`;
         if (to === from) return null;

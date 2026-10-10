@@ -1,0 +1,184 @@
+# w00002 t08、t09 第二轮只读设计审查
+
+审查对象：`docs/specs/harness/session.md`、`docs/specs/harness/profile.md`、`docs/proposals/agent-harness-kernel.md`、`packages/nb-harness/src/architecture.test.ts`。
+
+依据：当前 worktree 的 Spec 写法、测试写法、包规则、上一轮 14 条报告与作者处理记录，以及本 worktree 锁定的 OMP 源码。仓库只读；实验仅写入本报告同级的 `lab/`。以下发现按核实顺序增量记录，交付时按影响排序。未运行 e2e、开发服务或真实模型测试。
+
+## 已核实问题
+
+### 1. `History as="text"` 在种子与追加区域合法，但两个渲染接口都拿不到历史
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`docs/specs/harness/profile.md` 输出 8、9、11、14；输入的节点表（93–97 行）与接口（115–119 行），时序（175–178 行）。
+- **现象**：`<Appending><User><History as="text" /></User><Input /></Appending>` 满足父子关系；带种子的 `History` 下同样可以放 `<User><History as="text" /></User>`。输出 11 要这些节点渲染调用方给的历史，然而 `renderAppending` 只接收输入与状态，`renderSeeds` 只接收准备结果与时机；只有 `renderRequest` 接收 `history`，而它按输出 7 跳过 `Appending` 和种子。`prepare` 的 `PromptContext` 也没有历史。
+- **为什么是问题**：同一 Profile、context、input、state 在两份不同会话历史下，按输出 11 应产生不同文本，却给 `renderAppending`／`renderSeeds` 完全相同的输入；输出 14 又要求相同输入产生相同输出。通过隐藏状态读取上一次 `renderRequest` 的历史会破坏纯函数及调用顺序，因为第一次追加先于第一次请求。照合同实现只能丢掉内容、引入隐藏共享状态，或改公开接口。
+- **如何核实**：逐项核对公开签名与表中允许的位置即可判定，不依赖未实现代码；`packages/nb-harness/src/session/session.ts` 当前只有空导出，Profile 实现尚未建立。本例不能写成满足全部条目的黑盒测试。
+- **建议改法**：让需要历史的所有渲染接口显式接收同一份 `Message[]`，并定义新会话种子的历史基线；或者在节点合同里明确 `History as="text"` 只允许用于请求消息，`prepare` 对种子与追加区域中的该节点给出确定诊断。保留 `profile` 不依赖 `session` 的已定边界。
+
+### 2. Profile 允许助手与开发者种子，但会话格式将所有种子回放成用户消息
+
+- **严重程度**：重要；**类别**：正确性／不变量。
+- **位置**：`docs/specs/harness/profile.md:93`、`:97`、`:132`、`:158`（输出 8）；`docs/specs/harness/session.md:53`、`:75`、`:165`（输出 12.1）；`docs/proposals/agent-harness-kernel.md:154`。
+- **现象**：`<History><Developer>规则</Developer><Assistant>示例回答</Assistant></History>` 是合法种子布局，`renderSeeds` 输出两条带不同角色的 `Message`。两份文档要求它们写为 `harness/seed` 的 `custom_message`，该条目只有 `content`、`display` 与 `details.once`，没有消息角色；会话输出 12.1 又明确全部 `custom_message` 回放为用户消息。
+- **为什么是问题**：开发者规则会变成用户发言，助手示例会变成用户示例；关闭重开或压缩后也无法恢复原角色。`Message[]` 的种子合同与固定用户角色的持久化合同无法同时成立。这影响提示词权限与 few-shot 对话方向，不能由 runtime 在不改变格式／合同的情况下修补。
+- **如何核实**：对照允许的种子节点、`SeedOutput.messages[].message: Message`、保留类型表与输出 12.1；无需调用未实现的 Profile。两个不同角色且文本相同的合法种子会持久化成同一种条目并回放为同一种角色，信息已经丢失。
+- **建议改法**：明确种子只允许用户消息，并在 `prepare` 诊断其它角色；或者在种子持久化合同中保留完整 `Message` 与角色，约定压缩兼容的转换方式。不能一边返回任意 `Message`，一边把角色静默改为 `user`。
+
+### 3. 为模型调用重新 `prepare` 会重新取调用级数据，没有保持调用快照的接口
+
+- **严重程度**：重要；**类别**：不变量／正确性。
+- **位置**：`docs/specs/harness/profile.md:115`、`:130`、`:154`（输出 4）、`:176`、`:177`；`docs/proposals/agent-harness-kernel.md:146`。
+- **现象**：输出 4 定义 `invocation` 与 `model-call` 两种取数时机，却要求每次模型调用前重新执行同一个 `prepare`；该方法每次都会对所有 `invocation` 数据源调用一次取数函数。接口没有调用身份、旧 `PreparedProfile` 或已取数据输入，本模块又明确不保存状态。一轮含两次模型请求且两类数据源各一个时，按时序字面执行 `prepare` 共 3 次，调用级数据源也被取 3 次，而不是本次调用取定一次。
+- **为什么是问题**：两类时机失去区别；标为调用级的数据在同一调用的后续工具步骤中可以变化，追加消息／种子使用的值与稍后请求使用的值不再是同一个快照。把数据缓存在主机或数据源里不能从合同确定缓存何时失效，并且会让并行会话互相影响。
+- **如何核实**：将新会话初始化排除，只套用 `:176` 的调用开始与 `:177` 的两次模型调用时序；三次调用都满足 `prepare` 的输出 4。公开 `prepare(profile, {context, signal})` 无保留调用级取数结果的参数，`renderRequest` 也不能接收新的模型调用级数据；这是接口与寿命的矛盾，不需要伪造 Profile 实现。
+- **建议改法**：让调用准备结果固定保存 `invocation` 数据，另有显式的模型调用准备／刷新接口，只刷新 `model-call` 数据并返回新的只读准备结果；或者为 `prepare` 增加旧准备结果与清楚的刷新范围。不得以全局缓存补隐式调用寿命。
+
+### 4. 回放将提醒变成用户消息，Profile 的“最后一轮”会丢掉同一轮真实用户输入
+
+- **严重程度**：重要；**类别**：正确性／不变量。
+- **位置**：`docs/specs/harness/profile.md:37`、`:118`、`:157`（输出 7）、`:159`（输出 9）；`docs/specs/harness/session.md:40`、`:76`、`:165`（输出 12.1）、`:182`（输出 20）。
+- **现象**：会话条目为用户 `message`“修改第三章” → `harness/reminder` 的 `custom_message`“保持第三人称” → 助手回复。在会话定义与分页中它们属于同一轮；回放给 Profile 的 `Message[]` 却是 `user` 输入 → `user` 提醒 → `assistant`。按 Profile 的“每条用户消息开始一轮”，`<History last={1}/>` 只取提醒与助手回复，不取“修改第三章”。种子也以 `user` 回放，产生同类的轮次偏移。
+- **为什么是问题**：同一会话的分页与模型历史裁剪使用两种轮边界；裁剪最后一轮时用户的任务会消失。Profile 只拿到普通 `Message[]`，既没有条目类型也没有轮边界，无法可靠判断一个 `user` 是输入、种子还是提醒；按文本标签猜类型又会把用户自己输入的同样文本误判。
+- **如何核实**：上述三条是示例 Profile 在第一轮可以产生的真实条目形状；按 session 输出 12.1 转换后，两个 Spec 的轮定义直接产生不同切片。无需实现私有函数或构造异常 Agent 时序。
+- **建议改法**：统一轮的定义与传递方式：由提供方回放时同时提供稳定的轮边界，Profile 的 `last` 按这些边界选取；或者明确模型消息上的可保留来源／轮标记，并让 session 与 Profile 都遵守。继续维持 Profile 不依赖 session，而不是让 Profile解析会话条目。
+
+### 5. 分页要求拒绝其他会话的游标，纯函数输入却不包含会话身份
+
+- **严重程度**：重要；**类别**：正确性／接口合同。
+- **位置**：`docs/specs/harness/session.md:29`、`:48`、`:50`、`:120`、`:148`（输出 2）、`:182`（输出 20）、`:268`（场景 15）。
+- **现象**：`readPage(entries, options)` 只收到条目与预算，输出 20／场景 15 要把另一会话的游标判为 `invalid-cursor`。会话 id 只存在于 `SessionHeader`，条目不带它，条目 id 也只承诺“会话内唯一”。两份合法会话可有不同 header id、相同条目数组与 id；对两者调用 `readPage` 的输入完全相同。
+- **为什么是问题**：确定性的纯函数不能对完全相同的输入区分游标来自哪份会话。依赖数组对象身份或隐藏句柄会破坏重开后的游标与纯函数合同；假定条目 id 全局唯一也超出输出 2 的保证。场景 15 不能在现有公开签名下覆盖合同规定的全部合法会话。
+- **如何核实**：对比 header 与条目形状及 `readPage` 参数即可判定；`SessionStore.open` 返回两者，但分页接口只接收 `entries`。把同一合法条目序列存入两个 header id 不同的自定义 store 仍满足所有已写前置条件，却没有身份信息可供分页验游标。
+- **建议改法**：给 `readPage` 显式传入稳定会话 id（或 header），游标绑定会话 id 与稳定条目位置，并定义追加／重开后仍可继续翻页；不要以对象身份绑定游标。也可把“拒绝跨会话游标”的责任放到拥有 header 的日志方法上。
+
+### 6. “截断所有字符串”会截掉条目身份与判别字段，返回值不再是声明的 `SessionEntry`
+
+- **严重程度**：重要；**类别**：正确性／接口合同。
+- **位置**：`docs/specs/harness/session.md:50`、`:51`、`:120`、`:124`、`:183`（输出 21）、`:184`（输出 22）。
+- **现象**：`fieldBudget` 只有 `number` 类型，没有排除小预算；输出 21 对所有超预算字符串截断、其它字段原样。传 `fieldBudget: 1` 时，合法 `type: "message"`、`message.role: "toolResult"`、条目 `id`、`parentId`、`toolCallId`、`customType` 都必须被截断。返回值却仍被定义成 `entry: SessionEntry`，且完整内容要求用条目 id 再读取。
+- **为什么是问题**：截断 `type`／`role` 破坏判别联合，UI 无法再按返回的条目类型解释内容；截断 `id` 则无法按输出 22 取回原条目，截断 `parentId` 和工具调用 id 会丢失配对与导航身份。即使采用常用大预算，也没有任何合同保证外部 `customType`、工具名与扩展字符串不会超预算，不能由实现默默豁免这些字段。
+- **如何核实**：按公开合法参数 `fieldBudget: 1` 与 UTF-8 字节计数，`message` 为 7 字节、`toolResult` 为 10 字节，输出 21 必须改写这两项，而 SessionEntry 联合要求保留固定字面值。无需运行不存在的分页实现；类型与截断规则直接矛盾。
+- **建议改法**：固定保留类型、角色、身份、关联 id 与格式字段，只预算消息正文、工具参数／结果、摘要和扩展数据等大载荷；明确对 `content` 数组、嵌套工具参数的字段路径与 UTF-8 截断方式。若允许改变消息载荷结构，分页视图用独立类型，不伪称完整 `SessionEntry`。
+
+### 7. 分页场景 15 的 200 KiB 样本没有触发 256 KiB 上限，无法验证“大轮单独成页”
+
+- **严重程度**：建议；**类别**：测试／文档。
+- **位置**：`docs/specs/harness/session.md:182`、`:183`（输出 20、21）、`:268`（场景 15）。
+- **现象**：场景 15 以 200 KiB 工具文本、256 KiB 页预算、16 KiB 字段预算，要求“大工具输出单独成页”。实际构造含该输出的一轮与一轮短对话，两轮原始 JSON 合计 206482 字节，小于 262144；截断后合计 18066 字节，同样远小于页预算。这个样本没有触发输出 20 的“只有一轮仍超限则整轮单独成页”。输出也没有定义先按原始大小选页还是先截断后选页，或明确如何填满页。
+- **为什么是问题**：场景额外钉住了一个编号输出未要求的分组方式，却漏测真正的超预算单轮边界；按原始预算与按截断后预算两种实现可以产生不同分页且都满足已写上限。验收会迫使实现者猜测“200 KiB 为什么必须单独成页”。
+- **如何核实**：从 worktree 根执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-design-r2/lab/pagination-budget.ts`，得到 `maxBytes=262144, rawBytes=206482, trimmedBytes=18066, rawFits=true, trimmedFits=true`。实验只计算实际 JSON 字节，不伪造 `readPage` 实现。
+- **建议改法**：先写清页预算作用于原始条目还是截断后的视图，以及是否按最大可容纳的连续轮填页；按选定口径构造真正超过 256 KiB 的一轮。若选择截断后计费，样本可由很多各自不超过 16 KiB 的字段组成，确保截断后仍超预算；另保留 200 KiB 单字段检查字段截断。
+
+### 8. Profile 借用了 session 的 `Result`，其失败联合无法表达 Profile 规定的失败码
+
+- **严重程度**：重要；**类别**：正确性／接口合同。
+- **位置**：`docs/specs/harness/profile.md:112`、`:115`、`:139`、`:147`、`:151`、`:152`、`:162`、`:186`（输出 1、2、12，失败表）；`docs/specs/harness/session.md:135`、`:136`。
+- **现象**：Profile 明确说 `Result` 的写法同 session，而 session 定义为 `{ok: false; code: SessionFailure; ...}`，这个联合只有会话失败码。Profile 所需的 `duplicate-registration`、`reserved-node`、`invalid-definition`、`invalid-prompt`、`cancelled`、`module-load-failed`、`invalid-profile` 七个失败码全部不在 `SessionFailure` 中。`Diagnostic.code: ProfileIssue` 也未定义，字段失败与诊断混用的场景无法由公开类型判定。
+- **为什么是问题**：按公开签名实现失败返回会类型错误；调用方根据 Profile 失败码分支也无法通过类型检查。改成通用 `string` 虽可编译却丢失判别联合与明确失败语义，且不符合已写的公开合同。Profile 不能靠依赖 session 来取失败类型，因为已定设计要求它独立。
+- **如何核实**：逐项比对两个 Spec 的 `Result`、`SessionFailure`、Profile 失败表与 `ProfileIssue` 引用；七个 Profile 失败码与 SessionFailure 交集为 0。从 worktree 根执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-design-r2/lab/profile-contract-types.ts`，实际 TypeScript 语义检查对 `duplicate-registration`、`invalid-prompt`、`module-load-failed` 给出 3 个 TS2322。session 的上一轮缺失类型已补齐，本条针对本轮新 Profile 对该别名的错误复用。
+- **建议改法**：Profile 自己定义 `ProfileFailure` 与诊断码联合，明确 `Result<T>` 使用该失败联合；或者共享泛型结果形状 `Result<T, Failure>`，Profile 与 session 各给自己的失败联合。`invalid-prompt` 是失败码，`invalid-field` 等是诊断码，验收分别断言。
+
+### 9. 可注册节点没有块级声明与状态更新合同，承诺的扩展行为无法按公开接口验收
+
+- **严重程度**：重要；**类别**：接口合同／文档。
+- **位置**：`docs/specs/harness/profile.md:102`、`:121`、`:128`、`:155`（输出 5）、`:169`；`docs/proposals/agent-harness-kernel.md:139`、`:315`。
+- **现象**：输出 5 要识别“注册为块级的内容节点”，但 `NodeTypeDefinition` 没有块级／行内字段，也没有返回块级标记的定义。`category: "stateful"` 被列为可注册，`render` 却只写 `(node, context) => 节点或消息或文本`，没有规定如何读取该节点的状态、状态键怎样唯一、怎样返回新状态；`context` 与按类别的返回形状也都未定义。内置 Reminder 的返回状态行为不能说明任意注册节点怎样遵守同一套接口。
+- **为什么是问题**：注册方无法声明“把这个内容前后各空一行”或“首次出现后记住已出现”这两种已承诺能力，主机也没有可判定的消费规则。实现者只能给内置节点特判或自行发明未写入公开合同的字段，插件适配会依赖隐藏知识。这里缺的是调用方与注册方能使用的外部合同，不是内部类、目录或算法；补齐不违反 Spec 的实现独立性。
+- **如何核实**：逐项对照 `NodeTypeDefinition` 现有 7 项字段与输出 5、状态与转换；无一项用于块级声明，`render` 没有状态补丁／新状态返回类型。无法只使用当前公开定义编写“注册一个块级内容节点与一个可恢复的有状态节点”的黑盒合同测试。
+- **建议改法**：补齐按类别区分的节点定义与渲染输入／输出类型，内容节点显式声明文本布局语义，有状态节点显式取得自己的旧状态并返回新状态；规定唯一状态键、允许位置与诊断。把主机内部遍历与缓存实现继续留在代码，公开合同只暴露注册方必须知道的部分。
+
+### 10. 允许没有 `History` 的 Profile，但请求渲染会完全丢掉本次用户输入
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`docs/specs/harness/profile.md:93`、`:95`、`:96`、`:117`、`:118`、`:157`（输出 7）、`:159`（输出 9）；`docs/proposals/agent-harness-kernel.md:142`。
+- **现象**：合法布局 `<Prompt><System>回答本次问题。</System><Appending><Input /></Appending></Prompt>` 没有 `History`。`renderAppending` 产生本次输入，但 `renderRequest` 按输出 7 跳过整个 `Appending` 与 `Input`，又没有 `History` 插入这条已追加的输入，结果只有系统提示词、零条请求消息。没有 `Appending` 的情况同样只在追加接口里放用户输入，仍无请求入口。
+- **为什么是问题**：提案明确允许无 History 的无状态 Agent，但该布局看不到任何用户问题，无法按本次输入运行。`Input` 被限制只能放在 `Appending`，`renderRequest` 也只接收历史，没有另一个合法节点／参数把本次输入独立于旧历史放进请求；runtime 自行补消息会违反“TSX 渲染出的就是这次请求”的合同。
+- **如何核实**：按节点表验证上述布局合法，再分别套用输出 9 与输出 7，即得到 `AppendingOutput.messages=[本次输入]`、`RequestOutput.messages=[]`。这是当前公开合同的确定结果，无需实现 Profile 或真实模型调用。
+- **建议改法**：保留“多个或没有 History”的已定选择，补清无 History 时本次输入怎样进入请求，例如显式的请求输入节点或定义零轮历史视图；不能让 runtime 默默补回被渲染合同排除的消息。增加无 History 加本次输入的组合验收。
+
+
+### 11. `SessionLog.entries` 不能按输出 23 直接传给 OMP `prepareCompaction`
+
+- **严重程度**：重要；**类别**：正确性／文档。
+- **位置**：`docs/specs/harness/session.md:98-102`、`:185`（输出 23）；OMP `node_modules/@oh-my-pi/pi-agent-core/src/compaction/compaction.ts:1338-1343`。
+- **现象**：session 将公开句柄的 `entries` 声明为 `readonly SessionEntry[]`，并要求条目可以直接交给 `prepareCompaction`。OMP 公开签名却要求可变的 `SessionEntry[]`。条目元素形状可以兼容，但数组的只读性不能按 TypeScript 赋值规则兼容。
+- **为什么是问题**：调用方按输出 23 写 `prepareCompaction(log.entries, settings, model)` 会在类型检查阶段失败。创建数组浅副本可以适配可变数组签名且保留各条目的冻结保证，但这一适配责任未写入合同；类型断言则无法证明可变参数的使用与冻结输入兼容。
+- **如何核实**：从 worktree 根执行 `bun node_modules/typescript/bin/tsc --noEmit --strict --module ESNext --moduleResolution bundler --target ES2022 --skipLibCheck /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-design-r2/lab/compaction-readonly-type.ts`，得到 `TS2345: Argument of type 'readonly SessionEntry[]' is not assignable to parameter of type 'SessionEntry[]'`。直接运行同脚本也未产生运行时输出，因为它只证明静态调用不能成立。
+- **建议改法**：让 session 合同与 OMP 适配层统一为 `readonly SessionEntry[]`，由 OMP 接受只读输入；或者明确压缩入口接收 session 后由适配器创建可变副本，并把复制作为输出 23 的规定步骤，不再声称可以直接传递。不要用无证据的类型断言掩盖边界。
+
+### 12. AST 边界扫描漏掉 CommonJS 别名与成员调用
+
+- **严重程度**：重要；**类别**：不变量／测试。
+- **位置**：`packages/nb-harness/src/architecture.test.ts:80-106`、`:154-159`。
+- **现象**：`importsOf` 只把调用表达式本身是名为 `require` 或 `createRequire` 的标识符记录为 CommonJS 加载；它不跟踪 `const load = require; load("node:path")`，也不识别 `module.require("node:path")`。`universalViolation` 只检查已记录的 `ImportUse`，因此这两种产品源码都不会触发禁止 CommonJS 的断言。
+- **为什么是问题**：包规则要求所有源码与测试禁止 CommonJS 加载，当前测试却允许实际可执行的逃逸写法进入新模块。别名加载还可以绕过禁止包、模块依赖和 Node 内置模块位置检查，因为未进入后续扫描。这个门禁会对最需要它保护的边界给出假绿。
+- **如何核实**：从 worktree 根执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-design-r2/lab/cjs-alias.ts && bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-design-r2/lab/architecture-cjs-property.ts`，真实 Bun 输出 `aliased-require` 以及 `{"module":"object","moduleRequire":"function","require":"function"}`、`{"basename":"property-load-real-bun"}`，证明两种形式都能执行。再对照扫描器的 `CallExpression` 分支只检查 `ts.isIdentifier(node.expression)`，可确定它们不会被记录。
+- **建议改法**：扫描 `require`／`createRequire` 的绑定传播和成员调用，至少覆盖 `module.require`、`require.call` 等实际 CommonJS 入口；无法可靠做绑定分析时，对所有 CommonJS 语法形式直接拒绝，并用临时源码样本断言每种形式确实失败。继续保留动态 Profile loader 的显式例外，不要用放宽所有动态调用来修复。
+
+### 13. `loadProfile(path)` 的合法变量动态导入被边界测试判为违规
+
+- **严重程度**：重要；**类别**：正确性／测试。
+- **位置**：`packages/nb-harness/src/architecture.test.ts:98-101`、`:174-176`、`:43-49`；`docs/specs/harness/profile.md:138-139`、`:162`。
+- **现象**：Profile loader 的公开接口必须接收调用方提供的 `path: string`，并按该路径导入模块；合法实现形状是 `import(path)`，其参数不是字符串字面量，所以 `importsOf` 将 `specifier` 记为 `null`。`moduleTableViolation` 对动态导入要求 `use.specifier !== null`，因此即使文件位于 profile 模块登记的 `loader` 子目录，也会返回“动态导入的目标不是字符串字面量”。
+- **为什么是问题**：按 Spec 实现 `loadProfile(path)` 会直接使包的架构测试失败；把路径改成静态字面量无法加载调用方传入的 Profile，放宽所有动态导入又会撤掉模块边界的目标。当前测试合同和 Profile loader 合同没有共同可实现的交集。
+- **如何核实**：`/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-design-r2/lab/architecture-profile-loader.ts` 的真实代码为 `export async function loadProfile(path: string) { return import(path); }`；扫描器第 98 行只接受 `literalText(node.arguments[0])`，第 175 行对 `null` 无条件报错。Profile Spec 同时将 `loadProfile(path: string)` 定为公开 loader，并要求它导入模块。该结论不依赖网络或真实 Profile 文件。
+- **建议改法**：为 `loader` 子目录明确允许运行时路径动态导入，并另加 loader 的路径／根目录／扩展名校验与安全合同；或者改变公开接口为由调用方先导入再交给 `profileFromModule`，同时删除 `loadProfile(path)`。不能保留当前签名而把所有非字面量路径判为非法。
+
+### 14. 模块内部导入 `testing/` 会绕过产品代码禁止依赖测试支持的规则
+
+- **严重程度**：重要；**类别**：不变量／测试。
+- **位置**：`packages/nb-harness/src/architecture.test.ts:71-74`、`:168-186`；`docs/testing/README.md:114-117`。
+- **现象**：`isTestSupport` 把路径含有 `testing` 的文件标为豁免，主检查在第 227 行对这类导入跳过 `moduleTableViolation`。更关键的是，`moduleTableViolation` 在 `target` 与 `from` 同模块时直接返回 `null`；因此产品文件 `src/profile/profile.ts` 可以导入 `./testing/fixture`，即使 `testing/fixture` 依赖 Node I/O 或未登记外部包，也不会触发任何模块表检查。测试规范明确要求产品代码不引用 `testing/`。
+- **为什么是问题**：该门禁只保护跨模块边界，却放行同模块内部把测试支持带进产品包的依赖；这种依赖可能把测试专用入口、文件系统和 fixture 行为打进生产路径，违反测试与产品的职责隔离。新增产品代码可在现有 `bun test` 绿灯下引入这条违规边界。
+- **如何核实**：阅读第 183 行的 `if (to === from) return null` 与第 227 行的测试支持豁免；对照 `docs/testing/README.md:117` 的“产品代码不引用 `testing/`”。`packages/nb-harness/src/prototype/tests/harness.e2e.test.ts` 对 `../testing` 的引用是合法测试例外，本条针对同模块产品文件，不能用该现有测试引用反证规则充分。
+- **建议改法**：对所有非测试产品文件先独立拒绝目标路径的 `testing/` 子目录，再执行模块表规则；只有测试文件和 `testing/` 文件自身可免除外部依赖与 Node I/O 约束，不能免除“产品代码不得依赖 testing”的反向检查。增加一个产品文件到同模块 `testing/` 的负例。
+
+### 15. session 的压缩回放合同丢失 OMP 远程压缩所需的原生历史
+
+- **严重程度**：重要；**类别**：正确性／不变量。
+- **位置**：`docs/specs/harness/session.md:58-59`、`:110`、`:164-170`、`:185`（条目、输出 12、输出 23）；OMP `node_modules/@oh-my-pi/pi-agent-core/src/compaction/compaction.ts:1631-1650`、`:1777-1813`、`:1942-1954`；OMP `node_modules/@oh-my-pi/pi-agent-core/src/compaction/entries.ts:34-45`。
+- **现象**：OMP 的 OpenAI 远程压缩成功后，摘要可以只是占位文字，真正可继续请求的 replacement history 保存在 `compaction.preserveData`，并由 `providerReplayThroughEntryId` 标记原生回放覆盖到哪里；后续准备还会读取这两项。session 的 `SessionEntry` 类型确实预留了这两个字段，但 `buildModelContext` 输出 12.1 只规定“摘要作为一条用户消息”以及按 `firstKeptEntryId` 回放普通 `message`／`custom_message`，没有规定把 `preserveData` 解码为摘要消息的 `providerPayload`，也没有规定 `providerReplayThroughEntryId` 的原生历史切点。
+- **为什么是问题**：按 session 合同实现的 `buildModelContext` 会把占位摘要当普通文本交给 Agent，丢失 provider-native 的加密思考／replacement history；按 OMP 的远程压缩合同则必须生成带 `providerPayload` 的压缩摘要并跳过已由原生载荷覆盖的条目。两者不能同时满足“输出 12 的固定顺序”和“输出 23 的压缩结果可直接回放”。切换到 OpenAI remote 后，重开、下一轮请求或再次压缩可能缺少原生上下文，严重时会产生协议不完整的请求。
+- **如何核实**：只读 OMP 源码即可复现合同差异：`compact` 在远程成功分支将结果保存到 `preserveData`，并在 `usedRemoteCompaction` 分支生成 `Remote compaction preserved provider-native history for this session.` 占位摘要；OMP 的 session context 则读取 provider payload，构造带 `providerPayload` 的 compaction summary，并在存在 replacement history 时按 `providerReplayThroughEntryId` 回放后续条目。实验 `lab/compaction-replay-parity.ts` 使用真实 `prepareCompaction`、`compact` 与 OMP 转换路径、脚本化 `completeImpl`（无网络）确认普通 custom 条目会先成为 `custom`，再转为 provider 的 `developer`；它不能替代远程网络调用，因此本条的远程分支证据是锁定源码合同，不声称已调用真实 Provider。
+- **建议改法**：把 OMP 压缩结果到 session `compaction` 条目再到 `buildModelContext` 的适配合同写完整：保留并校验 provider、replacement history、原生 compaction item，构造带 `providerPayload` 的内部消息，并定义 `providerReplayThroughEntryId` 与 `firstKeptEntryId` 的优先级、跨模型不可复用时的降级规则。若 v1 不支持远程原生压缩，应从可用方法与输出 23 中明确排除，而不是保留字段却按普通摘要回放。
+
+## 按影响排序索引
+
+同为“重要”时，先列直接影响模型上下文、会话恢复与数据不变量的发现，再列公开接口和边界门禁；“建议”列最后。既有条目不改写，只在此给出交付顺序：
+
+- **重要／模型上下文与会话不变量**：#1、#2、#3、#4、#5、#6、#10、#11、#15。
+- **重要／公开接口与边界门禁**：#8、#9、#12、#13、#14。
+- **建议／测试规格**：#7。
+
+严重程度统计：**阻断 0 条，重要 14 条，建议 1 条**，共 15 条。
+
+## 未发现问题的方面
+
+- OMP `prepareCompaction` 的本地路径只读取调用方条目并构造自己的消息数组；本轮没有发现它会原地排序、删除或改写 session 条目。压缩兼容问题是公开只读类型与远程原生载荷合同（#11、#15），不是额外的原地变异问题。
+- 真实 OMP Agent 钩子实验没有发现新的时序问题：`transformContext` 中更新系统提示词只影响下一次请求，而 `addBeforeModelCallHook` 能影响当前请求；该行为已用于核对 Profile 的调用前刷新语义，没有另列为 OMP 缺陷。
+- OMP 消息转换实验没有发现新的工具配对缺陷：重复历史中的工具 id 会归一化并同步结果，调用与结果之间插入的 Developer 消息会被移到结果之后，thinking 签名会保留。上一轮已经处理的未配对调用清理不重复报告。
+- `architecture.test.ts` 的模块登记、公开入口映射、旧原型隔离、禁止包、静态导入的公开入口／`import type` 约束以及依赖环检查，本轮没有确认新的问题；问题限于 #12–#14 所列语法逃逸、动态 loader 冲突和测试目录豁免。
+- 分页按轮从新到旧、至少一轮、`next` 的连续翻页及 `readEntry` 取回完整条目的基本方向没有另发现象；已确认的不足仅是跨会话游标身份（#5）、字段预算会破坏身份字段（#6）和场景预算样本／计费口径（#7）。
+- Profile 目录覆盖顺序、未注册字段的 warning 语义、Reminder 条件取交集及 Profile 不依赖 session 的模块边界，在 Spec 中有明确规则；它们的关联缺口已在 #1、#3、#10 中报告，没有再拆成重复条目。
+
+## 八个待确认规则
+
+| 编号 | 判断 | 核实结论 |
+|---|---|---|
+| 1 | **成立但接受取舍** | `profile.md` 输出 10 明确多个条件取交集、`every` 从未出现视为满足，可以保留该确定的触发规则。 |
+| 2 | **成立要改** | 输出 11 的文字格式可以保留，但种子与追加区域中的 `History as="text"` 没有历史输入，必须补齐相应渲染签名或收窄合法位置（#1）。 |
+| 3 | **成立但接受取舍** | 输出 13 明确组后覆盖、组内重复两者都不收录并报告，可以保留这一确定的目录冲突策略。 |
+| 4 | **成立要改** | 输出 4 与时序 177 的整次重新 `prepare` 会重复解析 invocation 数据源，需复用调用快照并只刷新 model-call 数据（#3）。 |
+| 5 | **成立但接受取舍** | 输出 3 明确未知字段产生 `unknown-field` warning 并忽略、已注册字段校验失败才返回 `invalid-prompt`，可以保留这种容错取舍。 |
+| 6 | **成立但接受取舍** | Profile 不依赖 session、由调用方传历史并持久化输出的边界可以保留，但公开渲染输入仍须解决历史缺参、轮边界和无 History 输入丢失（#1、#4、#10）。 |
+| 7 | **说明没写清** | 输出 20 的至少一轮与超限单轮例外可以保留，但须定义原始条目或截断视图的计费口径，场景 15 的原始 206482 字节与截断后 18066 字节均未触发 262144 字节上限（#7）。 |
+| 8 | **成立要改** | 输出 12.1 的顺序适用于本地文本摘要，但输出 23 同时承诺 OMP 压缩兼容，必须补齐远程 `preserveData` 的原生回放及可选 `providerReplayThroughEntryId` 切点（#15）。 |
+
+## 验证记录
+
+- 包门禁工作目录：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00002-review-t09/packages/nb-harness`；下列结果来自本轮已完成的执行，收口未重复运行。
+- `NBOOK_LLM_TESTS=0 NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t09-design-r2/lab bun test`：**31 pass、2 skip、0 fail、79 expect()**，共 33 个测试、6 个文件。
+- `bun run typecheck`：`tsc --noEmit` 成功，退出码 0。
+- 只读类型实验确认 OMP 调用对 `readonly SessionEntry[]` 给出 `TS2345`；真实 Bun 实验确认 CommonJS 别名与 `module.require` 均可执行但不会被当前 AST 记录；Profile loader 变量动态导入与当前字面量要求冲突。
+- 未运行 e2e、开发服务或真实 Provider／Model 测试；远程压缩 #15 的证据来自锁定 OMP 源码与无网络的脚本化公开调用，不声称真实远程请求已完成。
+- 从 worktree 根执行 `git rev-parse HEAD`：`5d32a88fc16cceb80a81f795758455714849f092`；收口执行 `git status --short` 无输出，仓库工作区干净，报告与实验位于仓库外。
