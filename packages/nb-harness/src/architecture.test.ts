@@ -60,6 +60,13 @@ const MODULES: Readonly<Record<string, ModuleRule>> = {
         nodeBuiltinsIn: [],
         dynamicImportIn: [],
     },
+    // 压缩直接包 OMP 的 prepareCompaction 与 compact（设计稿“压缩”）：运行时依赖；会话只要类型，条目经调用方传入的 SessionLog 写回。
+    compaction: {
+        modules: ["session"],
+        packages: {...TYPEBOX, "@oh-my-pi/pi-agent-core": "runtime", "@oh-my-pi/pi-ai": "type-only", "@oh-my-pi/pi-catalog": "type-only"},
+        nodeBuiltinsIn: [],
+        dynamicImportIn: [],
+    },
     // 模型与凭据直接用 OMP（设计稿“模型与凭据”）：这是运行时依赖；SQLite 路径交给 OMP，自己不碰 Node 内置模块。
     models: {
         modules: ["config"],

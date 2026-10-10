@@ -18,7 +18,8 @@
         "./profile/loader": "./src/profile/loader/loader.ts",
         "./config": "./src/config/config.ts",
         "./models": "./src/models/models.ts",
-        "./tools": "./src/tools/tools.ts"
+        "./tools": "./src/tools/tools.ts",
+        "./compaction": "./src/compaction/compaction.ts"
     },
     "scripts": {
         "test": "bun test",
