@@ -114,6 +114,8 @@ export interface EditorArea {
     revert(): Promise<ActionResult>;
     overwrite(): Promise<ActionResult>;
     resolve(groupId: string, choice: "adopt-current" | "keep-view"): void;
+    /** 焦点落到了编辑器区之外（用户去了资源管理器等）：撤销还在等控件就绪的焦点交接。 */
+    focusLeft(): void;
     /** 控件交出（或撤回）句柄。 */
     registerHandle(groupId: string, kind: EditorKind, handle: EditorControlHandle | null): void;
     dismissNotice(): void;
@@ -340,7 +342,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     /**
      * 把焦点交给活动视图。布局变化（关闭组、拆分）会让 grid 重挂控件：现在聚焦的可能是马上被拿下的那个 DOM，所以活动视图
      * 的控件在同一个任务里重新登记时再聚焦一次；控件还没挂上（例如换了一种编辑器、Monaco 还在加载）就等它登记。只聚焦
-     * 活动视图：其它组的控件重挂不抢焦点，也就不会把活动组改掉。
+     * 活动视图：其它组的控件重挂不抢焦点，也就不会把活动组改掉。等待中的交接在用户把焦点移出编辑器区时撤销（`focusLeft`），
+     * 迟到的控件不把焦点抢回来。
      */
     let focusWhenReady = false;
     let refocusOnRemount = false;
@@ -521,6 +524,11 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (current === undefined) return;
             documents.resolve(current.document, current.token, choice);
             if (notice.value !== null) notice.value = null;
+        },
+        focusLeft: () => {
+            focused.value = false;
+            focusWhenReady = false;
+            refocusOnRemount = false;
         },
         registerHandle: (groupId, kind, handle) => {
             const next = new Map(handles.value);

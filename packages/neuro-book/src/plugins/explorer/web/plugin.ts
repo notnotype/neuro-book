@@ -72,7 +72,9 @@ export const explorerBrowserPlugin: PluginDefinition = {
             session.prepare();
             const importView = (): Promise<typeof import("./components/FilesExplorerView.vue")> => import("./components/FilesExplorerView.vue");
             let viewModule: ReturnType<typeof importView> | null = importView();
-            // 预取失败只丢掉这次的结果：`load` 重新下载，失败照常由视图宿主原位显示并可重试（不能让重试拿到同一个已失败的结果）。
+            // 预取失败只丢掉这次的结果，`load` 再 import 一次，失败照常由视图宿主原位显示。Chrome 把同一地址的模块下载失败记在
+            // 页面的模块表里，再 import 仍然失败，原位重试救不回下载失败，要重新载入页面（所有按需加载的视图都一样，见 w00017
+            // 待确认清单）。
             viewModule.catch(() => {
                 viewModule = null;
             });

@@ -3,7 +3,7 @@
 import {Button, Dialog} from "@notnotype/nb-ui/components";
 import {useGridLayout, useLayoutExtent} from "@notnotype/nb-ui/composables";
 import {GridRenderer} from "@notnotype/nb-ui/layout";
-import {computed, ref, watch} from "vue";
+import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import type {Component} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
@@ -45,6 +45,13 @@ const onKeydown = (event: KeyboardEvent): void => {
 const onFocusOut = (event: FocusEvent): void => {
     if (root.value !== null && !root.value.contains(event.relatedTarget as Node | null)) props.area.focused.value = false;
 };
+// 新焦点落在编辑器区之外才算用户离开：控件重挂时焦点暂时落到页面根，页面根不触发 focusin，不撤销等待中的焦点交接。
+// 焦点也可能从页面根直接去资源管理器（关闭标签拿下了原来的焦点），编辑器区收不到 focusout，所以在 document 上看。
+const onDocumentFocusIn = (event: FocusEvent): void => {
+    if (root.value !== null && event.target instanceof Node && !root.value.contains(event.target)) props.area.focusLeft();
+};
+onMounted(() => document.addEventListener("focusin", onDocumentFocusIn));
+onBeforeUnmount(() => document.removeEventListener("focusin", onDocumentFocusIn));
 
 const dialog = computed(() => props.area.dialog.value);
 </script>

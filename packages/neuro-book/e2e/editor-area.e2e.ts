@@ -62,6 +62,7 @@ test.beforeAll(async () => {
         "notes/v.md": "收\n",
         "notes/w.md": "尾\n",
         "data/mixed.txt": "甲\r\n乙\n丙\r\n",
+        "data/late.json": "{\"late\": 1}\n",
     };
     for (const [path, text] of Object.entries(files)) {
         await mkdir(dirname(join(projectDir, path)), {recursive: true});
@@ -335,6 +336,23 @@ test("源码文件用 Monaco：第一次打开源码文件之前不加载它；�
     await expect.poll(() => monacoText(page)).toBe("{\"f\": 1}\n//");
     await page.locator("[data-editor-tab-label]", {hasText: "g.json"}).click();
     await expect.poll(() => monacoText(page)).toBe("{\"g\": 2}\n// g");
+
+    // 语言服务在模型释放后用 Monaco 的取消错误 reject 在途请求，没有人接：加载 Monaco 之后它不成为页面错误，其它未处理的
+    // 拒绝照常报出（只差名字或只差消息的也算其它）。取消的时机由 worker 决定，这里直接在页面里产生同样的未处理拒绝。
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(`${error.name}: ${error.message}`));
+    await page.evaluate(() => {
+        const rejectWith = (name: string, message: string): void => {
+            const error = new Error(message);
+            error.name = name;
+            void Promise.reject(error);
+        };
+        rejectWith("Canceled", "Canceled");
+        rejectWith("Canceled", "其它失败");
+        rejectWith("Error", "Canceled");
+    });
+    await expect.poll(() => pageErrors.length).toBe(2);
+    expect(pageErrors).toEqual(["Canceled: 其它失败", "Error: Canceled"]);
     await closeAll(page);
 });
 
@@ -358,6 +376,34 @@ test("关闭标签与空组之后焦点留在编辑器区：交给关闭后的�
     await page.keyboard.press("Delete");
     await expect(page.locator("[data-editor-group]")).toHaveCount(1);
     await expect.poll(() => focusInEditor(page)).toBe(true);
+    await closeAll(page);
+});
+
+test("关闭之后活动视图还在加载时，用户把焦点移到资源管理器：控件迟到也不抢回焦点", async ({page}) => {
+    // 扣住 Monaco 的下载，让关闭后的活动标签停在“控件还没挂上”：这时焦点交接只是一个待办的意图。
+    const monaco = Promise.withResolvers<void>();
+    await page.route(/editor\.api/u, async (route) => {
+        await monaco.promise;
+        await route.continue();
+    });
+    await open(page);
+    await closeAll(page);
+    await item(page, "project://notes/a.md").dblclick();
+    await expect(prose(page)).toBeVisible();
+    if (await item(page, "project://data").getAttribute("aria-expanded") !== "true") await item(page, "project://data").click();
+    await item(page, "project://data/late.json").dblclick();
+    await expect(page.locator("[data-editor-tab]", {hasText: "late.json"})).toHaveAttribute("aria-selected", "true");
+    await page.locator("[data-editor-tab-label]", {hasText: "a.md"}).click();
+    await prose(page).click();
+    await page.keyboard.press("Control+w");
+    await expect(labels(page)).toHaveText(["late.json"]);
+
+    await item(page, "project://target").click();
+    await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[data-explorer-tree]") !== null)).toBe(true);
+    monaco.resolve();
+    await expect.poll(() => monacoText(page)).toBe("{\"late\": 1}\n");
+    expect(await page.evaluate(() => document.activeElement?.closest("[data-explorer-tree]") !== null)).toBe(true);
+    await page.unrouteAll({behavior: "wait"});
     await closeAll(page);
 });
 
