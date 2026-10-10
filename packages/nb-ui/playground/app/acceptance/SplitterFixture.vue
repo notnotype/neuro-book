@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import {computed, nextTick, onMounted, ref, watch} from "vue";
-import SegmentedControl from "../../../../src/components/controls/SegmentedControl.vue";
-import Splitter, {type SplitterPanelConfig} from "../../../../src/components/layout/Splitter.vue";
-import type {SashCollapsePolicy} from "../../../../src/components/layout/grid-types";
+import SegmentedControl from "../../../src/components/controls/SegmentedControl.vue";
+import Splitter, {type SplitterPanelConfig} from "../../../src/components/layout/Splitter.vue";
+import type {SashCollapsePolicy} from "../../../src/components/layout/grid-types";
 import type {
     SplitterGestureCancellation,
     SplitterGestureState,
-} from "../../../../src/components/layout/splitter-gesture";
-import FileTree from "../../../../src/components/navigation/FileTree.vue";
-import type {FileTreeNode} from "../../../../src/components/navigation/file-tree.types";
-import FixtureShell from "../FixtureShell.vue";
-import {controlDefaultValue, type LabComponentDefinition} from "../registry";
+} from "../../../src/components/layout/splitter-gesture";
+import FileTree from "../../../src/components/navigation/FileTree.vue";
+import type {FileTreeNode} from "../../../src/components/navigation/file-tree.types";
+import FixtureShell from "./AcceptanceShell.vue";
+import {controlDefaultValue, type LabComponentDefinition} from "./definitions";
 
 const props = defineProps<{
     definition: LabComponentDefinition;

@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import {computed, onMounted} from "vue";
-import {useRoute} from "vue-router";
+import {onMounted} from "vue";
 import {provideThemeComponents} from "../../src/theme/component-registry";
 import {useColorway} from "./composables/useColorway";
 import {useTheme} from "./composables/useTheme";
@@ -16,15 +15,10 @@ onMounted(() => {
     theme.initTheme();
 });
 
-const route = useRoute();
-// /lab 是仪器式整页布局：外壳给它确定高度并禁止页面级滚动，三栏各自内部滚动
-const isLabPage = computed(() => route.path === "/lab");
-
 const navItems = [
     {to: "/", label: "主题对照"},
     {to: "/workbench", label: "工作台"},
     {to: "/components", label: "组件画廊"},
-    {to: "/lab", label: "诊断实验室"},
     {to: "/manual-import", label: "手动导入"},
 ];
 </script>
@@ -36,7 +30,7 @@ const navItems = [
         · 不吃 nb-ui 组件 —— 阶段 2/3 要逐批重写它们，外壳不能跟着一起坏
         只允许消费配色的颜色变量，这样切配色时外壳仍然跟着走。
     -->
-    <div class="flex min-h-screen flex-col bg-[var(--bg-main)] text-[var(--text-main)]" :class="isLabPage ? 'nb-shell--lab' : ''">
+    <div class="flex min-h-screen flex-col bg-[var(--bg-main)] text-[var(--text-main)]">
         <header
             class="sticky top-0 z-40 flex flex-wrap items-center gap-x-6 gap-y-2 border-b px-4 py-2"
             style="border-color: var(--border-color); background: var(--bg-panel); font-size: 13px; font-family: system-ui, sans-serif"

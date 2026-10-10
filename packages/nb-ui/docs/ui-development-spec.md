@@ -360,7 +360,7 @@
 
 ## 7. Component Lab
 
-nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/component-lab`](../../../docs/specs/ui/component-lab.md)，登记写法见 `packages/neuro-book/src/plugins/lab/web/fixtures/README.md`。playground 的 `/lab` 已不再登记新场景，随 Lab 迁移完成删除。
+nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/component-lab`](../../../docs/specs/ui/component-lab.md)，登记写法见 `packages/neuro-book/src/plugins/lab/web/fixtures/README.md`。playground 的 `/lab` 已删除；需要真实指针与布局引擎的手势验收（嵌套分栏、多栏分割）在 playground 的 `/acceptance/<组件>` 页，由 `e2e/nested-grid.spec.ts`、`e2e/splitter.spec.ts` 驱动。
 
 1. **登记位置**：`packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/` 按组件目录分文件（控制、展示、反馈、表单、布局）。只需绑定输入与记录事件的用 `defineSubjectFixture`，需要组合演示的手写 fixture 并用 `defineLabFixture<typeof C>`。
 2. **一个场景一个组件**：场景表达组件的一种状态或输入组合，不在一个场景里平铺多套设计方案；设计实验不是组件合同。

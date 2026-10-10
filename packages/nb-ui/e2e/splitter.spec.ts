@@ -8,24 +8,18 @@ import { test, expect } from "./fixtures";
  */
 
 async function gotoSplitter(page: Page, theme = "nbook", colorway = "nbook-light"): Promise<void> {
-    const query = new URLSearchParams({
-        component: "splitter",
-        scene: "default",
-        viewport: "responsive",
-        theme,
-        colorway,
-    });
-    await page.goto(`/lab?${query.toString()}`);
+    const query = new URLSearchParams({scene: "default", theme, colorway});
+    await page.goto(`/acceptance/splitter?${query.toString()}`);
     await expect(page.locator("#nb-lab-target")).toBeVisible();
 }
 
 async function showEventLog(page: Page): Promise<void> {
-    await page.locator("[aria-label=\"检查器页签\"]").getByText("事件").click();
-    await expect(page.locator(".lab-events__header")).toBeVisible();
+    // 验收页的事件日志一直显示，不用切页签。
+    await expect(page.locator(".acc-events__header")).toBeVisible();
 }
 
 async function eventNames(page: Page): Promise<string[]> {
-    return page.locator(".lab-events__row .lab-events__name").allTextContents();
+    return page.locator(".acc-events__row .acc-events__name").allTextContents();
 }
 
 const PANEL_SELECTOR = "#nb-lab-target [data-splitter] [data-panel-id]";
@@ -200,11 +194,11 @@ test("390×844 窄屏下 target 受容器约束且仍可拖拽", async ({ page }
     await page.setViewportSize({width: 390, height: 844});
     await gotoSplitter(page);
     const target = page.locator("#nb-lab-target");
-    const canvasScroll = page.locator(".lab-canvas-scroll");
+    const canvasScroll = page.locator(".acc-canvas");
     const targetBox = await target.boundingBox();
     const canvasBox = await canvasScroll.boundingBox();
     expect(targetBox, "被测 target 必须有真实几何").not.toBeNull();
-    expect(canvasBox, "responsive 画布必须有真实几何").not.toBeNull();
+    expect(canvasBox, "验收页画布必须有真实几何").not.toBeNull();
     expect(targetBox!.width).toBeLessThanOrEqual(canvasBox!.width);
     expect(targetBox!.width).toBeLessThan(390);
 

@@ -21,7 +21,7 @@ const props = withDefaults(defineProps<{
 });
 
 /*
- * 尺寸与材质 100% 对齐诊断实验室（ButtonFixture.vue）BH1-C 方案：
+ * 尺寸与材质取自设计推演选定的 BH1-C 方案：
  * - 紧凑尺寸与精致圆角（sm: 26px/6px, md: 32px/8px, lg: 38px/10px）
  * - 纯净半透层次（Secondary 为 8% 浅底，Hover 跃升至 18% 饱满实底 + 2px 触觉柔光底影）
  * - Primary/Danger 绑定品牌与状态色 + 柔光底晕

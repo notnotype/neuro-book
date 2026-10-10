@@ -170,6 +170,6 @@ Component Lab 的 fixture 承载组件确定性状态验证。编写 fixture 须
 
 1. **视口盒子居中与直连**：局部部件与独立面板在 `component-index.ts` 中使用 `tight` 视口模式由 `ViewportCanvas` 在舞台居中承载；fixture 根部直接挂载被测组件并声明 `w-full`（面板/视图声明 `h-full w-full`），不在 fixture 内手写 `flex items-center justify-center` 或固定像素外壳，使外层 `ViewportCanvas` 拖拽手柄直接控制组件尺寸。
 2. **材质分层**：背景必须消费语义材质变量（`var(--panel-surface)`、`var(--bg-panel)` 等），严禁在 fixture 容器硬编码页面底色 `var(--bg-main)`，以维持 Lab 面板层材质与暗色主题对比度一致。
-3. **典型示范**：旧应用的标准实现参见 `packages/neuro-book-legacy/app/component-lab/fixtures/FixtureExampleFixture.vue` 与对应指南 `packages/neuro-book-legacy/app/component-lab/fixtures/README.md`；Lab 迁入新应用后改指新位置。
+3. **典型示范**：参见 `packages/neuro-book/src/plugins/lab/web/fixtures/FixtureExampleFixture.vue` 与同目录的 `README.md`。
 
 完成标准：每个受管组件都有同名组件文档，且文档的能力标签与实现一致；公共零件目录耦合度为 0；非宿主组件不含 `state:shared-write` 与 `io:mutate`；需要理由的声明都有理由；应用侧可挂载组件在 Component Lab 有场景登记；桌面（宽度不低于 1440px）与 `390×844` 下核心操作均可完成，无页面级横向滚动、无导致操作无法完成的遮挡、无未声明的布局位移。

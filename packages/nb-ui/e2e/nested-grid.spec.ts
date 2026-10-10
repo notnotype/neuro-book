@@ -21,27 +21,24 @@ async function gotoNestedGrid(
         scene?: string;
         theme?: string;
         colorway?: string;
-        viewport?: "responsive" | "phone" | "tablet";
     } = {},
 ): Promise<void> {
     const query = new URLSearchParams({
-        component: "nested-grid",
         scene: options.scene ?? "default",
-        viewport: options.viewport ?? "responsive",
         theme: options.theme ?? "nbook",
         colorway: options.colorway ?? "nbook-light",
     });
-    await page.goto(`/lab?${query.toString()}`);
+    await page.goto(`/acceptance/nested-grid?${query.toString()}`);
     await expect(page.locator("#nb-lab-target")).toBeVisible();
 }
 
 async function showEventLog(page: Page): Promise<void> {
-    await page.locator("[aria-label=\"检查器页签\"]").getByText("事件").click();
-    await expect(page.locator(".lab-events__header")).toBeVisible();
+    // 验收页的事件日志一直显示，不用切页签。
+    await expect(page.locator(".acc-events__header")).toBeVisible();
 }
 
 async function eventNames(page: Page): Promise<string[]> {
-    return page.locator(".lab-events__row .lab-events__name").allTextContents();
+    return page.locator(".acc-events__row .acc-events__name").allTextContents();
 }
 
 function nestedGridLocators(page: Page) {
@@ -334,7 +331,6 @@ for (const combination of [
             await gotoNestedGrid(page, {
                 theme: combination.theme,
                 colorway: combination.colorway,
-                viewport: "responsive",
             });
 
             const target = page.locator("#nb-lab-target");

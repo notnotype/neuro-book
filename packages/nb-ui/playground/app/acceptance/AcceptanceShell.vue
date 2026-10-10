@@ -2,11 +2,11 @@
 import {computed} from "vue";
 import FormCheckbox from "../../../src/components/form/FormCheckbox.vue";
 import FormSelect from "../../../src/components/form/FormSelect.vue";
-import {getLabScene, type LabComponentDefinition} from "./registry";
+import {getLabScene, type LabComponentDefinition} from "./definitions";
 
 /**
- * fixture 的公共外壳：eyebrow 行（组件/场景）+ 顶部紧凑场景属性工具栏 + 被测组件插槽。
- * 将场景属性上移至顶栏，彻底解决下方下拉浮层展开时互相遮挡的问题。
+ * 验收页 fixture 的公共外壳：eyebrow 行（组件/场景）+ 顶部紧凑场景属性工具栏 + 被测组件插槽。
+ * 将场景属性上移至顶栏，彻底解决下方下拉浮层展开时互相遮挡的问题。e2e 按控件的标签文字切换场景属性。
  */
 const props = defineProps<{
     definition: LabComponentDefinition;

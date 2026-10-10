@@ -23,8 +23,8 @@
 /* 工作台切片层。看的是「一屏铺满之后长什么样」，与 showcase 的「元素长什么样」互补 */
 @import "./workbench.css";
 
-/* 组件诊断实验室（/lab）：单组件单场景的可复现诊断 */
-@import "./lab.css";
+/* 组件手势验收页（/acceptance/<组件>）的 fixture 样式；组件场景登记在新应用的 Component Lab */
+@import "./acceptance.css";
 
 /* 与 src/tailwind.css 同款图标配置：类名对齐现有 i-lucide-* 写法 */
 @plugin "@iconify/tailwind4" {

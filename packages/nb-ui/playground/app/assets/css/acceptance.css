@@ -1,0 +1,78 @@
+/*
+ * 手势验收页（pages/acceptance）的 fixture 样式：从退役的组件 Lab 样式里留下 fixture 自己用到的部分。
+ */
+
+/* fixture 与 props 面板收进一条测量列，不随画布宽度无限拉伸 */
+.lab-fixture {
+    width: 100%;
+}
+
+.lab-fixture__eyebrow {
+    margin-bottom: var(--space-3);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-muted);
+}
+
+.lab-fixture__note {
+    margin-top: var(--space-3);
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+}
+
+/* 无表单字段语境的组件（图标按钮、徽章等）在测量列里居中展示 */
+.lab-fixture__center {
+    display: flex;
+    justify-content: center;
+    padding: var(--space-3) 0;
+}
+
+/* 紧凑高质感 macOS 磨砂卡片容器 */
+.macos-compact-card {
+    width: 100%;
+    max-width: 560px;
+    margin: 0 auto;
+    padding: var(--space-5) var(--space-6);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--bg-panel) 85%, transparent);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+    box-shadow: 0 20px 48px -12px color-mix(in srgb, var(--shadow-color) 24%, transparent),
+                0 2px 8px color-mix(in srgb, var(--shadow-color) 8%, transparent);
+}
+
+.stage-box {
+    position: relative;
+    width: 100%;
+    margin-top: var(--space-2);
+}
+
+.scheme-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--accent-main) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-main) 20%, transparent);
+}
+
+.scheme-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: var(--radius-pill);
+    background: var(--accent-main);
+    color: var(--text-inverse);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.scheme-banner-text {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}

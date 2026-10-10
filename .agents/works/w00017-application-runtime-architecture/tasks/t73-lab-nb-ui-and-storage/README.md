@@ -36,6 +36,15 @@ taskId: t73-lab-nb-ui-and-storage
     - 越界报告多为测量误报（读屏播报区、视觉隐藏的 input），Lab 的测量改为跳过看不见的元素，e2e 补了用例；
     - 真实问题只有 Collapsible：内容区向外扩 6px，在贴边容器里造成 6px 横向溢出。这是保护焦点光环的设计取舍，写进组件文档。
   - **验证**：nb-ui 与 neuro-book 的 typecheck、`build` 与 `check:dist`、Lab 的 Bun 37 例、Vitest 27 例、e2e `lab.e2e.ts` 与 `lab-shot.e2e.ts` 11 例，全部通过。变异 6 个全杀。
+- 2026-10-10 S5 第二部分完成（playground Lab 退役）：
+  - **删除**：`packages/nb-ui/playground/app/component-lab/`、`pages/lab.vue`、`assets/css/lab.css`，导航里的“诊断实验室”。
+  - **依赖 `/lab` 的 nb-ui 用例逐个处理，不静默丢覆盖**：
+    - `nested-grid.spec.ts`、`splitter.spec.ts`：需要真实指针与布局引擎的手势验收（拖动守恒、键盘只提交一次、坏快照恢复等）。两个 fixture 与它们的外壳、定义搬到 `playground/app/acceptance/`，由新的验收页 `/acceptance/<组件>` 承载（按地址应用主题与配色、场景属性控件、一直可见的事件日志）。两个 spec 只改地址与事件日志的选择器，30 例全过。
+    - `lab.spec.ts` 里测组件行为的三条（下拉的键盘展开、禁用项与 Escape，向上展开，非模态窗口的外部交互与键盘调整尺寸）迁到新应用的 `e2e/lab-nb-ui.e2e.ts`，对新 Lab 里的真实组件场景断言。原用例测的其实是 playground 里的裸 Reka 下拉，新用例测的是 nb-ui 的 FormSelect。其余用例测的是 playground Lab 自身（地址参数、变量覆盖、快照），随它删除；变量覆盖在新 Lab 由 `lab.e2e.ts` 场景 23 覆盖。
+    - `visual.spec.ts`（含像素基线）与 `shots.spec.ts`：经 `/lab` 拍的主题矩阵截图，删除，由新应用的 `lab:shot` 取代。**像素基线对比随之丢失**，`lab:shot` 只报告溢出与页面问题，不比对像素。
+  - **环境**：nb-ui 的 Playwright 配置用 Playwright 自带的 chromium，本机没有下载；这次用会话临时目录里的包装配置换成本机 Chrome 运行，仓库里的配置没有改。
+  - **文档**：nb-ui UI 规范第 7 节、组件规范的示范链接、`Button.vue` 一条指向已删 fixture 的注释。
+  - **验证**：nb-ui typecheck（含 playground）；nb-ui Vitest 515 例通过，`colorway.test.ts` 5 例是已知的环境失败；nb-ui 手势验收 30 例；`lab-nb-ui.e2e.ts` 3 例。
 - 2026-10-10 S5 第一部分完成（变量页签与结构检查）：
   - **变量页签**：从 playground Lab 迁入。覆盖集的校验与快照（`lab-overrides.ts`，快照格式不变，旧文件可导入）、变量分组从 nb-ui 公开入口取（`lab-tokens.ts`）、覆盖层只在内存（`use-lab-overrides.ts`，不写浏览器存储，刷新后消失）、面板 `LabVariablesPanel.vue`。地址栏的 `tab` 参数多了 `variables`。
   - **结构检查**：迁入元素页签（`inspect-checks.ts`）。旧的“invalid 语义”检查依赖 playground 场景上的标记，新 Lab 没有，不迁；“预览边界”改为“画布边界”，不在画布里的元素不判。读数里的 role 补上原生元素的隐式角色（迁移时发现原生 `<button>` 显示为“—”）。

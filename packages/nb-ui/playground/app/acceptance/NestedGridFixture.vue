@@ -7,15 +7,15 @@ import {
     type GridBranchInput,
     type GridLayoutResult,
     type GridSnapshot,
-} from "../../../../src/components/layout/grid";
-import {useGridLayout} from "../../../../src/composables/useGridLayout";
-import {useLayoutExtent} from "../../../../src/composables/useLayoutExtent";
-import GridRenderer from "../../../../src/components/layout/GridRenderer.vue";
-import type {GridBranchChange} from "../../../../src/components/layout/grid-gesture";
-import type {GridSashRef} from "../../../../src/components/layout/sash-gesture";
-import type {SplitterGestureCancelReason, SplitterGestureSource} from "../../../../src/components/layout/splitter-gesture";
-import FixtureShell from "../FixtureShell.vue";
-import {controlDefaultValue, type LabComponentDefinition} from "../registry";
+} from "../../../src/components/layout/grid";
+import {useGridLayout} from "../../../src/composables/useGridLayout";
+import {useLayoutExtent} from "../../../src/composables/useLayoutExtent";
+import GridRenderer from "../../../src/components/layout/GridRenderer.vue";
+import type {GridBranchChange} from "../../../src/components/layout/grid-gesture";
+import type {GridSashRef} from "../../../src/components/layout/sash-gesture";
+import type {SplitterGestureCancelReason, SplitterGestureSource} from "../../../src/components/layout/splitter-gesture";
+import FixtureShell from "./AcceptanceShell.vue";
+import {controlDefaultValue, type LabComponentDefinition} from "./definitions";
 
 const props = defineProps<{
     definition: LabComponentDefinition;
