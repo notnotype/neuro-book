@@ -53,6 +53,13 @@ describe("判定（输出 5、6）", () => {
         expect(decide({risk: throwing, mode: "yolo"})).toMatchObject({outcome: "allow", tier: "exec", step: 4});
         expect(decide({risk: throwing, mode: "write"})).toMatchObject({outcome: "ask", tier: "exec", step: 4});
         expect(decide({risk: throwing, mode: "write"}).reason).toContain("算不出来");
+        // 动态返回值与静态定义过同一套形状检查：非法等级、非法 policy、undefined 都按最严（exec 加询问）
+        for (const bad of [() => "danger", () => undefined, () => ({tier: "read", policy: "allow"}), () => ({tier: "read", reason: 1})]) {
+            const decision = decide({risk: bad as unknown as Risk, mode: "yolo", config: {edit: "allow"}});
+            expect(decision).toMatchObject({tier: "exec", step: 4, outcome: "allow"});
+            expect(decide({risk: bad as unknown as Risk, mode: "write"})).toMatchObject({outcome: "ask", tier: "exec", step: 4});
+            expect(decide({risk: bad as unknown as Risk, mode: "write"}).reason).toContain("不合规则");
+        }
         const byArgs: Risk = (args) => ((args as {path: string}).path === "/etc/passwd" ? {tier: "exec", policy: "deny"} : "read");
         expect(decide({risk: byArgs, args: {path: "/etc/passwd"}, mode: "yolo"}).outcome).toBe("deny");
         expect(decide({risk: byArgs, args: {path: "a.md"}, mode: "always-ask"}).outcome).toBe("allow");

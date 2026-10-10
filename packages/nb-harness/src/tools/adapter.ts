@@ -7,17 +7,22 @@
  */
 
 import type {AgentToolResult} from "@oh-my-pi/pi-agent-core";
-import {Value} from "typebox/value";
+import {validateJsonSchemaValue} from "@oh-my-pi/pi-ai";
 import type {TSchema} from "typebox";
 import type {AdapterHooks, AgentTool, ApprovalOutcome, JsonValue, ToolCall, ToolContext, ToolDescriptor, ToolOutcome} from "./types";
 
 const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
+/**
+ * 用 OMP 自己的 JSON Schema 校验器（它的循环就用这个）：TypeBox 的校验器对 pattern 用带 u 标志的 RegExp，与 OMP 的
+ * 不带 u 标志语义不同（非 BMP 字符），两层用同一实现才不会出现“直接调用通过、经 Agent 被拒”的参数。
+ */
 function argumentProblems(schema: TSchema, value: unknown): string | null {
-    if (Value.Check(schema, value)) return null;
-    return [...Value.Errors(schema, value)]
+    const result = validateJsonSchemaValue(schema, value);
+    if (result.success) return null;
+    return result.issues
         .slice(0, 5)
-        .map((error) => `${error.instancePath === "" ? "/" : error.instancePath}：${error.message}`)
+        .map((issue) => `/${issue.path.map(String).join("/")}：${issue.message}`)
         .join("；");
 }
 
@@ -40,7 +45,12 @@ export function toAgentToolResult(outcome: ToolOutcome): AgentToolResult {
 }
 
 async function run(descriptor: ToolDescriptor, hooks: AdapterHooks, call: ToolCall, signal: AbortSignal, onProgress: (progress: JsonValue) => void): Promise<ToolOutcome> {
-    const definition = hooks.source.get(descriptor.id);
+    let definition;
+    try {
+        definition = hooks.source.get(descriptor.id);
+    } catch (error) {
+        return failure("tool-unavailable", `工具来源出错：${describe(error)}`);
+    }
     if (definition === undefined) return failure("tool-unavailable", `工具 ${descriptor.id} 此刻不可用`);
     let args = call.args;
     const invalid = argumentProblems(definition.parameters, args);
@@ -96,7 +106,13 @@ export function toAgentTool(descriptor: ToolDescriptor, hooks: AdapterHooks): Ag
                 hooks.report?.(call, progress);
                 onUpdate?.({content: [], details: progress});
             };
-            const outcome = await run(descriptor, hooks, call, signal ?? new AbortController().signal, onProgress);
+            // 每一步都不抛出是本层的合同（输出 8）：步骤内部的 catch 之外再兜一层，漏网的异常也变成带码的结果
+            let outcome: ToolOutcome;
+            try {
+                outcome = await run(descriptor, hooks, call, signal ?? new AbortController().signal, onProgress);
+            } catch (error) {
+                outcome = failure("execution-failed", `适配层出错：${describe(error)}`);
+            }
             return toAgentToolResult(outcome);
         },
     };

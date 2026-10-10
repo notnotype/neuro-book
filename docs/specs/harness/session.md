@@ -86,7 +86,7 @@ type EntryInput = DistributiveOmit<SessionEntry, "id" | "parentId" | "timestamp"
 | `customType` | `<命名空间>/<名称>`：命名空间以 `[a-z0-9]` 开头、由 `[a-z0-9.-]` 组成，名称以 `[a-z0-9]` 开头、由 `[a-z0-9._-]` 组成；命名空间 `harness` 留给本包 |
 | `interaction` 条目的 `data` | `phase: "request"` 必须有 `request`、不得有 `response`；`"response"` 反之。同一 `interactionId` 至多一个 request、至多一个 response，response 在 request 之后。`request.assistantEntryId` 是含该工具调用的助手 `message` 条目的 id，与 `toolCallId` 一起确定是哪个窗口里的哪个调用 |
 | 保留类型 | `harness/` 开头的 `customType` 只能是上表五种，`data` 或 `details` 必须符合上表的形状 |
-| 值 | 整个条目必须能被 JSON 如实表示：没有 `undefined`、函数、`NaN`、`Infinity`、`bigint` 与循环引用；对象只含普通数据 |
+| 值 | 整个条目必须能被 JSON 如实表示：没有 `undefined`、函数、`NaN`、`Infinity`、`bigint` 与循环引用；对象只含普通数据。OMP 的消息对象带值为 `undefined` 的可选字段（`details`、`providerMetadata` 等），追加前用 `withoutUndefined(message)` 去掉它们（只删 `undefined`，不改别的值） |
 
 ### 接口
 
@@ -95,6 +95,7 @@ type EntryInput = DistributiveOmit<SessionEntry, "id" | "parentId" | "timestamp"
 createSession(store: SessionStore, options?: {id?: string; parentSession?: string; now?: () => Date}): Promise<Result<SessionLog>>;
 openSession(store: SessionStore, id: string, options?: {now?: () => Date}): Promise<Result<SessionLog>>;
 createMemorySessionStore(): SessionStore;
+withoutUndefined<T>(value: T): T;                  // 去掉任意深度值为 undefined 的键；OMP 消息写入前用
 
 interface SessionLog {
     readonly header: SessionHeader;

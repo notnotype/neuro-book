@@ -1,5 +1,5 @@
 import {describe, expect, test} from "bun:test";
-import {createMemorySessionStore, createSession} from "./session";
+import {createMemorySessionStore, createSession, withoutUndefined} from "./session";
 import type {EntryInput, SessionLog} from "./session";
 import {assistantMessage, interactionRequest, interactionResponse, invocation, reminder, seed, toolCall, userMessage} from "./testing/fixtures";
 import {describeStoreScenarios} from "./testing/store-scenarios";
@@ -110,5 +110,21 @@ describe("条目校验（输入与前置条件）", () => {
         expect((await log.append([userMessage("好"), assistantMessage([{type: "text", text: "好的"}, {type: "thinking", thinking: "…", thinkingSignature: "sig"}])])).ok).toBe(true);
         // 同一条助手消息里工具调用 id 重复：按 id 配不开结果，OMP 发请求前会改名并合成假结果，所以在输入边界拒绝。
         expect((await rejection(log, [assistantMessage([toolCall("call_0", "read"), toolCall("call_0", "read")], {stopReason: "toolUse"})])).detail).toContain("工具调用 id 重复");
+    });
+});
+
+describe("OMP 消息的规范化（输入规则“值”）", () => {
+    test("withoutUndefined 去掉任意深度值为 undefined 的键，别的值原样；去掉后 OMP 形状的工具结果可以追加，带 NaN 的仍被拒绝", async () => {
+        const raw = {role: "toolResult", toolCallId: "c1", toolName: "read", content: [{type: "text", text: "x", extra: undefined}], details: undefined, providerMetadata: undefined, isError: false, timestamp: 1};
+        const cleaned = withoutUndefined(raw);
+        expect(cleaned as unknown).toEqual({role: "toolResult", toolCallId: "c1", toolName: "read", content: [{type: "text", text: "x"}], isError: false, timestamp: 1});
+        expect(Object.keys(cleaned)).not.toContain("details");
+        expect(withoutUndefined({a: [undefined, 1, {b: undefined, c: Number.NaN}]}) as unknown).toEqual({a: [undefined, 1, {c: Number.NaN}]});
+        const log = await fresh();
+        await log.append([userMessage("一"), assistantMessage([toolCall("c1", "read")], {stopReason: "toolUse"})]);
+        const appended = await log.append([{type: "message", message: cleaned as never}]);
+        expect(appended.ok).toBe(true);
+        const rawAppend = await log.append([{type: "message", message: {...raw, toolCallId: "c1"} as never}]);
+        expect(rawAppend.ok ? null : rawAppend.code).toBe("invalid-entry");
     });
 });

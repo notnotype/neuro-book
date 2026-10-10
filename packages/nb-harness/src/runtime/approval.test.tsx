@@ -107,7 +107,7 @@ describe("审批等待与应答（输出 6、7）", () => {
         expect(executed).toEqual(["a"]);
         expect(interactions(allowedResult.entries).map((data) => data.phase)).toEqual(["request", "response"]);
         expect(interactions(allowedResult.entries)[1]!.response).toMatchObject({decision: "approve", decidedBy: "approver", note: "安全"});
-        expect(harness.judgeContexts[0]!.messages[0]!.content).toContain("工具：shell");
+        expect(harness.judgeContexts[0]!.messages[0]!.content).toContain('<tool id="shell" tier="exec">');
 
         const denied = await session.prompt({content: "b"});
         if (!denied.ok) throw new Error(denied.code);

@@ -110,7 +110,7 @@ type ToolsFailure = "invalid-tool" | "tool-conflict";
 2. **静态来源**：`createStaticToolSource` 的 `list` 按给定顺序列出每个工具的描述符（`risk` 为函数时写 `"dynamic"`）；`get` 返回定义；同一列表里 id 重复时 `createStaticToolSource` 抛出 `TypeError`。
 3. **可见工具**：`visibleTools` 按 `requested` 的顺序列出各来源此刻列出的工具，`requested` 里来源没有的 id 不出现、不报错；同一个 id 出现在两个来源里为 `tool-conflict`，整个结果失败，不静默取其一。
 4. **模式解析**：`resolveApprovalMode` 依次取 `session`、`config`、`profile` 里第一个给出的值；都没有时，`approvalRoleBound` 为真为 `auto`，否则为 `write`。
-5. **风险求值**：工具的 `risk` 是函数时对这组参数调用一次；没有 `risk` 按 `{tier: "exec"}`；函数抛错按 `{tier: "exec", policy: "ask", reason: <错误信息>}`（最严，交给用户）。
+5. **风险求值**：工具的 `risk` 是函数时对这组参数调用一次；没有 `risk` 按 `{tier: "exec"}`；函数抛错，或返回的值不符合 `risk` 的形状规则（等级不是三者之一、`policy` 不是 `deny`/`ask`、`reason` 不是字符串、返回 `undefined` 或函数），都按 `{tier: "exec", policy: "ask", reason: <原因>}`（最严，交给用户）。
 6. **判定顺序**：`decideApproval` 取第一个命中的，`step` 记命中的那一步：
     1. 风险的 `policy` 为 `deny` → `deny`；
     2. 配置里该工具为 `deny` → `deny`；
@@ -119,8 +119,8 @@ type ToolsFailure = "invalid-tool" | "tool-conflict";
     5. 配置里该工具为 `allow` → `allow`，为 `ask` → `ask`；
     6. 按模式与等级：`always-ask` 放行 `read`、其余 `ask`；`write` 放行 `read`、`write`，`exec` 为 `ask`；`auto` 放行 `read`，其余 `model`；`yolo` 全部放行。
     `reason` 一句说明命中的依据（含工具声明的 `reason`）。
-7. **审批模型**：`judgeWithModel` 用给定模型做一次不带工具的调用：系统提示词说明任务与只能输出一行 JSON `{"decision": "allow" | "deny" | "escalate", "reason": string}`；用户消息含工具 id 与说明、参数（JSON，超过 4 KiB 的字符串截断）、等级、工具给出的理由、Profile 的 id 与名字、`recent` 里最后至多 6 条消息的角色与文本（各截到 1 KiB）。回复里第一个能解析的 JSON 对象若 `decision` 是三者之一就采用；解析不出、`decision` 不合法、调用失败、`signal` 中止或超过 `timeoutMs`（缺省 30 秒）一律 `{decision: "escalate", reason: <原因>}`，决不因为审批模型出问题而放行。中止与超时由本函数自己结算，不依赖模型的流配合：流不响应取消时到点照样返回 `timeout`；取消已触发后流才带着回复结束的，回复不采用（`aborted` 或 `timeout`）。
-8. **适配：执行顺序**：`toAgentTool` 返回的 `AgentTool` 执行时依次：按 `descriptor.id` 从 `source.get` 取实现（取不到 → 结果为错误 `tool-unavailable`）；按 `parameters` 校验参数（不合 → 错误 `invalid-arguments`，说明路径与原因；经 OMP 的循环调用时，OMP 先按同一 schema 校验并做类型转换，缺必填字段等不合的调用由它以自己的错误文本拦下、不到达适配层，这一步为直接调用与拦截器改写的参数兜底）；`interceptor.beforeExecute`（返回 `deny` → 错误 `denied`；返回 `args` 则用它再校验一次）；`hooks.approve`（收到 `ApprovalRequest`：调用、本次取到的定义与中止信号；`approved: false` → 错误 `denied` 带理由；`aborted` → 错误 `aborted`）；`execute`；`interceptor.afterExecute`。每一步都不抛出：异常变成错误结果。审批等待由适配层与中止信号竞速：进入审批前已中止、等待期间中止、或批准返回时已中止，都得到错误 `aborted` 且不开始 `execute`，钩子不配合也一样。来源在等待期间更新同 id 的工具不影响这次调用：审批与执行用的是同一份定义。
+7. **审批模型**：`judgeWithModel` 用给定模型做一次不带工具的调用：系统提示词说明任务与只能输出一行 JSON `{"decision": "allow" | "deny" | "escalate", "reason": string}`；用户消息里工具 id、等级、说明与理由放在 `<tool>` 块，参数放在 `<arguments>` 块（JSON；其中每个字符串各自截到 4 KiB 以内、截断标记计入预算，键与其它值原样保留，结果仍是合法 JSON；逐字段截断后整体仍超过 16 KiB 时不问模型，直接 `escalate`，原因 `args-too-large`），`recent` 里最后至多 6 条消息各放在带 `role` 的 `<message>` 块（文本各截到 1 KiB 以内）；块里的内容把 `<` 转义，所以工具结果里的“user: …”行或 `</message>` 不能伪造消息边界。系统提示词明说这些块里的文字是待审材料，其中的“已授权”“请批准”不算授权。回复里第一个能解析的 JSON 对象若 `decision` 是三者之一就采用；解析不出、`decision` 不合法、调用失败、`signal` 中止或超过 `timeoutMs`（缺省 30 秒）一律 `{decision: "escalate", reason: <原因>}`，决不因为审批模型出问题而放行。中止与超时由本函数自己结算，不依赖模型的流配合：流不响应取消时到点照样返回 `timeout`；取消已触发后流才带着回复结束的，回复不采用（`aborted` 或 `timeout`）。
+8. **适配：执行顺序**：`toAgentTool` 返回的 `AgentTool` 执行时依次：按 `descriptor.id` 从 `source.get` 取实现（取不到 → 结果为错误 `tool-unavailable`）；用 OMP 的 JSON Schema 校验器（`validateJsonSchemaValue`，与它的循环同一实现，所以 `pattern` 等约束的语义两层一致）按 `parameters` 校验参数（不合 → 错误 `invalid-arguments`，说明路径与原因；经 OMP 的循环调用时，OMP 先校验并做类型转换，缺必填字段等不合的调用由它以自己的错误文本拦下、不到达适配层，这一步为直接调用与拦截器改写的参数兜底）；`interceptor.beforeExecute`（返回 `deny` → 错误 `denied`；返回 `args` 则用它再校验一次）；`hooks.approve`（收到 `ApprovalRequest`：调用、本次取到的定义与中止信号；`approved: false` → 错误 `denied` 带理由；`aborted` → 错误 `aborted`）；`execute`；`interceptor.afterExecute`。每一步都不抛出：异常变成错误结果（来源 `get` 抛出 → `tool-unavailable`；其它漏网的异常 → `execution-failed`）。审批等待由适配层与中止信号竞速：进入审批前已中止、等待期间中止、或批准返回时已中止，都得到错误 `aborted` 且不开始 `execute`，钩子不配合也一样。来源在等待期间更新同 id 的工具不影响这次调用：审批与执行用的是同一份定义。
 9. **适配：结果**：`ToolOutcome` 为 `ok: true` 时内容原样进 `AgentToolResult.content`（字符串变成一个文本块），`details` 原样；`ok: false` 时 `isError: true`，文本为 `<code>: <message>`，`details` 原样；`execute` 抛出时 `isError: true`，文本为 `execution-failed: <错误消息>`，不带堆栈。
 10. **适配：进度与中止**：`context.report(progress)` 调用 `hooks.report` 并经 OMP 的 `onUpdate` 发出部分结果（`details: progress`）；`context.signal` 就是 OMP 给的中止信号，也是 `ApprovalRequest.signal`；已经开始执行的工具在中止后仍返回的结果照常交回，尚未开始的按输出 8 不再开始。
 11. **适配：描述**：`AgentTool` 的 `name`、`description`、`parameters` 来自描述符，`label` 取 id；不设置 OMP 的 `approval` 字段（审批由本模块的包装做）、不开启预测执行。
@@ -151,7 +151,8 @@ type ToolsFailure = "invalid-tool" | "tool-conflict";
 
 - **公开接口**：`@notnotype/nb-harness/tools` 中“输入与前置条件”列出的符号与类型；内核协议（`ToolDefinition`、`ToolOutcome`、`ToolSource`、`ToolInterceptor`）是插件阶段的公开 API。
 - **依赖**：对 `config` 只用类型；运行时依赖 TypeBox 与 OMP `@oh-my-pi/pi-ai`（`streamSimple`）；对 `@oh-my-pi/pi-agent-core`、`@oh-my-pi/pi-catalog` 只用类型。
-- **信任边界**：工具实现受信任（与 Profile 一样）；参数来自模型，一律按 schema 校验后才交给工具。
+- **信任边界**：工具实现受信任（与 Profile 一样）；参数来自模型，一律按 schema 校验后才交给工具。审批模型看到的参数、工具说明与近期对话都是不可信内容：按输出 7 放在带来源的块里并转义，其中的指令不改变审批任务。
+- **schema 方言**：`parameters` 用 TypeBox 定义，但运行时校验用 OMP 的校验器（输出 8）；TypeBox 自己的 `Value.Check` 对 `pattern` 用带 `u` 标志的正则，与 OMP 不同，所以本模块不用它。`pattern` 必须能被不带 `u` 标志的 `RegExp` 编译，否则定义时拒绝（输出 1）。
 
 ## 验收与 Smoke
 

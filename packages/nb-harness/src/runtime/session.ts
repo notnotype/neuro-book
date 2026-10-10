@@ -16,7 +16,7 @@ import type {AssistantMessage, Message, ToolResultMessage} from "@oh-my-pi/pi-ai
 import {compactSession, shouldCompact} from "../compaction/compaction";
 import type {Compacted} from "../compaction/compaction";
 import type {PreparedProfile, PromptContext, ProfileState} from "../profile/profile";
-import {buildModelContext, planRecovery, sessionSettings, sessionStatus} from "../session/session";
+import {buildModelContext, planRecovery, sessionSettings, sessionStatus, withoutUndefined} from "../session/session";
 import type {DistributiveOmit, EntryInput, InteractionData, InvocationPhase, JsonValue, SessionEntry, SessionLog} from "../session/session";
 import {createStaticToolSource, decideApproval, describeTool, judgeWithModel, toAgentTool} from "../tools/tools";
 import type {AdapterHooks, ApprovalMode, ApprovalOutcome, ApprovalRequest, ToolDescriptor} from "../tools/tools";
@@ -50,8 +50,8 @@ type Current = {
 };
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
-/** OMP 的消息对象带着值为 undefined 的可选字段（details、providerMetadata 等），会话只收能被 JSON 如实表示的值：按 JSON 往返去掉它们。 */
-const jsonMessage = (message: AgentMessage): Message => JSON.parse(JSON.stringify(message)) as Message;
+/** OMP 的消息对象带着值为 undefined 的可选字段（details、providerMetadata 等），会话只收能被 JSON 如实表示的值。 */
+const jsonMessage = (message: AgentMessage): Message => withoutUndefined(message as Message);
 const isAssistant = (message: AgentMessage | undefined): message is AssistantMessage => message !== undefined && message.role === "assistant";
 const hasToolCall = (message: AssistantMessage): boolean => message.content.some((block) => block.type === "toolCall");
 

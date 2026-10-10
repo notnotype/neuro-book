@@ -148,6 +148,26 @@ describe("适配（输出 8–11）", () => {
         expect(executed).toBe(1);
     });
 
+    test("输出 8：来源 get 抛错变成 tool-unavailable 结果而不是异常；两层校验同一实现——含非 BMP 字符的 pattern 参数直接调用与经真实 Agent 结果一致；坏正则在定义时拒绝", async () => {
+        const exploding: ToolSource = {list: () => createStaticToolSource([echo()]).list(), get: () => {
+            throw new Error("source exploded");
+        }};
+        const tool = toAgentTool(exploding.list()[0]!, hooks(exploding));
+        const direct = await tool.execute("c1", {text: "x"}, undefined, undefined);
+        expect(direct).toMatchObject({isError: true, content: [{type: "text", text: "tool-unavailable: 工具来源出错：source exploded"}]});
+        const run = await runScriptedAgent({tools: [tool], script: [{calls: [{id: "c1", name: "echo", args: {text: "x"}}]}]});
+        expect(run.toolResults[0]!.text).toBe("tool-unavailable: 工具来源出错：source exploded");
+
+        const single = createStaticToolSource([defineTool({id: "single", description: "单字符", parameters: Type.Object({value: Type.String({pattern: "^.$"})}), risk: "read", execute: async (args) => ({ok: true, content: `收到 ${(args as {value: string}).value}`})})]);
+        const singleTool = toAgentTool(single.list()[0]!, hooks(single));
+        const emojiDirect = await singleTool.execute("c1", {value: "😀"}, undefined, undefined);
+        const emojiAgent = await runScriptedAgent({tools: [singleTool], script: [{calls: [{id: "c1", name: "single", args: {value: "😀"}}]}]});
+        expect(emojiDirect.isError === true).toBe(emojiAgent.toolResults[0]!.isError);
+        expect(await singleTool.execute("c2", {value: "a"}, undefined, undefined)).toMatchObject({content: [{type: "text", text: "收到 a"}]});
+
+        expect(() => defineTool({id: "bad", description: "坏正则", parameters: Type.Object({value: Type.String({pattern: "["})}), risk: "read", execute: async () => ({ok: true, content: ""})})).toThrow(TypeError);
+    });
+
     test("输出 9：结果转换——字符串变一个文本块，details 原样；ok:false 变 isError 文本", () => {
         expect(toAgentToolResult({ok: true, content: "文字", details: {a: 1}})).toEqual({content: [{type: "text", text: "文字"}], details: {a: 1}});
         expect(toAgentToolResult({ok: true, content: [{type: "text", text: "a"}, {type: "image", mimeType: "image/png", data: "QUJD"}]})).toEqual({content: [{type: "text", text: "a"}, {type: "image", mimeType: "image/png", data: "QUJD"}]});

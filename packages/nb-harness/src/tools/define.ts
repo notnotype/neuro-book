@@ -16,9 +16,27 @@ function riskShapeProblem(risk: unknown): string | null {
         const decision = risk as Partial<RiskDecision>;
         if (!TIERS.has(decision.tier as string)) return "risk.tier 只能是 read、write、exec";
         if (decision.policy !== undefined && decision.policy !== "deny" && decision.policy !== "ask") return "risk.policy 只能是 deny 或 ask";
+        if (decision.reason !== undefined && typeof decision.reason !== "string") return "risk.reason 必须是字符串";
         return null;
     }
     return "risk 必须是等级、{tier, policy?, reason?} 或函数";
+}
+
+/** schema 里每个 pattern 都要能被 OMP 的校验器编译（它用不带 u 标志的 RegExp）；坏的正则在定义时拒绝，不等到合法调用才炸。 */
+function patternProblem(schema: unknown, path = "parameters"): string | null {
+    if (typeof schema !== "object" || schema === null) return null;
+    for (const [key, value] of Object.entries(schema)) {
+        if (key === "pattern" && typeof value === "string") {
+            try {
+                new RegExp(value);
+            } catch (error) {
+                return `${path}.pattern 不是合法正则：${error instanceof Error ? error.message : String(error)}`;
+            }
+        }
+        const nested = patternProblem(value, `${path}.${key}`);
+        if (nested !== null) return nested;
+    }
+    return null;
 }
 
 export function toolDefinitionProblem(definition: unknown): string | null {
@@ -27,6 +45,8 @@ export function toolDefinitionProblem(definition: unknown): string | null {
     if (typeof d.id !== "string" || !isValidToolId(d.id)) return "id 必须是 [a-z][a-z0-9-]* 或 <命名空间>/<名称>";
     if (typeof d.description !== "string" || d.description === "") return "description 必须是非空字符串";
     if (typeof d.parameters !== "object" || d.parameters === null || (d.parameters as {type?: unknown}).type !== "object") return "parameters 必须是 TypeBox 对象 schema";
+    const pattern = patternProblem(d.parameters);
+    if (pattern !== null) return pattern;
     if (d.risk !== undefined) {
         const problem = riskShapeProblem(d.risk);
         if (problem !== null) return problem;
@@ -42,17 +62,20 @@ export function defineTool<P extends TSchema>(definition: ToolDefinition<P>): To
     return Object.freeze({...definition});
 }
 
-/** 输出 5：没有 risk 按 exec；函数抛错按最严（exec 加询问用户）。 */
+/** 输出 5：没有 risk 按 exec；函数抛错或返回不合规则的值都按最严（exec 加询问用户）——动态返回值与静态定义过同一套形状检查。 */
 export function evaluateRisk(risk: Risk | undefined, args: unknown): RiskDecision {
     if (risk === undefined) return {tier: "exec"};
     if (typeof risk === "string") return {tier: risk};
     if (typeof risk !== "function") return {...risk};
+    let decision: unknown;
     try {
-        const decision = risk(args);
-        return typeof decision === "string" ? {tier: decision} : {...decision};
+        decision = risk(args);
     } catch (error) {
         return {tier: "exec", policy: "ask", reason: `风险函数抛出：${error instanceof Error ? error.message : String(error)}`};
     }
+    const problem = typeof decision === "function" ? "不能返回函数" : riskShapeProblem(decision);
+    if (problem !== null) return {tier: "exec", policy: "ask", reason: `风险函数返回不合规则：${problem}`};
+    return typeof decision === "string" ? {tier: decision as ToolTier} : {...(decision as RiskDecision)};
 }
 
 export const TIER_RANK: Readonly<Record<ToolTier, number>> = {read: 0, write: 1, exec: 2};

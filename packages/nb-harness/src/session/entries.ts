@@ -242,6 +242,20 @@ export function newEntryId(taken: ReadonlySet<string>): string {
     }
 }
 
+/**
+ * 去掉值为 undefined 的键（任意深度，数组元素也算）。OMP 的消息对象带着这样的可选字段（details、providerMetadata 等），
+ * 而条目必须能被 JSON 如实表示；其它不能表示的值（NaN、函数）原样保留，由校验拒绝。
+ */
+export function withoutUndefined<T>(value: T): T {
+    if (Array.isArray(value)) return value.map((item) => withoutUndefined(item)) as T;
+    if (typeof value !== "object" || value === null) return value;
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+        if (item !== undefined) out[key] = withoutUndefined(item);
+    }
+    return out as T;
+}
+
 export function deepFreeze<T>(value: T): T {
     if (typeof value !== "object" || value === null || Object.isFrozen(value)) return value;
     for (const item of Object.values(value as object)) deepFreeze(item);
