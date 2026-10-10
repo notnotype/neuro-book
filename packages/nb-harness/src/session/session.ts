@@ -24,3 +24,5 @@ export type {
 } from "./types";
 export {createSession, openSession} from "./log";
 export {createMemorySessionStore} from "./memory-store";
+export {buildModelContext, defineProjection, fold, planRecovery, renderCompactionSummary, sessionSettings, sessionStatus} from "./replay";
+export type {PendingInteraction, Projection, SessionSettings, SessionStatus} from "./replay";

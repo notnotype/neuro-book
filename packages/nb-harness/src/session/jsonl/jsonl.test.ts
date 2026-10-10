@@ -3,7 +3,8 @@ import {appendFile, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {createSession, openSession} from "../log";
-import {titleChange, userMessage} from "../testing/fixtures";
+import {planRecovery, sessionStatus} from "../replay";
+import {assistantMessage, invocation, titleChange, toolCall, toolResult, userMessage} from "../testing/fixtures";
 import {describeStoreScenarios} from "../testing/store-scenarios";
 import type {EntryInput, LogEndReason, SessionLog, SessionStore} from "../types";
 import {createJsonlSessionStore} from "./jsonl";
@@ -169,19 +170,19 @@ describe("JSONL 存储：文件", () => {
         await expect(stat(join(root, "deleted.jsonl"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
-    test("场景 11：写入中途失败留下前缀与半行：原句柄只能关闭；重开读回前缀与中断尾，repair 后继续，按旧序号续订能补到已落盘的条目", async () => {
+    test("场景 11：写入中途失败留下前缀与半行：原句柄只能关闭；重开读回前缀与中断尾，repair 后按 sessionStatus、planRecovery 收口并继续追加，按旧序号续订能补到已落盘的条目", async () => {
         const root = await newRoot();
         const store = partiallyWritingStore(root, createJsonlSessionStore({root}));
         const log = await newLog(store, "partial");
-        await appended(log, [userMessage("一"), userMessage("二")]);
+        await appended(log, [invocation("inv-1", "start"), userMessage("一"), assistantMessage([toolCall("c1", "read")], {stopReason: "toolUse"})]);
         let lastSeq = 0;
         log.subscribe((event) => {
             lastSeq = event.seq;
         });
-        expect(lastSeq).toBe(2);
+        expect(lastSeq).toBe(3);
 
-        store.failNext(2);
-        const failed = await log.append([userMessage("三"), userMessage("四"), userMessage("五")]);
+        store.failNext(1);
+        const failed = await log.append([toolResult("c1", "read", "读到了"), userMessage("四"), userMessage("五")]);
         expect(failure(failed).code).toBe("store-failed");
         expect(failure(await log.append([userMessage("六")])).code).toBe("log-broken");
         expect(failure(await log.repair()).code).toBe("log-broken");
@@ -190,14 +191,22 @@ describe("JSONL 存储：文件", () => {
         const reopened = await openSession(store, "partial");
         expect(reopened.ok).toBe(true);
         if (!reopened.ok) return;
-        expect(reopened.value.entries.map((entry) => entry.type === "message" && entry.message.content)).toEqual(["一", "二", "三", "四"]);
+        expect(reopened.value.entries).toHaveLength(4);
+        expect(reopened.value.entries[3]!.type === "message" && reopened.value.entries[3]!.message.role).toBe("toolResult");
         expect(reopened.value.damagedTail?.bytes ?? 0).toBeGreaterThan(0);
         expect((await reopened.value.repair()).ok).toBe(true);
+
+        expect(sessionStatus(reopened.value.entries)).toMatchObject({phase: "running", invocationId: "inv-1", pending: []});
+        const plan = planRecovery(reopened.value.entries);
+        expect(plan).toEqual([invocation("inv-1", "interrupted")]);
+        await appended(reopened.value, plan);
+        expect(sessionStatus(reopened.value.entries).phase).toBe("idle");
+
         const caughtUp: number[] = [];
         reopened.value.subscribe((event) => caughtUp.push(event.seq), {afterSeq: lastSeq});
-        expect(caughtUp).toEqual([3, 4]);
-        await appended(reopened.value, [userMessage("五")]);
-        expect(caughtUp).toEqual([3, 4, 5]);
+        expect(caughtUp).toEqual([4, 5]);
+        await appended(reopened.value, [userMessage("四")]);
+        expect(caughtUp).toEqual([4, 5, 6]);
         reopened.value.close();
     });
 
