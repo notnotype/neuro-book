@@ -132,3 +132,68 @@ test("非模态窗口在手机画布里：按画布宽度收窄，落在画布�
     expect(window!.x).toBeGreaterThanOrEqual(canvas!.x);
     expect(window!.x + window!.width).toBeLessThanOrEqual(canvas!.x + canvas!.width + 1);
 });
+
+/** 事件页签的全文：事件名与负载都在里面。 */
+async function recordedEvents(page: Page): Promise<string> {
+    return (await page.locator('[data-lab-panel="events"]').textContent()) ?? "";
+}
+
+test("菜单栏：方向键在项之间移动并跳过禁用项，禁用项带原因，Enter 选中后关闭并把焦点还给组标题；左右键换组后 Escape 回到最初的组标题", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 1000});
+    await openScene(page, "c=Menubar&s=flat&tab=events");
+    const edit = stage(page).getByRole("menuitem", {name: "编辑"});
+    await edit.click();
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible();
+
+    const redo = menu.getByRole("menuitem", {name: "重做"});
+    await expect(redo).toHaveAttribute("aria-disabled", "true");
+    await expect(redo).toHaveAttribute("title", "没有可以重做的操作");
+    await expect(redo).toHaveAttribute("aria-description", "没有可以重做的操作");
+
+    await page.keyboard.press("ArrowDown");
+    await expect(menu.getByRole("menuitem", {name: "撤销"})).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(menu.getByRole("menuitem", {name: "查找"})).toBeFocused();
+    await page.keyboard.press("Home");
+    await expect(menu.getByRole("menuitem", {name: "撤销"})).toBeFocused();
+    await page.keyboard.press("End");
+    await expect(menu.getByRole("menuitem", {name: "查找"})).toBeFocused();
+
+    await page.keyboard.press("Enter");
+    await expect(menu).toBeHidden();
+    await expect(edit).toBeFocused();
+    await expect.poll(() => recordedEvents(page)).toContain("find");
+
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("menu")).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByRole("menu").getByRole("menuitemcheckbox", {name: "显示侧栏"})).toBeVisible();
+    await page.keyboard.press("Escape");
+    // 关闭动画期间已关闭的菜单还在 DOM 里（data-state=closed），只核对没有打开着的。
+    await expect(page.locator('[role="menu"][data-state="open"]')).toHaveCount(0);
+    // 用左右键换过组之后，Escape 把焦点还给最初打开菜单的组标题（reka 的行为），也就是打开菜单之前焦点所在的位置。
+    await expect(edit).toBeFocused();
+});
+
+test("下拉菜单：方向键跳过禁用项，禁用项带原因，Enter 选中", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 1000});
+    await openScene(page, "c=Dropdown&s=default&tab=events");
+    await stage(page).getByRole("button", {name: "更多操作"}).click();
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible();
+    const trash = menu.getByRole("menuitem", {name: "移到回收站"});
+    await expect(trash).toHaveAttribute("aria-disabled", "true");
+    await expect(trash).toHaveAttribute("aria-description", "根目录不能移到回收站");
+
+    await page.keyboard.press("ArrowDown");
+    await expect(menu.getByRole("menuitem", {name: "重命名"})).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(menu.getByRole("menuitem", {name: "复制路径"})).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(menu.getByRole("menuitem", {name: "排序方式"})).toBeFocused();
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("Enter");
+    await expect(menu).toBeHidden();
+    await expect.poll(() => recordedEvents(page)).toContain("copy-path");
+});

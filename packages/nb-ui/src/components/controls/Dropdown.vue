@@ -2,6 +2,7 @@
 import {computed, provide, ref} from "vue";
 import {
     DropdownMenuContent,
+    DropdownMenuItem,
     DropdownMenuPortal,
     DropdownMenuRoot,
     DropdownMenuTrigger,
@@ -18,7 +19,8 @@ import type {DropdownItem} from "./dropdown.types";
  * 支持 4px 悬浮 macOS 胶囊滚动条与自适应双向渐隐。
  *
  * 结构覆盖平面项、分隔线、任意层级子菜单与受控 radio / checkbox；
- * 键盘漫游、子菜单展开与关闭后焦点归还全部由 Reka 菜单原语承担，组件不自己排焦点。
+ * 一级菜单的键盘漫游（上下键、Home、End、首字母、跳过禁用项）与关闭后焦点归还由 Reka 菜单原语承担；手工级联面板
+ * 只支持 ArrowRight 展开，见同名文档的“交互”。
  */
 
 const props = withDefaults(defineProps<{
@@ -180,6 +182,7 @@ function scheduleSubmenu(item: DropdownItem | null, trigger: HTMLElement, depth 
                         :items="props.items"
                         :active="cascade.levels.value[0]?.value"
                         :item-class="itemClassList"
+                        :item-component="DropdownMenuItem"
                         @select="handleSelect"
                         @hover="(item, trigger, immediate) => scheduleSubmenu(item, trigger, 0, immediate)"
                     >

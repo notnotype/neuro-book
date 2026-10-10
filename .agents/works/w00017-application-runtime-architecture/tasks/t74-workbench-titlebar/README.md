@@ -61,3 +61,10 @@ omp 审查（报告在 [t73 证据](../t73-lab-nb-ui-and-storage/evidences/desig
   - `workbench/commands.md`：`set-part-hidden`、应用命令 `nbook.app.reload` 与 `nbook.help.documentation`、快捷键的显示、旧桌面 15 个 id 的去向；验收 17、18。
   - `workbench/editor.md`：两个公开键、三个状态栏条目（输出 26–28，字数算法与光标坐标）；验收 12–14。
   - `runtime/browser-host.md`：`windowNavigationKey` 的 `reloadDocument`、`openExternal`。
+- 2026-10-10 S1 完成（nb-ui 菜单）：
+  - `MenuNodes` 可以接收所在根的 reka 菜单项原语；Dropdown、Menubar 的一级菜单改用 reka 的菜单项，上下键、Home、End、首字母、跳过禁用项、Enter 选择由 reka 负责（之前叶子是普通按钮，reka 的漫游找不到它们，Dropdown 的 `data-highlighted` 样式也从未生效）。手工级联面板与右键菜单仍是普通按钮，键盘照旧。
+  - 菜单项的 `title`（Dropdown 原有、Menubar 与右键菜单新增）渲染为原生提示与 `aria-description`，禁用项也带上（计划里叫 `description`，沿用 Dropdown 已有的 `title` 字段，不另加名字）。
+  - Menubar：`variant` 加 `flat`；`modelValue` 统一为当前打开的组 id（原先只在选中条目时发出、值却是条目的 value，文档登记为已知偏差，现在修掉）；去掉阻止关闭后还焦点的处理（没有记录原因，文档本来就写焦点由 reka 管）。reka 把 `MenubarRoot` 这个事件的类型声明成 `boolean`，实际是字符串，处理函数按 unknown 收窄。
+  - 实测：用左右键换组后按 Escape，reka 把焦点还给最初打开菜单的组标题，符合外壳 Spec 输出 31 的“回到打开菜单之前的位置”，已写进 `Menubar.md`。
+  - 验证：nb-ui 与 neuro-book typecheck；nb-ui Vitest 515 例（另 5 例是已知的 Node 26 环境失败）；`lab-nb-ui.e2e.ts` 7 例（新增菜单栏与下拉菜单的键盘与禁用原因两例）、`lab-scenes.e2e.ts`；变异 3 个全杀（Dropdown、Menubar 不传 reka 菜单项，不转发菜单开合）。
+  - 顺带修正 t75 S1 测试的字面量类型（`SpineShelf.dom.test.ts`，写测试前跑的类型检查没覆盖到）。

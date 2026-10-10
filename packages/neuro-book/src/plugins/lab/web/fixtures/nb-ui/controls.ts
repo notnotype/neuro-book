@@ -26,6 +26,7 @@ import {nbUiSubject} from "./shared";
 const DROPDOWN_ITEMS = [
     {label: "重命名", value: "rename", iconClass: "i-lucide-pencil", shortcut: "F2"},
     {label: "复制路径", value: "copy-path", iconClass: "i-lucide-copy"},
+    {label: "移到回收站", value: "trash", iconClass: "i-lucide-archive", disabled: true, title: "根目录不能移到回收站"},
     {label: "", value: "sep-1", separator: true},
     {label: "排序方式", value: "sort", iconClass: "i-lucide-arrow-down-wide-narrow", children: [
         {label: "按名称", value: "sort-name", type: "radio" as const, checked: true, group: "sort"},
@@ -48,7 +49,8 @@ const MENUBAR_MENUS = [
     ]},
     {id: "edit", label: "编辑", items: [
         {label: "撤销", value: "undo", shortcut: "Ctrl+Z"},
-        {label: "重做", value: "redo", shortcut: "Ctrl+Shift+Z"},
+        {label: "重做", value: "redo", shortcut: "Ctrl+Shift+Z", disabled: true, title: "没有可以重做的操作"},
+        {label: "查找", value: "find", shortcut: "Ctrl+F"},
     ]},
     {id: "view", label: "视图", items: [
         {label: "显示侧栏", value: "sidebar", type: "checkbox" as const, checked: true},
@@ -123,6 +125,7 @@ export const controlsFixtures: LabFixture[] = [
         scenes: [
             {id: "default", label: "文件、编辑、视图、帮助", input: {props: {menus: MENUBAR_MENUS, size: "sm"}, model: {modelValue: ""}}},
             {id: "medium", label: "中号", input: {props: {menus: MENUBAR_MENUS, size: "md"}, model: {modelValue: ""}}},
+            {id: "flat", label: "嵌进标题栏（flat）", input: {props: {menus: MENUBAR_MENUS, size: "sm", variant: "flat"}, model: {modelValue: ""}}},
         ],
         subject: nbUiSubject("Menubar"),
     }),

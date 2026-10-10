@@ -18,7 +18,7 @@ const items = [item("a", "长夜行"), item("b", "北方以北"), item("c", "雾
 /** 受控挂载：像父组件一样把 `update:activeId` 写回去。 */
 function mountShelf(activeId: string | null) {
     const wrapper = mount(SpineShelf, {
-        props: {locale: "zh-CN", items, activeId, "onUpdate:activeId": (id: string) => wrapper.setProps({activeId: id})},
+        props: {locale: "zh-CN" as const, items, activeId, "onUpdate:activeId": (id: string) => wrapper.setProps({activeId: id})},
         attachTo: document.body,
     });
     return wrapper;
@@ -71,7 +71,7 @@ describe("SpineShelf", () => {
     });
 
     it("空书架只有两根虚线书脊，各发自己的事件", async () => {
-        const wrapper = mount(SpineShelf, {props: {locale: "zh-CN", items: [], activeId: null}});
+        const wrapper = mount(SpineShelf, {props: {locale: "zh-CN" as const, items: [], activeId: null}});
         expect(wrapper.find("[role=listbox]").exists()).toBe(false);
         await wrapper.get("[data-shelf-create]").trigger("click");
         await wrapper.get("[data-shelf-add]").trigger("click");

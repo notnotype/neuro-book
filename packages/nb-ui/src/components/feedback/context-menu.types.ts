@@ -12,6 +12,8 @@ export interface ContextMenuItem {
     action?: () => void;
     children?: ContextMenuItem[];
     disabled?: boolean;
+    /** 提示与读屏描述（例如禁用原因）；默认不显示。 */
+    title?: string;
     /** danger 用于删除等破坏性动作 */
     tone?: "default" | "danger";
     /** 为 true 时渲染为分隔线，忽略其它字段 */

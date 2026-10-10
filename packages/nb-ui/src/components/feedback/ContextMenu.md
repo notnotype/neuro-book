@@ -32,6 +32,8 @@ interface ContextMenuItem {
     children?: ContextMenuItem[];
     /** 是否禁用；可选，默认未禁用 */
     disabled?: boolean;
+    /** 原生提示与读屏描述（`aria-description`），例如禁用原因；默认不显示 */
+    title?: string;
     /** 危险操作样式；可选，默认 "default" */
     tone?: "default" | "danger";
     /** 是否渲染分隔线；可选，true 时忽略其余字段 */

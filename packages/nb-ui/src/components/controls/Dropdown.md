@@ -88,7 +88,7 @@ interface DropdownItem {
     rightIconClass?: string;
     /** 右侧快捷键提示文字；默认不显示 */
     shortcut?: string;
-    /** 原生 title 提示；默认 undefined */
+    /** 原生提示与读屏描述（`aria-description`），例如禁用原因；禁用项同样带上；默认 undefined */
     title?: string;
     /** 视觉语气；默认 "default" */
     tone?: "default" | "danger";
@@ -127,7 +127,7 @@ type DropdownItemType = "item" | "radio" | "checkbox";
 
 ## 上游边界
 
-Reka UI 负责菜单角色、键盘漫游、Escape/outside dismiss、焦点归还、受控展开生命周期、Portal 与 Popper 碰撞定位。本组件承诺菜单项映射、选择事件、级联面板、滚动视口和浮层样式；未由本组件明确约束的上游行为不属于稳定合同。
+Reka UI 负责菜单角色、Escape/outside dismiss、焦点归还、受控展开生命周期、Portal 与 Popper 碰撞定位，以及一级菜单的键盘：一级菜单的条目是 Reka 的菜单项，上下键、Home、End、首字母跳转、跳过禁用项、Enter 与空格选择都由它负责（真实 Chrome 验收见新应用的 `e2e/lab-nb-ui.e2e.ts`）。级联面板是本组件手工维护的，只支持 ArrowRight 从父项展开，面板里没有上下键漫游与 ArrowLeft 返回。本组件承诺菜单项映射、选择事件、级联面板、滚动视口和浮层样式；未由本组件明确约束的上游行为不属于稳定合同。
 
 ## 隐藏通道理由
 
