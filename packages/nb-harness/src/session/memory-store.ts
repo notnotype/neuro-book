@@ -4,23 +4,12 @@
  */
 
 import {isValidSessionId} from "./entries";
+import {summaryOf} from "./summary";
 import type {Result, SessionEntry, SessionFailure, SessionHeader, SessionStore, SessionSummary} from "./types";
 
 export function createMemorySessionStore(): SessionStore {
     const sessions = new Map<string, {header: string; lines: string[]}>();
     const fail = <T>(code: SessionFailure, detail: string): Result<T> => ({ok: false, code, detail});
-
-    const summaryOf = (header: SessionHeader, entries: SessionEntry[]): SessionSummary => {
-        const title = entries.filter((entry) => entry.type === "title_change").at(-1);
-        const last = entries.at(-1);
-        return {
-            id: header.id,
-            createdAt: header.createdAt,
-            ...(header.parentSession === undefined ? {} : {parentSession: header.parentSession}),
-            ...(title === undefined ? {} : {title: title.title}),
-            updatedAt: last?.timestamp ?? header.createdAt,
-        };
-    };
 
     return {
         async create(header) {

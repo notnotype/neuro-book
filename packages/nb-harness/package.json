@@ -10,7 +10,8 @@
     "exports": {
         ".": "./src/prototype/index.ts",
         "./testing": "./src/prototype/testing/index.ts",
-        "./session": "./src/session/session.ts"
+        "./session": "./src/session/session.ts",
+        "./session/jsonl": "./src/session/jsonl/jsonl.ts"
     },
     "scripts": {
         "test": "bun test",

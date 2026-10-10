@@ -57,6 +57,7 @@ taskId: t09-harness-foundation-session
 
 - **本轮按开发者决定的修订**：条目对齐 OMP 会话条目（harness 状态用 `custom` 条目，保留类型五种）、种子与压缩后的回放顺序、分页（按轮、截断大字段、按 id 读取）、与 OMP `prepareCompaction` 兼容。
 - **S1 条目、内存存储、日志句柄**（本提交，按 [`plan.md`](plan.md) 第 1、2、3、6 节）：`src/session/` 的 `types.ts`、`entries.ts`（TypeBox 按判别字段选变体校验、JSON 如实表示检查、保留类型表、interaction 的关系规则）、`memory-store.ts`（存 JSON 文本）、`log.ts`（Promise 链串行、订阅快照推送、损坏与关闭状态）；两种存储共用的场景在 `testing/store-scenarios.ts`。`bun test src/session` 16 pass，`typecheck` 通过；变异检查四处（订阅者快照、写存储前加入 entries、时间戳单调、监听函数抛错）都被测试报出。计划审查（omp）此时仍在进行，其结论涉及 S1 的部分另起提交处理。
+- **S2 JSONL 存储**（本提交，计划第 3 节）：子入口 `./session/jsonl`；中断尾与行号按字节算；`append` 用 `r+` 在末尾写，会话文件被删除时报错而不是重建无头文件；`list` 逐个读取、损坏的跳过。两种存储跑同一组场景；`bun test src/session` 36 pass；变异检查四处（行号、半行当完整行、repair 截错位置、`a` 标志重建文件）都被报出。
 
 ## 依据
 
