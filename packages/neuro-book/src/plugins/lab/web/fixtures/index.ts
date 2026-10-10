@@ -20,6 +20,7 @@ import type WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/W
 import type WorkbenchMoveViewMenu from "nbook/plugins/workbench/web/components/WorkbenchMoveViewMenu.vue";
 import type WorkbenchPanelSurface from "nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue";
 import type WorkbenchShellLayout from "nbook/plugins/workbench/web/components/WorkbenchShellLayout.vue";
+import type WorkbenchItemStrip from "nbook/plugins/workbench/web/components/WorkbenchItemStrip.vue";
 import type WorkbenchStatusBar from "nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue";
 import type WorkbenchViewContainerHost from "nbook/plugins/workbench/web/components/WorkbenchViewContainerHost.vue";
 import type WorkbenchViewFrame from "nbook/plugins/workbench/web/components/WorkbenchViewFrame.vue";
@@ -306,6 +307,33 @@ export const labFixtures: LabFixture[] = [
             {id: "hidden", label: "面板已隐藏、按钮不可用", input: {props: {locale: "en-US", project: null, panelHidden: true, panelToggleDisabled: true, problems: []}}},
         ],
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue"),
+    }),
+    defineSubjectFixture<typeof WorkbenchItemStrip>({
+        component: "WorkbenchItemStrip",
+        events: ["run"],
+        class: "w-full",
+        scenes: (() => {
+            const entry = (id: string, text: string, extra: {title?: string; order?: number; priority?: number; command?: boolean; state?: "normal" | "warning" | "error"; disabledReason?: string; tooltip?: string} = {}) => ({
+                id, text, title: extra.title ?? text, alignment: "right" as const, order: extra.order ?? 0, priority: extra.priority ?? 0,
+                command: extra.command === true ? {id: "nbook.editor.save-all", args: {}} : null,
+                tooltip: extra.tooltip ?? null, state: extra.state ?? "normal", disabledReason: extra.disabledReason ?? null,
+            });
+            const editor = [
+                entry("nbook.editor.unsaved", "未保存 3 个", {title: "未保存的文档", order: 10, priority: 30, command: true, state: "warning", tooltip: "第一章.md、第二章.md、设定.md"}),
+                entry("nbook.editor.word-count", "12,480 字", {title: "字数", order: 20, priority: 20}),
+                entry("nbook.editor.cursor", "第 18 行，第 4 列", {title: "光标位置", order: 30, priority: 10}),
+            ];
+            return [
+                {id: "editor", label: "编辑器的三个条目", input: {props: {locale: "zh-CN", entries: editor, itemHeight: 20, align: "end"}}},
+                {id: "states", label: "出错、禁用与长文字", input: {props: {locale: "zh-CN", itemHeight: 20, align: "end", entries: [
+                    entry("test.items.failed", "保存失败 1 个", {order: 1, priority: 5, command: true, state: "error", tooltip: "第一章.md：磁盘已满"}),
+                    entry("test.items.disabled", "全部保存", {order: 2, priority: 5, command: true, disabledReason: "没有需要保存的文档"}),
+                    entry("test.items.long", "一段相当长的条目文字，用来看看三百二十像素的上限与省略号在状态栏里是什么样子", {order: 3, priority: 1}),
+                ]}}},
+                {id: "many", label: "放不下时收进“更多”", input: {props: {locale: "zh-CN", itemHeight: 20, align: "end", entries: Array.from({length: 14}, (_, index) => entry(`test.items.n${String(index)}`, `条目 ${String(index + 1)} · 一些文字`, {order: index, priority: index % 4, command: index % 3 === 0}))}}},
+            ];
+        })(),
+        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchItemStrip.vue"),
     }),
     defineSubjectFixture<typeof WorkbenchActivityBar>({
         component: "WorkbenchActivityBar",

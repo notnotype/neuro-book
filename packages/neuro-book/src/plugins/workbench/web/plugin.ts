@@ -14,7 +14,7 @@ import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
-import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
+import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {bindingsOf} from "nbook/shared/store/public";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
@@ -30,11 +30,14 @@ import {PANEL_COMMAND_DECLARATIONS, panelCommands} from "./commands/panel-comman
 import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands";
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
 import {appearanceSetting, quickPickKey, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
+import {itemValidator, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../shared/items";
+import type {ItemDeclaration} from "../shared/items";
 import {validateViewContribution, WORKBENCH_VIEWS_POINT} from "../shared/views";
 import type {ViewDeclaration} from "../shared/views";
 import {workbenchRootKey} from "./contracts";
 import {EditorAreaSlot, validateEditorAreaContribution} from "./editor-area";
 import {createHomePage} from "./home-page";
+import {ItemRegistry} from "./items/registry";
 import {PageTable, validatePageContribution} from "./pages";
 import {createLayoutHost} from "./state/layout-host";
 import {layoutStoreFor} from "./state/layout-store";
@@ -51,13 +54,15 @@ export const workbenchBrowserPlugin: PluginDefinition = {
         {id: WORKBENCH_PAGES_POINT, implementation: "required", validate: validatePageContribution},
         {id: WORKBENCH_VIEWS_POINT, implementation: "required", validate: validateViewContribution},
         {id: WORKBENCH_EDITOR_AREA_POINT, implementation: "required", validate: validateEditorAreaContribution},
+        {id: WORKBENCH_STATUSBAR_ITEMS_POINT, implementation: "required", validate: itemValidator(WORKBENCH_STATUSBAR_ITEMS_POINT)},
+        {id: WORKBENCH_TITLEBAR_ITEMS_POINT, implementation: "required", validate: itemValidator(WORKBENCH_TITLEBAR_ITEMS_POINT)},
     ],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
-        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: windowPluginsKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: publicStateKey}, {key: windowPluginsKey, required: false}],
         provides: [workbenchRootKey, quickPickKey],
-        receives: [WORKBENCH_PAGES_POINT, WORKBENCH_VIEWS_POINT, WORKBENCH_EDITOR_AREA_POINT],
+        receives: [WORKBENCH_PAGES_POINT, WORKBENCH_VIEWS_POINT, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT],
         contributions: [
             {capability: COMMANDS_POINT, id: OPEN_COMMANDS_ID, declaration: OPEN_COMMANDS_DECLARATION},
             {capability: COMMANDS_POINT, id: SWITCH_THEME_COMMAND, declaration: SWITCH_THEME_DECLARATION},
@@ -79,6 +84,12 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const storage = context.services.require(storageKey);
             const plugins = await context.services.resolve(windowPluginsKey);
             const editorArea = new EditorAreaSlot((message) => diagnostics.record({level: "warn", event: "workbench.editor-area", message, source: {plugin: descriptor.id}}));
+            const stateService = context.services.require(publicStateKey);
+            const reportItem = (message: string): void => {
+                diagnostics.record({level: "warn", event: "workbench.items", message, source: {plugin: descriptor.id}});
+            };
+            const statusItems = new ItemRegistry(context.declarations.list<ItemDeclaration>(WORKBENCH_STATUSBAR_ITEMS_POINT), stateService, reportItem, context.signal);
+            const titleItems = new ItemRegistry(context.declarations.list<ItemDeclaration>(WORKBENCH_TITLEBAR_ITEMS_POINT), stateService, reportItem, context.signal);
             const views = new ViewRegistry(context.declarations.list<ViewDeclaration>(WORKBENCH_VIEWS_POINT), plugins.status === "resolved" ? plugins.instance : null, context.signal);
             const layout = createLayoutHost(() => {
                 const store = layoutStoreFor(project !== null).create(context, {storage, diagnostics});
@@ -114,7 +125,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const pages = new PageTable([{path: "/", title: "NeuroBook", load: async () => home}]);
             return {
                 services: [provide(workbenchRootKey, {pages: () => pages.list()}), provide(quickPickKey, palettes.quickPick)],
-                receivers: {[WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver()},
+                receivers: {[WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver(), [WORKBENCH_STATUSBAR_ITEMS_POINT]: statusItems.receiver(), [WORKBENCH_TITLEBAR_ITEMS_POINT]: titleItems.receiver()},
                 contributions: {
                     [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey), () => locale.value)},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),

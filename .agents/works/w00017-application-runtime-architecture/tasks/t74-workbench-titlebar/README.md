@@ -75,3 +75,10 @@ omp 审查（报告在 [t73 证据](../t73-lab-nb-ui-and-storage/evidences/desig
   - `formatKeybinding`（`keymap.ts`）：macOS 写 `⇧⌘P`，其它写 `Ctrl+Shift+P`；命令面板改用它。
   - 验证：typecheck；工作台命令与状态 Bun 60 例（新增 `part-commands.test.ts`、`keymap.test.ts` 一例）；`workbench-shell`、`projects`、`workbench-views` e2e 34 例；变异 2 个全杀。
 - 2026-10-10 S3 完成（菜单能力模型）：`titlebar/menu-model.ts` 的 `buildMenus` 与产品定义 `TITLEBAR_MENUS`。菜单以“节”表达分隔线，空节不画；同一命令带不同参数的条目由定义给自己的标题（侧栏、右栏、活动栏、面板），外壳 Spec 输出 29 补了这一句。`menu-model.test.ts` 5 例（真实命令注册表与上下文键）；变异 2 个全杀。
+- 2026-10-10 S4 完成（条目贡献点与溢出）：
+  - 声明与校验 `shared/items.ts`（两个贡献点共用 `itemValidator`，标题栏只接受右侧；同 id 的两条由内核一起拒绝）；实现合同 `ItemImplementation`（`web/contracts.ts`）。
+  - `items/registry.ts` 的 `ItemRegistry`：`when` 经公开状态服务 `publicStateKey` 读（工作台新增这个依赖）；句柄失去 `published` 的那一刻就不再显示、不再调用实现；实现抛错原位显示为出错且不可点，同一句柄只记一次诊断。工作台入口登记两个贡献点、各一个注册表（S5 接进外壳）。
+  - `items/item-strip.ts` 的 `layoutStrip`：放不下时先给“更多”留位，再按优先级依次放，第一个放不下的和它之后的都收起。实现时把外壳 Spec 输出 34 的写法改严格了：原写“放不下时留位再继续放”有歧义，现在写明“优先级高的总在优先级低的之前显示”。
+  - 组件 `WorkbenchItemStrip`（同名 `.md`、Lab 三个场景）：有命令的是 ghost 按钮、没有的是 `role="status"` 文字；隐藏测量层量宽度；收起的进 nb-ui 下拉“更多”。
+  - 验证：typecheck；`items/` Bun 11 例（注册表 5 例用真实内核）；`WorkbenchItemStrip.dom.test.ts` 3 例；web 与工作台、命令 Bun 246 例；Lab 截图（手机宽度只留优先级最高的三项，其余进“更多”）；变异 4 个全杀（“不给更多留位”第一次存活，补了能区分的用例）。
+  - 我自己长开的开发服务没吃进新组件文件，Lab 打不开新组件；重启后正常。

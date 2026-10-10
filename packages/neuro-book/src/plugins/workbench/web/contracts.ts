@@ -31,6 +31,16 @@ export interface ViewImplementation {
     load(): Promise<Component>;
 }
 
+/**
+ * 状态栏与标题栏条目的实现（docs/specs/ui/workbench-shell.md 外壳四输出 33）：都在外壳渲染时响应式读取，数据由贡献方
+ * 从自己的状态算出。显示与否只由声明的 `when` 决定，`text()` 不承担隐藏。
+ */
+export interface ItemImplementation {
+    text(): string;
+    tooltip?(): string;
+    state?(): "normal" | "warning" | "error";
+}
+
 /** 编辑器槽贡献的实现：外壳挂编辑器槽时才加载组件。 */
 export interface EditorAreaImplementation {
     load(): Promise<Component>;
