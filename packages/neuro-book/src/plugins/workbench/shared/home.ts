@@ -14,6 +14,9 @@ import {LocalizedTextSchema} from "nbook/shared/localized-text";
 
 export const WORKBENCH_HOME_POINT = "workbench.home";
 
+/** 工作台的第二个内置页面（输出 37）：不采用首页贡献，直接是空工作台。 */
+export const WORKBENCH_PATH = "/workbench";
+
 export const HomeDeclarationSchema = Type.Object({
     /** 首页的名字：诊断与文档标题用它。 */
     title: LocalizedTextSchema,

@@ -142,8 +142,9 @@ describe("窗口运行实例", () => {
         const state = browserWindow.state;
         expect(state).toMatchObject({status: "ready", connection: "online"});
         const pages = state.status === "ready" ? state.root.pages() : [];
-        expect(pages.map((page) => page.path)).toEqual(["/"]);
+        expect(pages.map((page) => page.path)).toEqual(["/", "/workbench"]);
         expect(await pages[0]?.load()).toBeDefined();
+        expect(await pages[1]?.load()).toBeDefined();
         await browserWindow.stop();
         expect(browserWindow.state.status).toBe("closed");
     });
@@ -329,7 +330,7 @@ describe("窗口运行实例", () => {
     });
 
     it("其它插件贡献的页面在窗口 ready 时已在页面表里；两个插件贡献同一路径时都被拒绝，留给服务端的路径被拒绝，窗口照常 ready", async () => {
-        const extra = [pagePlugin("test.page", "/probe"), pagePlugin("test.dup-a", "/dup"), pagePlugin("test.dup-b", "/dup"), pagePlugin("test.api", "/api/probe")];
+        const extra = [pagePlugin("test.page", "/probe"), pagePlugin("test.dup-a", "/dup"), pagePlugin("test.dup-b", "/dup"), pagePlugin("test.api", "/api/probe"), pagePlugin("test.builtin", "/workbench")];
         const builtin = [...builtinBrowserPlugins, ...extra.map((plugin) => plugin.descriptor)];
         const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins: builtin.map(({id, version}) => ({id, version}))}));
         const {browserWindow} = openWindow({
@@ -340,8 +341,8 @@ describe("窗口运行实例", () => {
         await browserWindow.start();
         const state = browserWindow.state;
         const pages = state.status === "ready" ? state.root.pages() : [];
-        expect(pages.map((page) => page.path)).toEqual(["/", "/probe"]);
-        expect(await pages[1]?.load()).toBe(TestPage);
+        expect(pages.map((page) => page.path)).toEqual(["/", "/workbench", "/probe"]);
+        expect(await pages[2]?.load()).toBe(TestPage);
         await browserWindow.stop();
         stub.stop();
     });

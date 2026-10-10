@@ -1,6 +1,6 @@
 /**
- * `nbook.workbench` 浏览器入口：提供窗口挂载的页面表，定义页面贡献点 `workbench.pages`、视图贡献点 `workbench.views` 与
- * 编辑器槽贡献点 `workbench.editor-area`；
+ * `nbook.workbench` 浏览器入口：提供窗口挂载的页面表（`/` 与 `/workbench`），定义页面贡献点 `workbench.pages`、视图贡献点
+ * `workbench.views`、编辑器槽贡献点 `workbench.editor-area`、两个条目贡献点与无项目首页贡献点 `workbench.home`；
  * 向命令系统贡献面板入口命令、切换主题与明暗的命令、五条面板命令，向其它插件提供选择服务（命令面板的选择模式），
  * 公开外壳的布局状态（`state.public`）；`/` 页挂着命令宿主（命令面板与浏览器键位分发）与文档根的设置（界面语言、
  * 产品主题）。布局 store 在外壳页面第一次挂载时才创建（`state/layout-host.ts`）；视图注册表在激活时就建立，接收者从
@@ -30,13 +30,15 @@ import {PANEL_COMMAND_DECLARATIONS, panelCommands} from "./commands/panel-comman
 import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands";
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
 import {appearanceSetting, quickPickKey, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
+import {validateHomeContribution, WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "../shared/home";
 import {itemValidator, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../shared/items";
 import type {ItemDeclaration} from "../shared/items";
 import {validateViewContribution, WORKBENCH_VIEWS_POINT} from "../shared/views";
 import type {ViewDeclaration} from "../shared/views";
 import {workbenchRootKey} from "./contracts";
 import {EditorAreaSlot, validateEditorAreaContribution} from "./editor-area";
-import {createHomePage} from "./home-page";
+import {createWorkbenchPages} from "./home-page";
+import {HomeSlot} from "./home-slot";
 import {ItemRegistry} from "./items/registry";
 import {currentKeyPlatform} from "./commands/keymap";
 import {createShellChrome} from "./titlebar/titlebar-source";
@@ -58,13 +60,14 @@ export const workbenchBrowserPlugin: PluginDefinition = {
         {id: WORKBENCH_EDITOR_AREA_POINT, implementation: "required", validate: validateEditorAreaContribution},
         {id: WORKBENCH_STATUSBAR_ITEMS_POINT, implementation: "required", validate: itemValidator(WORKBENCH_STATUSBAR_ITEMS_POINT)},
         {id: WORKBENCH_TITLEBAR_ITEMS_POINT, implementation: "required", validate: itemValidator(WORKBENCH_TITLEBAR_ITEMS_POINT)},
+        {id: WORKBENCH_HOME_POINT, implementation: "required", validate: validateHomeContribution},
     ],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
         dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: publicStateKey}, {key: windowPluginsKey, required: false}],
         provides: [workbenchRootKey, quickPickKey],
-        receives: [WORKBENCH_PAGES_POINT, WORKBENCH_VIEWS_POINT, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT],
+        receives: [WORKBENCH_PAGES_POINT, WORKBENCH_VIEWS_POINT, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT, WORKBENCH_HOME_POINT],
         contributions: [
             {capability: COMMANDS_POINT, id: OPEN_COMMANDS_ID, declaration: OPEN_COMMANDS_DECLARATION},
             {capability: COMMANDS_POINT, id: SWITCH_THEME_COMMAND, declaration: SWITCH_THEME_DECLARATION},
@@ -114,22 +117,24 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const locale = computed(() => displayLocale(settings));
             const theme = computed(() => settings.get(themeSetting));
             const appearance = computed(() => settings.get(appearanceSetting));
-            const home = createHomePage({
-                shell: WorkbenchShell,
+            const homeSlot = new HomeSlot((message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}));
+            const projectName = project?.name ?? null;
+            const workbenchPages = createWorkbenchPages({
                 renderDocument: () => h(WorkbenchDocument, {locale, theme, appearance}),
+                // 布局 store 在外壳渲染时才取：首页贡献在场的 `/` 页与直接打开 Lab 的窗口都不读产品布局记录。
+                renderShell: () => h(WorkbenchShell, {layout: layout.acquire(), commands, views, editorArea, chrome, project: projectName, locale: locale.value}),
                 renderCommandHost: () => h(CommandHost, {commands, report, locale, attach: (host: PaletteHost) => palettes.attach(host)}),
-                layout,
-                commands,
-                views,
-                editorArea,
-                chrome,
-                projectName: project?.name ?? null,
-                locale,
+                projectName,
+                home: homeSlot,
+                reportHome: (message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}),
             });
-            const pages = new PageTable([{path: "/", title: "NeuroBook", load: async () => home}]);
+            const pages = new PageTable([
+                {path: "/", title: "NeuroBook", load: async () => workbenchPages.home},
+                {path: WORKBENCH_PATH, title: "NeuroBook", load: async () => workbenchPages.workbench},
+            ]);
             return {
                 services: [provide(workbenchRootKey, {pages: () => pages.list()}), provide(quickPickKey, palettes.quickPick)],
-                receivers: {[WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver(), [WORKBENCH_STATUSBAR_ITEMS_POINT]: statusItems.receiver(), [WORKBENCH_TITLEBAR_ITEMS_POINT]: titleItems.receiver()},
+                receivers: {[WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver(), [WORKBENCH_STATUSBAR_ITEMS_POINT]: statusItems.receiver(), [WORKBENCH_TITLEBAR_ITEMS_POINT]: titleItems.receiver(), [WORKBENCH_HOME_POINT]: homeSlot.receiver()},
                 contributions: {
                     [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey), () => locale.value)},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),

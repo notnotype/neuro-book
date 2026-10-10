@@ -6,6 +6,7 @@ import type {ContributionDescriptor, ContributionHandle, ContributionReceiver} f
 
 import {WORKBENCH_PAGES_POINT} from "../shared/contracts";
 import type {WorkbenchPageDeclaration} from "../shared/contracts";
+import {WORKBENCH_PATH} from "../shared/home";
 import type {WorkbenchPage, WorkbenchPageImplementation} from "./contracts";
 
 const PAGE_PATH = /^(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)+$/u;
@@ -23,6 +24,7 @@ export function validatePageContribution(descriptor: ContributionDescriptor): st
     const {path, title, reloadOnLeave} = declaration as Record<string, unknown>;
     if (typeof path !== "string" || !PAGE_PATH.test(path)) return "页面路径必须是小写字母、数字与连字符组成的静态段，例如 /lab";
     if (RESERVED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) return `页面路径 ${path} 留给服务端`;
+    if (path === WORKBENCH_PATH) return `页面路径 ${path} 是工作台自己的页面`;
     if (descriptor.id !== path) return `页面贡献的 id 必须是页面路径 ${path}`;
     if (typeof title !== "string" || title === "") return "页面标题不能为空";
     if (reloadOnLeave !== undefined && typeof reloadOnLeave !== "boolean") return "reloadOnLeave 必须是布尔值";
