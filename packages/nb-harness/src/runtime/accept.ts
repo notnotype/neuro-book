@@ -25,6 +25,8 @@ export type Accepted = {
     role?: string;
     apiKey: string;
     tools: ToolDescriptor[];
+    /** Profile 请求了、来源里却没有的工具 id（输出 2：受理照常，暴露给 start 的 detail 与预览诊断）。 */
+    missingTools: string[];
     approvalMode: ApprovalMode;
     compaction: CompactionSettings;
 };
@@ -92,7 +94,7 @@ function finish(deps: ResolvedDeps, session: Session, chosen: Chosen, options: C
         approvalRoleBound: config.roles.items.some((item) => item.id === "approval" && item.modelKey !== null),
     });
     if (options.signal?.aborted === true) return {ok: false, code: "invalid-state", detail: "开始前已中止"};
-    return {ok: true, value: {config, profile, ...rest, tools: visible.value, approvalMode, compaction: resolveCompactionSettings(profile.fields["harness/compaction"])}};
+    return {ok: true, value: {config, profile, ...rest, tools: visible.value.tools, missingTools: visible.value.missing, approvalMode, compaction: resolveCompactionSettings(profile.fields["harness/compaction"])}};
 }
 
 /** 受理的检查部分，不取凭据：预览只走到这里，没配 key 也能看模型会收到什么。 */

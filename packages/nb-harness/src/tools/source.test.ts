@@ -42,13 +42,14 @@ describe("来源与可见工具（输出 2、3）", () => {
         expect(() => createStaticToolSource([{...read(), id: "x y"} as ToolDefinition])).toThrow(TypeError);
     });
 
-    test("场景 2：两个来源、Profile 列出四个 id（一个没有来源）：按 Profile 顺序得到三个；两个来源各有同名工具时 tool-conflict", () => {
+    test("场景 2：两个来源、Profile 列出四个 id（一个没有来源）：按 Profile 顺序得到三个，没有来源的列在 missing；两个来源各有同名工具时 tool-conflict", () => {
         const a = createStaticToolSource([read(), edit()]);
         const b = createStaticToolSource([bash()]);
         const visible = visibleTools({requested: ["plugin.x/bash", "missing", "read", "edit", "read"], sources: [a, b]});
-        expect(visible.ok && visible.value.map((d) => d.id)).toEqual(["plugin.x/bash", "read", "edit"]);
+        expect(visible.ok && visible.value.tools.map((d) => d.id)).toEqual(["plugin.x/bash", "read", "edit"]);
+        expect(visible.ok && visible.value.missing).toEqual(["missing"]);
         const conflict = visibleTools({requested: ["read"], sources: [a, createStaticToolSource([read()])]});
         expect(conflict.ok ? null : `${conflict.code}:${conflict.detail}`).toBe("tool-conflict:工具 read 来自两个来源");
-        expect(visibleTools({requested: [], sources: [a, b]})).toEqual({ok: true, value: []});
+        expect(visibleTools({requested: [], sources: [a, b]})).toEqual({ok: true, value: {tools: [], missing: []}});
     });
 });

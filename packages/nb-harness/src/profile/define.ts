@@ -3,7 +3,7 @@
  */
 
 import {PROFILE_ID_PATTERN} from "./definitions";
-import type {Diagnostic, JsonValue, Profile, ProfileDefinition, ProfileResult} from "./types";
+import type {Diagnostic, HarnessFieldProps, JsonValue, Profile, ProfileDefinition, ProfileResult} from "./types";
 import {profileMarker} from "./types";
 
 export function profileDefinitionProblem(definition: unknown): string | null {
@@ -15,8 +15,14 @@ export function profileDefinitionProblem(definition: unknown): string | null {
     if (!Number.isInteger(d.version) || (d.version as number) < 1) return "version 必须是正整数";
     if (d.fields !== undefined && (typeof d.fields !== "object" || d.fields === null || Array.isArray(d.fields))) return "fields 必须是对象";
     if (typeof d.prompt !== "function") return "prompt 必须是函数";
+    for (const [prop, field] of Object.entries(FIELD_OF_PROP)) {
+        if ((d as Record<string, unknown>)[prop] !== undefined && d.fields?.[field] !== undefined) return `${prop} 与 fields["${field}"] 只能给一个`;
+    }
     return null;
 }
+
+/** 一等属性 → 字段 id。 */
+const FIELD_OF_PROP: Record<keyof HarnessFieldProps, string> = {tools: "harness/tools", model: "harness/model", compaction: "harness/compaction", approval: "harness/approval"};
 
 /** `defineProfile` 对不合规则的定义抛它：加载器据此把 Profile 文件里的定义错误报成 `invalid-profile`，而不是和语法、依赖错误混成 `module-load-failed`。 */
 export class ProfileDefinitionError extends TypeError {
@@ -26,8 +32,12 @@ export class ProfileDefinitionError extends TypeError {
 export function defineProfile(definition: ProfileDefinition): Profile {
     const problem = profileDefinitionProblem(definition);
     if (problem !== null) throw new ProfileDefinitionError(`Profile 定义不合规则：${problem}`);
-    const fields: Record<string, JsonValue> = Object.freeze({...(definition.fields ?? {})});
-    return Object.freeze({...definition, fields, [profileMarker]: true as const});
+    const {tools, model, compaction, approval, ...rest} = definition;
+    const fields: Record<string, JsonValue> = {...(definition.fields ?? {})};
+    for (const [prop, value] of Object.entries({tools, model, compaction, approval})) {
+        if (value !== undefined) fields[FIELD_OF_PROP[prop as keyof HarnessFieldProps]] = value as JsonValue;
+    }
+    return Object.freeze({...rest, fields: Object.freeze(fields), [profileMarker]: true as const});
 }
 
 export const isProfile = (value: unknown): value is Profile =>

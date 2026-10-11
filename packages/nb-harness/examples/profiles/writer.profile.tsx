@@ -12,8 +12,9 @@
  *   种子属于历史，所以能享受提示词缓存；`<WorkspaceTree />` 的数据在每次调用开始时重新取，压缩后重写的种子就是新的目录。
  * - `<Appending>`：即将进入历史的消息，调用开始时写入：`<Input />` 是用户这次的输入，`<Reminder>` 按条件插入提醒。
  *
- * `fields` 是别的模块登记的字段：`harness/tools` 列出要用的工具（可见工具 = 这里列出的 ∩ 来源此刻可用的），
- * `harness/compaction` 给出压缩设置；没写 `harness/model`，所以模型按配置的 `models.defaultModel`。
+ * `tools` 列出要用的工具（可见工具 = 这里列出的 ∩ 来源此刻可用的；列了没装的，预览会给 `unknown-tool` 警告），
+ * `compaction` 给出压缩设置；没写 `model`，所以模型按配置的 `models.defaultModel`。这四个一等属性并进 `fields` 的 `harness/*` 字段，
+ * `fields` 本身留给第三方命名空间（插件登记的字段）。
  *
  * 行为合同：docs/specs/harness/profile.md（节点与父子关系、输出第 7–11 条）；字段的含义见 tools、models、compaction 三份 Spec。
  */
@@ -26,10 +27,8 @@ export default defineProfile({
     name: "写作助手",
     description: "读取并修改工作区里的小说章节",
     version: 1,
-    fields: {
-        "harness/tools": ["read", "edit"],
-        "harness/compaction": {keepRecentTokens: 4000, threshold: {percent: 80}},
-    },
+    tools: ["read", "edit"],
+    compaction: {keepRecentTokens: 4000, threshold: {percent: 80}},
     prompt: (ctx) => (
         <Prompt>
             <System>

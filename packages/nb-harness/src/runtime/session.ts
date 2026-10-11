@@ -411,6 +411,7 @@ export class SessionHandle implements AgentSession {
         if (mode.kind !== "resume") {
             const started = await this.#writeInvocation(invocationId, "start", {
                 profileId: accepted.profile.id, model: accepted.modelRef, tools: accepted.tools.map((tool) => tool.id), reason: mode.kind,
+                ...(accepted.missingTools.length === 0 ? {} : {missingTools: accepted.missingTools}),
             });
             if (!started.ok) {
                 this.#current = null;
@@ -664,7 +665,10 @@ export class SessionHandle implements AgentSession {
         const prepared = await host.prepare(profile, {context: this.#promptContext(entries, checked.value, input === undefined ? 0 : 1), ...(options.signal === undefined ? {} : {signal: options.signal})});
         if (!prepared.ok) return invalid(prepared);
         // 与真跑同一顺序：种子与追加消息按 prepare 的结果渲染（真跑在刷新之前就把它们写进日志），刷新只影响系统提示词与请求消息
-        const diagnostics: Diagnostic[] = [];
+        const requested = profile.fields["harness/tools"];
+        const diagnostics: Diagnostic[] = checked.value.missingTools.map((id) => ({
+            severity: "warning", code: "unknown-tool", path: `fields.harness/tools[${Array.isArray(requested) ? requested.indexOf(id) : -1}]`, detail: `工具来源里没有 ${id}，这个 Profile 在这里看不到它`,
+        }));
         const seeded = entries.some((entry) => entry.type === "custom_message" && entry.customType === "harness/seed");
         const seeds: Message[] = [];
         if (!seeded) {

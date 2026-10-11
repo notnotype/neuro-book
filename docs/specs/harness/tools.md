@@ -61,7 +61,7 @@ interface ToolSource {
 type ToolDescriptor = {id: string; description: string; parameters: TSchema; risk: ToolTier | "dynamic"; scope: "session" | "project"};
 createStaticToolSource(tools: readonly ToolDefinition[]): ToolSource;
 
-visibleTools(input: {requested: readonly string[]; sources: readonly ToolSource[]}): ToolsResult<ToolDescriptor[]>;
+visibleTools(input: {requested: readonly string[]; sources: readonly ToolSource[]}): ToolsResult<{tools: ToolDescriptor[]; missing: string[]}>;   // missing：requested 里来源没有的 id
 
 resolveApprovalMode(input: {session?: ApprovalMode; config?: ApprovalMode; profile?: ApprovalMode; approvalRoleBound: boolean}): ApprovalMode;
 decideApproval(input: {
@@ -115,7 +115,7 @@ type ToolsFailure = "invalid-tool" | "tool-conflict";
 
 1. **定义校验**：`defineTool` 按上表检查，不合规则抛出 `TypeError`，消息说明哪一项；`toolDefinitionProblem` 返回同样的说明而不抛出。通过的定义原样返回（冻结）。
 2. **静态来源**：`createStaticToolSource` 的 `list` 按给定顺序列出每个工具的描述符（`risk` 为函数时写 `"dynamic"`）；`get` 返回定义；同一列表里 id 重复时 `createStaticToolSource` 抛出 `TypeError`。
-3. **可见工具**：`visibleTools` 按 `requested` 的顺序列出各来源此刻列出的工具，`requested` 里来源没有的 id 不出现、不报错；同一个 id 出现在两个来源里为 `tool-conflict`，整个结果失败，不静默取其一。
+3. **可见工具**：`visibleTools` 按 `requested` 的顺序在 `tools` 里列出各来源此刻列出的工具，`requested` 里来源没有的 id 不出现在 `tools`、不报错，按请求顺序列在 `missing`（重复的 id 只算一次）；同一个 id 出现在两个来源里为 `tool-conflict`，整个结果失败，不静默取其一。
 4. **模式解析**：`resolveApprovalMode` 依次取 `session`、`config`、`profile` 里第一个给出的值；都没有时，`approvalRoleBound` 为真为 `auto`，否则为 `write`。
 5. **风险求值**：工具的 `risk` 是函数时对这组参数调用一次；没有 `risk` 按 `{tier: "exec"}`；函数抛错，或返回的值不符合 `risk` 的形状规则（等级不是三者之一、`policy` 不是 `deny`/`ask`、`reason` 不是字符串、返回 `undefined` 或函数），都按 `{tier: "exec", policy: "ask", reason: <原因>}`（最严，交给用户）。
 6. **判定顺序**：`decideApproval` 取第一个命中的，`step` 记命中的那一步：

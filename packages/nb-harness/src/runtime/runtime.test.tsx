@@ -45,6 +45,8 @@ describe("一次完整调用（输出 2–5、9）", () => {
         ]);
         expect(result.entries).toEqual(session.log.entries.slice(before));
         expect(invocationPhases(result.entries)).toEqual(["start", "end"]);
+        const startEntry = result.entries[0]!;
+        expect(startEntry.type === "custom" && startEntry.data).toEqual({invocationId: started.value.invocationId, phase: "start", detail: {profileId: "writer", model: "test/m", tools: ["echo", "note", "shell"], reason: "prompt"}});
         expect(session.status).toMatchObject({phase: "idle", pending: [], queue: {steer: 0, followUp: 0}, profileId: "writer", model: "test/m"});
 
         // 事件：序号单调递增；status 先 running 后 idle；entry 事件覆盖每条写入；stream 与 tool 事件出现
@@ -519,6 +521,16 @@ describe("预览（输出 17）", () => {
         expect(JSON.stringify(preview.value.request.slice(2))).toContain("开始写");
         expect(preview.value.diagnostics).toEqual([]);
         expect(session.log.entries).toBe(before);
+        // 请求了没装的工具：受理照常，预览给 unknown-tool 警告
+        const lacking = await open({fields: {"harness/tools": ["echo", "nowhere"]}, script: [{text: "好"}]});
+        const warned = await lacking.session.preview({content: "x"});
+        expect(warned.ok && warned.value.tools).toEqual(["echo"]);
+        expect(warned.ok && warned.value.diagnostics).toEqual([{severity: "warning", code: "unknown-tool", path: "fields.harness/tools[1]", detail: expect.stringContaining("nowhere")}]);
+        const lackingRun = await lacking.session.prompt({content: "x"});
+        if (!lackingRun.ok) throw new Error(lackingRun.code);
+        const lackingResult = await lackingRun.value.done;
+        const start = lackingResult.entries.find((entry) => entry.type === "custom" && entry.customType === "harness/invocation");
+        expect(start?.type === "custom" && start.data).toMatchObject({phase: "start", detail: {tools: ["echo"], missingTools: ["nowhere"]}});
         expect(events).toEqual([]);
         expect(session.status.phase).toBe("idle");
         // 没有凭据：真跑受理失败，预览照常

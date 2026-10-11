@@ -69,9 +69,16 @@ describe("加载（输出 12）", () => {
         expect((await loadProfile(syntax)).ok ? null : (await loadProfile(syntax) as {code: string}).code).toBe("module-load-failed");
     });
 
-    test("profileFromModule 只认 defineProfile 的结果；defineProfile 拒绝不合规则的定义", () => {
+    test("profileFromModule 只认 defineProfile 的结果；defineProfile 拒绝不合规则的定义；一等属性并进 fields，与 fields 同给被拒", () => {
         const profile = defineProfile({id: "p", name: "n", description: "d", version: 1, prompt: () => <Prompt><System>s</System></Prompt>});
         expect(profileFromModule({default: profile}).ok).toBe(true);
+        const sugared = defineProfile({
+            id: "p", name: "n", description: "d", version: 1, tools: ["read", "edit"], model: {role: "writer"}, compaction: {threshold: {percent: 80}}, approval: "write",
+            fields: {"plugin.x/flag": true}, prompt: () => <Prompt><System>s</System></Prompt>,
+        });
+        expect(sugared.fields).toEqual({"plugin.x/flag": true, "harness/tools": ["read", "edit"], "harness/model": {role: "writer"}, "harness/compaction": {threshold: {percent: 80}}, "harness/approval": "write"});
+        expect("tools" in sugared).toBe(false);
+        expect(() => defineProfile({id: "p", name: "n", description: "d", version: 1, tools: ["read"], fields: {"harness/tools": ["edit"]}, prompt: () => <Prompt />})).toThrow('tools 与 fields["harness/tools"] 只能给一个');
         const fake = profileFromModule({default: {id: "p", name: "n", description: "d", version: 1, prompt: () => null}});
         expect(fake.ok ? null : fake.code).toBe("invalid-profile");
         expect(() => defineProfile({id: "Bad Id", name: "n", description: "d", version: 1, prompt: () => <Prompt />})).toThrow(TypeError);

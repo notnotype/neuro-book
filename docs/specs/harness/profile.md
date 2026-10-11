@@ -50,7 +50,8 @@ import {SkillCatalog} from "<技能模块>";        // 由技能模块注册的�
 
 export default defineProfile({
     id: "writer", name: "写作助手", description: "修改小说章节", version: 1,
-    fields: {"harness/tools": ["read", "edit"], "harness/model": {role: "main"}},   // 两个字段分别由 tools、models 模块登记（MODEL_FIELD），runtime 注册到主机
+    tools: ["read", "edit"], model: {role: "main"},   // 一等属性，并进 fields["harness/tools"]、fields["harness/model"]（字段由 tools、models 模块登记，runtime 注册到主机）
+    fields: {"plugin.x/flag": true},                   // 第三方命名空间的字段仍写在 fields 里
     prompt: (ctx) => (
         <Prompt>
             <System>你是写作助手。</System>
@@ -73,7 +74,8 @@ export default defineProfile({
 | `id` | 1–64 个字符，`[a-z0-9]` 开头，其余为 `[a-z0-9._-]` |
 | `name`、`description` | 非空字符串 |
 | `version` | 正整数 |
-| `fields` | 键是已注册的字段 id，值符合该字段的 schema |
+| `tools`、`model`、`compaction`、`approval` | 一等属性，`defineProfile` 把它们并进 `fields` 的 `harness/tools`、`harness/model`、`harness/compaction`、`harness/approval`；值的校验仍按注册的字段 schema 在 `prepare` 时做 |
+| `fields` | 键是已注册的字段 id，值符合该字段的 schema；同一个 `harness/*` 字段既给了一等属性又写在 `fields` 里是定义错误（`invalid-definition`） |
 | `prompt` | `(ctx: PromptContext) => 节点`，返回的根必须是 `Prompt` |
 
 ```ts
@@ -153,7 +155,7 @@ type ProfileFailure = "duplicate-registration" | "reserved-node" | "invalid-defi
     | "module-load-failed" | "invalid-profile";
 type ProfileIssue = "unknown-node" | "invalid-props" | "invalid-parent" | "invalid-child" | "duplicate-state-id"
     | "multiple-seeded-history" | "multiple-appending" | "multiple-input" | "image-not-allowed" | "unknown-field"
-    | "invalid-field" | "unknown-source" | "source-failed" | "cache-unfriendly" | "invalid-invocation-start" | "duplicate-profile" | "prompt-threw";
+    | "invalid-field" | "unknown-source" | "source-failed" | "cache-unfriendly" | "invalid-invocation-start" | "duplicate-profile" | "prompt-threw" | "unknown-tool";
 
 // 子入口 @notnotype/nb-harness/profile/loader（会执行模块代码）
 loadProfile(path: string): Promise<ProfileResult<Profile>>;
@@ -165,7 +167,7 @@ interface ProfileCatalog { list(): Profile[]; get(id: string): Profile | undefin
 ```
 
 ```ts
-defineProfile(definition: {id: string; name: string; description: string; version: number; fields?: Record<string, JsonValue>; prompt: (ctx: PromptContext) => ProfileNode}): Profile;
+defineProfile(definition: {id: string; name: string; description: string; version: number; tools?: string[]; model?: {model?: string; role?: string}; compaction?: JsonValue; approval?: ApprovalMode; fields?: Record<string, JsonValue>; prompt: (ctx: PromptContext) => ProfileNode}): Profile;   // 四个一等属性并进 fields；Profile 上只有 fields
 type Profile = Readonly<定义的字段> & {readonly [profileMarker]: true};   // 由 defineProfile 打标记，profileFromModule 据此识别
 type UserInput = {content: string | (TextContent | ImageContent)[]};
 type PreparedProfile = object;   // 不透明：只用于传回同一主机的渲染方法
@@ -190,7 +192,7 @@ type PreparedProfile = object;   // 不透明：只用于传回同一主机的�
 10. **追加消息**：`renderAppending` 按文档顺序渲染 `Appending`：`Input` 的位置放本次用户输入（`kind: "input"`）；消息节点产生 `kind: "message"`；`Reminder` 满足触发条件时产生一条用户消息，内容用 `<system-reminder>\n…\n</system-reminder>` 包起来（`kind: "reminder"`）；注册的有状态节点直接放在 `Appending` 下时，内容非空就产生一条用户消息（`kind: "message"`），放在消息节点里时是那条消息内容的一部分。`Appending` 里没有 `Input` 时，用户输入放在最后；Profile 没有 `Appending` 时只追加用户输入。
 11. **有状态节点与提醒的触发**：有状态节点的 `render` 收到 `state[id]`（没有记录时为 `undefined`），返回的新状态写进输出 `state` 的同一键；本次没有渲染到的节点，其旧状态原样保留。`Reminder` 的各个条件同时成立才出现：`when` 为真；`every` 时距离它上次出现已满 `every` 轮（从未出现过算满足）；`watch` 时其值与上次出现时不同（按 JSON 比较，第一次算不同）；`once` 时从未出现过。没有给任何条件时每次都出现。它的状态记录最后出现的轮次（`PromptContext.turn`）与 `watch` 值。
 12. **文本形式的 History**：`History as="text"` 把本次调用之前的历史（`history` 在 `invocationStart` 之前的部分）渲染为文字：每条消息一段，以角色名开头，工具调用与结果写出工具名与文本内容，图片写成占位说明。
-13. **加载**：`loadProfile` 导入模块并取默认导出，默认导出必须是 `defineProfile` 的结果；模块执行失败为 `module-load-failed`，默认导出不对为 `invalid-profile`；`profileFromModule` 对已导入的模块做同样的检查。Profile 文件可以放在任何目录：它里面对 `@notnotype/nb-harness/profile` 及其子路径的导入（含 `@jsxImportSource`）由加载器解析到本包，不要求文件旁边有 `node_modules`；其它导入按文件所在位置的常规规则解析。
+13. **加载**：`defineProfile` 校验定义（“定义 Profile”表），不合规则抛 `TypeError`（`ProfileDefinitionError`）；一等属性 `tools`、`model`、`compaction`、`approval` 并进 `fields` 的对应 `harness/*` 字段，结果上只有 `fields`。`loadProfile` 导入模块并取默认导出，默认导出必须是 `defineProfile` 的结果；模块执行失败为 `module-load-failed`，默认导出不对为 `invalid-profile`；`profileFromModule` 对已导入的模块做同样的检查。Profile 文件可以放在任何目录：它里面对 `@notnotype/nb-harness/profile` 及其子路径的导入（含 `@jsxImportSource`）由加载器解析到本包，不要求文件旁边有 `node_modules`；其它导入按文件所在位置的常规规则解析。
 14. **目录**：`createProfileCatalog` 按 `groups` 的顺序合并，同 id 的 Profile 后面的组覆盖前面的组；同一组内 id 重复时两者都不收录，并在 `issues` 里报告（诊断 `duplicate-profile`，`path` 为 `<组>:<id>`）。
 15. **纯函数**：`renderSeeds`、`renderAppending`、`renderRequest`、`renderSystem` 对同样的输入总得到同样的输出，不调用数据源的取数函数，不修改输入。数据只来自 `prepare` 与 `refresh` 的结果。
 16. **缓存提示**：请求消息出现在第一个布局形式的 `History` 之前时，`prepare` 给出 `cache-unfriendly` 警告：这类消息每次变化都会使后面整段历史的提示词缓存失效。
@@ -227,7 +229,7 @@ type PreparedProfile = object;   // 不透明：只用于传回同一主机的�
 | `module-load-failed` | Profile 模块执行或导入失败 | 修正 Profile 文件 |
 | `invalid-profile` | 默认导出不是 Profile，或 Profile 本身的字段不合规则 | 修正 Profile 文件 |
 
-诊断码（`ProfileIssue`）：`unknown-node`、`invalid-props`、`invalid-parent`（含种子不是 `User`、`Developer`，`History as="text"` 不在请求消息里，有状态节点不在 `Appending` 子树里）、`invalid-child`、`duplicate-state-id`、`multiple-seeded-history`、`multiple-appending`、`multiple-input`、`image-not-allowed`、`unknown-field`（`harness/` 下为错误，其它命名空间为警告）、`invalid-field`、`unknown-source`、`source-failed`、`cache-unfriendly`（警告）、`invalid-invocation-start`（`renderRequest` 的警告）。除警告外，诊断都使 `prepare` 返回 `invalid-prompt`。
+诊断码（`ProfileIssue`）：`unknown-node`、`invalid-props`、`invalid-parent`（含种子不是 `User`、`Developer`，`History as="text"` 不在请求消息里，有状态节点不在 `Appending` 子树里）、`invalid-child`、`duplicate-state-id`、`multiple-seeded-history`、`multiple-appending`、`multiple-input`、`image-not-allowed`、`unknown-field`（`harness/` 下为错误，其它命名空间为警告）、`invalid-field`、`unknown-source`、`source-failed`、`cache-unfriendly`（警告）、`invalid-invocation-start`（`renderRequest` 的警告）、`unknown-tool`（警告，由 [`harness.runtime`](runtime.md) 产生：Profile 请求了工具来源里没有的工具）。除警告外，诊断都使 `prepare` 返回 `invalid-prompt`。
 
 ## 边界与兼容
 
@@ -246,7 +248,7 @@ type PreparedProfile = object;   // 不透明：只用于传回同一主机的�
 6. 字段：未注册字段只得到警告，`harness/tool` 这样的拼错字段为 `invalid-prompt`；注册后值不合 schema 为 `invalid-field`。
 7. 只取系统提示词：`renderSystem` 只返回各 `System` 的文字，不需要历史与用户输入。
 8. 目录：内置、用户、项目三组各有同 id 的 Profile 时取项目组的；同一组内重复时都不收录并报告。
-9. 加载：从临时目录加载一个 `.profile.tsx`，得到与直接导入相同的 Profile；没有默认导出为 `invalid-profile`。
+9. 加载：从临时目录加载一个 `.profile.tsx`，得到与直接导入相同的 Profile；没有默认导出为 `invalid-profile`；`defineProfile` 的一等属性出现在 `fields` 里、不出现在 Profile 上，与 `fields` 同给被拒。
 10. 没有 `History` 的 Profile（`<Prompt><System>…</System><Appending><Input /></Appending></Prompt>`）：历史有三轮之前的对话，加本次调用的输入、助手的工具调用与工具结果时，`renderRequest` 只给出本次调用的这三条消息。
 11. 种子的角色：`<History><Developer>规则</Developer><User>任务</User></History>` 得到一条 `developer`、一条 `user` 种子。
 12. 轮与提醒：历史为用户输入“修改第三章”、带 `attribution: "agent"` 的提醒、助手回复，再一轮用户输入与回复；`<History last={1} />` 只取第二轮，`last={2}` 取到“修改第三章”。

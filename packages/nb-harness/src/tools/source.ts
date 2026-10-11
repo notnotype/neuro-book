@@ -29,7 +29,7 @@ export function createStaticToolSource(tools: readonly ToolDefinition[]): ToolSo
 }
 
 /** 可见工具 = Profile 列出的 ∩ 来源此刻可用的，按 Profile 的顺序；同一个 id 来自两个来源整体失败。 */
-export function visibleTools(input: {requested: readonly string[]; sources: readonly ToolSource[]}): ToolsResult<ToolDescriptor[]> {
+export function visibleTools(input: {requested: readonly string[]; sources: readonly ToolSource[]}): ToolsResult<{tools: ToolDescriptor[]; missing: string[]}> {
     const available = new Map<string, ToolDescriptor>();
     for (const source of input.sources) {
         for (const descriptor of source.list()) {
@@ -38,12 +38,15 @@ export function visibleTools(input: {requested: readonly string[]; sources: read
         }
     }
     const visible: ToolDescriptor[] = [];
+    const missing: string[] = [];
     const seen = new Set<string>();
     for (const id of input.requested) {
-        const descriptor = available.get(id);
-        if (descriptor === undefined || seen.has(id)) continue;
+        if (seen.has(id)) continue;
         seen.add(id);
-        visible.push(descriptor);
+        const descriptor = available.get(id);
+        // 请求了来源没有的 id 不是错误（同一 Profile 装到工具更少的宿主照常能用），但要让调用方看得见
+        if (descriptor === undefined) missing.push(id);
+        else visible.push(descriptor);
     }
-    return {ok: true, value: visible};
+    return {ok: true, value: {tools: visible, missing}};
 }

@@ -26,15 +26,32 @@ export type PromptContext = {
 /** `defineProfile` 给结果打的标记；`profileFromModule` 据此识别默认导出。 */
 export const profileMarker: unique symbol = Symbol("nb-harness.profile");
 
-export type ProfileDefinition = {
+/**
+ * 四个一等属性镜像运行时登记的 `harness/*` 字段（`defineProfile` 把它们放进 `fields`）；类型按结构写在这里，
+ * 因为 profile 模块不依赖登记它们的模块。值仍由 `prepare` 按注册的 schema 校验，这里的类型只是写法上的提示。
+ */
+export type HarnessFieldProps = {
+    /** `harness/tools`：要用的工具 id。 */
+    tools?: readonly string[];
+    /** `harness/model`：模型引用或角色。 */
+    model?: {model?: string; role?: string};
+    /** `harness/compaction`：压缩设置（形状见 harness.compaction）。 */
+    compaction?: JsonValue;
+    /** `harness/approval`：审批模式。 */
+    approval?: "always-ask" | "write" | "auto" | "yolo";
+};
+
+export type ProfileDefinition = HarnessFieldProps & {
     id: string;
     name: string;
     description: string;
     version: number;
+    /** 第三方命名空间的字段；`harness/*` 的四个用上面的一等属性写，同一个字段两边都给是定义错误。 */
     fields?: Record<string, JsonValue>;
     prompt: (ctx: PromptContext) => ProfileNode;
 };
-export type Profile = Readonly<Required<Pick<ProfileDefinition, "fields">> & Omit<ProfileDefinition, "fields">> & {readonly [profileMarker]: true};
+/** 一等属性已并进 `fields`：主机与运行时只读 `fields`。 */
+export type Profile = Readonly<Required<Pick<ProfileDefinition, "fields">> & Omit<ProfileDefinition, "fields" | keyof HarnessFieldProps>> & {readonly [profileMarker]: true};
 
 export type RenderContext = {prompt: PromptContext; sources: Readonly<Record<string, unknown>>};
 
@@ -67,7 +84,7 @@ export type RequestOutput = {systemPrompt: string[]; messages: Message[]; diagno
 
 export type ProfileIssue = "unknown-node" | "invalid-props" | "invalid-parent" | "invalid-child" | "duplicate-state-id"
     | "multiple-seeded-history" | "multiple-appending" | "multiple-input" | "image-not-allowed" | "unknown-field"
-    | "invalid-field" | "unknown-source" | "source-failed" | "cache-unfriendly" | "invalid-invocation-start" | "duplicate-profile" | "prompt-threw";
+    | "invalid-field" | "unknown-source" | "source-failed" | "cache-unfriendly" | "invalid-invocation-start" | "duplicate-profile" | "prompt-threw" | "unknown-tool";
 export type Diagnostic = {severity: "error" | "warning"; code: ProfileIssue; path: string; detail: string};
 export type ProfileFailure = "duplicate-registration" | "reserved-node" | "invalid-definition" | "invalid-prompt" | "cancelled"
     | "module-load-failed" | "invalid-profile";

@@ -95,7 +95,7 @@ import {Appending, defineProfile, History, Input, Prompt, Reminder, System, Tag,
 
 export default defineProfile({
     id: "writer", name: "写作助手", description: "读改章节", version: 1,
-    fields: {"harness/tools": ["read", "edit"], "harness/compaction": {threshold: {percent: 80}}},
+    tools: ["read", "edit"], compaction: {threshold: {percent: 80}},        // 并进 fields["harness/tools"]、fields["harness/compaction"]
     prompt: (ctx) => (
         <Prompt>
             <System>你是写作助手。</System>
@@ -113,7 +113,7 @@ export default defineProfile({
 
 - `<System>` 每次请求重新渲染；`<History>` 的子节点是种子，新会话开始时写进会话、每次压缩后再写一次（`once` 的除外）；`<Appending>` 的内容在调用开始时写进会话，`<Input />` 是用户这次的输入。
 - 要用外部数据：注册一个数据源与一个读它的节点（见 [`examples/nodes/workspace-tree.ts`](examples/nodes/workspace-tree.ts)）。
-- 字段由各模块登记：`harness/tools`（工具 id 列表）、`harness/model`（`{model?, role?}`）、`harness/compaction`、`harness/approval`。运行时创建时把它们注册到主机；`harness/` 下拼错的字段是错误（`invalid-profile`），别的命名空间的未知字段只警告。
+- 四个常用设置是一等属性：`tools`（工具 id 列表；请求了运行时没装的工具不算错，预览的 `diagnostics` 会给 `unknown-tool` 警告）、`model`（`{model?, role?}`）、`compaction`、`approval`。它们并进 `fields` 的 `harness/*` 字段；`fields` 留给第三方命名空间的字段（例如插件登记的），`harness/` 下拼错的字段是错误（`invalid-profile`），别的命名空间的未知字段只警告。
 - Profile 文件可以放在任何目录，`loadProfile(path)` 会把对本包的导入解析过来；文件全部受信任（加载就是执行）。
 
 ## 工具与审批
