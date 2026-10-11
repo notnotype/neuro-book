@@ -275,7 +275,7 @@ Smoke：`packages/nb-harness` 的 `bun test src/session`（JSONL 存储使用真
 
 ## 实现合同
 
-- 公开入口：`@notnotype/nb-harness/session`（`createSession`、`openSession`、`createMemorySessionStore`、回放与分页函数及“接口”一节的类型）与 `@notnotype/nb-harness/session/jsonl`（`createJsonlSessionStore`）。
+- 公开入口：`@notnotype/nb-harness/session`（`createSession`、`openSession`、`createMemorySessionStore`、`withoutUndefined`、回放与分页函数、`renderCompactionSummary`（压缩摘要在模型上下文里的文字形式，与输出 12 的回放一致）及“接口”一节的类型）与 `@notnotype/nb-harness/session/jsonl`（`createJsonlSessionStore`）。
 - owner：`nb-harness` 的 `session` 模块；只依赖 TypeBox 与 OMP 的类型（`import type`），不依赖本包其它模块。
 - 内部不变量（都有测试锁定）：
   1. `append` 在入队时就取输入的副本，补全后深冻结；`openSession` 接管存储返回的条目时同样克隆并深冻结。

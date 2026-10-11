@@ -198,12 +198,13 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
 | Harness 会话 | [`harness/session.md`](harness/session.md) | `nb-harness` 的只追加会话日志：条目格式、追加与订阅、回放（模型上下文、会话状态与设置）、崩溃收口、分页、存储接口与 JSONL 实现；条目与 OMP 会话条目兼容。待晋升 |
 | Harness 配置 | [`harness/config.md`](harness/config.md) | `nb-harness` 的配置快照：schema 校验与全部问题列表、缺省值、深冻结、替换与变化通知。待晋升 |
-| Harness 模型 | [`harness/models.md`](harness/models.md) | `nb-harness` 的模型目录与解析（配置自建服务加 OMP 内置目录）、角色选择链、能力检查、OMP `AuthStorage` 凭据与 OAuth。待晋升（真实模型冒烟未跑） |
+| Harness 模型 | [`harness/models.md`](harness/models.md) | `nb-harness` 的模型目录与解析（配置自建服务加 OMP 内置目录）、角色选择链、能力检查、OMP `AuthStorage` 凭据与 OAuth。待晋升 |
 | Harness 工具 | [`harness/tools.md`](harness/tools.md) | `nb-harness` 的工具协议、来源与可见工具、审批模式与判定顺序、审批模型调用、适配成 OMP `AgentTool`（参数校验、审批关卡、结构化错误、进度）。待晋升 |
 | Harness Profile | [`harness/profile.md`](harness/profile.md) | `nb-harness` 的 Profile：TSX 布局（`System`、`History`、`Appending`）、节点与数据源与字段的注册、渲染、种子与提醒、加载与目录。待晋升 |
-| Harness 压缩 | [`harness/compaction.md`](harness/compaction.md) | `nb-harness` 的压缩：方法注册与按顺序选择、内置 `soft`（包 OMP 本地摘要，关闭远程与原生压缩）、压缩条目与种子一批写入、阈值判断、Profile 字段 `harness/compaction`。待晋升（真实模型冒烟未跑） |
+| Harness 压缩 | [`harness/compaction.md`](harness/compaction.md) | `nb-harness` 的压缩：方法注册与按顺序选择、内置 `soft`（包 OMP 本地摘要，关闭远程与原生压缩）、压缩条目与种子一批写入、阈值判断、Profile 字段 `harness/compaction`。待晋升 |
 | Harness 内置工具 | [`harness/builtin-tools.md`](harness/builtin-tools.md) | `nb-harness` 的内置工具：受根约束的文件访问接口 `FileAccess` 与本地实现、`read`（标签头与行号、目录、图片）、`edit`（OMP hashline 引擎的装配与落盘）、按会话分开的快照存储。待晋升 |
-| Harness 运行时 | [`harness/runtime.md`](harness/runtime.md) | `nb-harness` 的运行时：每会话一个 OMP `Agent`，状态与操作矩阵（含排队）、受理与写入顺序、审批等待与应答、崩溃后的审批恢复、终态分类、压缩触发、带序号的事件。待晋升（真实模型冒烟未跑） |
+| Harness 运行时 | [`harness/runtime.md`](harness/runtime.md) | `nb-harness` 的运行时：每会话一个 OMP `Agent`，状态与操作矩阵（含排队）、受理与写入顺序、审批等待与应答、崩溃后的审批恢复、终态分类、压缩触发、带序号的事件。待晋升 |
+| Harness 术语表 | [`harness/glossary.md`](harness/glossary.md) | `nb-harness` 七份 Spec 共用的术语，含义以出处 Spec 为准；成熟度跟随出处 |
 
 ## 旧应用的规范与 Reference（只作参照）
 

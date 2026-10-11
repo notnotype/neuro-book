@@ -151,7 +151,7 @@ Smoke：`packages/nb-harness` 的 `bun test src/compaction`；真实模型 `bun 
 ## 实现合同
 
 - 公开入口：`@notnotype/nb-harness/compaction`（`createCompactionRegistry`、`softCompaction`、`createSoftCompaction`、`compactSession`、`shouldCompact`、`resolveCompactionSettings`、`COMPACTION_FIELD` 与“输入与前置条件”的类型）。
-- owner：`nb-harness` 的 `compaction` 模块；文件：`types.ts`、`settings.ts`（字段 schema 与缺省值）、`registry.ts`、`soft.ts`、`trigger.ts`、`run.ts`（`compactSession`）、`compaction.ts`（入口）。
+- owner：`nb-harness` 的 `compaction` 模块；对 `session` 只 `import type`；运行时依赖 `@oh-my-pi/pi-agent-core` 的压缩函数与 TypeBox，对 `@oh-my-pi/pi-ai`、`@oh-my-pi/pi-catalog` 只用类型。
 - 内部不变量（都有测试锁定）：
   1. 任何失败路径都不调用 `log.append`；成功路径只调用一次。
   2. `soft` 交给 OMP 的是 `[...entries]`，设置固定关闭远程与原生压缩；OMP 的一次性重试用它的缺省（`oneshotRetry` 不传）。
@@ -159,7 +159,7 @@ Smoke：`packages/nb-harness` 的 `bun test src/compaction`；真实模型 `bun 
 
 ## 证据
 
+- 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“压缩”一节（开发者 2026-10-10 决定：压缩作为单独模块、方法走注册，第一版只做 `soft`，`remote` 推迟；压缩结果只追加；Profile 经注册字段 `harness/compaction` 声明方法顺序、阈值、保留多少与额外要求；压缩后重新写入种子）。
 - 实现入口：[`packages/nb-harness/src/compaction/compaction.ts`](../../../packages/nb-harness/src/compaction/compaction.ts)
 - 合同测试：[`compaction.test.ts`](../../../packages/nb-harness/src/compaction/compaction.test.ts)（真实内存存储、真实 OMP `prepareCompaction`/`compact`，摘要传输经 `completeImpl` 脚本化）
-- Smoke：[`compaction.llm.test.ts`](../../../packages/nb-harness/src/compaction/compaction.llm.test.ts)——未运行（真实模型调用待授权）
-- 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“压缩”一节（开发者 2026-10-10 决定：压缩作为单独模块、方法走注册，第一版只做 `soft`，`remote` 推迟；压缩结果只追加；Profile 经注册字段 `harness/compaction` 声明方法顺序、阈值、保留多少与额外要求；压缩后重新写入种子）。
+- Smoke：[`compaction.llm.test.ts`](../../../packages/nb-harness/src/compaction/compaction.llm.test.ts)（真实模型，只在 `bun run test:llm` 下运行）

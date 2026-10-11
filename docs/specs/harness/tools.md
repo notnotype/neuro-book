@@ -176,7 +176,7 @@ Smoke：`packages/nb-harness` 的 `bun test src/tools`。
 
 ## 证据
 
+- 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“工具定义”“工具审批”两节与决策记录（开发者 2026-10-10 决定：审批自建、借用三档等级；缺省模式按是否绑定审批角色取 `auto` 或 `write`；工具进 Profile 按“列出 ∩ 可用”，列表在调用开始时取定；审批等待放在工具执行包装里）。
 - 实现入口：[`packages/nb-harness/src/tools/tools.ts`](../../../packages/nb-harness/src/tools/tools.ts)
 - 合同测试：[`source.test.ts`](../../../packages/nb-harness/src/tools/source.test.ts)、[`approval.test.ts`](../../../packages/nb-harness/src/tools/approval.test.ts)、[`judge.test.ts`](../../../packages/nb-harness/src/tools/judge.test.ts)、[`adapter.test.ts`](../../../packages/nb-harness/src/tools/adapter.test.ts)（真实 OMP `Agent`、脚本化模型）
 - Smoke：[`adapter.test.ts`](../../../packages/nb-harness/src/tools/adapter.test.ts) 的场景 5（真实 OMP `Agent`）
-- 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“工具定义”“工具审批”两节与决策记录（开发者 2026-10-10 决定：审批自建、借用三档等级；缺省模式按是否绑定审批角色取 `auto` 或 `write`；工具进 Profile 按“列出 ∩ 可用”，列表在调用开始时取定；审批等待放在工具执行包装里）。

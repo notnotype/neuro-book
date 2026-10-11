@@ -112,7 +112,7 @@ Smoke：`packages/nb-harness` 的 `bun test src/builtin`。
 ## 实现合同
 
 - 公开入口：`@notnotype/nb-harness/builtin`（`createBuiltinTools`、`readTool`、`editTool`、`createSnapshotStores` 与类型）、`@notnotype/nb-harness/builtin/local`（`createLocalFileAccess`）。
-- owner：`nb-harness` 的 `builtin` 模块；文件：`types.ts`、`stores.ts`、`read.ts`、`edit.ts`、`builtin.ts`、`local/local.ts`。
+- owner：`nb-harness` 的 `builtin` 模块；依赖 `tools` 的公开入口与 `@oh-my-pi/pi-natives` 的编辑引擎；Node 内置模块只在 `local` 子入口。
 - 内部不变量（都有测试锁定）：
   1. 两个工具不直接 `import` Node 的文件系统模块；所有读写经 `FileAccess`（引擎自己的读除外）。
   2. `read` 登记的 `seenLines` 就是展示出来的行号。
@@ -120,7 +120,7 @@ Smoke：`packages/nb-harness` 的 `bun test src/builtin`。
 
 ## 证据
 
+- 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“插件的落脚点”（文件访问 `FileAccess`：内核缺省受根约束的本地文件，插件阶段经 `nbook.files`）与“影响”一节（内置文件工具经 `FileAccess` 受根约束，修复越过 cwd 读写的问题）；开发者 2026-10-10 决定做完内核再做内置读写工具。
 - 实现入口：[`packages/nb-harness/src/builtin/builtin.ts`](../../../packages/nb-harness/src/builtin/builtin.ts)、[`local/local.ts`](../../../packages/nb-harness/src/builtin/local/local.ts)
 - 合同测试：[`local/local.test.ts`](../../../packages/nb-harness/src/builtin/local/local.test.ts)、[`read.test.ts`](../../../packages/nb-harness/src/builtin/read.test.ts)、[`edit.test.ts`](../../../packages/nb-harness/src/builtin/edit.test.ts)（真实临时目录与真实 OMP 编辑引擎）、[`runtime.test.tsx`](../../../packages/nb-harness/src/builtin/runtime.test.tsx)（经运行时，脚本化模型）
 - Smoke：不适用——合同测试已用真实引擎与真实文件系统
-- 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“插件的落脚点”（文件访问 `FileAccess`：内核缺省受根约束的本地文件，插件阶段经 `nbook.files`）与“影响”一节（内置文件工具经 `FileAccess` 受根约束，修复越过 cwd 读写的问题）；开发者 2026-10-10 决定做完内核再做内置读写工具。

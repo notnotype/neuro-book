@@ -8,6 +8,13 @@ superseded-by: null
 specs:
   - docs/specs/harness/session.md
   - docs/specs/harness/profile.md
+  - docs/specs/harness/config.md
+  - docs/specs/harness/models.md
+  - docs/specs/harness/tools.md
+  - docs/specs/harness/compaction.md
+  - docs/specs/harness/runtime.md
+  - docs/specs/harness/builtin-tools.md
+  - docs/specs/harness/glossary.md
 adrs: []
 ---
 

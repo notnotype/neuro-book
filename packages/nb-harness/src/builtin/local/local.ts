@@ -136,5 +136,3 @@ export function createLocalFileAccess(options: {root: string}): FileAccess {
         },
     };
 }
-
-export const PATH_SEPARATOR = sep;

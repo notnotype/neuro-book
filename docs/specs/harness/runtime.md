@@ -18,7 +18,7 @@ owners:
 - 传输与推送（SSE、WebSocket、远程服务）：本模块只产出带序号的事件，由使用方订阅。
 - 子代理、Skills、Workflow、附件、会话分支、`request_user_input`、结构化结果：第一批之外。
 - 配置从哪来、凭据存哪里、工具从哪来、Profile 从哪加载：都由使用方以其它模块的接口传入。
-- 内置工具（切片 7）与插件贡献点（插件阶段）。
+- 提供工具本身：内置的 `read`、`edit` 见 [`harness.builtin-tools`](builtin-tools.md)，插件贡献点属于插件阶段；本模块只经 `deps.tools` 接收工具来源。
 - 上下文溢出后的自动重试：溢出以 `failed` 收口并说明原因，使用方可以 `compact()` 后 `continue()`（见输出 15）。
 
 ## 术语与参与者
@@ -216,8 +216,8 @@ Smoke：`packages/nb-harness` 的 `bun test src/runtime`；真实模型 `bun run
 
 ## 实现合同
 
-- 公开入口：`@notnotype/nb-harness/runtime`（`createRuntime` 与“输入与前置条件”的类型）。
-- owner：`nb-harness` 的 `runtime` 模块；文件：`types.ts`、`fields.ts`（`harness/tools`、`harness/approval` 字段 schema 与注册）、`accept.ts`（受理：输入、Profile、模型、凭据、工具）、`approval.ts`（审批钩子：判定、审批模型、等待用户、恢复执行）、`invocation.ts`（一次调用：写入顺序、Agent 装配、事件、终态）、`session.ts`（`AgentSession`：状态机、队列、`resolve`、`abort`、`compact`、`close`）、`runtime.ts`（入口与 `createRuntime`）。
+- 公开入口：`@notnotype/nb-harness/runtime`（也是包根入口 `.`）：`createRuntime`、`registerRuntimeFields`、`TOOLS_FIELD`、`APPROVAL_FIELD`（`harness/tools`、`harness/approval` 两个字段的定义，供使用方先于运行时注册）与“输入与前置条件”的类型。
+- owner：`nb-harness` 的 `runtime` 模块；运行时依赖本包其它六个模块（经各自公开入口）与 `@oh-my-pi/pi-agent-core` 的 `Agent`，对 `@oh-my-pi/pi-ai`、`@oh-my-pi/pi-catalog` 只用类型与错误归类。
 - 内部不变量（都有测试锁定）：
   1. 受理阶段不调用 `log.append`；受理通过后第一条写入是 `invocation start`。
   2. 助手消息与工具结果只在 `message_end` 写入；本次输入与插话各写一次（通过消息对象身份去重）。
@@ -227,7 +227,7 @@ Smoke：`packages/nb-harness` 的 `bun test src/runtime`；真实模型 `bun run
 
 ## 证据
 
+- 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“Agent 运行时”“工具审批”“事件、推送与分页”“模块划分与推进顺序”（开发者 2026-10-10 决定：每个会话一个 OMP `Agent`，内核在外面加持久化、状态机与审批；运行中的 `prompt` 用 `streamingBehavior` 入队否则拒绝；队列只在内存；受理错误不写东西、受理后失败写终态；审批自建、等待在工具执行包装里、不开预测执行；只做审批恢复；内核不做 SSE、事件带序号、发起与完成分开；压缩触发只做手动、溢出、一轮结束超阈值）。
 - 实现入口：[`packages/nb-harness/src/runtime/runtime.ts`](../../../packages/nb-harness/src/runtime/runtime.ts)
 - 合同测试：[`runtime.test.tsx`](../../../packages/nb-harness/src/runtime/runtime.test.tsx)、[`approval.test.tsx`](../../../packages/nb-harness/src/runtime/approval.test.tsx)、[`recovery.test.tsx`](../../../packages/nb-harness/src/runtime/recovery.test.tsx)、[`compaction.test.tsx`](../../../packages/nb-harness/src/runtime/compaction.test.tsx)（真实 OMP `Agent`、真实 SQLite 凭据库、内存与 JSONL 存储，模型流经 OMP `streamFn` 脚本化）
-- Smoke：[`runtime.llm.test.tsx`](../../../packages/nb-harness/src/runtime/runtime.llm.test.tsx)——未运行（真实模型调用待授权）
-- 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“Agent 运行时”“工具审批”“事件、推送与分页”“模块划分与推进顺序”（开发者 2026-10-10 决定：每个会话一个 OMP `Agent`，内核在外面加持久化、状态机与审批；运行中的 `prompt` 用 `streamingBehavior` 入队否则拒绝；队列只在内存；受理错误不写东西、受理后失败写终态；审批自建、等待在工具执行包装里、不开预测执行；只做审批恢复；内核不做 SSE、事件带序号、发起与完成分开；压缩触发只做手动、溢出、一轮结束超阈值）。
+- Smoke：[`runtime.llm.test.tsx`](../../../packages/nb-harness/src/runtime/runtime.llm.test.tsx)（真实模型，只在 `bun run test:llm` 下运行）

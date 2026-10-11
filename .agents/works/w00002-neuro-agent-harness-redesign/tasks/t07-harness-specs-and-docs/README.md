@@ -16,7 +16,7 @@ taskId: t07-harness-specs-and-docs
 
 ## 当前状态（2026-10-01）
 
-- 已完成：五份 Spec（[`session-log`](../../../../../docs/specs/harness/session-log.md)、[`profile-dsl`](../../../../../docs/specs/harness/profile-dsl.md)、[`agent-turn`](../../../../../docs/specs/harness/agent-turn.md)、[`file-tools`](../../../../../docs/specs/harness/file-tools.md)、[`sse`](../../../../../docs/specs/harness/sse.md)）并登记到 [`docs/specs/README.md`](../../../../../docs/specs/README.md)；三包 README、API 参考、示例与示例 smoke；`nb-session`、`nb-profile` 新增包级 `AGENTS.md`，`nb-harness/AGENTS.md` 补充 Spec 入口与真实 LLM 的运行方式；三包 `tsconfig` 把 `examples` 纳入类型检查。
+- 已完成：五份现状 Spec（`session-log`、`profile-dsl`、`agent-turn`、`file-tools`、`sse`；已于 2026-10-10 随内核重写删除，见 [提案](../../../../../docs/proposals/agent-harness-kernel.md)；当前合同是 [`docs/specs/harness/`](../../../../../docs/specs/harness/session.md) 下的七份 Spec）并登记到 [`docs/specs/README.md`](../../../../../docs/specs/README.md)；三包 README、API 参考、示例与示例 smoke；`nb-session`、`nb-profile` 新增包级 `AGENTS.md`，`nb-harness/AGENTS.md` 补充 Spec 入口与真实 LLM 的运行方式；三包 `tsconfig` 把 `examples` 纳入类型检查。
 - 新增测试：`nb-harness/tests/sse.test.ts`（7 例，t06 交付时 SSE 没有测试）；三包各一个 `tests/examples.test.ts`。
 - 审查：16 条发现见 [`walkthroughs/001-review-2026-10-01.md`](walkthroughs/001-review-2026-10-01.md)，其中 3 条高优先级（文件工具无访问边界且 harness 中 `edit` 不经确认、`turn` 吞掉失败与中止、模型上下文不从日志恢复）。均未修复。
 - #193 正文：见本文“Issue”一节。

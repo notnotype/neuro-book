@@ -201,7 +201,7 @@ type PreparedProfile = object;   // 不透明：只用于传回同一主机的�
 
 主机的注册表随注册与 `dispose` 变化；`prepare` 使用调用时刻的注册表，返回的 `PreparedProfile` 不随之后的注册变化。
 
-**时序与寿命**（调用方按此使用，runtime 的完整合同见以后的 `harness.runtime`）：
+**时序与寿命**（调用方按此使用，runtime 的完整合同见 [`harness.runtime`](runtime.md)）：
 
 - 每次调用开始时：`prepare`（新会话时接着 `renderSeeds("new-session")` 并写入种子）→ `renderAppending` → 写入追加消息与新状态。
 - ReAct 循环中：助手消息与工具结果由 runtime 直接写进会话，不经过本模块。
@@ -257,7 +257,7 @@ Smoke：`packages/nb-harness` 的 `bun test src/profile`（含从真实文件加
 
 ## 实现合同
 
-- 公开入口：`@notnotype/nb-harness/profile`（`createProfileHost`、`defineProfile`、`createProfileCatalog`、内置节点组件、`nodeComponent` 与“注册”一节的类型）、`@notnotype/nb-harness/profile/jsx-runtime`、`@notnotype/nb-harness/profile/jsx-dev-runtime`、`@notnotype/nb-harness/profile/loader`（`loadProfile`、`profileFromModule`）。
+- 公开入口：`@notnotype/nb-harness/profile`（`createProfileHost`、`defineProfile`、`createProfileCatalog`、内置节点组件、`BUILTIN`（内置节点类型 id 表，注册方声明 `parents` 时用）、`nodeComponent` 与“注册”一节的类型）、`@notnotype/nb-harness/profile/jsx-runtime`、`@notnotype/nb-harness/profile/jsx-dev-runtime`、`@notnotype/nb-harness/profile/loader`（`loadProfile`、`profileFromModule`）。
 - owner：`nb-harness` 的 `profile` 模块；只依赖 TypeBox 与 OMP 的类型（`import type`），不依赖本包其它模块；`loader` 子目录另用 Node 内置模块与动态导入。
 - 内部不变量（都有测试锁定）：
   1. 节点一律冻结；JSX 只接受组件函数，字符串元素名报错。
@@ -268,7 +268,7 @@ Smoke：`packages/nb-harness` 的 `bun test src/profile`（含从真实文件加
 
 ## 证据
 
+- 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“Profile”一节与决策记录（开发者 2026-10-10 决定：节点、数据源与字段全部走注册；分区为 `System`、`History`、`Appending`，去掉 `ModelContext`；`History` 是会话条目回放的结果，可以有多个或没有，子节点是种子并可标“只在新会话写入”；`Appending` 放即将进入历史的消息且不合并；提醒用 `<system-reminder>`；去掉条件节点与按角色拆分消息节点；Profile 文件全部信任）。
 - 实现入口：[`packages/nb-harness/src/profile/profile.ts`](../../../packages/nb-harness/src/profile/profile.ts)、[`packages/nb-harness/src/profile/loader/loader.ts`](../../../packages/nb-harness/src/profile/loader/loader.ts)
 - 合同测试：[`host.test.tsx`](../../../packages/nb-harness/src/profile/host.test.tsx)、[`prepare.test.tsx`](../../../packages/nb-harness/src/profile/prepare.test.tsx)、[`render.test.tsx`](../../../packages/nb-harness/src/profile/render.test.tsx)、[`request.test.tsx`](../../../packages/nb-harness/src/profile/request.test.tsx)、[`loader.test.tsx`](../../../packages/nb-harness/src/profile/loader/loader.test.tsx)
 - Smoke：[`loader.test.tsx`](../../../packages/nb-harness/src/profile/loader/loader.test.tsx)（从真实临时目录加载 `.profile.tsx`）
-- 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“Profile”一节与决策记录（开发者 2026-10-10 决定：节点、数据源与字段全部走注册；分区为 `System`、`History`、`Appending`，去掉 `ModelContext`；`History` 是会话条目回放的结果，可以有多个或没有，子节点是种子并可标“只在新会话写入”；`Appending` 放即将进入历史的消息且不合并；提醒用 `<system-reminder>`；去掉条件节点与按角色拆分消息节点；Profile 文件全部信任）。

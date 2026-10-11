@@ -122,13 +122,13 @@ type ModelFailure = "invalid-model-ref" | "unknown-provider" | "unknown-model" |
 1. 配置里自建一个服务并覆盖 OMP 目录里同名服务的一个模型：`list` 里该引用只出现一次且 `source: "config"`，`resolve` 得到配置的 `baseUrl`；目录里另一个模型照常解析为 `bundled`。
 2. 选择链：显式模型优先；角色未绑定为 `role-not-bound` 且不回落到 Profile 的模型；Profile 的模型其次；Profile 的缺省角色再次；最后全局缺省；全部没有为 `no-default-model`。
 3. 凭据：在真实临时目录新建 SQLite 凭据库，`setApiKey` 后 `apiKeyFor` 可取、重开后仍在、`removeApiKey` 后为 `undefined`；进程环境变量里放一个服务的 key 而存储里没有时 `apiKeyFor` 为 `undefined`。
-4. 真实模型冒烟（`*.llm.test.ts`，只在 `bun run test:llm` 下运行，需要开发者授权）：从环境变量把一个服务的 key 写进临时凭据库，用目录解析该模型、取 key，经 OMP `streamSimple` 完成一次最短的对话。
+4. 真实模型冒烟（`*.llm.test.ts`，只在 `bun run test:llm` 下运行，需要开发者授权）：从测试配置（专属的 `NBOOK_LLM_*` 键，见 [真实模型测试](../../testing/README.md#真实模型测试)）把服务写成自建提供方、把 key 写进临时凭据库，用目录解析该模型、取 key，经 OMP `streamSimple` 完成一次最短的对话。
 
 Smoke：`packages/nb-harness` 的 `bun test src/models`；真实模型冒烟 `bun run test:llm`。
 
 ## 实现合同
 
-- 公开入口：`@notnotype/nb-harness/models`（`createModelCatalog`、`openCredentials`、`createCredentials`、`parseModelRef` 与“输入与前置条件”的类型）。
+- 公开入口：`@notnotype/nb-harness/models`（`createModelCatalog`、`openCredentials`、`createCredentials`、`parseModelRef`、`MODEL_FIELD`、`selectionFromProfile` 与“输入与前置条件”的类型）。
 - owner：`nb-harness` 的 `models` 模块；对 `config` 只 `import type`；运行时依赖 `@oh-my-pi/pi-ai`（`AuthStorage`、OAuth 注册表）与 `@oh-my-pi/pi-catalog`（内置目录、`buildModel`）。
 - 内部不变量（都有测试锁定）：
   1. 目录只看传入的配置快照；配置里的模型覆盖 OMP 目录里的同名模型。
@@ -138,7 +138,7 @@ Smoke：`packages/nb-harness` 的 `bun test src/models`；真实模型冒烟 `bu
 
 ## 证据
 
+- 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“模型与凭据（直接使用 OMP）”“模型角色”两节（开发者 2026-10-10 决定：不另设适配器层，模型与凭据直接用 OMP；内核不读环境变量；角色按模型角色合同解析）与 [模型角色合同](../../proposals/model-roles-contract.md)（`accepted`）。
 - 实现入口：[`packages/nb-harness/src/models/models.ts`](../../../packages/nb-harness/src/models/models.ts)
 - 合同测试：[`catalog.test.ts`](../../../packages/nb-harness/src/models/catalog.test.ts)、[`credentials.test.ts`](../../../packages/nb-harness/src/models/credentials.test.ts)（真实临时目录里的 SQLite 凭据库）
-- Smoke：[`models.llm.test.ts`](../../../packages/nb-harness/src/models/models.llm.test.ts)（真实模型，只在 `bun run test:llm` 下运行；尚未运行，待开发者授权）
-- 批准依据：[Agent harness 内核](../../proposals/agent-harness-kernel.md) 的“模型与凭据（直接使用 OMP）”“模型角色”两节（开发者 2026-10-10 决定：不另设适配器层，模型与凭据直接用 OMP；内核不读环境变量；角色按模型角色合同解析）与 [模型角色合同](../../proposals/model-roles-contract.md)（`accepted`）。
+- Smoke：[`models.llm.test.ts`](../../../packages/nb-harness/src/models/models.llm.test.ts)（真实模型，只在 `bun run test:llm` 下运行）

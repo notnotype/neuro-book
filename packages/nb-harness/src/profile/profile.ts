@@ -10,5 +10,5 @@ export type {
 } from "./types";
 export {createProfileHost} from "./host";
 export {createProfileCatalog, defineProfile} from "./define";
-export {Appending, Assistant, BUILTIN, Developer, Fragment, History, Image, Input, Prompt, Reminder, System, Tag, User, createNode, nodeComponent} from "./nodes";
+export {Appending, Assistant, BUILTIN, Developer, Fragment, History, Image, Input, Prompt, Reminder, System, Tag, User, nodeComponent} from "./nodes";
 export type {HistoryProps, ImageProps, MessageProps, ReminderProps, TagProps} from "./nodes";
