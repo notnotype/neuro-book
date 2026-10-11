@@ -4,7 +4,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {DEFAULT_LLM_TEST_MODEL, llmTestConfig} from "@notnotype/neuro-book-test-support/llm";
+import {DEFAULT_LLM_TEST_API, llmTestConfig} from "@notnotype/neuro-book-test-support/llm";
 
 const roots: string[] = [];
 
@@ -20,22 +20,28 @@ async function dotenv(text: string): Promise<string> {
     return path;
 }
 
+const FULL = "NBOOK_LLM_BASE_URL=https://example.test/v1\nNBOOK_LLM_API_KEY=\"from-dotenv\"\nNBOOK_LLM_MODEL=m1\n";
+
 describe("llmTestConfig", () => {
     it("没有显式开关时不运行，即使环境里有凭据", async () => {
-        const env: NodeJS.ProcessEnv = {DEEPSEEK_API_KEY: "key-in-env"};
+        const env: NodeJS.ProcessEnv = {NBOOK_LLM_BASE_URL: "https://example.test/v1", NBOOK_LLM_API_KEY: "key-in-env", NBOOK_LLM_MODEL: "m1"};
         expect(llmTestConfig({env, dotenvPath: await dotenv("")})).toBeNull();
     });
 
-    it("开关打开时从 .env 只取白名单内的键写入环境，环境里已有的值优先", async () => {
-        const env: NodeJS.ProcessEnv = {NBOOK_LLM_TESTS: "1", REAL_MODEL_SMOKE_MODEL: "deepseek/other"};
-        const path = await dotenv('DEEPSEEK_API_KEY="from-dotenv"\nREAL_MODEL_SMOKE_MODEL=ignored\nUNRELATED_SECRET=x\n');
-        expect(llmTestConfig({env, dotenvPath: path})).toEqual({apiKey: "from-dotenv", model: "deepseek/other"});
-        expect(env.DEEPSEEK_API_KEY).toBe("from-dotenv");
+    it("开关打开时从 .env 只取白名单内的键写入环境，环境里已有的值优先；协议缺省 openai-completions", async () => {
+        const env: NodeJS.ProcessEnv = {NBOOK_LLM_TESTS: "1", NBOOK_LLM_MODEL: "from-env"};
+        const path = await dotenv(`${FULL}UNRELATED_SECRET=x\n`);
+        expect(llmTestConfig({env, dotenvPath: path})).toEqual({baseUrl: "https://example.test/v1", apiKey: "from-dotenv", model: "from-env", api: DEFAULT_LLM_TEST_API});
+        expect(env.NBOOK_LLM_API_KEY).toBe("from-dotenv");
         expect(env.UNRELATED_SECRET).toBeUndefined();
     });
 
-    it("开关打开但缺凭据时跳过；模型缺省为 deepseek-flash", async () => {
-        expect(llmTestConfig({env: {NBOOK_LLM_TESTS: "1"}, dotenvPath: await dotenv("")})).toBeNull();
-        expect(llmTestConfig({env: {NBOOK_LLM_TESTS: "1", DEEPSEEK_API_KEY: "k"}, dotenvPath: await dotenv("")})?.model).toBe(DEFAULT_LLM_TEST_MODEL);
+    it("NBOOK_LLM_API 可改协议；三个必需键缺任意一个都跳过", async () => {
+        expect(llmTestConfig({env: {NBOOK_LLM_TESTS: "1"}, dotenvPath: await dotenv(`${FULL}NBOOK_LLM_API=openai-responses\n`)})?.api).toBe("openai-responses");
+        for (const dropped of ["NBOOK_LLM_BASE_URL", "NBOOK_LLM_API_KEY", "NBOOK_LLM_MODEL"]) {
+            const partial = FULL.split("\n").filter((line) => !line.startsWith(`${dropped}=`)).join("\n");
+            expect(llmTestConfig({env: {NBOOK_LLM_TESTS: "1"}, dotenvPath: await dotenv(partial)})).toBeNull();
+        }
+        expect(llmTestConfig({env: {NBOOK_LLM_TESTS: "1", NBOOK_LLM_API_KEY: ""}, dotenvPath: await dotenv(FULL)})).toBeNull();
     });
 });

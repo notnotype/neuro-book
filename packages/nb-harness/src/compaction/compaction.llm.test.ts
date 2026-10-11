@@ -1,24 +1,23 @@
 import {describe, expect, test} from "bun:test";
-import {llmTestConfig} from "@notnotype/neuro-book-test-support/llm";
+import {LLM_TEST_PROVIDER_ID, llmTestConfig} from "@notnotype/neuro-book-test-support/llm";
 import {validateHarnessConfig} from "../config/config";
-import {createModelCatalog, parseModelRef} from "../models/models";
+import {createModelCatalog} from "../models/models";
 import {buildModelContext, createMemorySessionStore, createSession} from "../session/session";
 import type {EntryInput} from "../session/session";
 import {assistantMessage, seed, userMessage} from "../session/testing/fixtures";
 import {compactSession, createCompactionRegistry, resolveCompactionSettings} from "./compaction";
 
-// 真实模型调用要花钱：只在 `bun run test:llm`（NBOOK_LLM_TESTS=1）下运行，并需要开发者授权。模型与 key 取共享的测试配置。
+// 真实模型调用要花钱：只在 `bun run test:llm`（NBOOK_LLM_TESTS=1）下运行，并需要开发者授权。服务、模型与 key 取共享的测试配置（NBOOK_LLM_*）。
 const llm = llmTestConfig();
 
 describe.skipIf(llm === null)("真实模型冒烟（harness.compaction 场景 7）", () => {
     test("六轮小会话做一次 soft 压缩：摘要非空、切点在日志里、回放的第一条用户消息含摘要", async () => {
-        const ref = parseModelRef(llm!.model);
-        if (ref === null) throw new Error(`REAL_MODEL_SMOKE_MODEL 不是模型引用：${llm!.model}`);
-        // 测试配置允许覆盖服务地址（DEEPSEEK_API_BASE）；内核不读环境变量，所以由测试把它写成配置里的自建服务。
-        const baseUrl = process.env.DEEPSEEK_API_BASE;
+        const modelRef = `${LLM_TEST_PROVIDER_ID}/${llm!.model}`;
         const config = validateHarnessConfig({
-            models: {defaultModel: llm!.model},
-            ...(baseUrl === undefined || baseUrl === "" ? {} : {providers: [{id: ref.providerId, api: "openai-completions", baseUrl, models: [{id: ref.modelId}]}]}),
+            // 内核不读环境变量：测试把配置里的服务写成一个自建提供方，模型就是它名下的那一个
+            models: {defaultModel: modelRef},
+            // 自建提供方没有目录数据，soft 压缩要求模型有正的 contextWindow；冒烟只要求它为正，不代表服务的真实上限
+            providers: [{id: LLM_TEST_PROVIDER_ID, api: llm!.api, baseUrl: llm!.baseUrl, models: [{id: llm!.model, contextWindow: 128_000}]}],
         });
         if (!config.ok) throw new Error(JSON.stringify(config.problems));
         const selected = createModelCatalog({config: config.value}).select({});
@@ -46,6 +45,8 @@ describe.skipIf(llm === null)("真实模型冒烟（harness.compaction 场景 7�
         const context = buildModelContext(log.entries);
         expect(context[0]).toMatchObject({role: "user", content: "你是小说助手"});
         expect(context[1]).toMatchObject({role: "user", attribution: "agent"});
-        expect(JSON.stringify(context[1]!.content)).toContain(result.value.output.summary.slice(0, 20));
+        const replayed = context[1]!.content;
+        const text = typeof replayed === "string" ? replayed : replayed.map((block) => (block.type === "text" ? block.text : "")).join("");
+        expect(text).toContain(result.value.output.summary);
     }, 120_000);
 });

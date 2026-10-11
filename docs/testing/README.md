@@ -71,7 +71,7 @@
 ## 真实模型测试
 
 - **命名与开关**：会调用真实模型的测试放在 `*.llm.test.ts`，用 `@notnotype/neuro-book-test-support/llm` 的 `llmTestConfig()` 取配置，并以 `describe.skipIf(config === null)` 包住。只有显式设置 `NBOOK_LLM_TESTS=1` 才运行，是否调用模型由运行者的意图决定，不由环境里碰巧有没有凭据决定。包脚本 `test:llm` 设置开关并只运行这些文件；默认的 `test` 里它们显示为跳过。
-- **凭据**：先看进程环境，没有时只从仓库根 `.env` 读 `DEEPSEEK_API_KEY`、`DEEPSEEK_API_BASE`、`REAL_MODEL_SMOKE_MODEL` 三个键；`REAL_MODEL_SMOKE_MODEL` 可覆盖模型（缺省 `deepseek/deepseek-flash`）。凭据不落盘、不打印、不进用例名。开关打开却缺凭据时用例跳过，证据记为“未验证”，不写成通过。
+- **服务与凭据**：真实模型 smoke 有专属的键，不借用产品或个人提供方的键名：`NBOOK_LLM_BASE_URL`、`NBOOK_LLM_API_KEY`、`NBOOK_LLM_MODEL`（服务上的模型 id，不带提供方前缀）三个必需，`NBOOK_LLM_API` 可选（OMP 的 Api 名，缺省 `openai-completions`）。先看进程环境，没有时只从仓库根 `.env` 读这四个键。测试把这个服务写成自己配置里 id 为 `smoke` 的提供方（`LLM_TEST_PROVIDER_ID`），不依赖内核读环境变量。凭据不落盘、不打印、不进用例名。开关打开却缺键时用例跳过并提示缺的键名，证据记为“未验证”，不写成通过。换服务只改 `.env`，测试代码不动（2026-10-11 起缺省服务不再是 DeepSeek）。
 - **断言**：断言结构化结果（状态、字段形状、工具调用、落盘内容），不断言措辞。
 - **何时运行**：真实模型调用会产生费用，运行前取得开发者授权（见 [`.omp/RULES.md`](../../.omp/RULES.md)）。改到模型相关代码的 Task 验收时，用 `bun run test:affected --tier llm`（加 `--files` 只跑受影响的文件）；CI 定期或手动运行，默认工作流不运行（没有外部凭据）。
 - **隔离**：测试使用独立的临时根；写入的配置只落在本次运行的隔离根内，结束时删除。
