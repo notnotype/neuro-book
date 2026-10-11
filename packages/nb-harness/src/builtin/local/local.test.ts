@@ -1,5 +1,5 @@
 import {afterAll, describe, expect, test} from "bun:test";
-import {mkdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
+import {mkdir, readFile, realpath, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {createLocalFileAccess} from "./local";
@@ -51,6 +51,10 @@ describe("本地文件访问（输出 1）", () => {
         expect(code(await access.readBytes("leak.txt"))).toBe("outside-root");
         expect(code(await access.locate("leak.txt"))).toBe("outside-root");
         expect(access.resolve("leak.txt").ok).toBe(true);
+        // locate 给真实路径：根内的链接解开成目标；不存在的目标接在真实的父目录后面
+        await symlink(join(root, "sub", "b.txt"), join(root, "inside.txt"));
+        expect(await access.locate("inside.txt")).toEqual({ok: true, value: await realpath(join(root, "sub", "b.txt"))});
+        expect(await access.locate("sub/new.txt")).toEqual({ok: true, value: join(await realpath(join(root, "sub")), "new.txt")});
         // 悬空链接：写入会跟着它落到根外，所以拒绝；根外不出现文件
         expect(code(await access.write("dangling.txt", "逃"))).toBe("outside-root");
         expect(code(await access.write("dangling.txt/x.txt", "逃"))).toBe("outside-root");

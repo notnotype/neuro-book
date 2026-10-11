@@ -92,11 +92,17 @@ export function readTool(input: {resources: ResourceAccess; stores: SnapshotStor
                     const image: ImageContent = {type: "image", mimeType, data: Buffer.from(bytes.value).toString("base64")};
                     return {ok: true, content: [image], details: {path: address, bytes: bytes.value.byteLength}};
                 }
-                if (bytes.value.includes(0)) return {ok: false, code: "binary", message: `二进制文件不受支持：${address}`};
-                text = new TextDecoder("utf-8").decode(bytes.value);
-                const resolved = provider.resolve(path);
-                if (!resolved.ok) return failed(resolved);
-                absolute = resolved.value;
+                // 含 NUL 或不是合法 UTF-8 的都当二进制：静默替换成 � 再登记快照，edit 会用替换后的内容覆盖原文件
+                if (bytes.value.includes(0)) return {ok: false, code: "binary", message: `二进制文件不受支持（含 NUL）：${address}`};
+                try {
+                    text = new TextDecoder("utf-8", {fatal: true}).decode(bytes.value);
+                } catch {
+                    return {ok: false, code: "binary", message: `二进制文件不受支持（不是合法 UTF-8）：${address}`};
+                }
+                // 快照按真实路径登记：edit 经 resolveUrl 交给引擎的也是真实路径，引擎按它查快照
+                const located = await provider.locate(path);
+                if (!located.ok) return failed(located);
+                absolute = located.value;
             } else {
                 const read = await provider.readText(path);
                 if (!read.ok) return failed(read);

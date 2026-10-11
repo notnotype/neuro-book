@@ -51,9 +51,14 @@ function stringList(value: unknown): string[] {
 
 export type Checked = Omit<Accepted, "apiKey">;
 type CheckOptions = {input?: UserInput; model?: string; signal?: AbortSignal; needsInput: boolean};
+type Session = {log: SessionLog; profileId: string; sessionMode?: ApprovalMode};
+type Chosen = Pick<Accepted, "config" | "profile" | "model" | "modelRef" | "via" | "role"> & {requested: string[]};
 
-/** 受理的检查部分，不取凭据：预览（输出 17）只走到这里，没配 key 也能看模型会收到什么。 */
-export async function check(deps: ResolvedDeps, session: {log: SessionLog; profileId: string; sessionMode?: ApprovalMode}, options: CheckOptions): Promise<RuntimeResult<Checked>> {
+/**
+ * 受理按输出 2 的顺序分三段：选模型（输入、Profile、配置、模型与能力）→ 凭据 → 收尾（可见工具、审批模式、压缩设置、signal）。
+ * 真跑三段都走；预览（输出 17）跳过凭据，其余顺序不变，所以同一个输入两边给同一个失败码。
+ */
+async function choose(deps: ResolvedDeps, session: Session, options: CheckOptions): Promise<RuntimeResult<Chosen>> {
     if (options.needsInput) {
         const problem = inputProblem(options.input);
         if (problem !== null) return {ok: false, code: "invalid-input", detail: problem};
@@ -68,13 +73,17 @@ export async function check(deps: ResolvedDeps, session: {log: SessionLog; profi
     const selected = deps.models.select({...(options.model ?? settings.model) === undefined ? {} : {model: (options.model ?? settings.model)!}, profile: selectionFromProfile(profile)});
     if (!selected.ok) return {ok: false, code: "model-unavailable", detail: `${selected.code}: ${selected.detail}`};
     const {model, via, role} = selected.value;
-
-    const visible = visibleTools({requested: stringList(profile.fields["harness/tools"]), sources: deps.tools});
-    if (!visible.ok) return {ok: false, code: "tool-conflict", detail: visible.detail};
-
-    const problems = deps.models.checkCapabilities(model, {...(visible.value.length > 0 ? {tools: true} : {}), ...(hasImage(options.input) ? {images: true} : {})});
+    // 能力按 Profile 要的工具判，不等可见工具算出来：工具来源的冲突排在凭据之后报
+    const requested = stringList(profile.fields["harness/tools"]);
+    const problems = deps.models.checkCapabilities(model, {...(requested.length > 0 ? {tools: true} : {}), ...(hasImage(options.input) ? {images: true} : {})});
     if (problems.length > 0) return {ok: false, code: "capability-missing", detail: problems.map((problem) => problem.detail).join("；")};
+    return {ok: true, value: {config, profile, model, modelRef: `${model.provider}/${model.id}`, via, ...(role === undefined ? {} : {role}), requested}};
+}
 
+function finish(deps: ResolvedDeps, session: Session, chosen: Chosen, options: CheckOptions): RuntimeResult<Checked> {
+    const {config, profile, requested, ...rest} = chosen;
+    const visible = visibleTools({requested, sources: deps.tools});
+    if (!visible.ok) return {ok: false, code: "tool-conflict", detail: visible.detail};
     const approvalField = profile.fields["harness/approval"];
     const approvalMode = resolveApprovalMode({
         ...(session.sessionMode === undefined ? {} : {session: session.sessionMode}),
@@ -82,20 +91,21 @@ export async function check(deps: ResolvedDeps, session: {log: SessionLog; profi
         ...(typeof approvalField === "string" ? {profile: approvalField as ApprovalMode} : {}),
         approvalRoleBound: config.roles.items.some((item) => item.id === "approval" && item.modelKey !== null),
     });
-    return {
-        ok: true,
-        value: {
-            config, profile, model, modelRef: `${model.provider}/${model.id}`, via, ...(role === undefined ? {} : {role}),
-            tools: visible.value, approvalMode, compaction: resolveCompactionSettings(profile.fields["harness/compaction"]),
-        },
-    };
+    if (options.signal?.aborted === true) return {ok: false, code: "invalid-state", detail: "开始前已中止"};
+    return {ok: true, value: {config, profile, ...rest, tools: visible.value, approvalMode, compaction: resolveCompactionSettings(profile.fields["harness/compaction"])}};
 }
 
-export async function accept(deps: ResolvedDeps, session: {log: SessionLog; profileId: string; sessionMode?: ApprovalMode}, options: CheckOptions): Promise<RuntimeResult<Accepted>> {
-    const checked = await check(deps, session, options);
-    if (!checked.ok) return checked;
-    const apiKey = await deps.credentials.apiKeyFor(checked.value.model);
-    if (apiKey === undefined) return {ok: false, code: "credentials-missing", detail: `没有 ${checked.value.model.provider} 的凭据`};
-    if (options.signal?.aborted === true) return {ok: false, code: "invalid-state", detail: "开始前已中止"};
-    return {ok: true, value: {...checked.value, apiKey}};
+/** 受理的检查部分，不取凭据：预览只走到这里，没配 key 也能看模型会收到什么。 */
+export async function check(deps: ResolvedDeps, session: Session, options: CheckOptions): Promise<RuntimeResult<Checked>> {
+    const chosen = await choose(deps, session, options);
+    return chosen.ok ? finish(deps, session, chosen.value, options) : chosen;
+}
+
+export async function accept(deps: ResolvedDeps, session: Session, options: CheckOptions): Promise<RuntimeResult<Accepted>> {
+    const chosen = await choose(deps, session, options);
+    if (!chosen.ok) return chosen;
+    const apiKey = await deps.credentials.apiKeyFor(chosen.value.model);
+    if (apiKey === undefined) return {ok: false, code: "credentials-missing", detail: `没有 ${chosen.value.model.provider} 的凭据`};
+    const checked = finish(deps, session, chosen.value, options);
+    return checked.ok ? {ok: true, value: {...checked.value, apiKey}} : checked;
 }

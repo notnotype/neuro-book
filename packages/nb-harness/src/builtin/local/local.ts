@@ -39,6 +39,7 @@ export function createLocalFileAccess(options: {root: string; readonly?: boolean
     /**
      * 真实路径再判一次：目标或它的某级父目录是指向根外的符号链接时拒绝；不存在的目标按最近存在的父目录判，
      * 但那一级若是目标不存在的符号链接（悬空链接）也拒绝——写入会跟着它落到根外，而我们证明不了它在根内。
+     * 返回的是真实路径（符号链接已解开）：edit 把它交给引擎去读，链接事后被换掉也不会把引擎引到别的文件。
      */
     const realInsideRoot = async (absolute: string): Promise<FilesResult<string>> => {
         let probe = absolute;
@@ -47,7 +48,8 @@ export function createLocalFileAccess(options: {root: string; readonly?: boolean
                 const real = await realpath(probe);
                 const rootReal = await realpath(root);
                 if (!insideRoot(rootReal, real)) return fail("outside-root", `路径经符号链接指向根外：${absolute}`);
-                return {ok: true, value: absolute};
+                // 不存在的那几级原样接在真实的父目录后面
+                return {ok: true, value: probe === absolute ? real : join(real, relative(probe, absolute))};
             } catch (error) {
                 if (errorCode(error) !== "ENOENT") return fail("io-failed", errorCode(error));
                 const dangling = await lstat(probe).then((info) => info.isSymbolicLink(), () => false);
@@ -143,15 +145,20 @@ export function createLocalFileAccess(options: {root: string; readonly?: boolean
     };
 }
 
+/** 会话 id 里保留 `[A-Za-z0-9-]`，其余每个字符编码成 `_<码点十六进制>_`：不同 id 不会落到同一目录，`.`、`..`、`/` 也进不了路径。 */
+export function encodeSessionDirectory(sessionId: string): string {
+    const encoded = Array.from(sessionId, (char) => (/^[A-Za-z0-9-]$/u.test(char) ? char : `_${char.codePointAt(0)!.toString(16)}_`)).join("");
+    return encoded === "" ? "_" : encoded;
+}
+
 /**
- * 按会话各一个目录的提供者工厂（`local://` 用）：`root/<会话 id>`，第一次打开时创建。会话 id 里不是 `[A-Za-z0-9_.-]` 的字符换成 `_`。
+ * 按会话各一个目录的提供者工厂（`local://` 用）：`root/<编码后的会话 id>`，第一次打开时创建。
  * 目录不随会话结束删除：里面是会话的工作文件，由使用方按自己的规则清理。
  */
 export function createSessionDirectories(options: {root: string}): (context: SchemeContext) => DirectoryProvider {
     if (!isAbsolute(options.root)) throw new TypeError(`根必须是绝对路径：${options.root}`);
     return (context) => {
-        const safe = context.sessionId.replace(/[^A-Za-z0-9_.-]/gu, "_");
-        const directory = join(options.root, safe === "" ? "session" : safe);
+        const directory = join(options.root, encodeSessionDirectory(context.sessionId));
         mkdirSync(directory, {recursive: true});
         return createLocalFileAccess({root: directory});
     };

@@ -3,6 +3,7 @@
  * 序号在会话内从 0 起递增；内存实现给测试与不落盘的宿主，JSONL 存储旁的目录实现在子入口 `session/jsonl`。
  */
 
+import {isValidSessionId} from "./entries";
 import type {Result} from "./types";
 
 export type ArtifactSummary = {id: string; toolName: string; bytes: number};
@@ -22,7 +23,9 @@ export function safeToolName(toolName: string): string {
 }
 
 const encoder = new TextEncoder();
+const invalidId = <T>(sessionId: string): Result<T> => ({ok: false, code: "invalid-session-id", detail: `会话 id 不合规则：${sessionId}`});
 
+/** 与 JSONL 实现同一套输入合同：会话 id 不合规则同样是 `invalid-session-id`，换存储不换行为。 */
 export function createMemoryArtifactStore(): ArtifactStore {
     const sessions = new Map<string, {toolName: string; text: string}[]>();
     const of = (sessionId: string): {toolName: string; text: string}[] => {
@@ -35,15 +38,18 @@ export function createMemoryArtifactStore(): ArtifactStore {
     };
     return {
         async save(sessionId, toolName, text) {
+            if (!isValidSessionId(sessionId)) return invalidId(sessionId);
             const list = of(sessionId);
             list.push({toolName: safeToolName(toolName), text});
             return {ok: true, value: {id: String(list.length - 1), bytes: encoder.encode(text).length}};
         },
         async read(sessionId, id) {
+            if (!isValidSessionId(sessionId)) return invalidId(sessionId);
             const item = /^\d+$/u.test(id) ? sessions.get(sessionId)?.[Number(id)] : undefined;
             return {ok: true, value: item === undefined ? null : item.text};
         },
         async list(sessionId) {
+            if (!isValidSessionId(sessionId)) return invalidId(sessionId);
             return {ok: true, value: (sessions.get(sessionId) ?? []).map((item, index) => ({id: String(index), toolName: item.toolName, bytes: encoder.encode(item.text).length}))};
         },
     };

@@ -9,6 +9,14 @@ import type {JsonValue, ToolResultBudget} from "./types";
 
 export const DEFAULT_TOOL_RESULT_BUDGET: ToolResultBudget = {spillBytes: 50 * 1024, headBytes: 20 * 1024, tailBytes: 20 * 1024, tailLines: 500};
 
+/** 四个字段都要是非负整数：负数会让 `slice` 从尾部数、把整行留下来，NaN 比什么都不大。运行时在装配时就按它拒绝。 */
+export function assertToolResultBudget(budget: ToolResultBudget): void {
+    for (const key of ["spillBytes", "headBytes", "tailBytes", "tailLines"] as const) {
+        const value = budget[key];
+        if (!Number.isInteger(value) || value < 0) throw new TypeError(`工具结果预算 ${key} 必须是非负整数：${String(value)}`);
+    }
+}
+
 const encoder = new TextEncoder();
 const byteLength = (text: string): number => encoder.encode(text).length;
 
@@ -32,14 +40,18 @@ function takeHead(lines: readonly string[], maxLines: number, maxBytes: number):
     return {lines: out, cut: false};
 }
 
-/** 截到 `maxBytes` 字节以内，不拆开一个字符（按码点退）。 */
+/** 截到 `maxBytes` 字节以内，不拆开一个字符：按码点走一遍累加 UTF-8 长度（孤立的代理项按 3 字节，与 TextEncoder 的替换一致）。 */
 export function cutBytes(text: string, maxBytes: number): string {
-    if (byteLength(text) <= maxBytes) return text;
-    let end = Math.min(text.length, maxBytes);
-    while (end > 0 && byteLength(text.slice(0, end)) > maxBytes) end -= 1;
-    // 不停在代理对中间
-    if (end > 0 && end < text.length && /[\uD800-\uDBFF]/u.test(text[end - 1]!) && /[\uDC00-\uDFFF]/u.test(text[end]!)) end -= 1;
-    return text.slice(0, end);
+    let bytes = 0;
+    let index = 0;
+    while (index < text.length) {
+        const point = text.codePointAt(index)!;
+        const size = point < 0x80 ? 1 : point < 0x800 ? 2 : point < 0x10000 ? 3 : 4;
+        if (bytes + size > maxBytes) break;
+        bytes += size;
+        index += point >= 0x10000 ? 2 : 1;
+    }
+    return text.slice(0, index);
 }
 
 export type Spilled = {content: string; totalBytes: number; totalLines: number; keptHeadLines: number; keptTailLines: number};
@@ -70,6 +82,7 @@ export type SpillHooks = {save(toolName: string, text: string): Promise<string |
  * `details.truncated` 记原始大小与 artifact 序号，界面与模型都能据此回读。
  */
 export async function spillToolResult(result: AgentToolResult, toolName: string, budget: ToolResultBudget, artifacts: SpillHooks | undefined): Promise<AgentToolResult> {
+    assertToolResultBudget(budget);
     const texts = result.content.filter((block): block is TextContent => block.type === "text").map((block) => block.text);
     if (texts.length === 0) return result;
     const full = texts.join("\n");

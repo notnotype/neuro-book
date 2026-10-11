@@ -1,11 +1,12 @@
 import {afterEach, describe, expect, test} from "bun:test";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
-import {createMemorySessionStore} from "../session/session";
+import {Tokenizer} from "@oh-my-pi/pi-agent-core";
+import {buildModelContext, createMemorySessionStore} from "../session/session";
 import {withFailingAppend} from "../session/testing/store-scenarios";
 import {createStaticToolSource} from "../tools/tools";
 import type {AgentSession, RuntimeEvent} from "./runtime";
 import Type from "typebox";
-import {Appending, defineProfile, History, Input, nodeComponent, Prompt, System} from "../profile/profile";
+import {Appending, defineProfile, History, Input, nodeComponent, Prompt, System, User} from "../profile/profile";
 import {createConfigStore} from "../config/config";
 import {openCredentials} from "../models/models";
 import {createProfileCatalog, createProfileHost} from "../profile/profile";
@@ -91,6 +92,13 @@ describe("一次完整调用（输出 2–5、9）", () => {
         harnesses.push(conflict);
         const conflictSession = await conflict.runtime.createSession({profileId: "writer"});
         expect(conflictSession.ok && (await conflictSession.value.prompt({content: "x"}))).toMatchObject({ok: false, code: "tool-conflict"});
+
+        // 同时没有凭据又有工具来源冲突：按输出 2 的顺序先报凭据；预览不取凭据，报的是冲突
+        const both = await createHarness({withKey: false, sources: [createStaticToolSource([echoTool()]), createStaticToolSource([echoTool()])]});
+        harnesses.push(both);
+        const bothSession = await both.runtime.createSession({profileId: "writer"});
+        expect(bothSession.ok && (await bothSession.value.prompt({content: "x"}))).toMatchObject({ok: false, code: "credentials-missing"});
+        expect(bothSession.ok && (await bothSession.value.preview({content: "x"}))).toMatchObject({ok: false, code: "tool-conflict"});
 
         const noTools = await createHarness({supportsTools: false});
         harnesses.push(noTools);
@@ -261,6 +269,27 @@ describe("Profile 的数据源与中止（输出 4、8、9）", () => {
         // prepare 取一次（版本 1），之后每次模型调用前刷新一次：三次请求看到 2、3、4
         expect(harness.contexts.map((context) => context.systemPrompt?.[0])).toEqual(["天气数据版本2", "天气数据版本3", "天气数据版本4"]);
 
+        // 预览与真跑同一阶段：种子按 prepare 的结果，系统提示词按刷新后的
+        const seeded = await createHarness({profiles: [defineProfile({
+            id: "writer", name: "写作助手", description: "种子里也有天气", version: 1, fields: {"harness/tools": ["echo"]},
+            prompt: () => <Prompt><System>天气<Weather /></System><History><User>开场<Weather /></User></History><Appending><Input /></Appending></Prompt>,
+        })], script: [{text: "完"}]});
+        harnesses.push(seeded);
+        let seedVersion = 0;
+        registerWeather(seeded, async () => `版本${(seedVersion += 1)}`);
+        const seedSession = await seeded.runtime.createSession({profileId: "writer"});
+        if (!seedSession.ok) throw new Error(seedSession.code);
+        const preview = await seedSession.value.preview({content: "今天"});
+        if (!preview.ok) throw new Error(preview.detail);
+        expect(preview.value.seeds.map((message) => message.content)).toEqual(["开场版本1"]);
+        expect(preview.value.system).toEqual(["天气版本2"]);
+        const ran = await seedSession.value.prompt({content: "今天"});
+        if (!ran.ok) throw new Error(ran.code);
+        await ran.value.done;
+        const seedEntry = seedSession.value.log.entries.find((entry) => entry.type === "custom_message" && entry.customType === "harness/seed");
+        expect(seedEntry?.type === "custom_message" ? seedEntry.content : null).toBe("开场版本3");
+        expect(seeded.contexts[0]?.systemPrompt?.[0]).toBe("天气版本4");
+
         let calls = 0;
         const failing = await createHarness({profiles: [weatherProfile()], script: [{calls: [{id: "c1", name: "echo", args: {text: "a"}}]}, {text: "不该到"}]});
         harnesses.push(failing);
@@ -378,16 +407,25 @@ describe("缺省依赖、目录跟配置与上下文用量（输入、输出 5�
     });
 
     test("输出 5：模型报错、还没有可用的用量时 status.context 是估算值；没有新条目时连续读 status 得到同一份 pending 与 context", async () => {
-        const {session} = await open({script: [{error: "boom"}]});
+        const {harness, session} = await open({script: [{error: "boom"}]});
         const started = await session.prompt({content: "你好"});
         if (!started.ok) throw new Error(`${started.code}: ${started.detail}`);
         expect((await started.value.done).status).toBe("failed");
         const context = session.status.context;
         expect(context).toMatchObject({source: "estimated", window: 100_000, threshold: 80_000});
+        // 估算值就是 OMP Tokenizer 对回放上下文的计数（bun test 下 NODE_ENV=test，Tokenizer 走字节除 4；已知分词器家族的原生计数由 OMP 自己的测试覆盖）
+        const model = harness.deps.models.resolve("test/m");
+        if (!model.ok) throw new Error(model.detail);
+        expect(context!.tokens).toBe(new Tokenizer(model.value).countMessages(buildModelContext(session.log.entries)));
         expect(context!.tokens).toBeGreaterThan(0);
-        // 缓存按条目数组：日志没变就是同一份对象，不重新回放
+        // 缓存按条目数组：日志没变就是同一份对象，不重新回放；是冻结的，调用方改不了
         expect(session.status.pending).toBe(session.status.pending);
         expect(session.status.context).toBe(context!);
+        expect(() => (session.status.pending as unknown[]).push({})).toThrow(TypeError);
+        expect(() => {
+            (session.status.context as {tokens: number}).tokens = 0;
+        }).toThrow(TypeError);
+        expect(session.status.context!.tokens).toBeGreaterThan(0);
         const again = await session.prompt({content: "再来"});
         if (!again.ok) throw new Error(`${again.code}: ${again.detail}`);
         await again.value.done;
@@ -411,6 +449,8 @@ describe("工具结果的预算（输入 artifacts、limits.toolResult；输出 
         const tight = await createHarness({script: [{calls: [{id: "c1", name: "echo", args: {text: "短短"}}]}, {text: "好"}]});
         harnesses.push(tight);
         tight.deps.limits = {toolResult: {spillBytes: 4}};
+        // 预算不是非负整数：装配时就拒绝
+        expect(() => createRuntime({...tight.deps, limits: {toolResult: {headBytes: -1}}})).toThrow(TypeError);
         const created = await tight.runtime.createSession({profileId: "writer"});
         if (!created.ok) throw new Error(created.code);
         const run = await created.value.prompt({content: "回显"});
@@ -434,6 +474,9 @@ describe("预览（输出 17）", () => {
         expect(preview.value.tools).toEqual(["echo", "note", "shell"]);
         expect(preview.value.system.join("\n")).toContain("你是写作助手");
         expect(preview.value.seeds.map((message) => message.role)).toEqual(["user", "developer"]);
+        // 种子是回放后的形状（attribution: agent），History 的 last 数起来与真跑一致
+        expect(preview.value.seeds.map((message) => (message as {attribution?: string}).attribution)).toEqual(["agent", "agent"]);
+        expect((await session.preview({content: "x"}, {signal: AbortSignal.abort()})).ok ? null : "invalid-state").toBe("invalid-state");
         expect(preview.value.appended[0]).toMatchObject({role: "user"});
         expect(JSON.stringify(preview.value.appended[0])).toContain("开始写");
         // 请求消息：种子在前，本次输入与提醒在后
@@ -450,6 +493,9 @@ describe("预览（输出 17）", () => {
         const started = await session.prompt({content: "开始写"});
         if (!started.ok) throw new Error(`${started.code}: ${started.detail}`);
         expect((await started.value.done).status).toBe("completed");
+        // 真跑第一次请求的消息与预览的 request 同形（时间戳除外）
+        const shape = (message: unknown): unknown => (({timestamp: _timestamp, ...rest}) => rest)(message as {timestamp?: number});
+        expect(harness.contexts[0]!.messages.map(shape)).toEqual(preview.value.request.map(shape));
         const again = await session.preview({content: "继续"});
         if (!again.ok) throw new Error(`${again.code}: ${again.detail}`);
         expect(again.value.seeds).toEqual([]);
@@ -463,5 +509,19 @@ describe("预览（输出 17）", () => {
         const rejected = await typo.session.preview({content: "x"});
         expect(rejected.ok ? null : rejected.code).toBe("invalid-profile");
         expect(rejected.ok ? "" : rejected.detail).toContain("unknown-field");
+
+        // 渲染诊断只收一次：系统提示词里的未知节点在 diagnostics 里只出现一条
+        const Stranger = nodeComponent("test/stranger");
+        const strange = await createHarness({profiles: [defineProfile({
+            id: "writer", name: "写作助手", description: "带未知节点", version: 1, fields: {"harness/tools": ["echo"]},
+            prompt: () => <Prompt><System>你好<Stranger /></System><History /><Appending><Input /></Appending></Prompt>,
+        })], script: [{text: "完"}]});
+        harnesses.push(strange);
+        const registered = strange.deps.host.registerNodeType({id: "test/stranger", category: "content", props: Type.Object({}), parents: ["*message", "harness/system"], children: "none", render: () => nodeComponent("test/unregistered")({})});
+        if (!registered.ok) throw new Error(registered.detail);
+        const strangeSession = await strange.runtime.createSession({profileId: "writer"});
+        if (!strangeSession.ok) throw new Error(strangeSession.code);
+        const diagnosed = await strangeSession.value.preview({content: "x"});
+        expect(diagnosed.ok && diagnosed.value.diagnostics.map((item) => item.code)).toEqual(["unknown-node"]);
     });
 });

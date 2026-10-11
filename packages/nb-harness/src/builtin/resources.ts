@@ -5,7 +5,9 @@ import type {ResourceAccess, ResourceProvider, SchemeContext, SchemeDefinition} 
 const SCHEME = /^[a-z][a-z0-9+.-]*$/u;
 
 export function createResourceAccess(definitions: Readonly<Record<string, SchemeDefinition>>): ResourceAccess {
+    // 自己的键才算登记：按 `definitions[scheme]` 取会把 constructor、toString 这些继承属性当成方案
     const entries = Object.entries(definitions);
+    const table = new Map(entries);
     for (const [scheme, definition] of entries) {
         if (!SCHEME.test(scheme)) throw new TypeError(`方案名不合规则（[a-z][a-z0-9+.-]*）：${scheme}`);
         if (definition.doc.trim() === "") throw new TypeError(`方案 ${scheme} 没有说明`);
@@ -15,7 +17,7 @@ export function createResourceAccess(definitions: Readonly<Record<string, Scheme
     return {
         schemes: () => entries.map(([scheme, definition]) => ({scheme, doc: definition.doc})),
         open(scheme: string, context: SchemeContext) {
-            const definition = definitions[scheme];
+            const definition = table.get(scheme);
             if (definition === undefined) return undefined;
             if (typeof definition.provider !== "function") return definition.provider;
             let perSession = built.get(scheme);

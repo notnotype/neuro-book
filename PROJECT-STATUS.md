@@ -10,7 +10,7 @@
 |---|---|
 | `packages/neuro-book` | 新应用，当前只有包描述与目录约定；先建运行时底座与 workbench 底座，Files 竖切在这个壳子上验证 |
 | `packages/nb-runtime` | 内核，自旧应用 `runtime/` 迁出（[t45](.agents/works/w00017-application-runtime-architecture/tasks/t45-nb-runtime-package/README.md)）；零运行时依赖，前后端宿主共用 |
-| `packages/nb-harness` | Agent harness（[w00002](.agents/works/w00002-neuro-agent-harness-redesign/README.md)，分支 `feat/w00002-harness-kernel`）：session、profile、config、models、tools、compaction、runtime 与内置 read/edit 七个模块已实现，Spec 在 `docs/specs/harness/`（`implemented`，2026-10-11 晋升）；使用文档 `packages/nb-harness/README.md` 与 `examples/`（装配、Profile、场景测试、命令行）；第二轮优化进行中（t17 预览与 `status` 缓存、t18 资源地址与 artifact 溢出）；旧原型与 `nb-session`、`nb-profile` 已删除；将作为内置 Agent 插件的基础 |
+| `packages/nb-harness` | Agent harness（[w00002](.agents/works/w00002-neuro-agent-harness-redesign/README.md)，分支 `feat/w00002-harness-kernel`）：session、profile、config、models、tools、compaction、runtime 与内置 read/edit 七个模块已实现，Spec 在 `docs/specs/harness/`（`implemented`，2026-10-11 晋升）；使用文档 `packages/nb-harness/README.md` 与 `examples/`（装配、Profile、场景测试、命令行）；第二轮优化已完成（t17 预览、`status` 缓存与用量估算；t18 OMP 18.4.6、资源地址 `方案://路径`、工具结果溢出到 artifact），两轮 omp 审查的发现已处理；旧原型与 `nb-session`、`nb-profile` 已删除；将作为内置 Agent 插件的基础 |
 | `packages/neuro-book-legacy` | 旧应用（Nuxt），只作代码与行为参照；含 w00017 阶段 1 的内核、三类宿主与内置插件实现（内核已复制到 `nb-runtime`，旧副本不再维护） |
 | `docs/archived/` | 旧应用时期的 Spec、代码规范、人工评测与用户文档站 |
 | 交付链 | Manager、桌面版、打包、发布、安装与部署脚本已在本分支删除；新应用的交付另行设计 |

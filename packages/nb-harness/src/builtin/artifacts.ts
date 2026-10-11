@@ -13,8 +13,6 @@ export interface ArtifactReader {
     list(sessionId: string): Promise<ReaderResult<{id: string; toolName: string; bytes: number}[]>>;
 }
 
-const encoder = new TextEncoder();
-
 export function createArtifactProvider(reader: ArtifactReader): (context: SchemeContext) => VirtualProvider {
     return ({sessionId}) => {
         const failed = <T>(result: {code: string; detail: string}): FilesResult<T> => ({ok: false, code: "io-failed", detail: `${result.code}：${result.detail}`});
@@ -29,8 +27,11 @@ export function createArtifactProvider(reader: ArtifactReader): (context: Scheme
             async stat(path) {
                 if (path === ".") return {ok: true, value: {kind: "directory", bytes: 0}};
                 if (path.includes("/")) return {ok: false, code: "not-found", detail: `artifact:// 下只有序号，没有子目录：${path}`};
-                const loaded = await load(path);
-                return loaded.ok ? {ok: true, value: {kind: "file", bytes: encoder.encode(loaded.value).length}} : loaded;
+                // 大小来自列表的元数据，不读全文：全文只在 readText 读一次
+                const listed = await reader.list(sessionId);
+                if (!listed.ok) return failed(listed);
+                const item = listed.value.find((candidate) => candidate.id === path);
+                return item === undefined ? {ok: false, code: "not-found", detail: `没有 artifact://${path}`} : {ok: true, value: {kind: "file", bytes: item.bytes}};
             },
             async readText(path) {
                 if (path === "." || path.includes("/")) return {ok: false, code: "not-a-file", detail: `artifact://${path === "." ? "" : path} 不是一份结果`};

@@ -31,6 +31,7 @@ describe("read（输出 2–5、8）", () => {
         const root = await newRoot();
         await writeFile(join(root, "a.txt"), "alpha\nbeta\ngamma\n", "utf8");
         await writeFile(join(root, "bin.dat"), Buffer.from([1, 0, 2]));
+        await writeFile(join(root, "bad.txt"), Buffer.from([0xff, 0x61]));
         await writeFile(join(root, "pic.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
         await mkdir(join(root, "sub"));
         await writeFile(join(root, "sub", "z.txt"), "z", "utf8");
@@ -57,14 +58,16 @@ describe("read（输出 2–5、8）", () => {
         const bytes = await readTool({resources, stores, maxBytes: 12}).execute({path: "project://long.txt"}, context());
         expect(bytes.ok && bytes.details).toMatchObject({truncated: true, reason: "bytes", lines: 1});
 
-        expect(textOf(await read.execute({path: "project://bin.dat"}, context()))).toBe("binary: 二进制文件不受支持：project://bin.dat");
+        expect(textOf(await read.execute({path: "project://bin.dat"}, context()))).toBe("binary: 二进制文件不受支持（含 NUL）：project://bin.dat");
+        // 不是合法 UTF-8 的也当二进制：不能把 � 替换过的内容登记成可编辑的快照
+        expect(textOf(await read.execute({path: "project://bad.txt"}, context()))).toBe("binary: 二进制文件不受支持（不是合法 UTF-8）：project://bad.txt");
         expect(textOf(await read.execute({path: "project://nope.txt"}, context()))).toBe("not-found: 不存在：nope.txt");
         expect(textOf(await read.execute({path: "project://../x"}, context()))).toContain("invalid-address");
         expect(textOf(await read.execute({path: "a.txt"}, context()))).toContain("invalid-address");
         expect(textOf(await read.execute({path: "nowhere://a.txt"}, context()))).toContain("unknown-scheme");
         const dir = await read.execute({path: "project://"}, context());
-        expect(textOf(dir).split("\n")).toEqual(["- a.txt", "- bin.dat", "- long.txt", "- pic.png", "- sub/"]);
-        expect(dir.ok && dir.details).toEqual({path: "project://", kind: "directory", entries: 5});
+        expect(textOf(dir).split("\n")).toEqual(["- a.txt", "- bad.txt", "- bin.dat", "- long.txt", "- pic.png", "- sub/"]);
+        expect(dir.ok && dir.details).toEqual({path: "project://", kind: "directory", entries: 6});
         const pic = await read.execute({path: "project://pic.png"}, context());
         expect(pic.ok && pic.content).toEqual([{type: "image", mimeType: "image/png", data: Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString("base64")}]);
         expect(pic.ok && pic.details).toEqual({path: "project://pic.png", bytes: 4});

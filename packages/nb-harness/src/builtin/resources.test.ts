@@ -3,7 +3,7 @@ import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {createArtifactProvider, createResourceAccess, createSnapshotStores, editTool, formatAddress, parseAddress, readTool} from "./builtin";
-import {createLocalFileAccess, createSessionDirectories} from "./local/local";
+import {createLocalFileAccess, createSessionDirectories, encodeSessionDirectory} from "./local/local";
 import {context, textOf} from "./read.test";
 
 const roots: string[] = [];
@@ -29,18 +29,24 @@ describe("资源地址（输入与前置条件）", () => {
         expect(formatAddress({scheme: "project", path: "a/b"})).toBe("project://a/b");
     });
 
-    test("登记：方案名不合规则或没有说明时抛 TypeError；未登记的方案 open 为 undefined；工厂按会话各建一份并复用", async () => {
+    test("登记：方案名不合规则或没有说明时抛 TypeError；未登记的方案（含对象继承来的名字）open 为 undefined；工厂按会话各建一份并复用；会话目录名是无碰撞编码", async () => {
         const root = await base("resources-factory");
         expect(() => createResourceAccess({"Bad": {provider: createLocalFileAccess({root}), doc: "x"}})).toThrow(TypeError);
         expect(() => createResourceAccess({local: {provider: createLocalFileAccess({root}), doc: " "}})).toThrow(TypeError);
         const resources = createResourceAccess({local: {provider: createSessionDirectories({root: join(root, "local")}), doc: "本会话的工作目录"}});
         expect(resources.schemes()).toEqual([{scheme: "local", doc: "本会话的工作目录"}]);
         expect(resources.open("nowhere", {sessionId: "s1"})).toBeUndefined();
+        for (const inherited of ["constructor", "hasOwnProperty", "__proto__"]) expect(resources.open(inherited, {sessionId: "s1"})).toBeUndefined();
         const s1 = resources.open("local", {sessionId: "s1"});
         const s2 = resources.open("local", {sessionId: "s2/../x"});
-        if (s1?.kind !== "directory" || s2?.kind !== "directory") throw new Error("应是目录型提供者");
+        const dots = resources.open("local", {sessionId: ".."});
+        if (s1?.kind !== "directory" || s2?.kind !== "directory" || dots?.kind !== "directory") throw new Error("应是目录型提供者");
         expect(s1.root).toBe(join(root, "local", "s1"));
-        expect(s2.root).toBe(join(root, "local", "s2_.._x"));
+        expect(s2.root).toBe(join(root, "local", "s2_2f__2e__2e__2f_x"));
+        expect(dots.root).toBe(join(root, "local", "_2e__2e_"));
+        expect(encodeSessionDirectory("a_b")).toBe("a_5f_b");
+        expect(encodeSessionDirectory("a/b")).toBe("a_2f_b");
+        expect(encodeSessionDirectory("")).toBe("_");
         expect(resources.open("local", {sessionId: "s1"})).toBe(s1);
         expect(await s1.write("n.md", "x")).toEqual({ok: true, value: undefined});
         expect(await readFile(join(root, "local", "s1", "n.md"), "utf8")).toBe("x");
@@ -49,6 +55,35 @@ describe("资源地址（输入与前置条件）", () => {
 });
 
 describe("方案与提供者（输出 9）", () => {
+    test("根互相嵌套时按最长的根反查：内层文件经内层方案落盘，details.files 的地址也是内层的", async () => {
+        const root = await base("resources-nested");
+        const outer = join(root, "outer");
+        const inner = join(outer, "inner");
+        await mkdir(inner, {recursive: true});
+        await writeFile(join(outer, "a.txt"), "one\n", "utf8");
+        await writeFile(join(inner, "b.txt"), "two\n", "utf8");
+        const innerAccess = createLocalFileAccess({root: inner});
+        const innerWrites: string[] = [];
+        const resources = createResourceAccess({
+            project: {provider: createLocalFileAccess({root: outer}), doc: "外层"},
+            // 真实提供者外面包一层记录：看写入走的是哪个方案
+            inner: {provider: {...innerAccess, write: async (path, content) => {
+                innerWrites.push(path);
+                return innerAccess.write(path, content);
+            }}, doc: "内层"},
+        });
+        const stores = createSnapshotStores();
+        const read = readTool({resources, stores});
+        const edit = editTool({resources, stores});
+        const h1 = textOf(await read.execute({path: "project://a.txt"}, context())).split("\n")[0]!;
+        const h2 = textOf(await read.execute({path: "inner://b.txt"}, context())).split("\n")[0]!;
+        const result = await edit.execute({input: `${h1}\nPUT 1.=1:\n+ONE\n${h2}\nPUT 1.=1:\n+TWO\n`}, context());
+        expect(result.ok && result.details).toEqual({files: [{path: "project://a.txt", op: "update", warnings: []}, {path: "inner://b.txt", op: "update", warnings: []}]});
+        expect(innerWrites).toEqual(["b.txt"]);
+        expect(await readFile(join(outer, "a.txt"), "utf8")).toBe("ONE\n");
+        expect(await readFile(join(inner, "b.txt"), "utf8")).toBe("TWO\n");
+    });
+
     test("一次 edit 可以跨方案改两个文件；只读方案与虚拟方案的资源能 read、不能 edit；虚拟方案的 read 没有标签头", async () => {
         const root = await base("resources-schemes");
         const project = join(root, "project");

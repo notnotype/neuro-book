@@ -10,7 +10,7 @@ import type {AgentToolResult} from "@oh-my-pi/pi-agent-core";
 import {validateJsonSchemaValue} from "@oh-my-pi/pi-ai";
 import type {TSchema} from "typebox";
 import {DEFAULT_TOOL_RESULT_BUDGET, spillToolResult} from "./spill";
-import type {AdapterHooks, AgentTool, ApprovalOutcome, JsonValue, ToolCall, ToolContext, ToolDescriptor, ToolOutcome} from "./types";
+import type {AdapterHooks, AgentTool, ApprovalOutcome, JsonValue, ToolCall, ToolContext, ToolDescriptor, ToolOutcome, ToolResultBudget} from "./types";
 
 const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -29,12 +29,18 @@ function argumentProblems(schema: TSchema, value: unknown): string | null {
 
 const failure = (code: string, message: string, details?: JsonValue): ToolOutcome => ({ok: false, code, message, ...(details === undefined ? {} : {details})});
 
-/** 信号中止（或已经中止）时结算为 aborted；钩子先返回时这个 Promise 永远挂着，没有别的引用，随之回收。 */
-const abortedOn = (signal: AbortSignal): Promise<ApprovalOutcome> =>
-    new Promise((resolve) => {
+/**
+ * 审批等待与中止信号赛跑：信号中止（或已经中止）时结算为 aborted。赛跑结束后要调 `release` 摘掉监听器：
+ * 一次调用里的工具共用同一个信号，不摘的话每次审批都在上面留一个监听器，到中止时一起醒来。
+ */
+function abortedOn(signal: AbortSignal): {aborted: Promise<ApprovalOutcome>; release(): void} {
+    const stop = new AbortController();
+    const aborted = new Promise<ApprovalOutcome>((resolve) => {
         if (signal.aborted) resolve({aborted: true});
-        else signal.addEventListener("abort", () => resolve({aborted: true}), {once: true});
+        else signal.addEventListener("abort", () => resolve({aborted: true}), {once: true, signal: stop.signal});
     });
+    return {aborted, release: () => stop.abort()};
+}
 
 /** 输出 9：内核的结果到 OMP 的结果。 */
 export function toAgentToolResult(outcome: ToolOutcome): AgentToolResult {
@@ -43,6 +49,14 @@ export function toAgentToolResult(outcome: ToolOutcome): AgentToolResult {
         return {content, ...(outcome.details === undefined ? {} : {details: outcome.details})};
     }
     return {content: [{type: "text", text: `${outcome.code}: ${outcome.message}`}], isError: true, ...(outcome.details === undefined ? {} : {details: outcome.details})};
+}
+
+/** 错误结果的预算只管 `message`：`<code>: ` 前缀是调用方唯一稳定的信号，预算再小也不省略。 */
+async function spilled(outcome: ToolOutcome, toolName: string, budget: ToolResultBudget, artifacts: AdapterHooks["artifacts"]): Promise<AgentToolResult> {
+    const result = toAgentToolResult(outcome);
+    if (outcome.ok) return spillToolResult(result, toolName, budget, artifacts);
+    const body = await spillToolResult({...result, content: [{type: "text", text: outcome.message}]}, toolName, budget, artifacts);
+    return {...body, content: body.content.map((block) => (block.type === "text" ? {...block, text: `${outcome.code}: ${block.text}`} : block))};
 }
 
 async function run(descriptor: ToolDescriptor, hooks: AdapterHooks, call: ToolCall, signal: AbortSignal, onProgress: (progress: JsonValue) => void): Promise<ToolOutcome> {
@@ -70,7 +84,12 @@ async function run(descriptor: ToolDescriptor, hooks: AdapterHooks, call: ToolCa
     if (signal.aborted) return failure("aborted", "调用已中止");
     let approval: ApprovalOutcome;
     try {
-        approval = await Promise.race([hooks.approve({...call, args, definition, signal}), abortedOn(signal)]);
+        const waiting = abortedOn(signal);
+        try {
+            approval = await Promise.race([hooks.approve({...call, args, definition, signal}), waiting.aborted]);
+        } finally {
+            waiting.release();
+        }
     } catch (error) {
         return failure("denied", `审批出错：${describe(error)}`);
     }
@@ -115,7 +134,11 @@ export function toAgentTool(descriptor: ToolDescriptor, hooks: AdapterHooks): Ag
                 outcome = failure("execution-failed", `适配层出错：${describe(error)}`);
             }
             // 结果进 OMP 之前按预算截断：日志里的工具结果就是模型看到的（回放等于上下文），全文在溢出存储
-            return spillToolResult(toAgentToolResult(outcome), descriptor.id, hooks.budget ?? DEFAULT_TOOL_RESULT_BUDGET, hooks.artifacts);
+            try {
+                return await spilled(outcome, descriptor.id, hooks.budget ?? DEFAULT_TOOL_RESULT_BUDGET, hooks.artifacts);
+            } catch (error) {
+                return toAgentToolResult(failure("execution-failed", `适配层出错：${describe(error)}`));
+            }
         },
     };
 }

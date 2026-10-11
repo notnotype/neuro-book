@@ -1,0 +1,129 @@
+# w00002 t18 `nb-harness` 只读实现审查（omp）
+
+审查范围：`dcd71750..649feb61`。
+
+### 1. edit 的路径预检与原生引擎读盘之间存在根外泄露窗口
+- **严重程度**：重要；**类别**：安全
+- **位置**：`packages/nb-harness/src/builtin/edit.ts:61-73, 93-140`；`packages/nb-harness/src/builtin/local/local.ts:43-64`
+- **现象**：`resolveTarget` 先 `locate`，`resolveUrl` 又 `locate`，但回调返回的只是可被 OMP 原生引擎稍后按路径重新打开的字符串。符号链接可在第二次检查返回后、引擎 `openFile` 前换到根外；随后 writer 虽会再检查并拒绝写入，读盘和拒绝文本已经发生在根外。
+- **为什么是问题**：Spec 要求根外路径在交给引擎前拒绝，且根外文件内容不能出现在错误消息。真实运行时实验在第二次 `locate` 返回后把 `project://link.txt` 换到根外，结果为 `edit-rejected`，但返回文本包含 `SECRET-OUTSIDE` 以及根外文件的绝对路径；`details.written` 为空，磁盘未写入。这不是只读内部函数的实验，使用了真实 `readTool`、真实 OMP `EditSession` 与真实文件系统。
+- **如何核实**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t18/lab/edit-symlink-race.ts`；输出中的 `message` 含 `SECRET-OUTSIDE`，`locateCount` 为 `2`，`outside` 保持原文。
+- **建议改法**：不能用重复路径字符串检查解决 TOCTOU。把引擎的读取改成宿主可控制的、持有期间不可换目标的句柄/受根沙箱接口，或在能证明原子性与文件身份的宿主边界内执行；至少不能把未经锁定的可变符号链接路径交给原生引擎。写入前后复核也只能收口写入，不能消除已经发生的根外读取和错误回显。
+
+### 2. 嵌套方案根会把内层文件路由给外层提供者
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/builtin/edit.ts:93-103, 104-133`
+- **现象**：`ownerOf` 按 `targets` 的插入顺序返回第一个满足 `root + "/"` 前缀的提供者，没有选择最长根或检测重叠根。外层 `project` 根包含内层 `local` 根时，内层绝对路径同时匹配两者，写入、删除和 `details.files.path` 都可能使用外层方案。
+- **为什么是问题**：方案隔离和“按本次打开过的提供者落盘”不成立；提供者策略也会被绕过或误用。真实 OMP 编辑实验登记 `project` 根与其子目录 `local` 根，并让外层提供者拒绝 `local/local.txt` 的写入：编辑同时打开一个外层文件和一个内层文件后返回 `io-failed: local://local.txt：outer provider selected`，`project://outer.txt` 已写入而内层文件保持 `local`，说明多文件失败部分提交且内层目标走错了提供者。
+- **如何核实**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t18/lab/edit-nested-owner.ts`；输出的 `details.written` 只有 `project://outer.txt`，`local` 文件仍为 `local`。
+- **建议改法**：登记或预检时拒绝互相嵌套的目录根，或让所有拥有者选择按路径段边界匹配的最长根；对同一绝对路径的多方案映射明确拒绝。`addressOf` 与 writer 必须共用同一唯一拥有者结果。
+
+### 3. createSessionDirectories 的清洗既允许 `..` 越出根又造成会话碰撞
+- **严重程度**：重要；**类别**：安全
+- **位置**：`packages/nb-harness/src/builtin/local/local.ts:150-156`
+- **现象**：实现只把非 `[A-Za-z0-9_.-]` 字符替换成 `_`，所以 session id `..` 生成 `join(root, "..")`，落到配置根的父目录；`a/b` 与 `a_b` 都生成同一个目录。会话规范的字符正则本身允许 `.` 与 `..`，因此这不是只能由类型系统排除的输入。
+- **为什么是问题**：按会话隔离的 `local://` 变成根外访问或跨会话共享；两个不同 id 可以读写同一份文件。`..` 还会让工作文件落在调用方给定根之外，违反根约束。
+- **如何核实**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t18/lab/resources-boundaries.ts`；输出中 `dotdot` 等于实验根而不是 `<实验根>/sessions/..`，且 `slash` 与 `underscore` 相同。
+- **建议改法**：沿用会话 id 的集中校验并显式拒绝 `.`、`..`；不要用有损替换作为身份编码。若工厂确实要接受任意字符串，用无碰撞的编码或哈希加长度/碰撞处理，并在生成后再次验证结果仍是 `root` 的直接子目录。
+
+### 4. JSONL artifact 序号分配不是跨实例安全的，两个写者可得到同一序号
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`packages/nb-harness/src/session/jsonl/artifacts.ts:27-66`
+- **现象**：`nextIds` 只在每个 `createJsonlArtifactStore` 实例内缓存；两个实例并发首次 `save` 会同时扫描空目录、都选择 `0`。目标文件用 `rename` 写入，既没有锁也没有“不存在才改名”的检查；同一工具名时还会直接覆盖。
+- **为什么是问题**：Spec 要求序号按会话从 0 递增且 `list` 能按序号读回；实际两个调用都成功返回 `{id: "0"}`，目录出现 `0.first.log` 与 `0.second.log`，同一个 `artifact://0` 只会按目录顺序命中其中一份，另一份丢失。跨进程或恢复期间的溢出会破坏回读与日志引用。
+- **如何核实**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t18/lab/artifact-race.ts`；输出的两个 `save` 都返回 id `0`。
+- **建议改法**：把编号分配纳入持久化锁/原子计数器，或使用排他创建序号文件并在 `EEXIST` 后重新扫描重试；临时文件改名时也要保证目标不存在，不能依赖会覆盖目标的 `rename`。
+
+### 5. limits.toolResult 的负数预算未校验，会让单行结果绕过头部上限
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/runtime/session.ts:688-690`；`packages/nb-harness/src/tools/spill.ts:15-42`
+- **现象**：运行时把 `Partial<ToolResultBudget>` 直接展开到缺省值，没有检查有限数、整数或非负值。`cutBytes` 对负 `maxBytes` 令 `end` 为负数，随后 `slice(0, end)` 反而返回几乎整行；`tailLines` 等负值也没有明确定义。
+- **为什么是问题**：调用方配置 `headBytes: -1` 后，超预算的一行 100 字节结果仍保留 99 字节；更大的工具单行输出可以直接重新进入模型上下文，破坏“按预算截断”的核心不变量，并可能造成内存/上下文资源消耗。
+- **如何核实**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t18/lab/spill-boundaries.ts`；`negative-head` 的 `headBytes` 为 `-1`，输出仍有 99 个 `x`。
+- **建议改法**：在 runtime 接线处或 `spillToolResult` 的公开边界校验 `spillBytes`、`headBytes`、`tailBytes`、`tailLines` 为有限非负整数；保留 `headBytes + tailBytes > spillBytes` 的合法语义，但拒绝负值和 NaN/Infinity。
+
+### 6. 很小的合法预算会把错误结果的 `<code>: <message>` 头截掉
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/tools/spill.ts:87-95`
+- **现象**：错误结果先由 `toAgentToolResult` 生成单个文本行，再与成功结果完全相同地调用 `elideMiddle`。当 `headBytes` 小于错误码长度时，省略结果只保留错误码的前缀字节或直接只留省略行；例如 `headBytes: 1` 的 `io-failed: ...` 结果只剩 `i`。
+- **为什么是问题**：错误码是工具协议中调用方决定重试、改参数或换方案的唯一稳定信号；预算可调时不能让它变成不可识别的文本。当前实现还把 `isError: true` 保留在结构上，但模型只看到被截断的正文。
+- **如何核实**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t18/lab/spill-boundaries.ts`；`errorResult` 的文本以 `i` 开头，没有完整的 `io-failed: `。
+- **建议改法**：错误结果单独保留完整的 `<code>: ` 前缀，再在消息部分应用预算；若预算小于协议前缀，明确把前缀作为不可省略的保留开销，并同步更新预算说明与 `details.truncated`。
+
+### 7. cutBytes 按码点逐步重新编码，长单行会出现平方级耗时
+- **严重程度**：重要；**类别**：安全
+- **位置**：`packages/nb-harness/src/tools/spill.ts:35-42`
+- **现象**：每次循环都对越来越长的 `text.slice(0, end)` 重新执行 `TextEncoder`；循环次数最多接近 `maxBytes`，所以一行多字节文本的成本是反复扫描前缀，而不是一次线性截取。
+- **为什么是问题**：工具返回全文会先保存再截断，模型或插件可以返回没有换行的超大单行。实测 1,000,000 个汉字、预算 500,000 字节耗时 50,574 ms；同一脚本继续测 5,000,000 个汉字在 120 秒内未完成。这使恶意或异常工具结果能阻塞 Agent 进程，且预算本身没有限制全文的处理成本。
+- **如何核实**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t18/lab/spill-perf.ts`；输出 `size:1000000,budget:500000,ms:50574`，命令随后因 120 秒超时。
+- **建议改法**：用一次编码后的字节数组配合 UTF-8 边界回退，或用码点/字节边界二分查找；避免在循环中重复 `slice` 和 `TextEncoder`。同时给单次结果处理设定明确的输入上限或流式截断路径。
+
+### 8. read 用非 fatal TextDecoder 接受无效 UTF-8，并把替换字符登记成可编辑快照
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/builtin/read.ts:85-99`
+- **现象**：目录型文件只检查 NUL，随后用默认 `new TextDecoder("utf-8")` 解码；无效 UTF-8 会静默变成 `�`，并继续登记快照和返回编辑头。含 `[0xff, 0x61]` 的真实文件被返回为成功结果 `[project://bad.txt#9712]\n1: �a`。
+- **为什么是问题**：`workspace.resources` 把不能作为文本读取的内容区分为 `not-text`；当前工具却把原始二进制内容伪装成文本，后续 edit 可能用替换后的字符串覆盖原文件，造成数据损坏。NUL 不是完整的二进制/文本判定。
+- **如何核实**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t18/lab/read-invalid-utf8.ts`；输出为 `ok: true` 且内容含 `�`，不是 `binary`/`not-text` 错误。
+- **建议改法**：用 `{fatal: true}` 解码并把 `TypeError` 映射为稳定的文本/二进制失败码；不要为解码失败登记快照。若本模块有意只拒绝 NUL，应同步修改资源规范和“第一批只有文本”的合同，而不是静默替换字节。
+
+### 9. 内存 ArtifactStore 不校验会话 id，和 JSONL 实现的失败合同不一致
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/nb-harness/src/session/artifacts.ts:26-49`
+- **现象**：内存实现直接以任意字符串作为 `Map` 键；`save("../escape", ...)`、`read("../escape", "0")`、`list("../escape")` 都成功，而 JSONL 实现对同一类 id 返回 `invalid-session-id`。
+- **为什么是问题**：同一个公开 `ArtifactStore` 接口在缺省内存实现与持久化实现之间有不同的输入合同，使用方在切换运行时存储后会得到不同结果；也会让调用方把不合规 id 的数据写入错误会话命名空间。虽然内存实现没有路径穿越副作用，但会话隔离合同仍不一致。
+- **如何核实**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t18/lab/memory-artifact-id.ts`；输出 `save.ok: true`、`read.value: "x"`。
+- **建议改法**：把会话 id 校验放到共享的 ArtifactStore 边界，内存与 JSONL 先返回相同的 `invalid-session-id`；为两种实现共用同一组非法 id 合同测试。
+
+### 10. JSONL artifact list 为每个文件全文 readFile，只为取得字节数
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`packages/nb-harness/src/session/jsonl/artifacts.ts:85-98`
+- **现象**：`list` 先扫描目录，然后对每个匹配文件调用 `readFile(...).byteLength`；工具名和序号已经从文件名得到，字节数本可由文件元数据取得。
+- **为什么是问题**：列出一个大目录会把所有溢出结果同时读入内存并做一次完整 I/O，目录大小和单个结果大小都会线性放大列表延迟与峰值内存；这与 artifact 的“让上下文只留截断正文、全文放外部存储”目标相冲突。
+- **如何核实**：阅读实现可见 `list` 对 `existing.value` 的每一项执行 `readFile`；用多个大 `.log` 文件调用 `list("s")` 会重复读取全部正文，测试当前只验证两个小文件，未覆盖该边界。
+- **建议改法**：用 `stat`/`lstat` 的 `size` 填充 `bytes`，只在读取正文时 `readFile`；若文件在 stat 后被删除或替换，按单项 `store-failed` 处理并保持列表语义明确。
+
+### 11. read artifact:// 时 stat 与 readText 会把全文加载两遍，offset 也不能避免全文 I/O
+- **严重程度**：重要；**类别**：代码质量
+- **位置**：`packages/nb-harness/src/builtin/artifacts.ts:29-37`；`packages/nb-harness/src/builtin/read.ts:76-103`
+- **现象**：`readTool` 对每个文件先调用 `provider.stat`，再调用 `provider.readText`。artifact provider 的 `stat` 不是取元数据，而是 `load` 调 `reader.read` 读完整正文并再次 `TextEncoder.encode` 计算字节；随后 `readText` 又完整读一遍。`offset`、`limit` 只在两次全文加载之后对字符串分页。
+- **为什么是问题**：溢出 artifact 的设计目的就是把大结果移出上下文；当前读取一个大 artifact 会重复磁盘/存储读取并产生额外完整字节数组，峰值内存和延迟随全文放大，读取一小段也不能变成小 I/O。大结果恢复或模型多次查看时尤为明显。
+- **如何核实**：按调用顺序阅读上述真实实现即可看到 `stat -> reader.read -> encode` 后必然再走 `readText -> reader.read`；`packages/nb-harness/src/builtin/artifacts.ts` 的 `ArtifactReader` 已提供带 `bytes` 的 `list`，但 `stat` 没有使用它。
+- **建议改法**：让 artifact provider 的 `stat` 使用持久化元数据/`list` 摘要，或扩展 reader 提供 `stat`/按范围读取；让 `readText` 支持按 `offset`、`limit` 的后端范围读取，至少保证一次 `read` 一次解码。
+
+### 12. createResourceAccess.open 读取继承属性，未登记且未校验的方案仍可被打开
+- **严重程度**：重要；**类别**：安全
+- **位置**：`packages/nb-harness/src/builtin/resources.ts:8-20`
+- **现象**：登记校验与 `schemes()` 使用 `Object.entries(definitions)`，但 `open` 改用 `definitions[scheme]`。因此带有继承属性的普通对象可让任意原型上的 `provider` 成为可打开方案，虽不出现在方案清单、也未经过方案名和 doc 校验。
+- **为什么是问题**：方案清单是工具描述与访问边界；未登记方案却能被 `read`/`edit` 通过完整地址访问，可能把原型污染或调用方对象原型上的文件根暴露给模型，并破坏同一套 scheme 校验合同。
+- **如何核实**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t18/lab/resources-prototype.ts`；输出 `schemes: []`，但 `opened: "directory"` 且返回了继承属性中的 root。
+- **建议改法**：校验后只从由 `Object.entries` 建出的 own-entry `Map` 读取；不要在 `open` 直接索引外部对象。若允许 `Object.create(null)` 也应统一走这份 Map。
+
+### 13. 正常批准后 abortedOn 注册的 abort listener 从不移除
+- **严重程度**：建议；**类别**：资源释放
+- **位置**：`packages/nb-harness/src/tools/adapter.ts:32-37,70-79`
+- **现象**：每次执行都通过 `Promise.race` 创建 `abortedOn(signal)`；批准分支结束 race 后，`abortedOn` 注册的 `{once: true}` listener 只有在将来 signal 真正 abort 时才会自动移除，正常完成路径没有 cleanup。
+- **为什么是问题**：长时间复用同一 `AbortSignal` 的调用会积累无效监听器，取消时再逐个唤醒；这会增加内存和 abort 延迟。真实适配器实验复用一个未取消的 signal 执行 10 次，监听器计数为 `adds: 10, removes: 0, aborted: false`。
+- **如何核实**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t18/lab/adapter-abort-listener.ts`；脚本实际调用 `toAgentTool`，不是直接调用内部 helper。
+- **建议改法**：让中止等待辅助函数同时返回 cleanup，或在 `Promise.race` 外层 `try/finally` 移除同一个 listener；保留已中止信号的快速路径。
+
+### 14. 现有验收测试不能发现默认溢出预算被改小或改大
+- **严重程度**：建议；**类别**：测试规范
+- **位置**：`packages/nb-harness/src/tools/spill.test.ts:41`；`packages/nb-harness/examples/scenarios/06-tool-result-spill.test.ts:57-71`
+- **现象**：核心断言把 `DEFAULT_TOOL_RESULT_BUDGET.headBytes`、`tailBytes` 直接作为期望值，示例只要求结果小于 41 KiB；没有独立断言合同规定的 `spillBytes: 50 KiB`、头尾各 `20 KiB`、`tailLines: 500`。例如把默认头尾改成 16 KiB，现有“有头、有尾、有链接、总量小于 41 KiB”的断言仍可成立。
+- **为什么是问题**：默认预算是 Spec 输出 9 的可观察合同，不是实现偶然值；当前测试把实现常量当作 oracle，变异检查会误报通过，后续改动可能悄悄放宽模型上下文上限或改变可回读窗口。
+- **如何核实**：静态检查上述断言：`spill.test.ts` 用被测导出的常量计算上限，示例只设宽松上限；显式的 spill、存储失败、图片与链接行为均不验证四个默认字段的具体值。
+- **建议改法**：保留默认值的独立合同断言，并在头/尾/行数边界上使用固定输入验证实际截断；不要让被测导出的默认常量同时充当唯一期望值。
+
+## 未发现问题的方面
+- **OMP 18.4.6 凭据接线**：已核对 `credentials.get`、`credentials.has` 与 `oauth.access` 源码；`apiKeyFor` 不走带环境变量回退的 `keys.get`，OAuth 也走只看存储的入口。未发现环境变量抢先覆盖已存凭据的问题。
+- **地址语法主路径**：`scheme://path` 的大小写、空段、`.`/`..`、反斜杠、NUL、盘符与 UTF-8 字节上限均由共享解析器覆盖；未发现 percent 编码被错误解码的问题。继承属性绕过另列为第 12 条。
+- **正常资源工具行为**：真实测试覆盖项目/会话/只读/虚拟方案、跨方案 edit、快照会话隔离、目录/图片/分页与普通符号链接边界；未发现正常路径的资源地址格式或只读判定错误。根竞态和嵌套根另列为第 1–3 条。
+- **溢出正常路径**：真实 OMP Agent 测试覆盖超预算全文保存、头尾、省略提示、图片与 details 保留、存储失败继续截断、artifact 回读；未发现这些已覆盖主路径的回归。预算异常与单行性能另列为第 5–7 条。
+- **artifact 顺序重开路径**：顺序写入、重开续号、工具名清洗、临时文件不残留及 JSONL 读取均通过；并发写入是未覆盖且已列为第 4 条。
+- **变异检查结论**：未修改 worktree 做破坏性变异。删除 JSONL `rename` 会被 `src/session/artifacts.test.ts:48-50` 的目标文件读取断言发现；删除 readonly 写/删保护会被 `src/builtin/resources.test.ts:95-101` 发现；默认预算变异不能可靠被现有断言发现，已列为第 14 条。
+
+- **已验证命令**：在 `packages/nb-harness` 执行 `bun run typecheck`，通过；执行 `bun test`，`207 pass / 6 skip / 0 fail`，共 213 个测试、1566 个断言。
+- **未运行项**：按请求未运行 `test:llm`、E2E、开发服务或真实模型调用；本报告中的额外实验均为真实本地 OMP/文件系统路径，脚本只写入报告指定的 scratchpad lab。
+
+- **统计**：阻断 0；重要 10；建议 4；合计 14。
+- **已知取舍**：第 1 条与 t15 待确认清单中已记录的 OMP 原生引擎根外读取残余风险相同；本次真实竞态实验再次证明其可观察影响，因此按用户要求保留为审查发现，而不是当作已解决。

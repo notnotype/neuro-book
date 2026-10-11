@@ -59,7 +59,7 @@ interface VirtualProvider {                                  // 数据不在真�
 interface FileAccess {
     readonly root: string;                                   // 绝对路径
     resolve(path: string): FilesResult<string>;              // 只按字面规范化：根内相对路径 → 绝对路径；越界为 outside-root
-    locate(path: string): Promise<FilesResult<string>>;     // 再按真实路径判：经符号链接指向根外、链接目标不存在都是 outside-root
+    locate(path: string): Promise<FilesResult<string>>;     // 再按真实路径判：经符号链接指向根外、链接目标不存在都是 outside-root；给出的是真实路径
     stat(path: string): Promise<FilesResult<{kind: "file" | "directory"; bytes: number}>>;
     readBytes(path: string): Promise<FilesResult<Uint8Array>>;
     list(path: string): Promise<FilesResult<{name: string; kind: "file" | "directory"}[]>>;   // 一层，按名字排序，目录在名字后带 /
@@ -71,7 +71,7 @@ type FilesResult<T> = {ok: true; value: T} | {ok: false; code: FilesFailure; det
 
 // 子入口 @notnotype/nb-harness/builtin/local
 createLocalFileAccess(options: {root: string; readonly?: boolean}): DirectoryProvider;   // root 必须是已存在的目录的绝对路径，否则抛 TypeError
-createSessionDirectories(options: {root: string}): (context: SchemeContext) => DirectoryProvider;   // local:// 用：root/<会话 id>，第一次打开时创建
+createSessionDirectories(options: {root: string}): (context: SchemeContext) => DirectoryProvider;   // local:// 用：root/<编码后的会话 id>，第一次打开时创建
 
 // artifact://（溢出的工具结果，只读）：读取接口按形状声明，与 harness.session 的 ArtifactStore 同形；本模块不依赖 session
 createArtifactProvider(reader: ArtifactReader): (context: SchemeContext) => VirtualProvider;
@@ -91,15 +91,15 @@ interface ArtifactReader {
 
 ## 输出与可观察行为
 
-1. **文件访问**：`createLocalFileAccess` 要求 `root` 是已存在目录的绝对路径（否则抛 `TypeError`），文件系统的根 `/` 也可以。每个方法先 `locate`：规范化后不在根内为 `outside-root`（越界看的是父目录组件 `..`，`..foo` 这样的名字是合法的）；目标不存在为 `not-found`；`readBytes` 遇到目录为 `not-a-file`，`list` 遇到文件为 `not-a-directory`；其它系统错误为 `io-failed`（`detail` 带错误码）。`write` 创建缺失的父目录（仍须在根内）后整文件写入；`remove` 删除文件（目录为 `not-a-file`）。符号链接：目标在根内照常，指向根外为 `outside-root`；目标不存在的（悬空）链接也是 `outside-root`——写入会跟着它落到根外，而根内与否证明不了。
-2. **read 文本**：目录型方案的文本文件输出首行 `[<地址>#<tag>]`，之后每行 `<行号>: <内容>`（行号从 1 起，`offset` 起算，按 `limit` 截），并把展示过的行按真实绝对路径登记到本会话的快照存储（`tag` 由它给出）；虚拟方案的文本同样分页，但没有标签头、不登记快照，`details.editable` 为 `false`。内容含 NUL 字节为错误 `binary`；`offset` 超过行数为错误 `invalid-arguments`。超过预算时只输出预算内的行，末尾加一行 `输出已截断：lines`（或 `bytes`），`details.truncated` 为 `true`、`details.reason` 为原因。`details` 另带 `path`（完整地址）、`lines`（展示的行数）。
+1. **文件访问**：`createLocalFileAccess` 要求 `root` 是已存在目录的绝对路径（否则抛 `TypeError`），文件系统的根 `/` 也可以。每个方法先 `locate`：规范化后不在根内为 `outside-root`（越界看的是父目录组件 `..`，`..foo` 这样的名字是合法的）；目标不存在为 `not-found`；`readBytes` 遇到目录为 `not-a-file`，`list` 遇到文件为 `not-a-directory`；其它系统错误为 `io-failed`（`detail` 带错误码）。`write` 创建缺失的父目录（仍须在根内）后整文件写入；`remove` 删除文件（目录为 `not-a-file`）。符号链接：目标在根内照常，指向根外为 `outside-root`；目标不存在的（悬空）链接也是 `outside-root`——写入会跟着它落到根外，而根内与否证明不了。`locate` 成功时给出真实路径（链接已解开；不存在的那几级接在真实的父目录后面），`resolve` 给字面规范化的路径。
+2. **read 文本**：目录型方案的文本文件输出首行 `[<地址>#<tag>]`，之后每行 `<行号>: <内容>`（行号从 1 起，`offset` 起算，按 `limit` 截），并把展示过的行按真实路径（`locate` 的结果）登记到本会话的快照存储（`tag` 由它给出）；虚拟方案的文本同样分页，但没有标签头、不登记快照，`details.editable` 为 `false`。内容含 NUL 字节或不是合法 UTF-8 的为错误 `binary`（不做替换解码：替换过的内容一旦登记成快照，edit 会用它覆盖原文件）；`offset` 超过行数为错误 `invalid-arguments`。超过预算时只输出预算内的行，末尾加一行 `输出已截断：lines`（或 `bytes`），`details.truncated` 为 `true`、`details.reason` 为原因。`details` 另带 `path`（完整地址）、`lines`（展示的行数）。
 3. **read 目录**：每个条目一行 `- <name>`，目录带 `/`，按名字排序，最多 500 项（超出加一行说明）；`details.kind: "directory"`、`entries` 为总数。
 4. **read 图片**：扩展名为 png、jpg、jpeg、gif、webp 的文件以图片块返回（base64 与 `mimeType`），`details.bytes` 为字节数；不登记快照。
 5. **read 失败**：地址不合规则为 `invalid-address`，方案没登记为 `unknown-scheme`；提供者的失败码照搬为工具错误码（`outside-root`、`not-found`、`io-failed`）；错误消息说明地址或提供者眼里的路径。
-6. **edit**：工具说明是 OMP 的 hashline 语法说明（`editDescription("hashline")`，模型按它训练过）加本模块的约束（路径是资源地址并列出可用方案、头只能来自本会话的 `read`、只读与虚拟方案不能改、没有新建文件的工具）。执行前先核每个 `[地址#tag]` 头：带前后空白为 `invalid-address`（引擎会去空白，本模块不替它猜），地址不合规则为 `invalid-address`，方案没登记为 `unknown-scheme`，虚拟或只读方案为 `read-only`，再经提供者 `locate`（真实路径，符号链接也认得出）不在根内为 `outside-root`；任一失败整次不交给引擎（引擎会自己读头里的文件来核对标签并把内容回显在错误里，根外的文件连读都不能读）。然后用本会话的快照存储新建一个 OMP `EditSession`（hashline 模式，`urlSchemes` 是登记的方案，`enforceSeenLines` 开，`allowFuzzy` 开），引擎遇到带方案的头经 `resolveUrl` 回调向本模块要真实绝对路径（同一套核对），`input` 原样交给引擎；引擎决定要写的文件后，每个绝对路径按本次打开过的目录型提供者的根反查方案、转回相对路径经该提供者 `write`（`delete` 操作经 `remove`，`move` 先写目标再删源）落盘，一次 `edit` 可以跨方案改多个文件；引擎回显的文本（含新标签、头是地址）原样作为工具内容，`details.files` 列出每个文件的 `path`（地址）、`op`、`warnings`。引擎报错（伪造标签、未展示的行、解析失败）→ 错误结果，文本照引擎、`code: "edit-rejected"`，磁盘不变（引擎拒绝时回显的文件内容也算展示过，这是 OMP 的语义）。引擎要写的路径不在任何已打开方案的根内（例如 `move` 的目标）或提供者判越界（悬空链接）→ `outside-root`（访问层的码原样保留，只有真正的 I/O 失败才是 `io-failed`），整次不落盘。
+6. **edit**：工具说明是 OMP 的 hashline 语法说明（`editDescription("hashline")`，模型按它训练过）加本模块的约束（路径是资源地址并列出可用方案、头只能来自本会话的 `read`、只读与虚拟方案不能改、没有新建文件的工具）。执行前先核每个 `[地址#tag]` 头：带前后空白为 `invalid-address`（引擎会去空白，本模块不替它猜），地址不合规则为 `invalid-address`，方案没登记为 `unknown-scheme`，虚拟或只读方案为 `read-only`，再经提供者 `locate`（真实路径，符号链接也认得出）不在根内为 `outside-root`；任一失败整次不交给引擎（引擎会自己读头里的文件来核对标签并把内容回显在错误里，根外的文件连读都不能读）。然后用本会话的快照存储新建一个 OMP `EditSession`（hashline 模式，`urlSchemes` 是登记的方案，`enforceSeenLines` 开，`allowFuzzy` 开），引擎遇到带方案的头经 `resolveUrl` 回调向本模块要真实路径（同一套核对；交给引擎的是 `locate` 解开链接后的路径，核对之后链接被换到根外，引擎读的仍是核对过的那个文件；目录一级在核对之后被换成链接的窗口仍在，见 Work 的待确认清单），`input` 原样交给引擎；引擎决定要写的文件后，每个路径按本次打开过的目录型提供者反查方案（头里打开过的路径就是它自己的方案；别的路径按真实根最长的提供者算，根互相嵌套时内层文件属于内层方案）、转回相对路径经该提供者 `write`（`delete` 操作经 `remove`，`move` 先写目标再删源）落盘，一次 `edit` 可以跨方案改多个文件；引擎回显的文本（含新标签、头是地址）原样作为工具内容，`details.files` 列出每个文件的 `path`（地址）、`op`、`warnings`。引擎报错（伪造标签、未展示的行、解析失败）→ 错误结果，文本照引擎、`code: "edit-rejected"`，磁盘不变（引擎拒绝时回显的文件内容也算展示过，这是 OMP 的语义）。引擎要写的路径不在任何已打开方案的根内（例如 `move` 的目标）或提供者判越界（悬空链接）→ `outside-root`（访问层的码原样保留，只有真正的 I/O 失败才是 `io-failed`），整次不落盘。
 7. **会话隔离**：快照存储按 `ToolContext.session.id` 分开：一个会话 `read` 登记的“展示过的行”不约束也不放行另一个会话。标签本身是文件内容的哈希（OMP 语义）：另一个会话拿同样的标签、文件内容没变时引擎照常接受；文件变了则按它的规则核对。`SnapshotStores.release(sessionId)` 丢弃该会话的存储。
 8. **工具来源**：`createBuiltinTools` 返回的 `ToolSource` 列出 `read`、`edit` 两个描述符，`get` 返回同一份定义（引用稳定）。
-9. **方案与提供者**：`createResourceAccess` 按方案名登记提供者或工厂（方案名不合规则、说明为空抛 `TypeError`）；`open(scheme, {sessionId})` 对没登记的方案返回 `undefined`，对工厂按会话 id 各建一份并复用（同一会话里 `read` 登记的快照与 `edit` 对的是同一个根）。`createLocalFileAccess({readonly: true})` 的 `write`、`remove` 为 `read-only`；`createSessionDirectories({root})` 的提供者根是 `root/<会话 id>`（id 里不是 `[A-Za-z0-9_.-]` 的字符换成 `_`），第一次打开时创建，不随会话结束删除。两个工具的说明列出 `schemes()` 的方案与说明，模型据此知道有哪些根。`createArtifactProvider(reader)` 给出按会话的虚拟提供者：根列出本会话的序号，`artifact://<序号>` 的文本按 `read` 的 `offset`、`limit` 分页，不存在为 `not-found`，别的会话的序号看不到，有子路径为 `not-found`；读取层的失败一律 `io-failed`。
+9. **方案与提供者**：`createResourceAccess` 按方案名登记提供者或工厂（方案名不合规则、说明为空抛 `TypeError`）；`open(scheme, {sessionId})` 对没登记的方案返回 `undefined`，对工厂按会话 id 各建一份并复用（同一会话里 `read` 登记的快照与 `edit` 对的是同一个根）。`createLocalFileAccess({readonly: true})` 的 `write`、`remove` 为 `read-only`；`createSessionDirectories({root})` 的提供者根是 `root/<编码后的会话 id>`（保留 `[A-Za-z0-9-]`，其余每个字符编码成 `_<码点十六进制>_`，空 id 为 `_`：不同 id 不落到同一目录，`.`、`..`、`/` 进不了路径），第一次打开时创建，不随会话结束删除。方案表只认自己登记的名字（`constructor` 这类对象继承来的名字 `open` 为 `undefined`）。两个工具的说明列出 `schemes()` 的方案与说明，模型据此知道有哪些根。`createArtifactProvider(reader)` 给出按会话的虚拟提供者：根列出本会话的序号，`artifact://<序号>` 的文本按 `read` 的 `offset`、`limit` 分页（`stat` 的大小取自读取接口的 `list`，全文只在读文本时读一次），不存在为 `not-found`，别的会话的序号看不到，有子路径为 `not-found`；读取层的失败一律 `io-failed`。
 
 ## 状态与转换
 
@@ -120,7 +120,7 @@ interface ArtifactReader {
 | `read-only` | 只读方案或虚拟方案的资源 | 只能 `read` |
 | `outside-root` | 路径解析（含符号链接）后不在方案根内 | 改用根内的地址 |
 | `not-found` / `not-a-file` / `not-a-directory` | 目标不存在或类型不对 | 先列目录确认 |
-| `binary` | 文件含 NUL 字节 | 不读它 |
+| `binary` | 文件含 NUL 字节或不是合法 UTF-8 | 不读它 |
 | `invalid-arguments` | `offset` 越界等 | 修正参数 |
 | `edit-rejected` | 引擎拒绝：标签与当前文件对不上、改了未展示的行、解析失败 | 按引擎文本重新 `read` 后再改 |
 | `io-failed` | 读写系统错误；`edit` 时 `details.written` 列出已落盘的文件 | 告诉用户 |
@@ -134,7 +134,7 @@ interface ArtifactReader {
 ## 验收与 Smoke
 
 1. 文件访问（真实临时目录）：根内读写列删各一次；`../x`、绝对路径、指向根外的符号链接、指向不存在目标的悬空链接（写入也被拒，根外不出现文件）都是 `outside-root`；`..foo.txt` 这样的根内文件照常；不存在 `not-found`；目录当文件读 `not-a-file`；根不存在或不是目录时构造抛 `TypeError`。
-2. read：地址 `project://a.txt` 的文本带标签头与行号；裸路径、`..` 段为 `invalid-address`，没登记的方案为 `unknown-scheme`；`offset`/`limit` 只展示请求的行且快照只登记这些行；超过行数预算时截断并说明；含 NUL 的文件 `binary`；缺失 `not-found`；目录列一层；png 返回图片块。
+2. read：地址 `project://a.txt` 的文本带标签头与行号；裸路径、`..` 段为 `invalid-address`，没登记的方案为 `unknown-scheme`；`offset`/`limit` 只展示请求的行且快照只登记这些行；超过行数预算时截断并说明；含 NUL 或不是合法 UTF-8 的文件 `binary`；缺失 `not-found`；目录列一层；png 返回图片块。
 3. edit（真实引擎）：先读后改落盘正确、回显含新标签；用回显的标签连续第二次编辑；只展示第 1 行却改第 3 行被拒且磁盘不变；伪造标签被拒；文件被外部改动后按 OMP 语义重映射并带警告；一个会话只展示第 1 行的记录不约束另一个会话（隔离的是展示记录，标签是内容哈希）；头里的路径经符号链接指向根外时 `outside-root`、带 `..` 段或空白时 `invalid-address`，都不交给引擎、不泄露根外文件内容、不落盘。
 5. 方案与提供者：地址规则逐条；按会话的工厂给不同会话不同的根并复用；一次 `edit` 跨 `project://` 与 `local://` 改两个文件、回显与 `details.files` 都是地址；只读方案 `docs://` 能 `read`、`edit` 为 `read-only`、提供者的写也为 `read-only`；虚拟方案能列、能按 `offset`/`limit` 读、没有标签头、`edit` 为 `read-only`。
 4. 经运行时（脚本化模型）：一次调用里模型先 `read` 再 `edit`，文件内容改变，日志里有两个工具结果。

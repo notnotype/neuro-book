@@ -1,0 +1,86 @@
+# w00002/t17 只读实现审查
+
+审查范围：`62ed7f77..dcd71750`。worktree：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00002-review-t17`。仓库保持只读；实验不调用真实模型。
+
+## 已核实问题
+
+### 1. `status` 把可变缓存直接交给调用方，修改一次便污染后续查询与等待结果
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/runtime/session.ts:154-182,188-190`；`src/runtime/types.ts:45-53`
+- **现象**：`pending: replayed.pending` 和 `context: #contextUsage()` 返回内部缓存本体，数组、事项外层及 context 都没有冻结。调用方对 `status.pending` 的 `push`、`splice` 或对 `status.context.tokens` 赋值后，下一次读取继续拿到被污染的值。
+- **为什么是问题**：本次把以前临时生成的查询结果变为共享状态，却保留可变公开类型，未建立所有权边界。日志没变时，不同 UI/订阅者会共享并持久看到伪造/删除的审批事项或错误用量；`next()` 的立即分支也使用这份 pending。`readonly status` 不能限制嵌套值修改。Spec 要求缓存结果同一引用，但没有授予调用方修改内核派生状态的能力。
+- **如何核实**：从 worktree 根执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t17/lab/cache-mutation.ts`。真实 runtime 与 OMP Agent 调用失败后，修改 context.tokens 为 0 并 push 一个 fake 事项，下一次状态输出仍是 `tokens:0`、`pending:[{interactionId:"fake",...}]`，日志没有相关事项。
+- **建议改法**：构造缓存时冻结 context、pending 数组及事项对象，并将公开类型改为只读；request 已来自冻结日志。这样保留同引用缓存合同，又阻止查询结果被外部写入。增加一个公开状态读取的隔离场景。
+
+### 2. 预览在 `refresh` 后生成种子和追加消息，真实调用却在刷新前已将它们写入
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/runtime/session.ts:433-480,493-526,658-680`
+- **现象**：真跑使用 prepare 的结果生成 seeds/appended，写入后才在 before-model-call hook 中 refresh；preview 先 prepare、refresh，再用 refreshed 结果生成 seeds/appended。合法的 `model-call` 数据源可以在 System、种子和 Appending 中共用，因而两条路径的消息生成阶段不同。
+- **为什么是问题**：预览声称给出“模型会收到什么”，却使用真跑根本不会写入的刷新版 seeds/appended。现有示例只用 invocation 数据源，因此无法暴露此差异。
+- **如何核实**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t17/lab/preview-refresh.tsx` 使用真实 runtime/Profile Host 和脚本化 OMP StreamFn。数据源返回版本 `v1..v4`：preview 的 system/seeds/appended 都为 `v2`；真跑 seeds/appended 是 `v3`，system 是 `v4`。这证明同一次调用内 prepare 与 refresh 结果的使用阶段已经不同，而不只是两次调用时刻不同。
+- **建议改法**：预览先用 prepared 生成 seeds/appended，再 refresh，只用 refreshed 生成 system/request；共享这段调用上下文装配逻辑，避免再次漂移。用固定阶段结果或日志长度数据源补场景，比较同阶段种子、追加消息与真实请求。
+
+### 3. 用量估算测试没有覆盖已知分词器的生产计数路径，且非零断言不能锁定数量
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/nb-harness/src/runtime/runtime.test.tsx:380-395`；依赖行为在 `node_modules/@oh-my-pi/pi-agent-core/src/tokenizer.ts:9-10,152-157`
+- **现象**：用例只使用无已知 tokenizer 的 `test/m`，对估算数量只断言 `tokens > 0`。OMP 在 `NODE_ENV=test` 下，即使模型有已知 tokenizer，默认计数也走字节估算而非原生。
+- **为什么是问题**：Spec 输出 5 明确区分已知家族的原生计数与其它模型的字节除 4；测试既没有覆盖前者，也不能检测估算数量被替换成任意正数。不能把这条用例的通过当作生产原生估算已验证。
+- **如何核实**：`bun test /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t17/lab/tokenizer-env.test.ts` 输出 `nodeEnv:"test", encoding:"ClaudeV3", count:3, exact:2`；同一文本 `hello world` 默认字节估算为 3，strict 原生计数为 2。源码与运行环境结果一致。
+- **建议改法**：增加非 test 环境子进程 smoke，通过公开 runtime 选择真实已知家族模型并只注入离线 StreamFn，校验确定估算值；未知模型也断言确定字节估算结果。保留实时结果而不是 mock/spy，避免仅靠 `>0`。
+
+### 4. 预览的种子没有带真实回放使用的 `attribution: "agent"`，`History last` 会截取出不同的消息
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/runtime/session.ts:664-680`
+- **现象**：`preview()` 将 `renderSeeds()` 返回的原始用户消息直接拼进 `history`；真跑则把种子写成 `custom_message`，回放时由 `customMessageToMessage()` 加上 `attribution: "agent"`。因此 `History last={2}` 会把预览中的两条种子都视为用户发出的轮次，真跑却把种子视为同一组 Agent 历史。
+- **为什么是问题**：预览返回的 `request` 不代表真实调用的请求，且 `seeds` 与实际写入/回放后的形状不一致。Profile 使用 `last` 裁剪历史时会漏掉种子；即使不裁剪，调用方也能观察到预览消息缺少真实的 attribution。
+- **如何核实**：运行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t17/lab/preview-attribution.ts`。真实 runtime 的 Profile 使用两条种子和 `<History last={2}>`，输出的 preview request 是 `seed-two,input`，脚本化模型实际收到的是 `seed-one,seed-two,input`，实际种子带 `attribution:"agent"`。
+- **建议改法**：按真实日志回放形状构造预览 request：种子及非 input 的追加用户消息在用于 `renderRequest` 的历史中带 `attribution:"agent"`；返回的 `appended` 也保持输出 3 的 attribution 合同。补 `History last` 的预览与真跑比较场景。
+
+### 5. `accept` 拆分后仍在取凭据前检查工具，组合失败返回码不符合输出 2 顺序
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/runtime/accept.ts:72-76,94-100`
+- **现象**：`check()` 先执行 `visibleTools()` 和能力检查，`accept()` 之后才调用 `credentials.apiKeyFor()`；同时没有凭据和工具来源冲突时返回 `tool-conflict`，而输出 2 要求模型能力后先检查凭据，再检查可见工具和 signal。
+- **为什么是问题**：同一个失败输入的公开错误码取决于后置检查，调用方会先收到错误的修复方向；`preview` 复用 `check` 后也无法表达与真跑一致的分段优先级。
+- **如何核实**：运行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t17/lab/accept-order.ts`。真实 runtime、无 key 凭据和两个真实工具来源输出 `{"ok":false,"code":"tool-conflict",...}`，不是合同顺序应先报告的 `credentials-missing`。
+- **建议改法**：将输入/Profile/配置/模型能力、凭据、可见工具/审批/压缩、signal 建模为明确阶段；真跑在可见工具前取 key，预览跳过取 key 但保留相同位置的 signal 检查。补两个失败条件同时存在的合同场景。
+
+### 6. `preview` 的已中止 signal 被错误映射成 `invalid-profile`
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/runtime/session.ts:646-662`、`packages/nb-harness/src/runtime/accept.ts:56-99`
+- **现象**：`preview(input, {signal: AbortSignal.abort()})` 经过 `check()` 后才进入 `host.prepare()`；`check()` 不检查 signal，`prepare()` 返回 `cancelled` 后又被 `preview` 的 `invalid()` 统一映射为 `invalid-profile`。
+- **为什么是问题**：调用方无法区分用户取消预览和 Profile 真正无效，会展示错误修复提示；预览也没有按输出 2 的受理顺序返回 signal 对应的失败码。
+- **如何核实**：运行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t17/lab/preview-cancel.ts`，真实结果为 `{"ok":false,"code":"invalid-profile","detail":"cancelled: signal 已中止"}`。
+- **建议改法**：在 `check` 的合同位置处理已中止 signal；准备/刷新期间的取消也应保留取消语义，不经 Profile 失败格式化器伪装成 `invalid-profile`。
+
+### 7. `preview` 重复收集系统渲染诊断，返回同一条 warning 两次
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`packages/nb-harness/src/runtime/session.ts:677-681`
+- **现象**：预览先调用 `renderSystem()` 并把其 diagnostics 加入结果，随后调用 `renderRequest()`；后者内部再次调用 `renderSystem()` 并把同一系统诊断放进自己的 diagnostics，预览最终把两份都合并。
+- **为什么是问题**：Profile 动态渲染产生一个未知节点时，调用方收到两个相同的 `unknown-node` warning，诊断数量和内容不再表示两个独立问题，UI 会重复展示同一错误。
+- **如何核实**：运行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t17/lab/preview-diagnostics.ts`，真实 Profile Host 输出两条相同 path 为 `Prompt>System[0]>test/dynamic>test/missing` 的 `unknown-node` 诊断。
+- **建议改法**：复用一次系统渲染结果，或只从 `renderRequest()` 收集系统 diagnostics；增加动态渲染 warning 只出现一次的预览场景。
+
+## 未发现问题的方面
+
+- 已核对两份缓存的日志数组引用失效条件：成功追加会换数组；追加失败、`repair()`、`close()` 不伪造新条目；恢复追加发生在句柄构造前，因此未发现这几条路径造成缓存读取旧日志。
+- 已核对受理失败不会更新 `#lastContext`；`contextWindow` 缺省为 0 时返回 0 阈值、仍保留已报告用量，手动压缩按缺少窗口失败，未发现把它误报为“无可压缩内容”。
+- 已核对 `Invocation.next()` 的 100 次等待调用共用同一结果对象；正常完成、等待关闭以及应答后继续的收口逻辑未发现未完成 Promise 或重复可见终态。
+- 已核对 `Checked` 只在不需要凭据的 Profile 准备上下文中使用，`Accepted` 才携带 key；未发现把凭据泄漏进预览返回值的类型扩散。
+- 已核对提交范围内 `createModelCatalog` 的实际调用方：包源码、快速测试、真实模型测试和测试装配都已改为显式 `{config}` 或 `{store}`；README 与示例没有残留旧的可歧义调用文字。
+- 已核对新增 100 次 `next()`、估算和预览测试没有使用固定时长等待、spy 或模块 mock；模型流仍是注入的脚本化 OMP `StreamFn`。
+
+## 各级数量
+
+| 严重程度 | 数量 | 条目 |
+| --- | ---: | --- |
+| 阻断 | 0 | 无 |
+| 重要 | 5 | 1、2、4、5、6 |
+| 建议 | 2 | 3、7 |
+| 合计 | 7 | 1–7 |

@@ -4,7 +4,7 @@
  * 要说明的事：
  * - 预算在适配层统一做（照 OMP 的缺省：文本超过 50 KiB 就溢出，上下文里留头 20 KiB、尾 20 KiB、各最多 500 行），
  *   与工具无关：插件工具返回多大都不会撑爆窗口。日志里的工具结果就是模型看到的那份（回放等于上下文），全文在溢出存储。
- * - 溢出存储由装配方给：这里是 JSONL 存储旁的目录 `<state>/sessions/<会话 id>.artifacts/<序号>.<工具名>.log`；
+ * - 溢出存储由装配方给：这里是 JSONL 存储旁的目录 `<state>/sessions/<会话 id>.artifacts/<序号>/<工具名>.log`；
  *   不给就是内存实现。`artifact://` 是只读的虚拟方案，`read artifact://0` 可带 `offset`、`limit` 翻页。
  * - 提示文字里就有回读方法，模型不需要额外训练。
  *
@@ -62,7 +62,7 @@ describe("示例场景 6：工具结果溢出", () => {
         expect(dumped!.text).toMatch(/…（中间省略 \d+ 行，\d+ 字节）/u);
         expect(dumped!.text).toContain("read artifact://0");
         // 全文在 JSONL 存储旁的目录里，文件名带序号与工具名
-        expect(await readFile(join(stage.state, "sessions", "s6.artifacts", "0.dump.log"), "utf8")).toBe(dumpText());
+        expect(await readFile(join(stage.state, "sessions", "s6.artifacts", "0", "dump.log"), "utf8")).toBe(dumpText());
         // 回读：虚拟方案，没有标签头，按 offset/limit 给行（read 的行号在前，dump 自己的编号在后）
         expect(page?.isError).toBe(false);
         expect(page!.text).toBe(`2500: 2500: ${"x".repeat(50)}\n2501: 2501: ${"x".repeat(50)}`);

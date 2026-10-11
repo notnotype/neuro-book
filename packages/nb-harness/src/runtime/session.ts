@@ -153,7 +153,13 @@ export class SessionHandle implements AgentSession {
 
     #replayed(): ReplayedStatus {
         const entries = this.log.entries;
-        if (this.#replayCache === null || this.#replayCache.entries !== entries) this.#replayCache = {entries, status: sessionStatus(entries)};
+        if (this.#replayCache === null || this.#replayCache.entries !== entries) {
+            // 缓存会交给多个调用方：冻结，免得一处改了 pending 大家都看到（request 本来就是冻结的日志数据）
+            const status = sessionStatus(entries);
+            for (const item of status.pending) Object.freeze(item);
+            Object.freeze(status.pending);
+            this.#replayCache = {entries, status: Object.freeze(status)};
+        }
         return this.#replayCache.status;
     }
 
@@ -175,9 +181,9 @@ export class SessionHandle implements AgentSession {
         if (this.#contextCache !== null && this.#contextCache.entries === entries && this.#contextCache.last === last) return this.#contextCache.value;
         const decision = shouldCompact({entries, contextWindow: last.window, settings: last.settings});
         // 还没有助手消息报告用量：按回放出的上下文估算，界面在第一次回复前也有数可画
-        const value: NonNullable<SessionStatus["context"]> = decision.contextTokens === null
-            ? {tokens: new Tokenizer(last.model).countMessages(buildModelContext(entries)), source: "estimated", window: last.window, threshold: decision.thresholdTokens}
-            : {tokens: decision.contextTokens, source: "reported", window: last.window, threshold: decision.thresholdTokens};
+        const value: NonNullable<SessionStatus["context"]> = Object.freeze(decision.contextTokens === null
+            ? {tokens: new Tokenizer(last.model).countMessages(buildModelContext(entries)), source: "estimated" as const, window: last.window, threshold: decision.thresholdTokens}
+            : {tokens: decision.contextTokens, source: "reported" as const, window: last.window, threshold: decision.thresholdTokens});
         this.#contextCache = {entries, last, value};
         return value;
     }
@@ -651,35 +657,35 @@ export class SessionHandle implements AgentSession {
         // 读的是这一刻的日志：之后追加的条目不影响这次预览
         const entries = this.log.entries;
         const host = this.#deps.host;
-        const invalid = (failure: {code: string; detail: string; diagnostics: Diagnostic[]}): RuntimeResult<never> => ({
-            ok: false, code: "invalid-profile",
-            detail: [`${failure.code}: ${failure.detail}`, ...failure.diagnostics.map((item) => `${item.code} ${item.path}：${item.detail}`)].join("\n"),
-        });
+        // 准备或刷新期间中止与受理前中止同一个码；别的失败才是 Profile 的问题
+        const invalid = (failure: {code: string; detail: string; diagnostics: Diagnostic[]}): RuntimeResult<never> => failure.code === "cancelled"
+            ? {ok: false, code: "invalid-state", detail: "预览期间中止"}
+            : {ok: false, code: "invalid-profile", detail: [`${failure.code}: ${failure.detail}`, ...failure.diagnostics.map((item) => `${item.code} ${item.path}：${item.detail}`)].join("\n")};
         const prepared = await host.prepare(profile, {context: this.#promptContext(entries, checked.value, input === undefined ? 0 : 1), ...(options.signal === undefined ? {} : {signal: options.signal})});
         if (!prepared.ok) return invalid(prepared);
-        // 与第一次请求前一致：model-call 数据源也刷新一次
-        const refreshed = await host.refresh(prepared.value, options.signal === undefined ? {} : {signal: options.signal});
-        if (!refreshed.ok) return invalid(refreshed);
+        // 与真跑同一顺序：种子与追加消息按 prepare 的结果渲染（真跑在刷新之前就把它们写进日志），刷新只影响系统提示词与请求消息
         const diagnostics: Diagnostic[] = [];
         const seeded = entries.some((entry) => entry.type === "custom_message" && entry.customType === "harness/seed");
         const seeds: Message[] = [];
         if (!seeded) {
-            const output = host.renderSeeds(refreshed.value, "new-session");
-            seeds.push(...output.messages.map((item) => item.message));
+            const output = host.renderSeeds(prepared.value, "new-session");
+            // 真跑把种子写成 harness/seed 条目、回放成 attribution: agent 的消息：预览给的是回放后的形状，History 的 last 才数得一样
+            seeds.push(...output.messages.map(({message}) => ({...message, attribution: "agent"} as Message)));
             diagnostics.push(...output.diagnostics);
         }
         const appended: Message[] = [];
         if (input !== undefined) {
-            const output = host.renderAppending(refreshed.value, {input, state: latestProfileState(entries, profile.id)});
+            const output = host.renderAppending(prepared.value, {input, state: latestProfileState(entries, profile.id)});
             for (const item of output.messages) appended.push(item.kind === "input" || item.message.role !== "user" ? item.message : {...item.message, attribution: "agent"});
             diagnostics.push(...output.diagnostics);
         }
-        const system = host.renderSystem(refreshed.value);
-        diagnostics.push(...system.diagnostics);
+        // 与第一次请求前一致：model-call 数据源刷新一次，系统提示词与请求消息按刷新后的；renderRequest 自带系统提示词与它的诊断，不再单独渲染一次
+        const refreshed = await host.refresh(prepared.value, options.signal === undefined ? {} : {signal: options.signal});
+        if (!refreshed.ok) return invalid(refreshed);
         const replayed = buildModelContext(entries);
         const request = host.renderRequest(refreshed.value, {history: [...replayed, ...seeds, ...appended], invocationStart: replayed.length + seeds.length});
         diagnostics.push(...request.diagnostics);
-        return {ok: true, value: {model: checked.value.modelRef, tools: checked.value.tools.map((tool) => tool.id), system: system.systemPrompt, seeds, appended, request: request.messages, diagnostics}};
+        return {ok: true, value: {model: checked.value.modelRef, tools: checked.value.tools.map((tool) => tool.id), system: request.systemPrompt, seeds, appended, request: request.messages, diagnostics}};
     }
 
     // ---- 审批 ----

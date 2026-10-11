@@ -1,4 +1,5 @@
 import {describe, expect, test} from "bun:test";
+import {getEventListeners} from "node:events";
 import {Type} from "typebox";
 import {createStaticToolSource, defineTool, evaluateRisk, toAgentTool, toAgentToolResult} from "./tools";
 import type {AdapterHooks, JsonValue, ToolCall, ToolDefinition, ToolSource} from "./tools";
@@ -105,6 +106,13 @@ describe("适配（输出 8–11）", () => {
         const preAborted = await runScriptedAgent({tools, script: [{calls: [{id: "c1", name: "echo", args: {text: "x"}}]}], abortAfterFirstCall: true});
         expect(preAborted.toolResults).toEqual([{toolCallId: "c1", text: "aborted: 调用已中止", isError: true}]);
         expect(executed).toBe(0);
+
+        // 批准后信号上的监听器要摘掉：一次调用里的工具共用同一个信号，不摘就越积越多
+        const plain = createStaticToolSource([echo()]);
+        const tool = toAgentTool(plain.list()[0]!, hooks(plain));
+        const shared = new AbortController();
+        for (let index = 0; index < 10; index += 1) await tool.execute(`c${index}`, {text: "x"}, shared.signal);
+        expect(getEventListeners(shared.signal, "abort")).toHaveLength(0);
     });
 
     test("输出 8：审批钩子拿到的是本次取到、随后执行的那份定义——来源在等待期间换掉同 id 的工具不影响判定与执行", async () => {

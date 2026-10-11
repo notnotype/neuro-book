@@ -82,7 +82,7 @@ describe.skipIf(llm === null)("示例：真实模型", () => {
         expect(dumped?.isError).toBe(false);
         expect(new TextEncoder().encode(dumped!.text).length).toBeLessThan(41 * 1024);
         expect(results.some((item) => !item.isError && item.text.includes("2000: "))).toBe(true);
-        const files = await readFile(join(stage.state, "sessions", `${created.value.id}.artifacts`, "0.dump.log"), "utf8");
+        const files = await readFile(join(stage.state, "sessions", `${created.value.id}.artifacts`, "0", "dump.log"), "utf8");
         expect(files.split("\n")).toHaveLength(4000);
         await created.value.close();
     }, 180_000);

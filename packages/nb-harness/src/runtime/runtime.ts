@@ -8,6 +8,7 @@ import {createModelCatalog} from "../models/models";
 import {createProfileHost} from "../profile/profile";
 import type {ProfileHost} from "../profile/profile";
 import {createMemoryArtifactStore, createSession, openSession} from "../session/session";
+import {assertToolResultBudget, DEFAULT_TOOL_RESULT_BUDGET} from "../tools/tools";
 import {registerRuntimeFields} from "./fields";
 import {recoverEntries, SessionHandle} from "./session";
 import type {AgentSession, ResolvedDeps, Runtime, RuntimeDeps, RuntimeFailure, RuntimeResult} from "./types";
@@ -62,6 +63,8 @@ function resolveDeps(input: RuntimeDeps): ResolvedDeps {
 }
 
 export function createRuntime(input: RuntimeDeps): Runtime {
+    // 预算错了在装配时就报，不等第一个工具结果
+    if (input.limits?.toolResult !== undefined) assertToolResultBudget({...DEFAULT_TOOL_RESULT_BUDGET, ...input.limits.toolResult});
     const deps = resolveDeps(input);
     // 第一次读 host 就完成字段登记
     void deps.host;

@@ -38,7 +38,8 @@ function relativeToRoot(root: string, absolute: string): string | null {
     return absolute.startsWith(base) ? absolute.slice(base.length) : null;
 }
 
-type Target = {scheme: string; provider: DirectoryProvider; path: string; absolute: string; address: string};
+/** `absolute` 与 `realRoot` 都是真实路径（符号链接已解开）：引擎拿到的、回头反查的都是它们。 */
+type Target = {scheme: string; provider: DirectoryProvider; path: string; absolute: string; realRoot: string; address: string};
 type TargetResult = {ok: true; value: Target} | {ok: false; code: FilesFailure; message: string};
 
 export function editTool(input: {resources: ResourceAccess; stores: SnapshotStores}): ToolDefinition {
@@ -67,10 +68,13 @@ export function editTool(input: {resources: ResourceAccess; stores: SnapshotStor
         const {provider, path, address} = opened.value;
         if (provider.kind !== "directory") return {ok: false, code: "read-only", message: `${address} 是虚拟方案的资源，只能 read，不能 edit`};
         if (provider.readonly) return {ok: false, code: "read-only", message: `${address} 所在的方案只读`};
-        // 引擎会自己读头里的文件来核对标签、并把内容回显在错误里，所以根外的路径要在交给引擎之前按真实路径拦下
+        // 引擎会自己读头里的文件来核对标签、并把内容回显在错误里，所以根外的路径要在交给引擎之前按真实路径拦下；
+        // 交给引擎的也是真实路径：核对之后链接被换到根外，引擎读的仍是核对过的那个文件（目录级的替换仍有窗口，见 Spec 输出 6）
         const located = await provider.locate(path);
         if (!located.ok) return {ok: false, code: located.code, message: located.detail};
-        return {ok: true, value: {scheme: address.slice(0, address.indexOf("://")), provider, path, absolute: located.value, address}};
+        const realRoot = await provider.locate(".");
+        if (!realRoot.ok) return {ok: false, code: realRoot.code, message: realRoot.detail};
+        return {ok: true, value: {scheme: address.slice(0, address.indexOf("://")), provider, path, absolute: located.value, realRoot: realRoot.value, address}};
     };
 
     return defineTool({
@@ -89,13 +93,19 @@ export function editTool(input: {resources: ResourceAccess; stores: SnapshotStor
                 if (!target.ok) return {ok: false, code: target.code, message: target.message};
                 targets.set(target.value.absolute, target.value);
             }
-            /** 引擎给的绝对路径 → 本次打开过的提供者与它眼里的相对路径。 */
+            /**
+             * 引擎给的绝对路径 → 本次打开过的提供者与它眼里的相对路径：头里打开过的路径就是它自己的方案；
+             * 别的路径（move 的目标）按根最长的提供者算——根互相嵌套时内层的文件属于内层方案。
+             */
             const ownerOf = (absolute: string): {target: Target; path: string} | null => {
+                const own = targets.get(absolute);
+                if (own !== undefined) return {target: own, path: own.path};
+                let best: {target: Target; path: string} | null = null;
                 for (const target of targets.values()) {
-                    const path = relativeToRoot(target.provider.root, absolute);
-                    if (path !== null) return {target, path};
+                    const path = relativeToRoot(target.realRoot, absolute);
+                    if (path !== null && (best === null || target.realRoot.length > best.target.realRoot.length)) best = {target, path};
                 }
-                return null;
+                return best;
             };
             const addressOf = (absolute: string): string => {
                 const owner = ownerOf(absolute);

@@ -48,12 +48,13 @@ export interface Runtime {
 export type SessionStatus = {
     phase: "idle" | "running" | "waiting-user" | "aborting";
     invocationId?: string;
-    pending: PendingInteraction[];
+    /** 冻结：多个调用方共用同一份缓存（Spec 输出 5）。 */
+    pending: readonly PendingInteraction[];
     queue: {steer: number; followUp: number};
     profileId?: string;
     model?: string;
     /** 上下文用量：最近一次受理的模型与压缩设置可知时才有；还没有助手消息报告用量时 `tokens` 是按回放上下文的估算（`source: "estimated"`）。 */
-    context?: {tokens: number; source: "reported" | "estimated"; window: number; threshold: number};
+    context?: Readonly<{tokens: number; source: "reported" | "estimated"; window: number; threshold: number}>;
 };
 export type PromptOptions = {streamingBehavior?: "steer" | "followUp"; profileId?: string; model?: string; signal?: AbortSignal};
 export type ContinueOptions = {signal?: AbortSignal};
@@ -66,7 +67,7 @@ export type Invocation = {
     /** 下一个需要调用方处理的点：这次调用进入等待用户（带待处理事项），或结束。等待中再调用立即返回同一组事项。 */
     next(): Promise<InvocationStep>;
 };
-export type InvocationStep = {kind: "waiting"; pending: PendingInteraction[]} | {kind: "done"; result: InvocationResult};
+export type InvocationStep = {kind: "waiting"; pending: readonly PendingInteraction[]} | {kind: "done"; result: InvocationResult};
 export type InvocationError = {kind: "model" | "limit" | "log" | "profile" | "compaction"; message: string; overflow?: boolean};
 export type InvocationResult = {status: "completed" | "waiting" | "aborted" | "failed"; error?: InvocationError; entries: readonly SessionEntry[]};
 export type InteractionAnswer = {interactionId: string; decision: "approve" | "reject"; scope?: "once" | "session"; note?: string};
