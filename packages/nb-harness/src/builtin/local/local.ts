@@ -1,12 +1,13 @@
 /**
- * 本地文件访问（docs/specs/harness/builtin-tools.md 输出 1）：一个已存在的目录当根，所有路径都是根内相对路径。
+ * 本地文件访问（docs/specs/harness/builtin-tools.md 输出 1）：一个已存在的目录当根，所有路径都是根内相对路径；作为目录型提供者登记到方案上。
  * 越界判两次：先按字面规范化，再按真实路径（符号链接指向根外也算越界）。
  */
 
-import {statSync} from "node:fs";
+import {mkdirSync, statSync} from "node:fs";
 import {lstat, mkdir, readdir, readFile, realpath, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, isAbsolute, normalize, relative, resolve, sep} from "node:path";
-import type {FileAccess, FileKind, FilesFailure, FilesResult} from "../types";
+import {join} from "node:path";
+import type {DirectoryProvider, FileKind, FilesFailure, FilesResult, SchemeContext} from "../types";
 
 const fail = <T>(code: FilesFailure, detail: string): FilesResult<T> => ({ok: false, code, detail});
 const errorCode = (error: unknown): string => (error as {code?: string}).code ?? (error instanceof Error ? error.message : String(error));
@@ -17,7 +18,7 @@ function insideRoot(root: string, absolute: string): boolean {
     return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
-export function createLocalFileAccess(options: {root: string}): FileAccess {
+export function createLocalFileAccess(options: {root: string; readonly?: boolean}): DirectoryProvider {
     if (!isAbsolute(options.root)) throw new TypeError(`根必须是绝对路径：${options.root}`);
     const normalized = normalize(options.root);
     // 文件系统的根本身就是一个分隔符，去尾部分隔符时要留住它
@@ -62,7 +63,10 @@ export function createLocalFileAccess(options: {root: string}): FileAccess {
         return resolved.ok ? realInsideRoot(resolved.value) : resolved;
     };
 
+    const readonly = options.readonly === true;
     return {
+        kind: "directory",
+        readonly,
         root,
         resolve: resolvePath,
         locate,
@@ -110,6 +114,7 @@ export function createLocalFileAccess(options: {root: string}): FileAccess {
             }
         },
         async write(path, content) {
+            if (readonly) return fail("read-only", `只读方案，不能写入：${path}`);
             const target = await locate(path);
             if (!target.ok) return target;
             try {
@@ -122,6 +127,7 @@ export function createLocalFileAccess(options: {root: string}): FileAccess {
             }
         },
         async remove(path) {
+            if (readonly) return fail("read-only", `只读方案，不能删除：${path}`);
             const target = await locate(path);
             if (!target.ok) return target;
             try {
@@ -134,5 +140,19 @@ export function createLocalFileAccess(options: {root: string}): FileAccess {
                 return code === "ENOENT" ? fail("not-found", `不存在：${path}`) : fail("io-failed", code);
             }
         },
+    };
+}
+
+/**
+ * 按会话各一个目录的提供者工厂（`local://` 用）：`root/<会话 id>`，第一次打开时创建。会话 id 里不是 `[A-Za-z0-9_.-]` 的字符换成 `_`。
+ * 目录不随会话结束删除：里面是会话的工作文件，由使用方按自己的规则清理。
+ */
+export function createSessionDirectories(options: {root: string}): (context: SchemeContext) => DirectoryProvider {
+    if (!isAbsolute(options.root)) throw new TypeError(`根必须是绝对路径：${options.root}`);
+    return (context) => {
+        const safe = context.sessionId.replace(/[^A-Za-z0-9_.-]/gu, "_");
+        const directory = join(options.root, safe === "" ? "session" : safe);
+        mkdirSync(directory, {recursive: true});
+        return createLocalFileAccess({root: directory});
     };
 }

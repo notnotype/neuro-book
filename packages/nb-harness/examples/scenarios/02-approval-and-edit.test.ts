@@ -45,15 +45,15 @@ describe("示例场景 2：审批与 edit", () => {
         stage = await createStage("02-approval-and-edit");
         const model = scriptedModel([
             // 会话 s1 第一次：读 → 改（等审批）→ 回复
-            {calls: [{id: "c1", name: "read", args: {path: "chapter-1.md"}}]},
+            {calls: [{id: "c1", name: "read", args: {path: "project://chapter-1.md"}}]},
             editSecondLine("c2", "林岚站在远航号的甲板上。"),
             {text: "改好了。"},
             // 会话 s1 第二次：再改一次，这次不问
-            {calls: [{id: "c3", name: "read", args: {path: "chapter-1.md"}}]},
+            {calls: [{id: "c3", name: "read", args: {path: "project://chapter-1.md"}}]},
             editSecondLine("c4", "林岚站在远航号的甲板上，望着海。"),
             {text: "又改了一处。"},
             // 会话 s2：被拒绝
-            {calls: [{id: "c5", name: "read", args: {path: "chapter-1.md"}}]},
+            {calls: [{id: "c5", name: "read", args: {path: "project://chapter-1.md"}}]},
             editSecondLine("c6", "这一行不会写进去。"),
             {text: "好的，不改了。"},
         ]);
@@ -94,7 +94,7 @@ describe("示例场景 2：审批与 edit", () => {
         // edit 的回显带新标签，模型可以据此连续修改
         const [, edited] = toolResults(result.entries);
         expect(edited?.isError).toBe(false);
-        expect(edited?.text).toContain("chapter-1.md#");
+        expect(edited?.text).toContain("project://chapter-1.md#");
 
         // 同一会话第二次 edit：本会话内允许，直接执行，没有新的询问
         const again = await session.prompt({content: "再加一句望着海。"});

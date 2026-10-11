@@ -56,10 +56,10 @@ describe("示例场景 5：命令行", () => {
                 const n = requests.length;
                 if (n === 1) await gate.promise;
                 const step = (n - 1) % 3;
-                if (step === 0) return sse(n, {calls: [{id: `read-${n}`, name: "read", args: {path: "chapter-1.md"}}]});
+                if (step === 0) return sse(n, {calls: [{id: `read-${n}`, name: "read", args: {path: "project://chapter-1.md"}}]});
                 if (step === 1) {
                     const tool = [...body.messages].reverse().find((message) => message.role === "tool");
-                    const header = /\[chapter-1\.md#[0-9A-Fa-f]{4}\]/u.exec(String(tool?.content))?.[0];
+                    const header = /\[project:\/\/chapter-1\.md#[0-9A-Fa-f]{4}\]/u.exec(String(tool?.content))?.[0];
                     if (header === undefined) throw new Error(`read 的结果里没有标签头：${JSON.stringify(tool)}`);
                     return sse(n, {calls: [{id: `edit-${n}`, name: "edit", args: {input: `${header}\nPUT 2.=2:\n+林岚站在远航号的甲板上。\n`}}]});
                 }

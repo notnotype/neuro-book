@@ -41,7 +41,8 @@ owners:
   | `projects://` | 已登记项目的列表，`projects://<短名>/路径` 指向该项目目录下的资源 | 虚拟列表，项目内为真实目录型 | 供 Agent 跨项目使用；harness 在需要真实路径处替换为项目目录的绝对路径；随 nb-harness 实现 |
   | `user://` | 状态根下的 `user/`（不存在时创建） | 真实目录型 | 跨项目共享；由服务端实例提供 |
   | `tmp://` | 按系统映射的临时目录 | 真实目录型 | 使用方是 Agent 文件工具，随 nb-harness 实现 |
-  | `local://` | Agent 会话的工作目录 | 真实目录型 | 只在 Agent 会话上下文中有效；随 nb-harness 实现 |
+  | `local://` | Agent 会话的工作目录 | 真实目录型 | 只在 Agent 会话上下文中有效；随 nb-harness 实现（内核阶段根由使用方给，按会话 id 各一个目录） |
+  | `artifact://` | Agent 会话里超过预算、溢出保存的工具结果，`artifact://<序号>` | 虚拟，只读 | 只在 Agent 会话上下文中有效；随 nb-harness 实现（[`harness.builtin-tools`](../harness/builtin-tools.md)） |
   | `docs://` | 产品参考文档目录 | 真实目录型，只读 | 随 nb-harness 实现 |
 
 - 插件可以注册新方案；同一方案只能有一个提供者，重复注册被拒绝。注册接口随第一个插件方案（剧情插件的 `plot://`）实现。

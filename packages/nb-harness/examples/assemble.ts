@@ -6,8 +6,9 @@
  * 1. 配置快照：`createConfigStore` 校验并冻结一份配置；校验失败会一次列出全部问题（不是第一条），这里直接抛出。
  *    运行时按它建模型目录，之后 `replace` 配置，目录跟着变。
  * 2. 凭据：OMP 的 SQLite 凭据库，路径由我们给（`:memory:` 是内存库）；key 经 `apiKeys` 写进去，内核不会去读环境变量。
- * 3. 文件访问：`createLocalFileAccess({root})` 把工作区当根，根外的路径（`../x`、绝对路径、指向根外的符号链接）一律 `outside-root`。
- *    内置的 `read`、`edit` 只经它读写。
+ * 3. 资源寻址：内置的 `read`、`edit` 按 `方案://路径` 读写，方案由这里登记（docs/specs/workspace/resources.md 的首批方案）：
+ *    `project://` 作品目录（`createLocalFileAccess({root})` 把一个目录当根，根外的路径一律 `outside-root`）、`local://` 本会话的工作目录
+ *    （按会话 id 各建一个）、`tmp://` 临时目录、`docs://` 只读的参考文档。产品里 `project://` 由项目实例提供、`tmp://` 映射系统临时目录。
  * 4. Profile 主机：注册方的节点与数据源在这里登记（示例注册了 `<WorkspaceTree />`）；运行时创建时会把自己的字段登记进来。
  *    不注册任何东西的使用方可以不传 `host`。
  * 5. 会话存储：JSONL，每个会话一个文件；目录要先存在。
@@ -21,8 +22,9 @@ import {mkdir} from "node:fs/promises";
 import {join} from "node:path";
 import {createRuntime} from "@notnotype/nb-harness";
 import type {Runtime, RuntimeDeps, StreamFn} from "@notnotype/nb-harness";
-import {createBuiltinTools} from "@notnotype/nb-harness/builtin";
-import {createLocalFileAccess} from "@notnotype/nb-harness/builtin/local";
+import {fileURLToPath} from "node:url";
+import {createBuiltinTools, createResourceAccess} from "@notnotype/nb-harness/builtin";
+import {createLocalFileAccess, createSessionDirectories} from "@notnotype/nb-harness/builtin/local";
 import {createCompactionRegistry} from "@notnotype/nb-harness/compaction";
 import type {CompactionMethod, CompleteImpl} from "@notnotype/nb-harness/compaction";
 import {createConfigStore} from "@notnotype/nb-harness/config";
@@ -35,8 +37,10 @@ import {registerWorkspaceTree} from "./nodes/workspace-tree";
 export type AssembleOptions = {
     /** 工具的根：模型只能读写这个目录里的文件。必须已存在。 */
     workspace: string;
-    /** 会话与凭据库的目录；不存在会创建。 */
+    /** 会话与凭据库的目录；不存在会创建。`local://` 的会话目录与 `tmp://` 也放在它下面。 */
     state: string;
+    /** `docs://` 指向的只读目录；缺省是示例自带的 `examples/docs/`。 */
+    docs?: string;
     /** `HarnessConfig` 形状的配置（见 docs/specs/harness/config.md）。 */
     config: unknown;
     profiles: readonly Profile[];
@@ -64,14 +68,21 @@ export async function assemble(options: AssembleOptions): Promise<Assembled> {
     if (!config.ok) throw new Error(`配置无效：\n${config.problems.map((problem) => `  ${problem.path}: ${problem.reason}`).join("\n")}`);
 
     await mkdir(join(options.state, "sessions"), {recursive: true});
+    await mkdir(join(options.state, "tmp"), {recursive: true});
     const credentials = await openCredentials({sqlitePath: join(options.state, "auth.sqlite"), ...(options.apiKeys === undefined ? {} : {apiKeys: options.apiKeys})});
     if (!credentials.ok) throw new Error(`凭据库打不开：${credentials.detail}`);
 
     // 凭据库已经打开：后面任一步失败都要先关掉它再抛，否则调用方拿不到 Assembled、也就没法关
     try {
-        const access = createLocalFileAccess({root: options.workspace});
+        const project = createLocalFileAccess({root: options.workspace});
+        const resources = createResourceAccess({
+            project: {provider: project, doc: "作品目录"},
+            local: {provider: createSessionDirectories({root: join(options.state, "local")}), doc: "本会话的工作目录，放草稿与中间产物"},
+            tmp: {provider: createLocalFileAccess({root: join(options.state, "tmp")}), doc: "临时目录"},
+            docs: {provider: createLocalFileAccess({root: options.docs ?? fileURLToPath(new URL("./docs/", import.meta.url)), readonly: true}), doc: "写作参考文档，只读"},
+        });
         const host = createProfileHost();
-        registerWorkspaceTree(host, access);
+        registerWorkspaceTree(host, project);
 
         const compaction = createCompactionRegistry(options.compaction?.soft === undefined ? {} : {soft: options.compaction.soft});
         for (const method of options.compaction?.methods ?? []) {
@@ -84,7 +95,7 @@ export async function assemble(options: AssembleOptions): Promise<Assembled> {
             profiles: createProfileCatalog([{source: "examples", profiles: options.profiles}]),
             host,
             credentials: credentials.value,
-            tools: [createBuiltinTools({access})],
+            tools: [createBuiltinTools({resources})],
             compaction,
             store: createJsonlSessionStore({root: join(options.state, "sessions")}),
             ...(options.maxTurns === undefined ? {} : {limits: {maxTurns: options.maxTurns}}),

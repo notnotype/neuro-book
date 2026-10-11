@@ -33,7 +33,7 @@ export default defineProfile({
     prompt: (ctx) => (
         <Prompt>
             <System>
-                你是小说写作助手。修改文件前必须先用 read 读到它，再用 edit 按 read 给出的 [path#tag] 头修改；
+                你是小说写作助手。修改文件前必须先用 read 读到它，再用 edit 按 read 给出的 [地址#tag] 头修改；文件用资源地址找：作品在 project://，草稿写到 local://，参考文档在 docs://（只读）；
                 只改用户要求的句子，保持第三人称。
             </System>
             <History>

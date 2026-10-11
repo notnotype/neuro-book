@@ -28,7 +28,7 @@
 | Profile | 一类 Agent 的声明：系统提示词、历史里的种子、每次调用追加的消息、字段（工具、模型、压缩、审批） | `defineProfile`、`loadProfile` | [`harness.profile`](../../../docs/specs/harness/profile.md) |
 | 节点、数据源、字段 | 都经主机注册；内置的也一样。节点在渲染时只读已取好的数据 | `host.registerNodeType`、`registerSource`、`registerField` | 同上 |
 | 工具与审批 | 工具按内核协议定义；每次调用前按策略、配置、本会话内允许、审批模式判定放行、拒绝、询问用户或交审批模型 | `defineTool`、`approval` 配置、`session.resolve` | [`harness.tools`](../../../docs/specs/harness/tools.md) |
-| 文件访问 | 受根约束的读写接口；内置 `read`、`edit` 只经它碰文件 | `createLocalFileAccess` | [`harness.builtin-tools`](../../../docs/specs/harness/builtin-tools.md) |
+| 资源寻址 | `方案://路径`；每个方案一个受根约束的目录型提供者或只读的虚拟提供者；内置 `read`、`edit` 只经它碰文件 | `createResourceAccess`、`createLocalFileAccess`、`createSessionDirectories` | [`harness.builtin-tools`](../../../docs/specs/harness/builtin-tools.md)、[`workspace.resources`](../../../docs/specs/workspace/resources.md) |
 | 压缩 | 把一段历史压成摘要条目并重写种子；方法走注册，`soft` 内置 | `createCompactionRegistry`、`session.compact()` | [`harness.compaction`](../../../docs/specs/harness/compaction.md) |
 | 模型与凭据 | 配置里自建的服务加 OMP 目录；key 在凭据库里，内核不读环境变量 | `createModelCatalog`、`openCredentials` | [`harness.models`](../../../docs/specs/harness/models.md)、[`harness.config`](../../../docs/specs/harness/config.md) |
 

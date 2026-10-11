@@ -3,7 +3,7 @@ import {mkdir, readFile, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {createHarness, kinds, testProfile} from "../runtime/testing/harness";
 import type {Harness} from "../runtime/testing/harness";
-import {createBuiltinTools} from "./builtin";
+import {createBuiltinTools, createResourceAccess} from "./builtin";
 import {createLocalFileAccess} from "./local/local";
 
 const harnesses: Harness[] = [];
@@ -19,17 +19,17 @@ describe("经运行时使用内置工具（场景 4）", () => {
         const root = join(first.root, "project");
         await mkdir(root, {recursive: true});
         await writeFile(join(root, "ch1.md"), "第一章\n林岚出海了。\n", "utf8");
-        first.deps.tools.push(createBuiltinTools({access: createLocalFileAccess({root})}));
+        first.deps.tools.push(createBuiltinTools({resources: createResourceAccess({project: {provider: createLocalFileAccess({root}), doc: "作品目录"}})}));
 
         // 脚本：第一次请求调 read；第二次请求从工具结果里取标签头写 edit；第三次结束。句柄建 Agent 时读 deps.model，所以先设再建会话
         let tag = "";
         first.deps.model = {stream: (model, ctx) => {
             const last = ctx.messages.at(-1)!;
             const text = last.role === "toolResult" ? last.content.map((block) => ("text" in block ? block.text : "")).join("") : "";
-            if (last.role === "toolResult" && text.startsWith("[ch1.md#")) tag = text.split("\n")[0]!;
+            if (last.role === "toolResult" && text.startsWith("[project://ch1.md#")) tag = text.split("\n")[0]!;
             const calls = ctx.messages.filter((message) => message.role === "toolResult").length;
             const reply = calls === 0
-                ? {calls: [{id: "c1", name: "read", args: {path: "ch1.md"}}]}
+                ? {calls: [{id: "c1", name: "read", args: {path: "project://ch1.md"}}]}
                 : calls === 1
                     ? {calls: [{id: "c2", name: "edit", args: {input: `${tag}\nPUT 2.=2:\n+林岚出海了，船名叫远航。\n`}}]}
                     : {text: "改好了"};

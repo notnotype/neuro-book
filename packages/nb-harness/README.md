@@ -6,7 +6,7 @@ NeuroBook 的 Agent harness：会话日志、Profile、配置、模型与凭据�
 
 做：每个会话一个 OMP `Agent`，外面加上只追加的会话日志、状态机与排队、审批等待与崩溃后的恢复、Profile 渲染、压缩与带序号的事件。使用方拿到的是 `Runtime` 与 `AgentSession` 两个接口。
 
-不做：传输与推送（SSE、WebSocket）、界面、配置文件的读写与分层合成、凭据从哪来（内核不读环境变量）、工具能碰哪些文件（由使用方给一个受根约束的 `FileAccess`）。这些都由使用方决定并以依赖传入。
+不做：传输与推送（SSE、WebSocket）、界面、配置文件的读写与分层合成、凭据从哪来（内核不读环境变量）、工具能碰哪些文件（由使用方按方案登记受根约束的提供者：`project://`、`local://` 等）。这些都由使用方决定并以依赖传入。
 
 ## 入口
 
@@ -31,8 +31,8 @@ NeuroBook 的 Agent harness：会话日志、Profile、配置、模型与凭据�
 
 ```ts
 import {createRuntime} from "@notnotype/nb-harness";
-import {createBuiltinTools} from "@notnotype/nb-harness/builtin";
-import {createLocalFileAccess} from "@notnotype/nb-harness/builtin/local";
+import {createBuiltinTools, createResourceAccess} from "@notnotype/nb-harness/builtin";
+import {createLocalFileAccess, createSessionDirectories} from "@notnotype/nb-harness/builtin/local";
 import {createConfigStore} from "@notnotype/nb-harness/config";
 import {openCredentials} from "@notnotype/nb-harness/models";
 import {createProfileCatalog} from "@notnotype/nb-harness/profile";
@@ -58,7 +58,11 @@ const runtime = createRuntime({
     config: config.value,
     profiles: createProfileCatalog([{source: "user", profiles: [profile.value]}]),
     credentials: credentials.value,
-    tools: [createBuiltinTools({access: createLocalFileAccess({root: "/path/to/workspace"})})],
+    // 内置工具按资源地址读写：模型写 read project://chapter-1.md；方案由使用方登记（docs/specs/workspace/resources.md）
+    tools: [createBuiltinTools({resources: createResourceAccess({
+        project: {provider: createLocalFileAccess({root: "/path/to/workspace"}), doc: "作品目录"},
+        local: {provider: createSessionDirectories({root: "/path/to/state/local"}), doc: "本会话的工作目录"},
+    })})],
     store: createJsonlSessionStore({root: "/path/to/state/sessions"}),      // 目录要先存在
 });
 

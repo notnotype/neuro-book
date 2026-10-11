@@ -34,7 +34,7 @@ describe("示例场景 1：第一次调用", () => {
     test("模型读了第一章再回答；日志、模型看到的上下文与事件都能对上", async () => {
         stage = await createStage("01-first-invocation");
         const model = scriptedModel([
-            {calls: [{id: "c1", name: "read", args: {path: "chapter-1.md"}}]},
+            {calls: [{id: "c1", name: "read", args: {path: "project://chapter-1.md"}}]},
             {text: "第一章写林岚在 1987 年从青岛出航。"},
             {text: "好的。"},
         ]);
@@ -71,10 +71,10 @@ describe("示例场景 1：第一次调用", () => {
         ]);
         expect(result.entries).toEqual(session.log.entries);
 
-        // read 的结果：标签头加行号；标签是内容哈希，edit 要用它
+        // read 的结果：地址标签头加行号；标签是内容哈希，edit 要用它
         const [read] = toolResults(result.entries);
         expect(read?.isError).toBe(false);
-        expect(read?.text).toMatch(/^\[chapter-1\.md#[0-9a-z]+\]\n1: 第一章 出航\n2: 林岚站在甲板上。\n3: /u);
+        expect(read?.text).toMatch(/^\[project:\/\/chapter-1\.md#[0-9a-z]+\]\n1: 第一章 出航\n2: 林岚站在甲板上。\n3: /u);
 
         // 模型第一次看到的：系统提示词来自 <System>；历史开头是种子，其中工作区列表列出了两个条目；本次输入在最后
         const first = model.contexts[0]!;

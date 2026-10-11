@@ -39,7 +39,7 @@ describe("示例场景 3：排队与恢复", () => {
     test("steer 在工具批次之后送达，followup 在完成后自动开始下一次调用", async () => {
         stage = await createStage("03-queue");
         const model = scriptedModel([
-            {calls: [{id: "c1", name: "read", args: {path: "chapter-1.md"}}]},
+            {calls: [{id: "c1", name: "read", args: {path: "project://chapter-1.md"}}]},
             {text: "明白，不剧透。第一章写出航。"},
             {text: "这是追加的那次调用的回复。"},
         ]);
@@ -83,7 +83,7 @@ describe("示例场景 3：排队与恢复", () => {
         const chapter = join(stage.workspace, "chapter-1.md");
         // 第一个“进程”：读 → 改 → 等审批时丢掉一切（不 close）
         const crashing = scriptedModel([
-            {calls: [{id: "c1", name: "read", args: {path: "chapter-1.md"}}]},
+            {calls: [{id: "c1", name: "read", args: {path: "project://chapter-1.md"}}]},
             editSecondLine("c2", "林岚站在远航号的甲板上。"),
         ]);
         const first = await assemble({
