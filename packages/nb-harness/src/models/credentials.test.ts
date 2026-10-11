@@ -135,7 +135,7 @@ describe("凭据（输出 5–9）", () => {
         roots.push(root);
         const path = join(root, "auth.sqlite");
         const writer = await AuthStorage.create(path);
-        await writer.set(model.provider, {type: "oauth", refresh: "r", access: "access-token-1", expires: Date.now() + 3_600_000, email: "me@example.com"});
+        await writer.credentials.set(model.provider, {type: "oauth", refresh: "r", access: "access-token-1", expires: Date.now() + 3_600_000, email: "me@example.com"});
         writer.close();
 
         const a = await openCredentials({sqlitePath: path});
@@ -151,8 +151,8 @@ describe("凭据（输出 5–9）", () => {
         process.env[envName] = "sk-from-env";
         try {
             const b = await AuthStorage.create(path);
-            await b.reload();
-            await b.remove(model.provider);
+            await b.credentials.reload();
+            await b.credentials.remove(model.provider);
             b.close();
             expect(await a.value.apiKeyFor(model)).toBeUndefined();
         } finally {

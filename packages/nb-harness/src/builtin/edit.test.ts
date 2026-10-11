@@ -135,6 +135,7 @@ describe("工具说明（输出 6）", () => {
         expect(edit.description).toContain("PUT N.=M:");
         expect(edit.description).toContain("[PATH#TAG]");
         expect(edit.description).toContain("<harness>");
-        expect(edit.description.length).toBeGreaterThan(3000);
+        // OMP 18.4 的说明压缩到约 2 KB；判据是“含 OMP 的语法说明”，不是具体长度
+        expect(edit.description.length).toBeGreaterThan(1500);
     });
 });

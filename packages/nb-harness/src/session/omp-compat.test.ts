@@ -63,13 +63,13 @@ describe("与 OMP 兼容（输出 23）", () => {
         expect(prepareCompaction([...log.entries], {enabled: true, keepRecentTokens: 100, remoteEnabled: false})).toBeDefined();
     });
 
-    test("给 runtime 的约束：OMP Agent 缺省的 convertToLlm 会丢掉 developer 消息，交会话上下文时要自己传保留四种角色的转换", async () => {
+    test("给 runtime 的约束：交会话上下文时自己传保留四种角色的 convertToLlm，developer 消息到达模型（OMP 18.2 的缺省会丢掉它，18.4 起缺省保留；运行时不依赖缺省）", async () => {
         const log = await logWith([[seed("规则", {role: "developer"}), userMessage("问")]]);
         const context = buildModelContext(log.entries);
         expect(context.map((message) => message.role)).toEqual(["developer", "user"]);
 
         const byDefault = await requestSeenByModel(context);
-        expect(byDefault.map((message) => message.role)).toEqual(["user", "user"]);
+        expect(byDefault.map((message) => message.role)).toEqual(["developer", "user", "user"]);
         const kept = await requestSeenByModel(context, {convertToLlm: keepAllRoles});
         expect(kept.map((message) => message.role)).toEqual(["developer", "user", "user"]);
     });

@@ -74,7 +74,8 @@ describe("目录与解析（输出 1、2）", () => {
         expect(code("a/b c")).toBe("invalid-model-ref");
         expect(code("nowhere/model")).toBe("unknown-provider");
         expect(code(`${bundledModel.provider}/does-not-exist`)).toBe("unknown-model");
-        expect(code("local/qwen")).toBe("unknown-provider");
+        // OMP 18.4 的目录里有了 local 服务；用一个目录里肯定没有的名字
+        expect(code("self-hosted/qwen")).toBe("unknown-provider");
     });
 
     test("输出 2：配置的 api 不是 OMP 内置的也没有注册为自定义 API → unsupported-api（list 照常列出）；注册之后可以解析；配置明确给出的能力不被 OMP 的目录修正覆盖", () => {

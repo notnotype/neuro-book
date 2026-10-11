@@ -13,10 +13,11 @@ import type {Capabilities, CapabilityProblem, ModelCatalog, ModelResult, ModelSu
 const MODEL_REF_PATTERN = /^([A-Za-z0-9._-]+)\/([^\s\p{Cc}]+)$/u;
 const ZERO_COST = {input: 0, output: 0, cacheRead: 0, cacheWrite: 0};
 
-// 与 OMP 18.2.5 的 KnownApi 对齐：少一个 typecheck 就失败（satisfies）；OMP 没有导出这份运行时清单。
+// 与 OMP 18.4.6 的 KnownApi 对齐：少一个 typecheck 就失败（satisfies）；OMP 没有导出这份运行时清单。
 const KNOWN_API_IDS = [
     "openai-completions", "openai-responses", "openrouter", "openai-codex-responses", "azure-openai-responses", "anthropic-messages",
-    "bedrock-converse-stream", "google-generative-ai", "google-gemini-cli", "google-vertex", "ollama-chat", "cursor-agent", "gitlab-duo-agent", "devin-agent",
+    "bedrock-converse-stream", "google-generative-ai", "google-gemini-cli", "google-vertex", "ollama-chat", "cursor-agent", "factory-droid-agent", "gitlab-duo-agent", "devin-agent",
+    "apple-foundation-models",
 ] as const satisfies readonly KnownApi[];
 type MissingKnownApi = Exclude<KnownApi, (typeof KNOWN_API_IDS)[number]>;
 true satisfies MissingKnownApi extends never ? true : ["KNOWN_API_IDS 缺少", MissingKnownApi];

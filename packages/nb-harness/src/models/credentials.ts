@@ -1,8 +1,8 @@
 /**
  * 凭据（docs/specs/harness/models.md 输出 5–9）：包一层 OMP 的 `AuthStorage`。
  *
- * “内核不读环境变量”：OMP 的 `getApiKey` 把该服务的环境变量排在存下的 API key 之前、OAuth 之后，没有开关；
- * 所以 API key 直接从存下的凭据里读，只有 OAuth 才经 `getApiKey` 换访问令牌。`status` 用 `hasNonEnvCredential` 判断有没有凭据。
+ * “内核不读环境变量”：OMP 的 `keys.get` 是带环境变量回退的级联，没有开关；所以 API key 直接从存下的凭据（`credentials`）里读，
+ * 只有 OAuth 才经只看存储的 `oauth.access` 换访问令牌。`status` 用 `credentials.has` 判断有没有存下的凭据。
  */
 
 import {AuthStorage, getOAuthProviders} from "@oh-my-pi/pi-ai";
@@ -16,25 +16,25 @@ function wrap(storage: AuthStorage): Credentials {
         async apiKeyFor(model: Model) {
             if (closed) return undefined;
             // 直接读存下的凭据：OMP 的 getApiKey 把环境变量排在存下的 API key 之前，经它拿会读到环境变量。
-            const credential = storage.get(model.provider);
+            const credential = storage.credentials.get(model.provider);
             if (credential === undefined) return undefined;
             if (credential.type === "api_key") return credential.key;
-            // OAuth 走只看存储的入口（含刷新）：getApiKey 在 OAuth 不可用时也会回落到环境变量。
-            const access = await storage.getOAuthAccess(model.provider);
+            // OAuth 走只看存储的入口（含刷新）：keys.get 在 OAuth 不可用时也会回落到环境变量。
+            const access = await storage.oauth.access(model.provider);
             return access?.accessToken;
         },
         async setApiKey(provider, key) {
             if (closed) return;
-            await storage.set(provider, {type: "api_key", key});
+            await storage.credentials.set(provider, {type: "api_key", key});
         },
         async removeApiKey(provider) {
             if (closed) return;
-            await storage.remove(provider);
+            await storage.credentials.remove(provider);
         },
         status(provider) {
             if (closed) return {kind: null};
-            if (storage.hasOAuth(provider)) return {kind: "oauth"};
-            return {kind: storage.hasNonEnvCredential(provider) ? "api_key" : null};
+            if (storage.credentials.hasOAuth(provider)) return {kind: "oauth"};
+            return {kind: storage.credentials.has(provider) ? "api_key" : null};
         },
         loginProviders() {
             if (closed) return [];
@@ -44,7 +44,7 @@ function wrap(storage: AuthStorage): Credentials {
             if (closed) return {ok: false, code: "login-failed", detail: "凭据存储已关闭"};
             if (controller.signal?.aborted) return {ok: false, code: "login-cancelled", detail: "登录开始前已取消"};
             try {
-                const identity = await storage.login(provider, {
+                const identity = await storage.oauth.login(provider as Parameters<typeof storage.oauth.login>[0], {
                     ...controller,
                     onAuth: controller.onAuth ?? (() => undefined),
                     onPrompt: controller.onPrompt ?? (async () => ""),
@@ -59,12 +59,13 @@ function wrap(storage: AuthStorage): Credentials {
         },
         async logout(provider) {
             if (closed) return;
-            await storage.logout(provider);
+            // 登出就是删掉该服务存下的凭据（18.4 没有单独的 logout 入口）
+            await storage.credentials.remove(provider);
         },
         accounts(provider) {
             if (closed) return [];
             // accountId 在 OMP 里是可选的（Google、Copilot 的登录就没有），不能拿它过滤；credentialId 才是稳定句柄。
-            return storage.listOAuthAccounts(provider).map((account) => {
+            return storage.oauth.accounts(provider).map((account) => {
                 const label = account.email ?? account.projectId ?? account.orgName;
                 return {credentialId: account.credentialId, active: account.active, ...(account.accountId === undefined ? {} : {accountId: account.accountId}), ...(label === undefined ? {} : {label})};
             });
@@ -93,7 +94,7 @@ async function notSqlite(path: string): Promise<boolean> {
 async function ready(storage: AuthStorage, label: string): Promise<ModelResult<Credentials>> {
     try {
         // 构造或 create 只打开库，不把已有凭据读进内存（实测重开后 get 为 undefined）；reload 才读。
-        await storage.reload();
+        await storage.credentials.reload();
         return {ok: true, value: wrap(storage)};
     } catch (error) {
         storage.close();

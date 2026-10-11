@@ -141,7 +141,21 @@ read omp://sdk.md               # 读某一篇
 7. **错误文本即产品行为**：`crates/pi-edit` 的注释明确「error strings are byte-identical to the TypeScript implementation they replace; models are trained on them」，不要翻译或改写。
 8. `pi-ai` 的类型入口会把 `AssistantMessageEventStream` 作为**类型**再导出（`export type`），需要**值**（如测试替身）时从子路径取：`@oh-my-pi/pi-ai/utils/event-stream` 的 `createAssistantMessageEventStream()`。
 
-## 8. 本仓库的使用位置
+## 8. 2026-10-11 升级到 18.4.6 时实测的差异
+
+本包的四个依赖（`pi-ai`、`pi-catalog`、`pi-agent-core`、`pi-natives`）一起从 18.2.5 升到 18.4.6（w00002 t18）。上面各节的数字仍是 18.2.5 的；升级时碰到的接口变化：
+
+| 变化 | 本包的处理 |
+|---|---|
+| `AuthStorage` 的扁平方法拆成子接口：`credentials`（`get`/`set`/`remove`/`has`/`hasOAuth`/`reload`）、`keys`（带环境变量回退的级联 `get`）、`oauth`（`login`/`access`/`accounts`）；`getApiKey`、`reload` 留作兼容跳板；`hasNonEnvCredential`、`logout`、`listOAuthAccounts`、`getOAuthAccess` 没了 | `src/models/credentials.ts` 改用 `credentials.*` 与 `oauth.*`；登出就是 `credentials.remove`；“不读环境变量”仍靠不走 `keys.get` |
+| `Agent` 缺省的 `convertToLlm` 改为保留 `developer` 消息 | 运行时本来就显式传保留四种角色的转换；`omp-compat.test.ts` 的断言改为两种都保留 |
+| `KnownApi` 多了 `factory-droid-agent`、`apple-foundation-models` | `catalog.ts` 的 `KNOWN_API_IDS`（`satisfies` 检查会先失败） |
+| 目录里多了服务 `local` | 测试里“肯定不存在的服务”改名 |
+| `editDescription("hashline")` 从约 5 KB 压缩到约 2 KB，语法记号不变 | 测试的长度下限改为 1.5 KB |
+| `EditSession` 多了第四个参数 `resolveUrl(url) → {path | error, planWritable}`：带方案的头由宿主解析；`EditPolicy` 去掉 `localSandboxRoot`，加 `urlSchemes`、`urlAliasSchemes`、`planWritableRoots` | `edit.ts` 的策略对象；资源寻址（t18 提交 2）用这个回调 |
+| `pi-agent-core` 导出 `Tokenizer`（已知分词器家族精确计数，其它按字节除 4；`NODE_ENV=test` 下一律字节估算） | `status.context` 的用量估算（t17）在 18.2.5 已有这个导出 |
+
+## 9. 本仓库的使用位置
 
 | 能力 | 使用点 |
 | --- | --- |
