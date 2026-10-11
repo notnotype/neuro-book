@@ -25,8 +25,10 @@
     },
     "scripts": {
         "test": "bun test",
+        "test:examples": "bun test examples",
         "test:llm": "NBOOK_LLM_TESTS=1 bun test .llm.test.ts",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "example:cli": "bun examples/cli.ts"
     },
     "dependencies": {
         "@oh-my-pi/pi-agent-core": "18.2.5",
