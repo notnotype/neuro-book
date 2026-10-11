@@ -65,6 +65,6 @@ issueId: i193
 | 6 `runtime` | [t14](tasks/t14-harness-runtime/README.md) | 已实现；旧原型与 `nb-session`、`nb-profile` 已删除 | 与 t13 合一审查 12 条，全部处理 |
 | 7 内置工具 | [t15](tasks/t15-harness-builtin-tools/README.md) | 已实现 | 审查 8 条，全部处理 |
 
-七份 Spec 都是 `planned`、注册表标“待晋升”；三处真实模型冒烟（models、compaction、runtime）2026-10-11 经开发者授权用专属键 `NBOOK_LLM_*`（`.env` 里的 gpt-6-luna 服务，见 [`docs/testing/README.md`](../../../docs/testing/README.md#真实模型测试)）跑过，`bun run test:llm` 3 pass；跑出两处只在真实服务上才暴露的测试问题（自建提供方要显式给 `contextWindow`、摘要断言不能拿 JSON 串比对），已修。
+七份 Spec 2026-10-11 经开发者批准晋升 `implemented`（术语表随之）；三处真实模型冒烟（models、compaction、runtime）2026-10-11 经开发者授权用专属键 `NBOOK_LLM_*`（`.env` 里的 gpt-6-luna 服务，见 [`docs/testing/README.md`](../../../docs/testing/README.md#真实模型测试)）跑过，`bun run test:llm` 3 pass；跑出两处只在真实服务上才暴露的测试问题（自建提供方要显式给 `contextWindow`、摘要断言不能拿 JSON 串比对），已修。
 
-2026-10-11 治理与文档：七份 Spec 按 [`docs/specs/README.md`](../../../docs/specs/README.md) 核对（证据固定标签、实现合同不列文件、公开入口与导出对齐、批准依据首行），新增 [术语表](../../../docs/specs/harness/glossary.md)；待确认清单 8 条开发者追认；包使用文档 [`packages/nb-harness/README.md`](../../../packages/nb-harness/README.md) 与示例 [`packages/nb-harness/examples/`](../../../packages/nb-harness/examples/README.md)（装配、示例 Profile、注册节点、四个脚本化场景、一个真实模型场景、命令行；场景与真实模型场景、命令行都跑通）。Spec 晋升 `implemented` 待开发者批准。
+2026-10-11 治理与文档：七份 Spec 按 [`docs/specs/README.md`](../../../docs/specs/README.md) 核对（证据固定标签、实现合同不列文件、公开入口与导出对齐、批准依据首行），新增 [术语表](../../../docs/specs/harness/glossary.md)；待确认清单 8 条开发者追认；包使用文档 [`packages/nb-harness/README.md`](../../../packages/nb-harness/README.md) 与示例 [`packages/nb-harness/examples/`](../../../packages/nb-harness/examples/README.md)（装配、示例 Profile、注册节点、四个脚本化场景、一个真实模型场景、命令行；场景与真实模型场景、命令行都跑通）。Spec 晋升 `implemented` 同日获批。

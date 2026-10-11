@@ -1,5 +1,5 @@
 /**
- * Profile：TSX 提示词布局、节点与数据源与字段的注册、渲染。行为合同见 docs/specs/harness/profile.md（planned）。
+ * Profile：TSX 提示词布局、节点与数据源与字段的注册、渲染。行为合同见 docs/specs/harness/profile.md。
  * JSX 运行时在子入口 `profile/jsx-runtime`、`profile/jsx-dev-runtime`；加载 Profile 文件在 `profile/loader`。
  */
 

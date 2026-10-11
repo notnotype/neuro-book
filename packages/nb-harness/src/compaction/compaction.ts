@@ -1,6 +1,6 @@
 /**
  * 压缩：方法注册与按顺序选择、内置 soft（包 OMP 本地摘要）、压缩条目与种子的一批写入、阈值判断、Profile 字段 harness/compaction。
- * 行为合同见 docs/specs/harness/compaction.md（planned）。
+ * 行为合同见 docs/specs/harness/compaction.md。
  */
 
 export type {

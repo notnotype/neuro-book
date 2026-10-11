@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: glossary
-status: planned
+status: implemented
 capability: harness.glossary
 owners:
   - nb-harness

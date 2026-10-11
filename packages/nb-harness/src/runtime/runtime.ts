@@ -1,6 +1,6 @@
 /**
  * 运行时：把 session、profile、config、models、tools、compaction 装配成可用的 Agent；每个会话一个 OMP Agent。
- * 行为合同见 docs/specs/harness/runtime.md（planned）。
+ * 行为合同见 docs/specs/harness/runtime.md。
  */
 
 import {createSession, openSession} from "../session/session";

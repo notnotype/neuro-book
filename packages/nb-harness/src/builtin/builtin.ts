@@ -1,5 +1,5 @@
 /**
- * 内置工具：受根约束的文件访问接口、read 与 edit。行为合同见 docs/specs/harness/builtin-tools.md（planned）。
+ * 内置工具：受根约束的文件访问接口、read 与 edit。行为合同见 docs/specs/harness/builtin-tools.md。
  * 本地文件访问的实现在子入口 ./builtin/local（只有它用 Node 的文件系统）。
  */
 

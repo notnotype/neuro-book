@@ -1,5 +1,5 @@
 /**
- * 配置：合成好的配置变成内核用的快照——校验、缺省值、深冻结、替换与变化通知。行为合同见 docs/specs/harness/config.md（planned）。
+ * 配置：合成好的配置变成内核用的快照——校验、缺省值、深冻结、替换与变化通知。行为合同见 docs/specs/harness/config.md。
  */
 
 export type {ApprovalMode, ConfigProblem, ConfigResult, ConfigStore, HarnessConfig, JsonValue, ModelRef, ProviderConfig, ProviderModelConfig, RoleItem} from "./types";
