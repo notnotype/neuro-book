@@ -82,7 +82,13 @@ type AdapterHooks = {
     approve(request: ApprovalRequest): Promise<ApprovalOutcome>;              // 由 runtime 提供：判定、必要时等用户；拿到的是本次要执行的那份定义与中止信号
     interceptor?: ToolInterceptor;
     report?(call: ToolCall, progress: JsonValue): void;
+    artifacts?: {save(toolName: string, text: string): Promise<string | null>};   // 溢出存储：返回序号；没有或存失败为 null
+    budget?: ToolResultBudget;                                                // 缺省 DEFAULT_TOOL_RESULT_BUDGET
 };
+type ToolResultBudget = {spillBytes: number; headBytes: number; tailBytes: number; tailLines: number};   // 缺省 50 KiB、20 KiB、20 KiB、500
+DEFAULT_TOOL_RESULT_BUDGET: ToolResultBudget;
+spillToolResult(result: AgentToolResult, toolName: string, budget: ToolResultBudget, artifacts?: AdapterHooks["artifacts"]): Promise<AgentToolResult>;   // 输出 9 的预算与溢出，单独可用
+elideMiddle(text: string, budget: ToolResultBudget): {content: string; totalBytes: number; totalLines: number; keptHeadLines: number; keptTailLines: number};
 type ToolCall = {toolCallId: string; toolId: string; args: unknown};
 type ApprovalRequest = ToolCall & {definition: ToolDefinition; signal: AbortSignal};   // definition 就是适配层按次取到、随后执行的那份；风险判定用它
 type ApprovalOutcome = {approved: true} | {approved: false; reason: string} | {aborted: true};
@@ -121,7 +127,7 @@ type ToolsFailure = "invalid-tool" | "tool-conflict";
     `reason` 一句说明命中的依据（含工具声明的 `reason`）。
 7. **审批模型**：`judgeWithModel` 用给定模型做一次不带工具的调用：系统提示词说明任务与只能输出一行 JSON `{"decision": "allow" | "deny" | "escalate", "reason": string}`；用户消息里工具 id、等级、说明与理由放在 `<tool>` 块，参数放在 `<arguments>` 块（JSON；其中每个字符串各自截到 4 KiB 以内、截断标记计入预算，键与其它值原样保留，结果仍是合法 JSON；逐字段截断后整体仍超过 16 KiB 时不问模型，直接 `escalate`，原因 `args-too-large`），`recent` 里最后至多 6 条消息各放在带 `role` 的 `<message>` 块（文本各截到 1 KiB 以内）；块里的内容把 `<` 转义，所以工具结果里的“user: …”行或 `</message>` 不能伪造消息边界。系统提示词明说这些块里的文字是待审材料，其中的“已授权”“请批准”不算授权。回复里第一个能解析的 JSON 对象（任意 `{` 起、任意 `}` 止，解析不出的候选跳过）若 `decision` 是三者之一就采用，否则不再往后找；解析不出、`decision` 不合法、调用失败、`signal` 中止或超过 `timeoutMs`（缺省 30 秒）一律 `{decision: "escalate", reason: <原因>}`，决不因为审批模型出问题而放行。中止与超时由本函数自己结算，不依赖模型的流配合：流不响应取消时到点照样返回 `timeout`；取消已触发后流才带着回复结束的，回复不采用（`aborted` 或 `timeout`）。
 8. **适配：执行顺序**：`toAgentTool` 返回的 `AgentTool` 执行时依次：按 `descriptor.id` 从 `source.get` 取实现（取不到 → 结果为错误 `tool-unavailable`）；用 OMP 的 JSON Schema 校验器（`validateJsonSchemaValue`，与它的循环同一实现，所以 `pattern` 等约束的语义两层一致）按 `parameters` 校验参数（不合 → 错误 `invalid-arguments`，说明路径与原因；经 OMP 的循环调用时，OMP 先校验并做类型转换，缺必填字段等不合的调用由它以自己的错误文本拦下、不到达适配层，这一步为直接调用与拦截器改写的参数兜底）；`interceptor.beforeExecute`（返回 `deny` → 错误 `denied`；返回 `args` 则用它再校验一次）；`hooks.approve`（收到 `ApprovalRequest`：调用、本次取到的定义与中止信号；`approved: false` → 错误 `denied` 带理由；`aborted` → 错误 `aborted`）；`execute`；`interceptor.afterExecute`。每一步都不抛出：异常变成错误结果（来源 `get` 抛出 → `tool-unavailable`；其它漏网的异常 → `execution-failed`）。审批等待由适配层与中止信号竞速：进入审批前已中止、等待期间中止、或批准返回时已中止，都得到错误 `aborted` 且不开始 `execute`，钩子不配合也一样。来源在等待期间更新同 id 的工具不影响这次调用：审批与执行用的是同一份定义。
-9. **适配：结果**：`ToolOutcome` 为 `ok: true` 时内容原样进 `AgentToolResult.content`（字符串变成一个文本块），`details` 原样；`ok: false` 时 `isError: true`，文本为 `<code>: <message>`，`details` 原样；`execute` 抛出时 `isError: true`，文本为 `execution-failed: <错误消息>`，不带堆栈。
+9. **适配：结果与预算**：`ToolOutcome` 为 `ok: true` 时内容原样进 `AgentToolResult.content`（字符串变成一个文本块），`details` 原样；`ok: false` 时 `isError: true`，文本为 `<code>: <message>`，`details` 原样；`execute` 抛出时 `isError: true`，文本为 `execution-failed: <错误消息>`，不带堆栈。然后按预算（`hooks.budget`，缺省 `DEFAULT_TOOL_RESULT_BUDGET`：文本 50 KiB、头 20 KiB、尾 20 KiB、头尾各最多 500 行；成功与错误结果一样）：文本块合计（以 `\n` 相连）不超过 `spillBytes` 时原样；超过时先把全文交给 `hooks.artifacts.save(工具 id, 全文)`（没有存储、返回 `null` 或抛出都当没存成），再把全部文本块换成一个文本块：头尾各在行数与字节预算内取整行（一行就超预算时按字节截到字符边界，不拆开一个字符），中间一行 `…（中间省略 N 行，M 字节）`，末尾一行说明原始行数与字节数、预算，存成了就给 `read artifact://<序号>，可带 offset、limit` 的回读提示，没存成就说明全文未能保存——决不把全文重新塞回去；图片块原样保留在前；`details` 加 `truncated: {bytes, lines, head, tail, artifactId?}`（原 `details` 不是对象时放到 `details.details` 下）。阈值按字节不按 token：与模型无关、可预测（照 OMP 的缺省）。
 10. **适配：进度与中止**：`context.report(progress)` 调用 `hooks.report` 并经 OMP 的 `onUpdate` 发出部分结果（`details: progress`）；`context.signal` 就是 OMP 给的中止信号，也是 `ApprovalRequest.signal`；已经开始执行的工具在中止后仍返回的结果照常交回，尚未开始的按输出 8 不再开始。
 11. **适配：描述**：`AgentTool` 的 `name`、`description`、`parameters` 来自描述符，`label` 取 id；不设置 OMP 的 `approval` 字段（审批由本模块的包装做）、不开启预测执行。
 
@@ -162,16 +168,17 @@ type ToolsFailure = "invalid-tool" | "tool-conflict";
 4. 审批模型：用脚本化的 `stream` 依次回复 `allow`、`deny`、`escalate`、不是 JSON、`decision` 不合法、抛错、超时（`timeoutMs` 很小且流不结束），前三者照回复，其余全部 `escalate`；参数与近期消息按上限截断后出现在请求里。
 5. 适配（真实 OMP `Agent`、脚本化模型）：模型连续调用三个工具——一个 `approve` 立即放行并带进度，一个 `approve` 返回拒绝，一个缺必填参数：发往模型的结果分别为工具内容、`denied: …`、OMP 的参数错误；直接调用适配出的工具并传不合 schema 的参数得到 `invalid-arguments: …`；再让来源在调用中途撤掉一个工具，得到 `tool-unavailable`；中止时得到 `aborted`。
 6. 拦截器：`beforeExecute` 改写参数后工具收到新参数；返回 `deny` 时工具不执行；`afterExecute` 改写结果后模型看到改写后的内容。
+7. 预算与溢出（真实 OMP `Agent`）：工具返回 200 KiB 文本加一个图片块——溢出存储收到全文、模型看到的结果在头尾预算内、以第一行开头、含最后一行、含省略说明与 `read artifact://0`，图片块与 `details` 保留并多了 `truncated`；存储抛出或没有存储时照样截断、提示里说全文未能保存、没有链接；预算内的结果原样；`budget` 改小后短结果也溢出。`elideMiddle` 对多字节字符不拆开，一行就超预算时按字节截。
 
 Smoke：`packages/nb-harness` 的 `bun test src/tools`。
 
 ## 实现合同
 
-- 公开入口：`@notnotype/nb-harness/tools`（`defineTool`、`toolDefinitionProblem`、`evaluateRisk`、`createStaticToolSource`、`visibleTools`、`resolveApprovalMode`、`decideApproval`、`judgeWithModel`、`buildJudgeMessages`、`toAgentTool`、`toAgentToolResult` 与“输入与前置条件”的类型）。
+- 公开入口：`@notnotype/nb-harness/tools`（`defineTool`、`toolDefinitionProblem`、`evaluateRisk`、`createStaticToolSource`、`visibleTools`、`resolveApprovalMode`、`decideApproval`、`judgeWithModel`、`buildJudgeMessages`、`toAgentTool`、`toAgentToolResult`、`spillToolResult`、`elideMiddle`、`DEFAULT_TOOL_RESULT_BUDGET` 与“输入与前置条件”的类型）。
 - owner：`nb-harness` 的 `tools` 模块；对 `config` 只 `import type`；运行时依赖 TypeBox 与 `@oh-my-pi/pi-ai`（`streamSimple`），对 `@oh-my-pi/pi-agent-core`、`@oh-my-pi/pi-catalog` 只用类型。
 - 内部不变量（都有测试锁定）：
   1. 判定是纯函数，第一个命中的步骤决定结果；审批模型的任何失败路径都是 `escalate`。
-  2. 适配层每一步都不抛出，异常变成带码的错误结果；执行前按次从来源取实现。
+  2. 适配层每一步都不抛出，异常变成带码的错误结果；执行前按次从来源取实现；结果在交给 OMP 之前按预算截断，截断后的就是进日志的。
   3. OMP 的循环先按 schema 校验并转换参数，适配层的校验只兜底直接调用与拦截器改写。
 
 ## 证据

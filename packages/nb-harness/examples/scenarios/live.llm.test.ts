@@ -10,10 +10,13 @@ import {afterAll, describe, expect, test} from "bun:test";
 import {readFile} from "node:fs/promises";
 import {join} from "node:path";
 import {LLM_TEST_PROVIDER_ID, llmTestConfig} from "@notnotype/neuro-book-test-support/llm";
+import {defineProfile} from "@notnotype/nb-harness/profile";
+import {createStaticToolSource} from "@notnotype/nb-harness/tools";
 import {assemble} from "../assemble";
 import type {Assembled} from "../assemble";
 import {CHAPTER_1, createStage, loadWriterProfile, toolResults} from "../testing/stage";
 import type {Stage} from "../testing/stage";
+import {dumpTool} from "../tools/dump";
 
 const llm = llmTestConfig();
 let stage: Stage | null = null;
@@ -26,8 +29,10 @@ afterAll(async () => {
 describe.skipIf(llm === null)("示例：真实模型", () => {
     test("写作助手读第一章并回答；只读，文件不变", async () => {
         stage = await createStage("live");
+        const writer = await loadWriterProfile();
         assembled = await assemble({
-            workspace: stage.workspace, state: stage.state, profiles: [await loadWriterProfile()],
+            workspace: stage.workspace, state: stage.state, profiles: [writer, defineProfile({...writer, id: "dumper", fields: {...writer.fields, "harness/tools": ["read", "dump"]}})],
+            tools: [createStaticToolSource([dumpTool()])],
             config: {
                 // 自建提供方没有目录数据，contextWindow 要显式给（压缩阈值按它算）；数值不代表服务的真实上限
                 providers: [{id: LLM_TEST_PROVIDER_ID, api: llm!.api, baseUrl: llm!.baseUrl, models: [{id: llm!.model, contextWindow: 128_000}]}],
@@ -61,6 +66,24 @@ describe.skipIf(llm === null)("示例：真实模型", () => {
         const results = toolResults(result.entries);
         expect(results.some((item) => !item.isError && item.text.startsWith("[project://chapter-1.md#"))).toBe(true);
         expect(await readFile(join(stage.workspace, "chapter-1.md"), "utf8")).toBe("第一章 出航\n林岚站在远航号的甲板上。\n远处是 1987 年的青岛。\n");
+        await created.value.close();
+    }, 180_000);
+
+    test("超预算的工具结果：模型看到的是头尾加回读提示，全文在 artifacts 目录；模型能按提示回读指定行", async () => {
+        if (stage === null || assembled === null) throw new Error("上一条场景先装配");
+        const created = await assembled.runtime.createSession({profileId: "dumper"});
+        if (!created.ok) throw new Error(`${created.code}: ${created.detail}`);
+        const started = await created.value.prompt({content: "先调用 dump 工具。它的输出很长，会被截断并告诉你怎样用 read 回读全文；请按提示回读第 2000 行（用 offset 与 limit），把第 2000 行原文告诉我。不要修改任何文件。"});
+        if (!started.ok) throw new Error(`${started.code}: ${started.detail}`);
+        const result = await started.value.done;
+        if (result.status !== "completed") throw new Error(`调用 ${result.status}：${JSON.stringify(result.error)}`);
+        const results = toolResults(result.entries);
+        const dumped = results.find((item) => item.text.includes("read artifact://"));
+        expect(dumped?.isError).toBe(false);
+        expect(new TextEncoder().encode(dumped!.text).length).toBeLessThan(41 * 1024);
+        expect(results.some((item) => !item.isError && item.text.includes("2000: "))).toBe(true);
+        const files = await readFile(join(stage.state, "sessions", `${created.value.id}.artifacts`, "0.dump.log"), "utf8");
+        expect(files.split("\n")).toHaveLength(4000);
         await created.value.close();
     }, 180_000);
 });

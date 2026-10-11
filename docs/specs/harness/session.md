@@ -95,6 +95,13 @@ type EntryInput = DistributiveOmit<SessionEntry, "id" | "parentId" | "timestamp"
 createSession(store: SessionStore, options?: {id?: string; parentSession?: string; now?: () => Date}): Promise<Result<SessionLog>>;
 openSession(store: SessionStore, id: string, options?: {now?: () => Date}): Promise<Result<SessionLog>>;
 createMemorySessionStore(): SessionStore;
+createMemoryArtifactStore(): ArtifactStore;      // 溢出存储（输出 24）的内存实现；JSONL 存储旁的目录实现在 session/jsonl 入口
+safeToolName(toolName: string): string;           // 溢出文件名里的工具名：只留 [A-Za-z0-9_-]，最长 64，空了为 tool
+interface ArtifactStore {
+    save(sessionId: string, toolName: string, text: string): Promise<Result<{id: string; bytes: number}>>;   // 序号会话内从 0 起递增
+    read(sessionId: string, id: string): Promise<Result<string | null>>;    // 不存在为 null，不是失败
+    list(sessionId: string): Promise<Result<{id: string; toolName: string; bytes: number}[]>>;
+}
 withoutUndefined<T>(value: T): T;                  // 去掉任意深度值为 undefined 的键；OMP 消息写入前用
 
 interface SessionLog {
@@ -185,6 +192,7 @@ createJsonlSessionStore(options: {root: string}): SessionStore;
 21. **截断大字段**：`readPage` 返回的条目里，只有下列位置的字符串在超过 `fieldBudget` 字节（UTF-8）时被截短，截短后不超过预算且不拆开一个字符：文本块的 `text`、思考块的 `thinking`、字符串形式的消息 `content`、工具调用 `arguments` 里任意深度的字符串、`custom_message` 的 `content` 与 `details`、`custom` 的 `data` 里任意深度的字符串、`compaction` 的 `summary`；图片块的 `data` 超过预算时置为空字符串。条目类型、角色、各种 id、工具名、`customType` 等其它字段一律原样。`trimmed` 列出被截字段的路径（如 `message.content[2].text`）与原始字节数。截断只作用于返回值，不改变日志。
 22. **按 id 读取**：`readEntry` 返回指定 id 的完整条目与序号，没有该 id 为 `entry-not-found`。
 23. **与 OMP 兼容**：条目（不含会话头）满足 OMP `@oh-my-pi/pi-agent-core` 压缩模块的 `SessionEntry` 类型；`entries` 的浅副本（`[...entries]`，OMP 的签名要求可变数组，它不改写条目）可以交给它的 `prepareCompaction`，关闭远程与原生压缩（`remoteEnabled: false`）时它产生的文本摘要按 `compaction` 条目追加后，`buildModelContext` 按输出 12 回放。v1 的回放只使用压缩条目的 `summary` 与 `firstKeptEntryId`：`preserveData`、`providerReplayThroughEntryId` 照样保存与读回，但不参与回放，所以 OMP 的远程原生压缩（摘要只是占位、真正的历史在 `preserveData` 里）在 v1 不可用。
+24. **溢出存储**：工具结果超过预算时（[`harness.tools`](tools.md) 输出 9）全文存在这里，不进条目。`save` 给出会话内的序号（从 0 起递增，按会话分开），`read` 不存在的序号为 `null`，`list` 按序号升序给出序号、工具名与字节数。内存实现进程退出即丢。JSONL 实现 `createJsonlArtifactStore({root})`（`session/jsonl` 入口）：文件 `<root>/<会话 id>.artifacts/<序号>.<工具名>.log`（工具名经 `safeToolName`），目录第一次保存时创建；序号在进程内按会话缓存，第一次用到时扫目录续号，所以重开会话不会覆盖旧文件；写入先落同目录的临时文件再改名，读到的要么是完整的一份要么没有，失败时临时文件删掉、返回 `store-failed`；会话 id 不合规则为 `invalid-session-id`。
 
 ## 状态与转换
 
@@ -275,7 +283,7 @@ Smoke：`packages/nb-harness` 的 `bun test src/session`（JSONL 存储使用真
 
 ## 实现合同
 
-- 公开入口：`@notnotype/nb-harness/session`（`createSession`、`openSession`、`createMemorySessionStore`、`withoutUndefined`、回放与分页函数、`renderCompactionSummary`（压缩摘要在模型上下文里的文字形式，与输出 12 的回放一致）及“接口”一节的类型）与 `@notnotype/nb-harness/session/jsonl`（`createJsonlSessionStore`）。
+- 公开入口：`@notnotype/nb-harness/session`（`createSession`、`openSession`、`createMemorySessionStore`、`createMemoryArtifactStore`、`safeToolName`、`withoutUndefined`、回放与分页函数、`renderCompactionSummary`（压缩摘要在模型上下文里的文字形式，与输出 12 的回放一致）及“接口”一节的类型）与 `@notnotype/nb-harness/session/jsonl`（`createJsonlSessionStore`、`createJsonlArtifactStore`）。
 - owner：`nb-harness` 的 `session` 模块；只依赖 TypeBox 与 OMP 的类型（`import type`），不依赖本包其它模块。
 - 内部不变量（都有测试锁定）：
   1. `append` 在入队时就取输入的副本，补全后深冻结；`openSession` 接管存储返回的条目时同样克隆并深冻结。

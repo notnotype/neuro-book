@@ -72,6 +72,13 @@ type FilesResult<T> = {ok: true; value: T} | {ok: false; code: FilesFailure; det
 // 子入口 @notnotype/nb-harness/builtin/local
 createLocalFileAccess(options: {root: string; readonly?: boolean}): DirectoryProvider;   // root 必须是已存在的目录的绝对路径，否则抛 TypeError
 createSessionDirectories(options: {root: string}): (context: SchemeContext) => DirectoryProvider;   // local:// 用：root/<会话 id>，第一次打开时创建
+
+// artifact://（溢出的工具结果，只读）：读取接口按形状声明，与 harness.session 的 ArtifactStore 同形；本模块不依赖 session
+createArtifactProvider(reader: ArtifactReader): (context: SchemeContext) => VirtualProvider;
+interface ArtifactReader {
+    read(sessionId: string, id: string): Promise<{ok: true; value: string | null} | {ok: false; code: string; detail: string}>;
+    list(sessionId: string): Promise<{ok: true; value: {id: string; toolName: string; bytes: number}[]} | {ok: false; code: string; detail: string}>;
+}
 ```
 
 | 规则 | 内容 |
@@ -92,7 +99,7 @@ createSessionDirectories(options: {root: string}): (context: SchemeContext) => D
 6. **edit**：工具说明是 OMP 的 hashline 语法说明（`editDescription("hashline")`，模型按它训练过）加本模块的约束（路径是资源地址并列出可用方案、头只能来自本会话的 `read`、只读与虚拟方案不能改、没有新建文件的工具）。执行前先核每个 `[地址#tag]` 头：带前后空白为 `invalid-address`（引擎会去空白，本模块不替它猜），地址不合规则为 `invalid-address`，方案没登记为 `unknown-scheme`，虚拟或只读方案为 `read-only`，再经提供者 `locate`（真实路径，符号链接也认得出）不在根内为 `outside-root`；任一失败整次不交给引擎（引擎会自己读头里的文件来核对标签并把内容回显在错误里，根外的文件连读都不能读）。然后用本会话的快照存储新建一个 OMP `EditSession`（hashline 模式，`urlSchemes` 是登记的方案，`enforceSeenLines` 开，`allowFuzzy` 开），引擎遇到带方案的头经 `resolveUrl` 回调向本模块要真实绝对路径（同一套核对），`input` 原样交给引擎；引擎决定要写的文件后，每个绝对路径按本次打开过的目录型提供者的根反查方案、转回相对路径经该提供者 `write`（`delete` 操作经 `remove`，`move` 先写目标再删源）落盘，一次 `edit` 可以跨方案改多个文件；引擎回显的文本（含新标签、头是地址）原样作为工具内容，`details.files` 列出每个文件的 `path`（地址）、`op`、`warnings`。引擎报错（伪造标签、未展示的行、解析失败）→ 错误结果，文本照引擎、`code: "edit-rejected"`，磁盘不变（引擎拒绝时回显的文件内容也算展示过，这是 OMP 的语义）。引擎要写的路径不在任何已打开方案的根内（例如 `move` 的目标）或提供者判越界（悬空链接）→ `outside-root`（访问层的码原样保留，只有真正的 I/O 失败才是 `io-failed`），整次不落盘。
 7. **会话隔离**：快照存储按 `ToolContext.session.id` 分开：一个会话 `read` 登记的“展示过的行”不约束也不放行另一个会话。标签本身是文件内容的哈希（OMP 语义）：另一个会话拿同样的标签、文件内容没变时引擎照常接受；文件变了则按它的规则核对。`SnapshotStores.release(sessionId)` 丢弃该会话的存储。
 8. **工具来源**：`createBuiltinTools` 返回的 `ToolSource` 列出 `read`、`edit` 两个描述符，`get` 返回同一份定义（引用稳定）。
-9. **方案与提供者**：`createResourceAccess` 按方案名登记提供者或工厂（方案名不合规则、说明为空抛 `TypeError`）；`open(scheme, {sessionId})` 对没登记的方案返回 `undefined`，对工厂按会话 id 各建一份并复用（同一会话里 `read` 登记的快照与 `edit` 对的是同一个根）。`createLocalFileAccess({readonly: true})` 的 `write`、`remove` 为 `read-only`；`createSessionDirectories({root})` 的提供者根是 `root/<会话 id>`（id 里不是 `[A-Za-z0-9_.-]` 的字符换成 `_`），第一次打开时创建，不随会话结束删除。两个工具的说明列出 `schemes()` 的方案与说明，模型据此知道有哪些根。
+9. **方案与提供者**：`createResourceAccess` 按方案名登记提供者或工厂（方案名不合规则、说明为空抛 `TypeError`）；`open(scheme, {sessionId})` 对没登记的方案返回 `undefined`，对工厂按会话 id 各建一份并复用（同一会话里 `read` 登记的快照与 `edit` 对的是同一个根）。`createLocalFileAccess({readonly: true})` 的 `write`、`remove` 为 `read-only`；`createSessionDirectories({root})` 的提供者根是 `root/<会话 id>`（id 里不是 `[A-Za-z0-9_.-]` 的字符换成 `_`），第一次打开时创建，不随会话结束删除。两个工具的说明列出 `schemes()` 的方案与说明，模型据此知道有哪些根。`createArtifactProvider(reader)` 给出按会话的虚拟提供者：根列出本会话的序号，`artifact://<序号>` 的文本按 `read` 的 `offset`、`limit` 分页，不存在为 `not-found`，别的会话的序号看不到，有子路径为 `not-found`；读取层的失败一律 `io-failed`。
 
 ## 状态与转换
 

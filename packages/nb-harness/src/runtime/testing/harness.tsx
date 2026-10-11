@@ -17,7 +17,7 @@ import {createModelCatalog, openCredentials} from "../../models/models";
 import {Appending, createProfileCatalog, createProfileHost, defineProfile, Developer, History, Input, Prompt, Reminder, System, User} from "../../profile/profile";
 import type {JsonValue, Profile} from "../../profile/profile";
 import {createJsonlSessionStore} from "../../session/jsonl/jsonl";
-import {createMemorySessionStore} from "../../session/session";
+import {createMemoryArtifactStore, createMemorySessionStore} from "../../session/session";
 import type {SessionStore} from "../../session/session";
 import {createStaticToolSource, defineTool} from "../../tools/tools";
 import type {ToolDefinition, ToolSource} from "../../tools/tools";
@@ -156,7 +156,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     const store = options.store === "jsonl" ? createJsonlSessionStore({root: join(root, "sessions")}) : options.store ?? createMemorySessionStore();
     const deps: ResolvedDeps = {
         config: config.value, profiles: catalog, host: createProfileHost(), models: createModelCatalog({config: config.value.current}), credentials: credentials.value,
-        tools: options.sources ?? [createStaticToolSource(tools)], compaction: options.compaction ?? createCompactionRegistry(), store,
+        tools: options.sources ?? [createStaticToolSource(tools)], compaction: options.compaction ?? createCompactionRegistry(), store, artifacts: createMemoryArtifactStore(),
         ...(options.maxTurns === undefined ? {} : {limits: {maxTurns: options.maxTurns}}),
         model: {stream}, judge: {stream: judge.stream, timeoutMs: 1_000},
     };

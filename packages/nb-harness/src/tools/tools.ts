@@ -3,6 +3,7 @@
  */
 
 export type {
+    ToolResultBudget,
     AdapterHooks, ApprovalGrant, ApprovalMode, ApprovalOutcome, ApprovalRequest, Decision, JsonValue, JudgeRequest, Judgement, Risk, RiskDecision, ToolCall, ToolContext,
     ToolDefinition, ToolDescriptor, ToolInterceptor, ToolOutcome, ToolSource, ToolTier, ToolsFailure, ToolsResult,
 } from "./types";
@@ -11,3 +12,4 @@ export {createStaticToolSource, describeTool, visibleTools} from "./source";
 export {decideApproval, MODE_TABLE, resolveApprovalMode} from "./approval";
 export {buildJudgeMessages, judgeWithModel} from "./judge";
 export {toAgentTool, toAgentToolResult} from "./adapter";
+export {DEFAULT_TOOL_RESULT_BUDGET, elideMiddle, spillToolResult} from "./spill";

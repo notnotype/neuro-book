@@ -6,8 +6,8 @@ import type {Compacted, CompactionRegistry} from "../compaction/compaction";
 import type {ConfigStore} from "../config/config";
 import type {Credentials, ModelCatalog} from "../models/models";
 import type {Diagnostic, ProfileCatalog, ProfileHost} from "../profile/profile";
-import type {InteractionData, InvocationPhase, JsonValue, PendingInteraction, SessionEntry, SessionLog, SessionStore, SessionSummary} from "../session/session";
-import type {ApprovalMode, ToolInterceptor, ToolSource} from "../tools/tools";
+import type {ArtifactStore, InteractionData, InvocationPhase, JsonValue, PendingInteraction, SessionEntry, SessionLog, SessionStore, SessionSummary} from "../session/session";
+import type {ApprovalMode, ToolInterceptor, ToolResultBudget, ToolSource} from "../tools/tools";
 
 export type {ApprovalMode, Compacted, JsonValue, PendingInteraction, SessionEntry, SessionLog, SessionSummary, StreamFn};
 
@@ -27,14 +27,17 @@ export type RuntimeDeps = {
     /** 缺省 `createCompactionRegistry()`（只有 soft）。 */
     compaction?: CompactionRegistry;
     store: SessionStore;
-    limits?: {maxTurns?: number};
+    /** 工具结果超预算时的全文去处；缺省内存实现（进程退出即丢）。 */
+    artifacts?: ArtifactStore;
+    /** `toolResult` 缺的项按 harness.tools 的缺省预算。 */
+    limits?: {maxTurns?: number; toolResult?: Partial<ToolResultBudget>};
     now?: () => Date;
     model?: {stream?: StreamFn};
     judge?: {stream?: StreamFn; timeoutMs?: number};
 };
 
 /** 填好缺省项的依赖：运行时内部只用这份。 */
-export type ResolvedDeps = RuntimeDeps & Required<Pick<RuntimeDeps, "host" | "models" | "tools" | "compaction">>;
+export type ResolvedDeps = RuntimeDeps & Required<Pick<RuntimeDeps, "host" | "models" | "tools" | "compaction" | "artifacts">>;
 
 export interface Runtime {
     createSession(input: {profileId: string; id?: string; title?: string}): Promise<RuntimeResult<AgentSession>>;

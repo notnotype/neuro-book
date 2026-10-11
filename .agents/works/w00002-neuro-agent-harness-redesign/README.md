@@ -66,7 +66,7 @@ issueId: i193
 | 7 内置工具 | [t15](tasks/t15-harness-builtin-tools/README.md) | 已实现 | 审查 8 条，全部处理 |
 | 优化一 | [t16](tasks/t16-harness-ergonomics/README.md) | 已实现 | 审查 7 条，全部处理 |
 | 优化二（一） | [t17](tasks/t17-harness-kernel-edges/README.md) | 实现中 | 待审 |
-| 优化二（二） | [t18](tasks/t18-harness-resources-artifacts/README.md) | 未开始 | |
+| 优化二（二） | [t18](tasks/t18-harness-resources-artifacts/README.md) | 实现中（OMP 18.4.6、资源地址、artifact 溢出三个提交已落） | 待审 |
 
 七份 Spec 2026-10-11 经开发者批准晋升 `implemented`（术语表随之）；三处真实模型冒烟（models、compaction、runtime）2026-10-11 经开发者授权用专属键 `NBOOK_LLM_*`（`.env` 里的 gpt-6-luna 服务，见 [`docs/testing/README.md`](../../../docs/testing/README.md#真实模型测试)）跑过，`bun run test:llm` 3 pass；跑出两处只在真实服务上才暴露的测试问题（自建提供方要显式给 `contextWindow`、摘要断言不能拿 JSON 串比对），已修。
 

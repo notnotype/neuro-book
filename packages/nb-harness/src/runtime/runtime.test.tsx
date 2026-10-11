@@ -395,6 +395,35 @@ describe("缺省依赖、目录跟配置与上下文用量（输入、输出 5�
     });
 });
 
+describe("工具结果的预算（输入 artifacts、limits.toolResult；输出 3）", () => {
+    test("超预算的工具结果：全文进溢出存储（缺省内存），日志里的结果是头尾加 artifact://0 的回读提示；limits.toolResult 可改阈值", async () => {
+        const {harness, session} = await open({script: [{calls: [{id: "c1", name: "echo", args: {text: "y".repeat(60 * 1024)}}]}, {text: "好"}]});
+        const started = await session.prompt({content: "回显"});
+        if (!started.ok) throw new Error(`${started.code}: ${started.detail}`);
+        expect((await started.value.done).status).toBe("completed");
+        const result = session.log.entries.find((entry) => entry.type === "message" && entry.message.role === "toolResult");
+        const text = result?.type === "message" && result.message.role === "toolResult" ? result.message.content.map((block) => ("text" in block ? block.text : "")).join("") : "";
+        expect(text.length).toBeLessThan(45 * 1024);
+        expect(text).toContain("read artifact://0");
+        const stored = await harness.deps.artifacts.read(session.id, "0");
+        expect(stored.ok && stored.value).toBe(`回显：${"y".repeat(60 * 1024)}`);
+
+        const tight = await createHarness({script: [{calls: [{id: "c1", name: "echo", args: {text: "短短"}}]}, {text: "好"}]});
+        harnesses.push(tight);
+        tight.deps.limits = {toolResult: {spillBytes: 4}};
+        const created = await tight.runtime.createSession({profileId: "writer"});
+        if (!created.ok) throw new Error(created.code);
+        const run = await created.value.prompt({content: "回显"});
+        if (!run.ok) throw new Error(run.code);
+        await run.value.done;
+        const small = created.value.log.entries.find((entry) => entry.type === "message" && entry.message.role === "toolResult");
+        const smallText = small?.type === "message" && small.message.role === "toolResult" ? small.message.content.map((block) => ("text" in block ? block.text : "")).join("") : "";
+        expect(smallText).toContain("超过预算 4 字节");
+        expect(smallText).toContain("read artifact://0");
+        await created.value.close();
+    });
+});
+
 describe("预览（输出 17）", () => {
     test("场景 12：新会话 preview 得到种子、输入、系统提示词与请求消息，日志、状态不变、无事件；没有凭据也能预览；一次调用后 request 含历史、seeds 为空；字段拼错为 invalid-profile", async () => {
         const {harness, session, events} = await open({script: [{text: "好的"}], withKey: false});

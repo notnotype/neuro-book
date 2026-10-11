@@ -7,7 +7,7 @@ import {createCompactionRegistry} from "../compaction/compaction";
 import {createModelCatalog} from "../models/models";
 import {createProfileHost} from "../profile/profile";
 import type {ProfileHost} from "../profile/profile";
-import {createSession, openSession} from "../session/session";
+import {createMemoryArtifactStore, createSession, openSession} from "../session/session";
 import {registerRuntimeFields} from "./fields";
 import {recoverEntries, SessionHandle} from "./session";
 import type {AgentSession, ResolvedDeps, Runtime, RuntimeDeps, RuntimeFailure, RuntimeResult} from "./types";
@@ -30,7 +30,7 @@ function sessionFailure(code: string, detail: string): RuntimeResult<never> {
 }
 
 /**
- * 填缺省项：目录按配置存储建（配置 replace 后目录跟着变）；主机、工具、压缩注册表给空的。
+ * 填缺省项：目录按配置存储建（配置 replace 后目录跟着变）；主机、工具、压缩注册表给空的；溢出存储给内存的。
  * 用 getter 而不是拷一份：使用方传进来的 deps 对象是活的（测试在建好运行时之后换 model.stream、往 tools 里加来源），拷贝会把这条路断掉。
  */
 function resolveDeps(input: RuntimeDeps): ResolvedDeps {
@@ -38,6 +38,7 @@ function resolveDeps(input: RuntimeDeps): ResolvedDeps {
     const models = input.models ?? createModelCatalog({store: input.config});
     const tools = input.tools ?? [];
     const compaction = input.compaction ?? createCompactionRegistry();
+    const artifacts = input.artifacts ?? createMemoryArtifactStore();
     // 运行时的字段要登记在实际用的那个主机上：使用方事后换了 deps.host，换上来的主机第一次被用到时登记
     let registeredHost: ProfileHost | null = null;
     const resolved = {
@@ -52,6 +53,7 @@ function resolveDeps(input: RuntimeDeps): ResolvedDeps {
         get models() { return input.models ?? models; },
         get tools() { return input.tools ?? tools; },
         get compaction() { return input.compaction ?? compaction; },
+        get artifacts() { return input.artifacts ?? artifacts; },
     };
     for (const key of ["config", "profiles", "credentials", "store", "interceptor", "limits", "now", "model", "judge"] as const) {
         Object.defineProperty(resolved, key, {get: () => input[key], enumerable: true});

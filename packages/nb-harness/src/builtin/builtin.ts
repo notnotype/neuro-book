@@ -16,6 +16,8 @@ export type {
 } from "./types";
 export {createSnapshotStores} from "./stores";
 export {createResourceAccess} from "./resources";
+export {createArtifactProvider} from "./artifacts";
+export type {ArtifactReader} from "./artifacts";
 export {formatAddress, parseAddress} from "./address";
 export {readTool} from "./read";
 export {editTool} from "./edit";

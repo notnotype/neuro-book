@@ -2,8 +2,7 @@ import {afterAll, describe, expect, test} from "bun:test";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import {createResourceAccess, createSnapshotStores, editTool, formatAddress, parseAddress, readTool} from "./builtin";
-import type {VirtualProvider} from "./builtin";
+import {createArtifactProvider, createResourceAccess, createSnapshotStores, editTool, formatAddress, parseAddress, readTool} from "./builtin";
 import {createLocalFileAccess, createSessionDirectories} from "./local/local";
 import {context, textOf} from "./read.test";
 
@@ -58,12 +57,12 @@ describe("方案与提供者（输出 9）", () => {
         await mkdir(docs);
         await writeFile(join(project, "a.txt"), "alpha\nbeta\n", "utf8");
         await writeFile(join(docs, "guide.md"), "# 指南\n不要改我\n", "utf8");
-        const virtual: VirtualProvider = {
-            kind: "virtual",
-            stat: async (path) => (path === "." ? {ok: true, value: {kind: "directory", bytes: 0}} : path === "3" ? {ok: true, value: {kind: "file", bytes: 7}} : {ok: false, code: "not-found", detail: `没有 ${path}`}),
-            readText: async (path) => (path === "3" ? {ok: true, value: "one\ntwo\nthree"} : {ok: false, code: "not-found", detail: `没有 ${path}`}),
-            list: async () => ({ok: true, value: [{name: "3", kind: "file"}]}),
-        };
+        // artifact:// 由溢出存储的读取接口按会话构造：这里用一个按形状写的读取器（真实存储见 session 模块与示例场景 6）
+        const texts: Record<string, Record<string, string>> = {s1: {"3": "one\ntwo\nthree"}};
+        const virtual = createArtifactProvider({
+            read: async (sessionId, id) => ({ok: true, value: texts[sessionId]?.[id] ?? null}),
+            list: async (sessionId) => ({ok: true, value: Object.entries(texts[sessionId] ?? {}).map(([id, text]) => ({id, toolName: "dump", bytes: text.length}))}),
+        });
         const resources = createResourceAccess({
             project: {provider: createLocalFileAccess({root: project}), doc: "作品目录"},
             local: {provider: createSessionDirectories({root: join(root, "local")}), doc: "会话目录"},
@@ -107,7 +106,9 @@ describe("方案与提供者（输出 9）", () => {
         const page = await read.execute({path: "artifact://3", offset: 2, limit: 1}, context());
         expect(textOf(page)).toBe("2: two");
         expect(page.ok && page.details).toEqual({path: "artifact://3", lines: 1, truncated: false, editable: false});
-        expect(textOf(await read.execute({path: "artifact://9"}, context()))).toBe("not-found: 没有 9");
+        expect(textOf(await read.execute({path: "artifact://9"}, context()))).toBe("not-found: 没有 artifact://9");
+        expect(textOf(await read.execute({path: "artifact://3"}, context("s2")))).toBe("not-found: 没有 artifact://3");
+        expect(textOf(await read.execute({path: "artifact://3/x"}, context()))).toContain("not-found");
         const virtualEdit = await edit.execute({input: "[artifact://3#0000]\nPUT 1.=1:\n+x\n"}, context());
         expect(virtualEdit.ok ? null : virtualEdit.code).toBe("read-only");
     });

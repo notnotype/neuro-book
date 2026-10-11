@@ -147,6 +147,11 @@ const lookup = defineTool({
 - 凭据只在 OMP 的凭据库（SQLite，路径由使用方给）或使用方实现的存储里；`setApiKey`、`login(provider, controller)`（OAuth）、`accounts`。`:memory:` 每次打开各一份：关掉再开是另一份空库。
 - 压缩：一次调用完成后用量超过阈值就自动压缩（`harness/compaction` 字段），也可以 `session.compact()`；自建服务的模型要在配置里给 `contextWindow`，否则阈值算不出、`compact()` 报 `compaction-failed`；`status.context` 给当前用量与阈值（还没有助手消息报告用量时按回放上下文估算，`source: "estimated"`）。上下文溢出时调用以 `failed`（`overflow: true`）收口，使用方 `compact()` 后 `continue()`。内置 `soft` 是本地模型摘要（两到三次模型调用）；插件可以注册自己的方法。
 
+## 资源与溢出
+
+- 内置 `read`、`edit` 按资源地址 `方案://路径` 工作（[`workspace.resources`](../../docs/specs/workspace/resources.md) 的规则）；方案由使用方用 `createResourceAccess` 登记：目录型提供者是受根约束的 `FileAccess`（`createLocalFileAccess({root, readonly?})`），按会话的方案给工厂（`createSessionDirectories` 给 `local://`）；虚拟提供者只读。内核不预设任何方案。
+- 工具结果有统一预算（[`harness.tools`](../../docs/specs/harness/tools.md) 输出 9）：文本超过 50 KiB 时全文进溢出存储（`RuntimeDeps.artifacts`，缺省内存；JSONL 存储旁的目录用 `createJsonlArtifactStore`），上下文里留头尾各 20 KiB 与一句 `read artifact://N` 的回读提示；把 `createArtifactProvider(artifacts)` 登记成 `artifact://` 方案，模型就能按 `offset`、`limit` 回读。阈值经 `limits.toolResult` 调整。
+
 ## 测试
 
 - 合同测试与源码同目录（`bun test`），模型的流用 OMP `StreamFn` 脚本化（写法见 [`examples/testing/scripted-model.ts`](examples/testing/scripted-model.ts)），压缩的摘要传输用 `createCompactionRegistry({soft: {completeImpl}})` 脚本化，凭据库用 `:memory:`，不联网、不落盘。

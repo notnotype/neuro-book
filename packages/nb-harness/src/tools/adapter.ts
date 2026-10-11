@@ -1,7 +1,7 @@
 /**
  * 把内核协议的工具适配成 OMP `AgentTool`（docs/specs/harness/tools.md 输出 8–11）。
  *
- * 执行顺序固定：按次取实现 → 校验参数 → 拦截器 beforeExecute（改写的参数再校验一次）→ 审批钩子 → execute → 拦截器 afterExecute。
+ * 执行顺序固定：按次取实现 → 校验参数 → 拦截器 beforeExecute（改写的参数再校验一次）→ 审批钩子 → execute → 拦截器 afterExecute → 结果预算（超了溢出到 artifact）。
  * 每一步都不抛出：异常变成带码的错误结果，OMP 的循环把它当工具错误交给模型。审批等待多久由 runtime 的钩子决定，
  * 但中止由本层结算：钩子不配合也能结束等待，迟到的批准不再开始执行。
  */
@@ -9,6 +9,7 @@
 import type {AgentToolResult} from "@oh-my-pi/pi-agent-core";
 import {validateJsonSchemaValue} from "@oh-my-pi/pi-ai";
 import type {TSchema} from "typebox";
+import {DEFAULT_TOOL_RESULT_BUDGET, spillToolResult} from "./spill";
 import type {AdapterHooks, AgentTool, ApprovalOutcome, JsonValue, ToolCall, ToolContext, ToolDescriptor, ToolOutcome} from "./types";
 
 const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -113,7 +114,8 @@ export function toAgentTool(descriptor: ToolDescriptor, hooks: AdapterHooks): Ag
             } catch (error) {
                 outcome = failure("execution-failed", `适配层出错：${describe(error)}`);
             }
-            return toAgentToolResult(outcome);
+            // 结果进 OMP 之前按预算截断：日志里的工具结果就是模型看到的（回放等于上下文），全文在溢出存储
+            return spillToolResult(toAgentToolResult(outcome), descriptor.id, hooks.budget ?? DEFAULT_TOOL_RESULT_BUDGET, hooks.artifacts);
         },
     };
 }

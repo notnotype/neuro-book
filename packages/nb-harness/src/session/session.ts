@@ -25,6 +25,8 @@ export type {
 export {createSession, openSession} from "./log";
 export {withoutUndefined} from "./entries";
 export {createMemorySessionStore} from "./memory-store";
+export {createMemoryArtifactStore, safeToolName} from "./artifacts";
+export type {ArtifactStore, ArtifactSummary} from "./artifacts";
 export {buildModelContext, defineProjection, fold, planRecovery, renderCompactionSummary, sessionSettings, sessionStatus} from "./replay";
 export type {PendingInteraction, Projection, SessionSettings, SessionStatus} from "./replay";
 export {readEntry, readPage} from "./paging";

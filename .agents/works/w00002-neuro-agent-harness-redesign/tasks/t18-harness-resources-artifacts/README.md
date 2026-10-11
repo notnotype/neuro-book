@@ -21,7 +21,9 @@ t16 推迟的“通用工具结果预算”，按开发者 2026-10-11 的决定�
 ## 当前状态（2026-10-11）
 
 - 计划见 [`plan.md`](plan.md)。
-- 实现中。
+- 提交 1 `7411128f`（OMP 升级；凭据层改用 `credentials`/`oauth` 子接口，差异记在 [`docs/omp-capabilities.md`](../../../../../packages/nb-harness/docs/omp-capabilities.md) 第 8 节）、提交 2 `a9bb0fc1`（资源寻址；用实际引擎验证了跨方案 edit 与回显里的地址）、提交 3（artifact 存储、适配层溢出、`artifact://` 提供者、示例场景 6 与 live 回读场景）。
+- 验证：全包 `bun test` 213 pass、5 skip；`typecheck`；`docs:check`、`governance:check`；真实模型 `bun run test:llm` 6 pass（含新加的“模型按提示回读 artifact 第 2000 行”）。
+- 待 omp 审查。
 
 ## 依据
 

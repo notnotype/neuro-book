@@ -189,3 +189,5 @@ export function createJsonlSessionStore(options: {root: string}): SessionStore {
         },
     };
 }
+
+export {createJsonlArtifactStore} from "./artifacts";

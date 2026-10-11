@@ -19,8 +19,8 @@ import type {Compacted, CompactionSettings} from "../compaction/compaction";
 import type {Diagnostic, PreparedProfile, PromptContext, ProfileState} from "../profile/profile";
 import {buildModelContext, planRecovery, sessionSettings, sessionStatus, withoutUndefined} from "../session/session";
 import type {DistributiveOmit, EntryInput, InteractionData, InvocationPhase, JsonValue, SessionEntry, SessionLog, SessionStatus as ReplayedStatus} from "../session/session";
-import {createStaticToolSource, decideApproval, describeTool, judgeWithModel, toAgentTool} from "../tools/tools";
-import type {AdapterHooks, ApprovalMode, ApprovalOutcome, ApprovalRequest, ToolDescriptor} from "../tools/tools";
+import {createStaticToolSource, decideApproval, DEFAULT_TOOL_RESULT_BUDGET, describeTool, judgeWithModel, toAgentTool} from "../tools/tools";
+import type {AdapterHooks, ApprovalMode, ApprovalOutcome, ApprovalRequest, ToolDescriptor, ToolResultBudget} from "../tools/tools";
 import {accept, check} from "./accept";
 import type {Accepted, Checked} from "./accept";
 import type {AgentSession, InteractionAnswer, Invocation, InvocationError, InvocationResult, InvocationStep, Preview, PreviewOptions, PromptOptions, ResolvedDeps, RuntimeEvent, RuntimeResult, SessionStatus, UserInput} from "./types";
@@ -684,6 +684,20 @@ export class SessionHandle implements AgentSession {
 
     // ---- 审批 ----
 
+    /** 工具结果的预算与溢出去处（harness.tools 输出 9）：全文存到本会话名下，模型按 `artifact://<序号>` 回读。 */
+    #resultHooks(): Pick<AdapterHooks, "artifacts" | "budget"> {
+        const budget: ToolResultBudget = {...DEFAULT_TOOL_RESULT_BUDGET, ...this.#deps.limits?.toolResult};
+        return {
+            budget,
+            artifacts: {
+                save: async (toolName, text) => {
+                    const saved = await this.#deps.artifacts.save(this.id, toolName, text);
+                    return saved.ok ? saved.value.id : null;
+                },
+            },
+        };
+    }
+
     #hooks(current: Current): AdapterHooks {
         return {
             source: {list: () => [], get: (id) => this.#deps.tools.map((source) => source.get(id)).find((definition) => definition !== undefined)},
@@ -691,6 +705,7 @@ export class SessionHandle implements AgentSession {
             ...(this.#deps.interceptor === undefined ? {} : {interceptor: this.#deps.interceptor}),
             approve: (request) => this.#approve(current, request),
             report: () => undefined,
+            ...this.#resultHooks(),
         };
     }
 
@@ -908,7 +923,7 @@ export class SessionHandle implements AgentSession {
         const definition = this.#deps.tools.map((source) => source.get(toolName)).find((item) => item !== undefined);
         if (definition === undefined) return null;
         const descriptor = describeTool(definition);
-        const hooks: AdapterHooks = {source: createStaticToolSource([definition]), session: {id: this.id}, approve: async () => ({approved: true}), ...(this.#deps.interceptor === undefined ? {} : {interceptor: this.#deps.interceptor})};
+        const hooks: AdapterHooks = {source: createStaticToolSource([definition]), session: {id: this.id}, approve: async () => ({approved: true}), ...(this.#deps.interceptor === undefined ? {} : {interceptor: this.#deps.interceptor}), ...this.#resultHooks()};
         return {descriptor, tool: toAgentTool(descriptor, hooks)};
     }
 

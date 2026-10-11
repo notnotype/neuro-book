@@ -48,12 +48,18 @@ export type ToolInterceptor = {
     beforeExecute?(call: ToolCall): Promise<{args: unknown} | {deny: string}>;
     afterExecute?(call: ToolCall, outcome: ToolOutcome): Promise<ToolOutcome>;
 };
+/** 工具结果的预算（输出 9）：文本合计超过 `spillBytes` 就溢出，交给模型的留头 `headBytes`、尾 `tailBytes`，各最多 `tailLines` 行。 */
+export type ToolResultBudget = {spillBytes: number; headBytes: number; tailBytes: number; tailLines: number};
 export type AdapterHooks = {
     source: ToolSource;
     session: {id: string};
     approve(request: ApprovalRequest): Promise<ApprovalOutcome>;
     interceptor?: ToolInterceptor;
     report?(call: ToolCall, progress: JsonValue): void;
+    /** 溢出存储：返回会话内的序号；没有或存失败为 null（结果照样截断，只是没有回读链接）。 */
+    artifacts?: {save(toolName: string, text: string): Promise<string | null>};
+    /** 缺省 DEFAULT_TOOL_RESULT_BUDGET。 */
+    budget?: ToolResultBudget;
 };
 
 export type {AgentTool, ApprovalMode, Model, StreamFn};
