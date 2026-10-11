@@ -175,7 +175,10 @@ describe("Invocation.next()（输出 6）", () => {
         const {session} = await open({tools: [echoTool(), shellTool()], approvalMode: "write", script: [{calls: [{id: "c1", name: "shell", args: {cmd: "ls"}}]}, {text: "跑完了"}, {text: "直接回复"}]});
         const started = await session.prompt({content: "跑"});
         if (!started.ok) throw new Error(started.code);
-        const step = await started.value.next();
+        // 等待点未到时反复 next()：共用同一次等待，结算为同一个结果对象
+        const many = await Promise.all(Array.from({length: 100}, () => started.value.next()));
+        expect(new Set(many).size).toBe(1);
+        const step = many[0]!;
         expect(step.kind).toBe("waiting");
         if (step.kind !== "waiting") return;
         expect(step.pending.map((item) => item.request.toolCallId)).toEqual(["c1"]);

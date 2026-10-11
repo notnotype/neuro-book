@@ -222,7 +222,7 @@ type PreparedProfile = object;   // 不透明：只用于传回同一主机的�
 | `duplicate-registration` | 同一主机内 id 已注册 | 换 id，或先 `dispose` 旧的 |
 | `reserved-node` | 试图注册布局节点或 `Fragment` | 不注册这些 id |
 | `invalid-definition` | 节点类型、数据源或字段的定义不合规则 | 修正定义 |
-| `invalid-prompt` | 节点树不合规则、字段值不合 schema、数据源未注册或取数失败；诊断逐条给出原因与路径 | 修正 Profile 或注册所需的节点与数据源；预览界面直接展示诊断 |
+| `invalid-prompt` | 节点树不合规则、字段值不合 schema、数据源未注册或取数失败；诊断逐条给出原因与路径 | 修正 Profile 或注册所需的节点与数据源；预览界面直接展示诊断（运行时的 `preview()`，[`harness.runtime`](runtime.md) 输出 17） |
 | `cancelled` | `prepare` 或 `refresh` 时 `signal` 已中止 | 不需要处理 |
 | `module-load-failed` | Profile 模块执行或导入失败 | 修正 Profile 文件 |
 | `invalid-profile` | 默认导出不是 Profile，或 Profile 本身的字段不合规则 | 修正 Profile 文件 |

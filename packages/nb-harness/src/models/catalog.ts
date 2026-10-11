@@ -70,14 +70,12 @@ function indexConfig(config: HarnessConfig): Index {
     return {config, configured, configuredProviders};
 }
 
-const isStore = (config: HarnessConfig | ConfigStore): config is ConfigStore => typeof (config as ConfigStore).replace === "function";
-
 /**
- * 给快照时目录固定不变；给 `ConfigStore` 时每次按它的 `current` 看（Spec 输出 10）。
+ * 给快照时目录固定不变；给 `ConfigStore` 时每次按它的 `current` 看（Spec 输出 10）。两种入参用不同的键区分，不猜对象形状。
  * 快照是深冻结的不可变对象，所以按对象身份缓存索引：`replace` 换了快照才重建。
  */
-export function createModelCatalog(input: {config: HarnessConfig | ConfigStore}): ModelCatalog {
-    const snapshot = isStore(input.config) ? () => (input.config as ConfigStore).current : () => input.config as HarnessConfig;
+export function createModelCatalog(input: {config: HarnessConfig} | {store: ConfigStore}): ModelCatalog {
+    const snapshot = "store" in input ? () => input.store.current : () => input.config;
     let index: Index = indexConfig(snapshot());
     const current = (): Index => {
         const config = snapshot();

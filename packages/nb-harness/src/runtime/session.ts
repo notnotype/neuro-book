@@ -9,20 +9,21 @@
  * - `close()` 遇到等待用户的调用：不再写任何条目（下次打开按输出 13 恢复），只让 OMP 的循环停下来。
  */
 
-import {Agent} from "@oh-my-pi/pi-agent-core";
+import {Agent, Tokenizer} from "@oh-my-pi/pi-agent-core";
 import type {AgentEvent, AgentMessage, AgentTool} from "@oh-my-pi/pi-agent-core";
+import type {Model} from "@oh-my-pi/pi-catalog";
 import {isContextOverflow} from "@oh-my-pi/pi-ai/error";
 import type {AssistantMessage, Message, ToolResultMessage} from "@oh-my-pi/pi-ai";
 import {compactSession, shouldCompact} from "../compaction/compaction";
 import type {Compacted, CompactionSettings} from "../compaction/compaction";
-import type {PreparedProfile, PromptContext, ProfileState} from "../profile/profile";
+import type {Diagnostic, PreparedProfile, PromptContext, ProfileState} from "../profile/profile";
 import {buildModelContext, planRecovery, sessionSettings, sessionStatus, withoutUndefined} from "../session/session";
-import type {DistributiveOmit, EntryInput, InteractionData, InvocationPhase, JsonValue, SessionEntry, SessionLog} from "../session/session";
+import type {DistributiveOmit, EntryInput, InteractionData, InvocationPhase, JsonValue, SessionEntry, SessionLog, SessionStatus as ReplayedStatus} from "../session/session";
 import {createStaticToolSource, decideApproval, describeTool, judgeWithModel, toAgentTool} from "../tools/tools";
 import type {AdapterHooks, ApprovalMode, ApprovalOutcome, ApprovalRequest, ToolDescriptor} from "../tools/tools";
-import {accept} from "./accept";
-import type {Accepted} from "./accept";
-import type {AgentSession, InteractionAnswer, Invocation, InvocationError, InvocationResult, InvocationStep, PromptOptions, ResolvedDeps, RuntimeEvent, RuntimeResult, SessionStatus, UserInput} from "./types";
+import {accept, check} from "./accept";
+import type {Accepted, Checked} from "./accept";
+import type {AgentSession, InteractionAnswer, Invocation, InvocationError, InvocationResult, InvocationStep, Preview, PreviewOptions, PromptOptions, ResolvedDeps, RuntimeEvent, RuntimeResult, SessionStatus, UserInput} from "./types";
 
 const LLM_ROLES = new Set(["user", "developer", "assistant", "toolResult"]);
 /** OMP 缺省的 convertToLlm 会丢掉 developer 消息（session 的实测），运行时自己保留四种角色。 */
@@ -37,6 +38,8 @@ function plainContent(message: Message): string | (Extract<Message, {role: "user
 }
 
 type Pending = {interactionId: string; invocationId: string; settle(outcome: ApprovalOutcome): void};
+/** 最近一次受理取定的模型与压缩设置：status.context 按它算用量与阈值。 */
+type LastContext = {model: Model; window: number; settings: CompactionSettings};
 type Mode = {kind: "prompt"; input: UserInput} | {kind: "continue"} | {kind: "resume"; invocationId: string};
 type Current = {
     invocationId: string;
@@ -52,6 +55,8 @@ type Current = {
     settleDone(result: InvocationResult): void;
     done: Promise<InvocationResult>;
     next(): Promise<InvocationStep>;
+    /** 等待点未到时挂起的 `next()`：再调用共用它，不另订阅（Spec 输出 6）。 */
+    pendingNext: Promise<InvocationStep> | null;
 };
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -106,8 +111,13 @@ export class SessionHandle implements AgentSession {
     #seq = 0;
     #sessionMode: ApprovalMode | undefined;
     #lastModel: string | undefined;
-    /** 最近一次受理的模型窗口与压缩设置：status.context 按它算用量。 */
-    #lastContext: {window: number; settings: CompactionSettings} | null = null;
+    #lastContext: LastContext | null = null;
+    /**
+     * `status` 的两份缓存，都以日志的条目数组为键：日志每次追加换一个新的冻结数组，引用相同就是没有新条目，
+     * 不必重新回放（Spec 输出 5）；用量还要看最近一次受理的模型与设置的身份。
+     */
+    #replayCache: {entries: readonly SessionEntry[]; status: ReplayedStatus} | null = null;
+    #contextCache: {entries: readonly SessionEntry[]; last: LastContext; value: NonNullable<SessionStatus["context"]>} | null = null;
     #writes: Promise<unknown> = Promise.resolve();
     #invocationStart = 0;
     #logError = "";
@@ -141,8 +151,14 @@ export class SessionHandle implements AgentSession {
 
     // ---- 状态与事件 ----
 
+    #replayed(): ReplayedStatus {
+        const entries = this.log.entries;
+        if (this.#replayCache === null || this.#replayCache.entries !== entries) this.#replayCache = {entries, status: sessionStatus(entries)};
+        return this.#replayCache.status;
+    }
+
     get status(): SessionStatus {
-        const replayed = sessionStatus(this.log.entries);
+        const replayed = this.#replayed();
         return {
             phase: this.#phase,
             ...(this.#current === null ? (replayed.invocationId === undefined ? {} : {invocationId: replayed.invocationId}) : {invocationId: this.#current.invocationId}),
@@ -154,32 +170,40 @@ export class SessionHandle implements AgentSession {
         };
     }
 
-    #contextUsage(last: {window: number; settings: CompactionSettings}): NonNullable<SessionStatus["context"]> {
-        const decision = shouldCompact({entries: this.log.entries, contextWindow: last.window, settings: last.settings});
-        return {tokens: decision.contextTokens, window: last.window, threshold: decision.thresholdTokens};
+    #contextUsage(last: LastContext): NonNullable<SessionStatus["context"]> {
+        const entries = this.log.entries;
+        if (this.#contextCache !== null && this.#contextCache.entries === entries && this.#contextCache.last === last) return this.#contextCache.value;
+        const decision = shouldCompact({entries, contextWindow: last.window, settings: last.settings});
+        // 还没有助手消息报告用量：按回放出的上下文估算，界面在第一次回复前也有数可画
+        const value: NonNullable<SessionStatus["context"]> = decision.contextTokens === null
+            ? {tokens: new Tokenizer(last.model).countMessages(buildModelContext(entries)), source: "estimated", window: last.window, threshold: decision.thresholdTokens}
+            : {tokens: decision.contextTokens, source: "reported", window: last.window, threshold: decision.thresholdTokens};
+        this.#contextCache = {entries, last, value};
+        return value;
     }
 
     /** 输出 6 的 `Invocation.next()`：这次调用正在等待用户就立即给事项；否则等它进入等待或结束，先到的那个。 */
     #nextStep(current: Current): () => Promise<InvocationStep> {
-        return () => new Promise<InvocationStep>((resolve) => {
+        return () => {
             if (this.#current === current && this.#phase === "waiting-user") {
                 const {pending} = this.status;
-                if (pending.length > 0) {
-                    resolve({kind: "waiting", pending});
-                    return;
-                }
+                if (pending.length > 0) return Promise.resolve({kind: "waiting", pending});
             }
-            const subscription = this.subscribe((event) => {
-                if (event.type === "status" && event.status.phase === "waiting-user" && this.#current === current && event.status.pending.length > 0) {
+            if (current.pendingNext !== null) return current.pendingNext;
+            const waiting = new Promise<InvocationStep>((resolve) => {
+                const settle = (step: InvocationStep): void => {
                     subscription.release();
-                    resolve({kind: "waiting", pending: event.status.pending});
-                }
+                    current.pendingNext = null;
+                    resolve(step);
+                };
+                const subscription = this.subscribe((event) => {
+                    if (event.type === "status" && event.status.phase === "waiting-user" && this.#current === current && event.status.pending.length > 0) settle({kind: "waiting", pending: event.status.pending});
+                });
+                void current.done.then((result) => settle({kind: "done", result}));
             });
-            void current.done.then((result) => {
-                subscription.release();
-                resolve({kind: "done", result});
-            });
-        });
+            current.pendingNext = waiting;
+            return waiting;
+        };
     }
 
     subscribe(listener: (event: RuntimeEvent) => void): {release(): void} {
@@ -371,12 +395,12 @@ export class SessionHandle implements AgentSession {
     async #start(accepted: Accepted, mode: Mode, signal: AbortSignal | undefined): Promise<RuntimeResult<Invocation>> {
         const invocationId = mode.kind === "resume" ? mode.invocationId : crypto.randomUUID();
         const {promise, resolve} = Promise.withResolvers<InvocationResult>();
-        const current: Current = {invocationId, accepted, prepared: null, entries: [], turns: 0, limitHit: false, control: new AbortController(), failure: null, settleDone: resolve, done: promise, next: () => Promise.reject(new Error("未初始化"))};
+        const current: Current = {invocationId, accepted, prepared: null, entries: [], turns: 0, limitHit: false, control: new AbortController(), failure: null, settleDone: resolve, done: promise, next: () => Promise.reject(new Error("未初始化")), pendingNext: null};
         current.next = this.#nextStep(current);
         this.#current = current;
         this.#profileId = accepted.profile.id;
         this.#lastModel = accepted.modelRef;
-        this.#lastContext = {window: accepted.model.contextWindow ?? 0, settings: accepted.compaction};
+        this.#lastContext = {model: accepted.model, window: accepted.model.contextWindow ?? 0, settings: accepted.compaction};
         this.#phase = "running";
         if (mode.kind !== "resume") {
             const started = await this.#writeInvocation(invocationId, "start", {
@@ -401,12 +425,7 @@ export class SessionHandle implements AgentSession {
     async #execute(current: Current, mode: Mode): Promise<InvocationResult> {
         const {accepted, invocationId} = current;
         const fail = (kind: "profile" | "log", message: string): InvocationResult => ({status: "failed", error: {kind, message}, entries: current.entries});
-        const context: PromptContext = {
-            session: {id: this.id, createdAt: this.log.header.createdAt, ...(sessionSettings(this.log.entries).title === undefined ? {} : {title: sessionSettings(this.log.entries).title!})},
-            turn: countTurns(this.log.entries) + (mode.kind === "prompt" ? 1 : 0),
-            now: new Date(this.#now()),
-            fields: accepted.profile.fields,
-        };
+        const context = this.#promptContext(this.log.entries, accepted, mode.kind === "prompt" ? 1 : 0);
         const abortedBeforeLoop = async (): Promise<InvocationResult> => {
             await this.#writeInvocation(invocationId, "aborted");
             return {status: "aborted", entries: current.entries};
@@ -608,6 +627,61 @@ export class SessionHandle implements AgentSession {
         }
     }
 
+    /** Profile 看到的调用上下文：轮数按用户发出的消息数，`turnDelta` 为本次是否带新输入。 */
+    #promptContext(entries: readonly SessionEntry[], accepted: Checked, turnDelta: 0 | 1): PromptContext {
+        const settings = sessionSettings(entries);
+        return {
+            session: {id: this.id, createdAt: this.log.header.createdAt, ...(settings.title === undefined ? {} : {title: settings.title})},
+            turn: countTurns(entries) + turnDelta,
+            now: new Date(this.#now()),
+            fields: accepted.profile.fields,
+        };
+    }
+
+    /** 输出 17：此刻发起调用模型会收到什么。只读：受理检查不取凭据，渲染结果不写入、不发事件、不改状态。 */
+    async preview(input?: UserInput, options: PreviewOptions = {}): Promise<RuntimeResult<Preview>> {
+        if (this.#closed) return {ok: false, code: "closed", detail: "会话句柄已关闭"};
+        const profileId = options.profileId ?? this.#profileId;
+        if (profileId === undefined) return {ok: false, code: "unknown-profile", detail: "会话没有 Profile"};
+        const checked = await check(this.#deps, {log: this.log, profileId, ...(this.#sessionMode === undefined ? {} : {sessionMode: this.#sessionMode})}, {
+            ...(input === undefined ? {} : {input}), needsInput: input !== undefined, ...(options.model === undefined ? {} : {model: options.model}), ...(options.signal === undefined ? {} : {signal: options.signal}),
+        });
+        if (!checked.ok) return checked;
+        const {profile} = checked.value;
+        // 读的是这一刻的日志：之后追加的条目不影响这次预览
+        const entries = this.log.entries;
+        const host = this.#deps.host;
+        const invalid = (failure: {code: string; detail: string; diagnostics: Diagnostic[]}): RuntimeResult<never> => ({
+            ok: false, code: "invalid-profile",
+            detail: [`${failure.code}: ${failure.detail}`, ...failure.diagnostics.map((item) => `${item.code} ${item.path}：${item.detail}`)].join("\n"),
+        });
+        const prepared = await host.prepare(profile, {context: this.#promptContext(entries, checked.value, input === undefined ? 0 : 1), ...(options.signal === undefined ? {} : {signal: options.signal})});
+        if (!prepared.ok) return invalid(prepared);
+        // 与第一次请求前一致：model-call 数据源也刷新一次
+        const refreshed = await host.refresh(prepared.value, options.signal === undefined ? {} : {signal: options.signal});
+        if (!refreshed.ok) return invalid(refreshed);
+        const diagnostics: Diagnostic[] = [];
+        const seeded = entries.some((entry) => entry.type === "custom_message" && entry.customType === "harness/seed");
+        const seeds: Message[] = [];
+        if (!seeded) {
+            const output = host.renderSeeds(refreshed.value, "new-session");
+            seeds.push(...output.messages.map((item) => item.message));
+            diagnostics.push(...output.diagnostics);
+        }
+        const appended: Message[] = [];
+        if (input !== undefined) {
+            const output = host.renderAppending(refreshed.value, {input, state: latestProfileState(entries, profile.id)});
+            for (const item of output.messages) appended.push(item.kind === "input" || item.message.role !== "user" ? item.message : {...item.message, attribution: "agent"});
+            diagnostics.push(...output.diagnostics);
+        }
+        const system = host.renderSystem(refreshed.value);
+        diagnostics.push(...system.diagnostics);
+        const replayed = buildModelContext(entries);
+        const request = host.renderRequest(refreshed.value, {history: [...replayed, ...seeds, ...appended], invocationStart: replayed.length + seeds.length});
+        diagnostics.push(...request.diagnostics);
+        return {ok: true, value: {model: checked.value.modelRef, tools: checked.value.tools.map((tool) => tool.id), system: system.systemPrompt, seeds, appended, request: request.messages, diagnostics}};
+    }
+
     // ---- 审批 ----
 
     #hooks(current: Current): AdapterHooks {
@@ -794,8 +868,7 @@ export class SessionHandle implements AgentSession {
             if (window === null || !(window > 0)) {
                 return {ok: false, code: "compaction-failed", detail: `模型 ${accepted.value.modelRef} 没有 contextWindow：自建服务的模型要在配置里给出 contextWindow（harness.config），压缩阈值与 soft 方法都按它算`};
             }
-            const context: PromptContext = {session: {id: this.id, createdAt: this.log.header.createdAt}, turn: countTurns(this.log.entries), now: new Date(this.#now()), fields: accepted.value.profile.fields};
-            const prepared = await this.#deps.host.prepare(accepted.value.profile, {context});
+            const prepared = await this.#deps.host.prepare(accepted.value.profile, {context: this.#promptContext(this.log.entries, accepted.value, 0)});
             if (!prepared.ok) return {ok: false, code: "invalid-profile", detail: `${prepared.code}: ${prepared.detail}`};
             return await this.#compactWith(accepted.value, prepared.value, options.signal);
         } finally {

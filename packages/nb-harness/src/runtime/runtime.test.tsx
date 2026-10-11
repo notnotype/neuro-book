@@ -354,7 +354,7 @@ describe("缺省依赖、目录跟配置与上下文用量（输入、输出 5�
         if (!first.ok) throw new Error(`${first.code}: ${first.detail}`);
         expect((await first.value.done).status).toBe("completed");
         // 自建模型没给 contextWindow：窗口为 0，用量照报；手动压缩按配置缺项报错，不是“没东西可压”
-        expect(session.status.context).toEqual({tokens: 420, window: 0, threshold: 0});
+        expect(session.status.context).toEqual({tokens: 420, source: "reported", window: 0, threshold: 0});
         const compacted = await session.compact();
         expect(compacted.ok ? null : `${compacted.code}:${compacted.detail}`).toMatch(/^compaction-failed:.*contextWindow/u);
 
@@ -366,7 +366,7 @@ describe("缺省依赖、目录跟配置与上下文用量（输入、输出 5�
         expect((await second.value.done).status).toBe("completed");
         expect(session.status.model).toBe("b/n");
         // 阈值按 compaction 输出 9：80% 与“窗口减余量（缺省 16384）”取小
-        expect(session.status.context).toEqual({tokens: 520, window: 100_000, threshold: 80_000});
+        expect(session.status.context).toEqual({tokens: 520, source: "reported", window: 100_000, threshold: 80_000});
 
         // 事后换主机：运行时的字段登记到换上来的主机上，同一个 Profile 照常跑完
         (input as {host?: ReturnType<typeof createProfileHost>}).host = createProfileHost();
@@ -375,5 +375,64 @@ describe("缺省依赖、目录跟配置与上下文用量（输入、输出 5�
         expect((await third.value.done).status).toBe("completed");
         await session.close();
         credentials.value.close();
+    });
+
+    test("输出 5：模型报错、还没有可用的用量时 status.context 是估算值；没有新条目时连续读 status 得到同一份 pending 与 context", async () => {
+        const {session} = await open({script: [{error: "boom"}]});
+        const started = await session.prompt({content: "你好"});
+        if (!started.ok) throw new Error(`${started.code}: ${started.detail}`);
+        expect((await started.value.done).status).toBe("failed");
+        const context = session.status.context;
+        expect(context).toMatchObject({source: "estimated", window: 100_000, threshold: 80_000});
+        expect(context!.tokens).toBeGreaterThan(0);
+        // 缓存按条目数组：日志没变就是同一份对象，不重新回放
+        expect(session.status.pending).toBe(session.status.pending);
+        expect(session.status.context).toBe(context!);
+        const again = await session.prompt({content: "再来"});
+        if (!again.ok) throw new Error(`${again.code}: ${again.detail}`);
+        await again.value.done;
+        expect(session.status.context).not.toBe(context!);
+    });
+});
+
+describe("预览（输出 17）", () => {
+    test("场景 12：新会话 preview 得到种子、输入、系统提示词与请求消息，日志、状态不变、无事件；没有凭据也能预览；一次调用后 request 含历史、seeds 为空；字段拼错为 invalid-profile", async () => {
+        const {harness, session, events} = await open({script: [{text: "好的"}], withKey: false});
+        const before = session.log.entries;
+        const preview = await session.preview({content: "开始写"});
+        if (!preview.ok) throw new Error(`${preview.code}: ${preview.detail}`);
+        expect(preview.value.model).toBe("test/m");
+        expect(preview.value.tools).toEqual(["echo", "note", "shell"]);
+        expect(preview.value.system.join("\n")).toContain("你是写作助手");
+        expect(preview.value.seeds.map((message) => message.role)).toEqual(["user", "developer"]);
+        expect(preview.value.appended[0]).toMatchObject({role: "user"});
+        expect(JSON.stringify(preview.value.appended[0])).toContain("开始写");
+        // 请求消息：种子在前，本次输入与提醒在后
+        expect(preview.value.request.map((message) => message.role).slice(0, 2)).toEqual(["user", "developer"]);
+        expect(JSON.stringify(preview.value.request.slice(2))).toContain("开始写");
+        expect(preview.value.diagnostics).toEqual([]);
+        expect(session.log.entries).toBe(before);
+        expect(events).toEqual([]);
+        expect(session.status.phase).toBe("idle");
+        // 没有凭据：真跑受理失败，预览照常
+        expect(await session.prompt({content: "开始写"})).toMatchObject({ok: false, code: "credentials-missing"});
+
+        await harness.deps.credentials.setApiKey("test", "k");
+        const started = await session.prompt({content: "开始写"});
+        if (!started.ok) throw new Error(`${started.code}: ${started.detail}`);
+        expect((await started.value.done).status).toBe("completed");
+        const again = await session.preview({content: "继续"});
+        if (!again.ok) throw new Error(`${again.code}: ${again.detail}`);
+        expect(again.value.seeds).toEqual([]);
+        expect(again.value.request.some((message) => message.role === "assistant")).toBe(true);
+        expect(JSON.stringify(again.value.request.slice(-2))).toContain("继续");
+        // 不带输入：只看系统提示词与历史
+        const bare = await session.preview();
+        expect(bare.ok && bare.value.appended).toEqual([]);
+
+        const typo = await open({fields: {"harness/tool": ["echo"]}});
+        const rejected = await typo.session.preview({content: "x"});
+        expect(rejected.ok ? null : rejected.code).toBe("invalid-profile");
+        expect(rejected.ok ? "" : rejected.detail).toContain("unknown-field");
     });
 });

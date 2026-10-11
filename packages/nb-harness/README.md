@@ -72,7 +72,11 @@ for (;;) {
     if (step.kind === "done") break;                                           // step.result.status：completed | waiting | aborted | failed
     for (const item of step.pending) await session.value.resolve({interactionId: item.interactionId, decision: "approve"});
 }
-console.log(session.value.status.context);                                     // {tokens, window, threshold}：上下文用了多少
+console.log(session.value.status.context);                                     // {tokens, source, window, threshold}：上下文用了多少；没有服务方用量时 source 是 "estimated"
+
+// 发起之前先看模型会收到什么：不写入、不发请求、不要凭据（Profile 改完先预览）
+const preview = await session.value.preview({content: "把第二行改成带船名的。"});
+if (preview.ok) console.log(preview.value.system, preview.value.request);
 ```
 
 所有方法都不抛业务失败：返回 `{ok: true, value}` 或 `{ok: false, code, detail}`；只有违反类型约束才会抛出。
@@ -131,11 +135,13 @@ const lookup = defineTool({
 
 运行中再来输入：`prompt(input, {streamingBehavior: "steer"})` 或 `session.steer` 在当前工具批次之后送给模型；`"followUp"` 或 `session.followup` 在本次完成后自动开始下一次调用。`abort()` 中止并把挂起的审批写成拒绝。
 
+`session.preview(input?, {profileId?, model?})` 回答“此刻发起这次调用，模型会收到什么”：走受理检查但不取凭据，Profile 的数据源真的跑，返回系统提示词、种子（新会话）、追加消息、请求消息、可见工具与诊断；不写条目、不发请求、不改状态，任何状态下都能调。`status` 的 `pending` 与 `context` 按日志条目缓存，界面每个事件读一次也不会随日志变长而变慢。
+
 ## 模型、凭据与压缩
 
 - 配置里的 `providers` 自建或覆盖服务（`api` 是 OMP 的 Api 名，如 `openai-completions`、`anthropic-messages`）；OMP 内置目录里的服务不必列出。`models.defaultModel`、角色 `roles.items[].modelKey`、Profile 的 `harness/model` 构成选择链。
-- 凭据只在 OMP 的凭据库（SQLite，路径由使用方给）或使用方实现的存储里；`setApiKey`、`login(provider, controller)`（OAuth）、`accounts`。
-- 压缩：一次调用完成后用量超过阈值就自动压缩（`harness/compaction` 字段），也可以 `session.compact()`；自建服务的模型要在配置里给 `contextWindow`，否则阈值算不出、`compact()` 报 `compaction-failed`；`status.context` 给当前用量与阈值。上下文溢出时调用以 `failed`（`overflow: true`）收口，使用方 `compact()` 后 `continue()`。内置 `soft` 是本地模型摘要（两到三次模型调用）；插件可以注册自己的方法。
+- 凭据只在 OMP 的凭据库（SQLite，路径由使用方给）或使用方实现的存储里；`setApiKey`、`login(provider, controller)`（OAuth）、`accounts`。`:memory:` 每次打开各一份：关掉再开是另一份空库。
+- 压缩：一次调用完成后用量超过阈值就自动压缩（`harness/compaction` 字段），也可以 `session.compact()`；自建服务的模型要在配置里给 `contextWindow`，否则阈值算不出、`compact()` 报 `compaction-failed`；`status.context` 给当前用量与阈值（还没有助手消息报告用量时按回放上下文估算，`source: "estimated"`）。上下文溢出时调用以 `failed`（`overflow: true`）收口，使用方 `compact()` 后 `continue()`。内置 `soft` 是本地模型摘要（两到三次模型调用）；插件可以注册自己的方法。
 
 ## 测试
 

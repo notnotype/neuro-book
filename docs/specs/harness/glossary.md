@@ -33,6 +33,7 @@ owners:
 | 受理 | 操作在写任何条目之前的检查；受理失败返回结构化错误、不留痕迹，受理之后的失败写成调用的终态。 | [`harness.runtime`](runtime.md#术语与参与者) |
 | 待处理事项 | 开放窗口里有 request、没有 response 的 `interaction`（第一批只有审批）；会话状态为 `waiting`，运行时为 `waiting-user`。 | [`harness.session`](session.md#输出与可观察行为)（输出 13）、[`harness.runtime`](runtime.md#术语与参与者) |
 | 插话队列、追加队列 | `steer` 的消息在下一个工具批次结束时送给模型；`followup` 的消息在本次调用完成后自动开始下一次调用。只在内存里。 | [`harness.runtime`](runtime.md#术语与参与者) |
+| 预览 | 不发起调用、不写条目地渲染出“此刻发起调用模型会收到什么”：受理检查（不取凭据）、准备 Profile、系统提示词、种子、追加消息与请求消息。 | [`harness.runtime`](runtime.md#输出与可观察行为) 输出 17 |
 | 事件 | 运行时发出的带序号的类型化消息，序号在一个会话句柄内从 1 起单调递增，不缓冲、不补发。 | [`harness.runtime`](runtime.md#术语与参与者) |
 | 写入时机 | 哪些消息在什么时候进日志：输入与提醒在受理通过后，助手消息与工具结果在 OMP `message_end`，插话在送给模型时。 | [`harness.runtime`](runtime.md#术语与参与者) |
 

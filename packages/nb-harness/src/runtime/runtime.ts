@@ -13,7 +13,7 @@ import {recoverEntries, SessionHandle} from "./session";
 import type {AgentSession, ResolvedDeps, Runtime, RuntimeDeps, RuntimeFailure, RuntimeResult} from "./types";
 
 export type {
-    AgentSession, ApprovalMode, Compacted, ContinueOptions, InteractionAnswer, Invocation, InvocationError, InvocationResult, InvocationStep, JsonValue, PendingInteraction, PromptOptions, ResolvedDeps, Runtime, RuntimeDeps,
+    AgentSession, ApprovalMode, Compacted, ContinueOptions, InteractionAnswer, Invocation, InvocationError, InvocationResult, InvocationStep, JsonValue, PendingInteraction, Preview, PreviewOptions, PromptOptions, ResolvedDeps, Runtime, RuntimeDeps,
     RuntimeEvent, RuntimeFailure, RuntimeResult, SessionEntry, SessionLog, SessionStatus, SessionSummary, StreamFn, UserInput,
 } from "./types";
 export {APPROVAL_FIELD, registerRuntimeFields, TOOLS_FIELD} from "./fields";
@@ -35,7 +35,7 @@ function sessionFailure(code: string, detail: string): RuntimeResult<never> {
  */
 function resolveDeps(input: RuntimeDeps): ResolvedDeps {
     const host = input.host ?? createProfileHost();
-    const models = input.models ?? createModelCatalog({config: input.config});
+    const models = input.models ?? createModelCatalog({store: input.config});
     const tools = input.tools ?? [];
     const compaction = input.compaction ?? createCompactionRegistry();
     // 运行时的字段要登记在实际用的那个主机上：使用方事后换了 deps.host，换上来的主机第一次被用到时登记

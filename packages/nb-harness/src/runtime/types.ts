@@ -1,11 +1,11 @@
 /** 运行时模块的公开类型，逐字对应 docs/specs/harness/runtime.md 的“输入与前置条件”。 */
 
 import type {StreamFn} from "@oh-my-pi/pi-agent-core";
-import type {AssistantMessage, ImageContent, TextContent} from "@oh-my-pi/pi-ai";
+import type {AssistantMessage, ImageContent, Message, TextContent} from "@oh-my-pi/pi-ai";
 import type {Compacted, CompactionRegistry} from "../compaction/compaction";
 import type {ConfigStore} from "../config/config";
 import type {Credentials, ModelCatalog} from "../models/models";
-import type {ProfileCatalog, ProfileHost} from "../profile/profile";
+import type {Diagnostic, ProfileCatalog, ProfileHost} from "../profile/profile";
 import type {InteractionData, InvocationPhase, JsonValue, PendingInteraction, SessionEntry, SessionLog, SessionStore, SessionSummary} from "../session/session";
 import type {ApprovalMode, ToolInterceptor, ToolSource} from "../tools/tools";
 
@@ -49,11 +49,14 @@ export type SessionStatus = {
     queue: {steer: number; followUp: number};
     profileId?: string;
     model?: string;
-    /** 上下文用量：最近一次受理的模型与压缩设置可知时才有；`tokens` 为 null 表示还没有助手消息报告用量。 */
-    context?: {tokens: number | null; window: number; threshold: number};
+    /** 上下文用量：最近一次受理的模型与压缩设置可知时才有；还没有助手消息报告用量时 `tokens` 是按回放上下文的估算（`source: "estimated"`）。 */
+    context?: {tokens: number; source: "reported" | "estimated"; window: number; threshold: number};
 };
 export type PromptOptions = {streamingBehavior?: "steer" | "followUp"; profileId?: string; model?: string; signal?: AbortSignal};
 export type ContinueOptions = {signal?: AbortSignal};
+export type PreviewOptions = {profileId?: string; model?: string; signal?: AbortSignal};
+/** 输出 17：此刻发起调用模型会收到什么。`seeds` 只在日志里还没有种子时非空；`request` 是按 Profile 渲染出的请求消息。 */
+export type Preview = {model: string; tools: string[]; system: string[]; seeds: Message[]; appended: Message[]; request: Message[]; diagnostics: Diagnostic[]};
 export type Invocation = {
     invocationId: string;
     done: Promise<InvocationResult>;
@@ -76,6 +79,7 @@ export interface AgentSession {
     resolve(answer: InteractionAnswer): Promise<RuntimeResult<void>>;
     abort(options?: {clearQueue?: boolean}): RuntimeResult<void>;
     compact(options?: {signal?: AbortSignal}): Promise<RuntimeResult<Compacted | null>>;
+    preview(input?: UserInput, options?: PreviewOptions): Promise<RuntimeResult<Preview>>;
     setApprovalMode(mode: ApprovalMode | undefined): void;
     subscribe(listener: (event: RuntimeEvent) => void): {release(): void};
     close(): Promise<void>;

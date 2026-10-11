@@ -91,7 +91,7 @@ describe("示例场景 4：压缩", () => {
         expect(kinds(session.log.entries).slice(-2)).toEqual(["compaction", "custom_message:harness/seed"]);
         expect(prompts.length).toBeGreaterThan(0);
         // 状态里的上下文用量：最后一条助手消息报告 520，阈值 100
-        expect(session.status.context).toEqual({tokens: 520, window: 100_000, threshold: 100});
+        expect(session.status.context).toEqual({source: "reported", tokens: 520, window: 100_000, threshold: 100});
 
         // 压缩后再调用：开头是重写的种子（列出了新文件），其后是摘要，然后才是保留的历史与本次输入
         const after = await session.prompt({content: "压缩之后的一轮。"});

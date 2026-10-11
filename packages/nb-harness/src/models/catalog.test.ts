@@ -146,7 +146,7 @@ describe("目录跟着配置存储（输出 10）", () => {
     test("场景 5：用 ConfigStore 建的目录在 replace 后看到新服务、不再列旧服务；用快照建的目录不变", () => {
         const store = createConfigStore({providers: [{id: "old", api: "openai-completions", baseUrl: "http://127.0.0.1:9", models: [{id: "m"}]}], models: {defaultModel: "old/m"}});
         if (!store.ok) throw new Error(JSON.stringify(store.problems));
-        const live = createModelCatalog({config: store.value});
+        const live = createModelCatalog({store: store.value});
         const frozen = createModelCatalog({config: store.value.current});
         expect(live.resolve("old/m").ok).toBe(true);
         const before = live.select({});

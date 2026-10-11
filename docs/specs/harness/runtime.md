@@ -68,6 +68,7 @@ interface AgentSession {
     resolve(answer: InteractionAnswer): Promise<RuntimeResult<void>>;
     abort(options?: {clearQueue?: boolean}): RuntimeResult<void>;
     compact(options?: {signal?: AbortSignal}): Promise<RuntimeResult<Compacted | null>>;   // 手动压缩；没有可压的为 null
+    preview(input?: UserInput, options?: PreviewOptions): Promise<RuntimeResult<Preview>>;   // 这次调用模型会收到什么（输出 17）；只读，不要凭据
     setApprovalMode(mode: ApprovalMode | undefined): void;  // 会话的临时审批模式；不写日志
     subscribe(listener: (event: RuntimeEvent) => void): {release(): void};
     close(): Promise<void>;                                 // 中止进行中的调用并等它收口、关闭日志；之后所有操作为 closed
@@ -80,10 +81,12 @@ type SessionStatus = {
     queue: {steer: number; followUp: number};
     profileId?: string;                                     // 新建时给定；打开时取最近一次 invocation start 的 detail，从未调用过的会话没有
     model?: string;                                         // 当前生效的模型引用（最近一次调用选中的）
-    context?: {tokens: number | null; window: number; threshold: number};   // 上下文用量（输出 5）：本进程内受理过调用才有
+    context?: {tokens: number; source: "reported" | "estimated"; window: number; threshold: number};   // 上下文用量（输出 5）：本进程内受理过调用才有
 };
 type PromptOptions = {streamingBehavior?: "steer" | "followUp"; profileId?: string; model?: string; signal?: AbortSignal};   // signal 只属于这次调用：调用收口后再中止它没有效果
 type ContinueOptions = {signal?: AbortSignal};
+type PreviewOptions = {profileId?: string; model?: string; signal?: AbortSignal};
+type Preview = {model: string; tools: string[]; system: string[]; seeds: Message[]; appended: Message[]; request: Message[]; diagnostics: Diagnostic[]};   // 输出 17；Diagnostic 是 harness.profile 的诊断
 type Invocation = {invocationId: string; done: Promise<InvocationResult>; next(): Promise<InvocationStep>};
 type InvocationStep = {kind: "waiting"; pending: PendingInteraction[]} | {kind: "done"; result: InvocationResult};   // 输出 6
 type InvocationResult = {status: "completed" | "waiting" | "aborted" | "failed"; error?: InvocationError; entries: readonly SessionEntry[]};   // entries：本次调用写入的全部条目
@@ -130,13 +133,14 @@ type RuntimeResult<T> = {ok: true; value: T} | {ok: false; code: RuntimeFailure;
     | `resolve` | `invalid-state` | `invalid-state` | 受理，恢复同一调用 | `invalid-state` |
     | `abort` | 无副作用，`ok` | 中止 | 中止：待处理的审批写拒绝应答（`decidedBy: "user"`，`note: "aborted"`） | 幂等，`ok` |
     | `compact` | 受理 | `busy` | `busy` | `busy` |
+    | `preview` | 受理 | 受理 | 受理 | 受理 |
 
 2. **受理**：`prompt` 依次检查输入、Profile、配置快照、模型选择与能力、凭据、可见工具、`signal` 未中止；任一失败返回对应的 `RuntimeFailure` 与说明（模型选择的失败把 [`harness.models`](models.md) 的失败码写进 `detail`），`log.entries` 不变、不发事件。受理通过后返回 `{invocationId, done}`，此时 `invocation start` 已经写入。
 3. **一次调用的写入顺序**：`invocation start`（`detail: {profileId, model, tools: [...]}`）→ 新会话第一次调用时 Profile 的种子（`renderSeeds("new-session")`，角色按节点）→ 本次输入（`role: "user"`，没有 `attribution`）与 Profile `Appending` 渲染出的其它消息（其中的用户消息带 `attribution: "agent"`，不算用户发出的消息）与提醒（`harness/reminder`）→ `harness/profile-state`（状态有变化时）→ 循环中 OMP 每个 `message_end` 的助手消息与工具结果，按发生顺序 → 审批的 `interaction` 条目与 `invocation waiting/resumed` → 终态 `invocation end/error/aborted`。同一次调用里 `model_change` 在选中的模型与会话里记录的不同时写一条（`role` 为经角色命中时的角色）。
 4. **模型看到的**：每次模型调用前，运行时先 `refresh` Profile（`model-call` 数据源）并重渲染系统提示词，再用 `renderRequest({history: 当前消息, invocationStart})` 得到消息（`history` 是从日志回放的模型上下文加上本次调用已产生的消息；`invocationStart` 是本次调用第一条消息的下标）；刷新后的内容在**当次**请求里生效。`refresh` 失败时不再请求模型，调用以 `failed`（`profile`）收口。工具列表与模型在调用开始时取定，调用中途不变（来源中途撤掉的工具按 [`harness.tools`](tools.md) 得到 `tool-unavailable`）。`Agent` 的 `convertToLlm` 保留 developer 消息。
-5. **流式事件**：助手消息流式生成时每个增量发一个 `stream` 事件（消息快照）；工具开始、进度、结束发 `tool` 事件；每条写入日志的条目发 `entry` 事件（带日志序号）；状态变化发 `status`；队列变化发 `queue`。事件序号在会话句柄内从 1 起单调递增；订阅者只收到订阅之后的事件，不补发（断线补齐靠 `status` 与日志）。监听函数抛出只影响它自己（该订阅结束），不影响运行。`status.context` 给上下文用量：`window` 是最近一次受理选中的模型的 `contextWindow`（没有为 0），`tokens` 按 [`harness.compaction`](compaction.md) 输出 9 取最后一条助手消息报告的用量（没有为 `null`），`threshold` 是按最近一次受理的压缩设置算出的触发阈值；本进程内还没受理过调用的会话没有这一项。
+5. **流式事件**：助手消息流式生成时每个增量发一个 `stream` 事件（消息快照）；工具开始、进度、结束发 `tool` 事件；每条写入日志的条目发 `entry` 事件（带日志序号）；状态变化发 `status`；队列变化发 `queue`。事件序号在会话句柄内从 1 起单调递增；订阅者只收到订阅之后的事件，不补发（断线补齐靠 `status` 与日志）。监听函数抛出只影响它自己（该订阅结束），不影响运行。`status.context` 给上下文用量：`window` 是最近一次受理选中的模型的 `contextWindow`（没有为 0），`tokens` 按 [`harness.compaction`](compaction.md) 输出 9 取最后一条助手消息报告的用量（`source: "reported"`）；还没有助手消息报告用量时按回放出的模型上下文用 OMP `Tokenizer` 估算（`source: "estimated"`：已知分词器家族精确计数，其它模型按字节除 4），`threshold` 是按最近一次受理的压缩设置算出的触发阈值；本进程内还没受理过调用的会话没有这一项。`status` 的 `pending` 与 `context` 按日志的条目数组缓存：没有新条目（也没有换模型或设置）时连续读取返回同一份结果，不重新回放。
 6. **审批**：每个工具调用执行前，运行时在适配层的 `approve` 钩子里按 [`harness.tools`](tools.md) `decideApproval` 判定（`grants` 取会话里 `scope: "session"` 的应答与本次已写入的应答）：`allow` 放行；`deny` 拒绝（理由进工具结果）；`model` 调 `judgeWithModel`（模型角色 `approval`，`recent` 取当前上下文最后几条），`allow`/`deny` 照办，`escalate` 转为询问；`ask` 询问用户：写 `interaction request`（`assistantEntryId` 为含该调用的助手条目、`toolCallId`、`toolName`、`tier`），写 `invocation waiting`（同一批里第二个询问不再写），状态变 `waiting-user`，发 `interaction` 与 `status` 事件，等待 `resolve`。同一批里多个询问可以同时待处理，任意顺序应答；全部处理完才回到 `running`（写 `invocation resumed`）。审批模型的判定（`decidedBy: "approver"`）也写成 `interaction` 的 request 与 response 两条，便于审计。
-    `Invocation.next()` 给调用方一个等待点：这次调用此刻正在等待用户且有待处理事项时立即返回 `{kind: "waiting", pending}`（再调用仍返回，直到事项被应答）；否则等到它下一次进入 `waiting-user`（返回当时的事项）或结束（`{kind: "done", result}`，与 `done` 相同），先到的那个。应答全部事项后再 `next()` 就等下一个点。
+    `Invocation.next()` 给调用方一个等待点：这次调用此刻正在等待用户且有待处理事项时立即返回 `{kind: "waiting", pending}`（再调用仍返回，直到事项被应答）；否则等到它下一次进入 `waiting-user`（返回当时的事项）或结束（`{kind: "done", result}`，与 `done` 相同），先到的那个。应答全部事项后再 `next()` 就等下一个点。等待点尚未到来时多次 `next()` 共用同一次等待（返回同一个 Promise，结算为同一个结果对象），不累积订阅。
 7. **应答**：`resolve({interactionId, decision, scope, note})`：id 不在待处理列表为 `unknown-interaction`；已应答或正在应答（同一事项并发两次 `resolve`，第二次）为 `already-answered`；通过后写 `interaction response`（`decidedBy: "user"`），`approve` 放行该调用，`reject` 的工具结果为 `denied` 带 `note`；`scope: "session"` 的放行记在日志里，同会话后续同工具同等级的调用按 [`harness.tools`](tools.md) 步骤 3 放行；应答不改配置。
 8. **中止**：`abort()` 让状态进入 `aborting`，中止这次调用的控制器（Profile 的 `prepare`/`refresh` 与数据源收到信号；准备阶段中止时不开始循环，直接写 `invocation aborted`），调用 OMP `Agent.abort`，等待中的审批按输出 1 写拒绝应答并以 `aborted` 结果交回；运行结束后写 `invocation aborted`，`done` 以 `{status: "aborted"}` 完成，状态回到 `idle`。`abort({clearQueue: true})`（缺省 `true`）清空两个队列；`false` 保留追加队列但不自动开始。
 9. **终态与结果分类**：OMP 循环结束时看最后一条助手消息：`stopReason: "error"` → 写 `invocation error`（`detail: {message, overflow}`），`done` 为 `{status: "failed", error: {kind: "model", message, overflow}}`，`overflow` 为真表示 OMP 把错误归类为上下文溢出；`"aborted"` → 按输出 8；其它 → 写 `invocation end`，`done` 为 `{status: "completed"}`。本次调用的助手回复达到 `limits.maxTurns` 时中止循环，`done` 为 `{status: "failed", error: {kind: "limit"}}`，写 `invocation error`。存储层面的写入失败（`store-failed`、`log-broken`、`log-closed`、`damaged-tail`）时中止循环，`done` 为 `{status: "failed", error: {kind: "log"}}`，会话句柄随日志进入 `closed`（之后操作为 `closed`）；条目校验失败（`invalid-entry`）只让那一步失败，不关闭句柄。Profile 的 `prepare`/`refresh` 失败 → `{kind: "profile"}`。调用进入 `waiting-user` 并在本进程内一直未应答时 `done` 不完成；`close()` 让它以 `{status: "waiting"}` 完成。
@@ -147,6 +151,7 @@ type RuntimeResult<T> = {ok: true; value: T} | {ok: false; code: RuntimeFailure;
 14. **压缩**：`compact()` 手动触发：按 Profile 的压缩设置与最近一次调用选中的模型（没有调用过时按选择链选）调用 [`harness.compaction`](compaction.md) `compactSession`（种子用 `renderSeeds("after-compaction")`），成功返回结果并发 `compaction` 事件；选中的模型没有正的 `contextWindow` 时不调用任何方法，返回 `compaction-failed` 并说明要在配置里给出 `contextWindow`（这是配置缺项，不是“没东西可压”）；`nothing-to-compact` 返回 `null`；写入失败为 `log-failed`；其它失败为 `compaction-failed`，`detail` 带压缩模块的失败码与各方法的原因。自动触发：一次调用以 `completed` 结束后，`shouldCompact({entries, contextWindow, settings})` 为真时在 `done` 完成之前运行一次压缩（失败只发 `compaction` 事件，不影响 `done`）；这是调用的尾段：状态仍是 `running`，压缩写入的条目算在本次 `InvocationResult.entries` 里，此时 `abort()` 取消压缩（`compaction` 事件 `ok: false, code: "cancelled"`，不写任何条目）但调用的结果仍是 `completed`；追加队列在压缩之后处理。
 15. **溢出**：模型错误被 OMP 归类为上下文溢出时，调用以 `failed`（`overflow: true`）结束，不自动压缩也不重试；使用方可以 `compact()` 后 `continue()`（末尾是 `error` 的助手消息，可继续）。
 16. **关闭**：`close()`：有进行中的调用先按输出 8 中止并等它收口；`waiting-user` 的调用不写新条目（下次打开按输出 13 恢复），`done` 以 `{status: "waiting"}` 完成；关闭日志；所有订阅结束；之后的操作返回 `closed`。
+17. **预览**：`preview(input?, options?)` 回答“此刻发起这次调用，模型会收到什么”：按输出 2 的顺序做受理检查（输入——给了才查、Profile、模型选择与能力、可见工具、审批模式、压缩设置），**不取凭据**（没配 key 也能预览），任一失败返回同样的失败码；然后 `prepare` 并 `refresh`（与第一次请求前一致，`model-call` 数据源也跑），`prepare`/`refresh` 失败为 `invalid-profile`，`detail` 逐行列出诊断（`code path：detail`）。返回 `model`（选中的引用）、`tools`（可见工具 id）、`system`（刷新后的系统提示词）、`seeds`（日志里还没有种子时 `renderSeeds("new-session")` 的消息，否则空）、`appended`（有 `input` 时 `renderAppending` 的消息，`attribution` 同输出 3）、`request`（`renderRequest({history: 回放上下文 + seeds + appended, invocationStart: 回放长度 + seeds 长度})` 的消息）与渲染产生的 `diagnostics`。读的是调用那一刻的日志：不写条目、不发请求、不发事件、不改状态、不占用会话，任何状态下都可以调用；运行中预览看到的是到当时为止的历史。
 
 ## 状态与转换
 
@@ -213,8 +218,9 @@ idle ──prompt/continue 受理──▶ running ──询问用户──▶ w
 6. 终态分类：模型回复 `stopReason: "error"` → `failed`/`model`，日志 `invocation error`；`maxTurns: 2` 且模型一直要求工具 → `failed`/`limit`；日志写入失败（存储注入失败）→ `failed`/`log`，句柄 `closed`。`continue()`：错误后可继续并成功；正常回复后 `invalid-state`。
 7. 恢复（真实 JSONL）：等待审批时直接丢弃句柄（模拟崩溃），`openSession` → `waiting-user`、`pending` 一条；`resolve(approve)` → 工具执行、写结果、`invocation resumed`、模型继续、`completed`。另一会话在运行中崩溃（没有待处理）→ `openSession` 写 `interrupted` 结果与 `invocation interrupted`，状态 `idle`。
 8. 压缩：`compact()` 在有足够历史时追加 `compaction` 与种子并发事件，无历史时返回 `null`；模型没有 `contextWindow` 时为 `compaction-failed`；阈值设置很低时一次调用 `completed` 后自动压缩，`done` 完成时日志末尾已是压缩条目与种子。
-10. 缺省依赖与状态：只给 `config`、`profiles`、`credentials`、`store` 的运行时能跑完一次没有工具的调用；配置 `replace` 加一个服务后，下一次 `prompt` 指定该服务的模型能受理；`status.context` 在调用完成后给出最后一条助手消息报告的用量与阈值。
-11. `next()`：等待审批时返回 `waiting` 与事项，应答后再 `next()` 返回 `done`；没有审批的调用第一次 `next()` 就是 `done`，`result` 与 `done` 相同。
+10. 缺省依赖与状态：只给 `config`、`profiles`、`credentials`、`store` 的运行时能跑完一次没有工具的调用；配置 `replace` 加一个服务后，下一次 `prompt` 指定该服务的模型能受理；`status.context` 在调用完成后给出最后一条助手消息报告的用量与阈值（`source: "reported"`）；模型以 `error` 结束、还没有可用的用量时 `tokens` 是估算值（`source: "estimated"`，大于 0）；没有新条目时连续两次读 `status` 得到同一个 `pending` 数组。
+11. `next()`：等待审批时返回 `waiting` 与事项，应答后再 `next()` 返回 `done`；没有审批的调用第一次 `next()` 就是 `done`，`result` 与 `done` 相同；等待点未到时连续调用 100 次 `next()` 得到同一个结果对象。
+12. 预览：新会话 `preview(input)` 得到种子、输入、系统提示词与带历史的请求消息，日志不变、无事件、状态不变；没有凭据也能预览；`harness/tool` 拼错的 Profile 为 `invalid-profile` 且 `detail` 含 `unknown-field`；一次调用后再 `preview` 的 `request` 含上一轮的助手回复、`seeds` 为空。
 9. 真实模型冒烟（`*.llm.test.ts`，显式运行）：用测试配置的模型跑一次带 `read` 风格只读工具的调用，`completed`，日志里有工具调用与结果。
 
 Smoke：`packages/nb-harness` 的 `bun test src/runtime`；真实模型 `bun run test:llm`（需授权）。

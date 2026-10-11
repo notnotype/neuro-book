@@ -7,10 +7,11 @@
  * - 模型看到的请求：`<System>` 成为系统提示词；种子（含 `<WorkspaceTree />` 列出的目录）在历史的开头；本次输入在最后。
  * - 事件：`status`、`stream`（文字增量的快照）、`tool`、`entry` 都带会话内单调递增的序号；订阅只收订阅之后的。
  * - 第二次调用不再写种子；`every={3}` 的提醒在第 2 轮不出现。
+ * - `preview()`：发起调用之前就能看到模型会收到的系统提示词与请求消息，不写入、不发请求、不要凭据——Profile 作者改完节点先预览。
  *
  * 阅读顺序：`testing/scripted-model.ts` → `profiles/writer.profile.tsx` → `nodes/workspace-tree.ts` → `assemble.ts` → 这里。
  *
- * 行为合同：docs/specs/harness/runtime.md 输出第 2–5 条；docs/specs/harness/profile.md 输出第 7、8、10、11 条；
+ * 行为合同：docs/specs/harness/runtime.md 输出第 2–5、17 条；docs/specs/harness/profile.md 输出第 7、8、10、11 条；
  * docs/specs/harness/builtin-tools.md 输出第 2 条。
  */
 
@@ -48,6 +49,12 @@ describe("示例场景 1：第一次调用", () => {
         const events: RuntimeEvent[] = [];
         session.subscribe((event) => events.push(event));
 
+        // 先预览：模型会收到什么。只读，日志没有任何条目
+        const preview = await session.preview({content: "第一章讲了什么？"});
+        if (!preview.ok) throw new Error(`${preview.code}: ${preview.detail}`);
+        expect(session.log.entries).toEqual([]);
+        expect(preview.value.tools).toEqual(["read", "edit"]);
+
         const started = await session.prompt({content: "第一章讲了什么？"});
         if (!started.ok) throw new Error(`${started.code}: ${started.detail}`);
         const result = await started.value.done;
@@ -77,6 +84,11 @@ describe("示例场景 1：第一次调用", () => {
         expect(seen).toContain("<system-reminder>");
         expect(first.messages.at(-1)).toMatchObject({role: "user"});
         expect(first.tools?.map((tool) => tool.name)).toEqual(["read", "edit"]);
+        // 预览给出的就是这次请求：系统提示词相同，请求消息的角色序列与文字相同
+        expect(preview.value.system).toEqual(first.systemPrompt as string[]);
+        expect(preview.value.request.map((message) => message.role)).toEqual(first.messages.map((message) => message.role));
+        // 第一条种子里有渲染时刻（毫秒级），跳过它比较其余消息的文字
+        expect(preview.value.request.slice(1).map((message) => JSON.stringify(message.content))).toEqual(first.messages.slice(1).map((message) => JSON.stringify(message.content)));
         // 第二次请求里多了助手的工具调用与结果
         expect(model.contexts[1]!.messages.slice(-2).map((message) => message.role)).toEqual(["assistant", "toolResult"]);
 

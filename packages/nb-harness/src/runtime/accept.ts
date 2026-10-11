@@ -49,11 +49,11 @@ function stringList(value: unknown): string[] {
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
-export async function accept(
-    deps: ResolvedDeps,
-    session: {log: SessionLog; profileId: string; sessionMode?: ApprovalMode},
-    options: {input?: UserInput; model?: string; signal?: AbortSignal; needsInput: boolean},
-): Promise<RuntimeResult<Accepted>> {
+export type Checked = Omit<Accepted, "apiKey">;
+type CheckOptions = {input?: UserInput; model?: string; signal?: AbortSignal; needsInput: boolean};
+
+/** 受理的检查部分，不取凭据：预览（输出 17）只走到这里，没配 key 也能看模型会收到什么。 */
+export async function check(deps: ResolvedDeps, session: {log: SessionLog; profileId: string; sessionMode?: ApprovalMode}, options: CheckOptions): Promise<RuntimeResult<Checked>> {
     if (options.needsInput) {
         const problem = inputProblem(options.input);
         if (problem !== null) return {ok: false, code: "invalid-input", detail: problem};
@@ -75,10 +75,6 @@ export async function accept(
     const problems = deps.models.checkCapabilities(model, {...(visible.value.length > 0 ? {tools: true} : {}), ...(hasImage(options.input) ? {images: true} : {})});
     if (problems.length > 0) return {ok: false, code: "capability-missing", detail: problems.map((problem) => problem.detail).join("；")};
 
-    const apiKey = await deps.credentials.apiKeyFor(model);
-    if (apiKey === undefined) return {ok: false, code: "credentials-missing", detail: `没有 ${model.provider} 的凭据`};
-    if (options.signal?.aborted === true) return {ok: false, code: "invalid-state", detail: "开始前已中止"};
-
     const approvalField = profile.fields["harness/approval"];
     const approvalMode = resolveApprovalMode({
         ...(session.sessionMode === undefined ? {} : {session: session.sessionMode}),
@@ -89,8 +85,17 @@ export async function accept(
     return {
         ok: true,
         value: {
-            config, profile, model, modelRef: `${model.provider}/${model.id}`, via, ...(role === undefined ? {} : {role}), apiKey,
+            config, profile, model, modelRef: `${model.provider}/${model.id}`, via, ...(role === undefined ? {} : {role}),
             tools: visible.value, approvalMode, compaction: resolveCompactionSettings(profile.fields["harness/compaction"]),
         },
     };
+}
+
+export async function accept(deps: ResolvedDeps, session: {log: SessionLog; profileId: string; sessionMode?: ApprovalMode}, options: CheckOptions): Promise<RuntimeResult<Accepted>> {
+    const checked = await check(deps, session, options);
+    if (!checked.ok) return checked;
+    const apiKey = await deps.credentials.apiKeyFor(checked.value.model);
+    if (apiKey === undefined) return {ok: false, code: "credentials-missing", detail: `没有 ${checked.value.model.provider} 的凭据`};
+    if (options.signal?.aborted === true) return {ok: false, code: "invalid-state", detail: "开始前已中止"};
+    return {ok: true, value: {...checked.value, apiKey}};
 }
