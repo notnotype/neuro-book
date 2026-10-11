@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Profile 系统架构</title>
+<style>
+:root {
+    --bg: #fbfaf7; --fg: #1f2328; --muted: #5d6470; --line: #d8d4cb; --card: #ffffff;
+    --accent: #2f6f8f; --accent-soft: #e3eef3; --warm: #9a5b1f; --warm-soft: #f6eadb; --green: #3c7a45; --green-soft: #e3f0e2;
+    --code-bg: #f1eee8;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg: #16181b; --fg: #e6e3dd; --muted: #a2a8b1; --line: #3a3e44; --card: #1e2125;
+        --accent: #7fb6d1; --accent-soft: #1f3540; --warm: #e0a568; --warm-soft: #3a2b1b; --green: #8cc795; --green-soft: #1f3322;
+        --code-bg: #262a2f;
+    }
+}
+:root[data-theme="dark"] {
+    --bg: #16181b; --fg: #e6e3dd; --muted: #a2a8b1; --line: #3a3e44; --card: #1e2125;
+    --accent: #7fb6d1; --accent-soft: #1f3540; --warm: #e0a568; --warm-soft: #3a2b1b; --green: #8cc795; --green-soft: #1f3322;
+    --code-bg: #262a2f;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.7 -apple-system, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; }
+main { max-width: 920px; margin: 0 auto; padding: 32px 16px 64px; }
+h1 { font-size: 28px; margin: 0 0 8px; }
+h2 { font-size: 21px; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+h3 { font-size: 17px; margin: 24px 0 6px; }
+p.lede { color: var(--muted); margin: 0 0 24px; }
+code { font: 0.9em/1.4 ui-monospace, "JetBrains Mono", Menlo, monospace; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code-bg); padding: 14px 16px; border-radius: 8px; overflow-x: auto; font: 13.5px/1.55 ui-monospace, "JetBrains Mono", Menlo, monospace; }
+pre code { background: none; padding: 0; }
+a { color: var(--accent); }
+figure { margin: 16px 0 8px; overflow-x: auto; }
+figcaption { color: var(--muted); font-size: 14px; margin-top: 6px; }
+svg { display: block; min-width: 640px; width: 100%; height: auto; }
+svg .box { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+svg .box.accent { fill: var(--accent-soft); stroke: var(--accent); }
+svg .box.warm { fill: var(--warm-soft); stroke: var(--warm); }
+svg .box.green { fill: var(--green-soft); stroke: var(--green); }
+svg text { fill: var(--fg); font: 14px -apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+svg text.title { font-weight: 600; font-size: 15px; }
+svg text.small { fill: var(--muted); font-size: 12.5px; }
+svg text.mono { font: 12.5px ui-monospace, Menlo, monospace; }
+svg .arrow { stroke: var(--muted); stroke-width: 1.5; fill: none; marker-end: url(#head); }
+svg .arrow.dash { stroke-dasharray: 5 4; }
+svg #head path { fill: var(--muted); }
+ol.principles > li { margin-bottom: 14px; }
+ol.principles > li > strong { display: block; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; margin: 8px 0; }
+th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: var(--code-bg); }
+.table-wrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>Profile 系统架构</h1>
+<p class="lede">一个 Profile 怎样从一段 TSX 变成模型收到的请求：谁注册、谁取数、谁渲染、哪些消息写进会话日志。行为合同以 <a href="../../../docs/specs/harness/profile.md">harness.profile</a> 与 <a href="../../../docs/specs/harness/runtime.md">harness.runtime</a> 为准，本页只做讲解。</p>
+
+<h2>一张图：从 TSX 到模型请求</h2>
+<figure>
+<svg viewBox="0 0 880 760" role="img" aria-label="Profile 从定义、目录、主机、准备、刷新到四个渲染函数，再到会话日志与模型请求的流程图">
+<defs><marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>
+
+<rect class="box" x="40" y="20" width="380" height="84" rx="10"/>
+<text class="title" x="56" y="46">定义：defineProfile</text>
+<text class="mono" x="56" y="70">{id, tools, model, …, prompt: ctx =&gt; &lt;Prompt&gt;…}</text>
+<text class="small" x="56" y="92">纯函数：校验、冻结、打标记；不碰文件系统</text>
+
+<rect class="box" x="460" y="20" width="380" height="84" rx="10"/>
+<text class="title" x="476" y="46">加载：loadProfile(path)</text>
+<text class="small" x="476" y="70">import() 那个文件，只认带标记的默认导出；</text>
+<text class="small" x="476" y="90">把对本包的导入解析到本进程已加载的实例</text>
+<path class="arrow" d="M460,62 L424,62"/>
+
+<rect class="box" x="40" y="136" width="800" height="56" rx="10"/>
+<text class="title" x="56" y="160">目录 ProfileCatalog</text>
+<text class="small" x="230" y="160">按 id 找 Profile；重复、损坏的进 issues。运行时受理时 profiles.get(profileId)</text>
+<path class="arrow" d="M230,104 L230,132"/>
+
+<rect class="box accent" x="40" y="224" width="800" height="104" rx="10"/>
+<text class="title" x="56" y="250">主机 ProfileHost：注册表 + 渲染器（每个运行时一个，没有全局表）</text>
+<text class="mono" x="56" y="276">registerNodeType  节点类型：类别、props schema、父子规则、render</text>
+<text class="mono" x="56" y="298">registerSource    数据源：schema、取数函数、时机 invocation | model-call</text>
+<text class="mono" x="56" y="320">registerField     字段：harness/tools 等由运行时登记，插件可加自己的</text>
+<path class="arrow" d="M440,192 L440,220"/>
+
+<rect class="box warm" x="40" y="362" width="470" height="124" rx="10"/>
+<text class="title" x="56" y="388">准备 prepare(profile, ctx)：唯一有 I/O 的一步</text>
+<text class="small" x="56" y="412">1. 调 prompt(ctx) 得到节点树（普通数据 {type, props, children}）</text>
+<text class="small" x="56" y="434">2. 校验：节点已注册、props、父子关系、字段值，诊断全部收集</text>
+<text class="small" x="56" y="456">3. 并发取树里声明的全部数据源，按 schema 校验</text>
+<text class="small" x="56" y="478">4. 冻结成 Prepared（树 + 数据 + 注册表快照 + 诊断）</text>
+<path class="arrow" d="M275,328 L275,358"/>
+
+<rect class="box warm" x="550" y="362" width="290" height="124" rx="10"/>
+<text class="title" x="566" y="388">刷新 refresh(prepared)</text>
+<text class="small" x="566" y="412">每次请求模型前调一次</text>
+<text class="small" x="566" y="434">只重取 model-call 数据源</text>
+<text class="small" x="566" y="456">树、诊断、invocation 数据不变</text>
+<text class="small" x="566" y="478">失败：这次调用以 failed 收口</text>
+<path class="arrow" d="M510,424 L546,424"/>
+
+<rect class="box" x="40" y="526" width="250" height="96" rx="10"/>
+<text class="title" x="56" y="552">renderSeeds</text>
+<text class="small" x="56" y="576">&lt;History&gt; 的子节点 → 种子</text>
+<text class="small" x="56" y="598">用 prepare 的结果</text>
+
+<rect class="box" x="315" y="526" width="250" height="96" rx="10"/>
+<text class="title" x="331" y="552">renderAppending</text>
+<text class="small" x="331" y="576">&lt;Input /&gt;、消息、&lt;Reminder&gt;</text>
+<text class="small" x="331" y="598">用 prepare 的结果；提醒带状态</text>
+
+<rect class="box" x="590" y="526" width="250" height="96" rx="10"/>
+<text class="title" x="606" y="552">renderRequest（含 System）</text>
+<text class="small" x="606" y="576">&lt;History /&gt; 位置换成回放的历史</text>
+<text class="small" x="606" y="598">用刷新后的结果，每次请求现算</text>
+<path class="arrow" d="M165,486 L165,522"/>
+<path class="arrow" d="M440,486 L440,522"/>
+<path class="arrow" d="M715,486 L715,522"/>
+<text class="small" x="300" y="512">四个渲染都是纯函数：同输入同输出，不取数、不改输入</text>
+
+<rect class="box green" x="40" y="660" width="525" height="80" rx="10"/>
+<text class="title" x="56" y="686">会话日志（只追加）</text>
+<text class="small" x="56" y="710">种子：新会话第一次调用写入，压缩后再写（once 的除外）</text>
+<text class="small" x="56" y="730">追加消息：每次调用开始写入，之后就是历史</text>
+<path class="arrow" d="M165,622 L165,656"/>
+<path class="arrow" d="M440,622 L440,656"/>
+
+<rect class="box green" x="590" y="660" width="250" height="80" rx="10"/>
+<text class="title" x="606" y="686">模型请求（OMP Agent）</text>
+<text class="small" x="606" y="710">不写日志：系统提示词与</text>
+<text class="small" x="606" y="730">请求消息每次现算</text>
+<path class="arrow" d="M715,622 L715,656"/>
+<path class="arrow dash" d="M565,690 C 610,640 600,640 640,622"/>
+<text class="small" x="566" y="650">回放成历史</text>
+</svg>
+<figcaption>实线是数据的去向；虚线是会话日志回放成 <code>Message[]</code>，再作为 <code>renderRequest</code> 的 <code>history</code> 输入。</figcaption>
+</figure>
+
+<h2>设计原理</h2>
+<ol class="principles">
+<li><strong>Profile 是数据，不是程序。</strong><code>&lt;Prompt&gt;</code> 返回普通的对象树 <code>{type, props, children}</code>，TSX 只是写法。所以它能校验（props schema、父子规则）、能预览，诊断能带路径（例如 <code>Prompt&gt;Appending&gt;Reminder[0]</code>）。提示词函数是纯函数：只读 <code>ctx</code>，不做 I/O。</li>
+<li><strong>外部数据走“数据源 + 节点”，不在提示词函数里 await。</strong>节点只声明“我要某个数据源”，取数由准备阶段统一做：并发、按 schema 校验、失败变成诊断、能取消。时机分两种：<code>invocation</code> 一次调用取一次；<code>model-call</code> 每次请求模型前刷新。系统提示词因此能随时更新，而已写进日志的种子不会被刷新改写。</li>
+<li><strong>准备与渲染两段式。</strong>准备产出冻结的结果，四个渲染函数都是纯函数。运行时可以在不同时刻、以不同输入渲染同一份准备结果：调用开始时渲染种子与追加消息并写日志，每次请求前渲染系统提示词与请求消息。预览用的是同一套函数，所以与真跑同形。</li>
+<li><strong>三类消息按“写不写进日志”分区。</strong><code>&lt;History&gt;</code> 的子节点是种子；<code>&lt;Appending&gt;</code> 的内容每次调用开始写入；直接放在 <code>&lt;Prompt&gt;</code> 下的消息只进本次请求。历史本身不由 Profile 产生，是运行时从日志回放的；<code>&lt;History last={2}&gt;</code> 只是在请求里裁剪它。种子、提醒、摘要回放后都带 <code>attribution: "agent"</code>，“轮”只按用户真正发出的消息数。</li>
+<li><strong>主机是注册表，没有全局状态。</strong>节点类型、数据源、字段都注册到某个主机；运行时创建时登记自己的四个字段，插件注册自己的节点与数据源。<code>harness/</code> 命名空间下拼错的字段是错误，别的命名空间未知字段只警告。</li>
+<li><strong>工具只以名字出现在 Profile 里。</strong><code>tools: ["read", "edit"]</code> 是请求；工具实体在运行时的工具来源里。每次受理时取两者的交集作为可见工具，请求了没装的给 <code>unknown-tool</code> 警告。同一个 Profile 装到不同宿主，可见工具可以不同。</li>
+<li><strong>失败是诊断，不是异常。</strong>校验不在第一条错误停下，全部收集。准备或刷新失败时诊断随结果返回，运行时把它们放进 <code>invalid-profile</code> 的说明与预览的 <code>diagnostics</code>，界面能一次列全。</li>
+</ol>
+
+<h2>一次调用里各函数什么时候被调</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>时刻</th><th>运行时做什么</th><th>Profile 侧被调用的</th><th>写进日志的</th></tr></thead>
+<tbody>
+<tr><td>受理</td><td>按 profileId 从目录取 Profile；选模型、取凭据、算可见工具</td><td>无</td><td>无（失败不留痕迹）</td></tr>
+<tr><td>调用开始</td><td>构造 <code>ctx</code>（会话、第几轮、此刻、字段）</td><td><code>prepare</code></td><td><code>invocation start</code></td></tr>
+<tr><td>新会话第一次调用</td><td>日志里还没有种子</td><td><code>renderSeeds("new-session")</code></td><td>种子</td></tr>
+<tr><td>每次调用开始</td><td>本次输入与提醒</td><td><code>renderAppending</code></td><td>输入、追加消息、提醒、有状态节点的状态</td></tr>
+<tr><td>每次请求模型前</td><td>刷新数据，重算系统提示词与请求消息</td><td><code>refresh</code>、<code>renderRequest</code></td><td>无（请求现算）</td></tr>
+<tr><td>压缩之后</td><td>写摘要条目</td><td><code>renderSeeds("after-compaction")</code></td><td>摘要、重写的种子</td></tr>
+<tr><td>预览</td><td>同上各步，但不写日志、不发请求、不取凭据</td><td><code>prepare</code>、<code>renderSeeds</code>、<code>renderAppending</code>、<code>refresh</code>、<code>renderRequest</code></td><td>无</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>ctx 里有什么</h2>
+<pre><code>type PromptContext = {
+    session: {id: string; title?: string; createdAt: string};   // 来自会话日志
+    turn: number;                                                // 本次是第几轮用户发言，从 1 起
+    now: Date;                                                   // 运行时的时钟
+    fields: Readonly&lt;Record&lt;string, JsonValue&gt;&gt;;                 // 校验过的字段值（含 tools、model 等一等属性）
+};</code></pre>
+<p><code>title</code> 是可选的：创建会话时没给就没有，Profile 里写 <code>{ctx.session.title ?? "未命名"}</code>。需要更多外部数据时不要往 <code>ctx</code> 里加，注册一个数据源。</p>
+
+<h2>再往下读</h2>
+<ul>
+<li>可运行的脚本：<a href="../examples/steps/02-profile-file.ts">02-profile-file</a>（加载与预览）、<a href="../examples/steps/05-profile-data.tsx">05-profile-data</a>（数据源与节点）。</li>
+<li>合同：<a href="../../../docs/specs/harness/profile.md">harness.profile</a>（节点、准备、渲染）、<a href="../../../docs/specs/harness/runtime.md">harness.runtime</a> 输出 3、4、17（写入顺序、模型看到的、预览）。</li>
+</ul>
+</main>
+</body>
+</html>

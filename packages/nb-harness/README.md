@@ -14,7 +14,7 @@ NeuroBook 的 Agent harness：会话日志、Profile、配置、模型与凭据�
 
 | 入口 | 给什么 | 合同 |
 |---|---|---|
-| `@notnotype/nb-harness`（同 `./runtime`） | `createRuntime(deps)`、`Runtime`、`AgentSession`、事件与结果类型 | [`runtime.md`](../../docs/specs/harness/runtime.md) |
+| `@notnotype/nb-harness`（同 `./runtime`） | `openRuntime`、`createRuntime(deps)`、`unwrap`、`HarnessError`、`Runtime`、`AgentSession`、事件与结果类型 | [`runtime.md`](../../docs/specs/harness/runtime.md) |
 | `./session`、`./session/jsonl` | 会话日志：新建、打开、追加、订阅、回放、分页；内存存储与 JSONL 存储 | [`session.md`](../../docs/specs/harness/session.md) |
 | `./profile`、`./profile/loader`、`./profile/jsx-runtime` | `defineProfile`、内置节点组件、主机与注册、从文件加载 Profile | [`profile.md`](../../docs/specs/harness/profile.md) |
 | `./config` | 配置快照：校验、缺省值、冻结、替换与通知 | [`config.md`](../../docs/specs/harness/config.md) |
@@ -27,63 +27,29 @@ NeuroBook 的 Agent harness：会话日志、Profile、配置、模型与凭据�
 
 ## 快速开始
 
-完整、可运行的版本在 [`examples/assemble.ts`](examples/assemble.ts)；下面是骨架：
+```tsx
+/** @jsxImportSource @notnotype/nb-harness/profile */
+import {openRuntime, unwrap} from "@notnotype/nb-harness";
+import {Appending, defineProfile, History, Input, Prompt, System} from "@notnotype/nb-harness/profile";
 
-```ts
-import {createRuntime} from "@notnotype/nb-harness";
-import {createBuiltinTools, createResourceAccess} from "@notnotype/nb-harness/builtin";
-import {createLocalFileAccess, createSessionDirectories} from "@notnotype/nb-harness/builtin/local";
-import {createConfigStore} from "@notnotype/nb-harness/config";
-import {openCredentials} from "@notnotype/nb-harness/models";
-import {createProfileCatalog} from "@notnotype/nb-harness/profile";
-import {loadProfile} from "@notnotype/nb-harness/profile/loader";
-import {createJsonlSessionStore} from "@notnotype/nb-harness/session/jsonl";
-
-const config = createConfigStore({
-    providers: [{id: "luna", api: "openai-completions", baseUrl: "https://example.com/v1", models: [{id: "gpt-6-luna", contextWindow: 128_000}]}],
-    models: {defaultModel: "luna/gpt-6-luna"},
-    approval: {mode: "write"},
-});
-if (!config.ok) throw new Error(JSON.stringify(config.problems));          // 问题一次列全
-
-// 内核不读环境变量，key 由使用方写进凭据库；sqlitePath 用 ":memory:" 就是不落盘的内存库
-const credentials = await openCredentials({sqlitePath: "/path/to/state/auth.sqlite", apiKeys: {luna: process.env.MY_KEY!}});
-if (!credentials.ok) throw new Error(credentials.detail);
-
-const profile = await loadProfile("/path/to/writer.profile.tsx");
-if (!profile.ok) throw new Error(profile.detail);
-
-// host、models、tools、compaction 都可以省略：缺省是空主机、按 config 建的目录（配置 replace 后跟着变）、没有工具、只有 soft 的压缩注册表
-const runtime = createRuntime({
-    config: config.value,
-    profiles: createProfileCatalog([{source: "user", profiles: [profile.value]}]),
-    credentials: credentials.value,
-    // 内置工具按资源地址读写：模型写 read project://chapter-1.md；方案由使用方登记（docs/specs/workspace/resources.md）
-    tools: [createBuiltinTools({resources: createResourceAccess({
-        project: {provider: createLocalFileAccess({root: "/path/to/workspace"}), doc: "作品目录"},
-        local: {provider: createSessionDirectories({root: "/path/to/state/local"}), doc: "本会话的工作目录"},
-    })})],
-    store: createJsonlSessionStore({root: "/path/to/state/sessions"}),      // 目录要先存在
+const assistant = defineProfile({
+    id: "assistant", name: "助手", description: "最小示例", version: 1,
+    prompt: () => <Prompt><System>你是简洁的写作助手。</System><History /><Appending><Input /></Appending></Prompt>,
 });
 
-const session = await runtime.createSession({profileId: "writer"});
-if (!session.ok) throw new Error(session.code);
-session.value.subscribe((event) => { /* status、stream、tool、interaction、entry、compaction */ });
-const started = await session.value.prompt({content: "把第二行改成带船名的。"});
-if (!started.ok) throw new Error(started.code);
-for (;;) {
-    const step = await started.value.next();                                   // 下一个要处理的点：等审批，或结束
-    if (step.kind === "done") break;                                           // step.result.status：completed | waiting | aborted | failed
-    for (const item of step.pending) await session.value.resolve({interactionId: item.interactionId, decision: "approve"});
-}
-console.log(session.value.status.context);                                     // {tokens, source, window, threshold}：上下文用了多少；没有服务方用量时 source 是 "estimated"
-
-// 发起之前先看模型会收到什么：不写入、不发请求、不要凭据（Profile 改完先预览）
-const preview = await session.value.preview({content: "把第二行改成带船名的。"});
-if (preview.ok) console.log(preview.value.system, preview.value.request);
+const runtime = await openRuntime({
+    config: {providers: [{id: "luna", api: "openai-completions", baseUrl: "https://example.com/v1", models: [{id: "gpt-6-luna", contextWindow: 128_000}]}], models: {defaultModel: "luna/gpt-6-luna"}},
+    profiles: [assistant],
+    apiKeys: {luna: key},                          // 内核不读环境变量：key 由使用方给，缺省进一个不落盘的 :memory: 凭据库
+});
+const session = unwrap(await runtime.createSession({profileId: "assistant"}));
+const result = await unwrap(await session.prompt({content: "给一部航海小说起三个书名。"})).done;   // completed | waiting | aborted | failed
+runtime.close();
 ```
 
-所有方法都不抛业务失败：返回 `{ok: true, value}` 或 `{ok: false, code, detail}`；只有违反类型约束才会抛出。
+- 各方法返回 `{ok: true, value}` 或 `{ok: false, code, detail}`，这是合同，界面与插件按 `code` 分支；脚本里用 `unwrap` 把失败变成带同一个 `code` 的 `HarnessError`。
+- `openRuntime` 是便捷入口：配置给对象、Profile 给数组、凭据只给 key、会话存内存。要自己管的就换成自己的：`config` 给 `ConfigStore`，`profiles` 给目录，`credentials` 给 `openCredentials(...)` 的结果，`store` 给 `createJsonlSessionStore(...)`；同步的 `createRuntime(deps)` 要求自己给凭据。
+- 一步一步加东西的可运行脚本在 [`examples/steps/`](examples/steps/)：Profile 文件与预览、工具与审批、会话落盘、数据源、压缩、工具结果溢出。全部装配见 [`examples/assemble.ts`](examples/assemble.ts)。
 
 ## 写 Profile
 
@@ -111,10 +77,12 @@ export default defineProfile({
 });
 ```
 
+- `ctx` 是运行时在每次调用（与预览）准备 Profile 时给的只读上下文：`session`（`id`、`createdAt`，可选的 `title`）、`turn`（第几轮用户发言，从 1 起）、`now`、`fields`（校验过的字段值）。
 - `<System>` 每次请求重新渲染；`<History>` 的子节点是种子，新会话开始时写进会话、每次压缩后再写一次（`once` 的除外）；`<Appending>` 的内容在调用开始时写进会话，`<Input />` 是用户这次的输入。
 - 要用外部数据：注册一个数据源与一个读它的节点（见 [`examples/nodes/workspace-tree.ts`](examples/nodes/workspace-tree.ts)）。
 - 四个常用设置是一等属性：`tools`（工具 id 列表；请求了运行时没装的工具不算错，预览的 `diagnostics` 会给 `unknown-tool` 警告）、`model`（`{model?, role?}`）、`compaction`、`approval`。它们并进 `fields` 的 `harness/*` 字段；`fields` 留给第三方命名空间的字段（例如插件登记的），`harness/` 下拼错的字段是错误（`invalid-profile`），别的命名空间的未知字段只警告。
-- Profile 文件可以放在任何目录，`loadProfile(path)` 会把对本包的导入解析过来；文件全部受信任（加载就是执行）。
+- `defineProfile` 只校验并冻结定义、打上标记，不碰文件系统；同一进程里直接把结果放进 `profiles` 就能用。`loadProfile(path)` 用来加载放在别处的 Profile 文件：它就是 `import()` 那个模块（提示词是函数，只有执行模块才拿得到），只认带 `defineProfile` 标记的默认导出，并把文件里对本包的导入解析到本进程已加载的实例，所以文件旁不需要 node_modules；文件全部受信任（加载就是执行）。
+- Profile 的设计（主机、准备与渲染两段、三类消息与日志的关系）见讲解页 [`docs/profile-architecture.html`](docs/profile-architecture.html)（浏览器打开）。
 
 ## 工具与审批
 
@@ -130,7 +98,8 @@ const lookup = defineTool({
 
 - 等级 `read`、`write`、`exec`（缺省 `exec`）；`risk` 也可以是按参数算等级与策略的函数（例如 `shell` 的 `rm` 一律 `ask`）。
 - 判定顺序：策略 `deny` → 配置 `deny` → 本会话内允许 → 策略 `ask` → 配置 `allow`/`ask` → 模式表（`always-ask`、`write`、`auto`、`yolo`）。`auto` 把 `write`、`exec` 交给模型角色 `approval` 绑定的审批模型，它拿不准就转问用户。
-- 询问用户时会话进入 `waiting-user`，`status.pending` 列出事项，`resolve({interactionId, decision, scope, note})` 应答；`scope: "session"` 的批准记在日志里，同会话同工具同等级以后不再问。调用方不用自己盯状态：`invocation.next()` 在进入等待或结束时返回。
+- 要询问时先问宿主：`openRuntime`/`createRuntime` 的 `approve(request)` 回调拿到工具名、参数、等级与 Profile，返回 `{decision: "approve" | "reject", scope?, note?}` 就照办（会话里记 `decidedBy: "host"`），返回 `null` 才交给用户。
+- 交给用户时会话进入 `waiting-user`，`status.pending` 列出事项，`resolve({interactionId, decision, scope, note})` 应答；`scope: "session"` 的批准记在日志里，同会话同工具同等级以后不再问。界面订阅 `interaction` 事件后 `resolve`；命令行那种“停下来问人”的交互用 `invocation.next()`：进入等待或结束时返回（见 [`examples/cli.ts`](examples/cli.ts)）。
 - 等待期间进程退出也没关系：下次 `openSession` 从日志恢复成 `waiting-user`，应答后运行时替模型执行那次调用再让它继续。
 
 ## 事件与界面

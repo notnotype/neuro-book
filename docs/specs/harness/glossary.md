@@ -36,6 +36,7 @@ owners:
 | 溢出、artifact | 工具结果文本超过预算时全文存进溢出存储、上下文里只留头尾与 `read artifact://<序号>` 的回读提示；`artifact://` 是只读的虚拟方案。 | [`harness.tools`](tools.md#输出与可观察行为) 输出 9、[`harness.session`](session.md#输出与可观察行为) 输出 24 |
 | 插话队列、追加队列 | `steer` 的消息在下一个工具批次结束时送给模型；`followup` 的消息在本次调用完成后自动开始下一次调用。只在内存里。 | [`harness.runtime`](runtime.md#术语与参与者) |
 | 预览 | 不发起调用、不写条目地渲染出“此刻发起调用模型会收到什么”：受理检查（不取凭据）、准备 Profile、系统提示词、种子、追加消息与请求消息。 | [`harness.runtime`](runtime.md#输出与可观察行为) 输出 17 |
+| 便捷入口 | 叠在 Result 合同上的一层：`unwrap` 把失败变成带同一个 `code` 的 `HarnessError`；`openRuntime` 接受配置对象、Profile 数组与 key，自己开凭据库。 | [`harness.runtime`](runtime.md#输出与可观察行为) 输出 18 |
 | 事件 | 运行时发出的带序号的类型化消息，序号在一个会话句柄内从 1 起单调递增，不缓冲、不补发。 | [`harness.runtime`](runtime.md#术语与参与者) |
 | 写入时机 | 哪些消息在什么时候进日志：输入与提醒在受理通过后，助手消息与工具结果在 OMP `message_end`，插话在送给模型时。 | [`harness.runtime`](runtime.md#术语与参与者) |
 
@@ -60,6 +61,7 @@ owners:
 | 工具来源、可见工具 | 来源列出此刻可用的工具并按次取实现；可见工具是 Profile `harness/tools` 列出的 ∩ 来源可用的，在每次调用开始时取定。 | [`harness.tools`](tools.md#术语与参与者)、[`harness.runtime`](runtime.md#输入与前置条件) |
 | 审批模式 | `always-ask`、`write`、`auto`、`yolo`；按会话临时设置 → 配置 → Profile 字段解析，都没有时看 `approval` 角色是否绑定。 | [`harness.config`](config.md#输入与前置条件)、[`harness.tools`](tools.md#术语与参与者) |
 | 本会话内允许 | 用户以 `scope: "session"` 批准过的工具与等级，由会话回放得出（`approvalGrants`）。 | [`harness.tools`](tools.md#术语与参与者)、[`harness.session`](session.md#输出与可观察行为)（输出 14） |
+| 宿主审批 | 运行时的 `approve` 回调：判定为询问时（审批模型给不出之后）先问它，它返回批准或拒绝就照办并记 `decidedBy: "host"`，返回 `null` 才等用户；回调抛出按拒绝。 | [`harness.runtime`](runtime.md#输出与可观察行为) 输出 6 |
 | 判定、审批模型 | 对一次工具调用算出放行、拒绝、询问用户或交给审批模型；审批模型是 `approval` 角色解析出的模型，回答 `allow`、`deny` 或 `escalate`。 | [`harness.tools`](tools.md#术语与参与者) |
 | 根、根内路径 | `FileAccess` 的绝对目录；相对路径经规范化（符号链接按真实路径）仍在根里才是根内路径。 | [`harness.builtin-tools`](builtin-tools.md#术语与参与者) |
 | 快照与标签 | `read` 把展示过的行登记到会话的 OMP `EditStore` 得到标签；`edit` 以 `[path#tag]` 开头据此核对先读后改。标签是内容哈希，不是会话私有令牌。 | [`harness.builtin-tools`](builtin-tools.md#术语与参与者) |
