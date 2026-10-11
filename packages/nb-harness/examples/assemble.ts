@@ -67,27 +67,33 @@ export async function assemble(options: AssembleOptions): Promise<Assembled> {
     const credentials = await openCredentials({sqlitePath: join(options.state, "auth.sqlite"), ...(options.apiKeys === undefined ? {} : {apiKeys: options.apiKeys})});
     if (!credentials.ok) throw new Error(`凭据库打不开：${credentials.detail}`);
 
-    const access = createLocalFileAccess({root: options.workspace});
-    const host = createProfileHost();
-    registerWorkspaceTree(host, access);
+    // 凭据库已经打开：后面任一步失败都要先关掉它再抛，否则调用方拿不到 Assembled、也就没法关
+    try {
+        const access = createLocalFileAccess({root: options.workspace});
+        const host = createProfileHost();
+        registerWorkspaceTree(host, access);
 
-    const compaction = createCompactionRegistry(options.compaction?.soft === undefined ? {} : {soft: options.compaction.soft});
-    for (const method of options.compaction?.methods ?? []) {
-        const registered = compaction.register(method);
-        if (!registered.ok) throw new Error(`注册压缩方法 ${method.id} 失败：${registered.detail}`);
+        const compaction = createCompactionRegistry(options.compaction?.soft === undefined ? {} : {soft: options.compaction.soft});
+        for (const method of options.compaction?.methods ?? []) {
+            const registered = compaction.register(method);
+            if (!registered.ok) throw new Error(`注册压缩方法 ${method.id} 失败：${registered.detail}`);
+        }
+
+        const deps: RuntimeDeps = {
+            config: config.value,
+            profiles: createProfileCatalog([{source: "examples", profiles: options.profiles}]),
+            host,
+            credentials: credentials.value,
+            tools: [createBuiltinTools({access})],
+            compaction,
+            store: createJsonlSessionStore({root: join(options.state, "sessions")}),
+            ...(options.maxTurns === undefined ? {} : {limits: {maxTurns: options.maxTurns}}),
+            ...(options.model === undefined ? {} : {model: options.model}),
+            ...(options.judge === undefined ? {} : {judge: options.judge}),
+        };
+        return {runtime: createRuntime(deps), deps, close: () => credentials.value.close()};
+    } catch (error) {
+        credentials.value.close();
+        throw error;
     }
-
-    const deps: RuntimeDeps = {
-        config: config.value,
-        profiles: createProfileCatalog([{source: "examples", profiles: options.profiles}]),
-        host,
-        credentials: credentials.value,
-        tools: [createBuiltinTools({access})],
-        compaction,
-        store: createJsonlSessionStore({root: join(options.state, "sessions")}),
-        ...(options.maxTurns === undefined ? {} : {limits: {maxTurns: options.maxTurns}}),
-        ...(options.model === undefined ? {} : {model: options.model}),
-        ...(options.judge === undefined ? {} : {judge: options.judge}),
-    };
-    return {runtime: createRuntime(deps), deps, close: () => credentials.value.close()};
 }

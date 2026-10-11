@@ -1,0 +1,107 @@
+# w00002 t16 `nb-harness` 只读实现审查
+
+审查范围：`36b7c3c3..HEAD`，重点提交 `8b507e12` 与 `1ffa9f1f`。只读审查；实验仅使用指定目录和 worktree 依赖。
+
+## 已核实问题
+
+### 1. 审批提示把空输入和 `/abort` 都当作批准并实际执行写入
+
+- **严重程度**：重要（major，优先修复）。
+- **类别**：审批安全、正确性。
+- **位置**：`packages/nb-harness/examples/cli.ts:123-128`。
+- **现象**：CLI 提示 `[y 一次 / s 本会话 / n 拒绝]` 时，直接回车或输入文档中的 `/abort` 均产生 `interaction response.decision: "approve"`、`scope: "once"`，随后 `edit` 成功把 `chapter.txt` 从 `original\n` 改成 `changed\n`。输入中止命令反而授权了写入。
+- **原因**：分支只判断 `answer === "n"`；所有其它字符串，包括空串、拼写错误和斜杠命令，都走批准分支。
+- **核实方式**：在本报告目录执行 `bun cli-probe.ts`。本地 OpenAI Chat Completions SSE 传输依次要求真实 `read` 和真实 OMP hashline `edit`；两个独立 CLI 子进程分别在审批提示后送入 `/abort` 与空行。实际文件、JSONL 审批条目和终端输出保存在 `cli-results.json`。使用真实 runtime、SQLite、JSONL、OMP Agent 和原生编辑引擎，无真实 provider 请求。
+- **建议改法**：只有明确的 `y`、`s` 能批准；`n` 拒绝；空串和未知输入重新询问。审批等待期间的 `/abort`、`/quit` 应走各自命令语义。补真实 CLI 输入与文件副作用的回归场景。
+
+### 2. CLI 等待调用完成期间停止读取输入，运行中插话和中止命令被丢弃
+
+- **严重程度**：重要（major）。
+- **类别**：正确性、示例可用性、文档与实现不一致。
+- **位置**：`packages/nb-harness/examples/cli.ts:133-169`，特别是 `168`；声明在同文件 `13-14`。
+- **现象**：首个模型请求挂起后输入“运行中的插话”、`/abort`、`/status`，终端均无处理结果；释放模型后调用正常 `end`，下一次问句也没有处理这些行。模型请求总数仍为 `1`，没有插话送达。只有调用结束后重新输入的 `/status` 才返回 `idle`。
+- **原因**：主循环 `await follow(current)` 直到调用结束或进入审批；运行中的普通阶段没有 `rl.question()`。readline 不会为后来的 `question()` 保存已发出的行事件，因此这些输入不是仅延迟，而是丢失。`session.status.phase === "running"` 的插话分支在该控制流中不可达。
+- **核实方式**：`bun cli-probe.ts` 的 `cli-running` 分支在本地 SSE 服务接到请求后用 Promise gate 保持响应；发送上述三行，等待可观察的状态输出至 `500ms` 超时后才释放响应。终端无插话反馈、无中止阶段；后续状态及请求数见 `cli-results.json`。该超时只用于证实响应挂起期间未处理命令，释放后状态和请求日志证实输入未排队。
+- **建议改法**：用一个持续消费行事件的输入循环，将运行中命令和 `steer` 分派独立于调用观察；同一输入所有者处理审批，避免多个并行 `question()` 争抢输入。保留 `Invocation.next()` 观察等待/结束，但不阻塞命令消费。
+
+
+### 3. 凭据初始 key 写入失败后未关闭已打开的 SQLite 存储
+
+- **严重程度**：重要（major，优先修复）。
+- **类别**：不变量、资源管理、正确性。
+- **位置**：`packages/nb-harness/src/models/credentials.ts:105-114`，尤其 `110-113`。
+- **现象**：`openCredentials({sqlitePath, apiKeys})` 已成功打开数据库并进入 `setApiKey` 循环后，只要某次写入失败，外层 `catch` 直接返回 `credentials-unavailable`；失败结果没有 `Credentials` 句柄可供调用者关闭。真实 SQLite 探针连续三次触发初始 key 写入失败，三次调用返回失败后仍留下目标库的主库、WAL、SHM 描述符共 7 个；只有显式 `Bun.gc(true)` 后描述符才消失。
+- **为什么是问题**：失败路径没有显式释放 OMP `AuthStorage`，把数据库连接寿命交给 GC。反复启动、重试或装配失败时会累积文件描述符和 SQLite 锁，长驻宿主可能在 GC 前耗尽资源；调用方无法从失败结果完成确定性清理。`ready()` 的 `reload` 失败路径已有 `storage.close()`，但 `apiKeys` 写入发生在它返回成功之后，未覆盖这个阶段。
+- **如何核实**：在本报告目录执行 `env PI_CODING_AGENT_DIR=<临时目录> bun credentials-probe.ts`。探针预建 SQLite trigger，使 `setApiKey` 真实抛出 `probe storage full`，通过 `/proc/self/fd` 记录调用前、三次失败后和 `Bun.gc(true)` 后的目标路径；结果见 `credential-results.json` 的 `failures`、`after`、`afterGc`。
+- **建议改法**：保留已打开的 `AuthStorage` 所有权，初始化 key 的整个阶段用 `try/finally` 收口；任一 `setApiKey` 失败先调用 `storage.close()`，再返回 `credentials-unavailable`。同时保留原始失败分类与 detail，避免把写入失败伪装成成功或依赖 GC。
+
+### 4. 示例装配在凭据成功打开后的后续失败路径泄漏数据库连接
+
+- **严重程度**：建议（minor；示例是公开装配样板，仍应修复）。
+- **类别**：不变量、资源管理、示例质量。
+- **位置**：`packages/nb-harness/examples/assemble.ts:67-77`。
+- **现象**：`assemble()` 在 `67` 成功打开凭据后，工作区节点注册或压缩方法注册任一步抛错都会直接退出；`Assembled.close()` 只在成功返回后交给调用者，异常路径没有关闭凭据。真实装配探针让同一个自定义压缩方法重复注册，`assemble()` 返回 `Error: 注册压缩方法 probe-duplicate 失败：方法 probe-duplicate 已注册`，失败现场仍保留 `auth.sqlite`、`-wal`、`-shm` 三个目标描述符，GC 后才消失。
+- **为什么是问题**：装配是 CLI、示例和宿主接线的参考入口；初始化后半段失败时，调用者拿不到 `Assembled`，因此无法调用其 `close()`。重试装配或多个临时失败会把已打开的凭据连接留给 GC，并可能阻塞或耗尽资源。成功路径的“会话由调用方关闭、装配只关凭据”取舍不影响这个异常路径。
+- **如何核实**：同一次 `credentials-probe.ts` 运行中执行重复注册场景，记录 `assemblyError`、`assemblyFiles` 和 `assemblyFilesAfterGc`；无需真实 provider 请求，使用 worktree 的真实 OMP SQLite 与 `assemble()`。
+- **建议改法**：在 `assemble()` 取得凭据后建立异常清理边界；从 Profile 节点注册、压缩注册、会话存储和运行时创建任一步抛错，都先 `credentials.value.close()` 再重新抛出原错误。成功返回后仍由 `Assembled.close()` 负责关闭凭据，避免双重所有权。
+
+### 5. CLI 重开等待审批的会话后没有应答入口
+
+- **严重程度**：重要（major）。
+- **类别**：正确性、文档。
+- **位置**：`packages/nb-harness/examples/cli.ts:59-66,116-130,133-168`；使用说明 `packages/nb-harness/examples/README.md:63`。
+- **现象**：真实 CLI 在 `edit` 审批请求已落盘时被终止，再用 `--session <id>` 重开；`/status` 正确给出 `waiting-user` 和一个待处理 `edit`，但 CLI 只显示普通 `>` 提示，不询问审批。输入文档规定的 `y` 被当作新 prompt，返回 `busy：有进行中的调用`；模型请求数仍为 `2`，文件仍为 `original\n`，JSONL 中只有原审批 request，没有 response。
+- **为什么是问题**：审批输入只存在于 `follow(invocation)`，而它只能由本进程成功的 `session.prompt()` 返回值进入。`openSession()` 恢复等待会话不会返回 `Invocation`，已有 request 也不会在新订阅上重放；CLI 没有按初始 `session.status.pending` 建立应答流程。用户只能 `/abort` 放弃原工具调用，无法按 README 描述继续审批和恢复。
+- **如何核实**：执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t16/lab/cli-recovery.ts`。探针使用本地 SSE、真实 CLI 子进程与 JSONL，等待审批提示后 `SIGKILL` 首进程，再用原 id 重开、依次输入 `/status`、`y`、`/quit`；结果见 `lab/cli-recovery-results.json` 的 `recovered`。这是进程级恢复，不是直接伪造日志。
+- **建议改法**：输入分派以会话状态为入口，重开后立即展示 `status.pending` 并通过 `session.resolve()` 应答；恢复运行的结束和新审批由会话状态/事件观察，与本进程是否持有 `Invocation` 解耦。补重开真实等待会话后批准/拒绝并继续的 CLI 回归场景。
+
+### 6. stdin 在 question 等待期间关闭会让 CLI 挂住而不执行关闭流程
+
+- **严重程度**：重要（major）。
+- **类别**：正确性、不变量。
+- **位置**：`packages/nb-harness/examples/cli.ts:102-112,135,172-174`。
+- **现象**：真实 CLI 已输出普通 `>` 提示后关闭 stdin，进程在 `1000ms` 的退出等待期限内未退出，无错误输出；探针只好 `SIGKILL`，退出码 `137` 是该强制收口的结果。没有进行中的模型请求，排除了模型响应或审批未完成造成的等待。
+- **为什么是问题**：`close` 监听只设置 `closed = true`；它能阻止下一次 `ask()`，却不能完成已经在 `rl.question()` 上等待的 Promise。当前 Bun 的 `question()` 只在收到回答或 AbortSignal 中止时完成，`Interface.close()` 只发出 `close`，没有拒绝未决 question。控制流停在 `135`，到不了退出循环和会话、凭据关闭，违背 `ask()` 注释承诺的管道到头/Ctrl-D 退出行为。已复现的是管道 EOF；终端 Ctrl-D 未单独运行。
+- **如何核实**：同一次 `lab/cli-recovery.ts` 运行中的 `eof` 分支等待 CLI 初始提示，随后 `child.stdin.end()` 并观察 `child.exited`；超时后强制终止并等待子进程，结果见 `lab/cli-recovery-results.json`。辅助命令 `bun -e 'console.log(require("node:readline/promises").Interface.prototype.question.toString()); console.log(require("node:readline").Interface.prototype.close.toString());'` 核对实际运行的 Bun readline 实现。
+- **建议改法**：让输入关闭显式结束当前问句（例如给 question 一个在 close 时中止的控制器），或使用可结束的统一行输入循环；外围 `try/finally` 确保会话、凭据与 readline 都收口。补“提示已发出后关闭 stdin”场景，不能只测试调用 ask 前已经 closed。
+
+### 7. 后置替换 deps.host 会绕过运行时字段注册并让有效 Profile 失败
+
+- **严重程度**：建议（minor）。
+- **类别**：不变量、代码质量。
+- **位置**：`packages/nb-harness/src/runtime/runtime.ts:36-44,52-54`。
+- **现象**：省略 host 创建 runtime 后，再给同一个 `RuntimeDeps` 对象赋一个新的 `createProfileHost()`，运行时确实读取新主机，但没有在它上面注册运行时字段。下一次 prompt 受理成功后以 `failed/profile` 结束，报 `harness/tools`、`harness/compaction` 未注册；模型请求数为 `0`。对该新主机显式执行 `registerRuntimeFields()` 后，同一 Profile 调用为 `completed`，模型请求数为 `1`。
+- **为什么是问题**：getter 保留了依赖替换的入口，自动初始化却只在 `createRuntime` 的旧主机执行一次；同一个有效 Profile 因主机替换时机不同产生不同结果。只有先传入 host 的使用路径能保持“运行时负责登记字段”的初始化不变量。风险限于后置替换主机的宿主，不影响一直使用原主机或主动注册新主机的路径。
+- **如何核实**：执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d8e1586d-e327-4aaa-88f8-7392d8480346/scratchpad/review-t16/lab/runtime-boundaries.tsx`；使用公开 runtime/host API、内存 SQLite 与真实 OMP Agent，结果见 `lab/runtime-boundary-results.json` 的 `lateHost` 和 `registeredHost`，没有直接调用私有方法。
+- **建议改法**：明确主机所有权：若 host 只允许在创建时提供，就固定捕获已注册的主机并写明；若允许替换，每次实际主机身份变化时先完成字段注册再受理/prepare。补替换前后同一有效 Profile 的行为场景。
+
+## 未发现问题的方面
+
+以下编号对应 `brief.md` 的“重点”，仅归纳已经完成的核实，不代表该重点的所有边界均已覆盖。
+
+- **重点 1，活依赖与缺省装配**：会话保留带 getter 的依赖对象，未发现展开复制导致依赖冻结。创建 runtime 后提供工具、替换模型依赖及替换配置的真实调用均按新依赖执行。后置替换主机的字段初始化例外已单列为第 7 条。
+- **重点 2，配置与模型目录更新**：已核对 `ConfigStore.replace()` 同步校验、成功后更新快照；同样内容的替换也生成新的快照身份。活目录随配置替换更新，直接传快照的目录保留原值。`select()` 全程同步，从代码未发现两次 `current()` 之间可插入异步替换的竞态。
+- **重点 3，`Invocation.next()` 已运行的边界**：并发及重复 `next()` 返回同一审批事项；批准后的终态结果与 `done` 是同一对象；旧调用不读取新调用的审批事项。等待审批时关闭会话返回 `done/waiting`，不增加日志条目；中止返回 `done/aborted`，未执行待审批的写工具。
+- **重点 4，context 的输入和用量语义**：无效输入返回 `invalid-input`，不覆盖最近调用的 context。明确零 usage 与缺失 usage 分别得到 `0` 与 `null`。已运行的配置替换后手动压缩场景返回 `null`、未生成摘要，并保留最近调用的窗口与阈值；该场景未核实实际压缩后的状态。
+- **重点 5，缺少 `contextWindow` 的手动压缩**：真实 runtime 返回 `compaction-failed`，detail 明确指出模型缺少窗口配置，摘要请求增量为 `0`；这条失败路径未发现误调用摘要模型。
+- **重点 6，插件字段与严格命名空间**：已注册的 `plugin.p/options` 正常准备；未注册的 `plugin.p/unknown` 保留 warning，没有被 `harness/` 的严格检查误判为错误。主机初始化缺口另见第 7 条。
+- **重点 8，公开入口与成功路径的资源所有权**：模块边界合同测试通过；已核对装配成功后由调用者关闭会话、`Assembled.close()` 关闭凭据的分工。CLI 交互和装配异常路径的问题已单列，不据此把整个 examples 判为无问题。
+- **重点 9，`:memory:` 的正常使用路径**：公开 runtime 探针实际使用内存凭据完成模型调用、审批和中止流程，并在结束时显式关闭会话与凭据；这条路径未发现异常。初始 key 写入失败后的确定性清理问题见第 3 条。
+
+已有验证记录（本次收尾未重跑）：
+
+- 在 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00002-review-t16/packages/nb-harness` 执行 `bun test`：`194 pass / 5 skip / 0 fail`，`1,375` expectations，`199` tests，`35` files。
+- 同目录执行 `bun run typecheck`：`tsc --noEmit` 通过。
+- 既有离线探针使用真实文件系统、SQLite、JSONL、CLI 子进程、OMP Agent 和原生编辑引擎；模型传输使用脚本注入或本地 SSE，没有真实 provider 请求。各发现的实验命令与结果文件已列在对应条目中。
+- 未运行 `test:llm`、e2e 或开发服务。长会话性能、`next()` 订阅累积、带 `replace` 属性的配置快照、`:memory:` 重开和其余凭据失败分类未完成核实，不作“未发现问题”的结论；终端 Ctrl-D 未单独运行。按本次要求停止新增核实。
+
+没有已核实但尚未落笔的发现，本报告保留第 1–7 条。
+
+## 各级数量
+
+| 严重程度 | 数量 | 条目 |
+| --- | ---: | --- |
+| 阻断 | 0 | 无 |
+| 重要 | 5 | 1、2、3、5、6 |
+| 建议 | 2 | 4、7 |
+| 合计 | 7 | 1–7 |

@@ -107,7 +107,13 @@ export async function openCredentials(options: {sqlitePath: string; apiKeys?: Re
         if (options.sqlitePath !== ":memory:" && (await notSqlite(options.sqlitePath))) return {ok: false, code: "credentials-unavailable", detail: `${options.sqlitePath} 不是 SQLite 文件，未改动；请人工处理后重试`};
         const opened = await ready(await AuthStorage.create(options.sqlitePath), options.sqlitePath);
         if (!opened.ok) return opened;
-        for (const [provider, key] of Object.entries(options.apiKeys ?? {})) await opened.value.setApiKey(provider, key);
+        // 库已经打开：初始 key 写不进去时要自己关掉，失败结果里没有句柄可供调用方关闭
+        try {
+            for (const [provider, key] of Object.entries(options.apiKeys ?? {})) await opened.value.setApiKey(provider, key);
+        } catch (error) {
+            opened.value.close();
+            return {ok: false, code: "credentials-unavailable", detail: `写入初始凭据失败（${options.sqlitePath}）：${error instanceof Error ? error.message : String(error)}`};
+        }
         return opened;
     } catch (error) {
         return {ok: false, code: "credentials-unavailable", detail: `打不开凭据库 ${options.sqlitePath}：${error instanceof Error ? error.message : String(error)}`};

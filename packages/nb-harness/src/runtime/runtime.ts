@@ -6,13 +6,14 @@
 import {createCompactionRegistry} from "../compaction/compaction";
 import {createModelCatalog} from "../models/models";
 import {createProfileHost} from "../profile/profile";
+import type {ProfileHost} from "../profile/profile";
 import {createSession, openSession} from "../session/session";
 import {registerRuntimeFields} from "./fields";
 import {recoverEntries, SessionHandle} from "./session";
 import type {AgentSession, ResolvedDeps, Runtime, RuntimeDeps, RuntimeFailure, RuntimeResult} from "./types";
 
 export type {
-    AgentSession, ApprovalMode, Compacted, ContinueOptions, InteractionAnswer, Invocation, InvocationError, InvocationResult, InvocationStep, JsonValue, PromptOptions, ResolvedDeps, Runtime, RuntimeDeps,
+    AgentSession, ApprovalMode, Compacted, ContinueOptions, InteractionAnswer, Invocation, InvocationError, InvocationResult, InvocationStep, JsonValue, PendingInteraction, PromptOptions, ResolvedDeps, Runtime, RuntimeDeps,
     RuntimeEvent, RuntimeFailure, RuntimeResult, SessionEntry, SessionLog, SessionStatus, SessionSummary, StreamFn, UserInput,
 } from "./types";
 export {APPROVAL_FIELD, registerRuntimeFields, TOOLS_FIELD} from "./fields";
@@ -37,8 +38,17 @@ function resolveDeps(input: RuntimeDeps): ResolvedDeps {
     const models = input.models ?? createModelCatalog({config: input.config});
     const tools = input.tools ?? [];
     const compaction = input.compaction ?? createCompactionRegistry();
+    // 运行时的字段要登记在实际用的那个主机上：使用方事后换了 deps.host，换上来的主机第一次被用到时登记
+    let registeredHost: ProfileHost | null = null;
     const resolved = {
-        get host() { return input.host ?? host; },
+        get host() {
+            const current = input.host ?? host;
+            if (current !== registeredHost) {
+                registerRuntimeFields(current);
+                registeredHost = current;
+            }
+            return current;
+        },
         get models() { return input.models ?? models; },
         get tools() { return input.tools ?? tools; },
         get compaction() { return input.compaction ?? compaction; },
@@ -51,7 +61,8 @@ function resolveDeps(input: RuntimeDeps): ResolvedDeps {
 
 export function createRuntime(input: RuntimeDeps): Runtime {
     const deps = resolveDeps(input);
-    registerRuntimeFields(deps.host);
+    // 第一次读 host 就完成字段登记
+    void deps.host;
     const options = deps.now === undefined ? {} : {now: deps.now};
     return {
         async createSession(input): Promise<RuntimeResult<AgentSession>> {

@@ -8,7 +8,7 @@ import Type from "typebox";
 import {Appending, defineProfile, History, Input, nodeComponent, Prompt, System} from "../profile/profile";
 import {createConfigStore} from "../config/config";
 import {openCredentials} from "../models/models";
-import {createProfileCatalog} from "../profile/profile";
+import {createProfileCatalog, createProfileHost} from "../profile/profile";
 import {createRuntime} from "./runtime";
 import {createHarness, echoTool, invocationPhases, kinds, scriptedStream, shellTool, testProfile} from "./testing/harness";
 import type {Harness} from "./testing/harness";
@@ -344,7 +344,8 @@ describe("缺省依赖、目录跟配置与上下文用量（输入、输出 5�
         const credentials = await openCredentials({sqlitePath: ":memory:", apiKeys: {a: "k", b: "k"}});
         if (!credentials.ok) throw new Error(credentials.detail);
         const {stream} = scriptedStream([{text: "一", usage: {input: 400, output: 20, totalTokens: 420}}, {text: "二", usage: {input: 500, output: 20, totalTokens: 520}}]);
-        const runtime = createRuntime({config: config.value, profiles: createProfileCatalog([{source: "t", profiles: [testProfile({})]}]), credentials: credentials.value, store: createMemorySessionStore(), model: {stream}});
+        const input = {config: config.value, profiles: createProfileCatalog([{source: "t", profiles: [testProfile({})]}]), credentials: credentials.value, store: createMemorySessionStore(), model: {stream}};
+        const runtime = createRuntime(input);
         const created = await runtime.createSession({profileId: "writer"});
         if (!created.ok) throw new Error(`${created.code}: ${created.detail}`);
         const session = created.value;
@@ -366,6 +367,12 @@ describe("缺省依赖、目录跟配置与上下文用量（输入、输出 5�
         expect(session.status.model).toBe("b/n");
         // 阈值按 compaction 输出 9：80% 与“窗口减余量（缺省 16384）”取小
         expect(session.status.context).toEqual({tokens: 520, window: 100_000, threshold: 80_000});
+
+        // 事后换主机：运行时的字段登记到换上来的主机上，同一个 Profile 照常跑完
+        (input as {host?: ReturnType<typeof createProfileHost>}).host = createProfileHost();
+        const third = await session.prompt({content: "换了主机"});
+        if (!third.ok) throw new Error(`${third.code}: ${third.detail}`);
+        expect((await third.value.done).status).toBe("completed");
         await session.close();
         credentials.value.close();
     });

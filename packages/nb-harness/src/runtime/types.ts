@@ -9,7 +9,7 @@ import type {ProfileCatalog, ProfileHost} from "../profile/profile";
 import type {InteractionData, InvocationPhase, JsonValue, PendingInteraction, SessionEntry, SessionLog, SessionStore, SessionSummary} from "../session/session";
 import type {ApprovalMode, ToolInterceptor, ToolSource} from "../tools/tools";
 
-export type {ApprovalMode, Compacted, JsonValue, SessionEntry, SessionLog, SessionSummary, StreamFn};
+export type {ApprovalMode, Compacted, JsonValue, PendingInteraction, SessionEntry, SessionLog, SessionSummary, StreamFn};
 
 export type UserInput = {content: string | (TextContent | ImageContent)[]};
 

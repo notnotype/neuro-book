@@ -3,7 +3,7 @@
  * 加上几条读日志条目的小函数。临时根按仓库的测试规则放在系统临时目录下（docs/testing/README.md）。
  */
 
-import {mkdir, rm, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readlink, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -76,4 +76,19 @@ export function toolResults(entries: readonly SessionEntry[]): {text: string; is
         out.push({text: entry.message.content.map((block) => ("text" in block ? block.text : "")).join(""), isError: entry.message.isError === true});
     }
     return out;
+}
+
+/** 本进程打开的、指向该目录的文件描述符（Linux 的 /proc）；别的平台返回空数组，断言退化为不检查。装配失败不能漏掉凭据库。 */
+export async function openFilesUnder(prefix: string): Promise<string[]> {
+    if (process.platform !== "linux") return [];
+    const files: string[] = [];
+    for (const fd of await readdir("/proc/self/fd")) {
+        try {
+            const target = await readlink(`/proc/self/fd/${fd}`);
+            if (target.startsWith(prefix)) files.push(target);
+        } catch {
+            // 枚举期间关闭的描述符
+        }
+    }
+    return files;
 }

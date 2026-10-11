@@ -24,7 +24,7 @@ import {defineProfile} from "@notnotype/nb-harness/profile";
 import {assemble} from "../assemble";
 import type {Assembled} from "../assemble";
 import {contextText, scriptedModel} from "../testing/scripted-model";
-import {createStage, exampleConfig, kinds, loadWriterProfile} from "../testing/stage";
+import {createStage, exampleConfig, kinds, loadWriterProfile, openFilesUnder} from "../testing/stage";
 import type {Stage} from "../testing/stage";
 
 let stage: Stage | null = null;
@@ -39,6 +39,10 @@ const ZERO_USAGE = {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalToken
 describe("示例场景 4：压缩", () => {
     test("用量超过阈值后自动压缩；之后模型看到种子、摘要与保留的历史", async () => {
         stage = await createStage("04-compaction");
+        // 装配中途失败（重复注册同一个方法）要抛出，并且不留下打开的凭据库
+        const dup = {id: "dup", applicable: () => ({ok: true as const}), run: async () => ({ok: false as const, detail: "不会跑"})};
+        await expect(assemble({workspace: stage.workspace, state: stage.state, config: exampleConfig(), profiles: [], compaction: {methods: [dup, dup]}})).rejects.toThrow("dup");
+        expect(await openFilesUnder(stage.state)).toEqual([]);
         // 摘要传输脚本化：记下每次交给摘要模型的提示词，回一段固定摘要
         const prompts: string[] = [];
         const completeImpl: CompleteImpl = async (model, context) => {

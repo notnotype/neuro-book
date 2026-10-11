@@ -1,5 +1,6 @@
 import {afterAll, describe, expect, test} from "bun:test";
-import {readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {Database} from "bun:sqlite";
+import {readdir, readFile, readlink, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {getBundledModels, getBundledProviders} from "@oh-my-pi/pi-catalog";
 import {AuthStorage, getEnvApiKeyName, SqliteAuthCredentialStore} from "@oh-my-pi/pi-ai";
@@ -185,3 +186,36 @@ describe("内存库（输出 5）", () => {
         expect(await reopened.value.apiKeyFor(model)).toBe("file-key");
     });
 });
+
+describe("初始 key 写入失败（输出 5）", () => {
+    test("apiKeys 写不进去时返回 credentials-unavailable，已打开的库被关闭、不留文件描述符", async () => {
+        const root = await createTestTmpRoot("nb-harness-credentials", "credentials-fail");
+        roots.push(root);
+        const path = join(root, "auth.sqlite");
+        const initial = await openCredentials({sqlitePath: path});
+        if (!initial.ok) throw new Error(initial.detail);
+        initial.value.close();
+        // 真实的 SQLite 触发器让写入失败（模拟磁盘满之类的存储错误）
+        const db = new Database(path);
+        db.run("CREATE TRIGGER reject_api_key BEFORE INSERT ON auth_credentials BEGIN SELECT RAISE(ABORT, 'storage full'); END;");
+        db.close();
+        const failed = await openCredentials({sqlitePath: path, apiKeys: {[provider]: "k"}});
+        expect(failed.ok ? null : `${failed.code}:${failed.detail}`).toMatch(/^credentials-unavailable:写入初始凭据失败.*storage full/u);
+        expect(await openFilesUnder(root)).toEqual([]);
+    });
+});
+
+/** 本进程打开的、指向该目录的文件描述符（Linux 的 /proc）；别的平台返回空数组，断言退化为不检查。 */
+async function openFilesUnder(prefix: string): Promise<string[]> {
+    if (process.platform !== "linux") return [];
+    const files: string[] = [];
+    for (const fd of await readdir("/proc/self/fd")) {
+        try {
+            const target = await readlink(`/proc/self/fd/${fd}`);
+            if (target.startsWith(prefix)) files.push(target);
+        } catch {
+            // 枚举期间关闭的描述符
+        }
+    }
+    return files;
+}
