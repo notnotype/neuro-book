@@ -143,6 +143,51 @@ describe("审批等待与应答（输出 6、7）", () => {
         expect(executed).toEqual(["ls", "pwd", "ls"]);
     });
 
+    test("输出 6：回调拿到的参数是冻结的拷贝，改不了实际执行的参数；回调挂起时中止——按用户中止写应答且在终态之前，迟到的回调结果丢弃", async () => {
+        const executed: string[] = [];
+        const {harness, session} = await open({
+            tools: [echoTool(), shellTool(executed)], approvalMode: "write",
+            script: [{calls: [{id: "c1", name: "shell", args: {cmd: "ls"}}]}, {text: "一"}, {calls: [{id: "c2", name: "shell", args: {cmd: "pwd"}}]}],
+        });
+        let mutation: unknown = null;
+        harness.deps.approve = async (request) => {
+            try {
+                (request.args as {cmd: string}).cmd = "rm -rf /";
+            } catch (error) {
+                mutation = error;
+            }
+            return {decision: "approve"};
+        };
+        const first = await session.prompt({content: "跑"});
+        if (!first.ok) throw new Error(first.code);
+        expect((await first.value.done).status).toBe("completed");
+        expect(mutation).toBeInstanceOf(TypeError);
+        expect(executed).toEqual(["ls"]);
+
+        // 回调挂起，期间中止：应答由中止写（decidedBy: user），在 invocation aborted 之前；之后放行回调也不再写任何条目
+        let release: (answer: {decision: "approve"}) => void = () => undefined;
+        let asked = false;
+        harness.deps.approve = (_request) => new Promise((resolve) => {
+            asked = true;
+            release = resolve;
+        });
+        const second = await session.prompt({content: "再跑"});
+        if (!second.ok) throw new Error(second.code);
+        await waitUntil("回调被问到", () => asked);
+        expect(session.abort()).toEqual({ok: true, value: undefined});
+        const result = await second.value.done;
+        expect(result.status).toBe("aborted");
+        const kindsAfter = kinds(result.entries);
+        expect(kindsAfter.slice(-1)).toEqual(["custom:harness/invocation"]);
+        expect(interactions(result.entries).map((data) => data.phase)).toEqual(["request", "response"]);
+        expect(interactions(result.entries)[1]!.response).toEqual({decision: "reject", decidedBy: "user", note: "aborted"});
+        const before = session.log.entries.length;
+        release({decision: "approve"});
+        await session.close();
+        expect(session.log.entries.length).toBe(before);
+        expect(executed).toEqual(["ls"]);
+    });
+
     test("场景 3：同一批两个询问任意顺序应答；全部应答后才写 resumed", async () => {
         const executed: string[] = [];
         const {session} = await open({tools: [shellTool(executed)], approvalMode: "write", script: [{calls: [{id: "c1", name: "shell", args: {cmd: "a"}}, {id: "c2", name: "shell", args: {cmd: "b"}}]}, {text: "完"}]});

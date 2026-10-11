@@ -1,0 +1,144 @@
+# w00002 t19 `nb-harness` 只读实现审查（omp）
+
+审查范围：`77afa3a6..2c52c084`。
+
+### 1. 宿主审批回调可以在批准后改写实际执行的参数
+
+**严重程度**：重要；**类别**：安全
+**位置**：`packages/nb-harness/src/runtime/session.ts:760-763`、`packages/nb-harness/src/tools/adapter.ts:89-102`
+
+**现象**：`#askHost` 把适配器传入的 `request.args` 原对象直接交给 `deps.approve`，只做 TypeScript 的 `as JsonValue` 断言；审批返回后适配器仍用同一个 `args` 对象执行工具。宿主回调若改写嵌套字段，执行到的是未被批准的值。
+
+**为什么是问题**：审批决定应对应本次工具调用的参数。宿主回调是公开扩展点，回调内部的 UI 状态整理、序列化前处理或意外写入都能绕过审批时看到的内容；例如批准 `{cmd: "ls"}` 后实际执行 `{cmd: "rm -rf /"}`。这同时使 `ApprovalPrompt.args` 的 JsonValue 合同只停留在类型层，不能保证传给工具的参数仍是已校验的 JSON 值。
+
+**如何核实**：在 `packages/nb-harness` 下用真实 `Agent`、真实运行时和 `shellTool` 运行脚本，`approve = async request => { (request.args as any).cmd = "rm -rf /"; return {decision: "approve"}; }`，模型脚本请求原始 `{cmd: "ls"}`；输出为 `completed ["rm -rf /"]`。现有审批测试只读取参数，不覆盖回调修改参数。
+
+**建议改法**：在进入宿主边界时构造独立的深拷贝并冻结 `ApprovalPrompt.args`，执行继续使用原始、已校验的参数；同时在适配层对传入工具参数做 JSON 可表示性校验，不能用断言代替运行时保证。
+
+### 2. 宿主审批回调挂起时中止会把响应写到终态之后且审计人为 host
+
+**严重程度**：重要；**类别**：不变量
+**位置**：`packages/nb-harness/src/runtime/session.ts:722-750`、`packages/nb-harness/src/runtime/session.ts:753-772`
+
+**现象**：`#askHost` 直接等待 `approve()`，没有把回调的完成与 `request.signal`、调用终态绑定。`abort()` 先让工具适配器返回 `aborted` 并写 `invocation aborted`；回调稍后返回时，`#approve` 仍无条件追加 `interaction response`。批准回答会被记录为 `decidedBy: "host"`、`note: "aborted"`，而不是中止合同要求的 `decidedBy: "user"`；返回 `null` 也会把 user/aborted 响应追加到终态之后。
+
+**为什么是问题**：会话是只追加日志，`done` 必须在终态条目之后完成，审批应答也必须先于调用收口。迟到响应破坏日志生命周期和恢复判断：调用已是 aborted，之后又出现同一事项的 response；批准路径还给审计造成“宿主决定拒绝/批准”的错误归因。
+
+**如何核实**：真实运行时使用 `shellTool`，脚本模型发起一个 `shell` 调用；让 `approve` 在一个 Promise 上挂起，确认日志已有 `interaction request` 后调用 `session.abort()`，先等待 `invocation.done`，再释放回调。释放前结果为 `aborted` 且只有 request；释放后日志出现 response，批准时 response 为 `{decision: "reject", scope: "once", decidedBy: "host", note: "aborted"}`。返回 `null` 的同样实验在终态后出现 `{decidedBy: "user", note: "aborted"}`。
+
+**建议改法**：`#askHost` 与调用控制信号竞速，信号胜出后让审批路径只由 abort 收口；回调迟到时丢弃结果，禁止再写 response。中止分支统一由 `#settlePending`/调用收口写一条符合输出 8 的 user/aborted response，并等待所有审批协程结束后再完成 `done`。新增挂起回调的 abort、close、迟到 approve/null 三种真实 Agent 场景。
+
+### 3. 归一化的鸭式类型判断把非法配置和类数组 Profile 当成合法依赖
+
+**严重程度**：重要；**类别**：正确性
+**位置**：`packages/nb-harness/src/runtime/runtime.ts:37-55`、`packages/nb-harness/src/runtime/runtime.ts:113-117`
+
+**现象**：`isConfigStore` 只检查 `"current" in value` 与 `replace` 是否为函数；配置对象若恰好含 `current` 和函数型 `replace`，即使还有未知字段、应按 `invalid-config` 校验，也会被当作存储直接接受。`isProfileCatalog` 则把所有非数组对象都当成目录；冻结数组本身没有问题，但类数组对象 `{0: profile, length: 1}` 会通过装配，首次 `createSession` 才因 `deps.profiles.get is not a function` 抛裸 `TypeError`。`null` 等运行时输入还会在 `in` 运算处直接抛原生异常。
+
+**为什么是问题**：`createRuntime` 的合同要求配置和 Profile 的非法输入在返回前抛带合同码的 `HarnessError`，不能把错误延迟到第一次使用，更不能暴露内部方法缺失。当前判断既没有验证 ConfigStore 的完整接口，也没有把非数组、非目录对象收口为 `invalid-profile`。
+
+**如何核实**：在 `packages/nb-harness` 下调用 `createRuntime`：给有效配置额外加入 `current` 和 `replace(){}`，输出为 `returned function` 而不是 `HarnessError`；给 `profiles` 传冻结类数组对象，装配仍返回，随后 `createSession({profileId: "p"})` 抛 `TypeError: deps.profiles.get is not a function`。
+
+**建议改法**：先做非空对象检查，再验证存储/目录所需的完整方法集合；配置对象一律走 `createConfigStore`，数组一律走 `createProfileCatalog`，其它形状在装配阶段抛 `HarnessError("invalid-config"/"invalid-profile")`。为配置对象带冲突属性、冻结 Profile 数组和非法类数组分别加合同测试。
+
+### 4. 使用方更换 `deps.config` 对象后缺省模型目录仍绑定旧配置
+
+**严重程度**：重要；**类别**：正确性
+**位置**：`packages/nb-harness/src/runtime/runtime.ts:70-75`、`packages/nb-harness/src/runtime/runtime.ts:81-96`
+
+**现象**：缺省 `models` 时，`resolveDeps` 在 `createRuntime` 构造阶段用第一次的 `config(input.config)` 建立一次 `createModelCatalog({store: ...})`；`deps.models` getter 之后始终返回这个目录。`deps.config` getter 虽按对象身份切换到新的 ConfigStore，但模型目录没有随之切换。
+
+**为什么是问题**：实现注释和 RuntimeDeps 合同都把 `deps` 约定为活的，输出 18 明确规定替换 `deps.config` 对象后下一次读取重新归一化；缺省模型目录也应跟着当前配置。否则同一运行时换配置后，受理拿到新配置，却用旧目录解析模型，返回错误的 `model-unavailable/unknown-provider`，而不是受理新服务。
+
+**如何核实**：创建包含 `a/m` 的第一份 ConfigStore 和包含 `b/n` 的第二份 ConfigStore，`createRuntime` 后执行 `deps.config = second`，对会话调用 `preview({content: "x"}, {model: "b/n"})`；真实输出为 `model-unavailable:unknown-provider: 配置与 OMP 目录里都没有服务 b`。同一 ConfigStore 的 `replace()` 场景现有测试能通过，未覆盖对象替换。
+
+**建议改法**：把缺省模型目录也做成按当前 `deps.config` 归一化对象身份缓存的 getter，或直接始终以当前归一化 ConfigStore 建目录；保留显式传入 `models` 时由使用方负责其生命周期。补充“替换 deps.config 对象后 preview/prompt 使用新 provider”的合同测试。
+
+### 5. `unwrap` 不能处理配置模块的 `problems` 失败形状
+
+**严重程度**：重要；**类别**：正确性
+**位置**：`packages/nb-harness/src/runtime/result.ts:15-20`、`packages/nb-harness/src/config/types.ts:1-20`
+
+**现象**：`unwrap` 的 `AnyResult` 强制失败分支有 `detail`，实现也只读取 `result.detail` 和可选 `result.diagnostics`。配置模块的 `ConfigResult` 失败分支是 `{ok: false, code: "invalid-config", problems: ConfigProblem[]}`，没有 `detail` 或 `diagnostics`；因此直接把 `createConfigStore`/`validateHarnessConfig` 的结果交给 `unwrap` 在类型上不兼容，绕过类型后抛出的 `HarnessError` 的 `detail` 是 `undefined`，问题列表被丢弃。
+
+**为什么是问题**：任务与 Runtime 输出 18 要求 `unwrap` 适用于本包各模块的 Result。配置校验通常一次返回多条带路径的问题，丢掉它们后调用方无法知道如何修复，且异常文案违反 `HarnessError.detail: string` 的公开类型。
+
+**如何核实**：在 `packages/nb-harness` 下对 `createConfigStore({providers: "bad"} as any)` 的失败结果执行 `unwrap(result as any)`；实际抛出的对象为 `{"code":"invalid-config","diagnostics":[]}`，没有 detail，原始 `problems: [{path:"providers", reason:"must be array"}]` 未传递。
+
+**建议改法**：为 `unwrap` 建模各模块失败联合（至少包含 `problems`），为没有 detail 的结果按模块合同生成稳定的逐条 detail，或扩展 `HarnessError` 携带原始配置问题；补充直接调用 config、profile、tools、session Result 的类型与运行时合同测试。
+
+### 6. `defineProfile` 用值是否为 `undefined` 判断冲突，漏掉显式给出的字段
+
+**严重程度**：重要；**类别**：正确性
+**位置**：`packages/nb-harness/src/profile/define.ts:9-21`、`packages/nb-harness/src/profile/define.ts:32-40`
+
+**现象**：冲突判定写成 `d[prop] !== undefined && d.fields?.[field] !== undefined`。`fields: {"harness/tools": undefined}` 与 `tools: ["read"]` 同时出现时不会报定义错误，随后第 37–39 行又用一等属性覆盖该值；只给 `fields` 的 `undefined` 也会被原样复制进冻结的 Profile。
+
+**为什么是问题**：Profile 定义合同规定同一 `harness/*` 字段两边都给就是 `invalid-definition`，并且 `JsonValue` 不允许 `undefined`。当前结果既接受了冲突定义，也让“冻结”对象携带无法写入会话/JSON 的值；错误会被推迟或静默覆盖，调用方不能在定义边界发现。
+
+**如何核实**：在 `packages/nb-harness` 下分别执行 `defineProfile({...base, tools: ["read"], fields: {"harness/tools": undefined}})`、`defineProfile({...base, fields: {"harness/tools": undefined}})`；两次都接受，前者结果为 `{"harness/tools":["read"]}`，后者结果保留 `{"harness/tools":undefined}`。现有新增测试只覆盖两侧都是有效值的冲突。
+
+**建议改法**：用 `hasOwn` 判断四个一等属性和字段键是否出现，再对 `fields` 做完整 JSON 可表示性检查；冲突和非法值在 `defineProfile` 边界统一抛 `ProfileDefinitionError`。一等属性为 `null` 时仍按 Spec 允许的“prepare 按注册字段 schema 校验”路径处理，不要用真值判断替代 schema 校验。
+
+### 7. 渐进式示例在装配失败时会泄漏临时目录，且临时根绕过脚本规范
+
+**严重程度**：建议；**类别**：不变量
+**位置**：`packages/nb-harness/examples/steps/env.ts:9-11,45-48`；`packages/nb-harness/examples/steps/03-tools-and-approval.tsx:33-34,48-56`；`packages/nb-harness/examples/steps/04-sessions.ts:24-28`；`packages/nb-harness/examples/steps/05-profile-data.tsx:26-29,31-55`
+
+**现象**：`scratch()` 直接用 `tmpdir()`/`mkdtemp()`，没有使用测试规范要求的 Agent scratch/acceptance 路径。更重要的是，03、04、05 在进入 `try/finally` 前就创建临时根并执行 `writeFile`、`mkdir`、节点注册，03、05 还在 `try` 前调用 `openRuntime`；这些步骤任一失败时不会调用 `workspace/state.cleanup()`。
+
+**为什么是问题**：示例明确声称失败时清理临时目录，实际会在坏配置、不可用模型、文件系统错误或注册失败时把目录留在系统 Temp。绕过 `resolveAgentScratchPath` 也失去统一的 Agent 临时根、路径约束和后续 stale sweep 约定。脚本虽在成功装配后用 `finally` 关运行时凭据库，但不能覆盖装配前失败路径。
+
+**如何核实**：按源码控制流检查（本次规则禁止运行 `examples/steps/` 真实模型脚本）：临时目录分配和所有列出的可能抛错操作均位于对应 `try` 之前，只有第 56/66 行之后才有清理；与 `docs/testing/README.md:101-104` 的脚本临时目录合同逐项对照即可复现异常路径。
+
+**建议改法**：用 `resolveAgentScratchPath`/项目的脚本路径分配器创建 Task 子目录，并在分配成功后立即进入 `try/finally`；把 `mkdir`、文件初始化、Profile 注册和 `openRuntime` 都放进受保护区，保存已创建的 runtime/session 引用并在 finally 中按已创建状态收口。
+
+### 8. `createRuntime` 把内部资源所有权钩子泄漏到公开签名
+
+**严重程度**：建议；**类别**：代码质量
+**位置**：`packages/nb-harness/src/runtime/runtime.ts:104-142`
+
+**现象**：为实现 `openRuntime` 的凭据库收口，导出的 `createRuntime` 增加了 `owned: {close(): void} = ...` 第二参数；TypeScript 包入口会把它作为公开可调用 API 暴露，但 Runtime Spec 的公开签名只有 `createRuntime(deps: RuntimeDeps): Runtime`，`RuntimeDeps` 也没有这个所有权概念。
+
+**为什么是问题**：调用方可以依赖未登记的第二参数和 `Runtime.close()` 的副作用，形成无法解释的半公开生命周期合同；这个内部参数还让同步入口看起来会替调用方关闭资源，与“createRuntime 的 close 不做事、传入凭据不关”的边界混淆。
+
+**如何核实**：查看包根 `exports` 指向 `src/runtime/runtime.ts`，对导出的函数执行 `Parameters<typeof createRuntime>` 可见第二个元素为 `{close(): void}`；Spec 输入与“实现合同”均没有该参数。
+
+**建议改法**：保留公开的单参数 `createRuntime`，抽出未导出的 `createRuntimeWithOwnedResources`（或内部 `createRuntime(input, onClose)`），仅由 `openRuntime` 调用；为 `Runtime.close()` 的重复调用和传入凭据不关闭分别保留公开合同测试。
+
+### 9. README 快速开始片段引用了未定义的 `key`，不能按示例直接运行
+
+**严重程度**：建议；**类别**：文档
+**位置**：`packages/nb-harness/README.md:40-47`
+
+**现象**：快速开始示例在 `openRuntime` 中写 `apiKeys: {luna: key}`，片段没有声明 `key`，也没有把占位符写成字符串或展示从使用方凭据存储读取的代码。
+
+**为什么是问题**：t19 的目标是让读者从 README 得到可用的最短程序；复制这段 TSX 会在编译时报 `Cannot find name key`，运行 JavaScript 则是 `ReferenceError`。这与片段旁边“key 由使用方给”的解释不等价，也没有明确说明示例 URL/模型是占位值。
+
+**如何核实**：把 README 第 30–48 行原样保存为 TSX 并运行 `bun run typecheck`，`apiKeys: {luna: key}` 处出现未声明标识符；当前包类型检查不会读取 Markdown，所以现有门禁不会捕获它。
+
+**建议改法**：在片段中显式写 `const key = "在这里放服务 API key";` 并明确 `baseUrl`、模型 id 也是占位值，或改成可复制的 `apiKeys: {luna: process.env...}` 但同时说明 harness 本身不读环境变量。
+
+### 10. 新增恢复测试没有覆盖工具缺失这一条验收路径
+
+**严重程度**：建议；**类别**：测试
+**位置**：`packages/nb-harness/src/runtime/recovery.test.tsx:15-149`；实现路径 `packages/nb-harness/src/runtime/session.ts:885-893`
+
+**现象**：恢复测试覆盖了当前 ToolSource 仍有工具、恢复期间中止和普通崩溃，但没有一个场景在第一次进程有 `shell`、重开进程移除 `shell` 后 `resolve(approve)`。实现中的 `#executeRecovered` 才是直接负责 `tool-unavailable` 的分支。
+
+**为什么是问题**：运行时合同要求恢复按当前 ToolSource 执行；缺失工具必须写 `toolResult` 的 `tool-unavailable`，之后仍完成 `resumed`、让模型继续。这个分支最容易被恢复装配、日志收口或新 ToolSource 误改，当前 212 个测试通过不能证明它。
+
+**如何核实**：源码检查 `recovery.test.tsx` 没有 `tool-unavailable` 或工具移除场景；另用真实 JSONL 两进程式冒烟：第一运行时用 `shell` 进入 waiting，第二运行时用 `tools: []` 打开并 approve，实际日志为 `start, waiting, resumed, end`，工具结果文本为 `tool-unavailable: 工具 shell 此刻不可用`。因此这是永久测试缺口，不是已观察到的实现失败。
+
+**建议改法**：把上述冒烟收为 recovery 合同测试，同时断言 response 在 toolResult 前、`isError: true`、没有执行缺失工具，并确认模型继续收到该错误结果。
+
+## 未发现问题的方面
+
+- `bun test`：`packages/nb-harness` 的现有测试通过（`212 pass 6 skip 0 fail`，`218 tests / 40 files`）；这不能抵消上面列出的测试缺口。
+- `bun run typecheck`：`tsc --noEmit` 通过；未发现本次改动的 TypeScript 诊断。
+- `visibleTools` 的缺失工具去重、请求顺序与冲突失败，以及受理后 `start`/`preview` 的 warning 接线：未发现实现错误；恢复缺失工具的真实冒烟结果符合 `tool-unavailable`，但永久测试缺口见第 10 条。
+- `openRuntime` 的自建凭据库在装配失败和 `Runtime.close()` 时收口、传入凭据不由运行时关闭：未发现与 Spec 不符的实现。
+- Profile 讲解页的四阶段纯函数、prepare/refresh/request 数据流：未发现与实现合同的矛盾。
+- 按请求未运行 `examples/steps/*`、端到端、dev server、`test:llm`；示例结论来自源码控制流与合同对照，不代表真实模型执行通过。
+
+**问题计数**：重要 6；建议 4；合计 10。

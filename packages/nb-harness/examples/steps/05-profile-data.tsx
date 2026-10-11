@@ -23,20 +23,6 @@ import {registerWorkspaceTree, WorkspaceTree} from "../nodes/workspace-tree";
 import {liveModel, replyText, scratch} from "./env";
 
 const {config, apiKeys} = liveModel();
-const workspace = await scratch("step-05");
-await mkdir(join(workspace.root, "notes"));
-await writeFile(join(workspace.root, "chapter-1.md"), "第一章 出航\n", "utf8");
-await writeFile(join(workspace.root, "chapter-2.md"), "第二章 起雾\n", "utf8");
-
-const host = createProfileHost();
-// invocation 时机的数据源与节点：工作区一层目录（实现见 examples/nodes/workspace-tree.ts）
-registerWorkspaceTree(host, createLocalFileAccess({root: workspace.root}));
-// model-call 时机的数据源与节点：此刻的时间
-unwrap(host.registerSource({id: "example/now", schema: Type.String(), phase: "model-call", resolve: async () => new Date().toISOString()}));
-unwrap(host.registerNodeType({
-    id: "example/clock", category: "content", props: Type.Object({}), parents: [BUILTIN.system], children: "none", sources: ["example/now"],
-    render: (_node, context) => String(context.sources["example/now"]),
-}));
 const Clock = nodeComponent("example/clock");
 
 const writer = defineProfile({
@@ -52,18 +38,36 @@ const writer = defineProfile({
     ),
 });
 
-const runtime = await openRuntime({config, profiles: [writer], apiKeys, host});
+const workspace = await scratch("step-05");
 try {
-    const session = unwrap(await runtime.createSession({profileId: "writer"}));
-    const input = {content: "工作区里有哪些文件？现在是几点（UTC）？"};
-    const preview = unwrap(await session.preview(input));
-    console.log("系统提示词：", preview.system);
-    console.log("种子：", preview.seeds.map((message) => message.content));
-    const result = await unwrap(await session.prompt(input)).done;
-    console.log(`状态：${result.status}${result.error === undefined ? "" : `（${result.error.kind}：${result.error.message}）`}`);
-    console.log(replyText(result.entries));
-    await session.close();
+    await mkdir(join(workspace.root, "notes"));
+    await writeFile(join(workspace.root, "chapter-1.md"), "第一章 出航\n", "utf8");
+    await writeFile(join(workspace.root, "chapter-2.md"), "第二章 起雾\n", "utf8");
+
+    const host = createProfileHost();
+    // invocation 时机的数据源与节点：工作区一层目录（实现见 examples/nodes/workspace-tree.ts）
+    registerWorkspaceTree(host, createLocalFileAccess({root: workspace.root}));
+    // model-call 时机的数据源与节点：此刻的时间
+    unwrap(host.registerSource({id: "example/now", schema: Type.String(), phase: "model-call", resolve: async () => new Date().toISOString()}));
+    unwrap(host.registerNodeType({
+        id: "example/clock", category: "content", props: Type.Object({}), parents: [BUILTIN.system], children: "none", sources: ["example/now"],
+        render: (_node, context) => String(context.sources["example/now"]),
+    }));
+
+    const runtime = await openRuntime({config, profiles: [writer], apiKeys, host});
+    try {
+        const session = unwrap(await runtime.createSession({profileId: "writer"}));
+        const input = {content: "工作区里有哪些文件？现在是几点（UTC）？"};
+        const preview = unwrap(await session.preview(input));
+        console.log("系统提示词：", preview.system);
+        console.log("种子：", preview.seeds.map((message) => message.content));
+        const result = await unwrap(await session.prompt(input)).done;
+        console.log(`状态：${result.status}${result.error === undefined ? "" : `（${result.error.kind}：${result.error.message}）`}`);
+        console.log(replyText(result.entries));
+        await session.close();
+    } finally {
+        runtime.close();
+    }
 } finally {
-    runtime.close();
     await workspace.cleanup();
 }

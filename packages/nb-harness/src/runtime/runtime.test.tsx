@@ -402,6 +402,21 @@ describe("缺省依赖、目录跟配置与上下文用量（输入、输出 5�
         }
         await expect(openRuntime({config: {providers: [], models: {}}, profiles: [testProfile({}), testProfile({})], apiKeys: {}})).rejects.toMatchObject({code: "invalid-profile"});
         await expect(openRuntime({config: {providers: [], models: {}}, profiles: [testProfile({})], credentialsPath: "/dev/null/nowhere/auth.sqlite"})).rejects.toBeInstanceOf(HarnessError);
+        // 判别按完整的方法集合：带 current/replace 的配置对象仍按配置校验（未知字段），类数组对象不是 Profile 目录
+        const loose = unwrap(await openCredentials({sqlitePath: ":memory:"}));
+        try {
+            const odd = {providers: [], models: {}, current: {}, replace() {}} as never;
+            expect(() => createRuntime({config: odd, profiles: [testProfile({})], credentials: loose})).toThrow(expect.objectContaining({code: "invalid-config"}));
+            const arrayLike = Object.freeze({0: testProfile({}), length: 1}) as never;
+            expect(() => createRuntime({config: {providers: [], models: {}}, profiles: arrayLike, credentials: loose})).toThrow(expect.objectContaining({code: "invalid-profile"}));
+            expect(() => createRuntime({config: null as never, profiles: [testProfile({})], credentials: loose})).toThrow(expect.objectContaining({code: "invalid-config"}));
+            // 冻结的 Profile 数组照常
+            expect(() => createRuntime({config: {providers: [], models: {}}, profiles: Object.freeze([testProfile({})]), credentials: loose}).close()).not.toThrow();
+        } finally {
+            loose.close();
+        }
+        // unwrap 也认配置模块的 problems 形状
+        expect(() => unwrap(createConfigStore({providers: "x"}))).toThrow(expect.objectContaining({code: "invalid-config", detail: expect.stringContaining("providers")}));
     });
 
     test("场景 10：只给 config、profiles、credentials、store 的运行时能跑完一次调用；replace 加服务后能用新模型；status.context 给用量；没有 contextWindow 的模型 compact 为 compaction-failed", async () => {
@@ -412,6 +427,15 @@ describe("缺省依赖、目录跟配置与上下文用量（输入、输出 5�
         const {stream} = scriptedStream([{text: "一", usage: {input: 400, output: 20, totalTokens: 420}}, {text: "二", usage: {input: 500, output: 20, totalTokens: 520}}]);
         const input = {config: config.value, profiles: createProfileCatalog([{source: "t", profiles: [testProfile({})]}]), credentials: credentials.value, store: createMemorySessionStore(), model: {stream}};
         const runtime = createRuntime(input);
+        // 换一个配置存储对象（不是 replace）：缺省目录跟着换
+        const other = createConfigStore({providers: [{id: "c", api: "openai-completions", baseUrl: "http://127.0.0.1:1", models: [{id: "n"}]}], models: {defaultModel: "c/n"}});
+        if (!other.ok) throw new Error(JSON.stringify(other.problems));
+        const swapDeps: Parameters<typeof createRuntime>[0] = {...input, store: createMemorySessionStore()};
+        const swappedSession = unwrap(await createRuntime(swapDeps).createSession({profileId: "writer"}));
+        expect((await swappedSession.preview({content: "x"}, {model: "c/n"})).ok).toBe(false);
+        swapDeps.config = other.value;
+        expect(unwrap(await swappedSession.preview({content: "x"}, {model: "c/n"})).model).toBe("c/n");
+        await swappedSession.close();
         const created = await runtime.createSession({profileId: "writer"});
         if (!created.ok) throw new Error(`${created.code}: ${created.detail}`);
         const session = created.value;

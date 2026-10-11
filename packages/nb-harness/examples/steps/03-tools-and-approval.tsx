@@ -30,9 +30,6 @@ import {liveModel, replyText, scratch} from "./env";
 
 // write 模式下 edit 本来直接放行；配置把它改成“询问”，好让回调派上用场
 const {config, apiKeys} = liveModel({mode: "write", tools: {edit: "ask"}});
-const workspace = await scratch("step-03");
-await writeFile(join(workspace.root, "chapter-1.md"), "第一章 出航\n林岚站在甲板上。\n远处是 1987 年的青岛。\n", "utf8");
-
 const editor = defineProfile({
     id: "editor", name: "改稿助手", description: "第 3 步：读改章节", version: 1,
     tools: ["read", "edit"],
@@ -45,23 +42,28 @@ const editor = defineProfile({
     ),
 });
 
-const runtime = await openRuntime({
-    config, profiles: [editor], apiKeys,
-    tools: [createBuiltinTools({resources: createResourceAccess({project: {provider: createLocalFileAccess({root: workspace.root}), doc: "作品目录"}})})],
-    approve: async (request) => {
-        console.log(`审批：${request.toolName}（${request.tier}）参数 ${JSON.stringify(request.args).slice(0, 160)}`);
-        return {decision: "approve"};
-    },
-});
+const workspace = await scratch("step-03");
 try {
-    const session = unwrap(await runtime.createSession({profileId: "editor"}));
-    const result = await unwrap(await session.prompt({content: "把 project://chapter-1.md 的第二行改成：林岚站在船头，风很大。"})).done;
-    console.log(`状态：${result.status}${result.error === undefined ? "" : `（${result.error.kind}：${result.error.message}）`}`);
-    console.log(replyText(result.entries));
-    console.log("文件现在是：");
-    console.log(await readFile(join(workspace.root, "chapter-1.md"), "utf8"));
-    await session.close();
+    await writeFile(join(workspace.root, "chapter-1.md"), "第一章 出航\n林岚站在甲板上。\n远处是 1987 年的青岛。\n", "utf8");
+    const runtime = await openRuntime({
+        config, profiles: [editor], apiKeys,
+        tools: [createBuiltinTools({resources: createResourceAccess({project: {provider: createLocalFileAccess({root: workspace.root}), doc: "作品目录"}})})],
+        approve: async (request) => {
+            console.log(`审批：${request.toolName}（${request.tier}）参数 ${JSON.stringify(request.args).slice(0, 160)}`);
+            return {decision: "approve"};
+        },
+    });
+    try {
+        const session = unwrap(await runtime.createSession({profileId: "editor"}));
+        const result = await unwrap(await session.prompt({content: "把 project://chapter-1.md 的第二行改成：林岚站在船头，风很大。"})).done;
+        console.log(`状态：${result.status}${result.error === undefined ? "" : `（${result.error.kind}：${result.error.message}）`}`);
+        console.log(replyText(result.entries));
+        console.log("文件现在是：");
+        console.log(await readFile(join(workspace.root, "chapter-1.md"), "utf8"));
+        await session.close();
+    } finally {
+        runtime.close();
+    }
 } finally {
-    runtime.close();
     await workspace.cleanup();
 }

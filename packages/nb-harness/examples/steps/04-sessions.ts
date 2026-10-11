@@ -22,10 +22,10 @@ import {liveModel, replyText, scratch} from "./env";
 const {config, apiKeys} = liveModel();
 const profile = unwrap(await loadProfile(fileURLToPath(new URL("../profiles/assistant.profile.tsx", import.meta.url))));
 const state = await scratch("step-04");
-const sessions = join(state.root, "sessions");
-await mkdir(sessions);
-
 try {
+    const sessions = join(state.root, "sessions");
+    await mkdir(sessions);
+
     // 第一个运行时：新建会话、说一件事，然后整个关掉
     const first = await openRuntime({config, profiles: [profile], apiKeys, store: createJsonlSessionStore({root: sessions})});
     try {

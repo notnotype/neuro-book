@@ -75,7 +75,7 @@ export default defineProfile({
 | `name`、`description` | 非空字符串 |
 | `version` | 正整数 |
 | `tools`、`model`、`compaction`、`approval` | 一等属性，`defineProfile` 把它们并进 `fields` 的 `harness/tools`、`harness/model`、`harness/compaction`、`harness/approval`；值的校验仍按注册的字段 schema 在 `prepare` 时做 |
-| `fields` | 键是已注册的字段 id，值符合该字段的 schema；同一个 `harness/*` 字段既给了一等属性又写在 `fields` 里是定义错误（`invalid-definition`） |
+| `fields` | 键是已注册的字段 id，值符合该字段的 schema；同一个 `harness/*` 字段既给了一等属性又写在 `fields` 里是定义错误（`invalid-definition`），`fields` 里出现了这个键就算给了；值为 `undefined` 的字段是定义错误 |
 | `prompt` | `(ctx: PromptContext) => 节点`，返回的根必须是 `Prompt` |
 
 ```ts

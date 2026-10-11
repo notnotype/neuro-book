@@ -6,10 +6,9 @@
  * 每个脚本跑一次就是几次真实模型调用，要花钱。
  */
 
-import {mkdtemp, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
-import {join} from "node:path";
+import {mkdir, rm} from "node:fs/promises";
 import {LLM_TEST_PROVIDER_ID, llmTestConfig} from "@notnotype/neuro-book-test-support/llm";
+import {resolveAgentScratchPath} from "@notnotype/neuro-book-test-support/paths";
 import type {SessionEntry} from "@notnotype/nb-harness";
 import type {ApprovalMode, HarnessConfigInput} from "@notnotype/nb-harness/config";
 
@@ -42,8 +41,12 @@ export function replyText(entries: readonly SessionEntry[]): string {
     return "（没有助手回复）";
 }
 
-/** 系统临时目录下的一个新目录，脚本结束时删掉。 */
+/**
+ * 脚本用的临时目录：由测试支持包分配在系统 Temp 下的 Agent 临时根里（docs/testing/README.md 的临时数据规则），
+ * 调用方拿到后要立刻进入 `try`，在 `finally` 里 `cleanup()`。
+ */
 export async function scratch(name: string): Promise<{root: string; cleanup(): Promise<void>}> {
-    const root = await mkdtemp(join(tmpdir(), `nb-harness-${name}-`));
+    const root = resolveAgentScratchPath("nb-harness-examples", `${name}-${crypto.randomUUID().slice(0, 8)}`);
+    await mkdir(root, {recursive: true});
     return {root, cleanup: () => rm(root, {recursive: true, force: true})};
 }

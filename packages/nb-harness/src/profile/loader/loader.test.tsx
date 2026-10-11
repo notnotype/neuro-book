@@ -79,6 +79,9 @@ describe("加载（输出 12）", () => {
         expect(sugared.fields).toEqual({"plugin.x/flag": true, "harness/tools": ["read", "edit"], "harness/model": {role: "writer"}, "harness/compaction": {threshold: {percent: 80}}, "harness/approval": "write"});
         expect("tools" in sugared).toBe(false);
         expect(() => defineProfile({id: "p", name: "n", description: "d", version: 1, tools: ["read"], fields: {"harness/tools": ["edit"]}, prompt: () => <Prompt />})).toThrow('tools 与 fields["harness/tools"] 只能给一个');
+        // 值为 undefined 的字段：不是合法的字段值，也躲不过冲突判定
+        expect(() => defineProfile({id: "p", name: "n", description: "d", version: 1, tools: ["read"], fields: {"harness/tools": undefined as never}, prompt: () => <Prompt />})).toThrow("undefined");
+        expect(() => defineProfile({id: "p", name: "n", description: "d", version: 1, fields: {"plugin.x/flag": undefined as never}, prompt: () => <Prompt />})).toThrow("undefined");
         const fake = profileFromModule({default: {id: "p", name: "n", description: "d", version: 1, prompt: () => null}});
         expect(fake.ok ? null : fake.code).toBe("invalid-profile");
         expect(() => defineProfile({id: "Bad Id", name: "n", description: "d", version: 1, prompt: () => <Prompt />})).toThrow(TypeError);

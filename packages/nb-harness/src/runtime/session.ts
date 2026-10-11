@@ -750,23 +750,36 @@ export class SessionHandle implements AgentSession {
         return this.#waitForUser(current, interactionId, request.signal);
     }
 
-    /** 宿主审批回调（输出 6）：抛出按拒绝——与 OMP 钩子出错即拒绝一致，宁可拒也不放行。 */
+    /**
+     * 宿主审批回调（输出 6）：抛出按拒绝——与 OMP 钩子出错即拒绝一致，宁可拒也不放行。
+     * 回调拿到的参数是冻结的深拷贝：执行用的是适配层手里那份，回调改不了批准之后实际执行的参数。
+     * 回调与中止信号赛跑：信号先到就按“用户中止”写应答（与等用户时被中止同一写法，在终态条目之前），迟到的回调结果丢弃。
+     */
     async #askHost(current: Current, request: ApprovalRequest, interactionId: string, tier: "read" | "write" | "exec"): Promise<{outcome: ApprovalOutcome; response: NonNullable<InteractionData["response"]>} | null> {
         const approve = this.#deps.approve;
         if (approve === undefined) return null;
         const {accepted, invocationId} = current;
-        let answer: ApprovalAnswer | null;
+        const abortedAnswer = {outcome: {aborted: true} as const, response: {decision: "reject", decidedBy: "user", note: "aborted"} as NonNullable<InteractionData["response"]>};
+        if (request.signal.aborted) return abortedAnswer;
+        const stop = new AbortController();
+        const onAbort = new Promise<"aborted">((resolve) => request.signal.addEventListener("abort", () => resolve("aborted"), {once: true, signal: stop.signal}));
+        let settled: {answer: ApprovalAnswer | null} | {error: unknown} | "aborted";
         try {
-            answer = await approve({
-                sessionId: this.id, invocationId, interactionId, toolName: request.toolId, toolCallId: request.toolCallId, args: request.args as JsonValue, tier,
+            const asked = Promise.resolve().then(() => approve({
+                sessionId: this.id, invocationId, interactionId, toolName: request.toolId, toolCallId: request.toolCallId, args: frozenCopy(request.args) as JsonValue, tier,
                 profile: {id: accepted.profile.id, name: accepted.profile.name}, signal: request.signal,
-            });
-        } catch (error) {
-            const note = `审批回调出错：${error instanceof Error ? error.message : String(error)}`;
+            }));
+            settled = await Promise.race([asked.then((answer) => ({answer}), (error: unknown) => ({error})), onAbort]);
+        } finally {
+            stop.abort();
+        }
+        if (settled === "aborted" || request.signal.aborted) return abortedAnswer;
+        if ("error" in settled) {
+            const note = `审批回调出错：${settled.error instanceof Error ? settled.error.message : String(settled.error)}`;
             return {outcome: {approved: false, reason: note}, response: {decision: "reject", scope: "once", decidedBy: "host", note}};
         }
+        const answer = settled.answer;
         if (answer === null) return null;
-        if (request.signal.aborted) return {outcome: {aborted: true}, response: {decision: "reject", scope: "once", decidedBy: "host", note: "aborted"}};
         const response: NonNullable<InteractionData["response"]> = {decision: answer.decision, scope: answer.scope ?? "once", decidedBy: "host", ...(answer.note === undefined ? {} : {note: answer.note})};
         return {outcome: answer.decision === "approve" ? {approved: true} : {approved: false, reason: answer.note ?? "宿主拒绝"}, response};
     }
@@ -964,6 +977,18 @@ export class SessionHandle implements AgentSession {
         return {descriptor, tool: toAgentTool(descriptor, hooks)};
     }
 
+}
+
+/** 交出边界的参数：深拷贝后逐层冻结（参数来自模型的 JSON，`structuredClone` 拷得了）。 */
+function frozenCopy<T>(value: T): T {
+    const copy = structuredClone(value);
+    const freeze = (item: unknown): void => {
+        if (typeof item !== "object" || item === null || Object.isFrozen(item)) return;
+        for (const child of Object.values(item)) freeze(child);
+        Object.freeze(item);
+    };
+    freeze(copy);
+    return copy;
 }
 
 function toolResultMessage(toolCallId: string, toolName: string, text: string, isError: boolean, timestamp: number): ToolResultMessage {

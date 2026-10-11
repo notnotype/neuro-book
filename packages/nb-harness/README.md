@@ -40,7 +40,7 @@ const assistant = defineProfile({
 const runtime = await openRuntime({
     config: {providers: [{id: "luna", api: "openai-completions", baseUrl: "https://example.com/v1", models: [{id: "gpt-6-luna", contextWindow: 128_000}]}], models: {defaultModel: "luna/gpt-6-luna"}},
     profiles: [assistant],
-    apiKeys: {luna: key},                          // 内核不读环境变量：key 由使用方给，缺省进一个不落盘的 :memory: 凭据库
+    apiKeys: {luna: process.env.LUNA_API_KEY!},    // 内核不读环境变量：key 由使用方读出来给它，缺省进一个不落盘的 :memory: 凭据库
 });
 const session = unwrap(await runtime.createSession({profileId: "assistant"}));
 const result = await unwrap(await session.prompt({content: "给一部航海小说起三个书名。"})).done;   // completed | waiting | aborted | failed

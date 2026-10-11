@@ -15,8 +15,12 @@ export function profileDefinitionProblem(definition: unknown): string | null {
     if (!Number.isInteger(d.version) || (d.version as number) < 1) return "version 必须是正整数";
     if (d.fields !== undefined && (typeof d.fields !== "object" || d.fields === null || Array.isArray(d.fields))) return "fields 必须是对象";
     if (typeof d.prompt !== "function") return "prompt 必须是函数";
+    // fields 里的键按“出现了”算：值为 undefined 不是合法的字段值（JsonValue 没有它），也不能用来躲过冲突判定
+    for (const [key, value] of Object.entries(d.fields ?? {})) {
+        if (value === undefined) return `fields["${key}"] 的值是 undefined；不给这个字段就不要写这个键`;
+    }
     for (const [prop, field] of Object.entries(FIELD_OF_PROP)) {
-        if ((d as Record<string, unknown>)[prop] !== undefined && d.fields?.[field] !== undefined) return `${prop} 与 fields["${field}"] 只能给一个`;
+        if ((d as Record<string, unknown>)[prop] !== undefined && d.fields !== undefined && Object.hasOwn(d.fields, field)) return `${prop} 与 fields["${field}"] 只能给一个`;
     }
     return null;
 }

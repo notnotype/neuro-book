@@ -46,6 +46,36 @@ describe("打开与恢复（输出 13）", () => {
         await session.close();
     });
 
+    test("场景 7：重开的进程里已经没有那个工具 → 批准后写 tool-unavailable 的错误结果，照常 resumed，模型收到这个结果后继续", async () => {
+        const executed: string[] = [];
+        const first = await createHarness({store: "jsonl", tools: [shellTool(executed)], approvalMode: "write", script: [{calls: [{id: "c1", name: "shell", args: {cmd: "ls"}}]}]});
+        harnesses.push(first);
+        const created = await first.runtime.createSession({profileId: "writer", id: "s1"});
+        if (!created.ok) throw new Error(created.code);
+        const started = await created.value.prompt({content: "跑"});
+        if (!started.ok) throw new Error(started.code);
+        await waitUntil("等待用户", () => created.value.status.phase === "waiting-user");
+        await created.value.close();
+
+        // 新进程没装 shell
+        const second = await createHarness({store: first.store, tools: [], approvalMode: "write", script: [{text: "工具不在了"}]});
+        harnesses.push(second);
+        const reopened = await second.runtime.openSession("s1");
+        if (!reopened.ok) throw new Error(`${reopened.code}: ${reopened.detail}`);
+        const session = reopened.value;
+        const before = session.log.entries.length;
+        expect(await session.resolve({interactionId: session.status.pending[0]!.interactionId, decision: "approve"})).toEqual({ok: true, value: undefined});
+        await waitUntil("恢复的调用完成", () => session.status.phase === "idle");
+        expect(executed).toEqual([]);
+        const after = session.log.entries.slice(before);
+        expect(kinds(after)).toEqual(["custom:harness/interaction", "message:toolResult", "custom:harness/invocation", "message:assistant", "custom:harness/invocation"]);
+        const result = after[1]!;
+        expect(result.type === "message" && result.message.role === "toolResult" && {text: result.message.content.map((block) => ("text" in block ? block.text : "")).join(""), isError: result.message.isError}).toEqual({text: "tool-unavailable: 工具 shell 此刻不可用", isError: true});
+        expect(invocationPhases(session.log.entries)).toEqual(["start", "waiting", "resumed", "end"]);
+        expect(second.contexts[0]!.messages.at(-1)).toMatchObject({role: "toolResult", isError: true});
+        await session.close();
+    });
+
     test("场景 7：运行中崩溃（没有待处理事项）→ 重开时补中断结果与 interrupted，状态 idle，可以 continue", async () => {
         const harness = await createHarness({store: "jsonl", script: [{text: "继续后的回复"}]});
         harnesses.push(harness);

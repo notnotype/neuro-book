@@ -34,10 +34,19 @@ function sessionFailure(code: string, detail: string): RuntimeResult<never> {
     return {ok: false, code: SESSION_CODES[code] ?? "log-failed", detail: `${code}：${detail}`};
 }
 
-const isConfigStore = (value: RuntimeDeps["config"]): value is ConfigStore => "current" in value && typeof (value as ConfigStore).replace === "function";
-const isProfileCatalog = (value: RuntimeDeps["profiles"]): value is ProfileCatalog => !Array.isArray(value);
+/** 存储与目录按完整的方法集合认：只看一两个属性会把恰好带 `current` 字段的配置对象、类数组对象误当成它们。 */
+const isConfigStore = (value: unknown): value is ConfigStore => {
+    if (typeof value !== "object" || value === null) return false;
+    const candidate = value as Partial<ConfigStore>;
+    return typeof candidate.replace === "function" && typeof candidate.subscribe === "function" && typeof candidate.current === "object" && candidate.current !== null;
+};
+const isProfileCatalog = (value: unknown): value is ProfileCatalog => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+    const candidate = value as Partial<ProfileCatalog>;
+    return typeof candidate.get === "function" && typeof candidate.list === "function" && Array.isArray(candidate.issues);
+};
 
-/** 一份 `HarnessConfig` → 配置存储；不合法时把全部问题一次报出。 */
+/** 一份配置对象 → 配置存储；不合法时把全部问题一次报出。 */
 function configStoreOf(config: RuntimeDeps["config"]): ConfigStore {
     if (isConfigStore(config)) return config;
     const created = createConfigStore(config);
@@ -48,6 +57,7 @@ function configStoreOf(config: RuntimeDeps["config"]): ConfigStore {
 /** 一组 Profile → 目录；目录里的错误（重复 id）在装配时就报。 */
 function catalogOf(profiles: RuntimeDeps["profiles"]): ProfileCatalog {
     if (isProfileCatalog(profiles)) return profiles;
+    if (!Array.isArray(profiles)) throw new HarnessError("invalid-profile", "profiles 要么是 Profile 目录（有 get、list、issues），要么是 Profile 数组");
     const catalog = createProfileCatalog([{source: "inline", profiles: profiles as readonly Profile[]}]);
     const errors = catalog.issues.filter((issue) => issue.severity === "error");
     if (errors.length > 0) throw new HarnessError("invalid-profile", errors.map((issue) => `${issue.code} ${issue.path}：${issue.detail}`).join("\n"), errors);
@@ -70,8 +80,9 @@ function normalized<I extends object, O>(convert: (input: I) => O): (input: I) =
 function resolveDeps(input: RuntimeDeps): ResolvedDeps {
     const config = normalized(configStoreOf);
     const profiles = normalized(catalogOf);
+    // 缺省目录跟着当前的配置存储：使用方换了 deps.config 对象，下一次读目录就按新存储建
+    const catalogFor = normalized((store: ConfigStore) => createModelCatalog({store}));
     const host = input.host ?? createProfileHost();
-    const models = input.models ?? createModelCatalog({store: config(input.config)});
     const tools = input.tools ?? [];
     const compaction = input.compaction ?? createCompactionRegistry();
     const store = input.store ?? createMemorySessionStore();
@@ -89,7 +100,7 @@ function resolveDeps(input: RuntimeDeps): ResolvedDeps {
             }
             return current;
         },
-        get models() { return input.models ?? models; },
+        get models() { return input.models ?? catalogFor(config(input.config)); },
         get tools() { return input.tools ?? tools; },
         get compaction() { return input.compaction ?? compaction; },
         get store() { return input.store ?? store; },
@@ -101,7 +112,12 @@ function resolveDeps(input: RuntimeDeps): ResolvedDeps {
     return resolved as ResolvedDeps;
 }
 
-export function createRuntime(input: RuntimeDeps, owned: {close(): void} = {close: () => undefined}): Runtime {
+export function createRuntime(input: RuntimeDeps): Runtime {
+    return buildRuntime(input, {close: () => undefined});
+}
+
+/** `owned` 是运行时自己建、由 `close()` 关的东西（`openRuntime` 开的凭据库）；不进公开签名。 */
+function buildRuntime(input: RuntimeDeps, owned: {close(): void}): Runtime {
     // 预算错了在装配时就报，不等第一个工具结果
     if (input.limits?.toolResult !== undefined) {
         try {
@@ -152,7 +168,7 @@ export async function openRuntime(options: OpenRuntimeOptions): Promise<Runtime>
     const opened = await openCredentials({sqlitePath: credentialsPath ?? ":memory:", ...(apiKeys === undefined ? {} : {apiKeys})});
     if (!opened.ok) throw new HarnessError(opened.code, opened.detail);
     try {
-        return createRuntime({...deps, credentials: opened.value}, {close: () => opened.value.close()});
+        return buildRuntime({...deps, credentials: opened.value}, {close: () => opened.value.close()});
     } catch (error) {
         // 装配失败时库已经开了：自己关掉，调用方拿不到句柄
         opened.value.close();

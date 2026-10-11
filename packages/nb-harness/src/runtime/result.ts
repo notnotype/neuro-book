@@ -12,9 +12,12 @@ export class HarnessError extends Error {
     }
 }
 
-type AnyResult<T> = {ok: true; value: T} | {ok: false; code: string; detail: string; diagnostics?: readonly Diagnostic[]};
+/** 本包各模块的失败形状：多数带 `detail`（profile 另带 `diagnostics`），config 带 `problems`（`{path, reason}` 列表）。 */
+type Failure = {ok: false; code: string; detail: string; diagnostics?: readonly Diagnostic[]} | {ok: false; code: string; problems: readonly {path: string; reason: string}[]};
+type AnyResult<T> = {ok: true; value: T} | Failure;
 
 export function unwrap<T>(result: AnyResult<T>): T {
     if (result.ok) return result.value;
+    if ("problems" in result) throw new HarnessError(result.code, result.problems.map((problem) => `${problem.path}：${problem.reason}`).join("\n"));
     throw new HarnessError(result.code, result.detail, result.diagnostics ?? []);
 }
