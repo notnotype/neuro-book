@@ -3,9 +3,9 @@
 import type {StreamFn} from "@oh-my-pi/pi-agent-core";
 import type {AssistantMessage, ImageContent, Message, TextContent} from "@oh-my-pi/pi-ai";
 import type {Compacted, CompactionRegistry} from "../compaction/compaction";
-import type {ConfigStore} from "../config/config";
+import type {ConfigStore, HarnessConfigInput} from "../config/config";
 import type {Credentials, ModelCatalog} from "../models/models";
-import type {Diagnostic, ProfileCatalog, ProfileHost} from "../profile/profile";
+import type {Diagnostic, Profile, ProfileCatalog, ProfileHost} from "../profile/profile";
 import type {ArtifactStore, InteractionData, InvocationPhase, JsonValue, PendingInteraction, SessionEntry, SessionLog, SessionStore, SessionSummary} from "../session/session";
 import type {ApprovalMode, ToolInterceptor, ToolResultBudget, ToolSource} from "../tools/tools";
 
@@ -13,9 +13,20 @@ export type {ApprovalMode, Compacted, JsonValue, PendingInteraction, SessionEntr
 
 export type UserInput = {content: string | (TextContent | ImageContent)[]};
 
+/** 宿主审批（输出 6）：询问用户之前先问它；返回 `null` 交给用户（pending 事项与 `resolve`）。 */
+export type ApprovalPrompt = {
+    sessionId: string; invocationId: string; interactionId: string;
+    toolName: string; toolCallId: string; args: JsonValue; tier: "read" | "write" | "exec";
+    profile: {id: string; name: string};
+    signal: AbortSignal;
+};
+export type ApprovalAnswer = {decision: "approve" | "reject"; scope?: "once" | "session"; note?: string};
+
 export type RuntimeDeps = {
-    config: ConfigStore;
-    profiles: ProfileCatalog;
+    /** 配置存储，或 `createConfigStore` 接受的配置对象（内部建存储；不合法抛 `HarnessError("invalid-config")`）。 */
+    config: ConfigStore | HarnessConfigInput;
+    /** Profile 目录，或一组 Profile（内部建目录；目录有错误抛 `HarnessError("invalid-profile")`）。 */
+    profiles: ProfileCatalog | readonly Profile[];
     /** 缺省 `createProfileHost()`；使用方要注册自己的节点与数据源时自己建一个传进来。 */
     host?: ProfileHost;
     /** 缺省按 `config` 建目录（跟着配置的 `replace` 走）。 */
@@ -24,9 +35,12 @@ export type RuntimeDeps = {
     /** 缺省没有工具。 */
     tools?: ToolSource[];
     interceptor?: ToolInterceptor;
+    /** 宿主审批回调；不给就只有审批模型与用户两级。 */
+    approve?: (request: ApprovalPrompt) => Promise<ApprovalAnswer | null>;
     /** 缺省 `createCompactionRegistry()`（只有 soft）。 */
     compaction?: CompactionRegistry;
-    store: SessionStore;
+    /** 缺省内存存储（进程退出即丢）。 */
+    store?: SessionStore;
     /** 工具结果超预算时的全文去处；缺省内存实现（进程退出即丢）。 */
     artifacts?: ArtifactStore;
     /** `toolResult` 缺的项按 harness.tools 的缺省预算。 */
@@ -36,13 +50,19 @@ export type RuntimeDeps = {
     judge?: {stream?: StreamFn; timeoutMs?: number};
 };
 
-/** 填好缺省项的依赖：运行时内部只用这份。 */
-export type ResolvedDeps = RuntimeDeps & Required<Pick<RuntimeDeps, "host" | "models" | "tools" | "compaction" | "artifacts">>;
+/** 填好缺省项、归一化之后的依赖：运行时内部只用这份。 */
+export type ResolvedDeps = Omit<RuntimeDeps, "config" | "profiles" | "store"> & {config: ConfigStore; profiles: ProfileCatalog; store: SessionStore}
+    & Required<Pick<RuntimeDeps, "host" | "models" | "tools" | "compaction" | "artifacts">>;
+
+/** `openRuntime` 的参数：凭据可以只给 key（内部开凭据库，缺省 `:memory:`）。 */
+export type OpenRuntimeOptions = Omit<RuntimeDeps, "credentials"> & {credentials?: Credentials; apiKeys?: Readonly<Record<string, string>>; credentialsPath?: string};
 
 export interface Runtime {
     createSession(input: {profileId: string; id?: string; title?: string}): Promise<RuntimeResult<AgentSession>>;
     openSession(id: string): Promise<RuntimeResult<AgentSession>>;
     listSessions(): Promise<RuntimeResult<SessionSummary[]>>;
+    /** 关掉运行时自己建的东西（`openRuntime` 开的凭据库）；使用方传进来的不关。 */
+    close(): void;
 }
 
 export type SessionStatus = {

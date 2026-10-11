@@ -98,7 +98,7 @@ const InteractionRequestSchema = Type.Object({
 const InteractionResponseSchema = Type.Object({
     decision: Type.Union([Type.Literal("approve"), Type.Literal("reject"), Type.Literal("answer")]),
     scope: Type.Optional(Type.Union([Type.Literal("once"), Type.Literal("session")])),
-    decidedBy: Type.Union([Type.Literal("user"), Type.Literal("approver")]), note: Type.Optional(Type.String()), data: Type.Optional(Type.Unknown()),
+    decidedBy: Type.Union([Type.Literal("user"), Type.Literal("approver"), Type.Literal("host")]), note: Type.Optional(Type.String()), data: Type.Optional(Type.Unknown()),
 });
 const InteractionDataSchema = Type.Object({
     interactionId: Type.String(), kind: Type.Union([Type.Literal("approval"), Type.Literal("question")]),

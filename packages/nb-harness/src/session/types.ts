@@ -28,7 +28,7 @@ export type InvocationPhase = "start" | "waiting" | "resumed" | "end" | "error" 
 export type InvocationData = {invocationId: string; phase: InvocationPhase; detail?: JsonValue};
 
 export type InteractionRequest = {assistantEntryId: string; toolCallId: string; toolName: string; tier?: "read" | "write" | "exec"; data?: JsonValue};
-export type InteractionResponse = {decision: "approve" | "reject" | "answer"; scope?: "once" | "session"; decidedBy: "user" | "approver"; note?: string; data?: JsonValue};
+export type InteractionResponse = {decision: "approve" | "reject" | "answer"; scope?: "once" | "session"; decidedBy: "user" | "approver" | "host"; note?: string; data?: JsonValue};
 export type InteractionData = {interactionId: string; kind: "approval" | "question"; phase: "request" | "response";
     request?: InteractionRequest; response?: InteractionResponse};
 

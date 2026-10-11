@@ -63,7 +63,7 @@ type SessionEntry = EntryBase & (
 type InvocationData = {invocationId: string; phase: "start" | "waiting" | "resumed" | "end" | "error" | "aborted" | "interrupted"; detail?: JsonValue};
 type InteractionData = {interactionId: string; kind: "approval" | "question"; phase: "request" | "response";
     request?: {assistantEntryId: string; toolCallId: string; toolName: string; tier?: "read" | "write" | "exec"; data?: JsonValue};
-    response?: {decision: "approve" | "reject" | "answer"; scope?: "once" | "session"; decidedBy: "user" | "approver"; note?: string; data?: JsonValue}};
+    response?: {decision: "approve" | "reject" | "answer"; scope?: "once" | "session"; decidedBy: "user" | "approver" | "host"; note?: string; data?: JsonValue}};   // host：运行时的宿主审批回调（harness.runtime 输出 6）
 type JsonValue = null | boolean | number | string | JsonValue[] | {[key: string]: JsonValue};
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 type EntryInput = DistributiveOmit<SessionEntry, "id" | "parentId" | "timestamp">;

@@ -41,6 +41,7 @@ interface ConfigStore {
 type ConfigResult<T> = {ok: true; value: T} | {ok: false; code: "invalid-config"; problems: ConfigProblem[]};
 type ConfigProblem = {path: string; reason: string};                  // path 如 "providers[1].baseUrl"
 
+type HarnessConfigInput = 校验前的配置对象形状（HarnessConfig 里 roles、profiles、approval 可缺，按输出 1 补缺省）；   // createConfigStore 与 harness.runtime 的 RuntimeDeps.config 接受它
 type HarnessConfig = {
     providers: ProviderConfig[];                                       // 自建或覆盖的模型服务；OMP 目录里的服务不必列出
     models: {defaultModel?: ModelRef};

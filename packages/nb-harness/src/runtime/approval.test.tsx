@@ -75,6 +75,74 @@ describe("审批等待与应答（输出 6、7）", () => {
         expect(toolTexts(freshResult.entries)).toEqual([JSON.stringify([{type: "text", text: "回显：x"}]), JSON.stringify([{type: "text", text: "denied: 不行"}])]);
     });
 
+    test("输出 6：宿主审批回调在用户之前——批准（scope: session 进放行记录）、拒绝带说明、返回 null 落到 pending、抛出按拒绝；response 的 decidedBy 是 host", async () => {
+        const executed: string[] = [];
+        const {harness, session} = await open({
+            tools: [echoTool(), shellTool(executed)], approvalMode: "write",
+            // 脚本按会话顺序消费：s1 两次调用、s2 拒绝、s3 交给用户、s4 回调抛出
+            script: [
+                {calls: [{id: "c1", name: "shell", args: {cmd: "ls"}}]}, {text: "一"}, {calls: [{id: "c2", name: "shell", args: {cmd: "pwd"}}]}, {text: "二"},
+                {calls: [{id: "c3", name: "shell", args: {cmd: "rm"}}]}, {text: "三"}, {calls: [{id: "c4", name: "shell", args: {cmd: "ls"}}]}, {text: "四"}, {calls: [{id: "c5", name: "shell", args: {cmd: "ls"}}]}, {text: "五"},
+            ],
+        });
+        const asked: {toolName: string; tier: string; args: unknown; sessionId: string}[] = [];
+        // deps 是活的：装配后再给回调也生效
+        harness.deps.approve = async (request) => {
+            asked.push({toolName: request.toolName, tier: request.tier, args: request.args, sessionId: request.sessionId});
+            return {decision: "approve", scope: "session", note: "宿主放行"};
+        };
+        const first = await session.prompt({content: "跑"});
+        if (!first.ok) throw new Error(first.code);
+        const result = await first.value.done;
+        expect(result.status).toBe("completed");
+        expect(asked).toEqual([{toolName: "shell", tier: "exec", args: {cmd: "ls"}, sessionId: "s1"}]);
+        expect(executed).toEqual(["ls"]);
+        // 没有进入等待：没有 waiting/resumed，事项的 request 与 response 都写了，response 由宿主决定
+        expect(invocationPhases(result.entries)).toEqual(["start", "end"]);
+        expect(interactions(result.entries).map((data) => data.phase)).toEqual(["request", "response"]);
+        expect(interactions(result.entries)[1]!.response).toEqual({decision: "approve", scope: "session", decidedBy: "host", note: "宿主放行"});
+        // scope: session 的放行同样记在会话里：第二次不再问宿主
+        const second = await session.prompt({content: "再跑"});
+        if (!second.ok) throw new Error(second.code);
+        expect((await second.value.done).status).toBe("completed");
+        expect(asked).toHaveLength(1);
+        expect(executed).toEqual(["ls", "pwd"]);
+
+        // 拒绝：工具结果 denied 带说明
+        const denying = await harness.runtime.createSession({profileId: "writer", id: "s2"});
+        if (!denying.ok) throw new Error(denying.code);
+        harness.deps.approve = async () => ({decision: "reject", note: "宿主不让"});
+        const denied = await denying.value.prompt({content: "跑"});
+        if (!denied.ok) throw new Error(denied.code);
+        const deniedResult = await denied.value.done;
+        expect(toolTexts(deniedResult.entries)).toEqual([JSON.stringify([{type: "text", text: "denied: 宿主不让"}])]);
+        expect(interactions(deniedResult.entries)[1]!.response).toMatchObject({decision: "reject", decidedBy: "host"});
+
+        // 返回 null：交给用户，照常进入等待
+        const asking = await harness.runtime.createSession({profileId: "writer", id: "s3"});
+        if (!asking.ok) throw new Error(asking.code);
+        harness.deps.approve = async () => null;
+        const waiting = await asking.value.prompt({content: "跑"});
+        if (!waiting.ok) throw new Error(waiting.code);
+        await waitUntil("进入等待用户", () => asking.value.status.phase === "waiting-user");
+        expect(asking.value.status.pending).toHaveLength(1);
+        expect(await asking.value.resolve({interactionId: asking.value.status.pending[0]!.interactionId, decision: "approve"})).toEqual({ok: true, value: undefined});
+        expect((await waiting.value.done).status).toBe("completed");
+
+        // 抛出：按拒绝，说明带错误消息，不放行
+        const throwing = await harness.runtime.createSession({profileId: "writer", id: "s4"});
+        if (!throwing.ok) throw new Error(throwing.code);
+        harness.deps.approve = async () => {
+            throw new Error("审批服务挂了");
+        };
+        const thrown = await throwing.value.prompt({content: "跑"});
+        if (!thrown.ok) throw new Error(thrown.code);
+        const thrownResult = await thrown.value.done;
+        expect(thrownResult.status).toBe("completed");
+        expect(toolTexts(thrownResult.entries)[0]).toContain("denied: 审批回调出错：审批服务挂了");
+        expect(executed).toEqual(["ls", "pwd", "ls"]);
+    });
+
     test("场景 3：同一批两个询问任意顺序应答；全部应答后才写 resumed", async () => {
         const executed: string[] = [];
         const {session} = await open({tools: [shellTool(executed)], approvalMode: "write", script: [{calls: [{id: "c1", name: "shell", args: {cmd: "a"}}, {id: "c2", name: "shell", args: {cmd: "b"}}]}, {text: "完"}]});

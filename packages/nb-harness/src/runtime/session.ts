@@ -23,7 +23,7 @@ import {createStaticToolSource, decideApproval, DEFAULT_TOOL_RESULT_BUDGET, desc
 import type {AdapterHooks, ApprovalMode, ApprovalOutcome, ApprovalRequest, ToolDescriptor, ToolResultBudget} from "../tools/tools";
 import {accept, check} from "./accept";
 import type {Accepted, Checked} from "./accept";
-import type {AgentSession, InteractionAnswer, Invocation, InvocationError, InvocationResult, InvocationStep, Preview, PreviewOptions, PromptOptions, ResolvedDeps, RuntimeEvent, RuntimeResult, SessionStatus, UserInput} from "./types";
+import type {ApprovalAnswer, AgentSession, InteractionAnswer, Invocation, InvocationError, InvocationResult, InvocationStep, Preview, PreviewOptions, PromptOptions, ResolvedDeps, RuntimeEvent, RuntimeResult, SessionStatus, UserInput} from "./types";
 
 const LLM_ROLES = new Set(["user", "developer", "assistant", "toolResult"]);
 /** OMP 缺省的 convertToLlm 会丢掉 developer 消息（session 的实测），运行时自己保留四种角色。 */
@@ -737,7 +737,34 @@ export class SessionHandle implements AgentSession {
                 return judged.approved ? {approved: true} : {approved: false, reason: judged.reason};
             }
         }
+        // 宿主回调在用户之前：它给不出（null）才落成 pending 事项等 resolve
+        const hosted = await this.#askHost(current, request, interactionId, decision.tier);
+        if (hosted !== null) {
+            await this.#writeInteraction(invocationId, {interactionId, kind: "approval", phase: "response", response: hosted.response});
+            return hosted.outcome;
+        }
         return this.#waitForUser(current, interactionId, request.signal);
+    }
+
+    /** 宿主审批回调（输出 6）：抛出按拒绝——与 OMP 钩子出错即拒绝一致，宁可拒也不放行。 */
+    async #askHost(current: Current, request: ApprovalRequest, interactionId: string, tier: "read" | "write" | "exec"): Promise<{outcome: ApprovalOutcome; response: NonNullable<InteractionData["response"]>} | null> {
+        const approve = this.#deps.approve;
+        if (approve === undefined) return null;
+        const {accepted, invocationId} = current;
+        let answer: ApprovalAnswer | null;
+        try {
+            answer = await approve({
+                sessionId: this.id, invocationId, interactionId, toolName: request.toolId, toolCallId: request.toolCallId, args: request.args as JsonValue, tier,
+                profile: {id: accepted.profile.id, name: accepted.profile.name}, signal: request.signal,
+            });
+        } catch (error) {
+            const note = `审批回调出错：${error instanceof Error ? error.message : String(error)}`;
+            return {outcome: {approved: false, reason: note}, response: {decision: "reject", scope: "once", decidedBy: "host", note}};
+        }
+        if (answer === null) return null;
+        if (request.signal.aborted) return {outcome: {aborted: true}, response: {decision: "reject", scope: "once", decidedBy: "host", note: "aborted"}};
+        const response: NonNullable<InteractionData["response"]> = {decision: answer.decision, scope: answer.scope ?? "once", decidedBy: "host", ...(answer.note === undefined ? {} : {note: answer.note})};
+        return {outcome: answer.decision === "approve" ? {approved: true} : {approved: false, reason: answer.note ?? "宿主拒绝"}, response};
     }
 
     /** 审批模型：角色 approval 解析不到或调用失败都交给用户（escalate → null）。 */

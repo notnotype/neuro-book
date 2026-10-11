@@ -6,3 +6,4 @@ export type {ApprovalMode, ConfigProblem, ConfigResult, ConfigStore, HarnessConf
 export {validateHarnessConfig} from "./validate";
 export {createConfigStore} from "./store";
 export {MODEL_REF_PATTERN} from "./schema";
+export type {HarnessConfigInput} from "./schema";

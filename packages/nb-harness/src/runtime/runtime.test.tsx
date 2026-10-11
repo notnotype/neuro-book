@@ -10,7 +10,7 @@ import {Appending, defineProfile, History, Input, nodeComponent, Prompt, System,
 import {createConfigStore} from "../config/config";
 import {openCredentials} from "../models/models";
 import {createProfileCatalog, createProfileHost} from "../profile/profile";
-import {createRuntime} from "./runtime";
+import {createRuntime, HarnessError, openRuntime, unwrap} from "./runtime";
 import {createHarness, echoTool, invocationPhases, kinds, scriptedStream, shellTool, testProfile} from "./testing/harness";
 import type {Harness} from "./testing/harness";
 
@@ -367,6 +367,41 @@ describe("Profile 的数据源与中止（输出 4、8、9）", () => {
 });
 
 describe("缺省依赖、目录跟配置与上下文用量（输入、输出 5、14）", () => {
+    test("输出 18：openRuntime 只给配置、一组 Profile 与 key 就能跑；unwrap 成功给值、失败抛带同一 code 的 HarnessError；坏配置、重复 Profile 在装配时就抛", async () => {
+        const {stream} = scriptedStream([{text: "你好呀"}]);
+        const runtime = await openRuntime({
+            config: {providers: [{id: "a", api: "openai-completions", baseUrl: "http://127.0.0.1:1", models: [{id: "m"}]}], models: {defaultModel: "a/m"}},
+            profiles: [testProfile({})], apiKeys: {a: "k"}, model: {stream},
+        });
+        try {
+            const session = unwrap(await runtime.createSession({profileId: "writer"}));
+            const result = await unwrap(await session.prompt({content: "你好"})).done;
+            expect(result.status).toBe("completed");
+            expect(kinds(result.entries)).toContain("message:assistant");
+            // 失败：同一个 code 与 detail 进异常
+            const failed = await session.prompt({content: "x"}, {profileId: "nope"});
+            expect(() => unwrap(failed)).toThrow(HarnessError);
+            try {
+                unwrap(failed);
+            } catch (error) {
+                expect(error).toMatchObject({name: "HarnessError", code: "unknown-profile", detail: expect.stringContaining("nope")});
+            }
+            await session.close();
+        } finally {
+            runtime.close();
+        }
+        // 装配时就报：坏配置、目录里重复的 Profile、打不开的凭据库
+        const credentials = unwrap(await openCredentials({sqlitePath: ":memory:"}));
+        try {
+            expect(() => createRuntime({config: {providers: "x"} as never, profiles: [testProfile({})], credentials})).toThrow(HarnessError);
+            expect(() => createRuntime({config: {providers: [], models: {}}, profiles: [testProfile({}), testProfile({})], credentials})).toThrow(HarnessError);
+        } finally {
+            credentials.close();
+        }
+        await expect(openRuntime({config: {providers: [], models: {}}, profiles: [testProfile({}), testProfile({})], apiKeys: {}})).rejects.toMatchObject({code: "invalid-profile"});
+        await expect(openRuntime({config: {providers: [], models: {}}, profiles: [testProfile({})], credentialsPath: "/dev/null/nowhere/auth.sqlite"})).rejects.toBeInstanceOf(HarnessError);
+    });
+
     test("场景 10：只给 config、profiles、credentials、store 的运行时能跑完一次调用；replace 加服务后能用新模型；status.context 给用量；没有 contextWindow 的模型 compact 为 compaction-failed", async () => {
         const config = createConfigStore({providers: [{id: "a", api: "openai-completions", baseUrl: "http://127.0.0.1:1", models: [{id: "m"}]}], models: {defaultModel: "a/m"}});
         if (!config.ok) throw new Error(JSON.stringify(config.problems));
@@ -450,7 +485,7 @@ describe("工具结果的预算（输入 artifacts、limits.toolResult；输出 
         harnesses.push(tight);
         tight.deps.limits = {toolResult: {spillBytes: 4}};
         // 预算不是非负整数：装配时就拒绝
-        expect(() => createRuntime({...tight.deps, limits: {toolResult: {headBytes: -1}}})).toThrow(TypeError);
+        expect(() => createRuntime({...tight.deps, limits: {toolResult: {headBytes: -1}}})).toThrow(HarnessError);
         const created = await tight.runtime.createSession({profileId: "writer"});
         if (!created.ok) throw new Error(created.code);
         const run = await created.value.prompt({content: "回显"});
