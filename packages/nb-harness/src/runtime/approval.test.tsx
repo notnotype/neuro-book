@@ -169,3 +169,28 @@ describe("关闭（输出 16）", () => {
         expect(session.abort()).toMatchObject({ok: false, code: "closed"});
     });
 });
+
+describe("Invocation.next()（输出 6）", () => {
+    test("场景 11：等待审批时 next 返回 waiting 与事项（再调用仍返回）；应答后 next 返回 done；没有审批的调用第一次 next 就是 done", async () => {
+        const {session} = await open({tools: [echoTool(), shellTool()], approvalMode: "write", script: [{calls: [{id: "c1", name: "shell", args: {cmd: "ls"}}]}, {text: "跑完了"}, {text: "直接回复"}]});
+        const started = await session.prompt({content: "跑"});
+        if (!started.ok) throw new Error(started.code);
+        const step = await started.value.next();
+        expect(step.kind).toBe("waiting");
+        if (step.kind !== "waiting") return;
+        expect(step.pending.map((item) => item.request.toolCallId)).toEqual(["c1"]);
+        expect(session.status.phase).toBe("waiting-user");
+        // 没应答之前再问一次：还是同一组事项
+        const again = await started.value.next();
+        expect(again.kind === "waiting" && again.pending[0]!.interactionId).toBe(step.pending[0]!.interactionId);
+        expect(await session.resolve({interactionId: step.pending[0]!.interactionId, decision: "approve"})).toEqual({ok: true, value: undefined});
+        const finished = await started.value.next();
+        expect(finished.kind).toBe("done");
+        expect(finished.kind === "done" && finished.result).toEqual(await started.value.done);
+
+        const plain = await session.prompt({content: "说句话"});
+        if (!plain.ok) throw new Error(plain.code);
+        const only = await plain.value.next();
+        expect(only.kind === "done" && only.result.status).toBe("completed");
+    });
+});

@@ -14,7 +14,7 @@ import {sessionSettings} from "../session/session";
 import type {SessionLog} from "../session/session";
 import {resolveApprovalMode, visibleTools} from "../tools/tools";
 import type {ApprovalMode, ToolDescriptor} from "../tools/tools";
-import type {RuntimeDeps, RuntimeResult, UserInput} from "./types";
+import type {ResolvedDeps, RuntimeResult, UserInput} from "./types";
 
 export type Accepted = {
     config: HarnessConfig;
@@ -50,7 +50,7 @@ function stringList(value: unknown): string[] {
 }
 
 export async function accept(
-    deps: RuntimeDeps,
+    deps: ResolvedDeps,
     session: {log: SessionLog; profileId: string; sessionMode?: ApprovalMode},
     options: {input?: UserInput; model?: string; signal?: AbortSignal; needsInput: boolean},
 ): Promise<RuntimeResult<Accepted>> {

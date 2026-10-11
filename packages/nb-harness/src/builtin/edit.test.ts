@@ -126,3 +126,15 @@ describe("edit（输出 6、7）", () => {
         }
     });
 });
+
+describe("工具说明（输出 6）", () => {
+    test("edit 的说明是 OMP 的 hashline 语法说明加本模块的约束", async () => {
+        const root = await createTestTmpRoot("nb-harness-edit", "description");
+        roots.push(root);
+        const edit = editTool({access: createLocalFileAccess({root}), stores: createSnapshotStores()});
+        expect(edit.description).toContain("PUT N.=M:");
+        expect(edit.description).toContain("[PATH#TAG]");
+        expect(edit.description).toContain("<harness>");
+        expect(edit.description.length).toBeGreaterThan(3000);
+    });
+});

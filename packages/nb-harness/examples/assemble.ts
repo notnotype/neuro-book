@@ -4,13 +4,15 @@
  *
  * 一步一步：
  * 1. 配置快照：`createConfigStore` 校验并冻结一份配置；校验失败会一次列出全部问题（不是第一条），这里直接抛出。
- * 2. 凭据：OMP 的 SQLite 凭据库，路径由我们给；key 用 `setApiKey` 写进去，内核不会去读环境变量。
+ *    运行时按它建模型目录，之后 `replace` 配置，目录跟着变。
+ * 2. 凭据：OMP 的 SQLite 凭据库，路径由我们给（`:memory:` 是内存库）；key 经 `apiKeys` 写进去，内核不会去读环境变量。
  * 3. 文件访问：`createLocalFileAccess({root})` 把工作区当根，根外的路径（`../x`、绝对路径、指向根外的符号链接）一律 `outside-root`。
  *    内置的 `read`、`edit` 只经它读写。
  * 4. Profile 主机：注册方的节点与数据源在这里登记（示例注册了 `<WorkspaceTree />`）；运行时创建时会把自己的字段登记进来。
+ *    不注册任何东西的使用方可以不传 `host`。
  * 5. 会话存储：JSONL，每个会话一个文件；目录要先存在。
- * 6. 压缩注册表：自带 `soft`；场景 4 再注册一个摘要传输脚本化的方法。
- * 7. `createRuntime(deps)`：`model.stream` 不传就是 OMP 的真实网络传输；场景传脚本化的流，命令行不传。
+ * 6. 压缩注册表：自带 `soft`；场景 4 用 `soft.completeImpl` 把它的摘要传输换成脚本。不传就是缺省的注册表。
+ * 7. `createRuntime(deps)`：`models`、`tools`、`compaction`、`host` 都可以省略；`model.stream` 不传就是 OMP 的真实网络传输。
  *
  * 行为合同：docs/specs/harness/runtime.md 的“输入与前置条件”（`RuntimeDeps`）；各依赖的合同见对应模块的 Spec。
  */
@@ -22,9 +24,9 @@ import type {Runtime, RuntimeDeps, StreamFn} from "@notnotype/nb-harness";
 import {createBuiltinTools} from "@notnotype/nb-harness/builtin";
 import {createLocalFileAccess} from "@notnotype/nb-harness/builtin/local";
 import {createCompactionRegistry} from "@notnotype/nb-harness/compaction";
-import type {CompactionMethod} from "@notnotype/nb-harness/compaction";
+import type {CompactionMethod, CompleteImpl} from "@notnotype/nb-harness/compaction";
 import {createConfigStore} from "@notnotype/nb-harness/config";
-import {createModelCatalog, openCredentials} from "@notnotype/nb-harness/models";
+import {openCredentials} from "@notnotype/nb-harness/models";
 import {createProfileCatalog, createProfileHost} from "@notnotype/nb-harness/profile";
 import type {Profile} from "@notnotype/nb-harness/profile";
 import {createJsonlSessionStore} from "@notnotype/nb-harness/session/jsonl";
@@ -44,8 +46,8 @@ export type AssembleOptions = {
     model?: {stream?: StreamFn};
     /** 审批模型的传输与超时。 */
     judge?: {stream?: StreamFn; timeoutMs?: number};
-    /** 额外注册的压缩方法（`soft` 已内置）。 */
-    compaction?: readonly CompactionMethod[];
+    /** 压缩：替换内置 `soft` 的摘要传输，或再注册别的方法。 */
+    compaction?: {soft?: {completeImpl?: CompleteImpl}; methods?: readonly CompactionMethod[]};
     /** 一次调用最多多少轮模型回复；缺省 50。 */
     maxTurns?: number;
 };
@@ -62,16 +64,15 @@ export async function assemble(options: AssembleOptions): Promise<Assembled> {
     if (!config.ok) throw new Error(`配置无效：\n${config.problems.map((problem) => `  ${problem.path}: ${problem.reason}`).join("\n")}`);
 
     await mkdir(join(options.state, "sessions"), {recursive: true});
-    const credentials = await openCredentials({sqlitePath: join(options.state, "auth.sqlite")});
+    const credentials = await openCredentials({sqlitePath: join(options.state, "auth.sqlite"), ...(options.apiKeys === undefined ? {} : {apiKeys: options.apiKeys})});
     if (!credentials.ok) throw new Error(`凭据库打不开：${credentials.detail}`);
-    for (const [provider, key] of Object.entries(options.apiKeys ?? {})) await credentials.value.setApiKey(provider, key);
 
     const access = createLocalFileAccess({root: options.workspace});
     const host = createProfileHost();
     registerWorkspaceTree(host, access);
 
-    const compaction = createCompactionRegistry();
-    for (const method of options.compaction ?? []) {
+    const compaction = createCompactionRegistry(options.compaction?.soft === undefined ? {} : {soft: options.compaction.soft});
+    for (const method of options.compaction?.methods ?? []) {
         const registered = compaction.register(method);
         if (!registered.ok) throw new Error(`注册压缩方法 ${method.id} 失败：${registered.detail}`);
     }
@@ -80,8 +81,6 @@ export async function assemble(options: AssembleOptions): Promise<Assembled> {
         config: config.value,
         profiles: createProfileCatalog([{source: "examples", profiles: options.profiles}]),
         host,
-        // 目录只看传入的快照；配置被 replace 时要用新快照另建目录
-        models: createModelCatalog({config: config.value.current}),
         credentials: credentials.value,
         tools: [createBuiltinTools({access})],
         compaction,

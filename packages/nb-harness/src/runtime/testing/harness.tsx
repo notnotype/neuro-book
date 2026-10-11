@@ -22,7 +22,7 @@ import type {SessionStore} from "../../session/session";
 import {createStaticToolSource, defineTool} from "../../tools/tools";
 import type {ToolDefinition, ToolSource} from "../../tools/tools";
 import {createRuntime} from "../runtime";
-import type {Runtime, RuntimeDeps, RuntimeEvent} from "../runtime";
+import type {ResolvedDeps, Runtime, RuntimeEvent} from "../runtime";
 
 export type Reply = ({text: string} | {calls: {id: string; name: string; args: Record<string, unknown>}[]} | {error: string}) & {usage?: Partial<Usage>};
 
@@ -125,7 +125,7 @@ export type HarnessOptions = {
 
 export type Harness = {
     runtime: Runtime;
-    deps: RuntimeDeps;
+    deps: ResolvedDeps;
     contexts: Context[];
     judgeContexts: Context[];
     root: string;
@@ -154,7 +154,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     const judge = scriptedStream(options.judge ?? []);
     if (options.store === "jsonl") await mkdir(join(root, "sessions"), {recursive: true});
     const store = options.store === "jsonl" ? createJsonlSessionStore({root: join(root, "sessions")}) : options.store ?? createMemorySessionStore();
-    const deps: RuntimeDeps = {
+    const deps: ResolvedDeps = {
         config: config.value, profiles: catalog, host: createProfileHost(), models: createModelCatalog({config: config.value.current}), credentials: credentials.value,
         tools: options.sources ?? [createStaticToolSource(tools)], compaction: options.compaction ?? createCompactionRegistry(), store,
         ...(options.maxTurns === undefined ? {} : {limits: {maxTurns: options.maxTurns}}),

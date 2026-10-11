@@ -16,18 +16,25 @@ export type UserInput = {content: string | (TextContent | ImageContent)[]};
 export type RuntimeDeps = {
     config: ConfigStore;
     profiles: ProfileCatalog;
-    host: ProfileHost;
-    models: ModelCatalog;
+    /** 缺省 `createProfileHost()`；使用方要注册自己的节点与数据源时自己建一个传进来。 */
+    host?: ProfileHost;
+    /** 缺省按 `config` 建目录（跟着配置的 `replace` 走）。 */
+    models?: ModelCatalog;
     credentials: Credentials;
-    tools: ToolSource[];
+    /** 缺省没有工具。 */
+    tools?: ToolSource[];
     interceptor?: ToolInterceptor;
-    compaction: CompactionRegistry;
+    /** 缺省 `createCompactionRegistry()`（只有 soft）。 */
+    compaction?: CompactionRegistry;
     store: SessionStore;
     limits?: {maxTurns?: number};
     now?: () => Date;
     model?: {stream?: StreamFn};
     judge?: {stream?: StreamFn; timeoutMs?: number};
 };
+
+/** 填好缺省项的依赖：运行时内部只用这份。 */
+export type ResolvedDeps = RuntimeDeps & Required<Pick<RuntimeDeps, "host" | "models" | "tools" | "compaction">>;
 
 export interface Runtime {
     createSession(input: {profileId: string; id?: string; title?: string}): Promise<RuntimeResult<AgentSession>>;
@@ -42,10 +49,18 @@ export type SessionStatus = {
     queue: {steer: number; followUp: number};
     profileId?: string;
     model?: string;
+    /** 上下文用量：最近一次受理的模型与压缩设置可知时才有；`tokens` 为 null 表示还没有助手消息报告用量。 */
+    context?: {tokens: number | null; window: number; threshold: number};
 };
 export type PromptOptions = {streamingBehavior?: "steer" | "followUp"; profileId?: string; model?: string; signal?: AbortSignal};
 export type ContinueOptions = {signal?: AbortSignal};
-export type Invocation = {invocationId: string; done: Promise<InvocationResult>};
+export type Invocation = {
+    invocationId: string;
+    done: Promise<InvocationResult>;
+    /** 下一个需要调用方处理的点：这次调用进入等待用户（带待处理事项），或结束。等待中再调用立即返回同一组事项。 */
+    next(): Promise<InvocationStep>;
+};
+export type InvocationStep = {kind: "waiting"; pending: PendingInteraction[]} | {kind: "done"; result: InvocationResult};
 export type InvocationError = {kind: "model" | "limit" | "log" | "profile" | "compaction"; message: string; overflow?: boolean};
 export type InvocationResult = {status: "completed" | "waiting" | "aborted" | "failed"; error?: InvocationError; entries: readonly SessionEntry[]};
 export type InteractionAnswer = {interactionId: string; decision: "approve" | "reject"; scope?: "once" | "session"; note?: string};

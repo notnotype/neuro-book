@@ -3,7 +3,7 @@
  * 语义（标签核对、未展示行守卫、陈旧标签重映射、模糊匹配）全部交给引擎；引擎决定要写什么之后，每个路径先经 FileAccess 判在根内再写。
  */
 
-import {EditSession} from "@oh-my-pi/pi-natives";
+import {editDescription, EditSession} from "@oh-my-pi/pi-natives";
 import type {EditPolicy, EditWriteRequest, EditWriteResponse} from "@oh-my-pi/pi-natives";
 import Type from "typebox";
 import {defineTool} from "../tools/tools";
@@ -84,7 +84,8 @@ export function editTool(input: {access: FileAccess; stores: SnapshotStores}): T
 
     return defineTool({
         id: "edit",
-        description: "按 hashline 协议修改文件：先用 read 拿到 `[path#tag]` 头，再以它开头给出行锚操作（PUT、DEL 等）。只能改已经读过的行。",
+        // 语法说明照 OMP（模型按它训练过），后面加本模块的约束
+        description: `${editDescription("hashline")}\n\n<harness>\n路径是工作区根内的相对路径：不能是绝对路径，不能含 ..、~ 或协议前缀。[path#tag] 头只能来自本会话 read 的输出，只能改 read 展示过的行。这里没有 write 与 search 工具：新建文件不在本工具范围内，内容要先 read。\n</harness>`,
         parameters: EditParameters,
         risk: "write",
         async execute(args, context): Promise<ToolOutcome> {

@@ -112,26 +112,15 @@ async function ask(prompt: string): Promise<string | null> {
     }
 }
 
-/** 等到这次调用结束；中途要审批就问用户。 */
+/** 等到这次调用结束；中途要审批就问用户。`next()` 给的就是这两种点。 */
 async function follow(invocation: Invocation): Promise<void> {
     for (;;) {
-        // 等 done 或等进入 waiting-user，先到的那个
-        const waiting = new Promise<"waiting">((resolveWaiting) => {
-            if (session.status.phase === "waiting-user") resolveWaiting("waiting");
-            const sub = session.subscribe((event) => {
-                if (event.type === "status" && event.status.phase === "waiting-user") {
-                    sub.release();
-                    resolveWaiting("waiting");
-                }
-            });
-        });
-        const outcome = await Promise.race([invocation.done.then((result) => ({result})), waiting]);
-        if (outcome !== "waiting") {
-            const {result} = outcome;
-            if (result.status === "failed") console.log(`调用失败：${result.error?.kind}：${result.error?.message}`);
+        const step = await invocation.next();
+        if (step.kind === "done") {
+            if (step.result.status === "failed") console.log(`调用失败：${step.result.error?.kind}：${step.result.error?.message}`);
             return;
         }
-        for (const pending of session.status.pending) {
+        for (const pending of step.pending) {
             const answer = ((await ask(`批准 ${pending.request.toolName}（${pending.request.tier ?? "exec"}）？[y 一次 / s 本会话 / n 拒绝] `)) ?? "n").trim().toLowerCase();
             const decided = answer === "n"
                 ? await session.resolve({interactionId: pending.interactionId, decision: "reject", note: "用户拒绝"})

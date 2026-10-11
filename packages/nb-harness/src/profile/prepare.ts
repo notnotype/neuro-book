@@ -249,12 +249,13 @@ export async function prepare(registries: Registries, profile: Profile, input: {
     const warnings: Diagnostic[] = [];
     const errors: Diagnostic[] = [];
 
-    // 字段：未注册的只警告并忽略，已注册的按 schema 校验。
+    // 字段：未注册的只警告并忽略；但 harness/ 命名空间的字段都由内核模块登记，没注册到就是拼错或主机没装好，按错误报（输出 3）。
     const fields: Record<string, JsonValue> = {};
     for (const [id, value] of Object.entries(profile.fields)) {
         const schema = registries.fieldTypes.get(id);
         if (schema === undefined) {
-            warnings.push({severity: "warning", code: "unknown-field", path: `fields.${id}`, detail: `没有注册字段 ${id}，已忽略`});
+            if (id.startsWith("harness/")) errors.push({severity: "error", code: "unknown-field", path: `fields.${id}`, detail: `没有注册字段 ${id}：harness/ 下的字段由内核模块登记，检查拼写，或先把运行时的字段注册到主机`});
+            else warnings.push({severity: "warning", code: "unknown-field", path: `fields.${id}`, detail: `没有注册字段 ${id}，已忽略`});
             continue;
         }
         const problem = schemaProblems(schema, value);

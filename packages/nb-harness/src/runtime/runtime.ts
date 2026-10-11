@@ -3,13 +3,16 @@
  * 行为合同见 docs/specs/harness/runtime.md。
  */
 
+import {createCompactionRegistry} from "../compaction/compaction";
+import {createModelCatalog} from "../models/models";
+import {createProfileHost} from "../profile/profile";
 import {createSession, openSession} from "../session/session";
 import {registerRuntimeFields} from "./fields";
 import {recoverEntries, SessionHandle} from "./session";
-import type {AgentSession, Runtime, RuntimeDeps, RuntimeFailure, RuntimeResult} from "./types";
+import type {AgentSession, ResolvedDeps, Runtime, RuntimeDeps, RuntimeFailure, RuntimeResult} from "./types";
 
 export type {
-    AgentSession, ApprovalMode, Compacted, ContinueOptions, InteractionAnswer, Invocation, InvocationError, InvocationResult, JsonValue, PromptOptions, Runtime, RuntimeDeps,
+    AgentSession, ApprovalMode, Compacted, ContinueOptions, InteractionAnswer, Invocation, InvocationError, InvocationResult, InvocationStep, JsonValue, PromptOptions, ResolvedDeps, Runtime, RuntimeDeps,
     RuntimeEvent, RuntimeFailure, RuntimeResult, SessionEntry, SessionLog, SessionStatus, SessionSummary, StreamFn, UserInput,
 } from "./types";
 export {APPROVAL_FIELD, registerRuntimeFields, TOOLS_FIELD} from "./fields";
@@ -25,7 +28,29 @@ function sessionFailure(code: string, detail: string): RuntimeResult<never> {
     return {ok: false, code: SESSION_CODES[code] ?? "log-failed", detail: `${code}：${detail}`};
 }
 
-export function createRuntime(deps: RuntimeDeps): Runtime {
+/**
+ * 填缺省项：目录按配置存储建（配置 replace 后目录跟着变）；主机、工具、压缩注册表给空的。
+ * 用 getter 而不是拷一份：使用方传进来的 deps 对象是活的（测试在建好运行时之后换 model.stream、往 tools 里加来源），拷贝会把这条路断掉。
+ */
+function resolveDeps(input: RuntimeDeps): ResolvedDeps {
+    const host = input.host ?? createProfileHost();
+    const models = input.models ?? createModelCatalog({config: input.config});
+    const tools = input.tools ?? [];
+    const compaction = input.compaction ?? createCompactionRegistry();
+    const resolved = {
+        get host() { return input.host ?? host; },
+        get models() { return input.models ?? models; },
+        get tools() { return input.tools ?? tools; },
+        get compaction() { return input.compaction ?? compaction; },
+    };
+    for (const key of ["config", "profiles", "credentials", "store", "interceptor", "limits", "now", "model", "judge"] as const) {
+        Object.defineProperty(resolved, key, {get: () => input[key], enumerable: true});
+    }
+    return resolved as ResolvedDeps;
+}
+
+export function createRuntime(input: RuntimeDeps): Runtime {
+    const deps = resolveDeps(input);
     registerRuntimeFields(deps.host);
     const options = deps.now === undefined ? {} : {now: deps.now};
     return {

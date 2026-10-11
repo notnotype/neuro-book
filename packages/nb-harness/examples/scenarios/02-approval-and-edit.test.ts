@@ -5,6 +5,7 @@
  * - `edit` 的等级是 `write`，审批模式 `write` 本来直接放行；配置里把 `edit` 设为 `ask` 后每次都要问用户。
  *   判定顺序见 tools Spec 输出第 6 条：策略 → 配置 deny → 本会话内允许 → 策略 ask → 配置 allow/ask → 模式表。
  * - 询问用户时运行时写 `interaction request` 与 `invocation waiting`，状态变成 `waiting-user`，`done` 不会完成，直到 `resolve`。
+ *   `invocation.next()` 是调用方的等待点：返回 `waiting`（带待处理事项）或 `done`，先到的那个。
  * - `scope: "session"` 的批准记在日志里：同一会话再调 `edit` 不再问；另一个会话照问。
  * - 拒绝时工具不执行，模型拿到 `denied: …` 的错误结果并继续回答；文件不变。
  * - `edit` 的输入是 OMP 的 hashline 协议：首行是 `read` 给出的 `[path#tag]` 头，之后是对已展示行的操作；
@@ -70,7 +71,9 @@ describe("示例场景 2：审批与 edit", () => {
 
         const started = await session.prompt({content: "把第二行改成带船名的。"});
         if (!started.ok) throw new Error(`${started.code}: ${started.detail}`);
-        await waitUntil("等待审批", () => session.status.phase === "waiting-user");
+        const step = await started.value.next();
+        expect(step.kind).toBe("waiting");
+        expect(session.status.phase).toBe("waiting-user");
         // 待处理事项：哪个调用、哪个工具、什么等级；界面据此向用户提问
         expect(session.status.pending).toHaveLength(1);
         expect(session.status.pending[0]!.request).toMatchObject({toolName: "edit", tier: "write", toolCallId: "c2"});
@@ -81,6 +84,8 @@ describe("示例场景 2：审批与 edit", () => {
 
         const answered = await session.resolve({interactionId: session.status.pending[0]!.interactionId, decision: "approve", scope: "session"});
         expect(answered).toEqual({ok: true, value: undefined});
+        const finished = await started.value.next();
+        expect(finished.kind).toBe("done");
         const result = await started.value.done;
         expect(result.status).toBe("completed");
         expect(await readFile(chapter, "utf8")).toBe("第一章 出航\n林岚站在远航号的甲板上。\n远处是 1987 年的青岛。\n");

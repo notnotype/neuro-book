@@ -179,7 +179,7 @@ type PreparedProfile = object;   // 不透明：只用于传回同一主机的�
 
 1. **注册**：注册成功返回可撤销的句柄；`dispose` 后该节点类型、数据源或字段不再可用，已经 `prepare` 的结果不受影响。同一主机内 id 重复为 `duplicate-registration`；注册布局节点或 `Fragment` 的 id 为 `reserved-node`；定义本身不合规则（id 格式、节点的 `props` 不是对象 schema、数据源或字段的 `schema` 不是 TypeBox schema、类别对应的字段缺失等）为 `invalid-definition`。数据源与字段的 schema 可以是任何 TypeBox schema（数组、字符串、布尔都行），只有节点的 `props` 必须是对象 schema。
 2. **准备**：`prepare` 调用提示词函数得到节点树（函数抛错或返回的根不是 `Prompt` 为 `invalid-prompt`，诊断 `prompt-threw`），校验每个节点：类型已注册、props 符合 schema、所在父节点与子节点符合上表和注册声明、有状态节点只在 `Appending` 的子树里且 `id` 互不重复、种子只是 `User` 或 `Developer`、`History as="text"` 只在请求消息里、最多一个 `History` 有子节点、最多一个 `Appending`、`Image` 只在 `User` 里、`System` 里只有文字。任一项不合规则，`prepare` 返回 `invalid-prompt`，诊断逐条给出代码与节点路径（例如 `Prompt>Appending>Reminder[0]`）。
-3. **字段**：`fields` 里未注册的字段 id 产生 `unknown-field` 警告并被忽略；已注册字段的值不符合 schema 为 `invalid-prompt`（诊断 `invalid-field`）。
+3. **字段**：`fields` 里未注册的字段 id 产生 `unknown-field` 诊断：id 以 `harness/` 开头的是错误（这个命名空间的字段都由内核模块登记，没注册到只能是拼错或主机没装好），`prepare` 为 `invalid-prompt`；其它命名空间的是警告，字段被忽略。已注册字段的值不符合 schema 为 `invalid-prompt`（诊断 `invalid-field`）。
 4. **数据源**：`prepare` 收集节点树中所有节点声明的数据源，各调用一次取数函数，取数结果按 schema 校验。`refresh` 只对时机为 `model-call` 的数据源重新取数，返回新的准备结果：节点树与 `invocation` 数据源的结果与传入的相同；没有 `model-call` 数据源时原样返回。数据源未注册为 `unknown-source`，取数失败或结果不合 schema 为 `source-failed`，都使 `prepare` 或 `refresh` 返回 `invalid-prompt`。`signal` 中止时为 `cancelled`。
 5. **文本**：节点的文本由子节点按顺序拼接：相邻的字符串与行内节点直接相连；块级节点（`Tag`、注册时 `layout: "block"` 的内容节点）与前后内容之间空一行；整段首尾空白去掉，连续三个以上换行折叠为两个。`Tag name="x"` 的内容渲染为 `<x>\n内容\n</x>`。
 6. **系统提示词**：`renderSystem` 与 `renderRequest` 的 `systemPrompt` 按文档顺序给出每个 `System` 的文本，空文本不列出。
@@ -227,7 +227,7 @@ type PreparedProfile = object;   // 不透明：只用于传回同一主机的�
 | `module-load-failed` | Profile 模块执行或导入失败 | 修正 Profile 文件 |
 | `invalid-profile` | 默认导出不是 Profile，或 Profile 本身的字段不合规则 | 修正 Profile 文件 |
 
-诊断码（`ProfileIssue`）：`unknown-node`、`invalid-props`、`invalid-parent`（含种子不是 `User`、`Developer`，`History as="text"` 不在请求消息里，有状态节点不在 `Appending` 子树里）、`invalid-child`、`duplicate-state-id`、`multiple-seeded-history`、`multiple-appending`、`multiple-input`、`image-not-allowed`、`unknown-field`（警告）、`invalid-field`、`unknown-source`、`source-failed`、`cache-unfriendly`（警告）、`invalid-invocation-start`（`renderRequest` 的警告）。除警告外，诊断都使 `prepare` 返回 `invalid-prompt`。
+诊断码（`ProfileIssue`）：`unknown-node`、`invalid-props`、`invalid-parent`（含种子不是 `User`、`Developer`，`History as="text"` 不在请求消息里，有状态节点不在 `Appending` 子树里）、`invalid-child`、`duplicate-state-id`、`multiple-seeded-history`、`multiple-appending`、`multiple-input`、`image-not-allowed`、`unknown-field`（`harness/` 下为错误，其它命名空间为警告）、`invalid-field`、`unknown-source`、`source-failed`、`cache-unfriendly`（警告）、`invalid-invocation-start`（`renderRequest` 的警告）。除警告外，诊断都使 `prepare` 返回 `invalid-prompt`。
 
 ## 边界与兼容
 
@@ -243,7 +243,7 @@ type PreparedProfile = object;   // 不透明：只用于传回同一主机的�
 3. 位置校验：`Reminder` 放在 `Prompt` 下、`Input` 放在 `History` 里、`Image` 放在 `System` 或 `Assistant` 里、`Assistant` 作种子、两个 `Appending`、两个 `id` 相同的 `Reminder`，各自得到对应诊断码与节点路径。
 4. 文本拼接：`<User>回答使用{"简体中文"}。<Tag name="rules">一</Tag>结尾</User>` 渲染为“回答使用简体中文。”、空行、`<rules>` 块、空行、“结尾”；注册为 `layout: "block"` 的内容节点同样前后空一行。
 5. 注册：插件注册一个内容节点与它依赖的数据源，Profile 使用它；取数函数返回不合 schema 的值时 `prepare` 为 `invalid-prompt`（`source-failed`）；`dispose` 后再 `prepare` 为 `unknown-node`；注册 `History` 为 `reserved-node`。
-6. 字段：未注册字段只得到警告；注册后值不合 schema 为 `invalid-field`。
+6. 字段：未注册字段只得到警告，`harness/tool` 这样的拼错字段为 `invalid-prompt`；注册后值不合 schema 为 `invalid-field`。
 7. 只取系统提示词：`renderSystem` 只返回各 `System` 的文字，不需要历史与用户输入。
 8. 目录：内置、用户、项目三组各有同 id 的 Profile 时取项目组的；同一组内重复时都不收录并报告。
 9. 加载：从临时目录加载一个 `.profile.tsx`，得到与直接导入相同的 Profile；没有默认导出为 `invalid-profile`。

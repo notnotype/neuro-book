@@ -160,3 +160,28 @@ describe("凭据（输出 5–9）", () => {
         }
     });
 });
+
+describe("内存库（输出 5）", () => {
+    test("场景 3：:memory: 带 apiKeys 打开后 key 立即可取；第二次打开 :memory: 看不到第一份的 key", async () => {
+        const first = await openCredentials({sqlitePath: ":memory:", apiKeys: {[provider]: "mem-key"}});
+        if (!first.ok) throw new Error(first.detail);
+        opened.push(first.value);
+        expect(await first.value.apiKeyFor(model)).toBe("mem-key");
+        expect(first.value.status(provider)).toEqual({kind: "api_key"});
+        const second = await openCredentials({sqlitePath: ":memory:"});
+        if (!second.ok) throw new Error(second.detail);
+        opened.push(second.value);
+        expect(await second.value.apiKeyFor(model)).toBeUndefined();
+        // 文件路径也接受 apiKeys：写进文件、重开后仍在
+        const root = await createTestTmpRoot("nb-harness-credentials", "credentials-keys");
+        roots.push(root);
+        const path = join(root, "auth.sqlite");
+        const withKeys = await openCredentials({sqlitePath: path, apiKeys: {[provider]: "file-key"}});
+        if (!withKeys.ok) throw new Error(withKeys.detail);
+        withKeys.value.close();
+        const reopened = await openCredentials({sqlitePath: path});
+        if (!reopened.ok) throw new Error(reopened.detail);
+        opened.push(reopened.value);
+        expect(await reopened.value.apiKeyFor(model)).toBe("file-key");
+    });
+});

@@ -1,7 +1,7 @@
 /** 压缩方法的注册表（docs/specs/harness/compaction.md 输出 1）。 */
 
 import {createSoftCompaction} from "./soft";
-import type {CompactionMethod, CompactionRegistry, CompactionResult} from "./types";
+import type {CompactionMethod, CompactionRegistry, CompactionResult, CompleteImpl} from "./types";
 
 const BUILTIN_ID = /^[a-z][a-z0-9-]*$/u;
 const PLUGIN_ID = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u;
@@ -15,7 +15,8 @@ function methodProblem(method: unknown): string | null {
     return null;
 }
 
-export function createCompactionRegistry(): CompactionRegistry {
+/** `soft.completeImpl` 替换内置 soft 的摘要传输（OMP `SummaryOptions.completeImpl`），测试与宿主限流用；方法 id 仍是 soft。 */
+export function createCompactionRegistry(options: {soft?: {completeImpl?: CompleteImpl}} = {}): CompactionRegistry {
     const methods = new Map<string, CompactionMethod>();
     const registry: CompactionRegistry = {
         register(method) {
@@ -30,7 +31,7 @@ export function createCompactionRegistry(): CompactionRegistry {
         get: (id) => methods.get(id),
         list: () => [...methods.keys()],
     };
-    const builtin: CompactionResult<unknown> = registry.register(createSoftCompaction());
+    const builtin: CompactionResult<unknown> = registry.register(createSoftCompaction(options.soft ?? {}));
     if (!builtin.ok) throw new Error(`内置方法注册失败：${builtin.detail}`);
     return registry;
 }

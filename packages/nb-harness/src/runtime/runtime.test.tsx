@@ -6,7 +6,11 @@ import {createStaticToolSource} from "../tools/tools";
 import type {AgentSession, RuntimeEvent} from "./runtime";
 import Type from "typebox";
 import {Appending, defineProfile, History, Input, nodeComponent, Prompt, System} from "../profile/profile";
-import {createHarness, echoTool, invocationPhases, kinds, shellTool, testProfile} from "./testing/harness";
+import {createConfigStore} from "../config/config";
+import {openCredentials} from "../models/models";
+import {createProfileCatalog} from "../profile/profile";
+import {createRuntime} from "./runtime";
+import {createHarness, echoTool, invocationPhases, kinds, scriptedStream, shellTool, testProfile} from "./testing/harness";
 import type {Harness} from "./testing/harness";
 
 const harnesses: Harness[] = [];
@@ -330,5 +334,39 @@ describe("Profile 的数据源与中止（输出 4、8、9）", () => {
         expect(session.status.phase).toBe("waiting-user");
         expect(await session.resolve({interactionId: session.status.pending[0]!.interactionId, decision: "approve"})).toEqual({ok: true, value: undefined});
         expect((await second.value.done).status).toBe("completed");
+    });
+});
+
+describe("缺省依赖、目录跟配置与上下文用量（输入、输出 5、14）", () => {
+    test("场景 10：只给 config、profiles、credentials、store 的运行时能跑完一次调用；replace 加服务后能用新模型；status.context 给用量；没有 contextWindow 的模型 compact 为 compaction-failed", async () => {
+        const config = createConfigStore({providers: [{id: "a", api: "openai-completions", baseUrl: "http://127.0.0.1:1", models: [{id: "m"}]}], models: {defaultModel: "a/m"}});
+        if (!config.ok) throw new Error(JSON.stringify(config.problems));
+        const credentials = await openCredentials({sqlitePath: ":memory:", apiKeys: {a: "k", b: "k"}});
+        if (!credentials.ok) throw new Error(credentials.detail);
+        const {stream} = scriptedStream([{text: "一", usage: {input: 400, output: 20, totalTokens: 420}}, {text: "二", usage: {input: 500, output: 20, totalTokens: 520}}]);
+        const runtime = createRuntime({config: config.value, profiles: createProfileCatalog([{source: "t", profiles: [testProfile({})]}]), credentials: credentials.value, store: createMemorySessionStore(), model: {stream}});
+        const created = await runtime.createSession({profileId: "writer"});
+        if (!created.ok) throw new Error(`${created.code}: ${created.detail}`);
+        const session = created.value;
+        expect(session.status.context).toBeUndefined();
+        const first = await session.prompt({content: "你好"});
+        if (!first.ok) throw new Error(`${first.code}: ${first.detail}`);
+        expect((await first.value.done).status).toBe("completed");
+        // 自建模型没给 contextWindow：窗口为 0，用量照报；手动压缩按配置缺项报错，不是“没东西可压”
+        expect(session.status.context).toEqual({tokens: 420, window: 0, threshold: 0});
+        const compacted = await session.compact();
+        expect(compacted.ok ? null : `${compacted.code}:${compacted.detail}`).toMatch(/^compaction-failed:.*contextWindow/u);
+
+        // 配置换成另一个服务：目录跟着变，不用重建运行时
+        const replaced = config.value.replace({providers: [{id: "b", api: "openai-completions", baseUrl: "http://127.0.0.1:1", models: [{id: "n", contextWindow: 100_000}]}], models: {defaultModel: "b/n"}});
+        expect(replaced.ok).toBe(true);
+        const second = await session.prompt({content: "再来"}, {model: "b/n"});
+        if (!second.ok) throw new Error(`${second.code}: ${second.detail}`);
+        expect((await second.value.done).status).toBe("completed");
+        expect(session.status.model).toBe("b/n");
+        // 阈值按 compaction 输出 9：80% 与“窗口减余量（缺省 16384）”取小
+        expect(session.status.context).toEqual({tokens: 520, window: 100_000, threshold: 80_000});
+        await session.close();
+        credentials.value.close();
     });
 });

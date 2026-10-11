@@ -267,3 +267,21 @@ describe("阈值与设置（输出 9、10）", () => {
         expect(valid({threshold: {tokens: 1, percent: 1}})).toBe(false);
     });
 });
+
+describe("注册表的 soft 传输（输出 1）", () => {
+    test("场景 1：createCompactionRegistry({soft: {completeImpl}}) 的 soft 经注入的传输产生摘要，id 仍是 soft", async () => {
+        const {completeImpl, prompts} = scripted([() => ({content: [{type: "text", text: "注入的摘要"}]})]);
+        const registry = createCompactionRegistry({soft: {completeImpl}});
+        expect(registry.list()).toEqual(["soft"]);
+        const log = await sessionWithTurns(6);
+        const result = await compactSession({log, registry, model, apiKey: "k", settings});
+        if (!result.ok) throw new Error(`${result.code}: ${result.detail}`);
+        expect(result.value.method).toBe("soft");
+        expect(result.value.output.summary).toContain("注入的摘要");
+        expect(prompts.length).toBeGreaterThan(0);
+        // 没有窗口的模型：soft 不适用，原因写明配置项
+        const windowless = {...model, contextWindow: null};
+        const applicable = createSoftCompaction().applicable({entries: log.entries, model: windowless, apiKey: "k", settings});
+        expect(applicable.ok ? null : applicable.detail).toContain("contextWindow");
+    });
+});

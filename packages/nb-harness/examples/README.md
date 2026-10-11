@@ -15,7 +15,7 @@
    - [`02-approval-and-edit`](scenarios/02-approval-and-edit.test.ts)：先读后改、询问用户、批准与拒绝、本会话内允许。
    - [`03-queue-and-recovery`](scenarios/03-queue-and-recovery.test.ts)：插话与追加；等待审批时崩溃，重开后从日志恢复。
    - [`04-compaction`](scenarios/04-compaction.test.ts)：阈值触发压缩，压缩条目与重写的种子，压缩后模型看到什么。
-   - [`live.llm.test.ts`](scenarios/live.llm.test.ts)：同一套装配换成真实模型。
+   - [`live.llm.test.ts`](scenarios/live.llm.test.ts)：同一套装配换成真实模型：只读问答，以及按 hashline 协议先读后改。
 6. [`cli.ts`](cli.ts)：在终端里和它对话。
 
 ## 几个概念

@@ -42,11 +42,25 @@ describe.skipIf(llm === null)("示例：真实模型", () => {
         const started = await created.value.prompt({content: "读一下 chapter-1.md，用一句话说第一章发生了什么。只读，不要修改任何文件。"});
         if (!started.ok) throw new Error(`${started.code}: ${started.detail}`);
         const result = await started.value.done;
-        expect(result.status).toBe("completed");
+        if (result.status !== "completed") throw new Error(`调用 ${result.status}：${JSON.stringify(result.error)}`);
         const results = toolResults(result.entries);
         expect(results.length).toBeGreaterThan(0);
         expect(results.some((item) => !item.isError && item.text.startsWith("[chapter-1.md#"))).toBe(true);
         expect(await readFile(join(stage.workspace, "chapter-1.md"), "utf8")).toBe(CHAPTER_1);
         await created.value.close();
     }, 120_000);
+
+    test("先读后改：模型按 hashline 协议把第二行改掉，其它行不动", async () => {
+        if (stage === null || assembled === null) throw new Error("上一条场景先装配");
+        const created = await assembled.runtime.createSession({profileId: "writer"});
+        if (!created.ok) throw new Error(`${created.code}: ${created.detail}`);
+        const started = await created.value.prompt({content: "把 chapter-1.md 的第二行改成“林岚站在远航号的甲板上。”，只改这一行，改完告诉我。"});
+        if (!started.ok) throw new Error(`${started.code}: ${started.detail}`);
+        const result = await started.value.done;
+        if (result.status !== "completed") throw new Error(`调用 ${result.status}：${JSON.stringify(result.error)}`);
+        const results = toolResults(result.entries);
+        expect(results.some((item) => !item.isError && item.text.startsWith("[chapter-1.md#"))).toBe(true);
+        expect(await readFile(join(stage.workspace, "chapter-1.md"), "utf8")).toBe("第一章 出航\n林岚站在远航号的甲板上。\n远处是 1987 年的青岛。\n");
+        await created.value.close();
+    }, 180_000);
 });

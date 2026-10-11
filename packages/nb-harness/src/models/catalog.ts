@@ -6,7 +6,7 @@ import {getCustomApi} from "@oh-my-pi/pi-ai";
 import {getBundledModel, getBundledModels, getBundledProviders} from "@oh-my-pi/pi-catalog";
 import type {KnownApi, Model} from "@oh-my-pi/pi-catalog";
 import {buildModel} from "@oh-my-pi/pi-catalog/build";
-import type {HarnessConfig, ProviderConfig, ProviderModelConfig} from "../config/config";
+import type {ConfigStore, HarnessConfig, ProviderConfig, ProviderModelConfig} from "../config/config";
 import type {Capabilities, CapabilityProblem, ModelCatalog, ModelResult, ModelSummary, SelectRequest, Selected} from "./types";
 
 /** 与 config 的 MODEL_REF_PATTERN 同一语法（各自声明，不跨模块导入）：服务 id 到第一个 `/` 为止，其余整个是模型 id。 */
@@ -58,19 +58,38 @@ function summaryOf(model: Model, source: ModelSummary["source"]): ModelSummary {
     return {ref: `${model.provider}/${model.id}`, name: model.name, provider: model.provider, source, input: [...model.input], supportsTools: model.supportsTools ?? true, contextWindow: model.contextWindow};
 }
 
-export function createModelCatalog(input: {config: HarnessConfig}): ModelCatalog {
-    const {config} = input;
+type Index = {config: HarnessConfig; configured: Map<string, Model>; configuredProviders: Set<string>};
+
+function indexConfig(config: HarnessConfig): Index {
     const configured = new Map<string, Model>();
     const configuredProviders = new Set<string>();
     for (const provider of config.providers) {
         configuredProviders.add(provider.id);
         for (const model of provider.models) configured.set(`${provider.id}/${model.id}`, modelFromConfig(provider, model));
     }
+    return {config, configured, configuredProviders};
+}
+
+const isStore = (config: HarnessConfig | ConfigStore): config is ConfigStore => typeof (config as ConfigStore).replace === "function";
+
+/**
+ * 给快照时目录固定不变；给 `ConfigStore` 时每次按它的 `current` 看（Spec 输出 10）。
+ * 快照是深冻结的不可变对象，所以按对象身份缓存索引：`replace` 换了快照才重建。
+ */
+export function createModelCatalog(input: {config: HarnessConfig | ConfigStore}): ModelCatalog {
+    const snapshot = isStore(input.config) ? () => (input.config as ConfigStore).current : () => input.config as HarnessConfig;
+    let index: Index = indexConfig(snapshot());
+    const current = (): Index => {
+        const config = snapshot();
+        if (config !== index.config) index = indexConfig(config);
+        return index;
+    };
     const bundledProviders = new Set<string>(getBundledProviders());
 
     const resolve = (ref: string): ModelResult<Model> => {
         const parsed = parseModelRef(ref);
         if (parsed === null) return {ok: false, code: "invalid-model-ref", detail: `模型引用必须是 <providerId>/<modelId>：${ref}`};
+        const {configured, configuredProviders} = current();
         const own = configured.get(ref);
         if (own !== undefined) {
             // 配置里的 api 只查过形状；能不能派发要看 OMP：内置的，或使用方已经用 registerCustomApi 登记的（登记可以晚于目录创建，所以在解析时查）
@@ -90,7 +109,7 @@ export function createModelCatalog(input: {config: HarnessConfig}): ModelCatalog
     };
 
     const roleModel = (roleId: string): ModelResult<string> => {
-        const role = config.roles.items.find((item) => item.id === roleId);
+        const role = current().config.roles.items.find((item) => item.id === roleId);
         if (role === undefined) return {ok: false, code: "unknown-role", detail: `配置里没有角色 ${roleId}`};
         if (role.modelKey === null) return {ok: false, code: "role-not-bound", detail: `角色 ${roleId} 没有绑定模型`};
         return {ok: true, value: role.modelKey};
@@ -111,12 +130,14 @@ export function createModelCatalog(input: {config: HarnessConfig}): ModelCatalog
             const bound = roleModel(request.profile.defaultRole);
             return bound.ok ? chosen(bound.value, "profile-role", request.profile.defaultRole) : bound;
         }
-        if (config.models.defaultModel !== undefined) return chosen(config.models.defaultModel, "default");
+        const {defaultModel} = current().config.models;
+        if (defaultModel !== undefined) return chosen(defaultModel, "default");
         return {ok: false, code: "no-default-model", detail: "没有显式模型、角色、Profile 的模型或缺省角色，配置里也没有 models.defaultModel"};
     };
 
     return {
         list: () => {
+            const {configured} = current();
             const summaries = [...configured.values()].map((model) => summaryOf(model, "config"));
             for (const provider of getBundledProviders()) {
                 for (const model of getBundledModels(provider)) {

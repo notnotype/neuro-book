@@ -32,7 +32,7 @@ owners:
 
 ```ts
 // 公开入口 @notnotype/nb-harness/models
-createModelCatalog(input: {config: HarnessConfig}): ModelCatalog;      // 纯函数式：只看传入的快照
+createModelCatalog(input: {config: HarnessConfig | ConfigStore}): ModelCatalog;   // 给快照固定不变；给 ConfigStore 每次按它的 current 看
 interface ModelCatalog {
     list(): ModelSummary[];
     resolve(ref: string): ModelResult<Model>;
@@ -47,7 +47,7 @@ type Selected = {model: Model; via: "explicit" | "role" | "profile-model" | "pro
 type Capabilities = {tools?: boolean; images?: boolean};
 type CapabilityProblem = {capability: "tools" | "images"; detail: string};
 
-openCredentials(options: {sqlitePath: string}): Promise<ModelResult<Credentials>>;   // OMP 的 SQLite 凭据库；文件不存在则创建
+openCredentials(options: {sqlitePath: string; apiKeys?: Readonly<Record<string, string>>}): Promise<ModelResult<Credentials>>;   // OMP 的 SQLite 凭据库；文件不存在则创建；":memory:" 为内存库
 createCredentials(store: AuthCredentialStore): Promise<ModelResult<Credentials>>;   // 使用方自己实现的存储（插件阶段接 nbook.settings 的密钥）；同样先读入已有凭据
 interface Credentials {
     apiKeyFor(model: Model): Promise<string | undefined>;      // 只用凭据存储里的 API key 或 OAuth 令牌，不读环境变量
@@ -65,7 +65,7 @@ type ModelFailure = "invalid-model-ref" | "unknown-provider" | "unknown-model" |
     | "credentials-unavailable" | "login-failed" | "login-cancelled";
 ```
 
-`Model`、`AuthCredentialStore`、`OAuthController` 是 OMP（`@oh-my-pi/pi-catalog`、`@oh-my-pi/pi-ai`）的类型。
+`Model`、`AuthCredentialStore`、`OAuthController` 是 OMP（`@oh-my-pi/pi-catalog`、`@oh-my-pi/pi-ai`）的类型；`ConfigStore` 见 [`harness.config`](config.md)。
 
 ## 输出与可观察行为
 
@@ -74,12 +74,12 @@ type ModelFailure = "invalid-model-ref" | "unknown-provider" | "unknown-model" |
 3. **选择链**：`select` 依次看 `request.model`（有则解析，失败按解析的失败码返回）、`request.role`（角色不在 `roles.items` 为 `unknown-role`，`modelKey` 为 `null` 为 `role-not-bound`，不沿链继续）、`request.profile.model`、`request.profile.defaultRole`（同角色规则）、`config.models.defaultModel`；全部没有为 `no-default-model`。返回选中的模型与 `via`（命中的那一环）；经角色命中时附 `role`。
    Profile 的 `harness/model` 字段由本模块登记（`MODEL_FIELD`：`{model?: ModelRef, role?: string}`，未知键是问题），`selectionFromProfile` 把已校验的字段值变成 `request.profile`（`role` 即 `defaultRole`；没有该字段时只有 `id`）；runtime 负责把 `MODEL_FIELD` 注册到 Profile 主机并在选择前调用它。
 4. **能力检查**：`checkCapabilities` 对 `required.tools` 看 `model.supportsTools`（未声明按支持），对 `required.images` 看 `model.input` 含 `"image"`；不满足的各一条问题。
-5. **凭据存储**：`openCredentials` 打开或创建 SQLite 凭据库，并读入已有凭据；路径打不开、或文件已存在却不是 SQLite 文件（文件头不对）为 `credentials-unavailable`，后一种情况文件不被改动。文件头正确但内部损坏时，OMP 把原文件改名为 `<路径>.corrupt-<时间>-<id>` 备份并新建空库：打开成功、凭据为空，本模块不另行报告，恢复由人工用备份处理。`createCredentials` 接受使用方实现的存储，同样先读入已有凭据；读不出为 `credentials-unavailable`。两者返回的 `Credentials` 行为相同。
+5. **凭据存储**：`openCredentials` 打开或创建 SQLite 凭据库，并读入已有凭据；`sqlitePath` 为 `:memory:` 时是本进程内的内存库（每次打开各一份，`close` 即丢；测试、命令行与不落盘的宿主用）；给出 `apiKeys` 时在读入之后按服务逐个写入（等价于逐个 `setApiKey`）；路径打不开、或文件已存在却不是 SQLite 文件（文件头不对）为 `credentials-unavailable`，后一种情况文件不被改动。文件头正确但内部损坏时，OMP 把原文件改名为 `<路径>.corrupt-<时间>-<id>` 备份并新建空库：打开成功、凭据为空，本模块不另行报告，恢复由人工用备份处理。`createCredentials` 接受使用方实现的存储，同样先读入已有凭据；读不出为 `credentials-unavailable`。两者返回的 `Credentials` 行为相同。
 6. **取 key**：`apiKeyFor(model)` 返回该模型服务在凭据存储里的 API key，或 OAuth 令牌换来的访问令牌（只经只看存储的 OAuth 入口，含刷新）；存储里没有该服务的凭据、或 OAuth 凭据已被别的连接删除时返回 `undefined`，即使进程的环境变量里有这个服务的 key。
 7. **写 key**：`setApiKey` 写入后 `apiKeyFor` 立即可取、重开存储后仍在；`removeApiKey` 后为 `undefined`；`status` 反映当前凭据的种类。
 8. **OAuth**：`loginProviders` 列出 OMP 支持登录的服务；`login` 用使用方的 `OAuthController` 完成登录并存下凭据，用户取消（`controller.signal` 中止）为 `login-cancelled`，其它失败为 `login-failed`，`detail` 只给服务、错误类别与状态码，不含错误消息正文（回调的输入、上游响应都可能带着令牌）；`logout` 删除该服务的凭据；`accounts` 列出已登录的账号：每个带 OMP 的 `credentialId` 与是否当前活跃，`accountId` 只在服务方提供时有，`label` 取邮箱、项目或组织名。
 9. **关闭**：`close` 后不再读写存储；再调用 `apiKeyFor` 等方法返回 `undefined` 或空数组，不抛出。
-10. **纯函数式目录**：`createModelCatalog` 只读传入的快照；配置快照被替换时使用方用新快照另建目录。
+10. **目录只看配置**：`createModelCatalog` 不读别的东西。给 `HarnessConfig` 时目录固定不变；给 `ConfigStore` 时每次 `list`、`resolve`、`select` 都按它当时的 `current` 看，`replace` 成功后新服务、新角色与新的缺省模型立即可解析，旧快照里的模型不再出现。
 
 ## 状态与转换
 
@@ -121,7 +121,8 @@ type ModelFailure = "invalid-model-ref" | "unknown-provider" | "unknown-model" |
 
 1. 配置里自建一个服务并覆盖 OMP 目录里同名服务的一个模型：`list` 里该引用只出现一次且 `source: "config"`，`resolve` 得到配置的 `baseUrl`；目录里另一个模型照常解析为 `bundled`。
 2. 选择链：显式模型优先；角色未绑定为 `role-not-bound` 且不回落到 Profile 的模型；Profile 的模型其次；Profile 的缺省角色再次；最后全局缺省；全部没有为 `no-default-model`。
-3. 凭据：在真实临时目录新建 SQLite 凭据库，`setApiKey` 后 `apiKeyFor` 可取、重开后仍在、`removeApiKey` 后为 `undefined`；进程环境变量里放一个服务的 key 而存储里没有时 `apiKeyFor` 为 `undefined`。
+3. 凭据：在真实临时目录新建 SQLite 凭据库，`setApiKey` 后 `apiKeyFor` 可取、重开后仍在、`removeApiKey` 后为 `undefined`；进程环境变量里放一个服务的 key 而存储里没有时 `apiKeyFor` 为 `undefined`。`:memory:` 带 `apiKeys` 打开后 key 立即可取，第二次打开 `:memory:` 看不到第一份的 key。
+5. 目录跟配置：用 `ConfigStore` 建目录，`replace` 加一个服务后 `resolve` 得到它、`list` 不再列出被替换掉的服务；用快照建的目录不变。
 4. 真实模型冒烟（`*.llm.test.ts`，只在 `bun run test:llm` 下运行，需要开发者授权）：从测试配置（专属的 `NBOOK_LLM_*` 键，见 [真实模型测试](../../testing/README.md#真实模型测试)）把服务写成自建提供方、把 key 写进临时凭据库，用目录解析该模型、取 key，经 OMP `streamSimple` 完成一次最短的对话。
 
 Smoke：`packages/nb-harness` 的 `bun test src/models`；真实模型冒烟 `bun run test:llm`。

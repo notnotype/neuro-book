@@ -34,7 +34,7 @@ owners:
 
 ```ts
 // 公开入口 @notnotype/nb-harness/compaction
-createCompactionRegistry(): CompactionRegistry;                       // 预先登记内置方法 soft
+createCompactionRegistry(options?: {soft?: {completeImpl?: CompleteImpl}}): CompactionRegistry;   // 预先登记内置方法 soft；soft.completeImpl 替换它的摘要传输
 softCompaction: CompactionMethod;                                     // 内置方法，可单独引用
 createSoftCompaction(options?: {completeImpl?: CompleteImpl}): CompactionMethod;   // 同一方法，可替换摘要调用的传输（OMP SummaryOptions.completeImpl）；测试与宿主的并发限制用
 compactSession(input: CompactInput): Promise<CompactionResult<Compacted>>;
@@ -91,13 +91,13 @@ type CompactionResult<T> = {ok: true; value: T} | {ok: false; code: CompactionFa
 
 ## 输出与可观察行为
 
-1. **注册**：`register` 按上表检查方法；不合规 → `invalid-method`；id 已存在（含内置 `soft`）→ `duplicate-method`；通过后注册表存一份冻结副本，`dispose` 后 `get` 返回 `undefined`、`list` 不再列出，同一 id 可以再注册。`createCompactionRegistry()` 返回的注册表已含 `soft`。
+1. **注册**：`register` 按上表检查方法；不合规 → `invalid-method`；id 已存在（含内置 `soft`）→ `duplicate-method`；通过后注册表存一份冻结副本，`dispose` 后 `get` 返回 `undefined`、`list` 不再列出，同一 id 可以再注册。`createCompactionRegistry()` 返回的注册表已含 `soft`；给 `options.soft.completeImpl` 时含的是 `createSoftCompaction({completeImpl})`，id 仍是 `soft`，方法顺序不用改。
 2. **方法顺序与选择**：`compactSession` 按 `methods`（缺省 `settings.methods`）的顺序取方法：列表里有未注册的 id → 立即返回 `unknown-method`，不尝试任何方法、不写入。对每个方法先 `applicable`，不适用的记一条尝试原因后换下一个；适用的 `run`，`run` 返回失败或抛出（异常文本作为原因）也记一条尝试原因后换下一个；第一个成功的方法胜出。全部不适用或失败：所有尝试都是“不适用”时返回 `nothing-to-compact`，否则返回 `compaction-failed`；两者的 `attempts` 按顺序列出每个方法与原因。
 3. **中止**：`signal` 已中止或在某个方法 `run` 期间中止时，返回 `cancelled`，不再尝试后面的方法，不写入。中止时 OMP 的本地摘要调用不抛出而是以 `stopReason: "aborted"` 的空回复返回，所以 `soft` 以 `signal.aborted` 为准，不把空文本当成摘要。
 4. **结果校验**：胜出方法的结果不满足形状、`firstKeptEntryId` 不是输入条目的 id、`summary` 为空字符串、`details` 或 `preserveData` 不能被 JSON 如实表示（或 `preserveData` 不是对象）→ 当作该方法失败（原因写明哪一项），继续换下一个方法；不会到了写日志才被条目校验拒绝。
 5. **写入**：胜出后把压缩结果作为一条 `compaction` 条目，连同 `seeds` 按给定顺序，以**一次** `log.append` 追加（原子：要么都写入，要么都不写）；`append` 失败 → `log-failed`，`detail` 带会话模块的失败码与说明，不重试。成功时返回胜出方法、结果与追加的条目。追加之前日志里新增的条目（压缩期间调用方写入的）照常保留：它们在 `firstKeptEntryId` 之后、压缩条目之前，回放时仍在上下文里。
 6. **压缩后的回放**：追加完成后 `buildModelContext(log.entries)` 按 [`harness.session`](session.md) 输出 12 得到：种子、摘要（一条 `attribution: "agent"` 的用户消息）、从 `firstKeptEntryId` 起的历史。再次对同一会话 `compactSession`：`soft` 从上一条压缩的 `firstKeptEntryId` 起取历史，并把上一条 `summary` 作为先前摘要交给模型迭代更新（OMP 的 `prepareCompaction` 行为）。
-7. **`soft` 的适用性**：`applicable` 调用 OMP `prepareCompaction(entries 的浅副本, OMP 设置, model)`：返回 `undefined`（没有可摘要的消息、最后一条是压缩条目、`keepRecentTokens` 够大以至于全部保留）→ 不适用，原因“没有可压缩的历史”；`model.contextWindow` 不是正数 → 不适用。OMP 设置固定 `enabled: true`、`remoteEnabled: false`、`remoteStreamingV2Enabled: false`，`keepRecentTokens`、`reserveTokens` 取压缩设置。
+7. **`soft` 的适用性**：`applicable` 调用 OMP `prepareCompaction(entries 的浅副本, OMP 设置, model)`：返回 `undefined`（没有可摘要的消息、最后一条是压缩条目、`keepRecentTokens` 够大以至于全部保留）→ 不适用，原因“没有可压缩的历史”；`model.contextWindow` 不是正数 → 不适用，原因写明模型与“自建服务的模型要在配置里给出 `contextWindow`”。OMP 设置固定 `enabled: true`、`remoteEnabled: false`、`remoteStreamingV2Enabled: false`，`keepRecentTokens`、`reserveTokens` 取压缩设置。
 8. **`soft` 的执行**：`run` 用同样的准备结果调用 OMP `compact(preparation, model, apiKey, settings.instructions, signal)`：OMP 用本地模型做一次（切在一轮中间时两次，并行）摘要调用与一次短摘要调用，返回 `summary`、`shortSummary`、`firstKeptEntryId`（输入条目的 id）、`tokensBefore`（最后一条助手消息报告的上下文用量）、`details`（OMP 从工具调用里提取的文件列表）。模型调用以 `stopReason: "error"` 结束时 OMP 按它的缺省重试（最多 3 次，退避从 500 ms 起翻倍，中止时停止），仍失败才抛出，`run` 把异常文本作为失败原因返回；本模块不再加重试。
 9. **阈值判断**：`shouldCompact` 是纯函数。`contextTokens` 取 `entries` 里最后一条 `stopReason` 不是 `error`、`aborted` 的助手消息的用量（OMP `calculateContextTokens`：优先服务方报告的 `contextTokens`，否则 `totalTokens`，否则各项相加）；没有这样的消息 → `{compact: false, contextTokens: null}`。`thresholdTokens`：`threshold.tokens` 时取它并夹在 `[1, contextWindow - 1]`；`threshold.percent` 时为 `floor(contextWindow × percent / 100)`，再与 `contextWindow - 余量` 取小（余量按 OMP `effectiveReserveTokens`：`reserveTokens` 缺省 16384，与窗口的 15% 取大）。`contextWindow <= 0` → 不压缩。`compact` 为 `contextTokens > thresholdTokens`。
 10. **设置的缺省值**：`resolveCompactionSettings(undefined)` 与 `resolveCompactionSettings({})` 都得到 `{methods: ["soft"], keepRecentTokens: 20000, threshold: {percent: 80}}`；给出的键覆盖对应缺省值；返回值深冻结。
@@ -138,7 +138,7 @@ type CompactionResult<T> = {ok: true; value: T} | {ok: false; code: CompactionFa
 
 ## 验收与 Smoke
 
-1. 注册表：新建即有 `soft`；注册一个自定义方法、再注册同 id 得 `duplicate-method`；`dispose` 后可再注册；缺 `run`、id 带空格各得 `invalid-method`。
+1. 注册表：新建即有 `soft`；注册一个自定义方法、再注册同 id 得 `duplicate-method`；`dispose` 后可再注册；缺 `run`、id 带空格各得 `invalid-method`。带 `soft.completeImpl` 新建的注册表，`soft` 的摘要经该函数产生。
 2. 顺序与回退（不联网，摘要模型用脚本化的完成函数）：会话有六轮对话，方法顺序 `["never", "flaky", "soft"]`，`never` 不适用、`flaky` 的 `run` 抛出：结果由 `soft` 产生，`attempts` 两条按序列出原因；顺序里有未注册的 id 时得 `unknown-method` 且 `log.entries` 不变；全部不适用 → `nothing-to-compact`；有失败无成功 → `compaction-failed`。
 3. 写入与回放：`soft` 成功后 `log.entries` 末尾依次是一条 `compaction`（`firstKeptEntryId` 是日志里的条目 id，`summary` 是脚本化模型的回复）与两条种子；`buildModelContext` 依次为种子、摘要、从 `firstKeptEntryId` 起的历史；再次压缩时交给模型的提示词包含上一条摘要（先前摘要迭代）；`append` 被存储拒绝时返回 `log-failed` 且 `entries` 不变。
 4. 中止：`run` 期间中止 → `cancelled`、不写入；模型回复 `stopReason: "error"` → 该方法失败，原因含错误文本。

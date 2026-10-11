@@ -101,10 +101,14 @@ async function ready(storage: AuthStorage, label: string): Promise<ModelResult<C
     }
 }
 
-export async function openCredentials(options: {sqlitePath: string}): Promise<ModelResult<Credentials>> {
+/** `sqlitePath` 为 `:memory:` 时是进程内的内存库（OMP 的 SQLite 存储本来就支持），关闭即丢；`apiKeys` 在读入已有凭据之后按服务写入。 */
+export async function openCredentials(options: {sqlitePath: string; apiKeys?: Readonly<Record<string, string>>}): Promise<ModelResult<Credentials>> {
     try {
-        if (await notSqlite(options.sqlitePath)) return {ok: false, code: "credentials-unavailable", detail: `${options.sqlitePath} 不是 SQLite 文件，未改动；请人工处理后重试`};
-        return await ready(await AuthStorage.create(options.sqlitePath), options.sqlitePath);
+        if (options.sqlitePath !== ":memory:" && (await notSqlite(options.sqlitePath))) return {ok: false, code: "credentials-unavailable", detail: `${options.sqlitePath} 不是 SQLite 文件，未改动；请人工处理后重试`};
+        const opened = await ready(await AuthStorage.create(options.sqlitePath), options.sqlitePath);
+        if (!opened.ok) return opened;
+        for (const [provider, key] of Object.entries(options.apiKeys ?? {})) await opened.value.setApiKey(provider, key);
+        return opened;
     } catch (error) {
         return {ok: false, code: "credentials-unavailable", detail: `打不开凭据库 ${options.sqlitePath}：${error instanceof Error ? error.message : String(error)}`};
     }

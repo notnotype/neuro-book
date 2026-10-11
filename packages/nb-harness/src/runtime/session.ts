@@ -14,7 +14,7 @@ import type {AgentEvent, AgentMessage, AgentTool} from "@oh-my-pi/pi-agent-core"
 import {isContextOverflow} from "@oh-my-pi/pi-ai/error";
 import type {AssistantMessage, Message, ToolResultMessage} from "@oh-my-pi/pi-ai";
 import {compactSession, shouldCompact} from "../compaction/compaction";
-import type {Compacted} from "../compaction/compaction";
+import type {Compacted, CompactionSettings} from "../compaction/compaction";
 import type {PreparedProfile, PromptContext, ProfileState} from "../profile/profile";
 import {buildModelContext, planRecovery, sessionSettings, sessionStatus, withoutUndefined} from "../session/session";
 import type {DistributiveOmit, EntryInput, InteractionData, InvocationPhase, JsonValue, SessionEntry, SessionLog} from "../session/session";
@@ -22,7 +22,7 @@ import {createStaticToolSource, decideApproval, describeTool, judgeWithModel, to
 import type {AdapterHooks, ApprovalMode, ApprovalOutcome, ApprovalRequest, ToolDescriptor} from "../tools/tools";
 import {accept} from "./accept";
 import type {Accepted} from "./accept";
-import type {AgentSession, InteractionAnswer, Invocation, InvocationError, InvocationResult, PromptOptions, RuntimeDeps, RuntimeEvent, RuntimeResult, SessionStatus, UserInput} from "./types";
+import type {AgentSession, InteractionAnswer, Invocation, InvocationError, InvocationResult, InvocationStep, PromptOptions, ResolvedDeps, RuntimeEvent, RuntimeResult, SessionStatus, UserInput} from "./types";
 
 const LLM_ROLES = new Set(["user", "developer", "assistant", "toolResult"]);
 /** OMP 缺省的 convertToLlm 会丢掉 developer 消息（session 的实测），运行时自己保留四种角色。 */
@@ -51,6 +51,7 @@ type Current = {
     failure: InvocationError | null;
     settleDone(result: InvocationResult): void;
     done: Promise<InvocationResult>;
+    next(): Promise<InvocationStep>;
 };
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -92,7 +93,7 @@ function lastProfileId(entries: readonly SessionEntry[]): string | undefined {
 export class SessionHandle implements AgentSession {
     readonly id: string;
     readonly log: SessionLog;
-    readonly #deps: RuntimeDeps;
+    readonly #deps: ResolvedDeps;
     readonly #agent: Agent;
     readonly #listeners = new Set<(event: RuntimeEvent) => void>();
     readonly #pending = new Map<string, Pending>();
@@ -105,6 +106,8 @@ export class SessionHandle implements AgentSession {
     #seq = 0;
     #sessionMode: ApprovalMode | undefined;
     #lastModel: string | undefined;
+    /** 最近一次受理的模型窗口与压缩设置：status.context 按它算用量。 */
+    #lastContext: {window: number; settings: CompactionSettings} | null = null;
     #writes: Promise<unknown> = Promise.resolve();
     #invocationStart = 0;
     #logError = "";
@@ -118,7 +121,7 @@ export class SessionHandle implements AgentSession {
     #suppressWrites = false;
     #releaseLog: () => void;
 
-    constructor(deps: RuntimeDeps, log: SessionLog, profileId: string | undefined) {
+    constructor(deps: ResolvedDeps, log: SessionLog, profileId: string | undefined) {
         this.#deps = deps;
         this.log = log;
         this.id = log.header.id;
@@ -147,7 +150,36 @@ export class SessionHandle implements AgentSession {
             queue: {steer: this.#steered.size, followUp: this.#followUps.length},
             ...(this.#profileId === undefined ? {} : {profileId: this.#profileId}),
             ...(this.#lastModel === undefined ? {} : {model: this.#lastModel}),
+            ...(this.#lastContext === null ? {} : {context: this.#contextUsage(this.#lastContext)}),
         };
+    }
+
+    #contextUsage(last: {window: number; settings: CompactionSettings}): NonNullable<SessionStatus["context"]> {
+        const decision = shouldCompact({entries: this.log.entries, contextWindow: last.window, settings: last.settings});
+        return {tokens: decision.contextTokens, window: last.window, threshold: decision.thresholdTokens};
+    }
+
+    /** 输出 6 的 `Invocation.next()`：这次调用正在等待用户就立即给事项；否则等它进入等待或结束，先到的那个。 */
+    #nextStep(current: Current): () => Promise<InvocationStep> {
+        return () => new Promise<InvocationStep>((resolve) => {
+            if (this.#current === current && this.#phase === "waiting-user") {
+                const {pending} = this.status;
+                if (pending.length > 0) {
+                    resolve({kind: "waiting", pending});
+                    return;
+                }
+            }
+            const subscription = this.subscribe((event) => {
+                if (event.type === "status" && event.status.phase === "waiting-user" && this.#current === current && event.status.pending.length > 0) {
+                    subscription.release();
+                    resolve({kind: "waiting", pending: event.status.pending});
+                }
+            });
+            void current.done.then((result) => {
+                subscription.release();
+                resolve({kind: "done", result});
+            });
+        });
     }
 
     subscribe(listener: (event: RuntimeEvent) => void): {release(): void} {
@@ -228,7 +260,7 @@ export class SessionHandle implements AgentSession {
             const queued = options.streamingBehavior === "steer" ? this.steer(input) : this.followup(input);
             if (!queued.ok) return queued;
             if (this.#current === null) return {ok: false, code: "invalid-state", detail: "等待用户的调用不在本进程内运行，先 resolve"};
-            return {ok: true, value: {invocationId: this.#current.invocationId, done: this.#current.done}};
+            return {ok: true, value: {invocationId: this.#current.invocationId, done: this.#current.done, next: this.#current.next}};
         }
         if (this.#reserved !== null) return {ok: false, code: "busy", detail: `会话正在${this.#reserved === "compact" ? "压缩" : "受理另一次调用"}`};
         // 换 Profile 只在受理通过后生效（#start 里记下），受理失败不留痕迹
@@ -339,10 +371,12 @@ export class SessionHandle implements AgentSession {
     async #start(accepted: Accepted, mode: Mode, signal: AbortSignal | undefined): Promise<RuntimeResult<Invocation>> {
         const invocationId = mode.kind === "resume" ? mode.invocationId : crypto.randomUUID();
         const {promise, resolve} = Promise.withResolvers<InvocationResult>();
-        const current: Current = {invocationId, accepted, prepared: null, entries: [], turns: 0, limitHit: false, control: new AbortController(), failure: null, settleDone: resolve, done: promise};
+        const current: Current = {invocationId, accepted, prepared: null, entries: [], turns: 0, limitHit: false, control: new AbortController(), failure: null, settleDone: resolve, done: promise, next: () => Promise.reject(new Error("未初始化"))};
+        current.next = this.#nextStep(current);
         this.#current = current;
         this.#profileId = accepted.profile.id;
         this.#lastModel = accepted.modelRef;
+        this.#lastContext = {window: accepted.model.contextWindow ?? 0, settings: accepted.compaction};
         this.#phase = "running";
         if (mode.kind !== "resume") {
             const started = await this.#writeInvocation(invocationId, "start", {
@@ -361,7 +395,7 @@ export class SessionHandle implements AgentSession {
         };
         signal?.addEventListener("abort", onAbort, {once: true});
         void this.#execute(current, mode).then((result) => this.#finish(current, result)).finally(() => signal?.removeEventListener("abort", onAbort));
-        return {ok: true, value: {invocationId, done: promise}};
+        return {ok: true, value: {invocationId, done: promise, next: current.next}};
     }
 
     async #execute(current: Current, mode: Mode): Promise<InvocationResult> {
@@ -755,6 +789,11 @@ export class SessionHandle implements AgentSession {
         try {
             const accepted = await accept(this.#deps, {log: this.log, profileId: this.#profileId}, {needsInput: false});
             if (!accepted.ok) return accepted;
+            // 没有窗口的模型压不了（阈值与 soft 都按它算）：这是配置缺项，不是“没东西可压”
+            const window = accepted.value.model.contextWindow;
+            if (window === null || !(window > 0)) {
+                return {ok: false, code: "compaction-failed", detail: `模型 ${accepted.value.modelRef} 没有 contextWindow：自建服务的模型要在配置里给出 contextWindow（harness.config），压缩阈值与 soft 方法都按它算`};
+            }
             const context: PromptContext = {session: {id: this.id, createdAt: this.log.header.createdAt}, turn: countTurns(this.log.entries), now: new Date(this.#now()), fields: accepted.value.profile.fields};
             const prepared = await this.#deps.host.prepare(accepted.value.profile, {context});
             if (!prepared.ok) return {ok: false, code: "invalid-profile", detail: `${prepared.code}: ${prepared.detail}`};

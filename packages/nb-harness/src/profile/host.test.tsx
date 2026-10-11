@@ -83,11 +83,11 @@ describe("注册（输出 1）", () => {
         expect(failure(host.registerField({id: "no-slash", schema: Type.String()}))).toBe("invalid-definition");
     });
 
-    test("场景 6：未注册字段只得到警告并被忽略；注册后值不合 schema 为 invalid-field", async () => {
+    test("场景 6：未注册字段只得到警告并被忽略，但 harness/ 下的未注册字段是错误；注册后值不合 schema 为 invalid-field", async () => {
         const host = createProfileHost();
         const profile = defineProfile({
             id: "p", name: "n", description: "d", version: 1,
-            fields: {"harness/tools": ["read", 3]},
+            fields: {"plugin.x/tools": ["read", 3]},
             prompt: (ctx) => <Prompt><System>工具数：{Object.keys(ctx.fields).length}</System></Prompt>,
         });
         const loose = await host.prepare(profile, {context});
@@ -96,13 +96,17 @@ describe("注册（输出 1）", () => {
         expect(host.renderSystem(loose.value).systemPrompt).toEqual(["工具数：0"]);
         expect(host.renderRequest(loose.value, {history: [], invocationStart: 0}).diagnostics).toEqual([]);
         expect(host.prepare(profile, {context}).then((result) => (result.ok ? result.value : null))).resolves.not.toBeNull();
+        // harness/ 命名空间：拼错的字段不能被静默忽略
+        const typo = defineProfile({...profile, fields: {"harness/tool": ["read"]}});
+        const strictTypo = await host.prepare(typo, {context});
+        expect(strictTypo.ok ? null : `${strictTypo.code}:${strictTypo.diagnostics.map((d) => `${d.severity}/${d.code}@${d.path}`).join(",")}`).toBe("invalid-prompt:error/unknown-field@fields.harness/tool");
 
-        host.registerField({id: "harness/tools", schema: Type.Array(Type.String())});
+        host.registerField({id: "plugin.x/tools", schema: Type.Array(Type.String())});
         const strict = await host.prepare(profile, {context});
-        expect(strict.ok ? null : strict.diagnostics.map((d) => `${d.code}@${d.path}`)).toEqual(["invalid-field@fields.harness/tools"]);
+        expect(strict.ok ? null : strict.diagnostics.map((d) => `${d.code}@${d.path}`)).toEqual(["invalid-field@fields.plugin.x/tools"]);
 
-        const okProfile = defineProfile({...profile, fields: {"harness/tools": ["read"]}, prompt: (ctx) => <Prompt><System>{JSON.stringify(ctx.fields)}</System></Prompt>});
+        const okProfile = defineProfile({...profile, fields: {"plugin.x/tools": ["read"]}, prompt: (ctx) => <Prompt><System>{JSON.stringify(ctx.fields)}</System></Prompt>});
         const valid = await host.prepare(okProfile, {context});
-        expect(valid.ok && host.renderSystem(valid.value).systemPrompt).toEqual(['{"harness/tools":["read"]}']);
+        expect(valid.ok && host.renderSystem(valid.value).systemPrompt).toEqual(['{"plugin.x/tools":["read"]}']);
     });
 });

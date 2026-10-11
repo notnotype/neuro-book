@@ -2,7 +2,7 @@ import {describe, expect, test} from "bun:test";
 import {registerCustomApi} from "@oh-my-pi/pi-ai";
 import {getBundledModels, getBundledProviders} from "@oh-my-pi/pi-catalog";
 import {Value} from "typebox/value";
-import {validateHarnessConfig} from "../config/config";
+import {createConfigStore, validateHarnessConfig} from "../config/config";
 import type {HarnessConfig} from "../config/config";
 import {createModelCatalog, MODEL_FIELD, selectionFromProfile} from "./models";
 
@@ -139,5 +139,32 @@ describe("选择链与能力（输出 3、4）", () => {
         expect(catalog.checkCapabilities(noTools.value, {tools: true, images: true}).map((p) => p.capability)).toEqual(["tools", "images"]);
         expect(catalog.checkCapabilities(withImage.value, {tools: true, images: true})).toEqual([]);
         expect(catalog.checkCapabilities(noTools.value, {})).toEqual([]);
+    });
+});
+
+describe("目录跟着配置存储（输出 10）", () => {
+    test("场景 5：用 ConfigStore 建的目录在 replace 后看到新服务、不再列旧服务；用快照建的目录不变", () => {
+        const store = createConfigStore({providers: [{id: "old", api: "openai-completions", baseUrl: "http://127.0.0.1:9", models: [{id: "m"}]}], models: {defaultModel: "old/m"}});
+        if (!store.ok) throw new Error(JSON.stringify(store.problems));
+        const live = createModelCatalog({config: store.value});
+        const frozen = createModelCatalog({config: store.value.current});
+        expect(live.resolve("old/m").ok).toBe(true);
+        const before = live.select({});
+        expect(before.ok && before.value.model.provider).toBe("old");
+
+        const replaced = store.value.replace({providers: [{id: "new", api: "openai-completions", baseUrl: "http://127.0.0.1:9", models: [{id: "n", contextWindow: 10}]}], models: {defaultModel: "new/n"}, roles: {items: [{id: "approval", axis: "specialist", name: "审批", description: "", modelKey: "new/n"}]}});
+        expect(replaced.ok).toBe(true);
+        const added = live.resolve("new/n");
+        expect(added.ok && added.value.contextWindow).toBe(10);
+        const gone = live.resolve("old/m");
+        expect(gone.ok ? null : gone.code).toBe("unknown-provider");
+        expect(live.list().filter((item) => item.source === "config").map((item) => item.ref)).toEqual(["new/n"]);
+        const byRole = live.select({role: "approval"});
+        expect(byRole.ok && byRole.value.via).toBe("role");
+        const after = live.select({});
+        expect(after.ok && after.value.model.id).toBe("n");
+        // 快照建的目录不受影响
+        expect(frozen.resolve("old/m").ok).toBe(true);
+        expect(frozen.resolve("new/n").ok).toBe(false);
     });
 });

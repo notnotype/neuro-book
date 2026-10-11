@@ -9,6 +9,13 @@ const baseContext: PromptContext = {session: {id: "s", title: "第三章", creat
 const SkillCatalog = nodeComponent("plugin.x/skill-catalog");
 const catalog: NodeTypeDefinition = {id: "plugin.x/skill-catalog", category: "content", props: Type.Object({}), parents: ["*message"], children: "none", render: () => "改写、润色"};
 
+/** 示例 Profile 用到 harness/tools：harness/ 下的字段没注册是错误（输出 3），测试的主机先登记它。 */
+function newHost(): ProfileHost {
+    const host = createProfileHost();
+    host.registerField({id: "harness/tools", schema: Type.Array(Type.String())});
+    return host;
+}
+
 /** Spec“定义 Profile”一节的示例 Profile。 */
 const example = (): Profile =>
     defineProfile({
@@ -40,7 +47,7 @@ const text = (message: Message): string => (typeof message.content === "string" 
 
 describe("渲染：种子、追加、系统提示词（输出 6、8、9、10）", () => {
     test("场景 1：示例 Profile——两条种子、after-compaction 只剩技能目录；第 1 轮有输入与提醒、第 2–5 轮只有输入、第 6 轮又有提醒；请求为历史加带 <workspace> 的请求消息", async () => {
-        const host = createProfileHost();
+        const host = newHost();
         host.registerNodeType(catalog);
         const profile = example();
         const first = await prepared(host, profile);
@@ -73,7 +80,7 @@ describe("渲染：种子、追加、系统提示词（输出 6、8、9、10）"
     });
 
     test("场景 11：种子的角色取节点的角色；没有带子节点的 History 时种子为空", async () => {
-        const host = createProfileHost();
+        const host = newHost();
         const seeded = await prepared(host, defineProfile({id: "p", name: "n", description: "d", version: 1, prompt: () => <Prompt><History><Developer>规则</Developer><User>任务</User></History></Prompt>}));
         expect(host.renderSeeds(seeded, "new-session").messages.map(({message}) => `${message.role}:${text(message)}`)).toEqual(["developer:规则", "user:任务"]);
         const bare = await prepared(host, defineProfile({id: "p", name: "n", description: "d", version: 1, prompt: () => <Prompt><History /></Prompt>}));
@@ -81,7 +88,7 @@ describe("渲染：种子、追加、系统提示词（输出 6、8、9、10）"
     });
 
     test("输出 9：Appending 里没有 Input 时输入放最后；没有 Appending 时只追加输入；注册的有状态节点直接在 Appending 下产生用户消息，内容为空则不产生", async () => {
-        const host = createProfileHost();
+        const host = newHost();
         const Counter = nodeComponent<{id: string}>("plugin.s/counter");
         host.registerNodeType({
             id: "plugin.s/counter", category: "stateful", props: Type.Object({id: Type.String()}), parents: ["harness/appending", "*message"], children: "none",
@@ -105,7 +112,7 @@ describe("渲染：种子、追加、系统提示词（输出 6、8、9、10）"
     });
 
     test("输出 10：提醒的 when、watch、once 条件；多个条件同时成立才出现", async () => {
-        const host = createProfileHost();
+        const host = newHost();
         const profile = (when: boolean, watch: string) =>
             defineProfile({id: "p", name: "n", description: "d", version: 1, prompt: () => <Prompt><Appending><Input /><Reminder id="w" when={when} watch={watch}>提醒</Reminder><Reminder id="o" once>只一次</Reminder></Appending></Prompt>});
         const ids = (out: {messages: {kind: string; message: Message}[]}): string[] => out.messages.filter((m) => m.kind === "reminder").map((m) => text(m.message).includes("只一次") ? "o" : "w");
@@ -127,7 +134,7 @@ describe("渲染：种子、追加、系统提示词（输出 6、8、9、10）"
 
 describe("消息的形状（输出 9）", () => {
     test("Assistant 示例带占位元数据、content 是块数组；Appending 与种子渲染出的消息能原样写进 session", async () => {
-        const host = createProfileHost();
+        const host = newHost();
         const p = await prepared(host, defineProfile({
             id: "p", name: "n", description: "d", version: 1,
             prompt: () => (
@@ -154,7 +161,7 @@ describe("消息的形状（输出 9）", () => {
 
 describe("渲染期的校验（输出 6）", () => {
     test("内容节点 render 返回的 Image 在 User 里出现、在 System 里被丢弃并给 image-not-allowed；返回未注册节点给 unknown-node；返回不合父子规则的节点给 invalid-parent", async () => {
-        const host = createProfileHost();
+        const host = newHost();
         const Picture = nodeComponent("plugin.g/picture");
         const Stranger = nodeComponent("plugin.g/stranger");
         const Nested = nodeComponent("plugin.g/nested");
@@ -184,7 +191,7 @@ describe("渲染期的校验（输出 6）", () => {
     });
 
     test("Fragment 是透明的：包住 System、History、Appending 与请求消息的布局与不包等价（场景 2 的补充）", async () => {
-        const host = createProfileHost();
+        const host = newHost();
         const plain = await prepared(host, defineProfile({id: "p", name: "n", description: "d", version: 1, prompt: () => <Prompt><System>s</System><History><User once>种子</User></History><User>请求</User><Appending><Input /></Appending></Prompt>}));
         const wrapped = await prepared(host, defineProfile({id: "p", name: "n", description: "d", version: 1, prompt: () => <Prompt><><System>s</System><><History><><User once>种子</User></></History></><User>请求</User><><Appending><><Input /></></Appending></></></Prompt>}));
         const history: Message[] = [{role: "user", content: "h", timestamp: 1}];
@@ -198,7 +205,7 @@ describe("渲染期的校验（输出 6）", () => {
 
 describe("文本拼接（输出 5）", () => {
     test("场景 4：相邻字符串直接相连，块级节点前后空一行，首尾空白去掉，三个以上换行折叠为两个", async () => {
-        const host = createProfileHost();
+        const host = newHost();
         const Block = nodeComponent("plugin.b/block");
         const Inline = nodeComponent("plugin.b/inline");
         host.registerNodeType({id: "plugin.b/block", category: "content", layout: "block", props: Type.Object({}), parents: ["*message"], children: "content", render: (node) => node.children[0] ?? null});
@@ -225,7 +232,7 @@ describe("文本拼接（输出 5）", () => {
     });
 
     test("图片让消息内容变成块数组，文字合并成一个文本块；空的 System 不列出", async () => {
-        const host = createProfileHost();
+        const host = newHost();
         const p = await prepared(host, defineProfile({id: "p", name: "n", description: "d", version: 1, prompt: () => <Prompt><System>{""}</System><User>看这张<Image mimeType="image/png" data="QUJD" />图，{"再"}看文字</User></Prompt>}));
         expect(host.renderSystem(p).systemPrompt).toEqual([]);
         expect(host.renderRequest(p, {history: [], invocationStart: 0}).messages[0]!.content).toEqual([
@@ -234,7 +241,7 @@ describe("文本拼接（输出 5）", () => {
     });
 
     test("输出 14：同样的输入得到同样的输出，渲染不修改输入", async () => {
-        const host = createProfileHost();
+        const host = newHost();
         host.registerNodeType(catalog);
         const p = await prepared(host, example());
         const history: Message[] = [{role: "user", content: "a", timestamp: 1}];

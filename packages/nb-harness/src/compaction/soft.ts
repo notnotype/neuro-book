@@ -29,7 +29,7 @@ export function createSoftCompaction(options: {completeImpl?: CompleteImpl} = {}
     return Object.freeze({
         id: "soft",
         applicable(input: MethodInput) {
-            if (input.model.contextWindow === null || !(input.model.contextWindow > 0)) return {ok: false as const, detail: "模型没有正的 contextWindow"};
+            if (input.model.contextWindow === null || !(input.model.contextWindow > 0)) return {ok: false as const, detail: `模型 ${input.model.provider}/${input.model.id} 没有正的 contextWindow：自建服务的模型要在配置里给出 contextWindow（harness.config）`};
             return prepare(input) === undefined ? {ok: false as const, detail: NOTHING} : {ok: true as const};
         },
         async run(input: MethodInput, signal: AbortSignal) {
