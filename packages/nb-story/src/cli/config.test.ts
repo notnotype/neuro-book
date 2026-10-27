@@ -202,6 +202,14 @@ describe("init、show、set、unset", () => {
         }
         expect(await readdir(locked)).toEqual([]);
     });
+
+    test("目录里没有的服务商：说明它是自定义服务商，并给出还缺的地址与密钥变量", async () => {
+        const result = await run(["config", "init", "--model", "jiji-luna/gpt-6-luna", "--config", freshPath()]);
+        expect(result.code).toBe(2);
+        expect(result.stderr).toContain("目录里没有服务商 jiji-luna");
+        expect(result.stderr).toContain("--base-url");
+        expect(result.stderr).toContain("--api-key-env");
+    });
 });
 
 async function configWithEndpoint(replies: EndpointReply[], thinking?: string): Promise<{path: string; endpoint: Endpoint}> {
