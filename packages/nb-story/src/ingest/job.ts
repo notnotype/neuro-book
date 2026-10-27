@@ -18,7 +18,7 @@ import type {Library} from "../core/library";
 import {consolidate, extractChapter, IngestBadReply, type ChapterRun, type RecallSource, type Step} from "./chapter";
 import {compile} from "./compile";
 import type {RawDraft} from "./draft-tools";
-import {ModelAborted, ModelError, type Attempt, type ModelEndpoint} from "./model";
+import {ModelAborted, ModelError, type Attempt, type IngestEffort, type ModelEndpoint} from "./model";
 import type {ActivityLine, IngestStore, Price, UsageLine} from "./store";
 
 /** 书目录里每次提交的抽取数据（core/library.ts 的 `extraction-<版本>.json`）。 */
@@ -43,6 +43,7 @@ export type IngestEvent =
     | {type: "chapter"; chapter: number; total: number}
     | {type: "step"; chapter: number; step: Step}
     | {type: "retry"; chapter: number; step: Step; attempt: number; waitMs: number; message: string}
+    | {type: "effort"; chapter: number; step: Step; from: IngestEffort; to: IngestEffort}
     | {type: "usage"; line: UsageLine}
     | {type: "committed"; chapter: number; total: number; dropped: number; generation: string; revision: number};
 
@@ -187,6 +188,7 @@ function chapterRun(options: JobOptions, chapter: number, checkStop: () => void,
             options.onEvent({type: "step", chapter, step});
         },
         onRetry: (step, info) => options.onEvent({type: "retry", chapter, step, attempt: info.attempt, waitMs: info.waitMs, message: info.error.message}),
+        onEffortFallback: (step, info) => options.onEvent({type: "effort", chapter, step, from: info.from, to: info.to}),
         // 开始的那一行写完才发请求（callModel 等它），进程在请求中途被杀时账上一定有它。
         onAttemptStart: (step, attempt) => {
             const id = randomUUID();

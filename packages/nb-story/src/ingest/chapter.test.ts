@@ -393,10 +393,18 @@ describe("渠道失败与不成形的回复（输出 9、10，验收 5）", () =
         expect(!run.outcome.ok && String((run.outcome.error as Error).message)).not.toContain("test-credential");
     });
 
-    test("拒绝 minimal 推理档：不降档、不重发，以 provider 失败；请求里的推理档是 minimal", async () => {
+    test("400 没列合法档位：不降档、不重发，以 provider 失败；请求里的推理档是 minimal", async () => {
         const run = await chapterOne(key => (key.step === "beats" ? status(400) : undefined));
         expect(!run.outcome.ok && run.outcome.error instanceof ModelError && run.outcome.error.kind).toBe("provider");
         expect(run.requests.map(request => request.effort)).toEqual(["minimal"]);
+    });
+
+    test("拒绝 minimal 并列出合法档位：改用 low 重发一次，这一章照常抽完", async () => {
+        const run = await chapterOne((key, nth) => (key.step === "beats" && nth === 1
+            ? {kind: "status", status: 400, message: "Unsupported value: 'minimal' is not supported. Supported values are: 'none', 'low', 'medium'."}
+            : undefined));
+        expect(run.outcome.ok).toBe(true);
+        expect(run.requests.filter(request => request.key === "1:beats").map(request => request.effort)).toEqual(["minimal", "low"]);
     });
 
     test("跑飞：一段内容之后只剩空白，2000 个空白后中止、按渠道失败重发；那次的用量标不完整", async () => {
