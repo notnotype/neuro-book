@@ -126,6 +126,17 @@ export async function configCommand(options: ConfigOptions, io: CliIo): Promise<
 
     const arity: Record<string, number> = {init: 0, show: 0, test: 0, set: 2, unset: 1};
     if (action === undefined || !(action in arity)) return usageError(action === undefined ? "缺少动作" : `没有动作 ${action}`);
+    const modelFlags = params.baseUrl !== undefined || params.model !== undefined || params.apiKeyEnv !== undefined || params.maxTokens !== undefined;
+    if (action === "init" && params.maxTokens !== undefined) return usageError("config init 不支持 --max-tokens；用 config set ingest.model 分项写");
+    if (modelFlags && action !== "init") {
+        if (action !== "set") return usageError("--model、--base-url、--api-key-env、--max-tokens 只用于 config set ingest.model");
+        const field = params.field;
+        if (field !== "ingest.model" && field !== "ingest.recall.model") return usageError("分项写模型只支持 ingest.model 与 ingest.recall.model");
+        if (params.value !== undefined) return usageError(`config set ${String(field)} 用 --model、--base-url、--api-key-env 分项写时不要再给位置参数的值`);
+        const missing = [params.model === undefined ? "--model" : null, params.baseUrl === undefined ? "--base-url" : null, params.apiKeyEnv === undefined ? "--api-key-env" : null].filter((item): item is string => item !== null);
+        if (missing.length > 0) return usageError(`config set ${field} 缺少 ${missing.join("、")}`);
+        params.value = JSON.stringify({baseUrl: params.baseUrl, id: params.model, apiKeyEnv: params.apiKeyEnv, ...(params.maxTokens === undefined ? {} : {maxTokens: params.maxTokens})});
+    }
     const given = [params.field, params.value].filter(item => item !== undefined).length;
     if (given !== arity[action]) return usageError(`${action} 要 ${arity[action]} 个参数，给了 ${given} 个`);
     if (params.ingest === true && action !== "test") return usageError("--ingest 只用于 config test");
