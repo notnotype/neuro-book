@@ -67,7 +67,7 @@ type QaConfig = {
         models: {
             id: string;
             name?: string;
-            contextWindow?: number;  // 没写的上下文、最大输出、推理与图片，运行时按模型名从 OMP 目录补
+            contextWindow?: number;  // 没写的上下文、最大输出、推理与图片，运行时按模型名从 OMP 目录补；目录里也没有输出上限时用 8192
             maxTokens?: number;
             reasoning?: boolean;
             images?: boolean;
