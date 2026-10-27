@@ -224,7 +224,11 @@ async function init(params: Record<string, unknown>, path: string, io: CliIo, js
     if (needsConfirm && !canPrompt) return usageError(`已有配置 ${path}：加 --force 覆盖其中给出的字段（没给的保留），或用 nbstory config set 改单个字段`);
     if (needsInput && !canPrompt) {
         const names = {baseUrl: "--base-url", model: "--model", apiKeyEnv: "--api-key-env"} as const;
-        const wanted = missing.length > 0 ? `自定义地址缺少 ${missing.map(name => names[name]).join("、")}` : existing ? "至少给一个字段选项（--model、--base-url、--api-key-env、--thinking）" : "缺少 --model（目录里的 服务商/模型名，或者自定义地址另给 --base-url 与 --api-key-env）";
+        const provider = flags.model === undefined ? null : parseModelRef(flags.model).provider;
+        // 用户写的是 OMP 的 models.yml 里的自定义服务商时，目录里当然没有；不要只说“缺 --base-url”，那会让人以为
+        // 参数没写全，而不是这里根本不认这个服务商。
+        const unknownProvider = provider !== null && !tools.catalog.hasProvider(provider) ? `目录里没有服务商 ${provider}；如果它是自定义服务商，要另给 --base-url 与 --api-key-env。` : "";
+        const wanted = missing.length > 0 ? `${unknownProvider}自定义地址缺少 ${missing.map(name => names[name]).join("、")}` : existing ? "至少给一个字段选项（--model、--base-url、--api-key-env、--thinking）" : "缺少 --model（目录里的 服务商/模型名，或者自定义地址另给 --base-url 与 --api-key-env）";
         return usageError(`${wanted}${json ? "" : "；在终端里运行可以交互填写"}`);
     }
     const cancelled = (): number => {
