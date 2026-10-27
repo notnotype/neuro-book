@@ -1,12 +1,12 @@
 /**
  * 抽取的模型调用（docs/specs/story/ingest.md 输出 9）：OpenAI 兼容服务、流式、推理档与 JSON 输出原样发送，渠道失败
- * 按固定的延迟表重发。
+ * 按固定的延迟表重发；端点 400 明确拒绝推理档并列出合法档位时，改用最近的档位重发一次。
  *
  * 用 `openai` SDK 而不是问答用的 nb-harness：SDK 设 `maxRetries: 0` 后一次调用就是一次 HTTP 请求，推理档原样发送；
  * nb-harness 底下的 OMP 在一次调用里自带最多 6 次重试，端点拒绝 `minimal` 时还会自动降成 `low` 重发，两样都关不掉，
- * 与“只一层重试、不降档”的合同冲突（w00024 t06 计划审查第 4、5 条的实测）。错误归类沿用 nb-harness 的口径
- * （docs/specs/agent/harness.md），密钥的遮盖记号与它的 `REDACTED_KEY` 相同。不导入 nb-harness：它的入口会加载
- * 整个 OMP，抽取线程用不到。
+ * 与“只一层重试、只在端点列出合法档位时降一次”的合同冲突（w00024 t06 计划审查第 4、5 条的实测）。错误归类沿用
+ * nb-harness 的口径（docs/specs/agent/harness.md），密钥的遮盖记号与它的 `REDACTED_KEY` 相同。不导入 nb-harness：
+ * 它的入口会加载整个 OMP，抽取线程用不到。
  *
  * 这一层只管渠道：一次逻辑请求的重发、流的中止、用量与取出 JSON 对象。回复成不成形（缺本章、没有段落块）由
  * 调用方按各步自己的形状判断。
@@ -14,8 +14,9 @@
 
 import OpenAI from "openai";
 
-/** 抽取的固定推理档：写时间点和段落块用最低档，其余步骤用中档。 */
-export type IngestEffort = "minimal" | "medium";
+/** 抽取的推理档：写时间点和段落块用最低档，其余步骤用中档；端点明确拒绝时会按它列出的合法档位降一次档。 */
+export const INGEST_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+export type IngestEffort = (typeof INGEST_EFFORTS)[number];
 
 export type ErrorKind = "network" | "rate_limit" | "auth" | "quota" | "context_overflow" | "provider" | "local";
 
@@ -93,6 +94,8 @@ export interface CallOptions {
     timeoutMs?: number;
     /** 决定重发、开始等待时调用。 */
     onRetry?: (info: {attempt: number; waitMs: number; error: ModelError}) => void;
+    /** 端点拒绝这个推理档、并列出合法档位时调用；随后用降后的档重发一次。 */
+    onEffortFallback?: (info: {from: IngestEffort; to: IngestEffort; error: ModelError}) => void;
     /** 等待；测试注入，默认真的等。被中止时 reject。 */
     sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
     /** 替换 HTTP（测试用本机端点时不需要）。 */
@@ -170,6 +173,21 @@ function classify(error: unknown, apiKey: string): ModelError {
 /** 渠道这边的失败（超时、断线、5xx、跑飞、流没有结束原因）重发；认证、额度、限流、模型拒绝请求（含推理档）不重发。 */
 const retryable = (error: ModelError) => error.kind === "network";
 
+/**
+ * 端点 400 明确拒绝当前推理档、并列出合法档位时，选一个最近的档位（同距离优先更高的档）。
+ * 只认带 `Supported values are` 且提到当前档位的错误，避免把别的 400 当成推理档问题。
+ */
+export function fallbackEffort(message: string, current: IngestEffort): IngestEffort | null {
+    const listed = /Supported values are:?\s*([^.\n]+)/i.exec(message);
+    if (!listed || (!message.includes(`'${current}'`) && !message.includes(`"${current}"`))) return null;
+    const allowed = [...listed[1]!.matchAll(/['"]([a-z]+)['"]/gi)]
+        .map(match => match[1]!)
+        .filter((value): value is IngestEffort => (INGEST_EFFORTS as readonly string[]).includes(value));
+    if (!allowed.length) return null;
+    const target = INGEST_EFFORTS.indexOf(current);
+    return allowed.sort((a, b) => Math.abs(INGEST_EFFORTS.indexOf(a) - target) - Math.abs(INGEST_EFFORTS.indexOf(b) - target) || INGEST_EFFORTS.indexOf(b) - INGEST_EFFORTS.indexOf(a))[0] ?? null;
+}
+
 /** 取出回复里的 JSON 对象。模型偶尔在 JSON 前后多写几个字，取第一个“{”到最后一个“}”。 */
 function parseJsonObject(text: string): unknown {
     const start = text.indexOf("{"), end = text.lastIndexOf("}");
@@ -194,11 +212,20 @@ export async function callModel(endpoint: ModelEndpoint, options: CallOptions): 
         ...(options.fetch ? {fetch: options.fetch} : {}),
     });
     const sleep = options.sleep ?? defaultSleep;
+    let effort = options.effort;
+    let downgraded = false;
     for (let attempt = 1; ; attempt++) {
         if (options.signal?.aborted) throw new ModelAborted();
-        const outcome = await attemptOnce(client, endpoint, options, attempt);
+        const outcome = await attemptOnce(client, endpoint, {...options, effort}, attempt);
         if (outcome.ok) return outcome.reply;
         if (options.signal?.aborted) throw new ModelAborted();
+        const next = !downgraded && outcome.error.kind === "provider" ? fallbackEffort(outcome.error.message, effort) : null;
+        if (next !== null && next !== effort) {
+            options.onEffortFallback?.({from: effort, to: next, error: outcome.error});
+            effort = next;
+            downgraded = true;
+            continue;
+        }
         const waitMs = attempt < (options.maxAttempts ?? Infinity) ? RETRY_DELAYS_MS[attempt - 1] : undefined;
         if (!retryable(outcome.error) || waitMs === undefined) throw outcome.error;
         options.onRetry?.({attempt, waitMs, error: outcome.error});

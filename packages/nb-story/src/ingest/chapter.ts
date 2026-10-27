@@ -50,6 +50,8 @@ export interface ChapterRun {
     /** 每次 HTTP 尝试结束时调用（成功或失败），用来记用量。 */
     onAttempt?: (step: Step, attempt: Attempt) => void;
     onRetry?: (step: Step, info: {attempt: number; waitMs: number; error: ModelError}) => void;
+    /** 端点拒绝推理档、改用邻近档位重发时调用。 */
+    onEffortFallback?: (step: Step, info: {from: IngestEffort; to: IngestEffort; error: ModelError}) => void;
 }
 
 export interface ChapterInput {
@@ -114,6 +116,7 @@ function asker(run: ChapterRun, chapter: number): Ask {
                 onAttemptStart: attempt => run.onAttemptStart?.(step, attempt),
                 onAttempt: attempt => run.onAttempt?.(step, attempt),
                 onRetry: info => run.onRetry?.(step, info),
+                onEffortFallback: info => run.onEffortFallback?.(step, info),
             });
             if (reply.finishReason !== "length" && reply.json !== null && valid(reply)) return reply.json;
             if (round === 2) {

@@ -210,6 +210,8 @@ function progressLine(event: IngestEvent, chapterStart: number, costs: ChapterCo
             return `· 第 ${event.chapter} 章：${STEP_NAMES[event.step]}`;
         case "retry":
             return `· 第 ${event.chapter} 章${STEP_NAMES[event.step]}第 ${event.attempt} 次失败（${event.message}），等 ${seconds(event.waitMs)}后重发`;
+        case "effort":
+            return `· 第 ${event.chapter} 章${STEP_NAMES[event.step]}：端点不接受 ${event.from} 档，改用 ${event.to} 档`;
         case "usage":
             return null;
         case "committed":

@@ -82,6 +82,27 @@ describe("渠道失败按表重发（输出 9）", () => {
     });
 });
 
+describe("推理档被端点拒绝（输出 9）", () => {
+    test("400 列出合法档位：minimal 改到 low 重发一次，不等待", async () => {
+        const endpoint = endpointOf([
+            {kind: "status", status: 400, message: "Unsupported value: 'minimal' is not supported with the 'm' model. Supported values are: 'none', 'low', 'medium', 'high'."},
+            ok,
+        ]);
+        const run = call(endpoint.url);
+        expect((await run.promise).json).toEqual({ok: true});
+        expect(endpoint.bodies.map(body => body.reasoning_effort)).toEqual(["minimal", "low"]);
+        expect(run.waits).toEqual([]);
+        expect(run.attempts.map(attempt => attempt.error?.kind ?? "ok")).toEqual(["provider", "ok"]);
+    });
+
+    test("400 没有列出档位：不换档，按 provider 失败抛出", async () => {
+        const endpoint = endpointOf([{kind: "status", status: 400, message: "bad request"}]);
+        const run = call(endpoint.url);
+        await expect(run.promise).rejects.toMatchObject({kind: "provider", status: 400});
+        expect(endpoint.bodies.length).toBe(1);
+    });
+});
+
 describe("密钥（ingest 副作用与数据）", () => {
     test("流数据坏了、里面回显了密钥：进程的全部输出（含 SDK 自己的日志）里都没有密钥", async () => {
         const key = "model-child-credential-0042";
