@@ -85,7 +85,7 @@ owners:
 
 ### 用法与帮助
 
-15. **帮助。** 不带命令运行，或带 `--help`，列出全部命令与通用选项；`nbstory <命令> --help` 只给这条命令的用法与选项说明，退出码 0。不带命令时退出码 2。选项写在命令名前后效果相同。
+15. **帮助与版本。** 不带命令运行，或带 `--help`，列出全部命令与通用选项；`nbstory <命令> --help` 只给这条命令的用法与选项说明，`nbstory config <动作> --help` 给这个动作自己的选项（例如 `init` 的 `--base-url`、`--force`，`set` 的 `--max-tokens`），退出码 0。`--version` 打印 `nbstory <版本>`，退出码 0。不带命令时退出码 2。选项写在命令名前后效果相同。`config set ingest.model` 与 `config set ingest.recall.model` 除了写整段 JSON，也可以给 `--model`、`--base-url`、`--api-key-env`、`--max-tokens` 分项写。
 
 ### 安装 Skill
 

@@ -202,6 +202,19 @@ describe("init、show、set、unset", () => {
         }
         expect(await readdir(locked)).toEqual([]);
     });
+
+    test("config set ingest.model 可以用 --model、--base-url、--api-key-env、--max-tokens 分项写", async () => {
+        const path = freshPath();
+        expect((await run(["config", "init", ...INIT_FLAGS, "--config", path])).code).toBe(0);
+        const set = await run(["config", "set", "ingest.model", "--model", "gpt-6-luna", "--base-url", "https://www.jiji.cc/v1", "--api-key-env", KEY_ENV, "--max-tokens", "16000", "--config", path]);
+        expect(set.code).toBe(0);
+        expect(set.stdout).toContain("已改 ingest.model");
+        expect(await written(path)).toMatchObject({ingest: {model: {baseUrl: "https://www.jiji.cc/v1", id: "gpt-6-luna", apiKeyEnv: KEY_ENV, maxTokens: 16000}}});
+
+        const missing = await run(["config", "set", "ingest.model", "--model", "m", "--config", path]);
+        expect(missing.code).toBe(2);
+        expect(missing.stderr).toContain("缺少 --base-url、--api-key-env");
+    });
 });
 
 async function configWithEndpoint(replies: EndpointReply[], thinking?: string): Promise<{path: string; endpoint: Endpoint}> {

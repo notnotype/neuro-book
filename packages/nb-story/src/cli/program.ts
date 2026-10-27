@@ -10,11 +10,105 @@
  * 值有时记在根命令上、有时记在子命令上，取决于它与命令名、未知选项的先后。
  */
 
+import {readFileSync} from "node:fs";
+
 import {Command, CommanderError} from "commander";
 
 import {camelCase, COMMANDS, FLAGS, OPTION_HELP, usage, UsageError} from "./commands";
 import type {CommandSpec} from "./commands";
 import type {CliIo} from "./main";
+
+/** 读包的版本；形状不对时直接失败，不猜。 */
+function packageVersion(): string {
+    const parsed: unknown = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+    if (typeof parsed !== "object" || parsed === null || !("version" in parsed) || typeof parsed.version !== "string") throw new Error("package.json 没有 version");
+    return parsed.version;
+}
+
+/** 包的版本；`--version` 直接读 `package.json`，不加载命令实现。 */
+const VERSION = packageVersion();
+
+/** `config` 各动作的选项不同，`--help` 按动作给，而不是共用的 config 帮助。 */
+const CONFIG_ACTION_HELP: Record<string, string> = {
+    init: [
+        "用法：nbstory config init [选项]",
+        "",
+        "目录模型：--model 服务商/模型名。自定义地址：--model 模型名，另给 --base-url 与 --api-key-env。",
+        "已有配置时要加 --force 才覆盖给出的字段；没给的字段保留。",
+        "",
+        "选项：",
+        "  --base-url <地址>        OpenAI 兼容服务的地址",
+        "  --model <模型>           服务商/模型名，或自定义地址的模型名",
+        "  --api-key-env <变量>     存密钥的环境变量名（密钥本身不进配置）",
+        "  --thinking <档位>        minimal、low、medium、high、xhigh、max；不写则不带推理档",
+        "  --force                  覆盖已有配置里给出的字段",
+        "  --config <文件>          配置文件（默认 ~/.config/nbstory/config.json）",
+        "  --json                   标准输出只给一个 JSON",
+        "  --help                   显示这个用法",
+    ].join("\n"),
+    show: [
+        "用法：nbstory config show [选项]",
+        "",
+        "显示配置文件、默认模型、候选、服务商与抽取设置；密钥只显示环境变量设没设置。",
+        "",
+        "选项：",
+        "  --config <文件>    配置文件（默认 ~/.config/nbstory/config.json）",
+        "  --json             标准输出只给一个 JSON",
+        "  --help             显示这个用法",
+    ].join("\n"),
+    set: [
+        "用法：nbstory config set <字段> <值> [选项]",
+        "      nbstory config set ingest.model --model <模型> --base-url <地址> --api-key-env <变量> [--max-tokens <数>]",
+        "",
+        "普通字段写一个值；整组字段（ingest.model、ingest.recall.model、providers.<id>、models）写整段 JSON。",
+        "ingest.model 与 ingest.recall.model 也可以改用 --model、--base-url、--api-key-env、--max-tokens 分项写。",
+        "",
+        "选项：",
+        "  --model <模型>           模型名（配合 --base-url、--api-key-env 写 ingest.model）",
+        "  --base-url <地址>        OpenAI 兼容服务的地址",
+        "  --api-key-env <变量>     存密钥的环境变量名（密钥本身不进配置）",
+        "  --max-tokens <数>        一次请求的输出上限（token）",
+        "  --config <文件>          配置文件（默认 ~/.config/nbstory/config.json）",
+        "  --json                   标准输出只给一个 JSON",
+        "  --help                   显示这个用法",
+    ].join("\n"),
+    unset: [
+        "用法：nbstory config unset <字段> [选项]",
+        "",
+        "去掉一个字段；自定义服务商只剩最后一个候选在用时不能直接去掉（先换默认模型）。",
+        "",
+        "选项：",
+        "  --config <文件>    配置文件（默认 ~/.config/nbstory/config.json）",
+        "  --json             标准输出只给一个 JSON",
+        "  --help             显示这个用法",
+    ].join("\n"),
+    test: [
+        "用法：nbstory config test [--ingest] [选项]",
+        "",
+        "发一次最小请求检查默认模型；--ingest 检查抽取模型，按 minimal、medium 两档各试一次。",
+        "",
+        "选项：",
+        "  --ingest           检查抽取模型",
+        "  --config <文件>    配置文件（默认 ~/.config/nbstory/config.json）",
+        "  --json             标准输出只给一个 JSON",
+        "  --help             显示这个用法",
+    ].join("\n"),
+};
+
+/** 命令行上的位置参数（跳过选项的值），只用来认出 `config <动作> --help`。 */
+function positionalsOf(argv: readonly string[]): string[] {
+    const words: string[] = [];
+    for (let index = 0; index < argv.length; index += 1) {
+        const token = argv[index]!;
+        if (token === "--") break;
+        if (token.startsWith("--")) {
+            if (!token.includes("=") && !FLAGS.has(token.slice(2))) index += 1;
+            continue;
+        }
+        words.push(token);
+    }
+    return words;
+}
 
 /** commander 的否定选项（`--no-ledger`）。 */
 const NEGATED = /^no-/u;
@@ -135,6 +229,16 @@ function normalizeArgv(argv: readonly string[]): string[] {
  * 输出用法，返回 2。参数个数与取值的检查在 `decodeArguments`，由调用方继续。
  */
 export function parseCommandLine(argv: readonly string[], io: CliIo): ParsedCommandLine | ParseStopped {
+    if (argv.includes("--version")) {
+        io.stdout(`nbstory ${VERSION}`);
+        return {exit: 0};
+    }
+    const words = positionalsOf(normalizeArgv(argv));
+    const actionHelp = argv.includes("--help") && words[0] === "config" && words[1] !== undefined ? CONFIG_ACTION_HELP[words[1]] : undefined;
+    if (actionHelp !== undefined) {
+        io.stdout(actionHelp);
+        return {exit: 0};
+    }
     const picked: {value: ParsedCommandLine | null} = {value: null};
     const unknownCommand: {name: string | null} = {name: null};
     const program = buildProgram(io, picked, unknownCommand);

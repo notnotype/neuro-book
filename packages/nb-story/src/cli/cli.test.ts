@@ -95,6 +95,24 @@ describe("退出码与失败（输出 2、7，F1、F2）", () => {
         expect(one.stdout).not.toContain("人物卡");
     });
 
+    test("--version 输出版本，不再落到“没有命令”", async () => {
+        const run = await runCli(["--version"]);
+        expect(run.code).toBe(0);
+        expect(run.stdout.trim()).toMatch(/^nbstory \d+\.\d+\.\d+/u);
+        expect(run.stderr).toBe("");
+    });
+
+    test("config 动作的 --help 给这个动作自己的选项", async () => {
+        const init = await runCli(["config", "init", "--help"]);
+        expect(init.code).toBe(0);
+        expect(init.stdout).toContain("--base-url");
+        expect(init.stdout).toContain("--force");
+        const set = await runCli(["config", "set", "--help"]);
+        expect(set.code).toBe(0);
+        expect(set.stdout).toContain("--max-tokens");
+        expect(set.stdout).toContain("ingest.model");
+    });
+
     test("选项写在命令前后、写成 --名=值都一样；开关带等号也算打开", async () => {
         const trailing = await runCli(["card", "e1-1", "--at", "38", "--library", book.library, "--json"]);
         expect(trailing.code).toBe(0);
