@@ -28,6 +28,9 @@ export interface QaModel {
 
 let catalogIndex: ConfigCatalog | undefined;
 
+/** 自定义模型的输出上限兜底：目录里也查不到时用；不带上限时网关可能用很小的默认预算，长回答会被截断。 */
+export const FALLBACK_MAX_TOKENS = 8192;
+
 /** 配置语义校验用的目录查表（见 config.ts 的 `ConfigCatalog`）。 */
 export function configCatalog(): ConfigCatalog {
     if (catalogIndex === undefined) {
@@ -52,7 +55,8 @@ export function resolveQaModel(config: QaConfig, choice: QaModelChoice = {}): Qa
 
 /**
  * 引用指向的模型，不看在不在候选里（设置页要列出自定义服务商的全部模型）。自定义服务商的模型：没写的上下文、最大
- * 输出、推理与图片按模型名从 OMP 目录补（同 OMP 的 `finalizeCustomModel`），单价不补。provider 名用自定义服务商的 id：
+ * 输出、推理与图片按模型名从 OMP 目录补（同 OMP 的 `finalizeCustomModel`），单价不补；目录里也查不到输出上限时用
+ * `FALLBACK_MAX_TOKENS`，免得请求不带上限、长回答被网关的默认预算截断。provider 名用自定义服务商的 id：
  * 它不与目录重名，OMP 按通用的兼容端点处理。
  */
 export function modelOf(config: QaConfig, ref: string): ResolvedModel {
@@ -69,7 +73,7 @@ export function modelOf(config: QaConfig, ref: string): ResolvedModel {
     if (model === undefined) throw new QaError("qa_unconfigured", `模型 ${ref}：自定义服务商 ${providerId} 里没有模型 ${modelId}`);
     const suggested = suggestFromCatalog(modelId);
     const contextWindow = model.contextWindow ?? suggested?.contextWindow ?? null;
-    const maxTokens = model.maxTokens ?? suggested?.maxTokens ?? null;
+    const maxTokens = model.maxTokens ?? suggested?.maxTokens ?? FALLBACK_MAX_TOKENS;
     return defineModel({
         provider: providerId,
         api: provider.api,

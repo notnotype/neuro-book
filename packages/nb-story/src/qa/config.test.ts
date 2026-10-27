@@ -11,7 +11,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {ABSENT_CONFIG, configProblems, currentConfigDigest, defaultConfigPath, defaultIngestFallback, ingestModel, loadQaConfig, parseQaConfig, qaLimits, readQaConfigFile, readQaConfigShape, saveQaConfig, upgradeQaConfig, validateQaConfig} from "./config";
 import {applyInitAnswers, CONFIG_FIELDS, ConfigEditError, envNameProblem, setConfigField, unsetConfigField} from "./config-edit";
 import {QaError} from "./errors";
-import {configCatalog, resolveQaModel} from "./harness-model";
+import {configCatalog, FALLBACK_MAX_TOKENS, resolveQaModel} from "./harness-model";
 
 let root = "";
 
@@ -129,6 +129,7 @@ describe("问答配置", () => {
         expect(known.resolved.priceKnown).toBe(false);
         const unknown = resolveQaModel(config, {model: "jiji/m", thinking: "high"});
         expect([unknown.contextWindow, unknown.efforts, unknown.thinking]).toEqual([null, [], undefined]);
+        expect(unknown.resolved.model.maxTokens).toBe(FALLBACK_MAX_TOKENS);
     });
 
     test("抽取没写模型：问答默认模型是 OpenAI Chat 接口的自定义服务商时回落，否则报原因", () => {
