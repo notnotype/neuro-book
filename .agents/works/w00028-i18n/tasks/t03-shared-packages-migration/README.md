@@ -90,4 +90,4 @@ nb-harness、nb-profile、nb-session 本 Task 没改，版本不动。
 
 ## 下一步
 
-发布与版本改动等开发者授权（`ui.i18n` Spec 已晋升，待确认清单已全部追认）。
+已发布（2026-10-29，提交 `a33d0cba9`），registry 冒烟通过，见 `evidences/release-smoke-registry.txt`。（`ui.i18n` Spec 已晋升，待确认清单已全部追认）。

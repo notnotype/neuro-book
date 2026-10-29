@@ -1,0 +1,3 @@
+2026-10-29 发布提交 a33d0cba9（master）。已发布：nb-runtime@0.3.0、nb-ui@0.3.0、nb-form@0.2.0、nb-markdown@0.2.0、nb-agent-ui@0.2.0、nb-story@0.2.2、nb-plugin-sdk@0.12.0、neuro-book@0.12.0。
+`bun run release:smoke -- --from registry` 通过（nbstory 与查看器、Vite 宿主导入 8 个公开入口、bun add -g 后 nbook 打开书架、bunx SDK 生成插件并构建、plugin install 后重启已加载）。
+注：发布后几分钟内 registry 元数据未传播完，bun 解析 nb-ui@0.3.0 与 nb-agent-ui@0.2.0 报 "No version matching"；等 npm view 显示新版本后，用全新的 BUN_INSTALL_CACHE_DIR 重跑通过。
