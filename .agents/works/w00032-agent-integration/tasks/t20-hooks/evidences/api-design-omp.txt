@@ -1,0 +1,228 @@
+# Agent harness 扩展接口设计与架构审查
+
+## 1. 结论
+
+1. **阻断：输入取走必须与路径事实原子提交。** 当前方案把 `inputConsumed` 作为 session 事件、把 `turnStarted`/`input` 作为 path 事件；两者若跨日志写入，崩溃窗口会让缓冲区删除而对话事实尚未落盘，恢复后用户输入丢失。内核需要一次单写者事务（或提交标记）原子写入“取走、开轮、用户事实”。
+2. **重要：不要把 `ctrl` 暴露成第三类公共事件。** 第 16 节及开发者最新决定只保留 `conv`、`ext`；v4 的 `Event.kind: "conv" | "ext" | "ctrl"` 与正文旧模型冲突。内核控制事实可以继续进日志，但扩展公开接口应把它们建模为内核事件，不再让插件声明或生成 `ctrl`。
+3. **重要：反应输出应是返回的原子 effect batch，而不是隐式写入上下文。** v4 的 `ctx.emit`/`ctx.set` 让“处理函数返回后一起写”依赖未写进类型的约定，异步异常、同一片多次 set、多个反应的 continue 合并都不清楚。我的接口让 `emit`/`set` 只构造 effect，处理函数返回 `{events, changes, continue}`，内核校验后一次提交。
+4. **重要：Profile 切换与提交缓存的合同必须二选一。** 提案一方面说提交后的 `Message[]` 原样使用，另一方面说换 Profile 后按新 `commit` 重渲染全部已提交轮；这会使稳定前缀和“只渲染一次”失效。建议把提交渲染绑定 `profileHash`：默认保留旧提交消息，只有显式迁移事件才重渲染，并把失效范围写入日志。
+5. **重要：压缩切点和 `omitted` 必须有包含关系与渲染合同。** `firstKeptEntryId` 是“切点前丢掉”还是“从该条开始保留”目前靠文字推断；`omitted` 只有条目 id，没有每条占位内容、作用范围和再次回退后的恢复规则。应定义切点为半开区间，并规定摘要、当前轮输入、步、工具调用/结果的归属。
+6. **建议：所有只读状态都应递归只读。** v4 只有外层 `Readonly`，`ctx.state.pending.push(...)` 仍可能通过类型检查；这直接破坏归约纯度与回退不变量。新接口的 `StateOf` 使用 `DeepReadonly`。
+7. **建议：把跨扩展事件登记、Profile 自身扩展和拦截顺序写成装配合同。** `EventsOf` 的声明合并可行但需要唯一登记点；Profile 与 `extensions` 的 id 冲突、全局插件依赖 Profile、同一扩展多次安装和拦截链失败/短路规则必须在运行时拒绝或明确。
+
+## 2. 你的接口
+
+### 2.1 设计要点
+
+- **事件分类收窄为两类。** Event.kind 只有 "conv" | "ext"；内核事件仍由 KernelEvents 统一给 on/reduce 使用，但插件不能伪造内核事件，也没有公开的 ctrl 第三类。
+- **反应是显式事务。** context.emit(name, data) 和 context.set(slice, value) 只返回待提交的 EmittedEvent/SliceChange；处理函数返回 Reaction。内核在处理函数完成后校验整个 batch，再一次写入。异步函数在 await 后抛错时不会留下半批输出。
+- **状态深只读。** StateOf<S> 递归冻结数组和对象的类型；reduce 读取旧值，on 只能通过返回的 changes 写片。这个类型合同对应提案第 4 节“普通数据、归约纯度”。
+- **Profile 与 Extension 共用字段。** ProfileFields extends ExtensionFields，defineProfile 返回带 name、工具、模板、提交和压缩声明的 Profile；Profile 自己的 state/events/on/reduce/contribute/intercept 不需要包一层 defineExtension。
+- **跨扩展事件仍显式登记。** 事件先定义成 catalog，再用 EventsOf<id, typeof catalog> 做模块声明合并；定义与消费之间没有从扩展实例反推的类型循环。
+- **上下文按入口分档。** ViewContext 只有只读视图能力；ReactionContext 追加资源、信号和 effect 构造；InterceptContext 追加资源、信号但没有写事件能力。删除 ctx.ev、ctx.message、ctx.own、ctx.setting、ctx.run、ctx.preview、ctx.tools、ctx.file。
+
+### 2.2 代表性代码
+
+    const historyEvents = {
+        fileChanged: ext<{readonly uri: string; readonly by: string}>(),
+        notice: conv(),
+        delivered: ext(),
+    };
+
+    const fileNotice = defineExtension({
+        id: "nbook.history",
+        state: {pending: path<string[]>([])},
+        events: historyEvents,
+        reduce: {
+            pending: {
+                fileChanged: (pending, event) => [...pending, event.data.uri],
+                delivered: () => [],
+            },
+        },
+        on: {
+            input(_event, context) {
+                if (context.state.pending.length === 0) return;
+                const text = "用户改过这些文件：" + context.state.pending.join("、") + "。续写前先重读。";
+                return {
+                    events: [context.emit("notice", {text}), context.emit("delivered")],
+                };
+            },
+        },
+    });
+
+这个插件的反应主体是 13 行（不计 catalog、状态和归约），v4 对应写法需要 ctx.emit 直接改写上下文并依赖“函数结束时一起写”的隐含合同；我的写法多一个 events 外壳，但原子性和失败语义可从类型与返回值直接看出。完整例子见 leader.default.tsx，12 处 @ts-expect-error 见 typetest.ts。
+
+## 3. 与 v4 的对照
+
+### 3.1 我改动的地方
+
+| v4 怎么写 | 你怎么写 | 为什么 |
+|---|---|---|
+| Event.kind 是 conv、ext、ctrl 三值 | Event.kind 只有 conv、ext；KernelEvents 仍是可监听的内核事实名 | 跟开发者最新决定及第 16 节前置条件一致；ctrl 不应成为扩展作者可依赖的第三类公共事件。 |
+| ctx.emit/ctx.set/ctx.continue 直接改变处理上下文 | emit/set 只构造 effect，处理函数返回 Reaction.events、Reaction.changes、Reaction.continue | 把“结束时一起写”变成可观察的返回合同；异常、超时、取消时整批丢弃，多个写同一片也可由内核统一校验。 |
+| continue() 是隐藏在 ctx 上的动作 | return {continue: true} | 反应是否要求下一次请求成为输出数据，方便日志审计、测试和多个反应合并。 |
+| StateOf 只有外层 Readonly | StateOf 使用 DeepReadonly | v4 的 state.pending.push() 类型上仍可写；归约状态必须在扩展边界递归只读。 |
+| ToolCall.args、ModelRequest、Message 的数组和对象可变 | 请求、工具调用、消息及块均为 readonly | 拦截器必须返回替换对象，不能在 next 之前偷偷改变共享快照。 |
+| Event.v 可省略 | Event.version 必填 | 日志事件落盘后版本是事实；缺省值只应存在于 EventSpec 工厂，不应在归约入口再处理 undefined。 |
+| renderAll 是 Record<string, handler> | renderAll 键由 KernelEvents、自有事件与登记的 ExtensionEvents 组成 | Profile 覆盖外部事件时也获得字段类型和未知键检查；运行时仍需保留装配诊断。 |
+| Reaction 事件写入依赖 ctx.emit 的副作用 | EmittedEvent 与 SliceChange 是纯数据 | 可在单元测试里直接检查返回 batch；内核可按扩展 id、事件版本和幂等键统一验证。 |
+| Profile 返回 ProfileFields | 增加独立的 Profile 类型，defineProfile 返回 Profile | 让“Profile 也是最里层扩展”成为可命名的合同，避免调用方把普通扩展误当 Profile。 |
+| 无数据的 ext 依赖 {} 的特殊推断 | ext() 的 data 为 undefined，emit 的参数由 EventArguments 决定 | emit("delivered") 不需要伪造空对象，同时带 data 的事件仍必须传完整结构。 |
+| 例子里工作区事件内联写在扩展里，再用复杂条件尝试登记 | workspaceEvents 单独成为 catalog，再用 EventsOf 登记 | 直接遵守第 16 节“先定义常量再登记”，不让类型循环或条件类型掩盖事件清单。 |
+
+### 3.2 我认为 v4 做对了、应当保留的地方
+
+- 按事件名挂 on、按片和事件名挂 reduce。这比 is(event, K.name) 条件链更短，也让漏处理的事件保持不变。
+- path/session 两种片作用域。它准确表达回退时跟随路径与树外持久事实的差异；工作区焦点的两个片是好例子。
+- 事件 catalog 加 EventsOf 登记。这是 TypeScript 避免扩展实例与全局注册互相推导循环的可行边界；应补一个仓库级唯一登记位置。
+- Profile 自己具备全部扩展字段，extensions 只放可复用扩展。主创的人设片、工具拦截和渲染覆盖因此集中在一个文件里，避免 Profile 加同 id 核心扩展的双层跳转。
+- opening 作为 path 片加稳定 opening 槽。它把会话创建和压缩后的重读变成日志归约可观察的状态，不重新引入 prelude。
+- Turn、History、Slot 和显式 turn/commit。已提交轮只渲染一次、进行中轮独立渲染、Profile 可选择不同 commit，是对话形状的正确深度接口。
+- 输入事件拆成 input/steer、反应显式 continue、事件带版本与扩展前缀。这些是日志回放和类型收窄所需的最小信息。
+- 拦截器保持包裹式 next，Profile 在最里层，审批不可绕过。这比为每个拦截点发明不同的合并结构稳定；但顺序和失败语义仍要写进运行时合同。
+- 扩展的 exports 只暴露自己的片、contribute 纯函数、视图只在请求/预览时计算。这些共同守住了归约纯度和稳定前缀的目标。
+
+## 4. 架构审查
+
+### 4.1 阻断：取走输入不是原子事实
+
+- **位置：** 提案第 2 节 136-147 行、第 3 节 153-175 行；KernelEvents 的 inputConsumed、turnStarted、input 位于 v4 api.ts 31-42 行。
+- **现象：** 入队、改、删、取走记录在 session 作用域；用户事实和开轮记录在 path 作用域。提案没有定义跨作用域的一次日志提交边界。
+- **为什么是问题：** 若先写 inputConsumed 再在进程崩溃前写 turnStarted/input，恢复时 session 缓冲区已经删除，path 上没有用户话，输入永久丢失。反过来先写 path 事实又崩溃，会在恢复后重复取走。单写者队列只保证顺序，不保证这两类记录一起可见。
+- **如何核实：** 这是对第 2、3 节写入顺序的静态推断；第四稿没有可运行内核，提案第 0 节明确 v4 只有类型且未运行。
+- **建议改法：** 把“消费记录 + turnStarted + input”定义成一个提交批次，日志存储以事务或 commit marker 原子可见；恢复只接受完整批次。steer 也用同样批次写 inputConsumed + steer。不要用单独的 session/path 两次 append 模拟事务。
+
+### 4.2 重要：steer/followup 的取走边界没有闭合
+
+- **位置：** 提案第 3 节 157-175 行。
+- **现象：** steer “每个边界全部取走”，followup “一轮结束时取走一条”；但没有定义最终 assistant 已写入后、runEnded 前到达的输入属于哪一个边界，也没有定义 abort、input-rejected、compact 与缓冲区同时到达时的优先级。
+- **为什么是问题：** 同一用户输入在不同调度时序下会变成当前轮 after、下一轮 input 或留在缓冲区；UI 无法可靠显示，恢复也无法判断“已取走但未进对话”是否应重放。多条 followup 的待定项 17 还会直接改变 run/turn 事件数与缓存边界。
+- **如何核实：** 第 3 节只给出三条取走规则，没有事件时序表；第三版 check.ts 的 33、34 场景覆盖旧内核的 inbox，不覆盖第四稿的 session 输入缓冲区。
+- **建议改法：** 先固定边界状态机：每个 boundary 依次关闭当前副作用、排空运行收件箱、按 id 原序消费 steer、决定是否结束 step/turn，再检查 followup。把输入消费批次写入 boundary id 和 target turn id。建议每条 followup 一轮，并在待定项 16、17 定稿前禁止实现 UI 的“智能合并”。
+
+### 4.3 重要：运行、轮、步的边界事件不足以证明提交时序
+
+- **位置：** 提案第 5 节 223-240 行、第 8 节 354-357 行；v4 api.ts 35-50 行。
+- **现象：** turnEnded 的归约动作是提交当前轮，但运行数据流又允许 turnEnded 后继续下一轮；toolResult 批次的“整批写完后反应”依赖文字约定，没有 batch id 或 step boundary 事实。
+- **为什么是问题：** 反应可能在 turnEnded 之后写 conv，无法从日志判断它应进入上一轮 after、下一轮 attachments 还是 waiting；工具结果逐条落盘时，某个反应若先运行会读到半批状态，破坏提案承诺的“每条结果的反应看整批”。
+- **如何核实：** 提案第 7 节只说同一条事件的反应快照，第 8 节只说工具按顺序写结果；第三版 check.ts 52 只验证旧 spike 行为，第四稿没有 batch 事件类型。
+- **建议改法：** 增加内核内部的 step/batch commit 记录，或把同一工具回复的 toolStarted、toolResult 批次作为一个不可拆的日志事务；规定反应快照取 batch commit 后状态。turnEnded 必须是“本轮所有反应与提交事件完成”的收口点，后续 conv 默认归 waiting，除非同一事务显式开启下一轮。
+
+### 4.4 重要：对话事件按写入位置归属，但位置状态没有完整合同
+
+- **位置：** 提案第 5 节 223-238 行、第 10 节 443-447 行。
+- **现象：** 空闲写入的 conv 进 waiting，运行内无 assistant 时进 attachments，有 assistant 后进 step.after；但没有规定 sessionOpened、恢复结算、Profile 切换、压缩公共流程写出的 conv 在哪个位置，也没有把“当前写入位置”作为事件事实。
+- **为什么是问题：** 同一条扩展反应在正常运行和崩溃恢复路径可能进入不同消息位置。Profile 切换时旧事件仍在日志，新 Profile 的 renderAll 可能改变已提交消息；这让按位置的投影和“提交后原样使用”不再是确定合同。
+- **如何核实：** 对照第 2 节 141-149 行的恢复说明与第 5 节位置表，二者没有定义恢复产生的 conv；第 10 节只说换 Profile 后重新归约，没有提交消息版本。
+- **建议改法：** 每个 conv 事件的内核写入元数据必须带 target（waiting、turn.attachments、step.after、compaction-restore），由内核而不是扩展猜测；恢复补偿事件不得伪装成原始发生时的 conv。对 Profile 变更采用 profileHash 版本化提交投影，见 4.5。
+
+### 4.5 重要：Profile 切换与“提交后不再变”互相矛盾
+
+- **位置：** 提案第 5 节 238 行、第 8 节 353-354 行、第 10 节 445 行；v4 api.ts 292-307 行。
+- **现象：** 一轮结束后按 commit 渲染，之后原样拼接；换 Profile 又要求“已提交的轮按新 Profile 的 commit 重新渲染，缓存失效一次”。
+- **为什么是问题：** 同一历史叶子在换 Profile 前后得到不同 Message[]，但日志没有保存旧 commit 的结果、Profile 版本或重渲染事件。稳定前缀检查无法区分合法迁移和意外改写，预览过去请求也无法复现。
+- **如何核实：** 静态对照提案第 5、10 节；没有运行证据，v4 提案自称只过 tsc。
+- **建议改法：** 默认提交消息绑定 commitProfileHash，Profile 切换只影响新的进行中轮；若产品必须重渲染，写独立 historyReprojected 事实，携带旧/新 hash 和受影响 turn id，并把缓存失效范围定义成该事件之后，而不是宣称提交消息永不变化。Profile 改版也必须产生新 hash，不能仅按 id 识别。
+
+### 4.6 重要：稳定前缀检查不够覆盖真实可变来源
+
+- **位置：** 提案第 6 节 294-322 行、第 15 节 573 行。
+- **现象：** 方案只检查同一轮相邻两次渲染的前缀，并推断已提交轮只渲染一次后请求成本与当前轮长度相关；system、稳定槽、工具清单、模型能力、Profile 内容哈希仍会在 Profile、设置或工具变化后改变。
+- **为什么是问题：** 前缀检查只能发现当前轮的块顺序变化，不能证明系统前缀、槽来源、工具声明和 adapter 请求哈希稳定。拼接与哈希仍是 O(历史长度)，提案也明确“增量哈希”只是未来实现，没有测量第四稿的实际成本。
+- **如何核实：** 提案第 6 节列出槽可变位置，第 15 节明确第四稿性能是推断；第三版 bench 测的是每次重渲染整段历史，不是新投影。
+- **建议改法：** 请求视图按 immutable committed prefix、current turn、volatile suffix 三段保存增量哈希；每段记录来源和 profile/settings/tool-set hash。前缀检查比较结构化块 id/hash，不比较拼接后的字符串。交付前用 1,200 轮、约 16,806 条事件的真实第四稿 projection benchmark，单独测打开、提交、算请求和 Profile 切换。
+
+### 4.7 重要：压缩切点的半开区间和 omitted 语义未定义
+
+- **位置：** 提案第 9 节 374-406 行；t11 决定第 47-57 行；v4 api.ts 49-50、203-213 行。
+- **现象：** 文本说 firstKeptEntryId 是轮的 turnStarted 或进行中轮某步的 assistant，又说“切点之前去掉”；没有明确该条是否保留。omitted 只有字符串 id，未规定占位文字、受影响消息的渲染时机、工具调用/结果的成对边界。
+- **为什么是问题：** 不同实现会产生一轮少一条 assistant、工具调用没有结果、摘要重复覆盖或 shake 后回退无法恢复的不同结果。压缩摘要是事实，摘要前原文仍须能在回退路径上看到，不能把投影替换误写成删除日志。
+- **如何核实：** t11 只定结果字段和 UI，不定包含关系；第四稿明确压缩切点和 omitted 尚未由 spike 验证。
+- **建议改法：** 定义切点为半开区间 [path root, firstKeptEntryId)：firstKeptEntryId 自身及其后的完整轮/步保留；若切点是 assistant，必须连同该 assistant 的工具调用/结果关系定义为步边界。omitted 改为带 entry id、原始 kind、占位文本版本和 scope 的结构，projection 在 compaction 之后替换显示，回退到 compaction 之前完全不应用。
+
+### 4.8 重要：压缩后的放回内容与 Profile 槽位置没有唯一时序
+
+- **位置：** 提案第 9 节 385-402 行、待定项 18；t11 决定第 54-57 行。
+- **现象：** 公共流程要把最近文件、计划、Skill 和对话地址写成 conv，且跟在压缩发生的边界；但第 5 节又把空闲 conv 放 waiting、运行中 conv 按当前 step 放置。
+- **为什么是问题：** 同一次压缩在空闲、模型溢出、运行中手动触发三种场景会进入不同的消息形状，摘要之后是否在本轮用户输入前、之后或单独 user 消息没有黑盒合同。压缩重试同一请求时尤其容易把放回内容写两次。
+- **如何核实：** 对照提案第 9 节压缩后文本图与第 5 节归属表；现有第三版 check.ts 29 只覆盖旧种子重写，没有第四稿公共放回流程。
+- **建议改法：** compaction 事务产生唯一 restore batch id，所有放回事件带该 id，并固定落在“压缩所在边界之后、下一次请求之前”的当前 turn attachments；同一 batch 重放幂等。若压缩只在空闲运行，明确它启动一轮但不生成用户输入；若运行中压缩，明确它属于当前 step 的 after 还是单独 maintenance step。
+
+### 4.9 重要：反应并发、effect 原子性和 set 冲突规则没有写全
+
+- **位置：** 提案第 7 节 331-334 行、第 10 节 440 行；v4 api.ts 135-143 行。
+- **现象：** 同一事件的反应可并发，追加事件按扩展顺序写入；v4 ctx.emit/set 在函数体内累积。提案没有定义同一扩展一次反应多次 set 同一片、不同扩展同时 set 同一片、continue 与 reject 冲突时的规则。
+- **为什么是问题：** 反应看到相同快照但输出可能互相覆盖；若一个反应 await 后先 emit、之后抛错，是否回滚依赖实现细节。若按调用完成顺序写，随机 I/O 延迟会改变日志；若按扩展顺序写，需要明确每个反应的整批作为原子单元。
+- **如何核实：** 第三版 check.ts 3、27、48、52 验证旧内核的部分顺序，但 v4 新接口没有实现；v4 API 注释只写“处理函数结束时一起写”。
+- **建议改法：** 采用本目录接口的返回 effect batch；每个反应完成后先验证，再按扩展装配顺序提交整批。定义同片多次 change 为装配错误，跨扩展同片写为拒绝，continue 使用 OR 但只能由当前最终回复事件触发。超时、abort、抛错均丢弃该批。
+
+### 4.10 重要：拦截顺序和失败语义还不是可执行合同
+
+- **位置：** 提案第 8 节 340-357 行、第 10 节 410-427 行。
+- **现象：** 提案给出“插件外层、Profile 内层、按 dependsOn/id 排序”，但没有规定 Profile 自身是否参加依赖排序、两个插件同一拦截点的 next 嵌套方向、next 调用两次的日志关联，以及 after-next 抛错时到底采用原回复还是错误。
+- **为什么是问题：** 模型和工具拦截是安全与审计路径；顺序变化会改变审批、参数校验和修改记录。v4 的 InterceptContext 没有本次调用 id、叶子或修改记录读取能力，作者无法在包裹式重试时区分逻辑请求和真实调用。
+- **如何核实：** 只读提案第 8 节与 v4 api.ts 235-243 行；第三版 check.ts 8、10、38 只验证旧实现的少数路径。
+- **建议改法：** 装配时生成 immutable interceptor plan：插件顺序、Profile 内层、审批内核层、每层唯一 invocation id 写入 model/tool started。规定每层 next 最多调用次数或显式 retry policy，before-next 失败默认跳过该层，after-next 失败回退里层结果但写诊断；工具默认拒绝，模型默认使用里层结果。把这些写成真实 adapter 合同测试。
+
+### 4.11 重要：Profile、插件和事件登记的 id 冲突没有公开合同
+
+- **位置：** 提案第 10 节 445-447 行、第 16 节第 2、8 条；v4 api.ts 217-246、292-307 行。
+- **现象：** Profile id 同时是最里层扩展 id，Profile.extensions 又可放任意 Extension；globalExtensions 可排除标签，但未规定 profile id 与插件 id 相同、同一个插件被全局和 Profile 重复装入、事件 catalog 重复登记时如何处理。
+- **为什么是问题：** 状态片和 exports 按 id 索引；重复安装会导致同一事件归约两次、同一槽拼接两次、拦截器嵌套两次。只在清单 hash 中记录重复不能恢复语义。
+- **如何核实：** 第 10 节只写“id 重复装配拒绝”来自第三版 spike，而第 16 节未把它写入接口；v4 类型无法表达 Profile.extensions 的唯一性。
+- **建议改法：** 装配合同明确：Profile id 必须与所有扩展 id 全局互异；同一对象或同 id 第二次安装直接拒绝并列来源；事件全名由 id/version 唯一确定，catalog 登记冲突在编译期尽量报错、运行时再次校验。
+
+### 4.12 建议：exports 的“只取自己的片”需要类型和运行时双重约束
+
+- **位置：** 提案第 4 节 196-202 行；v4 api.ts 106-111、230-231 行。
+- **现象：** v4 的 exports 类型允许任意函数形状，ExportsOf 只提取函数返回值；运行时还需保证 selector 只读自己的片，但这个限制没有在公开合同中出现。
+- **为什么是问题：** selector 若捕获整个 ctx、外部可变对象或其他扩展引用，回退和重放会读到日志之外的值；类型看起来是纯 selector，实际不是。
+- **如何核实：** 静态检查 api.ts 的 exports 声明；没有运行时实现可验证闭包行为，因此结论标为架构风险而非已复现 bug。
+- **建议改法：** 文档和实现明确 selector 只接收冻结的 StateOf<S>，在开发模式冻结返回值；exports 定义不接受 ctx。必要时将 selector 函数体执行包在依赖检查/诊断中，至少禁止返回函数、Promise、Map、Set 等非普通数据。
+
+### 4.13 建议：性能结论目前只有第三版基线，没有第四稿证据
+
+- **位置：** 提案第 15 节 571-573 行、待定项 13；第三版 kernel.ts 注释 1-5 行和 bench.ts。
+- **现象：** 第三版测得 1,200 轮、16,806 条日志、39 万 token 的打开 70-240 ms、请求 6-15 ms；第四稿声称已提交轮只渲染一次，但拼接与 hash 仍 O(历史长度)，实际只标为推断。
+- **为什么是问题：** 不能把旧内核“重新投影整段历史”的结果当作新内核证明，也不能把一次性的打开成本和每次请求成本混在一起。Profile 切换、压缩重渲染和分支切换还可能让缓存失效范围突然扩大。
+- **如何核实：** 提案自己标记第四稿性能“没有测”；现有 bench.ts 针对第三版 API，不能直接运行 v4 类型。
+- **建议改法：** 把预算拆成打开/恢复、单事件归约、提交渲染、预览、普通请求拼接、压缩后一次性重渲染六项；在真实日志存储和 OMP adapter 上分别记录 P50/P95，并以 10 万事件和长单轮作为验收负载。实现增量 path fold 和三段请求 hash 前，不把 O(历史长度) 的字符串拼接称为已解决。
+
+### 4.14 仔细检查后没有发现
+
+- **日志事实、状态归约、path/session 作用域的总体方向：** 与 t11 和开发者已定方向一致，没有建议改回内存状态或另存一份按分支状态。
+- **事件版本、扩展前缀、幂等键、恢复时不跑 react、反应深度上限：** 第三版已有对应场景或提案写出明确目标；第四稿实现时仍需把这些场景迁移到真实日志运行时。
+- **旧 Profile 能力映射：** 旧应用中的人设、开场文档、文件提醒、工作区焦点、工具拦截和提交变体，在 v4 例子中都有对应去处；未发现因旧 Profile 参照而遗漏某个已列能力的证据。
+
+**有效发现：** 1-13；无撤回项。
+**数量：** 阻断 1 条，重要 10 条，建议 2 条；未发现问题的方面 3 组。
+
+## 5. 对第 16 节八条与提案待定项 16–19 的判断
+
+### 第 16 节八条
+
+1. **按事件名挂 on、按片和事件名挂 reduce：接受。** 它减少条件链；需要补未挂事件、重复事件和内核事件只读不可写的装配校验。
+2. **事件名统一驼峰、内核/自有短名、外部全名、EventsOf 登记：基本接受。** catalog 与登记应保留，但必须规定登记文件、重复全名和运行时版本冲突的唯一来源。
+3. **input 与 steer 拆成两种事件：接受。** 语义清楚；不能替代 4.2 所需的 boundary/target 元数据。
+4. **ctx 按入口分档：接受并收窄。** 我的 ViewContext/ReactionContext/InterceptContext 保留这条；effect 构造不等于立即写入，资源和 signal 仍只在需要的入口开放。
+5. **ctx.emit/set/continue 直接写入：不接受原形。** 直接方法符合短例子但把原子提交藏在可变上下文里；改为 emit/set 构造返回值、Reaction 显式提交，continue 是数据字段。
+6. **删除 ctx.ev、message、own、setting、run、preview、tools、file：接受。** v4 删除的转发层都没有足够深度；resources.read 是稳定的单一读取接缝，主动动作以后另定。
+7. **变量使用完整词：接受。** 这是低成本且直接降低 Profile/插件代码的认知负担；ctx 作为 Context 的稳定缩写可以保留。
+8. **Profile 自己就是最里层扩展：接受。** 用独立 Profile 类型表达该事实，并要求 Profile id 参加全局唯一性校验；renderAll 的命名仍应在 Spec 定稿时拍板。
+
+### 提案待定项 16–19
+
+16. **steer 与 followup 的缺省：** 运行中对话框回车缺省 followup，显式“插话”才是 steer；空闲时统一转成一条普通 input，避免用户为无意义的模式差异记忆规则。
+17. **多条 followup：** 一条 followup 开一轮；它保留每条要求的日志、提交和缓存边界，也与多轮 ReAct 的既定模型一致。
+18. **压缩后放回内容：** 写成 conv，带唯一 restore batch id，跟在压缩发生的 boundary 后并进入当前轮 attachments；不得并入摘要正文，也不得在重试时重复。
+19. **会变槽的缺省位置：** 缺省布局放在末尾以保留稳定前缀；只有明确要求用户话最后的 Profile 才把 volatile slot 放到 Turn 前，并接受 ReAct 中途从该槽起的缓存损失。
+
+## 6. tsc 的结果
+
+命令：
+
+    /home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc -p /tmp/t20-api-design/omp/tsconfig.json
+
+结果：退出码 0，标准输出为空。typetest.ts 中有 12 处 @ts-expect-error，均被该命令接受，说明这些错误确实由类型系统发现而不是运行时约定。例子文件是 leader.default.tsx，接口声明是 api.ts，配置是 tsconfig.json。
+
+未运行项：没有第四稿内核可运行实现，因此未运行会话、输入缓冲、压缩、Profile 切换或真实 OMP adapter；第三版 check.ts 依赖旧 API，不能作为第四稿行为验收。上述架构问题中涉及运行时时序的结论按提案与现有第三版证据做静态推断，已在各条“如何核实”中标明。

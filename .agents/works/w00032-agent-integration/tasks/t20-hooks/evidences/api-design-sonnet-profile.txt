@@ -1,0 +1,242 @@
+# w00032 t20 接口设计报告：Profile 作者视角（sonnet-profile）
+
+**交付说明（先看这条）**：`/tmp/t20-api-design/sonnet-profile/report.md` 不存在。我按派发说明写报告文件，但 Write 工具拒绝写 .md 报告（提示子代理应把发现作为文本交回）。我没有改用 Bash 绕过，所以完整报告就是下面这段文字。此前我用 Bash 写过一个占位的 report.md，已删除。代码文件都在 `/tmp/t20-api-design/sonnet-profile/`（`node_modules` 是指向仓库 `node_modules` 的软链，只为让 tsc 找到 typebox）。
+
+**tsc**：`R/node_modules/.bin/tsc -p /tmp/t20-api-design/sonnet-profile/tsconfig.json`，退出码 0，无输出。含 20 处 `@ts-expect-error`（`typetest.ts`）。brief 里的 tsconfig 原样使用，因为没有 `skipLibCheck`，要检查 TypeBox 的声明文件，总用时 16 秒。仓库自己的 tsconfig 有 `skipLibCheck`，加上它后写手那个文件 3.5 秒（v4 对应文件约 1.2 秒）。
+
+材料与做法：读了提案第四稿第 0 至 11、16 节、v4 的 `api.ts`、主创例子、第三版 spike 的内核与例子、t04、t05、t11 的决定、旧应用的主创 Profile、nb-form 的 README。五个需求各用接口写了一遍；v4 的写手与 v4 的类型探针另写一份对照。全部只过 tsc，没有运行（两套接口都没有实现）。读内核或提案推断出来的标“推断”，读了内核代码的给行号。
+
+文件：
+
+| 文件 | 内容 |
+|---|---|
+| `api.ts` | 我的接口，从 v4 `api.ts` 改，改动处注释标“[改]” |
+| `writer.ts`、`leader.default.tsx`、`inline-editor.ts`、`summarizer.ts`、`leader-variants.ts`、`few-shot.tsx` | 五个需求的例子，另有一个必须用整张模板的例子 |
+| `plugin-decls.ts` | 例子用到的别的插件的事件与导出登记 |
+| `typetest.ts` | 20 处“写错应当是编译错误” |
+| `v4-api.ts`、`v4-writer.ts`、`v4-probe.ts` | v4 `api.ts` 原样复制；同一个写手用 v4 写；v4 类型行为探针 |
+| `spread.ts` | 用 `...leader` 展开派生时 tsc 管不到的几处 |
+
+## 1. 结论
+
+最重要的七条，按重要性排：
+
+1. **设置、初始输入、输入载荷都用 TypeBox schema 声明，不只给 `defaults`。** v4 的 `settings: {defaults}` 没有 schema：用户改的值没法校验，t05 已定的“设置交 nb-form 画”做不了，枚举要写 `as keyof typeof COLLABORATION`（v4 主创例子 5 处断言）。v4 的 `initial`、`payload` 是 `unknown`：写手读章节 id、行内编辑读选区都要自己断言，模型经 `agent.invoke` 传来的 JSON 没人校验。改成 `settings: {schema, defaults}`、`initial: schema`、`payload: schema` 后，`ctx.settings`、`ctx.initial`、`event.data.payload` 和 `opening` 的 `initial` 都有类型，`defaults` 缺一项是编译错误。nb-runtime 的运行时依赖本来就是 TypeBox（`packages/nb-runtime/package.json`），nb-form 吃的也是 TypeBox schema（`x-form`、`title`、`description`、字面量联合），不新增依赖。
+2. **Profile 作者默认不该碰模板。** v4 改系统提示词就得重写整张模板；漏写 `<Slot name="*" stable />` 只写一条诊断、插件内容悄悄丢，`<Turn />` 必须恰好一个也只在运行时查。我改成 `system`（System 里的内容，字符串或函数）加 `layout` 三个开关（`volatile`、`history`、`opening`）；整张模板 `prompt` 留给少数特殊布局，类型上与 `system`、`layout` 互斥。五个 Profile 里四个不写模板；主创的提示词块从 22 行变 13 行。`opening`、`reminders` 也成字段，写手那条 `extensions: [opening({id, load})]` 消失，不用再给开场起 id。
+3. **`commit` 先给声明式，函数留作后门；`<History>` 要能限轮数。** 三个常见需求各一行：`commit: {omit: ["nbook.memory/retrieved"]}`（提交时丢记忆结果，名字受检）、`commit: {render: {toolResult: firstLine}}`（工具结果进历史只留首行）、`commit: {steps: "final"}`（只留最终回复）。函数形式补 `format.turn(turn)`（缺省整轮，改完 Turn 再交给它，不用重写缺省）、`format.assistantText`、`turn.status`、第三个参数 `view`。v4 做不到两件事：总结者“历史只留最近 2 轮”（`commit(turn, format)` 一次只看一轮、不知道年龄，`<History />` 没参数）；中断的轮上 `format.assistant(last.reply)` 会留下没有结果的工具调用（第 4 节第 3 条）。
+4. **Profile 级文字覆盖并回 `render`，删掉 `renderAll`。** `renderAll` 的 `event.data` 是 `any`，键写错只在装配时写诊断，`toolResult`、`assistant` 返回 `null` 会留下孤立的工具调用而类型不拦。我的 Profile `render` 键与 `on` 的键同一套名字，`data` 有类型，协议事件必须返回字符串；扩展自己的 `render` 仍只能写自己的事件。优先级：`commit.render`、Profile 的 `render`、扩展的 `render`。
+5. **`ctx.continue(text, {max})`、`ctx.initial`、按 `dependsOn` 收窄的 `read`。** 写手“字数不够接着写，最多 3 次”在 v4 要自己声明事件、写 render、开计数片、在 `input` 上清零；现在是 5 行的处理函数，内核写 `continued` 事件并按“这一轮、这个调用方”数次数。这一条还暴露了内核缺口（第 4 节第 2 条）。`ctx.initial` 让 Profile 不必为调用方给的数据开一片、再写一条 `sessionCreated` 的归约。`read` 只能读 `dependsOn` 里写了的扩展，没声明就读是编译错误。
+6. **派生变体用 `deriveProfile(base, patch)`，不用 `{...base}`。** 展开能写，但 `spread.ts` 里两件事 tsc 都不报：忘了展开 `render` 时基础的覆盖悄悄丢掉；忘了改 `id`，要到装配时才发现重复。`deriveProfile` 强制给 `id`，对 `render`、`tools`、`extensions` 逐项合并，`patch.render` 与 `patch.commit.omit` 有类型，只许改 Profile 级字段。
+7. **内核要补三处**：`reconfigure` 之后对新装上的扩展再触发一次 `sessionOpened`；提交出来的历史在提交时就校验；“只许改正文目录”不能只靠工具拦截里比字符串前缀。依据与改法在第 4 节第 1、3、4 条。
+
+## 2. 我的接口
+
+### 2.1 Profile 自己的逻辑与 `extensions` 怎么分
+
+v4 让 `defineProfile` 能写扩展的全部字段，我保留这个决定，并给一条分界规则：
+
+- **写在 Profile 顶层**：只有这个 Profile 用、状态不需要别的扩展读的逻辑。例子：写手的字数片与处理函数、主创的人设片、工具路径限制。派生变体用 `deriveProfile` 时这部分原样继承。
+- **写进 `extensions`**：两个以上 Profile 共用、要有自己的事件或导出、或别人写的现成扩展。
+- **只共用函数**：共用开场、共用路径判断，就导出一个函数（`opening: loadOpening`、`outsideManuscript`），不必为它起扩展与 id。
+- 实际检验：五个例子里 `extensions` 一次也没有用上。v4 里的两个必用理由（`opening()`、`reminder()` 必须是扩展）已经变成字段，剩下的理由只有“复用别人的扩展”。
+- `ProfileFields` 去掉 `tags`、`exports`（v4 整个继承了 `ExtensionFields`，Profile 打标签、导出选择器没有意义，Profile 内部的扩展要读 Profile 的片还得去全局声明合并里登记）。保留 `dependsOn`：它同时决定 `read` 能读什么。
+
+### 2.2 代表性代码
+
+写手（`writer.ts`，40 个非空非注释行；v4 写同一需求 48 行，见 `v4-writer.ts`）：
+
+```ts
+const WriterInitial = Type.Object({chapterId: Type.String(), files: Type.Array(Type.String(), {default: []})});
+
+export const writer = defineProfile({
+    id: "builtin.writer",
+    name: "写手",
+    description: "按给定章节续写或改写正文，只改正文目录；章节不到 3000 字会接着写。",
+    initial: WriterInitial,                       // ctx.initial、opening 的 initial 都是这个类型
+    tools: {required: ["read", "edit"], optional: ["grep"]},
+    system: "你是本书的写手，只改正文目录。",       // 缺省布局，没有模板
+    opening: async ({initial, resources}) => [
+        `正文在 ${MANUSCRIPT}。`,
+        `<input_context chapter="${initial.chapterId}"/>`,
+        ...(await Promise.all(initial.files.map((uri) => resources.read(uri)))),
+    ],
+    state: {words: path(0)},
+    on: {
+        sessionOpened: async (_event, ctx) => ctx.set("words", await countWords(ctx.resources, ctx.initial)),
+        toolResult: async (event, ctx) => {
+            if (event.data.tool === "edit") ctx.set("words", await countWords(ctx.resources, ctx.initial));
+        },
+        assistant: (event, ctx) => {              // 最终回复且字数不够：接着写，这一轮最多 3 次
+            if (event.data.toolCalls.length === 0 && ctx.state.words < MIN_WORDS)
+                ctx.continue(`本章现在 ${ctx.state.words} 字，不到 ${MIN_WORDS} 字，请接着写。`, {max: 3});
+        },
+    },
+    contribute: {"word-count": {volatile: true, value: ({state}) => `本章当前字数：${state.words}`}},
+    intercept: {async tool(call, next, ctx) { /* 用 ctx.resources.resolve 规范化后再比前缀 */ }},
+});
+```
+
+主创（`leader.default.tsx`）：
+
+```ts
+settings: {schema: LeaderSettings, defaults: {collaborationMode: "default", /* 缺一项就是编译错误 */}},
+dependsOn: ["nbook.agents", "nbook.skills", "nbook.workflow", "nbook.tasks"],
+opening: loadOpening,                                   // 共用的是这个函数
+system: ({settings, state}) => (<>…{COLLABORATION[settings.collaborationMode]}…<Slot name="sql-schema" /></>),
+layout: {volatile: "before-turn"},                      // 用户的话留在最后
+reminders: {tasks: {every: 8, text: ({read}) => read("nbook.tasks").open.length ? `未完成的任务：…` : null}},
+render: {"nbook.agent.mode/reminder": (event) => `<mode>${event.data.text}</mode>`},   // data.text 有类型
+compaction: {require: "…", onThreshold: ["shake", "inplace"], onOverflow: ["shake", "summary"]},
+```
+
+行内编辑（`inline-editor.ts`，不写 `prompt`）：
+
+```ts
+payload: Type.Object({selection: Type.String(), before: Type.Optional(Type.String())}),
+globalExtensions: "none",
+system: "你是行内编辑器。只输出改写后的段落。",
+layout: {history: false, opening: false},
+compaction: false,
+turn: (turn, format) => [format.user(turn.input && `请改写下面这段：\n${turn.input.data.payload.selection}`, …, turn.input && `要求：${turn.input.data.text}`), ...format.steps(turn.steps)],
+```
+
+总结者（`summarizer.ts`，13 行）：
+
+```ts
+layout: {history: {last: 2}, opening: false},
+commit: {render: {toolResult: (event) => firstLine(event.data.text)}},   // 只在进历史时；当前这一轮模型仍看得到完整结果
+```
+
+变体（`leader-variants.ts`）：
+
+```ts
+export const leaderTight = deriveProfile(leader, {
+    id: "builtin.leader.tight",
+    render: {steer: (event) => `<user_interjection>${event.data.text}</user_interjection>`},
+    commit: {omit: ["nbook.memory/retrieved"]},
+});
+export const leaderLean = deriveProfile(leader, {id: "builtin.leader.lean", commit: {steps: "final"}});
+```
+
+### 2.3 缓存的取舍（任务 5）
+
+先说结论：**“提交时丢掉每轮的记忆结果”必然让这一轮的缓存失效一次，三种写法代价一样。**
+
+- 记忆结果是这一轮第一条用户消息的一部分，排在用户的话前面。提交时丢掉它，这一轮在下一次运行里的第一条消息就变了，这一轮自己的全部 token 要重新预填。
+- 三种写法的代价相同：`commit: {omit}`；`commit` 函数里过滤 `attachments`；记忆结果不写成附带内容、改交给 `<Turn />` 前面的会变的槽（槽内容每轮变，这一轮从槽起整段重算）。区别只在后者没有“提交与进行中不同”的分歧，但也不进日志里的对话。
+- 估算（推断，没有测）：设这一轮共 T 个 token，记忆结果 M 个。按 Claude 一类的缓存价（读 0.1 倍、写 1.25 倍），多花约 1.15 倍的 T 一次；之后每次请求少读 0.1 倍的 M。T 为 2 万、M 为 2 千时多花约 2.3 万个 token 当量，每次请求省 200，要约 115 次请求才回本，所以单从缓存看不划算。真正的理由只能是上下文窗口：M 每轮累积，40 轮就是 8 万 token。如果下一次请求离上一次超过 5 分钟，缓存本来就过期了，这个代价为零。
+- 插话标记只改 `render`，进行中与提交一致，没有缓存代价（`render` 作用于两边，缺省 `commit` 同 `turn`）。
+- v4 在同一个 Profile 上同时用 `renderAll`（标插话）与 `commit`（丢记忆）也能写，但只能写函数形式，要手写 `format.user(...turn.attachments.filter(…), turn.input), ...format.steps(turn.steps)`，并且 `a.type !== "nbook.memory/retrieved"` 是 `string` 比较，拼错不报。
+
+## 3. 与 v4 的对照
+
+每处写“v4 → 我 → 为什么”。
+
+1. **设置**：`settings: {defaults: {collaborationMode: "default" as keyof typeof COLLABORATION, …}}` → `settings: {schema: Type.Object({…字面量联合…}), defaults}`。为什么：见结论第 1 条。选项标题与说明写在字面量上，旧应用另写的 `fields` 列表（约 60 行）不需要了。
+2. **初始输入与载荷**：`from.initial: unknown`、`payload?: unknown` → `initial`、`payload` 字段带 schema，类型流到 `opening`、`ctx.initial`、`event.data.payload`、`turn.input.data.payload`。有 `payload` schema 时 `payload` 在事件上是必填的，没有时仍是可选的 `unknown`。为什么：t05 已决定保留 `initialSchema`，v4 丢了。
+3. **Profile 元数据**：`name: string` → `name`、`description` 必填，类型是可本地化的 `Text`；新增 `modelNeeds`。为什么：主创的开场目录（`nbook.agents`）靠说明让模型选 Profile，旧应用的 manifest 有；t05 第二轮决定“Profile 可以声明需要的模型能力”，v4 都丢了；nb-form 的标题是 nb-ui 文字值，Profile 名同理（后一点是推断）。
+4. **提示词**：只有 `system: string` 与整张 `prompt` 两个入口 → `system`（Child 或函数）、`layout`、`prompt` 三者，`prompt` 与另两者互斥。为什么：见结论第 2 条。互斥的代价是类型错误里偶尔带出另一支的描述（缺 `description` 的报错会多提一句 `prompt` 分支，噪音可接受）。
+5. **开场**：`extensions: [opening({id: "leader.opening", load})]` → `opening: loadOpening`。为什么：每个 Profile 只有一个开场槽，起 id 没有信息；共用靠共用函数。
+6. **提醒**：`reminder({id, every, watch, text})` 返回扩展，`watch` 的 `view.settings` 是 `Record<string, unknown>` → `reminders: {名字: {every, watch, text}}` 字段，`view` 是带类型的 `ViewCtx`，写在 Profile 里能读自己的设置。为什么：提醒要读设置时，v4 的辅助函数拿不到 Profile 的设置类型。
+7. **Profile 级文字覆盖**：`renderAll: Record<string, (event: Event<string, any>) => string | null>` → 同名 `render`，键范围按“扩展只能自己的、Profile 可以任何已知的”，协议事件不许 `null`。为什么：结论第 4 条。派生变体里键的写法也统一了（v4 的 `leaderMarkedSteer` 在同一个对象里混着全名键 `nbook.agent.mode/reminder` 和短名键 `steer`，而 v4 的注释说“键是事件全名”）。
+8. **`turn` 与 `commit`**：`turn: (turn, format) => [...]` 缺省也要写出来才能改；`commit` 只有函数 → `turn` 缺省不写，`format.turn(turn)` 取缺省；`commit` 可以是声明（`omit`、`render`、`steps`）或函数；两个函数都多一个 `view` 参数。为什么：v4 的 `turn` 读不到设置与状态，而 `prompt` 能读，不一致；声明式覆盖了 v4 提案里三个例子的全部写法。
+9. **历史**：`<History />` → `<History last={n} />`，缺省布局里是 `layout.history`。为什么：总结者。
+10. **“接着做”**：`ctx.continue()` 无参，计数自己写 → `ctx.continue(text, {max})` 返回是否成功，内核写 `continued` 事件，`render` 里可以改它的措辞。
+11. **压缩**：`onThreshold: string[]` → `(keyof CompactionMethods)[]`，方法由插件经声明合并登记；新增 `compaction: false`。为什么：方法名拼错在 v4 只在运行时发现；行内编辑没有压缩。
+12. **派生**：`{...leader, id, renderAll: {...leader.renderAll, steer}}` → `deriveProfile(leader, {id, render: {steer}})`。为什么：结论第 6 条。`spread.ts` 里四种展开写法 tsc 全部通过，其中两种有隐患。
+13. **`read`**：`Read = <Id extends keyof ExtensionExports>(id) => …`，任何登记过的 id 都能读 → 只能读 `dependsOn` 里的。为什么：v4 主创的 `read("nbook.agents").catalog` 没有写 `dependsOn`，插件缺失时开场整个 `TypeError`，而类型保证它一直在。我实现时踩到一个推断问题：共用的 `loadOpening` 自己标了更窄的 `Read<…>`，反过来把 `Dep` 推窄，要对 `opening` 的参数用 `NoInfer<Dep>`。
+14. **自己的事件不许与内核事件重名**（`events: {input: conv()}` 是编译错误）。v4 里 `Known<E> = KernelEvents & {...}` 重名时 `data` 变成交叉类型，处理函数拿到错的类型。
+15. **`ctx.initial`、`Resources.resolve`、`Turn.status`、`Format.assistantText`、`Format.turn`、`KernelEvents.continued`**：新增，理由见各自的使用处。
+
+**v4 做对了、应当保留的**：
+
+- Profile 就是最里层的扩展，扁平字段。五个 Profile 里没有一处因此别扭，变体继承基础的逻辑也靠它。我只去掉了对 Profile 无意义的 `tags`、`exports`。
+- `on` 按事件名挂、内核与自己的事件短名、别人的全名。`on: {"nbook.history/fileChanged": …}` 比旧的 `is(e, K.x) || …` 好读很多，写手三个触发点各一行。
+- `ctx` 分档、`emit`/`set` 直接调用、处理函数结束时一起写入。
+- `turn` 作为纯函数、`commit` 缺省同 `turn`、`Turn`/`Step`（`attachments`、`steps[].after`）的数据形状：写插话标记、丢记忆、只留最终回复都用得上，没有发现缺字段。
+- 开场是一片 path 状态加一个稳定的槽、压缩后重读。写手与主创都用上了，没有别扭。
+- `contribute` 的 `volatile`/稳定与“会变的槽缺省放末尾”：写手的字数槽放末尾，只丢尾部缓存，符合预期。
+- `intercept.tool` 的包裹式写法（`next(call)`）保留；问题在判断依据，不在形状（第 4 节第 4 条）。
+
+## 4. 架构审查
+
+没有发现阻断项。
+
+1. **重要｜换 Profile 之后，靠 `sessionOpened` 初始化的状态不会初始化。**
+   - 位置：提案第 10 节“换 Profile 或插件清单”；v4 主创例子（人设靠 `sessionOpened` 加载）；spike `kernel.ts`。
+   - 现象：`reconfigureNow`（约 449 至 461 行）只重新归约并写 `profileChanged`，不调 `openNow`（约 619 至 628 行，只有它派发 `sessionOpened`）。从别的 Profile 切到主创时，`persona` 一直是缺省值，直到用户改一次设置或人设文件被改。
+   - 为什么是问题：v4 把“外部文件读成状态”的唯一入口定成 `sessionOpened`；换 Profile 又是 t04 方案 D 的基本流程；结果是同一个会话，换 Profile 前后人设不同，且没有诊断。
+   - 建议：对每个新装上的扩展在 `reconfigure` 完成后派发一次 `sessionOpened`（我在 `api.ts` 里改了这条事件的语义说明）；或另设 `activated` 事件。主创现在也可以多挂一个 `profileChanged` 处理函数，但那是每个 Profile 作者都要记得的补丁。
+2. **重要｜“接着做连续最多 3 次”在写手场景里拦不住。**
+   - 位置：提案第 1、7 节；spike `kernel.ts` 约 968 至 1006 行。
+   - 现象：内核里 `continues` 在每次工具批之后清零（`continues = 0; continue;`），只在无工具调用时累加。写手“最终回复字数不够，接着写，模型调一次 `edit`，仍不够，再接着写”这个循环里 `continues` 每次回到 0，永远碰不到 3，只被 `step < 30` 拦住。
+   - 为什么：要求里的“最多 3 次”是这一轮里的次数，不是“连续没有工具调用”的次数。v4 的写手要靠自己数（一片计数加 `input` 上清零），而且内核的上限给了作者一个错觉。
+   - 建议：内核数“这一轮里、这个调用方的 `continued` 事件”，作者用 `ctx.continue(text, {max})` 声明上限；连续无工具的计数留作内核的保险。我在 `api.ts` 的 `continue` 注释里写明了语义。
+3. **重要｜提交出来的历史只在下一次请求时校验，写错的 `commit` 会让会话一直发不出请求。**
+   - 位置：提案第 10 节“校验最终请求”；v4 `leader.default.tsx` 的 `leaderLean`。
+   - 现象：`leaderLean` 的 `commit` 写 `format.assistant(last.reply)` 只留最后一步的回复。正常结束的轮里最后一步没有工具调用，没问题；中断或出错的轮里，最后一步可能带工具调用而 `results` 已被丢掉，留下孤立的工具调用。提交后的消息不再变，校验在每次请求时失败，直到回退或换 Profile。（推断：依据是 `Message.toolCalls` 的类型与提案“提交后的消息不再变”；没有运行。）
+   - 建议：校验放在提交那一刻，不合格就用缺省 `commit` 渲染并写诊断；同时给作者 `turn.status` 与 `format.assistantText`（我的 `commit: {steps: "final"}` 对未正常结束的轮只留用户的话）。
+4. **重要｜“只许改正文目录”靠工具拦截里比 `args.path` 的字符串前缀，挡不住。**
+   - 位置：v4 主创例子的 `writesManuscript`；第三版 spike 写手例子；t04、t05（“要限制某个 Profile 用工具绑定”）。
+   - 现象：`String(call.args.path).startsWith("project://正文/")` 的几种绕法：`project://正文/../设定/x.md`；两个例子写法不一致（一个是 `project://正文/`，一个是 `正文/`），说明路径有别名；主创有 `bash`、`apply_patch`（v4 例子里它的参数里没有 `path`，`String(undefined)` 永远不匹配）、`world.execute`，都能写文件。（t12 的第一批工具里是 `shell`、没有 `apply_patch`，v4 的工具名与 t04、t12 的 id 不一致，见第 12 条。）
+   - 为什么：主创的这条拦截是在代码里把一条产品规则（正文只交给 writer）写成了字符串比较，能被模型无意中绕开；旧应用也只是写在提示词里。
+   - 建议：拦截只负责给出友好的拒绝文字；真正的限制放在工具绑定或审批的路径范围里（t04、t06 要定形状）。拦截里判断路径要用规范化的结果，我在 `Resources` 上加了 `resolve(uri)`，写手的例子用它。
+5. **重要｜v4 的 `ProfileFields` 丢了 t05 已决定、旧应用有的字段。** `description`、`initial` 的 schema、`modelNeeds`（见第 3 节第 2、3 条）。写手被主创调用时，`agent.invoke` 的参数没有校验的依据，主创的目录没有说明可显示。
+6. **重要｜`read` 的类型与存在性不一致。** 第 3 节第 13 条。建议 `read` 只给 `dependsOn` 声明的扩展，缺失在装配时拒绝；确实可选的依赖另给 `read.optional`（我没有做，没有例子需要）。
+7. **重要｜总结者用 v4 写不出来，v3 的写法在 v4 里会出错。**
+   - 位置：提案第 10 节末段（“总结者只看最近几轮……用 `commit` 丢掉旧轮的工具记录”）；v3 `examples/profiles.tsx` 的 `summarizer`。
+   - 现象：`commit(turn, format)` 一次一轮，不知道这一轮有多旧，`<History />` 没参数，“只留最近 2 轮”没有入口。v3 的总结者用 `render: {tool_result: 首行}` 做“工具结果只留首行”，在 v4 里 `renderAll` 对“历史与进行中的这一轮一律生效”，模型在同一轮里读完一个文件就只看到第一行。
+   - 建议：`<History last={n}>`（`layout.history`）、`commit.render`（只在提交时换）。窗口每轮滑动意味着历史缓存每轮失效，这是“只留最近 2 轮”本身的代价，不是接口问题。
+8. **建议｜`settingsChanged` 的 `patch` 是 `Record<string, unknown>`。** 主创的人设处理函数每次设置变化都读一次文件（值没变不写，但 I/O 照做）。建议 `patch` 按扩展 id 分组、带类型，或给 `changed(event, "leaderPersonaPreset")`。另外，插件自己的设置键与 Profile 的设置键同名时怎么摆进同一张表单，提案没写（推断：t05 第一轮不做表单，之后会遇到）。
+9. **建议｜派生出来的 Profile 的 id 就是它的命名空间。** 用户在 `builtin.leader` 上配的设置、人设片的事件，派生 Profile 都认不得；这符合“按 Profile 配”，但在文档里要写明，免得用户以为变体继承了设置（推断）。
+10. **建议｜拦截链里 Profile 自己的字段与它的 `extensions` 谁在里谁在外没有写。** 建议：全局扩展、Profile 的 `extensions`、Profile 自己的字段（最里层）。
+11. **建议｜处理函数里 `ctx.set(片, 值)` 之后读 `ctx.state`，读到的是旧值**（v4 第 16 节第 5 条：读到的始终是这条事件之后的值，不含自己这次写）。例子里我避开了，但这是写手字数这类“更新后立刻判断”的陷阱。建议开发模式下在同一个处理函数里 `set` 后读同一片时写诊断，或让 `set` 返回新值。
+12. **建议｜v4 例子里的工具名与 t04、t12 不一致。** `bash`、`apply_patch`、`agent.*` 通配符；t04 写的是 `builtin.file.read` 一类的 id，t12 第一批是 `shell`、没有 `apply_patch`。Profile 的 `tools.required` 能不能写通配符，t04 没定（推断，没有找到明确的条文）。
+13. **建议｜事件类型在 `Turn.attachments` 里是 `string`。** `a.type !== "nbook.memory/retreived"` 拼错不报；`commit.omit` 已经受检，这个只影响手写函数。
+14. **建议｜模板的几条规则只在运行时查**（`<Turn />` 恰好一个、`<Slot name="*">` 必须写 `stable` 或 `volatile`）。把常见布局收进 `layout` 之后，`prompt` 只剩少数用户会用，可以留作运行时检查。
+
+仔细检查后没有发现问题的方面：`Turn`、`Step` 的数据形状（写了插话标记、丢记忆、只留最终回复、单轮模板都够用）；`contribute` 的槽声明；`intercept.tool` 的包裹式形状；`emit` 的参数类型。**没有被检验到的**：`reduce` 的表形状（五个例子里没有一个需要它，只有 v4 写手为了读 `initial` 用了一次，现在 `ctx.initial` 把它去掉了）、模型拦截与压缩拦截、`recover()`。
+
+## 5. 对第 16 节八条与待定项 16 至 19 的判断
+
+第 16 节：
+
+1. **按事件名挂处理函数**：同意，写手的三个触发点各一行，主创的三个触发点各一行。
+2. **事件名驼峰、去 `K` 与 `is`**：同意；`Turn.attachments` 里的事件类型是 `string`（第 4 节第 13 条），小问题。
+3. **用户的话拆成 `input` 与 `steer`**：同意，插话标记因此能只改 `render.steer`。
+4. **`ctx` 按入口分档**：同意；补 `initial`，并让 `turn`、`commit` 也拿到 `view`，v4 里 `prompt` 能读设置、`turn` 读不到不一致。
+5. **`emit`、`set`、`continue` 直接调用**：同意；`continue` 要带文字与次数上限，`set` 后读 `ctx.state` 是旧值要提醒（第 4 节第 11 条）。
+6. **去掉的 ctx 方法**：同意；`ctx.file` 改成 `resources.read` 要 `await`，但没有别扭；Profile 内部扩展要读 Profile 的片，现在只有 `read` 加全局声明合并一条路，所以我建议逻辑放在 Profile 顶层而不是 `extensions`。
+7. **变量名用完整的词**：同意，例子里没有一处需要 `t`、`m`、`e`；多出来的 `view` 也是完整的词。
+8. **Profile 自己就是最里层的扩展**：同意，改进是去掉无意义的 `tags`、`exports`，并给出顶层与 `extensions` 的分界；`renderAll` 的名字不要了，并回 `render`。
+
+待定项：
+
+- **16（steer 与 followup 的缺省）**：同意回车是 followup；Profile 作者看得到的差别只是 `steer` 事件可以单独标记，没有别的要求。
+- **17（多条 followup）**：同意一条一轮；还有一个理由是 `payload` 按输入给，合并成一轮会混 payload。
+- **18（压缩后放回的内容）**：同意写成 `conv` 事件；作者要它们不进历史时可以用 `commit.omit`。
+- **19（会变的槽缺省位置）**：同意末尾；`layout.volatile: "before-turn"` 是 Profile 要“用户的话在最后”时的开关。
+
+## 6. tsc 的结果
+
+```text
+$ R/node_modules/.bin/tsc -p /tmp/t20-api-design/sonnet-profile/tsconfig.json
+$ echo $?
+0
+```
+
+无输出。包含：`api.ts`、五个需求的例子、`few-shot.tsx`（整张模板）、`spread.ts`、`typetest.ts` 的 20 处 `@ts-expect-error`、`v4-writer.ts` 与 `v4-probe.ts`（v4 的接口）。tsc 5.9.3。`typetest.ts` 的 20 处写错：`initial` 字段拼错、设置值不在字面量联合、片的值类型不对、没声明依赖就 `read`、导出字段拼错、`continue` 的 `max` 是字符串、`payload` 字段拼错、`sessionCreated` 的 `initial` 字段拼错、协议事件 `render` 返回 `null`、`commit.omit` 的事件名拼错、压缩方法名拼错、缺 `description`、`defaults` 缺一项、`system` 与 `prompt` 同时写、`system` 里片名拼错、自己的事件与内核重名、提醒的 `text` 返回数字、扩展的 `render` 写别人的事件、派生里 `omit` 拼错、派生不给 `id`。
+
+写类型时踩到的两个坑，实现者要知道：
+
+- `on`、`render`、`reduce` 的键是对 `Known<E>` 的映射，`events` 缺省时 `E` 会被反推成约束类型 `OwnEvents`，所有键退化成 `string`、`data` 退化成宽类型，tsc 不报错；对这些位置的 `E` 加 `NoInfer` 才对。
+- 共用函数自己标了窄的 `Read<…>` 时会把 `Dep` 推窄，要对 `opening` 的参数用 `NoInfer<Dep>`。
+
+行数对照（非空非注释行）：
+
+| 文件 | v4 | 我的 | 说明 |
+|---|---|---|---|
+| 写手 | 48 | 40 | 我的多了 `description`、`initial` schema 与 `resolve` |
+| 主创 Profile 定义 | 61 | 57 | 我的多了 `description`、`dependsOn`、`reminders`（共 5 行），设置 schema 另 8 行在定义之外 |
+| 主创提示词块 | 22 | 13 | |
+| 总结者 | 不能写 | 13 | |

@@ -1,0 +1,197 @@
+# w00032 t20 扩展接口设计与架构审查（独立设计者视角，Fable）
+
+做法：先只读提案第 0–11 节、t11 的决定、旧应用的主创，按需求独立写了 `api.ts`（类型与声明）、`plugins.ts`（七个全局扩展）、`leader.default.tsx`（主创与三个变体）、`typetest.ts`（16 处写错应当是编译错误），过 tsc 之后再读 `spike/v4/api.ts`、`v4/leader.default.tsx`、`v4/typetest.ts` 与第 16 节逐处对照。读 v4 之后只改了一处（采纳 v4 的 `input`/`steer` 拆分，见第 3 节）。所有文件在 `/tmp/t20-api-design/fable/`。
+
+## 1. 结论（按重要性）
+
+1. **跨扩展的类型改从 `dependsOn: [扩展对象]` 推导，去掉声明合并。** v4 要三样东西才能让别人读到一个插件：事件先拆成常量、`EventsOf` 登记进 `ExtensionEvents`、再手写 `ExtensionExports` 的条目（`v4/leader.default.tsx` 168、227–236 行，10 行登记；`"nbook.agents": {catalog: string}` 这类条目是手抄的类型，与源码会漂）。我的写法：`dependsOn: [fileNotice]`，事件全名与 `ctx.read(fileNotice).pendingChanges` 的类型都从对象推出来，零行登记，也没有“从扩展本身推导会循环引用”的限制（我第一版用声明合并照样撞上这个循环，换成 `dependsOn` 后消失）。跨包只要类型时用 `extensionRef<typeof x>("id")`。`dependsOn` 本来就要写，字符串改成对象没有额外成本，还顺带让“读没依赖的扩展”成为编译错误。
+2. **片带作用域类型，归约按“事件名 → 同作用域的补丁”。** v4 的 `Slice<T>` 没有作用域，`reduce: {sessionSlice: {input: …}}` 能编译但永远不跑（r2 Opus 第 9 条指出的问题，v4 的类型仍没堵住）。我的 `Slice<"path" | "session", T>`：path 事件的归约只能返回 path 片的补丁，写错是编译错误（`typetest.ts` 第 1 条）。
+3. **`assistant` 事件要存内容块（含思考块与签名），不能只存 `text`。** v4 `assistant: {text, toolCalls, model, usage}`；提案第 8 节的适配器合同写了“思考块（连同服务商要求带回的签名）”。思考块不进日志，工具调用循环里就送不回去，Claude 这类要求签名回传的服务商会拒绝请求（推断，没有在真实适配器上验证）。
+4. **渲染只留两处：事件声明里的缺省渲染，Profile 的 `render` 覆盖。** 扩展级 `render` 字段并进 `conv({render})`，于是 Profile 的覆盖表可以直接叫 `render`，不需要 `renderAll` 这个名字；键只接受 conv 事件（`typetest.ts` 第 8 条）。
+5. **`system` 与 `prompt` 重叠要解决。** 写了 `prompt` 的 Profile 要把 `system` 的内容再写一遍（v4 主创 107–113 行与 `system` 字段二选一；我的例子只能 `leader.system(view)` 自引用）。建议 `<System />` 自闭合时等于 `system` 字段的内容，Profile 只写一次系统提示词也能改布局。
+6. **接口里缺“等用户”这一步。** 生命周期写了“空闲 / 运行中 / 等用户”，审批（t06）与 `request_user_input` 都要让运行停下，但内核事件里没有任何“提问 / 审批 → 答复”的事件对，扩展既不能对它归约也不能反应。实现时定（待定项 8）可以，但事件名与数据形状要先占位，否则 Profile 作者没法写“问过用户什么”的片。
+7. **诊断要可观察、可重放。** 提案各处“写诊断”，spike 里是内存数组（`kernel.ts` 173 行），重启就没了；界面要显示“结构化诊断”却没有来源。建议诊断作为 session 作用域的 `ctrl` 事件 `diagnostic` 进日志（不参与归约、不派发反应），或至少写进与会话并列的诊断文件。
+
+第 16 节八条里同意七条半（第 2 条的“先拆常量再登记”部分不同意，见第 5 节）；待定项 16–19 都同意推荐项。
+
+## 2. 我的接口
+
+要点：
+
+- **四个动词四张表，键都是事件名。** `reduce`（事件 → 同作用域的补丁）、`react`（事件 → 新事件）、`contribute`（状态 → 槽）、`intercept`（包住四种副作用）。声明只有 `state`、`events`、`exports`、`settings`、`dependsOn`；策略字段 `tags`、`timeoutMs`、`onFailure`、`preview`、`dispose` 缺省不写。没有 `K`、`is`、守卫、`own`。
+- **事件名三种写法**：内核事件裸名（`input`、`compaction`）、自己的短名（`notice`）、依赖的全名（`"nbook.history/fileChanged"`）。自己的事件与内核事件同名是编译错误。
+- **片带作用域**：`path(initial, {resetOnCompaction?})`、`session(initial)`。归约函数拿到“这条事件所在作用域”的全部片，返回补丁；path 事件改不到 session 的片。`resetOnCompaction` 替代每个扩展手写 `compaction: () => null`。
+- **反应返回值即输出**：`ctx.events.notice(data)`、`ctx.set(片, 值)`、`ctx.message(文字)` 造出带品牌的 `EventOut`，返回单条、数组或 `{events, continue}`。裸对象不是 `EventOut`（编译错误）。
+- **ctx 三档**：`ViewCtx`（`state`、`settings`、`read`、`tools`、`model`、`now`）→ `EffectCtx`（加 `signal`、`run`、`preview`、`file(uri)`）→ `ReactCtx`（加 `events`、`set`、`message`）。视图与拦截没有写事件的口子。
+- **跨扩展**：`dependsOn: [fileNotice]` 推出事件名与 `ctx.read(fileNotice)` 的类型；`coreHistory` 不写进 `dependsOn` 也能读。
+- **渲染两处**：`conv<Data>({render})` 是扩展给自己事件的缺省渲染；Profile 的 `render: {steer: …, "nbook.history/notice": …}` 覆盖，键只接受 conv 事件。
+- **Profile 就是扩展**：`defineProfile` 接受扩展的全部字段，再加 `name`、`system`、`tools`、`globalExtensions`、`prompt`、`turn`、`commit`、`render`、`compaction`、`extensions`。主创的人设、开场、工具拦截直接写在 Profile 上，没有 `leaderCore`，也不需要 `opening()` 辅助函数（开场 = 一片 path + 两个反应 + 一个槽，5 行）。
+- **轮**：`turn: (turn, compose) => [compose.user(...turn.attachments, turn.input), ...compose.steps(turn.steps)]`；`compose.user` 全空返回 null 由内核丢掉，`compose.step` 可以改一步再渲染（`leaderLean` 丢掉工具记录只要 2 行）。
+- **类型只从声明推断**：处理函数位置都包 `NoInfer`，否则 TS 会从 `react` 的键反推 `Events`，让“未知事件名”变成合法（我第一版就漏过了 `user_said`）。
+
+代表性代码（完整在 `plugins.ts`、`leader.default.tsx`）：
+
+```ts
+// 文件变更感知：28 行（v4 24 行 + 10 行登记）
+export const fileNotice = defineExtension({
+    id: "nbook.history",
+    settings: {defaults: {awareness: "full" as "off" | "minimal" | "full"}},
+    state: {pending: path<{uri: string; by: string}[]>([])},
+    events: {
+        fileChanged: ext<{uri: string; by: string}>(),
+        notice: conv<{changes: {uri: string; by: string}[]}>({render: (entry) => `<file_changes>…</file_changes>`}),
+    },
+    exports: {pendingChanges: (state) => state.pending},
+    reduce: {
+        fileChanged: (state, event) => ({pending: [...state.pending, event.data]}),
+        notice: () => ({pending: []}),            // 通知自己就是“已送达”，不用 delivered 事件
+    },
+    react: {
+        turn_started: (_event, ctx) => {           // 不挂 input：没有新输入的“继续”运行也要收到通知
+            if (ctx.settings.awareness === "off" || ctx.state.pending.length === 0) return;
+            return ctx.events.notice({changes: ctx.state.pending});
+        },
+    },
+});
+
+// 任务提醒（旧 TaskReminder repeatEveryTurns=8）：15 行，不用 reminder() 辅助函数
+export const taskReminder = defineExtension({
+    id: "nbook.tasks",
+    state: {turns: path(0), open: session<string[]>([])},
+    events: {tasksChanged: ext<{open: string[]}, "session">({scope: "session"})},
+    reduce: {
+        turn_started: (state) => ({turns: state.turns + 1}),
+        tasksChanged: (_state, event) => ({open: event.data.open}),
+    },
+    react: {
+        turn_started: (_event, ctx) =>
+            ctx.state.turns % 8 === 0 && ctx.state.open.length > 0 ? ctx.message(`未完成的任务：${ctx.state.open.join("、")}`) : undefined,
+    },
+});
+
+// 读别人：依赖对象给出事件名与选择器的类型
+export const routing = defineExtension({
+    id: "nbook.routing",
+    dependsOn: [fileNotice],
+    reduce: {"nbook.history/fileChanged": (state, event) => ({touched: [...state.touched, event.data.uri]})},
+    react: {
+        "nbook.history/notice": (event, ctx) => {
+            const input = ctx.read(coreHistory).input;
+            const pending = ctx.read(fileNotice).pendingChanges;
+            …
+        },
+    },
+    intercept: {tool: (call, next, ctx) => shouldBlock(call, ctx) ? Promise.resolve(deny(call, "先重读再写。")) : next(call)},
+});
+
+// 主创：Profile 就是扩展（定义本体 55 行；设置、片、两个共用函数另 22 行）
+export const leader = defineProfile({
+    id: "leader.default", name: "主创", settings, tools: {…}, dependsOn: [fileNotice],
+    state: {persona: session(""), opening: path<{uri: string; text: string}[]>([])},
+    react: {
+        session_opened: (_event, ctx) => reloadPersona(ctx),
+        settings_changed: (event, ctx) => ("leaderPersonaPreset" in event.data.patch ? reloadPersona(ctx) : undefined),
+        "nbook.history/fileChanged": (event, ctx) => (event.data.uri === ctx.settings.leaderPersonaPreset ? reloadPersona(ctx) : undefined),
+        session_created: (_event, ctx) => loadOpening(ctx),
+        compaction: (_event, ctx) => loadOpening(ctx),
+    },
+    contribute: {opening: (view) => view.state.opening.map(renderDoc).join("\n\n") || null},
+    system: (view) => [...].filter(Boolean).join("\n\n"),
+    prompt: (view) => (<><System>…<Slot name="sql-schema" /><Slot name="*" stable /></System><User><Slot name="opening" /></User><History /><Slot name="word-count" /><Turn /><Slot name="*" volatile /></>),
+    intercept: {tool: (call, next, ctx) => writesManuscript(call) ? Promise.resolve(deny(call, "正文由 writer 写")) : next(call)},
+    compaction: {require: "…", onThreshold: ["shake", "inplace"], onOverflow: ["shake", "summary"]},
+});
+```
+
+好用程度的检验（真实例子）：
+
+| 例子 | v4 | 我的 | 差在哪 |
+|---|---|---|---|
+| 文件变更感知 | 24 行 + 10 行登记 | 28 行 | 我的多了渲染（v4 的 `conv()` 用缺省 `{text}`，渲染在插件里拼字符串）；少了 `delivered` 事件与登记 |
+| 工作区焦点 | 22 行 | 21 行 | `told: path(null, {resetOnCompaction: true})` 替代 `told: {compaction: () => null}` |
+| 任务提醒 | 用 `reminder()` 辅助函数（接口 7 行声明，没有例子） | 15 行 | 不用辅助函数也短；辅助函数留给更简单的场景 |
+| 主创 | 75 行（含共用函数、`opening()` 一行） | 77 行（含设置、片、共用函数） | 相当；我的开场是 Profile 自己的片与反应，压缩后重读的逻辑可见；代价是共用函数要写一次 `ReactCtx<typeof state, {}, typeof settings.defaults, typeof dependsOn>`（v4 的办法是共用函数只收 `resources`、`read`，更轻） |
+| 路由插件读 `core.history` 的输入 | 要先在某处登记 `ExtensionExports["core.history"]`（r2 Opus 第 5 条的坑） | `ctx.read(coreHistory).input`，SDK 自带 | — |
+
+## 3. 与 v4 的对照
+
+每处写“v4 怎么写 → 我怎么写 → 为什么”。
+
+1. **跨扩展的类型**。v4：`export const historyEvents = {…}` 单独定义、`declare module { interface ExtensionEvents extends EventsOf<"nbook.history", typeof historyEvents> {} ; interface ExtensionExports {"nbook.history": ExportsOf<typeof fileNotice>; "nbook.agents": {catalog: string}} }`，`dependsOn: ["nbook.history"]` 另写字符串 → 我：`dependsOn: [fileNotice]`，事件全名与 `ctx.read(fileNotice)` 从对象推导，`coreHistory` 免登记 → 为什么：少两张手写的表、少一次拆常量、没有循环引用、读没依赖的扩展是编译错误（`typetest.ts` 第 5 条）、`external()` 以后也能按对象写事件得到类型。代价：软依赖（插件可能没装）要加 `optional(x)` 标记让 `read` 返回 `| undefined`，我没做；跨包只要类型时写 `extensionRef<typeof x>("id")`。
+2. **归约的形状**。v4：`reduce: {片: {事件: (旧值, event, 全部片) => 新值}}` 三层嵌套 → 我：`reduce: {事件: (同作用域的片, event) => 补丁}` 两层 → 为什么：一条事件改两片只写一个函数；补丁类型按事件作用域过滤，path 事件改 session 片是编译错误。v4 的好处是“这一片怎么变”集中在一处、与“出错这一片保持原值”的隔离粒度一致；两种都能用，但 v4 至少要给 `Slice` 加作用域类型参数并按作用域过滤键，否则 r2 Opus 第 9 条的静默不生效在类型上仍放过。
+3. **用户的话**。v4：`input`、`steer` 两种事件 → 我原本按提案写 `user{as}`，三个插件各多一行 `if (event.data.as !== "turn") return` → **采纳 v4**，改后 `plugins.ts` 少 3 行。这是 v4 做对了的地方。
+4. **反应的输出**。v4：`ctx.emit(名, data)`、`ctx.set`、`ctx.continue()` 直接调用，处理函数结束时一起写 → 我：`ctx.events.名(data)`、`ctx.set`、`ctx.message` 造出 `EventOut`，由处理函数返回 → 为什么：输出是值，单元测试不用假 ctx；“一次反应的输出是一个整体”在代码上可见；漏写 `await` 时 v4 的收集器已经刷掉、事件静默丢失，我的写法里漏 `await` 返回的是 `Promise`，不会被当成事件写入。代价：条件分支要写成 `cond ? ctx.events.x(…) : undefined`，比 `if (cond) ctx.emit(…)` 别扭；v4 更顺手。两者都可接受，我倾向保留返回值，但不强求。
+5. **渲染**。v4：扩展 `render: {notice: …}` 一个字段，Profile `renderAll` → 我：`conv<Data>({render})` 与 Profile `render` → 为什么：少一个字段、少一个名字；事件的数据形状与渲染写在一起，类型不用再从 `E[k]` 回推；Profile 的键经类型过滤只能是 conv 事件（`typetest.ts` 第 8 条）。
+6. **ctx**。v4：视图 `state`、`settings`、`read`、`session{tools, model}`、`now`；`on` 另加 `emit`、`set`、`continue`、`resources`、`signal`；拦截加 `resources`、`signal` → 我：视图 `state`、`settings`、`read`、`tools`、`model`、`now`；副作用档加 `signal`、`run`、`preview`、`file(uri)`；反应档加 `events`、`set`、`message` → 为什么：分档一样；`run` 与 `preview` 我后来也没用到，v4 去掉是对的；`resources.read(uri): string | undefined` 与 `file(uri).readText()` 等价，前者少一次调用。**v4 的 ctx 更精简，采纳 v4 的清单**，只补 `ctx.message` 的替代写法（声明一个 `reminder: conv()` 即可，1 行）。
+7. **主创的开场**。v4：`extensions: [opening({id, load})]` → 我：一片 path `opening`、`session_created` 与 `compaction` 两个反应、一个 `contribute.opening`（5 行） → 为什么：说明不需要辅助函数也能写；但 `opening()` 作为辅助函数值得保留，普通 Profile 作者不想知道“压缩后要重读”。
+8. **`system` 与 `prompt`**。v4：写了 `prompt` 就在 `<System>` 里再写一遍内容，`system` 字段只给缺省布局 → 我：`system` 是函数，`prompt` 里 `leader.system(view)` 自引用（丑） → 两者都不好；建议见第 4 节第 5 条。
+9. **内核事件的数据**。v4：`ToolCall.args: any`、`assistant.text`、`ModelRequest.tools: string[]`、`compaction.replacement: string | null` → 我：`args: Readonly<Record<string, unknown>>`、`assistant.content: ContentBlock[]`（含 thinking 与 signature）、`tools: ToolInfo[]`、`replacement: string` → 为什么：`any` 会沿着 `call.args.path` 一路漏出去；思考块见第 1 节第 3 条；`replacement` 在 shake-only 时确实可能为空，v4 的 `| null` 对，我的应改。
+10. **事件名的大小写**。v4：驼峰（`sessionCreated`），并把日志里的名字也改成驼峰 → 我：按提案第 2 节的下划线（`session_created`） → 哪种都行，但提案正文与 v4 现在不一致，第五稿要统一；驼峰在 TS 里不用引号，略好。
+11. **`turn` 的工具**。v4：`format.user/assistant/tool/steps` → 我：`compose.user/step/steps/text` → 等价；`compose.step(step)` 接受改过的一步，`leaderLean` 丢工具记录写成 `compose.step({...last, results: [], after: []})`，比 `format.assistant(last.reply)` 多一点灵活。名字无所谓。
+12. **`tools.required` 是否必填**。v4 必填 → 我可选 → 单轮模板（行内编辑）没有工具，必填就要写 `tools: {required: []}`；可选更顺。
+13. **类型推断的护栏**。v4 没有 `NoInfer` → 我加了 → 我实测不加时 `react: {user_said: …}` 不报错（TS 从键反推 `Events`）；v4 的 `typetest.ts` 第 7 条 `inptu()` 能报错，推断是因为 v4 的 `on` 用 `keyof Known<E>`、`E` 已由 `events` 决定且该例写了 `events`；没写 `events` 的扩展是否仍报错没有验证（推断）。建议 v5 把这条写进 typetest：没有 `events` 的扩展挂未知事件名。
+
+v4 做对了、应当保留的：`input`/`steer` 拆分；按事件名挂处理函数、去掉 `K` 与 `is`；Profile 就是最里层的扩展；`settings: {defaults}` 给出类型；ctx 分档且视图与拦截不能写事件；`turn`/`commit`/`format.user(...attachments, input)` 的形状；`opening()`、`reminder()` 两个辅助函数；`typetest.ts` 用 `@ts-expect-error` 守住类型。
+
+## 4. 架构审查
+
+每条：严重程度 / 位置 / 现象 / 为什么是问题 / 建议改法。“推断”指没有运行证据。
+
+1. **重要** / `v4/api.ts` 43 行，提案第 8 节适配器表 / `assistant` 事件只存 `text`、`toolCalls`，没有思考块与签名 / 提案的适配器合同说回复含“思考块（连同服务商要求带回的签名）”，日志里没有就没法在工具调用循环里原样送回，要求签名回传的服务商会拒绝；`compose.step` 也渲染不出来 / `assistant.content: ContentBlock[]`（`kind: "text" | "thinking"`、`signature?`），`Message.content` 的块加 `kind`（待定项 12 已提到块加 `kind`，这里是必须项不是可选项）。推断。
+2. **重要** / `v4/api.ts` 97–104、227 行；r2 Opus 第 9 条 / `Slice<T>` 没有作用域类型，`reduce` 对每一片都列出全部事件 / 对 session 片挂 path 事件的归约编译通过、运行时永远不调用，r2 已经发现过这个坑，v4 的类型仍没堵 / `Slice<Scope, T>`，归约表按片的作用域过滤事件名（我的 `SlicesIn<State, ScopeOf<事件>>`），写错是编译错误。
+3. **重要** / 提案第 1 节“一次运行”、第 3 节 `start()`；`v4/leader.default.tsx` 187、216 行 / 文件变更与焦点的提醒挂在 `input` 事件上，而缓冲区空时的 `start()` 是没有新输入的“继续”运行，不写 `input` / “继续”运行收不到任何提醒，模型不知道文件被改过 / 文档写明附带内容的标准挂点是 `turn_started`（有无输入都有），`input` 只给要读输入文字的反应（记忆检索）。我的 `plugins.ts` 已照此改。
+4. **重要** / 提案第 10 节生命周期“等用户”、第 8 节审批、待定项 8 / 内核事件里没有提问或审批的事件（v4 与我的 `KernelEvents` 都没有），`request_user_input`、`switchMode` 这类旧主创天天用的工具在新模型里没有落点 / 运行要停下等用户，扩展不能对“问了什么、答了什么”归约，Profile 写不出“问过的问题不再问”的片；推迟到实现时定会让第五稿的接口在这里再变一次 / 先占位：`asked{callId, question, options}`、`answered{callId, answer}` 两条 path 事件，审批走同一对（`approval_requested`、`approval_resolved`），运行状态加 `waiting`；`ask` 的主动接口可以晚定，事件形状先定。
+5. **重要** / 提案第 6 节“不写 `prompt` 时用缺省布局”、第 11 节 `system`；`v4/leader.default.tsx` 105–119 / 写了 `prompt` 的 Profile 要把 `system` 的全部内容再写进 `<System>`，`system` 字段形同虚设；我的例子只能 `leader.system(view)` 自引用 / 一份系统提示词两个来源，改了一处忘另一处 / `<System />` 自闭合等于 `system` 字段的内容，或 `<System>` 的子节点里允许 `<Slot name="system" />`；`system` 允许是函数（按设置与状态算），我的 api.ts 已这样写。
+6. **重要** / 提案第 8 节“失败”、spike `kernel.ts` 173、246 行 / 诊断是内存数组，不进日志 / 重启后消失；界面要显示“结构化诊断”、“被改写的原文与改后”却没有持久来源；“开发模式下检查前缀稳定”的结果也只在内存里 / 诊断写成 session 作用域的 `ctrl` 事件 `diagnostic{level, code, by, entryId?, message}`，不归约、不派发反应；或与会话并列的诊断文件。推断（产品实现未定）。
+7. **重要** / `v4/api.ts` 56–58、108–111；`v4/leader.default.tsx` 226–236；第 16 节第 2 条 / 跨扩展类型靠两张声明合并的表，`ExtensionExports` 的条目要手写类型（`"nbook.agents": {catalog: string}`），事件要先拆成常量 / 手写的类型与源码漂移；两张表、三个步骤；r2 Opus 第 5 条的“没登记就报不能赋给 never”依旧 / `dependsOn: [扩展对象]` 推导（第 1 节第 1 条）；软依赖加 `optional(x)`。
+8. **重要** / 提案第 3 节 `external(event)` / 插件宿主写外部事实的入口只有一个 `external(event)`，没有类型路径 / `fileChanged` 的数据形状在插件里声明了，宿主写入时却是裸对象，拼错字段要到归约里才发现 / `session.external(fileNotice, "fileChanged", {uri, by})`，按扩展对象与事件名取类型（这也是用对象而不是字符串做引用的理由之一）。
+9. **重要** / 提案第 10 节“用户在 Profile 设置里还能单独开关”、`v4/api.ts` 222 行“用户在 Profile 设置里按 Profile 配” / 全局扩展的设置放哪没说清：旧主创把 `fileChangeAwareness` 当 Profile 设置，现在提醒归插件，设置跟着到插件 / 写手要“关”、主创要“完整”，一个全局值不够；按 Profile 各存一份又要回答 `settings_changed` 的 `patch` 怎么区分 / 定为“插件设置有全局缺省，Profile 设置里可以覆盖”，`settings_changed.patch` 带 `scope: "profile" | "plugin:<id>"`；`ctx.settings` 读到的是合并后的值。
+10. **建议** / 提案第 6 节 `<Slot name="*">`、“Profile 没摆某个槽：内容丢弃并写诊断” / `*` 是否只含没被单独摆放的槽没有写明；有意不要某个槽的 Profile 每次请求都收一条诊断 / 诊断变成噪音，真问题被淹 / 写明 `*` = 未单独摆放的槽；加 `<Slot name="word-count" drop />` 或 Profile 的 `slots: {ignore: […]}` 表示“我知道”。
+11. **建议** / 提案第 4 节“只读、普通数据”；`v4/api.ts` 104 行 `StateOf`、我的 `StateValues` / 只读只到第一层，`path<string[]>` 的值是可变数组，`ctx.state.pending.push(…)` 编译通过 / 开发模式冻结会抛错，生产不冻结就静默改了状态，重放结果不同 / 片的值类型用 `DeepReadonly`，或要求声明写 `readonly string[]`（`path<readonly string[]>`）。
+12. **建议** / 提案第 11 节 `opening()`、第 9 节“开场在压缩事件上重读”、待定项 9 / 开场文档整段存进 path 片，每次压缩后 `state_set` 再写一份全文 / 旧主创开场 11 份文档加 3 个目录，推断每次压缩多写几十 KB 日志；回退到压缩前又要重读 / 片里只存 uri 与内容哈希，正文走待定项 9 的外存；或 `opening` 槽的 `value` 直接读文件缓存（它是稳定槽，内核可按哈希缓存）。推断。
+13. **建议** / `v4/api.ts` 139–140 `ctx.continue()` / “只在对最终回复的处理里有效”，别处调用静默无效 / 作者以为生效了 / 别处调用写一条诊断；或只在 `assistant` 事件的 `ReactCtx` 上暴露 `continue`（类型上按事件名给不同的 ctx，可以做到）。
+14. **建议** / 提案第 2 节事件名（下划线）与第 16 节（驼峰） / 正文与接口不一致 / 第五稿要统一；两种都可以。
+15. **建议** / `v4/api.ts` 18 行 `args: any`、245 行 `Extension<… S = any …>`、169 行 `tools: string[]` / `any` 从 `call.args` 漏到用户代码，`Extension` 的缺省参数全是 `any` / 类型护栏失效 / `args: Readonly<Record<string, unknown>>`，`Extension` 的缺省参数用约束类型；`ModelRequest.tools` 用完整声明（提案第 6 节已是 `ToolInfo[]`）。
+16. **建议** / `v4/api.ts` 230 行“`exports` 只拿自己的片” / 选择器读不到设置 / `pendingChanges` 想按 `awareness` 过滤做不到，只能把设置复制进片 / 选择器参数加 `settings`。
+
+仔细检查后没有发现问题的方面：单写者与边界、缓冲区指令的合法性规则、回退与 `leaf_changed`、`core.history` 的归约规则（每条事件去哪的表）、`turn`/`commit` 的缓存论证、拦截链的层次与审批在最里层、各入口读到哪一刻的状态、压缩的切点规则、反应深度与“接着做”的上限。
+
+整体：概念数量合适（指令、事件、片、四个动词、槽、模板、轮与步、压缩方法），没有多余的概念；重复的只有“系统提示词两处”（第 5 条）与“渲染三处”（扩展 render、Profile render、turn/commit），后者并成两处即可。漏掉的需求是“等用户”（第 4 条）与诊断的去处（第 6 条）。
+
+## 5. 对第 16 节八条与待定项 16–19 的判断
+
+第 16 节：
+
+1. 按事件名挂处理函数：同意；`reduce` 我更倾向“事件名 → 补丁”（两层而不是三层，作用域可查），两种都可。
+2. 事件名驼峰、短名/全名：同意；“先拆常量再经 `EventsOf` 登记”不同意，改为 `dependsOn: [扩展对象]` 推导，没有循环引用也没有登记表。
+3. `input`/`steer` 拆开：同意，已采纳进我的 api.ts。
+4. `ctx` 分档：同意，v4 的清单比我的精简（去掉 `run`、`preview`），采纳 v4 的。
+5. `emit`/`set`/`continue` 直接调用、结束时一起写：可接受；我倾向返回值（漏 `await` 不会静默丢事件、测试不用假 ctx），不强求。
+6. 去掉的那几样：同意；`ctx.message` 用声明一个 `conv()` 事件代替，1 行。
+7. 变量名用完整的词：同意，我的例子全程 `event`、`turn`、`compose`、`view`、`state`。
+8. Profile 就是最里层的扩展：同意；`renderAll` 不要，扩展级 `render` 并进事件声明后 Profile 的覆盖表就叫 `render`。
+
+待定项：
+
+16. 运行中回车是 followup、另一个操作是插话：同意，插话改变正在进行的请求，应当是显式动作。
+17. 多条 followup 一条一轮：同意，每条是独立要求，合成一轮会让 `turn.input` 不再是“一条输入”。
+18. 压缩后放回的内容写成 conv 事件跟在压缩发生的边界：同意，它们是事实且按位置归入当前轮或当前步的 `after`，重放与回退自动正确。
+19. 会变的槽缺省放末尾：同意；要“用户的话在最后”的 Profile 自己把槽挪到 `<Turn />` 前（我的主创把 `word-count` 放在 `<Turn />` 前、`*` volatile 放末尾，两种都写了）。
+
+## 6. tsc 的结果
+
+命令（在仓库根的 node_modules 里的 tsc，配置为任务给的 tsconfig.json）：
+
+```sh
+/home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc -p /tmp/t20-api-design/fable/tsconfig.json; echo "exit=$?"
+```
+
+输出：
+
+```text
+exit=0
+```
+
+没有错误；`typetest.ts` 里 16 处 `@ts-expect-error` 全部命中（任何一处没有错误 tsc 会报 TS2578“未使用的指令”）。覆盖的写错：path 事件的归约改 session 片、未知事件名、自己的事件与内核事件同名、`ctx.set` 值类型不对、`ctx.events` 数据缺字段、读没依赖的扩展、选择器名不存在、依赖的事件数据字段不存在、没依赖的扩展的事件名、槽的内容不是文字、视图里调用 `set`、Profile 设置键不存在、`turn` 返回值不是消息、Profile `render` 挂非 conv 事件、反应返回裸对象。
+
+文件（`/tmp/t20-api-design/fable/`）：`api.ts` 623 行（非空非注释 400）、`plugins.ts` 178 行（131）、`leader.default.tsx` 184 行（138）、`typetest.ts` 111 行（75）、`tsconfig.json`、`tsc-output.txt`。

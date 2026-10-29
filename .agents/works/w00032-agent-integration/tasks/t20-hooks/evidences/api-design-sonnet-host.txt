@@ -1,0 +1,286 @@
+## 先说明三件事
+
+1. **report.md 没能按要求写成完整文件。** 我用 Write 写 `/tmp/t20-api-design/sonnet-host/report.md` 时被工具拒绝（提示子代理不得写报告类 .md，要把发现放在最终回复里）。我没有改用 Bash 绕过。`/tmp/t20-api-design/sonnet-host/report.md` 里只有一个开头的占位（早先用 Bash 建的）。完整报告在本回复的第 1 到 6 节，按任务要求的结构写，需要的话由主 Agent 另存。
+2. **tsc 通过**，退出码 0，没有任何输出。命令是 `/home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc -p /tmp/t20-api-design/sonnet-host/tsconfig.json`。tsconfig 在你给的基础上加了一项 `paths`，把 `typebox` 指到仓库的 node_modules，否则 `/tmp` 下解析不到。`typetest.ts` 有 26 处 `@ts-expect-error`，全部成立。
+3. **哪些东西没有运行过。** `api.ts`、`host.ts`、`testing.ts` 只有类型与声明，没有实现，所以 `example-tests.test.ts` 的六个测试只过了类型检查，没有执行。唯一运行过的是 `diag-demo.ts`（诊断的格式化、拼写建议、装配期检查三个小函数），输出在 `evidence-diag-demo.txt`。凡是对内核行为的论断，我都标了“读代码”或“推断”。
+
+文件（都在 `/tmp/t20-api-design/sonnet-host/`）：`api.ts`（扩展与 Profile，从 v4 复制再改，改动处标 `[改]`）、`host.ts`（宿主接口）、`testing.ts`（测试工具）、`example-extensions.ts`、`example-plugin.ts`、`example-ui.ts`、`example-tests.test.ts`、`typetest.ts`、`diag-demo.ts`、`evidence-diag-demo.txt`、`v4-baseline.ts`（用 v4 接口写同样的扩展，引用仓库里的 v4/api.ts，也过 tsc，数行数用）。
+
+---
+
+# 报告：t20 接口设计与架构审查，宿主与工具链视角
+
+读过：提案第 0 到 11 节与第 16 节、`spike/v4/*`、第三版 `kernel.ts`、`check.ts`，以及与宿主直接相关的现有平台：ADR 0024（远程服务）、ADR 0034（语言政策）、`nb-runtime` 的 `remote/contract.ts`、`remote/protocol.ts`、`plugins/contracts.ts`、`nb-agent-ui/src/harness.ts`、插件 SDK 的 `examples/testing/stage.ts`。
+
+## 1. 结论
+
+按重要性排，七条。
+
+1. **v4 只定了扩展作者那一半，宿主那一半没有接口；补上它会反过来改日志字段。** 界面要“码而不是文案”“结果未知”“谁改了请求”“流式增量对账”，v4 的日志里没有机器可读的字段：`toolResult` 只有 `isError`，`assistant` 没有 `request` 序号，输入被拒的原因是字符串，`Block.origin` 是要解析的字符串。建议补成 `toolResult.status`、`assistant.request`、`Rejection{code, params}`、结构化的 `Origin`。不补，界面只能解析文字，违反 ADR 0034 的“按码分支”。
+2. **写命令必须带 `commandId`，复用日志事件的幂等键。** ADR 0024 规定写请求从帧发出起结果未知（`unknown-outcome`），界面重发是必然的。v4 的 `enqueue`、`send` 重发一次会多一条用户的话和一次模型花费。`host.ts` 的 `SessionCommands` 要求每个命令带 `commandId`，重发得到第一次的结果（`replayed: true`）；失败码用 `commandErrors` 这张封闭的表，它同时是远程方法 `errors` 的来源。
+3. **扩展失败分两类：改变了结果的进日志（新事件 `extensionFailed`），其余只进诊断；诊断要有稳定的码、结构化参数、英文说明、合并计数。** v4 只说“写诊断”。spike 里诊断是内存数组，去重键含中文 message，重放不跑处理函数，所以重启后失败的痕迹没了。槽没摆、事件名拼错应在装配时一次性报出，不要等第一次请求。
+4. **用按会话的 `mount(ctx)` 取代 `dispose()`。** 扩展对象在插件激活时只创建一次，被所有会话共享，`dispose()` 不知道是哪个会话；文件监视器这类外部事实的来源（`fileChanged` 由谁写）v4 没有答案。`mount` 返回卸载函数，同时回答“服务怎样交给扩展”（工厂闭包）与“停用时怎样摘下”。配套规定撤回对已打开会话的语义：运行跑完再摘，空闲时自动重新装配并写 `profileChanged{reason}`。
+5. **测试工具用真内核，只假四样：模型、工具、时钟、资源；默认严格。** 严格模式在关闭时检查“有没有未被认领的 error 诊断”和“重放得到的状态与现场一致”，扩展写错不会悄悄通过。前提是内核的计时器全走注入时钟，处理函数超时要 abort 它的 `ctx.signal`。spike 用真实 `setTimeout`，超时只 reject 不 abort（读 `kernel.ts` 第 543 到 549、684 到 690 行得出，没有运行验证）。
+6. **`settings` 用 TypeBox 模式，不用 `{defaults}`。** 只有 TS 类型的话，`changeSettings` 没法返回 `invalid-value`，t05 的表单（nb-form 按 TypeBox 模式画）没有数据源，旧设置里多出来的键也发现不了。平台的远程合同已全是 TypeBox。
+7. **命名：同一个词不要指几样东西。** `session` 同时是作用域构造函数、`ctx.session`、会话；`path` 与 `node:path` 撞名；`input` 指六样东西（见第 4 节第 14 条）；`renderAll` 与 `render` 是同一件事。建议 `slice.path` / `slice.session`、`ctx.tools` / `ctx.model` 摊平、`renderAll` 并入 `render`（键规则同 `on`）、`globalExtensions` 改 `pluginExtensions`。
+
+## 2. 我的接口
+
+### 2.1 会话对外：命令、查询、帧（`host.ts`）
+
+界面与远程服务看到的是 `SessionApi`：十个命令、五个查询、一个订阅。
+
+```ts
+export type SessionCommands = {
+    [K in CommandName]: (args: CommandMap[K]["args"] & {commandId: string}) => Promise<CommandResult<K>>;
+};
+// CommandResult<K> = {ok: true; value; seq; replayed?} | {ok: false; code: CommandErrorCode<K>; detail?}
+
+export const commandErrors = {
+    send: ["empty-input", "input-too-large", "no-model", "no-credentials", "profile-invalid", "session-closed"],
+    edit: ["empty-input", "input-too-large", "input-not-found", "input-consumed", "session-closed"],
+    remove: ["input-not-found", "input-consumed", "session-closed"],
+    abort: ["session-closed"],      // 幂等：没有运行时返回 {aborted: false}，不是错误
+    rewind: ["running", "unknown-node", "invalid-target", "empty-input", "session-closed"],
+    /* enqueue、start、compact、changeSettings、changeProfile 见 host.ts */
+} as const;
+```
+
+- **码按命令分，是封闭联合。** `remove` 的失败码里没有 `no-model`，拿它比较是编译错误（`typetest.ts` 第 18 例）。界面的 `failureKey()` 用 `never` 兜底，新增一个码而漏处理会编译失败（`example-ui.ts`）。`detail` 只放结构化的值，不放句子。
+- **手快会撞上的命令做成幂等或可区分。** `abort` 没有运行时返回成功加 `aborted: false`；`edit`、`remove` 撞上刚被取走的输入得到 `input-consumed`，界面把缓冲区那一行换成对话里的消息，不报错（`editQueued`）。
+- **运行前就能判定的失败是命令错误、不写日志**：`no-model`、`no-credentials`、`profile-invalid`。运行到服务商才发现的鉴权失败是日志里的 `modelFailed{kind: "auth"}`。`nb-agent-ui/src/harness.ts` 头注释记着旧应用“缺密钥时 harness 一个事件都不发、日志里却有 `run_end`”，这条划分消除这种两头不一致。
+- **`rewind` 只能回到合法目标。** `rewindTargets()` 给出轮与步的边界（与压缩切点同一条规则：切在一步中间会拆开工具调用与结果），否则返回 `invalid-target`。运行中要 `abort: true` 才受理，先中止、等收口、再回退，在同一个写入队列里做。`resend` 给了就在回退后入队新话，对应“编辑以前的话再发”。
+- **成功结果带 `seq`**：命令受理后日志的最新 seq，界面等订阅追到它再画，读得到自己刚写的。
+- **`commandId` 就是日志事件的幂等键**（提案第 2 节已有“同一来源同一个键只写一次”），所以重启后重发仍然有效，内核不需另存一张表。
+
+订阅是远程服务的一个事件，payload 是 `Frame`：
+
+```ts
+export type Frame =
+    | {type: "log"; event: Event}                      // seq 严格递增，权威
+    | {type: "delta"; request: number; n: number; part: "text" | "thinking" | "toolArgs"; callId?: string; text: string}  // 不进日志，丢了无妨
+    | {type: "status"; status: RunStatus; afterSeq: number}   // aborting、phase 这类不进日志的状态
+    | {type: "diagnostic"; diagnostic: Diagnostic}
+    | {type: "reset"; head: number};                   // 服务端丢过帧：丢掉临时内容，用 log 补
+```
+
+- **日志是权威，增量只画“正在生成的那条”**，与 `nb-agent-ui` 现有的两条来源分工一致。对账靠序号：`assistant` 事件新增 `request`，与 `modelStarted.request`、`DeltaFrame.request` 对得上；增量的 `n` 不连续就丢弃这条回复的临时内容。
+- **重连与首次加载是同一段代码**（`example-ui.ts` 的 `connect`）：先订阅并暂存，再取 `snapshot()`，按 seq 分页 `log()`，最后放行暂存的帧。`SessionMirror` 对日志帧的 seq 只进不退，重复的忽略。
+- **缓冲区**不用界面自己归约：`SessionMirror.buffer()` 由 `inputQueued/Edited/Removed/Consumed` 四种事件算出，与 `snapshot().buffer` 同形，nb-agent-ui 与 nb-story 共用（对应现有的 `createHarnessTranscript`）。
+- **“结果未知”的工具调用、中断的运行、被拒的输入、模型失败、扩展失败**都是日志里的字段（`toolResult.status === "unknown"`、`runEnded.reason === "interrupted"`、`inputConsumed.rejected`、`modelFailed`、`extensionFailed`）。`SessionMirror.attention()` 把它们收齐成一张清单，带 seq 供跳转，带 `open` 标记是否已因回退或重新开始而消除。
+
+### 2.2 预览
+
+```ts
+preview({leaf?, atRequest?}): Promise<PreviewResult>
+// {fidelity: "next" | "exact" | "reconstructed", hashMatches?, request, original, changes: RequestChange[],
+//  slots: SlotReport[], skipped: {extension, reason}[], tokens: {estimated, window, threshold, byArea}, diagnostics}
+```
+
+- **每块的来源**：`Block.origin` 是结构化联合（`fixed`、`event{eventId, type, extension}`、`slot{name, extension}`、`summary`、`intercept{extension}`），界面与测试都不解析字符串。拦截器里新造块用 `ctx.block(text)`，来源由内核盖章（`typetest.ts` 第 13 例：手写没有来源的块是编译错误）。
+- **谁改了请求**：`original`（视图直接算出）与 `request`（拦截之后）并列，`changes` 由内核比较两者的块得到（块不可变，按引用比），**不要求拦截器自己报**。`modelStarted.modifiedBy` 只到字段，不够界面定位到块。
+- **过去的请求**：提案第 14 节推迟了“可复现”，但界面“看完整上下文”总会点到过去的一轮。`fidelity` 与 `hashMatches` 老实说明：有录制是 `exact`，没有就由日志重建并拿 `modelStarted.hash` 比对，不一致时界面标“与当时发出的不完全相同”。
+- **预览不完整要说**：`skipped` 列出 `preview: "skip"`、已摘下、失败的扩展。
+
+### 2.3 插件宿主：`agent.extensions`（`example-plugin.ts`）
+
+```ts
+// 入口：服务经工厂捕获进扩展；键就是扩展 id，不用写第二遍
+activate(services) {
+    return {contributions: {"agent.extensions": extensions(fileNotice(services.fileWatcher), memory(services.memorySearch), nag)}};
+}
+// 清单：声明只放可序列化的部分，从扩展对象导出，id、tags、dependsOn 只有一处来源
+export const descriptorContributions = declarationsOf(fileNotice(noopWatcher), memory(noopSearch), nag);
+// 宿主一侧，对应平台的 ContributionReceiver
+interface ExtensionReceiver { prepare(handle): void; published(handle): void; revoke(handle, reason): void }
+```
+
+- **把服务交给扩展用工厂闭包**：`memory(search)`、`fileNotice(watcher)`。测试里换成假服务一行，不需要服务定位器，也不需要 `ctx.service(...)` 这样的新概念。代价：闭包里不能放会话状态（会话状态放片里），这条要写进插件作者文档。
+- **`mount(ctx)`**：会话装上时调用，返回卸载函数。`ctx.external(name, data)` 写自己声明的外部事实，运行中到下一个边界才写入；`ctx.signal` 在卸载时触发。文件监视器的订阅就是三行（`example-extensions.ts` 的 `fileNotice`）。
+- **撤回**：`revoke` 幂等。平台规定撤回后 `handle.implementation()` 抛 `PluginStateError`（`plugins/contracts.ts` 的注释），宿主不缓存实现。正在运行的会话先跑完这次运行（运行中再调它的入口得到 `extension-revoked` 诊断并跳过，`reduce` 照常，状态不丢），空闲时自动重新装配并写 `profileChanged{reason: "plugin-removed"}`；新装的插件同理（`"plugin-added"`）。在这之前 `snapshot().pendingReassembly` 列出差异，界面可提示，也可调 `changeProfile` 立即应用。
+
+### 2.4 测试工具（`testing.ts`，例子在 `example-tests.test.ts`）
+
+设计原则：**内核是真的**（真的日志、归约、视图、拦截链、单写者、请求校验），**假的只有四样**：模型、工具、时钟、资源。假模型过与线上同一份请求校验，测试里写错对话形状会和线上一样失败。
+
+```ts
+const t = await createTestSession({profile?, extensions, settings?, files?, tools?, model: "script" | "manual", strict?: true});
+t.model.script("好的", {text: "写", tools: [{name: "edit", args: {}}]});   // 或 respond(fn)，或 manual() + await next()
+await t.say("续写第三章");        // 入队并开始，等运行结束；sayAsync 不等
+t.requests[0].outline()           // ["system: fixed:profile", "user: event:nbook.memory/retrieved | event:input"]
+t.state(nag).count                // 类型从扩展定义推出，片名拼错是编译错误
+const mark = t.mark(); await t.rewind(mark);
+await t.clock.advance(1_000);     // 处理函数的限时靠它触发，没有真实的等待
+t.diagnostics.expect("reduce-threw", {extension: "lab.broken"});   // 认领一条诊断
+t.raw.enqueue({commandId, ...})   // 带 commandId 的原始命令，测重发
+await using t = ...               // 关闭时做严格检查
+```
+
+**严格模式**（缺省开）在关闭时检查两件事，任一不成立测试失败：（a）没有被 `expect` 认领的 error 诊断，作者测试里没提到的诊断就是他没想到的错；（b）重放一致，把日志从头归约一遍，状态必须与现场一致，抓“归约里读了时钟或随机数”这类 v4 只靠文字约定的纪律（提案第 4 节“纯函数”）。
+
+**手动模式**用于运行中途的场景：模型调用、工具调用都能停住，测试取出来看中间状态、在中间插话、中止，再放行。
+
+两个要求的测试（完整代码在 `example-tests.test.ts`）：
+
+```ts
+test("检索结果排在用户的话前面", async () => {
+    await using t = await createTestSession({
+        profile: {id: "test.writer", name: "写手", system: "你是写手。", tools: {required: []}},
+        extensions: [memory(async () => [{fact: "林舟左手有旧伤", score: 0.9}])],
+    });
+    t.model.script("好的");
+    await t.say("续写第三章");
+    // 请求里：检索结果在前；日志里：用户的话先写、检索结果后写（事实顺序）
+    expect(t.requests[0]!.outline()).toEqual(["system: fixed:profile", "user: event:nbook.memory/retrieved | event:input"]);
+    expect(t.events.map((event) => event.type).filter((type) => type === "input" || type === "nbook.memory/retrieved")).toEqual(["input", "nbook.memory/retrieved"]);
+});
+
+test("回退到第 3 次发言之后，提醒计数回到 3，往后第 6 次才再提醒", async () => {
+    await using t = await createTestSession({extensions: [nag]});
+    t.model.script("1", "2", "3", "4", "5", "6", "7");
+    await t.say("a"); await t.say("b"); await t.say("c");
+    const afterThird = t.mark();
+    await t.say("d");
+    expect(t.state(nag).count).toBe(4);
+    await t.rewind(afterThird);
+    expect(t.state(nag).count).toBe(3);
+    expect(t.eventsOf("lab.nag/nag")).toHaveLength(1);          // 路径上只有第 3 次那条
+    await t.say("e"); await t.say("f"); await t.say("g");
+    expect(t.requests.slice(-3).map((request) => request.indexOf("event:lab.nag/nag") >= 0)).toEqual([false, false, true]);
+});
+```
+
+行数（不含空行与注释）：例 1 是 10 行，例 2 是 17 行，例 3（归约抛错）8 行，例 4（处理函数超时）9 行，例 5（运行中插话，手动推进）18 行，例 6（重发 commandId）7 行。第三版 spike 的 `check.ts` 里每个测试文件要自备约 18 行助手（`scripted`、`tools`、`session()`，第 27 到 47 行），并直接用 `Session` 内部的 `pathTo`、`stateAt`、`entries`。这里助手被导入，断言用公开的 `outline()`、`state()`、`eventsOf()`。
+
+### 2.5 诊断：作者看到什么（`diag-demo.ts` 实际运行的输出，`evidence-diag-demo.txt`）
+
+```text
+error  reduce-threw  lab.broken · reduce · event input (seq 12)  x3
+  The reducer for slice "n" threw; the slice keeps its previous value (0).
+  cause: Error: boom
+         at input (lab/broken.ts:6:41)
+  hint: Reducers are replayed on every open and rewind; they must be pure and must not throw. Return undefined to leave the slice unchanged.
+
+error  handler-timeout  lab.hangs · on · event input (seq 30)
+  The handler for input did not settle within 1000 ms; its output was dropped and the run continued.
+  hint: Pass ctx.signal to I/O and stop when it aborts. The limit is the extension's timeoutMs (default 30000).
+
+warn   slot-unplaced  nbook.sql · assembly
+  Slot "word-count" is contributed by nbook.sql but profile "writer" does not place it; its content is dropped.
+  hint: Add <Slot name="word-count" /> to the profile template, or <Slot name="*" stable /> to take all unnamed slots.
+
+error  unknown-event-handler  lab.typo · assembly
+  "inptu" is not a known event, so this handler can never run.
+  hint: Did you mean "input"?
+```
+
+规则：码是封闭表（`host.ts` 的 `diagnosticCodes`，每个码带缺省级别），`params` 是结构化参数，`message` 与 `hint` 是英文（ADR 0034：开发诊断英文、按码分支、界面按“拥有者 + 码”本地化）。同一个 (code, 扩展, 入口, 事件类型) 合并计数，不重复刷屏。槽没摆与事件名拼错在**装配时报一次**；TS 作者的事件名拼错在编译期就是错（`typetest.ts` 第 9 例），装配期检查给 JS 作者与第三方插件。
+
+## 3. 与 v4 的对照
+
+每处：v4 怎么写，我怎么写，为什么。
+
+| # | v4 | 我 | 为什么 |
+|---|---|---|---|
+| 1 | `path(0)`、`session("")` 裸导出 | `slice.path(0)`、`slice.session("")` | 文件类插件几乎都会 `import path from "node:path"`；`session` 是最常用的局部变量名 |
+| 2 | `ctx.session.tools`、`ctx.session.model` | `ctx.tools`、`ctx.model` | `session` 已被作用域与“会话”占用；摊平只多一个字段 |
+| 3 | `Block.origin: string`（`slot:<名字>@<扩展>`） | `Origin` 联合 | 预览、测试、诊断都要按来源定位，不该解析字符串 |
+| 4 | `toolResult{isError?}`，“结果未知”只在文字里 | `status: ok｜error｜denied｜blocked｜unknown` 加 `by` | 界面要专门的样子；仓库规定不按文案分支。`blocked` 由内核按“拦截器没调 `next`”推断，作者不写 |
+| 5 | `reject: string`、`inputConsumed.rejected?: string` | `Rejection{code, params}`、`Attributed` | 拒绝原因是给用户看的失败说明，ADR 0034 要求码加参数，界面本地化 |
+| 6 | `assistant` 没有 `request` | 加 `request` | 流式临时内容要对账 |
+| 7 | 失败只“写诊断” | `Diagnostic` 结构加 `diagnosticCodes`；改变结果的失败写 `extensionFailed` 事件 | 重放不跑处理函数，重启后失败的痕迹只能在日志里 |
+| 8 | `dispose()` | `mount(ctx)` 返回卸载函数，`ctx.external`、`ctx.signal` | 扩展对象跨会话共享；外部事实要有来源 |
+| 9 | `settings: {defaults: St}` | `settings: Type.Object({...})`，类型由 `Static` 推 | 校验补丁、画表单、发现多余的键 |
+| 10 | Profile 有 `renderAll`，扩展有 `render` | 都叫 `render`，键规则同 `on`，Profile 在最里层、同一事件优先 | 少一个概念；名字待定的问题自然消失。非 Profile 扩展渲染别人的事件，装配时报 `render-foreign-event` |
+| 11 | `globalExtensions` | `pluginExtensions` | 它指的是 `agent.extensions` 贡献来的扩展，与 Profile 的 `extensions`（自带）对称 |
+| 12 | 拦截器手写块 | `ctx.block(text)`，来源盖 `intercept` | 保证每个块都有来源 |
+| 13 | 登记方式没定 | `extensions(...)` 生成实现表，`declarationsOf(...)` 生成清单声明 | id 只写一遍；清单里只有可序列化的 |
+| 14 | 命令表（提案第 3 节）没有参数、返回值、错误；`reconfigure(profile, 插件清单)`；`external(event)` 由“插件”调用 | `SessionCommands`：每个带 `commandId`，返回 `{ok, value, seq}` 或码；界面调 `changeProfile(profile)`，清单变化由宿主自动重新装配；外部事实只经 `mount` 的 `ctx.external` | 界面不该知道插件清单；插件不该持有会话 |
+| 15 | `abort()` 只在运行中可用 | 幂等，`{aborted: false}` | 点击与运行结束的竞态是常态 |
+| 16 | `profileChanged{profile, extensions, hash}` | 加 `reason` | 界面区分“用户换的”与“插件装卸引起的” |
+| 17 | 预览只有第 8 节的一句话 | `PreviewResult` | 见 2.2 |
+
+**v4 做对了、应当保留的**：
+
+- 按事件名挂处理函数（`on`）与“片 → 事件名 → 新值”的 `reduce`，`reduce` 没有 ctx、是纯函数。
+- ctx 按入口分档；`emit`、`set`、`continue` 直接调用、处理函数结束时一起写入，中途抛错都不写。
+- 事件名驼峰加“自己与内核用短名、别人用全名”的规则。
+- path 与 session 两种作用域。
+- 不合法指令由内核拒绝、不写日志。
+- `modelStarted`、`toolStarted` 先落盘与崩溃后结算。
+- `exports` 选择器加声明合并的类型安全跨扩展读。
+- `Turn`、`turn`、`commit` 把对话形状交给 Profile。
+- 一个扩展对一条事件的输出是一个整体（全写或全不写）：这条对测试很有利，断言不必考虑半截输出。
+
+## 4. 架构审查
+
+| # | 严重程度 | 位置 | 现象 | 为什么是问题 | 建议 |
+|---|---|---|---|---|---|
+| 1 | 重要 | 提案第 3 节命令表、第 12 节第 1 步（`clientId` 只在示意里）；ADR 0024 | 命令没有幂等机制 | 写请求帧发出后链路断了，路由层给 `unknown-outcome`，界面必须重发；`enqueue`/`send` 重发就多一条用户的话，一次运行跑两遍 | 每个命令带 `commandId`，写成日志事件的 `key`；重发返回第一次结果（`replayed`） |
+| 2 | 重要 | `v4/api.ts` 的 `toolResult`；提案第 2 节 `recover()`（“结果未知”） | “结果未知”“被拦截”“被拒绝”无机器可读字段，只有 `isError` 加文字 | 界面要专门的样子；仓库规则是不按文案分支 | `status` 联合加 `by`（见对照 4） |
+| 3 | 重要 | `v4/api.ts` 的 `inputConsumed.rejected`、`intercept.input` 的 `{reject: string}`；提案第 3 节“取走的规则”、第 8 节 | 拒绝原因是字符串 | 它是给用户看的失败说明，ADR 0034 决策 2 要求“只传码、结构化参数”，英文界面会看到中文原因 | `Rejection{code, params}`，`by` 由内核按扩展 id 填 |
+| 4 | 重要 | 提案第 8 节“失败”；第三版 `kernel.ts` 的 `diag()`（约第 246 到 251 行） | 失败只进内存里的诊断数组，去重键是 `code|ext|message`，没有计数；重放不跑处理函数 | 重启后“某扩展三轮前失败过、输出被丢”没有痕迹；预览与实际发出的请求也对不上 | 改变结果的失败（处理函数输出被丢、拦截器被跳过、工具被缺省拒绝）写 `extensionFailed` 事件；归约出错不写（重放会得到同样结果）；槽与前缀类每次请求都可能重复的只进诊断 |
+| 5 | 重要 | 第三版 `kernel.ts` 的 `Diagnostic`（`message` 是中文句子，如 `react-failed`）；提案没有诊断合同 | 诊断没有结构化参数、没有 hint、没有 cause，文字是中文 | ADR 0034：开发诊断英文、按码分支；作者要知道“下一步做什么” | `Diagnostic`（见 `host.ts`）加 `diagnosticCodes` 表；与 `nb-runtime` 现有的诊断存储（`diagnostics/store.ts`）对接 |
+| 6 | 重要 | `v4/api.ts` 的 `dispose?(): void`；提案第 10 节生命周期、第 3 节 `external(event)` | 扩展对象跨会话共享，`dispose` 无会话参数；外部事实由谁订阅、写进哪个会话没有说 | 文件变更感知这类扩展做不出来，或者逼插件自己持有会话列表 | `mount(ctx)`（见 2.3） |
+| 7 | 重要 | 提案第 10 节“换 Profile 或插件清单：只在空闲时”；`plugins/contracts.ts`（撤回后 `implementation()` 抛 `PluginStateError`） | 没有规定插件在会话运行中被撤回、或新装时已打开的会话怎么办 | 运行中撤回会得到一串 `PluginStateError`，已打开的会话永远不认新插件 | 运行跑完再摘，空闲时自动重新装配，写 `profileChanged{reason}`；`snapshot().pendingReassembly` 给界面 |
+| 8 | 重要 | `v4/api.ts` 的 `settings?: {defaults: St}`；提案第 11 节“表单归 t05” | 设置只有 TS 类型，没有运行时模式 | 无法校验补丁（`changeSettings` 的 `invalid-value`）、无法画表单（nb-form 按 TypeBox 模式画）、无法发现旧值里多出的键 | TypeBox 模式，缺省值写在模式里（`api.ts`） |
+| 9 | 重要 | 提案第 6 节 `Block.origin` 为字符串；第 8 节“修改记录”只到字段；第 14 节推迟“预览过去请求可复现” | 预览“每块的来源、谁改了请求”不够用；过去的请求只有哈希 | 界面“看完整上下文”总会点到过去的一轮，现在没有任何交代 | 结构化 `Origin`、`RequestChange`、`fidelity` 与 `hashMatches`（2.2） |
+| 10 | 重要 | 提案第 1 节图（增量不进日志）；`v4/api.ts` 的 `assistant` | 增量与日志里的回复没有对账键 | 界面只能靠顺序猜“哪条临时内容被哪条回复取代”，断线重连后更容易错 | `assistant.request`；`DeltaFrame.request` 与 `n`；`reset` 帧 |
+| 11 | 重要 | 提案第 3 节 `rewind(to)`、第 9 节（只有压缩讲“切点只在轮与步的边界”） | 回退目标是不是任意节点没有说 | 回退到一步中间会得到不成对的工具调用与结果，下一次请求才被校验挡住，错误离原因很远 | `rewindTargets()` 加 `invalid-target`，与压缩切点同一条规则 |
+| 12 | 重要（读代码，没有运行验证） | 第三版 `kernel.ts` 第 543 到 549、684 到 690 行；提案第 8 节“中止”“反应有时限” | 限时用真实 `setTimeout`；超时只 reject，处理函数的 `ctx.signal` 是整次运行的控制器，没有被 abort | 超时后它的 I/O 继续跑；测试只能真等（`check.ts` 用 `timeoutMs: 50`） | 每次调用建子 `AbortController`，超时即 abort；内核所有计时器经注入时钟（测试工具要求） |
+| 13 | 重要 | `plugins/contracts.ts` 的 `idPrefix: "plugin"`（贡献 id 必须以“插件 id 加点”开头）；v4 例子里插件与扩展都叫 `nbook.history` | 若 `agent.extensions` 选这个选项，现有例子的 id 会被拒；事件前缀、`dependsOn`、清单哈希都建在 id 上 | 晚改 id 牵动日志里的事件类型名 | 现在定：要么不设 `idPrefix`，要么扩展 id 改成“插件 id 加点加名字”（推荐后者，日志里自带来源） |
+| 14 | 建议 | `v4/api.ts` | `input` 指六样东西：事件 `input`、拦截 `intercept.input`、类型 `UserInput`、`Turn.input`、`turnStarted.input`（是入队 id）、命令参数 `input`。`session` 三义；`ctx.read(id)` 与 `ctx.resources.read(uri)` 两个 `read`；`Turn` 既是类型又是 JSX 节点，还有 `turn` 函数；Profile 的 `extensions`、`globalExtensions`、贡献点 `agent.extensions` | 处理函数 `on.input` 是在拦截之后触发，`intercept.input` 在拿到 `UserInput` 时触发，作者很容易混 | 至少把事件改名为 `userInput`/`steer` 之类不与类型撞名的词；`turnStarted.input` 改 `inputId`；`ctx.read` 改 `ctx.exports(id)`（我在 api.ts 里没改，只提建议，以免和第 16 节争论叠加） |
+| 15 | 建议 | 第 16 节第 5 条自己写的：`emit`、`set` 在处理函数结束时一起写入，`ctx.state` 是这条事件之后的值 | 处理函数里 `set` 之后马上读 `ctx.state`，读到的是旧值 | 与 React 的 setState 同类的惊讶，且没有任何提示 | 文档写明；`handler-threw` 诊断带“丢弃了 N 条 emit、M 条 set” |
+| 16 | 建议 | 提案第 4 节“只读、普通数据”只管片；闭包不管 | 扩展对象被所有会话共享，闭包里的可变变量会跨会话泄漏 | 没有机检，作者按直觉把缓存放进闭包就出错 | 文档规定；开发模式冻结 `defineExtension` 返回的对象；测试工具可加“同一扩展开两个会话互不影响”的断言 |
+| 17 | 建议 | `v4/api.ts` 注释：事件“要先单独定义成常量再登记；从扩展本身推导会让类型循环引用” | 对外共享事件或导出要写两处 `declare module`，且带服务的工厂扩展没法用 `typeof` | 学习曲线的最陡处；`example-extensions.ts` 的 `memory` 就踩到了这点 | 在 `defineExtension` 的文档里给固定模板；`extensions()` 返回的类型可作为 `ExtensionExports` 的来源之一，实现时评估 |
+| 18 | 建议 | 提案“影响”一节 nb-agent-ui；`nb-agent-ui/src/harness.ts` | 现有 `createHarnessTranscript` 吃 OMP 的 `AgentEvent` 与 nb-session 条目，新日志事件形状不同，适配器要重写；`SessionMirror`（缓冲区、状态、注意）与它的分工没写 | 迁移时容易两边各归约一份 | 迁移计划里写明：消息视图仍由 transcript 出，`SessionMirror` 管缓冲区、状态与 attention，两者吃同一条帧流 |
+
+**仔细检查后没有发现问题的方面**：`ReactCtx` 里 `emit`、`set`、`continue` 的类型安全；`reduce` 无 ctx、纯函数与重放的关系；单写者与边界；`modelStarted`、`toolStarted` 先落盘；扩展输出“一个整体”的规则；`on` 键同时容纳内核短名与别人的全名这条规则本身。
+
+**学习曲线**（按真实例子数概念，不含平台通识）：
+
+- 最小的提醒插件（`example-extensions.ts` 的 `nag`）要学：`defineExtension`、`id`、片、事件声明、`reduce`、`on`、`ctx.emit`、`ctx.state`，再加登记（`extensions()`、贡献点）共约 10 个概念；扩展本体 11 行，v4 同样 11 行（`v4-baseline.ts` 实测）。
+- 记忆检索再加：设置模式、`render`、`ctx.signal`、工厂注入服务，约 14 个；文件变更感知再加：`mount`、`exports`、两处声明合并、`ext()`，约 18 个。
+- 但 v4 已有 `reminder()` 辅助函数，同样的提醒一行就能写：`reminder({id: "lab.nag", every: 3, text: () => "记得保存。"})`。建议文档分三级：第一级只教辅助函数（`reminder`、`opening`，约 1 个概念）；第二级 `on` 加 `conv`；第三级才讲片与归约。我的改动没有缩短扩展本体，缩短的是宿主与测试那一侧，v4 那里是空白。
+
+## 5. 对第 16 节八条与待定项 16 到 19 的判断
+
+第 16 节：
+
+1. **按事件名挂处理函数**：同意，保留；`reduce` 无 ctx 的纯函数形状尤其对。
+2. **事件名统一驼峰**：同意；全名带 `/` 要加引号是可接受的代价；问题只在 `input` 一词多义（第 4 节第 14 条）。
+3. **用户的话拆成 `input` 与 `steer`**：同意拆分；名字 `input` 与 `UserInput`、`turnStarted.input`、`intercept.input` 撞，建议改名。
+4. **`ctx` 按入口分档**：同意；`ctx.session` 摊平成 `ctx.tools`、`ctx.model`；`ctx.read` 与 `ctx.resources.read` 的两个 `read` 建议区分。
+5. **`emit`、`set` 直接调用、结束时一起写入**：同意；要写明处理函数里读不到自己刚 `set` 的值，失败诊断要带“丢弃了多少”。
+6. **去掉的那些**：同意；`ctx.setting(key, 缺省)` 去掉后，设置要有运行时模式（TypeBox），否则缺省值与类型没处放。
+7. **变量名用完整的词**：同意；我的例子都照做，只留 `ctx` 一个缩写。
+8. **Profile 自己就是最里层的扩展**：同意，并建议把 `renderAll` 并入 `render`（键规则同 `on`，Profile 在最里层、同一事件优先），不用再为“名字待定”争论；`globalExtensions` 改 `pluginExtensions`。
+
+待定项：
+
+- **16（steer 与 followup 的缺省）**：同意运行中回车是 followup；`send` 的 `mode` 缺省 `followup`，插话是界面上另一个显式操作，命令参数里写 `mode: "steer"`。
+- **17（多条 followup）**：同意一条一轮。缓冲区条目与 `inputConsumed`、轮一一对应，`edit`、`remove`、`rewindTargets` 才好定义；合成一轮就要回答“被合成的几条各自怎么改、怎么回退”。
+- **18（压缩后放回的内容放哪）**：同意写成 `conv` 事件跟在边界；这样预览里它们是 `event` 来源的块，界面看得到出处，也能被回退。
+- **19（会变的槽的缺省位置）**：同意缺省放末尾；宿主侧要让代价看得见：预览的 `slots[].stable` 与 `tokens.byArea`，以及诊断 `slot-volatile-in-system`。
+
+## 6. tsc 的结果
+
+```text
+$ /home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc -p /tmp/t20-api-design/sonnet-host/tsconfig.json
+$ echo $?
+0
+```
+
+无输出，退出码 0。`typetest.ts` 共 26 处 `@ts-expect-error`（编号 1 到 26），涵盖：片类型、事件名拼写、`emit` 的 data 形状与必填、设置项拼写与类型（来自 TypeBox 模式）、`ctx.session` 已删除、`toolResult.status` 拼写、`mount` 里 `external` 事件名、`Rejection` 不能是字符串、块必须有来源、`renderAll` 与 `globalExtensions` 已删除、Profile `render` 键拼写、`extensions()` 的键只能是扩展 id、命令失败码按命令分的封闭联合、命令缺 `commandId`、命令参数名拼写、`Frame` 与诊断码的穷举、测试工具里片名拼写、状态只读、诊断码拼写、`try` 的命令名。
+
+附：`bun diag-demo.ts` 运行通过，输出即第 2.5 节的样子。`example-tests.test.ts` 与 `testing.ts` 只过 tsc，没有实现，没有执行。tsconfig 里的 `paths`（typebox）是为在 `/tmp` 下解析仓库依赖加的。
+
+## 最严重的几条（给主 Agent 的摘要）
+
+- 命令幂等（`commandId` 等于日志幂等键），否则 WebSocket 重发会重复用户的话。
+- 日志里缺机器可读字段：`toolResult.status`、`assistant.request`、`Rejection`、结构化 `Origin`。
+- 扩展失败要进日志（`extensionFailed`），诊断要有码、英文、结构化、合并。
+- `mount(ctx)` 取代 `dispose()`，并规定插件撤回对已打开会话的语义。
+- 内核计时器走注入时钟，处理函数超时要 abort 它的信号，测试才不用真等。
+- `settings` 用 TypeBox 模式。
+- 与平台 `idPrefix` 规则对齐扩展 id（现在定，晚改会牵动日志里的事件类型名）。

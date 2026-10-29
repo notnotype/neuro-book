@@ -1,0 +1,446 @@
+# w00032 t20 接口设计与架构审查：插件作者视角（Sonnet）
+
+我把第四稿接口当作插件作者来用：先用 v4 接口（`v4api.ts`，即 `spike/v4/api.ts` 的副本）写七个插件，记下写不出来与别扭的地方；再改出自己的接口（`api.ts`），把同样七个插件重写一遍，并用 `typetest.ts` 里 25 处 `@ts-expect-error` 证明类型在起作用。对 v3 spike 内核做了两个实验（`exp/`），把两条发现从“推断”变成运行证据。
+
+文件一览（目录 `/tmp/t20-api-design/sonnet-plugin/`）：
+
+| 文件 | 内容 |
+|---|---|
+| `api.ts` | 我的接口（433 行，只有类型与声明） |
+| `contracts.ts` | 四个插件对外的契约（`defineApi`） |
+| `p1-memory.ts` 至 `p7-guard.ts` | 七个插件的新写法 |
+| `v4-p1-memory.ts` 至 `v4-p7-guard.ts`、`v4api.ts` | 同样七个插件在 v4 接口下的写法（能写多少写多少） |
+| `profile.tsx` | 一个小 Profile，检验“Profile 就是扩展”与 Profile 级 `render` |
+| `activate-example.ts`、`services.ts` | 插件怎样在 `activate` 里拿服务再交给扩展 |
+| `typetest.ts`、`v4-silent.ts` | 新接口的 25 处写错用例；v4 挡不住的三处静默错误 |
+| `exp/exp1-rewind.ts`、`exp/exp2-redaction.ts` | 两个运行实验 |
+| `probe/` | 去掉 `@ts-expect-error` 后的真实报错（第 4 节引用） |
+
+## 1. 结论
+
+按重要性排，不超过 7 条。
+
+1. **给“外部事实”一个入口：`mount(ctx)`。** 每个会话打开时调用一次，内核等它完成才受理指令，返回清理函数；里面用 `ctx.emit`、`ctx.set`、`ctx.callback` 接外部世界。v4 没有这个入口（`api.ts` 里搜不到 `external`、`mount`；`dispose()` 没有会话句柄），所以文件监听（nbook.history）、库结构监听（nbook.sql）、密钥库变更都写不出来。同时删掉 `sessionOpened` 这个“不进日志、只给处理函数”的伪事件，打开时要做的事都放 `mount`。
+2. **外部事实一律放 session 作用域，“送达到哪了”放 path 上。** v4 的 `fileNotice` 例子把 `fileChanged` 写成 path 事件，回退到它之前，“文件被改过”这件事就从路径上消失，模型再也不会被告知（运行证据，`exp/exp1-rewind.ts`）。新写法见 `p2-history.ts`：session 片存全部改动，path 片存送达到的序号，未送达的改动由两者相减。把这条写进 SDK 文档，并把示例改掉。
+3. **用 `defineApi(id, {events, exports})` 加 `uses: {别名: api}` 取代 `ExtensionEvents` 与 `ExtensionExports` 两张全局登记表。** 一份常量给出事件与导出的类型；使用方显式 import、声明别名，监听写 `"history/fileChanged"`，读取写 `ctx.uses.history.pendingChanges`；依赖由 `uses` 推出，不再手写 `dependsOn`；v4 里未登记时报的 `不能赋给 never` 消失。`EventsOf` 的登记方式我的结论是不推荐（理由见第 3、4 节）。
+4. **把作用域与事件种类放进类型。** v4 下三种错误静默通过 tsc 又静默不生效：session 的片挂 path 事件、归约挂 `sessionOpened`、给 ext 事件写 `render`（`v4-silent.ts`，tsc 无报错）。新接口下三处都是编译错误，并且报错是中文提示（`typetest.ts` 第 2、15、19 处）。
+5. **脱敏在 v4 里做不到，日志会把原文记下来。** 输入拦截改写用户的话后，日志的 `input.original` 留着原文；工具结果被改写后，`toolResult.raw` 留着原文（运行证据，`exp/exp2-redaction.ts`：日志里含密钥原文的条目是 `user`、`tool_result`）。提案待定项 14 已推荐“标为敏感，只记哈希”，但 `api.ts` 没有这个口子。我加了 `redacted: true` 标记与 `modifiedBy`（见 `p7-guard.ts`）。
+6. **三处重复样板收进接口。** 一是 `remind` 字段：“值变了或隔 N 轮就在下一轮开头提醒一次，并在压缩后清空”，模式、工作区焦点、任务清单都是这个形状，v4 的 `reminder()` 是独立扩展，不能与别的字段组合，也读不到自己的状态；二是 `compactionRequire` 字段，压缩时加要求不必拦整条压缩任务；三是 `coreHistory` 导出单调增加的 `turns`、`runs`，“每 8 轮”“每 16 次运行”不用再各写一个计数片。设置改用 `setting.choice/text/number/flag` 声明（类型、缺省值、表单一次给出），`exports` 能读设置（模式插件要导出的就是设置）。
+7. **补五个小缺口，不补的话对应的插件写不对：** `ToolInfo.effect`（“挡住所有写文件的工具”不能靠写死的工具名）、`toolResult.details`（任务清单不该从给模型看的文字里 `JSON.parse`）、`ModelRequest.purpose`（路由不该降级压缩请求）、`emit(名字, 数据, {key})`（幂等，触发类事件回退重放后不重复）、`ctx.spawn`（后台任务，形状占位，等 t22 定）。
+
+## 2. 我的接口
+
+完整类型在 `api.ts`，下面是最能说明写法的几段。
+
+### 2.1 契约与使用：一份常量，两头引用
+
+```ts
+// contracts.ts：放在插件自己的 shared 模块里，只依赖 api.ts
+export const historyApi = defineApi("nbook.history", {
+    events: {fileChanged: ext.session<{uri: string; by: string}>(), notice: conv<{text: string; through: number}>()},
+    exports: shape<{pendingChanges: string[]}>(),
+});
+
+// 拥有者：api 里已经有 id、事件、导出的形状；exports 少写一个就是编译错误
+defineExtension({api: historyApi, exports: {pendingChanges: (state) => …}, … });
+
+// 使用者：别名 + 事件名，类型都有；对方可能没装就包一层 optional
+defineExtension({
+    id: "demo.reader",
+    uses: {history: historyApi, mode: optional(modeApi)},
+    on: {"history/fileChanged": (event, ctx) => …},      // event.data.uri 有类型
+    contribute: {x: {value: ({uses}) => uses.mode?.mode}},   // 没包 optional 时不用 ?.
+});
+```
+
+私有扩展（不给别人用）照旧写 `id` 与 `events`，不需要契约。
+
+### 2.2 一个完整的例子：文件变更感知（27 行）
+
+```ts
+const slices = {changes: session<Change[]>([]), deliveredThrough: path(0)};
+const pendingOf = (state: StateOf<typeof slices>) => state.changes.filter((change) => change.seq > state.deliveredThrough);
+
+export const createHistory = (watcher: FileWatcher) =>
+    defineExtension({
+        api: historyApi,
+        tags: ["history"],
+        settings: {mode: setting.choice(["off", "minimal", "full"], {default: "full", label: "文件变更提醒"})},
+        state: slices,
+        reduce: {
+            changes: {fileChanged: (event, changes) => [...changes, {uri: event.data.uri, seq: event.seq}].slice(-200)},
+            deliveredThrough: {notice: (event) => event.data.through},
+        },
+        exports: {pendingChanges: (state) => [...new Set(pendingOf(state).map((change) => change.uri))]},
+        mount: (ctx) => watcher.onChange(ctx.callback(({uri, by}) => ctx.emit("fileChanged", {uri, by}))),
+        on: {
+            input(_event, ctx) {
+                const pending = pendingOf(ctx.state);
+                if (pending.length === 0 || ctx.settings.mode === "off") return;
+                …ctx.emit("notice", {text, through: pending[pending.length - 1].seq});
+            },
+        },
+    });
+```
+
+要点：服务（`watcher`）经工厂函数的闭包进来；外部监听在 `mount` 里建，返回的取消订阅函数就是清理函数；`ctx.callback` 把外部回调包起来，出错带扩展 id 写诊断、不变成没人接的 Promise 拒绝、清理之后不再调用；回退到送达之前，`deliveredThrough` 跟着回去，改动自动回到“未送达”。
+
+### 2.3 模式（23 行）：设置、提醒、拦截、导出
+
+```ts
+export const mode = defineExtension({
+    api: modeApi,
+    tags: ["reminder"],
+    settings: {mode: setting.choice(["normal", "plan"], {default: "normal", label: "模式"})},
+    exports: {mode: (_state, settings) => settings.mode},          // 导出的是设置，不用再抄进一个片
+    remind: {changed: {
+        watch: ({settings}) => settings.mode,
+        text: ({value, previous}) => (value === "plan" ? "现在是计划模式：只读……" : previous === undefined ? null : "已退出计划模式。"),
+    }},
+    intercept: {async tool(call, next, ctx) {
+        const effect = ctx.session.tools.find((tool) => tool.name === call.name)?.effect ?? "exec";
+        const isPlanFile = String(call.args?.path ?? "").startsWith("session://plan");
+        if (ctx.settings.mode === "plan" && effect !== "read" && !isPlanFile) return {text: "计划模式下不能改文件或执行命令……", isError: true};
+        return next(call);
+    }},
+});
+```
+
+### 2.4 `ctx` 逐项核对
+
+七个插件里每一项被用了几次（`grep` 统计，`p1` 至 `p7`）：
+
+| 项 | 所在入口 | 用到的插件数 | 判断 |
+|---|---|---|---|
+| `state` | 视图、处理函数、mount | 4（p2、p3、p6、p7） | 必要 |
+| `settings` | 同上 | 3（p2、p4、p5；另有 `exports` 的第二个参数 1 处） | 必要 |
+| `uses`（取代 `read`） | 同上 | 2 | 必要；类型比 v4 的 `read(id)` 强 |
+| `session`（工具、模型） | 同上 | 1（模式要查工具的副作用） | 保留；`tools` 改成带 `effect` 的对象 |
+| `emit` | 处理函数、mount | 4 | 必要；加 `{key}` |
+| `set` | 处理函数、mount | 0（七个插件都用不到，Profile 的人设要用） | 保留，只给“值在树外”的缓存用 |
+| `continue` | 处理函数 | 0（写手类 Profile 用） | 保留 |
+| `spawn` | 处理函数 | 1 | 新增，占位 |
+| `resources` | 处理函数、拦截、mount | 0（插件的服务经闭包进来，只有 Profile 读项目文件要用） | 保留，但文档要说“插件不要用它找自己的服务” |
+| `signal` | 处理函数、拦截、mount | 1 | 必要 |
+| `callback` | mount | 3 | 新增 |
+| `now` | 视图、拦截 | 0 | 视图保留（`contribute` 要纯）；处理函数去掉，用 `event.at`，重放时是同一个值 |
+
+缺了什么：`mount` 与 `callback`（第 1 条结论）、`emit` 的 `{key}`、`spawn`。多了什么：没有发现多余的，只有 `now` 在处理函数里与 `event.at` 重复。
+
+### 2.5 设置的声明
+
+```ts
+settings: {mode: setting.choice(["off", "minimal", "full"], {default: "full", label: "文件变更提醒"})},
+```
+
+v4 的写法是 `settings: {defaults: {mode: "full" as "off" | "minimal" | "full"}}`：要手写 `as` 才有字面量类型，没有标签与取值范围，设置表单（nb-form 按 TypeBox 的 schema 画表单）没法从它生成。`setting.*` 给出类型、缺省值与 JSON Schema 片段，一行一个设置。`settingsChanged` 事件按扩展分开，只派发给自己，`event.data.patch` 的类型是 `Partial<自己的设置>`，不再是 `Record<string, unknown>`。
+
+### 2.6 插件怎样拿到自己的服务
+
+照 `plugin-sdk/examples/plugins/counter/backend/plugin.ts` 的 `activate(context)`：`context.services.require(key)` 拿到服务，把扩展写成工厂函数，服务经闭包进来（`activate-example.ts`，过 tsc）。这条路不需要内核提供服务查找，且测试时直接传假服务。我没有发现需要改的地方，结论是保留 v3 spike 里 `usage = (log) => defineExtension(...)` 已经在用的写法，并写进文档。
+
+## 3. 与 v4 的对照
+
+每处写“v4 怎么写 → 我怎么写 → 为什么”。行数按“非空、非注释、非 import 的代码行”数。
+
+### 3.1 跨扩展的事件与导出：两张全局登记表 → 契约常量加 `uses`
+
+- **v4**：事件先单独定义成常量，再 `declare module` 登记进 `ExtensionEvents`；导出再登记进 `ExtensionExports`；监听写全名字符串，读取写 `ctx.read("nbook.history").pendingChanges`。
+  ```ts
+  export const historyEvents = {fileChanged: ext<…>(), notice: conv(), delivered: ext()};
+  declare module "./api.ts" {
+      interface ExtensionEvents extends EventsOf<"nbook.history", typeof historyEvents> {}
+      interface ExtensionExports {"nbook.history": ExportsOf<ReturnType<typeof createHistory>>}
+  }
+  on: {"nbook.history/fileChanged": …}
+  ```
+- **我**：`defineApi` 一份常量（上面 2.1），使用方 `uses: {history: historyApi}`，监听写 `"history/fileChanged"`，读取写 `ctx.uses.history.pendingChanges`。
+- **为什么**：
+  1. 登记表是全局的：能不能通过类型检查取决于“这个声明文件在不在当前 TypeScript 程序里”，而不是你有没有 import 它；这在按包分别 `tsc`、或 Profile 文件在工作区里的场景下不可靠（推断）。
+  2. 少登记一处，报错是 `Argument of type '"core.history"' is not assignable to parameter of type 'never'`（`probe/` 下实测，v4 的 `api.ts` 没有登记 `core.history`，路由插件必须自己补一段 `declare module`），第 2 轮 Opus 审查已经撞过同一处。
+  3. 行数几乎不变（四个契约共 17 行，全部插件新写法 147 行加 17 行，v4 版本 166 行），收益在类型安全：别名在本地、事件名不会拼错、依赖自动推出、没有全局状态。
+  4. 代价：多一个 `defineApi` 概念，以及“契约要放在不拖依赖的 shared 模块里”这条约定；现有插件已经有 `shared/contracts.ts`，同一个位置。
+- **EventsOf 的登记方式是否可以接受**：对“少数几个内核自带的契约”可以接受，对“每个插件都要登记”的规模不推荐。
+
+### 3.2 `reduce` 的写法：事件放在后面 → 事件放在前面，作用域进类型
+
+- **v4**：`reduce: {pending: {fileChanged: (pending, event) => …}}`，第一个参数是旧值。
+- **我**：`reduce: {changes: {fileChanged: (event, changes) => …}}`，参数顺序与 `on` 的 `(event, ctx)` 一致；片只能挂与自己同作用域的事件，挂错是编译错误。
+- **为什么**：七个插件里的 6 个归约，有 4 个不看旧值（“替换式”：`tasks`、`schema`、`patterns`、`deliveredThrough`），v4 要写 `(_tasks, event) =>` 占位；旧值在后，这四处直接写 `(event) =>`。Elm 的 `update` 也是消息在前。
+- **v4 做对了、应当保留的**：“片 → 事件名 → 新值”的表本身。七个插件用下来，表的写法读起来比第三版的一个 `reduce` 里堆 `is(e, K.x) ||` 好得多，而且一个片只管自己，不用看别的片。我的唯一疑问是一个事件要同时改几片时逻辑分散，例子里没有遇到（任务清单改成 `every` 之后只有一片）。
+
+### 3.3 `reminder()` 辅助函数 → `remind` 字段
+
+- **v4**：`reminder({id, every, watch, text})` 返回一个独立扩展。
+- **我**：扩展上的 `remind: {名字: {watch?, every?, when?, text}}` 字段；内核管“告诉过模型什么”这片状态，并在压缩后清空；`text` 拿到 `previous`。
+- **为什么**：模式扩展同时要提醒、拦截、导出，任务扩展的提醒要读自己的清单；独立的辅助函数组合不进去，也拿不到自己的状态。v4 的模式例子手写 `told` 片、`reminder` 事件、`reduce`、`on.input` 四处，其中“压缩时清空”最容易漏（提案第 9 节专门提了一句）。行数：模式 33 行 → 23 行，任务清单 24 行 → 18 行（含“压缩时保住未完成任务”这个 v4 里要再多写一个压缩拦截的能力）。
+- **没有发现问题的部分**：v4 的 `reminder` 的方向（附带内容、每 N 次发言、值变了）是对的，我只是把它从函数改成字段。另一个顺带发现：v4 `reminder` 的 `watch` 拿到的 `settings` 是 `Record<string, unknown>`，而辅助函数自己没有声明设置，读的是自己的还是会话的不清楚（第 4 节 A6）。
+
+### 3.4 `dispose()` 与 `sessionOpened` → `mount`
+
+- **v4**：`dispose(): void`，没有对应的创建，也没有会话句柄；打开时读一次靠 `on: {sessionOpened}`。
+- **我**：`mount(ctx) → 清理函数`，打开时读外部数据、建监听、接外部事实都在这里。
+- **为什么**：见第 1 条结论。`sessionOpened` 是唯一一个“不进日志、只交给处理函数”的事件，要在事件表、归约的键、文档里各特殊处理一次；换成 `mount` 之后，事件就只有“进日志”的一种，v4 的 `HandlerTable` 这类特例类型也不需要了。
+
+### 3.5 设置：`{defaults}` → `setting.*`
+
+见 2.5。`ctx.settings` 在 v4 已经是有类型的，这点保留；我改的是声明方式，以及让 `exports` 能读设置、`settingsChanged` 的 `patch` 有类型。
+
+### 3.6 其他逐处改动
+
+| v4 | 我 | 为什么 |
+|---|---|---|
+| `ctx.emit(名字, 数据)` 没有幂等键 | `ctx.emit(名字, 数据, {key})` | 内核与事件本来就有 `key`（提案第 2 节），处理函数与 mount 没有入口；后台总结“每 16 次”在回退后重放会再触发一次（推断） |
+| 处理函数的 ctx 带 `now` | 去掉，用 `event.at` | 重放时同一个值；七个插件没有用到 |
+| `ToolInfo` 只有名字（`session.tools: string[]`） | `{name, effect: "read" \| "write" \| "exec"}` | 模式插件“挡住所有写文件的工具”不能写死名字；t06 的只读模式在内核里已经需要同一份信息 |
+| `toolResult` 只有 `text` | 加 `details`（给程序看，不进请求）；`toolStarted` 加 `args` | 任务清单从文字 `JSON.parse` 是耦合（第三版 spike 的 todo 就是这么写的） |
+| `ModelRequest` 没有用途 | 加 `purpose: "turn" \| "compaction" \| "background"` | 路由不该降级压缩请求（第 4 节 A7） |
+| 无脱敏口子 | `redacted: true` 加 `toolResult.modifiedBy` | 第 1 条结论 5 |
+| `renderAll` | 并入 `render`：键是短名、`别名/事件名`，没有 `uses` 的写全名 | 回答第 16 节第 8 条“名字待定”：不需要第二个名字，Profile 的 `render` 只是比扩展的 `render` 能覆盖更多键 |
+| `reminder()`、`opening()` 两个辅助函数 | `remind` 字段；`opening()` 保留 | `opening` 是生成一个完整扩展（片加槽），不与别的字段组合，保留函数形式没有问题 |
+| 任务提醒要自己数轮数（`turns` 片） | `coreHistory` 导出 `turns`、`runs`（压缩不影响） | “每 8 轮”“每 16 次运行”两个例子都不用再写计数片；`committed.length` 会因压缩变小，不能用 |
+
+### 3.7 v4 做对了、应当保留的
+
+- 处理函数里 `emit`、`set`、`continue` 直接调用，结束时一起写入，中途抛错一起丢：写起来像普通函数，不用拼返回值（第三版要 `return [ctx.ev.x(…), ctx.set(…)]`）。唯一的陷阱是 `emit` 之后 `ctx.state` 还是旧值，类型上是 `Readonly`，文档里要说。
+- `ctx` 按入口分档，视图只读：我写 `contribute`、`remind.when` 时没有想过去写事件，分档让“这里不能 I/O”一目了然。
+- 变量用完整的词：`event`、`state`、`settings`。
+- Profile 自己就是最里层的扩展：`profile.tsx` 里人设片、监听文件变更、覆盖提醒措辞、压缩要求都写在同一个对象上，没有再要一个独立的扩展。
+- 拦截的 `next` 形状、`contribute` 的 `volatile`/`shared`、`exports` 只读自己的片：七个插件里都够用，没有发现需要改的地方。
+- 服务经工厂闭包进来（2.6）。
+
+## 4. 架构审查
+
+条目按我核实的顺序给出。“依据”一栏标明是运行证据、类型检查证据还是推断。上两轮审查（r1、r2）已处理的问题不重复。
+
+### A1. 外部事实没有入口：文件监听、库结构监听写不出来
+
+- 严重程度：**阻断**（对 nbook.history、nbook.sql 两个必做插件）
+- 位置：`spike/v4/api.ts`（全文搜不到 `external`、`mount`；`dispose?(): void` 第 243 行）；提案第 3 节指令表 `external(event)`、第 10 节生命周期、第 2 节“外部事实、设置变化：空闲时立刻”
+- 现象：提案说“插件写外部事实”用指令 `external(event)`，但扩展里没有人能调用它：扩展对象在多个会话间共享，没有会话句柄；`dispose()` 没有对应的创建；`sessionOpened` 的处理函数只在事件到达时跑一次，没有清理。我用 v4 接口写 `v4-p2-history.ts`（文件监听）与 `v4-p6-sql.ts`（库结构变更）时，监听器无处可放，库结构只能在 `sessionOpened` 里读一次。提案第 10 节还写“不给：定时器与界面”，轮询型的外部源同样没处放。
+- 为什么是问题：必做的两个插件的核心就是外部输入。若只能靠宿主在插件之外调用 `session.external`，宿主要知道有哪些会话、哪个插件对应哪个监听，等于把扩展自己该管的生命周期推给了宿主，且插件停用时没有摘除监听的约定（资源泄漏）。
+- 建议：`mount(ctx)`，见 `api.ts`：打开时调用，内核等它完成，返回清理函数；`ctx.emit`、`ctx.set` 写外部事实；`ctx.callback` 包外部回调（出错带扩展 id 写诊断、清理后不再调用）。`sessionOpened` 并入它。
+- 依据：从 `v4/api.ts` 全文核对；新写法过 tsc（`p2-history.ts`、`p6-sql.ts`、`p7-guard.ts`）。
+
+### A2. path 作用域的外部事实，回退之后丢失
+
+- 严重程度：**重要**
+- 位置：`spike/v4/leader.default.tsx` 的 `historyEvents.fileChanged: ext<{uri; by}>()`（path 作用域）；提案第 12 节数据流第 3 步、第 13 节表
+- 现象：运行实验 `exp/exp1-rewind.ts`（v3 内核，作用域规则与 v4 相同）：第一句之后用户改了第 3 章（`fileChanged`），发第二句时通知送达，`pending` 变空；回退到第一句之后（改文件之前）准备重发，`pending` 是空的，而磁盘上第 3 章已经改了。输出：
+  ```
+  改文件之后，pending = {"pending":["第 3 章"]}
+  发第二句并送达通知之后，pending = {"pending":[]}
+  回退到改文件之前，pending = {"pending":[]} （磁盘上的第 3 章其实已经改了）
+  ```
+- 为什么是问题：“回退到更早的发言重发”是最常见的操作之一。模型的历史里没有这次改动，通知也没有再发，模型会基于旧内容改文件。规则本身没有错（path 事件回退后不算），错在示例把“世界发生的事”当成“对话路径上的事”。
+- 建议：外部事实用 `ext.session<…>()`；“告诉过模型”用 path 事件的数据（例子里 `notice.through`）与 path 片；未送达 = 两者相减（`p2-history.ts`）。SDK 文档加一条规则：“外部世界的事实放 session，送达标记放 path”；提案第 12 节与 `leader.default.tsx` 的 `fileNotice` 照此改写。
+- 依据：运行证据。
+
+### A3. 脱敏做不到：日志仍记原文
+
+- 严重程度：**重要**（安全相关）
+- 位置：提案第 2 节写入表（“改写过的原文记在 `original`”“改过结果时记工具原本的 `raw`”）、第 8 节“改”、待定项 14；`v4/api.ts` 的 `UserInput`、`ToolResult`、`KernelEvents.toolResult` 没有对应口子
+- 现象：`exp/exp2-redaction.ts`（v3 内核，记录规则与 v4 相同）：脱敏插件改写了用户的话与工具结果，日志里含密钥原文的条目：`user`、`tool_result`。输出 `日志里含密钥原文的条目类型： [ "user", "tool_result" ]`。
+- 为什么是问题：脱敏插件存在的全部理由是原文不落盘（也不进日志导出、不进会话分享）。审计需求（谁改了什么）与脱敏需求（原文不留）冲突，v4 只实现了前者，待定项 14 推荐的“标为敏感、日志只记哈希”没有进接口。另一个相关缺口：拦截里不能写事件，脱敏插件没法记“这次脱敏了几处”，`toolResult` 里只有 `raw` 是否存在，看不出是谁改的。
+- 建议：改写后的 `UserInput`、`ToolResult` 带 `redacted: true`，内核据此记 `originalHash`、`rawHash` 而不是原文；`toolResult`、`input` 带 `modifiedBy`（与 `modelStarted.modifiedBy` 同形），扩展用 `reduce` 从中统计（`p7-guard.ts` 的 `redactions`）。
+- 依据：运行证据；新写法过 tsc，但内核行为是我提的设计，没有实现。
+
+### A4. 类型挡不住三种静默错误
+
+- 严重程度：**重要**
+- 位置：`v4/api.ts` 的 `reduce`（键是全部 `Known<E>`）、`render`（`[k in keyof E]`）
+- 现象：`v4-silent.ts` 里三处写法都过 tsc，运行时都不会生效：session 的片挂 path 事件 `input`；归约挂 `sessionOpened`（不进日志）；给 ext 事件写 `render`。第一种 r2 审查 #9 已经在运行时发现过，v4 的类型没有跟上。
+- 为什么是问题：静默不生效最难查，作者要去读内核才知道“session 的片只收 session 事件”。
+- 建议：作用域（`Sc`）与种类（`Kd`）进 `EventSpec` 与 `Slice` 的类型；`reduce` 的键按片的作用域过滤；`render` 只收 conv 事件。`api.ts` 已实现，`typetest.ts` 第 2、15 处验证。
+- 依据：类型检查证据。
+
+### A5. 两张全局登记表：未登记时报 `never`，且依赖程序的组成
+
+- 严重程度：**重要**
+- 位置：`v4/api.ts` 的 `ExtensionEvents`、`ExtensionExports`、`Read`；提案第 16 节第 2 条
+- 现象：路由插件读 `ctx.read("core.history").input`：`v4/api.ts` 没有登记 `core.history` 的导出，去掉我补的 `declare module` 后实测报 `Argument of type '"core.history"' is not assignable to parameter of type 'never'` 与 `Property 'input' does not exist on type 'never'`（`probe/` 复现，r2 Opus 第 5 条同一处）。
+- 为什么是问题：见第 3.1 节：全局声明合并让类型检查依赖“声明文件是否在程序里”；报错信息不会告诉作者该 import 什么；内核自带的契约也漏了登记，说明登记本身容易漏。
+- 建议：`defineApi` 加 `uses`（第 3.1 节）；内核自带的 `core.history` 以 `coreHistory` 常量导出。
+- 依据：类型检查证据。
+
+### A6. 设置的来源、命名空间与运行时变更没有说清
+
+- 严重程度：**重要**
+- 位置：`v4/api.ts` 的 `settings?: {defaults}`、`KernelEvents.settingsChanged: {patch: Record<string, unknown>}`；`reminder` 的 `watch(view: {settings: Record<string, unknown>})`；提案第 11 节（“缺省值与类型；表单归 t05”）；spike `kernel.ts` 的 `settingsCache` 是平铺的字符串键（例如 `"nbook.history.mode"`）
+- 现象：一个扩展的 `ctx.settings` 有类型，但 `settingsChanged.patch` 是无类型的 `Record`；两者怎样对应（是否按扩展 id 加前缀、一次改几个扩展的设置时怎样派发、校验归谁）没有写。v4 的模式例子要写 `(event.data.patch.agentMode as Mode | undefined) ?? current` 这样的强转（`v4-p4-mode.ts`）；`reminder` 辅助函数没有声明设置，它的 `watch` 读到的 `settings` 到底是会话的还是自己的，类型里看不出来。
+- 为什么是问题：设置是“用户在界面里改、插件作者读”的唯一通道，歧义直接进插件代码。
+- 建议：设置按扩展命名空间，`settingsChanged` 按扩展分开写、只派发给自己，`patch` 的类型是自己的设置键（`api.ts`）；设置由 `setting.*` 声明，带取值范围与标签，供表单（t05、nb-form）生成界面与校验。
+- 依据：类型与代码核对；“表单用 TypeBox 画”来自仓库入口文件对 nb-form 的描述，我没有核对 nb-form 的接口，属推断。
+
+### A7. 模型拦截分不出这次请求是对话、压缩还是后台任务
+
+- 严重程度：**重要**
+- 位置：`v4/api.ts` 的 `ModelRequest`；提案第 8 节（“每一次真实的模型调用与工具执行都进日志”）、第 9 节（就地压缩“在压缩前的请求末尾追加一条压缩请求”）
+- 现象：提案没有写压缩请求、后台总结的模型调用要不要经过模型拦截链。若经过，路由插件（`p5-router.ts`）看到“本轮输入很短”会把压缩请求也降级到便宜模型，而压缩正是最不该降级的请求；若不经过，需要在提案里写明，并保证它们也进 `model_started` 审计。
+- 为什么是问题：拦截链里的插件（路由、用量统计、脱敏）都要区别对待；现在只能靠猜 `request` 里的内容。
+- 建议：`ModelRequest.purpose: "turn" | "compaction" | "background"`，写进 `modelStarted`；提案明确“哪些用途经过哪条链”。`p5-router.ts` 第一行就是 `if (request.purpose !== "turn") return next(request)`。
+- 依据：推断（没有运行，从提案文字与接口形状得出）。
+
+### A8. 工具只有名字，插件不能判断“会写文件”
+
+- 严重程度：**重要**
+- 位置：`v4/api.ts` 的 `SessionInfo.tools: string[]`、`ModelRequest.tools: string[]`；提案第 6 节（`ModelRequest.tools: ToolInfo[]` 是完整声明）与第 8 节（审批里的“只读模式”）
+- 现象：模式插件“计划模式下挡住所有写文件的工具”只能写 `const WRITE_TOOLS = ["write", "edit", "apply_patch", "bash"]`（`v4-p4-mode.ts`）；提案正文里 `ModelRequest.tools` 是 `ToolInfo[]`，`api.ts` 却是 `string[]`，两处不一致。别的插件注册的写类工具（例如 `plot.write`）不在名单里，计划模式就挡不住。
+- 为什么是问题：t06 的只读模式在内核里已经需要这份分类，扩展拿不到同一份信息就会各写一份名单，之后漂移。
+- 建议：`ToolInfo.effect: "read" | "write" | "exec"`，由工具自己声明；`ctx.session.tools` 与 `ModelRequest.tools` 用同一个 `ToolInfo`。
+- 依据：类型与提案文字核对。
+
+### A9. 工具结果只有文字：任务清单要从文字里解析
+
+- 严重程度：**重要**
+- 位置：`v4/api.ts` 的 `ToolResult`、`KernelEvents.toolResult`；spike `examples/plugins.ts` 的 `todo`（`JSON.parse(e.data.text)`）
+- 现象：任务清单“由 todo 工具的结果归约”，但结果事件里只有给模型看的 `text`；`v4-p3-todo.ts` 只能 `JSON.parse(event.data.text)`，工具把文字格式改一改（加一句说明、改成表格）归约就解析失败，该片保持原值并写诊断。`toolStarted` 也没有 `args`，想从调用参数归约也不行（要去 `assistant.toolCalls` 里翻）。
+- 为什么是问题：给模型看的文字与给程序读的数据是两回事，耦合在一起，工具作者不敢改措辞。
+- 建议：`toolResult.details`（给程序看，不进请求，也可以进 UI 渲染）；`toolStarted` 带 `args`（`api.ts`、`p3-todo.ts`）。
+- 依据：代码核对。
+
+### A10. `ctx.emit` 没有幂等键：触发类事件在回退重放后重复
+
+- 严重程度：**重要**
+- 位置：`v4/api.ts` 的 `ReactCtx.emit`；提案第 2 节（“可以带幂等键 `key`，同一来源同一个键只写一次，命中时反应也不再跑”）
+- 现象：内核与 `Event` 类型都有 `key`，处理函数与外部入口没有地方传。nb-memory“每 16 次运行结束起一次后台总结”按 `runs % 16 === 0` 判断；回退到第 14 次、再跑两次，又会得到 16，再触发一次（推断：从“`runs` 是 path 片、回退会回到 14”得出）。文件监听在重连后重放同一批变化也需要去重（`mount` 里的 `emit`）。
+- 为什么是问题：同一件事被总结两次，浪费额度并产生重复的记忆。
+- 建议：`emit(名字, 数据, {key})`、`spawn(任务, 参数, {key})`（`p1-memory.ts` 的 `{key: \`summarize-${runs}\`}`）。注意：“值是否有变化”的去重不能靠 `key`（A → B → A 会丢第二个 A），要在 `mount` 里与当前 `ctx.state` 比较（`p6-sql.ts`）。
+- 依据：推断。
+
+### A11. 后台任务没有入口，nb-memory 的需求无法落地
+
+- 严重程度：**重要**
+- 位置：提案待定项 8、第 13 节表（“后台运行等 t22”）、第 10 节“不给：定时器”；`v4/api.ts` 没有对应接口
+- 现象：“每 16 次运行结束跑一次后台总结”，v4 只能写一个没人消费的 ext 事件（`v4-p1-memory.ts` 的 `summaryDue`）。`on` 处理函数不适合承担它：反应全部完成后才算下一次请求（提案第 7 节），缺省 30 秒时限，超时整批输出丢弃（第 8 节“失败”）。
+- 为什么是问题：t22 还没有定，但“触发在哪里写、任务在哪里跑、结果怎样回来”这个形状现在不定，nb-memory 就只能等。
+- 建议：先定形状，实现留给 t22：处理函数里 `ctx.spawn(名字, 参数, {key})` 写一条控制事件，任务体写在扩展的 `jobs` 里，在处理函数之外执行，可以很久，结果经 `emit` 作为外部事实回来（`api.ts`、`p1-memory.ts`）。具体由 t22 改，但接口位置要预留。
+- 依据：推断；`spawn` 是我的占位设计，没有实现。
+
+### A12. 慢的 `on` 处理函数挡住每一轮的开头，用户看不到原因
+
+- 严重程度：建议
+- 位置：提案第 7 节（“反应全部完成后，才算下一次请求”）、第 8 节“失败”（反应时限 30 秒，超时整批丢弃）
+- 现象：记忆检索挂在 `input` 上。检索慢（远端向量库、冷启动）时，用户每一轮的第一次模型请求都要等它；超时则这一轮的全部输出（包括已经 `emit` 的）丢弃，只留一条诊断。接口里没有让插件告诉界面“正在检索记忆”的办法。
+- 为什么是问题：体验上是“发送后没反应”，作者调试时只能看诊断日志（推断，没有运行）。
+- 建议：处理函数的 ctx 加一个不进日志、只推给界面的 `ctx.status(文字)`（可选）；文档明确“处理函数阻塞下一次请求，慢的事用 `spawn`”；超时时界面显示是哪个扩展拖慢了。
+- 依据：推断。
+
+### A13. “告诉过模型什么，压缩后清空”这套样板每个扩展都要重写
+
+- 严重程度：建议
+- 位置：提案第 9 节末尾；`v4/leader.default.tsx` 的 `workspaceFocus`
+- 现象：七个插件里模式、任务提醒、工作区焦点三个都是这个形状（值在树外或在别的片里，“告诉过的”在 path 上，压缩后清空）。每个手写：片、事件、`reduce`（含 `compaction` 清空）、`on`，约 12 至 15 行，漏掉压缩清空时不会有任何错误，只是压缩后模型不再被告知。
+- 建议：`remind` 字段（第 3.3 节），内核管这片状态。
+- 依据：代码核对（行数见第 3 节）。
+
+### A14. `preview: "skip"` 的名字误导
+
+- 严重程度：建议
+- 位置：`v4/api.ts` 第 221 行；spike `kernel.ts` 第 800 行（只在 `modelChain` 里过滤 `intercept.model` 层）；spike `examples/plugins.ts` 里 `memory` 带着 `preview: "skip"`
+- 现象：这个字段只影响模型拦截层，对 `on` 处理函数没有作用；第三版的记忆检索插件根本没有模型拦截，却带着它，我第一次也照抄了（`p1-memory.ts` 已去掉）。
+- 为什么是问题：写在扩展顶层，读起来像“预览时跳过整个扩展”。
+- 建议：改成 `intercept.model` 的选项（例如 `intercept: {model: …, modelInPreview: false}`）或改名为 `interceptInPreview`。
+- 依据：代码核对。
+
+### A15. `ctx.set` 对应的内核事件没有在事件表里
+
+- 严重程度：建议
+- 位置：提案第 4 节（“生成一条内核认识的设置事件”）、第 2 节内核事件表；`v4/api.ts` 的 `KernelEvents`；spike `kernel.ts` 第 274、517 行（`${扩展 id}/$set`）
+- 现象：v3 内核写的是 `<扩展 id>/$set`，不在提案的内核事件表里，也不在 `KernelEvents`。界面、审计、事件订阅者读日志时会遇到一个文档里没有的类型。
+- 建议：把它列进内核事件表（两种作用域各一种或一个带 `scope` 的类型），并说明它不派发给处理函数。
+- 依据：代码核对。
+
+### A16. 拦截的顺序没有给安全类插件一个位置
+
+- 严重程度：建议
+- 位置：提案第 8 节“顺序”、待定项 2
+- 现象：拦截链“外层是插件，最里层是 Profile”，插件之间按 `dependsOn` 与 id 排序。脱敏插件对结果应当是最外层（别的插件看到的结果都已脱敏），对输入应当是最先看到的；用 id 排序没法表达。
+- 建议：给拦截一个粗粒度的层（例如 `layer: "outer" | "inner"`，缺省 inner），脱敏、审计放 outer；或明确“脱敏类写在内核”。属于设计决定，不是缺陷。
+- 依据：推断。
+
+### A17. 调试体验：运行时诊断好，类型错误信息与外部回调是缺口
+
+- 严重程度：建议
+- 位置：`v4/api.ts` 的类型；spike `kernel.ts` 第 281、557 行；`probe/typetest-errors.ts` 的实测报错
+- 现象与建议：
+  1. 运行时诊断：v3 内核每条诊断带扩展 id、事件 id、事件类型与出错的入口（如“`nbook.history` 对 e12（user）的反应失败：…；这次反应的结果丢弃”），这点做得好，保留。
+  2. 类型错误：事件表映射出来的错误信息很长（实测四条在 400 字符以上，见 `probe/errors.txt`：`typetest-errors.ts` 第 14、35、51、99 行）。用字符串字面量类型给出中文提示可以缩短并说明原因：`reduce` 挂错作用域报 `Type '(_event: any, seen: any) => any' is not assignable to type '"这一片的作用域收不到这个事件：path 的片只收 path 事件，session 的片只收 session 事件"'`；事件名与内核同名报 `…not assignable to type 'EventSpec<…> & "事件名与内核事件同名，换一个名字"'`（`api.ts`）。仍有两处不好读：`ctx.spawn("nothing")` 报 `Expected 2-3 arguments, but got 1`（真正的原因是没有这个任务名）；未声明别名的事件名报 `Object literal may only specify known properties` 后面跟一整张类型。
+  3. 外部回调（文件监听、数据库订阅）里抛的错没有人接：`ctx.callback`（`api.ts`）包一层，出错带扩展 id 写诊断。
+  4. 没有给插件作者的测试工具：写 `reduce` 可以直接当纯函数测，写 `on`、`mount` 要一个会话。建议 SDK 附 `testExtension(extension, {settings, uses})`，返回能 `send`、`emit`、看 `state` 与日志的假会话；我没有在 `api.ts` 里写它，属建议。
+- 依据：类型检查证据与代码核对。
+
+### A18. 我自己设计的已知代价（供对照，不是 v4 的问题）
+
+- `jobs` 要写在 `on` 前面：`ctx.spawn` 的任务名与参数类型是从 `jobs` 里推断的，TypeScript 按属性顺序推断，`jobs` 放在 `on` 后面时 `spawn` 的任务名退化为 `never`（`p1-memory.ts` 里留了注释）。因为 `jobs` 是占位，t22 定下后可以换成不依赖顺序的写法。
+- `remind` 产生的事件不在 `events` 里，Profile 要覆盖它的文字只能用全名键，类型较松。
+- `defineApi` 要求事件常量与导出形状放在一个不拖实现的模块里；若插件不愿意拆模块，就只能用私有 `events`，别人监听不了。
+
+### 仔细检查后没有发现问题的方面
+
+- 归约的参数形状（旧值、事件、整片状态）与“归约只看自己”的规则：七个插件都够用。
+- 处理函数里 `emit`、`set` 在结束时一起写、抛错一起丢的语义：没有找到需要拆开的例子。
+- `contribute` 的槽声明（`volatile`、`shared`）与“没有摆放的槽丢弃并写诊断”：库结构摘要的例子一次写对。
+- 服务经工厂闭包注入：与现有插件 `activate(context)` 的写法吻合，不需要内核再提供服务查找。
+- 拦截的 `next` 包裹形状：脱敏、路由、模式拦截都能自然表达。
+- 反应读同一份状态快照、并发执行、按扩展顺序写入：写七个插件时没有遇到顺序依赖。
+
+## 5. 对第 16 节八条与待定项 16 至 19 的判断
+
+### 第 16 节八条
+
+1. **按事件名挂处理函数（`on`、`reduce` 表）**：同意，七个插件写下来比 `is(e, K.x) ||` 好读得多；补两点：`reduce` 的参数事件放前（与 `on` 一致），作用域与事件种类进类型（A4）。
+2. **事件名驼峰、去掉 `K` 与 `is`**：同意；但“跨扩展靠全名字符串加两张全局登记表”不推荐，改 `defineApi` 加 `uses` 别名（第 3.1 节、A5）。
+3. **用户的话拆成 `input` 与 `steer`**：同意；插件作者要知道记忆检索只挂 `input` 时，插话转了话题就检索不到，文档里写一句，需要的挂 `steer`。
+4. **`ctx` 按入口分档**：同意；处理函数去掉 `now`，`exports` 加第二个参数 `settings`，并新增 `mount`、`jobs` 两档上下文（`MountCtx`）。
+5. **写事件改为直接调用、结束时一起写入**：同意，是整份修订里最好的一条；补 `{key}` 幂等参数，并在文档里写清“`emit` 与 `set` 之后 `ctx.state` 还是旧值”。
+6. **去掉的 `ctx` 项**：同意全部（`mine`、`ev`、`message`、`own`、`setting`、`run`、`preview`、`tools`、`file`）；缺的是 `mount`、`callback`、`spawn`（A1、A11、A17）。
+7. **变量用完整的词**：同意；我的补充是归约的参数顺序（事件在前）让“不看旧值”的归约不必再写 `_value` 占位。
+8. **Profile 自己就是最里层的扩展**：同意，`profile.tsx` 里人设片、监听、覆盖措辞、压缩要求都写在一个对象上；`renderAll` 不需要第二个名字，并入 `render`，键是短名、`别名/事件名` 或全名（第 3.6 节）。
+
+### 待定项 16 至 19
+
+- **16（steer 与 followup 的缺省）**：同意“运行中回车是 followup”；对插件无影响，除了第 3 条里说的 `steer` 与 `input` 是两个事件。
+- **17（多条 followup 一条一轮还是合成一轮）**：同意一条一轮，这样一个 `input` 事件对应一次检索、一次文件通知，插件的计数（`coreHistory.turns`）与事件数一致。
+- **18（压缩后放回的内容放哪）**：同意写成 `conv` 事件跟在压缩发生的边界，与插件写的附带内容是同一种机制；插件想影响摘要用 `compactionRequire`，不要去拦放回的事件。
+- **19（会变的槽的缺省位置）**：同意缺省放末尾；库结构摘要这类稳定的槽不需要作者做选择，`contribute` 缺省 `volatile: false` 加“会变的槽进系统提示词时写诊断”已经够；我没有找到需要改的地方。
+
+## 6. tsc 的结果
+
+命令（目录 `/tmp/t20-api-design/sonnet-plugin/`，`tsconfig.json` 照任务书）：
+
+```text
+$ /home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc -p /tmp/t20-api-design/sonnet-plugin/tsconfig.json
+$ echo $?
+0
+```
+
+无输出，退出码 0。编译的文件：`api.ts`、`v4api.ts`、`contracts.ts`、`services.ts`、`p1` 至 `p7`、`v4-p1` 至 `v4-p7`、`v4-silent.ts`、`activate-example.ts`、`profile.tsx`、`typetest.ts`。`typetest.ts` 里 25 处 `@ts-expect-error` 都真的触发了编译错误（任何一处写对了，tsc 会报 `Unused '@ts-expect-error' directive`）；去掉指令后的真实报错存在 `probe/errors.txt`。
+
+运行实验（v3 spike 内核，只读引用仓库）：
+
+```text
+$ cd exp && bun exp1-rewind.ts
+改文件之后，pending = {"pending":["第 3 章"]}
+发第二句并送达通知之后，pending = {"pending":[]}
+回退到改文件之前，pending = {"pending":[]} （磁盘上的第 3 章其实已经改了）
+$ bun exp2-redaction.ts
+日志里含密钥原文的条目类型： [ "user", "tool_result" ]
+```
+
+## 附：七个插件在两种接口下的对照
+
+行数是非空、非注释、非 import 的代码行，v4 的行数含它自己的 `declare module` 登记；新写法的契约另计（`contracts.ts` 共 17 行，含 `Task` 接口 4 行）。
+
+| 插件 | v4 | 新写法 | v4 里能不能完整表达 |
+|---|---|---|---|
+| 1 记忆检索 | 21 | 23 | 不能：每 16 次运行的后台总结只能写成没人消费的事件 |
+| 2 文件变更 | 31 | 27 | 不能：外部监听无处可放；`fileChanged` 回退后丢失（A2） |
+| 3 任务清单 | 24 | 18 | 部分：从文字解析清单；压缩时保住任务要另写拦截 |
+| 4 模式 | 33 | 23 | 部分：设置要抄进片才能导出；写文件的工具靠写死的名单 |
+| 5 路由 | 15 | 12 | 部分：要自己补 `core.history` 的登记；分不开压缩请求 |
+| 6 库结构 | 13 | 16 | 不能：库结构变化的监听无处可放，只在打开时读一次 |
+| 7 脱敏守卫 | 29 | 28 | 不能：日志仍记原文；统计只能粗略；压缩要求要拦整条任务 |
+| 合计 | 166 | 147 | |
+
+读法：行数几乎持平（新写法多出的行主要是 `mount`、`spawn` 这些 v4 写不出来的能力），收益在“v4 写不出来或写错了没提示”的那些行。
