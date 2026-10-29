@@ -9,8 +9,9 @@
  * - 外部事实经 mount（每个会话装上时调用，返回清理函数）写入；去掉 sessionOpened 与 dispose。
  * - 设置、Profile 的 initial、输入的 payload 都用 TypeBox schema 声明。
  * - render 只剩一个：扩展只能渲染自己的 conv 事件，Profile 能覆盖任何 conv 事件；去掉 renderAll。
- * - remind 字段取代 reminder()；continue 只在 assistant 的处理函数里有，带文字与上限。
- * - Profile 有 system + layout（缺省布局）或整张 prompt 两种写法；opening、commit 的声明式写法；deriveProfile。
+ * - continue 只在 assistant 的处理函数里有，带文字与上限。
+ * - 能独立成扩展或写成纯函数的写法做成 helper，不做成字段：reminder()、opening()、standardLayout()、finalOnly()、
+ *   withoutEvents()、format.withRender()、deriveProfile()（第 12 节）。Profile 只有 system 与 prompt 两个管提示词的字段。
  * - 日志字段机器可读：toolResult.status、assistant.request 与内容块、Rejection 码、结构化的块来源。
  */
 
@@ -58,7 +59,7 @@ export type ContentBlock = {kind: "text"; text: string} | {kind: "thinking"; tex
 export type RequestPurpose = "turn" | "compaction" | "background";
 
 /** 扩展可能出错的入口。 */
-export type EntryPoint = "reduce" | "on" | "mount" | "contribute" | "render" | "remind" | "intercept.input" | "intercept.model" | "intercept.tool" | "intercept.compaction" | "prompt" | "turn" | "commit" | "opening";
+export type EntryPoint = "reduce" | "on" | "mount" | "contribute" | "render" | "intercept.input" | "intercept.model" | "intercept.tool" | "intercept.compaction" | "prompt" | "turn" | "commit";
 export type FailureCode = "threw" | "timeout" | "invalid-output" | "emit-after-settle" | "revoked" | "aborted";
 
 // ====================================================================
@@ -206,7 +207,7 @@ type ReadResult<D> = D extends Optional<infer C> ? ExportsOfContract<C> | undefi
 
 type Merge<U> = (U extends unknown ? (member: U) => void : never) extends (member: infer R) => void ? {[k in keyof R]: R[k]} : never;
 /** 对联合逐个展开（D extends unknown 让它分配），否则几个依赖的事件名会交成空集。 */
-type ForeignOne<D> = D extends unknown ? (ContractOf<D> extends Contract<infer Id, infer E, any> ? {[n in (keyof E & string) | "remind" as `${Id}/${n}`]: (E & Reserved)[n]} : never) : never;
+type ForeignOne<D> = D extends unknown ? (ContractOf<D> extends Contract<infer Id, infer E, any> ? {[n in keyof E & string as `${Id}/${n}`]: E[n]} : never) : never;
 type Foreign<Deps extends DepList> = Deps extends readonly [] ? {} : Merge<ForeignOne<Deps[number]>>;
 
 // ====================================================================
@@ -214,18 +215,10 @@ type Foreign<Deps extends DepList> = Deps extends readonly [] ? {} : Merge<Forei
 // ====================================================================
 
 /** 自己的事件不许与内核事件重名。 */
-/**
- * 每个扩展都有的保留事件 remind：remind 字段写出的提醒（data.name 是提醒的名字）。
- * 自己的写短名 remind，依赖的写 `<id>/remind`；Profile 的 render、commit.omit 因此能按类型覆盖或丢掉别人的提醒。
- * 只有内核写它（emit 只认 events 里声明的），扩展没写 remind 字段时它永远不会出现（装配时对指向它的 render 写诊断）。
- */
-export type RemindEvent = EventSpec<"path", "conv", {name: string; text: string}>;
-type Reserved = {remind: RemindEvent};
+/** 自己的事件不许与内核事件重名。 */
+export type NoKernelNames<E> = {[n in keyof E]: n extends KernelName ? "与内核事件同名，换一个名字" : E[n]};
 
-/** 自己的事件不许与内核事件、保留事件重名。 */
-export type NoKernelNames<E> = {[n in keyof E]: n extends KernelName | keyof Reserved ? "与内核事件或保留事件同名，换一个名字" : E[n]};
-
-type Table<E extends EventsDecl, Deps extends DepList> = KernelEvents & Foreign<Deps> & E & Reserved;
+type Table<E extends EventsDecl, Deps extends DepList> = KernelEvents & Foreign<Deps> & E;
 type Name<E extends EventsDecl, Deps extends DepList> = keyof Table<E, Deps> & string;
 type SpecOf<E extends EventsDecl, Deps extends DepList, N> = N extends keyof Table<E, Deps> ? Table<E, Deps>[N] : never;
 /** 事件声明里的数据类型。 */
@@ -235,7 +228,7 @@ type ScopeOfSpec<S> = S extends EventSpec<infer Sc, any, any> ? Sc : never;
 type KindOfSpec<S> = S extends EventSpec<Scope, infer Kd, any> ? Kd : never;
 export type EventOf<E extends EventsDecl, Deps extends DepList, N> = Event<string, DeepReadonly<DataOfSpec<SpecOf<E, Deps, N>>>>;
 type ConvNames<E extends EventsDecl, Deps extends DepList> = {[n in Name<E, Deps>]: KindOfSpec<SpecOf<E, Deps, n>> extends "conv" ? n : never}[Name<E, Deps>];
-type OwnConvNames<E extends EventsDecl> = {[n in keyof E & string]: KindOfSpec<E[n]> extends "conv" ? n : never}[keyof E & string] | keyof Reserved;
+type OwnConvNames<E extends EventsDecl> = {[n in keyof E & string]: KindOfSpec<E[n]> extends "conv" ? n : never}[keyof E & string];
 
 // ====================================================================
 // 6. 各入口的上下文：越往后能力越多
@@ -253,7 +246,7 @@ export interface ModelInfo {
 }
 type CoreRead = typeof coreHistory;
 
-/** 视图（contribute、prompt、system、turn、commit、remind）：全部只读，没有副作用的口子。 */
+/** 视图（contribute、prompt、system、turn、commit）：全部只读，没有副作用的口子。 */
 export interface ViewCtx<S extends StateDecl, St, Deps extends DepList, I = unknown> {
     readonly state: StateValues<S>;
     readonly settings: DeepReadonly<St>;
@@ -361,7 +354,7 @@ export interface Step {
     readonly after: readonly Event[];
 }
 /** 写 turn、commit 用的渲染工具：事件按 render 渲染成块，保留来源；全空的消息返回 null，由内核丢掉。 */
-export interface Format {
+export interface Format<R = Readonly<Record<string, (event: Event<string, any>) => string | null>>> {
     user(...parts: (Event | string | null | undefined | false)[]): Message | null;
     assistant(reply: Step["reply"]): Message;
     /** 只留回复的文字，去掉工具调用：用于只留最终回复的提交，不会留下没有结果的工具调用。 */
@@ -371,6 +364,8 @@ export interface Format {
     steps(steps: readonly Step[]): (Message | null)[];
     /** 缺省的一轮：附带内容在前、用户的话在最后，合成一条 user 消息；然后是各步。 */
     turn(turn: Turn<any>): (Message | null)[];
+    /** 换一组文字覆盖再渲染，例如只在进历史时把工具结果换成首行：commit 里 format.withRender({toolResult: …}).turn(turn)。 */
+    withRender(render: R): Format<R>;
 }
 
 export interface CompactionJob {
@@ -405,17 +400,6 @@ type Interceptors<S extends StateDecl, St, Deps extends DepList, I> = {
     tool?(call: ToolCall, next: (call: ToolCall) => Promise<ToolResult>, ctx: InterceptCtx<S, St, Deps, I>): Promise<ToolResult>;
     compaction?(job: CompactionJob, next: (job: CompactionJob) => Promise<CompactionResult>, ctx: InterceptCtx<S, St, Deps, I>): Promise<CompactionResult>;
 };
-/**
- * 提醒：值变了的那一轮、或每隔 every 轮，在这一轮开头写一条附带内容（`<id>/remind`）。
- * “告诉过模型什么”由内核记在 path 上，压缩时清空；回退跟着回去。text 返回 null 表示这次不提醒。
- * 写出的事件是保留事件 remind（见 RemindEvent）：自己的 render 写 `remind`，Profile 写 `<id>/remind`，按 event.data.name 区分是哪条提醒。
- */
-export interface RemindSpec<S extends StateDecl, St, Deps extends DepList> {
-    every?: number;
-    watch?: (view: ViewCtx<S, St, Deps>) => unknown;
-    text: (change: {value: unknown; previous: unknown; first: boolean; view: ViewCtx<S, St, Deps>}) => string | null;
-}
-
 export interface ExtensionFields<Id extends string, S extends StateDecl, E extends EventsDecl, Sc, X, Deps extends DepList> {
     /** 有契约的扩展写 contract，id 与事件从契约来；私有的写 id 与 events。 */
     id: Id;
@@ -433,7 +417,6 @@ export interface ExtensionFields<Id extends string, S extends StateDecl, E exten
     contribute?: {[slot: string]: {volatile?: boolean; shared?: boolean; value: (view: ViewCtx<NoInfer<S>, SettingsOf<NoInfer<Sc>>, NoInfer<Deps>>) => string | null | undefined}};
     /** 自己的 conv 事件给模型看的文字。没写的缺省：{text} 取 text，其余包成 <system-reminder>。 */
     render?: {[N in OwnConvNames<NoInfer<E>>]?: (event: EventOf<NoInfer<E>, [], N>) => string | null};
-    remind?: Record<string, RemindSpec<NoInfer<S>, SettingsOf<NoInfer<Sc>>, NoInfer<Deps>>>;
     intercept?: Interceptors<NoInfer<S>, SettingsOf<NoInfer<Sc>>, NoInfer<Deps>, unknown>;
     onFailure?: {tool?: "deny" | "ignore"};
     timeoutMs?: number;
@@ -504,26 +487,14 @@ export declare function Slot(p: {name: string; stable?: boolean; volatile?: bool
 // 11. Profile：自己就是最里层的扩展
 // ====================================================================
 
-type TurnFn<S extends StateDecl, St, Deps extends DepList, I, P> = (turn: Turn<P>, format: Format, view: ViewCtx<S, St, Deps, I>) => (Message | null)[];
+type TurnFn<S extends StateDecl, St, Deps extends DepList, I, P, E extends EventsDecl> = (turn: Turn<P>, format: Format<ProfileRender<E, Deps>>, view: ViewCtx<S, St, Deps, I>) => (Message | null)[];
 type ProfileRender<E extends EventsDecl, Deps extends DepList> = {
     [N in ConvNames<E, Deps>]?: (event: EventOf<E, Deps, N>) => N extends "assistant" | "toolResult" ? string : string | null;
 };
-/** 提交的声明式写法：丢掉某些附带内容、换进历史时的文字、只留最终回复。写函数时完全自己定。 */
-export interface CommitSpec<E extends EventsDecl, Deps extends DepList> {
-    omit?: readonly Exclude<ConvNames<E, Deps>, "input" | "steer" | "assistant" | "toolResult">[];
-    render?: ProfileRender<E, Deps>;
-    steps?: "all" | "final";
-}
-/** 缺省布局的开关：会变的槽放末尾（缓存最好）还是 <Turn /> 前（用户的话在最后）；历史与开场。 */
-export interface Layout {
-    volatile?: "end" | "before-turn";
-    history?: boolean | {last: number};
-    opening?: boolean;
-}
 type OpeningPart = string | null | undefined | false;
 
 interface ProfileBase<Id extends string, S extends StateDecl, E extends EventsDecl, Sc, Deps extends DepList, Si, Pa>
-    extends Omit<ExtensionFields<Id, S, E, Sc, {}, Deps>, "tags" | "exports" | "render" | "on" | "intercept" | "contribute" | "remind"> {
+    extends Omit<ExtensionFields<Id, S, E, Sc, {}, Deps>, "tags" | "exports" | "render" | "on" | "intercept" | "contribute"> {
     name: string;
     description: string;
     /** 调用方给的初始输入（agent.invoke 的参数）：内核按它校验，ctx.initial 有类型。 */
@@ -539,25 +510,24 @@ interface ProfileBase<Id extends string, S extends StateDecl, E extends EventsDe
     on?: OnTable<NoInfer<S>, NoInfer<E>, SettingsOf<NoInfer<Sc>>, NoInfer<Deps>, StaticOr<NoInfer<Si>>>;
     intercept?: Interceptors<NoInfer<S>, SettingsOf<NoInfer<Sc>>, NoInfer<Deps>, StaticOr<NoInfer<Si>>>;
     contribute?: {[slot: string]: {volatile?: boolean; shared?: boolean; value: (view: ViewCtx<NoInfer<S>, SettingsOf<NoInfer<Sc>>, NoInfer<Deps>, StaticOr<NoInfer<Si>>>) => string | null | undefined}};
-    remind?: Record<string, RemindSpec<NoInfer<S>, SettingsOf<NoInfer<Sc>>, NoInfer<Deps>>>;
-    /** 开场：会话创建时与每次压缩之后读一次，交给稳定的槽 opening（缺省布局放在历史前面）。 */
-    opening?: (from: {initial: DeepReadonly<StaticOr<NoInfer<Si>>>; resources: Resources; read: ViewCtx<NoInfer<S>, {}, NoInfer<Deps>>["read"]; signal: AbortSignal}) => Promise<readonly OpeningPart[]> | readonly OpeningPart[];
+    /** 系统提示词的内容：缺省布局与模板里自闭合的 <System /> 放它。 */
+    system?: Child | ((view: ViewCtx<NoInfer<S>, SettingsOf<NoInfer<Sc>>, NoInfer<Deps>, StaticOr<NoInfer<Si>>>) => Child);
+    /** 整张模板；不写用 standardLayout()。常见的变化用 standardLayout 的选项，不必自己写模板。 */
+    prompt?: (view: ViewCtx<NoInfer<S>, SettingsOf<NoInfer<Sc>>, NoInfer<Deps>, StaticOr<NoInfer<Si>>>) => Child;
     /** 一轮给模型看的样子；不写用 format.turn。进行中按它渲染，缺省也按它提交。 */
-    turn?: TurnFn<NoInfer<S>, SettingsOf<NoInfer<Sc>>, NoInfer<Deps>, StaticOr<NoInfer<Si>>, StaticOr<NoInfer<Pa>>>;
-    /** 一轮结束后以什么样子进历史；不写与 turn 相同（缓存最好）。提交时就校验，不合格用缺省并写诊断。 */
-    commit?: CommitSpec<NoInfer<E>, NoInfer<Deps>> | TurnFn<NoInfer<S>, SettingsOf<NoInfer<Sc>>, NoInfer<Deps>, StaticOr<NoInfer<Si>>, StaticOr<NoInfer<Pa>>>;
-    /** 任何 conv 事件给模型看的文字，覆盖扩展给的；回复与工具结果必须给出文字。优先级：commit.render、这里、扩展的 render。 */
+    turn?: TurnFn<NoInfer<S>, SettingsOf<NoInfer<Sc>>, NoInfer<Deps>, StaticOr<NoInfer<Si>>, StaticOr<NoInfer<Pa>>, NoInfer<E>>;
+    /**
+     * 一轮结束后以什么样子进历史；不写与 turn 相同（缓存最好）。提交时就校验，不合格用缺省并写诊断。
+     * 常见的写法用第 12 节的 helper：format.turn(finalOnly(turn))、format.turn(withoutEvents(turn, 依赖, 事件名))、format.withRender({…}).turn(turn)。
+     */
+    commit?: TurnFn<NoInfer<S>, SettingsOf<NoInfer<Sc>>, NoInfer<Deps>, StaticOr<NoInfer<Si>>, StaticOr<NoInfer<Pa>>, NoInfer<E>>;
+    /** 任何 conv 事件给模型看的文字，覆盖扩展给的；回复与工具结果必须给出文字。优先级：commit 里 format.withRender 的、这里、扩展的 render。 */
     render?: ProfileRender<NoInfer<E>, NoInfer<Deps>>;
     /** 压缩（t11）：给方法的要求、两种情况的方法顺序；false 表示不压缩（单轮模板）。 */
     compaction?: {require?: string; onThreshold?: CompactionMethod[]; onOverflow?: CompactionMethod[]} | false;
 }
 type StaticOr<T> = T extends TSchema ? Static<T> : unknown;
-type PromptFields<S extends StateDecl, St, Deps extends DepList, I> =
-    | {system?: Child | ((view: ViewCtx<S, St, Deps, I>) => Child); layout?: Layout; prompt?: never}
-    | {system?: Child | ((view: ViewCtx<S, St, Deps, I>) => Child); prompt: (view: ViewCtx<S, St, Deps, I>) => Child; layout?: never};
-
-export type ProfileFields<Id extends string, S extends StateDecl, E extends EventsDecl, Sc, Deps extends DepList, Si, Pa> = ProfileBase<Id, S, E, Sc, Deps, Si, Pa> &
-    PromptFields<NoInfer<S>, SettingsOf<NoInfer<Sc>>, NoInfer<Deps>, StaticOr<NoInfer<Si>>>;
+export type ProfileFields<Id extends string, S extends StateDecl, E extends EventsDecl, Sc, Deps extends DepList, Si, Pa> = ProfileBase<Id, S, E, Sc, Deps, Si, Pa>;
 declare const ProfileBrand: unique symbol;
 export type Profile<Id extends string = string, E extends EventsDecl = any, S extends StateDecl = any> = Extension<Id, E, {}, S> & {readonly [ProfileBrand]: true; readonly name: string};
 
@@ -581,9 +551,55 @@ export declare function deriveProfile<const Id extends string, B extends Profile
         render?: B extends {render?: infer R} ? R : never;
         commit?: B extends {commit?: infer C} ? C : never;
         turn?: B extends {turn?: infer T} ? T : never;
-        layout?: Layout;
+        prompt?: B extends {prompt?: infer Pr} ? Pr : never;
         tools?: {required?: string[]; optional?: string[]};
         extensions?: readonly AnyExtension[];
         compaction?: B extends {compaction?: infer Co} ? Co : never;
     },
 ): Omit<B, "id"> & {id: Id};
+
+// ====================================================================
+// 12. helper：能独立成扩展、或写成纯函数的常见写法
+// ====================================================================
+
+/**
+ * 提醒：值变了的那一轮、或每隔 every 轮，在这一轮开头写一条附带内容（自己的 conv 事件 reminder）。
+ * “告诉过模型什么”记在它自己的 path 片里，压缩时清空、回退跟着回去。要读别的扩展的值，写 dependsOn 再 read。
+ * Profile 想换措辞：dependsOn 写这个扩展，render 写 "<id>/reminder"。text 返回 null 表示这次不提醒。
+ */
+export declare function reminder<const Id extends string, const Deps extends DepList = []>(options: {
+    id: Id;
+    tags?: string[];
+    dependsOn?: Deps;
+    every?: number;
+    watch?: (view: ViewCtx<{}, {}, NoInfer<Deps>>) => unknown;
+    text: (change: {value: unknown; previous: unknown; first: boolean; view: ViewCtx<{}, {}, NoInfer<Deps>>}) => string | null;
+}): Extension<Id, {reminder: EventSpec<"path", "conv", {text: string}>}, {}>;
+
+/**
+ * 开场：会话创建时与每次压缩之后调用 load 读一次，存进它自己的 path 片，交给稳定的共用槽 opening
+ * （standardLayout 把它放在历史前面；没有扩展交内容时什么也不渲染）。initial 传 Profile 的同一个 schema，load 里就有类型。
+ */
+export declare function opening<const Id extends string, Si extends TSchema | undefined = undefined, const Deps extends DepList = []>(options: {
+    id: Id;
+    initial?: Si;
+    dependsOn?: Deps;
+    load: (from: {initial: DeepReadonly<StaticOr<NoInfer<Si>>>; resources: Resources; read: ViewCtx<{}, {}, NoInfer<Deps>>["read"]; signal: AbortSignal}) => Promise<readonly OpeningPart[]> | readonly OpeningPart[];
+}): Extension<Id, {}, {}>;
+
+/** 缺省布局的选项：会变的槽放末尾（缓存最好）还是 <Turn /> 前（用户的话在最后）；要不要历史、只要最近几轮。 */
+export interface StandardLayoutOptions {
+    volatile?: "end" | "before-turn";
+    history?: boolean | {last: number};
+}
+/**
+ * 缺省布局：<System>{system}<Slot name="*" stable /></System>、<User><Slot name="opening" /></User>、
+ * <History />、<Turn />、<Slot name="*" volatile />（按选项调整）。不写 prompt 就是 standardLayout()。
+ */
+export declare function standardLayout(options?: StandardLayoutOptions): (view: ViewCtx<any, any, any, any>) => Child;
+
+/** 只留最终回复：去掉工具记录与中间的步，最后一步的回复去掉工具调用（中断的轮也不会留下没有结果的工具调用）。 */
+export declare function finalOnly<P>(turn: Turn<P>): Turn<P>;
+type ConvNamesOfDependency<D> = ContractOf<D> extends Contract<string, infer E, any> ? {[n in keyof E & string]: KindOfSpec<E[n]> extends "conv" ? n : never}[keyof E & string] : never;
+/** 去掉某个依赖的几种对话事件（附带内容与各步之后的都去掉）：withoutEvents(turn, memory, "retrieved")；名字拼错是编译错误。 */
+export declare function withoutEvents<P, D extends Dependency, N extends ConvNamesOfDependency<D>>(turn: Turn<P>, dependency: D, ...names: N[]): Turn<P>;

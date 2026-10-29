@@ -4,7 +4,7 @@
  */
 
 import {Type} from "typebox";
-import {conv, coreHistory, defineContract, defineExtension, ext, implement, shape, slice} from "./api.ts";
+import {conv, coreHistory, defineContract, defineExtension, ext, implement, reminder, shape, slice} from "./api.ts";
 
 // ---------- 契约 ----------
 
@@ -92,11 +92,17 @@ export const tasks = implement(tasksContract, {
         toolResult: (event) => (event.data.tool === "todo" ? {items: event.data.details as {text: string; done: boolean}[]} : undefined),
     },
     exports: {open: (state) => state.items.filter((item) => !item.done).map((item) => item.text)},
-    remind: {
-        open: {every: 8, text: ({view}) => {
-            const open = view.state.items.filter((item) => !item.done);
-            return open.length > 0 ? `未完成的任务：${open.map((item) => item.text).join("；")}` : null;
-        }},
+});
+
+/** 每 8 轮提醒一次没完成的任务：reminder() 是独立的扩展，读任务插件导出的清单；插件贡献 [tasks, tasksReminder]。 */
+export const tasksReminder = reminder({
+    id: "nbook.tasks.reminder",
+    tags: ["reminder"],
+    dependsOn: [tasksContract],
+    every: 8,
+    text: ({view}) => {
+        const open = view.read(tasksContract).open;
+        return open.length > 0 ? `未完成的任务：${open.join("；")}` : null;
     },
 });
 
@@ -106,14 +112,6 @@ export const mode = implement(modeContract, {
     tags: ["reminder"],
     settings: Type.Object({mode: Type.Union([Type.Literal("normal"), Type.Literal("plan")], {default: "normal", title: "模式"})}),
     exports: {mode: (_state, settings) => settings.mode},
-    remind: {
-        changed: {
-            watch: ({settings}) => settings.mode,
-            text: ({value, first}) => (value === "plan" ? "现在是计划模式：只读，先写计划到 session://plan.md。" : first ? null : "已退出计划模式。"),
-        },
-    },
-    // remind 写出的是保留事件 remind；给它一个缺省样子（Profile 还能覆盖）
-    render: {remind: (event) => `<system-reminder>${event.data.text}</system-reminder>`},
     intercept: {
         async tool(call, next, ctx) {
             const effect = ctx.tools.find((tool) => tool.name === call.name)?.effect ?? "exec";
@@ -122,6 +120,15 @@ export const mode = implement(modeContract, {
             return next(call);
         },
     },
+});
+
+/** 模式变了的那一轮提醒；第一次是普通模式就不说。插件贡献 [mode, modeReminder]。 */
+export const modeReminder = reminder({
+    id: "nbook.agent.mode.reminder",
+    tags: ["reminder"],
+    dependsOn: [modeContract],
+    watch: ({read}) => read(modeContract).mode,
+    text: ({value, first}) => (value === "plan" ? "现在是计划模式：只读，先写计划到 session://plan.md。" : first ? null : "已退出计划模式。"),
 });
 
 // ---------- 路由 ----------

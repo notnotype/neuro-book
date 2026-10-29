@@ -47,7 +47,7 @@ t05、t06、t07。
 
 ## 当前状态
 
-提案第五稿（2026-10-29，待开发者看）。经过：
+讨论完成（2026-10-29）：开发者认可提案第五稿，结束讨论。经过：
 
 1. **第二稿与介绍页**：开发者要求的可视化内核介绍页发布为 `intro` 产物（[页面](artifacts/intro/index.html)，v1、v2）；用旧应用的 `leader.default` 验证了新设计。
 2. **最后几轮讨论**（开发者同意）：日志记事实、历史是投影（`core.history` 是内置扩展，只有 Profile 能替换）；模板四节点 `<History>`、`<Input>`、`<Transcript>`、`<Slot>`；去掉 `tail`、`attach`；内核只留必须固定的部分。
@@ -61,7 +61,8 @@ t05、t06、t07。
 10. **第四稿的修订**（2026-10-29）：开发者同意去掉 `prelude`（开场改为一片状态加稳定的槽 `opening()`）；按开发者要求优化接口形状（按事件名挂处理函数 `on`、`reduce` 按事件名的表、事件名驼峰并去掉 `K`/`is`、`input` 与 `steer` 分开、`ctx` 按入口分档、`emit`/`set`/`continue` 直接调用、完整变量名、Profile 自己就是最里层的扩展），写在提案第 16 节与 `spike/v4/`（tsc 通过，`v4/typetest.ts` 十一处写错是编译错误）。
 11. **接口设计**（开发者要求）：三个 Sonnet（插件作者、Profile 作者、宿主与工具链）、一个 Fable（独立设计）、一个 omp（架构与不变量）各自做接口设计并兼做架构审查，报告 `evidences/api-design-*.txt`。
 12. **第五稿**：按五份报告汇总，取舍写在提案第 20 节；接口在 [`spike/v5/`](spike/v5/api.ts)（`api.ts`、`host.ts`、`testing.ts`、`plugins.ts`、`profiles.tsx`、`tests.example.ts`），只有类型，tsc 通过，`v5/typetest.ts` 二十九处写错都报出预期的错误；第三稿 spike 仍 53/53。
+13. **定稿**（开发者 2026-10-29）：能独立成扩展或写成纯函数的便利写法做成 helper，不做成字段（`reminder()`、`opening()`、`standardLayout()`、`finalOnly()`、`withoutEvents()`、`format.withRender()`），理由是便利字段太多会加重心智负担；撤掉为 `remind` 字段加的保留事件。`spike/v5/` 随之改写，tsc 通过，`typetest.ts` 二十九处写错都报出预期的错误。认可第三至五稿改变已定写法的地方。t20 改了内核，实施时排在最前。
 
 ## 下一步
 
-开发者看第五稿（提案第 0、20 节与 `spike/v5/`）。确认方向后：spike 按第五稿实现（写入批、位置章、缓冲区、对话形状与提交、压缩切点、`mount`、测试工具），补场景并按提案第 19 节的六项测性能；再交 omp 做定稿前的设计审查；介绍页随之更新；定稿后回头改写 t05 里 Profile 上下文机制的说法。
+实施时排在本 Work 最前（开发者 2026-10-29）。按 implementation-planning 写 `plan.md`：spike 按第五稿实现（写入批、位置章、缓冲区与指令、对话形状与提交、压缩切点、`mount`、helper、测试工具的严格模式），补场景并按提案第 19 节的六项测性能；实现要再做一次审查（深入审查，开审前报计划与预算）。提案接受（frontmatter 改 `accepted`、写 ADR 与 Spec）随计划一起交开发者。介绍页（`intro` v3）已过时，随实现更新。

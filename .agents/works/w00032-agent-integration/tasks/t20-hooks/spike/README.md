@@ -18,7 +18,7 @@
 | `v4/api.ts` | 第四稿的公开接口，只有类型（缓冲区事件、`Turn`、`turn`/`commit`、`<History>` `<Turn>` `<Slot>`、`conv`/`prelude`/`ext`） |
 | `v4/leader.default.tsx` | 第四稿的主创 Profile 与两个全局扩展，只过 tsc |
 | `v4/typetest.ts` | 第四稿接口的写错应当是编译错误 |
-| `v5/api.ts` | 第五稿的扩展与 Profile 接口，只有类型（契约与 `dependsOn`、带作用域的片、`mount`、`remind`、`system` 与 `layout`、声明式 `commit`、`deriveProfile`） |
+| `v5/api.ts` | 第五稿的扩展与 Profile 接口，只有类型（契约与 `dependsOn`、带作用域的片、`mount`、`system` 与 `prompt`；helper `reminder()`、`opening()`、`standardLayout()`、`finalOnly()`、`withoutEvents()`、`deriveProfile()`） |
 | `v5/host.ts`、`v5/testing.ts` | 宿主接口（指令与失败码、帧、预览、插件宿主）与测试工具，只有类型 |
 | `v5/plugins.ts`、`v5/profiles.tsx`、`v5/tests.example.ts` | 第五稿的全局扩展、Profile（主创、写手、行内编辑、总结者、整张模板、派生变体）与测试的例子，只过 tsc |
 | `v5/typetest.ts` | 第五稿接口的二十九处写错应当是编译错误 |

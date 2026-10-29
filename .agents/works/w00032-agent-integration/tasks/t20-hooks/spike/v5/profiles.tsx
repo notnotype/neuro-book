@@ -8,8 +8,8 @@
 
 import {Type} from "typebox";
 import {h, Fragment, System, Tag, If, Slot, User, Turn} from "./api.ts";
-import {coreHistory, defineContract, defineProfile, deriveProfile, shape, slice, type Resources, type ToolCall} from "./api.ts";
-import {historyContract, modeContract, tasksContract} from "./plugins.ts";
+import {coreHistory, defineContract, defineProfile, deriveProfile, finalOnly, opening, shape, slice, standardLayout, type Resources, type ToolCall} from "./api.ts";
+import {historyContract, modeReminder} from "./plugins.ts";
 
 void h;
 void Fragment;
@@ -80,7 +80,7 @@ export const leader = defineProfile({
         required: ["read", "write", "edit", "apply_patch", "shell", "agent.invoke", "control.request_user_input", "task.create", "plot.read", "plot.write"],
         optional: ["world.execute", "sql.execute"],
     },
-    dependsOn: [historyContract, modeContract, tasksContract, agentsContract, skillsContract, workflowContract],
+    dependsOn: [historyContract, modeReminder],
 
     // 人设：session 的片，回退对话不该把人设退回去；装上时、设置变化、人设文件被改时读一次，值没变不写
     state: {persona: slice.session(DEFAULT_PERSONA_BODY)},
@@ -94,12 +94,18 @@ export const leader = defineProfile({
         },
     },
 
-    // 开场：旧版 HistorySet 的 14 条；会话创建时与每次压缩之后读一次
-    opening: async ({resources, read}) => [
-        read(agentsContract).catalog,
-        read(skillsContract).catalog,
-        read(workflowContract).catalog,
-        ...(await Promise.all(OPENING_DOCS.map((doc) => resources.read(`project://${doc}`)))),
+    // 开场：旧版 HistorySet 的 14 条；opening() 在会话创建时与每次压缩之后读一次
+    extensions: [
+        opening({
+            id: "leader.default.opening",
+            dependsOn: [agentsContract, skillsContract, workflowContract],
+            load: async ({resources, read}) => [
+                read(agentsContract).catalog,
+                read(skillsContract).catalog,
+                read(workflowContract).catalog,
+                ...(await Promise.all(OPENING_DOCS.map((doc) => resources.read(`project://${doc}`)))),
+            ],
+        }),
     ],
 
     // 系统提示词：缺省布局里 <System> 的内容；不写整张模板
@@ -116,13 +122,7 @@ export const leader = defineProfile({
         </>
     ),
     // 每次请求都变的内容放在这一轮前面，用户的话留在最后（代价：有插件交了会变的内容时，ReAct 中途从这里往后重算）
-    layout: {volatile: "before-turn"},
-
-    // 每 8 轮提醒一次没完成的任务；读的是任务插件导出的清单
-    remind: {tasks: {every: 8, text: ({view}) => {
-        const open = view.read(tasksContract).open;
-        return open.length > 0 ? `未完成的任务：${open.join("；")}` : null;
-    }}},
+    prompt: standardLayout({volatile: "before-turn"}),
 
     // 旧版只能在提示词里说“写作任务必须交给 writer”；拦截给出友好的拒绝，真正的限制在工具绑定的路径范围里（t04、t06）
     intercept: {
@@ -134,8 +134,8 @@ export const leader = defineProfile({
 
     render: {
         "nbook.history/notice": (event) => `<file_changes>${event.data.text}</file_changes>`,
-        // 模式插件的提醒（remind 字段写出的保留事件）：换成主创的措辞；data.name 是提醒的名字
-        "nbook.agent.mode/remind": (event) => `<mode reason="${event.data.name}">${event.data.text}</mode>`,
+        // 模式插件的提醒（reminder() 写出的事件）：换成主创的措辞
+        "nbook.agent.mode.reminder/reminder": (event) => `<mode>${event.data.text}</mode>`,
     },
     compaction: {
         require: "保留用户已确认的设定、情节决定与 writer 的写作分工；正在进行的 World Engine 写入要写清做到哪一步。",
@@ -150,8 +150,8 @@ export const leaderMarkedSteer = deriveProfile(leader, {
     render: {...leader.render, steer: (event) => `<user_interjection>${event.data.text}</user_interjection>`},
 });
 
-// 历史只留每轮的最终回复：声明式 commit；代价是下一次运行从这一轮开头起缓存失效一次
-export const leaderLean = deriveProfile(leader, {id: "leader.lean", commit: {steps: "final"}});
+// 历史只留每轮的最终回复：commit 用 finalOnly；代价是下一次运行从这一轮开头起缓存失效一次
+export const leaderLean = deriveProfile(leader, {id: "leader.lean", commit: (turn, format) => format.turn(finalOnly(turn))});
 
 // ====================================================================
 // 写手
@@ -170,9 +170,16 @@ export const writer = defineProfile({
     initial: WriterInitial,
     tools: {required: ["read", "edit"], optional: ["grep"]},
     system: "你是本书的写手，只改正文目录。",
-    opening: async ({initial, resources}) => [
-        `正文在 ${MANUSCRIPT}。本章是 ${initial.chapterId}。`,
-        ...(await Promise.all(initial.files.map((uri) => resources.read(uri)))),
+    // 开场：initial 传同一个 schema 常量，load 里就有类型
+    extensions: [
+        opening({
+            id: "builtin.writer.opening",
+            initial: WriterInitial,
+            load: async ({initial, resources}) => [
+                `正文在 ${MANUSCRIPT}。本章是 ${initial.chapterId}。`,
+                ...(await Promise.all(initial.files.map((uri) => resources.read(uri)))),
+            ],
+        }),
     ],
     state: {words: slice.path(0)},
     on: {
@@ -207,7 +214,7 @@ export const inlineEditor = defineProfile({
     payload: Type.Object({selection: Type.String()}),
     pluginExtensions: "none",
     system: "你是行内编辑器。只输出改写后的段落。",
-    layout: {history: false, opening: false},
+    prompt: standardLayout({history: false}),
     compaction: false,
     turn: (turn, format) => [
         format.user(turn.input && `请改写下面这段：\n${turn.input.data.payload.selection}`, turn.input && `要求：${turn.input.data.text}`),
@@ -228,9 +235,9 @@ export const summarizer = defineProfile({
     tools: {required: ["read"]},
     pluginExtensions: {exclude: ["memory", "reminder", "history"]},
     system: "你负责总结。",
-    layout: {history: {last: 2}, opening: false},
+    prompt: standardLayout({history: {last: 2}}),
     // 只在进历史时换：当前这一轮模型仍看得到完整的工具结果
-    commit: {render: {toolResult: (event) => firstLine(event.data.text)}},
+    commit: (turn, format) => format.withRender({toolResult: (event) => firstLine(event.data.text)}).turn(turn),
 });
 
 // ====================================================================

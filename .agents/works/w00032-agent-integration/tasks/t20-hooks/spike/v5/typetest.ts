@@ -1,8 +1,8 @@
 /** 第五版接口的类型检查：每处 @ts-expect-error 要求下一行是编译错误（没有错误时 tsc 报“未使用的指令”）。 */
 
 import {Type} from "typebox";
-import {conv, defineExtension, defineProfile, deriveProfile, ext, implement, slice} from "./api.ts";
-import {historyContract, modeContract, tasksContract} from "./plugins.ts";
+import {conv, defineExtension, defineProfile, deriveProfile, ext, implement, opening, reminder, slice, standardLayout, withoutEvents} from "./api.ts";
+import {historyContract, modeContract, modeReminder, tasksContract} from "./plugins.ts";
 import {leader} from "./profiles.tsx";
 
 export const bad = defineExtension({
@@ -93,56 +93,56 @@ export const badProfile = defineProfile({
         // @ts-expect-error 22. 回复与工具结果必须给出文字
         toolResult: () => null,
     },
-    // @ts-expect-error 23. 提交时丢掉的事件名拼错
-    commit: {omit: ["nbook.memory/retreived"]},
 });
 
-// @ts-expect-error 24. 整张模板与缺省布局的开关不能同时写
-export const bothLayouts = defineProfile({id: "lab.both", name: "b", description: "b", layout: {history: false}, prompt: () => null});
+export const withRenderBad = defineProfile({
+    id: "lab.with-render",
+    name: "w",
+    description: "w",
+    // @ts-expect-error 23. 提交时换的文字也要遵守：工具结果必须给出文字
+    commit: (turn, format) => format.withRender({toolResult: () => null}).turn(turn),
+});
+
+// @ts-expect-error 24. standardLayout 的选项拼错
+export const badLayout = defineProfile({id: "lab.layout", name: "l", description: "l", prompt: standardLayout({histroy: false})});
 
 // @ts-expect-error 25. 派生必须给新 id
 export const noId = deriveProfile(leader, {name: "另一个"});
 
-export const remindBad = defineExtension({
-    id: "lab.remind-bad",
-    // @ts-expect-error 26. remind 是保留事件名
-    events: {remind: conv()},
+export const reminderBad = reminder({
+    id: "lab.reminder",
+    dependsOn: [tasksContract],
+    // @ts-expect-error 26. 提醒里读没写进 dependsOn 的扩展
+    watch: ({read}) => read(modeContract).mode,
+    text: () => null,
 });
 
-export const remindEmit = defineExtension({
-    id: "lab.remind-emit",
-    events: {note: conv()},
-    on: {
-        input(_event, ctx) {
-            // @ts-expect-error 27. 保留事件只有内核写
-            ctx.emit("remind", {name: "x", text: "y"});
-        },
-    },
-    // 自己的提醒能渲染，data 有类型
-    render: {remind: (event) => `${event.data.name}: ${event.data.text}`},
+export const openingBad = opening({
+    id: "lab.opening",
+    initial: Type.Object({chapterId: Type.String()}),
+    // @ts-expect-error 27. 开场里 initial 的字段拼错
+    load: ({initial}) => [initial.chapterld],
 });
 
-export const remindProfile = defineProfile({
-    id: "lab.remind-profile",
-    name: "r",
-    description: "r",
-    dependsOn: [modeContract],
+export const commitBad = defineProfile({
+    id: "lab.commit",
+    name: "c",
+    description: "c",
+    dependsOn: [modeReminder],
     render: {
-        "nbook.agent.mode/remind": (event) => event.data.text,
-        // @ts-expect-error 28. 依赖的提醒事件名拼错
-        "nbook.agent.mode/remnd": () => "x",
+        // 依赖的提醒能按类型覆盖
+        "nbook.agent.mode.reminder/reminder": (event) => event.data.text,
     },
-    // 提交进历史时丢掉模式提醒
-    commit: {omit: ["nbook.agent.mode/remind"]},
+    // @ts-expect-error 28. 去掉的事件名拼错
+    commit: (turn, format) => format.turn(withoutEvents(turn, modeReminder, "remindr")),
 });
 
-export const remindNoDep = defineProfile({
-    id: "lab.remind-no-dep",
+export const renderNoDep = defineProfile({
+    id: "lab.render-no-dep",
     name: "r",
     description: "r",
-    dependsOn: [modeContract],
     render: {
         // @ts-expect-error 29. 没写进 dependsOn 的扩展的提醒不能覆盖
-        "nbook.tasks/remind": () => "x",
+        "nbook.tasks.reminder/reminder": () => "x",
     },
 });

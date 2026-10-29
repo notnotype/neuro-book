@@ -62,9 +62,14 @@ t02、t04。
   - 给摘要的额外要求：只有让模型写文字的方法用（soft、handoff；remote 要看服务商的原生压缩收不收要求，未核实）；shake、snapcompact 不调模型，不用它。要求随压缩上下文交给每个方法，用不上的忽略。
   - 具体怎么压缩（例如 soft 的摘要提示词）归压缩方法；方法顺序、触发阈值、保留多少近期历史、写摘要的模型放 Profile 设置或全局默认，由用户调。
 
+t20 定稿后的改写（2026-10-29，开发者认可 [Agent harness 的事件模型](../../../../../docs/proposals/agent-harness-event-model.md) 第五稿）：Profile 的上下文机制以提案为准，上面两条由它取代：
+
+- 第一轮“`defineProfile` 以分支实现为主体：manifest、initialSchema、tools、context，可注册的节点、数据源与字段”：改为 Profile 自己就是最里层的扩展，写扩展的字段（`state`、`on`、`mount`、`contribute`、`intercept` 等）加 Profile 级的 `name`、`description`、`initial`、`payload`、`modelNeeds`、`tools`、`system`、`prompt`、`turn`、`commit`、`render`、`compaction`；不再有可注册的节点与数据源，种子、`Appending`、`Reminder`、`ModelContext` 的去处见提案第 13 节。运行时这一层按语义参照分支（提案“影响”一节）。
+- 第三轮“压缩后的种子：每次压缩后重新渲染种子、与压缩条目一起追加、回放时排在压缩内容之前”：改为开场由 `opening()` 在会话创建与每次压缩之后读一次，交给历史前面的稳定槽 `opening`；摘要排在已提交的轮前面（提案第 10 节）。“给摘要的额外要求”不变，经 Profile 的 `compaction.require`。
+
 ## 当前状态
 
-讨论完成（2026-10-28）。计划与实施切片在本 Work 的讨论全部完成后另定。
+讨论完成（2026-10-28）；上下文机制按 t20 定稿改写（2026-10-29）。计划与实施切片在本 Work 的讨论全部完成后另定。
 
 ## 下一步
 
