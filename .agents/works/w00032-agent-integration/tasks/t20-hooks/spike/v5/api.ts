@@ -206,7 +206,7 @@ type ReadResult<D> = D extends Optional<infer C> ? ExportsOfContract<C> | undefi
 
 type Merge<U> = (U extends unknown ? (member: U) => void : never) extends (member: infer R) => void ? {[k in keyof R]: R[k]} : never;
 /** 对联合逐个展开（D extends unknown 让它分配），否则几个依赖的事件名会交成空集。 */
-type ForeignOne<D> = D extends unknown ? (ContractOf<D> extends Contract<infer Id, infer E, any> ? {[n in keyof E & string as `${Id}/${n}`]: E[n]} : never) : never;
+type ForeignOne<D> = D extends unknown ? (ContractOf<D> extends Contract<infer Id, infer E, any> ? {[n in (keyof E & string) | "remind" as `${Id}/${n}`]: (E & Reserved)[n]} : never) : never;
 type Foreign<Deps extends DepList> = Deps extends readonly [] ? {} : Merge<ForeignOne<Deps[number]>>;
 
 // ====================================================================
@@ -214,9 +214,18 @@ type Foreign<Deps extends DepList> = Deps extends readonly [] ? {} : Merge<Forei
 // ====================================================================
 
 /** 自己的事件不许与内核事件重名。 */
-export type NoKernelNames<E> = {[n in keyof E]: n extends KernelName ? "与内核事件同名，换一个名字" : E[n]};
+/**
+ * 每个扩展都有的保留事件 remind：remind 字段写出的提醒（data.name 是提醒的名字）。
+ * 自己的写短名 remind，依赖的写 `<id>/remind`；Profile 的 render、commit.omit 因此能按类型覆盖或丢掉别人的提醒。
+ * 只有内核写它（emit 只认 events 里声明的），扩展没写 remind 字段时它永远不会出现（装配时对指向它的 render 写诊断）。
+ */
+export type RemindEvent = EventSpec<"path", "conv", {name: string; text: string}>;
+type Reserved = {remind: RemindEvent};
 
-type Table<E extends EventsDecl, Deps extends DepList> = KernelEvents & Foreign<Deps> & E;
+/** 自己的事件不许与内核事件、保留事件重名。 */
+export type NoKernelNames<E> = {[n in keyof E]: n extends KernelName | keyof Reserved ? "与内核事件或保留事件同名，换一个名字" : E[n]};
+
+type Table<E extends EventsDecl, Deps extends DepList> = KernelEvents & Foreign<Deps> & E & Reserved;
 type Name<E extends EventsDecl, Deps extends DepList> = keyof Table<E, Deps> & string;
 type SpecOf<E extends EventsDecl, Deps extends DepList, N> = N extends keyof Table<E, Deps> ? Table<E, Deps>[N] : never;
 /** 事件声明里的数据类型。 */
@@ -226,7 +235,7 @@ type ScopeOfSpec<S> = S extends EventSpec<infer Sc, any, any> ? Sc : never;
 type KindOfSpec<S> = S extends EventSpec<Scope, infer Kd, any> ? Kd : never;
 export type EventOf<E extends EventsDecl, Deps extends DepList, N> = Event<string, DeepReadonly<DataOfSpec<SpecOf<E, Deps, N>>>>;
 type ConvNames<E extends EventsDecl, Deps extends DepList> = {[n in Name<E, Deps>]: KindOfSpec<SpecOf<E, Deps, n>> extends "conv" ? n : never}[Name<E, Deps>];
-type OwnConvNames<E extends EventsDecl> = {[n in keyof E & string]: KindOfSpec<E[n]> extends "conv" ? n : never}[keyof E & string];
+type OwnConvNames<E extends EventsDecl> = {[n in keyof E & string]: KindOfSpec<E[n]> extends "conv" ? n : never}[keyof E & string] | keyof Reserved;
 
 // ====================================================================
 // 6. 各入口的上下文：越往后能力越多
@@ -399,6 +408,7 @@ type Interceptors<S extends StateDecl, St, Deps extends DepList, I> = {
 /**
  * 提醒：值变了的那一轮、或每隔 every 轮，在这一轮开头写一条附带内容（`<id>/remind`）。
  * “告诉过模型什么”由内核记在 path 上，压缩时清空；回退跟着回去。text 返回 null 表示这次不提醒。
+ * 写出的事件是保留事件 remind（见 RemindEvent）：自己的 render 写 `remind`，Profile 写 `<id>/remind`，按 event.data.name 区分是哪条提醒。
  */
 export interface RemindSpec<S extends StateDecl, St, Deps extends DepList> {
     every?: number;

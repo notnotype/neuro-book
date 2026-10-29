@@ -9,7 +9,7 @@
 import {Type} from "typebox";
 import {h, Fragment, System, Tag, If, Slot, User, Turn} from "./api.ts";
 import {coreHistory, defineContract, defineProfile, deriveProfile, shape, slice, type Resources, type ToolCall} from "./api.ts";
-import {historyContract, tasksContract} from "./plugins.ts";
+import {historyContract, modeContract, tasksContract} from "./plugins.ts";
 
 void h;
 void Fragment;
@@ -80,7 +80,7 @@ export const leader = defineProfile({
         required: ["read", "write", "edit", "apply_patch", "shell", "agent.invoke", "control.request_user_input", "task.create", "plot.read", "plot.write"],
         optional: ["world.execute", "sql.execute"],
     },
-    dependsOn: [historyContract, tasksContract, agentsContract, skillsContract, workflowContract],
+    dependsOn: [historyContract, modeContract, tasksContract, agentsContract, skillsContract, workflowContract],
 
     // 人设：session 的片，回退对话不该把人设退回去；装上时、设置变化、人设文件被改时读一次，值没变不写
     state: {persona: slice.session(DEFAULT_PERSONA_BODY)},
@@ -132,7 +132,11 @@ export const leader = defineProfile({
         },
     },
 
-    render: {"nbook.history/notice": (event) => `<file_changes>${event.data.text}</file_changes>`},
+    render: {
+        "nbook.history/notice": (event) => `<file_changes>${event.data.text}</file_changes>`,
+        // 模式插件的提醒（remind 字段写出的保留事件）：换成主创的措辞；data.name 是提醒的名字
+        "nbook.agent.mode/remind": (event) => `<mode reason="${event.data.name}">${event.data.text}</mode>`,
+    },
     compaction: {
         require: "保留用户已确认的设定、情节决定与 writer 的写作分工；正在进行的 World Engine 写入要写清做到哪一步。",
         onThreshold: ["shake", "inplace"],

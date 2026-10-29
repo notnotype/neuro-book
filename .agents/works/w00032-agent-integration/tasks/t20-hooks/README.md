@@ -60,7 +60,7 @@ t05、t06、t07。
 9. **第四稿**（开发者提出“异步状态机”的设计并要求注意压缩）：输入缓冲区与指令（steer、followup）；对话的形状改为开场、已提交的轮、进行中的这一轮，一轮结束才提交进 `Message[]`；Profile 的 `turn` 与 `commit`；模板节点 `<History>`、`<Turn>`、`<Slot>`；压缩按轮与步切、保留进行中这一轮的输入；推迟 `sample`、预览过去的请求可复现、一般的缓存诊断、工具并发分类。只写了类型与主创例子（[`spike/v4/`](spike/v4/leader.default.tsx)，过 tsc，`v4/typetest.ts` 五处写错是编译错误），spike 没有按第四稿重写。
 10. **第四稿的修订**（2026-10-29）：开发者同意去掉 `prelude`（开场改为一片状态加稳定的槽 `opening()`）；按开发者要求优化接口形状（按事件名挂处理函数 `on`、`reduce` 按事件名的表、事件名驼峰并去掉 `K`/`is`、`input` 与 `steer` 分开、`ctx` 按入口分档、`emit`/`set`/`continue` 直接调用、完整变量名、Profile 自己就是最里层的扩展），写在提案第 16 节与 `spike/v4/`（tsc 通过，`v4/typetest.ts` 十一处写错是编译错误）。
 11. **接口设计**（开发者要求）：三个 Sonnet（插件作者、Profile 作者、宿主与工具链）、一个 Fable（独立设计）、一个 omp（架构与不变量）各自做接口设计并兼做架构审查，报告 `evidences/api-design-*.txt`。
-12. **第五稿**：按五份报告汇总，取舍写在提案第 20 节；接口在 [`spike/v5/`](spike/v5/api.ts)（`api.ts`、`host.ts`、`testing.ts`、`plugins.ts`、`profiles.tsx`、`tests.example.ts`），只有类型，tsc 通过，`v5/typetest.ts` 二十五处写错都报出预期的错误；第三稿 spike 仍 53/53。
+12. **第五稿**：按五份报告汇总，取舍写在提案第 20 节；接口在 [`spike/v5/`](spike/v5/api.ts)（`api.ts`、`host.ts`、`testing.ts`、`plugins.ts`、`profiles.tsx`、`tests.example.ts`），只有类型，tsc 通过，`v5/typetest.ts` 二十九处写错都报出预期的错误；第三稿 spike 仍 53/53。
 
 ## 下一步
 

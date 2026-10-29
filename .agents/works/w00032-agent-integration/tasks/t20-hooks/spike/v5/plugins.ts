@@ -112,6 +112,8 @@ export const mode = implement(modeContract, {
             text: ({value, first}) => (value === "plan" ? "现在是计划模式：只读，先写计划到 session://plan.md。" : first ? null : "已退出计划模式。"),
         },
     },
+    // remind 写出的是保留事件 remind；给它一个缺省样子（Profile 还能覆盖）
+    render: {remind: (event) => `<system-reminder>${event.data.text}</system-reminder>`},
     intercept: {
         async tool(call, next, ctx) {
             const effect = ctx.tools.find((tool) => tool.name === call.name)?.effect ?? "exec";

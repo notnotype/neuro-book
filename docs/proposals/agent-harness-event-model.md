@@ -54,7 +54,7 @@ adrs: []
 
 本节是第五稿。第四稿按开发者提出的“异步状态机”重组；第五稿汇总了五位设计者（三个 Claude Sonnet、一个 Claude Fable、一个 omp）各自从插件作者、Profile 作者、宿主与工具链、独立设计、架构与不变量五个视角做的接口设计与架构审查，取舍见第 20 节，报告在 t20 的 `evidences/api-design-*.txt`。
 
-接口以 `.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/v5/` 为准：`api.ts`（扩展与 Profile）、`host.ts`（宿主：指令、帧、预览、诊断、插件宿主）、`testing.ts`（测试工具），例子 `plugins.ts`、`profiles.tsx`、`tests.example.ts`，`typetest.ts` 里 25 处写错都是编译错误。这些只有类型、过了 tsc，没有运行；能跑的内核仍是第三稿的 spike（53 个场景）。
+接口以 `.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/v5/` 为准：`api.ts`（扩展与 Profile）、`host.ts`（宿主：指令、帧、预览、诊断、插件宿主）、`testing.ts`（测试工具），例子 `plugins.ts`、`profiles.tsx`、`tests.example.ts`，`typetest.ts` 里 29 处写错都是编译错误。这些只有类型、过了 tsc，没有运行；能跑的内核仍是第三稿的 spike（53 个场景）。
 
 ### 0. 第五稿改了什么
 
@@ -294,7 +294,7 @@ on: {
 
 **`mount(ctx)`**：会话打开、换 Profile 之后新装上时调用，内核等它完成才受理指令；返回清理函数，摘下时调用，`ctx.signal` 同时触发。外部事实从这里进来：订阅文件监听、库结构变化，用 `ctx.emit` 写自己声明的事件，写入排进单写者队列，运行中到下一个边界。`ctx.callback(fn)` 包住外部回调：出错带扩展 id 写诊断，不成为没人接的 Promise 拒绝，摘下之后不再调用。打开时读一次外部数据（人设文件）也写在这里，换 Profile 之后照样会读，第四稿靠 `sessionOpened` 时换 Profile 后不会初始化的问题随之消失。
 
-**`remind`**：隔几轮、或某个值变了的那一轮，在这一轮开头写一条附带内容（`<扩展 id>/remind`）：
+**`remind`**：隔几轮、或某个值变了的那一轮，在这一轮开头写一条附带内容。它是每个扩展都有的保留事件 `remind`（数据 `{name, text}`，`name` 是提醒的名字），只有内核写；扩展自己的 `render` 写 `remind`，Profile 的 `render` 与 `commit.omit` 写 `<扩展 id>/remind`（要先写进 `dependsOn`），名字拼错是编译错误：
 
 ```ts
 remind: {

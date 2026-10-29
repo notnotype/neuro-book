@@ -102,3 +102,47 @@ export const bothLayouts = defineProfile({id: "lab.both", name: "b", description
 
 // @ts-expect-error 25. 派生必须给新 id
 export const noId = deriveProfile(leader, {name: "另一个"});
+
+export const remindBad = defineExtension({
+    id: "lab.remind-bad",
+    // @ts-expect-error 26. remind 是保留事件名
+    events: {remind: conv()},
+});
+
+export const remindEmit = defineExtension({
+    id: "lab.remind-emit",
+    events: {note: conv()},
+    on: {
+        input(_event, ctx) {
+            // @ts-expect-error 27. 保留事件只有内核写
+            ctx.emit("remind", {name: "x", text: "y"});
+        },
+    },
+    // 自己的提醒能渲染，data 有类型
+    render: {remind: (event) => `${event.data.name}: ${event.data.text}`},
+});
+
+export const remindProfile = defineProfile({
+    id: "lab.remind-profile",
+    name: "r",
+    description: "r",
+    dependsOn: [modeContract],
+    render: {
+        "nbook.agent.mode/remind": (event) => event.data.text,
+        // @ts-expect-error 28. 依赖的提醒事件名拼错
+        "nbook.agent.mode/remnd": () => "x",
+    },
+    // 提交进历史时丢掉模式提醒
+    commit: {omit: ["nbook.agent.mode/remind"]},
+});
+
+export const remindNoDep = defineProfile({
+    id: "lab.remind-no-dep",
+    name: "r",
+    description: "r",
+    dependsOn: [modeContract],
+    render: {
+        // @ts-expect-error 29. 没写进 dependsOn 的扩展的提醒不能覆盖
+        "nbook.tasks/remind": () => "x",
+    },
+});
