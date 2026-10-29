@@ -24,7 +24,7 @@
 - [V9 小说记忆图](novel-memory-v9.md)：读者视角的小说记忆图，模型只写章草稿，其余记录由程序生成；评测在 w00005 分支上，2026-10-15 搬到 master。
 - [剧情图谱（nb-story）第一版](novel-story-app.md)：用 V9 记忆图做查看器、问答、命令行与 Skill，先独立服务、后接插件；界面设计定在 w00024 t01。
 - [nb-harness：Profile 定义、工具三层与一次运行的结果](nb-harness-profile-and-tools.md)：Profile 声明工具与上下文、登记表加声明加禁用算出生效工具集、停止原因与用量、收尾工具、单次请求、按配置给模型。
-- [Agent harness 的事件模型](agent-harness-event-model.md)：日志是事件、状态由日志折叠、请求是状态的视图、副作用可拦截；Profile 与插件都是只做折叠、反应、视图、拦截的扩展。
+- [Agent harness 的事件模型](agent-harness-event-model.md)：harness 是一台由日志驱动的状态机，指令进、事件出，输入先进缓冲区；状态由日志归约、请求是状态的视图、副作用可拦截；Profile 与插件（连同对话记录）都是只做归约、反应、视图、拦截的扩展。
 - [界面文字的消息目录](i18n-message-catalogs.md)：每个插件、每个共享包自带按语言分的 JSON 目录（i18next 原生格式），声明按约定取键，失败文案按“拥有者 + 码”取。
 
 ### 旧应用的提案（只作参照）

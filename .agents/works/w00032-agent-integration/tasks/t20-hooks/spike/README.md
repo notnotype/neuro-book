@@ -12,9 +12,12 @@
 | `core.ts` | 内置扩展 `core.history`（持久链表）与辅助函数 `historyExtension`、`seed`、`reminder` |
 | `examples/plugins.ts` | 全局扩展：文件变更、记忆、模式、任务、库结构、工作区焦点、时间、剩余额度，以及路由、用量、想绕过审批的插件 |
 | `examples/profiles.tsx` | 写手、主创（旧 leader.default 的结构）、行内编辑（单轮模板）、总结者（替换 `core.history`）、写错的历史投影 |
-| `check.ts` | 38 个场景检查，每个对应提案里的一条承诺或一条审查发现 |
-| `typetest.ts` | 七种写错的地方应当是编译错误（`@ts-expect-error`） |
+| `check.ts` | 53 个场景检查，每个对应提案里的一条承诺或一条审查发现 |
+| `typetest.ts` | 八种写错的地方应当是编译错误（`@ts-expect-error`） |
 | `bench.ts` | 性能粗测（`FREEZE=0` 关掉开发模式的冻结） |
+| `v4/api.ts` | 第四稿的公开接口，只有类型（缓冲区事件、`Turn`、`turn`/`commit`、`<History>` `<Turn>` `<Slot>`、`conv`/`prelude`/`ext`） |
+| `v4/leader.default.tsx` | 第四稿的主创 Profile 与两个全局扩展，只过 tsc |
+| `v4/typetest.ts` | 第四稿接口的五处写错应当是编译错误 |
 
 在本目录运行（`tsconfig.json` 里的 JSX 设置要在这里才生效）：
 
