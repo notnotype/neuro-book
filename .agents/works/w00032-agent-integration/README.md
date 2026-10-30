@@ -47,6 +47,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-10-30 | t17 方向讨论完成：对话是右栏的工作台视图、一个视图一个会话；模式菜单分 Agent 模式与审批模式；审批与停下运行的提问用提问向导替换输入框；工作台状态栏加 Agent 条目；第一版面板只做会话列表、分支树、简版上下文检查器；静态稿在实施时出（[t17](tasks/t17-conversation-ui/README.md)） |
 | 2026-10-30 | t18 讨论完成：第一批内置 Profile 为主创、会话标题（标题加一句说明）、adhoc（工具由 Profile 定义，不给派发方指定工具）；第一版不带内置 Skill；提示词规范写进 `docs/standards/prompts.md`；评测优先级降低；Workflow 的临时 Profile 记进 t24（[t18](tasks/t18-builtin-profiles/README.md)） |
 | 2026-10-30 | t19 讨论完成，全部按推荐：MCP 插件 `nbook.mcp` 另开 [w00036](../w00036-mcp/README.md)；第一版只有用户级配置、不读项目的 `.mcp.json`；工具缺省不绑 Profile、缺省算执行档；工具名上限改为 64（改 t04）（[t19](tasks/t19-mcp/README.md)） |
+| 2026-10-30 | t25 移出：插件分发另开 [w00038](../w00038-plugin-distribution/README.md)（git、npm、官方与第三方市场、离线压缩包）；官方网站与服务（登录、备份、同步、社区、官方市场）另开 [w00037](../w00037-official-site/README.md)（[t25](tasks/t25-plugin-marketplace/README.md)） |
 
 ## 调研
 
@@ -56,6 +57,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 - [各家的 Skill：字段、参数、依赖、更新与市场](research/2026-10-30-skill-survey.md)（t15）。
 - [旧应用的 Agent 资产、评测做法与临时代理](research/2026-10-30-builtin-profiles-survey.md)（t18）。
 - [各家的 MCP 客户端](research/2026-10-30-mcp-client-survey.md)（t19）。
+- [插件市场：Obsidian、VS Code、Claude Code 与其它](research/2026-10-30-plugin-marketplace-survey.md)（t25）。
 - [Agent 操作宿主应用与网页界面](research/2026-10-30-host-control-survey.md)（t16）：宿主命令、网页界面的感知与操作、截图与高亮、omp 的浏览器与 eval、CodeAct 的文档形式、页面内可复用的库。
 - [需求对照与遗漏](tasks/t01-survey/artifacts/report/index.html)（t01 的 `report` 产物）：开发者列的 20 条需求与清单外 10 项。
 
@@ -105,5 +107,6 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 
 - 网页工具插件（`web_fetch`、`web_search`）与网页搜索：另开 Work（t12，2026-10-28）。
 - MCP 插件：另开 [w00036](../w00036-mcp/README.md)（t19，2026-10-30）。
+- 插件分发与官方网站：另开 [w00038](../w00038-plugin-distribution/README.md)、[w00037](../w00037-official-site/README.md)（t25，2026-10-30）。
 - 外部命令行的检测、下载与“外部工具”设置页：发布时做，策略记在 [t12](tasks/t12-builtin-tools/README.md)（2026-10-28）。
 - shell 的安全加固（密钥正则、路径条件、环境变量白名单）：以后专门做安全时考虑（t12，2026-10-28）。

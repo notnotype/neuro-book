@@ -9,9 +9,9 @@ updated: 2026-10-30
 
 ## 目标与范围
 
-待补充。
+按 Work README 的“已定的事”与“要讨论的问题”出设计，修订 [`runtime.plugin-install`](../../../../../docs/specs/runtime/plugin-install.md)（现在只收本地文件夹）并写实施计划。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：只做设计，行为合同未变。
 
 ## 当前状态
 
@@ -19,4 +19,4 @@ updated: 2026-10-30
 
 ## 下一步
 
-待补充。
+插件 SDK 发布后开工：先讨论 Work README 的“要讨论的问题”，再写 Spec 与计划。

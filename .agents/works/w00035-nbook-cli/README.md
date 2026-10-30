@@ -28,6 +28,7 @@ updated: 2026-10-30
 ### 其它来源
 
 - `nbook skill init <id> [--yes]`：Skill 依赖的初始化，w00032 t15 已定。
+- `nbook plugin` 里把单个 Skill 自动包成只含它的插件，供上架市场：[w00038](../w00038-plugin-distribution/README.md) 决定 10（w00032 t25，2026-10-30）。
 - 现有命令行合同：[`runtime.cli`](../../../docs/specs/runtime/cli.md)（`nbook start` 前台运行、插件子命令离线写登记表）。
 
 ## 要讨论的问题
