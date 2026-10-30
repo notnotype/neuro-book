@@ -45,6 +45,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-10-30 | t16：Agent 经 CodeAct 操作 NeuroBook 界面（快照、动作、截图、高亮），另开 w00033 做核心包 `nb-page-agent` 与内置插件；浏览器插件操作外部网站另开 w00034；Agent 与命令系统的对接、控件绑命令的规范搁置；指针与拖动搁置，以后由桌面外壳解决；eval（t21）要加让插件登记全局对象的贡献点（[t16](tasks/t16-command-bridge/README.md)） |
 | 2026-10-30 | t16 讨论完成：`nbook project` 第一批五个子命令（list、info、create、add、check），写操作要求应用在运行，`check` 可由插件扩展；`nbook` 命令行与 start、serve、系统服务的设计另开 w00035（[t16](tasks/t16-command-bridge/README.md)） |
 | 2026-10-30 | t17 方向讨论完成：对话是右栏的工作台视图、一个视图一个会话；模式菜单分 Agent 模式与审批模式；审批与停下运行的提问用提问向导替换输入框；工作台状态栏加 Agent 条目；第一版面板只做会话列表、分支树、简版上下文检查器；静态稿在实施时出（[t17](tasks/t17-conversation-ui/README.md)） |
+| 2026-10-30 | t18 讨论完成：第一批内置 Profile 为主创、会话标题（标题加一句说明）、adhoc（工具由 Profile 定义，不给派发方指定工具）；第一版不带内置 Skill；提示词规范写进 `docs/standards/prompts.md`；评测优先级降低；Workflow 的临时 Profile 记进 t24（[t18](tasks/t18-builtin-profiles/README.md)） |
 
 ## 调研
 
@@ -52,6 +53,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 - [外部参照](../../../docs/research/agent-runtime-references.md)：omp 与 DeepSeek Harness 的机制、模型接口与 OMP 包族的工具发现。
 - [各家 code agent 的子代理设计](research/2026-10-30-subagent-survey.md)（t14）：工具形状、结果、续用与插话、审批与提问、运行控制、父子关系。
 - [各家的 Skill：字段、参数、依赖、更新与市场](research/2026-10-30-skill-survey.md)（t15）。
+- [旧应用的 Agent 资产、评测做法与临时代理](research/2026-10-30-builtin-profiles-survey.md)（t18）。
 - [Agent 操作宿主应用与网页界面](research/2026-10-30-host-control-survey.md)（t16）：宿主命令、网页界面的感知与操作、截图与高亮、omp 的浏览器与 eval、CodeAct 的文档形式、页面内可复用的库。
 - [需求对照与遗漏](tasks/t01-survey/artifacts/report/index.html)（t01 的 `report` 产物）：开发者列的 20 条需求与清单外 10 项。
 

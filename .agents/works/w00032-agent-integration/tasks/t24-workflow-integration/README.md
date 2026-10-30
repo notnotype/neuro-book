@@ -21,6 +21,8 @@ Workflow（nb-workflow）怎样调 Agent、Agent 怎样调 Workflow：AgentPort�
 - nb-workflow 的 `AgentPort`（`packages/nb-workflow/src/ports.ts`）：`profileInfo`、`invoke(sessionId, fromLeaf, {mode, message, input, signal})`。
 - t14 审查（[`evidences/design-review.txt`](../t14-multi-agent/evidences/design-review.txt) 第 11 条）提出的待定问题：Workflow 发起的会话里提问交给谁（Workflow 不是模型，不能用 `agent_answer`）；`startTask` 的 `background` 与其它工具的 `async` 是否统一、怎样接任务中心；`TurnResult` 与 `yield` 的结果怎样转换。2026-10-30 的推荐（未定）：这类会话的提问缺省交给用户，`background` 改名 `async`。
 
+- 开发者 2026-10-30（t18 讨论时）：Workflow 的多代理编排可能要用自定义工具，初步方案是 Agent 能定义临时 Profile；到 Workflow 的 Work 再讨论。旧应用的 Workflow 一次性帮工用内置 `adhoc`（见 [t18](../t18-builtin-profiles/README.md) 决定 1、6）。
+
 ## 当前状态
 
 搁置（开发者 2026-10-30）。
