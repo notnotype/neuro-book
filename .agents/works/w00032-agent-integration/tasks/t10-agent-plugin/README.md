@@ -58,6 +58,10 @@ t02 到 t09。
 7. 导出远程服务 `agent.startTask({profile, initial, input, project?, background?})`（TypeBox 合同），返回会话 id，结果为 `TurnResult`（含收尾工具的参数）；编辑器行内 AI、命令（t16）、Workflow、应用内的 nb-story 用它；子代理走同一条路（t14）。
 8. nb-story 作为插件接入时经 `agent.profiles`、`agent.tools` 贡献；界面改不改用对话视图由 w00024 定。
 
+## 后续修改
+
+- 2026-10-30（t15，开发者定）：插件 SDK 的构建预设顺带把插件里每个 Skill 的脚本连同 npm 依赖打成单文件，插件里的 Skill 装好就能用；打不进单文件的构建失败（[t15](../t15-skills/README.md) 第 7 条）。最小安装单位是插件，市场是插件市场（[t25](../t25-plugin-marketplace/README.md)）。
+
 ## 当前状态
 
 讨论完成（2026-10-28）。计划与实施切片在本 Work 的讨论全部完成后另定。

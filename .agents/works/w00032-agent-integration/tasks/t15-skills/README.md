@@ -47,11 +47,17 @@ t05、t08、t10。
 5. 应用自己判断 Skill 是否初始化好；`nbook` 命令行提供初始化命令，Agent 也能经命令行初始化，与用户在界面上初始化是同一件事；Agent 不主动初始化，只在用户要求时做。
 6. 更新与市场参照 Claude Code 的插件市场，另开 [t25](../t25-plugin-marketplace/README.md) 讨论。
 
+第三轮（开发者 2026-10-30）：
+
+7. 插件里的 Skill 在构建时带齐依赖：插件 SDK 的构建预设（`nbooke build`）把插件里每个 Skill 的脚本连同用到的 npm 包各打成一个单文件（`bun build --target bun`），装好就能用、不用初始化；打不进单文件的（原生模块、运行时读包内数据文件、Python 脚本）构建失败并说明原因。内置 Skill 用同一套。要改插件 SDK 的构建预设（记进 [t10](../t10-agent-plugin/README.md)）。
+8. 初始化标记：`node_modules/.nbook-skill-deps.json`，记 `schema`、`runtime`、`inputs`（`package.json` 中影响安装的字段加 `bun.lock` 的哈希）、`platform`、`bun` 版本、安装时间，失败时记 `error`；与 `node_modules` 同生共死，不放在 Skill 源目录。以后支持 uv 时，标记放状态根按 Skill 分文件，判断就绪时再实际试一次。
+9. 最小的安装单位是插件：有版本、能更新、能上架的只有插件，市场是插件市场（[t25](../t25-plugin-marketplace/README.md)），像 VS Code 的主题也是插件一样。Skill 的来源：内置、插件贡献、`user://skills/`（自己写的，或从文件夹、zip 复制进来的，不记来源、不更新）、设置里的额外 Skill 目录（缺省为空）。单个 Skill 要上架，就包成只含 Skill 的插件。
+
 先调研再定的：字段全表、Skill 参数与“带参数自动执行脚本”、依赖（Python、Node、Bun）、更新与 Skill 市场。调研：[各家的 Skill](../../research/2026-10-30-skill-survey.md)。
 
 ## 当前状态
 
-讨论中（2026-10-30）：第二轮定了字段、参数、依赖范围与初始化方式；初始化标记的形状与插件 Skill 的构建时打包待讨论。
+讨论中（2026-10-30）：三轮定了字段、参数、依赖、初始化与来源；余下触发与加载、进提示词、重名与校验待讨论。
 
 ## 下一步
 
