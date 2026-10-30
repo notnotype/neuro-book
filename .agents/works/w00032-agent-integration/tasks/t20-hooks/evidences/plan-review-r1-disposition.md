@@ -116,3 +116,29 @@
 | Z17 | `kill -9` 测不到半批（实测 150 次 0 次） | 成立，要改 | 同 P7 |
 
 合计 108 行（P 32、Z 17、D 16、A 15、O 14、S 14）。没有归为“不成立”的；归“接受取舍”的只有 Z16 一条，这一条只部分采纳，第 0 片仍先做。
+
+## 第二轮（快速审查，Claude Opus）
+
+报告 `plan-review-r2-opus.txt`，19 条（重要 13、建议 6），确认第一轮 8 条阻断都有落点。全部成立、要改，已并入 `plan.md` 第二版：
+
+| 编号 | 要点 | 落点 |
+|---|---|---|
+| R2-P1 | 受理时拦截的拒绝、类型与队列内外 | 3.1 输入；3.5 输入链时限；3.6 `input-rejected` |
+| R2-P2 | `SessionEnv.plugin` 单值 | 3.3 所属插件随扩展传；3.10 删去 |
+| R2-P3 | 动态 `yield` 的 schema 不持久、文字结果无处放 | 3.2 会话头 `result`；3.1 `runEnded.result`；3.6 收尾工具与固定提醒 |
+| R2-P4 | 宽限期与“以写下结果为准”两种答案 | 3.5 代次在交给队列时检查；3.6 收尾工具改写输出 16 |
+| R2-P5 | Profile 哈希含工具声明、内置用包版本 | 3.3 Profile 哈希 |
+| R2-P6 | 锁回收竞态、进程号复用 | 3.2 锁；第 2 片出口 |
+| R2-P7 | 大块内容的顺序、fork、脱敏、单位 | 3.2 大块内容；第 5 片出口 |
+| R2-P8 | `log-broken` 之后关不掉 | 3.2 写失败；第 2 片出口 |
+| R2-P9 | 验收门放 nb-harness 会成环或深导入 | 第 10 片改放 nb-story 包 |
+| R2-P10 | `commandAccepted.value` 承诺未写入的运行 | 3.6 受理批含 `runStarted`；第 6 片出口 |
+| R2-P11 | 反应拖住中止与受理 | 3.5 中止连带反应、受理等待上限；第 6 片出口 |
+| R2-P12 | 批准记忆是 session 片却归约 path 事件 | 3.1 `approvalRemembered`；3.4 |
+| R2-P13 | `ctx.model` 成功回复无落点、放行不留痕 | 3.1 `modelEnded`、`toolStarted.approval` |
+| R2-P14 | `layer` 已挪走，3.3 仍按它分组 | 3.3 拦截序；第 12 片 |
+| R2-P15 | 第 2 片缺最小视图、测量点过早 | 第 2、3 片 |
+| R2-P16 | `sessions` 与锁相撞 | 3.10 `sessions.get` |
+| R2-P17 | 定稿类型七处遗漏 | 3.1（`version`、`modelFailed.interrupted`、`interactionResolved.code` 与 `decision`、删 `rewind{abort}`、图片块）；3.6 `tools-missing` 进只读；第 4 节同步 t06、t14 |
+| R2-P18 | `commit` 重算出错写日志 | 3.4 |
+| R2-P19 | `index.json` 过期 | 3.2 会话目录 |

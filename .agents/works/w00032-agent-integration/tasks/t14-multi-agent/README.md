@@ -114,7 +114,7 @@ t05、t06、t07。
 30. 异步提问与输入框：异步提问显示为带选项的提问卡片，回答只经卡片（`resolve`）；输入框里的文字一律是普通输入（插话或排队）。t07 决定 4（等提问时输入框的文字作为回答）只适用于会让运行停下等待的提问。
 31. 系统结算之后父 Agent 怎样收到：子会话的待处理事项被系统结算（中止、插件卸载、回退）后，子会话的运行照常继续或结束；父 Agent 正在等的工具按上文“任一条件返回”的规则返回（例如状态 `aborted`）。
 32. `wait` 超时时返回仍在跑的任务的状态（`running`），不改变任务；`kill` 返回“已杀死”“已经结束”或 `job-unknown`；任务记录还在时，结果可以重复取。
-33. 仍留到实施的：t20 的 `v5` 类型原型（交互事件、`RunStatus`、`SessionMirror`、`ToolInfo.concurrency`）与各工具完整的失败码表，在 t20 实施计划里一并定（t20 实施排在最前）。
+33. 仍留到实施的：t20 的 `v5` 类型原型（交互事件、`RunStatus`、`SessionMirror`、`ToolInfo.concurrency`）与各工具完整的失败码表，在 t20 实施计划里一并定（t20 实施排在最前）。（2026-10-30：类型原型在 [t20 计划](../t20-hooks/plan.md) 3.1 定；子代理工具的失败码表属于 Agent 插件，移交 t14 自己的实施计划；`SessionMirror` 并入 t20 之后的迁移 Task。）
 
 调研：[各家 code agent 的子代理设计](../../research/2026-10-30-subagent-survey.md)（Claude Code、Codex CLI、omp、DeepSeek Harness、OpenCode、Gemini CLI、Kimi CLI、Roo Code、Cline、Amp）。
 
