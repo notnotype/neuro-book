@@ -49,3 +49,4 @@ autonomous-delivery 推进时照推荐做了、本该由开发者决定的点，
 - 2026-10-30 [t40](tasks/t40-fix-issue-264-extraction-errors/README.md) 完成：issue 264 的三类抽取错误核对属实，收紧抽取规则（身份两头、同称呼不同次化身、前世身份的知情）并在示例 README 记已知错误；效果要重抽才能验证，重抽待授权。
 - 2026-10-30 [t41](tasks/t41-fix-issue-265-qa-progress-spoilers/README.md) 完成：issue 265，设了阅读位置时问答过程（命令行进度、网页的工具步骤与日志）不显示位置之前搜不到的词，思考块不给网页。
 - 2026-10-30 [t42](tasks/t42-reject-certain-identity/README.md) 完成：issue 266，`revisions.reject` 收确定的身份说法，人物卡“同一身份”里可断开连接。
+- 2026-10-30 [t43](tasks/t43-replace-xiyouji-example/README.md) 完成：示例换成 t40 规则重抽的西游记第二版，README 更新数字与已知错误（仍约 9 条错连，含 `s17-5`、`s86-7` 把玄奘连进孙悟空）。
