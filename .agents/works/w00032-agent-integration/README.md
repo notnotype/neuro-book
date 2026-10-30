@@ -44,6 +44,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-10-30 | t15 讨论完成：标准 6 个字段加 `when-to-use`；第一版 Skill 只由用户 `$` 触发、不进提示词、没有参数；依赖只支持 Bun，应用按 `node_modules` 里的标记判断是否初始化；插件里的 Skill 构建时打包依赖；最小安装单位是插件，市场另开 t25；不支持额外的 Skill 目录（[t15](tasks/t15-skills/README.md)） |
 | 2026-10-30 | t16：Agent 经 CodeAct 操作 NeuroBook 界面（快照、动作、截图、高亮），另开 w00033 做核心包 `nb-page-agent` 与内置插件；浏览器插件操作外部网站另开 w00034；Agent 与命令系统的对接、控件绑命令的规范搁置；指针与拖动搁置，以后由桌面外壳解决；eval（t21）要加让插件登记全局对象的贡献点（[t16](tasks/t16-command-bridge/README.md)） |
 | 2026-10-30 | t16 讨论完成：`nbook project` 第一批五个子命令（list、info、create、add、check），写操作要求应用在运行，`check` 可由插件扩展；`nbook` 命令行与 start、serve、系统服务的设计另开 w00035（[t16](tasks/t16-command-bridge/README.md)） |
+| 2026-10-30 | t17 方向讨论完成：对话是右栏的工作台视图、一个视图一个会话；模式菜单分 Agent 模式与审批模式；审批与停下运行的提问用提问向导替换输入框；工作台状态栏加 Agent 条目；第一版面板只做会话列表、分支树、简版上下文检查器；静态稿在实施时出（[t17](tasks/t17-conversation-ui/README.md)） |
 
 ## 调研
 
