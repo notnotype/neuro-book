@@ -42,6 +42,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 
 - [仓库内的现状](research/2026-10-28-repo-survey.md)：harness 两条线、新应用现状、文档冲突、其它 Work 里相关的未完成事项、旧应用的 Agent 功能面、nb-story 问答的预演。
 - [外部参照](../../../docs/research/agent-runtime-references.md)：omp 与 DeepSeek Harness 的机制、模型接口与 OMP 包族的工具发现。
+- [各家 code agent 的子代理设计](research/2026-10-30-subagent-survey.md)（t14）：工具形状、结果、续用与插话、审批与提问、运行控制、父子关系。
 - [需求对照与遗漏](tasks/t01-survey/artifacts/report/index.html)（t01 的 `report` 产物）：开发者列的 20 条需求与清单外 10 项。
 
 ## 讨论顺序
