@@ -47,3 +47,4 @@ autonomous-delivery 推进时照推荐做了、本该由开发者决定的点，
 - 2026-10-28 [t38](tasks/t38-overlay-revisions/README.md) 完成并合入：图的修订（`story.revisions`，planned）——确认或驳回候选身份、手动连接、改对象种类、挪称呼，修订按书单独保存、按依据位置生效、可撤销；待确认页、人物卡就地确认与修改菜单、`nbstory revisions`。设计见 [t37](tasks/t37-overlay-revisions-design/README.md)。事后扫描另起 Task。
 - 2026-10-28 [t39](tasks/t39-npm-release-0-2/README.md) 完成：发布 nb-runtime 0.2.0、nb-harness 0.1.1、nb-story 0.2.1（0.2.0 的依赖范围写旧，补发 0.2.1，`release:check` 加锁文件版本检查）；从 registry 安装的冒烟通过。
 - 2026-10-30 [t40](tasks/t40-fix-issue-264-extraction-errors/README.md) 完成：issue 264 的三类抽取错误核对属实，收紧抽取规则（身份两头、同称呼不同次化身、前世身份的知情）并在示例 README 记已知错误；效果要重抽才能验证，重抽待授权。
+- 2026-10-30 [t41](tasks/t41-fix-issue-265-qa-progress-spoilers/README.md) 完成：issue 265，设了阅读位置时问答过程（命令行进度、网页的工具步骤与日志）不显示位置之前搜不到的词，思考块不给网页。
