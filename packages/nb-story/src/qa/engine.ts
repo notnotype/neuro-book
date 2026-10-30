@@ -35,6 +35,7 @@ import {QaError} from "./errors";
 import {clipRead, ReadLedger} from "./read-ledger";
 import {readRange, resolveReach, type Reach} from "./reach";
 import {recheckMessage} from "./rules";
+import {createVisibility} from "./spoiler";
 import profile from "./story-qa.profile";
 import {storyQaPlugin, type QaToolState} from "./tools";
 import {webEventOf, type QaAgentEvent} from "./web-events";
@@ -427,7 +428,20 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
     registerPlugin(registry, storyQaPlugin(state, start.features, start.answer));
     // 这一轮在日志里从哪一条开始（记进记录，网页按它对轮次）。
     const logFrom = (start.entries?.length ?? 0) + 1;
-    const sessionLog = observed(createMemorySessionLog({sessionId: id, ...(start.entries === null ? {} : {entries: start.entries})}), input.onLogEntries);
+    // 给人看的东西（进度、网页的日志与事件）先过一遍剧透检查（spoiler.ts）。检查要查询，所以是异步的；进度、日志条目、事件
+    // 排在同一条队列里，保持先后，这一轮结束前等队列走完。会话日志本身与交给模型的内容不过检查。
+    const visibility = createVisibility(book, start.reach);
+    let shown: Promise<void> = Promise.resolve();
+    const show = (task: () => Promise<void>): void => {
+        shown = shown.then(task).catch(error => console.error(`nbstory：问答过程的剧透检查出错，这一条不显示：${error instanceof Error ? error.message : String(error)}`));
+    };
+    const sessionLog = observed(
+        createMemorySessionLog({sessionId: id, ...(start.entries === null ? {} : {entries: start.entries})}),
+        input.onLogEntries === undefined ? undefined : entries => show(async () => {
+            const safe = await Promise.all(entries.map(entry => visibility.entry(entry)));
+            notify(() => input.onLogEntries!(safe));
+        }),
+    );
 
     let usage = emptyUsage();
     let outcome: Pick<QaTurn, "status" | "answer" | "reply" | "error"> = {status: "interrupted", answer: null, reply: null, error: null};
@@ -473,12 +487,18 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
     async function runTurns(harness: Harness): Promise<void> {
         const unsubscribe = harness.subscribe(event => {
             const web = input.onAgentEvent === undefined ? null : webEventOf(event);
-            if (web !== null) notify(() => input.onAgentEvent!(web));
-            if (event.type === "tool_execution_start") input.onProgress?.({kind: "tool", tool: event.toolName, text: describeTool(event.toolName, (event.args ?? {}) as Record<string, unknown>)});
+            if (web !== null) show(async () => {
+                const safe = await visibility.event(web);
+                notify(() => input.onAgentEvent!(safe));
+            });
+            if (event.type === "tool_execution_start") show(async () => {
+                const args = await visibility.args((event.args ?? {}) as Record<string, unknown>, event.toolCallId);
+                notify(() => input.onProgress?.({kind: "tool", tool: event.toolName, text: describeTool(event.toolName, args)}));
+            });
             if (event.type === "tool_execution_end" && event.toolName === "answer" && event.isError) {
                 rejections += 1;
                 const result = event.result as {content?: {type: string; text?: string}[]} | undefined;
-                input.onProgress?.({kind: "rejected", text: result?.content?.map(block => block.text ?? "").join("") ?? ""});
+                show(async () => input.onProgress?.({kind: "rejected", text: result?.content?.map(block => block.text ?? "").join("") ?? ""}));
             }
         });
         const options = input.signal === undefined ? undefined : {signal: input.signal};
@@ -490,7 +510,7 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
             if (refs.length > 0) {
                 // 审计用：日志里看得出这一轮为什么多了一条用户消息。meta 不进模型上下文，问题清单写在复查消息里。
                 await sessionLog.append([{kind: "meta", key: "nb-story.reply-check", value: {unverified: refs}}]);
-                input.onProgress?.({kind: "recheck", refs});
+                show(async () => input.onProgress?.({kind: "recheck", refs}));
                 const second = await harness.turn(recheckMessage(refs), options);
                 usage = addUsage(usage, second.usage);
                 const rewritten = outcomeOf(second);
@@ -500,13 +520,15 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
                     recheck = {unverified: refs.length, outcome: "rewritten"};
                 } else recheck = {unverified: refs.length, outcome: second.stopReason === "aborted" ? "aborted" : "failed"};
             }
-            if (outcome.answer !== null) input.onProgress?.({kind: "answered"});
+            if (outcome.answer !== null) show(async () => input.onProgress?.({kind: "answered"}));
         } finally {
             unsubscribe();
+            await shown;
         }
     }
 
     async function finish(): Promise<QaOutcome> {
+        await shown;
         const turn: QaTurn = {question: input.question, ...outcome, chaptersRead: ledger.chapters(), rejections, usage, ms: Date.now() - started, model: qaModel.ref, startedAt, logFrom, at, ...(recheck === undefined ? {} : {recheck})};
         const fixed = previous ?? {id, book: book.id, generation: book.generation, at, mode, maxChapters: start.maxChapters, startedAt};
         const conversation: Omit<QaConversation, "log"> = {

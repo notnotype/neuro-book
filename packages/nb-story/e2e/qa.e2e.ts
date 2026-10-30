@@ -87,9 +87,10 @@ test("新对话：提问后看到过程与答案卡片；出处在抽屉里打�
     const card = page.locator("[data-qa-answer]");
     // 受理之后输入框清空（换到新对话的草稿也是新版本）。
     await expect(page.getByRole("textbox", {name: "消息输入框"})).toHaveText("");
-    // 运行中：过程逐步列出模型的思考与读原文的那一步，列表里这个对话在运行中。
-    await expect(page.getByText("先翻到 37 章找地狱猫").first()).toBeVisible();
+    // 运行中：过程逐步列出读原文的那一步，列表里这个对话在运行中。设了阅读位置，模型的思考不显示（qa.md 输出 43，
+    // 思考里可能有后文的词）：读到这一步时它已经到了页面上，所以这里不显示是真的被收起，不是还没到。
     await expect(page.getByText("37.8—37.8").first()).toBeVisible();
+    await expect(page.getByText("先翻到 37 章找地狱猫")).toHaveCount(0);
     await expect(page.locator("aside").getByText("运行中")).toHaveCount(1);
     await endpoint.release();
     await expect(card).toBeVisible();

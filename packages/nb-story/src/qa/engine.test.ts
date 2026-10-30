@@ -707,6 +707,45 @@ async function storedEntries(id: string): Promise<{seq: number; kind: string; ke
     return log.jsonl.split("\n").filter(Boolean).map(line => JSON.parse(line) as never);
 }
 
+describe("过程里不剧透（输出 12，issue 265）", () => {
+    // 夏桃桃第 60 章之后才出场，阅读位置 38.57 之前搜不到；苏天晴在位置之前就有。
+    const later = "夏桃桃";
+    const steps = (): ScriptedInput[] => [
+        [toolCall("s1", "search", {query: later}), toolCall("s2", "card", {entity: later}), toolCall("s3", "search", {query: `苏天晴 ${later}`}), toolCall("s4", "search", {query: "苏天晴"})],
+        [read("r1", {chapter: 38, paragraph: 55}, {chapter: 38, paragraph: 55})],
+        answer(),
+    ];
+    const toolTexts = (progress: {kind: string; text?: string}[]) => progress.filter(event => event.kind === "tool").map(event => event.text);
+
+    test("设了阅读位置：进度、网页的日志与事件里没有位置之前搜不到的词；位置之前搜得到的照常显示；模型与存下的日志不变", async () => {
+        const id = newQaRecordId(new Date());
+        const entries: string[] = [];
+        const events: string[] = [];
+        const {progress, model} = await askScripted(book, steps(), {at: P, conversationId: id, onLogEntries: batch => entries.push(...batch.map(entry => JSON.stringify(entry))), onAgentEvent: event => events.push(JSON.stringify(event))});
+        expect(toolTexts(progress).slice(0, 4)).toEqual(["搜索：（阅读位置之前没有结果）", "查人物卡：（阅读位置之前没有结果）", "搜索：（阅读位置之前没有结果）", "搜索：苏天晴"]);
+        expect(JSON.stringify(progress)).not.toContain(later);
+        expect(entries.join("")).not.toContain(later);
+        expect(events.join("")).not.toContain(later);
+        // 模型自己写的参数它自己看得到，续问也要原样交回；只改了给人看的那一份。
+        expect(JSON.stringify(model.requests[1]!.messages)).toContain(later);
+        const stored = await new QaRecords(book.api.library, "fox").getWithLog(id, (await book.api.openBook("fox")).generation);
+        expect(stored.log.ok && stored.log.jsonl.includes(later)).toBe(true);
+    });
+
+    test("没设阅读位置（默认在最后一段）：没有可剧透的内容，进度原样", async () => {
+        const {progress} = await askScripted(book, steps(), {});
+        expect(toolTexts(progress).slice(0, 2)).toEqual([`搜索：${later}`, `查人物卡：${later}`]);
+    });
+
+    test("思考块不给网页：设了阅读位置时日志与事件里没有思考文字", async () => {
+        const entries: string[] = [];
+        const events: string[] = [];
+        await askScripted(book, [[{type: "thinking", thinking: "这是六耳猕猴的事"} as never, read("r1", {chapter: 38, paragraph: 55}, {chapter: 38, paragraph: 55})], answer()], {at: P, onLogEntries: batch => entries.push(...batch.map(entry => JSON.stringify(entry))), onAgentEvent: event => events.push(JSON.stringify(event))});
+        expect(entries.join("")).not.toContain("六耳猕猴");
+        expect(events.join("")).not.toContain("六耳猕猴");
+    });
+});
+
 describe("Markdown 作答与出处复查（t16）", () => {
     const markdown = {answer: "markdown" as const};
     const read55 = [read("r1", {chapter: 38, paragraph: 55}, {chapter: 38, paragraph: 55})];

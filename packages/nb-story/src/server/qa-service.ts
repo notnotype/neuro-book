@@ -26,6 +26,8 @@ import {StoryError, type StoryErrorCode} from "../core/errors";
 import {answerModeOf, currentPosition, highestPosition, QaRecords, newQaRecordId, type QaConversation, type QaTurn} from "../core/qa-records";
 import {QA_METHODS, type QaFrame, type QaMethod, type QaRunView, type ViewerParams, type ViewerResult} from "../contract/contract";
 import {ABSENT_CONFIG, currentConfigDigest, defaultConfigPath, readQaConfigFile, readQaConfigShape, saveQaConfig, type Effort, type QaConfig} from "../qa/config";
+import {createVisibility} from "../qa/spoiler";
+import {resolveReach} from "../qa/reach";
 import {changePosition, continuationProblem, prepareQuestion, withoutFullText, type AskInput, type PreparedQuestion, type QaOutcome} from "../qa/engine";
 import {QaError, type QaErrorCode} from "../qa/errors";
 import {catalogModel, discoverModels, listCatalog, providerKeyReady} from "@notnotype/nb-harness";
@@ -435,6 +437,19 @@ export function createQaService(options: QaServiceOptions): QaService {
         return parseEntryLine(line) ?? undefined;
     }
 
+    /**
+     * 网页拿到的日志里，工具参数与结果里阅读位置之前搜不到的词不显示，思考块去掉（qa/spoiler.ts）。位置取对话现在的位置：
+     * 往回调之后，旧回合里原本能看的词也跟着收起来。位置落不到这本书里（书被改过）时按第 1 章第 1 段算，宁可多隐藏。
+     */
+    async function withoutSpoilers(bookId: string, conversation: QaConversation, entries: SessionEntry[]): Promise<SessionEntry[]> {
+        const book = await api.openBook(bookId);
+        const reach = await resolveReach(book, currentPosition(conversation)).catch(() => resolveReach(book, {chapter: 1, paragraph: 1}));
+        const visibility = createVisibility(book, reach);
+        const safe: SessionEntry[] = [];
+        for (const entry of entries) safe.push(await visibility.entry(entry));
+        return safe;
+    }
+
     async function getOnce(params: ViewerParams<"qa.get">): Promise<{result: ViewerResult<"qa.get">; generation: string}> {
         const {records, generation} = await openRecords(params.book);
         const run = runOf(params.book, params.id, generation);
@@ -450,6 +465,7 @@ export function createQaService(options: QaServiceOptions): QaService {
             const reason = run.state === "running" ? "第一轮还在运行" : "第一轮没有保存，不能续问";
             return {result: {record: null, log: {ok: true, entries: []}, continuable: {ok: false, reason}, run: viewOf(run)}, generation};
         }
+        if (log.ok) log = {ok: true, entries: await withoutSpoilers(params.book, conversation, log.entries as unknown as SessionEntry[])};
         // 早先版本的 Profile 开始的对话在这里就报不能续问（同续问时的检查），不等到恢复会话才失败。
         const problem = log.ok && read !== undefined ? continuationProblem(firstEntry(read)) : null;
         const continuable: ViewerResult<"qa.get">["continuable"] = conversation.log === null

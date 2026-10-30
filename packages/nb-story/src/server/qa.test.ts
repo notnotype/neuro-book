@@ -177,6 +177,27 @@ describe("一轮问答在服务里跑，进展经推送到页面", () => {
         expect(listed.body).toMatchObject({conversations: [{id: conversation, question: "地狱猫是谁？", turns: 1, status: "answered", run: {runId, state: "ended", saved: true}}], broken: []});
     });
 
+    test("设了阅读位置：推送的帧与 qa.get 的日志里没有位置之前搜不到的词，存下的日志照原样（issue 265）", async () => {
+        const later = "夏桃桃";
+        const env = await setup([
+            {kind: "tools", calls: [{name: "search", args: {query: later}}, {name: "card", args: {entity: later}}]},
+            READ_THEN_ANSWER[0]!,
+            READ_THEN_ANSWER[1]!,
+        ]);
+        const started = await env.call("qa.start", {book: "fox", question: "夏桃桃是谁？", at: {chapter: 38}});
+        const {conversation} = started.body as {conversation: string};
+        const stream = env.events(conversation);
+        await stream.closed;
+        const pushed = JSON.stringify(stream.frames);
+        // 问题文字是用户自己写的，不算；模型的调用与结果里不能有。
+        expect(pushed.replaceAll("夏桃桃是谁？", "")).not.toContain(later);
+        const got = await env.call("qa.get", {book: "fox", id: conversation});
+        expect(JSON.stringify(got.body.log.entries).replaceAll("夏桃桃是谁？", "")).not.toContain(later);
+        const api = createStoryApi({library: env.library});
+        const stored = await new QaRecords(api.library, "fox").getWithLog(conversation, (await api.openBook("fox")).generation);
+        expect(stored.log.ok && stored.log.jsonl.includes(`"query":"${later}"`)).toBe(true);
+    });
+
     test("推送的流比 Bun 默认的 10 秒空闲超时活得久：模型 12 秒才回，结束帧照样送到", async () => {
         const gate = held(GIVE_UP);
         const env = await setup([gate.reply], {endpointIdleTimeout: 0});
