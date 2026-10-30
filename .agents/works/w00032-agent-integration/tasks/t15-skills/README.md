@@ -51,7 +51,16 @@ t05、t08、t10。
 
 7. 插件里的 Skill 在构建时带齐依赖：插件 SDK 的构建预设（`nbooke build`）把插件里每个 Skill 的脚本连同用到的 npm 包各打成一个单文件（`bun build --target bun`），装好就能用、不用初始化；打不进单文件的（原生模块、运行时读包内数据文件、Python 脚本）构建失败并说明原因。内置 Skill 用同一套。要改插件 SDK 的构建预设（记进 [t10](../t10-agent-plugin/README.md)）。
 8. 初始化标记：`node_modules/.nbook-skill-deps.json`，记 `schema`、`runtime`、`inputs`（`package.json` 中影响安装的字段加 `bun.lock` 的哈希）、`platform`、`bun` 版本、安装时间，失败时记 `error`；与 `node_modules` 同生共死，不放在 Skill 源目录。以后支持 uv 时，标记放状态根按 Skill 分文件，判断就绪时再实际试一次。
-9. 最小的安装单位是插件：有版本、能更新、能上架的只有插件，市场是插件市场（[t25](../t25-plugin-marketplace/README.md)），像 VS Code 的主题也是插件一样。Skill 的来源：内置、插件贡献、`user://skills/`（自己写的，或从文件夹、zip 复制进来的，不记来源、不更新）、设置里的额外 Skill 目录（缺省为空）。单个 Skill 要上架，就包成只含 Skill 的插件。
+9. 最小的安装单位是插件：有版本、能更新、能上架的只有插件，市场是插件市场（[t25](../t25-plugin-marketplace/README.md)），像 VS Code 的主题也是插件一样。Skill 的来源：内置、插件贡献、`user://skills/`（自己写的，或从文件夹、zip 复制进来的，不记来源、不更新）。单个 Skill 要上架，就包成只含 Skill 的插件。
+
+第四轮（开发者 2026-10-30）：
+
+10. 不支持“额外的 Skill 目录”（改 t08“另定的两条”）；来源只有内置、插件、`user://skills/` 三种。
+11. `$` 触发的 Skill 作为这一轮的附带内容进对话，排在用户的话前面（t20 的位置章）；压缩之后放回最近用过的 Skill 正文，每个前 5,000 token、合计 25,000（照 Claude Code）。
+12. `$` 菜单列当前 Profile 白名单里的 Skill，未就绪的标出状态。
+13. id 带来源前缀（`builtin.`、插件 id、`user.`），不做同名覆盖；`$` 菜单显示 `name`，重名时显示 id。
+14. 坏掉的 Skill（frontmatter 解析不了、`name` 与目录名对不上）只隔离它一个并写诊断。
+15. 改动何时生效：Skill 正文改了，下一次 `$` 或压缩后放回时读到新内容；已经发出去的轮不变（日志是事实）。Skill 目录（catalog）变了要让会话知道：参照 Claude Code 的“又有哪些 Skill 可用”的提醒，但第一版不实时提醒，等压缩时随稳定槽重新生成。第一版 Skill 的说明不进提示词（第 3 条），所以这条在模型能自己启用 Skill 之后才起作用；界面的 `$` 菜单随时是最新的。
 
 先调研再定的：字段全表、Skill 参数与“带参数自动执行脚本”、依赖（Python、Node、Bun）、更新与 Skill 市场。调研：[各家的 Skill](../../research/2026-10-30-skill-survey.md)。
 

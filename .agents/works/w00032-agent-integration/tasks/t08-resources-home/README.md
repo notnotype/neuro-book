@@ -111,7 +111,7 @@ t03、t05。
 ### 另定的两条
 
 - 会话日志放在 `home/` 外，Agent 不能写；2026-10-30 起经 `sessions://<id>/session.jsonl` 只读（t14），渲染的记录与查询工具在 t23。
-- Skill 格式遵守 Agent Skills 开放标准（`SKILL.md`），目录由 NeuroBook 自己管：来源只有内置、插件、`user://skills/`；默认不读 `~/.agents/skills`、项目里的 `.agents/skills`（写作用户的 Skill 目录不该混进写代码用的 Skill，同一 Profile 在不同机器上表现也会不同）。外部 Skill 可以复制或“导入”进 `user://skills/`；设置里另有“额外的 Skill 目录”，默认为空。书专属的 Skill 先不做（t15 再看）。
+- Skill 格式遵守 Agent Skills 开放标准（`SKILL.md`），目录由 NeuroBook 自己管：来源只有内置、插件、`user://skills/`；默认不读 `~/.agents/skills`、项目里的 `.agents/skills`（写作用户的 Skill 目录不该混进写代码用的 Skill，同一 Profile 在不同机器上表现也会不同）。外部 Skill 可以复制或“导入”进 `user://skills/`；设置里另有“额外的 Skill 目录”，默认为空（2026-10-30 t15 去掉：不支持额外目录）。书专属的 Skill 先不做（t15 再看）。
 
 ### 后续修改
 
