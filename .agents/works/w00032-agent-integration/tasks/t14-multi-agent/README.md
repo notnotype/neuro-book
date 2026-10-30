@@ -48,6 +48,16 @@ t05、t06、t07。
 4. 父子是平级的会话：各是一个会话文件，彼此记着关系；父会话知道自己派过哪些子会话，也能经资源地址查到。
 5. 父代理能做人类对子会话能做的操作：指定模型角色或模型与推理档、插话、排队、审批等。子代理工具按这条重新设计。
 
+第二轮（开发者 2026-10-30）：
+
+6. 工具设计原则：一个工具只做一件事，宁可工具多，不设计复合工具；以后所有工具都按这条（记在 [t04](../t04-tool-registry/README.md)）。工具描述多出多少做实验量。子代理工具对照前后端的会话接口（提案的 `v5/host.ts`）来设计。
+
+7. 查会话的全部历史另开 [t23](../t23-session-history/README.md)，先搁置；暂时由 Agent 直接读原始日志文件。
+8. 审批一律交给用户，父 Agent 不审批。
+9. 提问缺省交给调用方（父 Agent），父 Agent 可以自己答；另有开关把提问直接交给用户。
+10. 能转后台的工具都有一个转后台的选项，打开时立即返回一个任务 id；所有后台任务（后台 shell、后台子代理）统一由一个任务中心管理，用户在前端也能看到，Agent 用同一组工具等待与停止（方向，细节在 [t22](../t22-background-work/README.md)）。
+11. 不要 `agent_settings`；`agent_continue`、`agent_abort`、`agent_status` 与 `agent_answer`、`agent_approve` 看能否合并。
+
 工具形状、审批与提问、运行控制先调研各家 code agent 再定：[调研](../../research/2026-10-30-subagent-survey.md)（Claude Code、Codex CLI、omp、DeepSeek Harness、OpenCode、Gemini CLI、Kimi CLI、Roo Code、Cline、Amp）。
 
 ## 当前状态

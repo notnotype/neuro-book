@@ -60,6 +60,8 @@ t02。
 
 开发者的补充（2026-10-28，转 t05）：Profile 通过插件共享，借插件的依赖声明保证 Profile 引用的工具都已安装。
 
+工具设计原则（开发者 2026-10-30，t14 讨论时定，所有工具适用）：一个工具只做一件事，宁可工具多，不设计按参数切换行为的复合工具。理由：好理解，以后做 CodeAct（t21）时一个工具就是一个函数。代价是工具描述变长，多出多少由实验量出来（t14）。
+
 ## 实测：历史里调用过、本次没有的工具
 
 脚本 [`scripts/probe-tool-history.ts`](scripts/probe-tool-history.ts)，结果 [`evidences/tool-history-probe.txt`](evidences/tool-history-probe.txt)（2026-10-28）。四种请求：历史里调用过 `old__lookup`、本次 tools 只有 `new__search`；同样的历史、本次不带 tools；工具名 65 个字符；工具名 128 个字符。
