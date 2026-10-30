@@ -433,7 +433,7 @@ intercept: {
 - **路径限制**：“写手只改正文目录”这类规则真正的限制放在工具绑定或审批的路径范围里（t04、t06）；拦截只负责给出友好的拒绝文字，判断前用 `ctx.resources.resolve` 规范化路径（`project://正文/../设定/x.md` 这类写法能绕过字符串前缀）。
 - **顺序**：从外到里：插件的扩展（按 `dependsOn` 排序，同一层按 id）、Profile 的 `extensions`、Profile 自己的字段、审批（内核）。最终顺序与清单哈希写进 `profileChanged`。这个顺序也决定反应追加事件的顺序与同一个槽的拼接顺序。
 - **各入口读到的是哪一刻的状态**：`reduce` 读这条事件之前；`on` 读这条事件写入之后；`contribute`、`prompt`、`turn`、模型拦截读这次请求所在的叶子；工具拦截读发出这批调用的回复所在的叶子；输入拦截读取走这条输入时的叶子。
-- **工具**：一个回复里的工具调用按顺序切成连续的段：声明为 `shared` 的连续调用并发执行，`exclusive`（缺省）单独执行（t14 定）。结果仍按调用顺序作为一个写入批写入，整批写完后对每条结果派发反应；日志的形状与串行时一样。拦截不写事件、读同一份快照，并发调用也安全。
+- **工具**：一个回复里的工具调用按顺序切成连续的段：声明为 `shared` 的连续调用并发执行，`exclusive`（缺省）单独执行（t14 定）。工具声明的 `concurrency` 字段取这两个值；内置写文件工具与 `shell` 是 `exclusive`，子代理与任务中心的工具是 `shared`。结果仍按调用顺序作为一个写入批写入，整批写完后对每条结果派发反应；日志的形状与串行时一样。拦截不写事件、读同一份快照，并发调用也安全。
 - **失败**：
 
   | 入口 | 出错时 | 记在哪 |
@@ -489,8 +489,10 @@ intercept: {
 审批（t06）与提问（`ask`）是同一条通道（照分支的 `interaction`，t14 定）：
 
 - 事件：`interactionRequested{id, callId, kind: "approval" | "question", request}`、`interactionResolved{id, decision, by, data?}`，运行状态加 `waiting`。同一批工具调用里的几个事项可以同时待处理、任意顺序应答，全部处理完才回到运行。扩展可以归约它们（例如“问过的问题不再问”）；重启后照日志接着等。
-- 指令：`resolve({id, decision, answer?, note?})`，指令带上发出者（用户，或派这个会话的父会话）。审批只收用户的应答；提问在会话设为“交给调用方”时也收父会话的应答；用户任何时候都能直接应答。失败码 `unknown-interaction`、`already-answered`、`not-allowed`。
-- 异步提问：`ask` 带 `async` 时不进入等待，问题照样写成 `interactionRequested`、工具立即返回；回答是一条普通的用户输入，带 `replyTo` 指向这个事项（运行中当插话，空闲时开新一轮）。
+- 指令：`resolve({id, decision, answer?, note?})`；发出者（用户，或派这个会话的父会话）由服务端按调用来源注入，不是参数。同一事项的并发应答由会话日志的单写者裁决，后到的得到 `already-answered`。审批只收用户的应答；提问在会话设为“交给调用方”时也收父会话的应答；用户任何时候都能直接应答。失败码 `unknown-interaction`、`already-answered`、`not-allowed`。
+- 异步提问：`ask` 带 `async` 时不进入等待，问题照样写成 `interactionRequested`、工具立即返回。回答同样走 `resolve`：内核在同一个写入批里写 `interactionResolved`，并把回答作为一条输入放进缓冲区（运行中当插话，空闲时开新一轮）；问题所在的分支被回退后，应答得到 `unknown-interaction`。
+- 结算（照分支）：中止时写拒绝并注明 `aborted`；被回退掉的分支上的事项不再算待处理；工具被卸载按 `tool-unavailable`。
+- `v5/api.ts` 的四个占位事件、`v5/host.ts` 的 `RunStatus` 与 `SessionMirror` 还没跟着改，实施时以本节为准。
 - 完整形状在 t06、t14 的实施计划里定。
 
 ### 12. 诊断
@@ -788,4 +790,4 @@ expect(session.requests[0]!.outline()).toEqual(["system: fixed:profile", "user: 
 | 2026-10-29 | 开发者 | 要求优化接口形状与开发体验（第 16 节的方向）；派几个 Sonnet、一个 Fable、一个 omp 做接口设计并兼做架构审查，汇总成第五版再看 |
 | 2026-10-29 | 开发者 | 同意把能独立成扩展或写成纯函数的便利写法做成 helper，不做成字段：`remind` 改为 `reminder()`、`opening` 改为 `opening()`、`layout` 改为 `standardLayout()`、声明式 `commit` 改为 `finalOnly()`、`withoutEvents()`、`format.withRender()`；理由是便利字段太多会加重开发者的心智负担 |
 | 2026-10-29 | 开发者 | 认可第五稿（含第三至五稿改变已定写法的地方），结束 t20 的讨论；实现时再做一次审查；t20 改了内核，优先级提高 |
-| 2026-10-30 | 开发者 | t14 讨论中定了三处内核修正：审批与提问合成一条通道（`interactionRequested`、`interactionResolved` 与指令 `resolve`，取代四个占位事件）；声明为 `shared` 的工具在同一个回复里并发执行（从推迟的功能移入）；用户输入加 `replyTo` 支持异步提问 |
+| 2026-10-30 | 开发者 | t14 讨论中定了三处内核修正：审批与提问合成一条通道（`interactionRequested`、`interactionResolved` 与指令 `resolve`，取代四个占位事件）；声明为 `shared` 的工具在同一个回复里并发执行（从推迟的功能移入）；用户输入加 `replyTo` 支持异步提问（同日审查后改为异步回答也走 `resolve`，不加 `replyTo`） |

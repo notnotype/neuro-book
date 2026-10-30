@@ -91,10 +91,10 @@ t03、t05。
 
 | 例子 | 落到哪里 |
 |---|---|
-| 计划模式写计划 | `session://plan.md`；不算作品内容，只读模式下不弹审批 |
+| 计划模式写计划 | `session://plan.md`（写全地址，2026-10-30 起 bash 的工作目录不再是 `session://`）；不算作品内容，只读模式下不弹审批 |
 | 用户粘贴一张图 | `session://attachments/image-1.png` |
 | 工具输出 300 KB | 截断后给模型，全文 `session://artifacts/3-read.log`，可以 `rg` |
-| bash 跑 Python 统计字数 | 工作目录 `session://`，中间文件 `tmp://` |
+| bash 跑 Python 统计字数 | 工作目录 `project://`（没有项目时 `session://`，2026-10-30 改），脚本与中间文件写全地址放 `tmp://` 或 `session://`，不落在书里 |
 | 写手决定“悟空口头禅是‘俺老孙’” | 书的设定：`project://设定/人物.md` |
 | 写手记“第 12 章写到第 3 节” | 写进 `project://` 的进度文件，或 `profile://books/<项目 id>/progress.md`（不随书走） |
 | 用户对写手说“我不喜欢破折号” | `profile://preferences.md` |
@@ -115,7 +115,8 @@ t03、t05。
 ### 后续修改
 
 - 2026-10-30（t14 讨论，开发者定）：`sessions://<会话 id>/` 改为映射整个会话目录 `<状态根>/agent/sessions/<会话 id>/`，会话日志就是 `sessions://<会话 id>/session.jsonl`（只读），别的会话的工作区在 `sessions://<会话 id>/home/`；`session://` 改为等于 `sessions://<当前会话>/home/`。上面“规律”与“方案”表里 `session://` 等于 `sessions://<当前会话>/` 的写法以这条为准。理由：Agent 要能直接读子会话的原始日志（[t14](../t14-multi-agent/README.md)、[t23](../t23-session-history/README.md)），这样不开特例、地址与真实目录一一对应，日志也不落在可写的工作区里。
-- 2026-10-30（t14 讨论，开发者定）：bash（t12 的 `shell`）的工作目录改为：会话有主项目时 `project://`，没有时 `session://`。上面“方案”表与“用例子验证”里“bash 的工作目录 `session://`”以这条为准。理由：Agent 的工作大多是改这本书，相对路径直接对着书的文件；bash 是执行档、缺省弹审批（t06），写书仍要用户批准。不用 `user://`：那里是用户的 Profile、Skill 与 `AGENTS.md`，写入要询问。
+- 2026-10-30（t14 讨论，开发者定）：bash（t12 的 `shell`）的工作目录改为：会话有主项目时 `project://`，没有时 `session://`。上面“方案”表与“用例子验证”里“bash 的工作目录 `session://`”以这条为准。理由：Agent 的工作大多是改这本书，相对路径直接对着书的文件；bash 是执行档、缺省弹审批（t06），写书仍要用户批准。不用 `user://`：那里是用户的 Profile、Skill 与 `AGENTS.md`，写入要询问。“用例子验证”里的两行已同步改。只读对 Agent 的文件工具生效，bash 能绕过（t12 已接受的第一版限制）。
+- 2026-10-30（t14 审查后，开发者定）：任何会话都能读任何会话的 `sessions://<id>/`（日志与工作区），不做限制。
 
 ## 当前状态
 
