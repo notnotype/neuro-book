@@ -40,6 +40,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-10-30 | t14：开发者定工具设计原则，一个工具只做一件事、宁可工具多、不设计复合工具，以后所有工具都按这条（记在 t04）；结果分自由、可选结构化、强制结构化三种；父 Agent 能做人类对子会话能做的操作（[t14](tasks/t14-multi-agent/README.md)） |
 | 2026-10-30 | t14 讨论完成待审查：子代理工具 `agent_spawn`、`agent_send`、`agent_answer`，任务中心 `wait`、`kill`、`jobs`，子代理交结果用 `yield`；`sessions://<id>/` 映射整个会话目录（改 t08）；bash 工作目录改为 `project://`（没有项目时 `session://`）；对 t20 内核三处修正（审批与提问合成一条通道、`shared` 工具并发、`replyTo` 异步提问）（[t14](tasks/t14-multi-agent/README.md)） |
 | 2026-10-30 | t14 omp 设计审查 18 条已处理：任何会话都能读任何会话（开发者认为不是漏洞，不采纳第 12 条）；中止只连带正在等的子会话；子代理与后台任务加并发上限；异步回答走 `resolve`；Workflow 另开 t24 搁置（[t14](tasks/t14-multi-agent/README.md)） |
+| 2026-10-30 | t14 讨论完成：两轮 omp 设计审查处理完，开发者确认定稿；硬上限每会话 16、全局 32、深度 5（[t14](tasks/t14-multi-agent/README.md)） |
 
 ## 调研
 
