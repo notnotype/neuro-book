@@ -69,7 +69,7 @@ t05、t06、t07。
 第四轮（开发者 2026-10-30，全部按推荐）：
 
 15. bash（t12 的 `shell`）的工作目录：会话有主项目时是 `project://`，没有时退回 `session://`（改 t08、t12，记在 [t08](../t08-resources-home/README.md) 的“后续修改”）。不用 `user://`：那里是用户的 Profile、Skill 与 `AGENTS.md`，写入要询问。
-16. `profiles://` 的分级披露，与 Skill（t15）同一套：
+16. `profiles://` 的分级披露，与 Skill（t15）同一套（t15 第 3 条：第一版 Skill 不进提示词、只由用户 `$` 触发，Skill 这一侧的推荐与披露先用不上）：
     - Profile 声明可派的白名单与其中推荐的几个；白名单只管能不能派，`agent_spawn` 派白名单外的得到 `profile-not-allowed`。
     - 推荐的：名字、说明、初始输入与结果的形状全部进提示词。
     - 白名单里其余的：名字与说明进提示词。
