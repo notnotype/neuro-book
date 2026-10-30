@@ -1,0 +1,112 @@
+### 1. `batch.of` 不能补上 `write` 与 `fsync` 的不确定提交
+- **严重程度**：阻断；**类别**：正确性 / 不变量 / 持久化
+- **位置**：计划第 2 节表格“写入批的原子性”、第 3.1 节 `jsonl-store` 与 `validate.ts`，以及第 7 节崩溃验证；相关文件为分支 `packages/nb-harness/src/session/jsonl/jsonl.ts`、`src/session/log.ts`。
+- **现象**：计划把合同写成“**一批的全部行一次 `write` 后 `fsync`**”，再以每行 `batch: {id, n, of}` 在加载时丢弃末尾不完整批。分支 JSONL 实现实际用 `r+`、按 `stat().size` 定位，并没有 `fsync`；其 `writeAll` 只处理短写，不能让批次原子提交。计划也没有定义 `fsync` 失败、磁盘写满或写入返回错误后，调用方看到的批次状态。
+- **为什么是问题**：`fsync` 是持久化屏障，不是多行原子提交。写入可能已经把完整批写进页缓存，随后 `fsync` 报错；也可能只写出部分行后因 ENOSPC 失败。调用方若按失败重发同一个 `commandId`，重启后可能看到完整旧批再追加一份，或看到半批；`batch.of` 只能识别尾部缺行，不能区分“已提交但调用方未收到成功”和“未提交”，也不能定义重复批的恢复语义。`validate.ts` 的“批完整则接受、否则拒绝”与“加载时丢弃尾批”也没有规定先后及批 ID 重试规则。
+- **如何核实**：`git show feat/w00002-harness-kernel:packages/nb-harness/src/session/jsonl/jsonl.ts` 可见分支没有 `sync()`；读取该文件第 86–95、138–153 行可见短写处理与 `r+` 追加。对 `LogStore.append` 先制造“写入后 `sync` 抛错”的文件系统故障，再重发同一命令即可观察：计划没有可判定的结果。
+- **建议改法**：先把存储合同改成“批次有明确的提交/未提交状态”：保留 `batch.id`，在 `append` 返回不确定失败时把句柄标为 broken，禁止同句柄重试；重开时按批 ID 校验并截掉未提交尾批，若完整批已经存在则按批 ID 幂等返回而不是再次追加。若不愿实现这套不确定结果协议，就采用提交标记或临时批文件加原子落位；单靠 `batch.of` 不足以承诺提案第 2 节的原子性。崩溃测试还必须覆盖 `fsync` 失败与 ENOSPC，不只覆盖 `kill -9`。
+### 2. 打开流程会把未完整批留在文件尾，再追加恢复事件
+- **严重程度**：阻断；**类别**：正确性 / 恢复 / 资源状态
+- **位置**：计划第 3.1 节 `LogStore` 的 `load`/`repair`，第 3.6 节 `recover.ts`，第 3.10 节 `openSession` 的“`load` → `recover` → 装配 → `mount`”，第 7 节崩溃验证；相关文件为分支 `src/session/jsonl/jsonl.ts`、`src/session/log.ts`。
+- **现象**：计划说 `load` “丢弃末尾不完整的批并报告”，同时把 `repair(id)` 放进存储接口；但 `openSession` 的固定顺序没有 `repair`，也没有说明 `load` 是否已经物理截断。分支实现明确把损坏尾标成 `damagedTail`，`append` 在 `repair` 前返回 `damaged-tail`，`repair` 只是另一个显式操作。
+- **为什么是问题**：`kill -9` 留下的半行或完整但不全的批仍在文件里。若 `openSession` 直接进入 `recover()`，恢复写入 `modelFailed`、`turnEnded`、`runEnded` 会从不完整字节后面继续追加；下次读取时 JSON 行和批边界都坏掉，恢复本身把可修复的中断尾变成 `log-corrupt`。如果 `load` 静默丢掉内存中的条目却不截文件，日志真相与可追加位置也分叉。
+- **如何核实**：读取分支 JSONL 第 155–165 行与日志第 129–133 行：分支 `repair` 单独截断，存在 `damaged-tail` 时 `append` 拒绝；再对照计划第 3.10 节的打开顺序，没有 repair 步骤。
+- **建议改法**：把打开合同固定为 `load → 若有尾批则在同一会话锁内 repair/truncate → reload/validate → recover`，或让 `load` 返回一个只能由 `openSession` 消费的“已截断并已持久化”结果；修复失败必须拒绝打开，不能继续 `recover`。测试要断言父进程重开后文件可继续追加、再次打开仍能读出恢复事件，而不是只断言内存里丢了尾批。
+### 3. “单写者”只覆盖进程内队列，没有覆盖同一状态根的两个进程
+- **严重程度**：阻断；**类别**：不变量 / 跨进程 / 持久化
+- **位置**：计划第 2 节“写入批的原子性”、第 3.1 节“单写者（3.4）保证”、第 3.4 节 `queue.ts`，第 7 节验证；相关决定为 t03 README 决定 5。
+- **现象**：计划只定义“每个会话一条写入队列”，没有文件锁、状态根实例锁、会话 owner token 或第二进程的拒绝合同。t03 的“一个状态根一个服务端”是部署假设，不是 `LogStore`/`openSession` 已实现的互斥机制；分支 `jsonl.ts` 的 `append` 也是 `stat` 后按偏移写入，没有跨进程协调。
+- **为什么是问题**：两个进程各自拥有一条看似正确的队列时，会同时读取同一文件长度并写到相同偏移，或者交错写入两个批；双方的 `seq`、父节点、幂等索引都在各自内存里，最终文件可能出现重复 seq、父节点倒置或不可解析尾部。计划第 3.1 的启动校验只能在损坏发生后拒绝打开，不能保证“同一会话只有一个写入顺序”。t14 还把会话目录和原始 `session.jsonl` 作为任意会话可读资源，不能用读权限代替写互斥。
+- **如何核实**：静态读分支 `src/session/log.ts` 的 `chain` 只能串联一个 `Log` 实例；读分支 `src/session/jsonl/jsonl.ts` 第 141–148 行可见没有 lock。两个独立 Bun 子进程同时对同一 id 调 `append` 即可制造同偏移写入；计划没有相应的场景或失败码。
+- **建议改法**：二选一并写入 t03/t20 合同：在状态根启动时取得唯一服务端锁、第二进程拒绝打开；或在会话文件上取得带 owner/代次的排他锁，`openSession`/每次 append 都验证 owner，关闭和崩溃后可回收。测试必须启动两个真实进程，断言一个获得 owner、另一个得到稳定的 `session-busy`/`already-open`，而不是只测两个句柄各自的进程内队列。
+### 4. 把 `abort` 当普通队列项会使它无法中断当前工作
+- **严重程度**：阻断；**类别**：正确性 / 中止 / 并发
+- **位置**：计划第 3.4 节 `queue.ts` 与 `react.ts`，第 3.6 节 `commands.ts`、`abort.ts`，第 3.7 节 `resolve`，第 7 节中止验证；相关决定为 t07 README 决定 1、2、7。
+- **现象**：计划规定“指令、`mount` 外部事实、反应输出都排进来；前一项连同它引出的全部反应做完，后一项才开始”，同时又规定 `abort` 等“每个 Promise 与中止赛跑”。没有说明 `abort` 如何在前一项尚未完成时立即触发当前运行的 `AbortController`。
+- **为什么是问题**：如果 `abort()` 也等队列轮到自己，队列会先等待卡住的模型流、反应、`sample` 或工具 Promise；中止信号永远到不了它们，宽限期也无法开始。t07 要求运行中可中止、宽限后强制收口；该实现会把会话永久留在 `running`，也阻塞 `rewind({abort: true})`、关闭和资源释放。若把 `abort` 特殊处理却不写优先级，还会留下它与 `resolve`、外部事实、收尾事件的竞态未定义。
+- **如何核实**：按计划的队列语义构造一个永不完成的模型或反应，调用 `abort`；只要 `abort` 经过同一串行队列，它就不能在 Promise 未完成时设置 signal。此前第三稿的 `sample 卡住` 场景不能证明新版队列的中止入口，因为它没有公开的真实 `abort`/持久 JSONL 路径。
+- **建议改法**：把“请求中止”拆成两个阶段：公开 `abort` 先在运行控制面立即标记当前代次并 abort 当前信号，随后把 `runEnded`/工具未知结果/交互拒绝等事实作为唯一写者队列中的收口批；队列继续保证收口与后续指令顺序。所有迟到 Promise 必须带代次，只能产生诊断，不能重新写日志。`resolve`、`rewind({abort:true})`、close 与 mount 清理也要在同一状态图中列出优先级。
+### 5. 直接搬分支 JSONL 会违背 t14 已定的会话目录合同
+- **严重程度**：重要；**类别**：接口 / 兼容 / 持久化
+- **位置**：计划第 2 节日志存储表、第 3.1 节 `jsonl-store`，第 3.10 节 `createSession`/`openSession`；相关决定为 t14 README 第 12 条。
+- **现象**：计划只说“分支的 JSONL 存储（`session/jsonl/jsonl.ts`）加写入批”。该分支实现的路径是 `<root>/<id>.jsonl`，`list()` 扫描根目录的 `*.jsonl`。t14 已定的公开地址是 `sessions://<id>/` 映射整个会话目录，日志为 `sessions://<id>/session.jsonl`，并且 `session://` 是当前会话的 `home/`。
+- **为什么是问题**：照字面搬运会把会话存成一个根目录文件，无法承载 t14 要求的 `home/`、artifacts、关系元数据及 `sessions://<id>/` 整目录映射；后续资源读取、父子会话和迁移会再改一次路径层。只改 URI 映射而不改 `create/list/repair` 的目录遍历，同样会漏列会话或把目录当文件。
+- **如何核实**：读取分支 JSONL 第 97–99、167–188 行，路径和列表逻辑都是 `${id}.jsonl`；读取 t14 README 第 63 行，日志路径已明确为 `sessions://<id>/session.jsonl`。
+- **建议改法**：在第 2 片先定义 `SessionDirectory`/`sessionDir(id)`，落位为 `<root>/<id>/session.jsonl`，并明确目录内 header、home、artifacts 与未知文件的保留规则；把列表、repair、open、资源地址和测试临时根一次改成目录合同，不要先引入旧的单文件路径再等 t14 迁移修正。
+### 6. `ModelRequest` 不能承载 `streamSimple` 所需的工具与内容合同
+- **严重程度**：阻断；**类别**：接口 / 正确性 / OMP 兼容
+- **位置**：计划第 3.5 节 `request.ts`、第 3.9 节 `omp-adapter.ts`，第 5 节第 10 片；相关接口为 `spike/v5/api.ts:320-338`。
+- **现象**：计划只写“`ModelRequest` → `streamSimple` 参数；事件流 → `delta`；`done` → `assistant`”。v5 的 `ModelRequest.tools` 是 `ToolInfo[]`，每项只有 `name` 与 `effect`；v5 的 `ContentBlock` 只有 text/thinking，thinking 使用自定义的 `text/signature`。而本机已装的 OMP 18.12.3 `Context` 要求 `tools?: Tool[]`（含 description、parameters、execute），`AssistantMessageEvent` 有 `text_*`、`thinking_*`、`image_end`、`toolcall_*`、`done`、`error` 多种终态，`ThinkingContent` 字段是 `thinkingSignature`，并另有 image、redactedThinking、fallback 等内容块。
+- **为什么是问题**：按现有类型实现不了真正的工具请求：没有 schema/description 不能构造 OMP `Tool`，服务商不会得到 t04 要求的工具声明；也不能无损保存图片、脱敏思考、签名、provider 元数据和终态。只把 `done` 映射成 `assistant` 会漏掉 stream 的 `error` 事件与部分内容；只按字符串将错误归成 `overflow/quota/auth/network/provider/aborted` 也会丢 OMP 的 `errorId`/`errorStatus` 分类。该缺口不是实现细节，必须先定 canonical 边界，否则第 10 片会在适配器落地时返工第 3.5、t04 和日志 schema。
+- **如何核实**：读取本机 OMP 18.12.3 的 `dist/types/types.d.ts:630-658,1032-1079,1372-1440` 与 `stream.d.ts:32-38`；`streamSimple` 返回 `AssistantMessageEventStream`，不是单一 `ModelResponse`。读取 v5 `api.ts:320-338` 可见请求工具与内容字段不足。目标 18.14.0 尚未装在本机，计划没有提供其类型快照或兼容矩阵。
+- **建议改法**：第 5 片前冻结可版本化的 canonical 请求/响应：工具至少保留 id、wire name、description、JSON Schema、执行占位/适配上下文；内容覆盖 image、thinking signature、redacted/fallback/provider block，或明确不支持时的 fail-closed 规则。适配器逐个处理所有 OMP 事件和 `stream.result()` 的 resolved error message，并用 OMP 的 `Flag`/分类 API 按类型映射；把 18.2.5、当前本机 18.12.3、目标 18.14.0 的类型差异写成第 0 片的编译与事件合同测试。
+### 7. 计划承诺记录 OMP 每次内部重试，但 `streamSimple` 没有该观测合同
+- **严重程度**：重要；**类别**：可观测性 / OMP 兼容 / 测试
+- **位置**：计划第 3.9 节 `omp-adapter.ts` 的“OMP 内部重试算一次逻辑请求、每次尝试记进诊断”，第 5 节第 10 片与第 7 节真实模型验证。
+- **现象**：本机 OMP 18.12.3 的 `completeSimple` 类型有 `onAttempt`，但 `streamSimple` 的公开签名只有 `model, context, options` 并返回 `AssistantMessageEventStream`；`SimpleStreamOptions` 有 `onResponse`/`onPayload` 等回调，却没有等价的 `onAttempt`。变更记录还显示重试会发生在 auth、provider transient、思考循环和流中断等不同层，部分失败以已 resolve 的 `AssistantMessage(stopReason: "error")` 返回。
+- **为什么是问题**：适配器若只消费 stream，就无法可靠知道每次内部尝试的开始、失败类别、是否已产生用量或最终由哪次尝试成功。把一次 `modelStarted` 和若干“每次尝试诊断”写出来会依赖未承诺的回调时序；把 `onResponse` 当尝试计数又会漏掉无响应失败和非 HTTP 的 stream/思考重试。重试的用量、请求 id、失败后是否还能重发也会与日志的“一次逻辑请求”不一致。
+- **如何核实**：读取本机 `@oh-my-pi/pi-ai/dist/types/stream.d.ts:32-38` 与 `types.d.ts:417-434,529-547`；对照 OMP changelog 18.2.3、18.3.1、18.4.1、18.11.3 关于 auth/流中断/思考重试的条目。目标 18.14.0 未在本机安装，计划没有目标版本的公开 hook 证据。
+- **建议改法**：先选一个可验证的合同：要么适配器自己控制 attempt（调用更底层公开 stream、为每次尝试生成 attempt id，并明确哪些重试由内核拥有），要么把计划收窄为“只记录可观察的 provider response 与最终 `AssistantMessage`，内部不可见重试不单独审计”。无论选哪种，第 10 片必须有一个真实 `AssistantMessageEventStream` 场景覆盖 `error` 事件、resolved error message、中止和部分内容，不能用“调用一次假模型”代替。
+### 8. Profile 哈希没有可执行的内容定义，重启后也没有比对屏障
+- **严重程度**：重要；**类别**：正确性 / 回放 / 缓存
+- **位置**：计划第 3.2 节装配清单哈希、第 3.5 节 `request.ts` 的“提交绑定 Profile 内容哈希”与“`profileChanged` 后全部重新渲染”、第 3.10 节 `openSession`，第 5 节第 3、5、11 片。
+- **现象**：计划同时使用“装配清单哈希”和“Profile 内容哈希”，但没有定义规范化输入：Profile 含 JSX/template、闭包形式的 `render`/`contribute`/`intercept`/`mount`、工具 schema、依赖顺序、设置默认值，哪些进 hash、如何稳定序列化、代码/reducer 变更怎样迁移都未写。`openSession` 只写 `load → recover → 装配 → mount`，没有把当前装配 hash 与日志最后的 `profileChanged`/提交 hash 比对。
+- **为什么是问题**：同 id、同扩展 id 但 system 文本、工具 schema 或 reducer 逻辑改变时，若只哈希清单会得到相同 hash；若试图 JSON 序列化函数又会得到不可移植或不稳定的值。服务重启后可能直接用新 Profile 重放旧 path、重渲染已提交轮和预览，却没有一条 profile 变更事实或迁移屏障，破坏“提交绑定 hash”和过去请求的可复现性。仅在显式 `changeProfile` 测 hash 不能覆盖进程重启、插件更新与同 id 代码变化。
+- **如何核实**：v5 `api.ts:403-422` 显示 Profile 可含大量函数；计划第 3.2 节只说“清单哈希”，第 3.5 节只说“内容哈希”，没有 canonical hash 输入或 open-time 校验；t04 已要求工具声明变化在下一次请求前记录，但 t20 的 `openSession` 没有对应步骤。
+- **建议改法**：把 Profile 版本拆成可持久化的 manifest（规范化的 id、依赖、设置 schema/default、工具声明、模板/渲染版本与代码包版本）和不可序列化实现的显式 `implementationVersion`；只把定义过的可复现字段放 hash，遇到 hash 不匹配时在打开阶段追加 `profileChanged` 或拒绝服务并给迁移码。提交记录 `commitProfileHash`，旧提交默认按记录的版本渲染；若要全量重渲染，必须记录旧/新 hash、受影响轮和缓存失效范围。
+### 9. “搬来”模块的入口仍绑定旧 `SessionEntry`、config 与 OMP Agent 内核
+- **严重程度**：重要；**类别**：架构 / 依赖 / 切片完整性
+- **位置**：计划第 2 节模型与压缩两项、第 3.8 节压缩触发、第 3.9 节模型与凭据、第 5 节第 2、9、10 片；相关文件为分支 `src/compaction/trigger.ts`、`src/compaction/soft.ts`、`src/compaction/types.ts`、`src/models/catalog.ts`、`src/models/credentials.ts`。
+- **现象**：计划说按语义搬来、内核不再依赖 `pi-agent-core` 的 `Agent`，但没有列出迁移边界。分支 `compaction/trigger.ts` 直接从 `@oh-my-pi/pi-agent-core` 取 `calculateContextTokens`、`effectiveReserveTokens`、`getLastAssistantUsage`，输入是旧 `SessionEntry[]`；`soft.ts`/`types.ts` 还直接用 OMP Agent 的 `compact`、`prepareCompaction`、`SummaryOptions`。模型目录 `catalog.ts` 依赖未列入 t20 kernel 切片的 `../config/config`，凭据实现依赖 `AuthStorage`/SQLite。
+- **为什么是问题**：新日志的 `assistant` 事件、`core.history`、ModelRequest 三段视图不是旧 `SessionEntry[]`/Agent 上下文；照字面复制会让“事件模型内核”重新依赖旧 session/config 结构，或者为了适配在第 9/10 片临时引入旧 runtime。更严重的是 t11 要求按模型/tokenizer、溢出类别和压缩方法链判定，旧 `trigger.ts` 只读最后一次 Assistant usage；它不能从新事件得到 context/cache/图片/思考等 OMP 计数。
+- **如何核实**：执行 `git grep -n 'from "@oh-my-pi/pi-agent-core"\|from "../config\|SessionEntry' feat/w00002-harness-kernel -- packages/nb-harness/src/models packages/nb-harness/src/compaction`，可见上述依赖；读取计划第 3.8 节只写“搬分支 trigger”，没有新的输入适配类型，也没有 config/credentials 的切片或所有权说明。
+- **建议改法**：把“搬来”拆成纯边界适配：先定义 `kernel` 自己的 usage/context estimate 输入和模型能力端口，`trigger` 只依赖该端口；压缩方法由 t11 通过 `CompactionMethod` 接口实现，不把 Agent 的 `compact/prepareCompaction` 偷渡进 t20。模型目录只接收宿主注入的配置/凭据 provider，或把 config/credentials 作为明确的前置切片；禁止 kernel 直接 import 旧 `session`、`config` 或 `Agent` 类型。
+### 10. 第 6 片的测试依赖尚未存在的第 7/8 片能力
+- **严重程度**：重要；**类别**：切片顺序 / 测试 / 交付
+- **位置**：计划第 5 节切片表第 6–8 片，第 6 节验收映射第 9、15 节及 53 个 spike 场景。
+- **现象**：第 6 片要把运行、插话、followup、continue、并发工具、拦截失败、中止、恢复、回退场景搬成测试；但 `createTestSession`、手动模型/工具、时钟、`eventsOf`、严格模式和 helper 明列在第 7 片才实现。第 6 片还在工具拦截里接“最里层审批的 `ask` 等用户通道”，而 `interactionRequested`/`interactionResolved`、`resolve` 和 waiting 状态排在第 8 片。
+- **为什么是问题**：按表格顺序，第 6 片要么没有可用的公开测试入口，无法先写验收测试；要么先做一套临时测试 harness，之后第 7 片再做一套，产生两个行为源。审批 `ask` 则只能写假的等待实现或把第 8 片提前，均违反“每片独立提交、只做本片”的切片合同。第 6 片的场景名也会把尚未确定的 interaction 形状锁进错误测试。
+- **如何核实**：读取第 3.11 节的测试工具清单和切片表：`createTestSession` 只在第 7 片，等用户只在第 8 片；第 6 片验证列却已经要求完整场景。`spike/v5/tests.example.ts` 第 8–16 行直接 import `./testing.ts`，说明场景写法本身依赖测试工具。
+- **建议改法**：先把最小真内核测试宿主（真实内存/JSONL store、脚本模型、手动工具、可推进时钟、严格收口）拆成第 2 或第 3 片的基础测试支持，后续只扩展它；将第 6 片的审批路径收窄为“全部放行 + 明确的 pending/拒绝占位”，把完整 `ask/resolve` 场景移到第 8 片，并让第 6 片不伪造交互通道。若坚持第 7 片提供工具，就把第 7 片整体移到第 6 片之前，并重排验收映射。
+### 11. t06 的“规则先于模式”没有落进 t20 的拦截顺序
+- **严重程度**：重要；**类别**：安全 / 不变量 / 跨 Task 接口
+- **位置**：计划第 3.2 节拦截顺序、第 3.6 节 `intercept.ts` 的审批钩子与第 5 节第 6、8 片；相关决定为 t06 README“改判”第 52–56 行。
+- **现象**：计划把链写成“outer 插件、inner 插件、Profile extensions、Profile 自己、审批（内核）”，并只给 `approve(call, info) → allow | deny | ask` 的缺省接线；同时把规则留给 t06。没有定义审批规则看到的是原始调用参数、某个外层修改后的参数，还是最终实际执行的参数，也没有定义规则命中后是否还能被前面的拦截器改写。
+- **为什么是问题**：t06 已定“工具规则先于模式：命中拒绝/放行/询问就不再问模式；yolo 也不能绕过拒绝”。若 Profile 或插件拦截器能在审批前后改写 args、tool id 或 risk，规则可能对 A 判定放行、实际执行 B，或对 B 判定拒绝但外层仍把调用改成 A；安全结果取决于链的嵌套方向和 `next` 的参数快照。等第 8 片再补交互会迫使工具链重排。
+- **如何核实**：对照计划第 3.6 节与 t06 改判；v5 `api.ts:397–401` 的 tool interceptor 允许 `next(call)` 改写调用，而审批接口没有 original/effective 双参数。现有 spike 仅验证“外层放行绕不过最里层审批”，没有验证规则与参数改写组合。
+- **建议改法**：在 t20 的工具调用合同中固定三件事：保存不可变的 `originalCall`；所有参数/工具名拦截完成后生成唯一 `effectiveCall`；t06 规则对 effectiveCall 在最里层审批前判定，判定结果与实际执行 args 一起写入 `toolStarted`/`interactionRequested`。审批之后禁止再改写调用，或把其改写视为新的待审批调用并拒绝直接执行。为规则拒绝、规则放行、规则询问、yolo 与 Profile 改参各补一个真实链路场景。
+### 12. 第 12 片才决定检查点，无法保证 10 万事件的打开预算
+- **严重程度**：重要；**类别**：性能 / 数据格式 / 可回退性
+- **位置**：计划第 3.3 节“快照与检查点”、第 3.5 节“三段增量哈希”，第 5 节第 2、3、5、12 片，第 8 节性能风险。
+- **现象**：计划先让 JSONL 加载、校验并从头归约，`snapshotAt(node)` 只“留接口”；直到第 12 片测量超预算才“加检查点快照”。同时计划要求 path state 沿树保存相对父节点变化、请求三段做 SHA-256 增量哈希，但没有检查点的落盘格式、生成时机、失效条件、分支索引或 hash state 的可恢复表示。
+- **为什么是问题**：100,000 条事件打开时，解析 JSONL、全量校验、建 id/幂等/父节点索引和从根归约已经发生；第 12 片事后增加一个内存 `snapshotAt` 接口不会降低冷启动成本。普通 SHA-256 的最终 digest 不能从任意祖先继续追加；回退到另一叶子、换 Profile 或压缩后重渲染若没有可复用的块/Merkle 状态，仍会重算稳定前缀，50 ms 请求预算和三段增量哈希都只是名称。
+- **如何核实**：现有 spike 证据只测 16,806 条事件（`spike-r3.txt:68–79`），且是第三稿内存实现；计划第 8 节自己把 10 万事件写成线性外推，不是实测。读取计划第 3.3、3.5 节，没有持久快照 schema、索引或失效规则。
+- **建议改法**：第 2 片就冻结可演进的检查点格式：检查点覆盖的 `seq/leaf/profileHash/reducerVersion`、每个扩展的 path/session state、父节点索引、批边界和请求块 hash；写入检查点与事件批要有一致性规则，旧/不匹配检查点可丢弃并从日志重建。请求视图使用按 immutable block/chunk 的 Merkle 或可复制 hash 状态，而不是只保存一个 SHA-256 最终值。第 12 片只测是否启用与预算，不再临时发明数据格式；基准必须分别报告冷打开、带检查点打开、回退换叶、换 Profile 和压缩后重渲染。
+### 13. `kill -9`“写到一半”没有确定的注入点，验收可能永远测不到半批
+- **严重程度**：建议；**类别**：测试 / 持久化
+- **位置**：计划第 5 节第 2 片、第 6 节提案第 2 节映射、第 7 节“子进程跑一次运行，在写入批中途 `kill -9`”。
+- **现象**：计划要求真实 JSONL、真实子进程和 `kill -9`，但没有说明父进程如何知道子进程已经写出第 `n` 行、尚未 `fsync`，也没有注入写入/同步屏障。仅靠定时 sleep、写大字符串或“启动后立即 kill”不能稳定落在批中间；快机器可能已经写完整，慢机器可能尚未打开文件。
+- **为什么是问题**：测试通过只证明某一次调度下的尾部状态，失败也无法区分没有命中中断窗口还是产品错误。它不能锁定第 1、2 条的 partial write、`fsync` failure、ENOSPC 和 repair 合同；按测试规范，固定等待和不可观察的时序都不能作为验收依据。
+- **如何核实**：计划第 7 节没有 barrier/ack 协议；读取仓库测试规范第 28、30、34 行，要求资源收口、异步顺序和可观察条件，禁止固定等待。现有分支 JSONL 也没有测试注入点。
+- **建议改法**：给存储测试提供真实文件系统上的受控写入边界：例如在单次批写入前注入一个仅测试支持的 `beforeSync`/`afterBytesWritten` barrier，子进程报告实际字节偏移后由父进程发送 `SIGKILL`，再验证文件与重开结果；另用受契约的文件句柄故障场景验证 `sync`/ENOSPC。barrier 只在测试构造器中存在，不进入产品公开 API，也不以固定时长替代握手。
+### 14. 会话关闭与 OMP 流资源没有收口合同
+- **严重程度**：重要；**类别**：资源释放 / 中止 / API
+- **位置**：计划第 3.4 节 `mount.ts`、第 3.6 节 `abort.ts`，第 3.9 节 `omp-adapter.ts`，第 3.10 节 `session.ts` 与第 7 节验证；相关接口为 `spike/v5/host.ts:328-343`。
+- **现象**：计划只说 mount 返回的清理函数在“摘下时”调用、OMP 请求有 `ctx.signal`，`openSession` 返回 v5 `SessionApi`；没有列 `AgentHost.close`/Session close 的实现顺序、关闭时如何停止队列和订阅、如何等待或取消 mount cleanup，也没有规定 `streamSimple` 迭代器、`stream.result()`、provider session state 与工具/反应 Promise 的 finally 收口。
+- **为什么是问题**：v5 的宿主合同明确有 `AgentHost.close(sessionId)`，而计划的 kernel host 小节没有对应入口。若关闭只丢掉句柄，文件 watcher 的回调仍可能把外部事实排进已关闭队列；若 OMP 流在 abort 后仍有晚到事件，可能在会话关闭后写 `assistant`/diagnostic，或保留网络/Provider 状态。挂起的人工审批、工具和反应也没有统一得到 `aborted`/`tool-unavailable` 结算。
+- **如何核实**：读取 v5 host 第 328–343 行与计划第 3.10 节第 108–114 行；计划列出 `createSession/openSession`、订阅和帧，却没有 close。读取 OMP `AssistantMessageEventStream` 类型可见它有独立 `result()`/终态，不等于 signal 一发就完成。
+- **建议改法**：把 `closeSession` 写入 host 状态机：先拒绝新指令并发出 abort，等待/强制收口当前代次，停止并 await 所有 mount cleanup，释放订阅和工具句柄，最后关闭 LogStore；关闭后的迟到回调只记受控诊断。OMP 适配器用 `try/finally` 绑定 stream、provider state 与 signal，明确 `error/aborted/done` 只有一个终态。补“运行中关闭、等待 interaction 关闭、mount 回调与关闭交错、stream 迟到事件”四个真实场景。
+## 待确认项判断
+- **待定 7（反应的主动接口）**：可以不在 t20 暴露通用主动 API，但必须在第 3.4 节写死“反应只能由事件触发；主动动作由哪些 command/后续 Task 提供”，否则 `resources.resolve` 与 t14 的 `agent_answer` 会再定义一套写入口。
+- **待定 8（大块内容另存）**：不能留到压缩实现才决定；工具 raw、附件、模型思考和 `details` 是否 inline 直接决定 JSONL 批大小、fsync 失败面和 t14 `sessions://<id>/` 目录合同，至少要在第 2 片冻结引用/哈希/inline 上限。
+- **待定 11（请求完整形状）**：不能按当前计划留到第 10 片；第 5 片的 `ModelRequest`、第 3.5 节三段 hash 和第 10 片 OMP adapter 是同一合同，需先处理第 6 条。
+- **待定 13（导出过滤）**：可以推迟到第 11 片宿主面，但必须先规定 `log`/`preview`/`diagnostic` 的敏感字段过滤顺序；不能让 `SessionMirror` 直接决定日志可见性。
+
+## 未发现问题的方面
+- “内核自写循环、只用 `streamSimple`、不再套 OMP `Agent`”这一主方向与提案第五稿和 t02 决定 7 一致；问题在于被搬模块仍带旧 Agent/Session 类型依赖，而不是该主方向本身。
+- 工具名由 `.` 换成 `__`、禁止 `__`、长度上限改为 64 的计划表述与 t04 2026-10-30 决定一致。
+- `shared` 工具同一回复内并发、结果按调用顺序批量写入，以及异步提问统一走 `resolve`、不增加 `replyTo`，与 t14 第 17、18、23、25 条一致。
+- v5 spike 的 53/53 场景和第三稿性能数字作为历史基线有明确证据；本审查没有把它们误当作新内核或真实 OMP adapter 的验收证据。
+
+数量：阻断 5 条；重要 8 条；建议 1 条；共 14 条。
+影响排序索引：阻断 1、2、3、4、6；重要 5、7、8、9、10、11、12、14；建议 13。

@@ -1,0 +1,192 @@
+# w00032 t20 实施计划审查：开发体验（Sonnet，只读）
+
+审查对象：`.agents/works/w00032-agent-integration/tasks/t20-hooks/plan.md`（04d13a262）。依据：提案第五稿、`spike/v5/`、t02/t03/t04/t06、master 与分支的 nb-harness、nb-story 现有调用点。实验在 `/tmp/review-w00032-t20-plan/scratch/dx/`（复制 v5 文件，把 `@ts-expect-error` 改成普通注释后跑 `tsc`，取实际的编译错误文字）。
+
+### 1. nb-story 依赖的“收尾工具、TurnResult、单轮调用、停止原因”在计划里没有落点，内核也没有对应语义
+
+- **严重程度**：重要；**类别**：迁移成本 / 与已定设计冲突
+- **位置**：第 3.6（`loop.ts`、`tools.ts`）、3.9、第 8 节“不做”；提案“影响”一节 nb-story 条；t02 决定 1、t04 决定 7；`spike/v5/api.ts` 的 `KernelEvents`
+- **现象**：计划全文没有出现 `finish`、`TurnResult`、`complete`、“收尾”。提案“影响”写“它依赖的单轮调用、`TurnResult`、收尾工具、`complete()` 在新循环里保留（t02）”，t02 决定 1 要求“补上 master 独有的几项（收尾工具与 `TurnResult`、`complete()`、错误正文的密钥遮盖、余额不足归 `quota`、进程中断与停服收尾、相邻 user 消息合并……）”，t04 决定 7 要求声明字段“沿用 master 的……收尾……”。计划 3.6 只写“工具声明与参数校验搬分支 `tools/define.ts`”，我核对过分支该文件没有 `finish` 字段（`git show feat/w00002-harness-kernel:packages/nb-harness/src/tools/define.ts | grep finish` 无输出）；master 的 `tools/registry.ts:24` 有 `finish: boolean`，nb-story 的 `answer` 工具（`packages/nb-story/src/qa/tools.ts:153`）就用 `finish: true`，靠它“校验通过即结束这一问”。
+- **为什么是问题**：
+  1. 新内核里没有任何办法让一次工具调用结束运行。`ctx` 只有 `continue`（加一次请求），`runEnded.reason` 只有 `completed | input-rejected | error | interrupted | aborted`，没有 `finished`。nb-story 的 answer 工具交卷后不该再发一次请求让模型“收尾说句话”（多一次请求、多一段输出、可能再调工具）。这是内核循环（3.6）与日志事件表的改动，不是迁移 Task 能在包外补的。
+  2. 停止原因：计划 3.9 写“`done` → `assistant`（……用量、停止原因）”，但 v5 `KernelEvents.assistant` 的数据里没有 `stopReason`，`modelFailed.kind` 也没有 `truncated`/`length`。master 的 `StopReason = "stop" | "finished" | "length" | "error" | "aborted"`（`run-result.ts:28`），nb-story 在 `ingest.ts:168`、`config.ts:313`、`qa-service.ts:576` 按它分支（“模型没有正常结束”）；t02 还要求保留“截断识别”（master `finish-watch.ts`：流没给 `finish_reason` 就不能算正常结束）。新日志里没有地方记“被截断”。
+  3. 单轮调用：nb-story 的 `engine.ts:506`、`engine.ts:514`、`probe.ts:37` 都是 `await harness.turn(...)` 拿到 `TurnResult`（`stopReason`、`text`、`finish`、`error`、`usage`、`entries`）。v5 `SessionApi` 只有“指令 + 订阅帧”，没有“发一条、等这次运行结束、给结果”的入口，调用方得自己订阅帧再归约出结果；`usage.complete`（`ingest.ts:158`“用量拿不到则数值是下界”）也依赖这份汇总。
+  4. t02 点名的其余几项（密钥遮盖、余额不足归 `quota`、进程中断与停服收尾 `onProcessInterrupt`、相邻 user 合并）计划里同样没出现；`modelFailed.kind` 有 `quota`，但“错误正文遮盖密钥”在 3.9 一字未提。
+- **如何核实**：`grep -n 'finish\|TurnResult\|complete' plan.md`（无命中）；`grep -n 'runEnded' spike/v5/api.ts`；`grep -rn 'harness.turn(' packages/nb-story/src`。
+- **建议改法**：不为此多加部件，只在第 1 片的 Spec 与第 3.6/3.9 各补一条合同，迁移 Task 才不必回头改内核：(a) 工具声明加 `finish?: boolean`（t04 已定），这批结果写完后内核以 `runEnded{reason: "finished"}` 收口、不再发请求（工具返回 `isError` 时不算 finished，与 master 一致）；(b) `assistant` 加 `stopReason: "stop" | "length" | "toolUse"`，把“流没给结束原因”并进 `length`（或 `modelFailed.kind` 加 `truncated`），在 3.9 写明由适配器判定；(c) 从日志导出一个纯函数 `summarizeRun(events, runId) → {stopReason, text, finish, error, usage}`（放 `kernel/host`，镜像也能用），再给 `SessionApi` 加一个 `runAndWait`（`send` + 等 `runEnded` + 返回 `summarizeRun`）；(d) 3.9 与 5 的第 10 片把“密钥遮盖、余额不足归 quota、停服收尾”列进验收。并在第 8 节“不做”里写明：`complete()`（无工具单次补全）作为哪个入口保留（例如 `purpose: "background"` 的单次 `streamSimple` 封装，不走日志）。
+
+### 2. 装配期写错的东西没有“message 与 hint 的交付通道”，诊断码表与计划用语也对不上
+
+- **严重程度**：重要；**类别**：出错体验
+- **位置**：第 3.2 `assemble.ts`、3.4 `react.ts`、3.10 `diagnostics.ts`、3.11；`spike/v5/host.ts` 的 `commandErrors`、`CommandDetail`、`diagnosticCodes`
+- **现象**：
+  1. 计划 3.2 写“缺依赖、成环、重复拒绝并列出来源”。拒绝之后作者在哪里读到原因？v5 里 `send`/`changeProfile` 的失败只有 `{ok:false, code, detail?}`，`CommandDetail = Record<string, string | number | boolean | null>`（`host.ts:62`），装不下“来源列表”，更没有 `message`、`hint`；带 `message`/`hint` 的 `Diagnostic` 只在 `SessionQueries.diagnostics` 与 `AgentHost.diagnostics()` 里，而装配失败时会话根本没有打开。`createTestSession` 遇到写错的扩展是抛错、还是返回一个带诊断的会话（strict:false）？v5 `testing.ts` 与计划 3.11 都没说；它头注释说“专门测写错的用 `strict: false`”，但装配被拒时拿不到 `session`，`diagnostics.expect("dependency-cycle")` 无从调用。
+  2. 计划正文用到的名字与“码表照 v5 `diagnosticCodes`”对不上：3.4 的 `emit-after-settle` 不在 `diagnosticCodes` 里（只在 `FailureCode`）；3.4 的 `reactionLimit` 是事件名，码表里是 `reaction-depth-limit`；3.2 的“设置的每项都有 `default`”、3.5 的“`<Turn />` 恰好一个”、“`prompt` 模板写错”都没有对应的码；3.1 的 `log-corrupt` 是“打开失败”，既不是命令错误码（`commandErrors` 里没有）也不是诊断码。结果是实现时每个人自己起名，Spec 的“诊断码”一节写不出来。
+  3. 提案第 12 节说“槽没摆、事件名拼错这类在装配时报一次，不等第一次请求”，但计划 3.5 把 `slot-unplaced` 写成每次请求算。`prompt` 是视图函数（`standardLayout` 返回 `(view) => Child`，可读状态与设置），静态看不出摆了哪些槽；要在装配时报，必须用初始状态试渲染一次，计划没写。
+- **为什么是问题**：提案第 12 节的目标是“让人直接改对”。装配期错误是插件作者、第三方（JavaScript）作者最常遇到的第一类错误，目前只规定了“拒绝”，没有规定“把什么告诉谁”。
+- **如何核实**：`grep -n 'emit-after-settle\|log-corrupt' spike/v5/host.ts`（只在 `api.ts:63` 的 `FailureCode` 命中，码表无）；读 `host.ts:62` 与 `host.ts:233-264`。
+- **建议改法**：在第 1 片的 Spec 里固定一条规则并让第 3、7 片按它实现：装配失败抛一个 `AssemblyError`，带 `diagnostics: Diagnostic[]`（每条有 `message`、`hint`、来源扩展 id），命令层把它转成 `profile-invalid`/`dependency-cycle` 的失败，`detail` 只放第一条的码与扩展 id，完整列表放 `AgentHost.diagnostics()`；`createTestSession` 对装配失败抛同一个 `AssemblyError`（错误文字就是各条 `message + hint`），另给 `createTestSession.assemble(options)` 返回 `{ok:false, diagnostics}` 供“写错清单”测试断言。同时在第 3 片补一张“码 → 触发写法 → message → hint”表，把 3.2/3.4/3.5 里用到的每个条件都映射到一个码（补 `emit-after-settle`、`settings-default-missing`、`template-invalid` 三个；`reactionLimit` 事件与 `reaction-depth-limit` 诊断写明是一对）。3.5 写明“`prompt` 在装配时用初始状态试渲染一次得出槽的摆放”，或明确改为“只在第一次请求时报一次”并回写提案第 12 节。
+
+### 3. 测试工具要假的四样（模型、工具、时钟、资源）里，模型与资源的接口缝在计划里没有定义，片的顺序又让第 6 片没法测
+
+- **严重程度**：重要；**类别**：测试工具 / 切片顺序
+- **位置**：第 3.6、3.9、3.11；第 5 节第 6、7、10 片；提案第 15 节
+- **现象**：提案第 15 节说“内核是真的，假的只有四样：模型、工具、时钟、资源”，并要求假模型“和真实适配器对过合同”（`testing.ts` 头注释）。计划里：时钟有接口（第 2 节“注入的时钟接口”）；模型适配器排在 3.9 与第 10 片，只写了 `omp-adapter.ts`，没有“循环对模型的接口”（输入 `ModelRequest`、输出事件流、`signal`）；资源（`ctx.resources.read/resolve`、`session://`、`project://`、`profile://`）整份计划没有一处定义由谁提供、接口长什么样；工具只写“声明与参数校验搬分支”，没有“把实现交给内核”的接口。同时第 6 片的验证是“spike 场景按组搬成测试（运行、插话、followup、continue、并发工具……）”，这些场景都要脚本化模型与假工具，而 `createTestSession` 在第 7 片、真实适配器在第 10 片。
+- **为什么是问题**：第 6 片要么先造一个临时的假模型，到第 7 片再换成“与适配器对过合同”的那个（返工），要么第 6 片提交时测试跑不起来。“对过合同”要求有一份共同的合同定义，它应是循环与适配器之间那条接口，现在没人负责写它。
+- **如何核实**：`grep -n 'resources\|ModelClient\|ModelPort\|适配器' plan.md`；对比第 5 节第 6、7、10 片。
+- **建议改法**：不增加部件，调整落点：第 3.6 增加 `ports.ts`（三个接口：`ModelPort.stream(request, signal)`、`ToolPort`（声明 + 每次调用取实现）、`ResourcePort`），第 10 片只写“实现 `ModelPort`”；把 3.11 的 `createTestSession` 的最小版本（脚本化模型、假工具、手动时钟、内存资源；`say`、`state`、`requests[n].outline()`）提到第 4 片之后、第 6 片之前，第 7 片只做 helper、严格模式、手动模式的完善与 typetest。`validateRequest`（`testing.ts:219`）由第 5 片的 `request.ts` 导出，假模型与适配器都调它，这就是“对过合同”的落实。
+
+### 4. `createTestSession` 的缺省 Profile 与官方例子互相矛盾：没有工具声明却能调工具，没有槽却收不到 `contribute`
+
+- **严重程度**：重要；**类别**：测试工具
+- **位置**：第 3.11；`spike/v5/testing.ts:116`（`profile?` 的注释）、`spike/v5/tests.example.ts:19`
+- **现象**：`TestSessionOptions.profile` 注释写“缺省一个最小的 Profile：只有 `<System>` 与 `<Turn />`、没有工具”。但 `tests.example.ts` 的第二个测试用缺省 Profile 加 `tools: {todo: …}` 并让模型调 `todo`。而 t04 决定 3、`packages/nb-harness/AGENTS.md`（“工具只来自 Profile 的声明”）与计划 3.7（“工具被卸载按 `tool-unavailable`”）都说工具只来自 Profile 声明，所以按真内核的语义这条测试里 `todo` 应得到 `tool-unavailable`。另外，`FakeTool` 只是函数（`testing.ts:57`），没有说明与参数 schema；真内核用 OMP 校验器校验参数（第 2 节），请求里的 `ToolInfo` 也要有 schema 与说明。
+  同一个缺省 Profile 只有 `<System>` 与 `<Turn />` 时，没有 `<Slot name="*" stable|volatile />`，插件作者写的 `contribute` 全被丢弃、只在 `warn` 级诊断里留一条 `slot-unplaced`（`diagnosticCodes` 里它是 `warn`），而严格模式只拦 error（计划 3.11；`testing.ts:9` 的头注释也写“error 级”，但 `TestDiagnostics.expectNone` 的注释写“error 与 warn”，两处自相矛盾）。结果是：最常见的“我写了一个 `contribute`，测试里 `outline()` 却没有它”这种第一次上手就会遇到的情形，测试不报错、也不给原因。
+- **为什么是问题**：插件作者的第一个测试会遇到这两件事之一，而现象是“什么都没发生”，没有诊断指向原因，违背提案第 15 节“十行以内搭出会话、写错的东西与线上一样失败”。
+- **如何核实**：对照 `tests.example.ts:19-27` 与 `testing.ts:57,116,199`；读 `host.ts:245`（`slot-unplaced` 是 warn）。
+- **建议改法**：在 3.11 写死三条：(a) 缺省 Profile 是 `defineProfile({id:"test.profile", name, description, system:"test", tools: <由 options.tools 的键自动生成的 optional 声明>})`，用缺省布局（`standardLayout()`，含 `<Slot name="*">`），这样例子可以原样运行；(b) `FakeTool` 可以写成 `fn` 或 `{description?, parameters?: TSchema, run}`，缺省参数 schema 为任意对象，`ToolInfo` 的说明缺省写工具名；(c) 严格模式把“被测扩展自己的 `slot-unplaced`、`slot-collision`”当作失败（或把 warn 也算，并统一 `testing.ts` 里两处注释），失败信息里写出 `hint`。省掉的部件：不再需要作者手写 Profile 声明工具。
+
+### 5. “真内核 + 内存存储”的测试会放过只在 JSONL 往返后才坏的写法；`state-not-plain` 没有任何实现位置
+
+- **严重程度**：重要；**类别**：测试工具 / 出错体验
+- **位置**：第 3.1 `memory-store.ts`、3.3 `reduce.ts`、3.11；`spike/v5/host.ts:236`
+- **现象**：计划 3.11 写 `createTestSession`“真内核、内存存储”，严格模式“从头归约一遍与现场比对”。扩展作者最容易写错的一类是在事件 `data` 或片里放 `Date`、`Map`、`Set`、`undefined` 字段、类实例、`NaN`。内存存储若直接保存对象引用，测试全部通过，换成 JSONL 后重启才发现：`Date` 变字符串、`undefined` 字段消失、`Map` 变 `{}`。诊断码表有 `state-not-plain`（error），但提案、计划、spike（`grep 'not-plain'` 在 `kernel.ts`、`core.ts`、`check.ts` 都没有）都没有写它在哪里、用什么规则检查；计划 3.3 只写“出错写诊断、这次补丁不用”与开发模式冻结。
+- **为什么是问题**：严格模式的“重放一致”比较如果是内存对象对内存对象，就抓不到这类错；如果以后改成与序列化后的比，又会因为 `undefined` 与缺字段不等而在合法代码上误报。这是测试工具自己的判据，必须先定。
+- **如何核实**：`grep -rn 'not-plain' .agents/works/w00032-agent-integration/tasks/t20-hooks/spike docs/proposals/agent-harness-event-model.md plan.md`（只命中 `v5/host.ts`）。
+- **建议改法**：不增加部件，规定一条规则：内核写入前把 `data` 与补丁做一次“JSON 往返并与原值深比较”，不相等就是 `state-not-plain`/`handler-invalid-output`（带出第一处路径）；`memory-store` 存的是序列化后的字符串（与 `jsonl-store` 同一个编解码），严格模式的重放从这份序列化数据读。这样一条规则同时兑现了 `state-not-plain`、让测试与线上同构、并让重放比较有明确的基准。
+
+### 6. 测试工具没有“等用户”的入口：`ask` 工具、审批、`resolve` 都没法在 `createTestSession` 里驱动
+
+- **严重程度**：重要；**类别**：测试工具 / 与已定设计的衔接
+- **位置**：第 3.6 `intercept.ts` 末句、3.7、3.11；第 5 节第 7、8 片；`spike/v5/testing.ts`（`TestCommands`、`TestSession`）；t06 改判
+- **现象**：`TestCommands` 有 `say`、`sayAsync`、`enqueue`、`edit`、`remove`、`abort`、`compact`、`changeSettings`、`changeProfile`、`rewind`、`try`，没有 `resolve`，`TestSession` 没有“待处理的提问与审批”的查询，`TestSessionOptions` 没有审批的缺省策略；`raw: SessionCommands` 里 `host.ts` 也还没有 `resolve`（计划 3.6 说要加三个失败码）。计划 3.11 的清单也没写。第 8 片（等用户）排在第 7 片（测试工具）之后，第 7 片的“严格模式”验收里没有“等用户中的会话关闭时”的处理（`StrictModeError.kind` 只有 `pending-model-call`、`pending-tool-call`）。
+  计划 3.6 说审批 t20 只给“全部放行”缺省，t06 改判又说默认模式是写入要审批、yolo 只是最先实现的一档。于是测试里默认放行，线上默认要问：一个写文件的工具的插件作者，测试里永远看不到 `interactionRequested`。
+- **为什么是问题**：提案 3 个 Task 靠它——t06（审批）、t10（`ask` 之类的插件工具）、t14（子 Agent 把提问交给调用方）。没有测试入口，插件作者与 t06 的作者都要各写一套驱动代码；第 8 片的验收“同批多事项、并发应答、异步提问进缓冲区”也没有公共的写法。
+- **如何核实**：读 `testing.ts:137-192` 与 `host.ts:23-34`；`grep -n 'resolve' plan.md`（只在 3.6 命令清单与 3.7 出现）。
+- **建议改法**：第 8 片同时扩 `createTestSession`：`session.interactions`（`pending()`、`next()`——与 `model.next()` 同形——和 `resolve(id, decision, data?)`），`TestSessionOptions.approve?: "allow" | "ask" | "deny" | ((call) => …)`（缺省 `allow`，与 3.6 一致，在 JSDoc 写明线上缺省不同）；严格模式把“关闭时还有未应答的事项”加进 `StrictModeError.kind`；`rewind` 后应答得 `unknown-interaction` 可直接断言。这是对 3.11 的补充，不新增产品代码。
+
+### 7. 提案“影响”一节的两级文档在计划里没有落点；v5 的例子与“helper 展开版”也不会变成会跑的测试
+
+- **严重程度**：重要；**类别**：上手体验 / 文档
+- **位置**：第 4 节、第 5 节第 7 片；提案“影响”一节“SDK 与插件作者”条；`spike/v5/tests.example.ts`、`profiles.tsx`、`plugins.ts`
+- **现象**：提案写“文档分两级：第一级只教 `system`、`tools` 与 helper；第二级讲 `on`、`state`、`reduce`、`contribute`、`mount`，并给出每个 helper 用核心字段写的展开版本。写清归约的纪律、作用域规则（外部事实放 session）、附带内容与会变的槽怎么选、`emit` 之后 `ctx.state` 仍是旧值、闭包里不放会话状态（扩展对象被所有会话共享）”。计划第 4 节只有提案、ADR、Spec 与 `AGENTS.md`/`README.md`/`omp-capabilities.md`，没有任何一项是面向插件作者的教程或示例；Spec 是黑盒合同，不教人怎么写。仓库已有现成的做法：`AGENTS.md` 写明 `packages/neuro-book/plugin-sdk/examples/` 的注释是教学材料、“讲解随场景测试一起改”，计划没有沿用。
+  另外，提案第 4 节说 helper“行为与手写版本一致，内核不为它们开特例”，计划 3.11 只写“只用公开接口写成”，没有一条测试证明两者一致；v5 的 `tests.example.ts` 只过 tsc、不执行，计划也没安排把它变成真测试（第 7 片只搬 spike 场景与 typetest）。
+- **为什么是问题**：第一级文档是“第一次上手要读几个概念”的答案，缺了它，上手路径只能是读 29 个类型（`api.ts` 605 行）；示例不执行就会随接口漂移，教学材料与场景测试脱节正是仓库规则要避免的。
+- **如何核实**：`grep -n '教程\|示例\|example\|文档' plan.md`（只有 4 节 `README.md` 一处）；读 `AGENTS.md` 的“注释”一节例外条。
+- **建议改法**：不新增部件，复用已有位置：第 7 片末尾加一项交付——`packages/nb-harness/src/kernel/examples/` 下放可执行的示例测试（第一级：一个只有 `system`+`tools` 的 Profile、一个 `reminder()` 扩展，各自带 `createTestSession` 测试；第二级：`reminder()` 与 `opening()` 的手写展开版），注释按教学材料写、链接 Spec；其中“展开版与 helper 版在同一脚本下 `outline()` 与 `eventsOf` 相等”的测试就是“行为一致”的证据。`README.md` 的“怎么写扩展”只放这些文件的链接和 8 行摘要（归约纪律、作用域、`emit` 后的 `ctx.state`、闭包不放会话状态）。
+
+### 8. 工具名在三处有两种写法，Profile 与扩展作者拿不到确定的名字；t04 要求的 `<ToolName id>` 节点不在模板节点表里
+
+- **严重程度**：重要；**类别**：Profile 作者体验 / 与已定设计冲突
+- **位置**：第 3.5（节点表）、3.6 `tools.ts`；t04 决定 1；`spike/v5/api.ts:42-51`、`profiles.tsx:80,172,200`
+- **现象**：t04 决定 1：“工具 id 就是 NeuroBook 内部的名字，允许带点；Profile、绑定配置、日志视图、界面、审批都用 id。交给服务商的名字默认由 id 换算，`.` 换成 `__`……提示词里引用工具用 `<ToolName id="…"/>` 渲染模型实际看到的名字。”计划 3.6 只写了换算规则，3.5 的节点表是 `<System> <User> <Assistant> <P> <Tag> <If tool> <History> <Turn /> <Slot>`，没有 `<ToolName>`；v5 `api.ts` 的模板导出也没有它。v5 的 `ToolCall.name`、`ToolInfo.name` 没说是 id 还是提供方名；`profiles.tsx:200` 的拦截写 `call.name === "edit"`，`profiles.tsx:80` 声明 `"agent.invoke"`、`"control.request_user_input"`（带点的 id），同一个文件里两种风格并存。按 t04，真实 id 是 `builtin.file.edit` 之类，模型看到的是 `builtin__file__edit`。
+- **为什么是问题**：Profile 作者写提示词必须引用工具名（“先用 read 看一眼”）。没有 `<ToolName>`，只能硬编码提供方名（`builtin__file__read`），工具换绑定或换名就静默失效；扩展作者写工具拦截时，`call.name === "edit"` 在线上永远不成立，而测试里的假工具又叫 `edit`（`testing.ts` 的 `tools: Record<string, FakeTool>`），于是测试通过、线上拦不住。这是“测试里对、线上错”的典型。
+- **如何核实**：`grep -n 'ToolName' plan.md spike/v5/*.ts*`（无）；读 t04 README 第 40 行；对比 `profiles.tsx:80` 与 `:200`。
+- **建议改法**：在第 1 片的 Spec 与 3.5 各加一条：扩展、拦截、日志里的 `ToolCall.name`、`toolStarted.tool`、`toolResult.tool` 一律是 id（带点），只有 `ModelRequest.tools[].providerName` 与适配器边界使用换算后的名字（`ModelRequest.messages[].toolCalls[].name` 同样是 id，适配器负责来回换算）；模板加 `<ToolName id="…"/>`（渲染提供方名；声明里没有这个 id 时写 `tool-undeclared` 诊断），`<If tool>` 同样按 id；`createTestSession` 的假工具必须写完整 id，缺省 Profile 自动声明它们（见第 4 条）。
+
+### 9. 最先会写的“每轮提醒一次”在 `reminder()` 里没有写法：不给 `every` 也不给 `watch` 时静默什么也不做；helper 还排在依赖它们的压缩语义之前
+
+- **严重程度**：重要；**类别**：上手体验 / helper 语义
+- **位置**：第 3.11（helper 清单）、第 5 节第 7 片与第 9 片；`spike/v5/api.ts:566-577`；第三稿 `spike/core.ts:118-152`
+- **现象**：v5 `reminder({id, every?, watch?, text})` 注释是“值变了的那一轮、或每隔 `every` 轮”。第三稿能跑的实现里 `due = o.every !== undefined && …`、`changed = o.watch !== undefined && …`，两个都不给就永远不提醒，也没有诊断。“每轮提醒一次”这个第一次上手最可能写的需求，要写成 `every: 1`，文档与类型都没有说明；`text` 返回 `null`、`first`、`previous` 的含义只在注释里。第三稿还用 `JSON.stringify(watch(...))` 比较“值变了”，对象键顺序不同就算变化，`Date`、`undefined` 等会被抹平；v5 的 `previous: unknown` 在第三稿里并没有实现。
+  计划把 `reminder()`、`opening()` 与 `createTestSession` 同放在第 7 片，但 `resetOnCompaction`（`reminder` 的核心承诺“压缩时清空，最容易漏的是压缩时清空”）和 `opening()` 的“压缩后重读”依赖第 9 片，第 7 片的验收（严格模式、typetest）测不到它们；`standardLayout` 在第 5 片，`opening` 的稳定槽 `opening` 的第一个使用者却在第 7 片。
+- **为什么是问题**：两个选项都缺省时静默无事发生，是最糟的出错形式；helper 的核心价值（压缩后正确）在它落地的那一片里无法验证。
+- **如何核实**：读 `core.ts:140-146`；在第三稿上写 `reminder({id:"x", render: () => "hi"})` 跑一轮，日志里没有 `reminder` 事件（可用 `spike/check.ts` 的同样装配方式，我未执行，从代码推断）。
+- **建议改法**：Spec 与类型规定：`every` 与 `watch` 至少给一个（类型用联合类型使两个都缺省是编译错误；JS 作者在装配期报 `event-never-fires`），并在 JSDoc 写“每轮一次：`every: 1`”；“值变了”用深度相等而非 `JSON.stringify`（与第 5 条的纯数据规则一致）；把 `reminder`、`opening` 的测试拆成两段：第 7 片测“回退、继续运行、设置关闭”，第 9 片补“压缩后重新提醒、压缩后开场仍在”，在第 9 片验收里明写。
+
+### 10. 手动模式测插话与中止的写法有三处不自洽或没规定，严格模式在中止上会误报
+
+- **严重程度**：建议（偏重要）；**类别**：测试工具
+- **位置**：第 3.11；`spike/v5/testing.ts:36-39,139-141,209-211`
+- **现象**：
+  1. `say` 的注释“入队并开始，等运行结束（手动模式下不等，见 `start`）”，返回类型却是 `Promise<RunReport>`；`TestCommands` 里没有 `start`。手动模式下 `await session.say("x")` 到底等不等、返回什么，字面上矛盾；作者按第一反应写 `await session.say()` 再 `await model.next()` 会死锁到测试超时。
+  2. 测中止的标准写法是：`sayAsync` → `await model.next()` → `await session.abort()` → 断言。这时那次 `ModelCall` 的 `pending` 是什么、`reply()` 会不会抛错、严格模式的 `StrictModeError{kind:"pending-model-call"}`（“手动调用没人回复”）会不会在关闭时因为这次被中止的调用而失败，都没有规定。按字面，被中止的调用没人 `reply`，严格模式会判失败，于是“测中止”这个提案点名的用途在默认设置下就要加 `strict:false`。`pending-tool-call` 同理（中止时工具结算为 `unknown`）。
+  3. 内核计时器经注入时钟，但扩展自己的防抖、重试、`setTimeout` 不在其内；`ctx` 档里没有 `now` 之外的计时入口（`ctx.signal` 只有取消）。写“文件变化防抖 500 毫秒再通知”的插件作者在测试里要么真等，要么放弃。
+- **为什么是问题**：提案第 15 节把“运行中途插话、中止”作为手动模式的存在理由，其写法必须零歧义。
+- **如何核实**：对照 `testing.ts` 第 36-39、139-141、209-211 行；`grep -n 'start' testing.ts`（只在注释里出现）。
+- **建议改法**：Spec 规定：(a) 手动模式下 `say` 与 `sayAsync` 等价，返回 `{inputId, finished}`，不等待；或去掉 `sayAsync`、把 `say` 的返回改成总是不等待 + `await session.idle()`——选一个，删掉另一个，少一个 API；(b) 中止、`rewind(abort:true)`、关闭会话会把还在等的 `ModelCall`/工具标记为 `aborted`（`pending: false`，`reply` 抛带说明的错误），严格模式只对“既没回复也没被中止”的调用报错；(c) 在 `ctx` 加 `sleep(ms, {signal})`（走注入时钟，同时是扩展写防抖的唯一正当入口），或在第 3.4 写明“扩展不得自带计时器，需要时用 `ctx.sleep`”。
+
+### 11. JSX 运行时的描述自相矛盾（“经典 JSX”与 `jsxImportSource`），作者要写的 tsconfig 与并存的第二套运行时没有交代
+
+- **严重程度**：建议；**类别**：Profile 作者体验
+- **位置**：第 2 节“提示词模板”行、第 3 节开头的导出、3.5 `jsx-runtime.ts`
+- **现象**：第 2 节写“自带的最小 JSX 运行时（spike `template.ts`，经典 JSX，`jsxImportSource` 指向包子路径）”，第 3 节导出 `./kernel/jsx-runtime`、`./kernel/jsx-dev-runtime`。经典 JSX（`jsx: "react"` + `jsxFactory`）没有 `jsxImportSource`，包子路径 `jsx-runtime` 是自动运行时（`jsx: "react-jsx"`）。spike 的 `template.ts` 只导出 `h(type, props, ...children)` 与 `Fragment`、`tsconfig.json` 用 `jsxFactory: "h"`，没有 `jsx`、`jsxs`、`jsxDEV`；两种运行时的 children 传法不同（自动运行时 children 在 `props.children`，`key` 单独传）。仓库里现成的 `nb-profile` 已经是自动运行时（`packages/nb-profile/tsconfig.json`：`jsx: react-jsx`、`jsxImportSource: @notnotype/nb-profile`），nb-story 的 `story-qa.profile.tsx` 就用它，节点名（`System`、`HistorySet`……）与新模板节点集不同。
+- **为什么是问题**：Profile 作者上手的第一步是“`.tsx` 要怎么配置”；计划没有交代 tsconfig 或文件头 pragma 怎么写，描述又互相矛盾，实现时必须改一次。迁移期间同一个仓库里两套 `jsxImportSource` 并存，nb-story 的迁移会碰到“同名节点语义不同”（例如 `System` 以前是一条固定消息，现在是容器、每个子节点一段、段间空一行）。
+- **如何核实**：读 `spike/template.ts:1-40` 与 `spike/tsconfig.json`；`packages/nb-profile/tsconfig.json:12-13`。
+- **建议改法**：第 2 节改成“自动运行时（`jsx: react-jsx`、`jsxImportSource: @notnotype/nb-harness/kernel`），在 `template.ts` 上加 `jsx`、`jsxs`、`jsxDEV`”；第 7 片的示例（建议 7）里附一份最小 `tsconfig` 片段，并在 README 写“新写 Profile 的 `.tsx` 用 kernel 的运行时，旧的 nb-profile 只给迁移前的 Profile 用”；迁移 Task 的验收加一项“节点名同名的语义差异清单”。
+
+### 12. “写错清单”29 处只验证“有编译错误”，不验证错误文字能指路；实测最微妙的规则（作用域）错误文字最难读
+
+- **严重程度**：建议；**类别**：出错体验 / 测试
+- **位置**：第 5 节第 7 片（“`tsc` 对写错报出预期的错误”）、第 6 节验收映射；`spike/v5/typetest.ts`
+- **现象**：我把 `v5/typetest.ts` 复制到 `/tmp/review-w00032-t20-plan/scratch/dx/`，把 `@ts-expect-error` 换成普通注释，用仓库的 `tsc` 跑，得到 30 条错误（对应 29 处，第 26 处出两条）。文字质量差别很大：
+  - 好的：#13 事件名拼错“Object literal may only specify known properties, but 'inptu' does not exist … Did you mean to write 'input'?”；#8、#7 带“Did you mean”；#16 用自定义护栏，直接是中文“与内核事件同名，换一个名字”（`NoKernelNames`）。
+  - 差的：#1 `reduce` 里 path 事件改 session 的片，错误是“Type '() => { seen: number; }' is not assignable to type '(event: EventOf<NoInfer<{ ...; }>, NoInfer<readonly [...]>, "input">, state: SlicesIn<...>) => void | ... 1 more ... | undefined'. Type '{ seen: number; }' is not assignable to type 'void | PatchIn<NoInfer<{ seen: Slice<"session", number>; …”——没有一个词说“session 的片不能由 path 事件改，要在处理函数里 `ctx.set`”，而这条正是提案第 5 节强调的、最容易犯的规则；#6 `ctx.read(modeContract)` 没写进 `dependsOn`：“Argument of type 'Contract<"nbook.agent.mode", {}, { mode: … }>' is not assignable to parameter of type 'Contract<"core.history", …> | Contract<"nbook.history", …>'”，读者要自己推出“没在 dependsOn 里”；#26 `read` 一处写错出两条，第二条“Property 'mode' does not exist on type '{ readonly open: … } | { readonly input: …（约 400 字符的联合类型）”，更像另一个问题；#25 `deriveProfile` 少 `id` 的错误里把整个 patch 类型展开了约 600 字符。
+  - 自定义护栏现在只有 1 处（#16）。
+- **为什么是问题**：“写错清单的测试”目前断言的是“某一行有编译错误”，换成任何一种错误（例如类型推断崩了、报了别的错）都通过；它不保证作者读到的信息能让人改对。提案第 12 节的目标正是“message 与 hint 能让人直接改对”。
+- **如何核实**：复现命令：`cd /tmp/review-w00032-t20-plan/scratch/dx && node_modules/.bin/tsc -p .`（`node_modules` 是指向仓库的软链）。
+- **建议改法**：第 7 片的验收加一条：把 typetest 里最常见的 8 处（至少 #1、#2、#4、#6、#8、#13、#17、#26）的实际 `tsc` 错误文字存进 `evidences/`，按“读者能否看出下一步”评一遍；对 #1、#2 用 `NoKernelNames` 同样的手法加自定义护栏，例如 reduce 的补丁类型对越界的片键给出 `"这是 session 的片：path 事件不能改它，请在处理函数里 ctx.set"`。typetest 的断言升级为 `// @ts-expect-error <关键词>`（TypeScript 不支持，所以另写一个用 `ts.getPreEmitDiagnostics` 比对“行号 + 消息里含关键词”的小测试）。
+
+### 13. 调试：看不出“过去的请求哪里变了”，`outline()` 只在测试工具里，日志没有人能读的出口
+
+- **严重程度**：建议；**类别**：调试
+- **位置**：第 3.5 `request.ts`、3.10 `preview.ts`、3.11；`spike/v5/api.ts:110`（`modelStarted`）、`host.ts` 的 `PreviewResult`、`testing.ts` 的 `RequestView`
+- **现象**：
+  1. 缓存失效是主要成本，但 `modelStarted` 只记一个 `hash`（提案第 8 节与计划 3.5 在内存里存“三段的增量哈希”，没写进日志）。预览过去的请求时“用 `modelStarted.hash` 比对”，对不上只能报“与当时发出的不完全相同”，说不出是已提交的前缀、进行中的这一轮还是后缀变了；也没有按块的哈希，无法指出是哪个块。
+  2. 块来源的短标签与 `outline()` 只存在于 `kernel/testing` 的 `RequestView`；生产里的 `preview()` 返回的是 `ModelRequest`、`changes`、`slots`，作者在开发面板或命令行里没有同样的一行一消息的摘要，同一份请求在测试里看一种样子、线上看另一种。
+  3. 测试的 `RequestView` 没有 `original`、`changes`（`PreviewResult` 有），写脱敏或改写拦截的插件作者无法在测试里断言“拦截改了哪一块”，只能读 `modelStarted.modifiedBy`（只有扩展名与字段名）。
+  4. JSONL 一行一个事件，每行带 `id`、`parent`、`scope`、`kind`、`version`、`source`、`batch{id,n,of}`……而 `assistant` 同时存 `content` 与 `text`。计划里没有任何把日志按人读的方式展示的东西（按事件类型、轮分组的文本输出），出问题时只能 `jq`。
+- **为什么是问题**：提案的代价一节承认“主创收到的完整上下文分散在多个插件里，要靠预览看全”，预览与测试看到的格式不同，会让作者在两处各学一遍。
+- **如何核实**：读 `api.ts:110`、`host.ts` 预览一节、`testing.ts:87-107`；`grep -n 'hash' plan.md`。
+- **建议改法**：(a) `modelStarted` 多存一个 `segments: {prefix: string; turn: string; tail: string}`（三个短哈希，每次请求约 100 字节），预览比对时直接指出是哪一段；(b) 把 `outline(request)` 与 `describeEvent(event)` 作为内核导出的纯函数（`kernel/host/outline.ts`），测试工具、预览结果（`PreviewResult.outline: string[]`）、`nbdev`/面板共用，避免测试里一种格式、线上另一种；(c) `RequestView` 加 `changes`（复用 `PreviewResult.changes` 的类型）；(d) 在第 11 片加一个 `describeLog(events)`（“第 3 轮 / 步 2 / 工具 edit → ok”这种文本）作为人读日志的出口，计划里用它写第 12 片的报告。
+
+### 14. 内核没法检查“插件 id 或插件 id.名字”；Profile 与测试里的 id 该怎么起也没说
+
+- **严重程度**：建议；**类别**：出错体验 / 装配
+- **位置**：第 1 节决定 3（“扩展 id 为‘插件 id’或‘插件 id.名字’”）、3.2 `assemble.ts`、3.9 末句（“本包不依赖 NeuroBook”）；提案待定项 20；`host.ts` 的 `bad-extension-id`
+- **现象**：计划 3.2 把“格式‘插件 id’或‘插件 id.名字’”列为内核装配的规则，`bad-extension-id` 是 error。但内核不知道有哪些插件，而平台插件 id 本身带点（提案里的 `nbook.history`、`nbook.agent.mode.reminder`：是插件 `nbook.agent` 的 `mode.reminder`，还是插件 `nbook.agent.mode` 的 `reminder`？），内核无法拆出“插件 id”。提案待定项 20 自己写的是“平台的贡献点可以要求贡献 id 以‘插件 id 加点’开头”，即这条由平台检查。Profile 的 id（`builtin.writer`、`leader.default`、`test.profile`）与用户在工作区自己写的 Profile、测试里的扩展（`lab.bad`、`lab.p`）都不属于某个插件。
+- **为什么是问题**：内核若按字面实现，只能检查字符集；若检查前缀，就会拒绝测试与用户 Profile 的合法写法；作者看到 `bad-extension-id` 却不知道该怎么改（hint 写什么）。
+- **如何核实**：`grep -n 'bad-extension-id' spike/v5/host.ts`；`grep -n 'id' plan.md` 第 3.2 行；提案待定项 20。
+- **建议改法**：第 3.2 与 Spec 写明：内核只检查语法（字符集 `[a-z0-9._-]`、不含 `/`、不以点开头结尾、长度上限），`bad-extension-id` 的 hint 写出正则与一个正例；“前缀必须是插件 id”由 t10 的 `agent.extensions` 接收者（`ExtensionReceiver.prepare`）检查，错误码也在那里；`createTestSession` 对被测扩展不加前缀检查，缺省 Profile 的 id 用 `test.profile`。
+
+### 15. 装配期的“已知事件”检查要按 `dependsOn` 里的契约对象算，不能按“已装上的扩展”算，否则 `optional` 依赖会得到误报
+
+- **严重程度**：建议；**类别**：出错体验 / 装配
+- **位置**：第 3.2 `assemble.ts`（“处理函数与 `render` 的键都是已知事件、槽名”）；提案第 4 节“`optional` 的依赖……监听它的事件照常（没装就不会来）”；`host.ts` 的 `unknown-event-handler`
+- **现象**：装配检查“处理函数的键是已知事件”。对 `on: {"nbook.history/fileChanged"(…){…}}`，这个键的来源是 `dependsOn: [optional(historyContract)]` 里的契约对象，如果提供它的扩展没装，用“已装上的扩展表”查就是未知事件，报 `unknown-event-handler`（error），而代码是对的、类型也过。提案明确要求这种情形“没装就不会来”，不是错误。同理 `render` 里覆盖别的扩展的 `reminder` 事件（“Profile 想换措辞：`dependsOn: [modeReminder]`、`render` 写 `"nbook.agent.mode.reminder/reminder"`”）。
+- **为什么是问题**：第三方插件作者对可选依赖写出正确代码，装上就被拒绝；严格模式下的测试若不装那个依赖也会失败。
+- **如何核实**：读提案第 4 节的跨扩展引用段与 3.2 的检查句。
+- **建议改法**：Spec 写明“已知事件 = 内核事件 ∪ 本扩展声明 ∪ `dependsOn` 里每个契约（含 `optional`）声明的事件”，来源是契约对象，不是运行时的扩展表；第 3 片的“装配错误表”加一行 `optional` 依赖缺席时的正例。
+
+### 16. 紧接的 nb-story 迁移要“对外导出的日志与帧先过滤”，计划把待定项 13 留到实现中决定、也没有对应切片
+
+- **严重程度**：重要；**类别**：迁移成本 / 宿主集成
+- **位置**：第 1 节决定 3（“待定项 7、8、11、13……在实现中定”）、3.10 帧与分页、第 5 节第 11 片；提案待定项 13、第 14 节；`packages/nb-story/src/server/qa-service.ts:440-451,468`、`qa/spoiler.ts`
+- **现象**：nb-story 把会话日志交给网页前，`withoutSpoilers` 对每条 `SessionEntry` 过一遍：“工具参数与结果里阅读位置之前搜不到的词不显示，思考块去掉”，并且位置取对话现在的位置、往回调后旧回合也要重新收起。新内核的出口是 `log(afterSeq, limit)` 分页与 `subscribe` 的帧（`log`、`delta`、`status`、`diagnostic`）：`log` 帧里的 `assistant.content` 含思考块，`toolResult.text/details/args/raw` 含原文；`delta` 帧有 `part: "thinking"` 的流式文字，原样推给界面。计划把“待定项 13：导出过滤”放进“实现中定”，3.10 与第 11 片都没有写过滤的挂点。
+- **为什么是问题**：这对 nb-story 是产品要求（防剧透），而不是可有可无的特性；它是在内核的出口（分页、订阅、重连补帧、`snapshot`）统一发生的，事后由迁移 Task 在 `SessionApi` 外面包一层，就得同时包住 `log`、`subscribe`（含 `delta`）、`snapshot.buffer`、预览，漏一处就泄露；且按“往回调后旧回合重新收起”要求过滤依赖当前状态、不是逐条纯函数。内核的帧顺序与 `seq` 语义（“界面等订阅追到 `seq` 再画”）在过滤后还要保持（被整条隐藏的事件怎么占位）。
+  nb-story 还有两处同类依赖：`qa-service.ts:469` 的“早先版本的 Profile 开始的对话不能续问”（`continuationProblem(firstEntry)`，依赖 Profile 的 `manifest.version`），新 Profile 只有 `id` 与内容哈希（`profileChanged.hash`），没有版本号；t02 决定 3 要求保留的 `transport` 子路径（SSE 序列化，nb-story 服务端在用）在计划里无一处出现（第 8 节也没列为“不做”）。
+- **如何核实**：读 `qa-service.ts:440-451` 与 `qa/spoiler.ts`；`grep -n '过滤\|filter\|transport' plan.md`（只有 3.5 的 `Format` 相关，没有出口过滤）。
+- **建议改法**：t20 不实现过滤，但把挂点写进合同，成本是一个参数：`SessionApi.log`、`subscribe`、`snapshot` 都接受同一个可选的 `exportView: (event: Event | DeltaFrame) => Event | DeltaFrame | "hidden" | Promise<...>`（宿主给，会话级），内核保证“被隐藏的事件仍占用 `seq`，帧里发一个 `{type:"log", event:{…, hidden:true}}` 占位”；第 11 片的验收加“过滤后重连补帧不丢不重”。第 8 节“不做”里列出 `transport` 与 Profile 版本号的去向（迁移 Task），并在迁移 Task 的前置条件里写明。
+
+## 更正（报告只追加，所以在这里改前面几处的措辞）
+
+- 第 6 条里“提案 3 个 Task 靠它——t06、t10、t14”应读作“t06、t10、t14 三个 Task 的测试都要用到这个入口”。
+- 第 7 条里“只能是读 29 个类型（`api.ts` 605 行）”应读作“只能去读 605 行的 `api.ts`”。
+- 第 12 条里 #25 的错误文字实测共 833 个字符（两行），不是约 600；#26 第二条错误首行 397 个字符。30 条错误的首行最长 434 个字符。
+
+## 未发现问题的方面
+
+- 单写者队列、写入批原子性（一次 write + fsync + 加载时按 `batch.of` 判完整）、`kill -9` 重开的验证方式：从 DX 角度没有发现问题，计划里的做法与提案一致。
+- `createTestSession` 的基本形状（十行内搭起会话、`say`/`mark`/`rewind`/`state`/`outline()`）：`tests.example.ts` 的 14 行与 4 行例子证明写一个测试确实是 4 到 6 行；问题出在缺省值与边界（见第 3、4、5、10 条），不在形状本身。
+- 回退后片的值、重启后的状态恢复、深只读：计划用“按事件归约 + 冻结”，spike 53 个场景里已有对应场景，DX 上没有新发现。
+- helper 的覆盖面：提案列的七个 helper 对提案第 17 节的主创、写手、行内编辑、总结者够用；“外部事实 → 下一轮开头提醒一次”（文件变更）仍要手写约 24 行（`plugins.ts` 的 `fileNotice`），但这是开发者 2026-10-29 为减少字段数量而接受的取舍，不当作缺陷。
+- OMP 升级（第 0 片）与旧实现留存方案：与 t02 决定 4、7 一致，未发现冲突。
+
+## 数量
+
+- 阻断：0
+- 重要：10（第 1、2、3、4、5、6、7、8、9、16 条）
+- 建议：6（第 10、11、12、13、14、15 条）
+- 合计 16 条
+
+最重要的三条：第 1 条（nb-story 依赖的收尾工具、停止原因、单轮结果在内核里没有语义，工具无法结束运行）、第 2 条（装配期写错没有交付 message 与 hint 的通道，码表与计划用语对不上）、第 16 条（nb-story 防剧透要求对外导出的日志与帧先过滤，计划把导出过滤留到实现中定）。

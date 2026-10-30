@@ -1,0 +1,232 @@
+# t20 实施计划审查：API 接口形状（Sonnet）
+
+审查对象：`.agents/works/w00032-agent-integration/tasks/t20-hooks/plan.md`（04d13a262），对照 `spike/v5/{api,host,testing,plugins,profiles,typetest}`、提案第五稿、t03/t04/t06/t07/t11/t14 的 README、nb-runtime 的远程服务合同、分支 `feat/w00002-harness-kernel` 的 `session/types.ts`、`tools/types.ts`。
+实验目录：`/tmp/review-w00032-t20-plan/scratch/api/`（v5 的副本加 exp1.ts、exp2.ts、exp3.ts、jsx/，用仓库根的 tsc 跑）。
+
+### 1. 计划说“接口以 v5 为准”，但 v5 在等用户、工具并发、拦截层、槽与状态上都还是旧的，而 t06、t14、提案三处互相推给“t20 计划里定”
+
+- **严重程度**：阻断；**类别**：与已定设计冲突 / 循环推诿
+- **位置**：计划第 1 节“依据”（“接口以 `spike/v5/` 为准”）、第 1 节决定 3、3.6、3.7、3.10；`v5/api.ts`、`v5/host.ts`、`v5/testing.ts`
+- **现象**：计划第 3 节只口头说了三处改动（`KernelEvents` 改为 `interactionRequested/Resolved`、`resolve` “加三个码”、`waiting` 状态），没有给出 v5 类型要改成什么。我对照 v5 逐项 grep，下面这些在 v5 里都不存在或仍是占位（`grep -l` 在 api.ts、host.ts、testing.ts 里找 `waiting`、`layer`、`concurrency`、`not-allowed`、`unknown-interaction`、`tool-unavailable`、`log-corrupt` 全部无命中）：
+  1. `KernelEvents` 仍是 `asked/answered/approvalRequested/approvalResolved` 四个占位（api.ts 第 116 到 119 行）；
+  2. `RunStatus`（host.ts 第 88 到 91 行）没有 `waiting`；`CommandMap`、`commandErrors`、`TestCommands` 都没有 `resolve`；`SessionSnapshot` 没有待处理事项清单；`SessionMirror` 没有对应的查询；
+  3. `ToolInfo` 只有 `name`、`effect`，没有计划 3.6 要按它切段的 `concurrency`；
+  4. 决定 3 的 `layer: "outer" | "inner"` 在 `Interceptors`、`ExtensionFields` 里都没有位置（`Interceptors` 是一个只放四个函数的对象，`layer` 是挂在整个扩展上还是挂在每个拦截函数上，计划没说）；
+  5. `Slot` 节点只有 `stable?`、`volatile?`，没有 `drop`、`shared`（计划 3.5 写的是 `<Slot name stable|volatile|drop|shared>`）；
+  6. `ReactCtx` 没有 `status(文字)`（决定 3 的“只推界面的 `ctx.status`”）；
+  7. `diagnosticCodes` 里没有 `emit-after-settle`、`log-corrupt`，`reaction-depth-limit` 与计划写的 `reactionLimit` 对不上（见第 10 条）。
+- **为什么是问题**：提案第 11 节末尾写“`v5/api.ts` 的四个占位事件、`v5/host.ts` 的 `RunStatus` 与 `SessionMirror` 还没跟着改，实施时以本节为准”，又写“完整形状在 t06、t14 的实施计划里定”；t14 决定 33 写“t20 的 `v5` 类型原型（交互事件、`RunStatus`、`SessionMirror`、`ToolInfo.concurrency`）与各工具完整的失败码表，在 t20 实施计划里一并定”；t06 的 README 只说“实施时再详细讨论”。三方互相指向，而 t20 计划只给了一句“`waiting`”。照字面实现，第 3 片就要开始写 `ToolInfo` 与 `Interceptors`，第 4 片写 `ctx`，第 8 片才碰等用户：前面几片会先按旧类型写完，到第 8 片再改一次公开类型，所有用到 `RunStatus`、`ToolInfo` 的测试工具、镜像、预览跟着改。
+- **如何核实**：`grep -n "waiting\|layer\|concurrency\|resolve" spike/v5/{api,host,testing}.ts`，对照提案第 11 节与 t14 README 决定 33、24。
+- **建议改法**：在第 1 片（Spec 与提案）之前加一个“第 0.5 片：把 v5 类型改成终稿”，产出 `kernel/api.ts`、`kernel/host.ts` 的实际类型文件（只改类型、跑 tsc 与 `typetest.ts`），列一张“v5 到终稿”的差异表放进计划，上面七项都落成具体类型。具体建议见第 4、5、7 条；其余按提案第 11 节写。t06、t14 的 README 里把“在实施计划里定”改成“见 t20 计划第 X 节”，终止互相推诿。
+
+### 2. 公开入口 `createSession`/`openSession` 的参数没有任何类型，使用方最先要写的那一行在 v5 和计划里都不存在
+
+- **严重程度**：重要；**类别**：接口形状缺失 / 隐含耦合
+- **位置**：计划 3.10 `session.ts`、3.4、3.6、3.8、3.9；`v5/host.ts` 的 `AgentHost`
+- **现象**：计划 3.10 写“`createSession`、`openSession`（`load` → `recover` → 装配 → `mount`），返回 v5 `SessionApi`”。v5 里只有 `AgentHost.create({sessionId, profile, initial})`、`open(sessionId)`，没有任何类型描述“这个会话用什么存储、什么模型适配器、什么工具、什么资源、什么时钟、什么审批钩子”。这些东西在计划里是散落的口述：`LogStore`（3.1）、“宿主给的插件扩展”（3.2）、`approve` 钩子（3.6）、“`resolve` 的发出者由宿主注入”（3.7）、`CompactionMethod`（3.8）、模型与凭据（3.9）、“注入的时钟接口（`now`、`setTimeout`）”（第 2 节）、请求录制开关与三个上限（决定 3）、`changeProfile(profile: string)` 要用的“按 id 找 Profile”。
+  同时 `AgentHost`（`extensions: ExtensionReceiver`、`list()`、`diagnostics()`）、`ExtensionHandle`、`ExtensionDeclaration`、`declarationsOf`、`RevokeReason` 是不是 t20 的交付，计划没说：第 8 节把“Agent 插件与贡献点接线”划给 t10，但 `SessionSnapshot.pendingReassembly`、`ExtensionInfo.status: "revoked"`、`extension-revoked` 诊断、`profileChanged.reason: "plugin-*"` 都在 t20 的内核范围里，而且它们只有 `AgentHost` 才产生数据。
+- **为什么是问题**：`createSession` 的选项对象是插件作者、nb-story、迁移 Task、t09/t10/t06/t14 全都要用的入口；它不是实现细节。照字面实现，作者会在第 6 片（循环）边写边长出这个对象，第 10 片接适配器时再改一次，迁移 Task 再改一次。`TestSessionOptions`（testing.ts 第 114 到 129 行）是它的缩水版，二者没有对应关系说明，插件作者没法知道“测试里的假货对应线上哪个注入点”。
+- **如何核实**：`grep -n "createSession\|openSession\|SessionOptions" plan.md spike/v5/*.ts`，只在 plan.md 的 3.10 与 testing.ts 的 `createTestSession` 出现。
+- **建议改法**：在计划里加一小节“注入点”，先写出一个类型（写进 v5 终稿）：
+  `interface KernelDeps { store: LogStore; model: ModelAdapter; tools: ToolSource; resources: Resources; clock: Clock; approve?: ApproveHook; profiles: (id: string) => Profile | undefined; pluginExtensions: () => readonly Extension[]; compactionMethods?: readonly CompactionMethodImpl[]; limits?: {reactionDepth; continuePerTurn; handlerTimeoutMs}; recordRequests?: boolean; actor?: ... }`，
+  `createSession(deps, {sessionId, profile, initial?, parent?})` 与 `openSession(deps, sessionId)`。`createTestSession` 的选项就是它把其中五项换成假的。同时明写：`AgentHost`、`ExtensionReceiver`、`declarationsOf` 不是 t20 的交付，从 `host.ts` 终稿里拿掉，t10 再加（`pendingReassembly` 与 `ExtensionInfo.status` 保留类型但 t20 只会给 `null`/`"active"`），或者明写 t20 做一个最小的 `AgentHost`。
+
+### 3. 子路径按“实现体量”没有切，贡献者、浏览器、服务端会一起拉进整个内核；`jsxImportSource` 的路径还会固化进第三方 tsconfig
+
+- **严重程度**：重要；**类别**：导出面 / 隐含耦合
+- **位置**：计划第 3 节开头（子路径导出）、3.10 `mirror.ts`、第 1 节决定 1（“迁移 Task 删旧实现时再决定新内核是否升为根导出”）；`packages/nb-harness/AGENTS.md`；提案第 4 节“契约放在插件不拖实现的 shared 模块里”
+- **现象**：计划只导出 `./kernel`、`./kernel/testing`、`./kernel/jsx-runtime`、`./kernel/jsx-dev-runtime`。v5 的 `api.ts`（`defineContract`、`conv`、`ext`、`slice`、模板节点）、`host.ts`（`commandErrors`、`diagnosticCodes`、`createSessionMirror`、`originLabel` 这些运行时值）、`createSession`、JSONL 存储（`node:fs`）、OMP 适配器（`@oh-my-pi/pi-ai`）、`node:crypto` 的哈希，在计划里都落在 `kernel/` 下，没有说各归哪个子路径。
+- **为什么是问题**：
+  1. 提案第 4 节要求契约“放在插件不拖实现的 shared 模块里，别人 import 它写进 `dependsOn`”；`defineContract` 来自 `./kernel`。如果 `./kernel` 的入口文件同时导出了 `createSession`，shared 模块就会拉进 `node:fs`、OMP。同理 `createSessionMirror` 的使用者是浏览器与 nb-story 的网页（计划 3.10 写“浏览器与 nb-story 共用”），nb-story 的 Spec 要求“网页只引本包不碰 node 的 `src/contract/`”；`packages/nb-harness/AGENTS.md` 又特别写了 OMP 有“裸 TS 入口、import 期 env 副作用、原生包体积”的陷阱。
+  2. nb-runtime 已有先例：“每个机制一个子路径入口”（`docs/modules/monorepo-boundaries.md`）。计划没有按这个规则切。
+  3. 决定 1 把“新内核是否升为根导出”留给迁移 Task。但 `jsxImportSource` 必须写 `@notnotype/nb-harness/kernel`（该路径会写进每个插件作者、plugin-sdk 模板与 nb-story 的 `tsconfig.json`），一旦迁移 Task 又改成根导出，所有这些 tsconfig 与 `import` 都得再动一遍，nb-story 与 nb-agent-ui 的迁移要做两次。`packages/AGENTS.md` 第 11 行要求“exports 变化必须先记录为跨 Module 决策，再修改消费者”，计划第 4 节只登记了一个关于“日志为真相源”的 ADR，没有登记导出面。
+  4. 并存期间的混淆：旧根导出里有 `defineTool`、`ToolDeclaration`、`ToolRegistry`、`defineModel`、`resolveModel`、`complete`；新内核按计划（3.6 搬分支 `tools/define.ts`，3.9 搬分支 `models/`）要有同类东西但不同形状，却没有写它们从哪个子路径导出、叫什么。我对两边导出名做了比对（`comm -12`），当前没有同名，但计划没有保证。
+- **如何核实**：看 `packages/nb-harness/src/index.ts` 的导出清单与计划 3.6、3.9；`jsxImportSource` 的值只能是一个可解析到 `jsx-runtime` 的包路径。
+- **建议改法**：按依赖重量切三层，永久命名，不再“升为根导出”：
+  - `./kernel`：只有类型与纯函数（`defineExtension`、`defineContract`、`implement`、`slice`、`conv`、`ext`、`defineProfile`、`deriveProfile`、模板节点、`reminder` 等 helper），运行时零依赖，可被 shared 模块与浏览器使用；
+  - `./kernel/client`（或 `./kernel/host`）：`SessionApi`、命令/帧/诊断类型、`commandErrors`、`diagnosticCodes`、`createSessionMirror`、`originLabel`，浏览器安全；
+  - `./kernel/runtime`：`createSession`、`openSession`、`jsonlStore`、`memoryStore`、OMP 适配器、模型目录、工具声明，仅服务端；
+  - `./kernel/testing`、`./kernel/jsx-runtime`、`./kernel/jsx-dev-runtime`。
+  再加一个架构测试（仿 nb-agent-ui 的 `boundary.test.ts`）断言前两层不引 `node:*` 与 `@oh-my-pi/*`。把“`./kernel/*` 是长期路径，旧 `.` 在迁移 Task 里被它替换或改成转发”写进第 4 节的 ADR。
+
+### 4. `approve(call, info) → allow | deny | ask` 在 t06 一接上就要改签名
+
+- **严重程度**：重要；**类别**：形状不够用 / 会返工
+- **位置**：计划 3.6 `intercept.ts` 末句；t06 README 决定 1、2、3、4、7 与 2026-10-30 改判；t14 README 决定 24（审批）
+- **现象**：计划写“审批是工具链最里层的宿主钩子 `approve(call, info) → allow | deny | ask`，t20 只给‘全部放行’的缺省实现与 `ask` 走等用户通道的接线，规则在 t06”。v5 里没有这个钩子的类型，`ToolInfo` 只有 `name`、`effect` 两个字段。
+- **为什么是问题**：对照 t06 的已定内容，它至少需要下面这些，而 `(call, info)` 都给不了：
+  1. **会话状态**：审批模式、Agent 模式（normal/discuss/plan）、“本会话都批准”的记忆、规则（可带参数条件）都是会话级、要跨重启（t06 决定 7、改判），所以钩子必须能读会话状态；而 `approve` 是“宿主钩子”，不是扩展，拿不到 `ctx.state`、`ctx.settings`。
+  2. **异步与中止**：“交审批模型”（auto，t06 改判的第二步）要调一次模型、传最近的对话（分支 `JudgeRequest.recent`），需要 `signal`、历史、会话信息。
+  3. **每次调用的实际等级**：t06 决定 3 “可按参数动态声明（SQL 的 SELECT 算读）”；`info` 如果是静态的 `ToolInfo`，参数相关的等级、`policy: "deny" | "ask"`、理由、预览（t06 决定 4 “edit 给 diff”）没处放。分支的 `RiskDecision` 就是为这个设计的。
+  4. **`deny` 要带理由**（t06 决定 4 “拒绝可附理由交给模型”，t07 决定 4 “等审批时输入文字等于拒绝并附上这段话”），**`ask` 要带请求内容**（写进 `interactionRequested.request`），而返回值是三个裸字符串。
+  5. **扩展无法发起审批**：t06 决定 2 说 discuss/plan 模式下“写与执行的调用弹审批”，不是直接拒绝；v5 `plugins.ts` 的 `mode` 扩展只能在 `intercept.tool` 里返回 `status: "denied"` 或 `next(call)`，`ToolResult` 没有“请求询问”的结果。审批钩子又在最里层、在扩展之后，扩展没法让它询问。
+- **如何核实**：对照 t06 决定 1 到 4、改判，与 `git show feat/w00002-harness-kernel:packages/nb-harness/src/tools/types.ts` 里的 `Risk`、`ApprovalRequest`、`JudgeRequest`。
+- **建议改法**：让审批钩子与拦截同一个形状，减少一个特例：
+  `type Verdict = {allow: true} | {deny: Rejection; note?: string} | {ask: {kind: "approval"; request: unknown}}`，
+  钩子为 `approve(call: ToolCall, ctx: ApproveCtx): Promise<Verdict>`，`ApproveCtx` 是 `InterceptCtx` 加 `tool: ToolInfo & {effect: ...resolved for this call; policy?; reason?; preview?}` 与 `session: {id, parent?}`。钩子由 `KernelDeps` 注入（第 2 条），t06 的实现自己从会话状态读模式。同时给 `Interceptors.tool` 的返回值加一个 `{ask}` 结果，让模式扩展能表达“弹审批”。t20 的缺省仍是“全部放行”，签名现在定下来，t06 就只填实现。
+
+### 5. 等用户：`resolve` 的发出者怎么注入、事件字段与提案不一致、待处理清单怎么给界面，计划都没有定
+
+- **严重程度**：重要；**类别**：与已定设计冲突 / 隐含假设
+- **位置**：计划 3.7；提案第 11 节；t14 README 决定 17、23、24、30；t07 决定 4；`v5/host.ts`
+- **现象与问题**：
+  1. 计划写“`resolve` 的发出者由宿主注入（用户或父会话）”，t14 决定 24 写“应答者身份由服务端按调用来源注入，不是工具参数”。但 `SessionApi` 是一个对所有调用者相同的对象（host.ts 第 339 行），`CommandMap` 的参数里也没有调用者。没有一个机制说“这个 `SessionApi` 是用户的句柄，那个是父会话的句柄”。若 t14 的 `agent_answer` 工具与界面拿到同一个 `SessionApi`，就没法区分，`not-allowed`（审批只收用户）判不了。
+  2. 计划 3.7 的 `interactionResolved{id, decision, by, data?}` 与提案第 11 节的指令 `resolve({id, decision, answer?, note?})` 字段不一致：`answer`、`note` 落在事件的哪个字段（`data`？）。t07 决定 4 要求“拒绝并附上这段话”，t14 要求异步提问的回答“作为输入放进缓冲区”：回答的文字取自哪里，没有定。
+  3. 计划 3.7 说“`resolve` 在同一批里写 `interactionResolved` 并把回答作为输入放进缓冲区”，但缓冲区的条目是 `inputQueued{id, input, mode}`（session 作用域），一个“回答”要带什么来源标记让界面显示成“对某个提问的回答”，v5 的 `UserInput` 没有位置（t14 决定 23 已经取消了 `replyTo`）。
+  4. 界面要知道“有哪些待处理的事项”：`SessionSnapshot`（host.ts 第 110 到 122 行）与 `SessionMirror` 都没有；只靠自己从日志归约（`interactionRequested` 减去 `interactionResolved`，再排除被回退掉的分支、被中止结算的）会让每个消费者各写一份，且跨分支的判断（“被回退掉的分支上的事项不再算待处理”）本来就是内核才能判断的。
+  5. 等待期间的 `send`：t07 决定 4（审批时输入框文字等于拒绝）与 t14 决定 30（只适用于会让运行停下等待的提问）说的行为，在 v5 里没有承接：`send` 在 `waiting` 时是入缓冲区还是隐含 `resolve`？
+- **如何核实**：对照 t14 决定 24 的第一条与 v5 `SessionApi`；`grep -n "waiting\|pending" spike/v5/host.ts`（无命中）。
+- **建议改法**：
+  - 用 `SessionApi.as(actor: {kind: "user"} | {kind: "parent"; sessionId: string}): SessionApi`（或 `openSession(deps, id, {actor})`）注入身份：句柄一经创建 actor 就固定，命令里不再出现。界面的远程服务用 user，`agent_answer` 用 parent。
+  - `interactionResolved` 的字段定为 `{id, decision: "allow" | "deny" | "answered" | "aborted", by: Actor, answer?: string, note?: string}`，与指令一一对应；`data` 不要。
+  - `SessionSnapshot.interactions: PendingInteraction[]`、`RunStatus` 加 `{state: "waiting"; runId; interactionIds: string[]}`，`SessionMirror.interactions()`；让内核判断待处理。
+  - 计划里写明：`send` 在 `waiting` 时仍只入缓冲区；t07 决定 4 的行为是界面把输入框文字发成 `resolve({decision: "deny", note})`（界面侧，不在内核）。
+
+### 6. 命令的“重发得到第一次的结果”承诺，靠日志做不到：多个 `value` 字段不是日志里的事实
+
+- **严重程度**：重要；**类别**：隐含假设 / 照字面实现会返工
+- **位置**：计划 3.6 `commands.ts`（“每个带 `commandId`（幂等键）…成功带 `seq`”）、3.1“幂等：`(source, key)` 索引；命中返回第一次的结果”、第 6 节“重发同一 `commandId` 得到第一次的结果”；`v5/host.ts` 的 `CommandMap`
+- **现象**：`CommandMap` 的几个成功值：
+  - `send.value.startedRun: boolean`：是“入队时空闲所以同时开始了”，写进日志的是 `inputQueued` 与后续的 `runStarted`，二者用什么关联？`inputQueued` 的 data 只有 `{id, input, mode}`；
+  - `changeProfile.value.diagnostics: number`：当次装配产生的诊断条数，不进日志；
+  - `abort.value.aborted: false`：没有运行时什么都不写，所以也没有带键的事件，重发时无从“命中”；
+  - `compact.value.scheduled: "now" | "next-boundary"`；`changeSettings.value.changed: string[]`（每个扩展一条 `settingsChanged`，每条带什么键）；`rewind.value.leaf/inputId`。
+  计划写“命中返回第一次的结果，不跑反应”，只描述了事件层的幂等。
+- **为什么是问题**：命令层幂等的目的是“链路断了，界面必然重发，重启后仍有效”（host.ts 文件头）。内存里缓存结果只能管进程内，重启后要从日志重建 `value`。有的字段重建不出来，测试 `tests`（第 6 节“重发同一 `commandId` 得到第一次的结果”）要么只测进程内，要么被迫在事件里塞调试数据。
+- **如何核实**：把 `CommandMap` 里每个 `value` 字段逐个对应到事件的 `data`，凡是对应不上的就是问题；`abort` 无事件可对。
+- **建议改法**：成功值只放“能由带键事件的 data 加之后的日志推出”的字段：`send` 改为 `{inputId}`，是否开始运行界面由 `status` 帧得知（或把 `startedRun` 写进 `inputQueued.data`）；`changeProfile` 去掉 `diagnostics`（诊断走 `snapshot().diagnostics`）；`compact` 的 `scheduled` 写进 `compaction` 的前置事件或去掉；`abort` 明写“不幂等记录，重发总是重新计算，`aborted:false` 不是错误”，并从“重发得到第一次的结果”的承诺里剔除。计划第 6 节验收里写明哪些命令覆盖了重启后重发。
+
+### 7. 请求里的 `tools` 只有 `{name, effect}`，适配器发不出请求；工具名是 id 还是服务商名、失败结果有没有码，都没定
+
+- **严重程度**：重要；**类别**：形状不够用 / 与已定设计冲突
+- **位置**：计划 3.5 `request.ts`、3.6 `tools.ts`、3.9 `omp-adapter.ts`、第 1 节决定 3（“待定项 11 在实现中定”）；`v5/api.ts` 的 `ToolInfo`、`ModelRequest.tools`、`ToolCall`、`ToolResult`、`ToolStatus`；t04 决定 1、7；t06 决定 3；ADR 0034 决定 4（“领域工具失败在 `details` 给结构化 `code`”）
+- **现象**：
+  1. `ModelRequest.tools: readonly ToolInfo[]`，`ToolInfo = {name, effect}`（api.ts 第 48 到 51 行）。适配器（3.9）要把工具交给服务商，需要描述、参数 schema、严格校验、自定义参数语法等；请求哈希（3.5）要包含它们（第 8 节提案“模型、参数、header、工具也是前缀的一部分”）。计划把“请求的完整形状”留给实现（待定项 11），但第 5 片的 `request.ts` 与第 10 片的适配器之间没有这个类型。
+  2. `ToolCall.name`、`toolStarted.tool`、`toolResult.tool`、`ToolInfo.name` 是工具 id（t04：“Profile、绑定配置、日志视图、界面、审批都用 id”，带点）还是交给服务商的名字（`.` 换成 `__`，上限 64）？示例代码里写的是 `"edit"`、`"todo"`、`"agent.invoke"`，混着用。适配器要把模型回来的名字反查回 id，`ToolCall` 没有地方放两者。
+  3. t14 决定 24 要求的 `concurrency`、t06 决定 3 的“可按参数动态声明”的等级，在 `ToolInfo` 里都没有（见第 1、4 条）。
+  4. 内核自己造的工具结果（`tool-unavailable`、参数校验失败、`aborted`、`blocked`、审批拒绝）没有结构化的码：`toolResult` 的字段是 `text`（给模型看的）、`status`、`by`、`details?: unknown`。界面要对“被拒绝”显示本地化文案、按码分支（ADR 0034 决定 2、4），只能解析 `text` 或猜 `details.code`。`Rejection` 的 `{code, params}` 只用在输入上。
+- **为什么是问题**：照字面实现，第 5 片会先按 `ToolInfo[]` 算请求与哈希，第 10 片接适配器时发现信息不够，要改 `ModelRequest`，哈希随之变，所有第 5、7 片写的请求快照与 `outline()` 断言都要重来。
+- **如何核实**：对照分支 `tools/types.ts` 的 `ToolDefinition`、`ToolDescriptor`；对照 t04 决定 1。
+- **建议改法**：在计划里加“工具与请求”小节：
+  - `ToolSpec`（完整声明，写进 `ModelRequest.tools`，`ToolInfo` 为它的子集给扩展看）：`{id, description, parameters, effect, concurrency, strict?, providerName?}`；`ToolCall.name` 一律是 id，适配器负责 id 与服务商名互换，并在装配时检查换算后长度不超过 64、不撞名；
+  - `toolResult` 加 `code?: string`，`ToolResult` 加 `code?: string`，内核造的结果都带码（`tool-unavailable`、`invalid-args`、`aborted`、`approval-denied`、`blocked`），`text` 仍是给模型的中文。
+  这样第 5 片起就按终稿算哈希。
+
+### 8. `LogStore` 比分支的 `SessionStore` 少了 `list`、会话头与版本，而且 `openSession` 的步骤里漏了 `repair`
+
+- **严重程度**：重要；**类别**：形状不够用 / 照字面实现会损坏日志
+- **位置**：计划 3.1 `store.ts`（`{create(header), load(id), append(batch), repair(id)}`）、3.10 `session.ts`（“`load` → `recover` → 装配 → `mount`”）、第 2 节（“按字节截断中断尾与 `repair`”）；t03 决定 2、4、6；t14 决定 4；分支 `session/types.ts`
+- **现象**：
+  1. 分支的 `SessionStore` 有 `create/open/append/repair/list`，`open` 返回 `damagedTail`。计划的 `LogStore` 没有 `list`，也没有会话头的结构。t03 决定 4 要求会话记关联的项目身份、列表按项目过滤，t03 决定 2 要求 fork 的会话头记来源（会话与条目 id），t14 决定 4 要求“父子是平级的会话：各是一个会话文件，彼此记着关系”，t03 决定 6 要求存储有版本标记、读到旧版本抛“需要迁移”。这些都得在会话头里，而 `create(header)` 的 `header` 类型没写；`SessionApi`、`CommandMap` 里没有标题、归档、fork（t03 决定 1 与 2 提到的会话级条目）。nb-agent-ui 的 `AgentSessionList` 已经是现有的受管组件，列表来源必须是 store。
+  2. 计划 3.1 说“`load` 丢弃末尾不完整的批并报告”，又有一个单独的 `repair(id)`；第 3.10 的打开步骤没有 `repair`。分支的约定（jsonl.ts 第 3 行）是“只有 `repair` 截掉末尾的中断尾”。`load` 只在内存里丢弃的话，之后的 `append` 会把新行接在残留的半行后面，下一次 `load` 就在文件中间遇到坏行，而“只有文件尾可能不完整”的前提（第 2 节写入批的“单写者下只有文件尾可能不完整”）就不成立了。
+- **为什么是问题**：1 是 t14、t17、迁移 Task 一接上就要改的公开类型；2 是照字面实现会写出“崩溃一次、第二次打开就报 `log-corrupt`”的存储，而第 2 片的 `kill -9` 测试只重开一次，不会发现。
+- **如何核实**：第 2 片测试用例里加：写到一半 `kill -9` → 重开（不 `repair`）→ 追加一个批 → 再重开，应当成功。
+- **建议改法**：`LogStore` 合成 `{create(header), open(id): {header, events, droppedTail}, append(id, batch), list(filter?), close?}`，`open` 内部做 `repair`（截断后返回），去掉单独的 `repair`——少一个方法与一个调用顺序。`SessionHeader` 在计划里列出字段：`{version, id, createdAt, profile, project?, parent?: {session, call}, forkedFrom?: {session, entry}}`，`version` 不认识时 `open` 返回 `migration-required`（t03 决定 6）。标题与归档若不在 t20，明写“t23 加”，别让头结构以后改。
+
+### 9. 命令与帧到 nb-runtime 远程服务的对接形状对不上：`seq`、`replayed`、按码的详情
+
+- **严重程度**：重要；**类别**：与仓库其它公开接口不一致
+- **位置**：`v5/host.ts` 的 `CommandOk`、`CommandFailure`、`commandErrors`、`FrameFilter`；`packages/nb-runtime/src/remote/contract.ts`、`protocol.ts`；计划 3.6、3.10
+- **现象**：host.ts 文件头写“每个命令是远程服务的一个 `write` 方法，`commandErrors` 里的码就是方法的 `errors`”。但 nb-runtime 的合同里：
+  - 成功是 `{ok: true, value}`（`ok()` 构造，只有 `value`）；`CommandOk` 在 `value` 之外还有顶层的 `seq` 与 `replayed`，这两个字段经 `ok(value)` 过不去，只能进 `value` 里面；
+  - `errors` 是 `Record<码, TypeBox schema>`（`method.errors`，`DetailOf<Schema>` 按码收窄详情）；`commandErrors` 是 `Record<命令, 码[]>`，`CommandFailure.detail` 是统一的 `Record<string, string | number | boolean | null>`，不是按码的 schema；
+  - 路由层码集（`REMOTE_FAILURE_CODES`：`denied`、`unavailable`、`timeout`、`cancelled` 等）与业务码分开，命令码里的 `not-allowed`（resolve）与路由的 `denied` 语义相近但名字不同，界面按“拥有者 + 码”取文案时拥有者要分清。
+- **为什么是问题**：t10/t17 写 harness 的远程适配时，每个命令都要手写一层“把 `{ok, value, seq, replayed}` 拆成 `{ok, value:{...value, seq, replayed}}`”，错误详情的类型没有 schema 可用，不能直接生成远程合同。这些在 t20 现在改只是类型，到 t10 再改是改公开接口。
+- **如何核实**：`sed -n 140,215p packages/nb-runtime/src/remote/contract.ts`；对照 `CommandResult<K>`。
+- **建议改法**：命令成功值定为 `{...value, seq: number, replayed?: true}`（`seq` 与 `replayed` 进 `value`），失败 `{ok:false, code, detail?}` 与远程一致，`commandErrors` 改成 `Record<命令, Record<码, TSchema>>`（没有详情的码写 `Type.Undefined()`），`CommandFailure` 的详情类型从它推出。`not-allowed` 保留，但在 Spec 里写它与路由层 `denied` 的区别。
+
+### 10. 三套失败码表互相叠加，计划里出现的码有一半不在任何一张表里
+
+- **严重程度**：重要；**类别**：命名与一致性
+- **位置**：计划 3.1（`log-corrupt`）、3.4（`emit-after-settle`、`reactionLimit`）、3.5（`slot-*`）、3.6（`commandErrors` 加 `resolve` 的三个）、3.7（`unknown-interaction`、`already-answered`、`tool-unavailable`）、3.10（“诊断码表照 v5 `diagnosticCodes`”）；`v5/api.ts` 的 `FailureCode`、`EntryPoint`；`v5/host.ts` 的 `commandErrors`、`diagnosticCodes`；`packages/nb-harness/src/errors.ts`；ADR 0034
+- **现象**：
+  1. 同一个失败有两种写法：`extensionFailed.code` 用 `FailureCode`（`threw`、`timeout`、`invalid-output`、`emit-after-settle`、`revoked`、`aborted`），诊断用 `DiagnosticCode`（`handler-threw`、`handler-timeout`、`handler-invalid-output`、`extension-revoked`……）。二者是一对多的映射（`threw` 在 `reduce`、`on`、`intercept.*` 各对应不同诊断码），映射表哪里都没有。
+  2. 计划写“完成后再调用报 `emit-after-settle`”，它是 `FailureCode` 不是诊断码，`diagnosticCodes` 里没有；“深度上限 3 写 `reactionLimit`”是事件名，对应诊断是 `reaction-depth-limit`；`log-corrupt`、`tool-unavailable`、`unknown-interaction`、`already-answered` 在 v5 里零命中；计划说“`resolve` 的三个”但没列（提案列的是 `unknown-interaction`、`already-answered`、`not-allowed`）；`openSession` 失败（日志损坏、会话头版本不认识、Profile 缺失）的失败类型没有定义：命令是返回 `{ok:false, code}`，`openSession` 是抛错还是返回结果？
+  3. 并存期间：旧根导出的 `HarnessErrorCode` 是下划线风格（`tool_unavailable`、`session_busy`、`session_closed`），新内核是连字符风格（`session-closed`、`tool-unavailable`）。同一个包里同名不同写法，使用方在迁移期会混用。
+  4. 码的拥有者：ADR 0034 要求“界面按拥有者命名空间加码”。v5 没有写这些码的拥有者是什么（`harness`？），也没写第三方扩展自己的 `Rejection.code` 怎样加命名空间。
+- **如何核实**：`grep -n "emit-after-settle\|reaction-depth-limit\|reactionLimit" plan.md spike/v5/*.ts`；`grep -rn "log-corrupt" spike/v5`（无命中）。
+- **建议改法**：写一张总表放进 Spec（由 `host.ts` 的常量生成，不手写两份）：`code → {owner: "harness", level, 在哪里出现: command | diagnostic | extensionFailed | open}`，`extensionFailed` 直接用诊断码而不是另一套 `FailureCode`（少一张表、少一次映射）；`openSession` 失败返回 `{ok:false, code: "log-corrupt" | "version-unsupported" | "profile-missing" | "session-not-found"}`，与命令同形；旧导出的下划线码不动，新导出一律连字符，在 `./kernel` 的 README 写明。
+
+### 11. 公开名字：`Event`、`Node`、`History`、`Message` 与 DOM 全局同名，`Turn` 一名两用，`CompactionMethod` 计划与 v5 指的不是一个东西
+
+- **严重程度**：建议；**类别**：命名与一致性
+- **位置**：`v5/api.ts` 的 `Event`、`Node`、`History`、`Turn`（函数与接口同名导出）、`CompactionMethod`；计划 3.8（“方法接口 `CompactionMethod`”）；`v5/host.ts` 的 `originLabel`；`v5/testing.ts` 的 `external`
+- **现象与问题**：
+  1. `Event`、`Node`、`History`（以及 `Message`）都是浏览器 DOM 的全局名字。`createSessionMirror` 与帧类型的使用者正是前端代码（nb-agent-ui、nb-story 网页、Vue 组件）：漏写一次 `import type {Event}`，tsc 不报“找不到名字”，而是悄悄解析成 DOM 的 `Event`，报出让人困惑的字段不匹配。`Turn` 同时是 JSX 组件函数与接口（api.ts 第 483 行与第 342 行，tsc 通过，但文档与自动导入里要分清）。
+  2. 计划 3.8 写“方法接口 `CompactionMethod`，t20 只带一个测试用方法”，v5 的 `CompactionMethod` 是方法名的字符串联合（`"shake" | "inplace" | "summary" | (string & {})`），Profile 的 `compaction.onThreshold: CompactionMethod[]` 用的是它。一个名字两个意思，t11 会撞上。
+  3. 内置扩展 id `core.history`、`core.compaction`、事件的 `source: "kernel"`：计划 3.2 没有写 `core`、`kernel` 是保留的扩展 id 前缀，装配时的 `bad-extension-id` 要拒绝第三方占用。
+  4. `originLabel(origin)` 的注释是“来源的人话（界面和测试共用）”：ADR 0034 决定 2 规定“服务端、runtime、harness 不产生界面文字”，界面按“拥有者 + 码”取文案。测试用的 `BlockView.label`（`event:nbook.memory/retrieved`）是机器标签，不是人话。计划 3.10 没列 `originLabel`，但它在 v5 的公开面里。
+  5. `TestSession.external` 的注释写“等同于扩展的 `mount` 里调 `ctx.external`”，`MountCtx` 里没有 `external`，只有 `emit`；它也绕开了提案“外部事实只能由 `mount` 里的扩展写”的规则。
+- **如何核实**：`grep -n "ctx.external\|originLabel\|CompactionMethod" spike/v5/*.ts plan.md`。
+- **建议改法**：`Event` 改 `LogEvent`（或 `HarnessEvent`），`Node` 改 `TemplateNode`，`History` 组件改 `<Transcript />` 或 `<PastTurns />`，`Turn` 组件改 `<CurrentTurn />`（模板里本来就恰好一个）；`CompactionMethod` 保留为名字类型，实现的接口叫 `CompactionStrategy`；装配规则里保留 `core.`、`kernel`；`originLabel` 改为返回 `{owner, key, params}`（界面本地化用）或删去，测试只用 `label`；`external` 改名 `emitExternal`，注释写清只在测试里用、等同于该扩展 `mount` 里 `ctx.emit`。
+
+### 12. `SessionMirror` 只收齐“需要注意”，消费者仍要各自算“当前路径”与“轮”
+
+- **严重程度**：建议；**类别**：形状够不够用
+- **位置**：计划 3.10 `mirror.ts`（“纯函数，浏览器与 nb-story 共用”）与第 11 片验收（“镜像的‘需要注意’”）；`v5/host.ts` 的 `SessionMirror`；提案第 14 节
+- **现象**：`SessionMirror` 暴露 `status/buffer/streaming/attention/diagnostics/head`，不暴露日志本身、当前叶子路径、轮（`Turn`）。提案第 14 节说“消息视图仍由 transcript 适配器出，两者吃同一条帧流”。但日志是一棵树（`leafChanged` 是 session 事件，回退后旧分支仍在 `log()` 里），要得到“当前路径上的事件”必须按 `parent` 链从叶子往回走，并处理 `leafChanged` 与 path 作用域，这正是内核最容易写错的部分；`TestSession` 已经有 `events`（当前路径）与 `allEvents`，公开面却没有对应物。
+- **为什么是问题**：nb-agent-ui 的 transcript 适配器重写、nb-story 的问答页、t17 的对话界面、t14 的子代理结果摘取都要这个。每个消费者各写一份路径计算，回退行为各有各的错法，而镜像本来就是“纯函数、前后端共用”的唯一合适位置。属于追加，不是破坏性改动，所以只算建议。
+- **建议改法**：`SessionMirror` 加 `path(): readonly LogEvent[]`（当前叶子路径，含 `leaf` 的判定）与 `turns(): readonly Turn[]`（复用 `core.history` 的同一个归约函数，纯函数）；在计划 3.3 里写明 `core.history` 的归约实现从 `kernel/state` 导出给镜像用。
+
+### 13. 测试工具缺三件东西，t06、t14 的内核场景写不出来
+
+- **严重程度**：建议；**类别**：形状够不够用
+- **位置**：计划 3.11；`v5/testing.ts` 的 `TestSessionOptions`、`TestCommands`
+- **现象**：
+  1. `TestCommands` 没有 `resolve`，`TestSessionOptions` 没有 `approve`：第 8 片“同批多事项、并发应答、异步提问进缓冲区、回退后应答、中止结算”的测试没有办法发应答，也没有办法让 `approve` 返回 `ask`；
+  2. `changeProfile(profile: string)` 需要“按 id 找 Profile”，而 `createTestSession` 只有一个 `profile?: Profile`：换 Profile 的场景（计划第 6 节 `profileChanged`、提交绑定 Profile 哈希）测不了；
+  3. t14 要测“父会话的工具给子会话发话、顺序入队、应答身份”，需要同一个测试里起两个会话与它们的 actor（第 5 条）；现在只有一个会话；
+  4. `rewind(to, {resend?: string})` 与指令 `CommandMap.rewind.args.resend?: UserInput` 类型不一致。
+- **建议改法**：`TestSessionOptions` 加 `approve?`、`profiles?: Profile[]`；`TestCommands` 加 `resolve(id, decision, extra?)`；加 `createTestHost()`，它返回能 `session()`、`as(actor)` 的对象（与第 2、5 条的 `KernelDeps` 对应，测试里的假货都在里面）；`resend` 与指令同型 `string | UserInput`。
+
+### 14. `deriveProfile` 的语义有三处没写清，示例与注释互相矛盾
+
+- **严重程度**：建议；**类别**：形状 / 隐含假设
+- **位置**：计划 3.2 `profile.ts`（“必须给新 id；`render`、`tools`、`extensions` 逐项合并”）；`v5/api.ts` 第 544 到 559 行；`v5/profiles.tsx` 的 `leaderMarkedSteer`
+- **现象**：
+  1. “`render` 逐项合并”，但示例 `deriveProfile(leader, {render: {...leader.render, steer: ...}})` 自己展开了基础的 `render`：若内核会合并，展开多余；若不合并，计划写错。`tools: {required, optional}` 的“逐项合并”更不清：派生能不能删掉基础的必需工具？示例 `deriveProfile(leader, {tools: {required: ["read"]}})` 我跑了，类型放行，语义是替换还是并集没有定义；
+  2. 派生的 Profile 有新 id。设置按扩展 id 分组（`changeSettings({"leader.default": …})`）、Profile 自己的状态片与自己声明的事件都按 id 命名空间，所以派生 Profile 继承了逻辑但不继承用户的设置值，已有会话 `changeProfile` 到派生版本时，基础版写的 `leader.default/…` 事件与片对派生版是“别人的东西”。这是“只能改 Profile 级字段”想避免的，但计划没说用户设置与旧事件怎样处理；
+  3. 派生的类型：`render` 的键类型来自基础 Profile 的依赖（`B extends {render?: infer R}`），所以在 `patch.extensions` 里新加的扩展，它的事件在这次派生的 `render` 里没有类型（我试了 `exp2.ts` 的 `d3`：加了 `modeReminder` 但它的事件不在 `ProfileRender` 的键里，只因为 leader 本来就依赖它才通过）。
+- **建议改法**：Spec 里写明：`render` 与 `tools.optional` 做对象展开式合并（后者覆盖），`tools.required` 只增不减；派生版的设置默认继承基础版的设置键（装配时把 `base.id` 的设置当缺省），事件与片的命名空间用 `base.id`（派生不改命名空间，只改展示的 `id`）；`patch.extensions` 的事件类型想放进 `render`，要么禁止（只让写已有的键），要么让返回类型把新扩展并进依赖。如果这些成本太高，就只允许派生改 `name`、`description`、`render`、`commit`、`prompt`，其余都不提供，部件更少。
+
+### 15. 类型实验结论：推断本身站得住，另有四处使用体验缺陷；JSX 的写法在计划里自相矛盾
+
+- **严重程度**：建议；**类别**：类型推断 / 实现风险
+- **位置**：计划第 2 节“提示词模板”行（“经典 JSX，`jsxImportSource` 指向包子路径”）、第 8 节风险最后一条；`v5/api.ts` 的 `Foreign`、`ReduceTable`、`implement`、`deriveProfile`、`MountCtx`
+- **实验结果（目录 `scratch/api/`）**：
+  1. `dependsOn` 推事件名：用 `as const` 的变量、不带 `as const` 的数组变量、`optional(契约)`、依赖另一个 `defineExtension` 的产物、宽 `string` id 的契约，五种写法都推得对；拼错事件名在上述各写法下都是编译错误（`exp1.ts`）。
+  2. `ReduceTable` 的作用域：`leafChanged`（session）上改 path 片、`compaction`（path）上改 session 片、在 session 事件的归约里读 path 片，三种都是编译错误（`exp2.ts`）。
+  3. `implement` 的 exports：返回的可变数组被收窄为 `readonly`，读方 `push` 是错误；`defineExtension` 自带 `exports` 时 `state`、`settings` 参数也能推断（`exp3.ts`）。
+  4. `deriveProfile`：派生再派生、可赋给 `Profile`、加扩展、换 `commit`/`prompt` 都过；传 `settings` 报错（`exp2.ts`）。
+  5. 类型检查成本：第一次实例化 `ViewCtx` 系列的上下文时有一次性的约 120 万次实例化、约 2.4 秒（`mount`、`intercept`、`contribute` 里用到 `ctx` 就触发；只用 `on` 里的 `ctx.now` 不触发），之后每个扩展约 25 次，加到 30 个扩展只增加约 3.5 万次。这个固定成本不随扩展数增长，不是风险，只是第 7 片 `typetest.ts` 搬进来后别把它当成性能回退去追。
+- **使用体验缺陷**：
+  1. `dependsOn: [optional(modeContract)]` 时，`ctx.read(modeContract)`（写原契约）的报错信息是“`modeContract` 不能赋给 `core.history` 的契约”（`exp2.ts` 第 10 行），读者看不出要写 `read(optional(modeContract))`。要么让 `read` 接受原契约并返回 `X | undefined`，要么在装配文档里写这一条。
+  2. 只有事件、没有导出的契约，`implement(契约, {...})` 必须写 `exports: {}`（`exp2.ts` 第 45 行报“缺 `exports`”），样板代码。
+  3. `MountCtx` 去掉了 `initial`：声明了 `initial` 的 Profile（写手）没法在 `mount` 里按初始输入读一次外部数据，只能写在 `turnStarted` 里每轮重读（profiles.tsx 的 `writer` 就是这么做的），或者靠 `opening({initial})`。
+  4. 计划写“经典 JSX，`jsxImportSource` 指向包子路径”：经典运行时（`jsx: "react"`）用 `jsxFactory: "h"`，要在每个文件里 `import {h}`，不需要 `jsx-runtime` 子路径；`jsxImportSource` 属于自动运行时（`jsx: "react-jsx"`）。分支的 `tsconfig.json` 用的是 `react-jsx` 加 `jsxImportSource`，v5 的 `spike/tsconfig.json` 用的是经典 `h`。二者我都用 v5 的节点定义跑过（`scratch/api/jsx/`），属性检查（缺必填、类型错、多余属性）与子节点检查两种模式结果相同，所以选哪个只是约定问题；但计划同时提了 `jsx-runtime` 与 `jsx-dev-runtime` 两个导出，说明意图是自动运行时：按此改计划的措辞，并在第 3 节写明 `packages/nb-harness/tsconfig.json` 要加 `"jsx": "react-jsx"` 与 `"jsxImportSource": "@notnotype/nb-harness/kernel"`（当前 master 的包 tsconfig 没有 `jsx` 设置，`src/kernel/**` 下的 `.tsx` 测试会编译失败）。
+- **建议改法**：在第 7 片之前处理 1、2（几行类型），3 视需要；4 按上面改计划措辞与 tsconfig。
+
+### 更正与补充（追加，不改上文）
+
+- 第 14 条第 3 点的实验应以 `scratch/api/exp4.ts` 为准：`deriveProfile(leader, {extensions: [tasksReminder], render: {"nbook.tasks.reminder/reminder": ...}})` 是编译错误（新加的扩展的事件不在 `render` 的键里），而 `render: {"nbook.agent.mode.reminder/reminder": ...}` 通过，因为 leader 本来就依赖 `modeReminder`。`exp2.ts` 的 `d3` 只证明“加扩展本身不报错”。
+- 第 15 条第 5 点的“之后每个扩展约 25 次”指只写 `mount` 的最小扩展（`mm20.ts`）；带设置、两片状态、两个处理函数的扩展（`gen30.ts`）约 1200 次，30 个共增加约 3.5 万次，结论不变。
+
+## 未发现问题的方面
+
+- 类型推断：第 15 条列的 `dependsOn`、`ReduceTable`、`implement`、`deriveProfile` 四处，在我写的二十多种用法里都按预期推断或报错，没有发现需要在实现时绕开的类型坑；`defineExtension` 自带 `exports` 时的 `state` 参数推断、`DeepReadonly` 对导出值的收窄都正常。
+- JSX 的两种运行时（经典与自动）在属性与子节点检查上结果相同，没有因为缺 `JSX` 命名空间而漏检。
+- `commandErrors` 里“手快会撞上的命令幂等、或给可区分的码”（`abort` 幂等、`remove` 区分 `input-not-found` 与 `input-consumed`）的取舍，与 t07 决定 1、3、5 一致。
+- 计划把 `intercept` 顺序、`layer`、Profile 在最里层定为决定 3，与提案第 9 节“顺序”一致；`approve` 在 Profile 之后这一点与 t06 改判里“规则先于模式”不冲突（冲突点在第 4 条的签名）。
+- 工具名上限 64（t04 的 2026-10-30 改动）计划 3.6 已写；`.`→`__` 换算与 id 不许含 `__` 的校验落在装配里是合理的，缺的是第 7 条说的 id 与服务商名的类型表示。
+
+## 各级数量
+
+- 阻断：1（第 1 条）
+- 重要：9（第 2 到 10 条）
+- 建议：5（第 11 到 15 条）
+- 合计 15 条。
+
+最重要的三条：
+1. 第 1 条：v5 类型在等用户、`ToolInfo.concurrency`、拦截层、槽与状态上仍是占位，t06、t14、提案又互相推给 t20 计划，必须先把终稿类型与差异表写出来再开工。
+2. 第 4 条加第 5 条：`approve(call, info)` 的签名读不到会话状态、没有 `signal`，`ask` 与 `deny` 不带内容，`resolve` 的调用者身份也没有注入机制，t06、t14 一接上就要改公开接口。
+3. 第 3 条与第 2 条：`./kernel` 没按依赖重量切开（契约要放进不拖实现的 shared 模块、镜像要进浏览器），`jsxImportSource` 路径会固化进第三方 tsconfig；`createSession` 的注入点没有类型。

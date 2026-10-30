@@ -1,0 +1,193 @@
+# w00032 t20 实施计划审查：代码组织、规范与美观度（Sonnet）
+
+审查对象：`.agents/works/w00032-agent-integration/tasks/t20-hooks/plan.md`（04d13a262）。只读；下文引用的行号是 spike 目录 `kernel.ts` 的行号。
+
+### 1. 测试底座排在第 7 片，第 3 到 6 片的验证依赖它
+
+- **严重程度**：重要；**类别**：切片顺序、可维护性
+- **位置**：第 5 节切片表第 3、4、5、6、7 片；3.10、3.11
+- **现象**：`createTestSession`、`outline()`、`clock.advance`、脚本化模型与工具都在 3.11、第 7 片才做；第 3 片起的验证项已经要用它们。原文：第 3 片“回退后片的值”、第 4 片“超时中止、`emit-after-settle`、外部事实到边界”、第 5 片“`outline()`”、第 6 片“spike 场景按组搬成测试（运行、插话、followup、continue、并发工具……）”。而会话本身（`createSession`/`openSession`、`SessionApi`）在 3.10、第 11 片。
+- **为什么是问题**：
+  - 第 3 片的“回退后片的值”要有 rewind 命令（第 6 片）；
+  - 第 4 片的“外部事实到下一个边界”要有运行循环（第 6 片）；
+  - 第 5 片的 `outline()` 是第 7 片的 `requests[n].outline()`；
+  - 第 6 片要把 spike 的 53 个场景按组搬成测试，场景全是 `check.ts` 里“建会话、脚本化模型、驱动、断言”的形状，没有会话与假模型一个都跑不起来。
+  - 结果是每片要么自造一次性夹具（之后第 7 片再统一，等于返工），要么实际顺序和表上不同。表上“每片单独提交、自跑 typecheck 与 bun test”在第 3 到 6 片做不到。
+- **如何核实**：读 `spike/check.ts`，任取一个场景（例如 steer、rewind），数它用到的会话、模型、时钟接口；对照第 5 节每片的“自跑验证”列。
+- **建议改法**：不增加部件，调整顺序。
+  - 第 2 片之后插一片“最小可运行会话”：内存存储、装配与归约、单写者队列、不带工具的循环、脚本化模型、`createTestSession` 的 `say`、`state`、`eventsOf`、`requests[n].outline()`、手动推进的时钟。这是 spike `Session` 加 `check.ts` 夹具的对应物，几百行。
+  - 之后各片（反应、视图、工具与拦截、等用户、压缩）都在这个测试会话上加功能并带自己的场景。
+  - 第 7 片收窄成“严格模式（未认领诊断、重放比对）、helper、`typetest` 的 29 处”。
+  - `createSession` 与 `openSession` 的骨架随最小会话出现，第 11 片只补帧、预览、诊断、镜像。
+
+### 2. 十个子目录之间的依赖方向、公共类型的归属与会话共享对象都没定，也没有边界测试
+
+- **严重程度**：重要；**类别**：代码组织、可维护性
+- **位置**：第 3 节全部；`spike/v5/api.ts`（605 行，12 节）、`spike/kernel.ts`
+- **现象**：计划把 v5 `api.ts` 与 spike `kernel.ts` 按职责切成 `log`、`extension`、`state`、`dispatch`、`view`、`run`、`interaction`、`compaction`、`model`、`host` 十个目录，但没有回答三件事。
+  1. 谁依赖谁。没有依赖表。
+  2. 公共类型放哪里。`api.ts` 一个文件里互相引用：`ExtensionFields` 引用 `ViewCtx`，`ViewCtx` 引用 `Turn`、`Format`、`ModelRequest`，`InterceptCtx` 引用 `CompactionJob`，`Interceptors` 引用 `ToolCall`、`Rejection`，`Diagnostic`、`FailureCode` 又被扩展类型用到。计划只说 3.1 的 `events.ts` 放 `Event`、`KernelEvents` 等，其余类型落在哪个目录没写。
+  3. 每个会话的共享可变对象是谁的。spike 里是一个 `Session` 类（`kernel.ts:168` 起约 950 行），`append`、`apply`、`pairAt`、`ctxFor`、`dispatch`、`view`、`modelChain`、`toolChain` 共用 `this`。拆成目录后，这个对象的类型要被 dispatch、run、view、compaction、host 全部引用，计划没有给它一个位置。
+- **为什么是问题**：不先定，实现时最容易的做法是 `run/` 与 `dispatch/` 互相 import（run 要触发反应，反应里 `continue` 又要回调 run），`view/` 引 `compaction/`（压缩切点与视图投影共用规则），`host/` 被 `run/` 反向引用。TS 允许类型循环导入，但包里要求的模块边界（单向依赖）会失效。分支的 `src/architecture.test.ts` 就是为此写的（表里每个模块登记 `modules`、`packages`、`nodeBuiltinsIn`、`dynamicImportIn`，`testing/` 不能被产品代码引用），t02 决定 1 也说整包搬来，但计划的第 3、5 节与第 4 节都没提这个测试。
+- **如何核实**：`git show feat/w00002-harness-kernel:packages/nb-harness/src/architecture.test.ts`；master 的 `packages/nb-harness/src/` 没有它；`grep -n 'architecture' plan.md` 无命中。
+- **建议改法**：在 3 开头加一段“分层与依赖”，并在第 2 片带一个 `kernel/architecture.test.ts`（照分支那份，改模块表）。
+  - 叶子 `kernel/api/`：只放 v5 `api.ts` 与 `host.ts` 里的类型与接口声明，没有运行时代码、不引用任何其它目录（可保留成两三个文件，按 v5 的节拆）。实现文件从这里取类型，包内再没有“某个类型属于谁”的问题。
+  - 向上依次：`log` → `state`（归约）→ `extension`（装配、ctx）→ `view` → `dispatch` → `run`（含等用户）→ `compaction` → `model` → `host` → `testing`。表里写死哪个目录能用 `node:fs`（只有 `log/jsonl-store.ts`）、`node:crypto`、OMP 运行时包（只有 `model/`、`run/tools`）。
+  - 会话共享对象叫 `SessionCore`（或 `Kernel`），定义在 `dispatch/`，由它持有日志、状态快照、写入队列、装配结果；`run/`、`view/`、`compaction/` 收到它的只读窄接口（例如 `ReadOnlyCore`），不引用具体类。
+  - 反应里要触发的 `continue`、`abort`，通过 `SessionCore` 上的回调注入，`dispatch` 不 import `run`。
+
+### 3. 与旧实现并存：搬运没有落点台账，master 独有的 nb-story 修正与语义在新内核里没有位置
+
+- **严重程度**：重要；**类别**：代码组织、与已定设计冲突
+- **位置**：第 1 节决定 1、3.6 `tools.ts`、3.9、第 8 节“不做”；t02 决定 1、7
+- **现象**：
+  - t02 决定 1 要求保留 master 独有的：收尾工具与 `TurnResult`、`complete()`、错误正文的密钥遮盖、余额不足归 `quota`、进程中断与停服收尾、相邻 user 消息合并、只用指定的密钥环境变量、截断识别。master 里对应 `finish-watch.ts`、`run-result.ts`、`complete.ts`、`redact.ts`、`merge-user-messages.ts`、`interrupt.ts`、`text-budget.ts`、`sse.ts` 与 `sse-writer.ts`（t02 决定 3 还要作为 `transport` 子路径保留）。计划全文 `grep -n 'finish\|收尾\|TurnResult\|complete()\|redact\|quota\|merge\|transport'` 只在第 2 节命中 hash 的“Bun.hash”一处，3.9 的 `omp-adapter.ts` 一条也没提；第 8 节“不做”也没列它们。
+  - 两套模型目录同时存在：master 的 `src/catalog.ts`（227 行，`listCatalog`、`discoverModels`、`clampEffort`）与 `src/model.ts`（150 行，`defineModel`、`resolveModel`）；分支的 `models/`（`createModelCatalog`、`createCredentials`、`selectionFromProfile`）。计划 3.9 写“搬分支 `models/`”，目录是 `kernel/model/`，于是一个包里同时有 `src/model.ts`、`src/catalog.ts` 和 `src/kernel/model/`，导出里 `catalog` 与 `ModelCatalog` 各指一套。
+- **为什么是问题**：迁移 Task 要删旧实现时，这些修正一旦没有在新内核里的落点，就会随旧实现一起删掉，而 nb-story 已发 npm、在用它们（t02 依据一节：12 个文件引用）。第 8 节“不做”没写它们，等于假定“搬分支时自然带上”，但分支里没有这几项。
+- **如何核实**：对照 `packages/nb-harness/src/index.ts` 的导出列表与计划第 3 节；`git show feat/w00002-harness-kernel:packages/nb-harness/src/models/models.ts`。
+- **建议改法**：第 3 节加一张“旧文件到新位置”的台账，三类：
+  1. 直接移成共用文件的（`redact`、`merge-user-messages`、`interrupt`、`text-budget`、`sse*`、`run-result` 的错误归类）：放 `src/` 平级或 `src/common/`，新旧实现都 import，不复制一份；
+  2. 新内核重写但保留语义的（`finish-watch`、`complete()`、`TurnResult`）：写进 3.6 或 3.9 的条目，并在验收映射里加一行“nb-story 依赖的语义”；
+  3. 本 Task 不做、交迁移 Task 的：写进第 8 节“不做”。
+  模型目录则在第 10 片开头先定“以哪一套为准、另一套合进去还是由 `kernel/model/` 包一层”，不要两套并存到迁移 Task。
+
+### 4. 工具声明的来源与 t04 决定 7 冲突：计划搬分支的 `ToolDefinition`，master 已有 `ToolDeclaration`
+
+- **严重程度**：重要；**类别**：与已定设计冲突、命名
+- **位置**：3.6 `tools.ts`（“工具声明与参数校验搬分支 `tools/define.ts`”）、第 2 节“工具参数校验”行；t04 决定 1、2、7
+- **现象**：t04 决定 7：“声明字段：沿用 master 的 id、说明、参数、提供方、版本、收尾、并发、严格校验、自定义参数语法”。master `src/tools/registry.ts:12` 的 `ToolDeclaration` 正好是这组字段，且 `AGENTS.md` 的“实施”一节把“声明（`ToolDeclaration`）与实现（`ToolImpl`）”写成包规则。而分支 `tools/define.ts` 用的是 `ToolDefinition`、`Risk`、`RiskDecision`、`ToolTier`（读、写、执行三档风险，`evaluateRisk`、`TIER_RANK`），t06 2026-10-30 的改判是“规则先于模式”，风险字段的语义在 t06 才定（t04 决定 7 末句“风险等级的字段先留，语义在 t06 定”）。
+- **为什么是问题**：照字面搬，新内核里就有第三套工具类型（master 的 `ToolDeclaration`、分支的 `ToolDefinition`、v5 `api.ts` 的 `ToolInfo`），并且把 t06 还没定的风险分级固化进 t20 的代码；`toolWireName` 还要从 `_` 改成 t04 的 `__`，分支文件里已有的 `isValidToolId` 校验也要跟着改。
+- **如何核实**：`sed -n 1,35p packages/nb-harness/src/tools/registry.ts`；`git show feat/w00002-harness-kernel:packages/nb-harness/src/tools/define.ts`；`sed -n 38,62p .agents/works/w00032-agent-integration/tasks/t04-tool-registry/README.md`。
+- **建议改法**：新内核的工具类型以 master 的 `ToolDeclaration`、`ToolImpl`、`ToolHandle` 为底，只从分支取 `validateJsonSchemaValue` 的调用与参数校验函数；换算函数单独放一个小文件（`tool-name.ts`：`toWireName`、`isValidToolId`，`.` 换 `__`、id 里禁 `__`、上限 64），自带测试；`Risk`、`ToolTier` 不搬，`approve(call, info)` 的 `info` 只留 t06 已定的字段。第 2 节“工具参数校验”行的理由也据此改。
+
+（对第 3 条的更正：该条“如何核实”里写的 grep 命中说明不准确。实际命令 `grep -n 'finish\|收尾\|TurnResult\|complete()\|redact\|quota\|merge\|transport' plan.md` 只命中第 84 行 3.6 的“脱敏 `redacted`”，那是扩展拦截里的脱敏，与密钥遮盖无关；第 2 节“Bun.hash”不是命中项。结论不变：计划里没有 `finish`、`TurnResult`、`complete()`、密钥遮盖、`quota`、相邻 user 消息合并、`transport` 的任何落点。）
+
+### 5. 产品 helper 与 `validateRequest` 被放在“testing 与 helper”一节，且同一批名字在三处各列一遍
+
+- **严重程度**：重要；**类别**：规范冲突、可发现性
+- **位置**：3.2（`deriveProfile`）、3.5（`standardLayout`、`finalOnly`、`withoutEvents`、`format.withRender`、`request.ts` 的“校验”）、3.11（“helper：`reminder()`、`opening()`、`standardLayout()`、`finalOnly()`、`withoutEvents()`、`format.withRender()`、`deriveProfile()`”）；`spike/v5/testing.ts:219`
+- **现象**：
+  - 同样的七个名字，`deriveProfile` 在 3.2 与 3.11 各一次，`standardLayout`、`finalOnly`、`withoutEvents`、`format.withRender` 在 3.5 与 3.11 各一次，读者不知道文件到底在哪个目录。
+  - 3.11 的标题是 `kernel/testing/` 与 helper，其中 `reminder()`、`opening()` 是产品扩展（带自己的 path 片、`reminder` 事件，Profile 里直接 `extensions: [reminder(...)]` 用），不是测试代码。
+  - `validateRequest`（工具调用与结果成对、角色顺序）在 v5 `testing.ts` 里被声明为测试工具的导出，同时 3.5 `request.ts` 说提交时“用 `commit` 渲染一次并校验”，3.9 适配器对照“同一份校验”。
+- **为什么是问题**：`docs/testing/README.md` 的“测试文件组织”：“产品代码不引用 `testing/`，也不引用内核的 `*/testing` 入口”。如果 `validateRequest` 照 v5 落在 `kernel/testing/`，`view/request.ts` 与适配器就得 import 它，直接违规；如果 helper 落在 `testing/`，Profile 作者从 `@notnotype/nb-harness/kernel/testing` 取 `reminder`，生产代码就带上了测试入口。
+- **如何核实**：`sed -n 1,3p spike/v5/testing.ts`（注释写“建议放在 `@notnotype/nb-harness/testing`”）；`grep -n 'validateRequest' spike/v5/*.ts`；`docs/testing/README.md` 第 126 行。
+- **建议改法**：
+  - 新增 `kernel/helpers/`（每个 helper 一个文件：`reminder.ts`、`opening.ts`；纯函数的 `standardLayout`、`finalOnly`、`withoutEvents` 放 `view/`，`deriveProfile` 放 `extension/profile.ts`），第 3 节每个名字只列一次；3.11 只留 `createTestSession` 与它的假模型、假工具、假时钟。
+  - `validateRequest` 放 `view/validate-request.ts`，`view/request.ts`、`model/omp-adapter.ts` 与 `testing/` 都从这里引用；`testing/` 再导出它给 Profile 作者。
+  - 公开入口 `./kernel` 导出 helper，`./kernel/testing` 只导出测试工具；v5 `testing.ts` 开头那句“建议放在 `@notnotype/nb-harness/testing`”是旧子路径，一并改成 `kernel/testing`。
+
+### 6. 四条拦截链各写一份的风险：spike 里已经手抄了四遍
+
+- **严重程度**：重要；**类别**：可维护性（重复模式）
+- **位置**：3.6 `intercept.ts`（“四条包裹式拦截链”）；`spike/kernel.ts:800-820`（模型）、`:912-917`（压缩）、`:946-961`（输入）、`:1073-1086`（工具）
+- **现象**：spike 里四条链各写一遍：`const layers = this.exts.filter((x) => x.def.intercept?.<名>)`，递归 `run(i, 入参)`，到末尾调 `terminal`，`catch` 里写一条 `intercept-failed`。四处的失败处理不同（模型：用里层的回复；输入：跳过这一层；工具：按 `onFailure.tool` 是 `deny` 还是 `ignore`；压缩：按提案第 9 节的表）。计划把四条都放进一个 `intercept.ts`，又要加入 `layer: "outer" | "inner"` 的顺序、`approve` 在最内层、块按引用比出改动、`modifiedBy` 记录、`redacted` 只记哈希、`phase: "preview"`、`invocation` id，这些每一条都要对四条链各实现一次。
+- **为什么是问题**：新增的每个横切规则（例如超时、`ctx.signal` 中止、`invocation` 记录、预览跳过）都要在四处同步改；spike 的 53 个场景里能覆盖失败表的只会逐条链测，漏一处就出现“模型链有超时、工具链没有”。
+- **如何核实**：`grep -n 'intercept' spike/kernel.ts` 看四处的相似度。
+- **建议改法**：`run/intercept.ts` 只写一个泛型的 `runChain<I, O>({layers, terminal, call, onFailure, phase})`：负责取层、顺序（outer、inner、Profile 扩展、Profile、审批）、每层的 `ctx` 与 `invocation`、中止赛跑、超时、`intercept-failed` 诊断与写 `extensionFailed`。四条链各自只剩一个十行内的适配：取哪个字段、`onFailure` 的策略函数（模型：返回里层；输入：跳过；工具：`deny`/`ignore`）、改动记录函数（模型与工具记 `modifiedBy`、输入记脱敏哈希）。失败表在 `runChain` 的一张策略表里，一处读到全部。
+
+（对第 5 条的更正：“3.9 适配器对照同一份校验”这半句不是计划原文，出处是 `spike/v5/testing.ts` 开头注释“假模型要和真实适配器对过合同（同一份 `ModelRequest` 校验）”；计划 3.9 没写适配器要校验请求。要求本身成立，建议改法里让适配器引用 `view/validate-request.ts` 照旧。）
+
+### 7. 各档 ctx 没有统一的构造点：v5 有五种 ctx，spike 里是一个 `ctxFor` 手写大对象
+
+- **严重程度**：重要；**类别**：可维护性（重复模式）、代码组织
+- **位置**：3.3、3.4（`react.ts`、`mount.ts`）、3.5（视图）、3.6（`intercept.ts`）；`spike/v5/api.ts:250-300`；`spike/kernel.ts:513-540`
+- **现象**：v5 有 `ViewCtx`、`ReactCtx`（加 `emit`、`set`、`resources`、`signal`）、`AssistantCtx`（再加 `continue`）、`MountCtx`（去掉 `now`、`initial`，加 `callback`）、`InterceptCtx`（加 `phase`、`invocation`、`resources`、`signal`，没有 `emit`）。spike 的 `ctxFor` 是一个返回 `any` 的大对象，所有档共用，计划里没有一个文件负责“按入口与状态快照造出这一档的 ctx”，各目录会各造各的：`dispatch/react.ts` 造反应 ctx，`view/` 造视图 ctx，`run/intercept.ts` 造拦截 ctx。
+- **为什么是问题**：
+  - 这些 ctx 的公共部分（`state`、`settings`、`read`、`tools`、`model`、`now`、`initial`）有三条硬规则：状态是哪一刻的（v5 在 `ReactCtx` 注释里说“始终是这条事件之后的值，不含自己这次 `set` 的”）、深只读（开发模式冻结）、`read` 只能读 `dependsOn` 与 `core.history`。这三条分散到三个目录各实现一遍，一定会出现“视图的 `read` 查了依赖、拦截的没查”这类不一致。
+  - `emit`/`set` 的“先收集、完成时一个写入批、完成后再调用报 `emit-after-settle`”只属于反应与 `mount`，拦截没有；这条边界也要在一处体现。
+- **如何核实**：对照 `api.ts` 的五个接口与 `kernel.ts:513-540` 的 `ctxFor`；`grep -n 'ctxFor' spike/kernel.ts` 有 9 处调用。
+- **建议改法**：`extension/ctx.ts` 一个文件：`viewCtx(core, ext, at)` 造公共部分（状态选取、冻结、`read`、`tools`、`model`、`now`），其余四档都是在它上面加字段的小函数（`reactCtx` 加收集器与 `signal`，`assistantCtx` 再加 `continue`，`mountCtx`，`interceptCtx`）；收集器（`emit`/`set` 的缓冲与 settle 后调用的报错）单独一个小类，放 `dispatch/` 或同一文件。其它目录只调这些函数，不拼对象。这样三条规则只有一份实现和一份测试。
+
+### 8. “`kill -9` 在写入批中途”无法确定地复现，验收写成了不稳定测试
+
+- **严重程度**：重要；**类别**：测试（`docs/testing/README.md`）
+- **位置**：第 2 节“写入批的原子性”行、第 6 节验收映射第一行、第 7 节“崩溃”、第 5 节第 2 片自跑验证
+- **现象**：计划写：“一批的全部行一次 `write` 后 `fsync`”，验收写：“子进程跑一次运行，在写入批中途 `kill -9`，父进程重开，断言不完整的批被丢弃、`recover()` 收口为 `interrupted`、缓冲区里没取走的输入还在”。
+- **为什么是问题**：一次 `write` 对 SIGKILL 来说基本是原子的（大批量时 Linux 的页循环可能在致命信号待处理时提前返回，但落在哪一页取决于时序），父进程没法决定“恰好在批中途”杀。要做到只有两条路：在存储里留一个测试接缝（“写一半就停”，违反“不在产品代码里加测试专用分支”），或靠时序碰运气（违反 `fixed-wait` 规则的精神，且会偶发地测不到不完整批的路径，而测试照样通过）。因此这条验收要么偶发无效，要么逼出接缝。
+- **如何核实**：想一下 `kill -9` 在子进程里如何找到“批中途”：除非存储把一批拆成多次 `write`（与第 2 节“一次 write”矛盾），没有确定的时刻。
+- **建议改法**：拆成两层。
+  1. 确定性测试：父进程用真实 `jsonl-store` 先写好一个完整会话，再按“批的每个字节偏移”各截断一份真实文件（循环，包含恰好在行边界、在 `batch.n === of - 1` 行之后、在行中间的偏移），逐个 `load`/`openSession`，断言不完整的批整批丢弃、完整的批保留、`recover()` 收口为 `interrupted`。这比杀进程覆盖更全。
+  2. 进程级冒烟：子进程循环写批，父进程在子进程报“已写 N 批”后 `kill -9`，重开后断言“日志合法，批要么全在要么全无”，不断言杀在批中途。把子进程用的夹具文件放哪里（例如 `kernel/log/testing/crash-writer.ts`）写进 3.1。
+
+（对第 7 条的更正：`grep -c 'ctxFor' spike/kernel.ts` 实测 7 行（含定义一处），不是 9 处调用。）
+
+### 9. JSX 的写法在计划里自相矛盾：“经典 JSX”与 `jsxImportSource` 不能同时成立，包的 tsconfig 也没有 jsx 配置
+
+- **严重程度**：重要；**类别**：规范、会返工
+- **位置**：第 2 节“提示词模板”行；第 3 节开头的子路径导出；3.5 `jsx-runtime.ts`；`packages/nb-harness/tsconfig.json`
+- **现象**：第 2 节写“自带的最小 JSX 运行时（spike `template.ts`，经典 JSX，`jsxImportSource` 指向包子路径）”，第 3 节导出 `./kernel/jsx-runtime`、`./kernel/jsx-dev-runtime`。spike 实际是经典运行时：`spike/tsconfig.json` 是 `"jsx": "react"`、`"jsxFactory": "h"`、`"jsxFragmentFactory": "Fragment"`，`template.ts` 导出 `h`。`jsxImportSource` 与 `jsx-runtime`/`jsx-dev-runtime` 子路径只用于自动运行时（`"jsx": "react-jsx"`），两者是不同的机制。master 的 `packages/nb-harness/tsconfig.json` 没有任何 `jsx` 项；分支与 `nb-profile`、`nb-story` 的 tsconfig 是 `"jsx": "react-jsx"` 加 `"jsxImportSource": "@notnotype/nb-profile"`。
+- **为什么是问题**：第 5 片的第一个 `.tsx` 测试、v5 的 `profiles.tsx` 与 `typetest.ts` 搬进来时，`tsc` 与 `bun test` 都会按包的 tsconfig 编译；没有 jsx 配置会直接报错或得到 `React.createElement`；而包级改成 `react-jsx` 又要与 spike 的 `h` 写法统一。选哪个决定 `template.ts` 要导出 `h` 还是 `jsx`/`jsxs`/`Fragment`、类型里要不要 `JSX` 命名空间（空的 `IntrinsicElements` 禁止 `<div>`，分支 `profile/jsx-runtime.ts` 就是这样写的）。
+- **如何核实**：`cat spike/tsconfig.json`；`cat packages/nb-harness/tsconfig.json`；`git show feat/w00002-harness-kernel:packages/nb-harness/tsconfig.json`。
+- **建议改法**：定为自动运行时，与仓库其它包一致：第 2 节改写成“自动运行时，`jsxImportSource: "@notnotype/nb-harness/kernel"`，`kernel/jsx-runtime.ts` 导出 `jsx`、`jsxs`、`Fragment` 与空 `IntrinsicElements` 的 `JSX` 命名空间”；第 5 片的第一步加一条“`tsconfig.json` 加 `jsx`、`jsxImportSource`，确认 `bun test` 与 `tsc` 都认”。这个配置对整个包生效，要先确认旧实现没有 `.tsx`（master 的 `src/` 下目前没有）。
+
+### 10. 目录划分：`interaction/` 没有自己的文件，`run/` 过粗，`host/` 与 `react.ts` 的名字有歧义
+
+- **严重程度**：建议；**类别**：命名、目录粒度
+- **位置**：3.4、3.6、3.7、3.10
+- **现象与建议**（按重要程度）：
+  1. `kernel/interaction/` 没有文件名，3.7 的内容全部是“事件、运行状态 `waiting`、同批工具的事项、`resolve` 的发出者、异步提问、结算”。这些落点其实都在别的目录里：`waiting` 是 `run/loop.ts` 的状态，事项在 `run/tools.ts` 写，`resolve` 是 `run/commands.ts` 的一条命令，结算在 `run/abort.ts` 与 `recover.ts`。单独一个目录会让 `interaction/` 与 `run/` 互相 import（见第 2 条）。建议并进 `run/interaction.ts` 一个文件，只放事项表、`resolve` 的裁决与结算；事件类型进 `api/`。目录由十个减到九个。
+  2. `kernel/run/` 七个文件（`commands`、`loop`、`tools`、`intercept`、`abort`、`recover`、`rewind`）覆盖 spike `kernel.ts` 里约 60% 的内容（`runNow`、`toolBatch`、`runBatch`、`toolChain`、`modelChain`、`recover`、`rewind`、`send`、`abort`），第 6 片一个提交装不下。按所有权拆：`run/` 只留 `loop.ts`、`tools.ts`、`abort.ts`；`intercept.ts` 与 `chain` 单独成 `kernel/intercept/`（第 6 条）；`recover.ts` 与 `rewind.ts` 按“日志操作”放 `log/` 或 `state/`（它们读日志与叶子，不依赖循环）；`commands.ts` 与 `host/session.ts` 的分工要写清：命令处理函数放哪里、`SessionApi` 只做转发。
+  3. `kernel/host/`：计划与 v5 都用“宿主”指把内核嵌进去的应用（3.2“宿主给的插件扩展”、3.6“宿主钩子 `approve`”、3.9 的“宿主”），而 `kernel/host/` 实际是内核自己对外的会话 API（`createSession`、`SessionApi`、帧、预览）。v5 `host.ts` 里的 `AgentHost`（`create`、`open`、`close`、`list`、`diagnostics`）才是真正的宿主一侧接口，计划 3.10 没有它。建议目录改叫 `session/`（或 `api/`），3.10 注明 `AgentHost`、`ExtensionReceiver`（`prepare`、`published`、`revoke`）、`declarationsOf`、`originLabel` 是做、还是随 t10 做；第 7 节“未验证边界”只说了撤回与重新装配只测 `changeProfile`，没覆盖 `ExtensionReceiver`。
+  4. `dispatch/react.ts`：在同一个包里与 `jsx-runtime`、`template.ts` 并列，`react.ts` 读起来像 React 的集成。改名 `reactions.ts`（或 `on-handlers.ts`）。
+  5. 总名 `kernel/`：仓库里“内核”已经指 `nb-runtime`（根 `AGENTS.md` 的包表），这里的 `kernel/` 又包含模型适配器、会话 API、测试工具，不是内核；迁移 Task 删旧实现后这个名字仍然留在导出子路径 `@notnotype/nb-harness/kernel` 里。计划已经说“是否升为根导出迁移 Task 再决定”，建议现在就写一条规则：`kernel/` 内全部用相对导入、不引用 `kernel/` 之外的旧文件，这样删旧实现后整体上移一层不改任何导入；包的 `AGENTS.md` 里写明“`kernel/` 是新实现，不是 `nb-runtime` 的内核”。
+- **为什么是问题**：目录名是读代码的第一入口；歧义的名字（host、react、kernel）会让新读者放错位置，`interaction/` 这类没有自己文件的目录会成为循环依赖的来源。
+- **如何核实**：对照 3.7 的条目与 3.6 的条目，数出 `interaction/` 需要的独有文件；`grep -n '宿主' plan.md` 看用法；根 `AGENTS.md` 的包表。
+
+（对第 10 条第 2 点的更正：“约 60%”没有依据，删去。实测 `send`、`runNow`、`toolBatch`、`runBatch`、`toolChain`、`execute` 在 `kernel.ts:925-1114` 约 190 行，加 `modelChain`（799 起）、`recover`（467）、`rewind`（434）约一百行，合计在 spike 里约 290 行；但 spike 没有流式、审批、等用户、中止收口的细节与失败表，正式版会明显更大。结论“7 个文件、第 6 片偏大”不变，只是依据是文件数与第 3.6 节列出的职责数，不是 spike 的行数占比。另：`TOOL_NAME` 的规则 spike 里写在 `kernel.ts` 顶部（`/^[a-zA-Z0-9_-]{1,128}$/`，现在 t04 已改上限 64），计划里“工具名换算”在 3.6 `tools.ts`，请求校验的 `bad-tool-name` 在 3.5 `request.ts`，两处要共用第 4 条建议里的 `tool-name.ts`，不要各抄一份常量。）
+
+### 11. 计划没有为模块头注释与 Spec/代码注释的分工留任何安排
+
+- **严重程度**：建议；**类别**：注释与文档（`AGENTS.md` 的“注释”一节、`docs/standards/code/common.md`）
+- **位置**：第 3 节、第 4 节、第 5 节切片表、第 7 节验证
+- **现象**：`grep -n '注释\|头注\|README' plan.md` 只命中第 4 节的 `README.md`（包说明）与收口里的 Task README，没有一处写模块头注释该写什么。该内核最难读的恰是仓库注释规范点名的情形：“读者要推演几个回调的先后才能看懂的代码，先改结构消除它，改不掉再写清楚先后”。spike `kernel.ts` 头部那张“各入口读到的是哪一刻的状态”表就是这种注释，正式版按目录拆开后，这张表没有明确的新家。
+- **为什么是问题**：不写进计划，实现到第 6 片时已经只剩“补注释”的低优先级；而 Spec（`harness/session.md`、`extensions.md`）只写行为合同，注释规范又要求“行为规则链接 Spec，不复述”，两边都不写的那部分（时序、所有权、让理由失效的条件）就没人写。
+- **如何核实**：读 `spike/kernel.ts:1-20`；读 `AGENTS.md` 的“注释”一节。
+- **建议改法**：第 3 节每个目录加一行“模块头注释写什么”，并把它列进每片的完成标准。至少这几处必须有：
+  - `dispatch/queue.ts`：单写者排队与“前一项连同引出的全部反应做完才开始下一项”的顺序，以及哪些调用不经队列；
+  - `dispatch/reactions.ts`：同一事件的处理函数看同一份状态、并发、输出按扩展顺序写、批整体丢弃的条件、深度计数；
+  - `extension/ctx.ts`：每个入口看到的是哪一刻的状态（搬 spike 头部那张表）；
+  - `log/jsonl-store.ts`：批完整性判定与“只有文件尾可能不完整”这条假设失效的条件（例如两个进程写同一文件）；
+  - `run/loop.ts`：边界顺序（外部事实与设置、steer、估算与压缩、视图与模型拦截、`modelStarted`）。
+  Spec 只链接，不复述；写在第 1 片的 Spec 编写里时，把“实现合同”一节留给第 11 片之后回填。
+
+### 12. `bench/`、`typetest` 与 `kernel/testing/` 的放置没有写，且会随包一起发布
+
+- **严重程度**：建议；**类别**：规范、发布面
+- **位置**：第 5 节第 7、12 片；`packages/nb-harness/package.json`（`files`）与 `tsconfig.json`（`include: ["src", "tests"]`）
+- **现象**：第 12 片写 `bench/kernel.ts`，第 7 片写 v5 `typetest.ts` 的 29 处。`bench/` 不在 tsconfig 的 `include` 里，也不是 `src/**`；`typetest.ts` 若放在 `src/kernel/` 下，因为文件名不是 `*.test.ts`，`package.json` 的 `files`（`src` 去掉 `src/**/*.test.ts`、`src/**/*.test.tsx`）会把它与 30 条故意写错的 `@ts-expect-error` 一起发布；`kernel/testing/` 与 helper 的 `.tsx` 示例同理。
+- **为什么是问题**：`docs/testing/README.md`：“新增测试目录必须同步加入对应配置的 `include`”；发布面里出现测试夹具是公开合同变化（`docs/standards/code/packages.md`：“公开 exports 覆盖真实消费者且不泄露内部文件”）。
+- **如何核实**：`cat packages/nb-harness/package.json` 的 `files`；`grep -n 'bench' plan.md`。
+- **建议改法**：`typetest.ts` 放 `tests/kernel/typetest.ts`（`tests/` 已在 tsconfig 与 `bun test` 范围内，且不发布），并在 `typecheck` 脚本之外不需要另设命令；`bench/kernel.ts` 放 `tests/kernel/bench.ts`（用 `bun` 直接跑，不被 `bun test` 收集，因为文件名不是 `*.test.ts`），第 12 片的验证列写清命令；`files` 的排除项加 `!src/**/*.fixture.ts` 或把示例放 `tests/`。新内核测试放 `src/kernel/**` 与仓库规范一致（“测试文件与被测源码同目录”），旧测试在 `tests/`，两处并存要在包 `AGENTS.md` 的完成门禁里各写一遍命令，避免只跑其中一处。
+
+### 13. 日志格式版本与“需要迁移”没有落点（t03 决定 6）
+
+- **严重程度**：建议；**类别**：与已定设计冲突
+- **位置**：3.1 `validate.ts`、`LogStore.create(header)`；t03 决定 6；提案“对 Spec 的预期改动”里的“日志格式”一条
+- **现象**：t03 决定 6：“存储有版本标记，读到旧版本抛 `AgentSessionMigrationRequiredError`，由一次性迁移脚本升级；读取代码只认当前版本”。计划的 `validate.ts` 列了 id 唯一、seq 递增、父节点在前、类别与作用域、扩展前缀、幂等键、批完整，没有头里的格式版本检查与“需要迁移”的失败码（只有 `log-corrupt`）；事件自身带 `version`（`conv({version})`、`ext({version})`）也没有“读到更高版本的扩展事件”怎么办的条目。迁移脚本放在哪个包，t03 写“写计划时定”，计划没定。
+- **为什么是问题**：nb-story 书库里 nb-session 的线性旧格式问答日志要由这个脚本升级（t03 决定 6），而 nb-story 的迁移 Task 紧接在 t20 之后；格式一旦在第 2 片定了没有版本头，以后再加就要再迁一次。
+- **如何核实**：`grep -n '版本\|migrat\|迁移' plan.md`（只有 OMP 版本）。
+- **建议改法**：3.1 加两条：会话头带 `format: 1`，`load` 遇到不认识的版本返回 `needs-migration`（与 `log-corrupt` 分开）；扩展事件版本按“只认已声明的版本，更高版本写诊断并跳过该条归约”。迁移脚本的位置写进第 8 节“不做”并指向迁移 Task。
+
+### 14. 装配时检查“槽名”在装配阶段无从知道
+
+- **严重程度**：建议；**类别**：照字面实现会返工
+- **位置**：3.2 `assemble.ts`（“装配时检查设置的每项都有 `default`、处理函数与 `render` 的键都是已知事件、槽名”）与 3.5（槽：撞名报 `slot-collision`，没摆的报 `slot-unplaced`）
+- **现象**：Profile 的 `prompt` 是 `(view) => Child`（v5 `api.ts` 的 `ProfileBase.prompt`），模板里 `<Slot name>` 摆放了哪些槽，只有调用它渲染一次才知道；3.5 也把 `slot-unplaced`、`slot-collision` 放在渲染期报。所以装配时只能检查事件名，“槽名”无法检查。
+- **为什么是问题**：照字面写 `assemble.ts` 会实现不了这一项，或者为了实现它在装配时调用一次 `prompt`（需要状态与 `ctx`，可能抛错）。
+- **如何核实**：`grep -n 'prompt' spike/v5/api.ts`；读 3.5 槽一条。
+- **建议改法**：把“槽名”从 3.2 的装配检查里删掉，槽的诊断只在 3.5 的渲染期出现；装配期只检查 `contribute` 的槽名本身合法（非空、非保留名）。
+
+## 未发现问题的方面
+
+- 第 2 节选型表里的“时钟注入”“真实存储与临时根”“不用 mock、spy、假计时器”与 `docs/testing/README.md` 的机检规则（`module-mock`、`spy`、`fixed-wait`、`fake-timer`）一致。
+- `*.llm.test.ts` 的命名、`NBOOK_LLM_TESTS` 与 `test:llm` 脚本与测试规范一致；测试放 `src/kernel/**` 与“测试文件与被测源码同目录”一致（旧测试在 `tests/` 不冲突）。
+- OMP 只取公开子路径、依赖精确锁定、第 0 片单独升版并同步 `omp-capabilities.md` 与版本表，与包 `AGENTS.md` 一致；“预期失败不抛裸异常”在命令的失败码表与 `log-corrupt` 上有体现。
+- 注释的语言与用词、文件行数：仓库没有登记的行数硬上限（`common.md`：“不用机械行数代替设计审查”），计划按所有权拆分、不设行数目标是合规的；spike `kernel.ts` 1,114 行拆成多文件的方向没问题，问题在第 2、6、7 条的依赖与重复。
+
+## 数量
+
+- 阻断：0
+- 重要：9（第 1 到 9 条）
+- 建议：5（第 10 到 14 条）
+- 合计 14 条；其中第 3、5、7、10 条各带一段更正，更正见各条之后的括号段落。

@@ -1,0 +1,254 @@
+# t20 实施计划审查（拉远看：范围、取舍与顺序）
+
+审查对象：.agents/works/w00032-agent-integration/tasks/t20-hooks/plan.md（提交 04d13a262）。只读审查，没有改仓库。
+
+### 1. 真实模型适配器排在第 10 片，与提案“第一个切片接真实 streamSimple”相反；第 1 到 9 片全程没有端到端证据
+- **严重程度**：重要；**类别**：顺序与风险前移
+- **位置**：计划第 5 节切片表第 10 片、第 8 节风险；提案第 9 节“模型适配器”一行
+- **现象**：切片表把 3.9 `omp-adapter.ts` 放在第 10 片，前九片（日志、装配、归约、反应、视图、循环、测试工具、等用户、压缩）只用脚本化假模型。计划第 8 节的五条风险里没有一条是“ModelRequest 与 OMP 的 Message、工具声明、思考签名对不上”。
+- **为什么是问题**：提案第 9 节原文是“`ModelRequest` 与 OMP 之间唯一的转换点（实施的第一个切片接真实的 `streamSimple` 验证）”，计划的顺序和提案自己的要求相反。适配器是整个内核里唯一碰外部不确定性的地方：OMP 18.2.5 升到 18.14.0 的 API 变化、相邻 user 消息合并、思考块签名带回、工具名 `.` 换 `__`、工具调用 id 归一化、流式增量编号、各服务商错误分类。这些的任何一项发现“ModelRequest 形状不够”（见第 5 条：`ModelRequest.tools` 现在只有 `{name, effect}`），都要回头改第 5 片的请求算法、`modelStarted.hash` 的口径、第 6 片的循环，以及已经写好的整批测试。内核十二片做完之前，开发者和别的 Task 也看不到任何东西跑起来。计划第 7 节写了适配器测试可以用“本机 OpenAI 兼容端点（同现有 provider.test.ts）”，也就是说前移并不依赖真实凭据。
+- **如何核实**：`grep -n "第一个切片" docs/proposals/agent-harness-event-model.md`（第 453 行）；对照计划第 5 节第 10 行。
+- **建议改法**：把切片重排成“先纵后横”：
+  1. 第 0 片之后立刻做一条最薄的纵切（新的第 1b 片）：只含 JSONL 存储（先不要写入批以外的功能）、`core.history` 最小版、单轮循环（输入 → 请求 → 模型 → assistant → turnEnded）、真实适配器（对本机 OpenAI 兼容端点与一次 luna/DeepSeek smoke）、重新打开后日志归约出同样的历史。一个最小 Profile（只有 `<System>` 与 `<Turn />`）跑一轮，写 JSONL，重开，再跑第二轮。
+  2. 这条纵切里先把 ModelRequest（含 tools 的完整声明）、`assistant` 事件的形状（停止原因、思考签名、用量）、`runEnded.reason` 这些写进日志格式的东西定下来；之后第 3 到 9 片是在可运行的内核上逐层加扩展、拦截、压缩，而不是在假模型上垒到第 10 片才第一次接外部。
+  3. 适配器本身仍留在第 10 片做完整（错误分类、溢出重试、重试记录），但“接通”前移。
+
+### 2. 测试工具（第 7 片）和会话装配入口（第 11 片）晚于要用它们的第 4 到 6 片；字面实现要么返工要么每片自搭脚手架
+- **严重程度**：重要；**类别**：切片顺序、测试方法
+- **位置**：计划第 5 节第 3 到 7 片与第 11 片；3.10 `session.ts`、`diagnostics.ts`；3.11
+- **现象**：
+  - 第 4 片验证写“超时中止、emit-after-settle、深度上限、外部事实到边界”，第 5 片写“`outline()`”，第 6 片写“spike 场景按组搬成测试（运行、插话、followup、continue、并发工具……）”。这些都要一个跑得起来的会话：假模型、假工具、手动推进的时钟、读日志与读状态。这些全是第 7 片 3.11 `createTestSession` 的内容。
+  - `createTestSession` 要“真内核、内存存储”，也就是要 3.10 的 `session.ts`（`load → recover → 装配 → mount`，返回 `SessionApi`）。但 3.10 整个排在第 11 片。
+  - 第 4 到 6 片产生的诊断（`emit-after-settle`、`slot-collision`、`extensionFailed`）要落到 3.10 的 `diagnostics.ts`，也在第 11 片。
+- **为什么是问题**：计划第 7 节明说“单测与场景测试用真内核与真实存储……不用 mock、spy、假计时器”。按现在的顺序，第 4 到 6 片要么各自搭一份临时的会话脚手架（之后第 7 片一并推翻），要么直接对 `react.ts`、`loop.ts` 做内部单元测试，违反仓库“测行为不测实现”的规则（AGENTS.md“测试”一节）。第 6 片是 spike 53 个场景里的大半，它们正是需要完整会话入口的那种。
+- **如何核实**：对照计划第 5 节与 3.10、3.11 两小节的文件清单。
+- **建议改法**：把 `session.ts`（只含 create/open/commands，不含预览、镜像、分页）、一个最小的 `diagnostics` 汇集口、`createTestSession` 的核心（假模型、假工具、时钟、`say`、`eventsOf`、`state`）合成一个第 2.5 片，放在存储之后、第 3 片之前；第 7 片只保留严格模式、`outline()` 打磨、helper 与 typetest。这样第 3 到 9 片每一片都用同一套真会话测试驱动。
+
+### 3. 现有唯一使用方 nb-story 依赖的“收尾工具”等语义，在提案、v5 类型和计划里都不存在；循环与日志里的结束原因缺了这一项
+- **严重程度**：重要；**类别**：与相邻 Task 和旧实现的衔接、日志格式
+- **位置**：计划第 1 节决定 1、3.6 `loop.ts`、3.9 适配器；t02 决定 1；提案“影响”一节 nb-story 一条；v5 `api.ts` 的 `runEnded`、`assistant`
+- **现象**：t02 决定 1 列出“master 独有、新接口要保留”的语义：收尾工具与 `TurnResult`、`complete()`（单次请求不经会话）、错误正文的密钥遮盖、余额不足归 `quota`、进程中断与停服收尾、相邻 user 消息合并、截断识别。提案“影响”一节也写“它依赖的单轮调用、`TurnResult`、收尾工具、`complete()` 在新循环里保留（t02）”。我 grep 了计划全文、提案全文和 `spike/v5/*.ts`：`finish`、`TurnResult`、`complete()`、遮盖、截断识别，一个都没有出现（计划里只有第 105 行的“停止原因”）。nb-story 的 `answer` 工具声明 `finish: true`（`packages/nb-story/src/qa/tools.ts` 第 153 行）：校验通过就结束这一问，校验不过让模型改了再交。
+- **为什么是问题**：
+  1. 收尾工具改变循环的终止条件（工具成功后不再回到边界，直接收口），要在 `runEnded.reason`（v5 只有 `completed | input-rejected | error | interrupted | aborted`）与 `toolResult` 里留痕。这是写进日志的枚举，第 6 片按计划实现、迁移 Task 才发现缺“finished”，就是改日志格式加循环再补一遍测试。
+  2. 截断识别（master `finish-watch.ts`）是对 DeepSeek 一类网关的真实修正：流以 `[DONE]` 结束却没有 `finish_reason`，OMP 把半句话记成 `stop`。v5 的 `assistant` 数据里根本没有 `stopReason` 字段（提案第 9 节表里写了“停止原因”，类型里没有），新循环会把截断的回复当作正常的最终回复提交进历史。
+  3. 密钥遮盖（`redact.ts`）：适配器错误写进 `modelFailed` 和诊断前必须遮盖，计划 3.9 没提。错误正文含密钥的实例见 master 的 `redactErrorMessage`。日志是长期保存、可拷走的文件。
+  4. 迁移 Task 是“紧接着”开的，但它的前提（循环支持收尾工具、适配器带这些修正）应该由内核给，而不是迁移时再动内核。
+- **如何核实**：`grep -n -i "finish\|TurnResult\|redact\|quota" .agents/works/w00032-agent-integration/tasks/t20-hooks/plan.md docs/proposals/agent-harness-event-model.md .agents/works/w00032-agent-integration/tasks/t20-hooks/spike/v5/*.ts`；读 `packages/nb-harness/src/run-result.ts`（`classifyProviderError`）、`finish-watch.ts`、`redact.ts`、`complete.ts`、`packages/nb-story/src/qa/tools.ts` 第 140 到 165 行。
+- **建议改法**：
+  1. 计划 3.6 加一条“收尾工具”：工具声明加 `finish?: boolean`，成功结果后内核写 `runEnded{reason: "finished"}`；日志里记下收尾的调用。`TurnResult` 作为 `SessionApi` 之上的一个薄 helper（`runToResult`），留给迁移 Task，但内核事件现在就要带够它的字段（stopReason、error 类别、用量）。
+  2. `assistant` 事件加 `stopReason: "stop" | "toolUse" | "length" | "error"`；3.9 适配器写明搬 `classifyProviderError`、`createFinishWatch`、`redactErrorMessage`，并在适配器验证里各加一个场景（沿用现有 `provider.test.ts` 的本机端点：没有 finish_reason 的流、402/403 余额、带密钥的错误正文）。
+  3. `complete()`（无会话单次请求）写进计划“不做”或迁移 Task，二选一写明，不要让它悬着。
+
+### 4. 内核与外界之间的依赖注入口（会话环境）没有定义；t04、t08、t09、t11、t14 都要从这里接，计划只写了 `createSession`、`openSession`
+- **严重程度**：重要；**类别**：欠设计、与相邻 Task 衔接
+- **位置**：计划 3.10 `session.ts`、3.9“模型与凭据”、3.11 `createTestSession`；v5 `host.ts` 的 `AgentHost.create`、`testing.ts` 的 `TestSessionOptions`
+- **现象**：计划只说 `createSession`、`openSession` 返回 `SessionApi`。v5 `host.ts` 里 `AgentHost.create({sessionId, profile, initial})` 同样没有说明工具、模型、资源、存储从哪来。能看到的唯一线索是测试工具的选项：`tools`、`files`、`model: "script" | "manual"`、`startAt`。扩展的 `ctx.tools`、`ctx.model`（`ModelInfo`）、`ctx.resources`、`ctx.now` 都已经在 v5 `api.ts` 里承诺了，但它们的来源是什么没人定义。
+- **为什么是问题**（相邻 Task 在这条缝上各提了要求，彼此没对过）：
+  - t04 决定 6：“有效工具集总按当前绑定现算，日志只记‘告诉过模型什么’，每次请求前与当前路径上最后一条记录比对”“长运行可能中途换工具”“运行中插件被禁用，它的工具调用返回 `tool-unavailable`”。也就是工具来源是动态的，内核在每个边界要问一次、与上次告诉模型的集合比较、写一条记录并给模型一条提醒。提案全文没有“工具集变了”的事件（grep `工具集`、`toolsChanged` 无结果），`profileChanged` 只在空闲时由 `changeProfile` 或插件装卸触发。
+  - t09 决定 4、5、6：模型与推理档是“会话级设置、不跟路径走”，要夹取到模型支持的档位，每条助手消息记下模型与档位。v5 的 `ModelRequest` 只有 `model: string` 和 `params{maxTokens, temperature}`，没有推理档字段；`assistant` 事件有 `model` 没有档位；`changeSettings` 只能按扩展 id 分组，没有“核心设置”这一组；命令表里没有换模型。提案第 9 节适配器表说“推理档……进 `SimpleStreamOptions`”，但档位从哪来没写。
+  - t11 决定 1：阈值按模型单独配置，放在模型服务的模型配置里（t09），内核估算时要能取到“这个模型的窗口与触发点”。
+  - t14 决定 25：`agent_spawn`、`agent_send` 要在工具启动时把话交给“目标会话的写入队列”，也就是工具实现要拿得到“按 id 打开另一个会话并发命令”的句柄；`AgentHost` 在 v5 里有，但计划 3.10 没把它列入。
+  - t03 决定 4：会话记关联的项目身份；t08：`session://`、`sessions://` 要映射到会话目录。
+- **如何核实**：读 `spike/v5/host.ts` 第 301 到 322 行（`AgentHost`）与 `testing.ts` 第 114 到 129 行（`TestSessionOptions`）；`grep -n "ModelRequest" -A8 spike/v5/api.ts`；t04 决定 6、t09 决定 4 到 6。
+- **建议改法**（优先让部件变少）：在计划 3.10 加一个明确的接口 `SessionEnv`，只有四个端口，全部由宿主注入，测试工具给内存或脚本化的实现：
+  1. `store: LogStore`；
+  2. `models`：`resolve(sessionSettings) → {adapter, info: ModelInfo(contextWindow、能力、触发点), effort}`，推理档与模型放进内核自己的“核心设置”（`settingsChanged{extension: "core"}`，session 作用域，回退不切回，正好符合 t09 决定 5），`assistant` 事件同时记档位；
+  3. `tools`：`list()` 返回当前声明，每个边界调用，内核比对上次告知的集合，变了就写一条记录并给提醒（扩展可订阅）；
+  4. `resources` 与 `sessions`（打开其它会话的句柄，t14 用）。
+  把它写进第 2.5 片，而不是让第 10、11 片边做边定。
+
+### 5. 工具这一侧的合同半截：`ToolInfo` 没有参数 schema 和 `concurrency`，工具执行上下文、结果形状与大结果溢出都没有；v5 类型还落后于 2026-10-30 的决定
+- **严重程度**：重要；**类别**：欠设计、与相邻 Task 衔接
+- **位置**：计划 3.6 `tools.ts`、第 1 节决定 3 的“待定项 11（请求完整形状）在实现中定”、3.7；t14 决定 33；v5 `api.ts` 第 48 到 51 行、`host.ts` 第 88 到 91 行
+- **现象**：
+  - 计划 3.6 只写“工具声明与参数校验搬分支 `tools/define.ts`（名字换算……）”。`define.ts` 只有 86 行；分支真正复杂的是 `tools/types.ts` 里的 `ToolContext`（`signal`、`session`、`toolCallId`、`report(progress)`、`ask(question)`）、`ToolOutcome`（`ok: false, code`）、`ToolSource`、`adapter.ts` 里的溢出（`spill.ts`，大结果截断后全文放 `session://artifacts/`，见 t08 的表）与结果预算。分支的 `adapter.ts` 包的是 pi-agent-core 的 `AgentTool`，新循环不用它，所以要重新定。
+  - v5 `ToolInfo` 是 `{name, effect}`，`ModelRequest.tools` 就是 `ToolInfo[]`，也就是请求里没有参数 schema，适配器没法调 `streamSimple`；提案待定项 11 说“推荐 `tools` 用完整的工具声明……实现 t04、t05 时定”，计划又把它推到“实现中定”。`ToolInfo` 也没有 `concurrency`，而 3.6 要按 `concurrency` 切段，t14 决定 33 明说“`ToolInfo.concurrency`……在 t20 实施计划里一并定”。
+  - v5 `RunStatus` 只有 `idle | running | aborting`，没有 `waiting`（计划 3.7 写了“运行状态 `waiting`”）；`commandErrors` 与 `CommandMap` 没有 `resolve`；`KernelEvents` 还是 `asked`、`answered`、`approvalRequested`、`approvalResolved` 四个占位。计划只承认了事件改名与 `resolve` 的三个失败码（3.1、3.6），对 `RunStatus`、`ToolInfo.concurrency`、请求里的工具声明没提。
+- **为什么是问题**：计划的依据写的是“接口以 v5 为准”，但 v5 在这些地方已经过期，第 5 片（请求）和第 6 片（工具）一开始就要决定。ModelRequest 的形状决定 `modelStarted.hash` 的口径；hash 口径写进日志后再改，已写的 hash 全部失去比对意义（预览的 `hashMatches` 也跟着失效）。工具上下文的形状则是 t06 的 `ask`、t12 的所有内置工具、t14 的子代理工具、t19 的 MCP 工具共同依赖的合同，晚改要碰所有工具。
+- **如何核实**：读 `git show feat/w00002-harness-kernel:packages/nb-harness/src/tools/types.ts`（`ToolContext`、`ToolOutcome`、`AdapterHooks.artifacts`）；`grep -n "concurrency\|waiting" .agents/works/w00032-agent-integration/tasks/t20-hooks/spike/v5/*.ts`；t14 README 第 117 行（决定 33）。
+- **建议改法**：把“更新 v5 为 v6 类型”写成第 1 片的一项交付（过 tsc 与 `typetest.ts`），至少补：`ToolDeclaration`（id、description、TypeBox 参数、`effect` 或按参数的动态 effect、`concurrency`、`finish`）；`ModelRequest.tools` 用完整声明；`ToolContext`（`signal`、`callId`、`ask`、`report`）与 `ToolResult` 的对应；`RunStatus.waiting`；`resolve` 进 `CommandMap`；`assistant.stopReason`。大结果溢出明确二选一：t20 内核给一个“结果预算”钩子，或写进“不做”并交给 t12 的文件工具，别留在中间。
+
+### 6. t03 要求的会话级条目（标题、归档、会话头、列表、fork）不在事件表、存储接口和切片里
+- **严重程度**：重要；**类别**：日志格式、与相邻 Task 衔接
+- **位置**：计划 3.1 `store.ts`（`LogStore {create(header), load(id), append(batch), repair(id)}`）、`KernelEvents` 表；t03 决定 1、2、4、6；t17 会话列表
+- **现象**：t03 决定 1：“标题、归档等会话级条目不是树节点、不移动叶子”；决定 2：“fork 新建会话、只复制当前路径、会话头记来源”；决定 4：会话记关联的项目身份，列表默认显示当前项目；t17 要会话列表；t23 要查历史。v5 的内核事件里没有标题、归档、改名；计划的 `LogStore` 没有 `list`、没有 `fork`，会话头 `create(header)` 的字段没定义。分支的 `store.list()` 用的是“每个会话整读并完整校验，list 一次读的字节数是全部会话文件之和”（分支 `jsonl.ts` 的注释自己写了这是 v1 的代价）。
+- **为什么是问题**：这些是日志格式与存储接口，是计划自己说的“必须现在做、否则晚改代价大”的那类。事件名（`titleChanged`、`archived`）、会话头字段（项目身份、fork 来源 `{sessionId, entryId}`、Profile id、创建时间）、列表要不要旁路索引，都是 t20 的存储第 2 片要决定的；放到 t17 才发现，等于重开存储与迁移脚本。t03 决定 6 还写“迁移脚本放在哪个包、怎么调用，写计划时定”，计划里没有这一条，旧的 nb-story 线性 Message 日志要转成带 turn、批、位置章的新事件，需要由新格式反过来规定“迁移产物的 source 与位置章长什么样”。
+- **如何核实**：`grep -n "标题\|归档\|fork\|list\|项目身份" plan.md` 无命中；t03 README 决定 1、2、4、6；`git show feat/w00002-harness-kernel:packages/nb-harness/src/session/jsonl/jsonl.ts` 的 `list` 一段。
+- **建议改法**：在第 2 片明确：会话头字段表、`titleChanged`、`archived`（session 作用域、不移动叶子，内核事件）、`fork(from)` 作为存储操作（复制当前路径，头记来源）；列表只读头与尾部（头部字段加“最后活动时间、轮数”由 append 时更新到旁路的小索引文件，丢了可重建），不整读。迁移脚本的归属写进“不做”并交迁移 Task，同时要求迁移 Task 先看新格式。
+
+### 7. 性能是最后一片才测，但两个会决定内核形状的结构（持久链表状态、三段增量哈希请求）在第 3、5 片就定死；预算只数条数不数字节，“大块内容另存”被推到实现中决定
+- **严重程度**：重要；**类别**：风险排序、日志格式
+- **位置**：计划第 5 节第 12 片、第 1 节决定 3 的“待定项 8”与“快照”、第 8 节第四条风险；3.3 状态存放、3.5 `request.ts`
+- **现象**：
+  - 计划第 8 节风险只写了“10 万条事件打开 1 秒内：spike 第三版 1.68 万条 70–240 毫秒，线性外推接近上限”。spike 第三版（`evidences/spike-r3.txt`）还测了“长会话上每条新事件（含归约、反应、算请求）平均 18.13 到 24.86 毫秒”，跑 1200 轮用了 139 到 203 秒。第 3 片的“持久链表”和第 5 片的“三段各存增量哈希”都是第五稿新设计，spike 没测过；提案第 19 节自己写“预计算请求的代价与这一轮的长度相关（推断，没有测）”。
+  - 预算只写条数。我在 `/tmp/review-w00032-t20-plan/scratch/parse-bench.ts` 里造了 10 万行 JSONL，仅“读文件 + 严格 UTF-8 + `JSON.parse`”：每条约 500 字符（文件 75 MB）用 233 ms；每条约 5000 字符（文件 525 MB，等于一章正文被读好几遍的写作会话）用 651 ms。后一种情形光解析就占去 1 秒预算的 65%，而且 525 MB 全驻留在堆里。校验、归约、冻结还没算。
+  - 提案待定项 8（大块内容另存，日志里只记哈希）是“推荐什么都没定”，计划决定 3 又写“在实现中定”。这是日志格式的决定：一旦工具结果、`opening()` 的片、`redacted` 之外的大内容都内联在事件里，再改成引用，旧日志要迁移。
+  - 决定 3 写“快照存在压缩点加稀疏检查点（按第 12 片的测量决定是否要检查点）”：已确认的决定和“按测量决定是否要”在同一句里互相打架；3.3 又只留了“接口先留 `snapshotAt(node)`”。快照里是扩展片的值，而片的 `reduce` 是代码：扩展升级或 Profile 改版后，旧快照等于按旧代码归约的结果，是否失效、按什么哈希失效，计划没写。
+- **为什么是问题**：第 12 片发现超预算时，补救不是“加检查点”这一个选项那么轻：要改第 3 片的状态存放、第 5 片的请求算法，已经写好的第 6 到 9 片测试依赖这些结构。而 100 000 条这个预算本身很可能定得过大：1200 轮是 1.68 万条，10 万条约等于 7000 轮，单个写作会话到不了，却把设计推向“为极端长会话上检查点”，这是计划里最重的不确定性，而且是为一个没有产品依据的数字付出的。
+- **如何核实**：`cd /tmp/review-w00032-t20-plan/scratch && bun parse-bench.ts 100000 500`、`bun parse-bench.ts 100000 5000`（会生成并删除临时 jsonl 文件）；读 `evidences/spike-r3.txt` 第 68 到 80 行。
+- **建议改法**：
+  1. 预算改成两个数：典型 2 万条（约 1500 轮）与字节上限（例如打开解析后常驻堆不超过 100 MB），10 万条只作压力测试、不作验收。
+  2. 把待定项 8 提到第 2 片：事件数据超过固定大小（建议 16 KB）时，正文放到同目录的内容寻址文件，事件里只记哈希与长度；`redacted` 的哈希、`original`/`raw` 都走同一条路。
+  3. 第 3 片结束时先跑一遍合成 2 万条事件的归约、第 5 片结束时跑一遍请求计算（`bench.ts` 现成），作为这两片的出口条件；超预算立刻改结构，不拖到第 12 片。
+  4. 检查点先不做，从计划里删掉“稀疏检查点”和 `snapshotAt`，在 Spec 里写“暂无快照，打开时全量归约”；等测出来再加，并在那时一起定失效规则。这样日志格式里也不必为它预留位置。
+
+### 8. t07 已定的几条运行控制决定没有落进计划或接口：中止宽限期、“改成插话”、“继续”的受理条件
+- **严重程度**：重要；**类别**：与相邻 Task 衔接、边界
+- **位置**：计划 3.6 `abort.ts`、`commands.ts`；提案第 9 节“中止”、第 3 节指令表；v5 `host.ts` 的 `CommandMap.edit`、`commandErrors.start`；t07 决定 1、2、5、7
+- **现象**：
+  1. t07 决定 2：“中止补强制接管：宽限期内等各方自己收口，过期由运行时写‘已中止’、回到空闲……宽限期……约 2 秒，计划时定”。提案第 9 节写的是“内核等的每一个 Promise 都和中止信号赛跑，中止后不再等它”；计划 3.6 `abort.ts` 同样没有宽限期，也没有把宽限期放进注入的时钟接口。按字面实现，中止发出的同一时刻，所有还没返回的工具调用立刻记 `status: "unknown"`，哪怕工具 50 毫秒后就会带着“已被中止”的部分结果返回（例如 shell 被杀后的已输出内容、文件写了一半的状态）。迟到的结果只写诊断，模型下次看到的是“不知道有没有执行”，而不是真实结果。
+  2. t07 决定 5：“还没送出的排队消息可以删除、修改、改成插话立即送出”。`edit(inputId, input)` 的参数里没有 `mode`，`CommandMap` 里也没有改模式的命令。界面要靠“`remove` 再 `enqueue(steer)`”拼出来，两步之间这条 followup 可能已经被取走，结果是同一句话被发两遍或丢掉。
+  3. t07 决定 1、7：“继续”只在末尾是用户消息、工具结果或出错回复时受理；`start()` 的失败码是 `already-running`、`no-model`、`no-credentials`、`profile-invalid`、`session-closed`，没有“末尾是完整的最终回复，没东西可继续”这一项。缓冲区空时 `start()` 会在末尾是完整 assistant 回复的会话上再发一次相同的请求。
+- **为什么是问题**：这三条都是用户能观察到的行为，且前两条直接决定写进日志的内容（中止后工具结果是“已中止”还是“未知”；`inputEdited` 带不带 `mode`）。
+- **如何核实**：t07 README“决定”第 2、5、7 条；提案第 9 节“中止”一条；`spike/v5/host.ts` 的 `CommandMap.edit` 与 `commandErrors.start`。
+- **建议改法**：
+  1. 3.6 `abort.ts` 写明：中止先给各方一个宽限期（建议缺省 2 秒，走注入的时钟，可在 `createTestSession` 里设为 0），期间到达的结果按正常结果写；过期后才赛跑接管、写 `unknown`、迟到结果只写诊断。把宽限期作为内核配置项而不是常量。
+  2. `edit` 加可选 `mode`；或者新增 `setInputMode(inputId, mode)`，同样是单写者里的一次写入。
+  3. `start` 加失败码 `nothing-to-continue`（末尾不是用户消息、工具结果或出错回复，且缓冲区为空）。
+
+### 9. “以第三稿 spike 为起点”覆盖不到第四、五稿的核心：缓冲区与状态机、写入批、位置章、`mount`、等用户、`commandId` 都没有跑过；风险节只提了“类型推断”
+- **严重程度**：重要；**类别**：风险排序、起点假设
+- **位置**：计划第 1 节决定 1、第 5 节第 6、7 片（“spike 场景按组搬成测试”）、第 8 节最后一条风险；t20 README“当前状态”第 9 条（“spike 没有按第四稿重写”）
+- **现象**：我在 `spike/kernel.ts`、`core.ts`、`check.ts` 里按关键词数了命中次数：`followup` 0、`commandId` 0、`interaction` 0、`mount` 0、`幂等` 的宿主命令版 0；`steer` 只是一个 `inbox` 里的 `{kind: "steer"}` 项（kernel.ts 第 60、646 到 664 行），没有输入缓冲区、没有 `inputQueued`/`inputConsumed`、没有“取走即写入批”。`runNow(input)` 整个运行包在一次 `serial(...)` 里（第 928 行），也就是第三稿的单写者是“一次运行占住整条队列”。计划 3.4/3.6 描述的是另一种东西：指令、外部事实、反应输出都排进同一条队列，但运行本身是一个会在每个边界与队列交织的循环，“缓冲区入队、改、删在指令受理时写”，“运行中到达的外部事实、设置变化到下一个边界写”。这种交织（哪些写入立刻排队、哪些攒到边界、`abort`/`resolve` 要不要绕过队列、30 秒的处理函数占着队列时 `send` 怎么办）没有任何原型。
+  53 个场景里，至少有 5 个测的是已被第四、五稿去掉或推迟的功能：场景“sample（R1-6）”（check.ts 第 191 行）、“预览……samples”（第 558 行）、“sample 卡住”（第 641 行）、“cacheCost=accepted + sample”（第 721 行）、“插件写 replaces 被拒绝”（第 164 行）；“缓存比对（R1o-19）”（第 572 行）只剩部分有效（提案第 18 节推迟“一般的缓存比对”，只保留两项检查）。
+- **为什么是问题**：计划第 6 节验收映射的最后一行是“spike 53 个场景逐个搬成测试”，第 8 节风险说“第五稿接口只过了 tsc、没跑过：……可能撞上类型推断的问题”。真正没跑过的是语义：开发者在 2026-10-29 亲自提出的异步状态机这部分（缓冲区、写入批、取走规则、位置章、提交与 Profile 哈希、`mount`、`interactionRequested`、`commandId`）全是第四、五稿新增，spike 里没有一行实现，所以计划里“可运行的测试兜底”对这些根本没有现成测试可搬，要现写，且是在没有原型的设计上现写。第 6 片包着 commands、loop、tools、intercept、abort、recover、rewind 七个文件，是最大的一片，也是不确定性最集中的一片。
+- **如何核实**：
+  ```
+  cd .agents/works/w00032-agent-integration/tasks/t20-hooks/spike
+  for w in followup commandId interaction mount steer; do echo "$w kernel=$(grep -c -i $w kernel.ts) check=$(grep -c -i $w check.ts)"; done
+  grep -n '^await check(' check.ts | grep -n 'sample\|replaces\|cacheCost'
+  sed -n 925,930p kernel.ts
+  ```
+- **建议改法**：
+  1. 第 8 节风险第一条改写为“状态机核心（缓冲区、队列与循环的交织、写入批、位置章、`mount`、等用户）没有原型”，并把它列为最大风险；`类型推断` 一条降为次要。
+  2. 把第 6 片拆开：6a 输入缓冲区 + 队列 + 单轮循环（输入 → 模型 → 工具 → turnEnded），先用真适配器接通（见第 1 条）；6b 指令（edit/remove/rewind/commandId 幂等）；6c 拦截链；6d 中止与恢复；每一小片列出验收场景。队列与循环的交织在 3.4/3.6 里写成一段明确的规则（哪些写入立刻进队、哪些攒到边界、哪些绕过队列）。
+  3. 第 6 节的映射表改为“spike 53 个场景中仍然有效的 N 个”，把五六个已作废的场景（上面列的行号）从待搬清单里划掉，另列“第四、五稿新增场景”清单作为第 6、8 片的验收。
+
+### 10. 分支“搬运”的实际可复用量约十分之一；第 1 片要搬的 Spec 里有一半以上是整份作废，`models/` 还暗含对未列入的 `config/` 的依赖
+- **严重程度**：重要；**类别**：与旧实现和分支的关系、范围
+- **位置**：计划第 1 节决定 1、第 2 节“日志存储”行、3.1 `jsonl-store.ts`、3.6 `tools.ts`、3.8、3.9“模型与凭据”、第 4 节 Spec 一条、第 5 节第 1 片；t02 决定 1、5
+- **现象**（行数用 `git show feat/w00002-harness-kernel:<路径> | wc -l` 数的）：
+  - 分支 `packages/nb-harness/src` 非测试源码共 7192 行：session 1570、runtime 1764、profile 1307、tools 732、compaction 363、models 357、config 347、builtin 752。新内核要重写的是 session、runtime、profile 三块（共 4641 行，64%）：事件模型换了（`Event` 带 `scope/kind/type/source/seq/batch`，不再是 OMP `SessionEntry` 子集）、循环换了（不再套 `Agent`）、Profile 换成扩展加 JSX 模板。
+  - 计划点名要搬的：`jsonl.ts`（193 行）——但它的 `parseSession` 全部围着 `SessionEntry` 的校验（`headerProblem`、`storedEntryProblem`、`sequenceProblem`，在 315 行的 `entries.ts` 里）转，能原样用的只有 `splitLines`（严格 UTF-8、按字节找换行）、`writeAll`（短写处理）、`create` 的 `wx` 加失败清理、`repair` 的按字节截断，约 70 行；`tools/define.ts` 86 行；`compaction/trigger.ts` 23 行，但它 import 的 `ompSettings` 来自 `./soft`、类型来自 `../session/session`，要改写；`models/`（357 行）：`catalog.ts` 第 9 行 `import type {ConfigStore, HarnessConfig, ProviderConfig, ProviderModelConfig} from "../config/config"`，也就是它依赖 347 行的 `config/`，而计划没有列 `config/`。合计约 880 行，占 12%。
+  - 计划第 2 节“日志存储”行的理由写“t03 定会话为文件、可读、与 omp 兼容”。t03 的决定里没有“与 omp 兼容”（grep 只命中第 25 行 nb-story 旧日志一句）；兼容 OMP `SessionEntry` 是分支 `harness/session.md` 的目标，新 `Event` 形状与它不兼容，这条理由已经过期。
+  - master 上 `nb-harness` 自己已有一套在用的模型解析（`model.ts`、`catalog.ts`，nb-story 的 `resolveModel`、`clampEffort`、`listCatalog` 都从这里来）。计划再搬分支的 `models/` 进 `kernel/model/`，同一个包里就有两套模型目录与凭据，直到迁移 Task 才收拢。t09 决定 1 又说模型服务是单独的 `nbook.models` 插件。
+  - 第 4 节与第 1 片：分支的 9 份 Spec 搬到 master，其中 `session.md`（301 行）、`profile.md`（281 行）、`runtime.md`（278 行）合计 860 行，内容是“每会话一个 OMP `Agent`”“条目是 OMP 会话条目的子集”“`System/History/Appending` 布局”，全部被提案取代，计划自己也写了“按提案改写”。这三份其实是重新写，不是搬；另外 `builtin-tools.md`、`config.md`、`models.md`、`glossary.md` 在 t20 里没有对应代码（builtin 属 t12，models 属 t09），搬过来只是占位。分支 Spec 的 frontmatter 是 `status: implemented`，带“实现合同”“证据”两节，链接到分支里的源码路径，搬到 master 变 `planned` 要删这两节，还要登记注册表。
+- **为什么是问题**：计划里“照 t02 搬来”读起来像是内核的大头来自分支，实际是新写；估算与排期按“搬运”来算会低估第 2、6、9、10 片。Spec 方面，在内核接口还没被实现验证之前，先写 4 份大 Spec（session、profile、runtime、新 extensions）再逐片回改，是最容易返工的写法。
+- **如何核实**：`git show feat/w00002-harness-kernel:packages/nb-harness/src/models/catalog.ts | sed -n 5,12p`；`git show feat/w00002-harness-kernel:packages/nb-harness/src/session/jsonl/jsonl.ts | sed -n 60,100p`；`git show feat/w00002-harness-kernel:docs/specs/harness/session.md | sed -n 1,12p`。
+- **建议改法**（让部件变少）：
+  1. 不搬分支的模块，改成“按需抄函数”：存储只抄 `splitLines`、`writeAll`、`repair` 的截断逻辑；`define.ts` 的名字换算与参数校验抄过来；`trigger.ts` 重写成 23 行以内的纯函数。从 3.9 删掉“模型与凭据：搬分支 `models/`”和 `config/`，t20 只用 master 现有的 `model.ts` 解析出一个 `ModelInfo`，模型服务整体留给 t09。
+  2. 第 1 片只写两份新 Spec：`harness.session`（日志与写入批、位置章、指令的外部合同，这是持久化格式）与 `harness.extensions`；`profile`、`runtime` 两份随第 5、6 片合入后再写，避免在没验证的接口上写完再改；`tools`、`models`、`compaction`、`config`、`builtin-tools`、`glossary` 等对应 Task（t04、t09、t11、t12）开工时再搬。
+  3. 第 2 节“日志存储”行删去“与 omp 兼容”。
+
+### 11. 扩展 id 规则与 Profile 的键、v5 的例子、平台的插件 id 三者对不上；这条会写进日志的 `source` 与事件类型前缀，决定了就难改
+- **严重程度**：重要；**类别**：日志格式、与相邻 Task 衔接
+- **位置**：计划第 1 节决定 3（“扩展 id 为‘插件 id’或‘插件 id.名字’”）、3.2 `assemble.ts`（“id 全局唯一（含 Profile），格式‘插件 id’或‘插件 id.名字’”）；提案待定项 20；t05 第一轮（Profile key 带来源前缀）；`docs/specs/runtime/plugin-manifest.md` 第 48 行
+- **现象**：
+  - 平台规定插件 id 是 `publisher.name` 两段，内置插件 `publisher` 为 `nbook`。按计划的规则，扩展 id 只能是 `nbook.history` 或 `nbook.history.notice`。
+  - t05 定的 Profile key 是“带来源前缀（`builtin.writer`、`story.qa`、`user.my-writer`）”。计划又说装配时 id 含 Profile、必须是“插件 id 或插件 id.名字”。`builtin.writer` 的前缀 `builtin` 不是任何插件 id；用户级 Profile `user.my-writer` 根本没有所属插件。
+  - v5 例子自己就违反这条规则：`spike/v5/profiles.tsx` 里 `leader.default`、`builtin.writer`、`builtin.inline-editor`、`lab.few-shot`；`plugins.ts` 里的 `nb-memory`（单段）、`demo.router`、`demo.plan-watch`。
+  - Profile 自己既是 Profile 又是“最里层的扩展”，它的 id 同时是日志里 `source` 的值，也是它声明的事件类型前缀（`builtin.writer/xxx`）。
+- **为什么是问题**：计划按字面实现 `assemble.ts` 的校验，v5 的所有例子、测试工具里的缺省 Profile、t05 的 key 约定、nb-story 的 `story.qa` 都会被拒绝；若是为让它们通过而放宽成“任意带点的字符串”，那这条规则就等于没有。提案待定项 20 自己写了“现在定，晚改会牵动日志里的类型名”：一旦日志里已有 `source: "builtin.writer"`，改成 `nbook.agent.writer` 需要迁移每份会话日志。
+- **如何核实**：`grep -n 'id: "' .agents/works/w00032-agent-integration/tasks/t20-hooks/spike/v5/profiles.tsx .agents/works/w00032-agent-integration/tasks/t20-hooks/spike/v5/plugins.ts`；读 `docs/specs/runtime/plugin-manifest.md` 第 48 行；t05 第一轮第四条。
+- **建议改法**：把规则拆成两条，写进第 3 片并配一个装配错误表测试：
+  1. 插件贡献的扩展：id 必须是“所属插件 id”或“所属插件 id.一段名字”（宿主传入所属插件，内核校验前缀）。
+  2. Profile：id 是 t05 的 Profile key，`<来源>.<名字>`，来源是 `builtin`、`user` 或某个插件 id 的缩写；Profile 在扩展 id 之外还要查与所有扩展 id 不重复。日志里的 `source` 对 Profile 写这个 key。
+  并把 v5 例子里的 `nb-memory` 改成合规的 id，免得“例子即合同”误导。如果开发者想把 Profile 并入插件 id 命名，这是 t05 的 key 约定要改，要在这里一并报告而不是装配时才发现。
+
+### 12. 几项已确认的功能可以放到主线之后，晚加不改日志格式：预览的 `reconstructed`/`exact` 与请求录制、`SessionMirror`、`ctx.status`、`layer`
+- **严重程度**：建议；**类别**：过度设计、排期
+- **位置**：计划第 1 节决定 3、3.4（`ctx.status`）、3.2（`layer`）、3.10（`preview.ts`、`mirror.ts`）、第 5 节第 11 片
+- **现象与理由**（逐项给“晚加是否改日志”的判断）：
+  - **预览 `reconstructed` 与 `exact`、请求录制**：3.10 写“过去的请求由日志重建并用 `modelStarted.hash` 比对（`reconstructed`），录制打开时 `exact`”。(a) 提案第 18 节已经把“预览过去的请求原样复现”列为推迟；(b) 计划决定 3 写了“请求录制缺省关”，但整份计划里除这一句和 3.10 一句外没有任何录制的实现项，存哪里（日志内联、旁路文件）、设置在哪儿、谁清理都没写；(c) 重建需要“当时的 Profile 与设置”，而 Profile 是代码，t05 的重载做法是“打包加哈希，删旧模块缓存”，旧的包不保留，所以 Profile 改过之后 `hashMatches` 必然是 false，只在 Profile 没变时才有用。第一版只做 `next`（预览下一次请求）。晚加不改日志格式（`modelStarted.hash` 已在日志里）。
+  - **`SessionMirror`（`mirror.ts`）**：它是“帧 → 界面状态”的纯函数，唯一的使用方是浏览器侧的 nb-agent-ui 与 nb-story，计划自己写了“浏览器侧的帧消费”属于迁移 Task（第 7 节“未验证边界”），nb-agent-ui 要重写的 `createHarnessTranscript` 适配器就是它。在没有使用方的包里先写一份、迁移时再按真实使用改，等于写两遍。放进迁移 Task 做。
+  - **`ctx.status`**：只推界面、不进日志，是一个新增的帧类型与一个 ctx 方法，晚加完全向后兼容；而它要解决的“慢的处理函数挡住第一次请求”在 w00032 里没有哪个 Task 的插件会遇到（记忆检索在 nb-memory，不在本 Work）。
+  - **`layer: "outer" | "inner"`**：缺省 inner，不写就和现在一样，晚加是向后兼容的；在 w00032 范围内没有脱敏或审计插件（grep `脱敏`、`审计` 只在提案与 t14 的设计叙述里出现，没有 Task 要实现这样的插件）。
+  这些都是开发者已确认的决定，不是要改决定，只是改排期。
+- **为什么是问题**：计划已经是十二片、体量“本 Work 最大的一块”（第 8 节第一条风险）；这四项都是“有使用方才有意义、晚加零迁移成本”的东西，放在主线里只增加到“能端到端跑”的距离。
+- **如何核实**：对照提案第 18 节、计划 3.10 与第 7 节“未验证边界”，`grep -n "录制" plan.md`（只有第 18、112 行两处）。
+- **建议改法**：新增“第 13 片（可选）：`reconstructed` 预览、请求录制、`ctx.status`、`layer`”，主线完成后按需做；`SessionMirror` 并入迁移 Task。必须现在做、晚改代价大的反过来写清楚：日志格式（批、位置章、事件名、`source`、`commandId` 幂等键）、扩展 id 规则（第 11 条）、`runEnded.reason` 与 `assistant.stopReason`（第 3 条）、大块内容存放（第 7 条）、会话头与会话级事件（第 6 条）。
+
+更正（针对第 12 条，追加说明，不改上文）：第 12 条里“grep `脱敏`、`审计` 只在提案与 t14 里出现”不准确。准确的核实结果是：w00032 的各 Task README 里没有任何一个 Task 要实现脱敏或审计类拦截插件；`审计` 在 t16 指命令审计、与拦截层无关；t12 把 shell 的密钥正则明确留到“以后专门做安全时”。记忆检索（`ctx.status` 的动机）：w00032 的 Task README 里只有 t09 提到 nb-memory 的向量模型、t20 自己提到，没有 Task 实现检索类扩展。结论不变，依据以此为准。
+
+### 13. 第一个真实使用方（nb-story）要等 t20 全部做完、深入审查之后才出现；内核的缺口会在“已完成”之后才暴露
+- **严重程度**：重要；**类别**：顺序、与相邻 Task 衔接
+- **位置**：计划第 1 节决定 1（“t20 完成后紧接着开迁移 Task：nb-story 改用新内核（顺带用上 rewind……来验证内核）”）、收口一段（深入审查）；`packages/nb-story/src/qa/engine.ts`
+- **现象**：计划里内核的验收只有自写的场景测试与一次 `kernel.llm.test.ts`；用真实使用方验证内核被放到“紧接着的迁移 Task”。nb-story 的问答是内核今天唯一的真实使用方：`engine.ts`（596 行）用 `createHarness`、`createToolRegistry`、`registerPlugin`、`harness.subscribe`、`harness.turn(first)` 再 `harness.turn(recheck)` 两轮，带 `finish: true` 的 `answer` 工具与账本校验（`tools.ts` 178 行），模型解析 `harness-model.ts`。这些恰好覆盖第 3 条列出的收尾工具、`TurnResult`、错误归类、同一会话两轮、订阅事件，还有 nb-story 的 `engine.test.ts` 用 `@notnotype/nb-harness/testing` 的 `toolCall`、`ScriptedInput` 脚本化。
+- **为什么是问题**：深入审查在“全部片提交后”才做（计划收口一段），到那时才发现第 3、5 条这类缺口，就是在审查之后、迁移 Task 里改内核与日志格式，等于第二轮返工；而且迁移 Task 的开发者要同时面对“迁移”与“补内核”两件事。内核作为“全 Work 最大的一块”，十二片之内没有一次真实使用方的端到端验证。
+- **如何核实**：读 `packages/nb-story/src/qa/engine.ts` 第 420 到 520 行、`tools.ts` 第 140 到 178 行。
+- **建议改法**：不改“删旧实现”的安排，只加一道验收门，放在第 6b（单轮循环加工具）之后与第 12 片之前：在 scratch 里把 nb-story 的 `story.qa` Profile 与 `answer` 工具用新内核写一遍（不进 nb-story 包，只作为 `kernel/testing` 下的一个验收测试，使用 nb-story 现有的账本与校验函数或其副本），跑通“两轮、收尾工具、校验失败再交、中止”四个场景。发现的缺口回写计划与提案，再继续后面的片。迁移 Task 的工作量因此也能提前估准。同时给开发者一个能玩的入口：一个 `bun run chat` 脚本（约百行，readline + JSONL 存储 + 真适配器），第一次纵切接通就能让开发者在终端里看到“指令进、帧出”的实际样子，DX 问题（比如处理函数超时、批写入的耗时）比读场景测试早得多暴露。
+
+### 14. 存储写失败与“先落盘、再归约、再发帧”的顺序没有写；日志是唯一真相源时，写失败是最重要的失败模式
+- **严重程度**：重要；**类别**：边界、失败语义
+- **位置**：计划 3.1、3.4、3.10“帧”；v5 `host.ts` 的 `commandErrors`；提案第 2 节“写入批”
+- **现象**：计划与提案没有定义 `append` 失败（磁盘满、权限、状态根被移走、`fsync` 失败）时内核怎么办。grep `store-failed`、`写失败`、`磁盘`、`append.*失败` 在计划、提案、`host.ts` 都无结果；`commandErrors` 里没有存储类失败码，只有 `session-closed`。3.4 说反应输出“完成时作为一个写入批写入”，3.10 说帧里有 `log`，但没有写出顺序：是 `append` 成功之后才归约并发帧，还是归约后发帧再异步落盘。
+- **为什么是问题**：
+  1. 若先归约、发帧，后落盘：崩溃或写失败后，界面已经画过的事件在重启时消失（用户看到“发出去了”的话没了、`inputConsumed` 对应的缓冲区状态回退），`commandId` 重发还可能被当作新指令；`reset` 帧只解决服务端丢帧，不解决“帧里有、日志里没有”。
+  2. 中途写失败时：模型已经回复且花了钱，`assistant` 事件写不进去；若内存状态已经前进，下一步会在“日志里没有、内存里有”的状态上继续，重启后日志与现场分叉，严格模式的“从头归约与现场比对”在线上不存在。
+  3. 写失败后连 `runEnded` 也写不了，运行无法按计划的“任何一步出错都写 turnEnded、runEnded 收口”收口。
+- **如何核实**：`grep -n -i 'store-failed\|写失败\|磁盘' plan.md docs/proposals/agent-harness-event-model.md spike/v5/host.ts`（无结果）；读分支 `jsonl.ts` 的 `append`（失败返回 `store-failed`，上层怎么处理没有说明）。
+- **建议改法**：在 3.4 写三条规则并各配一个存储故障场景测试（用一个只在第 N 次 `append` 抛错的 `LogStore` 包装，不用 mock 框架）：
+  1. 写入顺序固定：`append` 成功 → 归约 → 发 `log` 帧 → 派发反应；失败的批整批不生效。
+  2. 写失败让会话进入 `failed` 状态：当前运行以内存态结算（不写日志），所有指令返回 `store-failed`（加进 `commandErrors`），发一个 `reset` 帧，只允许 `close` 与重新 `open`（重新 `open` 时再校验日志，丢掉不完整的批）。
+  3. `commandId` 的幂等索引只在 `append` 成功后登记。
+
+### 15. t03 的分支操作只落了“回退”和“编辑重发”：重试、swipe、切换兄弟分支、路径与兄弟节点查询在指令、查询和切点规则里都没有
+- **严重程度**：建议；**类别**：与相邻 Task 衔接、欠设计（从代码推断，未运行）
+- **位置**：计划 3.6 `rewind.ts`、`commands.ts`；v5 `host.ts` 的 `SessionQueries`、`RewindTarget.kind`；t03 决定 2；t17 的分支树面板
+- **现象**：t03 决定 2：“重试与 swipe 是同一条用户消息下的助手兄弟节点；编辑重发是原消息父节点下的用户兄弟节点；从此处分支把叶子移到该消息；切到兄弟节点时叶子落到那条分支最近写入的末端；……harness 提供‘路径’‘兄弟节点’查询”。我 grep 了计划、提案、`host.ts`：没有出现 `swipe`、`重试`（仅压缩重试与适配器重试）、`兄弟`、`sibling`。`SessionQueries` 只有 `snapshot`、`log`、`rewindTargets`、`preview`、`diagnostics`；`rewind` 的目标种类只有 `before-turn`、`after-turn`、`after-step`，没有“输入之后、第一次回复之前”。`rewind` 的 `resend` 回退后会写新的 `input`，得到的是用户消息的兄弟，正好对应“编辑重发”；但“重试”要的是同一条用户消息下的助手兄弟，需要目标落在输入节点本身，再让 `start()` 在这个“进行中的一轮”上继续。切到兄弟分支末端也没有对应指令。
+- **为什么是问题**：这些全是 t17 的分支树面板与重试、swipe 按钮要用的合同（t17 第一版面板“会话列表、分支树”）。计划 3.6 把 `rewindTargets()` 说成“与压缩切点同一条规则（轮或步的边界）”，而压缩切点的规则是“只能是轮的 `turnStarted` 或进行中这一轮某一步的 `assistant`”，不包含输入节点之后；复用同一条规则，重试就表达不出来。每一项单独加都是向后兼容的，但“重试要不要是 `rewind` 的一个目标种类、`start()` 对进行中的一轮是继续还是新开一轮”会影响第 6 片的 `loop.ts` 与 `recover.ts`（恢复本来就要处理“进行中的一轮”），宜在写 `loop.ts` 时一并想清楚。
+- **如何核实**：`grep -n -i "swipe\|兄弟\|sibling" plan.md docs/proposals/agent-harness-event-model.md spike/v5/host.ts` 无命中；读 `host.ts` 的 `RewindTarget`。
+- **建议改法**：在 3.6 加一小段：`rewindTargets()` 另加一个目标种类 `after-input`（叶子落在 `input` 节点，只用于重试）；`start()` 在“路径末端是进行中的一轮”时继续这一轮（`recover()` 用同一条规则）；加 `SessionQueries.siblings(nodeId)` 与 `switchTo(nodeId)`（叶子移到该节点所在分支最近写入的末端，同样写 `leafChanged`），树面板的数据照 t03 从日志算。若第一版不做 swipe，就在“不做”里写明，并让 t17 知道。
+
+### 16. 第 0 片把一次 12 个小版本的 OMP 升级压在“即将删除的旧实现”的测试上，新内核本身并不依赖这次升级才能开工
+- **严重程度**：建议；**类别**：顺序、与旧实现的关系
+- **位置**：计划第 5 节第 0 片、第 2 节“与服务商通信”行；t02 决定 4；`packages/nb-harness/package.json`
+- **现象**：第 0 片要求“OMP 全部 `@oh-my-pi/*` 升到 18.14.0（先读 18.2.5 起的 changelog）”，验证是旧实现的测试与 `test:affected`（含 nb-story、nb-agent-ui）。依赖是精确锁定、必须一次改完（`packages/nb-harness/AGENTS.md`“开工前”）。新内核用到的是 `streamSimple`、`pi-catalog`；master 的 `complete.ts` 现在就 `import {streamSimple} from "@oh-my-pi/pi-ai"`，也就是 18.2.5 上已经可用。旧实现用 `pi-agent-core` 的 `Agent`（计划自己写了新内核不再用它），而且按计划迁移 Task 紧接着就删旧实现。
+- **为什么是问题**：若 18.14.0 改了 `Agent`、`transformContext` 或工具协议，第 0 片的时间花在让将被删除的代码重新通过测试上，且阻塞第 1 片之后所有事情（计划写的是“第 0 片单独做”）。t02 决定 4 写“搬包时升到当时最新”的前提是整包搬运，新计划已不是整包搬运（见第 10 条）。真正需要核实的只有一件事：新内核依赖的那一小块（`streamSimple` 的事件流、`AssistantMessage` 的错误标记 `Flag`、思考块签名、`pi-catalog` 的模型字段）在 18.14.0 上是否仍然成立。
+- **如何核实**：`grep -n "streamSimple\|oh-my-pi" packages/nb-harness/src/complete.ts packages/nb-harness/package.json`；对比 18.2.5 到 18.14.0 的 changelog 里与 `pi-ai`、`pi-catalog` 有关的条目。
+- **建议改法**：第 0 片改成“探针”：在 scratch 或 worktree 里只升 `pi-ai`、`pi-catalog` 的一份副本，跑一遍本机 OpenAI 兼容端点的 `provider.test.ts`，列出破坏性变化；整体升级与第 6 片之后的适配器切片（第 1 条的纵切）合并，或放进迁移 Task 删旧实现时一起做，那时没有旧实现要照顾。如果开发者仍想先升（2026-10-29 的决定），给第 0 片加时间盒，超过后旧实现的失败用例交迁移 Task 处理而不是阻塞内核。
+
+### 17. “写入批中途 `kill -9` 后重开”测不到不完整的批：进程被杀时已完成的 `write` 不会丢，要的是可重复的截断，不是碰运气的杀进程
+- **严重程度**：建议；**类别**：验证方法
+- **位置**：计划第 7 节“崩溃”一条、第 6 节验收映射第一行、第 5 节第 2 片；第 3.1 的批原子性设计
+- **现象**：第 7 节写“子进程跑一次运行，在写入批中途 `kill -9`，父进程重开，断言不完整的批被丢弃、`recover()` 收口为 `interrupted`、缓冲区里没取走的输入还在”。
+- **为什么是问题**：`kill -9` 只杀进程，不动已经交给内核的 `write`。一次 `write` 把一批所有行交给内核后，进程被杀，文件里仍是完整的批（页缓存还在）；只有“一次 write 的中途被杀”、批横跨多页且恰好撞上内核逐页拷贝的间隙，才会留下不完整的批，窗口极小、不可重复。所以这个测试大概率断言“不完整的批被丢弃”时看到的是完整批，断言空过，或者靠随机时机偶尔触发而变成不稳定的测试。这条是批原子性的核心保证（计划第 8 节第三条风险也在说它），验证它的方法不能靠运气。
+- **如何核实**：在 scratch 里写一个子进程循环 `write` 一个 64 KB 的批后立刻 `kill -9`，父进程读文件长度，多次重复，看是否出现不完整（我没有做大规模重复，这一条是从内核行为推断的，标为“未验证”）。
+- **建议改法**：两个测试各管一件事：
+  1. **批完整性**（第 2 片）：造一份真实写出的日志，对最后一个批的每一个字节偏移各截断一次（几千字节、毫秒级，纯文件操作），重开并断言结果只有两种：整批都在，或整批都不在且 `repair` 之后文件长度恰好是前一批的末尾，后续追加不会和残留拼在一起；
+  2. **运行中断恢复**（第 6 片）：子进程用测试注入的脚本化工具，在工具开始执行时（日志里已经有 `toolStarted`）自己对自己发 `SIGKILL`，位置确定、可重复；父进程重开断言 `recover()` 的结果。
+
+补充核实（第 17 条，追加）：我在 `/tmp/review-w00032-t20-plan/scratch/killwrite.ts` 里做了实验：子进程在紧循环里反复 `writeSync` 64 KB（一个“批”）到同一个文件，父进程在 5 到 45 毫秒的随机时刻 `SIGKILL`，共 150 次，文件长度不是 64 KB 整数倍（即出现不完整的批）的次数是 0。本机 Linux 7.2.7、bun 1.4.2、btrfs，结论是：用 `kill -9` 在写入批中途制造不完整的批，实际上做不到；上文“未验证”改为“150 次实验 0 次出现”。计划第 7 节那个断言应改用字节截断。
+
+## 风险排序（对照计划第 8 节）
+
+我认为按“出问题时返工量”从大到小应是：
+1. 状态机核心（缓冲区、队列与循环交织、写入批、位置章、`mount`、等用户）没有原型（第 9 条）；计划第 8 节写成了“类型推断”。
+2. 适配器与 OMP 的对接排在最后（第 1 条）：ModelRequest 的形状、`assistant` 的字段、日志的结束原因都取决于它。
+3. 写进日志、晚改要迁移的东西没有现在定：会话头与会话级事件（第 6 条）、扩展 id 规则（第 11 条）、大块内容存放（第 7 条）、`runEnded.reason` 与 `stopReason`（第 3 条）。
+4. 内核对外的依赖注入口与工具上下文（第 4、5 条）：t04、t06、t09、t11、t14 都挂在上面。
+5. 性能（第 7 条）：计划把它放最后一片，但结构在第 3、5 片就定。
+计划第 8 节已列的“体量最大”“OMP 升级”“批原子性”“10 万条打开 1 秒”“接口没跑过”中，“OMP 升级”风险较小（第 16 条），“批原子性”的验证方法有问题（第 17 条）。第 8 节漏掉的：存储写失败（第 14 条）、t07 已定行为没落地（第 8 条）、nb-story 迁移时才暴露内核缺口（第 13 条）。
+
+## 未发现问题的方面
+
+核对后认为成立、没有发现问题的部分：
+- 单写者队列加 `commandId` 幂等索引 `(source, key)` 的总体设计，与 t14 决定 24（幂等键是“父会话 id 加工具调用 id”）和提案第 3 节一致；索引在加载时一次扫描建立，代价是线性的。
+- 写入批“每行带 `batch: {id, n, of}`、加载时丢弃末尾不完整的批”的规则本身自洽，且比“提交标记行”少一次扫描；有问题的是验证方式（第 17 条）和 `repair` 要处理整行缺失（已写在第 17 条建议里）。
+- 3.7 等用户与 t14 决定 23、24 的对应：同批多事项、`already-answered`、`unknown-interaction`、中止注明 `aborted`、异步提问进缓冲区，都对得上。
+- 3.6 的 `shared`/`exclusive` 切段与 t14 决定 25、26 一致；结果按调用顺序整批写入、整批写完再派发反应，与提案第 9 节一致。
+- t06 改判与计划的接口：审批钩子 `approve(call, info) → allow | deny | ask`，t20 只给“全部放行”的缺省实现，规则与审批模型留给 t06，符合“先 yolo 再 auto”的顺序；缺口只在 `interactionResolved.decision` 的取值要在 t06 前定好形状（可加字段，向后兼容），没单独成条。
+- t04 的名字换算（`.` 换 `__`、上限 64）写进了 3.6，与 t04 决定 1 及 2026-10-30 的改动一致。
+- 工作方式：Spec、提案、Task 记录在主工作区 master 改，代码在 worktree，与仓库规则一致；测试规则（注入时钟、不用假计时器、真实存储）与 `docs/testing/README.md` 一致。
+- 开发者已确认的决定能否落地：`layer`、`<Slot drop>`、`ctx.status`、上限 3/3/30 秒、一次逻辑请求一条 `modelStarted`、扩展 id 方案中除第 11 条外都能落地；与其它已定设计的冲突只有第 11 条（扩展 id 与 Profile key）与第 7 条（快照与“按测量决定”同句）。
+
+## 数量
+
+- 阻断：0
+- 重要：13（第 1 到 11、13、14 条）
+- 建议：4（第 12、15、16、17 条）
+- 合计 17 条（另有第 12 条下一处更正说明、第 17 条下一处补充核实，不计条数）
+
+没有阻断级问题：没有哪一条让计划完全无法开工。但第 3、4、5、6、11 条属于“写进日志或公共接口、晚改要迁移”，建议在第 2 片开工前先补进计划；第 1、2、9 条改变切片顺序，建议开工前调整。
+
+实验产物（只在 scratch 下，可删）：`/tmp/review-w00032-t20-plan/scratch/parse-bench.ts`、`/tmp/review-w00032-t20-plan/scratch/killwrite.ts`。

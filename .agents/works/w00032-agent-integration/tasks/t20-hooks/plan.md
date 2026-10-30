@@ -1,188 +1,253 @@
-# t20 实施计划：harness 事件模型内核
+# t20 实施计划（第二版）：harness 事件模型内核
+
+第一版（提交 04d13a262）经六位审查者审查（omp、Claude Opus、四个 Claude Sonnet：接口形状、开发体验、代码组织、拉远看），108 条（阻断 8、重要 70、建议 30），报告在 `evidences/plan-review-r1-*.txt`，逐条处理见 [`evidences/plan-review-r1-disposition.md`](evidences/plan-review-r1-disposition.md)。第二版按处理结果重写。
 
 ## 1. Context
 
-**为什么做**：w00032 接入 Agent 的各个 Task（t03 会话、t05 Profile、t06 审批、t07 运行控制、t09 模型、t10 插件、t11 压缩、t14 多 Agent）都建在 harness 内核上。t20 讨论定了内核的形状：一台由日志驱动的异步状态机（[提案第五稿](../../../../../docs/proposals/agent-harness-event-model.md)），开发者 2026-10-29 认可，定为实施时排在最前。
+**为什么做**：w00032 接入 Agent 的各个 Task（t03 会话、t05 Profile、t06 审批、t07 运行控制、t09 模型、t10 插件、t11 压缩、t14 多 Agent）都建在 harness 内核上。t20 讨论定了内核的形状：一台由日志驱动的异步状态机（[提案第五稿](../../../../../docs/proposals/agent-harness-event-model.md)），开发者 2026-10-29 认可，实施时排在最前。
 
-**期望结果**：`@notnotype/nb-harness` 里有一个能用的新内核：指令进、帧出；日志是唯一真相源；扩展与 Profile 用同一套接口；回退、重启、压缩、预览由日志归约自动正确；插件作者能用真内核写测试。
+**期望结果**：`@notnotype/nb-harness` 里有一个能用的新内核：指令进、帧出；日志是唯一真相源；扩展与 Profile 用同一套接口；回退、重启、压缩由日志归约自动正确；插件作者能用真内核写测试；nb-story 现在依赖的语义（收尾工具、运行结果、`complete()`、错误归类、密钥遮盖、停服收尾）在新内核里都有对应，紧接的迁移 Task 不必改内核。
 
-**依据**：
+**依据**：提案第五稿；接口原型 [`spike/v5/`](spike/v5/api.ts)（第 1 片按本计划改成定稿类型）；能跑的参照是第三稿 spike（`spike/kernel.ts`、`core.ts`、`template.ts`、`check.ts`）。相关决定：t02 决定 1–7；t03 决定 1–6；t04 决定 1–7（名字上限 64）；t06 决定与 2026-10-30 改判；t07 决定 1–7；t09 决定 4–7；t11 决定 1–9；t14 决定 10、17、20、23–33。现行合同 [`agent/harness.md`](../../../../../docs/specs/agent/harness.md)（输出 10–21 是 nb-story 依赖的语义）。
 
-- 提案第五稿（第 1–16 节、待定项）；接口以 [`spike/v5/`](spike/v5/api.ts) 为准（`api.ts`、`host.ts`、`testing.ts`），能跑的参照是第三稿 spike（`spike/kernel.ts`、`core.ts`、`template.ts`，53 个场景 `check.ts`）。
-- t02 决定 1–7（包与分工、OMP 升级、Spec 随代码搬来；运行时层按语义参照、不照搬分支）；t03 决定 1–6；t04 决定 1–7；t06 决定与 2026-10-30 改判；t07；t11；t14 决定 10、17、24–27 与提案末尾 2026-10-30 的三处内核修正。
+**开发者已确认的决定**：
 
-**开发者已确认的决定（2026-10-30）**：
+2026-10-30 第一轮：
 
-1. 起点与落点：新内核作为 `nb-harness` 的新实现，以第三稿 spike 为起点按第五稿重写；分支 `feat/w00002-harness-kernel` 的 JSONL 存储、工具声明与校验、模型目录与凭据、压缩触发估算照 t02 搬来。开发期间旧的 `createHarness` 留着只为让 nb-story、nb-agent-ui 的测试照跑；t20 完成后紧接着开迁移 Task：nb-story 改用新内核（顺带用上 rewind 等 nb-story 没用到的功能来验证内核），nb-agent-ui 的 transcript 适配器按新日志重写，删旧实现，`nb-session`、`nb-profile` 停更。
-2. 范围只做包内内核（见第 8 节“不做”）。
-3. 提案待定项按推荐定：叫“扩展”；Profile 在拦截链最里层；拦截加 `layer: "outer" | "inner"`（缺省 inner，脱敏与审计用 outer）；上限反应链 3 层、`continue` 每轮 3 次、处理函数 30 秒；快照存在压缩点加稀疏检查点（按第 12 片的测量决定是否要检查点）；请求录制缺省关；工具拦截附加的说明进日志；流式增量不给扩展；一次逻辑请求一条 `modelStarted`；扩展 id 为“插件 id”或“插件 id.名字”；`input` 保持；加 `<Slot drop>` 与只推界面的 `ctx.status`；性能预算 10 万条事件打开 1 秒内、算一次请求 50 毫秒内。待定项 7（反应的主动接口）、8（大块内容另存）、11（请求完整形状）、13（导出过滤）在实现中定，定了写进 Spec 与本计划。
-4. 审查：本计划走快速审查（omp 会话加 Claude Opus 同开，Opus 的结论处理完就开工，omp 的报告回来再处理）；实现做一次深入审查，开审前报计划与预算。
+1. 新内核作为 `nb-harness` 的新实现，以第三稿 spike 为起点按定稿类型重写；分支 `feat/w00002-harness-kernel` 只取 JSONL 存储的写入与截断代码、工具参数校验的调用方式（实际可复用约一成，审查 Z10）。开发期间旧的 `createHarness` 留着只为让 nb-story、nb-agent-ui 的测试照跑；t20 完成后紧接迁移 Task：nb-story 改用新内核（顺带用上 rewind 等它没用到的功能），nb-agent-ui 的适配器按新日志重写，`SessionMirror` 在那里照浏览器的真实用法写，删旧实现与 `agent/harness.md`，`nb-session`、`nb-profile` 停更。
+2. 范围只做包内内核（第 8 节“不做”）。
+3. 提案待定项：叫“扩展”；Profile 在拦截链最里层；拦截加 `layer`；上限反应链 3 层、`continue` 每轮 3 次、处理函数 30 秒；请求录制缺省关；工具拦截附加的说明进日志；流式增量不给扩展；一次逻辑请求一条 `modelStarted`；`input` 保持；加 `<Slot drop>` 与 `ctx.status`。
+4. 审查：计划走快速审查；实现做一次深入审查，开审前报计划与预算。
 
-**工作方式**：Work 分支 `feat/w00032-agent-integration`，worktree `.worktree/w00032-agent-integration`（从本地 master 建）；主会话自己写（线性推进，上下文在主会话里）；Spec、提案、ADR 与 Task 记录在主工作区 master 上改、路径限定提交。
+2026-10-30 第二轮（第一轮审查之后，全部按推荐）：
+
+5. 服务重启时有运行在等审批或回答：一律收口为“中断”，等待中的事项结算为 `interrupted`；被中断的提问在重开后由界面提示重新问（不从日志续跑）。审批等待中的调用还没执行，结算为 `denied`（码 `interrupted-before-approval`），不是“结果未知”。
+6. 用户输入的脱敏：输入拦截链在指令受理时（入队、改）就跑，`inputQueued`、`inputEdited` 存拦截后的文字，`redacted` 时原文只记哈希；取走时不再拦截。改提案第 9 节“输入拦截读取走这条输入时的叶子”为“读受理时的叶子”。
+7. `commit` 只拿这一轮与渲染工具，是纯函数；`turn` 仍能读视图。改提案第 7、20 节。
+8. nb-story 依赖的语义放进 t20：收尾工具（t14 的 `yield` 是按会话动态生成的收尾工具）、运行结果、`complete()`、停止原因（含 `length`）、错误归类（含 `rate_limit`）、密钥遮盖、进程中断与停服收尾、相邻 user 消息合并、只用指定的密钥环境变量。
+9. 性能预算：典型 2 万条事件（约 1,500 轮）打开 1 秒内、算一次请求 50 毫秒内，打开后常驻内存不超过 200 MB；10 万条只作压力测试、报数不验收。第一版不做检查点快照。超过 16 KB 的字符串从第一版起另存为会话目录里按内容寻址的文件，日志里只记哈希与长度（落盘格式现在定；第一版加载时全量读回，按需读取以后做，不改格式）。
+10. 挪到主线之后的可选片：预览过去请求的“重建”与请求录制、`ctx.status`、拦截的 `layer`；`SessionMirror` 并入迁移 Task。
+
+主 Agent 照审查意见订正与补定（开发者知悉）：
+
+11. 扩展 id 两条规则：插件贡献的扩展 id 是“所属插件 id”或“所属插件 id.一段名字”（宿主传入所属插件，内核校验前缀）；Profile 的 id 是 t05 的 key `<来源>.<名字>`（`builtin.writer`、`story.qa`、`user.x`），与所有扩展 id 不重复。日志的 `source` 与扩展事件前缀都按这个 id。第一版计划把两条并成一句是概括错误。
+12. 会话互斥：打开会话时在会话目录取锁，第二个进程（或同进程第二次打开）得 `session-busy`。
+13. 提案待定项 7（主动接口）定最小形状：压缩方法与审批钩子经 `ctx.model(request, {purpose, role?})` 调模型，内核写 `modelStarted`、过模型拦截链、计用量、接中止；`RequestPurpose` 加 `approval`。待定项 8 见第 9 条。待定项 11 在第 1 片的定稿类型里定（请求带完整工具声明、内容块含思考签名与图片）。待定项 13 定最小形状：宿主可给一个出站过滤（日志查询与帧推出前调用），nb-story 的防剧透用它。
+
+**工作方式**：Work 分支 `feat/w00032-agent-integration`，worktree `.worktree/w00032-agent-integration`；主会话自己写；Spec、提案、ADR 与 Task 记录在主工作区 master 上改、路径限定提交。
 
 ## 2. 技术选型
 
 | 通用问题 | 选用 | 理由 | 否决 |
 |---|---|---|---|
-| 日志存储 | 分支的 JSONL 存储（`session/jsonl/jsonl.ts`），加写入批 | t03 定会话为文件、可读、与 omp 兼容；分支已有按字节截断中断尾与 `repair` | SQLite：事务现成，但会话目录要可读可拷，且 nb-history 之外再引一份库文件不划算 |
-| 写入批的原子性 | 一批的全部行一次 `write` 后 `fsync`；每行带 `batch: {id, n, of}`，加载时末尾不完整的批丢弃 | 单写者下只有文件尾可能不完整，不需要提交标记行 | 每批另写提交标记行：多一行、读时要两遍扫描 |
-| schema 与校验 | TypeBox（设置、`initial`、`payload`、事件数据） | 仓库与平台合同已全是 TypeBox；nb-form 能照它画设置 | 另写 `setting.*` 辅助函数（提案第 20 节不采纳） |
-| 工具参数校验 | OMP 的 JSON Schema 校验器（分支 `tools/adapter.ts` 的理由：与服务商侧同一实现） | 直接调用与经模型调用结果一致 | TypeBox 校验器（pattern 的 `u` 标志语义不同） |
-| 提示词模板 | 自带的最小 JSX 运行时（spike `template.ts`，经典 JSX，`jsxImportSource` 指向包子路径） | 只有九个节点，不需要组件库 | React 或 prompt-tsx：依赖重、语义不同 |
-| 不可变状态 | 片按整片替换（补丁是浅层的），开发模式递归 `Object.freeze` | 补丁按片给，不需要结构化共享的库 | immer：多一层代理，冻结与快照语义要再对 |
-| 时钟与超时 | 注入的时钟接口（`now`、`setTimeout`），测试用手动推进的实现 | 提案第 9 节要求；仓库测试规则禁止假计时器 | `bun:test` 的假计时器 |
-| 请求哈希 | `node:crypto` 的 SHA-256，按块的来源与文字逐块累加 | 跨进程稳定，`Bun.hash` 不保证跨版本一致 | — |
-| id | `crypto.randomUUID()`；顺序靠 `seq` | 与分支一致 | ULID：顺序已由 `seq` 给出 |
-| 与服务商通信 | OMP `@oh-my-pi/pi-ai` 的 `streamSimple`（升到 18.14.0） | 开发者 2026-10-29 定；不再用 `pi-agent-core` 的 `Agent` | — |
-| token 估算 | 分支 `compaction/trigger.ts` 的估算（上一次用量加之后新增的内容） | 已按 t11 写过 | — |
+| 日志存储 | JSONL，会话一个目录 `<根>/<会话 id>/session.jsonl`；写入与截断代码取自分支 `session/jsonl/jsonl.ts` | t03 定会话为文件、可读可拷；t14 定 `sessions://<id>/` 映射整个会话目录 | SQLite：会话目录要可读可拷 |
+| 写入批 | 每行带 `batch: {id, n, of}`；一批一次 `write` 后 `fsync`；写或同步失败时句柄进“损坏”状态、拒绝之后的写入；重开时截到最后一个完整批的末尾（截下的尾部另存一份供查看） | 单写者下只有文件尾可能不完整；“结果不确定”由重开时的截断与指令幂等（3.2）共同收口 | 提交标记行：多一行、仍要处理写失败 |
+| 会话互斥 | 会话目录里的锁文件，`wx` 创建，内容是进程号与随机令牌；进程已不在时视为陈旧可回收 | Bun 没有跨平台的 `flock`；同机多进程足够 | 只靠“一个状态根一个服务端”的部署假设：内核也给 nb-story 这类独立程序用 |
+| 大块内容 | 超过 16 KB 的字符串写成 `blobs/<sha256>`，事件里记 `{$blob, size}` | 日志小、扫描与校验快；脱敏的哈希走同一条路 | 全部内联：10 万条每条 5,000 字解析要 651 毫秒、读进 525 MB（审查 Z7 实测） |
+| schema 与校验 | TypeBox | 仓库与平台合同已全是 TypeBox | — |
+| 工具参数校验 | OMP 的 JSON Schema 校验器 | 与服务商侧同一实现（分支 `tools/adapter.ts` 的理由） | TypeBox 校验器（pattern 的 `u` 标志语义不同） |
+| 提示词模板 | 自带的 JSX 自动运行时，`jsxImportSource: "@notnotype/nb-harness/prompt"`，导出 `jsx`、`jsxs`、`Fragment` 与空 `IntrinsicElements` | 与仓库其它包（nb-profile、nb-story）一致；子路径名与 `kernel` 无关，迁移后不用改作者的 tsconfig | 经典运行时 `h`：第一版计划自相矛盾处 |
+| 不可变状态 | 片整片替换，开发模式递归冻结 | 补丁按片给 | immer |
+| 时钟与超时 | 注入的时钟接口 | 提案第 9 节；测试规则禁止假计时器 | 假计时器 |
+| 请求哈希 | 每块 SHA-256，按块链式累加；已提交前缀的累加值按节点缓存 | 跨进程稳定；回退换叶时前缀可复用 | 整段一个摘要：不能续算 |
+| 与服务商通信 | OMP `streamSimple`（升到 18.14.0） | 开发者 2026-10-29 定 | — |
+| 错误归类 | 搬 master `run-result.ts` 的 `classifyProviderError`（按状态码与 OMP 错误标记，不看文字） | nb-story 在用，已有测试 | — |
 
 ## 3. 关键设计
 
-新代码放 `packages/nb-harness/src/kernel/`，子路径导出 `./kernel`、`./kernel/testing`、`./kernel/jsx-runtime`、`./kernel/jsx-dev-runtime`；旧的 `.`、`./testing` 不动。迁移 Task 删旧实现时再决定新内核是否升为根导出。
+### 3.0 分层与依赖
 
-### 3.1 `kernel/log/`：事件、写入批与存储
+新代码在 `packages/nb-harness/src/kernel/`，只用相对导入、不引用 `kernel/` 之外的旧文件（删旧实现后整体上移一层不改导入）；包 `AGENTS.md` 写明“`kernel/` 是 harness 的新实现，不是 `nb-runtime` 的内核”。
 
-- `events.ts`：`Event`、`KernelEvents`（v5 `api.ts` 的表，等用户改为 `interactionRequested`、`interactionResolved`，提案第 11 节）、`Scope`、`kind`、位置章 `place: {kind: "attachment", turnId} | {kind: "after-step", turnId, step} | {kind: "next-turn"}`（只在 `conv` 上）。
-- `store.ts`：`LogStore` 接口 `{create(header), load(id), append(batch), repair(id)}`；`memory-store.ts`；`jsonl-store.ts` 由分支 `session/jsonl/jsonl.ts` 改来：行加 `batch` 字段，`load` 丢弃末尾不完整的批并报告。
-- `validate.ts`：打开时校验（id 唯一、seq 递增、父节点在前、类别与作用域合法、类型是内核事件或带扩展前缀、幂等键不重复、批完整），不过就拒绝打开，失败码 `log-corrupt`。
-- 幂等：`(source, key)` 索引；命中返回第一次的结果，不跑反应。
-- 不变量：已写的行不改；单写者（3.4）保证同一会话只有一个写入顺序。
+| 目录 | 职责 | 可依赖 |
+|---|---|---|
+| `api/` | 全部公开类型、事件表、码表（命令、工具、存储、诊断）；没有运行时代码 | 无 |
+| `log/` | 存储、写入批、锁、大块内容、校验、修复 | `api`；唯一用 `node:fs` 的地方 |
+| `state/` | 归约、片的持久化、`core.history`、内核自己的片（缓冲区、设置、待处理事项、批准记忆、告知过的工具集） | `api` |
+| `extension/` | `define*`、Profile、装配、各档 `ctx` 的唯一构造点、`emit`/`set` 收集器 | `api`、`state` |
+| `view/` | JSX 运行时与模板、布局、`format`、请求的计算与校验、`outline`、槽 | `api`、`state`、`extension` |
+| `dispatch/` | 单写者队列、反应、`mount` | 以上 |
+| `run/` | 指令、循环、工具与收尾、通用拦截链 `runChain`、审批、等用户、中止、恢复、回退与分支 | 以上（经 `SessionCore` 的窄接口） |
+| `compaction/` | 触发估算、切点、公共流程 | 以上 |
+| `model/` | 模型端口与 OMP 适配器、错误归类、遮盖 | `api`；唯一用 OMP 运行时包的地方 |
+| `session/` | `SessionEnv`、`openSession`/`createSession`/`closeSession`、`AgentHost` 与扩展接收者、帧、预览、诊断、运行结果、`complete()`、进程收尾 | 以上 |
+| `helpers/` | `reminder`、`opening`、`standardLayout`、`finalOnly`、`withoutEvents`、`deriveProfile` | `api`、`extension`、`view` |
+| `testing/` | `createTestSession`、假模型、假工具、时钟 | 全部；产品代码不引用它 |
 
-### 3.2 `kernel/extension/`：接口、契约与装配
+会话的共享对象 `SessionCore` 定义在 `dispatch/`，持有日志句柄、状态、队列与装配结果；`run/`、`view/`、`compaction/` 只拿它的窄接口，反应里的 `continue`、`abort` 经它上面的回调注入（`dispatch` 不引用 `run`）。第 1 片带 `kernel/architecture.test.ts`（照分支那份改模块表），守住上表的依赖方向、`node:fs` 与 OMP 的使用范围、`testing/` 不被产品引用。
 
-- `define.ts`：`defineExtension`、`implement`、`defineContract`、`optional`、`shape`、`slice`、`conv`、`ext`，类型照 v5 `api.ts`（含 `NoInfer` 护栏、`NoKernelNames`），运行时只是带品牌的普通对象。
-- `profile.ts`：`defineProfile`、`deriveProfile`（必须给新 id；`render`、`tools`、`extensions` 逐项合并）。
-- `assemble.ts`：输入 Profile、宿主给的插件扩展（按 `pluginExtensions` 排除）、内置扩展（`core.history`、`core.compaction`）；输出有序的扩展表与清单哈希。规则：id 全局唯一（含 Profile），格式“插件 id”或“插件 id.名字”；`dependsOn` 拓扑排序、同层按 id；缺依赖、成环、重复拒绝并列出来源；装配时检查设置的每项都有 `default`、处理函数与 `render` 的键都是已知事件、槽名。拦截顺序：`layer: "outer"` 的插件扩展、`inner` 的插件扩展、Profile 的 `extensions`、Profile 自己、审批（内核）。
+子路径导出：`./kernel`（运行时）、`./kernel/contracts`（`api/` 的类型与 `define*`、`slice`、`conv`、`ext`，不拖实现，契约放插件的 shared 模块时用它）、`./kernel/testing`、`./prompt`（模板节点与 JSX 运行时，`./prompt/jsx-runtime`、`./prompt/jsx-dev-runtime`）。旧的 `.`、`./testing` 不动；`./transport`（master 的 SSE 序列化，t02 决定 3）在迁移 Task 里从根导出挪出。
 
-### 3.3 `kernel/state/`：归约与 `core.history`
+每个目录的模块头注释写该目录的时序与不变量（仓库注释规范“最难懂的地方先写”），至少：`dispatch/queue.ts` 的排队粒度与哪些调用不经队列；`dispatch/reactions.ts` 的同事件并发与整批丢弃；`extension/ctx.ts` 每个入口读哪一刻的状态（搬 spike 头部那张表）；`log/jsonl-store.ts` 的批完整性判定与它依赖的单写者假设；`run/loop.ts` 的边界顺序。行为规则链接 Spec，不复述。
 
-- `reduce.ts`：每个扩展的片按作用域分两组；path 片随叶子走，session 片在树外；归约按“事件名 → 同作用域片的补丁”；出错写诊断、这次补丁不用、叶子照样前进；`resetOnCompaction` 的片在 `compaction` 上回到初值。
-- 状态的存放：path 片沿树做持久化（每个节点存相对父节点的变化，参照 spike `core.ts` 的持久链表），回退只换叶子。
-- `core-history.ts`：从位置章归约出 `Turn`（`input`、`attachments`、`steps{reply, results, after}`、`status`）与已提交的轮；导出 `input`、`current`、`turns`、`runs`。
-- 快照与检查点：第 12 片按测量决定；接口先留 `snapshotAt(node)`。
+### 3.1 定稿类型（第 1 片交付）
 
-### 3.4 `kernel/dispatch/`：单写者、反应与装上
+把 `spike/v5/` 改成 `kernel/api/`，附“第五稿 → 定稿”差异表进提案决策记录。要补或改的：
 
-- `queue.ts`：每个会话一条写入队列；指令、`mount` 里的外部事实、反应输出都排进来；前一项连同它引出的全部反应做完，后一项才开始。
-- `react.ts`：`on` 在事件写入并归约后调用；同一事件的处理函数看同一份状态、可并发、输出按扩展顺序写；`emit`、`set` 先收集、完成时作为一个写入批写入；抛错、超时整批丢弃并写 `extensionFailed{dropped}`；完成后再调用报 `emit-after-settle`；深度上限 3 写 `reactionLimit`；超时中止处理函数自己的 `ctx.signal`。
-- `mount.ts`：装上时调用、内核等它完成才受理指令；返回的清理函数在摘下时调用；`ctx.callback` 包外部回调。运行中写入的外部事实留到下一个边界。
-- `ctx.status(文字)`：只推 `status` 帧，不进日志。
+- **事件**：
+  - 等用户：`interactionRequested{id, callId, kind: "approval" | "question", request, async}`、`interactionResolved{id, decision, by, data?, note?}`，取代四个占位。
+  - 会话级（session 作用域、不移动叶子）：`titleChanged`、`archived`、`toolsAnnounced`（path 作用域：告诉过模型的工具集，t04 决定 6）、`commandAccepted{commandId, name, value}`（session）。
+  - `assistant` 加 `stopReason`（`stop`、`length`、`tool`、`error`、`aborted`）、`usage`（OMP `Usage` 的全部计数：`input`、`output`、`cacheRead`、`cacheWrite`、`cost | null`、`complete`）、`model`、`effort`。
+  - `runEnded.reason` 加 `finished`，带 `result?: {tool, args}`。
+  - `modelFailed.kind` 改为 master 的 `network | rate_limit | auth | quota | context_overflow | provider | local | aborted`。
+  - `toolStarted` 记审批之后、实际执行的参数；`toolResult` 加 `code?`（内核造的失败结果都有码）。
+- **类型改名**（避开 DOM 全局与一名两用）：`Event` → `LogEvent`，模板 `Node` → `PromptNode`，对话的 `Turn` 类型 → `ConversationTurn`（模板组件仍叫 `<Turn />`）。
+- **请求与回复**：`ModelRequest.tools` 是完整的工具声明（见下）；`Block.kind` 加 `image`、思考块带 `signature`、`redacted`；`ModelRequest` 加 `effort`；`RequestPurpose` 加 `approval`。`ModelResponse` 加 `stopReason`、`usage`。
+- **工具**：以 master 的 `ToolDeclaration` 为底（`id`、`description`、`parameters`、`provider`、`version`、`finish`、`concurrency`、`strict`、`customFormat?`），加 `effect: "read" | "write" | "exec"` 或按参数求值的函数；`name` 字段去掉（交给服务商的名字由适配器按 t04 换算，日志与 `ToolCall.name` 一律是 id）。`ToolInfo`（给扩展看的）是声明去掉实现相关字段。`ToolContext{signal, callId, sessionId, initial, ask?, report?}`；`ToolResult{text, status?, code?, details?, redacted?}`。
+- **审批钩子**：`approve(call, info, ctx) → Promise<{verdict: "allow", by} | {verdict: "deny", rejection, by} | {verdict: "ask", reason}>`，`info` 有工具声明、按参数求得的 `effect`、核心设置（审批模式、只读模式）、批准记忆；`ctx` 有 `signal` 与 `ctx.model`。
+- **宿主**：`SessionEnv`（3.10）；`RunStatus` 加 `waiting{pending: InteractionSummary[]}`；`resolve` 进指令表；`switchBranch`、`fork`、`setTitle`、`archive` 进指令表；`path`、`siblings`、`runResult` 进查询；命令成功值里带 `seq` 与 `replayed`（对上 nb-runtime 远程服务的 `ok(value)`）、失败的 `detail` 按码给 schema。
+- **码表**：`api/codes.ts` 一处，按拥有者分组：指令、工具失败、存储（`log-corrupt`、`needs-migration`、`session-busy`、`log-broken`）、诊断（含 `emit-after-settle`、`setting-missing-default`、`turn-node-count`、`mount-timeout`）。计划与 Spec 里用到的码都在这里登记。
+- **类型体验**：`implement` 的契约没有导出时不必写 `exports: {}`；`MountCtx` 加 `initial`；作用域写错、`optional` 依赖读取等最难懂的几处报错加自定义的提示类型（审查 D12、A15）。
+- `spike/v5/typetest.ts` 的 29 处写错随类型搬到 `tests/kernel/typetest.ts`（不进发布面），每片新增的写错补进来。
 
-### 3.5 `kernel/view/`：模板、请求与提交
+### 3.2 `kernel/log/`：会话目录、写入批与存储
 
-- `jsx-runtime.ts`、`template.ts`：节点 `<System>`、`<User>`、`<Assistant>`、`<P>`、`<Tag>`、`<If tool>`、`<History last?>`、`<Turn />`、`<Slot name stable|volatile|drop|shared>`；容器每个子节点一段、段间空一行；`<Turn />` 恰好一个。
-- `layout.ts`：`standardLayout({volatile, history})`。
-- `format.ts`：`Format`（`user`、`assistant`、`assistantText`、`tool`、`step`、`steps`、`turn`、`withRender`），块带 `Origin`；`finalOnly`、`withoutEvents`。
-- `request.ts`：由视图算 `ModelRequest`（三段：已提交的前缀、进行中的这一轮、会变的后缀，各存增量哈希）；提交在 `turnEnded` 时用 `commit` 渲染一次并校验（工具调用与结果成对、角色顺序），不合格用缺省并写 `extensionFailed`；提交绑定 Profile 内容哈希，`profileChanged` 后全部重新渲染。开发模式检查相邻两次渲染的前缀与“提交等于最后一次渲染”。
-- 槽：`contribute` 按扩展顺序成块；撞名未写 `shared` 报 `slot-collision`；没摆的报 `slot-unplaced`（`drop` 的不报）；会变的槽在系统提示词里报 `slot-volatile-in-system`。
+- **会话目录**：`<根>/<会话 id>/` 下内核拥有 `session.jsonl`、`blobs/`、`session.lock`、`index.json`（列表用的小索引：标题、归档、最后活动时间、轮数；丢了从日志重建）；其余文件（t08 的 `home/` 等）归宿主，内核不碰也不删。
+- **会话头**（第一行）：`{format: 1, id, createdAt, profile, project?, origin?: {session, entry}, caller?: {kind: "session" | "workflow", id, callId}, questions: "caller" | "user"}`。`format` 不认识时打开得 `needs-migration`，与 `log-corrupt` 分开（t03 决定 6）；迁移脚本归迁移 Task。
+- **`LogStore`**：`create(header)`、`open(id) → handle`（取锁、修复、校验、读回）、`append(handle, batch)`、`list({project?, archived?})`（读索引）、`fork(from: {session, leaf}, newHeader)`（复制当前路径、头记来源）、`close(handle)`。`memory-store` 每次读写都做 JSON 往返，`Date`、`Map`、`undefined` 这类只在 JSONL 里坏的写法在内存测试里也会坏（审查 D5）。
+- **打开顺序**：取锁 → 若尾部有不完整的批，截到最后一个完整批的末尾、截下的字节另存为 `session.jsonl.tail-<时刻>` 并写诊断 → 校验 → 读回大块内容 → 交给 `state` 归约。修复失败拒绝打开。
+- **校验**：id 唯一、seq 递增、父节点在前、类别与作用域合法、类型是内核事件或带合法前缀、批完整（只有文件尾可能不完整，中间的不完整批是 `log-corrupt`）。
+- **写失败**：写或 `fsync` 抛错时句柄进 `log-broken`：这一批不归约、不推帧（顺序固定为“先落盘、再归约、再推帧”）；之后的写入都得 `log-broken`，会话要关闭重开（重开走同一条修复）。
+- **扩展事件的版本**：只归约声明过的版本；更高版本的事件写诊断并跳过归约（插件降级后打开新日志）。
 
-### 3.6 `kernel/run/`：指令、循环与拦截
+### 3.3 `kernel/extension/`：定义、Profile 与装配
 
-- `commands.ts`：`send`、`enqueue`、`edit`、`remove`、`resolve`、`start`、`abort`、`rewind`、`compact`、`changeSettings`、`changeProfile`，每个带 `commandId`（幂等键），失败码照 v5 `host.ts` 的 `commandErrors` 加 `resolve` 的三个；成功带 `seq`。
-- `loop.ts`：照提案第 1 节的运行图与边界顺序（外部事实与设置 → steer 全部取走 → 估算与压缩 → 视图与模型拦截链，最里层先写 `modelStarted`）；取走输入与 `inputConsumed`、`turnStarted`、`input` 同批；`turnEnded` 之前到达的 steer 算这一轮；followup 一条一轮；`continue` 按“这一轮、这个扩展”计数。
-- `tools.ts`：执行前写 `toolStarted`；按声明的 `concurrency` 切段（`shared` 连续并发、按调用顺序启动，`exclusive` 单独），结果按调用顺序作为一个写入批；整批写完再派发反应。工具声明与参数校验搬分支 `tools/define.ts`（名字换算改为 t04 的 `.` → `__`、上限 64）。
-- `intercept.ts`：四条包裹式拦截链（输入、模型、工具、压缩）；块按引用比出改动，`modelStarted.modifiedBy` 记录；脱敏 `redacted` 只记哈希；失败按提案第 9 节的表；审批是工具链最里层的宿主钩子 `approve(call, info) → allow | deny | ask`，t20 只给“全部放行”的缺省实现与 `ask` 走等用户通道的接线，规则在 t06。
-- `abort.ts`：`ctx.signal` 贯穿；内核等的每个 Promise 与中止赛跑；模型请求写 `modelFailed{kind: "aborted"}`，没完成的工具写 `status: "unknown"`，以 `aborted` 收口；迟到结果只写诊断。
-- `recover.ts`：打开时结算半截运行（提案第 2 节“打开与恢复”）。
-- `rewind.ts`：`rewindTargets()` 与压缩切点同一条规则（轮或步的边界）；运行中要 `abort: true`；`resend` 回退后入队并开始。
+- `define.ts`：`defineExtension`、`implement`、`defineContract`、`optional`、`shape`、`slice`、`conv`、`ext`。
+- `profile.ts`：`defineProfile`、`deriveProfile`（必须给新 id；`render`、`tools`、`extensions` 逐项合并；派生的 id 是自己的设置命名空间，不继承基础 Profile 的用户设置；Spec 写清三处审查 A14 指出的语义）。
+- `assemble.ts`：按第 1 节决定 11 校验 id；`dependsOn` 拓扑排序、同层按 id，得到**装配序**（决定反应写入、槽拼接、`mount` 的顺序）；**拦截序**先按 `layer` 分组、组内按装配序，再接 Profile 的 `extensions`、Profile 自己、审批（Profile 的 `extensions` 不许写 `outer`）。装配时检查：设置每项都有 `default`、`on`/`reduce`/`render` 的键是已知事件（按 `dependsOn` 里的契约算，`optional` 的不误报）、`contribute` 的槽名合法、`reminder()` 至少给了 `every` 或 `watch`；摆放类的槽诊断在渲染时报。装配失败返回带每条来源、`message` 与 `hint` 的列表，`createTestSession` 遇到时抛出带全部条目的错误。
+- **Profile 哈希**：`hash(id, version, 代码包哈希或包版本, 装配序里每个扩展的 id 与版本, 工具声明)`；Profile 声明 `version`，内置 Profile 的代码包哈希取包版本，用户 Profile 取 t05 的打包哈希。打开会话时与路径上最后一条 `profileChanged` 比，不同就在受理任何指令前写 `profileChanged{reason: "code-updated"}`（审查 O8）。
+- `ctx.ts`：各档 `ctx`（视图、反应、`assistant` 的反应、`mount`、拦截）的唯一构造点：状态取哪一刻、深只读、`read` 只放 `dependsOn` 与 `core.history`，三条规则一份实现。`emit`/`set` 的收集器（完成时整批写、抛错整批丢、完成后调用报 `emit-after-settle`、同片取最后一次）在同一文件。
 
-### 3.7 `kernel/interaction/`：等用户
+### 3.4 `kernel/state/`：归约与对话形状
 
-- 事件 `interactionRequested{id, callId, kind, request}`、`interactionResolved{id, decision, by, data?}`；运行状态 `waiting`；同一批工具的几个事项可同时待处理、任意顺序应答，全部处理完回到运行。
-- `resolve` 的发出者由宿主注入（用户或父会话）；单写者裁决并发应答（`already-answered`）。
-- 异步提问：问题照写 `interactionRequested`、工具立即返回；`resolve` 在同一批里写 `interactionResolved` 并把回答作为输入放进缓冲区；被回退掉的分支上的事项应答得 `unknown-interaction`。
-- 结算：中止写拒绝并注明 `aborted`；工具被卸载按 `tool-unavailable`。
+- 片按作用域分两组；path 片沿树持久化（每个节点存相对父节点的变化，参照 spike `core.ts`），回退与切分支只换叶子；归约出错写诊断、这次补丁不用；`resetOnCompaction` 的片在 `compaction` 上回到初值。
+- `core.history`：按位置章归约出 `ConversationTurn` 与已提交的轮。`commit` 是纯函数 `(turn, format) => 消息[]`（第 1 节决定 7），提交结果按节点缓存；重开或回退时用同一个纯函数重算，结果确定。
+- 内核自己的片：缓冲区（session）、核心设置（session：模型、推理档、审批模式、只读模式，t09 决定 5、t06 决定 7）、待处理事项（path）、批准记忆（session，从 `interactionResolved{decision: "allow-session"}` 归约，t06 决定 1、4）、告知过的工具集（path）、标题与归档（session）。
 
-### 3.8 `kernel/compaction/`：切点与公共流程
+### 3.5 `kernel/dispatch/`：单写者队列、反应与装上
 
-- 触发：边界第 3 步估算（搬分支 `compaction/trigger.ts`）；服务商报溢出时按溢出顺序压缩后同一请求再发一次，最多一次；`compact(要求)`。
-- 切点半开区间，只能是轮的 `turnStarted` 或进行中这一轮某一步的 `assistant`；`omitted` 带占位；`core.history` 按提案第 10 节归约。
-- 公共流程：`opening()` 的片在压缩上重读；`core.compaction` 把放回的内容写成 `conv` 事件与压缩同批、盖位置章；重试同一请求时不重复写。
-- 方法接口 `CompactionMethod`，t20 只带一个测试用方法（按切点直接截断），`shake`、`inplace`、`summary` 在 t11。
+- **队列粒度**：队列的一项是“一个写入批连同它引出的反应”。指令受理（校验加写事件）、`mount` 写的外部事实、反应的输出、运行循环的每一次写入都是独立的项。运行循环是队列之外的协程：它每次要写日志时把写入交给队列并等它完成；模型流、工具执行、等用户都在队列之外等待。所以运行中的插话、改、删、应答、中止都立即受理并带回 `seq`（审查 P1、O4）。
+- **中止**：不经队列先生效：标记当前运行的代次并触发它的信号，`RunStatus` 进 `aborting`；收口（3.6）作为队列里的一项写入。所有迟到的 Promise 带代次，过期的只写诊断。
+- **反应**：事件落盘并归约后派发；同一事件的处理函数看同一份状态、可并发、输出按装配序写；深度上限 3 写 `reactionLimit`；超时中止处理函数自己的信号。
+- **`mount`**：时限缺省 30 秒；超时或抛错写 `extensionFailed{entry: "mount"}`、这个扩展标为失败（不再派发给它），会话照常打开（审查 P26）。清理函数在摘下或关闭时调用并等待（同样有时限）；`ctx.callback` 包外部回调，摘下后不再调用。
 
-### 3.9 `kernel/model/`：OMP 适配器
+### 3.6 `kernel/run/`：指令、循环、工具、拦截与运行控制
 
-- `omp-adapter.ts`：照提案第 9 节“模型适配器”表：`ModelRequest` → `streamSimple` 参数；事件流 → `delta` 帧（带请求序号与连续编号）；`done` → `assistant`（内容块含思考与签名、工具调用、用量、停止原因）；`error`、中止 → 错误类别与部分内容。OMP 内部重试算一次逻辑请求、每次尝试记进诊断。
-- 模型与凭据：搬分支 `models/`（目录、角色选择链、能力检查、凭据）。`nbook.models` 插件（t09）以后包一层，本包不依赖 NeuroBook。
+- **指令与幂等**：每条被受理的指令在受理时写一条 `commandAccepted{commandId, name, value}`，与它立即写的事件同批；运行中到边界才生效的指令（`compact`、`changeSettings`）只写这一条，到边界写的事件带 `cause` 指回它。重发同一 `commandId` 查 `commandAccepted`，返回第一次的 `value` 与 `replayed: true`；校验失败不写、重发重新校验（审查 P5、A6）。指令：`send`、`enqueue`、`edit`、`remove`、`resolve`、`start`、`abort`、`rewind`、`switchBranch`、`fork`、`compact`、`changeSettings`（核心设置组 `core` 加各扩展组）、`changeProfile`、`setTitle`、`archive`。
+- **发出者**：`resolve` 等指令的发出者由宿主注入：`session.as(issuer)` 返回带发出者的视图（用户或父会话），界面拿不到改发出者的入口（审查 A5）。
+- **循环**：照提案第 1 节的运行图。边界顺序：外部事实与设置 → 工具集比对（与路径上最后一条 `toolsAnnounced` 不同就同批写新记录与一条给模型的提醒；必需工具缺失时运行以 `error` 收口、码 `tools-missing`）→ steer 全部取走 → 估算与压缩 → 视图、模型拦截链、`modelStarted`。
+- **缓冲区规则**（t07 决定 1、3、5）：一轮以 `completed` 结束才取 followup；出错或中止时不取；中止缺省清空缓冲区（每条写 `inputRemoved{reason: "aborted"}`），`abort({keepQueue: true})` 保留；`start` 在末尾是完整回复时失败 `nothing-to-continue`；重启后缓冲区还在、不自动发出。
+- **工具**：执行前写 `toolStarted`（审批之后，记实际执行的参数）；按声明的 `concurrency` 切段（`shared` 连续并发、按调用顺序启动；`exclusive` 单独）；结果按调用顺序作为一个写入批写入，整批写完再派发反应。工具执行上下文见 3.1。名字换算与校验在 `api/tool-name.ts`（`.` → `__`、id 里禁 `__`、上限 64），请求校验与适配器共用。
+- **收尾工具**：照 `agent/harness.md` 输出 13–16：一条回复里只调用了一个收尾工具、参数通过校验且执行成功，结果写入即以 `runEnded{reason: "finished", result}` 收口、不再请求模型；执行返回错误按普通工具出错；与别的工具混在一批或有两个时，收尾工具都不执行、各得 `finish-not-alone`；以写下结果为准。t14 的 `yield` 由内核按会话的结果 schema（Profile 声明或 `agent_spawn` 的 `outputSchema`）动态生成为收尾工具；强制结构化模式停下时没调用就催一次（写一条 `continued`），仍没有就以最后一条回复作结果并标为 `error`。
+- **拦截链**：一个泛型的 `runChain<I, O>({layers, terminal, onFailure, record})`，负责取层（拦截序）、每层的 `ctx` 与 `invocation`、中止赛跑、超时、失败按提案第 9 节的表、写 `extensionFailed`；四条链各自只剩取字段、失败策略与改动记录三项小配置。输入链在指令受理时跑（第 1 节决定 6）。
+- **审批**：工具链的最里层，判定对象是全部拦截之后的调用（这之后不再改参数），钩子签名见 3.1；判定为 `ask` 时写 `interactionRequested` 进等用户（3.7）。t20 交付“全部放行”的缺省实现，另在测试里写一个非平凡的钩子（规则拒绝、规则放行、`ask`、“本会话都批准”后第二次放行、回退后批准记忆仍在），t06 的规则表不在本 Task。
+- **中止**：触发后 `RunStatus.aborting`，在注入的时钟上等宽限期（缺省 2 秒，常量写进 Spec，t07 决定 2）；期内完成的照常写结果与用量；过期的模型请求写 `modelFailed{kind: "aborted"}`、工具写 `status: "unknown"`、等待中的事项写拒绝（码 `aborted`），以 `aborted` 收口；迟到结果只写诊断。异步提问不随运行中止结算（它跨运行存在），只在所在分支被回退掉或工具被卸载时结算（审查 P32）。
+- **恢复**：打开时结算半截运行：没结果的工具调用 `unknown`；等审批的调用 `denied`（`interrupted-before-approval`）；等回答的提问 `interrupted`；发出没回复的模型请求 `modelFailed`；最后 `turnEnded`、`runEnded{interrupted}`（第 1 节决定 5）。停服时（3.10 的进程收尾）走同一条收口，原因同为 `interrupted`。
+- **回退与分支**（t03 决定 2、t07 决定 6）：运行中要先 `abort` 才受理。`rewind(to)`：目标是轮或步的边界（`rewindTargets()`，与压缩切点同一条规则）；`resend` 回退后入队并开始（编辑重发）。重试与 swipe 是回退到回复之前再 `start`，得到同一条用户消息下的助手兄弟节点。`switchBranch(node)` 落到那条分支最近写入的末端。都写 `leafChanged`。查询 `path(leaf)`、`siblings(node)` 从完整日志算。
 
-### 3.10 `kernel/host/`：会话 API、帧、预览、诊断、镜像
+### 3.7 `kernel/run/interaction.ts`：等用户
 
-- `session.ts`：`createSession`、`openSession`（`load` → `recover` → 装配 → `mount`），返回 v5 `SessionApi`（指令、查询、`subscribe`）。
-- 帧：`log`、`delta`、`status`、`diagnostic`、`reset`；`log(afterSeq, limit)` 分页。
-- `preview.ts`：`next` 跑一遍视图与模型拦截链（`phase: "preview"`），最里层截下；过去的请求由日志重建并用 `modelStarted.hash` 比对（`reconstructed`），录制打开时 `exact`。
-- `diagnostics.ts`：码表照 v5 `diagnosticCodes`，英文 `message` 与 `hint`，按（码、扩展、入口、事件类型）合并计数；改变结果的另写 `extensionFailed`。
-- `mirror.ts`：`createSessionMirror()`，纯函数，浏览器与 nb-story 共用。
+- 同一批工具的几个事项可同时待处理、任意顺序应答，全部处理完回到运行；`RunStatus.waiting` 列出待处理事项。
+- `resolve` 的裁决：单写者里先到的赢，后到的 `already-answered`；审批只收用户的应答；提问在会话头 `questions: "caller"` 时也收父会话的应答；被回退掉的分支上的事项得 `unknown-interaction`。
+- 异步提问（`async: true`）：工具立即返回；`resolve` 在同一批里写 `interactionResolved` 并把回答作为输入放进缓冲区（运行中当插话，空闲时开新一轮）。
+- t07 决定 4 的“等审批时打字等于拒绝并附言”由界面转成 `resolve{decision: "deny", note}`；内核的 `send` 在 `waiting` 时照常入队。
+
+### 3.8 `kernel/compaction/`：触发、切点与公共流程
+
+- **触发估算**：最后一次回复的 `input + cacheRead + cacheWrite + output`（`totalTokens` 有值时用它）加之后新增块的估算，与模型窗口和触发点比（模型信息来自 `SessionEnv.models`，t11 决定 1）；溢出时按溢出顺序压缩后同一请求再发一次，最多一次；`compact(要求)`。
+- **切点**：半开区间，只能是轮的 `turnStarted` 或进行中这一轮某一步的 `assistant`；`omitted` 带占位；`core.history` 按提案第 10 节归约。
+- **公共流程**：`opening()` 的片在压缩上重读；`core.compaction` 把放回的内容写成 `conv` 事件与压缩同批、盖位置章；重试同一请求时不重复写。
+- **方法接口**：`CompactionJob{method, request, require, signal, model}`，`model` 即 `ctx.model`（第 1 节决定 13）。t20 带一个测试方法：经 `ctx.model` 调一次假模型得到摘要；`shake`、`inplace`、`summary` 在 t11。
+
+### 3.9 `kernel/model/`：模型端口与 OMP 适配器
+
+- **端口**：`ModelPort.resolve(核心设置, purpose, role?) → {info: ModelInfo(窗口、能力、触发点、可选推理档), call(request, signal, onDelta) → Promise<ModelResponse>}`。模型目录与凭据由宿主实现端口（Agent 插件经 `nbook.models`，t09；nb-story 用它现有的模型解析），内核不搬分支的 `models/` 与 `config/`（审查 O9、Z10）。
+- **OMP 适配器**（本包提供的端口实现之一）：照提案第 9 节的表与第 1 片的定稿类型：请求的块、思考签名、图片、完整工具声明（名字按 t04 换算）、推理档按模型夹取（t09 决定 6）、相邻 user 消息合成一条（`agent/harness.md` 输出 21）；逐个处理 OMP 的 `text_*`、`thinking_*`、`toolcall_*`、`done`、`error` 事件与 `stream.result()` 的终态，只认一个终态；`try/finally` 收口流。
+- **错误归类**：搬 master `classifyProviderError`（`quota` 优先，`rate_limit` 单列）。
+- **重试的审计**：只记可观察的服务商响应与最终回复；OMP 内部看不见的重试不单独审计，用量的 `complete` 为 `false` 表示可能漏计（审查 O7，沿用 `agent/harness.md` 输出 11）。
+- **密钥遮盖**：单一出口：写日志与推帧之前，把服务商错误正文里回显的密钥换成固定遮盖文字（搬 master `redact.ts`）；只用宿主给的密钥环境变量名，缺失时在发请求前以 `auth` 失败（输出 18）。
+- **t04 的复测**：第 2 片在 OpenAI 与 Anthropic 官方接口上复测 t04“下一步”列的四种请求（历史里有已卸载工具的调用、工具名 64 与 65 字符），有凭据才跑、没有记“未验证”。
+
+### 3.10 `kernel/session/`：宿主面
+
+- **`SessionEnv`**（宿主注入，测试工具给内存或脚本化的实现）：`store`、`models: ModelPort`、`tools: () => {declarations, implementation(id)}`（每个边界取一次，t04 决定 4、6）、`resources`、`sessions`（按 id 打开别的会话的句柄，t14 用）、`clock`、`approve`、`outbound?`（出站过滤，第 1 节决定 13）、`plugin`（贡献扩展的所属插件，用于 id 校验）。
+- **会话**：`createSession(env, {profile, initial, header})`、`openSession(env, id)`（取锁 → 修复 → 归约 → 装配与 Profile 哈希比对 → 恢复 → `mount`）、`closeSession`（拒绝新指令 → 中止并等收口 → 等全部 `mount` 清理 → 释放订阅与工具句柄 → 关闭日志与锁；关闭后迟到的回调只写诊断）。
+- **`AgentHost` 与扩展接收者**（进程内）：`prepare`/`published`/`revoke`；运行中撤回：这次运行里调它的入口得 `extension-revoked` 诊断并跳过、归约照常，空闲时自动重新装配并写 `profileChanged{reason: "plugin-removed"}`；重新装配失败（例如依赖缺失）时会话进只读、报 `dependency-missing`；`pendingReassembly` 进快照。平台贡献点的描述与激活事务在 t10（审查 P16）。
+- **帧与查询**：`log`、`delta`、`status`、`diagnostic`、`reset`；`log(afterSeq, limit)` 分页、`snapshot`、`rewindTargets`、`path`、`siblings`、`diagnostics`；出站过滤在推帧与日志查询之前调用。
+- **预览**：只做下一次请求（`fidelity: "next"`）：跑一遍视图与模型拦截链（`phase: "preview"`），最里层截下；过去请求的重建在可选片。
+- **运行结果与单次调用**：`runResult(runId)` 给出 `TurnResult` 的等价物（停止原因、最后一条回复的文字、收尾值、错误、用量、条目范围）；`send` 与 `start` 返回 `runId`，宿主可 `await session.waitRun(runId)`。`complete(env, {profile, input})`：只接受不声明工具的 Profile，否则 `profile-has-tools`；`purpose: "background"`，不读写会话日志（输出 17）。
+- **进程收尾**：`onProcessInterrupt`、`onProcessTermination`（搬 master `interrupt.ts`，输出 19、20），宿主登记后把在跑的会话按 `interrupted` 收口再退出。
+- **诊断**：码表在 `api/codes.ts`；英文 `message` 与 `hint`；按（码、扩展、入口、事件类型）合并计数；改变结果的另写 `extensionFailed`。
 
 ### 3.11 `kernel/testing/` 与 helper
 
-- `createTestSession`：真内核、内存存储；只假模型（脚本化）、工具、时钟、资源；`say`、`mark`、`rewind`、`state(扩展)`、`eventsOf`、`requests[n].outline()`、`clock.advance`、手动模式；严格模式在关闭时检查没被认领的 error 诊断，并从头归约一遍与现场比对。
-- helper：`reminder()`、`opening()`、`standardLayout()`、`finalOnly()`、`withoutEvents()`、`format.withRender()`、`deriveProfile()`，只用公开接口写成。
+- **`createTestSession`**（第 2 片出最小版，之后每片的测试都经它写）：真内核；存储缺省是做 JSON 往返的内存存储，同一组场景另以 JSONL 存储在临时根上跑一遍；假的只有模型（脚本化，形状与适配器同一份定稿类型，有一条对照测试证明同形）、工具、时钟、资源。入口：`say`、`mark`、`rewind`、`switchBranch`、`resolve`、审批策略（全部放行、按工具给 `allow`/`deny`/`ask`）、`pending()`、`state(扩展)`、`eventsOf`、`requests[n].outline()`（`outline` 本身在 `view/`，测试工具转出）、`clock.advance`、手动模式（停住模型与工具，测运行中插话与中止）。缺省 Profile 声明传入的工具、用 `standardLayout()`（收全部槽）。
+- **严格模式**（关闭时）：没有被认领的 error 诊断；从头归约一遍，状态与现场一致；从头重算全部已提交的轮，与现场逐块一致。中止产生的诊断由测试显式认领，不误报。
+- **helper** 在 `helpers/`，每个一个文件，只用公开接口写成；`reminder()` 要求 `every` 或 `watch` 至少一个（类型与装配期都查），“每轮一次”写 `every: 1`。每个 helper 的“用核心字段手写的展开版”写成测试，与 helper 行为对照（提案“影响”一节的两级文档以它们为例子）。
+- **例子**：`spike/v5/plugins.ts`、`profiles.tsx` 改写成 `tests/kernel/examples/*.test.ts(x)`，作为一级、二级文档的例子，会跑。
 
 ## 4. Spec 与文档改动
 
-在主工作区 master 上做，第 1 片：
+每片开工前先写这一片的 Spec 条目，再把“Spec 编号 → 测试”填进第 6 节；条目只在末尾追加。
 
-- 提案 `docs/proposals/agent-harness-event-model.md`：`status: accepted`、`decided`，决策记录追加本计划第 1 节的决定 3。
-- 新 ADR（下一个编号）：harness 以日志为唯一真相源、内核自写循环、扩展四件事。
-- 把分支的 `docs/specs/harness/*.md`（session、profile、runtime、tools、models、compaction、config、glossary、builtin-tools）搬到 master，按提案“对 Spec 的预期改动”改写 `session`、`profile`、`runtime`，新写 `extensions`；`tools`、`models`、`compaction`、`config` 只改与本内核相关的条目；都标 `planned`。`docs/specs/agent/harness.md` 独有的条目并进对应那份后删除（t02 决定 5）。
-- `packages/nb-harness/AGENTS.md`、`README.md`、`docs/omp-capabilities.md`：新内核的入口、OMP 18.14.0 的版本表、完成门禁加新内核的测试。
+- 第 1 片（主工作区）：提案 `status: accepted`，决策记录追加第 1 节第 5–13 条与第 3.1 节的差异表，正文按它们改第 2、3、7、9、11、20 节；新 ADR：harness 以日志为唯一真相源、内核自写循环、扩展四件事；新建 `docs/specs/harness/session.md`（日志格式、会话目录、写入批、校验、修复、锁、大块内容、恢复、幂等）与 `harness/extensions.md` 的骨架（按提案第 4–6 节列编号输出）。分支的 `harness/session.md` 作参照，不整份搬。
+- 随片新建：`harness/profile.md`（第 4 片）、`harness/runtime.md`（第 2、5、6、7 片逐步加）、`harness/models.md` 的适配器与端口条目（第 2 片）。
+- 不搬：分支的 `tools`、`compaction`、`config`、`builtin-tools`、`models` 的其余部分，到 t04、t09、t11、t12 实施时再搬或重写。
+- `agent/harness.md` 留到迁移 Task 删旧实现时再删；它的输出 10–21 在新 Spec 里有对应条目后，在它的“证据”里注明去处。
+- `packages/nb-harness/AGENTS.md`、`README.md`、`docs/omp-capabilities.md`：新实现的入口与分层、OMP 18.14.0 的版本表、完成门禁同时列旧测试（`tests/`）与新内核测试（`src/kernel/**`、`tests/kernel/`）的命令。
 
 ## 5. 切片
 
-每片单独提交，自跑 `bun run --cwd packages/nb-harness typecheck` 与 `bun test`（新内核的测试在 `src/kernel/**`）。
+每片单独提交；自跑 `bun run --cwd packages/nb-harness typecheck`、`bun test`（含 `architecture.test.ts`）。
 
-| 片 | 内容（关键设计） | 自跑验证 |
+| 片 | 内容 | 出口条件 |
 |---|---|---|
-| 0 | 建 worktree；OMP 全部 `@oh-my-pi/*` 升到 18.14.0（先读 18.2.5 起的 changelog），改 `omp-capabilities.md` 版本表 | nb-harness 现有测试、`bun run test:affected`（含 nb-story、nb-agent-ui） |
-| 1 | 第 4 节的提案、ADR 与 Spec（主工作区） | `bun run docs:check`、`governance:check` |
-| 2 | 3.1 日志与存储 | 存储场景：截断尾、不完整批、校验失败、幂等；子进程写到一半被 `kill -9` 后重开 |
-| 3 | 3.2 装配、3.3 归约与 `core.history` | 装配错误表、作用域、回退后片的值、深只读 |
-| 4 | 3.4 单写者、反应、`mount` | 写入批、超时中止、`emit-after-settle`、深度上限、外部事实到边界 |
-| 5 | 3.5 视图 | 模板与布局、槽诊断、提交校验、前缀稳定检查、`outline()` |
-| 6 | 3.6 指令、循环、工具与拦截、中止、恢复、回退 | spike 场景按组搬成测试（运行、插话、followup、continue、并发工具、拦截失败表、中止、恢复、回退） |
-| 7 | 3.11 测试工具与 helper；spike 其余场景与 v5 `typetest.ts` 的 29 处写错搬进来 | 严格模式；`tsc` 对写错报出预期的错误 |
-| 8 | 3.7 等用户 | 同批多事项、并发应答、异步提问进缓冲区、回退后应答、中止结算、重启后接着等 |
-| 9 | 3.8 压缩 | 切点规则、`omitted`、放回内容同批、溢出重试一次、回退到压缩前 |
-| 10 | 3.9 模型适配器 | 本机 OpenAI 兼容端点（同现有 `provider.test.ts`）；`kernel.llm.test.ts` 真实模型 smoke（luna 或 DeepSeek，按 `llmTestConfig`） |
-| 11 | 3.10 宿主面：帧、快照与分页、预览、诊断、镜像 | 重连补帧、预览保真度、诊断合并、镜像的“需要注意” |
-| 12 | 性能：提案第 19 节六项（打开与恢复、单条事件归约、提交渲染、预览、普通请求、换 Profile 与压缩后的重渲染）；超预算时加检查点快照 | `bench/kernel.ts`，结果写进 Task 证据 |
+| 0 | 建 worktree；OMP 全部 `@oh-my-pi/*` 升到 18.14.0（先读 18.2.5 起的 changelog，记 `streamSimple` 事件、思考签名、错误标记的变化）；改 `omp-capabilities.md` | 旧测试、`test:affected`（含 nb-story、nb-agent-ui）、旧实现的 `test:llm` 两条 smoke |
+| 1 | 第 4 节第 1 片的文档；3.1 定稿类型与 `typetest`；3.0 的目录、子路径导出、`tsconfig` 的 JSX 设置、`architecture.test.ts` | `docs:check`、`governance:check`、`tsc`、`typetest` 报出预期错误 |
+| 2 | **纵切**：3.2 存储（会话目录、批、锁、修复、大块内容、头与版本）；最小的装配、归约与 `core.history`；3.5 的队列；不带工具的循环；3.9 的端口与 OMP 适配器（文字、思考签名、用量、停止原因、错误归类、遮盖）；最小的 `createTestSession`；终端演示脚本 `tests/kernel/chat.ts`（JSONL 加真适配器，一轮对话后重开接着聊） | 逐字节截断测试；写失败（注入会失败的文件句柄端口）；两个真实进程抢锁；`kernel.llm.test.ts` 跑一轮、重开、再一轮；t04 四种请求复测；2 万条合成事件的打开与归约测量（超预算先改结构再往下） |
+| 3 | 扩展完整面：3.3 定义、装配（两套顺序、诊断与提示）、Profile 哈希、`ctx` 构造点；3.5 反应、`mount`（时限）、外部事实到边界；3.4 内核的片；`reminder()`、`opening()` | 装配错误表；作用域与回退后片的值；写入批与整批丢弃；`emit-after-settle`；深度上限；`mount` 超时 |
+| 4 | 视图：JSX 运行时与模板（含 `<ToolName id>`、`<Slot drop>`）、`standardLayout`、`format`、`turn` 与纯函数 `commit`、槽、请求计算与校验、`outline`、前缀稳定检查；`finalOnly`、`withoutEvents` | 请求的块与来源；提交确定性（重开后逐块一致）；2 万条会话算一次请求的测量 |
+| 5 | 工具与拦截：工具声明与名字换算、段并发、`runChain` 四条链、输入链在受理时跑与脱敏、审批钩子与非平凡测试实现、`toolsAnnounced`、收尾工具与动态 `yield` | 收尾工具输出 13–16 的四种情形；规则与改参的组合；脱敏后日志全文搜不到原文 |
+| 6 | 运行控制：全部指令与 `commandAccepted` 幂等、发出者、缓冲区规则、steer 与 followup、`continue` 计数、中止与宽限期、恢复、回退、重试与 swipe、切分支、fork、标题与归档、`changeSettings`（核心组）、`changeProfile` | spike 对应场景（编号写进测试名）；重发同一 `commandId` 只生效一次（含运行中的 `compact`、`changeSettings`）；宽限期内外 |
+| 7 | 等用户：3.7 全部 | 同批多事项、并发应答、异步提问进缓冲区、回退后应答、中止结算、重启后中断与 `interrupted-before-approval` |
+| 8 | 压缩：3.8 全部 | 有缓存读的用量能触发阈值；切点规则；`omitted`；放回内容同批；溢出重试一次；压缩请求经拦截链且 `purpose` 正确；中止不写压缩事件；回退到压缩前 |
+| 9 | 宿主面：3.10 全部（`SessionEnv` 补全、`AgentHost` 与撤回、关闭顺序、帧与分页、预览、诊断、出站过滤、运行结果、`complete()`、进程收尾）；`kernel.llm.test.ts` 补带工具调用、中止、回退重发 | 运行中撤回；关闭与 `mount` 清理、迟到事件交错；出站过滤生效于帧与日志查询；`complete()` 的 `profile-has-tools` |
+| 10 | **nb-story 验收门**：在 `tests/kernel/acceptance/` 里用新内核写一遍 `story.qa` Profile 与 `answer` 收尾工具（用 nb-story 现有的账本与校验函数），跑“两轮、收尾、校验失败再交、中止、出站过滤防剧透” | 五个场景通过；发现的缺口先回写 Spec 与本计划再修 |
+| 11 | 性能：提案第 19 节六项（打开与恢复、单条事件归约、提交渲染、预览、普通请求、换 Profile 与压缩后的重渲染），2 万条验收、10 万条报数 | 第 1 节决定 9 的预算；结果写进 `evidences/` |
+| 12（可选） | 主线之后按需：预览过去请求的重建与请求录制、`ctx.status`、拦截的 `layer` | 不改日志格式 |
 
-收口：全部片提交后跑 nb-harness 全量、`test:affected`、`test:llm`；Task README 写完成状态与证据；按第 1 节决定 4 报深入审查的计划与预算。
+收口：nb-harness 全量、`test:affected`、`test:llm`；对第 6 节每条映射做变异检查（改坏实现，确认对应测试失败）；Task README 写完成状态与证据；按第 1 节决定 4 报深入审查的计划与预算。
 
 ## 6. 验收映射
 
-Spec 在第 1 片写成后，按条目编号回填本表；现在按提案节与 spike 场景对应：
+每片开工前写好 Spec 条目后，在这里加“Spec 编号 → 测试”的行。第 1 片之前先列各片的映射对象：
 
-| 依据 | 覆盖 |
-|---|---|
-| 提案第 2 节（作用域、写入批、位置章、单写者、打开与恢复） | 第 2、4、6 片的测试；`kill -9` 重开（真实进程与文件） |
-| 第 3 节（缓冲区、指令、取走规则、`commandId`） | 第 6 片；重发同一 `commandId` 得到第一次的结果 |
-| 第 4–6 节（扩展形状、归约、处理函数、`mount`、`continue`） | 第 3、4、7 片；v5 `typetest.ts` 29 处 |
-| 第 7–8 节（对话形状、视图、提交、槽、缓存检查） | 第 5 片 |
-| 第 9 节（拦截、审批钩子、失败表、中止、适配器） | 第 6、10 片 |
-| 第 10 节（压缩） | 第 9 片 |
-| 第 11 节（等用户） | 第 8 片 |
-| 第 12、14 节（诊断、宿主接口、预览、镜像） | 第 11 片 |
-| 第 15 节（测试工具） | 第 7 片 |
-| 第 19 节（性能） | 第 12 片 |
-| spike 53 个场景 | 第 6、7 片逐个搬成测试，场景编号写在测试名里 |
+| 片 | Spec 条目（第 1 片起逐片填编号） | 测试 |
+|---|---|---|
+| 2 | `harness.session`（格式、批、修复、锁、大块内容、版本）；`harness.runtime` 的最小循环；`harness.models` 的适配器 | `log/*.test.ts`、`model/*.test.ts`、`kernel.llm.test.ts` |
+| 3 | `harness.extensions`（定义、装配、`ctx`、反应、`mount`） | `extension/*.test.ts`、`dispatch/*.test.ts` |
+| 4 | `harness.profile`（模板、布局、`turn`、`commit`、槽） | `view/*.test.ts` |
+| 5–8 | `harness.runtime`（工具、收尾、拦截、审批、指令、运行控制、等用户、压缩） | `run/*.test.ts`、`compaction/*.test.ts` |
+| 9 | `harness.runtime` 的宿主面、`harness.extensions` 的撤回 | `session/*.test.ts` |
+| 10 | `agent/harness.md` 输出 10–21 在新 Spec 里的对应条目 | `tests/kernel/acceptance/*.test.ts` |
 
 ## 7. 验证
 
-- 单测与场景测试用真内核与真实存储（临时根 `createTestTmpRoot`）；不用 mock、spy、假计时器，时钟注入。
-- 崩溃：子进程跑一次运行，在写入批中途 `kill -9`，父进程重开，断言不完整的批被丢弃、`recover()` 收口为 `interrupted`、缓冲区里没取走的输入还在。
-- 真实模型：`kernel.llm.test.ts` 跑一次带工具调用的运行、一次中止、一次续跑（回退后重发），断言日志结构；运行前按测试规则取得授权（luna 已全面授权）。
-- 旧实现不动：nb-story、nb-agent-ui 的测试照跑通过。
-- 未验证边界：浏览器侧的帧消费（迁移 Task）；真实压缩方法（t11）；审批规则（t06）；插件撤回与重新装配只测内核侧的 `changeProfile`，平台的贡献点接线在 t10。
+- 测试用真内核；存储用做 JSON 往返的内存存储，关键场景另以 JSONL 在临时根（`createTestTmpRoot`）上跑；不用 mock、spy、假计时器，时钟注入。
+- 存储：真实写出一段日志后，对最后一批的每个字节偏移各截一份，逐份打开，断言丢弃量、修复后的文件、再追加后能正常打开；写与 `fsync` 失败经注入的文件句柄端口（产品代码用 `node:fs` 的实现，没有测试专用分支）；两个真实子进程抢同一会话的锁。
+- 进程崩溃：子进程跑运行，停在一个手动工具里，经标准输出报“工具已开始”，父进程收到后 `kill -9`；重开断言恢复的收口与缓冲区。不断言杀在批中途。
+- 真实模型：第 2、9 片的 `kernel.llm.test.ts`（luna 已全面授权；DeepSeek 按 `llmTestConfig` 有凭据才跑）。
+- 旧实现不动：nb-story、nb-agent-ui 的测试照跑。
+- 未验证边界：浏览器侧的帧消费与 `SessionMirror`（迁移 Task）；真实压缩方法（t11）；t06 的规则表；平台贡献点接线（t10）；按需读取大块内容（第一版全量读回）。
 
 ## 8. 不做与风险
 
-**不做**：Agent 插件与贡献点接线（t10）；界面（t17）；审批规则、`ask` 工具（t06）；压缩方法（t11）；nb-story 与 nb-agent-ui 的迁移（紧接的迁移 Task）；后台任务（t22）；eval（t21）；`sample`、请求原样复现、一般的缓存比对（提案第 18 节推迟）。
+**不做**：Agent 插件与贡献点接线（t10）；界面（t17）；t06 的规则表与 `ask` 工具；压缩方法（t11）；会话存放位置与 `home/`、地址方案（t08、Agent 插件）；模型目录与凭据的实现（t09；本包只有端口与 OMP 适配器）；工具结果过长的溢出（t12 的文件工具与 t08 的 `session://artifacts/`）；迁移脚本与 nb-story、nb-agent-ui 的迁移（迁移 Task）；后台任务（t22）；eval（t21）；提案第 18 节推迟的功能；子代理工具的失败码表（t14 的工具在 Agent 插件里，表在 t14 的实施计划；t14 决定 33 随之改注）。
 
-**风险**：
+**风险**（按返工量排）：
 
-- 体量是本 Work 最大的一块：十二片，每片都有可运行的测试兜底；某片发现提案说不通时先改 Spec 与本计划再继续。
-- OMP 从 18.2.5 跨到 18.14.0：第 0 片单独做、先读 changelog，旧实现的测试与 nb-story 的测试都要过。
-- JSONL 写入批靠“一次 write 加 fsync”：多行一次写入在崩溃时仍可能只落一部分，所以加载时按 `batch.of` 判完整，不依赖写入的原子性。
-- 10 万条事件打开 1 秒内：spike 第三版 1.68 万条 70–240 毫秒，线性外推接近上限，第 12 片测出来超了就加检查点。
-- 第五稿接口只过了 tsc、没跑过：第 3–7 片按它实现时可能撞上类型推断的问题，解决办法写进 Spec 与提案的决策记录。
+1. 状态机的核心（缓冲区与队列交织、写入批、位置章、`commandAccepted`、等用户、`mount`）在第三稿 spike 里没跑过（审查 Z9）：第 2 片的纵切先用真实存储与真实适配器跑通最小循环，第 6、7 片拆细；每片发现提案说不通时先改 Spec 与本计划。
+2. 日志格式晚改要迁移：事件名、`source` 规则、会话头、`commandAccepted`、大块内容、批字段都在第 1、2 片定，第 10 片的 nb-story 验收门是第一次真实使用方检验。
+3. OMP 从 18.2.5 跨到 18.14.0：第 0 片单独做，带真实模型 smoke。
+4. 性能：第 2、4 片各有出口测量，超预算当片改结构，不拖到第 11 片。
+5. 定稿类型只过 tsc：第 3–5 片按它实现时撞上的推断问题，解决办法写进 Spec 与提案决策记录。
