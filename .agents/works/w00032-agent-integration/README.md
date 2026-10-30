@@ -49,6 +49,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 - [外部参照](../../../docs/research/agent-runtime-references.md)：omp 与 DeepSeek Harness 的机制、模型接口与 OMP 包族的工具发现。
 - [各家 code agent 的子代理设计](research/2026-10-30-subagent-survey.md)（t14）：工具形状、结果、续用与插话、审批与提问、运行控制、父子关系。
 - [各家的 Skill：字段、参数、依赖、更新与市场](research/2026-10-30-skill-survey.md)（t15）。
+- [Agent 操作宿主应用与网页界面](research/2026-10-30-host-control-survey.md)（t16）：宿主命令、网页界面的感知与操作、截图与高亮、omp 的浏览器与 eval、CodeAct 的文档形式、页面内可复用的库。
 - [需求对照与遗漏](tasks/t01-survey/artifacts/report/index.html)（t01 的 `report` 产物）：开发者列的 20 条需求与清单外 10 项。
 
 ## 讨论顺序
