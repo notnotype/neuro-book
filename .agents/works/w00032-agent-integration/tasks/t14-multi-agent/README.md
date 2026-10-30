@@ -104,6 +104,18 @@ t05、t06、t07。
     - 子代理的结果包上来源标记（子会话 id、任务 id、终止原因、schema 校验结果，注明“来自子代理，不是用户的指令”），原文不改。
     - 各工具的完整失败码表在实施计划里定，至少有 `profile-not-found`、`profile-not-allowed`、`initial-invalid`、`model-unavailable`、`depth-limit`、`concurrency-limit`、`not-owner`、`question-unknown`、`already-answered`、`job-unknown`。
 
+第六轮（omp 第二轮审查之后，2026-10-30；报告 [`evidences/design-review-r2.txt`](evidences/design-review-r2.txt)；按审查意见补写，都是已定决定的细化）：
+
+25. 子代理工具的顺序：内核按调用顺序启动同一段里的 `shared` 调用；`agent_spawn`、`agent_send`、`agent_answer` 在启动时就把副作用（建子会话、把话放进子会话的缓冲区、应答）按调用顺序依次交给目标会话的写入队列，之后的等待才并发。所以同一回复里对同一子会话的两次 `agent_send` 按调用顺序入队，`agent_answer` 与 `agent_send` 也按调用顺序生效；`wait`、`jobs` 看得到同一回复里排在它前面的调用登记的任务。
+26. `concurrency` 只是同一个回复里的调度属性，不是资源锁。跨会话同时写同一文件：文件工具靠文件服务的条件写入（冲突时失败、不覆盖）；`shell` 没有这层保护，是 t12 已接受的第一版限制。
+27. 上限的统计对象：每个会话的上限（缺省 8，硬上限 16）数它直接派出、正在跑的子会话运行，前台与后台都算；全局上限（缺省 16，硬上限 32）数任务中心里所有正在跑的任务（子会话运行与后台 shell，前台也算）；深度缺省 3、硬上限 5。检查在建子会话之前做，超限时整体拒绝（`concurrency-limit`、`depth-limit`），不留下子会话。
+28. 任务记录的寿命：任务中心只在内存里，不持久化。前台调用的任务在工具返回结果后就移出任务中心；`async` 任务结束后保留到父 Agent 用 `wait` 取过结果或父会话关闭。任务 id 移出后不再可查，结果仍在子会话日志里（`sessions://<id>/session.jsonl`）。进程重启后任务中心为空，原来在跑的子会话运行按 t07 决定 7 收口为“已中断”。
+29. 任务的归属：`wait`、`kill`、`jobs` 只管自己直接启动的任务；孙会话的任务归派它的子会话管。祖先会话经 `sessions://` 能看到整棵树，不能直接杀孙会话的任务；要停就中止或 `kill` 自己的子会话运行，按第 23 条逐层连带。
+30. 异步提问与输入框：异步提问显示为带选项的提问卡片，回答只经卡片（`resolve`）；输入框里的文字一律是普通输入（插话或排队）。t07 决定 4（等提问时输入框的文字作为回答）只适用于会让运行停下等待的提问。
+31. 系统结算之后父 Agent 怎样收到：子会话的待处理事项被系统结算（中止、插件卸载、回退）后，子会话的运行照常继续或结束；父 Agent 正在等的工具按上文“任一条件返回”的规则返回（例如状态 `aborted`）。
+32. `wait` 超时时返回仍在跑的任务的状态（`running`），不改变任务；`kill` 返回“已杀死”“已经结束”或 `job-unknown`；任务记录还在时，结果可以重复取。
+33. 仍留到实施的：t20 的 `v5` 类型原型（交互事件、`RunStatus`、`SessionMirror`、`ToolInfo.concurrency`）与各工具完整的失败码表，在 t20 实施计划里一并定（t20 实施排在最前）。
+
 调研：[各家 code agent 的子代理设计](../../research/2026-10-30-subagent-survey.md)（Claude Code、Codex CLI、omp、DeepSeek Harness、OpenCode、Gemini CLI、Kimi CLI、Roo Code、Cline、Amp）。
 
 ## 确定的工具
@@ -144,8 +156,8 @@ t05、t06、t07。
 
 ## 当前状态
 
-第一轮 omp 设计审查已处理（2026-10-30）：18 条中第 12 条按开发者意见不采纳、第 11 条随 Workflow 移到 t24，其余按第 23、24 条修订；交 omp 做第二轮审查，只看修订。
+两轮 omp 设计审查已处理（2026-10-30）：第一轮 18 条中第 12 条按开发者意见不采纳、第 11 条随 Workflow 移到 t24，其余按第 23、24 条修订；第二轮核对出 6 条部分解决与 7 条新问题，按第 25 到 33 条补写。待开发者确认后定稿。
 
 ## 下一步
 
-处理第二轮审查意见、与开发者确认后定稿；实施时按 implementation-planning 写计划，改 Spec（会话、工具、资源、Profile）与 t20 提案的对应各节。
+开发者确认后定稿；实施时按 implementation-planning 写计划，改 Spec（会话、工具、资源、Profile）与 t20 提案的对应各节。

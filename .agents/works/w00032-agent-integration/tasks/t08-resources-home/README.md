@@ -41,7 +41,7 @@ t03、t05。
 ### 规律
 
 - 复数是目录：`projects://`、`sessions://`、`profiles://`、`skills://`、`docs://` 的根是虚拟目录，读它得到一段说明（这个目录是什么、怎么用）与下面的条目；根下的每个条目是真实目录，工具与 bash 都能用（harness 换成真实路径）。
-- 单数是当前这一个：`project://` 等于 `projects://<主项目>/`，`session://` 等于 `sessions://<当前会话>/`，`profile://` 等于 `profiles://<当前 Profile>/`。自己的读写，别人的只读。
+- 单数是当前这一个：`project://` 等于 `projects://<主项目>/`，`session://` 等于 `sessions://<当前会话>/home/`（2026-10-30 改），`profile://` 等于 `profiles://<当前 Profile>/`。自己的读写，别人的只读。
 - 主项目：会话在哪个项目里建的；没有项目时 `project://` 不可用。
 - 跨 Profile 的东西用 `project://`（随书）与 `user://`（跨书），不另设方案。
 
@@ -52,9 +52,10 @@ t03、t05。
 | `projects://` | 虚拟：说明与项目列表 | 所有已登记的项目 | 只读 | — | 可用 |
 | `projects://<短名>/<路径>` | `<该项目>/<路径>` | 别的书的文件（ADR 0024 的租约） | 读写 | 算 | 可用 |
 | `project://<路径>` | 同 `projects://<主项目>/` | 当前书的作品文件（已实现） | 读写 | 算 | 不可用 |
-| `sessions://` | 虚拟：说明与会话列表 | 所有会话 | 只读 | — | 可用 |
-| `sessions://<会话 id>/…` | `<状态根>/agent/sessions/<会话 id>/home/…` | 别的会话的工作区 | 只读 | 不算 | 可用 |
-| `session://<路径>` | 同 `sessions://<当前会话>/` | 本会话的工作区：计划、草稿、脚本；bash 的工作目录 | 读写 | 不算 | 可用 |
+| `sessions://` | 虚拟：说明与会话列表（先列与本会话有关的，其余按最近使用分页） | 所有会话 | 只读 | — | 可用 |
+| `sessions://<会话 id>/session.jsonl` | `<状态根>/agent/sessions/<会话 id>/session.jsonl` | 会话的原始日志；任何会话都能读（2026-10-30） | 只读（另设系统只读权限） | 不算 | 可用 |
+| `sessions://<会话 id>/home/…` | `<状态根>/agent/sessions/<会话 id>/home/…` | 会话的工作区；任何会话都能读 | 只读（自己的经 `session://` 读写） | 不算 | 可用 |
+| `session://<路径>` | 同 `sessions://<当前会话>/home/` | 本会话的工作区：计划、草稿、脚本；没有主项目时是 bash 的工作目录（有项目时是 `project://`） | 读写 | 不算 | 可用 |
 | `session://attachments/<名称>` | 同上 | 用户上传的附件；fork 时硬链接复制 | 只读 | 不算 | 可用 |
 | `session://artifacts/<序号>-<工具名>.log` | 同上 | 工具大结果的全文（取代 `artifact://`） | 只读 | 不算 | 可用 |
 | `profiles://` | 虚拟：说明与 Profile 目录（key、名称、来源、可不可用） | 所有 Profile | 只读 | — | 可用 |
@@ -81,8 +82,8 @@ t03、t05。
 │   ├── profiles/<key>.profile.tsx
 │   └── skills/<名>/
 └── agent/
-    ├── sessions/<会话 id>/
-    │   ├── session.jsonl          会话日志，不在 home 里
+    ├── sessions/<会话 id>/        sessions://<会话 id>/
+    │   ├── session.jsonl          sessions://<id>/session.jsonl，只读
     │   └── home/                  session://（含 attachments/、artifacts/）
     └── profiles/<key>/            profile://
 ```
@@ -101,7 +102,7 @@ t03、t05。
 | 用户说“所有 Agent 都用简体中文” | `user://AGENTS.md` |
 | 没打开项目时聊天 | 只有 `project://` 不可用 |
 | 在《A》里参考《B》的设定 | `projects://b/设定/人物.md` |
-| 导演看写手的产物 | `sessions://<写手会话>/…` |
+| 导演看写手的产物 | `sessions://<写手会话>/home/…`；写手的对话记录在 `sessions://<写手会话>/session.jsonl` |
 | Agent 写插件前查 SDK | 读 `docs://`（说明与目录），再 `rg docs://builtin/sdk` |
 | Skill 带的脚本 | `skills://outline/scripts/count.py`，bash 执行时换成真实路径 |
 | 读第 3 章三天前的版本 | `history://…`（t13） |
@@ -109,13 +110,13 @@ t03、t05。
 
 ### 另定的两条
 
-- 会话日志放在 `home/` 外，Agent 不能直接读写；读别的会话的对话记录在 t14 另给渲染的记录或专门的工具。
+- 会话日志放在 `home/` 外，Agent 不能写；2026-10-30 起经 `sessions://<id>/session.jsonl` 只读（t14），渲染的记录与查询工具在 t23。
 - Skill 格式遵守 Agent Skills 开放标准（`SKILL.md`），目录由 NeuroBook 自己管：来源只有内置、插件、`user://skills/`；默认不读 `~/.agents/skills`、项目里的 `.agents/skills`（写作用户的 Skill 目录不该混进写代码用的 Skill，同一 Profile 在不同机器上表现也会不同）。外部 Skill 可以复制或“导入”进 `user://skills/`；设置里另有“额外的 Skill 目录”，默认为空。书专属的 Skill 先不做（t15 再看）。
 
 ### 后续修改
 
-- 2026-10-30（t14 讨论，开发者定）：`sessions://<会话 id>/` 改为映射整个会话目录 `<状态根>/agent/sessions/<会话 id>/`，会话日志就是 `sessions://<会话 id>/session.jsonl`（只读），别的会话的工作区在 `sessions://<会话 id>/home/`；`session://` 改为等于 `sessions://<当前会话>/home/`。上面“规律”与“方案”表里 `session://` 等于 `sessions://<当前会话>/` 的写法以这条为准。理由：Agent 要能直接读子会话的原始日志（[t14](../t14-multi-agent/README.md)、[t23](../t23-session-history/README.md)），这样不开特例、地址与真实目录一一对应，日志也不落在可写的工作区里。
-- 2026-10-30（t14 讨论，开发者定）：bash（t12 的 `shell`）的工作目录改为：会话有主项目时 `project://`，没有时 `session://`。上面“方案”表与“用例子验证”里“bash 的工作目录 `session://`”以这条为准。理由：Agent 的工作大多是改这本书，相对路径直接对着书的文件；bash 是执行档、缺省弹审批（t06），写书仍要用户批准。不用 `user://`：那里是用户的 Profile、Skill 与 `AGENTS.md`，写入要询问。“用例子验证”里的两行已同步改。只读对 Agent 的文件工具生效，bash 能绕过（t12 已接受的第一版限制）。
+- 2026-10-30（t14 讨论，开发者定）：`sessions://<会话 id>/` 改为映射整个会话目录 `<状态根>/agent/sessions/<会话 id>/`，会话日志就是 `sessions://<会话 id>/session.jsonl`（只读），别的会话的工作区在 `sessions://<会话 id>/home/`；`session://` 改为等于 `sessions://<当前会话>/home/`。上面“规律”“方案”表与目录图已按这条改写。理由：Agent 要能直接读子会话的原始日志（[t14](../t14-multi-agent/README.md)、[t23](../t23-session-history/README.md)），这样不开特例、地址与真实目录一一对应，日志也不落在可写的工作区里。
+- 2026-10-30（t14 讨论，开发者定）：bash（t12 的 `shell`）的工作目录改为：会话有主项目时 `project://`，没有时 `session://`。上面“方案”表与“用例子验证”已按这条改写。理由：Agent 的工作大多是改这本书，相对路径直接对着书的文件；bash 是执行档、缺省弹审批（t06），写书仍要用户批准。不用 `user://`：那里是用户的 Profile、Skill 与 `AGENTS.md`，写入要询问。“用例子验证”里的两行已同步改。只读对 Agent 的文件工具生效，bash 能绕过（t12 已接受的第一版限制）。
 - 2026-10-30（t14 审查后，开发者定）：任何会话都能读任何会话的 `sessions://<id>/`（日志与工作区），不做限制。
 
 ## 当前状态
