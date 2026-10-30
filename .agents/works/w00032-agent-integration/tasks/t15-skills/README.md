@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t15-skills
 status: planned
-updated: 2026-10-28
+updated: 2026-10-30
 ---
 
 # Skill 规范与目录
@@ -33,10 +33,18 @@ updated: 2026-10-28
 
 t05、t08、t10。
 
+## 决定
+
+第一轮（开发者 2026-10-30）：
+
+1. 用户用 `$` 触发 Skill（旧应用的做法），不只靠 `/`。
+
+先调研再定的：字段全表、Skill 参数与“带参数自动执行脚本”、依赖（Python、Node、Bun）、更新与 Skill 市场。调研：[各家的 Skill](../../research/2026-10-30-skill-survey.md)。
+
 ## 当前状态
 
-草稿，未开工（2026-10-28 建）。
+讨论中（2026-10-30）：调研完成，按调研给出字段、参数、依赖、更新与市场的方案，待开发者讨论。
 
 ## 下一步
 
-轮到时与开发者逐条讨论，决定写进本 README，再按 implementation-planning 写计划。
+调研汇总写进 Work 的 `research/`，再逐条讨论。
