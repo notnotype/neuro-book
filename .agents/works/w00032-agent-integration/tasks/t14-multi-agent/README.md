@@ -80,7 +80,7 @@ t05、t06、t07。
     - 用户输入加可选字段 `replyTo`，指向一个异步提问。（由第 23 条改为回答走 `resolve`，不加 `replyTo`。）
 18. 异步提问：`ask` 加 `async` 选项（第 10 条）。打开时问题显示出来、工具立即返回，运行继续；回答之后作为一条普通输入进来（运行中当插话，空闲时开新一轮）。（回答的入口由第 23 条改为 `resolve`。）
 19. 任务中心：本 Task 只定 Agent 用的三个工具 `wait`、`kill`、`jobs` 的形状；任务结束时怎样通知（空闲时要不要唤起 Agent）、自动转后台、寿命、上限与活动面板仍在 [t22](../t22-background-work/README.md)。在那之前，转后台的任务结束后，结果等 Agent 调 `wait` 或 `jobs` 时取得。
-20. 结果模式由子代理的 Profile 声明（自由、可选结构化、强制结构化，后两种带 schema），父 Agent 不能改。
+20. 结果模式由子代理的 Profile 声明（自由、可选结构化、强制结构化，后两种带 schema），父 Agent 不能改。（2026-10-30 t18 改：Profile 声明了结果 schema 的，父 Agent 不能改；没声明的，父 Agent 可以在 `agent_spawn` 的 `outputSchema` 给一份，按强制结构化处理，见 [t18](../t18-builtin-profiles/README.md) 决定 6。）
 21. 嵌套加一个安全上限，缺省 3 层、可在 Agent 设置里改；超过时 `agent_spawn` 得到 `depth-limit`。它是防失控的上限，不是第 3 条说的开关。
 22. （作废：Workflow 另开 [t24](../t24-workflow-integration/README.md)，见第 23 条。）Workflow 与 Agent：Workflow 调 Agent 经 `agent.startTask`（[t10](../t10-agent-plugin/README.md) 决定 7），nb-workflow 的 `AgentPort` 由 Agent 插件实现，这种会话的调用方是 Workflow 运行；Agent 调 Workflow 由 Workflow 插件经 `agent.tools` 贡献工具，不在本 Task。
 
@@ -126,7 +126,7 @@ t05、t06、t07。
 
 | 工具 | 参数 | 做什么 |
 |---|---|---|
-| `agent_spawn` | `profile`、`prompt`、`name?`、`initial?`、`model?`、`effort?`、`questions?`、`async?` | 新建子会话，把第一项任务交给它。`model` 是模型角色或具体模型，`effort` 是推理档，不写都用子 Profile 的设置；`questions` 是 `caller`（缺省）或 `user` |
+| `agent_spawn` | `profile`、`prompt`、`name?`、`initial?`、`model?`、`effort?`、`questions?`、`outputSchema?`、`async?` | 新建子会话，把第一项任务交给它。`model` 是模型角色或具体模型，`effort` 是推理档，不写都用子 Profile 的设置；`questions` 是 `caller`（缺省）或 `user` |
 | `agent_send` | `id`、`message?`、`queue?`、`async?` | 给自己派的子会话发话：空闲时开新一轮；运行中缺省插话，`queue: true` 排到下一轮；不带 `message` 就是“继续” |
 | `agent_answer` | `id`、`question`、`answer`、`async?` | 回答子会话交给调用方的提问（经 `resolve`），之后像 `agent_send` 一样等 |
 
@@ -146,7 +146,7 @@ t05、t06、t07。
 
 | 工具 | 参数 | 做什么 |
 |---|---|---|
-| `yield` | 子 Profile 声明的结果 schema | 交回结构化结果，调用即结束这次运行；只在 Profile 声明了结构化结果时出现 |
+| `yield` | 子 Profile 声明的结果 schema | 交回结构化结果，调用即结束这次运行；只在 Profile 声明了结构化结果、或派发时给了 `outputSchema` 时出现 |
 
 已有工具的改动：`ask`（t06）与 `shell`（t12）加 `async?`；`shell` 的工作目录见第 15 条。
 

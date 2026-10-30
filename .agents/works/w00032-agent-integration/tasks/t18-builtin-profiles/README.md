@@ -43,13 +43,18 @@ t05、t12、t15。
 3. 第一版不带内置 Skill：9 个小说写作 Skill 列为候选，有评测后再挑；skill-creator 与 Profile 编写指南在支持用户写 Profile、Skill 时重写为 `docs://` 文档（旧的按 `defineAgentProfile` 写，形状已变）；llmlint 准备退役，不内置。
 4. 提示词写作规范写进 `docs/standards/prompts.md`：中文（ADR 0034）；结构用 t20 的模板 helper、分节；写结果与约束，不写冗长的固定流程；不重复工具说明；例子短；改提示词升 Profile 版本；改动行为的提示词附评测结果（评测建起来之后）。
 5. 评测优先级不高，以后有时间再做。第一版只做不调模型的结构测试（渲染提示词，断言该有的节与工具绑定）；真实模型 smoke 与质量评测、预算与授权到时再定，做法参照调研第 3 节（固定题集、多次重复、模型裁判看原文、整数门槛、按模型分开报、推理档写死）。
-6. adhoc 的结果 schema（推荐，待确认）：放在初始输入里，初始输入为 `{role?, outputSchema?}`；不给 `agent_spawn` 加 `outputSchema`。“结果 schema 是初始输入的函数”作为 `defineProfile` 的通用能力（旧应用的 `dataSchemaFromInitial`），不是 adhoc 的特例，与 t14 决定 20“结果模式由 Profile 声明”一致；schema 随会话头保存，每次 `agent_send` 都认；不合法报 `initial-invalid`。没给 schema 时是自由结果。
+6. 结果 schema 由派发方给（开发者 2026-10-30，照 omp 的 `task` 的 `outputSchema`；替换原先“放在 adhoc 初始输入里”的推荐）：`agent_spawn` 加 `outputSchema?`，对任何 Profile 都能用。
+   - Profile 自己声明了结果 schema 的不能覆盖，传了报 `schema-conflict`（Profile 的提示词可能引用自己的结果字段）。
+   - 没声明的（自由结果），给了 `outputSchema` 就等同于 Profile 声明了强制结构化：内核按会话加 `yield` 工具（参数 schema 即给的这份，不经工具绑定）；调用 `yield` 结束这次运行，停下时没调用就催一次，仍没有就以最后一条回复作结果并标为 error（t14 的强制档）；结果带 schema 校验结果。
+   - Profile 的提示词里没有交结果的说明，内核补一句固定提醒（“完成后调用 `yield` 交回结果”，相当于旧应用 adhoc 的“汇报纪律”）。
+   - schema 在派发时记进子会话头，之后每次 `agent_send` 都按同一份，不能中途改；不合法时的失败码（`initial-invalid` 或另起 `schema-invalid`）实施时定。
+   - adhoc 的初始输入只有 `{role?}`。t14 决定 20 与工具表随之改。
 7. Workflow 多代理编排可能要自定义工具：开发者的初步方案是 Agent 能定义临时 Profile，记进 [t24](../t24-workflow-integration/README.md)，到 Workflow 的 Work 再讨论。
 
 ## 当前状态
 
-讨论完成（开发者 2026-10-30），第 6 条待确认。
+讨论完成（开发者 2026-10-30）。
 
 ## 下一步
 
-实施时按 implementation-planning 写计划：三个 Profile、`prompts.md`、结构测试；`defineProfile` 的“结果 schema 取自初始输入”随 t05 的实现。
+实施时按 implementation-planning 写计划：三个 Profile、`prompts.md`、结构测试；`agent_spawn` 的 `outputSchema` 随 t14 的实现。
