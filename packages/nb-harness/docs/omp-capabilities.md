@@ -2,6 +2,15 @@
 
 面向后续开发 agent：`@notnotype/nb-harness` 直接以 OMP 包族（`@oh-my-pi/*`，仓库 `github.com/can1357/oh-my-pi`，作者 Can Bölük / Stencil Labs）为底座。本文件记录**实测**的能力面、最小调用样例、编辑引擎语义与踩坑点。数字均为 2026-09-18 在本机（Windows x64，Bun 1.3.14，OMP 18.2.5）测得。
 
+**2026-10-30 升到 18.14.0**（w00032 t20 第 0 片）：本包依赖的 `pi-agent-core`、`pi-ai`、`pi-catalog`、`pi-natives`、`pi-utils` 一起升级；下表的体积与数量仍是 18.2.5 时的实测。本包撞上的变化：
+
+- `NO_AUTH_SENTINEL` 从 `pi-ai/providers/openai-shared` 移到 `pi-ai/auth-retry`（18.2.7）。
+- `EditPolicy` 去掉 `localSandboxRoot`、`vaultRoots`，新增必填的 `maxColumns`、`urlSchemes`、`urlAliasSchemes`、`planWritableRoots`；内部 URL 改由 `EditSession` 的 `resolveUrl` 回调解析。
+- 目录从 69 家服务商增到 79 家（新增免密钥的 `local`、`web`，要登录的 `snowflake` 等）；去掉了 `pi-catalog/models.json` 原始导出。
+- `baseUrl` 是本机回环地址的 OpenAI 兼容端点被当作本地后端，输出上限按模型自己的 `maxTokens`，不再夹到 `OPENAI_MAX_OUTPUT_TOKENS`（64000）；远端端点照旧夹取（`pi-catalog` 的 `compat/resolve.ts`）。
+- 其余 breaking 改动（服务商账号、Judge 改名、`pi-agent-core/utils/yield` 删除、`estimateImageContentTokens` 删除）本包没有用到。
+
+
 先读这一句：**OMP 全部包以裸 TypeScript 源作为运行入口（`main: ./src/index.ts`），只有 Bun 能执行；没有编译产物供 Node 使用。**
 
 ## 1. 包清单与体量

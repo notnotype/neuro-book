@@ -8,7 +8,7 @@
  */
 
 import {getEnvApiKey} from "@oh-my-pi/pi-ai";
-import {NO_AUTH_SENTINEL} from "@oh-my-pi/pi-ai/providers/openai-shared";
+import {NO_AUTH_SENTINEL} from "@oh-my-pi/pi-ai/auth-retry";
 import {getBundledModel, getBundledModels, getBundledProviders, type Model} from "@oh-my-pi/pi-catalog";
 import {buildModel} from "@oh-my-pi/pi-catalog/build";
 

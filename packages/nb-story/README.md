@@ -55,7 +55,7 @@ nbstory skill install
 - 密钥只认启动 nbstory 时的环境变量（`export`，或当前目录的 `.env`，后者是 Bun 启动时加载的）；放在家目录 `.env` 里的不算，`config show`、`ask`、`ingest` 对此的结论一致。
 - 要结构化结果时所有命令都加 `--json`，标准输出只有一份 `{"ok": …}`。
 - 全部命令与选项见 `nbstory --help`（版本号 `nbstory --version`）与 `nbstory <命令> --help`；`config` 各动作的用法见 `nbstory config <动作> --help`。
-- 自己的服务商没写 `maxTokens` 时，每次回答的输出上限取 32768（OpenAI 系请求最多 64000），网关报错说上限太大时在配置里把该模型的 `maxTokens` 调小。
+- 自己的服务商没写 `maxTokens` 时，每次回答的输出上限取 32768（OpenAI 系请求发往远端时最多 64000，本机端点按模型写的上限），网关报错说上限太大时在配置里把该模型的 `maxTokens` 调小。
 
 ## 许可证
 

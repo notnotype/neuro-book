@@ -27,15 +27,15 @@ function provider(id: string) {
 }
 
 describe("服务商的认证分类", () => {
-    test("OMP 18.2.5 的全部服务商：按顺序取第一个符合的分类", () => {
+    test("OMP 18.14.0 的全部服务商：按顺序取第一个符合的分类", () => {
         const groups: Record<string, string[]> = {};
         for (const item of listCatalog()) (groups[item.access] ??= []).push(item.id);
-        expect(listCatalog()).toHaveLength(69);
-        expect(groups.keyless).toEqual(["commandcode", "google-vertex", "zenmux"]);
+        expect(listCatalog()).toHaveLength(79);
+        expect(groups.keyless).toEqual(["commandcode", "google-vertex", "local", "web", "zenmux"]);
         // 会过期的登录令牌（刷新方式 request、hook），以及有登录方式但没有变量的。
-        expect(groups.login).toEqual(["anthropic", "cursor", "github-copilot", "gitlab-duo", "gitlab-duo-agent", "google-antigravity", "google-gemini-cli", "kimi-code", "muse-code", "openai-codex", "xai-oauth"]);
+        expect(groups.login).toEqual(["anthropic", "cursor", "github-copilot", "gitlab-duo", "gitlab-duo-agent", "google-antigravity", "google-gemini-cli", "kimi-code", "muse-code", "openai-codex", "snowflake", "xai-oauth"]);
         expect(groups.unsupported).toEqual(["amazon-bedrock", "minimax-cn"]);
-        expect(groups.key).toHaveLength(53);
+        expect(groups.key).toHaveLength(60);
         // 登录结果就是 API key、刷新方式为 none 的算 key。
         expect(provider("openrouter").access).toBe("key");
         expect(provider("devin").access).toBe("key");

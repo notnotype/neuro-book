@@ -4,7 +4,7 @@
  */
 
 import type {AssistantMessage} from "@oh-my-pi/pi-ai";
-import {NO_AUTH_SENTINEL} from "@oh-my-pi/pi-ai/providers/openai-shared";
+import {NO_AUTH_SENTINEL} from "@oh-my-pi/pi-ai/auth-retry";
 
 /** 遮盖时用的固定文字。 */
 export const REDACTED_KEY = "[REDACTED]";

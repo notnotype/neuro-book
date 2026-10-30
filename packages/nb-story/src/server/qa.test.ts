@@ -595,7 +595,7 @@ describe("选模型的接口（t16）", () => {
         expect(providers[0]!.models.find(model => model.id === "qa-model")).toMatchObject({contextWindow: null, efforts: []});
         expect(providers.find(provider => provider.id === "deepseek")).toMatchObject({source: "catalog", access: "key", keyEnvs: ["DEEPSEEK_API_KEY"]});
         expect(providers.find(provider => provider.id === "anthropic")).toMatchObject({access: "login"});
-        expect(providers.filter(provider => provider.source === "catalog")).toHaveLength(69);
+        expect(providers.filter(provider => provider.source === "catalog")).toHaveLength(79);
         // 没有配置文件时只有目录。
         await rm(env.configFile);
         expect(((await env.call("models.catalog", {})).body.providers as {source: string}[]).every(provider => provider.source === "catalog")).toBe(true);

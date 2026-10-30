@@ -296,7 +296,9 @@ describe("config test", () => {
         expect(result.stdout).toContain("由服务端的默认档决定");
     });
 
-    test("自定义模型不写 maxTokens 时请求带输出上限 32768（#258）；写了就用写的，OpenAI 系超过 64000 夹到 64000", async () => {
+    // 测试端点在本机回环地址上：OMP 18.14 起把回环地址的 OpenAI 兼容端点当作本地后端，输出上限按模型自己写的值，
+    // 不再夹到 64000（`pi-catalog` 的 `compat/resolve.ts`，`clampOutputToModelMax`）；发往远端网关的请求仍夹到 64000，这里测不到。
+    test("自定义模型不写 maxTokens 时请求带输出上限 32768（#258）；写了就用写的，本机端点不夹到 64000", async () => {
         const sent = async (maxTokens?: number): Promise<unknown> => {
             const endpoint = startEndpoint([{kind: "text", text: "好"}]);
             endpoints.push(endpoint);
@@ -309,7 +311,7 @@ describe("config test", () => {
         };
         expect(await sent()).toBe(32_768);
         expect(await sent(5000)).toBe(5000);
-        expect(await sent(100_000)).toBe(64_000);
+        expect(await sent(100_000)).toBe(100_000);
     });
 
     test("认证被拒：退出码 4，错误归类 auth，错误正文里回显的密钥也不出现在输出里", async () => {
