@@ -1,6 +1,6 @@
 # t20 实施计划（第二版）：harness 事件模型内核
 
-第一版（提交 04d13a262）经六位审查者审查（omp、Claude Opus、四个 Claude Sonnet：接口形状、开发体验、代码组织、拉远看），108 条（阻断 8、重要 70、建议 30），报告在 `evidences/plan-review-r1-*.txt`，逐条处理见 [`evidences/plan-review-r1-disposition.md`](evidences/plan-review-r1-disposition.md)。第二版按处理结果重写。第二轮快速审查（Claude Opus 19 条：重要 13、建议 6，`evidences/plan-review-r2-opus.txt`）的处理已并入本版，逐条见处理表第二节；omp 的第二轮报告回来后另行处理。
+第一版（提交 04d13a262）经六位审查者审查（omp、Claude Opus、四个 Claude Sonnet：接口形状、开发体验、代码组织、拉远看），108 条（阻断 8、重要 70、建议 30），报告在 `evidences/plan-review-r1-*.txt`，逐条处理见 [`evidences/plan-review-r1-disposition.md`](evidences/plan-review-r1-disposition.md)。第二版按处理结果重写。第二轮快速审查（Claude Opus 19 条：重要 13、建议 6，`evidences/plan-review-r2-opus.txt`）的处理已并入本版，逐条见处理表第二节；omp 的第二轮报告（13 条：阻断 3、重要 9、建议 1，`evidences/plan-review-r2-omp.txt`）也已并入，见处理表第三节。
 
 ## 1. Context
 
@@ -41,7 +41,7 @@
 | 通用问题 | 选用 | 理由 | 否决 |
 |---|---|---|---|
 | 日志存储 | JSONL，会话一个目录 `<根>/<会话 id>/session.jsonl`；写入与截断代码取自分支 `session/jsonl/jsonl.ts` | t03 定会话为文件、可读可拷；t14 定 `sessions://<id>/` 映射整个会话目录 | SQLite：会话目录要可读可拷 |
-| 写入批 | 每行带 `batch: {id, n, of}`；一批一次 `write` 后 `fsync`；写或同步失败时句柄进“损坏”状态、拒绝之后的写入；重开时截到最后一个完整批的末尾（截下的尾部另存一份供查看） | 单写者下只有文件尾可能不完整；“结果不确定”由重开时的截断与指令幂等（3.2）共同收口 | 提交标记行：多一行、仍要处理写失败 |
+| 写入批 | 每行带 `batch: {id, n, of}`；一批一次 `write` 后 `fsync`；**文件里完整的批就是已提交的批**；写或同步失败对调用方是“结果不确定”：句柄进“损坏”状态、进程内不重试；重开时截到最后一个完整批的末尾（截下的尾部另存一份供查看），以文件为准。指令的重发靠 `commandAccepted` 去重；反应与外部事实不重试（重开时不跑反应），扩展要去重就用 `emit` 的幂等键 | 单写者下只有文件尾可能不完整；“结果不确定”由重开时的截断与指令幂等（3.2）共同收口 | 提交标记行：多一行、仍要处理写失败 |
 | 会话互斥 | 会话目录里的锁文件，`wx` 创建，内容是进程号与随机令牌；进程已不在时视为陈旧可回收 | Bun 没有跨平台的 `flock`；同机多进程足够 | 只靠“一个状态根一个服务端”的部署假设：内核也给 nb-story 这类独立程序用 |
 | 大块内容 | 超过 16 KB 的字符串写成 `blobs/<sha256>`，事件里记 `{$blob, size}` | 日志小、扫描与校验快；脱敏的哈希走同一条路 | 全部内联：10 万条每条 5,000 字解析要 651 毫秒、读进 525 MB（审查 Z7 实测） |
 | schema 与校验 | TypeBox | 仓库与平台合同已全是 TypeBox | — |
@@ -95,10 +95,15 @@
   - `toolStarted` 记审批之后、实际执行的参数与 `approval?: {by}`（放行的判定来源）；`toolResult` 加 `code?`（内核造的失败结果都有码）。
   - Profile 与扩展的定义加 `version`（Profile 哈希与扩展事件版本用）。
 - **类型改名**（避开 DOM 全局与一名两用）：`Event` → `LogEvent`，模板 `Node` → `PromptNode`，对话的 `Turn` 类型 → `ConversationTurn`（模板组件仍叫 `<Turn />`）。
-- **请求与回复**：`ModelRequest.tools` 是完整的工具声明（见下）；`Block.kind` 加 `image`、思考块带 `signature`、`redacted`；`ModelRequest` 加 `effort`；`RequestPurpose` 加 `approval`。`ModelResponse` 加 `stopReason`、`usage`。回复里的图片块收下，存为 `image` 块（大块内容）。
-- **工具**：以 master 的 `ToolDeclaration` 为底（`id`、`description`、`parameters`、`provider`、`version`、`finish`、`concurrency`、`strict`、`customFormat?`），加 `effect: "read" | "write" | "exec"` 或按参数求值的函数；`name` 字段去掉（交给服务商的名字由适配器按 t04 换算，日志与 `ToolCall.name` 一律是 id）。`ToolInfo`（给扩展看的）是声明去掉实现相关字段。`ToolContext{signal, callId, sessionId, initial, ask?, report?}`；`ToolResult{text, status?, code?, details?, redacted?}`。
+- **请求与回复**（第 1 片写成类型，第 2 片按 OMP 18.14.0 的公开类型与事件流逐字段写合同测试）：
+  - 内容块 `ContentBlock`：`{kind: "text", text}`、`{kind: "thinking", text, signature?, redacted?, provider?}`（`provider` 原样保存服务商要求带回的元数据）、`{kind: "image", blob, mime, width?, height?}`（图片一律是大块内容）。请求里的块另带 `origin`。
+  - `ModelRequest`：`purpose`（加 `approval`）、`model`、`effort`、`params`、`headers`、`system`、`messages`、`tools`（完整工具声明）、`toolChoice?: "auto" | "none" | {tool: id}`、`providerOptions?`（适配器专用、原样透传）。
+  - `ModelResponse`：`content`、`toolCalls`、`stopReason`、`usage`、`responseId?`；失败时带 `partial?` 与错误类别。
+  - 适配器不支持的内容（例如某服务商不收图片）在发请求前失败，码 `unsupported-content`，不悄悄丢掉。回复里的图片块收下，存为 `image` 块。
+- **工具**：以 master 的 `ToolDeclaration` 为底（`id`、`description`、`parameters`、`provider`、`version`、`finish`、`concurrency`、`strict`、`customFormat?`），加 `effect: "read" | "write" | "exec"` 或按参数求值的函数；`name` 改为可选的 `providerName?`（t04 决定 1 允许显式覆盖交给服务商的名字，按服务商规范校验；不写时适配器按 t04 换算）；日志、`ToolCall.name`、Profile 与审批一律用 id。`ToolInfo`（给扩展看的）是声明去掉实现相关字段。`ToolContext{signal, callId, sessionId, initial, ask?, report?}`；`ToolResult{text, status?, code?, details?, redacted?}`。
 - **审批钩子**：`approve(call, info, ctx) → Promise<{verdict: "allow", by} | {verdict: "deny", rejection, by} | {verdict: "ask", reason}>`，`info` 有工具声明、按参数求得的 `effect`、核心设置（审批模式、只读模式）、批准记忆；`ctx` 有 `signal` 与 `ctx.model`。
 - **宿主**：`SessionEnv`（3.10）；`RunStatus` 加 `waiting{pending: InteractionSummary[]}` 与 `broken`；`rewind` 去掉 `abort` 选项（运行中先 `abort` 再 `rewind`，进差异表）；`resolve` 进指令表；`switchBranch`、`fork`、`setTitle`、`archive` 进指令表；`path`、`siblings`、`runResult` 进查询；命令成功值里带 `seq` 与 `replayed`（对上 nb-runtime 远程服务的 `ok(value)`）、失败的 `detail` 按码给 schema。
+- **压缩**：`CompactionResult{method, firstKeptEntryId, replacement, omitted, tokensBefore, tokensAfter, details}`（t11 决定 8 加 `omitted`），方法失败以 `{failed: code}` 交回；放回的内容由内核的公共流程写，不归方法。
 - **码表**：`api/codes.ts` 一处，按拥有者分组：指令、工具失败、存储（`log-corrupt`、`needs-migration`、`session-busy`、`log-broken`）、诊断（含 `emit-after-settle`、`setting-missing-default`、`turn-node-count`、`mount-timeout`）。计划与 Spec 里用到的码都在这里登记。
 - **类型体验**：`implement` 的契约没有导出时不必写 `exports: {}`；`MountCtx` 加 `initial`；作用域写错、`optional` 依赖读取等最难懂的几处报错加自定义的提示类型（审查 D12、A15）。
 - `spike/v5/typetest.ts` 的 29 处写错随类型搬到 `tests/kernel/typetest.ts`（不进发布面），每片新增的写错补进来。
@@ -110,7 +115,7 @@
 - **`LogStore`**：`create(header)`、`open(id) → handle`（取锁、修复、校验、读回）、`append(handle, batch)`、`list({project?, archived?})`（读索引）、`fork(from: {session, leaf}, newHeader)`（复制当前路径、头记来源）、`close(handle)`。`memory-store` 每次读写都做 JSON 往返，`Date`、`Map`、`undefined` 这类只在 JSONL 里坏的写法在内存测试里也会坏（审查 D5）。
 - **锁**：`wx` 创建 `session.lock`，内容是进程号、进程启动时刻（Linux 读 `/proc/<pid>/stat`，其它平台只比进程号）与随机令牌；进程不在或启动时刻不同视为陈旧。回收不用“删再建”：把陈旧锁 `rename` 到唯一名字，再 `wx` 建新锁，建成后重读确认令牌是自己的。`session-busy` 的 `detail` 带持有者与创建时刻；宿主可强制解锁（写诊断）。
 - **大块内容**：阈值按 UTF-8 字节 16 KB；写入批之前先写 blob（临时名、`fsync`、`rename`、`fsync` 目录），blob 写失败与日志写失败同样进 `log-broken`；打开时引用的 blob 缺失是 `log-corrupt`；`fork` 复制路径上引用的 blob（同一文件系统用硬链接）。脱敏只记原文的 SHA-256，不产生 blob 文件。
-- **打开顺序**：取锁 → 若尾部有不完整的批，截到最后一个完整批的末尾、截下的字节另存为 `session.jsonl.tail-<时刻>` 并写诊断 → 校验 → 读回大块内容 → 交给 `state` 归约。修复失败拒绝打开。
+- **打开顺序**（存储这一层）：取锁 → 若尾部有不完整的批，截到最后一个完整批的末尾、截下的字节另存为 `session.jsonl.tail-<时刻>` 并写诊断 → 校验 → 读回大块内容（校验哈希与长度，缺失或不符是 `log-corrupt`）。修复失败拒绝打开。之后的装配与归约见 3.10。
 - **校验**：id 唯一、seq 递增、父节点在前、类别与作用域合法、类型是内核事件或带合法前缀、批完整（只有文件尾可能不完整，中间的不完整批是 `log-corrupt`）。
 - **写失败**：写或 `fsync` 抛错时句柄进 `log-broken`：这一批不归约、不推帧（顺序固定为“先落盘、再归约、再推帧”）；之后的写入都得 `log-broken`。内核立即在内存里把运行标为结束（不写日志），`waitRun` 以 `{reason: "error", kind: "local", code: "log-broken"}` 完成，`RunStatus` 进 `broken` 并推一条 `status` 帧；`closeSession` 在句柄已坏时跳过收口、只做清理与释放锁，同进程可立即重开，收口交给重开时的恢复。
 - **扩展事件的版本**：只归约声明过的版本；更高版本的事件写诊断并跳过归约（插件降级后打开新日志）。
@@ -120,7 +125,7 @@
 - `define.ts`：`defineExtension`、`implement`、`defineContract`、`optional`、`shape`、`slice`、`conv`、`ext`。
 - `profile.ts`：`defineProfile`、`deriveProfile`（必须给新 id；`render`、`tools`、`extensions` 逐项合并；派生的 id 是自己的设置命名空间，不继承基础 Profile 的用户设置；Spec 写清三处审查 A14 指出的语义）。
 - `assemble.ts`：按第 1 节决定 11 校验 id；`dependsOn` 拓扑排序、同层按 id，得到**装配序**（决定反应写入、槽拼接、`mount` 的顺序）；**拦截序**是装配序，再接 Profile 的 `extensions`、Profile 自己、审批（`layer` 在第 12 片）。所属插件随每个扩展传入（`{extension, plugin: string | null}`，`null` 只给内核与测试），按它校验 id 前缀。装配时检查：设置每项都有 `default`、`on`/`reduce`/`render` 的键是已知事件（按 `dependsOn` 里的契约算，`optional` 的不误报）、`contribute` 的槽名合法、`reminder()` 至少给了 `every` 或 `watch`；摆放类的槽诊断在渲染时报。装配失败返回带每条来源、`message` 与 `hint` 的列表，`createTestSession` 遇到时抛出带全部条目的错误。
-- **Profile 哈希**：`hash(id, version, 代码哈希, 装配序里每个扩展的 id 与版本)`；工具声明不进哈希，工具只由 `toolsAnnounced` 管（t04 决定 6 的两档）。代码哈希：用户 Profile 取 t05 的打包哈希；内置 Profile 取加载时对模块源码算的哈希，做不到时 Spec 写“内置 Profile 改提示词要升 `version`”，并加一条检查测试（源文件变了而 `version` 没变时失败），第 3 片定用哪种。打开会话时与路径上最后一条 `profileChanged` 比，不同就在受理任何指令前写 `profileChanged{reason: "code-updated"}`（审查 O8）。
+- **Profile 哈希**：`hash(id, version, 代码哈希, 装配序里每个扩展的 id 与版本)`；工具声明不进哈希，工具只由 `toolsAnnounced` 管（t04 决定 6 的两档）。代码哈希：用户 Profile 取 t05 的打包哈希；内置 Profile 取加载时对模块源码算的哈希，做不到时 Spec 写“内置 Profile 改提示词要升 `version`”，并加一条检查测试（源文件变了而 `version` 没变时失败），第 3 片定用哪种。打开会话时与路径上最后一条 `profileChanged` 比，不同就在受理任何指令前写 `profileChanged{reason: "code-updated", from, to, manifest}`（旧、新哈希与装配清单）；提交缓存的键带 Profile 哈希，哈希变了按提案第 7 节全部重新渲染（审查 O8）。
 - `ctx.ts`：各档 `ctx`（视图、反应、`assistant` 的反应、`mount`、拦截）的唯一构造点：状态取哪一刻、深只读、`read` 只放 `dependsOn` 与 `core.history`，三条规则一份实现。`emit`/`set` 的收集器（完成时整批写、抛错整批丢、完成后调用报 `emit-after-settle`、同片取最后一次）在同一文件。
 
 ### 3.4 `kernel/state/`：归约与对话形状
@@ -145,15 +150,16 @@
 - **工具**：执行前写 `toolStarted`（审批之后，记实际执行的参数）；按声明的 `concurrency` 切段（`shared` 连续并发、按调用顺序启动；`exclusive` 单独）；结果按调用顺序作为一个写入批写入，整批写完再派发反应。工具执行上下文见 3.1。名字换算与校验在 `api/tool-name.ts`（`.` → `__`、id 里禁 `__`、上限 64），请求校验与适配器共用。
 - **收尾工具**：照 `agent/harness.md` 输出 13–16：一条回复里只调用了一个收尾工具、参数通过校验且执行成功，结果写入即以 `runEnded{reason: "finished", result}` 收口、不再请求模型；执行返回错误按普通工具出错；与别的工具混在一批或有两个时，收尾工具都不执行、各得 `finish-not-alone`；以写下结果为准，在新 Spec 里改写成适配宽限期的一句：宽限期内写下的收尾结果，运行以 `finished` 结束；宽限期之后到达的只写诊断。t14 的 `yield` 由内核按会话头的 `result` 动态生成为收尾工具；会话有 `result` 时内核在第一轮开头写一条固定提醒（`conv`，“完成后调用 `yield` 交回结果”，t18 决定 6）；可选档停下时以最后一条回复作结果（`via: "text"`）；强制档停下时没调用就催一次（写一条 `continued`），仍没有就以最后一条回复作结果、`valid: false`、运行以 `error` 结束。
 - **拦截链**：一个泛型的 `runChain<I, O>({layers, terminal, onFailure, record})`，负责取层（拦截序）、每层的 `ctx` 与 `invocation`、中止赛跑、超时、失败按提案第 9 节的表、写 `extensionFailed`；四条链各自只剩取字段、失败策略与改动记录三项小配置。输入链在指令受理时跑（第 1 节决定 6）。
-- **审批**：工具链的最里层，判定对象是全部拦截之后的调用（这之后不再改参数），钩子签名见 3.1；判定为 `ask` 时写 `interactionRequested` 进等用户（3.7）。t20 交付“全部放行”的缺省实现，另在测试里写一个非平凡的钩子（规则拒绝、规则放行、`ask`、“本会话都批准”后第二次放行、回退后批准记忆仍在），t06 的规则表不在本 Task。
+- **审批**：工具链的最里层，判定对象是全部拦截之后的调用（这之后不再改参数），钩子签名见 3.1；判定为 `ask` 时写 `interactionRequested` 进等用户（3.7）。“全部放行”只是 `createTestSession` 的一种显式策略，不是产品缺省；测试里另写一个非平凡的钩子（规则拒绝、规则放行、`ask`、“本会话都批准”后第二次放行、回退后批准记忆仍在），t06 的规则表不在本 Task。
 - **中止**：触发后 `RunStatus.aborting`，在注入的时钟上等宽限期（缺省 2 秒，常量写进 Spec，t07 决定 2）；期内完成的照常写结果与用量；过期的模型请求写 `modelFailed{kind: "aborted"}`、工具写 `status: "unknown"`、等待中的事项写拒绝（码 `aborted`），以 `aborted` 收口；迟到结果只写诊断。异步提问不随运行中止结算（它跨运行存在），只在所在分支被回退掉或工具被卸载时结算（审查 P32）。
-- **恢复**：打开时结算半截运行：没结果的工具调用 `unknown`；等审批的调用 `denied`（`interrupted-before-approval`）；等回答的提问 `interrupted`；发出没回复的模型请求 `modelFailed`；最后 `turnEnded`、`runEnded{interrupted}`（第 1 节决定 5）。停服时（3.10 的进程收尾）走同一条收口，原因同为 `interrupted`。
+- **恢复**：打开时结算半截运行：没结果的工具调用 `unknown`；等审批的调用 `denied`（`interrupted-before-approval`）；让运行停下等待的提问 `interrupted`（异步提问不属于运行，不结算）；发出没回复的模型请求 `modelFailed`；最后 `turnEnded`、`runEnded{interrupted}`（第 1 节决定 5）。停服时（3.10 的进程收尾）走同一条收口，原因同为 `interrupted`。
 - **回退与分支**（t03 决定 2、t07 决定 6）：运行中得 `running`，界面先 `abort` 再回退。`rewind(to)`：目标是轮或步的边界（`rewindTargets()`，与压缩切点同一条规则）；`resend` 回退后入队并开始（编辑重发）。重试与 swipe 是回退到回复之前再 `start`，得到同一条用户消息下的助手兄弟节点。`switchBranch(node)` 落到那条分支最近写入的末端。都写 `leafChanged`。查询 `path(leaf)`、`siblings(node)` 从完整日志算。
 
 ### 3.7 `kernel/run/interaction.ts`：等用户
 
 - 同一批工具的几个事项可同时待处理、任意顺序应答，全部处理完回到运行；`RunStatus.waiting` 列出待处理事项。
 - `resolve` 的裁决：单写者里先到的赢，后到的 `already-answered`；审批只收用户的应答；提问在会话头 `questions: "caller"` 时也收父会话的应答；被回退掉的分支上的事项得 `unknown-interaction`。
+- 异步提问的结算矩阵：用户中止、正常关闭会话、停服、崩溃后重开都不结算，重开后照样能 `resolve`；所在分支被回退掉时结算为 `unavailable`、之后的应答得 `unknown-interaction`。会让运行停下的提问按 3.6 的中止与恢复结算。
 - 异步提问（`async: true`）：工具立即返回；`resolve` 在同一批里写 `interactionResolved` 并把回答作为输入放进缓冲区（运行中当插话，空闲时开新一轮）。
 - t07 决定 4 的“等审批时打字等于拒绝并附言”由界面转成 `resolve{decision: "deny", note}`；内核的 `send` 在 `waiting` 时照常入队。
 
@@ -162,7 +168,7 @@
 - **触发估算**：最后一次回复的 `input + cacheRead + cacheWrite + output`（`totalTokens` 有值时用它）加之后新增块的估算，与模型窗口和触发点比（模型信息来自 `SessionEnv.models`，t11 决定 1）；溢出时按溢出顺序压缩后同一请求再发一次，最多一次；`compact(要求)`。
 - **切点**：半开区间，只能是轮的 `turnStarted` 或进行中这一轮某一步的 `assistant`；`omitted` 带占位；`core.history` 按提案第 10 节归约。
 - **公共流程**：`opening()` 的片在压缩上重读；`core.compaction` 把放回的内容写成 `conv` 事件与压缩同批、盖位置章；重试同一请求时不重复写。
-- **方法接口**：`CompactionJob{method, request, require, signal, model}`，`model` 即 `ctx.model`（第 1 节决定 13）。t20 带一个测试方法：经 `ctx.model` 调一次假模型得到摘要；`shake`、`inplace`、`summary` 在 t11。
+- **方法接口**：`CompactionJob{method, request, require, signal, model}`，`model` 即 `ctx.model`（第 1 节决定 13）；结果见 3.1。内核按 Profile 的两套顺序（阈值、溢出，t11 决定 2）依次调用，方法失败或结果不合格就换下一个，全部失败时这次压缩失败、不写事件。t20 带两个测试方法：一个总是失败、一个经 `ctx.model` 调假模型得摘要；`shake`、`inplace`、`summary` 在 t11。
 
 ### 3.9 `kernel/model/`：模型端口与 OMP 适配器
 
@@ -175,8 +181,8 @@
 
 ### 3.10 `kernel/session/`：宿主面
 
-- **`SessionEnv`**（宿主注入，测试工具给内存或脚本化的实现）：`store`、`models: ModelPort`、`tools: () => {declarations, implementation(id)}`（每个边界取一次，t04 决定 4、6）、`resources`、`sessions.get(id, issuer)`（返回本进程已打开的会话、没开则由宿主打开并登记，带发出者的视图；t14 决定 25 的“交给目标会话的写入队列”经它）、`clock`、`approve`、`outbound?`（出站过滤，第 1 节决定 13）。
-- **会话**：`createSession(env, {profile, initial, header})`、`openSession(env, id)`（取锁 → 修复 → 归约 → 装配与 Profile 哈希比对 → 恢复 → `mount`）、`closeSession`（拒绝新指令 → 中止并等收口 → 等全部 `mount` 清理 → 释放订阅与工具句柄 → 关闭日志与锁；关闭后迟到的回调只写诊断）。
+- **`SessionEnv`**（宿主注入，测试工具给内存或脚本化的实现）：`store`、`profiles.resolve(key)`、`models: ModelPort`、`tools: {declarations(sessionContext), create(id, sessionContext) → {execute, dispose?}}`（声明每个边界取一次，t04 决定 4、6；实现按 t04 决定 2 每个会话每个工具建一次、懒建，关闭会话或工具被卸载时 `dispose`）、`resources`、`sessions.get(id, issuer)`（返回本进程已打开的会话、没开则由宿主打开并登记，带发出者的视图；t14 决定 25 的“交给目标会话的写入队列”经它）、`clock`、`approve`（必填，没有缺省：产品的判定由 t06 提供，测试工具给显式的策略）、`outbound?`（出站过滤，第 1 节决定 13）。
+- **会话**：`createSession(env, {profile, initial, header})`、`openSession(env, id)`（取锁 → 修复与校验 → 按会话头的 `profile` 经 `env.profiles` 解析 Profile 并装配扩展（解析不到时会话只读、码 `unknown-profile`）→ 归约（要用扩展的 `reduce`，所以在装配之后）→ Profile 哈希比对 → 恢复 → `mount`）、`closeSession`（拒绝新指令 → 中止并等收口 → 等全部 `mount` 清理 → 释放订阅与工具句柄 → 关闭日志与锁；关闭后迟到的回调只写诊断）。
 - **`AgentHost` 与扩展接收者**（进程内）：`prepare`/`published`/`revoke`；运行中撤回：这次运行里调它的入口得 `extension-revoked` 诊断并跳过、归约照常，空闲时自动重新装配并写 `profileChanged{reason: "plugin-removed"}`；重新装配失败（例如依赖缺失）时会话进只读、报 `dependency-missing`；`pendingReassembly` 进快照。平台贡献点的描述与激活事务在 t10（审查 P16）。
 - **帧与查询**：`log`、`delta`、`status`、`diagnostic`、`reset`；`log(afterSeq, limit)` 分页、`snapshot`、`rewindTargets`、`path`、`siblings`、`diagnostics`；出站过滤在推帧与日志查询之前调用。
 - **预览**：只做下一次请求（`fidelity: "next"`）：跑一遍视图与模型拦截链（`phase: "preview"`），最里层截下；过去请求的重建在可选片。
@@ -213,12 +219,12 @@
 | 2 | **纵切**：3.2 存储（会话目录、批、锁、修复、大块内容、头与版本）；最小的装配、归约与 `core.history`；3.5 的队列；不带工具的循环；最小视图（缺省 `standardLayout()`、缺省 `turn`/`commit`、请求计算）；3.9 的端口与 OMP 适配器（文字、思考签名、用量、停止原因、错误归类、遮盖）；最小的 `createTestSession`；终端演示脚本 `tests/kernel/chat.ts`（JSONL 加真适配器，一轮对话后重开接着聊） | 逐字节截断测试；写失败（注入会失败的文件句柄端口）；两个真实进程抢锁、两个进程同时回收同一把陈旧锁只有一个成功；写失败后关闭成功、重开看到 `runEnded{interrupted}`；`kernel.llm.test.ts` 跑一轮、重开、再一轮；t04 四种请求复测；存储读写与校验的测量 |
 | 3 | 扩展完整面：3.3 定义、装配（两套顺序、诊断与提示）、Profile 哈希、`ctx` 构造点；3.5 反应、`mount`（时限）、外部事实到边界；3.4 内核的片；`reminder()`、`opening()` | 装配错误表；作用域与回退后片的值；写入批与整批丢弃；`emit-after-settle`；深度上限；`mount` 超时；2 万条合成事件的打开与归约测量（超预算当片改结构） |
 | 4 | 视图：JSX 运行时与模板（含 `<ToolName id>`、`<Slot drop>`）、`standardLayout`、`format`、`turn` 与纯函数 `commit`、槽、请求计算与校验、`outline`、前缀稳定检查；`finalOnly`、`withoutEvents` | 请求的块与来源；提交确定性（重开后逐块一致）；2 万条会话算一次请求的测量 |
-| 5 | 工具与拦截：工具声明与名字换算、段并发、`runChain` 四条链、输入链在受理时跑与脱敏、审批钩子与非平凡测试实现、`toolsAnnounced`、收尾工具与动态 `yield` | 收尾工具输出 13–16 的四种情形与宽限期内外完成；规则与改参的组合；脱敏后会话目录全文（含 `blobs/`）搜不到原文；受理时拒绝不写日志 |
-| 6 | 运行控制：全部指令与 `commandAccepted` 幂等、发出者、缓冲区规则、steer 与 followup、`continue` 计数、中止与宽限期、恢复、回退、重试与 swipe、切分支、fork、标题与归档、`changeSettings`（核心组）、`changeProfile` | spike 对应场景（编号写进测试名）；重发同一 `commandId` 只生效一次（含运行中的 `compact`、`changeSettings`）；受理后、循环前崩溃再重发；宽限期内外；反应卡住时中止与插话的返回时间；回退后重启批准记忆仍在 |
-| 7 | 等用户：3.7 全部 | 同批多事项、并发应答、异步提问进缓冲区、回退后应答、中止结算、重启后中断与 `interrupted-before-approval` |
-| 8 | 压缩：3.8 全部 | 有缓存读的用量能触发阈值；切点规则；`omitted`；放回内容同批；溢出重试一次；压缩请求经拦截链且 `purpose` 正确；中止不写压缩事件；回退到压缩前 |
+| 5 | 工具与拦截：工具声明与名字换算、工具实现的建与释放、段并发、`runChain` 四条链、输入链在受理时跑与脱敏、审批钩子的放行与拒绝（`ask` 在第 7 片）、`toolsAnnounced`、收尾工具与动态 `yield` | 收尾工具输出 13–16 的四种情形与宽限期内外完成；规则与改参的组合；脱敏后会话目录全文（含 `blobs/`）搜不到原文；受理时拒绝不写日志 |
+| 6 | 运行控制：除 `resolve` 外的全部指令与 `commandAccepted` 幂等、发出者、缓冲区规则、steer 与 followup、`continue` 计数、中止与宽限期、恢复、回退、重试与 swipe、切分支、fork、标题与归档、`changeSettings`（核心组）、`changeProfile` | spike 对应场景（编号写进测试名）；重发同一 `commandId` 只生效一次（含运行中的 `compact`、`changeSettings`）；受理后、循环前崩溃再重发；宽限期内外；反应卡住时中止与插话的返回时间；回退后重启批准记忆仍在 |
+| 7 | 等用户：3.7 全部，加审批的 `ask`、`resolve` 指令，并在第 6 片的恢复里补上等待事项的结算 | 同批多事项、并发应答、异步提问进缓冲区、回退后应答、中止结算、重启后中断与 `interrupted-before-approval` |
+| 8 | 压缩：3.8 全部 | 第一个方法失败换下一个、全部失败不写事件；有缓存读的用量能触发阈值；切点规则；`omitted`；放回内容同批；溢出重试一次；压缩请求经拦截链且 `purpose` 正确；中止不写压缩事件；回退到压缩前 |
 | 9 | 宿主面：3.10 全部（`SessionEnv` 补全、`AgentHost` 与撤回、关闭顺序、帧与分页、预览、诊断、出站过滤、运行结果、`complete()`、进程收尾）；`kernel.llm.test.ts` 补带工具调用、中止、回退重发 | 运行中撤回；关闭与 `mount` 清理、迟到事件交错；出站过滤生效于帧与日志查询；`complete()` 的 `profile-has-tools` |
-| 10 | **nb-story 验收门**：在 nb-story 包里（`packages/nb-story/tests/kernel-acceptance/`，只加测试、不改 nb-story 的产品代码）经 `@notnotype/nb-harness/kernel` 与 `/kernel/testing` 用新内核写一遍 `story.qa` Profile 与 `answer` 收尾工具（用 nb-story 内部的账本、校验与防剧透，依赖方向不变），跑“两轮、收尾、校验失败再交、中止、出站过滤防剧透” | 五个场景通过；发现的缺口先回写 Spec 与本计划再修 |
+| 10 | **nb-story 验收门**：在 nb-story 包里（`packages/nb-story/tests/kernel-acceptance/`，只加测试、不改 nb-story 的产品代码）经 `@notnotype/nb-harness/kernel` 与 `/kernel/testing` 用新内核写一遍 `story.qa` Profile 与 `answer` 收尾工具（用 nb-story 内部的账本、校验与防剧透，依赖方向不变），跑“两轮、收尾、校验失败再交、中止、出站过滤防剧透” | 五个场景通过，并逐项核对第 1 节决定 8 每一项的测试（`complete()`、运行结果、错误归类、密钥遮盖、进程收尾、相邻 user 合并由第 2、9 片的测试覆盖，这里列出对应测试名）。这是门：任一失败就停下，不进第 11 片与收口；缺口先回写 Spec 与本计划再修，修完重跑受影响切片的测试与这五个场景 |
 | 11 | 性能：提案第 19 节六项（打开与恢复、单条事件归约、提交渲染、预览、普通请求、换 Profile 与压缩后的重渲染），2 万条验收、10 万条报数 | 第 1 节决定 9 的预算；结果写进 `evidences/` |
 | 12（可选） | 主线之后按需：预览过去请求的重建与请求录制、`ctx.status`、拦截的 `layer`（加了以后拦截序变化按 `profileChanged{code-updated}` 处理） | 不改日志格式 |
 
