@@ -74,4 +74,4 @@ t05、t08、t10。
 
 ## 下一步
 
-实施时按 implementation-planning 写计划；改插件 SDK 的构建预设（t10）、资源 Spec（`skills://`）与 `nbook` 命令行（`skill init`）。
+实施时按 implementation-planning 写计划；改插件 SDK 的构建预设（t10）、资源 Spec（`skills://`）与 `nbook` 命令行（`skill init`，命令行的整体设计在 [w00035](../../../w00035-nbook-cli/README.md)）。

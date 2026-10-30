@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t16-command-bridge
-status: active
+status: planned
 updated: 2026-10-30
 ---
 
@@ -65,7 +65,10 @@ updated: 2026-10-30
 13. 拆成核心包加两个插件：核心包 `nb-page-agent`（纯 TS，只管在一个页面里做事）；内置插件 `nbook.page-agent` 把它装进每个窗口，经 eval 向 Agent 提供 `nbook` 全局对象；可选插件 `nbook.browser` 驱动真实浏览器操作外部网站，向 eval 提供 `browser`，把同一个核心包注入外部网页、动作经 CDP 发可信输入。eval（t21）要有让插件登记全局对象的贡献点（名字、一行摘要、文档、宿主侧处理函数、审批档位，即 omp 的 prelude）。
 14. Agent 操作 NeuroBook 界面另开 [w00033](../../../w00033-page-agent/README.md)；浏览器插件另开 [w00034](../../../w00034-browser-use/README.md)。
 
-本 Task 剩下要讨论的：`nbook project` 子命令。
+第五轮（2026-10-30）：
+
+15. `nbook project` 的推荐开发者全部确认（一个命令行同时给用户与内外 Agent、第一批五个子命令、写操作要求应用在运行、`check` 可扩展且 `--fix` 只做安全修复、模板先不做、旧的 `node` 组不搬、提示词与 Skill 两条路让 Agent 知道它），记在 w00035。
+16. `nbook` 命令行的设计另开 [w00035](../../../w00035-nbook-cli/README.md)，`nbook start`、`nbook serve`、注册系统服务的讨论也放在那里。
 
 ### 讨论过、开发者没有表态的推荐（转到对应 Work，开工时再定）
 
@@ -90,8 +93,8 @@ t06、t10。
 
 ## 当前状态
 
-讨论中（2026-10-30 第一轮）。
+讨论完成（开发者 2026-10-30 确认）：五轮决定见上。Agent 操作 NeuroBook 界面转 [w00033](../../../w00033-page-agent/README.md)，浏览器插件转 [w00034](../../../w00034-browser-use/README.md)，`nbook` 命令行转 [w00035](../../../w00035-nbook-cli/README.md)；Agent 与命令系统的对接、控件绑命令的规范与通用命令搁置，以后重开本 Task 时从第 10、11 条接着讨论。
 
 ## 下一步
 
-轮到时与开发者逐条讨论，决定写进本 README，再按 implementation-planning 写计划。
+本 Task 剩下的只有搁置的命令对接；重开时先与开发者讨论第 10、11 条与“未表态的推荐”里的命令提案三项。
