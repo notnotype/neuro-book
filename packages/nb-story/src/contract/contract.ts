@@ -125,7 +125,7 @@ const EntityCard = Type.Object({
     entities: Type.Array(Type.String()),
     names: Type.Array(Type.Object({text: Type.String(), ref: RefSchema})),
     /** 读者此时知道的同一身份：组成这个点的其它对象，各带连接成立的出处。 */
-    identities: Type.Array(Type.Object({id: Type.String(), label: Type.String(), ref: RefSchema, mark: Type.Union([oneOf(["confirmed", "added"] as const), Type.Null()])})),
+    identities: Type.Array(Type.Object({id: Type.String(), label: Type.String(), ref: RefSchema, /** 把它连进来的身份说法的编号，`revisions.reject` 用它断开这条连接；找不到连接说法时是 null。 */ statement: Type.Union([Type.String(), Type.Null()]), mark: Type.Union([oneOf(["confirmed", "added"] as const), Type.Null()])})),
     facets: Type.Array(Type.Object({facet: oneOf(FACETS), through: Type.Integer(), items: Type.Array(Type.String())})),
     secrets: Type.Array(Type.Object({id: Type.String(), title: Type.String(), state: AwarenessSchema, ref: Type.Union([RefSchema, Type.Null()])})),
     counts: Type.Object({relations: Type.Integer(), knowledge: Type.Integer(), statements: Type.Integer(), episodes: Type.Integer()}),

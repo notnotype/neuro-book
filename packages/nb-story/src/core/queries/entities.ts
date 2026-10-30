@@ -92,6 +92,7 @@ export function entityCard(ctx: QueryContext, params: StoryParams<"entity.card">
                 return {
                     id: member.id,
                     label: member.names.filter(name => name.primary).at(-1)?.text ?? member.names[0]?.text ?? member.label,
+                    statement: link?.statement.id ?? null,
                     ref: evidence ? formatSpan(evidence) : link ? formatPosition(link.statement.at) : formatPosition(member.at),
                     mark: link && link.statement.certainty === "certain" && link.statement.revision !== undefined ? (revisionMark(link.statement) === "added" ? "added" : "confirmed") : null,
                 };

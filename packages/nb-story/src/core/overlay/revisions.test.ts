@@ -82,6 +82,36 @@ describe("确认、驳回与撤销", () => {
         await reset();
     });
 
+    test("驳回确定的身份说法（issue 266）：这条连线消失、列在已驳回、不进待确认；两个对象之间还有别的连线时要把它们都驳回才拆开；撤销还原", async () => {
+        const card = async () => (await book.ok("entity.card", {at: AT, entity: "e1-1"})).identities;
+        const before = await nodes();
+        expect((await card()).find(item => item.id === "e6-2")?.statement).toBe("s6-25");
+        expect(await pendingIds()).toEqual(["st:s30-13"]);
+
+        // e1-1 与 e6-2 在阅读位置之前有两条确定的说法（s6-25、s8-11）：驳回一条后连线换成另一条，两个对象还在同一身份里
+        const first = await book.ok("revisions.reject", {statement: "s6-25"});
+        expect(first.revision).toMatchObject({state: "rejected", op: "identity.reject", undoable: true});
+        expect((await card()).find(item => item.id === "e6-2")?.statement).toBe("s8-11");
+        expect(await nodes()).toBe(before);
+        expect(await pendingIds()).toEqual(["st:s30-13"]);
+        const listed = await book.ok("revisions.list", {at: AT});
+        expect(listed.items.find(item => item.id === first.revision.id)).toMatchObject({state: "rejected", op: "identity.reject"});
+        expect(listed.counts).toMatchObject({rejected: 1, pending: 1, closed: 2});
+
+        // 两条都驳回才拆开；候选 s21-2 原本因这些确定的说法算“后文已确认”，现在重新待确认
+        const second = await book.ok("revisions.reject", {statement: "s8-11"});
+        expect((await card()).map(item => item.id)).not.toContain("e6-2");
+        expect(await nodes()).toBe(before + 1);
+        expect(await pendingIds()).toEqual(["st:s21-2", "st:s30-13"]);
+
+        await book.ok("revisions.undo", {revision: second.revision.id});
+        await book.ok("revisions.undo", {revision: first.revision.id});
+        expect((await card()).find(item => item.id === "e6-2")?.statement).toBe("s6-25");
+        expect(await nodes()).toBe(before);
+        expect(await pendingIds()).toEqual(["st:s30-13"]);
+        await reset();
+    });
+
     test("已处理（state=processed）是已采纳、已驳回、后文已确认三类；记录与同一身份里带“候选”“你确认的”标记", async () => {
         const markOf = async () => (await book.ok("entity.statements", {at: AT, entity: "e30-1", limit: 500})).items.find(item => item.id === "s30-13")?.mark;
         expect(await markOf()).toBe("candidate");
@@ -127,6 +157,7 @@ describe("确认、驳回与撤销", () => {
 
     test("失败码：不是候选、没有这条说法、撤销了又撤销、没有这条修订、待确认项没有可撤销的", async () => {
         expect(await book.fail("revisions.confirm", {statement: "s8-11"})).toBe("revision_not_candidate");
+        expect(await book.fail("revisions.reject", {statement: "s1-3"})).toBe("revision_not_candidate");
         expect(await book.fail("revisions.confirm", {statement: "s999-1"})).toBe("revision_target_not_found");
         const done = await book.ok("revisions.confirm", {statement: "s30-13"});
         await book.ok("revisions.undo", {revision: done.revision.id});

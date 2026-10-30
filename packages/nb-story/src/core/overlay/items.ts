@@ -52,6 +52,14 @@ export function isCandidateIdentity(statement: Statement): boolean {
     return statement.family === "identity" && !statement.neg && statement.certainty === "candidate" && statement.about.length === 2 && statement.about[0] !== statement.about[1];
 }
 
+/**
+ * 能驳回的身份说法：身份类、不是否定、恰好连两个不同对象，确定性不限。抽取常把“取法名”“认出”写成确定的身份，
+ * 用户要能撤掉这条连线（issue 266）；确认只收候选，见 `isCandidateIdentity`。
+ */
+export function isRejectableIdentity(statement: Statement): boolean {
+    return statement.family === "identity" && !statement.neg && statement.about.length === 2 && statement.about[0] !== statement.about[1];
+}
+
 const pairKey = (statement: Statement): string => [...statement.about].sort().join("|");
 
 /** 确定的身份说法（同 `book-index.ts` 的身份连接判定）。 */
@@ -117,11 +125,13 @@ export function listItems(dataset: Dataset, file: OverlayFile | null, resolved: 
     }
 
     // 候选身份说法：有决定的、被后文确认的、还待确认的
-    const certainPairs = new Set(dataset.statements.filter(isCertainIdentity).filter(statement => visibleAt(settledAt(statement), at)).map(pairKey));
+    // 已被驳回的确定说法不再算“后文已确认”：它连的线没了，同一对象之间的候选重新待确认。
+    const certainPairs = new Set(dataset.statements.filter(isCertainIdentity).filter(statement => visibleAt(settledAt(statement), at) && decided.get(statement.id)?.op !== "identity.reject").map(pairKey));
     const sourceOf = (statement: Statement): RevisionSource => (statement.origin === "persona-check" ? "persona-check" : "extraction");
     for (const statement of dataset.statements) {
-        if (!isCandidateIdentity(statement) || !visibleAt(settledAt(statement), at)) continue;
         const decision = decided.get(statement.id);
+        // 确定的说法只在被驳回后才列（出现在“已驳回”里，可撤销）；没有决定时它不是待确认项。
+        if (!(isCandidateIdentity(statement) || (decision && isRejectableIdentity(statement))) || !visibleAt(settledAt(statement), at)) continue;
         const base = {source: sourceOf(statement), summary: statement.text, entities: statement.about.map(id => ({id, label: nameAt(id, settledAt(statement))})), evidence: formatPosition(settledAt(statement)), quote: quoteAt(settledAt(statement)), refs: statement.source.evidence.map(formatSpan)};
         if (decision) items.push({...base, id: decision.id, op: decision.op, state: decision.op === "identity.confirm" ? "adopted" : "rejected", by: decision.by, decidedAt: decision.decidedAt, undoable: true});
         else if (certainPairs.has(pairKey(statement))) items.push({...base, id: `st:${statement.id}`, op: "identity.candidate", state: "closed", by: null, decidedAt: null, undoable: false});

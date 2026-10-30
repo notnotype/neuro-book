@@ -122,7 +122,7 @@ const FORMATTERS: {[M in StoryMethod]?: Formatter<M>} = {
     "entity.card": result => [
         `${result.label}（${result.id}，${result.kind}）`,
         `称呼：${result.names.map(name => `${name.text}〔${name.ref}〕`).join("、")}`,
-        ...(result.identities.length ? [`同一身份：${result.identities.map(item => `${item.label}（${item.id}）〔${item.ref}〕`).join("、")}`] : []),
+        ...(result.identities.length ? [`同一身份：${result.identities.map(item => `${item.label}（${item.id}${item.statement ? `，说法 ${item.statement}` : ""}）〔${item.ref}〕`).join("、")}`] : []),
         ...result.facets.map(facet => `${facet.facet}（到第 ${facet.through} 章）：${facet.items.join(" ")}`),
         // 没有秘密行（书关掉了秘密，或阅读位置还没有秘密）时不出空标题。
         ...(result.secrets.length ? ["秘密：", ...result.secrets.map(item => `  ${item.title}：${STATE_WORDS[item.state]}${item.ref ? `〔${item.ref}〕` : ""}`)] : []),

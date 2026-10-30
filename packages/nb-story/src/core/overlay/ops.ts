@@ -15,7 +15,7 @@ import {formatPosition, parsePositionText} from "../position";
 import {entityAnchor, resolveStatementAnchor, statementAnchor} from "./anchor";
 import {applyOverlay} from "./apply";
 import type {Applied} from "./apply";
-import {isCandidateIdentity, itemFactory, listItems} from "./items";
+import {isCandidateIdentity, isRejectableIdentity, itemFactory, listItems} from "./items";
 import type {RevisionItem} from "./items";
 import type {OverlayFile, Revision, RevisionSource} from "./schema";
 import {writeOverlay} from "./store";
@@ -105,7 +105,7 @@ function build(index: BookIndex, original: Dataset, current: OverlayFile, params
         case "revisions.confirm":
         case "revisions.reject": {
             const statement = findStatement(original, params.statement);
-            if (!isCandidateIdentity(statement)) throw new StoryError("revision_not_candidate", `说法 ${statement.id} 不是候选身份说法，不能${params.method === "revisions.confirm" ? "确认" : "驳回"}`);
+            if (params.method === "revisions.confirm" ? !isCandidateIdentity(statement) : !isRejectableIdentity(statement)) throw new StoryError("revision_not_candidate", params.method === "revisions.confirm" ? `说法 ${statement.id} 不是候选身份说法，不能确认` : `说法 ${statement.id} 不是连两个对象的身份说法，不能驳回`);
             const op = params.method === "revisions.confirm" ? "identity.confirm" : "identity.reject";
             const old = currentDecision(original, current, statement);
             if (old?.op === op) return {items: current.items, result: old.id, unchanged: true};

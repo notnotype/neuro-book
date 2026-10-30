@@ -62,6 +62,22 @@ test("人物卡上就地确认：候选块带依据原文，确认后头部“�
     expect((await rpc<Counts>(page, "revisions.list", {at: {chapter: 30, paragraph: 61}})).counts).toMatchObject({adopted: 1, pending: 0});
 });
 
+test("人物卡“同一身份”里断开确定的连接：点一次驳回一条说法，两个对象还有别的连线时仍在，都断开后消失，撤销带回；记录进已驳回（输出 64）", async ({page}) => {
+    await open(page, "/book/fox/roster?at=30.61&entity=e1-1");
+    const identities = page.getByTestId("card-identities");
+    const unlink = page.getByRole("button", {name: "断开与狐狐的连接"});
+    await expect(identities).toContainText("狐狐");
+    await unlink.click();
+    await expect(page.getByTestId("identity-unlinked")).toContainText("已断开：狐狐");
+    await expect(unlink).toBeVisible();
+    await unlink.click();
+    await expect(identities).not.toContainText("狐狐");
+    expect((await rpc<Counts>(page, "revisions.list", {at: {chapter: 30, paragraph: 61}})).counts).toMatchObject({rejected: 2});
+    await page.getByTestId("identity-unlink-undo").click();
+    await expect(identities).toContainText("狐狐");
+    expect((await rpc<Counts>(page, "revisions.list", {at: {chapter: 30, paragraph: 61}})).counts).toMatchObject({rejected: 1});
+});
+
 test("导航角标按阅读位置算：第 29 章时没有角标、待确认页写“没有需要确认的”，读到第 30 章第 61 段出现（输出 58）", async ({page}) => {
     await open(page, "/book/fox/revisions?at=29");
     await expect(page.getByText("没有需要确认的")).toBeVisible();

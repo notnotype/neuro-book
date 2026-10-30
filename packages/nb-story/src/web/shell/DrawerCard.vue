@@ -20,7 +20,7 @@ import StateBadge from "../parts/StateBadge.vue";
 import TierBadge from "../parts/TierBadge.vue";
 import {FLAG_WORDS} from "../parts/tier-words";
 import {useMinorCount, useShowMinorRecords} from "../host/show-minor";
-import {MARK_WORDS} from "../host/revise";
+import {MARK_WORDS, useRevise} from "../host/revise";
 import CardRelations from "./CardRelations.vue";
 import ReviseDialog from "./ReviseDialog.vue";
 
@@ -58,6 +58,18 @@ const reviseItems = computed<DropdownMenuItemData[]>(() => [
 function onRevise(value: string): void {
     if (value === "list") book.jump("revisions", {kind: "entity", id: props.entity});
     else reviseMode.value = value as "link" | "kind" | "name";
+}
+/** 断开“同一身份”里的一条连接：驳回把它连进来的那条说法（输出 64）。用户自己加的连接（“你加的”）要到待确认页的已处理里撤销。 */
+const {busy: reviseBusy, error: reviseError, run: runRevise} = useRevise();
+const unlinked = ref<{text: string; revision: string} | null>(null);
+async function unlink(item: {label: string; statement: string | null}): Promise<void> {
+    if (item.statement === null) return;
+    const result = await runRevise("revisions.reject", {statement: item.statement});
+    if (result) unlinked.value = {text: `已断开：${item.label}`, revision: result.revision.id};
+}
+async function undoUnlink(): Promise<void> {
+    const current = unlinked.value;
+    if (current && (await runRevise("revisions.undo", {revision: current.revision}))) unlinked.value = null;
 }
 const recordKind = ref<"knowledge" | "statements">("knowledge");
 const stateFilter = ref("");
@@ -118,8 +130,10 @@ const FAMILY_WORD: Record<string, string> = {
                 </p>
                 <CandidateBlock :entity="props.entity" />
                 <p v-if="card.data.value.identities.length" class="text-[length:var(--text-sm)]" data-testid="card-identities">
-                    同一身份：<span v-for="item in card.data.value.identities" :key="item.id" class="mr-2">{{ item.label }} <RefLink :ref-text="item.ref" /><Badge v-if="item.mark" size="sm" variant="soft" tone="success" class="ml-1" data-testid="identity-mark">{{ MARK_WORDS[item.mark] }}</Badge></span>
+                    同一身份：<span v-for="item in card.data.value.identities" :key="item.id" class="mr-2">{{ item.label }} <RefLink :ref-text="item.ref" /><Badge v-if="item.mark" size="sm" variant="soft" tone="success" class="ml-1" data-testid="identity-mark">{{ MARK_WORDS[item.mark] }}</Badge><IconButton v-if="item.statement !== null && item.mark !== 'added'" size="xs" icon-class="i-lucide-unlink" :aria-label="`断开与${item.label}的连接`" :disabled="reviseBusy" class="ml-0.5 align-middle" data-testid="identity-unlink" @click="unlink(item)" /></span>
                 </p>
+                <p v-if="unlinked" class="text-[length:var(--text-xs)]" data-testid="identity-unlinked"><span role="status">{{ unlinked.text }}</span><button type="button" class="ml-2 text-[var(--accent-text)]" data-testid="identity-unlink-undo" @click="undoUnlink">撤销</button></p>
+                <p v-if="reviseError" class="text-[length:var(--text-xs)] text-[var(--status-danger)]" role="alert">{{ reviseError }}</p>
             </header>
             <ReviseDialog v-if="reviseMode" v-model:open="reviseOpen" :mode="reviseMode" :entity="card.data.value.id" :label="card.data.value.label" :kind="card.data.value.kind" :names="card.data.value.names.map(item => item.text)" />
             <Tabs class="px-3" size="sm" :model-value="tab" :items="tabs" aria-label="人物卡" @update:model-value="setTab" />
