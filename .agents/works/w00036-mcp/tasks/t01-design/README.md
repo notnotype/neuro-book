@@ -9,9 +9,9 @@ updated: 2026-10-30
 
 ## 目标与范围
 
-待补充。
+按 Work README 的“已定的事”写 MCP 插件的 Spec（新能力，例如 `docs/specs/agent/mcp.md`）与实施计划，并做 SDK 的技术选型。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：只做设计，行为合同未变；Spec 在本 Task 新建。
 
 ## 当前状态
 
@@ -19,4 +19,4 @@ updated: 2026-10-30
 
 ## 下一步
 
-待补充。
+w00032 的前置 Task 实现后开工：先做 SDK 选型，再按 writing-specs 写 Spec、按 implementation-planning 写计划。

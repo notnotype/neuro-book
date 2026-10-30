@@ -25,6 +25,8 @@ omp 的 eval（事实见[外部参照](../../../../../docs/research/agent-runtim
 
 - [t16](../t16-command-bridge/README.md)（开发者 2026-10-30）：Agent 操作 NeuroBook 界面与外部网站一定走 CodeAct，不作内置工具。eval 要有一个让插件登记全局对象的贡献点（名字、一行摘要、文档、宿主侧处理函数、审批档位），照 omp 的 prelude：eval 的工具描述里每个全局对象只有一行摘要加文档地址，完整文档在模型读它时才进上下文（事实见[调研](../../research/2026-10-30-host-control-survey.md)第 5 节）。使用方是 [w00033](../../../w00033-page-agent/README.md) 的 `nbook` 与 [w00034](../../../w00034-browser-use/README.md) 的 `browser`，所以 w00033 开工前本 Task 要重开。
 
+- [t19](../t19-mcp/README.md)（开发者 2026-10-30）：MCP 服务的工具多时，照 Anthropic 的“用代码执行调 MCP”经 CodeAct 按需加载（[w00036](../../../w00036-mcp/README.md) 决定 6）。
+
 ## 当前状态
 
 搁置（开发者 2026-10-28：本 Work 新开任务、先搁置，优先级不高）。

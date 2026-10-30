@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t19-mcp
-status: planned
-updated: 2026-10-28
+status: done
+updated: 2026-10-30
 ---
 
 # MCP 插件
@@ -29,10 +29,19 @@ updated: 2026-10-28
 
 t04、t08、t10。
 
+## 决定（开发者 2026-10-30）
+
+全部按推荐定，MCP 插件另开 [w00036](../../../w00036-mcp/README.md)，11 条决定记在那边的“已定的事”。调研：[各家的 MCP 客户端](../../research/2026-10-30-mcp-client-survey.md)。
+
+对本 Work 其它 Task 的影响：
+
+- t04 决定 1：交给服务商的名字校验从 `^[a-zA-Z0-9_-]{1,128}$` 改为 64 字符上限（OpenAI 超过 64 报 400，omp 源码注释），已在 t04 追记。
+- t21：MCP 工具多时经 CodeAct 按需加载，已在 t21 追记。
+
 ## 当前状态
 
-草稿，未开工（2026-10-28 建）。
+讨论完成，转入 w00036。
 
 ## 下一步
 
-轮到时与开发者逐条讨论，决定写进本 README，再按 implementation-planning 写计划。
+无；实施在 w00036。
