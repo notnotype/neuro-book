@@ -40,6 +40,23 @@ describe("身份同一的说法（输出 5）", () => {
     });
 });
 
+describe("本人自己的身份（输出 5）", () => {
+    test("旁白确认马甲就是某人后程序补“本人知道”；草稿为本人写了别的知情（转世、失忆这类）就不再补，也不覆盖", async () => {
+        const sample = await sampleDataset();
+        const final = JSON.parse(gunzipSync(await readFile(FINAL)).toString("utf8")) as {drafts: {knowledge?: unknown[]}[]; consolidations: unknown[]};
+        const selfRecords = (drafts: typeof final.drafts) => compile(sample.book, sample.sources, drafts, final.consolidations).dataset.knowledge.filter(item => item.id.endsWith(":self"));
+        const before = selfRecords(final.drafts);
+        expect(before.find(item => item.who === "e4-1" && item.about === "x21-1")?.state).toBe("knows");
+
+        const drafts = structuredClone(final.drafts);
+        const chapter21 = drafts[20]!;
+        (chapter21.knowledge ??= []).push({id: "k21-99", who: "e4-1", about: "x21-1", state: "unaware", basis: "inferred", how: "转世的身份，原文没有写他自己知道", at: ["21.1"]});
+        const after = selfRecords(drafts);
+        expect(after.find(item => item.who === "e4-1" && item.about === "x21-1")).toBeUndefined();
+        expect(after.length).toBe(before.length - 1);
+    });
+});
+
 describe("迁移对照：100 章最终草稿重新编译", () => {
     test("只在称呼位置、称呼出现、回补的秘密位置上不同，而且都只会更晚", async () => {
         const sample = await sampleDataset();

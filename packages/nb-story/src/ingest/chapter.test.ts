@@ -47,6 +47,15 @@ const asBeforeT20 = (text: string) => TIGHTENED_IDENTITY.reduce((result, [now, t
  * 基线）时先去掉这两处，其余部分仍须逐字相同。录下的回复没有 `tier`，核对与修复请求里嵌的草稿因此不变。
  */
 const asBeforeT32 = (text: string) => text.replace(/### 11\. 重要程度 `tier`[\s\S]*?\n(?=## 四、)/u, "").replace(/,"tier":[123]/gu, "");
+/**
+ * t40 往规则里加了四处文字（identity 两头的界定、同称呼不同次化身各建秘密、本人自己的身份的例外、常见错误三条）。对照以前
+ * 的请求时先去掉这四处，其余部分仍须逐字相同。
+ */
+const asBeforeT40 = (text: string) => text
+    .replace(/`identity` 的两个对象只能是[\s\S]*?不写成两人同一；/u, "")
+    .replace(/\n- 同一个称呼可以先后指不同的人[^\n]*/u, "")
+    .replace(/\n\n\*\*这一条有例外\*\*[^\n]*/u, "")
+    .replace(/\n- 把前世、转世、被蒙蔽的身份[^\n]*\n- 把“某人认出了某人”[^\n]*\n- 把后文另一次的化身[^\n]*/u, "");
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
 /**
@@ -60,7 +69,7 @@ const requestBaseline = async (name: "replay-ch001-010" | "recall-ch010", increm
     const t12 = (JSON.parse(await readFile(join(FIXTURES, "requests-t12.json"), "utf8")) as Record<string, Record<string, string>>)[name] ?? {};
     return {...Object.fromEntries(Object.entries(t10).filter(([key]) => !key.endsWith(":consolidation"))), ...t12};
 };
-const requestHashes = (requests: {key: string; system: string; user: string}[]) => Object.fromEntries(requests.map(request => [request.key, sha256(`${asBeforeT32(request.system)}\n\u0000\n${request.user}`)]));
+const requestHashes = (requests: {key: string; system: string; user: string}[]) => Object.fromEntries(requests.map(request => [request.key, sha256(`${asBeforeT40(asBeforeT32(request.system))}\n\u0000\n${request.user}`)]));
 
 /**
  * 第 10 章整理的增量回复（手写，代替整批写法的录音）：a5-2 追加第 6 到 8 章的几段，新开一条南嘉鱼的主线；苏天晴的概览
@@ -167,7 +176,7 @@ describe("回放前 10 章（输出 4、7）", () => {
             }
             const text = `${request.system}\n\u0000\n${user}`;
             // 逐字相同；不同时只能是核对清单里的校验说明不同，而且只在核对类请求里。
-            const before = asBeforeT20(asBeforeT32(text));
+            const before = asBeforeT20(asBeforeT40(asBeforeT32(text)));
             const same = sha256(before) === recorded.sha256 ? "same" : sha256(withoutSchemaDetails(before)) === recorded.normalized && step === "review-1" ? "schema details only" : "different";
             expect({key: request.key, same}).not.toEqual({key: request.key, same: "different"});
         }
