@@ -68,7 +68,7 @@ owners:
 | `reading.get`、`reading.set` | `set`：`position`、`view` | `position`、`view`、`savedAt` |
 | `chapter.digest` | `chapter` | 情节、新出现的对象、揭晓的秘密、数值变动、新提出与有进展的悬念，各带出处 |
 | `entities.list` | `kind`、`query` | 每个点：`id`、`label`、`kind`、`mentions`、`names`（前几个与总数）、`entities`（组成它的对象） |
-| `entity.card` | `entity` | `label`、`names`（各带首次出现的出处）、`identities`（读者此时知道的同一身份）、`facets`（各方面最新一次归纳）、`secrets`（每个秘密一格）、`counts`（关系、知情、说法、情节的条数） |
+| `entity.card` | `entity` | `label`、`names`（各带首次出现的出处）、`identities`（读者此时知道的同一身份，每项带把它连进来的身份说法编号 `statement`）、`facets`（各方面最新一次归纳）、`secrets`（每个秘密一格）、`counts`（关系、知情、说法、情节的条数） |
 | `entity.knowledge` | `entity`、`state`、`query`、分页 | 每条：知道了什么、状态、怎么知道的、出处、是否秘密、记录标记 |
 | `entity.statements` | `entity`、`query`、`maxTier`、分页 | 每条：说法、记录标记、出处、`tier`、`tierFlag`；页另有 `tiers`（见输出 25） |
 | `entity.episodes` | `entity`、`query`、分页 | 每条：情节标题、章、出处、`tier`（见输出 26） |
