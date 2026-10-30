@@ -38,6 +38,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-10-29 | t20：开发者提出“异步状态机”（输入缓冲区、一轮结束才提交进 `Message[]`），提案改成第四稿；同意去掉 `prelude`；按开发者要求派三个 Sonnet、一个 Fable、一个 omp 做接口设计兼架构审查，汇总成第五稿与 `spike/v5/`，待开发者看（[t20](tasks/t20-hooks/README.md)） |
 | 2026-10-29 | t20 讨论结束：开发者认可提案第五稿；便利写法做成 helper（`reminder()`、`opening()`、`standardLayout()` 等）；t20 改了内核，实施时排在最前，实现要再审查一次；t05 的上下文机制按提案改写（[t20](tasks/t20-hooks/README.md)） |
 | 2026-10-30 | t14：开发者定工具设计原则，一个工具只做一件事、宁可工具多、不设计复合工具，以后所有工具都按这条（记在 t04）；结果分自由、可选结构化、强制结构化三种；父 Agent 能做人类对子会话能做的操作（[t14](tasks/t14-multi-agent/README.md)） |
+| 2026-10-30 | t14 讨论完成待审查：子代理工具 `agent_spawn`、`agent_send`、`agent_answer`，任务中心 `wait`、`kill`、`jobs`，子代理交结果用 `yield`；`sessions://<id>/` 映射整个会话目录（改 t08）；bash 工作目录改为 `project://`（没有项目时 `session://`）；对 t20 内核三处修正（审批与提问合成一条通道、`shared` 工具并发、`replyTo` 异步提问）（[t14](tasks/t14-multi-agent/README.md)） |
 
 ## 调研
 

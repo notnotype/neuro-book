@@ -115,6 +115,7 @@ t03、t05。
 ### 后续修改
 
 - 2026-10-30（t14 讨论，开发者定）：`sessions://<会话 id>/` 改为映射整个会话目录 `<状态根>/agent/sessions/<会话 id>/`，会话日志就是 `sessions://<会话 id>/session.jsonl`（只读），别的会话的工作区在 `sessions://<会话 id>/home/`；`session://` 改为等于 `sessions://<当前会话>/home/`。上面“规律”与“方案”表里 `session://` 等于 `sessions://<当前会话>/` 的写法以这条为准。理由：Agent 要能直接读子会话的原始日志（[t14](../t14-multi-agent/README.md)、[t23](../t23-session-history/README.md)），这样不开特例、地址与真实目录一一对应，日志也不落在可写的工作区里。
+- 2026-10-30（t14 讨论，开发者定）：bash（t12 的 `shell`）的工作目录改为：会话有主项目时 `project://`，没有时 `session://`。上面“方案”表与“用例子验证”里“bash 的工作目录 `session://`”以这条为准。理由：Agent 的工作大多是改这本书，相对路径直接对着书的文件；bash 是执行档、缺省弹审批（t06），写书仍要用户批准。不用 `user://`：那里是用户的 Profile、Skill 与 `AGENTS.md`，写入要询问。
 
 ## 当前状态
 

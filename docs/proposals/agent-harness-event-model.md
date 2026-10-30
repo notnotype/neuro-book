@@ -125,7 +125,7 @@ adrs: []
 | 作用域 | 事件 |
 |---|---|
 | session | `inputQueued`、`inputEdited`、`inputRemoved`、`inputConsumed`、`settingsChanged`、`leafChanged`、`profileChanged` |
-| path | `sessionCreated`、`runStarted`、`runEnded`、`turnStarted`、`turnEnded`、`input`、`steer`、`assistant`、`continued`、`toolStarted`、`toolResult`、`modelStarted`、`modelFailed`、`asked`、`answered`、`approvalRequested`、`approvalResolved`、`compaction`、`extensionFailed`、`reactionLimit` |
+| path | `sessionCreated`、`runStarted`、`runEnded`、`turnStarted`、`turnEnded`、`input`、`steer`、`assistant`、`continued`、`toolStarted`、`toolResult`、`modelStarted`、`modelFailed`、`interactionRequested`、`interactionResolved`、`compaction`、`extensionFailed`、`reactionLimit` |
 
 其中 `input`、`steer`、`assistant`、`continued`、`toolResult` 是对话事件，进这一轮。`ctx.set` 写的 `<扩展 id>/stateSet` 由内核自己归约，不派发给处理函数。
 
@@ -170,6 +170,7 @@ adrs: []
 | `send(input, mode?)` | 随时：入队，空闲时同时开始（对话框的发送按钮）；`mode` 缺省 `followup` | `inputQueued` 起 | `empty-input`、`no-model`、`no-credentials`、`profile-invalid` |
 | `enqueue(input, mode)` | 随时，只入队 | `inputQueued` | `empty-input` |
 | `edit(id, input)`、`remove(id)` | 取走之前 | `inputEdited`、`inputRemoved` | `input-not-found`、`input-consumed` |
+| `resolve({id, decision, answer?})` | 有待处理的审批或提问时 | `interactionResolved` | `unknown-interaction`、`already-answered`、`not-allowed` |
 | `start()` | 空闲时；缓冲区空时是没有新输入的“继续”运行 | `runStarted` | `already-running` |
 | `abort()` | 随时；幂等，没有运行时返回 `aborted: false` | 收口，`runEnded(aborted)` | — |
 | `rewind(to, {abort?, resend?})` | 目标只能是轮或步的边界（`rewindTargets()`，与压缩切点同一条规则）；运行中要 `abort: true` | `leafChanged` | `running`、`invalid-target` |
@@ -432,7 +433,7 @@ intercept: {
 - **路径限制**：“写手只改正文目录”这类规则真正的限制放在工具绑定或审批的路径范围里（t04、t06）；拦截只负责给出友好的拒绝文字，判断前用 `ctx.resources.resolve` 规范化路径（`project://正文/../设定/x.md` 这类写法能绕过字符串前缀）。
 - **顺序**：从外到里：插件的扩展（按 `dependsOn` 排序，同一层按 id）、Profile 的 `extensions`、Profile 自己的字段、审批（内核）。最终顺序与清单哈希写进 `profileChanged`。这个顺序也决定反应追加事件的顺序与同一个槽的拼接顺序。
 - **各入口读到的是哪一刻的状态**：`reduce` 读这条事件之前；`on` 读这条事件写入之后；`contribute`、`prompt`、`turn`、模型拦截读这次请求所在的叶子；工具拦截读发出这批调用的回复所在的叶子；输入拦截读取走这条输入时的叶子。
-- **工具**：一个回复里的工具调用按顺序执行，结果作为一个写入批写入，整批写完后对每条结果派发反应（并发分类推迟，第 18 节）。
+- **工具**：一个回复里的工具调用按顺序切成连续的段：声明为 `shared` 的连续调用并发执行，`exclusive`（缺省）单独执行（t14 定）。结果仍按调用顺序作为一个写入批写入，整批写完后对每条结果派发反应；日志的形状与串行时一样。拦截不写事件、读同一份快照，并发调用也安全。
 - **失败**：
 
   | 入口 | 出错时 | 记在哪 |
@@ -485,7 +486,12 @@ intercept: {
 
 ### 11. 等用户
 
-审批（t06）与 `request_user_input` 都要让运行停下等用户。内核事件先占位：`asked{callId, question, options?}`、`answered{callId, answer}`、`approvalRequested{callId, tool, reason}`、`approvalResolved{callId, approved}`，运行状态加 `waiting`。扩展可以归约它们（例如“问过的问题不再问”）；重启后照日志接着等。完整形状与主动接口 `ask` 在 t06 定。
+审批（t06）与提问（`ask`）是同一条通道（照分支的 `interaction`，t14 定）：
+
+- 事件：`interactionRequested{id, callId, kind: "approval" | "question", request}`、`interactionResolved{id, decision, by, data?}`，运行状态加 `waiting`。同一批工具调用里的几个事项可以同时待处理、任意顺序应答，全部处理完才回到运行。扩展可以归约它们（例如“问过的问题不再问”）；重启后照日志接着等。
+- 指令：`resolve({id, decision, answer?, note?})`，指令带上发出者（用户，或派这个会话的父会话）。审批只收用户的应答；提问在会话设为“交给调用方”时也收父会话的应答；用户任何时候都能直接应答。失败码 `unknown-interaction`、`already-answered`、`not-allowed`。
+- 异步提问：`ask` 带 `async` 时不进入等待，问题照样写成 `interactionRequested`、工具立即返回；回答是一条普通的用户输入，带 `replyTo` 指向这个事项（运行中当插话，空闲时开新一轮）。
+- 完整形状在 t06、t14 的实施计划里定。
 
 ### 12. 诊断
 
@@ -607,7 +613,6 @@ expect(session.requests[0]!.outline()).toEqual(["system: fixed:profile", "user: 
 | `sample`（每次请求前向外部取数，按内容寻址存） | 只有“剩余额度”一个例子 | 外部数据由 `mount` 或处理函数写成事件 |
 | 预览过去的请求原样复现 | 调试功能 | 预览报保真度（第 14 节）；需要原样时打开请求录制（待定项 5） |
 | 一般的缓存比对诊断与 `cacheCost` | 开发工具；缓存稳定由结构保证，只保留第 8 节的两项检查 | 预览里看块的来源 |
-| 工具的共享与独占并发 | 第一版工具串行 | `ToolInfo` 先留 `effect`，并发字段 t04 定 |
 | 后台任务（`spawn`） | t22 | 处理函数写一条触发事件（带幂等键），t22 定谁来执行 |
 
 ### 19. 原型与审查
@@ -731,7 +736,7 @@ expect(session.requests[0]!.outline()).toEqual(["system: fixed:profile", "user: 
 11. **请求的完整形状**：图片与附件块、工具的参数 schema 与 `tool_choice`、服务商专有选项；推荐 `tools` 用完整的工具声明，服务商专有的放适配器选项，实现 t04、t05 时定。
 12. **性能预算**：长会话的目标（例如 10 万条事件打开在 1 秒内、算一次请求在 50 毫秒内）与第 19 节的六项测法。
 13. **审计与脱敏**：`redacted` 之外，要不要给日志导出与会话分享另加一层过滤。
-14. **多 Agent**（t14）：子 Agent 是独立的会话；父会话里写 `childStarted`、`childResult`、`childFailed`，审批冒泡与中止连带走父会话的运行控制。
+14. **多 Agent**（t14 已定，见 [t14](../../.agents/works/w00032-agent-integration/tasks/t14-multi-agent/README.md)）：子 Agent 是独立的会话，会话头记调用方；父会话里不加新事件，派生与发话就是工具调用；审批交给用户，提问缺省交给调用方；后台运行走任务中心（t22）。
 15. **steer 与 followup 的缺省**：运行中在对话框里回车是 followup（推荐，五位设计者都同意），另一个操作是插话。
 16. **多条 followup**：一条一轮（推荐，五位设计者都同意）。
 17. **压缩后放回的内容放哪**：写成 `conv` 事件、与压缩同批、盖这一轮的位置章（推荐，五位设计者都同意）。
@@ -783,3 +788,4 @@ expect(session.requests[0]!.outline()).toEqual(["system: fixed:profile", "user: 
 | 2026-10-29 | 开发者 | 要求优化接口形状与开发体验（第 16 节的方向）；派几个 Sonnet、一个 Fable、一个 omp 做接口设计并兼做架构审查，汇总成第五版再看 |
 | 2026-10-29 | 开发者 | 同意把能独立成扩展或写成纯函数的便利写法做成 helper，不做成字段：`remind` 改为 `reminder()`、`opening` 改为 `opening()`、`layout` 改为 `standardLayout()`、声明式 `commit` 改为 `finalOnly()`、`withoutEvents()`、`format.withRender()`；理由是便利字段太多会加重开发者的心智负担 |
 | 2026-10-29 | 开发者 | 认可第五稿（含第三至五稿改变已定写法的地方），结束 t20 的讨论；实现时再做一次审查；t20 改了内核，优先级提高 |
+| 2026-10-30 | 开发者 | t14 讨论中定了三处内核修正：审批与提问合成一条通道（`interactionRequested`、`interactionResolved` 与指令 `resolve`，取代四个占位事件）；声明为 `shared` 的工具在同一个回复里并发执行（从推迟的功能移入）；用户输入加 `replyTo` 支持异步提问 |

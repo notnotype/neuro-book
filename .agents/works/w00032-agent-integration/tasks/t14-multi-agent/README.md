@@ -66,12 +66,64 @@ t05、t06、t07。
 
 实测（[`experiments/tool-descriptions.py`](experiments/tool-descriptions.py)，结果 [`evidences/tool-descriptions.txt`](evidences/tool-descriptions.txt)，2026-10-30）：同样功能、说明文字相同，拆成 6 个工具（`agent_spawn`、`agent_send`、`agent_answer`、`wait`、`kill`、`jobs`）的工具声明合计约 1,000 token（o200k 1,069，DeepSeek-V3 1,013），合成 2 个按 `action` 切换的工具约 970 到 1,010，拆开只多 5% 到 6%（45 到 57 token）。多出来的是每个工具声明的固定开销与重复的参数（`id`、`async`）；复合工具要给每个参数注明“只用于哪种 action”，抵掉了大部分节省。
 
-工具形状、审批与提问、运行控制先调研各家 code agent 再定：[调研](../../research/2026-10-30-subagent-survey.md)（Claude Code、Codex CLI、omp、DeepSeek Harness、OpenCode、Gemini CLI、Kimi CLI、Roo Code、Cline、Amp）。
+第四轮（开发者 2026-10-30，全部按推荐）：
+
+15. bash（t12 的 `shell`）的工作目录：会话有主项目时是 `project://`，没有时退回 `session://`（改 t08、t12，记在 [t08](../t08-resources-home/README.md) 的“后续修改”）。不用 `user://`：那里是用户的 Profile、Skill 与 `AGENTS.md`，写入要询问。
+16. `profiles://` 的分级披露，与 Skill（t15）同一套：
+    - Profile 声明可派的白名单与其中推荐的几个；白名单只管能不能派，`agent_spawn` 派白名单外的得到 `profile-not-allowed`。
+    - 推荐的：名字、说明、初始输入与结果的形状全部进提示词。
+    - 白名单里其余的：名字与说明进提示词。
+    - `profiles://` 的根目录列出全部 Profile，每项标“可派”或“不可派”；`profiles://<key>/` 仍是那个 Profile 的 home（t08），读写规则不变。
+17. 对 t20 内核的三处修正（记进[提案](../../../../../docs/proposals/agent-harness-event-model.md)）：
+    - 审批与提问合成一条通道（照分支）：事件 `interaction{kind: "approval" | "question"}` 的提出与应答，加指令 `resolve`，应答写明是谁答的。审批只收用户的应答；提问在子会话设为“交给调用方”时也收父会话的应答；用户任何时候都能直接答。
+    - 声明为 `shared` 的工具在同一个回复里并发执行，连续的 `shared` 调用一起跑、`exclusive` 单独跑；结果仍按调用顺序作为一个写入批写入，日志形状不变。
+    - 用户输入加可选字段 `replyTo`，指向一个异步提问。
+18. 异步提问：`ask` 加 `async` 选项（第 10 条）。打开时问题显示出来、工具立即返回，运行继续；回答之后作为一条普通输入进来（运行中当插话，空闲时开新一轮），带 `replyTo`。
+19. 任务中心：本 Task 只定 Agent 用的三个工具 `wait`、`kill`、`jobs` 的形状；任务结束时怎样通知（空闲时要不要唤起 Agent）、自动转后台、寿命、上限与活动面板仍在 [t22](../t22-background-work/README.md)。在那之前，转后台的任务结束后，结果等 Agent 调 `wait` 或 `jobs` 时取得。
+20. 结果模式由子代理的 Profile 声明（自由、可选结构化、强制结构化，后两种带 schema），父 Agent 不能改。
+21. 嵌套加一个安全上限，缺省 3 层、可在 Agent 设置里改；超过时 `agent_spawn` 得到 `depth-limit`。它是防失控的上限，不是第 3 条说的开关。
+22. Workflow 与 Agent：Workflow 调 Agent 经 `agent.startTask`（[t10](../t10-agent-plugin/README.md) 决定 7），nb-workflow 的 `AgentPort` 由 Agent 插件实现，这种会话的调用方是 Workflow 运行；Agent 调 Workflow 由 Workflow 插件经 `agent.tools` 贡献工具，不在本 Task。
+
+调研：[各家 code agent 的子代理设计](../../research/2026-10-30-subagent-survey.md)（Claude Code、Codex CLI、omp、DeepSeek Harness、OpenCode、Gemini CLI、Kimi CLI、Roo Code、Cline、Amp）。
+
+## 确定的工具
+
+模型看到的名字照 omp 的风格；工具 id 带插件前缀（例如 `nbook.agent.spawn`），模型看到的名字用 t04 决定 1 的显式覆盖。说明草稿与长度实测见上文“实测”。
+
+父 Agent 用（Agent 插件）：
+
+| 工具 | 参数 | 做什么 |
+|---|---|---|
+| `agent_spawn` | `profile`、`prompt`、`name?`、`initial?`、`model?`、`effort?`、`questions?`、`async?` | 新建子会话，把第一项任务交给它。`model` 是模型角色或具体模型，`effort` 是推理档，不写都用子 Profile 的设置；`questions` 是 `caller`（缺省）或 `user` |
+| `agent_send` | `id`、`message?`、`queue?`、`async?` | 给自己派的子会话发话：空闲时开新一轮；运行中缺省插话，`queue: true` 排到下一轮；不带 `message` 就是“继续” |
+| `agent_answer` | `id`、`question`、`answer` | 回答子会话交给调用方的提问；回答写进子会话（`resolve`，或异步提问的 `replyTo` 输入） |
+
+不带 `async` 时 `agent_spawn`、`agent_send` 一直等，满足任一条件返回：子会话停下（完成、出错、被中止，带结果）；子会话有提问交给调用方（带问题）；用户往父会话插话（子会话继续在任务中心里跑，返回任务 id）。带 `async: true` 时立即返回任务 id。结果过长按工具结果的通用规则截断，全文进 `session://artifacts/`。
+
+任务中心（后台 shell 与后台子代理共用；细节在 t22）：
+
+| 工具 | 参数 | 做什么 |
+|---|---|---|
+| `wait` | `jobs?`、`timeout?` | 等后台任务，返回最先结束的一个；子代理有提问交给调用方、用户插话时提前返回；不给 `jobs` 就等自己启动的全部 |
+| `kill` | `job` | 杀死一个后台任务；杀死子代理的运行不删除子会话，之后还能 `agent_send` |
+| `jobs` | 无 | 列出自己启动的后台任务：id、种类、状态、开始时间、一行摘要 |
+
+子代理用：
+
+| 工具 | 参数 | 做什么 |
+|---|---|---|
+| `yield` | 子 Profile 声明的结果 schema | 交回结构化结果，调用即结束这次运行；只在 Profile 声明了结构化结果时出现 |
+
+已有工具的改动：`ask`（t06）与 `shell`（t12）加 `async?`；`shell` 的工作目录见第 15 条。
+
+资源地址（不另设工具）：`profiles://`（第 16 条）；`sessions://` 的根目录先列与本会话有关的会话（父、子、兄弟，带状态），其余按最近使用分页；`sessions://<id>/session.jsonl` 是原始日志（第 12 条）。
+
+规则：审批一律交给用户，出现在子会话与父会话的待处理区（第 8 条）；父会话被中止时它派的子会话的运行一起中止；只能对自己派的子会话发话、回答；子会话继承父会话当时的审批模式与 Agent 模式；并发的 `agent_spawn` 靠第 17 条的工具并发。
 
 ## 当前状态
 
-讨论中（2026-10-30）：第一轮定了上面五条；调研完成，按调研重新设计子代理工具，待开发者讨论。
+讨论完成待审查（2026-10-30）：四轮决定与确定的工具见上；交 omp 做设计审查。
 
 ## 下一步
 
-调研汇总写进 Work 的 `research/`，据此重新设计子代理工具，与开发者讨论后再写计划。
+处理 omp 审查意见、与开发者确认后定稿；实施时按 implementation-planning 写计划，改 Spec（会话、工具、资源、Profile）与 t20 提案的对应各节。
