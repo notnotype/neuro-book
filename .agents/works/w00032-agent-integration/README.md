@@ -48,6 +48,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-10-30 | t18 讨论完成：第一批内置 Profile 为主创、会话标题（标题加一句说明）、adhoc（工具由 Profile 定义，不给派发方指定工具）；第一版不带内置 Skill；提示词规范写进 `docs/standards/prompts.md`；评测优先级降低；Workflow 的临时 Profile 记进 t24（[t18](tasks/t18-builtin-profiles/README.md)） |
 | 2026-10-30 | t19 讨论完成，全部按推荐：MCP 插件 `nbook.mcp` 另开 [w00036](../w00036-mcp/README.md)；第一版只有用户级配置、不读项目的 `.mcp.json`；工具缺省不绑 Profile、缺省算执行档；工具名上限改为 64（改 t04）（[t19](tasks/t19-mcp/README.md)） |
 | 2026-10-30 | t25 移出：插件分发另开 [w00038](../w00038-plugin-distribution/README.md)（git、npm、官方与第三方市场、离线压缩包）；官方网站与服务（登录、备份、同步、社区、官方市场）另开 [w00037](../w00037-official-site/README.md)（[t25](tasks/t25-plugin-marketplace/README.md)） |
+| 2026-10-30 | t13 讨论完成：收件箱三种接受方式（立即、下一条消息时、手动），不做按天数自动接受；每轮改动文件条由 nb-history 提供；保留、合并保存、大文件不存快照。同时改判 t06：默认不放行写入，写入要审批；先做 yolo，再做交审批模型，按工具的规则先于模式判定（[t13](tasks/t13-history/README.md)、[t06](tasks/t06-approval/README.md)） |
 
 ## 调研
 
