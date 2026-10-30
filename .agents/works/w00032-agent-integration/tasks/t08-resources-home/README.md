@@ -112,6 +112,10 @@ t03、t05。
 - 会话日志放在 `home/` 外，Agent 不能直接读写；读别的会话的对话记录在 t14 另给渲染的记录或专门的工具。
 - Skill 格式遵守 Agent Skills 开放标准（`SKILL.md`），目录由 NeuroBook 自己管：来源只有内置、插件、`user://skills/`；默认不读 `~/.agents/skills`、项目里的 `.agents/skills`（写作用户的 Skill 目录不该混进写代码用的 Skill，同一 Profile 在不同机器上表现也会不同）。外部 Skill 可以复制或“导入”进 `user://skills/`；设置里另有“额外的 Skill 目录”，默认为空。书专属的 Skill 先不做（t15 再看）。
 
+### 后续修改
+
+- 2026-10-30（t14 讨论，开发者定）：`sessions://<会话 id>/` 改为映射整个会话目录 `<状态根>/agent/sessions/<会话 id>/`，会话日志就是 `sessions://<会话 id>/session.jsonl`（只读），别的会话的工作区在 `sessions://<会话 id>/home/`；`session://` 改为等于 `sessions://<当前会话>/home/`。上面“规律”与“方案”表里 `session://` 等于 `sessions://<当前会话>/` 的写法以这条为准。理由：Agent 要能直接读子会话的原始日志（[t14](../t14-multi-agent/README.md)、[t23](../t23-session-history/README.md)），这样不开特例、地址与真实目录一一对应，日志也不落在可写的工作区里。
+
 ## 当前状态
 
 讨论完成（2026-10-28）。计划与实施切片在本 Work 的讨论全部完成后另定。

@@ -58,6 +58,14 @@ t05、t06、t07。
 10. 能转后台的工具都有一个转后台的选项，打开时立即返回一个任务 id；所有后台任务（后台 shell、后台子代理）统一由一个任务中心管理，用户在前端也能看到，Agent 用同一组工具等待与停止（方向，细节在 [t22](../t22-background-work/README.md)）。
 11. 不要 `agent_settings`；`agent_continue`、`agent_abort`、`agent_status` 与 `agent_answer`、`agent_approve` 看能否合并。
 
+第三轮（开发者 2026-10-30）：
+
+12. 会话日志的地址：`sessions://<id>/` 映射整个会话目录，日志是 `sessions://<id>/session.jsonl`，`session://` 改为当前会话的 `home/`（改 t08，记在 [t08](../t08-resources-home/README.md) 的“后续修改”）。
+13. 不要 `agent_continue`：不带 `message` 的 `agent_send` 就是“继续”。
+14. 命名与参数参照 omp，短而常见。`kill` 是后台任务中心的通用工具，杀死的是任务（例如子会话的这次运行），会话本身保留，两者不冲突。
+
+实测（[`experiments/tool-descriptions.py`](experiments/tool-descriptions.py)，结果 [`evidences/tool-descriptions.txt`](evidences/tool-descriptions.txt)，2026-10-30）：同样功能、说明文字相同，拆成 6 个工具（`agent_spawn`、`agent_send`、`agent_answer`、`wait`、`kill`、`jobs`）的工具声明合计约 1,000 token（o200k 1,069，DeepSeek-V3 1,013），合成 2 个按 `action` 切换的工具约 970 到 1,010，拆开只多 5% 到 6%（45 到 57 token）。多出来的是每个工具声明的固定开销与重复的参数（`id`、`async`）；复合工具要给每个参数注明“只用于哪种 action”，抵掉了大部分节省。
+
 工具形状、审批与提问、运行控制先调研各家 code agent 再定：[调研](../../research/2026-10-30-subagent-survey.md)（Claude Code、Codex CLI、omp、DeepSeek Harness、OpenCode、Gemini CLI、Kimi CLI、Roo Code、Cline、Amp）。
 
 ## 当前状态

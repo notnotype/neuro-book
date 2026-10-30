@@ -1,0 +1,12 @@
+运行：experiments/tool-descriptions.py（2026-10-30，uv run --with tiktoken --with tokenizers）
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+## o200k_base（OpenAI）
+拆开（6 个工具）：合计 1069；agent_spawn 399，agent_send 224，agent_answer 132，wait 161，kill 88，jobs 65
+复合（2 个工具）：合计 1012；agent 721，job 291
+差：57（拆开比复合多 6%）
+
+## DeepSeek-V3
+拆开（6 个工具）：合计 1013；agent_spawn 379，agent_send 206，agent_answer 132，wait 149，kill 85，jobs 62
+复合（2 个工具）：合计 968；agent 694，job 274
+差：45（拆开比复合多 5%）
+
