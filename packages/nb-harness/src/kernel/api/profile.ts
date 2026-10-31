@@ -41,7 +41,10 @@ export interface ProfileFields<Id extends string, S extends StateDecl, E extends
     /** 运行结果的 schema（t14 的 `outputSchema`）：建会话时抄进会话头，内核据此生成 `yield` 收尾工具。 */
     result?: {mode: "optional" | "required"; schema: TSchema};
     modelNeeds?: {vision?: boolean; thinking?: boolean; minContext?: number};
-    /** 只声明工具 id（t04）；工具的实现由宿主经 `SessionEnv.tools` 给。 */
+    /**
+     * 这个 Profile 用哪些工具（t04）：写了就只把宿主声明里列出的交给模型，`required` 缺了运行以 `tools-missing` 收口；
+     * 不写时宿主给的全部交给模型。工具的实现由宿主经 `SessionEnv.tools` 给。
+     */
     tools?: {required?: string[]; optional?: string[]};
     /** 插件经 `agent.extensions` 贡献的扩展：按标签排除，或一个都不要。 */
     pluginExtensions?: {exclude: string[]} | "none";

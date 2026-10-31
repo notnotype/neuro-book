@@ -16,7 +16,7 @@ import {ReadLedger} from "../../src/qa/read-ledger";
 import {resolveReach, type Reach} from "../../src/qa/reach";
 import {ANSWER_RULES, COMMON_RULES, STRUCTURED_RULES} from "../../src/qa/rules";
 import {createVisibility, HIDDEN_VALUE} from "../../src/qa/spoiler";
-import {ANSWER_TOOL_ID, storyQaPlugin, type QaToolState} from "../../src/qa/tools";
+import {ANSWER_TOOL_ID, QUERY_TOOL_IDS, storyQaPlugin, type QaToolState} from "../../src/qa/tools";
 
 let book: TestBook;
 beforeAll(async () => {
@@ -29,14 +29,14 @@ afterAll(async () => {
 /** 阅读位置 38.57：夏桃桃第 60 章之后才出场，位置之前搜不到；苏天晴在位置之前就有。 */
 const AT = {chapter: 38, paragraph: 57};
 
-/** 新内核写的 `story.qa`：系统提示词照 nb-story 的规则，工具按 id 声明（`answer` 可选）。 */
+/** 新内核写的 `story.qa`：系统提示词照 nb-story 的规则；工具按 id 列出，只有列出的交给模型（查询工具随书的特性有无，`answer` 只在结构化作答时有）。 */
 const storyQa = defineProfile({
     id: "story.qa",
     version: "1",
     name: "剧情问答",
     description: "按阅读位置回答小说剧情问题，查图、读原文，用 answer 交卷；可以追问。",
     initial: Type.Object({title: Type.String(), at: Type.String()}),
-    tools: {optional: [ANSWER_TOOL_ID]},
+    tools: {optional: [...QUERY_TOOL_IDS, ANSWER_TOOL_ID]},
     system: ({initial}) => [`你是熟读小说原文的读者，回答关于小说《${initial.title}》的问题。读者读到了 ${initial.at}：只依据这个位置以前的内容回答。`, ANSWER_RULES, STRUCTURED_RULES, COMMON_RULES].join("\n\n"),
 }) as AnyProfile;
 

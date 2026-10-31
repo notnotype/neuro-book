@@ -48,7 +48,10 @@ export class ToolBox {
         return {id: YIELD_TOOL, description: "Hand back the result of this run. Call it alone, once the work is done.", parameters: result.schema as {readonly [key: string]: JsonValue}, provider: "core", version: "1", finish: true, concurrency: "exclusive", strict: true, effect: "read"};
     }
 
-    /** 宿主给的声明加 `yield`；不合规则的丢掉并诊断（`yield` 排在前面，宿主声明的同名工具算重名）。 */
+    /**
+     * 宿主给的声明加 `yield`；不合规则的丢掉并诊断（`yield` 排在前面，宿主声明的同名工具算重名）。Profile 写了 `tools` 时
+     * 只取它列出的（`required` 与 `optional`），宿主给的别的工具不交给模型；没写时宿主给的全要（runtime.md 输出 15）。
+     */
     current(): ToolDeclaration[] {
         let declared: readonly ToolDeclaration[] = [];
         try {
@@ -56,6 +59,11 @@ export class ToolBox {
         } catch (error) {
             if (!this.#reported.has("declarations")) this.core.diagnostics.add({code: "tool-declaration-invalid", entry: "host", subject: "declarations", message: "the host's tool declarations threw; the session has no tools for this request", cause: error}, this.core.head);
             this.#reported.add("declarations");
+        }
+        const listed = (this.core.assembly.profile as {tools?: {required?: readonly string[]; optional?: readonly string[]}}).tools;
+        if (listed !== undefined) {
+            const wanted = new Set([...(listed.required ?? []), ...(listed.optional ?? [])]);
+            declared = declared.filter((declaration) => wanted.has(declaration.id));
         }
         const yieldTool = this.#yield();
         const names = new Map<string, string>();
