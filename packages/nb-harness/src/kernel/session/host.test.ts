@@ -314,6 +314,30 @@ describe("出站过滤的订阅与分页", () => {
         expect(afterClose).toEqual([]);
     });
 
+    test("输出 54：订阅者抛错只写诊断，不打断提交，后面的订阅者与帧照常；有没有出站过滤都一样", async () => {
+        for (const outbound of [undefined, {event: async (event: LogEvent) => event}]) {
+            await using session = await createTestSession(outbound === undefined ? {} : {outbound});
+            // 在每一帧上都抛，包括诊断帧：诊断帧上抛错不再写诊断，否则会一直循环。
+            session.raw.subscribe(() => {
+                throw new Error("订阅者坏了");
+            });
+            const seen: string[] = [];
+            const ended = gate();
+            session.raw.subscribe((frame) => {
+                if (frame.type !== "log") return;
+                seen.push(frame.event.type);
+                if (frame.event.type === "runEnded") ended.open();
+            });
+            session.model.script("答");
+            const runId = await sendRaw(session, "问");
+            expect((await session.raw.waitRun(runId)).reason).toBe("completed");
+            await ended.promise;
+            expect(seen.slice(-2)).toEqual(["turnEnded", "runEnded"]);
+            expect((await session.raw.snapshot()).head).toBe((await session.raw.log({afterSeq: 0})).events.at(-1)!.seq);
+            expect((await session.raw.diagnostics()).some((item) => item.code === "subscriber-threw")).toBe(true);
+        }
+    });
+
     test("输出 54：日志分页的边界在读取开始时定下；整页被过滤时 through 照样前进；limit 不合法时夹到范围内", async () => {
         let hold: Promise<void> | null = null;
         const outbound: SessionEnv["outbound"] = {

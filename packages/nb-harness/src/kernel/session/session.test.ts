@@ -10,6 +10,7 @@ import type {AnyProfile, LogEvent, SessionEnv} from "../api/index.js";
 import {defineProfile} from "../extension/profile.js";
 import {nodeFiles, type FilePort} from "../log/files.js";
 import {createJsonlStore} from "../log/jsonl-store.js";
+import {createMemoryStore} from "../log/memory-store.js";
 import {createTestClock} from "../testing/clock.js";
 import {createTestModel} from "../testing/model.js";
 import {createTestSession, defaultTestProfile} from "../testing/test-session.js";
@@ -183,6 +184,30 @@ describe("打开、恢复与只读", () => {
         expect((await opened.value.snapshot()).readOnly).toEqual({code: "unknown-profile"});
         expect(await opened.value.send({commandId: "c", input: {text: "你好"}})).toEqual({ok: false, code: "read-only"});
         await closeSession(opened.value);
+    });
+
+    test("场景 2：打开时恢复批写失败以 log-broken 交回并释放锁，下次打开照常恢复；建会话时写失败同样释放", async () => {
+        const store = createMemoryStore();
+        const created = await store.create({format: 1, id: "half-run", createdAt: 0, profile: defaultTestProfile.id, questions: "user"});
+        if (!created.ok) throw new Error(created.code);
+        const event = (seq: number, type: string, parent: string | null, scope: "path" | "session", data: unknown): LogEvent => ({id: `e${seq}`, seq, at: seq, parent, scope, kind: "ctrl", type, version: 1, source: "kernel", data: data as never});
+        // 进程停在模型请求中途：打开时要写恢复批。
+        await store.append(created.value, [
+            event(1, "sessionCreated", null, "path", {initial: {}}),
+            event(2, "profileChanged", null, "session", {profile: defaultTestProfile.id, hash: "old", from: null, reason: "created", manifest: []}),
+            event(3, "runStarted", "e1", "path", {runId: "r", kind: "chat"}),
+            event(4, "modelStarted", "e3", "path", {request: 1, purpose: "turn", model: "test/model", hash: "0".repeat(64), now: 0, invocation: "v", modifiedBy: []}),
+        ]);
+        await store.close(created.value);
+        const failing: SessionEnv["store"] = {...store, append: async () => ({ok: false, code: "storage-failed", detail: {message: "injected"}})};
+        expect(await openSession(env(failing, defaultTestProfile), "half-run")).toMatchObject({ok: false, code: "log-broken"});
+        const reopened = await openSession(env(store, defaultTestProfile), "half-run");
+        if (!reopened.ok) throw new Error(reopened.code);
+        expect(types(await reopened.value.path()).slice(-2)).toEqual(["modelFailed", "runEnded"]);
+        await closeSession(reopened.value);
+
+        expect(await createSession(env(failing, defaultTestProfile), {profile: defaultTestProfile.id, id: "never-written"})).toMatchObject({ok: false, code: "log-broken"});
+        expect(await store.open("never-written")).toMatchObject({ok: true});
     });
 
     test("输出 11：同一会话打开时再打开得 session-busy，关闭后能打开", async () => {

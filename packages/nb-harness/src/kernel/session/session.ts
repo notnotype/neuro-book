@@ -323,7 +323,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                 try {
                     listener(frame);
                 } catch (error) {
-                    core.diagnostics.add({code: "subscriber-threw", entry: "host", subject: frame.type, message: `a subscriber threw on a ${frame.type} frame`, cause: error}, core.head);
+                    if (frame.type !== "diagnostic") core.diagnostics.add({code: "subscriber-threw", entry: "host", subject: frame.type, message: `a subscriber threw on a ${frame.type} frame`, cause: error}, core.head);
                 }
             };
             const unsubscribe = core.subscribe((frame) => {
@@ -386,13 +386,33 @@ export async function createSession(env: SessionEnv, options: CreateSessionOptio
     reportAssemblyWarnings(core);
     const api = buildApi(env, core, null, {kind: "user"});
     const state = internals.get(api)!;
-    await core.queue.run(() => writeAndReact(core, [
-        {type: "sessionCreated", kind: "ctrl", scope: "path", data: {initial}},
-        {type: "profileChanged", kind: "ctrl", scope: "session", data: {profile: profile.id, hash: assembly.hash, from: null, reason: "created", manifest: assembly.manifest as unknown as JsonValue}},
-    ], state.react));
-    await state.mounts.mountAll(state.environment);
-    await core.queue.drain();
+    try {
+        await core.queue.run(() => writeAndReact(core, [
+            {type: "sessionCreated", kind: "ctrl", scope: "path", data: {initial}},
+            {type: "profileChanged", kind: "ctrl", scope: "session", data: {profile: profile.id, hash: assembly.hash, from: null, reason: "created", manifest: assembly.manifest as unknown as JsonValue}},
+        ], state.react));
+        await state.mounts.mountAll(state.environment);
+        await core.queue.drain();
+    } catch (error) {
+        return await abandon(core, state, error);
+    }
     return {ok: true, value: api};
+}
+
+/**
+ * 建会话或打开时写入、装上失败：摘下已装上的、释放句柄（也就释放了锁），写失败以 `log-broken` 交回，别的错误照常抛出。
+ * 已写下的部分以文件为准，下次打开时再恢复。收口里的次生错误不再报：调用方要知道的是第一个失败。
+ */
+async function abandon(core: SessionCore, state: Internals | undefined, error: unknown): Promise<{ok: false; code: "log-broken"; detail: {message: string}}> {
+    if (state !== undefined) {
+        state.closed = true;
+        await state.mounts.unmountAll().catch(() => undefined);
+        await state.box.dispose().catch(() => undefined);
+    }
+    core.close();
+    await core.store.close(core.handle).catch(() => undefined);
+    if (error instanceof LogBrokenError) return {ok: false, code: "log-broken", detail: {message: error.message}};
+    throw error;
 }
 
 export async function openSession(env: SessionEnv, id: string): Promise<StorageResult<SessionApi>> {
@@ -407,25 +427,30 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
     core.load(handle.events);
     core.reportOpenNotices();
     reportAssemblyWarnings(core);
-    if (readOnly === null) {
-        const previous = core.session.kernel.profile;
-        const drafts: EventDraft[] = [];
-        if (previous?.hash !== assembly.hash) {
-            drafts.push({type: "profileChanged", kind: "ctrl", scope: "session", data: {profile: assembly.profile.id, hash: assembly.hash, from: previous?.hash ?? null, reason: "code-updated", manifest: assembly.manifest as unknown as JsonValue}});
+    let state: Internals | undefined;
+    try {
+        if (readOnly === null) {
+            const previous = core.session.kernel.profile;
+            const drafts: EventDraft[] = [];
+            if (previous?.hash !== assembly.hash) {
+                drafts.push({type: "profileChanged", kind: "ctrl", scope: "session", data: {profile: assembly.profile.id, hash: assembly.hash, from: previous?.hash ?? null, reason: "code-updated", manifest: assembly.manifest as unknown as JsonValue}});
+            }
+            await core.queue.run(() => core.write(drafts));
+            const recovery = recoveryDrafts(core);
+            await core.queue.run(() => core.write(recovery));
+        } else {
+            core.diagnostics.add({code: "unknown-profile", entry: "host", params: {profile: profileId, reason: readOnly}, message: `profile ${profileId} could not be assembled; the session is read-only`}, core.head);
         }
-        await core.queue.run(() => core.write(drafts));
-        const recovery = recoveryDrafts(core);
-        await core.queue.run(() => core.write(recovery));
-    } else {
-        core.diagnostics.add({code: "unknown-profile", entry: "host", params: {profile: profileId, reason: readOnly}, message: `profile ${profileId} could not be assembled; the session is read-only`}, core.head);
+        const api = buildApi(env, core, readOnly, {kind: "user"});
+        state = internals.get(api)!;
+        if (readOnly === null) {
+            await state.mounts.mountAll(state.environment);
+            await core.queue.drain();
+        }
+        return {ok: true, value: api};
+    } catch (error) {
+        return await abandon(core, state, error);
     }
-    const api = buildApi(env, core, readOnly, {kind: "user"});
-    if (readOnly === null) {
-        const state = internals.get(api)!;
-        await state.mounts.mountAll(state.environment);
-        await core.queue.drain();
-    }
-    return {ok: true, value: api};
 }
 
 /**

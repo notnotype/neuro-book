@@ -366,8 +366,18 @@ export class SessionCore {
 
     // ---------- 帧 ----------
 
+    /**
+     * 帧在落盘与归约之后推出，订阅者抛错不能反过来打断提交（一批里后面的事件还没归约），只写诊断，后面的订阅者与帧照常。
+     * 在诊断帧上抛错不再写诊断：写了又推一帧诊断，会一直循环。
+     */
     #emit(frame: Frame): void {
-        for (const listener of [...this.#listeners]) listener(frame);
+        for (const listener of [...this.#listeners]) {
+            try {
+                listener(frame);
+            } catch (error) {
+                if (frame.type !== "diagnostic") this.diagnostics.add({code: "subscriber-threw", entry: "host", subject: frame.type, message: `a subscriber threw on a ${frame.type} frame`, cause: error}, this.head);
+            }
+        }
     }
 
     emit(frame: Frame): void {
