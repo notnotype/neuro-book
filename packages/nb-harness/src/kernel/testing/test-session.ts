@@ -85,8 +85,9 @@ export interface TestSession extends AsyncDisposable {
     readonly requests: readonly RequestView[];
     /** 宿主收到的上下文（建资源、建工具实现时），按先后。 */
     readonly hostContexts: readonly ToolSessionContext[];
-    /** 当前叶子路径上的事件。 */
+    /** 当前叶子路径上的事件：只有 path 事件，session 事件（设置、缓冲区、标题）不在里面；全部事件用 `raw.log`。 */
     events(): Promise<readonly LogEvent[]>;
+    /** 当前叶子路径上这一种的事件。session 事件（`settingsChanged`、扩展的 `ext.session` 事件）不在路径上，用 `raw.log` 查。 */
     eventsOf(type: string): Promise<readonly LogEvent[]>;
     say(text: string): Promise<RunReport>;
     state<X extends AnyExtension>(extension: X): Promise<StateOfExtension<X>>;
