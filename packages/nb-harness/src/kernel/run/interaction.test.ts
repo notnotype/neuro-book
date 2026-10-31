@@ -57,6 +57,9 @@ const askForWrites: ApproveHook = async (call, info) => {
     if (info.effect === "read" || info.remembered.includes(call.tool)) return {verdict: "allow", by: info.remembered.includes(call.tool) ? "remembered" : "rule:read"};
     return {verdict: "ask", reason: "会改文件"};
 };
+/** 事项的请求原文：在日志的 interactionRequested 里（运行状态不带它）。 */
+const requestOf = async (session: TestSession, interaction: string) => (await session.raw.log({afterSeq: 0})).events.find((event) => event.type === "interactionRequested" && (event.data as {id: string}).id === interaction)?.data as {request: unknown} | undefined;
+
 const writer = (toolId: string, extra: Partial<TestTool> = {}): TestTool => ({id: toolId, effect: "write", execute: () => `${toolId} 写好了`, ...extra});
 
 describe("审批", () => {
@@ -65,7 +68,8 @@ describe("审批", () => {
         session.model.script({tools: [{tool: "lab.write", args: {path: "正文/一.md"}}]}, "写完了", {tools: [{tool: "lab.write"}]}, "又写完了", {tools: [{tool: "lab.write"}]}, "第三次");
         const runId = await sendRaw(session, "写第一章");
         const [pending] = await waitingFor(session, 1);
-        expect(pending).toMatchObject({kind: "approval", request: {tool: "lab.write", args: {path: "正文/一.md"}, effect: "write", reason: "会改文件"}});
+        expect(pending).toMatchObject({kind: "approval"});
+        expect(await requestOf(session, pending!.id)).toMatchObject({request: {tool: "lab.write", args: {path: "正文/一.md"}, effect: "write", reason: "会改文件"}});
         expect(await session.raw.resolve({commandId: id(), id: pending!.id, decision: "allow-session"})).toMatchObject({ok: true});
         expect((await session.raw.waitRun(runId)).text).toBe("写完了");
         const events = await session.events();
@@ -106,7 +110,10 @@ describe("审批", () => {
         session.model.script({tools: [{tool: "lab.a"}, {tool: "lab.b"}]}, "都写了");
         const runId = await sendRaw(session, "写两处");
         const pending = await waitingFor(session, 2);
-        expect(pending.map((item) => (item.request as {tool: string}).tool)).toEqual(["lab.a", "lab.b"]);
+        const calls = (await session.events()).filter((event) => event.type === "assistant").flatMap((event) => (event.data as {toolCalls: {id: string}[]}).toolCalls.map((call) => call.id));
+        expect(pending.map((item) => item.callId)).toEqual(calls);
+        // 请求原文只在经出站过滤的 interactionRequested 里，运行状态里没有。
+        expect(pending.every((item) => !("request" in item))).toBe(true);
         await session.raw.resolve({commandId: id(), id: pending[1]!.id, decision: "allow"});
         const [left] = await waitingFor(session, 1);
         expect(left!.id).toBe(pending[0]!.id);
@@ -149,7 +156,8 @@ describe("提问", () => {
         session.model.script({tools: [{tool: "lab.ask"}]}, "记住了", {tools: [{tool: "lab.ask"}]}, "好");
         const runId = await sendRaw(session, "问我");
         const [question] = await waitingFor(session, 1);
-        expect(question).toMatchObject({kind: "question", request: {question: "主角叫什么？", options: ["林舟", "沈岚"]}});
+        expect(question).toMatchObject({kind: "question"});
+        expect(await requestOf(session, question!.id)).toMatchObject({request: {question: "主角叫什么？", options: ["林舟", "沈岚"]}});
         expect(await session.raw.as({kind: "session", id: "stranger"}).resolve({commandId: id(), id: question!.id, decision: "answer", answer: {text: "x"}})).toEqual({ok: false, code: "not-allowed"});
         expect(await session.raw.as({kind: "session", id: "parent"}).resolve({commandId: id(), id: question!.id, decision: "answer", answer: {text: "林舟", data: {index: 0}}})).toMatchObject({ok: true});
         await session.raw.waitRun(runId);

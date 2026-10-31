@@ -42,7 +42,7 @@ export class Interactions {
 
     #reportFrom(core: SessionCore): void {
         const pending = core.leafState.kernel.pending.filter((item) => !item.async);
-        this.report(pending.length === 0 ? null : pending.map(({id, callId, kind, request}) => ({id, callId, kind, request})));
+        this.report(pending.length === 0 ? null : pending.map(({id, callId, kind}) => ({id, callId, kind})));
     }
 
     /**

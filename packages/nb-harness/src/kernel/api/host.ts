@@ -86,11 +86,14 @@ export type SessionCommands = {
 // 状态与查询
 // ====================================================================
 
+/**
+ * 等用户的一个事项。不带请求原文：原文在 `interactionRequested` 事件里，经出站过滤；运行状态不经过滤，带着就会绕过它
+ * （runtime.md 输出 54）。界面按 `callId` 把事项挂到工具调用上。
+ */
 export interface InteractionSummary {
     id: string;
     callId: string;
     kind: "approval" | "question";
-    request: JsonValue;
 }
 
 /** 运行到哪了。`aborting`、`compacting` 这类中间态不进日志，由服务端给。 */
