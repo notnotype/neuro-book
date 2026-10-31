@@ -24,7 +24,7 @@ import {parseEntryLine, type SessionEntry} from "@notnotype/nb-session";
 import {schemaProblems, type StoryApi} from "../core/api";
 import {StoryError, type StoryErrorCode} from "../core/errors";
 import {answerModeOf, currentPosition, highestPosition, QaRecords, newQaRecordId, type QaConversation, type QaTurn} from "../core/qa-records";
-import {QA_METHODS, type QaFrame, type QaMethod, type QaRunView, type ViewerParams, type ViewerResult} from "../contract/contract";
+import {QA_FIRST_TURN_RUNNING, QA_FIRST_TURN_UNSAVED, QA_METHODS, type QaFrame, type QaMethod, type QaRunView, type ViewerParams, type ViewerResult} from "../contract/contract";
 import {ABSENT_CONFIG, currentConfigDigest, defaultConfigPath, readQaConfigFile, readQaConfigShape, saveQaConfig, type Effort, type QaConfig} from "../qa/config";
 import {createVisibility} from "../qa/spoiler";
 import {resolveReach} from "../qa/reach";
@@ -462,7 +462,7 @@ export function createQaService(options: QaServiceOptions): QaService {
             log = read.log.ok ? parseLog(read.log.jsonl, read.conversation) : {ok: false, problem: read.log.problem};
         } catch (error) {
             if (run === undefined || !(error instanceof StoryError && error.code === "qa_record_not_found")) throw error;
-            const reason = run.state === "running" ? "第一轮还在运行" : "第一轮没有保存，不能续问";
+            const reason = run.state === "running" ? QA_FIRST_TURN_RUNNING : QA_FIRST_TURN_UNSAVED;
             return {result: {record: null, log: {ok: true, entries: []}, continuable: {ok: false, reason}, run: viewOf(run)}, generation};
         }
         if (log.ok) log = {ok: true, entries: await withoutSpoilers(params.book, conversation, log.entries as unknown as SessionEntry[])};
