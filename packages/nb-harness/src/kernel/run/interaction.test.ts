@@ -17,6 +17,14 @@ afterAll(async () => {
     if (root !== "") await rm(root, {recursive: true, force: true});
 });
 
+function gate() {
+    let open!: () => void;
+    const promise = new Promise<void>((resolve) => {
+        open = resolve;
+    });
+    return {promise, open};
+}
+
 let commands = 0;
 const id = () => `i-${(commands += 1)}`;
 const types = (events: readonly LogEvent[]) => events.map((event) => event.type);
@@ -88,7 +96,13 @@ describe("审批", () => {
     });
 
     test("输出 44：同一条回复里两个调用同时待处理，任意顺序应答，都应答后回到运行", async () => {
-        await using session = await createTestSession({approve: askForWrites, tools: [writer("lab.a", {concurrency: "shared"}), writer("lab.b", {concurrency: "shared"})]});
+        const bStarted = gate();
+        const bRelease = gate();
+        await using session = await createTestSession({approve: askForWrites, tools: [writer("lab.a", {concurrency: "shared"}), writer("lab.b", {concurrency: "shared", execute: async () => {
+            bStarted.open();
+            await bRelease.promise;
+            return "lab.b 写好了";
+        }})]});
         session.model.script({tools: [{tool: "lab.a"}, {tool: "lab.b"}]}, "都写了");
         const runId = await sendRaw(session, "写两处");
         const pending = await waitingFor(session, 2);
@@ -97,6 +111,10 @@ describe("审批", () => {
         const [left] = await waitingFor(session, 1);
         expect(left!.id).toBe(pending[0]!.id);
         await session.raw.resolve({commandId: id(), id: pending[0]!.id, decision: "deny"});
+        // 都应答之后、lab.b 还在执行时，运行状态回到 running。
+        await bStarted.promise;
+        expect((await session.raw.snapshot()).status).toMatchObject({state: "running", phase: "tools"});
+        bRelease.open();
         expect((await session.raw.waitRun(runId)).reason).toBe("completed");
         expect(dataOf(await session.events(), "toolResult").map((data) => [data.tool, data.status])).toEqual([["lab.a", "denied"], ["lab.b", "ok"]]);
     });
@@ -171,6 +189,25 @@ describe("提问", () => {
         const before = (await session.raw.rewindTargets()).find((target) => target.kind === "before-turn" && target.inputText === "又开始")!;
         await session.raw.rewind({commandId: id(), to: before.id});
         expect(await session.raw.resolve({commandId: id(), id: second.id, decision: "answer", answer: {text: "五章"}})).toEqual({ok: false, code: "unknown-interaction"});
+    });
+});
+
+describe("fork 之后", () => {
+    test("输出 41、37：fork 带上 caller，复制过去的待处理提问仍由那个父会话应答", async () => {
+        const asker: TestTool = {id: "lab.later", execute: async (_args, context) => {
+            await context.ask!({question: "要几章？"}, {async: true});
+            return "先写着";
+        }};
+        await using session = await createTestSession({store: {root}, tools: [asker], questions: "caller", caller: {kind: "session", id: "parent", callId: "c1"}});
+        session.model.script({tools: [{tool: "lab.later"}]}, "好");
+        const {events} = await session.say("开始");
+        const question = dataOf<{id: string}>(events, "interactionRequested")[0]!;
+        const forked = await session.raw.fork({commandId: id()});
+        if (!forked.ok) throw new Error(forked.code);
+        await using copy = await createTestSession({store: {root}, open: forked.value.sessionId, tools: [asker]});
+        expect((await copy.raw.snapshot()).header.caller).toEqual({kind: "session", id: "parent", callId: "c1"});
+        copy.model.script("收到");
+        expect(await copy.raw.as({kind: "session", id: "parent"}).resolve({commandId: id(), id: question.id, decision: "answer", answer: {text: "三章"}})).toMatchObject({ok: true});
     });
 });
 

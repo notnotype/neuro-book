@@ -328,6 +328,8 @@ async function forkSession(env: SessionEnv, core: SessionCore, leaf: string | nu
         profile: core.assembly.profile.id,
         ...(core.header.project === undefined ? {} : {project: core.header.project}),
         origin: {session: core.header.id, entry: leaf},
+        // caller 与 questions 一起带上：复制过去的待处理提问仍归那个父会话应答（runtime.md 输出 41）。
+        ...(core.header.caller === undefined ? {} : {caller: core.header.caller}),
         questions: core.header.questions,
         ...(core.header.result === undefined ? {} : {result: core.header.result}),
     };
