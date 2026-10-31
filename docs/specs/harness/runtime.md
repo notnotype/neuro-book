@@ -13,7 +13,7 @@ owners:
 
 给宿主一台由日志驱动的状态机：指令进、事件与帧出。用户的话先进输入缓冲区，取走时才成为对话里的事实；一次运行是可能有好几轮的 ReAct 循环，每次模型请求前由视图算出请求，回复与失败都写回日志。宿主能等一次运行结束、取它的结果。
 
-本文件随实现逐步补齐：应答与等用户、压缩、预览随后续条目追加。日志与恢复见 [`harness/session.md`](session.md)，扩展见 [`harness/extensions.md`](extensions.md)，模型端口见 [`harness/models.md`](models.md)。
+本文件随实现逐步补齐：压缩、预览随后续条目追加。日志与恢复见 [`harness/session.md`](session.md)，扩展见 [`harness/extensions.md`](extensions.md)，模型端口见 [`harness/models.md`](models.md)。
 
 不承诺：
 
@@ -87,6 +87,16 @@ owners:
 37. `switchBranch(node)` 落到 `node` 所在子树里最近写入的末端；`siblings(node)` 给出与它同一个父节点的节点，各带所在分支的末端。`fork({leaf?})` 把到 `leaf`（缺省当前叶子）为止的路径复制成新会话，会话头的 `origin` 记来源、`profile` 是当前的 Profile，带上设置，不带缓冲区与标题；原会话不变。新会话的 id 由来源会话与 `commandId` 定：原会话的受理没写下就失败或崩溃时，重发同一个 `commandId` 交回同一个新会话，不多建。三者在有运行在跑时得 `running`。
 38. `changeProfile(profile)` 只在没有运行在跑时（否则 `running`）：解析不到得 `unknown-profile`，装配缺依赖得 `dependency-missing{extension, dependency}`、成环得 `dependency-cycle`，其余装配错误得 `profile-invalid`。新装配的 Profile 哈希与当前相同时 `changed: false`、不写日志；不同时写 `profileChanged{reason: "user"}`；写下之后才摘下旧扩展、按新装配从日志重新归约全部状态（`mount` 失败的标记清空）、装上新扩展，并等装上写的外部事实落盘再返回；写失败时得 `log-broken`，内存里的装配不变。之后交给宿主的上下文（建资源、建工具实现）是新 Profile，已建的工具实现释放后按新上下文重建；已提交的轮按新 Profile 重新渲染（[`harness/profile.md`](profile.md) 输出 11）。重开会话按最后一条 `profileChanged` 解析 Profile。
 
+等用户：
+
+39. 审批钩子判定 `ask` 时，写 `interactionRequested{kind: "approval", callId, request: {tool, args, effect, reason?}, async: false}`，这次调用停下等应答（同一段里别的调用照常），运行状态是 `waiting{pending}`。应答 `allow`、`allow-session` 时照常执行，`toolStarted.approval.by` 为 `user`；`allow-session` 同一个写入批里写 `approvalRemembered{tool, scope: "tool", by}`，它是 session 事件，回退与重开都不撤销，审批钩子从 `info.remembered` 读到。应答 `deny` 时调用得 `denied`、码 `user-denied`、`by: "user"`，应答的 `note` 附在给模型的文字里。没有等用户的通道时（例如没有界面的单次请求）判定 `ask` 的调用得 `denied`、码 `approval-unavailable`。
+40. 工具的 `ctx.ask(request, {async?})`：同步提问写 `interactionRequested{kind: "question"}` 并等，应答 `answer` 交回 `{kind: "answer", text, data?}`，`deny` 交回 `{kind: "unavailable", code: "declined"}`，运行被中止交回 `code: "aborted"`。异步提问写下事项（`async: true`）就交回 `{kind: "unavailable", code: "async"}`，不进 `waiting`。
+41. `resolve({id, decision, answer?, note?})`：事项不在当前路径的待处理里时，路径上已经结算过的得 `already-answered{by, decision}`，其余（含被回退掉的分支上的）得 `unknown-interaction`。审批只收用户的应答；提问用户都能答，会话头 `questions: "caller"` 时也收 `caller` 那个父会话的；其余得 `not-allowed`。`decision` 不合事项的种类（审批：`allow`、`allow-session`、`deny`；提问：`answer`、`deny`），或 `answer` 缺少、文字为空，得 `invalid-answer`。受理时写 `interactionResolved{id, decision, by, data?, note?}`，`by` 是发出者。同一事项的几次应答由单写者裁决：先到的生效，后到的得 `already-answered`。
+42. 异步提问的回答：同一个写入批里写 `interactionResolved` 并把回答的文字作为一条输入放进缓冲区（经输入拦截链，拒绝时得 `input-rejected`、不写日志）；运行中是 `steer`，空闲时开新的运行（或让暂停的运行接着跑）。
+43. 运行被中止时，等待中的同步事项写 `interactionResolved{decision: "aborted", by: {kind: "kernel"}, code: "aborted"}`，等审批的调用得 `denied`、码 `aborted`；中止之后才到的应答得 `already-answered{by: "kernel", decision: "aborted"}`。进程重启后打开会话时，同步事项写 `interrupted`（审批码 `interrupted-before-approval`，提问码 `interrupted`），调用按输出 34 结算。异步提问不随中止、关闭会话、重启结算，重开后照样能应答。
+44. 同一条回复里几个调用的事项可以同时待处理、任意顺序应答；`waiting.pending` 列出全部，都应答之后运行状态回到 `running`。
+45. 发出者由宿主注入：`session.as(issuer)` 交回带这个发出者的会话视图，指令里没有发出者参数。
+
 ## 状态与转换
 
 | 运行状态 | 事件 | 下一状态 |
@@ -134,6 +144,7 @@ owners:
 3. 一条回复里两个 `shared` 工具与一个 `exclusive` 工具：两个 `shared` 同时在跑、`exclusive` 在它们都完成后才开始；结果按调用顺序写成一个批；一个扩展改了参数、审批规则据改过的参数拒绝另一个调用。
 4. 一个扩展把输入脱敏、另一个把超过 16 KB 的工具结果脱敏：重开后事件一致，会话目录全文（含 `blobs/`）搜不到原文。
 5. 子进程在工具执行中被 `kill -9`：重开后执行中的调用 `unknown`、没开始的 `denied{interrupted-before-approval}`、运行 `interrupted`，缓冲区里排着的 followup 还在；子进程在受理批写下、运行循环开始之前被杀：重开后运行 `interrupted`，用同一个 `commandId` 重发得到第一次的值与 `replayed: true`。
+6. 子进程在等审批时被 `kill -9`：重开后这次审批结算为 `interrupted`、调用 `denied{interrupted-before-approval}`；同一次运行里先提的异步提问还待处理，应答后作为输入开新的运行。
 
 Smoke：`packages/nb-harness/tests/kernel/kernel.llm.test.ts`（`bun run test:llm`）。
 
