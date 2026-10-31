@@ -72,6 +72,7 @@ describe("模板", () => {
         ]);
         expect(await run(profileWith({prompt: standardLayout({history: false})}))).toEqual(["system: fixed:profile", "user: event:input", "user: slot:clock@lab.clock"]);
         expect(await run(profileWith({prompt: standardLayout({history: {last: 1}})}))).toEqual(["system: fixed:profile", "user: event:input", "assistant: event:assistant", "user: event:input", "user: slot:clock@lab.clock"]);
+        expect(await run(profileWith({prompt: standardLayout({history: {last: 0}})}))).toEqual(["system: fixed:profile", "user: event:input", "user: slot:clock@lab.clock"]);
     });
 
     test("输出 2、3：容器里每个子节点一块，行内相连；<Tag> 的属性转义，子节点不转义；<User>、<Assistant> 各成一条", async () => {
@@ -292,6 +293,25 @@ describe("槽", () => {
         expect(diagnostics.some((item) => item.code === "slot-unplaced")).toBe(false);
     });
 
+    test("输出 16：每份没摆的贡献各一条诊断；模板没有 <System /> 时 Profile 的 system 里的槽不算摆放；* stable 不收会变的", async () => {
+        const both = defineExtension({id: "lab.both", contribute: {alpha: {value: () => "甲"}, beta: {value: () => "乙"}}});
+        const stable = defineExtension({id: "lab.stable", contribute: {facts: {shared: true, value: () => "稳"}}});
+        const moving = defineExtension({id: "lab.moving", contribute: {facts: {shared: true, volatile: true, value: () => "变"}}});
+        const hidden = defineExtension({id: "lab.hidden", contribute: {hidden: {value: () => "藏"}}});
+        const profile = profileWith({system: <Slot name="hidden" />, prompt: () => <><Turn /><Slot name="*" stable /></>});
+        await using session = await createTestSession({profile, extensions: [both, stable, moving, hidden]});
+        session.model.script("好");
+        const {requests} = await session.say("问");
+        expect(requests[0]!.outline()).toEqual(["user: event:input", "user: slot:alpha@lab.both | slot:beta@lab.both | slot:hidden@lab.hidden | slot:facts@lab.stable"]);
+        await using bare = await createTestSession({profile: profileWith({prompt: () => <><Turn /></>}), extensions: [both, moving]});
+        bare.model.script("好");
+        await bare.say("问");
+        const unplaced = (await bare.raw.diagnostics()).filter((item) => item.code === "slot-unplaced").map((item) => `${item.extension}:${String(item.params.slot)}`);
+        expect(unplaced.sort()).toEqual(["lab.both:alpha", "lab.both:beta", "lab.moving:facts"]);
+        const mixed = (await session.raw.diagnostics()).filter((item) => item.code === "slot-unplaced").map((item) => `${item.extension}:${String(item.params.slot)}`);
+        expect(mixed).toEqual(["lab.moving:facts"]);
+    });
+
     test("输出 16：槽有内容而模板没摆时内容丢弃并诊断；同名槽不是都写 shared 时装配就诊断", async () => {
         const one = defineExtension({id: "lab.one", contribute: {facts: {value: () => "一"}}});
         const two = defineExtension({id: "lab.two", contribute: {facts: {shared: true, value: () => "二"}}});
@@ -307,6 +327,19 @@ describe("槽", () => {
 });
 
 describe("请求的校验与开发检查", () => {
+    test("输出 18：块的来源是结构化的：固定文字、内核事件、扩展事件、槽", async () => {
+        await using session = await createTestSession({profile: profileWith({}), extensions: [remind, notes]});
+        session.model.script("好");
+        const {requests, events} = await session.say("问");
+        const request = requests[0]!.raw;
+        const idOf = (type: string) => events.find((event) => event.type === type)!.id;
+        expect(request.system.map((block) => block.origin)).toEqual([{kind: "fixed", by: "profile"}, {kind: "slot", name: "notes", extension: "lab.notes"}]);
+        expect(request.messages[0]!.content.map((block) => block.origin)).toEqual([
+            {kind: "event", eventId: idOf("lab.remind/reminder"), type: "lab.remind/reminder", extension: "lab.remind"},
+            {kind: "event", eventId: idOf("input"), type: "input", extension: "kernel"},
+        ]);
+    });
+
     test("输出 17：turn 丢掉工具结果时请求不合格，运行以 request-invalid 收口", async () => {
         const profile = profileWith({turn: (turn, format) => [format.user(turn.input), ...turn.steps.map((step) => format.assistant(step.reply))]});
         await using session = await createTestSession({profile});
@@ -315,6 +348,10 @@ describe("请求的校验与开发检查", () => {
         expect(report.result).toMatchObject({reason: "error", error: {kind: "local", code: "request-invalid"}});
         expect(report.requests).toHaveLength(1);
         expect((await session.raw.diagnostics()).find((item) => item.code === "request-invalid")?.message).toContain("call-1-1");
+        const duplicated = profileWith({turn: (turn, format) => format.turn(turn).map((message) => (message?.toolCalls === undefined ? message : {...message, toolCalls: [...message.toolCalls, ...message.toolCalls]}))});
+        await using twice = await createTestSession({profile: duplicated});
+        twice.model.script({tools: [{tool: "lab.search"}]}, "不会用到");
+        expect((await twice.say("问")).result.error).toMatchObject({code: "request-invalid"});
     });
 
     test("输出 19：同一轮后一次渲染改了前面的块时诊断 prefix-unstable", async () => {
@@ -324,6 +361,11 @@ describe("请求的校验与开发检查", () => {
         const report = await session.say("问");
         expect(report.result.reason).toBe("completed");
         expect(await codes(session)).toContain("prefix-unstable");
+        const rewrites = profileWith({turn: (turn, format) => format.turn(turn).map((message) => (message?.toolCalls === undefined ? message : {...message, toolCalls: message.toolCalls.map((call) => ({...call, args: {steps: turn.steps.length}}))}))});
+        await using sameIds = await createTestSession({profile: rewrites});
+        sameIds.model.script({tools: [{tool: "lab.search"}]}, {tools: [{tool: "lab.search"}]}, "完成");
+        await sameIds.say("问");
+        expect(await codes(sameIds)).toContain("prefix-unstable");
     });
 
     test("输出 19：没写 commit、提交的样子与最后一次渲染不一致时诊断 commit-differs；只往后长的不报", async () => {

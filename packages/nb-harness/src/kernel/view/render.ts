@@ -65,18 +65,22 @@ export function renderTemplate(template: PromptChild, input: RenderInput): Rende
     const system: RequestBlock[] = [];
     const messages: Message[] = [];
     const slotProblems: SlotProblem[] = [];
-    const caught = new Set<string>();
+    /** 被 `<Slot name="*">` 收走的贡献（按贡献算：同一个槽名可以有稳定的、也有会变的）。 */
+    const caught = new Set<SlotContent>();
     let turnNodes = 0;
 
     const mentioned = new Set<string>();
+    let placesSystem = false;
     const scan = (child: PromptChild): void => {
         if (Array.isArray(child)) return child.forEach(scan);
         if (!isNode(child)) return;
         if (child.type === Slot && (child.props as SlotProps).name !== "*") mentioned.add((child.props as SlotProps).name);
+        if (child.type === System && child.children.length === 0) placesSystem = true;
         child.children.forEach(scan);
     };
     scan(template);
-    scan(input.system);
+    // Profile 的 `system` 只在模板里有 `<System />` 时才渲染；没有时它里面的槽不算摆放过。
+    if (placesSystem) scan(input.system);
 
     const hasTool = (node: PromptNode) => input.tools.some((tool) => tool.id === (node.props as {tool: string}).tool);
     const slotBlock = (slot: SlotContent): RequestBlock => ({kind: "text", text: slot.text, origin: {kind: "slot", name: slot.name, extension: slot.extension}});
@@ -89,7 +93,7 @@ export function renderTemplate(template: PromptChild, input: RenderInput): Rende
         } else {
             const wantVolatile = props.volatile === true;
             picked = input.slots.filter((slot) => slot.volatile === wantVolatile && !mentioned.has(slot.name));
-            for (const slot of picked) caught.add(slot.name);
+            for (const slot of picked) caught.add(slot);
         }
         if (where === "system") for (const slot of picked) if (slot.volatile) slotProblems.push({code: "slot-volatile-in-system", slot: slot.name, extension: slot.extension});
         return picked.map(slotBlock);
@@ -172,7 +176,7 @@ export function renderTemplate(template: PromptChild, input: RenderInput): Rende
     if (turnNodes !== 1) throw new TemplateError("turn-node-count", `the template has ${turnNodes} <Turn /> nodes; it must have exactly one`);
 
     for (const slot of input.slots) {
-        if (mentioned.has(slot.name) || caught.has(slot.name)) continue;
+        if (mentioned.has(slot.name) || caught.has(slot)) continue;
         slotProblems.push({code: "slot-unplaced", slot: slot.name, extension: slot.extension});
     }
     return {system, messages, slotProblems};

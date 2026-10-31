@@ -26,6 +26,7 @@ export function pairingProblem(messages: readonly Message[]): {index: number; me
         adjacent = false;
         if (message.role === "assistant" && (message.toolCalls?.length ?? 0) > 0) {
             open = new Set(message.toolCalls!.map((call) => call.id));
+            if (open.size < message.toolCalls!.length) return {index, message: `assistant message ${index} has two tool calls with the same id`};
             callsAt = index;
             adjacent = true;
         }

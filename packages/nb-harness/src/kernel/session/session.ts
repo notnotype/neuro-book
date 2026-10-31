@@ -238,7 +238,7 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
 }
 
 function reportAssemblyWarnings(core: SessionCore): void {
-    for (const warning of core.assembly.warnings) core.diagnostics.add({code: warning.code, extension: warning.extension, entry: "assembly", params: warning.params, message: warning.message, hint: warning.hint}, core.head);
+    for (const warning of core.assembly.warnings) core.diagnostics.add({code: warning.code, extension: warning.extension, entry: "assembly", params: warning.params, subject: Object.values(warning.params).join("|"), message: warning.message, hint: warning.hint}, core.head);
 }
 
 /** 关闭：拒绝新指令 → 中止并等收口 → 等队列清空 → 关日志与锁。重复调用无事。 */

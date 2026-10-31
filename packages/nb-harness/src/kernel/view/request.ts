@@ -29,6 +29,8 @@ export interface ViewProblem {
     readonly params?: Readonly<Record<string, string | number | boolean>>;
     readonly event?: {readonly id: string; readonly type: string; readonly seq: number};
     readonly error?: unknown;
+    /** 诊断合并键里的定位对象：槽名或轮 id。 */
+    readonly subject?: string;
 }
 
 export type ComputedRequest =
@@ -108,7 +110,7 @@ export function computeRequest(inputs: RequestInputs): ComputedRequest {
                 const text = contribution.value(viewCtx(assembly, item, state, environment));
                 if (typeof text === "string" && text !== "") slots.push({name, extension: item.definition.id, volatile: contribution.volatile === true, text});
             } catch (error) {
-                problems.push({code: "contribute-threw", extension: item.definition.id, entry: "contribute", params: {slot: name}, message: `contribute ${name} of ${item.definition.id} threw; the slot is left out of this request`, error});
+                problems.push({code: "contribute-threw", extension: item.definition.id, entry: "contribute", subject: name, params: {slot: name}, message: `contribute ${name} of ${item.definition.id} threw; the slot is left out of this request`, error});
             }
         }
     }
@@ -123,17 +125,17 @@ export function computeRequest(inputs: RequestInputs): ComputedRequest {
                 messages = messageList("commit", profile.commit(turn, format));
                 const problem = pairingProblem(messages);
                 if (problem !== null) {
-                    problems.push({code: "commit-invalid", extension: profileId, entry: "commit", params: {turnId: turn.id}, message: `commit of turn ${turn.id} returned messages that are not valid (${problem.message}); the default commit is used`});
+                    problems.push({code: "commit-invalid", extension: profileId, entry: "commit", subject: turn.id, params: {turnId: turn.id}, message: `commit of turn ${turn.id} returned messages that are not valid (${problem.message}); the default commit is used`});
                     messages = messageList("turn", format.turn(turn));
                 }
             } catch (error) {
-                problems.push({code: "commit-threw", extension: profileId, entry: "commit", params: {turnId: turn.id}, message: `commit of turn ${turn.id} threw; the default commit is used`, error});
+                problems.push({code: "commit-threw", extension: profileId, entry: "commit", subject: turn.id, params: {turnId: turn.id}, message: `commit of turn ${turn.id} threw; the default commit is used`, error});
                 messages = messageList("turn", format.turn(turn));
             }
         } else {
             messages = guard("turn", () => messageList("turn", profile.turn === undefined ? format.turn(turn) : profile.turn(turn, format, profileView)));
             if (checks && previousTurn?.turnId === turn.id && !isPrefix(previousTurn.keys, blockKeys(messages))) {
-                problems.push({code: "commit-differs", extension: profileId, entry: "turn", params: {turnId: turn.id}, message: `turn ${turn.id} was committed differently from its last rendering; write a commit if this is intended`});
+                problems.push({code: "commit-differs", extension: profileId, entry: "turn", subject: turn.id, params: {turnId: turn.id}, message: `turn ${turn.id} was committed differently from its last rendering; write a commit if this is intended`});
             }
         }
         const frozen = Object.freeze(messages);
@@ -150,7 +152,8 @@ export function computeRequest(inputs: RequestInputs): ComputedRequest {
             slots,
             history: (last) => {
                 const turns = committedTurns(state.history);
-                return (last === undefined ? turns : turns.slice(-last)).flatMap(committed);
+                // `slice(-0)` 是全部，所以 `last` 不是正数时一轮也不放。
+                return (last === undefined ? turns : last > 0 ? turns.slice(-last) : []).flatMap(committed);
             },
             turn: () => {
                 const current = state.history.current;
@@ -159,7 +162,7 @@ export function computeRequest(inputs: RequestInputs): ComputedRequest {
                 if (checks) {
                     const keys = blockKeys(messages);
                     if (previousTurn?.turnId === current.id && !isPrefix(previousTurn.keys, keys)) {
-                        problems.push({code: "prefix-unstable", extension: profileId, entry: "turn", params: {turnId: current.id}, message: `the rendering of turn ${current.id} is not an extension of its previous rendering; the provider cache misses from the first changed block`});
+                        problems.push({code: "prefix-unstable", extension: profileId, entry: "turn", subject: current.id, params: {turnId: current.id}, message: `the rendering of turn ${current.id} is not an extension of its previous rendering; the provider cache misses from the first changed block`});
                     }
                     cache.lastTurn = {turnId: current.id, keys};
                 }
@@ -168,8 +171,8 @@ export function computeRequest(inputs: RequestInputs): ComputedRequest {
         });
         for (const problem of rendered.slotProblems) {
             problems.push(problem.code === "slot-unplaced"
-                ? {code: "slot-unplaced", extension: problem.extension, entry: "contribute", params: {slot: problem.slot}, message: `slot ${problem.slot} of ${problem.extension} has content but the template does not place it; the content is dropped`, hint: "place it with <Slot name=\"…\">, or catch it with <Slot name=\"*\">, or write <Slot name=\"…\" drop> if it is not wanted"}
-                : {code: "slot-volatile-in-system", extension: problem.extension, entry: "contribute", params: {slot: problem.slot}, message: `volatile slot ${problem.slot} of ${problem.extension} is placed in the system blocks; the whole prompt cache misses whenever it changes`});
+                ? {code: "slot-unplaced", extension: problem.extension, entry: "contribute", subject: problem.slot, params: {slot: problem.slot}, message: `slot ${problem.slot} of ${problem.extension} has content but the template does not place it; the content is dropped`, hint: "place it with <Slot name=\"…\">, or catch it with <Slot name=\"*\">, or write <Slot name=\"…\" drop> if it is not wanted"}
+                : {code: "slot-volatile-in-system", extension: problem.extension, entry: "contribute", subject: problem.slot, params: {slot: problem.slot}, message: `volatile slot ${problem.slot} of ${problem.extension} is placed in the system blocks; the whole prompt cache misses whenever it changes`});
         }
         const invalid = pairingProblem(rendered.messages);
         if (invalid !== null) {

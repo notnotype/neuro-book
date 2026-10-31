@@ -33,10 +33,15 @@ export function blockKeys(messages: readonly Message[]): string[] {
     const keys: string[] = [];
     for (const message of messages) {
         keys.push(`role:${message.role}${message.role === "tool" ? `:${message.callId ?? ""}` : ""}`);
-        for (const {origin, ...content} of message.content) keys.push(`${JSON.stringify(origin)}#${createHash("sha256").update(JSON.stringify(content)).digest("base64")}`);
-        for (const call of message.toolCalls ?? []) keys.push(`call:${call.id}`);
+        for (const {origin, ...content} of message.content) keys.push(`${JSON.stringify(origin)}#${digest(content)}`);
+        // 工具调用整个进键（id、工具、参数、服务商元数据）：改了参数也是改了发给服务商的前缀。
+        for (const call of message.toolCalls ?? []) keys.push(`call:${digest(call)}`);
     }
     return keys;
+}
+
+function digest(value: unknown): string {
+    return createHash("sha256").update(JSON.stringify(value)).digest("base64");
 }
 
 export function isPrefix(prefix: readonly string[], of: readonly string[]): boolean {
