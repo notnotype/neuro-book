@@ -8,7 +8,7 @@ import {readdir, readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {AnyProfile, ApproveHook, LogEvent, ToolCall} from "../api/index.js";
-import {conv, defineExtension} from "../extension/define.js";
+import {conv, defineContract, defineExtension, shape, slice} from "../extension/define.js";
 import {defineProfile} from "../extension/profile.js";
 import {createTestClock} from "../testing/clock.js";
 import {createTestSession, type TestSession, type TestTool} from "../testing/test-session.js";
@@ -185,6 +185,38 @@ describe("执行", () => {
         tools = [counted];
         await session.say("第三问");
         expect([created, disposed]).toEqual([2, 1]);
+    });
+});
+
+describe("读扩展的导出", () => {
+    test("输出 23：工具实现与审批钩子按发出这批调用的那条回复所在叶子读扩展的导出；回退之后跟着回去；没装的读到 undefined", async () => {
+        // 待办清单：工具把新清单放进 details，扩展从 toolResult 归约；工具执行时读当前清单再追加。
+        const todoContract = defineContract("lab.todo", {exports: shape<{items: readonly string[]}>()});
+        const todo = defineExtension({id: "lab.todo", state: {items: slice.path<string[]>([])}, exports: {items: (state) => state.items}, reduce: {
+            toolResult: (event) => (event.data.tool === "lab.add" && event.data.details !== undefined ? {items: (event.data.details as {items: string[]}).items} : undefined),
+        }});
+        const missing = defineContract("lab.missing", {});
+        const add: TestTool = {id: "lab.add", execute: (args, context) => {
+            const next = [...(context.read(todoContract)?.items ?? []), String(args.text)];
+            return {text: next.join("、"), details: {items: next, missing: context.read(missing) === undefined}};
+        }};
+        const approvals: number[] = [];
+        const approve: ApproveHook = async (_call, _info, ctx) => {
+            approvals.push(ctx.read(todoContract)?.items.length ?? -1);
+            return {verdict: "allow", by: "test"};
+        };
+        await using session = await createTestSession({tools: [add], extensions: [todo], approve});
+        session.model.script({tools: [{tool: "lab.add", args: {text: "买菜"}}]}, "好", {tools: [{tool: "lab.add", args: {text: "洗碗"}}]}, "好");
+        await session.say("记一下");
+        await session.say("再记");
+        expect(await session.state(todo)).toEqual({items: ["买菜", "洗碗"]});
+        expect(approvals).toEqual([0, 1]);
+        expect(dataOf<{details: {missing: boolean}}>(await session.events(), "toolResult").map((data) => data.details.missing)).toEqual([true, true]);
+        const before = (await session.raw.rewindTargets()).find((target) => target.kind === "before-turn" && target.inputText === "再记")!;
+        expect(await session.raw.rewind({commandId: "back", to: before.id})).toMatchObject({ok: true});
+        session.model.script({tools: [{tool: "lab.add", args: {text: "扫地"}}]}, "好");
+        await session.say("改记");
+        expect(await session.state(todo)).toEqual({items: ["买菜", "扫地"]});
     });
 });
 

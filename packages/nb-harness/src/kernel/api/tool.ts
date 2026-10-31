@@ -4,6 +4,7 @@
  */
 
 import type {Attributed, JsonValue} from "./basics.js";
+import type {Contract, ExportsOfContract} from "./contract.js";
 
 /** 工具的副作用等级：审批与只读模式按它判定（t06）。 */
 export type ToolEffect = "read" | "write" | "exec";
@@ -73,6 +74,12 @@ export interface ToolContext {
     readonly sessionId: string;
     /** 会话建立时校验过的初始输入。 */
     readonly initial: unknown;
+    /**
+     * 读某个扩展的导出（例如待办清单的条目）：取发出这批调用的那条回复所在叶子上的状态，与工具拦截看到的同一刻
+     * （runtime.md 输出 23），回退、fork 之后跟着对。没装这个扩展时 undefined。工具要改状态，把新值放进结果的
+     * `details`，由扩展从 `toolResult` 归约。
+     */
+    read<C extends Contract<string, any, any>>(contract: C): ExportsOfContract<C> | undefined;
     /** 向用户提问；同步提问让运行停下等回答（docs/specs/harness/runtime.md 输出 40）。没有等用户通道的运行里没有它。 */
     readonly ask?: (request: QuestionRequest, options?: {readonly async?: boolean}) => Promise<QuestionAnswer>;
     /** 报告进度：只推给界面，不进日志。 */

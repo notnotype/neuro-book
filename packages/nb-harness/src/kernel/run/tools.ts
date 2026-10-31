@@ -12,10 +12,10 @@
 import {createHash} from "node:crypto";
 import {Value} from "typebox/value";
 import {providerNameProblem, providerToolName, TOOL_NAME_LIMIT, toolIdProblem} from "../api/index.js";
-import type {ApproveHook, JsonValue, KernelEvents, EventData, ModelCaller, ReplyEvent, Resources, ToolCall, ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo, ToolResult, ToolSessionContext, ToolStatus, SessionEnv} from "../api/index.js";
+import type {ApprovalCtx, ApproveHook, JsonValue, KernelEvents, EventData, ModelCaller, ReplyEvent, Resources, ToolCall, ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo, ToolResult, ToolSessionContext, ToolStatus, SessionEnv} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
-import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
+import {hostReader, interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
 import {deepFreeze} from "../state/freeze.js";
 import {chainLayers, failureDrafts, runChain, type ChainFailure} from "./chain.js";
 import type {Interactions} from "./interaction.js";
@@ -191,6 +191,7 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
     const finishCalls = calls.filter((call) => byId.get(call.tool)?.finish === true);
     const finishAlone = calls.length === 1 && finishCalls.length === 1;
     const state = core.stateAt();
+    const reader = hostReader(core.assembly, state);
     const outcomes = new Map<string, CallOutcome>();
     const preset = (call: ToolCall, text: string, code: string): CallOutcome => ({data: {callId: call.id, tool: call.tool, text, status: "error", code}, failures: [], args: null});
     // 写过 toolStarted 的调用：据此区分“开始了、结果未知”与“根本没开始”。没开始的肯定没执行，记 denied，界面不必提示用户
@@ -244,7 +245,7 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
                 if (settings.readOnly && effect !== "read") return settle({text: `${final.tool} is not allowed in read-only mode.`, status: "denied", code: "read-only"}, "core");
                 let verdict;
                 try {
-                    verdict = await host.approve(final, {tool: toolInfo(declaration), effect, mode: settings.approvalMode, readOnly: settings.readOnly, remembered: core.session.kernel.remembered}, {signal, sessionId: core.header.id, model: host.model});
+                    verdict = await host.approve(final, {tool: toolInfo(declaration), effect, mode: settings.approvalMode, readOnly: settings.readOnly, remembered: core.session.kernel.remembered}, {signal, sessionId: core.header.id, model: host.model, read: reader as ApprovalCtx["read"]});
                 } catch (error) {
                     core.diagnostics.add({code: "intercept-threw", entry: "intercept.tool", subject: "approve", params: {tool: final.tool}, message: `the approval hook threw for ${final.tool}; the call is denied`, cause: error}, core.head);
                     return settle({text: `The call to ${final.tool} was denied because approval failed.`, status: "denied", code: "intercept-failed"}, "core");
@@ -272,7 +273,7 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
                 started.add(final.id);
                 executedArgs = final.args;
                 try {
-                    executed = normalizeResult(await implementation.execute(final.args, {signal, callId: final.id, sessionId: core.header.id, initial: host.environment().initial, ...(host.interactions === undefined ? {} : {ask: askFor(host, host.interactions, final.id, signal)})}), `tool ${final.tool}`);
+                    executed = normalizeResult(await implementation.execute(final.args, {signal, callId: final.id, sessionId: core.header.id, initial: host.environment().initial, read: reader as ToolContext["read"], ...(host.interactions === undefined ? {} : {ask: askFor(host, host.interactions, final.id, signal)})}), `tool ${final.tool}`);
                 } catch (error) {
                     executed = Object.freeze({text: `${final.tool} failed: ${messageOf(error)}`, status: "error", code: "tool-threw"} as const);
                 }

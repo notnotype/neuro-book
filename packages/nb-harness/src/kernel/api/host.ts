@@ -13,6 +13,7 @@ import type {EntryPoint, InteractionDecision, KernelEvents, LogEvent, RunResultV
 import type {AnyExtension, CompactionMethodImpl, ContributedExtension} from "./extension.js";
 import type {ApprovalMode, CoreSettings, Message, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, RequestBlock, RequestPurpose, StopReason, Usage} from "./model.js";
 import type {AnyProfile} from "./profile.js";
+import type {Contract, ExportsOfContract} from "./contract.js";
 import type {LogStore, StorageResult} from "./storage.js";
 import type {ApprovalVerdict, ToolCall, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo} from "./tool.js";
 
@@ -317,6 +318,8 @@ export interface ApprovalCtx {
     readonly signal: AbortSignal;
     readonly sessionId: string;
     readonly model: ModelCaller;
+    /** 读某个扩展的导出（例如会话处在计划模式），与 `ToolContext.read` 同一刻；没装时 undefined。 */
+    read<C extends Contract<string, any, any>>(contract: C): ExportsOfContract<C> | undefined;
 }
 /** 工具拦截链的最里层：判定对象是全部拦截之后的调用。必填，没有缺省；“全部放行”只给测试用。 */
 export type ApproveHook = (call: ToolCall, info: ApprovalInfo, ctx: ApprovalCtx) => Promise<ApprovalVerdict>;

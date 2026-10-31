@@ -52,14 +52,23 @@ export function readerFor(assembly: Assembly, item: Assembled, state: StateAt): 
     return (dependency) => {
         const id = ((dependency as {contract?: {id: string}}).contract ?? (dependency as {id: string})).id;
         if (!allowed.has(id)) throw new Error(`${item.definition.id} reads ${id}, which is not in its dependsOn`);
-        if (id === coreHistory.id) return historyExports(state.history);
-        const target = assembly.order.find((candidate) => candidate.definition.id === id);
-        if (target === undefined) return undefined;
-        const exports = (target.definition.exports ?? {}) as Record<string, (state: unknown, settings: unknown) => unknown>;
-        const values = stateOf(state, id);
-        const settings = settingsOf(state, target.definition);
-        return Object.fromEntries(Object.entries(exports).map(([name, fn]) => [name, fn(values, settings)]));
+        return exportsOf(assembly, state, id);
     };
+}
+
+/** 宿主一侧（工具实现、审批钩子）读扩展的导出：它们不是扩展，没有 dependsOn，装了哪个就能读哪个，没装时 undefined。 */
+export function hostReader(assembly: Assembly, state: StateAt): (contract: {readonly id: string}) => unknown {
+    return (contract) => exportsOf(assembly, state, contract.id);
+}
+
+function exportsOf(assembly: Assembly, state: StateAt, id: string): unknown {
+    if (id === coreHistory.id) return historyExports(state.history);
+    const target = assembly.order.find((candidate) => candidate.definition.id === id);
+    if (target === undefined) return undefined;
+    const exports = (target.definition.exports ?? {}) as Record<string, (state: unknown, settings: unknown) => unknown>;
+    const values = stateOf(state, id);
+    const settings = settingsOf(state, target.definition);
+    return Object.fromEntries(Object.entries(exports).map(([name, fn]) => [name, fn(values, settings)]));
 }
 
 /** 视图的 ctx。类型上是公开的 `ViewCtx`（运行时按装配结果拼，泛型参数在这里不可知）。 */
