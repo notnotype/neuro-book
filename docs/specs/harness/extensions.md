@@ -81,7 +81,7 @@ id 的规则：
 14. 同一条事件的各个处理函数看同一份状态、可以并发执行，输出按装配序写入；全部完成之后才算下一次请求。
 15. 反应链从根事件起最多写到第 3 层；超出时写 `reactionLimit`，超出的输出丢弃。
 16. 处理函数有时限（缺省 30 秒，`timeoutMs` 可改）：超时中止它的 `ctx.signal`、丢弃输出、写 `extensionFailed{code: "timeout"}`。时限走注入的时钟。
-17. `continue(text, {max})` 只在 `assistant` 的处理函数里有：写一条 `continued` 并再请求一次；这一轮这个扩展超过 `max`（缺省 3）次时返回 false、不写。
+17. `continue(text, {max})` 只在 `assistant` 的处理函数里有：写一条 `continued` 并再请求一次；这一轮这个扩展超过 `max`（缺省 3）次时返回 false、不写。次数按这一轮路径上写下的 `continued` 计，压缩切掉早先的步也不重置。
 18. 由运行写入引出的反应，`ctx.signal` 同时挂在运行的中止上：中止时不再等它们，输出丢弃并写 `extensionFailed{code: "aborted"}`。
 
 装上：
