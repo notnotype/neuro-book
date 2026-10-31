@@ -501,7 +501,7 @@ describe("输入拦截", () => {
 });
 
 describe("中止", () => {
-    test("输出 25：宽限期内完成的照常写（不论在同一段里排第几），没完成的记 unknown；之后才到的只诊断", async () => {
+    test("输出 25：宽限期内完成的照常写（不论在同一段里排第几），没完成的记 unknown、没开始的记 denied；之后才到的只诊断", async () => {
         const clock = createTestClock();
         const quickGate = gate();
         const slowGate = gate();
@@ -531,7 +531,7 @@ describe("中止", () => {
         const result = await session.raw.waitRun(runId);
         expect(result.reason).toBe("aborted");
         const events = await session.events();
-        expect(dataOf(events, "toolResult").map((data) => [data.tool, data.status, data.code ?? null])).toEqual([["lab.slow", "unknown", "aborted"], ["lab.quick", "ok", null], ["lab.later", "unknown", "aborted"]]);
+        expect(dataOf(events, "toolResult").map((data) => [data.tool, data.status, data.code ?? null])).toEqual([["lab.slow", "unknown", "aborted"], ["lab.quick", "ok", null], ["lab.later", "denied", "aborted"]]);
         expect(types(events).slice(-2)).toEqual(["turnEnded", "runEnded"]);
         slowGate.open();
         await clock.advance(0);
@@ -566,7 +566,8 @@ describe("中止（建实现）", () => {
         expect(executed).toBe(0);
         const events = await session.events();
         expect(types(events)).not.toContain("toolStarted");
-        expect(dataOf(events, "toolResult")[0]).toMatchObject({status: "unknown", code: "aborted"});
+        // 没开始执行：肯定没有副作用，记 denied 而不是“结果未知”。
+        expect(dataOf(events, "toolResult")[0]).toMatchObject({status: "denied", code: "aborted", by: "core"});
     });
 });
 

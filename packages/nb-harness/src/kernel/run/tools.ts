@@ -193,11 +193,16 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
     const state = core.stateAt();
     const outcomes = new Map<string, CallOutcome>();
     const preset = (call: ToolCall, text: string, code: string): CallOutcome => ({data: {callId: call.id, tool: call.tool, text, status: "error", code}, failures: [], args: null});
-    // 写过 toolStarted 的调用：进程收尾时据此区分“开始了、结果未知”与“根本没开始”，与打开时的恢复一致（runtime.md 输出 34、53）。
+    // 写过 toolStarted 的调用：据此区分“开始了、结果未知”与“根本没开始”。没开始的肯定没执行，记 denied，界面不必提示用户
+    // 去核对副作用；中止、进程收尾与打开时的恢复说法一致（runtime.md 输出 25、34、53）。
     const started = new Set<string>();
     const unfinished = (call: ToolCall): CallOutcome => {
-        if (!interrupting(signal)) return {data: {callId: call.id, tool: call.tool, text: "The call did not finish before the run was aborted.", status: "unknown", code: "aborted"}, failures: [], args: null};
-        if (!started.has(call.id)) return {data: {callId: call.id, tool: call.tool, text: `The call to ${call.tool} was not run: the process was interrupted before it started.`, status: "denied", code: "interrupted-before-approval", by: "core"}, failures: [], args: null};
+        const interrupted = interrupting(signal);
+        if (!started.has(call.id)) {
+            const text = `The call to ${call.tool} was not run: ${interrupted ? "the process was interrupted" : "the run was aborted"} before it started.`;
+            return {data: {callId: call.id, tool: call.tool, text, status: "denied", code: interrupted ? "interrupted-before-approval" : "aborted", by: "core"}, failures: [], args: null};
+        }
+        if (!interrupted) return {data: {callId: call.id, tool: call.tool, text: "The call did not finish before the run was aborted.", status: "unknown", code: "aborted"}, failures: [], args: null};
         return {data: {callId: call.id, tool: call.tool, text: "The call did not finish before the process was interrupted.", status: "unknown", code: "interrupted"}, failures: [], args: null};
     };
 
