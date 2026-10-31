@@ -13,7 +13,7 @@ owners:
 
 给宿主一台由日志驱动的状态机：指令进、事件与帧出。用户的话先进输入缓冲区，取走时才成为对话里的事实；一次运行是可能有好几轮的 ReAct 循环，每次模型请求前由视图算出请求，回复与失败都写回日志。宿主能等一次运行结束、取它的结果。
 
-本文件随实现逐步补齐：预览与宿主面随后续条目追加。日志与恢复见 [`harness/session.md`](session.md)，扩展见 [`harness/extensions.md`](extensions.md)，模型端口见 [`harness/models.md`](models.md)。
+日志与恢复见 [`harness/session.md`](session.md)，扩展见 [`harness/extensions.md`](extensions.md)，模型端口见 [`harness/models.md`](models.md)。
 
 不承诺：
 
@@ -107,6 +107,14 @@ owners:
 51. 压缩中被中止（方法返回前后、写入之前）不写压缩事件，运行以 `aborted` 收口。
 52. `compact({requirement?})`：会话只读得 `read-only`，压缩用的模型解析不到得 `no-compaction-model`。空闲时开一次只压缩的运行（`runStarted{kind: "compact"}`，成功值 `scheduled: "now"` 与 `runId`）：对话里没有可切的地方得 `nothing-to-compact`，全部方法失败时运行以 `error`、码 `compaction-failed` 收口。有运行在跑（或叶子上有暂停的运行）时成功值 `scheduled: "next-boundary"`，这次运行的下一个边界以 `manual` 压缩（几次的要求合在一起）；这个要求不进日志，进程中断就丢，重发同一个 `commandId` 得到第一次受理的值。
 
+宿主面：
+
+53. `closeSession(session)` 依次：之后的指令得 `session-closed` → 中止在跑的运行并等收口 → 等队列清空 → 按装配序的逆序调用 `mount` 的清理并等待 → 释放工具实现 → 清空订阅 → 关闭日志与锁。重复调用无事。关闭之后（或扩展摘下之后）`mount` 里再写的外部事实不进日志，只诊断 `late-result-dropped`。`closeSession(session, {reason: "interrupted"})` 是进程收尾：在跑的运行按 `interrupted` 收口（轮、运行、发出没回复的模型请求、没完成的工具 `unknown{interrupted}`、等审批的事项与调用 `interrupted-before-approval`），与重开时的恢复一致（[`harness/session.md`](session.md) 输出 16）；宿主经 `onProcessInterrupt`、`onProcessTermination` 在退出前调用它。
+54. `SessionEnv.outbound` 在推帧与日志查询之前调用：`log` 帧与 `log()`、`path()` 查询的事件经 `outbound.event(event, reader)`，`delta` 帧经 `outbound.delta(frame, reader)`，`reader` 是这个会话视图的发出者（`session.as(issuer)`）；返回 null 的不给这个读者。过滤函数抛错时不给看，诊断 `outbound-filter-threw`。
+55. `preview()` 算下一次请求（`fidelity: "next"`）：跑视图与模型拦截链（`ctx.phase` 为 `preview`），最里层截下请求，不发给模型、不写日志。结果有拦截之前与之后的请求、每一层改了什么（`changes`，按每层交出与收到的比较）、每个槽的贡献有没有摆进请求、没参与的扩展（`mount` 失败、运行中被撤回）、各区（系统、开场、历史、这一轮、工具）的 token 估算与触发点。`preview({atRequest})`（过去的请求）与算不出请求时抛 `PreviewUnavailable`（带码）。
+56. `complete(env, {profile, input, initial?, signal?})` 不经会话、不读写日志：Profile 声明了工具得 `profile-has-tools`，解析不到得 `unknown-profile`，没有模型或凭据得 `no-model`、`no-credentials`；请求只有 Profile 的系统提示词与输入这一条用户消息，`purpose: "background"`；结果同运行结果（没有 `runId` 与条目范围），模型失败按 [`harness/models.md`](models.md) 的类别交回。
+57. 插件宿主 `createAgentHost(env)` 接收 `agent.extensions` 贡献：`prepare` 否决 id 不合规则或前缀与所属插件不符（`bad-extension-id`）、重名（`duplicate-extension-id`）、声明的依赖成环（`dependency-cycle`），抛 `ExtensionRejected` 并记进宿主的诊断；`published` 之后新开的会话装上它，已打开的空闲会话立刻重新装配；`revoke` 幂等。运行中撤回时，这次运行里跳过它的处理函数、拦截与槽（快照里状态 `revoked`，诊断 `extension-revoked`），`pendingReassembly` 列出待装配的变化，运行结束后重新装配。重新装配的结果哈希变了写 `profileChanged{reason: "plugin-added" | "plugin-removed" | "plugin-updated"}`；装配失败（例如依赖被撤回）时会话进只读，码 `dependency-missing`。
+
 ## 状态与转换
 
 | 运行状态 | 事件 | 下一状态 |
@@ -156,7 +164,7 @@ owners:
 5. 子进程在工具执行中被 `kill -9`：重开后执行中的调用 `unknown`、没开始的 `denied{interrupted-before-approval}`、运行 `interrupted`，缓冲区里排着的 followup 还在；子进程在受理批写下、运行循环开始之前被杀：重开后运行 `interrupted`，用同一个 `commandId` 重发得到第一次的值与 `replayed: true`。
 6. 子进程在等审批时被 `kill -9`：重开后这次审批结算为 `interrupted`、调用 `denied{interrupted-before-approval}`；同一次运行里先提的异步提问还待处理，应答后作为输入开新的运行。
 
-Smoke：`packages/nb-harness/tests/kernel/kernel.llm.test.ts`（`bun run test:llm`）。
+Smoke：`packages/nb-harness/tests/kernel/kernel.llm.test.ts`（`bun run test:llm`）：一轮对话、重开、再一轮；带工具调用；流式中途中止；回退后重发。
 
 ## 证据
 
