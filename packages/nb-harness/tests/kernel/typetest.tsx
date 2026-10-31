@@ -222,6 +222,15 @@ export const ifNoTool = <If>x</If>;
 // @ts-expect-error 38. <ToolName> 要写工具 id
 export const toolNameNoId = <ToolName />;
 
+export const turnReadsView = defineProfile({
+    id: "lab.turn-view",
+    version: "1",
+    name: "t",
+    description: "t",
+    // @ts-expect-error 39. turn 是纯函数，拿不到视图（会变的内容用槽或 reminder()）
+    turn: (turn, format, view) => (view ? format.turn(turn) : []),
+});
+
 // ---------- 必须能通过的写法 ----------
 
 /** 契约没有导出时不必写 `exports: {}`。 */

@@ -54,7 +54,7 @@ export interface RequestInputs {
 type ProfileShape = {
     system?: PromptChild | ((view: unknown) => PromptChild);
     prompt?: (view: unknown) => PromptChild;
-    turn?: (turn: ConversationTurn, format: unknown, view: unknown) => (Message | null)[];
+    turn?: (turn: ConversationTurn, format: unknown) => (Message | null)[];
     commit?: (turn: ConversationTurn, format: unknown) => (Message | null)[];
     render?: RenderTable;
 };
@@ -133,7 +133,7 @@ export function computeRequest(inputs: RequestInputs): ComputedRequest {
                 messages = messageList("turn", format.turn(turn));
             }
         } else {
-            messages = guard("turn", () => messageList("turn", profile.turn === undefined ? format.turn(turn) : profile.turn(turn, format, profileView)));
+            messages = guard("turn", () => messageList("turn", profile.turn === undefined ? format.turn(turn) : profile.turn(turn, format)));
             if (checks && previousTurn?.turnId === turn.id && !isPrefix(previousTurn.keys, blockKeys(messages))) {
                 problems.push({code: "commit-differs", extension: profileId, entry: "turn", subject: turn.id, params: {turnId: turn.id}, message: `turn ${turn.id} was committed differently from its last rendering; write a commit if this is intended`});
             }
@@ -158,7 +158,7 @@ export function computeRequest(inputs: RequestInputs): ComputedRequest {
             turn: () => {
                 const current = state.history.current;
                 if (current === null) return [];
-                const messages = guard("turn", () => messageList("turn", profile.turn === undefined ? format.turn(current) : profile.turn(current, format, profileView)));
+                const messages = guard("turn", () => messageList("turn", profile.turn === undefined ? format.turn(current) : profile.turn(current, format)));
                 if (checks) {
                     const keys = blockKeys(messages);
                     if (previousTurn?.turnId === current.id && !isPrefix(previousTurn.keys, keys)) {

@@ -218,6 +218,21 @@ describe.each([["内存存储", false], ["JSONL 存储", true]] as const)("提�
     });
 });
 
+describe("按 turn 提交", () => {
+    test("输出 10、11：不写 commit 时一轮按 Profile 的 turn 提交，重开之后历史逐块一致", async () => {
+        const profile = profileWith({turn: (turn, format) => [format.user("【本轮】", ...turn.attachments, turn.input), ...format.steps(turn.steps)]});
+        await using session = await createTestSession({profile, store: {root}});
+        session.model.script("一", "二", "三");
+        await session.say("第一问");
+        const second = await session.say("第二问");
+        await session.reopen();
+        const third = await session.say("第三问");
+        expect(third.requests[0]!.raw.messages.slice(0, 2)).toEqual(second.requests[0]!.raw.messages.slice(0, 2) as Message[]);
+        expect(texts(third.requests[0]!.raw.messages[0]!.content)).toEqual(["【本轮】", "第一问"]);
+        expect(await codes(session)).not.toContain("commit-differs");
+    });
+});
+
 describe("提交的失败", () => {
     test("输出 12：commit 抛错或交回不成对的消息时改用缺省的提交，之后的请求照常", async () => {
         const run = async (commit: NonNullable<ProfileFields["commit"]>) => {

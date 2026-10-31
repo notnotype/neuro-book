@@ -19,9 +19,11 @@ type ProfileView<S extends StateDecl, Sc, Deps extends DepList, Si> = ViewCtx<S,
 export type ProfileRender<E extends EventsDecl, Deps extends DepList> = {
     [N in ConvNames<E, Deps>]?: (event: EventOf<E, Deps, N>) => N extends "assistant" | "toolResult" ? string : string | null;
 };
-/** 一轮给模型看的样子：读视图。 */
-export type TurnFn<S extends StateDecl, Sc, Deps extends DepList, Si, Pa, E extends EventsDecl> =
-    (turn: ConversationTurn<StaticOr<Pa>>, format: Format<ProfileRender<E, Deps>>, view: ProfileView<S, Sc, Deps, Si>) => (Message | null)[];
+/**
+ * 一轮给模型看的样子：纯函数，不读视图（会变的内容用槽或 `reminder()`）。所以不写 `commit` 时一轮就按它提交，
+ * 重开或回退后算出的历史逐块一致（docs/specs/harness/profile.md 输出 10、11）。
+ */
+export type TurnFn<Deps extends DepList, Pa, E extends EventsDecl> = (turn: ConversationTurn<StaticOr<Pa>>, format: Format<ProfileRender<E, Deps>>) => (Message | null)[];
 /** 一轮以什么样子进历史：纯函数，不读视图；重开或回退时用它重算，结果确定。 */
 export type CommitFn<Deps extends DepList, Pa, E extends EventsDecl> = (turn: ConversationTurn<StaticOr<Pa>>, format: Format<ProfileRender<E, Deps>>) => (Message | null)[];
 
@@ -53,7 +55,7 @@ export interface ProfileFields<Id extends string, S extends StateDecl, E extends
     /** 整张模板；不写用 `standardLayout()`。 */
     prompt?: (view: ProfileView<NoInfer<S>, NoInfer<Sc>, NoInfer<Deps>, NoInfer<Si>>) => PromptChild;
     /** 一轮给模型看的样子；不写用 `format.turn`。进行中按它渲染。 */
-    turn?: TurnFn<NoInfer<S>, NoInfer<Sc>, NoInfer<Deps>, NoInfer<Si>, NoInfer<Pa>, NoInfer<E>>;
+    turn?: TurnFn<NoInfer<Deps>, NoInfer<Pa>, NoInfer<E>>;
     /** 一轮结束后以什么样子进历史；不写与 `turn` 的缺省相同。提交时就校验，不合格用缺省并写诊断。 */
     commit?: CommitFn<NoInfer<Deps>, NoInfer<Pa>, NoInfer<E>>;
     /** 优先级：`commit` 里 `format.withRender` 的、这里、扩展的 render。 */
