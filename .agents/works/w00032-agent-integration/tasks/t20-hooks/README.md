@@ -97,4 +97,4 @@ t05、t06、t07。
 
 - 收口（2026-10-31）：全部 11 片完成。nb-harness 全量 293 通过、6 跳过；nb-story 验收门 4 条通过；`test:llm`（DeepSeek）6 条通过；`test:affected`（分支改过依赖锁，跑了全量）只有 nb-ui 的 `NB_UI_VERSION`（0.2.0）与 package.json（0.3.0）不一致这一条失败，master 上同样失败，与本 Task 无关。各片的变异检查汇总在 [`evidences/mutation-checks.txt`](evidences/mutation-checks.txt)。
 
-下一步：深入审查等开发者批准计划与预算后再开。介绍页（`intro` v3）已过时，随实现更新。
+下一步：实现的深入审查已开（开发者 2026-10-31 批准，基于 `7ec9baa42`）：omp（默认模型，跨切片不变量、崩溃恢复、功能叠加、生命周期，上限 90 分钟）、Claude Opus（照公开 API 写三个扩展并试迁移 nb-story 的问答）、Claude Sonnet（出站帧与日志分页对照 nb-agent-ui 适配器）；报告回来后逐条处理。介绍页（`intro` v3）已过时，随实现更新。
