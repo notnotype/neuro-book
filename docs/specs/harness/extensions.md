@@ -100,7 +100,7 @@ id 的规则：
 插件装卸：
 
 26. 插件撤回时，运行中的会话这次运行里调它的入口得诊断 `extension-revoked` 并跳过，归约照常；空闲时自动重新装配并写 `profileChanged{reason: "plugin-removed"}`。新装的插件同理（`plugin-added`）。
-27. 重新装配失败（例如依赖缺失）时会话进只读，快照报 `dependency-missing`。
+27. 重新装配失败（例如依赖缺失）时会话进只读，快照报 `dependency-missing`；依赖补回、重新装配成功后解除。运行中撤回对在途调用的效果见 [`harness/runtime.md`](runtime.md) 输出 57。
 
 版本：
 
