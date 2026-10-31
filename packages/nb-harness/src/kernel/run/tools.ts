@@ -16,6 +16,7 @@ import type {ApproveHook, JsonValue, KernelEvents, EventData, ModelCaller, Reply
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
+import {deepFreeze} from "../state/freeze.js";
 import {chainLayers, failureDrafts, runChain, type ChainFailure} from "./chain.js";
 import {ctrl, RunStoppedError} from "./writes.js";
 
@@ -73,6 +74,27 @@ export class ToolBox {
         return tools;
     }
 
+    /**
+     * 运行边界调用：不在当前工具集里的实现摘下并释放，之后同 id 重新出现时重建（工具被卸载时 `dispose`，api/tool.ts）。
+     * 只在边界做：别处（视图、反应）读工具集时可能正有调用在用旧实现。
+     */
+    async retire(current: readonly ToolDeclaration[]): Promise<void> {
+        const keep = new Set(current.map((tool) => tool.id));
+        for (const [id, created] of [...this.#implementations.entries()]) {
+            if (keep.has(id)) continue;
+            this.#implementations.delete(id);
+            await this.#dispose(id, created);
+        }
+    }
+
+    async #dispose(id: string, created: Promise<ToolImplementation>): Promise<void> {
+        try {
+            await (await created).dispose?.();
+        } catch (error) {
+            this.core.diagnostics.add({code: "tool-dispose-failed", entry: "host", subject: id, params: {tool: id}, message: `dispose of tool ${id} threw`, cause: error}, this.core.head);
+        }
+    }
+
     implementation(id: string): Promise<ToolImplementation> {
         if (id === YIELD_TOOL && this.core.header.result !== undefined) return Promise.resolve({execute: async () => ({text: "The result has been handed back."})});
         let created = this.#implementations.get(id);
@@ -89,13 +111,7 @@ export class ToolBox {
     async dispose(): Promise<void> {
         const entries = [...this.#implementations.entries()];
         this.#implementations.clear();
-        for (const [id, created] of entries) {
-            try {
-                await (await created).dispose?.();
-            } catch (error) {
-                this.core.diagnostics.add({code: "tool-dispose-failed", entry: "host", subject: id, params: {tool: id}, message: `dispose of tool ${id} threw`, cause: error}, this.core.head);
-            }
-        }
+        for (const [id, created] of entries) await this.#dispose(id, created);
     }
 }
 
@@ -143,10 +159,11 @@ function effectOf(declaration: ToolDeclaration, args: Readonly<Record<string, un
     }
 }
 
+/** 交给拦截层的调用与结果是冻结的：原地修改抛错、按这一层出错处理，`raw` 与署名因此不会漏记。 */
 function normalizeResult(value: unknown, who: string): ToolResult {
-    if (typeof value === "string") return {text: value};
+    if (typeof value === "string") return Object.freeze({text: value});
     const result = value as Partial<ToolResult> | null;
-    if (typeof result === "object" && result !== null && typeof result.text === "string") return result as ToolResult;
+    if (typeof result === "object" && result !== null && typeof result.text === "string") return deepFreeze(result as ToolResult);
     throw new TypeError(`${who} did not return a tool result`);
 }
 
@@ -179,10 +196,11 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
             core,
             method: "tool",
             layers: chainLayers(core, "tool"),
-            input: call,
+            input: deepFreeze(call),
             signal,
             timeoutMs: (item) => item.definition.timeoutMs ?? HANDLER_TIMEOUT_MS,
             ctxFor: (item, invocation, layerSignal) => interceptCtx({assembly: core.assembly, item, state, environment: host.environment(), resources: host.resources, signal: layerSignal, invocation, phase: "run"}),
+            onNext: (_item, _received, passed) => void deepFreeze(passed),
             terminal: async (final) => {
                 const settle = (value: ToolResult, by: string | null = null) => {
                     terminalValue = value;
@@ -205,19 +223,20 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
                 }
                 if (verdict.verdict === "deny") return settle({text: `The call to ${final.tool} was denied (${verdict.rejection.code}).`, status: "denied", code: verdict.rejection.code}, verdict.rejection.by);
                 if (verdict.verdict === "ask") return settle({text: `The call to ${final.tool} needs the user's approval, which this run cannot ask for.`, status: "denied", code: "approval-unavailable"}, "core");
-                if (signal.aborted) throw new RunStoppedError(`the call to ${final.tool}`);
-                await host.write([ctrl("toolStarted", {callId: final.id, tool: final.tool, args: final.args, invocation: core.newId(), approval: {by: verdict.by}})]);
-                executedArgs = final.args;
+                // 先建好实现、再看一次中止，才写 toolStarted 并执行：建实现可能很慢，中止之后不该再开始执行。
                 let implementation: ToolImplementation;
                 try {
                     implementation = await host.box.implementation(final.tool);
                 } catch (error) {
-                    return settle(executed = {text: `${final.tool} is not available: ${messageOf(error)}`, status: "error", code: "tool-unavailable"});
+                    return settle({text: `${final.tool} is not available: ${messageOf(error)}`, status: "error", code: "tool-unavailable"});
                 }
+                if (signal.aborted) throw new RunStoppedError(`the call to ${final.tool}`);
+                await host.write([ctrl("toolStarted", {callId: final.id, tool: final.tool, args: final.args, invocation: core.newId(), approval: {by: verdict.by}})]);
+                executedArgs = final.args;
                 try {
                     executed = normalizeResult(await implementation.execute(final.args, {signal, callId: final.id, sessionId: core.header.id, initial: host.environment().initial}), `tool ${final.tool}`);
                 } catch (error) {
-                    executed = {text: `${final.tool} failed: ${messageOf(error)}`, status: "error", code: "tool-threw"};
+                    executed = Object.freeze({text: `${final.tool} failed: ${messageOf(error)}`, status: "error", code: "tool-threw"} as const);
                 }
                 return settle(executed);
             },
@@ -246,7 +265,8 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
             status,
             ...(final.code === undefined ? {} : {code: final.code}),
             ...(by === null ? {} : {by}),
-            ...(final.details === undefined ? {} : {details: final.details}),
+            // 脱敏的结果不写 details：拦截层常写 {...result, text, redacted: true}，details 会把原文带进日志（session.md 输出 10）。
+            ...(final.details === undefined || final.redacted === true ? {} : {details: final.details}),
             ...(!changed ? {} : final.redacted === true ? {rawHash: sha256(ran.text)} : {raw: ran.text}),
         };
         return {data, failures: outcome.failures, args: executedArgs};

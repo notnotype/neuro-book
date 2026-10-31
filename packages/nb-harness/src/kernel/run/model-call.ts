@@ -10,6 +10,7 @@ import type {ModelCaller, ModelInfo, ModelRequest, ModelResolution, ModelRespons
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
+import {deepFreeze} from "../state/freeze.js";
 import {chainLayers, failureDrafts, runChain, type ChainFailure} from "./chain.js";
 import {ctrl} from "./writes.js";
 
@@ -27,6 +28,19 @@ export interface ModelCallOutcome {
     /** 写进 `assistant`、`modelEnded` 或 `modelFailed` 的请求序号：最后一次真正发出的；被拦下时新分配一个。 */
     readonly request: number;
     readonly failures: readonly ChainFailure[];
+}
+
+/**
+ * 交给拦截层的请求是冻结的：改要返回新对象（提案第 9 节），原地修改抛错、按这一层出错处理，所以 `modifiedBy` 不会漏记。
+ * `tools` 只冻结数组本身：里面是宿主的声明对象（含共享的 schema），内核不替宿主冻结。
+ */
+export function freezeRequest(request: ModelRequest): ModelRequest {
+    if (Object.isFrozen(request)) return request;
+    for (const [key, value] of Object.entries(request)) {
+        if (key === "tools") Object.freeze(value);
+        else deepFreeze(value);
+    }
+    return Object.freeze(request);
 }
 
 function requestHash(request: ModelRequest): string {
@@ -48,11 +62,12 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
         core,
         method: "model",
         layers: chainLayers(core, "model"),
-        input: request,
+        input: freezeRequest(request),
         signal,
         timeoutMs: (item) => item.definition.timeoutMs ?? HANDLER_TIMEOUT_MS,
         ctxFor: (item, invocation, layerSignal) => interceptCtx({assembly: core.assembly, item, state, environment, resources: host.resources, signal: layerSignal, invocation, phase: "run"}),
         onNext: (item, received, passed) => {
+            freezeRequest(passed);
             if (received === passed) return;
             const fields = Object.keys({...received, ...passed}).filter((key) => (received as unknown as Record<string, unknown>)[key] !== (passed as unknown as Record<string, unknown>)[key]);
             if (fields.length > 0) modifiedBy.push({extension: item.definition.id, fields});

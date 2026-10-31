@@ -62,8 +62,9 @@ export async function interceptInput(host: InputHost, input: UserInput): Promise
         return {ok: false, rejection: reject};
     }
     const failed = failureDrafts(core, "intercept.input", outcome.failures);
+    if (redacted) return {ok: true, input: final, failed, originalHash: createHash("sha256").update(input.text).digest("hex")};
     if (JSON.stringify(final) === JSON.stringify(input)) return {ok: true, input, failed};
-    return {ok: true, input: final, failed, ...(redacted ? {originalHash: createHash("sha256").update(input.text).digest("hex")} : {original: input.text})};
+    return {ok: true, input: final, failed, original: input.text};
 }
 
 /** `inputQueued` 的数据：改过的输入带原文或原文的哈希。 */

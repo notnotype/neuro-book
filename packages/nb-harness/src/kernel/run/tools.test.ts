@@ -164,6 +164,27 @@ describe("执行", () => {
         await session.close();
         expect(disposed).toBe(1);
     });
+
+    test("输出 19：工具被移出工具集时在下一个运行边界释放，重新出现时重建", async () => {
+        let created = 0;
+        let disposed = 0;
+        const counted: TestTool = {id: "lab.dynamic", create: () => {
+            created += 1;
+            return {execute: async () => "ok", dispose: () => {
+                disposed += 1;
+            }};
+        }};
+        let tools: TestTool[] = [counted];
+        await using session = await createTestSession({tools: () => tools});
+        session.model.script({tools: [{tool: "lab.dynamic"}]}, "一", "二", {tools: [{tool: "lab.dynamic"}]}, "三");
+        await session.say("第一问");
+        tools = [];
+        await session.say("第二问");
+        expect([created, disposed]).toEqual([1, 1]);
+        tools = [counted];
+        await session.say("第三问");
+        expect([created, disposed]).toEqual([2, 1]);
+    });
 });
 
 describe("拦截链", () => {
@@ -315,9 +336,31 @@ describe("拦截链", () => {
         expect(retried.result.text).toBe("二b");
         mode = "block";
         const blocked = await session.say("第三问");
+        expect(blocked.events.some((event) => event.type === "extensionFailed")).toBe(false);
         expect(types(blocked.events)).not.toContain("modelStarted");
         expect(dataOf<{request: number}>(blocked.events, "assistant")[0]!.request).toBe(started[1]!.request + 1);
         expect(blocked.result.text).toBe("缓存的回答");
+    });
+
+    test("输出 22、23：交给拦截层的请求、调用与结果是冻结的，原地修改按这一层出错处理", async () => {
+        const mutator = defineExtension({id: "lab.mutator", intercept: {
+            model: async (request, next) => {
+                (request.params as {maxTokens?: number}).maxTokens = 123;
+                return next(request);
+            },
+            tool: async (call, next) => {
+                const result = await next(call);
+                (result as {text: string}).text = "改过";
+                return result;
+            },
+        }});
+        await using session = await createTestSession({extensions: [mutator], tools: [{id: "lab.read", execute: () => ({text: "原文"})}]});
+        session.model.script({tools: [{tool: "lab.read"}]}, "完成");
+        const {events, requests} = await session.say("问");
+        expect(requests[0]!.raw.params).toEqual({});
+        expect(dataOf(events, "modelStarted")[0]!.modifiedBy).toEqual([]);
+        expect(dataOf(events, "toolResult")[0]).toMatchObject({status: "denied", code: "intercept-failed", by: "lab.mutator"});
+        expect(dataOf(events, "extensionFailed").map((data) => `${data.entry}:${data.code}`)).toEqual(["intercept.model:threw", "intercept.tool:threw", "intercept.model:threw"]);
     });
 
     test("输出 23：不调 next 交回 denied 记 blocked；执行之后改了文字记 raw，标 redacted 只记 rawHash", async () => {
@@ -328,7 +371,7 @@ describe("拦截链", () => {
             if (call.tool === "lab.mask") return {...result, text: "[已脱敏]", redacted: true};
             return result;
         }}});
-        await using session = await createTestSession({extensions: [guard], tools: [echo("lab.secret"), {id: "lab.trim", execute: () => "首行\n第二行"}, {id: "lab.mask", execute: () => "密钥 abc"}]});
+        await using session = await createTestSession({extensions: [guard], tools: [echo("lab.secret"), {id: "lab.trim", execute: () => "首行\n第二行"}, {id: "lab.mask", execute: () => ({text: "密钥 abc", details: {key: "abc"}})}]});
         session.model.script({tools: [{tool: "lab.secret"}, {tool: "lab.trim"}, {tool: "lab.mask"}]}, "完成");
         const {events} = await session.say("问");
         const results = dataOf(events, "toolResult");
@@ -336,6 +379,7 @@ describe("拦截链", () => {
         expect(results[1]).toMatchObject({status: "ok", text: "首行", raw: "首行\n第二行"});
         expect(results[2]).toMatchObject({text: "[已脱敏]"});
         expect(results[2]!.raw).toBeUndefined();
+        expect(results[2]!.details).toBeUndefined();
         expect(results[2]!.rawHash).toMatch(/^[0-9a-f]{64}$/u);
         expect(dataOf(events, "toolStarted").map((data) => data.tool)).toEqual(["lab.trim", "lab.mask"]);
     });
@@ -359,12 +403,16 @@ describe("输入拦截", () => {
             return {redacted: true};
         }
         if (input.text.includes("错字")) return next({...input, text: input.text.replace("错字", "正字")});
+        if (input.text.includes("私事")) {
+            await next(input);
+            return {redacted: true};
+        }
         return next(input);
     }}});
 
     test("输出 24：拒绝时指令失败、不写日志；改过的记原文；脱敏的只记哈希", async () => {
         await using session = await createTestSession({extensions: [filter]});
-        session.model.script("一", "二");
+        session.model.script("一", "二", "三");
         const head = (await session.raw.snapshot()).head;
         const rejected = await session.raw.send({commandId: "bad", input: {text: "这里有禁词"}});
         expect(rejected).toEqual({ok: false, code: "input-rejected", detail: {code: "banned-word", params: {word: "禁词"}, by: "lab.filter"}});
@@ -378,6 +426,8 @@ describe("输入拦截", () => {
         expect(queued).toMatchObject({input: {text: "我的[已脱敏]"}});
         expect(queued.original).toBeUndefined();
         expect(queued.originalHash).toMatch(/^[0-9a-f]{64}$/u);
+        const marked = dataOf((await session.say("一件私事")).events, "inputQueued")[0]!;
+        expect(marked.originalHash).toMatch(/^[0-9a-f]{64}$/u);
     });
 
     test("场景 4、session 输出 10、session 场景 6：输入与超过 16 KB 的工具结果脱敏后，重开一致，会话目录全文搜不到原文", async () => {
@@ -445,6 +495,36 @@ describe("中止", () => {
         await clock.advance(0);
         expect(await codes(session)).toContain("late-result-dropped");
         expect(types(await session.events())).toEqual(types(events));
+    });
+});
+
+describe("中止（建实现）", () => {
+    test("输出 25：中止时还在建实现的调用，建好之后（宽限期内外）都不再执行", async () => {
+        const clock = createTestClock();
+        const creating = gate();
+        const release = gate<void>();
+        let executed = 0;
+        await using session = await createTestSession({clock, tools: [{id: "lab.lazy", create: () => {
+            creating.open();
+            return release.promise.then(() => ({execute: async () => {
+                executed += 1;
+                return "执行了";
+            }}));
+        }}]});
+        session.model.script({tools: [{tool: "lab.lazy"}]});
+        const runId = await sendRaw(session, "问");
+        await creating.promise;
+        const aborting = session.raw.abort({commandId: "stop"});
+        // 宽限期内建好：中止之后不再开始执行。
+        release.open();
+        await clock.advance(0);
+        await clock.advance(ABORT_GRACE_MS);
+        await aborting;
+        expect((await session.raw.waitRun(runId)).reason).toBe("aborted");
+        expect(executed).toBe(0);
+        const events = await session.events();
+        expect(types(events)).not.toContain("toolStarted");
+        expect(dataOf(events, "toolResult")[0]).toMatchObject({status: "unknown", code: "aborted"});
     });
 });
 

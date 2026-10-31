@@ -106,6 +106,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
 
             // 边界第 2 步：工具集。必需工具缺失时收口；与路径上告诉过模型的不同就重新告诉它。
             const tools = host.box.current();
+            await host.box.retire(tools);
             const required = (core.assembly.profile as {tools?: {required?: readonly string[]}}).tools?.required ?? [];
             const missing = required.filter((id) => !tools.some((tool) => tool.id === id));
             if (missing.length > 0) {

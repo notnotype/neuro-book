@@ -22,7 +22,7 @@ export interface TestTool extends Partial<Omit<ToolDeclaration, "id">> {
     readonly id: string;
     execute?(args: Readonly<Record<string, unknown>>, context: ToolContext): Promise<ToolResult | string> | ToolResult | string;
     dispose?(): void | Promise<void>;
-    create?(): ToolImplementation;
+    create?(): ToolImplementation | Promise<ToolImplementation>;
 }
 
 export function testToolDeclaration(tool: TestTool): ToolDeclaration {
