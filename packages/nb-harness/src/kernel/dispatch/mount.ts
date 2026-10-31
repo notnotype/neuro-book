@@ -72,7 +72,14 @@ export class Mounts {
                 environment,
                 resources: this.host.resources,
                 signal: controller.signal,
-                external: (write) => this.#external(item, write),
+                // 摘下之后（关闭会话、换 Profile）再写的外部事实只写诊断（runtime.md 输出 53）。
+                external: (write) => {
+                    if (controller.signal.aborted || core.closed) {
+                        core.diagnostics.add({code: "late-result-dropped", extension: id, entry: "mount", subject: "after-unmount", message: `${id} wrote an external fact after it was unmounted; it is dropped`}, core.head);
+                        return;
+                    }
+                    this.#external(item, write);
+                },
                 invalid: (problem) => core.diagnostics.add({code: "handler-invalid-output", extension: id, entry: "mount", message: problem}, core.head),
                 callbackFailed: (error) => core.diagnostics.add({code: "handler-threw", extension: id, entry: "mount", message: `a callback of ${id} threw`, cause: error}, core.head),
             });

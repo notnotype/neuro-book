@@ -34,7 +34,7 @@ export interface ViewProblem {
 }
 
 export type ComputedRequest =
-    | {readonly ok: true; readonly request: ModelRequest; readonly problems: readonly ViewProblem[]}
+    | {readonly ok: true; readonly request: ModelRequest; readonly problems: readonly ViewProblem[]; readonly slots: readonly SlotContent[]; readonly placed: ReadonlySet<SlotContent>}
     | {readonly ok: false; readonly reason: "profile-failed"; readonly entry: "prompt" | "system" | "turn"; readonly code: "threw" | "invalid-output"; readonly error: unknown; readonly problems: readonly ViewProblem[]}
     | {readonly ok: false; readonly reason: "request-invalid"; readonly problems: readonly ViewProblem[]};
 
@@ -49,6 +49,8 @@ export interface RequestInputs {
     readonly cache: ViewCache;
     /** 开发检查（前缀稳定、提交一致）；发请求时随开发模式，预览时关。 */
     readonly checks: boolean;
+    /** 此刻不参与的扩展（运行中被撤回的）：它们的槽不交。 */
+    readonly inactive?: (id: string) => boolean;
 }
 
 type ProfileShape = {
@@ -105,6 +107,7 @@ export function computeRequest(inputs: RequestInputs): ComputedRequest {
 
     const slots: SlotContent[] = [];
     for (const item of assembly.order) {
+        if (inputs.inactive?.(item.definition.id) === true) continue;
         for (const [name, contribution] of Object.entries(item.definition.contribute ?? {}) as [string, {volatile?: boolean; value: (view: unknown) => string | null | undefined}][]) {
             try {
                 const text = contribution.value(viewCtx(assembly, item, state, environment));
@@ -192,7 +195,7 @@ export function computeRequest(inputs: RequestInputs): ComputedRequest {
             messages: rendered.messages,
             tools: inputs.tools,
         };
-        return {ok: true, request, problems};
+        return {ok: true, request, problems, slots, placed: rendered.placed};
     } catch (error) {
         if (error instanceof ProfileEntryError) return {ok: false, reason: "profile-failed", entry: error.entry, code: "threw", error: error.original, problems};
         if (error instanceof TemplateError) {

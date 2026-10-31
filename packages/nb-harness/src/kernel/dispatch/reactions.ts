@@ -52,7 +52,7 @@ async function reactTo(core: SessionCore, event: LogEvent, state: StateAt, host:
     if (event.type.endsWith(`/${STATE_SET}`)) return;
     // settingsChanged 只派发给设置所属的扩展（KernelEvents 的注释）。
     const owner = event.type === "settingsChanged" ? (event.data as {extension: string}).extension : null;
-    const handlers = core.assembly.order.filter((item) => !core.failedExtensions.has(item.definition.id) && (owner === null || item.definition.id === owner) && typeof (item.definition.on as Record<string, unknown> | undefined)?.[handlerKey(item, event.type)] === "function");
+    const handlers = core.assembly.order.filter((item) => !core.inactive(item.definition.id) && (owner === null || item.definition.id === owner) && typeof (item.definition.on as Record<string, unknown> | undefined)?.[handlerKey(item, event.type)] === "function");
     if (handlers.length === 0) return;
     const depth = (event.depth ?? 0) + 1;
     if (depth > REACTION_DEPTH_LIMIT) {

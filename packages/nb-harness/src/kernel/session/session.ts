@@ -11,9 +11,9 @@
 import {createHash, randomBytes} from "node:crypto";
 import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
-import type {AnyProfile, ModelInfo, Resources, ToolSessionContext, CommandName, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
+import type {AnyProfile, ModelInfo, Resources, ToolSessionContext, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
 import {LOG_FORMAT} from "../api/index.js";
-import {SessionCore, type EventDraft} from "../dispatch/core.js";
+import {LogBrokenError, SessionCore, type EventDraft} from "../dispatch/core.js";
 import {Mounts} from "../dispatch/mount.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 import type {ViewEnvironment} from "../extension/ctx.js";
@@ -21,6 +21,8 @@ import {assemble, type Assembly} from "../extension/assemble.js";
 import {abortCommand, accept, archiveCommand, type Outcome, changeSettingsCommand, editCommand, enqueueCommand, removeCommand, sendCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
 import {compact, compactionCuts, estimateContext, triggerPoint} from "../compaction/compact.js";
 import {resolveCommand} from "../run/interaction.js";
+import {previewRequest} from "./preview.js";
+import {ProcessInterrupt} from "../run/writes.js";
 import {rewindCommand, rewindTargets, siblingsOf, switchBranchCommand} from "../run/tree.js";
 import {RunControl} from "../run/control.js";
 import {recoveryDrafts} from "../run/recover.js";
@@ -41,6 +43,8 @@ interface Internals {
     closed: boolean;
     /** 换了 Profile 之后重建交给宿主的资源与工具实现。 */
     refreshContext(): Promise<void>;
+    /** 插件贡献的扩展变了、还没重新装配的部分（运行中时等这次运行结束）。 */
+    pendingReassembly: {readonly added: Set<string>; readonly removed: Set<string>} | null;
 }
 const internals = new WeakMap<SessionApi, Internals>();
 
@@ -49,13 +53,6 @@ const DEV = process.env.NODE_ENV !== "production";
 
 function newSessionId(now: number): string {
     return `${now.toString(36)}-${randomBytes(5).toString("hex")}`;
-}
-
-class NotYetImplemented extends Error {
-    constructor(name: string) {
-        super(`${name} is not implemented in the kernel yet`);
-        this.name = "NotYetImplemented";
-    }
 }
 
 /** Profile 解析不到时的占位：只为能归约内核事件、给出只读的快照。 */
@@ -108,7 +105,7 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
     const resources: Resources = {read: (uri) => currentResources.read(uri), resolve: (uri) => currentResources.resolve(uri)};
     const react: ReactHost = {environment: () => ({tools: tools(), model: modelInfo(), now: core.clock.now(), initial: initialOf()}), resources};
     const mounts = new Mounts(core, {...react, running: () => !control.idle});
-    const state: Internals = {core, control, react, mounts, box, environment, readOnly, closed: false, refreshContext: async () => {
+    const state: Internals = {core, control, react, mounts, box, environment, readOnly, closed: false, pendingReassembly: null, refreshContext: async () => {
         currentResources = env.resources(context());
         // 工具实现是按上一个 Profile 的上下文建的：全部释放，下次调用按新上下文重建。
         await box.retire([]);
@@ -154,7 +151,18 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         readOnly: () => state.readOnly,
     };
     const closedGuard = <T>(run: () => Promise<T>): Promise<T> => (state.closed ? Promise.resolve({ok: false, code: "session-closed"} as T) : run());
-    const notYet = (name: CommandName | string) => () => Promise.reject(new NotYetImplemented(name));
+    // 出站过滤（runtime.md 输出 54）：推帧与日志查询之前按这个视图的发出者过滤；过滤函数抛错时不给看，写诊断。
+    const outbound = env.outbound;
+    const visible = (event: LogEvent): LogEvent | null => {
+        if (outbound === undefined) return event;
+        try {
+            return outbound.event(event, issuer);
+        } catch (error) {
+            core.diagnostics.add({code: "outbound-filter-threw", entry: "host", subject: "event", message: `the outbound filter threw on ${event.type}; the event is withheld`, cause: error}, core.head);
+            return null;
+        }
+    };
+    const visibleAll = (events: readonly LogEvent[]): LogEvent[] => events.map(visible).filter((event): event is LogEvent => event !== null);
     const api: SessionApi = {
         id: core.header.id,
         issuer,
@@ -232,35 +240,53 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                 head: core.head,
                 leaf: core.leaf,
                 profile: {id: core.assembly.profile.id, hash: core.assembly.hash},
-                extensions: core.assembly.order.filter((item) => item.role !== "profile").map((item) => ({id: item.definition.id, plugin: item.plugin, version: item.version, status: "active", tags: item.definition.tags ?? []})),
+                extensions: core.assembly.order.filter((item) => item.role !== "profile").map((item) => ({id: item.definition.id, plugin: item.plugin, version: item.version, status: core.revoked.has(item.definition.id) ? "revoked" : core.failedExtensions.has(item.definition.id) ? "failed" : "active", tags: item.definition.tags ?? []})),
                 status: control.status,
                 buffer: [...kernel.buffer],
                 settings: kernel.core,
                 title: kernel.title,
                 archived: kernel.archived,
                 readOnly: state.readOnly === null ? null : {code: state.readOnly as "unknown-profile"},
-                pendingReassembly: null,
+                pendingReassembly: state.pendingReassembly === null ? null : {added: [...state.pendingReassembly.added], removed: [...state.pendingReassembly.removed]},
                 diagnostics: {errors, warnings: core.diagnostics.all().length - errors},
             };
         },
         async log({afterSeq, limit = 500}) {
             const start = core.events.findIndex((event) => event.seq > afterSeq);
-            const events: LogEvent[] = start < 0 ? [] : core.events.slice(start, start + limit);
+            const events: LogEvent[] = start < 0 ? [] : visibleAll(core.events.slice(start, start + limit));
             return {events, head: core.head, more: start >= 0 && start + limit < core.events.length};
         },
         rewindTargets: async () => rewindTargets(core),
         async path(args) {
-            return core.pathTo(args?.leaf === undefined ? core.leaf : args.leaf);
+            return visibleAll(core.pathTo(args?.leaf === undefined ? core.leaf : args.leaf));
         },
         siblings: async ({node}) => siblingsOf(core, node),
         async runResult({runId}) {
             return runResultOf(core.events, runId, core.byId);
         },
-        preview: notYet("preview"),
+        preview: (args) => previewRequest({core, models: env.models, box: state.box, resources: state.react.resources, environment: (model, tools) => ({tools, model, now: core.clock.now(), initial: state.environment.initial})}, args),
         async diagnostics() {
             return core.diagnostics.all();
         },
-        subscribe: (listener) => core.subscribe(listener),
+        subscribe: (listener) => core.subscribe((frame) => {
+            if (frame.type === "log") {
+                const event = visible(frame.event);
+                if (event !== null) listener(event === frame.event ? frame : {...frame, event});
+                return;
+            }
+            if (frame.type === "delta" && outbound?.delta !== undefined) {
+                let delta: typeof frame | null;
+                try {
+                    delta = outbound.delta(frame, issuer);
+                } catch (error) {
+                    core.diagnostics.add({code: "outbound-filter-threw", entry: "host", subject: "delta", message: "the outbound filter threw on a delta; it is withheld", cause: error}, core.head);
+                    delta = null;
+                }
+                if (delta !== null) listener(delta);
+                return;
+            }
+            listener(frame);
+        }),
         waitRun: (runId) => control.waitRun(runId),
     };
     internals.set(api, state);
@@ -370,19 +396,87 @@ async function forkSession(env: SessionEnv, core: SessionCore, leaf: string | nu
     return appended.ok ? {ok: true, id} : {ok: false};
 }
 
+/**
+ * 插件贡献的扩展变了（runtime.md 输出 57）：空闲的会话立刻按 `env.extensions()` 重新装配，运行中的会话把撤回的扩展
+ * 标为不参与、等这次运行结束再装配。装配结果的哈希变了才写 `profileChanged{reason}`；装配失败（例如依赖被撤回）时
+ * 会话进只读、码 `dependency-missing`。
+ */
+export function notifyExtensionsChanged(session: SessionApi, env: SessionEnv, change: {readonly added?: readonly string[]; readonly removed?: readonly string[]}): void {
+    const state = internals.get(session);
+    if (state === undefined || state.closed) return;
+    const {core, control} = state;
+    const pending = state.pendingReassembly ?? {added: new Set<string>(), removed: new Set<string>()};
+    for (const id of change.added ?? []) pending.added.add(id);
+    for (const id of change.removed ?? []) {
+        pending.removed.add(id);
+        if (!control.idle && core.assembly.order.some((item) => item.definition.id === id)) {
+            core.revoked.add(id);
+            core.diagnostics.add({code: "extension-revoked", extension: id, entry: "host", message: `${id} was revoked while a run is in progress; its handlers, interceptors and slots are skipped until the run ends`}, core.head);
+        }
+    }
+    state.pendingReassembly = pending;
+    if (control.idle) void reassembleNow(state, env);
+    else control.onIdle = () => {
+        control.onIdle = null;
+        void reassembleNow(state, env);
+    };
+}
+
+async function reassembleNow(state: Internals, env: SessionEnv): Promise<void> {
+    const {core} = state;
+    const pending = state.pendingReassembly;
+    if (pending === null || state.closed) return;
+    state.pendingReassembly = null;
+    const reason = pending.added.size > 0 && pending.removed.size > 0 ? "plugin-updated" : pending.added.size > 0 ? "plugin-added" : "plugin-removed";
+    const profile = core.assembly.profile;
+    const assembled = assemble(profile, env.extensions?.() ?? []);
+    if (!assembled.ok) {
+        const problem = assembled.problems[0]!;
+        state.readOnly = "dependency-missing";
+        core.revoked.clear();
+        core.diagnostics.add({code: "dependency-missing", extension: problem.extension, entry: "assembly", params: {...(problem.dependency === undefined ? {} : {dependency: problem.dependency})}, message: `reassembling after a plugin change failed (${problem.message}); the session is read-only`, persisted: false}, core.head);
+        return;
+    }
+    const next = assembled.assembly;
+    if (next.hash === core.assembly.hash) {
+        core.revoked.clear();
+        return;
+    }
+    const from = core.assembly.hash;
+    try {
+        await core.queue.run(async () => {
+            await writeAndReact(core, [{type: "profileChanged", kind: "ctrl", scope: "session", data: {profile: profile.id, hash: next.hash, from, reason, manifest: next.manifest as unknown as JsonValue}}], state.react);
+            await state.mounts.unmountAll();
+            core.reassemble(next);
+            await state.refreshContext();
+            reportAssemblyWarnings(core);
+        });
+        await state.mounts.mountAll(state.environment);
+        await core.queue.drain();
+    } catch (error) {
+        // 写日志失败：句柄已进损坏状态，内存里的装配没换（profileChanged 没写下）。
+        if (!(error instanceof LogBrokenError)) throw error;
+    }
+}
+
 function reportAssemblyWarnings(core: SessionCore): void {
     for (const warning of core.assembly.warnings) core.diagnostics.add({code: warning.code, extension: warning.extension, entry: "assembly", params: warning.params, subject: Object.values(warning.params).join("|"), message: warning.message, hint: warning.hint}, core.head);
 }
 
-/** 关闭：拒绝新指令 → 中止并等收口 → 等队列清空 → 关日志与锁。重复调用无事。 */
-export async function closeSession(session: SessionApi): Promise<void> {
+/**
+ * 关闭（runtime.md 输出 53）：拒绝新指令 → 中止在跑的运行并等收口 → 等队列清空 → 摘下扩展（等清理）→ 释放工具实现 →
+ * 清空订阅 → 关日志与锁。重复调用无事。`reason: "interrupted"` 是进程收尾：在跑的运行按 `interrupted` 收口
+ * （session.md 输出 16），否则按 `aborted`。
+ */
+export async function closeSession(session: SessionApi, options: {readonly reason?: "interrupted"} = {}): Promise<void> {
     const state = internals.get(session);
     if (state === undefined || state.closed) return;
     state.closed = true;
-    if (!state.core.broken) await state.control.shutdown();
+    if (!state.core.broken) await state.control.shutdown(options.reason === "interrupted" ? new ProcessInterrupt() : undefined);
     await state.core.queue.drain();
     await state.mounts.unmountAll();
     await state.box.dispose();
+    state.core.close();
     await state.core.store.close(state.core.handle);
 }
 

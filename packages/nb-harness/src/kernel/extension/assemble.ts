@@ -60,6 +60,13 @@ export const REMINDER_TRIGGERS = Symbol.for("nb-harness.kernel.reminder-triggers
 
 const PROFILE_ID = /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+$/u;
 const EXTENSION_ID = /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9_-]*)*$/u;
+
+/** 插件贡献的扩展 id 合不合规则（extensions.md 的 id 规则）：点分的小写段，等于所属插件的 id 或以它加点开头。 */
+export function contributedIdProblem(id: string, plugin: string): string | null {
+    if (!EXTENSION_ID.test(id)) return `extension id ${id} must be dot-separated lowercase segments`;
+    if (id !== plugin && !id.startsWith(`${plugin}.`)) return `extension ${id} is contributed by plugin ${plugin} but does not start with its id`;
+    return null;
+}
 const SLOT_NAME = /^[a-z0-9][a-z0-9-]*$/u;
 
 interface DependencyRef {

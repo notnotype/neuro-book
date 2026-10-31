@@ -30,6 +30,8 @@ export class RunControl {
     readonly #waiters = new Map<string, ((result: RunResult) => void)[]>();
     readonly #core: SessionCore;
     #host: Omit<RunHost, "phase" | "interactions" | "takeCompactRequests"> | null = null;
+    /** 运行结束、会话回到空闲之后调用（撤回插件后的重新装配在这里接上，runtime.md 输出 57）。 */
+    onIdle: (() => void) | null = null;
     /** 运行中受理的 `compact` 的要求，到下一个边界做（不进日志：进程中断就丢，重发得到第一次受理的值）。 */
     readonly #compactRequests: string[][] = [];
     /** 当前运行里在等的同步事项；有待处理的时运行状态是 `waiting`，都应答了回到 `running`。 */
@@ -104,6 +106,7 @@ export class RunControl {
             .finally(() => {
                 if (this.#active?.runId === runId) this.#active = null;
                 if (this.#status.state !== "broken") this.#setStatus({state: "idle"});
+                this.onIdle?.();
                 // 循环结束、当前运行清掉之后才结算等它的调用方：它们拿到结果时会话已经空闲，紧接着发下一条不会撞上 already-running。
                 const result = runResultOf(this.#core.events, runId, this.#core.byId);
                 if (result !== null) this.#settle(runId, result);
@@ -112,11 +115,12 @@ export class RunControl {
     }
 
     /** 中止当前运行并等它收口；没有运行时返回 false。 */
-    async abort(): Promise<boolean> {
+    /** `reason` 是 `ProcessInterrupt` 时这次运行按 `interrupted` 收口（进程收尾），否则按 `aborted`。 */
+    async abort(reason?: unknown): Promise<boolean> {
         const active = this.#active;
         if (active === null) return false;
         this.#setStatus({state: "aborting", runId: active.runId});
-        active.controller.abort();
+        active.controller.abort(reason);
         await active.done;
         return true;
     }
@@ -136,7 +140,7 @@ export class RunControl {
     }
 
     /** 关闭会话时：中止并等收口。 */
-    async shutdown(): Promise<void> {
-        await this.abort();
+    async shutdown(reason?: unknown): Promise<void> {
+        await this.abort(reason);
     }
 }

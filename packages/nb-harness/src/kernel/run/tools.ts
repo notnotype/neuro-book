@@ -19,7 +19,7 @@ import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
 import {deepFreeze} from "../state/freeze.js";
 import {chainLayers, failureDrafts, runChain, type ChainFailure} from "./chain.js";
 import type {Interactions} from "./interaction.js";
-import {ctrl, RunStoppedError} from "./writes.js";
+import {ctrl, interrupting, RunStoppedError} from "./writes.js";
 
 /** 中止之后等进行中的工具完成的时间（runtime.md 输出 25）。 */
 export const ABORT_GRACE_MS = 2_000;
@@ -193,7 +193,7 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
     const state = core.stateAt();
     const outcomes = new Map<string, CallOutcome>();
     const preset = (call: ToolCall, text: string, code: string): CallOutcome => ({data: {callId: call.id, tool: call.tool, text, status: "error", code}, failures: [], args: null});
-    const unfinished = (call: ToolCall): CallOutcome => ({data: {callId: call.id, tool: call.tool, text: "The call did not finish before the run was aborted.", status: "unknown", code: "aborted"}, failures: [], args: null});
+    const unfinished = (call: ToolCall): CallOutcome => ({data: {callId: call.id, tool: call.tool, text: "The call did not finish before the run was aborted.", status: "unknown", code: interrupting(signal) ? "interrupted" : "aborted"}, failures: [], args: null});
 
     const runnable: ToolCall[] = [];
     for (const call of calls) {
@@ -245,7 +245,7 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
                     if (host.interactions === undefined) return settle({text: `The call to ${final.tool} needs the user's approval, which this run cannot ask for.`, status: "denied", code: "approval-unavailable"}, "core");
                     const request = {tool: final.tool, args: final.args, effect, ...(verdict.reason === undefined ? {} : {reason: verdict.reason})} as unknown as JsonValue;
                     const resolution = (await host.interactions.request(core, host.write, {callId: final.id, kind: "approval", request, async: false}, signal))!;
-                    if (resolution.decision === "aborted") return settle({text: `The call to ${final.tool} was not run: the run was aborted while it waited for approval.`, status: "denied", code: "aborted"}, "core");
+                    if (resolution.decision === "aborted" || resolution.decision === "interrupted") return settle({text: `The call to ${final.tool} was not run: the run was aborted while it waited for approval.`, status: "denied", code: resolution.decision === "interrupted" ? "interrupted-before-approval" : "aborted"}, "core");
                     if (resolution.decision === "deny") return settle({text: `The user denied the call to ${final.tool}.${resolution.note === undefined ? "" : ` The user said: ${resolution.note}`}`, status: "denied", code: "user-denied"}, "user");
                     approvedBy = "user";
                 }

@@ -38,6 +38,8 @@ export interface Rendered {
     readonly system: readonly RequestBlock[];
     readonly messages: readonly Message[];
     readonly slotProblems: readonly SlotProblem[];
+    /** 这次真正渲染进请求的槽贡献（预览的槽报告用）。 */
+    readonly placed: ReadonlySet<SlotContent>;
 }
 
 /** 模板结构不合规：`<Turn />` 不是恰好一个，或节点放错了位置。 */
@@ -67,6 +69,7 @@ export function renderTemplate(template: PromptChild, input: RenderInput): Rende
     const slotProblems: SlotProblem[] = [];
     /** 被 `<Slot name="*">` 收走的贡献（按贡献算：同一个槽名可以有稳定的、也有会变的）。 */
     const caught = new Set<SlotContent>();
+    const placedSlots = new Set<SlotContent>();
     let turnNodes = 0;
 
     const mentioned = new Set<string>();
@@ -96,6 +99,7 @@ export function renderTemplate(template: PromptChild, input: RenderInput): Rende
             for (const slot of picked) caught.add(slot);
         }
         if (where === "system") for (const slot of picked) if (slot.volatile) slotProblems.push({code: "slot-volatile-in-system", slot: slot.name, extension: slot.extension});
+        for (const slot of picked) placedSlots.add(slot);
         return picked.map(slotBlock);
     };
 
@@ -179,5 +183,5 @@ export function renderTemplate(template: PromptChild, input: RenderInput): Rende
         if (mentioned.has(slot.name) || caught.has(slot)) continue;
         slotProblems.push({code: "slot-unplaced", slot: slot.name, extension: slot.extension});
     }
-    return {system, messages, slotProblems};
+    return {system, messages, slotProblems, placed: placedSlots};
 }

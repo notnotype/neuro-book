@@ -64,7 +64,7 @@ export const interceptorOf = (item: Assembled, method: ChainMethod): ((...args: 
 
 /** 这条链的各层：拦截序就是装配序；`mount` 失败过的扩展不参与。 */
 export function chainLayers(core: SessionCore, method: ChainMethod): Assembled[] {
-    return core.assembly.order.filter((item) => !core.failedExtensions.has(item.definition.id) && typeof interceptorOf(item, method) === "function");
+    return core.assembly.order.filter((item) => !core.inactive(item.definition.id) && typeof interceptorOf(item, method) === "function");
 }
 
 export async function runChain<I, O>(options: ChainOptions<I, O>): Promise<ChainOutcome<O>> {

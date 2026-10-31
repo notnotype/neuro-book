@@ -21,7 +21,7 @@ import {failureDrafts} from "./chain.js";
 import {callModel, modelCaller, type ModelCallHost} from "./model-call.js";
 import type {Interactions} from "./interaction.js";
 import {runTools, toolInfo, type ToolBox} from "./tools.js";
-import {ctrl, RunStoppedError} from "./writes.js";
+import {ctrl, interrupting, RunStoppedError} from "./writes.js";
 
 export interface RunHost {
     readonly core: SessionCore;
@@ -115,11 +115,16 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
     const write = (drafts: EventDraft[]) => core.queue.run(() => writeAndReact(core, drafts, host.react, signal));
     /** 给模型链、工具链用：收口之后再写就拒绝。 */
     const guardedWrite = (drafts: EventDraft[]) => (stopped ? Promise.reject(new RunStoppedError(`writing ${drafts.map((draft) => draft.type).join(", ")}`)) : write(drafts));
-    const end = async (turnReason: "completed" | "error" | "aborted", runData: Omit<EventData<KernelEvents["runEnded"]>, "runId">, before: EventDraft[] = []) => {
+    const end = async (reason: "completed" | "error" | "aborted", data: Omit<EventData<KernelEvents["runEnded"]>, "runId">, drafts: EventDraft[] = []) => {
         stopped = true;
         await core.queue.drain();
+        // 进程收尾的中止按 interrupted 收口（与重开时的恢复一致）：轮、运行与发出没回复的模型请求都改记 interrupted。
+        const interrupted = reason === "aborted" && interrupting(signal);
+        const turnReason = interrupted ? "interrupted" : reason;
+        const runData = interrupted ? {...data, reason: "interrupted" as const} : data;
+        const before = interrupted ? drafts.map((draft) => (draft.type === "modelFailed" ? {...draft, data: {...(draft.data as object), kind: "interrupted"} as JsonValue} : draft)) : drafts;
         const open = core.leafState.kernel.openRequest;
-        const settleOpen = open !== null && turnReason === "aborted" && !before.some((draft) => draft.type === "modelFailed") ? [ctrl("modelFailed", {request: open, kind: "aborted"})] : [];
+        const settleOpen = open !== null && reason === "aborted" && !before.some((draft) => draft.type === "modelFailed") ? [ctrl("modelFailed", {request: open, kind: interrupted ? "interrupted" : "aborted"})] : [];
         const turn = core.leafState.kernel.history.current;
         await write([...settleOpen, ...before, ...(turn === null ? [] : [ctrl("turnEnded", {turnId: turn.id, reason: turnReason})]), ctrl("runEnded", {runId: run.runId, ...runData})]);
     };
@@ -207,6 +212,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 tools,
                 cache: core.view,
                 checks: core.dev,
+                inactive: (extension) => core.revoked.has(extension),
             });
             for (const {error, ...problem} of computed.problems) core.diagnostics.add({...problem, ...(error === undefined ? {} : {cause: error})}, core.head);
             if (!computed.ok) {

@@ -54,6 +54,8 @@ export interface TestSessionOptions {
     /** 会话头的 `caller` 与 `questions`（子会话：提问交给父会话）。 */
     readonly caller?: SessionHeader["caller"];
     readonly questions?: SessionHeader["questions"];
+    /** 出站过滤（`SessionEnv.outbound`）。 */
+    readonly outbound?: SessionEnv["outbound"];
     /** 压缩方法与放回的内容（`SessionEnv.compaction`）。 */
     readonly compaction?: SessionEnv["compaction"];
     /** 包一层存储（例如在某个写入批上失败，测写失败时内存不领先日志）。 */
@@ -134,6 +136,7 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
         // “全部放行”只是测试的一种显式策略，不是产品缺省。
         approve: options.approve ?? (async () => ({verdict: "allow", by: "test-policy"})),
         ...(options.compaction === undefined ? {} : {compaction: options.compaction}),
+        ...(options.outbound === undefined ? {} : {outbound: options.outbound}),
     };
     sessionCounter += 1;
     const created = options.open !== undefined

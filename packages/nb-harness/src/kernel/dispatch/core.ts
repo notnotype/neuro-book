@@ -60,6 +60,14 @@ export interface CoreOptions {
     readonly dev: boolean;
 }
 
+/** 会话关闭之后还有写入（迟到的回调）。只写诊断，不进日志。 */
+export class SessionClosedError extends Error {
+    constructor() {
+        super("the session is closed; the write is dropped");
+        this.name = "SessionClosedError";
+    }
+}
+
 export class SessionCore {
     readonly header: SessionHeader;
     readonly store: LogStore;
@@ -84,8 +92,17 @@ export class SessionCore {
     /** 会话内单调增加的模型请求序号（跨分支不重复）。 */
     requestCounter = 0;
     broken = false;
+    /** 会话已关闭：之后的写入得 `SessionClosedError`，订阅已清空（runtime.md 输出 53）。 */
+    closed = false;
     /** `mount` 超时或抛错的扩展：不再派发给它，归约照常。 */
     readonly failedExtensions = new Set<string>();
+    /** 运行中被撤回的插件扩展：这次运行里跳过它的处理函数、拦截与槽，归约照常；空闲时重新装配后清空（runtime.md 输出 57）。 */
+    readonly revoked = new Set<string>();
+
+    /** 这个扩展此刻不参与派发：`mount` 失败过，或运行中被撤回。 */
+    inactive(id: string): boolean {
+        return this.failedExtensions.has(id) || this.revoked.has(id);
+    }
     /** 运行中到达的外部事实：到下一个边界按到达顺序写入（每项一个写入批）。 */
     readonly inbox: EventDraft[][] = [];
     /** 幂等键：`来源\0键`。 */
@@ -218,8 +235,9 @@ export class SessionCore {
         this.#session = {kernel: initialSessionKernel(), extensions: initialSnapshot(assembly.reducers, "session", this.dev)};
         this.#pathStates = new Map();
         this.#batchStates = new Map();
-        // mount 失败的标记属于上一次装配；新装配的 mount 重新判定。
+        // mount 失败与撤回的标记属于上一次装配；新装配的 mount 重新判定。
         this.failedExtensions.clear();
+        this.revoked.clear();
         for (const event of this.events) {
             const next = this.#reduce(event.scope === "path" ? this.pathState(event.parent) : this.#initialPath, this.#session, event);
             if (event.scope === "path") this.#pathStates.set(event.id, next.path);
@@ -251,6 +269,7 @@ export class SessionCore {
      * 批里的 path 事件依次接在上一条下面；conv 事件按写入时的轮盖位置章。
      */
     async write(drafts: readonly EventDraft[]): Promise<LogEvent[]> {
+        if (this.closed) throw new SessionClosedError();
         if (this.broken) throw new LogBrokenError(null);
         if (drafts.length === 0) return [];
         let leaf = this.leaf;
@@ -337,6 +356,12 @@ export class SessionCore {
 
     emit(frame: Frame): void {
         this.#emit(frame);
+    }
+
+    /** 关闭的最后一步（日志关闭之前）：之后不再写入、不再推帧。 */
+    close(): void {
+        this.closed = true;
+        this.#listeners.clear();
     }
 
     subscribe(listener: (frame: Frame) => void): () => void {

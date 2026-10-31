@@ -13,7 +13,7 @@ import type {PendingInteraction} from "../state/kernel-state.js";
 import {accept, isEmpty, startProblem, type CommandHost} from "./commands.js";
 import {interceptInput, queuedData} from "./input.js";
 import {takeInputDrafts} from "./loop.js";
-import {ctrl, RunStoppedError} from "./writes.js";
+import {ctrl, interrupting, RunStoppedError} from "./writes.js";
 
 export interface Resolution {
     readonly decision: InteractionDecision;
@@ -76,7 +76,10 @@ export class Interactions {
             this.#reportFrom(core);
             return result;
         }
-        const resolution: Resolution = {decision: "aborted", by: {kind: "kernel"}, code: "aborted"};
+        // 进程收尾的中止按 interrupted 结算，与重开时的恢复一致（runtime.md 输出 43）。
+        const resolution: Resolution = interrupting(signal)
+            ? {decision: "interrupted", by: {kind: "kernel"}, code: item.kind === "approval" ? "interrupted-before-approval" : "interrupted"}
+            : {decision: "aborted", by: {kind: "kernel"}, code: "aborted"};
         try {
             await write([ctrl("interactionResolved", {id, ...resolution})]);
         } catch (error) {

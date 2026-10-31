@@ -10,6 +10,18 @@ import type {EventDraft} from "../dispatch/core.js";
 
 export const ctrl = (type: keyof KernelEvents, data: object): EventDraft => ({type, kind: "ctrl", scope: "path", data: data as JsonValue});
 
+/**
+ * 中止信号的 `reason`：这次中止是进程要退出（宿主登记的中断收口，session.md 输出 16），收口按 `interrupted` 写，
+ * 与重开时的恢复一致；其余中止按 `aborted`。
+ */
+export class ProcessInterrupt extends Error {
+    constructor() {
+        super("the process is shutting down");
+        this.name = "ProcessInterrupt";
+    }
+}
+export const interrupting = (signal: AbortSignal): boolean => signal.reason instanceof ProcessInterrupt;
+
 /** 运行已经收口或被中止，这次写入或执行不再进行。 */
 export class RunStoppedError extends Error {
     constructor(what: string) {
