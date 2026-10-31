@@ -13,7 +13,7 @@ owners:
 
 给宿主一台由日志驱动的状态机：指令进、事件与帧出。用户的话先进输入缓冲区，取走时才成为对话里的事实；一次运行是可能有好几轮的 ReAct 循环，每次模型请求前由视图算出请求，回复与失败都写回日志。宿主能等一次运行结束、取它的结果。
 
-本文件随实现逐步补齐：其余指令（改、删、应答、回退、切分支、fork、压缩、换设置、换 Profile、标题与归档）、中止的宽限期、等用户、预览随后续条目追加。日志与恢复见 [`harness/session.md`](session.md)，扩展见 [`harness/extensions.md`](extensions.md)，模型端口见 [`harness/models.md`](models.md)。
+本文件随实现逐步补齐：应答与等用户、压缩、预览随后续条目追加。日志与恢复见 [`harness/session.md`](session.md)，扩展见 [`harness/extensions.md`](extensions.md)，模型端口见 [`harness/models.md`](models.md)。
 
 不承诺：
 
@@ -79,6 +79,13 @@ owners:
 32. `setTitle` 去掉首尾空白后为空得 `empty-title`，否则写 `titleChanged{by: "user"}`；`archive` 写 `archived`。快照的 `title`、`archived` 随之变化。
 33. 输出 29–32 的指令与 `send` 一样按 `commandId` 幂等（[`harness/session.md`](session.md) 输出 17）。
 34. 打开会话时恢复没收口的运行（`session.md` 输出 15）：最后一条回复里没有结果的工具调用，写过 `toolStarted` 的得 `unknown`、码 `interrupted`，还没开始的得 `denied`、码 `interrupted-before-approval`、`by: "core"`；之后是发出没回复的模型请求、`turnEnded`、`runEnded{interrupted}`，同一个写入批。缓冲区里的输入留着，不自动发出。
+
+会话树与 Profile：
+
+35. `rewindTargets()` 列出当前路径上的回退目标，按路径顺序：`before-turn`（一次运行的第一轮回到 `runStarted` 之前，后面的轮回到上一轮结束处）、`after-step`（这一轮某次模型请求之前，第一次就是用户的话之后）、`after-turn`（这一轮结束处；也是运行的最后一轮时落在 `runEnded` 上）。`rewind(to)` 只接受这些目标：有运行在跑得 `running`，`to` 不是会话里的节点得 `unknown-node`，不是目标（或为 null）得 `invalid-target`；受理时写 `leafChanged`。回退之后路径上的事件、path 片与对话回到目标处，session 片、缓冲区与设置不变。
+36. 回退到运行中途时（`after-step`，或运行中某一轮之前），那条分支上的运行暂停：没有循环在跑，快照的运行状态是 `idle`；`start` 让它接着跑，`send` 入队后让它接着跑（停在两轮之间时先取缓冲区的第一条开一轮）。接着跑之后的模型请求（`modelStarted`）与原来那次是兄弟节点，新旧回复各挂在自己那次请求下面，这就是重试与 swipe。重试之后 `runResult`、`waitRun` 取这次运行最后写下的 `runEnded`，只算它所在路径上的回复与用量。叶子由 `leafChanged` 定时重开会话不当作崩溃恢复。`rewind{resend}` 回退后把这条话入队：目标在运行外就开新的运行，在运行中途就让暂停的运行接着跑。
+37. `switchBranch(node)` 落到 `node` 所在子树里最近写入的末端；`siblings(node)` 给出与它同一个父节点的节点，各带所在分支的末端。`fork({leaf?})` 把到 `leaf`（缺省当前叶子）为止的路径复制成新会话，会话头的 `origin` 记来源，带上当前的 Profile 与设置，不带缓冲区与标题；原会话不变。三者在有运行在跑时得 `running`。
+38. `changeProfile(profile)` 只在没有运行在跑时（否则 `running`）：解析不到得 `unknown-profile`，装配缺依赖或成环得 `dependency-missing`、`dependency-cycle`，其余装配错误得 `profile-invalid`。新装配的 Profile 哈希与当前相同时 `changed: false`、不写日志；不同时写 `profileChanged{reason: "user"}`，摘下旧扩展、按新装配从日志重新归约全部状态、装上新扩展，已提交的轮按新 Profile 重新渲染（[`harness/profile.md`](profile.md) 输出 11）。重开会话按最后一条 `profileChanged` 解析 Profile。
 
 ## 状态与转换
 

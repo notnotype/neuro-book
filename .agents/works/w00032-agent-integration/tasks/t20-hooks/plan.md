@@ -254,6 +254,8 @@
 | 5 | `harness/runtime.md` 输出 15–27、场景 3、4；`session.md` 输出 10、场景 6 | `src/kernel/run/tools.test.ts` |
 | 5（留到后续片） | `runtime.md` 输出 18 的只读模式与“等级函数抛错按 `exec` 算”（要 `changeSettings` 打开只读，第 6 片）；审批的 `ask` 与批准记忆（第 7 片）；压缩拦截链（第 8 片，`runChain` 已就绪） | — |
 | 6 | `harness/runtime.md` 输出 28–34、场景 5；`runtime.md` 输出 18 的只读模式（第 5 片留下的）；`session.md` 场景 4 | `src/kernel/run/control.test.ts` |
+| 6 | `runtime.md` 输出 35–38；`extensions.md` 输出 10；`profile.md` 输出 11；`session.md` 输出 20 | `src/kernel/run/tree.test.ts` |
+| 6（留到后续片） | “回退后重启批准记忆仍在”（批准记忆在第 7 片）；运行中的 `compact` 的幂等（第 8 片） | — |
 | 7–8 | `harness.runtime`（等用户、压缩） | `run/*.test.ts`、`compaction/*.test.ts` |
 | 9 | `harness.runtime` 的宿主面、`harness.extensions` 的撤回 | `session/*.test.ts` |
 | 10 | `agent/harness.md` 输出 10–21 在新 Spec 里的对应条目 | `packages/nb-story/tests/kernel-acceptance/*.test.ts` |
