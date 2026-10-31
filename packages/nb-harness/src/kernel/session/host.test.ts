@@ -17,6 +17,7 @@ import {createMemoryStore} from "../log/memory-store.js";
 import {createAgentHost, ExtensionRejected} from "./agent-host.js";
 import {complete} from "./complete.js";
 import {closeSession} from "./session.js";
+import {mapEventContent} from "../helpers/content.js";
 
 let root = "";
 beforeAll(async () => {
@@ -218,6 +219,45 @@ describe("出站过滤", () => {
         broken = true;
         expect(types(await session.raw.path())).not.toContain("assistant");
         expect((await session.raw.diagnostics()).some((item) => item.code === "outbound-filter-threw")).toBe(true);
+    });
+});
+
+describe("出站过滤（按内容换）", () => {
+    test("输出 54：mapEventContent 换掉内核事件里每个带内容的字段；过滤上下文按调用查实际执行的参数，增量带此前的原文", async () => {
+        const scrub = (text: string) => text.replaceAll("秘密", "＊＊");
+        const seenArgs: string[] = [];
+        const befores: string[] = [];
+        const outbound: SessionEnv["outbound"] = {
+            event: (event, reader, context) => {
+                if (reader.kind !== "session") return event;
+                if (event.type === "toolResult") seenArgs.push(JSON.stringify(context.toolCall((event.data as {callId: string}).callId)?.args));
+                return mapEventContent(event, {text: scrub});
+            },
+            delta: (frame, reader, context) => {
+                if (reader.kind !== "session") return frame;
+                befores.push(context.before);
+                return (context.before + frame.text).includes("秘密") ? null : frame;
+            },
+        };
+        const answer = {id: "lab.answer", finish: true, execute: () => "收到"};
+        const search = {id: "lab.search", execute: (args: Readonly<Record<string, unknown>>) => `找到了${String(args.query)}`};
+        await using session = await createTestSession({outbound, tools: [search, answer]});
+        const reader = session.raw.as({kind: "session", id: "child"});
+        const delivered = gate();
+        reader.subscribe((frame) => {
+            if (frame.type === "log" && frame.event.type === "runEnded") delivered.open();
+        });
+        await session.raw.setTitle({commandId: "title", title: "秘密的标题"});
+        session.model.script({text: "我去查秘密", tools: [{tool: "lab.search", args: {query: "秘密"}}]}, {tools: [{tool: "lab.answer", args: {answer: "秘密在此"}}]});
+        await session.say("告诉我秘密");
+        await delivered.promise;
+        const shown = JSON.stringify((await reader.log({afterSeq: 0})).events);
+        expect(shown).not.toContain("秘密");
+        expect(shown).toContain("＊＊");
+        expect(JSON.stringify((await session.raw.log({afterSeq: 0})).events)).toContain("秘密");
+        expect(seenArgs).toContain(JSON.stringify({query: "秘密"}));
+        // 文字“我去查秘密”拆成“我去查”“秘密”两块：第二块看得到前一块。
+        expect(befores).toContain("我去查");
     });
 });
 

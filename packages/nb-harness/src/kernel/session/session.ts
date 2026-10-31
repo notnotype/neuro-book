@@ -11,7 +11,7 @@
 import {createHash, randomBytes} from "node:crypto";
 import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
-import type {AnyProfile, Frame, LogHandle, ModelInfo, Resources, ToolSessionContext, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
+import type {AnyProfile, Frame, LogHandle, ModelInfo, OutboundContext, Resources, ToolSessionContext, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
 import {LOG_FORMAT} from "../api/index.js";
 import {LogBrokenError, SessionCore, type EventDraft} from "../dispatch/core.js";
 import {Mounts} from "../dispatch/mount.js";
@@ -176,10 +176,27 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
     // （nb-story 的防剧透处理工具结果时要用前面那条调用记下的词）。过滤函数抛错或失败时不给看，写诊断。
     const outbound = env.outbound;
     const withheld = (subject: string, error: unknown) => core.diagnostics.add({code: "outbound-filter-threw", entry: "host", subject, message: `the outbound filter failed on ${subject}; it is withheld`, cause: error}, core.head);
+    // 调用 id → 实际执行的参数：按日志顺序增量建，toolStarted 覆盖回复里的。
+    const calls = new Map<string, {tool: string; args: Readonly<Record<string, JsonValue>>}>();
+    let indexed = 0;
+    const context: OutboundContext = {
+        sessionId: core.header.id,
+        toolCall: (callId) => {
+            for (; indexed < core.events.length; indexed += 1) {
+                const event = core.events[indexed]!;
+                if (event.type === "assistant") for (const call of (event.data as {toolCalls: readonly {id: string; tool: string; args: Readonly<Record<string, JsonValue>>}[]}).toolCalls) calls.set(call.id, {tool: call.tool, args: call.args});
+                else if (event.type === "toolStarted") {
+                    const data = event.data as {callId: string; tool: string; args: Readonly<Record<string, JsonValue>>};
+                    calls.set(data.callId, {tool: data.tool, args: data.args});
+                }
+            }
+            return calls.get(callId);
+        },
+    };
     const visible = async (event: LogEvent): Promise<LogEvent | null> => {
         if (outbound === undefined) return event;
         try {
-            return await outbound.event(event, issuer);
+            return await outbound.event(event, issuer, context);
         } catch (error) {
             withheld(event.type, error);
             return null;
@@ -329,7 +346,17 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                     if (frame.type !== "diagnostic") core.diagnostics.add({code: "subscriber-threw", entry: "host", subject: frame.type, message: `a subscriber threw on a ${frame.type} frame`, cause: error}, core.head);
                 }
             };
+            // 这个订阅者此前收到的同一次请求、同一部分的原文（过滤前）：在推帧时同步记下，排队过滤时先后不乱。
+            // 请求是一个接一个发的，只记最近一个请求的各部分。
+            let streamed = {request: -1, parts: new Map<string, string>()};
             const unsubscribe = core.subscribe((frame) => {
+                let before = "";
+                if (frame.type === "delta") {
+                    if (streamed.request !== frame.request) streamed = {request: frame.request, parts: new Map()};
+                    const key = `${frame.part}|${frame.callId ?? ""}`;
+                    before = streamed.parts.get(key) ?? "";
+                    streamed.parts.set(key, before + frame.text);
+                }
                 queue = queue.then(async () => {
                     if (!active || state.closed) return;
                     if (frame.type === "log") {
@@ -340,7 +367,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                     if (frame.type === "delta" && outbound.delta !== undefined) {
                         let delta: typeof frame | null = null;
                         try {
-                            delta = await outbound.delta(frame, issuer);
+                            delta = await outbound.delta(frame, issuer, {...context, before});
                         } catch (error) {
                             withheld("delta", error);
                         }

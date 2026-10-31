@@ -329,8 +329,19 @@ export type ApproveHook = (call: ToolCall, info: ApprovalInfo, ctx: ApprovalCtx)
  * 逐条等、订阅的帧排队过滤，先后不变（docs/specs/harness/runtime.md 输出 54）。
  */
 export interface OutboundFilter {
-    event(event: LogEvent, reader: Issuer): LogEvent | null | Promise<LogEvent | null>;
-    delta?(frame: DeltaFrame, reader: Issuer): DeltaFrame | null | Promise<DeltaFrame | null>;
+    /** 换内容用 `mapEventContent`：它按字段走遍内核事件里带内容的地方，宿主只写对一段文字怎么办。 */
+    event(event: LogEvent, reader: Issuer, context: OutboundContext): LogEvent | null | Promise<LogEvent | null>;
+    delta?(frame: DeltaFrame, reader: Issuer, context: DeltaContext): DeltaFrame | null | Promise<DeltaFrame | null>;
+}
+/** 过滤时可查的东西：一个宿主常给多个会话共用一个过滤器，不必自己按会话记状态。 */
+export interface OutboundContext {
+    readonly sessionId: string;
+    /** 一次工具调用实际执行的参数（有 `toolStarted` 时用它，否则用回复里的）：过滤工具结果时按调用查，从中途开始读也查得到。 */
+    toolCall(callId: string): {readonly tool: string; readonly args: Readonly<Record<string, JsonValue>>} | undefined;
+}
+export interface DeltaContext extends OutboundContext {
+    /** 这个订阅者此前收到的同一次请求、同一部分（`toolArgs` 按调用分）的原文：一个词拆在两块里时拼起来查。 */
+    readonly before: string;
 }
 
 export interface SessionEnv {

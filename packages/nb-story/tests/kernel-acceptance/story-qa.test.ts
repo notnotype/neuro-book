@@ -7,7 +7,7 @@
  */
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
-import {defineProfile, type AnyProfile, type LogEvent, type SessionEnv} from "@notnotype/nb-harness/kernel";
+import {defineProfile, mapEventContent, type AnyProfile, type LogEvent, type SessionEnv} from "@notnotype/nb-harness/kernel";
 import {createTestSession, type TestSession, type TestTool} from "@notnotype/nb-harness/kernel/testing";
 import {Type} from "typebox";
 
@@ -146,25 +146,22 @@ describe("nb-story 验收门：新内核写的 story.qa", () => {
     test("场景 5：出站过滤用 nb-story 的防剧透：给人看的日志与流式增量里搜不到位置之后才出现的词，模型与存下的日志原样", async () => {
         const later = "夏桃桃";
         const q = await question();
-        const visibility = createVisibility(q.state.book, q.reach);
+        let visibility = createVisibility(q.state.book, q.reach);
         const outbound: SessionEnv["outbound"] = {
-            event: async (event, reader) => {
+            // 带参数与结果的字段由 mapEventContent 走遍（assistant 的调用、toolStarted 实际执行的参数、收尾结果……），宿主只写怎么换。
+            event: async (event, reader, context) => {
                 if (reader.kind !== "user") return event;
-                if (event.type === "assistant") {
-                    const data = event.data as {content: {kind: string}[]; toolCalls: {id: string; tool: string; args: Record<string, unknown>}[]};
-                    const toolCalls = await Promise.all(data.toolCalls.map(async (call) => ({...call, args: await visibility.args({...call.args}, call.id)})));
-                    return {...event, data: {...data, content: data.content.filter((block) => block.kind !== "thinking"), toolCalls}};
-                }
-                // 新内核多一种带参数的事件：toolStarted 记的是实际执行的参数，同样要换掉（迁移时宿主的过滤要覆盖它）。
-                if (event.type === "toolStarted") {
-                    const data = event.data as {callId: string; args: Record<string, unknown>};
-                    return {...event, data: {...data, args: await visibility.args({...data.args}, data.callId)}};
-                }
-                if (event.type === "toolResult") {
-                    const data = event.data as {callId: string; text: string};
-                    return {...event, data: {...data, text: visibility.result(data.callId, data.text)}};
-                }
-                return event;
+                const callId = event.type === "toolResult" ? (event.data as {callId: string}).callId : null;
+                // 工具结果要知道这次调用隐藏了哪些词：按调用查实际执行的参数，从中途读起（重连、重启）也查得到。
+                const call = callId === null ? undefined : context.toolCall(callId);
+                if (callId !== null && call !== undefined) await visibility.args({...call.args}, callId);
+                const shown = await mapEventContent(event, {
+                    text: (text, where) => (callId !== null && where.type === "toolResult" ? visibility.result(callId, text) : text),
+                    args: async (args, where) => (await visibility.args({...args}, where.callId ?? undefined)) as typeof args,
+                });
+                if (shown.type !== "assistant") return shown;
+                const data = shown.data as {content: {kind: string}[]};
+                return {...shown, data: {...data, content: data.content.filter((block) => block.kind !== "thinking")}};
             },
             // 思考与工具参数的增量一个词可能拆在两块里，逐块查不出来：给人看时整类不推，完整的内容随 assistant 事件过滤后到达。
             // 文字增量照推：story.qa 用 answer 交卷，日志里的文字同样不过滤（答案由校验把关）。
@@ -172,7 +169,7 @@ describe("nb-story 验收门：新内核写的 story.qa", () => {
         };
         await using session = await sessionFor(q, {outbound});
         session.model.script(
-            {thinking: `想想${later}`, tools: [{tool: "story.search", args: {query: later}}, {tool: "story.search", args: {query: "苏天晴"}}]},
+            {thinking: `想想${later}`, tools: [{tool: "story.search", args: {query: later}}, {tool: "story.search", args: {query: "苏天晴"}}, {tool: "story.card", args: {entity: later}}]},
             {tools: [read({chapter: 38, paragraph: 55}, {chapter: 38, paragraph: 55})]},
             {tools: [answer()]},
         );
@@ -188,9 +185,14 @@ describe("nb-story 验收门：新内核写的 story.qa", () => {
         const report = await session.say("那个新角色是谁？");
         expect(report.result.reason).toBe("finished");
         const forUser = (await session.raw.log({afterSeq: 0})).events;
-        const userCalls = dataOf<{toolCalls: {args: {query?: string}}[]}>(forUser, "assistant")[0]!.toolCalls.map((call) => call.args.query);
-        expect(userCalls).toEqual([HIDDEN_VALUE, "苏天晴"]);
+        const userCalls = dataOf<{toolCalls: {args: {query?: string; entity?: string}}[]}>(forUser, "assistant")[0]!.toolCalls.map((call) => call.args.query ?? call.args.entity);
+        expect(userCalls).toEqual([HIDDEN_VALUE, "苏天晴", HIDDEN_VALUE]);
         expect(JSON.stringify(forUser)).not.toContain(later);
+        // 从中途读起、过滤器的状态是新的（重启之后）：card 的结果回显了查的对象名，照样查得到这次调用隐藏的词。
+        visibility = createVisibility(q.state.book, q.reach);
+        const cardResult = forUser.find((event) => event.type === "toolResult" && (event.data as {tool: string}).tool === "story.card")!;
+        expect(JSON.stringify((await session.raw.log({afterSeq: cardResult.seq - 1, limit: 1})).events)).not.toContain(later);
+        expect(JSON.stringify((await session.raw.as({kind: "session", id: "internal"}).log({afterSeq: cardResult.seq - 1, limit: 1})).events)).toContain(later);
         stop();
         stopInternal();
         await new Promise<void>((resolve) => setImmediate(resolve));
