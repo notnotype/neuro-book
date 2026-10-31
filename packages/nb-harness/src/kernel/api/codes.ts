@@ -5,24 +5,25 @@
 
 /**
  * 每个指令可能返回的业务失败码，也是远程方法 `errors` 的来源。界面里“手快会撞上”的指令（`abort`、`remove` 已被取走的）
- * 要么幂等、要么给出可以区分的码。各指令共有的 `session-closed`、`read-only`、`log-broken` 也逐个列出，表即合同。
+ * 要么幂等、要么给出可以区分的码。各指令共有的 `command-id-conflict`（同一个 `commandId` 带了别的指令或参数）、
+ * `session-closed`、`read-only`、`log-broken` 也逐个列出，表即合同。
  */
 export const commandErrors = {
-    send: ["empty-input", "input-too-large", "input-rejected", "no-model", "no-credentials", "profile-invalid", "read-only", "session-closed", "log-broken"],
-    enqueue: ["empty-input", "input-too-large", "input-rejected", "read-only", "session-closed", "log-broken"],
-    edit: ["empty-input", "input-too-large", "input-rejected", "input-not-found", "input-consumed", "session-closed", "log-broken"],
-    remove: ["input-not-found", "input-consumed", "session-closed", "log-broken"],
-    resolve: ["unknown-interaction", "already-answered", "not-allowed", "invalid-answer", "input-rejected", "read-only", "session-closed", "log-broken"],
-    start: ["already-running", "nothing-to-continue", "no-model", "no-credentials", "profile-invalid", "read-only", "session-closed", "log-broken"],
-    abort: ["session-closed"],
-    rewind: ["running", "unknown-node", "invalid-target", "empty-input", "input-rejected", "session-closed", "log-broken"],
-    switchBranch: ["running", "unknown-node", "session-closed", "log-broken"],
-    fork: ["running", "unknown-node", "session-closed", "log-broken"],
-    compact: ["nothing-to-compact", "no-compaction-model", "read-only", "session-closed", "log-broken"],
-    changeSettings: ["unknown-extension", "unknown-key", "invalid-value", "session-closed", "log-broken"],
-    changeProfile: ["running", "unknown-profile", "extension-missing", "dependency-missing", "dependency-cycle", "profile-invalid", "session-closed", "log-broken"],
-    setTitle: ["empty-title", "session-closed", "log-broken"],
-    archive: ["session-closed", "log-broken"],
+    send: ["empty-input", "input-too-large", "input-rejected", "no-model", "no-credentials", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
+    enqueue: ["empty-input", "input-too-large", "input-rejected", "read-only", "command-id-conflict", "session-closed", "log-broken"],
+    edit: ["empty-input", "input-too-large", "input-rejected", "input-not-found", "input-consumed", "command-id-conflict", "session-closed", "log-broken"],
+    remove: ["input-not-found", "input-consumed", "command-id-conflict", "session-closed", "log-broken"],
+    resolve: ["unknown-interaction", "already-answered", "not-allowed", "invalid-answer", "input-rejected", "read-only", "command-id-conflict", "session-closed", "log-broken"],
+    start: ["already-running", "nothing-to-continue", "no-model", "no-credentials", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
+    abort: ["command-id-conflict", "session-closed"],
+    rewind: ["running", "unknown-node", "invalid-target", "empty-input", "input-rejected", "command-id-conflict", "session-closed", "log-broken"],
+    switchBranch: ["running", "unknown-node", "command-id-conflict", "session-closed", "log-broken"],
+    fork: ["running", "unknown-node", "command-id-conflict", "session-closed", "log-broken"],
+    compact: ["nothing-to-compact", "no-compaction-model", "read-only", "command-id-conflict", "session-closed", "log-broken"],
+    changeSettings: ["unknown-extension", "unknown-key", "invalid-value", "command-id-conflict", "session-closed", "log-broken"],
+    changeProfile: ["running", "unknown-profile", "extension-missing", "dependency-missing", "dependency-cycle", "profile-invalid", "command-id-conflict", "session-closed", "log-broken"],
+    setTitle: ["empty-title", "command-id-conflict", "session-closed", "log-broken"],
+    archive: ["command-id-conflict", "session-closed", "log-broken"],
 } as const;
 
 /** 存储与打开会话的失败码（`createSession`、`openSession`、`LogStore`）。 */

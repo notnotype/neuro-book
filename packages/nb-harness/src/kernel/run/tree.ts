@@ -54,7 +54,7 @@ export function rewindTargets(core: SessionCore): RewindTarget[] {
 }
 
 export function rewindCommand(host: CommandHost, args: CommandMap["rewind"]["args"] & {commandId: string}): Promise<CommandResult<"rewind">> {
-    return accept(host, "rewind", args.commandId, async () => {
+    return accept(host, "rewind", args, async () => {
         const {core, control} = host;
         if (!control.idle) return {fail: "running", detail: {runId: control.active?.runId ?? ""}};
         if (args.to === null) return {fail: "invalid-target"};
@@ -80,7 +80,7 @@ export function rewindCommand(host: CommandHost, args: CommandMap["rewind"]["arg
 }
 
 export function switchBranchCommand(host: CommandHost, args: CommandMap["switchBranch"]["args"] & {commandId: string}): Promise<CommandResult<"switchBranch">> {
-    return accept(host, "switchBranch", args.commandId, () => {
+    return accept(host, "switchBranch", args, () => {
         const {core, control} = host;
         if (!control.idle) return {fail: "running", detail: {runId: control.active?.runId ?? ""}};
         const node = core.byId.get(args.node);

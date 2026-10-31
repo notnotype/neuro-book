@@ -100,7 +100,7 @@ function allowed(core: SessionCore, item: PendingInteraction, issuer: Issuer): b
 
 export async function resolveCommand(host: CommandHost & {interactions: Interactions}, issuer: Issuer, args: CommandMap["resolve"]["args"] & {commandId: string}): Promise<CommandResult<"resolve">> {
     let claimed: ((resolution: Resolution) => void) | undefined;
-    const result = await accept(host, "resolve", args.commandId, async () => {
+    const result = await accept(host, "resolve", args, async () => {
         const {core, control} = host;
         const item = core.leafState.kernel.pending.find((pending) => pending.id === args.id);
         if (item === undefined) {

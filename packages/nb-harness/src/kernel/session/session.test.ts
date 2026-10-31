@@ -52,7 +52,7 @@ describe.each([["内存存储", false], ["JSONL 存储", true]] as const)("一�
         expect(third.result.text).toBe("三");
     });
 
-    test("输出 17：重发同一个 commandId 只生效一次，重启之后同样", async () => {
+    test("输出 17：重发同一个 commandId 只生效一次，重启之后同样；参数或指令不同得 command-id-conflict", async () => {
         await using session = await createTestSession(options());
         session.model.script("好");
         const first = await session.raw.send({commandId: "same", input: {text: "一次"}});
@@ -63,6 +63,9 @@ describe.each([["内存存储", false], ["JSONL 存储", true]] as const)("一�
         await session.reopen();
         const afterRestart = await session.raw.send({commandId: "same", input: {text: "一次"}});
         expect(afterRestart).toMatchObject({ok: true, value: first.value, replayed: true});
+        // 同一个 commandId 带了别的参数或别的指令：调用方用重了 id，不当成重发。
+        expect(await session.raw.send({commandId: "same", input: {text: "完全不同的第二问"}})).toEqual({ok: false, code: "command-id-conflict"});
+        expect(await session.raw.setTitle({commandId: "same", title: "标题"})).toEqual({ok: false, code: "command-id-conflict"});
         expect((await session.raw.log({afterSeq: 0})).events.filter((event) => event.type === "commandAccepted")).toHaveLength(1);
     });
 });

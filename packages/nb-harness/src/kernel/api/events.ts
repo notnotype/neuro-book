@@ -76,7 +76,8 @@ export interface KernelEvents {
 
     // ---- 会话级（session）----
     /** 被受理的指令；重发同一个 `commandId` 查它，返回第一次的 `value`。`value` 引用的 id 都在同一批里写出。 */
-    commandAccepted: K<"session", "ctrl", {commandId: string; name: string; value: JsonValue}>;
+    /** `argsHash`：指令参数（去掉 `commandId`）按键排序后的 SHA-256，重发时核对是不是同一条指令。 */
+    commandAccepted: K<"session", "ctrl", {commandId: string; name: string; value: JsonValue; argsHash?: string}>;
     /** 设置按扩展分开（核心设置组的 `extension` 是 `core`）；只派发给设置所属的扩展。 */
     settingsChanged: K<"session", "ctrl", {extension: string; patch: Readonly<Record<string, JsonValue>>}>;
     leafChanged: K<"session", "ctrl", {leaf: string | null}>;

@@ -206,7 +206,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         resolve: (args) => closedGuard(async () => (state.readOnly !== null ? {ok: false, code: "read-only"} as const : resolveCommand({...host, interactions: control.interactions}, issuer, args))),
         rewind: (args) => closedGuard(() => rewindCommand(host, args)),
         switchBranch: (args) => closedGuard(() => switchBranchCommand(host, args)),
-        fork: (args) => closedGuard(() => accept(host, "fork", args.commandId, async (): Promise<Outcome<"fork">> => {
+        fork: (args) => closedGuard(() => accept(host, "fork", args, async (): Promise<Outcome<"fork">> => {
             if (!control.idle) return {fail: "running", detail: {runId: control.active?.runId ?? ""}};
             const leaf = args.leaf === undefined ? core.leaf : args.leaf;
             if (leaf !== null && core.byId.get(leaf)?.scope !== "path") return {fail: "unknown-node"};
@@ -214,7 +214,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
             if (!forked.ok) return {fail: "log-broken"};
             return {value: {sessionId: forked.id}, drafts: []};
         })),
-        compact: (args) => closedGuard(() => accept(host, "compact", args.commandId, async (): Promise<Outcome<"compact">> => {
+        compact: (args) => closedGuard(() => accept(host, "compact", args, async (): Promise<Outcome<"compact">> => {
             if (state.readOnly !== null) return {fail: "read-only"};
             const asked = args.requirement === undefined || args.requirement.trim() === "" ? [] : [args.requirement];
             if (!env.models.resolve(core.session.kernel.core, "compaction").ok) return {fail: "no-compaction-model"};
@@ -228,7 +228,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
             return {value: {scheduled: "now", runId}, drafts: [{type: "runStarted", kind: "ctrl", scope: "path", data: {runId, kind: "compact"}}], launch: runId, launchOptions: {compact: {require: asked}}};
         })),
         changeSettings: (args) => closedGuard(() => changeSettingsCommand(host, args)),
-        changeProfile: (args) => closedGuard(() => accept(host, "changeProfile", args.commandId, async (): Promise<Outcome<"changeProfile">> => {
+        changeProfile: (args) => closedGuard(() => accept(host, "changeProfile", args, async (): Promise<Outcome<"changeProfile">> => {
             if (!control.idle) return {fail: "running", detail: {runId: control.active?.runId ?? ""}};
             const profile = await env.profiles.resolve(args.profile);
             if (profile === undefined) return {fail: "unknown-profile"};

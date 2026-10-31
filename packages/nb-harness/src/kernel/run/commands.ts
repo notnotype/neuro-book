@@ -9,6 +9,7 @@
 
 import type {Attributed, CommandMap, CommandName, CommandResult, JsonValue, LogEvent, ModelPort, Resources, UserInput} from "../api/index.js";
 import {LogBrokenError, type EventDraft, type SessionCore} from "../dispatch/core.js";
+import {canonicalJson, sha256} from "../log/json.js";
 import type {RunControl} from "./control.js";
 import {takeInputDrafts} from "./loop.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
@@ -37,18 +38,20 @@ export interface CommandHost {
 export type Outcome<K extends CommandName> = {value: CommandMap[K]["value"]; drafts: EventDraft[]; launch?: string; launchOptions?: {compact?: {require: readonly string[]}}; written?: () => Promise<void>; after?: () => Promise<void>} | {fail: string; detail?: Attributed | Record<string, JsonValue>};
 
 /** 受理一条指令：查重发、校验、写受理批、需要时开始运行。 */
-export async function accept<K extends CommandName>(host: CommandHost, name: K, commandId: string, decide: () => Outcome<K> | Promise<Outcome<K>>): Promise<CommandResult<K>> {
+export async function accept<K extends CommandName>(host: CommandHost, name: K, args: CommandMap[K]["args"] & {commandId: string}, decide: () => Outcome<K> | Promise<Outcome<K>>): Promise<CommandResult<K>> {
     const {core} = host;
+    const {commandId} = args;
+    const argsHash = argsHashOf(args);
     let after: (() => Promise<void>) | undefined;
     // 这次受理批写失败：句柄进损坏状态，指令以 `log-broken` 交回（session.md 输出 12），不把错误抛给调用方。
     const result = await core.queue.run(async (): Promise<CommandResult<K>> => {
         const previous = core.commands.get(commandId);
-        if (previous !== undefined) return {ok: true, value: previous.value as CommandMap[K]["value"], seq: previous.seq, replayed: true} as CommandResult<K>;
+        if (previous !== undefined) return replay(previous, name, argsHash) as CommandResult<K>;
         if (core.broken) return {ok: false, code: "log-broken"} as unknown as CommandResult<K>;
         const outcome = await decide();
         if (host.closed()) return {ok: false, code: "session-closed"} as unknown as CommandResult<K>;
         if ("fail" in outcome) return {ok: false, code: outcome.fail, ...(outcome.detail === undefined ? {} : {detail: outcome.detail})} as unknown as CommandResult<K>;
-        const accepted: EventDraft = {type: "commandAccepted", kind: "ctrl", scope: "session", data: {commandId, name, value: outcome.value as JsonValue}};
+        const accepted: EventDraft = {type: "commandAccepted", kind: "ctrl", scope: "session", data: {commandId, name, value: outcome.value as JsonValue, argsHash}};
         // commandAccepted 排在批的最后：它的 seq 就是受理批最后一条的 seq，重发时原样交回。
         let written: readonly LogEvent[];
         try {
@@ -66,6 +69,21 @@ export async function accept<K extends CommandName>(host: CommandHost, name: K, 
     return result;
 }
 
+/** 指令参数（去掉 `commandId`）的哈希：重发同一个 `commandId` 时核对是不是同一条指令。 */
+function argsHashOf(args: {commandId: string}): string {
+    const {commandId: _commandId, ...rest} = args;
+    return sha256(canonicalJson(rest));
+}
+
+/**
+ * 重发：同名、同参数交回第一次的结果；名字或参数不同说明调用方把 `commandId` 用重了，得 `command-id-conflict`，
+ * 不当成重发（否则第二条指令静默地拿到第一条的结果）。早先写下的受理记录没有参数哈希，只比名字。
+ */
+function replay(previous: {name: string; value: JsonValue; seq: number; argsHash?: string}, name: string, argsHash: string): {ok: true; value: never; seq: number; replayed: true} | {ok: false; code: "command-id-conflict"} {
+    if (previous.name !== name || (previous.argsHash !== undefined && previous.argsHash !== argsHash)) return {ok: false, code: "command-id-conflict"};
+    return {ok: true, value: previous.value as never, seq: previous.seq, replayed: true};
+}
+
 export const isEmpty = (input: UserInput): boolean => input.text.trim() === "" && (input.attachments?.length ?? 0) === 0;
 
 /** 开始运行前就能判定的失败：只读、没有模型、没有凭据。 */
@@ -77,7 +95,7 @@ export function startProblem(host: CommandHost): string | null {
 }
 
 export function sendCommand(host: CommandHost, args: CommandMap["send"]["args"] & {commandId: string}): Promise<CommandResult<"send">> {
-    return accept(host, "send", args.commandId, async () => {
+    return accept(host, "send", args, async () => {
         if (isEmpty(args.input)) return {fail: "empty-input"};
         const {core, control} = host;
         const idle = control.idle;
@@ -99,7 +117,7 @@ export function sendCommand(host: CommandHost, args: CommandMap["send"]["args"] 
 }
 
 export function enqueueCommand(host: CommandHost, args: CommandMap["enqueue"]["args"] & {commandId: string}): Promise<CommandResult<"enqueue">> {
-    return accept(host, "enqueue", args.commandId, async () => {
+    return accept(host, "enqueue", args, async () => {
         if (isEmpty(args.input)) return {fail: "empty-input"};
         if (host.readOnly() !== null) return {fail: "read-only"};
         const intercepted = await interceptInput(host, args.input);
@@ -110,7 +128,7 @@ export function enqueueCommand(host: CommandHost, args: CommandMap["enqueue"]["a
 }
 
 export function startCommand(host: CommandHost, args: CommandMap["start"]["args"] & {commandId: string}): Promise<CommandResult<"start">> {
-    return accept(host, "start", args.commandId, () => {
+    return accept(host, "start", args, () => {
         const {core, control} = host;
         if (!control.idle) return {fail: "already-running"};
         const problem = startProblem(host);
@@ -139,8 +157,9 @@ const aborting = new WeakMap<SessionCore, Map<string, Promise<CommandResult<"abo
  */
 export function abortCommand(host: CommandHost, args: CommandMap["abort"]["args"] & {commandId: string}): Promise<CommandResult<"abort">> {
     const {core} = host;
+    const argsHash = argsHashOf(args);
     const previous = core.commands.get(args.commandId);
-    if (previous !== undefined) return Promise.resolve({ok: true, value: previous.value as {aborted: boolean}, seq: previous.seq, replayed: true});
+    if (previous !== undefined) return Promise.resolve(replay(previous, "abort", argsHash) as CommandResult<"abort">);
     const inflight = aborting.get(core) ?? new Map<string, Promise<CommandResult<"abort">>>();
     aborting.set(core, inflight);
     const running = inflight.get(args.commandId);
@@ -149,7 +168,7 @@ export function abortCommand(host: CommandHost, args: CommandMap["abort"]["args"
         const aborted = await host.control.abort();
         if (!aborted || core.broken) return {ok: true, value: {aborted}, seq: core.head, replayed: false};
         const removed: EventDraft[] = args.keepQueue === true ? [] : core.session.kernel.buffer.map((item) => ({type: "inputRemoved", kind: "ctrl", scope: "session", data: {id: item.id, reason: "aborted"}}));
-        const accepted: EventDraft = {type: "commandAccepted", kind: "ctrl", scope: "session", data: {commandId: args.commandId, name: "abort", value: {aborted}}};
+        const accepted: EventDraft = {type: "commandAccepted", kind: "ctrl", scope: "session", data: {commandId: args.commandId, name: "abort", value: {aborted}, argsHash}};
         try {
             const {events} = await core.queue.run(() => writeAndReact(core, [...removed, accepted], host.react));
             return {ok: true, value: {aborted}, seq: events.at(-1)!.seq, replayed: false};
@@ -170,7 +189,7 @@ function bufferProblem(core: SessionCore, inputId: string): "input-not-found" | 
 }
 
 export function editCommand(host: CommandHost, args: CommandMap["edit"]["args"] & {commandId: string}): Promise<CommandResult<"edit">> {
-    return accept(host, "edit", args.commandId, async () => {
+    return accept(host, "edit", args, async () => {
         if (isEmpty(args.input)) return {fail: "empty-input"};
         const problem = bufferProblem(host.core, args.inputId);
         if (problem !== null) return {fail: problem};
@@ -183,7 +202,7 @@ export function editCommand(host: CommandHost, args: CommandMap["edit"]["args"] 
 }
 
 export function removeCommand(host: CommandHost, args: CommandMap["remove"]["args"] & {commandId: string}): Promise<CommandResult<"remove">> {
-    return accept(host, "remove", args.commandId, () => {
+    return accept(host, "remove", args, () => {
         const problem = bufferProblem(host.core, args.inputId);
         if (problem !== null) return {fail: problem};
         return {value: {}, drafts: [{type: "inputRemoved", kind: "ctrl", scope: "session", data: {id: args.inputId, reason: "user"}}]};
@@ -191,7 +210,7 @@ export function removeCommand(host: CommandHost, args: CommandMap["remove"]["arg
 }
 
 export function setTitleCommand(host: CommandHost, args: CommandMap["setTitle"]["args"] & {commandId: string}): Promise<CommandResult<"setTitle">> {
-    return accept(host, "setTitle", args.commandId, () => {
+    return accept(host, "setTitle", args, () => {
         const title = args.title.trim();
         if (title === "") return {fail: "empty-title"};
         return {value: {}, drafts: [{type: "titleChanged", kind: "ctrl", scope: "session", data: {title, by: "user"}}]};
@@ -199,7 +218,7 @@ export function setTitleCommand(host: CommandHost, args: CommandMap["setTitle"][
 }
 
 export function archiveCommand(host: CommandHost, args: CommandMap["archive"]["args"] & {commandId: string}): Promise<CommandResult<"archive">> {
-    return accept(host, "archive", args.commandId, () => ({value: {}, drafts: [{type: "archived", kind: "ctrl", scope: "session", data: {archived: args.archived}}]}));
+    return accept(host, "archive", args, () => ({value: {}, drafts: [{type: "archived", kind: "ctrl", scope: "session", data: {archived: args.archived}}]}));
 }
 
 /**
@@ -207,7 +226,7 @@ export function archiveCommand(host: CommandHost, args: CommandMap["archive"]["a
  * 视图只在算请求时读设置，所以效果就是“下一次请求前生效”（`scheduled: "next-boundary"`）。值没变的项不写。
  */
 export function changeSettingsCommand(host: CommandHost, args: CommandMap["changeSettings"]["args"] & {commandId: string}): Promise<CommandResult<"changeSettings">> {
-    return accept(host, "changeSettings", args.commandId, () => {
+    return accept(host, "changeSettings", args, () => {
         const {core} = host;
         const problem = settingsProblem(core.assembly, args.patch);
         if (problem !== null) {

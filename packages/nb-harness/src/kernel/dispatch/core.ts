@@ -81,7 +81,7 @@ export class SessionCore {
     readonly events: LogEvent[] = [];
     readonly byId = new Map<string, LogEvent>();
     /** 受理过的指令：`commandId` → 第一次的结果。由 `commandAccepted` 建，重开时从日志重建。 */
-    readonly commands = new Map<string, {name: string; value: JsonValue; seq: number}>();
+    readonly commands = new Map<string, {name: string; value: JsonValue; seq: number; argsHash?: string}>();
     assembly: Assembly;
     leaf: string | null = null;
     /**
@@ -208,8 +208,8 @@ export class SessionCore {
         }
         this.#session = session;
         if (event.type === "commandAccepted") {
-            const data = event.data as {commandId: string; name: string; value: JsonValue};
-            this.commands.set(data.commandId, {name: data.name, value: data.value, seq: event.seq});
+            const data = event.data as {commandId: string; name: string; value: JsonValue; argsHash?: string};
+            this.commands.set(data.commandId, {name: data.name, value: data.value, seq: event.seq, ...(data.argsHash === undefined ? {} : {argsHash: data.argsHash})});
         }
         if (event.key !== undefined) this.#keys.add(`${event.source}\u0000${event.key}`);
         // 被模型拦截直接给出的回复没有 modelStarted，序号也要算进来（runtime.md 输出 22）。
