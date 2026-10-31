@@ -49,7 +49,7 @@ describe("装配", () => {
         expect(failure).toContain("slice-initial-not-json");
     });
 
-    test("输出 2：设置缺缺省值、处理函数挂在不存在的事件上、槽名不合法、提醒没有触发条件：装配照常，留诊断", async () => {
+    test("输出 2：设置缺缺省值、处理函数挂在不存在的事件上（扩展的 render 挂在别的事件上）、槽名不合法、提醒没有触发条件：装配照常，留诊断", async () => {
         const sloppy = defineExtension({
             id: "lab.sloppy",
             settings: Type.Object({level: Type.String()}),
@@ -58,9 +58,12 @@ describe("装配", () => {
             contribute: {"Bad Slot": {value: () => null}},
         });
         const silent = (reminder as (options: object) => never)({id: "lab.silent", text: () => "x"});
-        await using session = await createTestSession({extensions: [sloppy, silent]});
+        const renderer = defineExtension({id: "lab.renderer", render: {input: () => "x"}} as never);
+        await using session = await createTestSession({extensions: [sloppy, silent, renderer]});
         const diagnostics = await session.raw.diagnostics();
-        const byCode = new Map(diagnostics.map((item) => [item.code, item]));
+        // 扩展的 render 挂在内核事件上：提示往 Profile 的 render 去。
+        expect(diagnostics.find((item) => item.extension === "lab.renderer")).toMatchObject({code: "unknown-event-handler", hint: "override other events in the Profile's render, or declare a conv event of your own"});
+        const byCode = new Map(diagnostics.filter((item) => item.extension !== "lab.renderer").map((item) => [item.code, item]));
         expect(byCode.get("setting-missing-default")?.params).toEqual({key: "level"});
         expect(byCode.get("unknown-event-handler")?.hint).toBe("did you mean turnStarted?");
         expect(byCode.get("bad-slot-name")?.params).toEqual({slot: "Bad Slot"});

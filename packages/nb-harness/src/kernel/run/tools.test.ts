@@ -67,6 +67,7 @@ describe("工具集", () => {
         const report = await needy.say("问");
         expect(report.result).toMatchObject({reason: "error", error: {kind: "local", code: "tools-missing"}});
         expect(report.requests).toHaveLength(0);
+        expect((await needy.raw.diagnostics()).filter((item) => item.code === "tools-missing").map((item) => item.params.missing)).toEqual(["lab.write"]);
         expect(await needy.raw.send({commandId: "again", input: {text: "再来"}})).toMatchObject({ok: false, code: "read-only"});
     });
 

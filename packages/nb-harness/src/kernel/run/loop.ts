@@ -189,7 +189,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             const missing = required.filter((id) => !tools.some((tool) => tool.id === id));
             if (missing.length > 0) {
                 host.markReadOnly("tools-missing");
-                core.diagnostics.add({code: "tool-declaration-invalid", entry: "host", subject: "required", params: {missing: missing.join(", ")}, message: `required tools are missing: ${missing.join(", ")}; the session is read-only until it is reopened`}, core.head);
+                core.diagnostics.add({code: "tools-missing", entry: "host", subject: "required", params: {missing: missing.join(", ")}, message: `required tools are missing: ${missing.join(", ")}; the session is read-only until it is reopened`, hint: "check the tool ids in the Profile's tools.required, or make the host declare them"}, core.head);
                 return await end("error", {reason: "error", error: {kind: "local", code: "tools-missing"}});
             }
             const announced = tools.map((tool) => ({id: tool.id, version: tool.version})).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

@@ -149,6 +149,11 @@ function warningsOf(item: Assembled): AssemblyWarning[] {
     const checkKeys = (entry: "on" | "reduce" | "render", keys: readonly string[], allowed: ReadonlySet<string>) => {
         for (const key of keys) {
             if (allowed.has(key)) continue;
+            // 扩展的 render 挂在看得到、但不是自己的事件上：提示往 Profile 的 render 去，不再说“这不是它看得到的事件”。
+            if (entry === "render" && known.has(key)) {
+                warnings.push({code: "unknown-event-handler", extension: id, params: {entry, key}, message: `${id}.render can only render its own conv events; ${key} is not one of them`, hint: "override other events in the Profile's render, or declare a conv event of your own"});
+                continue;
+            }
             const guess = closest(key, allowed);
             warnings.push({code: "unknown-event-handler", extension: id, params: {entry, key}, message: `${id}.${entry} has a handler for ${key}, which is not an event it can see`, hint: guess === null ? "use a kernel event, one of its own events, or <dependency id>/<event> for an event of a dependency in dependsOn" : `did you mean ${guess}?`});
         }
