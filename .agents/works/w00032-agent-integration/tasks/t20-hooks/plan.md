@@ -263,6 +263,7 @@
 | 8 | `harness/runtime.md` 输出 46–52；`extensions.md` 输出 9（`resetOnCompaction`） | `src/kernel/compaction/compaction.test.ts` |
 | 9 | `harness/runtime.md` 输出 53–57；`session.md` 输出 16；`extensions.md` 输出 26、27；Smoke：`runtime.md` 验收与 Smoke | `src/kernel/session/host.test.ts`、`tests/kernel/kernel.llm.test.ts`（DeepSeek，4 条通过） |
 | 10 | `agent/harness.md` 输出 10–21 在新 Spec 里的对应条目；五个场景 | `packages/nb-story/tests/kernel-acceptance/story-qa.test.ts`（4 条通过）；逐项对应见 `evidences/slice10-gate.txt` |
+| 11 | 第 1 节决定 9 的预算；`profile.md` 场景 2 | `tests/kernel/measure-open.ts`、`measure-request.ts`、`measure-ops.ts`（`evidences/slice11-measure.txt`）；请求哈希的行为在 `run/tools.test.ts`“hash 只随请求内容变” |
 
 ## 7. 验证
 

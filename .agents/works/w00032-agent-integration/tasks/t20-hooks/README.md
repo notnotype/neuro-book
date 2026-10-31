@@ -93,4 +93,6 @@ t05、t06、t07。
 
 ## 下一步
 
-下一片是第 11 片（性能：提案第 19 节六项，2 万条验收、10 万条报数），之后收口（全量、`test:affected`、`test:llm`、深入审查的计划与预算；各片的变异检查汇总在 [`evidences/mutation-checks.txt`](evidences/mutation-checks.txt)）。全部切片之后做一次深入审查（开审前报计划与预算）。介绍页（`intro` v3）已过时，随实现更新。
+- 第 11 片完成（提案第 19 节六项，[`evidences/slice11-measure.txt`](evidences/slice11-measure.txt)）：2 万条打开 150–240 ms、常驻增量约 60 MB；请求哈希改成逐条消息摘要合成（Work 分支 `c1966c3ee`），热请求从约 40 ms 降到约 15 ms；打开后第一次请求约 75 ms，超过 50 ms，按打开的一次性代价判定，记进 [待确认清单](../../pending-confirmations.md)。10 万条打开约 0.7 秒、热请求 60 ms（只报数）。第 9–11 片实现审查在后台（omp）。
+
+下一步是收口（全量、`test:affected`、`test:llm`、深入审查的计划与预算；各片的变异检查汇总在 [`evidences/mutation-checks.txt`](evidences/mutation-checks.txt)）。全部切片之后做一次深入审查（开审前报计划与预算）。介绍页（`intro` v3）已过时，随实现更新。
