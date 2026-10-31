@@ -87,10 +87,10 @@ t05、t06、t07。
 
 - 第 8 片完成（`runtime.md` 输出 46–52）：估算（缓存读写算进用量）与缺省触发点、方法按 Profile 的顺序经压缩拦截链依次调用、结果校验、压缩事件与放回的内容同批、`core.history` 按切点与摘要归约、省略的条目渲染成占位、溢出时压缩后重发一次、中止不写压缩事件、`compact` 指令（空闲开只压缩的运行，运行中到下一个边界）。补定的类型与两处取舍记进 [待确认清单](../../pending-confirmations.md)。2026-10-31 起按开发者要求用 autonomous-delivery 推进剩余切片。
 
-- 第 9 片完成（`runtime.md` 输出 53–57）：关闭顺序与关闭后迟到的写入、出站过滤（帧与日志查询）、进程收尾按 `interrupted` 收口（`onProcessInterrupt` 搬进新内核）、`complete()`、预览下一次请求、插件宿主 `createAgentHost` 与运行中撤回（跳过、空闲时重新装配、失败进只读）。真实模型（DeepSeek）4 条通过：一轮与重开、工具调用、流式中途中止、回退重发。第 8 片实现审查在后台（omp）。
+- 第 9 片完成（`runtime.md` 输出 53–57）：关闭顺序与关闭后迟到的写入、出站过滤（帧与日志查询）、进程收尾按 `interrupted` 收口（`onProcessInterrupt` 搬进新内核）、`complete()`、预览下一次请求、插件宿主 `createAgentHost` 与运行中撤回（跳过、空闲时重新装配、失败进只读）。真实模型（DeepSeek）4 条通过：一轮与重开、工具调用、流式中途中止、回退重发。第 8 片实现审查（omp）：12 条（阻断 1：不响应中止的压缩方法会卡住中止与关闭），全部成立已改（Work 分支 `71f72b044`，Spec 订正 runtime 输出 34、46、47、51、52 与 extensions 输出 17），见 [`evidences/slice8-impl-review.txt`](evidences/slice8-impl-review.txt)。
 
 - 第 10 片（nb-story 验收门）通过：用新内核写 `story.qa` 与 `answer` 收尾，五个场景全部通过（[`evidences/slice10-gate.txt`](evidences/slice10-gate.txt)）。门发现一个内核缺口：出站过滤原是同步的，nb-story 的防剧透要查书库；先回写 Spec 与计划，改为可以异步（Work 分支 `0952de6d8`）。另记一条迁移注意：宿主的防剧透要覆盖 `toolStarted` 的参数。
 
 ## 下一步
 
-下一片是第 11 片（性能：提案第 19 节六项，2 万条验收、10 万条报数），之后收口（全量、`test:affected`、`test:llm`、变异检查、深入审查的计划与预算）。全部切片之后做一次深入审查（开审前报计划与预算）。介绍页（`intro` v3）已过时，随实现更新。
+下一片是第 11 片（性能：提案第 19 节六项，2 万条验收、10 万条报数），之后收口（全量、`test:affected`、`test:llm`、深入审查的计划与预算；各片的变异检查汇总在 [`evidences/mutation-checks.txt`](evidences/mutation-checks.txt)）。全部切片之后做一次深入审查（开审前报计划与预算）。介绍页（`intro` v3）已过时，随实现更新。
