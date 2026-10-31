@@ -28,11 +28,11 @@ export interface Usage {
 }
 
 /**
- * 回复的内容块。思考块连同服务商要求带回的签名与元数据（`provider`，原样保存）一起存，工具调用循环里原样送回；
+ * 回复的内容块。服务商要求带回的签名与元数据（`provider`，适配器原样保存、原样送回，内核不读）跟着块存；
  * 图片一律是大块内容，`blob` 是会话目录 `blobs/` 下的 SHA-256。
  */
 export type ContentBlock =
-    | {readonly kind: "text"; readonly text: string}
+    | {readonly kind: "text"; readonly text: string; readonly provider?: JsonValue}
     | {readonly kind: "thinking"; readonly text: string; readonly signature?: string; readonly redacted?: boolean; readonly provider?: JsonValue}
     | {readonly kind: "image"; readonly blob: string; readonly mime: string; readonly width?: number; readonly height?: number};
 
@@ -53,6 +53,10 @@ export interface Message {
     readonly toolCalls?: readonly ToolCall[];
     /** `tool` 消息回应的调用 id。 */
     readonly callId?: string;
+    /** `tool` 消息：工具没有成功（出错、被拒、结果未知）。 */
+    readonly isError?: boolean;
+    /** `assistant` 消息：作答的模型全名。适配器据此判断思考签名能不能原样送回（换了服务商的不送）。 */
+    readonly model?: string;
 }
 
 export interface ModelRequest {

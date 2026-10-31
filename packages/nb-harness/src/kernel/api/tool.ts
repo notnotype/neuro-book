@@ -38,6 +38,8 @@ export interface ToolCall {
     /** 工具 id。 */
     readonly tool: string;
     readonly args: Readonly<Record<string, unknown>>;
+    /** 服务商要求带回的调用元数据（例如 Google 的思考签名）；适配器原样保存、原样送回。 */
+    readonly provider?: JsonValue;
 }
 
 /**

@@ -1,4 +1,4 @@
-/** 内核的全部公开类型与码表；没有运行时代码（码表是常量数据）。 */
+/** 内核的全部公开类型与码表；运行时的部分只有常量数据与工具名的换算（请求校验与适配器共用）。 */
 
 export type {Actor, Attributed, Clock, DeepReadonly, Issuer, JsonValue, Rejection, Scope, UserInput} from "./basics.js";
 export {commandErrors, diagnosticCodes, runErrorCodes, storageErrors, toolResultCodes} from "./codes.js";
@@ -33,3 +33,4 @@ export type {Slice, SliceFactory, SliceValue, StateDecl, StateValues} from "./st
 export type {LogHandle, LogStore, SessionIndexEntry, StorageNotice, StorageResult} from "./storage.js";
 export {kernelEventSpecs} from "./kernel-events.js";
 export type {ApprovalVerdict, QuestionAnswer, QuestionRequest, ToolCall, ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo, ToolResult, ToolStatus} from "./tool.js";
+export {providerNameProblem, providerToolName, TOOL_NAME_LIMIT, toolIdProblem} from "./tool-name.js";
