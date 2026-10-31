@@ -99,4 +99,6 @@ t05、t06、t07。
 
 - 实现的深入审查（开发者 2026-10-31 批准计划与预算，对象 `7ec9baa42`）：omp（gpt-6.1-sol，跨切片不变量、崩溃恢复、功能叠加、生命周期）11 条（阻断 3、重要 8）；Claude Opus（照公开 API 写三个扩展并试迁移 nb-story 的问答）20 条（重要 8、建议 12）；Claude Sonnet（出站帧与日志分页对照 nb-agent-ui 适配器）17 条（重要 12、建议 5）。omp 的全部改了；Opus 的改了 16 条，4 条不改并写明理由；Sonnet 的整条改了 7 条，5 条改了一部分，5 条整条留给 t17（留下的部分已记进 [t17](../t17-conversation-ui/README.md)）。修正在 Work 分支 `4fdd77d22..77cfb5422`（20 个提交），Spec 同步改了 `runtime.md`、`session.md`、`extensions.md`；新增的类型与 Profile 工具的语义记进 [待确认清单](../../pending-confirmations.md)。处置与验证见 [`evidences/deep-review-disposition.md`](evidences/deep-review-disposition.md)。nb-harness 全量 309 条通过、6 条跳过，nb-story 验收门 4 条通过，`test:llm`（DeepSeek）6 条通过；重新测了性能，没有回归。
 
-下一步：t20 完成，等开发者看待确认清单与是否合入。介绍页（`intro` v3）已过时，随实现更新。
+- 合入（开发者 2026-10-31 同意）：master 先合进 Work 分支（`1e64e1fb7`，无冲突），nb-harness 全量 309 通过、6 跳过，nb-story 全量 669 通过；`test:affected --since master` 只有两项失败：nb-ui 的 `NB_UI_VERSION` 在 master 上同样失败，neuro-book 的 `mount.dom.test.ts` 在负载 16 时超时、单独重跑通过（分支没改 neuro-book）。之后 master 快进到 `1e64e1fb7`。
+
+下一步：t20 完成并已合入，待确认清单等开发者看。介绍页（`intro` v3）已过时，随实现更新。
