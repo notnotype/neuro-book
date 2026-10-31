@@ -4,7 +4,7 @@
  * `value` 引用的 id 都在受理批里写出：空闲时会开始运行的指令，受理批就含 `runStarted`（输出 18）。
  *
  * 受理（校验加写）在队列的一项里做，所以两条指令的校验看到的状态不会交错。`send`、`enqueue` 的输入拦截链也在这一项里跑
- * （runtime.md 输出 24），拒绝时整条指令失败、不写日志。这一版有 `send`、`enqueue`、`start`、`abort`；其余指令随后续切片加入。
+ * （runtime.md 输出 24），拒绝时整条指令失败、不写日志。`abort` 不经队列（先触发信号），清空缓冲区作为之后的一项写入。
  */
 
 import type {Attributed, CommandMap, CommandName, CommandResult, JsonValue, ModelPort, Resources, UserInput} from "../api/index.js";
@@ -14,6 +14,7 @@ import {takeInputDrafts} from "./loop.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 import type {ViewEnvironment} from "../extension/ctx.js";
 import {interceptInput, queuedData} from "./input.js";
+import {settingsProblem} from "./settings.js";
 
 export interface CommandHost {
     readonly core: SessionCore;
@@ -27,7 +28,7 @@ export interface CommandHost {
     readOnly(): string | null;
 }
 
-type Outcome<K extends CommandName> = {value: CommandMap[K]["value"]; drafts: EventDraft[]; launch?: string} | {fail: string; detail?: Attributed};
+type Outcome<K extends CommandName> = {value: CommandMap[K]["value"]; drafts: EventDraft[]; launch?: string} | {fail: string; detail?: Attributed | Record<string, JsonValue>};
 
 /** 受理一条指令：查重发、校验、写受理批、需要时开始运行。 */
 async function accept<K extends CommandName>(host: CommandHost, name: K, commandId: string, decide: () => Outcome<K> | Promise<Outcome<K>>): Promise<CommandResult<K>> {
@@ -104,8 +105,79 @@ export function startCommand(host: CommandHost, args: CommandMap["start"]["args"
     });
 }
 
-/** 中止不经队列：先触发信号，收口由运行循环作为队列里的一项写入。幂等：没有运行时 `aborted: false`。 */
-export async function abortCommand(host: CommandHost): Promise<CommandResult<"abort">> {
+/**
+ * 中止不经队列：先触发信号，收口由运行循环作为队列里的一项写入。幂等：没有运行时 `aborted: false`。
+ * 中止了运行时缺省清空缓冲区（每条 `inputRemoved{reason: "aborted"}`），`keepQueue` 保留（runtime.md 输出 30）。
+ */
+export async function abortCommand(host: CommandHost, args: CommandMap["abort"]["args"] = {}): Promise<CommandResult<"abort">> {
+    const {core} = host;
     const aborted = await host.control.abort();
-    return {ok: true, value: {aborted}, seq: host.core.head, replayed: false};
+    if (aborted && args.keepQueue !== true && core.session.kernel.buffer.length > 0 && !core.broken) {
+        await core.queue.run(() => writeAndReact(core, core.session.kernel.buffer.map((item) => ({type: "inputRemoved", kind: "ctrl", scope: "session", data: {id: item.id, reason: "aborted"}})), host.react));
+    }
+    return {ok: true, value: {aborted}, seq: core.head, replayed: false};
+}
+
+/** 缓冲区里的这条还在不在：不在时分清是从没入过队（`input-not-found`），还是已经取走或删掉（`input-consumed`）。 */
+function bufferProblem(core: SessionCore, inputId: string): "input-not-found" | "input-consumed" | null {
+    if (core.session.kernel.buffer.some((item) => item.id === inputId)) return null;
+    return core.events.some((event) => event.type === "inputQueued" && (event.data as {id: string}).id === inputId) ? "input-consumed" : "input-not-found";
+}
+
+export function editCommand(host: CommandHost, args: CommandMap["edit"]["args"] & {commandId: string}): Promise<CommandResult<"edit">> {
+    return accept(host, "edit", args.commandId, async () => {
+        if (isEmpty(args.input)) return {fail: "empty-input"};
+        const problem = bufferProblem(host.core, args.inputId);
+        if (problem !== null) return {fail: problem};
+        const intercepted = await interceptInput(host, args.input);
+        if (!intercepted.ok) return {fail: "input-rejected", detail: intercepted.rejection};
+        const data = queuedData(args.inputId, intercepted, "followup") as Record<string, JsonValue>;
+        const {mode: _mode, ...edited} = data;
+        return {value: {}, drafts: [...intercepted.failed, {type: "inputEdited", kind: "ctrl", scope: "session", data: edited}]};
+    });
+}
+
+export function removeCommand(host: CommandHost, args: CommandMap["remove"]["args"] & {commandId: string}): Promise<CommandResult<"remove">> {
+    return accept(host, "remove", args.commandId, () => {
+        const problem = bufferProblem(host.core, args.inputId);
+        if (problem !== null) return {fail: problem};
+        return {value: {}, drafts: [{type: "inputRemoved", kind: "ctrl", scope: "session", data: {id: args.inputId, reason: "user"}}]};
+    });
+}
+
+export function setTitleCommand(host: CommandHost, args: CommandMap["setTitle"]["args"] & {commandId: string}): Promise<CommandResult<"setTitle">> {
+    return accept(host, "setTitle", args.commandId, () => {
+        const title = args.title.trim();
+        if (title === "") return {fail: "empty-title"};
+        return {value: {}, drafts: [{type: "titleChanged", kind: "ctrl", scope: "session", data: {title, by: "user"}}]};
+    });
+}
+
+export function archiveCommand(host: CommandHost, args: CommandMap["archive"]["args"] & {commandId: string}): Promise<CommandResult<"archive">> {
+    return accept(host, "archive", args.commandId, () => ({value: {}, drafts: [{type: "archived", kind: "ctrl", scope: "session", data: {archived: args.archived}}]}));
+}
+
+/**
+ * 改设置：整体校验，每个扩展一条 `settingsChanged`，受理时就写。运行中受理的也立刻写：模型按每次请求时的核心设置解析、
+ * 视图只在算请求时读设置，所以效果就是“下一次请求前生效”（`scheduled: "next-boundary"`）。值没变的项不写。
+ */
+export function changeSettingsCommand(host: CommandHost, args: CommandMap["changeSettings"]["args"] & {commandId: string}): Promise<CommandResult<"changeSettings">> {
+    return accept(host, "changeSettings", args.commandId, () => {
+        const {core} = host;
+        const problem = settingsProblem(core.assembly, args.patch);
+        if (problem !== null) {
+            const {code, ...detail} = problem;
+            return {fail: code, ...(code === "unknown-extension" ? {} : {detail: detail as Record<string, JsonValue>})};
+        }
+        const drafts: EventDraft[] = [];
+        const changed: string[] = [];
+        for (const [extension, values] of Object.entries(args.patch)) {
+            const current = (extension === "core" ? core.session.kernel.core : core.session.kernel.settings[extension] ?? {}) as Record<string, unknown>;
+            const patch = Object.fromEntries(Object.entries(values).filter(([key, value]) => JSON.stringify(current[key]) !== JSON.stringify(value)));
+            if (Object.keys(patch).length === 0) continue;
+            changed.push(extension);
+            drafts.push({type: "settingsChanged", kind: "ctrl", scope: "session", data: {extension, patch}});
+        }
+        return {value: {changed, scheduled: host.control.idle ? "now" : "next-boundary"}, drafts};
+    });
 }

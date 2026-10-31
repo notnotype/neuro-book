@@ -18,7 +18,7 @@ import {Mounts} from "../dispatch/mount.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 import type {ViewEnvironment} from "../extension/ctx.js";
 import {assemble, type Assembly} from "../extension/assemble.js";
-import {abortCommand, enqueueCommand, sendCommand, startCommand, type CommandHost} from "../run/commands.js";
+import {abortCommand, archiveCommand, changeSettingsCommand, editCommand, enqueueCommand, removeCommand, sendCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
 import {RunControl} from "../run/control.js";
 import {recoveryDrafts} from "../run/recover.js";
 import {runResultOf} from "../run/results.js";
@@ -137,18 +137,18 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         send: (args) => closedGuard(() => sendCommand(host, args)),
         enqueue: (args) => closedGuard(() => enqueueCommand(host, args)),
         start: (args) => closedGuard(() => startCommand(host, args)),
-        abort: () => closedGuard(() => abortCommand(host)),
-        edit: notYet("edit"),
-        remove: notYet("remove"),
+        abort: (args) => closedGuard(() => abortCommand(host, args)),
+        edit: (args) => closedGuard(() => editCommand(host, args)),
+        remove: (args) => closedGuard(() => removeCommand(host, args)),
         resolve: notYet("resolve"),
         rewind: notYet("rewind"),
         switchBranch: notYet("switchBranch"),
         fork: notYet("fork"),
         compact: notYet("compact"),
-        changeSettings: notYet("changeSettings"),
+        changeSettings: (args) => closedGuard(() => changeSettingsCommand(host, args)),
         changeProfile: notYet("changeProfile"),
-        setTitle: notYet("setTitle"),
-        archive: notYet("archive"),
+        setTitle: (args) => closedGuard(() => setTitleCommand(host, args)),
+        archive: (args) => closedGuard(() => archiveCommand(host, args)),
         async snapshot(): Promise<SessionSnapshot> {
             const kernel = core.session.kernel;
             const errors = core.diagnostics.all().filter((item) => item.level === "error").length;

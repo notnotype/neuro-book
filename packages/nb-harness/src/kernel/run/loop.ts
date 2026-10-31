@@ -1,8 +1,8 @@
 /**
  * 运行循环（提案第 1 节的运行图）。循环在队列之外：每次写日志都把写入交给队列并等它完成；等模型、等工具的时候不占队列。
  *
- * 边界（每次模型请求之前）按这个顺序：外部事实 → 工具集比对（必需工具、`toolsAnnounced`）→ 交结果的提醒 → 视图、
- * 模型拦截链、`modelStarted`。steer、估算与压缩随后续切片插进各自的位置，顺序不变。
+ * 边界（每次模型请求之前）按这个顺序：外部事实 → 工具集比对（必需工具、`toolsAnnounced`）→ steer 全部取走 →
+ * 交结果的提醒 → 视图、模型拦截链、`modelStarted`。估算与压缩随第 8 片插在 steer 之后，顺序不变。
  *
  * 收口：任何一步出错或被中止，都写 `turnEnded`、`runEnded`。决定收口之后，还在跑的模型链与工具链再写日志都得
  * `RunStoppedError`（`writes.ts`）；收口前先等队列里已经交出去的写入写完，再看有没有发出了没结果的模型请求。
@@ -48,6 +48,17 @@ export function takeInputDrafts(inputId: string, input: UserInput, turnId: strin
         ctrl("turnStarted", {turnId, inputId}),
         {type: "input", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as JsonValue}), queued: inputId} as JsonValue},
     ];
+}
+
+/** 取走缓冲区里全部 steer：按入队顺序，每条 `inputConsumed` 加一条 `steer`，同一个写入批（runtime.md 输出 28）。 */
+function takeSteerDrafts(core: SessionCore): EventDraft[] {
+    return core.session.kernel.buffer.filter((item) => item.mode === "steer").flatMap((item): EventDraft[] => {
+        const {text, payload, attachments} = item.input;
+        return [
+            {type: "inputConsumed", kind: "ctrl", scope: "session", data: {id: item.id}},
+            {type: "steer", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as JsonValue}), queued: item.id} as JsonValue},
+        ];
+    });
 }
 
 /** 这一轮里这个扩展已经写过几条 continued。 */
@@ -119,7 +130,11 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             if (last === null) await write([ctrl("toolsAnnounced", {tools: announced})]);
             else if (JSON.stringify(last) !== JSON.stringify(announced)) await write([ctrl("toolsAnnounced", {tools: announced}), conv("notice", {code: "tools-changed", text: toolsChangedText(last, announced)})]);
 
-            // 边界第 3 步：会话要求交回结果时，第一轮开头告诉模型调用 yield。
+            // 边界第 3 步：运行中到达的 steer 全部取走，进当前这一轮。
+            const steers = takeSteerDrafts(core);
+            if (steers.length > 0) await write(steers);
+
+            // 边界第 4 步：会话要求交回结果时，第一轮开头告诉模型调用 yield。
             if (core.header.result !== undefined && !core.leafState.kernel.resultRequested) await write([conv("notice", {code: "result-requested", text: RESULT_REQUESTED})]);
 
             host.phase("requesting", null);
@@ -206,6 +221,8 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             }
             // 回复已经写下；反应期间被中止的，这一轮以 aborted 收口（不再请求，也不提交成 completed）。
             if (signal.aborted) return await end("aborted", {reason: "aborted"});
+            // 最终回复时还有没取走的 steer：这一轮接着请求，下一个边界取走它们。
+            if (core.session.kernel.buffer.some((item) => item.mode === "steer")) continue;
             if (replied.continues.length > 0) {
                 // 扩展要求接着做（只在最终回复上）：每个请求写一条 continued，再请求一次。次数上限在 ctx.continue 里查过。
                 await write(replied.continues.map(({extension, text}) => conv("continued", {text, by: extension, count: continuedSoFar(core, extension) + 1})));

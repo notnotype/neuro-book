@@ -47,6 +47,8 @@ export interface TestSessionOptions {
     readonly approve?: ApproveHook;
     /** 会话头的 `result`（要求交回结果的会话）。 */
     readonly result?: SessionHeader["result"];
+    /** 打开存储里已有的这个会话（例如另一个进程崩溃后留下的），而不是新建。要和 `store` 一起给。 */
+    readonly open?: string;
 }
 
 export interface RequestView {
@@ -116,7 +118,9 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
         approve: options.approve ?? (async () => ({verdict: "allow", by: "test-policy"})),
     };
     sessionCounter += 1;
-    const created = await createSession(env, {profile: profile.id, id: `test-${sessionCounter}`, ...(options.initial === undefined ? {} : {initial: options.initial}), ...(options.result === undefined ? {} : {result: options.result})});
+    const created = options.open !== undefined
+        ? await openSession(env, options.open)
+        : await createSession(env, {profile: profile.id, id: `test-${sessionCounter}`, ...(options.initial === undefined ? {} : {initial: options.initial}), ...(options.result === undefined ? {} : {result: options.result})});
     if (!created.ok) throw new Error(`createTestSession failed: ${created.code} ${JSON.stringify("detail" in created ? created.detail : null)}`);
     let api = created.value;
     let commands = 0;
