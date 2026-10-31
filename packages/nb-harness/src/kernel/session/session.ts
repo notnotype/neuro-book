@@ -5,7 +5,7 @@
  * `reduce`，所以在装配之后）→ 比对 Profile 哈希，不同就写 `profileChanged{code-updated}` → 恢复 → 装上扩展。
  * 这些都完成之后才受理指令。Profile 解析不到或装配失败时会话以只读打开：能查询，不受理会改变对话的指令。
  *
- * 关闭的顺序：拒绝新指令 → 中止并等收口 → 等队列清空 → 关日志与锁。关闭之后迟到的回调不写日志。
+ * 关闭的顺序：拒绝新指令 → 中止并等收口 → 等队列清空 → 摘下扩展 → 释放工具实现 → 关日志与锁。关闭之后迟到的回调不写日志。
  */
 
 import {randomBytes} from "node:crypto";
@@ -22,6 +22,7 @@ import {abortCommand, enqueueCommand, sendCommand, startCommand, type CommandHos
 import {RunControl} from "../run/control.js";
 import {recoveryDrafts} from "../run/recover.js";
 import {runResultOf} from "../run/results.js";
+import {ToolBox, toolInfo} from "../run/tools.js";
 
 type CreateResult = StorageResult<SessionApi> | {ok: false; code: "profile-invalid" | "invalid-initial"; detail?: Record<string, JsonValue>};
 
@@ -30,7 +31,10 @@ interface Internals {
     readonly control: RunControl;
     readonly react: ReactHost;
     readonly mounts: Mounts;
+    readonly box: ToolBox;
     readonly environment: Omit<ViewEnvironment, "now">;
+    /** 会话为什么只读；可写时为 null。运行中发现必需工具缺失时变成 `tools-missing`（直到重开）。 */
+    readOnly: string | null;
     closed: boolean;
 }
 const internals = new WeakMap<SessionApi, Internals>();
@@ -68,8 +72,11 @@ function assembleOrPlaceholder(env: SessionEnv, profile: AnyProfile | undefined,
 const UNKNOWN_MODEL: ModelInfo = {id: "unknown/unknown", contextWindow: 0, capabilities: {vision: false, thinking: false}, efforts: []};
 
 /** 一个会话的内部对象：运行控制、反应与装上的宿主。`as()` 得到的视图共用它。 */
-function internalsFor(env: SessionEnv, core: SessionCore): Internals {
+function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | null): Internals {
     const control = new RunControl(core);
+    const context = {sessionId: core.header.id, profile: core.header.profile, ...(core.header.project === undefined ? {} : {project: core.header.project})};
+    const box = new ToolBox(core, env, context);
+    const tools = () => box.current().map(toolInfo);
     // 初始输入在 sessionCreated 里；新建会话时它在这个对象建好之后才写下，所以用到时再找（找到一次就记住）。
     let initialCache: {value: unknown} | null = null;
     const initialOf = (): unknown => {
@@ -83,34 +90,50 @@ function internalsFor(env: SessionEnv, core: SessionCore): Internals {
         const resolution = env.models.resolve(core.session.kernel.core, "turn");
         return resolution.ok ? resolution.info : UNKNOWN_MODEL;
     };
-    const environment = {tools: [], get model() {
+    const environment = {get tools() {
+        return tools();
+    }, get model() {
         return modelInfo();
     }, get initial() {
         return initialOf();
     }};
-    const resources = env.resources({sessionId: core.header.id, profile: core.header.profile, ...(core.header.project === undefined ? {} : {project: core.header.project})});
-    const react: ReactHost = {environment: () => ({tools: [], model: modelInfo(), now: core.clock.now(), initial: initialOf()}), resources};
+    const resources = env.resources(context);
+    const react: ReactHost = {environment: () => ({tools: tools(), model: modelInfo(), now: core.clock.now(), initial: initialOf()}), resources};
+    const mounts = new Mounts(core, {...react, running: () => !control.idle});
+    const state: Internals = {core, control, react, mounts, box, environment, readOnly, closed: false};
     control.attach({
         core,
         react,
         models: env.models,
-        environment: (model) => ({tools: [], model, now: core.clock.now(), initial: initialOf()}),
-        tools: () => [],
+        box,
+        resources,
+        approve: env.approve,
+        environment: (model, list) => ({tools: list, model, now: core.clock.now(), initial: initialOf()}),
+        markReadOnly: (code) => {
+            state.readOnly = code;
+        },
     });
-    const mounts = new Mounts(core, {...react, running: () => !control.idle});
-    return {core, control, react, mounts, environment, closed: false};
+    return state;
 }
 
 function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, issuer: Issuer, shared?: Internals): SessionApi {
-    const state: Internals = shared ?? internalsFor(env, core);
+    const state: Internals = shared ?? internalsFor(env, core, readOnly);
     const {control} = state;
-    const host: CommandHost = {core, control, react: state.react, models: env.models, readOnly: () => readOnly};
+    const host: CommandHost = {
+        core,
+        control,
+        react: state.react,
+        models: env.models,
+        resources: state.react.resources,
+        environment: () => state.react.environment(),
+        readOnly: () => state.readOnly,
+    };
     const closedGuard = <T>(run: () => Promise<T>): Promise<T> => (state.closed ? Promise.resolve({ok: false, code: "session-closed"} as T) : run());
     const notYet = (name: CommandName | string) => () => Promise.reject(new NotYetImplemented(name));
     const api: SessionApi = {
         id: core.header.id,
         issuer,
-        as: (next) => buildApi(env, core, readOnly, next, state),
+        as: (next) => buildApi(env, core, state.readOnly, next, state),
         send: (args) => closedGuard(() => sendCommand(host, args)),
         enqueue: (args) => closedGuard(() => enqueueCommand(host, args)),
         start: (args) => closedGuard(() => startCommand(host, args)),
@@ -141,7 +164,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                 settings: kernel.core,
                 title: kernel.title,
                 archived: kernel.archived,
-                readOnly: readOnly === null ? null : {code: readOnly as "unknown-profile"},
+                readOnly: state.readOnly === null ? null : {code: state.readOnly as "unknown-profile"},
                 pendingReassembly: null,
                 diagnostics: {errors, warnings: core.diagnostics.all().length - errors},
             };
@@ -249,6 +272,7 @@ export async function closeSession(session: SessionApi): Promise<void> {
     if (!state.core.broken) await state.control.shutdown();
     await state.core.queue.drain();
     await state.mounts.unmountAll();
+    await state.box.dispose();
     await state.core.store.close(state.core.handle);
 }
 

@@ -13,13 +13,17 @@ export interface PathKernelState {
     readonly run: {readonly runId: string; readonly turnId: string | null} | null;
     /** 发出了还没有结果的模型请求。 */
     readonly openRequest: number | null;
+    /** 这条路径上最后一次告诉模型的工具集（`toolsAnnounced`）；还没告诉过时为 null。 */
+    readonly announced: readonly {readonly id: string; readonly version: string}[] | null;
+    /** 这条路径上写过 `notice{code: "result-requested"}`。 */
+    readonly resultRequested: boolean;
 }
 
-export const initialPathKernel: PathKernelState = {history: initialHistory, run: null, openRequest: null};
+export const initialPathKernel: PathKernelState = {history: initialHistory, run: null, openRequest: null, announced: null, resultRequested: false};
 
 export function reducePathKernel(state: PathKernelState, event: LogEvent): PathKernelState {
     const history = reduceHistory(state.history, event);
-    let {run, openRequest} = state;
+    let {run, openRequest, announced, resultRequested} = state;
     const data = event.data as Record<string, unknown>;
     switch (event.type) {
         case "runStarted":
@@ -39,8 +43,15 @@ export function reducePathKernel(state: PathKernelState, event: LogEvent): PathK
         case "modelFailed":
             if (data.request === openRequest) openRequest = null;
             break;
+        case "toolsAnnounced":
+            announced = data.tools as {id: string; version: string}[];
+            break;
+        case "notice":
+            if (data.code === "result-requested") resultRequested = true;
+            break;
     }
-    return history === state.history && run === state.run && openRequest === state.openRequest ? state : {history, run, openRequest};
+    const same = history === state.history && run === state.run && openRequest === state.openRequest && announced === state.announced && resultRequested === state.resultRequested;
+    return same ? state : {history, run, openRequest, announced, resultRequested};
 }
 
 export interface SessionKernelState {

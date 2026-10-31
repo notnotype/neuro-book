@@ -25,6 +25,7 @@ export const kernelEventSpecs = {
     steer: {scope: "path", kind: "conv"},
     assistant: {scope: "path", kind: "conv"},
     continued: {scope: "path", kind: "conv"},
+    notice: {scope: "path", kind: "conv"},
     modelStarted: {scope: "path", kind: "ctrl"},
     modelEnded: {scope: "path", kind: "ctrl"},
     modelFailed: {scope: "path", kind: "ctrl"},

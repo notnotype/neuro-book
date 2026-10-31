@@ -183,7 +183,8 @@ export class SessionCore {
             this.commands.set(data.commandId, {name: data.name, value: data.value, seq: event.seq});
         }
         if (event.key !== undefined) this.#keys.add(`${event.source}\u0000${event.key}`);
-        if (event.type === "modelStarted") this.requestCounter = Math.max(this.requestCounter, (event.data as {request: number}).request);
+        // 被模型拦截直接给出的回复没有 modelStarted，序号也要算进来（runtime.md 输出 22）。
+        if (event.type === "modelStarted" || event.type === "assistant") this.requestCounter = Math.max(this.requestCounter, (event.data as {request: number}).request);
     }
 
     /** 打开会话时照日志归约，不跑反应。 */

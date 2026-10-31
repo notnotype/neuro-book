@@ -4,7 +4,7 @@
  * 自己的 path 片与 session 片合在一起、设置是缺省值加覆盖、`read` 只放依赖与 `core.history`。
  */
 
-import {jsonProblem, type AssistantCtx, type ConversationTurn, type JsonValue, type ModelInfo, type MountCtx, type ReactCtx, type Resources, type Scope, type ToolInfo, type ViewCtx} from "../api/index.js";
+import {jsonProblem, type AssistantCtx, type ConversationTurn, type InterceptCtx, type JsonValue, type ModelInfo, type MountCtx, type ReactCtx, type Resources, type Scope, type ToolInfo, type ViewCtx} from "../api/index.js";
 import {committedTurns, type HistoryState} from "../state/history.js";
 import type {Snapshot} from "../state/snapshot.js";
 import type {Assembled, Assembly, ExtensionDefinition} from "./assemble.js";
@@ -221,4 +221,30 @@ export function mountCtx(params: MountParams): MountCtx<any, any, any, any, any>
             };
         },
     } as MountCtx<any, any, any, any, any>;
+}
+
+// ====================================================================
+// 拦截
+// ====================================================================
+
+export interface InterceptParams {
+    readonly assembly: Assembly;
+    readonly item: Assembled;
+    /** 输入拦截：受理这一刻的叶子；模型拦截：这次请求所在的叶子；工具拦截：发出这批调用的回复所在的叶子。 */
+    readonly state: StateAt;
+    readonly environment: ViewEnvironment;
+    readonly resources: Resources;
+    readonly signal: AbortSignal;
+    readonly invocation: string;
+    readonly phase: "run" | "preview";
+}
+
+export function interceptCtx(params: InterceptParams): InterceptCtx<any, any, any, any> {
+    return {
+        ...viewCtx(params.assembly, params.item, params.state, params.environment),
+        resources: params.resources,
+        signal: params.signal,
+        phase: params.phase,
+        invocation: params.invocation,
+    } as InterceptCtx<any, any, any, any>;
 }

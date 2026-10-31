@@ -3,36 +3,41 @@
  * 返回第一次的 `value` 与 `replayed: true`；校验失败不写，重发重新校验（session.md 输出 17）。
  * `value` 引用的 id 都在受理批里写出：空闲时会开始运行的指令，受理批就含 `runStarted`（输出 18）。
  *
- * 受理（校验加写）在队列的一项里做，所以两条指令的校验看到的状态不会交错。这一版有 `send`、`enqueue`、`start`、`abort`；
- * 其余指令随后续切片加入。
+ * 受理（校验加写）在队列的一项里做，所以两条指令的校验看到的状态不会交错。`send`、`enqueue` 的输入拦截链也在这一项里跑
+ * （runtime.md 输出 24），拒绝时整条指令失败、不写日志。这一版有 `send`、`enqueue`、`start`、`abort`；其余指令随后续切片加入。
  */
 
-import type {CommandMap, CommandName, CommandResult, InputMode, JsonValue, ModelPort, UserInput} from "../api/index.js";
+import type {Attributed, CommandMap, CommandName, CommandResult, JsonValue, ModelPort, Resources, UserInput} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import type {RunControl} from "./control.js";
 import {takeInputDrafts} from "./loop.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
+import type {ViewEnvironment} from "../extension/ctx.js";
+import {interceptInput, queuedData} from "./input.js";
 
 export interface CommandHost {
     readonly core: SessionCore;
     readonly react: ReactHost;
     readonly control: RunControl;
     readonly models: ModelPort;
+    readonly resources: Resources;
+    /** 输入拦截的视图环境。 */
+    environment(): ViewEnvironment;
     /** 会话为什么只读；可写时为 null。 */
     readOnly(): string | null;
 }
 
-type Outcome<K extends CommandName> = {value: CommandMap[K]["value"]; drafts: EventDraft[]; launch?: string} | {fail: string};
+type Outcome<K extends CommandName> = {value: CommandMap[K]["value"]; drafts: EventDraft[]; launch?: string} | {fail: string; detail?: Attributed};
 
 /** 受理一条指令：查重发、校验、写受理批、需要时开始运行。 */
-async function accept<K extends CommandName>(host: CommandHost, name: K, commandId: string, decide: () => Outcome<K>): Promise<CommandResult<K>> {
+async function accept<K extends CommandName>(host: CommandHost, name: K, commandId: string, decide: () => Outcome<K> | Promise<Outcome<K>>): Promise<CommandResult<K>> {
     const {core} = host;
     return core.queue.run(async () => {
         const previous = core.commands.get(commandId);
         if (previous !== undefined) return {ok: true, value: previous.value as CommandMap[K]["value"], seq: previous.seq, replayed: true} as CommandResult<K>;
         if (core.broken) return {ok: false, code: "log-broken"} as unknown as CommandResult<K>;
-        const outcome = decide();
-        if ("fail" in outcome) return {ok: false, code: outcome.fail} as unknown as CommandResult<K>;
+        const outcome = await decide();
+        if ("fail" in outcome) return {ok: false, code: outcome.fail, ...(outcome.detail === undefined ? {} : {detail: outcome.detail})} as unknown as CommandResult<K>;
         const accepted: EventDraft = {type: "commandAccepted", kind: "ctrl", scope: "session", data: {commandId, name, value: outcome.value as JsonValue}};
         // commandAccepted 排在批的最后：它的 seq 就是受理批最后一条的 seq，重发时原样交回。
         const {events: written} = await writeAndReact(core, [...outcome.drafts, accepted], host.react);
@@ -51,32 +56,33 @@ function startProblem(host: CommandHost): string | null {
     return resolution.code === "no-credentials" ? "no-credentials" : "no-model";
 }
 
-function queuedDraft(id: string, input: UserInput, mode: InputMode): EventDraft {
-    return {type: "inputQueued", kind: "ctrl", scope: "session", data: {id, input: input as unknown as JsonValue, mode}};
-}
-
 export function sendCommand(host: CommandHost, args: CommandMap["send"]["args"] & {commandId: string}): Promise<CommandResult<"send">> {
-    return accept(host, "send", args.commandId, () => {
+    return accept(host, "send", args.commandId, async () => {
         if (isEmpty(args.input)) return {fail: "empty-input"};
         const {core, control} = host;
-        const inputId = core.newId();
-        const queued = queuedDraft(inputId, args.input, args.mode ?? "followup");
-        if (!control.idle) return {value: {inputId, runId: null}, drafts: [queued]};
-        const problem = startProblem(host);
+        const idle = control.idle;
+        const problem = idle ? startProblem(host) : null;
         if (problem !== null) return {fail: problem};
+        const intercepted = await interceptInput(host, args.input);
+        if (!intercepted.ok) return {fail: "input-rejected", detail: intercepted.rejection};
+        const inputId = core.newId();
+        const queued: EventDraft = {type: "inputQueued", kind: "ctrl", scope: "session", data: queuedData(inputId, intercepted, args.mode ?? "followup")};
+        if (!idle) return {value: {inputId, runId: null}, drafts: [...intercepted.failed, queued]};
         const runId = core.newId();
         // 受理批先把输入放进缓冲区，再取走它开第一轮；崩溃在这之后由恢复结算这次运行。
         const started: EventDraft = {type: "runStarted", kind: "ctrl", scope: "path", data: {runId, kind: "chat"}};
-        return {value: {inputId, runId}, drafts: [queued, started, ...takeInputDrafts(inputId, args.input, core.newId())], launch: runId};
+        return {value: {inputId, runId}, drafts: [...intercepted.failed, queued, started, ...takeInputDrafts(inputId, intercepted.input, core.newId())], launch: runId};
     });
 }
 
 export function enqueueCommand(host: CommandHost, args: CommandMap["enqueue"]["args"] & {commandId: string}): Promise<CommandResult<"enqueue">> {
-    return accept(host, "enqueue", args.commandId, () => {
+    return accept(host, "enqueue", args.commandId, async () => {
         if (isEmpty(args.input)) return {fail: "empty-input"};
         if (host.readOnly() !== null) return {fail: "read-only"};
+        const intercepted = await interceptInput(host, args.input);
+        if (!intercepted.ok) return {fail: "input-rejected", detail: intercepted.rejection};
         const inputId = host.core.newId();
-        return {value: {inputId, position: host.core.session.kernel.buffer.length}, drafts: [queuedDraft(inputId, args.input, args.mode)]};
+        return {value: {inputId, position: host.core.session.kernel.buffer.length}, drafts: [...intercepted.failed, {type: "inputQueued", kind: "ctrl", scope: "session", data: queuedData(inputId, intercepted, args.mode)}]};
     });
 }
 

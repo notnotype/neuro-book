@@ -54,7 +54,8 @@ export type OnTable<S extends StateDecl, E extends EventsDecl, St, Deps extends 
 };
 /** 输入拦截在指令受理（入队、改）时跑；`redacted` 时日志里的原文只记哈希。 */
 export type Interceptors<S extends StateDecl, St, Deps extends DepList, I> = {
-    input?(input: UserInput, next: (input: UserInput) => Promise<void>, ctx: InterceptCtx<S, St, Deps, I>): Promise<void | {reject: Rejection; redacted?: boolean}>;
+    /** 拒绝返回 `{reject}`；改写过、原文要脱敏时调用 `next(改写后的)` 再返回 `{redacted: true}`。 */
+    input?(input: UserInput, next: (input: UserInput) => Promise<void>, ctx: InterceptCtx<S, St, Deps, I>): Promise<void | {reject: Rejection} | {redacted: true}>;
     model?(request: ModelRequest, next: (request: ModelRequest) => Promise<ModelResponse>, ctx: InterceptCtx<S, St, Deps, I>): Promise<ModelResponse>;
     tool?(call: ToolCall, next: (call: ToolCall) => Promise<ToolResult>, ctx: InterceptCtx<S, St, Deps, I>): Promise<ToolResult>;
     compaction?(job: CompactionJob, next: (job: CompactionJob) => Promise<CompactionResult>, ctx: InterceptCtx<S, St, Deps, I>): Promise<CompactionResult>;

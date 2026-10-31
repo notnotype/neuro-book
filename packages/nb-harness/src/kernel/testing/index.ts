@@ -2,4 +2,4 @@
 
 export {createTestClock, type TestClock} from "./clock.js";
 export {createTestModel, TEST_MODEL_INFO, type Reply, type TestModel} from "./model.js";
-export {createTestSession, defaultTestProfile, viewOf, type RequestView, type RunReport, type TestSession, type TestSessionOptions} from "./test-session.js";
+export {createTestSession, defaultTestProfile, testToolDeclaration, viewOf, type RequestView, type RunReport, type TestSession, type TestSessionOptions, type TestTool} from "./test-session.js";

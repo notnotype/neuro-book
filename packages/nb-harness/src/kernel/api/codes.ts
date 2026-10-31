@@ -60,6 +60,10 @@ export const toolResultCodes = [
     "tool-unavailable",
     /** 工具拦截出错，缺省拒绝这次调用。 */
     "intercept-failed",
+    /** 工具的 `execute` 抛错。 */
+    "tool-threw",
+    /** 审批钩子要问用户，而这次运行没法等用户回答：`status: "denied"`。 */
+    "approval-unavailable",
     /** 只读模式下的写或执行。 */
     "read-only",
 ] as const;
@@ -103,6 +107,7 @@ export const diagnosticCodes = {
     "reaction-depth-limit": "warn",
     "continue-limit": "warn",
     "late-result-dropped": "info",
+    "tool-dispose-failed": "warn",
     // 视图
     "slot-unplaced": "warn",
     "slot-collision": "error",
@@ -118,6 +123,7 @@ export const diagnosticCodes = {
     "request-invalid": "error",
     // 拦截
     "intercept-threw": "error",
+    "tool-declaration-invalid": "error",
     "input-rejected": "info",
     // 装配与生命周期
     "unknown-event-handler": "error",

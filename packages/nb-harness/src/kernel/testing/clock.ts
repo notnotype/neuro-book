@@ -18,7 +18,9 @@ export function createTestClock(startAt = Date.UTC(2026, 0, 1)): TestClock {
                 const timer = {due: now + ms, resolve: () => resolve()};
                 timers.push(timer);
                 signal?.addEventListener("abort", () => {
-                    timers.splice(timers.indexOf(timer), 1);
+                    // 已经到期的计时器不在表里了；按 -1 去删会删掉别的计时器。
+                    const index = timers.indexOf(timer);
+                    if (index >= 0) timers.splice(index, 1);
                     reject(signal.reason);
                 }, {once: true});
             });

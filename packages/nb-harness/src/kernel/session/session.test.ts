@@ -28,12 +28,12 @@ const types = (events: readonly LogEvent[]) => events.map((event) => event.type)
 describe.each([["内存存储", false], ["JSONL 存储", true]] as const)("一轮对话（%s）", (_name, jsonl) => {
     const options = () => (jsonl ? {store: {root}} : {});
 
-    test("输出 18：发送受理批含 runStarted 与取走输入；回复写成 assistant，轮与运行收口", async () => {
+    test("输出 18、runtime 输出 16：发送受理批含 runStarted 与取走输入；第一次请求前告诉模型工具集；回复写成 assistant，轮与运行收口", async () => {
         await using session = await createTestSession(options());
         session.model.script("你好，我在。");
         const report = await session.say("你好");
         expect(report.result).toMatchObject({reason: "completed", stopReason: "stop", text: "你好，我在。", error: null});
-        expect(types(report.events)).toEqual(["inputQueued", "runStarted", "inputConsumed", "turnStarted", "input", "commandAccepted", "modelStarted", "assistant", "turnEnded", "runEnded"]);
+        expect(types(report.events)).toEqual(["inputQueued", "runStarted", "inputConsumed", "turnStarted", "input", "commandAccepted", "toolsAnnounced", "modelStarted", "assistant", "turnEnded", "runEnded"]);
         expect(report.events.find((event) => event.type === "input")?.position).toEqual({kind: "attachment", turn: (report.events.find((event) => event.type === "turnStarted")!.data as {turnId: string}).turnId});
         expect(report.requests[0]!.outline()).toEqual(["system: fixed:profile", "user: event:input"]);
     });
