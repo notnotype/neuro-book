@@ -68,7 +68,7 @@ Profile 上与视图有关的字段（类型以 `/kernel/contracts` 导出的定
 
 模板：
 
-1. 不写 `prompt` 时请求依次是：系统块（Profile 的 `system`，接着收稳定的槽）、开场槽 `opening`（一条 user 消息；没有扩展交开场时没有这条）、已提交的轮、进行中的这一轮、会变的槽（一条 user 消息）。`standardLayout({volatile: "before-turn"})` 把会变的槽移到进行中的这一轮之前；`history: false` 不放已提交的轮，`history: {last: n}` 只放最近 n 轮。
+1. 不写 `prompt` 时请求依次是：系统块（Profile 的 `system`，接着收稳定的槽）、开场槽 `opening`（一条 user 消息；没有扩展交开场时没有这条）、已提交的轮、进行中的这一轮、会变的槽（一条 user 消息）。`standardLayout({volatile: "before-turn"})` 把会变的槽移到进行中的这一轮之前；`history: false` 不放已提交的轮，`history: {last: n}` 只放最近 n 轮（n 不是正数时一轮也不放）。
 2. 容器里每个子节点是一块；行内节点把子节点直接相连成一块；块之间怎样分段由适配器决定。没有文字的块与没有块也没有工具调用的消息丢弃。
 3. `<Tag name attrs>` 渲染成 `<name k="v">…</name>`，属性按书写顺序，值里的 `&`、`"`、`<` 转义成 `&amp;`、`&quot;`、`&lt;`；子节点不转义。
 4. `<ToolName id>` 渲染成这个工具交给服务商的名字（显式的 `providerName`，否则按 `models.md` “输入与前置条件”的规则换算）；`<If tool>` 只在这个工具 id 在生效工具集里时渲染子节点。
@@ -92,13 +92,13 @@ Profile 上与视图有关的字段（类型以 `/kernel/contracts` 导出的定
 槽：
 
 15. 每个扩展的 `value` 返回非空文字时交一块（来源 `{kind: "slot", name, extension}`），同一个槽的几块按装配序排。`value` 抛错时这个扩展的这个槽这次不交，诊断 `contribute-threw`。
-16. `<Slot name="x">` 放槽 `x` 的块；`<Slot name="*" stable>`、`<Slot name="*" volatile>` 收没有被按名字摆放的、稳定或会变的槽（不论按名字的写在前面还是后面）；`<Slot name="x" drop>` 表示有意不要，不渲染也不报诊断。槽有内容而模板没摆时内容丢弃，诊断 `slot-unplaced`。会变的槽被放进系统块时诊断 `slot-volatile-in-system`。同一个槽名有几个扩展交内容、且不是都写了 `shared: true` 时，装配时诊断 `slot-collision`，各块照常渲染。
+16. `<Slot name="x">` 放槽 `x` 的块；`<Slot name="*" stable>`、`<Slot name="*" volatile>` 收没有被按名字摆放的、稳定或会变的贡献（按每个扩展的贡献算，同一个槽名可以既有稳定的也有会变的；不论按名字的写在前面还是后面）。写在 `<If>` 里的 `<Slot name="x">` 算摆放过：条件不满足时不渲染、不被 `*` 收走、也不报诊断；Profile 的 `system` 里的槽只在模板有 `<System />` 时算摆放过。`<Slot name="x" drop>` 表示有意不要，不渲染也不报诊断。槽有内容而模板没摆时内容丢弃，每个扩展的每个槽各一条诊断 `slot-unplaced`。会变的槽被放进系统块时诊断 `slot-volatile-in-system`。同一个槽名有几个扩展交内容、且不是都写了 `shared: true` 时，装配时诊断 `slot-collision`，各块照常渲染。
 
 请求：
 
-17. 发请求前校验：每条 tool 消息回答它之前最近一条带工具调用的 assistant 消息里的一个调用，紧跟在那条 assistant 消息之后（中间只隔着其它 tool 消息）；每个调用恰好有一条结果。不满足时运行以 `error`、码 `request-invalid` 收口，诊断 `request-invalid` 写明第一处不合格的位置。
+17. 发请求前校验：一条 assistant 消息里的工具调用 id 互不重复；每条 tool 消息回答它之前最近一条带工具调用的 assistant 消息里的一个调用，紧跟在那条 assistant 消息之后（中间只隔着其它 tool 消息）；每个调用恰好有一条结果。不满足时运行以 `error`、码 `request-invalid` 收口，诊断 `request-invalid` 写明第一处不合格的位置。
 18. 每一块都带来源：模板与 `format.user` 里的固定文字是 `{kind: "fixed", by: "profile"}`；事件是 `{kind: "event", eventId, type, extension}`（内核事件的 `extension` 为 `kernel`）；槽是 `{kind: "slot", name, extension}`。
-19. 开发模式（`NODE_ENV` 不是 `production`，与冻结状态的开关相同）下的检查：同一轮相邻两次请求里进行中这一轮的消息，前一次按块（角色、来源与内容哈希）必须是后一次的前缀，否则诊断 `prefix-unstable`；没写 `commit` 时，提交的消息同样必须以这一轮最后一次请求里的样子开头，否则诊断 `commit-differs`。
+19. 开发模式（`NODE_ENV` 不是 `production`，与冻结状态的开关相同）下的检查：同一轮相邻两次请求里进行中这一轮的消息，前一次按块（角色、来源与内容哈希，工具调用按全文）必须是后一次的前缀，否则诊断 `prefix-unstable`；没写 `commit` 时，提交的消息同样必须以这一轮最后一次请求里的样子开头，否则诊断 `commit-differs`。
 20. 测试工具的 `requests[n].outline()` 一行一条消息：`<角色>: <来源> | <来源>`，来源写作 `fixed:<by>`、`event:<类型>`、`slot:<槽名>@<扩展>`、`summary:<压缩 id>`、`intercept:<扩展>`，工具调用写作 `call:<工具 id>`；有系统块时第一行是 `system: …`。
 
 ## 状态与转换
