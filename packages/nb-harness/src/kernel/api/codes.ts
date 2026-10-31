@@ -142,6 +142,8 @@ export const diagnosticCodes = {
     "dependency-missing": "error",
     "reassembly-failed": "error",
     "dependency-cycle": "error",
+    "event-name-reserved": "error",
+    "slice-initial-not-json": "error",
     "render-foreign-event": "error",
     "reminder-without-trigger": "error",
     "bad-slot-name": "error",

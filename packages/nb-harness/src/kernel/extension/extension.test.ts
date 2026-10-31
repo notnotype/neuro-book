@@ -41,6 +41,14 @@ describe("装配", () => {
         expect(await createTestSession({extensions: [once, once]}).then(() => null, (error: Error) => error.message)).toContain("installed twice");
     });
 
+    test("输出 1：扩展事件与内核事件同名、片的初值不是 JSON 时拒绝（类型挡得住，这里模拟绕过类型的作者）", async () => {
+        const clash = defineExtension({id: "lab.clash", events: {notice: conv()}} as never);
+        const mapped = defineExtension({id: "lab.mapped", state: {seen: slice.path(new Map<string, number>())}});
+        const failure = await createTestSession({extensions: [clash, mapped]}).then(() => null, (error: Error) => error.message);
+        expect(failure).toContain("event-name-reserved");
+        expect(failure).toContain("slice-initial-not-json");
+    });
+
     test("输出 2：设置缺缺省值、处理函数挂在不存在的事件上、槽名不合法、提醒没有触发条件：装配照常，留诊断", async () => {
         const sloppy = defineExtension({
             id: "lab.sloppy",
@@ -417,6 +425,14 @@ describe("helper", () => {
         await new Promise((resolve) => setImmediate(resolve));
         await say("d");
         expect(texts).toEqual([[], ["计划模式"], [], ["退出计划模式"]]);
+    });
+
+    test("reminder：watch 返回不是 JSON 的值时写 handler-threw 诊断，不悄悄当成 null", async () => {
+        const watching = reminder({id: "lab.watch.set", watch: () => new Set([1]) as never, text: () => "变了"});
+        await using session = await createTestSession({extensions: [watching]});
+        session.model.script("1");
+        await session.say("a");
+        expect((await session.raw.diagnostics()).filter((item) => item.code === "handler-threw").map((item) => item.extension)).toEqual(["lab.watch.set"]);
     });
 
     test("reminder：every 轮提醒一次", async () => {

@@ -13,7 +13,7 @@
  */
 
 import {createHash} from "node:crypto";
-import {kernelEventSpecs, type AnyExtension, type AnyProfile, type ContributedExtension, type DiagnosticCode, type ExtensionFields, type Scope} from "../api/index.js";
+import {jsonProblem, kernelEventSpecs, type AnyExtension, type AnyProfile, type ContributedExtension, type DiagnosticCode, type ExtensionFields, type Scope} from "../api/index.js";
 import type {Reducer} from "../state/snapshot.js";
 
 /** 运行时看到的扩展：定义对象就是声明本身。 */
@@ -27,7 +27,7 @@ export interface Assembled {
 }
 
 export interface AssemblyProblem {
-    readonly code: "bad-extension-id" | "duplicate-extension-id" | "dependency-missing" | "dependency-cycle";
+    readonly code: "bad-extension-id" | "duplicate-extension-id" | "dependency-missing" | "dependency-cycle" | "event-name-reserved" | "slice-initial-not-json";
     readonly extension: string;
     /** `dependency-missing` 时缺的那个依赖。 */
     readonly dependency?: string;
@@ -198,6 +198,17 @@ export function assemble(profile: AnyProfile, contributed: readonly ContributedE
         const id = item.definition.id;
         if (!EXTENSION_ID.test(id)) problems.push({code: "bad-extension-id", extension: id, message: `extension id ${id} must be dot-separated lowercase segments`, hint: "use <plugin id> or <plugin id>.<name>"});
         else if (item.plugin !== null && id !== item.plugin && !id.startsWith(`${item.plugin}.`)) problems.push({code: "bad-extension-id", extension: id, message: `extension ${id} is contributed by plugin ${item.plugin} but does not start with its id`, hint: `rename it to ${item.plugin} or ${item.plugin}.<name>`});
+    }
+    // 类型挡得住这两类写错，这里给 JavaScript 作者与绕过了类型的第三方插件再查一次（extensions.md 输出 1）。
+    for (const item of [...pluginItems, ...ownItems, profileItem]) {
+        const id = item.definition.id;
+        for (const name of Object.keys(item.definition.events ?? {})) {
+            if (Object.hasOwn(kernelEventSpecs, name)) problems.push({code: "event-name-reserved", extension: id, message: `event ${name} of ${id} has the name of a kernel event`, hint: `rename it; kernel event names are ${Object.keys(kernelEventSpecs).join(", ")}`});
+        }
+        for (const [name, declared] of Object.entries((item.definition.state ?? {}) as Record<string, {initial?: unknown}>)) {
+            const problem = jsonProblem(declared.initial);
+            if (problem !== null) problems.push({code: "slice-initial-not-json", extension: id, message: `the initial value of slice ${name} of ${id} is not JSON (${problem})`, hint: "use arrays and plain objects instead of Map, Set or Date; store dates as numbers"});
+        }
     }
     const seen = new Map<string, Assembled>();
     for (const item of [...pluginItems, ...ownItems, profileItem]) {

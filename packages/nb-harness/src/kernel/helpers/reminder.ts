@@ -24,7 +24,10 @@ export const reminder: ReminderHelper = (options) => {
             turnStarted(_event, ctx) {
                 const turns = ctx.read(coreHistory).turns;
                 const raw = watch === undefined ? null : watch(ctx as never);
-                const value = (raw === undefined || jsonProblem(raw) !== null ? null : raw) as JsonValue;
+                // 不是 JSON 的值（Set、Map）要记进片里比较，记不下：抛出来成为 handler-threw 诊断，不悄悄当成 null（那样之后永不再提醒）。
+                const problem = raw === undefined ? null : jsonProblem(raw);
+                if (problem !== null) throw new TypeError(`watch of reminder ${options.id} returned a value that is not JSON (${problem}); return arrays and plain objects`);
+                const value = (raw ?? null) as JsonValue;
                 const told = ctx.state.told as Told;
                 const first = told === null;
                 const changed = watch !== undefined && (first || JSON.stringify(told.value) !== JSON.stringify(value));
