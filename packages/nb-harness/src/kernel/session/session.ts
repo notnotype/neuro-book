@@ -49,6 +49,8 @@ interface Internals {
     reassembling: {readonly promise: Promise<void>; readonly change: Pending} | null;
     /** 关闭进行中或已完成：重复与并发的 `closeSession` 等同一个。 */
     closing: Promise<void> | null;
+    /** 等插件变化全部装配完的（`revoke` 交回的 Promise）：没有待做与进行中的重新装配、或会话关闭时一起放行。 */
+    settledWaiters: (() => void)[];
 }
 type Pending = {readonly added: Set<string>; readonly removed: Set<string>};
 const mergePending = (...parts: (Pending | null | undefined)[]): Pending => {
@@ -118,7 +120,7 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
     const resources: Resources = {read: (uri) => currentResources.read(uri), resolve: (uri) => currentResources.resolve(uri)};
     const react: ReactHost = {environment: () => ({tools: tools(), model: modelInfo(), now: core.clock.now(), initial: initialOf()}), resources, session: context};
     const mounts = new Mounts(core, {...react, running: () => !control.idle});
-    const state: Internals = {core, control, react, mounts, box, environment, readOnly, closed: false, pendingReassembly: null, reassembling: null, closing: null, refreshContext: async () => {
+    const state: Internals = {core, control, react, mounts, box, environment, readOnly, closed: false, pendingReassembly: null, reassembling: null, closing: null, settledWaiters: [], refreshContext: async () => {
         currentResources = env.resources(context());
         // 工具实现是按上一个 Profile 的上下文建的：全部释放，下次调用按新上下文重建。
         await box.retire([]);
@@ -505,9 +507,14 @@ async function forkSession(env: SessionEnv, core: SessionCore, leaf: string | nu
  * 标为不参与、等这次运行结束再装配。装配结果的哈希变了才写 `profileChanged{reason}`；装配失败（例如依赖被撤回）时
  * 会话进只读、码 `dependency-missing`。
  */
-export function notifyExtensionsChanged(session: SessionApi, env: SessionEnv, change: {readonly added?: readonly string[]; readonly removed?: readonly string[]}): void {
+/**
+ * 交回的 Promise 在这次变化装配完成（运行中的会话要等这次运行结束）、或会话关闭时完成：插件宿主的 `revoke` 等它，
+ * 平台在它之后释放插件自己的资源时，扩展的清理函数已经跑过。重新装配失败（进只读）也算完成。
+ */
+export function notifyExtensionsChanged(session: SessionApi, env: SessionEnv, change: {readonly added?: readonly string[]; readonly removed?: readonly string[]}): Promise<void> {
     const state = internals.get(session);
-    if (state === undefined || state.closed) return;
+    if (state === undefined || state.closed) return Promise.resolve();
+    const settled = new Promise<void>((resolve) => state.settledWaiters.push(resolve));
     const {core, control} = state;
     const pending = state.pendingReassembly ?? {added: new Set<string>(), removed: new Set<string>()};
     for (const id of change.added ?? []) pending.added.add(id);
@@ -526,6 +533,11 @@ export function notifyExtensionsChanged(session: SessionApi, env: SessionEnv, ch
         control.onIdle = null;
         scheduleReassembly(state, env);
     };
+    return settled;
+}
+
+function releaseSettledWaiters(state: Internals): void {
+    for (const resolve of state.settledWaiters.splice(0)) resolve();
 }
 
 /** 重新装配一次只做一个：进行中时新的变化攒在 `pendingReassembly` 里，等这一次做完接着做。 */
@@ -536,6 +548,7 @@ function scheduleReassembly(state: Internals, env: SessionEnv): void {
     const promise = reassembleNow(state, env, change).finally(() => {
         state.reassembling = null;
         scheduleReassembly(state, env);
+        if (state.reassembling === null && state.pendingReassembly === null) releaseSettledWaiters(state);
     });
     state.reassembling = {promise, change};
 }
@@ -610,6 +623,7 @@ async function closeNow(state: Internals, options: {readonly reason?: "interrupt
     await state.box.dispose();
     state.core.close();
     await state.core.store.close(state.core.handle);
+    releaseSettledWaiters(state);
 }
 
 /**

@@ -48,8 +48,8 @@ export function createAgentHost(base: Omit<SessionEnv, "extensions">): AgentHost
         return visit(handle.id);
     };
 
-    const notifyAll = (change: {added?: string[]; removed?: string[]}) => {
-        for (const session of sessions.values()) notifyExtensionsChanged(session, env, change);
+    const notifyAll = async (change: {added?: string[]; removed?: string[]}): Promise<void> => {
+        await Promise.all([...sessions.values()].map((session) => notifyExtensionsChanged(session, env, change)));
     };
 
     return {
@@ -64,14 +64,16 @@ export function createAgentHost(base: Omit<SessionEnv, "extensions">): AgentHost
             published(handle) {
                 prepared.delete(handle.id);
                 published.set(handle.id, handle);
-                notifyAll({added: [handle.id]});
+                // 发布不等装配：平台的发布是同步的一步，各会话的装配在后台做，指令等它（runtime.md 输出 57）。
+                void notifyAll({added: [handle.id]});
             },
             // 只撤回这个句柄自己的贡献：旧代次的句柄重复撤回时，同 id 的新代次不受影响（撤回幂等）。
-            revoke(handle) {
+            // 交回的 Promise 等各会话摘下它（清理函数跑完）：平台在这之后才释放插件自己的资源。
+            async revoke(handle) {
                 if (prepared.get(handle.id) === handle) prepared.delete(handle.id);
                 if (published.get(handle.id) !== handle) return;
                 published.delete(handle.id);
-                notifyAll({removed: [handle.id]});
+                await notifyAll({removed: [handle.id]});
             },
         },
         list(): ExtensionInfo[] {

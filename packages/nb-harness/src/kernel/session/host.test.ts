@@ -631,6 +631,44 @@ describe("插件宿主", () => {
         await host.close(session.id);
     });
 
+    test("输出 57：revoke 交回的 Promise 在各会话摘下扩展、清理函数跑完之后完成；运行中的会话等这次运行结束", async () => {
+        const log: string[] = [];
+        const watcher = defineExtension({id: "lab.watcher", mount: () => () => void log.push("cleanup")});
+        const started = gate();
+        const release = gate();
+        const model = createTestModel();
+        const host = createAgentHost(hostEnv(model, [{id: "lab.hold", execute: async () => {
+            started.open();
+            await release.promise;
+            return "好了";
+        }}]));
+        const idle = handleOf(watcher);
+        host.extensions.prepare(idle);
+        host.extensions.published(idle);
+        const created = await host.create({profile: defaultProfile.id});
+        if (!created.ok) throw new Error(created.code);
+        await host.extensions.revoke(idle, "uninstalled");
+        expect(log).toEqual(["cleanup"]);
+
+        const busy = handleOf(watcher);
+        host.extensions.prepare(busy);
+        host.extensions.published(busy);
+        await waitIdleWrites(created.value);
+        const session = created.value;
+        model.script({tools: [{tool: "lab.hold"}]}, "完成");
+        const sent = await session.send({commandId: "run", input: {text: "问"}});
+        if (!sent.ok) throw new Error(sent.code);
+        await started.promise;
+        let revoked = false;
+        const revoking = host.extensions.revoke(busy, "uninstalled").then(() => void (revoked = true));
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(revoked).toBe(false);
+        release.open();
+        await revoking;
+        expect(log).toEqual(["cleanup", "cleanup"]);
+        await host.close(session.id);
+    });
+
     test("输出 57：重新装配中途失败——写日志失败时依赖缺失的只读不解除；宿主建资源失败进只读 reassembly-failed，不抛出、能关闭", async () => {
         const base = hostEnv();
         let failWrites = false;

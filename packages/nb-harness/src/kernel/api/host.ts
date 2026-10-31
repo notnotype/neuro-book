@@ -415,8 +415,11 @@ export interface ExtensionReceiver {
     prepare(handle: ExtensionHandle): void;
     /** 生效：之后新开的会话装上它；已打开的会话进 `pendingReassembly`。 */
     published(handle: ExtensionHandle): void;
-    /** 撤回，幂等。运行中的会话这次运行里调它的入口得 `extension-revoked` 诊断并跳过，空闲时重新装配。 */
-    revoke(handle: ExtensionHandle, reason: RevokeReason): void;
+    /**
+     * 撤回，幂等。运行中的会话这次运行里调它的入口得 `extension-revoked` 诊断并跳过，空闲时重新装配。交回的 Promise 在各会话
+     * 摘下它（清理函数跑完；运行中的等这次运行结束）或关闭之后完成，平台在这之后释放插件自己的资源。
+     */
+    revoke(handle: ExtensionHandle, reason: RevokeReason): Promise<void>;
 }
 
 export interface AgentHost {
