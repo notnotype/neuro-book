@@ -21,8 +21,9 @@ import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {IconButton} from "@notnotype/nb-ui/components";
 
-import {edgeLabelDrawer, estimateLabelWidth, FADE_MS, fixedColors, Focus, hoverDrawer, labelDrawer, layoutCircle, layoutConcentric, layoutForce, layoutStress, mix, readTheme, seedSpiral, zoom} from "./sigma-kit";
-import type {Theme} from "./sigma-kit";
+import {chooseForcedLabels, edgeLabelDrawer, estimateLabelWidth, FADE_MS, fitAll, fixedColors, Focus, isFitted, hoverDrawer, labelDrawer, layoutCircle, layoutConcentric, layoutForce, layoutStress, mix, readTheme, seedSpiral, zoom} from "./sigma-kit";
+import type {LayoutFrame, Theme} from "./sigma-kit";
+import type {CameraState} from "sigma/types";
 import {edgeParts, hasParts} from "./edge-parts";
 
 import type {IdentityState} from "../../contract/contract";
@@ -91,9 +92,23 @@ let graph: Graph | null = null;
 let focus: Focus | null = null;
 let theme: Theme | null = null;
 let stopAnimation: (() => void) | null = null;
+/** 最近一次铺满给的镜头位置：容器尺寸变了时，镜头还在这个位置（用户没动过）才重新铺满。 */
+let fitted: CameraState | null = null;
+function refit(animate: boolean): void {
+    if (sigma !== null) fitted = fitAll(sigma, animate);
+}
 const EGO_LIMIT = 12;
 const NODE_SIZE = 8;
 const EDGE_SIZE = 2;
+
+/** 取景时四周留的边（Sigma 的 `stagePadding`）：取景只看点不看名字，名字画在点的右边、环形排版两侧朝外，要留出地方。 */
+const stagePadding = () => (props.compact ? 36 : 90);
+
+/** 排版用的画布区域：容器量出来的宽高减去取景的边。容器还没量出尺寸时按一个常见大小。 */
+function layoutFrame(): LayoutFrame {
+    const pad = 2 * stagePadding();
+    return {width: Math.max(240, (host.value?.clientWidth ?? 960) - pad), height: Math.max(180, (host.value?.clientHeight ?? 600) - pad)};
+}
 
 function kindColor(kind: string): string {
     const t = theme!;
@@ -249,6 +264,12 @@ function layoutEgo(target: Graph): void {
     for (const side of [-1, 1]) target.addNode(`pad-${side}`, {x: side * 15.5, y: 0, size: 0.01, color: theme!.bg, fillColor: theme!.bg, ringPx: 0, label: "", weight: 0});
 }
 
+/** 关系图里哪些点强制出名字：名字框合计不超过画布的一定比例，点多时只出主要的（`chooseForcedLabels`）。 */
+function chooseLabels(target: Graph): void {
+    if (props.mode !== "relation" || props.ego !== null) return;
+    chooseForcedLabels(target, layoutFrame(), {pinned: new Set(props.pinned), labelWidth: (node) => estimateLabelWidth(String(target.getNodeAttribute(node, "label")), 12)});
+}
+
 /** 按当前排版方式给点算位置。`fresh` 为真时从固定的螺旋起点排，否则从现在的位置接着排（切换连线的层时，点只挪需要挪的）。 */
 function applyLayout(target: Graph, fresh: boolean): void {
     if (props.ego !== null && target.hasNode(props.ego)) {
@@ -273,11 +294,11 @@ function applyLayout(target: Graph, fresh: boolean): void {
     }
     if (fresh || target.someNode((_, attributes) => attributes.x === undefined)) seedSpiral(target, (node) => Number(target.getNodeAttribute(node, "weight")));
     if (props.mode === "relation" && props.layout === "stress") {
-        layoutStress(target, {viewportWidth: host.value?.clientWidth ?? 800, labelWidth: (node) => estimateLabelWidth(String(target.getNodeAttribute(node, "label")), props.compact ? 11 : 12)});
+        layoutStress(target, {frame: layoutFrame(), labelWidth: (node) => estimateLabelWidth(String(target.getNodeAttribute(node, "label")), props.compact ? 11 : 12)});
         return;
     }
     layoutForce(target, {
-        viewportWidth: host.value?.clientWidth ?? 800, linLog: false, iterations: props.mode === "data" ? 600 : fresh ? 300 : 150,
+        frame: layoutFrame(), linLog: false, iterations: props.mode === "data" ? 600 : fresh ? 300 : 150,
         labelWidth: (node) => estimateLabelWidth(String(target.getNodeAttribute(node, "label")), props.compact ? 11 : 12),
     });
 }
@@ -293,6 +314,7 @@ function restoreHome(): void {
 function relayout(fresh: boolean): void {
     if (sigma === null || graph === null) return;
     restoreHome();
+    chooseLabels(graph);
     const copy = graph.copy();
     applyLayout(copy, fresh);
     const targets: Record<string, {x: number; y: number}> = {};
@@ -306,7 +328,7 @@ function relayout(fresh: boolean): void {
     sigma.setCustomBBox(null);
     stopAnimation = animateNodes(graph, targets, {duration: 600, easing: "quadraticInOut"}, () => {
         if (props.neighborhood && focus?.selected !== null) enterNeighborhood();
-        else void sigma?.getCamera().animatedReset({duration: 300});
+        else refit(true);
     });
 }
 
@@ -473,7 +495,7 @@ function leaveNeighborhood(): void {
     }
     home = null;
     stopAnimation?.();
-    stopAnimation = animateNodes(graph, back, {duration: 500, easing: "quadraticInOut"}, () => void sigma?.getCamera().animatedReset({duration: 300}));
+    stopAnimation = animateNodes(graph, back, {duration: 500, easing: "quadraticInOut"}, () => refit(true));
 }
 
 /**
@@ -493,6 +515,7 @@ function render(how: "fresh" | "continue" | "keep" = "fresh"): void {
     focus = new Focus(graph, theme);
     focus.selected = props.selected !== null && graph.hasNode(props.selected) ? props.selected : null;
     focus.onlyNeighborhood = props.neighborhood;
+    chooseLabels(graph);
     if (previous === null) applyLayout(graph, true);
     else {
         const complete = placeFrom(graph, previous);
@@ -545,13 +568,15 @@ function render(how: "fresh" | "continue" | "keep" = "fresh"): void {
         }) as never,
         zIndex: true,
         // 取景只看点不看名字：留足边距，环形排版左右两侧朝外的名字才不会被裁掉
-        stagePadding: props.compact ? 36 : 90,
+        stagePadding: stagePadding(),
         minCameraRatio: 0.06,
         maxCameraRatio: 3,
     });
     // 线上的字互相避让：每画一帧前清空已占的位置
     sigma.on("beforeRender", drawEdgeLabel.reset);
     bindEvents(sigma, graph);
+    fitted = null;
+    if (props.ego === null) refit(false);
     applyQuery();
     if (props.neighborhood && focus.selected !== null) enterNeighborhood();
 }
@@ -724,8 +749,12 @@ function resizeCanvas(): void {
     if (resizeFrame !== null) return;
     resizeFrame = requestAnimationFrame(() => {
         resizeFrame = null;
-        sigma?.resize();
-        sigma?.refresh();
+        if (sigma === null) return;
+        // 排版按铺满时的画布比例排的：画布变宽变窄后，没动过镜头的就重新铺满，免得图被裁掉或缩在中间
+        const atFit = props.ego === null && isFitted(sigma, fitted);
+        sigma.resize();
+        if (atFit) refit(false);
+        sigma.refresh();
     });
 }
 watch(layoutMotion, (moving) => {

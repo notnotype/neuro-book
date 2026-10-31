@@ -6,9 +6,8 @@
  */
 import type Graph from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";
-import noverlap from "graphology-layout-noverlap";
 import type Sigma from "sigma";
-import type {NodeDisplayData, PartialButFor} from "sigma/types";
+import type {CameraState, NodeDisplayData, PartialButFor} from "sigma/types";
 
 export type Theme = {
     text: string; muted: string; accent: string; success: string; warning: string; danger: string;
@@ -241,7 +240,7 @@ export function seedSpiral(graph: Graph, weight: (node: string) => number): void
 }
 
 /**
- * 坐标完全相同的点按 id 顺序错开一点：noverlap 遇到完全重合的两个点会用 Math.random() 打散，排出来的结果就不固定了
+ * 坐标完全相同的点按 id 顺序错开一点：重合的点连推开的方向都没有，结果取决于数组次序，排出来就不固定了
  * （输出 25 要求同一数据同一结果）。
  */
 function separateCoincident(graph: Graph): void {
@@ -256,26 +255,17 @@ function separateCoincident(graph: Graph): void {
     }
 }
 
-/** noverlap 跑完后仍重叠的点对数（按 noverlap 的输入半径算）。 */
-function overlaps(graph: Graph, radius: (node: string) => number): number {
-    const nodes = graph.nodes();
-    let count = 0;
-    for (let i = 0; i < nodes.length; i += 1) {
-        for (let j = i + 1; j < nodes.length; j += 1) {
-            const a = graph.getNodeAttributes(nodes[i]!);
-            const b = graph.getNodeAttributes(nodes[j]!);
-            if (Math.hypot(Number(a.x) - Number(b.x), Number(a.y) - Number(b.y)) < radius(nodes[i]!) + radius(nodes[j]!)) count += 1;
-        }
-    }
-    return count;
+/** 放图的画布区域（像素）：容器的宽高减去 Sigma 的 `stagePadding`。排版按它的宽高比铺开、按它算点和名字占的位置。 */
+export interface LayoutFrame {
+    width: number;
+    height: number;
 }
 
 /**
- * 力导向排版：ForceAtlas2 拉开结构，再用 noverlap 把点推开到不重叠。两步都没有随机数（重合的点先错开），同一份
- * 数据、同样的起点总是排出同样的位置。noverlap 到迭代上限时不保证收敛：还有重叠就再跑一轮，至多三轮。
- * noverlap 在图坐标里算，而点的大小是屏幕像素：先按“画布宽度对应多少图坐标”换算；强制出标签的点按标签宽度算半径，给标签留出地方。
+ * 力导向排版：ForceAtlas2 拉开结构，再按画布的宽高比与点、名字占的像素把重叠推开（`separateNodes`）。两步都没有随机数
+ * （重合的点先错开），同一份数据、同样的起点、同样的画布总是排出同样的位置。
  */
-export function layoutForce(graph: Graph, options: {viewportWidth: number; linLog: boolean; iterations?: number; labelWidth?: (node: string) => number}): void {
+export function layoutForce(graph: Graph, options: {frame: LayoutFrame; linLog: boolean; iterations?: number; labelWidth?: (node: string) => number}): void {
     const inferred = forceAtlas2.inferSettings(graph);
     forceAtlas2.assign(graph, {
         iterations: options.iterations ?? 400,
@@ -286,30 +276,150 @@ export function layoutForce(graph: Graph, options: {viewportWidth: number; linLo
     separateNodes(graph, options);
 }
 
+/** 排版的外框拉到和画布一样的宽高比时，最多把一个方向拉长到这么多倍；再多就会把图拉成一条线。 */
+const MAX_STRETCH = 3;
+/** 每一轮按当前的取景比例推开重叠，最多几轮、每轮最多几遍。 */
+const SEPARATE_ROUNDS = 4;
+const SEPARATE_PASSES = 80;
+
+/** 一个点在屏幕上占的矩形（相对点中心的四个方向的像素）：圆圈，加上画在右边的名字。 */
+interface Footprint {
+    left: number;
+    right: number;
+    up: number;
+    down: number;
+}
+
+function extent(values: number[]): number {
+    return Math.max(...values) - Math.min(...values);
+}
+
 /**
- * 把点推开到不重叠（noverlap），点的大小是屏幕像素、先按画布宽度换算成图坐标；强制出标签的点按标签宽度算半径。
- * 到迭代上限时不保证收敛：还有重叠就再跑一轮，至多三轮。力导向与应力排版共用。
+ * 把排版的外框拉到和画布一样的宽高比。镜头铺满时按外框的宽高比放进画布（`fitAll`），外框是正方形而画布是宽的，
+ * 图就只占画布中间一块；先把外框拉成画布的比例，横竖两个方向才都用得上。只做仿射拉伸，点的相对次序与连线的交叉数不变。
+ * 原地改 `x`、`y`。
  */
-function separateNodes(graph: Graph, options: {viewportWidth: number; labelWidth?: (node: string) => number}): void {
-    const xs = graph.mapNodes((_, attributes) => Number(attributes.x));
-    const ys = graph.mapNodes((_, attributes) => Number(attributes.y));
-    const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 1);
-    const perPixel = span / Math.max(320, options.viewportWidth - 80);
-    const radius = (node: string) => {
-        const attributes = graph.getNodeAttributes(node);
-        return Math.max(Number(attributes.size) + 4, attributes.forceLabel === true ? (options.labelWidth?.(node) ?? 0) / 2 : 0) * perPixel;
-    };
-    for (let round = 0; round < 3; round += 1) {
-        separateCoincident(graph);
-        noverlap.assign(graph, {
-            maxIterations: 300,
-            inputReducer: (node, attributes) => ({x: Number(attributes.x), y: Number(attributes.y), size: radius(node)}),
-            outputReducer: (_, position) => ({x: position.x, y: position.y}),
-            settings: {margin: 3 * perPixel, ratio: 1.15, expansion: 1.05, gridSize: 24, speed: 3},
-        });
-        if (overlaps(graph, radius) === 0) return;
+function stretchToFrame(x: number[], y: number[], frame: LayoutFrame): void {
+    const wide = Math.max(extent(x), 1e-6);
+    const tall = Math.max(extent(y), 1e-6);
+    const want = frame.width / frame.height;
+    const have = wide / tall;
+    if (Math.abs(Math.log(have / want)) < 0.05) return;
+    const factor = Math.min(MAX_STRETCH, Math.max(have / want, want / have));
+    const target = have < want ? x : y;
+    const centre = (Math.max(...target) + Math.min(...target)) / 2;
+    for (let i = 0; i < target.length; i += 1) target[i] = centre + (target[i]! - centre) * factor;
+}
+
+/** 屏幕上矩形重叠的点对数。 */
+function overlapCount(x: number[], y: number[], boxes: Footprint[]): number {
+    let count = 0;
+    for (let i = 0; i < x.length; i += 1) {
+        for (let j = i + 1; j < x.length; j += 1) {
+            const a = boxes[i]!;
+            const b = boxes[j]!;
+            const ox = Math.min(x[i]! + a.right, x[j]! + b.right) - Math.max(x[i]! - a.left, x[j]! - b.left);
+            const oy = Math.min(y[i]! + a.down, y[j]! + b.down) - Math.max(y[i]! - a.up, y[j]! - b.up);
+            if (ox > 0 && oy > 0) count += 1;
+        }
     }
-    console.warn({nodes: graph.order}, "排版到上限仍有点重叠");
+    return count;
+}
+
+/**
+ * 把重叠的矩形沿重叠少的那个方向互相推开（逐对、按点的次序，没有随机数）。`x`、`y` 是屏幕像素，原地改。
+ * 返回推完后还重叠的点对数。
+ */
+function relaxBoxes(x: number[], y: number[], boxes: Footprint[]): number {
+    const MARGIN = 2;
+    for (let pass = 0; pass < SEPARATE_PASSES; pass += 1) {
+        let moved = false;
+        for (let i = 0; i < x.length; i += 1) {
+            for (let j = i + 1; j < x.length; j += 1) {
+                const a = boxes[i]!;
+                const b = boxes[j]!;
+                const ox = Math.min(x[i]! + a.right, x[j]! + b.right) - Math.max(x[i]! - a.left, x[j]! - b.left) + MARGIN;
+                if (ox <= 0) continue;
+                const oy = Math.min(y[i]! + a.down, y[j]! + b.down) - Math.max(y[i]! - a.up, y[j]! - b.up) + MARGIN;
+                if (oy <= 0) continue;
+                moved = true;
+                // 两个矩形的中心谁在左（上）谁往左（上）退；中心重合时按次序，保证结果固定。
+                if (ox < oy) {
+                    const dir = x[i]! + (a.right - a.left) / 2 <= x[j]! + (b.right - b.left) / 2 ? -1 : 1;
+                    x[i] = x[i]! + (dir * ox) / 2;
+                    x[j] = x[j]! - (dir * ox) / 2;
+                } else {
+                    const dir = y[i]! <= y[j]! ? -1 : 1;
+                    y[i] = y[i]! + (dir * oy) / 2;
+                    y[j] = y[j]! - (dir * oy) / 2;
+                }
+            }
+        }
+        if (!moved) return 0;
+    }
+    return overlapCount(x, y, boxes);
+}
+
+/**
+ * 按画布的宽高比与点、名字占的像素把点推开（力导向与应力排版共用）。
+ *
+ * 点的大小和名字都是屏幕像素，而排版在图坐标里：镜头铺满时每个图坐标单位占 `min(画布宽 / 外框宽, 画布高 / 外框高)` 个像素
+ * （`fitAll`）。先把外框拉成画布的宽高比，再按这个比例换算成像素，把“圆圈加右边的名字”这样的矩形互相推开，换回图坐标。
+ * 推开会让外框变大、每单位占的像素变小，所以按新的比例再推一轮，直到不重叠或到轮数上限。图太大、画布放不下时
+ * 到上限仍有重叠，只记一条诊断。
+ */
+function separateNodes(graph: Graph, options: {frame: LayoutFrame; labelWidth?: (node: string) => number}): void {
+    if (graph.order < 2) return;
+    separateCoincident(graph);
+    const ids = [...graph.nodes()].sort();
+    const boxes: Footprint[] = ids.map((id) => footprint(graph.getNodeAttributes(id), options.labelWidth?.(id) ?? 0));
+    const x = ids.map((id) => Number(graph.getNodeAttribute(id, "x")));
+    const y = ids.map((id) => Number(graph.getNodeAttribute(id, "y")));
+    let remaining = 0;
+    for (let round = 0; round < SEPARATE_ROUNDS; round += 1) {
+        // 推开时多半沿竖向（名字又宽又扁），外框会越推越高：每一轮先按画布的比例拉回来
+        stretchToFrame(x, y, options.frame);
+        const scale = Math.min(options.frame.width / Math.max(extent(x), 1e-6), options.frame.height / Math.max(extent(y), 1e-6));
+        const px = x.map((value) => value * scale);
+        const py = y.map((value) => value * scale);
+        remaining = relaxBoxes(px, py, boxes);
+        for (let i = 0; i < x.length; i += 1) {
+            x[i] = px[i]! / scale;
+            y[i] = py[i]! / scale;
+        }
+        if (remaining === 0) break;
+    }
+    ids.forEach((id, index) => graph.mergeNodeAttributes(id, {x: x[index]!, y: y[index]!}));
+    if (remaining > 0) console.warn({nodes: graph.order, overlapping: remaining}, "排版到上限仍有点重叠");
+}
+
+/** 一个点在屏幕上占的矩形：圆圈，加上强制出名字时画在右边的名字（`labelWidth` 是名字估出来的宽度，已含左右余量）。 */
+function footprint(attributes: Record<string, unknown>, labelWidth: number): Footprint {
+    const size = Number(attributes.size);
+    const label = attributes.forceLabel === true ? 5 + labelWidth : 0;
+    return {left: size + 3, right: size + 3 + label, up: Math.max(size, 8) + 2, down: Math.max(size, 8) + 2};
+}
+
+/** 强制出名字的点，名字框合起来最多占画布面积的多少。再多，名字怎么排都叠在一起。 */
+const LABEL_BUDGET = 0.3;
+
+/**
+ * 挑出强制出名字的点（`forceLabel`）：先放一定要出的（`pinned`），再按权重从大到小，直到名字框的面积合计到画布的
+ * `LABEL_BUDGET`。点少的图名字全出；点多的图只出主要的，其余的名字等放大、悬停或选中时出（Sigma 按格子去重，
+ * 放大后格子里的点变少）。排版按这个结果留位置，所以要在排版之前调。
+ */
+export function chooseForcedLabels(graph: Graph, frame: LayoutFrame, options: {pinned: ReadonlySet<string>; labelWidth: (node: string) => number}): void {
+    const area = (node: string) => {
+        const box = footprint({size: graph.getNodeAttribute(node, "size"), forceLabel: true}, options.labelWidth(node));
+        return (box.left + box.right) * (box.up + box.down);
+    };
+    const order = graph.nodes().sort((a, b) => Number(options.pinned.has(b)) - Number(options.pinned.has(a)) || Number(graph.getNodeAttribute(b, "weight")) - Number(graph.getNodeAttribute(a, "weight")) || a.localeCompare(b));
+    let used = 0;
+    const budget = LABEL_BUDGET * frame.width * frame.height;
+    for (const node of order) {
+        used += area(node);
+        graph.setNodeAttribute(node, "forceLabel", options.pinned.has(node) || used <= budget);
+    }
 }
 
 /** 应力排版超过这么多个点就改用力导向：每轮要算全部点对，点数的平方乘迭代次数。 */
@@ -321,11 +431,11 @@ export const STRESS_MAX_NODES = 400;
  * 起点沿用点现在的位置（调用方先给螺旋起点），没有随机数，同样的起点总是排出同样的位置。不连通的点按“最远的跳数加一”
  * 摆开。点数超过 `STRESS_MAX_NODES` 时退回力导向。
  */
-export function layoutStress(graph: Graph, options: {viewportWidth: number; labelWidth?: (node: string) => number; iterations?: number}): void {
+export function layoutStress(graph: Graph, options: {frame: LayoutFrame; labelWidth?: (node: string) => number; iterations?: number}): void {
     const ids = graph.nodes();
     const n = ids.length;
     if (n > STRESS_MAX_NODES) {
-        layoutForce(graph, {viewportWidth: options.viewportWidth, linLog: false, ...(options.labelWidth === undefined ? {} : {labelWidth: options.labelWidth})});
+        layoutForce(graph, {frame: options.frame, linLog: false, ...(options.labelWidth === undefined ? {} : {labelWidth: options.labelWidth})});
         return;
     }
     if (n < 2) return;
@@ -392,13 +502,58 @@ export function estimateLabelWidth(label: string, size: number): number {
     return width + 12;
 }
 
+/**
+ * 镜头铺满全部点：外框按自己的宽高比放进画布。Sigma 的默认镜头（`animatedReset`）把外框的长边放进画布的短边，
+ * 宽画布上图只占中间一块；`stagePadding` 仍然留着（名字画在点的右边，要留出地方）。
+ * `animate` 为 false 时直接设，给第一次画用。
+ */
+export function fitAll(sigma: Sigma, animate: boolean): CameraState | null {
+    const nodes = sigma.getGraph().nodes();
+    if (nodes.length === 0) return null;
+    // 在 Sigma 的“框住的图坐标”里量点的外框；ratio 为 1 时一个框住的图坐标单位占几个像素（两个方向相同）要问 Sigma，
+    // 它按画布的短边和 stagePadding 换算。ratio 越大看到的越多，所以铺满要的 ratio 是外框占的像素除以画布能放的像素。
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const node of nodes) {
+        const data = sigma.getNodeDisplayData(node);
+        if (data === undefined) continue;
+        minX = Math.min(minX, data.x);
+        maxX = Math.max(maxX, data.x);
+        minY = Math.min(minY, data.y);
+        maxY = Math.max(maxY, data.y);
+    }
+    if (!Number.isFinite(minX)) return null;
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const probe = {x: cx, y: cy, ratio: 1, angle: 0};
+    const origin = sigma.framedGraphToViewport({x: cx, y: cy}, {cameraState: probe});
+    const unit = sigma.framedGraphToViewport({x: cx + 1, y: cy}, {cameraState: probe});
+    const pixels = Math.abs(unit.x - origin.x);
+    const {width, height} = sigma.getDimensions();
+    const padding = sigma.getSetting("stagePadding") ?? 0;
+    const ratio = Math.max(((maxX - minX) * pixels) / Math.max(1, width - 2 * padding), ((maxY - minY) * pixels) / Math.max(1, height - 2 * padding), 1e-3);
+    const state = {x: cx, y: cy, ratio, angle: 0};
+    if (animate) void sigma.getCamera().animate(state, {duration: 300});
+    else sigma.getCamera().setState(state);
+    return state;
+}
+
+/** 镜头还在 `fitAll` 给的位置（用户没缩放、没平移过）。 */
+export function isFitted(sigma: Sigma, fitted: CameraState | null): boolean {
+    if (fitted === null) return false;
+    const now = sigma.getCamera().getState();
+    return Math.abs(now.x - fitted.x) < 1e-3 && Math.abs(now.y - fitted.y) < 1e-3 && Math.abs(now.ratio - fitted.ratio) < 1e-3 * Math.max(1, fitted.ratio);
+}
+
 /** 图下方的缩放按钮。 */
 export function zoom(sigma: Sigma | null, direction: "in" | "out" | "fit"): void {
     const camera = sigma?.getCamera();
-    if (camera === undefined) return;
+    if (sigma === null || camera === undefined) return;
     if (direction === "in") void camera.animatedZoom({duration: 200});
     else if (direction === "out") void camera.animatedUnzoom({duration: 200});
-    else void camera.animatedReset({duration: 300});
+    else fitAll(sigma, true);
 }
 
 /** 同心圆：中心是给定的点（选中的人，没选就是关系最多的人），一圈是一跳邻居，二圈是两跳……每圈内按关系多少排。 */
