@@ -19,7 +19,8 @@
     },
     "include": [
         "src",
-        "testing"
+        "testing",
+        "tests"
     ],
     "exclude": [
         "src/web",
