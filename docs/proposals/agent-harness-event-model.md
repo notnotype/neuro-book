@@ -840,3 +840,4 @@ t20 实施计划第二版把 `spike/v5/` 改成定稿类型（`packages/nb-harne
 | 2026-10-30 | 主 Agent（开发者知悉） | 照审查意见订正与补定：扩展 id 与 Profile id 的两条规则（待定项 20）；会话目录锁与 `session-busy`；主动接口 `ctx.model` 与 `approval` 用途（待定项 7）；出站过滤（待定项 13）；请求的完整形状（待定项 11） |
 | 2026-10-31 | 开发者 | 接受本提案，按“第五稿到定稿的差异”与实施计划第二版实施；架构取舍记入 [ADR 0035](../adr/0035-harness-log-driven-kernel.md) |
 | 2026-10-31 | 主 Agent（开发者知悉） | 实现第 5 片时订正两处定稿类型：输入拦截的返回值改为 `void \| {reject} \| {redacted: true}`（原写法让 `redacted` 只能跟着拒绝出现，第 9 节“改写后的输入标 `redacted`”做不到）；新增内核对话事件 `notice{code: "tools-changed" \| "result-requested"}`，承载第 9 节与 t04 决定 6 的“工具集变了给模型一条提醒”和实施计划第 3.6 节“会话要交回结果时第一轮开头的固定提醒”（原来没有事件名）。行为写在 `harness/runtime.md` 输出 16、24、27 |
+| 2026-10-31 | 开发者 | 按 t20 第 4 片实现审查的推荐：Profile 的 `turn` 改为纯函数 `(turn, format)`，不再读视图；不写 `commit` 时一轮按 `turn` 提交，重开或回退后确定。会变的内容用槽或 `reminder()`；单轮模板要的结构化数据来自输入的 `payload`。第 8 节“`turn` 仍能读视图”与第 13 节的签名以此为准，写进 `harness/profile.md` |

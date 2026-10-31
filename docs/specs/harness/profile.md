@@ -40,7 +40,7 @@ Profile 上与视图有关的字段（类型以 `/kernel/contracts` 导出的定
 |---|---|---|
 | `system` | 文字、模板节点，或 `(view) => 节点` | 是 |
 | `prompt` | `(view) => 节点`；不写就是 `standardLayout()` | 是 |
-| `turn` | `(turn, format, view) => 消息[]`；不写就是 `format.turn(turn)` | 是 |
+| `turn` | `(turn, format) => 消息[]`；不写就是 `format.turn(turn)`；会变的内容用槽或 `reminder()` | 否 |
 | `commit` | `(turn, format) => 消息[]`；不写与 `turn` 相同 | 否 |
 | `render` | 事件名 → `(event) => 文字 \| null` | 否 |
 
@@ -83,8 +83,8 @@ Profile 上与视图有关的字段（类型以 `/kernel/contracts` 导出的定
 
 提交：
 
-10. 一轮结束后，第一次需要它的请求用 `commit(turn, format)` 把它渲染成消息；没写 `commit` 时用 Profile 的 `turn`（视图取那次请求的）。同一个 Profile 哈希（`extensions.md` 输出 28）下，已提交的轮的消息之后每次请求原样拼接，不再调用 `commit`。
-11. `commit` 是纯函数：同一组事件、同一个 Profile 哈希，重开会话或回退之后算出的消息逐块一致。Profile 哈希变了，按新 Profile 重新渲染全部已提交的轮。
+10. 一轮结束后，第一次需要它的请求用 `commit(turn, format)` 把它渲染成消息；没写 `commit` 时用 Profile 的 `turn`（同样是纯函数）。同一个 Profile 哈希（`extensions.md` 输出 28）下，已提交的轮的消息之后每次请求原样拼接，不再调用 `commit`。
+11. `commit` 与 `turn` 都是纯函数：同一组事件、同一个 Profile 哈希，重开会话或回退之后算出的消息逐块一致。Profile 哈希变了，按新 Profile 重新渲染全部已提交的轮。
 12. `commit` 抛错时这一轮用 `format.turn(turn)` 提交，诊断 `commit-threw`；交回的消息里工具调用与结果不成对（输出 17 的规则）时同样改用 `format.turn(turn)`，诊断 `commit-invalid`。之后的请求照常。
 13. `finalOnly(turn)` 去掉工具结果、中间的步与每一步之后的事件，只留最后一步的回复并去掉它的工具调用；附带内容与用户的话保留。没有回复的轮原样交回。
 14. `withoutEvents(turn, dependency, ...names)` 从附带内容与每一步之后的事件里去掉这个依赖的这几种对话事件（类型 `<依赖 id>/<名字>`）。
