@@ -1,0 +1,138 @@
+t20 第 6 片实现审查（omp，默认模型；审查对象 cc9e8be11..253602cd4；2026-10-31）
+审查说明与实验脚本在本地 .local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice6-impl-review/（不入库）。
+
+### 阻断：正确性｜changeProfile 在日志提交前破坏内存装配
+
+位置：`packages/nb-harness/src/kernel/session/session.ts:157-178`、`packages/nb-harness/src/kernel/dispatch/core.ts:210-220`
+
+现象：`changeProfile` 在 `accept` 的受理队列项中先 `unmountAll()`，再调用 `core.reassemble(next)`，最后才把 `profileChanged` 与 `commandAccepted` 交给 `writeAndReact` 落盘。若这次追加失败（句柄进入 `log-broken`，或受理批反应写入失败），日志仍是旧 Profile，但内存里的 `core.assembly`、重新归约的状态、已摘下的 mount 已经是新装配；后续 `snapshot` 会报告新 Profile，而重开才回到旧日志。
+
+为什么是问题：会话合同要求“先落盘、再归约、再推帧”，失败批不得归约。这里把 Profile 切换做成了不可回滚的内存副作用，破坏日志唯一真相源；当前句柄损坏后无法继续用指令修复，关闭前看到的状态与持久状态不一致。
+
+如何核实：在实验中让源会话的 `append` 在包含 `commandAccepted` 的批返回 `log-broken`，调用 `changeProfile`；按上述调用顺序可见 `reassemble` 已先执行，随后 `core.write` 才失败。定向验证基线：`bun test src/kernel/run/control.test.ts src/kernel/run/tree.test.ts`（20 pass），`bun run typecheck`（通过），两者都没有覆盖追加失败后的装配回滚。
+
+建议改法：把新装配与旧装配的摘装、归约、Profile 事件写入设计成可提交事务；至少在 `core.write` 成功前不要替换 `core.assembly`/mount 集合，或保存旧装配、旧状态与旧 mount，在任一写入失败时完整恢复并让调用方只得到 `log-broken`。
+### 阻断：不变量｜fork 先建新会话，原会话受理失败会留下无主会话并破坏幂等
+
+位置：`packages/nb-harness/src/kernel/session/session.ts:147-153,300-321`、`packages/nb-harness/src/kernel/run/commands.ts:35-50`
+
+现象：`forkSession` 先 `store.create` 新会话并追加复制事件、关闭新句柄；返回后外层 `accept` 才把原会话的 `commandAccepted` 写入。原会话这一步失败时，新会话已经持久存在，但原日志没有记录 fork 的结果；同一个 `commandId` 重发不会命中 `core.commands`，会再次创建另一个 fork。
+
+为什么是问题：`fork` 的副作用没有和幂等凭据建立原子关系，失败重试会制造重复会话，首次创建的会话也没有任何可观察的来源指针。新会话目录无法由原会话的日志判断是否属于一次失败的命令；这违反 session 输出 17 的幂等合同和“来源会话不受影响但结果可重放”的边界。
+
+如何核实：实验文件 `.../lab/repro-fork-orphan.ts` 用真实 `createSession`/`LogStore`，仅让源会话包含 `commandAccepted` 的追加失败；运行：`bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice6-impl-review/lab/repro-fork-orphan.ts`。结果为 `LogBrokenError`，但 `store.list({})` 仍列出 `source` 与另一个新会话 id。
+
+建议改法：先为 fork 分配确定的结果 id 并把 fork 的创建与原会话受理记录放进存储层可恢复的事务/两阶段协议；至少把 fork 结果写入原会话后才对外暴露新会话，并在受理失败时删除未被记录的新会话（同时让重发复用同一个预分配 id）。
+### 重要：正确性｜换 Profile 后宿主资源与工具上下文仍使用旧 Profile
+
+位置：`packages/nb-harness/src/kernel/session/session.ts:76-104`、`157-178`、`263-291`；`packages/nb-harness/src/kernel/run/tools.ts:41,53,102`
+
+现象：`internalsFor` 用不可变的 `core.header.profile` 创建 `context`、`resources` 和 `ToolBox`。`changeProfile` 只替换 `core.assembly`，不会重建这些对象；`openSession` 虽按最后一条 `profileChanged` 装配了新 Profile，仍把旧的会话头传给 `internalsFor`。因此换到 `lab.b` 后，资源工厂和后续工具创建收到的仍是 `profile: lab.a`。
+
+为什么是问题：`ToolSessionContext.profile` 是宿主按当前会话装配选择工具和资源的合同字段。换 Profile 后继续用旧上下文会把新 Profile 的运行接到旧 Profile 的能力、资源隔离或工具实现上；重开也不能修复，因为会话头仍是初始 Profile。
+
+如何核实：实验文件 `.../lab/repro-profile-context.ts` 通过真实 `createSession`、`changeProfile` 和资源工厂记录上下文；运行：`bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice6-impl-review/lab/repro-profile-context.ts`，输出 `{"createdProfiles":["lab.a"],"resourceProfiles":["lab.a"]}`，换 Profile 后没有出现 `lab.b`。
+
+建议改法：把当前 Profile id 作为装配状态的一部分，换装配后重建 `resources`、`ToolBox` 与其 `ToolSessionContext`，并让 `internalsFor`/`openSession` 使用当前装配而不是初始会话头。
+### 重要：正确性｜Profile 已换过时 fork 仍写入初始 Profile 头
+
+位置：`packages/nb-harness/src/kernel/session/session.ts:300-318`
+
+现象：`forkSession` 用 `core.header.profile` 填新会话头；这个字段在 `changeProfile` 中从未更新。复制事件却带上了最后一条 `profileChanged`，所以打开 fork 后出现 `snapshot.header.profile === "lab.a"`、`snapshot.profile.id === "lab.b"` 的不一致。
+
+为什么是问题：会话头是存储索引和宿主列举会话使用的 Profile 字段，fork 合同要求新会话“带当前 Profile 与设置”。当前实现让索引按旧 Profile 展示，头部解析、运行时装配又按事件得到新 Profile；依赖头部的宿主、迁移和 fork 再 fork 会看到两套事实。
+
+如何核实：实验文件 `.../lab/repro-fork-profile.ts`；运行：`bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice6-impl-review/lab/repro-fork-profile.ts`，输出 `{"headerProfile":"lab.a","snapshotProfile":"lab.b"}`。
+
+建议改法：fork 头部使用 `core.assembly.profile.id`（并同步索引），或在换 Profile 时以明确的会话头更新事务维护单一当前 Profile 来源；不要让头与 session 事件分别代表当前值。
+### 重要：正确性｜重新装配没有清空旧 Profile 的 failedExtensions
+
+位置：`packages/nb-harness/src/kernel/dispatch/core.ts:87-88,210-220`、`packages/nb-harness/src/kernel/session/session.ts:168-177`
+
+现象：旧 Profile 的 `mount` 抛错时，`Mounts.mountAll` 把扩展 id 放进 `core.failedExtensions`。`reassemble` 换装配时只重建 assembly、path/session 快照和 batch 状态，没有清空这个集合；新 Profile 复用同一个扩展 id 并成功 mount 后，反应派发仍以 `!core.failedExtensions.has(id)` 过滤它。
+
+为什么是问题：失败状态属于一次装配/会话生命周期，不属于同 id 的永久禁用。换到修复后的扩展后，事件仍能归约、mount 也会运行，但该扩展的 `on` 永远不执行，表现为静默丢失反应；新 Profile 也无法真正恢复。
+
+如何核实：实验文件 `.../lab/repro-profile-failed-extension.ts` 先用真实 Profile A 让 `lab.same` 的 mount 失败，再换到 Profile B（同 id、mount 成功并 emit `ping`）；运行：`bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice6-impl-review/lab/repro-profile-failed-extension.ts`。结果为 `state.seen: 0`，日志已有 `lab.same/ping`，说明新装配的反应被旧失败标记跳过。
+
+建议改法：`reassemble` 在新装配开始时清空并按新装配重新建立 failed 状态；更稳妥的是把失败标记绑定到装配实例或 Profile 哈希，而不是只用扩展 id。
+### 重要：正确性｜最终回复同时有 steer 时丢弃扩展的 continue 请求
+
+位置：`packages/nb-harness/src/kernel/run/loop.ts:228-235`
+
+现象：回复写入并完成反应后，循环先检查缓冲区是否有 steer；只要有就直接 `continue`，没有把 `replied.continues` 写成 `continued`。该扩展请求因此没有日志记录，也没有按 `continue` 语义执行；下一次请求只处理 steer。
+
+为什么是问题：`AssistantCtx.continue()` 返回 true 表示扩展已请求再次请求模型，事件是唯一可重放的事实。steer 的优先级只应决定下一次请求的输入顺序，不能静默取消已经受理的 continue；否则同一回复在“有插话”和“无插话”两种时序下产生不同的扩展行为，且重开后无法解释为何没有继续。
+
+如何核实：实验文件 `.../lab/repro-steer-continue.ts` 用真实 `createTestSession`，让第一个 assistant handler 只调用一次 `ctx.continue()`，同时在第一次模型请求释放前入队一条 steer；运行：`bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice6-impl-review/lab/repro-steer-continue.ts`，输出 `assistant,steer,assistant,turnEnded,runEnded`，缺少应有的 `continued`。同样脚本把 handler 每次都调用时，第二次回复的 `continued` 才出现，证明第一次请求被这个分支丢掉。
+
+建议改法：先把 `replied.continues` 按现有计数写入 `continued`，再决定边界上取 steer；或把 steer 与 continue 合并成同一次下一请求的显式状态，保证两者都可观测、可重放且不形成无限重入。
+### 重要：正确性｜changeSettings 把扩展设置的默认值误判为变化
+
+位置：`packages/nb-harness/src/kernel/run/commands.ts:182-191`
+
+现象：比较当前值时，扩展组直接取 `core.session.kernel.settings[extension] ?? {}`，没有合并 schema 默认值。对一个 `label` 默认值为 `"default"` 的扩展，第一次提交同样的 `label: "default"` 得到 `changed: ["lab.defaults"]`，并写 `settingsChanged`。
+
+为什么是问题：runtime.md 输出 31 要求“值没变的项不写”。默认值就是设置的生效值；现在的实现产生无意义的持久事件、触发扩展反应并改变幂等结果，反应若按设置变化做外部副作用还会在没有实际变化时执行一次。
+
+如何核实：实验文件 `.../lab/repro-settings-default.ts`；运行：`bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice6-impl-review/lab/repro-settings-default.ts`，结果为 `changed:["lab.defaults"]`，日志包含 `settingsChanged`，尽管有效设置仍是默认值。
+
+建议改法：比较前用与视图相同的 `defaultSettings(definition)` 合并用户覆盖，再按结构化 JSON 值比较；只有有效值改变时才生成该组的 `settingsChanged`。
+### 重要：不变量｜changeProfile 返回时新 mount 的外部事实可能还没落盘
+
+位置：`packages/nb-harness/src/kernel/session/session.ts:174-178`、`packages/nb-harness/src/kernel/dispatch/mount.ts:49-56`
+
+现象：`changeProfile` 的 `after` 只等待 `state.mounts.mountAll(...)`。mount 中 `ctx.emit`/`ctx.set` 在空闲时调用 `core.queue.run(...)`，但 `#external` 不返回或等待这个 Promise；因此 `mountAll` 完成并不等于 mount 产生的事件及其反应完成。新 Profile 的 mount 事实可以排在 commandAccepted 之后、在 changeProfile 返回之后才写入。
+
+为什么是问题：打开、新建会话都在 `mountAll` 后显式 `queue.drain()`；换 Profile 缺少同样的收口，破坏“全部 mount 完成之后才受理指令”和受理结果的可观察顺序。调用方收到成功后立即读快照/日志会看不到新装配已经产生的外部事实，后续指令也会被一个尚未完成的 mount 反应阻塞。
+
+如何核实：实验文件 `.../lab/repro-profile-mount-drain.ts` 的新 Profile mount 同步 emit 一个 session 事件；运行：`bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice6-impl-review/lab/repro-profile-mount-drain.ts`，changeProfile 已返回时 `immediate` 只有两条 `profileChanged` 与 `commandAccepted`，没有 `lab.mount/ping`，扩展状态仍为 `seen: 0`。
+
+建议改法：让 `Mounts.mountAll` 收集空闲外部写入并等待对应队列项及反应完成，或在 changeProfile 的 `after` 结束前 `await core.queue.drain()`；同时保留失败时的诊断/`log-broken` 语义。
+### 建议：正确性｜changeProfile 的 dependency-missing 丢失合同要求的 detail
+
+位置：`packages/nb-harness/src/kernel/session/session.ts:160-165`、`packages/nb-harness/src/kernel/api/host.ts:56-66`
+
+现象：装配失败时只取 `assembled.problems[0].code` 返回 `{fail: "dependency-missing"}`，没有带 `detail: {extension, dependency}`；而 `CommandErrorDetails` 明确把 `dependency-missing` 定义为必须带这两个字段。当前 `AssemblyProblem` 也没有保留缺失依赖 id，导致宿主只能拿到无上下文的失败码。
+
+为什么是问题：远程调用方按失败码与结构化 detail 定位配置问题，不能解析英文 message。换 Profile 的依赖缺失会退化成无法指出哪一个扩展缺哪一个依赖，且与公开 API 类型合同不一致。
+
+如何核实：静态对照 `assemble.ts:29-34,199-202`、`session.ts:160-165` 与 `host.ts:56-66`；`bun run typecheck` 仍通过是因为 `Outcome.fail` 被声明成宽泛的 `string`，没有检查每个失败码的 detail 形状。
+
+建议改法：让 `AssemblyProblem` 保存 `dependency`，按错误码构造类型化的 `Outcome`/`CommandFailure`，返回完整 detail；同时为依赖缺失的 changeProfile 场景补行为测试。
+### 建议：安全与性能｜会话树查询在长日志和多次调用下重复扫描并分配
+
+位置：`packages/nb-harness/src/kernel/run/tree.ts:15-47,76-92`、`packages/nb-harness/src/kernel/dispatch/core.ts:223-237`
+
+现象：`rewindTargets` 对路径上每个 `turnStarted` 都执行一次 `path.slice(index + 1).find(...)`；`childrenOf` 每次过滤完整 `events`；`siblingsOf` 对每个兄弟再调用一次 `latestIn`，而每个 `latestIn` 都新建 `Set` 并扫描完整事件数组。
+
+为什么是问题：这不是一次性打开成本，而是查询 API 每次调用的热路径。若路径有 20,000 条事件和 2,000 轮，`rewindTargets` 会反复复制/扫描约 20,000×2,000 级别的后缀；若一个节点有 100 个兄弟，`siblings` 至少重复 100 次全日志扫描。拖动回退界面或重复刷新查询会把线性日志变成明显的 O(n·turns) / O(n·siblings) 工作，且产生大量短命数组和 Set。
+
+如何核实：逐行追踪上述循环即可得到复杂度；`bun test src/kernel`（144 pass）只验证结果，没有长日志或重复查询预算，也没有性能断言。
+
+建议改法：在 `SessionCore` 维护按 parent 的 children 索引、子树末端/最大 seq 索引；`rewindTargets` 单次前向扫描维护当前轮输入与边界，避免每轮复制后缀。为 20,000 条事件、多次连续 query 增加测量，按计划中的性能门禁决定数据结构。
+
+未发现问题的方面：
+- 暂停运行的 `leafSetBy` 判定、重开不误作崩溃恢复，以及 `start`/`send` 接续，在现有回退测试和场景 5 恢复测试覆盖的路径内行为一致；崩溃恢复定向测试连续 5 次每次 2 项通过。
+- `rewindTargets` 的正常目标顺序、运行中途回退、重试/swipe 的模型请求分叉、`switchBranch` 的结果，在 `bun test src/kernel/run/tree.test.ts` 的 7 项测试内通过；本报告只对其长日志复杂度另列建议。
+- `inputEdited` 的事件形状、设置事件按所属扩展派发、abort 的缓冲区清空/保留分支，在现有测试内通过；设置默认值的“无变化不写”另有第 7 条问题。
+- 当前提交范围的定向测试与类型表面没有失败：`bun test src/kernel` 为 144 pass，`bun run typecheck` 通过。上述通过不覆盖新增的失败注入、换 Profile 生命周期和长日志场景。
+
+数量：阻断 2 条；重要 6 条；建议 2 条；合计 10 条。
+
+作者定的四项判断：
+1. `changeSettings` 受理时就写 `settingsChanged`：时序符合补定，但默认值未合并导致“无变化也写”，见第 7 条。
+2. 回退可暂停运行、`start`/`send` 接续、重开按 `leafChanged` 不恢复：已覆盖的暂停/重开路径成立；`changeProfile` 后的装配生命周期仍受第 3、5、6 条影响。
+3. 重试/swipe 在模型请求处分叉，`runResultOf` 取最后写下的 `runEnded` 沿路径计算：实现与现有树测试一致，仔细检查后未发现这项本身的问题。
+4. `changeProfile` 受理项内摘旧扩展并重新归约，批写后装新扩展：装配顺序意图清楚，但实际先改内存后落盘且没有等待 mount 外部事实，不能满足日志事务与收口不变量，见第 1、3、6 条。
+
+编号更正：上一段第 4 项应引用第 1、3、5、10 条（事务顺序、宿主上下文、失败扩展状态、mount 写入收口）；第 6 条是 steer/continue 丢失问题，与该判断无关。
+
+## 处理（主会话）
+
+10 条全部成立，已改（Work 分支修正提交见 Task README），各在对应输出的测试里补了用例，变异检查全部失败：
+- 阻断 1：changeProfile 改为受理批写下之后（同一队列项里）才摘下旧扩展、重新归约；装上在队列项之外并 drain（同时修第 8 条）。写失败时 accept 现在交回 log-broken 而不是抛错（顺带发现：原来第一次写失败的指令会抛 LogBrokenError）。
+- 阻断 2：fork 的新会话 id 由来源会话与 commandId 的哈希定，重发撞到 session-exists 时交回同一个。
+- 3：交给宿主的上下文按当前装配取 Profile；换 Profile 时重建资源、释放工具实现。4：fork 头用当前 Profile。5：reassemble 清空 failedExtensions。
+- 6：先写 continued 再在边界取 steer。7：扩展设置按缺省值合并后的生效值比较。9：AssemblyProblem 带缺的依赖，dependency-missing 交回 detail。10：SessionCore 维护子节点索引，latestIn 按子树走，rewindTargets 单次扫描。
+- runtime.md 输出 28、31、33、37、38 已按上面订正。

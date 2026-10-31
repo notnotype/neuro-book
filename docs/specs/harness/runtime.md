@@ -72,20 +72,20 @@ owners:
 
 缓冲区、设置与恢复：
 
-28. 运行中，每个边界把缓冲区里全部 `steer` 按入队顺序取走：每条一个 `inputConsumed` 加一条 `steer`，同一个写入批，进当前这一轮（还没有回复时是附带内容，有了是最后一步之后）。模型给出最终回复时缓冲区里还有 `steer`，这一轮不结束，接着请求。
+28. 运行中，每个边界把缓冲区里全部 `steer` 按入队顺序取走：每条一个 `inputConsumed` 加一条 `steer`，同一个写入批，进当前这一轮（还没有回复时是附带内容，有了是最后一步之后）。模型给出最终回复时缓冲区里还有 `steer`，这一轮不结束，接着请求；同时有扩展要 `continue` 时先写 `continued`，两者都进下一次请求。
 29. `edit`、`remove` 只对还在缓冲区里的输入：`edit` 经输入拦截链（同输出 24）写 `inputEdited`，`remove` 写 `inputRemoved{reason: "user"}`。不在缓冲区里时，入过队的（已取走或已删）得 `input-consumed`，从没入过队的得 `input-not-found`。
 30. `abort` 中止了运行时，缺省在收口之后清空缓冲区，每条写 `inputRemoved{reason: "aborted"}`；`keepQueue: true` 保留。没有运行时缓冲区不动。轮以 `error` 或 `aborted` 结束时不取 `followup`。
-31. `changeSettings` 的补丁按扩展 id 分组（核心设置组是 `core`：`model`、`effort`、`approvalMode`、`readOnly`），整体校验：组不是装配里的扩展得 `unknown-extension`，键不在它的设置 schema 里得 `unknown-key{extension, key}`，值不合 schema 得 `invalid-value{extension, key, message}`，有一项不合法就都不改。受理时给每个值有变化的组写一条 `settingsChanged`（值没变的项不写），运行中受理的同样立刻写，下一次请求前生效（`scheduled: "next-boundary"`，空闲时 `"now"`）。`settingsChanged` 只派发给设置所属的扩展的处理函数。
+31. `changeSettings` 的补丁按扩展 id 分组（核心设置组是 `core`：`model`、`effort`、`approvalMode`、`readOnly`），整体校验：组不是装配里的扩展得 `unknown-extension`，键不在它的设置 schema 里得 `unknown-key{extension, key}`，值不合 schema 得 `invalid-value{extension, key, message}`，有一项不合法就都不改。受理时给每个值有变化的组写一条 `settingsChanged`（按生效值比：扩展的项先合并 schema 的缺省值，与缺省相同的不算变化；值没变的项不写），运行中受理的同样立刻写，下一次请求前生效（`scheduled: "next-boundary"`，空闲时 `"now"`）。`settingsChanged` 只派发给设置所属的扩展的处理函数。
 32. `setTitle` 去掉首尾空白后为空得 `empty-title`，否则写 `titleChanged{by: "user"}`；`archive` 写 `archived`。快照的 `title`、`archived` 随之变化。
-33. 输出 29–32 的指令与 `send` 一样按 `commandId` 幂等（[`harness/session.md`](session.md) 输出 17）。
+33. 输出 29–32 的指令与 `send` 一样按 `commandId` 幂等（[`harness/session.md`](session.md) 输出 17）。受理批写失败的那条指令得 `log-broken`（不抛错），之后的指令同样（`session.md` 输出 12）。
 34. 打开会话时恢复没收口的运行（`session.md` 输出 15）：最后一条回复里没有结果的工具调用，写过 `toolStarted` 的得 `unknown`、码 `interrupted`，还没开始的得 `denied`、码 `interrupted-before-approval`、`by: "core"`；之后是发出没回复的模型请求、`turnEnded`、`runEnded{interrupted}`，同一个写入批。缓冲区里的输入留着，不自动发出。
 
 会话树与 Profile：
 
 35. `rewindTargets()` 列出当前路径上的回退目标，按路径顺序：`before-turn`（一次运行的第一轮回到 `runStarted` 之前，后面的轮回到上一轮结束处）、`after-step`（这一轮某次模型请求之前，第一次就是用户的话之后）、`after-turn`（这一轮结束处；也是运行的最后一轮时落在 `runEnded` 上）。`rewind(to)` 只接受这些目标：有运行在跑得 `running`，`to` 不是会话里的节点得 `unknown-node`，不是目标（或为 null）得 `invalid-target`；受理时写 `leafChanged`。回退之后路径上的事件、path 片与对话回到目标处，session 片、缓冲区与设置不变。
 36. 回退到运行中途时（`after-step`，或运行中某一轮之前），那条分支上的运行暂停：没有循环在跑，快照的运行状态是 `idle`；`start` 让它接着跑，`send` 入队后让它接着跑（停在两轮之间时先取缓冲区的第一条开一轮）。接着跑之后的模型请求（`modelStarted`）与原来那次是兄弟节点，新旧回复各挂在自己那次请求下面，这就是重试与 swipe。重试之后 `runResult`、`waitRun` 取这次运行最后写下的 `runEnded`，只算它所在路径上的回复与用量。叶子由 `leafChanged` 定时重开会话不当作崩溃恢复。`rewind{resend}` 回退后把这条话入队：目标在运行外就开新的运行，在运行中途就让暂停的运行接着跑。
-37. `switchBranch(node)` 落到 `node` 所在子树里最近写入的末端；`siblings(node)` 给出与它同一个父节点的节点，各带所在分支的末端。`fork({leaf?})` 把到 `leaf`（缺省当前叶子）为止的路径复制成新会话，会话头的 `origin` 记来源，带上当前的 Profile 与设置，不带缓冲区与标题；原会话不变。三者在有运行在跑时得 `running`。
-38. `changeProfile(profile)` 只在没有运行在跑时（否则 `running`）：解析不到得 `unknown-profile`，装配缺依赖或成环得 `dependency-missing`、`dependency-cycle`，其余装配错误得 `profile-invalid`。新装配的 Profile 哈希与当前相同时 `changed: false`、不写日志；不同时写 `profileChanged{reason: "user"}`，摘下旧扩展、按新装配从日志重新归约全部状态、装上新扩展，已提交的轮按新 Profile 重新渲染（[`harness/profile.md`](profile.md) 输出 11）。重开会话按最后一条 `profileChanged` 解析 Profile。
+37. `switchBranch(node)` 落到 `node` 所在子树里最近写入的末端；`siblings(node)` 给出与它同一个父节点的节点，各带所在分支的末端。`fork({leaf?})` 把到 `leaf`（缺省当前叶子）为止的路径复制成新会话，会话头的 `origin` 记来源、`profile` 是当前的 Profile，带上设置，不带缓冲区与标题；原会话不变。新会话的 id 由来源会话与 `commandId` 定：原会话的受理没写下就失败或崩溃时，重发同一个 `commandId` 交回同一个新会话，不多建。三者在有运行在跑时得 `running`。
+38. `changeProfile(profile)` 只在没有运行在跑时（否则 `running`）：解析不到得 `unknown-profile`，装配缺依赖得 `dependency-missing{extension, dependency}`、成环得 `dependency-cycle`，其余装配错误得 `profile-invalid`。新装配的 Profile 哈希与当前相同时 `changed: false`、不写日志；不同时写 `profileChanged{reason: "user"}`；写下之后才摘下旧扩展、按新装配从日志重新归约全部状态（`mount` 失败的标记清空）、装上新扩展，并等装上写的外部事实落盘再返回；写失败时得 `log-broken`，内存里的装配不变。之后交给宿主的上下文（建资源、建工具实现）是新 Profile，已建的工具实现释放后按新上下文重建；已提交的轮按新 Profile 重新渲染（[`harness/profile.md`](profile.md) 输出 11）。重开会话按最后一条 `profileChanged` 解析 Profile。
 
 ## 状态与转换
 
