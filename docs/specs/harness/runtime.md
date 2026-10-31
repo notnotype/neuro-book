@@ -97,7 +97,7 @@ owners:
 44. 同一条回复里几个调用的事项可以同时待处理、任意顺序应答；`waiting.pending` 列出全部，都应答之后运行状态回到 `running`。
 45. 发出者由宿主注入：`session.as(issuer)` 交回带这个发出者的会话视图，指令里没有发出者参数。
 
-压缩（方法本身在 t11，由宿主经 `SessionEnv.compaction` 交进来）：
+压缩（压缩方法与放回的内容由宿主经 `SessionEnv.compaction` 交进来）：
 
 46. 每个边界在取走 steer 之后估算上下文：上一次回复的 `input + cacheRead + cacheWrite + output`（它之后压缩过的，取压缩的 `tokensAfter`）加之后路径上新增的对话事件（按 UTF-8 字节数每 3 字节一个 token 估算）。超过触发点（模型窗口 − max(窗口的 15%, 16,384)；窗口未知时不按阈值压缩）时先压缩再算请求；Profile 写 `compaction: false` 时不压缩。压缩失败只诊断 `compaction-failed`，请求照发。
 47. 方法按 Profile 的 `compaction.onThreshold`（缺省 `shake`、`inplace`）或 `onOverflow`（缺省 `shake`、`summary`）依次调用，实现取自 `SessionEnv.compaction.methods`，没有的算失败。每个方法经压缩拦截链（出错时跳过这一层）；它拿到的 `CompactionJob` 带原因（`threshold`、`overflow`、`manual`）、压缩前的请求（`purpose: "compaction"`）、合法切点（对话里还在的每一轮的 `turnStarted`，与进行中这一轮每一步的回复，各带保留下来的 token 估算）、压缩前的 token 估算、要求（Profile 的 `compaction.require` 加 `compact` 的要求）与 `model`（发出的请求 `purpose: "compaction"`，经模型拦截链，写 `modelStarted`、`modelEnded`）。方法交回 `{failed}`，或结果不合格（切点不在合法切点里、省略的条目不在对话里或占位为空、token 不是非负数，诊断 `compaction-invalid`）时换下一个；全部失败时不写压缩事件。
