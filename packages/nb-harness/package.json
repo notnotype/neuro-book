@@ -16,7 +16,12 @@
     },
     "exports": {
         ".": "./src/index.ts",
-        "./testing": "./src/testing/index.ts"
+        "./testing": "./src/testing/index.ts",
+        "./kernel": "./src/kernel/index.ts",
+        "./kernel/contracts": "./src/kernel/contracts.ts",
+        "./prompt": "./src/kernel/view/prompt/index.ts",
+        "./prompt/jsx-runtime": "./src/kernel/view/prompt/jsx-runtime.ts",
+        "./prompt/jsx-dev-runtime": "./src/kernel/view/prompt/jsx-dev-runtime.ts"
     },
     "scripts": {
         "test": "bun test",

@@ -7,6 +7,12 @@ NeuroBook 的 Agent harness：只经 Profile 运行的 Agent。按 Profile 与�
 - `@notnotype/nb-harness`：`createHarness`、`complete`、模型目录与解析（`listCatalog`、`resolveModel`、`discoverModels`）、工具登记与内置工具、SSE 序列化、进程中断与终止信号的收口。
 - `@notnotype/nb-harness/testing`：给宿主测试用的替身。
 
+新内核在开发中（[提案](../../docs/proposals/agent-harness-event-model.md)、[ADR 0035](../../docs/adr/0035-harness-log-driven-kernel.md)、[`harness/session.md`](../../docs/specs/harness/session.md)）：harness 是一台由会话日志驱动的状态机，Profile 与插件都是扩展。完成迁移之前，上面的入口仍是旧实现。
+
+- `@notnotype/nb-harness/kernel`：新内核。
+- `@notnotype/nb-harness/kernel/contracts`：公开类型、码表与定义用的构造函数（`defineExtension`、`defineContract`、`defineProfile`、`slice`、`conv`、`ext`），不拖实现。
+- `@notnotype/nb-harness/prompt`：提示词模板的节点与 JSX 运行时（`jsxImportSource: "@notnotype/nb-harness/prompt"`）。
+
 ## 安装
 
 ```bash
