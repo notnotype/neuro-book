@@ -128,6 +128,7 @@ export const diagnosticCodes = {
     "dependency-cycle": "error",
     "render-foreign-event": "error",
     "reminder-without-trigger": "error",
+    "bad-slot-name": "error",
     "mount-failed": "error",
     "mount-timeout": "error",
     "extension-revoked": "warn",

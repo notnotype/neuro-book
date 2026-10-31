@@ -11,9 +11,12 @@
 import {randomBytes} from "node:crypto";
 import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
-import type {AnyProfile, CommandName, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
+import type {AnyProfile, ModelInfo, CommandName, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
 import {LOG_FORMAT} from "../api/index.js";
 import {SessionCore, type EventDraft} from "../dispatch/core.js";
+import {Mounts} from "../dispatch/mount.js";
+import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
+import type {ViewEnvironment} from "../extension/ctx.js";
 import {assemble, type Assembly} from "../extension/assemble.js";
 import {abortCommand, enqueueCommand, sendCommand, startCommand, type CommandHost} from "../run/commands.js";
 import {RunControl} from "../run/control.js";
@@ -25,6 +28,9 @@ type CreateResult = StorageResult<SessionApi> | {ok: false; code: "profile-inval
 interface Internals {
     readonly core: SessionCore;
     readonly control: RunControl;
+    readonly react: ReactHost;
+    readonly mounts: Mounts;
+    readonly environment: Omit<ViewEnvironment, "now">;
     closed: boolean;
 }
 const internals = new WeakMap<SessionApi, Internals>();
@@ -58,19 +64,47 @@ function assembleOrPlaceholder(env: SessionEnv, profile: AnyProfile | undefined,
     return {assembly: fallback.assembly, readOnly: profile === undefined ? "unknown-profile" : "dependency-missing"};
 }
 
+/** 视图与反应用的模型信息：按当前的核心设置解析；解析不到时给一个占位（视图仍能算，发请求时才失败）。 */
+const UNKNOWN_MODEL: ModelInfo = {id: "unknown/unknown", contextWindow: 0, capabilities: {vision: false, thinking: false}, efforts: []};
+
+/** 一个会话的内部对象：运行控制、反应与装上的宿主。`as()` 得到的视图共用它。 */
+function internalsFor(env: SessionEnv, core: SessionCore): Internals {
+    const control = new RunControl(core);
+    // 初始输入在 sessionCreated 里；新建会话时它在这个对象建好之后才写下，所以用到时再找（找到一次就记住）。
+    let initialCache: {value: unknown} | null = null;
+    const initialOf = (): unknown => {
+        if (initialCache !== null) return initialCache.value;
+        const created = core.events.find((event) => event.type === "sessionCreated");
+        if (created === undefined) return null;
+        initialCache = {value: (created.data as {initial?: unknown}).initial ?? null};
+        return initialCache.value;
+    };
+    const modelInfo = (): ModelInfo => {
+        const resolution = env.models.resolve(core.session.kernel.core, "turn");
+        return resolution.ok ? resolution.info : UNKNOWN_MODEL;
+    };
+    const environment = {tools: [], get model() {
+        return modelInfo();
+    }, get initial() {
+        return initialOf();
+    }};
+    const resources = env.resources({sessionId: core.header.id, profile: core.header.profile, ...(core.header.project === undefined ? {} : {project: core.header.project})});
+    const react: ReactHost = {environment: () => ({tools: [], model: modelInfo(), now: core.clock.now(), initial: initialOf()}), resources};
+    control.attach({
+        core,
+        react,
+        models: env.models,
+        environment: (model) => ({tools: [], model, now: core.clock.now(), initial: initialOf()}),
+        tools: () => [],
+    });
+    const mounts = new Mounts(core, {...react, running: () => !control.idle});
+    return {core, control, react, mounts, environment, closed: false};
+}
+
 function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, issuer: Issuer, shared?: Internals): SessionApi {
-    const state: Internals = shared ?? {core, control: new RunControl(core), closed: false};
+    const state: Internals = shared ?? internalsFor(env, core);
     const {control} = state;
-    if (shared === undefined) {
-        const initial = (core.events.find((event) => event.type === "sessionCreated")?.data as {initial?: unknown} | undefined)?.initial ?? null;
-        control.attach({
-            core,
-            models: env.models,
-            environment: (model) => ({tools: [], model, now: core.clock.now(), initial}),
-            tools: () => [],
-        });
-    }
-    const host: CommandHost = {core, control, models: env.models, readOnly: () => readOnly};
+    const host: CommandHost = {core, control, react: state.react, models: env.models, readOnly: () => readOnly};
     const closedGuard = <T>(run: () => Promise<T>): Promise<T> => (state.closed ? Promise.resolve({ok: false, code: "session-closed"} as T) : run());
     const notYet = (name: CommandName | string) => () => Promise.reject(new NotYetImplemented(name));
     const api: SessionApi = {
@@ -161,11 +195,16 @@ export async function createSession(env: SessionEnv, options: CreateSessionOptio
     if (!created.ok) return created;
     const core = new SessionCore({header, store: env.store, handle: created.value, assembly: assembled.assembly, clock: env.clock, freeze: FREEZE});
     const {assembly} = assembled;
-    await core.queue.run(() => core.write([
+    reportAssemblyWarnings(core);
+    const api = buildApi(env, core, null, {kind: "user"});
+    const state = internals.get(api)!;
+    await core.queue.run(() => writeAndReact(core, [
         {type: "sessionCreated", kind: "ctrl", scope: "path", data: {initial}},
         {type: "profileChanged", kind: "ctrl", scope: "session", data: {profile: profile.id, hash: assembly.hash, from: null, reason: "created", manifest: assembly.manifest as unknown as JsonValue}},
-    ]));
-    return {ok: true, value: buildApi(env, core, null, {kind: "user"})};
+    ], state.react));
+    await state.mounts.mountAll(state.environment);
+    await core.queue.drain();
+    return {ok: true, value: api};
 }
 
 export async function openSession(env: SessionEnv, id: string): Promise<StorageResult<SessionApi>> {
@@ -176,6 +215,7 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
     const core = new SessionCore({header: handle.header, store: env.store, handle, assembly, clock: env.clock, freeze: FREEZE});
     core.load(handle.events);
     core.reportOpenNotices();
+    reportAssemblyWarnings(core);
     if (readOnly === null) {
         const previous = core.session.kernel.profile;
         const drafts: EventDraft[] = [];
@@ -188,7 +228,17 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
     } else {
         core.diagnostics.add({code: "unknown-profile", entry: "host", params: {profile: handle.header.profile, reason: readOnly}, message: `profile ${handle.header.profile} could not be assembled; the session is read-only`}, core.head);
     }
-    return {ok: true, value: buildApi(env, core, readOnly, {kind: "user"})};
+    const api = buildApi(env, core, readOnly, {kind: "user"});
+    if (readOnly === null) {
+        const state = internals.get(api)!;
+        await state.mounts.mountAll(state.environment);
+        await core.queue.drain();
+    }
+    return {ok: true, value: api};
+}
+
+function reportAssemblyWarnings(core: SessionCore): void {
+    for (const warning of core.assembly.warnings) core.diagnostics.add({code: warning.code, extension: warning.extension, entry: "assembly", params: warning.params, message: warning.message, hint: warning.hint}, core.head);
 }
 
 /** 关闭：拒绝新指令 → 中止并等收口 → 等队列清空 → 关日志与锁。重复调用无事。 */
@@ -198,6 +248,7 @@ export async function closeSession(session: SessionApi): Promise<void> {
     state.closed = true;
     if (!state.core.broken) await state.control.shutdown();
     await state.core.queue.drain();
+    await state.mounts.unmountAll();
     await state.core.store.close(state.core.handle);
 }
 

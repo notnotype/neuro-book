@@ -11,27 +11,17 @@
  */
 
 import {randomBytes} from "node:crypto";
-import type {Clock, EventKind, Frame, JsonValue, LogEvent, LogHandle, LogStore, Position, Scope, SessionHeader} from "../api/index.js";
+import type {Clock, Frame, JsonValue, LogEvent, LogHandle, LogStore, Position, SessionHeader} from "../api/index.js";
 import type {Assembly} from "../extension/assemble.js";
 import type {StateAt} from "../extension/ctx.js";
 import {deepFreeze} from "../state/freeze.js";
 import {initialPathKernel, initialSessionKernel, reducePathKernel, reduceSessionKernel, type PathKernelState, type SessionKernelState} from "../state/kernel-state.js";
 import {initialSnapshot, reduceSnapshot, type ReduceProblem, type Snapshot} from "../state/snapshot.js";
+import type {EventDraft} from "../state/draft.js";
 import {Diagnostics} from "./diagnostics.js";
-import {WriteQueue} from "./queue.js";
 
-/** 要写的一条事件：id、seq、时刻、父节点与位置章由 `write` 补上。 */
-export interface EventDraft {
-    readonly type: string;
-    readonly kind: EventKind;
-    readonly scope: Scope;
-    readonly data: JsonValue;
-    readonly version?: number;
-    readonly source?: string;
-    readonly cause?: string;
-    readonly depth?: number;
-    readonly key?: string;
-}
+export type {EventDraft};
+import {WriteQueue} from "./queue.js";
 
 export interface PathState {
     readonly kernel: PathKernelState;
@@ -86,6 +76,14 @@ export class SessionCore {
     /** 会话内单调增加的模型请求序号（跨分支不重复）。 */
     requestCounter = 0;
     broken = false;
+    /** `mount` 超时或抛错的扩展：不再派发给它，归约照常。 */
+    readonly failedExtensions = new Set<string>();
+    /** 运行中到达的外部事实：到下一个边界按到达顺序写入（每项一个写入批）。 */
+    readonly inbox: EventDraft[][] = [];
+    /** 幂等键：`来源\0键`。 */
+    readonly #keys = new Set<string>();
+    /** 刚写下的这一批里每条事件之后的状态：反应要读“这条事件写入之后”的状态。下一次写入时清空。 */
+    #batchStates = new Map<string, StateAt>();
     #pathStates = new Map<string, PathState>();
     #initialPath: PathState;
     #session: SessionState;
@@ -153,7 +151,12 @@ export class SessionCore {
 
     /** 在给定状态上归约一条事件（纯计算，不改内存里的会话）。 */
     #reduce(path: PathState, session: SessionState, event: LogEvent): {path: PathState; session: SessionState} {
-        const reducers = this.assembly.reducers;
+        // 扩展事件的版本高于拥有者现在声明的（插件降级后打开新日志）：留在日志里，扩展不归约它（session.md 输出 14）。
+        const declared = this.assembly.eventVersions.get(event.type);
+        const reducers = declared !== undefined && event.version > declared ? [] : this.assembly.reducers;
+        if (reducers.length === 0 && declared !== undefined) {
+            this.diagnostics.add({code: "event-version-unsupported", extension: event.source, entry: "reduce", event: {id: event.id, type: event.type, seq: event.seq}, params: {version: event.version, declared}, message: `${event.type} has version ${event.version} but ${event.source} declares ${declared}; the event is not reduced`}, event.seq);
+        }
         const options = {freeze: this.freeze, onProblem: this.#reduceProblem};
         if (event.scope === "path") {
             return {path: {kernel: reducePathKernel(path.kernel, event), extensions: reduceSnapshot(reducers, path.extensions, event, "path", options)}, session};
@@ -176,6 +179,7 @@ export class SessionCore {
             const data = event.data as {commandId: string; name: string; value: JsonValue};
             this.commands.set(data.commandId, {name: data.name, value: data.value, seq: event.seq});
         }
+        if (event.key !== undefined) this.#keys.add(`${event.source}\u0000${event.key}`);
         if (event.type === "modelStarted") this.requestCounter = Math.max(this.requestCounter, (event.data as {request: number}).request);
     }
 
@@ -238,11 +242,24 @@ export class SessionCore {
             for (const listener of this.#brokenListeners) listener();
             throw new LogBrokenError(stored);
         }
+        this.#batchStates = new Map();
         for (const item of staged) {
             this.#commit(this.freeze ? deepFreeze(item.event) : item.event, item.path, item.session);
+            this.#batchStates.set(item.event.id, {path: item.path.extensions, session: item.session.extensions, history: item.path.kernel.history, settings: item.session.kernel.settings});
             this.#emit({type: "log", event: item.event});
         }
         return staged.map((item) => item.event);
+    }
+
+    /** 刚写下的那一批里某条事件之后的状态（只在下一次写入之前有效）。 */
+    stateAfter(eventId: string): StateAt {
+        const state = this.#batchStates.get(eventId);
+        if (state === undefined) throw new Error(`no state recorded for ${eventId}; read it right after the write`);
+        return state;
+    }
+
+    hasKey(source: string, key: string): boolean {
+        return this.#keys.has(`${source}\u0000${key}`);
     }
 
     /** 存储层累积的通知转成诊断。 */

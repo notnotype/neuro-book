@@ -34,4 +34,5 @@ export type {LogHandle, LogStore, SessionIndexEntry, StorageNotice, StorageResul
 export {kernelEventSpecs} from "./kernel-events.js";
 export type {ApprovalVerdict, QuestionAnswer, QuestionRequest, ToolCall, ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo, ToolResult, ToolStatus} from "./tool.js";
 export {replyText} from "./reply.js";
+export {BLOB_KEY, jsonProblem} from "./json-value.js";
 export {providerNameProblem, providerToolName, TOOL_NAME_LIMIT, toolIdProblem} from "./tool-name.js";

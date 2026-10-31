@@ -12,12 +12,14 @@ import {createHash} from "node:crypto";
 import type {EventData, JsonValue, KernelEvents, ModelInfo, ModelResponse, ToolDeclaration, UserInput} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {LogBrokenError} from "../dispatch/core.js";
+import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 import type {ViewEnvironment} from "../extension/ctx.js";
 import {computeRequest} from "../view/request.js";
 import type {ModelPort} from "../api/index.js";
 
 export interface RunHost {
     readonly core: SessionCore;
+    readonly react: ReactHost;
     readonly models: ModelPort;
     environment(model: ModelInfo): ViewEnvironment;
     tools(): readonly ToolDeclaration[];
@@ -42,6 +44,13 @@ export function takeInputDrafts(inputId: string, input: UserInput, turnId: strin
     ];
 }
 
+/** 这一轮里这个扩展已经写过几条 continued。 */
+function continuedSoFar(core: SessionCore, extension: string): number {
+    const turn = core.leafState.kernel.history.current;
+    if (turn === null) return 0;
+    return [...turn.attachments, ...turn.steps.flatMap((step) => step.after)].filter((event) => event.type === "continued" && (event.data as {by: string}).by === extension).length;
+}
+
 function requestHash(request: unknown): string {
     return createHash("sha256").update(JSON.stringify(request)).digest("hex");
 }
@@ -49,7 +58,7 @@ function requestHash(request: unknown): string {
 /** 跑一次运行，直到写下 `runEnded`。只有写日志失败会以 `LogBrokenError` 拒绝。 */
 export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
     const {core} = host;
-    const write = (drafts: EventDraft[]) => core.queue.run(() => core.write(drafts));
+    const write = (drafts: EventDraft[]) => core.queue.run(() => writeAndReact(core, drafts, host.react, run.controller.signal));
     const end = async (turnReason: "completed" | "error" | "aborted", runData: Omit<EventData<KernelEvents["runEnded"]>, "runId">, before: EventDraft[] = []) => {
         const turn = core.leafState.kernel.history.current;
         await write([...before, ...(turn === null ? [] : [ctrl("turnEnded", {turnId: turn.id, reason: turnReason})]), ctrl("runEnded", {runId: run.runId, ...runData})]);
@@ -57,6 +66,8 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
     try {
         for (;;) {
             if (run.controller.signal.aborted) return await end("aborted", {reason: "aborted"});
+            // 边界第 1 步：运行中到达的外部事实，按到达顺序写入。
+            while (core.inbox.length > 0) await write(core.inbox.shift()!);
             host.phase("requesting", null);
             const resolution = host.models.resolve(core.session.kernel.core, "turn");
             if (!resolution.ok) return await end("error", {reason: "error", error: {kind: "local", code: resolution.code}});
@@ -98,7 +109,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 if (aborted) return await end("aborted", {reason: "aborted"}, [failure]);
                 return await end("error", {reason: "error", error: {kind: response.error?.kind ?? "provider", ...(response.error?.code === undefined ? {} : {code: response.error.code})}}, [failure]);
             }
-            await write([{type: "assistant", kind: "conv", scope: "path", data: {
+            const replied = await write([{type: "assistant", kind: "conv", scope: "path", data: {
                 request,
                 content: response.content,
                 toolCalls: response.toolCalls,
@@ -112,6 +123,13 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 // 工具执行在后续切片；这一版没有声明任何工具，模型调用了就按未知工具回结果，让它接着答。
                 host.phase("tools", request);
                 await write(response.toolCalls.map((call) => ({type: "toolResult", kind: "conv", scope: "path", data: {callId: call.id, tool: call.tool, text: `unknown tool ${call.tool}`, status: "error", code: "unknown-tool"}})));
+                continue;
+            }
+            // 回复已经写下；反应期间被中止的，这一轮以 aborted 收口（不再请求，也不提交成 completed）。
+            if (run.controller.signal.aborted) return await end("aborted", {reason: "aborted"});
+            if (replied.continues.length > 0) {
+                // 扩展要求接着做（只在最终回复上）：每个请求写一条 continued，再请求一次。次数上限在 ctx.continue 里查过。
+                await write(replied.continues.map(({extension, text}) => ({type: "continued", kind: "conv", scope: "path", data: {text, by: extension, count: continuedSoFar(core, extension) + 1}})));
                 continue;
             }
             const turn = core.leafState.kernel.history.current;

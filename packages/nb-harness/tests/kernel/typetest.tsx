@@ -8,12 +8,10 @@
 
 import {Type} from "typebox";
 import {conv, defineContract, defineExtension, defineProfile, ext, implement, shape, slice} from "@notnotype/nb-harness/kernel/contracts";
-import type {DeriveProfile, FinalOnlyHelper, OpeningHelper, ReminderHelper, StandardLayoutHelper, ToolCall, WithoutEventsHelper} from "@notnotype/nb-harness/kernel/contracts";
+import type {DeriveProfile, FinalOnlyHelper, ToolCall, WithoutEventsHelper} from "@notnotype/nb-harness/kernel/contracts";
+import {opening, reminder, standardLayout} from "@notnotype/nb-harness/kernel";
 import {Slot, System, Turn, User} from "@notnotype/nb-harness/prompt";
 
-declare const reminder: ReminderHelper;
-declare const opening: OpeningHelper;
-declare const standardLayout: StandardLayoutHelper;
 declare const finalOnly: FinalOnlyHelper;
 declare const withoutEvents: WithoutEventsHelper;
 declare const deriveProfile: DeriveProfile;

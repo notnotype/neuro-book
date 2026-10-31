@@ -16,12 +16,14 @@ import {createTestModel, type TestModel} from "./model.js";
 export interface TestSessionOptions {
     /** 缺省一个最小的 Profile：缺省布局、没有工具。 */
     readonly profile?: AnyProfile;
-    /** 要测的扩展（相当于插件贡献的，所属插件为 null）。 */
-    readonly extensions?: readonly AnyExtension[];
+    /** 要测的扩展；直接给扩展时所属插件为 null，要测插件 id 前缀时给 `{extension, plugin}`。 */
+    readonly extensions?: readonly (AnyExtension | ContributedExtension)[];
     readonly initial?: JsonValue;
     /** 缺省内存存储；给 `{root}` 用会话目录上的 JSONL。 */
     readonly store?: {readonly root: string};
     readonly startAt?: number;
+    /** 测试自己拿着的时钟（例如新建会话时就要推进时间，测 `mount` 超时）。 */
+    readonly clock?: TestClock;
 }
 
 export interface RequestView {
@@ -83,10 +85,10 @@ let sessionCounter = 0;
 
 export async function createTestSession(options: TestSessionOptions = {}): Promise<TestSession> {
     const model = createTestModel();
-    const clock = createTestClock(options.startAt);
+    const clock = options.clock ?? createTestClock(options.startAt);
     const profile = options.profile ?? defaultTestProfile;
     const store: LogStore = options.store === undefined ? createMemoryStore() : createJsonlStore({root: options.store.root, now: clock.now});
-    const contributed: ContributedExtension[] = (options.extensions ?? []).map((extension) => ({extension, plugin: null}));
+    const contributed: ContributedExtension[] = (options.extensions ?? []).map((item) => ("extension" in item && "plugin" in item ? item : {extension: item as AnyExtension, plugin: null}));
     const env: SessionEnv = {
         store,
         profiles: {resolve: (key) => (key === profile.id ? profile : undefined)},

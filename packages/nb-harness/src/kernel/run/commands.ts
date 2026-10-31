@@ -11,9 +11,11 @@ import type {CommandMap, CommandName, CommandResult, InputMode, JsonValue, Model
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import type {RunControl} from "./control.js";
 import {takeInputDrafts} from "./loop.js";
+import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 
 export interface CommandHost {
     readonly core: SessionCore;
+    readonly react: ReactHost;
     readonly control: RunControl;
     readonly models: ModelPort;
     /** 会话为什么只读；可写时为 null。 */
@@ -33,7 +35,7 @@ async function accept<K extends CommandName>(host: CommandHost, name: K, command
         if ("fail" in outcome) return {ok: false, code: outcome.fail} as unknown as CommandResult<K>;
         const accepted: EventDraft = {type: "commandAccepted", kind: "ctrl", scope: "session", data: {commandId, name, value: outcome.value as JsonValue}};
         // commandAccepted 排在批的最后：它的 seq 就是受理批最后一条的 seq，重发时原样交回。
-        const written = await core.write([...outcome.drafts, accepted]);
+        const {events: written} = await writeAndReact(core, [...outcome.drafts, accepted], host.react);
         if (outcome.launch !== undefined) host.control.launch(outcome.launch);
         return {ok: true, value: outcome.value, seq: written.at(-1)!.seq, replayed: false} as CommandResult<K>;
     });

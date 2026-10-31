@@ -29,7 +29,8 @@ export interface ViewCtx<S extends StateDecl, St, Deps extends DepList, I = unkn
     readonly initial: DeepReadonly<I>;
 }
 
-type EmitArgs<D> = [D] extends [void] ? [options?: {key?: string}] : [data: D, options?: {key?: string}];
+/** 没有数据的事件写 `emit(名字)`；要幂等键时写 `emit(名字, undefined, {key})`。 */
+type EmitArgs<D> = [D] extends [void] ? [data?: undefined, options?: {key?: string}] : [data: D, options?: {key?: string}];
 
 /** 写事件与改片：先收集，处理函数完成时作为一个写入批写入。 */
 export interface Writes<S extends StateDecl, E extends EventsDecl> {
