@@ -55,6 +55,20 @@ export function memoryFiles(): FilePort {
                 async close() {},
             };
         },
+        async openRead(path) {
+            const data = contents.get(path);
+            if (data === undefined) return null;
+            const snapshot = data.slice();
+            return {
+                size: snapshot.length,
+                async read(buffer, position) {
+                    const chunk = snapshot.subarray(position, position + buffer.length);
+                    buffer.set(chunk);
+                    return chunk.length;
+                },
+                async close() {},
+            };
+        },
         async list(path) {
             const prefix = path.endsWith("/") ? path : `${path}/`;
             const names = new Set<string>();

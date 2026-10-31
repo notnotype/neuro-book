@@ -65,8 +65,13 @@ export function resolveBlobs(value: JsonValue, contents: ReadonlyMap<string, str
     return value;
 }
 
-/** 去掉批标记、换回大块内容，得到交给会话的事件。 */
-export function toEvent(record: LogRecord, contents: ReadonlyMap<string, string>): LogEvent {
-    const {batch: _batch, ...event} = record;
-    return {...event, data: resolveBlobs(record.data, contents)};
+/**
+ * 去掉批标记、换回大块内容，得到交给会话的事件。记录是刚解析出来、别处没有引用的对象，就地改，
+ * 打开长会话时不必再复制一份全部事件。
+ */
+export function toEventInPlace(record: LogRecord, contents: ReadonlyMap<string, string>): LogEvent {
+    const mutable = record as unknown as {batch?: unknown; data: JsonValue};
+    delete mutable.batch;
+    if (contents.size > 0) mutable.data = resolveBlobs(mutable.data, contents);
+    return record as unknown as LogEvent;
 }

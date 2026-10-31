@@ -3,7 +3,7 @@
  * 用量是这次运行里 `assistant` 与 `modelEnded` 的和；有一条不完整，总和就不完整。
  */
 
-import type {EventData, KernelEvents, LogEvent, RunResult, Usage} from "../api/index.js";
+import {replyText, type EventData, type KernelEvents, type LogEvent, type RunResult, type Usage} from "../api/index.js";
 
 const ZERO: Usage = {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, complete: true};
 
@@ -49,7 +49,7 @@ export function runResultOf(events: readonly LogEvent[], runId: string): RunResu
                 runId,
                 reason: data.reason,
                 stopReason: stopReason as RunResult["stopReason"],
-                text: lastReply?.text ?? "",
+                text: lastReply === null ? "" : replyText(lastReply.content),
                 result: data.result ?? null,
                 error,
                 usage,

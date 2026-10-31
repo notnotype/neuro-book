@@ -118,7 +118,6 @@ export interface KernelEvents {
     assistant: K<"path", "conv", {
         request: number;
         content: readonly ContentBlock[];
-        text: string;
         toolCalls: readonly ToolCall[];
         stopReason: Exclude<StopReason, "error" | "aborted">;
         usage: Usage;

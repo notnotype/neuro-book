@@ -8,6 +8,7 @@
 import {mkdtemp, rm, stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
+import {heapStats} from "bun:jsc";
 import {createJsonlStore, type LogEvent, type SessionHeader} from "@notnotype/nb-harness/kernel";
 
 const turns = Number(process.argv[2] ?? "2000");
@@ -45,7 +46,7 @@ for (let turn = 0; turn < turns; turn += 1) {
             event("commandAccepted", "ctrl", "session", {commandId: `c${turn}`, name: "send", value: {inputId, runId}}),
         ],
         [event("modelStarted", "ctrl", "path", {request: turn + 1, purpose: "turn", model: "test/model", hash: "0".repeat(64), now: turn, invocation: `v${turn}`, modifiedBy: []})],
-        [event("assistant", "conv", "path", {request: turn + 1, content: [{kind: "text", text: reply}], text: reply, toolCalls: [], stopReason: "stop", usage, model: "test/model"})],
+        [event("assistant", "conv", "path", {request: turn + 1, content: [{kind: "text", text: reply}], toolCalls: [], stopReason: "stop", usage, model: "test/model"})],
         [event("turnEnded", "ctrl", "path", {turnId, reason: "completed"}), event("runEnded", "ctrl", "path", {runId, reason: "completed"})],
     ];
     for (const batch of batches) {
@@ -59,12 +60,14 @@ const size = (await stat(join(root, "measure", "session.jsonl"))).size;
 
 Bun.gc(true);
 const before = process.memoryUsage().rss;
+const heapBefore = heapStats().heapSize;
 const openStart = performance.now();
 const opened = await store.open("measure");
 const openMs = performance.now() - openStart;
 if (!opened.ok) throw new Error(opened.code);
 Bun.gc(true);
 const after = process.memoryUsage().rss;
+const heapAfter = heapStats().heapSize;
 console.log(JSON.stringify({
     turns,
     events: opened.value.events.length,
@@ -73,6 +76,9 @@ console.log(JSON.stringify({
     writeMs: Math.round(writeMs),
     appendMsPerBatch: +(writeMs / (turns * 4)).toFixed(3),
     openMs: Math.round(openMs),
+    /** 打开后堆上活着的数据。 */
+    openHeapMB: Math.round((heapAfter - heapBefore) / 1e6),
+    /** 打开后进程常驻的增量：含打开过程中的峰值（分配器回收后不一定还给系统）。 */
     openRssMB: Math.round((after - before) / 1e6),
 }));
 await store.close(opened.value);

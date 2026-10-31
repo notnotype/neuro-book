@@ -98,11 +98,9 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 if (aborted) return await end("aborted", {reason: "aborted"}, [failure]);
                 return await end("error", {reason: "error", error: {kind: response.error?.kind ?? "provider", ...(response.error?.code === undefined ? {} : {code: response.error.code})}}, [failure]);
             }
-            const text = response.content.flatMap((block) => (block.kind === "text" ? [block.text] : [])).join("");
             await write([{type: "assistant", kind: "conv", scope: "path", data: {
                 request,
                 content: response.content,
-                text,
                 toolCalls: response.toolCalls,
                 stopReason: response.stopReason,
                 usage: response.usage,

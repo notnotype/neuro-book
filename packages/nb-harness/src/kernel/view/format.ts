@@ -3,6 +3,7 @@
  * （只在提交时）、Profile 的 `render`、扩展给自己事件的 `render`、缺省（`{text}` 取 `text`，其余包成 `<system-reminder>`）。
  */
 
+import {replyText} from "../api/index.js";
 import type {ConversationTurn, Format, LogEvent, Message, Origin, RenderTable, ReplyEvent, RequestBlock, Step, ToolResultEvent} from "../api/index.js";
 
 export type RenderFn = (event: LogEvent<string, any>) => string | null;
@@ -20,6 +21,7 @@ function originOf(event: LogEvent): Origin {
 }
 
 function defaultText(event: LogEvent): string {
+    if (event.type === "assistant") return replyText((event as ReplyEvent).data.content);
     const data = event.data as {text?: unknown};
     if (typeof data?.text === "string") return data.text;
     return `<system-reminder>\n${JSON.stringify(event.data)}\n</system-reminder>`;

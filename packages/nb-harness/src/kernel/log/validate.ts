@@ -7,7 +7,7 @@
 
 import {kernelEventSpecs, LOG_FORMAT, type LogRecord, type SessionHeader} from "../api/index.js";
 
-const NEWLINE = 0x0a;
+export const NEWLINE = 0x0a;
 const strictUtf8 = new TextDecoder("utf-8", {fatal: true});
 const SESSION_ID = /^[A-Za-z0-9._-]{1,128}$/u;
 
@@ -17,35 +17,10 @@ export type ParsedLog =
     | {readonly ok: true; readonly header: SessionHeader; readonly records: readonly LogRecord[]; readonly keepBytes: number; readonly tailBytes: number}
     | {readonly ok: false; readonly code: "log-corrupt" | "needs-migration"; readonly detail: {readonly line?: number; readonly problem: string}};
 
-interface Line {
-    readonly value: unknown;
-    /** 这一行（含换行）之后的字节偏移。 */
-    readonly end: number;
-    readonly bad: string | null;
-}
+type Failure = Extract<ParsedLog, {ok: false}>;
 
-function corrupt(problem: string, line?: number): ParsedLog {
+function corrupt(problem: string, line?: number): Failure {
     return {ok: false, code: "log-corrupt", detail: line === undefined ? {problem} : {line, problem}};
-}
-
-/** 切出全部以换行结束的行；最后一行没有换行时不在其中（它是写到一半的行，算进尾部的字节）。 */
-function splitLines(bytes: Uint8Array): Line[] {
-    const lines: Line[] = [];
-    let start = 0;
-    for (;;) {
-        const end = bytes.indexOf(NEWLINE, start);
-        if (end < 0) break;
-        let value: unknown = null;
-        let bad: string | null = null;
-        try {
-            value = JSON.parse(strictUtf8.decode(bytes.subarray(start, end)));
-        } catch (error) {
-            bad = error instanceof Error ? error.message : String(error);
-        }
-        lines.push({value, end: end + 1, bad});
-        start = end + 1;
-    }
-    return lines;
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -64,43 +39,95 @@ function batchOf(value: unknown): {id: string; n: number; of: number} | null {
     return typeof id === "string" && Number.isInteger(n) && Number.isInteger(of) && (n as number) >= 1 && (n as number) <= (of as number) ? {id, n: n as number, of: of as number} : null;
 }
 
-/** 解析整份文件。`keepBytes` 是最后一个完整批的末尾；之后的 `tailBytes` 个字节是写到一半的批，调用方截掉另存。 */
-export function parseLog(bytes: Uint8Array, expectedId: string): ParsedLog {
-    const lines = splitLines(bytes);
-    const first = lines[0];
-    if (first === undefined || first.bad !== null || !isObject(first.value)) return corrupt("missing or unreadable session header", 1);
-    const header = first.value;
-    if (header.format !== LOG_FORMAT) return {ok: false, code: "needs-migration", detail: {line: 1, problem: `unknown log format ${String(header.format)}`}};
-    const headerIssue = headerProblem(header);
-    if (headerIssue !== null) return corrupt(`invalid session header field ${headerIssue}`, 1);
-    if (header.id !== expectedId) return corrupt(`session header id ${String(header.id)} does not match ${expectedId}`, 1);
+/**
+ * 逐行读日志：每一行（不含换行）连同它之后的字节偏移交给 `line`，读完调用 `finish`。不需要整个文件在内存里：
+ * 只留解析好的记录，加上最后一个还没写完的批。最后一行没有换行时它不交进来，算进尾部的字节。
+ *
+ * 任何一整行不是合法 JSON、没有批标记或批标记接不上，都是损坏：只有文件末尾那一个批可以不完整，
+ * 而那一批的行必须是同一批的前几行。
+ */
+export class LogReader {
+    #header: SessionHeader | null = null;
+    #lineNumber = 0;
+    #failure: Failure | null = null;
+    readonly #kept: LogRecord[] = [];
+    #open: {id: string; next: number; of: number; records: LogRecord[]} | null = null;
+    #keepBytes = 0;
 
-    // 按批分组，找到最后一个完整批所在的行；遇到第一处对不上就停。
-    let keepLine = 0;
-    let open: {id: string; next: number} | null = null;
-    for (let index = 1; index < lines.length; index += 1) {
-        const line = lines[index]!;
-        const batch = line.bad === null ? batchOf(line.value) : null;
-        if (batch === null || (open === null ? batch.n !== 1 : batch.id !== open.id || batch.n !== open.next)) break;
-        open = batch.n === batch.of ? null : {id: batch.id, next: batch.n + 1};
-        if (open === null) keepLine = index;
+    constructor(private readonly expectedId: string) {}
+
+    /** 交一行；之前已经判为损坏时忽略。 */
+    line(bytes: Uint8Array, end: number): void {
+        if (this.#failure !== null) return;
+        this.#lineNumber += 1;
+        let value: unknown;
+        try {
+            value = JSON.parse(strictUtf8.decode(bytes));
+        } catch (error) {
+            this.#failure = this.#lineNumber === 1 ? corrupt("missing or unreadable session header", 1) : corrupt(`line is not valid JSON: ${error instanceof Error ? error.message : String(error)}`, this.#lineNumber);
+            return;
+        }
+        if (this.#lineNumber === 1) return this.#readHeader(value, end);
+        const batch = batchOf(value);
+        if (batch === null) {
+            this.#failure = corrupt("line has no valid batch mark", this.#lineNumber);
+            return;
+        }
+        const open = this.#open;
+        if (open === null ? batch.n !== 1 : batch.id !== open.id || batch.n !== open.next) {
+            this.#failure = corrupt(open === null ? "batch does not start at its first line" : "an incomplete batch is followed by more lines", this.#lineNumber);
+            return;
+        }
+        const records = open?.records ?? [];
+        records.push(value as LogRecord);
+        if (batch.n === batch.of) {
+            for (const record of records) this.#kept.push(record);
+            this.#open = null;
+            this.#keepBytes = end;
+        } else {
+            this.#open = {id: batch.id, next: batch.n + 1, of: batch.of, records};
+        }
     }
-    // 之后到文件末尾只能是同一个批的前几行，加可能写到一半的最后一行；中间的不完整批与坏行都会落进这一段，判为损坏。
-    const tail = lines.slice(keepLine + 1);
-    for (let offset = 0; offset < tail.length; offset += 1) {
-        const line = tail[offset]!;
-        const lineNumber = keepLine + 2 + offset;
-        if (line.bad !== null) return corrupt(`line is not valid JSON: ${line.bad}`, lineNumber);
-        const batch = batchOf(line.value);
-        if (batch === null) return corrupt("line has no valid batch mark", lineNumber);
-        const firstId = batchOf(tail[0]!.value)!.id;
-        if (batch.id !== firstId || batch.n !== offset + 1 || batch.n === batch.of) return corrupt("an incomplete batch is followed by more lines", lineNumber);
+
+    #readHeader(value: unknown, end: number): void {
+        if (!isObject(value)) {
+            this.#failure = corrupt("missing or unreadable session header", 1);
+            return;
+        }
+        if (value.format !== LOG_FORMAT) {
+            this.#failure = {ok: false, code: "needs-migration", detail: {line: 1, problem: `unknown log format ${String(value.format)}`}};
+            return;
+        }
+        const issue = headerProblem(value);
+        if (issue !== null) this.#failure = corrupt(`invalid session header field ${issue}`, 1);
+        else if (value.id !== this.expectedId) this.#failure = corrupt(`session header id ${String(value.id)} does not match ${this.expectedId}`, 1);
+        else {
+            this.#header = value as unknown as SessionHeader;
+            this.#keepBytes = end;
+        }
     }
-    const keepBytes = lines[keepLine]!.end;
-    const records = lines.slice(1, keepLine + 1).map((line) => line.value as LogRecord);
-    const problem = recordsProblem(records);
-    if (problem !== null) return corrupt(problem.problem, problem.index + 2);
-    return {ok: true, header: header as unknown as SessionHeader, records, keepBytes, tailBytes: bytes.length - keepBytes};
+
+    /** `totalBytes` 是文件长度；最后一个完整批之后的字节都是尾部。 */
+    finish(totalBytes: number): ParsedLog {
+        if (this.#failure !== null) return this.#failure;
+        if (this.#header === null) return corrupt("missing or unreadable session header", 1);
+        const problem = recordsProblem(this.#kept);
+        if (problem !== null) return corrupt(problem.problem, problem.index + 2);
+        return {ok: true, header: this.#header, records: this.#kept, keepBytes: this.#keepBytes, tailBytes: totalBytes - this.#keepBytes};
+    }
+}
+
+/** 整份文件已在内存里时的便利写法（测试与小文件）。 */
+export function parseLog(bytes: Uint8Array, expectedId: string): ParsedLog {
+    const reader = new LogReader(expectedId);
+    let start = 0;
+    for (;;) {
+        const end = bytes.indexOf(NEWLINE, start);
+        if (end < 0) break;
+        reader.line(bytes.subarray(start, end), end + 1);
+        start = end + 1;
+    }
+    return reader.finish(bytes.length);
 }
 
 const KERNEL_SOURCE = "kernel";

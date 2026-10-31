@@ -33,4 +33,5 @@ export type {Slice, SliceFactory, SliceValue, StateDecl, StateValues} from "./st
 export type {LogHandle, LogStore, SessionIndexEntry, StorageNotice, StorageResult} from "./storage.js";
 export {kernelEventSpecs} from "./kernel-events.js";
 export type {ApprovalVerdict, QuestionAnswer, QuestionRequest, ToolCall, ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo, ToolResult, ToolStatus} from "./tool.js";
+export {replyText} from "./reply.js";
 export {providerNameProblem, providerToolName, TOOL_NAME_LIMIT, toolIdProblem} from "./tool-name.js";

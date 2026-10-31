@@ -144,6 +144,27 @@ describe("JSONL 存储的文件", () => {
         expect(new Set(lines.slice(1, 3).map((line) => line.batch.id)).size).toBe(1);
     });
 
+    test("输出 2、6：按块读时行跨块、批跨块都照样读回；尾部照样截下", async () => {
+        const id = nextId();
+        const batches = threeBatches();
+        const big = "跨".repeat(7_000);
+        batches.push(eventsFrom(6, [{type: "toolResult", kind: "conv", data: {callId: "c", tool: "t", text: big, status: "ok"}}], {last: batches.flat().filter((event) => event.scope === "path").at(-1)!.id}));
+        await writeSession(store(), id, batches);
+        const tiny = createJsonlStore({root, now: () => 9_000, readChunkBytes: 7});
+        const opened = await tiny.open(id);
+        if (!opened.ok) throw new Error(opened.code);
+        expect(opened.value.events).toEqual(batches.flat());
+        await tiny.close(opened.value);
+        const path = join(root, id, "session.jsonl");
+        const full = await readFile(path);
+        await truncate(path, full.length - 5);
+        const cut = await tiny.open(id);
+        if (!cut.ok) throw new Error(cut.code);
+        expect(cut.value.events).toEqual(batches.slice(0, 3).flat());
+        expect(cut.value.notices[0]).toMatchObject({code: "log-tail-truncated"});
+        await tiny.close(cut.value);
+    });
+
     test("输出 9：大块内容在 blobs/ 下按哈希存，日志里只留引用", async () => {
         const id = nextId();
         const big = "x".repeat(16 * 1024 + 1);

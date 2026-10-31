@@ -15,6 +15,14 @@ export interface AppendFile {
     close(): Promise<void>;
 }
 
+/** 按块读的文件句柄：打开会话时不把整个文件读进内存。 */
+export interface ReadFile {
+    readonly size: number;
+    /** 从 `position` 起读进 `buffer`，返回读到的字节数（0 表示到头）。 */
+    read(buffer: Uint8Array, position: number): Promise<number>;
+    close(): Promise<void>;
+}
+
 export interface FilePort {
     /** 建一层目录；已存在时返回 false。 */
     makeDirectory(path: string): Promise<boolean>;
@@ -24,6 +32,8 @@ export interface FilePort {
     /** 先写临时文件再改名；`sync` 时同步文件与所在目录到盘。 */
     writeAtomic(path: string, data: Uint8Array, options: {sync: boolean}): Promise<void>;
     openAppend(path: string): Promise<AppendFile>;
+    /** 不存在时返回 null。 */
+    openRead(path: string): Promise<ReadFile | null>;
     list(path: string): Promise<string[]>;
     remove(path: string): Promise<void>;
     lock(path: string): FileLock | null;
@@ -101,6 +111,21 @@ export const nodeFiles: FilePort = {
             },
             sync: () => handle.sync(),
             truncate: (size) => handle.truncate(size),
+            close: () => handle.close(),
+        };
+    },
+    async openRead(path) {
+        let handle;
+        try {
+            handle = await open(path, "r");
+        } catch (error) {
+            if (errorCode(error) === "ENOENT" || errorCode(error) === "ENOTDIR") return null;
+            throw error;
+        }
+        const {size} = await handle.stat();
+        return {
+            size,
+            read: async (buffer, position) => (await handle.read(buffer, 0, buffer.length, position)).bytesRead,
             close: () => handle.close(),
         };
     },
