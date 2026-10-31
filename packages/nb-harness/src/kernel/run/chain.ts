@@ -40,7 +40,7 @@ export interface ChainOptions<I, O> {
     readonly onFailure: (item: Assembled, failure: ChainFailure) => FailurePolicy<O>;
     /** 一层交回的值归一成 `O`；交回的值不合形状时抛错（算这一层 `invalid-output`）。`inner` 是它最后一次 `next` 的结果。 */
     readonly normalize: (item: Assembled, returned: unknown, inner: {readonly value: O} | null, received: I) => O;
-    /** 一层调用 `next` 时：它收到的与交给里层的（记修改用）。 */
+    /** 一层调用 `next` 时：它收到的与交给里层的（记修改用）。抛错表示这一层交的值不允许，算这一层出错。 */
     readonly onNext?: (item: Assembled, received: I, passed: I) => void;
 }
 
@@ -108,7 +108,12 @@ export async function runChain<I, O>(options: ChainOptions<I, O>): Promise<Chain
         };
         const next = (passed: I): Promise<O> => {
             if (settled) return Promise.reject(new LateNextError(item.definition.id));
-            options.onNext?.(item, input, passed);
+            // onNext 拒绝这次交给里层的值时，算这一层出错（同步拦截层里 next 直接抛也一样落到这一层）。
+            try {
+                options.onNext?.(item, input, passed);
+            } catch (error) {
+                return Promise.reject(error);
+            }
             inside += 1;
             disarm();
             const promise = call(index + 1, passed).then(

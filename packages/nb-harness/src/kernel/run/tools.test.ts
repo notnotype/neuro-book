@@ -343,6 +343,16 @@ describe("拦截链", () => {
         expect(blocked.result.text).toBe("缓存的回答");
     });
 
+    test("输出 22：拦截改了 model 时这一层出错跳过、诊断，请求按原来的模型发、日志记原来的模型", async () => {
+        const router = defineExtension({id: "lab.cheap", intercept: {model: async (request, next) => next({...request, model: "cheap/model"})}});
+        await using session = await createTestSession({extensions: [router]});
+        session.model.script("答");
+        const report = await session.say("问");
+        expect(dataOf<{model: string}>(report.events, "modelStarted").map((data) => data.model)).toEqual([report.requests[0]!.raw.model]);
+        expect(report.requests[0]!.raw.model).not.toBe("cheap/model");
+        expect((await session.raw.diagnostics()).find((item) => item.extension === "lab.cheap")?.code).toBe("intercept-threw");
+    });
+
     test("输出 22：hash 只随请求内容变——同一请求发两次哈希相同，历史里一条消息被换掉哈希就不同", async () => {
         let repeat = false;
         const resender = defineExtension({id: "lab.resender", intercept: {model: async (request, next) => {

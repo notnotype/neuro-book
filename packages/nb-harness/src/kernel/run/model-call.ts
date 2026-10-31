@@ -83,6 +83,8 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
         timeoutMs: (item) => item.definition.timeoutMs ?? HANDLER_TIMEOUT_MS,
         ctxFor: (item, invocation, layerSignal) => interceptCtx({assembly: core.assembly, item, state, environment, resources: host.resources, signal: layerSignal, invocation, phase: "run"}),
         onNext: (item, received, passed) => {
+            // 端口在进链之前就按设置解析好了，拦截改 model 换不了作答的模型，日志却会记成改后的名字：不允许，这一层出错跳过。
+            if (passed.model !== received.model) throw new TypeError(`model interceptor of ${item.definition.id} changed the model from ${received.model} to ${passed.model}; interceptors cannot route requests (change core.model with changeSettings, or choose the model by purpose in the ModelPort)`);
             freezeRequest(passed);
             if (received === passed) return;
             const fields = Object.keys({...received, ...passed}).filter((key) => (received as unknown as Record<string, unknown>)[key] !== (passed as unknown as Record<string, unknown>)[key]);

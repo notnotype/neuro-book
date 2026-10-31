@@ -6,7 +6,7 @@
 import type {JsonValue} from "./basics.js";
 import type {ToolCall, ToolDeclaration} from "./tool.js";
 
-/** 模型请求的用途：路由、用量这类拦截按它区别对待（不该把压缩请求降级到便宜的模型）。 */
+/** 模型请求的用途：用量统计这类拦截按它区别对待。选哪个模型由模型端口按用途决定，拦截改不了 `model`。 */
 export type RequestPurpose = "turn" | "approval" | "compaction" | "background";
 
 /** 一条回复为什么停下。`tool`：回复里有工具调用；`length`：撞上输出上限。 */
