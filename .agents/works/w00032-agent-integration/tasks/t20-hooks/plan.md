@@ -68,7 +68,7 @@
 | `view/` | JSX 运行时与模板、布局、`format`、请求的计算与校验、`outline`、槽 | `api`、`state`、`extension` |
 | `dispatch/` | 单写者队列、反应、`mount` | 以上 |
 | `run/` | 指令、循环、工具与收尾、通用拦截链 `runChain`、审批、等用户、中止、恢复、回退与分支 | 以上（经 `SessionCore` 的窄接口） |
-| `compaction/` | 触发估算、切点、公共流程 | 以上 |
+| `compaction/` | 触发估算、切点、公共流程 | 以上（用 `run/` 的 `runChain`；`run/` 的循环经 `SessionCore` 上注入的回调触发压缩，不反向依赖 `compaction/`，由 `session/` 接线） |
 | `model/` | 模型端口与 OMP 适配器、错误归类、遮盖 | `api`；唯一用 OMP 运行时包的地方 |
 | `session/` | `SessionEnv`、`openSession`/`createSession`/`closeSession`、`AgentHost` 与扩展接收者、帧、预览、诊断、运行结果、`complete()`、进程收尾 | 以上 |
 | `helpers/` | `reminder`、`opening`、`standardLayout`、`finalOnly`、`withoutEvents`、`deriveProfile` | `api`、`extension`、`view` |
@@ -100,13 +100,13 @@
   - `ModelRequest`：`purpose`（加 `approval`）、`model`、`effort`、`params`、`headers`、`system`、`messages`、`tools`（完整工具声明）、`toolChoice?: "auto" | "none" | {tool: id}`、`providerOptions?`（适配器专用、原样透传）。
   - `ModelResponse`：`content`、`toolCalls`、`stopReason`、`usage`、`responseId?`；失败时带 `partial?` 与错误类别。
   - 适配器不支持的内容（例如某服务商不收图片）在发请求前失败，码 `unsupported-content`，不悄悄丢掉。回复里的图片块收下，存为 `image` 块。
-- **工具**：以 master 的 `ToolDeclaration` 为底（`id`、`description`、`parameters`、`provider`、`version`、`finish`、`concurrency`、`strict`、`customFormat?`），加 `effect: "read" | "write" | "exec"` 或按参数求值的函数；`name` 改为可选的 `providerName?`（t04 决定 1 允许显式覆盖交给服务商的名字，按服务商规范校验；不写时适配器按 t04 换算）；日志、`ToolCall.name`、Profile 与审批一律用 id。`ToolInfo`（给扩展看的）是声明去掉实现相关字段。`ToolContext{signal, callId, sessionId, initial, ask?, report?}`；`ToolResult{text, status?, code?, details?, redacted?}`。
+- **工具**：以 master 的 `ToolDeclaration` 为底（`id`、`description`、`parameters`、`provider`、`version`、`finish`、`concurrency`、`strict`、`customFormat?`），加 `effect: "read" | "write" | "exec"` 或按参数求值的函数；`name` 改为可选的 `providerName?`（t04 决定 1 允许显式覆盖交给服务商的名字，按服务商规范校验；不写时适配器按 t04 换算）；日志、`ToolCall.tool`（第 1 片把字段名 `name` 改为 `tool`，与 `toolStarted.tool` 一致）、Profile 与审批一律用 id。`ToolInfo`（给扩展看的）是声明去掉实现相关字段。`ToolContext{signal, callId, sessionId, initial, ask?, report?}`；`ToolResult{text, status?, code?, details?, redacted?}`。
 - **审批钩子**：`approve(call, info, ctx) → Promise<{verdict: "allow", by} | {verdict: "deny", rejection, by} | {verdict: "ask", reason}>`，`info` 有工具声明、按参数求得的 `effect`、核心设置（审批模式、只读模式）、批准记忆；`ctx` 有 `signal` 与 `ctx.model`。
 - **宿主**：`SessionEnv`（3.10）；`RunStatus` 加 `waiting{pending: InteractionSummary[]}` 与 `broken`；`rewind` 去掉 `abort` 选项（运行中先 `abort` 再 `rewind`，进差异表）；`resolve` 进指令表；`switchBranch`、`fork`、`setTitle`、`archive` 进指令表；`path`、`siblings`、`runResult` 进查询；命令成功值里带 `seq` 与 `replayed`（对上 nb-runtime 远程服务的 `ok(value)`）、失败的 `detail` 按码给 schema。
 - **压缩**：`CompactionResult{method, firstKeptEntryId, replacement, omitted, tokensBefore, tokensAfter, details}`（t11 决定 8 加 `omitted`），方法失败以 `{failed: code}` 交回；放回的内容由内核的公共流程写，不归方法。
 - **码表**：`api/codes.ts` 一处，按拥有者分组：指令、工具失败、存储（`log-corrupt`、`needs-migration`、`session-busy`、`log-broken`）、诊断（含 `emit-after-settle`、`setting-missing-default`、`turn-node-count`、`mount-timeout`）。计划与 Spec 里用到的码都在这里登记。
 - **类型体验**：`implement` 的契约没有导出时不必写 `exports: {}`；`MountCtx` 加 `initial`；作用域写错、`optional` 依赖读取等最难懂的几处报错加自定义的提示类型（审查 D12、A15）。
-- `spike/v5/typetest.ts` 的 29 处写错随类型搬到 `tests/kernel/typetest.ts`（不进发布面），每片新增的写错补进来。
+- `spike/v5/typetest.ts` 的 29 处写错随类型搬到 `tests/kernel/typetest.tsx`（要写 JSX 用例，不进发布面），每片新增的写错补进来。
 
 ### 3.2 `kernel/log/`：会话目录、写入批与存储
 

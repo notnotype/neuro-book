@@ -69,6 +69,8 @@ t05、t06、t07。
 - Work 分支 `feat/w00032-agent-integration`，worktree `.worktree/w00032-agent-integration`。
 - 第 0 片完成（`5343ed4e6`）：OMP 升到 18.14.0；修了 `NO_AUTH_SENTINEL` 的导出位置与 `EditPolicy` 的新字段；目录快照 69 → 79 家；本机回环端点的输出上限按模型自己写的值（nb-story 的 Spec 与 README 同步，`17b64d9aa`）。nb-harness 94 个测试、两条真实模型 smoke 通过；`test:affected` 只剩 nb-ui 的 `NB_UI_VERSION` 一条，在 master 上同样失败，与本 Task 无关。
 
+- 第 1 片完成（开发者 2026-10-31 同意接受提案）：提案改 `accepted`，决策记录追加计划第 1 节决定 1–13 与“第五稿到定稿的差异”表，正文第 2、3、7、8、9、11、20 节与待定项按定稿改写；新 [ADR 0035](../../../../../docs/adr/0035-harness-log-driven-kernel.md)；新建 [`harness/session.md`](../../../../../docs/specs/harness/session.md)（planned，输出 1–21、场景 1–6）与 [`harness/extensions.md`](../../../../../docs/specs/harness/extensions.md)（骨架，输出 1–27）。Work 分支上：`src/kernel/api/` 定稿类型、定义用的构造函数、模板节点与 JSX 运行时、子路径导出 `./kernel`、`./kernel/contracts`、`./prompt`（`./kernel/testing` 随第 2 片的 `createTestSession` 加）、`tsconfig` 的 JSX 设置、`architecture.test.ts`、`tests/kernel/typetest.tsx`（36 处写错逐条核对过报错原因）。与计划的出入：`ToolCall` 的工具 id 字段叫 `tool`；`compaction/` 依赖 `run/`、反向经回调（已改进计划）；helper 只有签名，实现在第 3、4 片。
+
 ## 下一步
 
-下一片是第 1 片（提案接受、ADR、`harness/session.md` 与 `extensions.md` 骨架、定稿类型）。原计划：实施时排在本 Work 最前（开发者 2026-10-29）。按 implementation-planning 写 `plan.md`：spike 按第五稿实现（写入批、位置章、缓冲区与指令、对话形状与提交、压缩切点、`mount`、helper、测试工具的严格模式），补场景并按提案第 19 节的六项测性能；实现要再做一次审查（深入审查，开审前报计划与预算）。提案接受（frontmatter 改 `accepted`、写 ADR 与 Spec）随计划一起交开发者。介绍页（`intro` v3）已过时，随实现更新。
+下一片是第 2 片（纵切：JSONL 存储、最小装配与归约、队列、不带工具的循环、最小视图、OMP 适配器、最小 `createTestSession`、终端演示）。全部切片之后做一次深入审查（开审前报计划与预算）。介绍页（`intro` v3）已过时，随实现更新。
