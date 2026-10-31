@@ -79,13 +79,14 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 model: resolution.info.id,
                 ...(core.session.kernel.core.effort === null ? {} : {effort: core.session.kernel.core.effort}),
                 tools: host.tools(),
+                cache: core.view,
+                checks: core.dev,
             });
-            for (const problem of computed.problems) {
-                core.diagnostics.add({code: problem.code, extension: problem.extension, entry: problem.code === "turn-node-count" ? "prompt" : problem.code === "commit-threw" ? "commit" : "contribute", message: `${problem.code} in ${problem.extension}`, ...(problem.error === undefined ? {} : {cause: problem.error})}, core.head);
-            }
+            for (const {error, ...problem} of computed.problems) core.diagnostics.add({...problem, ...(error === undefined ? {} : {cause: error})}, core.head);
             if (!computed.ok) {
+                if (computed.reason === "request-invalid") return await end("error", {reason: "error", error: {kind: "local", code: "request-invalid"}});
                 const profile = core.assembly.profile.id;
-                return await end("error", {reason: "error", error: {kind: "local", code: "profile-failed"}}, [ctrl("extensionFailed", {extension: profile, entry: computed.entry, code: "threw"})]);
+                return await end("error", {reason: "error", error: {kind: "local", code: "profile-failed"}}, [ctrl("extensionFailed", {extension: profile, entry: computed.entry, code: computed.code})]);
             }
             const request = core.requestCounter + 1;
             await write([ctrl("modelStarted", {request, purpose: "turn", model: computed.request.model, hash: requestHash(computed.request), now: core.clock.now(), invocation: core.newId(), modifiedBy: []})]);

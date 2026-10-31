@@ -18,6 +18,7 @@ import {deepFreeze} from "../state/freeze.js";
 import {initialPathKernel, initialSessionKernel, reducePathKernel, reduceSessionKernel, type PathKernelState, type SessionKernelState} from "../state/kernel-state.js";
 import {initialSnapshot, reduceSnapshot, type ReduceProblem, type Snapshot} from "../state/snapshot.js";
 import type {EventDraft} from "../state/draft.js";
+import {ViewCache} from "../view/cache.js";
 import {Diagnostics} from "./diagnostics.js";
 
 export type {EventDraft};
@@ -55,8 +56,8 @@ export interface CoreOptions {
     readonly handle: LogHandle;
     readonly assembly: Assembly;
     readonly clock: Clock;
-    /** 开发模式：冻结状态与事件，改了就抛错。 */
-    readonly freeze: boolean;
+    /** 开发模式：冻结状态与事件（改了就抛错），视图做前缀与提交检查（harness/profile.md 输出 19）。 */
+    readonly dev: boolean;
 }
 
 export class SessionCore {
@@ -64,9 +65,11 @@ export class SessionCore {
     readonly store: LogStore;
     readonly handle: LogHandle;
     readonly clock: Clock;
-    readonly freeze: boolean;
+    readonly dev: boolean;
     readonly queue = new WriteQueue();
     readonly diagnostics = new Diagnostics();
+    /** 视图记住的已提交轮的渲染与开发检查的上一次渲染（不进日志）。 */
+    readonly view = new ViewCache();
     readonly events: LogEvent[] = [];
     readonly byId = new Map<string, LogEvent>();
     /** 受理过的指令：`commandId` → 第一次的结果。由 `commandAccepted` 建，重开时从日志重建。 */
@@ -96,10 +99,10 @@ export class SessionCore {
         this.store = options.store;
         this.handle = options.handle;
         this.clock = options.clock;
-        this.freeze = options.freeze;
+        this.dev = options.dev;
         this.assembly = options.assembly;
-        this.#initialPath = {kernel: initialPathKernel, extensions: initialSnapshot(options.assembly.reducers, "path", options.freeze)};
-        this.#session = {kernel: initialSessionKernel(), extensions: initialSnapshot(options.assembly.reducers, "session", options.freeze)};
+        this.#initialPath = {kernel: initialPathKernel, extensions: initialSnapshot(options.assembly.reducers, "path", options.dev)};
+        this.#session = {kernel: initialSessionKernel(), extensions: initialSnapshot(options.assembly.reducers, "session", options.dev)};
         this.diagnostics.subscribe((diagnostic) => this.#emit({type: "diagnostic", diagnostic}));
     }
 
@@ -157,7 +160,7 @@ export class SessionCore {
         if (reducers.length === 0 && declared !== undefined) {
             this.diagnostics.add({code: "event-version-unsupported", extension: event.source, entry: "reduce", event: {id: event.id, type: event.type, seq: event.seq}, params: {version: event.version, declared}, message: `${event.type} has version ${event.version} but ${event.source} declares ${declared}; the event is not reduced`}, event.seq);
         }
-        const options = {freeze: this.freeze, onProblem: this.#reduceProblem};
+        const options = {freeze: this.dev, onProblem: this.#reduceProblem};
         if (event.scope === "path") {
             return {path: {kernel: reducePathKernel(path.kernel, event), extensions: reduceSnapshot(reducers, path.extensions, event, "path", options)}, session};
         }
@@ -188,7 +191,7 @@ export class SessionCore {
         for (const event of events) {
             const base = event.scope === "path" ? this.pathState(event.parent) : this.leafState;
             const next = this.#reduce(base, this.#session, event);
-            this.#commit(this.freeze ? deepFreeze(event) : event, next.path, next.session);
+            this.#commit(this.dev ? deepFreeze(event) : event, next.path, next.session);
         }
     }
 
@@ -244,7 +247,7 @@ export class SessionCore {
         }
         this.#batchStates = new Map();
         for (const item of staged) {
-            this.#commit(this.freeze ? deepFreeze(item.event) : item.event, item.path, item.session);
+            this.#commit(this.dev ? deepFreeze(item.event) : item.event, item.path, item.session);
             this.#batchStates.set(item.event.id, {path: item.path.extensions, session: item.session.extensions, history: item.path.kernel.history, settings: item.session.kernel.settings});
             this.#emit({type: "log", event: item.event});
         }

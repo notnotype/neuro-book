@@ -5,11 +5,12 @@
  * 这一版是最小形状：`say`、请求的 `outline`、事件与状态、重开。工具、手动模式、严格模式随后续切片加入。
  */
 
-import type {AnyExtension, AnyProfile, ContributedExtension, JsonValue, LogEvent, LogStore, Message, ModelRequest, Origin, RunResult, SessionApi, SessionEnv, StateOfExtension} from "../api/index.js";
+import type {AnyExtension, AnyProfile, ContributedExtension, JsonValue, LogEvent, LogStore, ModelRequest, RunResult, SessionApi, SessionEnv, StateOfExtension} from "../api/index.js";
 import {defineProfile} from "../extension/profile.js";
 import {createJsonlStore} from "../log/jsonl-store.js";
 import {createMemoryStore} from "../log/memory-store.js";
 import {closeSession, createSession, extensionState, openSession} from "../session/session.js";
+import {outline} from "../view/outline.js";
 import {createTestClock, type TestClock} from "./clock.js";
 import {createTestModel, type TestModel} from "./model.js";
 
@@ -28,7 +29,7 @@ export interface TestSessionOptions {
 
 export interface RequestView {
     readonly raw: ModelRequest;
-    /** 一行一条消息，块以来源标出：`user: event:input | slot:clock@x`。 */
+    /** 一行一条消息，块以来源标出：`user: event:input | slot:clock@x`（harness/profile.md 输出 20）。 */
     outline(): string[];
 }
 
@@ -57,28 +58,8 @@ export interface TestSession extends AsyncDisposable {
 
 export const defaultTestProfile = defineProfile({id: "test.profile", version: "1", name: "测试", description: "测试用的最小 Profile", system: "你是测试 Profile。"});
 
-function label(origin: Origin): string {
-    switch (origin.kind) {
-        case "fixed":
-            return `fixed:${origin.by}`;
-        case "event":
-            return `event:${origin.type}`;
-        case "slot":
-            return `slot:${origin.name}@${origin.extension}`;
-        case "summary":
-            return `summary:${origin.compactionId}`;
-        case "intercept":
-            return `intercept:${origin.extension}`;
-    }
-}
-
 export function viewOf(request: ModelRequest): RequestView {
-    const line = (role: string, message: {content: Message["content"]; toolCalls?: Message["toolCalls"]}) =>
-        `${role}: ${[...message.content.map((block) => label(block.origin)), ...(message.toolCalls ?? []).map((call) => `call:${call.tool}`)].join(" | ")}`;
-    return {
-        raw: request,
-        outline: () => [...(request.system.length === 0 ? [] : [line("system", {content: request.system})]), ...request.messages.map((message) => line(message.role, message))],
-    };
+    return {raw: request, outline: () => outline(request)};
 }
 
 let sessionCounter = 0;

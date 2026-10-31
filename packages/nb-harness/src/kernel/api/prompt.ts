@@ -1,6 +1,6 @@
 /**
  * 提示词模板的节点。JSX 自动运行时在 `@notnotype/nb-harness/prompt`（`jsxImportSource` 指向它）；
- * 节点的渲染规则见 docs/specs/harness/ 的 Profile Spec（第 4 片新建）。
+ * 节点的渲染规则见 docs/specs/harness/profile.md。
  */
 
 /** 模板节点：`type` 是组件函数本身。 */

@@ -35,7 +35,7 @@ export interface AssemblyProblem {
 
 /** 不挡装配的问题：会话照常打开，交成诊断。 */
 export interface AssemblyWarning {
-    readonly code: Extract<DiagnosticCode, "setting-missing-default" | "unknown-event-handler" | "bad-slot-name" | "reminder-without-trigger">;
+    readonly code: Extract<DiagnosticCode, "setting-missing-default" | "unknown-event-handler" | "bad-slot-name" | "reminder-without-trigger" | "slot-collision">;
     readonly extension: string;
     readonly message: string;
     readonly hint: string;
@@ -156,6 +156,25 @@ function warningsOf(item: Assembled): AssemblyWarning[] {
     return warnings;
 }
 
+/** 同一个槽有几个扩展交内容、且不是都写了 `shared: true`（harness/profile.md 输出 16）。 */
+function slotCollisions(order: readonly Assembled[]): AssemblyWarning[] {
+    const bySlot = new Map<string, {id: string; shared: boolean}[]>();
+    for (const item of order) {
+        for (const [name, contribution] of Object.entries(item.definition.contribute ?? {}) as [string, {shared?: boolean}][]) {
+            bySlot.set(name, [...(bySlot.get(name) ?? []), {id: item.definition.id, shared: contribution.shared === true}]);
+        }
+    }
+    const warnings: AssemblyWarning[] = [];
+    for (const [slot, owners] of bySlot) {
+        if (owners.length < 2 || owners.every((owner) => owner.shared)) continue;
+        const ids = owners.map((owner) => owner.id);
+        for (const owner of owners.filter((item) => !item.shared)) {
+            warnings.push({code: "slot-collision", extension: owner.id, params: {slot, with: ids.filter((id) => id !== owner.id).join(", ")}, message: `slot ${slot} of ${owner.id} is also contributed by ${ids.filter((id) => id !== owner.id).join(", ")}`, hint: "rename the slot, or mark every contribution to it shared: true if it is meant to be shared"});
+        }
+    }
+    return warnings;
+}
+
 export function assemble(profile: AnyProfile, contributed: readonly ContributedExtension[]): {ok: true; assembly: Assembly} | {ok: false; problems: AssemblyProblem[]} {
     const problems: AssemblyProblem[] = [];
     const exclude = profile.pluginExtensions;
@@ -188,5 +207,5 @@ export function assemble(profile: AnyProfile, contributed: readonly ContributedE
     const hash = createHash("sha256").update(JSON.stringify([profile.id, profile.version, manifest])).digest("hex");
     const eventVersions = new Map<string, number>();
     for (const item of order) for (const [name, spec] of Object.entries((item.definition.events ?? {}) as Record<string, {version: number}>)) eventVersions.set(`${item.definition.id}/${name}`, spec.version);
-    return {ok: true, assembly: {profile, order, reducers: order.map((item) => reducerOf(item.definition)), hash, manifest, warnings: order.flatMap(warningsOf), eventVersions}};
+    return {ok: true, assembly: {profile, order, reducers: order.map((item) => reducerOf(item.definition)), hash, manifest, warnings: [...order.flatMap(warningsOf), ...slotCollisions(order)], eventVersions}};
 }

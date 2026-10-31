@@ -35,8 +35,8 @@ interface Internals {
 }
 const internals = new WeakMap<SessionApi, Internals>();
 
-/** 开发模式（冻结状态与事件）：测试与开发时开，生产环境可以关掉省一次遍历。 */
-const FREEZE = process.env.NODE_ENV !== "production";
+/** 开发模式（冻结状态与事件、视图的开发检查）：测试与开发时开，生产环境关掉省遍历与比较。 */
+const DEV = process.env.NODE_ENV !== "production";
 
 function newSessionId(now: number): string {
     return `${now.toString(36)}-${randomBytes(5).toString("hex")}`;
@@ -193,7 +193,7 @@ export async function createSession(env: SessionEnv, options: CreateSessionOptio
     };
     const created = await env.store.create(header);
     if (!created.ok) return created;
-    const core = new SessionCore({header, store: env.store, handle: created.value, assembly: assembled.assembly, clock: env.clock, freeze: FREEZE});
+    const core = new SessionCore({header, store: env.store, handle: created.value, assembly: assembled.assembly, clock: env.clock, dev: DEV});
     const {assembly} = assembled;
     reportAssemblyWarnings(core);
     const api = buildApi(env, core, null, {kind: "user"});
@@ -212,7 +212,7 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
     if (!opened.ok) return opened;
     const handle = opened.value;
     const {assembly, readOnly} = assembleOrPlaceholder(env, await env.profiles.resolve(handle.header.profile), handle.header.profile);
-    const core = new SessionCore({header: handle.header, store: env.store, handle, assembly, clock: env.clock, freeze: FREEZE});
+    const core = new SessionCore({header: handle.header, store: env.store, handle, assembly, clock: env.clock, dev: DEV});
     core.load(handle.events);
     core.reportOpenNotices();
     reportAssemblyWarnings(core);

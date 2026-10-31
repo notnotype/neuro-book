@@ -8,12 +8,10 @@
 
 import {Type} from "typebox";
 import {conv, defineContract, defineExtension, defineProfile, ext, implement, shape, slice} from "@notnotype/nb-harness/kernel/contracts";
-import type {DeriveProfile, FinalOnlyHelper, ToolCall, WithoutEventsHelper} from "@notnotype/nb-harness/kernel/contracts";
-import {opening, reminder, standardLayout} from "@notnotype/nb-harness/kernel";
-import {Slot, System, Turn, User} from "@notnotype/nb-harness/prompt";
+import type {DeriveProfile, ToolCall} from "@notnotype/nb-harness/kernel/contracts";
+import {finalOnly, opening, reminder, standardLayout, withoutEvents} from "@notnotype/nb-harness/kernel";
+import {If, Slot, System, ToolName, Turn, User} from "@notnotype/nb-harness/prompt";
 
-declare const finalOnly: FinalOnlyHelper;
-declare const withoutEvents: WithoutEventsHelper;
 declare const deriveProfile: DeriveProfile;
 
 // ---------- 例子里的契约（第五稿 plugins.ts） ----------
@@ -217,6 +215,12 @@ export const finalOnlyWrongCommit = defineProfile({
     // @ts-expect-error 36. finalOnly 交回的是一轮，要再经 format.turn 渲染成消息
     commit: (turn) => finalOnly(turn),
 });
+
+// @ts-expect-error 37. <If> 要写工具 id
+export const ifNoTool = <If>x</If>;
+
+// @ts-expect-error 38. <ToolName> 要写工具 id
+export const toolNameNoId = <ToolName />;
 
 // ---------- 必须能通过的写法 ----------
 
