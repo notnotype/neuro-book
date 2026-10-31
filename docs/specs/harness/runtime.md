@@ -54,16 +54,16 @@ owners:
 16. 每次模型请求之前，把工具集（按 id 排序的 id 与版本）与当前路径上最后一条 `toolsAnnounced` 比对：没有记录时写一条 `toolsAnnounced`；不同时同一个写入批里写新的 `toolsAnnounced` 与一条给模型的 `notice{code: "tools-changed"}`，文字列出新增、去掉与改了版本的工具。回退到变化之前的分支时照样按那条路径上的记录比对。
 17. 一条回复里的工具调用按顺序切段：连续的 `concurrency: "shared"` 调用并发执行（按调用顺序启动），`exclusive` 单独执行。每个调用经工具拦截链（输出 20–23），最里层依次是参数校验、只读模式、审批钩子、执行；放行之后、执行之前写 `toolStarted{callId, tool, args, invocation, approval: {by}}`，`args` 是全部拦截之后实际执行的参数。全部调用的结果按调用顺序作为一个写入批写入，整批写完再派发反应。
 18. 内核造的结果：工具不在工具集里得 `error`、码 `unknown-tool`；参数不合声明的 schema 得 `error`、码 `invalid-arguments`，文字列出不合格的位置；只读模式下等级为 `write` 或 `exec` 的调用得 `denied`、码 `read-only`、`by: "core"`，不调用审批钩子；审批钩子拒绝得 `denied`，码与 `by` 取自它的拒绝；执行抛错得 `error`、码 `tool-threw`。等级按参数求值的函数抛错时按 `exec` 算。
-19. 工具实现每个会话每个工具在第一次调用时建一次，关闭会话时 `dispose`；`dispose` 抛错只写诊断。
+19. 工具实现每个会话每个工具在第一次调用时建一次；工具被移出工具集时在下一个运行边界 `dispose`，之后重新出现时重建；关闭会话时全部 `dispose`。`dispose` 抛错只写诊断。
 
 拦截：
 
-20. 拦截链从外到里是装配序（插件的扩展、Profile 的 `extensions`、Profile 自己）；`mount` 失败过的扩展不参与。每一层每次调用有自己的 `invocation` 与 `ctx.signal`，信号挂在运行的中止上。调用 `next` 之前、`next` 完成之后两段各有时限（扩展的 `timeoutMs`，缺省 30 秒；输入拦截缺省 5 秒）。一层出错或超时之后再调用它拿到的 `next` 得到拒绝，不再进里层。
+20. 拦截链从外到里是装配序（插件的扩展、Profile 的 `extensions`、Profile 自己）；`mount` 失败过的扩展不参与。每一层每次调用有自己的 `invocation` 与 `ctx.signal`，信号挂在运行的中止上。调用 `next` 之前、`next` 完成之后两段各有时限（扩展的 `timeoutMs`，缺省 30 秒；输入拦截缺省 5 秒）。一层出错或超时之后再调用它拿到的 `next` 得到拒绝，不再进里层。交给拦截层的请求、工具调用与工具结果是冻结的（请求的 `tools` 只冻结数组本身）：要改就返回新对象，原地修改抛错，按这一层出错处理。
 21. 拦截出错或超时：输入拦截跳过这一层；模型拦截在 `next` 之前出错跳过这一层，之后出错用里层的回复；工具拦截缺省拒绝这次调用（`denied`、码 `intercept-failed`、`by` 为这个扩展），扩展写 `onFailure: {tool: "ignore"}` 时跳过这一层（`next` 之后出错用里层的结果）。每次都写 `extensionFailed{entry: "intercept.<链>", code}`，与这次的结果（回复、工具结果或受理批）同一个写入批，并诊断 `intercept-threw`。
 22. 模型拦截：每一次真正发给模型端口的请求写一条 `modelStarted`（一层调两次 `next` 就有两条），`modifiedBy` 列出在它之前改过请求的层与改了的顶层字段，`hash` 是这次请求的哈希；写成 `assistant` 的是链最外层交回的回复，`request` 是最后一次真正发出的请求的序号。一层不调 `next` 直接交回回复时，内核为它分配新的请求序号，不写 `modelStarted`。
-23. 工具拦截：一层不调 `next` 交回 `denied` 时结果记 `blocked`，`by` 为这一层的扩展；执行之后有层改了结果的文字时，原文记在 `toolResult.raw`，结果标了 `redacted` 时只记 `rawHash`（SHA-256）。
-24. 输入拦截在 `send`、`enqueue` 受理时、受理批写下之前跑，读受理这一刻的叶子：一层返回 `{reject}` 时指令失败 `input-rejected{code, params, by}`、不写日志，诊断 `input-rejected`；有层改了输入时 `inputQueued.input` 是改过的，原文记在 `original`；有层返回 `redacted: true` 时只记 `originalHash`（[`harness/session.md`](session.md) 输出 10）。
-25. 运行在执行工具时被中止：在注入的时钟上等宽限期 `ABORT_GRACE_MS`（2 秒），期内完成的调用照常写结果；没完成的得 `unknown`、码 `aborted`；运行以 `aborted` 收口。宽限期之后才到的结果不写日志，只诊断 `late-result-dropped`。
+23. 工具拦截：一层不调 `next` 交回 `denied` 时结果记 `blocked`，`by` 为这一层的扩展；执行之后有层改了结果的文字时，原文记在 `toolResult.raw`，结果标了 `redacted` 时只记 `rawHash`（SHA-256），也不写 `details`。
+24. 输入拦截在 `send`、`enqueue` 受理时、受理批写下之前跑，读受理这一刻的叶子：一层返回 `{reject}` 时指令失败 `input-rejected{code, params, by}`、不写日志，诊断 `input-rejected`；有层改了输入时 `inputQueued.input` 是改过的，原文记在 `original`；有层返回 `redacted: true` 时只记 `originalHash`，文字没改也照记（[`harness/session.md`](session.md) 输出 10）。
+25. 运行在执行工具时被中止：在注入的时钟上等宽限期 `ABORT_GRACE_MS`（2 秒），期内完成的调用照常写结果；中止时还没开始执行的调用（还在审批或建实现）不再开始；没完成的得 `unknown`、码 `aborted`；运行以 `aborted` 收口。宽限期之后才到的结果不写日志，只诊断 `late-result-dropped`。
 
 收尾：
 

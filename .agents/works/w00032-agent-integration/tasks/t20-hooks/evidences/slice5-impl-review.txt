@@ -1,0 +1,78 @@
+t20 第 5 片实现审查（omp，默认模型；审查对象 0b7a71e58..e01e0553f；2026-10-31）
+审查说明与实验脚本在本地 .local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice5-impl-review/（不入库）。
+
+### 1. `tools-missing` 被快照错误标成 `unknown-profile`
+- 严重程度：重要；类别：正确性
+- 位置：`packages/nb-harness/src/kernel/session/session.ts:167`
+- 现象：`state.readOnly` 已经保存为 `tools-missing`，但快照返回时无条件把它断言成 `{code: "unknown-profile"}`。必需工具缺失的运行会正确以 `runEnded.error.code: "tools-missing"` 收口，随后 `snapshot().readOnly.code` 却报告 `unknown-profile`。
+- 为什么是问题：`SessionSnapshot.readOnly` 的合同区分 `unknown-profile`、`tools-missing`、`dependency-missing`；宿主按快照码展示原因、决定是否重开。这里把真实原因改写，调用方无法区分“Profile 不存在”和“工具声明缺失”。这是运行失败后唯一的会话状态出口之一。
+- 如何核实：在真实 `createTestSession` 中使用 Profile `tools.required: ["lab.missing"]` 且不登记该工具，执行 `bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice5-impl-review/lab/repro.ts`；输出的 `readOnlyRun.error.code` 为 `tools-missing`，但 `readOnlySnapshot.readOnly.code` 仍为 `tools-missing` 之前代码强制断言所掩盖的分支，变异为返回 cast 前的联合值即可复现接口风险。现行源码的返回表达式直接证明该分支会把值当作 `unknown-profile` 类型暴露。
+- 建议改法：直接返回 `{code: state.readOnly as "unknown-profile" | "tools-missing" | "dependency-missing"}`，并补快照行为断言，不能用单一字面量断言掩盖状态码。
+### 1. `tools-missing` 快照类型断言（撤回）
+- 复核结论：不成立，运行时对象仍携带实际的 `tools-missing` 字符串；这里的 `as "unknown-profile"` 只缩窄了实现内部的静态断言，`SessionSnapshot` 对外类型本身仍是完整联合，未造成可观察的码错误。有效问题不计入数量。
+### 2. 工具从动态工具集移除时不释放实现，重新加入还复用旧句柄
+- 严重程度：重要；类别：不变量
+- 位置：`packages/nb-harness/src/kernel/run/tools.ts:76-85,88-99`；契约：`packages/nb-harness/src/kernel/api/tool.ts:82-85`
+- 现象：`ToolBox.current()` 每个边界重新取声明，允许工具集发生变化并写 `toolsAnnounced`，但 `#implementations` 只按 id 缓存，只有会话关闭才遍历调用 `dispose`。工具被移出当前声明后，缓存项不删除、不释放；之后同 id 重新出现时仍直接返回旧的 `Promise<ToolImplementation>`，不会按新声明重建。
+- 为什么是问题：工具实现的资源寿命合同是“关闭会话或工具被卸载时 `dispose`”。动态声明已是本片支持的工具集变化路径；当前实现让连接、文件句柄、插件进程等资源跨卸载继续存活，并可能把已经撤回的实现再次交给模型。`toolsAnnounced` 只更新模型可见声明，不能替代执行句柄的收口。
+- 如何核实：真实 `createTestSession` 实验 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice5-impl-review/lab/repro.ts` 先调用 `lab.dynamic`，再把动态工具列表改为空并发送第二轮；输出 `afterRemoval.disposed: false`，同时记录了工具集从该工具变为空。现有 `bun test src/kernel/run/tools.test.ts` 的 20 条测试只验证关闭会话时释放，没有覆盖卸载或同 id 重加。
+- 建议改法：在每次边界取得当前声明后维护活动 id/声明版本集合；被移除的实现从缓存摘下并等待 `dispose`，重新出现且声明版本或实现来源改变时先释放旧实现再懒建新实现。卸载期间若有在途调用，保留其本次结果收口，但禁止后续调用复用旧句柄。
+### 3. 中止宽限期内尚未建好实现的调用，宽限期后仍会执行工具
+- 严重程度：重要；类别：正确性 / 不变量
+- 位置：`packages/nb-harness/src/kernel/run/tools.ts:211-222`
+- 现象：审批后先写 `toolStarted`，然后 `await host.box.implementation(final.tool)`；这次等待期间如果运行被中止并超过宽限期，`runTools` 已经把该调用记为 `unknown` 并返回，但 `implementation` 解决后这里没有再次检查 `signal.aborted`，仍调用 `implementation.execute(...)`。结果被丢弃，副作用却已经发生。
+- 为什么是问题：runtime.md 输出 25 要求宽限期后未完成调用不再执行其结果，重点是“宽限期之后才到的结果不写”，而工具本身也不应在中止后的新时刻才启动。实现把“已进入 `runCall`”误当成“已开始执行”；异步创建是合法的 `ToolBox` 接口路径，可能启动网络、进程或写文件。日志只留下 `toolStarted` 与 `unknown`，无法审计这个迟到副作用。
+- 如何核实：真实会话实验 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice5-impl-review/lab/abort-create.ts` 让工具实现创建 Promise 挂起，收到创建同步点后调用 `abort`，注入时钟推进 `ABORT_GRACE_MS`，再释放创建 Promise；输出运行已 `reason: "aborted"`、日志结果为 `status: "unknown", code: "aborted"`，但 `executed: 1`。现有中止测试只挂起 `execute`，没有覆盖实现创建尚未完成。
+- 建议改法：`implementation` await 返回后立刻检查运行信号；若已中止，返回 `RunStoppedError`/`unknown` 而不写新的 `toolStarted` 或执行实现。工具卸载与关闭路径也应让同一检查共享，避免异步建完成后复活调用。
+### 4. 工具结果标记 `redacted` 仍把 `details` 原样写入日志
+- 严重程度：阻断；类别：安全与性能
+- 位置：`packages/nb-harness/src/kernel/run/tools.ts:242-250`
+- 现象：结果文字被拦截层改写且 `redacted: true` 时，代码只把文字的原值换成 `rawHash`，却无条件把 `final.details` 放进 `toolResult.data`。拦截层通常用 `{...result, text: "[已脱敏]", redacted: true}`，所以原始结果中的 `details` 会被顺手复制。
+- 为什么是问题：session.md 输出 10 与验收场景 4 要求被脱敏原文不写进日志、会话目录（含 `blobs/`）搜不到。`details` 是给程序看的结构化结果，虽然不进模型请求，仍属于持久化事件；当前内核无法保证脱敏后的事件不含原文，重开和日志查询都会再次暴露密文。`rawHash` 只覆盖 `text`，不能弥补结构化字段泄漏。
+- 如何核实：真实 `createTestSession` 实验 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice5-impl-review/lab/redact-details.ts` 让工具返回 `{text: "secret-text", details: {secret: "secret-details"}}`，拦截层只替换文字并标 `redacted`；输出的 `toolResult` 仍含 `details.secret: "secret-details"`，同时只有 `rawHash`。现有脱敏测试只检查原文文字和输入，未检查 `details`、诊断或其它事件字段。
+- 建议改法：把脱敏作为整个结果的持久化边界处理：拦截链返回明确的安全 `details` 时只保留该安全值，或在内核中对原始结果的结构化字段一起生成受控摘要/哈希；至少禁止从被标记为 `redacted` 的原始结果继承 `details`。补充 JSONL 重开后递归扫描所有事件与 `blobs/` 的合同测试。
+### 5. 工具拦截层原地改写结果时丢失 `raw`/`rawHash` 与署名依据
+- 严重程度：重要；类别：正确性 / 安全与性能
+- 位置：`packages/nb-harness/src/kernel/run/tools.ts:231-250`
+- 现象：内核用对象身份保存 `terminalValue`、`executed`，再以 `final.text !== ran.text` 判断结果是否被改写。拦截层若直接修改 `result.text`（或嵌套字段）后返回同一个对象，`ran` 与 `final` 是同一对象，原文已被覆盖，比较结果为未改变；`redacted: true` 时既没有 `rawHash`，普通改写时也没有 `raw`。
+- 为什么是问题：runtime.md 输出 23 要求结果文字被后置拦截层改写时保留原文，脱敏时只保留原文哈希。对象身份不是不可变性保证，`ToolResult` 的字段虽为 TypeScript `readonly`，运行时扩展仍可通过普通 JS、类型断言或可变对象修改；日志因此无法证明谁改了结果，也会漏掉脱敏原文的哈希。
+- 如何核实：真实会话实验 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice5-impl-review/lab/repro.ts` 的 `lab.mutate-result` 在 `await next(call)` 后原地把 `text` 改为 `masked` 并标 `redacted`；输出的 `toolResult` 只有 `text: "masked"`、`status: "ok"`，没有 `rawHash`。现有输出 23 测试只覆盖返回浅拷贝，因此变异为原地修改不会失败。
+- 建议改法：在进入每一层前保存不可变的结果快照，或强制拦截边界深冻结并在归一化时比较值快照；以快照而非对象身份计算原文与最终结果，脱敏时对快照生成哈希。不要把对象身份当作扩展遵守 `readonly` 的证明。
+### 6. 输入拦截返回 `redacted: true` 但文字未变化时不记录 `originalHash`
+- 严重程度：重要；类别：正确性 / 安全与性能
+- 位置：`packages/nb-harness/src/kernel/run/input.ts:64-66`
+- 现象：链归一化已经把任一层的 `redacted: true` 传到 `redacted`，但随后先用 `JSON.stringify(final) === JSON.stringify(input)` 提前返回 `{ok: true, input, failed}`。因此拦截层只声明“此输入应脱敏”而没有改文字，或后层把输入改回原值时，`inputQueued` 不写 `originalHash`；它与未脱敏输入不可区分。
+- 为什么是问题：session.md 输出 10 与 runtime.md 输出 24 的合同是“有层返回 `redacted: true` 时只记原文哈希”，不是“只有文字发生变化才记”。这种路径会让重放、审计与目录扫描失去脱敏标记；若该层因上下文判断标记了敏感输入但内容恰好不需替换，内核仍错误地按普通输入持久化。
+- 如何核实：真实会话实验 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/lab/redact-unchanged.ts`（实际文件在 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice5-impl-review/lab/redact-unchanged.ts`）使用输入拦截器直接返回 `{redacted: true}`；`bun run` 输出的 `inputQueued.data` 只有 `id`、原文字段与 `mode`，没有 `originalHash`。现有测试只覆盖脱敏同时替换文字的路径。
+- 建议改法：先按 `redacted` 分支生成 `originalHash`，再判断是否改写；只要最终结果带该标记，就不得走“未改写直接返回”。同时把“原文相同但被标记脱敏”加入 JSONL 重开与全文扫描测试。
+### 7. 模型拦截的原地改参不会进入 `modifiedBy`
+- 严重程度：重要；类别：正确性 / 不变量
+- 位置：`packages/nb-harness/src/kernel/run/model-call.ts:55-58`
+- 现象：修改记录只在 `received !== passed` 时比较顶层字段。拦截层直接修改 `request.params`、`messages` 或其它嵌套对象后以同一对象调用 `next` 时，`received === passed`，该扩展完全不进 `modelStarted.modifiedBy`；即使拦截层浅拷贝请求，原地修改共享的嵌套对象也会得到同样结果。
+- 为什么是问题：runtime.md 输出 22 要求每次请求列出在它之前改过请求的层与顶层字段，提案目标也要求请求修改可追查。当前模型实际收到的参数与审计记录不一致，回放或排障无法定位是谁改变了温度、最大输出、消息和工具声明；`readonly` 只在 TypeScript 类型层存在，不是运行时不可变保证。
+- 如何核实：真实会话实验 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice5-impl-review/lab/repro.ts` 的 `lab.mutate` 原地写 `request.params.maxTokens = 123` 后调用 `next`；输出 `inPlaceModifiedBy: []`，而请求已被实际修改。现有输出 22 测试只覆盖 `next({...request, params: ...})` 的浅拷贝路径。
+- 建议改法：在每层进入前对请求的可审计顶层字段做不可变快照，或冻结请求并要求拦截层返回新对象；比较深值快照后记录字段。若选择冻结，需明确扩展不能原地改写，并在边界把违规改写作为 `invalid-output` 或诊断，而不是静默漏审计。
+## 未发现问题的方面
+- `run/chain.ts` 的分段计时、并发调用 `next`、超时后拒绝迟到 `next`、模型拦截两次 `next` 的请求序号与最终署名：在现有测试与源码路径内未再发现独立于上述问题的缺陷。
+- 工具调用的 shared 段并发、exclusive 段串行、结果按调用顺序整批写入，以及收尾工具混用和执行失败的普通工具回退：现有定向测试覆盖，未再发现问题。
+- `toolsAnnounced` 按当前 path 的最后记录比较、回退时读取 path 状态、输入拒绝不写日志：现有测试与状态归约路径未再发现问题。
+- `runEnded` 收口前排空已交队列、宽限期内完成的普通工具与收尾工具写入：现有中止/收尾测试覆盖；本报告只补出异步实现创建这一条未覆盖路径。
+
+## 作者已定四项判断
+1. 分段计时按层的 `next` 前后计时：实现方向与决定一致；本次未发现该决定本身导致的额外问题。
+2. 一层调两次 `next` 只把最外层回复写成 `assistant`：`model-call.ts` 使用最后一次真正请求的序号，当前实现与决定一致。
+3. 审批 `ask` 暂按拒绝 `approval-unavailable`，只读会话级设置留到第 6 片：工具链实现了该拒绝码；本片没有把缺失的会话级测试当成实现缺陷。
+4. 新增 `notice` 与输入拦截返回类型：事件形状已接通，但 `redacted: true` 未变化时漏写 `originalHash`（第 6 条）仍违反脱敏合同。
+
+有效发现：第 2、3、4、5、6、7 条；第 1 条已撤回。阻断 1，重要 5，建议 0。
+
+## 处理（主会话）
+
+- 1 审查者已撤回。
+- 2–7 成立，已改（Work 分支修正提交见 Task README），各在对应输出的测试里补了用例，变异检查全部失败：
+  - 4（阻断）：标了 redacted 的结果一律不写 details；
+  - 2：运行边界把移出工具集的实现 dispose，重新出现时重建；
+  - 3：先建实现、再查中止、再写 toolStarted 并执行；中止时还没开始执行的调用不再开始（宽限期内建好也不执行）；
+  - 5、7：交给拦截层的请求、调用与结果冻结（请求的 tools 只冻结数组），原地修改抛错、按这一层出错处理，提案第 9 节“改要返回新对象”的约定由运行时守住；
+  - 6：标了 redacted 的输入即使文字没改也记 originalHash。
+- runtime.md 输出 19、20、23、24、25 已按上面订正。
