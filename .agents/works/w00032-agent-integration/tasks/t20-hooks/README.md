@@ -89,6 +89,8 @@ t05、t06、t07。
 
 - 第 9 片完成（`runtime.md` 输出 53–57）：关闭顺序与关闭后迟到的写入、出站过滤（帧与日志查询）、进程收尾按 `interrupted` 收口（`onProcessInterrupt` 搬进新内核）、`complete()`、预览下一次请求、插件宿主 `createAgentHost` 与运行中撤回（跳过、空闲时重新装配、失败进只读）。真实模型（DeepSeek）4 条通过：一轮与重开、工具调用、流式中途中止、回退重发。第 8 片实现审查在后台（omp）。
 
+- 第 10 片（nb-story 验收门）通过：用新内核写 `story.qa` 与 `answer` 收尾，五个场景全部通过（[`evidences/slice10-gate.txt`](evidences/slice10-gate.txt)）。门发现一个内核缺口：出站过滤原是同步的，nb-story 的防剧透要查书库；先回写 Spec 与计划，改为可以异步（Work 分支 `0952de6d8`）。另记一条迁移注意：宿主的防剧透要覆盖 `toolStarted` 的参数。
+
 ## 下一步
 
-下一片是第 10 片（nb-story 验收门：在 `packages/nb-story/tests/kernel-acceptance/` 用新内核写 `story.qa` Profile 与 `answer` 收尾工具，跑“两轮、收尾、校验失败再交、中止、出站过滤防剧透”五个场景，并逐项核对第 1 节决定 8）。全部切片之后做一次深入审查（开审前报计划与预算）。介绍页（`intro` v3）已过时，随实现更新。
+下一片是第 11 片（性能：提案第 19 节六项，2 万条验收、10 万条报数），之后收口（全量、`test:affected`、`test:llm`、变异检查、深入审查的计划与预算）。全部切片之后做一次深入审查（开审前报计划与预算）。介绍页（`intro` v3）已过时，随实现更新。
