@@ -136,22 +136,29 @@ export function hoverDrawer(theme: Theme) {
     };
 }
 
+/** 新出现的点和线淡入多久（毫秒）。 */
+export const FADE_MS = 500;
+/** 淡入走到这个比例之前不写名字。 */
+const LABEL_APPEARS_AT = 0.6;
+
+/** 带 `bornAt` 的点和线（数据变了新出现的，`StoryNetwork.syncData`）名字还不该写出来。 */
+export function labelWaits(bornAt: unknown): boolean {
+    return typeof bornAt === "number" && (performance.now() - bornAt) / FADE_MS < LABEL_APPEARS_AT;
+}
+
 /**
  * 聚焦（决定 17 第 3 条、决定 23）：悬停优先于选中。焦点和它的邻居照常显示并强制出标签；其余的点和线
  * 只是变淡（点和名字都还在，线上的字去掉），不隐藏。`onlyNeighborhood` 打开时（“只看选中的周边”）其余的点才隐藏。
  * 搜索有结果时，没命中的同样淡掉。调用方改了状态后要 `sigma.refresh({skipIndexation: true})`。
  */
-/** 新出现的点和线淡入多久（毫秒）。 */
-export const FADE_MS = 500;
-
 export class Focus {
-    /** 带 `bornAt` 的点和线（数据变了新出现的，`StoryNetwork.syncData`）：颜色从背景色渐变到本色，淡入完成前不写名字。 */
+    /** 带 `bornAt` 的点和线：颜色从背景色渐变到本色；名字另见 `labelWaits`（边上的字在调用方的 reducer 里最后才写，要由它再判断一次）。 */
     private appear(result: Record<string, unknown>, bornAt: unknown): void {
         if (typeof bornAt !== "number") return;
         const t = Math.min(1, (performance.now() - bornAt) / FADE_MS);
         if (t >= 1) return;
         result.color = mix(this.theme.bg, String(result.color), t);
-        if (t < 0.6) result.label = "";
+        if (labelWaits(bornAt)) result.label = "";
     }
 
     private fadeEdge(result: Record<string, unknown>, data: Record<string, unknown>): void {

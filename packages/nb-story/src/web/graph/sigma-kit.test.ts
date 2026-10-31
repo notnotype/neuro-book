@@ -7,7 +7,7 @@ import {describe, expect, test} from "bun:test";
 
 import Graph from "graphology";
 
-import {chooseForcedLabels, layoutForce, layoutStress, seedSpiral} from "./sigma-kit";
+import {chooseForcedLabels, labelWaits, layoutForce, layoutStress, seedSpiral} from "./sigma-kit";
 
 /** 两个三角形用一条线连起来，外加一个不连通的点。 */
 function build(): Graph {
@@ -126,5 +126,13 @@ describe("强制出名字的点", () => {
         // 出名字的是权重最大的那些：n0 权重最大，n298 权重最小的未被选中
         expect(forced).toContain("n0");
         expect(forced).not.toContain("n298");
+    });
+});
+
+describe("新点新线淡入", () => {
+    test("刚出现的不写名字，淡入过半之后才写；不带 bornAt 的照常", () => {
+        expect(labelWaits(performance.now())).toBe(true);
+        expect(labelWaits(performance.now() - 2000)).toBe(false);
+        expect(labelWaits(undefined)).toBe(false);
     });
 });

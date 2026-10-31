@@ -29,6 +29,27 @@ export interface QueryOptions {
 /** 一章里不写段的位置是读完这一章（resolvePosition），排在这一章所有段之后。 */
 const positionRank = (at: PositionInput): number => at.chapter * 1_000_000 + (at.paragraph ?? 999_999);
 
+/** 一次取数的参数：请求用的阅读位置（参数里写了 `at` 的用参数的，否则是当前阅读位置）、其它参数与数据版本。 */
+export interface QueryInput {
+    params: object | null;
+    at: PositionInput;
+    version: number;
+}
+
+/**
+ * 参数、位置或数据版本变了：新结果回来之前要不要留着现在显示的旧结果。这是防剧透的判据，所以单独成纯函数。
+ * - 只是书换了新数据（参数与位置都没变，版本变了）：留着，位置和可见范围没变。
+ * - `keepOnForward`、参数没变、现在有结果、新位置不早于旧结果所在的位置（`shownAt`，不是上一次请求的位置：请求在途时又挪动
+ *   也比得对）：留着，旧结果是更早位置所见，不含新位置之后的内容。
+ * - 其余都清：往前挪、参数变了，旧结果可能含新位置之后的内容。
+ */
+export function keepsOld(next: QueryInput, previous: QueryInput | undefined, shown: {at: PositionInput | null; hasData: boolean}, keepOnForward: boolean): boolean {
+    if (previous === undefined) return false;
+    const sameParams = JSON.stringify(next.params) === JSON.stringify(previous.params);
+    if (sameParams && JSON.stringify(next.at) === JSON.stringify(previous.at)) return next.version !== previous.version;
+    return keepOnForward && sameParams && shown.hasData && shown.at !== null && positionRank(next.at) >= positionRank(shown.at);
+}
+
 /**
  * 取一个方法的结果。`params` 返回 null 时不取（例如还没选中对象）。`book` 由当前书补上；`at` 默认补当前阅读位置，
  * 参数里写了 `at` 时用参数的。
@@ -83,19 +104,14 @@ export function useStoryQuery<M extends StoryMethod>(method: M, params: () => No
         }
     }
 
-    /** 这次变化要不要留着旧结果。 */
-    function keepsOld(value: {params: Params<M> | null; at: PositionInput; version: number}, old: {params: Params<M> | null; at: PositionInput; version: number} | undefined): boolean {
-        if (old === undefined) return false;
-        const sameParams = JSON.stringify(value.params) === JSON.stringify(old.params);
-        // 只是版本变了（位置与参数都没变）：位置没变、可见范围也没变。
-        if (sameParams && JSON.stringify(value.at) === JSON.stringify(old.at)) return value.version !== old.version;
-        return options.keepOnForward === true && sameParams && data.value !== null && shownAt !== null && positionRank(value.at) >= positionRank(shownAt);
-    }
-
     // 数据版本也是参数：书换成新数据（抽取又提交了一章、用户点了更新）时重取。
     const stop = watch(
-        () => ({params: params(), at: book.at.value, version: book.dataVersion.value}),
-        (value, old) => void run(value.params, keepsOld(value, old)),
+        () => {
+            const current = params();
+            // 参数里自带 at 的，请求用它而不是当前阅读位置：判据也比它
+            return {params: current, at: (current as {at?: PositionInput} | null)?.at ?? book.at.value, version: book.dataVersion.value};
+        },
+        (value, old) => void run(value.params, keepsOld(value, old, {at: shownAt, hasData: data.value !== null}, options.keepOnForward === true)),
         {immediate: true, deep: true},
     );
     onScopeDispose(() => {

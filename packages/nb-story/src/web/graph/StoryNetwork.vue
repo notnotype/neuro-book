@@ -21,7 +21,7 @@ import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {IconButton} from "@notnotype/nb-ui/components";
 
-import {chooseForcedLabels, edgeLabelDrawer, estimateLabelWidth, FADE_MS, fitAll, fixedColors, Focus, isFitted, hoverDrawer, labelDrawer, layoutCircle, layoutConcentric, layoutForce, layoutStress, mix, readTheme, seedSpiral, zoom} from "./sigma-kit";
+import {chooseForcedLabels, edgeLabelDrawer, estimateLabelWidth, FADE_MS, fitAll, fixedColors, Focus, isFitted, labelWaits, hoverDrawer, labelDrawer, layoutCircle, layoutConcentric, layoutForce, layoutStress, mix, readTheme, seedSpiral, zoom} from "./sigma-kit";
 import type {LayoutFrame, Theme} from "./sigma-kit";
 import type {CameraState} from "sigma/types";
 import {edgeParts, hasParts} from "./edge-parts";
@@ -384,7 +384,9 @@ function placeFrom(target: Graph, previous: Map<string, Point>): boolean {
     return complete;
 }
 
+/** 淡入的重画循环：只在 `syncData`、`fadeIn` 里写；`fadeStart` 是这一轮淡入的起点。 */
 let fadeFrame: number | null = null;
+let fadeStart = 0;
 
 /** 淡入期间每帧重画一次，到时间为止（点与线的颜色在 `Focus` 的 reducer 里按 `bornAt` 算）。 */
 function fadeIn(): void {
@@ -397,7 +399,22 @@ function fadeIn(): void {
     };
     fadeFrame = requestAnimationFrame(step);
 }
-let fadeStart = 0;
+
+/**
+ * 点被去掉之后收口：悬停、选中的点不在图里了就放掉（Sigma 去点时不发 leaveNode）；选中的点没了要告诉页面取消选中，
+ * 并退出“只看周边”的放射位置，不然镜头还框在上一圈周边上。
+ */
+function forgetDropped(): void {
+    if (graph === null || focus === null) return;
+    if (focus.hovered !== null && !graph.hasNode(focus.hovered)) {
+        focus.hovered = null;
+        if (host.value !== null) host.value.style.cursor = "";
+    }
+    if (focus.selected !== null && !graph.hasNode(focus.selected)) {
+        focus.selected = null;
+        emit("clear");
+    }
+}
 
 /**
  * 点与线的数据变了（往后挪阅读位置、勾选“只画最强的线”、改视角后新数据回来）：原地改现有的图，不重建 Sigma（输出 25，
@@ -406,7 +423,7 @@ let fadeStart = 0;
  */
 function syncData(): void {
     if (sigma === null || graph === null || focus === null || props.ego !== null) {
-        render("continue");
+        render("fresh");
         return;
     }
     restoreHome();
@@ -418,14 +435,16 @@ function syncData(): void {
     if (next.someNode((_, attributes) => attributes.x === undefined)) seedSpiral(next, (node) => Number(next.getNodeAttribute(node, "weight")));
     const now = performance.now();
     for (const node of graph.nodes()) if (!next.hasNode(node)) graph.dropNode(node);
+    forgetDropped();
     next.forEachNode((node, attributes) => {
         if (graph!.hasNode(node)) graph!.mergeNodeAttributes(node, attributes);
         else graph!.addNode(node, {...attributes, bornAt: now});
     });
-    const oldEdges = new Set(graph.edges());
+    // 还在淡入的线（半秒内连着挪）把 bornAt 带到新线上，不然下一次同步它就一下变实了
+    const oldEdges = new Map(graph.mapEdges((key, attributes) => [key, attributes.bornAt] as const));
     graph.clearEdges();
     next.forEachEdge((key, attributes, source, target) => {
-        const added = oldEdges.has(key) ? attributes : {...attributes, bornAt: now};
+        const added = oldEdges.has(key) ? {...attributes, ...(oldEdges.get(key) === undefined ? {} : {bornAt: oldEdges.get(key)})} : {...attributes, bornAt: now};
         if (next.isDirected(key)) graph!.addDirectedEdgeWithKey(key, source, target, added);
         else graph!.addUndirectedEdgeWithKey(key, source, target, added);
     });
@@ -499,12 +518,12 @@ function leaveNeighborhood(): void {
 }
 
 /**
- * 整张重画。`how`：fresh 从固定起点排（首次显示、换用法）；continue 已有的点从全图原位置接着排、新点放到邻居旁边
- * （换阅读位置、视角、类别，输出 25）；keep 位置不动只换颜色（换明暗）。
+ * 整张重画。`how`：fresh 从固定起点排（首次显示、换用法、人物卡小图换数据）；keep 位置不动只换颜色（换明暗）。
+ * 数据变了不走这里，原地改图（`syncData`）。
  */
-function render(how: "fresh" | "continue" | "keep" = "fresh"): void {
+function render(how: "fresh" | "keep" = "fresh"): void {
     if (host.value === null) return;
-    const previous = how !== "fresh" && graph !== null && props.ego === null ? (home ?? positionsOf(graph)) : null;
+    const previous = how === "keep" && graph !== null && props.ego === null ? (home ?? positionsOf(graph)) : null;
     home = null;
     stopAnimation?.();
     sigma?.kill();
@@ -564,6 +583,7 @@ function render(how: "fresh" | "continue" | "keep" = "fresh"): void {
             const result = focus!.edge(edge, data);
             // 平时线上只写关系词；悬停、选中时写全（几种联系都列出）
             if (result.forceLabel !== true && !result.hidden && result.alwaysLabel === true) result.label = data.shortLabel;
+            if (labelWaits(data.bornAt)) result.label = "";
             return result;
         }) as never,
         zIndex: true,
@@ -625,6 +645,12 @@ function bindEvents(instance: Sigma, target: Graph): void {
         if (!moved && Math.hypot(event.x - downAt.x, event.y - downAt.y) < 4) return;
         moved = true;
         host.value!.style.cursor = "grabbing";
+        // 拖动途中新数据回来、被拖的点恰好被去掉：收住拖动
+        if (!target.hasNode(dragged)) {
+            dragged = null;
+            downAt = null;
+            return;
+        }
         const position = instance.viewportToGraph(event);
         target.mergeNodeAttributes(dragged, {x: position.x, y: position.y});
         event.preventSigmaDefault();
@@ -699,12 +725,13 @@ function fitNeighborhood(): void {
     void fitViewportToNodes(sigma, [focus.selected, ...graph.neighbors(focus.selected)], {animate: true});
 }
 
-/** 搜索：按名字、其他称呼（情节按标题）包含匹配；命中的点高亮，镜头移到第一个命中的点。 */
+/** 搜索命中的点：按名字、其他称呼（情节按标题）包含匹配；没有查询时为 null。 */
 function matchesOf(target: Graph): Set<string> | null {
     const query = props.query.trim();
     return query === "" ? null : new Set(target.filterNodes((_, attributes) => String(attributes.fullLabel ?? attributes.label).includes(query) || ((attributes.names as readonly string[] | undefined) ?? []).some((name) => name.includes(query))));
 }
 
+/** 搜索：命中的点高亮，镜头移到第一个命中的点。 */
 function applyQuery(): void {
     if (sigma === null || focus === null || graph === null) return;
     focus.matches = matchesOf(graph);
