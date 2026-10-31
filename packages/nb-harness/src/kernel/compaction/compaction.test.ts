@@ -222,3 +222,242 @@ describe("compact 指令", () => {
         expect(types(await session.events())).toContain("compaction");
     });
 });
+
+describe("切点、摘要与链", () => {
+    test("输出 47、49：切在进行中这一轮的某一步，之前的步去掉、输入留着；切点保留的 token 随切点后移而变少", async () => {
+        const jobs: CompactionJob[] = [];
+        const lastStep: CompactionMethodImpl = async (job) => {
+            jobs.push(job);
+            const cut = job.cuts.filter((item) => item.kind === "step").at(-1)!;
+            return {method: job.method, firstKeptEntryId: cut.entryId, replacement: "前几步的摘要", omitted: [], tokensBefore: job.tokens, tokensAfter: cut.tokensKept};
+        };
+        await using session = await createTestSession({profile: profileWith({onThreshold: ["step"]}), compaction: {methods: {step: lastStep}}, tools: [{id: "lab.read", execute: () => "内容".repeat(200)}]});
+        session.model.script({tools: [{tool: "lab.read"}]}, {tools: [{tool: "lab.read"}], usage: HEAVY}, "完成");
+        const report = await session.say("读两次");
+        const cuts = jobs[0]!.cuts;
+        expect(cuts.map((cut) => cut.kind)).toEqual(["turn", "step", "step"]);
+        // 这一轮的“轮”切点与第一步的切点保留的都是整轮。
+        expect(cuts[0]!.tokensKept).toBe(cuts[1]!.tokensKept);
+        expect(cuts[1]!.tokensKept).toBeGreaterThan(cuts[2]!.tokensKept);
+        expect(cuts[2]!.tokensKept).toBeGreaterThan(0);
+        const compaction = report.events.find((event) => event.type === "compaction")!;
+        // 第三次请求：摘要、这一轮的输入，加切点那一步（第二次读）及其结果；第一次读的那一步没了。
+        expect(report.requests.at(-1)!.outline()).toEqual(["system: fixed:profile", `user: summary:${compaction.id}`, "user: event:input", "assistant: call:lab.read", "tool: event:toolResult"]);
+    });
+
+    test("输出 49：切点为 null 去掉全部已提交轮与这一轮的步；再次压缩不给摘要时留着上一次的", async () => {
+        let round = 0;
+        const method: CompactionMethodImpl = async (job) => {
+            round += 1;
+            return round === 1
+                ? {method: job.method, firstKeptEntryId: null, replacement: "全部的摘要", omitted: [], tokensBefore: job.tokens, tokensAfter: 10}
+                : {method: job.method, firstKeptEntryId: job.cuts[0]!.entryId, replacement: null, omitted: [], tokensBefore: job.tokens, tokensAfter: job.tokens};
+        };
+        await using session = await createTestSession({profile: profileWith({onThreshold: ["m"]}), compaction: {methods: {m: method}}});
+        session.model.script({text: "答一", usage: HEAVY}, {text: "答二", usage: HEAVY}, "答三");
+        await session.say("第一问");
+        const second = await session.say("第二问");
+        const first = second.events.find((event) => event.type === "compaction")!;
+        expect(second.requests[0]!.outline()).toEqual(["system: fixed:profile", `user: summary:${first.id}`, "user: event:input"]);
+        const third = await session.say("第三问");
+        expect(types(third.events)).toContain("compaction");
+        expect(third.requests[0]!.outline()[1]).toBe(`user: summary:${first.id}`);
+    });
+
+    test("输出 49：一轮中途以 null 切点压缩时，这一轮的步也去掉，只剩摘要与输入", async () => {
+        const all: CompactionMethodImpl = async (job) => ({method: job.method, firstKeptEntryId: null, replacement: "全部的摘要", omitted: [], tokensBefore: job.tokens, tokensAfter: 1});
+        await using session = await createTestSession({profile: profileWith({onThreshold: ["all"]}), compaction: {methods: {all}}, tools: [{id: "lab.read", execute: () => "读到了"}]});
+        session.model.script({tools: [{tool: "lab.read"}], usage: HEAVY}, "答完");
+        const report = await session.say("读");
+        const compaction = report.events.find((event) => event.type === "compaction")!;
+        expect(report.requests.at(-1)!.outline()).toEqual(["system: fixed:profile", `user: summary:${compaction.id}`, "user: event:input"]);
+    });
+
+    test("输出 47：方法经压缩拦截链；方法发的模型请求经模型拦截链、purpose 为 compaction", async () => {
+        const seen: string[] = [];
+        const watcher = defineExtension({id: "lab.watch", intercept: {
+            compaction: async (job, next) => {
+                seen.push(`compaction:${job.method}:${job.reason}`);
+                return next({...job, require: [...job.require, "拦截加的要求"]});
+            },
+            model: async (request, next) => {
+                seen.push(`model:${request.purpose}`);
+                return next(request);
+            },
+        }});
+        const jobs: CompactionJob[] = [];
+        const record: CompactionMethodImpl = async (job) => {
+            jobs.push(job);
+            return summarizingCompaction(job);
+        };
+        await using session = await createTestSession({extensions: [watcher], profile: profileWith({onThreshold: ["record"]}), compaction: {methods: {record}}});
+        session.model.script({text: "答一", usage: HEAVY}, "摘要", "答二");
+        await session.say("第一问");
+        await session.say("第二问");
+        expect(seen).toEqual(["model:turn", "compaction:record:threshold", "model:compaction", "model:turn"]);
+        expect(jobs[0]!.require).toEqual(["拦截加的要求"]);
+    });
+});
+
+describe("估算的来源", () => {
+    test("输出 46：服务商给了总数用总数；模型端口给了 compactAt 用它", async () => {
+        await using byTotal = await createTestSession({profile: profileWith({onThreshold: ["summarize"]}), compaction: {methods: {summarize: summarizingCompaction}}});
+        byTotal.model.script({text: "答一", usage: {totalTokens: 90_000}}, "摘要", "答二");
+        await byTotal.say("第一问");
+        expect(types((await byTotal.say("第二问")).events)).toContain("compaction");
+
+        await using byCompactAt = await createTestSession({modelInfo: {id: "test/small", contextWindow: 100_000, compactAt: 100, capabilities: {vision: false, thinking: false}, efforts: []}, profile: profileWith({onThreshold: ["summarize"]}), compaction: {methods: {summarize: summarizingCompaction}}});
+        byCompactAt.model.script({text: "答一", usage: {input: 400}}, "摘要", "答二");
+        await byCompactAt.say("第一问");
+        expect(types((await byCompactAt.say("第二问")).events)).toContain("compaction");
+    });
+
+    test("输出 46、47：省略之后按占位估算，再次压缩时的 token 估算变小", async () => {
+        const jobs: CompactionJob[] = [];
+        let round = 0;
+        const shake: CompactionMethodImpl = async (job) => {
+            jobs.push(job);
+            round += 1;
+            const tool = job.request.messages.find((message) => message.role === "tool");
+            const omitted = round === 1 && tool !== undefined ? [{entryId: (tool.content[0]!.origin as {eventId: string}).eventId, placeholder: "（已省略）"}] : [];
+            return {method: job.method, firstKeptEntryId: job.cuts[0]!.entryId, replacement: null, omitted, tokensBefore: job.tokens, tokensAfter: 1};
+        };
+        await using session = await createTestSession({profile: profileWith({onThreshold: ["shake"]}), compaction: {methods: {shake}}, tools: [{id: "lab.read", execute: () => "很长的原文".repeat(3_000)}]});
+        session.model.script({tools: [{tool: "lab.read"}]}, "读完了", "答二", "答三");
+        await session.say("读文件");
+        await session.raw.compact({commandId: id()}).then(async (accepted) => accepted.ok && accepted.value.runId !== undefined && session.raw.waitRun(accepted.value.runId));
+        await session.raw.compact({commandId: id()}).then(async (accepted) => accepted.ok && accepted.value.runId !== undefined && session.raw.waitRun(accepted.value.runId));
+        expect(jobs).toHaveLength(2);
+        expect(jobs[1]!.tokens).toBeLessThan(jobs[0]!.tokens / 10);
+    });
+});
+
+describe("失败与边界", () => {
+    test("输出 51：不理会中止信号的方法与放回内容的回调挡不住中止", async () => {
+        for (const stuck of ["method", "restore"] as const) {
+            let entered!: () => void;
+            const inside = new Promise<void>((resolve) => {
+                entered = resolve;
+            });
+            const hang = <T>() => new Promise<T>(() => undefined);
+            const method: CompactionMethodImpl = async (job) => {
+                if (stuck === "method") {
+                    entered();
+                    return hang();
+                }
+                return {method: job.method, firstKeptEntryId: null, replacement: "摘要", omitted: [], tokensBefore: job.tokens, tokensAfter: 1};
+            };
+            await using session = await createTestSession({profile: profileWith({onThreshold: ["m"]}), compaction: {methods: {m: method}, restore: () => {
+                entered();
+                return hang<readonly string[]>();
+            }}});
+            session.model.script({text: "答一", usage: HEAVY});
+            await session.say("第一问");
+            const sent = await session.raw.send({commandId: id(), input: {text: "第二问"}});
+            if (!sent.ok || sent.value.runId === null) throw new Error("no run");
+            await inside;
+            await session.raw.abort({commandId: id()});
+            expect((await session.raw.waitRun(sent.value.runId)).reason).toBe("aborted");
+            expect(types(await session.events())).not.toContain("compaction");
+        }
+    });
+
+    test("输出 47：压缩前的请求算不出来时不压缩，手动压缩以 compaction-failed 收口", async () => {
+        let broken = false;
+        const profile = defineProfile({id: "lab.fragile", version: "1", name: "f", description: "f", system: () => {
+            if (broken) throw new Error("system 坏了");
+            return "系统";
+        }, compaction: {onThreshold: ["summarize"]}}) as AnyProfile;
+        await using session = await createTestSession({profile, compaction: {methods: {summarize: summarizingCompaction}}});
+        session.model.script("答一");
+        await session.say("第一问");
+        broken = true;
+        const accepted = await session.raw.compact({commandId: id()});
+        if (!accepted.ok || accepted.value.runId === undefined) throw new Error("compact did not start");
+        expect(await session.raw.waitRun(accepted.value.runId)).toMatchObject({reason: "error", error: {code: "compaction-failed"}});
+        expect(types(await session.events())).not.toContain("compaction");
+        expect(session.model.requests).toHaveLength(1);
+    });
+
+    test("输出 47：缺字段、无穷大或字符串的 token 都算不合格，换下一个方法", async () => {
+        const bads: CompactionMethodImpl[] = [
+            async (job) => ({method: job.method, firstKeptEntryId: null, replacement: "x", tokensBefore: 1, tokensAfter: 1}) as never,
+            async (job) => ({method: job.method, firstKeptEntryId: null, replacement: "x", omitted: [], tokensBefore: 1, tokensAfter: Number.POSITIVE_INFINITY}),
+            async (job) => ({method: job.method, firstKeptEntryId: null, replacement: "x", omitted: [], tokensBefore: 1, tokensAfter: "99999" as never}),
+        ];
+        for (const bad of bads) {
+            await using session = await createTestSession({profile: profileWith({onThreshold: ["bad", "good"]}), compaction: {methods: {bad, good: summarizingCompaction}}});
+            session.model.script("答一", "摘要");
+            await session.say("第一问");
+            const accepted = await session.raw.compact({commandId: id()});
+            if (!accepted.ok || accepted.value.runId === undefined) throw new Error("compact did not start");
+            expect((await session.raw.waitRun(accepted.value.runId)).reason).toBe("completed");
+            expect(dataOf(await session.events(), "compaction")[0]).toMatchObject({method: "good"});
+            expect(await codes(session)).toContain("compaction-invalid");
+        }
+    });
+
+    test("输出 52：运行中受理的 compact 只属于那次运行：运行没到下一个边界就结束时丢掉，不会被下一次运行拿到", async () => {
+        const jobs: CompactionJob[] = [];
+        const record: CompactionMethodImpl = async (job) => {
+            jobs.push(job);
+            return summarizingCompaction(job);
+        };
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let replying!: () => void;
+        const inside = new Promise<void>((resolve) => {
+            replying = resolve;
+        });
+        let calls = 0;
+        const hold = defineExtension({id: "lab.hold", intercept: {model: async (request, next) => {
+            calls += 1;
+            if (calls === 2) {
+                replying();
+                await held;
+            }
+            return next(request);
+        }}});
+        await using session = await createTestSession({extensions: [hold], profile: profileWith({onThreshold: ["record"]}), compaction: {methods: {record}}});
+        session.model.script("答一", "答二", "答三");
+        await session.say("第一问");
+        const sent = await session.raw.send({commandId: id(), input: {text: "第二问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("no run");
+        await inside;
+        expect(await session.raw.compact({commandId: id(), requirement: "只给第二轮"})).toMatchObject({ok: true, value: {scheduled: "next-boundary"}});
+        release();
+        await session.raw.waitRun(sent.value.runId);
+        await session.say("第三问");
+        expect(jobs).toHaveLength(0);
+    });
+
+    test("输出 52：对话模型不可用时只压缩的运行照样用压缩的模型跑", async () => {
+        await using session = await createTestSession({profile: profileWith({onThreshold: ["summarize"]}), compaction: {methods: {summarize: summarizingCompaction}}});
+        session.model.script("答一", "摘要");
+        await session.say("第一问");
+        session.model.unavailable.add("turn");
+        const accepted = await session.raw.compact({commandId: id()});
+        if (!accepted.ok || accepted.value.runId === undefined) throw new Error("compact did not start");
+        expect((await session.raw.waitRun(accepted.value.runId)).reason).toBe("completed");
+        expect(types(await session.events())).toContain("compaction");
+    });
+
+    test("extensions 输出 17：压缩切掉早先的步，这一轮 continue 的上限不重置", async () => {
+        let asked = 0;
+        const nudger = defineExtension({id: "lab.nudge", on: {assistant: (_event, ctx) => {
+            if (ctx.continue("接着写", {max: 1})) asked += 1;
+        }}});
+        const keepLastStep: CompactionMethodImpl = async (job) => {
+            const cut = job.cuts.filter((item) => item.kind === "step").at(-1) ?? job.cuts.at(-1)!;
+            return {method: job.method, firstKeptEntryId: cut.entryId, replacement: "摘要", omitted: [], tokensBefore: job.tokens, tokensAfter: 1};
+        };
+        await using session = await createTestSession({extensions: [nudger], profile: profileWith({onThreshold: ["keep"]}), compaction: {methods: {keep: keepLastStep}}});
+        session.model.script({text: "一", usage: HEAVY}, {text: "二", usage: HEAVY}, {text: "三", usage: HEAVY});
+        const report = await session.say("写");
+        expect(asked).toBe(1);
+        expect(dataOf(report.events, "continued")).toEqual([{text: "接着写", by: "lab.nudge", count: 1}]);
+        expect(report.result.reason).toBe("completed");
+    });
+});

@@ -32,8 +32,11 @@ export class RunControl {
     #host: Omit<RunHost, "phase" | "interactions" | "takeCompactRequests"> | null = null;
     /** 运行结束、会话回到空闲之后调用（撤回插件后的重新装配在这里接上，runtime.md 输出 57）。 */
     onIdle: (() => void) | null = null;
-    /** 运行中受理的 `compact` 的要求，到下一个边界做（不进日志：进程中断就丢，重发得到第一次受理的值）。 */
-    readonly #compactRequests: string[][] = [];
+    /**
+     * 运行中（或叶子上有暂停的运行时）受理的 `compact` 的要求，归属那次运行，到它的下一个边界做（runtime.md 输出 52）。
+     * 不进日志：进程中断就丢。那次运行结束时没做的丢掉，别的运行不会拿到。
+     */
+    #compactRequests: {readonly runId: string; readonly require: readonly string[]}[] = [];
     /** 当前运行里在等的同步事项；有待处理的时运行状态是 `waiting`，都应答了回到 `running`。 */
     readonly interactions = new Interactions((pending) => {
         const active = this.#active;
@@ -89,8 +92,14 @@ export class RunControl {
 
     /** 受理批（含 `runStarted`）写下之后调用：开始跑循环。 */
     /** 运行中（或叶子上有暂停的运行）受理的 `compact`：交给这次运行的下一个边界。 */
-    requestCompaction(require: readonly string[]): void {
-        this.#compactRequests.push([...require]);
+    requestCompaction(runId: string, require: readonly string[]): void {
+        this.#compactRequests.push({runId, require: [...require]});
+    }
+
+    #takeCompactRequests(runId: string): string[][] {
+        const mine = this.#compactRequests.filter((item) => item.runId === runId).map((item) => [...item.require]);
+        this.#compactRequests = this.#compactRequests.filter((item) => item.runId !== runId);
+        return mine;
     }
 
     launch(runId: string, options: {compact?: {require: readonly string[]}} = {}): void {
@@ -98,13 +107,15 @@ export class RunControl {
         if (host === null) throw new Error("run control is not attached");
         const controller = new AbortController();
         const run: ActiveRun = {runId, controller, ...(options.compact === undefined ? {} : {compact: options.compact})};
-        const done = runLoop({...host, interactions: this.interactions, takeCompactRequests: () => this.#compactRequests.splice(0), phase: (phase, request) => this.#setStatus({state: "running", runId, turnId: this.#core.leafState.kernel.run?.turnId ?? null, phase, request, pendingTools: []})}, run)
+        const done = runLoop({...host, interactions: this.interactions, takeCompactRequests: () => this.#takeCompactRequests(runId), phase: (phase, request) => this.#setStatus({state: "running", runId, turnId: this.#core.leafState.kernel.run?.turnId ?? null, phase, request, pendingTools: []})}, run)
             .catch((error: unknown) => {
                 // 只有写日志失败会到这里；onBroken 已经结算了等它的调用方。
                 if (!(error instanceof LogBrokenError)) throw error;
             })
             .finally(() => {
                 if (this.#active?.runId === runId) this.#active = null;
+                // 这次运行没来得及做的 compact 要求丢掉：它们只属于这次运行。
+                this.#compactRequests = this.#compactRequests.filter((item) => item.runId !== runId);
                 if (this.#status.state !== "broken") this.#setStatus({state: "idle"});
                 this.onIdle?.();
                 // 循环结束、当前运行清掉之后才结算等它的调用方：它们拿到结果时会话已经空闲，紧接着发下一条不会撞上 already-running。

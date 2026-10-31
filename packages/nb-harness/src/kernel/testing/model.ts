@@ -3,7 +3,7 @@
  * 脚本用完还被调用时，这次请求以 `local` 失败（码 `script-exhausted`）收口，测试能看到是哪一次。
  */
 
-import type {ContentBlock, ModelErrorKind, ModelInfo, ModelPort, ModelRequest, ModelResponse, ToolCall, Usage} from "../api/index.js";
+import type {ContentBlock, ModelErrorKind, ModelInfo, ModelPort, ModelRequest, ModelResponse, RequestPurpose, ToolCall, Usage} from "../api/index.js";
 
 /** 一次回复的简写：字符串是纯文字。 */
 export type Reply =
@@ -24,13 +24,17 @@ export interface TestModel {
     /** 到目前为止收到的请求，按先后。 */
     readonly requests: readonly ModelRequest[];
     readonly port: ModelPort;
+    /** 这些用途的模型解析不到（测“对话模型不可用时也能压缩”这类）；改它即生效。 */
+    readonly unavailable: Set<RequestPurpose>;
 }
 
 export const TEST_MODEL_INFO: ModelInfo = {id: "test/model", contextWindow: 100_000, maxOutput: 8_000, capabilities: {vision: false, thinking: true}, efforts: ["low", "medium", "high"]};
 
 const USAGE: Usage = {input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: null, complete: true};
 
-export function createTestModel(): TestModel {
+/** `info` 换掉模型信息（例如给 `compactAt`、小窗口）。 */
+export function createTestModel(info: ModelInfo = TEST_MODEL_INFO): TestModel {
+    const unavailable = new Set<RequestPurpose>();
     const queue: Reply[] = [];
     const requests: ModelRequest[] = [];
     let calls = 0;
@@ -51,10 +55,11 @@ export function createTestModel(): TestModel {
     return {
         script: (...replies) => void queue.push(...replies),
         requests,
+        unavailable,
         port: {
-            resolve: () => ({
+            resolve: (_settings, purpose) => unavailable.has(purpose) ? {ok: false, code: "no-model"} : ({
                 ok: true,
-                info: TEST_MODEL_INFO,
+                info,
                 call: async (request, signal) => {
                     requests.push(request);
                     if (signal.aborted) return {content: [], toolCalls: [], stopReason: "aborted", usage: {...USAGE, complete: false}, model: TEST_MODEL_INFO.id};

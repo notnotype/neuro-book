@@ -24,7 +24,7 @@ export const complete: Complete = async (env, options) => {
     const resolution = env.models.resolve(DEFAULT_CORE_SETTINGS, "background");
     if (!resolution.ok) return {ok: false, code: resolution.code === "no-credentials" ? "no-credentials" : "no-model"};
     const {assembly} = assembled;
-    const state: StateAt = {path: initialSnapshot(assembly.reducers, "path", false), session: initialSnapshot(assembly.reducers, "session", false), history: initialHistory, settings: {}};
+    const state: StateAt = {path: initialSnapshot(assembly.reducers, "path", false), session: initialSnapshot(assembly.reducers, "session", false), history: initialHistory, settings: {}, continued: {}};
     const view = viewCtx(assembly, assembly.order[assembly.order.length - 1]!, state, {tools: [], model: resolution.info, now: env.clock.now(), initial: options.initial ?? null});
     const usage0 = {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true};
     const failed = (message: string): {ok: true; result: Omit<RunResult, "runId" | "entries">} => ({ok: true, result: {reason: "error", stopReason: "error", text: "", result: null, error: {kind: "local", code: "profile-failed", message}, usage: usage0}});

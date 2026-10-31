@@ -5,7 +5,7 @@
  * 这一版有：`say`、请求的 `outline`、事件与状态、重开、假工具与审批策略。手动模式、严格模式随后续切片加入。
  */
 
-import type {AnyExtension, AnyProfile, ApproveHook, ContributedExtension, JsonValue, LogEvent, LogStore, ModelRequest, RunResult, SessionHeader, ToolContext, ToolDeclaration, ToolImplementation, ToolResult, ToolSessionContext, SessionApi, SessionEnv, StateOfExtension} from "../api/index.js";
+import type {AnyExtension, AnyProfile, ApproveHook, ContributedExtension, JsonValue, LogEvent, LogStore, ModelInfo, ModelRequest, RunResult, SessionHeader, ToolContext, ToolDeclaration, ToolImplementation, ToolResult, ToolSessionContext, SessionApi, SessionEnv, StateOfExtension} from "../api/index.js";
 import {defineProfile} from "../extension/profile.js";
 import {createJsonlStore} from "../log/jsonl-store.js";
 import {createMemoryStore} from "../log/memory-store.js";
@@ -54,6 +54,8 @@ export interface TestSessionOptions {
     /** 会话头的 `caller` 与 `questions`（子会话：提问交给父会话）。 */
     readonly caller?: SessionHeader["caller"];
     readonly questions?: SessionHeader["questions"];
+    /** 测试模型的模型信息（缺省 `TEST_MODEL_INFO`）。 */
+    readonly modelInfo?: ModelInfo;
     /** 出站过滤（`SessionEnv.outbound`）。 */
     readonly outbound?: SessionEnv["outbound"];
     /** 压缩方法与放回的内容（`SessionEnv.compaction`）。 */
@@ -102,7 +104,7 @@ export function viewOf(request: ModelRequest): RequestView {
 let sessionCounter = 0;
 
 export async function createTestSession(options: TestSessionOptions = {}): Promise<TestSession> {
-    const model = createTestModel();
+    const model = createTestModel(options.modelInfo);
     const clock = options.clock ?? createTestClock(options.startAt);
     const profile = options.profile ?? defaultTestProfile;
     const baseStore: LogStore = options.store === undefined ? createMemoryStore() : createJsonlStore({root: options.store.root, now: clock.now});

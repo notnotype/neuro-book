@@ -338,7 +338,8 @@ export interface SessionEnv {
      */
     readonly compaction?: {
         readonly methods?: Readonly<Record<string, CompactionMethodImpl>>;
-        restore?(context: ToolSessionContext): Promise<readonly string[]> | readonly string[];
+        /** `signal` 在运行被中止时触发；不理会它也不会挡住中止（内核不再等）。 */
+        restore?(context: ToolSessionContext, signal: AbortSignal): Promise<readonly string[]> | readonly string[];
     };
 }
 

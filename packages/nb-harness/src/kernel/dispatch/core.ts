@@ -152,7 +152,7 @@ export class SessionCore {
     /** 某个叶子上扩展看到的全部状态。 */
     stateAt(leaf: string | null = this.leaf): StateAt {
         const path = this.pathState(leaf);
-        return {path: path.extensions, session: this.#session.extensions, history: path.kernel.history, settings: this.#session.kernel.settings};
+        return {path: path.extensions, session: this.#session.extensions, history: path.kernel.history, settings: this.#session.kernel.settings, continued: path.kernel.continued};
     }
 
     /** 从根到 `leaf` 的路径上的事件。 */
@@ -316,7 +316,7 @@ export class SessionCore {
         this.#batchStates = new Map();
         for (const item of staged) {
             this.#commit(this.dev ? deepFreeze(item.event) : item.event, item.path, item.session);
-            this.#batchStates.set(item.event.id, {path: item.path.extensions, session: item.session.extensions, history: item.path.kernel.history, settings: item.session.kernel.settings});
+            this.#batchStates.set(item.event.id, {path: item.path.extensions, session: item.session.extensions, history: item.path.kernel.history, settings: item.session.kernel.settings, continued: item.path.kernel.continued});
             this.#emit({type: "log", event: item.event});
         }
         return staged.map((item) => item.event);

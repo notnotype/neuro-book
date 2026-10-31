@@ -16,6 +16,8 @@ export interface StateAt {
     readonly session: Snapshot;
     readonly history: HistoryState;
     readonly settings: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
+    /** 当前这一轮各扩展写过几条 `continued`（按路径事实计数，压缩不影响）。 */
+    readonly continued: Readonly<Record<string, number>>;
 }
 
 export interface ViewEnvironment {
@@ -152,14 +154,6 @@ export function reactCtx(params: ReactParams): ReactCtx<any, any, any, any, any>
     } as ReactCtx<any, any, any, any, any>;
 }
 
-/** 这一轮里这个扩展已经写过几条 `continued`。 */
-function continueCount(state: StateAt, id: string): number {
-    const turn = state.history.current;
-    if (turn === null) return 0;
-    const events = [...turn.attachments, ...turn.steps.flatMap((step) => step.after)];
-    return events.filter((event) => event.type === "continued" && (event.data as {by: string}).by === id).length;
-}
-
 export function assistantCtx(params: ReactParams & {readonly reply: {readonly toolCalls: readonly unknown[]}; readonly limited: (max: number) => void}): AssistantCtx<any, any, any, any, any> {
     const ctx = reactCtx(params);
     return {
@@ -167,7 +161,7 @@ export function assistantCtx(params: ReactParams & {readonly reply: {readonly to
         continue(text: string, options?: {max?: number}): boolean {
             if (params.outputs.settled || params.reply.toolCalls.length > 0) return false;
             const max = options?.max ?? 3;
-            if (continueCount(params.state, params.item.definition.id) >= max) {
+            if ((params.state.continued[params.item.definition.id] ?? 0) >= max) {
                 params.limited(max);
                 return false;
             }

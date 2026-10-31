@@ -80,12 +80,8 @@ function takeSteerDrafts(core: SessionCore): EventDraft[] {
     });
 }
 
-/** 这一轮里这个扩展已经写过几条 continued。 */
-function continuedSoFar(core: SessionCore, extension: string): number {
-    const turn = core.leafState.kernel.history.current;
-    if (turn === null) return 0;
-    return [...turn.attachments, ...turn.steps.flatMap((step) => step.after)].filter((event) => event.type === "continued" && (event.data as {by: string}).by === extension).length;
-}
+/** 这一轮里这个扩展已经写过几条 continued（按路径事实计数，压缩切掉早先的步也不变）。 */
+const continuedSoFar = (core: SessionCore, extension: string): number => core.leafState.kernel.continued[extension] ?? 0;
 
 const conv = (type: keyof KernelEvents, data: object): EventDraft => ({type, kind: "conv", scope: "path", data: data as JsonValue});
 
@@ -123,8 +119,10 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
         const turnReason = interrupted ? "interrupted" : reason;
         const runData = interrupted ? {...data, reason: "interrupted" as const} : data;
         const before = interrupted ? drafts.map((draft) => (draft.type === "modelFailed" ? {...draft, data: {...(draft.data as object), kind: "interrupted"} as JsonValue} : draft)) : drafts;
-        const open = core.leafState.kernel.openRequest;
-        const settleOpen = open !== null && reason === "aborted" && !before.some((draft) => draft.type === "modelFailed") ? [ctrl("modelFailed", {request: open, kind: interrupted ? "interrupted" : "aborted"})] : [];
+        // 发出没回复的模型请求（各种用途）逐个结算；收口批里已经写了失败的不重复。
+        const failedAlready = new Set(before.filter((draft) => draft.type === "modelFailed").map((draft) => (draft.data as {request: number}).request));
+        const kind = interrupted ? "interrupted" : reason === "aborted" ? "aborted" : "local";
+        const settleOpen = core.leafState.kernel.openRequests.filter((request) => !failedAlready.has(request)).map((request) => ctrl("modelFailed", {request, kind}));
         const turn = core.leafState.kernel.history.current;
         await write([...settleOpen, ...before, ...(turn === null ? [] : [ctrl("turnEnded", {turnId: turn.id, reason: turnReason})]), ctrl("runEnded", {runId: run.runId, ...runData})]);
     };
@@ -147,11 +145,13 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
         if (run.compact !== undefined) {
             // 只压缩的运行：做一次压缩就收口（runtime.md 输出 52）。
             host.phase("compacting", null);
-            const resolution = host.models.resolve(core.session.kernel.core, "turn");
+            // 只压缩的运行用压缩的模型：对话模型不可用时也能先压缩（受理时已查过压缩的模型）。
+            const resolution = host.models.resolve(core.session.kernel.core, "compaction");
             if (!resolution.ok) return await end("error", {reason: "error", error: {kind: "local", code: resolution.code}});
             const tools = host.box.current();
             const environment = host.environment(resolution.info, tools.map(toolInfo));
-            const outcome = await host.compaction.run({reason: "manual", require: run.compact.require, environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal)});
+            const outcome = await Promise.race([host.compaction.run({reason: "manual", require: run.compact.require, environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal)}), abortedNow]);
+            if (outcome === "aborted") return await end("aborted", {reason: "aborted"});
             if (outcome.ok) return await end("completed", {reason: "completed"});
             if (outcome.code === "aborted" || signal.aborted) return await end("aborted", {reason: "aborted"});
             return await end("error", {reason: "error", error: {kind: "local", code: outcome.code === "nothing-to-compact" ? "compaction-failed" : outcome.code === "disabled" ? "compaction-failed" : outcome.code}});
@@ -193,10 +193,12 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
 
             // 边界第 4 步：运行中受理的 compact，或估算超过触发点，先压缩再算请求。失败只留诊断，请求照发。
             const requested = host.takeCompactRequests();
-            if (requested.length > 0 || host.compaction.estimate() > host.compaction.trigger(resolution.info)) {
+            const trigger = host.compaction.trigger(resolution.info);
+            if (requested.length > 0 || (trigger !== Number.POSITIVE_INFINITY && host.compaction.estimate() > trigger)) {
                 host.phase("compacting", null);
-                const outcome = await host.compaction.run({reason: requested.length > 0 ? "manual" : "threshold", require: requested.flat(), environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal)});
-                if (!outcome.ok && (outcome.code === "aborted" || signal.aborted)) return await end("aborted", {reason: "aborted"});
+                // 和中止赛跑：不理会信号的压缩方法或放回内容的回调挡不住中止（runtime.md 输出 51）；收口之后它们的写入被拒绝。
+                const outcome = await Promise.race([host.compaction.run({reason: requested.length > 0 ? "manual" : "threshold", require: requested.flat(), environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal)}), abortedNow]);
+                if (outcome === "aborted" || (!outcome.ok && (outcome.code === "aborted" || signal.aborted))) return await end("aborted", {reason: "aborted"});
                 host.phase("requesting", null);
             }
 
@@ -242,7 +244,8 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                     // 溢出：记下这次失败的请求，按溢出的顺序压缩，成功就把请求再发一次（runtime.md 输出 50）。
                     await write([...modelFailures, failure]);
                     host.phase("compacting", null);
-                    const outcome = await host.compaction.run({reason: "overflow", require: [], environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHost, signal)});
+                    const outcome = await Promise.race([host.compaction.run({reason: "overflow", require: [], environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHost, signal)}), abortedNow]);
+                    if (outcome === "aborted") return await end("aborted", {reason: "aborted"});
                     if (outcome.ok) {
                         overflowRetried = true;
                         continue;

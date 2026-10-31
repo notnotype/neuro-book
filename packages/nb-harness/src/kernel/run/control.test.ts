@@ -241,7 +241,7 @@ describe("崩溃与恢复", () => {
     const fixture = join(import.meta.dir, "../../../tests/kernel/fixtures/crash-session.ts");
 
     /** 每种崩溃一个子目录：子进程里的会话 id 都从 test-1 起。 */
-    async function crash(mode: "in-tool" | "after-accept"): Promise<{store: {root: string}; open: string}> {
+    async function crash(mode: "in-tool" | "after-accept" | "compacting"): Promise<{store: {root: string}; open: string}> {
         const dir = join(root, mode);
         const child = Bun.spawn(["bun", fixture, dir, mode], {stdout: "pipe", stderr: "inherit"});
         try {
@@ -253,7 +253,7 @@ describe("崩溃与恢复", () => {
                 text += new TextDecoder().decode(value);
             }
             const [what, sessionId] = text.trim().split(" ");
-            expect(what).toBe(mode === "in-tool" ? "started" : "accepted");
+            expect(what).toBe(mode === "in-tool" ? "started" : mode === "compacting" ? "compacting" : "accepted");
             return {store: {root: dir}, open: sessionId!};
         } finally {
             child.kill(9);
@@ -285,5 +285,14 @@ describe("崩溃与恢复", () => {
         const accepted = dataOf<{commandId: string; value: {runId: string}}>(await session.raw.log({afterSeq: 0}).then((page) => page.events), "commandAccepted").find((data) => data.commandId === "first")!;
         const again = await session.raw.send({commandId: "first", input: {text: "问"}});
         expect(again).toMatchObject({ok: true, replayed: true, value: accepted.value});
+    });
+
+    test("输出 34：压缩方法的模型请求发出后被 kill -9，重开后这次请求结算为 interrupted，只压缩的运行收口", async () => {
+        await using session = await createTestSession(await crash("compacting"));
+        const events = await session.events();
+        const compactionRequest = dataOf<{request: number; purpose: string}>(events, "modelStarted").find((data) => data.purpose === "compaction")!;
+        expect(dataOf(events, "modelFailed")).toContainEqual({request: compactionRequest.request, kind: "interrupted"});
+        expect(dataOf(events, "runEnded").at(-1)).toMatchObject({reason: "interrupted"});
+        expect(types(events)).not.toContain("compaction");
     });
 });

@@ -43,7 +43,8 @@ export function recoveryDrafts(core: SessionCore): EventDraft[] {
         data: {id: item.id, decision: "interrupted", by: {kind: "kernel"}, code: item.kind === "approval" ? "interrupted-before-approval" : "interrupted"} as JsonValue,
     }));
     const drafts: EventDraft[] = [...interrupted, ...unansweredCalls(core)];
-    if (state.openRequest !== null) drafts.push({type: "modelFailed", kind: "ctrl", scope: "path", data: {request: state.openRequest, kind: "interrupted"}});
+    // 发出没回复的模型请求（各种用途，含压缩方法与审批钩子发的）逐个结算。
+    for (const request of state.openRequests) drafts.push({type: "modelFailed", kind: "ctrl", scope: "path", data: {request, kind: "interrupted"}});
     const turn = state.history.current;
     if (turn !== null) drafts.push({type: "turnEnded", kind: "ctrl", scope: "path", data: {turnId: turn.id, reason: "interrupted"}});
     drafts.push({type: "runEnded", kind: "ctrl", scope: "path", data: {runId: state.run.runId, reason: "interrupted"}});

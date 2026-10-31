@@ -119,12 +119,13 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
         approve: env.approve,
         compaction: {
             estimate: () => estimateContext(core),
-            trigger: triggerPoint,
+            // Profile 写了 compaction: false 时不按阈值压缩，也就不必每个边界估算。
+            trigger: (model) => ((core.assembly.profile as {compaction?: unknown}).compaction === false ? Number.POSITIVE_INFINITY : triggerPoint(model)),
             run: (args) => compact({
                 core,
                 resources,
                 methods: env.compaction?.methods ?? {},
-                ...(env.compaction?.restore === undefined ? {} : {restore: (restoreContext) => env.compaction!.restore!(restoreContext)}),
+                ...(env.compaction?.restore === undefined ? {} : {restore: (restoreContext, signal) => env.compaction!.restore!(restoreContext, signal)}),
                 context: context(),
                 model: args.caller,
                 write: args.write,
@@ -200,7 +201,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
             if (!env.models.resolve(core.session.kernel.core, "compaction").ok) return {fail: "no-compaction-model"};
             // 运行中（或叶子上有暂停的运行）：到这次运行的下一个边界做；空闲：开一次只压缩的运行（runtime.md 输出 52）。
             if (!control.idle || control.paused !== null) {
-                control.requestCompaction(asked);
+                control.requestCompaction(control.active?.runId ?? control.paused!, asked);
                 return {value: {scheduled: "next-boundary"}, drafts: []};
             }
             if (compactionCuts(core).cuts.length === 0) return {fail: "nothing-to-compact"};
