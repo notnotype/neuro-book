@@ -92,11 +92,12 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
             const number = core.requestCounter + 1;
             await host.write([ctrl("modelStarted", {request: number, purpose: final.purpose, model: final.model, hash: requestHash(final), now: core.clock.now(), invocation: core.newId(), modifiedBy: modifiedBy.map((item) => ({...item}))})]);
             lastRequest = number;
-            host.streaming?.(number);
+            // 只有对话请求让运行进入 streaming：压缩与审批模型的请求流式时，运行状态仍是 compacting、tools。
+            if (final.purpose === "turn") host.streaming?.(number);
             let deltaNumber = 0;
             return resolution.call(final, signal, (delta) => {
                 deltaNumber += 1;
-                core.emit({type: "delta", request: number, n: deltaNumber, part: delta.part, text: delta.text, ...(delta.callId === undefined ? {} : {callId: delta.callId})});
+                core.emit({type: "delta", request: number, purpose: final.purpose, n: deltaNumber, part: delta.part, text: delta.text, ...(delta.callId === undefined ? {} : {callId: delta.callId})});
             });
         },
         // 之前出错跳过这一层；之后出错用里层的回复（模型已经回复、花了钱，不丢）。

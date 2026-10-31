@@ -171,6 +171,24 @@ describe("中止", () => {
             expect((await session.raw.snapshot()).buffer).toHaveLength(keepQueue ? 1 : 0);
         }
     });
+
+    test("输出 9：流式中被中止，端口交回的半截回复与用量记进 modelFailed", async () => {
+        await using session = await createTestSession();
+        session.model.script({text: "半句话", usage: {output: 3}, hold: true});
+        const deltas: string[] = [];
+        const streamed = gate();
+        session.raw.subscribe((frame) => {
+            if (frame.type !== "delta") return;
+            deltas.push(frame.text);
+            if (deltas.join("") === "半句话") streamed.open();
+        });
+        const runId = await sendRaw(session, "问");
+        await streamed.promise;
+        await session.raw.abort({commandId: id()});
+        expect((await session.raw.waitRun(runId)).reason).toBe("aborted");
+        const failed = dataOf(await session.events(), "modelFailed");
+        expect(failed).toEqual([{request: 1, kind: "aborted", partial: [{kind: "text", text: "半句话"}], usage: expect.objectContaining({output: 3, complete: false})}]);
+    });
 });
 
 describe("设置、标题与归档", () => {

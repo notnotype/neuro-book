@@ -221,6 +221,27 @@ describe("出站过滤", () => {
     });
 });
 
+describe("出站过滤（增量编号）", () => {
+    test("输出 54：过滤掉的增量不占号，每个订阅者收到的 n 在一次请求里从 1 起连续", async () => {
+        const outbound: SessionEnv["outbound"] = {event: (event) => event, delta: (frame, reader) => (reader.kind === "session" && frame.part === "thinking" ? null : frame)};
+        await using session = await createTestSession({outbound});
+        const numbers = (reader: Pick<typeof session.raw, "subscribe">) => {
+            const seen: string[] = [];
+            reader.subscribe((frame) => {
+                if (frame.type === "delta") seen.push(`${frame.request}.${frame.n}:${frame.part}`);
+            });
+            return seen;
+        };
+        const owner = numbers(session.raw);
+        const child = numbers(session.raw.as({kind: "session", id: "child"}));
+        session.model.script({thinking: "先想想", text: "回答"}, "再答");
+        await session.say("问");
+        await session.say("再问");
+        expect(owner).toEqual(["1.1:thinking", "1.2:thinking", "1.3:text", "1.4:text", "2.1:text", "2.2:text"]);
+        expect(child).toEqual(["1.1:text", "1.2:text", "2.1:text", "2.2:text"]);
+    });
+});
+
 describe("出站过滤（异步）", () => {
     test("输出 54：过滤是异步的、后到的先过滤完，订阅者看到的先后仍与日志一致；日志查询逐条按顺序", async () => {
         const order: string[] = [];
@@ -293,7 +314,7 @@ describe("出站过滤的订阅与分页", () => {
         expect(afterClose).toEqual([]);
     });
 
-    test("输出 54：日志分页的边界在读取开始时定下；整页被过滤时 through 照样前进", async () => {
+    test("输出 54：日志分页的边界在读取开始时定下；整页被过滤时 through 照样前进；limit 不合法时夹到范围内", async () => {
         let hold: Promise<void> | null = null;
         const outbound: SessionEnv["outbound"] = {
             event: async (event) => {
@@ -307,6 +328,8 @@ describe("出站过滤的订阅与分页", () => {
         // 三次入队各写 inputQueued 与 commandAccepted，全被过滤掉。
         expect(await session.raw.log({afterSeq: head - 6, limit: 2})).toEqual({events: [], head, more: true, through: head - 4});
         expect(await session.raw.log({afterSeq: head - 4})).toEqual({events: [], head, more: false, through: head});
+        // 不合法的 limit 夹到 1 到 2000：每页至少扫描一条，through 不会越过没读到的事件。
+        for (const limit of [0, -1, 0.5]) expect(await session.raw.log({afterSeq: head - 6, limit})).toEqual({events: [], head, more: true, through: head - 5});
 
         const held = gate();
         hold = held.promise;

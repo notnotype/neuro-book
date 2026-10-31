@@ -20,7 +20,7 @@ import {computeRequest} from "../view/request.js";
 import {failureDrafts} from "./chain.js";
 import {callModel, modelCaller, type ModelCallHost} from "./model-call.js";
 import type {Interactions} from "./interaction.js";
-import {runTools, toolInfo, type ToolBox} from "./tools.js";
+import {ABORT_GRACE_MS, runTools, toolInfo, type ToolBox} from "./tools.js";
 import {ctrl, interrupting, RunStoppedError} from "./writes.js";
 
 export interface RunHost {
@@ -130,6 +130,21 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
         if (signal.aborted) resolve("aborted");
         else signal.addEventListener("abort", () => resolve("aborted"), {once: true});
     });
+    /**
+     * 中止之后再等模型端口交回，宽限期与工具相同（runtime.md 输出 9）：端口按 `aborted` 交回的半截回复与用量记进
+     * `modelFailed`，界面已经推出去的文字刷新后还在、花掉的用量也有记录。宽限期过了仍没交回才直接收口。
+     */
+    const withAbortGrace = async <T>(work: Promise<T>): Promise<T | "aborted"> => {
+        const first = await Promise.race([work, abortedNow]);
+        if (first !== "aborted") return first;
+        const timer = new AbortController();
+        const graceOver = core.clock.wait(ABORT_GRACE_MS, timer.signal).then(() => "aborted" as const, () => "aborted" as const);
+        try {
+            return await Promise.race([work.catch(() => "aborted" as const), graceOver]);
+        } finally {
+            timer.abort();
+        }
+    };
     let nudged = false;
     /** 这次请求因为溢出压缩过一次：再溢出就收口（每次请求最多重发一次）。 */
     let overflowRetried = false;
@@ -224,10 +239,12 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             }
 
             const modelHost = modelHostFor(environment);
-            const called = await Promise.race([callModel(modelHost, resolution, computed.request, signal), abortedNow]);
+            const called = await withAbortGrace(callModel(modelHost, resolution, computed.request, signal));
             if (called === "aborted") return await end("aborted", {reason: "aborted"});
             const {response, request} = called;
             const modelFailures = failureDrafts(core, "intercept.model", called.failures);
+            // 拦截层在发出请求之前就交回了（没写 modelStarted）：没有可结算的请求。
+            if (signal.aborted && !core.leafState.kernel.openRequests.includes(request)) return await end("aborted", {reason: "aborted"}, modelFailures);
             if (response.stopReason === "error" || response.stopReason === "aborted") {
                 const aborted = response.stopReason === "aborted" || signal.aborted;
                 const failure = ctrl("modelFailed", {

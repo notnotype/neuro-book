@@ -11,7 +11,7 @@ import type {CommandErrorTable, DiagnosticCode, DiagnosticLevel} from "./codes.j
 import type {Resources} from "./ctx.js";
 import type {EntryPoint, InteractionDecision, KernelEvents, LogEvent, RunResultValue, SessionHeader, EventData} from "./events.js";
 import type {AnyExtension, CompactionMethodImpl, ContributedExtension} from "./extension.js";
-import type {ApprovalMode, CoreSettings, Message, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, RequestBlock, StopReason, Usage} from "./model.js";
+import type {ApprovalMode, CoreSettings, Message, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, RequestBlock, RequestPurpose, StopReason, Usage} from "./model.js";
 import type {AnyProfile} from "./profile.js";
 import type {LogStore, StorageResult} from "./storage.js";
 import type {ApprovalVerdict, ToolCall, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo} from "./tool.js";
@@ -167,7 +167,8 @@ export interface SessionQueries {
     snapshot(): Promise<SessionSnapshot>;
     /**
      * 按 seq 分页补日志，重连与首次加载共用；经出站过滤。`head`、`more` 按读取开始的那一刻算；`through` 是这一页扫描到的
-     * 最后一条 seq（被过滤掉的也算），下一页传 `afterSeq: through`。
+     * 最后一条 seq（被过滤掉的也算），下一页传 `afterSeq: through`。`limit` 缺省 500，取整后夹在 1 到 2000 之间（远程层原样转来的
+     * 0、负数与小数不会让分页跳过事件）。
      */
     log(args: {afterSeq: number; limit?: number}): Promise<{events: LogEvent[]; head: number; more: boolean; through: number}>;
     rewindTargets(): Promise<RewindTarget[]>;
@@ -188,7 +189,9 @@ export interface SessionQueries {
 export interface DeltaFrame {
     type: "delta";
     request: number;
-    /** 同一个 request 里从 1 起递增；界面发现不连续就丢掉这条回复的临时内容，等 `assistant` 事件。 */
+    /** 发出这次请求的用途：只有 `turn` 是助手的回复，界面画“正在生成的那条”只认它。 */
+    purpose: RequestPurpose;
+    /** 交给这个订阅者的第几块，同一个 request 里从 1 起递增，出站过滤丢掉的不占号；界面发现不连续就丢掉这条回复的临时内容，等 `assistant` 事件。 */
     n: number;
     part: "text" | "thinking" | "toolArgs";
     callId?: string;

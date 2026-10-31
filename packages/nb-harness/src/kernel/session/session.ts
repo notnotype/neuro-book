@@ -283,15 +283,16 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                 diagnostics: {errors, warnings: core.diagnostics.all().length - errors},
             };
         },
-        async log({afterSeq, limit = 500}) {
+        async log({afterSeq, limit}) {
+            const size = limit === undefined || !Number.isFinite(limit) ? 500 : Math.min(Math.max(Math.floor(limit), 1), 2000);
             // 分页的边界在读取时就定下：过滤是异步的，等待期间新写下的事件不算这一页，`head`、`more` 与 `through`
             // 都按这一刻的日志算。过滤掉的事件也算扫描过，下一页从 `through` 接着读（整页被过滤时 events 为空、through 照样前进）。
             const head = core.head;
             const total = core.events.length;
             const start = core.events.findIndex((event) => event.seq > afterSeq);
-            const page = start < 0 ? [] : core.events.slice(start, Math.min(start + limit, total));
+            const page = start < 0 ? [] : core.events.slice(start, Math.min(start + size, total));
             const events: LogEvent[] = await visibleAll(page);
-            return {events, head, more: start >= 0 && start + limit < total, through: page.at(-1)?.seq ?? Math.max(afterSeq, head)};
+            return {events, head, more: start >= 0 && start + size < total, through: page.at(-1)?.seq ?? Math.max(afterSeq, head)};
         },
         rewindTargets: async () => rewindTargets(core),
         async path(args) {
@@ -311,8 +312,14 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
             // 已排进队列的帧不再交出（过滤返回之后、交出之前再查一次）；订阅者抛错只写诊断，不让后面的帧停掉。
             let queue: Promise<void> = Promise.resolve();
             let active = true;
+            // 增量按这个订阅者收到的重新编号：过滤掉的不占号，界面按“n 不连续就是丢了帧”判断仍然成立。请求是一个接一个发的，只记最近一个。
+            let numbering = {request: -1, n: 0};
             const deliver = (frame: Frame) => {
                 if (!active || state.closed) return;
+                if (frame.type === "delta") {
+                    numbering = {request: frame.request, n: frame.request === numbering.request ? numbering.n + 1 : 1};
+                    frame = {...frame, n: numbering.n};
+                }
                 try {
                     listener(frame);
                 } catch (error) {

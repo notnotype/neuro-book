@@ -19,6 +19,8 @@ export type Reply =
           readonly stop?: "stop" | "length";
           /** 这次调用失败（与服务商报错同一组分类）。 */
           readonly fail?: ModelErrorKind;
+          /** 推完增量后停住直到中止，再以 `aborted` 交回已推出的内容与用量（与 OMP 适配器中止时一样）。 */
+          readonly hold?: boolean;
       };
 
 export interface TestModel {
@@ -77,9 +79,12 @@ export function createTestModel(info: ModelInfo = TEST_MODEL_INFO): TestModel {
                 call: async (request, signal, onDelta) => {
                     requests.push(request);
                     if (signal.aborted) return {content: [], toolCalls: [], stopReason: "aborted", usage: {...USAGE, complete: false}, model: TEST_MODEL_INFO.id};
+                    const hold = typeof queue[0] === "object" && queue[0].hold === true;
                     const response = respond();
                     for (const delta of streamOf(response)) onDelta(delta);
-                    return response;
+                    if (!hold) return response;
+                    await new Promise((resolve) => (signal.aborted ? resolve(undefined) : signal.addEventListener("abort", resolve, {once: true})));
+                    return {...response, toolCalls: [], stopReason: "aborted", usage: {...response.usage, complete: false}};
                 },
             }),
         },

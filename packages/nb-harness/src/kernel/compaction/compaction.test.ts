@@ -273,7 +273,7 @@ describe("切点、摘要与链", () => {
         expect(report.requests.at(-1)!.outline()).toEqual(["system: fixed:profile", `user: summary:${compaction.id}`, "user: event:input"]);
     });
 
-    test("输出 47：方法经压缩拦截链；方法发的模型请求经模型拦截链、purpose 为 compaction", async () => {
+    test("输出 47：方法经压缩拦截链；方法发的模型请求经模型拦截链、purpose 为 compaction，流式增量带用途、运行状态不进 streaming", async () => {
         const seen: string[] = [];
         const watcher = defineExtension({id: "lab.watch", intercept: {
             compaction: async (job, next) => {
@@ -293,9 +293,15 @@ describe("切点、摘要与链", () => {
         await using session = await createTestSession({extensions: [watcher], profile: profileWith({onThreshold: ["record"]}), compaction: {methods: {record}}});
         session.model.script({text: "答一", usage: HEAVY}, "摘要", "答二");
         await session.say("第一问");
+        const frames: string[] = [];
+        session.raw.subscribe((frame) => {
+            if (frame.type === "delta") frames.push(`delta:${frame.purpose}:${frame.request}`);
+            if (frame.type === "status" && frame.status.state === "running") frames.push(`status:${frame.status.phase}:${frame.status.request}`);
+        });
         await session.say("第二问");
         expect(seen).toEqual(["model:turn", "compaction:record:threshold", "model:compaction", "model:turn"]);
         expect(jobs[0]!.require).toEqual(["拦截加的要求"]);
+        expect(frames).toEqual(["status:requesting:null", "status:compacting:null", "delta:compaction:2", "delta:compaction:2", "status:requesting:null", "status:streaming:3", "delta:turn:3", "delta:turn:3"]);
     });
 });
 
