@@ -18,6 +18,7 @@ import type {ViewEnvironment} from "../extension/ctx.js";
 import {computeRequest} from "../view/request.js";
 import {failureDrafts} from "./chain.js";
 import {callModel, modelCaller, type ModelCallHost} from "./model-call.js";
+import type {Interactions} from "./interaction.js";
 import {runTools, toolInfo, type ToolBox} from "./tools.js";
 import {ctrl, RunStoppedError} from "./writes.js";
 
@@ -28,6 +29,7 @@ export interface RunHost {
     readonly box: ToolBox;
     readonly resources: Resources;
     readonly approve: ApproveHook;
+    readonly interactions: Interactions;
     environment(model: ModelInfo, tools: readonly ToolInfo[]): ViewEnvironment;
     /** 必需工具缺失：会话进只读直到重开（runtime.md 输出 15）。 */
     markReadOnly(code: "tools-missing"): void;
@@ -210,6 +212,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                     box: host.box,
                     resources: host.resources,
                     approve: host.approve,
+                    interactions: host.interactions,
                     model: modelCaller(modelHost, signal),
                     environment: () => environment,
                     write: guardedWrite,

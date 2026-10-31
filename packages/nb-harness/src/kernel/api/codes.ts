@@ -50,8 +50,10 @@ export const toolResultCodes = [
     "finish-not-alone",
     "unknown-tool",
     "invalid-arguments",
-    /** 中止宽限期过后还没完成：`status: "unknown"`。 */
+    /** 中止宽限期过后还没完成：`status: "unknown"`；中止时还在等审批：`status: "denied"`。 */
     "aborted",
+    /** 用户在审批里拒绝：`status: "denied"`、`by: "user"`。 */
+    "user-denied",
     /** 进程中断后恢复时，开始执行但没有结果：`status: "unknown"`。 */
     "interrupted",
     /** 进程中断时还在等审批，没执行：`status: "denied"`。 */

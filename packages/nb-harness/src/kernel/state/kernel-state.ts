@@ -17,13 +17,23 @@ export interface PathKernelState {
     readonly announced: readonly {readonly id: string; readonly version: string}[] | null;
     /** 这条路径上写过 `notice{code: "result-requested"}`。 */
     readonly resultRequested: boolean;
+    /** 这条路径上还没应答的等用户事项（`interactionRequested` 之后、`interactionResolved` 之前），按提出的顺序。 */
+    readonly pending: readonly PendingInteraction[];
 }
 
-export const initialPathKernel: PathKernelState = {history: initialHistory, run: null, openRequest: null, announced: null, resultRequested: false};
+export interface PendingInteraction {
+    readonly id: string;
+    readonly callId: string;
+    readonly kind: "approval" | "question";
+    readonly request: JsonValue;
+    readonly async: boolean;
+}
+
+export const initialPathKernel: PathKernelState = {history: initialHistory, run: null, openRequest: null, announced: null, resultRequested: false, pending: []};
 
 export function reducePathKernel(state: PathKernelState, event: LogEvent): PathKernelState {
     const history = reduceHistory(state.history, event);
-    let {run, openRequest, announced, resultRequested} = state;
+    let {run, openRequest, announced, resultRequested, pending} = state;
     const data = event.data as Record<string, unknown>;
     switch (event.type) {
         case "runStarted":
@@ -49,9 +59,15 @@ export function reducePathKernel(state: PathKernelState, event: LogEvent): PathK
         case "notice":
             if (data.code === "result-requested") resultRequested = true;
             break;
+        case "interactionRequested":
+            pending = [...pending, {id: data.id as string, callId: data.callId as string, kind: data.kind as PendingInteraction["kind"], request: data.request as JsonValue, async: data.async === true}];
+            break;
+        case "interactionResolved":
+            pending = pending.filter((item) => item.id !== data.id);
+            break;
     }
-    const same = history === state.history && run === state.run && openRequest === state.openRequest && announced === state.announced && resultRequested === state.resultRequested;
-    return same ? state : {history, run, openRequest, announced, resultRequested};
+    const same = history === state.history && run === state.run && openRequest === state.openRequest && announced === state.announced && resultRequested === state.resultRequested && pending === state.pending;
+    return same ? state : {history, run, openRequest, announced, resultRequested, pending};
 }
 
 export interface SessionKernelState {

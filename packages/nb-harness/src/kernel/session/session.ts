@@ -19,6 +19,7 @@ import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 import type {ViewEnvironment} from "../extension/ctx.js";
 import {assemble, type Assembly} from "../extension/assemble.js";
 import {abortCommand, accept, archiveCommand, type Outcome, changeSettingsCommand, editCommand, enqueueCommand, removeCommand, sendCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
+import {resolveCommand} from "../run/interaction.js";
 import {rewindCommand, rewindTargets, siblingsOf, switchBranchCommand} from "../run/tree.js";
 import {RunControl} from "../run/control.js";
 import {recoveryDrafts} from "../run/recover.js";
@@ -150,7 +151,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         abort: (args) => closedGuard(() => abortCommand(host, args)),
         edit: (args) => closedGuard(() => editCommand(host, args)),
         remove: (args) => closedGuard(() => removeCommand(host, args)),
-        resolve: notYet("resolve"),
+        resolve: (args) => closedGuard(() => resolveCommand({...host, interactions: control.interactions}, issuer, args)),
         rewind: (args) => closedGuard(() => rewindCommand(host, args)),
         switchBranch: (args) => closedGuard(() => switchBranchCommand(host, args)),
         fork: (args) => closedGuard(() => accept(host, "fork", args.commandId, async (): Promise<Outcome<"fork">> => {

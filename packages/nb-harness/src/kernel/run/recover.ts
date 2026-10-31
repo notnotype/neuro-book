@@ -35,7 +35,14 @@ export function recoveryDrafts(core: SessionCore): EventDraft[] {
     const state = core.leafState.kernel;
     // 叶子是回退或切分支定的：运行是暂停的，不是崩溃留下的，留给 `start` 接着跑（runtime.md 输出 35）。
     if (state.run === null || core.leafSetBy === "leafChanged") return [];
-    const drafts: EventDraft[] = [...unansweredCalls(core)];
+    // 让运行停下的同步事项结算为中断（审批的码表明调用还没执行）；异步提问不属于运行，留着（runtime.md 输出 43）。
+    const interrupted = state.pending.filter((item) => !item.async).map((item): EventDraft => ({
+        type: "interactionResolved",
+        kind: "ctrl",
+        scope: "path",
+        data: {id: item.id, decision: "interrupted", by: {kind: "kernel"}, code: item.kind === "approval" ? "interrupted-before-approval" : "interrupted"} as JsonValue,
+    }));
+    const drafts: EventDraft[] = [...interrupted, ...unansweredCalls(core)];
     if (state.openRequest !== null) drafts.push({type: "modelFailed", kind: "ctrl", scope: "path", data: {request: state.openRequest, kind: "interrupted"}});
     const turn = state.history.current;
     if (turn !== null) drafts.push({type: "turnEnded", kind: "ctrl", scope: "path", data: {turnId: turn.id, reason: "interrupted"}});

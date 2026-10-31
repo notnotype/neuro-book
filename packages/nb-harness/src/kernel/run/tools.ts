@@ -12,12 +12,13 @@
 import {createHash} from "node:crypto";
 import {Value} from "typebox/value";
 import {providerNameProblem, providerToolName, TOOL_NAME_LIMIT, toolIdProblem} from "../api/index.js";
-import type {ApproveHook, JsonValue, KernelEvents, EventData, ModelCaller, ReplyEvent, Resources, ToolCall, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo, ToolResult, ToolSessionContext, ToolStatus, SessionEnv} from "../api/index.js";
+import type {ApproveHook, JsonValue, KernelEvents, EventData, ModelCaller, ReplyEvent, Resources, ToolCall, ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo, ToolResult, ToolSessionContext, ToolStatus, SessionEnv} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
 import {deepFreeze} from "../state/freeze.js";
 import {chainLayers, failureDrafts, runChain, type ChainFailure} from "./chain.js";
+import type {Interactions} from "./interaction.js";
 import {ctrl, RunStoppedError} from "./writes.js";
 
 /** 中止之后等进行中的工具完成的时间（runtime.md 输出 25）。 */
@@ -121,6 +122,8 @@ export interface ToolRunHost {
     readonly box: ToolBox;
     readonly resources: Resources;
     readonly approve: ApproveHook;
+    /** 等用户；没有时（例如没有界面的单次请求）审批判定 `ask` 得 `approval-unavailable`，工具拿不到 `ask`。 */
+    readonly interactions?: Interactions;
     readonly model: ModelCaller;
     environment(): ViewEnvironment;
     /** 写 `toolStarted`（排进单写者队列）。 */
@@ -166,6 +169,19 @@ function normalizeResult(value: unknown, who: string): ToolResult {
     const result = value as Partial<ToolResult> | null;
     if (typeof result === "object" && result !== null && typeof result.text === "string") return deepFreeze(result as ToolResult);
     throw new TypeError(`${who} did not return a tool result`);
+}
+
+/** 工具的 `ctx.ask`：同步的等回答，异步的写下问题就返回 `{kind: "unavailable", code: "async"}`（回答以后作为输入到来）。 */
+function askFor(host: ToolRunHost, interactions: Interactions, callId: string, signal: AbortSignal): NonNullable<ToolContext["ask"]> {
+    return async (request, options) => {
+        const resolution = await interactions.request(host.core, host.write, {callId, kind: "question", request: request as unknown as JsonValue, async: options?.async === true}, signal);
+        if (resolution === null) return {kind: "unavailable", code: "async"};
+        if (resolution.decision === "answer") {
+            const answer = resolution.data as {text: string; data?: JsonValue};
+            return {kind: "answer", text: answer.text, ...(answer.data === undefined ? {} : {data: answer.data})};
+        }
+        return {kind: "unavailable", code: resolution.decision === "aborted" ? "aborted" : "declined"};
+    };
 }
 
 export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: readonly ToolDeclaration[], signal: AbortSignal): Promise<ToolsOutcome> {
@@ -223,7 +239,16 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
                     return settle({text: `The call to ${final.tool} was denied because approval failed.`, status: "denied", code: "intercept-failed"}, "core");
                 }
                 if (verdict.verdict === "deny") return settle({text: `The call to ${final.tool} was denied (${verdict.rejection.code}).`, status: "denied", code: verdict.rejection.code}, verdict.rejection.by);
-                if (verdict.verdict === "ask") return settle({text: `The call to ${final.tool} needs the user's approval, which this run cannot ask for.`, status: "denied", code: "approval-unavailable"}, "core");
+                let approvedBy = verdict.verdict === "allow" ? verdict.by : "user";
+                if (verdict.verdict === "ask") {
+                    // 审批要问用户（runtime.md 输出 39）：这次调用停下等 resolve；同一段里别的调用照常并发。
+                    if (host.interactions === undefined) return settle({text: `The call to ${final.tool} needs the user's approval, which this run cannot ask for.`, status: "denied", code: "approval-unavailable"}, "core");
+                    const request = {tool: final.tool, args: final.args, effect, ...(verdict.reason === undefined ? {} : {reason: verdict.reason})} as unknown as JsonValue;
+                    const resolution = (await host.interactions.request(core, host.write, {callId: final.id, kind: "approval", request, async: false}, signal))!;
+                    if (resolution.decision === "aborted") return settle({text: `The call to ${final.tool} was not run: the run was aborted while it waited for approval.`, status: "denied", code: "aborted"}, "core");
+                    if (resolution.decision === "deny") return settle({text: `The user denied the call to ${final.tool}.${resolution.note === undefined ? "" : ` The user said: ${resolution.note}`}`, status: "denied", code: "user-denied"}, "user");
+                    approvedBy = "user";
+                }
                 // 先建好实现、再看一次中止，才写 toolStarted 并执行：建实现可能很慢，中止之后不该再开始执行。
                 let implementation: ToolImplementation;
                 try {
@@ -232,10 +257,10 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
                     return settle({text: `${final.tool} is not available: ${messageOf(error)}`, status: "error", code: "tool-unavailable"});
                 }
                 if (signal.aborted) throw new RunStoppedError(`the call to ${final.tool}`);
-                await host.write([ctrl("toolStarted", {callId: final.id, tool: final.tool, args: final.args, invocation: core.newId(), approval: {by: verdict.by}})]);
+                await host.write([ctrl("toolStarted", {callId: final.id, tool: final.tool, args: final.args, invocation: core.newId(), approval: {by: approvedBy}})]);
                 executedArgs = final.args;
                 try {
-                    executed = normalizeResult(await implementation.execute(final.args, {signal, callId: final.id, sessionId: core.header.id, initial: host.environment().initial}), `tool ${final.tool}`);
+                    executed = normalizeResult(await implementation.execute(final.args, {signal, callId: final.id, sessionId: core.header.id, initial: host.environment().initial, ...(host.interactions === undefined ? {} : {ask: askFor(host, host.interactions, final.id, signal)})}), `tool ${final.tool}`);
                 } catch (error) {
                     executed = Object.freeze({text: `${final.tool} failed: ${messageOf(error)}`, status: "error", code: "tool-threw"} as const);
                 }

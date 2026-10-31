@@ -73,7 +73,7 @@ export interface ToolContext {
     readonly sessionId: string;
     /** 会话建立时校验过的初始输入。 */
     readonly initial: unknown;
-    /** 向用户提问；同步提问让运行停下等回答。只有声明了会提问的工具拿得到。 */
+    /** 向用户提问；同步提问让运行停下等回答（docs/specs/harness/runtime.md 输出 40）。没有等用户通道的运行里没有它。 */
     readonly ask?: (request: QuestionRequest, options?: {readonly async?: boolean}) => Promise<QuestionAnswer>;
     /** 报告进度：只推给界面，不进日志。 */
     readonly report?: (text: string) => void;

@@ -51,6 +51,9 @@ export interface TestSessionOptions {
     readonly open?: string;
     /** 另外能解析到的 Profile（测 `changeProfile`）。 */
     readonly profiles?: readonly AnyProfile[];
+    /** 会话头的 `caller` 与 `questions`（子会话：提问交给父会话）。 */
+    readonly caller?: SessionHeader["caller"];
+    readonly questions?: SessionHeader["questions"];
     /** 包一层存储（例如在某个写入批上失败，测写失败时内存不领先日志）。 */
     readonly wrapStore?: (store: LogStore) => LogStore;
 }
@@ -132,7 +135,7 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
     sessionCounter += 1;
     const created = options.open !== undefined
         ? await openSession(env, options.open)
-        : await createSession(env, {profile: profile.id, id: `test-${sessionCounter}`, ...(options.initial === undefined ? {} : {initial: options.initial}), ...(options.result === undefined ? {} : {result: options.result})});
+        : await createSession(env, {profile: profile.id, id: `test-${sessionCounter}`, ...(options.initial === undefined ? {} : {initial: options.initial}), ...(options.result === undefined ? {} : {result: options.result}), ...(options.caller === undefined ? {} : {caller: options.caller}), ...(options.questions === undefined ? {} : {questions: options.questions})});
     if (!created.ok) throw new Error(`createTestSession failed: ${created.code} ${JSON.stringify("detail" in created ? created.detail : null)}`);
     let api = created.value;
     let commands = 0;
