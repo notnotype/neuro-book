@@ -378,6 +378,30 @@ describe("出站过滤的订阅与分页", () => {
         }
     });
 
+    test("输出 54：被过滤掉的事件在订阅里推 progress 帧，等指令的 seq 追得到", async () => {
+        const outbound: SessionEnv["outbound"] = {event: (event) => (event.type === "inputQueued" || event.type === "commandAccepted" ? null : event)};
+        await using session = await createTestSession({outbound});
+        // 帧可能在指令返回之前就交出：记下扫到的最大 seq，指令返回之后再比。
+        let scanned = 0;
+        let waiting: {target: number; open: () => void} | null = null;
+        const frames: string[] = [];
+        session.raw.subscribe((frame) => {
+            const at = frame.type === "log" ? frame.event.seq : frame.type === "progress" ? frame.through : null;
+            if (at === null) return;
+            frames.push(frame.type === "log" ? frame.event.type : `progress:${at}`);
+            scanned = at;
+            if (waiting !== null && scanned >= waiting.target) waiting.open();
+        });
+        const queued = await session.raw.enqueue({commandId: id(), input: {text: "排着"}, mode: "followup"});
+        if (!queued.ok) throw new Error(queued.code);
+        if (scanned < queued.seq) {
+            const reached = gate();
+            waiting = {target: queued.seq, open: reached.open};
+            await reached.promise;
+        }
+        expect(frames).toEqual([`progress:${queued.seq - 1}`, `progress:${queued.seq}`]);
+    });
+
     test("输出 54：日志分页的边界在读取开始时定下；整页被过滤时 through 照样前进；limit 不合法时夹到范围内", async () => {
         let hold: Promise<void> | null = null;
         const outbound: SessionEnv["outbound"] = {

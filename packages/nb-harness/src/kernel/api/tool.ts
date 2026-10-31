@@ -82,8 +82,6 @@ export interface ToolContext {
     read<C extends Contract<string, any, any>>(contract: C): ExportsOfContract<C> | undefined;
     /** 向用户提问；同步提问让运行停下等回答（docs/specs/harness/runtime.md 输出 40）。没有等用户通道的运行里没有它。 */
     readonly ask?: (request: QuestionRequest, options?: {readonly async?: boolean}) => Promise<QuestionAnswer>;
-    /** 报告进度：只推给界面，不进日志。 */
-    readonly report?: (text: string) => void;
 }
 
 /** 工具实现：每个会话每个工具建一次（t04 决定 2），关闭会话或工具被卸载时 `dispose`。 */

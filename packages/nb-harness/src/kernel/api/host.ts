@@ -69,7 +69,7 @@ type DetailOf<C extends string> = C extends keyof CommandErrorDetails ? {detail:
 export interface CommandOk<T> {
     ok: true;
     value: T;
-    /** 指令受理后日志的最新 seq：界面等订阅追到它再画，就读得到自己刚写的。 */
+    /** 指令受理后日志的最新 seq：界面等订阅追到它（log 帧的 seq，或有过滤时 progress 帧的 through）再画，就读得到自己刚写的。 */
     seq: number;
     /** 同一个 `commandId` 重发时返回的是第一次的结果。 */
     replayed: boolean;
@@ -99,7 +99,7 @@ export interface InteractionSummary {
 /** 运行到哪了。`aborting`、`compacting` 这类中间态不进日志，由服务端给。 */
 export type RunStatus =
     | {state: "idle"}
-    | {state: "running"; runId: string; turnId: string | null; phase: "reacting" | "requesting" | "streaming" | "tools" | "compacting"; request: number | null; pendingTools: string[]}
+    | {state: "running"; runId: string; turnId: string | null; phase: "requesting" | "streaming" | "tools" | "compacting"; request: number | null}
     | {state: "waiting"; runId: string; pending: InteractionSummary[]}
     | {state: "aborting"; runId: string}
     /** 写日志失败过：会话只能关闭后重开。 */
@@ -125,7 +125,10 @@ export interface ExtensionInfo {
 export interface SessionSnapshot {
     sessionId: string;
     header: SessionHeader;
-    /** 日志最新的 seq。订阅从这里往后接，不会漏也不会重。 */
+    /**
+     * 日志最新的 seq。首屏与重连不漏不重的接法：先订阅、把帧攒着，再用 `log` 从 0（或已有的 seq）补到这一刻，
+     * 丢掉攒着的帧里 seq 不大于补到的 `through` 的，其余按顺序接上。反过来先取 `head` 再订阅，中间写下的会漏。
+     */
     head: number;
     leaf: string | null;
     profile: {id: string; hash: string};
@@ -208,7 +211,12 @@ export type Frame =
     /** 不进日志的状态变化；`afterSeq` 说明它出现在哪条日志事件之后。 */
     | {type: "status"; status: RunStatus; afterSeq: number}
     | {type: "diagnostic"; diagnostic: Diagnostic}
-    /** 服务端丢过帧或重启过：丢掉所有临时内容，用 `log` 补到 `head`。 */
+    /**
+     * 有出站过滤时，一条事件不给这个读者看：订阅已经扫到 `through`。界面等指令的 `seq`（`CommandOk.seq`）时，log 帧的 seq
+     * 或这里的 `through` 追到它就算追上；也用它区分“被滤掉”与“丢了帧”。
+     */
+    | {type: "progress"; through: number}
+    /** 远程层用：服务端丢过帧或重启过，丢掉所有临时内容，用 `log` 补到 `head`。进程内的订阅不会收到。 */
     | {type: "reset"; head: number};
 
 // ====================================================================

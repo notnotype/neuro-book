@@ -361,7 +361,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                     if (!active || state.closed) return;
                     if (frame.type === "log") {
                         const event = await visible(frame.event);
-                        if (event !== null) deliver(event === frame.event ? frame : {...frame, event});
+                        deliver(event === null ? {type: "progress", through: frame.event.seq} : event === frame.event ? frame : {...frame, event});
                         return;
                     }
                     if (frame.type === "delta" && outbound.delta !== undefined) {

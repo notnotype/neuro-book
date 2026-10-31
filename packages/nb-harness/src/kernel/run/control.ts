@@ -41,7 +41,7 @@ export class RunControl {
     readonly interactions = new Interactions((pending) => {
         const active = this.#active;
         if (active === null || this.#status.state === "aborting") return;
-        if (pending === null) this.#setStatus({state: "running", runId: active.runId, turnId: this.#core.leafState.kernel.run?.turnId ?? null, phase: "tools", request: null, pendingTools: []});
+        if (pending === null) this.#setStatus({state: "running", runId: active.runId, turnId: this.#core.leafState.kernel.run?.turnId ?? null, phase: "tools", request: null});
         else this.#setStatus({state: "waiting", runId: active.runId, pending: [...pending]});
     });
 
@@ -107,7 +107,7 @@ export class RunControl {
         if (host === null) throw new Error("run control is not attached");
         const controller = new AbortController();
         const run: ActiveRun = {runId, controller, ...(options.compact === undefined ? {} : {compact: options.compact})};
-        const done = runLoop({...host, interactions: this.interactions, takeCompactRequests: () => this.#takeCompactRequests(runId), phase: (phase, request) => this.#setStatus({state: "running", runId, turnId: this.#core.leafState.kernel.run?.turnId ?? null, phase, request, pendingTools: []})}, run)
+        const done = runLoop({...host, interactions: this.interactions, takeCompactRequests: () => this.#takeCompactRequests(runId), phase: (phase, request) => this.#setStatus({state: "running", runId, turnId: this.#core.leafState.kernel.run?.turnId ?? null, phase, request})}, run)
             .catch((error: unknown) => {
                 // 只有写日志失败会到这里；onBroken 已经结算了等它的调用方。
                 if (!(error instanceof LogBrokenError)) throw error;

@@ -38,7 +38,7 @@ export interface RunHost {
     /** 必需工具缺失：会话进只读直到重开（runtime.md 输出 15）。 */
     markReadOnly(code: "tools-missing"): void;
     /** 运行阶段变了（推状态帧用）。 */
-    phase(phase: "reacting" | "requesting" | "streaming" | "tools" | "compacting", request: number | null): void;
+    phase(phase: "requesting" | "streaming" | "tools" | "compacting", request: number | null): void;
 }
 
 export interface ActiveRun {
