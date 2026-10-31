@@ -26,7 +26,7 @@ const hiddenTypes = computed(() => (book.info.features.secrets ? hidden.value : 
 const search = ref("");
 
 const storyline = useStoryQuery("graph.storyline", () => (arrange.value === "storyline" ? {} : null));
-const data = useStoryQuery("graph.book", () => (arrange.value === "force" ? {grain: grain.value, types: ["entity", "arc", "episode", "secret", "question"] as ("entity" | "arc" | "episode" | "secret" | "question")[]} : null));
+const data = useStoryQuery("graph.book", () => (arrange.value === "force" ? {grain: grain.value, types: ["entity", "arc", "episode", "secret", "question"] as ("entity" | "arc" | "episode" | "secret" | "question")[]} : null), {keepOnForward: true});
 const nodes = computed(() => (data.data.value?.nodes ?? []).map(node => ({id: node.id, label: node.label, kind: node.type === "entity" ? "person" : node.type, weight: node.weight, names: node.names ?? []})));
 const dataEdges = computed(() => data.data.value?.edges ?? []);
 const pinned = computed(() => (data.data.value?.nodes ?? []).filter(node => node.type === "entity").sort((a, b) => b.weight - a.weight).slice(0, 8).map(node => node.id));

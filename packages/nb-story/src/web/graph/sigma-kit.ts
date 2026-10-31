@@ -142,7 +142,19 @@ export function hoverDrawer(theme: Theme) {
  * 只是变淡（点和名字都还在，线上的字去掉），不隐藏。`onlyNeighborhood` 打开时（“只看选中的周边”）其余的点才隐藏。
  * 搜索有结果时，没命中的同样淡掉。调用方改了状态后要 `sigma.refresh({skipIndexation: true})`。
  */
+/** 新出现的点和线淡入多久（毫秒）。 */
+export const FADE_MS = 500;
+
 export class Focus {
+    /** 带 `bornAt` 的点和线（数据变了新出现的，`StoryNetwork.syncData`）：颜色从背景色渐变到本色，淡入完成前不写名字。 */
+    private appear(result: Record<string, unknown>, bornAt: unknown): void {
+        if (typeof bornAt !== "number") return;
+        const t = Math.min(1, (performance.now() - bornAt) / FADE_MS);
+        if (t >= 1) return;
+        result.color = mix(this.theme.bg, String(result.color), t);
+        if (t < 0.6) result.label = "";
+    }
+
     private fadeEdge(result: Record<string, unknown>, data: Record<string, unknown>): void {
         result.color = mix(String(data.color), this.theme.bg, 0.65);
         result.label = "";
@@ -195,6 +207,7 @@ export class Focus {
             result.fillColor = mix(String(data.color), this.theme.bg, 0.72);
             result.size = Number(data.size) + 1.5;
         }
+        this.appear(result, data.bornAt);
         return result;
     };
 
@@ -212,6 +225,7 @@ export class Focus {
             const [source, target] = this.graph.extremities(edge);
             if (!this.matches.has(source) && !this.matches.has(target)) this.fadeEdge(result, data);
         } else if (!data.alwaysLabel) result.label = "";
+        this.appear(result, data.bornAt);
         return result;
     };
 }

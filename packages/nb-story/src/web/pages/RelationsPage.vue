@@ -41,7 +41,8 @@ watch([kindIds, layers, minTogether, layout, neighborhood, showAnonymous, strong
 const search = ref("");
 const kinds = computed(() => KIND_GROUPS.filter(group => kindIds.value.includes(group.id)).flatMap(group => group.kinds));
 
-const graph = useStoryQuery("graph.relations", () => ({kinds: kinds.value, perspective: book.perspective.value, ...(showAnonymous.value ? {includeAnonymous: true} : {})}));
+// 阅读位置往后挪时新数据回来之前留着旧图，图从上一章“长”到这一章（issue 268）；往前挪、换视角或类别仍先清空。
+const graph = useStoryQuery("graph.relations", () => ({kinds: kinds.value, perspective: book.perspective.value, ...(showAnonymous.value ? {includeAnonymous: true} : {})}), {keepOnForward: true});
 const character = computed(() => book.perspective.value !== "reader");
 const shownLayers = computed(() => (character.value ? layers.value.filter(layer => layer !== "know") : layers.value));
 const perspectiveOptions = computed(() => [{value: "reader", label: "读者"}, ...(graph.data.value?.perspectives ?? []).map(item => ({value: item.id, label: item.label}))]);

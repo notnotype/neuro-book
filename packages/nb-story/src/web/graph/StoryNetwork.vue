@@ -21,7 +21,7 @@ import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {IconButton} from "@notnotype/nb-ui/components";
 
-import {edgeLabelDrawer, estimateLabelWidth, fixedColors, Focus, hoverDrawer, labelDrawer, layoutCircle, layoutConcentric, layoutForce, layoutStress, mix, readTheme, seedSpiral, zoom} from "./sigma-kit";
+import {edgeLabelDrawer, estimateLabelWidth, FADE_MS, fixedColors, Focus, hoverDrawer, labelDrawer, layoutCircle, layoutConcentric, layoutForce, layoutStress, mix, readTheme, seedSpiral, zoom} from "./sigma-kit";
 import type {Theme} from "./sigma-kit";
 import {edgeParts, hasParts} from "./edge-parts";
 
@@ -282,14 +282,17 @@ function applyLayout(target: Graph, fresh: boolean): void {
     });
 }
 
+/** “只看周边”的放射排布是临时的：重新排版、换数据之前先放回全图位置，排完再按新位置围一圈。 */
+function restoreHome(): void {
+    if (home === null || graph === null) return;
+    for (const [node, position] of home) if (graph.hasNode(node)) graph.mergeNodeAttributes(node, {x: position.x, y: position.y, labelSide: position.side});
+    home = null;
+}
+
 /** 重新排版：在一份拷贝上算出新位置，再让点从旧位置滑过去，看得出谁挪到了哪里。 */
 function relayout(fresh: boolean): void {
     if (sigma === null || graph === null) return;
-    // “只看周边”的放射排布是临时的：先放回全图位置再排，排完再按新位置围一圈。
-    if (home !== null) {
-        for (const [node, position] of home) if (graph.hasNode(node)) graph.mergeNodeAttributes(node, {x: position.x, y: position.y, labelSide: position.side});
-        home = null;
-    }
+    restoreHome();
     const copy = graph.copy();
     applyLayout(copy, fresh);
     const targets: Record<string, {x: number; y: number}> = {};
@@ -357,6 +360,58 @@ function placeFrom(target: Graph, previous: Map<string, Point>): boolean {
         }
     });
     return complete;
+}
+
+let fadeFrame: number | null = null;
+
+/** 淡入期间每帧重画一次，到时间为止（点与线的颜色在 `Focus` 的 reducer 里按 `bornAt` 算）。 */
+function fadeIn(): void {
+    if (fadeFrame !== null) return;
+    const step = () => {
+        fadeFrame = null;
+        if (sigma === null) return;
+        sigma.refresh({skipIndexation: true});
+        if (performance.now() - fadeStart < FADE_MS) fadeFrame = requestAnimationFrame(step);
+    };
+    fadeFrame = requestAnimationFrame(step);
+}
+let fadeStart = 0;
+
+/**
+ * 点与线的数据变了（往后挪阅读位置、勾选“只画最强的线”、改视角后新数据回来）：原地改现有的图，不重建 Sigma（输出 25，
+ * issue 268）。已有的点留在原位，新出现的点放在已放好的邻居旁边（`placeFrom`），没有了的点和线直接去掉，然后和换层一样
+ * 从当前位置接着排、点滑到新位置（`relayout`）；新点新线淡入。人物卡小图（放射排布，没有“接着排”）仍然整张重画。
+ */
+function syncData(): void {
+    if (sigma === null || graph === null || focus === null || props.ego !== null) {
+        render("continue");
+        return;
+    }
+    restoreHome();
+    const next = new Graph({type: "mixed", multi: true});
+    if (props.mode === "data") buildData(next);
+    else buildRelation(next);
+    placeFrom(next, positionsOf(graph));
+    // 现有的点一个都不在新数据里（视角、类别换得彻底）：没有位置可接，和整张重画一样从螺旋起点排。
+    if (next.someNode((_, attributes) => attributes.x === undefined)) seedSpiral(next, (node) => Number(next.getNodeAttribute(node, "weight")));
+    const now = performance.now();
+    for (const node of graph.nodes()) if (!next.hasNode(node)) graph.dropNode(node);
+    next.forEachNode((node, attributes) => {
+        if (graph!.hasNode(node)) graph!.mergeNodeAttributes(node, attributes);
+        else graph!.addNode(node, {...attributes, bornAt: now});
+    });
+    const oldEdges = new Set(graph.edges());
+    graph.clearEdges();
+    next.forEachEdge((key, attributes, source, target) => {
+        const added = oldEdges.has(key) ? attributes : {...attributes, bornAt: now};
+        if (next.isDirected(key)) graph!.addDirectedEdgeWithKey(key, source, target, added);
+        else graph!.addUndirectedEdgeWithKey(key, source, target, added);
+    });
+    focus.matches = matchesOf(graph);
+    fadeStart = now;
+    sigma.refresh();
+    fadeIn();
+    relayout(false);
 }
 
 const GROUP_ORDER = ["identity", "relation", "know", "co", "participates", "about", "link"];
@@ -620,10 +675,14 @@ function fitNeighborhood(): void {
 }
 
 /** 搜索：按名字、其他称呼（情节按标题）包含匹配；命中的点高亮，镜头移到第一个命中的点。 */
+function matchesOf(target: Graph): Set<string> | null {
+    const query = props.query.trim();
+    return query === "" ? null : new Set(target.filterNodes((_, attributes) => String(attributes.fullLabel ?? attributes.label).includes(query) || ((attributes.names as readonly string[] | undefined) ?? []).some((name) => name.includes(query))));
+}
+
 function applyQuery(): void {
     if (sigma === null || focus === null || graph === null) return;
-    const query = props.query.trim();
-    focus.matches = query === "" ? null : new Set(graph.filterNodes((_, attributes) => String(attributes.fullLabel ?? attributes.label).includes(query) || ((attributes.names as readonly string[] | undefined) ?? []).some((name) => name.includes(query))));
+    focus.matches = matchesOf(graph);
     sigma.refresh({skipIndexation: true});
     const first = focus.matches?.values().next().value;
     if (first !== undefined) {
@@ -692,10 +751,10 @@ onMounted(() => {
     });
     if (host.value !== null) observer.observe(host.value);
 });
-// 点与线的数据变了（换阅读位置、视角、类别）整张重画，由排版重新决定位置；只换连线的层或同场门槛时换线、重新排版，
-// 点从原位置滑到新位置（输出 24）
+// 换用法（人物卡小图、关系图、全书图）整张重画，由排版重新决定位置；点与线的数据变了（换阅读位置、视角、类别）原地改图、
+// 点从当前位置接着排（`syncData`）；只换连线的层或同场门槛时换线、重新排版，点从原位置滑到新位置（输出 24）
 watch(() => [props.ego, props.mode], () => { if (lastSize !== "") render("fresh"); });
-watch(() => [props.hiddenTypes.join(","), props.nodes, props.edges, props.dataEdges], () => { if (lastSize !== "") render("continue"); });
+watch(() => [props.hiddenTypes.join(","), props.nodes, props.edges, props.dataEdges], () => { if (lastSize !== "") syncData(); });
 // 换明暗：Sigma 的颜色在绘制时读一次，要按新颜色重画，位置不动。
 watch(appearance, () => {
     if (lastSize === "") return;
@@ -728,7 +787,7 @@ watch(() => props.neighborhood, (value) => {
     else leaveNeighborhood();
 });
 watch(() => props.query, applyQuery);
-onBeforeUnmount(() => { observer?.disconnect(); if (resizeFrame !== null) cancelAnimationFrame(resizeFrame); stopAnimation?.(); sigma?.kill(); });
+onBeforeUnmount(() => { observer?.disconnect(); if (resizeFrame !== null) cancelAnimationFrame(resizeFrame); if (fadeFrame !== null) cancelAnimationFrame(fadeFrame); stopAnimation?.(); sigma?.kill(); });
 </script>
 
 <template>

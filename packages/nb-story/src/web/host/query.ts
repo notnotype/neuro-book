@@ -5,7 +5,7 @@
 
 import {onScopeDispose, ref, shallowRef, watch, type Ref, type ShallowRef} from "vue";
 
-import type {StoryMethod, StoryParams, StoryResult} from "../../contract/contract";
+import type {PositionInput, StoryMethod, StoryParams, StoryResult} from "../../contract/contract";
 import {useBook} from "./book";
 import {StoryCallError, useStoryClient} from "./client";
 
@@ -18,23 +18,37 @@ export interface QueryState<M extends StoryMethod> {
     reload(): void;
 }
 
+export interface QueryOptions {
+    /**
+     * 阅读位置往后挪、其它参数没变时，新结果回来之前留着旧结果（关系图借它连续地“长出来”，issue 268）。往前挪或参数变了
+     * 照旧先清：旧位置之后的内容不能留在更早的位置上，那是剧透。
+     */
+    keepOnForward?: boolean;
+}
+
+/** 一章里不写段的位置是读完这一章（resolvePosition），排在这一章所有段之后。 */
+const positionRank = (at: PositionInput): number => at.chapter * 1_000_000 + (at.paragraph ?? 999_999);
+
 /**
  * 取一个方法的结果。`params` 返回 null 时不取（例如还没选中对象）。`book` 由当前书补上；`at` 默认补当前阅读位置，
  * 参数里写了 `at` 时用参数的。
  */
-export function useStoryQuery<M extends StoryMethod>(method: M, params: () => NoInfer<Params<M>> | null): QueryState<M> {
+export function useStoryQuery<M extends StoryMethod>(method: M, params: () => NoInfer<Params<M>> | null, options: QueryOptions = {}): QueryState<M> {
     const client = useStoryClient();
     const book = useBook();
     const data = shallowRef(null) as ShallowRef<StoryResult<M> | null>;
     const error = ref<StoryCallError | null>(null);
     const loading = ref(false);
     let controller: AbortController | null = null;
+    /** `data` 里的结果是按哪个阅读位置取的；`data` 为空时为 null。 */
+    let shownAt: PositionInput | null = null;
 
-    /** `keep`：只是书换了新数据（版本变了），位置与参数没变，旧结果留着直到新的回来。 */
+    /** `keep`：旧结果留着直到新的回来（书换了新数据而位置与参数没变，或 `keepOnForward` 且位置往后挪）。 */
     async function run(next: Params<M> | null, keep = false): Promise<void> {
         controller?.abort();
         if (next === null) {
             data.value = null;
+            shownAt = null;
             loading.value = false;
             return;
         }
@@ -44,11 +58,16 @@ export function useStoryQuery<M extends StoryMethod>(method: M, params: () => No
         error.value = null;
         // 参数（阅读位置、视角、筛选）一变先清掉旧结果：新数据回来之前显示“正在取”，不让旧位置的内容留在新位置的页面上。
         // 只是版本变了时位置没变、可见范围也没变，留着旧的，免得正在读的页面先空一下、滚回顶部（viewer 输出 39）。
-        if (!keep) data.value = null;
+        if (!keep) {
+            data.value = null;
+            shownAt = null;
+        }
+        const request = {at: book.at.value, ...next, book: book.bookId} as StoryParams<M>;
         try {
-            const result = await client.call(method, {at: book.at.value, ...next, book: book.bookId} as StoryParams<M>, {signal: current.signal});
+            const result = await client.call(method, request, {signal: current.signal});
             if (current.signal.aborted) return;
             data.value = result as StoryResult<M>;
+            shownAt = (request as {at: PositionInput}).at;
         } catch (caught) {
             if (current.signal.aborted) return;
             if (!(caught instanceof StoryCallError)) {
@@ -58,15 +77,25 @@ export function useStoryQuery<M extends StoryMethod>(method: M, params: () => No
                 error.value = caught;
             }
             data.value = null;
+            shownAt = null;
         } finally {
             if (controller === current) loading.value = false;
         }
     }
 
+    /** 这次变化要不要留着旧结果。 */
+    function keepsOld(value: {params: Params<M> | null; at: PositionInput; version: number}, old: {params: Params<M> | null; at: PositionInput; version: number} | undefined): boolean {
+        if (old === undefined) return false;
+        const sameParams = JSON.stringify(value.params) === JSON.stringify(old.params);
+        // 只是版本变了（位置与参数都没变）：位置没变、可见范围也没变。
+        if (sameParams && JSON.stringify(value.at) === JSON.stringify(old.at)) return value.version !== old.version;
+        return options.keepOnForward === true && sameParams && data.value !== null && shownAt !== null && positionRank(value.at) >= positionRank(shownAt);
+    }
+
     // 数据版本也是参数：书换成新数据（抽取又提交了一章、用户点了更新）时重取。
     const stop = watch(
         () => ({params: params(), at: book.at.value, version: book.dataVersion.value}),
-        (value, old) => void run(value.params, old !== undefined && value.version !== old.version && JSON.stringify([value.params, value.at]) === JSON.stringify([old.params, old.at])),
+        (value, old) => void run(value.params, keepsOld(value, old)),
         {immediate: true, deep: true},
     );
     onScopeDispose(() => {
