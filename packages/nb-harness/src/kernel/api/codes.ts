@@ -76,7 +76,13 @@ export const runErrorCodes = [
     "unsupported-content",
     /** 强制结构化的运行没有交回结果。 */
     "result-missing",
+    /** 运行开始后模型端口解析不到模型或凭据。 */
+    "no-model",
+    "no-credentials",
+    "unknown-model",
     "log-broken",
+    /** 内核自己的错（原因进诊断）。 */
+    "internal",
 ] as const;
 
 /** 诊断码：键是码，值是缺省级别。 */

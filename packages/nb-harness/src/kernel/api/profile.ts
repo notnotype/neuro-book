@@ -68,7 +68,15 @@ export type Profile<Id extends string = string, E extends EventsDecl = any, S ex
     readonly name: string;
     readonly version: string;
 };
-export type AnyProfile = Profile & ProfileFields<string, any, any, any, any, any, any>;
+/**
+ * 任意一个 Profile（宿主的 `profiles.resolve` 交回它）。只列内核按名字读的字段：带具体类型参数的处理函数表对 `any`
+ * 不是逆变兼容的，写成 `ProfileFields<…any>` 会让具体的 Profile 赋不进来。
+ */
+export type AnyProfile = Profile & {
+    readonly description: string;
+    readonly extensions?: readonly AnyExtension[];
+    readonly pluginExtensions?: {readonly exclude: readonly string[]} | "none";
+};
 
 export type DefineProfile = <
     const Id extends string,
