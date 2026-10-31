@@ -169,7 +169,13 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
             if (!sent.ok) throw new Error(`send failed: ${sent.code}`);
             if (sent.value.runId === null) throw new Error("send did not start a run (a run is already in progress)");
             const result = await api.waitRun(sent.value.runId);
-            const {events} = await api.log({afterSeq: before, limit: 100_000});
+            // log 每页最多 2,000 条：按页读完这次运行写下的。
+            const events: LogEvent[] = [];
+            for (let afterSeq = before, more = true; more;) {
+                const page = await api.log({afterSeq, limit: 2000});
+                events.push(...page.events);
+                ({through: afterSeq, more} = page);
+            }
             return {result, events, requests: model.requests.slice(requestsBefore).map(viewOf)};
         },
         async state(extension) {

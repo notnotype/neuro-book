@@ -10,7 +10,7 @@ import {mkdtemp, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {heapStats} from "bun:jsc";
-import {closeSession, createJsonlStore, openSession} from "@notnotype/nb-harness/kernel";
+import {closeSession, createJsonlStore, openSession, type LogEvent} from "@notnotype/nb-harness/kernel";
 import {syntheticEnv, writeSyntheticLog} from "./synthetic-log.js";
 
 const turns = Number(process.argv[2] ?? "2000");
@@ -32,8 +32,14 @@ Bun.gc(true);
 const heapAfter = heapStats().heapSize;
 const rssAfter = process.memoryUsage().rss;
 const snapshot = await opened.value.snapshot();
-const events = await opened.value.log({afterSeq: 0, limit: Number.MAX_SAFE_INTEGER});
-const tools = events.events.filter((event) => event.type === "toolResult").length;
-console.log(JSON.stringify({turns, events: snapshot.head, replyChars, unsettled, toolResults: tools, recovered: events.events.at(-1)?.type === "runEnded" && (events.events.at(-1)!.data as {reason: string}).reason === "interrupted", openMs: Math.round(openMs), openHeapMB: Math.round((heapAfter - heapBefore) / 1e6), openRssMB: Math.round((rssAfter - rssBefore) / 1e6)}));
+// log 每页最多 2,000 条：按页读完。
+const all: LogEvent[] = [];
+for (let afterSeq = 0, more = true; more;) {
+    const page = await opened.value.log({afterSeq, limit: 2000});
+    all.push(...page.events);
+    ({through: afterSeq, more} = page);
+}
+const tools = all.filter((event) => event.type === "toolResult").length;
+console.log(JSON.stringify({turns, events: snapshot.head, replyChars, unsettled, toolResults: tools, recovered: all.at(-1)?.type === "runEnded" && (all.at(-1)!.data as {reason: string}).reason === "interrupted", openMs: Math.round(openMs), openHeapMB: Math.round((heapAfter - heapBefore) / 1e6), openRssMB: Math.round((rssAfter - rssBefore) / 1e6)}));
 await closeSession(opened.value);
 await rm(root, {recursive: true, force: true});
