@@ -147,7 +147,7 @@
 
 ### 3.6 `kernel/run/`：指令、循环、工具、拦截与运行控制
 
-- **指令与幂等**：每条被受理的指令在受理时写一条 `commandAccepted{commandId, name, value}`，与它立即写的事件同批；运行中到边界才生效的指令（`compact`、`changeSettings`）只写这一条，到边界写的事件带 `cause` 指回它。重发同一 `commandId` 查 `commandAccepted`，返回第一次的 `value` 与 `replayed: true`；校验失败不写、重发重新校验（审查 P5、A6）。`value` 里引用的每个 id 都必须在同一批里写出：空闲时会开始运行的 `send`、`start`、`compact`、`rewind{resend}`，受理批就包含 `runStarted`（`send` 再加取走这条输入的 `inputConsumed`、`turnStarted`、`input`），受理后、循环开始前崩溃时，恢复照常把这次运行结算为 `interrupted`。输入拦截拒绝时指令失败 `input-rejected{code, params, by}`、不写日志，拒绝署名进诊断；异步提问的回答经 `resolve` 进缓冲区前同样过输入链。指令：`send`、`enqueue`、`edit`、`remove`、`resolve`、`start`、`abort`、`rewind`、`switchBranch`、`fork`、`compact`、`changeSettings`（核心设置组 `core` 加各扩展组）、`changeProfile`、`setTitle`、`archive`。
+- **指令与幂等**：每条被受理的指令在受理时写一条 `commandAccepted{commandId, name, value}`，与它立即写的事件同批；运行中到边界才生效的指令（`compact`）只写这一条，到边界写的事件带 `cause` 指回它。`changeSettings` 第 6 片改为受理时就写 `settingsChanged`（模型按每次请求时的核心设置解析、视图只在算请求时读设置，效果同样是下一次请求前生效；省掉待生效队列与崩溃时的补写），见 `runtime.md` 输出 31。重发同一 `commandId` 查 `commandAccepted`，返回第一次的 `value` 与 `replayed: true`；校验失败不写、重发重新校验（审查 P5、A6）。`value` 里引用的每个 id 都必须在同一批里写出：空闲时会开始运行的 `send`、`start`、`compact`、`rewind{resend}`，受理批就包含 `runStarted`（`send` 再加取走这条输入的 `inputConsumed`、`turnStarted`、`input`），受理后、循环开始前崩溃时，恢复照常把这次运行结算为 `interrupted`。输入拦截拒绝时指令失败 `input-rejected{code, params, by}`、不写日志，拒绝署名进诊断；异步提问的回答经 `resolve` 进缓冲区前同样过输入链。指令：`send`、`enqueue`、`edit`、`remove`、`resolve`、`start`、`abort`、`rewind`、`switchBranch`、`fork`、`compact`、`changeSettings`（核心设置组 `core` 加各扩展组）、`changeProfile`、`setTitle`、`archive`。
 - **发出者**：`resolve` 等指令的发出者由宿主注入：`session.as(issuer)` 返回带发出者的视图（用户或父会话），界面拿不到改发出者的入口（审查 A5）。
 - **循环**：照提案第 1 节的运行图。边界顺序：外部事实与设置 → 工具集比对（与路径上最后一条 `toolsAnnounced` 不同就同批写新记录与一条给模型的提醒；必需工具缺失时运行以 `error` 收口、码 `tools-missing`，会话进只读，同 3.10 重新装配失败）；动态 `yield` 固定在声明里、不参与比对→ steer 全部取走 → 估算与压缩 → 视图、模型拦截链、`modelStarted`。
 - **缓冲区规则**（t07 决定 1、3、5）：一轮以 `completed` 结束才取 followup；出错或中止时不取；中止缺省清空缓冲区（每条写 `inputRemoved{reason: "aborted"}`），`abort({keepQueue: true})` 保留；`start` 在末尾是完整回复时失败 `nothing-to-continue`；重启后缓冲区还在、不自动发出。
@@ -253,7 +253,8 @@
 | 4（留到后续片） | `profile.md` 输出 11 的“Profile 哈希变了重新渲染”在同一进程里只有 `changeProfile` 能触发（第 6 片补测；重开时缓存本来就是空的）；输出 4 的 `<If>`、`<ToolName>` 经会话的生效工具集（第 5 片接上工具集后补一条会话级测试） | — |
 | 5 | `harness/runtime.md` 输出 15–27、场景 3、4；`session.md` 输出 10、场景 6 | `src/kernel/run/tools.test.ts` |
 | 5（留到后续片） | `runtime.md` 输出 18 的只读模式与“等级函数抛错按 `exec` 算”（要 `changeSettings` 打开只读，第 6 片）；审批的 `ask` 与批准记忆（第 7 片）；压缩拦截链（第 8 片，`runChain` 已就绪） | — |
-| 6–8 | `harness.runtime`（指令、运行控制、等用户、压缩） | `run/*.test.ts`、`compaction/*.test.ts` |
+| 6 | `harness/runtime.md` 输出 28–34、场景 5；`runtime.md` 输出 18 的只读模式（第 5 片留下的）；`session.md` 场景 4 | `src/kernel/run/control.test.ts` |
+| 7–8 | `harness.runtime`（等用户、压缩） | `run/*.test.ts`、`compaction/*.test.ts` |
 | 9 | `harness.runtime` 的宿主面、`harness.extensions` 的撤回 | `session/*.test.ts` |
 | 10 | `agent/harness.md` 输出 10–21 在新 Spec 里的对应条目 | `packages/nb-story/tests/kernel-acceptance/*.test.ts` |
 

@@ -70,6 +70,16 @@ owners:
 26. 收尾工具（声明 `finish: true`）：一条回复里只调用了它一个、参数通过校验且执行结果是 `ok` 时，同一个写入批里写工具结果、`turnEnded{completed}`、`runEnded{reason: "finished", result: {via: "tool", tool, value: 参数, valid: true}}`，不再请求模型；执行结果不是 `ok` 时按普通工具处理，运行继续；与别的工具在同一条回复里、或一条回复里有两个收尾工具时，收尾工具都不执行，各得 `error`、码 `finish-not-alone`，别的工具照常执行。执行中被中止时，宽限期（输出 25）内完成的收尾结果照常写下、运行以 `finished` 结束；宽限期之后才到的只诊断 `late-result-dropped`，运行以 `aborted` 收口；结果写下之后的中止不改变 `finished`。
 27. 会话头带 `result: {mode, schema}` 时，内核生成收尾工具 `yield`（参数就是 `schema`），并在会话的第一轮开头写一条 `notice{code: "result-requested"}` 告诉模型完成后调用它。模型停下而没有调用 `yield`：`optional` 以最后一条回复的文字作结果（`via: "text"`、`valid: false`），运行照常以 `completed` 收口；`required` 先写一条 `continued{by: "core"}` 催一次，仍没有就以最后一条回复作结果（`valid: false`），运行以 `error`、码 `result-missing` 收口。
 
+缓冲区、设置与恢复：
+
+28. 运行中，每个边界把缓冲区里全部 `steer` 按入队顺序取走：每条一个 `inputConsumed` 加一条 `steer`，同一个写入批，进当前这一轮（还没有回复时是附带内容，有了是最后一步之后）。模型给出最终回复时缓冲区里还有 `steer`，这一轮不结束，接着请求。
+29. `edit`、`remove` 只对还在缓冲区里的输入：`edit` 经输入拦截链（同输出 24）写 `inputEdited`，`remove` 写 `inputRemoved{reason: "user"}`。不在缓冲区里时，入过队的（已取走或已删）得 `input-consumed`，从没入过队的得 `input-not-found`。
+30. `abort` 中止了运行时，缺省在收口之后清空缓冲区，每条写 `inputRemoved{reason: "aborted"}`；`keepQueue: true` 保留。没有运行时缓冲区不动。轮以 `error` 或 `aborted` 结束时不取 `followup`。
+31. `changeSettings` 的补丁按扩展 id 分组（核心设置组是 `core`：`model`、`effort`、`approvalMode`、`readOnly`），整体校验：组不是装配里的扩展得 `unknown-extension`，键不在它的设置 schema 里得 `unknown-key{extension, key}`，值不合 schema 得 `invalid-value{extension, key, message}`，有一项不合法就都不改。受理时给每个值有变化的组写一条 `settingsChanged`（值没变的项不写），运行中受理的同样立刻写，下一次请求前生效（`scheduled: "next-boundary"`，空闲时 `"now"`）。`settingsChanged` 只派发给设置所属的扩展的处理函数。
+32. `setTitle` 去掉首尾空白后为空得 `empty-title`，否则写 `titleChanged{by: "user"}`；`archive` 写 `archived`。快照的 `title`、`archived` 随之变化。
+33. 输出 29–32 的指令与 `send` 一样按 `commandId` 幂等（[`harness/session.md`](session.md) 输出 17）。
+34. 打开会话时恢复没收口的运行（`session.md` 输出 15）：最后一条回复里没有结果的工具调用，写过 `toolStarted` 的得 `unknown`、码 `interrupted`，还没开始的得 `denied`、码 `interrupted-before-approval`、`by: "core"`；之后是发出没回复的模型请求、`turnEnded`、`runEnded{interrupted}`，同一个写入批。缓冲区里的输入留着，不自动发出。
+
 ## 状态与转换
 
 | 运行状态 | 事件 | 下一状态 |
@@ -116,6 +126,7 @@ owners:
 2. 空闲时入队的 followup 在这一轮结束后开下一轮，同一次运行，用量是两次回复的和。
 3. 一条回复里两个 `shared` 工具与一个 `exclusive` 工具：两个 `shared` 同时在跑、`exclusive` 在它们都完成后才开始；结果按调用顺序写成一个批；一个扩展改了参数、审批规则据改过的参数拒绝另一个调用。
 4. 一个扩展把输入脱敏、另一个把超过 16 KB 的工具结果脱敏：重开后事件一致，会话目录全文（含 `blobs/`）搜不到原文。
+5. 子进程在工具执行中被 `kill -9`：重开后执行中的调用 `unknown`、没开始的 `denied{interrupted-before-approval}`、运行 `interrupted`，缓冲区里排着的 followup 还在；子进程在受理批写下、运行循环开始之前被杀：重开后运行 `interrupted`，用同一个 `commandId` 重发得到第一次的值与 `replayed: true`。
 
 Smoke：`packages/nb-harness/tests/kernel/kernel.llm.test.ts`（`bun run test:llm`）。
 
