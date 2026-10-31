@@ -119,10 +119,11 @@ describe("OMP 适配器", () => {
         expect(second.response.content).toEqual([{kind: "text", text: "在第 3 章"}]);
     });
 
-    test("相邻的 user 消息合成一条发出", async () => {
-        const {body} = await run(request({messages: [{role: "user", content: [text("提醒")]}, {role: "user", content: [text("问题")]}]}), {text: "嗯"});
-        expect(body.messages.filter((message) => message.role === "user")).toHaveLength(1);
-        expect(JSON.stringify(body.messages)).toContain("提醒\\n\\n问题");
+    test("相邻的 user 消息合成一条发出；同一条消息里相邻的文字块合成一块", async () => {
+        const {body} = await run(request({messages: [{role: "user", content: [text("提醒")]}, {role: "user", content: [text("附带"), text("问题")]}]}), {text: "嗯"});
+        const users = body.messages.filter((message) => message.role === "user");
+        expect(users).toHaveLength(1);
+        expect(JSON.stringify(users[0]!.content)).toContain("提醒\\n\\n附带\\n\\n问题");
     });
 
     test("服务商报错按状态码归类；错误文字里回显的密钥被遮盖", async () => {

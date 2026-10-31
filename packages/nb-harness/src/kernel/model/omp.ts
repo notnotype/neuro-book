@@ -55,11 +55,16 @@ function textOf(block: ContentBlock): string {
     throw new UnsupportedContent(`${block.kind} block is not supported here`);
 }
 
-function userContent(blocks: readonly ContentBlock[]): (TextContent)[] {
-    return blocks.map((block) => {
+/** user 与工具结果消息的内容：相邻的文字块合成一块、中间空一行（块是按来源分的，服务商不一定在块之间加分隔）。 */
+function userContent(blocks: readonly ContentBlock[]): TextContent[] {
+    const out: TextContent[] = [];
+    for (const block of blocks) {
         if (block.kind !== "text") throw new UnsupportedContent(`${block.kind} block in a user message is not supported`);
-        return {type: "text", text: block.text};
-    });
+        const last = out.at(-1);
+        if (last === undefined) out.push({type: "text", text: block.text});
+        else out[out.length - 1] = {type: "text", text: `${last.text}\n\n${block.text}`};
+    }
+    return out;
 }
 
 function assistantContent(blocks: readonly ContentBlock[], calls: readonly ToolCall[], names: ReadonlyMap<string, string>): AssistantMessage["content"] {
