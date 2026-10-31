@@ -116,7 +116,7 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
     // 资源按上下文建；换 Profile 时重建（`refreshContext`），各处拿着的都是这个转发对象。
     let currentResources = env.resources(context());
     const resources: Resources = {read: (uri) => currentResources.read(uri), resolve: (uri) => currentResources.resolve(uri)};
-    const react: ReactHost = {environment: () => ({tools: tools(), model: modelInfo(), now: core.clock.now(), initial: initialOf()}), resources};
+    const react: ReactHost = {environment: () => ({tools: tools(), model: modelInfo(), now: core.clock.now(), initial: initialOf()}), resources, session: context};
     const mounts = new Mounts(core, {...react, running: () => !control.idle});
     const state: Internals = {core, control, react, mounts, box, environment, readOnly, closed: false, pendingReassembly: null, reassembling: null, closing: null, refreshContext: async () => {
         currentResources = env.resources(context());

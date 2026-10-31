@@ -335,6 +335,15 @@ describe("装上", () => {
         expect(log).toEqual(["mount", "cleanup", "mount", "cleanup"]);
     });
 
+    test("输出 19：mount 与处理函数拿得到装在哪个会话上（会话 id、Profile）", async () => {
+        const seen: string[] = [];
+        const where = defineExtension({id: "lab.where", mount: (ctx) => void seen.push(`mount:${ctx.session.sessionId}:${ctx.session.profile}`), on: {turnStarted: (_event, ctx) => void seen.push(`on:${ctx.session.sessionId}`)}});
+        await using session = await createTestSession({extensions: [where]});
+        session.model.script("好");
+        await session.say("你好");
+        expect(seen).toEqual([`mount:${session.id}:${defaultTestProfile.id}`, `on:${session.id}`]);
+    });
+
     test("输出 20：运行中到达的外部事实排到下一个边界写入", async () => {
         const log: string[] = [];
         const watcher = watcherExtension(log);

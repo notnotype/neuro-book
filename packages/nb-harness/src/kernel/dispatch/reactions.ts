@@ -10,7 +10,7 @@
  * 这些都在队列的同一项里完成：一项是“一个写入批连同它引出的反应”。
  */
 
-import type {JsonValue, LogEvent, Resources} from "../api/index.js";
+import type {JsonValue, LogEvent, Resources, ToolSessionContext} from "../api/index.js";
 import type {Assembled} from "../extension/assemble.js";
 import {assistantCtx, Outputs, reactCtx, stateOf, type StateAt, type ViewEnvironment} from "../extension/ctx.js";
 import {STATE_SET} from "../state/snapshot.js";
@@ -23,6 +23,7 @@ export const HANDLER_TIMEOUT_MS = 30_000;
 export interface ReactHost {
     environment(): ViewEnvironment;
     readonly resources: Resources;
+    session(): ToolSessionContext;
 }
 
 export interface Reacted {
@@ -61,7 +62,7 @@ async function reactTo(core: SessionCore, event: LogEvent, state: StateAt, host:
         return;
     }
     const environment = host.environment();
-    const runs = handlers.map((item) => runHandler(core, item, event, state, environment, host.resources, runSignal));
+    const runs = handlers.map((item) => runHandler(core, item, event, state, environment, host.resources, host.session(), runSignal));
     const results = await Promise.all(runs);
     for (const {item, outputs, settled} of results) {
         const id = item.definition.id;
@@ -90,14 +91,14 @@ async function reactTo(core: SessionCore, event: LogEvent, state: StateAt, host:
     }
 }
 
-async function runHandler(core: SessionCore, item: Assembled, event: LogEvent, state: StateAt, environment: ViewEnvironment, resources: Resources, runSignal: AbortSignal | undefined): Promise<{item: Assembled; outputs: Outputs; settled: Settled}> {
+async function runHandler(core: SessionCore, item: Assembled, event: LogEvent, state: StateAt, environment: ViewEnvironment, resources: Resources, session: ToolSessionContext, runSignal: AbortSignal | undefined): Promise<{item: Assembled; outputs: Outputs; settled: Settled}> {
     const outputs = new Outputs();
     const controller = new AbortController();
     const onRunAbort = () => controller.abort(runSignal?.reason);
     runSignal?.addEventListener("abort", onRunAbort, {once: true});
     const id = item.definition.id;
     const late = (call: "emit" | "set") => core.diagnostics.add({code: "emit-after-settle", extension: id, entry: "on", event: {id: event.id, type: event.type, seq: event.seq}, params: {call}, message: `${id} called ${call} after its handler for ${event.type} settled; the call is ignored`, hint: "await every promise inside the handler, or write from mount with ctx.callback"}, core.head);
-    const params = {assembly: core.assembly, item, state, environment, resources, signal: controller.signal, outputs, late};
+    const params = {assembly: core.assembly, item, state, environment, resources, session, signal: controller.signal, outputs, late};
     const ctx = event.type === "assistant"
         ? assistantCtx({...params, reply: event.data as {toolCalls: readonly unknown[]}, limited: (max) => core.diagnostics.add({code: "continue-limit", extension: id, entry: "on", params: {max}, message: `${id} asked to continue more than ${max} times in one turn`}, core.head)})
         : reactCtx(params);

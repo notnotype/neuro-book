@@ -9,6 +9,7 @@ import type {EventData, EventsDecl} from "./events.js";
 import type {ModelInfo} from "./model.js";
 import type {SliceValue, StateDecl, StateValues} from "./state.js";
 import type {ToolInfo} from "./tool.js";
+import type {ToolSessionContext} from "./host.js";
 
 export interface Resources {
     read(uri: string): Promise<string | undefined>;
@@ -46,6 +47,8 @@ export interface Writes<S extends StateDecl, E extends EventsDecl> {
 export interface ReactCtx<S extends StateDecl, E extends EventsDecl, St, Deps extends DepList, I = unknown> extends ViewCtx<S, St, Deps, I>, Writes<S, E> {
     readonly resources: Resources;
     readonly signal: AbortSignal;
+    /** 这次装在哪个会话上（与交给宿主建资源、建工具的同一份）：扩展对象被所有会话共用，按会话取外部数据用它。 */
+    readonly session: ToolSessionContext;
 }
 
 /** 对 `assistant` 的处理函数多一个 `continue`：只在最终回复（没有工具调用）时有效。 */
@@ -59,6 +62,8 @@ export interface MountCtx<S extends StateDecl, E extends EventsDecl, St, Deps ex
     readonly resources: Resources;
     /** 摘下时触发。 */
     readonly signal: AbortSignal;
+    /** 装在哪个会话上（与交给宿主建资源、建工具的同一份）：按会话或项目订阅外部来源用它。 */
+    readonly session: ToolSessionContext;
     /** 包住外部回调：出错带扩展 id 写诊断，不成为没人接的 Promise 拒绝；摘下之后不再调用。 */
     callback<A extends unknown[]>(fn: (...args: A) => void | Promise<void>): (...args: A) => void;
 }

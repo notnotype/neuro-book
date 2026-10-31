@@ -71,6 +71,7 @@ export class Mounts {
                 state: () => core.stateAt(),
                 environment,
                 resources: this.host.resources,
+                session: this.host.session(),
                 signal: controller.signal,
                 // 摘下之后（关闭会话、换 Profile）再写的外部事实只写诊断（runtime.md 输出 53）。
                 external: (write) => {
