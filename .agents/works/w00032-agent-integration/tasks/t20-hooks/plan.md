@@ -248,7 +248,9 @@
 | 3 | `harness/extensions.md` 输出 1–3、5、7、8、11–18、19–22、24、25、29、30；`session.md` 输出 14 | `src/kernel/extension/extension.test.ts` |
 | 3 | `extensions.md` 输出 28（Profile 哈希） | `session/session.test.ts`“打开时 Profile 哈希变了” |
 | 3（留到后续片） | `extensions.md` 输出 4（运行时拒绝写错前缀，第 5 片随 `emit` 的拦截面一并测）、6（归约互不依赖，严格模式第 9 片）、9（`resetOnCompaction`，第 8 片）、10（回退后片的值，第 6 片）、23（各入口读的时刻，第 4、5 片）、26、27（撤回，第 9 片） | — |
-| 4 | `harness.profile`（模板、布局、`turn`、`commit`、槽） | `view/*.test.ts` |
+| 4 | `harness/profile.md` 输出 1–20，场景 1、2 | `src/kernel/view/view.test.tsx`；场景 2 是 `tests/kernel/measure-request.ts`（`evidences/slice2-measure.txt` 第五节） |
+| 4 | `runtime.md` 输出 10（`profile-failed` 的收口）、14（缺省布局） | `view/view.test.tsx`“输出 5”“输出 9”“输出 1” |
+| 4（留到后续片） | `profile.md` 输出 11 的“Profile 哈希变了重新渲染”在同一进程里只有 `changeProfile` 能触发（第 6 片补测；重开时缓存本来就是空的）；输出 4 的 `<If>`、`<ToolName>` 经会话的生效工具集（第 5 片接上工具集后补一条会话级测试） | — |
 | 5–8 | `harness.runtime`（工具、收尾、拦截、审批、指令、运行控制、等用户、压缩） | `run/*.test.ts`、`compaction/*.test.ts` |
 | 9 | `harness.runtime` 的宿主面、`harness.extensions` 的撤回 | `session/*.test.ts` |
 | 10 | `agent/harness.md` 输出 10–21 在新 Spec 里的对应条目 | `packages/nb-story/tests/kernel-acceptance/*.test.ts` |

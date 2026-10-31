@@ -75,7 +75,9 @@ t05、t06、t07。
 - 待开发者定：`flock.ts` 现在 nb-story 与 nb-harness 各一份（同一件事写两份）。候选：迁移 Task 里让 nb-story 改用 nb-harness 导出的锁（nb-story 已依赖 nb-harness），或另建一个小的共享包；推荐前者。
 - 第 3 片完成：按决定 14 删去 `assistant.text`、打开时按块流式读（2 万条、每条 5,000 字：文件 65→35 MB，打开后常驻 166→56 MB，打开 160→105 ms）；装配的全部检查（拒绝的与只留诊断的）、反应与写入批（并发、按装配序写、整批丢弃、深度上限、时限、运行中止）、`continue`、`mount` 与外部事实（空闲立刻写、运行中到边界）、清理、`reminder()`、`opening()`、扩展事件的版本。Profile 哈希定为不算源码哈希、改了要升 `version`（`extensions.md` 输出 28）。2 万条经完整的 `openSession` 打开 128–169 ms、堆上活数据 22–36 MB、常驻增量 52–72 MB，在预算内（[`evidences/slice2-measure.txt`](evidences/slice2-measure.txt) 第四节）。
 - 实现中订正的：`emit` 统一为 `emit(名字, 数据?, {key?})`（没有数据的事件要幂等键时第二个参数写 `undefined`，避免运行时分不清第一个参数是数据还是选项）；`run` 的循环在回复的反应被中止时以 `aborted` 收口，不再提交成 `completed`。
+- 第 4 片完成：新建 [`harness/profile.md`](../../../../../docs/specs/harness/profile.md)（视图：模板、轮的渲染、提交与槽）。模板节点放错位置（`template-invalid`）或 `<Turn />` 不是恰好一个（`turn-node-count`）时请求算不出来、按 `profile-failed` 收口；`<Tag>` 属性转义；`render` 抛错用缺省文字；已提交的轮每轮只渲染一次（按轮对象缓存，回退与切分支照样命中，装配结果换了整份作废），`commit` 抛错或交回不成对的消息改用缺省提交；请求发出前校验工具调用与结果成对（`request-invalid`）；槽的四种诊断（没摆、会变的放进系统块、撞名、`contribute` 抛错）；开发模式下的前缀稳定与提交一致检查；`outline` 移进 `view/`；`finalOnly`、`withoutEvents`。2 万条算一次请求冷 38–42 ms、热 23–30 ms，在 50 ms 预算内，大头是请求哈希（[`evidences/slice2-measure.txt`](evidences/slice2-measure.txt) 第五节）。
+- 第 4 片定下的：开发检查跟现有的开发模式开关（`NODE_ENV` 不是 `production`）走，不另加 `SessionEnv` 字段；没写 `commit` 时用 Profile 的 `turn` 提交（视图取第一次需要它的那次请求的），`turn` 依赖视图而提交结果变了由 `commit-differs` 提示。
 
 ## 下一步
 
-下一片是第 4 片（视图：JSX 模板的全部节点与文字拼法、`standardLayout` 的选项、`format`、`turn` 与纯函数 `commit` 的提交缓存、槽的诊断、请求计算与校验、`outline`、前缀稳定检查；`finalOnly`、`withoutEvents`；2 万条会话算一次请求的测量）。全部切片之后做一次深入审查（开审前报计划与预算）。介绍页（`intro` v3）已过时，随实现更新。
+下一片是第 5 片（工具与拦截：工具声明与名字换算、工具实现的建与释放、段并发、`runChain` 四条链、输入链在受理时跑与脱敏、审批钩子的放行与拒绝、`toolsAnnounced`、收尾工具与动态 `yield`）。全部切片之后做一次深入审查（开审前报计划与预算）。介绍页（`intro` v3）已过时，随实现更新。

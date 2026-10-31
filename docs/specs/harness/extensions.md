@@ -13,7 +13,7 @@ owners:
 
 给插件作者与 Profile 作者一套扩展接口：扩展只做四件事，归约（事件 → 自己的状态）、反应（事件写入之后补记事件）、视图（状态 → 请求的片段）、拦截（输入、模型调用、工具、压缩之前或之后改或挡），外加装上外部事实的 `mount`。Profile 是拦截链最里层、地位最高的扩展；对话记录本身也是内置扩展。扩展的状态全部由会话日志归约而来，所以回退、fork、重启、压缩之后自动正确。
 
-插件撤回与重新装配（输出 26、27）随宿主面补齐。日志与会话目录见 [`harness/session.md`](session.md)；视图（模板、`turn`、`commit`、槽）、拦截链与运行控制在 harness 的 Profile 与运行时 Spec（待建）。
+插件撤回与重新装配（输出 26、27）随宿主面补齐。日志与会话目录见 [`harness/session.md`](session.md)；视图（模板、`turn`、`commit`、槽）见 [`harness/profile.md`](profile.md)，指令与运行循环见 [`harness/runtime.md`](runtime.md)；拦截链随后续切片补进运行时 Spec。
 
 不承诺：
 
