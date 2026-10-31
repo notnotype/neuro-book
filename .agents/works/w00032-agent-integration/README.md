@@ -50,6 +50,10 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-10-30 | t25 移出：插件分发另开 [w00038](../w00038-plugin-distribution/README.md)（git、npm、官方与第三方市场、离线压缩包）；官方网站与服务（登录、备份、同步、社区、官方市场）另开 [w00037](../w00037-official-site/README.md)（[t25](tasks/t25-plugin-marketplace/README.md)） |
 | 2026-10-30 | t13 讨论完成：收件箱三种接受方式（立即、下一条消息时、手动），不做按天数自动接受；每轮改动文件条由 nb-history 提供；保留、合并保存、大文件不存快照。同时改判 t06：默认不放行写入，写入要审批；先做 yolo，再做交审批模型，按工具的规则先于模式判定（[t13](tasks/t13-history/README.md)、[t06](tasks/t06-approval/README.md)） |
 
+## 待确认
+
+自主推进时照推荐做了、待开发者追认的决定见 [`pending-confirmations.md`](pending-confirmations.md)。
+
 ## 调研
 
 - [仓库内的现状](research/2026-10-28-repo-survey.md)：harness 两条线、新应用现状、文档冲突、其它 Work 里相关的未完成事项、旧应用的 Agent 功能面、nb-story 问答的预演。

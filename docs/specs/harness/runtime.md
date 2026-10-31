@@ -13,7 +13,7 @@ owners:
 
 给宿主一台由日志驱动的状态机：指令进、事件与帧出。用户的话先进输入缓冲区，取走时才成为对话里的事实；一次运行是可能有好几轮的 ReAct 循环，每次模型请求前由视图算出请求，回复与失败都写回日志。宿主能等一次运行结束、取它的结果。
 
-本文件随实现逐步补齐：压缩、预览随后续条目追加。日志与恢复见 [`harness/session.md`](session.md)，扩展见 [`harness/extensions.md`](extensions.md)，模型端口见 [`harness/models.md`](models.md)。
+本文件随实现逐步补齐：预览与宿主面随后续条目追加。日志与恢复见 [`harness/session.md`](session.md)，扩展见 [`harness/extensions.md`](extensions.md)，模型端口见 [`harness/models.md`](models.md)。
 
 不承诺：
 
@@ -96,6 +96,16 @@ owners:
 43. 运行被中止时，等待中的同步事项写 `interactionResolved{decision: "aborted", by: {kind: "kernel"}, code: "aborted"}`，等审批的调用得 `denied`、码 `aborted`；中止之后才到的应答得 `already-answered{by: "kernel", decision: "aborted"}`。进程重启后打开会话时，同步事项写 `interrupted`（审批码 `interrupted-before-approval`，提问码 `interrupted`），调用按输出 34 结算。异步提问不随中止、关闭会话、重启结算，重开后照样能应答。
 44. 同一条回复里几个调用的事项可以同时待处理、任意顺序应答；`waiting.pending` 列出全部，都应答之后运行状态回到 `running`。
 45. 发出者由宿主注入：`session.as(issuer)` 交回带这个发出者的会话视图，指令里没有发出者参数。
+
+压缩（方法本身在 t11，由宿主经 `SessionEnv.compaction` 交进来）：
+
+46. 每个边界在取走 steer 之后估算上下文：上一次回复的 `input + cacheRead + cacheWrite + output`（它之后压缩过的，取压缩的 `tokensAfter`）加之后路径上新增的对话事件（按 UTF-8 字节数每 3 字节一个 token 估算）。超过触发点（模型窗口 − max(窗口的 15%, 16,384)；窗口未知时不按阈值压缩）时先压缩再算请求；Profile 写 `compaction: false` 时不压缩。压缩失败只诊断 `compaction-failed`，请求照发。
+47. 方法按 Profile 的 `compaction.onThreshold`（缺省 `shake`、`inplace`）或 `onOverflow`（缺省 `shake`、`summary`）依次调用，实现取自 `SessionEnv.compaction.methods`，没有的算失败。每个方法经压缩拦截链（出错时跳过这一层）；它拿到的 `CompactionJob` 带原因（`threshold`、`overflow`、`manual`）、压缩前的请求（`purpose: "compaction"`）、合法切点（对话里还在的每一轮的 `turnStarted`，与进行中这一轮每一步的回复，各带保留下来的 token 估算）、压缩前的 token 估算、要求（Profile 的 `compaction.require` 加 `compact` 的要求）与 `model`（发出的请求 `purpose: "compaction"`，经模型拦截链，写 `modelStarted`、`modelEnded`）。方法交回 `{failed}`，或结果不合格（切点不在合法切点里、省略的条目不在对话里或占位为空、token 不是非负数，诊断 `compaction-invalid`）时换下一个；全部失败时不写压缩事件。
+48. 有一个方法成功时，同一个写入批里写 `compaction{method, firstKeptEntryId, replacement, omitted, tokensBefore, tokensAfter, details?}` 与放回的内容：`SessionEnv.compaction.restore` 交回的每一段写一条 `notice{code: "restored"}`（位置章按写入时的轮）。
+49. 压缩之后的对话：切点之前的已提交轮去掉，摘要（来源 `{kind: "summary", compactionId}`）排在剩下的已提交轮前面（`<History last>` 只要最近几轮时不放摘要）；切点在进行中这一轮里时，这一轮的输入与附带内容留着，切点之前的步去掉；`firstKeptEntryId` 为 null 时已提交的轮与进行中这一轮的步都去掉；`replacement` 为 null 时留着上一次的摘要。`omitted` 的条目渲染成占位（消息与工具调用照样在），含有它们的已提交轮重新渲染一次。写了 `resetOnCompaction` 的片回到初始值，`opening()` 重读开场。回退到压缩之前时路径上没有它，对话就是压缩前的。
+50. 模型失败、类别是 `context_overflow` 时：写下这次的 `modelFailed`，按溢出的顺序压缩，成功就把请求再发一次（新的 `modelStarted`）；每次请求最多重发一次，压缩失败或再次溢出时运行以 `error{kind: "context_overflow"}` 收口。
+51. 压缩中被中止（方法返回前后、写入之前）不写压缩事件，运行以 `aborted` 收口。
+52. `compact({requirement?})`：会话只读得 `read-only`，压缩用的模型解析不到得 `no-compaction-model`。空闲时开一次只压缩的运行（`runStarted{kind: "compact"}`，成功值 `scheduled: "now"` 与 `runId`）：对话里没有可切的地方得 `nothing-to-compact`，全部方法失败时运行以 `error`、码 `compaction-failed` 收口。有运行在跑（或叶子上有暂停的运行）时成功值 `scheduled: "next-boundary"`，这次运行的下一个边界以 `manual` 压缩（几次的要求合在一起）；这个要求不进日志，进程中断就丢，重发同一个 `commandId` 得到第一次受理的值。
 
 ## 状态与转换
 

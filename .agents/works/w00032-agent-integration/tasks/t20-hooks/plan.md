@@ -258,7 +258,7 @@
 | 6（留到后续片） | “回退后重启批准记忆仍在”（批准记忆在第 7 片）；运行中的 `compact` 的幂等（第 8 片） | — |
 | 7 | `harness/runtime.md` 输出 39–45、场景 6；第 6 片留下的“回退后重启批准记忆仍在” | `src/kernel/run/interaction.test.ts` |
 | 7（留到后续片） | 工具被卸载时等待中的事项按 `tool-unavailable` 结算（插件撤回，第 9 片） | — |
-| 8 | `harness.runtime`（压缩） | `compaction/*.test.ts` |
+| 8 | `harness/runtime.md` 输出 46–52；`extensions.md` 输出 9（`resetOnCompaction`） | `src/kernel/compaction/compaction.test.ts` |
 | 9 | `harness.runtime` 的宿主面、`harness.extensions` 的撤回 | `session/*.test.ts` |
 | 10 | `agent/harness.md` 输出 10–21 在新 Spec 里的对应条目 | `packages/nb-story/tests/kernel-acceptance/*.test.ts` |
 
