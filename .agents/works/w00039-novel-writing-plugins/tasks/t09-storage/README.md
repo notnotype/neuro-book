@@ -5,17 +5,19 @@ status: planned
 updated: 2026-10-31
 ---
 
-# 真相源与存储形态
+# 真相源、存储形态与项目文件结构
 
 ## 目标与范围
 
-定设定、剧情、抽取图各自的真相源是文件还是数据库，派生数据放哪、能否重建，以及规模与性能的上限。
+定设定、剧情、抽取图各自的真相源是文件还是数据库，以及由此决定的作品目录结构；系列作品共用世界观时设定放哪也在这里定。存储形态一定，目录布局基本随之确定，所以一起定。
 
 合同：讨论 Task，只定设计，行为合同未变；定稿后的 Spec 改动在实施时另定。
 
 前置：t02。
 
 ## 要讨论的问题
+
+### 真相源与存储形态
 
 1. 设定：文件（一条一个 Markdown，字段在 frontmatter）还是数据库。倾向文件：本地优先、可审查、Agent 能 grep、History 能记录。
 2. 剧情（场景、剧情线、伏笔、决策）：[项目文件底座](../../../../../docs/proposals/project-file-foundation.md) 定了 `plot://` 虚拟型、数据在数据库，依据是旧 Plot 的形态；设定改文件后这一条要不要改。旧版 World、Plot 选 SQLite 的理由没有查到记录，要先查。
@@ -24,11 +26,26 @@ updated: 2026-10-31
 5. 规模：百万字、几千条设定、几万条状态变动时打开、查询、对齐的速度；要不要索引、索引放哪。
 6. 与 History、外部编辑（bash、文件管理器）、同步的关系：外部改了文件后派生数据怎么失效。
 
-材料：[调研：二、三、六节](../../research/2026-10-31-repo-survey.md)；[插件的数据与状态](../../../../../docs/proposals/plugin-data-model.md)；[`storage/boundaries.md`](../../../../../docs/specs/storage/boundaries.md)。
+### 项目文件结构（原 t11）
+
+1. 顶层目录：`manuscripts.binder/`、`lorebook.content/` 已在 Spec 里约定；剧情、资料、大纲、灵感要不要固定目录。
+2. 目录名用英文还是中文、是否可以由用户改名（插件靠什么找到设定目录：固定名、后缀、`project.json` 登记）。
+3. `.nbook/` 里放什么：身份、启用的插件、派生数据、缓存；哪些进 Git、哪些忽略。
+4. 旧版项目里的 `AGENTS.md`、`agents/`（Profile 记忆）、`manual/`、`reference/`、`upload/` 在新版还要不要；Profile 已放到状态根（w00032 t05），项目级 Agent 指令放哪。
+5. 封面、插图、立绘等图片资产放哪。
+6. 一部作品多卷、多部（见下面“系列作品与共享世界观”）时的目录形状。
+
+### 系列作品与共享世界观（原 t24）
+
+1. 共享方式：一个作品里分多部、用户资产 `user://` 里的共享设定库、一部作品引用另一部的设定。
+2. 时间与世界线跨作品：第二部接在第一部结尾，状态从哪继承。
+3. 第一版要不要支持，还是先记下不做。
+
+材料：[调研：二、三、六节](../../research/2026-10-31-repo-survey.md)；[插件的数据与状态](../../../../../docs/proposals/plugin-data-model.md)；[`storage/boundaries.md`](../../../../../docs/specs/storage/boundaries.md)；[`workspace/folder-kinds.md`](../../../../../docs/specs/workspace/folder-kinds.md)；[项目文件底座](../../../../../docs/proposals/project-file-foundation.md)。
 
 ## 当前状态
 
-2026-10-31 由 t01 问题发现建为草稿，尚未讨论。
+2026-10-31 由 t01 问题发现建为草稿；同日按开发者要求并入 t11、t24（一次讨论能一起定下来）。尚未讨论。
 
 ## 下一步
 
