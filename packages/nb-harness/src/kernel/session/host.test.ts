@@ -631,6 +631,43 @@ describe("插件宿主", () => {
         await host.close(session.id);
     });
 
+    test("输出 57：重新装配中途失败——写日志失败时依赖缺失的只读不解除；宿主建资源失败进只读 reassembly-failed，不抛出、能关闭", async () => {
+        const base = hostEnv();
+        let failWrites = false;
+        const store: SessionEnv["store"] = {...base.store, append: async (handle, events) => (failWrites ? {ok: false, code: "storage-failed", detail: {message: "injected"}} : base.store.append(handle, events))};
+        const host = createAgentHost({...base, store});
+        const first = handleOf(counter);
+        host.extensions.prepare(first);
+        host.extensions.published(first);
+        const created = await host.create({profile: dependent.id});
+        if (!created.ok) throw new Error(created.code);
+        host.extensions.revoke(first, "uninstalled");
+        await waitIdleWrites(created.value);
+        failWrites = true;
+        // 补回的是新版本：装配哈希变了，要写 profileChanged（哈希不变时不写日志、直接解除只读）。
+        const second = handleOf(defineExtension({...counter, version: "2"}));
+        host.extensions.prepare(second);
+        host.extensions.published(second);
+        await waitIdleWrites(created.value);
+        expect((await created.value.snapshot()).readOnly).toEqual({code: "dependency-missing"});
+
+        let failResources = false;
+        const other = createAgentHost({...hostEnv(), resources: () => {
+            if (failResources) throw new Error("建资源失败");
+            return {read: async () => undefined, resolve: (uri) => uri};
+        }});
+        const opened = await other.create({profile: defaultProfile.id});
+        if (!opened.ok) throw new Error(opened.code);
+        failResources = true;
+        const handle = handleOf(counter);
+        other.extensions.prepare(handle);
+        other.extensions.published(handle);
+        await waitIdleWrites(opened.value);
+        expect((await opened.value.snapshot()).readOnly).toEqual({code: "reassembly-failed"});
+        expect((await opened.value.diagnostics()).some((item) => item.code === "reassembly-failed")).toBe(true);
+        await other.close((await opened.value.snapshot()).header.id);
+    });
+
     test("输出 57：运行中撤回时，链里还没走到的那层拦截跳过、mount 里拿着的回调不再执行；进行中的反应的输出丢掉", async () => {
         const model = createTestModel();
         const host = createAgentHost(hostEnv(model));

@@ -552,10 +552,13 @@ async function reassembleNow(state: Internals, env: SessionEnv, pending: Pending
         return;
     }
     const next = assembled.assembly;
-    // 装配成功：之前因依赖缺失进的只读解除（别的原因的只读，例如必需工具缺失，留到重开）。
-    if (state.readOnly === "dependency-missing") state.readOnly = null;
+    // 重新装配整个做完才解除之前因依赖缺失进的只读（别的原因的只读，例如必需工具缺失，留到重开）。
+    const settled = () => {
+        if (state.readOnly === "dependency-missing") state.readOnly = null;
+    };
     if (next.hash === core.assembly.hash) {
         core.revoked.clear();
+        settled();
         return;
     }
     const from = core.assembly.hash;
@@ -569,9 +572,14 @@ async function reassembleNow(state: Internals, env: SessionEnv, pending: Pending
         });
         await state.mounts.mountAll(state.environment);
         await core.queue.drain();
+        settled();
     } catch (error) {
-        // 写日志失败：句柄已进损坏状态，内存里的装配没换（profileChanged 没写下）。
-        if (!(error instanceof LogBrokenError)) throw error;
+        // 写日志失败：句柄已进损坏状态，内存里的装配没换（profileChanged 没写下），之后的指令得 log-broken。
+        if (error instanceof LogBrokenError) return;
+        // 宿主在重新装配中途失败（建资源、建工具上下文）：日志与内存可能已是新装配、资源还是旧的，不再受理指令，重开以日志为准。
+        // 不往外抛：重新装配是插件发布触发的，没有调用方在等它。
+        state.readOnly = "reassembly-failed";
+        core.diagnostics.add({code: "reassembly-failed", entry: "host", message: "the host failed while reassembling after a plugin change; the session is read-only until it is reopened", cause: error}, core.head);
     }
 }
 

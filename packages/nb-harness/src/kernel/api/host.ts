@@ -132,7 +132,7 @@ export interface SessionSnapshot {
     title: string | null;
     archived: boolean;
     /** 会话为什么只读（Profile 解析不到、必需工具缺失、重新装配失败）；可写时为 null。 */
-    readOnly: {code: "unknown-profile" | "tools-missing" | "dependency-missing"} | null;
+    readOnly: {code: "unknown-profile" | "tools-missing" | "dependency-missing" | "reassembly-failed"} | null;
     /** 插件装卸之后与当前装配不一致的部分；下一次空闲时自动重新装配。 */
     pendingReassembly: {added: string[]; removed: string[]} | null;
     diagnostics: {errors: number; warnings: number};
