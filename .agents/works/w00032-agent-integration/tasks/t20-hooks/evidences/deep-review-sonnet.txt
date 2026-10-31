@@ -1,0 +1,214 @@
+# w00032 t20 深入审查：新内核的出站帧与日志分页，能否撑起对话视图
+
+审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-agent-integration`（HEAD `7ec9baa42`）里 `packages/nb-harness/src/kernel/`，对照 `packages/nb-agent-ui/src/harness.ts` 的需求。路径均相对 `packages/nb-harness/src/kernel/`，除非写明包名。
+
+证据口径：标“已验证”的是在临时目录 `/tmp/review-scratch-ui/` 里写了一次性的 bun 测试、对真实 `createTestSession` 跑出来的（不在仓库内，仓库未改）；标“从代码推断”的没跑过。
+
+下面的发现按核实顺序追加；最后一节给出按影响排序的索引与数量。
+
+### F1 重要 / 中止的半截回复不落日志：用户看见的流式内容刷新后消失，用量也丢了（已验证）
+
+位置：`run/loop.ts:227`（`Promise.race([callModel(...), abortedNow])`）、`run/loop.ts:125`（`settleOpen` 只写 `{request, kind}`）；对照 `run/loop.ts:239`（出错路径才带 `partial` 与 `usage`）；类型 `api/events.ts` 的 `modelFailed.partial`、`usage`。
+
+现象：用户在模型流式输出时点停止。`abortedNow` 在 `abort` 触发时同步 resolve，`Promise.race` 必然先取它，直接 `end("aborted")`；模型端口随后交回的 `{stopReason: "aborted", content: 半句话, usage}` 被丢掉。收口批里的 `modelFailed` 是 `settleOpen` 造的，只有 `request` 与 `kind: "aborted"`。已验证：对一个吐出 `半句` 后等中止的模型，日志里 `modelFailed` 的 data 是 `{"request":1,"kind":"aborted"}`，没有 `partial`、没有 `usage`。
+
+为什么是问题：视图已经把 `半句` 画在屏幕上了，`runEnded` 到来时按“清掉临时内容”就整条消失，刷新后更是查无此事。旧适配器的做法是日志里有 `stopReason: "aborted"` 的助手消息，视图显示“已停止”的半截回复。费用也漏了：这次请求烧掉的 token 在日志里没有（`runResult.usage` 与任何用量汇总都不含它），而出错路径是记了的，两条路径不一致。`api/events.ts` 把 `partial`、`usage` 写成可选字段，说明本意是记下，只是中止这条路径没做到。
+
+建议（内核）：中止时给模型调用一个很短的收口等待（拿到端口按 `aborted` 交回的回复就写进 `modelFailed.partial` 与 `usage`，超时再退回现在的做法）；至少把视图已经收到的增量对应的内容记下。同时在 Spec 输出 9 里写明“中止时半截回复记在 `modelFailed.partial`”，视图才有东西替换临时内容。
+
+### F2 重要 / 过滤掉的 delta 让 `n` 不连续，而合同要求视图见到不连续就丢弃整条临时内容（从代码推断，逻辑直接）
+
+位置：`session/session.ts:330-338`（过滤返回 null 就直接不交，不重编号）；`api/host.ts:187-195`（`DeltaFrame.n` 的注释：“界面发现不连续就丢掉这条回复的临时内容，等 `assistant` 事件”）；用法见 `packages/nb-story/tests/kernel-acceptance/story-qa.test.ts:171`（整类过滤 `thinking` 与 `toolArgs`）。
+
+现象：`n` 是在 `session/../run/model-call.ts:96-99` 按“这个 request 里全部增量”编号的，过滤在编号之后、按订阅者执行。nb-story 对读者过滤掉 thinking 与 toolArgs 后，读者收到的 `text` 增量从 `n = k + 1`（k 为被滤掉的思考块数）开始，永远不是 1，中间夹着工具参数增量的位置也会跳号。
+
+为什么是问题：视图按合同就得把这类流判成“丢帧”，丢弃临时内容，于是过滤过的读者永远看不到流式文字，只能等 `assistant` 事件；或者视图放宽判定，那真正的丢帧（远程链路）又检测不出来。两个用途（检测真丢帧、容忍被滤掉）互相冲突，而合同只写了前者。
+
+建议（内核）：按订阅者在过滤之后重新编号，`n` 是“交给这个订阅者的第几块”，从 1 起连续；真丢帧由远程层的 `reset` 帧负责（现在内核里没有任何地方发 `reset`，见 F13）。同时让 `DeltaFrame` 带上 `purpose`（见 F3），否则视图还得另查 `modelStarted`。
+
+### F3 重要 / 压缩与审批模型的请求也以普通 delta 与 `streaming` 状态推出，视图分不清“助手在回答”和“后台在写摘要”（已验证）
+
+位置：`run/model-call.ts:95-99`（所有 `purpose` 的请求共用同一段推帧与 `host.streaming`）、`run/loop.ts:141`（`streaming` 接到 `host.phase("streaming", request)`）、`api/host.ts:187`（`DeltaFrame` 没有 `purpose`）、`api/host.ts:98`（`phase` 里有 `compacting` 却被覆盖）。
+
+现象（已验证）：手动 `compact` 之后订阅到的帧序列是 `runStarted → status running/compacting → modelStarted(purpose=compaction, request=3) → status running/streaming#3 → delta#3.1 "这是摘" → delta#3.2 "要文本" → modelEnded → compaction → runEnded → status idle`。也就是：
+1. “压缩中”这个状态只在摘要请求发出之前存在；摘要一开始流式，状态就变成 `streaming`，视图显示成“正在回答”，直到压缩结束。需求 3 要求的“压缩中”因此在真正耗时的那一段看不到。阈值触发的压缩与溢出重试后的压缩同理（`run/loop.ts:200`、`247` 用的 `modelHostFor` 同一份）。
+2. 摘要文字、审批模型（`approve` 钩子里的 `ctx.model`，`run/loop.ts` 的 `runTools` 传入 `modelCaller(modelHost, …)`）的流式内容，都是 `part: "text"` 的普通 delta，帧里没有用途。视图若按“有 delta 就画一条正在生成的助手消息”实现，会把摘要画成助手回复。
+
+建议（内核）：`DeltaFrame` 加 `purpose: RequestPurpose`（或视图可以丢弃的 `visible: boolean`）；非 `turn` 用途不要把状态改成 `streaming`，保持 `compacting`（审批时保持 `tools`），`request` 字段另给。若想让视图显示摘要的生成，可单独定一个 `part`。出站过滤的 `delta` 回调也该看得到 `purpose`。
+
+### F4 重要 / 工具“跑完”没有逐个调用的信号：结果要等同一条回复里全部调用结束才一起进日志；`pendingTools` 永远是空（已验证）
+
+位置：`run/loop.ts:268-290`（`runTools` 全部返回后才 `await write(outcome.drafts)`）；Spec runtime.md 输出 17（“全部调用的结果按调用顺序作为一个写入批写入”）；`api/host.ts:98`（`pendingTools: string[]`）、`run/control.ts:44,110`（两处都写死 `pendingTools: []`）。
+
+现象（已验证）：一条回复调两个 `shared` 工具，一个立即完成、一个挂着。日志与帧里只有 `toolStarted` ×2（seq 12、13）；快的那个的 `toolResult` 要等慢的完成后，才和慢的一起以 seq 14、15 出现。挂着的这段时间 `snapshot().status` 是 `running/tools`，`pendingTools: []`。
+
+为什么是问题：需求 2 的“工具在跑与跑完的临时状态”。旧适配器靠 `tool_execution_end` 事件让快的工具先显示结果；新内核里视图能知道“开始了”（`toolStarted`）和“全部结束了”（`toolResult` 批），但中间“这个调用已经跑完了”是不可见的。长时间的后台命令（shell、检索）与快的读文件并发时，用户会看到读文件一直转圈。`pendingTools` 是一个声明了、永远为空的字段，视图读它会得出“没有工具在跑”的错误结论。
+
+建议（内核）：二选一。（a）推一个不进日志的帧 `{type: "tool", callId, phase: "ended", status}`，把单个调用的结局先告诉界面，权威仍是后到的 `toolResult`（与 delta“不进日志、丢了不影响正确性”同一性质）；（b）让结果在每个调用完成时就写，批的整体性只保留给“全部结果在下一次请求之前都已写下”。若走 (a)，同时把 `pendingTools` 填上（`toolStarted` 之后、该调用结束之前的 callId）或删掉这个字段。
+
+### F5 重要 / 刷新或断线重连时，正在生成的那条回复拿不到已经流出的前半段（从代码推断）
+
+位置：`api/host.ts:79-93`（`SessionSnapshot` 没有当前请求的流式缓冲）、`dispatch/core.ts:369-385`（`subscribe` 只推订阅之后的帧，没有重放）、`api/host.ts:187-195`（delta 合同：丢了不影响正确性）。
+
+现象：页面在模型流到一半时打开。`snapshot().status` 能给出 `running/streaming, request: N`，`log()` 能补全已落盘的部分，但本轮已经流出的 thinking、text、toolArgs 增量无处可取；订阅后第一块 delta 是 `n = k`（k > 1）。
+
+为什么是问题：需求 3 说旧适配器刷新后得不到运行状态是已知缺口；新内核补上了状态，却在“正在生成的那条”上留了同样的缺口。视图只有两种选择：按 F2 的“不连续就丢”，则整条回复要等到 `assistant` 事件才出现（长回复要等几十秒，期间只有“流式中”的状态）；或者把从中途开始的后半段当作整条显示（内容残缺）。
+
+建议（内核）：`snapshot()` 带 `live: {request, purpose, n, thinking: string, text: string, toolArgs: Record<callId, string>} | null`，内核本来就在 `callModel` 里经过每个增量，累加到一个缓冲（请求结束就清）即可；或者 `subscribe(listener, {replayLive: true})` 先补发一个合并后的 delta。这个缓冲也过出站过滤（合并成一块或几块，过滤器按块判断），所以过滤合同要同步写。
+
+### F6 重要 / 首屏与重连“中间不丢不重”的做法没有被写成合同，按注释的字面做会漏帧（从代码推断）
+
+位置：`api/host.ts:79-81`（`head` 的注释：“订阅从这里往后接，不会漏也不会重”）、`api/host.ts:333`（`subscribe(listener)` 没有起点参数）、`dispatch/core.ts:383-385`（订阅只登记监听，不重放）、`session/session.ts:286-295`（`log` 按调用那一刻的 `head`）；Spec session.md 第 147 行只保证“订阅者收到的 seq 严格递增”。
+
+现象：`snapshot()` / `log()` 与 `subscribe()` 是两个独立调用。按注释理解的做法是“先 `snapshot().head`（或 `log` 到 `through`），再 `subscribe`”，这两步之间写入的事件既不在已取的页里，也不会被之后才登记的订阅者收到，漏了。不漏的做法是反过来：先 `subscribe` 并把帧缓存，再 `log` 分页补到 `head`，丢掉缓存里 `seq <= through` 的 log 帧，其余按序交出。这个做法存在，且因为 log 帧带 `event.seq` 能去重，但合同里没有任何地方写它，`head` 的注释反而指向错误的顺序。
+
+补充：`status` 帧没有自己的序号，只有 `afterSeq`。重连时 `snapshot().status` 与缓存里的 `status` 帧谁新谁旧，视图只能靠“收到的先后”猜：snapshot 返回之前收到的 status 帧作废，之后收到的有效。有出站过滤时 status 帧也排在异步队列里（`session/session.ts:322-341`），先发的可能在 snapshot 之后才交出，会短暂回到旧状态，下一帧又纠正，最终一致但会闪。
+
+建议（内核）：提供一个原子的入口，例如 `subscribe(listener, {afterSeq})`：先按 `afterSeq` 重放（经过滤）的 log 帧，再接实时帧，第一帧是当前 `status`（以及 F5 的 `live`），中间不会漏也不会重；同时把 `head` 的注释改对。若不加入口，至少在 runtime.md 输出 12 或 54 写明“先订阅后 log，按 seq 去重”的步骤与 `status` 的取舍规则，并在 `status` 帧上加一个单调的 `rev`，让视图能比较 snapshot 与帧的新旧。
+
+### F7 重要 / 被出站过滤掉的事件在订阅里不留痕迹：`CommandOk.seq` 可能永远等不到，也无法区分“被滤”与“丢帧”（从代码推断）
+
+位置：`session/session.ts:325-329`（`visible` 返回 null 时不交任何帧）、`api/host.ts:117-118`（`CommandOk.seq`：“界面等订阅追到它再画，就读得到自己刚写的”）；`log()` 有 `through` 却没有对应的帧。测试 `session/host.test.ts:296-321` 只验证了分页的 `through`。
+
+现象：指令受理批的最后一条通常是 `commandAccepted`（session 作用域），常被读者过滤器整批滤掉（该测试里就滤了 `inputQueued` 与 `commandAccepted`）。视图按注释“等订阅追到 `seq`”，而追到这个 seq 的那一帧从未交出；若之后没有别的可见事件，就一直等下去。同理，视图用“seq 是否连续”检测丢帧的做法在有过滤时必然误报。
+
+为什么是问题：写入后的“读自己写的”（发送后立刻画出自己的话，编辑重发、回退后立即换路径）都依赖这个等待。nb-story 的防剧透读者就是这种配置。
+
+建议（内核）：订阅在过滤队列里每处理完一帧，若有被滤掉的事件，则在下一帧可见帧上带 `through`（扫描到的最后 seq），或单独发 `{type: "progress", through}`（合并发送，空闲时也要发一次）；`log` 帧加 `through` 字段，视图用 `through >= CommandOk.seq` 判断追上了。这样 `log()` 的 `through` 与订阅的帧语义一致，也给 F6 的去重一个可靠的游标。
+
+### F8 重要 / `toolArgs` 增量没有工具名，内容是未解析的 JSON 片段：流式中的工具卡片画不出来（从代码推断）
+
+位置：`model/omp.ts:219-224`（只转发 `text_delta`、`thinking_delta`、`toolcall_delta`，没转 `toolcall_start`；`toolArgs` 增量只带 `callId` 与 `event.delta` 原文）、`api/model.ts` 的 `ModelDelta`、`api/host.ts:187-195` 的 `DeltaFrame`。对照视图合同：`packages/nb-agent-ui/src/types.ts` 的 `ToolCallView.name: string`、`args: JsonValue`（“流式生成中可能缺字段，渲染器必须容忍”）。
+
+现象：旧适配器从 OMP 的整条 partial 消息里拿到已经解析好的 `{id, name, arguments}`，所以一生成就能画“工具名 + 渐进的参数”。新内核的 delta 里只有 `callId` 和一小段 JSON 文本（形如 `{"pa`、`th":"a.md"}`），工具名要等到 `assistant` 事件。视图要自己累加每个 `callId` 的文本、用容错的 partial-JSON 解析器得到参数；nb-agent-ui 里目前没有这样的解析器。工具名缺失，就无法选专用渲染器（`edit`、`bash` 的卡片）。另外 `callId` 在 `call` 取不到时（`call?.type === "toolCall"` 为假）会缺失，视图无处归属。
+
+建议（内核）：`toolArgs` 增量再带一次 `tool`（工具 id，第一块带即可）；`DeltaFrame` 约定“同一个 `callId` 的 `toolArgs` 按 `n` 顺序连接就是参数的 JSON 文本”，并在合同里写明。解析 partial JSON 属于视图侧，但内核可以顺手在 F5 的 `live` 缓冲里给 `toolArgs[callId]` 一个 `{tool, text}`。
+
+### F9 重要 / 树与分支：视图换路径靠 `path()` 整条重拉；`path()` 不分页，过滤后 `parent` 链会断，页里也没有叶子（从代码推断）
+
+位置：`session/session.ts:297-299`（`path` 直接 `visibleAll(core.pathTo(...))`，无分页）、`session/session.ts:286-295`（`log` 的返回没有 `leaf`）、`dispatch/core.ts:195-208`（叶子的归约规则：每条 path 事件就是新叶子，`leafChanged` 覆盖）、`run/tree.ts:96-100`（`siblingsOf` 不经出站过滤）、`api/host.ts:253`（`SessionSnapshot.leaf`）。
+
+现象与后果：
+1. **叶子怎么变是隐含规则**。`log()` 给的是全部分支、按 seq 的事件；当前路径要靠“最后一条 path 事件，或最后一条 `leafChanged`”确定叶子，再沿 `parent` 往上走。这条规则只写在 `core.ts` 里，API 注释与 Spec 没有。视图若只信 `snapshot().leaf`，它和后续的 log 帧不是同一个时刻。
+2. **过滤后链会断**。出站过滤把某些 path 事件（例如 `modelStarted`、`toolsAnnounced`）滤掉，可见事件的 `parent` 仍指向不可见的事件，视图无法自己沿 `parent` 走；它只能调用 `path()`，而 `path()` 是整条路径、没有 `afterSeq`/`limit`，长会话每次回退、切分支、`leafChanged` 帧之后都要整条重拉。
+3. **`leafChanged` 帧只说新叶子**，不说哪些旧消息被移出了路径；视图要么重拉，要么在本地保留全部分支的事件自己走（未过滤的读者可以，过滤的读者做不到，见上）。
+4. **swipe 的兄弟要挂在 `modelStarted` 节点上**（Spec 输出 36：新旧回复各挂在自己那次请求下面，所以 `assistant` 的兄弟是空的），视图要对每个有重试的位置各问一次 `siblings`，没有批量形式；`siblings` 与 `rewindTargets` 不经过滤，会把被滤事件的 id 与存在暴露给读者。
+5. `fork` 返回新 `sessionId`，会话头有 `origin`，这一项没问题。
+
+建议（内核）：`log()` 的返回加 `leaf: string | null`（`through` 那一刻的叶子），`leafChanged` 帧不变；`path()` 加 `{afterSeq?, tail?: number}`（取最后 N 条，用于首屏），并在出站过滤的输出里允许过滤器把可见事件的 `parent` 改写到最近的可见祖先（或由内核在 `path()` 返回时统一改写，`log()` 保持原样）；`siblings` 接受多个 `node` 或在 `path()` 的返回里带 `siblings: Record<nodeId, number>`；API 注释里写出叶子的归约规则。
+
+### F10 重要 / 视图合同要求“向上加载更早一页”，日志查询只能从头往后翻，`path()` 不分页（从代码推断）
+
+位置：`api/host.ts:130`（`log({afterSeq, limit})` 只有 `afterSeq`）、`session/session.ts:286-299`（`log` 从 `afterSeq` 往后、`path` 整条）；对照 `docs/specs/ui/agent-conversation-view.md` 第 255 行（滚到顶部发 `history.loadPrevious`，“还有更早内容时顶部有一行‘更早的内容’”）与第 399 行验收 7、`packages/nb-agent-ui/src/types.ts:HistoryView.hasMore`。
+
+现象：首屏要显示的是会话的尾部（最近几轮），更早的一页在用户上滚时才取。新内核的 `log()` 只能 `afterSeq: 0` 起一页一页往后读到 `head`，要显示最后一轮就得读完整个日志；而且日志是全分支、全种类事件（`modelStarted`、`toolsAnnounced`、`commandAccepted`、`inputQueued` 这类控制事件往往占大半），一页 500 条对应的对话可能只有几十条。`path()` 虽然只给当前路径，但整条返回。旧适配器也是整体回放，但旧版日志里只有对话条目，量小得多，而且旧宿主自己有按页的会话接口。
+
+为什么是问题：长会话（几百轮）首屏要把整个日志拉完才能画尾部，也无法实现“加载更早”。`LogEvent` 里的 `toolResult.text` 等又是不截断的完整文本，一页的字节数没有上界（`limit` 按条数）。
+
+建议（内核）：给查询加反向与筛选，形状例如 `log({beforeSeq?, afterSeq?, limit, kinds?: ("conv" | 类型名)[], path?: boolean})` 返回 `{events, head, more, through, floor}`（`floor` 是这一页往前扫描到的最小 seq，反向翻页的游标，同样按“被滤掉的也算”），或者 `path({tail: n, beforeSeq})`。`kinds` 让视图只取它要的事件类型（`input`、`steer`、`assistant`、`toolStarted`、`toolResult`、`notice`、`continued`、`compaction`、`runEnded`、`modelFailed`、`leafChanged`、`interaction*`），`through` 的语义不变。再加一个字节上限 `maxBytes`。
+
+### F11 重要 / 出站过滤器不知道自己在过滤哪个会话，也看不到前后的事件，工具结果的过滤依赖“先见过对应的调用”（从代码推断，nb-story 的过滤器已验证有这个依赖）
+
+位置：`api/host.ts:262-265`（`OutboundFilter.event(event, reader)`、`delta(frame, reader)`，参数只有事件和发出者）；`session/session.ts:177-185,330-338`；nb-story 的过滤器：`packages/nb-story/src/qa/spoiler.ts:63,77,97-100`（`hiddenByCall` 是过滤器闭包里的内存 Map，`result(callId, text)` 依赖之前 `args(…, callId)` 记下的词）；用法 `packages/nb-story/tests/kernel-acceptance/story-qa.test.ts:150-171`。
+
+现象：
+1. **没有会话标识**。`SessionEnv` 是宿主给每个会话的，但 `SessionEnv` 里除 `outbound` 外都是宿主共享的资源（存储、Profile、模型），多会话宿主很自然共用一个 `outbound`。过滤器收到的 `LogEvent` 没有会话 id，`DeltaFrame` 只有会话内的 `request` 号，过滤器无法按会话取阅读位置、无法按会话保存状态；两个会话里相同的 `callId`/`request` 会串。nb-story 的验收测试是每个提问新建一个 env，掩盖了这一点。
+2. **状态依赖顺序，但调用不保证从头来**。`toolResult` 的过滤要用 `assistant` 事件里记下的被隐藏的词（`hiddenByCall`）。这份状态只在过滤器见过那条 `assistant` 事件时才有。读者从 `log({afterSeq: 中间值})` 重连、进程重启后内存 Map 丢了、或者订阅者在 `assistant` 与 `toolResult` 之间才连上，`toolResult` 先到过滤器时没有记录，`visibility.result` 对未知 `callId` 原样返回，被隐藏的词会漏给读者。
+3. **文字增量逐块过滤查不出跨块的词**，story-qa 里的注释也是这么处理的（文字增量不过滤、靠最终日志兜底），这说明流式文字对需要防剧透的宿主只有“整类不推”一种可靠做法，而 `text` 增量恰是视图最需要的流。
+
+建议（内核）：`OutboundFilter` 的两个方法加第三个参数 `ctx: {sessionId: string; event(id: string): LogEvent | undefined; pathTo(id: string): readonly LogEvent[]}`（只读、未经过滤的内核事件），过滤器要关联工具调用时用 `ctx.event` 现查 `assistant.toolCalls`，不再自己存状态，跨页、重启都成立；`delta` 的上下文再给 `ctx.live(request)` 返回到目前为止这个请求累计的各 `part` 文本，让过滤器能判断跨块的词。
+
+### F12 重要 / `status`、`diagnostic`、快照、`siblings`、`rewindTargets` 不经出站过滤，却带着和被过滤事件相同的内容（从代码推断）
+
+位置：`session/session.ts:322-341`（订阅里只有 `log` 与 `delta` 两类帧过滤，其余原样交出）、`session/session.ts:263-285`（`snapshot` 的 `status`、`buffer`）、`run/control.ts:45`（`waiting.pending` 直接来自待处理事项）、`run/tools.ts:253`（审批的 `request` 是 `{tool, args, effect, reason?}`）、`run/interaction.ts:45`；Spec runtime.md 输出 54 末句（“运行结果、预览、诊断与快照不经过它，宿主给不同读者暴露这些时自己投影”）。
+
+现象：`interactionRequested` 日志事件和它的 `request` 会经过滤，但同一份内容也出现在 `status{state:"waiting"}.pending[].request`（帧与快照）里，工具参数原样在内。`diagnostic` 帧带 `cause.stack`、`message`（英文开发者文字）。读者收到的 `buffer`（排队的输入）、`runResult.text`（最后一条回复的文字）同样没有过滤。
+
+为什么是问题：同一份信息有两条通道，一条过滤一条不过滤，宿主要给被过滤的读者另外包一层只投影 `status`/`diagnostic`/`snapshot` 的订阅，而这层包装每个宿主各写一份，漏掉就泄露。视图这边也要弄清哪些帧能直接信：对被过滤的读者，`status.pending` 里的参数可能是原文，视图画审批卡片时用的是哪个？
+
+建议（内核）：`OutboundFilter` 加可选的 `status?(status, reader)` 与 `snapshot?(snapshot, reader)`（默认放行），`diagnostic` 帧默认对 `reader.kind !== "user"` 之外的读者不交（或由 `OutboundFilter.diagnostic?` 决定）；或者在 `waiting.pending` 里只放 `{id, callId, kind}`，把 `request` 留给 `interactionRequested` 事件（它走过滤），视图本来就要按 `callId` 把审批挂到工具卡片上。后者改动最小，也让“等审批的是哪个调用”只有一个来源。
+
+更正 F9 第 4 点：`siblings({node: <assistant 的 id>})` 返回的是只有它自己的一项（已验证：`[{"node":"65dec…","latestLeaf":"b43f…"}]`），不是空数组；意思不变，重试的兄弟在 `modelStarted` 一层。
+
+### F13 建议 / `log()` 对 `limit` 不校验：0 与负数得到会让分页循环跳过事件的结果（已验证）
+
+位置：`session/session.ts:286-295`。已验证：`limit: 0` 返回 `events: []、more: true、through: head`（下一页直接跳到末尾，中间的事件永远读不到）；`limit: -1` 返回 12 条事件却声称 `through: 12`、`more: true`；`limit: 1.5` 取 1 条。视图自己不会传这些值，但远程服务把参数原样转进来时，一个写错的客户端会静默丢事件。建议：`limit` 夹到 `[1, 上限]` 的整数，非法值得到指令级的失败码；`through` 在没有扫描任何事件时等于 `afterSeq`，而不是 `head`。
+
+### F14 建议 / 异步提问、暂停的运行、`reset` 帧：状态或帧声明了却看不到（从代码推断，部分已验证）
+
+位置与现象：
+1. **异步提问**（`ctx.ask(…, {async: true})`，`interactionRequested.async === true`）：`run/interaction.ts:44` 的 `#reportFrom` 把 `async` 项过滤掉，`status.waiting` 与快照里都没有；`state/kernel-state.ts:21,73` 里 `pending` 保存着它们，但没有查询暴露。Spec 输出 43 说“异步提问重开后照样能应答”。视图要显示“有一个问题等你回答”，只能自己扫日志里没有对应 `interactionResolved` 的 `interactionRequested`（还要考虑分支：被回退掉的分支上的事项应答会得 `unknown-interaction`，视图得先算出当前路径）。建议 `SessionSnapshot.pending: InteractionSummary[]`（当前路径上全部未结算的，含异步，带 `async` 标志）。
+2. **暂停的运行**：回退到运行中途后，快照的 `status` 是 `idle`（Spec 输出 36），但叶子上有一次可以接着跑的运行（`run/control.ts:80-82` 的 `paused` 只在内部）。视图不知道是否该显示“继续”按钮，只能试 `start` 看会不会得 `nothing-to-continue`。建议快照加 `paused: {runId: string} | null`。
+3. **`reset` 帧**：`api/host.ts:205` 声明、Spec 术语表列出，但内核里没有任何地方发它（全仓库 grep 只有类型定义）；视图要处理它，测试却构造不出来。若它只由远程服务层发，应当在 host.ts 的注释里写明“内核进程内订阅不会发，远程层在断线重连后补发”。
+4. **`status` 的 `phase: "reacting"`** 与 **`pendingTools`**（F4）是声明了但从不出现的值（`run/loop.ts` 的 `phase` 调用只有 `requesting`、`streaming`、`tools`、`compacting`）。
+5. 结算后 `waiting → running` 时 `request` 被写成 `null`、`phase` 写死 `tools`（`run/control.ts:44`），视图在这一瞬间失去当前请求号；建议保留进入 `waiting` 之前的 `request`。
+
+### F15 建议 / 视图要的几个字段在日志里是另一种形状，需要视图侧换算或内核补充（从代码推断）
+
+1. **附件**：`input.attachments` 是 `{kind: "image" | "file"; uri}`（`api/basics.ts:23`），没有 `name`、`mimeType`、`bytes`；视图的 `ContentBlockView.attachment` 要这三项（旧适配器从 base64 里算出来）。要么在 `UserInput.attachments` 里加上这三项，要么约定 `uri` 有固定的方案和一个 `resolve` 查询。助手回复里的图片块只有 `blob` 哈希（`api/model.ts:37`），`SessionApi` 没有读 blob 的查询，视图拿不到字节。
+2. **提醒类事件的文字是给模型的**：`notice.text`（如 `<system-reminder>…</system-reminder>`，`run/loop.ts:97-100`）和 `continued.text` 带标签，视图应按 `notice.code`、`continued.by` 显示本地化文案，不显示 `text`。建议在 `events.ts` 的注释里写明“`text` 是给模型的，视图不显示”。
+3. **上下文用量**：视图的 `UsageSummaryView.contextTokens/contextLimit/totalTokens/cacheRead/cacheWrite` 来源。累计量可以从路径上的 `assistant.usage` 与 `modelEnded.usage` 累加，但 `contextLimit`（模型窗口）与当前上下文估算（Spec 输出 46 的 `estimateContext`）只能通过 `preview()`（`tokens.estimated`、`tokens.window`）取，它要跑完整的视图与模型拦截链，每个助手回复之后调一次太重。建议 `snapshot()` 带 `context: {tokens: number; window: number; threshold: number | null}`（`estimateContext` 已经是只沿叶子往回走的廉价计算，`compaction/compact.ts:59`）。
+4. **工具结果的状态**：`toolResult.status` 是 `ok | error | denied | blocked | unknown`，视图的 `ToolCallStatus` 是 `success | error | invalid`。`denied`（用户拒绝、只读模式）、`blocked`（拦截挡下）、`unknown`（中止、崩溃恢复）要视图新增状态；`code` 为 `invalid-arguments` 对应 `invalid`。这是视图一侧的工作，内核给的字段够用（`status`、`code`、`by`）。
+
+### F16 建议 / 过滤队列里过期的 delta 照常排队过滤；出错路径的 `modelFailed.partial` 没写进 Spec；`ctx.report` 没有帧可走（从代码推断）
+
+1. **过滤队列没有背压处理**：`session/session.ts:322-341` 把每一帧串到一条 Promise 链上，异步过滤器（nb-story 要查书库）每块 delta 都等一次。若过滤比模型生成慢，队列越积越长，读者看到的流式文字落后于实际进度；而 `assistant` 事件到来后，同一个 `request` 之前排着的 delta 已经没有用了，仍然逐个过滤、逐个交出。建议：队列里发现同一个 `request` 的 `assistant`/`modelFailed` 已经排入时，跳过它之前尚未过滤的 delta（`delta` 的合同本来就是“丢了不影响正确性”）。
+2. **`modelFailed.partial`、`modelFailed.usage` 只写在类型里**（`api/events.ts`，`run/loop.ts:239-240` 出错路径会写），runtime.md 输出 8、9 没有提它们。视图要在出错的运行里显示“出错前的半截回复”只能靠读源码。应写进输出 8，并与 F1 一起规定：中止路径同样记。
+3. **`ToolContext.report`**（`api/tool.ts`：“报告进度：只推给界面，不进日志”）：`run/tools.ts` 构造 `ToolContext` 时没有提供它（该文件除 `reported` 诊断去重外没有 `report`），`Frame` 联合里也没有对应的帧类型。旧适配器的 `tool_execution_update` 视图本来就忽略，所以不影响现在的视图；但这是一个声明了的接口，没有实现也没有帧，应删掉或补全。
+
+### F17 建议 / 过滤后“正在生成的那条”可能没有终止信号，孤儿工具事件也没有约定怎么处理（从代码推断）
+
+位置：`session/session.ts:322-341`；`api/host.ts:187`（delta 合同只说“`assistant` 事件会带来完整回复”）；对照 `packages/nb-agent-ui/src/harness.ts:206-210` 的旧做法（`toolResult` 找不到调用时记问题并跳过）。
+
+现象：视图结束一条临时回复靠三种日志帧之一：对应 `request` 的 `assistant`、`modelFailed`，或 `runEnded`。出站过滤器可能把它们之中的某几条滤掉（`assistant` 因剧透被整条滤、`modelFailed` 被当作内部事件滤掉）。此时已经交出去的 `text` 增量没有终止信号，临时内容留在屏幕上直到下一个可见事件；`assistant` 被整条滤掉时，它的 `toolStarted`、`toolResult` 仍可能可见，视图看到没有对应调用的工具事件。nb-story 的验收测试只覆盖“assistant 被改写、没被滤掉”。
+
+建议：（a）内核在每个 `request` 的流结束时推一个不经过滤的 `{type: "delta", request, end: true, outcome: "done" | "failed" | "aborted"}`（或单独的 `streamEnded` 帧），视图以它清临时内容，不依赖日志帧；（b）在 Spec 里写明视图的约定：没有对应 `assistant` 的 `toolStarted`/`toolResult` 要容忍并跳过，不当作错误；（c）若过滤器返回 null 掉某个 `assistant`，内核同时丢弃该 `request` 的全部 delta（过滤器的 `ctx.live` 能做到，见 F11）。
+
+## 其它说明（不算发现）
+
+- 过滤器必须同时覆盖 `assistant.toolCalls[].args` 与 `toolStarted.args`（实际执行的参数，拦截可能改过），story-qa 的过滤器已经这样做（第 158-162 行），视图显示参数时以 `toolStarted.args` 为准（有它就覆盖 `assistant` 里的）。
+- `fork` 后的新会话有 `header.origin`，视图不需要整页重拉原会话；回退/切分支的重拉范围见 F9。
+- `status` 在 `runEnded` 之后才变 `idle`（已验证序列：`…runEnded → status idle`），视图把 `runEnded` 当作运行结束，把 `idle` 当作确认。
+
+## 已能满足的需求
+
+- 日志分页游标不卡也不跳：`log()` 的 `head`、`more` 按读取开始那一刻算，`through` 把被滤掉的事件也算进去，整页被滤时 `events` 为空而 `through` 前进（`session/session.ts:286-295`；`session/host.test.ts:296-321`；本次 `bun test src/kernel/session` 32 条全过）。
+- delta 与随后落盘的 `assistant` 对得上：`assistant.request` 与 `DeltaFrame.request`、`modelStarted.request` 一致（`api/events.ts` 的 `assistant` 注释；已验证帧序 `modelStarted#3 → delta#3.1 → delta#3.2 → modelEnded`），`n` 在一个 request 里从 1 起（`run/model-call.ts:96-99`）。
+- `toolArgs` 增量带 `callId`（`model/omp.ts:224`），与 `assistant.toolCalls[].id`、`toolStarted.callId`、`toolResult.callId` 同一个 id，视图可把流式参数挂到调用上。
+- 工具状态可从日志推出：`assistant`（待执行）→ `interactionRequested`（等审批，`callId` 对得上）→ `toolStarted`（运行，带实际参数与 `approval.by`）→ `toolResult`（`status`、`code`、`by`、`details`、`raw`）；已验证 `toolStarted` 在审批通过后、执行前即时进入订阅（F4 的实验里 seq 12、13）。
+- 运行状态刷新后可恢复：`snapshot().status` 有 `idle / running{phase, request} / waiting{pending} / aborting / broken`，已验证运行中 `snapshot().status` 为 `running/tools`；等审批与等提问的 `pending` 带 `kind`、`callId`、`request`（同步的）。比旧适配器的“只按事件推”强。
+- “停止中”：`abort` 先发 `status aborting` 再等收口（`run/control.ts:130-137`），已验证序列 `streaming → aborting → idle`。
+- 用量与费用：`assistant.usage` 带全部计数、`cost: number | null`（null 是单价未知，0 是单价已知且为 0；“单价全为 0 当未知”是目录层的决定，`packages/nb-harness/tests/catalog.test.ts:75`，与旧适配器同一口径）、`complete`；非对话请求在 `modelEnded.usage`，出错在 `modelFailed.usage`。
+- 运行前就失败的情况：缺密钥、无模型在 `send`/`start` 里直接是指令失败 `no-credentials`/`no-model`（已验证：`{"ok":false,"code":"no-model"}`，日志与帧一个都不写，输入也没有入队）；视图要把这一类显示在输入框旁并保留草稿。运行开始后才发现的（第二次请求没有凭据）以 `runEnded{reason:"error", error:{kind:"local", code:"no-credentials"}}` 进日志（已验证）。内核码 `runErrorCodes`（`api/codes.ts`）给全了，视图按 `kind` 与 `code` 取文案。
+- 错误：模型失败的 `modelFailed{kind, code, status, message, partial, usage}` 与 `runEnded.error{kind, code}` 都在日志里；`kind` 可直接映射旧适配器的七类，`RETRYABLE` 的判定（network、rate_limit、provider）保持可用。
+- 压缩：不删日志，`compaction{method, firstKeptEntryId, replacement, omitted, tokensBefore, tokensAfter}` 是 path 事件，原文仍在 `log()`/`path()` 里；视图可以显示原文并在 `firstKeptEntryId` 处画“以上已压缩”的分隔，摘要 `replacement` 点开看（`replacement: null` 表示沿用上一次的）。压缩时放回的内容是同批的 `notice{code:"restored"}`。已验证帧序 `modelStarted(compaction) → modelEnded → compaction → runEnded`。
+- 分支：`leafChanged`（session 事件）出现在 `log()` 和订阅里，`rewind`/`switchBranch`/`fork` 的成功值带新叶子/新会话 id；`rewindTargets()` 给编辑重发的目标并带 `inputText`；`siblings(modelStarted 的 id)` 给 swipe 的各分支末端。
+- 消息与日志条目的对应：`LogEvent.id`、`seq` 稳定，宿主按轮切分（nb-story 的 `logSeqOf` 用法）可直接用 `seq`。
+- 出站过滤的订阅收口：取消订阅、关闭会话后已排队的帧不再交出，过滤抛错不给看并诊断，订阅者抛错不停队列（`session/host.test.ts:255-295`）。
+
+## 各级数量
+
+- 阻断：0
+- 重要：12（F1–F12）
+- 建议：5（F13–F17）
+- 合计 17 条
+
+## 按影响排序的索引
+
+1. F1 中止的半截回复与用量不落日志（数据丢失，已验证）
+2. F6 首屏与重连没有原子的“先补后接”入口，注释指向错误顺序
+3. F3 压缩与审批的流式被当成普通 delta，状态被覆盖成 `streaming`（已验证）
+4. F2 过滤让 delta 的 `n` 不连续，与合同冲突
+5. F7 被滤事件在订阅里不留痕迹，`CommandOk.seq` 可能等不到
+6. F10 没有“更早一页”（反向分页、筛选、字节上限）
+7. F5 刷新后拿不到正在生成的前半段
+8. F4 工具逐个“跑完”没有信号，`pendingTools` 永远空（已验证）
+9. F11 过滤器没有会话标识与上下文，工具结果过滤依赖先见过调用
+10. F9 树与分支：叶子归约规则隐含、`path()` 不分页、过滤后 `parent` 断
+11. F8 `toolArgs` 增量无工具名、未解析
+12. F12 `status`/`diagnostic`/快照不经过滤，却带着同样的内容
+13. F14 异步提问、暂停的运行、`reset`、死字段
+14. F15 附件、提醒文字、上下文用量、工具结果状态的换算
+15. F17 过滤后流的终止信号与孤儿工具事件
+16. F16 过滤队列背压、`partial` 没写进 Spec、`ctx.report`
+17. F13 `limit` 不校验

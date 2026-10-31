@@ -40,17 +40,17 @@ owners:
 5. 会开始运行的指令在开始前就能判定的失败是指令失败、不写日志：会话只读得 `read-only`，模型端口解析不到模型得 `no-model`、解析不到凭据得 `no-credentials`。
 6. 每次模型请求之前写 `modelStarted{request, purpose: "turn", model, hash, now, invocation, modifiedBy}`；`request` 在一个会话里单调增加。回复写成 `assistant`（内容块、工具调用、停止原因、用量、作答的模型），失败写成 `modelFailed`。
 7. 回复里没有工具调用：写 `turnEnded{completed}`；缓冲区里有 `followup` 时，同一个写入批里取走最早的一条开下一轮（`inputConsumed`、`turnStarted`、`input`），同一次运行接着请求；没有时写 `runEnded{completed}`。
-8. 模型失败：写 `modelFailed{kind}`（类别见 [`harness/models.md`](models.md) 输出 2），之后 `turnEnded{error}`、`runEnded{reason: "error", error: {kind, code?}}`。
-9. `abort` 触发当前运行的中止；模型请求以 `modelFailed{kind: "aborted"}` 收口，之后 `turnEnded{aborted}`、`runEnded{aborted}`。没有运行时成功值为 `{aborted: false}`，不写日志。
+8. 模型失败：写 `modelFailed{kind}`（类别见 [`harness/models.md`](models.md) 输出 2），模型端口交回的部分内容与用量记在 `partial`、`usage`；之后 `turnEnded{error}`、`runEnded{reason: "error", error: {kind, code?}}`。
+9. `abort` 触发当前运行的中止；模型请求以 `modelFailed{kind: "aborted"}` 收口，之后 `turnEnded{aborted}`、`runEnded{aborted}`。中止之后在注入的时钟上等宽限期 `ABORT_GRACE_MS`（同输出 25）让模型端口交回，交回的半截回复与用量记在 `partial`、`usage`（界面已经推出去的文字刷新后还在）；宽限期过了仍没交回只写 `kind`。没有运行时成功值为 `{aborted: false}`，不写日志。
 10. Profile 的 `prompt`、`system` 或 `turn` 抛错时这次请求算不出来：写 `extensionFailed{entry}`，运行以 `error`、码 `profile-failed` 收口。
 11. 对话事件写入时，内核按当时的轮盖位置章：进行中的轮还没有回复时是这一轮的附带内容，有了回复是最后一步之后，没有进行中的轮是“等下一轮”。回复与工具结果不盖章。
-12. 流式增量以 `delta` 帧推出，带请求序号与从 1 起递增的编号，不进日志。运行状态的变化（阶段、中止中、损坏）以 `status` 帧推出。
+12. 流式增量以 `delta` 帧推出，带请求序号、请求的用途（`purpose`）与从 1 起递增的编号，不进日志；只有对话请求（`turn`）让运行进入 `streaming` 阶段，压缩与审批模型的请求流式时运行仍在 `compacting`、`tools`。运行状态的变化（阶段、中止中、损坏）以 `status` 帧推出。
 13. `waitRun(runId)` 在运行结束、会话回到空闲之后完成，结果同 `runResult(runId)`：结束原因、停止原因（运行以收尾工具结束时为 `finished`）、最后一条回复的文字、运行结果、错误、用量、这次运行写下的事件的 seq 范围。用量是这次运行全部回复与非对话请求的用量之和，有一条不完整总和就不完整。运行结束后（包括重开之后）`runResult` 照样能取。
 14. 请求的样子由 Profile 定（规则见 [`harness/profile.md`](profile.md)）：不写模板时依次是系统提示词与稳定的槽、开场槽、已提交的轮、进行中的这一轮（附带内容在前、用户的话在最后）、会变的槽。
 
 工具：
 
-15. 生效工具集是宿主经 `SessionEnv.tools.declarations` 给的声明；会话头带 `result` 时另加内核生成的收尾工具 `yield`（输出 27）。声明的 id 或交给服务商的名字不合 [`harness/models.md`](models.md) 的规则、或两个声明换算后同名时，这个声明不进工具集，诊断 `tool-declaration-invalid`。Profile 的 `tools.required` 里有不在工具集里的，运行以 `error`、码 `tools-missing` 收口，会话进只读直到重开。
+15. 生效工具集是宿主经 `SessionEnv.tools.declarations` 给的声明；会话头带 `result` 时另加内核生成的收尾工具 `yield`（输出 27）。声明的 id 或交给服务商的名字不合 [`harness/models.md`](models.md) 的规则、或两个声明换算后同名时，这个声明不进工具集，诊断 `tool-declaration-invalid`。Profile 写了 `tools` 时只取宿主声明里 `required` 与 `optional` 列出的（宿主给的别的工具不交给模型），没写时宿主给的全要；`tools.required` 里有不在工具集里的，运行以 `error`、码 `tools-missing` 收口，诊断 `tools-missing{missing}`，会话进只读直到重开。
 16. 每次模型请求之前，把工具集（按 id 排序的 id 与版本）与当前路径上最后一条 `toolsAnnounced` 比对：没有记录时写一条 `toolsAnnounced`；不同时同一个写入批里写新的 `toolsAnnounced` 与一条给模型的 `notice{code: "tools-changed"}`，文字列出新增、去掉与改了版本的工具。回退到变化之前的分支时照样按那条路径上的记录比对。
 17. 一条回复里的工具调用按顺序切段：连续的 `concurrency: "shared"` 调用并发执行（按调用顺序启动），`exclusive` 单独执行。每个调用经工具拦截链（输出 20–23），最里层依次是参数校验、只读模式、审批钩子、执行；放行之后、执行之前写 `toolStarted{callId, tool, args, invocation, approval: {by}}`，`args` 是全部拦截之后实际执行的参数。全部调用的结果按调用顺序作为一个写入批写入，整批写完再派发反应。
 18. 内核造的结果：工具不在工具集里得 `error`、码 `unknown-tool`；参数不合声明的 schema 得 `error`、码 `invalid-arguments`，文字列出不合格的位置；只读模式下等级为 `write` 或 `exec` 的调用得 `denied`、码 `read-only`、`by: "core"`，不调用审批钩子；审批钩子拒绝得 `denied`，码与 `by` 取自它的拒绝；执行抛错得 `error`、码 `tool-threw`。等级按参数求值的函数抛错时按 `exec` 算。
@@ -60,10 +60,10 @@ owners:
 
 20. 拦截链从外到里是装配序（插件的扩展、Profile 的 `extensions`、Profile 自己）；`mount` 失败过的扩展不参与。每一层每次调用有自己的 `invocation` 与 `ctx.signal`，信号挂在运行的中止上。调用 `next` 之前、`next` 完成之后两段各有时限（扩展的 `timeoutMs`，缺省 30 秒；输入拦截缺省 5 秒）。一层出错或超时之后再调用它拿到的 `next` 得到拒绝，不再进里层。交给拦截层的请求、工具调用与工具结果是冻结的（请求的 `tools` 只冻结数组本身）：要改就返回新对象，原地修改抛错，按这一层出错处理。
 21. 拦截出错或超时：输入拦截跳过这一层；模型拦截在 `next` 之前出错跳过这一层，之后出错用里层的回复；工具拦截缺省拒绝这次调用（`denied`、码 `intercept-failed`、`by` 为这个扩展），扩展写 `onFailure: {tool: "ignore"}` 时跳过这一层（`next` 之后出错用里层的结果）。每次都写 `extensionFailed{entry: "intercept.<链>", code}`，与这次的结果（回复、工具结果或受理批）同一个写入批，并诊断 `intercept-threw`。
-22. 模型拦截：每一次真正发给模型端口的请求写一条 `modelStarted`（一层调两次 `next` 就有两条），`modifiedBy` 列出在它之前改过请求的层与改了的顶层字段，`hash` 是这次请求的哈希；写成 `assistant` 的是链最外层交回的回复，`request` 是最后一次真正发出的请求的序号。一层不调 `next` 直接交回回复时，内核为它分配新的请求序号，不写 `modelStarted`。
-23. 工具拦截：一层不调 `next` 交回 `denied` 时结果记 `blocked`，`by` 为这一层的扩展；执行之后有层改了结果的文字时，原文记在 `toolResult.raw`，结果标了 `redacted` 时只记 `rawHash`（SHA-256），也不写 `details`。
+22. 模型拦截：每一次真正发给模型端口的请求写一条 `modelStarted`（一层调两次 `next` 就有两条），`modifiedBy` 列出在它之前改过请求的层与改了的顶层字段，`hash` 是这次请求的哈希；写成 `assistant` 的是链最外层交回的回复，`request` 是最后一次真正发出的请求的序号。一层不调 `next` 直接交回回复时，内核为它分配新的请求序号，不写 `modelStarted`。模型端口在进链之前按设置解析好，拦截不能改 `model`：改了的那一层算出错、跳过（诊断 `intercept-threw`），请求按原来的模型发。
+23. 工具拦截：一层不调 `next` 交回 `denied` 时结果记 `blocked`，`by` 为这一层的扩展；执行之后有层改了结果的文字时，原文记在 `toolResult.raw`，结果标了 `redacted` 时只记 `rawHash`（SHA-256），也不写 `details`。工具实现（`ToolContext.read`）与审批钩子（`ctx.read`）能读任何已装扩展的导出，读的是发出这批调用的那条回复所在叶子上的状态，与工具拦截看到的同一刻；没装的读到 undefined。
 24. 输入拦截在 `send`、`enqueue` 受理时、受理批写下之前跑，读受理这一刻的叶子：一层返回 `{reject}` 时指令失败 `input-rejected{code, params, by}`、不写日志，诊断 `input-rejected`；有层改了输入时 `inputQueued.input` 是改过的，原文记在 `original`；有层返回 `redacted: true` 时只记 `originalHash`，文字没改也照记（[`harness/session.md`](session.md) 输出 10）。
-25. 运行在执行工具时被中止：在注入的时钟上等宽限期 `ABORT_GRACE_MS`（2 秒），期内完成的调用照常写结果；中止时还没开始执行的调用（还在审批或建实现）不再开始；没完成的得 `unknown`、码 `aborted`；运行以 `aborted` 收口。宽限期之后才到的结果不写日志，只诊断 `late-result-dropped`。
+25. 运行在执行工具时被中止：在注入的时钟上等宽限期 `ABORT_GRACE_MS`（2 秒），期内完成的调用照常写结果；中止时还没开始执行的调用（还在审批或建实现）不再开始，得 `denied`、码 `aborted`、`by: "core"`（肯定没执行）；开始了没完成的得 `unknown`、码 `aborted`；同一段并发的调用按各自是否在宽限期内完成判断，不按先后；运行以 `aborted` 收口。宽限期之后才到的结果不写日志，只诊断 `late-result-dropped`。
 
 收尾：
 
@@ -74,7 +74,7 @@ owners:
 
 28. 运行中，每个边界把缓冲区里全部 `steer` 按入队顺序取走：每条一个 `inputConsumed` 加一条 `steer`，同一个写入批，进当前这一轮（还没有回复时是附带内容，有了是最后一步之后）。模型给出最终回复时缓冲区里还有 `steer`，这一轮不结束，接着请求；同时有扩展要 `continue` 时先写 `continued`，两者都进下一次请求。
 29. `edit`、`remove` 只对还在缓冲区里的输入：`edit` 经输入拦截链（同输出 24）写 `inputEdited`，`remove` 写 `inputRemoved{reason: "user"}`。不在缓冲区里时，入过队的（已取走或已删）得 `input-consumed`，从没入过队的得 `input-not-found`。
-30. `abort` 中止了运行时，缺省在收口之后清空缓冲区，每条写 `inputRemoved{reason: "aborted"}`；`keepQueue: true` 保留。没有运行时缓冲区不动。轮以 `error` 或 `aborted` 结束时不取 `followup`。
+30. `abort` 中止了运行时，缺省在收口之后清空缓冲区，每条写 `inputRemoved{reason: "aborted"}`；`keepQueue: true` 保留。与它们同一个写入批写 `commandAccepted{name: "abort"}`：重发同一个 `commandId`（中止进行中、运行收口后、重开之后）交回第一次的结果。没有运行时缓冲区不动、不写日志。轮以 `error` 或 `aborted` 结束时不取 `followup`。
 31. `changeSettings` 的补丁按扩展 id 分组（核心设置组是 `core`：`model`、`effort`、`approvalMode`、`readOnly`），整体校验：组不是装配里的扩展得 `unknown-extension`，键不在它的设置 schema 里得 `unknown-key{extension, key}`，值不合 schema 得 `invalid-value{extension, key, message}`，有一项不合法就都不改。受理时给每个值有变化的组写一条 `settingsChanged`（按生效值比：扩展的项先合并 schema 的缺省值，与缺省相同的不算变化；值没变的项不写），运行中受理的同样立刻写，下一次请求前生效（`scheduled: "next-boundary"`，空闲时 `"now"`）。`settingsChanged` 只派发给设置所属的扩展的处理函数。
 32. `setTitle` 去掉首尾空白后为空得 `empty-title`，否则写 `titleChanged{by: "user"}`；`archive` 写 `archived`。快照的 `title`、`archived` 随之变化。
 33. 输出 29–32 的指令与 `send` 一样按 `commandId` 幂等（[`harness/session.md`](session.md) 输出 17）。受理批写失败的那条指令得 `log-broken`（不抛错），之后的指令同样（`session.md` 输出 12）。
@@ -91,10 +91,10 @@ owners:
 
 39. 审批钩子判定 `ask` 时，写 `interactionRequested{kind: "approval", callId, request: {tool, args, effect, reason?}, async: false}`，这次调用停下等应答（同一段里别的调用照常），运行状态是 `waiting{pending}`。应答 `allow`、`allow-session` 时照常执行，`toolStarted.approval.by` 为 `user`；`allow-session` 同一个写入批里写 `approvalRemembered{tool, scope: "tool", by}`，它是 session 事件，回退与重开都不撤销，审批钩子从 `info.remembered` 读到。应答 `deny` 时调用得 `denied`、码 `user-denied`、`by: "user"`，应答的 `note` 附在给模型的文字里。没有等用户的通道时（例如没有界面的单次请求）判定 `ask` 的调用得 `denied`、码 `approval-unavailable`。
 40. 工具的 `ctx.ask(request, {async?})`：同步提问写 `interactionRequested{kind: "question"}` 并等，应答 `answer` 交回 `{kind: "answer", text, data?}`，`deny` 交回 `{kind: "unavailable", code: "declined"}`，运行被中止交回 `code: "aborted"`。异步提问写下事项（`async: true`）就交回 `{kind: "unavailable", code: "async"}`，不进 `waiting`。
-41. `resolve({id, decision, answer?, note?})`：事项不在当前路径的待处理里时，路径上已经结算过的得 `already-answered{by, decision}`，其余（含被回退掉的分支上的）得 `unknown-interaction`。审批只收用户的应答；提问用户都能答，会话头 `questions: "caller"` 时也收 `caller` 那个父会话的；其余得 `not-allowed`。`decision` 不合事项的种类（审批：`allow`、`allow-session`、`deny`；提问：`answer`、`deny`），或 `answer` 缺少、文字为空，得 `invalid-answer`。受理时写 `interactionResolved{id, decision, by, data?, note?}`，`by` 是发出者。同一事项的几次应答由单写者裁决：先到的生效，后到的得 `already-answered`。
+41. `resolve({id, decision, answer?, note?})`：事项不在当前路径的待处理里时，路径上已经结算过的得 `already-answered{by, decision}`，其余（含被回退掉的分支上的）得 `unknown-interaction`。审批只收用户的应答；提问用户都能答，会话头 `questions: "caller"` 时也收 `caller` 那个父会话的；其余得 `not-allowed`。`decision` 不合事项的种类（审批：`allow`、`allow-session`、`deny`；提问：`answer`、`deny`），或 `answer` 缺少、文字为空，得 `invalid-answer`。会话只读时得 `read-only`。受理时写 `interactionResolved{id, decision, by, data?, note?}`，`by` 是发出者。同一事项的几次应答由单写者裁决：先到的生效，后到的得 `already-answered`。
 42. 异步提问的回答：同一个写入批里写 `interactionResolved` 并把回答的文字作为一条输入放进缓冲区（经输入拦截链，拒绝时得 `input-rejected`、不写日志）；运行中是 `steer`，空闲时开新的运行（或让暂停的运行接着跑）。
 43. 运行被中止时，等待中的同步事项写 `interactionResolved{decision: "aborted", by: {kind: "kernel"}, code: "aborted"}`，等审批的调用得 `denied`、码 `aborted`；中止之后才到的应答得 `already-answered{by: "kernel", decision: "aborted"}`。进程重启后打开会话时，同步事项写 `interrupted`（审批码 `interrupted-before-approval`，提问码 `interrupted`），调用按输出 34 结算。异步提问不随中止、关闭会话、重启结算，重开后照样能应答。
-44. 同一条回复里几个调用的事项可以同时待处理、任意顺序应答；`waiting.pending` 列出全部，都应答之后运行状态回到 `running`。
+44. 同一条回复里几个调用的事项可以同时待处理、任意顺序应答；`waiting.pending` 列出全部（`{id, callId, kind}`，请求原文只在经出站过滤的 `interactionRequested` 里），都应答之后运行状态回到 `running`。
 45. 发出者由宿主注入：`session.as(issuer)` 交回带这个发出者的会话视图，指令里没有发出者参数。
 
 压缩（压缩方法与放回的内容由宿主经 `SessionEnv.compaction` 交进来）：
@@ -110,10 +110,10 @@ owners:
 宿主面：
 
 53. `closeSession(session)` 依次：之后的指令得 `session-closed` → 中止在跑的运行并等收口 → 等队列清空 → 按装配序的逆序调用 `mount` 的清理并等待 → 释放工具实现 → 清空订阅 → 关闭日志与锁。关闭开始时还在受理的指令（例如输入拦截还没返回）得 `session-closed`，不写日志、不开运行；进行中的重新装配先做完，它装上的扩展随后一起摘下。重复与并发的调用等同一次关闭完成。关闭之后（或扩展摘下之后）`mount` 里再写的外部事实不进日志，只诊断 `late-result-dropped`。`closeSession(session, {reason: "interrupted"})` 是进程收尾：在跑的运行按 `interrupted` 收口（轮、运行、发出没回复的模型请求、写过 `toolStarted` 没完成的工具 `unknown{interrupted}`、还没开始的工具与等审批的事项 `denied{interrupted-before-approval}`），与重开时的恢复一致（[`harness/session.md`](session.md) 输出 16）；宿主经 `onProcessInterrupt`、`onProcessTermination` 在退出前调用它。
-54. `SessionEnv.outbound` 在推帧与日志查询之前调用：`log` 帧与 `log()`、`path()` 查询的事件经 `outbound.event(event, reader)`，`delta` 帧经 `outbound.delta(frame, reader)`，`reader` 是这个会话视图的发出者（`session.as(issuer)`）；返回 null 的不给这个读者。过滤可以是异步的（返回 Promise，例如要查书库判断一个词读者读到过没有）：日志查询按日志顺序逐条等，订阅的帧按到达顺序排成一条队列、过滤完再交给订阅者，先后不变；过滤函数抛错或 Promise 失败时不给看，诊断 `outbound-filter-threw`。取消订阅或会话关闭之后，已排进队列的帧不再交出；订阅者抛错只诊断 `subscriber-threw`，后面的帧照常。`log({afterSeq, limit})` 的 `head`、`more` 按读取开始的那一刻算（过滤期间新写下的事件不算这一页），`through` 是这一页扫描到的最后一条 seq（被过滤掉的也算），下一页从它接着读；整页被过滤时 `events` 为空、`through` 照样前进。出站过滤只管日志事件与流式增量：运行结果、预览、诊断与快照不经过它，宿主给不同读者暴露这些时自己投影。
+54. `SessionEnv.outbound` 在推帧与日志查询之前调用：`log` 帧与 `log()`、`path()` 查询的事件经 `outbound.event(event, reader, context)`，`delta` 帧经 `outbound.delta(frame, reader, context)`，`reader` 是这个会话视图的发出者（`session.as(issuer)`）；返回 null 的不给这个读者。`context` 带会话 id 与 `toolCall(callId)`（这次调用实际执行的参数，从中途读起也查得到）；增量的 `context.before` 是这个订阅者此前收到的同一次请求、同一部分的原文，一个词拆在两块里时拼起来查。`mapEventContent(event, {text, args?, data?})` 按字段走遍内核事件里带内容的地方（用户的话与原文、回复与半截回复、工具参数与结果、收尾结果、提问与回答、压缩摘要、标题），扩展事件整份交给 `data`。过滤可以是异步的（返回 Promise，例如要查书库判断一个词读者读到过没有）：日志查询按日志顺序逐条等，订阅的帧按到达顺序排成一条队列、过滤完再交给订阅者，先后不变；过滤函数抛错或 Promise 失败时不给看，诊断 `outbound-filter-threw`。取消订阅或会话关闭之后，已排进队列的帧不再交出；订阅者抛错（有没有出站过滤都一样）只诊断 `subscriber-threw`，不打断这一批的提交，后面的订阅者与帧照常。被过滤掉的事件在订阅里推 `progress{through}` 帧，界面等指令的 `seq` 时 log 帧的 seq 或它追到就算追上；增量按订阅者重新编号，过滤掉的不占号。`log({afterSeq, limit})` 的 `head`、`more` 按读取开始的那一刻算（过滤期间新写下的事件不算这一页），`through` 是这一页扫描到的最后一条 seq（被过滤掉的也算），下一页从它接着读；整页被过滤时 `events` 为空、`through` 照样前进。`limit` 缺省 500，取整后夹在 1 到 2000 之间。出站过滤只管日志事件与流式增量：运行结果、预览、诊断、快照与 `rewindTargets()`、`siblings()` 不经过它，宿主给不同读者暴露这些时自己投影（运行状态里等用户的事项不带请求原文）。
 55. `preview()` 算下一次请求（`fidelity: "next"`）：跑视图与模型拦截链（`ctx.phase` 为 `preview`），最里层截下请求，不发给模型、不写日志。预览当前叶子时，把下一个边界确定会取走的输入投影进去（两轮之间取缓冲区的第一条开新的一轮，一轮进行中取全部 steer）；在跑的工具的结果、边界上可能触发的压缩不投影。请求的冻结、拦截返回值的校验与失败策略同真实请求：一层原地改请求按这一层失败、跳过，失败与超时交在结果的 `diagnostics` 里（不写日志）。结果有拦截之前与之后的请求、每一层改了什么（`changes`，按每层交出与收到的比较：系统块、消息的插入与删除（按两边相同的前后缀对齐）、消息的内容块与其余字段、参数、头、工具与顶层字段）、每个槽的贡献有没有摆进请求、没参与的扩展（`mount` 失败、运行中被撤回）、各区（系统、开场、历史、这一轮、工具）的 token 估算（含工具调用的参数）与触发点。`preview({atRequest})`（过去的请求）与算不出请求时抛 `PreviewUnavailable`（带码）。
 56. `complete(env, {profile, input, initial?, signal?})` 不经会话、不读写日志：Profile 声明了工具得 `profile-has-tools`，解析不到得 `unknown-profile`，没有模型或凭据得 `no-model`、`no-credentials`；请求只有 Profile 的系统提示词与输入这一条用户消息，`purpose: "background"`；结果同运行结果（没有 `runId` 与条目范围），模型失败按 [`harness/models.md`](models.md) 的类别交回。
-57. 插件宿主 `createAgentHost(env)` 接收 `agent.extensions` 贡献：`prepare` 否决 id 不合规则或前缀与所属插件不符（`bad-extension-id`）、重名（`duplicate-extension-id`）、声明的依赖成环（`dependency-cycle`），抛 `ExtensionRejected` 并记进宿主的诊断；`published` 之后新开的会话装上它，已打开的空闲会话立刻重新装配；重新装配（含装上扩展）做完之前不受理指令，`pendingReassembly` 在做完之前一直列出这次的变化。`revoke` 幂等，只撤回传入的这个句柄的贡献：旧代次的句柄重复撤回不影响同 id 的新代次。运行中撤回时，这次运行里跳过它的处理函数、拦截与槽（快照里状态 `revoked`，诊断 `extension-revoked`），已经在链里、还没走到它那一层的拦截也跳过，进行中的处理函数的输出丢掉（诊断 `late-result-dropped`），它在 `mount` 里拿着的 `ctx.signal` 立刻触发，之后的外部写入与回调不再生效；`pendingReassembly` 列出待装配的变化，运行结束后重新装配。重新装配的结果哈希变了写 `profileChanged{reason: "plugin-added" | "plugin-removed" | "plugin-updated"}`；装配失败（例如依赖被撤回）时会话进只读，码 `dependency-missing`；依赖补回、重新装配成功后解除（别的原因的只读留到重开）。
+57. 插件宿主 `createAgentHost(env)` 接收 `agent.extensions` 贡献：`prepare` 否决 id 不合规则或前缀与所属插件不符（`bad-extension-id`）、重名（`duplicate-extension-id`）、声明的依赖成环（`dependency-cycle`），抛 `ExtensionRejected` 并记进宿主的诊断；`published` 之后新开的会话装上它，已打开的空闲会话立刻重新装配；重新装配（含装上扩展）做完之前不受理指令，`pendingReassembly` 在做完之前一直列出这次的变化。`revoke` 幂等，只撤回传入的这个句柄的贡献：旧代次的句柄重复撤回不影响同 id 的新代次；交回的 Promise 在各会话摘下它（清理函数跑完，运行中的等这次运行结束）或关闭之后完成，平台在这之后释放插件自己的资源。运行中撤回时，这次运行里跳过它的处理函数、拦截与槽（快照里状态 `revoked`，诊断 `extension-revoked`），已经在链里、还没走到它那一层的拦截也跳过，进行中的处理函数的输出丢掉（诊断 `late-result-dropped`），它在 `mount` 里拿着的 `ctx.signal` 立刻触发，之后的外部写入与回调不再生效；`pendingReassembly` 列出待装配的变化，运行结束后重新装配。重新装配的结果哈希变了写 `profileChanged{reason: "plugin-added" | "plugin-removed" | "plugin-updated"}`；装配失败（例如依赖被撤回）时会话进只读，码 `dependency-missing`；依赖补回、重新装配整个做完（写下 `profileChanged`、装上扩展）后解除，中途写失败不解除（别的原因的只读留到重开）。宿主在重新装配中途失败（建资源、建工具上下文）时会话进只读，码 `reassembly-failed`，诊断同名，重开以日志为准。
 
 ## 状态与转换
 
@@ -146,6 +146,7 @@ owners:
 | `no-model`、`no-credentials` | 模型或凭据没配 | 去设置里配 |
 | `log-broken` | 日志写失败过 | 关闭后重开 |
 | `session-closed` | 会话已关闭 | 重新打开 |
+| `command-id-conflict` | 同一个 `commandId` 带了别的指令或参数（[`harness/session.md`](session.md) 输出 17） | 每条指令用新的 `commandId`；重发才用原来的 |
 | `input-rejected` | 输入拦截拒绝了这条输入；`detail` 带 `code`、`params` 与拒绝者 `by` | 按拒绝的码提示用户 |
 
 运行以 `error` 结束时 `runEnded.error.code` 的内核码见 `runErrorCodes`（`profile-failed`、`tools-missing`、`result-missing`、`no-model`、`internal` 等）；内核造的工具结果的码见 `toolResultCodes`。

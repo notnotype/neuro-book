@@ -1,0 +1,235 @@
+### 重要｜不变量：同一批内的幂等键没有去重，日志可被自己写坏
+
+**位置**：`packages/nb-harness/src/kernel/dispatch/reactions.ts:125-139`、`packages/nb-harness/src/kernel/dispatch/mount.ts:36-57`
+
+**现象**：`outputDrafts()` 和 `Mounts.#external()` 只用已经提交到 `core.#keys` 的键判断重复，不把当前待写批或已经排队但尚未提交的键纳入判断。一个处理函数在同一次调用中两次 `ctx.emit(..., {key: "same"})` 会生成两条同来源同键事件；mount 回调同步两次 `ctx.emit` 也会在两个队列项启动前都通过检查。
+
+**为什么是问题**：同一来源的幂等键合同要求命中后不写、也不引出反应；`recordsProblem()` 又把同来源重复键定义为 `log-corrupt`。因此合法运行可以先把两条重复键事件落盘并继续运行，当前内存看似正常，但关闭重开必得 `log-corrupt`，恢复与后续指令全部不可用。这同时破坏“写入成功后日志可重开”和 `emit` 幂等语义。
+
+**如何核实**：
+
+```text
+bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/duplicate-key.ts
+```
+
+经真实 `createTestSession`、JSONL 存储和 `openSession` 运行；输出先显示同一批中两条 `{key: "same"}` 事件，随后重开失败：`log-corrupt {"line":11,"problem":"duplicate idempotency key same for lab.dup"}`。
+
+**建议改法**：在构造一个输出批时维护本批的 `(source, key)` 集合，并把它与已提交键合并判断；mount 外部事实不能在调用 `#external` 时只查已提交集合，应把幂等判定放进队列项执行，或先登记待处理键并在写失败时回滚。对同一批保留第一条，后续命中不写、不派发反应；补充处理函数重复 emit 与 mount 同步重复 emit 的 JSONL 重开测试。
+### 重要｜生命周期：重新装配的宿主失败会变成未处理拒绝，会话留下半装配状态
+
+**位置**：`packages/nb-harness/src/kernel/session/session.ts:486-495,497-531`、`packages/nb-harness/src/kernel/session/session.ts:116-125`
+
+**现象**：`scheduleReassembly()` 把 `reassembleNow(...).finally(...)` 放进 `state.reassembling`，但没有给这个 Promise 设置失败收口。`reassembleNow()` 只捕获 `LogBrokenError`；`state.refreshContext()` 中的 `env.resources(context)`、工具上下文重建等宿主边界一旦抛错，Promise 直接 reject。`notifyExtensionsChanged()` 也不返回或接收这个 Promise，因此发布插件后会产生未处理拒绝。若此前已写下 `profileChanged`、摘下旧 mount 并执行了 `core.reassemble()`，内存装配已经改变，但新 mount 还没有完成。
+
+**为什么是问题**：重新装配是会话生命周期屏障，失败必须有可观察的只读/诊断结果并继续保证关闭、锁和订阅清理。当前错误既不转成合同里的装配失败，也不保证 `closeSession()` 能收口；在 Bun 中未处理拒绝会直接终止宿主进程，留下持锁会话或半完成的装配。即使宿主不因拒绝退出，日志已是新 Profile、内存可能是新 Profile、资源仍是旧 Profile，后续指令会在没有成功 mount 的装配上运行。
+
+**如何核实**：
+
+```text
+bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/reassembly-failure.ts
+```
+
+脚本经真实 `createAgentHost`、`createSession` 和 `published` 路径运行；第二次调用资源工厂时抛出 `Error: resources failed during reassembly`，输出 `Unhandled Rejection`，进程以退出码 `1` 结束，未到达快照和关闭。失败栈落在 `session.ts:522` 的 `refreshContext()`。
+
+**建议改法**：让 `scheduleReassembly` 持有一个显式的、可观察的失败处理：保留当前已落盘 Profile 与内存装配的一致性，或在事务失败时恢复旧装配和 mount；把宿主失败记录为诊断并按 `dependency-missing`/`profile-invalid` 之外的稳定生命周期错误进入只读，而不是让 Promise 泄漏。无论失败发生在 `refreshContext`、`mountAll` 还是其后的队列 drain，都必须进入 `finally` 的统一关闭路径，保证重复发布、关闭和下一次指令不会遇到未处理拒绝。
+
+### 阻断｜不变量：无出站过滤时订阅者抛错会让内存状态落后于已落盘批
+
+**位置**：`packages/nb-harness/src/kernel/dispatch/core.ts:367-371`、`packages/nb-harness/src/kernel/session/session.ts:308-347`
+
+**现象**：没有配置 `env.outbound` 时，`subscribe()` 直接返回 `core.subscribe(listener)`；`SessionCore.#emit()` 没有捕获订阅者异常。`core.write()` 已经成功追加整批到存储后，逐事件 `#commit()` 并逐事件推帧；订阅者在第一条帧上抛错会中断这个循环。于是存储已经有完整批，内存只提交了前一条事件，指令 Promise 反而以订阅者异常拒绝。
+
+**为什么是问题**：运行中的会话不再是日志的投影：`head`、叶子、缓冲区、运行状态和 `commandAccepted` 都可能落后于文件；后续指令会按残缺的内存状态继续执行，重开后又突然看到整批，产生不可重放的分叉。合同明确订阅者抛错只写 `subscriber-threw` 诊断、后续帧照常；该实现只在配置了出站过滤的包装路径满足这个合同，默认路径反而能把任意宿主订阅者变成状态破坏入口。
+
+**如何核实**：
+
+```text
+bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/subscriber-throw.ts
+```
+
+经真实 JSONL `createTestSession`、`subscribe`、`send`、关闭和 `openSession` 运行；输出为：
+
+```text
+send Error: subscriber boom
+live 3 [ "sessionCreated", "profileChanged", "inputQueued" ]
+reopened 10 [ "sessionCreated", "profileChanged", "inputQueued", "runStarted", "inputConsumed", "turnStarted", "input", "commandAccepted", "turnEnded", "runEnded" ]
+```
+
+**建议改法**：把订阅者保护放到 `SessionCore.#emit()` 的唯一出口，逐个捕获异常并写 `subscriber-threw` 诊断，不能让帧消费失败反向影响 `write()` 的提交；出站过滤路径复用同一保护。补充无过滤、过滤和订阅者抛错后的后续帧与内存/重开一致性测试。
+### 重要｜正确性：打开会话不校验大块引用的 `size`
+
+**位置**：`packages/nb-harness/src/kernel/log/jsonl-store.ts:164-172`、`packages/nb-harness/src/kernel/log/codec.ts:57-63`
+
+**现象**：`readBlobs()` 只按文件名计算 SHA-256，不读取事件里的 `{$blob, size}` 引用；`resolveBlobs()` 也只按哈希换回字符串。因此引用的 `size` 被篡改、截断或与实际 UTF-8 字节长度不一致时，打开仍成功，调用方拿到内容但日志没有通过合同要求的长度校验。
+
+**为什么是问题**：会话合同把“引用存在、长度与哈希相符”都列为 `log-corrupt` 条件。长度字段参与大块边界与完整性判断；忽略它会让损坏日志被当作可恢复事实，后续请求、压缩估算和脱敏审计都基于未被验证的持久化数据。哈希没有被篡改只能证明文件内容对应文件名，不能证明事件引用的元数据仍然一致。
+
+**如何核实**：
+
+```text
+bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/blob-size.ts
+```
+
+脚本经真实 `createJsonlStore` 写入超过 16 KB 的事件，直接把日志中的 `size` 改大 1 后调用 `open`；输出 `{ opened: true, textLength: 9000 }`，而按 `session.md` 输出 7 应返回 `log-corrupt`。
+
+**建议改法**：读取 blob 时同时传入每个引用的声明长度，按 UTF-8 字节数核对 `size`，并核对引用对象只含合法的 `$blob`/`size` 形状；不匹配返回 `log-corrupt`。补充缺失、哈希不符和长度不符三种重开测试。
+### 重要｜正确性：共享工具中止时，已在宽限期内完成的后续调用也被误记为 `unknown`
+
+**位置**：`packages/nb-harness/src/kernel/run/tools.ts:321-345`
+
+**现象**：同一段 `shared` 工具按调用顺序逐个读取结果。第一调用在中止后一直到宽限期结束，第二调用在宽限期内已经完成；处理第一调用时 `graceExpired` 变成 `true`，处理第二调用却直接走 `graceExpired ? null : Promise.race(...)`，不再检查第二个 Promise 已完成的结果，统一生成 `unknown`。
+
+**为什么是问题**：运行时合同是“宽限期内完成的调用照常写结果，未完成的才记 `unknown`”。调用的落盘结果因此依赖模型返回的工具顺序，而不是实际完成时间；共享并发工具中已成功执行的副作用会被报告为未知，重开也只能保留错误的审计结果和给模型的错误事实。
+
+**如何核实**：
+
+```text
+bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/report.md
+```
+
+上面的命令原样不能运行实验；实际复现命令为：
+
+```text
+bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/shared-abort-order.ts
+```
+
+经真实 `createTestSession`、共享并发工具、注入时钟和中止路径运行：`lab.slow` 先占住直到宽限期结束，`lab.quick` 在宽限期内完成，但两条 `toolResult` 都是 `status: "unknown", code: "aborted"`。
+
+**建议改法**：为每个调用记录一个已 settle 的 Promise/结果；宽限期结束后只把仍未完成的调用记为 `unknown`，已经完成的调用照常取其结果。迟到回调只针对确实在宽限期后完成的调用写 `late-result-dropped`；补充“慢调用在前、快调用在后”的共享段测试。
+**核实命令更正**：上一段第一个代码块是报告路径的误写，不是核实命令；可重跑的唯一命令是其后的 `lab/shared-abort-order.ts` 命令。
+### 阻断｜恢复与幂等：fork 复制批失败后，重发会复用空壳会话并返回成功
+
+**位置**：`packages/nb-harness/src/kernel/session/session.ts:431-454`、`packages/nb-harness/src/kernel/session/session.ts:208-215`
+
+**现象**：`forkSession()` 先 `store.create()` 新会话，再把来源路径追加到新句柄；复制批追加失败时只关闭句柄并返回 `{ok: false}`，没有删除或标记这个按 `commandId` 预分配的目标目录。外层 `accept()` 因而不写源会话的 `commandAccepted`。再次用同一 `commandId` 调用时，`store.create()` 得到 `session-exists`，代码无条件把它当作同一个成功 fork 返回，没有检查目标日志是否已经完整复制。
+
+**为什么是问题**：修正后的确定性 id 只解决“源会话受理批失败后重试不多建”，没有解决“fork 自身复制失败”。一次可恢复的存储失败会留下只有会话头、没有任何路径事件的空壳；重发却得到 `ok: true`，调用方会拿到一个没有原会话历史的会话 id，且源会话的幂等记录只在第二次才补写。日志唯一真相源、fork 复制合同和 commandId 幂等都被破坏。
+
+**如何核实**：
+
+```text
+bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/report.md
+```
+
+上面的命令是报告路径误写；实际可重跑命令为：
+
+```text
+bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/fork-copy-failure.ts
+```
+
+经真实 `createTestSession`、JSONL 存储和 fork 指令运行，输出：
+
+```text
+first { ok: false, code: "log-broken" }
+second { ok: true, value: { sessionId: "fork-..." }, replayed: false }
+copy 1 []
+```
+
+第二次返回成功，但打开目标只有会话头，`head` 为 `1`、路径事件为空。
+
+**建议改法**：复制批失败时删除新目录，或持久化一个可校验的 fork 创建状态并让重发继续/重新复制；`session-exists` 不能单凭目录存在视为成功，必须验证目标头的来源、commandId/复制完成标记和完整路径。只有复制成功且源会话的受理记录可重放时才返回 fork id；补充 fork 复制失败、进程杀在复制批中间、重发后的完整历史测试。
+**核实命令更正**：本条第一个代码块同样是报告路径的误写；可重跑的唯一命令是其后的 `lab/fork-copy-failure.ts` 命令。
+### 重要｜生命周期：重新装配写日志失败时提前清掉 `dependency-missing`
+
+**位置**：`packages/nb-harness/src/kernel/session/session.ts:509-521`
+
+**现象**：`reassembleNow()` 在确认新装配成功后、进入写 `profileChanged` 之前就执行 `if (state.readOnly === "dependency-missing") state.readOnly = null`。如果这次 `core.queue.run()` 的 `profileChanged` 追加失败，catch 只吞掉 `LogBrokenError`，内存仍是旧装配，日志也没有新事件，但 `snapshot().readOnly` 已经变成 `null`。
+
+**为什么是问题**：合同只规定“依赖补回、重新装配成功后解除”；写入失败不是重新装配成功，且句柄已损坏、当前日志仍不能接受指令。当前快照会宣称可写，调用方随后可能按 null 继续发指令，得到 `log-broken` 或看到与日志不一致的配置；这正是最近生命周期修正要求避免误清其它只读原因的反例。
+
+**如何核实**：
+
+```text
+bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/reassembly-readonly-failure.ts
+```
+
+真实 `createAgentHost`、插件撤回/补回、JSON 往返内存存储和注入的 `profileChanged` 写失败路径输出：第一次补回前 `readOnly: {code: "dependency-missing"}`；补回写失败后 `head` 仍为 `2`、没有新 `profileChanged`，但 `readOnly: null`。
+
+**建议改法**：把清除只读状态放到 `profileChanged` 成功落盘、旧装配摘下、`core.reassemble(next)`、资源刷新和新 mount 全部完成之后；任何一步失败都保留 `dependency-missing`（或进入明确的 `log-broken` 状态），并补充写失败后快照与重开状态一致性的测试。
+### 重要｜存储恢复：新会话创建失败后留下不可重用的目录
+
+**位置**：`packages/nb-harness/src/kernel/log/jsonl-store.ts:175-197`
+
+**现象**：`create()` 先创建会话目录，再取锁、建 `blobs`、写头和打开日志；任一步失败时 catch 只释放锁，不清理已经创建的目录或部分文件。之后用同一个 id 重试，目录存在就直接返回 `session-exists`，即使首次失败根本没有可打开的 `session.jsonl`。
+
+**为什么是问题**：一次磁盘写失败应返回可诊断的存储失败，调用方可以重试或换 id；当前失败把 id 永久变成残留状态，`open()` 又只能得到 `session-not-found`、`log-corrupt` 或其它二次错误。创建会话的锁/目录寿命也没有按失败路径收口，崩溃恢复不能区分“已成功会话”和“创建半途的目录”。
+
+**如何核实**：
+
+```text
+bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/create-failure.ts
+```
+
+真实 `createJsonlStore` 和注入文件写失败输出：第一次 `{ok: false, code: "storage-failed"}`，第二次同一 header 返回 `{ok: false, code: "session-exists"}`。
+
+**建议改法**：把创建过程做成失败可清理的事务：失败时关闭已开的句柄、释放锁并删除本次创建的文件/目录；若删除失败，返回带稳定“创建残留”细节的存储错误，不能把目录当作成功会话。`createSession()` 也应在初始日志或 mount 写入失败时执行同一关闭/释放路径。
+### 阻断｜崩溃恢复：`openSession` 的恢复/装配写失败会泄漏会话锁
+
+**位置**：`packages/nb-harness/src/kernel/session/session.ts:391-421`
+
+**现象**：打开流程取得存储句柄后，可能在写 `profileChanged`、写恢复结算批或 `mountAll` 时抛出 `LogBrokenError`；`openSession()` 没有统一的 `try/finally` 关闭句柄。失败返回前锁仍由 `LogHandle` 持有，内存存储与 JSONL 都把下一次打开视为 `session-busy`。
+
+**为什么是问题**：恢复是重开后收口半截运行的唯一入口。磁盘写失败本来应让调用方关闭后重开、以文件为准；当前第一次重开失败后无法再重开同一会话，也没有释放锁的路径，宿主进程只能泄漏会话或被迫退出。`createSession()` 的初始事件/mount 写失败也走同样的无收口结构。
+
+**如何核实**：
+
+```text
+bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/open-recovery-failure.ts
+```
+
+真实内存存储先写入未收口的 `runStarted`/`modelStarted`，再用只让 `append` 失败的存储打开；输出：
+
+```text
+open-failed LogBrokenError: the session log is broken: a write failed earlier
+retry { ok: false, code: "session-busy", ... }
+```
+
+**建议改法**：`openSession` 在取得句柄后用统一 `try/catch/finally`：任何装配、Profile 变更、恢复或 mount 失败都先 `store.close(handle)` 释放锁，再把结构化存储错误交回。创建流程同样在初始日志和 mount 失败时关闭句柄；若日志已经损坏，仍允许后续独立 `open` 按文件事实重试。
+### 重要｜幂等：`abort` 忽略 `commandId`，同一重试返回不同结果并可改变队列语义
+
+**位置**：`packages/nb-harness/src/kernel/run/commands.ts:132-143`、`packages/nb-harness/src/kernel/api/host.ts:37-39,79-81`
+
+**现象**：公开 `SessionCommands` 要求每条指令带 `commandId`，会话合同要求受理指令写 `commandAccepted` 并用它处理重发；但 `abortCommand()` 不经过 `accept()`，不查 `core.commands`，也不写 `commandAccepted`。第一次中止运行返回 `{aborted: true}`，同一 `commandId` 在运行收口后再次调用返回 `{aborted: false}`；`keepQueue` 取值不同还会让重试的副作用与第一次不同。
+
+**为什么是问题**：远程调用在返回前断线时只能重发同一 `commandId`。当前重发无法区分“第一次已中止”与“从未有运行”，结果值和队列清空行为不稳定，客户端可能把一次已成功的中止误判成未执行。Spec 的“abort 幂等”与 session 输出 17 的受理幂等没有在这个入口成立。
+
+**如何核实**：
+
+```text
+bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/abort-idempotence-waiting.ts
+```
+
+经真实 `createTestSession`、审批等待、中止和同一 `commandId` 重发运行，输出：
+
+```text
+first  { ok: true, value: { aborted: true },  replayed: false }
+second { ok: true, value: { aborted: false }, replayed: false }
+```
+
+**建议改法**：为 `abort` 设计与非队列中止兼容的幂等记录：在单写者里为本次中止建立受理/结果凭据，或按 `commandId` 保存第一次结果并让重试只返回它；保留“触发信号不等队列”的即时性，但不得让同一指令的重试重新解释当前运行状态。
+### 重要｜只读合同：未知 Profile 的会话仍能用 `resolve` 改变对话
+
+**位置**：`packages/nb-harness/src/kernel/session/session.ts:199-206`、`packages/nb-harness/src/kernel/run/interaction.ts:101-161`
+
+**现象**：`openSession()` 找不到会话头的 Profile 时把 `state.readOnly` 设为 `unknown-profile`；但 `buildApi()` 对 `resolve` 只套 `closedGuard`，`resolveCommand()` 没有 `readOnly` 检查。未知 Profile 会话里已有待处理异步提问时，用户仍可写 `interactionResolved` 和 `commandAccepted`。
+
+**为什么是问题**：`session.md` 输出 169 明确规定未知 Profile 会话“能查询，不受理会改变对话的指令”。`resolve` 会结算路径上的互动并可能把回答写入输入缓冲区，正是改变对话的指令；当前实现让只读快照与可写行为矛盾，也让未知 Profile 下无法安全归约的扩展状态被继续推进。
+
+**如何核实**：
+
+```text
+bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/readonly-resolve.ts
+```
+
+真实 `openSession`、内存存储和合成待处理提问输出：`before {code: "unknown-profile"}`，`resolve {ok: true, seq: 5}`，日志新增 `interactionResolved` 与 `commandAccepted`，`after` 仍显示未知 Profile。
+
+**建议改法**：把 `resolve` 视为改变对话的指令，在 `resolveCommand` 或统一的写指令门禁中拒绝 `readOnly !== null`；若产品确实要允许回答未知 Profile 的异步问题，应单独定义只写内核事件的恢复命令并更新 Spec，不要让普通 `resolve` 绕过只读合同。
+
+## 未发现问题的方面
+
+- 在没有宿主订阅者抛错、重复幂等键和生命周期失败的正常成功路径上，`SessionCore.write()` 的“追加存储 → 归约/提交 → 推送日志帧”顺序与队列串行化成立；异常路径分别见上面的订阅者、幂等键与重开失败条目。
+- 正常 JSONL 尾部逐字节截断、缺失或哈希不符的大块文件、跨进程锁竞争，以及普通 `openSession()` 恢复未收口工具/模型请求的既有场景，未在本轮发现新的跨切片问题。
+- 正常回退、切分支、暂停运行接续、等待事项并发应答和压缩成功/中止的单一路径，结合现有测试与实现检查未发现超出既有逐片报告的问题；共享工具中止的调用顺序边界另列于报告。
+- 装配拓扑排序、Profile/扩展哈希组成、事件版本跳过归约和正常重开后的路径归约，在本轮未发现新的确定性问题；宿主 `now`/外部资源失败导致的生命周期问题已按实际失败路径列出。
+
+数量：阻断 3 条；重要 8 条；建议 0 条；合计 11 条。

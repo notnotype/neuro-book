@@ -111,7 +111,7 @@ type StorageResult<T> = {ok: true; value: T} | {ok: false; code: StorageError; d
 
 ## 输出与可观察行为
 
-1. 新建会话在根下建会话目录，`session.jsonl` 的第一行是会话头；目录已存在时得 `session-exists`，不改动它。
+1. 新建会话在根下建会话目录，`session.jsonl` 的第一行是会话头；会话已存在（目录里有 `session.jsonl`）时得 `session-exists`，不改动它。目录在、日志不在（上次建到一半就失败或进程被杀）时接着建。
 2. 每条事件一行，字段如“事件”一节；`seq` 在一个会话内从 1 起严格递增，与文件里的行序一致。
 3. 一个写入批里的行在文件里连续，每行带同一个 `batch.id`，`n` 从 1 到 `of`。
 4. `append` 一次写入整批后同步到盘，成功返回时整批已同步；同一个句柄上的 `append` 按调用顺序写入。
@@ -122,12 +122,12 @@ type StorageResult<T> = {ok: true; value: T} | {ok: false; code: StorageError; d
 9. 超过阈值的字符串写成 `blobs/<sha256>`，事件里只留引用；文件在引用它的批写入之前写完并同步到盘。读回事件时引用换回原字符串，调用方看不到引用。内容相同的大块内容只存一份。
 10. 被脱敏的原文（`redacted`）只记 SHA-256，不写进日志，也不产生大块内容文件：会话目录里搜不到原文。
 11. 会话同一时刻只能被打开一次：另一个进程或同一进程再次打开时得 `session-busy`，`detail` 带持有者的进程号与取锁时刻。持有者关闭会话或进程结束（含被杀）时锁随之释放，下一次打开不需要任何清理。
-12. 写入或同步到盘失败时：这一批的结果对调用方不确定，句柄进损坏状态，之后同一句柄上的写入都得 `log-broken`；这一批不归约、不推给订阅者。关闭损坏的句柄只释放锁，同一进程可以立即重新打开；重开以文件为准（输出 5、6）。
+12. 写入或同步到盘失败时：这一批的结果对调用方不确定，句柄进损坏状态，之后同一句柄上的写入都得 `log-broken`；这一批不归约、不推给订阅者。关闭损坏的句柄只释放锁，同一进程可以立即重新打开；重开以文件为准（输出 5、6）。建会话或打开会话时写入（初始事件、打开时的 `profileChanged` 与恢复的结算）或装上扩展失败：摘下已装上的、释放锁，以 `log-broken` 交回，下次打开照常恢复。
 13. 打开会话照日志归约出全部状态，不跑反应；当前叶子是最后一条 path 事件或 `leafChanged` 指向的节点。
 14. 扩展事件的版本高于扩展当前声明的版本时：事件留在日志里，归约跳过它，写诊断 `event-version-unsupported`。
 15. 打开时结算上一次进程没有收口的运行，作为一个写入批写入：开始执行但没有结果的工具调用写成 `status: "unknown"`（码 `interrupted`）；等审批的调用写成 `status: "denied"`（码 `interrupted-before-approval`），对应的事项结算为 `interrupted`；让运行停下等待的提问结算为 `interrupted`；发出但没有回复的模型请求写 `modelFailed{kind: "interrupted"}`；最后写 `turnEnded`、`runEnded`，原因都是 `interrupted`。异步提问不属于运行，不结算。缓冲区里没取走的输入留着，不自动发出。
 16. 宿主登记进程中断与终止的收口后，进程退出前对每个运行中的会话走输出 15 的同一套结算，原因同为 `interrupted`。
-17. 被受理的指令在受理批里写一条 `commandAccepted{commandId, name, value}`，与指令立即写的事件同批。同一会话里重发同一个 `commandId`，返回第一次的 `value` 与 `replayed: true`，不再写事件；重启之后同样成立。校验失败的指令不写日志，重发时重新校验。
+17. 被受理的指令在受理批里写一条 `commandAccepted{commandId, name, value, argsHash}`，与指令立即写的事件同批；`argsHash` 是指令参数（去掉 `commandId`）按键排序后的 SHA-256。同一会话里重发同一个 `commandId`、指令与参数都相同，返回第一次的 `value` 与 `replayed: true`，不再写事件；重启之后同样成立。指令或参数不同得 `command-id-conflict`，不当成重发（早先没有 `argsHash` 的记录只比指令名）。校验失败的指令不写日志，重发时重新校验。fork 的复制批没写下时（新会话只有会话头），重发同一个 `commandId` 补写复制批。
 18. 空闲时会开始运行的指令（`send`、`start`、`compact`、带 `resend` 的 `rewind`），受理批里含 `runStarted`；`send` 另含取走这条输入的 `inputConsumed`、`turnStarted` 与 `input`。受理之后、循环开始之前进程退出时，重开按输出 15 把这次运行结算为 `interrupted`。
 19. `list` 只读各会话目录的 `index.json`：项目、Profile、标题、是否归档、创建与最后活动时刻、轮数、索引对应的最后一个 `seq`。索引经临时文件改名写入；打开会话时与日志末尾比对，不一致就重建并写诊断 `index-rebuilt`。崩溃之后到下次打开之前，`list` 可能给出略旧的值。
 20. fork 把来源会话里根到所选节点的路径复制成新会话：新会话头的 `origin` 记来源会话与节点，路径上引用的大块内容一并写进新会话目录。来源会话不受影响。

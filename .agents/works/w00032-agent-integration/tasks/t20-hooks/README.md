@@ -97,4 +97,6 @@ t05、t06、t07。
 
 - 收口（2026-10-31）：全部 11 片完成。nb-harness 全量 293 通过、6 跳过；nb-story 验收门 4 条通过；`test:llm`（DeepSeek）6 条通过；`test:affected`（分支改过依赖锁，跑了全量）只有 nb-ui 的 `NB_UI_VERSION`（0.2.0）与 package.json（0.3.0）不一致这一条失败，master 上同样失败，与本 Task 无关。各片的变异检查汇总在 [`evidences/mutation-checks.txt`](evidences/mutation-checks.txt)。
 
-下一步：实现的深入审查已开（开发者 2026-10-31 批准，基于 `7ec9baa42`）：omp（默认模型，跨切片不变量、崩溃恢复、功能叠加、生命周期，上限 90 分钟）、Claude Opus（照公开 API 写三个扩展并试迁移 nb-story 的问答）、Claude Sonnet（出站帧与日志分页对照 nb-agent-ui 适配器）；报告回来后逐条处理。介绍页（`intro` v3）已过时，随实现更新。
+- 实现的深入审查（开发者 2026-10-31 批准计划与预算，对象 `7ec9baa42`）：omp（gpt-6.1-sol，跨切片不变量、崩溃恢复、功能叠加、生命周期）11 条（阻断 3、重要 8）；Claude Opus（照公开 API 写三个扩展并试迁移 nb-story 的问答）20 条（重要 8、建议 12）；Claude Sonnet（出站帧与日志分页对照 nb-agent-ui 适配器）17 条（重要 12、建议 5）。omp 的全部改了；Opus 的改了 16 条，4 条不改并写明理由；Sonnet 的整条改了 7 条，5 条改了一部分，5 条整条留给 t17（留下的部分已记进 [t17](../t17-conversation-ui/README.md)）。修正在 Work 分支 `4fdd77d22..77cfb5422`（20 个提交），Spec 同步改了 `runtime.md`、`session.md`、`extensions.md`；新增的类型与 Profile 工具的语义记进 [待确认清单](../../pending-confirmations.md)。处置与验证见 [`evidences/deep-review-disposition.md`](evidences/deep-review-disposition.md)。nb-harness 全量 309 条通过、6 条跳过，nb-story 验收门 4 条通过，`test:llm`（DeepSeek）6 条通过；重新测了性能，没有回归。
+
+下一步：t20 完成，等开发者看待确认清单与是否合入。介绍页（`intro` v3）已过时，随实现更新。
