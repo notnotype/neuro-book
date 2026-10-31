@@ -1,0 +1,30 @@
+t20 变异检查汇总（计划“收口”：对第 6 节每条映射改坏实现，确认对应测试失败）。2026-10-31，Work 分支各片提交之后逐片做；
+做法：在实现里替换一处（去掉检查、改常量、改分支），只跑对应测试文件，失败为“抓到”，之后还原。存活的都已补测试或写明理由。
+
+第 4 片（view/view.test.tsx，profile.md 输出 1–20）
+- 抓到：提交缓存、Tag 属性转义、请求成对校验、* 只收没提到的槽、提到的槽不报没摆、finalOnly 去掉工具调用（先存活，补了“工具之后失败”的用例）、
+  commit-differs；审查修正后：工具调用全文进前缀键、重复调用 id、按贡献收槽、system 槽只在有 <System /> 时算摆放、诊断按槽区分、
+  eventId 来源、history last 0。
+第 5 片（run/tools.test.ts，runtime.md 输出 15–27）
+- 抓到：shared 并发、blocked、raw 脱敏、收尾单独、迟到 next 拒绝、next 里停表、next 之后重新起表（先存活，补了用例）、输入脱敏、
+  tools-changed、required 催一次、modifiedBy、迟到结果诊断；审查修正后：移出工具集时释放、建好实现后再查中止（先存活，加强了用例）、
+  脱敏不写 details、冻结结果（先存活，换成对象结果）、冻结请求、文字没改也记哈希。
+- 存活且不补：只读模式（当时要第 6 片的 changeSettings 才能打开，第 6 片补测后抓到）。
+第 6 片（run/control.test.ts、run/tree.test.ts，runtime.md 输出 28–38）
+- 抓到：steer 接着请求、边界取 steer、中止清空、input-consumed、settingsChanged 只给所属、值没变不写、恢复按 toolStarted 区分、
+  暂停不恢复、before-turn 在运行外、after-turn 落 runEnded、运行结果按路径、reassemble、重开用最后的 Profile、fork 带设置、
+  接着跑先取一条开一轮（先存活，加强断言）；审查修正后：failed 标记清空、装上落盘（先存活，加强用例）、fork 头的 Profile、
+  fork 已存在交回、宿主上下文的 Profile、设置合并缺省值、回退目标补输入文字、continue 与 steer 都保留、dependency-missing 详情。
+第 7 片（run/interaction.test.ts，runtime.md 输出 39–45）
+- 抓到：应答权限、批准记忆、中止后应答（先存活，补了窗口用例，并发现、修了重复结算的竞态）、异步回答进缓冲区、重启写 interrupted、
+  拒绝附言、待处理事项归约、invalid-answer、认领检查、中止时同步摘掉；审查修正后：fork 带 caller、waiting 之后回到 running。
+第 8 片（compaction/compaction.test.ts，runtime.md 输出 46–52）
+- 抓到：缓存读算进用量、结果校验、溢出只重试一次、省略的工具结果占位、摘要渲染、按切点去掉已提交轮、运行中的 compact、
+  普通事件的占位（先存活，补了用例）。
+- 审查指出 6 个存活变异（按步切、null 切点、留旧摘要、压缩拦截链、压缩的模型请求经拦截、切点 token），补用例后全部抓到；
+  审查修正后另抓到：totalTokens、compactAt、按占位估算、只压缩的运行用压缩模型、各用途的未结算请求恢复、continue 上限。
+- 存活且不改：方法返回后的第一道中止检查（第二道兜底，作用是不再调用放回内容的回调）；compact 要求的“取时按运行过滤”与“运行结束丢弃”
+  两道措施互为兜底，单删一道抓不到。
+第 9 片（session/host.test.ts，runtime.md 输出 53–57、session.md 输出 16）
+- 抓到：摘下后迟到的外部事实、出站过滤（日志查询、帧、异步排队）、进程收尾的 interrupted（收口与等审批）、profile-has-tools、
+  预览截下请求、撤回后跳过反应与槽、撤回标记、重新装配失败进只读。
