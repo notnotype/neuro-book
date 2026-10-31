@@ -1,12 +1,15 @@
 ---
 schema: nbook.proposal/v1
-status: draft
+status: accepted
 created: 2026-10-28
-decided: null
+decided: 2026-10-31
 supersedes: []
 superseded-by: null
-specs: []
-adrs: []
+specs:
+  - docs/specs/harness/session.md
+  - docs/specs/harness/extensions.md
+adrs:
+  - docs/adr/0035-harness-log-driven-kernel.md
 ---
 
 # Agent harness 的事件模型：一台由日志驱动的状态机
@@ -54,7 +57,7 @@ adrs: []
 
 本节是第五稿。第四稿按开发者提出的“异步状态机”重组；第五稿汇总了五位设计者（三个 Claude Sonnet、一个 Claude Fable、一个 omp）各自从插件作者、Profile 作者、宿主与工具链、独立设计、架构与不变量五个视角做的接口设计与架构审查，取舍见第 20 节，报告在 t20 的 `evidences/api-design-*.txt`。
 
-接口以 `.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/v5/` 为准：`api.ts`（扩展与 Profile）、`host.ts`（宿主：指令、帧、预览、诊断、插件宿主）、`testing.ts`（测试工具），例子 `plugins.ts`、`profiles.tsx`、`tests.example.ts`，`typetest.ts` 里 29 处写错都是编译错误。这些只有类型、过了 tsc，没有运行；能跑的内核仍是第三稿的 spike（53 个场景）。
+第五稿的接口原型在 `.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/v5/`：`api.ts`（扩展与 Profile）、`host.ts`（宿主：指令、帧、预览、诊断、插件宿主）、`testing.ts`（测试工具），例子 `plugins.ts`、`profiles.tsx`、`tests.example.ts`，`typetest.ts` 里 29 处写错都是编译错误。实施计划（t20 `plan.md` 第二版）把它改成定稿类型，放在 `packages/nb-harness/src/kernel/api/`；第五稿到定稿改了什么见文末“第五稿到定稿的差异”，当前行为以 [`harness/session.md`](../specs/harness/session.md)、[`harness/extensions.md`](../specs/harness/extensions.md) 与随实施新建的 harness Spec 为准。
 
 ### 0. 第五稿改了什么
 
@@ -124,14 +127,14 @@ adrs: []
 
 | 作用域 | 事件 |
 |---|---|
-| session | `inputQueued`、`inputEdited`、`inputRemoved`、`inputConsumed`、`settingsChanged`、`leafChanged`、`profileChanged` |
-| path | `sessionCreated`、`runStarted`、`runEnded`、`turnStarted`、`turnEnded`、`input`、`steer`、`assistant`、`continued`、`toolStarted`、`toolResult`、`modelStarted`、`modelFailed`、`interactionRequested`、`interactionResolved`、`compaction`、`extensionFailed`、`reactionLimit` |
+| session | `inputQueued`、`inputEdited`、`inputRemoved`、`inputConsumed`、`settingsChanged`、`leafChanged`、`profileChanged`、`commandAccepted`、`approvalRemembered`、`titleChanged`、`archived` |
+| path | `sessionCreated`、`runStarted`、`runEnded`、`turnStarted`、`turnEnded`、`input`、`steer`、`assistant`、`continued`、`toolStarted`、`toolResult`、`toolsAnnounced`、`modelStarted`、`modelEnded`、`modelFailed`、`interactionRequested`、`interactionResolved`、`compaction`、`extensionFailed`、`reactionLimit` |
 
 其中 `input`、`steer`、`assistant`、`continued`、`toolResult` 是对话事件，进这一轮。`ctx.set` 写的 `<扩展 id>/stateSet` 由内核自己归约，不派发给处理函数。
 
 **扩展事件**的类型自动带扩展 id 前缀（`nbook.history/fileChanged`），带版本。内核拒绝扩展写不以自己 id 开头的类型，未知来源一律拒绝。事件带 `cause` 与 `depth`；可以带幂等键 `key`（`ctx.emit(名字, 数据, {key})`，宿主指令的 `commandId`），同一来源同一个键只写一次，命中时反应也不再跑。
 
-**写入批**：几条事件作为一个整体写入，要么都可见、要么都不可见（存储用事务或提交标记）。下面这些各是一个写入批：
+**写入批**：几条事件作为一个整体写入，要么都可见、要么都不可见。日志是 JSONL，每行带 `batch: {id, n, of}`，一批一次写入后同步到盘；文件里完整的批就是已提交的批，只有文件尾可能不完整，重开时截掉。写或同步失败对调用方是“结果不确定”：句柄进损坏状态、进程内不重试，重开时以文件为准。下面这些各是一个写入批：
 
 - 取走一条输入：`inputConsumed` 加 `turnStarted`、`input`（或加 `steer`）；分开写的话，崩溃窗口会让缓冲区删掉而对话里没有这句话（omp 审查的阻断项）。
 - 一次工具调用的结果：同一个回复里的全部 `toolResult`。
@@ -145,35 +148,39 @@ adrs: []
 | 东西 | 写入时刻 | 作用域 |
 |---|---|---|
 | 缓冲区的入队、改、删 | 指令受理时 | session |
-| 用户的话 | 从缓冲区取走时，与 `inputConsumed` 同批；经输入拦截链，改写过的原文记在 `original`（标了 `redacted` 时只记哈希） | path |
-| 模型请求 | 发出之前写 `modelStarted`：序号、用途、哈希、`now`、调用 id、修改记录；失败写 `modelFailed` | path |
+| 用户的话 | 入队、改时经输入拦截链，`inputQueued`、`inputEdited` 存拦截后的文字，改写过的原文记在 `original`（标了 `redacted` 时只记哈希）；从缓冲区取走时与 `inputConsumed` 同批写 `input` 或 `steer`，只引用缓冲区的 id | session、path |
+| 模型请求 | 发出之前写 `modelStarted`：序号、用途、哈希、`now`、调用 id、修改记录；失败写 `modelFailed`；非对话的请求（审批、压缩、后台）成功时写 `modelEnded` | path |
 | 助手回复 | 流结束时写完整回复：内容块（文字、思考与签名）、工具调用、用量、请求序号 | path |
 | 工具 | 执行之前写 `toolStarted`（带参数与调用 id）；完成后整批写结果：状态、给模型的文字、给程序的 `details`，拦截改过参数时记实际执行的 `args`，改过结果时记原本的 `raw`（`redacted` 时只记哈希） | path |
 | 反应的输出 | 处理函数完成时，作为一个写入批 | 按声明 |
 | 外部事实（`mount` 里写的）、设置变化 | 空闲时立刻；运行中到下一个边界 | 按声明、session |
 | 回退、切分支 | 指令受理时写 `leafChanged` | session |
+| 指令受理 | 与它立即写的事件同批写 `commandAccepted`（幂等的依据） | session |
+| 超过 16 KB 的字符串 | 写入批之前另存为会话目录里按内容寻址的文件，事件里只记哈希与长度 | — |
 | 槽的内容 | 从不写 | — |
 | 流式输出的增量、运行状态 | 从不写；只推给界面 | — |
 
-**单写者**：一个会话的写入只有一个顺序。所有写入口排进同一条队列，前一个连同它引出的全部反应做完，后一个才开始（spike 场景 48）。
+**单写者**：一个会话的写入只有一个顺序。所有写入口排进同一条队列，队列的一项是“一个写入批连同它引出的反应”；运行循环在队列之外，每次写日志时把写入交给队列并等它完成，所以运行中的插话、改、删、应答、中止不必等运行结束（spike 场景 48）。打开会话时在会话目录取锁，同一会话同时只能被一个进程打开一次。
 
-**打开与恢复**：`load()` 先校验日志（id 唯一、seq 递增、父节点在前、类别与作用域合法、类型要么是内核事件要么带扩展前缀、幂等键不重复、写入批完整），校验不过就拒绝打开、报损坏；再照日志归约，不跑反应；当前叶子取最后一个“path 事件或 `leafChanged`”指向的节点。不完整的写入批丢弃。`recover()` 处理崩溃留下的半截运行：开始执行但没有结果的工具调用写成 `status: "unknown"`，发出但没有回复的模型请求写 `modelFailed`，最后写 `turnEnded`、`runEnded`（`interrupted`）。缓冲区里没取走的输入留着。
+**打开与恢复**：`load()` 先校验日志（id 唯一、seq 递增、父节点在前、类别与作用域合法、类型要么是内核事件要么带扩展前缀、幂等键不重复、写入批完整），校验不过就拒绝打开、报损坏；再照日志归约，不跑反应；当前叶子取最后一个“path 事件或 `leafChanged`”指向的节点。不完整的写入批丢弃。`recover()` 处理崩溃或停服留下的半截运行：开始执行但没有结果的工具调用写成 `status: "unknown"`，等审批的调用结算为拒绝（码 `interrupted-before-approval`，它还没执行），让运行停下的提问结算为 `interrupted`（重开后由界面提示重新问），发出但没有回复的模型请求写 `modelFailed`，最后写 `turnEnded`、`runEnded`（`interrupted`）。缓冲区里没取走的输入留着；异步提问不属于运行，不结算。
 
 ### 3. 输入缓冲区与指令
 
 用户提交的话先进缓冲区，取走时才成为对话里的事实。缓冲区是内核的状态，在 session 作用域：回退对话时，提交了还没取走的话不会丢。
 
-指令的完整形状在 `v5/host.ts`。每个指令带 `commandId`（客户端生成，重发同一个）：远程服务的写请求在帧发出后链路断了会得到“结果未知”（ADR 0024），界面必然重发；`commandId` 就是日志事件的幂等键，重发得到第一次的结果（`replayed: true`），重启之后照样有效。失败是按指令分的封闭码表（`commandErrors`），也是远程方法 `errors` 的来源；界面按码分支，不解析文字（ADR 0034）。
+指令的完整形状在 `v5/host.ts`。每个指令带 `commandId`（客户端生成，重发同一个）：远程服务的写请求在帧发出后链路断了会得到“结果未知”（ADR 0024），界面必然重发；被受理的指令在受理批里写一条 `commandAccepted{commandId, name, value}`，重发查它、得到第一次的结果（`replayed: true`），重启之后照样有效。`value` 引用的 id 都在同一批写出：空闲时会开始运行的指令，受理批就包含 `runStarted`。失败是按指令分的封闭码表（`commandErrors`），也是远程方法 `errors` 的来源；界面按码分支，不解析文字（ADR 0034）。
 
 | 指令 | 什么时候能用 | 写什么 | 失败码（节选） |
 |---|---|---|---|
-| `send(input, mode?)` | 随时：入队，空闲时同时开始（对话框的发送按钮）；`mode` 缺省 `followup` | `inputQueued` 起 | `empty-input`、`no-model`、`no-credentials`、`profile-invalid` |
-| `enqueue(input, mode)` | 随时，只入队 | `inputQueued` | `empty-input` |
+| `send(input, mode?)` | 随时：入队，空闲时同时开始（对话框的发送按钮）；`mode` 缺省 `followup` | `inputQueued` 起 | `empty-input`、`input-rejected`、`no-model`、`no-credentials`、`profile-invalid` |
+| `enqueue(input, mode)` | 随时，只入队 | `inputQueued` | `empty-input`、`input-rejected` |
 | `edit(id, input)`、`remove(id)` | 取走之前 | `inputEdited`、`inputRemoved` | `input-not-found`、`input-consumed` |
 | `resolve({id, decision, answer?})` | 有待处理的审批或提问时 | `interactionResolved` | `unknown-interaction`、`already-answered`、`not-allowed` |
 | `start()` | 空闲时；缓冲区空时是没有新输入的“继续”运行 | `runStarted` | `already-running` |
 | `abort()` | 随时；幂等，没有运行时返回 `aborted: false` | 收口，`runEnded(aborted)` | — |
-| `rewind(to, {abort?, resend?})` | 目标只能是轮或步的边界（`rewindTargets()`，与压缩切点同一条规则）；运行中要 `abort: true` | `leafChanged` | `running`、`invalid-target` |
+| `rewind(to, {resend?})` | 空闲时；目标只能是轮或步的边界（`rewindTargets()`，与压缩切点同一条规则）；运行中先 `abort` | `leafChanged` | `running`、`invalid-target` |
+| `switchBranch(node)`、`fork(leaf)` | 空闲时；切到那条分支最近写入的末端；复制当前路径成新会话 | `leafChanged`；新会话 | `running`、`invalid-target` |
+| `setTitle(title)`、`archive(archived)` | 随时 | `titleChanged`、`archived` | — |
 | `compact(要求?)` | 随时：空闲时开一次只压缩的运行，运行中到下一个边界 | `compaction` | `nothing-to-compact` |
 | `changeSettings(patch)` | 随时，按扩展 id 分组、整体校验；运行中到下一个边界 | `settingsChanged`（每个扩展一条） | `unknown-key`、`invalid-value` |
 | `changeProfile(profile)` | 空闲时 | `profileChanged` | `running`、`unknown-profile` |
@@ -185,7 +192,7 @@ adrs: []
 - 开始运行时取走第一条，开一轮；它之后入队的 `steer` 在第一个边界取走，成为这一轮的附带内容。
 - 运行中：`steer` 在每个边界全部取走，按入队顺序写成 `steer` 事件，进当前这一轮；`turnEnded` 写入之前到达的 `steer` 都算这一轮，模型给出最终回复时还有没取走的，这一轮接着请求。
 - 一轮结束时：`followup` 取走一条，同一次运行里开下一轮（一条一轮，待定项 17）。
-- 取走时经输入拦截链；被拒绝的写 `inputConsumed{rejected: {code, params, by}}`，不写用户的话；它是开新一轮的那条时，运行以 `input-rejected` 结束。
+- 输入拦截链在受理时（入队、改）就跑，取走时不再拦截；被拒绝时指令失败 `input-rejected{code, params, by}`、不写日志，拒绝署名进诊断。
 
 ### 4. 扩展的形状
 
@@ -328,17 +335,17 @@ export const tasksReminder = reminder({id: "nbook.tasks.reminder", dependsOn: [t
 对话记录由内置扩展 `core.history` 从日志归约而来：
 
 ```ts
-interface Turn<P> {
+interface ConversationTurn<P> {
     id: string;
-    input: Event<"input", {text: string; payload: P}> | null;   // 没有新输入的“继续”运行为 null
-    attachments: Event[];        // 输入之后、第一次模型调用之前写入的对话事件
+    input: LogEvent<"input", {text: string; payload: P}> | null;   // 没有新输入的“继续”运行为 null
+    attachments: LogEvent[];     // 输入之后、第一次模型调用之前写入的对话事件
     steps: Step[];               // {reply, results, after}
     status: "running" | "completed" | "error" | "interrupted" | "aborted";
 }
 ```
 
 - **每条事件去哪**：按内核盖的位置章（第 2 节）。附带内容、某一步之后的事件、空闲时写的（下一轮开始时并进它的附带内容）。日志里检索结果在用户的话之后写（事实就是这个顺序），但在对话的形状里它是这一轮的附带内容，摆在哪由 Profile 的 `turn` 决定。
-- **提交**：`turnEnded` 时，用 Profile 的 `commit`（缺省与 `turn` 相同）把这一轮渲染成消息，并进已提交的轮。提交时就校验（工具调用与结果成对、角色顺序），不合格用缺省的提交并写诊断，不让一个写错的 `commit` 让会话之后每次请求都失败。
+- **提交**：`turnEnded` 时，用 Profile 的 `commit`（缺省与 `turn` 相同）把这一轮渲染成消息，并进已提交的轮。`commit` 只拿这一轮与渲染工具 `(turn, format) => 消息[]`，是纯函数：重开或回退时用它重算，结果确定；`turn` 仍能读视图。提交时就校验（工具调用与结果成对、角色顺序），不合格用缺省的提交并写诊断，不让一个写错的 `commit` 让会话之后每次请求都失败。
 - **提交绑定 Profile 内容哈希**：同一个 Profile 版本下，已提交的消息不再变，下一次请求原样拼接。`profileChanged` 之后按新 Profile 重新渲染全部已提交的轮（缓存整段失效一次；换 Profile 时系统提示词本来也变了）。
 - 导出（`coreHistory`）：本轮输入、进行中的这一轮、单调增加的 `turns` 与 `runs`（不受压缩影响）。
 
@@ -350,15 +357,19 @@ interface Turn<P> {
 
 ```ts
 interface ModelRequest {
-    purpose: "turn" | "compaction" | "background";
+    purpose: "turn" | "approval" | "compaction" | "background";
     model: string;
+    effort?: string;
     params: {maxTokens?: number; temperature?: number};
     headers: Record<string, string>;
     system: Block[];
     messages: {role: "user" | "assistant" | "tool"; content: Block[]; toolCalls?: ToolCall[]; callId?: string}[];
-    tools: ToolInfo[];
+    tools: ToolDeclaration[];                 // 完整工具声明
+    toolChoice?: "auto" | "none" | {tool: string};
+    providerOptions?: Record<string, unknown>; // 适配器专用、原样透传
 }
-interface Block {text: string; origin: Origin; kind?: "text" | "thinking" | "image"}
+// 内容块：文字；思考（带签名与服务商要求带回的元数据）；图片（一律是大块内容）。请求里的块另带 origin
+type Block = ({kind: "text"; text: string} | {kind: "thinking"; text: string; signature?: string; redacted?: boolean; provider?: unknown} | {kind: "image"; blob: string; mime: string}) & {origin: Origin};
 type Origin = {kind: "fixed"; by} | {kind: "event"; eventId; type; extension} | {kind: "slot"; name; extension} | {kind: "summary"; compactionId} | {kind: "intercept"; extension};
 ```
 
@@ -378,7 +389,7 @@ type Origin = {kind: "fixed"; by} | {kind: "event"; eventId; type; extension} | 
 
 **`turn`**：一轮给模型看的样子，纯函数 `(turn, format, view) => 消息[]`。不写用 `format.turn(turn)`：附带内容在前、用户的话在最后，合成一条 user 消息；然后是各步。单轮模板在这里摆：行内编辑把选区（`turn.input.data.payload.selection`，类型来自 Profile 的 `payload` schema）与要求排进同一条消息，不写模板。
 
-**`commit`**：一轮以什么样子进历史，不写与 `turn` 相同（缓存最好）。常见需求用 helper，各一行：
+**`commit`**：一轮以什么样子进历史，纯函数 `(turn, format) => 消息[]`，不读视图；不写与 `turn` 相同（缓存最好）。常见需求用 helper，各一行：
 
 ```ts
 commit: (turn, format) => format.turn(finalOnly(turn)),                                   // 只留最终回复（不会留下没有结果的工具调用）
@@ -432,7 +443,8 @@ intercept: {
 - **审批**（t06）在工具拦截链的最里层、执行之前判定；扩展的放行盖不过用户配置的拒绝、工具按参数声明的拒绝与只读模式（spike 场景 8）。
 - **路径限制**：“写手只改正文目录”这类规则真正的限制放在工具绑定或审批的路径范围里（t04、t06）；拦截只负责给出友好的拒绝文字，判断前用 `ctx.resources.resolve` 规范化路径（`project://正文/../设定/x.md` 这类写法能绕过字符串前缀）。
 - **顺序**：从外到里：插件的扩展（按 `dependsOn` 排序，同一层按 id）、Profile 的 `extensions`、Profile 自己的字段、审批（内核）。最终顺序与清单哈希写进 `profileChanged`。这个顺序也决定反应追加事件的顺序与同一个槽的拼接顺序。
-- **各入口读到的是哪一刻的状态**：`reduce` 读这条事件之前；`on` 读这条事件写入之后；`contribute`、`prompt`、`turn`、模型拦截读这次请求所在的叶子；工具拦截读发出这批调用的回复所在的叶子；输入拦截读取走这条输入时的叶子。
+- **各入口读到的是哪一刻的状态**：`reduce` 读这条事件之前；`on` 读这条事件写入之后；`contribute`、`prompt`、`turn`、模型拦截读这次请求所在的叶子；工具拦截读发出这批调用的回复所在的叶子；输入拦截读受理这条指令时的叶子。
+- **主动调模型**：压缩方法与审批钩子经 `ctx.model(request, {purpose, role?})` 调模型，内核写 `modelStarted`、过模型拦截链、计用量、接中止；`purpose` 取 `turn`、`approval`、`compaction`、`background`。
 - **工具**：一个回复里的工具调用按顺序切成连续的段：声明为 `shared` 的连续调用并发执行，`exclusive`（缺省）单独执行（t14 定）。同一段的 `shared` 调用按调用顺序启动，工具要在启动时就把有顺序要求的副作用交出去（例如子代理工具把话放进子会话的缓冲区），之后的等待才并发；`concurrency` 只是回复内的调度属性，不是资源锁。工具声明的 `concurrency` 字段取这两个值；内置写文件工具与 `shell` 是 `exclusive`，子代理与任务中心的工具是 `shared`。结果仍按调用顺序作为一个写入批写入，整批写完后对每条结果派发反应；日志的形状与串行时一样。拦截不写事件、读同一份快照，并发调用也安全。
 - **失败**：
 
@@ -488,12 +500,11 @@ intercept: {
 
 审批（t06）与提问（`ask`）是同一条通道（照分支的 `interaction`，t14 定）：
 
-- 事件：`interactionRequested{id, callId, kind: "approval" | "question", request}`、`interactionResolved{id, decision, by, data?}`，运行状态加 `waiting`。同一批工具调用里的几个事项可以同时待处理、任意顺序应答，全部处理完才回到运行。扩展可以归约它们（例如“问过的问题不再问”）；重启后照日志接着等。
+- 事件：`interactionRequested{id, callId, kind: "approval" | "question", request, async}`、`interactionResolved{id, decision, by, code?, data?, note?}`，`decision` 取 `allow`、`allow-session`、`deny`、`answer`、`interrupted`、`aborted`、`unavailable`，运行状态加 `waiting`。`allow-session` 时同批写 session 事件 `approvalRemembered`，批准记忆只从它归约。同一批工具调用里的几个事项可以同时待处理、任意顺序应答，全部处理完才回到运行。扩展可以归约它们（例如“问过的问题不再问”）。服务重启时让运行停下的事项按第 2 节的 `recover()` 结算，不从日志续等。
 - 指令：`resolve({id, decision, answer?, note?})`；发出者（用户，或派这个会话的父会话）由服务端按调用来源注入，不是参数。同一事项的并发应答由会话日志的单写者裁决，后到的得到 `already-answered`。审批只收用户的应答；提问在会话设为“交给调用方”时也收父会话的应答；用户任何时候都能直接应答。失败码 `unknown-interaction`、`already-answered`、`not-allowed`。
 - 异步提问：`ask` 带 `async` 时不进入等待，问题照样写成 `interactionRequested`、工具立即返回。回答同样走 `resolve`：内核在同一个写入批里写 `interactionResolved`，并把回答作为一条输入放进缓冲区（运行中当插话，空闲时开新一轮）；问题所在的分支被回退后，应答得到 `unknown-interaction`。
-- 结算（照分支）：中止时写拒绝并注明 `aborted`；被回退掉的分支上的事项不再算待处理；工具被卸载按 `tool-unavailable`。
-- `v5/api.ts` 的四个占位事件、`v5/host.ts` 的 `RunStatus` 与 `SessionMirror` 还没跟着改，实施时以本节为准。
-- 完整形状在 t06、t14 的实施计划里定。
+- 结算：中止时写拒绝并注明 `aborted`；被回退掉的分支上的事项结算为 `unavailable`；工具被卸载按 `tool-unavailable`。异步提问不随运行中止、关闭会话、停服结算，重开后照样能应答。
+- 审批钩子的判定与规则表在 t06，`ask` 工具在 t14；内核的事件与指令形状以定稿类型为准。
 
 ### 12. 诊断
 
@@ -682,7 +693,7 @@ expect(session.requests[0]!.outline()).toEqual(["system: fixed:profile", "user: 
 | `continue(text, {max})` 只在 `assistant` 的处理函数里，按轮数次数 | Profile 作者（内核计数的缺陷）、Fable（类型上只在这里有） | 第 6 节 |
 | 每轮一次的提醒挂 `turnStarted` | Fable（“继续”运行收不到提醒） | 第 6 节 |
 | Profile 不必写整张模板；`<System />` 自闭合放 `system` | Profile 作者（主张 `layout` 字段）、Fable | 第 8 节；定稿时 `layout` 改为 helper `standardLayout()` |
-| `commit` 的常见写法、`format.turn`、`format.assistantText`、`turn.status`、`turn` 与 `commit` 拿到视图、`<History last>` | Profile 作者（主张声明式写法） | 第 7、8 节；定稿时声明式写法改为 `finalOnly()`、`withoutEvents()`、`format.withRender()` |
+| `commit` 的常见写法、`format.turn`、`format.assistantText`、`turn.status`、`turn` 拿到视图、`<History last>` | Profile 作者（主张声明式写法） | 第 7、8 节；定稿时声明式写法改为 `finalOnly()`、`withoutEvents()`、`format.withRender()`；实施计划定 `commit` 不拿视图、是纯函数（重开与回退时重算结果确定） |
 | 提交时就校验 | Profile 作者 | 第 7 节 |
 | 开场的现成写法、`description`、`modelNeeds` 字段；`deriveProfile`；Profile 不写 `tags`、`exports` | Profile 作者（主张 `opening` 字段） | 第 13 节；定稿时开场改为 helper `opening()` |
 | 路径限制放在工具绑定里，拦截只给友好的拒绝，`resources.resolve` | Profile 作者 | 第 9 节 |
@@ -702,7 +713,7 @@ expect(session.requests[0]!.outline()).toEqual(["system: fixed:profile", "user: 
 | 设置写成 `{schema, defaults}` 两份 | Profile 作者 | 缺省值写在 schema 里只有一处来源（TypeBox 与 nb-form 的惯例）；“每项都有缺省”改在装配时检查，不靠类型 |
 | 设置用 `setting.choice/text/number/flag` 辅助函数 | 插件作者 | 与 TypeBox 重复；平台的远程合同已全是 TypeBox |
 
-**待定**（进下面的待定项）：拦截给安全类插件一个外层位置（插件作者 A16，待定项 21）；扩展 id 与插件 id 的关系（宿主，待定项 20）；`input` 一词多义要不要改名（宿主，待定项 22）；处理函数告诉界面“正在检索”的 `ctx.status`（插件作者 A12，待定项 23）；后台任务 `spawn`（插件作者，t22）。
+**待定**（进下面的待定项；接受时都已定，见“待定项”一节）：拦截给安全类插件一个外层位置（插件作者 A16，待定项 21）；扩展 id 与插件 id 的关系（宿主，待定项 20）；`input` 一词多义要不要改名（宿主，待定项 22）；处理函数告诉界面“正在检索”的 `ctx.status`（插件作者 A12，待定项 23）；后台任务 `spawn`（插件作者，t22）。
 
 ## 影响
 
@@ -725,29 +736,31 @@ expect(session.requests[0]!.outline()).toEqual(["system: fixed:profile", "user: 
 
 ## 待定项
 
-1. **名字**：叫“扩展”（`agent.extensions`、`defineExtension`），还是保留“钩子”。推荐“扩展”。
-2. **Profile 在拦截链里的位置**：最里层（推荐：改请求时最后拍板）还是最外层。
-3. **归约的快照**：持久化的快照推荐“压缩点加稀疏检查点”；检查点的间隔、淘汰与分支命中策略实现时定。
-4. **上限**：反应链最多 3 层、`continue` 每轮缺省最多 3 次、处理函数时限缺省 30 秒。
-5. **请求录制**：缺省关、需要时在设置里打开（推荐）。
-6. **工具拦截里附加的说明**：写进日志（推荐：模型看到了就要能重放）。
-7. **反应的主动接口**：`complete`、`invokeTool`、`ask`、`compact` 这类会产生新事件的主动动作怎样进日志（推荐：每个动作写一条带来源的控制事件，结果作为事件回来），实现时定。
-8. **很大的值**：整章正文、开场的参考文档这类大块内容（附带内容、工具结果、`opening()` 的片）是否另存到日志之外、日志里只记哈希（Fable 估算主创每次压缩后重读开场要多写几十 KB，推断）。
-9. **流式输出给不给扩展看**：推荐不给，增量只推给界面；以后真有需要再加一个只读的观察接口。
-10. **模型适配器的审计粒度**：推荐一次逻辑请求一条 `modelStarted`，每次服务商尝试记进诊断。
-11. **请求的完整形状**：图片与附件块、工具的参数 schema 与 `tool_choice`、服务商专有选项；推荐 `tools` 用完整的工具声明，服务商专有的放适配器选项，实现 t04、t05 时定。
-12. **性能预算**：长会话的目标（例如 10 万条事件打开在 1 秒内、算一次请求在 50 毫秒内）与第 19 节的六项测法。
-13. **审计与脱敏**：`redacted` 之外，要不要给日志导出与会话分享另加一层过滤。
+接受时（2026-10-31）各项都已定，结论加粗写在各条末尾，依据见决策记录。
+
+1. **名字**：叫“扩展”（`agent.extensions`、`defineExtension`），还是保留“钩子”。推荐“扩展”。 **定：叫“扩展”。**
+2. **Profile 在拦截链里的位置**：最里层（推荐：改请求时最后拍板）还是最外层。 **定：最里层。**
+3. **归约的快照**：持久化的快照推荐“压缩点加稀疏检查点”；检查点的间隔、淘汰与分支命中策略实现时定。 **定：第一版不做检查点快照；以后要做时快照是缓存、不改日志格式。**
+4. **上限**：反应链最多 3 层、`continue` 每轮缺省最多 3 次、处理函数时限缺省 30 秒。 **定：照推荐。**
+5. **请求录制**：缺省关、需要时在设置里打开（推荐）。 **定：缺省关；录制与预览过去请求的重建挪到主线之后的可选片。**
+6. **工具拦截里附加的说明**：写进日志（推荐：模型看到了就要能重放）。 **定：写进日志。**
+7. **反应的主动接口**：`complete`、`invokeTool`、`ask`、`compact` 这类会产生新事件的主动动作怎样进日志（推荐：每个动作写一条带来源的控制事件，结果作为事件回来），实现时定。 **定最小形状：压缩方法与审批钩子经 `ctx.model(request, {purpose, role?})` 调模型，内核写 `modelStarted`、过模型拦截链、计用量、接中止；其余主动动作以后再加。**
+8. **很大的值**：整章正文、开场的参考文档这类大块内容（附带内容、工具结果、`opening()` 的片）是否另存到日志之外、日志里只记哈希（Fable 估算主创每次压缩后重读开场要多写几十 KB，推断）。 **定：超过 16 KB（UTF-8 字节）的字符串另存为会话目录里按内容寻址的文件，日志只记哈希与长度；第一版打开时全量读回。**
+9. **流式输出给不给扩展看**：推荐不给，增量只推给界面；以后真有需要再加一个只读的观察接口。 **定：不给。**
+10. **模型适配器的审计粒度**：推荐一次逻辑请求一条 `modelStarted`，每次服务商尝试记进诊断。 **定：照推荐。**
+11. **请求的完整形状**：图片与附件块、工具的参数 schema 与 `tool_choice`、服务商专有选项；推荐 `tools` 用完整的工具声明，服务商专有的放适配器选项，实现 t04、t05 时定。 **定：见第 8 节的 `ModelRequest`（完整工具声明、`toolChoice`、`providerOptions`、思考签名与图片块）。**
+12. **性能预算**：长会话的目标（例如 10 万条事件打开在 1 秒内、算一次请求在 50 毫秒内）与第 19 节的六项测法。 **定：典型 2 万条事件打开 1 秒内、算一次请求 50 毫秒内、打开后常驻不超过 200 MB；10 万条只作压力测试。**
+13. **审计与脱敏**：`redacted` 之外，要不要给日志导出与会话分享另加一层过滤。 **定最小形状：宿主可给一个出站过滤，日志查询与推帧之前调用。**
 14. **多 Agent**（t14 已定，见 [t14](../../.agents/works/w00032-agent-integration/tasks/t14-multi-agent/README.md)）：子 Agent 是独立的会话，会话头记调用方；父会话里不加新事件，派生与发话就是工具调用；审批交给用户，提问缺省交给调用方；后台运行走任务中心（t22）。
-15. **steer 与 followup 的缺省**：运行中在对话框里回车是 followup（推荐，五位设计者都同意），另一个操作是插话。
-16. **多条 followup**：一条一轮（推荐，五位设计者都同意）。
-17. **压缩后放回的内容放哪**：写成 `conv` 事件、与压缩同批、盖这一轮的位置章（推荐，五位设计者都同意）。
-18. **会变的槽的缺省位置**：缺省布局放在末尾（推荐，五位设计者都同意）；要“用户的话在最后”的 Profile 写 `prompt: standardLayout({volatile: "before-turn"})`。
-19. **`<Slot name="*">` 与有意不摆的槽**：写明 `*` 只收没被单独摆放的槽；有意不要某个槽时加一个“我知道”的标记（例如 `<Slot name="word-count" drop />`），免得每次请求一条诊断。推荐加。
-20. **扩展 id 与插件 id**：平台的贡献点可以要求贡献 id 以“插件 id 加点”开头；推荐扩展 id 写成“插件 id”或“插件 id 加点加名字”，日志里的事件类型名自带来源；现在定，晚改会牵动日志里的类型名。
-21. **安全类插件的拦截位置**：脱敏、审计要最先看到输入、最后看到结果，按 `dependsOn` 与 id 排序表达不了；推荐拦截加一个粗粒度的层（`layer: "outer" | "inner"`，缺省 inner），或者把脱敏写进内核。
-22. **`input` 一词多义**：事件 `input`、拦截 `intercept.input`、类型 `UserInput`、`Turn.input` 同名；推荐保持（类型上分得清），文档里写清 `intercept.input` 在取走时、`on.input` 在写入之后。
-23. **处理函数告诉界面进度**：慢的处理函数（远端检索）挡住这一轮的第一次请求，界面只看到“没反应”；推荐给 `on` 的 ctx 加一个不进日志、只推给界面的 `ctx.status(文字)`，并在超时时显示是哪个扩展拖慢了。
+15. **steer 与 followup 的缺省**：运行中在对话框里回车是 followup（推荐，五位设计者都同意），另一个操作是插话。 **定：照推荐。**
+16. **多条 followup**：一条一轮（推荐，五位设计者都同意）。 **定：照推荐。**
+17. **压缩后放回的内容放哪**：写成 `conv` 事件、与压缩同批、盖这一轮的位置章（推荐，五位设计者都同意）。 **定：照推荐。**
+18. **会变的槽的缺省位置**：缺省布局放在末尾（推荐，五位设计者都同意）；要“用户的话在最后”的 Profile 写 `prompt: standardLayout({volatile: "before-turn"})`。 **定：照推荐。**
+19. **`<Slot name="*">` 与有意不摆的槽**：写明 `*` 只收没被单独摆放的槽；有意不要某个槽时加一个“我知道”的标记（例如 `<Slot name="word-count" drop />`），免得每次请求一条诊断。推荐加。 **定：加 `<Slot drop>`。**
+20. **扩展 id 与插件 id**：平台的贡献点可以要求贡献 id 以“插件 id 加点”开头；推荐扩展 id 写成“插件 id”或“插件 id 加点加名字”，日志里的事件类型名自带来源；现在定，晚改会牵动日志里的类型名。 **定：插件贡献的扩展 id 是“所属插件 id”或“所属插件 id.名字”，内核按宿主传入的所属插件校验前缀；Profile 的 id 是 t05 的 key `<来源>.<名字>`，与所有扩展 id 不重复。**
+21. **安全类插件的拦截位置**：脱敏、审计要最先看到输入、最后看到结果，按 `dependsOn` 与 id 排序表达不了；推荐拦截加一个粗粒度的层（`layer: "outer" | "inner"`，缺省 inner），或者把脱敏写进内核。 **定：加 `layer`，挪到主线之后的可选片。**
+22. **`input` 一词多义**：事件 `input`、拦截 `intercept.input`、类型 `UserInput`、`Turn.input` 同名；推荐保持（类型上分得清），文档里写清 `intercept.input` 在取走时、`on.input` 在写入之后。 **定：保持；输入拦截改为在受理时跑（第 3 节）。**
+23. **处理函数告诉界面进度**：慢的处理函数（远端检索）挡住这一轮的第一次请求，界面只看到“没反应”；推荐给 `on` 的 ctx 加一个不进日志、只推给界面的 `ctx.status(文字)`，并在超时时显示是哪个扩展拖慢了。 **定：加 `ctx.status`，挪到主线之后的可选片。**
 
 ## 第三至五稿改变了已定写法的地方（开发者 2026-10-29 认可）
 
@@ -773,6 +786,35 @@ expect(session.requests[0]!.outline()).toEqual(["system: fixed:profile", "user: 
 - 跨扩展引用改为契约对象加 `dependsOn`；`reduce` 改为“事件名 → 补丁”；外部事实经 `mount`；设置用 TypeBox；提醒、开场、缺省布局与常见的提交写法做成 helper；`deriveProfile`。
 - 内核加写入批、位置章、提交绑定 Profile 哈希、指令带 `commandId`、`extensionFailed`。
 
+## 第五稿到定稿的差异（实施计划第二版，2026-10-30）
+
+t20 实施计划第二版把 `spike/v5/` 改成定稿类型（`packages/nb-harness/src/kernel/api/`）。下面是改动，依据见决策记录 2026-10-30 与 2026-10-31 的几行；正文的第 2、3、7、8、9、11、20 节已按它们改写。
+
+| 方面 | 第五稿 | 定稿 |
+|---|---|---|
+| 写入批的落盘 | 事务或提交标记 | JSONL 每行带 `batch: {id, n, of}`；文件里完整的批就是已提交的批；写失败句柄进损坏状态、不重试，重开时截掉不完整的尾部 |
+| 会话目录 | 未定 | `<根>/<会话 id>/` 下 `session.jsonl`、`blobs/`、`session.lock`、`index.json`；第一行是会话头，带格式版本 |
+| 大块内容 | 待定项 8 | 超过 16 KB 的字符串存为 `blobs/<sha256>`，事件里记 `{$blob, size}` |
+| 会话互斥 | 单写者只在进程内 | 打开会话取目录锁；第二次打开得 `session-busy` |
+| 幂等 | `commandId` 是事件的幂等键 | 受理批里写 `commandAccepted{commandId, name, value}`；会开始运行的指令受理批含 `runStarted` |
+| 输入拦截 | 取走时跑，拒绝写 `inputConsumed.rejected`、运行以 `input-rejected` 结束 | 受理时跑，拒绝是指令失败、不写日志；`inputQueued`、`inputEdited` 存拦截后的文字，`input`、`steer` 只引用缓冲区的 id |
+| 等用户 | 四个占位事件 | `interactionRequested`、`interactionResolved{decision, code?}`、`approvalRemembered`；指令 `resolve` |
+| 重启时的等待事项 | 照日志接着等 | 让运行停下的事项收口为中断：审批结算为拒绝（`interrupted-before-approval`），提问 `interrupted`；异步提问不结算 |
+| 新的内核事件 | — | `commandAccepted`、`approvalRemembered`、`titleChanged`、`archived`（session）；`toolsAnnounced`、`modelEnded`（path） |
+| `assistant` | 内容块、工具调用、用量 | 加 `stopReason`（`stop`、`length`、`tool`、`error`、`aborted`）、OMP 用量的全部计数、`model`、`effort` |
+| 运行结束 | `runEnded.reason` 无 `finished` | 加 `finished` 与 `result{via, value, valid}`（收尾工具或最后一条回复） |
+| `modelFailed.kind` | 额度、溢出、鉴权、网络、服务商 | `network`、`rate_limit`、`auth`、`quota`、`context_overflow`、`provider`、`local`、`aborted`、`interrupted` |
+| 工具 | `ToolInfo` 带 `effect` | 以 master 的 `ToolDeclaration` 为底加 `effect`；日志与审批一律用 id，`providerName?` 可选；`toolResult` 加 `code` |
+| `commit` | `(turn, format, view)` | `(turn, format)`，纯函数 |
+| 主动调模型 | 待定项 7 | `ctx.model(request, {purpose, role?})`；`purpose` 加 `approval` |
+| 指令 | `rewind` 带 `abort` | `rewind` 去掉 `abort`（运行中先 `abort`）；加 `switchBranch`、`fork`、`setTitle`、`archive`；查询加 `path`、`siblings`、`runResult` |
+| 运行状态 | — | 加 `waiting{pending}`、`broken` |
+| 类型名 | `Event`、模板 `Node`、对话 `Turn` | `LogEvent`、`PromptNode`、`ConversationTurn`（模板组件仍叫 `<Turn />`） |
+| 压缩结果 | 带 `restoreBatch` | `{method, firstKeptEntryId, replacement, omitted, tokensBefore, tokensAfter, details}`；放回的内容由内核的公共流程写；方法失败以 `{failed: code}` 交回，换下一个 |
+| 定义 | 无版本 | Profile 与扩展加 `version` |
+| 审批 | 内核的最里层 | 宿主注入的钩子 `approve(call, info, ctx)`，必填、没有缺省；“全部放行”只给测试用 |
+| 挪到主线之后 | — | 预览过去请求的重建与请求录制、`ctx.status`、拦截的 `layer`；`SessionMirror` 随迁移 Task |
+
 ## 决策记录
 
 | 日期 | 决策者 | 结论 |
@@ -791,3 +833,7 @@ expect(session.requests[0]!.outline()).toEqual(["system: fixed:profile", "user: 
 | 2026-10-29 | 开发者 | 同意把能独立成扩展或写成纯函数的便利写法做成 helper，不做成字段：`remind` 改为 `reminder()`、`opening` 改为 `opening()`、`layout` 改为 `standardLayout()`、声明式 `commit` 改为 `finalOnly()`、`withoutEvents()`、`format.withRender()`；理由是便利字段太多会加重开发者的心智负担 |
 | 2026-10-29 | 开发者 | 认可第五稿（含第三至五稿改变已定写法的地方），结束 t20 的讨论；实现时再做一次审查；t20 改了内核，优先级提高 |
 | 2026-10-30 | 开发者 | t14 讨论中定了三处内核修正：审批与提问合成一条通道（`interactionRequested`、`interactionResolved` 与指令 `resolve`，取代四个占位事件）；声明为 `shared` 的工具在同一个回复里并发执行（从推迟的功能移入）；用户输入加 `replyTo` 支持异步提问（同日审查后改为异步回答也走 `resolve`，不加 `replyTo`） |
+| 2026-10-30 | 开发者 | t20 实施计划第一版：新内核作为 `nb-harness` 的新实现，以第三稿 spike 为起点按定稿类型重写；只做包内内核；待定项 1、2、4、5、6、9、10、19、21、22、23 照推荐；计划走快速审查，实现做一次深入审查 |
+| 2026-10-30 | 开发者 | 实施计划第一轮审查之后全部按推荐：重启时等待中的事项收口为中断（审批结算为 `interrupted-before-approval` 的拒绝）；输入拦截在受理时跑；`commit` 是纯函数；nb-story 依赖的语义（收尾工具、运行结果、`complete()`、停止原因、错误归类、密钥遮盖、进程收尾、相邻 user 合并、只用指定的密钥变量）放进 t20；性能预算 2 万条打开 1 秒、算一次请求 50 毫秒、常驻 200 MB，不做检查点，超过 16 KB 的字符串另存；预览过去请求的重建、请求录制、`ctx.status`、`layer` 挪到可选片，`SessionMirror` 并入迁移 Task |
+| 2026-10-30 | 主 Agent（开发者知悉） | 照审查意见订正与补定：扩展 id 与 Profile id 的两条规则（待定项 20）；会话目录锁与 `session-busy`；主动接口 `ctx.model` 与 `approval` 用途（待定项 7）；出站过滤（待定项 13）；请求的完整形状（待定项 11） |
+| 2026-10-31 | 开发者 | 接受本提案，按“第五稿到定稿的差异”与实施计划第二版实施；架构取舍记入 [ADR 0035](../adr/0035-harness-log-driven-kernel.md) |
