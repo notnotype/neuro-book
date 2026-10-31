@@ -11,34 +11,40 @@ import {accept, isEmpty, startProblem, type CommandHost} from "./commands.js";
 import {interceptInput, queuedData} from "./input.js";
 import {takeInputDrafts} from "./loop.js";
 
-/** 当前路径上的回退目标，按路径顺序。 */
+/** 当前路径上的回退目标，按路径顺序。一次前向扫描：用户的话在 turnStarted 之后才出现，到时补进这一轮的目标里。 */
 export function rewindTargets(core: SessionCore): RewindTarget[] {
     const path = core.pathTo();
     const targets: RewindTarget[] = [];
-    let turn: {id: string; inputText: string | null} | null = null;
+    let turn: {id: string; targets: RewindTarget[]; inputText: string | null} | null = null;
+    const add = (id: string | null, kind: RewindTarget["kind"]) => {
+        if (id === null || turn === null) return;
+        const target: RewindTarget = {id, kind, turnId: turn.id, inputText: turn.inputText};
+        turn.targets.push(target);
+        targets.push(target);
+    };
     for (let index = 0; index < path.length; index += 1) {
         const event = path[index]!;
         switch (event.type) {
             case "turnStarted": {
-                const turnId = (event.data as {turnId: string}).turnId;
-                const input = path.slice(index + 1).find((later) => later.type === "input" || later.type === "turnEnded");
-                turn = {id: turnId, inputText: input?.type === "input" ? (input.data as {text: string}).text : null};
+                turn = {id: (event.data as {turnId: string}).turnId, targets: [], inputText: null};
                 // 一次运行的第一轮：回到 runStarted 之前（运行外，干净的空闲点）；后面的轮：回到上一轮结束处（运行中途）。
                 const previous = path[index - 1];
-                const before = previous?.type === "runStarted" ? previous.parent : event.parent;
-                if (before !== null) targets.push({id: before, kind: "before-turn", turnId, inputText: turn.inputText});
+                add(previous?.type === "runStarted" ? previous.parent : event.parent, "before-turn");
                 break;
             }
-            case "modelStarted":
-                if (turn !== null && (event.data as {purpose: string}).purpose === "turn" && event.parent !== null) {
-                    targets.push({id: event.parent, kind: "after-step", turnId: turn.id, inputText: turn.inputText});
+            case "input":
+                if (turn !== null && turn.inputText === null) {
+                    turn.inputText = (event.data as {text: string}).text;
+                    for (const target of turn.targets) target.inputText = turn.inputText;
                 }
                 break;
+            case "modelStarted":
+                if ((event.data as {purpose: string}).purpose === "turn") add(event.parent, "after-step");
+                break;
             case "turnEnded": {
-                if (turn === null) break;
                 // 这一轮也是运行的最后一轮时，目标落在 runEnded 上（运行外）。
                 const next = path[index + 1];
-                targets.push({id: next?.type === "runEnded" ? next.id : event.id, kind: "after-turn", turnId: turn.id, inputText: turn.inputText});
+                add(next?.type === "runEnded" ? next.id : event.id, "after-turn");
                 turn = null;
                 break;
             }

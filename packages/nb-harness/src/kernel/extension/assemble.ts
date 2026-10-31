@@ -29,6 +29,8 @@ export interface Assembled {
 export interface AssemblyProblem {
     readonly code: "bad-extension-id" | "duplicate-extension-id" | "dependency-missing" | "dependency-cycle";
     readonly extension: string;
+    /** `dependency-missing` 时缺的那个依赖。 */
+    readonly dependency?: string;
     readonly message: string;
     readonly hint: string;
 }
@@ -198,7 +200,7 @@ export function assemble(profile: AnyProfile, contributed: readonly ContributedE
     }
     for (const item of [...pluginItems, ...ownItems, profileItem]) {
         for (const dependency of dependenciesOf(item.definition)) {
-            if (!dependency.optional && !seen.has(dependency.id)) problems.push({code: "dependency-missing", extension: item.definition.id, message: `extension ${item.definition.id} depends on ${dependency.id}, which is not installed`, hint: `install ${dependency.id}, or wrap it in optional() if ${item.definition.id} can work without it`});
+            if (!dependency.optional && !seen.has(dependency.id)) problems.push({code: "dependency-missing", extension: item.definition.id, dependency: dependency.id, message: `extension ${item.definition.id} depends on ${dependency.id}, which is not installed`, hint: `install ${dependency.id}, or wrap it in optional() if ${item.definition.id} can work without it`});
         }
     }
     const order = [...topological(pluginItems, problems), ...topological(ownItems, problems), profileItem];

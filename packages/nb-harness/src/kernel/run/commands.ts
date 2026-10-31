@@ -7,12 +7,12 @@
  * （runtime.md 输出 24），拒绝时整条指令失败、不写日志。`abort` 不经队列（先触发信号），清空缓冲区作为之后的一项写入。
  */
 
-import type {Attributed, CommandMap, CommandName, CommandResult, JsonValue, ModelPort, Resources, UserInput} from "../api/index.js";
-import type {EventDraft, SessionCore} from "../dispatch/core.js";
+import type {Attributed, CommandMap, CommandName, CommandResult, JsonValue, LogEvent, ModelPort, Resources, UserInput} from "../api/index.js";
+import {LogBrokenError, type EventDraft, type SessionCore} from "../dispatch/core.js";
 import type {RunControl} from "./control.js";
 import {takeInputDrafts} from "./loop.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
-import type {ViewEnvironment} from "../extension/ctx.js";
+import {defaultSettings, type ViewEnvironment} from "../extension/ctx.js";
 import {interceptInput, queuedData} from "./input.js";
 import {settingsProblem} from "./settings.js";
 
@@ -28,14 +28,18 @@ export interface CommandHost {
     readOnly(): string | null;
 }
 
-/** `after`：受理批写下、队列项结束之后再做的事（例如装上扩展：它自己要排队写日志，不能在这一项里等）。 */
-export type Outcome<K extends CommandName> = {value: CommandMap[K]["value"]; drafts: EventDraft[]; launch?: string; after?: () => Promise<void>} | {fail: string; detail?: Attributed | Record<string, JsonValue>};
+/**
+ * `written`：受理批写下之后、还在这一个队列项里做的事（写失败就不做，内存不会领先日志）。
+ * `after`：队列项结束之后再做的事（例如装上扩展：它自己要排队写日志，不能在这一项里等）。
+ */
+export type Outcome<K extends CommandName> = {value: CommandMap[K]["value"]; drafts: EventDraft[]; launch?: string; written?: () => Promise<void>; after?: () => Promise<void>} | {fail: string; detail?: Attributed | Record<string, JsonValue>};
 
 /** 受理一条指令：查重发、校验、写受理批、需要时开始运行。 */
 export async function accept<K extends CommandName>(host: CommandHost, name: K, commandId: string, decide: () => Outcome<K> | Promise<Outcome<K>>): Promise<CommandResult<K>> {
     const {core} = host;
     let after: (() => Promise<void>) | undefined;
-    const result = await core.queue.run(async () => {
+    // 这次受理批写失败：句柄进损坏状态，指令以 `log-broken` 交回（session.md 输出 12），不把错误抛给调用方。
+    const result = await core.queue.run(async (): Promise<CommandResult<K>> => {
         const previous = core.commands.get(commandId);
         if (previous !== undefined) return {ok: true, value: previous.value as CommandMap[K]["value"], seq: previous.seq, replayed: true} as CommandResult<K>;
         if (core.broken) return {ok: false, code: "log-broken"} as unknown as CommandResult<K>;
@@ -43,7 +47,14 @@ export async function accept<K extends CommandName>(host: CommandHost, name: K, 
         if ("fail" in outcome) return {ok: false, code: outcome.fail, ...(outcome.detail === undefined ? {} : {detail: outcome.detail})} as unknown as CommandResult<K>;
         const accepted: EventDraft = {type: "commandAccepted", kind: "ctrl", scope: "session", data: {commandId, name, value: outcome.value as JsonValue}};
         // commandAccepted 排在批的最后：它的 seq 就是受理批最后一条的 seq，重发时原样交回。
-        const {events: written} = await writeAndReact(core, [...outcome.drafts, accepted], host.react);
+        let written: readonly LogEvent[];
+        try {
+            ({events: written} = await writeAndReact(core, [...outcome.drafts, accepted], host.react));
+        } catch (error) {
+            if (error instanceof LogBrokenError) return {ok: false, code: "log-broken"} as unknown as CommandResult<K>;
+            throw error;
+        }
+        await outcome.written?.();
         if (outcome.launch !== undefined) host.control.launch(outcome.launch);
         after = outcome.after;
         return {ok: true, value: outcome.value, seq: written.at(-1)!.seq, replayed: false} as CommandResult<K>;
@@ -182,7 +193,9 @@ export function changeSettingsCommand(host: CommandHost, args: CommandMap["chang
         const drafts: EventDraft[] = [];
         const changed: string[] = [];
         for (const [extension, values] of Object.entries(args.patch)) {
-            const current = (extension === "core" ? core.session.kernel.core : core.session.kernel.settings[extension] ?? {}) as Record<string, unknown>;
+            // 扩展的组按生效值比：缺省值合并用户改过的（与视图读到的一样），提交与缺省相同的值不算变化。
+            const item = core.assembly.order.find((entry) => entry.definition.id === extension);
+            const current = (extension === "core" ? core.session.kernel.core : {...(item === undefined ? {} : defaultSettings(item.definition)), ...core.session.kernel.settings[extension]}) as Record<string, unknown>;
             const patch = Object.fromEntries(Object.entries(values).filter(([key, value]) => JSON.stringify(current[key]) !== JSON.stringify(value)));
             if (Object.keys(patch).length === 0) continue;
             changed.push(extension);

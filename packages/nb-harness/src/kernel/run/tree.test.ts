@@ -6,8 +6,8 @@
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 import {rm} from "node:fs/promises";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import type {AnyProfile, LogEvent} from "../api/index.js";
-import {defineExtension, slice} from "../extension/define.js";
+import type {AnyProfile, LogEvent, LogStore} from "../api/index.js";
+import {defineExtension, ext, slice} from "../extension/define.js";
 import {defineProfile} from "../extension/profile.js";
 import {createJsonlStore} from "../log/jsonl-store.js";
 import {createTestSession, defaultTestProfile, type TestSession} from "../testing/test-session.js";
@@ -31,6 +31,22 @@ const counter = defineExtension({id: "lab.count", state: {onPath: slice.path(0),
     input: (_event, state) => ({onPath: state.onPath + 1}),
     inputQueued: (_event, state) => ({inSession: state.inSession + 1}),
 }});
+
+/** 包一层存储：第一次遇到满足条件的写入批时失败（之后照常），测写失败时内存不领先日志。 */
+function failOnce(match: (events: readonly LogEvent[]) => boolean) {
+    let failed = false;
+    return (store: LogStore): LogStore => ({
+        ...store,
+        append: async (handle, events) => {
+            if (!failed && match(events)) {
+                failed = true;
+                return {ok: false, code: "storage-failed", detail: {message: "injected failure"}};
+            }
+            return store.append(handle, events);
+        },
+    });
+}
+const accepting = (name: string) => (events: readonly LogEvent[]) => events.some((event) => event.type === "commandAccepted" && (event.data as {name: string}).name === name);
 
 /** 两轮对话：第二轮先调一次工具。 */
 async function twoTurns(session: TestSession) {
@@ -188,6 +204,22 @@ describe("分支与 fork", () => {
     });
 });
 
+describe("fork 的幂等", () => {
+    test("输出 37、session 输出 17：原会话受理批写失败后重开，用同一个 commandId 重发得到同一个 fork，不多建", async () => {
+        await using session = await createTestSession({store: {root}, wrapStore: failOnce(accepting("fork"))});
+        session.model.script("答一");
+        await session.say("第一问");
+        expect(await session.raw.fork({commandId: "fork-once"})).toMatchObject({ok: false, code: "log-broken"});
+        await session.reopen();
+        const again = await session.raw.fork({commandId: "fork-once"});
+        if (!again.ok) throw new Error(again.code);
+        const listed = await createJsonlStore({root}).list({});
+        if (!listed.ok) throw new Error(listed.code);
+        expect(listed.value.filter((entry) => entry.id.startsWith("fork-")).map((entry) => entry.id)).toContain(again.value.sessionId);
+        expect(await session.raw.fork({commandId: "fork-once"})).toMatchObject({ok: true, replayed: true, value: {sessionId: again.value.sessionId}});
+    });
+});
+
 describe("换 Profile", () => {
     const tally = defineExtension({id: "lab.tally.count", state: {inputs: slice.path(0)}, reduce: {input: (_event, state) => ({inputs: state.inputs + 1})}});
     const other = defineProfile({
@@ -213,5 +245,66 @@ describe("换 Profile", () => {
         expect(await session.raw.changeProfile({commandId: id(), profile: "lab.tally"})).toMatchObject({ok: true, value: {changed: false}});
         expect(await session.raw.changeProfile({commandId: id(), profile: "lab.nope"})).toEqual({ok: false, code: "unknown-profile"});
         expect(await session.raw.changeProfile({commandId: id(), profile: defaultTestProfile.id})).toMatchObject({ok: true, value: {changed: true}});
+    });
+
+    test("输出 38：受理批写失败时内存里的装配不变", async () => {
+        await using session = await createTestSession({profiles: [other], wrapStore: failOnce(accepting("changeProfile"))});
+        expect(await session.raw.changeProfile({commandId: id(), profile: "lab.tally"})).toMatchObject({ok: false, code: "log-broken"});
+        expect((await session.raw.snapshot()).profile.id).toBe(defaultTestProfile.id);
+    });
+
+    test("输出 38：换过 Profile 后宿主拿到的上下文、fork 的会话头都是新 Profile", async () => {
+        await using session = await createTestSession({store: {root}, profiles: [other], tools: [readTool]});
+        await session.raw.changeProfile({commandId: id(), profile: "lab.tally"});
+        session.model.script({tools: [{tool: "lab.read"}]}, "完成");
+        await session.say("问");
+        expect(session.hostContexts.at(-1)?.profile).toBe("lab.tally");
+        expect(session.hostContexts.some((context) => context.profile === "lab.tally")).toBe(true);
+        const forked = await session.raw.fork({commandId: id()});
+        if (!forked.ok) throw new Error(forked.code);
+        await using copy = await createTestSession({store: {root}, open: forked.value.sessionId, profiles: [other]});
+        const snapshot = await copy.raw.snapshot();
+        expect([snapshot.header.profile, snapshot.profile.id]).toEqual(["lab.tally", "lab.tally"]);
+    });
+
+    test("输出 38：新装配重新判定 mount 失败；装上新扩展写的外部事实在 changeProfile 返回前落盘", async () => {
+        const broken = defineExtension({id: "lab.same", mount: () => {
+            throw new Error("旧的坏了");
+        }});
+        // ping 的反应让出几次事件循环才写：changeProfile 不等装上写的事实落盘就返回的话，返回时还看不到 pong。
+        const yieldTurns = async () => {
+            for (let turn = 0; turn < 5; turn += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+        };
+        const fixed = defineExtension({
+            id: "lab.same",
+            events: {ping: ext(), pong: ext()},
+            state: {seen: slice.path(0)},
+            reduce: {ping: (_event, state) => ({seen: state.seen + 1})},
+            mount: (ctx) => ctx.emit("ping"),
+            on: {
+                ping: async (_event, ctx) => {
+                    await yieldTurns();
+                    ctx.emit("pong");
+                },
+                input: (_event, ctx) => ctx.set("seen", 100),
+            },
+        });
+        const before = defineProfile({id: "lab.before", version: "1", name: "前", description: "前", extensions: [broken]}) as AnyProfile;
+        const after = defineProfile({id: "lab.after", version: "1", name: "后", description: "后", extensions: [fixed]}) as AnyProfile;
+        await using session = await createTestSession({profile: before, profiles: [after]});
+        await session.raw.changeProfile({commandId: id(), profile: "lab.after"});
+        const types = (await session.raw.log({afterSeq: 0})).events.map((event) => event.type);
+        expect(types).toContain("lab.same/ping");
+        expect(types).toContain("lab.same/pong");
+        session.model.script("好");
+        await session.say("问");
+        expect(await session.state(fixed)).toEqual({seen: 100});
+    });
+
+    test("输出 38：装配缺依赖时带出缺的是哪个", async () => {
+        const needed = defineExtension({id: "lab.needed"});
+        const needs = defineProfile({id: "lab.needs", version: "1", name: "n", description: "n", dependsOn: [needed]}) as AnyProfile;
+        await using session = await createTestSession({profiles: [needs]});
+        expect(await session.raw.changeProfile({commandId: id(), profile: "lab.needs"})).toEqual({ok: false, code: "dependency-missing", detail: {extension: "lab.needs", dependency: "lab.needed"}});
     });
 });

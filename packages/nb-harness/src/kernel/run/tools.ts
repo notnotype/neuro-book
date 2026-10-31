@@ -38,7 +38,8 @@ export class ToolBox {
     /** 报过诊断的声明问题：每次请求都重算工具集，同一个问题只报一次。 */
     readonly #reported = new Set<string>();
 
-    constructor(private readonly core: SessionCore, private readonly env: Pick<SessionEnv, "tools">, private readonly context: ToolSessionContext) {}
+    /** `context` 每次取：换了 Profile 之后宿主拿到的是当前的（runtime.md 输出 38）。 */
+    constructor(private readonly core: SessionCore, private readonly env: Pick<SessionEnv, "tools">, private readonly context: () => ToolSessionContext) {}
 
     #yield(): ToolDeclaration | null {
         const result = this.core.header.result;
@@ -50,7 +51,7 @@ export class ToolBox {
     current(): ToolDeclaration[] {
         let declared: readonly ToolDeclaration[] = [];
         try {
-            declared = this.env.tools.declarations(this.context);
+            declared = this.env.tools.declarations(this.context());
         } catch (error) {
             if (!this.#reported.has("declarations")) this.core.diagnostics.add({code: "tool-declaration-invalid", entry: "host", subject: "declarations", message: "the host's tool declarations threw; the session has no tools for this request", cause: error}, this.core.head);
             this.#reported.add("declarations");
@@ -99,7 +100,7 @@ export class ToolBox {
         if (id === YIELD_TOOL && this.core.header.result !== undefined) return Promise.resolve({execute: async () => ({text: "The result has been handed back."})});
         let created = this.#implementations.get(id);
         if (created === undefined) {
-            created = Promise.resolve().then(() => this.env.tools.create(id, this.context));
+            created = Promise.resolve().then(() => this.env.tools.create(id, this.context()));
             this.#implementations.set(id, created);
             // 建失败的不留在表里，下一次调用再建。
             created.catch(() => this.#implementations.delete(id));

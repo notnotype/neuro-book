@@ -95,6 +95,32 @@ describe("steer 与 followup", () => {
         expect(types(events).filter((type) => ["assistant", "steer", "turnEnded"].includes(type))).toEqual(["assistant", "steer", "assistant", "turnEnded"]);
     });
 
+    test("输出 28：最终回复时扩展要 continue、缓冲区又有 steer，两者都进下一次请求", async () => {
+        const holding = gate();
+        const replying = gate();
+        let calls = 0;
+        const hold = defineExtension({id: "lab.hold", intercept: {model: async (request, next) => {
+            calls += 1;
+            if (calls === 1) {
+                replying.open();
+                await holding.promise;
+            }
+            return next(request);
+        }}});
+        let asked = false;
+        const nudger = defineExtension({id: "lab.nudge", on: {assistant: (_event, ctx) => {
+            if (!asked) asked = ctx.continue("再补一句");
+        }}});
+        await using session = await createTestSession({extensions: [hold, nudger]});
+        session.model.script("第一版", "补过的");
+        const runId = await sendRaw(session, "问");
+        await replying.promise;
+        await session.raw.enqueue({commandId: id(), input: {text: "插话"}, mode: "steer"});
+        holding.open();
+        await session.raw.waitRun(runId);
+        expect(session.requests[1]!.outline().at(-1)).toBe("user: event:continued | event:steer");
+    });
+
     test("输出 30：轮以 error 结束时不取 followup，缓冲区留着", async () => {
         await using session = await createTestSession();
         session.model.script({fail: "network"});
@@ -155,6 +181,7 @@ describe("设置、标题与归档", () => {
         expect(await session.raw.changeSettings({commandId: id(), patch: {core: {readOnly: true}, "lab.configured": {colour: "红"}}})).toEqual({ok: false, code: "unknown-key", detail: {extension: "lab.configured", key: "colour"}});
         expect(await session.raw.changeSettings({commandId: id(), patch: {core: {approvalMode: "sometimes"}}})).toMatchObject({ok: false, code: "invalid-value", detail: {extension: "core", key: "approvalMode"}});
         expect((await session.raw.snapshot()).settings.readOnly).toBe(false);
+        expect(await session.raw.changeSettings({commandId: id(), patch: {"lab.configured": {label: "缺省"}}})).toMatchObject({ok: true, value: {changed: []}});
         expect(await session.raw.changeSettings({commandId: id(), patch: {core: {readOnly: false}, "lab.configured": {label: "新标签"}}})).toMatchObject({ok: true, value: {changed: ["lab.configured"], scheduled: "now"}});
     });
 

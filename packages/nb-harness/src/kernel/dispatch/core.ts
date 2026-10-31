@@ -98,6 +98,8 @@ export class SessionCore {
     #listeners = new Set<(frame: Frame) => void>();
     #brokenListeners = new Set<() => void>();
     #noticesSeen = 0;
+    /** path 事件按父节点的子节点索引（回退、切分支、兄弟节点的查询用）。 */
+    readonly #children = new Map<string | null, string[]>();
 
     constructor(options: CoreOptions) {
         this.header = options.header;
@@ -180,6 +182,9 @@ export class SessionCore {
             this.#pathStates.set(event.id, path);
             this.leaf = event.id;
             this.leafSetBy = "path";
+            const siblings = this.#children.get(event.parent);
+            if (siblings === undefined) this.#children.set(event.parent, [event.id]);
+            else siblings.push(event.id);
         } else if (event.type === "leafChanged") {
             this.leaf = (event.data as {leaf: string | null}).leaf;
             this.leafSetBy = "leafChanged";
@@ -213,6 +218,8 @@ export class SessionCore {
         this.#session = {kernel: initialSessionKernel(), extensions: initialSnapshot(assembly.reducers, "session", this.dev)};
         this.#pathStates = new Map();
         this.#batchStates = new Map();
+        // mount 失败的标记属于上一次装配；新装配的 mount 重新判定。
+        this.failedExtensions.clear();
         for (const event of this.events) {
             const next = this.#reduce(event.scope === "path" ? this.pathState(event.parent) : this.#initialPath, this.#session, event);
             if (event.scope === "path") this.#pathStates.set(event.id, next.path);
@@ -220,19 +227,19 @@ export class SessionCore {
         }
     }
 
-    /** path 事件的子节点（按 seq）。回退与切分支的查询用，O(事件数)。 */
+    /** path 事件的子节点（按 seq），走子节点索引。 */
     childrenOf(id: string | null): LogEvent[] {
-        return this.events.filter((event) => event.scope === "path" && event.parent === id);
+        return (this.#children.get(id) ?? []).map((child) => this.byId.get(child)!);
     }
 
-    /** 一个节点所在子树里最近写入的 path 事件（切分支落到那条分支的末端）。 */
+    /** 一个节点所在子树里最近写入的 path 事件（切分支落到那条分支的末端），O(子树大小)。 */
     latestIn(id: string): LogEvent {
-        const inTree = new Set([id]);
         let latest = this.byId.get(id)!;
-        for (const event of this.events) {
-            if (event.scope !== "path" || event.parent === null || !inTree.has(event.parent)) continue;
-            inTree.add(event.id);
-            latest = event;
+        const stack = [id];
+        while (stack.length > 0) {
+            const node = this.byId.get(stack.pop()!)!;
+            if (node.seq > latest.seq) latest = node;
+            stack.push(...(this.#children.get(node.id) ?? []));
         }
         return latest;
     }

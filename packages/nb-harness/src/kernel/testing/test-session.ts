@@ -5,7 +5,7 @@
  * 这一版有：`say`、请求的 `outline`、事件与状态、重开、假工具与审批策略。手动模式、严格模式随后续切片加入。
  */
 
-import type {AnyExtension, AnyProfile, ApproveHook, ContributedExtension, JsonValue, LogEvent, LogStore, ModelRequest, RunResult, SessionHeader, ToolContext, ToolDeclaration, ToolImplementation, ToolResult, SessionApi, SessionEnv, StateOfExtension} from "../api/index.js";
+import type {AnyExtension, AnyProfile, ApproveHook, ContributedExtension, JsonValue, LogEvent, LogStore, ModelRequest, RunResult, SessionHeader, ToolContext, ToolDeclaration, ToolImplementation, ToolResult, ToolSessionContext, SessionApi, SessionEnv, StateOfExtension} from "../api/index.js";
 import {defineProfile} from "../extension/profile.js";
 import {createJsonlStore} from "../log/jsonl-store.js";
 import {createMemoryStore} from "../log/memory-store.js";
@@ -51,6 +51,8 @@ export interface TestSessionOptions {
     readonly open?: string;
     /** 另外能解析到的 Profile（测 `changeProfile`）。 */
     readonly profiles?: readonly AnyProfile[];
+    /** 包一层存储（例如在某个写入批上失败，测写失败时内存不领先日志）。 */
+    readonly wrapStore?: (store: LogStore) => LogStore;
 }
 
 export interface RequestView {
@@ -72,6 +74,8 @@ export interface TestSession extends AsyncDisposable {
     readonly clock: TestClock;
     readonly raw: SessionApi;
     readonly requests: readonly RequestView[];
+    /** 宿主收到的上下文（建资源、建工具实现时），按先后。 */
+    readonly hostContexts: readonly ToolSessionContext[];
     /** 当前叶子路径上的事件。 */
     events(): Promise<readonly LogEvent[]>;
     eventsOf(type: string): Promise<readonly LogEvent[]>;
@@ -94,7 +98,9 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
     const model = createTestModel();
     const clock = options.clock ?? createTestClock(options.startAt);
     const profile = options.profile ?? defaultTestProfile;
-    const store: LogStore = options.store === undefined ? createMemoryStore() : createJsonlStore({root: options.store.root, now: clock.now});
+    const baseStore: LogStore = options.store === undefined ? createMemoryStore() : createJsonlStore({root: options.store.root, now: clock.now});
+    const store = options.wrapStore === undefined ? baseStore : options.wrapStore(baseStore);
+    const hostContexts: ToolSessionContext[] = [];
     const toolList = (): readonly TestTool[] => (typeof options.tools === "function" ? options.tools() : (options.tools ?? []));
     const contributed: ContributedExtension[] = (options.extensions ?? []).map((item) => ("extension" in item && "plugin" in item ? item : {extension: item as AnyExtension, plugin: null}));
     const env: SessionEnv = {
@@ -104,7 +110,8 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
         models: model.port,
         tools: {
             declarations: () => toolList().map(testToolDeclaration),
-            create: (id) => {
+            create: (id, context) => {
+                hostContexts.push(context);
                 const tool = toolList().find((item) => item.id === id);
                 if (tool === undefined) return Promise.reject(new Error(`the test session has no tool ${id}`));
                 if (tool.create !== undefined) return tool.create();
@@ -113,7 +120,10 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
                 return {execute: async (args, context) => execute(args, context), ...(tool.dispose === undefined ? {} : {dispose: () => tool.dispose!()})};
             },
         },
-        resources: () => ({read: async () => undefined, resolve: (uri) => uri}),
+        resources: (context) => {
+            hostContexts.push(context);
+            return {read: async () => undefined, resolve: (uri) => uri};
+        },
         sessions: {get: (id) => Promise.reject(new Error(`the test session cannot open session ${id}`))},
         clock,
         // “全部放行”只是测试的一种显式策略，不是产品缺省。
@@ -137,6 +147,7 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
         get requests() {
             return model.requests.map(viewOf);
         },
+        hostContexts,
         events: () => api.path(),
         eventsOf: async (type) => (await api.path()).filter((event) => event.type === type),
         async say(text) {

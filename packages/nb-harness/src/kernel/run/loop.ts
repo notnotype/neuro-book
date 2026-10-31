@@ -227,13 +227,14 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             }
             // 回复已经写下；反应期间被中止的，这一轮以 aborted 收口（不再请求，也不提交成 completed）。
             if (signal.aborted) return await end("aborted", {reason: "aborted"});
-            // 最终回复时还有没取走的 steer：这一轮接着请求，下一个边界取走它们。
-            if (core.session.kernel.buffer.some((item) => item.mode === "steer")) continue;
             if (replied.continues.length > 0) {
                 // 扩展要求接着做（只在最终回复上）：每个请求写一条 continued，再请求一次。次数上限在 ctx.continue 里查过。
+                // 同时有没取走的 steer 也先写 continued：下一个边界再取 steer，两者都进下一次请求。
                 await write(replied.continues.map(({extension, text}) => conv("continued", {text, by: extension, count: continuedSoFar(core, extension) + 1})));
                 continue;
             }
+            // 最终回复时还有没取走的 steer：这一轮接着请求，下一个边界取走它们。
+            if (core.session.kernel.buffer.some((item) => item.mode === "steer")) continue;
             const result = core.header.result;
             if (result !== undefined) {
                 // 会话要交回结果而模型没调用 yield（runtime.md 输出 27）：必需的先催一次。

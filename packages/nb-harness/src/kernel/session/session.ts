@@ -8,17 +8,17 @@
  * 关闭的顺序：拒绝新指令 → 中止并等收口 → 等队列清空 → 摘下扩展 → 释放工具实现 → 关日志与锁。关闭之后迟到的回调不写日志。
  */
 
-import {randomBytes} from "node:crypto";
+import {createHash, randomBytes} from "node:crypto";
 import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
-import type {AnyProfile, ModelInfo, CommandName, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
+import type {AnyProfile, ModelInfo, Resources, ToolSessionContext, CommandName, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
 import {LOG_FORMAT} from "../api/index.js";
 import {SessionCore, type EventDraft} from "../dispatch/core.js";
 import {Mounts} from "../dispatch/mount.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 import type {ViewEnvironment} from "../extension/ctx.js";
 import {assemble, type Assembly} from "../extension/assemble.js";
-import {abortCommand, accept, archiveCommand, changeSettingsCommand, editCommand, enqueueCommand, removeCommand, sendCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
+import {abortCommand, accept, archiveCommand, type Outcome, changeSettingsCommand, editCommand, enqueueCommand, removeCommand, sendCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
 import {rewindCommand, rewindTargets, siblingsOf, switchBranchCommand} from "../run/tree.js";
 import {RunControl} from "../run/control.js";
 import {recoveryDrafts} from "../run/recover.js";
@@ -37,6 +37,8 @@ interface Internals {
     /** 会话为什么只读；可写时为 null。运行中发现必需工具缺失时变成 `tools-missing`（直到重开）。 */
     readOnly: string | null;
     closed: boolean;
+    /** 换了 Profile 之后重建交给宿主的资源与工具实现。 */
+    refreshContext(): Promise<void>;
 }
 const internals = new WeakMap<SessionApi, Internals>();
 
@@ -75,7 +77,8 @@ const UNKNOWN_MODEL: ModelInfo = {id: "unknown/unknown", contextWindow: 0, capab
 /** 一个会话的内部对象：运行控制、反应与装上的宿主。`as()` 得到的视图共用它。 */
 function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | null): Internals {
     const control = new RunControl(core);
-    const context = {sessionId: core.header.id, profile: core.header.profile, ...(core.header.project === undefined ? {} : {project: core.header.project})};
+    // 交给宿主的上下文按当前装配取 Profile：换过 Profile（或重开时按最后一条 profileChanged 装配）后不是会话头里最初的。
+    const context = (): ToolSessionContext => ({sessionId: core.header.id, profile: core.assembly.profile.id, ...(core.header.project === undefined ? {} : {project: core.header.project})});
     const box = new ToolBox(core, env, context);
     const tools = () => box.current().map(toolInfo);
     // 初始输入在 sessionCreated 里；新建会话时它在这个对象建好之后才写下，所以用到时再找（找到一次就记住）。
@@ -98,10 +101,16 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
     }, get initial() {
         return initialOf();
     }};
-    const resources = env.resources(context);
+    // 资源按上下文建；换 Profile 时重建（`refreshContext`），各处拿着的都是这个转发对象。
+    let currentResources = env.resources(context());
+    const resources: Resources = {read: (uri) => currentResources.read(uri), resolve: (uri) => currentResources.resolve(uri)};
     const react: ReactHost = {environment: () => ({tools: tools(), model: modelInfo(), now: core.clock.now(), initial: initialOf()}), resources};
     const mounts = new Mounts(core, {...react, running: () => !control.idle});
-    const state: Internals = {core, control, react, mounts, box, environment, readOnly, closed: false};
+    const state: Internals = {core, control, react, mounts, box, environment, readOnly, closed: false, refreshContext: async () => {
+        currentResources = env.resources(context());
+        // 工具实现是按上一个 Profile 的上下文建的：全部释放，下次调用按新上下文重建。
+        await box.retire([]);
+    }};
     control.attach({
         core,
         react,
@@ -144,37 +153,45 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         resolve: notYet("resolve"),
         rewind: (args) => closedGuard(() => rewindCommand(host, args)),
         switchBranch: (args) => closedGuard(() => switchBranchCommand(host, args)),
-        fork: (args) => closedGuard(() => accept(host, "fork", args.commandId, async () => {
+        fork: (args) => closedGuard(() => accept(host, "fork", args.commandId, async (): Promise<Outcome<"fork">> => {
             if (!control.idle) return {fail: "running", detail: {runId: control.active?.runId ?? ""}};
             const leaf = args.leaf === undefined ? core.leaf : args.leaf;
             if (leaf !== null && core.byId.get(leaf)?.scope !== "path") return {fail: "unknown-node"};
-            const forked = await forkSession(env, core, leaf);
+            const forked = await forkSession(env, core, leaf, args.commandId);
             if (!forked.ok) return {fail: "log-broken"};
             return {value: {sessionId: forked.id}, drafts: []};
         })),
         compact: notYet("compact"),
         changeSettings: (args) => closedGuard(() => changeSettingsCommand(host, args)),
-        changeProfile: (args) => closedGuard(() => accept(host, "changeProfile", args.commandId, async () => {
+        changeProfile: (args) => closedGuard(() => accept(host, "changeProfile", args.commandId, async (): Promise<Outcome<"changeProfile">> => {
             if (!control.idle) return {fail: "running", detail: {runId: control.active?.runId ?? ""}};
             const profile = await env.profiles.resolve(args.profile);
             if (profile === undefined) return {fail: "unknown-profile"};
             const assembled = assemble(profile, env.extensions?.() ?? []);
             if (!assembled.ok) {
-                const code = assembled.problems[0]!.code;
-                return {fail: code === "dependency-missing" || code === "dependency-cycle" ? code : "profile-invalid"};
+                const problem = assembled.problems[0]!;
+                if (problem.code === "dependency-missing") return {fail: problem.code, detail: {extension: problem.extension, dependency: problem.dependency ?? ""}};
+                return {fail: problem.code === "dependency-cycle" ? problem.code : "profile-invalid"};
             }
             const next = assembled.assembly;
             if (next.hash === core.assembly.hash) return {value: {changed: false, hash: next.hash, diagnostics: 0}, drafts: []};
-            // 换装配：摘下旧扩展、按新的归约函数重新归约全部事件，受理批写下之后再装上新扩展（harness/profile.md 输出 11）。
-            await state.mounts.unmountAll();
+            // 换装配（harness/profile.md 输出 11）：profileChanged 写下之后才摘下旧扩展、按新的归约函数重新归约（写失败时
+            // 内存不领先日志）；装上新扩展在队列项之外，并等它写的外部事实落盘再返回，与打开会话一样。
             const from = core.assembly.hash;
-            core.reassemble(next);
-            state.readOnly = null;
-            reportAssemblyWarnings(core);
             return {
                 value: {changed: true, hash: next.hash, diagnostics: next.warnings.length},
                 drafts: [{type: "profileChanged", kind: "ctrl", scope: "session", data: {profile: profile.id, hash: next.hash, from, reason: "user", manifest: next.manifest as unknown as JsonValue}}],
-                after: () => state.mounts.mountAll(state.environment),
+                written: async () => {
+                    await state.mounts.unmountAll();
+                    core.reassemble(next);
+                    state.readOnly = null;
+                    await state.refreshContext();
+                    reportAssemblyWarnings(core);
+                },
+                after: async () => {
+                    await state.mounts.mountAll(state.environment);
+                    await core.queue.drain();
+                },
             };
         })),
         setTitle: (args) => closedGuard(() => setTitleCommand(host, args)),
@@ -296,22 +313,25 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
 /**
  * fork：把到 `leaf` 为止的路径复制成新会话（session.md 输出 20、runtime.md 输出 37）。事件保留 id 与父节点、重新编号；
  * 另带上最后一条 `profileChanged` 与全部 `settingsChanged`（新会话沿用 Profile 与设置），缓冲区与标题不带。会话头记来源。
+ *
+ * 新会话的 id 由来源会话与 `commandId` 定：原会话的受理批没写下就崩溃、或写失败，重发同一个 `commandId` 撞到已有的
+ * 会话时直接交回它，不会多出第二个 fork（session.md 输出 17）。
  */
-async function forkSession(env: SessionEnv, core: SessionCore, leaf: string | null): Promise<{ok: true; id: string} | {ok: false}> {
+async function forkSession(env: SessionEnv, core: SessionCore, leaf: string | null, commandId: string): Promise<{ok: true; id: string} | {ok: false}> {
     const now = core.clock.now();
-    const id = newSessionId(now);
+    const id = `fork-${createHash("sha256").update(`${core.header.id}\u0000${commandId}`).digest("hex").slice(0, 24)}`;
     const header: SessionHeader = {
         format: LOG_FORMAT,
         id,
         createdAt: now,
-        profile: core.header.profile,
+        profile: core.assembly.profile.id,
         ...(core.header.project === undefined ? {} : {project: core.header.project}),
         origin: {session: core.header.id, entry: leaf},
         questions: core.header.questions,
         ...(core.header.result === undefined ? {} : {result: core.header.result}),
     };
     const created = await env.store.create(header);
-    if (!created.ok) return {ok: false};
+    if (!created.ok) return created.code === "session-exists" ? {ok: true, id} : {ok: false};
     const lastProfile = [...core.events].reverse().find((event) => event.type === "profileChanged");
     const carried = [...(lastProfile === undefined ? [] : [lastProfile]), ...core.events.filter((event) => event.type === "settingsChanged")];
     let seq = 0;
