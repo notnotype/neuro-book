@@ -93,6 +93,8 @@ t05、t06、t07。
 
 ## 下一步
 
-- 第 11 片完成（提案第 19 节六项，[`evidences/slice11-measure.txt`](evidences/slice11-measure.txt)）：2 万条打开 150–240 ms、常驻增量约 60 MB；请求哈希改成逐条消息摘要合成（Work 分支 `c1966c3ee`），热请求从约 40 ms 降到约 15 ms；打开后第一次请求约 75 ms，超过 50 ms，按打开的一次性代价判定，记进 [待确认清单](../../pending-confirmations.md)。10 万条打开约 0.7 秒、热请求 60 ms（只报数）。第 9–11 片实现审查在后台（omp）。
+- 第 11 片完成（提案第 19 节六项，[`evidences/slice11-measure.txt`](evidences/slice11-measure.txt)）：2 万条打开 150–240 ms、常驻增量约 60 MB；请求哈希改成逐条消息摘要合成（Work 分支 `c1966c3ee`），热请求从约 40 ms 降到约 15 ms；打开后第一次请求约 75 ms（第二轮含工具轮的样本约 96 ms），超过 50 ms，按打开的一次性代价判定，记进 [待确认清单](../../pending-confirmations.md)。10 万条打开约 0.7 秒、热请求 60 ms（只报数）。第 9–11 片实现审查（omp）：16 条（重要 14、建议 2）全部成立已改，另修了父提交就有的两个关闭竞态（Work 分支 `7ec9baa42`；Spec 订正 runtime 输出 53、54、55、57 与 extensions 输出 27；`log()` 的 `through` 与预览 `RequestPath` 两处补定类型记进待确认清单），见 [`evidences/slice9-11-impl-review.txt`](evidences/slice9-11-impl-review.txt)。性能样本按审查补了工具轮与恢复，第二轮测量结论不变。
 
-下一步是收口（全量、`test:affected`、`test:llm`、深入审查的计划与预算；各片的变异检查汇总在 [`evidences/mutation-checks.txt`](evidences/mutation-checks.txt)）。全部切片之后做一次深入审查（开审前报计划与预算）。介绍页（`intro` v3）已过时，随实现更新。
+- 收口（2026-10-31）：全部 11 片完成。nb-harness 全量 293 通过、6 跳过；nb-story 验收门 4 条通过；`test:llm`（DeepSeek）6 条通过；`test:affected`（分支改过依赖锁，跑了全量）只有 nb-ui 的 `NB_UI_VERSION`（0.2.0）与 package.json（0.3.0）不一致这一条失败，master 上同样失败，与本 Task 无关。各片的变异检查汇总在 [`evidences/mutation-checks.txt`](evidences/mutation-checks.txt)。
+
+下一步：深入审查等开发者批准计划与预算后再开。介绍页（`intro` v3）已过时，随实现更新。
