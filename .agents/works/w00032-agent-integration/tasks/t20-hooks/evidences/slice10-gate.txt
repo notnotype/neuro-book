@@ -1,0 +1,28 @@
+t20 第 10 片：nb-story 验收门（2026-10-31）
+
+测试：packages/nb-story/tests/kernel-acceptance/story-qa.test.ts（Work 分支），真实书库与 100 章样例书，模型换成脚本。
+用新内核（@notnotype/nb-harness/kernel 与 /kernel/testing）重写 story.qa Profile 与 answer 收尾工具；工具、读原文账本、
+答案校验、防剧透都用 nb-story 自己的实现（src/qa/tools.ts、read-ledger.ts、answer.ts、spoiler.ts），只加测试，不改产品代码。
+
+五个场景（4 条测试，全部通过）：
+1、2. 两轮对话；读过原文后 answer 单独调用即收尾：runEnded{finished}，结果是答案，之后不再请求模型；第二轮请求带着第一轮。
+3. 出处没读过时 answer 被 nb-story 的校验退回（普通工具错误），模型读了原文再交，以 finished 结束。
+4. 查书时中止：运行 aborted；之后的提问照常。
+5. 出站过滤用 nb-story 的防剧透：给人看的日志与帧里搜不到阅读位置之后才出现的词（夏桃桃），另一个读者看到原样、下一次请求原样。
+
+门发现的缺口与处理：
+- 内核：OutboundFilter 原是同步签名，nb-story 的防剧透要查书库判断一个词读者读到过没有（异步），且要按日志顺序处理。
+  先回写 runtime.md 输出 54 与计划，再改为允许返回 Promise：日志查询逐条按顺序等，订阅的帧排队过滤（Work 分支 0952de6d8）。
+- 迁移注意（不是内核缺口）：新内核多一种带参数的事件 toolStarted（记实际执行的参数），宿主的防剧透要同样换掉它的参数；
+  测试里的过滤已覆盖，nb-story 迁到新内核时照做。
+
+决定 8 逐项对应的测试：
+- 收尾工具与动态 yield：nb-harness src/kernel/run/tools.test.ts “输出 26：…”三条、“输出 27：…”两条；本门场景 1–3。
+- 运行结果：src/kernel/session/session.test.ts（runtime 输出 13）、tools.test.ts 收尾的 result、tree.test.ts 重试后的运行结果。
+- complete()：src/kernel/session/host.test.ts “输出 56：只用系统提示词与这一条输入…”（含 profile-has-tools、rate_limit）。
+- 停止原因（含 length）：src/kernel/model/omp.test.ts “网关没送结束原因：按被截断记 length”、“文字回复：…停止原因…”。
+- 错误归类（含 rate_limit）：omp.test.ts “服务商报错按状态码归类；错误文字里回显的密钥被遮盖”；host.test.ts complete 的 rate_limit。
+- 密钥遮盖：omp.test.ts 同上。
+- 进程中断与停服收尾：host.test.ts “session 输出 16：进程收尾按 interrupted 收口…”；onProcessInterrupt/onProcessTermination 搬进 src/kernel/model/process.ts。
+- 相邻 user 消息合并：omp.test.ts “相邻的 user 消息合成一条发出；同一条消息里相邻的文字块合成一块”。
+- 只用指定的密钥环境变量：由设计保证——OMP 适配器只用宿主交来的 apiKey()（omp.test.ts “密钥取不到：发请求前以 auth 失败”），内核不读环境变量；选哪个变量由宿主（nb-story 的 onlyKeysIn）决定。

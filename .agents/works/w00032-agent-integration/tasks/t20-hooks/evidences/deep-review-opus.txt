@@ -1,0 +1,234 @@
+# w00032 t20 深入审查：以扩展作者与宿主身份试用新内核公开 API
+
+审查者：Claude（Opus 子代理），2026-10-31，worktree `.worktree/w00032-deep-review-api`，提交 `7ec9baa42`。
+
+## 写了哪些文件
+
+（报告按“每核实一条就追加”写成；最终的文件清单、行数与测试结果在文末“文件清单（最终）”一节补上。实验文件都在 `packages/nb-harness/tests/kernel/deep-review-api/`。）
+
+## 发现
+
+### 重要 · 做不到：工具读不到扩展的片，扩展也交不出工具；“有状态的工具”只能绕
+
+- 位置：`ToolContext`（`src/kernel/api/tool.ts:70-80`，只有 `signal`、`callId`、`sessionId`、`initial`、`ask`、`report`）；`ExtensionFields`（`src/kernel/api/extension.ts:84-105`，没有工具字段）；`SessionEnv.tools`（`src/kernel/api/host.ts:336-339`）。实验：`tests/kernel/deep-review-api/todo.test.ts:15-82`、`:151-176`。
+- 现象：待办扩展的片在扩展里，工具的实现在宿主（`SessionEnv.tools.create`）里，两者之间没有通道。工具不知道当前清单，做不了“追加一项”“勾掉第 2 项”；扩展从 `toolResult` 归约时拿不到参数（`toolResult` 只有 `text`、`details`，参数在另一条 `toolStarted` 里，要靠 `callId` 自己配对）。我最后只能让模型每次交整张清单、工具把清单原样塞进 `details`、扩展从 `details` 归约（`todo.test.ts:28-35`、`:70-82`）。另两条路都不对：
+  - 工具实例里另存一份清单：实现是“每个会话每个工具建一次”，回退、切分支、fork 后它不会跟着回去，正是新内核要消灭的那类状态。
+  - 把工具整个写在扩展的 `intercept.tool` 里、不调 `next`（拦截能读 `ctx.state`）：能跑通，但结果记成 `status: "ok"`，没有 `toolStarted`，也没有 `by`（`todo.test.ts:170-174` 断言了这一点），日志里看不出这次结果是谁给的；宿主仍要另外声明一个永远不会执行的同名工具，模型才看得到它。
+- 为什么是问题：t12 的待办、t15 的 Skill 加载（要知道已加载过哪些）、t13 的“接受改动”这类工具都要读会话状态，并且要在回退后正确。现在每个作者都会各自发明一种绕法，其中两种在回退后出错。
+- 建议改法：让工具在执行时能读它所在叶子上的导出（与工具拦截读同一刻，Spec 输出 23），结果里的 `details` 照旧给归约用。例如：
+  ```ts
+  execute: async (args, context) => {
+      const items = context.read(todoContract).items;      // 新增：只读，读发出这批调用的回复所在的叶子
+      const next = [...items, {text: String(args.text), done: false}];
+      return {text: render(next), details: {items: next}};
+  }
+  ```
+  或者反过来让扩展声明它拥有的工具（`tools: {"lab.todo": {declaration, execute(args, ctx)}}`，`ctx` 是只读的 `ViewCtx`），宿主只负责插件级的登记。两种都要在 Spec 里写明读的是哪一刻的状态。
+
+### 重要 · 文档与行为不符：Profile 的 `tools.optional` 内核不读，Profile 不写 `tools` 时宿主给的工具全部交给模型
+
+- 位置：`ProfileFields.tools`（`src/kernel/api/profile.ts:136-137`，注释“只声明工具 id；工具的实现由宿主经 `SessionEnv.tools` 给”）；内核里只有 `run/loop.ts:173` 读 `required`、`session/complete.ts:21` 读两者来拒绝；`docs/specs/harness/runtime.md` 输出 15。实验：`misuse-runtime.test.ts:38-63`。
+- 现象：Profile 写 `tools: {optional: ["lab.todoo"]}`（拼错），宿主给的是 `lab.todo`，请求里照样带着 `lab.todo`；Profile 一个工具都不写，宿主给的工具也全部进请求（输出 `13 optional tools in request ["lab.todo"]`、`13b tools in request ["lab.todo"]`）。`required` 也只在第一次运行时查。
+- 为什么是问题：作者读字段名会以为 `optional` 是“这个 Profile 可以用的工具白名单”，`story.qa` 验收门就是这么写的（`tools: {optional: [ANSWER_TOOL_ID]}`），它能过只是因为测试宿主只给了这几个工具。真实宿主里 Agent 插件会给全部内置工具，标题生成这类“只有收尾工具”的 Profile（t18）会拿到 `shell`。要按 Profile 过滤，宿主得在 `declarations(context)` 里拿 `context.profile` 再去解析一次 Profile、自己读 `tools` 过滤，每个宿主都写一遍，且类型上 `AnyProfile` 没有 `tools` 字段（要强转）。
+- 建议改法：内核把生效工具集定为“宿主声明 ∩ (`required` ∪ `optional`)”，Profile 不写 `tools` 时为空集（或显式 `tools: "all"`），并在 runtime.md 输出 15 里写明；宿主的 `declarations` 只回答“这个会话能提供什么”。作者写法不变：
+  ```ts
+  defineProfile({id: "builtin.title", tools: {required: ["builtin.title.yield"]}, ...})  // 只会看到这一个
+  ```
+
+### 重要 · 易误用：片的初值不是 JSON 时静默变形，类型仍按原类型给
+
+- 位置：`SliceFactory`（`src/kernel/api/state.ts:15-18`，`path<T>(initial: T)` 不约束 `T`）。实验：`misuse-types.ts:46-47`、`misuse-runtime.test.ts:13-26`。
+- 现象：`slice.path(new Map())`、`slice.session(new Date(0))` 编译通过，装配不报，运行后 `state.m` 是 `{}`、`state.d` 是字符串 `"1970-01-01T00:00:00.000Z"`，诊断为空；而 `ctx.state.m` 的类型仍是 `Map<string, number>`，`exports` 里调 `.size` 得到 `undefined`。同一个错写在 `emit` 里时有清楚的 `handler-invalid-output`（`/when: Date is not a plain object`），只有初值漏了。
+- 为什么是问题：片的值经日志 JSON 往返是这套设计的根本约束，初值是最容易写出 `Map`/`Set`/`Date` 的地方（“已读文件集合”）。错误要到某次回退或重开之后才以奇怪的形状出现。
+- 建议改法：装配时对每个片的 `initial` 跑 `jsonProblem`，不合格写错误级诊断 `slice-initial-not-json`（`params: {slice, path}`，`hint: "use arrays and plain objects; store dates as numbers"`）；类型上可给 `slice.path<T>` 加一个“不是 Map/Set/Date/函数”的检查而不强求 `JsonValue`（直接约束 `JsonValue` 会让带可选字段的 interface 赋不进来）。
+
+### 重要 · 做不到：扩展不能让一次调用“问用户”，能问的审批钩子又看不到扩展状态；t06 的计划模式写不出来
+
+- 位置：`InterceptCtx`（`src/kernel/api/ctx.ts:285-291`，没有 `ask`）、`Interceptors.tool` 的返回值只有 `ToolResult`（`src/kernel/api/extension.ts:76`）；`ApproveHook`、`ApprovalInfo`、`ApprovalCtx`（`src/kernel/api/host.ts:305-319`）。实验：`policy.test.ts` 末尾“计划模式（t06）”一节。
+- 现象：模式扩展的片里记着 `plan`，工具拦截只能放行或拒绝，返回值里没有“要问用户”这一种。审批钩子能返回 `{verdict: "ask"}`，但它收到的只有 `info: tool, effect, mode, readOnly, remembered` 与 `ctx: signal, sessionId, model`（实验打印），读不到任何扩展的状态或设置。内核的只读模式（`readOnly`）对写与执行直接 `denied`，不问（runtime.md 输出 18）。
+- 为什么是问题：t06 决定 2 写明“discuss、plan 是只读模式，写与执行的调用弹审批（同旧应用）”，模式由模型 `switch_mode` 申请、用户批准，是会话里随回退变化的状态，理应放在扩展的片里。现在宿主只能把模式另存在扩展之外（回退不跟着回去），或者把只读改成直接拒绝，两者都不是 t06 定下的行为。
+- 建议改法：二选一，并在 runtime.md 写明。（甲）工具拦截可以返回“要问”，由内核走同一条等用户的路：
+  ```ts
+  tool: async (call, next, ctx) => ctx.state.mode === "plan" && effectOf(call) !== "read" ? {ask: {reason: "plan-mode"}} : next(call)
+  ```
+  （乙）`ApprovalCtx` 加 `read(contract)`，读发出这批调用的回复所在叶子上的导出，审批钩子据此返回 `ask`：
+  ```ts
+  approve: async (call, info, ctx) => ctx.read(modeContract)?.mode === "plan" && info.effect !== "read" ? {verdict: "ask", reason: "plan-mode"} : rules(call, info)
+  ```
+
+### 重要 · 易误用：模型拦截改 `request.model` 不会换模型，但 `modelStarted` 记成改后的名字
+
+- 位置：`ModelRequest.model`、`RequestPurpose` 的注释（`src/kernel/api/model.ts:9`“路由、用量这类拦截按它区别对待（不该把压缩请求降级到便宜的模型）”）；`callModel` 先解析好端口再跑链（`src/kernel/run/model-call.ts:71-101`），`ompCall` 的作答模型固定为 `target.model`（`src/kernel/model/omp.ts:170-171`，从代码推断，未用真实模型验证）。实验：`policy.test.ts:36`、`:104-111`。
+- 现象：花费策略在超过阈值时 `next({...request, model: "cheap/model"})`。日志里 `modelStarted.model` 是 `cheap/model`，`assistant.model` 是 `test/model`，请求实际仍发给端口解析到的模型。没有任何诊断。
+- 为什么是问题：API 的注释把“路由拦截”当成预期用法，作者会照着写降级，结果省不了钱，日志还说省了。审计时 `modelStarted` 与 `assistant` 对不上。
+- 建议改法：要么支持（最里层按 `final.model` 重新经 `ModelPort.resolve` 解析，解析不到时这次请求以 `unknown-model` 失败），要么不支持（`model` 不在拦截能改的字段里：改了按这一层出错跳过并诊断 `model-not-routable`，`hint: "change core.model with changeSettings, or resolve the model in ModelPort by purpose/role"`），并改掉 `RequestPurpose` 上那句注释。
+
+### 建议 · 样板：拒绝一次模型请求要手拼 9 行 `ModelResponse`，日志里也看不出是谁拒的
+
+- 位置：`Interceptors.model`（`src/kernel/api/extension.ts:75`）。实验：`policy.test.ts:25-35`、第一个测试打印的事件序列。
+- 现象：没有“拒绝”的返回形状，只能造一条 `stopReason: "error"` 的回复，`usage` 七个字段都要写全。写下的是 `modelFailed{kind: "local", code: "budget-exceeded"}`，没有 `modelStarted`，也没有拒绝者（工具拦截拒绝有 `by`，模型拦截没有）；运行结果的 `error` 里同样没有扩展 id。
+- 建议改法：给 `next` 之外的第二种出口，例如 `ctx.refuse({code: "budget-exceeded", params})`，内核写 `modelFailed{kind: "local", code, by: <扩展 id>}`；或者至少在 `modelFailed` 里补 `by`。
+
+### 建议 · 要绕：path 事件只能改 path 片，“回退不退”的累计量要多写一条 session 事件
+
+- 位置：`ReduceTable`/`PatchIn`（`src/kernel/api/extension.ts:65-67`、`state.ts:12`），Spec 输出 5。实验：`policy.test.ts:17`（path 片版本）、`:69-79`（绕法）。
+- 现象：用量在 `assistant`、`modelEnded`（都是 path 事件）里，按规则只能归约进 path 片，于是回退就把累计花费“退”了。要记会话累计，只能在 `on.assistant` 里 `emit` 一条 `ext.session` 事件再归约，每次模型调用多写一条日志、多一层反应。
+- 为什么是问题：规则本身合理（归约结果不依赖路径之外的东西），但这类“会话累计”（花费、已提醒过的用户偏好、t13 的文件游标“不跟对话路径走”）不少，作者第一次写会写成 path 片、测试里不回退就看不出错。
+- 建议改法：不改规则的话，在 extensions.md 输出 5 后补一句写法（“要在会话层累计 path 事件的量，用 `on` 写一条 `ext.session` 事件”）并给 helper，例如 `tally({id, from: ["assistant", "modelEnded"], value: (e) => e.data.usage.output})`。
+
+### 建议 · 命名：`TestSession.eventsOf` 只查当前路径，session 事件永远得到空数组
+
+- 位置：`TestSession.events`/`eventsOf`（`src/kernel/testing/test-session.ts:88-90`、`:162-163`）。实验：`policy.test.ts:90-92`。
+- 现象：`eventsOf("lab.sbudget/spent")` 得 `[]`，而 `raw.log` 里有 2 条。`settingsChanged`、`inputQueued`、`approvalRemembered` 等全部内核 session 事件同理。`events()` 的注释写了“当前叶子路径上的事件”，`eventsOf` 没写，名字也看不出。
+- 建议改法：改名 `pathEventsOf`，另给 `logOf(type)` 查全量；或 `eventsOf(type, {scope: "path" | "all"})`，缺省 `all`。
+
+### 建议 · 文档与行为不符：中止时还在拦截里、从未执行的工具调用记成 `unknown{aborted}`
+
+- 位置：runtime.md 输出 25（“还没开始执行的调用不再开始；没完成的得 unknown”，没说没开始的记什么）、`ToolStatus` 注释（`src/kernel/api/tool.ts:45-49`：`unknown` 是“发出了但不知道有没有执行完”）。实验：`policy.test.ts:139-174`。
+- 现象：工具拦截在调 `next` 之前等着，此时中止：日志里没有 `toolStarted`，结果却是 `unknown`、码 `aborted`、文字“did not finish”。同样的调用在进程收尾与重开恢复里记 `denied{interrupted-before-approval}`（输出 34、53）。
+- 为什么是问题：界面会对“结果未知”的调用提示用户去核对副作用，而这次调用肯定没执行；三条收口路径对同一种情况给三种说法。
+- 建议改法：中止时没写过 `toolStarted` 的调用记 `denied`、码 `aborted-before-start`、`by: "core"`，Spec 输出 25 补上这一句。（与另一位审查者的正确性范围相邻，这里只从可观察结果提。）
+
+### 建议 · 样板：测试工具没有“等到等用户”“当前待处理事项”的入口
+
+- 位置：`TestSession`（`src/kernel/testing/test-session.ts:80-96`；文件头写明手动模式随后续切片加入）。实验：`policy.test.ts:57-67`、`:117-136`、`:153-160`。
+- 现象：测审批要自己 `raw.send`、订阅帧等 `status.state === "waiting"`、从帧里取 `pending[0].id`、`raw.resolve`、`raw.waitRun`，一个场景 12 行样板；测中止要订阅帧等 `phase === "tools"`。`say()` 遇到等用户会一直挂着（它直接 `waitRun`）。
+- 建议改法：`session.start(text)` 返回 `{runId, waitFor(state), pending(), resolve(id, decision), done()}`；`say` 在进入 `waiting` 时报错并提示改用 `start`。
+
+### 重要 · 做不到：`mount` 不知道自己装在哪个会话、哪个项目上，订阅按项目分的外部来源只能从 `initial` 偷渡
+
+- 位置：`MountCtx`（`src/kernel/api/ctx.ts:276-282`）；对照 `ToolSessionContext`（`src/kernel/api/host.ts:298-302`，工具与资源有 `sessionId`、`profile`、`project`）、`CreateSessionOptions.project`（`host.ts:377`）。实验：`external.test.ts:30-58`；打印的 `mount ctx keys` 为 `callback, emit, initial, model, read, resources, set, settings, signal, state, tools`。
+- 现象：扩展对象被所有会话共享（Spec 术语一节），外部来源只能经闭包传进来，可 `mount` 拿不到会话 id、项目、会话头，无法决定订阅哪个项目的文件流。我只能约定 `initial.project` 并强转 `ctx.initial`（`external.test.ts:48`）；Profile 若声明了严格的 `initial` schema（`story.qa` 就有），这个字段要么被拒，要么不在类型里。另一条路是宿主在 `resources(context)` 返回的对象上挂私有方法，更隐蔽。
+- 为什么是问题：t13 已定的“每轮告诉 Agent 文件变化”是 `nbook.history` 带 `file-awareness` 标签的全局扩展，“游标属于会话”，正是这种形状；nb-story 的阅读位置变化（见迁移一节）也要按对话订阅。
+- 建议改法：`MountCtx`（以及 `ReactCtx`，处理函数里同样可能要按会话取外部数据）加一个只读的 `session: {id: string; project?: string; profile: string; origin?: …}`，与 `ToolSessionContext` 同源：
+  ```ts
+  mount: (ctx) => feed.subscribe(ctx.session.project ?? null, ctx.callback((change) => ctx.emit("fileChanged", {uri: change.uri}, {key: change.id})))
+  ```
+
+### 建议 · 易误用：`revoke` 同步返回，扩展的清理函数要到之后才跑，宿主没有可等的东西
+
+- 位置：`ExtensionReceiver.revoke`（`src/kernel/api/host.ts:415-416`，返回 `void`）；`agent-host.ts:70-75`。实验：`external.test.ts:113-165`。
+- 现象：撤回后先写 `profileChanged{plugin-removed}`，此时快照里扩展仍是 `active`、`pendingReassembly` 还列着它、外部来源上的订阅还在；再过一个事件循环 tick 清理函数才跑。`revoke` 不返回 Promise，`AgentHost` 也没有“等重新装配完”的入口。
+- 为什么是问题：平台停用插件的顺序通常是“撤回贡献 → 释放插件自己的资源”（从平台事务的写法推断，未在 nb-runtime 里验证）。宿主照这个顺序写，插件释放资源时扩展的 `mount` 清理函数还没跑，清理里再去退订一个已释放的来源就会出错或泄漏。Spec 输出 26 与 runtime.md 输出 57 也没写撤回与清理之间的先后。
+- 建议改法：`revoke(handle, reason): Promise<void>`，在所有空闲会话摘下它、清理函数完成后 resolve；运行中的会话在这次运行结束、摘下之后 resolve（或者给 `settled()`）。Spec 补一句先后。
+
+### 建议 · 样板：自己接宿主时要从零拼一整份 `SessionEnv`；插件句柄的声明要与扩展对象手工保持一致
+
+- 位置：`createAgentHost(base: Omit<SessionEnv, "extensions">)`（`src/kernel/session/agent-host.ts:21`）、`ExtensionHandle.declaration`（`host.ts:396-406`）。实验：`external.test.ts:122-139`。
+- 现象：测插件撤回不能用 `createTestSession`，要手写 `store`、`profiles`、`models`、`tools`、`resources`、`sessions`、`clock`、`approve` 八个字段（9 行，其中 `tools`、`sessions`、`resources` 都只是占位）。`declaration.dependsOn` 是字符串数组，与扩展对象里 `dependsOn` 的契约对象是两份，写错不报（`prepare` 只看声明成环，缺依赖要等装配）。
+- 建议改法：测试入口导出 `createTestEnv(options)`（`createTestSession` 内部已有这份，`test-session.ts:115-142`），或 `createTestSession({host: true})` 交出 `AgentHost`；`ExtensionHandle` 提供 `fromExtension(extension, plugin)` 按扩展对象生成声明。
+
+### 重要 · 易误用：出站过滤要自己列全“哪些事件的哪些字段带内容”，漏一个就泄露；事件数据没有类型，只能强转
+
+- 位置：`OutboundFilter`（`src/kernel/api/host.ts:325-328`，`event: LogEvent` 的 `data` 是 `unknown`）；runtime.md 输出 54。实验：`story-qa-draft.test.ts:82-98`、`:324-340`、`:342-` ；对照验收门 `packages/nb-story/tests/kernel-acceptance/story-qa.test.ts:151-172`。
+- 现象：
+  - 全读对话的原文我先只在 `input` 事件里换掉，网页拿到的日志里原文照样在：`inputQueued` 的 `data.input.text` 也带着它（实验断言泄露的类型正好是 `["inputQueued"]`）。验收门的防剧透同样只处理了 `assistant`、`toolStarted`、`toolResult`（注释里写着“新内核多一种带参数的事件 toolStarted……迁移时宿主的过滤要覆盖它”），没处理 `inputQueued`、`inputEdited`、`steer`，也没处理审批事项 `interactionRequested.request`（里面有完整的工具参数，`policy.test.ts` 的打印可见）、`runEnded.result.value`（收尾工具的参数）、`modelFailed.partial`、`toolResult.raw`、`compaction.replacement`。
+  - 每个分支都要 `event.data as {...}`：`assistant` 的形状在 `KernelEvents` 里有，但过滤函数拿不到带类型的窄化。
+  - 不过滤的查询：`waitRun`、`runResult` 的 `text` 原样带出位置之后的词，`snapshot().buffer`、`rewindTargets()[].inputText` 原样带出用户的话。前两类 Spec 输出 54 写了“宿主自己投影”，`rewindTargets` 没写。
+- 为什么是问题：防剧透是 nb-story 的产品承诺，“写全字段”目前只能靠读 `events.ts` 逐个看；内核以后每加一个带内容的字段，所有宿主的过滤都悄悄漏一处。
+- 建议改法：内核提供按内容字段遍历的工具，过滤只写“对一段文字怎么办”，并给带类型的窄化：
+  ```ts
+  import {mapEventContent, isKernelEvent} from "@notnotype/nb-harness/kernel";
+  outbound: {event: (event, reader) => reader.kind === "user" ? mapEventContent(event, {text: (s, where) => scrub(s), args: (args, callId) => visibility.args(args, callId)}) : event}
+  if (isKernelEvent(event, "toolStarted")) event.data.args  // 有类型
+  ```
+  `mapEventContent` 的字段表与 `KernelEvents` 放在一起维护，加字段时有测试逼着更新；`rewindTargets` 要么经过滤，要么写进输出 54 的“不经过”清单。
+
+### 重要 · 易误用：同一个 `commandId` 带不同参数重发，静默得到上一次的结果
+
+- 位置：`SessionCommands`（`src/kernel/api/host.ts:79-82`）、`CommandOk.replayed`（`host.ts:73-74`）。实验：`story-qa-draft.test.ts:188-190`（我自己踩的）、`:308-322`。
+- 现象：草稿里每问的 `commandId` 从 `ask-1` 数起；续问时第二问的 `send({commandId: "ask-1", input: {text: "完全不同的第二问"}})` 返回 `{ok: true, replayed: true, value: <第一问的 inputId 与 runId>}`，`waitRun` 交回第一问的结果，第二问根本没进日志。没有错误码，也没有诊断。
+- 为什么是问题：幂等键冲突与重发在内核眼里一样，但参数不同说明是调用方的错。按会话生命周期唯一这一条只在注释里，进程重启、续问（日志从记录读回）、多个前端共用会话时都容易撞。`TestSession` 自己也用 `cmd-${n}` 计数（`test-session.ts:150`），`reopen` 后计数不清零只是碰巧没撞。
+- 建议改法：`commandAccepted` 记参数的哈希，重发时参数不同得指令失败 `command-id-conflict{name}`（加进 `commandErrors` 的每个指令）；文档里写明 `commandId` 至少要在会话内唯一，建议用 UUID。
+
+## nb-story 迁移（草稿 `tests/kernel/deep-review-api/story-qa-draft.test.ts`）
+
+草稿按 `packages/nb-story/src/qa/engine.ts` 的流程写了宿主一侧（`askQuestion`、出处复查、续问、全读、防剧透、中止、选模型），书库、工具与防剧透换成最小的假实现（nb-harness 不依赖 nb-story，nb-story 的公开入口也不导出问答的部件，所以没导入它）。需求编号 E1–E13 见草稿文件头。8 个场景全部通过。
+
+### 对得上
+
+- E1 Profile 按 `initial` 拼系统提示词：`system: ({initial}) => …`，`initial` 有类型，比旧的 JSX `ProfilePrompt` 短（草稿 `:35-55`）。
+- E3 工具捕获这一问的状态：引擎每问建一份 `SessionEnv`，`tools.create` 闭包里拿着账本与答案，与旧的“每问新建登记表”同构。
+- E4 一轮的结果：`RunResult` 的 `reason`/`result`/`usage`/`stopReason`/`error` 一一对上旧 `TurnResult`；收尾工具交卷直接在 `result.value` 里，不必再从工具状态里取答案（`outcomeOf`，草稿 `:226-233`）。
+- E5 中止：`AbortSignal` 接 `abort` 指令，3 行；运行以 `aborted` 收口。
+- 收尾要单独调用：内核造的 `error{finish-not-alone}`，模型下一步单独交卷即 `finished`（场景 1）。
+- E8 进度：订阅帧里的 `toolStarted` 带实际执行的参数，并且已经过出站过滤，比旧的“事件 + 自己再过一遍剧透 + 自己排队保序”省掉一条队列。
+- E10 结束时连同记录一次写盘、续问读回：用公开的 `LogStore` 就能做——会话关闭后 `store.open(id)` 取出会话头与全部事件存进记录；续问时新建内存存储、`create(header)` 后整份 `append` 一批、`openSession` 接着问（草稿 `:119-136`，场景 2 的第三次请求带着前两问）。写入批边界会丢（整份变一批），对续问无影响。
+- E11 续问前判断能不能接着问：日志里最后一条 `profileChanged.manifest` 带着 `{id: "story.qa", version: "5"}`，读记录就能判断，不必开会话。
+- E12 中途改阅读位置：位置作为下一问输入的 `payload.at`，Profile 自己的 `on.input` 写一条对话事件 `position`（渲染成 `<system-reminder>`），落在用户的话之前、同一条 user 消息里（场景 2 断言了块的顺序）。
+- E13 每轮选模型与推理档：`changeSettings({patch: {core: {model, effort}}})`，端口收到的设置与请求里的 `effort` 都对。
+
+### 要绕
+
+- E2 answer 只在结构化对话登记：Profile 的 `tools.optional` 内核不读（见上文“重要 · 文档与行为不符”），只能由宿主的 `declarations` 决定；而 `declarations(context)` 只拿到 `sessionId`、`profile`、`project`，拿不到 `initial.answer`，只能靠“每问一份 env”的闭包。nb-agent-ui 那种一个宿主管很多会话的写法就要自己维护 `sessionId → 作答方式` 的表。
+- E6 出处复查的审计条目 `nb-story.reply-check`：宿主没有写事件的指令（旧引擎直接 `sessionLog.append(meta)`），只能塞进复查那次输入的 `payload: {check: refs}`（草稿 `:201-209`）。能用，但审计信息挂在用户输入上，网页按“meta 条目”认它的代码要改。
+- E7 退回次数：`finish-not-alone` 由内核造、不经工具实现，工具里的计数漏掉它（场景 1 断言 `rejections` 为 0 而日志里有 1 条非 ok 的 answer 结果），要从日志里数。旧引擎按 OMP 的工具结束事件数，覆盖了这种。
+- E9 防剧透：要自己列全带内容的事件与字段（`inputQueued` 是踩出来的），见上文“重要 · 易误用：出站过滤”；`waitRun`/`runResult` 的文字要宿主自己再投影一遍。
+- E9 全读对话给网页的第一条消息：同一个原文同时在 `input.text` 与 `inputQueued.input.text` 里，两处都要换（草稿 `:85-92`）。
+- E12 改位置“不发请求、立即存进记录”：旧引擎在 `changePosition` 里直接追加提醒与 meta 并保存；新内核没有宿主写对话事件的入口，我改成“记在记录里，下一问随 `payload` 带进去”，提醒在日志里的位置从“改的时候”变成“下一问开头”。要保持原语义只能为每个对话造一个带外部通道的扩展，又撞上 `mount` 不知道自己是哪个会话的问题。
+- 建会话时不能带初始设置：选定的模型要在 `createSession` 之后再 `changeSettings` 一次，日志里每个新对话都多一条 `settingsChanged`。
+
+### 做不到（干净地）
+
+- 流式防剧透：`OutboundFilter.delta` 一次只看一块增量，拿不到这条回复到目前为止的文字，一个词拆在两块里就查不出来；返回值也只能是“这一块或 null”，攒到安全处再一次放出去做不到。只能像验收门那样把思考与工具参数的增量整类不推（草稿 `:97`），网页运行中就看不到工具参数的流式显示。旧引擎的 `message_update` 每次带整条半截消息，过滤能查全文。建议 `delta(frame, reader, so_far: string)` 并允许返回替换后的整段 `text`，或者给一个按 `request + part` 攒文字的缺省实现。
+
+## 发现（续）
+
+### 建议 · 诊断：扩展的 `render` 挂在内核事件上时，提示让你“用内核事件”
+
+- 位置：`src/kernel/extension/assemble.ts:153`；Spec 输出 2（“扩展的 `render` 只认自己的事件”）。实验：`misuse-runtime.test.ts` 末尾“18”。
+- 现象：`defineExtension({id: "lab.r18", render: {input: () => "x"}})` 得 `unknown-event-handler`，`message` 说 `input` “is not an event it can see”（它看得见，`on.input` 合法），`hint` 是 “use a kernel event, one of its own events, or <dependency id>/<event>”——前后两条都把作者往刚被拒的写法上引。类型这边，扩展没有自己的 `conv` 事件时 `render` 的键随便写都能编译（映射成空对象类型，`misuse-types.ts` 的 18）。
+- 建议改法：`render` 单独一条消息与提示：`message: "lab.r18.render can only render its own conv events; input is a kernel event"`，`hint: "override kernel events in the Profile's render, or declare a conv event of your own"`。
+
+### 建议 · 诊断：必需工具缺失的诊断码是 `tool-declaration-invalid`，而且要到第一次运行才报
+
+- 位置：`src/kernel/run/loop.ts:173-178`；`ProfileFields.tools`（`profile.ts:137`，`string[]`）。实验：`misuse-runtime.test.ts` 的 13、13c。
+- 现象：`tools.required: ["lab.todoo"]`（拼错）建会话、打开都不报，快照 `readOnly: null`；第一次 `send` 才以 `error{tools-missing}` 收口、会话进只读，诊断码却是 `tool-declaration-invalid`（那是“声明的 id 不合规则”的码），没有 `hint`。消息本身列出了缺的 id，这点是好的。
+- 建议改法：诊断码用 `tools-missing`（与 `readOnly.code`、`runEnded.error.code` 同名），`params: {missing}`，`hint: "check the tool ids in the Profile's tools.required, or make the host declare them"`；建会话与打开时就检查一次并进只读，不等第一次运行。
+
+### 建议 · 诊断：`reminder` 的 `watch` 返回非 JSON 值时静默当成 null，之后永不再提醒
+
+- 位置：`src/kernel/helpers/reminder.ts:23`（`jsonProblem(raw) !== null ? null : raw`）；`ReminderOptions.watch` 返回 `unknown`（`src/kernel/api/helpers.ts:229-230`）。实验：`misuse-types.ts` 的 15、`misuse-runtime.test.ts` 的 15。
+- 现象：`watch: () => new Set([n])`，三轮里 `text` 只被调用 1 次，诊断为空。`Set` 正是“已读文件集合”这类 watch 最自然的写法。
+- 建议改法：`watch` 的返回类型约束为 `JsonValue`（helper 层不像片那样有 interface 兼容的顾虑，值都是现算的）；运行时不合格写诊断 `reminder-watch-not-json{path}`，不要换成 null。
+
+### 建议 · 文档与行为不符：Spec 列出的 `deriveProfile` 不在公开入口里
+
+- 位置：extensions.md “输入与前置条件”列了 `deriveProfile`；`DeriveProfile` 类型在 `api/profile.ts:189-204` 导出，实现不存在（`tests/kernel/typetest.tsx:15` 只能 `declare const deriveProfile`）。
+- 现象：照 Spec 写 `import {deriveProfile} from "@notnotype/nb-harness/kernel"` 编译失败。Spec 写了“随实现加入”，但同一句里的其余 helper 都已导出，读者分不出哪个还没有。t18 的会话标题与 adhoc 这类变体会用到它。
+- 建议改法：Spec 那句把 `deriveProfile` 单列为“尚未实现”，或先不导出它的类型。
+
+### 建议 · 文档与行为不符：扩展事件与内核事件同名，只有类型挡；装配不查，运行时处理函数两种都收
+
+- 位置：Spec 输出 4（“不许与内核事件同名”）；`NoKernelNames`（`src/kernel/api/contract.ts:176`）；`define.ts:1-4` 的注释说检查都在装配时做，“这样 JavaScript 作者与第三方插件也查得到”，但 `assemble.ts` 没有这一项。实验：`external.test.ts:40`（我自己把事件起名 `notice`，`bun test` 照跑，只有 `tsc` 报）、`misuse-runtime.test.ts` 末尾“23”。
+- 现象：绕过类型声明 `events: {notice: conv()}` 后，装配照常、无诊断；`on.notice` 既收到自己的 `lab.clash/notice`，也收到内核的 `notice`（实验打印 `seen ["lab.clash/notice","notice"]`）。类型报错的文字是“与内核事件同名，换一个名字”，挂在整个 `events` 对象上，能看懂。
+- 建议改法：装配时检查并拒绝（列进输出 1 的拒绝清单，码 `event-name-reserved`，`hint` 列出内核事件名）。内核以后加事件也会撞上已发布插件的名字，Spec 宜写明内核事件名的保留规则（例如内核新事件只用某个前缀之外的名字，或扩展事件在 `on` 里一律写全名）。
+
+## 文件清单（最终）
+
+均在 `packages/nb-harness/tests/kernel/deep-review-api/`，`bun test tests/kernel/deep-review-api` 38 个测试全部通过，`bun run typecheck` 无错误（其中 `misuse-types.ts` 的 `@ts-expect-error` 全部生效）。
+
+| 文件 | 行数 | 内容 |
+|---|---|---|
+| `todo.test.ts` | 197 | 实验 1 待办清单：扩展 24 行 + 宿主工具 10 行（其中“工具把清单原样塞进 details、归约时强转”的绕法约 8 行）；回退、fork（要 JSONL 临时根再开一个测试会话才看得到 fork 出的状态）、对话事件位置、拦截代答、reminder |
+| `policy.test.ts` | 206 | 实验 2 审批与花费：预算扩展 28 行（其中手拼拒绝回复 11 行）、会话累计的绕法 10 行、工具拦截拒绝、审批钩子 ask 与应答、中止、计划模式探针；“等到 waiting”的帧订阅样板 10 行 |
+| `external.test.ts` | 195 | 实验 3 外部事实：`mount` 订阅模拟文件流的扩展 27 行、出站过滤、关闭清理、经 `createAgentHost` 撤回（宿主 env 手拼 9 行）、`mount` 回调里 `ctx.state` 的新鲜度 |
+| `story-qa-draft.test.ts` | 382 | nb-story 引擎迁移草稿（宿主约 150 行，对应 engine.ts 约 420 行的同一部分）与 8 个场景：交卷、复查、续问、改位置、全读、防剧透、中止、选模型；外加 commandId 复用、`inputQueued` 泄露、不经过滤的查询三个探针 |
+| `misuse-types.ts` | 85 | 故意写错的类型探针：12 处被类型挡住，6 处（片初值非 JSON、事件数据非 JSON、工具 id 拼错、reminder watch 非 JSON、无 conv 事件时的 render 键、像内核事件名的名字）放过 |
+| `misuse-runtime.test.ts` | 159 | 类型放过的写错在运行时的表现与诊断（11 个场景） |
+
+另：类型探针里有一处是我先判错的——把 `reduce` 键拼错与另一处写错放在同一个对象字面量里时 tsc 只报一种，看上去像“reduce 键拼错挡不住”；单独写时是挡得住的（`misuse-types.ts` 末尾的注释）。不算发现，但写测试的作者同样会被这一点误导。
+
+## 用起来顺手的地方
+
+- 定义侧的类型很到位：`on` 的事件名与数据、`emit` 的名字与形状、`set` 的片名、跨作用域补丁、`read` 只认 `dependsOn`、`continue` 只在 `assistant` 里、`implement` 漏写导出，全是编译错误，而且错误位置准（12 处里 12 处）。
+- 状态由日志归约这一点兑现了：待办的 path 片在回退、fork、重开之后都对，作者一行额外代码都不用写；`reminder` 用 `watch` + `text` 两个函数就写完“清单变了提醒一次”。
+- 运行时诊断大多说清了怎么改：`emit-after-settle` 的 `hint`（“await every promise inside the handler, or write from mount with ctx.callback”）、`handler-invalid-output` 带 JSON Pointer、`bad-extension-id` 给出改名建议、冻结状态被改时 `cause` 带原始错误。
+- `mount` + `ctx.callback` + 单写者队列：外部回调里直接 `emit`，空闲时立即写入、自动带 `next-turn` 位置进下一轮，回调里读到的 `ctx.state` 是最新的；关闭会话时清理函数一定被调用。
+- 宿主一侧：`RunResult` 一个对象覆盖了 nb-story 判定一轮结果的全部需要；`LogStore` 的公开接口足够做“运行完整份导出、续问时整份导入”；`profileChanged.manifest` 让宿主不开会话就能判断能不能续问；`toolStarted` 经出站过滤后直接可作进度。
+- 测试工具：`createTestSession` + `script` + `say` + `requests[n].outline()` 让大多数扩展测试在 10 行内写完，`outline` 的“`user: event:lab.files/note | event:input`”比断言整份请求好读得多。
+
+## 各级数量
+
+阻断 0，重要 8，建议 12。
+

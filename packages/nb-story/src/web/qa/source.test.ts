@@ -6,7 +6,7 @@
 
 import {describe, expect, test} from "bun:test";
 
-import type {QaFrame, QaRecordView, QaRunView, ViewerResult} from "../../contract/contract";
+import {QA_FIRST_TURN_RUNNING, QA_FIRST_TURN_UNSAVED, type QaFrame, type QaRecordView, type QaRunView, type ViewerResult} from "../../contract/contract";
 import {StoryCallError, type QaSubscriber, type StoryClient} from "../host/client";
 import {createQaSource, retryDelay, type QaSourceState} from "./source";
 
@@ -118,6 +118,34 @@ describe("记录与运行", () => {
         expect(before).toContain("q:c:2");
         h.send({type: "ended", run: run({state: "ended", saved: {ok: true}})});
         expect(ids()).toEqual(before);
+    });
+
+    test("首轮运行中读到的“还在运行”：看着它结束并保存，重读回来之前就不再说不能续问（issue 269）", async () => {
+        const first = run({turn: 1, baseTurns: 0, logFrom: 1, question: "第一问"});
+        // 重读的 qa.get 没有回（脚本里只有第一次的结果）：横幅与输入框此刻看到的就是 ended 帧之后的状态。
+        const h = harness([got({record: null, log: {ok: true, entries: []}, continuable: {ok: false, reason: QA_FIRST_TURN_RUNNING}, run: first})]);
+        await h.settle();
+        expect(h.source.state().continuable).toEqual({ok: false, reason: QA_FIRST_TURN_RUNNING});
+        h.send({type: "snapshot", run: first, entries: []});
+        h.send({type: "ended", run: {...first, state: "ended", saved: {ok: true}}});
+        expect(h.source.state().continuable).toEqual({ok: true});
+    });
+
+    test("首轮运行中读到的“还在运行”：看着它结束但没保存，换成没保存的原因", async () => {
+        const first = run({turn: 1, baseTurns: 0, logFrom: 1, question: "第一问"});
+        const h = harness([got({record: null, log: {ok: true, entries: []}, continuable: {ok: false, reason: QA_FIRST_TURN_RUNNING}, run: first})]);
+        await h.settle();
+        h.send({type: "snapshot", run: first, entries: []});
+        h.send({type: "ended", run: {...first, state: "ended", saved: {ok: false, reason: "write_failed", message: "磁盘满"}}});
+        expect(h.source.state().continuable).toEqual({ok: false, reason: QA_FIRST_TURN_UNSAVED});
+    });
+
+    test("追问结束：已有记录的对话本来就能续问，结束帧不改 continuable", async () => {
+        const h = harness([got({run: run()})]);
+        await h.settle();
+        h.send({type: "snapshot", run: run(), entries: []});
+        h.send({type: "ended", run: run({state: "ended", saved: {ok: false, reason: "write_failed", message: "磁盘满"}})});
+        expect(h.source.state().continuable).toEqual({ok: true});
     });
 
     test("运行基于较早的记录（命令行先保存了一轮）：不接进来，标为 detached", async () => {

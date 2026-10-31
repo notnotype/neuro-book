@@ -1,0 +1,97 @@
+t20 第 4 片实现审查（omp，默认模型；审查对象 61eec86a7..b5611eefc；2026-10-31）
+审查说明与实验脚本在本地 .local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/（不入库）。
+
+### 1. 缺省 commit 在重开后重新读 view，破坏提交确定性
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/kernel/view/request.ts:117-141`、`:155-165`
+- **现象**：没有 `commit` 时，历史轮由 `committed()` 调用 `profile.turn(turn, format, profileView)`，结果按轮对象缓存；缓存只存在于当前 `SessionCore`。重开会话后缓存丢失，历史轮又用重开时的当前视图重新调用 `turn`。
+- **为什么是问题**：`turn` 合同允许读取 `view`，而 `view` 包含会随请求变化的状态和时间；因此“同一组事件、同一个 Profile 哈希，重开或回退后逐块一致”不成立，也违反提案第 7、8 节把缺省 `commit` 作为确定提交的前提。实际会把已经提交的历史改成另一份消息，并且开发检查无法覆盖重开路径。作者决定“缺省提交借用 turn”本身只有在冻结首次结果后才安全；当前实现只冻结进程内 WeakMap，不冻结会话语义。
+- **如何核实**：真实 `createTestSession` 实验 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/lab/default-turn-determinism.ts`，Profile 的 `turn` 返回 `view.now` 加输入；命令 `bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/lab/default-turn-determinism.ts` 输出 `{"before":"1767225601000","after":"1767225602000","diagnostics":[]}`。两次是同一会话日志与 Profile 哈希，重开并推进测试时钟后，已提交轮的第一块改变且没有 `commit-differs` 诊断。
+- **建议改法**：不要让缺省 `commit` 调用可读视图的 `turn`；为缺省提交提供只依赖 `turn` 与 `format` 的确定实现，或在第一次提交时把结果作为会话事实/按 Profile 哈希持久化。若保留作者约定的“借用 turn”，至少必须在首次需要该轮时捕获并持久化结果，不能依赖进程内对象身份缓存；同时补重开、回退和时间/状态变化的逐块一致性测试。
+
+### 2. 前缀检查只比较工具调用 id，漏掉同一调用的工具名和参数变化
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/kernel/view/cache.ts:347-353`
+- **现象**：`blockKeys()` 对每个工具调用只加入 `call:${call.id}`，没有加入 `call.tool`、`call.args` 或 provider 元数据。开发模式的 `prefix-unstable` 因此把“已有工具调用被改写、只保留同一 id”的请求误判为稳定前缀。
+- **为什么是问题**：工具调用本身是发给服务商的请求内容，参数或工具名改变会改变缓存前缀；当前检查不能发现 Profile 的 `turn` 在同一轮重算时修改调用。它既漏报 Spec 输出 19 要发现的前缀不稳定，也会让作者误以为请求满足缓存稳定不变量。
+- **如何核实**：真实 `createTestSession` 实验 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/lab/prefix-toolcall-args.ts`，Profile 保持每个调用 id 不变，但按 `turn.steps.length` 改写同一调用的 `args`；命令 `bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/lab/prefix-toolcall-args.ts` 输出 `{"result":"completed","calls":[[],[{"id":"call-1-1","args":{"stepCount":1}}],[{"id":"call-1-1","args":{"stepCount":2}},{"id":"call-2-1","args":{"stepCount":2}}]],"diagnostics":[]}`。第三次请求中第一条既有调用的参数从 `stepCount:1` 变为 `stepCount:2`，却没有 `prefix-unstable`。
+- **建议改法**：把工具调用的完整稳定语义纳入键（至少 id、tool、args，必要时 provider），使用稳定的结构化序列化或哈希；补一条同 id 改参数的真实会话测试。
+
+### 3. 请求校验用 Set 折叠重复工具调用 id，允许服务商拒绝的请求出站
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/kernel/view/validate.ts:27-31`
+- **现象**：校验把 assistant 的 `toolCalls` 映射为 `Set`。同一回复里两个调用使用同一个 id 时，集合只保留一个 id；一个 tool 结果就会被当成“每个调用恰好一条结果”，重复调用仍进入 `ModelRequest`。
+- **为什么是问题**：`ToolCall.id` 的公开合同明确要求同一条回复内不重复；当前校验没有守住这个请求形状，服务商侧通常会拒绝重复 tool-call id，或者无法把结果绑定到两个调用。问题发生在发出模型请求前，不能靠之后的工具结果收口。
+- **如何核实**：真实 `createTestSession` 实验 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/lab/duplicate-tool-call-id.ts`，Profile 把已有调用复制成两个同 id 调用；命令 `bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/lab/duplicate-tool-call-id.ts` 输出 `{"result":"completed","requestCount":2,"secondCalls":["call-1-1","call-1-1"],"diagnostics":[]}`，没有 `request-invalid`，模型收到了重复 id 的请求。
+- **建议改法**：校验时同时维护调用 id 的计数或先检测重复 id，第一处重复立即返回 `request-invalid`；补重复 id、重复 tool 结果、缺失 call id 的边界测试。
+
+### 4. `caught` 只按槽名记录，稳定与 volatile 同名时漏报且丢弃内容
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/kernel/view/render.ts:84-95`、`:174-176`
+- **现象**：`<Slot name="*" stable>` 选中一个槽名的稳定贡献后，把该槽名写入 `caught`；最后的 `slot-unplaced` 判断只看槽名。因此同名的 volatile 贡献没有被放进请求，也不会被 `slot-unplaced` 报出。`<Slot name="*" volatile>` 后续若存在也只按名字去重诊断状态。
+- **为什么是问题**：`volatile` 是每个贡献项的属性，不是槽名的属性；同一槽名可以由多个扩展贡献且各自声明稳定性。稳定 wildcard 只承诺收稳定内容，未摆的 volatile 内容必须继续由 volatile wildcard 收走或产生诊断。当前实现让内容静默丢失，Profile 作者看不到缺口。
+- **如何核实**：真实 `createTestSession` 实验 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/lab/mixed-slot-volatility.ts`，两个 `shared: true` 扩展都贡献 `facts`，一个稳定、一个 volatile，模板只有 `<Slot name="*" stable>`；命令 `bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/lab/mixed-slot-volatility.ts` 输出 `{\"outline\":[\"system: fixed:profile\",\"user: slot:facts@lab.stable\",\"user: event:input\"],\"diagnostics\":[]}`。volatile 内容未渲染，也没有 `slot-unplaced`。
+- **建议改法**：按具体贡献（至少 `(name, volatile, extension)` 或贡献对象身份）记录 wildcard 已收取的项，而不是只记录槽名；每个贡献项都要被按名字摆放、被对应稳定性 wildcard 收取，或被 `drop` 明确忽略后才算已处理。补同名稳定/volatile贡献与两个 wildcard 顺序变体的测试。
+
+### 5. 诊断合并键丢失同一扩展的不同槽名
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/kernel/dispatch/diagnostics.ts:22-24`
+- **现象**：诊断键只由 `码、扩展、入口、事件类型` 组成；`slot-unplaced` 没有事件类型。因此同一扩展交出的 `alpha`、`beta` 两个未摆放槽被合成一条，`count` 变成 2，诊断里的 `params.slot` 和 `message` 只保留最后一个槽，前一个槽名不可见。
+- **为什么是问题**：Spec 要求 `slot-unplaced` 指出哪个槽被丢弃，当前宿主只能看到 `beta`，无法定位 `alpha`；这不是同一槽的重复发生，而是两个独立缺陷。相同问题也会影响同一 Profile 多轮的 `commit-threw` / `commit-invalid`，`turnId` 被后一次覆盖。虽然合并维度是既定方向，但没有把无事件诊断的稳定区分字段纳入键，实际丢失了排障信息。
+- **如何核实**：真实 `createTestSession` 实验 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/lab/diagnostic-slot-merge.ts`，一个扩展同时贡献 `alpha`、`beta`，模板不摆槽；命令 `bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/lab/diagnostic-slot-merge.ts` 输出仅一条 `id:"slot-unplaced|lab.one|contribute|"`，`params.slot:"beta"`、`count:2`，`alpha` 没有独立诊断。
+- **建议改法**：为槽诊断把 `slot` 纳入合并键；为提交诊断把 `turnId` 纳入键，或在诊断模型里保留按参数分组的明细。仍可对同一槽/同一轮的重复发生计数，但不能把不同定位对象折成一条。
+
+### 6. 未使用的 Profile `system` 也会把槽标成 `mentioned`，导致 `slot-unplaced` 漏报
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/kernel/view/render.ts:71-79`
+- **现象**：扫描阶段无条件 `scan(input.system)`。当自定义 `prompt` 不包含 `<System />` 时，Profile 的 `system` 根本不会渲染，但其中的 `<Slot name="hidden">` 已经把 `hidden` 加入 `mentioned`；贡献内容随后既没有输出，也没有 `slot-unplaced`。
+- **为什么是问题**：`mentioned` 必须表示本次实际模板路径上摆放过的槽。Profile 的 system 只有被顶层 `<System>` 或其内部自闭合 `<System />` 引用时才生效；无条件扫描会让未使用的 system 槽静默丢失，违背输出 16 对未摆放内容给诊断的合同。
+- **如何核实**：真实 `createTestSession` 实验 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/lab/system-slot-unplaced.ts`，Profile 的 `system` 是 `<Slot name=\"hidden\">`，prompt 只有 `<Turn />`；命令 `bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/lab/system-slot-unplaced.ts` 输出 `{\"outline\":[\"user: event:input\"],\"diagnostics\":[]}`。槽内容没有进入请求，也没有 `slot-unplaced`。
+- **建议改法**：先按模板实际渲染路径决定是否扫描 Profile system：只有会执行 `<System>` 的路径才把其中的命名槽视为 mentioned；更稳妥的是在一次带条件的渲染中同时记录实际访问过的槽，而不是独立的无条件结构扫描。补 prompt 不引用 system、引用 system、以及 `<If>` 条件控制 system 的测试。
+
+### 7. 未执行的 `<If>` 分支中的命名槽同样会静默丢失
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/kernel/view/render.ts:71-79`
+- **现象**：`scan()` 不判断工具条件，递归记录 `<If tool="missing"><Slot name="hidden" /></If>` 中的 `hidden`；实际渲染时工具不在生效工具集，分支不执行，槽既不输出也不报 `slot-unplaced`。
+- **为什么是问题**：输出 16 的“按名字摆放”描述的是实际请求路径，不是不可达分支里的语法提及。当前 `mentioned` 的静态全树扫描把条件分支当成已处理，Profile 改工具集后会出现不可见的内容丢失，且没有诊断。
+- **如何核实**：真实 `createTestSession` 实验 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/lab/conditional-slot-unplaced.ts`，prompt 只有一个不满足的 `<If>` 命名槽和 `<Turn />`；命令 `bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/lab/conditional-slot-unplaced.ts` 输出 `{\"outline\":[\"user: event:input\"],\"diagnostics\":[]}`。
+- **建议改法**：不要先对整棵树做无条件 `mentioned` 扫描；在与实际渲染相同的条件分派中记录成功访问的命名槽，或让扫描携带工具集并跳过不可达 `<If>`。应与 system 槽场景分别补测试。
+
+### 8. 测试没有保护块来源的完整结构
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/nb-harness/src/kernel/view/view.test.tsx:44-75`、`:100-114`、`:133-180`
+- **现象**：现有测试主要断言 `outline()` 的字符串标签。它能覆盖 `kind` 与部分 `type/name@extension`，但没有断言实际 `RequestBlock.origin` 的 `eventId`、完整 `extension`、`fixed.by` 等字段；输出 18 的公开来源合同因此没有被完整保护。
+- **为什么是问题**：把 `originOf()` 的 `eventId` 改成常量、把事件扩展来源改错，现有这些断言仍会通过，消费者的预览、修改定位和审计会失去精确定位。测试也没有对每个来源变体直接核对结构化对象，属于实现细节标签的间接测试，不是合同测试。
+- **如何核实**：静态对照 `docs/specs/harness/profile.md:100` 与上述测试；测试只调用 `outline()`，而 `packages/nb-harness/src/kernel/view/outline.ts:473-490` 刻意只读取来源标签字段。可做变异检查：只改 `format.ts:30-33` 生成的 `eventId`，这组 `outline()` 断言不会失败。
+- **建议改法**：增加对 `request.system[n].origin`、事件块 `origin`、槽块 `origin` 的具体字段断言，至少覆盖 kernel 事件、扩展事件、Profile fixed 与 slot 四种来源；保留 outline 作为结构提纲测试，不用它替代来源合同测试。
+
+### 9. `history: {last: 0}` 被 JavaScript 的 `slice(-0)` 当成“全部历史”
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/kernel/view/request.ts:151-154`
+- **现象**：历史窗口使用 `turns.slice(-last)`。当 `last` 为 `0` 时，`-0` 仍是 `0`，`slice(0)` 返回全部已提交轮，而不是零轮。
+- **为什么是问题**：`<History last?>` 和 `standardLayout({history: {last: n}})` 的语义是最近 `n` 轮；零是合法的边界数值时应关闭历史。当前会把用户明确排除的历史继续发给模型，改变提示词并可能造成隐私或上下文窗口成本问题。现有测试只覆盖 `last: 1`，没有保护零边界。
+- **如何核实**：真实 `createTestSession` 实验 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/lab/history-last-zero.ts`，模板为 `standardLayout({history: {last: 0}})`，先完成两轮再发第三轮；命令 `bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice4-impl-review/lab/history-last-zero.ts` 输出 `["system: fixed:profile","user: event:input","assistant: event:assistant","user: event:input","assistant: event:assistant","user: event:input"]`，包含前两轮历史。
+- **建议改法**：显式处理 `last === 0` 返回空数组，或用 `last > 0 ? turns.slice(-last) : []`；补 `last: 0` 与空历史测试，并明确负数是否在 Profile 装配/运行时拒绝。
+
+## 未发现问题的方面
+
+- **提交缓存的对象身份**：`state/history.ts` 的持久链表在同一 `SessionCore` 的后代叶子之间共享已提交轮对象，`turnEnded` 只新建一次提交对象；未发现不同轮共用同一对象或回退路径本身造成错误命中的证据。真正的问题是重开后缓存消失与缺省 `turn` 读视图，见第 1 条。
+- **模板结构错误的收口**：已覆盖的顶层、容器、行内非法放置和 `<Turn />` 计数错误都会返回 `profile-failed`，并写 `extensionFailed{code: "invalid-output"}`；`request-invalid` 走独立的 error 收口。未发现这条收口路径本身违约。
+- **普通工具消息配对**：对唯一调用 id、相邻 tool 结果、`after` 事件、`continued` 和 `finalOnly` 的正常形状未发现误判；重复调用 id 的边界另见第 3 条。
+- **性能**：`bun tests/kernel/measure-request.ts 2000 1500` 实测 `events: 22023`、开发模式 `coldMs: 37.4`、`warmMs: 24.4`，低于计划的单次 50 ms 预算；本片未发现该测量路径超预算。
+
+## 作者自己定的四项判断
+
+1. **缺省 `commit` 借用 `turn`**：不成立；`turn` 可读 `view`，真实重开实验已证明同一事件组和 Profile 哈希能得到不同提交，见第 1 条。
+2. **按 `ConversationTurn` 对象身份缓存**：在单个打开会话内的持久历史链上成立，但不能跨重开保证结果；它无法修复第 1 条的视图依赖。
+3. **模板结构错误按 `profile-failed` 收口**：成立；已覆盖的结构错误收口符合 `runtime.md` 输出 10。槽的条件扫描与未摆放诊断仍有第 4、6、7 条问题，但不是收口码本身的问题。
+4. **开发检查与冻结共用 `NODE_ENV !== \"production\"`**：成立；与 Profile 输出 19 和当前实现一致，未发现独立违约。
+
+**数量**：阻断 0；重要 8；建议 1。
+有效发现：1–9。
+
+## 处理（主会话）
+
+- 1 成立，修法待开发者定：根子是提案让 turn 能读视图；推荐把 turn 改成纯函数 (turn, format)，缺省提交借用 turn 就天然确定。改的是已接受的设计，随第 5 片交付一起问。
+- 2、3、4、5、6、8、9 成立，已改（Work 分支 0b7a71e58），各在暴露缺口的那条输出的测试里补了用例，变异检查全部失败。5 的改法：诊断的合并键加“对象”（槽名、轮 id）。
+- 7 不成立：写在 <If> 里的槽是作者有意摆的位置，条件不满足时既不报 slot-unplaced、也不该被 <Slot name="*"> 收走；profile.md 输出 16 写明。

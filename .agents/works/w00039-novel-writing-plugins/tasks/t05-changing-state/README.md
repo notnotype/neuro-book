@@ -1,0 +1,18 @@
+---
+schema: nbook.task/v2
+taskId: t05-changing-state
+status: shelved
+updated: 2026-10-31
+---
+
+# 随剧情变化的状态
+
+## 目标与范围
+
+2026-10-31 并入 [t04](../t04-time-worldlines/README.md)：状态按时间与世界线计算，与世界线共用一套语义。原列的问题已原样搬过去，本 Task 不单独讨论。
+
+合同：讨论 Task，只定设计，行为合同未变。
+
+## 当前状态
+
+已并入，搁置。

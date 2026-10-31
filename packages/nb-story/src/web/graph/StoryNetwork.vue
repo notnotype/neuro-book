@@ -21,8 +21,9 @@ import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {IconButton} from "@notnotype/nb-ui/components";
 
-import {edgeLabelDrawer, estimateLabelWidth, fixedColors, Focus, hoverDrawer, labelDrawer, layoutCircle, layoutConcentric, layoutForce, layoutStress, mix, readTheme, seedSpiral, zoom} from "./sigma-kit";
-import type {Theme} from "./sigma-kit";
+import {chooseForcedLabels, edgeLabelDrawer, estimateLabelWidth, FADE_MS, fitAll, fixedColors, Focus, isFitted, labelWaits, hoverDrawer, labelDrawer, layoutCircle, layoutConcentric, layoutForce, layoutStress, mix, readTheme, seedSpiral, zoom} from "./sigma-kit";
+import type {LayoutFrame, Theme} from "./sigma-kit";
+import type {CameraState} from "sigma/types";
 import {edgeParts, hasParts} from "./edge-parts";
 
 import type {IdentityState} from "../../contract/contract";
@@ -91,9 +92,23 @@ let graph: Graph | null = null;
 let focus: Focus | null = null;
 let theme: Theme | null = null;
 let stopAnimation: (() => void) | null = null;
+/** 最近一次铺满给的镜头位置：容器尺寸变了时，镜头还在这个位置（用户没动过）才重新铺满。 */
+let fitted: CameraState | null = null;
+function refit(animate: boolean): void {
+    if (sigma !== null) fitted = fitAll(sigma, animate);
+}
 const EGO_LIMIT = 12;
 const NODE_SIZE = 8;
 const EDGE_SIZE = 2;
+
+/** 取景时四周留的边（Sigma 的 `stagePadding`）：取景只看点不看名字，名字画在点的右边、环形排版两侧朝外，要留出地方。 */
+const stagePadding = () => (props.compact ? 36 : 90);
+
+/** 排版用的画布区域：容器量出来的宽高减去取景的边。容器还没量出尺寸时按一个常见大小。 */
+function layoutFrame(): LayoutFrame {
+    const pad = 2 * stagePadding();
+    return {width: Math.max(240, (host.value?.clientWidth ?? 960) - pad), height: Math.max(180, (host.value?.clientHeight ?? 600) - pad)};
+}
 
 function kindColor(kind: string): string {
     const t = theme!;
@@ -249,6 +264,12 @@ function layoutEgo(target: Graph): void {
     for (const side of [-1, 1]) target.addNode(`pad-${side}`, {x: side * 15.5, y: 0, size: 0.01, color: theme!.bg, fillColor: theme!.bg, ringPx: 0, label: "", weight: 0});
 }
 
+/** 关系图里哪些点强制出名字：名字框合计不超过画布的一定比例，点多时只出主要的（`chooseForcedLabels`）。 */
+function chooseLabels(target: Graph): void {
+    if (props.mode !== "relation" || props.ego !== null) return;
+    chooseForcedLabels(target, layoutFrame(), {pinned: new Set(props.pinned), labelWidth: (node) => estimateLabelWidth(String(target.getNodeAttribute(node, "label")), 12)});
+}
+
 /** 按当前排版方式给点算位置。`fresh` 为真时从固定的螺旋起点排，否则从现在的位置接着排（切换连线的层时，点只挪需要挪的）。 */
 function applyLayout(target: Graph, fresh: boolean): void {
     if (props.ego !== null && target.hasNode(props.ego)) {
@@ -273,23 +294,27 @@ function applyLayout(target: Graph, fresh: boolean): void {
     }
     if (fresh || target.someNode((_, attributes) => attributes.x === undefined)) seedSpiral(target, (node) => Number(target.getNodeAttribute(node, "weight")));
     if (props.mode === "relation" && props.layout === "stress") {
-        layoutStress(target, {viewportWidth: host.value?.clientWidth ?? 800, labelWidth: (node) => estimateLabelWidth(String(target.getNodeAttribute(node, "label")), props.compact ? 11 : 12)});
+        layoutStress(target, {frame: layoutFrame(), labelWidth: (node) => estimateLabelWidth(String(target.getNodeAttribute(node, "label")), props.compact ? 11 : 12)});
         return;
     }
     layoutForce(target, {
-        viewportWidth: host.value?.clientWidth ?? 800, linLog: false, iterations: props.mode === "data" ? 600 : fresh ? 300 : 150,
+        frame: layoutFrame(), linLog: false, iterations: props.mode === "data" ? 600 : fresh ? 300 : 150,
         labelWidth: (node) => estimateLabelWidth(String(target.getNodeAttribute(node, "label")), props.compact ? 11 : 12),
     });
+}
+
+/** “只看周边”的放射排布是临时的：重新排版、换数据之前先放回全图位置，排完再按新位置围一圈。 */
+function restoreHome(): void {
+    if (home === null || graph === null) return;
+    for (const [node, position] of home) if (graph.hasNode(node)) graph.mergeNodeAttributes(node, {x: position.x, y: position.y, labelSide: position.side});
+    home = null;
 }
 
 /** 重新排版：在一份拷贝上算出新位置，再让点从旧位置滑过去，看得出谁挪到了哪里。 */
 function relayout(fresh: boolean): void {
     if (sigma === null || graph === null) return;
-    // “只看周边”的放射排布是临时的：先放回全图位置再排，排完再按新位置围一圈。
-    if (home !== null) {
-        for (const [node, position] of home) if (graph.hasNode(node)) graph.mergeNodeAttributes(node, {x: position.x, y: position.y, labelSide: position.side});
-        home = null;
-    }
+    restoreHome();
+    chooseLabels(graph);
     const copy = graph.copy();
     applyLayout(copy, fresh);
     const targets: Record<string, {x: number; y: number}> = {};
@@ -303,7 +328,7 @@ function relayout(fresh: boolean): void {
     sigma.setCustomBBox(null);
     stopAnimation = animateNodes(graph, targets, {duration: 600, easing: "quadraticInOut"}, () => {
         if (props.neighborhood && focus?.selected !== null) enterNeighborhood();
-        else void sigma?.getCamera().animatedReset({duration: 300});
+        else refit(true);
     });
 }
 
@@ -357,6 +382,77 @@ function placeFrom(target: Graph, previous: Map<string, Point>): boolean {
         }
     });
     return complete;
+}
+
+/** 淡入的重画循环：只在 `syncData`、`fadeIn` 里写；`fadeStart` 是这一轮淡入的起点。 */
+let fadeFrame: number | null = null;
+let fadeStart = 0;
+
+/** 淡入期间每帧重画一次，到时间为止（点与线的颜色在 `Focus` 的 reducer 里按 `bornAt` 算）。 */
+function fadeIn(): void {
+    if (fadeFrame !== null) return;
+    const step = () => {
+        fadeFrame = null;
+        if (sigma === null) return;
+        sigma.refresh({skipIndexation: true});
+        if (performance.now() - fadeStart < FADE_MS) fadeFrame = requestAnimationFrame(step);
+    };
+    fadeFrame = requestAnimationFrame(step);
+}
+
+/**
+ * 点被去掉之后收口：悬停、选中的点不在图里了就放掉（Sigma 去点时不发 leaveNode）；选中的点没了要告诉页面取消选中，
+ * 并退出“只看周边”的放射位置，不然镜头还框在上一圈周边上。
+ */
+function forgetDropped(): void {
+    if (graph === null || focus === null) return;
+    if (focus.hovered !== null && !graph.hasNode(focus.hovered)) {
+        focus.hovered = null;
+        if (host.value !== null) host.value.style.cursor = "";
+    }
+    if (focus.selected !== null && !graph.hasNode(focus.selected)) {
+        focus.selected = null;
+        emit("clear");
+    }
+}
+
+/**
+ * 点与线的数据变了（往后挪阅读位置、勾选“只画最强的线”、改视角后新数据回来）：原地改现有的图，不重建 Sigma（输出 25，
+ * issue 268）。已有的点留在原位，新出现的点放在已放好的邻居旁边（`placeFrom`），没有了的点和线直接去掉，然后和换层一样
+ * 从当前位置接着排、点滑到新位置（`relayout`）；新点新线淡入。人物卡小图（放射排布，没有“接着排”）仍然整张重画。
+ */
+function syncData(): void {
+    if (sigma === null || graph === null || focus === null || props.ego !== null) {
+        render("fresh");
+        return;
+    }
+    restoreHome();
+    const next = new Graph({type: "mixed", multi: true});
+    if (props.mode === "data") buildData(next);
+    else buildRelation(next);
+    placeFrom(next, positionsOf(graph));
+    // 现有的点一个都不在新数据里（视角、类别换得彻底）：没有位置可接，和整张重画一样从螺旋起点排。
+    if (next.someNode((_, attributes) => attributes.x === undefined)) seedSpiral(next, (node) => Number(next.getNodeAttribute(node, "weight")));
+    const now = performance.now();
+    for (const node of graph.nodes()) if (!next.hasNode(node)) graph.dropNode(node);
+    forgetDropped();
+    next.forEachNode((node, attributes) => {
+        if (graph!.hasNode(node)) graph!.mergeNodeAttributes(node, attributes);
+        else graph!.addNode(node, {...attributes, bornAt: now});
+    });
+    // 还在淡入的线（半秒内连着挪）把 bornAt 带到新线上，不然下一次同步它就一下变实了
+    const oldEdges = new Map(graph.mapEdges((key, attributes) => [key, attributes.bornAt] as const));
+    graph.clearEdges();
+    next.forEachEdge((key, attributes, source, target) => {
+        const added = oldEdges.has(key) ? {...attributes, ...(oldEdges.get(key) === undefined ? {} : {bornAt: oldEdges.get(key)})} : {...attributes, bornAt: now};
+        if (next.isDirected(key)) graph!.addDirectedEdgeWithKey(key, source, target, added);
+        else graph!.addUndirectedEdgeWithKey(key, source, target, added);
+    });
+    focus.matches = matchesOf(graph);
+    fadeStart = now;
+    sigma.refresh();
+    fadeIn();
+    relayout(false);
 }
 
 const GROUP_ORDER = ["identity", "relation", "know", "co", "participates", "about", "link"];
@@ -418,16 +514,16 @@ function leaveNeighborhood(): void {
     }
     home = null;
     stopAnimation?.();
-    stopAnimation = animateNodes(graph, back, {duration: 500, easing: "quadraticInOut"}, () => void sigma?.getCamera().animatedReset({duration: 300}));
+    stopAnimation = animateNodes(graph, back, {duration: 500, easing: "quadraticInOut"}, () => refit(true));
 }
 
 /**
- * 整张重画。`how`：fresh 从固定起点排（首次显示、换用法）；continue 已有的点从全图原位置接着排、新点放到邻居旁边
- * （换阅读位置、视角、类别，输出 25）；keep 位置不动只换颜色（换明暗）。
+ * 整张重画。`how`：fresh 从固定起点排（首次显示、换用法、人物卡小图换数据）；keep 位置不动只换颜色（换明暗）。
+ * 数据变了不走这里，原地改图（`syncData`）。
  */
-function render(how: "fresh" | "continue" | "keep" = "fresh"): void {
+function render(how: "fresh" | "keep" = "fresh"): void {
     if (host.value === null) return;
-    const previous = how !== "fresh" && graph !== null && props.ego === null ? (home ?? positionsOf(graph)) : null;
+    const previous = how === "keep" && graph !== null && props.ego === null ? (home ?? positionsOf(graph)) : null;
     home = null;
     stopAnimation?.();
     sigma?.kill();
@@ -438,6 +534,7 @@ function render(how: "fresh" | "continue" | "keep" = "fresh"): void {
     focus = new Focus(graph, theme);
     focus.selected = props.selected !== null && graph.hasNode(props.selected) ? props.selected : null;
     focus.onlyNeighborhood = props.neighborhood;
+    chooseLabels(graph);
     if (previous === null) applyLayout(graph, true);
     else {
         const complete = placeFrom(graph, previous);
@@ -486,17 +583,20 @@ function render(how: "fresh" | "continue" | "keep" = "fresh"): void {
             const result = focus!.edge(edge, data);
             // 平时线上只写关系词；悬停、选中时写全（几种联系都列出）
             if (result.forceLabel !== true && !result.hidden && result.alwaysLabel === true) result.label = data.shortLabel;
+            if (labelWaits(data.bornAt)) result.label = "";
             return result;
         }) as never,
         zIndex: true,
         // 取景只看点不看名字：留足边距，环形排版左右两侧朝外的名字才不会被裁掉
-        stagePadding: props.compact ? 36 : 90,
+        stagePadding: stagePadding(),
         minCameraRatio: 0.06,
         maxCameraRatio: 3,
     });
     // 线上的字互相避让：每画一帧前清空已占的位置
     sigma.on("beforeRender", drawEdgeLabel.reset);
     bindEvents(sigma, graph);
+    fitted = null;
+    if (props.ego === null) refit(false);
     applyQuery();
     if (props.neighborhood && focus.selected !== null) enterNeighborhood();
 }
@@ -545,6 +645,12 @@ function bindEvents(instance: Sigma, target: Graph): void {
         if (!moved && Math.hypot(event.x - downAt.x, event.y - downAt.y) < 4) return;
         moved = true;
         host.value!.style.cursor = "grabbing";
+        // 拖动途中新数据回来、被拖的点恰好被去掉：收住拖动
+        if (!target.hasNode(dragged)) {
+            dragged = null;
+            downAt = null;
+            return;
+        }
         const position = instance.viewportToGraph(event);
         target.mergeNodeAttributes(dragged, {x: position.x, y: position.y});
         event.preventSigmaDefault();
@@ -619,11 +725,16 @@ function fitNeighborhood(): void {
     void fitViewportToNodes(sigma, [focus.selected, ...graph.neighbors(focus.selected)], {animate: true});
 }
 
-/** 搜索：按名字、其他称呼（情节按标题）包含匹配；命中的点高亮，镜头移到第一个命中的点。 */
+/** 搜索命中的点：按名字、其他称呼（情节按标题）包含匹配；没有查询时为 null。 */
+function matchesOf(target: Graph): Set<string> | null {
+    const query = props.query.trim();
+    return query === "" ? null : new Set(target.filterNodes((_, attributes) => String(attributes.fullLabel ?? attributes.label).includes(query) || ((attributes.names as readonly string[] | undefined) ?? []).some((name) => name.includes(query))));
+}
+
+/** 搜索：命中的点高亮，镜头移到第一个命中的点。 */
 function applyQuery(): void {
     if (sigma === null || focus === null || graph === null) return;
-    const query = props.query.trim();
-    focus.matches = query === "" ? null : new Set(graph.filterNodes((_, attributes) => String(attributes.fullLabel ?? attributes.label).includes(query) || ((attributes.names as readonly string[] | undefined) ?? []).some((name) => name.includes(query))));
+    focus.matches = matchesOf(graph);
     sigma.refresh({skipIndexation: true});
     const first = focus.matches?.values().next().value;
     if (first !== undefined) {
@@ -665,8 +776,12 @@ function resizeCanvas(): void {
     if (resizeFrame !== null) return;
     resizeFrame = requestAnimationFrame(() => {
         resizeFrame = null;
-        sigma?.resize();
-        sigma?.refresh();
+        if (sigma === null) return;
+        // 排版按铺满时的画布比例排的：画布变宽变窄后，没动过镜头的就重新铺满，免得图被裁掉或缩在中间
+        const atFit = props.ego === null && isFitted(sigma, fitted);
+        sigma.resize();
+        if (atFit) refit(false);
+        sigma.refresh();
     });
 }
 watch(layoutMotion, (moving) => {
@@ -692,10 +807,10 @@ onMounted(() => {
     });
     if (host.value !== null) observer.observe(host.value);
 });
-// 点与线的数据变了（换阅读位置、视角、类别）整张重画，由排版重新决定位置；只换连线的层或同场门槛时换线、重新排版，
-// 点从原位置滑到新位置（输出 24）
+// 换用法（人物卡小图、关系图、全书图）整张重画，由排版重新决定位置；点与线的数据变了（换阅读位置、视角、类别）原地改图、
+// 点从当前位置接着排（`syncData`）；只换连线的层或同场门槛时换线、重新排版，点从原位置滑到新位置（输出 24）
 watch(() => [props.ego, props.mode], () => { if (lastSize !== "") render("fresh"); });
-watch(() => [props.hiddenTypes.join(","), props.nodes, props.edges, props.dataEdges], () => { if (lastSize !== "") render("continue"); });
+watch(() => [props.hiddenTypes.join(","), props.nodes, props.edges, props.dataEdges], () => { if (lastSize !== "") syncData(); });
 // 换明暗：Sigma 的颜色在绘制时读一次，要按新颜色重画，位置不动。
 watch(appearance, () => {
     if (lastSize === "") return;
@@ -728,7 +843,7 @@ watch(() => props.neighborhood, (value) => {
     else leaveNeighborhood();
 });
 watch(() => props.query, applyQuery);
-onBeforeUnmount(() => { observer?.disconnect(); if (resizeFrame !== null) cancelAnimationFrame(resizeFrame); stopAnimation?.(); sigma?.kill(); });
+onBeforeUnmount(() => { observer?.disconnect(); if (resizeFrame !== null) cancelAnimationFrame(resizeFrame); if (fadeFrame !== null) cancelAnimationFrame(fadeFrame); stopAnimation?.(); sigma?.kill(); });
 </script>
 
 <template>

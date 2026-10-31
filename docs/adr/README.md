@@ -34,3 +34,4 @@ ADR 0001–0021 是旧应用的决策，随旧包留在 [`../../packages/neuro-b
 | [0032](0032-nb-story-keys-from-startup-env.md) | nb-story 的密钥只认进程启动时的环境（shell 导出与 Bun 加载的当前目录 `.env`），OMP 导入时读进来的家目录 `.env` 不算，各命令结论一致 |
 | [0033](0033-app-delivered-as-built-npm-package.md) | 新应用发构建产物的 npm 包 `@notnotype/neuro-book`，带前台的 `nbook` 命令；状态根缺省是平台数据目录；一个状态根一个实例，用本地套接字认领；不恢复 Manager，目录包、桌面壳、后台运行与服务器部署另行设计 |
 | [0034](0034-language-policy.md) | 界面文字与给用户看的失败说明经按插件、按包分的消息目录本地化（i18next）；开发诊断用英文、不本地化；界面按“拥有者命名空间 + 码”取失败文案；给模型的文字：领域提示词中文，新写的基础设施提示词中文，现有英文说明与 OMP 原生错误文本保持原样 |
+| [0035](0035-harness-log-driven-kernel.md) | Agent harness 以会话日志为唯一真相源（JSONL、写入批、单写者），循环由内核自写、与服务商通信只用 OMP `streamSimple`，Profile 与插件都是只做归约、反应、视图、拦截的扩展 |

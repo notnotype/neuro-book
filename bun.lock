@@ -390,7 +390,6 @@
         "eventsource-parser": "^3.0.6",
         "graphology": "0.26.0",
         "graphology-layout-forceatlas2": "0.10.1",
-        "graphology-layout-noverlap": "0.4.2",
         "graphology-types": "^0.24.8",
         "sigma": "3.0.3",
         "tailwindcss": "^4.3.3",
@@ -2872,8 +2871,6 @@
     "graphology": ["graphology@0.26.0", "", { "dependencies": { "events": "^3.3.0" }, "peerDependencies": { "graphology-types": ">=0.24.0" } }, "sha512-8SSImzgUUYC89Z042s+0r/vMibY7GX/Emz4LDO5e7jYXhuoWfHISPFJYjpRLUSJGq6UQ6xlenvX1p/hJdfXuXg=="],
 
     "graphology-layout-forceatlas2": ["graphology-layout-forceatlas2@0.10.1", "", { "dependencies": { "graphology-utils": "^2.1.0" }, "peerDependencies": { "graphology-types": ">=0.19.0" } }, "sha512-ogzBeF1FvWzjkikrIFwxhlZXvD2+wlY54lqhsrWprcdPjopM2J9HoMweUmIgwaTvY4bUYVimpSsOdvDv1gPRFQ=="],
-
-    "graphology-layout-noverlap": ["graphology-layout-noverlap@0.4.2", "", { "dependencies": { "graphology-utils": "^2.3.0" }, "peerDependencies": { "graphology-types": ">=0.19.0" } }, "sha512-13WwZSx96zim6l1dfZONcqLh3oqyRcjIBsqz2c2iJ3ohgs3605IDWjldH41Gnhh462xGB1j6VGmuGhZ2FKISXA=="],
 
     "graphology-types": ["graphology-types@0.24.8", "", {}, "sha512-hDRKYXa8TsoZHjgEaysSRyPdT6uB78Ci8WnjgbStlQysz7xR52PInxNsmnB7IBOM1BhikxkNyCVEFgmPKnpx3Q=="],
 

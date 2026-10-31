@@ -119,6 +119,46 @@ async function centerOn(page: Page, name: string): Promise<{x: number; y: number
     return {x: box.x + box.width / 2, y: box.y + box.height / 2};
 }
 
+test("关系图挪阅读位置（输出 25，issue 268）：往后挪时新数据回来之前留着旧图、不出现“正在取”，数据到了图变；往前挪仍先清空，不把后文的图留在前面的位置上", async ({page}) => {
+    await open(page, "/book/fox/relations?at=7&perspective=reader");
+    const graph = page.getByTestId("relation-graph");
+    await expect(graph.locator("canvas").first()).toBeVisible();
+    await settle(page);
+    const shown = await graph.screenshot();
+
+    // 把图的请求扣住，只放行一次：挪动后到数据回来之前，页面停在什么样，就是被测的行为。
+    let release: () => void = () => {};
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    await page.route("**/api/rpc/graph.relations", async route => {
+        await gate;
+        await route.continue();
+    });
+    await page.getByRole("button", {name: "下一章"}).click();
+    await expect(page.getByText("截至第 8 章")).toBeVisible();
+    await expect(page.getByText("正在取……")).toHaveCount(0);
+    await expect(graph.locator("canvas").first()).toBeVisible();
+    expect((await graph.screenshot()).equals(shown)).toBe(true);
+    release();
+    await expect.poll(async () => !(await graph.screenshot()).equals(shown)).toBe(true);
+    await settle(page);
+    await page.unroute("**/api/rpc/graph.relations");
+
+    // 往前挪：旧图（第 8 章）不能留在第 7 章的位置上，先清空，新数据回来后重新画。
+    let releaseBack: () => void = () => {};
+    const gateBack = new Promise<void>(resolve => { releaseBack = resolve; });
+    await page.route("**/api/rpc/graph.relations", async route => {
+        await gateBack;
+        await route.continue();
+    });
+    await page.getByRole("button", {name: "上一章"}).click();
+    await expect(page.getByText("正在取……")).toBeVisible();
+    await expect(graph.locator("canvas")).toHaveCount(0);
+    releaseBack();
+    await expect(graph.locator("canvas").first()).toBeVisible();
+    await expect(page.getByText("正在取……")).toHaveCount(0);
+    await page.unroute("**/api/rpc/graph.relations");
+});
+
 test("关系图（验收 3、输出 27）：页面上已有文字选区时拖动一个点照样能拖、不打开人物卡；单击只选中，双击打开人物卡；右键菜单与快捷键；打开认知层后图照常", async ({page}) => {
     await open(page, "/book/fox/relations?at=38&perspective=reader");
     await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();

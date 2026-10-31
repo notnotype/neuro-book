@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t20-hooks
-status: planned
+status: active
 updated: 2026-10-29
 ---
 
@@ -63,6 +63,40 @@ t05、t06、t07。
 12. **第五稿**：按五份报告汇总，取舍写在提案第 20 节；接口在 [`spike/v5/`](spike/v5/api.ts)（`api.ts`、`host.ts`、`testing.ts`、`plugins.ts`、`profiles.tsx`、`tests.example.ts`），只有类型，tsc 通过，`v5/typetest.ts` 二十九处写错都报出预期的错误；第三稿 spike 仍 53/53。
 13. **定稿**（开发者 2026-10-29）：能独立成扩展或写成纯函数的便利写法做成 helper，不做成字段（`reminder()`、`opening()`、`standardLayout()`、`finalOnly()`、`withoutEvents()`、`format.withRender()`），理由是便利字段太多会加重心智负担；撤掉为 `remind` 字段加的保留事件。`spike/v5/` 随之改写，tsc 通过，`typetest.ts` 二十九处写错都报出预期的错误。认可第三至五稿改变已定写法的地方。t20 改了内核，实施时排在最前。
 
+## 实施进展（2026-10-30）
+
+- 实施计划 [plan.md](plan.md) 第二版：第一版经六位审查者 108 条意见（[处理表](evidences/plan-review-r1-disposition.md)），开发者按推荐定了六处（计划第 1 节决定 5–10）；第二轮快速审查 Opus 19 条、omp 13 条已并入。
+- Work 分支 `feat/w00032-agent-integration`，worktree `.worktree/w00032-agent-integration`。
+- 第 0 片完成（`5343ed4e6`）：OMP 升到 18.14.0；修了 `NO_AUTH_SENTINEL` 的导出位置与 `EditPolicy` 的新字段；目录快照 69 → 79 家；本机回环端点的输出上限按模型自己写的值（nb-story 的 Spec 与 README 同步，`17b64d9aa`）。nb-harness 94 个测试、两条真实模型 smoke 通过；`test:affected` 只剩 nb-ui 的 `NB_UI_VERSION` 一条，在 master 上同样失败，与本 Task 无关。
+
+- 第 1 片完成（开发者 2026-10-31 同意接受提案）：提案改 `accepted`，决策记录追加计划第 1 节决定 1–13 与“第五稿到定稿的差异”表，正文第 2、3、7、8、9、11、20 节与待定项按定稿改写；新 [ADR 0035](../../../../../docs/adr/0035-harness-log-driven-kernel.md)；新建 [`harness/session.md`](../../../../../docs/specs/harness/session.md)（planned，输出 1–21、场景 1–6）与 [`harness/extensions.md`](../../../../../docs/specs/harness/extensions.md)（骨架，输出 1–27）。Work 分支上：`src/kernel/api/` 定稿类型、定义用的构造函数、模板节点与 JSX 运行时、子路径导出 `./kernel`、`./kernel/contracts`、`./prompt`（`./kernel/testing` 随第 2 片的 `createTestSession` 加）、`tsconfig` 的 JSX 设置、`architecture.test.ts`、`tests/kernel/typetest.tsx`（36 处写错逐条核对过报错原因）。与计划的出入：`ToolCall` 的工具 id 字段叫 `tool`；`compaction/` 依赖 `run/`、反向经回调（已改进计划）；helper 只有签名，实现在第 3、4 片。
+- 第 2 片完成（纵切）：`log/`（会话目录、写入批、大块内容、操作系统锁、修复与校验；内存存储就是同一份 JSONL 存储跑在内存文件上）、`model/`（OMP 适配器）、`state/`、`extension/` 的最小装配、`dispatch/`（队列与 `SessionCore`）、`run/`（`send`、`enqueue`、`start`、`abort`、不带工具的循环、恢复、运行结果）、`view/`（模板渲染、缺省布局、`format`）、`session/`、最小的 `createTestSession`。新建 [`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md)、[`harness/models.md`](../../../../../docs/specs/harness/models.md)；验收映射在计划第 6 节。测量与真实模型见 [`evidences/slice2-measure.txt`](evidences/slice2-measure.txt)：2 万条存储层打开 115–160 ms；每条回复 5,000 字时只读回就 166 MB，接近 200 MB 的预算，第 3 片一并看；DeepSeek 真实模型一轮、重开、再一轮通过；t04 在官方接口上的复测未验证（没有凭据）。
+- 与计划的出入（已改进计划与 Spec）：会话锁改用操作系统的独占锁（照 nb-story `platform/flock.ts`），原计划“Bun 没有跨平台 flock”的理由不成立，进程号加令牌的陈旧回收有竞争窗口；存储不做 `fork`，由内核建新会话再追加；`commandAccepted` 排在受理批最后，它的 seq 就是批末的 seq。
+- 待开发者定：`flock.ts` 现在 nb-story 与 nb-harness 各一份（同一件事写两份）。候选：迁移 Task 里让 nb-story 改用 nb-harness 导出的锁（nb-story 已依赖 nb-harness），或另建一个小的共享包；推荐前者。
+- 第 3 片完成：按决定 14 删去 `assistant.text`、打开时按块流式读（2 万条、每条 5,000 字：文件 65→35 MB，打开后常驻 166→56 MB，打开 160→105 ms）；装配的全部检查（拒绝的与只留诊断的）、反应与写入批（并发、按装配序写、整批丢弃、深度上限、时限、运行中止）、`continue`、`mount` 与外部事实（空闲立刻写、运行中到边界）、清理、`reminder()`、`opening()`、扩展事件的版本。Profile 哈希定为不算源码哈希、改了要升 `version`（`extensions.md` 输出 28）。2 万条经完整的 `openSession` 打开 128–169 ms、堆上活数据 22–36 MB、常驻增量 52–72 MB，在预算内（[`evidences/slice2-measure.txt`](evidences/slice2-measure.txt) 第四节）。
+- 实现中订正的：`emit` 统一为 `emit(名字, 数据?, {key?})`（没有数据的事件要幂等键时第二个参数写 `undefined`，避免运行时分不清第一个参数是数据还是选项）；`run` 的循环在回复的反应被中止时以 `aborted` 收口，不再提交成 `completed`。
+- 第 4 片完成：新建 [`harness/profile.md`](../../../../../docs/specs/harness/profile.md)（视图：模板、轮的渲染、提交与槽）。模板节点放错位置（`template-invalid`）或 `<Turn />` 不是恰好一个（`turn-node-count`）时请求算不出来、按 `profile-failed` 收口；`<Tag>` 属性转义；`render` 抛错用缺省文字；已提交的轮每轮只渲染一次（按轮对象缓存，回退与切分支照样命中，装配结果换了整份作废），`commit` 抛错或交回不成对的消息改用缺省提交；请求发出前校验工具调用与结果成对（`request-invalid`）；槽的四种诊断（没摆、会变的放进系统块、撞名、`contribute` 抛错）；开发模式下的前缀稳定与提交一致检查；`outline` 移进 `view/`；`finalOnly`、`withoutEvents`。2 万条算一次请求冷 38–42 ms、热 23–30 ms，在 50 ms 预算内，大头是请求哈希（[`evidences/slice2-measure.txt`](evidences/slice2-measure.txt) 第五节）。
+- 第 4 片实现审查（omp，开发者 2026-10-31 要求没把握的切片当场审）：9 条，8 条成立已改（Work 分支 `0b7a71e58`），1 条不成立；第 1 条（缺省提交借用读视图的 `turn`，重开后提交会变）开发者 2026-10-31 按推荐定：`turn` 改为纯函数 `(turn, format)`（Work 分支已改，typetest 第 39 条）。见 [`evidences/slice4-impl-review.txt`](evidences/slice4-impl-review.txt)。
+- 第 4 片定下的：开发检查跟现有的开发模式开关（`NODE_ENV` 不是 `production`）走，不另加 `SessionEnv` 字段；没写 `commit` 时用 Profile 的 `turn` 提交（视图取第一次需要它的那次请求的），`turn` 依赖视图而提交结果变了由 `commit-differs` 提示。
+- 第 5 片完成（`runtime.md` 输出 15–27、场景 3、4）：生效工具集（宿主给的声明加 `yield`，不合规则的丢掉并诊断）、必需工具缺失收口并只读、`toolsAnnounced` 比对与 `notice{tools-changed}`；一条回复的调用按 `concurrency` 切段并发、`toolStarted` 记审批后的参数、结果按调用顺序一个批；通用 `runChain`（按段计时、失败策略、迟到的 `next` 拒绝）接上输入、模型、工具三条链（压缩链第 8 片接）；模型链每次真正发出写一条 `modelStarted`、`modifiedBy`、被拦下的回复不写；工具链的 `blocked`、`raw`/`rawHash`；输入拦截在受理时跑、拒绝不写日志、脱敏只记哈希（会话目录全文搜不到原文）；中止的宽限期 2 秒；收尾工具与 `yield`（`optional` 以文字作结果，`required` 催一次后 `result-missing`）。审批 `ask` 暂按拒绝（`approval-unavailable`），第 7 片接等用户。顺手修了测试时钟：取消已到期的计时器会误删别的计时器。
+- 第 5 片订正的定稿类型（提案决策记录已追加）：输入拦截的返回值改为 `void | {reject} | {redacted: true}`；新增内核对话事件 `notice`。第 5 片实现审查（omp）：有效 6 条（阻断 1：脱敏结果的 `details` 进日志），全部成立已改（Work 分支 `4cec62740`），见 [`evidences/slice5-impl-review.txt`](evidences/slice5-impl-review.txt)。
+
+- 第 6 片前半（`runtime.md` 输出 28–34、场景 5）：steer 在边界全部取走、最终回复时还有 steer 就接着请求；`edit`、`remove`；中止缺省清空缓冲区；`changeSettings`（整体校验，受理时就写，计划已订正）；`setTitle`、`archive`；恢复时结算没有结果的工具调用；两个 `kill -9` 子进程场景（工具执行中、受理后循环前）。后半完成（`runtime.md` 输出 35–38）：回退目标与 `rewind`（含 `resend`）、落在运行中途时运行暂停、`start`/`send` 接着跑（重试与 swipe，分叉点在模型请求上；运行结果按最后写下的 `runEnded` 所在路径算）、`switchBranch` 与 `siblings`、`fork`（带 Profile 与设置）、`changeProfile`（重新归约、重新渲染、重开沿用新 Profile）。第 6 片实现审查（omp）：10 条（阻断 2：换 Profile 先改内存后落盘、fork 写失败重发多建会话），全部成立已改，见 [`evidences/slice6-impl-review.txt`](evidences/slice6-impl-review.txt)。
+
+- 第 7 片完成（`runtime.md` 输出 39–45、场景 6）：审批判定 `ask` 时停下等 `resolve`（`allow-session` 写批准记忆，回退与重开后仍在）；工具的同步与异步提问（异步的回答作为输入进缓冲区）；`resolve` 的裁决、发出者与权限；同批多事项任意顺序应答；中止写 `aborted`、重启写 `interrupted`、异步提问不结算；子进程在等审批时被 `kill -9` 的场景。实现中发现并修了中止与应答的竞态（同一事项会结算两次）：`resolve` 认领等待者，中止时同步摘掉。第 7 片实现审查（omp）：3 条（重要 1：fork 丢了 `caller`，复制过去的提问父会话答不了），2 条已改（Work 分支 `eb2e24943`），1 条（等待加超时）不改：`bun test` 的单条时限已让挂住判失败、子进程在 `finally` 里收口。见 [`evidences/slice7-impl-review.txt`](evidences/slice7-impl-review.txt)。
+
+- 第 8 片完成（`runtime.md` 输出 46–52）：估算（缓存读写算进用量）与缺省触发点、方法按 Profile 的顺序经压缩拦截链依次调用、结果校验、压缩事件与放回的内容同批、`core.history` 按切点与摘要归约、省略的条目渲染成占位、溢出时压缩后重发一次、中止不写压缩事件、`compact` 指令（空闲开只压缩的运行，运行中到下一个边界）。补定的类型与两处取舍记进 [待确认清单](../../pending-confirmations.md)。2026-10-31 起按开发者要求用 autonomous-delivery 推进剩余切片。
+
+- 第 9 片完成（`runtime.md` 输出 53–57）：关闭顺序与关闭后迟到的写入、出站过滤（帧与日志查询）、进程收尾按 `interrupted` 收口（`onProcessInterrupt` 搬进新内核）、`complete()`、预览下一次请求、插件宿主 `createAgentHost` 与运行中撤回（跳过、空闲时重新装配、失败进只读）。真实模型（DeepSeek）4 条通过：一轮与重开、工具调用、流式中途中止、回退重发。第 8 片实现审查（omp）：12 条（阻断 1：不响应中止的压缩方法会卡住中止与关闭），全部成立已改（Work 分支 `71f72b044`，Spec 订正 runtime 输出 34、46、47、51、52 与 extensions 输出 17），见 [`evidences/slice8-impl-review.txt`](evidences/slice8-impl-review.txt)。
+
+- 第 10 片（nb-story 验收门）通过：用新内核写 `story.qa` 与 `answer` 收尾，五个场景全部通过（[`evidences/slice10-gate.txt`](evidences/slice10-gate.txt)）。门发现一个内核缺口：出站过滤原是同步的，nb-story 的防剧透要查书库；先回写 Spec 与计划，改为可以异步（Work 分支 `0952de6d8`）。另记一条迁移注意：宿主的防剧透要覆盖 `toolStarted` 的参数。
+
 ## 下一步
 
-实施时排在本 Work 最前（开发者 2026-10-29）。按 implementation-planning 写 `plan.md`：spike 按第五稿实现（写入批、位置章、缓冲区与指令、对话形状与提交、压缩切点、`mount`、helper、测试工具的严格模式），补场景并按提案第 19 节的六项测性能；实现要再做一次审查（深入审查，开审前报计划与预算）。提案接受（frontmatter 改 `accepted`、写 ADR 与 Spec）随计划一起交开发者。介绍页（`intro` v3）已过时，随实现更新。
+- 第 11 片完成（提案第 19 节六项，[`evidences/slice11-measure.txt`](evidences/slice11-measure.txt)）：2 万条打开 150–240 ms、常驻增量约 60 MB；请求哈希改成逐条消息摘要合成（Work 分支 `c1966c3ee`），热请求从约 40 ms 降到约 15 ms；打开后第一次请求约 75 ms（第二轮含工具轮的样本约 96 ms），超过 50 ms，按打开的一次性代价判定，记进 [待确认清单](../../pending-confirmations.md)。10 万条打开约 0.7 秒、热请求 60 ms（只报数）。第 9–11 片实现审查（omp）：16 条（重要 14、建议 2）全部成立已改，另修了父提交就有的两个关闭竞态（Work 分支 `7ec9baa42`；Spec 订正 runtime 输出 53、54、55、57 与 extensions 输出 27；`log()` 的 `through` 与预览 `RequestPath` 两处补定类型记进待确认清单），见 [`evidences/slice9-11-impl-review.txt`](evidences/slice9-11-impl-review.txt)。性能样本按审查补了工具轮与恢复，第二轮测量结论不变。
+
+- 收口（2026-10-31）：全部 11 片完成。nb-harness 全量 293 通过、6 跳过；nb-story 验收门 4 条通过；`test:llm`（DeepSeek）6 条通过；`test:affected`（分支改过依赖锁，跑了全量）只有 nb-ui 的 `NB_UI_VERSION`（0.2.0）与 package.json（0.3.0）不一致这一条失败，master 上同样失败，与本 Task 无关。各片的变异检查汇总在 [`evidences/mutation-checks.txt`](evidences/mutation-checks.txt)。
+
+- 实现的深入审查（开发者 2026-10-31 批准计划与预算，对象 `7ec9baa42`）：omp（gpt-6.1-sol，跨切片不变量、崩溃恢复、功能叠加、生命周期）11 条（阻断 3、重要 8）；Claude Opus（照公开 API 写三个扩展并试迁移 nb-story 的问答）20 条（重要 8、建议 12）；Claude Sonnet（出站帧与日志分页对照 nb-agent-ui 适配器）17 条（重要 12、建议 5）。omp 的全部改了；Opus 的改了 16 条，4 条不改并写明理由；Sonnet 的整条改了 7 条，5 条改了一部分，5 条整条留给 t17（留下的部分已记进 [t17](../t17-conversation-ui/README.md)）。修正在 Work 分支 `4fdd77d22..77cfb5422`（20 个提交），Spec 同步改了 `runtime.md`、`session.md`、`extensions.md`；新增的类型与 Profile 工具的语义记进 [待确认清单](../../pending-confirmations.md)。处置与验证见 [`evidences/deep-review-disposition.md`](evidences/deep-review-disposition.md)。nb-harness 全量 309 条通过、6 条跳过，nb-story 验收门 4 条通过，`test:llm`（DeepSeek）6 条通过；重新测了性能，没有回归。
+
+下一步：t20 完成，等开发者看待确认清单与是否合入。介绍页（`intro` v3）已过时，随实现更新。

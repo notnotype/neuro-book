@@ -24,8 +24,10 @@ import type {CliIo} from "../cli/main";
 import {createServeAuth} from "./auth";
 import {createHandler} from "./http";
 import {acquireServeLock, registeredUrl, type ServeLock} from "./registry";
+import {checkWebFreshness} from "./web-stamp";
 
-export const WEB_ROOT = join(import.meta.dir, "..", "..", "dist", "web");
+const PACKAGE_ROOT = join(import.meta.dir, "..", "..");
+export const WEB_ROOT = join(PACKAGE_ROOT, "dist", "web");
 
 export interface ServeOptions {
     library: string | undefined;
@@ -42,6 +44,26 @@ function openInBrowser(url: string): void {
         Bun.spawn(command, {stdout: "ignore", stderr: "ignore"}).unref();
     } catch (error) {
         console.error({error}, "打开浏览器失败");
+    }
+}
+
+/**
+ * 从源码运行时网页包比源码旧，就在标准错误提示（issue 267）。判据是 `src/web/index.html` 在不在：npm 发的包不带 `src/web`
+ * （package.json 的 files），网页包是发布前在干净的构建里打的，不用查。检查本身出错只提示一句，不挡启动。
+ */
+async function warnIfWebBundleStale(io: CliIo): Promise<void> {
+    if (!(await Bun.file(join(PACKAGE_ROOT, "src", "web", "index.html")).exists())) return;
+    const rebuild = `先在 ${PACKAGE_ROOT} 下运行 bun run build:web 重打`;
+    try {
+        const result = await checkWebFreshness(WEB_ROOT, PACKAGE_ROOT);
+        if (result.state === "stale") {
+            const list = result.changed.slice(0, 3).join("、");
+            io.stderr(`网页包比源码旧（打于 ${result.builtAt.slice(0, 16).replace("T", " ")} UTC，之后有 ${result.changed.length} 个源文件改过：${list}${result.changed.length > 3 ? " 等" : ""}），${rebuild}。`);
+        } else if (result.state === "no-stamp") {
+            io.stderr(`网页包没有构建记录（早先版本打的），不能确认它是不是比源码旧，${rebuild}。`);
+        }
+    } catch (error) {
+        io.stderr(`没能检查网页包是否比源码旧：${error instanceof Error ? error.message : String(error)}`);
     }
 }
 
@@ -129,6 +151,7 @@ export async function serveCommand(options: ServeOptions, io: CliIo): Promise<nu
         return fail("serve_failed", `写服务登记失败：${error instanceof Error ? error.message : String(error)}`);
     }
 
+    await warnIfWebBundleStale(io);
     const login = `${url}/login?token=${auth.token}`;
     if (options.json) io.stdout(JSON.stringify({ok: true, data: {login, url}}));
     else io.stdout(`剧情图谱查看器已启动：${login}`);

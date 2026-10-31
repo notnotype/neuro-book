@@ -16,7 +16,7 @@
 
 import type {MessageView} from "@notnotype/nb-agent-ui";
 
-import type {QaRecordView, QaRunView, ViewerResult} from "../../contract/contract";
+import {QA_FIRST_TURN_RUNNING, QA_FIRST_TURN_UNSAVED, type QaRecordView, type QaRunView, type ViewerResult} from "../../contract/contract";
 import {StoryCallError, type StoryClient, type SubscriptionEnd} from "../host/client";
 import {messagesFromRecord} from "./record-messages";
 import {createTurnTranscripts, type TurnTranscripts} from "./turn-transcripts";
@@ -72,6 +72,16 @@ function turnStarts(record: QaRecordView | null, run: QaRunView | null): number[
     }
     if (run !== null && !starts.includes(run.logFrom)) starts.push(run.logFrom);
     return starts.sort((a, b) => a - b);
+}
+
+/**
+ * 看着运行结束时的 `continuable`。首轮运行中读到的是“第一轮还在运行”，而重读（`qa.get`，要带上剧透过滤）回来之前页面
+ * 还会画这句，与实际相反（issue 269），所以结束帧一到就按结果换掉：保存了就能续问，没保存换成没保存的原因。
+ * 已有记录的对话运行中本来就能续问，不动。
+ */
+function continuableAfterEnd(state: QaSourceState, ended: QaRunView): QaSourceState["continuable"] {
+    if (state.continuable.ok || state.continuable.reason !== QA_FIRST_TURN_RUNNING) return state.continuable;
+    return ended.saved?.ok === true ? {ok: true} : {ok: false, reason: QA_FIRST_TURN_UNSAVED};
 }
 
 const LOADING: QaSourceState = {phase: "loading", error: null, record: null, run: null, continuable: {ok: false, reason: ""}, logProblem: null, detached: false, messages: []};
@@ -197,7 +207,7 @@ export function createQaSource(options: QaSourceOptions): QaSource {
                     case "ended":
                         sawEnd = true;
                         if (frame.run.saved?.ok === true) settling = frame.run.runId;
-                        state = {...state, run: frame.run};
+                        state = {...state, run: frame.run, continuable: continuableAfterEnd(state, frame.run)};
                         break;
                 }
                 changed();

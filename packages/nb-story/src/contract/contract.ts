@@ -21,6 +21,13 @@ function oneOf<const T extends readonly string[]>(values: T) {
     return Type.Union(values.map(value => Type.Literal(value))) as unknown as ReturnType<typeof Type.Union<{-readonly [K in keyof T]: ReturnType<typeof Type.Literal<T[K]>>}>>;
 }
 
+/**
+ * 首轮还没有记录时，`qa.get` 的 `continuable` 给的两种原因。服务端读到“记录不存在”时按运行状态给；网页数据源在看着首轮结束时
+ * 自己换成其中一种（不等重读），所以两边共用这两句。
+ */
+export const QA_FIRST_TURN_RUNNING = "第一轮还在运行";
+export const QA_FIRST_TURN_UNSAVED = "第一轮没有保存，不能续问";
+
 // ---- 公共形状 ----
 
 export const PositionInputSchema = Type.Object({chapter: Type.Integer(), paragraph: Type.Optional(Type.Integer())}, strict);

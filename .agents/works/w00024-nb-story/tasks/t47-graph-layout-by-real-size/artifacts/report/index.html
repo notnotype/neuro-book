@@ -1,0 +1,15 @@
+<!doctype html><meta charset="utf-8"><title>t47 关系图排版：现状与新排版对照</title>
+<style>body{font:14px/1.6 system-ui,sans-serif;max-width:1500px;margin:24px auto;padding:0 16px;color:#222}h2{margin-top:32px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}.pair figure{margin:0}.pair img{width:100%;border:1px solid #ddd}figcaption{font-weight:600;margin:4px 0}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 10px;text-align:right}th:first-child,td:first-child{text-align:left}</style>
+<h1>关系图排版：按真实画布与名字的尺寸算（w00024 t47）</h1>
+<p>同一份数据（第二版《西游记》，读者视角，人物与组织，默认“力导向”），同一个浏览器窗口，左边是现在 master 的画面，右边是新排版。点的画法、线的粗细、颜色都没动。</p>
+<h2>度量（在 Bun 里按 Sigma 的取景算出屏幕上的像素；画布 1411×745，四周留边 90）</h2>
+<table><tr><th>章</th><th>点数</th><th>现在：图占画布</th><th>现在：名字框重叠（对）</th><th>新：图占画布</th><th>新：出名字的点</th><th>新：名字框重叠（对）</th></tr>
+<tr><td>第 10 回</td><td>78</td><td>30%</td><td>38</td><td>65%</td><td>78</td><td>0</td></tr>
+<tr><td>第 26 回</td><td>137</td><td>27%</td><td>164</td><td>64%</td><td>133</td><td>0</td></tr>
+<tr><td>第 57 回</td><td>225</td><td>29%</td><td>463</td><td>65%</td><td>137</td><td>0</td></tr>
+<tr><td>第 100 回</td><td>343</td><td>27%</td><td>2101</td><td>59%</td><td>135</td><td>65</td></tr></table>
+<p>1280×720 的小窗口里第 26 回名字框重叠 366 对降到 0，第 57 回 1094 对降到 63；手机宽度画布太窄（四周各留 90 像素），名字仍然叠，这次没处理。</p>
+<h2>第 10 回（1600×900 窗口）</h2><div class="pair"><figure><figcaption>现在</figcaption><img src="old-desktop-ch10.webp"></figure><figure><figcaption>新排版</figcaption><img src="new-desktop-ch10.webp"></figure></div>
+<h2>第 26 回</h2><div class="pair"><figure><figcaption>现在</figcaption><img src="old-desktop-ch26.webp"></figure><figure><figcaption>新排版</figcaption><img src="new-desktop-ch26.webp"></figure></div>
+<h2>第 57 回（225 个点：新排版只对主要的 137 个强制出名字，其余的悬停、放大时出）</h2><div class="pair"><figure><figcaption>现在</figcaption><img src="old-desktop-ch57.webp"></figure><figure><figcaption>新排版</figcaption><img src="new-desktop-ch57.webp"></figure></div>
+<h2>第 57 回（1280×720 窗口）</h2><div class="pair"><figure><figcaption>现在</figcaption><img src="old-laptop-ch57.webp"></figure><figure><figcaption>新排版</figcaption><img src="new-laptop-ch57.webp"></figure></div>

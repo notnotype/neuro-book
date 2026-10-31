@@ -67,7 +67,7 @@ type QaConfig = {
         models: {
             id: string;
             name?: string;
-            contextWindow?: number;  // 没写的上下文、最大输出、推理与图片，运行时按模型名从 OMP 目录补；最大输出目录里也查不到时取 32768（OpenAI 系请求发出前夹到 64000），不是不发上限
+            contextWindow?: number;  // 没写的上下文、最大输出、推理与图片，运行时按模型名从 OMP 目录补；最大输出目录里也查不到时取 32768（OpenAI 系请求发往远端时夹到 64000；本机回环地址的端点按模型写的上限，OMP 18.14 起），不是不发上限
             maxTokens?: number;
             reasoning?: boolean;
             images?: boolean;

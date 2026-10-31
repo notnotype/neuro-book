@@ -1,0 +1,155 @@
+第 8 片（压缩）实现审查：omp 默认模型，审查提交 1b1ad5db2，2026-10-31。报告原文在下，末尾是主会话的处理。
+
+# w00032 t20 第 8 片实现审查
+
+审查对象：`eb2e24943..1b1ad5db2`，固定 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-review-s8`。只读；实验全部位于本报告同级 `lab/`，通过 worktree 源码与 node_modules 运行。依据为主工作区 Spec、提案、t11 决定、t20 计划及题述三条待追认决定；不重新讨论这些决定是否获准。
+
+### 1. 阻断 / 正确性：不合作的压缩方法或 restore 能永久卡住中止和关闭
+
+- **位置**：`packages/nb-harness/src/kernel/compaction/compact.ts:145`、`:157`、`:186`；`run/loop.ts:149`、`:193`、`:239`；`run/control.ts:119`；`session/session.ts:382`（均在上述 worktree）。
+- **现象**：`compact` 直接等待整个 `runChain` 与 `restore`；`runChain` 本身明确不与运行中止赛跑，且最内层方法不受拦截层超时约束。方法不响应 `job.signal`，或 `restore` 的 I/O 不返回时，`abort`、`waitRun` 和 `closeSession` 都不能结束。`restore` 的接口甚至没有中止信号。
+- **为什么是问题**：runtime 输出 51 要求压缩中能中止并以 `aborted` 收口；提案第 9 节要求内核接管不合作的 Promise。这是用户停止和会话释放锁的路径，不只是一个慢方法。正常模型请求在 `run/loop.ts:219` 有中止赛跑，新增压缩调用遗漏了同样的保障。
+- **如何核实**：在 worktree 根运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice8-impl-review/lab/runtime-probes.ts abortMethod`，以及同命令末参改成 `abortRestore`。均经 `createTestSession`：真实第二轮触发压缩，方法或 restore 进入可控 Promise 后调用公开 `abort`，注入时钟推进 **60,000 ms**，仍为 `status.state: "aborting"`、`abortSettled: false`、0 条压缩事件。手工放开 Promise 后才完成 `aborted`。没有固定等待、没有 mock/spy，实验最后释放并关闭会话。
+- **建议改法**：在运行宿主的压缩调用外与本次运行中止赛跑，收口后通过现有 `guardedWrite` 拒绝迟到写入；压缩方法模型请求也要在这个生命周期内收口。为 restore 传递信号，并使不合作的 restore 不再阻塞收口。补方法、拦截器、压缩模型、restore 各阶段不合作时的公开会话测试。
+
+### 2. 重要 / 正确性：算不出压缩前请求时静默换成空请求，仍允许提交压缩
+
+- **位置**：`packages/nb-harness/src/kernel/compaction/compact.ts:135`、`:136`、`:144`。
+- **现象**：`computeRequest` 返回 `profile-failed` 或 `request-invalid` 时，公共流程既不处理错误，也不报告 `computed.problems`，而是构造空 `system/messages/tools` 继续调用方法。方法可以基于空上下文生成摘要并写下压缩事件，结果被报为 `completed`；被切掉的历史无法由该摘要恢复。
+- **为什么是问题**：runtime 输出 47 保证方法拿到“压缩前的请求”；输出 10 要求 Profile 入口失败有 `extensionFailed` 与明确收口。空请求是伪造成功前提。视图已经明确报告失败，公共流程仍执行有损状态转换，违反了两条合同。
+- **如何核实**：worktree 根运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice8-impl-review/lab/runtime-probes.ts empty`。经 `createTestSession` 先成功写对话，再让 Profile 的 system 在只压缩运行期间抛错，使用本片提供的 `summarizingCompaction`。实测 `methodInput: [[]]`，实际摘要请求仅含 `[["user","写摘要。"]]`，运行返回 `completed`，日志 **0 条 `extensionFailed`**，下一次请求出现该无历史依据的摘要。切点仍是原对话的合法切点，因此结果校验挡不住。
+- **建议改法**：压缩前请求失败就停止本次压缩；复用普通请求的诊断与 Profile 失败事件处理，不合成空请求。阈值/溢出路径按各自已定失败策略继续或收口；手动压缩返回可追查的失败。
+
+### 3. 重要 / 正确性：结果校验会抛异常或接纳非数值 token，绕过“结果不合格换下一个”
+
+- **位置**：`packages/nb-harness/src/kernel/compaction/compact.ts:116`、`:119`、`:123`、`:165`、`:172`、`:176`。
+- **现象**：方法最内层输出未经形状校验就执行 `"failed" in result` 与 `for...of result.omitted`。缺少 omitted 的结果使整个运行以 `internal` 失败，排在后面的有效方法根本没有调用。`tokensAfter` 只用 `>= 0` 判断，`Infinity` 和字符串 `"99999"` 都被当成合格结果，前者 JSON 落盘后变成 `null`，后者原样存成字符串。
+- **为什么是问题**：runtime 输出 47 要求结果不合格诊断 `compaction-invalid` 并换下一个，且 token 必须为非负数。此处是公开 JavaScript/插件方法的边界，不能依赖 TypeScript 声明替代运行时检查。非数值进入 `estimateContext` 后还会改变加法/阈值语义；无限值在现场状态与重开归约之间不一致。
+- **如何核实**：worktree 根运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice8-impl-review/lab/runtime-probes.ts invalid`。3 个真会话分别注入缺 omitted、Infinity、数字字符串，方法顺序都为 bad → good。实测均只执行 **1 个 bad**：缺字段得到 `error.code: "internal"`；后两种为 `completed`，日志里 tokensAfter 分别是 **null** 与 **"99999"**，均 **0 条 `compaction-invalid`**。
+- **建议改法**：对方法与拦截器的输出在同一个边界完整校验，校验过程本身不抛到循环；检查对象、结果判别、method/切点/replacement、omitted 数组及元素、有限非负数、details 的 JSON 可表示性。校验失败统一诊断并尝试下一方法。
+
+### 4. 重要 / 不变量：运行中受理的 compact 要求泄漏到下一次无关运行
+
+- **位置**：`packages/nb-harness/src/kernel/run/control.ts:34`、`:90`、`:99`、`:104`；`run/loop.ts:190`、`:309`；`session/session.ts:184`。
+- **现象**：待压缩要求只有会话级 `string[][]`，没有 runId/分支归属，只在下一次普通循环边界 splice。当前请求最终回复直接结束、被中止，或只压缩运行在进行时受理另一个 compact，都可能在结束时留下要求。下一次新运行会把这些旧要求以 `manual` 执行。
+- **为什么是问题**：runtime 输出 52 写的是“这次运行的下一个边界”。接受“进程中断丢失要求”的取舍，不等于允许把要求移交另一运行/分支。用户取消或已完成的任务会改变下一任务的摘要范围；暂停后换分支、changeProfile 也没有清理/归属机制。
+- **如何核实**：worktree 根运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice8-impl-review/lab/runtime-probes.ts leaked`。经 `createTestSession` 在第二轮模型拦截期间受理 `compact("只适用于第二轮的要求")`，放行最终回复。第二轮已 `completed`、方法执行 **0 次**；第三次独立 `say` 开始后，方法执行 **1 次 manual**，require 仍是第二轮要求，输入已包含第三问。
+- **建议改法**：要求归属于运行及其路径；受理成功后的 written 阶段才登记内存请求，运行结束/中止时明确完成或丢弃，切换到其他分支时不能被其他运行消费。为普通终结、abort、只压缩运行、暂停后换分支和 changeProfile 补公开会话场景。
+
+### 5. 重要 / 正确性：模型设置的 compactAt 被忽略，用户无法调整触发点
+
+- **位置**：`packages/nb-harness/src/kernel/compaction/compact.ts:30`；公开合同 `api/model.ts:115`。
+- **现象**：`triggerPoint` 始终用窗口减预留量，完全没有读取 `ModelInfo.compactAt`。宿主已经把按模型的配置解析成 token 触发点，内核仍只采用缺省值。
+- **为什么是问题**：t11 决定 1 要求全局及按模型覆盖触发点；计划 3.8 写明触发点来自 `SessionEnv.models`；公开类型明确 `compactAt` 是自动压缩触发点。当前只有缺省路径可用，提前压缩或推迟压缩的配置均无效。
+- **如何核实**：worktree 根运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice8-impl-review/lab/model-probes.ts compactAt`。使用真实 `createSession`，ModelPort 返回窗口 **100,000**、compactAt **100**，第一轮用量 **505**；第二轮前方法执行 **0 次**、压缩事件 **0 条**。代码只采用缺省 **83,616**。
+- **建议改法**：明确 `compactAt` 与窗口未知时的优先级，优先采用模型端口给出的有效触发点，未配置才算缺省值。用相同窗口、不同触发点验证真实边界行为。
+
+### 6. 重要 / 正确性：忽略 usage.totalTokens，违反计划的估算优先级
+
+- **位置**：`packages/nb-harness/src/kernel/compaction/compact.ts:27`、`:50`。
+- **现象**：最后一条回复的基数只相加四个分项，完全不读已经保存在日志里的 `totalTokens`。服务商报告总数而分项缺失/不完整时，估算退回小分项，压缩不会按总量触发。
+- **为什么是问题**：计划 3.8 明确“totalTokens 有值时用它”；`Usage` 与适配器均保留这个字段。实现遗漏了已经提供的数据，不能用 UTF-8 估算取舍解释。主工作区 runtime 输出 46 只写分项，没有同步计划的优先级，也是需要统一的合同缺口。
+- **如何核实**：worktree 根运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice8-impl-review/lab/runtime-probes.ts totalTokens`。经 `createTestSession`：首答日志有 totalTokens **90,000**、分项合计 **15**，模型缺省触发点 **83,616**；第二轮前方法执行 **0 次**、压缩事件 **0 条**。
+- **建议改法**：按计划优先采用有限非负的 totalTokens，缺失才相加分项，并把这条优先级同步到 runtime 输出 46。
+
+### 7. 重要 / 正确性：tokensKept 与 job.tokens 持续计入已省略的原文，二次压缩按错误尺寸选切点
+
+- **位置**：`packages/nb-harness/src/kernel/compaction/compact.ts:26`、`:70`、`:72`、`:81`。
+- **现象**：`compactionCuts` 对原始 `event.data` 做 JSON 估算，没有应用 `history.omitted`。一次 shake 已把大段文字换成占位后，方法的 request 是短占位，cuts.tokensKept 与 job.tokens 仍按大段原文计算。二次压缩无法按这些数字保留最近 20,000 token；会把实际上已很小的轮当成大轮切掉。
+- **为什么是问题**：新增 `CompactionCut.tokensKept` 的合同就是“从这里切、保留它及其后的内容时，估算保留的 token”，不是原始审计数据的体积。UTF-8 每 3 字节一 token 的取舍不允许对已经不在请求里的原文计数。
+- **如何核实**：worktree 根运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice8-impl-review/lab/runtime-probes.ts omittedRepeat`。真实会话输入 **90,000** 个汉字，首轮阈值压缩将其换成“已省略”。后续两次只压缩运行的方法输入合计仅 **4** 个文字字符，job.tokens 与唯一轮切点 tokensKept 仍同时为 **90,079**。原输入压缩前是 **90,012**，省略后估算反而增大。
+- **建议改法**：对已省略的事件按占位估算；保留工具调用参数和实际保留的内容块。切点估算与提供给方法的对话投影共用同一条来源规则，避免两份尺寸事实。
+
+### 8. 重要 / 正确性：只压缩运行仍强依赖 turn 模型，独立压缩角色可用也不能运行
+
+- **位置**：`packages/nb-harness/src/kernel/run/loop.ts:145`、`:146`；`session/session.ts:182`。
+- **现象**：手动 compact 受理时已经确认 compaction 模型可用，运行刚开始却又解析 turn 模型；turn 未配置/凭据不可用时，在压缩方法执行之前以 no-model/no-credentials 结束。连不调用模型的 shake 方法都无法执行。
+- **为什么是问题**：t11 决定 2、3 把摘要模型设为独立压缩角色；runtime 输出 52 对 compact 的模型前置条件只有压缩模型。这一无关依赖让用户在对话模型不可用时无法先压缩历史，受理检查与实际执行的要求也不一致。
+- **如何核实**：worktree 根运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice8-impl-review/lab/model-probes.ts onlyCompaction`。真实会话先成功对话，再使 ModelPort 的 turn 解析返回 no-model、compaction 保持成功。compact 返回 **ok/scheduled: now/runId**，随后 waitRun 得 **error.code: no-model**，可用的压缩方法执行 **0 次**。
+- **建议改法**：只压缩运行用已检查的压缩模型解析构造运行环境；确实需要原对话模型的方法（inplace）自己判失败并交给下一方法，不把它变成全部方法的公共前置条件。
+
+### 9. 重要 / 不变量：压缩删掉 continued 记录后，同一轮的 continue 上限被重置
+
+- **位置**：`packages/nb-harness/src/kernel/state/history.ts:103`、`:112`；`extension/ctx.ts:156`；`run/loop.ts:84`、`:290`。
+- **现象**：`ctx.continue` 的次数判定和日志 count 都从 `history.current.steps[].after` 数 continued。压缩将早期步切走时，同一轮早已消耗的次数也一起消失；扩展继续返回 true，后续记录的 count 重新从 1 开始。
+- **为什么是问题**：extensions 输出 17 限制的是“这一轮这个扩展最多 max 次”，不随请求投影缩短而重置。原先的有限反应链在压缩启用后能反复请求模型，直到模型费用/上下文失败或用户中止。此耦合是新增 compaction 归约使既有上限失效。
+- **如何核实**：worktree 根运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice8-impl-review/lab/runtime-probes.ts continueLimit`。真实 `createTestSession`，扩展对每条 assistant 调 `ctx.continue(..., {max: 1})`，每条回复的大用量触发切掉旧步。只有 **1 个 turnStarted**，4 次 continue 全部返回 **true**，写下 **4 条 count: 1** 与 **4 条 compaction**；最后不是按上限停止，而是第 5 个请求用尽实验脚本失败。
+- **建议改法**：次数归约为当前轮的独立运行事实计数，不从可压缩的对话投影反推；回退/切分支时跟随 path，压缩只改投影不改控制次数。日志 count 与上限判断共用该计数。
+
+### 10. 重要 / 测试：验收映射声称覆盖输出 46–52，但 6 个破坏合同的变异全部存活
+
+- **位置**：`packages/nb-harness/src/kernel/compaction/compaction.test.ts:44`、`:74`、`:90`、`:108`、`:129`、`:145`、`:168`、`:194`；主工作区计划第 6 节第 8 片映射。
+- **现象**：8 个压缩用例没有检查按步切割、null 切点、第二次压缩保留旧摘要、压缩拦截链、压缩模型请求经过模型拦截、切点 token 数的行为。测试名引用输出 46–52，并不能证明这些判据被测到。
+- **为什么是问题**：这些是本片核心合同与出口条件，相关代码即使整个删掉测试仍全绿；现有不合作中止用例又只覆盖主动监听 signal 的方法，漏掉第 1 条阻断问题。
+- **如何核实**：仅在本报告 lab 中用 `Bun.build` 的 onLoad 替换源码内存文本，打包原有测试；不写 worktree。6 个变异分别为：禁止 slice 早期步骤、null 切点不清步、replacement null 时丢旧摘要、压缩链 layers 设空、仅 compaction 的模型链 layers 设空、tokensKept 恒为 0。**6/6 均为 8 pass、0 fail、40 次断言**。负对照为取消工具结果占位、取消 resetOnCompaction：分别 **7 pass、1 fail**，证明变异确实作用于被测代码。可重跑命令：在 worktree 根运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice8-impl-review/lab/mutation-runner.ts`；每项完整输出保存在 lab 的 `mutation-<名字>.txt`。
+- **建议改法**：按用户可见的请求形状与运行结果补进现有输出 47、49、51 的行为用例，至少让这 6 个变异失败；用真实 createTestSession、注入时钟与可控 Promise，不测内部调用数。
+
+### 11. 重要 / 不变量：压缩模型请求崩溃后不写 modelFailed，中断请求永久不成对
+
+- **位置**：`packages/nb-harness/src/kernel/run/loop.ts:149`、`:193`、`:239`；`run/model-call.ts:105`；`state/kernel-state.ts:49`；`run/recover.ts:46`。
+- **现象**：新压缩方法通过 job.model 写 `modelStarted{purpose: "compaction"}`，但 path 的 openRequest 只跟踪 purpose turn。进程在压缩模型返回前退出时，重开恢复直接写 `runEnded{interrupted}`，该 modelStarted 没有 modelEnded/modelFailed 配对，也没有未知用量记录。
+- **为什么是问题**：计划 3.1 明确非对话请求的 modelStarted 与 modelEnded/modelFailed 成对；runtime 输出 34 要求恢复所有发出没回复的模型请求。这个恢复器在 base 就只跟踪 turn，但本片首次把 compaction 调用接入实际运行路径，新增运行不能用既有单槽状态完整收口。
+- **如何核实**：worktree 根运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice8-impl-review/lab/crash-parent.ts`。子进程经真实 createTestSession + JSONL，完成首轮后开始只压缩运行，在 request **2** 的 compaction modelStarted 已落盘并推出帧时同步停住；父进程 SIGKILL 并等待退出，再经 createTestSession(open) 真实重开。重开路径为 **runStarted compact → modelStarted request 2 compaction → runEnded interrupted**，**0 条 request 2 的 modelFailed/modelEnded**，快照已 idle。
+- **建议改法**：跟踪全部未结算模型请求（用途与 request id），恢复和中止按这份事实逐项收口，不用只认 turn 的单个 openRequest；补压缩模型进行中进程退出的恢复场景。审查严重程度基于上述真实 JSONL 进程实验，不基于手工伪造事件。
+
+### 12. 建议 / 安全与性能：每次请求边界为估算重新遍历并分配整条路径
+
+- **位置**：`packages/nb-harness/src/kernel/compaction/compact.ts:44`、`:47`；`dispatch/core.ts:142`；`run/loop.ts:191`。
+- **现象**：通常最近的 assistant 就在叶子附近，但 estimateContext 先用 pathTo 从叶子追到根、建立完整数组并 reverse，然后才从末尾找基数。每个普通模型请求边界都做，甚至 Profile 的 compaction 为 false 时仍先估算才进 compact 判 disabled。
+- **为什么是问题**：路径越长，单次固定边界成本与临时分配越大；已压缩掉的历史仍在日志路径里，所以压缩不能缩短这项开销。这是可省的扫描，不以整次请求超预算作为成立前提。
+- **如何核实**：worktree 根运行 `NODE_ENV=production bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice8-impl-review/lab/performance.ts`。先经真实 openSession + send 验证 **20,000** 条合成事件、**1,818** 轮、每答 **1,500** 字的路径，再在同一日志上拆测：estimateContext **1,000 次平均 1.587 ms/次**；当前 path **14,630** 节点，仅返回数组的引用空间就至少 **117,040 bytes/次**（未含数组扩容），1,000 次至少分配 **117 MB**。compactionCuts 单次 **21.108 ms**。真实入口 open **160.099 ms**，首个请求 **100.093 ms**，之后 11 次 **33.707–51.850 ms**；这些整次数字没有做父提交同负载对照，**不据此声称本片造成预算回归**。
+- **建议改法**：从叶子沿 parent 逆走，累计新增 conv，碰到最近 assistant/compaction 即停，直接返回基数加累计；不构造全路径数组。compaction 为 false 或窗口未知且无手动请求时，先跳过估算。多步切点的 tokensKept 也用一次后缀累加，避免每步 slice/reduce 的二次方计算。
+
+## 补充核实与影响次序
+
+- 第 2 条已加强为两轮历史：同一 `runtime-probes.ts empty` 命令实测首轮“必须保留的首轮历史输入/回复”完全不在压缩后请求中，留下空请求生成的摘要与第二轮原文；仍为 completed、0 条 extensionFailed。不是只出现了一段不准确摘要，实际已切掉未交给摘要模型的历史。
+- 第 4 条补测暂停分支：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice8-impl-review/lab/runtime-probes.ts pausedBranch`。暂停第二轮后 compact 被受理为 next-boundary，changeProfile 返回 changed: true，再回退离开该运行；新分支的第三问仍拿到“仅给暂停的第二轮”的要求。
+- 第 11 条的底层 openRequest 单槽限制在父提交已存在；本报告列为本片新增 compaction 路径的集成缺口，不声称此次改坏了恢复器，也不把早已存在的 approval 请求同类问题重复记为新回归。
+- 第 12 条的 117,040 bytes 是按每个事件引用 8 bytes 的结构推算，不是 GC 分配计数；耗时是实际测量。未做父提交性能对照，因此只提可省扫描建议。
+
+同为“重要”的问题按实际修复优先级阅读：**2（历史丢失）→ 9（继续上限失效）→ 11（恢复审计）→ 4（跨运行/分支要求）→ 3（异常结果）→ 5（触发配置）→ 7（占位估算）→ 8（模型耦合）→ 6（totalTokens）→ 10（测试缺口）**。阻断第 1 条在前，性能建议第 12 条最后。为保持只追加，已核实的条目编号不重排。
+
+## 未发现问题的方面
+
+仔细检查并运行下列场景后，这些方面没有发现问题；结论仅限列出的范围：
+
+- **轮/步基本归约与调用配对**：`boundary-probes.ts step` 经真实多步工具运行，切点保留当前输入、末一步 assistant 与同 id 的 toolResult，早期步骤和旧轮被移除；`boundary-probes.ts null` 留下摘要与当前输入，步骤全部去掉，运行 completed。format 对 assistant 做 omitted 时保留 toolCalls 的代码路径一致，没有发现“省略文字同时丢调用”的实现。
+- **二次压缩与不可用旧切点**：`runtime-probes.ts oldCut` 的第二次方法返回第一次已切掉的 turnStarted，合法 cuts 不再包含它；诊断 compaction-invalid 后调用 fallback；replacement null 保留旧摘要，下一请求形状正确。归约的旧切点未找到分支正常运行时被公共校验挡住。
+- **提交缓存与回退、切分支、重开和 changeProfile**：`runtime-probes.ts history` 和 `cacheBefore` 先省略，再切掉含 omitted 的轮，重开、换 Profile、回退到省略前/切轮前，再切回。实测回退请求恢复“原始首问”，切回请求为“省略首问”；未出现旧提交缓存污染或省略映射反向污染其他叶子。
+- **溢出重试复位**：既有输出 50 用例验证二次溢出收口；`runtime-probes.ts overflow` 在同一轮的两个不同工具步骤各溢出一次，2 次压缩后正常完成，说明一次成功回复后 overflowRetried 会复位。没有发现它变成“整次运行只允许一次”或无上限重发。
+- **方法与模型拦截接线**：`boundary-probes.ts interception` 实测用户要求与压缩拦截补的要求同时到方法；压缩模型拦截抛错时被跳过，extensionFailed(entry intercept.model) 与 modelEnded 同批写入，压缩仍成功。这里实现接线有效，问题在现有测试不能保护它（第 10 条）。
+- **合作中止**：既有输出 51 用例和 `boundary-probes.ts abortModel` 中，响应信号的压缩方法/压缩模型以 aborted 收口，不写 compaction；第 1 条专指不合作的 Promise。
+- **写失败与先落盘再推出**：`boundary-probes.ts writeFailure` 只让包含 compaction 的存储批返回 log-broken。waitRun 为 local/log-broken，快照 broken，compaction/notice 帧 **0**、路径 compaction **0**；关闭并重开后原历史仍在。没有看到压缩后的内存投影领先成功写入或半批放回内容泄漏。
+- **restore 抛错与开场重读**：`boundary-probes.ts restoreThrow` 的 restore 抛错留下 compaction-failed 诊断，压缩 completed；opening 实际加载 **2 次**，下一请求为“开场2”。没有发现静默 catch 或因此坏掉日志。restore 的失败是否应阻止有损压缩，现行合同未定，不额外列产品决定为缺陷。
+- **依赖方向与测试写法**：本片 run/ 没有反向导入 compaction/，由 session 接线；原测试不使用 mock、spy、假计时器或固定等待。architecture.test.ts 已随内核测试运行通过。
+
+## 实际验证与未运行项
+
+在 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-review-s8/packages/nb-harness`：
+
+- `bun test src/kernel`：**168 pass、0 fail、3,023 次断言、11 个文件、8.82 s**。
+- `bun run typecheck`：**退出码 0**，实际执行 `tsc --noEmit`（9.26 s）。
+- 本报告条目中的所有实验命令均已执行；真实运行时路径为 createTestSession/createSession/openSession，没有用直接归约结果替代复现。性能拆测在同一份已通过公开运行的日志上进行。
+- 变异为构建期内存替换，产物只在 lab；6 个存活、2 个负对照失败。初次尝试 Bun 测试预加载没有实际装上变异，未采用其结果；已改为 Bun.build onLoad 并由负对照验证。
+- 未运行 e2e、开发服务、真实 Provider/Model；未修改仓库文件，未 commit/push/stash/切换分支/删除文件，未安装依赖，未开子代理。
+
+## 数量
+
+有效发现 **12 条：阻断 1、重要 10、建议 1**。其中测试覆盖缺口 1 条，性能建议 1 条。所有问题逐条包含位置、现象、合同影响、可重跑实验与改法；第 11 条标明继承自 base 的底层限制，第 12 条不作未经对照的回归归因。
+
+有效发现编号：**1、2、3、4、5、6、7、8、9、10、11、12**。
+
+## 主会话的处理（修正在 Work 分支 71f72b044，Spec 订正在 master af668adc6）
+
+12 条全部成立，都已修改，并用变异检查确认新补的测试能抓到：
+1. 不合作的方法或 restore 卡住中止与关闭：压缩与中止赛跑，中止信号到达即收口，迟到的结果丢弃（compaction.test.ts“方法不响应中止”）。
+2. 算不出压缩前的请求：不再换成空请求，记 compaction-failed、本次不压缩。
+3. 结果校验：resultProblem 做完整的形状与数值校验，不合格换下一个方法，不再抛 internal。
+4. compact 要求泄漏：要求归属受理它的运行，取时按运行过滤、运行结束丢弃（两道互为兜底，保留）。
+5、6. compactAt 与 totalTokens：triggerPoint 优先 compactAt，估算优先 totalTokens（runtime.md 输出 46 订正）。
+7. 估算计入已省略的原文：省略的条目按占位估算。
+8. 只压缩的运行依赖 turn 模型：改用压缩模型的解析。
+9. 压缩后 continue 上限被重置：continue 次数改按路径事实计（PathKernelState.continued）。
+10. 6 个存活变异：逐个补用例，全部抓到。
+11. 压缩请求崩溃后不成对：openRequests 覆盖所有用途，恢复时逐个补 modelFailed（继承自 base 的限制一并修了）。
+12. 每个边界重建整条路径：estimateContext 从叶子沿父链走到最近基数即停。
