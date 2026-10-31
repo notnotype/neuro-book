@@ -326,15 +326,22 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
             const shared = byId.get(first.tool)!.concurrency === "shared";
             let end = index + 1;
             while (shared && end < runnable.length && byId.get(runnable[end]!.tool)!.concurrency === "shared") end += 1;
-            // 被中止而没开始的调用记 unknown；写日志失败这类错误照常往外抛。
-            const segment = runnable.slice(index, end).map((call) => ({call, running: runCall(call).catch((error: unknown) => {
-                if (error instanceof RunStoppedError) return unfinished(call);
-                throw error;
-            })}));
-            for (const {call, running} of segment) {
-                const settled = graceExpired ? null : await Promise.race([running, graceOver]);
-                if (settled !== null) {
-                    outcomes.set(call.id, settled);
+            // 被中止而没开始的调用记 unknown；写日志失败这类错误照常往外抛。每个调用记下自己完成时的结果：宽限期到了之后，
+            // 按各自是否已经完成判断，不按模型给的先后（排在前面的慢调用不能连累后面已经完成的）。
+            const segment = runnable.slice(index, end).map((call) => {
+                const entry: {call: ToolCall; done: CallOutcome | null; running: Promise<CallOutcome>} = {call, done: null, running: Promise.resolve(unfinished(call))};
+                entry.running = runCall(call).catch((error: unknown) => {
+                    if (error instanceof RunStoppedError) return unfinished(call);
+                    throw error;
+                }).then((outcome) => (entry.done = outcome));
+                return entry;
+            });
+            const waited = graceExpired ? null : await Promise.race([Promise.allSettled(segment.map((entry) => entry.running)), graceOver]);
+            const rejected = waited?.find((result) => result.status === "rejected");
+            if (rejected !== undefined) throw (rejected as PromiseRejectedResult).reason;
+            for (const {call, done, running} of segment) {
+                if (done !== null) {
+                    outcomes.set(call.id, done);
                     continue;
                 }
                 outcomes.set(call.id, unfinished(call));

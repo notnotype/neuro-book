@@ -45,9 +45,13 @@ export function isBlobRef(value: unknown): value is BlobRef {
     return typeof value === "object" && value !== null && !Array.isArray(value) && typeof (value as Record<string, unknown>)[BLOB_KEY] === "string";
 }
 
-/** 记录里引用的大块内容的哈希。 */
-export function blobRefsOf(value: unknown, into: Set<string> = new Set()): Set<string> {
-    if (isBlobRef(value)) into.add(value.$blob);
+/** 记录里引用的大块内容：哈希到各处引用里声明的字节数（打开时逐个与文件核对）。 */
+export function blobRefsOf(value: unknown, into: Map<string, Set<unknown>> = new Map()): Map<string, Set<unknown>> {
+    if (isBlobRef(value)) {
+        const sizes = into.get(value.$blob) ?? new Set<unknown>();
+        sizes.add((value as {size?: unknown}).size);
+        into.set(value.$blob, sizes);
+    }
     else if (Array.isArray(value)) for (const item of value) blobRefsOf(item, into);
     else if (value !== null && typeof value === "object") for (const child of Object.values(value)) blobRefsOf(child, into);
     return into;

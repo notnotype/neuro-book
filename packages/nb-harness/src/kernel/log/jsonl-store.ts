@@ -161,12 +161,13 @@ export function createJsonlStore(options: JsonlStoreOptions): LogStore {
         return reader.finish(position);
     }
 
-    async function readBlobs(directory: string, hashes: ReadonlySet<string>): Promise<{contents: Map<string, string>} | {problem: string}> {
+    async function readBlobs(directory: string, refs: ReadonlyMap<string, ReadonlySet<unknown>>): Promise<{contents: Map<string, string>} | {problem: string}> {
         const contents = new Map<string, string>();
-        for (const hash of hashes) {
+        for (const [hash, sizes] of refs) {
             const bytes = await files.read(join(directory, BLOBS, hash));
             if (bytes === null) return {problem: `blob ${hash} is missing`};
             if (sha256(bytes) !== hash) return {problem: `blob ${hash} does not match its hash`};
+            for (const size of sizes) if (size !== bytes.length) return {problem: `blob ${hash} has ${bytes.length} bytes but a reference says ${String(size)}`};
             contents.set(hash, new TextDecoder().decode(bytes));
         }
         return {contents};
@@ -179,7 +180,14 @@ export function createJsonlStore(options: JsonlStoreOptions): LogStore {
             let lock: FileLock | null = null;
             try {
                 await files.makeDirectories(options.root);
-                if (!(await files.makeDirectory(directory))) return fail("session-exists");
+                if (!(await files.makeDirectory(directory))) {
+                    // 目录在、日志不在：上次建到一半（写下会话头之前失败或进程被杀），接着建。日志在才是已有的会话。
+                    const existing = await files.openRead(join(directory, LOG));
+                    if (existing !== null) {
+                        await existing.close();
+                        return fail("session-exists");
+                    }
+                }
                 const taken = takeLock(directory);
                 if (taken === null || taken === "missing") return taken === null ? busy(directory) : fail("storage-failed", {message: "session directory vanished"});
                 lock = taken;

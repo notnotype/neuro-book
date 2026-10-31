@@ -500,7 +500,7 @@ describe("输入拦截", () => {
 });
 
 describe("中止", () => {
-    test("输出 25：宽限期内完成的照常写，没完成的记 unknown；之后才到的只诊断", async () => {
+    test("输出 25：宽限期内完成的照常写（不论在同一段里排第几），没完成的记 unknown；之后才到的只诊断", async () => {
         const clock = createTestClock();
         const quickGate = gate();
         const slowGate = gate();
@@ -518,7 +518,8 @@ describe("中止", () => {
             }},
             echo("lab.later"),
         ]});
-        session.model.script({tools: [{tool: "lab.quick"}, {tool: "lab.slow"}, {tool: "lab.later"}]});
+        // 慢的排在前面：宽限期到了按各自是否完成判断，不按先后。
+        session.model.script({tools: [{tool: "lab.slow"}, {tool: "lab.quick"}, {tool: "lab.later"}]});
         const runId = await sendRaw(session, "问");
         await Promise.all([started.quick.promise, started.slow.promise]);
         const aborting = session.raw.abort({commandId: "stop"});
@@ -529,7 +530,7 @@ describe("中止", () => {
         const result = await session.raw.waitRun(runId);
         expect(result.reason).toBe("aborted");
         const events = await session.events();
-        expect(dataOf(events, "toolResult").map((data) => [data.tool, data.status, data.code ?? null])).toEqual([["lab.quick", "ok", null], ["lab.slow", "unknown", "aborted"], ["lab.later", "unknown", "aborted"]]);
+        expect(dataOf(events, "toolResult").map((data) => [data.tool, data.status, data.code ?? null])).toEqual([["lab.slow", "unknown", "aborted"], ["lab.quick", "ok", null], ["lab.later", "unknown", "aborted"]]);
         expect(types(events).slice(-2)).toEqual(["turnEnded", "runEnded"]);
         slowGate.open();
         await clock.advance(0);

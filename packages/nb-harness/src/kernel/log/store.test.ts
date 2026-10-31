@@ -179,13 +179,20 @@ describe("JSONL 存储的文件", () => {
         expect(await readdir(join(root, exact, "blobs"))).toEqual([]);
     });
 
-    test("输出 7：大块内容缺失或被改动得 log-corrupt", async () => {
+    test("输出 7：大块内容缺失、被改动或引用的长度不符得 log-corrupt", async () => {
         const id = nextId();
         await writeSession(store(), id, [eventsFrom(1, [{type: "toolResult", kind: "conv", data: {callId: "c", tool: "t", text: "z".repeat(20_000), status: "ok"}}], {last: null})]);
         const [hash] = await readdir(join(root, id, "blobs"));
         await writeFile(join(root, id, "blobs", hash!), "被改过");
         const opened = await store().open(id);
         expect(opened.ok ? "opened" : opened.code).toBe("log-corrupt");
+
+        const sized = nextId();
+        await writeSession(store(), sized, [eventsFrom(1, [{type: "toolResult", kind: "conv", data: {callId: "c", tool: "t", text: "z".repeat(20_000), status: "ok"}}], {last: null})]);
+        const log = join(root, sized, "session.jsonl");
+        await writeFile(log, (await readFile(log, "utf8")).replace('"size":20000', '"size":20001'));
+        const resized = await store().open(sized);
+        expect(resized.ok ? "opened" : resized.code).toBe("log-corrupt");
     });
 
     test("场景 1、输出 6：最后一批截在任何一个字节处，打开都丢掉这一批、另存截下的字节，之后能接着写", async () => {
@@ -280,6 +287,27 @@ describe("JSONL 存储的文件", () => {
         const reopened = await store().open(id);
         expect(reopened.ok && reopened.value.events).toEqual(batches[0]);
         if (reopened.ok) await store().close(reopened.value);
+    });
+
+    test("输出 12：新建时写会话头失败得 storage-failed，同一个 id 再建接着建好，不得 session-exists", async () => {
+        let failed = false;
+        const files: FilePort = {
+            ...nodeFiles,
+            async writeAtomic(path, data, options) {
+                if (!failed && path.endsWith("session.jsonl")) {
+                    failed = true;
+                    throw Object.assign(new Error("ENOSPC: no space left on device"), {code: "ENOSPC"});
+                }
+                return nodeFiles.writeAtomic(path, data, options);
+            },
+        };
+        const store = createJsonlStore({root, files});
+        const id = nextId();
+        expect(await store.create(header(id))).toMatchObject({ok: false, code: "storage-failed"});
+        const created = await store.create(header(id));
+        if (!created.ok) throw new Error(created.code);
+        await store.close(created.value);
+        expect(await store.create(header(id))).toMatchObject({ok: false, code: "session-exists"});
     });
 
     test("输出 12：同步到盘失败时这一批的结果不确定，重开以文件为准", async () => {
