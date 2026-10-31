@@ -273,6 +273,7 @@ export class SessionCore {
         if (this.broken) throw new LogBrokenError(null);
         if (drafts.length === 0) return [];
         const staged = this.#stage(drafts, this.#reduceProblem);
+        if (staged.length === 0) return [];
         const stored = await this.store.append(this.handle, staged.map((item) => item.event));
         this.#drainNotices();
         if (!stored.ok) {
@@ -307,7 +308,15 @@ export class SessionCore {
         let seq = this.head;
         const at = this.clock.now();
         const staged: {event: LogEvent; path: PathState; session: SessionState}[] = [];
+        // 幂等键在这里统一判：反应与 mount 在排进队列之前只查得到已提交的键，同一批里、或排在同一队列里的两条同键事件
+        // 都会走到这里。命中的不写，也就不引出反应；写下两条同来源同键的事件会让日志重开时校验不过。
+        const keys = new Set<string>();
         for (const draft of drafts) {
+            if (draft.key !== undefined) {
+                const key = `${draft.source ?? "kernel"}\u0000${draft.key}`;
+                if (this.#keys.has(key) || keys.has(key)) continue;
+                keys.add(key);
+            }
             seq += 1;
             const event: LogEvent = {
                 id: this.newId(),

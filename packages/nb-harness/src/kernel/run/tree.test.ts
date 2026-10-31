@@ -218,6 +218,18 @@ describe("fork 的幂等", () => {
         expect(listed.value.filter((entry) => entry.id.startsWith("fork-")).map((entry) => entry.id)).toContain(again.value.sessionId);
         expect(await session.raw.fork({commandId: "fork-once"})).toMatchObject({ok: true, replayed: true, value: {sessionId: again.value.sessionId}});
     });
+
+    test("输出 37、session 输出 17：复制批写失败只留下会话头时，重发补写复制批，得到完整的 fork", async () => {
+        const copying = (events: readonly LogEvent[]) => events[0]?.type === "sessionCreated" && events.some((event) => event.type === "input");
+        await using session = await createTestSession({store: {root}, wrapStore: failOnce(copying)});
+        session.model.script("答一");
+        await session.say("第一问");
+        expect(await session.raw.fork({commandId: "fork-copy"})).toMatchObject({ok: false, code: "log-broken"});
+        const again = await session.raw.fork({commandId: "fork-copy"});
+        if (!again.ok) throw new Error(again.code);
+        await using copy = await createTestSession({store: {root}, open: again.value.sessionId});
+        expect(texts(await copy.events(), "input")).toEqual(["第一问"]);
+    });
 });
 
 describe("换 Profile", () => {

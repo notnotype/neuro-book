@@ -174,18 +174,28 @@ describe("反应", () => {
         expect(ofType(report.events, "lab.wrong/note")).toHaveLength(0);
     });
 
-    test("输出 13：带幂等键的 emit 同一个键只写一次，命中时不引出反应", async () => {
+    test("输出 13：带幂等键的 emit 同一个键只写一次，命中时不引出反应；同一批里、mount 里同步连写两次也一样，重开照常", async () => {
         let reactions = 0;
-        const keyed = defineExtension({id: "lab.keyed", events: {once: ext.session()}, on: {
-            turnStarted: (_event, ctx) => ctx.emit("once", undefined, {key: "only"}),
+        const keyed = defineExtension({id: "lab.keyed", events: {once: ext.session(), fact: ext.session()}, on: {
+            turnStarted: (_event, ctx) => {
+                ctx.emit("once", undefined, {key: "only"});
+                ctx.emit("once", undefined, {key: "only"});
+            },
             once: () => void (reactions += 1),
+        }, mount: (ctx) => {
+            ctx.emit("fact", undefined, {key: "boot"});
+            ctx.emit("fact", undefined, {key: "boot"});
         }});
         await using session = await createTestSession({extensions: [keyed]});
         session.model.script("一", "二");
         await session.say("第一句");
         await session.say("第二句");
-        expect(ofType((await session.raw.log({afterSeq: 0})).events, "lab.keyed/once").map((event) => event.key)).toEqual(["only"]);
+        const keysOf = async (type: string) => ofType((await session.raw.log({afterSeq: 0})).events, type).map((event) => event.key);
+        expect(await keysOf("lab.keyed/once")).toEqual(["only"]);
+        expect(await keysOf("lab.keyed/fact")).toEqual(["boot"]);
         expect(reactions).toBe(1);
+        await session.reopen();
+        expect(await keysOf("lab.keyed/fact")).toEqual(["boot"]);
     });
 
     test("输出 14：同一条事件的处理函数并发执行、看同一份状态", async () => {

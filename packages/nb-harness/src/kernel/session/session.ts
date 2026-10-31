@@ -11,7 +11,7 @@
 import {createHash, randomBytes} from "node:crypto";
 import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
-import type {AnyProfile, Frame, ModelInfo, Resources, ToolSessionContext, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
+import type {AnyProfile, Frame, LogHandle, ModelInfo, Resources, ToolSessionContext, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
 import {LOG_FORMAT} from "../api/index.js";
 import {LogBrokenError, SessionCore, type EventDraft} from "../dispatch/core.js";
 import {Mounts} from "../dispatch/mount.js";
@@ -476,13 +476,26 @@ async function forkSession(env: SessionEnv, core: SessionCore, leaf: string | nu
         ...(core.header.result === undefined ? {} : {result: core.header.result}),
     };
     const created = await env.store.create(header);
-    if (!created.ok) return created.code === "session-exists" ? {ok: true, id} : {ok: false};
+    let handle: LogHandle;
+    if (created.ok) handle = created.value;
+    else if (created.code !== "session-exists") return {ok: false};
+    else {
+        // 之前用同一个 commandId 建过：复制批是一整批，写下了就是同一个 fork；没写下（上次复制失败，只留下会话头）就补写。
+        // 别人正开着它，说明它已经是完整的会话。
+        const existing = await env.store.open(id);
+        if (!existing.ok) return existing.code === "session-busy" ? {ok: true, id} : {ok: false};
+        if (existing.value.events.length > 0 || existing.value.header.origin?.session !== core.header.id) {
+            await env.store.close(existing.value);
+            return existing.value.header.origin?.session === core.header.id ? {ok: true, id} : {ok: false};
+        }
+        handle = existing.value;
+    }
     const lastProfile = [...core.events].reverse().find((event) => event.type === "profileChanged");
     const carried = [...(lastProfile === undefined ? [] : [lastProfile]), ...core.events.filter((event) => event.type === "settingsChanged")];
     let seq = 0;
     const events = [...core.pathTo(leaf), ...carried].map((event): LogEvent => ({...event, seq: (seq += 1)}));
-    const appended = await env.store.append(created.value, events);
-    await env.store.close(created.value);
+    const appended = await env.store.append(handle, events);
+    await env.store.close(handle);
     return appended.ok ? {ok: true, id} : {ok: false};
 }
 
