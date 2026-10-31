@@ -13,7 +13,7 @@ owners:
 
 给插件作者与 Profile 作者一套扩展接口：扩展只做四件事，归约（事件 → 自己的状态）、反应（事件写入之后补记事件）、视图（状态 → 请求的片段）、拦截（输入、模型调用、工具、压缩之前或之后改或挡），外加装上外部事实的 `mount`。Profile 是拦截链最里层、地位最高的扩展；对话记录本身也是内置扩展。扩展的状态全部由会话日志归约而来，所以回退、fork、重启、压缩之后自动正确。
 
-本文件是骨架：列出各条行为的编号与判据，细节随实现补齐。日志与会话目录见 [`harness/session.md`](session.md)；视图（模板、`turn`、`commit`、槽）、拦截链与运行控制在 harness 的 Profile 与运行时 Spec（待建）。
+插件撤回与重新装配（输出 26、27）随宿主面补齐。日志与会话目录见 [`harness/session.md`](session.md)；视图（模板、`turn`、`commit`、槽）、拦截链与运行控制在 harness 的 Profile 与运行时 Spec（待建）。
 
 不承诺：
 
@@ -60,7 +60,7 @@ id 的规则：
 定义与装配：
 
 1. 装配时检查并拒绝：id 不合规则或前缀与所属插件不符、id 重复（含 Profile）、同一个扩展装两次、依赖缺失、依赖成环。拒绝时给出全部问题，每条带来源、英文 `message` 与 `hint`。
-2. 装配时检查并写诊断：设置缺 `default`（`setting-missing-default`）、`on`/`reduce`/`render` 的键不是已知事件（按 `dependsOn` 里的契约算，`optional` 的依赖不误报）、`contribute` 的槽名不合法、`reminder()` 既没有 `every` 也没有 `watch`。
+2. 装配时检查并写诊断，会话照常打开：设置缺 `default`（`setting-missing-default`）；`on`、`reduce`、`render` 的键不是这个扩展看得到的事件（`unknown-event-handler`，`hint` 给出编辑距离最近的名字；看得到的是内核事件、自己的事件、`dependsOn` 里每个依赖（含 `optional` 的）的事件；扩展的 `render` 只认自己的事件）；`contribute` 的槽名不是小写字母、数字与连字符（`bad-slot-name`）；`reminder()` 既没有 `every` 也没有 `watch`（`reminder-without-trigger`）。
 3. 装配序：依赖在前，同一层按 id 排；拦截序是装配序之后接 Profile 的 `extensions`、Profile 自己、审批。最终顺序与装配清单记进 `profileChanged`。
 4. 扩展只能写以自己 id 开头的事件，只能声明 `conv` 与 `ext` 两种，不许与内核事件同名。
 
@@ -76,8 +76,8 @@ id 的规则：
 反应：
 
 11. 处理函数在事件写入并归约之后调用；打开会话归约时不调用。
-12. 处理函数里读到的 `ctx.state` 是这条事件之后的值，不含自己这次 `set` 的。
-13. `emit` 与 `set` 先收集，处理函数完成时作为一个写入批写入；抛错或超时就都不写，写 `extensionFailed`（带丢弃的条数）；完成之后再调用得诊断 `emit-after-settle`、不写；同一片 `set` 多次取最后一次；值没变不写。
+12. 处理函数里读到的 `ctx.state` 是这条事件刚写下之后的值，不含自己这次 `set` 的；同一批里后面的事件，它的处理函数读到的也是那条事件刚写下时的值，不含同一批前面事件引出的反应。
+13. `emit(名字, 数据?, {key?})` 与 `set(片, 值)` 先收集，处理函数完成时作为一个写入批写入；抛错、超时就都不写，写 `extensionFailed`（`code` 为 `threw`、`timeout`，带丢弃的条数）；`emit` 没声明的事件、`set` 没声明的片、值不能被 JSON 如实表示时同样整批丢弃（`invalid-output`）；完成之后再调用得诊断 `emit-after-settle`、不写；同一片 `set` 多次取最后一次；与当时的值相同不写；带幂等键的 `emit` 同一来源同一个键已写过时不写，也不引出反应。
 14. 同一条事件的各个处理函数看同一份状态、可以并发执行，输出按装配序写入；全部完成之后才算下一次请求。
 15. 反应链从根事件起最多写到第 3 层；超出时写 `reactionLimit`，超出的输出丢弃。
 16. 处理函数有时限（缺省 30 秒，`timeoutMs` 可改）：超时中止它的 `ctx.signal`、丢弃输出、写 `extensionFailed{code: "timeout"}`。时限走注入的时钟。
@@ -101,6 +101,15 @@ id 的规则：
 
 26. 插件撤回时，运行中的会话这次运行里调它的入口得诊断 `extension-revoked` 并跳过，归约照常；空闲时自动重新装配并写 `profileChanged{reason: "plugin-removed"}`。新装的插件同理（`plugin-added`）。
 27. 重新装配失败（例如依赖缺失）时会话进只读，快照报 `dependency-missing`。
+
+版本：
+
+28. Profile 哈希由 Profile 的 id 与 `version`、装配序里每个扩展的 id、`version` 与所属插件算出；内核不对源码算哈希。扩展或 Profile 改了提示词、归约或渲染，要升自己的 `version`，否则打开旧会话时不会写 `profileChanged{code-updated}`、已提交的轮不会按新代码重新渲染。
+
+helper：
+
+29. `reminder({every?, watch?, text})`：在每轮开头（`turnStarted`）判断：第一次、`watch` 的值变了、或距上次提醒满 `every` 轮时调用 `text`，返回文字就写一条自己的对话事件 `reminder`；返回 null 不写，但记下这次的值。记录在它自己的 path 片里，压缩时清空（压缩后再提醒一次），回退时跟着回去。
+30. `opening({load})`：会话创建时与每次压缩之后调用 `load`，丢掉空的部分，存进自己的 path 片，交给共用的稳定槽 `opening`（各部分之间空一行）。
 
 ## 状态与转换
 

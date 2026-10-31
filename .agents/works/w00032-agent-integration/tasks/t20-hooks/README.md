@@ -73,7 +73,9 @@ t05、t06、t07。
 - 第 2 片完成（纵切）：`log/`（会话目录、写入批、大块内容、操作系统锁、修复与校验；内存存储就是同一份 JSONL 存储跑在内存文件上）、`model/`（OMP 适配器）、`state/`、`extension/` 的最小装配、`dispatch/`（队列与 `SessionCore`）、`run/`（`send`、`enqueue`、`start`、`abort`、不带工具的循环、恢复、运行结果）、`view/`（模板渲染、缺省布局、`format`）、`session/`、最小的 `createTestSession`。新建 [`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md)、[`harness/models.md`](../../../../../docs/specs/harness/models.md)；验收映射在计划第 6 节。测量与真实模型见 [`evidences/slice2-measure.txt`](evidences/slice2-measure.txt)：2 万条存储层打开 115–160 ms；每条回复 5,000 字时只读回就 166 MB，接近 200 MB 的预算，第 3 片一并看；DeepSeek 真实模型一轮、重开、再一轮通过；t04 在官方接口上的复测未验证（没有凭据）。
 - 与计划的出入（已改进计划与 Spec）：会话锁改用操作系统的独占锁（照 nb-story `platform/flock.ts`），原计划“Bun 没有跨平台 flock”的理由不成立，进程号加令牌的陈旧回收有竞争窗口；存储不做 `fork`，由内核建新会话再追加；`commandAccepted` 排在受理批最后，它的 seq 就是批末的 seq。
 - 待开发者定：`flock.ts` 现在 nb-story 与 nb-harness 各一份（同一件事写两份）。候选：迁移 Task 里让 nb-story 改用 nb-harness 导出的锁（nb-story 已依赖 nb-harness），或另建一个小的共享包；推荐前者。
+- 第 3 片完成：按决定 14 删去 `assistant.text`、打开时按块流式读（2 万条、每条 5,000 字：文件 65→35 MB，打开后常驻 166→56 MB，打开 160→105 ms）；装配的全部检查（拒绝的与只留诊断的）、反应与写入批（并发、按装配序写、整批丢弃、深度上限、时限、运行中止）、`continue`、`mount` 与外部事实（空闲立刻写、运行中到边界）、清理、`reminder()`、`opening()`、扩展事件的版本。Profile 哈希定为不算源码哈希、改了要升 `version`（`extensions.md` 输出 28）。2 万条经完整的 `openSession` 打开 128–169 ms、堆上活数据 22–36 MB、常驻增量 52–72 MB，在预算内（[`evidences/slice2-measure.txt`](evidences/slice2-measure.txt) 第四节）。
+- 实现中订正的：`emit` 统一为 `emit(名字, 数据?, {key?})`（没有数据的事件要幂等键时第二个参数写 `undefined`，避免运行时分不清第一个参数是数据还是选项）；`run` 的循环在回复的反应被中止时以 `aborted` 收口，不再提交成 `completed`。
 
 ## 下一步
 
-下一片是第 3 片（扩展完整面：定义与装配的全部检查、Profile 哈希的代码哈希、`ctx` 各档、反应与写入批、`mount`、外部事实到边界、内核的片、`reminder()`、`opening()`；2 万条合成事件的打开与归约测量）。全部切片之后做一次深入审查（开审前报计划与预算）。介绍页（`intro` v3）已过时，随实现更新。
+下一片是第 4 片（视图：JSX 模板的全部节点与文字拼法、`standardLayout` 的选项、`format`、`turn` 与纯函数 `commit` 的提交缓存、槽的诊断、请求计算与校验、`outline`、前缀稳定检查；`finalOnly`、`withoutEvents`；2 万条会话算一次请求的测量）。全部切片之后做一次深入审查（开审前报计划与预算）。介绍页（`intro` v3）已过时，随实现更新。

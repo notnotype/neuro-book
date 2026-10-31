@@ -129,7 +129,7 @@
 - `define.ts`：`defineExtension`、`implement`、`defineContract`、`optional`、`shape`、`slice`、`conv`、`ext`。
 - `profile.ts`：`defineProfile`、`deriveProfile`（必须给新 id；`render`、`tools`、`extensions` 逐项合并；派生的 id 是自己的设置命名空间，不继承基础 Profile 的用户设置；Spec 写清三处审查 A14 指出的语义）。
 - `assemble.ts`：按第 1 节决定 11 校验 id；`dependsOn` 拓扑排序、同层按 id，得到**装配序**（决定反应写入、槽拼接、`mount` 的顺序）；**拦截序**是装配序，再接 Profile 的 `extensions`、Profile 自己、审批（`layer` 在第 12 片）。所属插件随每个扩展传入（`{extension, plugin: string | null}`，`null` 只给内核与测试），按它校验 id 前缀。装配时检查：设置每项都有 `default`、`on`/`reduce`/`render` 的键是已知事件（按 `dependsOn` 里的契约算，`optional` 的不误报）、`contribute` 的槽名合法、`reminder()` 至少给了 `every` 或 `watch`；摆放类的槽诊断在渲染时报。装配失败返回带每条来源、`message` 与 `hint` 的列表，`createTestSession` 遇到时抛出带全部条目的错误。
-- **Profile 哈希**：`hash(id, version, 代码哈希, 装配序里每个扩展的 id 与版本)`；工具声明不进哈希，工具只由 `toolsAnnounced` 管（t04 决定 6 的两档）。代码哈希：用户 Profile 取 t05 的打包哈希；内置 Profile 取加载时对模块源码算的哈希，做不到时 Spec 写“内置 Profile 改提示词要升 `version`”，并加一条检查测试（源文件变了而 `version` 没变时失败），第 3 片定用哪种。打开会话时与路径上最后一条 `profileChanged` 比，不同就在受理任何指令前写 `profileChanged{reason: "code-updated", from, to, manifest}`（旧、新哈希与装配清单）；提交缓存的键带 Profile 哈希，哈希变了按提案第 7 节全部重新渲染（审查 O8）。
+- **Profile 哈希**：`hash(id, version, 代码哈希, 装配序里每个扩展的 id 与版本)`；工具声明不进哈希，工具只由 `toolsAnnounced` 管（t04 决定 6 的两档）。代码哈希：第 3 片定为不对源码算哈希（运行时拿不到 Profile 对象来自哪个模块）：哈希只由 Profile 与各扩展的 id、`version`、所属插件算出，`harness/extensions.md` 输出 28 写明“改了提示词或逻辑要升 `version`”；用户 Profile 由 t05 的加载器把打包哈希写进 `version`；“源文件变了而 `version` 没变”的检查测试等内置 Profile 出现（Agent 插件）时加在那里。打开会话时与路径上最后一条 `profileChanged` 比，不同就在受理任何指令前写 `profileChanged{reason: "code-updated", from, to, manifest}`（旧、新哈希与装配清单）；提交缓存的键带 Profile 哈希，哈希变了按提案第 7 节全部重新渲染（审查 O8）。
 - `ctx.ts`：各档 `ctx`（视图、反应、`assistant` 的反应、`mount`、拦截）的唯一构造点：状态取哪一刻、深只读、`read` 只放 `dependsOn` 与 `core.history`，三条规则一份实现。`emit`/`set` 的收集器（完成时整批写、抛错整批丢、完成后调用报 `emit-after-settle`、同片取最后一次）在同一文件。
 
 ### 3.4 `kernel/state/`：归约与对话形状
@@ -245,7 +245,9 @@
 | 2 | `harness/runtime.md` 输出 1–3、6–8、11、13，场景 1、2 | `session/session.test.ts` |
 | 2 | `harness/models.md` 输出 1–6、8–11，场景 1、2 | `src/kernel/model/omp.test.ts`、`tests/kernel/kernel.llm.test.ts` |
 | 2（留到后续片） | `session.md` 输出 5、10（脱敏，第 5 片）、14（扩展事件版本，第 3 片）、16（进程收尾，第 9 片）、20（fork，第 6 片）、场景 4（kill -9，第 6 片）、6（第 5 片）；`runtime.md` 输出 4、5、9、10、12、14（第 4、6 片补测）；`models.md` 输出 7、12–14 | — |
-| 3 | `harness.extensions`（定义、装配、`ctx`、反应、`mount`） | `extension/*.test.ts`、`dispatch/*.test.ts` |
+| 3 | `harness/extensions.md` 输出 1–3、5、7、8、11–18、19–22、24、25、29、30；`session.md` 输出 14 | `src/kernel/extension/extension.test.ts` |
+| 3 | `extensions.md` 输出 28（Profile 哈希） | `session/session.test.ts`“打开时 Profile 哈希变了” |
+| 3（留到后续片） | `extensions.md` 输出 4（运行时拒绝写错前缀，第 5 片随 `emit` 的拦截面一并测）、6（归约互不依赖，严格模式第 9 片）、9（`resetOnCompaction`，第 8 片）、10（回退后片的值，第 6 片）、23（各入口读的时刻，第 4、5 片）、26、27（撤回，第 9 片） | — |
 | 4 | `harness.profile`（模板、布局、`turn`、`commit`、槽） | `view/*.test.ts` |
 | 5–8 | `harness.runtime`（工具、收尾、拦截、审批、指令、运行控制、等用户、压缩） | `run/*.test.ts`、`compaction/*.test.ts` |
 | 9 | `harness.runtime` 的宿主面、`harness.extensions` 的撤回 | `session/*.test.ts` |
