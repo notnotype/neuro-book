@@ -173,7 +173,7 @@ describe("打开、恢复与只读", () => {
         await closeSession(updated.value);
     });
 
-    test("会话头里的 Profile 解析不到：以只读打开，能查询，发送得 read-only", async () => {
+    test("会话头里的 Profile 解析不到：以只读打开，能查询，发送与应答得 read-only", async () => {
         const store = createJsonlStore({root});
         const created = await createSession(env(store, defaultTestProfile), {profile: defaultTestProfile.id, id: "orphan"});
         if (!created.ok) throw new Error(created.code);
@@ -183,6 +183,7 @@ describe("打开、恢复与只读", () => {
         if (!opened.ok) throw new Error(opened.code);
         expect((await opened.value.snapshot()).readOnly).toEqual({code: "unknown-profile"});
         expect(await opened.value.send({commandId: "c", input: {text: "你好"}})).toEqual({ok: false, code: "read-only"});
+        expect(await opened.value.resolve({commandId: "r", id: "any", decision: "answer", answer: {text: "答"}})).toEqual({ok: false, code: "read-only"});
         await closeSession(opened.value);
     });
 

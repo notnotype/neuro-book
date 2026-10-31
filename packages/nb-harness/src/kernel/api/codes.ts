@@ -12,7 +12,7 @@ export const commandErrors = {
     enqueue: ["empty-input", "input-too-large", "input-rejected", "read-only", "session-closed", "log-broken"],
     edit: ["empty-input", "input-too-large", "input-rejected", "input-not-found", "input-consumed", "session-closed", "log-broken"],
     remove: ["input-not-found", "input-consumed", "session-closed", "log-broken"],
-    resolve: ["unknown-interaction", "already-answered", "not-allowed", "invalid-answer", "input-rejected", "session-closed", "log-broken"],
+    resolve: ["unknown-interaction", "already-answered", "not-allowed", "invalid-answer", "input-rejected", "read-only", "session-closed", "log-broken"],
     start: ["already-running", "nothing-to-continue", "no-model", "no-credentials", "profile-invalid", "read-only", "session-closed", "log-broken"],
     abort: ["session-closed"],
     rewind: ["running", "unknown-node", "invalid-target", "empty-input", "input-rejected", "session-closed", "log-broken"],

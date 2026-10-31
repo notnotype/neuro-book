@@ -202,7 +202,8 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         abort: (args) => closedGuard(() => abortCommand(host, args)),
         edit: (args) => closedGuard(() => editCommand(host, args)),
         remove: (args) => closedGuard(() => removeCommand(host, args)),
-        resolve: (args) => closedGuard(() => resolveCommand({...host, interactions: control.interactions}, issuer, args)),
+        // 应答会改变对话（结算事项、回答进缓冲区）：只读会话不受理（session.md 失败表的 unknown-profile）。
+        resolve: (args) => closedGuard(async () => (state.readOnly !== null ? {ok: false, code: "read-only"} as const : resolveCommand({...host, interactions: control.interactions}, issuer, args))),
         rewind: (args) => closedGuard(() => rewindCommand(host, args)),
         switchBranch: (args) => closedGuard(() => switchBranchCommand(host, args)),
         fork: (args) => closedGuard(() => accept(host, "fork", args.commandId, async (): Promise<Outcome<"fork">> => {

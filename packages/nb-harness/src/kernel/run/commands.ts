@@ -129,17 +129,38 @@ export function startCommand(host: CommandHost, args: CommandMap["start"]["args"
     });
 }
 
+/** 进行中与已完成的中止，按 `commandId`：中止不经队列，重发可能在第一次还没写下受理记录时就到。 */
+const aborting = new WeakMap<SessionCore, Map<string, Promise<CommandResult<"abort">>>>();
+
 /**
- * 中止不经队列：先触发信号，收口由运行循环作为队列里的一项写入。幂等：没有运行时 `aborted: false`。
- * 中止了运行时缺省清空缓冲区（每条 `inputRemoved{reason: "aborted"}`），`keepQueue` 保留（runtime.md 输出 30）。
+ * 中止不经队列：先触发信号，收口由运行循环作为队列里的一项写入。没有运行时 `aborted: false`、不写日志。
+ * 中止了运行时缺省清空缓冲区（每条 `inputRemoved{reason: "aborted"}`），`keepQueue` 保留（runtime.md 输出 30）；
+ * 与 `commandAccepted` 同一批写下，重发同一个 `commandId`（重开之后也一样）交回第一次的结果，不再按当时的运行重新判断。
  */
-export async function abortCommand(host: CommandHost, args: CommandMap["abort"]["args"] = {}): Promise<CommandResult<"abort">> {
+export function abortCommand(host: CommandHost, args: CommandMap["abort"]["args"] & {commandId: string}): Promise<CommandResult<"abort">> {
     const {core} = host;
-    const aborted = await host.control.abort();
-    if (aborted && args.keepQueue !== true && core.session.kernel.buffer.length > 0 && !core.broken) {
-        await core.queue.run(() => writeAndReact(core, core.session.kernel.buffer.map((item) => ({type: "inputRemoved", kind: "ctrl", scope: "session", data: {id: item.id, reason: "aborted"}})), host.react));
-    }
-    return {ok: true, value: {aborted}, seq: core.head, replayed: false};
+    const previous = core.commands.get(args.commandId);
+    if (previous !== undefined) return Promise.resolve({ok: true, value: previous.value as {aborted: boolean}, seq: previous.seq, replayed: true});
+    const inflight = aborting.get(core) ?? new Map<string, Promise<CommandResult<"abort">>>();
+    aborting.set(core, inflight);
+    const running = inflight.get(args.commandId);
+    if (running !== undefined) return running.then((result) => (result.ok ? {...result, replayed: true} : result));
+    const first = (async (): Promise<CommandResult<"abort">> => {
+        const aborted = await host.control.abort();
+        if (!aborted || core.broken) return {ok: true, value: {aborted}, seq: core.head, replayed: false};
+        const removed: EventDraft[] = args.keepQueue === true ? [] : core.session.kernel.buffer.map((item) => ({type: "inputRemoved", kind: "ctrl", scope: "session", data: {id: item.id, reason: "aborted"}}));
+        const accepted: EventDraft = {type: "commandAccepted", kind: "ctrl", scope: "session", data: {commandId: args.commandId, name: "abort", value: {aborted}}};
+        try {
+            const {events} = await core.queue.run(() => writeAndReact(core, [...removed, accepted], host.react));
+            return {ok: true, value: {aborted}, seq: events.at(-1)!.seq, replayed: false};
+        } catch (error) {
+            // 运行已经中止：只是受理记录没写下，结果照实交回；重发时按上面的进行中记录交回同一个结果。
+            if (error instanceof LogBrokenError) return {ok: true, value: {aborted}, seq: core.head, replayed: false};
+            throw error;
+        }
+    })();
+    inflight.set(args.commandId, first);
+    return first;
 }
 
 /** 缓冲区里的这条还在不在：不在时分清是从没入过队（`input-not-found`），还是已经取走或删掉（`input-consumed`）。 */

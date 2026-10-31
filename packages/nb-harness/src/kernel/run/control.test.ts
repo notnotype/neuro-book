@@ -172,6 +172,25 @@ describe("中止", () => {
         }
     });
 
+    test("输出 30、session 输出 17：同一个 commandId 重发中止（中止进行中、运行收口后、重开之后）交回第一次的结果", async () => {
+        const block = blockingTool();
+        await using session = await createTestSession({tools: [block.tool]});
+        session.model.script({tools: [{tool: "lab.block"}]});
+        const runId = await sendRaw(session, "问");
+        await block.started;
+        const command = {commandId: id()};
+        const first = session.raw.abort(command);
+        const during = session.raw.abort(command);
+        block.release();
+        expect(await first).toMatchObject({ok: true, value: {aborted: true}, replayed: false});
+        expect(await during).toMatchObject({ok: true, value: {aborted: true}, replayed: true});
+        await session.raw.waitRun(runId);
+        expect(await session.raw.abort(command)).toMatchObject({ok: true, value: {aborted: true}, replayed: true});
+        await session.reopen();
+        expect(await session.raw.abort(command)).toMatchObject({ok: true, value: {aborted: true}, replayed: true});
+        expect(await session.raw.abort({commandId: id()})).toMatchObject({ok: true, value: {aborted: false}});
+    });
+
     test("输出 9：流式中被中止，端口交回的半截回复与用量记进 modelFailed", async () => {
         await using session = await createTestSession();
         session.model.script({text: "半句话", usage: {output: 3}, hold: true});
