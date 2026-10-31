@@ -236,7 +236,11 @@
 
 | 片 | Spec 条目（第 1 片起逐片填编号） | 测试 |
 |---|---|---|
-| 2 | `harness.session`（格式、批、修复、锁、大块内容、版本）；`harness.runtime` 的最小循环；`harness.models` 的适配器 | `log/*.test.ts`、`model/*.test.ts`、`kernel.llm.test.ts` |
+| 2 | `harness/session.md` 输出 1–4、6–9、11、12、17–19、21，场景 1–3、5 | `src/kernel/log/store.test.ts`、`src/kernel/session/session.test.ts` |
+| 2 | `harness/session.md` 输出 13、15（模型请求、轮、运行的结算） | `session/session.test.ts`“场景 2” |
+| 2 | `harness/runtime.md` 输出 1–3、6–8、11、13，场景 1、2 | `session/session.test.ts` |
+| 2 | `harness/models.md` 输出 1–6、8–11，场景 1、2 | `src/kernel/model/omp.test.ts`、`tests/kernel/kernel.llm.test.ts` |
+| 2（留到后续片） | `session.md` 输出 5、10（脱敏，第 5 片）、14（扩展事件版本，第 3 片）、16（进程收尾，第 9 片）、20（fork，第 6 片）、场景 4（kill -9，第 6 片）、6（第 5 片）；`runtime.md` 输出 4、5、9、10、12、14（第 4、6 片补测）；`models.md` 输出 7、12–14 | — |
 | 3 | `harness.extensions`（定义、装配、`ctx`、反应、`mount`） | `extension/*.test.ts`、`dispatch/*.test.ts` |
 | 4 | `harness.profile`（模板、布局、`turn`、`commit`、槽） | `view/*.test.ts` |
 | 5–8 | `harness.runtime`（工具、收尾、拦截、审批、指令、运行控制、等用户、压缩） | `run/*.test.ts`、`compaction/*.test.ts` |

@@ -70,7 +70,10 @@ t05、t06、t07。
 - 第 0 片完成（`5343ed4e6`）：OMP 升到 18.14.0；修了 `NO_AUTH_SENTINEL` 的导出位置与 `EditPolicy` 的新字段；目录快照 69 → 79 家；本机回环端点的输出上限按模型自己写的值（nb-story 的 Spec 与 README 同步，`17b64d9aa`）。nb-harness 94 个测试、两条真实模型 smoke 通过；`test:affected` 只剩 nb-ui 的 `NB_UI_VERSION` 一条，在 master 上同样失败，与本 Task 无关。
 
 - 第 1 片完成（开发者 2026-10-31 同意接受提案）：提案改 `accepted`，决策记录追加计划第 1 节决定 1–13 与“第五稿到定稿的差异”表，正文第 2、3、7、8、9、11、20 节与待定项按定稿改写；新 [ADR 0035](../../../../../docs/adr/0035-harness-log-driven-kernel.md)；新建 [`harness/session.md`](../../../../../docs/specs/harness/session.md)（planned，输出 1–21、场景 1–6）与 [`harness/extensions.md`](../../../../../docs/specs/harness/extensions.md)（骨架，输出 1–27）。Work 分支上：`src/kernel/api/` 定稿类型、定义用的构造函数、模板节点与 JSX 运行时、子路径导出 `./kernel`、`./kernel/contracts`、`./prompt`（`./kernel/testing` 随第 2 片的 `createTestSession` 加）、`tsconfig` 的 JSX 设置、`architecture.test.ts`、`tests/kernel/typetest.tsx`（36 处写错逐条核对过报错原因）。与计划的出入：`ToolCall` 的工具 id 字段叫 `tool`；`compaction/` 依赖 `run/`、反向经回调（已改进计划）；helper 只有签名，实现在第 3、4 片。
+- 第 2 片完成（纵切）：`log/`（会话目录、写入批、大块内容、操作系统锁、修复与校验；内存存储就是同一份 JSONL 存储跑在内存文件上）、`model/`（OMP 适配器）、`state/`、`extension/` 的最小装配、`dispatch/`（队列与 `SessionCore`）、`run/`（`send`、`enqueue`、`start`、`abort`、不带工具的循环、恢复、运行结果）、`view/`（模板渲染、缺省布局、`format`）、`session/`、最小的 `createTestSession`。新建 [`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md)、[`harness/models.md`](../../../../../docs/specs/harness/models.md)；验收映射在计划第 6 节。测量与真实模型见 [`evidences/slice2-measure.txt`](evidences/slice2-measure.txt)：2 万条存储层打开 115–160 ms；每条回复 5,000 字时只读回就 166 MB，接近 200 MB 的预算，第 3 片一并看；DeepSeek 真实模型一轮、重开、再一轮通过；t04 在官方接口上的复测未验证（没有凭据）。
+- 与计划的出入（已改进计划与 Spec）：会话锁改用操作系统的独占锁（照 nb-story `platform/flock.ts`），原计划“Bun 没有跨平台 flock”的理由不成立，进程号加令牌的陈旧回收有竞争窗口；存储不做 `fork`，由内核建新会话再追加；`commandAccepted` 排在受理批最后，它的 seq 就是批末的 seq。
+- 待开发者定：`flock.ts` 现在 nb-story 与 nb-harness 各一份（同一件事写两份）。候选：迁移 Task 里让 nb-story 改用 nb-harness 导出的锁（nb-story 已依赖 nb-harness），或另建一个小的共享包；推荐前者。
 
 ## 下一步
 
-下一片是第 2 片（纵切：JSONL 存储、最小装配与归约、队列、不带工具的循环、最小视图、OMP 适配器、最小 `createTestSession`、终端演示）。全部切片之后做一次深入审查（开审前报计划与预算）。介绍页（`intro` v3）已过时，随实现更新。
+下一片是第 3 片（扩展完整面：定义与装配的全部检查、Profile 哈希的代码哈希、`ctx` 各档、反应与写入批、`mount`、外部事实到边界、内核的片、`reminder()`、`opening()`；2 万条合成事件的打开与归约测量）。全部切片之后做一次深入审查（开审前报计划与预算）。介绍页（`intro` v3）已过时，随实现更新。
