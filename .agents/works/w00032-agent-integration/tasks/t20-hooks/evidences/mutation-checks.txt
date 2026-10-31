@@ -28,3 +28,5 @@ t20 变异检查汇总（计划“收口”：对第 6 节每条映射改坏实�
 第 9 片（session/host.test.ts，runtime.md 输出 53–57、session.md 输出 16）
 - 抓到：摘下后迟到的外部事实、出站过滤（日志查询、帧、异步排队）、进程收尾的 interrupted（收口与等审批）、profile-has-tools、
   预览截下请求、撤回后跳过反应与槽、撤回标记、重新装配失败进只读。
+第 11 片（run/tools.test.ts“hash 只随请求内容变”）
+- 抓到：消息摘要只看 role（内容变了哈希不变）。
