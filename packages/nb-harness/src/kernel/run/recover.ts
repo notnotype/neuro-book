@@ -33,7 +33,8 @@ function unansweredCalls(core: SessionCore): EventDraft[] {
 
 export function recoveryDrafts(core: SessionCore): EventDraft[] {
     const state = core.leafState.kernel;
-    if (state.run === null) return [];
+    // 叶子是回退或切分支定的：运行是暂停的，不是崩溃留下的，留给 `start` 接着跑（runtime.md 输出 35）。
+    if (state.run === null || core.leafSetBy === "leafChanged") return [];
     const drafts: EventDraft[] = [...unansweredCalls(core)];
     if (state.openRequest !== null) drafts.push({type: "modelFailed", kind: "ctrl", scope: "path", data: {request: state.openRequest, kind: "interrupted"}});
     const turn = state.history.current;

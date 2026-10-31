@@ -76,6 +76,11 @@ export class SessionCore {
     readonly commands = new Map<string, {name: string; value: JsonValue; seq: number}>();
     assembly: Assembly;
     leaf: string | null = null;
+    /**
+     * 叶子最后是怎么定的：写 path 事件（`path`），还是回退、切分支写的 `leafChanged`。叶子由 `leafChanged` 定、上面的运行
+     * 又没收口时，运行是暂停的（回退到运行中途），不是进程崩溃留下的半截（runtime.md 输出 35、session.md 输出 15）。
+     */
+    leafSetBy: "path" | "leafChanged" = "path";
     /** 会话内单调增加的模型请求序号（跨分支不重复）。 */
     requestCounter = 0;
     broken = false;
@@ -174,8 +179,10 @@ export class SessionCore {
         if (event.scope === "path") {
             this.#pathStates.set(event.id, path);
             this.leaf = event.id;
+            this.leafSetBy = "path";
         } else if (event.type === "leafChanged") {
             this.leaf = (event.data as {leaf: string | null}).leaf;
+            this.leafSetBy = "leafChanged";
         }
         this.#session = session;
         if (event.type === "commandAccepted") {
@@ -194,6 +201,40 @@ export class SessionCore {
             const next = this.#reduce(base, this.#session, event);
             this.#commit(this.dev ? deepFreeze(event) : event, next.path, next.session);
         }
+    }
+
+    /**
+     * 换了装配（`changeProfile`）：按新的归约函数从头重新归约内存里的全部事件。只在会话空闲、队列的一项里调用。
+     * 事件、叶子、幂等键都不变；视图的提交缓存按装配对象作废。
+     */
+    reassemble(assembly: Assembly): void {
+        this.assembly = assembly;
+        this.#initialPath = {kernel: initialPathKernel, extensions: initialSnapshot(assembly.reducers, "path", this.dev)};
+        this.#session = {kernel: initialSessionKernel(), extensions: initialSnapshot(assembly.reducers, "session", this.dev)};
+        this.#pathStates = new Map();
+        this.#batchStates = new Map();
+        for (const event of this.events) {
+            const next = this.#reduce(event.scope === "path" ? this.pathState(event.parent) : this.#initialPath, this.#session, event);
+            if (event.scope === "path") this.#pathStates.set(event.id, next.path);
+            this.#session = next.session;
+        }
+    }
+
+    /** path 事件的子节点（按 seq）。回退与切分支的查询用，O(事件数)。 */
+    childrenOf(id: string | null): LogEvent[] {
+        return this.events.filter((event) => event.scope === "path" && event.parent === id);
+    }
+
+    /** 一个节点所在子树里最近写入的 path 事件（切分支落到那条分支的末端）。 */
+    latestIn(id: string): LogEvent {
+        const inTree = new Set([id]);
+        let latest = this.byId.get(id)!;
+        for (const event of this.events) {
+            if (event.scope !== "path" || event.parent === null || !inTree.has(event.parent)) continue;
+            inTree.add(event.id);
+            latest = event;
+        }
+        return latest;
     }
 
     // ---------- 写入 ----------

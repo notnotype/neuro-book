@@ -49,6 +49,8 @@ export interface TestSessionOptions {
     readonly result?: SessionHeader["result"];
     /** 打开存储里已有的这个会话（例如另一个进程崩溃后留下的），而不是新建。要和 `store` 一起给。 */
     readonly open?: string;
+    /** 另外能解析到的 Profile（测 `changeProfile`）。 */
+    readonly profiles?: readonly AnyProfile[];
 }
 
 export interface RequestView {
@@ -97,7 +99,7 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
     const contributed: ContributedExtension[] = (options.extensions ?? []).map((item) => ("extension" in item && "plugin" in item ? item : {extension: item as AnyExtension, plugin: null}));
     const env: SessionEnv = {
         store,
-        profiles: {resolve: (key) => (key === profile.id ? profile : undefined)},
+        profiles: {resolve: (key) => [profile, ...(options.profiles ?? [])].find((item) => item.id === key)},
         extensions: () => contributed,
         models: model.port,
         tools: {

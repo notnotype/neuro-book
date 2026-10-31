@@ -18,7 +18,8 @@ import {Mounts} from "../dispatch/mount.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 import type {ViewEnvironment} from "../extension/ctx.js";
 import {assemble, type Assembly} from "../extension/assemble.js";
-import {abortCommand, archiveCommand, changeSettingsCommand, editCommand, enqueueCommand, removeCommand, sendCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
+import {abortCommand, accept, archiveCommand, changeSettingsCommand, editCommand, enqueueCommand, removeCommand, sendCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
+import {rewindCommand, rewindTargets, siblingsOf, switchBranchCommand} from "../run/tree.js";
 import {RunControl} from "../run/control.js";
 import {recoveryDrafts} from "../run/recover.js";
 import {runResultOf} from "../run/results.js";
@@ -141,12 +142,41 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         edit: (args) => closedGuard(() => editCommand(host, args)),
         remove: (args) => closedGuard(() => removeCommand(host, args)),
         resolve: notYet("resolve"),
-        rewind: notYet("rewind"),
-        switchBranch: notYet("switchBranch"),
-        fork: notYet("fork"),
+        rewind: (args) => closedGuard(() => rewindCommand(host, args)),
+        switchBranch: (args) => closedGuard(() => switchBranchCommand(host, args)),
+        fork: (args) => closedGuard(() => accept(host, "fork", args.commandId, async () => {
+            if (!control.idle) return {fail: "running", detail: {runId: control.active?.runId ?? ""}};
+            const leaf = args.leaf === undefined ? core.leaf : args.leaf;
+            if (leaf !== null && core.byId.get(leaf)?.scope !== "path") return {fail: "unknown-node"};
+            const forked = await forkSession(env, core, leaf);
+            if (!forked.ok) return {fail: "log-broken"};
+            return {value: {sessionId: forked.id}, drafts: []};
+        })),
         compact: notYet("compact"),
         changeSettings: (args) => closedGuard(() => changeSettingsCommand(host, args)),
-        changeProfile: notYet("changeProfile"),
+        changeProfile: (args) => closedGuard(() => accept(host, "changeProfile", args.commandId, async () => {
+            if (!control.idle) return {fail: "running", detail: {runId: control.active?.runId ?? ""}};
+            const profile = await env.profiles.resolve(args.profile);
+            if (profile === undefined) return {fail: "unknown-profile"};
+            const assembled = assemble(profile, env.extensions?.() ?? []);
+            if (!assembled.ok) {
+                const code = assembled.problems[0]!.code;
+                return {fail: code === "dependency-missing" || code === "dependency-cycle" ? code : "profile-invalid"};
+            }
+            const next = assembled.assembly;
+            if (next.hash === core.assembly.hash) return {value: {changed: false, hash: next.hash, diagnostics: 0}, drafts: []};
+            // 换装配：摘下旧扩展、按新的归约函数重新归约全部事件，受理批写下之后再装上新扩展（harness/profile.md 输出 11）。
+            await state.mounts.unmountAll();
+            const from = core.assembly.hash;
+            core.reassemble(next);
+            state.readOnly = null;
+            reportAssemblyWarnings(core);
+            return {
+                value: {changed: true, hash: next.hash, diagnostics: next.warnings.length},
+                drafts: [{type: "profileChanged", kind: "ctrl", scope: "session", data: {profile: profile.id, hash: next.hash, from, reason: "user", manifest: next.manifest as unknown as JsonValue}}],
+                after: () => state.mounts.mountAll(state.environment),
+            };
+        })),
         setTitle: (args) => closedGuard(() => setTitleCommand(host, args)),
         archive: (args) => closedGuard(() => archiveCommand(host, args)),
         async snapshot(): Promise<SessionSnapshot> {
@@ -174,13 +204,13 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
             const events: LogEvent[] = start < 0 ? [] : core.events.slice(start, start + limit);
             return {events, head: core.head, more: start >= 0 && start + limit < core.events.length};
         },
-        rewindTargets: notYet("rewindTargets"),
+        rewindTargets: async () => rewindTargets(core),
         async path(args) {
             return core.pathTo(args?.leaf === undefined ? core.leaf : args.leaf);
         },
-        siblings: notYet("siblings"),
+        siblings: async ({node}) => siblingsOf(core, node),
         async runResult({runId}) {
-            return runResultOf(core.events, runId);
+            return runResultOf(core.events, runId, core.byId);
         },
         preview: notYet("preview"),
         async diagnostics() {
@@ -234,7 +264,10 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
     const opened = await env.store.open(id);
     if (!opened.ok) return opened;
     const handle = opened.value;
-    const {assembly, readOnly} = assembleOrPlaceholder(env, await env.profiles.resolve(handle.header.profile), handle.header.profile);
+    // 会话现在用的 Profile：最后一条 profileChanged 的（`changeProfile` 换过时与会话头里最初的不同）。
+    const lastChange = [...handle.events].reverse().find((event) => event.type === "profileChanged");
+    const profileId = (lastChange?.data as {profile?: string} | undefined)?.profile ?? handle.header.profile;
+    const {assembly, readOnly} = assembleOrPlaceholder(env, await env.profiles.resolve(profileId), profileId);
     const core = new SessionCore({header: handle.header, store: env.store, handle, assembly, clock: env.clock, dev: DEV});
     core.load(handle.events);
     core.reportOpenNotices();
@@ -249,7 +282,7 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
         const recovery = recoveryDrafts(core);
         await core.queue.run(() => core.write(recovery));
     } else {
-        core.diagnostics.add({code: "unknown-profile", entry: "host", params: {profile: handle.header.profile, reason: readOnly}, message: `profile ${handle.header.profile} could not be assembled; the session is read-only`}, core.head);
+        core.diagnostics.add({code: "unknown-profile", entry: "host", params: {profile: profileId, reason: readOnly}, message: `profile ${profileId} could not be assembled; the session is read-only`}, core.head);
     }
     const api = buildApi(env, core, readOnly, {kind: "user"});
     if (readOnly === null) {
@@ -258,6 +291,34 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
         await core.queue.drain();
     }
     return {ok: true, value: api};
+}
+
+/**
+ * fork：把到 `leaf` 为止的路径复制成新会话（session.md 输出 20、runtime.md 输出 37）。事件保留 id 与父节点、重新编号；
+ * 另带上最后一条 `profileChanged` 与全部 `settingsChanged`（新会话沿用 Profile 与设置），缓冲区与标题不带。会话头记来源。
+ */
+async function forkSession(env: SessionEnv, core: SessionCore, leaf: string | null): Promise<{ok: true; id: string} | {ok: false}> {
+    const now = core.clock.now();
+    const id = newSessionId(now);
+    const header: SessionHeader = {
+        format: LOG_FORMAT,
+        id,
+        createdAt: now,
+        profile: core.header.profile,
+        ...(core.header.project === undefined ? {} : {project: core.header.project}),
+        origin: {session: core.header.id, entry: leaf},
+        questions: core.header.questions,
+        ...(core.header.result === undefined ? {} : {result: core.header.result}),
+    };
+    const created = await env.store.create(header);
+    if (!created.ok) return {ok: false};
+    const lastProfile = [...core.events].reverse().find((event) => event.type === "profileChanged");
+    const carried = [...(lastProfile === undefined ? [] : [lastProfile]), ...core.events.filter((event) => event.type === "settingsChanged")];
+    let seq = 0;
+    const events = [...core.pathTo(leaf), ...carried].map((event): LogEvent => ({...event, seq: (seq += 1)}));
+    const appended = await env.store.append(created.value, events);
+    await env.store.close(created.value);
+    return appended.ok ? {ok: true, id} : {ok: false};
 }
 
 function reportAssemblyWarnings(core: SessionCore): void {

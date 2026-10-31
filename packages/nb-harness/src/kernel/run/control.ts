@@ -54,9 +54,14 @@ export class RunControl {
         return this.#status;
     }
 
-    /** 没有在跑的运行，日志里也没有没收口的运行。 */
+    /** 没有在跑的运行（叶子上可能有暂停的运行：回退到运行中途，见 `paused`）。 */
     get idle(): boolean {
-        return this.#active === null && this.#core.leafState.kernel.run === null;
+        return this.#active === null;
+    }
+
+    /** 叶子上有没收口、也没有循环在跑的运行（回退或切分支到运行中途）；`start` 与 `send` 让它接着跑。 */
+    get paused(): string | null {
+        return this.#active === null ? (this.#core.leafState.kernel.run?.runId ?? null) : null;
     }
 
     #setStatus(status: RunStatus): void {
@@ -85,7 +90,7 @@ export class RunControl {
                 if (this.#active?.runId === runId) this.#active = null;
                 if (this.#status.state !== "broken") this.#setStatus({state: "idle"});
                 // 循环结束、当前运行清掉之后才结算等它的调用方：它们拿到结果时会话已经空闲，紧接着发下一条不会撞上 already-running。
-                const result = runResultOf(this.#core.events, runId);
+                const result = runResultOf(this.#core.events, runId, this.#core.byId);
                 if (result !== null) this.#settle(runId, result);
             });
         this.#active = {...run, done};
@@ -104,7 +109,7 @@ export class RunControl {
     /** 等运行结束：正在跑的等循环结束；已经结束的从日志取；句柄坏了又查不到结果的以 `log-broken` 完成。 */
     waitRun(runId: string): Promise<RunResult> {
         if (this.#active?.runId !== runId) {
-            const settled = runResultOf(this.#core.events, runId);
+            const settled = runResultOf(this.#core.events, runId, this.#core.byId);
             if (settled !== null) return Promise.resolve(settled);
             if (this.#core.broken) return Promise.resolve(BROKEN_RESULT(runId, this.#core.head));
         }

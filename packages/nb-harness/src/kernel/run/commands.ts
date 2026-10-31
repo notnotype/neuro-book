@@ -28,12 +28,14 @@ export interface CommandHost {
     readOnly(): string | null;
 }
 
-type Outcome<K extends CommandName> = {value: CommandMap[K]["value"]; drafts: EventDraft[]; launch?: string} | {fail: string; detail?: Attributed | Record<string, JsonValue>};
+/** `after`：受理批写下、队列项结束之后再做的事（例如装上扩展：它自己要排队写日志，不能在这一项里等）。 */
+export type Outcome<K extends CommandName> = {value: CommandMap[K]["value"]; drafts: EventDraft[]; launch?: string; after?: () => Promise<void>} | {fail: string; detail?: Attributed | Record<string, JsonValue>};
 
 /** 受理一条指令：查重发、校验、写受理批、需要时开始运行。 */
-async function accept<K extends CommandName>(host: CommandHost, name: K, commandId: string, decide: () => Outcome<K> | Promise<Outcome<K>>): Promise<CommandResult<K>> {
+export async function accept<K extends CommandName>(host: CommandHost, name: K, commandId: string, decide: () => Outcome<K> | Promise<Outcome<K>>): Promise<CommandResult<K>> {
     const {core} = host;
-    return core.queue.run(async () => {
+    let after: (() => Promise<void>) | undefined;
+    const result = await core.queue.run(async () => {
         const previous = core.commands.get(commandId);
         if (previous !== undefined) return {ok: true, value: previous.value as CommandMap[K]["value"], seq: previous.seq, replayed: true} as CommandResult<K>;
         if (core.broken) return {ok: false, code: "log-broken"} as unknown as CommandResult<K>;
@@ -43,14 +45,17 @@ async function accept<K extends CommandName>(host: CommandHost, name: K, command
         // commandAccepted 排在批的最后：它的 seq 就是受理批最后一条的 seq，重发时原样交回。
         const {events: written} = await writeAndReact(core, [...outcome.drafts, accepted], host.react);
         if (outcome.launch !== undefined) host.control.launch(outcome.launch);
+        after = outcome.after;
         return {ok: true, value: outcome.value, seq: written.at(-1)!.seq, replayed: false} as CommandResult<K>;
     });
+    if (after !== undefined) await after();
+    return result;
 }
 
-const isEmpty = (input: UserInput): boolean => input.text.trim() === "" && (input.attachments?.length ?? 0) === 0;
+export const isEmpty = (input: UserInput): boolean => input.text.trim() === "" && (input.attachments?.length ?? 0) === 0;
 
 /** 开始运行前就能判定的失败：只读、没有模型、没有凭据。 */
-function startProblem(host: CommandHost): string | null {
+export function startProblem(host: CommandHost): string | null {
     if (host.readOnly() !== null) return "read-only";
     const resolution = host.models.resolve(host.core.session.kernel.core, "turn");
     if (resolution.ok) return null;
@@ -69,6 +74,9 @@ export function sendCommand(host: CommandHost, args: CommandMap["send"]["args"] 
         const inputId = core.newId();
         const queued: EventDraft = {type: "inputQueued", kind: "ctrl", scope: "session", data: queuedData(inputId, intercepted, args.mode ?? "followup")};
         if (!idle) return {value: {inputId, runId: null}, drafts: [...intercepted.failed, queued]};
+        // 叶子上有暂停的运行：入队后让它接着跑，这条话等它的当前一轮结束（或它在轮之间时立刻）开新的一轮。
+        const paused = control.paused;
+        if (paused !== null) return {value: {inputId, runId: paused}, drafts: [...intercepted.failed, queued], launch: paused};
         const runId = core.newId();
         // 受理批先把输入放进缓冲区，再取走它开第一轮；崩溃在这之后由恢复结算这次运行。
         const started: EventDraft = {type: "runStarted", kind: "ctrl", scope: "path", data: {runId, kind: "chat"}};
@@ -93,6 +101,8 @@ export function startCommand(host: CommandHost, args: CommandMap["start"]["args"
         if (!control.idle) return {fail: "already-running"};
         const problem = startProblem(host);
         if (problem !== null) return {fail: problem};
+        const paused = control.paused;
+        if (paused !== null) return {value: {runId: paused}, drafts: [], launch: paused};
         const runId = core.newId();
         const started: EventDraft = {type: "runStarted", kind: "ctrl", scope: "path", data: {runId, kind: "chat"}};
         const next = core.session.kernel.buffer[0];

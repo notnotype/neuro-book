@@ -110,6 +110,12 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
     });
     let nudged = false;
     try {
+        // 接着跑一个停在两轮之间的运行（回退到某一轮之前再发）：先取缓冲区里的第一条开一轮，没有就收口。
+        if (core.leafState.kernel.history.current === null) {
+            const next = core.session.kernel.buffer[0];
+            if (next === undefined) return await end("completed", {reason: "completed"});
+            await write(takeInputDrafts(next.id, next.input, core.newId()));
+        }
         for (;;) {
             if (signal.aborted) return await end("aborted", {reason: "aborted"});
             // 边界第 1 步：运行中到达的外部事实，按到达顺序写入。

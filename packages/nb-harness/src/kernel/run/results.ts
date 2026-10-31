@@ -18,14 +18,32 @@ function addUsage(total: Usage, usage: Usage): Usage {
     };
 }
 
-/** `runId` 的结果；运行还没结束（或不存在）时为 null。 */
-export function runResultOf(events: readonly LogEvent[], runId: string): RunResult | null {
-    const start = events.findIndex((event) => event.type === "runStarted" && (event.data as {runId: string}).runId === runId);
-    if (start < 0) return null;
+/**
+ * `runId` 的结果；运行还没结束（或不存在）时为 null。重试与 swipe 时同一次运行在几条分支上各有一个 `runEnded`：
+ * 取最后写下的那个，只沿它所在的路径往回算到 `runStarted`，别的分支上的回复与用量不算进来（runtime.md 输出 36）。
+ */
+export function runResultOf(events: readonly LogEvent[], runId: string, byId: ReadonlyMap<string, LogEvent>): RunResult | null {
+    let ended: LogEvent | undefined;
+    for (let index = events.length - 1; index >= 0 && ended === undefined; index -= 1) {
+        const event = events[index]!;
+        if (event.type === "runEnded" && (event.data as {runId: string}).runId === runId) ended = event;
+    }
+    if (ended === undefined) return null;
+    const path: LogEvent[] = [];
+    for (let event: LogEvent | undefined = ended; event !== undefined; event = event.parent === null ? undefined : byId.get(event.parent)) {
+        path.push(event);
+        if (event.type === "runStarted" && (event.data as {runId: string}).runId === runId) break;
+    }
+    path.reverse();
+    if (path[0]?.type !== "runStarted") return null;
+    return resultOver(path, runId);
+}
+
+function resultOver(events: readonly LogEvent[], runId: string): RunResult | null {
     let usage = ZERO;
     let lastReply: EventData<KernelEvents["assistant"]> | null = null;
     let lastFailure: EventData<KernelEvents["modelFailed"]> | null = null;
-    for (let index = start; index < events.length; index += 1) {
+    for (let index = 0; index < events.length; index += 1) {
         const event = events[index]!;
         if (event.type === "assistant") {
             const data = event.data as EventData<KernelEvents["assistant"]>;
@@ -53,7 +71,7 @@ export function runResultOf(events: readonly LogEvent[], runId: string): RunResu
                 result: data.result ?? null,
                 error,
                 usage,
-                entries: {first: events[start]!.seq, last: event.seq},
+                entries: {first: events[0]!.seq, last: event.seq},
             };
         }
     }
