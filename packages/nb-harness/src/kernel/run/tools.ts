@@ -193,7 +193,13 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
     const state = core.stateAt();
     const outcomes = new Map<string, CallOutcome>();
     const preset = (call: ToolCall, text: string, code: string): CallOutcome => ({data: {callId: call.id, tool: call.tool, text, status: "error", code}, failures: [], args: null});
-    const unfinished = (call: ToolCall): CallOutcome => ({data: {callId: call.id, tool: call.tool, text: "The call did not finish before the run was aborted.", status: "unknown", code: interrupting(signal) ? "interrupted" : "aborted"}, failures: [], args: null});
+    // 写过 toolStarted 的调用：进程收尾时据此区分“开始了、结果未知”与“根本没开始”，与打开时的恢复一致（runtime.md 输出 34、53）。
+    const started = new Set<string>();
+    const unfinished = (call: ToolCall): CallOutcome => {
+        if (!interrupting(signal)) return {data: {callId: call.id, tool: call.tool, text: "The call did not finish before the run was aborted.", status: "unknown", code: "aborted"}, failures: [], args: null};
+        if (!started.has(call.id)) return {data: {callId: call.id, tool: call.tool, text: `The call to ${call.tool} was not run: the process was interrupted before it started.`, status: "denied", code: "interrupted-before-approval", by: "core"}, failures: [], args: null};
+        return {data: {callId: call.id, tool: call.tool, text: "The call did not finish before the process was interrupted.", status: "unknown", code: "interrupted"}, failures: [], args: null};
+    };
 
     const runnable: ToolCall[] = [];
     for (const call of calls) {
@@ -258,6 +264,7 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
                 }
                 if (signal.aborted) throw new RunStoppedError(`the call to ${final.tool}`);
                 await host.write([ctrl("toolStarted", {callId: final.id, tool: final.tool, args: final.args, invocation: core.newId(), approval: {by: approvedBy}})]);
+                started.add(final.id);
                 executedArgs = final.args;
                 try {
                     executed = normalizeResult(await implementation.execute(final.args, {signal, callId: final.id, sessionId: core.header.id, initial: host.environment().initial, ...(host.interactions === undefined ? {} : {ask: askFor(host, host.interactions, final.id, signal)})}), `tool ${final.tool}`);

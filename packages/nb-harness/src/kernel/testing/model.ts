@@ -1,9 +1,12 @@
 /**
  * 脚本化的假模型：模型端口的一种实现，交回的回复与真实适配器同一份 `ModelResponse` 形状。
  * 脚本用完还被调用时，这次请求以 `local` 失败（码 `script-exhausted`）收口，测试能看到是哪一次。
+ *
+ * 和真实适配器一样先推流式增量再交回回复：思考、文字与每个工具调用的参数各拆成两块（测出站过滤时，
+ * 一个词可能被拆在两块里）。
  */
 
-import type {ContentBlock, ModelErrorKind, ModelInfo, ModelPort, ModelRequest, ModelResponse, RequestPurpose, ToolCall, Usage} from "../api/index.js";
+import type {ContentBlock, ModelDelta, ModelErrorKind, ModelInfo, ModelPort, ModelRequest, ModelResponse, RequestPurpose, ToolCall, Usage} from "../api/index.js";
 
 /** 一次回复的简写：字符串是纯文字。 */
 export type Reply =
@@ -31,6 +34,17 @@ export interface TestModel {
 export const TEST_MODEL_INFO: ModelInfo = {id: "test/model", contextWindow: 100_000, maxOutput: 8_000, capabilities: {vision: false, thinking: true}, efforts: ["low", "medium", "high"]};
 
 const USAGE: Usage = {input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: null, complete: true};
+
+/** 一次回复按流式增量推出去：每段文字拆成前后两半。 */
+function streamOf(response: ModelResponse): ModelDelta[] {
+    const halves = (text: string) => (text.length < 2 ? [text] : [text.slice(0, Math.ceil(text.length / 2)), text.slice(Math.ceil(text.length / 2))]);
+    const deltas: ModelDelta[] = [];
+    for (const block of response.content) {
+        if (block.kind === "thinking" || block.kind === "text") for (const text of halves(block.text)) deltas.push({part: block.kind, text});
+    }
+    for (const call of response.toolCalls) for (const text of halves(JSON.stringify(call.args))) deltas.push({part: "toolArgs", callId: call.id, text});
+    return deltas;
+}
 
 /** `info` 换掉模型信息（例如给 `compactAt`、小窗口）。 */
 export function createTestModel(info: ModelInfo = TEST_MODEL_INFO): TestModel {
@@ -60,10 +74,12 @@ export function createTestModel(info: ModelInfo = TEST_MODEL_INFO): TestModel {
             resolve: (_settings, purpose) => unavailable.has(purpose) ? {ok: false, code: "no-model"} : ({
                 ok: true,
                 info,
-                call: async (request, signal) => {
+                call: async (request, signal, onDelta) => {
                     requests.push(request);
                     if (signal.aborted) return {content: [], toolCalls: [], stopReason: "aborted", usage: {...USAGE, complete: false}, model: TEST_MODEL_INFO.id};
-                    return respond();
+                    const response = respond();
+                    for (const delta of streamOf(response)) onDelta(delta);
+                    return response;
                 },
             }),
         },

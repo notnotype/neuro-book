@@ -10,7 +10,7 @@ import type {Message, ModelCaller, ModelInfo, ModelRequest, ModelResolution, Mod
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
-import {deepFreeze} from "../state/freeze.js";
+import {isSealed, seal} from "../state/freeze.js";
 import {chainLayers, failureDrafts, runChain, type ChainFailure} from "./chain.js";
 import {ctrl} from "./writes.js";
 
@@ -35,25 +35,24 @@ export interface ModelCallOutcome {
  * `tools` 只冻结数组本身：里面是宿主的声明对象（含共享的 schema），内核不替宿主冻结。
  */
 export function freezeRequest(request: ModelRequest): ModelRequest {
-    if (Object.isFrozen(request)) return request;
     for (const [key, value] of Object.entries(request)) {
         if (key === "tools") Object.freeze(value);
-        else deepFreeze(value);
+        else seal(value);
     }
     return Object.freeze(request);
 }
 
 /**
  * 请求的哈希由除消息之外的字段与逐条消息的摘要合成（提案第 19 节的增量哈希）：已提交的消息来自提交缓存，跨请求是同一个对象，
- * 摘要按对象记下，每次请求只序列化、哈希新出现的消息。只记冻结了的消息：没冻结的对象之后可能被改，按身份记的摘要会过时。
- * 交到最里层的请求都经过 `freezeRequest`，所以实际上每条都记。
+ * 摘要按对象记下，每次请求只序列化、哈希新出现的消息。只记整个封住了的消息（`seal`）：只冻结了顶层的对象下面仍能改，
+ * 按身份记的摘要会过时。交到最里层的请求都经过 `freezeRequest`，所以实际上每条都记。
  */
 const messageDigests = new WeakMap<Message, Buffer>();
 function messageDigest(message: Message): Buffer {
     const known = messageDigests.get(message);
     if (known !== undefined) return known;
     const digest = createHash("sha256").update(JSON.stringify(message)).digest();
-    if (Object.isFrozen(message)) messageDigests.set(message, digest);
+    if (isSealed(message)) messageDigests.set(message, digest);
     return digest;
 }
 function requestHash(request: ModelRequest): string {
@@ -63,7 +62,8 @@ function requestHash(request: ModelRequest): string {
     return hash.digest("hex");
 }
 
-const isResponse = (value: unknown): value is ModelResponse => {
+/** 模型拦截交回的值是不是一条回复（真实调用与预览共用同一条校验）。 */
+export const isResponse = (value: unknown): value is ModelResponse => {
     const response = value as Partial<ModelResponse> | null;
     return typeof response === "object" && response !== null && Array.isArray(response.content) && Array.isArray(response.toolCalls) && typeof response.stopReason === "string" && typeof response.usage === "object" && typeof response.model === "string";
 };

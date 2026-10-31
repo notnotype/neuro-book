@@ -14,6 +14,7 @@ import type {ConversationTurn, DiagnosticCode, EntryPoint, Message, ModelRequest
 import {committedTurns} from "../state/history.js";
 import type {Assembly} from "../extension/assemble.js";
 import {viewCtx, type StateAt, type ViewEnvironment} from "../extension/ctx.js";
+import {seal} from "../state/freeze.js";
 import {blockKeys, isPrefix, type ViewCache} from "./cache.js";
 import {createFormat, type RenderSources} from "./format.js";
 import {renderTemplate, TemplateError, type SlotContent} from "./render.js";
@@ -141,7 +142,8 @@ export function computeRequest(inputs: RequestInputs): ComputedRequest {
                 problems.push({code: "commit-differs", extension: profileId, entry: "turn", subject: turn.id, params: {turnId: turn.id}, message: `turn ${turn.id} was committed differently from its last rendering; write a commit if this is intended`});
             }
         }
-        const frozen = Object.freeze(messages);
+        // 提交缓存里的消息跨请求共用（真实请求、预览、压缩方法拿到的都是它们）：整个封住，谁原地改都抛错，缓存不会被改坏。
+        const frozen = Object.freeze(messages.map(seal));
         commits.set(turn, frozen);
         return frozen;
     };

@@ -108,6 +108,14 @@ export class Mounts {
         }
     }
 
+    /**
+     * 运行中撤回一个扩展（runtime.md 输出 57）：触发它在 mount 里拿着的信号，之后它的外部写入只写诊断、回调不再执行。
+     * 清理函数仍留到这次运行结束、重新装配时随 `unmountAll` 调用。
+     */
+    revoke(id: string): void {
+        for (const entry of this.#mounted) if (entry.item.definition.id === id) entry.controller.abort();
+    }
+
     /** 关闭会话时：逆序调用清理函数并等待（各有时限），触发各自的信号。 */
     async unmountAll(): Promise<void> {
         const {core} = this;

@@ -66,9 +66,11 @@ export function createAgentHost(base: Omit<SessionEnv, "extensions">): AgentHost
                 published.set(handle.id, handle);
                 notifyAll({added: [handle.id]});
             },
+            // 只撤回这个句柄自己的贡献：旧代次的句柄重复撤回时，同 id 的新代次不受影响（撤回幂等）。
             revoke(handle) {
-                prepared.delete(handle.id);
-                if (!published.delete(handle.id)) return;
+                if (prepared.get(handle.id) === handle) prepared.delete(handle.id);
+                if (published.get(handle.id) !== handle) return;
+                published.delete(handle.id);
                 notifyAll({removed: [handle.id]});
             },
         },

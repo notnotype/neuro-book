@@ -11,7 +11,7 @@
 import {createHash, randomBytes} from "node:crypto";
 import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
-import type {AnyProfile, ModelInfo, Resources, ToolSessionContext, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
+import type {AnyProfile, Frame, ModelInfo, Resources, ToolSessionContext, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
 import {LOG_FORMAT} from "../api/index.js";
 import {LogBrokenError, SessionCore, type EventDraft} from "../dispatch/core.js";
 import {Mounts} from "../dispatch/mount.js";
@@ -43,9 +43,22 @@ interface Internals {
     closed: boolean;
     /** 换了 Profile 之后重建交给宿主的资源与工具实现。 */
     refreshContext(): Promise<void>;
-    /** 插件贡献的扩展变了、还没重新装配的部分（运行中时等这次运行结束）。 */
-    pendingReassembly: {readonly added: Set<string>; readonly removed: Set<string>} | null;
+    /** 插件贡献的扩展变了、还没开始重新装配的部分（运行中时等这次运行结束）。 */
+    pendingReassembly: Pending | null;
+    /** 正在做的重新装配（含装上扩展）与它处理的变化。指令等它做完再受理，关闭等它做完再摘下（extensions.md 输出 19）。 */
+    reassembling: {readonly promise: Promise<void>; readonly change: Pending} | null;
+    /** 关闭进行中或已完成：重复与并发的 `closeSession` 等同一个。 */
+    closing: Promise<void> | null;
 }
+type Pending = {readonly added: Set<string>; readonly removed: Set<string>};
+const mergePending = (...parts: (Pending | null | undefined)[]): Pending => {
+    const merged: Pending = {added: new Set(), removed: new Set()};
+    for (const part of parts) {
+        for (const id of part?.added ?? []) merged.added.add(id);
+        for (const id of part?.removed ?? []) merged.removed.add(id);
+    }
+    return merged;
+};
 const internals = new WeakMap<SessionApi, Internals>();
 
 /** 开发模式（冻结状态与事件、视图的开发检查）：测试与开发时开，生产环境关掉省遍历与比较。 */
@@ -105,7 +118,7 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
     const resources: Resources = {read: (uri) => currentResources.read(uri), resolve: (uri) => currentResources.resolve(uri)};
     const react: ReactHost = {environment: () => ({tools: tools(), model: modelInfo(), now: core.clock.now(), initial: initialOf()}), resources};
     const mounts = new Mounts(core, {...react, running: () => !control.idle});
-    const state: Internals = {core, control, react, mounts, box, environment, readOnly, closed: false, pendingReassembly: null, refreshContext: async () => {
+    const state: Internals = {core, control, react, mounts, box, environment, readOnly, closed: false, pendingReassembly: null, reassembling: null, closing: null, refreshContext: async () => {
         currentResources = env.resources(context());
         // 工具实现是按上一个 Profile 的上下文建的：全部释放，下次调用按新上下文重建。
         await box.retire([]);
@@ -150,8 +163,13 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         resources: state.react.resources,
         environment: () => state.react.environment(),
         readOnly: () => state.readOnly,
+        closed: () => state.closed,
     };
-    const closedGuard = <T>(run: () => Promise<T>): Promise<T> => (state.closed ? Promise.resolve({ok: false, code: "session-closed"} as T) : run());
+    // 指令等进行中的重新装配做完（装上扩展之前不受理指令，extensions.md 输出 19）；关闭之后得 session-closed。
+    const closedGuard = async <T>(run: () => Promise<T>): Promise<T> => {
+        while (state.reassembling !== null && !state.closed) await state.reassembling.promise;
+        return state.closed ? ({ok: false, code: "session-closed"} as T) : run();
+    };
     // 出站过滤（runtime.md 输出 54）：推帧与日志查询之前按这个视图的发出者过滤；过滤可以是异步的，按日志顺序逐条等
     // （nb-story 的防剧透处理工具结果时要用前面那条调用记下的词）。过滤函数抛错或失败时不给看，写诊断。
     const outbound = env.outbound;
@@ -258,14 +276,22 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                 title: kernel.title,
                 archived: kernel.archived,
                 readOnly: state.readOnly === null ? null : {code: state.readOnly as "unknown-profile"},
-                pendingReassembly: state.pendingReassembly === null ? null : {added: [...state.pendingReassembly.added], removed: [...state.pendingReassembly.removed]},
+                pendingReassembly: state.pendingReassembly === null && state.reassembling === null ? null : (() => {
+                    const pending = mergePending(state.reassembling?.change, state.pendingReassembly);
+                    return {added: [...pending.added], removed: [...pending.removed]};
+                })(),
                 diagnostics: {errors, warnings: core.diagnostics.all().length - errors},
             };
         },
         async log({afterSeq, limit = 500}) {
+            // 分页的边界在读取时就定下：过滤是异步的，等待期间新写下的事件不算这一页，`head`、`more` 与 `through`
+            // 都按这一刻的日志算。过滤掉的事件也算扫描过，下一页从 `through` 接着读（整页被过滤时 events 为空、through 照样前进）。
+            const head = core.head;
+            const total = core.events.length;
             const start = core.events.findIndex((event) => event.seq > afterSeq);
-            const events: LogEvent[] = start < 0 ? [] : await visibleAll(core.events.slice(start, start + limit));
-            return {events, head: core.head, more: start >= 0 && start + limit < core.events.length};
+            const page = start < 0 ? [] : core.events.slice(start, Math.min(start + limit, total));
+            const events: LogEvent[] = await visibleAll(page);
+            return {events, head, more: start >= 0 && start + limit < total, through: page.at(-1)?.seq ?? Math.max(afterSeq, head)};
         },
         rewindTargets: async () => rewindTargets(core),
         async path(args) {
@@ -281,13 +307,24 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         },
         subscribe: (listener) => {
             if (outbound === undefined) return core.subscribe(listener);
-            // 有出站过滤时帧排成一条队列：异步的过滤完一帧再交下一帧，订阅者看到的先后与日志一致。
+            // 有出站过滤时帧排成一条队列：异步的过滤完一帧再交下一帧，订阅者看到的先后与日志一致。取消订阅或会话关闭之后，
+            // 已排进队列的帧不再交出（过滤返回之后、交出之前再查一次）；订阅者抛错只写诊断，不让后面的帧停掉。
             let queue: Promise<void> = Promise.resolve();
-            return core.subscribe((frame) => {
+            let active = true;
+            const deliver = (frame: Frame) => {
+                if (!active || state.closed) return;
+                try {
+                    listener(frame);
+                } catch (error) {
+                    core.diagnostics.add({code: "subscriber-threw", entry: "host", subject: frame.type, message: `a subscriber threw on a ${frame.type} frame`, cause: error}, core.head);
+                }
+            };
+            const unsubscribe = core.subscribe((frame) => {
                 queue = queue.then(async () => {
+                    if (!active || state.closed) return;
                     if (frame.type === "log") {
                         const event = await visible(frame.event);
-                        if (event !== null) listener(event === frame.event ? frame : {...frame, event});
+                        if (event !== null) deliver(event === frame.event ? frame : {...frame, event});
                         return;
                     }
                     if (frame.type === "delta" && outbound.delta !== undefined) {
@@ -297,12 +334,16 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                         } catch (error) {
                             withheld("delta", error);
                         }
-                        if (delta !== null) listener(delta);
+                        if (delta !== null) deliver(delta);
                         return;
                     }
-                    listener(frame);
+                    deliver(frame);
                 });
             });
+            return () => {
+                active = false;
+                unsubscribe();
+            };
         },
         waitRun: (runId) => control.waitRun(runId),
     };
@@ -428,22 +469,33 @@ export function notifyExtensionsChanged(session: SessionApi, env: SessionEnv, ch
         pending.removed.add(id);
         if (!control.idle && core.assembly.order.some((item) => item.definition.id === id)) {
             core.revoked.add(id);
+            // 撤回的扩展在 mount 里拿着的信号立刻触发：之后它的外部写入与回调都不再生效。
+            state.mounts.revoke(id);
             core.diagnostics.add({code: "extension-revoked", extension: id, entry: "host", message: `${id} was revoked while a run is in progress; its handlers, interceptors and slots are skipped until the run ends`}, core.head);
         }
     }
     state.pendingReassembly = pending;
-    if (control.idle) void reassembleNow(state, env);
+    if (control.idle) scheduleReassembly(state, env);
     else control.onIdle = () => {
         control.onIdle = null;
-        void reassembleNow(state, env);
+        scheduleReassembly(state, env);
     };
 }
 
-async function reassembleNow(state: Internals, env: SessionEnv): Promise<void> {
-    const {core} = state;
-    const pending = state.pendingReassembly;
-    if (pending === null || state.closed) return;
+/** 重新装配一次只做一个：进行中时新的变化攒在 `pendingReassembly` 里，等这一次做完接着做。 */
+function scheduleReassembly(state: Internals, env: SessionEnv): void {
+    if (state.reassembling !== null || state.pendingReassembly === null || state.closed) return;
+    const change = state.pendingReassembly;
     state.pendingReassembly = null;
+    const promise = reassembleNow(state, env, change).finally(() => {
+        state.reassembling = null;
+        scheduleReassembly(state, env);
+    });
+    state.reassembling = {promise, change};
+}
+
+async function reassembleNow(state: Internals, env: SessionEnv, pending: Pending): Promise<void> {
+    const {core} = state;
     const reason = pending.added.size > 0 && pending.removed.size > 0 ? "plugin-updated" : pending.added.size > 0 ? "plugin-added" : "plugin-removed";
     const profile = core.assembly.profile;
     const assembled = assemble(profile, env.extensions?.() ?? []);
@@ -455,6 +507,8 @@ async function reassembleNow(state: Internals, env: SessionEnv): Promise<void> {
         return;
     }
     const next = assembled.assembly;
+    // 装配成功：之前因依赖缺失进的只读解除（别的原因的只读，例如必需工具缺失，留到重开）。
+    if (state.readOnly === "dependency-missing") state.readOnly = null;
     if (next.hash === core.assembly.hash) {
         core.revoked.clear();
         return;
@@ -485,10 +539,17 @@ function reportAssemblyWarnings(core: SessionCore): void {
  * 清空订阅 → 关日志与锁。重复调用无事。`reason: "interrupted"` 是进程收尾：在跑的运行按 `interrupted` 收口
  * （session.md 输出 16），否则按 `aborted`。
  */
-export async function closeSession(session: SessionApi, options: {readonly reason?: "interrupted"} = {}): Promise<void> {
+export function closeSession(session: SessionApi, options: {readonly reason?: "interrupted"} = {}): Promise<void> {
     const state = internals.get(session);
-    if (state === undefined || state.closed) return;
+    if (state === undefined) return Promise.resolve();
+    state.closing ??= closeNow(state, options);
+    return state.closing;
+}
+
+async function closeNow(state: Internals, options: {readonly reason?: "interrupted"}): Promise<void> {
     state.closed = true;
+    // 进行中的重新装配先做完：它装上的扩展要在下面一起摘下，清理函数才不会漏调。
+    if (state.reassembling !== null) await state.reassembling.promise;
     if (!state.core.broken) await state.control.shutdown(options.reason === "interrupted" ? new ProcessInterrupt() : undefined);
     await state.core.queue.drain();
     await state.mounts.unmountAll();

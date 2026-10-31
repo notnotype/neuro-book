@@ -11,7 +11,7 @@ import type {CommandErrorTable, DiagnosticCode, DiagnosticLevel} from "./codes.j
 import type {Resources} from "./ctx.js";
 import type {EntryPoint, InteractionDecision, KernelEvents, LogEvent, RunResultValue, SessionHeader, EventData} from "./events.js";
 import type {AnyExtension, CompactionMethodImpl, ContributedExtension} from "./extension.js";
-import type {ApprovalMode, CoreSettings, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, RequestBlock, StopReason, Usage} from "./model.js";
+import type {ApprovalMode, CoreSettings, Message, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, RequestBlock, StopReason, Usage} from "./model.js";
 import type {AnyProfile} from "./profile.js";
 import type {LogStore, StorageResult} from "./storage.js";
 import type {ApprovalVerdict, ToolCall, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo} from "./tool.js";
@@ -165,8 +165,11 @@ export interface RunResult {
 
 export interface SessionQueries {
     snapshot(): Promise<SessionSnapshot>;
-    /** 按 seq 分页补日志，重连与首次加载共用；经出站过滤。 */
-    log(args: {afterSeq: number; limit?: number}): Promise<{events: LogEvent[]; head: number; more: boolean}>;
+    /**
+     * 按 seq 分页补日志，重连与首次加载共用；经出站过滤。`head`、`more` 按读取开始的那一刻算；`through` 是这一页扫描到的
+     * 最后一条 seq（被过滤掉的也算），下一页传 `afterSeq: through`。
+     */
+    log(args: {afterSeq: number; limit?: number}): Promise<{events: LogEvent[]; head: number; more: boolean; through: number}>;
     rewindTargets(): Promise<RewindTarget[]>;
     /** 从根到 `leaf`（缺省当前叶子）的路径上的事件。 */
     path(args?: {leaf?: string | null}): Promise<LogEvent[]>;
@@ -212,20 +215,28 @@ export interface PreviewArgs {
     atRequest?: number;
 }
 
+/**
+ * 改动的位置。消息按两边相同的前缀与后缀对齐：中间多出来的是插入、少了的是删除（`{area: "messages", message}`，
+ * 插入记交出的请求里的下标，删除记收到的请求里的下标），两边都有的逐条比较内容块（`block`）与消息的其余字段（`field`）。
+ * 重排表现为删除加插入。`request` 是顶层除系统、消息、参数、头与工具之外的字段。
+ */
 export type RequestPath =
     | {area: "system"; index: number}
+    | {area: "messages"; message: number}
     | {area: "messages"; message: number; block: number}
+    | {area: "messages"; message: number; field: "role" | "toolCalls" | "callId" | "isError" | "model"}
     | {area: "params"; key: string}
     | {area: "headers"; key: string}
-    | {area: "tools"; index: number};
+    | {area: "tools"; index: number}
+    | {area: "request"; key: "purpose" | "model" | "effort" | "toolChoice" | "providerOptions"};
 
 /** 模型拦截链对请求做的一处改动：内核比较拦截前后的请求得出，不要求拦截自己报。 */
 export interface RequestChange {
     extension: string;
     path: RequestPath;
     op: "replace" | "insert" | "remove";
-    before?: RequestBlock | JsonValue;
-    after?: RequestBlock | JsonValue;
+    before?: RequestBlock | Message | JsonValue;
+    after?: RequestBlock | Message | JsonValue;
 }
 
 export interface SlotReport {

@@ -77,6 +77,8 @@ export async function runChain<I, O>(options: ChainOptions<I, O>): Promise<Chain
     const call = async (index: number, input: I): Promise<O> => {
         if (index === options.layers.length) return options.terminal(input);
         const item = options.layers[index]!;
+        // 层列表在进链时取定；链走到这一层时它已被撤回（外层慢拦截挂起期间撤回），跳过它，原样交给里层。
+        if (core.inactive(item.definition.id)) return call(index + 1, input);
         const fn = interceptorOf(item, options.method)!;
         const controller = new AbortController();
         const onAbort = () => controller.abort(options.signal.reason);

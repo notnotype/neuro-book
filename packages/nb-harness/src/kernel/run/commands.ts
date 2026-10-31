@@ -26,6 +26,8 @@ export interface CommandHost {
     environment(): ViewEnvironment;
     /** 会话为什么只读；可写时为 null。 */
     readOnly(): string | null;
+    /** 会话已开始关闭：在队列里等到这一项的指令（例如输入拦截还没返回时关闭开始了）不再写入、不再开运行。 */
+    closed(): boolean;
 }
 
 /**
@@ -44,6 +46,7 @@ export async function accept<K extends CommandName>(host: CommandHost, name: K, 
         if (previous !== undefined) return {ok: true, value: previous.value as CommandMap[K]["value"], seq: previous.seq, replayed: true} as CommandResult<K>;
         if (core.broken) return {ok: false, code: "log-broken"} as unknown as CommandResult<K>;
         const outcome = await decide();
+        if (host.closed()) return {ok: false, code: "session-closed"} as unknown as CommandResult<K>;
         if ("fail" in outcome) return {ok: false, code: outcome.fail, ...(outcome.detail === undefined ? {} : {detail: outcome.detail})} as unknown as CommandResult<K>;
         const accepted: EventDraft = {type: "commandAccepted", kind: "ctrl", scope: "session", data: {commandId, name, value: outcome.value as JsonValue}};
         // commandAccepted 排在批的最后：它的 seq 就是受理批最后一条的 seq，重发时原样交回。

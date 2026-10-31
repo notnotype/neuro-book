@@ -5,3 +5,19 @@ export function deepFreeze<T>(value: T): T {
     for (const child of Object.values(value)) deepFreeze(child);
     return value;
 }
+
+const sealed = new WeakSet<object>();
+/**
+ * 把整个对象图冻结，不因某个节点已冻结就停：外部（拦截层）交来的对象可能只冻结了顶层，下面的内容仍能改。
+ * 封好的对象记下，之后再遇到直接返回；按对象身份缓存的东西（请求哈希的消息摘要）只信封好的对象。
+ * 先记再走子节点，所以有环的对象也会结束。
+ */
+export function seal<T>(value: T): T {
+    if (value === null || typeof value !== "object" || sealed.has(value)) return value;
+    sealed.add(value);
+    Object.freeze(value);
+    for (const child of Object.values(value)) seal(child);
+    return value;
+}
+
+export const isSealed = (value: object): boolean => sealed.has(value);

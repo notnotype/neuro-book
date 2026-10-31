@@ -150,6 +150,7 @@ export const diagnosticCodes = {
     "profile-code-updated": "info",
     // 宿主面
     "outbound-filter-threw": "error",
+    "subscriber-threw": "error",
 } as const;
 
 export type CommandErrorTable = typeof commandErrors;

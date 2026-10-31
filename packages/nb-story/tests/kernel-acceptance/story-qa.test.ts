@@ -143,7 +143,7 @@ describe("nb-story 验收门：新内核写的 story.qa", () => {
         expect((await session.say("简单说说？")).result).toMatchObject({reason: "completed", text: "她是狐狸。"});
     });
 
-    test("场景 5：出站过滤用 nb-story 的防剧透：给人看的日志里搜不到位置之后才出现的词，模型与存下的日志原样", async () => {
+    test("场景 5：出站过滤用 nb-story 的防剧透：给人看的日志与流式增量里搜不到位置之后才出现的词，模型与存下的日志原样", async () => {
         const later = "夏桃桃";
         const q = await question();
         const visibility = createVisibility(q.state.book, q.reach);
@@ -166,6 +166,9 @@ describe("nb-story 验收门：新内核写的 story.qa", () => {
                 }
                 return event;
             },
+            // 思考与工具参数的增量一个词可能拆在两块里，逐块查不出来：给人看时整类不推，完整的内容随 assistant 事件过滤后到达。
+            // 文字增量照推：story.qa 用 answer 交卷，日志里的文字同样不过滤（答案由校验把关）。
+            delta: (frame, reader) => (reader.kind === "user" && (frame.part === "thinking" || frame.part === "toolArgs") ? null : frame),
         };
         await using session = await sessionFor(q, {outbound});
         session.model.script(
@@ -175,7 +178,12 @@ describe("nb-story 验收门：新内核写的 story.qa", () => {
         );
         const shown: string[] = [];
         const stop = session.raw.subscribe((frame) => {
-            if (frame.type === "log") shown.push(JSON.stringify(frame.event));
+            if (frame.type === "log" || frame.type === "delta") shown.push(JSON.stringify(frame));
+        });
+        // 另一个读者看到的增量是原样的：流式路径确实走到了，而且带着原词。
+        const internalDeltas: string[] = [];
+        const stopInternal = session.raw.as({kind: "session", id: "internal"}).subscribe((frame) => {
+            if (frame.type === "delta") internalDeltas.push(frame.text);
         });
         const report = await session.say("那个新角色是谁？");
         expect(report.result.reason).toBe("finished");
@@ -184,8 +192,10 @@ describe("nb-story 验收门：新内核写的 story.qa", () => {
         expect(userCalls).toEqual([HIDDEN_VALUE, "苏天晴"]);
         expect(JSON.stringify(forUser)).not.toContain(later);
         stop();
+        stopInternal();
         await new Promise<void>((resolve) => setImmediate(resolve));
         expect(shown.join("")).not.toContain(later);
+        expect(internalDeltas.join("")).toContain(later);
         // 模型看到的、日志本身没有被改：给另一个读者（父会话）看的是原样，下一次请求里还带着原词。
         const raw = (await session.raw.as({kind: "session", id: "internal"}).log({afterSeq: 0})).events;
         expect(JSON.stringify(raw)).toContain(later);

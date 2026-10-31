@@ -76,6 +76,11 @@ async function reactTo(core: SessionCore, event: LogEvent, state: StateAt, host:
             }
             continue;
         }
+        // 反应进行中扩展被撤回：它这次的输出丢掉，只写诊断（runtime.md 输出 57）。
+        if (core.inactive(id)) {
+            if (outputs.continueText !== null || outputs.emits.length > 0 || outputs.sets.size > 0) core.diagnostics.add({code: "late-result-dropped", extension: id, entry: "on", event: at, subject: "revoked", message: `${id} was revoked while its handler for ${event.type} was running; its output is dropped`}, core.head);
+            continue;
+        }
         if (outputs.continueText !== null) continues.push({extension: id, text: outputs.continueText});
         const drafts = outputDrafts(core, item, outputs, event, depth);
         if (drafts.length > 0) {

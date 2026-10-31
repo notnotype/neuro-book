@@ -177,14 +177,14 @@ export class SessionCore {
     };
 
     /** 在给定状态上归约一条事件（纯计算，不改内存里的会话）。 */
-    #reduce(path: PathState, session: SessionState, event: LogEvent): {path: PathState; session: SessionState} {
+    #reduce(path: PathState, session: SessionState, event: LogEvent, onProblem: (problem: ReduceProblem) => void = this.#reduceProblem): {path: PathState; session: SessionState} {
         // 扩展事件的版本高于拥有者现在声明的（插件降级后打开新日志）：留在日志里，扩展不归约它（session.md 输出 14）。
         const declared = this.assembly.eventVersions.get(event.type);
         const reducers = declared !== undefined && event.version > declared ? [] : this.assembly.reducers;
         if (reducers.length === 0 && declared !== undefined) {
             this.diagnostics.add({code: "event-version-unsupported", extension: event.source, entry: "reduce", event: {id: event.id, type: event.type, seq: event.seq}, params: {version: event.version, declared}, message: `${event.type} has version ${event.version} but ${event.source} declares ${declared}; the event is not reduced`}, event.seq);
         }
-        const options = {freeze: this.dev, onProblem: this.#reduceProblem};
+        const options = {freeze: this.dev, onProblem};
         if (event.scope === "path") {
             return {path: {kernel: reducePathKernel(path.kernel, event), extensions: reduceSnapshot(reducers, path.extensions, event, "path", options)}, session};
         }
@@ -272,6 +272,35 @@ export class SessionCore {
         if (this.closed) throw new SessionClosedError();
         if (this.broken) throw new LogBrokenError(null);
         if (drafts.length === 0) return [];
+        const staged = this.#stage(drafts, this.#reduceProblem);
+        const stored = await this.store.append(this.handle, staged.map((item) => item.event));
+        this.#drainNotices();
+        if (!stored.ok) {
+            this.broken = true;
+            for (const listener of this.#brokenListeners) listener();
+            throw new LogBrokenError(stored);
+        }
+        this.#batchStates = new Map();
+        for (const item of staged) {
+            this.#commit(this.dev ? deepFreeze(item.event) : item.event, item.path, item.session);
+            this.#batchStates.set(item.event.id, {path: item.path.extensions, session: item.session.extensions, history: item.path.kernel.history, settings: item.session.kernel.settings, continued: item.path.kernel.continued});
+            this.#emit({type: "log", event: item.event});
+        }
+        return staged.map((item) => item.event);
+    }
+
+    /**
+     * 这些事件接在当前叶子之后时的状态：只在内存里归约，不写日志、不改会话（预览下一次请求用，runtime.md 输出 55）。
+     * 投影里归约抛错不写诊断：真正写下时会再归约一次、那时再报。
+     */
+    project(drafts: readonly EventDraft[]): StateAt {
+        const last = this.#stage(drafts, () => undefined).at(-1);
+        if (last === undefined) return this.stateAt();
+        return {path: last.path.extensions, session: last.session.extensions, history: last.path.kernel.history, settings: last.session.kernel.settings, continued: last.path.kernel.continued};
+    }
+
+    /** 给一批草稿编上 id、seq、父节点与位置章，并在当前叶子上依次归约（纯计算）。 */
+    #stage(drafts: readonly EventDraft[], onProblem: (problem: ReduceProblem) => void): {event: LogEvent; path: PathState; session: SessionState}[] {
         let leaf = this.leaf;
         let path = this.leafState;
         let session = this.#session;
@@ -296,7 +325,7 @@ export class SessionCore {
                 ...(draft.kind === "conv" && !STRUCTURAL.has(draft.type) ? {position: positionFor(path.kernel)} : {}),
                 data: draft.data,
             };
-            const next = this.#reduce(path, session, event);
+            const next = this.#reduce(path, session, event, onProblem);
             if (event.scope === "path") leaf = event.id;
             else if (event.type === "leafChanged") {
                 leaf = (event.data as {leaf: string | null}).leaf;
@@ -306,20 +335,7 @@ export class SessionCore {
             session = next.session;
             staged.push({event, path: next.path, session: next.session});
         }
-        const stored = await this.store.append(this.handle, staged.map((item) => item.event));
-        this.#drainNotices();
-        if (!stored.ok) {
-            this.broken = true;
-            for (const listener of this.#brokenListeners) listener();
-            throw new LogBrokenError(stored);
-        }
-        this.#batchStates = new Map();
-        for (const item of staged) {
-            this.#commit(this.dev ? deepFreeze(item.event) : item.event, item.path, item.session);
-            this.#batchStates.set(item.event.id, {path: item.path.extensions, session: item.session.extensions, history: item.path.kernel.history, settings: item.session.kernel.settings, continued: item.path.kernel.continued});
-            this.#emit({type: "log", event: item.event});
-        }
-        return staged.map((item) => item.event);
+        return staged;
     }
 
     /** 刚写下的那一批里某条事件之后的状态（只在下一次写入之前有效）。 */

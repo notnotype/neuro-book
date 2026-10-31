@@ -70,7 +70,7 @@ export function takeInputDrafts(inputId: string, input: UserInput, turnId: strin
 }
 
 /** 取走缓冲区里全部 steer：按入队顺序，每条 `inputConsumed` 加一条 `steer`，同一个写入批（runtime.md 输出 28）。 */
-function takeSteerDrafts(core: SessionCore): EventDraft[] {
+export function takeSteerDrafts(core: SessionCore): EventDraft[] {
     return core.session.kernel.buffer.filter((item) => item.mode === "steer").flatMap((item): EventDraft[] => {
         const {text, payload, attachments} = item.input;
         return [

@@ -362,6 +362,26 @@ describe("拦截链", () => {
         expect(hashes[2]).not.toBe(hashes[0]);
     });
 
+    test("输出 22：交给 next 的请求整个封住——拦截交来的消息只冻结了顶层，下面的内容同样改不了", async () => {
+        let blocked: unknown = null;
+        const appender = defineExtension({id: "lab.appender", intercept: {model: async (request, next) => {
+            const origin = request.messages[0]!.content[0]!.origin;
+            const extra = Object.freeze({role: "user" as const, content: [{kind: "text" as const, text: "甲", origin}]});
+            const reply = await next({...request, messages: [...request.messages, extra]});
+            try {
+                (extra.content[0] as {text: string}).text = "乙";
+            } catch (error) {
+                blocked = error;
+            }
+            return reply;
+        }}});
+        await using session = await createTestSession({extensions: [appender]});
+        session.model.script("好");
+        const {requests} = await session.say("问");
+        expect(blocked).toBeInstanceOf(TypeError);
+        expect((requests[0]!.raw.messages.at(-1)!.content[0] as {text: string}).text).toBe("甲");
+    });
+
     test("输出 22、23：交给拦截层的请求、调用与结果是冻结的，原地修改按这一层出错处理", async () => {
         const mutator = defineExtension({id: "lab.mutator", intercept: {
             model: async (request, next) => {

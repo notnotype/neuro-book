@@ -123,6 +123,73 @@ describe("关闭", () => {
     });
 });
 
+describe("关闭的竞态", () => {
+    test("输出 53：关闭开始时还在受理的指令得 session-closed、不开运行；并发的关闭等同一个，摘下的清理照样等到", async () => {
+        const entered = gate();
+        const held = gate();
+        const slowInput = defineExtension({id: "lab.slow-input", intercept: {input: async (input, next) => {
+            entered.open();
+            await held.promise;
+            return next(input);
+        }}});
+        const cleaning = gate();
+        let cleaned = 0;
+        const watcher = defineExtension({id: "lab.watch", mount: () => async () => {
+            await cleaning.promise;
+            cleaned += 1;
+        }});
+        const session = await createTestSession({store: {root}, extensions: [slowInput, watcher]});
+        session.model.script("答");
+        const sending = session.raw.send({commandId: id(), input: {text: "问"}});
+        await entered.promise;
+        const first = closeSession(session.raw);
+        const second = closeSession(session.raw);
+        held.open();
+        expect(await sending).toEqual({ok: false, code: "session-closed"});
+        let secondDone = false;
+        void second.then(() => {
+            secondDone = true;
+        });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(secondDone).toBe(false);
+        cleaning.open();
+        await second;
+        expect(cleaned).toBe(1);
+        await first;
+        await using reopened = await createTestSession({store: {root}, open: session.id, extensions: [slowInput, watcher]});
+        expect(types(await reopened.events())).not.toContain("runStarted");
+        expect(session.model.requests).toHaveLength(0);
+    });
+
+    test("输出 53、34：进程收尾时开始了的工具得 unknown/interrupted，还没开始的得 denied/interrupted-before-approval，与重开的恢复一致", async () => {
+        const clock = createTestClock();
+        const started = gate();
+        let secondRan = false;
+        const session = await createTestSession({store: {root}, clock, tools: [
+            {id: "lab.first", execute: async () => {
+                started.open();
+                return new Promise<string>(() => undefined);
+            }},
+            {id: "lab.second", execute: () => {
+                secondRan = true;
+                return "第二个";
+            }},
+        ]});
+        session.model.script({tools: [{tool: "lab.first"}, {tool: "lab.second"}]});
+        await sendRaw(session, "问");
+        await started.promise;
+        const closing = closeSession(session.raw, {reason: "interrupted"});
+        await clock.advance(0);
+        await clock.advance(ABORT_GRACE_MS);
+        await closing;
+        await using reopened = await createTestSession({store: {root}, open: session.id});
+        const events = await reopened.events();
+        expect(dataOf(events, "toolResult").map((data) => [data.tool, data.status, data.code])).toEqual([["lab.first", "unknown", "interrupted"], ["lab.second", "denied", "interrupted-before-approval"]]);
+        expect(dataOf(events, "toolStarted").map((data) => data.tool)).toEqual(["lab.first"]);
+        expect(secondRan).toBe(false);
+    });
+});
+
 describe("出站过滤", () => {
     test("输出 54：按视图的发出者过滤帧、日志查询与路径；过滤抛错时不给看并诊断", async () => {
         let broken = false;
@@ -185,6 +252,74 @@ describe("出站过滤（异步）", () => {
     });
 });
 
+describe("出站过滤的订阅与分页", () => {
+    test("输出 53、54：取消订阅或关闭会话之后，已排进过滤队列的帧不再交出", async () => {
+        // 第一帧的过滤挂在 held 上，后面的帧排在它后面；放开之后它返回（released），排着的帧随即被丢掉。
+        let held = gate();
+        let holding = true;
+        let released = gate();
+        const outbound: SessionEnv["outbound"] = {
+            event: async (event) => {
+                if (holding) {
+                    await held.promise;
+                    released.open();
+                }
+                return event;
+            },
+        };
+        const session = await createTestSession({outbound});
+        const seen: string[] = [];
+        const stop = session.raw.subscribe((frame) => seen.push(frame.type));
+        session.model.script("答一", "答二");
+        await session.raw.waitRun(await sendRaw(session, "问一"));
+        stop();
+        holding = false;
+        held.open();
+        await released.promise;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(seen).toEqual([]);
+
+        held = gate();
+        holding = true;
+        released = gate();
+        const afterClose: string[] = [];
+        session.raw.subscribe((frame) => afterClose.push(frame.type));
+        await session.raw.waitRun(await sendRaw(session, "问二"));
+        await closeSession(session.raw);
+        holding = false;
+        held.open();
+        await released.promise;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(afterClose).toEqual([]);
+    });
+
+    test("输出 54：日志分页的边界在读取开始时定下；整页被过滤时 through 照样前进", async () => {
+        let hold: Promise<void> | null = null;
+        const outbound: SessionEnv["outbound"] = {
+            event: async (event) => {
+                if (hold !== null) await hold;
+                return event.type === "inputQueued" || event.type === "commandAccepted" ? null : event;
+            },
+        };
+        await using session = await createTestSession({outbound});
+        for (const text of ["一", "二", "三"]) await session.raw.enqueue({commandId: id(), input: {text}, mode: "followup"});
+        const head = (await session.raw.snapshot()).head;
+        // 三次入队各写 inputQueued 与 commandAccepted，全被过滤掉。
+        expect(await session.raw.log({afterSeq: head - 6, limit: 2})).toEqual({events: [], head, more: true, through: head - 4});
+        expect(await session.raw.log({afterSeq: head - 4})).toEqual({events: [], head, more: false, through: head});
+
+        const held = gate();
+        hold = held.promise;
+        const reading = session.raw.log({afterSeq: 0});
+        await session.raw.setTitle({commandId: id(), title: "新标题"});
+        hold = null;
+        held.open();
+        const page = await reading;
+        expect([page.head, page.through, page.more]).toEqual([head, head, false]);
+        expect(types((await session.raw.log({afterSeq: page.through})).events)).toContain("titleChanged");
+    });
+});
+
 describe("单次请求", () => {
     const plain = defineProfile({id: "lab.plain", version: "1", name: "p", description: "p", system: "你是校对。", prompt: () => null as never}) as AnyProfile;
     const withTools = defineProfile({id: "lab.tools", version: "1", name: "t", description: "t", tools: {required: ["lab.read"]}}) as AnyProfile;
@@ -231,6 +366,61 @@ describe("预览", () => {
         expect(session.model.requests).toHaveLength(1);
         await expect(session.raw.preview({atRequest: 1})).rejects.toMatchObject({code: "past-request-unsupported"});
     });
+
+    test("输出 55：预览里原地改请求按这一层失败、不改坏之后的真实请求；拦截失败交在 diagnostics；改动覆盖消息的插入、字段与顶层字段", async () => {
+        let mode: "off" | "mutate" | "throw" | "rewrite" = "off";
+        const meddle = defineExtension({id: "lab.meddle", intercept: {model: async (request, next, ctx) => {
+            if (ctx.phase !== "preview" || mode === "off") return next(request);
+            if (mode === "mutate") {
+                (request.messages[0]!.content[0] as {text: string}).text = "预览改坏了";
+                return next(request);
+            }
+            if (mode === "throw") throw new Error("坏了");
+            const [first, ...rest] = request.messages;
+            return next({...request, model: "other/model", effort: "high", messages: [{...first!, role: "assistant"}, {role: "user", content: [{kind: "text", text: "插进来的", origin: first!.content[0]!.origin}]}, ...rest]});
+        }}});
+        await using session = await createTestSession({extensions: [meddle]});
+        session.model.script("答一", "答二");
+        await session.say("第一问");
+        const head = (await session.raw.snapshot()).head;
+
+        mode = "mutate";
+        const mutated = await session.raw.preview();
+        expect(mutated.diagnostics.map((item) => [item.code, item.extension, item.persisted])).toEqual([["intercept-threw", "lab.meddle", false]]);
+        expect(mutated.changes).toEqual([]);
+        mode = "throw";
+        expect((await session.raw.preview()).diagnostics.map((item) => [item.code, item.extension])).toEqual([["intercept-threw", "lab.meddle"]]);
+        mode = "rewrite";
+        const rewritten = await session.raw.preview();
+        expect(rewritten.changes.map((change): [unknown, string] => [change.path, change.op])).toEqual([
+            [{area: "messages", message: 0, field: "role"}, "replace"],
+            [{area: "messages", message: 1}, "insert"],
+            [{area: "request", key: "model"}, "replace"],
+            [{area: "request", key: "effort"}, "insert"],
+        ]);
+        expect((await session.raw.snapshot()).head).toBe(head);
+
+        mode = "off";
+        await session.say("第二问");
+        expect((session.model.requests[1]!.messages[0]!.content[0] as {text: string}).text).toBe("第一问");
+    });
+
+    test("输出 55：缓冲区里排着的输入投影进下一次请求；工具调用的参数算进 token", async () => {
+        await using session = await createTestSession({tools: [{id: "lab.search", execute: () => "结果"}]});
+        const query = "查".repeat(3000);
+        session.model.script({tools: [{tool: "lab.search", args: {query}}]}, "答一", "答二");
+        await session.say("第一问");
+        expect((await session.raw.preview()).tokens.byArea.history).toBeGreaterThan(3000);
+        await session.raw.enqueue({commandId: id(), input: {text: "下一问"}, mode: "followup"});
+        const preview = await session.raw.preview();
+        const last = preview.request.messages.at(-1)!;
+        expect([last.role, (last.content[0] as {text: string}).text]).toEqual(["user", "下一问"]);
+        expect(preview.tokens.byArea.turn).toBeGreaterThan(0);
+        const started = await session.raw.start({commandId: id()});
+        if (!started.ok) throw new Error(started.code);
+        await session.raw.waitRun(started.value.runId);
+        expect(session.model.requests.at(-1)!.messages).toEqual(preview.request.messages.map((message) => expect.objectContaining({role: message.role})));
+    });
 });
 
 describe("插件宿主", () => {
@@ -274,8 +464,9 @@ describe("插件宿主", () => {
         const created = await host.create({profile: defaultProfile.id});
         if (!created.ok) throw new Error(created.code);
         const session = created.value;
-        host.extensions.prepare(handleOf(counter));
-        host.extensions.published(handleOf(counter));
+        const handle = handleOf(counter);
+        host.extensions.prepare(handle);
+        host.extensions.published(handle);
         await waitIdleWrites(session);
         const added = (await session.log({afterSeq: 0})).events.filter((event) => event.type === "profileChanged").map((event) => (event.data as {reason: string}).reason);
         expect(added).toEqual(["created", "plugin-added"]);
@@ -285,7 +476,7 @@ describe("插件宿主", () => {
         const sent = await session.send({commandId: "s1", input: {text: "问"}});
         if (!sent.ok || sent.value.runId === null) throw new Error("no run");
         await started.promise;
-        host.extensions.revoke(handleOf(counter), "deactivated");
+        host.extensions.revoke(handle, "deactivated");
         const during = await session.snapshot();
         expect(during.extensions.map((item) => [item.id, item.status])).toEqual([["lab.count", "revoked"]]);
         expect(during.pendingReassembly).toEqual({added: [], removed: ["lab.count"]});
@@ -304,15 +495,157 @@ describe("插件宿主", () => {
 
     test("输出 57：撤回后重新装配失败（依赖没了）时会话进只读", async () => {
         const host = createAgentHost(hostEnv());
-        host.extensions.prepare(handleOf(counter));
-        host.extensions.published(handleOf(counter));
+        const handle = handleOf(counter);
+        host.extensions.prepare(handle);
+        host.extensions.published(handle);
         const created = await host.create({profile: dependent.id});
         if (!created.ok) throw new Error(created.code);
-        host.extensions.revoke(handleOf(counter), "uninstalled");
+        host.extensions.revoke(handle, "uninstalled");
         await waitIdleWrites(created.value);
         expect((await created.value.snapshot()).readOnly).toEqual({code: "dependency-missing"});
         expect(await created.value.send({commandId: "x", input: {text: "问"}})).toMatchObject({ok: false, code: "read-only"});
         await host.close(created.value.id);
+    });
+
+    test("输出 57、extensions 输出 19：重新装配装上扩展之前不受理指令；关闭等它做完，迟到装上的清理照样调用", async () => {
+        const model = createTestModel();
+        const host = createAgentHost(hostEnv(model));
+        const created = await host.create({profile: defaultProfile.id});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        const slowMount = (extensionId: string, entered: ReturnType<typeof gate>, release: ReturnType<typeof gate>, cleaned: {count: number}) => defineExtension({id: extensionId, mount: async () => {
+            entered.open();
+            await release.promise;
+            return () => {
+                cleaned.count += 1;
+            };
+        }});
+        const entered = gate();
+        const release = gate();
+        const cleaned = {count: 0};
+        const handle = handleOf(slowMount("lab.slow", entered, release, cleaned));
+        host.extensions.prepare(handle);
+        host.extensions.published(handle);
+        await entered.promise;
+        expect((await session.snapshot()).pendingReassembly).toEqual({added: ["lab.slow"], removed: []});
+        model.script("答");
+        let answered = false;
+        const sending = session.send({commandId: "s1", input: {text: "问"}}).then((result) => {
+            answered = true;
+            return result;
+        });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(answered).toBe(false);
+        release.open();
+        const sent = await sending;
+        if (!sent.ok || sent.value.runId === null) throw new Error("no run");
+        await session.waitRun(sent.value.runId);
+
+        const entered2 = gate();
+        const release2 = gate();
+        const cleaned2 = {count: 0};
+        const handle2 = handleOf(slowMount("lab.slow2", entered2, release2, cleaned2));
+        host.extensions.prepare(handle2);
+        host.extensions.published(handle2);
+        await entered2.promise;
+        const closing = host.close(session.id);
+        let closed = false;
+        void closing.then(() => {
+            closed = true;
+        });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(closed).toBe(false);
+        release2.open();
+        await closing;
+        // lab.slow 的清理调用两次：第二次重新装配先摘下全部再装回，关闭时又摘下一次。
+        expect([cleaned.count, cleaned2.count]).toEqual([2, 1]);
+    });
+
+    test("输出 57：依赖补回、重新装配成功后解除只读；旧代次的句柄重复撤回不影响同 id 的新代次", async () => {
+        const host = createAgentHost(hostEnv());
+        const first = handleOf(counter);
+        host.extensions.prepare(first);
+        host.extensions.published(first);
+        const created = await host.create({profile: dependent.id});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        host.extensions.revoke(first, "uninstalled");
+        await waitIdleWrites(session);
+        expect((await session.snapshot()).readOnly).toEqual({code: "dependency-missing"});
+        const second = handleOf(counter);
+        host.extensions.prepare(second);
+        host.extensions.published(second);
+        await waitIdleWrites(session);
+        expect((await session.snapshot()).readOnly).toBeNull();
+        host.extensions.revoke(first, "uninstalled");
+        await waitIdleWrites(session);
+        expect(host.list().map((item) => item.id)).toEqual(["lab.count"]);
+        expect((await session.snapshot()).readOnly).toBeNull();
+        await host.close(session.id);
+    });
+
+    test("输出 57：运行中撤回时，链里还没走到的那层拦截跳过、mount 里拿着的回调不再执行；进行中的反应的输出丢掉", async () => {
+        const model = createTestModel();
+        const host = createAgentHost(hostEnv(model));
+        const outerEntered = gate();
+        const outerRelease = gate();
+        let innerCalls = 0;
+        let callbackRuns = 0;
+        let later: (() => void) | null = null;
+        // 拦截序按 id：lab.a-outer 在外层，lab.b-inner 在里层。
+        const outer = defineExtension({id: "lab.a-outer", intercept: {model: async (request, next) => {
+            outerEntered.open();
+            await outerRelease.promise;
+            return next(request);
+        }}});
+        const inner = defineExtension({id: "lab.b-inner", intercept: {model: async (request, next) => {
+            innerCalls += 1;
+            return next(request);
+        }}, mount: (ctx) => {
+            later = ctx.callback(() => {
+                callbackRuns += 1;
+            });
+        }});
+        const handles = [handleOf(outer), handleOf(inner)];
+        for (const handle of handles) host.extensions.prepare(handle);
+        for (const handle of handles) host.extensions.published(handle);
+        const created = await host.create({profile: defaultProfile.id});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        model.script("答");
+        const sent = await session.send({commandId: "s1", input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("no run");
+        await outerEntered.promise;
+        host.extensions.revoke(handles[1]!, "deactivated");
+        later!();
+        outerRelease.open();
+        expect((await session.waitRun(sent.value.runId)).reason).toBe("completed");
+        expect([innerCalls, callbackRuns]).toEqual([0, 0]);
+        await host.close(session.id);
+
+        const reactEntered = gate();
+        const reactRelease = gate();
+        const reacting = defineExtension({id: "lab.react", events: {leak: ext()}, on: {assistant: async (_event, ctx) => {
+            reactEntered.open();
+            await reactRelease.promise;
+            ctx.emit("leak");
+        }}});
+        const host2 = createAgentHost(hostEnv(model));
+        const reactHandle = handleOf(reacting);
+        host2.extensions.prepare(reactHandle);
+        host2.extensions.published(reactHandle);
+        const created2 = await host2.create({profile: defaultProfile.id});
+        if (!created2.ok) throw new Error(created2.code);
+        model.script("答");
+        const sent2 = await created2.value.send({commandId: "s2", input: {text: "问"}});
+        if (!sent2.ok || sent2.value.runId === null) throw new Error("no run");
+        await reactEntered.promise;
+        host2.extensions.revoke(reactHandle, "deactivated");
+        reactRelease.open();
+        await created2.value.waitRun(sent2.value.runId);
+        expect(types((await created2.value.log({afterSeq: 0})).events)).not.toContain("lab.react/leak");
+        expect((await created2.value.diagnostics()).some((item) => item.code === "late-result-dropped" && item.extension === "lab.react")).toBe(true);
+        await host2.close(created2.value.id);
     });
 
     const defaultProfile = defineProfile({id: "test.host", version: "1", name: "h", description: "h", system: "系统"}) as AnyProfile;
