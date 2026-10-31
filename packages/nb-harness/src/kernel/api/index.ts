@@ -14,7 +14,7 @@ export type {
     Position, RunResultValue, SessionHeader,
 } from "./events.js";
 export type {
-    AnyExtension, CompactionJob, CompactionMethod, CompactionResult, ContributedExtension, DefineExtension, Extension, ExtensionFields, Implement, Interceptors, SettingsSchema, StateOfExtension,
+    AnyExtension, CompactionCut, CompactionJob, CompactionMethod, CompactionMethodImpl, CompactionResult, ContributedExtension, DefineExtension, Extension, ExtensionFields, Implement, Interceptors, SettingsSchema, StateOfExtension,
 } from "./extension.js";
 export type {FinalOnlyHelper, OpeningHelper, ReminderHelper, ReminderOptions, StandardLayoutHelper, StandardLayoutOptions, WithoutEventsHelper} from "./helpers.js";
 export type {

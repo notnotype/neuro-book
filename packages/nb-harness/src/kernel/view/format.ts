@@ -25,6 +25,8 @@ export interface RenderSources {
     readonly extensions: ReadonlyMap<string, RenderTable>;
     readonly profileId: string;
     readonly onProblem: (problem: RenderProblem) => void;
+    /** 压缩省略的条目：渲染成占位（优先于一切 `render`），消息与工具调用照样在（runtime.md 输出 49）。 */
+    readonly omitted: ReadonlyMap<string, string>;
 }
 
 function originOf(event: LogEvent): Origin {
@@ -62,11 +64,13 @@ export function createFormat(sources: RenderSources, override: RenderTable = {})
         }
     };
     const textOf = (event: LogEvent): string | null => {
+        const placeholder = sources.omitted.get(event.id);
+        if (placeholder !== undefined) return placeholder;
         const text = overriddenText(event);
         return text === undefined ? defaultText(event) : text;
     };
     /** 回复与工具结果：覆盖返回 null 也用缺省。 */
-    const requiredTextOf = (event: LogEvent): string | undefined => overriddenText(event) ?? undefined;
+    const requiredTextOf = (event: LogEvent): string | undefined => sources.omitted.get(event.id) ?? overriddenText(event) ?? undefined;
     const block = (text: string, origin: Origin): RequestBlock => ({kind: "text", text, origin});
     const format: Format<RenderTable> = {
         user(...parts) {

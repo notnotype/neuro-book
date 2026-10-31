@@ -2,7 +2,8 @@
  * 运行循环（提案第 1 节的运行图）。循环在队列之外：每次写日志都把写入交给队列并等它完成；等模型、等工具的时候不占队列。
  *
  * 边界（每次模型请求之前）按这个顺序：外部事实 → 工具集比对（必需工具、`toolsAnnounced`）→ steer 全部取走 →
- * 交结果的提醒 → 视图、模型拦截链、`modelStarted`。估算与压缩随第 8 片插在 steer 之后，顺序不变。
+ * 估算与压缩（运行中受理的 `compact`、超过阈值）→ 交结果的提醒 → 视图、模型拦截链、`modelStarted`。
+ * 服务商报溢出时压缩后把同一请求再发一次，每次请求最多一次。压缩本身由 `session/` 注入（`RunHost.compaction`）。
  *
  * 收口：任何一步出错或被中止，都写 `turnEnded`、`runEnded`。决定收口之后，还在跑的模型链与工具链再写日志都得
  * `RunStoppedError`（`writes.ts`）；收口前先等队列里已经交出去的写入写完，再看有没有发出了没结果的模型请求。
@@ -10,7 +11,7 @@
  */
 
 import {replyText} from "../api/index.js";
-import type {ApproveHook, EventData, JsonValue, KernelEvents, ModelInfo, ModelPort, ReplyEvent, Resources, ToolInfo, UserInput} from "../api/index.js";
+import type {ApproveHook, EventData, JsonValue, KernelEvents, ModelCaller, ModelInfo, ModelPort, ReplyEvent, Resources, ToolDeclaration, ToolInfo, UserInput} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {LogBrokenError} from "../dispatch/core.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
@@ -30,16 +31,32 @@ export interface RunHost {
     readonly resources: Resources;
     readonly approve: ApproveHook;
     readonly interactions: Interactions;
+    readonly compaction: RunCompaction;
+    /** 运行中受理的 `compact` 的要求：到下一个边界做，取走即清空。 */
+    takeCompactRequests(): readonly string[][];
     environment(model: ModelInfo, tools: readonly ToolInfo[]): ViewEnvironment;
     /** 必需工具缺失：会话进只读直到重开（runtime.md 输出 15）。 */
     markReadOnly(code: "tools-missing"): void;
     /** 运行阶段变了（推状态帧用）。 */
-    phase(phase: "reacting" | "requesting" | "streaming" | "tools", request: number | null): void;
+    phase(phase: "reacting" | "requesting" | "streaming" | "tools" | "compacting", request: number | null): void;
 }
 
 export interface ActiveRun {
     readonly runId: string;
     readonly controller: AbortController;
+    /** 只压缩的运行（空闲时受理的 `compact`）：这次运行只做一次压缩。 */
+    readonly compact?: {readonly require: readonly string[]};
+}
+
+/** 一次压缩的结果（`compaction/compact.ts` 的 `CompactOutcome`；循环不依赖 `compaction/`，只看这几样）。 */
+export type CompactOutcome = {readonly ok: true} | {readonly ok: false; readonly code: "disabled" | "nothing-to-compact" | "compaction-failed" | "aborted"};
+
+/** `session/` 接进来的压缩（runtime.md 输出 46–52）。 */
+export interface RunCompaction {
+    /** 当前上下文的 token 估算与这个模型的触发点。 */
+    estimate(): number;
+    trigger(model: ModelInfo): number;
+    run(args: {reason: "threshold" | "overflow" | "manual"; require: readonly string[]; environment: ViewEnvironment; tools: readonly ToolDeclaration[]; model: string; signal: AbortSignal; write: (drafts: EventDraft[]) => Promise<unknown>; caller: ModelCaller}): Promise<CompactOutcome>;
 }
 
 /** 取走一条输入开新的一轮：`inputConsumed`、`turnStarted`、`input` 同批（提案第 2 节“写入批”）。 */
@@ -111,7 +128,29 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
         else signal.addEventListener("abort", () => resolve("aborted"), {once: true});
     });
     let nudged = false;
+    /** 这次请求因为溢出压缩过一次：再溢出就收口（每次请求最多重发一次）。 */
+    let overflowRetried = false;
+    const modelHostFor = (environment: ViewEnvironment): ModelCallHost & {resolve: Parameters<typeof modelCaller>[0]["resolve"]} => ({
+        core,
+        resources: host.resources,
+        environment: () => environment,
+        write: guardedWrite,
+        streaming: (request) => host.phase("streaming", request),
+        resolve: (purpose) => host.models.resolve(core.session.kernel.core, purpose),
+    });
     try {
+        if (run.compact !== undefined) {
+            // 只压缩的运行：做一次压缩就收口（runtime.md 输出 52）。
+            host.phase("compacting", null);
+            const resolution = host.models.resolve(core.session.kernel.core, "turn");
+            if (!resolution.ok) return await end("error", {reason: "error", error: {kind: "local", code: resolution.code}});
+            const tools = host.box.current();
+            const environment = host.environment(resolution.info, tools.map(toolInfo));
+            const outcome = await host.compaction.run({reason: "manual", require: run.compact.require, environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal)});
+            if (outcome.ok) return await end("completed", {reason: "completed"});
+            if (outcome.code === "aborted" || signal.aborted) return await end("aborted", {reason: "aborted"});
+            return await end("error", {reason: "error", error: {kind: "local", code: outcome.code === "nothing-to-compact" ? "compaction-failed" : outcome.code === "disabled" ? "compaction-failed" : outcome.code}});
+        }
         // 接着跑一个停在两轮之间的运行（回退到某一轮之前再发）：先取缓冲区里的第一条开一轮，没有就收口。
         if (core.leafState.kernel.history.current === null) {
             const next = core.session.kernel.buffer[0];
@@ -142,13 +181,22 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             const steers = takeSteerDrafts(core);
             if (steers.length > 0) await write(steers);
 
-            // 边界第 4 步：会话要求交回结果时，第一轮开头告诉模型调用 yield。
-            if (core.header.result !== undefined && !core.leafState.kernel.resultRequested) await write([conv("notice", {code: "result-requested", text: RESULT_REQUESTED})]);
-
             host.phase("requesting", null);
             const resolution = host.models.resolve(core.session.kernel.core, "turn");
             if (!resolution.ok) return await end("error", {reason: "error", error: {kind: "local", code: resolution.code}});
             const environment = host.environment(resolution.info, tools.map(toolInfo));
+
+            // 边界第 4 步：运行中受理的 compact，或估算超过触发点，先压缩再算请求。失败只留诊断，请求照发。
+            const requested = host.takeCompactRequests();
+            if (requested.length > 0 || host.compaction.estimate() > host.compaction.trigger(resolution.info)) {
+                host.phase("compacting", null);
+                const outcome = await host.compaction.run({reason: requested.length > 0 ? "manual" : "threshold", require: requested.flat(), environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal)});
+                if (!outcome.ok && (outcome.code === "aborted" || signal.aborted)) return await end("aborted", {reason: "aborted"});
+                host.phase("requesting", null);
+            }
+
+            // 边界第 5 步：会话要求交回结果时，第一轮开头告诉模型调用 yield。
+            if (core.header.result !== undefined && !core.leafState.kernel.resultRequested) await write([conv("notice", {code: "result-requested", text: RESULT_REQUESTED})]);
             const computed = computeRequest({
                 assembly: core.assembly,
                 state: core.stateAt(),
@@ -167,14 +215,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 return await end("error", {reason: "error", error: {kind: "local", code: "profile-failed"}}, [ctrl("extensionFailed", {extension: profile, entry: computed.entry, code: computed.code})]);
             }
 
-            const modelHost: ModelCallHost & {resolve: Parameters<typeof modelCaller>[0]["resolve"]} = {
-                core,
-                resources: host.resources,
-                environment: () => environment,
-                write: guardedWrite,
-                streaming: (request) => host.phase("streaming", request),
-                resolve: (purpose) => host.models.resolve(core.session.kernel.core, purpose),
-            };
+            const modelHost = modelHostFor(environment);
             const called = await Promise.race([callModel(modelHost, resolution, computed.request, signal), abortedNow]);
             if (called === "aborted") return await end("aborted", {reason: "aborted"});
             const {response, request} = called;
@@ -191,8 +232,21 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                     usage: response.usage,
                 });
                 if (aborted) return await end("aborted", {reason: "aborted"}, [...modelFailures, failure]);
+                if (response.error?.kind === "context_overflow" && !overflowRetried && (core.assembly.profile as {compaction?: unknown}).compaction !== false) {
+                    // 溢出：记下这次失败的请求，按溢出的顺序压缩，成功就把请求再发一次（runtime.md 输出 50）。
+                    await write([...modelFailures, failure]);
+                    host.phase("compacting", null);
+                    const outcome = await host.compaction.run({reason: "overflow", require: [], environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHost, signal)});
+                    if (outcome.ok) {
+                        overflowRetried = true;
+                        continue;
+                    }
+                    if (outcome.code === "aborted" || signal.aborted) return await end("aborted", {reason: "aborted"});
+                    return await end("error", {reason: "error", error: {kind: "context_overflow", ...(response.error.code === undefined ? {} : {code: response.error.code})}});
+                }
                 return await end("error", {reason: "error", error: {kind: response.error?.kind ?? "provider", ...(response.error?.code === undefined ? {} : {code: response.error.code})}}, [...modelFailures, failure]);
             }
+            overflowRetried = false;
             const replied = await write([...modelFailures, {type: "assistant", kind: "conv", scope: "path", data: {
                 request,
                 content: response.content,

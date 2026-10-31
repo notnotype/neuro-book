@@ -87,6 +87,8 @@ export const runErrorCodes = [
     "no-credentials",
     "unknown-model",
     "log-broken",
+    /** 手动压缩时全部方法都失败了。 */
+    "compaction-failed",
     /** 内核自己的错（原因进诊断）。 */
     "internal",
 ] as const;
@@ -109,6 +111,8 @@ export const diagnosticCodes = {
     "reaction-depth-limit": "warn",
     "continue-limit": "warn",
     "late-result-dropped": "info",
+    "compaction-failed": "warn",
+    "compaction-invalid": "error",
     "tool-dispose-failed": "warn",
     // 视图
     "slot-unplaced": "warn",

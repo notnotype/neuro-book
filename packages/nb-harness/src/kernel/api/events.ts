@@ -128,7 +128,7 @@ export interface KernelEvents {
     /** `ctx.continue` 写的“接着做”：内核按这一轮、这个扩展数次数。内核自己催模型交结果时 `by` 是 `core`。 */
     continued: K<"path", "conv", {text: string; by: string; count: number}>;
     /** 内核写给模型的提醒：工具集变了、会话要求交回结果（docs/specs/harness/runtime.md 输出 16、27）。 */
-    notice: K<"path", "conv", {text: string; code: "tools-changed" | "result-requested"}>;
+    notice: K<"path", "conv", {text: string; code: "tools-changed" | "result-requested" | "restored"}>;
 
     // ---- 模型请求（path）----
     modelStarted: K<"path", "ctrl", {

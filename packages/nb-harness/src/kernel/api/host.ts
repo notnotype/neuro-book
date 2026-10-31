@@ -10,7 +10,7 @@ import type {Attributed, Clock, Issuer, JsonValue, UserInput} from "./basics.js"
 import type {CommandErrorTable, DiagnosticCode, DiagnosticLevel} from "./codes.js";
 import type {Resources} from "./ctx.js";
 import type {EntryPoint, InteractionDecision, KernelEvents, LogEvent, RunResultValue, SessionHeader, EventData} from "./events.js";
-import type {ContributedExtension, AnyExtension} from "./extension.js";
+import type {AnyExtension, CompactionMethodImpl, ContributedExtension} from "./extension.js";
 import type {ApprovalMode, CoreSettings, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, RequestBlock, StopReason, Usage} from "./model.js";
 import type {AnyProfile} from "./profile.js";
 import type {LogStore, StorageResult} from "./storage.js";
@@ -329,6 +329,14 @@ export interface SessionEnv {
     readonly clock: Clock;
     readonly approve: ApproveHook;
     readonly outbound?: OutboundFilter;
+    /**
+     * 压缩：方法表（按名字，Profile 的 `compaction` 给顺序）与压缩之后放回的内容（最近读过的文件、计划、Skill，
+     * 每段一条给模型的文字）。不给时压缩方法都算没有，压缩总是失败（docs/specs/harness/runtime.md 输出 46–52）。
+     */
+    readonly compaction?: {
+        readonly methods?: Readonly<Record<string, CompactionMethodImpl>>;
+        restore?(context: ToolSessionContext): Promise<readonly string[]> | readonly string[];
+    };
 }
 
 // ====================================================================

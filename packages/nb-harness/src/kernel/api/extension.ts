@@ -15,10 +15,24 @@ import type {Static, TObject, TSchema} from "typebox";
 // 压缩（方法在 t11；内核按 Profile 的顺序依次调用，失败或不合格换下一个）
 // ====================================================================
 
+/** 一个合法的切点（docs/specs/harness/runtime.md 输出 47）：一轮的 `turnStarted`，或进行中这一轮某一步的 `assistant`。 */
+export interface CompactionCut {
+    readonly entryId: string;
+    readonly kind: "turn" | "step";
+    /** 从这里切、保留它及其后的内容时，估算保留的 token。 */
+    readonly tokensKept: number;
+}
+
 export interface CompactionJob {
     readonly method: string;
+    /** 为什么压缩：超过阈值、服务商报溢出、手动 `compact`。 */
+    readonly reason: "threshold" | "overflow" | "manual";
     /** 压缩前的请求（`purpose: "compaction"`）。 */
     readonly request: ModelRequest;
+    /** 当前路径上的合法切点，按路径顺序；结果的 `firstKeptEntryId` 必须是其中之一（或 null：什么都不保留）。 */
+    readonly cuts: readonly CompactionCut[];
+    /** 压缩前估算的 token。 */
+    readonly tokens: number;
     /** 要求：Profile 的、`/compact` 后面的、扩展加的（t11 决定 7）。 */
     readonly require: readonly string[];
     readonly signal: AbortSignal;
@@ -37,6 +51,8 @@ export type CompactionResult =
       }
     | {readonly failed: string};
 export type CompactionMethod = "shake" | "inplace" | "summary" | (string & {});
+/** 压缩方法的实现：插件贡献（t11 决定 8），宿主经 `SessionEnv.compaction.methods` 交给内核。 */
+export type CompactionMethodImpl = (job: CompactionJob) => Promise<CompactionResult>;
 
 // ====================================================================
 // 字段

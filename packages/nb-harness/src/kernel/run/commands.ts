@@ -32,7 +32,7 @@ export interface CommandHost {
  * `written`：受理批写下之后、还在这一个队列项里做的事（写失败就不做，内存不会领先日志）。
  * `after`：队列项结束之后再做的事（例如装上扩展：它自己要排队写日志，不能在这一项里等）。
  */
-export type Outcome<K extends CommandName> = {value: CommandMap[K]["value"]; drafts: EventDraft[]; launch?: string; written?: () => Promise<void>; after?: () => Promise<void>} | {fail: string; detail?: Attributed | Record<string, JsonValue>};
+export type Outcome<K extends CommandName> = {value: CommandMap[K]["value"]; drafts: EventDraft[]; launch?: string; launchOptions?: {compact?: {require: readonly string[]}}; written?: () => Promise<void>; after?: () => Promise<void>} | {fail: string; detail?: Attributed | Record<string, JsonValue>};
 
 /** 受理一条指令：查重发、校验、写受理批、需要时开始运行。 */
 export async function accept<K extends CommandName>(host: CommandHost, name: K, commandId: string, decide: () => Outcome<K> | Promise<Outcome<K>>): Promise<CommandResult<K>> {
@@ -55,7 +55,7 @@ export async function accept<K extends CommandName>(host: CommandHost, name: K, 
             throw error;
         }
         await outcome.written?.();
-        if (outcome.launch !== undefined) host.control.launch(outcome.launch);
+        if (outcome.launch !== undefined) host.control.launch(outcome.launch, outcome.launchOptions);
         after = outcome.after;
         return {ok: true, value: outcome.value, seq: written.at(-1)!.seq, replayed: false} as CommandResult<K>;
     });

@@ -29,7 +29,9 @@ export class RunControl {
     #status: RunStatus = {state: "idle"};
     readonly #waiters = new Map<string, ((result: RunResult) => void)[]>();
     readonly #core: SessionCore;
-    #host: Omit<RunHost, "phase" | "interactions"> | null = null;
+    #host: Omit<RunHost, "phase" | "interactions" | "takeCompactRequests"> | null = null;
+    /** 运行中受理的 `compact` 的要求，到下一个边界做（不进日志：进程中断就丢，重发得到第一次受理的值）。 */
+    readonly #compactRequests: string[][] = [];
     /** 当前运行里在等的同步事项；有待处理的时运行状态是 `waiting`，都应答了回到 `running`。 */
     readonly interactions = new Interactions((pending) => {
         const active = this.#active;
@@ -50,7 +52,7 @@ export class RunControl {
         });
     }
 
-    attach(host: Omit<RunHost, "phase" | "interactions">): void {
+    attach(host: Omit<RunHost, "phase" | "interactions" | "takeCompactRequests">): void {
         this.#host = host;
     }
 
@@ -84,12 +86,17 @@ export class RunControl {
     }
 
     /** 受理批（含 `runStarted`）写下之后调用：开始跑循环。 */
-    launch(runId: string): void {
+    /** 运行中（或叶子上有暂停的运行）受理的 `compact`：交给这次运行的下一个边界。 */
+    requestCompaction(require: readonly string[]): void {
+        this.#compactRequests.push([...require]);
+    }
+
+    launch(runId: string, options: {compact?: {require: readonly string[]}} = {}): void {
         const host = this.#host;
         if (host === null) throw new Error("run control is not attached");
         const controller = new AbortController();
-        const run: ActiveRun = {runId, controller};
-        const done = runLoop({...host, interactions: this.interactions, phase: (phase, request) => this.#setStatus({state: "running", runId, turnId: this.#core.leafState.kernel.run?.turnId ?? null, phase, request, pendingTools: []})}, run)
+        const run: ActiveRun = {runId, controller, ...(options.compact === undefined ? {} : {compact: options.compact})};
+        const done = runLoop({...host, interactions: this.interactions, takeCompactRequests: () => this.#compactRequests.splice(0), phase: (phase, request) => this.#setStatus({state: "running", runId, turnId: this.#core.leafState.kernel.run?.turnId ?? null, phase, request, pendingTools: []})}, run)
             .catch((error: unknown) => {
                 // 只有写日志失败会到这里；onBroken 已经结算了等它的调用方。
                 if (!(error instanceof LogBrokenError)) throw error;

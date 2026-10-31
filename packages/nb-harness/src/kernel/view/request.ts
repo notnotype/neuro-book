@@ -78,11 +78,11 @@ function messageList(entry: "commit" | "turn", value: unknown): Message[] {
     return value.filter((message): message is Message => message !== null && message !== undefined);
 }
 
-export function renderSources(assembly: Assembly, onProblem: RenderSources["onProblem"]): RenderSources {
+export function renderSources(assembly: Assembly, onProblem: RenderSources["onProblem"], omitted: ReadonlyMap<string, string> = new Map()): RenderSources {
     const profile = assembly.profile as unknown as ProfileShape;
     const extensions = new Map<string, RenderTable>();
     for (const item of assembly.order) if (item.role !== "profile" && item.definition.render !== undefined) extensions.set(item.definition.id, item.definition.render as RenderTable);
-    return {profile: profile.render ?? {}, extensions, profileId: assembly.profile.id, onProblem};
+    return {profile: profile.render ?? {}, extensions, profileId: assembly.profile.id, onProblem, omitted};
 }
 
 export function computeRequest(inputs: RequestInputs): ComputedRequest {
@@ -99,7 +99,7 @@ export function computeRequest(inputs: RequestInputs): ComputedRequest {
         event: {id: event.id, type: event.type, seq: event.seq},
         message: `render of ${event.type} in ${extension} threw; the default text is used`,
         error,
-    })));
+    }), state.history.omitted));
     const commits = cache.commits(assembly);
     const previousTurn = cache.lastTurn;
 
@@ -152,8 +152,11 @@ export function computeRequest(inputs: RequestInputs): ComputedRequest {
             slots,
             history: (last) => {
                 const turns = committedTurns(state.history);
+                // 压缩的摘要排在已提交的轮前面；只要最近几轮时不放（runtime.md 输出 49）。
+                const summary = state.history.summary;
+                const head: Message[] = summary === null || last !== undefined ? [] : [{role: "user", content: [{kind: "text", text: summary.text, origin: {kind: "summary", compactionId: summary.compactionId}}]}];
                 // `slice(-0)` 是全部，所以 `last` 不是正数时一轮也不放。
-                return (last === undefined ? turns : last > 0 ? turns.slice(-last) : []).flatMap(committed);
+                return [...head, ...(last === undefined ? turns : last > 0 ? turns.slice(-last) : []).flatMap(committed)];
             },
             turn: () => {
                 const current = state.history.current;

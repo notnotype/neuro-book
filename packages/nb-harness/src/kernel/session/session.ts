@@ -19,6 +19,7 @@ import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 import type {ViewEnvironment} from "../extension/ctx.js";
 import {assemble, type Assembly} from "../extension/assemble.js";
 import {abortCommand, accept, archiveCommand, type Outcome, changeSettingsCommand, editCommand, enqueueCommand, removeCommand, sendCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
+import {compact, compactionCuts, estimateContext, triggerPoint} from "../compaction/compact.js";
 import {resolveCommand} from "../run/interaction.js";
 import {rewindCommand, rewindTargets, siblingsOf, switchBranchCommand} from "../run/tree.js";
 import {RunControl} from "../run/control.js";
@@ -119,6 +120,19 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
         box,
         resources,
         approve: env.approve,
+        compaction: {
+            estimate: () => estimateContext(core),
+            trigger: triggerPoint,
+            run: (args) => compact({
+                core,
+                resources,
+                methods: env.compaction?.methods ?? {},
+                ...(env.compaction?.restore === undefined ? {} : {restore: (restoreContext) => env.compaction!.restore!(restoreContext)}),
+                context: context(),
+                model: args.caller,
+                write: args.write,
+            }, args),
+        },
         environment: (model, list) => ({tools: list, model, now: core.clock.now(), initial: initialOf()}),
         markReadOnly: (code) => {
             state.readOnly = code;
@@ -162,7 +176,19 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
             if (!forked.ok) return {fail: "log-broken"};
             return {value: {sessionId: forked.id}, drafts: []};
         })),
-        compact: notYet("compact"),
+        compact: (args) => closedGuard(() => accept(host, "compact", args.commandId, async (): Promise<Outcome<"compact">> => {
+            if (state.readOnly !== null) return {fail: "read-only"};
+            const asked = args.requirement === undefined || args.requirement.trim() === "" ? [] : [args.requirement];
+            if (!env.models.resolve(core.session.kernel.core, "compaction").ok) return {fail: "no-compaction-model"};
+            // 运行中（或叶子上有暂停的运行）：到这次运行的下一个边界做；空闲：开一次只压缩的运行（runtime.md 输出 52）。
+            if (!control.idle || control.paused !== null) {
+                control.requestCompaction(asked);
+                return {value: {scheduled: "next-boundary"}, drafts: []};
+            }
+            if (compactionCuts(core).cuts.length === 0) return {fail: "nothing-to-compact"};
+            const runId = core.newId();
+            return {value: {scheduled: "now", runId}, drafts: [{type: "runStarted", kind: "ctrl", scope: "path", data: {runId, kind: "compact"}}], launch: runId, launchOptions: {compact: {require: asked}}};
+        })),
         changeSettings: (args) => closedGuard(() => changeSettingsCommand(host, args)),
         changeProfile: (args) => closedGuard(() => accept(host, "changeProfile", args.commandId, async (): Promise<Outcome<"changeProfile">> => {
             if (!control.idle) return {fail: "running", detail: {runId: control.active?.runId ?? ""}};
