@@ -6,7 +6,7 @@
  */
 
 import {createHash} from "node:crypto";
-import type {ModelCaller, ModelInfo, ModelRequest, ModelResolution, ModelResponse, RequestPurpose, Resources} from "../api/index.js";
+import type {Message, ModelCaller, ModelInfo, ModelRequest, ModelResolution, ModelResponse, RequestPurpose, Resources} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
@@ -43,8 +43,24 @@ export function freezeRequest(request: ModelRequest): ModelRequest {
     return Object.freeze(request);
 }
 
+/**
+ * 请求的哈希由除消息之外的字段与逐条消息的摘要合成（提案第 19 节的增量哈希）：已提交的消息来自提交缓存，跨请求是同一个对象，
+ * 摘要按对象记下，每次请求只序列化、哈希新出现的消息。只记冻结了的消息：没冻结的对象之后可能被改，按身份记的摘要会过时。
+ * 交到最里层的请求都经过 `freezeRequest`，所以实际上每条都记。
+ */
+const messageDigests = new WeakMap<Message, Buffer>();
+function messageDigest(message: Message): Buffer {
+    const known = messageDigests.get(message);
+    if (known !== undefined) return known;
+    const digest = createHash("sha256").update(JSON.stringify(message)).digest();
+    if (Object.isFrozen(message)) messageDigests.set(message, digest);
+    return digest;
+}
 function requestHash(request: ModelRequest): string {
-    return createHash("sha256").update(JSON.stringify(request)).digest("hex");
+    const {messages, ...rest} = request;
+    const hash = createHash("sha256").update(JSON.stringify(rest));
+    for (const message of messages) hash.update(messageDigest(message));
+    return hash.digest("hex");
 }
 
 const isResponse = (value: unknown): value is ModelResponse => {

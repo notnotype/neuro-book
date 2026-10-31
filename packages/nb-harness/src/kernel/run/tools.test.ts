@@ -342,6 +342,26 @@ describe("拦截链", () => {
         expect(blocked.result.text).toBe("缓存的回答");
     });
 
+    test("输出 22：hash 只随请求内容变——同一请求发两次哈希相同，历史里一条消息被换掉哈希就不同", async () => {
+        let repeat = false;
+        const resender = defineExtension({id: "lab.resender", intercept: {model: async (request, next) => {
+            if (!repeat) return next(request);
+            await next(request);
+            await next(request);
+            const [first, ...rest] = request.messages;
+            return next({...request, messages: [{...first!, content: [{kind: "text", text: "换掉的第一问", origin: first!.content[0]!.origin}]}, ...rest]});
+        }}});
+        await using session = await createTestSession({extensions: [resender]});
+        session.model.script("一", "二a", "二b", "二c");
+        await session.say("第一问");
+        repeat = true;
+        const {events} = await session.say("第二问");
+        const hashes = dataOf<{hash: string}>(events, "modelStarted").map((data) => data.hash);
+        expect(hashes).toHaveLength(3);
+        expect(hashes[1]).toBe(hashes[0]);
+        expect(hashes[2]).not.toBe(hashes[0]);
+    });
+
     test("输出 22、23：交给拦截层的请求、调用与结果是冻结的，原地修改按这一层出错处理", async () => {
         const mutator = defineExtension({id: "lab.mutator", intercept: {
             model: async (request, next) => {
