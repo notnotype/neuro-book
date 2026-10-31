@@ -42,7 +42,7 @@
 |---|---|---|---|
 | 日志存储 | JSONL，会话一个目录 `<根>/<会话 id>/session.jsonl`；写入与截断代码取自分支 `session/jsonl/jsonl.ts` | t03 定会话为文件、可读可拷；t14 定 `sessions://<id>/` 映射整个会话目录 | SQLite：会话目录要可读可拷 |
 | 写入批 | 每行带 `batch: {id, n, of}`；一批一次 `write` 后 `fsync`；**文件里完整的批就是已提交的批**；写或同步失败对调用方是“结果不确定”：句柄进“损坏”状态、进程内不重试；重开时截到最后一个完整批的末尾（截下的尾部另存一份供查看），以文件为准。指令的重发靠 `commandAccepted` 去重；反应与外部事实不重试（重开时不跑反应），扩展要去重就用 `emit` 的幂等键 | 单写者下只有文件尾可能不完整；“结果不确定”由重开时的截断与指令幂等（3.2）共同收口 | 提交标记行：多一行、仍要处理写失败 |
-| 会话互斥 | 会话目录里的锁文件，`wx` 创建，内容是进程号与随机令牌；进程已不在时视为陈旧可回收 | Bun 没有跨平台的 `flock`；同机多进程足够 | 只靠“一个状态根一个服务端”的部署假设：内核也给 nb-story 这类独立程序用 |
+| 会话互斥 | 操作系统的独占文件锁：Linux、macOS 用 libc `flock(LOCK_EX | LOCK_NB)`，Windows 用 `LockFileEx`，经 `bun:ffi`（照 nb-story `platform/flock.ts`，ADR 0031）；锁文件建好不删；持有者另记在 `session.owner`，供 `session-busy` 显示（Windows 的锁字节别的句柄读不了） | 进程怎么结束锁都由操作系统放掉，没有“判旧再回收”的竞争（第 2 片开工时改：原写的“Bun 没有跨平台的 flock”不成立） | 进程号加令牌的锁文件与陈旧回收：两个进程同时回收有竞争窗口；只靠“一个状态根一个服务端”的部署假设：内核也给 nb-story 这类独立程序用 |
 | 大块内容 | 超过 16 KB 的字符串写成 `blobs/<sha256>`，事件里记 `{$blob, size}` | 日志小、扫描与校验快；脱敏的哈希走同一条路 | 全部内联：10 万条每条 5,000 字解析要 651 毫秒、读进 525 MB（审查 Z7 实测） |
 | schema 与校验 | TypeBox | 仓库与平台合同已全是 TypeBox | — |
 | 工具参数校验 | OMP 的 JSON Schema 校验器 | 与服务商侧同一实现（分支 `tools/adapter.ts` 的理由） | TypeBox 校验器（pattern 的 `u` 标志语义不同） |
@@ -113,7 +113,7 @@
 - **会话目录**：`<根>/<会话 id>/` 下内核拥有 `session.jsonl`、`blobs/`、`session.lock`、`index.json`（列表用的小索引：项目、标题、归档、最后活动时间、轮数与 `throughSeq`；临时文件加 `rename` 写；打开时与日志末条比，不一致就重建；`list` 只读索引，崩溃后到下次打开之前可能略旧）；其余文件（t08 的 `home/` 等）归宿主，内核不碰也不删。
 - **会话头**（第一行）：`{format: 1, id, createdAt, profile, project?, origin?: {session, entry}, caller?: {kind: "session" | "workflow", id, callId}, questions: "caller" | "user", result?: {mode: "optional" | "required", schema}}`。`result` 由建会话时传入（Profile 声明的也在建会话时抄进来），重开只读头，动态 `yield` 由它生成（3.6）。`format` 不认识时打开得 `needs-migration`，与 `log-corrupt` 分开（t03 决定 6）；迁移脚本归迁移 Task。
 - **`LogStore`**：`create(header)`、`open(id) → handle`（取锁、修复、校验、读回）、`append(handle, batch)`、`list({project?, archived?})`（读索引）、`fork(from: {session, leaf}, newHeader)`（复制当前路径、头记来源）、`close(handle)`。`memory-store` 每次读写都做 JSON 往返，`Date`、`Map`、`undefined` 这类只在 JSONL 里坏的写法在内存测试里也会坏（审查 D5）。
-- **锁**：`wx` 创建 `session.lock`，内容是进程号、进程启动时刻（Linux 读 `/proc/<pid>/stat`，其它平台只比进程号）与随机令牌；进程不在或启动时刻不同视为陈旧。回收不用“删再建”：把陈旧锁 `rename` 到唯一名字，再 `wx` 建新锁，建成后重读确认令牌是自己的。`session-busy` 的 `detail` 带持有者与创建时刻；宿主可强制解锁（写诊断）。
+- **锁**：对 `session.lock` 取操作系统的独占锁（技术选型“会话互斥”）；锁跟着打开的文件走，同一进程第二次打开也拿不到。拿到后把进程号与时刻写进 `session.owner`，`session-busy` 的 `detail` 带它们。锁文件不删（锁的是文件本身，删了再建是另一把锁）。
 - **大块内容**：阈值按 UTF-8 字节 16 KB；写入批之前先写 blob（临时名、`fsync`、`rename`、`fsync` 目录），blob 写失败与日志写失败同样进 `log-broken`；打开时引用的 blob 缺失是 `log-corrupt`；`fork` 复制路径上引用的 blob（同一文件系统用硬链接）。脱敏只记原文的 SHA-256，不产生 blob 文件。
 - **打开顺序**（存储这一层）：取锁 → 若尾部有不完整的批，截到最后一个完整批的末尾、截下的字节另存为 `session.jsonl.tail-<时刻>` 并写诊断 → 校验 → 读回大块内容（校验哈希与长度，缺失或不符是 `log-corrupt`）。修复失败拒绝打开。之后的装配与归约见 3.10。
 - **校验**：id 唯一、seq 递增、父节点在前、类别与作用域合法、类型是内核事件或带合法前缀、批完整（只有文件尾可能不完整，中间的不完整批是 `log-corrupt`）。
@@ -216,7 +216,7 @@
 |---|---|---|
 | 0 | 建 worktree；OMP 全部 `@oh-my-pi/*` 升到 18.14.0（先读 18.2.5 起的 changelog，记 `streamSimple` 事件、思考签名、错误标记的变化）；改 `omp-capabilities.md` | 旧测试、`test:affected`（含 nb-story、nb-agent-ui）、旧实现的 `test:llm` 两条 smoke |
 | 1 | 第 4 节第 1 片的文档；3.1 定稿类型与 `typetest`；3.0 的目录、子路径导出、`tsconfig` 的 JSX 设置、`architecture.test.ts` | `docs:check`、`governance:check`、`tsc`、`typetest` 报出预期错误 |
-| 2 | **纵切**：3.2 存储（会话目录、批、锁、修复、大块内容、头与版本）；最小的装配、归约与 `core.history`；3.5 的队列；不带工具的循环；最小视图（缺省 `standardLayout()`、缺省 `turn`/`commit`、请求计算）；3.9 的端口与 OMP 适配器（文字、思考签名、用量、停止原因、错误归类、遮盖）；最小的 `createTestSession`；终端演示脚本 `tests/kernel/chat.ts`（JSONL 加真适配器，一轮对话后重开接着聊） | 逐字节截断测试；写失败（注入会失败的文件句柄端口）；两个真实进程抢锁、两个进程同时回收同一把陈旧锁只有一个成功；写失败后关闭成功、重开看到 `runEnded{interrupted}`；`kernel.llm.test.ts` 跑一轮、重开、再一轮；t04 四种请求复测；存储读写与校验的测量 |
+| 2 | **纵切**：3.2 存储（会话目录、批、锁、修复、大块内容、头与版本）；最小的装配、归约与 `core.history`；3.5 的队列；不带工具的循环；最小视图（缺省 `standardLayout()`、缺省 `turn`/`commit`、请求计算）；3.9 的端口与 OMP 适配器（文字、思考签名、用量、停止原因、错误归类、遮盖）；最小的 `createTestSession`；终端演示脚本 `tests/kernel/chat.ts`（JSONL 加真适配器，一轮对话后重开接着聊） | 逐字节截断测试；写失败（注入会失败的文件句柄端口）；两个真实进程抢锁、持有者被 `kill -9` 后另一个进程立即能打开；写失败后关闭成功、重开看到 `runEnded{interrupted}`；`kernel.llm.test.ts` 跑一轮、重开、再一轮；t04 四种请求复测；存储读写与校验的测量 |
 | 3 | 扩展完整面：3.3 定义、装配（两套顺序、诊断与提示）、Profile 哈希、`ctx` 构造点；3.5 反应、`mount`（时限）、外部事实到边界；3.4 内核的片；`reminder()`、`opening()` | 装配错误表；作用域与回退后片的值；写入批与整批丢弃；`emit-after-settle`；深度上限；`mount` 超时；2 万条合成事件的打开与归约测量（超预算当片改结构） |
 | 4 | 视图：JSX 运行时与模板（含 `<ToolName id>`、`<Slot drop>`）、`standardLayout`、`format`、`turn` 与纯函数 `commit`、槽、请求计算与校验、`outline`、前缀稳定检查；`finalOnly`、`withoutEvents` | 请求的块与来源；提交确定性（重开后逐块一致）；2 万条会话算一次请求的测量 |
 | 5 | 工具与拦截：工具声明与名字换算、工具实现的建与释放、段并发、`runChain` 四条链、输入链在受理时跑与脱敏、审批钩子的放行与拒绝（`ask` 在第 7 片）、`toolsAnnounced`、收尾工具与动态 `yield` | 收尾工具输出 13–16 的四种情形与宽限期内外完成；规则与改参的组合；脱敏后会话目录全文（含 `blobs/`）搜不到原文；受理时拒绝不写日志 |
