@@ -251,7 +251,9 @@
 | 4 | `harness/profile.md` 输出 1–20，场景 1、2 | `src/kernel/view/view.test.tsx`；场景 2 是 `tests/kernel/measure-request.ts`（`evidences/slice2-measure.txt` 第五节） |
 | 4 | `runtime.md` 输出 10（`profile-failed` 的收口）、14（缺省布局） | `view/view.test.tsx`“输出 5”“输出 9”“输出 1” |
 | 4（留到后续片） | `profile.md` 输出 11 的“Profile 哈希变了重新渲染”在同一进程里只有 `changeProfile` 能触发（第 6 片补测；重开时缓存本来就是空的）；输出 4 的 `<If>`、`<ToolName>` 经会话的生效工具集（第 5 片接上工具集后补一条会话级测试） | — |
-| 5–8 | `harness.runtime`（工具、收尾、拦截、审批、指令、运行控制、等用户、压缩） | `run/*.test.ts`、`compaction/*.test.ts` |
+| 5 | `harness/runtime.md` 输出 15–27、场景 3、4；`session.md` 输出 10、场景 6 | `src/kernel/run/tools.test.ts` |
+| 5（留到后续片） | `runtime.md` 输出 18 的只读模式与“等级函数抛错按 `exec` 算”（要 `changeSettings` 打开只读，第 6 片）；审批的 `ask` 与批准记忆（第 7 片）；压缩拦截链（第 8 片，`runChain` 已就绪） | — |
+| 6–8 | `harness.runtime`（指令、运行控制、等用户、压缩） | `run/*.test.ts`、`compaction/*.test.ts` |
 | 9 | `harness.runtime` 的宿主面、`harness.extensions` 的撤回 | `session/*.test.ts` |
 | 10 | `agent/harness.md` 输出 10–21 在新 Spec 里的对应条目 | `packages/nb-story/tests/kernel-acceptance/*.test.ts` |
 

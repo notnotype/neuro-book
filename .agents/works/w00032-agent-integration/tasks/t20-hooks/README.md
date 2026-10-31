@@ -78,7 +78,9 @@ t05、t06、t07。
 - 第 4 片完成：新建 [`harness/profile.md`](../../../../../docs/specs/harness/profile.md)（视图：模板、轮的渲染、提交与槽）。模板节点放错位置（`template-invalid`）或 `<Turn />` 不是恰好一个（`turn-node-count`）时请求算不出来、按 `profile-failed` 收口；`<Tag>` 属性转义；`render` 抛错用缺省文字；已提交的轮每轮只渲染一次（按轮对象缓存，回退与切分支照样命中，装配结果换了整份作废），`commit` 抛错或交回不成对的消息改用缺省提交；请求发出前校验工具调用与结果成对（`request-invalid`）；槽的四种诊断（没摆、会变的放进系统块、撞名、`contribute` 抛错）；开发模式下的前缀稳定与提交一致检查；`outline` 移进 `view/`；`finalOnly`、`withoutEvents`。2 万条算一次请求冷 38–42 ms、热 23–30 ms，在 50 ms 预算内，大头是请求哈希（[`evidences/slice2-measure.txt`](evidences/slice2-measure.txt) 第五节）。
 - 第 4 片实现审查（omp，开发者 2026-10-31 要求没把握的切片当场审）：9 条，8 条成立已改（Work 分支 `0b7a71e58`），1 条不成立；第 1 条（缺省提交借用读视图的 `turn`，重开后提交会变）待开发者定，推荐把 `turn` 改成纯函数。见 [`evidences/slice4-impl-review.txt`](evidences/slice4-impl-review.txt)。
 - 第 4 片定下的：开发检查跟现有的开发模式开关（`NODE_ENV` 不是 `production`）走，不另加 `SessionEnv` 字段；没写 `commit` 时用 Profile 的 `turn` 提交（视图取第一次需要它的那次请求的），`turn` 依赖视图而提交结果变了由 `commit-differs` 提示。
+- 第 5 片完成（`runtime.md` 输出 15–27、场景 3、4）：生效工具集（宿主给的声明加 `yield`，不合规则的丢掉并诊断）、必需工具缺失收口并只读、`toolsAnnounced` 比对与 `notice{tools-changed}`；一条回复的调用按 `concurrency` 切段并发、`toolStarted` 记审批后的参数、结果按调用顺序一个批；通用 `runChain`（按段计时、失败策略、迟到的 `next` 拒绝）接上输入、模型、工具三条链（压缩链第 8 片接）；模型链每次真正发出写一条 `modelStarted`、`modifiedBy`、被拦下的回复不写；工具链的 `blocked`、`raw`/`rawHash`；输入拦截在受理时跑、拒绝不写日志、脱敏只记哈希（会话目录全文搜不到原文）；中止的宽限期 2 秒；收尾工具与 `yield`（`optional` 以文字作结果，`required` 催一次后 `result-missing`）。审批 `ask` 暂按拒绝（`approval-unavailable`），第 7 片接等用户。顺手修了测试时钟：取消已到期的计时器会误删别的计时器。
+- 第 5 片订正的定稿类型（提案决策记录已追加）：输入拦截的返回值改为 `void | {reject} | {redacted: true}`；新增内核对话事件 `notice`。第 5 片实现审查已派出（omp，后台），结果回来后处理。
 
 ## 下一步
 
-下一片是第 5 片（工具与拦截：工具声明与名字换算、工具实现的建与释放、段并发、`runChain` 四条链、输入链在受理时跑与脱敏、审批钩子的放行与拒绝、`toolsAnnounced`、收尾工具与动态 `yield`）。全部切片之后做一次深入审查（开审前报计划与预算）。介绍页（`intro` v3）已过时，随实现更新。
+下一片是第 6 片（运行控制：除 `resolve` 外的全部指令与 `commandAccepted` 幂等、发出者、缓冲区规则、steer 与 followup、`continue` 计数、中止与宽限期、恢复、回退、重试与 swipe、切分支、fork、标题与归档、`changeSettings`、`changeProfile`）。全部切片之后做一次深入审查（开审前报计划与预算）。介绍页（`intro` v3）已过时，随实现更新。
