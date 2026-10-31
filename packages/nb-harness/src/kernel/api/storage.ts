@@ -22,25 +22,30 @@ export interface SessionIndexEntry {
     readonly throughSeq: number;
 }
 
-/** 打开会话得到的句柄：持锁，持有读回的全部事件。 */
+/** 存储层要报给会话的事（会话把它们转成诊断）：截掉了尾部、索引重建或写失败。 */
+export interface StorageNotice {
+    readonly code: "log-tail-truncated" | "index-rebuilt" | "index-write-failed";
+    readonly detail: Readonly<Record<string, JsonValue>>;
+}
+
+/** 打开会话得到的句柄：持锁；`events` 是打开时读回的全部事件（之后的事件由会话自己保存）。 */
 export interface LogHandle {
     readonly header: SessionHeader;
     readonly events: readonly LogEvent[];
-    /** 打开时截掉的不完整尾部（另存为 `session.jsonl.tail-<时刻>`）；没有为 null。 */
-    readonly truncatedTail: {readonly bytes: number; readonly savedAs: string} | null;
+    /** 存储层累积的通知；会话按下标读新增的。 */
+    readonly notices: readonly StorageNotice[];
     /** 写失败过：之后的写入都得 `log-broken`。 */
     readonly broken: boolean;
 }
 
 export interface LogStore {
+    /** 新建会话目录与只有会话头的日志，并取锁。fork 也用它：再把要复制的事件作为一个批追加。 */
     create(header: SessionHeader): Promise<StorageResult<LogHandle>>;
     /** 取锁 → 截掉不完整的尾部 → 校验 → 读回大块内容。 */
     open(id: string): Promise<StorageResult<LogHandle>>;
     /** 一个写入批：一次写入后同步到盘。失败时句柄进损坏状态，结果对调用方不确定，重开以文件为准。 */
     append(handle: LogHandle, batch: readonly LogEvent[]): Promise<StorageResult<void>>;
     list(filter?: {readonly project?: string; readonly archived?: boolean}): Promise<StorageResult<readonly SessionIndexEntry[]>>;
-    /** 复制 `from` 会话里到 `leaf` 为止的当前路径（连同引用的大块内容）成新会话，头里记来源。 */
-    fork(from: {readonly session: string; readonly leaf: string | null}, header: SessionHeader): Promise<StorageResult<LogHandle>>;
     /** 释放锁。句柄已坏时只做清理。 */
     close(handle: LogHandle): Promise<void>;
 }

@@ -30,5 +30,6 @@ export type {
 export type {AnyProfile, CommitFn, DefineProfile, DeriveProfile, Profile, ProfileFields, ProfileRender, TurnFn} from "./profile.js";
 export type {PromptChild, PromptComponent, PromptComponents, PromptNode} from "./prompt.js";
 export type {Slice, SliceFactory, SliceValue, StateDecl, StateValues} from "./state.js";
-export type {LogHandle, LogStore, SessionIndexEntry, StorageResult} from "./storage.js";
+export type {LogHandle, LogStore, SessionIndexEntry, StorageNotice, StorageResult} from "./storage.js";
+export {kernelEventSpecs} from "./kernel-events.js";
 export type {ApprovalVerdict, QuestionAnswer, QuestionRequest, ToolCall, ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo, ToolResult, ToolStatus} from "./tool.js";

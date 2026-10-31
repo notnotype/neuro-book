@@ -4,3 +4,5 @@
  */
 
 export * from "./contracts.js";
+export {createJsonlStore, type JsonlStoreOptions} from "./log/jsonl-store.js";
+export {createMemoryStore} from "./log/memory-store.js";

@@ -25,11 +25,11 @@ interface DirectoryRule {
 const OMP = ["@oh-my-pi/pi-ai", "@oh-my-pi/pi-catalog", "@oh-my-pi/pi-utils"];
 const CRYPTO = ["node:crypto"];
 
-// 新增目录时先在这里登记，否则边界测试失败。`compaction` 依赖 `run` 的通用拦截链；`run` 的循环经 `SessionCore` 上注入的回调
+// `log/` 的 `bun:ffi` 用于操作系统的文件锁（`flock.ts`）。新增目录时先在这里登记，否则边界测试失败。`compaction` 依赖 `run` 的通用拦截链；`run` 的循环经 `SessionCore` 上注入的回调
 // 触发压缩，不反向依赖 `compaction`（`session/` 负责接线）。
 const DIRECTORIES: Readonly<Record<string, DirectoryRule>> = {
     api: {dependsOn: [], packages: [], builtins: []},
-    log: {dependsOn: ["api"], packages: [], builtins: ["node:fs", "node:fs/promises", "node:path", "node:crypto", "node:os"]},
+    log: {dependsOn: ["api"], packages: [], builtins: ["node:fs", "node:fs/promises", "node:path", "node:crypto", "bun:ffi"]},
     state: {dependsOn: ["api"], packages: [], builtins: CRYPTO},
     extension: {dependsOn: ["api", "state"], packages: [], builtins: CRYPTO},
     view: {dependsOn: ["api", "state", "extension"], packages: [], builtins: CRYPTO},

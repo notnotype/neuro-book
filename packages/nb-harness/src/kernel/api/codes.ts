@@ -37,6 +37,9 @@ export const storageErrors = [
     "log-broken",
     "session-not-found",
     "session-exists",
+    "invalid-session-id",
+    /** 读写文件出错（权限、磁盘满）；`detail.message` 是英文的原因。 */
+    "storage-failed",
     /** 会话头里的 Profile 解析不到：会话以只读打开。 */
     "unknown-profile",
 ] as const;
@@ -80,7 +83,7 @@ export const runErrorCodes = [
 export const diagnosticCodes = {
     // 存储
     "log-tail-truncated": "warn",
-    "lock-forced": "warn",
+    "index-write-failed": "warn",
     "event-version-unsupported": "warn",
     "index-rebuilt": "info",
     // 归约
