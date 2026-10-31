@@ -34,6 +34,10 @@
 12. 会话互斥：打开会话时在会话目录取锁，第二个进程（或同进程第二次打开）得 `session-busy`。
 13. 提案待定项 7（主动接口）定最小形状：压缩方法与审批钩子经 `ctx.model(request, {purpose, role?})` 调模型，内核写 `modelStarted`、过模型拦截链、计用量、接中止；`RequestPurpose` 加 `approval`。待定项 8 见第 9 条。待定项 11 在第 1 片的定稿类型里定（请求带完整工具声明、内容块含思考签名与图片）。待定项 13 定最小形状：宿主可给一个出站过滤（日志查询与帧推出前调用），nb-story 的防剧透用它。
 
+2026-10-31 第 2 片之后（开发者同意）：
+
+14. 日志格式与读取：删去 `assistant.text`（它是内容块里文字的拼接，同一份事实存两遍、可能不一致；2,000 轮每条 5,000 字时文件多 30 MB、堆上多 20 MB），用到的地方经 `replyText(content)` 现算；打开会话改为按块流式读、边读边解析，不再把整个文件与全部行字符串同时留在内存（同一组数据常驻 154 MB，活数据只有 42 MB）。信封不压缩：不省略缺省的 `version`、`source`，不靠查表省 `scope`、`kind`，单条批照写 `batch`。每轮只省约 1 KB、内存里读回时要补全形状所以几乎不省，代价是磁盘上与内存里的样子不一致、编解码多一层补缺省的规则、直接读 JSONL 的人要记约定。以后要省空间走大块内容按需读取或 SQLite 适配器，不动 JSONL 的字段。
+
 **工作方式**：Work 分支 `feat/w00032-agent-integration`，worktree `.worktree/w00032-agent-integration`；主会话自己写；Spec、提案、ADR 与 Task 记录在主工作区 master 上改、路径限定提交。
 
 ## 2. 技术选型
@@ -217,7 +221,7 @@
 | 0 | 建 worktree；OMP 全部 `@oh-my-pi/*` 升到 18.14.0（先读 18.2.5 起的 changelog，记 `streamSimple` 事件、思考签名、错误标记的变化）；改 `omp-capabilities.md` | 旧测试、`test:affected`（含 nb-story、nb-agent-ui）、旧实现的 `test:llm` 两条 smoke |
 | 1 | 第 4 节第 1 片的文档；3.1 定稿类型与 `typetest`；3.0 的目录、子路径导出、`tsconfig` 的 JSX 设置、`architecture.test.ts` | `docs:check`、`governance:check`、`tsc`、`typetest` 报出预期错误 |
 | 2 | **纵切**：3.2 存储（会话目录、批、锁、修复、大块内容、头与版本）；最小的装配、归约与 `core.history`；3.5 的队列；不带工具的循环；最小视图（缺省 `standardLayout()`、缺省 `turn`/`commit`、请求计算）；3.9 的端口与 OMP 适配器（文字、思考签名、用量、停止原因、错误归类、遮盖）；最小的 `createTestSession`；终端演示脚本 `tests/kernel/chat.ts`（JSONL 加真适配器，一轮对话后重开接着聊） | 逐字节截断测试；写失败（注入会失败的文件句柄端口）；两个真实进程抢锁、持有者被 `kill -9` 后另一个进程立即能打开；写失败后关闭成功、重开看到 `runEnded{interrupted}`；`kernel.llm.test.ts` 跑一轮、重开、再一轮；t04 四种请求复测；存储读写与校验的测量 |
-| 3 | 扩展完整面：3.3 定义、装配（两套顺序、诊断与提示）、Profile 哈希、`ctx` 构造点；3.5 反应、`mount`（时限）、外部事实到边界；3.4 内核的片；`reminder()`、`opening()` | 装配错误表；作用域与回退后片的值；写入批与整批丢弃；`emit-after-settle`；深度上限；`mount` 超时；2 万条合成事件的打开与归约测量（超预算当片改结构） |
+| 3 | 扩展完整面：3.3 定义、装配（两套顺序、诊断与提示）、Profile 哈希、`ctx` 构造点；3.5 反应、`mount`（时限）、外部事实到边界；3.4 内核的片；`reminder()`、`opening()`；日志格式删 `assistant.text`（加 `replyText`）、打开时流式读（第 1 节决定 14） | 装配错误表；作用域与回退后片的值；写入批与整批丢弃；`emit-after-settle`；深度上限；`mount` 超时；2 万条合成事件的打开与归约测量（超预算当片改结构）；删重复与流式读之后重测打开：堆上活数据与常驻峰值分开报 |
 | 4 | 视图：JSX 运行时与模板（含 `<ToolName id>`、`<Slot drop>`）、`standardLayout`、`format`、`turn` 与纯函数 `commit`、槽、请求计算与校验、`outline`、前缀稳定检查；`finalOnly`、`withoutEvents` | 请求的块与来源；提交确定性（重开后逐块一致）；2 万条会话算一次请求的测量 |
 | 5 | 工具与拦截：工具声明与名字换算、工具实现的建与释放、段并发、`runChain` 四条链、输入链在受理时跑与脱敏、审批钩子的放行与拒绝（`ask` 在第 7 片）、`toolsAnnounced`、收尾工具与动态 `yield` | 收尾工具输出 13–16 的四种情形与宽限期内外完成；规则与改参的组合；脱敏后会话目录全文（含 `blobs/`）搜不到原文；受理时拒绝不写日志 |
 | 6 | 运行控制：除 `resolve` 外的全部指令与 `commandAccepted` 幂等、发出者、缓冲区规则、steer 与 followup、`continue` 计数、中止与宽限期、恢复、回退、重试与 swipe、切分支、fork、标题与归档、`changeSettings`（核心组）、`changeProfile` | spike 对应场景（编号写进测试名）；重发同一 `commandId` 只生效一次（含运行中的 `compact`、`changeSettings`）；受理后、循环前崩溃再重发；宽限期内外；反应卡住时中止与插话的返回时间；回退后重启批准记忆仍在 |
