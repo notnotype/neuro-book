@@ -83,7 +83,7 @@ t05、t06、t07。
 
 - 第 6 片前半（`runtime.md` 输出 28–34、场景 5）：steer 在边界全部取走、最终回复时还有 steer 就接着请求；`edit`、`remove`；中止缺省清空缓冲区；`changeSettings`（整体校验，受理时就写，计划已订正）；`setTitle`、`archive`；恢复时结算没有结果的工具调用；两个 `kill -9` 子进程场景（工具执行中、受理后循环前）。后半完成（`runtime.md` 输出 35–38）：回退目标与 `rewind`（含 `resend`）、落在运行中途时运行暂停、`start`/`send` 接着跑（重试与 swipe，分叉点在模型请求上；运行结果按最后写下的 `runEnded` 所在路径算）、`switchBranch` 与 `siblings`、`fork`（带 Profile 与设置）、`changeProfile`（重新归约、重新渲染、重开沿用新 Profile）。第 6 片实现审查（omp）：10 条（阻断 2：换 Profile 先改内存后落盘、fork 写失败重发多建会话），全部成立已改，见 [`evidences/slice6-impl-review.txt`](evidences/slice6-impl-review.txt)。
 
-- 第 7 片完成（`runtime.md` 输出 39–45、场景 6）：审批判定 `ask` 时停下等 `resolve`（`allow-session` 写批准记忆，回退与重开后仍在）；工具的同步与异步提问（异步的回答作为输入进缓冲区）；`resolve` 的裁决、发出者与权限；同批多事项任意顺序应答；中止写 `aborted`、重启写 `interrupted`、异步提问不结算；子进程在等审批时被 `kill -9` 的场景。实现中发现并修了中止与应答的竞态（同一事项会结算两次）：`resolve` 认领等待者，中止时同步摘掉。第 7 片实现审查已派出（omp，后台）。
+- 第 7 片完成（`runtime.md` 输出 39–45、场景 6）：审批判定 `ask` 时停下等 `resolve`（`allow-session` 写批准记忆，回退与重开后仍在）；工具的同步与异步提问（异步的回答作为输入进缓冲区）；`resolve` 的裁决、发出者与权限；同批多事项任意顺序应答；中止写 `aborted`、重启写 `interrupted`、异步提问不结算；子进程在等审批时被 `kill -9` 的场景。实现中发现并修了中止与应答的竞态（同一事项会结算两次）：`resolve` 认领等待者，中止时同步摘掉。第 7 片实现审查（omp）：3 条（重要 1：fork 丢了 `caller`，复制过去的提问父会话答不了），2 条已改（Work 分支 `eb2e24943`），1 条（等待加超时）不改：`bun test` 的单条时限已让挂住判失败、子进程在 `finally` 里收口。见 [`evidences/slice7-impl-review.txt`](evidences/slice7-impl-review.txt)。
 
 ## 下一步
 

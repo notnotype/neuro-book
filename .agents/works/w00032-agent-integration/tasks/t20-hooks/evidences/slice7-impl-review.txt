@@ -1,0 +1,52 @@
+t20 第 7 片实现审查（omp，默认模型；审查对象 cb9d62e0a..ae6f1aa9c；2026-10-31）
+审查说明与实验脚本在本地 .local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice7-impl-review/（不入库）。
+
+### 3. 建议｜测试：等待辅助与 kill-9 子进程没有失败超时
+
+- **位置**：`packages/nb-harness/src/kernel/run/interaction.test.ts:26-39,204-223`
+- **现象**：`waitingFor()` 对永远不出现的状态没有超时或取消；场景 6 的 `while (!text.includes("\\n")) await reader.read()` 对子进程没有启动、没有输出或 stdout 提前挂起也没有超时。两处都只能依赖测试运行器外部超时，无法报告卡住的具体阶段。
+- **为什么是问题**：等用户本身就是本片最容易永久挂住的路径。任何等待状态漏报、子进程启动失败或恢复前置条件不满足，测试进程会无限等待而不是失败；这也掩盖“调用永远挂着”的核心风险，违反测试资源和失败路径应收口、可观察的等待合同。
+- **如何核实**：`bun test src/kernel` 当前 `159 pass`，但这只证明成功路径；阅读上述两个等待循环可见没有 `waitUntil`、超时信号或子进程退出检测。将模型脚本改成不产生工具调用，或把 fixture 路径改成不存在的入口，测试不会在断言处失败而是停在等待循环。
+- **建议改法**：用测试支持包的 `waitUntil`/可取消等待包装状态与 stdout 首行，给失败抛出包含当前状态、会话 id 和子进程退出码的错误；在 `finally` 里无条件停止并等待子进程，避免把整个测试 worker 的超时当作诊断。
+## 未发现问题的方面
+
+- 正常的中止、用户应答、两次并发应答竞态：用真实 `createTestSession` 做了 500 次应答/中止压力实验，500 次均只有一条 `interactionResolved`，没有遗留 pending；现有子进程场景也验证了重启收口。
+- 恢复顺序与码：场景 6 的真实 `kill -9` 用例通过；同步审批得到 `interrupted`/`interrupted-before-approval`，已开始的工具得到 `unknown`/`interrupted`，异步提问保留并可在重开后回答。
+- 异步提问在关闭、重开、`changeProfile`、普通 fork 后的路径持久化：生命周期实验和 fork 实验均能保留 `interactionRequested`，回答能进新运行；fork 的 caller 授权缺失见第 1 条。
+- `waiting` 的进入、部分应答、最终收口及 resolve 的种类、权限、`allow-session` 记忆和路径回退判定：实现与 Spec 一致；第 2 条指出最终 running 状态的测试缺口。
+- 类型检查与内核测试：`bun run typecheck` 通过；`bun test src/kernel` 为 `159 pass`、`0 fail`；等用户文件单测为 `9 pass`、`0 fail`。
+
+## 作者定的四项判断
+
+1. **path 状态回退**：实现只从当前叶子路径查 pending/resolved，离开分支后返回 `unknown-interaction`，没有在被回退分支写 `unavailable`，符合该决定。
+2. **异步 `ctx.ask`**：实现写下 `interactionRequested` 后返回 `{kind: "unavailable", code: "async"}`，回答单独经 `resolve` 进入输入缓冲区，符合该决定。
+3. **所有工具取得 `ctx.ask`**：有 `Interactions` 的运行统一注入 `ask`，没有按工具声明筛选；无等用户通道的直接工具运行才不注入，符合该决定。
+4. **认领与中止**：正常单写者顺序下先认领的应答赢、未认领者由中止方结算，压力实验未发现双结算或永久等待；但 `RunStoppedError` 分支与日志损坏后的恢复只靠静态路径，未被专门测试。
+
+有效发现：1 个重要，2 个建议。阻断 0，重要 1，建议 2。
+
+### 1. 重要｜正确性：fork 后 caller 提问无法再由父会话应答
+
+- **位置**：`packages/nb-harness/src/kernel/session/session.ts:325-333`、`packages/nb-harness/src/kernel/run/interaction.ts:92-96`
+- **现象**：`forkSession()` 复制路径，因此会把未结算的异步 `interactionRequested` 一并复制；但新会话头只复制 `questions`，没有复制源会话的 `caller`。`allowed()` 对 `questions: "caller"` 只放行 `core.header.caller.id`，所以 fork 后该字段为空，父会话对复制出来的待处理提问得到 `not-allowed`。
+- **为什么是问题**：运行时输出 37 要求 fork 复制选定路径；输出 41–43 又要求异步提问跨运行、回退与重开存在并可由 caller 应答。现在“复制了事项但丢了授权身份”，事项永久只能等用户（若没有用户入口则无法结算），违反 caller 合同。
+- **如何核实**：经真实 `createTestSession` 创建 `questions: "caller"`、`caller: {kind: "session", id: "parent", callId: "call-1"}` 的会话，工具创建异步提问并正常结束；调用 `fork`，关闭原会话后打开 fork；用 `forked.raw.as({kind: "session", id: "parent"}).resolve(...)` 应答原事项，实测返回 `{ok:false, code:"not-allowed"}`，而 fork 头只有 `questions: "caller"`、没有 `caller`。
+- **建议改法**：fork 新头保留源头的 `caller`（至少复制 `caller` 与 `questions` 的一致授权上下文）；为 caller 模式的异步提问增加 fork 后父会话应答验收测试。若产品决定 fork 必须脱离父会话，则不要复制这类待处理事项，而应在 fork 时按既定系统码结算，不能留下无授权的 pending 项。
+
+### 2. 建议｜测试：waiting 结束后的状态转换没有被断言
+
+- **位置**：`packages/nb-harness/src/kernel/run/interaction.test.ts:25-39,90-102`
+- **现象**：`waitingFor()` 只在收到 `waiting` 且事项数量符合时返回；现有用例验证了进入 waiting、两事项从 2 变 1，但在最后一个事项应答后只等待 `waitRun()` 和日志结果，没有断言状态已经从 `waiting` 回到 `running`，也没有验证中止/写失败边界下不再发错误的 running 状态。
+- **为什么是问题**：`RunControl` 新增的关键合同就是 `pending === null` 时发 `running`。删除或破坏 `interaction.ts:75-77` 的 `#reportFrom`/`control.ts:37` 分支，现有 9 条测试仍可通过，因为最终 `finally` 会发 `idle`；界面可能在工具仍执行时一直显示 waiting，测试却不会发现。
+- **如何核实**：运行 `bun test ./src/kernel/run/interaction.test.ts` 得到 `9 pass`；静态对照 `interaction.test.ts` 全部断言，只有 `status.state === "waiting"` 的等待辅助，没有 `status.state === "running"` 的断言。按测试规范的变异检查，针对 `pending === null` 的状态分支需要一条会在工具仍未结束时读取状态的行为测试。
+- **建议改法**：让测试工具在最后一个应答后停在一个可控的真实执行门上，断言先收到 `running{phase:"tools"}`，释放工具后再断言 `idle`；同时补一个中止时只出现 `aborting`/最终 `idle`、不被迟到 `report` 改回 `running` 的场景。
+
+## 报告统计更正
+
+前文第 1–3 条均为有效发现；总计阻断 0，重要 1，建议 2。前文结论区先于本次补充写入，引用的第 1、2 条现已补齐。
+
+## 处理（主会话）
+
+- 1 成立，已改（eb2e24943）：fork 的会话头照抄 caller；补 fork 后父会话应答复制过去的提问的测试；runtime.md 输出 37 已订正。
+- 2 成立，已补：两事项都应答后、工具还在执行时断言状态回到 running{phase: tools}；变异检查失败。
+- 3 不改：bun test 每条测试有 5 秒时限，挂住会判失败；子进程在 finally 里 kill 并等退出。给等待另加超时收益小。
