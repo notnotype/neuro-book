@@ -151,18 +151,28 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         readOnly: () => state.readOnly,
     };
     const closedGuard = <T>(run: () => Promise<T>): Promise<T> => (state.closed ? Promise.resolve({ok: false, code: "session-closed"} as T) : run());
-    // 出站过滤（runtime.md 输出 54）：推帧与日志查询之前按这个视图的发出者过滤；过滤函数抛错时不给看，写诊断。
+    // 出站过滤（runtime.md 输出 54）：推帧与日志查询之前按这个视图的发出者过滤；过滤可以是异步的，按日志顺序逐条等
+    // （nb-story 的防剧透处理工具结果时要用前面那条调用记下的词）。过滤函数抛错或失败时不给看，写诊断。
     const outbound = env.outbound;
-    const visible = (event: LogEvent): LogEvent | null => {
+    const withheld = (subject: string, error: unknown) => core.diagnostics.add({code: "outbound-filter-threw", entry: "host", subject, message: `the outbound filter failed on ${subject}; it is withheld`, cause: error}, core.head);
+    const visible = async (event: LogEvent): Promise<LogEvent | null> => {
         if (outbound === undefined) return event;
         try {
-            return outbound.event(event, issuer);
+            return await outbound.event(event, issuer);
         } catch (error) {
-            core.diagnostics.add({code: "outbound-filter-threw", entry: "host", subject: "event", message: `the outbound filter threw on ${event.type}; the event is withheld`, cause: error}, core.head);
+            withheld(event.type, error);
             return null;
         }
     };
-    const visibleAll = (events: readonly LogEvent[]): LogEvent[] => events.map(visible).filter((event): event is LogEvent => event !== null);
+    const visibleAll = async (events: readonly LogEvent[]): Promise<LogEvent[]> => {
+        if (outbound === undefined) return [...events];
+        const out: LogEvent[] = [];
+        for (const event of events) {
+            const shown = await visible(event);
+            if (shown !== null) out.push(shown);
+        }
+        return out;
+    };
     const api: SessionApi = {
         id: core.header.id,
         issuer,
@@ -253,12 +263,12 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         },
         async log({afterSeq, limit = 500}) {
             const start = core.events.findIndex((event) => event.seq > afterSeq);
-            const events: LogEvent[] = start < 0 ? [] : visibleAll(core.events.slice(start, start + limit));
+            const events: LogEvent[] = start < 0 ? [] : await visibleAll(core.events.slice(start, start + limit));
             return {events, head: core.head, more: start >= 0 && start + limit < core.events.length};
         },
         rewindTargets: async () => rewindTargets(core),
         async path(args) {
-            return visibleAll(core.pathTo(args?.leaf === undefined ? core.leaf : args.leaf));
+            return await visibleAll(core.pathTo(args?.leaf === undefined ? core.leaf : args.leaf));
         },
         siblings: async ({node}) => siblingsOf(core, node),
         async runResult({runId}) {
@@ -268,25 +278,31 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         async diagnostics() {
             return core.diagnostics.all();
         },
-        subscribe: (listener) => core.subscribe((frame) => {
-            if (frame.type === "log") {
-                const event = visible(frame.event);
-                if (event !== null) listener(event === frame.event ? frame : {...frame, event});
-                return;
-            }
-            if (frame.type === "delta" && outbound?.delta !== undefined) {
-                let delta: typeof frame | null;
-                try {
-                    delta = outbound.delta(frame, issuer);
-                } catch (error) {
-                    core.diagnostics.add({code: "outbound-filter-threw", entry: "host", subject: "delta", message: "the outbound filter threw on a delta; it is withheld", cause: error}, core.head);
-                    delta = null;
-                }
-                if (delta !== null) listener(delta);
-                return;
-            }
-            listener(frame);
-        }),
+        subscribe: (listener) => {
+            if (outbound === undefined) return core.subscribe(listener);
+            // 有出站过滤时帧排成一条队列：异步的过滤完一帧再交下一帧，订阅者看到的先后与日志一致。
+            let queue: Promise<void> = Promise.resolve();
+            return core.subscribe((frame) => {
+                queue = queue.then(async () => {
+                    if (frame.type === "log") {
+                        const event = await visible(frame.event);
+                        if (event !== null) listener(event === frame.event ? frame : {...frame, event});
+                        return;
+                    }
+                    if (frame.type === "delta" && outbound.delta !== undefined) {
+                        let delta: typeof frame | null = null;
+                        try {
+                            delta = await outbound.delta(frame, issuer);
+                        } catch (error) {
+                            withheld("delta", error);
+                        }
+                        if (delta !== null) listener(delta);
+                        return;
+                    }
+                    listener(frame);
+                });
+            });
+        },
         waitRun: (runId) => control.waitRun(runId),
     };
     internals.set(api, state);

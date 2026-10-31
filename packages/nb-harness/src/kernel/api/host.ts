@@ -307,10 +307,13 @@ export interface ApprovalCtx {
 /** 工具拦截链的最里层：判定对象是全部拦截之后的调用。必填，没有缺省；“全部放行”只给测试用。 */
 export type ApproveHook = (call: ToolCall, info: ApprovalInfo, ctx: ApprovalCtx) => Promise<ApprovalVerdict>;
 
-/** 出站过滤：推帧与日志查询之前调用（nb-story 的防剧透）。返回 null 表示不给这个读者看。 */
+/**
+ * 出站过滤：推帧与日志查询之前调用（nb-story 的防剧透）。返回 null 表示不给这个读者看。可以是异步的：内核按日志顺序
+ * 逐条等、订阅的帧排队过滤，先后不变（docs/specs/harness/runtime.md 输出 54）。
+ */
 export interface OutboundFilter {
-    event(event: LogEvent, reader: Issuer): LogEvent | null;
-    delta?(frame: DeltaFrame, reader: Issuer): DeltaFrame | null;
+    event(event: LogEvent, reader: Issuer): LogEvent | null | Promise<LogEvent | null>;
+    delta?(frame: DeltaFrame, reader: Issuer): DeltaFrame | null | Promise<DeltaFrame | null>;
 }
 
 export interface SessionEnv {

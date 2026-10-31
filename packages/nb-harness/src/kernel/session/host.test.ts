@@ -154,6 +154,37 @@ describe("出站过滤", () => {
     });
 });
 
+describe("出站过滤（异步）", () => {
+    test("输出 54：过滤是异步的、后到的先过滤完，订阅者看到的先后仍与日志一致；日志查询逐条按顺序", async () => {
+        const order: string[] = [];
+        const outbound: SessionEnv["outbound"] = {
+            // 越早的事件让出越多次事件循环：不排队的话后面的会先到。
+            event: async (event) => {
+                for (let turn = 0; turn < Math.max(0, 12 - event.seq); turn += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+                order.push(event.type);
+                return event.type === "assistant" ? {...event, data: {...(event.data as object), content: [{kind: "text", text: "（已过滤）"}]}} : event;
+            },
+        };
+        await using session = await createTestSession({outbound});
+        const seen: string[] = [];
+        const done = new Promise<void>((resolve) => {
+            session.raw.subscribe((frame) => {
+                if (frame.type !== "log") return;
+                seen.push(frame.event.type);
+                if (frame.event.type === "runEnded") resolve();
+            });
+        });
+        session.model.script("原文");
+        await session.say("问");
+        await done;
+        const logged = (await session.raw.log({afterSeq: 0})).events;
+        // 订阅是会话建好之后开始的：看到的应当正好是日志的最后几条，先后一致。
+        expect(seen).toEqual(logged.slice(logged.length - seen.length).map((event) => event.type));
+        expect(seen.length).toBeGreaterThan(5);
+        expect((logged.find((event) => event.type === "assistant")!.data as {content: {text: string}[]}).content[0]!.text).toBe("（已过滤）");
+    });
+});
+
 describe("单次请求", () => {
     const plain = defineProfile({id: "lab.plain", version: "1", name: "p", description: "p", system: "你是校对。", prompt: () => null as never}) as AnyProfile;
     const withTools = defineProfile({id: "lab.tools", version: "1", name: "t", description: "t", tools: {required: ["lab.read"]}}) as AnyProfile;
