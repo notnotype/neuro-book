@@ -104,7 +104,7 @@ t02。
 
 ## 当前状态
 
-设计定稿（决定 9 到 30，评审板 `review` v9 全部答完）。[实施计划](plan.md)第一稿开发者看过同意（2026-11-01）；设计审查 omp 17 条（阻断 5）、Claude Sonnet 24 条，全部处置后改成第二稿（处置见 [`evidences/design-review-disposition.md`](evidences/design-review-disposition.md)，O6、O7 接受取舍，其余改），等开发者确认第二稿后实施。第二轮“对话框太透明、圆角不对”查明是 nb-ui 的缺口：`design-language.md` 写了嵌套浮层用不透明层级色、圆角不大于底下窗口，`Dialog` 没有实现。草稿在 `.worktree/w00032-t09-drafts`（分支 `t09/drafts`，不提交、不合并），Lab 场景 `ModelSettingsDraft`。
+设计定稿（决定 9 到 30，评审板 `review` v9 全部答完）。[实施计划](plan.md)第一稿开发者看过同意（2026-11-01）；设计审查 omp 17 条（阻断 5）、Claude Sonnet 24 条，全部处置后改成第二稿（处置见 [`evidences/design-review-disposition.md`](evidences/design-review-disposition.md)，O6、O7 接受取舍，其余改）。开发者要求 omp 只针对上一轮的 5 条阻断（O1、O2、O3、O4、O10）再审一轮，对象 master `506a564d5`，进行中。第二轮“对话框太透明、圆角不对”查明是 nb-ui 的缺口：`design-language.md` 写了嵌套浮层用不透明层级色、圆角不大于底下窗口，`Dialog` 没有实现。草稿在 `.worktree/w00032-t09-drafts`（分支 `t09/drafts`，不提交、不合并），Lab 场景 `ModelSettingsDraft`。
 
 ## 下一步
 
