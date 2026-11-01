@@ -5,6 +5,8 @@
 
 // 第一条导入：启动环境要在任何导入 OMP 的模块之前拍下（startup-env.ts）。
 import "./startup-env";
+// 第二条：接管 OMP 装的进程级处理（omp-process.ts）。
+import "./omp-process";
 
 import {join, resolve} from "node:path";
 

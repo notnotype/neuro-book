@@ -22,6 +22,7 @@ import {readServerConfig, ServerConfigError} from "./config";
 import type {ServerConfig} from "./config";
 import {claimStateRoot} from "./instance";
 import type {ClaimResult, InstanceKind, StateRootClaim} from "./instance";
+import {ompProcess} from "./omp-process";
 import {ServerAssemblyError, ServerStartupError, startServer} from "./start";
 import type {RunningServer, StartServerOptions} from "./start";
 
@@ -168,6 +169,8 @@ export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>
         },
     );
     const {exitCode} = await server.stopped;
+    // OMP 登记的清理（凭据与用量缓存的刷写等）：它装的进程级处理已被摘掉（omp-process.ts），由宿主在停止结算之后跑。
+    await ompProcess.cleanup();
     if (ran) options.onStopped?.(exitCode);
     process.exit(exitCode);
 }

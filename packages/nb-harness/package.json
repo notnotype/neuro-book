@@ -21,6 +21,7 @@
         "./kernel/contracts": "./src/kernel/contracts.ts",
         "./kernel/testing": "./src/kernel/testing/index.ts",
         "./models": "./src/models/index.ts",
+        "./process-guard": "./src/process-guard.ts",
         "./prompt": "./src/kernel/view/prompt/index.ts",
         "./prompt/jsx-runtime": "./src/kernel/view/prompt/jsx-runtime.ts",
         "./prompt/jsx-dev-runtime": "./src/kernel/view/prompt/jsx-dev-runtime.ts"

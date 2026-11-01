@@ -161,6 +161,10 @@
             "name": "Markdown",
             "description": "Markdown for your book: reading and writing rules, editor extensions and rendering."
         },
+        "nbook-models": {
+            "name": "Model Service",
+            "description": "Providers and models, keys and model roles; supplies models to the writing assistant."
+        },
         "nbook-plugins": {
             "name": "Plugin Manager",
             "description": "Installs, enables, disables and uninstalls plugins."

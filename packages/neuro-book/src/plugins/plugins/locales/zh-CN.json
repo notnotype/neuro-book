@@ -158,6 +158,10 @@
             "name": "Markdown",
             "description": "作品的 Markdown 写法：读写规则、编辑器扩展与显示。"
         },
+        "nbook-models": {
+            "name": "模型服务",
+            "description": "服务商与模型、密钥与模型角色；给写作助手提供模型。"
+        },
         "nbook-plugins": {
             "name": "插件管理",
             "description": "安装、启用、禁用与卸载插件。"
