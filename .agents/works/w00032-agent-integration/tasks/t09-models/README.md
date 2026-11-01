@@ -63,14 +63,14 @@ t02。
 第一轮静态稿的答复（开发者 2026-11-01，`review` v1）：
 
 15. 服务商与模型页用“左列表右详情”（`provider-layout` = `split`，没选推荐的列表下钻）：这一页自己分栏，与 `settings/settings-window.md` 输出 19 不一致，写 Spec 时给这一页写明例外。
-16. 服务商详情的内容与排法不按第一轮的稿（`provider-detail` = 否，没有附言）：要改什么待问清后出第二轮。
+16. 服务商详情的内容与排法不按第一轮的稿（`provider-detail` = 否）。开发者在会话里补充：要改“密钥与连接”与“展开编辑”两处，旧应用的服务商页做得不错，参考 Cherry Studio 的做法。第二轮据此改为：连接一节标签在上的表单，密钥是密码框加“检测”、已设置的不回显，地址下写出实际请求地址；模型行的齿轮打开“编辑模型”对话框。
 17. 模型角色页按第一轮的稿做（`roles-page` = 是）。
 
 调研：[OMP、新应用与旧应用的现状](../../research/2026-11-01-model-service-survey.md)（旧应用 24 项可观察行为与逐项建议）。
 
 ## 当前状态
 
-第一轮静态稿已答复（决定 15 到 17）；服务商详情要改的地方待问清，再出第二轮。草稿在 `.worktree/w00032-t09-drafts`（分支 `t09/drafts`，不提交、不合并），Lab 场景 `ModelSettingsDraft`。
+第二轮静态稿已发布（`review` v2，一道题 `provider-detail-r2`：服务商详情按第二轮的稿做），等开发者答复。草稿在 `.worktree/w00032-t09-drafts`（分支 `t09/drafts`，不提交、不合并），Lab 场景 `ModelSettingsDraft`。
 
 ## 下一步
 
