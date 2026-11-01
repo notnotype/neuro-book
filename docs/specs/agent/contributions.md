@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.contributions
 owners:
   - nbook.agent
@@ -114,8 +114,22 @@ owners:
 2. 用户在 `user/profiles/` 写一个 Profile，导入同目录的另一个文件：建会话、对话一轮；改那个被导入的文件，下一次请求用新内容、日志里有 `code-updated`；改成导入表外的包，目录标错误、会话继续用上一版；删掉源文件，会话只读。
 3. 工具绑定给这个 Profile 加一个它没写的工具、去掉一个可选工具，下一次请求的工具集跟着变。
 
-Smoke：`packages/neuro-book/src/plugins/agent/` 的插件测试（实施时建）。
+Smoke：`packages/neuro-book/src/plugins/agent/` 的插件测试。
+
+## 实现合同
+
+- **公开入口**：`nbook/plugins/agent/shared/points`（三个贡献点的定义与声明类型、激活事件、写清单的助手 `agentExtension`、`agentTool`、`agentProfile`）、`nbook/plugins/agent/shared/settings`（两个设置项）；SDK 子路径 `@notnotype/nb-plugin-sdk/agent` 与 `/agent/jsx-runtime`（只给服务端，转出内核的定义写法、类型、模板节点与上面的助手）。
+- **owner 与依赖方向**：`nbook.agent` 的服务端入口拥有三个贡献点与接收者，依赖设置、状态根、宿主时钟，可选依赖 `nbook.models`；扩展的接收者把贡献转给内核的插件宿主（`@notnotype/nb-harness/kernel` 的 `createAgentHost`），工具与 Profile 由本插件自己经 `SessionEnv.tools`、`SessionEnv.profiles` 交给内核。用户级 Profile 的装载共用平台的宿主模块表与外部导入检查（`plugin-platform/backend/loader.ts`）；插件构建预设的纯度名单含 nb-harness。
+- **关键不变量**：
+  - 内核拿到的工具实现是本插件的包装，每个会话每个工具一个：一次调用从等工厂起整段算在途，执行前复核中止、撤回与关闭；撤回时交给平台的完成最迟 5 秒，真正的释放等底层都结束（输出 5、6，`agent.test.ts`“工具”几条）。
+  - 扩展的接收者对同一个平台句柄总交给内核同一个对象，`implementation()` 不缓存（输出 1，`agent.test.ts`、内核 `host.test.ts`）。
+  - Profile 的来源按登记判定，不只看前缀；用户 Profile 撞上插件的 key 不可用（输出 7，`agent.test.ts`“来源按登记判定”）。
+  - 用户 Profile 每个一个打包状态机：打包期间相关文件变了结果作废、失败保留上一次的包、失败后相关目录有变化就重试；生效版本带包的内容哈希；包按真实路径缓存（输出 9–12，`profiles.test.ts`）。
+  - 会话还在建或打开时到达的扩展与 Profile 变化，进表后补做一次（内核 `host.test.ts`“会话还在建时到达的”）。
 
 ## 证据
 
-- 批准依据：w00032 t10 决定 1–8 与实施阶段的决定 9–15（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/README.md)）；t04 决定 2、4、6，t05 存放三层与“打包加哈希”。
+- 批准依据：w00032 t10 决定 1–8 与实施阶段的决定 9–15（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/README.md)）；t04 决定 2、4、6，t05 存放三层与“打包加哈希”；开发者 2026-11-01 批准晋升为 `implemented`。
+- 实现入口：[`backend/plugin.ts`](../../../packages/neuro-book/src/plugins/agent/backend/plugin.ts)、[`backend/agent.ts`](../../../packages/neuro-book/src/plugins/agent/backend/agent.ts)、[`backend/extensions.ts`](../../../packages/neuro-book/src/plugins/agent/backend/extensions.ts)、[`backend/tools.ts`](../../../packages/neuro-book/src/plugins/agent/backend/tools.ts)、[`backend/profiles.ts`](../../../packages/neuro-book/src/plugins/agent/backend/profiles.ts)、[`backend/profile-bundles.ts`](../../../packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts)、[`shared/points.ts`](../../../packages/neuro-book/src/plugins/agent/shared/points.ts)、[`src/sdk/agent.ts`](../../../packages/neuro-book/src/sdk/agent.ts)
+- 合同测试：[`agent.test.ts`](../../../packages/neuro-book/src/plugins/agent/agent.test.ts)（真实服务端内核、真实设置与模型服务、本机的 OpenAI 兼容端点、运行中登记与注销插件）、[`profiles.test.ts`](../../../packages/neuro-book/src/plugins/agent/profiles.test.ts)（真实文件与运行期打包）、[`tasks.test.ts`](../../../packages/neuro-book/src/plugins/agent/tasks.test.ts)（扩展提供方的激活）、内核 [`host.test.ts`](../../../packages/nb-harness/src/kernel/session/host.test.ts)、[`build-plugin.test.ts`](../../../packages/neuro-book/plugin-sdk/build-plugin.test.ts)（纯度名单）
+- Smoke：[`agent.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/agent.llm.test.ts)（`test:llm`，真实模型经远程合同跑一轮）

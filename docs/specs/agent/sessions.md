@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.sessions
 owners:
   - nbook.agent
@@ -121,8 +121,22 @@ owners:
 4. 一个工具结果超过 1 MiB：`log` 与帧里是占位，经 `eventChunk` 读回完整的事件。
 5. 停止 `nbook.agent` 时一个运行在跑、一个会话正在打开：两者都按 `interrupted` 关闭，之后的调用得 `unavailable`。
 
-Smoke：`packages/neuro-book/src/plugins/agent/` 的插件测试（实施时建）。
+Smoke：`packages/neuro-book/src/plugins/agent/` 的插件测试与 `agent.llm.test.ts`。
+
+## 实现合同
+
+- **公开入口**：`nbook/plugins/agent/shared/contracts`（服务键 `agentKey`、`AgentService`、`StartTaskOptions`、`taskSessionId`）、`nbook/plugins/agent/shared/remote`（远程合同 `agentSessionsContract` 与 `LogItem`、`PreviewItem`、`RemoteFrame` 投影）。
+- **owner 与依赖方向**：`nbook.agent` 的服务端入口持有句柄表、远程提供方与 `agentKey`；会话日志由内核的 JSONL 存储写在 `<状态根>/agent/sessions/`。浏览器经远程合同调用，同进程的插件经 `agentKey`。
+- **关键不变量**：
+  - 句柄表是会话打开、关闭与引用的唯一所有者：同时到达的打开共用一次，交出的视图不持引用、每次调用时取会话，空闲关闭在同一个同步段里复查（输出 5、6，`agent.test.ts`“会话”）。
+  - 停止先关门（服务的每个入口），再停用户 Profile 的打包、等在建的会话登记完，最后按 `interrupted` 关闭（输出 14，`agent.test.ts`“停止时还在建的会话”“停止时运行中的会话”）。
+  - 远程结果与帧不超过一条消息：分页的按字节截断并给游标，大事件与大预览分段读，不分页的超限得 `result-too-large`（输出 9，`sessions.test.ts`、`backend/frames.test.ts`）。
+  - 每个远程订阅自己的内核订阅与合并缓冲，会话打不开时订阅失败（输出 7、8，`sessions.test.ts`）。
+  - 任务的幂等记录就是会话日志：会话 id 由 `taskId` 定，`send` 的 `commandId` 就是 `taskId`（输出 10、11，`tasks.test.ts`）。
 
 ## 证据
 
-- 批准依据：w00032 t10 决定 1–8 与实施阶段的决定 9–15（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/README.md)）；t03 决定 4、5，t07 决定 7。
+- 批准依据：w00032 t10 决定 1–8 与实施阶段的决定 9–15（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/README.md)）；t03 决定 4、5，t07 决定 7；开发者 2026-11-01 批准晋升为 `implemented`。
+- 实现入口：[`backend/sessions.ts`](../../../packages/neuro-book/src/plugins/agent/backend/sessions.ts)（句柄表）、[`backend/agent.ts`](../../../packages/neuro-book/src/plugins/agent/backend/agent.ts)（装配、`agentKey`、`startTask`）、[`backend/remote.ts`](../../../packages/neuro-book/src/plugins/agent/backend/remote.ts)、[`backend/frames.ts`](../../../packages/neuro-book/src/plugins/agent/backend/frames.ts)、[`shared/remote.ts`](../../../packages/neuro-book/src/plugins/agent/shared/remote.ts)
+- 合同测试：[`sessions.test.ts`](../../../packages/neuro-book/src/plugins/agent/sessions.test.ts)（真实远程链路、断线重连）、[`tasks.test.ts`](../../../packages/neuro-book/src/plugins/agent/tasks.test.ts)（`startTask` 与 `unknown-outcome` 重发）、[`agent.test.ts`](../../../packages/neuro-book/src/plugins/agent/agent.test.ts)（句柄表与停止）、[`backend/frames.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/frames.test.ts)
+- Smoke：[`agent.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/agent.llm.test.ts)（`test:llm`，DeepSeek 经远程合同跑一轮）
