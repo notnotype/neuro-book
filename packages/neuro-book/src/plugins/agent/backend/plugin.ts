@@ -8,6 +8,7 @@
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
+import {provideRemote} from "@notnotype/nb-runtime/remote";
 import type {PluginDefinition, TriggerActivationResult} from "@notnotype/nb-runtime/plugins";
 
 import {modelsKey} from "nbook/plugins/models/shared/contracts";
@@ -16,10 +17,12 @@ import {clockKey, stateRootKey} from "nbook/shared/host";
 
 import {descriptor} from "../plugin";
 import {agentKey} from "../shared/contracts";
+import {agentSessionsContract} from "../shared/remote";
 import {AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, EXTENSIONS_POINT, extensionsPoint, PROFILES_POINT, profilesPoint, TOOLS_POINT, toolsPoint} from "../shared/points";
 
 import {createAgentRuntime} from "./agent";
 import {extensionReceiver} from "./extensions";
+import {agentRemote, PreviewTokens} from "./remote";
 
 const allActivated = (result: TriggerActivationResult): boolean => result.status === "triggered" && result.results.every((item) => item.status === "activated");
 
@@ -32,6 +35,7 @@ export const agentBackendPlugin: PluginDefinition = {
         location: "server",
         dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}, {key: modelsKey, required: false}],
         provides: [agentKey],
+        remoteProvides: [agentSessionsContract],
         receives: [EXTENSIONS_POINT, TOOLS_POINT, PROFILES_POINT],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
@@ -48,12 +52,15 @@ export const agentBackendPlugin: PluginDefinition = {
                 trigger: async (event) => allActivated(await context.activation.trigger(event, {signal: context.signal})),
                 report,
             });
+            const clock = context.services.require(clockKey);
+            const previews = new PreviewTokens(clock);
             let stopped: Promise<void> | null = null;
-            const stop = () => (stopped ??= runtime.stop());
+            const stop = () => (stopped ??= runtime.stop().finally(() => previews.clear()));
             context.signal.addEventListener("abort", () => void stop(), {once: true});
             context.onStop(stop);
             return {
                 services: [provideService(agentKey, runtime.service)],
+                remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, clock}, previews))],
                 receivers: {
                     [EXTENSIONS_POINT]: extensionReceiver(runtime.host, (message, cause) => report("extension-revoke-failed", message, {message: cause instanceof Error ? cause.message : String(cause)})),
                     [TOOLS_POINT]: runtime.tools.receiver,

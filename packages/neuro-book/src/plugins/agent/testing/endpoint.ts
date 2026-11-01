@@ -3,7 +3,8 @@
  * 请求挂着、直到测试放行，看运行中的行为。只由测试使用。
  */
 
-export type Scripted = string | {readonly tool: string; readonly args?: Readonly<Record<string, unknown>>};
+/** 一条回复：一段文字、分几块流出的文字，或一次工具调用。 */
+export type Scripted = string | {readonly chunks: readonly string[]} | {readonly tool: string; readonly args?: Readonly<Record<string, unknown>>};
 
 export interface SeenRequest {
     readonly tools: readonly string[];
@@ -45,10 +46,11 @@ export function fakeEndpoint(): FakeEndpoint {
             }
             const reply = queue.shift() ?? "好";
             calls += 1;
-            const parts = typeof reply === "string"
-                ? [chunk({choices: [{index: 0, delta: {role: "assistant", content: reply}, finish_reason: null}]}), chunk({choices: [{index: 0, delta: {}, finish_reason: "stop"}]})]
+            const texts = typeof reply === "string" ? [reply] : "chunks" in reply ? reply.chunks : null;
+            const parts = texts !== null
+                ? [...texts.map((text) => chunk({choices: [{index: 0, delta: {role: "assistant", content: text}, finish_reason: null}]})), chunk({choices: [{index: 0, delta: {}, finish_reason: "stop"}]})]
                 : [
-                    chunk({choices: [{index: 0, delta: {role: "assistant", tool_calls: [{index: 0, id: `call-${String(calls)}`, type: "function", function: {name: reply.tool, arguments: JSON.stringify(reply.args ?? {})}}]}, finish_reason: null}]}),
+                    chunk({choices: [{index: 0, delta: {role: "assistant", tool_calls: [{index: 0, id: `call-${String(calls)}`, type: "function", function: {name: (reply as {tool: string}).tool, arguments: JSON.stringify((reply as {args?: unknown}).args ?? {})}}]}, finish_reason: null}]}),
                     chunk({choices: [{index: 0, delta: {}, finish_reason: "tool_calls"}]}),
                 ];
             return new Response(`${parts.join("")}data: [DONE]\n\n`, {headers: {"content-type": "text/event-stream"}});

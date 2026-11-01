@@ -8,24 +8,30 @@ import {mkdir, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
-import type {PluginDefinition, RegisterPluginResult} from "@notnotype/nb-runtime/plugins";
+import type {ActivationContext, PluginDefinition, RegisterPluginResult} from "@notnotype/nb-runtime/plugins";
 
 import {definitionAt} from "nbook/manifest";
 import {modelsBackendPlugin} from "nbook/plugins/models/backend/plugin";
 import {descriptor as modelsDescriptor} from "nbook/plugins/models/plugin";
 import {settingsWorld} from "nbook/plugins/settings/testing/world";
-import type {SettingsWorld} from "nbook/plugins/settings/testing/world";
+import type {SettingsWorld, WorldWindow} from "nbook/plugins/settings/testing/world";
 import {startupEnvKey} from "nbook/shared/host";
 
 import {agentBackendPlugin} from "../backend/plugin";
 import {descriptor} from "../plugin";
 import {agentKey} from "../shared/contracts";
 import type {AgentService} from "../shared/contracts";
+import {agentSessionsContract} from "../shared/remote";
+
+const useSessions = (context: ActivationContext) => context.remote.use(agentSessionsContract);
+export type SessionsClient = ReturnType<typeof useSessions>;
 
 export interface AgentWorld {
     readonly settings: SettingsWorld;
     readonly service: AgentService;
     readonly stateRoot: string;
+    /** 起一个窗口，交回它的远程客户端与窗口（断线、重连用）。 */
+    window(id: string): Promise<{readonly client: SessionsClient; readonly window: WorldWindow}>;
     /** 运行中登记一个插件；交回的函数停掉它（关它的登记作用域，贡献随之撤回）。 */
     register(plugin: PluginDefinition): Promise<{readonly result: RegisterPluginResult; stop(): Promise<void>}>;
     close(): Promise<void>;
@@ -51,6 +57,16 @@ export async function agentWorld(root: string, options: {readonly plugins?: Read
         settings,
         service,
         stateRoot,
+        window: async (id) => {
+            let captured: ActivationContext | null = null;
+            const page: PluginDefinition = {id: `test.agent-page-${id}`, entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], activate: (context) => {
+                captured = context;
+                return {};
+            }})]};
+            const window = await settings.window(id, [page], {bound: false});
+            if (captured === null) throw new Error("the test page did not activate");
+            return {client: useSessions(captured), window};
+        },
         register: async (plugin) => {
             const scope = settings.hub.root.createChild(`test:${plugin.id}`);
             const result = settings.hub.plugins.register(plugin, {scope});
