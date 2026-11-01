@@ -19,6 +19,7 @@
         "./testing": "./src/testing/index.ts",
         "./kernel": "./src/kernel/index.ts",
         "./kernel/contracts": "./src/kernel/contracts.ts",
+        "./kernel/helpers": "./src/kernel/helpers/index.ts",
         "./kernel/testing": "./src/kernel/testing/index.ts",
         "./models": "./src/models/index.ts",
         "./process-guard": "./src/process-guard.ts",

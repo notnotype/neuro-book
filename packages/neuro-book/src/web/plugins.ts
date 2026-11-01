@@ -23,6 +23,7 @@ import {markdownBrowserPlugin} from "nbook/plugins/markdown/web/plugin";
 import {markdownCatalogs} from "nbook/plugins/markdown/web/text";
 import {modelsBrowserPlugin} from "nbook/plugins/models/web/plugin";
 import {modelsCatalogs} from "nbook/plugins/models/web/text";
+import {agentCatalogs} from "nbook/plugins/agent/web/text";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
 import {explorerCatalogs} from "nbook/plugins/explorer/web/text";
 import {filesBrowserPlugin} from "nbook/plugins/files/web/plugin";
@@ -87,6 +88,7 @@ export interface BuiltinCatalogs {
  * 插件的目录不在构建里，经引导的目录索引与目录端点取（docs/specs/runtime/browser-host.md 输出 2）。
  */
 export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = {
+    "nbook.agent": agentCatalogs,
     "nbook.editor": editorCatalogs,
     "nbook.explorer": explorerCatalogs,
     "nbook.html-preview": htmlPreviewCatalogs,

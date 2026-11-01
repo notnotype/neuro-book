@@ -54,7 +54,7 @@ async function sendRaw(session: TestSession, text: string): Promise<string> {
 }
 
 describe("工具集", () => {
-    test("输出 15：不合规则或换算后重名的声明不进工具集并诊断；必需工具缺失时运行收口、会话进只读；Profile 写了 tools 时只取列出的", async () => {
+    test("输出 15：不合规则或换算后重名的声明不进工具集并诊断；必需工具缺失时运行收口、会话进只读；宿主给的就是最终工具集，Profile 写了 tools 也不过滤", async () => {
         await using session = await createTestSession({tools: [echo("lab.read"), echo("lab__x"), echo("lab.a", {providerName: "same"}), echo("lab.b", {providerName: "same"})]});
         session.model.script("好");
         const {requests} = await session.say("问");
@@ -70,11 +70,11 @@ describe("工具集", () => {
         expect((await needy.raw.diagnostics()).filter((item) => item.code === "tools-missing").map((item) => item.params.missing)).toEqual(["lab.write"]);
         expect(await needy.raw.send({commandId: "again", input: {text: "再来"}})).toMatchObject({ok: false, code: "read-only"});
 
-        // Profile 写了 tools：宿主给的别的工具不交给模型。
+        // Profile 写了 tools：宿主多给的（工具绑定加的、插件给所有 Profile 加的）照样交给模型（t04 决定 4）。
         const narrow = defineProfile({id: "lab.narrow", version: "1", name: "n", description: "n", tools: {optional: ["lab.read"]}}) as AnyProfile;
-        await using limited = await createTestSession({profile: narrow, tools: [echo("lab.read"), echo("lab.shell")]});
-        limited.model.script("好");
-        expect((await limited.say("问")).requests[0]!.raw.tools.map((tool) => tool.id)).toEqual(["lab.read"]);
+        await using bound = await createTestSession({profile: narrow, tools: [echo("lab.read"), echo("lab.shell")]});
+        bound.model.script("好");
+        expect((await bound.say("问")).requests[0]!.raw.tools.map((tool) => tool.id)).toEqual(["lab.read", "lab.shell"]);
     });
 
     test("输出 16：第一次请求前告诉模型工具集；变了就同批写新记录与 tools-changed 提醒；没变不写", async () => {

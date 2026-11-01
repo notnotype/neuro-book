@@ -1,0 +1,12 @@
+{
+    "settings": {
+        "toolBindings": {
+            "title": "Agent tool bindings",
+            "description": "Add or remove tools per profile: added brings in tools the profile does not list, removed drops optional ones (required tools stay)"
+        },
+        "profileSettings": {
+            "title": "Profile settings",
+            "description": "The model or model role per profile, and the approval mode new sessions start with"
+        }
+    }
+}

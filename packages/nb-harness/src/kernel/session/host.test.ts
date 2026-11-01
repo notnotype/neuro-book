@@ -846,6 +846,358 @@ describe("插件宿主", () => {
         await host2.close(created2.value.id);
     });
 
+    test("输出 57：profilesChanged 让用这个 Profile 的会话重新解析；同哈希也换上新对象，哈希变了写 code-updated；解析不到只读、回来后解除；别的 Profile 的会话不动", async () => {
+        const model = createTestModel();
+        const live = new Map<string, AnyProfile>([["test.live", defineProfile({id: "test.live", version: "1", name: "l", description: "l", system: "旧的说明"}) as AnyProfile]]);
+        const env = hostEnv(model);
+        const host = createAgentHost({...env, profiles: {resolve: (key) => live.get(key) ?? env.profiles.resolve(key)}});
+        const created = await host.create({profile: "test.live"});
+        const other = await host.create({profile: defaultProfile.id});
+        if (!created.ok || !other.ok) throw new Error("create failed");
+        const session = created.value;
+        const reasons = async (target = session) => dataOf<{reason: string}>((await target.log({afterSeq: 0})).events, "profileChanged").map((data) => data.reason);
+        const systemOfLast = () => model.requests.at(-1)!.system.map((block) => (block as {text: string}).text).join("");
+        const ask = async (text: string) => {
+            model.script("好");
+            const sent = await session.send({commandId: id(), input: {text}});
+            if (!sent.ok || sent.value.runId === null) throw new Error(sent.ok ? "no run" : sent.code);
+            await session.waitRun(sent.value.runId);
+        };
+
+        // 改了提示词、没升 version：哈希不变，不写日志，下一次请求已用新对象。
+        live.set("test.live", defineProfile({id: "test.live", version: "1", name: "l", description: "l", system: "新的说明"}) as AnyProfile);
+        await host.profilesChanged(["test.live"]);
+        await ask("一");
+        expect(systemOfLast()).toContain("新的说明");
+        expect(await reasons()).toEqual(["created"]);
+
+        live.set("test.live", defineProfile({id: "test.live", version: "2", name: "l", description: "l", system: "第二版"}) as AnyProfile);
+        await host.profilesChanged(["test.live"]);
+        expect(await reasons()).toEqual(["created", "code-updated"]);
+
+        live.delete("test.live");
+        await host.profilesChanged(["test.live"]);
+        expect((await session.snapshot()).readOnly).toEqual({code: "unknown-profile"});
+        expect(await session.send({commandId: id(), input: {text: "二"}})).toMatchObject({ok: false, code: "read-only"});
+
+        live.set("test.live", defineProfile({id: "test.live", version: "2", name: "l", description: "l", system: "第二版"}) as AnyProfile);
+        await host.profilesChanged(["test.live"]);
+        expect((await session.snapshot()).readOnly).toBeNull();
+        await ask("三");
+        expect(systemOfLast()).toContain("第二版");
+        expect(await reasons(other.value)).toEqual(["created"]);
+        await host.close(session.id);
+        await host.close(other.value.id);
+    });
+
+    test("输出 57：运行中 profilesChanged 不换这次运行的 Profile，运行结束后才重新装配，交回的 Promise 等到那时", async () => {
+        const model = createTestModel();
+        const started = gate();
+        const release = gate();
+        const live = new Map<string, AnyProfile>([["test.live", defineProfile({id: "test.live", version: "1", name: "l", description: "l", system: "第一版"}) as AnyProfile]]);
+        const env = hostEnv(model, [{id: "lab.hold", execute: async () => {
+            started.open();
+            await release.promise;
+            return "好了";
+        }}]);
+        const host = createAgentHost({...env, profiles: {resolve: (key) => live.get(key)}});
+        const created = await host.create({profile: "test.live"});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        model.script({tools: [{tool: "lab.hold"}]}, "完成");
+        const sent = await session.send({commandId: id(), input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("no run");
+        await started.promise;
+        live.set("test.live", defineProfile({id: "test.live", version: "2", name: "l", description: "l", system: "第二版"}) as AnyProfile);
+        let settled = false;
+        const changed = host.profilesChanged(["test.live"]).then(() => {
+            settled = true;
+        });
+        expect((await session.snapshot()).pendingReassembly).toEqual({added: [], removed: [], profile: true});
+        release.open();
+        await session.waitRun(sent.value.runId);
+        await changed;
+        expect(settled).toBe(true);
+        expect(model.requests.at(-1)!.system.map((block) => (block as {text: string}).text).join("")).toContain("第一版");
+        expect(dataOf<{reason: string}>((await session.log({afterSeq: 0})).events, "profileChanged").map((data) => data.reason)).toEqual(["created", "code-updated"]);
+        await host.close(session.id);
+    });
+
+    /** 可改的 Profile 表与按它解析的宿主；`gateResolve` 让下一次解析停在门口，看并发。 */
+    function liveHost(model = createTestModel(), tools: {id: string; execute: () => Promise<string> | string}[] = [], disposed = {count: 0}) {
+        const live = new Map<string, AnyProfile>();
+        let gated: {entered: () => void; release: Promise<void>} | null = null;
+        let failNext = false;
+        const env = hostEnv(model, tools);
+        const host = createAgentHost({
+            ...env,
+            tools: {...env.tools, create: (toolId) => ({execute: async () => tools.find((tool) => tool.id === toolId)!.execute(), dispose: () => {
+                disposed.count += 1;
+            }})},
+            profiles: {resolve: async (key) => {
+                const waiting = gated;
+                gated = null;
+                if (waiting !== null) {
+                    waiting.entered();
+                    await waiting.release;
+                }
+                if (failNext) {
+                    failNext = false;
+                    throw new Error("resolver unavailable");
+                }
+                return live.get(key) ?? (await env.profiles.resolve(key));
+            }},
+        });
+        return {
+            host, live, model, store: env.store,
+            gateResolve() {
+                const entered = gate();
+                const release = gate();
+                gated = {entered: entered.open, release: release.promise};
+                return {entered: entered.promise, release: release.open};
+            },
+            failNextResolve() {
+                failNext = true;
+            },
+        };
+    }
+    const profileV = (version: string, system: string, extra: Record<string, unknown> = {}) => defineProfile({id: "test.live", version, name: "l", description: "l", system, ...extra}) as AnyProfile;
+    const reasonsOf = async (session: import("../api/index.js").SessionApi) => dataOf<{reason: string}>((await session.log({afterSeq: 0})).events, "profileChanged").map((data) => data.reason);
+
+    test("输出 57：重新解析 Profile 时宿主抛错，会话进只读 reassembly-failed 并写诊断，不留未处理的拒绝；期间关闭照样释放会话锁", async () => {
+        const t = liveHost();
+        t.live.set("test.live", profileV("1", "一"));
+        const created = await t.host.create({profile: "test.live"});
+        if (!created.ok) throw new Error(created.code);
+        t.failNextResolve();
+        await t.host.profilesChanged(["test.live"]);
+        expect((await created.value.snapshot()).readOnly).toEqual({code: "reassembly-failed"});
+        expect((await created.value.diagnostics()).some((item) => item.code === "reassembly-failed")).toBe(true);
+        await t.host.close(created.value.id);
+
+        const again = await t.host.create({profile: "test.live"});
+        if (!again.ok) throw new Error(again.code);
+        const held = t.gateResolve();
+        t.failNextResolve();
+        const changing = t.host.profilesChanged(["test.live"]);
+        await held.entered;
+        const closing = t.host.close(again.value.id);
+        held.release();
+        await Promise.all([changing, closing]);
+        const reopened = await t.store.open(again.value.id);
+        expect(reopened.ok).toBe(true);
+        if (reopened.ok) await t.store.close(reopened.value);
+    });
+
+    test("输出 57：Profile 解析不到、同时撤回一个扩展时，扩展照样摘下，撤回的 Promise 在清理之后完成", async () => {
+        const started = gate();
+        const release = gate();
+        const t = liveHost(createTestModel(), [{id: "lab.hold", execute: async () => {
+            started.open();
+            await release.promise;
+            return "好了";
+        }}]);
+        const cleaned = {count: 0};
+        const watcher = defineExtension({id: "lab.watch", mount: () => () => {
+            cleaned.count += 1;
+        }});
+        const handle = handleOf(watcher);
+        t.host.extensions.prepare(handle);
+        t.host.extensions.published(handle);
+        t.live.set("test.live", profileV("1", "一"));
+        const created = await t.host.create({profile: "test.live"});
+        if (!created.ok) throw new Error(created.code);
+        t.model.script({tools: [{tool: "lab.hold"}]}, "完成");
+        const sent = await created.value.send({commandId: id(), input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("no run");
+        await started.promise;
+        t.live.delete("test.live");
+        const lost = t.host.profilesChanged(["test.live"]);
+        let cleanedAtRevoke = -1;
+        const revoked = t.host.extensions.revoke(handle, "deactivated").then(() => {
+            cleanedAtRevoke = cleaned.count;
+        });
+        release.open();
+        await created.value.waitRun(sent.value.runId);
+        await Promise.all([lost, revoked]);
+        expect(cleanedAtRevoke).toBe(1);
+        const snapshot = await created.value.snapshot();
+        expect([snapshot.readOnly, snapshot.extensions]).toEqual([{code: "unknown-profile"}, []]);
+        await t.host.close(created.value.id);
+    });
+
+    test("输出 57：用户的 changeProfile 与旧 Profile 的 profilesChanged 交错时，用户的切换不被改回", async () => {
+        const t = liveHost();
+        t.live.set("test.live", profileV("1", "旧的"));
+        const created = await t.host.create({profile: "test.live"});
+        if (!created.ok) throw new Error(created.code);
+        // 用户先换 Profile、停在解析新 Profile 上；这时旧 Profile 的代码变了，通知开始重新解析旧的。
+        const held = t.gateResolve();
+        const switched = created.value.changeProfile({commandId: id(), profile: defaultProfile.id});
+        await held.entered;
+        t.live.set("test.live", profileV("2", "旧的新版"));
+        const changing = t.host.profilesChanged(["test.live"]);
+        held.release();
+        await Promise.all([changing, switched]);
+        expect(await switched).toMatchObject({ok: true});
+        await waitIdleWrites(created.value);
+        expect((await created.value.snapshot()).profile.id).toBe(defaultProfile.id);
+        await t.host.close(created.value.id);
+    });
+
+    test("输出 57：Profile 丢了以后，无关扩展的发布不解除只读；回来后回到丢之前的只读原因（例如 tools-missing），不变成可写", async () => {
+        const t = liveHost();
+        t.live.set("test.live", profileV("1", "一", {tools: {required: ["lab.absent"]}}));
+        const created = await t.host.create({profile: "test.live"});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        const ran = await session.send({commandId: id(), input: {text: "问"}});
+        if (!ran.ok || ran.value.runId === null) throw new Error("no run");
+        await session.waitRun(ran.value.runId);
+        expect((await session.snapshot()).readOnly).toEqual({code: "tools-missing"});
+
+        t.live.delete("test.live");
+        await t.host.profilesChanged(["test.live"]);
+        expect((await session.snapshot()).readOnly).toEqual({code: "unknown-profile"});
+        const unrelated = handleOf(defineExtension({id: "lab.unrelated"}));
+        t.host.extensions.prepare(unrelated);
+        t.host.extensions.published(unrelated);
+        await waitIdleWrites(session);
+        expect((await session.snapshot()).readOnly).toEqual({code: "unknown-profile"});
+
+        t.live.set("test.live", profileV("1", "一", {tools: {required: ["lab.absent"]}}));
+        await t.host.profilesChanged(["test.live"]);
+        expect((await session.snapshot()).readOnly).toEqual({code: "tools-missing"});
+        await t.host.close(session.id);
+    });
+
+    test("输出 57：Profile 换了版本、同时有扩展撤回，攒在一起做时原因写 code-updated", async () => {
+        const started = gate();
+        const release = gate();
+        const t = liveHost(createTestModel(), [{id: "lab.hold", execute: async () => {
+            started.open();
+            await release.promise;
+            return "好了";
+        }}]);
+        const handle = handleOf(counter);
+        t.host.extensions.prepare(handle);
+        t.host.extensions.published(handle);
+        t.live.set("test.live", profileV("1", "一"));
+        const created = await t.host.create({profile: "test.live"});
+        if (!created.ok) throw new Error(created.code);
+        t.model.script({tools: [{tool: "lab.hold"}]}, "完成");
+        const sent = await created.value.send({commandId: id(), input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("no run");
+        await started.promise;
+        t.live.set("test.live", profileV("2", "二"));
+        const both = Promise.all([t.host.profilesChanged(["test.live"]), t.host.extensions.revoke(handle, "deactivated")]);
+        release.open();
+        await created.value.waitRun(sent.value.runId);
+        await both;
+        expect(await reasonsOf(created.value)).toEqual(["created", "code-updated"]);
+        await t.host.close(created.value.id);
+    });
+
+    test("输出 57、38：同哈希换对象时卸下旧 Profile 的挂载、换上新的；建过的工具实现释放，下一次调用按新上下文重建", async () => {
+        const disposed = {count: 0};
+        const t = liveHost(createTestModel(), [{id: "lab.read", execute: () => "读到了"}], disposed);
+        const log: string[] = [];
+        const withMount = (label: string) => profileV("1", label, {mount: () => {
+            log.push(`mount:${label}`);
+            return () => log.push(`cleanup:${label}`);
+        }});
+        t.live.set("test.live", withMount("旧"));
+        const created = await t.host.create({profile: "test.live"});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        t.model.script({tools: [{tool: "lab.read"}]}, "好");
+        const first = await session.send({commandId: id(), input: {text: "读"}});
+        if (!first.ok || first.value.runId === null) throw new Error("no run");
+        await session.waitRun(first.value.runId);
+        expect(disposed.count).toBe(0);
+
+        t.live.set("test.live", withMount("新"));
+        await t.host.profilesChanged(["test.live"]);
+        expect(log).toEqual(["mount:旧", "cleanup:旧", "mount:新"]);
+        expect(disposed.count).toBe(1);
+        expect(await reasonsOf(session)).toEqual(["created"]);
+        t.model.script({tools: [{tool: "lab.read"}]}, "好");
+        const second = await session.send({commandId: id(), input: {text: "再读"}});
+        if (!second.ok || second.value.runId === null) throw new Error("no run");
+        await session.waitRun(second.value.runId);
+        expect(t.model.requests.at(-1)!.system.map((block) => (block as {text: string}).text).join("")).toContain("新");
+        await t.host.close(session.id);
+    });
+
+    test("输出 57：会话还在建时到达的 profilesChanged 与扩展发布，建好后补上，不会漏", async () => {
+        const live = new Map<string, AnyProfile>([["test.live", profileV("1", "建的时候的")]]);
+        const entered = gate();
+        const release = gate();
+        let first = true;
+        const env = hostEnv();
+        const host = createAgentHost({...env, profiles: {resolve: async (key) => {
+            // 建会话时解析到的是那一刻的 Profile，然后停在门口。
+            const now = live.get(key);
+            if (first) {
+                first = false;
+                entered.open();
+                await release.promise;
+            }
+            return now;
+        }}});
+        const creating = host.create({profile: "test.live"});
+        await entered.promise;
+        live.set("test.live", profileV("2", "建好之后的"));
+        await host.profilesChanged(["test.live"]);
+        const handle = handleOf(counter);
+        host.extensions.prepare(handle);
+        host.extensions.published(handle);
+        release.open();
+        const created = await creating;
+        if (!created.ok) throw new Error(created.code);
+        await waitIdleWrites(created.value);
+        const snapshot = await created.value.snapshot();
+        expect(snapshot.extensions.map((item) => item.id)).toEqual(["lab.count"]);
+        expect(await reasonsOf(created.value)).toContain("code-updated");
+        await host.close(created.value.id);
+    });
+
+    test("诊断查询按 afterSeq、extension、level 过滤", async () => {
+        const host = createAgentHost(hostEnv());
+        const failing = (extensionId: string) => handleOf(defineExtension({id: extensionId, mount: () => {
+            throw new Error(`${extensionId} failed`);
+        }}));
+        for (const handle of [failing("lab.one"), failing("lab.two")]) {
+            host.extensions.prepare(handle);
+            host.extensions.published(handle);
+        }
+        const created = await host.create({profile: defaultProfile.id});
+        if (!created.ok) throw new Error(created.code);
+        const all = await created.value.diagnostics();
+        const failed = all.filter((item) => item.extension === "lab.one" || item.extension === "lab.two");
+        expect(failed.length).toBe(2);
+        expect((await created.value.diagnostics({extension: "lab.two"})).map((item) => item.extension)).toEqual(["lab.two"]);
+        const level = failed[0]!.level;
+        expect((await created.value.diagnostics({level})).every((item) => item.level === level)).toBe(true);
+        const latest = Math.max(...all.map((item) => item.lastSeq));
+        expect(await created.value.diagnostics({afterSeq: latest})).toEqual([]);
+        await host.close(created.value.id);
+    });
+
+    test("session 输出 19：后台会话写进会话头与列表；fork 出来的不继承", async () => {
+        const env = hostEnv();
+        const host = createAgentHost(env);
+        const created = await host.create({profile: defaultProfile.id, background: true});
+        if (!created.ok) throw new Error(created.code);
+        const forked = await created.value.fork({commandId: id()});
+        if (!forked.ok) throw new Error(forked.code);
+        const listed = await env.store.list();
+        if (!listed.ok) throw new Error(listed.code);
+        expect(listed.value.map((entry) => [entry.id, entry.background]).sort()).toEqual([[created.value.id, true], [forked.value.sessionId, false]].sort());
+        expect((await created.value.snapshot()).header.background).toBe(true);
+        await host.close(created.value.id);
+    });
+
     const defaultProfile = defineProfile({id: "test.host", version: "1", name: "h", description: "h", system: "系统"}) as AnyProfile;
     const dependent = defineProfile({id: "test.dependent", version: "1", name: "d", description: "d", dependsOn: [counter]}) as AnyProfile;
 });

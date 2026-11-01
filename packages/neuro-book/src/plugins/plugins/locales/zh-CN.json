@@ -126,6 +126,10 @@
         "unknown": "操作没有完成"
     },
     "builtin": {
+        "nbook-agent": {
+            "name": "Agent",
+            "description": "写作助手的会话与运行：接收插件给的扩展、工具与 Profile。"
+        },
         "nbook-commands": {
             "name": "命令",
             "description": "登记与执行命令；命令面板与快捷键执行的都是这里登记的命令。"

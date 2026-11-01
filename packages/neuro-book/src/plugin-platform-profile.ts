@@ -32,14 +32,14 @@ export const manifestFormat = createManifestFormat(NEUROBOOK_PLATFORM, npmVersio
  */
 const TYPEBOX_MODULES = ["typebox", "typebox/value", "typebox/compile"] as const;
 
-export type BrowserSharedModule = "vue" | "@vue/reactivity" | (typeof TYPEBOX_MODULES)[number] | SdkEntry["specifier"];
+export type BrowserSharedModule = "vue" | "@vue/reactivity" | (typeof TYPEBOX_MODULES)[number] | Exclude<SdkEntry, {readonly browser: false}>["specifier"];
 export type ServerSharedModule = "@vue/reactivity" | (typeof TYPEBOX_MODULES)[number] | Extract<SdkEntry, {readonly server: true}>["specifier"];
 
 /**
  * 浏览器入口的宿主模块表。nb-ui 的组件经 SDK 的 `components` 子路径共享，不共享 `@notnotype/nb-ui/components`：nb-ui 不发布，
  * 作者只能从 SDK 包拿到组件的构建期实现与类型。
  */
-export const BROWSER_SHARED_MODULES: ReadonlyArray<BrowserSharedModule> = ["vue", "@vue/reactivity", ...TYPEBOX_MODULES, ...SDK_ENTRIES.map((entry) => entry.specifier)];
+export const BROWSER_SHARED_MODULES: ReadonlyArray<BrowserSharedModule> = ["vue", "@vue/reactivity", ...TYPEBOX_MODULES, ...SDK_ENTRIES.flatMap((entry) => ("browser" in entry && entry.browser === false ? [] : [entry.specifier as BrowserSharedModule]))];
 
 /**
  * 服务端与项目实例入口的宿主模块；Node 与 Bun 的内置模块另外允许。不含 `vue`：后端不加载界面框架，服务端代码要响应式就从
@@ -58,10 +58,12 @@ export const NEUROBOOK_PROFILE: PlatformProfile = {
     styleDataset: "nbookPluginStyle",
     filesMount: "/api/runtime",
     buildTempPrefix: ".nbook-plugin-build-",
-    hostPackages: ["@notnotype/nb-ui", "@notnotype/nb-plugin-sdk", "@notnotype/nb-runtime", "typebox"],
+    // nb-harness：Agent 的定义写法只从 SDK 的 `/agent` 取，插件自带一份内核定义会与宿主的不一致（品牌标记、模板节点）。
+    hostPackages: ["@notnotype/nb-ui", "@notnotype/nb-plugin-sdk", "@notnotype/nb-runtime", "@notnotype/nb-harness", "typebox"],
     // nb-ui 不发布，作者项目里本来装不到它；仓库里照着内置插件的写法直接导入时提示改法。
     notSharedHints: [
         {packageName: "@notnotype/nb-ui", hint: "nb-ui 的组件从 @notnotype/nb-plugin-sdk/components 导入"},
+        {packageName: "@notnotype/nb-harness", hint: "Agent 的定义写法（defineProfile、defineExtension 等）从 @notnotype/nb-plugin-sdk/agent 导入"},
         // 只给浏览器的 SDK 子路径只在服务端入口里会报“未共享”：写明原因，免得作者以为是 SDK 漏了导出。
         ...SDK_ENTRIES.filter((entry) => !entry.server).map((entry) => ({packageName: entry.specifier, hint: `${entry.specifier} 只给浏览器入口用（要 Vue）；服务端入口不导入它，两端共用的合同放在 shared/`})),
     ],

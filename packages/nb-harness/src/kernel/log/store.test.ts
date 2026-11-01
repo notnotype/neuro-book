@@ -130,6 +130,23 @@ describe.each(stores)("%s 存储", (_name, makeStore) => {
         const archived = await store.list({archived: true});
         expect(archived.ok && archived.value.some((entry) => entry.id === first)).toBe(false);
     });
+
+    test("输出 19：后台会话的会话头带 background，列表条目跟着带、能按它筛", async () => {
+        const store = makeStore();
+        const front = nextId();
+        const back = nextId();
+        await writeSession(store, front, []);
+        const created = await store.create({...header(back), background: true});
+        if (!created.ok) throw new Error(created.code);
+        await store.close(created.value);
+        const only = async (filter: {background: boolean}) => {
+            const listed = await store.list(filter);
+            if (!listed.ok) throw new Error(listed.code);
+            return listed.value.filter((entry) => entry.id === front || entry.id === back).map((entry) => [entry.id, entry.background]);
+        };
+        expect(await only({background: true})).toEqual([[back, true]]);
+        expect(await only({background: false})).toEqual([[front, false]]);
+    });
 });
 
 describe("JSONL 存储的文件", () => {
@@ -347,6 +364,31 @@ describe("JSONL 存储的文件", () => {
         if (!opened.ok) throw new Error(opened.code);
         expect(opened.value.notices).toEqual([{code: "index-rebuilt", detail: {from: -1, to: 5}}]);
         expect(JSON.parse(await readFile(join(root, id, "index.json"), "utf8"))).toMatchObject({title: "第一章", throughSeq: 5});
+        await store().close(opened.value);
+    });
+
+    test("输出 19：加 background 之前写下的索引没有这个字段，不打开也列得出来、算前台", async () => {
+        const id = nextId();
+        await writeSession(store(), id, []);
+        const path = join(root, id, "index.json");
+        const {background: _dropped, ...old} = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+        await writeFile(path, JSON.stringify(old));
+        const listed = await store().list({background: false});
+        expect(listed.ok && listed.value.filter((entry) => entry.id === id).map((entry) => entry.background)).toEqual([false]);
+    });
+
+    test("输出 19：索引与会话头对不上时（旧索引、后台会话）打开时按日志重建、从会话头读回", async () => {
+        const id = nextId();
+        const created = await store().create({...header(id), background: true});
+        if (!created.ok) throw new Error(created.code);
+        await store().close(created.value);
+        const path = join(root, id, "index.json");
+        const {background: _dropped, ...old} = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+        await writeFile(path, JSON.stringify(old));
+        const opened = await store().open(id);
+        if (!opened.ok) throw new Error(opened.code);
+        expect(opened.value.notices.map((notice) => notice.code)).toEqual(["index-rebuilt"]);
+        expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({background: true});
         await store().close(opened.value);
     });
 
