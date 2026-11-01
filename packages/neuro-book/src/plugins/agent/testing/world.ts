@@ -39,8 +39,8 @@ export interface AgentWorld {
     close(): Promise<void>;
 }
 
-/** `withoutModels`：不装 `nbook.models`（看模型服务不在时的行为）。 */
-export async function agentWorld(root: string, options: {readonly plugins?: ReadonlyArray<PluginDefinition>; readonly userSettings?: Readonly<Record<string, unknown>>; readonly withoutModels?: boolean} = {}): Promise<AgentWorld> {
+/** `withoutModels`：不装 `nbook.models`（看模型服务不在时的行为）。`env`：启动环境（真实模型的密钥只进这里）。 */
+export async function agentWorld(root: string, options: {readonly plugins?: ReadonlyArray<PluginDefinition>; readonly userSettings?: Readonly<Record<string, unknown>>; readonly withoutModels?: boolean; readonly env?: Readonly<Record<string, string>>} = {}): Promise<AgentWorld> {
     const stateRoot = join(root, "state");
     await mkdir(stateRoot, {recursive: true});
     if (options.userSettings !== undefined) await writeFile(join(stateRoot, "settings.json"), JSON.stringify(options.userSettings));
@@ -54,7 +54,7 @@ export async function agentWorld(root: string, options: {readonly plugins?: Read
         definitionAt("server", descriptor, agentBackendPlugin),
         ...(options.plugins ?? []),
         probe,
-    ], {hubCapabilities: [{id: "host.startup-env", key: startupEnvKey, create: () => ({env: {}})}]});
+    ], {hubCapabilities: [{id: "host.startup-env", key: startupEnvKey, create: () => ({env: Object.freeze({...options.env})})}]});
     if (service === null) throw new Error("nbook.agent did not activate");
     return {
         settings,
