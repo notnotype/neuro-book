@@ -16,6 +16,7 @@ export interface SessionIndexEntry {
     readonly project?: string;
     readonly title: string | null;
     readonly archived: boolean;
+    readonly background: boolean;
     readonly createdAt: number;
     readonly lastActivityAt: number;
     readonly turns: number;
@@ -45,7 +46,7 @@ export interface LogStore {
     open(id: string): Promise<StorageResult<LogHandle>>;
     /** 一个写入批：一次写入后同步到盘。失败时句柄进损坏状态，结果对调用方不确定，重开以文件为准。 */
     append(handle: LogHandle, batch: readonly LogEvent[]): Promise<StorageResult<void>>;
-    list(filter?: {readonly project?: string; readonly archived?: boolean}): Promise<StorageResult<readonly SessionIndexEntry[]>>;
+    list(filter?: {readonly project?: string; readonly archived?: boolean; readonly background?: boolean}): Promise<StorageResult<readonly SessionIndexEntry[]>>;
     /** 释放锁。句柄已坏时只做清理。 */
     close(handle: LogHandle): Promise<void>;
 }

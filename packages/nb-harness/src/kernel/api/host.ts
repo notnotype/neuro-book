@@ -141,7 +141,8 @@ export interface SessionSnapshot {
     /** 会话为什么只读（Profile 解析不到、必需工具缺失、重新装配失败）；可写时为 null。 */
     readOnly: {code: "unknown-profile" | "tools-missing" | "dependency-missing" | "reassembly-failed"} | null;
     /** 插件装卸之后与当前装配不一致的部分；下一次空闲时自动重新装配。 */
-    pendingReassembly: {added: string[]; removed: string[]} | null;
+    /** `profile`：Profile 的代码变了、要重新解析（`AgentHost.profilesChanged`）。 */
+    pendingReassembly: {added: string[]; removed: string[]; profile?: true} | null;
     diagnostics: {errors: number; warnings: number};
 }
 
@@ -408,6 +409,8 @@ export interface CreateSessionOptions {
     /** 运行结果的 schema；Profile 声明了的不必再给。 */
     readonly result?: SessionHeader["result"];
     readonly id?: string;
+    /** 后台会话：写进会话头，列表缺省不列（`agent.startTask`）。 */
+    readonly background?: boolean;
 }
 export type CreateSession = (env: SessionEnv, options: CreateSessionOptions) => Promise<StorageResult<SessionApi> | {ok: false; code: "profile-invalid" | "invalid-initial"}>;
 export type OpenSession = (env: SessionEnv, id: string) => Promise<StorageResult<SessionApi>>;
@@ -453,6 +456,12 @@ export interface AgentHost {
     create(options: CreateSessionOptions): Promise<StorageResult<SessionApi> | {ok: false; code: "profile-invalid" | "invalid-initial"}>;
     open(sessionId: string): Promise<StorageResult<SessionApi>>;
     close(sessionId: string): Promise<void>;
+    /**
+     * 这些 key 的 Profile 代码变了或提供方撤回了：用它们的打开着的会话重新调 `profiles.resolve`、重新装配。哈希变了写
+     * `profileChanged{code-updated}`，没变也换上新对象；解析不到进只读 `unknown-profile`，回来后再调一次即解除。运行中的等
+     * 这次运行结束。交回的 Promise 在各会话做完后完成。
+     */
+    profilesChanged(keys: readonly string[]): Promise<void>;
     /** 全局的诊断（装配、插件装卸）；会话里的诊断在 `SessionQueries.diagnostics`。 */
     diagnostics(): Diagnostic[];
 }

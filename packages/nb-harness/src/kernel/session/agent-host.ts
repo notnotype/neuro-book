@@ -9,7 +9,7 @@
 import type {AgentHost, ContributedExtension, CreateSessionOptions, Diagnostic, ExtensionHandle, ExtensionInfo, SessionApi, SessionEnv} from "../api/index.js";
 import {diagnosticCodes} from "../api/index.js";
 import {contributedIdProblem} from "../extension/assemble.js";
-import {closeSession, createSession, notifyExtensionsChanged, openSession} from "./session.js";
+import {closeSession, createSession, currentProfileOf, notifyAssemblyChanged, openSession} from "./session.js";
 
 export class ExtensionRejected extends Error {
     constructor(readonly code: "bad-extension-id" | "duplicate-extension-id" | "dependency-cycle", message: string) {
@@ -49,7 +49,7 @@ export function createAgentHost(base: Omit<SessionEnv, "extensions">): AgentHost
     };
 
     const notifyAll = async (change: {added?: string[]; removed?: string[]}): Promise<void> => {
-        await Promise.all([...sessions.values()].map((session) => notifyExtensionsChanged(session, env, change)));
+        await Promise.all([...sessions.values()].map((session) => notifyAssemblyChanged(session, env, change)));
     };
 
     return {
@@ -75,6 +75,12 @@ export function createAgentHost(base: Omit<SessionEnv, "extensions">): AgentHost
                 published.delete(handle.id);
                 await notifyAll({removed: [handle.id]});
             },
+        },
+        // 只通知用这些 Profile 的会话；会话按当前的 key 自己重新解析（runtime.md 输出 57）。
+        async profilesChanged(keys) {
+            const changed = new Set(keys);
+            const affected = [...sessions.values()].filter((session) => changed.has(currentProfileOf(session) ?? ""));
+            await Promise.all(affected.map((session) => notifyAssemblyChanged(session, env, {profile: true})));
         },
         list(): ExtensionInfo[] {
             return [...published.values()].map((handle) => ({id: handle.id, plugin: handle.plugin, version: (handle.implementation() as {version?: string}).version ?? "0", status: "active", tags: handle.declaration.tags ?? []}));

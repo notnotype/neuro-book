@@ -293,6 +293,7 @@ export function createJsonlStore(options: JsonlStoreOptions): LogStore {
                     if (index === null) continue;
                     if (filter?.project !== undefined && index.project !== filter.project) continue;
                     if (filter?.archived !== undefined && index.archived !== filter.archived) continue;
+                    if (filter?.background !== undefined && index.background !== filter.background) continue;
                     entries.push(index);
                 }
                 return {ok: true, value: entries.sort((a, b) => b.lastActivityAt - a.lastActivityAt)};

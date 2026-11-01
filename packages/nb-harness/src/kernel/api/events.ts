@@ -261,6 +261,8 @@ export interface SessionHeader {
     readonly caller?: {readonly kind: "session" | "workflow"; readonly id: string; readonly callId: string};
     /** 提问交给谁：`caller` 时父会话也能应答。 */
     readonly questions: "caller" | "user";
+    /** 后台会话（`agent.startTask` 的 `background`）：会话列表缺省不列。fork 不继承。 */
+    readonly background?: true;
     readonly result?: {readonly mode: "optional" | "required"; readonly schema: JsonValue};
 }
 

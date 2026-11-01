@@ -9,6 +9,7 @@ export function emptyIndex(header: SessionHeader): SessionIndexEntry {
         ...(header.project === undefined ? {} : {project: header.project}),
         title: null,
         archived: false,
+        background: header.background === true,
         createdAt: header.createdAt,
         lastActivityAt: header.createdAt,
         turns: 0,
@@ -36,7 +37,8 @@ export function parseIndex(bytes: Uint8Array | null): SessionIndexEntry | null {
     if (bytes === null) return null;
     try {
         const value = JSON.parse(new TextDecoder().decode(bytes)) as SessionIndexEntry;
-        return typeof value === "object" && value !== null && typeof value.throughSeq === "number" ? value : null;
+        // 加 `background` 之前写的索引没有它：当作读不懂、按日志重建，不在这里补默认值。
+        return typeof value === "object" && value !== null && typeof value.throughSeq === "number" && typeof value.background === "boolean" ? value : null;
     } catch {
         // 索引只是缓存：读不懂就当没有，调用方按日志重建并写诊断 index-rebuilt。
         return null;

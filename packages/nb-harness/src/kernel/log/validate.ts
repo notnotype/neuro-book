@@ -30,6 +30,7 @@ function headerProblem(value: Record<string, unknown>): string | null {
     if (typeof value.createdAt !== "number") return "createdAt";
     if (typeof value.profile !== "string" || value.profile === "") return "profile";
     if (value.questions !== "caller" && value.questions !== "user") return "questions";
+    if (value.background !== undefined && value.background !== true) return "background";
     return null;
 }
 

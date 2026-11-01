@@ -846,6 +846,97 @@ describe("插件宿主", () => {
         await host2.close(created2.value.id);
     });
 
+    test("输出 57：profilesChanged 让用这个 Profile 的会话重新解析；同哈希也换上新对象，哈希变了写 code-updated；解析不到只读、回来后解除；别的 Profile 的会话不动", async () => {
+        const model = createTestModel();
+        const live = new Map<string, AnyProfile>([["test.live", defineProfile({id: "test.live", version: "1", name: "l", description: "l", system: "旧的说明"}) as AnyProfile]]);
+        const env = hostEnv(model);
+        const host = createAgentHost({...env, profiles: {resolve: (key) => live.get(key) ?? env.profiles.resolve(key)}});
+        const created = await host.create({profile: "test.live"});
+        const other = await host.create({profile: defaultProfile.id});
+        if (!created.ok || !other.ok) throw new Error("create failed");
+        const session = created.value;
+        const reasons = async (target = session) => dataOf<{reason: string}>((await target.log({afterSeq: 0})).events, "profileChanged").map((data) => data.reason);
+        const systemOfLast = () => model.requests.at(-1)!.system.map((block) => (block as {text: string}).text).join("");
+        const ask = async (text: string) => {
+            model.script("好");
+            const sent = await session.send({commandId: id(), input: {text}});
+            if (!sent.ok || sent.value.runId === null) throw new Error(sent.ok ? "no run" : sent.code);
+            await session.waitRun(sent.value.runId);
+        };
+
+        // 改了提示词、没升 version：哈希不变，不写日志，下一次请求已用新对象。
+        live.set("test.live", defineProfile({id: "test.live", version: "1", name: "l", description: "l", system: "新的说明"}) as AnyProfile);
+        await host.profilesChanged(["test.live"]);
+        await ask("一");
+        expect(systemOfLast()).toContain("新的说明");
+        expect(await reasons()).toEqual(["created"]);
+
+        live.set("test.live", defineProfile({id: "test.live", version: "2", name: "l", description: "l", system: "第二版"}) as AnyProfile);
+        await host.profilesChanged(["test.live"]);
+        expect(await reasons()).toEqual(["created", "code-updated"]);
+
+        live.delete("test.live");
+        await host.profilesChanged(["test.live"]);
+        expect((await session.snapshot()).readOnly).toEqual({code: "unknown-profile"});
+        expect(await session.send({commandId: id(), input: {text: "二"}})).toMatchObject({ok: false, code: "read-only"});
+
+        live.set("test.live", defineProfile({id: "test.live", version: "2", name: "l", description: "l", system: "第二版"}) as AnyProfile);
+        await host.profilesChanged(["test.live"]);
+        expect((await session.snapshot()).readOnly).toBeNull();
+        await ask("三");
+        expect(systemOfLast()).toContain("第二版");
+        expect(await reasons(other.value)).toEqual(["created"]);
+        await host.close(session.id);
+        await host.close(other.value.id);
+    });
+
+    test("输出 57：运行中 profilesChanged 不换这次运行的 Profile，运行结束后才重新装配，交回的 Promise 等到那时", async () => {
+        const model = createTestModel();
+        const started = gate();
+        const release = gate();
+        const live = new Map<string, AnyProfile>([["test.live", defineProfile({id: "test.live", version: "1", name: "l", description: "l", system: "第一版"}) as AnyProfile]]);
+        const env = hostEnv(model, [{id: "lab.hold", execute: async () => {
+            started.open();
+            await release.promise;
+            return "好了";
+        }}]);
+        const host = createAgentHost({...env, profiles: {resolve: (key) => live.get(key)}});
+        const created = await host.create({profile: "test.live"});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        model.script({tools: [{tool: "lab.hold"}]}, "完成");
+        const sent = await session.send({commandId: id(), input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("no run");
+        await started.promise;
+        live.set("test.live", defineProfile({id: "test.live", version: "2", name: "l", description: "l", system: "第二版"}) as AnyProfile);
+        let settled = false;
+        const changed = host.profilesChanged(["test.live"]).then(() => {
+            settled = true;
+        });
+        expect((await session.snapshot()).pendingReassembly).toEqual({added: [], removed: [], profile: true});
+        release.open();
+        await session.waitRun(sent.value.runId);
+        await changed;
+        expect(settled).toBe(true);
+        expect(model.requests.at(-1)!.system.map((block) => (block as {text: string}).text).join("")).toContain("第一版");
+        expect(dataOf<{reason: string}>((await session.log({afterSeq: 0})).events, "profileChanged").map((data) => data.reason)).toEqual(["created", "code-updated"]);
+        await host.close(session.id);
+    });
+
+    test("session 输出 19：后台会话写进会话头与列表；fork 出来的不继承", async () => {
+        const env = hostEnv();
+        const host = createAgentHost(env);
+        const created = await host.create({profile: defaultProfile.id, background: true});
+        if (!created.ok) throw new Error(created.code);
+        const forked = await created.value.fork({commandId: id()});
+        if (!forked.ok) throw new Error(forked.code);
+        const listed = await env.store.list();
+        if (!listed.ok) throw new Error(listed.code);
+        expect(listed.value.map((entry) => [entry.id, entry.background]).sort()).toEqual([[created.value.id, true], [forked.value.sessionId, false]].sort());
+        expect((await created.value.snapshot()).header.background).toBe(true);
+        await host.close(created.value.id);
+    });
+
     const defaultProfile = defineProfile({id: "test.host", version: "1", name: "h", description: "h", system: "系统"}) as AnyProfile;
     const dependent = defineProfile({id: "test.dependent", version: "1", name: "d", description: "d", dependsOn: [counter]}) as AnyProfile;
 });
