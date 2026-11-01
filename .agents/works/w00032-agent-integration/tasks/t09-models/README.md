@@ -64,7 +64,7 @@ t02。
 
 ## 当前状态
 
-design-review 第 1、2 步完成（现状与参照、注意力排序）；下一步在草稿 worktree 出第一轮静态稿。
+第一轮静态稿已发布（`review` 产物 v1，三道题：服务商页的版式、服务商详情、角色页），等开发者答复。草稿在 `.worktree/w00032-t09-drafts`（分支 `t09/drafts`，不提交、不合并），Lab 场景 `ModelSettingsDraft`。
 
 ## 下一步
 
