@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t09-models",
+    "artifactId": "review",
+    "answerId": "20261101T022918335Z-c6449f0c",
+    "artifactVersion": 2,
+    "contentHash": "2c12859a4eae43796c7641860fbb1516847f8b695d0fc5a8573e034a16f470f8",
+    "submittedAt": "2026-11-01T02:29:17.878Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "provider-detail-r2": true
+    },
+    "comments": {
+        "provider-detail-r2": "模型发现有没有做？\n当前可用所有模型有没有一个地方能看？\n启用模型这里这一行显示的东西你调整一下，例如模型能力例如 vision 感觉可以用图标。价格什么的信息注意力不用给这么多\n模型分类呢？有的 provider 提供多种系列的模型\n的\n例如 doubao-seed-2.0 等等，旧代码不是做了模型分类的吗？\n\n---\n控件可以调整一下：最左侧的外观、服务商与列表这一列宽度我觉得可以适当缩小，\n服务商与模型的服务商列表宽度也可以变窄\n编辑目录模型的这个 surface 透明度是不是太高了。而且圆角的大小也不对\n"
+    },
+    "note": null
+}
