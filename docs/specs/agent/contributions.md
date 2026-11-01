@@ -40,7 +40,7 @@ owners:
 | `agent.profiles` | 实现 | `{name, description, tools: {required: string[]; optional: string[]}}` | `<插件 id>.<名>` |
 
 - 实现：扩展是内核 `defineExtension` 的结果；工具是工厂 `{create(会话上下文): ToolImplementation}`，实现可以给按参数求等级的 `effect` 函数；Profile 是内核 `defineProfile` 的结果。
-- 激活事件前缀归 `nbook.agent`：`onAgentSession`、`onAgentTool:<工具 id>`、`onAgentProfile:<key>`。
+- 激活事件前缀归 `nbook.agent`：`onAgentSession:open`、`onAgentTool:<工具 id>`、`onAgentProfile:<key>`（平台的事件都是“前缀:参数”，`onAgentSession` 的参数固定为 `open`）。提供方入口自己写上这些事件；SDK 的 `agentExtension`、`agentTool`、`agentProfile` 助手连同贡献声明一起给出。
 - 设置项（用户层）：
 
 ```ts
@@ -53,11 +53,11 @@ owners:
 ## 输出与可观察行为
 
 1. **扩展的接收。** `agent.extensions` 的贡献原样交给内核的插件宿主（[`harness/runtime.md`](../harness/runtime.md) 输出 57）：内核否决的（id 不合规则、重名、依赖成环）使这一批贡献按平台合同回滚；撤回原因 `activation-failed` 照传，其余都按 `deactivated` 交给内核。内核撤回失败时写诊断，交给平台的撤回照样完成。
-2. **`onAgentSession`。** 每次建会话或打开会话之前触发一次（同一时刻只触发一次，后到的等它），激活所有声明了它、还没激活的入口；后来登记的提供方在下一次建或开会话时被激活，已打开的会话在它交出扩展后重新装配。提供扩展的入口必须声明这个事件，声明了扩展贡献、没声明它的入口写诊断 `extension-provider-not-on-session`。触发有失败时写诊断、照常继续：打开已有会话时 Profile 依赖的扩展缺失，会话进只读 `dependency-missing`；新建会话时建会话失败 `profile-invalid`，详情带缺的依赖。
+2. **`onAgentSession:open`。** 每次建会话或打开会话之前触发一次（同一时刻只触发一次，后到的等它），激活所有声明了它、还没激活的入口；后来登记的提供方在下一次建或开会话时被激活，已打开的会话在它交出扩展后重新装配。提供扩展的入口要声明这个事件，没声明的，它的扩展只在入口因别的原因激活之后才生效。触发有失败时写诊断、照常继续：打开已有会话时 Profile 依赖的扩展缺失，会话进只读 `dependency-missing`；新建会话时建会话失败 `profile-invalid`，详情带缺的依赖。
 3. **扩展提供方不能依赖 `agentKey`。** 它的激活会等 `nbook.agent`，`nbook.agent` 的建会话又等它，平台把这种等待判为 `unavailable`，提供方激活失败并留下诊断。
 4. **工具集。** 一个会话的工具声明 = Profile 的 `required` + `optional` + 所有 `defaultForAll` 的工具 + 这个 Profile 绑定里的 `added` − `removed`；`required` 里的删不掉；声明不存在的 id 忽略。每次模型请求前现算，改了绑定或有工具增减，从下一次请求起生效。内核拿到的就是最终的工具集（[`harness/runtime.md`](../harness/runtime.md) 输出 15）。
-5. **工具的激活。** 工具的声明来自清单，提供方没激活也交给模型。会话第一次执行某个工具时触发 `onAgentTool:<id>`，激活成功后向提供方当前一代要实现、按会话建一次，之后复用；激活失败或提供方受阻，这次调用得 `tool-unavailable`，下一次执行再试。
-6. **工具的撤回。** 提供方停止时：之后的执行得 `tool-unavailable`，声明不变；执行中的调用继续，最多等 5 秒，到时以 `tool-unavailable` 结算，提供方之后交回的结果丢掉；交给平台的撤回在所有调用结算或 5 秒到时完成。真正的实现在它底层的执行都结束后 `dispose`，5 秒时还没结束的写诊断 `tool-abandoned`。提供方再激活后，下一次执行用新的一代重建实现。
+5. **工具的激活。** 工具的声明来自清单，提供方没激活也交给模型；声明里的 `effect` 是提供方没激活时用的等级（应写最保守的），激活之后实现给了按参数求等级的函数就用它。会话第一次执行某个工具时触发 `onAgentTool:<id>`，激活成功后向提供方当前一代要实现、按会话建一次，之后复用；激活失败或提供方受阻，这次调用得 `tool-unavailable`，下一次执行再试。
+6. **工具的撤回。** 提供方停止时（入口停了，插件还在登记里）：之后的执行得 `tool-unavailable`，声明不变；插件被注销（卸载）时声明随登记一起消失，之后的请求里没有这个工具。两种情况下执行中的调用继续，最多等 5 秒，到时以 `tool-unavailable` 结算，提供方之后交回的结果丢掉；交给平台的撤回在所有调用结算或 5 秒到时完成。真正的实现在它底层的执行都结束后 `dispose`，5 秒时还没结束的写诊断 `tool-abandoned`。提供方再激活后，下一次执行用新的一代重建实现。
 7. **Profile 目录。** 目录列出插件贡献的与用户级的 Profile：key、名称、说明、来源、状态（`ok`、`unavailable`、`error`）与原因。插件 Profile 来自声明，不激活提供方；`profiles.resolve(key)` 时触发 `onAgentProfile:<key>`，再取实现。key 由来源前缀区分，同名不覆盖。
 8. **可用性。** Profile 的 `required` 工具有不在工具声明里的，状态 `unavailable`，原因写缺哪些。
 9. **用户级 Profile 的打包。** 文件改动后重新打包：入口是源文件，外部模块只有宿主模块表里的；导入表外的裸说明符以 `module-not-shared` 失败。打包结果以内容哈希命名、原子写入，导入后默认导出必须是 `defineProfile` 的结果，否则 `profile-invalid-export`。监听 `user/profiles/` 目录与包里用到的每个源文件；同一 Profile 同时只打一个包，后到的变化合并成下一次；完成时已有更新的变化，结果丢掉。
@@ -101,12 +101,11 @@ owners:
 | `tool-abandoned` | 诊断：撤回时调用 5 秒没结束 | 无；提供方的实现没释放 |
 | `module-not-shared` | 用户 Profile 导入了宿主模块表之外的包 | 改用共享的包或相对导入 |
 | `profile-invalid-export` | 用户 Profile 的默认导出不是 `defineProfile` 的结果 | 改源文件 |
-| `extension-provider-not-on-session` | 诊断：交出扩展的入口没声明 `onAgentSession` | 在清单里补上 |
 | `unknown-profile`、`dependency-missing`、`profile-invalid` | 见 [`harness/runtime.md`](../harness/runtime.md) | 恢复提供方或改 Profile |
 
 ## 边界与兼容
 
-- 公开接口：三个贡献点的声明形状与实现形状、三个激活事件、两个设置项的形状、SDK 子路径 `@notnotype/nb-plugin-sdk/agent`。内核的定义接口因此是插件 SDK 的公开接口，改它就是 SDK 的破坏性变更。
+- 公开接口：三个贡献点的声明形状与实现形状、三个激活事件与写清单的助手、两个设置项的形状、SDK 子路径 `@notnotype/nb-plugin-sdk/agent`。内核的定义接口因此是插件 SDK 的公开接口，改它就是 SDK 的破坏性变更。
 - 用户级 Profile 在状态根里运行期打包，是 [`runtime/plugin-code-loading.md`](../runtime/plugin-code-loading.md) “不在运行期编译”的例外，只对用户自己写的 Profile；不借此安装第三方代码。
 
 ## 验收与 Smoke

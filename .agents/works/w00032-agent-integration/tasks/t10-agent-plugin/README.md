@@ -74,7 +74,13 @@ t02 到 t09。
 
 ## 当前状态
 
-实施计划 [plan.md](plan.md) 第一稿开发者确认（2026-11-01）；omp 设计审查 20 条（阻断 4、重要 16）全部成立，第二轮核对后新提 8 条（阻断 2、重要 6），计划改成第三稿（处置见 [evidences/design-review-disposition.md](evidences/design-review-disposition.md)），待开发者确认。
+实施计划 [plan.md](plan.md) 第一稿开发者确认（2026-11-01）；omp 设计审查 20 条（阻断 4、重要 16）全部成立，第二轮核对后新提 8 条（阻断 2、重要 6），计划改成第三稿（处置见 [evidences/design-review-disposition.md](evidences/design-review-disposition.md)），开发者确认后开工（2026-11-01）。
+
+实施进展（Work 分支 `feat/w00032-agent-integration`）：
+
+- 第 0 片 `bd2924993`：内核的工具集以宿主的声明为准、`AgentHost.profilesChanged`、会话头与列表带 `background`；nb-harness 327 通过，nb-story 内核验收门 4 通过，三处变异检查都被测试抓到。实现审查（omp）进行中。
+- 第 1 片（master `17604b62c`）：新建 `agent/contributions.md`、`agent/sessions.md`（planned），内核与平台 Spec 跟上。
+- 第 2 片 `61358c890`：`nbook.agent` 服务端骨架；插件测试 7 条，五处变异检查都被抓到；neuro-book 全量 1665 通过，governance 通过。实施中的调整见 [plan.md](plan.md) 第 5 节末尾，Spec 已随之改。
 
 ## 下一步
 

@@ -47,7 +47,7 @@ owners:
 | `startTask({taskId, profile, initial?, input, project?, background?})` | 写 | 发起任务 |
 
 - 事件 `frames`，过滤 `{sessionId}`：内核的帧（`log`、`delta`、`status`、`diagnostic`、`progress`）。
-- 服务键 `agentKey`（服务端同进程）：`startTask(...)` → `{sessionId, runId, result: Promise<RunResult>}`；`session(id, issuer)` → 视图；`running()` → `{sessionId, profile}[]`。
+- 服务键 `agentKey`（服务端同进程）：`create(options)` → 视图或失败码；`session(id, issuer?)` → 视图；`list(filter?)`；`profiles()`；`running()` → 正在运行的会话 id；`startTask(...)` → `{sessionId, runId, result: Promise<RunResult>}`。服务停止后调用抛出码为 `unavailable` 的错误。
 - 依赖：设置与状态根是必需的；模型服务可选。
 
 ## 输出与可观察行为
@@ -55,7 +55,7 @@ owners:
 1. **存放与列表。** 会话存放在状态根，记关联的项目；`list` 缺省列出所有不归档、不是后台的会话，可按项目、归档、后台筛。
 2. **调用方身份。** 经远程服务的指令与查询都以用户的身份进内核；会话之间的身份（父会话应答子会话的提问）只经同进程的 `agentKey`。
 3. **失败码。** 每个方法交回它在内核里会得到的业务失败码，详情合合同的 schema；通道自己的失败（`unavailable`、`timeout`、`unknown-outcome` 等）照通道合同，不与业务码混用。
-4. **审批。** 只读的工具放行；`yolo` 全放行；`allow-writes` 放行写入；其余停下等用户（`ask`）。
+4. **审批。** 只读的工具放行；会话处在只读模式时其余都问（只读模式优先于审批模式）；`yolo` 全放行；`allow-writes` 放行写入；其余停下等用户（`ask`）。
 5. **句柄的复用。** 同一会话同时到达的打开得到同一个打开的会话，不会第二次碰会话锁；建会话完成后直接是打开的。
 6. **句柄的关闭。** 没有引用、没有运行、30 秒内没有调用时关闭；关闭中到达的调用等关闭完成后重新打开。视图不挡关闭，调用方可以长期拿着它，下次调用时重新打开。
 7. **订阅。** 每个 `frames` 订阅持有一个内核订阅，订阅结束时一起取消。流式增量在订阅内合并：同一请求、同一部分、同一工具调用的连续增量拼成一帧，100 毫秒最多推一次；任何别的帧到达前先推出攒着的增量；合并后的增量按本订阅从 1 重新编号；合并后超过 64 KiB 就切开。多个窗口订阅同一会话，各自合并、互不影响。
@@ -68,7 +68,7 @@ owners:
 10. **发起任务。** `startTask` 用 `task-<taskId>` 作会话 id 建会话，再以 `taskId` 作 `commandId` 发一次 `send`（空闲时同时开始运行），返回 `{sessionId, runId}`，不等运行结束；结果从 `runResult` 取，运行结束时 `frames` 里有 `runEnded`。`taskId` 是调用方生成的 UUID。
 11. **任务的幂等。** 同一个 `taskId` 重发得到同一个 `{sessionId, runId}`，服务端重启后也一样；会话已建、`send` 前失败的，重发补上 `send`。会话已存在但 Profile、项目或 `background` 与这次的参数不同，或同一个 `commandId` 带了不同的输入，得 `task-conflict`。
 12. **后台。** `background: true` 写进会话头，`list` 缺省不列；从它 fork 的会话是前台。
-13. **模型服务不在。** 会话照常打开、能读；发出模型请求时以 `unavailable` 失败。
+13. **模型服务不在。** 会话照常打开、能读；发出模型请求时以 `no-model` 失败。
 14. **停止。** `nbook.agent` 停止时：先拒绝新的调用（远程与 `agentKey` 都得 `unavailable`，新订阅以同样的原因结束）；停 Profile 的监听，等进行中的打包结束、丢掉结果；等已接纳的打开、建会话与指令登记完，把所有打开着的会话按 `interrupted` 关闭（运行写 `interrupted`，重新打开后显示“上次运行被中断”，不自动续跑）。某个会话关闭失败写诊断，其余照常关闭。
 
 ## 状态与转换
