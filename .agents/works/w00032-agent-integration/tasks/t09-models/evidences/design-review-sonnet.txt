@@ -1,0 +1,228 @@
+# t09 计划前端部分设计审查（Sonnet）
+
+审查对象：`plan.md` 3.1、3.2、3.5 与第 4、5、6 节的前端条目；提交 `3e700d75d`。只读，未跑 e2e。下面按影响排序，逐条核实后追加。
+
+### 1. nbook 的“减少透明度”“高对比度”两块只覆盖 `--overlay-surface`，新加的 90% 对话框面不会回退成实心
+- 严重程度：重要；类别：被破坏的既有约定 / 依赖机制核对
+- 位置：计划 3.1 第一条；`packages/nb-ui/themes/nbook/vars.css:518-552`（`prefers-reduced-transparency`、`prefers-contrast: more` 两块）
+- 现象：计划让 `tokens.css` 的缺省值取 `var(--overlay-surface)`，nbook 主题再显式写 `--dialog-surface`、`--dialog-surface-nested` 为面板色 90%。nbook 的那两个媒体查询块（还带暗色选择器 `[data-nb-appearance="dark"]`）现在只写 `--overlay-surface: var(--bg-panel)`、`--overlay-blur: none`。macOS 主题同样。新变量不在这两块里，所以在用户开了系统“减少透明度”时：对话框和设置窗口仍是 90% 半透明，而模糊已被关成 `none`，成了一块不模糊的半透明板，菜单却变实心。`ui-development-spec.md:415` 与 `authoring-themes.md` 明写“高对比度 / 降低透明度模式：彻底回退实心面板底”。
+- 为什么是问题：这条降级合同是主题文件自己立的；`vars.css:508-517` 的注释说过上一版“暗色下一次都没生效过”的哑火，原因是选择器特异性（0,3,0 的暗色块压过 0,2,0 的基线）。新变量写在哪个块、要不要进暗色块、要不要进两个媒体块，计划都没写。
+- 如何核实：读 `vars.css` 这两个块的变量列表（没有 `--dialog-*`）；在 Lab 里用 `prefers-reduced-transparency: reduce` 仿真截一张设置窗口。
+- 建议改法：3.1 写明三件事：(a) nbook 的新变量放进哪些块（基线、暗色分档）；(b) 两个媒体块都要加 `--dialog-surface: var(--bg-panel)`、`--dialog-surface-nested: var(--bg-panel)`，选择器照原样带暗色；(c) 验收加一条“减少透明度下计算样式的背景 alpha 为 1、`backdrop-filter` 为 none”。macOS 的两块因为新变量缺省回落到 `--overlay-surface`，不用改，但计划应当写出这个理由。
+
+### 2. “小浮层 72%”与“菜单与提示的外观不变”互相矛盾，且没说明亮暗两档各取多少
+- 严重程度：重要；类别：与既有约定冲突 / 遗漏
+- 位置：计划 3.1 第一条与“要守住”；`vars.css:216`（亮 65%）、`vars.css:418`（暗 75%）
+- 现象：现在小浮层亮色 65%、暗色 75%。计划写“nbook 主题取面板色的 72%、90%、90%”，又写“菜单与提示的外观不变（仍用 `--overlay-surface`）”。若 72% 是 `--overlay-surface` 的新值，则亮色 65→72、暗色 75→72：所有菜单、下拉、提示、Popover 的外观都变了，暗色变得更透。若 72% 只是对话框草稿里测的参照，则计划里就没有这个数的去处。决定 27 的数是在 Lab 里（草稿 `ModelSettingsDraftFixture.vue` 的 `tiers`，初值 `menu: 72`）只看一种外观时挑的。
+- 为什么是问题：`ui-development-spec.md:413-414` 与 `authoring-themes.md:126-132` 把 65%/75% 写成“Select 黄金标准”，并且 `popup-lists.spec.ts` 比的是各浮层之间材质相同，不比绝对值，没人会拦下这个改动。计划的“外观不变”因此是未经检查的断言。
+- 如何核实：对照上面两处行号与计划的两句话。
+- 建议改法：写成表：亮色、暗色各自的小浮层、一级、二级取值（暗色 90% 的深底在暗色下是否仍是“玻璃”也要在 Lab 暗色下看一遍）；确认小浮层改不改，改则承认菜单外观会变并更新 `ui-development-spec.md` 第 9 节与 `authoring-themes.md`；不改则 72% 从计划里去掉。
+
+### 3. 与新规则冲突的文档条目没找全，计划点名的 `ui-development-spec.md` 里其实没有对应条目
+- 严重程度：重要；类别：遗漏 / 文档合同
+- 位置：计划 3.1“文档”，第 4 节最后两条
+- 现象：我在 `packages/nb-ui/docs/` 与 `docs/specs/theme/system.md` 里查“玻璃叠玻璃、嵌套浮层、深度 ≥ 2、层级色”，结果：
+  - `design-language.md:172-177`（第二节边界 4，含判据“嵌套窗口的计算样式里 `backdrop-filter: none`”）——计划已点名；
+  - `design-language.md:1289-1290`，第九节“给 UI agent 的检查表”里“嵌套浮层（深度 ≥ 2）不做玻璃”——计划没点名，而这是 Agent 自检时真正读的清单；
+  - `design-language.md:36-47` 的“材质与层级是两条轴”表：材质轴“整页只有一层”“只有它开模糊”——二级仍是玻璃就是第二层模糊，表也要改；
+  - `ui-development-spec.md` 没有任何“玻璃叠玻璃”条目（grep 无命中），计划写的“同时改 `ui-development-spec.md` 的相应条目”找不到对象；该文件第 9 节 `:413-415` 是 65%/75%/实心的“黄金标准”，倒是要改（见发现 2）；
+  - `authoring-themes.md:126-132` 的“浮层 Surface 透明度规范”；
+  - 同名 `Dialog.md`、`AlertDialog.md`（面、圆角、新类、新注入）；`design-language.md:1250` 的圆角清单行也要补“嵌套取 `--radius-window`”。
+  `Dialog.md:175` 的 `state:inject` 一行写的是“读外层窗口的嵌套深度”，新增“对话框层数”的注入后要加。
+- 为什么是问题：只改点名的那一条，检查表和轴表仍然写着相反的规则，Agent 下次按清单自检会把正确实现判错。
+- 如何核实：`grep -n "深度 ≥\|玻璃采不到\|整页只有一层" packages/nb-ui/docs/design-language.md`。
+- 建议改法：3.1“文档”改成上面的清单；去掉不存在的 `ui-development-spec.md` 条目，换成第 9 节。
+
+### 4. `Drawer` 也用 `.nb-ui-dialog-surface`，计划没提：它会悄悄从 65% 变成 90%
+- 严重程度：重要；类别：遗漏 / 影响面
+- 位置：计划 3.1 第二条；`packages/nb-ui/src/components/feedback/Drawer.vue:84`
+- 现象：计划把 `background-color: var(--dialog-surface)` 加到 `.nb-ui-dialog-surface`（它在 `styles.css:488` 排在 `.nb-ui-popover-surface` 之后，同特异性会压过去）。使用这个类的有三个：`Dialog`、`AlertDialog`、`Drawer`。计划写了前两个，漏了 `Drawer`。`Drawer` 既不注入也不提供任何深度，从对话框里开出的抽屉不会得到“嵌套”档；它在非嵌套时会得到 90%，这是“一级对话框”的值，抽屉是否算一级，没人定。
+- 为什么是问题：全库所有用 `Drawer` 的页面（`grep Drawer` 可查）外观随之变化，既不在 t09 范围也没有评审过；而且 `AlertDialog` 现在同样不读 `NB_DIALOG_WINDOW_DEPTH`，要加注入才能判嵌套，计划只说“同一套”。
+- 如何核实：`grep -rn "nb-ui-dialog-surface" packages/*/src`，三处命中。
+- 建议改法：3.1 列出三个消费者，各自的层数规则（`AlertDialog` 加注入；`Drawer` 要么明确算一级、要么保持 `--overlay-surface`），并给 `Drawer.md` 加一句。
+
+### 5. “对话框层数”按组件树数，与已有的 `useModalLayer`（按打开顺序数）是两套口径
+- 严重程度：建议；类别：隐含耦合 / 别扭
+- 位置：计划 3.1 第二条与“要守住”；`Dialog.vue:142-146`、`composables/useModalLayer.ts`
+- 现象：`Dialog` 已有一份全应用共用的“已打开模态列表”，`Dialog.md:174` 写着“用它算自己叠在第几层”，`z-index.ts` 的注释还说明了为什么注入不能按层算（打开顺序到打开时才知道）。计划另起一个按祖先链累加的层数。两者在这些情形下不一致：从应用根上的服务（命令面板的确认、书架的 `AlertDialog`）在设置窗口开着时打开的模态，祖先链里没有窗口，层数是 1，视觉上却压在设置窗口上，仍是一级面；反过来不会出现。计划说“建立时取定”，也等于承认了这一点，但没写出这个限制。
+- 为什么是问题：用户看到的“叠在别的对话框上”是视觉概念，不是组件树概念；同一个设置窗口里，从页面里开的对话框是二级，从全局命令开的确认框是一级，样式不一致。
+- 另一个相关点：`design-language.md` 说的“玻璃叠玻璃不成立”的成因是子元素在祖先的 backdrop root 里。现在二级对话框能是玻璃，靠的是 `DialogPortal` 把它传送到 `body`。`teleportTarget=false`（`Dialog.test.ts`、`components.test.ts:1150` 的嵌套用例都这样写）时二级是窗口的 DOM 子孙，玻璃会失效。文档应写明这个前提。
+- 如何核实：读 `Dialog.vue:142-146` 与 `useModalLayer.ts`；`components.test.ts:1150-1160`。
+- 建议改法：二选一并写进 3.1：(a) 接受“按树”，在 `Dialog.md` 写明“嵌套按组件树判定，不看打开顺序；根上服务打开的对话框算一级”；(b) 用模态列表的下标补充（下标 > 0 即嵌套）。同时写明“嵌套玻璃以传送到 body 为前提”。
+
+### 6. 二级变量的缺省值应回落到 `--dialog-surface`，不是 `--overlay-surface`；嵌套圆角的写法与 AlertDialog 的小圆角相撞
+- 严重程度：建议；类别：接口 / 缺省值
+- 位置：计划 3.1 第一、二条
+- 现象：计划写两个新变量缺省“都取 `var(--overlay-surface)`”。第三方主题只覆盖 `--dialog-surface`（比如想让所有对话框实心）时，`--dialog-surface-nested` 仍是小浮层的透明度，二级对话框反而比一级更透。又：圆角要求“取 `--radius-window`”，而 `AlertDialog` 用 `.nb-ui-dialog-surface--compact`，取 `--radius-dialog-compact`（`styles.css:494`），`design-language.md:1250` 的规则是“小确认框取 compact，浮动窗口取 window”。新类若写在 `--compact` 之后，嵌套的 AlertDialog 圆角由 compact 变成 window。nbook 里两者相等（`vars.css:106`），别的主题可以不等。
+- 如何核实：读 `tokens.css:139-151` 的圆角缺省链与 `styles.css:488-501` 的类顺序。
+- 建议改法：`--dialog-surface-nested` 缺省 `var(--dialog-surface)`；嵌套圆角写成 `min(var(--radius-window), 原来的圆角)` 或明确 AlertDialog 的嵌套仍用 compact；类顺序在 3.1 写出来。
+
+### 7. 页面没声明 `layers: ["user"]`：“本作品”标签下两页照常可用，并且写进用户层
+- 严重程度：重要；类别：遗漏 / 合同
+- 位置：计划 3.4 浏览器入口（“两个 `settings.pages` 贡献（`category: "ai"`）”）；`settings/shared/sections.ts:69`、`settings-window.md` 输出 8、12、13
+- 现象：页面声明的 `layers` 缺省是两层都可用（`settings-window.md:179`：“page 分区看声明的 `layers`（缺省两者），由页面作者让它与页面里配置项的层一致”）。计划里的设置项都是 `layers: ["user"]`，但页面声明没写。绑定了作品时窗口有“用户 | 本作品”两个标签：切到“本作品”后这两页仍可用、控件可编辑，写入走 `nbook.models` 自己的 `update`（只允许用户层的项总写用户层），页面却显示在“本作品”标签下；`context.writable` 与标题区操作的停用按的是“当前标签那一层”（`page-chrome.ts` 的 `writable`），所以项目层文件有错时，用户层本来能写的操作也被停用，反过来也有错位。
+- 为什么是问题：用户在“本作品”标签下改了服务商，实际改的是全局设置，界面没有任何提示；这也是 `SettingsRow` 在本作品标签下会给“仅可在用户设置中修改”的那类情形，计划没说页面怎么处理。
+- 如何核实：读 `settings-window.md` 输出 8、12 与 `SettingsPageContext.layer` 的注释“页面只编辑这一层”。
+- 建议改法：3.4 写明两页声明 `layers: ["user"]`，让它们在“本作品”标签下停用并带原因提示；Lab 场景与 e2e 各补一条“本作品标签下不可用”。
+
+### 8. “写失败照设置窗口的写入失败处理（通知、回到实际值）”：页面没有这套机制可用
+- 严重程度：重要；类别：依赖的机制不存在
+- 位置：计划 3.5“改了就写”条；`settings/web/settings-window.ts:451-455`（`notifyFailure`）、`:791`、`:801`；`web/contracts.ts:27-45`（`SettingsPageContext`）
+- 现象：失败通知（标题“设置没有保存”、正文写哪一项和原因，`unknown-outcome` 换标题）是窗口模型里的函数，只在通用列表的写入路径与 `SettingsRow` 的 `write-failed` 事件上被调用（`:801` `rowFailed`）。`SettingsPageContext` 只有 `layer`、`projectTitle`、`writable`、`options`、`dirty`，没有“报告写失败”，也没有通知服务。页面直接调 `settings.update` 得到的是一个 `{ok:false, code, detail}`，什么都不会弹。已有的样例页 `SampleModelsPage.vue` 的做法是在页面里自己画“没有保存：…”横幅，不是通知。
+- 为什么是问题：计划把它当成现成的行为，实际要新增：要么页面依赖浏览器端通知服务并自己用 `settingsFailureText`（`ui/settings/setting-text.ts`），要么给 `SettingsPageContext` 加一个方法；而 3.4 浏览器入口的依赖列表里没有通知服务，Spec 输出 14 也没写页面要不要通知。密钥的失败（`setKey` 是远程调用，失败类别不在 `SettingsFailure` 里）更没有现成文案。
+- 如何核实：`grep -n "notify" packages/neuro-book/src/plugins/settings/web/settings-window.ts`，页面上下文接口里没有任何通知入口。
+- 建议改法：3.5 写明失败反馈的来源（推荐给 `SettingsPageContext` 加 `reportWriteFailure(title, failure)`，由窗口统一通知，页面不各发各的），并为远程调用失败（`setKey`、`check`、`discover`）另列文案与归类；改 `settings-window.md` 输出 14 一句。
+
+### 9. “改了就写”落在一整个数组配置项上：并发的读-改-写会互相覆盖，计划没有串行或合并的办法
+- 严重程度：重要；类别：边界 / 共享状态
+- 位置：计划 3.4 `nbook.models/providers`（一项整数组）与 3.5 “改了就写”；`shared/settings.ts:437`（`update` 整值写入，无比较并交换）
+- 现象：通用列表每一项是一个叶子键，窗口模型用 `writes` 表与 `token` 处理“期间同一项又写了一次”（`settings-window.ts:446-452`、`:782-795`）。这里所有服务商、所有模型、请求头、启用开关都在同一个 `providers` 值里，每次改动是“读当前值、改一处、整值写回”。以下情形都会丢更新：(a) 写入尚未结算时又改另一处（回车写后立刻点开关；输入框失焦写的同时点了模型行的开关）——第二次读到的 `settings.get` 还是旧值；(b) 同一窗口里“编辑模型”对话框打开期间，页面或另一个窗口、设置文件视图改过了数组，对话框保存时按旧副本整值写回；(c) 管理模型对话框一次加入几百个发现来的模型，每次点击一次整数组写。
+- 为什么是问题：这些情形用户感觉就是“我刚开的开关自己关了”，而且不报错。Spec 输出 14 里“层里的值变了……丢掉留下的值”那套是针对单键的。
+- 如何核实：读 `shared/settings.ts` 的 `update` 签名（没有版本参数）；在 Lab 的假设置宿主里让 `update` 延迟 200ms，连续点两个不同服务商的开关。
+- 建议改法：3.5 增加一条：页面内所有写入经一个串行队列（后一次的基准取前一次结算后的值）；对话框保存时按服务商 id、模型 id 对最新值打补丁，而不是整副本；管理模型对话框一次“完成”写一次；设置项拆成每个服务商一个键（`providers/<id>`）则可以避开整数组问题，但要权衡与 `layers`、设置文件视图的契合，需由开发者定。
+
+### 10. 请求头编辑器与数值字段在“改了就写”下的半成品行：Spec 输出 14 的规则没有搬过来
+- 严重程度：重要；类别：边界 / 与既有做法不一致
+- 位置：计划 3.5“改了就写”与第 8 节末条；`settings-window.md` 输出 14；草稿 `HeadersEditorDraft.vue`
+- 现象：计划只写了一条“地址只在格式合法时写，不合法时行内提示、不写”。输出 14 对通用列表有成套规则：数字框和单行输入编辑时只改草稿、失焦或回车写；解析不了的不写，标题后出错图标提示“未保存：<原因>”；“字符串列表、对象、对象列表……新值不合 schema 时（例如刚加的一项还没填）同样不写、留在这一行”；改回层里原值时不写；层里的值变了、切换标签或换分区时丢掉留下的值。草稿的请求头编辑器是“一行名称/值、点‘添加请求头’加一行”，`headers: Record<string,string>` 里放不下“空名称”的半成品行：点“添加”若立刻写，写的是 `{"": ""}`，被 schema 拒绝或写出空名称；名称改成与另一行同名（或只差大小写）时数组变对象会静默合并，丢掉一行；行序也丢。且整个 `providers` 值只要有一处不合 schema，就整值被 `invalid-value` 拒绝，别的字段的修改一起丢。
+- 为什么是问题：用户会遇到“添加请求头点了没反应”“改名后一行消失”“改了 A 字段，B 字段里一个半截数字让它整个没存”。
+- 如何核实：看草稿 `HeadersEditorDraft.vue`（只有占位文字，没有状态）；`shared/settings.ts` 的 `invalid-value` 路径。
+- 建议改法：3.5 增加“局部草稿”一节：请求头编辑器自己持有行数组（含未完成行），只在整体合法（名称非空且互不相同、值非空）时才把对象写出；不合法时在行上标出原因；数字字段同样；明确“值与已保存相同则不写”。这些规则要么直接引用输出 14，要么写成 `models.settings-pages` 的验收条目。
+
+### 11. 关掉一个被角色用着的模型（或在“管理模型”里移出）会让角色静默坏掉；计划只在删除服务商时提示
+- 严重程度：重要；类别：遗漏（影响面）
+- 位置：计划 3.5 删除服务商条；3.4 角色解析（“绑定的模型不存在或没启用 → `unknown-model`”）
+- 现象：开关“立即写”，没有确认。把正被“主力”绑定的模型关掉，或在管理模型里把它移出，下一次会话取 main 就是 `unknown-model`；页面上没有任何位置告诉用户，角色页才会标红。决定 30 只规定了删服务商的确认。同样的路径还有：改服务商地址（影响密钥是否适用）、清除密钥（`no-credentials`）。
+- 为什么是问题：这是用户最容易做的一个操作，后果是写作中途的会话报错；服务端按设计不回落，所以只能由界面事先提示。
+- 如何核实：计划里没有任何一处写“模型被角色使用”的提示；草稿 `ModelRow` 也没有。
+- 建议改法：3.5 增加：模型行显示“被 <角色> 使用”的小标，关闭或移出这样的模型时用行内确认（或至少一条提示）；“被哪些角色用”的计算与删除服务商用同一个函数。
+
+### 12. 同一件事在页面和服务端各算一遍，并且“同一领域有两个宿主”违反组件规范档位 A
+- 严重程度：重要；类别：违反合同 / 隐含耦合
+- 位置：计划 3.5 第一、二条与“删除服务商”条；`docs/standards/code/components.md` 禁止规则表
+- 现象：规范档位 A 明确“同一领域出现多个宿主：两个数据进出口即两个真相源”，宿主“每个领域只应有个位数个”，并说宿主与流式宿主“不进 Lab”。计划把 `ProvidersPage` 与 `RolesPage` 都当宿主（各自读写设置、调同一个远程服务），都属于 `nbook.models` 这一个领域；两页都要读 `providers`（角色页要列可选模型、标红未绑定），服务商页又要读 `roles`（删除确认“由页面按角色设置算”）。“角色绑定的模型是否有效”的判定同时存在于服务端 `unknown-model`、角色页的标红、服务商页的删除确认三处。
+- 如何核实：读 `components.md` 档位 A 一行；计划 3.5 第 116 行、第 119 行。
+- 建议改法：把读写与判定收进一个非组件模块（`web/` 下的 `useModelsStore` 之类的组合式函数，数据来自 `settingsKey` 与远程合同），两页都只是它的消费者；“角色是否有效”的纯函数放 `shared/`，服务端与页面共用，页面测试与服务端测试用同一组用例。若坚持两个宿主，需要在两个 `.md` 里写偏离理由，并说明为什么不是档位 A 的问题。另外计划要把宿主页面放进 Lab（“沿用草稿的局部设置宿主”），这与“宿主不进 Lab”的规则相反，也要在组件文档里写理由。
+
+### 13. 分区栏改 176px 会让现成的 e2e 失败，并且新增 AI 分组会让另一条断言失败；写死 212 的位置比计划列的多
+- 严重程度：重要；类别：遗漏 / 验收映射
+- 位置：计划 3.2、第 4 节倒数第三条、第 5 节切片 1
+- 现象：写死 212 的有四处，计划只点了 Spec：
+  - `packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue:385`（`--settings-side-width: 212px`，本身就是要改的）；
+  - `SettingsWindow.md:13`（“宽 212px”），同名文档必须同步（`components.md`“改组件必同步同名 `.md`”）；
+  - `docs/specs/settings/settings-window.md:161`（输出 1，写的是“约 212px”）；
+  - `packages/neuro-book/e2e/settings.e2e.ts:524` 的 `expect(Math.round(side.width)).toBe(212)`，计划切片 1 的“自跑验证”没有改它。
+  另一条：`settings.e2e.ts:517-519` 断言产品里左栏组标题恰为 `["通用","扩展"]`，注释写“产品里现在没有‘写作助手’组的分区”。`nbook.models` 贡献两个 `category: "ai"` 的页面后（Spec 输出 1：未交付实现的 page 分区也在左栏，所以切片 0 的空入口只要登记了页面声明就会触发），“写作助手”组出现，这条断言失败。
+- 为什么是问题：切片 1 会因 212 失败，切片 0/4 会因组标题失败；计划的验收列里都没有这两个修改。
+- 如何核实：`grep -n "212" packages/neuro-book/e2e/settings.e2e.ts packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.md docs/specs/settings/settings-window.md`；读 `settings.e2e.ts:508-526`。
+- 建议改法：3.2 与切片 1 列出四处；切片 4 列出 `settings.e2e.ts:518` 要改成 `["通用","写作助手","扩展"]`。顺便在切片 1 加一条整窗宽度断言，避免以后再有人只改其中一处。
+
+### 14. 176px 下的截断数字：分区条目文字区只剩约 120px，英文标题会被截，且被截断的标题没有完整提示
+- 严重程度：建议；类别：边界
+- 位置：计划 3.2；`SettingsWindow.vue:423-470`、`:496-540`
+- 现象：算：左栏 176；`__nav` 左右内边距 4+12；条目 `padding: 0 8px` 两侧共 16；图标 16；图标与文字间距 8。文字区 = 176 − 16 − 16 − 16 − 8 = 120px（原来 212 时 156px）。nbook 的 `--text-sm` 是 14px：约 8 个汉字。“服务商与模型”6 个字没问题；英文界面里（`displayLocale` 有 en-US）“Providers & Models”约 125px 就会截。`.settings-window__nav-text` 已有 `text-overflow: ellipsis`，但条目没有 `title` 或 Tooltip（Tooltip 只在停用时有），被截断后没有任何方式读到全称。层标签与搜索框：内容宽 176 − 4 − 12 = 160px，分段控件两段各 80px，搜索框占位符“搜索设置”带清除钮，没有问题。窄窗口模式（`@container (max-width: 600px)`）里 `.settings-window__tabs` 固定 140px，不依赖这个数。
+- 如何核实：算式如上；Lab 用英文界面截图。
+- 建议改法：切片 1 的验收写明“英文标题截断时悬停可见全称”或把条目标题放进 `title`；Lab 场景加一个长标题条目（中英各一）。
+
+### 15. 页面“不到 600px”的判据没有说是哪个容器，并且会与窗口自己的窄窗口模式叠在一起
+- 严重程度：建议；类别：边界 / 验收
+- 位置：计划第 1 节版式条、决定 29/30 的“页面不到 600px 时左栏收成下拉”；`SettingsWindow.vue:605-660`（`@container (max-width: 600px)`）、`settings-window.ts:51-53`（缺省 960、下限 600）
+- 现象：`.settings-window` 是尺寸容器，窄窗口判据是“窗口自己比 600px 窄”。fill 页面的宽度是 容器宽 − 左栏 176 − 分隔线 1 − 两侧内边距 32（`.settings-window__fill` 的 `padding: 0 var(--space-6)`），所以宽窗口模式下页面宽度小于 600 的容器宽度区间约为 601–808px；窗口 ≤ 600 时左栏变成顶上两行，页面宽 = 容器宽 − 32，必然小于 600。两个区间里页面都要收成下拉，但后者窗口高度还被两行顶栏占掉约一半（最小高度 400），页面可用高度很小。计划没写：下拉用页面自己的容器查询（需要页面根声明 `container-type: inline-size`），还是用窗口的；也没写 400px 高时的版式。
+- 为什么是问题：用窗口宽度判断的话，176 与 212 的阈值会差 36px，e2e 里的断点值改一个数就会错位；用 ResizeObserver 判断则要考虑卸载、对话框开着时切换。
+- 如何核实：算式如上；读 `settings.e2e.ts` “窄窗口”用例对比。
+- 建议改法：3.5 写明“`ProvidersPage` 根声明 `container-type: inline-size`，用 `@container (max-width: 600px)` 切换”；e2e 用真实布局测 600/601、窗口最小尺寸 600×400 各一次（DOM 测试量不到，现成的 `settings.e2e.ts` 窄窗口用例是先例）。
+
+### 16. 删除服务商、关对话框之后焦点去哪没有规定；左栏列表的键盘与语义也没有
+- 严重程度：重要；类别：交互 / 可访问性
+- 位置：计划 3.5；草稿 `ProvidersSplitDraft.vue`；`settings-window.md` 输出 17；`SettingsWindow.vue:163-212`
+- 现象：草稿的“删除”是 `SettingsPageActions` 里的 `IconButton`，它 `Teleport` 到标题区，且只在 `current !== null` 时渲染；`AlertDialog` 没有触发器，`SettingsWindow.vue:165` 的注释写明“AlertDialog 没有触发器时不自己归还”焦点。删除确认通过后，被删服务商不在了，按钮随之消失，焦点落到 `body`：设置窗口的 `Esc`、`Mod+F` 监听都挂在面板上（`@keydown`），焦点在 `body` 时不会被接到，键盘用户到下一次点击前无法关窗口。草稿的左栏是 `<nav>` 里的 `<button :data-current>`，没有 `aria-current`/`aria-selected`、没有上下键与 roving tabindex（对比窗口自己的 `settings-window__nav-item` 有 `aria-current="page"` 与 `onNavKeydown`）。窄窗口的下拉没有说选中后焦点在哪。另外 `ModelEditDialog` 的打开按钮是模型行里的齿轮，保存后行是否重建（`key` 变化）决定 reka 能否把焦点还回去，计划没写。
+- 如何核实：草稿 `ProvidersSplitDraft.vue` 第 68-75 行；`SettingsWindow.vue:165` 注释；`Dialog.vue` 的 `onCloseAutoFocus` 对无触发器 AlertDialog 的处理（`AlertDialog.vue:56-60`）。
+- 建议改法：3.5 增加“焦点”小节：删除后焦点到下一个服务商（没有则“添加服务商”按钮）；用 `AlertDialog` 的 `closed` 事件而不是固定延时；左栏照窗口左栏的做法（`aria-current`、上下键、Home/End）；对话框关闭后焦点还给触发它的行内按钮，行的 `key` 用服务商/模型 id 而不是下标。以上各一条验收。
+
+### 17. 请求头的值写进设置文件，与“密钥不进设置”直接冲突，页面却没有任何约束或提示
+- 严重程度：重要；类别：违反既有决定 / 安全
+- 位置：计划第 1 节“高级”条、3.4 `headers: Record<string,string>`、3.4 末条“密钥不进设置”
+- 现象：服务商级与模型级请求头存在用户层设置文件里（明文 JSON，`settings/configuration.md` 说用户层可以手改、跨实例分发）。中转站最常见的认证写法就是 `x-api-key: sk-…` 或 `Authorization: Bearer sk-…`，用户会把密钥直接填进请求头的值。决定 2 的理由之一是“配置导出与分享不带密钥”。计划只说“值也支持 `env:`”，没有任何拦截：值输入框是普通文本框，名称是 `Authorization`、`X-Api-Key`、含 `token`/`key`/`secret` 的名称时也不提示；检测失败时“服务商原文”显示在界面里，请求头值若被原文回显（“已遮盖”只提了密钥）也不一定遮到。
+- 为什么是问题：计划自己的“风险”一节没列这条；影响是密钥写进可分享的文件，且备份、同步、Issue 里贴设置时泄露。
+- 如何核实：读 3.4 `ProviderConfig.headers` 与第 1 节；`models.md` 决定 2 的理由。
+- 建议改法：3.5 的 `HeadersEditor`：值框对名称命中敏感名单（authorization、x-api-key、api-key、含 token/secret）的行改成密码框并在旁给提示“请改用 `env:变量名`，或用上面的‘认证方式’”；或者命中时直接拒写。至少在 `models/settings-pages.md` 里把它写成验收条目；遮盖范围要包含请求头的值（后端条目，另说）。
+
+### 18. 自定义服务商的 id 没有规则：重名、含 `/`、与目录 id 冲突都会让角色绑定串错
+- 严重程度：重要；类别：边界 / 接口
+- 位置：计划 3.4 `providers[].id`、角色 `model: "<服务商>/<模型>"`；决定 12（id 建后不变）；3.5 `AddProviderDialog`
+- 现象：角色绑定用字符串 `"<服务商>/<模型>"`。OpenRouter 一类目录的模型 id 自带 `/`（如 `openai/gpt-4o`），所以解析必须按第一个 `/` 切；服务商 id 就不能含 `/`。计划没有说自定义服务商的 id 由谁生成：用户填？按名称生成？生成规则、字符集、与已添加的和目录里的服务商 id（`openai`、`anthropic`…）冲突怎么办、是否大小写敏感、中文名称怎么办，都没有。“id 建后不变”意味着输错没有改正的机会，而重名的第二个服务商会让设置里出现两项同 id，角色绑定到哪一个不确定；“添加服务商”对话框草稿里“已添加的停用”只针对目录项。
+- 如何核实：读决定 12、23、28 与计划 3.4；对话框草稿 `AddProviderDialogDraft.vue` 只处理目录项。
+- 建议改法：3.5 写明：id 由名称 slug 化加数字后缀保证唯一，不让用户填；字符集 `[a-z0-9._-]`，不含 `/`；与目录 id 冲突时加后缀；schema 里用 pattern 拦住含 `/` 的 id；“管理模型”的模型 id 按第一个 `/` 之后整体视为模型 id，补一条测试。
+
+### 19. 页面各种异步状态没有设计：密钥状态加载中、服务端入口不可用、发现与检测失败的位置
+- 严重程度：建议；类别：遗漏（状态）
+- 位置：计划 3.4 远程合同 `nbook.models/settings`、3.5
+- 现象：`keyStatus`、`catalogProviders`、`catalogModels` 都是远程调用，页面一进来就要问。计划没写：第一次响应前密钥行显示什么（空、占位、还是“未设置”——后者会让用户误以为没设置而重填）；服务端入口未激活、受阻、停止时页面能用设置读写、不能用远程调用的降级形态（`SettingsPageFrame` 只管页面所属入口，页面是浏览器入口，服务端入口是另一个）；`discover` 返回的几百条模型怎么分页或搜索（草稿 `ManageModelsDialogDraft` 只有分组）；请求在对话框关闭后返回时丢弃结果；`check` 的 30 秒超时中途关窗口、切服务商时旧结果写到谁头上（按服务商/模型 id 记，切换后的页面实例是否保留“检测结果只在内存里，按会话失效”）。
+- 为什么是问题：这类状态在静态稿里没有，实现时才发现；每一个都是用户可见的错位。
+- 如何核实：计划 3.5 全节没有“状态”一词；`components.md` 要求每个组件文档有“状态”一节列加载中/出错/空数据。
+- 建议改法：3.5 增加一张状态表（组件 × 加载中/失败/空/只读层/服务端不可用），写进各 `.md` 的“状态”一节；检测结果和发现结果的缓存放在宿主（前面发现 12 说的 store）里按服务商 id 记，组件卸载不丢。
+
+### 20. “管理模型”对话框写入时机与“要补字段”的启用规则没有定
+- 严重程度：建议；类别：接口 / 遗漏
+- 位置：计划第 1 节“管理模型”条、3.5；决定 29（对话框自带“保存”“完成”）、决定 7（自定义模型必须填上下文窗口）
+- 现象：决定 29 写“编辑模型、管理模型两个对话框自带‘保存’‘完成’”。管理模型对话框叫“完成”，没有“取消”，意味着对话框里的加入、移出是即时写还是点“完成”才写，计划没说；两种选择对撤销与上面发现 9 的并发都不同。发现来的模型缺字段的标“要补字段”，但 `ModelConfig.contextWindow` 是可选的：模型能否在补字段之前启用？启用的话压缩要用的上下文窗口缺失，运行时才报错；不能启用的话，行内开关停用的原因、与“编辑模型”对话框的跳转都没写。
+- 如何核实：计划 3.4 `ModelConfig` 里 `contextWindow?`；README 决定 7。
+- 建议改法：写明“完成”一次性写（取消的退出方式是 `Esc`，不写）；“要补字段”的模型开关停用并给出原因提示，点它直接打开编辑对话框；后端 `enabled && contextWindow == null`（自定义模型）在 schema 层或解析层拒绝，页面与服务端用同一个判定函数。
+
+### 21. 计划没有列该复用的现成组件，也没有说明哪些现成组件不适用
+- 严重程度：建议；类别：对照参照 / 复用
+- 位置：计划 3.5 组件列表；草稿的 `import`
+- 现象：核对草稿实际用到、而计划没提的：`SettingsPageActions`（删除按钮放标题区，页面级操作；计划完全没提它，也没提添加按钮放哪里）、`Collapsible`（“高级”默认收起）、`InfoTip`（决定 19、28 的标题旁“?”提示）、`SearchSelect`（角色页选模型、`AddProviderDialog` 的可搜索列表）、`Select`（窄窗口下拉）、`EmptyState`（开箱引导）、`Badge`、`Switch`、`NumberInput`。这些都在 `nb-ui/components` 里存在。反过来，计划的题目问到的 `SettingsRow`、`SchemaField`、`SettingsPageList`：
+  - `SettingsRow` 的 `setting` 是一个叶子配置项，写入自己做（`update`），数组元素里的字段用不了，也不该用；
+  - `SchemaField` 可以复用在连接表单的文本、数字字段上，换来 `ui.forms` 的草稿、解析失败标记和出错图标这套输出 14 的行为（对应发现 10）；计划选择手写没有说明理由；
+  - `SettingsPageList` 与例外的版式冲突，不用是对的，但计划应写“不用及原因”。
+  `settings-scene/SampleModelsPage.vue`（Lab 里已有的示例插件“模型服务”页，用草稿加保存栏）还在，写进 `SettingsPageList.md` 的“第三方的设置页面可以照着写”；t09 之后同名“模型服务”页的两种做法并存，计划没说示例页是否改名或保留。
+- 为什么是问题：不写这一条，实现者按草稿原样手写，复用清单留给审查补；输出 14 的行为要在页面里重新实现一遍。
+- 如何核实：草稿 `ProviderDetailDraft.vue:6` 的 import；`grep -n "SchemaField" 草稿目录` 无命中。
+- 建议改法：3.5 增加“复用清单”表，每个现成组件写“用于哪里”或“不用，原因”。
+
+### 22. Spec 改动的落点不对，且页面声明缺 `keywords`；文案的多语言没提
+- 严重程度：建议；类别：Spec / 遗漏
+- 位置：计划第 4 节倒数第三条；3.4 浏览器入口
+- 现象：(a) 计划把例外写进 `settings-window.md` 输出 19，而输出 19 是 `SettingsPageList` 的合同，内容是“取代原来的左列表右详情”。fill 页面“自己分栏、自己滚动”其实已经写在输出 3（`settings-window.md:165`）里。把例外加在 19 里，等于在一条“取代左列表右详情”的合同后面补一句“页面也可以用 fill 自己分栏”，自相矛盾。放进输出 3，并在 19 里改成“本组件不做左右分栏”。(b) page 声明有 `keywords`（至多 20 个，输出 21 的搜索会比对），配置项又“在设置窗口里不出现在通用列表”，所以用户搜“密钥”“API Key”“请求头”“Base URL”是找不到这两页的；计划没有写 `keywords`。(c) 两页要的界面文字（约 10 个组件、检测失败的归类名、确认框）怎么走多语言——设置插件用 `settings/shared/text.ts` 的目录加 `locales.test.ts`，计划没有提 `nbook.models` 的文字目录，也没有 en-US。
+- 如何核实：`docs/specs/settings/settings-window.md:165` 与 `:195`；`shared/sections.ts:70-71`。
+- 建议改法：改第 4 节对应条；3.4 写 `keywords`；3.5 加“文字目录”一行。
+
+### 23. 验收映射偏弱：嵌套档只测类名，窄窗口、暗色、写失败、焦点没有对应的测试
+- 严重程度：建议；类别：验收映射
+- 位置：计划第 6 节、第 5 节切片 1 与切片 4
+- 现象：
+  - nb-ui 分档与嵌套的验收是“嵌套时带 `--nested` 类、一级不带”。这是在测实现细节（类名），行为是“二级的计算背景 alpha 与圆角”。jsdom 里没有 `color-mix` 与 `backdrop-filter` 的计算值，最后落在 Lab 截图上，截图没有断言；又因为 `components.test.ts` 的嵌套用例都用 `teleportTarget: false`，jsdom 里测的恰好是 DOM 嵌套的情形，与真实应用（传送到 body）不同。
+  - Lab 的 `contained` 模式把模态画在画布里，画布本身可能有裁剪与层叠上下文，用它看“玻璃叠玻璃”不一定代表真实应用；应至少用 `nbdev shot` 在真实应用的设置窗口上对着背景图截一次亮暗各一张。
+  - 第 6 节“`models/settings-pages.md` → 切片 4 的组件测试与 e2e”一行盖住了全部交互合同；切片 4 的 e2e 只列了“添加自定义服务商、设密钥、拉取模型、检测、绑角色、删除服务商”。窄窗口收成下拉、暗色、写失败后控件回到实际值、密钥提交后清空、删除后焦点、“本作品”标签下停用、减少透明度，都没有对应的用例。
+  - 第 6 节 `settings-window.md` 输出 1、19 → “切片 1 的 Lab 与 e2e”，输出 19 在切片 4 才被页面用上；输出 1 的 212 在 `settings.e2e.ts:524` 的修改见发现 13。
+- 如何核实：读第 6 节与 `Dialog.test.ts`/`components.test.ts:1150`。
+- 建议改法：把 `settings-pages.md` 的验收拆成编号条目，每条映射到具体的 DOM 测试或 e2e；嵌套档加一条 e2e：打开设置窗口再开编辑对话框，断言两层的计算背景 alpha 分别约 0.9 且 `backdrop-filter` 非 none、圆角不大于窗口，另在减少透明度下断言实心。
+
+### 24. 可访问名称：草稿里的几处只靠占位文字或颜色表达
+- 严重程度：建议；类别：可访问性
+- 位置：草稿 `HeadersEditorDraft.vue`、`ProvidersSplitDraft.vue`；计划 3.5“重写成产品组件”
+- 现象：请求头名称、值两个输入框只有 `placeholder`，没有 `aria-label`（删除按钮有）；左栏每项的状态文字（“有模型检测失败”）用 `--status-*` 的颜色区分 tone，文字本身已写出，但“选中”只用 `data-current`，没有 `aria-current`；能力图标草稿给了 `role="img"` 与 `aria-label`，但放在 `Tooltip` 里，键盘聚焦到不了；“检测失败点红色图标”要有可访问名称；多个同名“编辑”“删除”按钮需要带模型名（草稿删除按钮已写 `删除：${name}`，模型行的齿轮没写）。
+- 如何核实：读上述草稿文件。
+- 建议改法：3.5 加一行“沿用草稿的可访问名称并补齐这几处”，进组件文档的“交互”节。
+
+---
+
+## 更正
+- 发现 1 里“`ui-development-spec.md:415` 与 `authoring-themes.md` 明写降级回退实心”，实际只有 `ui-development-spec.md:415` 写了；`authoring-themes.md:126-132` 只写了亮 65%、暗 75% 的基准（没写降级）。结论不变。
+
+## 未发现问题的方面
+- 圆角：nbook 里 `--radius-dialog` 26px、`--radius-window` 12px、`--radius-dialog-compact` = `--radius-window`（`vars.css:101-111`）。二级取 `--radius-window` 不会大于任何一种底层面（底层是一级模态 26px 或窗口 12px），nbook 内圆角规则成立；问题只在别的主题的缺省链（见发现 6）。
+- 传送后的注入：`NB_DIALOG_WINDOW_DEPTH` 是 `provide/inject`，沿组件树而不是 DOM，`DialogPortal` 传送不影响；`SettingsWindow.vue` 的设置页经 `SettingsPageFrame` 的 `<component :is>` 渲染在窗口 `Dialog` 的插槽里，祖先链是连续的，页面里的 `Dialog` 能读到窗口的层数。该前提成立（见发现 5 的限制）。
+- macOS、aurora、editorial 主题：它们不定义新变量，缺省回落到各自的 `--overlay-surface`，计划所说“行为不变”成立；macOS 的降级块也自动跟随。
+- 层标签与搜索框在 176px 下：内容宽 160px，分段控件两段各 80px，搜索框带清除钮，没有截断或错位。
+- 变量登记机制：`nbThemeRoleTokens` 增加两项后 `tokens.test.ts` 的“每个登记的变量在 `tokens.css` 裸 `:root` 里有默认值”会自动要求缺省值，计划已写缺省；`--dialog-surface: var(--overlay-surface)` 写在同一个 `:root` 元素上，主题在 `:root[data-nb-theme]` 的覆盖会被同元素的 `var()` 取到，不会错位。
+
+## 数量
+共 24 条：阻断 0；重要 13（1、2、3、4、7、8、9、10、11、12、13、16、17、18——其中 1、2、3、4、7、8、9、10、11、12、13、16、17、18 共 14 条，见下）。
+
+## 更正与数量（以此段为准，覆盖上面的“数量”）
+- 发现 24 的“模型行的齿轮没写”不对：草稿齿轮是 `编辑 ${item.name}`、开关是 `启用 ${item.name}`；真正缺名称的是模型行的“检测”按钮（`aria-label="检测"`，`ProviderDetailDraft.vue:175`）和“检测失败，查看原因”（`:161`），多行同名。
+- 发现 22(b)（搜索找不到这两页）是从 Spec 输出 2、21 推断的，未实测搜索是否会命中指向 page 分区的配置项。
+- 共 24 条：阻断 0；重要 14（1、2、3、4、7、8、9、10、11、12、13、16、17、18）；建议 10（5、6、14、15、19、20、21、22、23、24）。
+- 最严重的几条：发现 12（同领域两个宿主违反档位 A，且“角色是否有效”三处各算）、发现 9（整数组配置项上“改了就写”的读-改-写并发丢更新）、发现 8（页面没有写失败通知机制）、发现 7（页面没声明 `layers: ["user"]`）、发现 1 与 2（reduced-transparency 不回退实心、72% 与“菜单外观不变”矛盾）、发现 13（`settings.e2e.ts` 的 212 与组标题断言会失败）。

@@ -1,0 +1,128 @@
+### 1. 角色解析链没有接到内核调用（阻断）
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：计划第 3.3、3.4、4、5 节；`packages/nb-harness/src/kernel/api/model.ts:122-146`、`packages/nb-harness/src/kernel/run/model-call.ts:119-123`、`packages/nb-harness/src/kernel/run/loop.ts:151-168,204-215`、`packages/nb-harness/src/kernel/session/complete.ts:18-25`、`packages/nb-harness/src/kernel/session/preview.ts:103-123`
+- **现象**：计划把 `ModelsService.pick({model, role})` 和 `ModelPort.resolve(..., role?)` 分开定义，却没有规定 Profile 的角色怎样进入 `resolve`。现有 `CoreSettings` 只有 `model`、`effort`、审批和只读，没有 Profile 默认角色或模型字段；`ModelCaller` 虽有 `options.role`，`modelCaller` 实际只调用 `host.resolve(options.purpose)`，丢掉了 `options.role`。运行循环、压缩、预览和 `complete()` 也都只按用途调用 `resolve`，没有角色。
+- **为什么是问题**：照计划实现后，`tiny`、`fast`、`main`、`deep`、`压缩` 的绑定不会影响任何真实请求；调用方只能继续走主模型或用途默认值，违反“显式角色不回落”和系统功能使用梯度角色的已定合同。新增 `role-unbound` 也没有可到达的调用路径，切片 3 的角色失败码测试只能直接测内部函数，不能证明内核行为。
+- **如何核实**：在基线执行 `grep -R "modelCaller\|models.resolve\|options.role" packages/nb-harness/src/kernel`；现有命中显示 `modelCaller` 未传 role，所有调用点仅传 purpose。
+- **建议改法**：先在计划中固定一个端到端入口：明确 Profile 设置如何映射到 role，扩展 `CoreSettings` 或由宿主把已解析 role 传到每个 `resolve`，并让 `modelCaller` 转发 `options.role`。同时为 turn、approval、compaction、background、preview、complete 各规定 role 来源与未绑定结果；不要把 `pick` 留成一个没有调用者的旁路 API。
+### 2. 异步取密钥后无法保持 `no-credentials` 合同（阻断）
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：计划第 3.3、3.4、5、6、7 节；`docs/specs/harness/models.md:31-44,51-56,76-82`；`packages/nb-harness/src/kernel/model/omp.ts:169-186`；`packages/nb-harness/src/kernel/run/model-call.ts:71-124`；`packages/nb-harness/src/kernel/session/complete.ts:24-25`；`packages/nb-harness/src/kernel/session/preview.ts:108-110`
+- **现象**：计划要求 `ModelPort.resolve` 同步、凭据在 `call` 内异步，但 3.4 的内存快照只写了“目录 + 设置”，没有凭据状态快照、外部变更订阅或轮询。计划又要求 `CredentialStore.resolve()` 返回 `null`，而 `ompCall` 的失败合同是异步调用时返回 `auth/missing-key`。
+- **为什么是问题**：解析时有凭据、发请求前凭据被清掉，或解析时无凭据但快照仍显示有凭据时，内核不能按 `ModelResolution` 返回 `no-credentials`。前一种会先写 `modelStarted` 再得到 `missing-key`，后一种会让 `send`、`start`、`complete`、`preview` 的同步前置检查误判可用。Spec 明确把 `no-credentials` 定义为端口解析失败、把 `missing-key` 定义为适配器在请求前不发请求的鉴权失败；计划没有定义两者的边界、快照更新和竞态结果。
+- **如何核实**：基线 `packages/nb-harness/src/kernel/run/model-call.ts:93-124` 显示 `modelStarted` 在 `resolution.call` 前写入；`packages/nb-harness/src/kernel/session/complete.ts:24-25` 与 `preview.ts:108-110` 只读同步 `resolve` 的码。用一个真实端点和真凭据库，在 `resolve` 后清除凭据再调用即可观察 `modelStarted` 后的 `missing-key`；反向在快照未更新时清除文件，可观察同步检查仍通过。
+- **建议改法**：定义凭据状态快照的来源、更新通知和代次；`resolve` 只依据该快照返回 `no-credentials`。把“解析后凭据消失”明确为 `missing-key/auth` 的已知竞态，并规定日志与调用方如何结算；若产品要求异步缺失也归 `no-credentials`，则不能继续使用当前同步 `ModelResolution`，必须改接口而不是在 `call` 里模糊转换。
+### 3. 服务端启动环境快照放在静态依赖之后，不能保证早于 OMP（阻断）
+- **严重程度**：阻断；**类别**：不变量
+- **位置**：计划第 3.6、7 节；`packages/neuro-book/src/server/main.ts:7-11`、`server/development-main.ts:6-20`、`server/testing/fixture-entry.ts:14-24,47-100`、`packages/neuro-book/src/server/start.ts:13-45`；项目入口 `packages/neuro-book/src/project/main.ts:6-10`、`project/development-main.ts`、`project/testing/fixture-entry.ts`
+- **现象**：计划说在 `server/start.ts` 的上游、任何 OMP 导入前复制 `process.env`。但 ES 模块会先执行 `start.ts` 的全部静态依赖，再执行其模块体；`start.ts` 静态导入 `manifest`、`server/plugins` 和各插件实现。把 `nbook.models` 后端实现登记到 `server/plugins.ts` 后，只要该实现或它的共享模块静态导入 `@oh-my-pi/pi-ai`，`start.ts` 的快照代码已经来不及执行。开发入口和 fixture 也各自直接导入清单、启动流程。
+- **为什么是问题**：OMP 的 `pi-utils` 在模块导入时会把家目录、OMP 目录和 agent 目录的 `.env` 合并进 `process.env`。快照若晚于该导入，会把本来按 ADR 0032 应排除的第 3 层环境误收进 `env:` 密钥。开发热重启每个 worker 重新走另一入口，测试 fixture 也可能绕过产品入口；项目子进程由服务端以 `env: {...process.env}` 派生，若服务端已被 OMP 改过环境，子进程还会继承污染。
+- **如何核实**：阅读上述入口的静态 import 图；再在真实 Bun 子进程中让家目录 `.env` 只含一个键、cwd `.env` 含另一个键，先导入 OMP 再读取快照，结果会包含 OMP 注入键。当前 nb-story 能做到正确顺序，是 `cli/main.ts:10-13` 把 `startup-env` 作为第一条导入；服务端没有同等前置模块。
+- **建议改法**：增加真正的最小启动前置入口：先只执行快照和必要的 Bun 启动环境读取，再动态导入清单与 `server/main`、`development-main`、fixture；或把快照实现放进一个不依赖任何产品/OMP模块的进程入口并由所有服务端入口统一使用。明确项目子进程是否需要同一能力，并测试产品、开发 worker、fixture、重启及项目子进程五条路径。
+### 4. 凭据库读写方案没有锁定公开 API，直接读表会绕过 OMP 的数据合同（阻断）
+- **严重程度**：阻断；**类别**：不变量
+- **位置**：计划第 2、3.3、7、8 节；`/home/notnotype/.bun/install/cache/@oh-my-pi/pi-ai@18.14.0@@@1/src/auth-storage.ts:102-108,267-275`；`auth/types.ts:821-932`；`auth/sqlite-credential-store.ts:64-72,108,455-486,637-731`
+- **现象**：计划只说用 `AuthStorage.create()`，然后“自己读库里的 API Key”，没有说明是调用公开的 `credentials.list/get/set/remove`，还是直接 SQL 读 `auth_credentials`。公开 API 已明确提供按 provider 的活动凭据读写；底层表目前有 `disabled_cause` 软删除、`identity_key`、多条凭据、WAL、`data_version` 和 schema version 8，且打开时会迁移并建立变更追踪。
+- **为什么是问题**：直接 SQL 若漏掉 `disabled_cause IS NULL` 会复活软删除；按 provider 取第一行却不定义多条 API key 的选择；把 `identity_key` 当 API key 逻辑会破坏 OAuth 兼容；不走 OMP 的写入事务、busy timeout、迁移与外部变更轮询会在并发写或 OMP 升级后得到旧数据、`SQLITE_BUSY` 或错误数据。反过来若使用 `credentials.set`，它的 replace 语义会影响同 provider 的其它凭据，计划必须明确接受还是避免。
+- **如何核实**：`AuthStorage.credentials.list(provider)` 返回活动 `StoredAuthCredential[]`，`credentials.get(provider)` 明确“多条时取第一条”，`credentials.set` 调 `replaceAuthCredentials`；该实现按 provider 替换未匹配行并软删除。并行打开两个 `AuthStorage` 实例，或用 OMP 另一进程写后只调用一次本插件的缓存读取，即可观察未轮询时的陈旧状态。
+- **建议改法**：把实现合同写死为只经 `AuthStorage.credentials.list/get/set/remove`，并规定 API key 与 OAuth 混存、多条 API key、活动行顺序、软删除和错误映射；若必须直接 SQL，应把数据库 schema 版本、事务、WAL/busy timeout、迁移兼容和跨进程变更检测写成独立适配层，不要把 OMP 私有表当本插件接口。
+### 5. `env:` 写进 OMP 凭据行后对其它 OMP 消费者是字面密钥（重要）
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：计划第 2、3.3、3.4、8 节；`/home/notnotype/.bun/install/cache/@oh-my-pi/pi-ai@18.14.0@@@1/src/auth/cascade.ts:22-29,408-479`；`auth/types.ts:935-951`
+- **现象**：计划把 `env:VAR` 原文存入 OMP 凭据库，再绕开 `AuthStorage.keys.get` 自己解析。OMP 公开凭据模型的 API key 只是字符串；它的 config resolver 只把“恰好是环境变量名”的配置值解析为环境值，`env:VAR` 没有原生语义。`keys.get` 也会把环境、OAuth、登录 key 和存储 key 按自身优先级组合。
+- **为什么是问题**：本插件发请求时可正确解析，但 OMP CLI、其它 OMP 实例或未来调用 `credentials`/`keys` 的代码会把 `env:VAR` 当真实 key 或不可用字面量，可能把 `env:VAR` 发到服务商；同一 provider 的凭据在共享库里失去一致语义。计划没有说明这是有意的库级互操作破坏，也没有给 row/source 标记或清理策略。`env:` 变量不存在时还会出现状态显示“已保存”但真实请求无凭据的分裂。
+- **如何核实**：向真凭据库写入 `api_key` 值 `env:FOO`，分别用本插件的解析路径和 `AuthStorage.keys.get(provider)` 读取；后者不会按本计划的 `env:` 规则取 `FOO`。源码中的 `defaultConfigValueResolver` 只对 exact env name 做兜底，且 `keys.get` 的存储 key 是最后一层。
+- **建议改法**：在计划中明确库的所有消费者和互操作边界。优先让 OMP 公开凭据层保存可区分的来源形状，若该 API 不支持则不要假装这是 OMP API key：建立插件拥有的、仍符合“凭据不进设置”的安全存储记录；若开发者坚持同库原文保存，至少记录“不兼容 OMP 原生读取”的合同、避免 OMP 请求路径误用，并在测试中覆盖另一个 OMP reader。
+### 6. 设置一个 API Key 会软删除同 provider 的 OAuth 和其它凭据（重要）
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划第 2、3.3、3.4 节；`/home/notnotype/.bun/install/cache/@oh-my-pi/pi-ai@18.14.0@@@1/src/auth/pool.ts:569-575`；`auth/sqlite-credential-store.ts:1334-1383`；`auth/types.ts:888-905`
+- **现象**：计划选择 `AuthStorage` 作为统一 OMP 凭据库，第一版不做 OAuth 登录但明确保留 OAuth 表。若 `setKey` 通过公开 `credentials.set(provider, {type:"api_key", key:value})` 实现，OMP 的 `replaceAuthCredentials` 会把该 provider 中未匹配的所有活动行以 `replaced by newer credential` 软删除；`clearKey` 的 `remove(provider)` 则删除该 provider 全部凭据。计划没有说明是否允许破坏已有 OAuth 登录或多账户凭据。
+- **为什么是问题**：升级到包含本插件的 NeuroBook 后，用户在设置页填一次 API Key 可能让 OMP 其它功能失去 OAuth/多账户认证；清除界面里的 API Key 也可能清掉用户没有在本页看到的凭据。这违反“统一使用 OMP 凭据库”应保持既有凭据语义的直觉，也使“第一版不做 OAuth 登录”变成“第一版会破坏 OAuth”。
+- **如何核实**：在真库中先写入一个 OAuth 行和一个 API key 行，再调用 `credentials.set`；`list(provider)` 只剩新 key，旧行的 `disabled_cause` 为替换原因。调用 `remove(provider)` 会删除全部活动行。
+- **建议改法**：先明确 API key 与 OAuth 的共存规则。若本插件只管理自己的 API key，采用按 credential id 的删除/更新接口并保留 OAuth；若 OMP 公开 API 不支持“只替换 API key”而 `upsert` 又按类型有特殊语义，就在适配层实现按行 CAS，并把“多条 API key 选择与清理”写入合同；UI 的清除也必须只清掉本页管理的那一行。
+### 7. 凭据外部修改与多实例同步没有实现合同（重要）
+- **严重程度**：重要；**类别**：不变量
+- **位置**：计划第 2、3.3、3.4、5、6 节；`/home/notnotype/.bun/install/cache/@oh-my-pi/pi-ai@18.14.0@@@1/src/auth/types.ts:821-862`、`auth/sqlite-credential-store.ts:2086-2128`；`docs/specs/settings/configuration.md:135-145`
+- **现象**：OMP 的 `CredentialPool` 提供 `reload`、`poll`、`revalidate`、`onGeneration`，SQLite store 以 `PRAGMA data_version` 和 auth revision 检测其它连接的提交。计划的 `CredentialStore` 只有 `status/set/clear/resolve/close`，没有外部变更订阅、轮询周期、失效时机或重读失败状态；切片 2 只验“重开、清除”，切片 3 只验窗口订阅。
+- **为什么是问题**：OMP CLI、另一个 NeuroBook 进程或管理员直接改库后，本插件的内存状态、`keyStatus` 与同步 `ModelPort.resolve` 会继续使用旧值；两个实例分别缓存不同 key 时，设置页和实际请求可观察到不同凭据。设置 Spec 对用户层外部修改要求即时发布，这里却没有对应的凭据合同。
+- **如何核实**：打开两个真实 `AuthStorage`/插件实例，实例 A 写入或删除 provider，实例 B 不调用 `poll` 只读 `credentials.list/status/resolve`；B 的缓存保持旧快照。随后调用 `poll`/`reload` 才能看到变更，证明计划缺少的机制确实是必需的。
+- **建议改法**：给 `CredentialStore` 增加基于 OMP generation/data_version 的可释放订阅或有界轮询；定义变更如何更新状态快照、正在进行的请求如何取值、重读失败如何诊断。测试必须用两个进程/两个连接覆盖外部写、软删除、WAL 竞争和关闭时停止轮询。
+### 8. `./models` 子路径没有加入 nb-harness 的 package exports（重要）
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划第 3.3、5、6 节；`packages/nb-harness/package.json:17-25`
+- **现象**：计划要求新增目录并导出 `@notnotype/nb-harness/models`，但当前 package exports 只有 `.`, `./testing`, `./kernel`, `./kernel/contracts`, `./kernel/testing` 和 prompt 子路径；计划的改动清单没有更新 `package.json`。
+- **为什么是问题**：任何按计划使用公开子路径的 `nbook.models`、后续 Agent 插件或外部消费者，在包解析时都会得到 `ERR_PACKAGE_PATH_NOT_EXPORTED`。只保留根导出不能满足计划声明的公开接口，也不能靠 TypeScript 源码存在来补救。
+- **如何核实**：在依赖包解析语境执行 `bun -e "import(@notnotype/nb-harness/models)"`；当前 exports 表没有该键。即使源码新增成功，打包 smoke 仍会在包边界失败。
+- **建议改法**：把 `./models` 加入 `packages/nb-harness/package.json`，同时把 architecture/package-boundary 测试和发布 smoke 纳入切片 0/2；明确 `nbook.models` 只经该公开入口，不深导入 `src/models`。
+### 9. 新增 `role-unbound` 的迁移范围漏项会让后续切片返工（重要）
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划第 3.4、4、5、6 节；`packages/nb-harness/src/kernel/api/model.ts:130-137`、`api/codes.ts:11-18,84-92`、`api/host.ts:416-417`、`packages/nb-harness/src/kernel/session/preview.ts:23-27`、`run/commands.ts:91-95`、`run/loop.ts:164-206`
+- **现象**：计划只写“`ModelResolution` 的失败码加 `role-unbound`，改 `harness/models.md` 与内核类型”，没有列出现有把失败码收窄、映射或暴露的所有合同。当前命令 `send/start` 只接受 `no-model/no-credentials`，`Complete` 和 `PreviewUnavailable` 也各自声明有限失败码；`commands.ts` 还把除 `no-credentials` 外的所有解析失败压成 `no-model`。
+- **为什么是问题**：按计划把端口类型加码后，或直接类型检查失败，或实现者为通过编译把 `role-unbound` 静默改成 `no-model`，从而丢失合同要求的“不回落、未绑定”可观察错误。远程服务的业务失败码、会话命令码、预览异常码和文档会出现不同语义，切片 3 的失败码验收无法贯通到用户入口。
+- **如何核实**：搜索 `no-credentials|unknown-model|ModelResolution` 可见上述有限联合和映射；把测试 ModelPort 的返回值改成 `{ok:false, code:"role-unbound"}`，当前调用链会在类型或结果断言处暴露遗漏。
+- **建议改法**：在计划中列出失败码传播表：端口、`ModelCaller`、run/session command、preview/complete、事件日志和远程合同分别如何保留或映射 `role-unbound`；先更新共享码表和消费者，再实现插件，不要把它留给切片 3 的临时 `as` 或文案分支。
+### 10. 远程方法没有声明业务失败码和写入未知结果（阻断）
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：计划第 3.4、4、5、6、7 节；`docs/specs/runtime/plugin-channel.md:29-31,47-50,59-94,163-172`；计划 `plan.md:106-107,128`
+- **现象**：`nbook.models/settings` 只列方法名和少量行为文字，没有版本、每个方法的输入/输出 TypeBox schema、`read/write` 标记、业务失败码及详情 schema。`setKey` 标成 `write`，但没有定义断线、超时、取消后的 `unknown-outcome`；`clearKey`、发现、检测、无效 provider、凭据库失败和服务商失败也没有逐方法码。
+- **为什么是问题**：远程运行时要求业务码必须在合同中声明，并按方法区分“已发出的写请求结果未知”和读请求的 `unavailable/timeout`。没有这些定义，前端不能按合同区分“没保存”和“可能已保存”，也不能安全决定是否刷新 key 状态；实现者只能把底层异常塞进未声明码，运行时会结算为 `provider-error`。计划的“写失败通知、回到实际值”无法覆盖 `unknown-outcome`。
+- **如何核实**：对照 `defineRemoteService` 的合同输入要求和失败表；构造真实浏览器到服务端的 `setKey`，在帧已发出后断开 RPC，运行时按规范得到 `unknown-outcome`，当前计划没有任何可接的返回类型或刷新动作。
+- **建议改法**：在 Spec 和共享合同里逐方法写版本、读写属性、失败码/详情与重连策略。`setKey`、`clearKey` 的未知结果必须先重取 `keyStatus` 再决定 UI；检测/发现要把 auth、not-supported、unreachable、failed、cancelled、timeout 与提供方失败分开，不能以错误文字分支。切片 3 加入真实 RPC 断线实验，不只进程内直接调用门面。
+### 11. 自定义请求头的密钥不会被现有 OMP 适配器遮盖（重要）
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：计划第 2、3.3、3.4、5、6 节；`packages/nb-harness/src/kernel/model/omp.ts:203-214,227-230,244-247`；计划 `plan.md:19,72,94,106,145`
+- **现象**：计划允许服务商级、模型级请求头的值使用 `env:`，并说检测返回服务商原文且“已遮盖”。现有 `ompCall` 只把 `apiKey` 传给 `redactText`；请求头在 `options.headers` 中发送，但解析后的 header secret 不进入遮盖列表。
+- **为什么是问题**：当认证方式是自定义 header，或服务商错误把 `Authorization`/自定义 header 值回显到错误正文时，API Key 会进入检测响应、错误消息或诊断；请求头值还可能是比 apiKey 不同的 secret。平台提案与模型 Spec 的“密钥不出插件/错误文字遮盖”不允许只遮标准 apiKey。服务商原文也没有长度上限，超大错误体会超过 RPC 1 MiB 帧或污染诊断。
+- **如何核实**：本机 OpenAI 兼容端点读取 `X-Test-Key` 后返回包含该值的 500/401；用 `headers: {"X-Test-Key":"env:TEST_KEY"}` 走真实 `ompCall`，当前 `redactText` 只接收 `apiKey`，响应仍包含 `TEST_KEY` 的值。再返回一个超过 1 MiB 的错误正文，可观察远程合同编码失败或未定义 provider-error。
+- **建议改法**：`buildTarget`/`ompCall` 交出本请求全部 secret 值或敏感 header 名，由适配器统一遮盖；检测和远程合同对服务商原文做长度截断、控制字符清理与 URL 用户信息/查询参数脱敏，再交给诊断或浏览器。测试标准 API key、env header、Bearer、错误回显和超大原文。
+### 12. 整个 providers 数组写回会丢掉两个窗口的并行修改（重要）
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划第 3.4、3.5、5、6、8 节；计划 `plan.md:82-86,96,118-120,145-146`；`docs/specs/settings/configuration.md:133,138-144,188`
+- **现象**：服务商、模型和角色各自放在一个数组/对象设置项里；“改了就写”使每个窗口从自己的快照改一个数组项后整体调用 `settings.update`。设置合同明确对象值整体覆盖，没有数组项级合并或 CAS；两个拥有者只串行文件写入，不会合并同一键的两个值。
+- **为什么是问题**：窗口 A 改 provider A、窗口 B 同时改 provider B，后写的一方会把另一方的改动从整个数组抹掉；角色绑定和模型开关也一样。订阅最终一致不能恢复被覆盖的意图，用户会看到自己的成功写入稍后消失。计划的“两个窗口订阅”只验证收到事件，不验证并发写入保留。
+- **如何核实**：真实启动两个浏览器窗口/设置服务，令两者读取同一 providers 数组；在不让任一方重读的情况下分别写不同数组项，最后检查 `<状态根>/settings.json` 与两窗口有效值，只会保留最后一份完整数组。该行为正是配置 Spec 的整体覆盖合同。
+- **建议改法**：不要让浏览器直接写整个聚合数组。把 provider/model/role 的修改收口到服务端 `nbook.models` 的按 id patch 方法，由服务端串行读取最新设置、合并单项后写回；或把每个稳定 provider/role 拆成独立设置键。若接受最后写者胜出，必须把它写成产品行为并在 UI 给出外部修改冲突提示，而不能声称“跨实例分发”覆盖并发。
+### 13. 自定义模型的上下文窗口仍是可选，违反已定前置条件（重要）
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划第 3.4、4、5、6、8 节；Task README 决定 7；计划 `plan.md:20,84,107,144-145,172`；`packages/nb-harness/src/kernel/model/omp.ts:28-35`
+- **现象**：已定设计要求自定义模型必须填写上下文窗口，因为压缩要用；计划的 `ModelConfig` 却把 `contextWindow?`、`maxOutput?`、能力和推理档都设为可选，管理模型只把缺字段标成“要补字段”，没有写入/启用/绑定前的阻断条件。`ompModelInfo` 对缺失窗口给 `0`。
+- **为什么是问题**：用户可以启用、绑定并解析一个没有上下文窗口的自定义模型；会话预览和压缩得到窗口 0，触发点与上下文预算无法可靠计算，可能在真实请求前错误压缩或无法压缩。把问题只标红而允许角色使用，改变了“自定义模型必须填”的决定。
+- **如何核实**：在真实设置场地写入一个 `contextWindow` 缺省的 custom model、启用并绑定 main；当前计划的形状允许它，`buildTarget`/`ompModelInfo` 没有窗口验证，解析可成功并返回 `contextWindow: 0`。
+- **建议改法**：把“自定义模型完整字段”定义成明确的 schema/状态机：未补字段的候选可暂存但不可启用、不可绑定角色、不可被 `ModelPort.resolve` 选中；至少 `contextWindow` 必填且为正整数，必要的 API、max output、能力和 efforts 也按模型合同校验。验收加入“缺字段不阻挡保存但不能运行”或明确采用阻挡保存，不能只写“标记”。
+### 14. 目录升级删改模型后没有引用迁移或可诊断状态（重要）
+- **严重程度**：重要；**类别**：不变量
+- **位置**：计划第 3.4、4、5、6、8 节；Task README 决定 7、12；调研 `2026-11-01-model-service-survey.md:23-29,51-76`；计划 `plan.md:18,20,84-85,107,175`
+- **现象**：目录模型只存用户改过的字段，角色和模型引用仍保存 `<provider>/<model>` 字符串；OMP 目录随升级变化。计划只说绑定模型不存在时给 `unknown-model`，没有定义目录模型删除、id 改名、provider 目录元数据改变后的设置迁移、诊断和恢复路径，也没有给模型引用稳定别名。
+- **为什么是问题**：一次 OMP 升级即可让多个角色同时变成未知模型；用户改过的显示名/分组差异无法应用到新 id，旧引用又不能被选择器修复。`catalog()` 只列启用模型时，坏引用可能完全消失，角色表只能显示未绑定而不能告诉用户原引用是什么。状态会在启动后突然改变，违反设置“改了就写、外部变化即时生效”之外的可解释性不变量。
+- **如何核实**：在临时 OMP 目录副本中删掉被设置引用的模型或把 id 改名，重启/重建快照；角色设置仍保留旧字符串，`resolve` 只能得到 `unknown-model`，没有任何计划中的迁移事件或诊断。
+- **建议改法**：规定目录版本变化时的行为：保留不可解析引用并在 `ModelsSnapshot`/角色错误里带原 provider/model、记录脱敏诊断、阻止使用但允许编辑；若要支持 OMP id 重命名，增加目录别名/迁移表及版本化测试。另把自定义 provider id 的生成、冲突后缀（旧应用行为 2）和建后不变的格式写入合同，避免引用字符串冲突。
+### 15. 旧应用参照中的三项已观察行为没有在计划中落合同（建议）
+- **严重程度**：建议；**类别**：文档
+- **位置**：计划第 3.4、3.5、5、6、8 节；调研 `2026-11-01-model-service-survey.md:51-76`
+- **现象**：对照旧应用 24 项行为，计划没有写“不做”或后端合同的至少三项：自定义 provider id 冲突自动加 `-2`（行为 2）、手动添加模型且 name/id 必填（行为 14）、批量模型检测并发上限 4（行为 15）。计划只写“自定义 id 建后不变”“管理模型加入/移出”“check 发请求”，没有生成/校验、手动添加接口或并发上限。
+- **为什么是问题**：这些不是纯视觉细节：id 冲突会破坏 `<provider>/<model>` 引用稳定性；没有明确手动添加无法完成“缺字段的候选先补字段”的闭环；没有并发上限时批量检测可能同时打满本机端点和远程服务商。它们也没有出现在第 8 节“不做”，验收映射因此无法判断是遗漏还是有意删掉。
+- **如何核实**：逐项对照调研表 2、14、15 与计划切片 3/4 的方法清单；计划远程合同只有 `check(provider, model)`，不存在批量输入或并发参数。
+- **建议改法**：若保留旧行为，给 provider 创建、手动模型加入、批量检测补上公开合同、输入校验和并发上限测试；若第一版明确不做，写进第 8 节并说明替代行为，避免把 UI 能否完成留给实现者猜。
+### 16. 验收映射没有覆盖真实运行时的关键失败和并发边界（重要）
+- **严重程度**：重要；**类别**：测试
+- **位置**：计划第 5、6、7 节；计划 `plan.md:140-168`
+- **现象**：切片 2/3 的测试清单覆盖了真 HTTP、真 SQLite 和若干角色码，但没有对应到以下合同：两个凭据连接的 WAL/软删除/多行 provider/外部 `data_version` 变更；服务端 OMP 导入前的启动环境顺序；`resolve` 后 key 消失的异步竞态；远程 `setKey/clearKey` 在帧发出后断线的 `unknown-outcome`；请求头 secret 遮盖和超大 provider 原文；两个窗口并行写同一数组；目录升级删模型；自定义模型缺 contextWindow。
+- **为什么是问题**：这些正是计划新增的共享状态、跨进程、密钥边界和失败语义，现有列出的“角色解析各失败码”“密钥不出远程响应与诊断”不能证明它们。尤其“插件测试 + 设置场地”可能只走同进程门面，绕过远程编码、服务端静态 import 顺序和真实数据库第二连接；按测试规范这类替身/内部调用不足以证明合同。
+- **如何核实**：逐条把 `docs/specs/runtime/plugin-channel.md:85-94`、`settings/configuration.md:127-145,188`、`harness/models.md:51-56,76-82` 的失败与并发场景映射到第 6 表，现有表只有 7 行，找不到上述场景的测试文件或用例。
+- **建议改法**：把每条判据拆成可执行验收：真实 server/browser RPC 子进程断线；两个 `AuthStorage`/两个设置窗口；真实入口分别跑 product/dev/fixture；端点回显 header/超大错误；目录副本升级；未绑定/消失凭据与自定义模型边界。若仍不做某一项，在第 8 节写明不做及影响，而不是把它留在“验收”之外。
+### 17. 凭据路径和权限只写了 POSIX 口径，Windows 与已有目录没有合同（建议）
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：计划第 3.3、3.4、7 节；`/home/notnotype/.bun/install/cache/@oh-my-pi/pi-ai@18.14.0@@@1/src/auth/sqlite-credential-store.ts:587-611`；计划 `plan.md:16,90,168,174`
+- **现象**：计划把 `<状态根>/agent/credentials.db` 写成目录 0700、文件 0600，并把 Windows 权限列为未验证。OMP `open` 只在目录不存在时以 0700 创建，文件 chmod 失败会被忽略（Windows 等情况）；已存在的目录不会收紧权限，也没有 Windows ACL 等价物、符号链接/重解析点或状态根权限诊断。
+- **为什么是问题**：安全合同声称文件 0600，但 Windows 上实际可能继承父目录 ACL；已有状态根从旧版本或其它工具创建时目录也可能可被同用户组读取。多实例场景还必须区分 NeuroBook 的状态根 claim（防两个服务端）与 OMP/其它进程同时打开同一 SQLite；不能仅以“WAL”推断本插件的直接读取安全。
+- **如何核实**：在 Windows 或模拟已有宽权限目录的真临时根中调用 `AuthStorage.create`，检查目录权限/ACL 和 symlink/reparse 行为；在两个独立进程同时启动、迁移、写入同一 db，记录 busy、schema migration 和最终凭据。计划第 7 节明确没有这些结果。
+- **建议改法**：把路径归属、目录/文件已有权限、Windows ACL、符号链接策略和跨进程锁写入 Spec；若无法跨平台保证 0600，就把合同改成“按 OMP 平台能力尽力保护”并提供诊断，而不是在计划摘要里当作已满足。测试至少覆盖 POSIX 已有宽权限目录和 Windows 专项。
+报告勘误（追加，不改前文）：第 8 条的导入核实命令应写为 `bun -e import("@notnotype/nb-harness/models")`；第 9 条若用正则搜索应使用 `grep -RE no-credentials|unknown-model|ModelResolution packages/nb-harness/src/kernel`。
+验证记录：`bun run --cwd packages/nb-harness typecheck` 未执行到 tsc，退出码 127，原文为 `/usr/bin/bash: line 1: tsc: command not found`；`bun test packages/nb-harness/src/kernel/model/omp.test.ts packages/nb-harness/src/kernel/architecture.test.ts` 0 pass、2 fail，分别缺 `@oh-my-pi/pi-ai/auth-retry` 与 `typescript`。未跑 e2e 与开发服务。
+未发现问题的方面：
+- 仔细检查后，没有发现“复用 OMP pi-catalog 作为目录、用 `buildModel`/`fetchOpenAICompatibleModels`、按模型夹取推理档”这一技术选型本身与已定决定冲突；问题在其边界和接线未写全。
+- 仔细检查后，没有发现“插件只在服务端提供模型能力、浏览器只提供设置页、浏览器经 `nbook.models/settings` 访问服务端”这一运行位置安排本身违反插件/远程服务合同。
+- 仔细检查后，没有发现计划把 OAuth 登录流程列入第一版；OAuth 登录列为不做与开发者决定一致。
+- 3.1、3.2 及纯前端 3.5 不在本次后端审查范围内；仅报告了它们对设置写入、远程失败和后端形状产生的影响。
+
+数量：阻断 5；重要 10；建议 2；合计 17。
