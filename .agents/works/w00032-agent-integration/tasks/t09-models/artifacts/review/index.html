@@ -30,31 +30,12 @@ ul.notes li { font-size: 14px; }
 </style>
 </head>
 <body>
-<h1>模型服务的设置页：第四轮静态稿（附浮层面对比）</h1>
+<h1>模型服务的设置页：第四轮静态稿</h1>
 <p class="lead">第四轮按第三轮的答复改：连接一节更紧凑（说明收进标题旁的“?”），加默认收起的“高级”（认证方式、请求头，照 omp 的 models.yml），目录服务商也能改地址走中转站；叠在设置窗口上的对话框做了三种面，垫一张有硬边与文字的背景图对比。这几种在 Lab 里也能直接看：Component Lab → <code>ModelSettingsDraft</code>，场景名以“连接”“对话框的面”开头的几个。</p>
 
 <h2>待定</h2>
 
-<section class="q" data-nbdev-question="overlay-tiers" data-nbdev-type="confirm">
-  <h3><span class="badge todo" data-nbdev-skip>待定</span>浮层面按“菜单 72%、一级对话框 82%”分档</h3>
-  <p>开发者看了四档后定要分档：下拉菜单、弹出框这类小浮层在 65%–80% 最好；一级对话框（设置窗口这种）80%–85% 最好、90% 也能看；一级与二级都 90% 时二级看不出是一层新的面。按区间的中间取：小浮层 72%、一级对话框 82%。要调数字写在备注里。</p>
-  <div class="grid"><figure><img src="r6/tiers-menus.webp" alt="菜单 72%、一级 82%"><figcaption><b>菜单与弹出框 72%、设置窗口 82%</b></figcaption></figure></div>
-</section>
 
-<section class="q" data-nbdev-question="nested-surface" data-nbdev-type="single" data-nbdev-recommend="opaque">
-  <h3><span class="badge todo" data-nbdev-skip>待定</span>二级对话框（叠在一级上的）用哪种面</h3>
-  <div class="opt" data-nbdev-option="opaque">
-    <h3>不透明</h3>
-    <p>面板色本身、不再糊，靠遮罩与阴影分层；照 nb-ui design-language 已有的“玻璃叠玻璃不成立，二级浮层用层级色”。</p>
-    <span class="rec" data-nbdev-skip>推荐：一级已经 82%，二级再糊采到的只是一片平的面板色，看不出效果；不透明最清楚，规则也现成</span>
-    <div class="grid"><figure><img src="r6/tiers-nested-opaque.webp" alt="二级不透明"><figcaption><b>一级 82%、二级不透明</b></figcaption></figure></div>
-  </div>
-  <div class="opt" data-nbdev-option="p95">
-    <h3>95% 玻璃</h3>
-    <p>几乎实心，仍留一点颜色与模糊。</p>
-    <div class="grid"><figure><img src="r6/tiers-nested-95.webp" alt="二级 95%"><figcaption><b>一级 82%、二级 95%</b></figcaption></figure></div>
-  </div>
-</section>
 
 <section class="q" data-nbdev-question="connect-r4" data-nbdev-type="confirm">
   <h3><span class="badge todo" data-nbdev-skip>待定</span>连接一节按第四轮的稿做</h3>
@@ -68,6 +49,31 @@ ul.notes li { font-size: 14px; }
 </section>
 
 <h2>已定</h2>
+<section class="q">
+  <h3><span class="badge done">已定</span>浮层面三档：小浮层 72%、一级对话框 90%、二级对话框 90%</h3>
+  <p>开发者 2026-11-01 在 Lab 的“调面板”场景里拖滑块挑定：菜单、下拉、弹出框这类小浮层 72%；设置窗口这类一级对话框 90%；叠在一级上的二级对话框也是 90%、仍是玻璃。下面两节是挑定之前的候选。</p>
+</section>
+<section class="q">
+  <h3><span class="badge todo" data-nbdev-skip>待定</span>浮层面按“菜单 72%、一级对话框 82%”分档</h3>
+  <p>开发者看了四档后定要分档：下拉菜单、弹出框这类小浮层在 65%–80% 最好；一级对话框（设置窗口这种）80%–85% 最好、90% 也能看；一级与二级都 90% 时二级看不出是一层新的面。按区间的中间取：小浮层 72%、一级对话框 82%。要调数字写在备注里。</p>
+  <div class="grid"><figure><img src="r6/tiers-menus.webp" alt="菜单 72%、一级 82%"><figcaption><b>菜单与弹出框 72%、设置窗口 82%</b></figcaption></figure></div>
+</section>
+
+<section class="q">
+  <h3><span class="badge todo" data-nbdev-skip>待定</span>二级对话框（叠在一级上的）用哪种面</h3>
+  <div class="opt">
+    <h3>不透明</h3>
+    <p>面板色本身、不再糊，靠遮罩与阴影分层；照 nb-ui design-language 已有的“玻璃叠玻璃不成立，二级浮层用层级色”。</p>
+    <span class="rec" data-nbdev-skip>推荐：一级已经 82%，二级再糊采到的只是一片平的面板色，看不出效果；不透明最清楚，规则也现成</span>
+    <div class="grid"><figure><img src="r6/tiers-nested-opaque.webp" alt="二级不透明"><figcaption><b>一级 82%、二级不透明</b></figcaption></figure></div>
+  </div>
+  <div class="opt">
+    <h3>95% 玻璃</h3>
+    <p>几乎实心，仍留一点颜色与模糊。</p>
+    <div class="grid"><figure><img src="r6/tiers-nested-95.webp" alt="二级 95%"><figcaption><b>一级 82%、二级 95%</b></figcaption></figure></div>
+  </div>
+</section>
+
 <section class="q">
   <h3><span class="badge todo" data-nbdev-skip>待定</span>nbook 主题的浮层面要分档（四档对比，开发者 2026-11-01 在会话里答复）</h3>
   <p>开发者看了第四轮觉得设置窗口本身就太透明，要求把所有浮层放在一起比较再定。浮层面是一个主题变量（<code>--overlay-surface</code>：面板色的 N% 加模糊），设置窗口、对话框、下拉菜单、弹出框、提示共用；下面四档只改这一个变量，垫同一张背景图。定了之后，叠在设置窗口上的对话框就用和窗口同一种面（不再单独分不透明与玻璃），圆角取窗口那一档。Lab 里对应场景以“浮层面”开头。</p>
