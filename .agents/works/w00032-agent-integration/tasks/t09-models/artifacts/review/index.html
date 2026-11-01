@@ -30,31 +30,50 @@ ul.notes li { font-size: 14px; }
 </style>
 </head>
 <body>
-<h1>模型服务的设置页：第四轮静态稿</h1>
+<h1>模型服务的设置页：第四轮静态稿（附浮层面对比）</h1>
 <p class="lead">第四轮按第三轮的答复改：连接一节更紧凑（说明收进标题旁的“?”），加默认收起的“高级”（认证方式、请求头，照 omp 的 models.yml），目录服务商也能改地址走中转站；叠在设置窗口上的对话框做了三种面，垫一张有硬边与文字的背景图对比。这几种在 Lab 里也能直接看：Component Lab → <code>ModelSettingsDraft</code>，场景名以“连接”“对话框的面”开头的几个。</p>
 
 <h2>待定</h2>
 
-<section class="q" data-nbdev-question="dialog-surface" data-nbdev-type="single" data-nbdev-recommend="opaque">
-  <h3><span class="badge todo" data-nbdev-skip>待定</span>叠在设置窗口上的对话框用哪种面</h3>
-  <p>三种的圆角都改成取窗口那一档（不大于底下的设置窗口）。设置窗口自己是玻璃面（面板色 65% 加 8px 模糊），最后一张是它本身垫在同一张图上的样子，作对照。</p>
-  <div class="opt" data-nbdev-option="opaque">
+<section class="q" data-nbdev-question="overlay-opacity" data-nbdev-type="single" data-nbdev-recommend="p90">
+  <h3><span class="badge todo" data-nbdev-skip>待定</span>nbook 主题的浮层面用多不透明</h3>
+  <p>开发者看了第四轮觉得设置窗口本身就太透明，要求把所有浮层放在一起比较再定。浮层面是一个主题变量（<code>--overlay-surface</code>：面板色的 N% 加模糊），设置窗口、对话框、下拉菜单、弹出框、提示共用；下面四档只改这一个变量，垫同一张背景图。定了之后，叠在设置窗口上的对话框就用和窗口同一种面（不再单独分不透明与玻璃），圆角取窗口那一档。Lab 里对应场景以“浮层面”开头。</p>
+  <div class="opt" data-nbdev-option="p65">
+    <h3>65%（现在）</h3>
+    <p>nbook 主题现在的值。</p>
+    
+    <div class="grid">
+      <figure><img src="r5/overlay-65-menus.webp" alt="65%（现在）：设置窗口、菜单与弹出框"><figcaption><b>设置窗口、下拉菜单与弹出框</b></figcaption></figure>
+      <figure><img src="r5/overlay-65-dialog.webp" alt="65%（现在）：设置窗口与编辑对话框"><figcaption><b>设置窗口与叠在上面的编辑对话框</b></figcaption></figure>
+    </div>
+  </div>
+  <div class="opt" data-nbdev-option="p80">
+    <h3>80%</h3>
+    <p>透一些颜色，字已经不受背景干扰。</p>
+    
+    <div class="grid">
+      <figure><img src="r5/overlay-80-menus.webp" alt="80%：设置窗口、菜单与弹出框"><figcaption><b>设置窗口、下拉菜单与弹出框</b></figcaption></figure>
+      <figure><img src="r5/overlay-80-dialog.webp" alt="80%：设置窗口与编辑对话框"><figcaption><b>设置窗口与叠在上面的编辑对话框</b></figcaption></figure>
+    </div>
+  </div>
+  <div class="opt" data-nbdev-option="p90">
+    <h3>90%</h3>
+    <p>只透一点颜色，仍有一点材质感。</p>
+    <span class="rec" data-nbdev-skip>推荐：大面积的表单读得清，菜单与弹出框仍看得出是浮在上面的一层</span>
+    <div class="grid">
+      <figure><img src="r5/overlay-90-menus.webp" alt="90%：设置窗口、菜单与弹出框"><figcaption><b>设置窗口、下拉菜单与弹出框</b></figcaption></figure>
+      <figure><img src="r5/overlay-90-dialog.webp" alt="90%：设置窗口与编辑对话框"><figcaption><b>设置窗口与叠在上面的编辑对话框</b></figcaption></figure>
+    </div>
+  </div>
+  <div class="opt" data-nbdev-option="p100">
     <h3>不透明</h3>
-    <p>与设置窗口同一个面板色、100% 不透明，不再糊；靠遮罩压暗与阴影分层。照 nb-ui design-language 现有的“玻璃叠玻璃不成立，二级浮层用层级色”。</p>
-    <span class="rec" data-nbdev-skip>推荐：表单字段多，不透明最好读；规则已经写在 nb-ui 里</span>
-    <div class="grid"><figure><img src="r4/surface-opaque.webp" alt="不透明"><figcaption><b>不透明</b></figcaption></figure></div>
+    <p>面板色本身，不再模糊；靠阴影分层。</p>
+    
+    <div class="grid">
+      <figure><img src="r5/overlay-100-menus.webp" alt="不透明：设置窗口、菜单与弹出框"><figcaption><b>设置窗口、下拉菜单与弹出框</b></figcaption></figure>
+      <figure><img src="r5/overlay-100-dialog.webp" alt="不透明：设置窗口与编辑对话框"><figcaption><b>设置窗口与叠在上面的编辑对话框</b></figcaption></figure>
+    </div>
   </div>
-  <div class="opt" data-nbdev-option="glass">
-    <h3>与设置窗口同一种玻璃</h3>
-    <p>Dialog 现在的样子（第二轮那样），只改了圆角。背后的设置窗口与背景图都透上来。要改 design-language 的规则。</p>
-    <div class="grid"><figure><img src="r4/surface-glass.webp" alt="同一种玻璃"><figcaption><b>同一种玻璃</b>（65%）</figcaption></figure></div>
-  </div>
-  <div class="opt" data-nbdev-option="glass-90">
-    <h3>更不透明的玻璃</h3>
-    <p>仍糊背景，但面板色提到 90%，只透一点颜色。要在 design-language 里给二级浮层加一档。</p>
-    <div class="grid"><figure><img src="r4/surface-glass-90.webp" alt="90% 玻璃"><figcaption><b>玻璃 90%</b></figcaption></figure></div>
-  </div>
-  <div class="grid"><figure><img src="r4/window-backdrop.webp" alt="设置窗口本身"><figcaption><b>对照：设置窗口本身</b>垫同一张图</figcaption></figure></div>
 </section>
 
 <section class="q" data-nbdev-question="connect-r4" data-nbdev-type="confirm">
