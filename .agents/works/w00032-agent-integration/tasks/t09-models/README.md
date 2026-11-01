@@ -104,7 +104,14 @@ t02。
 
 ## 当前状态
 
-设计定稿（决定 9 到 30，评审板 `review` v9 全部答完）。[实施计划](plan.md)第一稿开发者看过同意（2026-11-01）；设计审查 omp 17 条（阻断 5）、Claude Sonnet 24 条，全部处置后改成第二稿（处置见 [`evidences/design-review-disposition.md`](evidences/design-review-disposition.md)，O6、O7 接受取舍，其余改）。开发者要求 omp 只针对上一轮的 5 条阻断再审一轮（对象 master `506a564d5`）：O4 已解决，O1、O3 未解决，O2、O10 部分解决，另有 O12 修法引出的新阻断一条；都已改进第三稿（处置表第二轮一节）。开发者 2026-11-01 定不再审第三轮，开始实施（Work 分支 `feat/w00032-agent-integration` 已快进到 master `2001f555f`）。第二轮“对话框太透明、圆角不对”查明是 nb-ui 的缺口：`design-language.md` 写了嵌套浮层用不透明层级色、圆角不大于底下窗口，`Dialog` 没有实现。草稿在 `.worktree/w00032-t09-drafts`（分支 `t09/drafts`，不提交、不合并），Lab 场景 `ModelSettingsDraft`。
+设计定稿（决定 9 到 30，评审板 `review` v9 全部答完）。[实施计划](plan.md)第一稿开发者看过同意（2026-11-01）；设计审查 omp 17 条（阻断 5）、Claude Sonnet 24 条，全部处置后改成第二稿（处置见 [`evidences/design-review-disposition.md`](evidences/design-review-disposition.md)，O6、O7 接受取舍，其余改）。开发者要求 omp 只针对上一轮的 5 条阻断再审一轮（对象 master `506a564d5`）：O4 已解决，O1、O3 未解决，O2、O10 部分解决，另有 O12 修法引出的新阻断一条；都已改进第三稿（处置表第二轮一节）。开发者 2026-11-01 定不再审第三轮，开始实施（Work 分支 `feat/w00032-agent-integration` 已快进到 master `2001f555f`）。
+
+实施进展（Work 分支 `feat/w00032-agent-integration`）：
+
+- 第 2 片完成：内核模型端口改按查询对象解析（`resolve({settings, purpose, profile, role?})`），解析失败码原样交回；OMP 适配器异步取密钥、带宿主请求头并遮盖、截断服务商原文（`33e4bddc0`）；nb-harness 新子路径 `./models`（目录、按配置建出解析结果、凭据库、`env:`，`18827c2dc`）。Spec：`harness/models.md`、`runtime.md`（master `1abf93d70`）。
+- 计划里第 1 片的“设置的比较后写入”提前做了（第 3 片要用）：`update` 的 `expect` 与 `conflict`（`650cd19dd`，Spec `configuration.md` 输出 25，master `1ab58def2`）。
+- 第 3 片完成：服务端启动环境快照（`860195221`）；`nbook.models` 服务端（`dfb776be9`）；Spec `models/service.md`（planned，master `1f3bb53b3`、`9f1fe5db2`）。实施中补的：删服务商或模型时解除角色绑定、`updateRole`；冲突后等设置视图跟上（至多 1 秒）再重试。第 0 片的空骨架并进了第 3 片。
+- 下一步：第 1 片的 nb-ui 浮层分档、嵌套对话框与设置窗口（分区栏 176px、`reportWriteFailure`），再做第 4 片的界面。第二轮“对话框太透明、圆角不对”查明是 nb-ui 的缺口：`design-language.md` 写了嵌套浮层用不透明层级色、圆角不大于底下窗口，`Dialog` 没有实现。草稿在 `.worktree/w00032-t09-drafts`（分支 `t09/drafts`，不提交、不合并），Lab 场景 `ModelSettingsDraft`。
 
 ## 下一步
 
