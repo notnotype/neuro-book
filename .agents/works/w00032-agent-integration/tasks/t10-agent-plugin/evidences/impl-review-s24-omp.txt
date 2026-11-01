@@ -1,0 +1,268 @@
+# w00032 t10 第 2–4 片只读实现审查
+
+审查对象：`61358c890`、`f21519330`、`68eb38df8`；排除 `e4e30485b` 的第 0 片修正。位置均相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/review-t10-impl/`。依据为主工作区的计划、README 决定 9–15、设计审查处置和 Spec。
+
+### 1. 运行已中止后，异步工具创建的迟到成功仍启动实际执行
+
+**严重程度**：重要。**类别**：正确性、不变量。
+
+**位置**：`packages/neuro-book/src/plugins/agent/backend/tools.ts:156`、`:160`、`:167`、`:168`。
+
+**现象**：包装的 execute 先等待提供方激活和真正的工具工厂，返回后只检查 `built.revoked`，不检查 `context.signal.aborted` 或包装是否已经 dispose。内核已经在调用包装之前做过中止复核，但包装把真正的异步创建又藏在这个复核之后。
+
+**为什么是问题**：中止宽限期结束、运行在日志里以 aborted 收口后，延迟建好的工具仍可以开始写文件、发请求等副作用。内核只能丢掉迟到结果，不能撤销这些已经发生的动作。违反 `harness/runtime.md` 输出 25 和内核 tools.ts:268 的“建实现后复核中止，之后不再开始新的调用”；提供方收到一个已中止 signal 不等于宿主可以在中止后首次调用它。
+
+**如何核实**：在 `packages/neuro-book` 执行 `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/tools.test.ts -t 'tool executes after'`。真实工具贡献的 async create 挂起，发 abort，推进注入时钟 2000 ms 并等 waitRun；实测先得到 `{reason:"aborted",executions:0}`。此后放行工厂，execute 确实被调用，`LATE_EXECUTION_SIGNAL true`、`executions:1`。没有伪造内核时序。
+
+**建议改法**：把激活/创建纳入内核真正的创建阶段，或在包装每个 await 后、实际 execute 前复核 signal、代次和 disposed；中止后迟到的实现只清理，不允许开始执行。补测“激活中中止”“工厂中止”“旧调用迟到时会话已关闭”。
+
+### 2. 停止时漏掉尚未完成的创建，停止返回后仍留下持锁会话
+
+**严重程度**：重要。**类别**：不变量、正确性。
+
+**位置**：`packages/neuro-book/src/plugins/agent/backend/sessions.ts:73`、`:77`、`:81`、`:112`；`backend/agent.ts:181`。
+
+**现象**：创建在 `host.create()` 内异步解析 Profile、挂载扩展和写日志期间，没有进入 `#entries`，也没有被任何在途创建集合持有。此时 `stop()` 对表做一次快照即可完成。稍后创建继续登记一个停止流程再也不会关闭的句柄；空闲计时也因 `#stopping` 不会启动。
+
+**为什么是问题**：违反 `agent/sessions.md` 输出 14 的“等已接纳的打开、建会话与指令登记完，再关闭全部会话”。真实应用停止后，迟到创建还会执行 `agent.ts:181` 的 `profileSettings()`，访问已经释放的设置门面而抛 `ServiceRevokedError`；日志锁和文件句柄没有释放，同进程再次启用无法打开该会话。
+
+**如何核实**：`env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/handles.test.ts`（在 `packages/neuro-book` 执行）。实验经真实 `agentWorld` 的 `agentKey.create`，用 Profile 的异步 `mount` 暂停创建，等待 `w.close()` 完成后才放行。实测迟到创建抛 `ServiceRevokedError`，另开真实 JsonlStore 得 `session-busy`，随后 Bun 报 `A FileHandle object was closed during garbage collection`，文件为该会话的 session.jsonl。该命令结果为 1 pass、1 fail，后一个用例被前一用例泄漏句柄的 GC 异常污染；不是测试环境原因。现有停止测试只停创建完成的会话。
+
+**建议改法**：接纳创建时立即登记在途操作（不依赖会话 id 已经生成），停止先同步关门并等待这些操作登记完，再取表并关闭；同样排空创建后应用初始设置的步骤，保证设置依赖释放前整个服务调用已完成。
+
+### 3. 异步工具工厂未返回时，5 秒撤回上限完全不生效
+
+**严重程度**：重要。**类别**：不变量、正确性。
+
+**位置**：`packages/neuro-book/src/plugins/agent/backend/tools.ts:160`、`:172`、`:217`、`:225`。
+
+**现象**：工具包装只有在 `await built.implementation` 完成并真正调用 `execute` 后才登记 `built.calls` 和 `onRevoke`。工厂挂起时撤回进入 `#retire` 的 `calls.size===0` 分支，直接等待同一个工厂返回再 dispose，既不启动 5 秒计时，也不结算正在等工厂的调用。
+
+**为什么是问题**：`AgentToolImplementation.create` 明确允许 Promise。一个建立连接或等待外部初始化的工厂永远不返回，就能把整个插件撤回乃至应用停止永久挂住；运行仍卡在此工具，违反 `agent/contributions.md` 输出 6 和“交给平台的撤回最迟 5 秒完成”。现有测试仅让 `execute` 永不结束，遗漏了公开接口允许的异步创建。
+
+**如何核实**：在 `packages/neuro-book` 执行 `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/tools.test.ts`，真实服务端、工具贡献、本机模型端点。工厂到达后挂起、停提供方，推进注入时钟 10000 ms，实测 `stoppedAfter10000ms:false, runResult:null, disposed:0`；放行工厂后撤回才完成，`disposed:1`。当时实验文件仅含这一条，1 pass、0 fail；后续另追加了正常调用保留与中止后迟到执行场景。
+
+**建议改法**：把从取代次、创建到执行的整次包装调用都纳入在途集合和撤回竞速；平台撤回与底层最终释放分开，5 秒截止不等待工厂或 dispose。工厂迟到返回的实现只在该代所有底层工作结束后释放，不再执行。
+
+### 4. 输入 schema 只检查对象，非法 UserInput 会落盘或变成 provider-error
+
+**严重程度**：重要。**类别**：正确性、安全与性能。
+
+**位置**：`packages/neuro-book/src/plugins/agent/shared/remote.ts:20`、`:36`、`:41`、`:48`、`:57`。
+
+**现象**：`Input` 实际是允许任意属性的空对象 schema，`Type.Unsafe<UserInput>` 只改变静态类型。`answer`、设置补丁等也同样只有对象外壳。内核的 UserInput 是 TypeScript 合同，并没有替远程边界验证这些字段。
+
+**为什么是问题**：违反通道严格校验和通用编码规范的外部边界要求。缺少 `text` 或 `text: 42` 直接在内核 `input.text.trim()` 抛错；更隐蔽的畸形附件和未知字段会被接纳并持久化，后续构建模型消息时才暴露。源文件头“形状由内核定义与校验”的前提不成立。
+
+**如何核实**：在 `packages/neuro-book` 执行 `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/remote.test.ts -t 'invalid UserInput|diagnostics filtering|path exceeds'`，真实 JSON RPC 的 `enqueue` 收到 `{}` 和 `{text:42}` 均为 `provider-error`；`{text:"valid", attachments:"wrong", unknown:"extra"}` 返回成功，`snapshot.buffer[0].input` 原样含这两个非法字段。未改仓库文件。
+
+**建议改法**：对 UserInput、附件、answer 和 patch 的结构提供真正的 schema；只让 Profile 自定义的 payload/data 保持自由 JSON。`Type.Unsafe` 不用于替代来自浏览器的结构校验；类型对照同时检查字段类型、可选性及结构，而不是当前 `SameKeys` 仅检查键名。
+
+### 5. path 未限制总大小，正常历史即可返回超过 1 MiB 的消息
+
+**严重程度**：重要。**类别**：正确性、安全与性能。
+
+**位置**：`packages/neuro-book/src/plugins/agent/backend/remote.ts:97`；`shared/remote.ts:111`。
+
+**现象**：`path` 对路径上的每条事件做 `logItem` 投影，但整条路径无分页、无总字节预算。单条不超过 256 KiB 的事件仍原样累加；`snapshot`（缓冲区）、`runResult`（正文/结构化结果）等同样直接透传，没有大结果投影。
+
+**为什么是问题**：`agent/sessions.md` 输出 9 承诺所有远程结果和帧不超过单条消息上限 1048576 字节。当前返回值违反该明确尺寸合同，且数据量继续增长时没有读取上界。只对单条事件换占位不能约束聚合结果。是否因此断线取决于具体链路的接收端；没有实测浏览器断线，不将其当作既定后果。
+
+**如何核实**：在 `packages/neuro-book` 执行 `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/remote.test.ts -t 'path exceeds'`。真实 `agentWorld`、本机模型端点，12 轮各输入 100000 个 ASCII 字符、模型各回 `ok`；远程 `path` 成功返回 86 项，结果 JSON 实测 1222804 字节，超过 1048576。实测的是 JSON 链路上的超限返回值；未启动 WebSocket 开发服务或 e2e。Bun 的 `maxPayloadLength` 在服务端接收侧，不足以证明这个出站结果必定断线。
+
+**建议改法**：对 path 增加稳定分页/分段读取；逐项审计其它聚合结果，统一按最终编码消息的预算投影，不能只给日志与 preview 加预算。
+补充实测：`contracts.test.ts` 用公开 `pageOfItems` 构造每项恰好 262144 字节的两条日志，返回数组编码为 524291 字节，已比 512 KiB 多 3 字节（尚未计页对象和 RPC 外壳）。`env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/remote.test.ts -t 'one real diagnostic'` 经真实 mount 抛错生成 1 条诊断，远程结果实测 1201667 字节、`more:false`；`remote.ts:118` 对第一页首条无条件收下，没有处理单条诊断超预算。两者需要纳入同一轮最终编码预算修正。
+
+
+### 6. diagnostics 的分页无法前进，筛选也全部失效
+
+**严重程度**：重要。**类别**：正确性。
+
+**位置**：`packages/neuro-book/src/plugins/agent/backend/remote.ts:112`、`:116`；`shared/remote.ts:120`。
+
+**现象**：远程层把 `afterSeq/extension/level` 交给内核的 `diagnostics()`，但当前实现忽略参数、始终返回 `core.diagnostics.all()`。远程层每次从同一个数组头按字节截断，返回值只有 `items/more`，没有能表达同 seq 多条诊断的分页游标。
+
+**为什么是问题**：达到 512 KiB 截断后，`more:true` 的后续条目永远读不到；按 level/extension 的查询仍返回无关项。即使补上内核 afterSeq 过滤，同一 seq 可以出现多条诊断，按 seq 翻页仍会跳过未返回项。
+
+**如何核实**：在 packages/neuro-book 执行 `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/remote.test.ts -t 'invalid UserInput|diagnostics filtering|path exceeds'`，真实远程链路创建 4 个 mount 抛错的扩展（每个错误消息 160000 字符），原始查询有 4 条。第一页只返回 ext0 且 more:true；下一次带第一页最大 lastSeq，仍只返回 ext0；指定 extension:none、level:info 仍返回 ext0 的 error。实测 4 条的 seq 分别为 3、4、5、6。该场景通过，同次另一个使用 titleChanged 测 path 的候选数据不在路径上，后来已换成输入事件核实第 5 条。
+
+**建议改法**：在拥有诊断投影的层真正应用筛选，并增加按稳定诊断 id/快照位置推进的游标和条数上限；分页结果必须给出下一页位置。覆盖同 seq 多条、大诊断和聚合计数变化。
+
+### 7. 会话打开失败被订阅路径吞掉，远程仍确认成功并永久静默
+
+**严重程度**：重要。**类别**：正确性、错误路径。
+
+**位置**：`packages/neuro-book/src/plugins/agent/backend/sessions.ts:247`、`:248`、`:255`；`backend/remote.ts:149`。
+
+**现象**：代理 subscribe 的异步 acquire 失败时直接 return，既不抛出、不给诊断，也没有把失败交给远程层。远程 subscribe 自己同步结束，通道已把它当作成功的订阅；后续没有内核订阅、不会再交付任何帧。
+
+**为什么是问题**：不存在、损坏、迁移失败或被别处持锁的会话，都变成“订阅成功但永远没有数据”。调用方收不到 onEnd，无法区分安静会话与建立失败；违反平台失败可见的约定，也使重连把根本没建立过的订阅当有效订阅不断重建。
+
+**如何核实**：在 `packages/neuro-book` 执行 `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/remote.test.ts -t 'missing session subscription'`。真实窗口对 missing 会话订阅，返回 `ok:true`；等待同会话 snapshot 的失败确认打开完成后，仍 `count:0,ended:null`。实验配置了 onEnd，并显式 release 收口。现有测试只检查指令和 snapshot 对不存在会话的失败。
+
+**建议改法**：远程 subscribe 应等待一次真实 acquire/建立的结果，失败进入通道 provider-error/约定的结束通道；若保留同步 SessionApi.subscribe，需要在句柄表另提供可等待的订阅建立入口。不能把 StorageResult 失败静默 return。
+
+### 8. 同进程服务没有完整的停止门，停止后列表和目录仍返回成功
+
+**严重程度**：重要。**类别**：不变量、正确性。
+
+**位置**：`packages/neuro-book/src/plugins/agent/backend/agent.ts:188`、`:189`、`:190`、`:191`；`backend/plugin.ts:62`。
+
+**现象**：停止门只在句柄表 acquire/create 里检查。`AgentService.list/profiles/running/session` 绕过表的门，`agentKey` 又通过普通共享实例交付，平台不会替它作废方法。
+
+**为什么是问题**：`agent/sessions.md` 输入合同和输出 14 明确要求服务停止后的所有 `agentKey` 调用抛码为 `unavailable` 的错误。当前旧引用在整应用停止后仍可扫磁盘并取得目录/视图，不能据返回值判断实例已失效，且跨代次保留了旧目录状态。
+
+**如何核实**：在 `packages/neuro-book` 执行 `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/handles.test.ts -t 'list/profiles|input interception'`。真实 `agentWorld` 完成 `w.close()` 后，逐一调用旧 `w.service.list/profiles/running/session`，4 个均正常返回 object，没有 unavailable。同实验另测“已在输入拦截中的指令被停”得到 `session-closed`，此为内核关闭合同已有行为，不单独计问题。
+
+**建议改法**：在 AgentService 的公开入口统一检查本代停止门；取得视图时同样拒绝，保留已取得视图每次方法调用的检查。平台远程提供项的撤回不能替代同进程共享服务自己的门禁。
+
+### 9. 每次工具调用都永久登记撤回回调，已完成结果仍被强引用
+
+**严重程度**：重要。**类别**：安全与性能、资源生命周期。
+
+**位置**：`packages/neuro-book/src/plugins/agent/backend/tools.ts:170`、`:172`、`:174`、`:185`。
+
+**现象**：`execute` 每次向 `built.onRevoke` 加一个捕获底层 `call` Promise 的闭包，但调用完成后只从 `built.calls` 删除，从未移除该闭包。底层 Promise 的结果、拒绝原因和相关执行上下文跟着这一代实现一直存活。
+
+**为什么是问题**：常用工具的每次调用都多留一份内存；清理日志/本轮状态也不能释放。撤回还要遍历所有历史调用、为已经完成的每个调用创建一个 5 秒定时器，开销由在途数退化成累计调用数。不是计划接受的“永不结束的底层调用暂不释放”，正常完成同样泄漏。
+
+**如何核实**：在 `packages/neuro-book` 执行 `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/tools.test.ts -t 'completed calls'`。真实插件与本机模型端点连续完成 20 次工具调用，结果对象只在工具侧用 WeakRef 观测（额外 data 标记不进入内核日志）；让出 JavaScript job 后 `Bun.gc(true)`，20 个结果全部仍可达；撤回提供方再 GC，剩余 0。1 条实验通过。零时长让出仅用于 WeakRef 的同 job 保活语义，没有固定时长等待或假计时器。
+
+**建议改法**：保存并在调用 settle 的 finally 中移除对应 onRevoke 监听；撤回只遍历当前仍在途的调用，触发后清空监听集合。
+
+### 10. 首次打包期间导入文件的变化不会置 dirty，旧包仍被发布
+
+**严重程度**：重要。**类别**：正确性、并发与状态机。
+
+**位置**：`packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts:149`、`:160`、`:227`。
+
+**现象**：进行中这一轮的输入直到整个 bundle 求值成功后才登记。`#onChange` 只查 `state.published?.inputs`，首次构建没有 published，或本轮刚引入新依赖时，在打包/求值期间改动该依赖不会设置 dirty。结束时检查 dirty 仍为 false，发布的是变化之前的包。
+
+**为什么是问题**：违反 agent/contributions.md 输出 9“完成时已有更新的变化，结果丢掉”及计划 3.4 的代次规则。文件已经是新内容，用户仍得到旧 Profile，并且之后没有新事件会自动纠正。与第 11 条不同，这一轮构建成功，不是失败恢复。
+
+**如何核实**：在 `packages/neuro-book` 执行 `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/profiles.test.ts -t 'dirty first|stop during'`。真实 `agentWorld` 首包导入 helper 的 `old`，Profile 顶层 await 用可观察的门挂起求值，此时把 helper 写成 `new` 再放行。启动结束目录 ok，但缓存包 `builtOld:true, builtNew:false`，仅生成 1 个包。相同实验文件还证明 stop 期间完成求值确实被丢弃（`changes:0,resolved:false`），该路径不计问题。
+
+**建议改法**：在构建开始前/取得模块图后立即登记本次输入，并用内容快照或代次复核覆盖从开始读取到发布的窗口；未掌握依赖集合的首次构建期间，相关目录变化需使本轮作废后重建。
+
+### 11. 首次打包失败后，修复导入文件不会触发恢复
+
+**严重程度**：重要。**类别**：正确性。
+
+**位置**：`packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts:150`、`:160`、`:225`、`:227`。
+
+**现象**：只有成功发布的 `published.inputs` 会被登记为输入；目录事件仅在文件本身是 `.profile.tsx` 或命中旧的 `published.inputs` 时重新打包。首次打包失败的 Profile 没有输入集合，修好它导入的 `.ts` 文件不会重试。成功过之后新加一个有错的依赖，也不在旧输入集合里。
+
+**为什么是问题**：用户修复真正报错的依赖文件后，Profile 仍永久显示旧错误、解析不到，必须额外碰一下入口或重启。违反 `agent/contributions.md` 输出 9、12 的文件改动重载与失败恢复；失败路径恰恰是最需要监听输入的状态。
+
+**如何核实**：在 `packages/neuro-book` 执行 `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/profiles.test.ts`。经真实 `agentWorld` 启动：mine.profile.tsx 导入语法错误的 helper.ts，目录为 unavailable / Unexpected ;；只修 helper.ts，再写一个 barrier Profile 并等它成功打包，mine 仍为同一错误。该条实验通过。同次命令总计 2 pass、1 fail：失败的是“模块求值失败缓存不能恢复”的候选假设，实际恢复成功，因此该候选不计发现。
+
+**建议改法**：成功输入、最近尝试的输入与缺失依赖分别保存；打包失败也更新需要监听的文件/目录。目录事件能让尚未成功的 Profile 重新尝试，补测初次失败、新增依赖失败与删除后恢复。
+
+### 12. 计算出来的裸导入绕过检查，用户包仍能从状态根解析表外模块
+
+**严重程度**：重要。**类别**：正确性、隔离与共享状态。
+
+**位置**：`packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts:171`、`:180`、`:194`。
+
+**现象**：`packages:"external"` 只把包留作外部引用；产物的 `Bun.Transpiler.scanImports()` 只列字面的导入，计算出来的 `import(specifier)` 不在检查结果中。用户包又没有像第三方入口那样的运行时加载范围约束，于是直接按 Bun 的普通规则向上找 node_modules。
+
+**为什么是问题**：违反 `agent/contributions.md` 输出 9 的表外裸说明符必须 `module-not-shared`，以及 `runtime/plugin-code-loading.md` 输出 4 的“不因上级装了同名包而取到另一份”。这里不是把受信 Profile 当恶意代码隔离，而是避免同一 SDK/响应式系统有两份、以及开发时能用发布后失效的依赖耦合。
+
+**如何核实**：在 `packages/neuro-book` 执行 `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/profiles.test.ts -t 'computed bare|dirty first'`。仅在实验状态根的 node_modules 写 `private-package`，用户 Profile 用 `const specifier="private-package"; const {note}=await import(specifier)`。真实 `agentWorld` 装载后目录 status 为 ok、建会话成功，没有 module-not-shared。此动态导入专门用于验证装载边界；仓库文件未改。
+
+**建议改法**：运行期 Profile 打包应拒绝无法静态确定的导入，或在真正的模块解析边界校验计算出的裸说明符；不得把 scanImports 当完整依赖检查。保留 Node/Bun 内置及宿主模块的既有允许规则。
+
+### 13. 合法的 user 发布者插件的 Profile 全部被误路由到用户文件层
+
+**严重程度**：重要。**类别**：正确性、合同边界。
+
+**位置**：`packages/neuro-book/src/plugins/agent/backend/profiles.ts:88`、`:97`；`src/plugin-platform-profile.ts:16`。
+
+**现象**：Profile 解析和工具要求只按 `key.startsWith("user.")` 决定来源。平台仅保留发布者 `nbook`，`user` 是合法发布者；例如插件 `user.profiles` 贡献 `user.profiles.writer` 会被正常登记、目录显示 ok，但解析永远去用户文件表找，根本不激活/读取它的插件贡献。
+
+**为什么是问题**：计划和 `agent/contributions.md` 输出 7 的“三层按前缀区分、同名不覆盖”依赖了平台没有保证的前提。合法插件可以发布并显示可用，却始终无法建会话；如果存在 `profiles.writer.profile.tsx`，同一个 key 还会列两项，实际只用用户的对象，构成静默覆盖。
+
+**如何核实**：在 `packages/neuro-book` 执行 `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/extensions.test.ts`。真实插件 `user.profiles` 登记并贡献 writer；`service.profiles()` 返回 `{key:"user.profiles.writer",source:"user.profiles",status:"ok"}`，`service.create` 返回 `unknown-profile`。平台档案实测代码只有 `reservedPublishers:["nbook"]`。
+
+**建议改法**：在平台真正保留用户/内置 Profile 的命名空间，并在登记时拒绝冲突，或用明确来源标识解析而不是仅按字符串前缀猜；目录与解析复用同一份来源判定。
+
+### 14. SDK 的纯度名单漏掉 nb-harness，插件可把另一份内核定义打进产物
+
+**严重程度**：重要。**类别**：合同边界、共享状态、测试。
+
+**位置**：`packages/neuro-book/src/plugin-platform-profile.ts:61`；`src/sdk/agent.ts:8`；`src/plugin-platform/build/build-plugin.ts:457`、`:664`。
+
+**现象**：新增 agent 子路径后，宿主必须共享 nb-harness 的定义写法；平台的 hostPackages 仍只有 nb-ui、SDK、nb-runtime、typebox，既不把 nb-harness 导入留作外部以拒绝，也不把它的文件加入禁止打包目录。作者直接导入 nb-harness，预设仍成功构建。
+
+**为什么是问题**：计划 3.4 明确要求“打进了内核的插件构建失败”，`runtime/plugin-code-loading.md` 的纯度检查也禁止自带内核实现。代码定义/协议只应来自宿主的 SDK，当前允许插件钉住另一版本，宿主升级后无法保证相同品牌、模板与定义语义。已有 surface 测试只检查应用内闭包，不会查这条外部包导入。
+
+**如何核实**：在 `packages/neuro-book` 执行 `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl REVIEW_SDK_DIRECTORY=/tmp/review-t10-impl/sdk-1793540732830/author/node_modules/@notnotype/nb-plugin-sdk bun test /tmp/review-t10-impl/purity.test.ts`。真实生成的 SDK、仓库外作者目录、真实构建预设；插件从 SDK 取 agentProfile，却从 `@notnotype/nb-harness/kernel/contracts` 取 defineProfile。构建成功输出 package.json/server.js/server.js.map；server.js 第 3–29 行明确包含 nb-harness 的 extension/define.ts、extension/profile.ts 与 defineProfile 实现。source map 把包外路径规范化成 external/define.ts、external/profile.ts，不能仅按 source map 路径含不含包名判断。
+
+**建议改法**：把 nb-harness 加入应用档案的宿主包与禁止打包集合，表外直接导入提示改用 SDK agent；纯度测试补一条直接和相对绕过内核包的实际构建反例。
+
+### 15. 所有业务失败详情共用任意对象 schema，既不按码校验也丢失静态收窄
+
+**严重程度**：重要。**类别**：正确性、代码质量。
+
+**位置**：`packages/neuro-book/src/plugins/agent/shared/remote.ts:24`、`:30`、`:68`、`:76`、`:151`。
+
+**现象**：`errorsOf()` 给每个码相同的 `undefined | Record<string, unknown>`。内核 `CommandErrorDetails` 要求的字段和无详情码的约束均未进入合同；所谓类型对照只比较参数键集合，没有覆盖失败码详情，字段类型和可选性也没比。
+
+**为什么是问题**：违背 `agent/sessions.md` 输出 3 和计划 3.5 的“每个码各自的详情 schema、类型层对照”。浏览器按 `invalid-value` 分支后仍不知道 `extension/key/message` 是字符串，缺详情或错详情也被通道当成合法业务失败，提供方/调用方两侧的校验都失效。
+
+**如何核实**：在 `packages/neuro-book` 执行 `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/contracts.test.ts`，直接对公开合同用真实 TypeBox `Value.Check`：`invalid-value` 的详情为 undefined、`{notTheRightField:1}` 都得到 true；`unknown-key` 接受同一错对象；无详情码 `command-id-conflict` 同样接受对象。内核精确类型在 `packages/nb-harness/src/kernel/api/host.ts:58`。应用 typecheck 通过，证明现有类型对照没有拦截这处漂移。
+
+**建议改法**：按内核 `CommandErrorDetails` 建精确 schema，没详情的码写 `Type.Undefined()`；存储详情按存储实际合同声明。增加双向赋值/类型相等检查覆盖完整参数、成功值、码与对应详情，不只比键。
+
+### 16. 状态根经过符号链接时，旧 Profile 包的模块缓存删不到
+
+**严重程度**：建议。**类别**：安全与性能、不变量。
+
+**位置**：`packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts:184`、`:191`、`:192`。
+
+**现象**：`Published.file` 和删除缓存时使用的键保留状态根的符号链接路径，Bun 的 `require.cache` 却以真实路径为键。每次成功重载只删除不存在的链接路径键，旧的整份模块及其顶层对象一直被缓存持有。
+
+**为什么是问题**：第三方加载器已经在 `loader.ts:110` 用 `realpath` 处理同一个约定；新加载器没有沿用。超出计划已接受的“运行时可能保留少量模块内存”限制，这里是宿主持有的明确强引用，关闭会话也无法回收。缓存条目随每个不同内容包持续增加。
+
+**如何核实**：同一 Profile 实验以链接路径作为状态根，改一次内容后 require.cache 同时包含真实路径的 mine-c787cd197aea.js 与 mine-e0a3fdf933c5.js，oldRetained:true。实验调用实际 ProfileBundles.start、真实 fs.watch 与 Bun.build/import；未伪造缓存键。该条实验通过；同次命令的另一个失败候选已否定，不计发现。
+
+**建议改法**：创建缓存目录后规范化为真实路径，`import`、记录 `Published.file` 和删除模块缓存统一使用该路径；停止与删除 Profile 时也释放不再使用的缓存引用。
+
+
+## 未发现问题的方面
+
+在以下已核实范围内，仔细检查后没有发现：
+
+- 句柄同时首次打开的复用、空闲后重新打开。已有用例通过；补充真实生命周期实验确认 waiting、waitRun 持引用时推进 90000 ms 不关闭，abort 后空闲 30000 ms 才开始关闭，关闭中的 snapshot 等清理结束再重开，mount 次数为 2。
+- 扩展 prepare 的批量回滚：贡献依赖成环时第一条预占被撤销，坏代没有装上 a；停止坏代并登记好代后 a 能装上，无遗留 duplicate-extension-id。平台撤回原因适配与 WeakMap 的一对一映射从代码核对，无新增发现。
+- 用户包的 JSX、相对导入、正常 helper 更新、改名保存、失败时保留已发布版本、删除入口后会话只读。已有 3 条测试通过。补充 stop 期间完成求值不发布，changes 为 0、resolve 为 undefined；同代码失败后重新求值恢复的候选被实测否定，未计发现。
+- 大日志事件占位与 eventChunk UTF-8 分段拼回、通常日志分页、不同订阅独立合并及非增量前 flush、断线后的 onResync 补日志。已有测试通过；精确边界预算缺陷已合入第 5 条。
+- SDK agent 与 agent/jsx-runtime 的服务端登记、浏览器模块表排除、tsconfig.web.json 的源文件排除；独立作者项目使用真正生成的 SDK tarball，skipLibCheck:false 的 vue-tsc 与 Bun JSX 求值均以 0 退出。纯度缺口单列第 14 条。
+
+## 验证与范围
+
+命令均在 `/home/notnotype/CodeRepository/neuro-book/.worktree/review-t10-impl/packages/neuro-book` 执行；各实验入口、生成的状态根、缓存、作者项目都在 `/tmp/review-t10-impl/`。没有修改仓库源文件，没有变异检查，没有 commit、push、stash、切换分支或删除仓库文件。SDK 构建器按自身流程整理的文件仅在上述实验目录中。
+
+| 实际命令 | 结果 |
+|---|---|
+| `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test src/plugins/agent/agent.test.ts src/plugins/agent/profiles.test.ts src/plugins/agent/sessions.test.ts src/plugins/agent/backend/frames.test.ts` | 17 pass、0 fail，66 expect |
+| `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun run typecheck` | tsc、tsconfig.web.json 的 vue-tsc、tsconfig.browser-test.json 的 vue-tsc 全部退出 0；84.36 秒 |
+| `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test src/sdk/sdk.test.ts src/sdk/surface.test.ts` | 5 pass、0 fail，25 expect |
+| `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test scripts/pack-app.test.ts -t '只许 Bun'` | 1 pass、0 fail，7 expect；只跑 bundle 检查用例，没有跑整个应用打包测试 |
+| `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/sdk.test.ts` | 1 pass、0 fail；真实 buildSdk、tarball 安装、独立作者类型检查与 JSX 求值，20.09 秒 |
+| `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/lifecycle.test.ts` | 1 pass、0 fail，4 expect；waiting、waitRun、关闭中重开 |
+| `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t10-impl TMPDIR=/tmp/review-t10-impl bun test /tmp/review-t10-impl/extensions.test.ts -t 'prepare dependency'` | 1 pass、0 fail；回滚后新代可用 |
+
+其他针对性实验的命令、数字和失败归属逐条见上文。实验自身出现过语法错误，均只在 /tmp 文件中修正；路径超限的候选曾用错误事件类型、SDK 纯度实验曾把未安装依赖的构建目录当安装包，均已修正实验前提后核实，不把这些失败列为产品发现。模块求值失败缓存候选已否定。测试通过仅表示实验观测到了报告所写结果，不表示产品缺陷已修复。没有新增回写建议：本次边界校验、资源收口与测试前提的经验已由现有规范覆盖。
+
+未运行：e2e、浏览器、开发服务、真实模型、全量测试、治理检查与 docs:check。startTask 属于计划第 5 片，未以本次第 2–4 片缺少 startTask 记缺陷。未声称对平台尚未实现的热插拔做了产品验证；撤回实验使用真实登记作用域关闭。现有测试虽使用 JSON 编解码和真实路由，未施加 WebSocket 消息尺寸限制，第 5 条只报告实测超限字节数，不声称已观测断线。
+
+## 数量
+
+- 阻断：0 条。
+- 重要：15 条（1–15）。
+- 建议：1 条（16）。
+- 合计：16 条。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16。
+

@@ -54,17 +54,18 @@ owners:
 
 1. **存放与列表。** 会话存放在状态根，记关联的项目；`list` 缺省列出所有不归档、不是后台的会话，可按项目、归档、后台筛。
 2. **调用方身份。** 经远程服务的指令与查询都以用户的身份进内核；会话之间的身份（父会话应答子会话的提问）只经同进程的 `agentKey`。
-3. **失败码。** 每个方法交回它在内核里会得到的业务失败码，详情合合同的 schema；通道自己的失败（`unavailable`、`timeout`、`unknown-outcome` 等）照通道合同，不与业务码混用。
+3. **校验与失败码。** 从浏览器来的输入按结构校验（用户的话、附件、提问的回答、设置补丁；只有 Profile 定义的 `payload`、`data` 是自由 JSON），不合的得通道的 `invalid-input`、不进日志。每个方法交回它在内核里会得到的业务失败码，详情按码的 schema（内核没有详情的码不带详情，打开会话的码带可选的对象）；通道自己的失败（`unavailable`、`timeout`、`unknown-outcome` 等）照通道合同，不与业务码混用。
 4. **审批。** 只读的工具放行；会话处在只读模式时其余都问（只读模式优先于审批模式）；`yolo` 全放行；`allow-writes` 放行写入；其余停下等用户（`ask`）。
 5. **句柄的复用。** 同一会话同时到达的打开得到同一个打开的会话，不会第二次碰会话锁；建会话完成后直接是打开的。
 6. **句柄的关闭。** 没有引用、没有运行、30 秒内没有调用时关闭；关闭中到达的调用等关闭完成后重新打开。视图不挡关闭，调用方可以长期拿着它，下次调用时重新打开。
-7. **订阅。** 每个 `frames` 订阅持有一个内核订阅，订阅结束时一起取消。流式增量在订阅内合并：同一请求、同一部分、同一工具调用的连续增量拼成一帧，100 毫秒最多推一次；任何别的帧到达前先推出攒着的增量；合并后的增量按本订阅从 1 重新编号；合并后超过 64 KiB 就切开。多个窗口订阅同一会话，各自合并、互不影响。
+7. **订阅。** 每个 `frames` 订阅持有一个内核订阅，订阅结束时一起取消；会话打不开时订阅以失败结束（调用方的 `onEnd` 看得到），不会“订阅成功却没有帧”。流式增量在订阅内合并：同一请求、同一部分、同一工具调用的连续增量拼成一帧，100 毫秒最多推一次；任何别的帧到达前先推出攒着的增量；合并后的增量按本订阅从 1 重新编号；合并后超过 64 KiB 就切开。多个窗口订阅同一会话，各自合并、互不影响。
 8. **补齐。** 调用方先订阅、再用 `log({afterSeq})` 补到 `through`，丢掉 seq 不大于它的帧；通道重连后（`onResync`）按最后收到的 seq 再补一次。补齐只看日志的 seq，不补增量。服务端换了进程时订阅以 `server-restarted` 结束，调用方重新开始。
 9. **大小。** 远程结果与帧都不超过通道的单条消息上限：
    - `log` 的条目是 `{kind: "event", event}` 或 `{kind: "oversized", seq, type, bytes}`；一条事件编码后超过 256 KiB 时是后者，`frames` 里的日志帧同样；每页按条数与编码后不超过 512 KiB 两者取小，`more` 照实给；
    - `eventChunk` 把整条事件按 JSON 编码后按 256 KiB 切段，`{text, last}`，调用方按序拼起来再解析；
    - `preview` 的结果是 `{kind: "inline", preview}` 或 `{kind: "oversized", token, bytes}`，大的经 `previewChunk` 同样分段读，令牌 5 分钟有效；
-   - `diagnostics` 分页，每页同样不超过 512 KiB。
+   - `path` 按页读（`from` 是从根数起的下标，交回 `next`），`diagnostics` 按页读（`after` 是上一页最后一条诊断的 id，交回 `next`），按 `afterSeq`、`extension`、`level` 筛；诊断里的长文字截到 4 KiB；
+   - 快照、运行结果、回退目标、兄弟节点不分页，编码后超过 512 KiB 时得 `result-too-large`。
 10. **发起任务。** `startTask` 用 `task-<taskId>` 作会话 id 建会话，再以 `taskId` 作 `commandId` 发一次 `send`（空闲时同时开始运行），返回 `{sessionId, runId}`，不等运行结束；结果从 `runResult` 取，运行结束时 `frames` 里有 `runEnded`。`taskId` 是调用方生成的 UUID。
 11. **任务的幂等。** 同一个 `taskId` 重发得到同一个 `{sessionId, runId}`，服务端重启后也一样；会话已建、`send` 前失败的，重发补上 `send`。会话已存在但 Profile、项目或 `background` 与这次的参数不同，或同一个 `commandId` 带了不同的输入，得 `task-conflict`。
 12. **后台。** `background: true` 写进会话头，`list` 缺省不列；从它 fork 的会话是前台。
@@ -101,6 +102,7 @@ owners:
 | 码 | 含义 | 调用方怎么办 |
 |---|---|---|
 | `task-conflict` | `taskId` 对应的会话参数不同，或输入不同 | 换一个 `taskId` |
+| `result-too-large` | 不分页的结果放不进一条消息 | 改用分页的查询（`log`、`path`）读 |
 | `session-not-found`、`session-busy`、`log-broken`、`read-only` 等 | 内核与存储的码，见 [`harness/session.md`](../harness/session.md)、[`harness/runtime.md`](../harness/runtime.md) | 按各自的说明 |
 | `unavailable`（通道） | 服务正在停止或没激活 | 稍后重试；写操作带同一个 `commandId` 或 `taskId` 重发 |
 | `unknown-outcome`（通道） | 写请求发出后断线 | 带同一个 `commandId` 或 `taskId` 重发，得到同一个结果 |
