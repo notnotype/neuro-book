@@ -1,0 +1,101 @@
+### 1. 客户端与 Worker 的模型入口边界没有写成可执行合同
+严重程度：阻断；类别：不变量
+位置：方案稿:32-38；packages/nb-harness/src/models/index.ts:6-13；packages/nb-harness/src/models/target.ts:11-17；packages/nb-harness/src/kernel/index.ts:14-15
+现象：方案说主线程的 `./models` 客户端可导入，而 Worker 侧才拥有 OMP；当前 `./models` 入口却重新导出 `catalog.ts`、`credentials.ts`、`target.ts`，其中分别静态导入 `@oh-my-pi/pi-ai`、`pi-catalog`、`pi-ai/auth-retry`，`target.ts` 又经 `../kernel/index.js` 导入 `ompCall`。`kernel/index.ts` 还直接再导出 `model/omp` 与 `model/process`。
+为什么是问题：只把文件移动到 `./models/worker` 但保留公共入口的值导出，或让主线程核心继续从 `@notnotype/nb-harness/models` 取 `buildResolution`、`listCatalog`、`openCredentials`，主线程仍会在求值时装上 postmortem。这个边界不能靠“类型导入不受限”保证，因为当前入口同时有值导入和重导出。
+如何核实：在审查 worktree 运行 `bun -e 'for (const spec of ["@notnotype/nb-harness/kernel/contracts","@notnotype/nb-harness/models","@notnotype/nb-harness/kernel"]) { const before = process.listenerCount("SIGTERM"); await import(spec); console.log(JSON.stringify({spec,before,after:process.listenerCount("SIGTERM"),uncaught:process.listenerCount("uncaughtException"),rejection:process.listenerCount("unhandledRejection")})); }'`；结果为 `kernel/contracts` 监听数 0，`models` 导入后 SIGTERM/uncaughtException/unhandledRejection 各为 1。`packages/neuro-book/src/plugins/models/backend/plugin.ts` 单独导入后同样为各 1。
+建议改法：把无 OMP 的 `models/client`（或同名 `models`）做成真正的值导出闭包：只含纯数据、协议、`ModelInfo` 与 Worker 句柄；`catalog` 的类型单独放 contracts，`buildResolution`、`openCredentials`、`requestAuth`、`ompCall`、`discoverModels` 只从明确的 Worker 入口导入。删除 kernel 根入口的 OMP 值导出，所有调用方迁移到 Worker 入口；架构测试必须检查解析后的真实模块图，而不只扫描 kernel 目录的直接 import。
+### 2. 同步 resolve 与异步 Worker 刷新之间没有一致性协议
+严重程度：阻断；类别：正确性
+位置：方案稿:35-44、46-49；docs/specs/harness/models.md:31-50；docs/specs/models/service.md:71-82；packages/neuro-book/src/plugins/models/backend/core.ts:76-143
+现象：方案要求 `resolve` 同步、目录和凭据刷新在 Worker 中异步进行，但没有定义主线程快照的 ready/generation、设置变更如何发送到 Worker、Worker 回复对应哪个快照、刷新期间 `resolve` 应返回什么。当前实现的 `resolveReference` 缓存完整 `ModelResolution`，并在设置/凭据变更时同步清缓存；`hasCredential`、目录模型存在性和 `buildResolution` 都在同一线程完成。
+为什么是问题：设置先在主线程提交而 Worker 尚未收到时，`resolve` 可能返回新模型但 `call` 在 Worker 里按旧目录报 unknown-model；反向刷新先完成而主线程快照未换，`resolve` 仍返回 no-credentials/unknown-model。解析结果还可能携带旧 generation 的 `info`，请求发送时 Worker 已切换模型或地址。这样会把本应是用户可修复的 `unknown-model`/`no-credentials` 变成非确定的模型调用失败，破坏“解析时同步、解析后凭据变化才是 missing-key”的合同。
+如何核实：当前基线 `core.ts:89-93` 的设置与凭据变化直接 `invalidate`，`core.ts:123-138` 在同一缓存上判断目录、凭据并构造 call；把这些判断改为 Worker 异步而不加版本号即可复现“快照已变、Worker 未应用”的窗口。方案自身第 66 条把该窗口列为待确认项，但没有给出结算规则。
+建议改法：为目录、设置、凭据建立单调 generation，并把 generation 连同快照、resolve 结果、call 请求传输；Worker 只接受带版本的配置，主线程只在收到完整 ack 后替换快照。`call` 发现 generation 不一致时必须先刷新并按明确规则重解析，不能直接把 OMP 的 unknown-model 当服务商错误；刷新中定义稳定的 unavailable/not-ready 结果。写入、快照替换和远程事件放入同一串行状态机，明确外部设置变化、Worker 重启和在途请求的先后。
+### 3. Worker 停止或崩溃会落入 internal，未满足模型失败与 finish-watch 收口
+严重程度：阻断；类别：正确性
+位置：方案稿:42-50、66-70；packages/nb-harness/src/kernel/run/model-call.ts:71-113；packages/nb-harness/src/kernel/run/loop.ts:241-273、339-345；docs/specs/harness/models.md:57-68；docs/specs/harness/runtime.md:41-44、112
+现象：现有内核假定 `resolution.call` 最终返回 `ModelResponse`；`callModel` 直接等待它，`runLoop` 只把返回的 `stopReason`/`error.kind` 映射为 `modelFailed`。Worker 被 `error`、`exit` 或 `terminate()` 后，方案只说“在途请求以同一个失败码结算”，没有定义是 resolve 一个 `ModelResponse` 还是 reject Promise，也没有定义已发出的增量、partial、usage、open request 与 `modelStarted` 的结算。
+为什么是问题：若 reject，`runLoop` 的 catch 会写诊断并以 `internal` 收口（`loop.ts:339-345`），不是模型失败，也不会保留 `modelFailed{kind}` 的既有合同。若直接伪造普通 provider/network 失败，又会把 Worker 崩溃、停服、OOM 和服务商网络故障混成同一种可重试错误；若只回失败而没有清除对应 `openRequests`，进程中断收口会再写一次同请求号的失败。Worker 内的 `finish-watch` 只在 OMP stream 仍能给出结果时运行，Worker 死于半流时它不能替父线程完成终止原因判断。
+如何核实：基线 `model-call.ts:93-104` 在调用前写 `modelStarted`，`loop.ts:247-259` 只有收到 `ModelResponse` 才写 `modelFailed`；`loop.ts:339-345` 明确把异常归为 `internal`。用真实 Worker 在发出 delta 后 `terminate()`，父线程不会收到 OMP 的结果，当前接口只能 reject 或永远 pending。
+建议改法：把 Worker 失效定义为独立的本地失败码（例如 `model-worker-unavailable`），规定其 `ModelErrorKind`、是否可重试、是否保留已有 delta、usage.complete、诊断字段和 `runEnded.error` 映射；父线程必须对每个 request id 以一次性 settle 表完成 `ModelResponse`，并从 open-request 表移除。`terminate`、Worker `error`、Worker `exit`、abort 与正常 result 共用同一个 settle-race；超出 abort grace 的在途请求照 runtime 合同写一次失败。
+### 4. 流式 postMessage 没有背压或有界内存合同
+严重程度：重要；类别：安全与性能
+位置：方案稿:42-43、66-67；packages/nb-harness/src/kernel/model/omp.ts:227-243；packages/nb-harness/src/kernel/run/model-call.ts:99-103；docs/specs/runtime/server-host.md:154、docs/specs/harness/runtime.md:47、112-116
+现象：现有适配器每个 OMP stream event 都同步调用 `onDelta`；内核再把每个 delta 直接 `core.emit`。方案拟在两端之间逐增量 `postMessage`，但只写“背压待审查”，没有合并粒度、队列上限、慢订阅者处理、丢弃规则或服务端停止时的上限。
+为什么是问题：模型可以远快于 RPC/浏览器消费，Bun 的 Worker 消息队列和主线程的 frame/订阅队列会同时增长；一个长思考或工具参数流即可把服务端内存撑满。仓库的 server-host Spec 已明确 RPC 大量推送“不做发送背压”且消息在内存堆积，Worker 方案再增加一层无界队列；不能把已有风险当成新层的合同。合并或丢弃还会改变 delta 编号与 `DeltaContext.before` 的连续性。
+如何核实：方案的真实路径可用本机端点持续返回大量 SSE 增量，再让父线程在 delta 回调中同步阻塞或让远程订阅者不读；当前 `omp.ts` 与 `model-call.ts` 没有任何预算或等待。验收若只检查“收到了若干 delta”，不能证明内存有界。
+建议改法：先规定可观察合同：按请求合并 text/thinking/toolArgs 的相邻 chunk，设置每请求字节上限和总在途预算；超限时停止 OMP 请求并以明确的 local/network 失败收口，或只允许受控丢弃且同步报告 gap。协议加 sequence、累计 bytes、generation，并让父线程对 Worker 消息消费建立显式 credit/ack，而不是依赖 Bun 的隐式队列。
+### 5. `terminate()` 与 OMP postmortem/native/SQLite 清理的关系未处理
+严重程度：重要；类别：不变量
+位置：方案稿:28、46-50；node_modules/@oh-my-pi/pi-utils/src/postmortem.ts:780-787、888-895；packages/nb-harness/src/models/credentials.ts:31-49；packages/neuro-book/src/plugins/models/backend/plugin.ts:35-40
+现象：OMP 在 Worker 分支只注册 `process.on("exit", () => void runCleanup(Reason.EXIT))`，清理是 fire-and-forget；`cleanup()` 是 keep-alive 手动清理，`terminate()` 的语义却是立即终止 Worker。OMP 的凭据库由 `AuthStorage` 持有 SQLite 连接，原插件关闭时由作用域 release 调 `close()`。方案只写停用时先让在途请求失败再 `terminate()`，没有写 `AuthStorage.close()`、postmortem cleanup、native addon 和 SQLite 的关闭顺序。
+为什么是问题：硬终止 Worker 不保证 OMP 的异步清理、SQLite WAL/锁释放、用量或 auth-broker 快照刷完；若先 terminate 再 close，父线程没有可调用的 Worker 资源。若先发 close RPC，Worker 仍可能产生增量或接受新请求，必须有关闭状态和 ack。原生插件加载与卸载也不是“Worker 退出即安全卸载”的已证合同；两个 Worker 可加载成功不等于在请求中终止一个、再重建一个时资源与线程安全成立。
+如何核实：`postmortem.ts:780-787` 明确 Worker exit callback 不等待；`AuthStorage` 的 close 只在 Worker 线程可调用。用真实 Worker 在注册一个异步 postmortem callback、打开 SQLite 后从父线程 `terminate()`，观察 callback 是否完成、数据库是否仍可被第二个 Worker 打开；再测关闭 RPC ack 后 terminate 的顺序。
+建议改法：增加 Worker 内部 `closing` 状态：停止接收新 call，abort 全部请求，等待请求 settle，再显式 `AuthStorage.close()`、OMP `postmortem.cleanup()`（若需要继续存活）并回 ack，最后由父线程 terminate；超时才强制 terminate，并记录关闭未完成。把 native addon 与 SQLite 的重建、锁竞争、终止中断写成真实 Worker/L4 验收，不以 `exit` 事件存在代替资源已释放。
+### 6. Worker 入口的构建与应用包合同没有闭合
+严重程度：阻断；类别：接口与合同
+位置：方案稿:52-56；packages/neuro-book/package.json:18-26；packages/neuro-book/scripts/pack-app.ts:37-43、91-96、126-162
+现象：方案说 Worker 单独构建、文件名固定，并把应用包检查改为允许这一处；当前 build:server 只生成 dist/server/main.js、project.js、nbook.js，pack-app.ts 只 bundle nbook.js 与 project.js，应用包也只写 server/、web/ 等文件，没有生成或复制 model-worker.js，没有把 @oh-my-pi/* 写入生成的 package.json dependencies。
+为什么是问题：Bun 对 new Worker(new URL("./worker.ts", import.meta.url)) 的 bundle 输出确实原样保留 .ts 路径，但只 bundle 主入口不会产出 Worker 文件。发布后的入口目录没有 worker.ts，运行时必然找不到；即使额外复制 Worker，外部 OMP 依赖也必须由最终应用包安装，而当前 pack 结果没有依赖清单。只放宽 new Worker 文本检查会把“能打包、不能运行”变成发布产物。
+如何核实：在 /tmp/review-t09-omp-iso/lab 运行 bun build main.ts --target bun --outdir dist，dist 只有 main.js，其中仍是 new Worker(new URL("./worker.ts", import.meta.url))；读取当前 pack-app.ts:133-162 可见产出的 package.json 没有 dependencies。
+建议改法：明确源码、开发 dist、应用包三种 Worker 定位策略，生产统一用固定的 dist/server/model-worker.js，不要让运行时根据源码/产物猜文件名。build:server 单独构建 Worker，pack-app.ts 将 Worker 文件复制进包并把 @oh-my-pi/pi-ai、pi-catalog、pi-natives、pi-utils 及其同版本依赖写入生成的 package.json；检查包内 Worker 的真实可启动路径、外部模块解析、--version 与一个 Worker smoke，而不只扫描 bundle 文本。
+
+### 7. getEnvApiKey 这条导入链会把启动环境合同带回 Worker
+严重程度：重要；类别：接口与合同
+位置：方案稿:28-30、35-38、44；packages/nb-harness/src/models/catalog.ts:9、91-98；node_modules/@oh-my-pi/pi-ai/src/env-api-key.ts:45-57；docs/specs/models/service.md:27-28、63-65
+现象：当前 models/catalog.ts 的 providerKeyReady 调用 OMP getEnvApiKey；OMP 明确从 Bun.env、cwd/.env、~/.env 取值。方案把 catalog 的 OMP 部分移到 Worker，但没有禁止 Worker 继续用这个函数，也没有规定目录/access 状态只由主线程传入启动环境快照计算。
+为什么是问题：Worker 自己导入 OMP 后，任何 providerKeyReady 或其间接调用都会按 Worker 的当前环境和 dotenv 规则取值，而不是 startupEnvKey 的快照，可能把家目录或 OMP 目录的键判为可用，违反 ADR 0032 与 models/service 的“只认服务端启动时环境”。这与“Worker 不读自己的 process.env”的一句话不相容；只是不显式读 process.env 不代表 OMP 的辅助函数不会读。
+如何核实：当前实现 catalog.ts:91-98 到 OMP env-api-key.ts:45-57 的静态链已存在；仓库的 startup-env 说明也记录 OMP 会在导入时并入 dotenv。应在真实 Worker 中分别放入 cwd/.env、home/.env 与 workerData 快照，调用实际目录状态路径，核对不能把快照外键算作 ready。
+建议改法：主线程/Worker 协议只传不可变 StartupEnv，providerKeyReady 改为纯函数 providerKeyReady(id, env)，或者在本服务路径完全删除它；模型服务的 hasCredential 只看 apiKeyEnv 快照、Worker 凭据快照和 auth:none。把 getEnvApiKey 留给 nb-story 独立命令行的旧兼容路径，不让它出现在应用模型服务 Worker 的入口图。
+
+### 8. nb-story 并非“不受影响”，现有调用点仍依赖根入口
+严重程度：重要；类别：迁移
+位置：方案稿:34、58-62；packages/nb-harness/src/index.ts:1-30；packages/nb-story/src/cli/ask.ts:10；packages/nb-story/src/server/serve.ts:16；packages/nb-story/src/cli/config.ts:47-49；packages/nb-story/src/qa/engine.ts:21
+现象：方案说 onProcessInterrupt 移到 ./process，nb-story 继续使用它；实际 nb-story 仍从 @notnotype/nb-harness 根入口导入 onProcessInterrupt、onProcessTermination、目录与旧 harness，根入口还导出旧 harness.ts、complete.ts、model.ts、models/catalog.ts。
+为什么是问题：若为守住新应用主线程边界而删除或改造根入口的 OMP 值导出，nb-story 的这些导入会编译失败或改变其独立命令行行为；若保留根入口兼容，则它仍是一个装 postmortem 的大入口，不能在架构测试中把根入口误判为主线程安全。nb-story 还不是只用进程处理：config.ts 动态导入根目录目录函数，harness-model.ts 等使用旧 OMP 适配器。
+如何核实：grep 结果显示 ask.ts、serve.ts 和 config.ts 的真实根入口导入；src/index.ts 逐项导出这些旧 OMP 路径。
+建议改法：把 nb-story 的独立命令行迁到明确的 @notnotype/nb-harness/process 与 @notnotype/nb-harness/legacy-models（或保留一个明确标为 OMP-host 的根入口），不称为“无影响”。为新应用架构测试只检查 server 主线程入口，不把整个 package root 纳入安全边界；同时为 nb-story 的独立进程保留自己的 OMP 与 postmortem 验收。
+
+### 9. t10 与项目子进程的模型调用位置没有决策，Worker 生命周期无法验收
+严重程度：重要；类别：架构耦合
+位置：方案稿:58-62；.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/README.md:36-59；packages/neuro-book/src/project/main.ts:1-9；docs/specs/runtime/server-host.md:97-103
+现象：方案说 t10 会话留在主线程、项目子进程“另起自己的模型线程或经服务端模型端口调用，在 t10 定”。但 t10 的已定方向只说 Agent 服务端运行、项目级入口另有项目实例；没有规定 project 进程如何取得 modelsKey、流如何跨项目 IPC、停止时谁拥有模型请求。
+为什么是问题：两条实现不是等价的：项目子进程自己的 Worker 需要重复读取凭据/目录并处理应用包 Worker 产物；经服务端模型端口则要增加项目 IPC → 服务端 RPC → Worker 的双重流式协议和停止传播。server-host 明确项目子进程先于插件关闭，若会话跑在项目进程里，模型 Worker 的停止顺序和 nbook.models 关闭顺序会冲突。未定这一点，t09 的“Worker 创建/停止一个即可”不能映射到真实验收。
+如何核实：当前 project/main.ts 是独立子进程入口，server-host:97-103/171-172 规定它独立崩溃与停止；t10 README:56-58 又把会话与远程 agent.startTask 放在服务端。需要在真实项目子进程中跑一条带流式模型请求的场景，才能确认边界。
+建议改法：t09 先固定唯一所有权：第一版会话只能在服务端，项目进程经已有 RPC 获取 Agent 服务；或明确 project 进程自带模型 Worker，并给它单独的 credentials/环境/产物合同。把跨进程取消、断线、项目先停、服务端后停、模型请求结算写进 t10 与 server-host 的时序，不留给实现阶段。
+
+### 10. 现有 owned-process 提供了比 Worker 更强的可用替代，方案表的判断过窄
+严重程度：重要；类别：架构取舍
+位置：方案稿:18-22；packages/owned-process/src/index.ts:15-27；packages/owned-process/src/posix-adapter.ts:23-32、70-117；packages/owned-process/src/windows-adapter.ts:24-34、50-85；packages/neuro-book/src/server/projects/manager.ts:469-522
+现象：方案把子进程 C 判成“OMP 崩溃不带走服务端，但本问题只是进程级处理，B 已够用”，没有对照仓库已有的受管进程设施。owned-process 在 POSIX 用独立 process group、TERM→KILL 与整个进程组存活探测，在 Windows 用 Job Object；宿主 IPC 断开会收口目标树。项目管理器也已经有 Bun 子进程、结构化 IPC、真实退出与停止截止的模式。
+为什么是问题：C 不只是“多一点 IPC”：它同时隔离 OMP 的 postmortem、N-API 崩溃、SQLite 连接/锁、Worker 内存与 OMP 异常；父进程可以把子进程视为一个可重建的模型服务。POSIX 独立 process group 还避免终端信号直接进入 OMP 子进程，不依赖 OMP 是否在导入时注册 handler。方案没有证明 B 的共享地址空间、原生插件与数据库在异常终止下足够安全，就断言“B 已够用”。
+如何核实：读取 owned-process 的 POSIX 监督器可见 detached: true、signalGroup(child.pid, “SIGTERM/SIGKILL”)、group 消失后才结算；Windows 适配器在目标创建前建立 Job Object；这些都是仓库已有实现，不是设想。
+建议改法：把“更好”拆成取舍：若目标只是不让 postmortem 的信号监听进入服务端且能接受同进程原生风险，Worker 可选；若目标包含 OMP 崩溃、N-API、SQLite 与内存故障隔离，优先复用 owned-process 做模型服务子进程，协议仍可沿用 Worker 的 id/delta/result/abort 形状。至少在决定 34 中列出 C 的真实代价（模型服务独立启动、结构化双向 IPC、停止宽限期、POSIX/Windows 信号语义）后再否决，不能以“本问题范围较小”替代证据。
+### 11. 实测 Worker 资源与异常边界没有进入验收
+严重程度：重要；类别：安全与性能
+位置：方案稿:46-50；node_modules/@oh-my-pi/pi-utils/src/postmortem.ts:780-787；node_modules/@oh-my-pi/pi-natives/native/loader-state.js:270-275；实验目录：/tmp/review-t09-omp-iso/lab
+现象：真实 Bun Worker 导入 `@oh-my-pi/pi-utils`、`pi-ai`、`pi-catalog` 后，Worker 内 `SIGTERM` 与 `uncaughtException` 监听数为 0，符合 OMP 的 Worker 分支；但每个 Worker 报告的 RSS 约为 86,667,264 bytes（1 个）或 108,462,080/108,593,152 bytes（2 个），目录包含 79 个内置服务商。两个 Worker 同时打开同一凭据库并各自写入 API Key 的最小实验都返回成功，说明“能打开”不等于快照、锁与关闭语义已经定义。父线程在 Worker 注册异步 postmortem callback 后直接 `terminate()`，实验没有生成 callback 的 marker。
+为什么是问题：Worker 的信号隔离和原生加载成功是可行性证据，不是完整生命周期证据；RSS 是每个 Worker 的地址空间成本，不能把它当成免费线程。`terminate()` 不保证 OMP 的异步退出清理，SQLite 只在 Worker 内 close；方案若不把这些数值、并发数据库、强制终止后的资源状态列为验收，就无法证明生产服务在重建和停止时不会泄漏或留下未刷出的状态。
+如何核实：运行 `bun /tmp/review-t09-omp-iso/lab/resources-main.ts 1`、`bun /tmp/review-t09-omp-iso/lab/resources-main.ts 2`、`bun /tmp/review-t09-omp-iso/lab/sqlite-main.ts`，再检查 `/tmp/review-t09-omp-iso/lab/postmortem-*.marker`；本次结果分别见上述现象，marker 为空。异常 Worker 实验 `bun /tmp/review-t09-omp-iso/lab/error-main.ts` 收到 `worker-boom` 的 `error` 事件后父进程仍打印 `parent-alive`，所以父线程必须自己处理 error/exit 和请求结算。
+建议改法：把真实 Worker 的内存预算（报告 RSS 与增量请求负载分开）、双 Worker/多连接 SQLite、正常 close ack、terminate 超时、原生插件重建和 Worker error/exit 后重建列为 L4 场景；验收必须检查请求 promise 不遗留、凭据库可重新打开、postmortem/SQLite 收口状态和诊断，而不是只测“Worker 能启动、信号监听为 0”。
+
+## 有没有更好的做法
+有。仓库已有 `packages/owned-process`：POSIX 监督器用独立 process group，TERM 后升级 KILL，并等整个 group 消失才结算；Windows 在目标创建前建立 Job Object；宿主 IPC 断开会收口目标树。用它承载一个长期模型服务子进程，仍可采用方案 B 的 `id/op/delta/result/abort` 协议，可同时隔离 postmortem、N-API 崩溃、SQLite、内存与 Worker 异常，不依赖 OMP 的 `Bun.isMainThread` 行为。代价是独立服务进程、双向结构化 IPC、启动/重建和停止宽限期；需补模型流协议，不能直接照搬项目子进程的单向控制。若决定 34 的范围严格限定为“主服务端不被 OMP 的进程级监听抢走”，Worker 可以成立，但方案必须明确接受同进程原生/内存/SQLite风险，不能继续断言 C 没有更强价值。
+
+## 未发现问题的方面
+- OMP `postmortem.ts` 的主线程与 Worker 分支确实存在差异：Worker 分支只注册 `exit`，不是方案凭空假设。
+- 真实 Worker 可以导入 `pi-ai`、`pi-catalog` 并加载原生插件；本次 1 个与 2 个 Worker 的启动实验均成功。
+- `ModelRequest`、`ModelDelta`、`ModelResponse` 当前形状只包含结构化数据，函数和 AbortSignal 不应直接过线；方案在这一点的方向正确。
+- 主线程用 `kernel/contracts` 的类型入口不会装 postmortem；本次导入监听数为 0。
+- `finish-watch`、OMP 错误分类和密钥遮盖留在真正执行 OMP 的一侧在方向上正确，但必须通过第 3、7 条规定的结算与环境边界接回内核合同。
+
+## 方案稿末尾五个问题的判断
+1. **同步 resolve 与目录快照一致性：未解决。** 必须有 ready/generation、刷新 ack、版本不一致时的重解析或稳定 unavailable；只写“目录变了重取”不足以定义可观察结果。
+2. **流式背压：未解决。** `postMessage`、内核 frame、RPC/订阅队列均没有方案级预算、credit、合并或超限失败语义。
+3. **Worker 死掉、重建、中止并发：未解决。** 需要一次性 settle 表、独立 worker-failure 错误码、open request 收口和 abort/exit/result race；否则会 pending、duplicate modelFailed 或 internal。
+4. **SQLite 读写者：部分解决。** “只在 Worker 打开”能减少主线程句柄，但没有解决 OMP CLI/其他进程、两个 Worker、外部修改、关闭和 generation；nb-story 命令行本身目前走环境变量，但不能据此排除同一状态根的外部 OMP 工具。
+5. **真实测试与故障注入：未解决。** 真实 Worker/OMP 的方向正确，但没有列出可注入的 Worker error/exit、terminate、消息损坏、背压、SQLite busy、刷新竞态和包内 Worker 路径；不能通过产品代码测试专用分支规避，需用真实 Worker、子进程或协议故障 fixture。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11。
+严重程度统计：阻断 4；重要 7；建议 0。
