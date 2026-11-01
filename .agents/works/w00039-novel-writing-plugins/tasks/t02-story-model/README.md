@@ -55,6 +55,21 @@ updated: 2026-10-31
 
 2026-11-01 写出内核提案草稿 [作者视角的世界引擎内核（第一版）](../../../../../docs/proposals/world-engine-kernel.md) 与 [深入设计审查方案](review-plan.md)，开发者批准后开审（状态改为 reviewing）。
 
+2026-11-01 第一轮深入设计审查八路全部交回（证据在 `evidences/design-review-*.txt`，归并见 `evidences/design-review-consolidated.txt`；体验夹具由 `scripts/review-fixture.py` 生成，材料与原文在 git 忽略的 `.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/review/`，答案见 `evidences/design-review-fixture-answers.md`）：
+
+| 环节 | 结果 |
+|---|---|
+| A 领域与后端（omp） | 18 条：阻断 6、重要 12 |
+| B 前端（Sonnet） | 19 条：重要 14、建议 5 |
+| C 拉远看（Sonnet） | 11 条：重要 6、建议 5 |
+| D 独立设计（Sonnet） | 一份方案，骨架与提案相近（原文、条目、变更、待定） |
+| E1 先设计后写的作者（Sonnet） | 21 条：阻断（条件性）1、重要 11、建议 9 |
+| E2 先写后补的作者（Sonnet） | 19 条：重要 13、建议 6 |
+| F1 Agent 体验（omp 默认模型） | 细纲埋的 3 处问题全部找到；记账神典石 200 − 50 = 150 正确；把设定与正文的眼色冲突改到了正文一侧（方向错） |
+| F2 Agent 体验（deepseek-flash） | 细纲 3 处全部找到；记账与改正分类正确；18 条格式与工具问题 |
+
+归并成 33 个主题；明确质疑开发者决定的有 4 个（MDX 选型、主 MDX 文本 diff 与三方合并、按 token 间隔提醒、带值渲染的可逆性）。等开发者对这几项与记账默认生效、Agent 写入的可见与还原作决定后，修订提案再开第二轮。
+
 ## 下一步
 
 按 Work README 的讨论顺序轮到时讨论；讨论定的事写进本 README 的“当前状态”。
