@@ -1,0 +1,76 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t09-models",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "模型服务的设置页",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "d45ae0500ec848077ff4be7a7bfa583ac4d41ed12a1c4209e030014289b82e32",
+    "files": [
+        "index.html",
+        "r1/drill-custom.webp",
+        "r1/drill-detail.webp",
+        "r1/drill-empty.webp",
+        "r1/drill-list.webp",
+        "r1/roles.webp",
+        "r1/split.webp"
+    ],
+    "questions": [
+        {
+            "id": "provider-layout",
+            "type": "single",
+            "label": "服务商与模型页用哪种版式",
+            "options": [
+                {
+                    "value": "drill",
+                    "label": "甲 列表下钻"
+                },
+                {
+                    "value": "split",
+                    "label": "乙 左列表右详情"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "drill"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "provider-detail",
+            "type": "confirm",
+            "label": "服务商详情按这几张图的内容与排法做",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "roles-page",
+            "type": "confirm",
+            "label": "模型角色页按这张图做",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-01T02:06:40.291Z"
+}
