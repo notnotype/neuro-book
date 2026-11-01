@@ -82,6 +82,8 @@ t02 到 t09。
 - 第 1 片（master `17604b62c`）：新建 `agent/contributions.md`、`agent/sessions.md`（planned），内核与平台 Spec 跟上。
 - 第 2 片 `61358c890`：`nbook.agent` 服务端骨架；插件测试 7 条，五处变异检查都被抓到；neuro-book 全量 1665 通过，governance 通过。实施中的调整见 [plan.md](plan.md) 第 5 节末尾，Spec 已随之改。
 - 第 3 片 `f21519330`：SDK 子路径 `@notnotype/nb-plugin-sdk/agent` 与 `/agent/jsx-runtime`（只给服务端，运行时值逐个列出、不转出内核的日志格式与码表）；用户级 Profile 的运行期打包、装载与重载（包一律作外部引用，表外的以 `module-not-shared` 失败；应用包检查认这一处计算出来的导入）。用户 Profile 测试 3 条，四处变异检查都被抓到；neuro-book 全量 1668 通过、vitest 相关 18 通过、governance 通过。
+- 第 4 片 `68eb38df8`：远程合同 `nbook.agent/sessions`（指令与查询、按字节的大小上限与占位、`eventChunk`、预览令牌、帧的合并与补齐）；远程测试 5 条加大小的纯函数测试 2 条，三处变异检查都被抓到。第 2–4 片的实现审查（omp）进行中。
+- 第 5 片 `7bf1d12f0`：`startTask`（远程与 `agentKey`，`taskId` 作会话 id 与 `commandId`，`task-conflict`）、断线后 `unknown-outcome` 重发、模型服务不在、扩展提供方激活失败、提供方依赖 `agentKey`；7 条，三处变异检查都被抓到。实现中发现 Spec 的“扩展提供方不能依赖 agentKey”不成立（建会话时 `nbook.agent` 已激活），已改 contributions.md 输出 3。neuro-book 全量 1682 通过。
 
 ## 下一步
 
