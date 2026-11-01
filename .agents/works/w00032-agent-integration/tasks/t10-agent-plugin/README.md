@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t10-agent-plugin
-status: planned
-updated: 2026-10-28
+status: active
+updated: 2026-11-01
 ---
 
 # Agent 插件骨架与贡献点
@@ -58,14 +58,24 @@ t02 到 t09。
 7. 导出远程服务 `agent.startTask({profile, initial, input, project?, background?})`（TypeBox 合同），返回会话 id，结果为 `TurnResult`（含收尾工具的参数）；编辑器行内 AI、命令（t16）、Workflow、应用内的 nb-story 用它；子代理走同一条路（t14）。
 8. nb-story 作为插件接入时经 `agent.profiles`、`agent.tools` 贡献；界面改不改用对话视图由 w00024 定。
 
+## 实施阶段的决定（开发者 2026-11-01，按 [plan.md](plan.md) 第 9 节的推荐）
+
+9. 范围：本 Task 只实现 `agent.extensions`、`agent.tools`、`agent.profiles` 三个贡献点与服务端入口；其余六个贡献点、项目级入口（t12）、浏览器入口（t17）在用到它们的 Task 里建。
+10. 改决定 2：钩子随 t20 改成扩展，贡献点叫 `agent.extensions`；`agent.profiles` 改成实现式（声明只放名称、说明与工具要求），插件的 Profile 跟着插件入口装载，打包加哈希只用于用户级 Profile。
+11. 不做“积压过多断开”（改决定 5）：远程通道没有发送背压，本 Task 只把流式增量按 100 毫秒合并；要断开先给通道加背压，另开 Task。
+12. 改决定 7：远程的 `startTask` 立即返回 `{sessionId, runId}`，结果经 `runResult` 与 `frames` 取；同进程的服务键给 `Promise<RunResult>`。
+13. 改决定 4：`onAgentHook:<钩子点>` 改成 `onAgentSession`（第一次建或开会话前激活扩展的提供方），新增 `onAgentProfile:<key>`。
+14. 新增 SDK 子路径 `@notnotype/nb-plugin-sdk/agent`：内核的定义接口成为插件 SDK 的公开接口。
+15. 会话句柄无订阅、空闲 30 秒后关闭；t06 规则表之前审批用最小规则（只读放行、`yolo` 全放行、`allow-writes` 放行写入、其余询问）。
+
 ## 后续修改
 
 - 2026-10-30（t15，开发者定）：插件 SDK 的构建预设顺带把插件里每个 Skill 的脚本连同 npm 依赖打成单文件，插件里的 Skill 装好就能用；打不进单文件的构建失败（[t15](../t15-skills/README.md) 第 7 条）。最小安装单位是插件，市场是插件市场（[t25](../t25-plugin-marketplace/README.md)）。
 
 ## 当前状态
 
-讨论完成（2026-10-28）。计划与实施切片在本 Work 的讨论全部完成后另定。
+实施计划 [plan.md](plan.md) 第一稿开发者确认（2026-11-01），设计审查（omp）进行中。
 
 ## 下一步
 
-实施时按 implementation-planning 写 `plan.md`，细节届时与开发者再调。
+处理设计审查后按计划第 5 节的切片实施。
