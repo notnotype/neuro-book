@@ -31,7 +31,7 @@ const rows = computed(() => props.providers.flatMap((provider) => provider.model
                 <tr>
                     <th scope="col">{{ text("all.model") }}</th>
                     <th scope="col">{{ text("all.provider") }}</th>
-                    <th scope="col"><span class="sr-only">{{ text("caps.vision") }}</span></th>
+                    <th scope="col"><span class="sr-only">{{ text("all.capabilities") }}</span></th>
                     <th scope="col"><span class="sr-only">{{ text("edit.contextWindow") }}</span></th>
                     <th scope="col"><span class="sr-only">{{ text("check.ok") }}</span></th>
                     <th scope="col"><span class="sr-only">{{ text("models.editTip") }}</span></th>

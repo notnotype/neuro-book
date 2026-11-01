@@ -30,6 +30,14 @@ export const SAMPLE_PROVIDERS: SnapshotProvider[] = [
         ],
     },
     {
+        id: "openai", kind: "catalog", name: "OpenAI", baseUrl: "https://api.openai.com/v1", catalogBaseUrl: "https://api.openai.com/v1", api: "openai-responses", auth: "default", headers: {}, key: {kind: "none"},
+        models: [sampleModel("gpt-5-mini", {name: "GPT-5 mini", group: "gpt-5", vision: true, reasoning: true, efforts: ["low", "medium", "high"], price: [0.25, 2, 0.025, 0]})],
+    },
+    {
+        id: "moonshot", kind: "catalog", name: "Moonshot（Kimi）", baseUrl: "https://api.moonshot.cn/v1", catalogBaseUrl: "https://api.moonshot.cn/v1", api: "openai-completions", auth: "default", headers: {}, key: {kind: "env", name: "MOONSHOT_API_KEY", found: true},
+        models: [sampleModel("kimi-k2", {name: "Kimi K2", group: "kimi", contextWindow: 256_000, price: [0.6, 2.5, 0.15, 0]})],
+    },
+    {
         id: "ollama", kind: "custom", name: "本地 Ollama", baseUrl: "http://127.0.0.1:11434/v1", catalogBaseUrl: null, api: "openai-completions", auth: "none", headers: {}, key: {kind: "keyless"},
         models: [sampleModel("qwen3:8b", {group: "qwen3", contextWindow: 32_768, reasoning: true, efforts: ["medium"], price: [0, 0, 0, 0], compactAt: 24_000})],
     },
@@ -41,7 +49,7 @@ export const SAMPLE_ROLES: SnapshotRole[] = [
     role("tiny", "gradient", null, "unbound"),
     role("fast", "gradient", "deepseek/deepseek-flash", "ok"),
     role("main", "gradient", "anthropic/claude-sonnet-4-5", "no-credentials"),
-    role("deep", "gradient", "deepseek/deepseek-pro", "ok"),
+    role("deep", "gradient", "deepseek/deepseek-legacy", "unknown-model"),
     role("compaction", "specialist", "deepseek/deepseek-flash", "ok"),
     role("polish", "specialist", null, "unbound", {builtin: false, name: "润色", description: "改写段落的措辞"}),
 ];

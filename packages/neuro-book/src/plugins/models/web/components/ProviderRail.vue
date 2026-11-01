@@ -41,6 +41,8 @@ function status(provider: SnapshotProvider): {readonly text: string; readonly to
 }
 
 function onKeydown(event: KeyboardEvent): void {
+    // 只管左栏的项：“添加服务商”按钮上的方向键不算左栏导航。
+    if (!(event.target instanceof HTMLElement) || !event.target.hasAttribute("data-provider-rail-item")) return;
     const ids = ["all", ...props.providers.map((provider) => provider.id)];
     const at = ids.indexOf(props.current);
     let next: number | null = null;

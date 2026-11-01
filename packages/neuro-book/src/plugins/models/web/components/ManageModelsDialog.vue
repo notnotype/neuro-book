@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {Badge, Button, Dialog, IconButton, Input, Tooltip} from "@notnotype/nb-ui/components";
-import {computed, ref, watch} from "vue";
+import {computed, nextTick, ref, watch} from "vue";
 
 import {seriesOf} from "../../shared/rules";
 import {useModelsText} from "../text";
@@ -65,10 +65,13 @@ const groups = computed(() => {
     return [...byGroup].map(([group, items]) => ({group, items}));
 });
 
-function toggle(item: ModelCandidate): void {
+const list = ref<HTMLElement | null>(null);
+
+async function toggle(item: ModelCandidate): Promise<void> {
     const next = new Set(added.value);
+    const confirmed = confirming.value === item.id;
     if (next.has(item.id)) {
-        if ((props.roleUsage.get(item.id) ?? []).length > 0 && confirming.value !== item.id) {
+        if ((props.roleUsage.get(item.id) ?? []).length > 0 && !confirmed) {
             confirming.value = item.id;
             return;
         }
@@ -76,6 +79,10 @@ function toggle(item: ModelCandidate): void {
     } else next.add(item.id);
     confirming.value = null;
     added.value = next;
+    // 从确认条里移出：确认条随之消失，焦点回到这一行的加入/移出按钮，不掉到对话框面板上。
+    if (!confirmed) return;
+    await nextTick();
+    list.value?.querySelector<HTMLElement>(`[data-manage-item="${CSS.escape(item.id)}"] [data-manage-toggle]`)?.focus();
 }
 
 function done(): void {
@@ -112,7 +119,7 @@ function done(): void {
             <p v-else-if="candidates === null" class="manage-models__muted">{{ text("manage.loading") }}</p>
             <p v-else-if="candidates.length === 0" class="manage-models__muted">{{ text("manage.empty") }}</p>
             <p v-else-if="groups.length === 0" class="manage-models__muted">{{ text("manage.noMatch") }}</p>
-            <div v-else class="manage-models__list">
+            <div v-else ref="list" class="manage-models__list">
                 <section v-for="group in groups" :key="group.group" class="manage-models__group">
                     <h4 class="manage-models__group-title">{{ group.group }}<span>{{ group.items.length }}</span></h4>
                     <ul>
@@ -126,8 +133,8 @@ function done(): void {
                                         size="xs"
                                         :icon-class="added.has(item.id) ? 'i-lucide-minus' : 'i-lucide-plus'"
                                         :aria-label="added.has(item.id) ? text('manage.remove', {name: item.name}) : text('manage.add', {name: item.name})"
-                                        :aria-pressed="added.has(item.id)"
                                         :disabled="busy"
+                                        data-manage-toggle
                                         @click="toggle(item)"
                                     />
                                 </Tooltip>

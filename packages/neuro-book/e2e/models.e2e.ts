@@ -42,16 +42,23 @@ const endpoint = createServer((request, response) => {
 });
 
 let tmp = "";
-let stateRoot = "";
 let base = "";
+let sequence = 0;
+/** 本条用例的状态根与服务端：每条用例各起一套，前一条失败留下的服务商不影响后一条。 */
+let stateRoot = "";
 let server: ProductServer;
 
 test.beforeAll(async () => {
     await new Promise<void>((resolve) => endpoint.listen(0, "127.0.0.1", resolve));
     base = `http://127.0.0.1:${String((endpoint.address() as AddressInfo).port)}/v1`;
     tmp = await createTestTmpRoot("neuro-book-e2e", "models");
-    stateRoot = join(tmp, "state");
-    const projectDir = join(tmp, "Book");
+});
+
+test.beforeEach(async () => {
+    sequence += 1;
+    const root = join(tmp, `case-${String(sequence)}`);
+    stateRoot = join(root, "state");
+    const projectDir = join(root, "Book");
     const id = randomUUID();
     await mkdir(join(projectDir, ".nbook"), {recursive: true});
     await mkdir(stateRoot, {recursive: true});
@@ -61,8 +68,11 @@ test.beforeAll(async () => {
     server = await startProductServer(stateRoot);
 });
 
-test.afterAll(async () => {
+test.afterEach(async () => {
     expect(await server.stop()).toBe(0);
+});
+
+test.afterAll(async () => {
     await new Promise<void>((resolve) => endpoint.close(() => resolve()));
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
@@ -76,13 +86,26 @@ async function openProviders(page: Page, path = "/workbench"): Promise<void> {
 }
 
 const detail = (page: Page) => page.locator("[data-provider-detail]");
+
+/** 经“添加服务商”加一家指向本机假端点的自定义服务商。 */
+async function addCustom(page: Page, name: string): Promise<void> {
+    await page.locator("[data-provider-add]:visible").first().click();
+    const add = page.locator("[data-add-provider-dialog]");
+    await add.locator("[data-add-provider='custom']").click();
+    // 进到表单焦点就在名称框里，回车提交。
+    await expect(add.locator("input[data-field='name'], [data-field='name'] input").first()).toBeFocused();
+    await page.keyboard.type(name);
+    await add.locator("input[data-field='baseUrl'], [data-field='baseUrl'] input").first().fill(base);
+    await page.keyboard.press("Enter");
+    await expect(add).toHaveCount(0);
+}
 const model = (page: Page, id: string) => page.locator(`[data-model-row="${id}"]`);
 
 test("验收 1：添加自定义服务商、填密钥与 env:、拉取并加入模型、补字段后启用、检测失败看原因、绑主力、停用先确认、删除后焦点与角色", async ({page}) => {
     await openProviders(page);
     // 开箱：引导与“添加服务商”。
     await expect(page.getByText("还没有服务商")).toBeVisible();
-    await page.locator("[data-provider-add]").click();
+    await page.locator("[data-provider-add]:visible").click();
     const add = page.locator("[data-add-provider-dialog]");
     await add.locator("[data-add-provider='custom']").click();
     await add.locator("[data-field='name'] input, input[data-field='name']").first().fill("本地端点");
@@ -154,7 +177,7 @@ test("验收 1：添加自定义服务商、填密钥与 env:、拉取并加入�
     const alert = page.getByRole("alertdialog");
     await expect(alert).toContainText("主力");
     await alert.getByRole("button", {name: "删除"}).click();
-    await expect(page.locator("[data-provider-add]")).toBeFocused();
+    await expect(page.locator("[data-provider-add]:visible")).toBeFocused();
     await page.locator("[data-settings-nav='nbook.models.roles']").click();
     await expect(page.locator("[data-role-row='main'] [data-role-unbound]")).toBeVisible();
 });
@@ -220,4 +243,22 @@ test("验收 3：窄窗口里服务商列表收成下拉；页面里的写不进
     await openProviders(page, "/?project=book");
     await page.locator("[data-settings-tabs]").getByRole("radio", {name: "本作品"}).click();
     await expect(page.locator("[data-settings-nav='nbook.models.roles']")).toHaveAttribute("aria-disabled", "true");
+});
+
+test("删除的焦点：取消后回到“删除”按钮；三家里删中间一家，选中与焦点到下一家", async ({page}) => {
+    await openProviders(page);
+    await addCustom(page, "甲");
+    await addCustom(page, "乙");
+    await addCustom(page, "丙");
+    await page.locator("[data-provider-rail-item='custom-2']").click();
+
+    await page.locator("[data-provider-remove]").click();
+    await page.getByRole("alertdialog").getByRole("button", {name: "取消"}).click();
+    await expect(page.locator("[data-provider-remove]")).toBeFocused();
+
+    await page.locator("[data-provider-remove]").click();
+    await page.getByRole("alertdialog").getByRole("button", {name: "删除"}).click();
+    await expect(page.locator("[data-provider-rail-item='custom-3']")).toBeFocused();
+    await expect(page.locator("[data-provider-rail-item='custom-3']")).toHaveAttribute("aria-current", "page");
+    await expect(page.locator("[data-provider-rail-item='custom-2']")).toHaveCount(0);
 });

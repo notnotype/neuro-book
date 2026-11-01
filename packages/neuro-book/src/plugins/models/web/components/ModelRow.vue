@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {Button, IconButton, Popover, Switch, Tooltip} from "@notnotype/nb-ui/components";
-import {computed, ref} from "vue";
+import {computed, nextTick, ref} from "vue";
 
 import type {SnapshotModel} from "../../shared/contracts";
 import type {CheckState} from "../models-store";
@@ -22,6 +22,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
     (e: "toggle", enabled: boolean): void;
     (e: "check"): void;
+    /** 取消这个模型进行中的检测（点转圈）。 */
+    (e: "cancel"): void;
     (e: "edit"): void;
 }>();
 
@@ -50,16 +52,20 @@ const failedReason = computed(() => {
     const kind = failed.value.kind;
     return ["network", "rate_limit", "auth", "quota", "context_overflow", "provider", "local"].includes(kind) ? text(`check.kinds.${kind}` as "check.kinds.other") : text("check.kinds.other");
 });
-const failedAt = computed(() => (props.check?.status === "done" ? new Date(props.check.at).toLocaleTimeString() : ""));
+const checkedAt = computed(() => (props.check?.status === "done" ? new Date(props.check.at).toLocaleTimeString() : ""));
+const root = ref<HTMLElement | null>(null);
 
-function retry(): void {
+/** 重新检测：失败图标随即换成转圈，焦点跟着到转圈（取消按钮）上，不掉到 body。 */
+async function retry(): Promise<void> {
     detailOpen.value = false;
     emit("check");
+    await nextTick();
+    root.value?.querySelector<HTMLElement>("[data-check-cancel]")?.focus();
 }
 </script>
 
 <template>
-    <li class="model-row" :data-model-row="model.id">
+    <li ref="root" class="model-row" :data-model-row="model.id">
         <div class="model-row__main">
             <Tooltip :text="text('models.incompleteTip')" :disabled="!incomplete">
                 <span class="model-row__switch">
@@ -76,7 +82,11 @@ function retry(): void {
                 <span class="model-row__fact model-row__fact--price">{{ priceText(text, model.price) }}</span>
             </template>
             <span class="model-row__status">
-                <span v-if="check?.status === 'running'" class="i-lucide-loader-circle model-row__spin" role="img" :aria-label="text('check.running')" />
+                <Tooltip v-if="check?.status === 'running'" :text="text('check.cancel', {name: model.name})">
+                    <button type="button" class="model-row__cancel nb-ui-focus-ring" :aria-label="text('check.cancel', {name: model.name})" data-check-cancel @click="emit('cancel')">
+                        <span class="i-lucide-loader-circle model-row__spin" aria-hidden="true" />
+                    </button>
+                </Tooltip>
                 <Popover v-else-if="failed !== null" :open="detailOpen" side="bottom" align="end" @update:open="(value: boolean) => (detailOpen = value)">
                     <template #trigger>
                         <button type="button" class="model-row__failed nb-ui-focus-ring" :aria-label="text('check.failedOf', {name: model.name})" data-check-failed>
@@ -84,14 +94,14 @@ function retry(): void {
                         </button>
                     </template>
                     <div class="model-row__detail" data-check-detail>
-                        <strong>{{ text("check.failedAt", {time: failedAt}) }}</strong>
+                        <strong>{{ text("check.failedAt", {time: checkedAt}) }}</strong>
                         <p>{{ failedReason }}</p>
                         <code v-if="failed.raw !== ''">{{ failed.raw }}</code>
                         <Button size="sm" variant="secondary" icon-class="i-lucide-play" @click="retry">{{ text("check.retry") }}</Button>
                     </div>
                 </Popover>
-                <Tooltip v-else-if="check?.status === 'done'" :text="text('check.ok')">
-                    <span class="i-lucide-circle-check model-row__ok" role="img" :aria-label="text('check.ok')" data-check-ok />
+                <Tooltip v-else-if="check?.status === 'done'" :text="text('check.okAt', {time: checkedAt})">
+                    <span class="i-lucide-circle-check model-row__ok" role="img" :aria-label="text('check.okAt', {time: checkedAt})" data-check-ok />
                 </Tooltip>
             </span>
             <span class="model-row__actions">
@@ -202,6 +212,15 @@ function retry(): void {
     }
 }
 
+.model-row__cancel {
+    display: inline-flex;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    cursor: pointer;
+}
+
 .model-row__failed {
     display: inline-flex;
     padding: 0;
@@ -242,6 +261,13 @@ function retry(): void {
     display: flex;
     flex-shrink: 0;
     gap: var(--space-1);
+}
+
+/* 页面窄（容器是 ProvidersPage 的根）：窗口与单价让位给名称，进编辑对话框与“全部模型”里看。 */
+@container (max-width: 480px) {
+    .model-row__fact {
+        display: none;
+    }
 }
 
 .model-row__confirm {

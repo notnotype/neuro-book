@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {Badge, Button, Dialog, Input, Select} from "@notnotype/nb-ui/components";
-import {computed, reactive, ref, watch} from "vue";
+import {computed, nextTick, reactive, ref, watch} from "vue";
 
 import type {CatalogProvider} from "../../shared/contracts";
 import {useModelsText} from "../text";
@@ -53,11 +53,31 @@ const API_OPTIONS = [
     {value: "anthropic-messages", label: "Anthropic Messages"},
 ];
 
+/** 地址要以 http:// 或 https:// 开头、能解析；写进去用不了的地址在这里拦住。 */
+const urlProblem = computed(() => {
+    const value = form.baseUrl.trim();
+    if (value === "") return "";
+    try {
+        const parsed = new URL(value);
+        return parsed.protocol === "http:" || parsed.protocol === "https:" ? "" : text("connection.url.invalid");
+    } catch {
+        return text("connection.url.invalid");
+    }
+});
+
 function create(): void {
     touched.value = true;
-    if (form.name.trim() === "" || form.baseUrl.trim() === "") return;
+    if (form.name.trim() === "" || form.baseUrl.trim() === "" || urlProblem.value !== "") return;
     emit("add-custom", {name: form.name.trim(), baseUrl: form.baseUrl.trim(), api: form.api});
 }
+
+const formRoot = ref<HTMLElement | null>(null);
+// 进到自定义表单：被点的那一行随列表卸掉，焦点放进名称框。
+watch(custom, async (value) => {
+    if (!value) return;
+    await nextTick();
+    formRoot.value?.querySelector<HTMLInputElement>("input")?.focus();
+});
 </script>
 
 <template>
@@ -101,20 +121,21 @@ function create(): void {
                 <span class="add-provider__name">{{ text("add.custom") }}<span class="add-provider__muted">{{ text("add.customHint") }}</span></span>
             </button>
         </div>
-        <form v-else class="add-provider__form" @submit.prevent="create">
+        <div v-else ref="formRoot" class="add-provider__form">
             <label class="add-provider__field">
                 <span>{{ text("add.customName") }}</span>
-                <Input v-model="form.name" size="sm" :invalid="touched && form.name.trim() === ''" data-field="name" />
+                <Input v-model="form.name" size="sm" :invalid="touched && form.name.trim() === ''" data-field="name" @keydown.enter="create" />
             </label>
             <label class="add-provider__field">
                 <span>{{ text("add.customUrl") }}</span>
-                <Input v-model="form.baseUrl" size="sm" placeholder="https://example.com/v1" :invalid="touched && form.baseUrl.trim() === ''" data-field="baseUrl" />
+                <Input v-model="form.baseUrl" size="sm" placeholder="https://example.com/v1" :invalid="(touched && form.baseUrl.trim() === '') || (touched && urlProblem !== '')" data-field="baseUrl" @keydown.enter="create" />
+                <small v-if="touched && urlProblem !== ''" class="add-provider__error" role="alert">{{ urlProblem }}</small>
             </label>
             <div class="add-provider__field">
                 <span>{{ text("connection.api.label") }}</span>
                 <Select v-model="form.api" :options="API_OPTIONS" size="sm" :aria-label="text('connection.api.label')" />
             </div>
-        </form>
+        </div>
     </Dialog>
 </template>
 

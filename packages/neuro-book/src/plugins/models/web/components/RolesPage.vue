@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {Badge, Button, IconButton, Input, SearchSelect, Tooltip} from "@notnotype/nb-ui/components";
-import {computed, onMounted, ref, watch} from "vue";
+import {computed, nextTick, onMounted, ref, watch} from "vue";
 
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 
@@ -28,12 +28,16 @@ const disabled = computed(() => !props.store.available.value || !props.writable)
 onMounted(() => void props.store.start());
 
 /** 可选的模型：启用、可用（不缺字段、不在目录漂移里）的；没有密钥的照样列出，角色状态会写明。 */
-const options = computed(() => [
-    {value: "", label: text("roles.none")},
-    ...(snapshot.value?.providers ?? []).flatMap((provider) => provider.models
-        .filter((model) => model.enabled && model.status === "ok")
-        .map((model) => ({value: referenceOf(provider.id, model.id), label: model.name, description: provider.name}))),
-]);
+const available = computed(() => (snapshot.value?.providers ?? []).flatMap((provider) => provider.models
+    .filter((model) => model.enabled && model.status === "ok")
+    .map((model) => ({value: referenceOf(provider.id, model.id), label: model.name, description: provider.name}))));
+
+/** 一行的选项：绑着的模型现在不可用时补一个停用的项，下拉仍显示绑的是谁。 */
+function optionsFor(role: SnapshotRole) {
+    const base = [{value: "", label: text("roles.none")}, ...available.value];
+    if (role.model === null || base.some((option) => option.value === role.model)) return base;
+    return [...base, {value: role.model, label: role.model, description: text("roles.unavailable"), disabled: true}];
+}
 
 const groups = computed(() => [
     {axis: "gradient" as const, title: text("roles.gradient"), help: text("roles.gradientHelp")},
@@ -52,10 +56,30 @@ async function bind(role: SnapshotRole, model: string): Promise<void> {
 }
 
 // ---- 自建角色的名字与说明：草稿，失焦或回车时写 ----
+/**
+ * 按角色增量更新：快照来了只换没在编辑的角色的草稿（输出 16），正在编辑的那个失焦后再以快照为准。`lastSent` 是最近一次交出去、
+ * 还没在快照里回来的值，回车之后紧接着失焦不重复交。
+ */
 const drafts = ref(new Map<string, {name: string; description: string}>());
-watch(() => snapshot.value?.roles, (roles) => {
-    drafts.value = new Map((roles ?? []).filter((role) => !role.builtin).map((role) => [role.id, {name: role.name, description: role.description}]));
-}, {immediate: true});
+let editing: string | null = null;
+const lastSent = new Map<string, string>();
+function syncDrafts(): void {
+    const roles = (snapshot.value?.roles ?? []).filter((role) => !role.builtin);
+    const next = new Map(roles.map((role) => [role.id, role.id === editing ? drafts.value.get(role.id) ?? {name: role.name, description: role.description} : {name: role.name, description: role.description}]));
+    for (const role of roles) if (lastSent.get(role.id) === `${role.name}\n${role.description}`) lastSent.delete(role.id);
+    drafts.value = next;
+}
+watch(() => snapshot.value?.roles, syncDrafts, {immediate: true});
+
+function startEditing(role: SnapshotRole): void {
+    editing = role.id;
+}
+
+async function finishEditing(role: SnapshotRole): Promise<void> {
+    await rename(role);
+    if (editing === role.id) editing = null;
+    syncDrafts();
+}
 
 async function rename(role: SnapshotRole): Promise<void> {
     const draft = drafts.value.get(role.id);
@@ -66,16 +90,40 @@ async function rename(role: SnapshotRole): Promise<void> {
         return;
     }
     if (name === role.name && draft.description === role.description) return;
+    const sent = `${name}\n${draft.description}`;
+    if (lastSent.get(role.id) === sent) return;
+    lastSent.set(role.id, sent);
     const result = await props.store.call("updateRole", {id: role.id, name, description: draft.description});
+    if (!result.ok) lastSent.delete(role.id);
     if (result.ok) return;
     report(role, result.failure);
     // 写失败：草稿回到实际值（快照没变，上面的 watch 不会触发）。
     Object.assign(draft, {name: role.name, description: role.description});
 }
 
+const page = ref<HTMLElement | null>(null);
+
 async function addRole(): Promise<void> {
     const result = await props.store.call("addRole", {name: text("roles.newName"), description: ""});
-    if (!result.ok) props.reportWriteFailure(text("subject.role", {name: text("roles.newName")}), {reason: failureReason(text, result.failure), uncertain: result.failure.code === "unknown-outcome"});
+    if (!result.ok) {
+        props.reportWriteFailure(text("subject.role", {name: text("roles.newName")}), {reason: failureReason(text, result.failure), uncertain: result.failure.code === "unknown-outcome"});
+        return;
+    }
+    // 新角色经快照回来：等它出现后聚焦它的名字框并全选，接着就能改名。
+    const id = result.value.id;
+    if (!(snapshot.value?.roles ?? []).some((role) => role.id === id)) {
+        await new Promise<void>((resolve) => {
+            const stop = watch(() => snapshot.value?.roles, (roles) => {
+                if (!(roles ?? []).some((role) => role.id === id)) return;
+                stop();
+                resolve();
+            });
+        });
+    }
+    await nextTick();
+    const input = page.value?.querySelector<HTMLInputElement>(`[data-role-row="${CSS.escape(id)}"] input`);
+    input?.focus();
+    input?.select();
 }
 
 async function removeRole(role: SnapshotRole): Promise<void> {
@@ -84,14 +132,14 @@ async function removeRole(role: SnapshotRole): Promise<void> {
 }
 
 function problem(role: SnapshotRole): string {
-    if (role.status === "unknown-model") return text("roles.status.unknown-model");
-    if (role.status === "no-credentials") return text("roles.status.no-credentials");
+    if (role.status === "unknown-model") return text("roles.status.unknown-model", {model: role.model ?? ""});
+    if (role.status === "no-credentials") return text("roles.status.no-credentials", {model: role.model ?? ""});
     return "";
 }
 </script>
 
 <template>
-    <div class="roles-page" data-models-roles-page>
+    <div ref="page" class="roles-page" data-models-roles-page>
         <p v-if="!store.available.value" class="roles-page__notice" role="status">{{ text("readOnly") }}</p>
         <p class="roles-page__intro">{{ text("roles.intro") }}</p>
         <p v-if="snapshot === null && store.available.value" class="roles-page__notice">{{ text("connection.key.loading") }}</p>
@@ -113,17 +161,17 @@ function problem(role: SnapshotRole): string {
                             </template>
                             <template v-else-if="drafts.get(role.id) !== undefined">
                                 <span class="roles-page__name">
-                                    <Input v-model="drafts.get(role.id)!.name" size="sm" :aria-label="text('roles.nameOf', {name: role.name})" :disabled="disabled" @focusout="rename(role)" @keydown.enter="rename(role)" />
+                                    <Input v-model="drafts.get(role.id)!.name" size="sm" :aria-label="text('roles.nameOf', {name: role.name})" :disabled="disabled" @focusin="startEditing(role)" @focusout="finishEditing(role)" @keydown.enter="rename(role)" />
                                     <Badge v-if="role.status === 'unbound'" size="sm" variant="soft" tone="danger" data-role-unbound>{{ text("roles.unbound") }}</Badge>
                                 </span>
-                                <Input v-model="drafts.get(role.id)!.description" size="sm" :aria-label="text('roles.descriptionOf', {name: role.name})" :placeholder="text('roles.description')" :disabled="disabled" @focusout="rename(role)" @keydown.enter="rename(role)" />
+                                <Input v-model="drafts.get(role.id)!.description" size="sm" :aria-label="text('roles.descriptionOf', {name: role.name})" :placeholder="text('roles.description')" :disabled="disabled" @focusin="startEditing(role)" @focusout="finishEditing(role)" @keydown.enter="rename(role)" />
                             </template>
                             <span v-if="problem(role) !== ''" class="roles-page__problem" data-role-problem>{{ problem(role) }}</span>
                         </div>
                         <div class="roles-page__control">
                             <SearchSelect
                                 :model-value="role.model ?? ''"
-                                :options="options"
+                                :options="optionsFor(role)"
                                 size="sm"
                                 :placeholder="text('roles.choose')"
                                 :empty-text="text('manage.noMatch')"
@@ -149,6 +197,7 @@ function problem(role: SnapshotRole): string {
 <style scoped>
 .roles-page {
     display: flex;
+    container-type: inline-size;
     max-width: 760px;
     flex-direction: column;
     gap: var(--space-6);

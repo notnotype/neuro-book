@@ -67,7 +67,8 @@
             "label": "Base URL",
             "hint": "Requests go to {{url}}",
             "restore": "Restore catalog URL",
-            "overridden": "Changed to another URL; the catalog URL is {{url}}. Model capabilities and prices still follow the catalog."
+            "overridden": "Changed to another URL; the catalog URL is {{url}}. Model capabilities and prices still follow the catalog.",
+            "invalid": "The URL must start with http:// or https://"
         },
         "api": {
             "label": "API format"
@@ -96,7 +97,9 @@
         "nameEmpty": "Name is required",
         "duplicate": "Duplicates a name above",
         "valueEmpty": "Value is required",
-        "credentialLike": "Looks like a credential: write env:NAME so the value stays out of the settings file"
+        "credentialLike": "Looks like a credential: write env:NAME so the value stays out of the settings file",
+        "nameInvalid": "Names may only use letters, digits and -_.!#$%&'*+^`|~",
+        "valueInvalid": "Values cannot contain line breaks"
     },
     "models": {
         "title": "Models",
@@ -137,7 +140,10 @@
             "provider": "The provider returned an error.",
             "local": "A local problem: the configuration is incomplete or unusable.",
             "other": "The check did not pass."
-        }
+        },
+        "notRun": "Could not check: {{reason}}",
+        "cancel": "Cancel checking {{name}}",
+        "okAt": "Check passed · {{time}}"
     },
     "caps": {
         "vision": "Vision",
@@ -173,7 +179,8 @@
         "nonNegative": "Must be a number ≥ 0",
         "idTaken": "This id is already in the list",
         "save": "Save",
-        "cancel": "Cancel"
+        "cancel": "Cancel",
+        "headersPending": "Some header rows are unfinished: complete or remove them before saving"
     },
     "manage": {
         "title": "Manage models: {{name}}",
@@ -210,7 +217,8 @@
     "all": {
         "empty": "No enabled models",
         "provider": "Provider",
-        "model": "Model"
+        "model": "Model",
+        "capabilities": "Capabilities"
     },
     "roles": {
         "intro": "When a conversation has no model selected and the Profile names none, “Main” is used. A role without a model makes features using it report an error pointing here; no other model is used instead.",
@@ -221,8 +229,8 @@
         "none": "None",
         "unbound": "Unbound",
         "status": {
-            "unknown-model": "The bound model is unavailable: gone from the catalog or disabled",
-            "no-credentials": "The bound model has no key"
+            "unknown-model": "The bound model {{model}} is unavailable: gone from the catalog or disabled",
+            "no-credentials": "The bound model {{model}} has no key"
         },
         "add": "Add specialist role",
         "newName": "New role",
@@ -254,7 +262,8 @@
         "gradient": "Gradient",
         "gradientHelp": "Four fixed tiers from light to strong; system features each use one",
         "specialist": "Specialist",
-        "specialistHelp": "Models bound by purpose; you can add your own"
+        "specialistHelp": "Models bound by purpose; you can add your own",
+        "unavailable": "Unavailable"
     },
     "subject": {
         "key": "{{provider}} key",

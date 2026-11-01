@@ -23,7 +23,9 @@ const props = withDefaults(defineProps<{
     disabled?: boolean;
     /** 变了就把输入框的草稿换回实际值（页面在写失败后加一）。 */
     resetToken?: number;
-}>(), {checks: () => new Map(), roleUsage: () => new Map(), disabled: false, resetToken: 0});
+    /** 这家最近一次“没检成”的原因（服务停了、服务商不在了），写在模型列表头上；没有为空。 */
+    checkError?: string;
+}>(), {checks: () => new Map(), roleUsage: () => new Map(), disabled: false, resetToken: 0, checkError: ""});
 
 const emit = defineEmits<{
     (e: "set-key", value: string): void;
@@ -33,6 +35,7 @@ const emit = defineEmits<{
     (e: "check", id: string): void;
     (e: "check-all"): void;
     (e: "cancel-checks"): void;
+    (e: "cancel-check", id: string): void;
     (e: "edit-model", id: string): void;
     (e: "add-model"): void;
     (e: "manage"): void;
@@ -45,9 +48,45 @@ const id = useId();
 /** `env:` 引用不是密钥，照原样显示；存在库里的密钥不回到浏览器，框里是空的。 */
 const keyCurrent = computed(() => (props.provider.key.kind === "env" ? `env:${props.provider.key.name}` : ""));
 const keyDraft = ref(keyCurrent.value);
-watch(keyCurrent, (value) => {
-    keyDraft.value = value;
-});
+
+/**
+ * 输入框的草稿与实际值（输出 16）：别处改了时，正在编辑的框不被打断，失焦后再换成实际值。`lastSent` 是最近一次交出去、还没在
+ * 快照里回来的值，回车之后紧接着失焦不重复交。
+ */
+function draftField(current: () => string, draft: {value: string}) {
+    let focused = false;
+    let deferred = false;
+    let lastSent: string | null = null;
+    watch(current, (value) => {
+        lastSent = null;
+        if (focused) deferred = true;
+        else draft.value = value;
+    });
+    return {
+        focus: (): void => {
+            focused = true;
+        },
+        blur: (): void => {
+            focused = false;
+            if (deferred) {
+                deferred = false;
+                draft.value = current();
+            }
+        },
+        /** 这个值该不该交：与实际值相同或刚交过时不交。 */
+        claim: (value: string): boolean => {
+            if (value === current() || value === lastSent) return false;
+            lastSent = value;
+            return true;
+        },
+        reset: (): void => {
+            lastSent = null;
+            deferred = false;
+            draft.value = current();
+        },
+    };
+}
+const keyField = draftField(() => keyCurrent.value, keyDraft);
 const keyless = computed(() => props.provider.auth === "none");
 const keyPlaceholder = computed(() => {
     switch (props.provider.key.kind) {
@@ -61,7 +100,7 @@ const keyNote = computed(() => (props.provider.key.kind === "env" && props.provi
 
 function commitKey(): void {
     const value = keyDraft.value.trim();
-    if (value === "" || value === keyCurrent.value) return;
+    if (value === "" || !keyField.claim(value)) return;
     emit("set-key", value);
     // 原文密钥写完就不留在浏览器里（输出“边界”一节）。
     if (!value.startsWith("env:")) keyDraft.value = "";
@@ -71,18 +110,34 @@ function commitKey(): void {
 const ENDPOINT: Record<string, string> = {"openai-completions": "/chat/completions", "openai-responses": "/responses", "anthropic-messages": "/v1/messages"};
 const effectiveUrl = computed(() => props.provider.baseUrl ?? props.provider.catalogBaseUrl ?? "");
 const urlDraft = ref(effectiveUrl.value);
-watch(effectiveUrl, (value) => {
-    urlDraft.value = value;
-});
+const urlField = draftField(() => effectiveUrl.value, urlDraft);
+/** 地址写不对时原位写原因、不写进设置（http 或 https，能解析）。 */
+const urlProblem = ref("");
+
+const validUrl = (value: string): boolean => {
+    try {
+        const parsed = new URL(value);
+        return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch {
+        return false;
+    }
+};
 const overridden = computed(() => props.provider.kind === "catalog" && props.provider.baseUrl !== null && props.provider.baseUrl !== props.provider.catalogBaseUrl);
 const requestUrl = computed(() => `${effectiveUrl.value.replace(/\/$/u, "")}${ENDPOINT[props.provider.api ?? ""] ?? ""}`);
 
 function commitUrl(): void {
     const value = urlDraft.value.trim();
-    if (value === "" || value === effectiveUrl.value) {
+    if (value === "") {
+        urlProblem.value = "";
         urlDraft.value = effectiveUrl.value;
         return;
     }
+    if (!validUrl(value)) {
+        urlProblem.value = text("connection.url.invalid");
+        return;
+    }
+    urlProblem.value = "";
+    if (!urlField.claim(value)) return;
     emit("update", {baseUrl: props.provider.kind === "catalog" && value === props.provider.catalogBaseUrl ? null : value});
 }
 
@@ -99,8 +154,9 @@ const authOptions = computed(() => [
 
 // 写失败：草稿回到实际值，请求头编辑器重建（没填完的行一起丢掉）。
 watch(() => props.resetToken, () => {
-    keyDraft.value = keyCurrent.value;
-    urlDraft.value = effectiveUrl.value;
+    keyField.reset();
+    urlField.reset();
+    urlProblem.value = "";
 });
 
 // ---- 模型 ----
@@ -127,7 +183,7 @@ const checking = computed(() => props.provider.models.some((model) => props.chec
                 <div v-if="!keyless" class="provider-detail__field">
                     <div class="provider-detail__field-head">
                         <span class="provider-detail__label"><label :for="`${id}-key`">{{ text("connection.key.label") }}</label><InfoTip :text="text('connection.key.hint')" /></span>
-                        <button v-if="provider.key.kind === 'stored' || provider.key.kind === 'env'" type="button" class="provider-detail__link provider-detail__link--danger" :disabled="disabled" data-key-clear @click="emit('clear-key')">{{ text("connection.key.clear") }}</button>
+                        <button v-if="provider.key.kind === 'stored' || provider.key.kind === 'env'" type="button" class="provider-detail__link provider-detail__link--danger nb-ui-focus-ring" :disabled="disabled" data-key-clear @click="emit('clear-key')">{{ text("connection.key.clear") }}</button>
                     </div>
                     <Input
                         :id="`${id}-key`"
@@ -138,19 +194,33 @@ const checking = computed(() => props.provider.models.some((model) => props.chec
                         :invalid="keyProblem !== ''"
                         :disabled="disabled"
                         autocomplete="off"
+                        :aria-describedby="keyProblem !== '' ? `${id}-key-problem` : undefined"
                         data-key-input
-                        @focusout="commitKey"
+                        @focusin="keyField.focus"
+                        @focusout="commitKey(); keyField.blur()"
                         @keydown.enter="commitKey"
                     />
-                    <p v-if="keyProblem !== ''" class="provider-detail__hint provider-detail__hint--error" data-key-problem>{{ keyProblem }}</p>
+                    <p v-if="keyProblem !== ''" :id="`${id}-key-problem`" class="provider-detail__hint provider-detail__hint--error" role="alert" data-key-problem>{{ keyProblem }}</p>
                     <p v-else-if="keyNote !== ''" class="provider-detail__hint">{{ keyNote }}</p>
                 </div>
                 <div class="provider-detail__field">
                     <div class="provider-detail__field-head">
                         <span class="provider-detail__label"><label :for="`${id}-url`">{{ text("connection.url.label") }}</label><InfoTip :text="text('connection.url.hint', {url: requestUrl})" /></span>
-                        <button v-if="overridden" type="button" class="provider-detail__link" :disabled="disabled" data-url-restore @click="emit('update', {baseUrl: null})">{{ text("connection.url.restore") }}</button>
+                        <button v-if="overridden" type="button" class="provider-detail__link nb-ui-focus-ring" :disabled="disabled" data-url-restore @click="emit('update', {baseUrl: null})">{{ text("connection.url.restore") }}</button>
                     </div>
-                    <Input :id="`${id}-url`" v-model="urlDraft" size="sm" :disabled="disabled" data-url-input @focusout="commitUrl" @keydown.enter="commitUrl" />
+                    <Input
+                        :id="`${id}-url`"
+                        v-model="urlDraft"
+                        size="sm"
+                        :disabled="disabled"
+                        :invalid="urlProblem !== ''"
+                        :aria-describedby="urlProblem !== '' ? `${id}-url-problem` : undefined"
+                        data-url-input
+                        @focusin="urlField.focus"
+                        @focusout="commitUrl(); urlField.blur()"
+                        @keydown.enter="commitUrl"
+                    />
+                    <p v-if="urlProblem !== ''" :id="`${id}-url-problem`" class="provider-detail__hint provider-detail__hint--error" role="alert" data-url-problem>{{ urlProblem }}</p>
                     <p v-if="overridden" class="provider-detail__hint">{{ text("connection.url.overridden", {url: provider.catalogBaseUrl ?? ""}) }}</p>
                 </div>
                 <div v-if="provider.kind === 'custom'" class="provider-detail__field">
@@ -159,7 +229,7 @@ const checking = computed(() => props.provider.models.some((model) => props.chec
                 </div>
                 <Collapsible>
                     <template #trigger>
-                        <button type="button" class="provider-detail__advanced" data-provider-advanced>
+                        <button type="button" class="provider-detail__advanced nb-ui-focus-ring" data-provider-advanced>
                             <span class="i-lucide-chevron-right provider-detail__advanced-icon" aria-hidden="true" />
                             {{ text("connection.advanced") }}<span class="provider-detail__muted">{{ text("connection.advancedHint") }}</span>
                         </button>
@@ -188,9 +258,10 @@ const checking = computed(() => props.provider.models.some((model) => props.chec
                 <Button v-if="checking" size="sm" variant="ghost" icon-class="i-lucide-square" data-models-cancel @click="emit('cancel-checks')">{{ text("models.cancelChecks") }}</Button>
                 <Button v-else size="sm" variant="ghost" icon-class="i-lucide-activity" :disabled="disabled || enabledCount === 0" data-models-check-all @click="emit('check-all')">{{ text("models.checkAll") }}</Button>
             </div>
+            <p v-if="checkError !== ''" class="provider-detail__hint provider-detail__hint--error" role="alert" data-check-error>{{ checkError }}</p>
             <p v-if="provider.models.length === 0" class="provider-detail__empty">{{ text("models.empty") }}</p>
             <section v-for="group in groups" :key="group.group" class="provider-detail__series">
-                <button type="button" class="provider-detail__series-title" :aria-expanded="!folded.has(group.group)" @click="fold(group.group)">
+                <button type="button" class="provider-detail__series-title nb-ui-focus-ring" :aria-expanded="!folded.has(group.group)" @click="fold(group.group)">
                     <span :class="folded.has(group.group) ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'" aria-hidden="true" />
                     {{ group.group }}<span class="provider-detail__series-count">{{ group.models.length }}</span>
                 </button>
@@ -204,6 +275,7 @@ const checking = computed(() => props.provider.models.some((model) => props.chec
                         :disabled="disabled"
                         @toggle="(enabled) => emit('toggle-model', model.id, enabled)"
                         @check="emit('check', model.id)"
+                        @cancel="emit('cancel-check', model.id)"
                         @edit="emit('edit-model', model.id)"
                     />
                 </ul>

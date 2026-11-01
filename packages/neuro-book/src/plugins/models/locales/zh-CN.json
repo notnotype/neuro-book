@@ -65,7 +65,8 @@
             "label": "接口地址",
             "hint": "请求发到 {{url}}",
             "restore": "恢复目录地址",
-            "overridden": "已改成别的地址；目录地址是 {{url}}。模型的能力与单价仍按目录。"
+            "overridden": "已改成别的地址；目录地址是 {{url}}。模型的能力与单价仍按目录。",
+            "invalid": "地址要以 http:// 或 https:// 开头"
         },
         "api": {
             "label": "接口格式"
@@ -94,7 +95,9 @@
         "nameEmpty": "名称不能为空",
         "duplicate": "与上面的名称重复",
         "valueEmpty": "值不能为空",
-        "credentialLike": "像是凭据：写成 env:变量名，值就不进设置文件"
+        "credentialLike": "像是凭据：写成 env:变量名，值就不进设置文件",
+        "nameInvalid": "名称只能用字母、数字与 -_.!#$%&'*+^`|~",
+        "valueInvalid": "值不能换行"
     },
     "models": {
         "title": "模型",
@@ -135,7 +138,10 @@
             "provider": "服务商返回了错误。",
             "local": "本机这边的问题：配置不完整或不可用。",
             "other": "检测没有通过。"
-        }
+        },
+        "notRun": "没检成：{{reason}}",
+        "cancel": "取消检测 {{name}}",
+        "okAt": "检测通过 · {{time}}"
     },
     "caps": {
         "vision": "能看图",
@@ -171,7 +177,8 @@
         "nonNegative": "要是不小于 0 的数",
         "idTaken": "这个 id 已经在列表里",
         "save": "保存",
-        "cancel": "取消"
+        "cancel": "取消",
+        "headersPending": "请求头有没填完的行：填好或删掉再保存"
     },
     "manage": {
         "title": "管理模型：{{name}}",
@@ -208,7 +215,8 @@
     "all": {
         "empty": "没有启用的模型",
         "provider": "服务商",
-        "model": "模型"
+        "model": "模型",
+        "capabilities": "能力"
     },
     "roles": {
         "intro": "对话里没选模型、Profile 也没指定时用“主力”。角色没绑模型时，用到它的功能会报错并指向这一页，不会换用别的模型。",
@@ -219,8 +227,8 @@
         "none": "不绑定",
         "unbound": "未绑定",
         "status": {
-            "unknown-model": "绑定的模型不可用：目录里没有了或没启用",
-            "no-credentials": "绑定的模型没有密钥"
+            "unknown-model": "绑定的模型 {{model}} 不可用：目录里没有了或没启用",
+            "no-credentials": "绑定的模型 {{model}} 没有密钥"
         },
         "add": "添加专精角色",
         "newName": "新角色",
@@ -252,7 +260,8 @@
         "gradient": "梯度",
         "gradientHelp": "四档固定，按强弱排；系统功能各用其中一档",
         "specialist": "专精",
-        "specialistHelp": "按用途单独绑模型；可以自己加"
+        "specialistHelp": "按用途单独绑模型；可以自己加",
+        "unavailable": "不可用"
     },
     "subject": {
         "key": "{{provider}} 的密钥",

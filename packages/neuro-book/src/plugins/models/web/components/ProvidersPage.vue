@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {AlertDialog, Button, EmptyState, IconButton, Select, Tooltip} from "@notnotype/nb-ui/components";
-import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
+import {computed, nextTick, onMounted, ref, watch} from "vue";
 
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 import SettingsPageActions from "nbook/ui/settings/SettingsPageActions.vue";
@@ -116,24 +116,12 @@ async function toggleModel(provider: SnapshotProvider, id: string, enabled: bool
 }
 
 // ---- 检测 ----
-const checkControllers = new Map<string, AbortController>();
-function check(provider: SnapshotProvider, id: string): void {
-    const controller = new AbortController();
-    checkControllers.set(`${provider.id}/${id}`, controller);
-    void props.store.check(provider.id, id, controller.signal).finally(() => checkControllers.delete(`${provider.id}/${id}`));
+// 检测与取消都在数据模块里：离开页面不取消，回来还能取消，结果也还在（输出 8）。
+/** 这家最近一次“没检成”的原因（不是模型的检测失败）。 */
+function checkError(provider: SnapshotProvider): string {
+    const failure = props.store.checkErrors.get(provider.id);
+    return failure === undefined ? "" : text("check.notRun", {reason: failureReason(text, failure)});
 }
-function checkAll(provider: SnapshotProvider): void {
-    const controller = new AbortController();
-    checkControllers.set(provider.id, controller);
-    void props.store.checkAll(provider.id, controller.signal).finally(() => checkControllers.delete(provider.id));
-}
-function cancelChecks(provider: SnapshotProvider): void {
-    for (const [key, controller] of checkControllers) if (key === provider.id || key.startsWith(`${provider.id}/`)) controller.abort();
-}
-onBeforeUnmount(() => {
-    // 离开页面不取消检测：结果记在数据模块里，回来还看得到（输出 8）。
-    checkControllers.clear();
-});
 
 // ---- 添加服务商 ----
 const adding = ref(false);
@@ -168,6 +156,12 @@ const editProvider = computed(() => providers.value.find((provider) => provider.
 const editModel = computed(() => editProvider.value?.models.find((model) => model.id === editTarget.value?.model) ?? null);
 const editBusy = ref(false);
 const editError = ref("");
+
+// 编辑着的模型（或它的服务商）被别处删了：关掉对话框，不让它退化成“手动添加”。
+watch([editProvider, editModel], ([provider, model]) => {
+    if (editTarget.value === null) return;
+    if (provider === null || (editTarget.value.model !== null && model === null)) editTarget.value = null;
+});
 
 function openEdit(provider: string, model: string | null): void {
     editError.value = "";
@@ -218,13 +212,21 @@ async function loadCandidates(provider: SnapshotProvider): Promise<void> {
     candidates.value = result.value.map((model) => ({id: model.id, name: model.name, vision: model.suggested?.vision ?? false, reasoning: model.suggested?.reasoning ?? false, incomplete: (model.suggested?.contextWindow ?? null) === null}));
 }
 
+/** 打开“管理模型”时这家列表里的模型：“完成”只提交相对它的改动，打开期间别处加的模型不会被当成“要移出”。 */
+const manageOpenedWith = ref<readonly string[]>([]);
+
 function openManage(provider: SnapshotProvider): void {
+    manageOpenedWith.value = provider.models.map((model) => model.id);
     managing.value = true;
     void loadCandidates(provider);
 }
 
 watch(managing, (open) => {
     if (!open) manageToken += 1;
+});
+// 管理着的服务商被别处删了：关掉对话框（否则选中另一家时它会带着上一家的候选自己弹出来）。
+watch(current, (provider, previous) => {
+    if (managing.value && provider?.id !== previous?.id) managing.value = false;
 });
 
 async function applyManage(provider: SnapshotProvider, change: {add: ModelCandidate[]; remove: string[]}): Promise<void> {
@@ -258,9 +260,14 @@ async function applyManage(provider: SnapshotProvider, change: {add: ModelCandid
  * 被卸掉，焦点就没人管了。
  */
 const removing = ref(false);
-const removeTarget = ref<SnapshotProvider | null>(null);
+/** 按 id 记：确认框开着时快照可能又来一份，对象身份就不作数了。 */
+const removeId = ref<string | null>(null);
+/** 确认框里写的那家：取最新的快照；这期间被别处删了时留着打开时的样子。 */
+let removeOpenedWith: SnapshotProvider | null = null;
+const removeTarget = computed(() => providers.value.find((provider) => provider.id === removeId.value) ?? (removeId.value === null ? null : removeOpenedWith));
 function openRemove(): void {
-    removeTarget.value = current.value;
+    removeOpenedWith = current.value;
+    removeId.value = current.value?.id ?? null;
     removing.value = current.value !== null;
 }
 const removeDescription = computed(() => {
@@ -284,8 +291,10 @@ let removal: Promise<string | null> | null = null;
 function removeProvider(): void {
     const provider = removeTarget.value;
     if (provider === null) return;
-    const index = providers.value.indexOf(provider);
-    const neighbour = providers.value[index + 1] ?? providers.value[index - 1] ?? null;
+    const others = providers.value.filter((item) => item.id !== provider.id);
+    const index = providers.value.findIndex((item) => item.id === provider.id);
+    // 下一家（删掉后同一个位置上的那家），没有时上一家。
+    const neighbour = index < 0 ? others[0] ?? null : others[index] ?? others[index - 1] ?? null;
     removal = (async () => {
         const result = await props.store.call("removeProvider", {id: provider.id});
         if (!result.ok) {
@@ -298,12 +307,18 @@ function removeProvider(): void {
 }
 
 async function onRemoveClosed(): Promise<void> {
-    const removed = removeTarget.value?.id;
+    const removed = removeId.value ?? undefined;
     const pending = removal;
     removal = null;
-    removeTarget.value = null;
+    removeId.value = null;
+    removeOpenedWith = null;
     const target = pending === null ? null : await pending;
-    if (target === null) return;
+    // 取消或删除失败：焦点回到“删除”按钮（确认框没有触发器，nb-ui 不替它归还焦点）。它在窗口的标题区里，不在本页的 DOM 下。
+    if (target === null) {
+        await nextTick();
+        document.querySelector<HTMLElement>("[data-provider-remove]")?.focus();
+        return;
+    }
     // 删除的结果经快照事件回来，可能晚于写入返回：等这家从快照里消失、界面重画之后再移焦点。
     if (removed !== undefined && providers.value.some((provider) => provider.id === removed)) {
         await new Promise<void>((resolve) => {
@@ -315,8 +330,18 @@ async function onRemoveClosed(): Promise<void> {
         });
     }
     await nextTick();
-    const selector = target === "add" ? "[data-provider-add]" : `[data-provider-rail-item="${CSS.escape(target)}"]`;
-    page.value?.querySelector<HTMLElement>(selector)?.focus();
+    focusVisible(target === "add" ? ["[data-provider-add]"] : [`[data-provider-rail-item="${CSS.escape(target)}"]`, "[data-provider-picker]"]);
+}
+
+/** 聚焦第一个看得见的：窄布局里左栏整个隐藏，聚焦它的项不生效，换成顶上的下拉。 */
+function focusVisible(selectors: readonly string[]): void {
+    for (const selector of selectors) {
+        for (const element of page.value?.querySelectorAll<HTMLElement>(selector) ?? []) {
+            if (element.offsetParent === null) continue;
+            element.focus();
+            return;
+        }
+    }
 }
 </script>
 
@@ -333,8 +358,8 @@ async function onRemoveClosed(): Promise<void> {
             <ProviderRail v-if="providers.length > 0" class="providers-page__rail" :providers="providers" :current="selected" :checks="store.checks" :disabled="disabled" @select="(id) => (selected = id)" @add="openAdd" />
             <div class="providers-page__detail">
                 <div v-if="providers.length > 0" class="providers-page__picker">
-                    <Select :model-value="selected" :options="pickerOptions" size="sm" :aria-label="text('rail.label')" @update:model-value="(value: string) => (selected = value)" />
-                    <Button size="sm" variant="ghost" icon-class="i-lucide-plus" :disabled="disabled" @click="openAdd">{{ text("rail.addShort") }}</Button>
+                    <Select :model-value="selected" :options="pickerOptions" size="sm" :aria-label="text('rail.label')" data-provider-picker @update:model-value="(value: string) => (selected = value)" />
+                    <Button size="sm" variant="ghost" icon-class="i-lucide-plus" :disabled="disabled" data-provider-add @click="openAdd">{{ text("rail.addShort") }}</Button>
                 </div>
                 <EmptyState v-if="providers.length === 0" icon-class="i-lucide-cloud" :title="text('empty.title')" :description="text('empty.description')">
                     <template #action>
@@ -354,9 +379,11 @@ async function onRemoveClosed(): Promise<void> {
                         @clear-key="clearKey(current!)"
                         @update="(patch) => updateProvider(current!, patch)"
                         @toggle-model="(id, enabled) => toggleModel(current!, id, enabled)"
-                        @check="(id) => check(current!, id)"
-                        @check-all="checkAll(current!)"
-                        @cancel-checks="cancelChecks(current!)"
+                        :check-error="checkError(current)"
+                        @check="(id) => store.check(current!.id, id)"
+                        @check-all="store.checkAll(current!.id)"
+                        @cancel-checks="store.cancel(current!.id)"
+                        @cancel-check="(id) => store.cancel(current!.id, id)"
                         @edit-model="(id) => openEdit(current!.id, id)"
                         @add-model="openEdit(current!.id, null)"
                         @manage="openManage(current!)"
@@ -386,7 +413,7 @@ async function onRemoveClosed(): Promise<void> {
             :provider-name="current.name"
             :discoverable="current.kind === 'custom'"
             :candidates="candidates"
-            :current="current.models.map((model) => model.id)"
+            :current="manageOpenedWith"
             :role-usage="roleUsage(current)"
             :error="manageError"
             :busy="manageBusy"

@@ -37,11 +37,14 @@ const adding = computed(() => props.model === null);
 const blank = (value: number | null | undefined): string => (value === null || value === undefined ? "" : String(value));
 const form = reactive({id: "", name: "", group: "", contextWindow: "", maxOutput: "", vision: false, reasoning: false, compactAt: "", price: ["", "", "", ""] as string[]});
 const headers = ref<Record<string, string>>({});
+/** 请求头里有没填完的行：保存要拦住，不悄悄丢掉它们。 */
+const headersPending = ref(false);
 const touched = ref(false);
 
-// 每次打开都从当前的模型重填（关掉再开丢掉没保存的改动）。
-watch(() => [props.open, props.model] as const, ([open, model]) => {
+// 只在打开时从当前的模型填一次（关掉再开丢掉没保存的改动）；开着时别处改了这个模型不打断正在填的表单（输出 16）。
+watch(() => props.open, (open) => {
     if (!open) return;
+    const model = props.model;
     touched.value = false;
     Object.assign(form, {
         id: model?.id ?? "",
@@ -55,13 +58,14 @@ watch(() => [props.open, props.model] as const, ([open, model]) => {
         price: model?.price === null || model?.price === undefined ? ["", "", "", ""] : model.price.map(String),
     });
     headers.value = {...model?.headers};
+    headersPending.value = false;
 }, {immediate: true});
 
 const positive = (value: string): boolean => /^[1-9]\d*$/u.test(value.trim());
 const PRICE = /^\d+(\.\d+)?$/u;
 
 const problems = computed(() => {
-    const found: Partial<Record<"id" | "contextWindow" | "maxOutput" | "compactAt" | "price", string>> = {};
+    const found: Partial<Record<"id" | "contextWindow" | "maxOutput" | "compactAt" | "price" | "headers", string>> = {};
     if (adding.value) {
         if (form.id.trim() === "") found.id = text("edit.required");
         else if (props.takenIds.includes(form.id.trim())) found.id = text("edit.idTaken");
@@ -73,6 +77,7 @@ const problems = computed(() => {
         if (form.price.some((value) => value.trim() !== "" && !PRICE.test(value.trim()))) found.price = text("edit.nonNegative");
     }
     if (form.compactAt.trim() !== "" && !positive(form.compactAt)) found.compactAt = text("edit.positive");
+    if (headersPending.value) found.headers = text("edit.headersPending");
     return found;
 });
 
@@ -103,6 +108,8 @@ function save(): void {
         ...optional("maxOutput", form.maxOutput.trim() === "" ? undefined : Number(form.maxOutput)),
         vision: form.vision,
         reasoning: form.reasoning,
+        // 推理档对话框里不编辑，原样带回（整条替换写入，漏了就丢了）。
+        ...optional("efforts", props.model === null || props.model.efforts.length === 0 ? undefined : [...props.model.efforts]),
         // 全部留空是“未知”；填了一部分时没填的按 0。
         price: prices.every((value) => value === "") ? null : prices.map((value) => (value === "" ? 0 : Number(value))) as [number, number, number, number],
     });
@@ -191,7 +198,8 @@ const title = computed(() => (props.model === null ? text("edit.addTitle") : tex
                     <button type="button" class="model-edit__advanced"><span class="i-lucide-chevron-right model-edit__advanced-icon" aria-hidden="true" />{{ text("edit.advanced") }}<span class="model-edit__muted">{{ text("connection.headers.label") }}</span></button>
                 </template>
                 <div class="model-edit__advanced-body">
-                    <HeadersEditor :headers="headers" :hint="text('edit.headersHint')" @commit="(next) => (headers = next)" />
+                    <HeadersEditor :headers="headers" :hint="text('edit.headersHint')" @commit="(next) => (headers = next)" @pending="(value) => (headersPending = value)" />
+                    <small v-if="shown('headers')" class="model-edit__problem">{{ shown("headers") }}</small>
                 </div>
             </Collapsible>
         </div>
