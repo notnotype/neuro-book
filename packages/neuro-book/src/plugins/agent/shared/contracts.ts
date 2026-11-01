@@ -5,7 +5,7 @@
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
-import type {CreateSessionOptions, Issuer, SessionApi, SessionIndexEntry, StorageResult} from "@notnotype/nb-harness/kernel/contracts";
+import type {CreateSessionOptions, Issuer, JsonValue, RunResult, SessionApi, SessionIndexEntry, StorageResult, UserInput} from "@notnotype/nb-harness/kernel/contracts";
 
 export type ProfileStatus = "ok" | "unavailable" | "error";
 
@@ -23,6 +23,23 @@ export interface ProfileEntry {
 
 export type CreateResult = {readonly ok: true; readonly value: SessionApi} | {readonly ok: false; readonly code: string; readonly detail?: unknown};
 
+/** 发起一次任务（sessions.md 输出 10、11）。`taskId` 是调用方生成的 UUID：重发同一个得到同一个结果。 */
+export interface StartTaskOptions {
+    readonly taskId: string;
+    readonly profile: string;
+    readonly initial?: JsonValue;
+    readonly input: UserInput;
+    readonly project?: string;
+    readonly background?: boolean;
+}
+
+export type StartTaskResult = {readonly ok: true; readonly sessionId: string; readonly runId: string} | {readonly ok: false; readonly code: string; readonly detail?: unknown};
+
+/** `taskId` 的格式：UUID（小写或大写都行）。 */
+export const TASK_ID = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
+/** 任务的会话 id：内核自己生成的会话 id 不带这个前缀，普通会话不会撞上。 */
+export const taskSessionId = (taskId: string): string => `task-${taskId.toLowerCase()}`;
+
 export interface AgentService {
     /** 建会话；交回的是视图（sessions.md 输出 6）。 */
     create(options: CreateSessionOptions): Promise<CreateResult>;
@@ -33,6 +50,11 @@ export interface AgentService {
     profiles(): readonly ProfileEntry[];
     /** 打开着、正在运行的会话。 */
     running(): readonly string[];
+    /**
+     * 发起任务：建会话（已有就核对参数）、受理输入并开始运行，不等运行结束；`result` 在运行结束时完成，期间持有会话。
+     * 参数与已有的任务不一致时 `task-conflict`。
+     */
+    startTask(options: StartTaskOptions): Promise<StartTaskResult & {readonly result?: Promise<RunResult>}>;
 }
 
 export const agentKey: ServiceKey<AgentService> = defineServiceKey<AgentService>("nbook.agent/agent");

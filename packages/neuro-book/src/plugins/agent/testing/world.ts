@@ -8,6 +8,7 @@ import {mkdir, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
+import type {RemoteLink} from "@notnotype/nb-runtime/remote";
 import type {ActivationContext, PluginDefinition, RegisterPluginResult} from "@notnotype/nb-runtime/plugins";
 
 import {definitionAt} from "nbook/manifest";
@@ -31,13 +32,15 @@ export interface AgentWorld {
     readonly service: AgentService;
     readonly stateRoot: string;
     /** 起一个窗口，交回它的远程客户端与窗口（断线、重连用）。 */
-    window(id: string): Promise<{readonly client: SessionsClient; readonly window: WorldWindow}>;
+    /** `wrapLink`：包住窗口这一端的链路，测试据此在帧上做手脚（例如丢掉一次结果再断线）。 */
+    window(id: string, options?: {readonly wrapLink?: (link: RemoteLink) => RemoteLink}): Promise<{readonly client: SessionsClient; readonly window: WorldWindow}>;
     /** 运行中登记一个插件；交回的函数停掉它（关它的登记作用域，贡献随之撤回）。 */
     register(plugin: PluginDefinition): Promise<{readonly result: RegisterPluginResult; stop(): Promise<void>}>;
     close(): Promise<void>;
 }
 
-export async function agentWorld(root: string, options: {readonly plugins?: ReadonlyArray<PluginDefinition>; readonly userSettings?: Readonly<Record<string, unknown>>} = {}): Promise<AgentWorld> {
+/** `withoutModels`：不装 `nbook.models`（看模型服务不在时的行为）。 */
+export async function agentWorld(root: string, options: {readonly plugins?: ReadonlyArray<PluginDefinition>; readonly userSettings?: Readonly<Record<string, unknown>>; readonly withoutModels?: boolean} = {}): Promise<AgentWorld> {
     const stateRoot = join(root, "state");
     await mkdir(stateRoot, {recursive: true});
     if (options.userSettings !== undefined) await writeFile(join(stateRoot, "settings.json"), JSON.stringify(options.userSettings));
@@ -47,7 +50,7 @@ export async function agentWorld(root: string, options: {readonly plugins?: Read
         return {};
     }})]};
     const settings = await settingsWorld(root, [
-        definitionAt("server", modelsDescriptor, modelsBackendPlugin),
+        ...(options.withoutModels === true ? [] : [definitionAt("server", modelsDescriptor, modelsBackendPlugin)]),
         definitionAt("server", descriptor, agentBackendPlugin),
         ...(options.plugins ?? []),
         probe,
@@ -57,13 +60,13 @@ export async function agentWorld(root: string, options: {readonly plugins?: Read
         settings,
         service,
         stateRoot,
-        window: async (id) => {
+        window: async (id, windowOptions = {}) => {
             let captured: ActivationContext | null = null;
             const page: PluginDefinition = {id: `test.agent-page-${id}`, entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], activate: (context) => {
                 captured = context;
                 return {};
             }})]};
-            const window = await settings.window(id, [page], {bound: false});
+            const window = await settings.window(id, [page], {bound: false, ...(windowOptions.wrapLink === undefined ? {} : {wrapLink: windowOptions.wrapLink})});
             if (captured === null) throw new Error("the test page did not activate");
             return {client: useSessions(captured), window};
         },

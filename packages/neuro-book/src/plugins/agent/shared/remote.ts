@@ -15,6 +15,7 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {commandErrors, storageErrors} from "@notnotype/nb-harness/kernel/contracts";
 import type {CommandMap, CommandName, Diagnostic, DiagnosticLevel, DeltaFrame, Frame, InputMode, LogEvent, PreviewResult, RewindTarget, RunResult, RunStatus, SessionIndexEntry, SessionSnapshot, UserInput} from "@notnotype/nb-harness/kernel/contracts";
 
+import {TASK_ID} from "./contracts";
 import type {ProfileEntry} from "./contracts";
 
 const object = <T>() => Type.Unsafe<T>(Type.Object({}, {additionalProperties: true}));
@@ -136,6 +137,20 @@ const methods = {
         errors: errorsOf(["unknown-token", "out-of-range"] as const),
     },
     profiles: {input: Type.Object({}, {additionalProperties: false}), output: Type.Unsafe<readonly ProfileEntry[]>(Type.Array(Type.Unknown())), effect: "read"},
+    /** 发起任务、立即返回（sessions.md 输出 10、11）；结果经 `runResult` 与 `frames` 取。同一个 `taskId` 重发得到同一个结果。 */
+    startTask: {
+        input: Type.Object({
+            taskId: Type.String({pattern: TASK_ID}),
+            profile: Type.String({minLength: 1}),
+            initial: Type.Optional(Type.Unknown()),
+            input: Input,
+            project: Type.Optional(Type.String()),
+            background: Type.Optional(Type.Boolean()),
+        }, {additionalProperties: false}),
+        output: Type.Object({sessionId: Type.String(), runId: Type.String()}, {additionalProperties: false}),
+        effect: "write",
+        errors: errorsOf([...OPEN_CODES, ...commandErrors.send, "profile-invalid", "invalid-initial", "task-conflict", "invalid-task-id", "already-running"] as const),
+    },
 } as const;
 
 const events = {

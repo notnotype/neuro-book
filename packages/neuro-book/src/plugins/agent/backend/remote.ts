@@ -140,6 +140,11 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             return chunk === null ? context.fail("out-of-range") : context.ok(chunk);
         },
         profiles: (_input, context) => context.ok(service.profiles()),
+        startTask: async ({initial, ...task}, context) => {
+            const started = await service.startTask({...task, ...(initial === undefined ? {} : {initial: initial as never})});
+            // 码是联合时 `fail` 的类型只收 undefined 的详情；运行时照传，合同里每个码的详情 schema 都收对象。
+            return started.ok ? context.ok({sessionId: started.sessionId, runId: started.runId}) : context.fail(started.code as "task-conflict", started.detail as undefined);
+        },
     };
 
     return {

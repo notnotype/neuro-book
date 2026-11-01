@@ -10,14 +10,15 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
-import type {AgentHost, ApproveHook, Clock, ModelPort, Resources} from "@notnotype/nb-harness/kernel/contracts";
+import type {AgentHost, ApproveHook, Clock, ModelPort, Resources, RunResult} from "@notnotype/nb-harness/kernel/contracts";
 
 import {serverHostModules} from "nbook/backend/plugin-host-modules";
 import {SERVER_SHARED_MODULES} from "nbook/plugin-platform-profile";
 import type {ModelsService} from "nbook/plugins/models/shared/contracts";
 import type {SettingsService} from "nbook/shared/settings";
 
-import type {AgentService} from "../shared/contracts";
+import {TASK_ID, taskSessionId} from "../shared/contracts";
+import type {AgentService, StartTaskOptions, StartTaskResult} from "../shared/contracts";
 import {ON_AGENT_SESSION} from "../shared/points";
 import {agentSettings} from "../shared/settings";
 
@@ -172,19 +173,50 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, report: options.report});
     const table = sessions;
 
-    const service: AgentService = {
-        async create(createOptions) {
-            const created = await table.create(createOptions);
-            if (!created.ok) return created;
-            const view = table.view(created.value.id);
-            // Profile 设置里的审批模式是新会话的初值（contributions.md 输出 13）。
-            const approvalMode = profileSettings()[createOptions.profile]?.approvalMode;
-            if (approvalMode !== undefined) {
-                const changed = await view.changeSettings({commandId: `initial-approval-${created.value.id}`, patch: {core: {approvalMode}}});
-                if (!changed.ok) options.report("initial-settings-failed", `could not apply the profile's approval mode to session ${created.value.id}`, {session: created.value.id, code: changed.code});
+    const createSession: AgentService["create"] = async (createOptions) => {
+        const created = await table.create(createOptions);
+        if (!created.ok) return created;
+        const view = table.view(created.value.id);
+        // Profile 设置里的审批模式是新会话的初值（contributions.md 输出 13）。
+        const approvalMode = profileSettings()[createOptions.profile]?.approvalMode;
+        if (approvalMode !== undefined) {
+            const changed = await view.changeSettings({commandId: `initial-approval-${created.value.id}`, patch: {core: {approvalMode}}});
+            if (!changed.ok) options.report("initial-settings-failed", `could not apply the profile's approval mode to session ${created.value.id}`, {session: created.value.id, code: changed.code});
+        }
+        return {ok: true, value: view};
+    };
+
+    /**
+     * 任务的幂等记录就是会话日志本身（sessions.md 输出 11）：会话 id 由 `taskId` 定，`send` 的 `commandId` 就是 `taskId`。
+     * 重发时会话已在就核对参数、再发同一个 `send`（内核按 `commandId` 交回第一次的结果）；上次建了会话、没来得及 `send` 的，
+     * 这次补上。
+     */
+    const startTask = async (task: StartTaskOptions): Promise<StartTaskResult & {readonly result?: Promise<RunResult>}> => {
+        if (!new RegExp(TASK_ID, "u").test(task.taskId)) return {ok: false, code: "invalid-task-id"};
+        const sessionId = taskSessionId(task.taskId);
+        const created = await createSession({profile: task.profile, id: sessionId, ...(task.initial === undefined ? {} : {initial: task.initial}), ...(task.project === undefined ? {} : {project: task.project}), ...(task.background === true ? {background: true} : {})});
+        if (!created.ok && created.code !== "session-exists") return created;
+        const view = table.view(sessionId);
+        if (!created.ok) {
+            const {header} = await view.snapshot();
+            if (header.profile !== task.profile || header.project !== task.project || (header.background === true) !== (task.background === true)) {
+                return {ok: false, code: "task-conflict", detail: {reason: "the session for this task was started with other parameters"}};
             }
-            return {ok: true, value: view};
-        },
+        }
+        const sent = await view.send({commandId: task.taskId, input: task.input});
+        if (!sent.ok) return sent.code === "command-id-conflict" ? {ok: false, code: "task-conflict", detail: {reason: "this task was started with another input"}} : {ok: false, code: sent.code, ...("detail" in sent && sent.detail !== undefined ? {detail: sent.detail} : {})};
+        // 新会话一定空闲，`send` 同时开始运行；`runId` 为空说明会话里已有运行在跑，任务的输入排在它后面。
+        if (sent.value.runId === null) return {ok: false, code: "already-running"};
+        const runId = sent.value.runId;
+        const result = view.waitRun(runId);
+        // 远程调用方不等它：标记为已处理，免得没人接时成为未处理的拒绝；等它的调用方照样拿到拒绝。
+        result.catch(() => undefined);
+        return {ok: true, sessionId, runId, result};
+    };
+
+    const service: AgentService = {
+        create: createSession,
+        startTask,
         session: (id, issuer) => table.view(id, issuer),
         list: (filter = {}) => store.list({archived: false, background: false, ...filter}),
         profiles: () => profiles.list(),
