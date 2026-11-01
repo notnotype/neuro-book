@@ -1,0 +1,293 @@
+# w00032 t09 第 4 片（前端）实现审查报告
+
+审查对象：`e93b4e218`、`10ce54ed5` 的前端部分（`packages/neuro-book/src/plugins/models/web/**`、Lab 夹具、`e2e/models.e2e.ts`）。
+已跑：`bun test src/plugins/models/web/models-store.test.ts`（3 过）、`vue-tsc --noEmit -p tsconfig.web.json`（通过）。没有跑 e2e 与开发服务；凡标“从代码推断”的需要主 Agent 在浏览器里确认。
+路径省略前缀 `packages/neuro-book/src/plugins/models/web/`（以下记 `web/`）与 `packages/neuro-book/src/plugins/lab/web/fixtures/`（记 `lab/`）。
+
+### 1. 删除确认框取消或删除失败后焦点丢到 body
+
+- 严重程度：重要
+- 类别：焦点与可访问性（Spec 输出 12 的邻近要求、brief 重点 3“对话框关闭后焦点回到打开它的按钮”）
+- 位置：`web/components/ProvidersPage.vue:396`（`<AlertDialog>` 没有 `trigger` 插槽）、`:300-306`（`onRemoveClosed` 在 `pending === null` 时直接返回）
+- 现象：点“删除”图标 → 确认框 → 点“取消”（或确认后删除失败），焦点不回到标题区的“删除”图标按钮，落在 body 上；键盘用户要从头 Tab。
+- 为什么是问题：`nb-ui` 的 `AlertDialog.md` 写明“没有触发器时不执行 Reka 的自动焦点归还”（源码 `AlertDialog.vue` 的 `preventTriggerlessCloseFocus`）。页面只在“删除成功”这一支里手动移焦点，取消与失败两支没人管。`e2e/models.e2e.ts` 只覆盖“删除最后一家 → 焦点到添加服务商”，没有取消、失败、多家的路径。
+- 如何核实：读 `packages/nb-ui/src/components/feedback/AlertDialog.vue` 的 `preventTriggerlessCloseFocus` 与 `AlertDialog.md` 第 12 行附近；浏览器里点删除再点取消，看 `document.activeElement`。
+- 建议改法：`onRemoveClosed` 里 `pending === null` 或结果为 null 时，把焦点放回 `[data-provider-remove]`（`SettingsPageActions` 里的按钮，用 `page.value` 可能找不到，因为它被放进窗口标题区，要用窗口范围内的选择器或让按钮挂 ref）；e2e 补“取消后焦点在删除按钮”。
+
+### 2. 编辑模型对话框的表单在每次快照变化时被重填；模型被别处删掉时对话框变成“手动添加”
+
+- 严重程度：重要
+- 类别：共享状态、违反 Spec 输出 16“正在编辑的输入框不被打断”
+- 位置：`web/components/ModelEditDialog.vue:43-58`（`watch(() => [props.open, props.model] as const, …, {immediate: true})`）；`web/components/ProvidersPage.vue:167-168`（`editModel` 是随快照重算的计算属性）、`:372-382`
+- 现象：对话框开着、用户改了一半时，只要来一次 `changed` 事件（另一个窗口、设置文件视图改了任何东西），`props.model` 换成新对象，侦听器再次触发，`Object.assign(form, …)` 把用户的输入整个换回快照值，`headers` 也重置，`touched` 清零。若这个模型被别处删了，`editModel` 变成 null，`adding` 为真：标题变“手动添加模型”，模型 id 输入框变成可编辑的空框，用户再点保存就会新建一个模型。
+- 为什么是问题：getter 返回字面量数组，每次依赖重算都会得到新数组，`watch` 无法去重；这里的意图只是“打开时填一次”。组件文档 `ModelEditDialog.md` 也写的是“每次打开从当前模型重填”，与实现（每次模型对象变化都重填）不一致。
+- 如何核实：在 Lab 的 `ProvidersPage` 场景里打开编辑框改一个字段，再在另一处触发 `upsertModel`（或用两个窗口），看表单被重置；或用 `vue` 单独写 `watch(() => [a.value, b.value], cb)` 改 `b` 为同内容新对象，回调照样触发。
+- 建议改法：只在 `open` 由假变真时填表（`watch(() => props.open, …)`），打开时把 `model` 取一次；或把 `model` 在打开时冻结成 `editSnapshot`。对话框打开期间模型被删时，页面应关掉对话框或在页脚写“这个模型已经不在了”，不要退化成添加模式。
+
+### 3. 删除服务商时用对象身份找相邻项，快照刷新一次就算错；删除第一家时可能选中自己
+
+- 严重程度：重要
+- 类别：隐含假设、共享状态
+- 位置：`web/components/ProvidersPage.vue:262-265`（`openRemove` 把 `current` 存进 `removeTarget`）、`:287-288`（`providers.value.indexOf(provider)`）、`:295-296`
+- 现象：`removeTarget` 是打开确认框那一刻的快照对象。确认框开着期间只要又来一次快照（例如用户刚在密钥框里粘了密钥，点垃圾桶时失焦触发 `setKey`，它的 `changed` 事件随后到达；或别的窗口改了设置），`indexOf` 返回 -1，`providers[0]` 被当成“下一家”。删的恰好是第一家时，邻居就是它自己：`selected` 被设成已被删除的 id，`current` 为 null，右边变成“全部模型”，左栏没有任何一项带 `aria-current`、也没有 `tabindex=0`（键盘无法进入左栏），焦点目标 `[data-provider-rail-item=…]` 不存在。删的不是第一家时，焦点和选中跳到第一家而不是相邻的一家。
+- 为什么是问题：Spec 输出 12 与验收 1 要求“焦点到下一个服务商”。e2e 只测了删除唯一一家（邻居为空，不经过 `indexOf`），这个分支没有被覆盖。
+- 如何核实：我在 `/tmp/review-t09-slice4/index-of.ts` 里用同样的 `readonly(shallowRef)` + `computed` 结构复现：新快照到达后 `indexOf` 返回 -1，删除 `a` 时 `neighbour: a`（`bun /tmp/review-t09-slice4/index-of.ts`）。
+- 建议改法：按 id 取位置：`providers.value.findIndex((item) => item.id === provider.id)`；`removeTarget` 只存 id，描述文字用当前快照现算；e2e 补“两家以上、删中间一家、焦点到下一家”。
+
+### 4. 窄窗口里删除服务商后，焦点目标被 `display: none` 藏着，`focus()` 不生效
+
+- 严重程度：建议（输出 12 在窄窗口下不成立）
+- 类别：焦点与可访问性、容器查询
+- 位置：`web/components/ProvidersPage.vue:318-319`；样式 `:440-443`（`.providers-page__rail { display: none }`）
+- 现象：页面宽不到 600px 时左栏整个 `display: none`，只有顶上的下拉。删除后 `querySelector('[data-provider-rail-item="…"]')` 找得到被藏起来的左栏按钮，`.focus()` 对不可见元素静默无效，焦点留在 body。下拉里的“添加”按钮也没有 `data-provider-add`（`:337`），所以“没有下一家时到添加服务商”在窄窗口也只有空状态那一个可用。
+- 为什么是问题：验收 3 把“600px 以下列表变下拉”列为必测，但 e2e 的窄窗口用例（`e2e/models.e2e.ts:191-216`）删除后没有断言焦点。从代码推断，未在浏览器里验证。
+- 如何核实：把窗口缩到 700×700（页面宽约 524px），添加两家服务商，删除其中一家，看 `document.activeElement`。
+- 建议改法：窄布局下焦点放到下拉（Select 触发按钮）；用一个“当前布局下可见的目标”函数替代固定选择器，或给下拉加 `data-provider-picker` 并在左栏不可见（`offsetParent === null`）时落到它。
+
+### 5. 模型行在窄处没有任何收缩策略：名称列被固定宽度的列挤到几十像素以下
+
+- 严重程度：重要（从代码推断，未截图验证）
+- 类别：窄窗口、390×844 下的布局（`docs/standards/code/components.md` 完成标准要求 390×844 下核心操作可完成）
+- 位置：`web/components/ModelRow.vue:119-182`（`.model-row__main` 单行 flex）、`:159-169`（`.model-row__fact` 固定 44px、价格列固定 84px）
+- 现象：一行里固定占位的有：开关约 28px、能力图标最多 32px、上下文 44px、单价 84px、状态 16px、两个图标按钮约 50px、6 个 6px 间隔共 36px，合计约 290px，而且上下文与单价这两格在值为空时仍占位。设置窗口最窄 600px 时页面区约 380px，名称列只剩约 90px；390×844 时页面区约 320px，只剩约 30px，有角色小标（约 40px）时为 0。名称、id、角色小标里最先被省略的是“用户要认的那个东西”（模型名）。
+- 为什么是问题：没有 `@container` 或换行规则；Lab 的窄场景只有 560px（`lab/ModelsPageFixture.vue:60-62`），没有 600×400 与 390×844。
+- 如何核实：在 Lab 的 `providers` 场景把画布设为 390×844 与 600×400，截图看第一家的两行；或在 `devtools` 里读 `.model-row__name` 的 `clientWidth`。
+- 建议改法：窄于约 520px 时把单价、上下文移到名称下面一行（或隐藏单价，放进悬停提示）；给 `.model-row__main` 加 `flex-wrap`；Lab 补 390 与 600 的场景并让 `lab:shot` 机检。
+
+### 6. Lab 场景里启用或停用带单价的模型会抛 `DataCloneError`（深只读代理漏进了请求载荷）
+
+- 严重程度：重要（Lab 里现象确定；真实 WebSocket 链路走 JSON，不受影响）
+- 类别：隐含的耦合与共享状态
+- 位置：`web/models-store.ts:144`（`readonly(snapshot)` 是深只读，`snapshot.value` 里的每个对象与数组都是只读代理）；`web/components/ProvidersPage.vue:106`（`configOf` 里 `price: model.price` 直接把代理数组放进载荷，同函数里的 `efforts`、`headers` 却复制了）；`lab/models-scene/fake-remote.ts:29`、`:87-91`（`upsertModel` 把载荷存进 `state`，`publish` 随后 `structuredClone(state)`）
+- 现象：`structuredClone` 不能克隆 Proxy。在 Lab 的“四家服务商”场景里切换 DeepSeek Flash 的开关（单价非 null），`upsertModel` 的 Promise 在 `publish` 里 reject，`toggleModel` 没有 catch，成为未处理的 rejection，页面没有任何变化也没有通知。单价为 null 的模型不受影响，所以问题藏得住。
+- 为什么是问题：Lab 场景是本片的验收材料之一，且 `props.store.call` 的载荷边界上混进了框架代理，换成 `structuredClone`/`postMessage` 类传输（比如进程内的测试窗口）会同样失败。
+- 如何核实：`bun /tmp/review-t09-slice4/proxy-clone.ts` 复现了 `readonly(shallowRef)` 取出的数组 `structuredClone` 抛 `DataCloneError`；Lab 里点开关即可见。
+- 建议改法：`configOf` 里 `price: model.price === null ? null : [...model.price]`；更根本的是数据模块不要把深只读代理交出去（`shallowReadonly` 或在 `snapshot` 出口 `toRaw`），否则每个往 `call` 里传快照片段的地方都要记得复制。
+
+### 7. 离开页面再回来后，“取消检测”按钮还在但已经取消不了
+
+- 严重程度：重要
+- 类别：寿命与所有权、违反 Spec 输出 8
+- 位置：`web/components/ProvidersPage.vue:119-136`（`checkControllers` 是页面实例里的局部 Map，`onBeforeUnmount` 里 `clear()`）、`web/components/ProviderDetail.vue:119、188`（`checking` 来自数据模块里的 `running` 状态）
+- 现象：检测（尤其“检测全部”）进行中切到“模型角色”页或关掉设置窗口，再回到本页：数据模块里这些模型仍是 `running`，详情头显示“取消检测”，但新页面实例的 `checkControllers` 是空的，`cancelChecks` 什么也不中止；用户只能等检测自己结束（单个检测超时可能很久）。
+- 为什么是问题：Spec 输出 8 说“进行中可取消”，同时说“结果记在数据模块里，换页面、关开设置窗口都不丢”；两条一起成立的前提是取消句柄和结果一样活在数据模块里，现在句柄随页面死。
+- 如何核实：Lab 的 fake 检测瞬间完成，看不出来；用 `models.e2e` 的假端点把某模型的补全挂起，开“检测全部”，切到角色页再回来点“取消检测”，行上的转圈不会停。
+- 建议改法：中止句柄移进数据模块（`store.cancel(provider)`），页面只调用；或 `check`/`checkAll` 的 `signal` 由数据模块自己创建并按键保存。
+
+### 8. “检测全部”失败被静默吞掉
+
+- 严重程度：建议
+- 类别：没处理的边界、违反 Spec 输出 8 与“页面不定义新的失败码，按远程合同的业务码显示原因”
+- 位置：`web/components/ProvidersPage.vue:125-129`（`void props.store.checkAll(…)` 丢弃返回值）；`web/models-store.ts:128-131`
+- 现象：`checkAll` 因服务停止（`unavailable`）、服务商已不在（`unknown-provider`）、`unknown-outcome` 等失败时，数据模块把各行还原到调用前，把失败交回，页面不看。用户看到转圈转几秒然后什么都没发生，没有通知、没有行上的失败图标。单个 `check` 的传输失败反而被记成“检测失败”，两条路径不一致。
+- 如何核实：Lab 的 `providers-readonly` 之外没有场景；单测里把 `remote.checkAll` 换成返回 `{ok: false, code: "unavailable"}` 的桩，看 `checks` 回到空、没有任何输出。
+- 建议改法：失败时经 `reportWriteFailure`（或在详情头原位写原因）交给用户；它不是“写入”，但“设置没有保存”的通知文案不对，需要窗口给一个通用的“操作失败”通道，或页面在详情头写一行原因。
+
+### 9. 数据模块：`checkAll` 记下了别人的 `running` 并在中止或失败时原样“还原”，该模型会永远转圈
+
+- 严重程度：建议（经页面当前入口不可达，是数据模块合同上的洞）
+- 类别：并发与中止（brief 重点 1：同一个模型在单个检测与“检测全部”里同时进行）
+- 位置：`web/models-store.ts:117-141`（`previous` 在 `:119` 取，含 `running` 状态；`:122-127` 的 `restore` 把它写回；`:117` 没有“已有检测全部在跑”的防重）
+- 现象：单个检测 X 进行中调用 `checkAll`：`previous.get(X)` 是 `{status: "running"}`；单个检测先完成（X 变 `done`）；随后 `checkAll` 被中止或失败，`restore()` 把 X 写回 `running`，没有任何请求在跑，X 永久转圈，`check` 的“进行中再点不重复发”又拒绝重新检测。`checkAll` 被连续调两次时同样互相覆盖、`previous` 嵌套。
+- 为什么是问题：`check` 靠 `running` 防重，`checkAll` 却不看它；页面当前把“检测全部”按钮在有 `running` 时换成“取消检测”，所以界面上碰不到，但数据模块是两页共用的公共合同，下一个调用者（例如“全部模型”里加检测按钮）会踩到。
+- 如何核实：`/tmp/review-t09-slice4/concurrent-check.test.ts`（`bun test /tmp/review-t09-slice4/concurrent-check.test.ts`）：用桩 remote 复现，输出 `after abort: {"status":"running"}`。
+- 建议改法：`checkAll` 只对当前不是 `running` 的模型发起并记 `previous`；已有同一服务商的检测全部在跑时直接返回；还原时只在当前状态仍是自己设的那个 `running` 时才写回。
+
+### 10. 正在输入的草稿被到达的快照盖掉（地址、密钥、请求头行、自建角色名）
+
+- 严重程度：建议
+- 类别：共享状态、Spec 输出 16“正在编辑的输入框不被打断，失焦时以快照为准”
+- 位置：`web/components/ProviderDetail.vue:48-50`、`:74-76`（`watch(keyCurrent/effectiveUrl) → draft = value`，不管输入框是否在焦点上）；`web/components/HeadersEditor.vue:73-77`；`web/components/RolesPage.vue:55-59`（每次 `roles` 数组变化都重建整个 `drafts` Map）
+- 现象：地址框：用户正在改，另一个窗口把地址改了，`effectiveUrl` 变化，草稿被换成对方的值，用户已输入的部分消失。请求头：`props.headers` 在每次快照里都是新对象，侦听器每次触发；`same(headers, valid())` 在用户有一行合格但还没失焦（或刚改了已存行的值）时为假，于是 `rows` 整个换掉，输入框重建、失去焦点。自建角色：任何一次快照（包括给别的角色绑模型）都会重建 `drafts`，用户正在改的名字和说明回到快照值，`v-model` 绑定的 `drafts.get(id)!` 也换成了新对象。
+- 为什么是问题：Spec 输出 16 明确要求不打断；组件文档也没有把这几处列为例外。自己的写入回声（回车写 → 快照到达）同样会命中：回车后立刻接着输入下一格，回声一到就被盖。
+- 如何核实：两个窗口同开，窗口 A 在地址框里输入不失焦，窗口 B 改同一家的地址；A 的草稿被覆盖。角色页：在自建角色名框里输入，同时在另一个窗口改任一角色的绑定。
+- 建议改法：同步草稿前判断该输入框是否有焦点（`document.activeElement` 或本地 `editing` 标志），有焦点时只记“待同步值”，失焦时以快照为准；`drafts` 按角色增量更新（只替换当前未在编辑的角色）。
+
+### 11. 回车之后紧接着失焦会把同一个值写两遍，失败时发两条通知
+
+- 严重程度：建议
+- 类别：改了就写的时序（brief 重点 2：连着改两次）
+- 位置：`web/components/ProviderDetail.vue:62-68`、`:80-87`、`:142-143`、`:153`（`@focusout` 与 `@keydown.enter` 都调同一个提交函数）；`web/components/HeadersEditor.vue:57-61`、`:84-85`；`web/components/RolesPage.vue:70-81`、`:122`
+- 现象：回车那一刻写入已发出，但快照还没回来，`keyCurrent`/`effectiveUrl`/`props.headers`/`role.name` 还是旧值；用户随即 Tab 离开或点别处，`focusout` 里的比较（“与当前值相同时不写”）仍判为不同，再写一次。env 引用密钥、地址、请求头与角色名都是这样。写失败时 `reportWriteFailure` 发两条同样的通知，`resetToken` 加两次。
+- 为什么是问题：Spec“同一输入框连着改两次：后一次生效，前一次的失败通知照发”说的是两次不同的值，不是同一次提交重复。窗口的通知堆栈里会出现两条相同的“设置没有保存”。
+- 如何核实：把某个写方法的响应延迟 200ms（Lab fake 加 `setTimeout`），在地址框回车后立刻 Tab，看远程调用次数；或观察 `models.e2e` 的写失败用例里是否恰好因为回车后没有二次失焦而躲过。
+- 建议改法：提交函数里记“最近一次已发出的值”（`lastSent`），与它相同就不再发；写入结算时清掉。
+
+### 12. 页面自画的 5 个按钮没有焦点环类，键盘焦点的外观不是主题的焦点环
+
+- 严重程度：建议
+- 类别：焦点与可访问性、同类交互状态一致（`packages/nb-ui/docs/ui-development-spec.md:435`）
+- 位置：`web/components/ProviderDetail.vue:130`（清除）、`:151`（恢复目录地址）、`:162`（高级触发）、`:193`（系列折叠）；`web/components/ModelEditDialog.vue:191`（高级触发）
+- 现象：这些 `<button>` 都是 `border: 0; background: none` 的自画按钮，没有 `nb-ui-focus-ring`（`ProviderRail`、`ModelRow` 的失败按钮、`AddProviderDialog` 的行都加了）。Tab 到它们时看到的是浏览器默认轮廓或什么都没有，与其它控件的主题焦点环不一致；折叠标题和“清除”也没有 hover 反馈。
+- 如何核实：浏览器里 Tab 到“清除”“高级”“系列标题”看外观；或 `lab:shot` 的焦点环机检（规范说它按样式表里的焦点规则找）。这一条从代码推断，实际外观未截图。
+- 建议改法：给这 5 个按钮加 `nb-ui-focus-ring`（贴边的折叠标题用 `nb-ui-focus-ring-inset`）。
+
+### 13. 角色绑着“不可用的模型”时下拉是空的，用户看不到绑的是谁；下拉只按显示名搜索
+
+- 严重程度：建议
+- 类别：没处理的边界、违反 Spec 输出 13“绑定的模型不可用时写原因”
+- 位置：`web/components/RolesPage.vue:30-37`（选项只含 `enabled && status === "ok"`）、`:106-114`（`:model-value="role.model ?? ''"`）、`:77-81`（`problem()`）；`packages/nb-ui/src/components/form/SearchSelect.vue:92-93、98`
+- 现象：角色状态为 `unknown-model`（模型被停用、目录里没有了、缺上下文窗口）时，当前值不在选项里，`SearchSelect` 的 `display` 取 `selected?.label ?? ""`，下拉显示占位“选择模型”，看上去像没绑；红字原因“绑定的模型不可用：目录里没有了或没启用”也不写是哪个模型。用户不知道该去启用哪个。另外 `SearchSelect` 只对 `label` 做 `includes`，名称与 id 不同的模型（例如 `Claude Sonnet 4.5` 对 `claude-sonnet-4-5`）用 id 搜不到。
+- 为什么是问题：Spec 输出 13 要“写原因”，服务端把“没启用”和“目录里没有”都归为 `unknown-model`，页面又不显示引用本身，信息丢失。Lab 的 `roles` 场景（`lab/models-scene/sample.ts:185-192`）没有 `unknown-model` 的角色，所以这个状态没被看过。
+- 如何核实：在 Lab 的 `roles` 场景把 `main` 的状态改成 `unknown-model`、模型指向一个停用的模型，看下拉与红字。
+- 建议改法：红字里带上引用（`deepseek/deepseek-pro`）；选项里为当前值补一个标“不可用”的禁用项，保证下拉能显示当前绑定；搜索把 id 并进匹配（label 之外用 `description` 或自写过滤）。
+
+### 14. 编辑模型对话框：保存会丢掉自定义模型的 `efforts`，请求头里没填完的行被悄悄丢弃
+
+- 严重程度：建议
+- 类别：交出的配置、校验（brief 重点 4）
+- 位置：`web/components/ModelEditDialog.vue:81-109`（`save`）、`:194`（`@commit="(next) => (headers = next)"`）
+- 现象：
+  1) 自定义模型的 `efforts`（推理档，快照里有，设置文件可手写）在表单里没有字段，`save` 交出的配置也不带它；服务端的 `upsertModel` 是“按 id 整条替换”，自定义模型原样存入（`backend/core.ts:270-272` 的 `stored`），保存一次 `efforts` 就没了。启用开关走的 `configOf` 保留了 `efforts`，两条路径不一致。
+  2) 高级里的请求头行没填完（只有名称或只有值）时，`HeadersEditor` 在行下标出原因，但对话框只拿到“合格的行”；用户点“保存”，对话框关闭，那一行消失，没有任何提示。Spec 输出 9 说“校验不过时不关、原位标原因”。
+- 如何核实：1) 在设置文件里给某个自定义模型写 `efforts: ["low"]`，在对话框里改一下显示名保存，再看设置文件。2) 打开高级，添加一行只填名称，点保存。
+- 建议改法：1) `save` 带上 `props.model.efforts`（自定义模型），或在对话框里加一个只读的推理档展示并原样回传。2) 让 `HeadersEditor` 暴露“有未完成的行”（`update:valid` 之类），对话框在 `problems` 里计入并拦住保存。
+
+### 15. 地址与请求头名称没有任何格式校验，能写进去但用不了
+
+- 严重程度：建议
+- 类别：没处理的边界
+- 位置：`web/components/ProviderDetail.vue:80-87`（`commitUrl` 只去空白）、`web/components/AddProviderDialog.vue:60-64`（`create` 只检查非空）、`web/components/HeadersEditor.vue:34-48`（只查空与重复）；服务端 schema 也只有 `minLength: 1`（`shared/settings.ts:23、45`）
+- 现象：粘贴 `api.example.com/v1`（没有协议）、含空格或冒号的请求头名（`X Team`、`Name:`），页面当成合格值写入；之后检测或对话时 `fetch` 抛 “invalid URL / invalid header name”，用户看到的是归类成 `local` 或 `provider` 的模糊原因，找不到病根。
+- 如何核实：在“添加自定义服务商”里把地址写成 `example.com`，添加后检测一个模型。
+- 建议改法：地址要求 `http:`/`https:` 且 `new URL()` 能解析（失败时原位标原因，不写）；请求头名称按 RFC 9110 的 token 字符集校验，值不含换行。
+
+### 16. 检测结果永不清理：服务商删后同 id 重加会带出旧结果；传输失败被记成“模型检测失败”
+
+- 严重程度：建议
+- 类别：共享状态
+- 位置：`web/models-store.ts:103-115`（失败分支 `kind: result.failure.code`）、`:52-57`（`checks` 只增不减）；`web/components/ModelRow.vue:48-52`（未知 `kind` 一律“检测没有通过。”）
+- 现象：1) 自定义服务商的 id 由名字生成（中文名一律生成 `custom`，`shared/rules.ts:21-29`），删除后再加一家同 id、同模型 id 的，`checks` 里旧的 `custom/xxx` 还在，行上直接显示上一家的“检测通过/失败”，左栏也可能显示“有模型检测失败”。`e2e/models.e2e.ts` 的验收 1 和验收 2 先后建了两个都叫 `custom` 的服务商，只是没断言检测状态。2) `check` 在服务停止（`unavailable`）、超时、`unknown-outcome` 时把失败码塞进 `kind`，页面把它记成这个模型“检测失败”，红叉点开写“检测没有通过。”，原文为空；Spec 说失败按远程合同的业务码显示原因。
+- 如何核实：1) 添加服务商、检测、删除、再添加同名服务商并加入同 id 模型。2) 停掉服务端入口后点检测。
+- 建议改法：`removeProvider` 成功或快照里不再有该服务商/模型时清掉对应键；传输类失败不写进 `checks`（或单独标“没有检测成功”），改走通知。
+
+### 17. `dispose()` 之后 `available` 仍为真，已挂载的页面继续可写
+
+- 严重程度：建议
+- 类别：订阅寿命（brief 重点 1）
+- 位置：`web/models-store.ts:151-155`
+- 现象：`dispose` 释放订阅但不把 `available` 置假，也不清 `checks`。入口停用（例如在插件页停用 `nbook.models`）时，已打开的设置窗口里的两页还显示旧快照、控件可点，写入统一以 `unavailable` 失败并弹通知，而不是进入“只读并写明原因”（Spec 输出 17）。`dispose` 后再 `start()` 因 `started` 未清而静默什么都不做，也没有说明。
+- 如何核实：数据模块单测里 `dispose()` 后读 `store.available.value`。
+- 建议改法：`dispose` 里 `available.value = false`，并让 `start()` 在 `disposed` 时直接返回已结束状态；补一条单测。另外 `onEnd` 与订阅返回的先后（订阅在返回前就结束）也没有测试：`:79-89` 在 `onEnd` 已执行后仍把 `available` 设回真并保存 `subscription`。
+
+### 18. 管理模型对话框：打开期间 `current` 变了，“完成”会把新出现的模型当成“要移出”
+
+- 严重程度：建议
+- 类别：共享状态、迟到的数据（brief 重点 4）
+- 位置：`web/components/ManageModelsDialog.vue:47-55`（`added` 在 `open` 变真时从 `props.current` 取一次）、`:81-90`（`done` 用**当前**的 `props.current` 与旧的 `added` 比）；`web/components/ProvidersPage.vue:384-395`（`v-if="current !== null"` 且 `managing` 独立）
+- 现象：
+  1) 对话框开着（尤其自定义服务商拉取要几秒）时，另一个窗口给这家加了模型 M，`props.current` 多了 M，而 `added` 里没有 M，点“完成”时 `remove = current.filter(id => !added.has(id))` 里就有 M，M 被一并移出；而且 M 如果被角色用着，角色随之变成未绑定，用户没有任何确认。
+  2) 这家服务商在对话框开着时被别处删了：`current` 变 null，`v-if` 把对话框卸掉，但 `managing` 仍为真，用户之后选中另一家时，管理对话框会自己弹出来，列的还是上一家的 `candidates`。
+- 如何核实：1) 两个窗口同开，A 打开某家的“管理模型”，B 在同一家手动添加一个模型，A 点完成。2) A 打开管理对话框，B 删除该服务商。
+- 建议改法：打开时把 `current` 存成快照（`openedWith`），`done` 与比较都用它，只提交与它相比的差；再用提交时的 `current` 过滤掉打开后新出现的 id。`current` 变 null 时把 `managing` 置假，或把对话框 `v-if` 换成用 `managing` 且按服务商 id 取数据。
+
+### 19. 无障碍杂项：新错误不可被读屏发现、重试后焦点丢、能力图标造成大量 Tab 停靠点、自建角色添加后无焦点
+
+- 严重程度：建议
+- 类别：焦点与可访问性（brief 重点 3）
+- 位置与现象：
+  1) `web/components/ProviderDetail.vue:145-146`：密钥问题提示 `<p>` 不是 live region，也没有用 `aria-describedby` 与输入框相连；`HeadersEditor.vue:90-91` 的行内错误同样，且“名称/值为空”只把名称框标 `invalid`（`:84`），值框从不标。
+  2) `web/components/ModelRow.vue:55-58、90`：点“重新检测”会先关浮层再发 `check`，随即失败图标被转圈换掉，焦点所在的按钮被卸载，落到 body。检测完成（通过或失败）也没有任何读屏播报（`:79、94` 的图标是 `role="img"`，不是 live）。
+  3) `web/components/CapabilityIcons.vue:19、22`：每个图标 `tabindex="0"`，每个模型行最多多 2 个 Tab 停靠点，50 个模型就是 100 个，而它们不可操作；推理档只在悬停提示里，`aria-label` 里没有（读屏念不出）。
+  4) `web/components/ManageModelsDialog.vue:125-137`：加入/移出按钮同时用了随状态变化的 `aria-label`（“加入 X”“移出 X”）和 `aria-pressed`，读屏会念成“移出 X，已按下”；行内确认出现后焦点还在被收起的图标上，点确认按钮后确认条消失、焦点丢失。
+  5) `web/components/RolesPage.vue:64-68、143`：“添加专精角色”建出一个叫“新角色”的行，焦点留在按钮上，新行不被播报；连点两次得到两个同名角色。
+  6) `web/components/AllModelsView.vue:34`：能力列的表头只写“看图”，实际列里有看图与推理两种图标。
+- 如何核实：读屏或只用键盘走一遍：改密钥得到错误后、点“重新检测”后、在管理模型里移出被角色用着的模型后、添加专精角色后各看焦点位置。
+- 建议改法：错误提示加 `role="alert"` 或 `aria-describedby`；重新检测后把焦点移到该行的检测按钮；图标去掉 `tabindex`，推理档写进 `aria-label`（视觉上 Tooltip 保留）；管理对话框的按钮二选一（只留变化的 label 或只留 `aria-pressed`）；新角色建好后聚焦它的名字框并全选。
+
+### 20. 角色页的 `@container` 没有对应的容器，断点量的是设置窗口宽度而不是页面宽度
+
+- 严重程度：建议
+- 类别：窄窗口（容器查询）
+- 位置：`web/components/RolesPage.vue:218-227`（`@container (max-width: 520px)`）；根元素 `.roles-page` 在 `:155-160` 没有 `container-type`；对比 `web/components/ProvidersPage.vue:404` 声明了 `container-type: inline-size`
+- 现象：容器查询匹配最近的祖先容器。本页的祖先里最近的是 `.settings-window`（`plugins/settings/web/components/SettingsWindow.vue:435`，宽度含 176px 左栏），在 Lab 里则是画布。所以“容器不到 520px 时模型下拉换到名字下面一行”（`RolesPage.md:12`）实际变成“设置窗口不到 520px 时”；窗口 600 到约 720px 之间（页面区约 375 到 495px）三列网格仍生效，名字列只剩约 120px（下拉最小 200px 加 24px 删除列加间隔），自建角色的名称输入框与“未绑定”徽标挤在一起。
+- 如何核实：设置窗口开到 600px 宽，进入模型角色页，看自建角色一行；对照 Lab 的 `roles` 场景不会暴露，因为画布宽度不同。
+- 建议改法：给 `.roles-page` 加 `container-type: inline-size`（子元素的查询才会以它为准）；Lab 的 `roles` 加一个 `-narrow` 场景。
+
+### 21. 组件文档：能力标签与实现不一致，`ModelEditDialog.md` 描述的重填时机与实现不符
+
+- 严重程度：建议
+- 类别：组件文档（`docs/standards/code/components.md` “声明是对实现的如实描述”）
+- 位置：
+  - `web/components/CapabilityIcons.md` 标签只有 `[state:inject]`，但 `CapabilityIcons.vue:2、18、21` 用了 `Tooltip`（传送到 `body`）；`AllModelsView.md`、`ModelRow.md` 对同一个 `Tooltip` 声明了 `env:portal` 并写了理由。
+  - `web/components/HeadersEditor.md` 同上：`HeadersEditor.vue:86` 用了 `Tooltip`，标签没有 `env:portal`。
+  - `web/components/ModelEditDialog.md:11`（“每次打开从当前模型重填”）与实现不符：实现是每次模型对象变化都重填（本报告第 2 条）。
+  - `web/components/ProvidersPage.md`、`RolesPage.md` 的“隐藏通道理由”小节里，说明段落插在列表中间，`state:inject`、`env:portal` 两条列表项排在段落之后，读起来像是段落的子项。
+  - `ProviderRail.md` 与 `ProviderRail.vue` 一致（无 `state:local`、无 `env:portal`），不需要改。
+- 数据一节的类型：`ProviderDetail.md`、`ModelRow.md`、`ProviderRail.md`、`AllModelsView.md`、三个对话框的 `defineProps/defineEmits` 与实现逐项对过，一致。
+- 如何核实：`grep -n "Tooltip" web/components/*.vue` 对照各 `.md` 的 frontmatter。
+- 建议改法：给 `CapabilityIcons.md`、`HeadersEditor.md` 补 `env:portal` 与理由；修好第 2 条后文档不用改，否则把文档改成实际行为。
+
+### 22. Lab 场景与单测没有覆盖到最容易出事的状态
+
+- 严重程度：建议
+- 类别：测试与 Lab 覆盖（brief 重点 6）
+- 位置：`lab/index.ts`（models 的登记，约 `+1030-1137` 行）、`lab/models-scene/sample.ts:154-181、185-192`、`lab/models-scene/fake-remote.ts:126-127`、`web/models-store.test.ts`
+- 现象（Lab）：
+  - 没有 `key: {kind: "none"}`（左栏“没有密钥”、密钥框的“未设置”态）与 `env` 已找到（`keyNote`）的服务商；`RolesPage` 没有 `unknown-model` 的角色（见第 13 条）。
+  - `ProviderDetail` 的场景都不给 `checks`，详情里的转圈/通过/失败/“取消检测”按钮没有任何场景；`ProvidersPage` 里 fake 的 `check`/`checkAll` 立即完成，转圈和取消也看不到。
+  - `HeadersEditor` 没有错误行场景（空名称、重复、空值）；`ModelRow` 没有行内确认；`ManageModelsDialog` 没有“被角色用着的移出确认”“搜索无匹配”“写失败”；`AddProviderDialog` 没有自定义表单与出错；`ModelEditDialog` 没有 `busy`。
+  - 窄场景只有 560px 一个，没有 600×400 与 390×844（第 5 条的问题因此没被看到）。
+  - `fake-remote.ts` 的写入全是同步广播，不模拟 `unknown-outcome`、回声晚于返回、写入延迟，所以第 3、10、11 条这类时序问题在 Lab 里没法复现。
+- 现象（单测）：`web/models-store.test.ts` 只覆盖订阅、单个检测与中止、释放后不再更新。没有：`onEnd` 后重新订阅与 `available` 变假、`unknown-outcome` 触发重取、`checkAll` 中止与失败的还原、单个检测与检测全部并发（第 9 条）、`dispose` 先于订阅返回、`dispose` 之后的 `available`（第 17 条）。后三个都是 brief 重点 1 点名的分支。
+- 如何核实：读 Lab 登记与测试文件。
+- 建议改法：给 fake 加可配置延迟与 `unknown-outcome` 注入；补上面列出的场景；数据模块的这些分支各补一条行为测试（用桩 remote 即可，不必起真服务端）。
+
+### 23. e2e：三条用例共享一个服务端与同一份状态，且依赖执行顺序；重要路径没覆盖
+
+- 严重程度：建议
+- 类别：测试
+- 位置：`e2e/models.e2e.ts:49-62`（`beforeAll` 起一个服务端）、`:84`（验收 1 开头断言“还没有服务商”）、`:174`（验收 2 找 `custom`）、`:215-216`
+- 现象：三条用例共用 `stateRoot`。验收 1 在中途失败会留下服务商 `custom`，验收 2 里新加的“同步测试”得到 `custom-2`，`rail-item='custom'` 立刻可见，断言反而通过或失败得莫名其妙；验收 3 同理。单独 `--grep` 运行验收 2 或 3 能过，但顺序运行时验收 1 的失败会连带出假失败。`retries: 0` 所以没有重试污染，但一个失败产生三个失败，难以定位。另外 `chmod 0o444` 在 root 下不生效、如果服务端用“写临时文件再改名”落盘也挡不住，这条用例的前提没有写出来（未验证）。
+- 没覆盖：取消删除后的焦点（第 1 条）、多家服务商删中间一家的焦点（第 3 条）、窄窗口删除后的焦点（第 4 条）、检测全部与取消（第 7 条）、`unknown-outcome` 通知标题、390×844。验收 1 的“检测失败看原因”只测了单个检测。
+- 如何核实：读 `e2e/models.e2e.ts`。
+- 建议改法：每条用例各起自己的 `stateRoot`（或 `beforeEach` 清空设置与凭据）；把上面的路径补成用例。
+
+### 24. 小的 Spec 偏差：通过的检测没有时间；“单个检测可取消”只能整家取消
+
+- 严重程度：建议
+- 类别：Spec 输出 8
+- 位置：`web/components/ModelRow.vue:93-95`（通过只显示图标与“检测通过”提示，没有时间）、`:99`（检测按钮在 `running` 时禁用，行上没有取消）；`web/components/ProviderDetail.vue:188`（取消按钮 `emit('cancel-checks')`）、`web/components/ProvidersPage.vue:130-132`（`cancelChecks` 中止该服务商全部检测）
+- 现象：Spec 写“结果显示在行上（通过、失败与时间）”，通过的结果没有时间，失败的时间在弹出层里。“单个检测与检测全部进行中可取消”：单个检测没有自己的取消，只有详情头的“取消检测”，一次取消这家全部进行中的检测。
+- 建议改法：通过的图标提示写“检测通过 · 14:03”；行上转圈点一下取消该模型（`AbortController` 已经按模型键分开存了，只差入口）。
+
+### 25. 左栏的方向键处理挂在 `nav` 上，会拦截“添加服务商”按钮上的方向键；自定义表单进入后焦点不进输入框、回车不提交
+
+- 严重程度：建议（从代码推断，未在浏览器验证）
+- 类别：焦点与可访问性
+- 位置：`web/components/ProviderRail.vue:43-55、59`（`@keydown` 在 `<nav>` 上，“添加服务商”按钮也在 `nav` 里）；`web/components/AddProviderDialog.vue:97-124`（`<form @submit.prevent="create">`）
+- 现象：
+  1) 焦点在左栏末尾的“添加服务商”按钮上按 ↑/↓，会被 `onKeydown` 当成左栏导航：选中相邻项并把焦点拽回当前项，按钮上的方向键本不该有这个行为；Home/End 同理。
+  2) 点“自定义 OpenAI 兼容服务商”后列表被 `v-if` 换成表单，被点的按钮卸载，焦点落到对话框面板（或不确定位置），名称框不自动聚焦。表单是 `<form>`，但提交按钮在对话框页脚（表单外），表单里有两个文本框且没有提交按钮，浏览器不做隐式提交，所以在名称/地址框里按回车什么也不发生，`@submit.prevent` 是死代码。
+- 如何核实：1) 焦点移到“添加服务商”按钮按 ↓。2) 进入自定义表单，直接键入、再回车。
+- 建议改法：1) 把方向键处理限定在 `event.target` 为左栏项的情况。2) 进入表单后聚焦名称框（`nextTick` 后 `focus()`，或 `Dialog` 的 `initialFocus` 选择器）；给输入框加 `@keydown.enter="create"` 并删掉无用的 `<form>` 提交处理。
+
+## 勘误与补充
+
+- 第 19 条第 4 小点的措辞有误：应为“点确认条里的‘从列表移出’后，确认条随 `confirming` 清空而消失，焦点所在的按钮被卸载，焦点丢到对话框面板”，不是“焦点还在被收起的图标上”。
+- 第 17 条末尾“订阅在返回前就结束”的情形：`nb-runtime/src/remote/node.ts:425-438` 的 `#enterTerminal` 确实可以在 `subscribe` 的 Promise 还没 resolve 时对已登记的订阅调用 `onEnd`，所以那条分支是可达的，只是窗口很窄。
+- 以下没有核实到问题，原因附后。
+
+## 未发现问题的方面
+
+- 订阅寿命：`dispose` 先于订阅返回时，`web/models-store.ts:84-87` 会 `release` 掉迟到的订阅并返回，正确；`onEnd` 后 `started = null` 使下一次 `start()` 重订，`unknown-outcome` 后 `void refresh()` 重取，响应与事件在同一条有序连接上，旧的 `refresh` 不会盖掉更新的事件（读了 `nb-runtime` 的 `peer.ts`/`node.ts`，未做竞态实验）。
+- 单个检测的中止还原：`web/models-store.ts:103-115`，`signal.aborted` 时恢复 `previous` 或删除键，单测覆盖；单个检测进行中再点不重复发（页面按钮同时被禁用）。
+- `checkKey` 用 `/` 连接是安全的：服务商 id 的正则 `^[a-z0-9][a-z0-9._-]*$`（`shared/settings.ts:19`）不含 `/`，模型 id 可含。
+- 密钥不进浏览器状态：非 `env:` 的原文在提交后立即清空（`ProviderDetail.vue:62-68`），失败后 `resetToken` 把草稿换回实际值；e2e 断言检测原文不含密钥。
+- 写失败路径：`failureReason` 的码表与 `locales/zh-CN.json` 的 `failure.*` 对得上，中英文键与插值变量逐项一致（我用脚本对过两份目录和代码里所有 `text("…")` 的键，没有缺键）。
+- 玻璃面上的色彩：未发现使用字面色或实心 `--bg-hover`，左栏选中与悬停用 `--overlay-item-active`/`color-mix`；状态色按设计语言的分工使用（`--status-warning` 用于“缺上下文窗口”“没有密钥”有些宽，但没有违规）。小号（`--text-xs`）状态文字在玻璃上的对比度我没有条件截图量，需要主 Agent 在暗色与亮色下各看一次。
+- `vue-tsc` 通过；`bun test` 数据模块 3 条通过。
+
+## 各级条数
+
+- 阻断：0
+- 重要：6（第 1、2、3、5、6、7 条）
+- 建议：19（第 4、8 到 25 条）
+- 合计 25 条。其中从代码推断、需浏览器核实的：第 4、5、12、25 条；已有可运行复现的：第 3、6、9 条（脚本在 `/tmp/review-t09-slice4/`）。
+
+## 需要主 Agent 跑的 e2e 或在浏览器里确认的
+
+1. 第 1 条：点删除再取消，读 `document.activeElement`。
+2. 第 4、5 条：窗口 600×400 与 390×844 下的模型行与删除后的焦点（Lab 与真实窗口各一次）。
+3. 第 7 条：检测全部进行中切页再回来点“取消检测”。
+4. 第 12 条：Tab 到“清除”“高级”“系列标题”看焦点环。
