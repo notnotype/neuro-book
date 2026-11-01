@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00032-agent-integration
 issueId: null
 status: active
-updated: 2026-10-30
+updated: 2026-11-01
 ---
 
 # NeuroBook 接入 Agent
@@ -49,6 +49,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-10-30 | t19 讨论完成，全部按推荐：MCP 插件 `nbook.mcp` 另开 [w00036](../w00036-mcp/README.md)；第一版只有用户级配置、不读项目的 `.mcp.json`；工具缺省不绑 Profile、缺省算执行档；工具名上限改为 64（改 t04）（[t19](tasks/t19-mcp/README.md)） |
 | 2026-10-30 | t25 移出：插件分发另开 [w00038](../w00038-plugin-distribution/README.md)（git、npm、官方与第三方市场、离线压缩包）；官方网站与服务（登录、备份、同步、社区、官方市场）另开 [w00037](../w00037-official-site/README.md)（[t25](tasks/t25-plugin-marketplace/README.md)） |
 | 2026-10-30 | t13 讨论完成：收件箱三种接受方式（立即、下一条消息时、手动），不做按天数自动接受；每轮改动文件条由 nb-history 提供；保留、合并保存、大文件不存快照。同时改判 t06：默认不放行写入，写入要审批；先做 yolo，再做交审批模型，按工具的规则先于模式判定（[t13](tasks/t13-history/README.md)、[t06](tasks/t06-approval/README.md)） |
+| 2026-11-01 | t20 之后先实施 t09（其余顺序是建议，见 [t09](tasks/t09-models/README.md)）；t09 的设置界面先出静态稿、定稿后前后端一起做；第一版不做 OAuth 登录 |
 
 ## 待确认
 
@@ -62,6 +63,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 - [各家的 Skill：字段、参数、依赖、更新与市场](research/2026-10-30-skill-survey.md)（t15）。
 - [旧应用的 Agent 资产、评测做法与临时代理](research/2026-10-30-builtin-profiles-survey.md)（t18）。
 - [各家的 MCP 客户端](research/2026-10-30-mcp-client-survey.md)（t19）。
+- [模型服务：OMP、新应用与旧应用的现状](research/2026-11-01-model-service-survey.md)（t09）。
 - [插件市场：Obsidian、VS Code、Claude Code 与其它](research/2026-10-30-plugin-marketplace-survey.md)（t25）。
 - [Agent 操作宿主应用与网页界面](research/2026-10-30-host-control-survey.md)（t16）：宿主命令、网页界面的感知与操作、截图与高亮、omp 的浏览器与 eval、CodeAct 的文档形式、页面内可复用的库。
 - [需求对照与遗漏](tasks/t01-survey/artifacts/report/index.html)（t01 的 `report` 产物）：开发者列的 20 条需求与清单外 10 项。

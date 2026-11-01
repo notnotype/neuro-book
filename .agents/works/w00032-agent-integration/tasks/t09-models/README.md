@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t09-models
-status: planned
-updated: 2026-10-28
+status: active
+updated: 2026-11-01
 ---
 
 # 模型服务与模型角色
@@ -44,10 +44,21 @@ t02。
 7. 上下文窗口：OMP 目录里的模型自带；自定义模型必须填（压缩要用）。单价 `null` 为未知、`0` 为免费，界面分开显示；用量按会话汇总。
 8. nb-story 在应用里跑时，模型与密钥从模型服务取；它在应用里的配置页留到 nb-story 接入时再定；命令行不变。
 
+## 实施（2026-11-01 起）
+
+开发者 2026-11-01 定 t20 之后先做本 Task；推进顺序的建议是 t09 → t10（连带 t03 的会话存放、t05 的 Profile 目录与重载）→ t12 加 t06 的 yolo 与 auto → t11 的压缩方法 → t17，nb-story 迁到新内核可插在 t10 之后（只定了先做 t09，其余是建议）。
+
+开发者同日定：
+
+9. 设置界面（服务商与模型页、角色页）先按 design-review 出静态稿评审，定稿后前后端一起实施；计划在定稿后写。
+10. 第一版不做 OAuth 登录：只有 API Key、`env:<变量名>` 与不要认证的端点。凭据库照决定 2 用 OMP 的，OAuth 的表一起建好，登录流程以后单加。
+
+调研：[OMP、新应用与旧应用的现状](../../research/2026-11-01-model-service-survey.md)（旧应用 24 项可观察行为与逐项建议）。
+
 ## 当前状态
 
-讨论完成（2026-10-28）。计划与实施切片在本 Work 的讨论全部完成后另定。
+design-review 第 1 步完成（现状与参照）；下一步与开发者确认注意力排序与调研里的待定问题，再在草稿 worktree 出静态稿。
 
 ## 下一步
 
-实施时按 implementation-planning 写 `plan.md`；把模型角色合同写成 Spec。
+注意力排序定了之后出第一轮静态稿；定稿后按 implementation-planning 写 `plan.md`，把模型角色合同与模型服务写成 Spec，并订正 `settings/configuration.md` 输出 20（密钥存储由第一个使用者定）。
