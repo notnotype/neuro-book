@@ -12,7 +12,7 @@ owners:
 
 ## 目标与非目标
 
-内置插件 `nbook.models` 管“用哪个模型、凭什么密钥”：用户添加的服务商与模型、密钥、模型角色，并给 harness 内核实现模型端口（[`harness/models.md`](../harness/models.md)）。Agent 插件、编辑器的行内 AI、应用里的 nb-story 都经它取模型；密钥不出这个插件。设置界面的合同另写（`models/settings-pages.md`，随界面实施）。
+内置插件 `nbook.models` 管“用哪个模型、凭什么密钥”：用户添加的服务商与模型、密钥、模型角色，并给 harness 内核实现模型端口（[`harness/models.md`](../harness/models.md)）。Agent 插件、编辑器的行内 AI、应用里的 nb-story 都经它取模型；密钥不出这个插件。设置界面的合同见 [`models/settings-pages.md`](settings-pages.md)。
 
 不承诺：
 
