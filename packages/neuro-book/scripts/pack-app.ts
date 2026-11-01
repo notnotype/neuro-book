@@ -41,6 +41,11 @@ const FORBIDDEN_TEXT = ["new Worker(", "import.meta.resolve("];
  * 目录，不是打包要管的依赖。别的计算出来的 `import(…)` 都拒绝：打包看不见它要的模块。
  */
 const ALLOWED_DYNAMIC_IMPORT = "attempt === 0 ? import(file) : import(`${file}?attempt=${String(attempt)}`)";
+/**
+ * 名叫 `import` 的对象方法的定义（例如 `@oh-my-pi/omptype` 作用域对象上的 `import(...names) {`）：一行里只有方法名、
+ * 参数表与左花括号。它不是动态导入，按文本找时先去掉；真正的 `import(x).then(() => {` 在右括号后还有东西，不会被去掉。
+ */
+const IMPORT_METHOD_DEFINITION = /^\s*import\((?:\s*(?:\.\.\.)?[\w$]+\s*,?)*\)\s*\{\s*$/gmu;
 /** 生成的目录里的标记：只有带它的目录才是上次生成的应用包，可以清空重建。它不在 `files` 里，不进 tarball。 */
 const MARKER = ".nbook-app-package";
 /** Web 产物里的字体与它们的许可声明（字体不是 JS 模块，Vite 的许可清单不收）。没有登记的字体让打包失败。 */
@@ -75,7 +80,7 @@ export function bundleProblems(source: string): string[] {
     const imports = new Bun.Transpiler({loader: "js"}).scanImports(source.replace(/^#!.*/u, ""));
     const external = imports.map((entry) => entry.path).filter((path) => !path.startsWith("bun:") && path !== "bun" && !isBuiltin(path));
     // scanImports 只报字面的导入；计算出来的 `import(x)` 按文本找：去掉允许的那一处之后，`import(` 后面不是引号的都算。
-    const computed = source.replaceAll(ALLOWED_DYNAMIC_IMPORT, "").match(/\bimport\(\s*(?!["'])/gu)?.length ?? 0;
+    const computed = source.replaceAll(ALLOWED_DYNAMIC_IMPORT, "").replace(IMPORT_METHOD_DEFINITION, "").match(/\bimport\(\s*(?!["'])/gu)?.length ?? 0;
     return [
         ...[...new Set(external)].map((path) => `引用了外部模块 ${path}：依赖要打进 bundle`),
         ...(computed === 0 ? [] : [`有 ${String(computed)} 处计算出来的动态导入：打包看不见它要的模块`]),

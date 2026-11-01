@@ -21,6 +21,7 @@ import {imageViewerBrowserPlugin} from "nbook/plugins/image-viewer/web/plugin";
 import {imageViewerCatalogs} from "nbook/plugins/image-viewer/web/text";
 import {markdownBrowserPlugin} from "nbook/plugins/markdown/web/plugin";
 import {markdownCatalogs} from "nbook/plugins/markdown/web/text";
+import {modelsCatalogs} from "nbook/plugins/models/web/text";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
 import {explorerCatalogs} from "nbook/plugins/explorer/web/text";
 import {filesBrowserPlugin} from "nbook/plugins/files/web/plugin";
@@ -89,6 +90,7 @@ export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = 
     "nbook.html-preview": htmlPreviewCatalogs,
     "nbook.image-viewer": imageViewerCatalogs,
     "nbook.markdown": markdownCatalogs,
+    "nbook.models": modelsCatalogs,
     "nbook.plugins": pluginsCatalogs,
     "nbook.projects": projectsCatalogs,
     "nbook.settings": settingsCatalogs,

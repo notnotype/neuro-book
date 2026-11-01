@@ -118,5 +118,8 @@ describe("bundle 的核对", () => {
         // 计算出来的动态导入只许插件平台装载插件入口的那一处。
         expect(bundleProblems("const name = pick(); await import(name);")).toEqual(["有 1 处计算出来的动态导入：打包看不见它要的模块"]);
         expect(bundleProblems("module = await (attempt === 0 ? import(file) : import(`${file}?attempt=${String(attempt)}`));")).toEqual([]);
+        // 名叫 import 的对象方法不是动态导入；同样以行首 import( 开头、后面接 .then 的照样算。
+        expect(bundleProblems("const scope = {\n    import(...names) {\n        return names;\n    },\n};")).toEqual([]);
+        expect(bundleProblems("import(name).then(() => {\n});")).toEqual(["有 1 处计算出来的动态导入：打包看不见它要的模块"]);
     });
 });
