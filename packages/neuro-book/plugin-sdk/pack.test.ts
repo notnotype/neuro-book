@@ -356,7 +356,7 @@ const DECLARED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "state": ["definePublicState", "defineStore"],
     "storage": ["RecordDefinition", "RecordHandle", "RecordSnapshot", "Revision", "StorageFailure", "StorageService", "UpdateResult", "WriteResult", "defineRecord", "storageKey"],
     "settings": ["SETTINGS_CHOICES_POINT", "SETTINGS_PAGES_POINT", "SETTINGS_SECTIONS_POINT", "SectionHelper", "SettingDefinition", "SettingLayer", "SettingWriteResult", "SettingsChoicesDeclaration", "SettingsFailure", "SettingsPageDeclaration", "SettingsSectionCategory", "SettingsSectionDeclaration", "SettingsService", "defineSetting", "displayLocale", "section", "setting", "settingsChoicesEvent", "settingsKey"],
-    "settings/browser": ["ChoicesHelper", "OptionSource", "SettingsChoicesImplementation", "SettingsPageActions", "SettingsPageContext", "SettingsPageHelper", "SettingsPageList", "SettingsRow", "SettingsSaveBar", "choices", "settingsPage"],
+    "settings/browser": ["ChoicesHelper", "OptionSource", "SettingsChoicesImplementation", "SettingsPageActions", "SettingsPageContext", "SettingsPageHelper", "SettingsPageList", "SettingsPageWriteFailure", "SettingsRow", "SettingsSaveBar", "choices", "settingsPage"],
     "commands": ["COMMANDS_POINT", "CommandDeclaration", "CommandFailure", "CommandFailureCode", "CommandHelper", "CommandImplementation", "CommandResult", "CommandService", "command", "commandServiceKey"],
     "workbench": ["ItemDeclaration", "ItemImplementation", "OPEN_VIEW_COMMAND", "PropsOf", "StatusItemHelper", "ViewContext", "ViewDeclaration", "ViewHelper", "ViewImplementation", "ViewLocation", "WORKBENCH_STATUSBAR_ITEMS_POINT", "WORKBENCH_VIEWS_POINT", "statusItem", "view"],
 };

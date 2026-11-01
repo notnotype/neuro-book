@@ -520,8 +520,18 @@ test("左栏：层标签在搜索框上方、每个有分区的组上方有组�
     for (const label of await labels.all()) await expect(label).toBeVisible();
     const items = await page.locator("[data-settings-nav]").evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().top));
     expect(items.every((top, index) => index === 0 || top > items[index - 1]!)).toBe(true);
+    // 整窗几何：左栏 176px 从窗口左缘起，竖分隔线紧贴其右，右边的内容区从分隔线右缘一直铺到窗口右缘。
     const side = await box(".settings-window__side");
-    expect(Math.round(side.width)).toBe(212);
+    expect(Math.round(side.width)).toBe(176);
+    const split = await box(".settings-window__split");
+    const divider = await box(".settings-window__divider");
+    const scroll = await box(".settings-window__scroll");
+    // 外框带亚像素位置（窗口居中），按 1px 以内比较。
+    const near = (actual: number, expected: number, what: string): void => expect(Math.abs(actual - expected), what).toBeLessThanOrEqual(1);
+    near(side.x, split.x, "左栏贴窗口左缘");
+    near(divider.x, side.x + side.width, "分隔线紧贴左栏");
+    near(scroll.x, divider.x + divider.width, "内容区紧贴分隔线");
+    near(scroll.x + scroll.width, split.x + split.width, "内容区铺到右缘");
 
     // 悬停、按下（没松开）：变换仍是 none，外框不动。
     const target = page.locator("[data-settings-nav='nbook.works']");
@@ -615,6 +625,40 @@ test("设置文件视图：看到带注释的全文，改主题后 Ctrl+S 保存
     await expect(page.locator("[data-settings-layer-notice]")).toHaveCount(0);
     expect(await readFile(userFile(), "utf8")).toBe(USER_FILE);
     expect(problems).toEqual([]);
+});
+
+test("Lab 左栏长标题：截断显示省略号，悬停时 Tooltip 给全名；没截断的分区悬停不出提示", async ({page}) => {
+    const devRoot = join(tmp, "dev-long-titles");
+    await mkdir(devRoot, {recursive: true});
+    const dev = await startDevSession(devRoot);
+    try {
+        // Lab 的画布要够宽，窗口才是竖排的左栏（窄了分区横排、不截断）。
+        await page.setViewportSize({width: 1600, height: 900});
+        await page.goto(`${dev.pageUrl}lab?c=SettingsWindow&s=long-titles`);
+        // 提示的面是 nb-ui 的 .nb-ui-tooltip-surface（传送到 body），里面除了看得见的字还有给读屏的一份，所以比“包含”。
+        const tooltip = page.locator(".nb-ui-tooltip-surface");
+        for (const [id, full] of [["example.snippets.long-zh", "人物关系、世界观与时间线的一致性检查"], ["example.snippets.long-en", "Manuscript Export Presets"]] as const) {
+            const item = page.locator(`[data-settings-nav='${id}']`);
+            const label = item.locator(".settings-window__nav-text");
+            await expect(label).toHaveText(full);
+            expect(await label.evaluate((element) => element.scrollWidth > element.clientWidth), `${full} 被截断`).toBe(true);
+            await item.hover();
+            await expect(tooltip).toContainText(full);
+            await page.mouse.move(0, 0);
+            await expect(tooltip).toHaveCount(0);
+        }
+        // 聚焦时提示不等延时（nb-ui Tooltip：hover 延迟、focus 即时）：先用截断的分区证明聚焦会出提示，再聚焦没截断的，过两帧仍没有提示。
+        const frames = (): Promise<void> => page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await page.locator("[data-settings-nav='example.snippets.long-zh']").focus();
+        await expect(tooltip).toContainText("人物关系、世界观与时间线的一致性检查");
+        await page.locator("[data-settings-nav='nbook.appearance']").focus();
+        await expect(tooltip).toHaveCount(0);
+        await frames();
+        await expect(tooltip).toHaveCount(0);
+    } finally {
+        dev.child.kill("SIGTERM");
+        expect(await dev.exit).toBe(0);
+    }
 });
 
 test("Lab“模型服务”：打开时才激活；首屏是服务商列表，添加服务商在标题区；加一家没填好时保存被拒，填好后保存；有改动时切分区先确认", async ({page}) => {

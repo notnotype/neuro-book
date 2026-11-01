@@ -108,7 +108,7 @@ async function openPage() {
     const layer = ref<SettingLayer>("user");
     const engine = textEngine();
     const wrapper = mount(SnippetsPage, {
-        props: {context: {id: SNIPPETS_SECTION, layer: readonly(layer), projectTitle: readonly(ref("book")), options: {}, writable: readonly(ref(true)), dirty: () => undefined}, settings: probe.settings},
+        props: {context: {id: SNIPPETS_SECTION, layer: readonly(layer), projectTitle: readonly(ref("book")), options: {}, writable: readonly(ref(true)), dirty: () => undefined, reportWriteFailure: () => undefined}, settings: probe.settings},
         global: {provide: provideText(engine.port)},
         attachTo: document.body,
     });

@@ -12,6 +12,7 @@ import {useRoute} from "vue-router";
 
 import CheckboxFocusFixture from "../../acceptance/CheckboxFocusFixture.vue";
 import ControlInvalidFixture from "../../acceptance/ControlInvalidFixture.vue";
+import DialogSurfacesFixture from "../../acceptance/DialogSurfacesFixture.vue";
 import NestedGridFixture from "../../acceptance/NestedGridFixture.vue";
 import PopupListsFixture from "../../acceptance/PopupListsFixture.vue";
 import SuggestionMenuFixture from "../../acceptance/SuggestionMenuFixture.vue";
@@ -27,6 +28,7 @@ const FIXTURES: Record<string, Component> = {
     "control-invalid": ControlInvalidFixture,
     "popup-lists": PopupListsFixture,
     "suggestion-menu": SuggestionMenuFixture,
+    "dialog-surfaces": DialogSurfacesFixture,
 };
 
 const route = useRoute();

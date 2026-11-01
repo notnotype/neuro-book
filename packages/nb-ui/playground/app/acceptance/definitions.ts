@@ -64,6 +64,13 @@ export const ACCEPTANCE_DEFINITIONS: Record<string, LabComponentDefinition> = {
         controls: [],
         events: [],
     },
+    "dialog-surfaces": {
+        id: "dialog-surfaces",
+        label: "对话框分档",
+        scenes: [{id: "single", label: "一个对话框"}, {id: "nested", label: "对话框里的对话框"}, {id: "alert", label: "对话框里的确认框"}],
+        controls: [],
+        events: [],
+    },
     "suggestion-menu": {
         id: "suggestion-menu",
         label: "SuggestionMenu",

@@ -110,6 +110,8 @@ export const nbThemeRoleTokens = [
     "--sidebar-surface",
     "--toolbar-surface",
     "--overlay-surface",
+    "--dialog-surface",
+    "--dialog-surface-nested",
     "--overlay-blur",
     "--overlay-sheen",
     "--overlay-item-active",

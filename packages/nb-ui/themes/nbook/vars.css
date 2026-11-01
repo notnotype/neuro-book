@@ -210,10 +210,12 @@
      */
     --sidebar-surface: color-mix(in srgb, var(--bg-sidebar) 26%, transparent);
     --toolbar-surface: color-mix(in srgb, var(--bg-sidebar) 30%, transparent);
-    /* 浮层 Surface 黄金标准（Select 调优规范）：
-       必须提供一层半透明温润白底（65% --bg-panel）压住对比并保证文字可读性，
-       搭配 8px 高斯模糊 + 130% 饱和度滤波与 4 阶立体柔影，杜绝过薄透明导致的透光干扰与眩光。 */
-    --overlay-surface: color-mix(in srgb, var(--bg-panel) 65%, transparent);
+    /* 浮层 Surface 分档（开发者 2026-11-01 在 Lab 里对着彩色背景挑定）：菜单、下拉、弹出框这类小浮层 72% --bg-panel，
+       对话框与浮动窗口（设置窗口）90%，叠在对话框上的二级对话框同样 90%；都搭配 8px 高斯模糊 + 130% 饱和度滤波与
+       4 阶立体柔影。大面积、字段多的面要读得清，小浮层留材质感。 */
+    --overlay-surface: color-mix(in srgb, var(--bg-panel) 72%, transparent);
+    --dialog-surface: color-mix(in srgb, var(--bg-panel) 90%, transparent);
+    --dialog-surface-nested: color-mix(in srgb, var(--bg-panel) 90%, transparent);
     /* 库的浮层基座（.nb-ui-popover-surface）从这里取磨砂。
        小浮层明确消费 8px 纯 blur，不接完整 SVG 折射：`feDisplacementMap` 会移动边缘的
        backdrop sample，造成用户所说的背景纹理错位。大容器仍可消费 `--glass-lens-strong`。
@@ -414,8 +416,10 @@
        --glass-rim 只画整块窗口的轮廓，不接到浮层上。 */
     --sidebar-surface: color-mix(in srgb, var(--bg-sidebar) 52%, transparent);
     --toolbar-surface: color-mix(in srgb, var(--bg-sidebar) 56%, transparent);
-    /* 暗色下 75% 烟熏深底压住对比，提供稳定面板感与文字高可读性 */
+    /* 暗色下小浮层 75% 烟熏深底压住对比，提供稳定面板感与文字高可读性；对话框两档同亮色 90% */
     --overlay-surface: color-mix(in srgb, var(--bg-panel) 75%, transparent);
+    --dialog-surface: color-mix(in srgb, var(--bg-panel) 90%, transparent);
+    --dialog-surface-nested: color-mix(in srgb, var(--bg-panel) 90%, transparent);
     --strip-surface: color-mix(in srgb, var(--bg-subtle) 60%, transparent);
 
     --surface-raise: linear-gradient(180deg, rgb(255 255 255 / 0.07), rgb(255 255 255 / 0.01) 55%, rgb(0 0 0 / 0.1));
@@ -527,6 +531,8 @@
         --sidebar-surface: var(--bg-sidebar);
         --toolbar-surface: var(--bg-sidebar);
         --overlay-surface: var(--bg-panel);
+        --dialog-surface: var(--bg-panel);
+        --dialog-surface-nested: var(--bg-panel);
         --overlay-blur: none;
         --overlay-sheen: none;
         /* 高亮那一层也得实心：面已经不透了，再叠一层 12% 的前景色只会得到一块灰糊的行 */
@@ -548,6 +554,8 @@
         --sidebar-surface: var(--bg-sidebar);
         --toolbar-surface: var(--bg-sidebar);
         --overlay-surface: var(--bg-panel);
+        --dialog-surface: var(--bg-panel);
+        --dialog-surface-nested: var(--bg-panel);
         --overlay-blur: none;
         --overlay-sheen: none;
         --overlay-item-active: var(--bg-hover);

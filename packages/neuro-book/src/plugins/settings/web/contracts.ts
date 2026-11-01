@@ -42,4 +42,16 @@ export interface SettingsPageContext {
      * false。页面卸载后再调用不起作用。
      */
     dirty(value: boolean): void;
+    /**
+     * 页面自己发起的写入没有成功（输出 14）：交给窗口发通知，文案、色调与通用分区的写入失败一致，页面不各发各的。
+     * `subject` 是没保存的那一项，`reason` 是原因，两者都是页面按当前语言翻好的文字；`uncertain` 为真时写入结果未知
+     * （例如请求发出后连接断了），通知标题换成“可能没有保存”。离开页面后晚到的失败照样通知。
+     */
+    reportWriteFailure(subject: string, failure: SettingsPageWriteFailure): void;
+}
+
+/** 页面写入失败的原因，见 `SettingsPageContext.reportWriteFailure`。 */
+export interface SettingsPageWriteFailure {
+    readonly reason: string;
+    readonly uncertain?: boolean;
 }

@@ -487,6 +487,8 @@ input.nb-ui-native-input[type="number"] {
  */
 .nb-ui-dialog-surface {
     border-radius: var(--radius-dialog);
+    /* 对话框的面另有一档（--dialog-surface，缺省同小浮层）：大面积、字段多，主题可以给得更实。 */
+    background-color: var(--dialog-surface);
     box-shadow: var(--elevation-dialog);
 }
 
@@ -498,6 +500,24 @@ input.nb-ui-native-input[type="number"] {
 /* 浮动窗口（Dialog 的 modal=false）：外框圆角改取窗口那一档，同样写在 .nb-ui-dialog-surface 后面。 */
 .nb-ui-dialog-surface--window {
     border-radius: var(--radius-window);
+}
+
+/*
+ * 叠在另一个对话框或浮动窗口上的对话框（Dialog、AlertDialog 按组件树数出的层数 ≥ 2）：面取二级那档，圆角不大于底下的
+ * 窗口（design-language.md 的几何清单）。写在上面三条后面，压过它们的面与圆角；小确认框在两档里取小的。
+ */
+.nb-ui-dialog-surface--nested {
+    border-radius: min(var(--radius-window), var(--radius-dialog));
+    background-color: var(--dialog-surface-nested);
+}
+
+.nb-ui-dialog-surface--compact.nb-ui-dialog-surface--nested {
+    border-radius: min(var(--radius-window), var(--radius-dialog-compact));
+}
+
+/* 抽屉沿用小浮层那档的面：它贴在窗口一边、不压住整个窗口，分档没有评审过它（t09 只定了对话框）。 */
+.nb-ui-drawer-surface {
+    background-color: var(--overlay-surface);
 }
 
 /*
