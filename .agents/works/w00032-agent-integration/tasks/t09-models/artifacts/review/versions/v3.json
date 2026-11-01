@@ -1,0 +1,152 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t09-models",
+    "artifactId": "review",
+    "version": 3,
+    "supersedes": 2,
+    "action": "publish",
+    "kind": "design",
+    "title": "模型服务的设置页",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "87346923ef480f12bc429e235abca4d8e3ce7375fcc722171e4dddc57ed95bd5",
+    "files": [
+        "index.html",
+        "r1/drill-custom.webp",
+        "r1/drill-detail.webp",
+        "r1/drill-empty.webp",
+        "r1/drill-list.webp",
+        "r1/roles.webp",
+        "r1/split.webp",
+        "r2/split-custom-edit.webp",
+        "r2/split-custom.webp",
+        "r2/split-deepseek.webp",
+        "r2/split-edit.webp",
+        "r2/split-env.webp",
+        "r2/split-nokey.webp",
+        "r3/all.webp",
+        "r3/catalog-manage.webp",
+        "r3/catalog.webp",
+        "r3/custom-series.webp",
+        "r3/discover.webp",
+        "r3/edit.webp",
+        "r3/nokey.webp"
+    ],
+    "questions": [
+        {
+            "id": "provider-layout",
+            "type": "single",
+            "label": "服务商与模型页用哪种版式",
+            "options": [
+                {
+                    "value": "drill",
+                    "label": "甲 列表下钻"
+                },
+                {
+                    "value": "split",
+                    "label": "乙 左列表右详情"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "drill"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "provider-detail",
+            "type": "confirm",
+            "label": "服务商详情按这几张图的内容与排法做",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "roles-page",
+            "type": "confirm",
+            "label": "模型角色页按这张图做",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "provider-detail-r2",
+            "type": "confirm",
+            "label": "服务商详情按第二轮的稿做",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "models-r3",
+            "type": "confirm",
+            "label": "模型列表、管理模型与全部模型按第三轮的稿做",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "nested-dialog",
+            "type": "single",
+            "label": "叠在设置窗口上的对话框怎么改",
+            "options": [
+                {
+                    "value": "nb-ui",
+                    "label": "在 nb-ui 的 Dialog 里实现这两条规则"
+                },
+                {
+                    "value": "local",
+                    "label": "只在模型服务的对话框上覆盖"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "nb-ui"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "side-width",
+            "type": "confirm",
+            "label": "设置窗口的分区栏改窄到 176px（产品里改，所有分区一起）",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-01T02:35:06.705Z"
+}

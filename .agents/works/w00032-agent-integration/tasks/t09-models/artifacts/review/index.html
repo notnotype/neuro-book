@@ -30,26 +30,62 @@ ul.notes li { font-size: 14px; }
 </style>
 </head>
 <body>
-<h1>模型服务的设置页：第二轮静态稿</h1>
-<p class="lead">设置窗口、标题区、控件都是产品里的真组件，页面内容是草稿，数据是示例：DeepSeek（目录服务商，密钥存在凭据库）、Anthropic（目录服务商，密钥读环境变量）、本地 Ollama（自定义的 OpenAI 兼容服务商）、OpenRouter（还没设置密钥）。第二轮按第一轮的答复改：版式用左列表右详情；服务商详情的“连接”与模型编辑参照旧应用和 Cherry Studio 重做。</p>
+<h1>模型服务的设置页：第三轮静态稿</h1>
+<p class="lead">第三轮按第二轮的意见改：模型发现、全部模型、模型行用能力图标并降低价格的注意力、按系列分组、两条左栏变窄、编辑对话框不透明且圆角跟窗口。示例数据加了一家自定义服务商“火山方舟”，用来看分组与拉取 <code>/models</code>。设置窗口、标题区与控件都是真组件，页面内容是草稿。</p>
 
 <h2>待定</h2>
 
-<section class="q" data-nbdev-question="provider-detail-r2" data-nbdev-type="confirm">
-  <h3><span class="badge todo" data-nbdev-skip>待定</span>服务商详情按第二轮的稿做</h3>
-  <p><b>连接</b>改成旧应用那样标签在上、输入在下的表单。API 密钥是一个密码框，右边“检测”（参照 Cherry Studio），右上角“清除”；已设置的密钥不回到浏览器，框里只写“已设置 · 输入新的密钥替换”，输入新值即替换；<code>env:变量名</code> 不是密钥，照原样显示并写明读没读到。接口地址下面写出实际的请求地址（参照 Cherry Studio）；目录服务商的地址来自 OMP 目录、只读，要走中转站就添加自定义服务商。</p>
-  <p><b>模型</b>行不再展开：每行是启用开关、名称与 id、推理／看图标签、上下文窗口、单价、检测结果、检测按钮与齿轮，齿轮打开“编辑模型”对话框（参照旧应用的模型编辑对话框与 Cherry Studio）。对话框分四节：基本（显示名称；id 只读）、能力与限制（目录模型的窗口、最大输出、看图、推理来自 OMP 目录、只读）、压缩触发点、四项单价。不同意的地方写在备注里。</p>
+<section class="q" data-nbdev-question="models-r3" data-nbdev-type="confirm">
+  <h3><span class="badge todo" data-nbdev-skip>待定</span>模型列表、管理模型与全部模型按第三轮的稿做</h3>
+  <p><b>模型行</b>：启用开关、名称与 id、能力图标（眼睛是看图、大脑是推理、扳手是工具调用，悬停说明，推理的悬停写出档位）、上下文窗口（淡色）、检测结果、检测与编辑两个按钮；价格不在行里，只在编辑对话框里。<b>分组</b>：按系列折叠分组（例如 doubao-seed-2.0、doubao-seed-1.6），系列缺省按 id 推出，编辑对话框里可以改。</p>
+  <p><b>模型发现</b>：两类服务商都用“管理模型”（参照 Cherry Studio 的“管理”）：自定义服务商列拉取 <code>/models</code> 的结果，可以“重新拉取”；目录服务商列 OMP 目录里这一家的模型。按系列分组、可以搜索，每行“+”加入、“−”移出；拉取结果缺上下文窗口这类字段的标“要补字段”，加入后在编辑对话框里补（压缩要用，必填）。自定义服务商另有“手动添加”。</p>
+  <p><b>全部模型</b>：服务商列表顶上一项，列出所有服务商里已启用的模型，按服务商分节，写出哪些角色在用它、哪些不能用（没设密钥、检测失败）；改模型点齿轮，打开那家服务商的编辑对话框。</p>
   <div class="grid">
-    <figure><img src="r2/split-deepseek.webp" alt="密钥存在凭据库"><figcaption><b>密钥已存进凭据库</b>（DeepSeek）</figcaption></figure>
-    <figure><img src="r2/split-env.webp" alt="密钥读环境变量"><figcaption><b>密钥读环境变量</b>（Anthropic）</figcaption></figure>
-    <figure><img src="r2/split-nokey.webp" alt="还没设置密钥"><figcaption><b>还没设置密钥</b>（OpenRouter）</figcaption></figure>
-    <figure><img src="r2/split-custom.webp" alt="自定义服务商"><figcaption><b>自定义服务商</b>（本地 Ollama）：地址与接口格式能改，有“拉取模型列表”“手动添加”</figcaption></figure>
-    <figure><img src="r2/split-edit.webp" alt="编辑目录模型"><figcaption><b>编辑目录模型</b>能力与限制只读，单价预先填好、可以改</figcaption></figure>
-    <figure><img src="r2/split-custom-edit.webp" alt="编辑自定义模型"><figcaption><b>编辑自定义模型</b>上下文窗口必填（压缩要用）</figcaption></figure>
+    <figure><img src="r3/all.webp" alt="全部模型"><figcaption><b>全部模型</b></figcaption></figure>
+    <figure><img src="r3/custom-series.webp" alt="按系列分组"><figcaption><b>按系列分组</b>（火山方舟）</figcaption></figure>
+    <figure><img src="r3/discover.webp" alt="管理模型：拉取的结果"><figcaption><b>管理模型：拉取 /models 的结果</b></figcaption></figure>
+    <figure><img src="r3/catalog-manage.webp" alt="管理模型：OMP 目录"><figcaption><b>管理模型：OMP 目录</b>（Anthropic）</figcaption></figure>
+    <figure><img src="r3/catalog.webp" alt="目录服务商"><figcaption><b>目录服务商</b>（Anthropic）</figcaption></figure>
+    <figure><img src="r3/nokey.webp" alt="还没设置密钥"><figcaption><b>还没设置密钥</b>（OpenRouter，还没有模型）</figcaption></figure>
   </div>
 </section>
 
+<section class="q" data-nbdev-question="nested-dialog" data-nbdev-type="single" data-nbdev-recommend="nb-ui">
+  <h3><span class="badge todo" data-nbdev-skip>待定</span>叠在设置窗口上的对话框怎么改</h3>
+  <p>第二轮编辑对话框“太透明、圆角不对”的原因在 nb-ui：<code>design-language.md</code> 已经写了两条规则（叠在另一个浮层上的对话框不再糊玻璃、改用不透明的层级色；圆角不大于底下窗口的圆角），但 <code>Dialog</code> 没有实现，从设置窗口里打开的模态对话框照样是玻璃面加 26px 圆角。第三轮的稿在草稿里先按这两条覆盖了，效果见下图。</p>
+  <div class="opt" data-nbdev-option="nb-ui">
+    <h3>在 nb-ui 的 Dialog 里实现这两条规则</h3>
+    <p>从另一个对话框或窗口里打开的对话框自动用不透明面、圆角取窗口那一档。所有叠在窗口上的对话框一起变好（例如设置窗口里的未保存确认、作品分区的目录选择器）；要动 nb-ui 并补 Lab 场景与测试，单独一个小 Task 或放进 t09 的第一片。</p>
+    <span class="rec" data-nbdev-skip>推荐：规则已经写在 nb-ui 里，只是没实现；每个调用方各写一份覆盖就是在给它打补丁</span>
+  </div>
+  <div class="opt" data-nbdev-option="local">
+    <h3>只在模型服务的对话框上覆盖</h3>
+    <p>改动最小，但别处叠在窗口上的对话框仍是玻璃面。</p>
+  </div>
+  <div class="grid">
+    <figure><img src="r3/edit.webp" alt="编辑模型：不透明、圆角跟窗口"><figcaption><b>按规则覆盖后的编辑对话框</b>另加了“系列（分组）”一栏</figcaption></figure>
+    <figure><img src="r2/split-edit.webp" alt="第二轮的编辑对话框"><figcaption><b>第二轮</b>玻璃面、26px 圆角</figcaption></figure>
+  </div>
+</section>
+
+<section class="q" data-nbdev-question="side-width" data-nbdev-type="confirm">
+  <h3><span class="badge todo" data-nbdev-skip>待定</span>设置窗口的分区栏改窄到 176px（产品里改，所有分区一起）</h3>
+  <p>分区栏是设置窗口自己的（settings-window 输出 1 写的约 212px），改它会让所有分区一起变，不只是模型服务。第三轮的图里已经是 176px；服务商列表从 200px 改成了 164px（只在这一页）。不改就只窄服务商列表。</p>
+</section>
+
 <h2>已定</h2>
+
+<section class="q">
+  <h3><span class="badge done">已定</span>服务商详情的连接一节与编辑对话框按第二轮的稿（附第三轮的意见）</h3>
+  <p>开发者 2026-11-01 同意第二轮，意见见上面第三轮。第二轮的稿：</p>
+  <div class="grid">
+    <figure><img src="r2/split-deepseek.webp" alt="第二轮：密钥存在凭据库"><figcaption><b>密钥已存进凭据库</b></figcaption></figure>
+    <figure><img src="r2/split-env.webp" alt="第二轮：密钥读环境变量"><figcaption><b>密钥读环境变量</b></figcaption></figure>
+    <figure><img src="r2/split-custom.webp" alt="第二轮：自定义服务商"><figcaption><b>自定义服务商</b></figcaption></figure>
+    <figure><img src="r2/split-custom-edit.webp" alt="第二轮：编辑自定义模型"><figcaption><b>编辑自定义模型</b></figcaption></figure>
+  </div>
+</section>
+
 
 <section class="q">
   <h3><span class="badge done">已定</span>服务商与模型页用左列表右详情（第一轮）</h3>
@@ -79,7 +115,7 @@ ul.notes li { font-size: 14px; }
 <h2>之后再出的</h2>
 <ul class="notes">
   <li>保存方式：密钥写进凭据库是即时的；服务商与模型的配置是即时写入，还是改进草稿、点保存栏才写。</li>
-  <li>“添加服务商”的菜单、目录模型的搜索勾选、拉取模型列表的结果、检测失败的说明、删除服务商的确认（列出会变成未绑定的角色）、开箱时的空状态。</li>
+  <li>“添加服务商”的菜单、检测失败的说明、删除服务商的确认（列出会变成未绑定的角色）、开箱时的空状态。</li>
   <li>暗色与窄窗口。</li>
 </ul>
 </body>
