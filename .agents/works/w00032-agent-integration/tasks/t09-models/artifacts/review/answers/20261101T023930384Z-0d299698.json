@@ -1,0 +1,25 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t09-models",
+    "artifactId": "review",
+    "answerId": "20261101T023930384Z-0d299698",
+    "artifactVersion": 3,
+    "contentHash": "87346923ef480f12bc429e235abca4d8e3ce7375fcc722171e4dddc57ed95bd5",
+    "submittedAt": "2026-11-01T02:39:29.927Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "models-r3": true,
+        "nested-dialog": "nb-ui",
+        "side-width": true
+    },
+    "comments": {
+        "models-r3": "链接这里能否紧凑一点？我看 API 密钥这里：存在本机的凭证库，这一行我感觉可以收起在 API 标题，做一个 tooltip",
+        "nested-dialog": "不对啊，你这是改成了不透明的？目前这个 surface 是和设置界面的这个 Dialog 一样的 surface 吗？",
+        "side-width": "我记得 omp 的模型设置里还有更多设置的。好像还有 header 设置，去检查一下看看"
+    },
+    "note": null
+}
