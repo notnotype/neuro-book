@@ -455,7 +455,8 @@ export interface AgentHost {
     list(): ExtensionInfo[];
     create(options: CreateSessionOptions): Promise<StorageResult<SessionApi> | {ok: false; code: "profile-invalid" | "invalid-initial"}>;
     open(sessionId: string): Promise<StorageResult<SessionApi>>;
-    close(sessionId: string): Promise<void>;
+    /** `reason: "interrupted"`：进程或插件停止时的收口，运行写 `interrupted`（runtime.md 输出 53）。 */
+    close(sessionId: string, options?: {readonly reason?: "interrupted"}): Promise<void>;
     /**
      * 这些 key 的 Profile 代码变了或提供方撤回了：用它们的打开着的会话重新调 `profiles.resolve`、重新装配。哈希变了写
      * `profileChanged{code-updated}`，没变也换上新对象；解析不到进只读 `unknown-profile`，回来后再调一次即解除。运行中的等

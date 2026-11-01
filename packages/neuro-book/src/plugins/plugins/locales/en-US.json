@@ -129,6 +129,10 @@
         "unknown": "The operation did not complete"
     },
     "builtin": {
+        "nbook-agent": {
+            "name": "Agent",
+            "description": "Writing assistant sessions and runs; takes the extensions, tools and profiles plugins provide."
+        },
         "nbook-commands": {
             "name": "Commands",
             "description": "Registers and runs commands; the command palette and keybindings run the commands registered here."

@@ -1,0 +1,12 @@
+{
+    "settings": {
+        "toolBindings": {
+            "title": "Agent 工具绑定",
+            "description": "按 Profile 增减工具：added 加上 Profile 没写的工具，removed 去掉可选的工具（必需的去不掉）"
+        },
+        "profileSettings": {
+            "title": "Profile 设置",
+            "description": "按 Profile 设的模型或模型角色，以及新会话的审批模式"
+        }
+    }
+}

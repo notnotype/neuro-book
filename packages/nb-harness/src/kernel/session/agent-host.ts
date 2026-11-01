@@ -97,11 +97,11 @@ export function createAgentHost(base: Omit<SessionEnv, "extensions">): AgentHost
             if (opened.ok) sessions.set(sessionId, opened.value);
             return opened;
         },
-        async close(sessionId: string) {
+        async close(sessionId, options) {
             const session = sessions.get(sessionId);
             if (session === undefined) return;
             sessions.delete(sessionId);
-            await closeSession(session);
+            await closeSession(session, options);
         },
         diagnostics: () => [...diagnostics],
     };
