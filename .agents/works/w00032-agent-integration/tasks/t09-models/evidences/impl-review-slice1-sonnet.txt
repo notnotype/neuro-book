@@ -1,0 +1,66 @@
+# t09 第 1 片前端审查报告（提交 6c122c519）
+
+## 发现
+
+### 1. 重要 / 测试覆盖：e2e 分不出 AlertDialog 与浮动窗口的“嵌套”有没有生效，也没有任何单元测试覆盖 NB_DIALOG_LAYER
+- 位置：`packages/nb-ui/e2e/dialog-surfaces.spec.ts:57-62`（alert 用例）、`playground/app/acceptance/DialogSurfacesFixture.vue:30-36`；本提交没有改动任何 `packages/nb-ui/src/**/*.test.ts`。
+- 现象：
+  - alert 用例只断言 `radius(alert) <= windowRadius` 与 alpha 0.9。nbook 里 `--radius-dialog-compact: var(--radius-window)`（vars.css:106），所以未嵌套时圆角就等于窗口圆角（12），`<=` 成立；`--dialog-surface` 与 `--dialog-surface-nested` 在 nbook 又是同一个 90%，alpha 也一样。
+  - 变异推演：删掉 `AlertDialog.vue:38-40` 的 inject/provide（或把 `nested` 恒设为 false），alert 用例全绿。同理把 `Dialog.vue` 里窗口用法的 `nested` 去掉，没有任何用例变红。
+  - 夹具的外层只有模态 `Dialog`。计划验收写的是“设置窗口再开编辑对话框”，真实场景的外层是浮动窗口（`--window`，圆角就是 `--radius-window`）；“浮动窗口叠浮动窗口”“模态叠在窗口上”“确认框叠在窗口上”三种组合都没有场景。
+  - 只有“模态里的模态”靠圆角（26px 收到 12px）真正测到了嵌套判定。
+  - 减少透明度用例里，二级只测了暗色，亮色没测；`prefers-contrast: more` 块（vars.css:545 起）没有任何断言，而它是和减少透明度并列的第二个块，漏写变量不会被发现。
+  - nb-ui 之前为 `NB_DIALOG_WINDOW_DEPTH` 有一条嵌套单元测试（components.test.ts，见 w00003 t17 记录），`NB_DIALOG_LAYER` 没有对应的。
+- 为什么是问题：这次提交的核心新机制（按组件树数层）里，AlertDialog 一半与窗口一半实际没有被任何测试守住；以后有人改主题让 compact 圆角大于窗口，或重构注入，不会被发现。
+- 如何核实：在 `AlertDialog.vue` 里把 `const nested = parentLayer >= 1;` 改成 `false`，跑 `bunx playwright test dialog-surfaces`（主 Agent 跑），应当仍全绿。
+- 建议改法：
+  - 加 Dialog/AlertDialog 的单元测试：嵌套时面板带 `nb-ui-dialog-surface--nested`，一级没有，窗口用法与模态用法各一例，AlertDialog 一例（类名在单元测试里可以断言，它是组件的输出；e2e 里保持测计算样式）。
+  - 夹具加 `outer=window` 场景（外层 `:modal="false"`），分别叠模态、叠确认框。
+  - 给 e2e 一个 compact 圆角大于窗口的主题条件，或在 e2e 里用 `page.addStyleTag` 把 `--radius-dialog-compact` 临时改成 26px，让确认框圆角断言真能区分。亮色减少透明度与 `prefers-contrast: more` 各补一条。
+
+### 2. 建议 / 代码与注释一致：styles.css 的两处注释与新实现矛盾
+- 位置：`packages/nb-ui/src/styles.css:183-184`、`:477-481`。
+- 现象：
+  - 183 行写“对话框的两种用法都在这一层之上只加 `.nb-ui-dialog-surface` 换圆角与投影”；477-481 行写“只覆盖这两项，其余四项仍由 .nb-ui-popover-surface 一处给”。现在 `.nb-ui-dialog-surface` 覆盖的是圆角、背景色、投影三项，`--nested` 还再改圆角与背景。
+  - 186 行起的“五个取值全部走主题变量……`--overlay-surface → --bg-panel`”也没提对话框另有一档。
+- 为什么是问题：注释是给后来的 Agent 看的，它们正好是“面从哪来”的登记处，读到旧说法会以为对话框的面还是 `--overlay-surface`，改小浮层透明度时会漏看对话框。
+- 建议改法：把这两处改成“换圆角、面与投影三项”，并指向新类 `--nested` 与 `--dialog-surface`。
+
+### 3. 建议 / 与计划不一致：`--nested` 的圆角对浮动窗口用的是 `--radius-dialog`，不是窗口自己的圆角
+- 位置：`packages/nb-ui/src/styles.css:509-512`。
+- 现象：计划 3.1 写“圆角取 `min(var(--radius-window), 原圆角)`”。实现对所有非 compact 的嵌套都写成 `min(var(--radius-window), var(--radius-dialog))`。浮动窗口的原圆角是 `--radius-window`，所以窗口叠窗口本应保持 `--radius-window`。
+- 为什么是问题：只有 `--radius-dialog` 小于 `--radius-window` 的主题才会出现分歧（那时嵌套窗口反而比一级窗口小）。目前只有 nbook 设了这两个值（26 与 12），默认两者相等，所以现在看不出来；属潜在而不是现状 bug。
+- 如何核实：在任一主题里设 `--radius-dialog: 8px; --radius-window: 12px`，开窗口叠窗口，嵌套窗口圆角为 8px，一级窗口为 12px。
+- 建议改法：加 `.nb-ui-dialog-surface--window.nb-ui-dialog-surface--nested { border-radius: var(--radius-window); }`（窗口原本就不大于自己），或把 `--nested` 的圆角写成 `min(var(--radius-window), var(--nb-dialog-own-radius))` 由各类先设局部变量。优先级低，不改也可以，但要在 `Dialog.md` 说明这个差别。
+
+### 4. 建议 / e2e 稳定性：Lab 长标题用例的悬停可能早于截断测量
+- 位置：`packages/neuro-book/e2e/settings.e2e.ts:630-662`（新用例）、`SettingsWindow.vue:111-126`。
+- 现象：用例先 `toHaveText(full)`、再用非重试的 `expect(await label.evaluate(...)).toBe(true)`，然后 `item.hover()`，最后才用重试的 `expect(tooltip).toContainText`。`truncated` 由 ResizeObserver 回调（下一帧）加 Vue 重绘设定。如果 Playwright 的那一次鼠标移动落在 `disabled` 还为真的时候，Reka 的 Tooltip 只挡新的悬停、不会在 `disabled` 变假后补开（SettingsWindow.vue 注释自己写了这一点），而 Playwright 的 hover 只发一次移动，之后重试断言永远等不到，直到 5 秒超时。窗口越快、机器越慢越可能。
+- 另外：用例标题写“没截断的分区悬停不出提示”，实际对没截断的分区用的是 `focus()`（并等两帧），没有悬停；而且“数量为 0”的负断言在聚焦刚发生时天然成立，靠两帧来保证提示已有机会出现。
+- 建议改法：让 `SettingsWindow` 给被截断的条目挂 `data-settings-nav-truncated`，用例在悬停前 `await expect(item).toHaveAttribute("data-settings-nav-truncated", "")`，不再靠时序；标题改成“聚焦”或补一次真正的悬停加 `delay` 之后的检查。
+
+### 5. 建议 / 边界：截断检测的两个小漏洞
+- 位置：`packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue:108-118`。
+- 现象：
+  - `scrollWidth > clientWidth` 两边都是取整的整数。标签盒子宽 119.6、内容宽 120.3 这类不到 1px 的溢出会被取整抹平（两边都变成 120），但浏览器已经画了省略号，Tooltip 却是 disabled，用户看到省略号而悬停没有全名。窗口宽度取小数（居中、缩放）时这种差落点是常见的。
+  - 左栏尺寸不变而文字宽度变（用户换系统字体、浏览器缩放不改容器宽的少数情况、语言切换后同一帧内标题变长且分区列表没有重算）量不到。字体不是问题（nbook 的 Fraunces 只用于字标，界面字体是系统栈），语言切换会让 `model.nav` 重算，所以会被 `watch(navItems)` 补上；剩下基本是系统字体设置，影响小。
+- 建议改法：比较用 `label.getBoundingClientRect().width` 与 `Range` 量出的内容宽（或给 `scrollWidth` 加 1 的容差，宁可多提示一次）。字体问题可忽略；非要补，监听 `document.fonts` 的 `loadingdone`。
+- 同类：`navTip` 对停用且被截断的条目只给原因，不给全名，停用项的全名只有读屏能读到。`SettingsWindow.md` 已写明“停用的项照旧显示原因”，属于有意取舍，只是被截断的停用项用户无从看全名；如果不愿意，可把原因与全名拼成两行。
+
+### 6. 建议 / 约定：Lab 里现有的“stacked”场景是兄弟写法，不会得到二级的面
+- 位置：`packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/DialogFixture.vue:44-46`。
+- 现象：第二层对话框与第一层是兄弟（`stackedOpen` 状态放在夹具里），按组件树判定它是一级，画的仍是一级的面与圆角，而 Lab 里这个场景叫“叠放”，看上去就是二级。`Dialog.md` 的已知限制只写了“从应用根上的服务打开的”，没有写“两个对话框写成兄弟、靠共享状态叠放”这一最常见的写法同样判成一级。
+- 为什么是问题：产品里多数“对话框里再开一个”恰恰是父组件里并排写两个 `Dialog`、点按钮切状态。开发者已经接受按组件树判定，这条不再质疑；但已知限制的描述范围比实际窄，别的 Agent 会按字面以为“只有服务打开的才有此限制”。
+- 建议改法：在 `Dialog.md` 已知限制里补一句“两个对话框并排写在同一个父组件里、靠状态叠放的，也算一级；要二级的面，把后开的放进先开的内容里”；Lab 的 stacked 场景改成把第二个放进第一个的默认插槽，让 Lab 能看到二级外观。
+
+## 未发现问题的方面
+- `NB_DIALOG_LAYER` 的 inject 与 provide 顺序：`Dialog.vue:142-145`、`AlertDialog.vue:38-40` 都是先 inject 后 provide，Vue 的 inject 读的是父级的 provides，顺序本身不会出错；`teleportTarget`、`contained` 不影响判定（只看组件树），文档对 `teleportTarget: false` 的限制写得对。
+- 层叠与特异性：`--nested`（0,1,0）写在 `--compact`、`--window` 之后，同特异性后者被盖；`--compact.--nested` 是 (0,2,0)；AlertDialog 上没有 Tailwind 的圆角原子类会盖过它。
+- 减少透明度与高对比度：nbook 两个块都覆盖了 `:root` 与暗色选择器，写在基线、暗色块之后，同特异性后者生效；`--overlay-blur: none` 让三档都不模糊。macOS 主题不写这两个变量，缺省回落到 `--overlay-surface`，外观不变。
+- ResizeObserver 的挂接、解除与卸载：`watch(navRef)` 处理 unobserve 与重新 observe，`onBeforeUnmount` 断开；卸载后残留的 `nextTick(measureTruncation)` 只会写入空集合；`truncated` 写入前做了集合比较，不会触发重绘循环；窄窗口横排由左栏尺寸变化触发重量。Tooltip 在 `disabled` 变真时会自己关掉（Tooltip.vue 的 watch），所以不会残留；变假后需重新进入才开，注释已写明。
+- 文档：design-language 第二节边界 4 与第九节检查表、ui-development-spec 第 9 节、authoring-themes、Dialog/AlertDialog/Drawer.md、SettingsWindow.md 与实现一致（除上面第 2、6 条）；Spec 输出 1 在主工作区已是 176px。
+- 验证：`packages/nb-ui` 全量 vitest 41 个文件 652 个用例通过；`packages/neuro-book` 的 `SettingsWindow.dom.test.ts` 53 个通过，`vue-tsc -p tsconfig.web.json` 无错误。未跑 e2e 与开发服务。
+- 几何断言：`settings.e2e.ts` 新增的 `near` 比较用 1px 容差，不含固定时长等待；`.settings-window__split/divider/scroll` 三个选择器在模板里都存在。Lab 用例的 `frames()` 是两帧而不是毫秒。
+
+## 数量
+阻断 0，重要 1，建议 5（第 2 至 6 条）。
