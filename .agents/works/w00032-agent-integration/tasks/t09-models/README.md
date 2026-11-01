@@ -101,6 +101,7 @@ t02。
 32. `env:` 引用存哪（开发者 2026-11-01，设计审查 O5 后）：变量名存服务商设置的 `apiKeyEnv`（同 nb-story），凭据库只存真密钥；界面不变，密钥框里写 `env:变量名` 即存成引用并清掉库里的密钥。
 33. 原生插件怎么分发（开发者 2026-11-01，第 1 片收尾时发现的阻塞 1）：`@oh-my-pi/*` 不打进服务端 bundle，作外部模块；应用包清单写上对它们的依赖，npm 安装时只装本平台那份原生包（同 omp 自己的发法）。放弃“清单没有依赖”，安装多约 122 MB，包仍跨平台。
 34. postmortem 的进程级信号处理（同上，阻塞 2）：先调研有没有更好的办法；没有就把 OMP 放进 Worker 线程（postmortem 在 Worker 里不装信号处理），并先审查这个方案是否可行、有没有隐患。
+35. 决定 34 的结果（开发者 2026-11-01）：Worker 方案经 omp 设计审查（阻断 4、重要 7，[证据](evidences/design-review-omp-isolation.txt)，[方案稿](omp-isolation.md)）后不做；查明这是 OMP 对嵌入方的缺陷（SDK 文档称“完整的嵌入面”，导入即装硬退出的处理，没有开关），已报上游 can1357/oh-my-pi#17674。先用“宿主接管”的临时做法：服务端入口在导入 OMP 前记下监听、导入后摘掉 OMP 挂上的，停止结算后跑 OMP 的清理；上游有开关后换成开关。向上游提 PR 先等 #17674 的反应（OMP 的贡献规则：开了 issue 的工作他们的机器人可能会接，PR 正文要开发者亲笔一句）。需要隔离原生崩溃与内存时再做模型服务子进程。决定 33、35 记为 [ADR 0036](../../../../../docs/adr/0036-app-package-installs-omp.md)。
 
 调研：[OMP、新应用与旧应用的现状](../../research/2026-11-01-model-service-survey.md)（旧应用 24 项可观察行为与逐项建议）。
 
@@ -116,8 +117,9 @@ t02。
 - 第 1 片完成（`6c122c519`）：nb-ui 浮层三档（`--overlay-surface`、`--dialog-surface`、`--dialog-surface-nested`）、`Dialog`/`AlertDialog` 按组件树数层、二级的面与圆角（`.nb-ui-dialog-surface--nested`），`Drawer` 显式留在小浮层那档；验收页 `dialog-surfaces` 与 e2e 量计算样式（亮暗、减少透明度）；`design-language.md` 第二节边界 4 改写为“看是不是那块玻璃的后代”（原文要求二级用不透明层级色，与决定 25 矛盾，也从未实现）。设置窗口左栏 176px，截断的分区悬停显示全名（Lab 场景 `long-titles`）；页面上下文 `reportWriteFailure`。Spec：`settings-window.md` 输出 1、3、14、19，`theme/system.md` 第 2 层（master）。计划里“嵌套类的组件测试”改由 e2e 量真实样式代替（只断言类名是测实现）。
 - 第 1 片前端审查（Claude Sonnet，[`evidences/impl-review-slice1-sonnet.txt`](evidences/impl-review-slice1-sonnet.txt)）：重要 1、建议 5，全部成立并改（`3dab00bd3`）：e2e 改用可区分的取值验二级那档（nbook 里一级二级同为 90%、确认框圆角等于窗口圆角，原断言分不出嵌套生没生效），补浮动窗口里的浮动窗口、亮色减少透明度与高对比度；二级浮动窗口保持窗口圆角（原来取 `min(窗口, 对话框)`）；截断按亚像素量、条目标 `data-settings-nav-truncated`，e2e 等它再悬停；注释与 `Dialog.md` 已知限制订正。
 - 顺手修的：nb-ui 的 `NB_UI_VERSION` 停在 0.2.0 而 `package.json` 已是 0.3.0（w00028 发版时漏改，master 上 `theme-loader.test.ts` 一直红），对齐并把四个内置主题的 `hostVersion` 改为 `^0.3.0`（`66dbfaf69`）。第 3 片漏的：`nbook.models` 的消息目录登记、应用包检查把 OMP 里名叫 `import` 的对象方法误报为动态导入（`51aa6c5d9`）。
-- 已知缺口：`nbook.models` 的两个设置项指向的 page 分区要第 4 片的浏览器入口才登记，在那之前设置窗口每次打开记两条警告，`settings.e2e.ts` 有 3 条用例因控制台警告失败。
-- **阻塞，待开发者决定（2026-11-01 发现）**：第 3 片把 OMP 带进了服务端进程，暴露两个问题，都源自“OMP 跑在服务端进程里”：
+- 第 4 片前半（`e93b4e218`）：浏览器入口、两页共用的数据模块、11 个组件（含同名 `.md`）、Lab 场景（手机画布与自由画布都过溢出与光晕检查）；目录模型只存用户改过的字段（服务端写入时去掉与目录相同的）。Spec `models/settings-pages.md`（planned）。设置窗口的“写作助手”组随之出现，原先 3 条因页面缺失而失败的 `settings.e2e.ts` 用例通过。
+- 下一步：第 4 片后半——数据模块的测试（接真实服务端）、`e2e/models.e2e.ts`（本机假端点走完 Spec 验收 1 到 3）、前端审查；然后第 5 片。
+- **已解决的阻塞**（决定 33 到 35，`d7ff575ba`、`aa5805965`）：OMP 不打进 bundle、写进应用包依赖；服务端接管 OMP 的进程级处理。原先的记录：第 3 片把 OMP 带进了服务端进程，暴露两个问题，都源自“OMP 跑在服务端进程里”：
   1. **原生插件**：`@oh-my-pi/pi-catalog`、`pi-ai` 一被导入就加载 `pi_natives` 原生插件（每个平台约 122 MB）。打包后的服务端（`dist/server/*.js` 与应用包）按自己所在目录找 `native/`，找不到就启动即崩：产品 e2e 全部起不来服务（验证时临时把插件软链进 `dist/native/` 绕过），`cli.test.ts`、`pack-app.test.ts` 共约 30 条失败。应用包现在的合同是“单文件 bundle、清单没有依赖”。
   2. **进程级信号与异常处理**：`@oh-my-pi/pi-utils` 的 postmortem 在导入时就在主线程装上 SIGINT、SIGTERM、SIGHUP、`uncaughtException`、`unhandledRejection` 的处理，跑完自己的清理就以 130、143、129 硬退出，抢在服务端宿主的有序停止（排空、项目子进程先收口）之前；`server-projects.test.ts` 场景 14、15 因此失败。没有关闭它的开关（只在 Worker 线程里不装）。
 
