@@ -87,7 +87,7 @@ t02。
 
 ## 当前状态
 
-第三轮静态稿已答复（决定 19 到 23）；出第四轮：连接一节紧凑、“高级”里的请求头与认证方式、目录服务商改地址，以及 Lab 里几种对话框的面配背景图。第二轮“对话框太透明、圆角不对”查明是 nb-ui 的缺口：`design-language.md` 写了嵌套浮层用不透明层级色、圆角不大于底下窗口，`Dialog` 没有实现。草稿在 `.worktree/w00032-t09-drafts`（分支 `t09/drafts`，不提交、不合并），Lab 场景 `ModelSettingsDraft`。
+第四轮静态稿已发布（`review` v4，两道题：`dialog-surface` 叠在设置窗口上的对话框用哪种面，不透明、同一种玻璃、90% 玻璃，垫背景图对比；`connect-r4` 连接一节紧凑版加“高级”），等开发者答复。Lab 里对应场景以“连接”“对话框的面”开头。第二轮“对话框太透明、圆角不对”查明是 nb-ui 的缺口：`design-language.md` 写了嵌套浮层用不透明层级色、圆角不大于底下窗口，`Dialog` 没有实现。草稿在 `.worktree/w00032-t09-drafts`（分支 `t09/drafts`，不提交、不合并），Lab 场景 `ModelSettingsDraft`。
 
 ## 下一步
 
