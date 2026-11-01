@@ -111,7 +111,12 @@ t02。
 - 第 2 片完成：内核模型端口改按查询对象解析（`resolve({settings, purpose, profile, role?})`），解析失败码原样交回；OMP 适配器异步取密钥、带宿主请求头并遮盖、截断服务商原文（`33e4bddc0`）；nb-harness 新子路径 `./models`（目录、按配置建出解析结果、凭据库、`env:`，`18827c2dc`）。Spec：`harness/models.md`、`runtime.md`（master `1abf93d70`）。
 - 计划里第 1 片的“设置的比较后写入”提前做了（第 3 片要用）：`update` 的 `expect` 与 `conflict`（`650cd19dd`，Spec `configuration.md` 输出 25，master `1ab58def2`）。
 - 第 3 片完成：服务端启动环境快照（`860195221`）；`nbook.models` 服务端（`dfb776be9`）；Spec `models/service.md`（planned，master `1f3bb53b3`、`9f1fe5db2`）。实施中补的：删服务商或模型时解除角色绑定、`updateRole`；冲突后等设置视图跟上（至多 1 秒）再重试。第 0 片的空骨架并进了第 3 片。
-- 下一步：第 1 片的 nb-ui 浮层分档、嵌套对话框与设置窗口（分区栏 176px、`reportWriteFailure`），再做第 4 片的界面。第二轮“对话框太透明、圆角不对”查明是 nb-ui 的缺口：`design-language.md` 写了嵌套浮层用不透明层级色、圆角不大于底下窗口，`Dialog` 没有实现。草稿在 `.worktree/w00032-t09-drafts`（分支 `t09/drafts`，不提交、不合并），Lab 场景 `ModelSettingsDraft`。
+- 第 1 片完成（`6c122c519`）：nb-ui 浮层三档（`--overlay-surface`、`--dialog-surface`、`--dialog-surface-nested`）、`Dialog`/`AlertDialog` 按组件树数层、二级的面与圆角（`.nb-ui-dialog-surface--nested`），`Drawer` 显式留在小浮层那档；验收页 `dialog-surfaces` 与 e2e 量计算样式（亮暗、减少透明度）；`design-language.md` 第二节边界 4 改写为“看是不是那块玻璃的后代”（原文要求二级用不透明层级色，与决定 25 矛盾，也从未实现）。设置窗口左栏 176px，截断的分区悬停显示全名（Lab 场景 `long-titles`）；页面上下文 `reportWriteFailure`。Spec：`settings-window.md` 输出 1、3、14、19，`theme/system.md` 第 2 层（master）。计划里“嵌套类的组件测试”改由 e2e 量真实样式代替（只断言类名是测实现）。
+- 顺手修的：nb-ui 的 `NB_UI_VERSION` 停在 0.2.0 而 `package.json` 已是 0.3.0（w00028 发版时漏改，master 上 `theme-loader.test.ts` 一直红），对齐并把四个内置主题的 `hostVersion` 改为 `^0.3.0`（`66dbfaf69`）。第 3 片漏的：`nbook.models` 的消息目录登记、应用包检查把 OMP 里名叫 `import` 的对象方法误报为动态导入（`51aa6c5d9`）。
+- 已知缺口：`nbook.models` 的两个设置项指向的 page 分区要第 4 片的浏览器入口才登记，在那之前设置窗口每次打开记两条警告，`settings.e2e.ts` 有 3 条用例因控制台警告失败。
+- **阻塞，待开发者决定（2026-11-01 发现）**：第 3 片把 OMP 带进了服务端进程，暴露两个问题，都源自“OMP 跑在服务端进程里”：
+  1. **原生插件**：`@oh-my-pi/pi-catalog`、`pi-ai` 一被导入就加载 `pi_natives` 原生插件（每个平台约 122 MB）。打包后的服务端（`dist/server/*.js` 与应用包）按自己所在目录找 `native/`，找不到就启动即崩：产品 e2e 全部起不来服务（验证时临时把插件软链进 `dist/native/` 绕过），`cli.test.ts`、`pack-app.test.ts` 共约 30 条失败。应用包现在的合同是“单文件 bundle、清单没有依赖”。
+  2. **进程级信号与异常处理**：`@oh-my-pi/pi-utils` 的 postmortem 在导入时就在主线程装上 SIGINT、SIGTERM、SIGHUP、`uncaughtException`、`unhandledRejection` 的处理，跑完自己的清理就以 130、143、129 硬退出，抢在服务端宿主的有序停止（排空、项目子进程先收口）之前；`server-projects.test.ts` 场景 14、15 因此失败。没有关闭它的开关（只在 Worker 线程里不装）。
 
 ## 下一步
 
