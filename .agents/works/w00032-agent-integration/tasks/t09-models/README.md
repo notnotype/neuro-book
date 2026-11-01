@@ -74,11 +74,17 @@ t02。
     - 设置窗口最左侧的分区栏可以窄一些，服务商列表也可以窄一些；
     - 编辑模型对话框的表面太透明，圆角大小不对。
 
+第三轮静态稿的答复（开发者 2026-11-01，`review` v3）：
+
+19. 模型列表、管理模型与全部模型按第三轮的稿做（`models-r3` = 是）；附意见：连接一节再紧凑些，API 密钥下面“存在本机的凭据库……”那行收进标题旁的提示（悬停显示）。
+20. 叠在设置窗口上的对话框在 nb-ui 的 `Dialog` 里改（`nested-dialog` = `nb-ui`）；开发者问第三轮的面是不是改成了不透明、是否与设置窗口同一种面。查明：设置窗口是浮动窗口，用 `--overlay-surface`（nbook 主题是面板色 65% 加 8px 模糊）；第三轮的覆盖是同一个面板色但 100% 不透明（`--panel-surface`），按 `design-language.md`“玻璃叠玻璃不成立，二级浮层用层级色”；第二轮的对话框与设置窗口是同一种玻璃面，加遮罩压暗。用哪种待开发者定。
+21. 设置窗口的分区栏改窄到 176px，产品里改、所有分区一起（`side-width` = 是）；附意见：omp 的模型设置还有更多项（例如请求头），去查。查明 omp `models.yml`（coding-agent 层，仓库没装，要由我们自己实现）还有：服务商与模型的 `headers`、`auth`／`authHeader`、目录服务商也能改 `baseUrl`、`discovery`（ollama、lm-studio、llama.cpp、litellm、openai-models-list）、`disableStrictTools`、`modelOverrides`、模型的 `compat`（`maxTokensField`、`supportsDeveloperRole`、`extraBody` 等）与 `maxContextWindow`、密钥与请求头的 `!命令` 取值。第一版做哪些待开发者定。
+
 调研：[OMP、新应用与旧应用的现状](../../research/2026-11-01-model-service-survey.md)（旧应用 24 项可观察行为与逐项建议）。
 
 ## 当前状态
 
-第三轮静态稿已发布（`review` v3，三道题：`models-r3` 模型列表、管理模型与全部模型；`nested-dialog` 叠在设置窗口上的对话框改 nb-ui 还是只改这里；`side-width` 设置窗口分区栏改窄），等开发者答复。第二轮“对话框太透明、圆角不对”查明是 nb-ui 的缺口：`design-language.md` 写了嵌套浮层用不透明层级色、圆角不大于底下窗口，`Dialog` 没有实现。草稿在 `.worktree/w00032-t09-drafts`（分支 `t09/drafts`，不提交、不合并），Lab 场景 `ModelSettingsDraft`。
+第三轮静态稿已答复（决定 19 到 21）；嵌套对话框的面与 omp 的额外配置项待问清，再出第四轮。第二轮“对话框太透明、圆角不对”查明是 nb-ui 的缺口：`design-language.md` 写了嵌套浮层用不透明层级色、圆角不大于底下窗口，`Dialog` 没有实现。草稿在 `.worktree/w00032-t09-drafts`（分支 `t09/drafts`，不提交、不合并），Lab 场景 `ModelSettingsDraft`。
 
 ## 下一步
 
