@@ -1,0 +1,19 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t09-models",
+    "artifactId": "review",
+    "answerId": "20261101T032622804Z-b54436f6",
+    "artifactVersion": 7,
+    "contentHash": "8479859135c096b8641573000a250b305a96ad32565e1b4912d678685eca8643",
+    "submittedAt": "2026-11-01T03:26:22.339Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "connect-r4": true
+    },
+    "comments": {},
+    "note": null
+}
