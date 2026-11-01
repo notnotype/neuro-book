@@ -1,0 +1,162 @@
+# t10 设计审查报告
+
+### 1. 工具绑定规则与当前内核过滤逻辑互相矛盾
+**严重程度**：阻断；**类别**：正确性
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:73-75、3.4 工具绑定
+**现象**：计划要求把 `必需 + 可选 + defaultForAll + added - removed` 的最终工具列表交给 `SessionEnv.tools`，并声称“harness 只检查必需工具”。但当前 `ToolBox.current()` 在 `profile.tools` 存在时会再次只保留 `required` 与 `optional`，会丢掉 `defaultForAll` 和用户 `added` 的工具。
+**为什么是问题**：按计划实现后，绑定新增的工具不会进入模型请求；这直接违反 t04 决定 4，也使“插件给所有 Profile 加工具”失效。不是测试或远程层问题，而是宿主与内核已有合同不一致。
+**如何核实**：读取 `packages/nb-harness/src/kernel/run/tools.ts:55-67` 可见二次过滤；读取 `docs/specs/harness/runtime.md:53` 可见现行内核合同。用含 `tools: {required: [], optional: []}` 的 Profile 加一项绑定工具即可观察声明被过滤。
+**建议改法**：在 t10 片 0 明确修改内核合同和实现，让宿主交来的 declarations 成为最终列表、内核只校验 required；或者让 Agent 插件把绑定工具并入 Profile 的 `optional`，但这会破坏 Profile 只声明工具且绑定在 Profile 外的 t04 决定，不应采用。
+
+### 2. Profile 重载方案没有真正替换会话持有的 Profile 对象
+**严重程度**：阻断；**类别**：正确性 / 不变量
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:36-40、68-72
+**现象**：计划把 `profilesChanged(keys)` 描述为按 `notifyExtensionsChanged` 的时机重新装配，并要求“Profile 对象只经 `profiles.resolve` 取、会话不长期持有旧对象”。现有 `notifyExtensionsChanged()` 实际取的是 `core.assembly.profile`，不会调用 `env.profiles.resolve()`；`reassembleNow()` 也只接收这个旧 Profile。
+**为什么是问题**：用户源文件重打包后，下一次请求仍使用旧 Profile 的函数和字段；即使 `profiles.resolve` 已返回新对象，内核没有入口把它送进 `assemble`。同 hash 时现有代码还会直接返回，不会 `refreshContext`。计划的“打开着的会话下一次请求用新的”因此无法成立。
+**如何核实**：读取 `packages/nb-harness/src/kernel/session/session.ts:541-624`：`notifyExtensionsChanged` 只合并扩展变化，`reassembleNow` 在 586 行使用 `core.assembly.profile`，600-603 行同 hash 直接结束；读取 `packages/nb-harness/src/kernel/api/host.ts:358-367` 可见 Profile 解析接口只有 `resolve`。
+**建议改法**：把 Profile 变化建模成独立的内核操作：按会话当前 key 调 `env.profiles.resolve`，解析不到进入 `unknown-profile` 只读，解析到后以新 Profile 重新 `assemble`、重建资源与工具实现，并与扩展变化合并其等待和撤回语义；不要把它伪装成只改扩展列表的通知。
+
+### 3. `agent.extensions` 的平台事务与内核三态接口没有落地规则
+**严重程度**：重要；**类别**：正确性 / 不变量
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:58-64
+**现象**：计划只写“平台的 `prepare/published/revoke` 转给 `AgentHost.extensions`，并映射撤回原因”，没有定义平台句柄到 `ExtensionHandle` 的适配状态、未发布项的撤回、发布回调抛错以及五种平台撤回原因的具体映射。
+**为什么是问题**：平台的 `prepare` 抛错会回滚本批全部已准备贡献；`published` 之后 `implementation()` 才可用；`revoke` 对未发布项也必须释放预占。内核的 `ExtensionReceiver` 没有同名的 `prepared` 回滚回调，且只接受 `deactivated | uninstalled | activation-failed`。直接把三个方法转发会留下 `AgentHost` 的 prepared 项、把 `receiver-closed`/`scope-closed` 错映成用户卸载，或在 `published` 抛错后继续认为扩展可用。
+**如何核实**：读取 `packages/nb-runtime/src/plugins/contracts.ts:223-257` 与 `packages/nb-runtime/src/plugins/host.ts:1251-1314、1504-1544`，确认 `prepare` 失败逆序撤回、`implementation()` 发布前不可用、`revoke` 有 `receiver-closed` 等原因；读取 `packages/nb-harness/src/kernel/api/host.ts:423-447` 与 `packages/nb-harness/src/kernel/session/agent-host.ts:21-77`，确认内核接口另有 prepared/published 状态且 `revoke` 只撤当前 published 句柄。
+**建议改法**：单独写一个接收器适配器，保存每个平台句柄的代次和 prepared 状态；所有平台撤回原因逐项映射，未发布撤回也必须删除内核 prepared 状态；`implementation()` 只能在内核实际装配或 `list()` 调用时转取，禁止在 `prepare`、`published` 中缓存；把回调异常按平台合同记诊断并明确是否导致当前会话只读。
+
+### 4. 工具撤回无法按计划释放已建实现并让后续调用失败
+**严重程度**：重要；**类别**：正确性 / 资源释放
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:60-62、100-105
+**现象**：计划要求工具声明继续保留，但提供方撤回时释放所有已建实现，之后调用返回 `tool-unavailable`。当前内核只在工具声明从当前集移除时 `ToolBox.retire()`；声明保留正是方案 D 的要求，因此不会触发 `dispose`。`ToolBox.implementation()` 还会缓存每个工具的 Promise。
+**为什么是问题**：按计划的声明保留实现，撤回后旧实现仍会被缓存并继续执行，或者只释放一次却在下一次调用复用已释放对象；这会违反 t04 决定 6 的撤回语义和工具所有权。
+**如何核实**：读取 `packages/nb-harness/src/kernel/run/tools.ts:36-43、87-125`：`retire` 只按声明 id 保留，`implementation` 缓存创建 Promise；读取 `packages/nb-harness/src/kernel/run/tools.ts:272-284` 可见真正调用前直接使用缓存实现。
+**建议改法**：扩展 `SessionEnv.tools`/`ToolBox` 的工具撤回能力，按工具 id 标记 revoked、原子摘出并 dispose 已建实现，后续 `create` 明确返回结构化不可用；在内核层固定竞态：撤回与“建实现/开始执行”按运行边界和中止宽限期裁决，不能由插件服务在外部遍历会话自行关闭实现。
+
+### 5. `onAgentSession` 不能保证第一次建会话前激活所有扩展提供方
+**严重程度**：重要；**类别**：正确性 / 不变量
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:46-52、58-61
+**现象**：计划要求 nbook.agent 在第一次建或开会话前触发一次 `onAgentSession`，并把所有扩展提供方激活，但没有规定提供方入口必须声明该事件，也没有处理提供方依赖 `agentKey` 的激活环或事件触发失败。
+**为什么是问题**：runtime 的激活事件只激活声明了该事件的入口；它不会从 `agent.extensions` 的静态贡献反推入口。若一个扩展提供方依赖 nbook.agent 自己提供的 `agentKey`，而 nbook.agent 的激活又等待 `onAgentSession` 完成，服务依赖与事件激活形成环，提供方会被阻塞。若触发结果含失败，计划仍没有定义是拒绝建会话、跳过该扩展还是把会话置只读。
+**如何核实**：读取 `docs/specs/runtime/plugins.md:184-187、210、203`，确认事件只按声明激活、事件拥有者与等待环独立处理；读取 `packages/nb-runtime/src/plugins/host.ts:672-683`，确认激活环返回 `unavailable` 而不等待。构造 provider 入口 `activationEvents: ["onAgentSession"]`、依赖 `agentKey` 的真实清单即可复现受阻。
+**建议改法**：把 `onAgentSession` 的声明约束、触发失败策略和依赖图写进 Agent 合同；nbook.agent 激活时先发布不依赖其运行态的最小服务，或禁止扩展提供方依赖 `agentKey`，否则不能承诺“所有提供方已激活”。对未声明事件的静态扩展贡献明确列为不可用而不是静默遗漏。
+
+### 6. 首次激活只做一次，无法覆盖后来登记的提供方
+**严重程度**：重要；**类别**：正确性
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:60、110
+**现象**：计划把 `onAgentSession` 定义为本进程第一次建或开会话之前触发一次，同时允许 Agent 宿主接收动态贡献；没有为事件后登记的插件、重启激活或失败恢复安排补触发。
+**为什么是问题**：runtime 支持入口晚于接收者登记、失败后显式恢复以及运行期登记；激活事件不会自动回放给后来登记的入口。后来才装上的扩展会有声明但没有实现，后续会话装配看不到它，直到进程重启，和贡献点“实现随激活可用”的状态模型不一致。开发者决定只是不做积压断开，不等于允许漏掉晚到贡献。
+**如何核实**：读取 `docs/specs/runtime/plugins.md:152、177-178、184`，确认晚登记贡献与激活事件是独立机制；读取 `packages/nb-runtime/src/plugins/activation-events.test.ts:87-90`，确认事件触发后再登记不会被已发生的事件自动激活。
+**建议改法**：首次触发只作为现有提供方的批量预热；每次新入口登记且声明扩展贡献时，在 Agent 接收器可用后再次触发，或让贡献提供方激活事件绑定到具体句柄并在交付时触发。补充失败恢复后的重复触发去重规则。
+
+### 7. 句柄表没有 single-flight，打开、关闭和空闲定时器会互相竞态
+**严重程度**：阻断；**类别**：不变量 / 正确性
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:78-92、100-110
+**现象**：计划只写“命令、查询或订阅到达时打开，已开复用；同一会话只在本服务端打开一次”，没有给 `open/create/close` 建立中的 Promise、关闭中的状态或空闲计时器的取消协议。`AgentHost.createAgentHost` 本身在 `create` 写入 Map 前、在 `open` 写入 Map 前都没有 single-flight。
+**为什么是问题**：两个窗口同时首次 `open` 会并发执行两个 `openSession`，一个拿到同进程锁、另一个得 `session-busy`，而不是复用同一句柄；`close` 先从 Map 删除后，新命令会重新 open 并撞上仍在关闭的锁；30 秒定时器开始关闭后到达的命令又可能拿到即将关闭的句柄。于是“同一会话只打开一次”和“命令到达时打开”都不成立。
+**如何核实**：读取 `packages/nb-harness/src/kernel/session/agent-host.ts:21-99`，确认 Map 只保存已完成的句柄；读取 `docs/specs/harness/session.md:124、146-151`，确认同一时刻只允许一个打开句柄、关闭期间迟到回调不得写。用两个并发 `openSession` 和一个关闭中 `open` 的场景即可得到不同于计划的结果。
+**建议改法**：服务层维护每个 session id 的 `opening`、`open`、`closing` 三态和共享 Promise；首次引用先占用句柄引用，空闲关闭必须在同一串行状态机里重新检查引用、运行、命令和订阅，关闭开始后新调用等待同一打开/关闭结果或明确重开，不直接再次碰存储锁。
+
+### 8. 停止收口没有覆盖打开中的会话和停止期间的新调用
+**严重程度**：重要；**类别**：不变量
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:46-52、100-110
+**现象**：`context.onStop` 只描述“逐个 closeSession(s)”并在之后停止监听与打包缓存；没有先关闭服务接纳、等待正在 `open`/`create` 的 Promise，也没有规定 `agentKey` 与远程方法在停止开始后的行为。
+**为什么是问题**：迭代当前打开表时，尚未完成的 `open` 可能在迭代后才写入表而逃过关闭；关闭 Map 删除与后台 `startTask`、`waitRun`、订阅的引用又可能在收口后继续加入。runtime 的停止合同要求停止同步关闭接纳、排空已接纳操作、迟到初始化不得重新发布旧代次；单纯 `forEach` 不能满足。
+**如何核实**：读取 `docs/specs/runtime/application.md:41-43、78-80、89-95`，确认停止与初始化竞态的要求；读取 `packages/nb-runtime/src/plugins/contracts.ts:95` 和 `packages/nb-runtime/src/plugins/host.ts:1098-1101`，确认 `onStop` 是入口代次关闭资源，不是自动为业务服务建立排空门。
+**建议改法**：服务实现自己的 `stopping` 门：停止同步拒绝新远程/内部调用，等待已接纳的打开、命令、订阅和任务把句柄登记完，再对稳定快照执行 `closeSession(..., interrupted)`，最后停 watcher/build；若有未完成操作，停止结果要保留失败或未完成，而不是静默漏关。
+
+### 9. 远程方法没有使用调用方身份视图，`resolve`、查询过滤和多 Agent 会错权
+**严重程度**：重要；**类别**：安全与正确性
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:78-90
+**现象**：远程合同允许 `browser`、`project` 调用，但计划只说“把内核方法逐个暴露”，没有规定从 `RemoteMethodContext` 的调用方身份生成 `session.as(issuer)`，也没有规定 `sessions.get(id, issuer)` 的 issuer 来源。
+**为什么是问题**：内核把 `Issuer` 用于出站过滤和 `resolve` 的 caller 权限；默认会话视图是用户。若远程入口一直使用默认 API，项目或浏览器调用方可能应答不属于它的事项，且未来出站过滤会绕过调用者边界。`SessionEnv.sessions.get` 的 issuer 参数也会被丢掉，父会话/多 Agent 的身份合同失效。
+**如何核实**：读取 `packages/nb-harness/src/kernel/api/host.ts:389-399`、`packages/nb-harness/src/kernel/session/session.ts:214-227`，确认 `as(issuer)` 是唯一切换身份的入口；读取 `docs/specs/harness/runtime.md:94、98`，确认 `resolve` 和宿主注入的发出者是合同的一部分；读取 `packages/nb-runtime/src/remote/contract.ts:185-188`，确认远程方法上下文当前只带 signal，调用方需由提供方门面闭包取得。
+**建议改法**：远程服务实现按调用方门面创建时保存 `ConsumerIdentity`，建立明确的 `Issuer` 映射并在所有 session command/query 入口使用 `session.as(issuer)`；`sessions.get` 只能交回该 issuer 的视图，项目调用方的可访问会话与父会话规则另写合同测试。
+
+### 10. `startTask` 是有副作用的写方法，却没有幂等键
+**严重程度**：阻断；**类别**：正确性
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:86-98；README.md:58、66
+**现象**：远程 `startTask` 输入没有 `commandId`，直接建会话、受理输入并启动运行；同进程 `agentKey` 也没有调用方提供的任务幂等 id。
+**为什么是问题**：远程通道的写请求从帧发出起断线得到 `unknown-outcome`，不能自动重试。调用方无法判断会话是否已经建好；若按返回失败重试，会建两个会话并跑两次任务。已有内核命令之所以强制 `commandId`，就是为了覆盖这个窗口；“立即返回”不改变它是写操作。
+**如何核实**：读取 `docs/specs/runtime/plugin-channel.md:48-50、87-94`，确认写方法未知结果和不自动重放；读取 `packages/nb-harness/src/kernel/api/host.ts:26-83`，确认内核命令统一带 `commandId`；对计划的 startTask 合同标为 `effect: "write"` 后即可看到该缺口。
+**建议改法**：给 `startTask` 增加调用方生成的 `taskId`/`commandId`，在 Agent 服务的持久化会话头或幂等记录中把它绑定到 `{sessionId, runId}`，重发返回同一结果；不能用内存 Map，因为未知结果跨服务重启仍需可判定。
+
+### 11. `project` 调用方与可选 `project` 参数组合出越权路径
+**严重程度**：重要；**类别**：安全
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:86-88
+**现象**：合同允许 `project` 调用方，同时 `list/create/startTask` 都接受调用者传入的 `project?`；计划没有说明服务端如何把项目入口身份绑定到可用项目，也没有拒绝项目调用方指定另一个项目。
+**为什么是问题**：远程路由的调用方身份只含实例与入口信息，不直接把项目 id 作为可信业务参数交给 Agent 服务；如果服务端照收 `project` 字段，项目实例可以把会话归到任意项目，之后 `list({project})` 还能枚举或操纵别的项目会话。`callers: ["project"]` 不是业务授权。
+**如何核实**：读取 `packages/nb-runtime/src/services/contracts.ts:36-44`，确认 `ConsumerIdentity` 没有项目字段；读取 `docs/specs/runtime/plugin-channel.md:34-35、56-57、82-84`，确认项目绑定由路由/宿主管理、业务服务不会自动得到可任意使用的项目权限。
+**建议改法**：先决定是否真的需要 `project` caller；若需要，服务端通过宿主提供的项目代次/调用方租约映射校验并强制使用绑定项目，禁止请求覆盖；若没有该映射，合同只允许 browser，项目内插件通过同进程 `agentKey` 或显式受信服务调用。
+
+### 12. “照搬内核失败码”不能直接成为远程合同
+**严重程度**：重要；**类别**：接口合同
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:86-90
+**现象**：计划要求所有命令、查询“失败码照内核 `api/codes.ts` 原样透传”，但没有为每个远程方法声明 `errors` 的详情 schema，也没有区分内核业务失败、存储失败和通道失败。
+**为什么是问题**：远程合同要求每个业务码的详情 schema；未声明或详情不合格会被运行时改成 `provider-error`。`unavailable`、`unknown-outcome` 等是通道保留码，不能作为 Agent 业务码；同一个内核码在不同命令上的详情形状也不同。后续按“原样透传”实现会在 TypeBox 定义、清单 JSON Schema 和真实链路校验处返工。
+**如何核实**：读取 `packages/nb-runtime/src/remote/contract.ts:44-52、115-152、163-171` 与 `docs/specs/runtime/plugin-channel.md:49-50、91-94`，确认错误码和详情由合同逐方法定义；读取 `packages/nb-harness/src/kernel/api/codes.ts:11-96`，确认内核码分属 command/storage/tool/run 多套表。
+**建议改法**：按方法生成独立的 TypeBox `errors` 表和详情 schema，定义 Agent 业务码命名空间与通道码映射；对 storage、activation、provider-error、unknown-outcome 分别写失败策略，不能用一组字符串类型糊过去。
+
+### 13. 大型查询和日志帧没有远程尺寸合同
+**严重程度**：重要；**类别**：安全与性能 / 正确性
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:86-96、123-150
+**现象**：计划把 `log`、`path`、`preview`、`diagnostics` 和完整内核帧直接映射到远程合同，只给 `log` 一个最多 2000 条的内核分页，没有远程字节上限、分块或大结果资源地址。
+**为什么是问题**：远程通道每条 JSON 消息上限 1 MiB；内核事件会把 blob 解析成完整字符串，单条 `log` 事件、`preview.request` 或合并后的 delta 都可能超过上限。发送失败时读查询会变成 `provider-error`，事件订阅会结束；而本 Task 的“无积压断开”决定不能解决单帧超限。
+**如何核实**：读取 `docs/specs/runtime/plugin-channel.md:20-25、116-117、170-172`，确认无流原语、1 MiB 消息上限和事件编码失败语义；读取 `packages/nb-harness/src/kernel/api/host.ts:176-188、265-278`，确认查询结果没有字节界限。
+**建议改法**：在 Agent 合同中给每个查询设字节预算并在服务端按字节分页；`preview`/大诊断改成可分页或 `session://artifacts` 引用，帧合并前也按编码后的字节数切块。不能把单纯的 100 毫秒时间合并当作大小控制。
+
+### 14. 帧合并没有说明内核订阅者编号和远程订阅者隔离
+**严重程度**：重要；**类别**：正确性
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:88-92、135-147
+**现象**：计划说“每个订阅一份合并缓冲”，但没有说明是每个远程订阅建立一个内核 `SessionApi.subscribe`，还是服务端只建立一个内核订阅后向多个远程订阅广播；也没有规定合并后如何重算 `delta.n`。
+**为什么是问题**：内核已经在 `SessionApi.subscribe()` 内按订阅者重编号 `delta.n`，过滤掉的增量不占号；服务端若共享一个内核订阅，多个远程订阅的 `n`、合并边界和慢订阅者状态会串在一起。若每个远程订阅各自订阅，必须处理订阅释放、onResync、100ms 定时器和句柄寿命，否则补齐后会出现重复或不连续。
+**如何核实**：读取 `packages/nb-harness/src/kernel/session/session.ts:329-379`，确认 `n` 是内核订阅者局部状态；读取 `packages/nb-harness/src/kernel/api/host.ts:195-220` 和 `docs/specs/harness/runtime.md:113`，确认 `n` 不进日志且按订阅者定义。
+**建议改法**：明确一层一订阅的所有权模型。推荐每个远程 `frames` 订阅持有一个 `SessionApi.subscribe`，再在该订阅内部先按 `(request, part, callId)` 合并、按任何非 delta 刷新、重新编号并在解除订阅时取消；补齐只针对 seq 权威日志，不能复用 delta 缓冲。
+
+### 15. `background` 无法按计划写入会话头
+**严重程度**：重要；**类别**：接口合同
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:94-98
+**现象**：计划说 `background` 只记进会话头并影响列表，但当前 `SessionHeader` 没有 `background` 字段，`CreateSessionOptions` 也没有该字段，`createSession()` 会把未知字段丢掉。
+**为什么是问题**：照计划实现会出现三种不一致之一：直接把字段塞进类型导致内核/日志合同变更未写入计划；不塞导致重开、list 和远程查询丢失后台标记；另建服务端旁路表导致会话头与列表出现两份真相。
+**如何核实**：读取 `packages/nb-harness/src/kernel/api/events.ts:250-265`、`packages/nb-harness/src/kernel/api/host.ts:402-413` 和 `packages/nb-harness/src/kernel/session/session.ts:391-412`，确认头字段、创建选项与写入集合均没有 `background`。
+**建议改法**：在 t10 的内核切片中正式增加并持久化 `background` 字段，更新 session format/迁移与 list 合同；或者明确它是 Agent 服务自己的持久索引字段，不再声称写入会话头，并定义索引重建和一致性规则。
+
+### 16. 用户级 Profile 不能直接复用第三方插件装载器，且与现有代码装载合同冲突
+**严重程度**：重要；**类别**：正确性 / 文档
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:27-31、68-73
+**现象**：计划说用户 Profile 用 `Bun.build` 后“装载走第三方插件同一条路”，但第三方 `serverEntryLoader()` 的输入是已安装插件，根目录固定在 State Root 的 `plugins` 下；导入守卫也只登记该目录，入口只加载导出 `activate`。用户包位于 `agent/cache/profiles`，导出形状和生命周期不同。
+**为什么是问题**：原样调用第三方 loader 既找不到 `InstalledPlugin`/清单，也不会对 Profile 缓存目录做表外模块检查；自行复制 loader 又建立第二套缓存删除、失败重试和模块回收规则。更直接的是 `plugin-code-loading.md` 输出 1 明确不在 State Root 运行期编译 TypeScript、Vue SFC 或 JSX，而本计划正是在 State Root 运行时 `Bun.build` `.profile.tsx`。t05 的已定决定可以选这个例外，但计划必须把例外和信任边界写清，不能声称合同相同。
+**如何核实**：读取 `packages/neuro-book/src/plugin-platform/backend/loader.ts:39-43、74-90、97-140`，确认 loader 的根目录、输入与 `activate` 形状；读取 `docs/specs/runtime/plugin-code-loading.md:14-20、25-28、42-46`，确认第三方装载合同和运行期编译非目标。
+**建议改法**：为用户 Profile 定义独立的 profile bundle loader：限定输入目录、扫描外部导入、共享模块表、失败重试、版本/缓存删除和资源释放；在 agent Spec 中明确它是受信用户代码的运行期编译例外，并说明不把用户源文件扩展为第三方插件安装能力。
+
+### 17. Profile 内容哈希没有接入内核版本哈希，不保证变更可见
+**严重程度**：重要；**类别**：不变量
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:36-40、68-72、162-166
+**现象**：计划给用户包文件名加内容哈希，并在哈希变化时调用 `profilesChanged`，但没有规定生成的 `AnyProfile.version` 如何随内容变化；同时又写明内核 Profile 哈希不算源码，提示词改动不升 `version` 不写 `profileChanged`。
+**为什么是问题**：如果每次包都返回固定版本，内核装配 hash 不变，现有 `reassembleNow` 会认为没有变化；旧对象也不会被替换。若把文件名哈希当作版本，必须定义稳定编码、首次加载、回退和重启后的比较，否则打开会话与用户级目录会产生不同 hash。
+**如何核实**：读取 `docs/specs/harness/extensions.md:107`，确认内核只用 Profile id/version 与扩展版本算 hash；读取 `packages/nb-harness/src/kernel/session/session.ts:600-603`，确认同 hash 直接跳过重装配。
+**建议改法**：在 Profile 目录合同中明确 `version = 内容哈希` 或另行把 bundle digest 作为 Profile 版本输入，并覆盖旧会话打开、源文件改动失败、哈希相同但求值对象变化的行为；不能只给缓存路径命名。
+
+### 18. 监视与打包的并发策略只有一句风险描述，没有跨事件和跨进程不变量
+**严重程度**：重要；**类别**：正确性 / 性能
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:27-32、68-76、158-166
+**现象**：计划选择 `node:fs watch`，风险段只写“同一 Profile 同时只打一个包，后到的合并成一次”，没有定义事件去重、临时文件/rename 保存、源文件删除、失败后的旧包、停止时取消和跨进程同时打包。
+**为什么是问题**：`fs.watch` 事件不保证一对一，编辑器常用临时文件改名；一次保存可能触发多个事件，多个源文件可能在同一轮只部分可读。并发打包若没有代次令牌，旧包完成可能覆盖新包；失败若把旧包删掉，会使正在使用的会话突然只读；多个 NeuroBook 进程共享 State Root 时还会同时写同一 cache。
+**如何核实**：现有第三方 loader 只读已安装版本目录且每次激活按版本目录删缓存，未提供用户 Profile 的 watch/build 状态机；读取 `packages/neuro-book/src/plugin-platform/backend/loader.ts:11-19、118-137` 可见其并不覆盖这些输入场景。用两次快速 rename/write 事件和一个延迟 build 的测试就能反转新旧完成顺序。
+**建议改法**：把 Profile 源快照、build generation、当前发布包、失败包分成明确状态；每次事件重新读取已登记源文件集合，旧 generation 完成后丢弃；成功后原子发布新包，失败保留最后成功包并将目录状态标成不可用/只读；跨进程用状态根锁或明确只允许单服务端。
+
+### 19. 验收表没有覆盖已列出的高风险失败与竞态
+**严重程度**：重要；**类别**：测试
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:121-156
+**现象**：验收表覆盖了正常工具、扩展、Profile 重载、补齐、句柄空闲和 startTask，但没有对应测试：平台 `prepare` 抛错的整批撤回、`published`/`revoke` 原因、扩展激活环与晚到入口、工具实现撤回时的 dispose 竞态、Profile 解析失败后的只读恢复、并发 open/close、停止期间在途 open、远程写请求 `unknown-outcome` 重试、1 MiB 帧超限。
+**为什么是问题**：这些正是计划依赖的平台与内核不变量；现有场景即使全通过，也不能证明贡献接收器事务、共享句柄和远程合同没有破坏。计划还明确把浏览器侧留到 t17，但远程 JSON 编码和 RPC 失败结算在 t10 已经生效，不能全部留给 UI Task。
+**如何核实**：逐项对照 `docs/specs/runtime/plugins.md:170-187`、`docs/specs/runtime/plugin-channel.md:87-94、116-117`、`docs/specs/harness/session.md:124-150`；计划第 6 节表中没有这些场景的测试行。
+**建议改法**：在每个切片的真实服务端测试中加入上述失败/竞态场景，尤其用真实 `createRemoteRouter` 链路验证 `unknown-outcome`、事件结束和 JSON 编码；对无法在无依赖 worktree 运行的测试，只把它们列为未验证，不把正常路径通过当作合同证据。
+
+### 20. `startTask` 的“受理输入并开始”没有对应的原子内核操作
+**严重程度**：重要；**类别**：正确性
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:94-98
+**现象**：计划只给出 startTask 的最终结果，没有规定它如何调用内核：`send` 在空闲时会同时入队并启动，`enqueue` 只入队，`start` 又要求缓冲区状态合适；没有单一 commandId 或服务端事务包住这几个动作。
+**为什么是问题**：若实现 `send` 后再 `start`，第二步会得到 `already-running`；若 `enqueue` 后 `start`，第一步已经持久化而第二步可能失败，留下没有运行的输入；任一步远程未知结果都不能安全重试。与“立即返回”组合后，失败状态无法由调用方修复。
+**如何核实**：读取 `packages/nb-harness/src/kernel/api/host.ts:27-46` 和 `packages/nb-harness/src/kernel/api/codes.ts:12-24`，确认 `send`、`enqueue`、`start` 的状态语义不同；读取 `docs/specs/harness/runtime.md:18、28、33`，确认运行启动与指令受理分别写入并按 commandId 幂等。
+**建议改法**：在内核增加一个原子“创建并受理首条输入”宿主操作，或明确 startTask 只调用一次 `send` 并把它作为唯一写操作；服务键和远程合同都返回同一套受理失败与幂等结果，不在服务层拼接两个独立命令。
+
