@@ -1,0 +1,158 @@
+# w00032 t10 第 0 片实现审查
+
+审查范围：`fcb705208..bd2924993`，仅 `packages/nb-harness/src/kernel/`。依据主工作区 `plan.md` 第 3.1 节、验收映射与设计审查处置；Profile 重载目标按计划判断。
+
+以下发现均经逐条核实后追加。仓库文件保持只读；实验文件位于 `/tmp/review-t10-impl/`。
+
+### 1. Profile 解析抛错绕过失败收口，关闭竞态还会泄漏会话锁
+
+**严重程度**：重要；**类别**：正确性。
+
+**位置**：`packages/nb-harness/src/kernel/session/session.ts:605`、`:589-594`、`:638-655`。
+
+**现象**：已打开的会话重载时，宿主的异步 `profiles.resolve` reject。新增 `await` 在 `try` 外，`reassembling.promise` reject 没有 owner；调 `profilesChanged` 的调用方拿到的却是另一个正常 resolve 的 `settled` Promise。实测产生 **1** 条 `unhandledRejection`，会话 `readOnly: null`、诊断 **0** 条，下一次 `send` 继续把旧提示词交给模型。
+
+**为什么是问题**：`SessionEnv.profiles.resolve` 明确允许异步实现；计划要求 Profile 重载失败沿用扩展重装配的只读与诊断处理。当前既不通过公开 Promise 报错，也不进入 `reassembly-failed`，在未拦截未处理拒绝的宿主中还会导致进程级失败。插件 Profile 按需激活/装载失败可以真实触发此路径。
+
+**如何核实**：`bun /tmp/review-t10-impl/repro-session.ts resolver-throws`。实验仅在宿主解析端注入 `throw new Error("resolver unavailable")`，经 `host.profilesChanged` 入口运行；为观察后续行为临时登记进程级未处理拒绝监听。输出 `unhandled: ["Error: resolver unavailable"]`、`readOnly: null`、`diagnostics: []`、`send.ok: true`。
+
+关闭竞态补充核实：`bun /tmp/review-t10-impl/repro-session.ts resolve-reject-during-close` 在异步解析进行时调用真实 `host.close`，再让解析 reject。结果 `closeResult: "rejected: Error: resolver unavailable"`、随后 `store.open(id)` 得 `session-busy`：关闭在等待重装配时失败，未执行后面的扩展、工具与锁清理；宿主已从 sessions 表删除该会话，不能经 `host.close` 重试。
+
+**建议改法**：把重新解析与装配也放进同一个失败处理边界；失败进入 `reassembly-failed` 并写诊断，保证调度器持有并处理每个拒绝。公开完成语义与内部 Promise 失败语义必须一致。补异步解析 reject 的场景，并核对调用期间 `close` 能最终释放锁。
+
+### 2. Profile 解析不到时提前返回，扩展撤回承诺完成但清理尚未执行
+
+**严重程度**：重要；**类别**：不变量。
+
+**位置**：`packages/nb-harness/src/kernel/session/session.ts:604-612`、`:589-592`。
+
+**现象**：运行中同时撤回 Profile 与一个已挂载扩展，两条通知合并为 `{removed: ["lab.watch"], profile: true}`。运行结束后 `profiles.resolve` 返回 `undefined`，重新装配直接返回；`extensions.revoke` 的 Promise 已完成，扩展清理次数仍是 **0**，快照反而把已撤回扩展列为 `active`。直到关闭会话才清理 **1** 次。
+
+**为什么是问题**：`runtime.md` 输出 57、`extensions.md` 输出 19 保证撤回 Promise 完成前运行完清理，平台随后才释放提供方资源。新增 Profile 分支跳过合并通知中的扩展摘下，却清空 `core.revoked` 并释放全部等待者，平台会先释放资源，旧扩展仍被会话持有。只读不等于已完成资源清理。
+
+**如何核实**：在审查 worktree 运行 `bun /tmp/review-t10-impl/repro-session.ts mixed-lost-cleanup`。真实 `createAgentHost`、内存 JSONL 存储、扩展 mount 与工具运行；用门控制工具完成，不使用固定等待。输出 `cleanedAtRevokeResolution: 0`、`extensions[0].status: "active"`，关闭后 `cleanedAfterClose: 1`。
+
+**建议改法**：Profile 丢失进入只读时仍处理本批扩展撤回并等待旧挂载清理；不要在仍保留旧挂载时清空撤回标记。待相应资源确实摘下或会话完成关闭后再完成撤回 Promise。补 Profile 丢失与扩展撤回合并的行为用例。
+
+### 3. profilesChanged 与正在受理的 changeProfile 交错，会把用户已切换的 Profile 改回去
+
+**严重程度**：重要；**类别**：不变量。
+
+**位置**：`packages/nb-harness/src/kernel/session/agent-host.ts:82-83`；`packages/nb-harness/src/kernel/session/session.ts:603-605`、`:639-642`。
+
+**现象**：会话起初用 `lab.live`；用户 `changeProfile("lab.other")` 正在等待宿主解析，此时通知 `profilesChanged(["lab.live"])`。通知按旧装配筛中会话，并在写入队列外解析、捕获旧 Profile 的新版本。用户的切换先写入并成功返回；随后重装配把 `lab.live` 换回，会话最终的快照和预览又是 `lab.live`。
+
+**为什么是问题**：计划要求按会话当前 key 重新解析，而不是让旧 key 的后台通知执行一次隐式切换。`changeProfile` 的成功结果已经承诺用户切换完成。新通知捕获的 Profile 与队列内真正提交时的当前 Profile 不一致，破坏指令串行化结果；顺序调用换 Profile 的测试抓不到这个交错。
+
+**如何核实**：`bun /tmp/review-t10-impl/repro-session.ts overlap-change-profile`。仅通过异步 `SessionEnv.profiles.resolve` 门控制真实指令受理顺序。输出 `changeProfileResult.ok: true`、其结果 hash 对应 `lab.other`，最终 `current.id: "lab.live"`，预览 system 是 `UPDATED OLD PROFILE`。
+
+**建议改法**：在会话串行化边界确定此次重解析针对的 key；异步 resolve 后、提交新装配前复核 key/装配代次，若用户已切换则丢弃旧 key 的结果，不得覆盖新的 Profile。补并发 `changeProfile` 与旧/新 key 通知的行为用例。
+
+### 4. 任意扩展通知会在 Profile 尚未回来时解除 unknown-profile 只读
+
+**严重程度**：重要；**类别**：正确性。
+
+**位置**：`packages/nb-harness/src/kernel/session/session.ts:603-605`、`:625-628`。
+
+**现象**：先移除 `lab.live` 并等待 `profilesChanged(["lab.live"])`，会话正确进入 `unknown-profile`。此后发布一个无关的 `lab.new` 扩展，扩展通知不带 `profile`，代码直接拿丢失前的 `core.assembly.profile` 重新装配。装配成功就把 `unknown-profile` 清掉；Profile 注册表仍查不到 `lab.live`，`send` 却成功，模型收到旧系统提示词 `OLD`。
+
+**为什么是问题**：计划 3.1 第 2 条及 3.3 规定 Profile 提供方回来、再次重新解析成功才恢复。`profileLost` 只记录“过去丢过”，没有约束恢复必须使用一次成功的当前解析；普通插件增减就能绕过提供方撤回后的只读门禁。
+
+**如何核实**：`bun /tmp/review-t10-impl/repro-session.ts lost-then-extension`。输出 `stillResolvable: false`、`readOnly: null`、`send.ok: true`，请求的 system 是 `OLD`。实验经真实宿主发布扩展与会话指令入口。
+
+**建议改法**：`profileLost` 时，无论待处理通知是否带 `profile`，都重新解析当前 key；只有明确解析成功、完成装配后才能解除 `unknown-profile`。补“Profile 仍缺失时收到无关扩展发布/撤回”用例。
+
+### 5. Profile 丢失覆盖原只读原因，回来后错误解除 tools-missing 与 reassembly-failed
+
+**严重程度**：重要；**类别**：正确性。
+
+**位置**：`packages/nb-harness/src/kernel/session/session.ts:608-609`、`:625-635`。
+
+**现象**：会话原本因 `tools-missing` 或 `reassembly-failed` 只读；Profile 被撤回时只读码被覆盖成 `unknown-profile`。Profile 回来，同对象、同哈希走提前成功分支，原来的 **2 种**不可自动解除的只读都变为 `null`。资源重建曾失败的情况，此时并没有重试 `refreshContext` 或重新 mount。
+
+**为什么是问题**：`runtime.md` 输出 57 与代码自己的恢复注释明确规定“别的原因的只读留到重开”；尤其 `reassembly-failed` 表示新装配与旧资源可能不一致，不能只凭 Profile 再次可解析就恢复写入。单个字符串加 `profileLost` 布尔值丢掉了进入丢失状态前的失败原因。
+
+**如何核实**：分别运行 `bun /tmp/review-t10-impl/repro-session.ts lost-after-tools-missing` 与 `bun /tmp/review-t10-impl/repro-session.ts lost-after-reassembly-failed`。前者真实跑出必需工具缺失；后者在重载的 `env.resources` 抛错。两者输出分别是 `before: {code: "tools-missing"}` / `{code: "reassembly-failed"}`，撤回再恢复后均为 `after: null`。
+
+**建议改法**：分开记录 Profile 可用性与其它只读故障，Profile 恢复只解除由这一次丢失带来的限制；若要自动恢复 `reassembly-failed`，必须完整重建并成功装上资源后再解除，不能走同哈希短路。补这两个恢复前置故障场景。
+
+### 6. 新索引解析条件让升级前的全部会话从 list 消失
+
+**严重程度**：重要；**类别**：正确性。
+
+**位置**：`packages/nb-harness/src/kernel/log/index-file.ts:40-41`；调用点 `packages/nb-harness/src/kernel/log/jsonl-store.ts:292-293`。
+
+**现象**：升级前的合法 `index.json` 不含 `background`。新增解析条件把它判为 `null`；`list()` 与 `list({background: false})` 都直接跳过该会话，只有已经知道 id 并先 `open(id)` 才触发重建、重新出现在列表里。旧安装的 **全部 N 个**会话在逐个打开前都不再可发现。
+
+**为什么是问题**：计划 3.1 第 3 条保持日志格式不变，并声明旧会话没有该字段即前台。列表是发现会话 id 的入口，不能用“用户先打开会话”作为兼容前置条件。新增测试只测先打开后的重建，漏了升级首次列举。
+
+**如何核实**：`bun /tmp/review-t10-impl/repro-index.ts`。在 `/tmp/review-t10-impl/index-world/` 创建一个真实 JSONL 前台会话、从索引去掉 `background` 模拟旧版本；输出 `beforeOpen.value: []`、`beforeOpenFrontOnly.value: []`，`open` 后 `afterOpen.value` 才有该会话并带 `background: false`。基线 `parseIndex` 只检查 `throughSeq`，不会漏掉这个索引。
+
+**建议改法**：为缺字段的旧索引提供可发现的迁移路径：首次列举补齐/重建，或解析旧条目为前台并确保打开时仍能按头重建。不可继续把所有旧条目静默丢掉。补“未先打开旧会话就 list”的兼容用例。
+
+### 7. 合并 Profile 更新与扩展变化时，日志丢失 code-updated 原因
+
+**严重程度**：重要；**类别**：正确性。
+
+**位置**：`packages/nb-harness/src/kernel/session/session.ts:601-602`。
+
+**现象**：运行中把 Profile 从 version `1` 换为 `2`，同时撤回一个扩展；两个通知正确攒成同一批，但运行结束后只写 `profileChanged{reason: "plugin-removed"}`，日志中 **0** 条 `code-updated`。有新增扩展时同理会报 `plugin-added` 或 `plugin-updated`。
+
+**为什么是问题**：计划 3.1 第 2 条与新增 `AgentHost.profilesChanged` 公共注释均规定 Profile 哈希变化写 `code-updated`。当前只看插件增减就决定 reason，完全忽略本批 `pending.profile`，把真实的 Profile 代码替换记录成纯插件装卸；持久化日志的原因不再代表发生的行为。
+
+**如何核实**：`bun /tmp/review-t10-impl/repro-session.ts mixed-reason`。输出待处理 `{added: [], removed: ["lab.watch"], profile: true}`，完成后的 reasons 是 `["created", "plugin-removed"]`；实验确实用 version `2` 替换 Profile，且扩展也已摘下。
+
+**建议改法**：明确合并批的 reason 优先级并按合同实现：本批包含 Profile 重新解析且发生哈希变化时用 `code-updated`，仅插件变化时再按增减选择插件原因。补 Profile 更新与扩展增/删合并的验收。
+
+### 8. Profile 热重载测试没有保护卸载旧扩展与重建资源、工具上下文
+
+**严重程度**：重要；**类别**：测试。
+
+**位置**：`packages/nb-harness/src/kernel/session/host.test.ts:849-923`。
+
+**现象**：新增的 **2** 条 `profilesChanged` 用例只观察提示词、日志原因、只读码与 pending 状态；Profile 没有 mount/清理，热重载时也没有已创建的工具。分别把 Profile 重载路径的 `refreshContext()` 整步跳过、把 `unmountAll()` 整步跳过，这 **2** 条测试都仍通过，各 **12** 个断言、**0** 失败。
+
+**为什么是问题**：计划 3.1 第 2 条明确要求同哈希换对象时也重建资源与工具上下文，并让会话不再持有旧 Profile。这是热更新资源寿命合同；当前即使留着旧订阅、旧工具实现、旧资源且重复 mount，验收仍通过。
+
+**如何核实**：使用 `/tmp/review-t10-impl/mutation-preload.ts` 的 Bun `onLoad` 在内存中变异源码，仓库文件完全没有写入。在包目录分别运行 `env REVIEW_T10_MUTATION=skip-context-refresh bun test --preload /tmp/review-t10-impl/mutation-preload.ts src/kernel/session/host.test.ts --test-name-pattern 'profilesChanged'` 与 `env REVIEW_T10_MUTATION=skip-profile-cleanup bun test --preload /tmp/review-t10-impl/mutation-preload.ts src/kernel/session/host.test.ts --test-name-pattern 'profilesChanged'`，两次均为 **2 pass / 0 fail**。对照变异 `early-promise` 被 `host.test.ts:922` 捕获，恢复按 Profile 过滤工具的变异被 `tools.test.ts:77` 捕获，说明加载变异确实生效。
+
+**建议改法**：在现有 Profile 热重载行为用例里使用带真实清理的订阅、已被执行的工具及按上下文创建的资源；同哈希替换后观察旧订阅失效、新资源值生效、旧工具释放且下一次调用用新实例，并覆盖 refresh 失败进入只读。以这些调用方可见行为证明寿命合同，不只断言内部方法调用次数。
+
+### 9. Profile.tools 的公开类型注释仍承诺已经删除的工具过滤行为
+
+**严重程度**：建议；**类别**：文档。
+
+**位置**：`packages/nb-harness/src/kernel/api/profile.ts:44-48`；对应行为变更 `packages/nb-harness/src/kernel/run/tools.ts:52-59`。
+
+**现象**：`ProfileFields.tools` 的公开 JSDoc 仍写“写了就只把宿主声明里列出的交给模型”，与本片新增测试和 `ToolBox.current()` 的最终工具集语义相反。
+
+**为什么是问题**：这是宿主与 Profile 作者通过编辑器直接看到的 API 合同，调用方照它用 `tools` 限制模型可见工具不会生效。用户已说明 Spec 会在下一片更新，此处是本片源码公开注释遗漏，不把尚未更新的 Spec 算作缺陷。
+
+**如何核实**：对照上述两处源码和 `tools.test.ts:73-77`；另用 `bun /tmp/review-t10-impl/repro-session.ts tool-visibility` 验证 Profile 未列出的 `lab.bound` 同样出现在预览、真实请求和 `toolsAnnounced` 中。
+
+**建议改法**：同步更新 `ProfileFields.tools` 注释：宿主声明就是最终工具集，required 用于缺失检查，optional 供 Profile 检测可用性；链接目标合同，避免重复已过时的规则。
+
+## 未发现问题的方面
+
+- 工具集运行路径：`bun /tmp/review-t10-impl/repro-session.ts tool-visibility` 观察到预览与真实请求都包含宿主额外声明的 `lab.bound`；声明变化后写入排序后的新 `toolsAnnounced` 和新增/移除提醒；必需工具缺失时没有发第 3 次模型请求并进入 `tools-missing`。`complete()` 仍按自己的无工具合同返回 `profile-has-tools`。仔细检查后没有发现这几条之间由本片引入的不一致。
+- 顺序调用的 Profile 选择：`bun /tmp/review-t10-impl/repro-session.ts current-profile` 验证换成 `lab.other` 后，旧 key 通知不改它，新 key 通知更新提示词；已关闭的会话通知安全完成。并发受理情形见第 3 条。
+- 打开时就解析不到的占位会话：`bun /tmp/review-t10-impl/repro-session.ts placeholder-open` 验证通知后仍是 `unknown-profile`，重开才恢复；与正常打开后丢失的会话保持区别。
+- 同哈希换对象的成功路径：`bun /tmp/review-t10-impl/repro-session.ts refresh-order` 实测顺序 `cleanup:OLD → resources → tool:dispose → mount:NEW`，预览用 `NEW`；测试缺口见第 8 条。
+- 正常重新装配与关闭交错：`bun /tmp/review-t10-impl/repro-session.ts close-during-refresh` 验证重装配 mount 完成后清理 **1** 次、存储可重新打开、迟到 send 得 `session-closed`。解析 reject 的关闭失败见第 1 条。
+- `background` 的创建、会话头读回、按 true/false 过滤、fork 不继承、打开时从头重建索引：既有与新增包测试覆盖，未发现本片其它回归；旧索引首次列表问题见第 6 条。检索 `packages/` 与 `scripts/` 的 `SessionIndexEntry` 静态引用均在该内核的 API/索引/存储文件，未发现额外手工构造条目的消费者。
+- 本片未新增按错误文案分支、mock、spy、假计时器或固定等待；检查到的静默 catch 属于基线已有路径，不计作本次回归。Spec 尚未随片更新按审查说明排除，未列缺陷。
+
+## 实际验证与只读保证
+
+- worktree 根执行 `bun test packages/nb-harness`：**320 pass、7 fail**。失败均在 `src/kernel/view/view.test.tsx` 的 JSX 模板场景。包目录配置有 `jsxImportSource`，根目录直接调用未按该包配置执行；在包目录执行同一文件 `bun test src/kernel/view/view.test.tsx` 为 **27 pass、0 fail**。这次入口差异不列为本片实现问题。
+- 在 `packages/nb-harness/` 执行 `bun test`：**327 pass、6 skip、0 fail**，共 **333** 条测试、**27** 个文件、**3610** 个断言，耗时 **7.14 s**。未运行真实模型调用。
+- worktree 根执行 `bun run --cwd packages/nb-harness typecheck`：`tsc --noEmit`，退出 **0**，耗时 **6.81 s**。
+- 额外运行本报告逐条写明的真实宿主实验与 **4** 种内存加载变异。首次加载实验因 Bun `onLoad` 不接受异步 callback 返回 undefined 失败，限定到单一目标文件后执行成功；该失败不作产品证据。变异仅作用于加载内容，进程结束即恢复正常加载，**仓库文件从未被修改，无需 checkout 恢复**。
+- `git diff --quiet && git diff --cached --quiet` 退出 **0**；所有新建实验与报告都在 `/tmp/review-t10-impl/`。未 commit、push、stash、切分支或删除文件；未开子审查；未跑 e2e、开发服务或 nb-story 验收门。
+
+## 数量
+
+阻断 **0** 条；重要 **8** 条（正确性 **5**、不变量 **2**、测试 **1**）；建议 **1** 条（文档 **1**）。合计 **9** 条。
+
+有效发现编号：1、2、3、4、5、6、7、8、9。
+
