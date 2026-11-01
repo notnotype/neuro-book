@@ -73,6 +73,8 @@ CI 通过只表示自动检查完成，不等于批准合并。维护者负责�
 
 当前 workspace 包内修改与验证遵循 [`../../packages/AGENTS.md`](../../packages/AGENTS.md)，不再执行 sibling 快照同步。外部源 checkout 不因本仓任务被修改；推送前确认当前仓库。
 
+向外部上游项目报 Issue 或发 PR 前，先读对方的贡献规则（CONTRIBUTING、Issue 与 PR 模板）：有的项目要求准备自己提交修复时不要先开 Issue，例如 oh-my-pi 的机器人会接手新 Issue、开始同样的修复。对外发帖仍要开发者授权。
+
 llmlint 从 `packages/llmlint/skill` 单一源生成产品投影，不手工编辑投影资产。
 
 ## 发布授权

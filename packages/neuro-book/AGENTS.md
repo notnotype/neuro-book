@@ -31,6 +31,7 @@
 - 长连接（事件流）在处理器里经 `env.registerEventStream(close)` 登记，否则会拖住排空。
 - 记录诊断用 `@notnotype/nb-runtime/diagnostics` 的 `diagnosticsKey` 服务，不直接写文件或另建日志器。
 - 测试需要额外插件时经 `startServer({plugins})` 注入（见 `src/server/testing/`），产品代码不加测试分支。
+- 必须最先运行的代码（拍下启动环境、接管进程级处理）与外部包（打包时 `--external` 的包）的导入在同一个 bundle 里时，打包器会把外部包的导入提到文件最前、先于它求值。这类代码放在入口里，其余代码用 `await import` 加载并开代码分割（例子见 `src/server/main.ts`，原因见 [ADR 0036](../../docs/adr/0036-app-package-installs-omp.md)）。
 
 ## 前端
 

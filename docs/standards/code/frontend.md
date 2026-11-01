@@ -7,7 +7,7 @@
 - 使用 Composition API 和仓库现有函数式风格；props、emits、slot 与 template ref 保持类型完整。派生状态用 `computed`，`watch` 只承载副作用并负责停止订阅、计时器和请求。
 - 通用能力优先复用现有组件、错误映射、通知和面板工具；具体入口由最近的作用域 `AGENTS.md` 登记。
 - 交互控件使用语义 HTML、键盘可达名称、正确的 disabled/focus 状态；图标按钮提供可访问名称或 Tooltip。用户文字面向第一次使用 NeuroBook 的普通作者。
-- 要交给结构化复制的值（写配置、`postMessage`、IndexedDB）不放进深层 `ref`、`reactive`：取出的是代理，`structuredClone` 会抛错；用 `shallowRef`，或交出前 `toRaw`。
+- 从深层 `ref`、`reactive`（含响应式的 `Map`、`Set`）取出的是代理：要交给结构化复制的值（写配置、`postMessage`、IndexedDB）不放进去，`structuredClone` 会对代理抛错，用 `shallowRef` 或交出前 `toRaw`；拿取出的值与原对象比身份（`===`、作 `Map` 或 `Set` 的键）时，先 `toRaw` 再比。
 - 列表 key 来自稳定实体身份。昂贵派生不在 template 重复调用；布局尺寸使用稳定约束，避免加载、hover 或长文本造成跳动和遮挡。
 - `.vue` 单文件组件达到或超过 1200 行是硬审查线。新增职责前按稳定边界拆出组件、composable、store 或领域模块。
 
