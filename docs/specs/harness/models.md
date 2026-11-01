@@ -30,18 +30,24 @@ owners:
 
 ```ts
 interface ModelPort {
-    resolve(settings: CoreSettings, purpose: RequestPurpose, role?: string): ModelResolution;
+    resolve(query: ModelQuery): ModelResolution;
+}
+interface ModelQuery {
+    settings: CoreSettings;
+    purpose: RequestPurpose;
+    profile: string;   // 会话当前 Profile 的 id；complete() 是它要跑的 Profile
+    role?: string;     // 调用方指名的角色（压缩方法、审批钩子经 ctx.model 给的）
 }
 type ModelResolution =
     | {ok: true; info: ModelInfo; call(request: ModelRequest, signal: AbortSignal, onDelta: (delta: ModelDelta) => void): Promise<ModelResponse>}
-    | {ok: false; code: "no-model" | "no-credentials" | "unknown-model"};
+    | {ok: false; code: "no-model" | "no-credentials" | "unknown-model" | "role-unbound"};
 
 // OMP 适配器（@notnotype/nb-harness/kernel）
-ompCall(target: {model: Model; apiKey: () => string; priceKnown: boolean}): ModelResolution["call"];
+ompCall(target: {model: Model; apiKey: () => string | Promise<string>; priceKnown: boolean; headers?: Record<string, string>}): ModelResolution["call"];
 ompModelInfo(model: Model): ModelInfo;
 ```
 
-`ModelRequest`、`ModelResponse`、`ContentBlock`、`ModelInfo` 的形状以 `@notnotype/nb-harness/kernel/contracts` 导出的类型为准。`target.model` 是 OMP 的模型对象；`apiKey` 只从宿主指定的来源取，取不到时抛错。
+`ModelRequest`、`ModelResponse`、`ContentBlock`、`ModelInfo` 的形状以 `@notnotype/nb-harness/kernel/contracts` 导出的类型为准。`target.model` 是 OMP 的模型对象；`apiKey` 每次请求取一次、只从宿主指定的来源取，取不到时抛错或 reject；`headers` 是宿主配置的请求头（值可能是凭据）。`resolve` 是同步的：宿主在内存里维护目录、配置与“哪些服务商有凭据”的快照。
 
 | 规则 | 内容 |
 |---|---|
@@ -52,8 +58,8 @@ ompModelInfo(model: Model): ModelInfo;
 
 1. `call` 对服务商的失败不抛错：交回 `stopReason: "error"` 的回复，带 `error: {kind, code?, status?, message}` 与已产生的部分内容；用户中止交回 `stopReason: "aborted"`。
 2. 失败的类别按状态码与 OMP 的错误标记归，不看错误文字，按顺序取第一个符合的：额度用尽标记或 402 → `quota`；鉴权失败标记、401、403 → `auth`；429 → `rate_limit`；上下文溢出标记 → `context_overflow`；内容拦截或服务商终态错误标记 → `provider`；网关类状态码（408、502、503、504、520–524）、超时标记、没有状态码而带瞬时故障标记 → `network`；其余 → `provider`。
-3. 密钥取不到时不发请求，以 `auth`、码 `missing-key` 失败。
-4. 错误文字里出现的密钥换成固定的遮盖文字 `[REDACTED]`；“端点不要认证”的占位值不算密钥。
+3. 密钥取不到（`apiKey` 抛错或 reject）时不发请求，以 `auth`、码 `missing-key` 失败。解析时有凭据、请求前凭据没了，就是这一条：模型请求已经开始，按普通的模型失败收口（端口的 `no-credentials` 只在解析时报）。
+4. 错误文字里出现的密钥与 `headers` 里不短于 8 个字符的值换成固定的遮盖文字 `[REDACTED]`；“端点不要认证”的占位值不算密钥。错误文字另去掉控制字符（换行与制表符留下）、遮掉网址里的用户信息与查询串，截到 8 KB 并在末尾写明截过。
 5. 请求里相邻的 user 消息合成一条发出，文字块之间空一行；同一条消息里相邻的文字块同样合并。会话日志里它们仍是分开的。
 6. 工具按完整声明发出，名字按“输入与前置条件”的规则换算；回复里的工具调用按名字换回工具 id，换不回的保留原名。
 7. 思考块连同签名、服务商要求带回的元数据原样存进回复、原样送回；文字块与工具调用的服务商元数据同样。作答的服务商与这次请求的服务商不同时，由 OMP 决定是否丢掉签名。
@@ -64,6 +70,8 @@ ompModelInfo(model: Model): ModelInfo;
 12. 推理档按模型支持的档夹取；不支持推理的模型不发推理参数。
 13. `toolChoice` 按服务商的写法发出：`auto`、`none` 原样，指定工具时用换算后的名字。
 14. `ompModelInfo` 给出 `<服务商>/<模型>` 的 id、上下文窗口、最大输出、是否收图片与思考、支持的推理档。
+15. `target.headers` 随每个请求发出，在请求自己的 `headers` 之前（同名时请求的赢）。
+16. 端口解析失败的码由调用方原样交回：`send`、`start` 的受理失败，`complete()` 的失败，预览的 `PreviewUnavailable`；`ctx.model`（压缩方法、审批钩子）解析失败时不写模型事件，码在交回的回复的 `error.code`（[`runtime.md`](runtime.md) 输出 5）。`role-unbound`：调用要的角色没有绑定模型，宿主不回落到别的模型。
 
 ## 状态与转换
 
@@ -80,6 +88,7 @@ ompModelInfo(model: Model): ModelInfo;
 | `missing-key` | 密钥取不到 | 让用户设置宿主指定的变量 |
 | `unsupported-content` | 请求里有适配器不支持的内容 | 去掉该内容或换模型 |
 | `no-model`、`no-credentials`、`unknown-model` | 端口解析不到模型或凭据 | 让用户在设置里选模型、配凭据 |
+| `role-unbound` | 要的角色没有绑定模型 | 让用户在模型角色里绑定 |
 
 ## 边界与兼容
 
@@ -88,7 +97,7 @@ ompModelInfo(model: Model): ModelInfo;
 
 ## 验收与 Smoke
 
-1. 本机起的 OpenAI 兼容端点（真实 HTTP、真实 OMP）：文字回复与增量、缺结束原因记 `length`、推理内容收成思考块、工具名换算与工具结果回给模型、相邻 user 合并、401/402/429 的归类与密钥遮盖、取不到密钥不发请求、中止、不支持的内容。
+1. 本机起的 OpenAI 兼容端点（真实 HTTP、真实 OMP）：文字回复与增量、缺结束原因记 `length`、推理内容收成思考块、工具名换算与工具结果回给模型、相邻 user 合并、401/402/429 的归类与密钥遮盖、宿主请求头随请求发出且其值被遮盖、错误原文去掉网址凭据并截断、取不到密钥（同步抛错与异步 reject）不发请求、中止、不支持的内容。
 2. 真实模型：一轮对话、重开、再一轮，第二轮看得到第一轮。
 
 Smoke：`packages/nb-harness/tests/kernel/kernel.llm.test.ts`（`bun run test:llm`）。
