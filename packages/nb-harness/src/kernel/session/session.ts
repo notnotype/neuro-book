@@ -331,8 +331,9 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
             return runResultOf(core.events, runId, core.byId);
         },
         preview: (args) => previewRequest({core, models: env.models, box: state.box, resources: state.react.resources, environment: (model, tools) => ({tools, model, now: core.clock.now(), initial: state.environment.initial})}, args),
-        async diagnostics() {
-            return core.diagnostics.all();
+        // 过滤按查询参数：`afterSeq` 取最后一次出现在它之后的（合并过的诊断按最后一次算），`extension` 与 `level` 按值。
+        async diagnostics(args = {}) {
+            return core.diagnostics.all().filter((item) => (args.afterSeq === undefined || item.lastSeq > args.afterSeq) && (args.extension === undefined || item.extension === args.extension) && (args.level === undefined || item.level === args.level));
         },
         subscribe: (listener) => {
             if (outbound === undefined) return core.subscribe(listener);

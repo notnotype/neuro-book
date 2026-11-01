@@ -134,9 +134,11 @@ export class AgentTools {
 interface Built {
     readonly handle: Handle;
     readonly implementation: Promise<ToolImplementation>;
+    /** 在这一代上进行中的调用：从等工厂建好开始算，到底层的执行结束。 */
     readonly calls: Set<Promise<unknown>>;
-    /** 这一代被撤回时触发：执行中的调用最多再等 5 秒。 */
+    /** 这一代被撤回了：之后不再开始执行，进行中的调用最多再等 5 秒。 */
     revoked: boolean;
+    /** 进行中的调用各一个：撤回时开始它的 5 秒计时。调用结束时移除。 */
     readonly onRevoke: Set<() => void>;
 }
 
@@ -155,6 +157,26 @@ class ToolWrapper implements ToolImplementation {
         if (this.#disposed) return unavailable(this.id);
         const built = await this.#ensure();
         if (built === null) return unavailable(this.id);
+        // 一次调用整个算进这一代的进行中：等工厂建好、复核、执行。工厂挂住时撤回的 5 秒上限照样生效。
+        const work = this.#run(built, args, context);
+        built.calls.add(work);
+        let onRevoke: (() => void) | null = null;
+        const cut = new Promise<ToolResult>((resolve) => {
+            onRevoke = () => {
+                const cancel = this.options.clock.schedule(() => resolve(unavailable(this.id)), REVOKE_GRACE_MS);
+                void work.then(cancel, cancel);
+            };
+            built.onRevoke.add(onRevoke);
+            if (built.revoked) onRevoke();
+        });
+        void work.then(() => undefined, () => undefined).finally(() => {
+            built.calls.delete(work);
+            if (onRevoke !== null) built.onRevoke.delete(onRevoke);
+        });
+        return Promise.race([work, cut]);
+    }
+
+    async #run(built: Built, args: Readonly<Record<string, unknown>>, context: ToolContext): Promise<ToolResult | string> {
         let implementation: ToolImplementation;
         try {
             implementation = await built.implementation;
@@ -163,26 +185,18 @@ class ToolWrapper implements ToolImplementation {
             if (this.#built === built) this.#built = null;
             return unavailable(this.id);
         }
-        // 等实现建好的这段时间里这一代可能已被撤回。
-        if (built.revoked) return unavailable(this.id);
-        const call = implementation.execute(args, context);
-        built.calls.add(call);
-        void call.then(() => undefined, () => undefined).finally(() => built.calls.delete(call));
-        // 撤回后最多再等 5 秒：到时以 tool-unavailable 结算，提供方之后交回的结果丢掉。
-        const cut = new Promise<ToolResult>((resolve) => built.onRevoke.add(() => {
-            const cancel = this.options.clock.schedule(() => resolve(unavailable(this.id)), REVOKE_GRACE_MS);
-            void call.then(cancel, cancel);
-        }));
-        return Promise.race([call, cut]);
+        // 等工厂的这段时间里运行可能已中止、这一代可能已撤回、会话可能已关闭：这时不再开始执行，免得中止之后才有副作用。
+        if (context.signal.aborted || built.revoked || this.#disposed) return unavailable(this.id);
+        return implementation.execute(args, context);
     }
 
-    /** 提供方的这一代撤回：作废它，交回的 Promise 在执行中的调用都结算或 5 秒到时完成。 */
+    /** 提供方的这一代撤回：作废它，交回的 Promise 在进行中的调用都结算或 5 秒到时完成。 */
     async revoke(handle: Handle): Promise<void> {
         const built = this.#built;
         if (built === null || built.handle !== handle) return;
         this.#built = null;
         built.revoked = true;
-        for (const listener of built.onRevoke) listener();
+        for (const listener of [...built.onRevoke]) listener();
         await this.#retire(built);
     }
 
@@ -211,8 +225,8 @@ class ToolWrapper implements ToolImplementation {
     }
 
     /**
-     * 等这一代执行中的调用结算（最多 5 秒）再释放；5 秒时还没结算的写 `tool-abandoned`，释放推迟到它们真结束
-     * （没有强制终止，contributions.md 输出 6）。交回的 Promise 不等推迟的释放。
+     * 等这一代进行中的调用结算（最多 5 秒）再释放；5 秒时还没结算的写 `tool-abandoned`，释放推迟到它们与工厂都真结束
+     * （没有强制终止，contributions.md 输出 6）。交回的 Promise 不等推迟的释放，也不等挂住的工厂。
      */
     async #retire(built: Built): Promise<void> {
         const release = async () => {
@@ -222,21 +236,20 @@ class ToolWrapper implements ToolImplementation {
                 this.options.report("tool-dispose-failed", `disposing tool ${this.id} threw`, {tool: this.id, message: error instanceof Error ? error.message : String(error)});
             }
         };
-        if (built.calls.size === 0) return release();
-        const all = Promise.allSettled([...built.calls]);
+        const settled = Promise.allSettled([...built.calls, built.implementation]);
         let timedOut = false;
         await new Promise<void>((resolve) => {
             const cancel = this.options.clock.schedule(() => {
                 timedOut = true;
                 resolve();
             }, REVOKE_GRACE_MS);
-            void all.then(() => {
+            void settled.then(() => {
                 cancel();
                 resolve();
             });
         });
         if (!timedOut) return release();
         this.options.report("tool-abandoned", `tool ${this.id} did not finish ${REVOKE_GRACE_MS} ms after its plugin stopped; its implementation is released once it does`, {tool: this.id});
-        void all.then(release);
+        void settled.then(release);
     }
 }

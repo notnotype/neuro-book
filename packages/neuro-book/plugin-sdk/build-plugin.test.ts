@@ -173,12 +173,13 @@ export const echoBrowser = {id: "acme.echo", entries: [defineEntry({id: "browser
     it("引用宿主没有共享的模块（直接导入 nb-ui、绕过 SDK 的内核）：构建失败，写明未共享与引入它的模块；nb-ui 提示改从 SDK 导入组件", async () => {
         const root = await authorProject("unshared", {
             "web/plugin.ts": `import {Button} from "@notnotype/nb-ui/components";\nimport {useNotification} from "@notnotype/nb-ui/notifications";\nexport const p = {id: "acme.unshared", entries: [{id: "browser", location: "browser", activate: () => { useNotification(); void Button; return {}; }}]};\n`,
-            "backend/plugin.ts": `import {defineEntry} from "@notnotype/nb-runtime/plugins";\nexport const s = {id: "acme.unshared", entries: [defineEntry({id: "server", location: "server", activate: () => ({})})]};\n`,
-        }, ["@notnotype/nb-ui", "@notnotype/nb-runtime"]);
+            "backend/plugin.ts": `import {defineEntry} from "@notnotype/nb-runtime/plugins";\nimport {defineProfile} from "@notnotype/nb-harness/kernel/contracts";\nvoid defineProfile;\nexport const s = {id: "acme.unshared", entries: [defineEntry({id: "server", location: "server", activate: () => ({})})]};\n`,
+        }, ["@notnotype/nb-ui", "@notnotype/nb-runtime", "@notnotype/nb-harness"]);
         const problems = await failure(root);
         expect(problems).toContainEqual(expect.stringContaining("引用了宿主没有共享的模块 @notnotype/nb-ui/notifications（由 web/plugin.ts 引入）"));
         expect(problems).toContainEqual(expect.stringMatching(/引用了宿主没有共享的模块 @notnotype\/nb-ui\/components（由 web\/plugin\.ts 引入）.*nb-ui 的组件从 @notnotype\/nb-plugin-sdk\/components 导入/u));
         expect(problems).toContainEqual(expect.stringContaining("引用了宿主没有共享的模块 @notnotype/nb-runtime/plugins（由 backend/plugin.ts 引入）"));
+        expect(problems).toContainEqual(expect.stringMatching(/引用了宿主没有共享的模块 @notnotype\/nb-harness\/kernel\/contracts（由 backend\/plugin\.ts 引入）.*@notnotype\/nb-plugin-sdk\/agent/u));
     }, 60_000);
 
     it("动态导入宿主没有共享的模块（浏览器里的 nb-ui 其它入口、服务端绕过 SDK 的内核）：同样构建失败", async () => {

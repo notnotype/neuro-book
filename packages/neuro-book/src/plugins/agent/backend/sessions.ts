@@ -61,6 +61,8 @@ export interface SessionTableOptions {
 
 export class SessionTable {
     readonly #entries = new Map<string, Entry>();
+    /** 已接纳、还没登记进表的操作（建会话与它之后的初始设置）：停止要等它们登记完再关。 */
+    readonly #accepted = new Set<Promise<unknown>>();
     #stopping = false;
 
     constructor(private readonly options: SessionTableOptions) {}
@@ -69,15 +71,26 @@ export class SessionTable {
         return this.#stopping;
     }
 
-    /** 建会话：完成后直接是打开的（sessions.md 输出 5）。 */
+    /**
+     * 把一次已接纳的操作登记成在途，停止等它结束（sessions.md 输出 14：等已接纳的建会话登记完）。关门之后不再接纳。
+     * `run` 里建出的会话照常登记进表，停止随后把它关掉。
+     */
+    accept<T>(run: () => Promise<T>): Promise<T> {
+        if (this.#stopping) return Promise.reject(new AgentStopping());
+        const work = run();
+        this.#accepted.add(work);
+        void work.then(() => undefined, () => undefined).finally(() => this.#accepted.delete(work));
+        return work;
+    }
+
+    /** 建会话：完成后直接是打开的（sessions.md 输出 5）。调用方经 `accept` 调它，停止才等得到。 */
     async create(options: CreateSessionOptions): Promise<Awaited<ReturnType<AgentHost["create"]>>> {
         this.#gate();
         await this.options.beforeOpen();
-        this.#gate();
         const created = await this.options.host.create(options);
         if (!created.ok) return created;
         const session = created.value;
-        // 停止在建会话期间开始：照样登记，停止的收口会关掉它。
+        // 停止在建会话期间开始：照样登记，停止等这次建会话结束后关掉它。
         const entry: Entry = {id: session.id, state: "open", session, ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
         this.#entries.set(session.id, entry);
         this.#watch(entry, session);
@@ -111,6 +124,7 @@ export class SessionTable {
      */
     async stop(): Promise<void> {
         this.closeGate();
+        await Promise.allSettled([...this.#accepted]);
         const entries = [...this.#entries.values()];
         await Promise.all(entries.map(async (entry) => {
             if (entry.state === "opening") await entry.ready;
@@ -122,6 +136,28 @@ export class SessionTable {
     /** 停止的第 1 步：之后的调用都得 `unavailable`，同步生效。 */
     closeGate(): void {
         this.#stopping = true;
+    }
+
+    /** 服务的每个入口先过它：停止之后抛码为 `unavailable` 的错误（sessions.md“输入与前置条件”）。 */
+    gate(): void {
+        this.#gate();
+    }
+
+    /**
+     * 远程订阅用：等会话真的打开、内核订阅接上再交回；打不开时交回失败码，调用方据此让订阅失败，不会“订阅成功却永远没有帧”。
+     * 交回的 `release` 取消内核订阅、放掉引用。
+     */
+    async subscribeOpened(id: string, issuer: Issuer, listener: (frame: Frame) => void): Promise<{readonly ok: true; release(): void} | OpenFailure> {
+        const acquired = await this.#acquire(id);
+        if (!acquired.ok) return acquired;
+        const unsubscribe = acquired.session.as(issuer).subscribe(listener);
+        let released = false;
+        return {ok: true, release: () => {
+            if (released) return;
+            released = true;
+            unsubscribe();
+            this.#release(acquired.entry);
+        }};
     }
 
     #gate(): void {
@@ -245,7 +281,11 @@ export class SessionTable {
         let unsubscribe: (() => void) | null = null;
         let held: Entry | null = null;
         void this.#acquire(id).then((acquired) => {
-            if (!acquired.ok) return;
+            if (!acquired.ok) {
+                // 同进程的订阅是同步接口，没处交回失败：写诊断；远程层用 `subscribeOpened`，失败会交给调用方。
+                this.options.report("session-subscribe-failed", `subscribing to session ${id} failed: ${acquired.code}`, {session: id, code: acquired.code});
+                return;
+            }
             if (cancelled) {
                 this.#release(acquired.entry);
                 return;

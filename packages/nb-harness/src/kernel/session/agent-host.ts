@@ -48,8 +48,37 @@ export function createAgentHost(base: Omit<SessionEnv, "extensions">): AgentHost
         return visit(handle.id);
     };
 
+    /**
+     * 正在建或正在打开的会话还不在表里，这期间的变化记在这里，建好或打开之后补一次（否则这个会话装的是变化之前的扩展或 Profile，
+     * 之后也不会再收到这次通知）。
+     */
+    const inFlight = new Set<{readonly added: Set<string>; readonly removed: Set<string>; readonly profiles: Set<string>}>();
     const notifyAll = async (change: {added?: string[]; removed?: string[]}): Promise<void> => {
+        for (const pending of inFlight) {
+            for (const id of change.added ?? []) pending.added.add(id);
+            for (const id of change.removed ?? []) pending.removed.add(id);
+        }
         await Promise.all([...sessions.values()].map((session) => notifyAssemblyChanged(session, env, change)));
+    };
+    /** 建或打开一个会话，期间的变化在它进表之后补上。 */
+    const register = async <R extends {ok: boolean}>(start: () => Promise<R>, sessionOf: (result: R) => SessionApi | null): Promise<R> => {
+        const pending = {added: new Set<string>(), removed: new Set<string>(), profiles: new Set<string>()};
+        inFlight.add(pending);
+        let result: R;
+        try {
+            result = await start();
+        } finally {
+            inFlight.delete(pending);
+        }
+        const session = sessionOf(result);
+        if (session !== null) {
+            sessions.set(session.id, session);
+            const profile = pending.profiles.has(currentProfileOf(session) ?? "");
+            if (pending.added.size > 0 || pending.removed.size > 0 || profile) {
+                void notifyAssemblyChanged(session, env, {added: [...pending.added], removed: [...pending.removed], profile});
+            }
+        }
+        return result;
     };
 
     return {
@@ -79,23 +108,20 @@ export function createAgentHost(base: Omit<SessionEnv, "extensions">): AgentHost
         // 只通知用这些 Profile 的会话；会话按当前的 key 自己重新解析（runtime.md 输出 57）。
         async profilesChanged(keys) {
             const changed = new Set(keys);
+            for (const pending of inFlight) for (const key of keys) pending.profiles.add(key);
             const affected = [...sessions.values()].filter((session) => changed.has(currentProfileOf(session) ?? ""));
             await Promise.all(affected.map((session) => notifyAssemblyChanged(session, env, {profile: true})));
         },
         list(): ExtensionInfo[] {
             return [...published.values()].map((handle) => ({id: handle.id, plugin: handle.plugin, version: (handle.implementation() as {version?: string}).version ?? "0", status: "active", tags: handle.declaration.tags ?? []}));
         },
-        async create(options: CreateSessionOptions) {
-            const created = await createSession(env, options);
-            if (created.ok) sessions.set(created.value.id, created.value);
-            return created;
+        create(options: CreateSessionOptions) {
+            return register(() => createSession(env, options), (created) => (created.ok ? created.value : null));
         },
         async open(sessionId: string) {
             const existing = sessions.get(sessionId);
             if (existing !== undefined) return {ok: true, value: existing};
-            const opened = await openSession(env, sessionId);
-            if (opened.ok) sessions.set(sessionId, opened.value);
-            return opened;
+            return register(() => openSession(env, sessionId), (opened) => (opened.ok ? opened.value : null));
         },
         async close(sessionId, options) {
             const session = sessions.get(sessionId);

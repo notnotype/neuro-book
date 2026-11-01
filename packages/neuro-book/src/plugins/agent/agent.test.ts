@@ -34,6 +34,7 @@ beforeAll(async () => {
     endpoint = fakeEndpoint();
 });
 afterEach(async () => {
+    endpoint.reset();
     for (const world of worlds.splice(0)) await world.close();
 });
 afterAll(async () => {
@@ -57,18 +58,21 @@ function profilesPlugin(activations: {count: number}, tools = {required: [] as s
 }
 
 /** 交出工具的插件；`execute` 缺省回显参数里的 `text`。 */
-function toolsPlugin(activations: {count: number}, options: {readonly id?: string; readonly tools?: ReadonlyArray<{readonly id: string; readonly defaultForAll?: boolean; readonly execute?: ToolImplementation["execute"]; readonly disposed?: {count: number}}>} = {}): PluginDefinition {
+function toolsPlugin(activations: {count: number}, options: {readonly id?: string; readonly tools?: ReadonlyArray<{readonly id: string; readonly defaultForAll?: boolean; readonly execute?: ToolImplementation["execute"]; readonly disposed?: {count: number}; readonly created?: Promise<void>}>} = {}): PluginDefinition {
     const tools = options.tools ?? [{id: ECHO}];
     const declared = tools.map((tool) => agentTool(tool.id, {description: tool.id, parameters: {type: "object", properties: {text: {type: "string"}}}, version: "1", effect: "read", ...(tool.defaultForAll === true ? {defaultForAll: true} : {})}));
     return {id: options.id ?? "test.tools", entries: [defineEntry({id: "server", location: "server", activationEvents: declared.map((item) => item.activationEvent), contributions: declared.map((item) => item.contribution), activate: () => {
         activations.count += 1;
         const implementations: Record<string, AgentToolImplementation> = {};
-        for (const tool of tools) implementations[tool.id] = {create: () => ({
-            execute: tool.execute ?? (async (args) => `echo ${String(args.text)}`),
-            dispose: () => {
-                if (tool.disposed !== undefined) tool.disposed.count += 1;
-            },
-        })};
+        for (const tool of tools) implementations[tool.id] = {create: async () => {
+            await tool.created;
+            return {
+                execute: tool.execute ?? (async (args) => `echo ${String(args.text)}`),
+                dispose: () => {
+                    if (tool.disposed !== undefined) tool.disposed.count += 1;
+                },
+            };
+        }};
         return {contributions: {"agent.tools": implementations}};
     }})]};
 }
@@ -188,6 +192,69 @@ describe("贡献", () => {
         expect(w.settings.diagnostics("hub").query({}).records.some((record) => record.event === "agent.tool-abandoned")).toBe(true);
     });
 
+    test("输出 6：工厂建实现时运行已中止，迟到的实现不再执行；工厂挂住时撤回照样 5 秒完成", async () => {
+        const counts = {profiles: {count: 0}, tools: {count: 0}};
+        let releaseFactory!: () => void;
+        const factory = new Promise<void>((resolve) => {
+            releaseFactory = resolve;
+        });
+        const executions = {count: 0};
+        const w = await world([profilesPlugin(counts.profiles)]);
+        const slow = await w.register(toolsPlugin(counts.tools, {tools: [{id: ECHO, created: factory, execute: async () => {
+            executions.count += 1;
+            return "执行了";
+        }}]}));
+        const session = await createSession(w);
+        endpoint.script({tool: "test__tools__echo", args: {text: "慢"}}, "好");
+        const sent = await session.send({commandId: cid(), input: {text: "慢工具"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("no run");
+        await waitUntil("工具开始建", () => counts.tools.count === 1);
+        // 中止等宽限期（在场地的手动时钟上）：一边推时钟一边等它收口。
+        const aborting = session.abort({commandId: cid()});
+        const result = await waitUntil("中止收口", async () => {
+            w.settings.clock.advance(2_000);
+            return session.runResult({runId: sent.value.runId!});
+        });
+        expect(await aborting).toMatchObject({ok: true});
+        expect(result.reason).toBe("aborted");
+        releaseFactory();
+        await waitUntil("工厂放行后的结算", () => factory.then(() => true));
+        await Promise.resolve();
+        expect(executions.count).toBe(0);
+    });
+
+    test("输出 6：工厂挂住时撤回不等它，5 秒完成；调用以 tool-unavailable 结算", async () => {
+        const hang = new Promise<void>(() => undefined);
+        const w = await world([profilesPlugin({count: 0})], {"nbook.agent/toolBindings": {[WRITER]: {added: ["test.hang.echo"], removed: []}}});
+        const hanging = await w.register(toolsPlugin({count: 0}, {id: "test.hang", tools: [{id: "test.hang.echo", created: hang}]}));
+        const session = await createSession(w);
+        endpoint.script({tool: "test__hang__echo", args: {text: "挂"}}, "好");
+        const sent = await session.send({commandId: cid(), input: {text: "挂住的工具"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("no run");
+        await waitUntil("工具开始建", async () => {
+            const {status} = await session.snapshot();
+            return status.state === "running" && status.phase === "tools";
+        });
+        let stopped = false;
+        void hanging.stop().then(() => {
+            stopped = true;
+        });
+        await waitUntil("挂住的工厂不挡撤回", () => {
+            w.settings.clock.advance(REVOKE_GRACE_MS);
+            return stopped;
+        });
+        await session.waitRun(sent.value.runId);
+        expect(toolResults((await session.log({afterSeq: 0})).events).map((result) => result.code)).toEqual(["tool-unavailable"]);
+    });
+
+    test("输出 7：来源按登记判定：发布者叫 user 的插件贡献 user. 开头的 Profile，照样从插件解析", async () => {
+        const writer = agentProfile("user.profiles.writer", {name: "插件的", description: "测试用", tools: {required: [], optional: []}});
+        const plugin: PluginDefinition = {id: "user.profiles", entries: [defineEntry({id: "server", location: "server", activationEvents: [writer.activationEvent], contributions: [writer.contribution], activate: () => ({contributions: {"agent.profiles": {"user.profiles.writer": defineProfile({id: "user.profiles.writer", version: "1", name: "插件的", description: "测试用"})}}})})]};
+        const w = await world([plugin]);
+        expect(w.service.profiles().find((profile) => profile.key === "user.profiles.writer")).toMatchObject({source: "user.profiles", status: "ok"});
+        expect((await w.service.create({profile: "user.profiles.writer"})).ok).toBe(true);
+    });
+
     test("输出 4：工具集 = Profile 要的 + 装到所有 Profile 的 + 绑定加的 − 绑定去掉的；必需的去不掉", async () => {
         const counts = {profiles: {count: 0}, tools: {count: 0}};
         const w = await world([
@@ -237,6 +304,35 @@ describe("会话", () => {
         unsubscribe();
         w.settings.clock.advance(IDLE_CLOSE_MS);
         await waitUntil("取消订阅后空闲关闭", async () => !(await locked(w, session.id)));
+    });
+
+    test("输出 14：停止时还在建的会话也会被关上、锁放掉；停止之后服务的每个入口都得 unavailable", async () => {
+        let entered!: () => void;
+        const mounting = new Promise<void>((resolve) => {
+            entered = resolve;
+        });
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const slow = agentProfile("test.slow.profile", {name: "慢", description: "测试用", tools: {required: [], optional: []}});
+        const plugin: PluginDefinition = {id: "test.slow", entries: [defineEntry({id: "server", location: "server", activationEvents: [slow.activationEvent], contributions: [slow.contribution], activate: () => ({contributions: {"agent.profiles": {"test.slow.profile": defineProfile({id: "test.slow.profile", version: "1", name: "慢", description: "测试用", mount: async () => {
+            entered();
+            await gate;
+        }})}}})})]};
+        const w = await world([plugin]);
+        const creating = w.service.create({profile: "test.slow.profile"});
+        await mounting;
+        worlds.splice(worlds.indexOf(w), 1);
+        const closing = w.close();
+        release();
+        await closing;
+        const created = await creating;
+        const id = created.ok ? created.value.id : null;
+        if (id !== null) expect(await locked(w, id)).toBe(false);
+        for (const call of [() => w.service.list(), () => w.service.profiles(), () => w.service.running(), () => w.service.session("x")]) {
+            expect(() => call()).toThrow(expect.objectContaining({code: "unavailable"}));
+        }
     });
 
     test("输出 14：停止时运行中的会话按 interrupted 关闭，之后的调用得 unavailable", async () => {

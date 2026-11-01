@@ -25,6 +25,7 @@ beforeAll(async () => {
     endpoint = fakeEndpoint();
 });
 afterEach(async () => {
+    endpoint.reset();
     for (const world of worlds.splice(0)) await world.close();
 });
 afterAll(async () => {
@@ -110,5 +111,38 @@ describe("用户级 Profile", () => {
     test("输出 9：Profile 的 id 必须是 user.<文件名>", async () => {
         const {w} = await world({"mine.profile.tsx": `import {defineProfile} from "@notnotype/nb-plugin-sdk/agent";\nexport default defineProfile({id: "user.other", version: "1", name: "n", description: "d"});\n`});
         expect(w.service.profiles().find((profile) => profile.key === "user.mine")).toMatchObject({status: "unavailable", reason: expect.stringContaining("user.mine")});
+    });
+
+    test("输出 9、12：打包时没成功的，修好它导入的文件就重试；计算出来的导入以 module-not-shared 失败", async () => {
+        const {w, directory} = await world({"writer.profile.tsx": WRITER_SOURCE, "note.ts": `export const note = ;\n`});
+        expect(w.service.profiles().find((profile) => profile.key === "user.writer")?.status).toBe("unavailable");
+        await writeFile(join(directory, "note.ts"), `export const note = "修好了";\n`);
+        await waitUntil("修好依赖后重新打包成功", () => w.service.profiles().find((profile) => profile.key === "user.writer")?.status === "ok");
+
+        await writeFile(join(directory, "dyn.profile.tsx"), `import {defineProfile} from "@notnotype/nb-plugin-sdk/agent";\nconst name = "left" + "-pad";\nawait import(name);\nexport default defineProfile({id: "user.dyn", version: "1", name: "d", description: "d"});\n`);
+        await waitUntil("计算出来的导入被拒", () => w.service.profiles().find((profile) => profile.key === "user.dyn")?.reason?.includes("module-not-shared") === true);
+    });
+
+    test("输出 9：打包与求值期间用到的文件又变了，这次的结果作废、按新内容再打", async () => {
+        const gate = globalThis as unknown as {__profileGate?: Promise<void>; __profileEntered?: () => void};
+        const {w, directory} = await world({"writer.profile.tsx": WRITER_SOURCE, "note.ts": `export const note = "第一版说明";\n`});
+        let release!: () => void;
+        gate.__profileGate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const entered = new Promise<void>((resolve) => {
+            gate.__profileEntered = resolve;
+        });
+        // 改成导入一个新文件、求值时停在门口；这时再改那个新文件。
+        await writeFile(join(directory, "extra.ts"), `export const extra = "旧的附加";\n`);
+        await writeFile(join(directory, "writer.profile.tsx"), WRITER_SOURCE.replace(`import {note} from "./note";`, `import {note as base} from "./note";\nimport {extra} from "./extra";\nconst gate = globalThis as unknown as {__profileGate?: Promise<void>; __profileEntered?: () => void};\ngate.__profileEntered?.();\nawait gate.__profileGate;\nconst note = base + extra;`));
+        await entered;
+        await writeFile(join(directory, "extra.ts"), `export const extra = "新的附加";\n`);
+        release();
+        const created = await w.service.create({profile: "user.writer"});
+        if (!created.ok) throw new Error(created.code);
+        await waitUntil("最后发布的是新内容", async () => (await ask(created.value, "看看")).includes("新的附加"));
+        delete gate.__profileGate;
+        delete gate.__profileEntered;
     });
 });

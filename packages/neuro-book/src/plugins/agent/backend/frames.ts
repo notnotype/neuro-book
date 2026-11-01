@@ -28,18 +28,33 @@ export function logItem(event: LogEvent): LogItem {
     return bytes <= EVENT_INLINE_BYTES ? {kind: "event", event} : {kind: "oversized", seq: event.seq, type: event.type, bytes};
 }
 
-/** 一页日志条目：按条数之外再按编码后的字节数截断，至少留一条（一条最大也只有占位那么大）。 */
-export function pageOfItems(events: readonly LogEvent[]): {readonly items: LogItem[]; readonly cut: boolean} {
-    const items: LogItem[] = [];
-    let total = 0;
-    for (const event of events) {
-        const item = logItem(event);
-        const size = byteLength(item);
-        if (items.length > 0 && total + size > PAGE_BYTES) return {items, cut: true};
-        items.push(item);
+/** 一页里条目数组之外的开销（页对象的其余字段、远程调用的外壳）留的余量。 */
+const PAGE_OVERHEAD = 4 * 1024;
+
+/** 按编码后的字节数取一页：数组加分隔符不超过 `PAGE_BYTES` 减去余量；至少留一条（调用方保证单条放得下）。 */
+export function pageOf<T>(values: readonly T[]): {readonly items: T[]; readonly cut: boolean} {
+    const items: T[] = [];
+    let total = 2;
+    for (const value of values) {
+        const size = byteLength(value) + 1;
+        if (items.length > 0 && total + size > PAGE_BYTES - PAGE_OVERHEAD) return {items, cut: true};
+        items.push(value);
         total += size;
     }
     return {items, cut: false};
+}
+
+/** 一页日志条目：大事件先换成占位（一条最大也只有占位那么大）。 */
+export function pageOfItems(events: readonly LogEvent[]): {readonly items: LogItem[]; readonly cut: boolean} {
+    return pageOf(events.map(logItem));
+}
+
+/** 诊断里的长文字（消息、提示、原因与栈）截到这么长，一条诊断总放得进一页。 */
+export const DIAGNOSTIC_TEXT_BYTES = 4 * 1024;
+
+export function trimText(text: string, bytes = DIAGNOSTIC_TEXT_BYTES): string {
+    if (Buffer.byteLength(text) <= bytes) return text;
+    return `${chunkOf(text, 0, bytes)!.text}…`;
 }
 
 /** 按 UTF-8 字节切出第 `index` 段，不切断多字节字符。 */

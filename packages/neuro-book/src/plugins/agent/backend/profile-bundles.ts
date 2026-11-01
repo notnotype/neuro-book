@@ -13,7 +13,7 @@
 import {createHash} from "node:crypto";
 import {existsSync, watch} from "node:fs";
 import type {FSWatcher} from "node:fs";
-import {mkdir, readdir, rename, rm, writeFile} from "node:fs/promises";
+import {mkdir, readdir, realpath, rename, rm, writeFile} from "node:fs/promises";
 import {basename, dirname, join, resolve} from "node:path";
 
 import type {AnyProfile} from "@notnotype/nb-harness/kernel/contracts";
@@ -45,7 +45,12 @@ interface State {
     /** 进行中的打包；完成时若 `dirty` 又被置上，结果丢掉、再打一次。 */
     building: Promise<void> | null;
     dirty: boolean;
+    /** 最近一次打包用到的源文件（打包成功就有，求值失败也留着），这些文件变了就重新打包。 */
+    inputs: readonly string[];
 }
+
+/** 计算出来的导入（`import(x)`、`require(x)`）：扫描看不见它要什么，不知道是不是共享模块，一律拒绝。 */
+const COMPUTED_IMPORT = /\b(?:import|require)\(\s*(?!["'`])/u;
 
 export interface ProfileBundlesOptions {
     readonly stateRoot: string;
@@ -60,7 +65,8 @@ export class ProfileBundles implements UserProfiles {
     readonly #states = new Map<string, State>();
     readonly #watchers = new Map<string, FSWatcher>();
     readonly #directory: string;
-    readonly #cache: string;
+    /** 启动时换成真实路径：Bun 的模块缓存按真实路径记，状态根经过符号链接时删缓存才删得到。 */
+    #cache: string;
     #stopping = false;
 
     constructor(private readonly options: ProfileBundlesOptions) {
@@ -72,6 +78,7 @@ export class ProfileBundles implements UserProfiles {
     async start(): Promise<void> {
         await mkdir(this.#directory, {recursive: true});
         await mkdir(this.#cache, {recursive: true});
+        this.#cache = await realpath(this.#cache);
         this.#watchDirectory(this.#directory);
         const names = (await readdir(this.#directory)).filter((file) => file.endsWith(SUFFIX)).map((file) => file.slice(0, -SUFFIX.length));
         await Promise.all(names.map((name) => this.#schedule(name)));
@@ -116,7 +123,7 @@ export class ProfileBundles implements UserProfiles {
         if (this.#stopping) return Promise.resolve();
         const key = `${USER_PROFILE_PREFIX}${name}`;
         let state = this.#states.get(key);
-        if (state === undefined) this.#states.set(key, (state = {name, key, published: null, error: null, building: null, dirty: false}));
+        if (state === undefined) this.#states.set(key, (state = {name, key, published: null, error: null, building: null, dirty: false, inputs: []}));
         state.dirty = true;
         if (state.building !== null) return state.building;
         const target = state;
@@ -176,7 +183,13 @@ export class ProfileBundles implements UserProfiles {
         if (!built.success || built.outputs[0] === undefined) {
             return {ok: false, error: built.logs.map((log) => String(log.message ?? log)).join("\n") || "build failed"};
         }
+        // 先记下这次用到的源文件并监听它们：之后求值期间它们变了，这次的结果作废（输出 9），求值失败了修好它们也会重试。
+        const metafile = (built as unknown as {metafile?: {inputs?: Record<string, unknown>}}).metafile;
+        const inputs = Object.keys(metafile?.inputs ?? {}).map((path) => resolve(path));
+        state.inputs = inputs.length > 0 ? inputs : [source];
+        this.#watchInputs(state.inputs);
         const code = await built.outputs[0].text();
+        if (COMPUTED_IMPORT.test(code)) return {ok: false, error: "module-not-shared: the profile computes a module name at run time (a dynamic import or require with a variable); import modules by their literal name"};
         for (const item of new Bun.Transpiler({loader: "js"}).scanImports(code)) {
             if (!allowedSpecifier(item.path, this.options.sharedModules)) return {ok: false, error: `module-not-shared: ${item.path} is not one of the modules NeuroBook shares with profiles`};
         }
@@ -197,10 +210,8 @@ export class ProfileBundles implements UserProfiles {
             return {ok: false, error: "profile-invalid-export: the default export is not the result of defineProfile"};
         }
         if (profile.id !== state.key) return {ok: false, error: `profile-invalid-export: the profile id must be ${state.key} (the file name decides it), got ${profile.id}`};
-        const metafile = (built as unknown as {metafile?: {inputs?: Record<string, unknown>}}).metafile;
-        const inputs = Object.keys(metafile?.inputs ?? {}).map((path) => resolve(path));
         // 生效的版本带包的内容哈希：改了任何一个源文件，打开着的会话写 code-updated、已提交的轮重新渲染（输出 10）。
-        return {ok: true, published: {profile: {...profile, version: `${profile.version}+${hash}`} as AnyProfile, hash, file: bundleFile, inputs: inputs.length > 0 ? inputs : [source]}};
+        return {ok: true, published: {profile: {...profile, version: `${profile.version}+${hash}`} as AnyProfile, hash, file: bundleFile, inputs: state.inputs}};
     }
 
     /** 文件事件只作“可能变了”的信号：编辑器先写临时文件再改名、一次保存多个事件，都只合并成一次打包。 */
@@ -219,12 +230,18 @@ export class ProfileBundles implements UserProfiles {
         for (const input of inputs) this.#watchDirectory(dirname(input));
     }
 
+    /**
+     * 哪些 Profile 要重新打包：入口文件本身；用到这个文件的；正在打包的（还不知道这次会用到哪些文件，宁可多打一次）；没成功
+     * 过或最近一次失败的、变化又落在它们关心的目录里的（打包失败时可能还不知道用到了哪些文件）。
+     */
     #onChange(directory: string, file: string | null): void {
         if (this.#stopping) return;
         const changed = file === null ? null : join(directory, file);
         if (directory === this.#directory && file !== null && file.endsWith(SUFFIX)) void this.#schedule(file.slice(0, -SUFFIX.length));
         for (const state of [...this.#states.values()]) {
-            if (changed === null || state.published?.inputs.includes(changed) === true) void this.#schedule(state.name);
+            const failing = state.published === null || state.error !== null;
+            const near = directory === this.#directory || state.inputs.some((input) => dirname(input) === directory);
+            if (changed === null || state.building !== null || state.inputs.includes(changed) || (failing && near)) void this.#schedule(state.name);
         }
     }
 

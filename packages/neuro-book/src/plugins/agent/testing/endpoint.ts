@@ -18,6 +18,8 @@ export interface FakeEndpoint {
     script(...replies: Scripted[]): void;
     /** 下一次请求到达后挂住，交回放行函数与“已到达”的 Promise。 */
     hold(): {readonly arrived: Promise<void>; release(): void};
+    /** 丢掉没用完的脚本与挂起（每个测试之后调，免得上一个测试剩下的回复串到下一个）。 */
+    reset(): void;
     stop(): void;
 }
 
@@ -73,6 +75,10 @@ export function fakeEndpoint(): FakeEndpoint {
             });
             holds.push({arrived, released});
             return {arrived: arrivedPromise, release};
+        },
+        reset: () => {
+            queue.length = 0;
+            holds.length = 0;
         },
         stop: () => {
             void server.stop(true);

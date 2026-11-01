@@ -1129,6 +1129,61 @@ describe("插件宿主", () => {
         await t.host.close(session.id);
     });
 
+    test("输出 57：会话还在建时到达的 profilesChanged 与扩展发布，建好后补上，不会漏", async () => {
+        const live = new Map<string, AnyProfile>([["test.live", profileV("1", "建的时候的")]]);
+        const entered = gate();
+        const release = gate();
+        let first = true;
+        const env = hostEnv();
+        const host = createAgentHost({...env, profiles: {resolve: async (key) => {
+            // 建会话时解析到的是那一刻的 Profile，然后停在门口。
+            const now = live.get(key);
+            if (first) {
+                first = false;
+                entered.open();
+                await release.promise;
+            }
+            return now;
+        }}});
+        const creating = host.create({profile: "test.live"});
+        await entered.promise;
+        live.set("test.live", profileV("2", "建好之后的"));
+        await host.profilesChanged(["test.live"]);
+        const handle = handleOf(counter);
+        host.extensions.prepare(handle);
+        host.extensions.published(handle);
+        release.open();
+        const created = await creating;
+        if (!created.ok) throw new Error(created.code);
+        await waitIdleWrites(created.value);
+        const snapshot = await created.value.snapshot();
+        expect(snapshot.extensions.map((item) => item.id)).toEqual(["lab.count"]);
+        expect(await reasonsOf(created.value)).toContain("code-updated");
+        await host.close(created.value.id);
+    });
+
+    test("诊断查询按 afterSeq、extension、level 过滤", async () => {
+        const host = createAgentHost(hostEnv());
+        const failing = (extensionId: string) => handleOf(defineExtension({id: extensionId, mount: () => {
+            throw new Error(`${extensionId} failed`);
+        }}));
+        for (const handle of [failing("lab.one"), failing("lab.two")]) {
+            host.extensions.prepare(handle);
+            host.extensions.published(handle);
+        }
+        const created = await host.create({profile: defaultProfile.id});
+        if (!created.ok) throw new Error(created.code);
+        const all = await created.value.diagnostics();
+        const failed = all.filter((item) => item.extension === "lab.one" || item.extension === "lab.two");
+        expect(failed.length).toBe(2);
+        expect((await created.value.diagnostics({extension: "lab.two"})).map((item) => item.extension)).toEqual(["lab.two"]);
+        const level = failed[0]!.level;
+        expect((await created.value.diagnostics({level})).every((item) => item.level === level)).toBe(true);
+        const latest = Math.max(...all.map((item) => item.lastSeq));
+        expect(await created.value.diagnostics({afterSeq: latest})).toEqual([]);
+        await host.close(created.value.id);
+    });
+
     test("session 输出 19：后台会话写进会话头与列表；fork 出来的不继承", async () => {
         const env = hostEnv();
         const host = createAgentHost(env);

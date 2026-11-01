@@ -58,10 +58,12 @@ export const NEUROBOOK_PROFILE: PlatformProfile = {
     styleDataset: "nbookPluginStyle",
     filesMount: "/api/runtime",
     buildTempPrefix: ".nbook-plugin-build-",
-    hostPackages: ["@notnotype/nb-ui", "@notnotype/nb-plugin-sdk", "@notnotype/nb-runtime", "typebox"],
+    // nb-harness：Agent 的定义写法只从 SDK 的 `/agent` 取，插件自带一份内核定义会与宿主的不一致（品牌标记、模板节点）。
+    hostPackages: ["@notnotype/nb-ui", "@notnotype/nb-plugin-sdk", "@notnotype/nb-runtime", "@notnotype/nb-harness", "typebox"],
     // nb-ui 不发布，作者项目里本来装不到它；仓库里照着内置插件的写法直接导入时提示改法。
     notSharedHints: [
         {packageName: "@notnotype/nb-ui", hint: "nb-ui 的组件从 @notnotype/nb-plugin-sdk/components 导入"},
+        {packageName: "@notnotype/nb-harness", hint: "Agent 的定义写法（defineProfile、defineExtension 等）从 @notnotype/nb-plugin-sdk/agent 导入"},
         // 只给浏览器的 SDK 子路径只在服务端入口里会报“未共享”：写明原因，免得作者以为是 SDK 漏了导出。
         ...SDK_ENTRIES.filter((entry) => !entry.server).map((entry) => ({packageName: entry.specifier, hint: `${entry.specifier} 只给浏览器入口用（要 Vue）；服务端入口不导入它，两端共用的合同放在 shared/`})),
     ],

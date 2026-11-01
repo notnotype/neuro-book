@@ -33,6 +33,7 @@ beforeAll(async () => {
     endpoint = fakeEndpoint();
 });
 afterEach(async () => {
+    endpoint.reset();
     for (const world of worlds.splice(0)) await world.close();
 });
 afterAll(async () => {

@@ -32,8 +32,8 @@ describe("大小", () => {
         const page = pageOfItems(events);
         expect(page.cut).toBe(true);
         expect(Buffer.byteLength(JSON.stringify(page.items))).toBeLessThanOrEqual(PAGE_BYTES);
-        // 每条约 255 KiB：两条放得下，第三条放不下。
-        expect(page.items.map((item) => item.kind)).toEqual(["event", "event"]);
+        // 每条约 255 KiB，页还要给外层留余量：放下一条，第二条放不下。
+        expect(page.items.map((item) => item.kind)).toEqual(["event"]);
         const huge = pageOfItems([event(1, "x".repeat(EVENT_INLINE_BYTES))]);
         expect(huge).toEqual({items: [{kind: "oversized", seq: 1, type: "toolResult", bytes: expect.any(Number)}], cut: false});
     });

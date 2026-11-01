@@ -60,7 +60,7 @@ export const agentBackendPlugin: PluginDefinition = {
             context.onStop(stop);
             return {
                 services: [provideService(agentKey, runtime.service)],
-                remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, clock}, previews))],
+                remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, sessions: runtime.sessions, clock}, previews))],
                 receivers: {
                     [EXTENSIONS_POINT]: extensionReceiver(runtime.host, (message, cause) => report("extension-revoke-failed", message, {message: cause instanceof Error ? cause.message : String(cause)})),
                     [TOOLS_POINT]: runtime.tools.receiver,

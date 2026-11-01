@@ -15,8 +15,9 @@ import {PreviewUnavailable} from "@notnotype/nb-harness/kernel";
 import type {AgentService} from "../shared/contracts";
 import type {agentSessionsContract} from "../shared/remote";
 
-import {byteLength, chunkOf, FrameMerger, logItem, PAGE_BYTES, pageOfItems} from "./frames";
+import {byteLength, chunkOf, FrameMerger, PAGE_BYTES, pageOf, pageOfItems, trimText} from "./frames";
 import {AgentSessionUnavailable} from "./sessions";
+import type {SessionTable} from "./sessions";
 
 type Contract = typeof agentSessionsContract;
 type Methods = RemoteImplementation<Contract>["methods"];
@@ -28,6 +29,7 @@ const COMMANDS = Object.keys(commandErrors) as CommandName[];
 
 export interface AgentRemoteOptions {
     readonly service: AgentService;
+    readonly sessions: SessionTable;
     readonly clock: RuntimeClock;
 }
 
@@ -66,6 +68,27 @@ async function query<T>(run: () => Promise<T>, fail: (code: string) => unknown):
     }
 }
 
+/** 诊断的长文字截短：一条诊断总放得进一页（sessions.md 输出 9）。 */
+function trimDiagnostic(item: Diagnostic): Diagnostic {
+    return {
+        ...item,
+        message: trimText(item.message),
+        ...(item.hint === undefined ? {} : {hint: trimText(item.hint)}),
+        ...(item.cause === undefined ? {} : {cause: {name: item.cause.name, message: trimText(item.cause.message), ...(item.cause.stack === undefined ? {} : {stack: trimText(item.cause.stack)})}}),
+    };
+}
+
+/** 不分页的结果（快照、运行结果……）：编码后放不进一页就明确失败 `result-too-large`。 */
+async function whole<T>(run: () => Promise<T>, context: {ok: (value: T) => unknown; fail: (code: "result-too-large" | "open-failed") => unknown}): Promise<unknown> {
+    try {
+        const value = await run();
+        return byteLength(value) <= PAGE_BYTES ? context.ok(value) : context.fail("result-too-large");
+    } catch (error) {
+        if (error instanceof AgentSessionUnavailable) return context.fail(error.code as "open-failed");
+        throw error;
+    }
+}
+
 export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens): RemoteImplementation<Contract> {
     const {service} = options;
     const view = (sessionId: string): SessionApi => service.session(sessionId, {kind: "user"});
@@ -85,7 +108,7 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             const created = await service.create({profile, ...(initial === undefined ? {} : {initial: initial as never}), ...(project === undefined ? {} : {project})});
             return created.ok ? context.ok({sessionId: created.value.id}) : context.fail(created.code as "open-failed", created.detail as undefined);
         },
-        snapshot: ({sessionId}, context) => query(() => view(sessionId).snapshot(), (code) => context.fail(code as "open-failed")) as never,
+        snapshot: ({sessionId}, context) => whole(() => view(sessionId).snapshot(), context) as never,
         log: ({sessionId, afterSeq, limit}, context) => query(async () => {
             const page = await view(sessionId).log({afterSeq, ...(limit === undefined ? {} : {limit})});
             const {items, cut} = pageOfItems(page.events);
@@ -93,10 +116,14 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             const through = cut ? items.at(-1)!.kind === "event" ? (items.at(-1) as {event: {seq: number}}).event.seq : (items.at(-1) as {seq: number}).seq : page.through;
             return {items, head: page.head, more: page.more || cut, through};
         }, (code) => context.fail(code as "open-failed")) as never,
-        rewindTargets: ({sessionId}, context) => query(() => view(sessionId).rewindTargets(), (code) => context.fail(code as "open-failed")) as never,
-        path: ({sessionId, leaf}, context) => query(async () => (await view(sessionId).path(leaf === undefined ? undefined : {leaf})).map(logItem), (code) => context.fail(code as "open-failed")) as never,
-        siblings: ({sessionId, node}, context) => query(() => view(sessionId).siblings({node}), (code) => context.fail(code as "open-failed")) as never,
-        runResult: ({sessionId, runId}, context) => query(() => view(sessionId).runResult({runId}), (code) => context.fail(code as "open-failed")) as never,
+        rewindTargets: ({sessionId}, context) => whole(() => view(sessionId).rewindTargets(), context) as never,
+        path: ({sessionId, leaf, from = 0}, context) => query(async () => {
+            const events = await view(sessionId).path(leaf === undefined ? undefined : {leaf});
+            const {items, cut} = pageOfItems(events.slice(from));
+            return {items, more: cut, next: from + items.length};
+        }, (code) => context.fail(code as "open-failed")) as never,
+        siblings: ({sessionId, node}, context) => whole(() => view(sessionId).siblings({node}), context) as never,
+        runResult: ({sessionId, runId}, context) => whole(() => view(sessionId).runResult({runId}), context) as never,
         preview: async ({sessionId, leaf}, context) => {
             try {
                 const preview = await view(sessionId).preview(leaf === undefined ? undefined : {leaf});
@@ -109,17 +136,11 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
                 throw error;
             }
         },
-        diagnostics: ({sessionId, ...filter}, context) => query(async () => {
-            const all = await view(sessionId).diagnostics(filter);
-            const items: Diagnostic[] = [];
-            let total = 0;
-            for (const item of all) {
-                const size = byteLength(item);
-                if (items.length > 0 && total + size > PAGE_BYTES) return {items, more: true};
-                items.push(item);
-                total += size;
-            }
-            return {items, more: false};
+        diagnostics: ({sessionId, after, ...filter}, context) => query(async () => {
+            const all = (await view(sessionId).diagnostics(filter)).map(trimDiagnostic);
+            const start = after === undefined ? 0 : all.findIndex((item) => item.id === after) + 1;
+            const {items, cut} = pageOf(all.slice(start));
+            return {items, more: cut, next: cut ? items.at(-1)!.id : null};
         }, (code) => context.fail(code as "open-failed")) as never,
         eventChunk: async ({sessionId, seq, index}, context) => {
             try {
@@ -151,14 +172,24 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
         methods,
         events: {
             frames: {
-                subscribe({sessionId}, sink, context) {
+                async subscribe({sessionId}, sink, context) {
                     if (context.signal.aborted) return;
-                    // 每个远程订阅持有自己的内核订阅与合并缓冲；订阅结束（`signal`）时一起取消。
+                    // 每个远程订阅持有自己的内核订阅与合并缓冲；订阅结束（`signal`）时一起取消。等会话真的打开再算订阅成功：
+                    // 打不开时抛错，通道以 provider-error 结束这个订阅，调用方的 onEnd 看得到。
                     const merger = new FrameMerger(options.clock, (frame) => sink.next(frame));
-                    const unsubscribe = view(sessionId).subscribe((frame) => merger.push(frame));
+                    const opened = await options.sessions.subscribeOpened(sessionId, {kind: "user"}, (frame) => merger.push(frame));
+                    if (!opened.ok) {
+                        merger.close();
+                        throw new Error(`session ${sessionId} could not be opened: ${opened.code}`);
+                    }
+                    if (context.signal.aborted) {
+                        merger.close();
+                        opened.release();
+                        return;
+                    }
                     context.signal.addEventListener("abort", () => {
                         merger.close();
-                        unsubscribe();
+                        opened.release();
                     }, {once: true});
                 },
             },

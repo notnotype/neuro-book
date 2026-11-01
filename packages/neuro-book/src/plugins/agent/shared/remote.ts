@@ -2,9 +2,10 @@
  * 远程合同 `nbook.agent/sessions`（docs/specs/agent/sessions.md“输入与前置条件”与输出 2、3、7–11）：窗口经它建会话、发指令、
  * 读日志、订阅帧。版本 1，服务端提供，只给浏览器调用。
  *
- * 方法的顶层输入逐个写字段（通道要求对象 schema、不收多余字段）；内核的结构（输入、事件、快照、预览）用 `Type.Unsafe` 带上
- * 内核的类型、schema 只核对是对象：它们的形状由内核定义与校验，这里不抄第二份。业务失败码按指令取内核的码表
- * （`commandErrors`），另加打开会话会遇到的存储码；通道保留的码不进这张表。
+ * 从浏览器来的输入在这里按结构校验（用户的话、附件、提问的回答、设置补丁），只有 Profile 自己定义的 `payload`、`data`
+ * 是自由 JSON；服务端交出的结构（事件、快照、预览）用 `Type.Unsafe` 带上内核的类型、schema 只核对是对象，形状由内核产生。
+ * 业务失败码按指令取内核的码表（`commandErrors`），各码的详情 schema 照内核的 `CommandErrorDetails`，没有详情的码不收详情；
+ * 打开会话遇到的存储码带可选的详情对象；通道保留的码不进这张表。
  */
 
 import {Type} from "typebox";
@@ -13,7 +14,7 @@ import type {Static, TSchema} from "typebox";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 
 import {commandErrors, storageErrors} from "@notnotype/nb-harness/kernel/contracts";
-import type {CommandMap, CommandName, Diagnostic, DiagnosticLevel, DeltaFrame, Frame, InputMode, LogEvent, PreviewResult, RewindTarget, RunResult, RunStatus, SessionIndexEntry, SessionSnapshot, UserInput} from "@notnotype/nb-harness/kernel/contracts";
+import type {CommandErrorDetails, CommandMap, JsonValue, CommandName, Diagnostic, DiagnosticLevel, DeltaFrame, Frame, InputMode, LogEvent, PreviewResult, RewindTarget, RunResult, RunStatus, SessionIndexEntry, SessionSnapshot} from "@notnotype/nb-harness/kernel/contracts";
 
 import {TASK_ID} from "./contracts";
 import type {ProfileEntry} from "./contracts";
@@ -21,8 +22,22 @@ import type {ProfileEntry} from "./contracts";
 const object = <T>() => Type.Unsafe<T>(Type.Object({}, {additionalProperties: true}));
 const Nullable = <S extends TSchema>(schema: S) => Type.Union([schema, Type.Null()]);
 
-/** 业务失败的详情：内核有的给对象，没有的不给。 */
+/** 存储与打开会话的失败：详情是可选的对象（`StorageResult` 的 `detail`）。 */
 const Detail = Type.Union([Type.Undefined(), Type.Record(Type.String(), Type.Unknown())]);
+const NoDetail = Type.Undefined();
+
+/** 指令失败码的详情，照内核的 `CommandErrorDetails` 逐个写；下面的类型核对保证内核交出的详情过得了它。 */
+const RejectionParams = Type.Optional(Type.Record(Type.String(), Type.Union([Type.String(), Type.Number(), Type.Boolean()])));
+const COMMAND_DETAILS = {
+    "input-rejected": Type.Object({code: Type.String(), params: RejectionParams, by: Type.String()}, {additionalProperties: false}),
+    "already-answered": Type.Object({by: Type.String(), decision: Type.String()}, {additionalProperties: false}),
+    "invalid-value": Type.Object({extension: Type.String(), key: Type.String(), message: Type.String()}, {additionalProperties: false}),
+    "unknown-key": Type.Object({extension: Type.String(), key: Type.String()}, {additionalProperties: false}),
+    "already-running": Type.Object({runId: Type.String()}, {additionalProperties: false}),
+    running: Type.Object({runId: Type.String()}, {additionalProperties: false}),
+    "dependency-missing": Type.Object({extension: Type.String(), dependency: Type.String()}, {additionalProperties: false}),
+} as const;
+type DetailCode = keyof typeof COMMAND_DETAILS;
 
 /** 打开会话会遇到的码（存储的码，加上宿主打开时抛错的 `open-failed`）。 */
 const OPEN_CODES = [...storageErrors, "open-failed"] as const;
@@ -32,9 +47,20 @@ function errorsOf<const Codes extends readonly string[]>(codes: Codes): {readonl
     return Object.fromEntries(codes.map((code) => [code, Detail])) as {readonly [Code in Codes[number]]: typeof Detail};
 }
 
+/** 指令的失败码表：内核的码按 `COMMAND_DETAILS` 给详情、没列的不收详情；打开会话的码收可选的对象。 */
+function commandErrorsOf<const Codes extends readonly string[]>(codes: Codes) {
+    const table: Record<string, TSchema> = {};
+    for (const code of codes) table[code] = code in COMMAND_DETAILS ? COMMAND_DETAILS[code as DetailCode] : NoDetail;
+    for (const code of OPEN_CODES) table[code] ??= Detail;
+    return table as {readonly [Code in Codes[number] | OpenCode]: Code extends DetailCode ? (typeof COMMAND_DETAILS)[Code] : Code extends OpenCode ? typeof Detail : typeof NoDetail};
+}
+
+/** 自由的 JSON（Profile 定义的 `payload`、提问回答的 `data`、设置补丁的值）：经过 JSON 链路的本来就是 JSON。 */
+const Json = Type.Unsafe<JsonValue>(Type.Unknown());
 const SessionId = Type.String({minLength: 1});
 const CommandId = Type.String({minLength: 1, maxLength: 200});
-const Input = object<UserInput>();
+const Attachment = Type.Object({kind: Type.Union([Type.Literal("image"), Type.Literal("file")]), uri: Type.String({minLength: 1})}, {additionalProperties: false});
+const Input = Type.Object({text: Type.String(), payload: Type.Optional(Json), attachments: Type.Optional(Type.Array(Attachment))}, {additionalProperties: false});
 const Mode = Type.Unsafe<InputMode>(Type.Union([Type.Literal("steer"), Type.Literal("followup")]));
 
 /** 各指令的参数（不含会话 id 与 `commandId`），逐个写字段：与内核的 `CommandMap` 由下面的类型核对锁住。 */
@@ -46,7 +72,7 @@ const commandArgs = {
     resolve: {
         id: Type.String(),
         decision: Type.Union([Type.Literal("allow"), Type.Literal("allow-session"), Type.Literal("deny"), Type.Literal("answer")]),
-        answer: Type.Optional(object<{text: string; data?: unknown}>()),
+        answer: Type.Optional(Type.Object({text: Type.String(), data: Type.Optional(Json)}, {additionalProperties: false})),
         note: Type.Optional(Type.String()),
     },
     start: {},
@@ -55,7 +81,7 @@ const commandArgs = {
     switchBranch: {node: Type.String()},
     fork: {leaf: Type.Optional(Nullable(Type.String()))},
     compact: {requirement: Type.Optional(Type.String())},
-    changeSettings: {patch: object<Readonly<Record<string, Readonly<Record<string, unknown>>>>>()},
+    changeSettings: {patch: Type.Record(Type.String(), Type.Record(Type.String(), Json))},
     changeProfile: {profile: Type.String({minLength: 1})},
     setTitle: {title: Type.String()},
     archive: {archived: Type.Boolean()},
@@ -66,7 +92,7 @@ type CommandMethods = {
         readonly input: TSchema;
         readonly output: ReturnType<typeof object<{value: CommandMap[K]["value"]; seq: number; replayed: boolean}>>;
         readonly effect: "write";
-        readonly errors: {readonly [Code in (typeof commandErrors)[K][number] | OpenCode]: typeof Detail};
+        readonly errors: ReturnType<typeof commandErrorsOf<(typeof commandErrors)[K]>>;
     };
 };
 
@@ -74,11 +100,13 @@ const commandMethods = Object.fromEntries((Object.keys(commandArgs) as CommandNa
     input: Type.Object({sessionId: SessionId, commandId: CommandId, ...commandArgs[name]}, {additionalProperties: false}),
     output: object<unknown>(),
     effect: "write",
-    errors: errorsOf([...commandErrors[name], ...OPEN_CODES]),
+    errors: commandErrorsOf(commandErrors[name]),
 }])) as unknown as CommandMethods;
 
 const BySession = {sessionId: SessionId};
 const queryErrors = errorsOf(OPEN_CODES);
+/** 单个结果编码后放不进一条消息（快照、运行结果这类不分页的）：明确失败，不让链路收到超过上限的消息（sessions.md 输出 9）。 */
+const wholeErrors = errorsOf([...OPEN_CODES, "result-too-large"] as const);
 
 /** 一条日志：放得下就是事件本身，太大就是占位，内容经 `eventChunk` 分段读（sessions.md 输出 9）。 */
 export type LogItem = {readonly kind: "event"; readonly event: LogEvent} | {readonly kind: "oversized"; readonly seq: number; readonly type: string; readonly bytes: number};
@@ -101,26 +129,28 @@ const methods = {
         effect: "write",
         errors: errorsOf([...storageErrors, "profile-invalid", "invalid-initial", "open-failed"] as const),
     },
-    snapshot: {input: Type.Object(BySession, {additionalProperties: false}), output: object<SessionSnapshot>(), effect: "read", errors: queryErrors},
+    snapshot: {input: Type.Object(BySession, {additionalProperties: false}), output: object<SessionSnapshot>(), effect: "read", errors: wholeErrors},
     log: {
         input: Type.Object({...BySession, afterSeq: Type.Integer({minimum: 0}), limit: Type.Optional(Type.Integer({minimum: 1, maximum: 2000}))}, {additionalProperties: false}),
         output: object<{items: LogItem[]; head: number; more: boolean; through: number}>(),
         effect: "read",
         errors: queryErrors,
     },
-    rewindTargets: {input: Type.Object(BySession, {additionalProperties: false}), output: Type.Unsafe<RewindTarget[]>(Type.Array(Type.Unknown())), effect: "read", errors: queryErrors},
-    path: {input: Type.Object({...BySession, leaf: Type.Optional(Nullable(Type.String()))}, {additionalProperties: false}), output: Type.Unsafe<LogItem[]>(Type.Array(Type.Unknown())), effect: "read", errors: queryErrors},
-    siblings: {input: Type.Object({...BySession, node: Type.String()}, {additionalProperties: false}), output: Type.Unsafe<{node: string; latestLeaf: string}[]>(Type.Array(Type.Unknown())), effect: "read", errors: queryErrors},
-    runResult: {input: Type.Object({...BySession, runId: Type.String()}, {additionalProperties: false}), output: Type.Unsafe<RunResult | null>(Type.Unknown()), effect: "read", errors: queryErrors},
+    rewindTargets: {input: Type.Object(BySession, {additionalProperties: false}), output: Type.Unsafe<RewindTarget[]>(Type.Array(Type.Unknown())), effect: "read", errors: wholeErrors},
+    /** 按页读路径：`from` 是从根数起的下标，下一页从交回的 `next` 读。 */
+    path: {input: Type.Object({...BySession, leaf: Type.Optional(Nullable(Type.String())), from: Type.Optional(Type.Integer({minimum: 0}))}, {additionalProperties: false}), output: object<{items: LogItem[]; more: boolean; next: number}>(), effect: "read", errors: queryErrors},
+    siblings: {input: Type.Object({...BySession, node: Type.String()}, {additionalProperties: false}), output: Type.Unsafe<{node: string; latestLeaf: string}[]>(Type.Array(Type.Unknown())), effect: "read", errors: wholeErrors},
+    runResult: {input: Type.Object({...BySession, runId: Type.String()}, {additionalProperties: false}), output: Type.Unsafe<RunResult | null>(Type.Unknown()), effect: "read", errors: wholeErrors},
     preview: {
         input: Type.Object({...BySession, leaf: Type.Optional(Nullable(Type.String()))}, {additionalProperties: false}),
         output: object<PreviewItem>(),
         effect: "read",
         errors: errorsOf([...OPEN_CODES, "preview-unavailable"] as const),
     },
+    /** 按页读诊断：`after` 是上一页最后一条的 id（诊断按 id 合并、按出现先后排）；长文字截短。 */
     diagnostics: {
-        input: Type.Object({...BySession, afterSeq: Type.Optional(Type.Integer({minimum: 0})), extension: Type.Optional(Type.String()), level: Type.Optional(Type.Unsafe<DiagnosticLevel>(Type.String()))}, {additionalProperties: false}),
-        output: object<{items: Diagnostic[]; more: boolean}>(),
+        input: Type.Object({...BySession, afterSeq: Type.Optional(Type.Integer({minimum: 0})), extension: Type.Optional(Type.String()), level: Type.Optional(Type.Unsafe<DiagnosticLevel>(Type.String())), after: Type.Optional(Type.String())}, {additionalProperties: false}),
+        output: object<{items: Diagnostic[]; more: boolean; next: string | null}>(),
         effect: "read",
         errors: queryErrors,
     },
@@ -160,12 +190,21 @@ const events = {
 
 export const agentSessionsContract = defineRemoteService({id: "nbook.agent/sessions", version: 1, provider: "server", callers: ["browser"], methods, events});
 
-/** 远程合同里每条指令的参数与内核的一致：内核改了参数，这里编译不过。 */
+/**
+ * 远程合同与内核的对照，内核改了这里编译不过：每条指令的参数字段相同、校验过的输入能交给内核（输入方向）；内核交出的
+ * 失败详情过得了详情 schema（输出方向）。
+ */
 type ArgsOf<K extends CommandName> = Static<ReturnType<typeof Type.Object<(typeof commandArgs)[K]>>>;
-type SameKeys<A, B> = [keyof A] extends [keyof B] ? ([keyof B] extends [keyof A] ? true : false) : false;
-const argsMatchKernel: {readonly [K in CommandName]: SameKeys<ArgsOf<K>, CommandMap[K]["args"]>} = {
+type Matches<K extends CommandName> = [keyof ArgsOf<K>] extends [keyof CommandMap[K]["args"]] ? ([keyof CommandMap[K]["args"]] extends [keyof ArgsOf<K>] ? (ArgsOf<K> extends CommandMap[K]["args"] ? true : false) : false) : false;
+const argsMatchKernel: {readonly [K in CommandName]: Matches<K>} = {
     send: true, enqueue: true, edit: true, remove: true, resolve: true, start: true, abort: true, rewind: true, switchBranch: true, fork: true, compact: true, changeSettings: true, changeProfile: true, setTitle: true, archive: true,
 };
+const detailsMatchKernel: {readonly [C in DetailCode]: CommandErrorDetails[C] extends Static<(typeof COMMAND_DETAILS)[C]> ? true : false} = {
+    "input-rejected": true, "already-answered": true, "invalid-value": true, "unknown-key": true, "already-running": true, running: true, "dependency-missing": true,
+};
+const allDetailCodesListed: [Exclude<keyof CommandErrorDetails, DetailCode>] extends [never] ? true : false = true;
 void argsMatchKernel;
+void detailsMatchKernel;
+void allDetailCodesListed;
 
 export type {DeltaFrame, RunStatus};

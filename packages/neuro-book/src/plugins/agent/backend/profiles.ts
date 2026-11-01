@@ -72,20 +72,29 @@ export class ProfileCatalog {
             source: descriptor.plugin,
             ...availability(descriptor.declaration.tools),
         }));
+        const pluginKeys = new Set(fromPlugins.map((entry) => entry.key));
         const fromUser = (this.#user?.list() ?? []).map((profile): ProfileEntry => ({
             key: profile.key,
             name: profile.name,
             description: profile.description,
             source: "user",
-            // 从来没成功过的解析不到，算不可用；成功过的继续用上一次的包，算有错误（contributions.md 输出 12）。
-            ...(profile.error === undefined ? availability(profile.tools) : {status: profile.usable ? "error" : "unavailable", reason: profile.error}),
+            // 插件已用了这个 key：插件的优先，用户的这份不可用（同名不覆盖，contributions.md 输出 7）。
+            // 从来没成功过的解析不到，算不可用；成功过的继续用上一次的包，算有错误（输出 12）。
+            ...(pluginKeys.has(profile.key) ? {status: "unavailable", reason: `the key ${profile.key} is taken by a plugin's profile; rename the file`} : profile.error === undefined ? availability(profile.tools) : {status: profile.usable ? "error" : "unavailable", reason: profile.error}),
         }));
         return [...fromPlugins, ...fromUser];
     }
 
     /** 工具集用的要求：插件 Profile 来自声明，用户 Profile 来自装载好的 Profile。 */
+    /**
+     * 来源按登记判定，不只看前缀：发布者 `user` 的插件也能贡献 `user.` 开头的 key（平台只保留 `nbook`），插件贡献了的就是插件的。
+     */
+    #fromPlugin(key: string): boolean {
+        return this.options.declarations.get(PROFILES_POINT, key) !== null;
+    }
+
     requirements(key: string): ToolRequirements {
-        if (key.startsWith(USER_PROFILE_PREFIX)) {
+        if (!this.#fromPlugin(key) && key.startsWith(USER_PROFILE_PREFIX)) {
             const found = this.#user?.list().find((profile) => profile.key === key);
             return found?.tools ?? {required: [], optional: []};
         }
@@ -94,8 +103,7 @@ export class ProfileCatalog {
 
     /** 内核的 `profiles.resolve`：插件的要激活提供方。 */
     async resolve(key: string): Promise<AnyProfile | undefined> {
-        if (key.startsWith(USER_PROFILE_PREFIX)) return this.#user?.resolve(key);
-        if (this.options.declarations.get(PROFILES_POINT, key) === null) return undefined;
+        if (!this.#fromPlugin(key)) return key.startsWith(USER_PROFILE_PREFIX) ? this.#user?.resolve(key) : undefined;
         let handle = this.#published.get(key);
         if (handle === undefined && await this.options.activate(onAgentProfile(key))) handle = this.#published.get(key);
         if (handle === undefined) return undefined;

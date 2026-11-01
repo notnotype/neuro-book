@@ -4,18 +4,19 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
+import {randomBytes} from "node:crypto";
 import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {defineProfile} from "@notnotype/nb-harness/kernel";
+import {defineExtension, defineProfile} from "@notnotype/nb-harness/kernel";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {DELTA_WINDOW_MS, EVENT_INLINE_BYTES} from "./backend/frames";
-import {agentProfile, agentTool} from "./shared/points";
+import {DELTA_WINDOW_MS, DIAGNOSTIC_TEXT_BYTES, EVENT_INLINE_BYTES, PAGE_BYTES} from "./backend/frames";
+import {agentExtension, agentProfile, agentTool} from "./shared/points";
 import type {LogItem, RemoteFrame} from "./shared/remote";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint} from "./testing/endpoint";
@@ -31,6 +32,7 @@ beforeAll(async () => {
     endpoint = fakeEndpoint();
 });
 afterEach(async () => {
+    endpoint.reset();
     for (const world of worlds.splice(0)) await world.close();
 });
 afterAll(async () => {
@@ -53,9 +55,9 @@ const contributor: PluginDefinition = (() => {
     }})})]};
 })();
 
-async function world(): Promise<AgentWorld> {
+async function world(extra: PluginDefinition[] = []): Promise<AgentWorld> {
     counter += 1;
-    const created = await agentWorld(join(root, `w${String(counter)}`), {plugins: [contributor], userSettings: localModelSettings(endpoint.baseUrl)});
+    const created = await agentWorld(join(root, `w${String(counter)}`), {plugins: [contributor, ...extra], userSettings: localModelSettings(endpoint.baseUrl)});
     worlds.push(created);
     return created;
 }
@@ -200,5 +202,77 @@ describe("远程合同", () => {
         expect(await client.setTitle({sessionId, commandId: cid(), title: ""})).toMatchObject({ok: false, code: "empty-title"});
         expect(await client.create({profile: "test.profiles.missing"})).toMatchObject({ok: false, code: "unknown-profile"});
         expect(ok(await client.profiles({})).map((profile) => profile.key)).toEqual([WRITER]);
+    });
+
+    test("输出 3：从浏览器来的输入按结构校验：缺字段、类型不对、多出字段都是 invalid-input，不进日志", async () => {
+        const w = await world();
+        const {client} = await w.window("a");
+        const sessionId = ok(await client.create({profile: WRITER})).sessionId;
+        for (const input of [{}, {text: 42}, {text: "好", attachments: "wrong"}, {text: "好", extra: true}]) {
+            expect(await client.enqueue({sessionId, commandId: cid(), mode: "followup", input: input as never})).toMatchObject({ok: false, code: "invalid-input"});
+        }
+        expect(ok(await client.snapshot({sessionId})).buffer).toEqual([]);
+    });
+
+    test("输出 9：path 按页读，每页不超过 512 KiB，拼起来是整条路径；单个结果放不下时明确失败", async () => {
+        const w = await world();
+        const {client} = await w.window("a");
+        const sessionId = ok(await client.create({profile: WRITER})).sessionId;
+        for (let round = 0; round < 8; round += 1) {
+            endpoint.script("好");
+            await runOnServer(w, sessionId, "长".repeat(40_000));
+        }
+        const pages: LogItem[][] = [];
+        for (let from = 0; ;) {
+            const page = ok(await client.path({sessionId, from}));
+            expect(JSON.stringify(page).length).toBeLessThanOrEqual(PAGE_BYTES);
+            pages.push(page.items);
+            from = page.next;
+            if (!page.more) break;
+        }
+        expect(pages.length).toBeGreaterThan(1);
+        const all = pages.flat();
+        const whole = await w.service.session(sessionId).path();
+        expect(all.map(seqOf)).toEqual(whole.map((event) => event.seq));
+        // 运行结果不分页：回复超过一页时明确失败，不让链路收到超过上限的消息。
+        // 不重复的文字：重复的字符串会被模型适配器当成循环而判出错。
+        endpoint.script(randomBytes(PAGE_BYTES / 2).toString("hex"));
+        const sent = ok(await client.send({sessionId, commandId: cid(), input: {text: "说长一点"}}));
+        await w.service.session(sessionId).waitRun(sent.value.runId!);
+        expect(await client.runResult({sessionId, runId: sent.value.runId!})).toMatchObject({ok: false, code: "result-too-large"});
+    });
+
+    test("输出 9：诊断按页读、按条件筛，长文字截短，每页放得下", async () => {
+        const failing = [0, 1, 2, 3].map((index) => agentExtension(`test.diag.e${String(index)}`));
+        const plugin: PluginDefinition = {id: "test.diag", entries: [defineEntry({id: "server", location: "server", activationEvents: [failing[0]!.activationEvent], contributions: failing.map((item) => item.contribution), activate: () => ({contributions: {"agent.extensions": Object.fromEntries(failing.map((item) => [item.contribution.id, defineExtension({id: item.contribution.id, mount: () => {
+            throw new Error("坏".repeat(160_000));
+        }})]))}})})]};
+        const w = await world([plugin]);
+        const {client} = await w.window("a");
+        const sessionId = ok(await client.create({profile: WRITER})).sessionId;
+        const items = [];
+        let after: string | undefined;
+        for (;;) {
+            const page = ok(await client.diagnostics({sessionId, ...(after === undefined ? {} : {after})}));
+            expect(JSON.stringify(page).length).toBeLessThanOrEqual(PAGE_BYTES);
+            items.push(...page.items);
+            if (!page.more) break;
+            after = page.next!;
+        }
+        const failed = items.filter((item) => item.extension?.startsWith("test.diag.") === true);
+        expect(failed.map((item) => item.extension).sort()).toEqual(["test.diag.e0", "test.diag.e1", "test.diag.e2", "test.diag.e3"]);
+        for (const item of failed) expect(Buffer.byteLength(item.cause?.message ?? item.message)).toBeLessThanOrEqual(DIAGNOSTIC_TEXT_BYTES + 3);
+        expect(ok(await client.diagnostics({sessionId, extension: "test.diag.e2"})).items.map((item) => item.extension)).toEqual(["test.diag.e2"]);
+    });
+
+    test("输出 7：订阅打不开的会话时订阅失败、调用方看得到，不会“订阅成功却永远没有帧”", async () => {
+        const w = await world();
+        const {client} = await w.window("a");
+        let ended: string | null = null;
+        const subscribed = await client.events.frames.subscribe({sessionId: "missing"}, () => undefined, {onEnd: (reason) => {
+            ended = reason;
+        }});
+        if (subscribed.ok) await waitUntil("订阅结束", () => ended);
+        else expect(subscribed.code).toBe("provider-error");
     });
 });

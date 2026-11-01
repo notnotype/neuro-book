@@ -173,7 +173,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, report: options.report});
     const table = sessions;
 
-    const createSession: AgentService["create"] = async (createOptions) => {
+    const createSession = async (createOptions: Parameters<AgentService["create"]>[0]): ReturnType<AgentService["create"]> => {
         const created = await table.create(createOptions);
         if (!created.ok) return created;
         const view = table.view(created.value.id);
@@ -214,13 +214,26 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         return {ok: true, sessionId, runId, result};
     };
 
+    // 每个入口先过停止门；建会话与发起任务整段登记成在途，停止等它们登记完（sessions.md 输出 14）。
     const service: AgentService = {
-        create: createSession,
-        startTask,
-        session: (id, issuer) => table.view(id, issuer),
-        list: (filter = {}) => store.list({archived: false, background: false, ...filter}),
-        profiles: () => profiles.list(),
-        running: () => table.running(),
+        create: (createOptions) => table.accept(() => createSession(createOptions)),
+        startTask: (task) => table.accept(() => startTask(task)),
+        session: (id, issuer) => {
+            table.gate();
+            return table.view(id, issuer);
+        },
+        list: (filter = {}) => {
+            table.gate();
+            return store.list({archived: false, background: false, ...filter});
+        },
+        profiles: () => {
+            table.gate();
+            return profiles.list();
+        },
+        running: () => {
+            table.gate();
+            return table.running();
+        },
     };
 
     return {
