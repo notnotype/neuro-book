@@ -31,8 +31,8 @@ export function ownerLink(owner: LayerOwner): LayerLink {
 export function remoteLayer(owner: LayerOwner, consumer: ConsumerIdentity): RemoteImplementation<typeof userSettingsContract> {
     return {
         methods: {
-            set: async (input) => outcome(await owner.write(consumer, input.key, {kind: "set", value: input.value})),
-            remove: async (input) => outcome(await owner.write(consumer, input.key, {kind: "delete"})),
+            set: async (input) => outcome(await owner.write(consumer, input.key, {kind: "set", value: input.value, ...(input.expect === undefined ? {} : {expect: input.expect})})),
+            remove: async (input) => outcome(await owner.write(consumer, input.key, {kind: "delete", ...(input.expect === undefined ? {} : {expect: input.expect})})),
             edit: async (input) => outcome(await owner.userEdit(consumer, input.key, {kind: "set", value: input.value})),
             unset: async (input) => outcome(await owner.userEdit(consumer, input.key, {kind: "delete"})),
             readText: async () => {

@@ -14,7 +14,7 @@ import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
 import type {LayerLink} from "nbook/plugins/settings/shared/instance";
 import {editLayerText, parseLayerText} from "nbook/plugins/settings/shared/layer-text";
-import {sameContent, userEditProblem, writeProblem} from "nbook/plugins/settings/shared/layers";
+import {expectationHolds, sameContent, userEditProblem, writeProblem} from "nbook/plugins/settings/shared/layers";
 import type {DeclaredSetting, LayerContent, LayerEdit, LayerProblem, LayerSnapshot, LayerWriteResult} from "nbook/plugins/settings/shared/layers";
 import type {LayerEditor, LayerFile} from "nbook/plugins/settings/shared/remote-link";
 import type {WindowConnection, WindowConnectionState} from "nbook/shared/host";
@@ -168,6 +168,7 @@ export function memoryLayer(options: MemoryLayerOptions): MemoryLayer {
         if (problem !== null) return {ok: false, ...problem};
         if (invalid !== null) return {ok: false, code: "layer-invalid", detail: `配置文件当前无效：${invalid}`};
         if (failure !== null) return {ok: false, code: failure, detail: "场景让写入失败"};
+        if (!expectationHolds(edit.expect, values, key)) return {ok: false, code: "conflict", detail: `配置项 ${key} 的当前值不是期望的值`};
         const next = {...values};
         if (edit.kind === "set") next[key] = edit.value;
         else delete next[key];

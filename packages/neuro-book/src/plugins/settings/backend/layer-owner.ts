@@ -19,7 +19,7 @@ import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
 import type {SettingLayer, SettingsFailure, WrittenSettingDeclaration} from "nbook/shared/settings";
 
-import {canonical, sameContent, userEditProblem, writeProblem} from "../shared/layers";
+import {canonical, expectationHolds, sameContent, userEditProblem, writeProblem} from "../shared/layers";
 import type {DeclaredSetting, LayerContent, LayerEdit, LayerProblem, LayerSnapshot, LayerTextRead, LayerTextWrite, LayerWriteResult, WriteProblem} from "../shared/layers";
 import {readLayerFile, writeLayerFile} from "./layer-file";
 import {editLayerText, parseLayerText} from "../shared/layer-text";
@@ -205,6 +205,7 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
                 // 以磁盘上的当前文本为准：层快照可能还没跟上刚修好或刚改坏的文件。
                 const parsed = parseLayerText(text, keysOf(options.declarations()), options.layer);
                 if (parsed.status === "invalid") return {ok: false, code: "layer-invalid", detail: `配置文件当前无效：${parsed.detail}`};
+                if (!expectationHolds(edit.expect, parsed.values, key)) return {ok: false, code: "conflict", detail: `配置项 ${key} 的当前值不是期望的值`};
                 const edited = editLayerText(text, key, edit);
                 return edited.ok ? edited : {ok: false, code: "write-failed", detail: edited.detail};
             }, report);
