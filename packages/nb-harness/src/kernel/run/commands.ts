@@ -86,12 +86,11 @@ function replay(previous: {name: string; value: JsonValue; seq: number; argsHash
 
 export const isEmpty = (input: UserInput): boolean => input.text.trim() === "" && (input.attachments?.length ?? 0) === 0;
 
-/** 开始运行前就能判定的失败：只读、没有模型、没有凭据。 */
+/** 开始运行前就能判定的失败：只读、解析不到模型（码原样交回，见 `ModelResolutionCode`）。 */
 export function startProblem(host: CommandHost): string | null {
     if (host.readOnly() !== null) return "read-only";
-    const resolution = host.models.resolve(host.core.session.kernel.core, "turn");
-    if (resolution.ok) return null;
-    return resolution.code === "no-credentials" ? "no-credentials" : "no-model";
+    const resolution = host.models.resolve({settings: host.core.session.kernel.core, purpose: "turn", profile: host.core.assembly.profile.id});
+    return resolution.ok ? null : resolution.code;
 }
 
 export function sendCommand(host: CommandHost, args: CommandMap["send"]["args"] & {commandId: string}): Promise<CommandResult<"send">> {

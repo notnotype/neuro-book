@@ -9,12 +9,12 @@
  * `session-closed`、`read-only`、`log-broken` 也逐个列出，表即合同。
  */
 export const commandErrors = {
-    send: ["empty-input", "input-too-large", "input-rejected", "no-model", "no-credentials", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
+    send: ["empty-input", "input-too-large", "input-rejected", "no-model", "no-credentials", "unknown-model", "role-unbound", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
     enqueue: ["empty-input", "input-too-large", "input-rejected", "read-only", "command-id-conflict", "session-closed", "log-broken"],
     edit: ["empty-input", "input-too-large", "input-rejected", "input-not-found", "input-consumed", "command-id-conflict", "session-closed", "log-broken"],
     remove: ["input-not-found", "input-consumed", "command-id-conflict", "session-closed", "log-broken"],
     resolve: ["unknown-interaction", "already-answered", "not-allowed", "invalid-answer", "input-rejected", "read-only", "command-id-conflict", "session-closed", "log-broken"],
-    start: ["already-running", "nothing-to-continue", "no-model", "no-credentials", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
+    start: ["already-running", "nothing-to-continue", "no-model", "no-credentials", "unknown-model", "role-unbound", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
     abort: ["command-id-conflict", "session-closed"],
     rewind: ["running", "unknown-node", "invalid-target", "empty-input", "input-rejected", "command-id-conflict", "session-closed", "log-broken"],
     switchBranch: ["running", "unknown-node", "command-id-conflict", "session-closed", "log-broken"],
@@ -87,6 +87,7 @@ export const runErrorCodes = [
     "no-model",
     "no-credentials",
     "unknown-model",
+    "role-unbound",
     "log-broken",
     /** 手动压缩时全部方法都失败了。 */
     "compaction-failed",

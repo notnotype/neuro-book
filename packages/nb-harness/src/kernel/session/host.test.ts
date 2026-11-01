@@ -449,6 +449,18 @@ describe("单次请求", () => {
         expect(await complete(env, {profile: "lab.nope", input: {text: "x"}})).toEqual({ok: false, code: "unknown-profile"});
         model.script({fail: "rate_limit"});
         expect(await complete(env, {profile: "lab.plain", input: {text: "再改"}})).toMatchObject({ok: true, result: {reason: "error", error: {kind: "rate_limit"}}});
+        expect(model.queries.at(-1)).toMatchObject({purpose: "background", profile: "lab.plain"});
+        model.unavailable.set("background", "role-unbound");
+        expect(await complete(env, {profile: "lab.plain", input: {text: "x"}})).toEqual({ok: false, code: "role-unbound"});
+    });
+
+    test("models 输出：解析失败的码原样交回（send、start、预览），不再压成 no-model", async () => {
+        await using session = await createTestSession({});
+        session.model.unavailable.set("turn", "role-unbound");
+        expect(await session.raw.send({commandId: id(), input: {text: "问"}})).toEqual({ok: false, code: "role-unbound"});
+        await expect(session.raw.preview()).rejects.toMatchObject({code: "role-unbound"});
+        session.model.unavailable.set("turn", "unknown-model");
+        expect(await session.raw.send({commandId: id(), input: {text: "问"}})).toEqual({ok: false, code: "unknown-model"});
     });
 });
 

@@ -24,7 +24,7 @@ export type {
     SessionSnapshot, SlotReport, ToolSessionContext,
 } from "./host.js";
 export type {
-    ApprovalMode, ContentBlock, CoreSettings, Message, ModelCaller, ModelDelta, ModelDraft, ModelErrorKind, ModelFailure, ModelInfo, ModelPort, ModelRequest, ModelResolution, ModelResponse,
+    ApprovalMode, ContentBlock, CoreSettings, Message, ModelCaller, ModelDelta, ModelDraft, ModelErrorKind, ModelFailure, ModelInfo, ModelPort, ModelQuery, ModelRequest, ModelResolution, ModelResolutionCode, ModelResponse,
     Origin, RequestBlock, RequestPurpose, StopReason, Usage,
 } from "./model.js";
 export type {AnyProfile, CommitFn, DefineProfile, DeriveProfile, Profile, ProfileFields, ProfileRender, TurnFn} from "./profile.js";

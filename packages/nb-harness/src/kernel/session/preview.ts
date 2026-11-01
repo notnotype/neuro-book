@@ -7,7 +7,7 @@
  * 一层在预览里原地改请求同样按这一层失败处理，不会改坏提交缓存；失败交在结果的 `diagnostics` 里，不写日志。
  */
 
-import type {Diagnostic, JsonValue, Message, ModelPort, ModelRequest, ModelResponse, PreviewArgs, PreviewResult, RequestBlock, RequestChange, RequestPath, Resources, ToolDeclaration} from "../api/index.js";
+import type {Diagnostic, JsonValue, Message, ModelPort, ModelRequest, ModelResolutionCode, ModelResponse, PreviewArgs, PreviewResult, RequestBlock, RequestChange, RequestPath, Resources, ToolDeclaration} from "../api/index.js";
 import {diagnosticCodes} from "../api/index.js";
 import {estimateTokens, triggerPoint} from "../compaction/compact.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
@@ -21,7 +21,7 @@ import {computeRequest} from "../view/request.js";
 
 /** 这一版不支持的预览（过去的请求），或这一刻算不出请求（没有模型、Profile 出错）。 */
 export class PreviewUnavailable extends Error {
-    constructor(readonly code: "past-request-unsupported" | "unknown-node" | "no-model" | "no-credentials" | "unknown-model" | "profile-failed" | "request-invalid", message: string) {
+    constructor(readonly code: "past-request-unsupported" | "unknown-node" | ModelResolutionCode | "profile-failed" | "request-invalid", message: string) {
         super(message);
         this.name = "PreviewUnavailable";
     }
@@ -105,7 +105,7 @@ export async function previewRequest(host: PreviewHost, args: PreviewArgs = {}):
     if (args.atRequest !== undefined) throw new PreviewUnavailable("past-request-unsupported", "previewing a past request is not supported yet");
     const leaf = args.leaf === undefined ? core.leaf : args.leaf;
     if (leaf !== null && core.byId.get(leaf)?.scope !== "path") throw new PreviewUnavailable("unknown-node", `node ${leaf} is not in the session`);
-    const resolution = host.models.resolve(core.session.kernel.core, "turn");
+    const resolution = host.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
     if (!resolution.ok) throw new PreviewUnavailable(resolution.code, `no model for the next request (${resolution.code})`);
     const tools: readonly ToolDeclaration[] = host.box.current();
     const environment = host.environment(resolution.info, tools.map(toolInfo));

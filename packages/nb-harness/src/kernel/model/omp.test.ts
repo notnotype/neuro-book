@@ -15,6 +15,10 @@ interface Reply {
     reasoning?: string;
     tool?: {name: string; args: object};
     echoKey?: boolean;
+    /** 错误正文回显这个请求头的值。 */
+    echoHeader?: string;
+    /** 错误正文另加的内容（测截断、网址遮盖）。 */
+    errorExtra?: string;
     noFinish?: boolean;
     /** 发完第一块就停住，直到请求被中止。 */
     hang?: boolean;
@@ -23,16 +27,19 @@ interface Reply {
 const bodies: {messages: {role: string; content: unknown; tool_call_id?: string; name?: string; tool_calls?: unknown}[]; tools?: {function: {name: string}}[]; tool_choice?: unknown}[] = [];
 let replies: Reply[] = [];
 let requestCount = 0;
+const headersSeen: Headers[] = [];
 
 const server = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
     async fetch(request) {
         requestCount += 1;
+        headersSeen.push(request.headers);
         bodies.push(JSON.parse(await request.text()));
         const reply = replies.shift() ?? {text: "默认"};
         if ((reply.status ?? 200) !== 200) {
-            const message = reply.echoKey ? `invalid api key: ${request.headers.get("authorization") ?? ""}` : "unavailable";
+            const echoed = reply.echoKey ? `invalid api key: ${request.headers.get("authorization") ?? ""}` : reply.echoHeader !== undefined ? `bad gateway token: ${request.headers.get(reply.echoHeader) ?? ""}` : "unavailable";
+            const message = echoed + (reply.errorExtra ?? "");
             return new Response(JSON.stringify({error: {message}}), {status: reply.status, headers: {"content-type": "application/json", "retry-after": "0"}});
         }
         const chunk = (body: object) => `data: ${JSON.stringify({id: "c", object: "chat.completion.chunk", created: 0, model: "m", ...body})}\n\n`;
@@ -140,12 +147,32 @@ describe("OMP 适配器", () => {
         expect(limited.response.usage.complete).toBe(false);
     });
 
-    test("密钥取不到：发请求前以 auth 失败，不发请求", async () => {
-        const noKey = ompCall({model: resolved.model, apiKey: () => { throw new Error("NB_MISSING_KEY is not set"); }, priceKnown: false});
+    test("密钥取不到：发请求前以 auth 失败，不发请求（同步抛错与异步 reject 一样）", async () => {
+        const thrown = ompCall({model: resolved.model, apiKey: () => { throw new Error("NB_MISSING_KEY is not set"); }, priceKnown: false});
+        const rejected = ompCall({model: resolved.model, apiKey: async () => Promise.reject(new Error("credential removed")), priceKnown: false});
         requestCount = 0;
-        const response = await noKey(request(), new AbortController().signal, () => undefined);
-        expect(response.error).toMatchObject({kind: "auth", code: "missing-key"});
+        for (const noKey of [thrown, rejected]) {
+            const response = await noKey(request(), new AbortController().signal, () => undefined);
+            expect(response.error).toMatchObject({kind: "auth", code: "missing-key"});
+        }
         expect(requestCount).toBe(0);
+    });
+
+    test("宿主配置的请求头随每个请求发出；它们的值与密钥一样被遮盖；服务商原文去掉网址里的凭据并截断", async () => {
+        const GATEWAY = "gw-token-not-real-998877";
+        const withHeaders = ompCall({model: resolved.model, apiKey: async () => KEY, priceKnown: false, headers: {"X-Gateway-Token": GATEWAY, "X-Team": "writing"}});
+        replies = [{status: 401, echoHeader: "x-gateway-token", errorExtra: ` see https://user:pass@relay.example/v1?token=abc ${"x".repeat(20_000)}`}];
+        headersSeen.length = 0;
+        const response = await withHeaders(request(), new AbortController().signal, () => undefined);
+        expect(headersSeen[0]!.get("x-gateway-token")).toBe(GATEWAY);
+        expect(headersSeen[0]!.get("x-team")).toBe("writing");
+        const message = response.error!.message;
+        expect(message).not.toContain(GATEWAY);
+        expect(message).toContain(REDACTED_KEY);
+        expect(message).not.toContain("user:pass");
+        expect(message).not.toContain("token=abc");
+        expect(message.length).toBeLessThan(9_000);
+        expect(message).toContain("truncated");
     });
 
     test("中止：以 aborted 交回，用量标为不完整", async () => {
