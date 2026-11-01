@@ -6,6 +6,9 @@
  * commander 的错误不让它自己打印（英文、退出码 1），统一在这里按错误码换成中文、以 2 退出；它的帮助标题也换成中文。
  */
 
+// 第一条导入：`nbook start` 在本进程里起服务端，启动环境要在任何导入 OMP 的模块之前拍下（server/startup-env.ts）。
+import "nbook/server/startup-env";
+
 import {homedir} from "node:os";
 
 import {Command, CommanderError} from "commander";

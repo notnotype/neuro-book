@@ -3,6 +3,9 @@
  * `NBDEV_SAMPLE=1`：运行实例可用之后在后台放样例作品（`dev/sample.ts`）。生产构建只打包 `main.ts`，不含本入口。
  */
 
+// 第一条导入：启动环境要在任何导入 OMP 的模块之前拍下（startup-env.ts）。
+import "./startup-env";
+
 import {join, resolve} from "node:path";
 
 import {developmentPlugins} from "nbook/development-manifest";

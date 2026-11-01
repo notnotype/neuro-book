@@ -22,6 +22,16 @@ export interface StateRoot {
 export const stateRootKey: ServiceKey<StateRoot> = defineServiceKey<StateRoot>("nbook/state-root");
 
 /**
+ * 服务端进程启动时的环境（`env:<变量名>` 只认它，docs/specs/models/service.md 输出 1）：任何导入 OMP 的模块求值之前拍下的
+ * `process.env`，之后进程里再改的不算。只在服务端提供，不发给浏览器。
+ */
+export interface StartupEnvironment {
+    readonly env: Readonly<Record<string, string | undefined>>;
+}
+
+export const startupEnvKey: ServiceKey<StartupEnvironment> = defineServiceKey<StartupEnvironment>("nbook/startup-env");
+
+/**
  * 服务端进程所属用户的目录（docs/specs/runtime/projects.md 输出第 19 条）：`~` 按 `home` 展开；缺省作品目录建在
  * `documents`（解析不到系统文档目录时为 null，退到 `home`）下。只在服务端提供。
  */

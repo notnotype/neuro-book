@@ -9,6 +9,9 @@
  * 只由测试启动。
  */
 
+// 第一条导入：启动环境要在任何导入 OMP 的模块之前拍下（server/startup-env.ts）。
+import "nbook/server/startup-env";
+
 import {join} from "node:path";
 
 import {descriptorsOf} from "nbook/plugin-platform/backend/installed";
