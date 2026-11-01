@@ -21,6 +21,7 @@ import {imageViewerBrowserPlugin} from "nbook/plugins/image-viewer/web/plugin";
 import {imageViewerCatalogs} from "nbook/plugins/image-viewer/web/text";
 import {markdownBrowserPlugin} from "nbook/plugins/markdown/web/plugin";
 import {markdownCatalogs} from "nbook/plugins/markdown/web/text";
+import {modelsBrowserPlugin} from "nbook/plugins/models/web/plugin";
 import {modelsCatalogs} from "nbook/plugins/models/web/text";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
 import {explorerCatalogs} from "nbook/plugins/explorer/web/text";
@@ -66,6 +67,7 @@ export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>
     "nbook.editor": editorBrowserPlugin,
     "nbook.image-viewer": imageViewerBrowserPlugin,
     "nbook.html-preview": htmlPreviewBrowserPlugin,
+    "nbook.models": modelsBrowserPlugin,
 };
 
 /** 宿主适配器：诊断的存储在窗口运行实例建立之前就要能记录（ADR 0026 决策第 5 条）。 */

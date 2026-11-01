@@ -4,6 +4,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
+import {readFileSync} from "node:fs";
 import {readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
@@ -134,6 +135,23 @@ describe("配置的校验与写入（输出 5、6）", () => {
         ok(await client.removeProvider({id: "relay-one"}));
         expect(w.service.snapshot().roles.find((role) => role.id === "deep")).toMatchObject({model: null, status: "unbound"});
         expect(await client.removeRole({id: "main"})).toMatchObject({ok: false, code: "builtin-role"});
+    });
+
+    test("目录模型只存用户改过的：与目录相同的名字、推出来的系列、能力与单价、空的请求头都不写进设置；快照照样合出目录的值", async () => {
+        const w = await world();
+        const client = await w.window("w");
+        ok(await client.addProvider({source: {kind: "catalog", id: "deepseek"}}));
+        const fromCatalog = w.service.snapshot().providers.find((provider) => provider.id === "deepseek");
+        expect(fromCatalog).toBeDefined();
+        const catalogModels = ok(await client.catalogModels({provider: "deepseek"})) as Array<{id: string; name: string; contextWindow: number | null}>;
+        const target = catalogModels.find((model) => model.id === "deepseek-flash")!;
+        ok(await client.upsertModel({provider: "deepseek", model: {id: target.id, enabled: true, name: target.name, group: "deepseek", contextWindow: 1, vision: true, price: [9, 9, 9, 9], headers: {}}}));
+        const stored = () => (JSON.parse(readFileSync(w.settings.userFile, "utf8")) as {"nbook.models/providers": Array<{id: string; models: unknown[]}>})["nbook.models/providers"].find((provider) => provider.id === "deepseek")!.models;
+        expect(stored()).toEqual([{id: "deepseek-flash", enabled: true}]);
+        expect(w.service.snapshot().providers.find((provider) => provider.id === "deepseek")!.models[0]).toMatchObject({id: "deepseek-flash", name: target.name, contextWindow: target.contextWindow});
+
+        ok(await client.upsertModel({provider: "deepseek", model: {id: "deepseek-flash", enabled: true, name: "快", group: "常用", compactAt: 50_000, headers: {"X-Team": "writing"}}}));
+        expect(stored()).toEqual([{id: "deepseek-flash", enabled: true, name: "快", group: "常用", compactAt: 50_000, headers: {"X-Team": "writing"}}]);
     });
 
     test("两个窗口同时改不同的服务商，两处都在；设置文件被别处改过时重读后再合并，别处的内容不丢", async () => {

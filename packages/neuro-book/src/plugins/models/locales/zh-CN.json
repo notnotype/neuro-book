@@ -8,5 +8,277 @@
             "title": "模型角色",
             "description": "每个角色用哪个模型"
         }
+    },
+    "settingsPages": {
+        "providers": {
+            "title": "服务商与模型",
+            "description": "添加服务商、填密钥、管理与检测模型"
+        },
+        "roles": {
+            "title": "模型角色",
+            "description": "每个角色用哪个模型"
+        }
+    },
+    "keywords": {
+        "apiKey": "API 密钥",
+        "llm": "大模型",
+        "provider": "服务商"
+    },
+    "readOnly": "模型服务没有运行，暂时只能查看。",
+    "rail": {
+        "label": "服务商",
+        "all": "全部模型",
+        "available": "{{count}} 个可用",
+        "add": "添加服务商",
+        "addShort": "添加",
+        "keyMissing": "没有密钥",
+        "envMissing": "环境变量没有值",
+        "checkFailed": "有模型检测失败",
+        "models_other": "{{count}} 个模型"
+    },
+    "empty": {
+        "title": "还没有服务商",
+        "description": "添加一家服务商并填上密钥，写作助手才能调用模型。本机的 Ollama、LM Studio 也在目录里；中转站选“自定义 OpenAI 兼容服务商”。"
+    },
+    "remove": {
+        "button": "删除服务商",
+        "label": "删除：{{name}}",
+        "title": "删除服务商“{{name}}”？",
+        "roles": "用到这些模型的角色会变成未绑定：{{roles}}。用到它们的功能会报错并指向“模型角色”，直到重新绑定。",
+        "confirm": "删除",
+        "models_other": "它的 {{count}} 个模型从列表里去掉，凭据库里的密钥一起删除。"
+    },
+    "connection": {
+        "title": "连接",
+        "key": {
+            "label": "API 密钥",
+            "hint": "存在本机的凭据库，不进设置文件，也不会再显示出来。写 env:变量名 时从启动时的环境变量读取。",
+            "loading": "读取中",
+            "empty": "粘贴 API Key，或写 env:变量名",
+            "stored": "已设置 · 输入新的密钥替换",
+            "keyless": "不需要密钥时留空",
+            "envFound": "从启动时的环境变量 {{name}} 读取（已读到）。",
+            "envMissing": "环境变量 {{name}} 没有设置：设置后重启应用。",
+            "clear": "清除"
+        },
+        "url": {
+            "label": "接口地址",
+            "hint": "请求发到 {{url}}",
+            "restore": "恢复目录地址",
+            "overridden": "已改成别的地址；目录地址是 {{url}}。模型的能力与单价仍按目录。"
+        },
+        "api": {
+            "label": "接口格式"
+        },
+        "advanced": "高级",
+        "advancedHint": "认证方式、请求头",
+        "auth": {
+            "label": "认证方式",
+            "hint": "密钥放在哪个请求头里。缺省按接口格式：OpenAI 系是 Authorization: Bearer，Anthropic 是 x-api-key",
+            "default": "按接口格式（缺省）",
+            "bearer": "Authorization: Bearer",
+            "none": "不要认证"
+        },
+        "headers": {
+            "label": "请求头",
+            "hint": "每个请求都带上；模型可以在编辑对话框里另加或覆盖同名的"
+        }
+    },
+    "headers": {
+        "name": "名称",
+        "value": "值",
+        "nameOf": "第 {{index}} 行的名称",
+        "valueOf": "第 {{index}} 行的值",
+        "add": "添加请求头",
+        "remove": "删除第 {{index}} 行",
+        "nameEmpty": "名称不能为空",
+        "duplicate": "与上面的名称重复",
+        "valueEmpty": "值不能为空",
+        "credentialLike": "像是凭据：写成 env:变量名，值就不进设置文件"
+    },
+    "models": {
+        "title": "模型",
+        "manage": "管理模型",
+        "add": "手动添加",
+        "checkAll": "检测全部",
+        "cancelChecks": "取消检测",
+        "empty": "还没有模型。设置密钥后点“管理模型”加入。",
+        "enable": "启用 {{name}}",
+        "check": "检测 {{name}}",
+        "checkTip": "检测：发一条很短的请求",
+        "edit": "编辑 {{name}}",
+        "editTip": "编辑模型",
+        "incomplete": "缺上下文窗口",
+        "incompleteTip": "要补上下文窗口才能启用",
+        "missing": "目录里没有了",
+        "priceUnknown": "单价未知",
+        "free": "免费",
+        "price": "${{input}} / ${{output}}",
+        "confirmDisable": "停用后这些角色用不了它：{{roles}}。",
+        "confirmDisableAction": "停用",
+        "cancel": "取消",
+        "enabled": "{{count}} 个启用"
+    },
+    "check": {
+        "ok": "检测通过",
+        "running": "检测中",
+        "failed": "检测失败",
+        "failedOf": "检测失败，查看原因：{{name}}",
+        "failedAt": "检测失败 · {{time}}",
+        "retry": "重新检测",
+        "kinds": {
+            "network": "连不上服务商或请求中断。",
+            "rate_limit": "被限流了，稍后再试。",
+            "auth": "鉴权失败：服务商说密钥无效。核对密钥，或换一个有这个模型权限的密钥。",
+            "quota": "额度用完了。",
+            "context_overflow": "请求超过了上下文窗口。",
+            "provider": "服务商返回了错误。",
+            "local": "本机这边的问题：配置不完整或不可用。",
+            "other": "检测没有通过。"
+        }
+    },
+    "caps": {
+        "vision": "能看图",
+        "reasoning": "支持推理",
+        "efforts": "推理档：{{efforts}}"
+    },
+    "edit": {
+        "title": "编辑模型：{{name}}",
+        "addTitle": "手动添加模型",
+        "basic": "基本",
+        "id": "模型 id",
+        "name": "显示名称",
+        "namePlaceholder": "按 id 自动",
+        "group": "系列（分组）",
+        "capabilities": "能力与限制",
+        "contextWindow": "上下文窗口",
+        "maxOutput": "最大输出",
+        "price": "单价",
+        "priceHint": "美元每百万 token；留空为未知，0 为免费",
+        "priceInput": "输入",
+        "priceOutput": "输出",
+        "priceCacheRead": "缓存读",
+        "priceCacheWrite": "缓存写",
+        "compaction": "压缩",
+        "compactAt": "触发点（token）",
+        "compactHint": "上下文到这个量就压缩；留空时按窗口减去预留量。",
+        "compactPlaceholder": "按窗口自动",
+        "advanced": "高级",
+        "headersHint": "同名时盖过服务商的请求头",
+        "catalogFixed": "来自 OMP 的模型目录，不能改。",
+        "required": "必填",
+        "positive": "要是正整数",
+        "nonNegative": "要是不小于 0 的数",
+        "idTaken": "这个 id 已经在列表里",
+        "save": "保存",
+        "cancel": "取消"
+    },
+    "manage": {
+        "title": "管理模型：{{name}}",
+        "search": "搜索模型名或 id",
+        "refetch": "重新拉取",
+        "add": "加入 {{name}}",
+        "remove": "移出 {{name}}",
+        "addTip": "加入列表",
+        "removeTip": "从列表移出",
+        "incomplete": "要补字段",
+        "loading": "读取中",
+        "empty": "没有可加入的模型",
+        "noMatch": "没有匹配的模型",
+        "done": "完成",
+        "confirmRemove": "移出后这些角色变成未绑定：{{roles}}。"
+    },
+    "add": {
+        "title": "添加服务商",
+        "search": "搜索服务商",
+        "catalog": "OMP 目录",
+        "added": "已添加",
+        "keyless": "不要密钥",
+        "login": "要登录，第一版不支持",
+        "unsupported": "不支持",
+        "other": "其它",
+        "custom": "自定义 OpenAI 兼容服务商",
+        "customHint": "中转站、火山方舟、本机的 vLLM 等，填地址与接口格式",
+        "customName": "名称",
+        "customUrl": "接口地址",
+        "create": "添加",
+        "back": "返回",
+        "noMatch": "没有匹配的服务商"
+    },
+    "all": {
+        "empty": "没有启用的模型",
+        "provider": "服务商",
+        "model": "模型"
+    },
+    "roles": {
+        "intro": "对话里没选模型、Profile 也没指定时用“主力”。角色没绑模型时，用到它的功能会报错并指向这一页，不会换用别的模型。",
+        "role": "角色",
+        "description": "说明",
+        "model": "模型",
+        "choose": "选择模型",
+        "none": "不绑定",
+        "unbound": "未绑定",
+        "status": {
+            "unknown-model": "绑定的模型不可用：目录里没有了或没启用",
+            "no-credentials": "绑定的模型没有密钥"
+        },
+        "add": "添加专精角色",
+        "newName": "新角色",
+        "remove": "删除角色：{{name}}",
+        "nameOf": "角色名：{{name}}",
+        "descriptionOf": "说明：{{name}}",
+        "builtin": {
+            "tiny": {
+                "name": "轻量",
+                "description": "标题、标签这类很小的任务"
+            },
+            "fast": {
+                "name": "快速",
+                "description": "审批判断与要快的后台任务"
+            },
+            "main": {
+                "name": "主力",
+                "description": "对话的缺省模型"
+            },
+            "deep": {
+                "name": "深度",
+                "description": "要想得深的任务"
+            },
+            "compaction": {
+                "name": "压缩",
+                "description": "压缩长对话时写摘要"
+            }
+        },
+        "gradient": "梯度",
+        "gradientHelp": "四档固定，按强弱排；系统功能各用其中一档",
+        "specialist": "专精",
+        "specialistHelp": "按用途单独绑模型；可以自己加"
+    },
+    "subject": {
+        "key": "{{provider}} 的密钥",
+        "provider": "服务商“{{name}}”",
+        "model": "模型“{{name}}”",
+        "role": "角色“{{name}}”"
+    },
+    "failure": {
+        "invalid-value": "填写的值不合要求：{{detail}}",
+        "write-conflict": "别处同时在改，稍后重试",
+        "settings-unavailable": "设置文件有错或写不进去，先修好设置文件",
+        "credentials-unavailable": "凭据库读写失败",
+        "partially-applied": "只完成了一半，已按实际状态显示",
+        "model-incomplete": "自定义模型启用前要填上下文窗口",
+        "unknown-provider": "这家服务商已经不在了",
+        "unknown-model": "这个模型已经不在了",
+        "unknown-role": "这个角色已经不在了",
+        "builtin-role": "内置角色不能删、不能改名",
+        "no-credentials": "还没有密钥",
+        "not-supported": "这家不支持拉取模型列表",
+        "auth": "鉴权失败：核对密钥",
+        "unreachable": "连不上服务商",
+        "failed": "拉取失败：{{detail}}",
+        "unavailable": "模型服务没有运行",
+        "unknown-outcome": "可能没有保存，以设置为准",
+        "timeout": "超时了",
+        "other": "失败了（{{code}}）"
     }
 }

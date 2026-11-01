@@ -34,7 +34,7 @@ export function missingContextWindow(provider: Pick<ProviderConfig, "kind">, mod
 }
 
 /** 绑着这个服务商（给了模型时只看这个模型）的角色。 */
-export function rolesUsing(roles: readonly RoleConfig[], provider: string, model?: string): RoleConfig[] {
+export function rolesUsing<Role extends Pick<RoleConfig, "model">>(roles: readonly Role[], provider: string, model?: string): Role[] {
     return roles.filter((role) => {
         if (role.model === null) return false;
         const target = splitReference(role.model);

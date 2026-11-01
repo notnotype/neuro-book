@@ -515,8 +515,8 @@ test("左栏：层标签在搜索框上方、每个有分区的组上方有组�
     const search = await box("[data-settings-search]");
     expect(tabs.y + tabs.height).toBeLessThanOrEqual(search.y);
     const labels = page.locator("[data-settings-nav-label]");
-    // 产品里现在没有“写作助手”组的分区，没有项的组不出现。
-    await expect(labels).toHaveText(["通用", "扩展"]);
+    // 三组都有分区：“写作助手”组是模型服务的两页。
+    await expect(labels).toHaveText(["通用", "写作助手", "扩展"]);
     for (const label of await labels.all()) await expect(label).toBeVisible();
     const items = await page.locator("[data-settings-nav]").evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().top));
     expect(items.every((top, index) => index === 0 || top > items[index - 1]!)).toBe(true);

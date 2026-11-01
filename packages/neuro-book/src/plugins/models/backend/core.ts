@@ -263,6 +263,23 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             const next = step.value.provider === null ? list.filter((_, at) => at !== index) : list.map((item, at) => (at === index ? step.value.provider! : item));
             return {ok: true, value: {next, result: step.value.result}};
         });
+    /**
+     * 写进设置的样子（service.md 输入一节）：目录模型只存用户改过的。能力、上限与单价按目录（界面不让改，写来的一律不存）；
+     * 名字、系列与目录或推出来的相同时不存，请求头为空时不存。这样目录更新后没改过的字段跟着目录走。
+     */
+    const stored = (provider: ProviderConfig, model: ModelConfig): ModelConfig => {
+        const fromCatalog = provider.kind === "catalog" ? catalogModel(provider.id, model.id) : undefined;
+        if (fromCatalog === undefined) return model;
+        return {
+            id: model.id,
+            enabled: model.enabled,
+            ...(model.name === undefined || model.name === fromCatalog.name ? {} : {name: model.name}),
+            ...(model.group === undefined || model.group === seriesOf(model.id) ? {} : {group: model.group}),
+            ...(model.compactAt === undefined ? {} : {compactAt: model.compactAt}),
+            ...(model.headers === undefined || Object.keys(model.headers).length === 0 ? {} : {headers: model.headers}),
+        };
+    };
+
     const incomplete = (provider: ProviderConfig, models: readonly ModelConfig[]): Failure | null => {
         const bad = models.find((model) => model.enabled && missingContextWindow(provider, model));
         return bad === undefined ? null : failure("model-incomplete", `custom model ${bad.id} needs a context window before it can be enabled`);
@@ -368,8 +385,9 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             }),
             upsertModel: (input, ctx) => queue(async () => {
                 const step = await withProvider<null>(input.provider, (provider) => {
-                    const models = provider.models.some((model) => model.id === input.model.id) ? provider.models.map((model) => (model.id === input.model.id ? input.model : model)) : [...provider.models, input.model];
-                    return incomplete(provider, [input.model]) ?? {ok: true, value: {provider: {...provider, models}, result: null}};
+                    const next = stored(provider, input.model);
+                    const models = provider.models.some((model) => model.id === next.id) ? provider.models.map((model) => (model.id === next.id ? next : model)) : [...provider.models, next];
+                    return incomplete(provider, [next]) ?? {ok: true, value: {provider: {...provider, models}, result: null}};
                 });
                 return step.ok ? ctx.ok(null) : relay(step);
             }),
@@ -382,8 +400,9 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             setModels: (input, ctx) => queue(async () => {
                 const step = await withProvider<null>(input.provider, (provider) => {
                     const removed = new Set(input.remove);
-                    const kept = provider.models.filter((model) => !removed.has(model.id) && !input.add.some((added) => added.id === model.id));
-                    return incomplete(provider, input.add) ?? {ok: true, value: {provider: {...provider, models: [...kept, ...input.add]}, result: null}};
+                    const added = input.add.map((model) => stored(provider, model));
+                    const kept = provider.models.filter((model) => !removed.has(model.id) && !added.some((item) => item.id === model.id));
+                    return incomplete(provider, added) ?? {ok: true, value: {provider: {...provider, models: [...kept, ...added]}, result: null}};
                 });
                 if (!step.ok) return relay(step);
                 const gone = input.remove.filter((id) => !input.add.some((added) => added.id === id));

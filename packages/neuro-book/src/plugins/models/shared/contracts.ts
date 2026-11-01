@@ -82,6 +82,7 @@ export const ModelsSnapshotSchema = Type.Object({providers: Type.Array(SnapshotP
 export type ModelsSnapshot = Static<typeof ModelsSnapshotSchema>;
 export type SnapshotProvider = Static<typeof SnapshotProviderSchema>;
 export type SnapshotModel = Static<typeof SnapshotModelSchema>;
+export type SnapshotRole = Static<typeof SnapshotRoleSchema>;
 
 /** Profile 设置里的模型或角色（t05、t10 交来）。 */
 export interface ProfileModelDefaults {
@@ -113,6 +114,7 @@ export const CatalogProviderSchema = Type.Object({
     access: Type.Union([Type.Literal("keyless"), Type.Literal("login"), Type.Literal("key"), Type.Literal("unsupported")]),
     added: Type.Boolean(),
 }, {additionalProperties: false});
+export type CatalogProvider = Static<typeof CatalogProviderSchema>;
 
 export const CatalogModelSchema = Type.Object({
     id: Type.String(),
