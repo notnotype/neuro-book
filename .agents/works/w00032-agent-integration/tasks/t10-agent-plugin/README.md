@@ -81,6 +81,7 @@ t02 到 t09。
 - 第 0 片 `bd2924993`：内核的工具集以宿主的声明为准、`AgentHost.profilesChanged`、会话头与列表带 `background`；nb-harness 327 通过，nb-story 内核验收门 4 通过，三处变异检查都被测试抓到。实现审查（omp）9 条（重要 8、建议 1）全部成立，修正 `e4e30485b`，见 [evidences/impl-review-s0-disposition.md](evidences/impl-review-s0-disposition.md)。
 - 第 1 片（master `17604b62c`）：新建 `agent/contributions.md`、`agent/sessions.md`（planned），内核与平台 Spec 跟上。
 - 第 2 片 `61358c890`：`nbook.agent` 服务端骨架；插件测试 7 条，五处变异检查都被抓到；neuro-book 全量 1665 通过，governance 通过。实施中的调整见 [plan.md](plan.md) 第 5 节末尾，Spec 已随之改。
+- 第 3 片 `f21519330`：SDK 子路径 `@notnotype/nb-plugin-sdk/agent` 与 `/agent/jsx-runtime`（只给服务端，运行时值逐个列出、不转出内核的日志格式与码表）；用户级 Profile 的运行期打包、装载与重载（包一律作外部引用，表外的以 `module-not-shared` 失败；应用包检查认这一处计算出来的导入）。用户 Profile 测试 3 条，四处变异检查都被抓到；neuro-book 全量 1668 通过、vitest 相关 18 通过、governance 通过。
 
 ## 下一步
 
