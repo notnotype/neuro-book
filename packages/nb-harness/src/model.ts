@@ -12,7 +12,7 @@ import {NO_AUTH_SENTINEL} from "@oh-my-pi/pi-ai/auth-retry";
 import {getBundledModel, getBundledModels, getBundledProviders, type Model} from "@oh-my-pi/pi-catalog";
 import {buildModel} from "@oh-my-pi/pi-catalog/build";
 
-import {catalogPrice, providerAccess, providerKeyEnvs} from "./catalog.js";
+import {catalogPrice, providerAccess, providerKeyEnvs, type ModelPrice} from "./models/catalog.js";
 
 /** 指定的密钥变量缺失或为空。`variables` 是可以设的变量（目录服务商可能有几个，按 OMP 查找的顺序）。 */
 export class MissingModelKeyError extends Error {
@@ -26,14 +26,6 @@ export class MissingModelKeyError extends Error {
     }
 }
 
-export interface ModelPrice {
-    /** 每百万 token 的单价。 */
-    readonly input: number;
-    readonly output: number;
-    readonly cacheRead?: number;
-    readonly cacheWrite?: number;
-    readonly currency: string;
-}
 
 export interface DefineModelOptions {
     readonly provider: string;
