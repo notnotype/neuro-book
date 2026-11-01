@@ -67,7 +67,10 @@ async function rename(role: SnapshotRole): Promise<void> {
     }
     if (name === role.name && draft.description === role.description) return;
     const result = await props.store.call("updateRole", {id: role.id, name, description: draft.description});
-    if (!result.ok) report(role, result.failure);
+    if (result.ok) return;
+    report(role, result.failure);
+    // 写失败：草稿回到实际值（快照没变，上面的 watch 不会触发）。
+    Object.assign(draft, {name: role.name, description: role.description});
 }
 
 async function addRole(): Promise<void> {

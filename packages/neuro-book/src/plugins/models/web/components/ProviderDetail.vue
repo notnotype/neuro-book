@@ -21,7 +21,9 @@ const props = withDefaults(defineProps<{
     /** 模型 id → 绑着它的角色名。 */
     roleUsage?: ReadonlyMap<string, readonly string[]>;
     disabled?: boolean;
-}>(), {checks: () => new Map(), roleUsage: () => new Map(), disabled: false});
+    /** 变了就把输入框的草稿换回实际值（页面在写失败后加一）。 */
+    resetToken?: number;
+}>(), {checks: () => new Map(), roleUsage: () => new Map(), disabled: false, resetToken: 0});
 
 const emit = defineEmits<{
     (e: "set-key", value: string): void;
@@ -95,6 +97,12 @@ const authOptions = computed(() => [
     {value: "none", label: text("connection.auth.none")},
 ]);
 
+// 写失败：草稿回到实际值，请求头编辑器重建（没填完的行一起丢掉）。
+watch(() => props.resetToken, () => {
+    keyDraft.value = keyCurrent.value;
+    urlDraft.value = effectiveUrl.value;
+});
+
 // ---- 模型 ----
 const groups = computed(() => {
     const byGroup = new Map<string, SnapshotProvider["models"][number][]>();
@@ -163,7 +171,7 @@ const checking = computed(() => props.provider.models.some((model) => props.chec
                         </div>
                         <div class="provider-detail__field">
                             <div class="provider-detail__field-head"><span class="provider-detail__label">{{ text("connection.headers.label") }}<InfoTip :text="text('connection.headers.hint')" /></span></div>
-                            <HeadersEditor :headers="provider.headers" :disabled="disabled" @commit="(headers) => emit('update', {headers})" />
+                            <HeadersEditor :key="resetToken" :headers="provider.headers" :disabled="disabled" @commit="(headers) => emit('update', {headers})" />
                         </div>
                     </div>
                 </Collapsible>

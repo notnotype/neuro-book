@@ -66,8 +66,11 @@ function roleUsage(provider: SnapshotProvider): Map<string, string[]> {
 
 // ---- 写入 ----
 /** 写入失败交给窗口通知；`partially-applied` 之外失败的控件随快照回到实际值。 */
+/** 写失败后详情里的输入框回到实际值（输出 15）：快照没变时它们自己看不出要回去，靠这个序号。 */
+const resetToken = ref(0);
 function report(subject: string, failure: ModelsFailure): void {
     props.reportWriteFailure(subject, {reason: failureReason(text, failure), uncertain: failure.code === "unknown-outcome"});
+    resetToken.value += 1;
 }
 const subjectOf = (provider: SnapshotProvider): string => text("subject.provider", {name: provider.name});
 
@@ -250,38 +253,67 @@ async function applyManage(provider: SnapshotProvider, change: {add: ModelCandid
 }
 
 // ---- 删除服务商 ----
+/**
+ * 正在确认删除的那家：打开确认框时取定。确认框不能跟着“当前服务商”挂载——删掉之后当前项变了，确认框会在发出 `closed` 之前
+ * 被卸掉，焦点就没人管了。
+ */
 const removing = ref(false);
-const removeRoles = computed(() => (current.value === null ? [] : rolesUsing(roles.value, current.value.id).map((role) => {
-    const model = current.value!.models.find((item) => referenceOf(current.value!.id, item.id) === role.model);
-    return `${roleName(text, role)}（${model?.name ?? role.model}）`;
-})));
+const removeTarget = ref<SnapshotProvider | null>(null);
+function openRemove(): void {
+    removeTarget.value = current.value;
+    removing.value = current.value !== null;
+}
 const removeDescription = computed(() => {
-    if (current.value === null) return "";
-    const models = text("remove.models", {count: current.value.models.length});
-    return removeRoles.value.length === 0 ? models : `${models}${text("remove.roles", {roles: removeRoles.value.join("、")})}`;
+    const target = removeTarget.value;
+    if (target === null) return "";
+    const affected = rolesUsing(roles.value, target.id).map((role) => {
+        const model = target.models.find((item) => referenceOf(target.id, item.id) === role.model);
+        return `${roleName(text, role)}（${model?.name ?? role.model}）`;
+    });
+    const models = text("remove.models", {count: target.models.length});
+    return affected.length === 0 ? models : `${models}${text("remove.roles", {roles: affected.join("、")})}`;
 });
-/** 删除后焦点去的地方：下一家，没有时上一家，都没有时“添加服务商”（输出 12）。 */
-let focusAfterRemove: string | null = null;
 const page = ref<HTMLElement | null>(null);
 
-async function removeProvider(): Promise<void> {
-    const provider = current.value;
+/**
+ * 进行中的删除：交回删除后焦点去的地方（下一家，没有时上一家，都没有时“添加服务商”，输出 12），失败为 null。确认框在“删除”
+ * 按下时就开始关闭，它的 `closed` 可能早于删除的结果，所以关闭的处理等这个 Promise。
+ */
+let removal: Promise<string | null> | null = null;
+
+function removeProvider(): void {
+    const provider = removeTarget.value;
     if (provider === null) return;
     const index = providers.value.indexOf(provider);
     const neighbour = providers.value[index + 1] ?? providers.value[index - 1] ?? null;
-    const result = await props.store.call("removeProvider", {id: provider.id});
-    if (!result.ok) {
-        report(subjectOf(provider), result.failure);
-        return;
-    }
-    selected.value = neighbour?.id ?? "all";
-    focusAfterRemove = neighbour?.id ?? "add";
+    removal = (async () => {
+        const result = await props.store.call("removeProvider", {id: provider.id});
+        if (!result.ok) {
+            report(subjectOf(provider), result.failure);
+            return null;
+        }
+        selected.value = neighbour?.id ?? "all";
+        return neighbour?.id ?? "add";
+    })();
 }
 
 async function onRemoveClosed(): Promise<void> {
-    const target = focusAfterRemove;
-    focusAfterRemove = null;
+    const removed = removeTarget.value?.id;
+    const pending = removal;
+    removal = null;
+    removeTarget.value = null;
+    const target = pending === null ? null : await pending;
     if (target === null) return;
+    // 删除的结果经快照事件回来，可能晚于写入返回：等这家从快照里消失、界面重画之后再移焦点。
+    if (removed !== undefined && providers.value.some((provider) => provider.id === removed)) {
+        await new Promise<void>((resolve) => {
+            const stop = watch(providers, (list) => {
+                if (list.some((provider) => provider.id === removed)) return;
+                stop();
+                resolve();
+            });
+        });
+    }
     await nextTick();
     const selector = target === "add" ? "[data-provider-add]" : `[data-provider-rail-item="${CSS.escape(target)}"]`;
     page.value?.querySelector<HTMLElement>(selector)?.focus();
@@ -292,7 +324,7 @@ async function onRemoveClosed(): Promise<void> {
     <div ref="page" class="providers-page" data-models-providers-page>
         <SettingsPageActions v-if="current !== null">
             <Tooltip :text="text('remove.button')">
-                <IconButton size="sm" variant="danger" icon-class="i-lucide-trash-2" :aria-label="text('remove.label', {name: current.name})" :disabled="disabled" data-provider-remove @click="removing = true" />
+                <IconButton size="sm" variant="danger" icon-class="i-lucide-trash-2" :aria-label="text('remove.label', {name: current.name})" :disabled="disabled" data-provider-remove @click="openRemove" />
             </Tooltip>
         </SettingsPageActions>
         <p v-if="!store.available.value" class="providers-page__notice" role="status">{{ text("readOnly") }}</p>
@@ -317,6 +349,7 @@ async function onRemoveClosed(): Promise<void> {
                         :checks="store.checks"
                         :role-usage="roleUsage(current)"
                         :disabled="disabled"
+                        :reset-token="resetToken"
                         @set-key="(value) => setKey(current!, value)"
                         @clear-key="clearKey(current!)"
                         @update="(patch) => updateProvider(current!, patch)"
@@ -360,7 +393,7 @@ async function onRemoveClosed(): Promise<void> {
             @refetch="loadCandidates(current!)"
             @done="(change) => applyManage(current!, change)"
         />
-        <AlertDialog v-if="current !== null" v-model:open="removing" :title="text('remove.title', {name: current.name})" :description="removeDescription" :confirm-text="text('remove.confirm')" @confirm="removeProvider" @closed="onRemoveClosed" />
+        <AlertDialog v-if="removeTarget !== null" v-model:open="removing" :title="text('remove.title', {name: removeTarget.name})" :description="removeDescription" :confirm-text="text('remove.confirm')" @confirm="removeProvider" @closed="onRemoveClosed" />
     </div>
 </template>
 
