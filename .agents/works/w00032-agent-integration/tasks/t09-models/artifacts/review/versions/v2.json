@@ -1,0 +1,95 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t09-models",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "模型服务的设置页",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "2c12859a4eae43796c7641860fbb1516847f8b695d0fc5a8573e034a16f470f8",
+    "files": [
+        "index.html",
+        "r1/drill-custom.webp",
+        "r1/drill-detail.webp",
+        "r1/drill-empty.webp",
+        "r1/drill-list.webp",
+        "r1/roles.webp",
+        "r1/split.webp",
+        "r2/split-custom-edit.webp",
+        "r2/split-custom.webp",
+        "r2/split-deepseek.webp",
+        "r2/split-edit.webp",
+        "r2/split-env.webp",
+        "r2/split-nokey.webp"
+    ],
+    "questions": [
+        {
+            "id": "provider-layout",
+            "type": "single",
+            "label": "服务商与模型页用哪种版式",
+            "options": [
+                {
+                    "value": "drill",
+                    "label": "甲 列表下钻"
+                },
+                {
+                    "value": "split",
+                    "label": "乙 左列表右详情"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "drill"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "provider-detail",
+            "type": "confirm",
+            "label": "服务商详情按这几张图的内容与排法做",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "roles-page",
+            "type": "confirm",
+            "label": "模型角色页按这张图做",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "provider-detail-r2",
+            "type": "confirm",
+            "label": "服务商详情按第二轮的稿做",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-01T02:17:22.729Z"
+}

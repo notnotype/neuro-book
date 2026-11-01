@@ -14,6 +14,7 @@ h3 { font-size: 15px; margin: 18px 0 6px; }
 .lead { color: var(--muted); }
 .badge { font-size: 12px; padding: 1px 7px; border-radius: 4px; margin-right: 8px; vertical-align: 2px; }
 .todo { background: #fde68a; color: #6b4b00; }
+.done { background: #d1fae5; color: #065f46; }
 section.q { border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; margin: 16px 0; }
 .opt { border-top: 1px dashed var(--line); padding: 10px 0 6px; }
 .opt h3 { margin: 0 0 6px; }
@@ -29,54 +30,56 @@ ul.notes li { font-size: 14px; }
 </style>
 </head>
 <body>
-<h1>模型服务的设置页：第一轮静态稿</h1>
-<p class="lead">设置窗口、标题区、页内列表、控件都是产品里的真组件，页面内容是草稿，数据是示例：DeepSeek（目录服务商，密钥存在凭据库）、Anthropic（目录服务商，密钥读环境变量）、本地 Ollama（自定义的 OpenAI 兼容服务商，不要密钥）、OpenRouter（还没设置密钥）。已定的事见 t09 README 的决定 9 到 14：服务商列表只列添加过的、地址能直接改、设置窗口 AI 分组下两页。</p>
+<h1>模型服务的设置页：第二轮静态稿</h1>
+<p class="lead">设置窗口、标题区、控件都是产品里的真组件，页面内容是草稿，数据是示例：DeepSeek（目录服务商，密钥存在凭据库）、Anthropic（目录服务商，密钥读环境变量）、本地 Ollama（自定义的 OpenAI 兼容服务商）、OpenRouter（还没设置密钥）。第二轮按第一轮的答复改：版式用左列表右详情；服务商详情的“连接”与模型编辑参照旧应用和 Cherry Studio 重做。</p>
 
 <h2>待定</h2>
 
-<section class="q" data-nbdev-question="provider-layout" data-nbdev-type="single" data-nbdev-recommend="drill">
-  <h3><span class="badge todo" data-nbdev-skip>待定</span>服务商与模型页用哪种版式</h3>
-  <p>两种版式里服务商详情的内容完全一样，区别只在怎么在服务商之间切换。</p>
-  <div class="opt" data-nbdev-option="drill">
-    <h3>甲 列表下钻</h3>
-    <p>设置窗口现有的写法（settings-window 输出 19 的 <code>SettingsPageList</code>）：先是服务商列表，点开整页换成详情，标题区“‹ 服务商与模型”返回。列表每行写着密钥状态和启用的模型数，出问题的（没设密钥、检测失败）用颜色标出。</p>
-    <span class="rec" data-nbdev-skip>推荐：与设置窗口和给第三方插件的样板一致；详情有整列宽度，模型行的价格、能力不挤。服务商一般只有几家，切换多一次返回不算负担</span>
-    <div class="grid">
-      <figure><img src="r1/drill-list.webp" alt="列表下钻：服务商列表"><figcaption><b>列表</b>“添加服务商”在标题区右侧，菜单里是目录服务商与“自定义 OpenAI 兼容服务商”</figcaption></figure>
-      <figure><img src="r1/drill-detail.webp" alt="列表下钻：Anthropic 详情"><figcaption><b>详情</b>标题区换成服务商名，右侧是删除</figcaption></figure>
-    </div>
-  </div>
-  <div class="opt" data-nbdev-option="split">
-    <h3>乙 左列表右详情</h3>
-    <p>页面自己分栏：左边约 200px 的服务商列表，右边是详情，切服务商不用返回。窗口本身已有一条分区左栏，这一页就成了两层侧栏；详情窄了约 200px，模型行的模型 id 已经被截断。和输出 19 不一致，要在 Spec 里给这一页开例外。</p>
-    <div class="grid">
-      <figure><img src="r1/split.webp" alt="左列表右详情"><figcaption><b>左列表右详情</b>同样选中 Anthropic、展开 Claude Sonnet 4.5</figcaption></figure>
-    </div>
-  </div>
-</section>
-
-<section class="q" data-nbdev-question="provider-detail" data-nbdev-type="confirm">
-  <h3><span class="badge todo" data-nbdev-skip>待定</span>服务商详情按这几张图的内容与排法做</h3>
-  <p>上面“连接”：密钥一行只写状态（已设置、读哪个环境变量、未设置、不需要），按钮是“设置／更换”“清除”，不显示打码后的密钥；目录服务商的地址只读，自定义服务商的地址与接口格式能改。下面“模型”：每行一个启用开关、名称与 id、能力标签（推理、看图）、上下文窗口、单价（“免费”“单价未知”分开写）、检测结果与检测按钮；点行展开编辑上下文窗口、最大输出、压缩触发点与四项单价（目录模型的窗口与最大输出来自 OMP 目录、只读）。目录服务商没启用的模型收在“目录里还有 N 个模型”里，展开后搜索勾选；自定义服务商有“拉取模型列表”“手动添加”。不同意的地方写在备注里。</p>
+<section class="q" data-nbdev-question="provider-detail-r2" data-nbdev-type="confirm">
+  <h3><span class="badge todo" data-nbdev-skip>待定</span>服务商详情按第二轮的稿做</h3>
+  <p><b>连接</b>改成旧应用那样标签在上、输入在下的表单。API 密钥是一个密码框，右边“检测”（参照 Cherry Studio），右上角“清除”；已设置的密钥不回到浏览器，框里只写“已设置 · 输入新的密钥替换”，输入新值即替换；<code>env:变量名</code> 不是密钥，照原样显示并写明读没读到。接口地址下面写出实际的请求地址（参照 Cherry Studio）；目录服务商的地址来自 OMP 目录、只读，要走中转站就添加自定义服务商。</p>
+  <p><b>模型</b>行不再展开：每行是启用开关、名称与 id、推理／看图标签、上下文窗口、单价、检测结果、检测按钮与齿轮，齿轮打开“编辑模型”对话框（参照旧应用的模型编辑对话框与 Cherry Studio）。对话框分四节：基本（显示名称；id 只读）、能力与限制（目录模型的窗口、最大输出、看图、推理来自 OMP 目录、只读）、压缩触发点、四项单价。不同意的地方写在备注里。</p>
   <div class="grid">
-    <figure><img src="r1/drill-custom.webp" alt="自定义服务商详情"><figcaption><b>自定义服务商</b>没填上下文窗口的模型在行里标出来（压缩要用，必填）</figcaption></figure>
-    <figure><img src="r1/drill-empty.webp" alt="还没有服务商"><figcaption><b>开箱</b>还没有服务商时的引导</figcaption></figure>
+    <figure><img src="r2/split-deepseek.webp" alt="密钥存在凭据库"><figcaption><b>密钥已存进凭据库</b>（DeepSeek）</figcaption></figure>
+    <figure><img src="r2/split-env.webp" alt="密钥读环境变量"><figcaption><b>密钥读环境变量</b>（Anthropic）</figcaption></figure>
+    <figure><img src="r2/split-nokey.webp" alt="还没设置密钥"><figcaption><b>还没设置密钥</b>（OpenRouter）</figcaption></figure>
+    <figure><img src="r2/split-custom.webp" alt="自定义服务商"><figcaption><b>自定义服务商</b>（本地 Ollama）：地址与接口格式能改，有“拉取模型列表”“手动添加”</figcaption></figure>
+    <figure><img src="r2/split-edit.webp" alt="编辑目录模型"><figcaption><b>编辑目录模型</b>能力与限制只读，单价预先填好、可以改</figcaption></figure>
+    <figure><img src="r2/split-custom-edit.webp" alt="编辑自定义模型"><figcaption><b>编辑自定义模型</b>上下文窗口必填（压缩要用）</figcaption></figure>
   </div>
 </section>
 
-<section class="q" data-nbdev-question="roles-page" data-nbdev-type="confirm">
-  <h3><span class="badge todo" data-nbdev-skip>待定</span>模型角色页按这张图做</h3>
-  <p>梯度四档固定（极轻量、快速、主力、深度），专精里先只有“压缩”，可以自己加（只有自己加的能删）。系统功能用哪个角色写在名字后面（会话标题、审批模型、缺省模型、上下文压缩）。模型下拉只列已启用的模型，可以搜索；没绑的标红，用到它的功能会报错并指向这一页，不换用别的模型。旧应用的写作、叙事、计划、看图几个专精种子没有使用方，不放。</p>
+<h2>已定</h2>
+
+<section class="q">
+  <h3><span class="badge done">已定</span>服务商与模型页用左列表右详情（第一轮）</h3>
+  <p>开发者 2026-11-01 选乙：页面自己分栏，与 settings-window 输出 19 不一致，写 Spec 时给这一页写明例外。第一轮的两种版式：</p>
   <div class="grid">
-    <figure><img src="r1/roles.webp" alt="模型角色页"><figcaption><b>模型角色</b>“深度”还没绑模型</figcaption></figure>
+    <figure><img src="r1/split.webp" alt="左列表右详情"><figcaption><b>乙 左列表右详情</b>（选定）</figcaption></figure>
+    <figure><img src="r1/drill-list.webp" alt="列表下钻"><figcaption><b>甲 列表下钻</b>（未选）</figcaption></figure>
   </div>
 </section>
 
-<h2>下一轮再出的</h2>
+<section class="q">
+  <h3><span class="badge done">已定</span>模型角色页按第一轮的稿做</h3>
+  <div class="grid">
+    <figure><img src="r1/roles.webp" alt="模型角色页"><figcaption><b>模型角色</b>梯度四档固定，专精先只有“压缩”，可以自建；没绑的标红</figcaption></figure>
+  </div>
+</section>
+
+<section class="q">
+  <h3><span class="badge done">已定</span>第一轮的服务商详情不采用</h3>
+  <p>开发者要改“密钥与连接”与“展开编辑”两处，参照旧应用与 Cherry Studio，见上面第二轮。第一轮的稿：</p>
+  <div class="grid">
+    <figure><img src="r1/drill-detail.webp" alt="第一轮的服务商详情"><figcaption><b>第一轮</b>密钥只写状态加按钮；模型在行里展开编辑</figcaption></figure>
+    <figure><img src="r1/drill-custom.webp" alt="第一轮的自定义服务商"><figcaption><b>第一轮</b>自定义服务商</figcaption></figure>
+  </div>
+</section>
+
+<h2>之后再出的</h2>
 <ul class="notes">
-  <li>设置密钥的对话框（直接贴密钥，或写 <code>env:变量名</code>；读不到变量时怎么提示）。</li>
-  <li>保存方式：密钥写进凭据库是即时的；服务商与模型的配置是即时写入，还是像 Lab 的“模型服务”样板那样改进草稿、点保存栏才写。</li>
-  <li>目录模型的搜索勾选、拉取模型列表的结果对话框、检测失败的说明、删除服务商的确认（列出会变成未绑定的角色）。</li>
+  <li>保存方式：密钥写进凭据库是即时的；服务商与模型的配置是即时写入，还是改进草稿、点保存栏才写。</li>
+  <li>“添加服务商”的菜单、目录模型的搜索勾选、拉取模型列表的结果、检测失败的说明、删除服务商的确认（列出会变成未绑定的角色）、开箱时的空状态。</li>
   <li>暗色与窄窗口。</li>
 </ul>
 </body>
