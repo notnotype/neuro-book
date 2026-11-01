@@ -1,0 +1,103 @@
+# t10 第二轮设计审查报告
+
+## 第一轮核对
+- 第一轮 1：已解决。第二稿明确把宿主声明作为最终工具集，`required` 只做缺失检查，并列出内核改动与验收。
+- 第一轮 2：部分解决。第二稿明确重新 `resolve`、同哈希替换对象和重建上下文，但没有写清重装配失败时日志、内存装配和只读状态的原子回滚语义。
+- 第一轮 3：部分解决。适配器已补 `WeakMap`、预占撤回和原因映射；仍未规定 `published`/`revoke` 回调抛错如何记录以及是否影响贡献状态。
+- 第一轮 4：部分解决。工具包装补了撤回作废、超时和重建；实际实现未完成前无法证明执行中底层 Promise 不会让停止或释放无限等待，见新问题 1。
+- 第一轮 5：部分解决。已补“必须声明 `onAgentSession`”和“禁止依赖 `agentKey`”；失败后照常建会话与 Profile 依赖缺失时的实际新建语义仍与当前内核合同不一致，见新问题 4。
+- 第一轮 6：已解决。改为每次建/开会话前触发，同一时刻 single-flight，晚登记提供方在下一次触发。
+- 第一轮 7：部分解决。已给出 opening/open/closing、共享 Promise、引用计数和关闭重查；`sessions.get` 交出的长期视图没有释放协议，见新问题 2。
+- 第一轮 8：部分解决。已增加同步 `stopping` 门并等待已接纳的打开/建会话；尚未覆盖所有已接纳业务操作和失败后的完整清理结算，见新问题 3。
+- 第一轮 9：已解决。远程 caller 收窄为 browser，远程操作固定使用 user 视图，同进程多 Agent 才使用 issuer。
+- 第一轮 10：已解决。`taskId` 持久化为会话 id，重发复用同一 `send` commandId，跨重启由日志幂等。
+- 第一轮 11：已解决。远程合同去掉 project caller，并明确项目实例以后另做绑定校验。
+- 第一轮 12：已解决。第二稿要求每个方法独立业务码和详情 schema，并排除通道保留码。
+- 第一轮 13：部分解决。已补日志字节分页、事件占位、分段读取和 delta 切块；占位/截断结果如何在 TypeBox 合同中表达仍未定，且 event 分段缺少字段路径，见新问题 5。
+- 第一轮 14：已解决。明确每个远程订阅持有自己的内核订阅、独立合并缓冲并重编号。
+- 第一轮 15：部分解决。第二稿承诺会话头与 index 条目增加 `background`，但未覆盖创建选项、fork、旧格式和列表索引重建的完整传播，见新问题 6。
+- 第一轮 16：已解决。改为独立用户 Profile 装载器，共用宿主模块表和导入检查，并把运行期打包写成受信例外。
+- 第一轮 17：已解决。明确生效版本为用户版本加包哈希前 12 位。
+- 第一轮 18：已解决。补了每 Profile 状态机、打包代次、旧结果丢弃、临时文件原子改名和失败保留旧包。
+- 第一轮 19：部分解决。验收已覆盖大多数原缺口；仍未明确测试远程断线后的真实 `unknown-outcome`、发布/撤回回调异常和部分停止失败继续清理。
+- 第一轮 20：已解决。虽然仍是建会话加 `send` 两个持久步骤，但第二稿定义了同一 taskId 的恢复路径，`send` 本身按 commandId 幂等，不再依赖未实现的内核原子复合操作。
+
+### 1. 全局修改 ToolBox 会破坏仍依赖 Profile 过滤的宿主
+**严重程度**：阻断；**类别**：正确性 / 兼容
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:35-41、162-168
+**现象**：第二稿要求在 `nb-harness` 全局把宿主 declarations 当作最终工具集，并删除 `ToolBox.current()` 对 `profile.tools` 的过滤，同时只说“nb-story 的宿主自己决定交什么工具”。
+**为什么是问题**：`SessionEnv.tools` 是所有宿主共用的接口，现有非 Agent 宿主仍可能交一组大于 Profile `required/optional` 的声明，并依赖内核过滤。全局删除过滤会让这些 Profile 把宿主多余工具交给模型，改变既有 harness 行为；“宿主自己决定”不是现有调用方的已验证合同，也没有迁移清单。
+**如何核实**：当前 `packages/nb-harness/src/kernel/run/tools.ts:55-67` 的过滤是内核公共行为，不带 Agent 标记；读取 `docs/specs/harness/runtime.md:53` 可见这是 harness 合同而非 Agent 插件合同。搜索所有 `SessionEnv.tools.declarations` 宿主并检查其声明是否等于 Profile 最终集合即可发现受影响调用方。
+**建议改法**：不要无条件改公共 ToolBox。新增明确的宿主策略字段，例如 `tools.selection: "profile" | "host"`，Agent 服务选择 `host`，既有宿主保持 `profile`；或者先迁移并验证全部调用方后再改公共合同，计划必须列出迁移与兼容边界。
+
+### 2. 工具撤回的 5 秒上限不能保证平台停止有界
+**严重程度**：重要；**类别**：不变量 / 资源释放
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:67-71、123-131、190-195
+**现象**：工具包装在撤回后让调用最多等待 5 秒并返回 `tool-unavailable`，但又规定真正实现要等所有底层调用结算后才 `dispose`，平台 `revoke` Promise 要等到这之后才完成。
+**为什么是问题**：工具实现可以不理会 signal，也可以永远挂起。包装虽然 5 秒后让内核运行结算，但底层 Promise 仍未 settle，`dispose` 和平台 `revoke` 会无限等待；插件停止因而不能完成，且计划声称的平台停止只多等 5 秒不成立。若强制 dispose，则可能在底层代码仍执行时释放其资源，违反工具所有权。
+**如何核实**：读取 `packages/nb-harness/src/kernel/run/tools.ts:272-288`，确认内核只等待 `ToolImplementation.execute` 返回；读取 `docs/specs/harness/runtime.md:65-66`，确认中止后迟到结果只丢弃但回调不一定停止；按一个永不 resolve 的 execute 实现和撤回事件推演即可得到未完成的 revoke。
+**建议改法**：明确两条不同的完成：对内核的调用在 5 秒后结算，对资源释放必须等待底层执行结束；平台停止不应承诺 5 秒内完成，或给工具实现一个独立的强制终止/隔离边界。若保留受信同进程代码，只能把“5 秒”定义为运行结果上限，并把 revoke 的无限等待、诊断和停止结果写入合同。
+
+### 3. `taskId` 直接占用会话 id，重试可能接管无关会话
+**严重程度**：阻断；**类别**：正确性 / 安全
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:116-121、162-177
+**现象**：第二稿规定调用方生成的 `taskId` 直接作为会话 id；若 `create` 返回 `session-exists`，就打开该会话并补发同一个 `send`，没有校验已有会话是否由这个 task 创建、Profile/project/background 是否一致。
+**为什么是问题**：任意已存在的普通会话、另一项任务或另一个调用方都可能占用同一 id。重试一个碰撞的 taskId 会把输入送进错误会话；若已有相同 commandId 但参数不同，得到 `command-id-conflict`，若该会话尚未写入该 commandId，则会接受错误任务输入。把 taskId 当幂等键不能自动证明它拥有目标会话。
+**如何核实**：读取 `packages/nb-harness/src/kernel/api/host.ts:402-413`，确认 `id` 只是普通创建选项；读取 `packages/nb-harness/src/kernel/api/events.ts:251-264`，确认会话头没有 task owner 字段。用先创建 id 为 `x` 的普通会话，再以 taskId `x` 调 startTask 的场景即可复现。
+**建议改法**：为 taskId 建独立持久化幂等记录，记录创建者、参数摘要、sessionId、runId；发现已有会话时只有记录匹配才恢复。或者把 session id 改成服务端命名空间下由 taskId 派生的不可碰撞 id，并在会话头持久化 task owner 与参数 hash，冲突返回结构化错误。
+
+### 4. 扩展激活失败时“照常建会话并进只读”与当前 createSession 合同冲突
+**严重程度**：重要；**类别**：正确性
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:59-65、164-167
+**现象**：计划说 `onAgentSession` 触发结果有失败时照常建或开会话，若 Profile 依赖缺失则按 `dependency-missing` 进只读。但当前 `createSession()` 对 `assemble()` 失败直接返回 `profile-invalid`，不会创建带只读状态的会话；只有 `openSession()` 才有 placeholder/readOnly 路径。
+**为什么是问题**：首次用一个依赖激活失败扩展的 Profile 时，调用方拿不到可查询的会话，也没有计划声称的只读会话、日志头或恢复入口。实现若要满足第二稿，必须改变 createSession 的失败合同；否则验收中“照常建会话、依赖缺失只读”必失败。
+**如何核实**：读取 `packages/nb-harness/src/kernel/session/session.ts:391-429`，确认 `createSession` 在 `assemble` 不成功时返回 `profile-invalid`；读取 `packages/nb-harness/src/kernel/session/session.ts:448-473`，确认只读 placeholder 逻辑只存在于 open。
+**建议改法**：明确新建会话遇到缺依赖时的合同：要么保留 `createSession` 失败并把计划改成失败返回，不写“照常建只读”；要么先持久化会话头、以 placeholder 创建只读句柄并允许后续重装配，补齐存储失败和恢复语义。
+
+### 5. `sessions.get` 的引用没有释放接口，会话可能永久不空闲
+**严重程度**：重要；**类别**：资源生命周期
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:101-105、97、109
+**现象**：句柄表规定 `sessions.get(id, issuer)` 交出的视图持有一个引用，引用归零才允许 30 秒空闲关闭，但 `SessionApi`/`session.as()` 没有 release 或 lease API；同进程调用方可以把这个视图保存任意长时间。
+**为什么是问题**：引用永不归零时，打开会话、工具实现、日志锁都永久保留，30 秒寿命失效。若不计这个长期视图的引用，又可能在调用方仍使用它时关闭底层句柄。`SessionApi` 现有接口只有命令、查询、订阅和 `waitRun`，没有宿主可观察的所有权结束通知。
+**如何核实**：读取 `packages/nb-harness/src/kernel/api/host.ts:389-400`，确认 `SessionApi` 没有释放方法；读取 `packages/nb-harness/src/kernel/api/host.ts:358-370`，确认 `sessions.get` 只返回 Promise<SessionApi>。
+**建议改法**：把 `sessions.get` 改为显式 lease `{session, release}`，并要求多 Agent 释放；或把 `sessions.get` 视图定义为不占句柄引用、每次操作由句柄表短暂持有，禁止调用方保存可长期使用的裸 SessionApi。二者必须在 agentKey 合同中固定一种。
+
+### 6. 大结果的占位与截断尚未形成可实现的 TypeBox 合同
+**严重程度**：重要；**类别**：接口合同
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:107-114
+**现象**：计划让 `log`/帧中的大事件替换为 `{seq, type, oversized}`，让 `event({sessionId, seq, offset?})` 按 256 KiB 读取；同时让 `preview`、`diagnostics` 按 512 KiB 截断，但仍声称远程类型与内核类型对照。
+**为什么是问题**：占位对象不是 `LogEvent`，截断后的 `PreviewResult`/`Diagnostic[]` 也不再是内核类型；合同必须显式用 union 或新投影类型。更具体地，一个事件可能有多个大字符串字段，单一 `offset` 无法说明读取哪个字段，客户端不能从 `{seq,type}` 推出分段顺序；仅按 seq 读取不能重建原事件。
+**如何核实**：读取 `packages/nb-harness/src/kernel/api/host.ts:173-188、265-278`，确认当前查询类型分别是 `LogEvent[]`、完整 `PreviewResult` 和 `Diagnostic[]`；读取 `docs/specs/runtime/plugin-channel.md:49-50、116-117`，确认远程输出要按合同 schema 校验。
+**建议改法**：定义 Agent 专用投影：`LogItem = {kind:"event", event} | {kind:"oversized", seq, type, bytes, fields}`，其中 `fields` 给出字段路径、字节长度和分段 token；对 preview/diagnostics 定义带 `truncated`、`through`、分页游标的结果类型。不要把截断对象继续标成内核原类型。
+
+### 7. `background` 的内核改动没有覆盖创建、fork 与索引重建全链路
+**严重程度**：重要；**类别**：不变量
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:35-41、80-87、116-121、137-140
+**现象**：第二稿只明确“会话头加 `background?: true`，写进 index.json 列表条目”，但未说明 `CreateSessionOptions` 如何接收、`createSession()` 如何写、fork 是否继承/清除、旧日志打开时 index 如何重建，以及远程 `create` 与 `startTask` 的两条建会话路径如何一致。
+**为什么是问题**：当前创建接口和会话头都没有字段；只改类型或 index 会导致 startTask 的 background 丢失，或 index 在重建后与日志不一致。fork 的背景语义也会影响默认列表，不能由“可选字段”推断。
+**如何核实**：读取 `packages/nb-harness/src/kernel/api/host.ts:402-413`、`packages/nb-harness/src/kernel/api/events.ts:251-265` 和 `packages/nb-harness/src/kernel/session/session.ts:391-412、493-507`，确认创建与 fork 都显式构造头且当前没有 background。
+**建议改法**：在计划中列出 `CreateSessionOptions.background`、`SessionHeader`、JSONL header 校验、`fork` 的继承规则、`index.json` 重建规则和远程 schema 的一致更新；用旧会话、fork、重建索引三个场景锁定语义。
+
+### 8. 停止阶段没有把 Profile 打包状态机纳入排空
+**严重程度**：重要；**类别**：不变量
+**位置**：.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/plan.md:47-53、81-88、101-105
+**现象**：服务停止先关 `stopping` 门、等句柄表里的打开/建会话/指令，再关闭会话，最后才停监听与打包；Profile 状态机的进行中 build、待发布代次和完成后的 `profilesChanged` 没有被列为必须等待或取消的已接纳操作。
+**为什么是问题**：停止时 build 可能在关闭会话之后完成并调用 `profilesChanged`，访问已关的句柄表或重新发布 Profile；也可能停止先释放旧包，build 完成后留下新包但没有 owner。单纯最后调用“停打包”不能取消已经开始的 `Bun.build` 或屏蔽其迟到发布。
+**如何核实**：第二稿只在句柄引用中列出打开、命令、订阅、waitRun、startTask，没有把 Profile build generation/发布回调列入；读取 `docs/specs/runtime/application.md:42-43、89-94`，确认停止期间迟到初始化不得重新发布旧代次。
+**建议改法**：把 Profile loader 的 build generation 纳入 stopping drain：停止时先禁止新事件、取消/标记当前 build generation，等待其 settle，再关闭会话和删除/保留缓存；完成回调必须检查服务代次与 stopping 标志，迟到结果只记诊断不调用 `profilesChanged`。
+
+## 未发现问题的方面
+
+- 第一轮第 6 条的“每次建/开会话触发、晚登记下一次生效”方向，第二稿的 single-flight 触发语义与目标一致。
+- 第一轮第 11 条收窄远程 caller 为 browser、第一轮第 14 条按远程订阅建立独立内核订阅，计划表述已覆盖原问题。
+- 用户 Profile 的 build generation、旧结果丢弃、原子改名、失败保留旧包和生效版本加包哈希，未发现新的独立状态机缺口；停止时的排空问题单列为新问题 8。
+- 失败码按方法声明详情 schema、通道保留码排除、`startTask` 使用日志 commandId 幂等，这些修订方向没有发现独立的合同错误；taskId 会话碰撞另列为新问题 3。
+- 没有重新发现第一轮中已明确解决的远程 project caller、独立订阅编号和第三方 Profile loader 复用问题。
+
+## 数量统计
+
+- 阻断：2（新问题第 1、3 条）
+- 重要：6（新问题第 2、4–8 条）
+- 建议：0
+- 第二稿新问题：8 条
+- 第一轮核对：20 条；已解决 11 条（1、6、9–12、14、16–18、20），部分解决 9 条（2–5、7、8、13、15、19），没解决 0 条。

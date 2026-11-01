@@ -74,7 +74,7 @@ t02 到 t09。
 
 ## 当前状态
 
-实施计划 [plan.md](plan.md) 第一稿开发者确认（2026-11-01）；omp 设计审查 20 条（阻断 4、重要 16）全部成立，计划改成第二稿（处置见 [evidences/design-review-disposition.md](evidences/design-review-disposition.md)），第二轮审查进行中。
+实施计划 [plan.md](plan.md) 第一稿开发者确认（2026-11-01）；omp 设计审查 20 条（阻断 4、重要 16）全部成立，第二轮核对后新提 8 条（阻断 2、重要 6），计划改成第三稿（处置见 [evidences/design-review-disposition.md](evidences/design-review-disposition.md)），待开发者确认。
 
 ## 下一步
 

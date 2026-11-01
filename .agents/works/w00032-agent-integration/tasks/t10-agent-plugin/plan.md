@@ -20,7 +20,7 @@
 - 应用里插件的启用、禁用目前下次启动才生效（`plugin-platform/backend/inventory.ts`）；运行期热插拔是 planned 的 [`runtime/plugin-hot-plug.md`](../../../../../docs/specs/runtime/plugin-hot-plug.md)。今天会让贡献撤回的只有：入口因依赖不可用而受阻、入口激活失败、应用停止。
 - 第三方插件的服务端代码按宿主模块表装载，SDK 子路径登记在 `src/sdk/entries.ts`；表里还没有 Agent 的写法。
 
-**工作方式。** 开发者在场，按 implementation-planning：第一稿开发者确认了第 9 节（README 决定 9–15），omp 设计审查 20 条（阻断 4、重要 16）全部成立，本稿按它修订，处置见 [`evidences/design-review-disposition.md`](evidences/design-review-disposition.md)。代码在 Work 分支 `feat/w00032-agent-integration`（先快进到最新 master），Spec 与 Task 记录在主工作区的 master。
+**工作方式。** 开发者在场，按 implementation-planning：第一稿开发者确认了第 9 节（README 决定 9–15），omp 设计审查第一轮 20 条（阻断 4、重要 16）全部成立，第二轮核对后新提 8 条（阻断 2、重要 6），本稿（第三稿）按两轮修订，处置见 [`evidences/design-review-disposition.md`](evidences/design-review-disposition.md)。代码在 Work 分支 `feat/w00032-agent-integration`（先快进到最新 master），Spec 与 Task 记录在主工作区的 master。
 
 ## 2. 技术选型
 
@@ -34,9 +34,9 @@
 ## 3. 关键设计
 ### 3.1 `packages/nb-harness`：内核的三处改动
 
-1. **宿主交的工具声明就是最终的工具集**（审查 1）。现在 `ToolBox.current()` 在 Profile 写了 `tools` 时只留它列出的，绑定加的工具与 `defaultForAll` 的工具会被滤掉，与 t04 决定 4（绑定在 Profile 之外、harness 只检查必需工具）冲突。改为：宿主交来的声明全部交给模型；Profile 的 `tools.required` 只用来判断必需工具缺失（缺了照旧 `tools-missing` 只读），`optional` 只给 Profile 检测“这个工具在不在”。改 `run/tools.ts` 与 `runtime.md` 输出 15；nb-story 的宿主自己决定交什么工具，不受影响。
-2. **`AgentHost.profilesChanged(keys)`**（审查 2、17）。新的内核操作，不借 `notifyExtensionsChanged`：对用这些 key、打开着的会话，按会话当前的 key 重新调 `env.profiles.resolve`，解析不到进只读 `unknown-profile`；解析到就用新对象重新装配、重建资源与工具上下文，即使哈希没变也换掉对象（这样会话不持有旧 Profile，旧包才能被回收）；哈希变了写 `profileChanged{reason: "code-updated"}`。时机与等待照扩展变化：运行中的等这次运行结束、空闲的立即，与扩展变化攒在同一个待重新装配里一起做，返回的 Promise 在各会话做完后完成。
-3. **会话头加 `background?: true`**（审查 15），写进 `index.json` 的列表条目，`list` 可按它过滤。日志格式版本不变（新增可选字段，旧会话没有它即前台）。
+1. **宿主交的工具声明就是最终的工具集**（审查 1）。现在 `ToolBox.current()` 在 Profile 写了 `tools` 时只留它列出的，绑定加的工具与 `defaultForAll` 的工具会被滤掉，与 t04 决定 4（绑定在 Profile 之外、harness 只检查必需工具）冲突。改为：宿主交来的声明全部交给模型；Profile 的 `tools.required` 只用来判断必需工具缺失（缺了照旧 `tools-missing` 只读），`optional` 只给 Profile 检测“这个工具在不在”。改 `run/tools.ts` 与 `runtime.md` 输出 15。新内核在产品代码里还没有宿主（`nb-harness/kernel` 之外只有 nb-story 的内核验收门与模型服务的类型导入，2026-11-01 查过），所以直接改公共行为，不加“按 Profile 过滤”的开关；依赖过滤的内核测试与 nb-story 验收门随之改成宿主只交 Profile 要的工具（审查第二轮 1）。
+2. **`AgentHost.profilesChanged(keys)`**（审查 2、17）。新的内核操作，不借 `notifyExtensionsChanged`：对用这些 key、打开着的会话，按会话当前的 key 重新调 `env.profiles.resolve`，解析不到进只读 `unknown-profile`；解析到就用新对象重新装配、重建资源与工具上下文，即使哈希没变也换掉对象（这样会话不持有旧 Profile，旧包才能被回收）；哈希变了写 `profileChanged{reason: "code-updated"}`。时机与等待照扩展变化：运行中的等这次运行结束、空闲的立即，与扩展变化攒在同一个待重新装配里一起做，返回的 Promise 在各会话做完后完成。失败沿用扩展变化已有的处理（审查第二轮核对 2）：写 `profileChanged` 失败时句柄进 `log-broken`、内存里的装配不变；写下之后宿主建资源或工具上下文失败时进只读 `reassembly-failed`，重开以日志为准。
+3. **会话头加 `background?: true`**（审查 15、第二轮 7）：`CreateSessionOptions.background` 传入，`createSession` 写进会话头，打开时的头校验认它；`fork` 不继承（fork 是用户的操作，新会话总是前台）；`index.json` 的列表条目带它，索引重建时从会话头读回；`list` 可按它过滤。日志格式版本不变（新增可选字段，旧会话没有它即前台）。
 
 测试在 `tests/kernel/` 的宿主场景里补；`runtime.md` 输出 15、57 与 `session.md` 输出 19 随之改。
 
@@ -50,7 +50,12 @@
 - **接收**：`agent.extensions`、`agent.tools`、`agent.profiles`（第 3.3 节）。
 - **提供**：远程服务 `nbook.agent/sessions`（第 3.5 节）、服务键 `agentKey`（第 3.6 节）。
 - **激活**：不写 `onStartup`，与 `nbook.models` 一样在远程服务首次被调用或服务键首次被依赖时激活。
-- **停止**（审查 8）：服务有一道 `stopping` 门。`onStop` 里先同步关门：之后的远程调用与 `agentKey` 调用得 `unavailable`，新订阅以同样的原因结束；再等已接纳的打开、建会话、指令登记完（第 3.5 节的句柄表把它们都记在表里），对此刻的打开表逐个 `closeSession(s, {reason: "interrupted"})`（运行写 `interrupted`，t07 决定 7）；最后停监听与打包。有会话关闭失败时写诊断，不吞掉。应用停止走同一路径。
+- **停止**（审查 8、第二轮 8）：服务有一道 `stopping` 门。`onStop` 里依次：
+  1. 同步关门：之后的远程调用与 `agentKey` 调用得 `unavailable`，新订阅以同样的原因结束；
+  2. 停 Profile 的监听，装载器进停止状态：不再开始新的打包，进行中的打包完成后只丢掉结果（不发布、不调 `profilesChanged`），等它们结束；
+  3. 等已接纳的打开、建会话、指令登记完（第 3.5 节的句柄表把它们都记在表里），对此刻的打开表逐个 `closeSession(s, {reason: "interrupted"})`（运行写 `interrupted`，t07 决定 7）。
+  
+  有会话关闭失败时写诊断，继续关其余的，不吞掉。缓存的包留在磁盘上，下次启动按内容哈希复用。应用停止走同一路径。
 
 ### 3.3 贡献点与激活事件
 
@@ -59,15 +64,15 @@
 **`agent.extensions`**：实现式；声明 `{tags?, dependsOn?}`（内核 `ExtensionDeclaration`），id 带插件前缀。接收方是一个适配器（审查 3）：
 
 - 平台句柄到内核 `ExtensionHandle` 用 `WeakMap` 一对一记住，同一个平台句柄总是交给内核同一个对象（内核的撤回按对象相等认句柄与代次）；`implementation()` 转调平台句柄的，不缓存（只在内核装配时取）。
-- 平台 `prepare` 转内核 `prepare`，内核抛 `ExtensionRejected` 原样抛出，平台按自己的合同回滚这一批；`published` 转 `published`；`revoke` 对已发布的转内核 `revoke` 并把它的 Promise 交给平台，对只预占没发布的同样转（内核会删掉预占）。
+- 平台 `prepare` 转内核 `prepare`，内核抛 `ExtensionRejected` 原样抛出，平台按自己的合同回滚这一批；`published` 转 `published`；`revoke` 对已发布的转内核 `revoke` 并把它的 Promise 交给平台，对只预占没发布的同样转（内核会删掉预占）。内核的 `published` 不抛（各会话的重新装配在后台做、失败进只读）；`revoke` 的 Promise 失败时写诊断并让交给平台的 Promise 完成，不让平台的停止卡在 Agent 这一侧（审查第二轮核对 3）。
 - 撤回原因：平台的 `activation-failed` 映射到内核的 `activation-failed`，其余四种（`activation-stopped`、`scope-closed`、`receiver-closed`、`delivery-failed`）都映射到 `deactivated`；内核目前不按原因分支，映射只为诊断。
 
-**激活事件 `onAgentSession`**（审查 5、6）：每次建会话或打开会话之前触发（同一时刻只触发一次，后到的等这一次），不只本进程第一次；已激活的入口不受影响，后来登记的提供方在下一次建或开会话时被激活，已打开的会话经 `published` 重新装配拿到它。提供扩展的入口必须声明 `onAgentSession`；声明了扩展贡献、却没声明这个事件的入口写一条诊断（它的扩展只有在入口因别的原因激活后才生效）。触发结果里有失败时写诊断、照常建或开会话：缺的扩展若是 Profile 依赖的，装配按 `dependency-missing` 进只读（内核已有）。扩展提供方不能依赖 `agentKey`：`nbook.agent` 激活时会等 `onAgentSession`，提供方又等 `agentKey`，平台把这种等待环判为 `unavailable`，提供方激活失败；Spec 写明这条约束。
+**激活事件 `onAgentSession`**（审查 5、6）：每次建会话或打开会话之前触发（同一时刻只触发一次，后到的等这一次），不只本进程第一次；已激活的入口不受影响，后来登记的提供方在下一次建或开会话时被激活，已打开的会话经 `published` 重新装配拿到它。提供扩展的入口必须声明 `onAgentSession`；声明了扩展贡献、却没声明这个事件的入口写一条诊断（它的扩展只有在入口因别的原因激活后才生效）。触发结果里有失败时写诊断、照常继续（审查第二轮 4）：打开已有会话时，缺的扩展若是 Profile 依赖的，装配按 `dependency-missing` 进只读（内核已有）；新建会话时内核的 `createSession` 装配失败就不建（`profile-invalid`，详情带缺的依赖），调用方拿到失败，不会得到一个只读的空会话。扩展提供方不能依赖 `agentKey`：`nbook.agent` 激活时会等 `onAgentSession`，提供方又等 `agentKey`，平台把这种等待环判为 `unavailable`，提供方激活失败；Spec 写明这条约束。
 
 **`agent.tools`**：实现式；声明是 `ToolDeclaration` 里可序列化的部分加 `group?`、`defaultForAll?`（`effect` 只写固定值，按参数求等级的由实现给函数），id 带插件前缀。审查 4 指出内核按工具 id 缓存实现、声明不变时不会释放，所以撤回由宿主在自己这一层处理，不改内核：
 
 - 内核拿到的实现是宿主的一个包装，每个会话每个工具一个。包装第一次执行时触发 `onAgentTool:<id>`，等激活后从提供方当前的句柄 `create(会话上下文)` 建真正的实现，之后复用。
-- 提供方撤回时：包装立刻标记这一代作废，之后的执行得 `tool-unavailable`；正在执行的调用继续，最多等 5 秒（平台停止的第一步，提案 P11），到时包装以 `tool-unavailable` 结算这次调用，之后提供方的迟到结果丢掉；真正的实现在它的调用都结算后 `dispose`，平台的 `revoke` Promise 在这之后完成。提供方再激活后，包装下一次执行重建实现。
+- 提供方撤回时：包装立刻标记这一代作废，之后的执行得 `tool-unavailable`；正在执行的调用继续，最多等 5 秒（平台停止的第一步，提案 P11），到时包装以 `tool-unavailable` 结算这次调用，之后提供方的迟到结果丢掉。有两个“完成”（审查第二轮 2）：交给平台的 `revoke` Promise 在所有调用结算或 5 秒到时完成，不等底层；真正的实现等它底层的执行都真正结束才 `dispose`，5 秒到时还没结束的写诊断 `tool-abandoned`，底层永远不结束就永远不 `dispose`（同进程的受信代码，没有强制终止的边界，提案 P11 的“放弃”一步）。提供方再激活后，包装下一次执行用新的一代重建实现。
 - 内核释放包装（工具离开工具集、会话关闭）时，包装释放它持有的真正实现。
 - 声明从清单来，提供方没激活也交给模型（决定 4）。
 
@@ -100,22 +105,27 @@
 
 **句柄表**（审查 7）：自己维护，不用 `AgentHost` 里那张 Map 做并发控制。每个会话 id 一条记录，状态 `opening`、`open`、`closing`：
 
-- 引用：命令、查询、订阅、`waitRun`、`startTask` 的 `result`、`sessions.get` 交出的视图，各持一个引用；进行中的打开或关闭用共享的 Promise，同时到达的请求等同一个结果，不会两次碰存储锁。
+- 引用：命令与查询在执行期间、订阅在取消之前、`waitRun` 与 `startTask` 的 `result` 在完成之前各持一个引用；进行中的打开或关闭用共享的 Promise，同时到达的请求等同一个结果，不会两次碰存储锁。
+- 交出的视图（审查第二轮 5）：`sessions.get(id, issuer)`、`agentKey` 与远程层拿到的都是句柄表的代理 `SessionApi`，本身不持引用；代理的每个方法调用时向句柄表取会话（没开就开）、按上面的规则持引用、调用完放掉。所以调用方可以长期拿着视图，会话照样能空闲关闭，下次调用再打开。
 - 关闭：引用归零、没有运行时开始 30 秒的空闲计时（注入时钟）；到点时在同一个串行段里重新检查引用与运行，都没有才转 `closing`。`closing` 中到达的请求等关闭完成后重新打开，不撞还没释放的锁。
 - 建会话：`create` 完成后记录直接进 `open`；同一个 id 的并发建会话由存储的 `session-exists` 裁决。
 
 **远程合同 `nbook.agent/sessions`**（版本 1，服务端提供，调用方只有 `browser`；审查 11：项目实例要用时再按调用方身份与项目绑定的校验另加）：
 
 - **调用方身份**（审查 9）：浏览器的调用都是用户，服务端对会话的指令与查询一律经 `session.as({kind: "user"})`；多 Agent 的会话身份只经同进程的 `sessions.get(id, issuer)` 与 `agentKey`，不经远程合同。
-- **方法**：`list({project?, archived?, background?})`；`create({profile, initial?, project?})`；内核的全部指令（各带 `sessionId` 与 `commandId`）；查询（`snapshot`、`log`、`rewindTargets`、`path`、`siblings`、`runResult`、`preview`、`diagnostics`）；`profiles()`（目录、可用性与错误）；`event({sessionId, seq, offset?})`（第 3.5 节“大小”）；`startTask`（第 3.6 节）。
+- **方法**：`list({project?, archived?, background?})`；`create({profile, initial?, project?})`；内核的全部指令（各带 `sessionId` 与 `commandId`）；查询（`snapshot`、`log`、`rewindTargets`、`path`、`siblings`、`runResult`、`preview`、`diagnostics`）；`profiles()`（目录、可用性与错误）；`eventChunk`、`previewChunk`（见下文“大小”）；`startTask`（第 3.6 节）。
 - **失败码**（审查 12）：每个方法在合同里列自己的业务失败码与详情 schema，取内核那个指令或查询实际会给的码（`api/codes.ts` 按指令分的表）；通道保留的码（`unavailable`、`timeout`、`unknown-outcome` 等）不进业务码表。合同的 TypeBox 类型与内核类型之间用一个类型层的对照测试锁住。
-- **大小**（审查 13）：通道一条消息上限 1 MiB。`log` 按条数（内核上限 2000）之外再按编码后的字节数截断，每页不超过 512 KiB，`more` 照实给；单条事件编码超过 256 KiB 时，帧与 `log` 里换成占位 `{seq, type, oversized: 字节数}`，内容经 `event({sessionId, seq, offset})` 按 256 KiB 一段读回。`preview` 与 `diagnostics` 同样按 512 KiB 截断并标明截断。合并后的增量帧超过 64 KiB 就切开。
+- **大小**（审查 13、第二轮 6）：通道一条消息上限 1 MiB。远程合同用 Agent 自己的投影类型，不冒充内核类型：
+  - `log` 的条目是 `{kind: "event", event} | {kind: "oversized", seq, type, bytes}`；按条数（内核上限 2000）之外再按编码后的字节数截断，每页不超过 512 KiB，`more` 照实给。`frames` 里的 `log` 帧同样用这个投影。
+  - 大事件的读回：`eventChunk({sessionId, seq, index})` → `{text, last}`，把整条事件按 JSON 编码后按 256 KiB 切段，调用方按序拼起来再解析，不按字段分。
+  - `preview` 的结果是 `{kind: "inline", preview} | {kind: "oversized", token, bytes}`，大的经 `previewChunk({token, index})` 同样分段读，令牌 5 分钟有效；`diagnostics` 按条数分页、每页同样受 512 KiB 限制。
+  - 合并后的增量帧超过 64 KiB 就切开。
 - **事件 `frames`**，过滤 `{sessionId}`（审查 14）：每个远程订阅持有一个自己的内核订阅（`session.subscribe`），在这个订阅里合并：同一请求、同一部分、同一调用的连续增量拼成一帧，100 毫秒最多推一次；任何非增量帧到达时先推出攒着的增量，顺序不变；合并后按本订阅重新编号 `n`。远程订阅结束时取消内核订阅与计时器、放掉句柄引用。
 - **补齐**：调用方先订阅、再用 `log({afterSeq})` 补到 `through`，丢掉 seq 不大于它的帧；`onResync` 时按最后收到的 seq 再补一次（决定 5）。补齐只看日志的 seq，不重放增量；服务端换了进程时订阅以 `server-restarted` 结束，调用方重新开始。
 
 ### 3.6 `agent.startTask`（决定 7、README 决定 12）
 
-- 远程方法 `startTask({taskId, profile, initial?, input, project?, background?})` → `{sessionId, runId}`，写操作（审查 10、20）。`taskId` 由调用方生成：服务端用它作会话 id 建会话（已存在得 `session-exists` 时改为打开它），再以它作 `commandId` 发一次 `send`（空闲时同时开始运行，内核按 `commandId` 幂等）。所以调用结果未知时调用方用同一个 `taskId` 重发，得到同一个 `{sessionId, runId}`，跨服务端重启也成立（幂等记录就是会话日志本身）；会话已建、`send` 前失败的，重发补上 `send`。
+- 远程方法 `startTask({taskId, profile, initial?, input, project?, background?})` → `{sessionId, runId}`，写操作（审查 10、20、第二轮 3）。`taskId` 由调用方生成，格式是 UUID；服务端用 `task-<taskId>` 作会话 id 建会话（内核自己生成的会话 id 不带这个前缀，普通会话不会撞上）。已存在（`session-exists`）时打开它，核对会话头的 Profile、项目与 `background` 与这次的参数一致，不一致得 `task-conflict`；一致就以 `taskId` 作 `commandId` 发一次 `send`（空闲时同时开始运行）。同一个 `commandId` 参数不同时内核得 `command-id-conflict`，原样作为 `task-conflict` 交回。所以调用结果未知时调用方用同一个 `taskId` 重发，得到同一个 `{sessionId, runId}`，跨服务端重启也成立（幂等记录就是会话日志本身）；会话已建、`send` 前失败的，重发补上 `send`。
 - 结果从 `runResult({sessionId, runId})` 取，运行结束时 `frames` 里有 `runEnded`。
 - 服务键 `agentKey`：`startTask(...)` → `{sessionId, runId, result: Promise<RunResult>}`，`result` 即内核的 `waitRun`，期间持有句柄引用；另有 `running(): {sessionId, profile}[]`，留给以后禁用前的确认界面。
 - `background: true` 写进会话头（第 3.1 节第 3 条），会话列表默认不列。
@@ -174,6 +184,13 @@ Spec 编号在第 1 片写定后回填；先按场景列。测试都用真实服
 | 失败码：每个方法的业务码经真实链路到达调用方，详情合 schema | `sessions.test.ts` |
 | `startTask` 立即返回；同一 `taskId` 重发得同一 `{sessionId, runId}`；建了会话、没 `send` 时重发补上；`agentKey` 的 `result` 完成 | `sessions.test.ts` |
 | 停止：关门后的调用 `unavailable`；打开进行中的会话也被关闭；运行写 `interrupted` | `sessions.test.ts` |
+| 停止时进行中的 Profile 打包完成后不发布 | `profiles.test.ts` |
+| `startTask` 的 `taskId` 撞上参数不同的已有任务得 `task-conflict` | `sessions.test.ts` |
+| 写请求发出后断线得 `unknown-outcome`，同一 `taskId`、`commandId` 重发得到同一个结果 | `sessions.test.ts`（真实链路断开连接） |
+| 代理视图：长期持有的视图不挡空闲关闭，下次调用重新打开 | `sessions.test.ts`（注入时钟） |
+| 工具撤回：底层永不结束时平台的撤回 5 秒完成、写 `tool-abandoned`、不 `dispose` | `agent.test.ts`“工具” |
+| 新建会话时 Profile 依赖的扩展激活失败：建会话失败、详情带缺的依赖 | `agent.test.ts`“扩展” |
+| `background`：建会话写入、fork 不继承、索引重建后还在 | nb-harness `tests/kernel/` |
 | 模型服务不在时请求 `unavailable` | `sessions.test.ts` |
 | 真实模型一轮（经远程合同） | `agent.llm.test.ts` |
 
@@ -191,7 +208,7 @@ Spec 编号在第 1 片写定后回填；先按场景列。测试都用真实服
 
 - 用户 Profile 每次重新打包留下约一个模块大小的内存（t05 实测可接受）。
 - `@notnotype/nb-plugin-sdk/agent` 把内核的定义接口变成插件的公开接口：以后内核改定义接口就是 SDK 的破坏性变更。
-- 工具撤回的 5 秒等待在提供方卡住时会让平台的停止多等 5 秒。
+- 工具撤回的 5 秒等待在提供方卡住时会让平台的停止多等 5 秒；底层永远不结束的工具实现永远不释放（受信的同进程代码，没有隔离）。
 - 远程合同的类型与内核类型两处要同步，靠类型层的对照测试发现漂移。
 
 ## 9. 待确认（开发者 2026-11-01 已按推荐确认，见 README 决定 9–15）
