@@ -12,6 +12,8 @@ import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
 import type {AgentHost, ApproveHook, Clock, ModelPort, Resources} from "@notnotype/nb-harness/kernel/contracts";
 
+import {serverHostModules} from "nbook/backend/plugin-host-modules";
+import {SERVER_SHARED_MODULES} from "nbook/plugin-platform-profile";
 import type {ModelsService} from "nbook/plugins/models/shared/contracts";
 import type {SettingsService} from "nbook/shared/settings";
 
@@ -19,6 +21,7 @@ import type {AgentService} from "../shared/contracts";
 import {ON_AGENT_SESSION} from "../shared/points";
 import {agentSettings} from "../shared/settings";
 
+import {ProfileBundles} from "./profile-bundles";
 import {ProfileCatalog} from "./profiles";
 import {SessionTable} from "./sessions";
 import {AgentTools} from "./tools";
@@ -38,6 +41,7 @@ export interface AgentRuntime {
     readonly host: AgentHost;
     readonly tools: AgentTools;
     readonly profiles: ProfileCatalog;
+    readonly userProfiles: ProfileBundles;
     readonly sessions: SessionTable;
     readonly service: AgentService;
     stop(): Promise<void>;
@@ -145,6 +149,16 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     });
     hostRef = host;
 
+    const userProfiles = new ProfileBundles({
+        stateRoot: options.stateRoot,
+        sharedModules: SERVER_SHARED_MODULES,
+        hostModules: serverHostModules,
+        changed: (keys) => void host.profilesChanged(keys),
+        report: options.report,
+    });
+    profiles.attachUser(userProfiles);
+    await userProfiles.start();
+
     // 同一时刻只触发一次，后到的等它（contributions.md 输出 2）。
     let activating: Promise<void> | null = null;
     const activateExtensions = (): Promise<void> => {
@@ -181,9 +195,15 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         host,
         tools,
         profiles,
+        userProfiles,
         sessions: table,
         service,
-        stop: () => table.stop(),
+        // 先停 Profile 的监听与打包（迟到的结果不再发布），再关会话（sessions.md 输出 14）。
+        stop: async () => {
+            table.closeGate();
+            await userProfiles.stop();
+            await table.stop();
+        },
     };
 }
 

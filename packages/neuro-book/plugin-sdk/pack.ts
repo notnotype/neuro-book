@@ -62,11 +62,15 @@ function entryName(entry: SdkEntry): string {
 const PEERS = [/^vue($|\/)/u, /^@vue\//u, /^typebox($|\/)/u];
 const RUNTIME_SUBPATHS = ["lifecycle", "services", "plugins", "plugin-manifest", "application", "diagnostics", "remote"];
 
-/** 类型打包要的路径映射：应用别名，加上内核与 nb-form 的子路径直接指到源码。 */
+/** 类型打包要的路径映射：应用别名，加上内核、nb-form 与 nb-harness 定义写法的子路径直接指到源码。 */
 function typePaths(): Record<string, string[]> {
     const paths: Record<string, string[]> = {"nbook/*": ["./src/*"]};
     for (const name of RUNTIME_SUBPATHS) paths[`@notnotype/nb-runtime/${name}`] = [`../nb-runtime/src/${name}/${name}.ts`];
     paths["@notnotype/nb-form"] = ["../nb-form/src/index.ts"];
+    paths["@notnotype/nb-harness/kernel/contracts"] = ["../nb-harness/src/kernel/contracts.ts"];
+    paths["@notnotype/nb-harness/kernel/helpers"] = ["../nb-harness/src/kernel/helpers/index.ts"];
+    paths["@notnotype/nb-harness/prompt"] = ["../nb-harness/src/kernel/view/prompt/index.ts"];
+    paths["@notnotype/nb-harness/prompt/jsx-runtime"] = ["../nb-harness/src/kernel/view/prompt/jsx-runtime.ts"];
     paths["@notnotype/nb-form/vue"] = ["../nb-form/src/vue/index.ts"];
     paths["@notnotype/nb-ui/components"] = ["../nb-ui/src/components/index.ts"];
     paths["@notnotype/nb-ui/text"] = ["../nb-ui/src/text/index.ts"];

@@ -44,7 +44,8 @@ export interface ServerLoaderOptions {
 
 let hostModules: Promise<void> | null = null;
 
-function registerHostModules(provide: ServerLoaderOptions["hostModules"]): Promise<void> {
+/** 登记宿主模块表（进程里一次）；用户写的 Agent Profile 的装载也用它（plugins/agent/backend/profile-bundles.ts）。 */
+export function registerHostModules(provide: ServerLoaderOptions["hostModules"]): Promise<void> {
     hostModules ??= provide().then((table) => {
         Bun.plugin({
             name: "plugin-host-modules",
@@ -63,7 +64,7 @@ const BUILTIN: ReadonlySet<string> = new Set(builtinModules);
 const SCRIPT_LOADERS: Readonly<Record<string, "js">> = {".js": "js", ".mjs": "js", ".cjs": "js"};
 
 /** 能直接用的说明符：相对与绝对路径、共享模块、Node 与 Bun 的内置模块。 */
-function allowedSpecifier(specifier: string, shared: ReadonlyArray<string>): boolean {
+export function allowedSpecifier(specifier: string, shared: ReadonlyArray<string>): boolean {
     if (specifier.startsWith(".") || specifier.startsWith("/")) return true;
     if (specifier.startsWith("node:") || specifier === "bun" || specifier.startsWith("bun:")) return true;
     return shared.includes(specifier) || BUILTIN.has(specifier);

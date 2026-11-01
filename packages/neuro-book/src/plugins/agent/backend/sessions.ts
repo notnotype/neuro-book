@@ -110,13 +110,18 @@ export class SessionTable {
      * 会话关闭失败写诊断、照常关其余的。
      */
     async stop(): Promise<void> {
-        this.#stopping = true;
+        this.closeGate();
         const entries = [...this.#entries.values()];
         await Promise.all(entries.map(async (entry) => {
             if (entry.state === "opening") await entry.ready;
             if (entry.state === "open") await this.#close(entry, "interrupted");
             else if (entry.closed !== null) await entry.closed;
         }));
+    }
+
+    /** 停止的第 1 步：之后的调用都得 `unavailable`，同步生效。 */
+    closeGate(): void {
+        this.#stopping = true;
     }
 
     #gate(): void {

@@ -38,9 +38,11 @@ const REPOSITORY = {type: "git", url: "git+https://github.com/notnotype/neuro-bo
 /** 运行时按路径找文件的写法：打包看不见它们要的文件，装到别处就找不到。 */
 const FORBIDDEN_TEXT = ["new Worker(", "import.meta.resolve("];
 /**
- * 允许的计算出来的动态导入：插件平台装载第三方插件入口（`src/plugin-platform/backend/loader.ts`），路径来自状态根里的安装
- * 目录，不是打包要管的依赖。别的计算出来的 `import(…)` 都拒绝：打包看不见它要的模块。
+ * 允许的计算出来的动态导入，路径都来自状态根、不是打包要管的依赖：插件平台装载第三方插件入口
+ * （`src/plugin-platform/backend/loader.ts`），`nbook.agent` 装载用户写的 Profile 打好的包
+ * （`src/plugins/agent/backend/profile-bundles.ts`）。别的计算出来的 `import(…)` 都拒绝：打包看不见它要的模块。
  */
+const ALLOWED_DYNAMIC_IMPORTS = ["attempt === 0 ? import(file) : import(`${file}?attempt=${String(attempt)}`)", "import(bundleFile)"];
 /**
  * 不打进服务端 bundle、由包的 `dependencies` 安装的模块（决定 33）。`package.json` 的 `build:server` 与命令行测试的构建用同一组。
  */
@@ -49,7 +51,7 @@ const isServerExternal = (path: string): boolean => SERVER_EXTERNALS.some((patte
 /** 模块路径所属的包名：`@scope/name/sub` → `@scope/name`。 */
 const packageOf = (path: string): string => path.split("/").slice(0, path.startsWith("@") ? 2 : 1).join("/");
 
-const ALLOWED_DYNAMIC_IMPORT = "attempt === 0 ? import(file) : import(`${file}?attempt=${String(attempt)}`)";
+
 /**
  * 名叫 `import` 的对象方法的定义（例如 `@oh-my-pi/omptype` 作用域对象上的 `import(...names) {`）：一行里只有方法名、
  * 参数表与左花括号。它不是动态导入，按文本找时先去掉；真正的 `import(x).then(() => {` 在右括号后还有东西，不会被去掉。
@@ -90,7 +92,7 @@ export function bundleProblems(source: string): string[] {
     // `./` 开头的是代码分割出来的同目录 chunk，随包发出（打包时核对它们都在，见 packApp）。
     const external = imports.map((entry) => entry.path).filter((path) => !path.startsWith("bun:") && path !== "bun" && !isBuiltin(path) && !isServerExternal(path) && !path.startsWith("./"));
     // scanImports 只报字面的导入；计算出来的 `import(x)` 按文本找：去掉允许的那一处之后，`import(` 后面不是引号的都算。
-    const computed = source.replaceAll(ALLOWED_DYNAMIC_IMPORT, "").replace(IMPORT_METHOD_DEFINITION, "").match(/\bimport\(\s*(?!["'])/gu)?.length ?? 0;
+    const computed = ALLOWED_DYNAMIC_IMPORTS.reduce((text, allowed) => text.replaceAll(allowed, ""), source).replace(IMPORT_METHOD_DEFINITION, "").match(/\bimport\(\s*(?!["'])/gu)?.length ?? 0;
     return [
         ...[...new Set(external)].map((path) => `引用了外部模块 ${path}：依赖要打进 bundle`),
         ...(computed === 0 ? [] : [`有 ${String(computed)} 处计算出来的动态导入：打包看不见它要的模块`]),

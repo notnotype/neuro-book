@@ -20,6 +20,8 @@
             "@notnotype/nb-plugin-sdk/settings": ["./src/sdk/settings.ts"],
             "@notnotype/nb-plugin-sdk/settings/browser": ["./src/sdk/settings-browser.ts"],
             "@notnotype/nb-plugin-sdk/commands": ["./src/sdk/commands.ts"],
+            "@notnotype/nb-plugin-sdk/agent": ["./src/sdk/agent.ts"],
+            "@notnotype/nb-plugin-sdk/agent/jsx-runtime": ["./src/sdk/agent-jsx-runtime.ts"],
             "@notnotype/nb-plugin-sdk/workbench": ["./src/sdk/workbench.ts"],
             "@notnotype/nb-plugin-sdk/components": ["./src/sdk/components.ts"]
         }

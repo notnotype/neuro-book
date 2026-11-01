@@ -20,7 +20,8 @@ type Handle = ContributionHandle<AgentProfileDeclaration, AgentProfileImplementa
 
 /** 用户级 Profile 的一层（`profile-bundles.ts`）；目录只经这个形状用它。 */
 export interface UserProfiles {
-    list(): readonly {readonly key: string; readonly name: string; readonly description: string; readonly tools: ToolRequirements; readonly error?: string}[];
+    /** `error`：最近一次打包或求值的错误；`usable`：有没有成功过的包（有错误时还在用上一次的）。 */
+    list(): readonly {readonly key: string; readonly name: string; readonly description: string; readonly tools: ToolRequirements; readonly usable: boolean; readonly error?: string}[];
     resolve(key: string): AnyProfile | undefined;
 }
 
@@ -76,7 +77,8 @@ export class ProfileCatalog {
             name: profile.name,
             description: profile.description,
             source: "user",
-            ...(profile.error === undefined ? availability(profile.tools) : {status: "error", reason: profile.error}),
+            // 从来没成功过的解析不到，算不可用；成功过的继续用上一次的包，算有错误（contributions.md 输出 12）。
+            ...(profile.error === undefined ? availability(profile.tools) : {status: profile.usable ? "error" : "unavailable", reason: profile.error}),
         }));
         return [...fromPlugins, ...fromUser];
     }
