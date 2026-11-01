@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t10-agent-plugin
-status: active
+status: done
 updated: 2026-11-01
 ---
 
@@ -88,4 +88,4 @@ t02 到 t09。
 
 ## 下一步
 
-处理设计审查后按计划第 5 节的切片实施。
+- **完成（2026-11-01）**：Work 分支 `feat/w00032-agent-integration` 到 `c781c3d14`，待合入 master。留给后续：`agent/contributions.md`、`agent/sessions.md` 仍是 planned，晋升 implemented 待开发者批准；禁用前列出运行中会话的确认界面等平台运行期热插拔；其余六个贡献点、项目级入口与浏览器入口在 t08、t11、t12、t15、t17 里建；积压断开要先给远程通道加背压（README 决定 11）。
