@@ -23,8 +23,8 @@ await writeSyntheticLog(store, "measure", turns, replyChars);
 const model = createTestModel();
 let arrived = 0;
 const port: ModelPort = {
-    resolve: (settings, purpose) => {
-        const resolution = model.port.resolve(settings, purpose);
+    resolve: (query) => {
+        const resolution = model.port.resolve(query);
         if (!resolution.ok) return resolution;
         return {...resolution, call: (request, signal, onDelta) => {
             arrived = performance.now();

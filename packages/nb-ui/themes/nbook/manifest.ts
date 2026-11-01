@@ -29,7 +29,7 @@ export const manifest: NbThemeManifest = {
     description: "器械是冷玻璃，稿面是暖的纸——全屏只有内容面板偏暖。浮层薄糊留结构，正文用衬线，字距归零。",
     version: "1.0.0",
     author: "nb-ui",
-    hostVersion: "^0.2.0",
+    hostVersion: "^0.3.0",
     /*
      * 17 个新变量分两组：玻璃 / 窗口那 10 个与 macos 大体同名同 fallback（装载器允许两套主题
      * 声明同一个变量名——按 NbThemeVarDeclaration 的判据，这说明配色契约漏了一批角色，

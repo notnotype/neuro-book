@@ -29,7 +29,18 @@ export interface AcceptedSetting extends DeclaredSetting {
 }
 
 /** 对一个键的写入：设成某个值，或从这一层删除。 */
-export type LayerEdit = {readonly kind: "set"; readonly value: unknown} | {readonly kind: "delete"};
+/** 比较后写入的期望：这一层里这个键当前没有，或是这个值（按 `canonical` 比）。 */
+export type LayerExpectation = {readonly present: false} | {readonly present: true; readonly value: unknown};
+
+export type LayerEdit = ({readonly kind: "set"; readonly value: unknown} | {readonly kind: "delete"}) & {readonly expect?: LayerExpectation};
+
+/** 期望与这一层的当前值对不对得上；没有期望时总是对得上。 */
+export function expectationHolds(expect: LayerExpectation | undefined, values: Readonly<Record<string, unknown>>, key: string): boolean {
+    if (expect === undefined) return true;
+    const present = Object.hasOwn(values, key);
+    if (!expect.present) return !present;
+    return present && canonical(values[key]) === canonical(expect.value);
+}
 
 /** 拥有者对一次写入的结果：成功带回写后的层快照。 */
 export type LayerWriteResult = {readonly ok: true; readonly snapshot: LayerSnapshot} | {readonly ok: false; readonly code: SettingsFailure; readonly detail: string};

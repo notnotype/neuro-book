@@ -10,12 +10,13 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "reka-ui";
-import {computed, ref, useSlots, watch} from "vue";
+import {computed, inject, provide, ref, useSlots, watch} from "vue";
 import {useUiText} from "../../text-port";
 import {useModalLayer} from "../../composables/useModalLayer";
 import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import Button from "../controls/Button.vue";
 import {useCloseHandoff} from "./close-handoff";
+import {NB_DIALOG_LAYER} from "../../theme/z-index";
 
 export type AlertDialogTone = "danger" | "warning" | "accent";
 
@@ -33,6 +34,10 @@ const props = withDefaults(defineProps<{
     description: "",
     tone: "danger",
 });
+// 叠在别的对话框里打开时画二级的面（NB_DIALOG_LAYER）。
+const parentLayer = inject(NB_DIALOG_LAYER, 0);
+provide(NB_DIALOG_LAYER, parentLayer + 1);
+const nested = parentLayer >= 1;
 const text = useUiText();
 const titleText = computed(() => props.title ?? text("alertDialog.title"));
 const confirmLabel = computed(() => props.confirmText ?? text("alertDialog.confirm"));
@@ -92,6 +97,7 @@ function onCloseAutoFocus(event: Event): void {
             <AlertDialogContent
                 @close-auto-focus="onCloseAutoFocus"
                 :style="{zIndex}"
+                :class="{'nb-ui-dialog-surface--nested': nested}"
                 class="nb-ui-popover-surface nb-ui-dialog-surface nb-ui-dialog-surface--compact fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[420px] p-6 text-[var(--text-main)] outline-none select-none transition-[transform,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)]"
             >
                 <div class="flex flex-col gap-2">

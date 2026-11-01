@@ -383,7 +383,7 @@ export const SETTINGS_FAILURES = [
     "unknown-outcome",
     /** 整份读写设置文件（设置窗口的“设置文件”视图）：文件存在但读不了。 */
     "read-failed",
-    /** 整份写入：文件在读出之后被别处改过（修订号对不上）。 */
+    /** 整份写入：文件在读出之后被别处改过（修订号对不上）；带 `expect` 的写入：这一层的当前值不是期望的。 */
     "conflict",
     /** 整份写入：文本不是合格的设置文件（语法、根不是对象、重复键）。 */
     "invalid-text",
@@ -415,6 +415,12 @@ export interface SettingInspection<T> {
 export interface SettingUpdateOptions {
     /** 缺省 `auto`：本实例的项目层有这个键就写项目层，否则写用户层；只允许用户层的项总写用户层。 */
     readonly layer?: SettingLayer | "auto";
+    /**
+     * 比较后写入：只在目标层里这个键当前的值（按规范化文本比）等于 `expect.value` 时写，否则得 `conflict`、文件不变；
+     * `value` 为 undefined 表示期望这一层还没有这个键。拥有者在写入队列里、以磁盘上的当前文本比较，所以“读 → 合并 →
+     * 写回”的调用方不会盖掉期间别处（设置文件视图、外部编辑、另一个窗口）写入的内容（configuration.md 输出 25）。
+     */
+    readonly expect?: {readonly value: unknown};
 }
 
 /** 配置服务（`settingsKey`，按调用方生成）：所有已声明的项都可读，只写调用方插件自己声明的项。 */

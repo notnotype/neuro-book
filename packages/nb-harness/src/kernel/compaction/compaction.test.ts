@@ -439,11 +439,31 @@ describe("失败与边界", () => {
         expect(jobs).toHaveLength(0);
     });
 
+    test("压缩方法经 job.model 指名的角色与会话的 Profile 传到模型端口；解析失败不写模型事件，码放在交回的回复里", async () => {
+        const codesSeen: (string | undefined)[] = [];
+        const roleAsking: CompactionMethodImpl = async (job) => {
+            const response = await job.model({params: {}, headers: {}, system: [], messages: job.request.messages, tools: []}, {purpose: "compaction", role: "lab.summary"});
+            codesSeen.push(response.error?.code);
+            return {failed: "model-failed"};
+        };
+        await using session = await createTestSession({profile: profileWith({onThreshold: ["ask"]}), compaction: {methods: {ask: roleAsking}}});
+        session.model.script("答一", {text: "答二", usage: HEAVY}, "答三");
+        await session.say("第一问");
+        await session.say("第二问");
+        session.model.unavailable.set("compaction", "role-unbound");
+        // 第三问之前估算超过触发点，压缩方法按角色要模型；解析不到时压缩失败只留诊断，请求照发。
+        expect((await session.say("第三问")).result.reason).toBe("completed");
+        const asked = session.model.queries.filter((query) => query.role === "lab.summary");
+        expect(asked).toEqual([expect.objectContaining({purpose: "compaction", profile: "lab.compact", role: "lab.summary"})]);
+        expect(codesSeen).toEqual(["role-unbound"]);
+        expect((await session.events()).filter((event) => (event.type === "modelStarted" || event.type === "modelFailed") && (event.data as {purpose?: string}).purpose === "compaction")).toEqual([]);
+    });
+
     test("输出 52：对话模型不可用时只压缩的运行照样用压缩的模型跑", async () => {
         await using session = await createTestSession({profile: profileWith({onThreshold: ["summarize"]}), compaction: {methods: {summarize: summarizingCompaction}}});
         session.model.script("答一", "摘要");
         await session.say("第一问");
-        session.model.unavailable.add("turn");
+        session.model.unavailable.set("turn", "no-model");
         const accepted = await session.raw.compact({commandId: id()});
         if (!accepted.ok || accepted.value.runId === undefined) throw new Error("compact did not start");
         expect((await session.raw.waitRun(accepted.value.runId)).reason).toBe("completed");

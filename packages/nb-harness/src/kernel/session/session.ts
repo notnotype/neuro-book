@@ -105,7 +105,7 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
         return initialCache.value;
     };
     const modelInfo = (): ModelInfo => {
-        const resolution = env.models.resolve(core.session.kernel.core, "turn");
+        const resolution = env.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
         return resolution.ok ? resolution.info : UNKNOWN_MODEL;
     };
     const environment = {get tools() {
@@ -236,7 +236,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         compact: (args) => closedGuard(() => accept(host, "compact", args, async (): Promise<Outcome<"compact">> => {
             if (state.readOnly !== null) return {fail: "read-only"};
             const asked = args.requirement === undefined || args.requirement.trim() === "" ? [] : [args.requirement];
-            if (!env.models.resolve(core.session.kernel.core, "compaction").ok) return {fail: "no-compaction-model"};
+            if (!env.models.resolve({settings: core.session.kernel.core, purpose: "compaction", profile: core.assembly.profile.id}).ok) return {fail: "no-compaction-model"};
             // 运行中（或叶子上有暂停的运行）：到这次运行的下一个边界做；空闲：开一次只压缩的运行（runtime.md 输出 52）。
             if (!control.idle || control.paused !== null) {
                 control.requestCompaction(control.active?.runId ?? control.paused!, asked);

@@ -116,9 +116,13 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
  * 给审批钩子、压缩方法的 `ctx.model`：非对话的请求同样经模型拦截链；成功写 `modelEnded`，失败写 `modelFailed`。
  * 失败不抛错，以 `stopReason: "error"` 的回复交回。
  */
-export function modelCaller(host: ModelCallHost & {resolve(purpose: RequestPurpose): ModelResolution}, signal: AbortSignal): ModelCaller {
+/**
+ * 解析失败时不写任何模型事件（没有发出请求），码放在交回的回复的 `error.code` 里，由压缩方法、审批钩子处理
+ * （docs/specs/harness/runtime.md）。
+ */
+export function modelCaller(host: ModelCallHost & {resolve(purpose: RequestPurpose, role: string | undefined): ModelResolution}, signal: AbortSignal): ModelCaller {
     return async (draft, options) => {
-        const resolution = host.resolve(options.purpose);
+        const resolution = host.resolve(options.purpose, options.role);
         if (!resolution.ok) return {content: [], toolCalls: [], stopReason: "error", usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true}, model: draft.model ?? "unknown", error: {kind: "local", code: resolution.code, message: `no model for ${options.purpose} requests (${resolution.code})`}};
         const request: ModelRequest = {...draft, purpose: options.purpose, model: draft.model ?? resolution.info.id};
         const {response, request: number, failures} = await callModel(host, resolution, request, signal);

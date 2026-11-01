@@ -21,8 +21,8 @@ export const complete: Complete = async (env, options) => {
     if ((profile.tools?.required?.length ?? 0) + (profile.tools?.optional?.length ?? 0) > 0) return {ok: false, code: "profile-has-tools"};
     const assembled = assemble(profile, []);
     if (!assembled.ok) return {ok: false, code: "unknown-profile"};
-    const resolution = env.models.resolve(DEFAULT_CORE_SETTINGS, "background");
-    if (!resolution.ok) return {ok: false, code: resolution.code === "no-credentials" ? "no-credentials" : "no-model"};
+    const resolution = env.models.resolve({settings: DEFAULT_CORE_SETTINGS, purpose: "background", profile: options.profile});
+    if (!resolution.ok) return {ok: false, code: resolution.code};
     const {assembly} = assembled;
     const state: StateAt = {path: initialSnapshot(assembly.reducers, "path", false), session: initialSnapshot(assembly.reducers, "session", false), history: initialHistory, settings: {}, continued: {}};
     const view = viewCtx(assembly, assembly.order[assembly.order.length - 1]!, state, {tools: [], model: resolution.info, now: env.clock.now(), initial: options.initial ?? null});

@@ -257,7 +257,8 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
                 const link = options.layers[layer];
                 if (link === undefined) return {ok: false, code: layer === "project" ? "no-project" : "unavailable", detail: layer === "project" ? "这个实例没有项目层" : "这个实例没有用户层"};
                 // 先复制一份：排队与传输期间调用方再改原对象不影响这次写入。
-                const edit: LayerEdit = value === undefined ? {kind: "delete"} : {kind: "set", value: structuredClone(value)};
+                const expect = update.expect === undefined ? undefined : update.expect.value === undefined ? {present: false as const} : {present: true as const, value: structuredClone(update.expect.value)};
+                const edit: LayerEdit = {...(value === undefined ? {kind: "delete" as const} : {kind: "set" as const, value: structuredClone(value)}), ...(expect === undefined ? {} : {expect})};
                 const result = await link.write(consumer, setting.key, edit);
                 if (!result.ok) return result;
                 apply(layer, result.snapshot);

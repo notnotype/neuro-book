@@ -1,0 +1,295 @@
+{
+    "settings": {
+        "providers": {
+            "title": "Providers and Models",
+            "description": "Added providers with their endpoints, authentication, headers and enabled models; keys are kept in the local credential store, not here"
+        },
+        "roles": {
+            "title": "Model Roles",
+            "description": "Which model each role uses"
+        }
+    },
+    "settingsPages": {
+        "providers": {
+            "title": "Providers and Models",
+            "description": "Add providers, set keys, manage and check models"
+        },
+        "roles": {
+            "title": "Model Roles",
+            "description": "Which model each role uses"
+        }
+    },
+    "keywords": {
+        "apiKey": "API key",
+        "llm": "LLM",
+        "provider": "Provider"
+    },
+    "readOnly": "The model service is not running; you can only view for now.",
+    "rail": {
+        "label": "Providers",
+        "all": "All models",
+        "available": "{{count}} available",
+        "add": "Add provider",
+        "addShort": "Add",
+        "keyMissing": "No key",
+        "envMissing": "Variable not set",
+        "checkFailed": "A model failed its check",
+        "models_one": "{{count}} model",
+        "models_other": "{{count}} models"
+    },
+    "empty": {
+        "title": "No providers yet",
+        "description": "Add a provider and its key so the writing assistant can call models. Local Ollama and LM Studio are in the catalog too; for a relay, choose “Custom OpenAI-compatible provider”."
+    },
+    "remove": {
+        "button": "Delete provider",
+        "label": "Delete: {{name}}",
+        "title": "Delete provider “{{name}}”?",
+        "roles": "Roles using these models become unbound: {{roles}}. Features using them will report an error pointing to “Model Roles” until rebound.",
+        "confirm": "Delete",
+        "models_one": "Its model is removed from the list and its key is deleted from the credential store.",
+        "models_other": "Its {{count}} models are removed from the list and its key is deleted from the credential store."
+    },
+    "connection": {
+        "title": "Connection",
+        "key": {
+            "label": "API key",
+            "hint": "Kept in the local credential store, not in the settings file, and never shown again. Write env:NAME to read it from a startup environment variable.",
+            "loading": "Loading",
+            "empty": "Paste an API key, or write env:NAME",
+            "stored": "Set · type a new key to replace it",
+            "keyless": "Leave empty if no key is needed",
+            "envFound": "Read from the startup environment variable {{name}} (found).",
+            "envMissing": "The environment variable {{name}} is not set: set it and restart the app.",
+            "clear": "Clear"
+        },
+        "url": {
+            "label": "Base URL",
+            "hint": "Requests go to {{url}}",
+            "restore": "Restore catalog URL",
+            "overridden": "Changed to another URL; the catalog URL is {{url}}. Model capabilities and prices still follow the catalog.",
+            "invalid": "The URL must start with http:// or https://"
+        },
+        "api": {
+            "label": "API format"
+        },
+        "advanced": "Advanced",
+        "advancedHint": "Authentication, headers",
+        "auth": {
+            "label": "Authentication",
+            "hint": "Which header carries the key. By default it follows the API format: Authorization: Bearer for OpenAI-style APIs, x-api-key for Anthropic",
+            "default": "By API format (default)",
+            "bearer": "Authorization: Bearer",
+            "none": "No authentication"
+        },
+        "headers": {
+            "label": "Headers",
+            "hint": "Sent with every request; a model can add or override headers of the same name in its edit dialog"
+        }
+    },
+    "headers": {
+        "name": "Name",
+        "value": "Value",
+        "nameOf": "Name of row {{index}}",
+        "valueOf": "Value of row {{index}}",
+        "add": "Add header",
+        "remove": "Remove row {{index}}",
+        "nameEmpty": "Name is required",
+        "duplicate": "Duplicates a name above",
+        "valueEmpty": "Value is required",
+        "credentialLike": "Looks like a credential: write env:NAME so the value stays out of the settings file",
+        "nameInvalid": "Names may only use letters, digits and -_.!#$%&'*+^`|~",
+        "valueInvalid": "Values cannot contain line breaks"
+    },
+    "models": {
+        "title": "Models",
+        "manage": "Manage models",
+        "add": "Add manually",
+        "checkAll": "Check all",
+        "cancelChecks": "Cancel checks",
+        "empty": "No models yet. Set a key, then use “Manage models” to add some.",
+        "enable": "Enable {{name}}",
+        "check": "Check {{name}}",
+        "checkTip": "Check: send a very short request",
+        "edit": "Edit {{name}}",
+        "editTip": "Edit model",
+        "incomplete": "No context window",
+        "incompleteTip": "Fill in the context window to enable it",
+        "missing": "No longer in the catalog",
+        "priceUnknown": "Price unknown",
+        "free": "Free",
+        "price": "${{input}} / ${{output}}",
+        "confirmDisable": "After disabling, these roles cannot use it: {{roles}}.",
+        "confirmDisableAction": "Disable",
+        "cancel": "Cancel",
+        "enabled": "{{count}} enabled"
+    },
+    "check": {
+        "ok": "Check passed",
+        "running": "Checking",
+        "failed": "Check failed",
+        "failedOf": "Check failed, see why: {{name}}",
+        "failedAt": "Check failed · {{time}}",
+        "retry": "Check again",
+        "kinds": {
+            "network": "Could not reach the provider, or the request was interrupted.",
+            "rate_limit": "Rate limited; try again later.",
+            "auth": "Authentication failed: the provider rejected the key. Check it, or use a key that can access this model.",
+            "quota": "Quota exhausted.",
+            "context_overflow": "The request exceeded the context window.",
+            "provider": "The provider returned an error.",
+            "local": "A local problem: the configuration is incomplete or unusable.",
+            "other": "The check did not pass."
+        },
+        "notRun": "Could not check: {{reason}}",
+        "cancel": "Cancel checking {{name}}",
+        "okAt": "Check passed · {{time}}"
+    },
+    "caps": {
+        "vision": "Vision",
+        "reasoning": "Reasoning",
+        "efforts": "Effort levels: {{efforts}}"
+    },
+    "edit": {
+        "title": "Edit model: {{name}}",
+        "addTitle": "Add a model manually",
+        "basic": "Basic",
+        "id": "Model id",
+        "name": "Display name",
+        "namePlaceholder": "From the id",
+        "group": "Series (group)",
+        "capabilities": "Capabilities and limits",
+        "contextWindow": "Context window",
+        "maxOutput": "Max output",
+        "price": "Price",
+        "priceHint": "USD per million tokens; empty means unknown, 0 means free",
+        "priceInput": "Input",
+        "priceOutput": "Output",
+        "priceCacheRead": "Cache read",
+        "priceCacheWrite": "Cache write",
+        "compaction": "Compaction",
+        "compactAt": "Trigger (tokens)",
+        "compactHint": "Compact when the context reaches this size; empty means the window minus a reserve.",
+        "compactPlaceholder": "From the window",
+        "advanced": "Advanced",
+        "headersHint": "Overrides the provider's header of the same name",
+        "catalogFixed": "From the OMP model catalog; cannot be changed.",
+        "required": "Required",
+        "positive": "Must be a positive integer",
+        "nonNegative": "Must be a number ≥ 0",
+        "idTaken": "This id is already in the list",
+        "save": "Save",
+        "cancel": "Cancel",
+        "headersPending": "Some header rows are unfinished: complete or remove them before saving"
+    },
+    "manage": {
+        "title": "Manage models: {{name}}",
+        "search": "Search by name or id",
+        "refetch": "Fetch again",
+        "add": "Add {{name}}",
+        "remove": "Remove {{name}}",
+        "addTip": "Add to the list",
+        "removeTip": "Remove from the list",
+        "incomplete": "Needs details",
+        "loading": "Loading",
+        "empty": "No models to add",
+        "noMatch": "No matching models",
+        "done": "Done",
+        "confirmRemove": "After removing, these roles become unbound: {{roles}}."
+    },
+    "add": {
+        "title": "Add provider",
+        "search": "Search providers",
+        "catalog": "OMP catalog",
+        "added": "Added",
+        "keyless": "No key needed",
+        "login": "Requires login; not supported yet",
+        "unsupported": "Not supported",
+        "other": "Other",
+        "custom": "Custom OpenAI-compatible provider",
+        "customHint": "Relays, Volcano Ark, a local vLLM and so on: fill in the URL and API format",
+        "customName": "Name",
+        "customUrl": "Base URL",
+        "create": "Add",
+        "back": "Back",
+        "noMatch": "No matching providers"
+    },
+    "all": {
+        "empty": "No enabled models",
+        "provider": "Provider",
+        "model": "Model",
+        "capabilities": "Capabilities"
+    },
+    "roles": {
+        "intro": "When a conversation has no model selected and the Profile names none, “Main” is used. A role without a model makes features using it report an error pointing here; no other model is used instead.",
+        "role": "Role",
+        "description": "Description",
+        "model": "Model",
+        "choose": "Choose a model",
+        "none": "None",
+        "unbound": "Unbound",
+        "status": {
+            "unknown-model": "The bound model {{model}} is unavailable: gone from the catalog or disabled",
+            "no-credentials": "The bound model {{model}} has no key"
+        },
+        "add": "Add specialist role",
+        "newName": "New role",
+        "remove": "Delete role: {{name}}",
+        "nameOf": "Role name: {{name}}",
+        "descriptionOf": "Description: {{name}}",
+        "builtin": {
+            "tiny": {
+                "name": "Tiny",
+                "description": "Very small tasks such as titles and tags"
+            },
+            "fast": {
+                "name": "Fast",
+                "description": "Approval checks and background tasks that must be quick"
+            },
+            "main": {
+                "name": "Main",
+                "description": "The default model for conversations"
+            },
+            "deep": {
+                "name": "Deep",
+                "description": "Tasks that need deep thinking"
+            },
+            "compaction": {
+                "name": "Compaction",
+                "description": "Writes summaries when compacting long conversations"
+            }
+        },
+        "gradient": "Gradient",
+        "gradientHelp": "Four fixed tiers from light to strong; system features each use one",
+        "specialist": "Specialist",
+        "specialistHelp": "Models bound by purpose; you can add your own",
+        "unavailable": "Unavailable"
+    },
+    "subject": {
+        "key": "{{provider}} key",
+        "provider": "provider “{{name}}”",
+        "model": "model “{{name}}”",
+        "role": "role “{{name}}”"
+    },
+    "failure": {
+        "invalid-value": "The value is not valid: {{detail}}",
+        "write-conflict": "It is being changed elsewhere at the same time; try again later",
+        "settings-unavailable": "The settings file has errors or cannot be written; fix it first",
+        "credentials-unavailable": "Could not read or write the credential store",
+        "partially-applied": "Only half of it was applied; the actual state is shown",
+        "model-incomplete": "A custom model needs a context window before it can be enabled",
+        "unknown-provider": "This provider no longer exists",
+        "unknown-model": "This model no longer exists",
+        "unknown-role": "This role no longer exists",
+        "builtin-role": "Built-in roles cannot be deleted or renamed",
+        "no-credentials": "No key yet",
+        "not-supported": "This provider does not support fetching the model list",
+        "auth": "Authentication failed: check the key",
+        "unreachable": "Could not reach the provider",
+        "failed": "Fetching failed: {{detail}}",
+        "unavailable": "The model service is not running",
+        "unknown-outcome": "It may not have been saved; the settings are authoritative",
+        "timeout": "Timed out",
+        "other": "Failed ({{code}})"
+    }
+}

@@ -25,8 +25,8 @@ const model = createTestModel();
 model.script("好", "好");
 let arrived: {at: number; messages: number} | null = null;
 const port: ModelPort = {
-    resolve: (settings, purpose) => {
-        const resolution = model.port.resolve(settings, purpose);
+    resolve: (query) => {
+        const resolution = model.port.resolve(query);
         if (!resolution.ok) return resolution;
         return {...resolution, call: (request, signal, onDelta) => {
             arrived = {at: performance.now(), messages: request.messages.length};

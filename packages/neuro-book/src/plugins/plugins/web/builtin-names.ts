@@ -17,6 +17,7 @@ export const BUILTIN_PLUGIN_IDS = [
     "nbook.http",
     "nbook.image-viewer",
     "nbook.markdown",
+    "nbook.models",
     "nbook.plugins",
     "nbook.projects",
     "nbook.settings",

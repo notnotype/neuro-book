@@ -64,6 +64,20 @@ export const ACCEPTANCE_DEFINITIONS: Record<string, LabComponentDefinition> = {
         controls: [],
         events: [],
     },
+    "dialog-surfaces": {
+        id: "dialog-surfaces",
+        label: "对话框分档",
+        scenes: [
+            {id: "single", label: "一个对话框"},
+            {id: "nested", label: "对话框里的对话框"},
+            {id: "alert", label: "对话框里的确认框"},
+            {id: "nested-probe", label: "对话框里的对话框（二级那档改成可区分的值）"},
+            {id: "alert-probe", label: "对话框里的确认框（二级那档与确认框圆角改成可区分的值）"},
+            {id: "window-probe", label: "浮动窗口里的浮动窗口（二级那档与对话框圆角改成可区分的值）"},
+        ],
+        controls: [],
+        events: [],
+    },
     "suggestion-menu": {
         id: "suggestion-menu",
         label: "SuggestionMenu",

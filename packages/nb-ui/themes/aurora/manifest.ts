@@ -15,7 +15,7 @@ export const manifest: NbThemeManifest = {
     description: "大圆角 8px、不透明的面 + 真正看得见的多层阴影、顶部环境光、双层焦点环。不用磨砂。",
     version: "1.0.0",
     author: "nb-ui",
-    hostVersion: "^0.2.0",
+    hostVersion: "^0.3.0",
     declares: [
         {
             name: "--window-backdrop",

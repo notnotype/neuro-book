@@ -265,6 +265,26 @@ describe("授权与值", () => {
     });
 });
 
+describe("比较后写入（输出 25）", () => {
+    it("当前值对得上才写；期间别处改过文件得 conflict、文件不变；期望“没有这个键”同样按当前文件判断", async () => {
+        const created = await world({user: "{\"x.ui/font\": {\"family\": \"mono\", \"size\": 14}}"});
+        const w = probes();
+        await created.window("w", both("browser", w), {bound: false});
+        const ui = service(w.ui);
+        const seen = ui.get(font);
+        expect(await ui.update(font, {family: "mono", size: 16}, {expect: {value: seen}})).toEqual({ok: true});
+        // 别处（这里直接改文件，同设置文件视图、外部编辑）在读出之后改过：按旧值期望的写入被拒，文件保持别处写入的内容。
+        const path = created.userFile;
+        await writeFile(path, "{\"x.ui/font\": {\"family\": \"sans\", \"size\": 18}}");
+        expect(await ui.update(font, {family: "mono", size: 20}, {expect: {value: {family: "mono", size: 16}}})).toMatchObject({ok: false, code: "conflict"});
+        expect(JSON.parse(await readFile(path, "utf8"))).toEqual({"x.ui/font": {family: "sans", size: 18}});
+        // 键序不同的同一个值算对得上。
+        expect(await ui.update(font, {family: "sans", size: 22}, {expect: {value: {size: 18, family: "sans"}}})).toEqual({ok: true});
+        expect(await ui.update(theme, "macos", {expect: {value: undefined}})).toEqual({ok: true});
+        expect(await ui.update(theme, "nbook", {expect: {value: undefined}})).toMatchObject({ok: false, code: "conflict"});
+    });
+});
+
 describe("手写的声明", () => {
     it("不经 defineSetting 的声明：默认值在接受时复制并深冻结，读取方改不动，作者手里的原对象也不影响有效值", async () => {
         const created = await world();

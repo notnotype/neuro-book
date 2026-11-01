@@ -21,7 +21,15 @@ import {
 import {authPolicyFor} from "@oh-my-pi/pi-catalog/compat/auth";
 import {providerEntry} from "@oh-my-pi/pi-catalog/compat/providers";
 
-import type {ModelPrice} from "./model.js";
+
+export interface ModelPrice {
+    /** 每百万 token 的单价。 */
+    readonly input: number;
+    readonly output: number;
+    readonly cacheRead?: number;
+    readonly cacheWrite?: number;
+    readonly currency: string;
+}
 
 /** 推理档，同 OMP 的 `Effort`，从低到高。 */
 export type ThinkingEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -40,6 +48,8 @@ export interface CatalogModel {
     readonly id: string;
     readonly name: string;
     readonly api: string;
+    /** 目录给的接口地址。 */
+    readonly baseUrl: string;
     readonly contextWindow: number | null;
     readonly maxTokens: number | null;
     readonly reasoning: boolean;
@@ -106,6 +116,7 @@ export function catalogModel(model: Model): CatalogModel {
         id: model.id,
         name: model.name,
         api: model.api,
+        baseUrl: model.baseUrl,
         contextWindow: positiveOrNull(model.contextWindow),
         maxTokens: positiveOrNull(model.maxTokens),
         reasoning: model.reasoning,
@@ -182,6 +193,8 @@ export interface DiscoverModelsOptions {
     readonly baseUrl: string;
     /** 不给时不带认证头。 */
     readonly apiKey?: string;
+    /** 另带的请求头（宿主配置的，`env:` 已解析）。 */
+    readonly headers?: Readonly<Record<string, string>>;
     readonly signal?: AbortSignal;
     /** 不给 `signal` 时的超时，缺省用 OMP 的（10 秒）。 */
     readonly timeoutMs?: number;
@@ -212,6 +225,7 @@ export async function discoverModels(options: DiscoverModelsOptions): Promise<Di
         provider: "custom",
         baseUrl: options.baseUrl,
         ...(options.apiKey === undefined ? {} : {apiKey: options.apiKey}),
+        ...(options.headers === undefined ? {} : {headers: {...options.headers}}),
         ...(options.signal === undefined ? {} : {signal: options.signal}),
         ...(options.timeoutMs === undefined ? {} : {timeoutMs: options.timeoutMs}),
         fetch: recording as typeof fetch,

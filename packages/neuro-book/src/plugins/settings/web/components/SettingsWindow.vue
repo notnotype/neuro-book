@@ -5,7 +5,7 @@
  */
 import {AlertDialog, Dialog, Input, ScrollArea, SegmentedControl, Separator, Tooltip} from "@notnotype/nb-ui/components";
 import type {SegmentedControlValue} from "@notnotype/nb-ui/components";
-import {computed, nextTick, provide, ref, useId, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, provide, ref, useId, watch} from "vue";
 
 import type {SettingLayer} from "nbook/shared/settings";
 import HighlightedText from "nbook/ui/settings/HighlightedText.vue";
@@ -97,6 +97,47 @@ function navDisabled(item: SettingsNavItem): boolean {
 }
 
 const navItems = computed(() => model.nav.value.flatMap((group) => group.items));
+
+/*
+ * 被截断的分区标题悬停时用 Tooltip 显示全名（左栏只有 176px，长标题与英文标题会截断）。要在悬停之前就知道截断了没有：
+ * Tooltip 的 disabled 只挡新的悬停，悬停当时再量、再放开要等下一次重绘，第一次悬停会错过。所以在左栏尺寸变化
+ * （打开、窄窗口切换）与分区变化后量一遍。字体晚到使宽度变化而左栏尺寸不变时量不到，下一次尺寸或分区变化时补上。
+ */
+const navRef = ref<HTMLElement | null>(null);
+const truncated = ref<ReadonlySet<string>>(new Set());
+
+/**
+ * 文字比自己的框宽：比文字范围与框的实际宽度。`scrollWidth`、`clientWidth` 取整，不到 1px 的溢出量不出来，而浏览器
+ * 照样画省略号。
+ */
+function overflows(label: HTMLElement): boolean {
+    const range = document.createRange();
+    range.selectNodeContents(label);
+    return range.getBoundingClientRect().width > label.getBoundingClientRect().width + 0.01;
+}
+
+function measureTruncation(): void {
+    const next = new Set<string>();
+    for (const element of navRef.value?.querySelectorAll<HTMLElement>("[data-settings-nav]") ?? []) {
+        const label = element.querySelector<HTMLElement>(".settings-window__nav-text");
+        if (label !== null && overflows(label)) next.add(element.dataset.settingsNav ?? "");
+    }
+    if (next.size !== truncated.value.size || [...next].some((id) => !truncated.value.has(id))) truncated.value = next;
+}
+
+const navResize = new ResizeObserver(measureTruncation);
+watch(navRef, (element, previous) => {
+    if (previous) navResize.unobserve(previous);
+    if (element) navResize.observe(element);
+});
+watch(navItems, () => void nextTick(measureTruncation));
+onBeforeUnmount(() => navResize.disconnect());
+
+/** 分区的提示：停用时是原因，否则标题被截断时是全名。 */
+function navTip(item: SettingsNavItem): string | null {
+    if (navDisabled(item)) return item.unavailable;
+    return truncated.value.has(item.id) ? item.title : null;
+}
 
 function focusCurrent(): void {
     root.value?.querySelector<HTMLElement>("[data-settings-nav-current]")?.focus();
@@ -268,14 +309,14 @@ function onLeaveOpen(open: boolean): void {
                             @clear="onSearchClear"
                         />
                     </div>
-                    <nav class="settings-window__nav" :aria-label="text('window.nav')" @keydown="onNavKeydown">
+                    <nav ref="navRef" class="settings-window__nav" :aria-label="text('window.nav')" @keydown="onNavKeydown">
                         <div v-for="group in model.nav.value" :key="group.category" class="settings-window__nav-group" role="group" :aria-labelledby="`${navId}-${group.category}`">
                             <p :id="`${navId}-${group.category}`" class="settings-window__nav-label" :data-settings-nav-label="group.category">{{ text(GROUP_TITLE[group.category]) }}</p>
                             <!--
                                 列表行，不是按钮的外观：没有描边，悬停与当前项各是一层淡底，按下不缩放。停用项用 aria-disabled 而不是
                                 disabled：原生停用的按钮收不到指针事件，悬停出不了原因的 Tooltip；原因另经 aria-describedby 给读屏。
                             -->
-                            <Tooltip v-for="item in group.items" :key="item.id" :text="item.unavailable ?? ''" :disabled="!navDisabled(item)" placement="right">
+                            <Tooltip v-for="item in group.items" :key="item.id" :text="navTip(item) ?? ''" :disabled="navTip(item) === null" placement="right">
                                 <button
                                     type="button"
                                     class="settings-window__nav-item nb-ui-focus-ring-inset"
@@ -285,6 +326,7 @@ function onLeaveOpen(open: boolean): void {
                                     :aria-current="isCurrent(item) ? 'page' : undefined"
                                     :data-settings-nav="item.id"
                                     :data-settings-nav-current="item.id === model.section.value ? '' : undefined"
+                                    :data-settings-nav-truncated="truncated.has(item.id) ? '' : undefined"
                                     @click="navDisabled(item) || model.select(item.id)"
                                 >
                                     <span :class="item.icon" class="settings-window__nav-icon" aria-hidden="true"></span>
@@ -382,7 +424,7 @@ function onLeaveOpen(open: boolean): void {
 <style scoped>
 /* 左栏的宽度与内边距：层标签、搜索框与分区条目都按它们对齐，改一处三者一起动。 */
 .settings-window {
-    --settings-side-width: 212px;
+    --settings-side-width: 176px;
     --settings-side-inset-start: var(--space-2);
     --settings-side-inset-end: var(--space-5);
 

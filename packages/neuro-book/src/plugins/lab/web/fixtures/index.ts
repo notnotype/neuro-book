@@ -25,6 +25,17 @@ import type ShelfCards from "nbook/plugins/projects/web/components/ShelfCards.vu
 import type ShelfDesk from "nbook/plugins/projects/web/components/ShelfDesk.vue";
 import type ShelfList from "nbook/plugins/projects/web/components/ShelfList.vue";
 import type PluginsPage from "nbook/plugins/plugins/web/components/PluginsPage.vue";
+import type AddProviderDialog from "nbook/plugins/models/web/components/AddProviderDialog.vue";
+import type AllModelsView from "nbook/plugins/models/web/components/AllModelsView.vue";
+import type CapabilityIcons from "nbook/plugins/models/web/components/CapabilityIcons.vue";
+import type HeadersEditor from "nbook/plugins/models/web/components/HeadersEditor.vue";
+import type ManageModelsDialog from "nbook/plugins/models/web/components/ManageModelsDialog.vue";
+import type ModelEditDialog from "nbook/plugins/models/web/components/ModelEditDialog.vue";
+import type ModelRow from "nbook/plugins/models/web/components/ModelRow.vue";
+import type ProviderDetail from "nbook/plugins/models/web/components/ProviderDetail.vue";
+import type ProviderRail from "nbook/plugins/models/web/components/ProviderRail.vue";
+import type ProvidersPage from "nbook/plugins/models/web/components/ProvidersPage.vue";
+import type RolesPage from "nbook/plugins/models/web/components/RolesPage.vue";
 import type WorksSettingsPage from "nbook/plugins/projects/web/components/WorksSettingsPage.vue";
 import type {ShelfItem} from "nbook/plugins/projects/shared/shelf";
 import type SettingsWindow from "nbook/plugins/settings/web/components/SettingsWindow.vue";
@@ -67,6 +78,8 @@ import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
 import {withExplorerText} from "./explorer-scene/explorer-text";
 import {withProjectsText} from "./projects-scene/projects-text";
+import {withModelsText} from "./models-scene/models-text";
+import {SAMPLE_CANDIDATES, SAMPLE_CATALOG, SAMPLE_PROVIDERS} from "./models-scene/sample";
 import {withSettingsText} from "./settings-scene/settings-text";
 import {withWorkbenchText} from "./workbench-scene/workbench-text";
 import {withNbookMarkdownHost} from "./markdown-host";
@@ -1013,6 +1026,117 @@ function shelfFixtures(): LabFixture[] {
                 {id: "english", label: "英文界面", input: {props: {layer: "user"}}},
             ],
             load: async () => withProjectsText((await import("./WorksSettingsPageFixture.vue")).default),
+        }),
+        defineLabFixture<typeof ProvidersPage>({
+            component: "ProvidersPage",
+            scenes: [
+                {id: "providers", label: "四家服务商：目录、改过地址、自定义、本机", input: {props: {writable: true}}},
+                {id: "providers-empty", label: "还没有服务商（引导）", input: {props: {writable: true}}},
+                {id: "providers-narrow", label: "560px 宽：左栏收成下拉", input: {props: {writable: true}}},
+                {id: "providers-write-failed", label: "写不进去（窗口通知记进事件）", input: {props: {writable: true}}},
+                {id: "providers-readonly", label: "模型服务没有运行（只读）", input: {props: {writable: true}}},
+                {id: "providers-english", label: "英文界面", input: {props: {writable: true}}},
+            ],
+            load: async () => withModelsText((await import("./ModelsPageFixture.vue")).default),
+        }),
+        defineLabFixture<typeof RolesPage>({
+            component: "RolesPage",
+            scenes: [
+                {id: "roles", label: "未绑定、没有密钥、自建角色", input: {props: {writable: true}}},
+                {id: "roles-empty", label: "还没有模型，全部未绑定", input: {props: {writable: true}}},
+                {id: "roles-readonly", label: "模型服务没有运行（只读）", input: {props: {writable: true}}},
+                {id: "roles-english", label: "英文界面", input: {props: {writable: true}}},
+            ],
+            load: async () => withModelsText((await import("./ModelsPageFixture.vue")).default),
+        }),
+        defineLabFixture<typeof CapabilityIcons>({
+            component: "CapabilityIcons",
+            scenes: [
+                {id: "all", label: "看图与推理（悬停写推理档）", input: {props: {vision: true, reasoning: true, efforts: ["low", "medium", "high"]}}},
+                {id: "vision", label: "只能看图", input: {props: {vision: true, reasoning: false}}},
+                {id: "none", label: "都没有（什么都不画）", input: {props: {vision: false, reasoning: false}}},
+            ],
+            load: async () => withModelsText(createSubjectFixture<typeof CapabilityIcons>((await import("nbook/plugins/models/web/components/CapabilityIcons.vue")).default)),
+        }),
+        defineLabFixture<typeof HeadersEditor>({
+            component: "HeadersEditor",
+            scenes: [
+                {id: "filled", label: "两行请求头", input: {props: {headers: {"X-Team": "writing", "X-Region": "cn"}, hint: "中转站、网关常要"}}},
+                {id: "credential", label: "名称像凭据、值不是 env:（提示）", input: {props: {headers: {"X-Api-Key": "abc"}}}},
+                {id: "empty", label: "没有请求头", input: {props: {headers: {}}}},
+                {id: "english", label: "英文界面", input: {props: {headers: {"X-Team": "writing"}}}},
+            ],
+            load: async () => withModelsText(createSubjectFixture<typeof HeadersEditor>((await import("nbook/plugins/models/web/components/HeadersEditor.vue")).default, {events: ["commit"], writeBack: {commit: {layer: "props", key: "headers"}}, class: "w-full max-w-[520px]"})),
+        }),
+        defineLabFixture<typeof ModelRow>({
+            component: "ModelRow",
+            scenes: [
+                {id: "enabled", label: "启用、带角色小标、检测通过", input: {props: {model: SAMPLE_PROVIDERS[0]!.models[0]!, roles: ["快速", "压缩"], check: {status: "done", at: 0, result: {ok: true}}}}},
+                {id: "failed", label: "检测失败（点开看原因）", input: {props: {model: SAMPLE_PROVIDERS[1]!.models[0]!, check: {status: "done", at: 0, result: {ok: false, kind: "auth", code: "401", raw: "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\"}}"}}}}},
+                {id: "running", label: "检测中", input: {props: {model: SAMPLE_PROVIDERS[2]!.models[0]!, check: {status: "running"}}}},
+                {id: "incomplete", label: "缺上下文窗口（开关停用）", input: {props: {model: SAMPLE_PROVIDERS[2]!.models[2]!}}},
+                {id: "missing", label: "目录里没有了", input: {props: {model: SAMPLE_PROVIDERS[1]!.models[1]!}}},
+                {id: "free", label: "免费的本机模型", input: {props: {model: SAMPLE_PROVIDERS[5]!.models[0]!}}},
+            ],
+            load: async () => withModelsText(createSubjectFixture<typeof ModelRow>((await import("nbook/plugins/models/web/components/ModelRow.vue")).default, {events: ["toggle", "check", "edit"], class: "w-full list-none"})),
+        }),
+        defineLabFixture<typeof ProviderRail>({
+            component: "ProviderRail",
+            scenes: [
+                {id: "providers", label: "当前是第一家；第二行写密钥问题或模型数", input: {props: {providers: SAMPLE_PROVIDERS, current: "deepseek"}}},
+                {id: "all", label: "当前是“全部模型”", input: {props: {providers: SAMPLE_PROVIDERS, current: "all"}}},
+            ],
+            load: async () => withModelsText(createSubjectFixture<typeof ProviderRail>((await import("nbook/plugins/models/web/components/ProviderRail.vue")).default, {events: ["select", "add"], writeBack: {select: {layer: "props", key: "current"}}, class: "h-[420px]"})),
+        }),
+        defineLabFixture<typeof ProviderDetail>({
+            component: "ProviderDetail",
+            scenes: [
+                {id: "catalog", label: "目录服务商，密钥已设置", input: {props: {provider: SAMPLE_PROVIDERS[0]!}}},
+                {id: "overridden", label: "目录服务商改过地址，环境变量没有值", input: {props: {provider: SAMPLE_PROVIDERS[1]!}}},
+                {id: "custom", label: "自定义服务商：接口格式、请求头、缺字段的模型", input: {props: {provider: SAMPLE_PROVIDERS[2]!}}},
+                {id: "keyless", label: "不要认证的本机端点（没有密钥框）", input: {props: {provider: SAMPLE_PROVIDERS[5]!}}},
+                {id: "no-key", label: "还没有密钥（“未设置”）", input: {props: {provider: SAMPLE_PROVIDERS[3]!}}},
+                {id: "env-found", label: "密钥取环境变量、已读到", input: {props: {provider: SAMPLE_PROVIDERS[4]!}}},
+                {id: "check-error", label: "没检成（原因写在模型列表头上）", input: {props: {provider: SAMPLE_PROVIDERS[0]!, checkError: "没检成：模型服务没有运行"}}},
+                {id: "english", label: "英文界面", input: {props: {provider: SAMPLE_PROVIDERS[2]!}}},
+            ],
+            load: async () => withModelsText(createSubjectFixture<typeof ProviderDetail>((await import("nbook/plugins/models/web/components/ProviderDetail.vue")).default, {events: ["set-key", "clear-key", "update", "toggle-model", "check", "check-all", "cancel-checks", "edit-model", "add-model", "manage"], class: "w-full"})),
+        }),
+        defineLabFixture<typeof AllModelsView>({
+            component: "AllModelsView",
+            scenes: [
+                {id: "models", label: "全部启用的模型", input: {props: {providers: SAMPLE_PROVIDERS}}},
+                {id: "empty", label: "没有启用的模型", input: {props: {providers: []}}},
+            ],
+            load: async () => withModelsText(createSubjectFixture<typeof AllModelsView>((await import("nbook/plugins/models/web/components/AllModelsView.vue")).default, {events: ["edit"], class: "w-full"})),
+        }),
+        defineLabFixture<typeof AddProviderDialog>({
+            component: "AddProviderDialog",
+            scenes: [
+                {id: "catalog", label: "目录列表：已添加、不要密钥、要登录", input: {model: {open: true}, props: {catalog: SAMPLE_CATALOG}}},
+                {id: "loading", label: "目录还在读", input: {model: {open: true}, props: {catalog: null}}},
+                {id: "english", label: "英文界面", input: {model: {open: true}, props: {catalog: SAMPLE_CATALOG}}},
+            ],
+            load: async () => withModelsText(createSubjectFixture<typeof AddProviderDialog>((await import("nbook/plugins/models/web/components/AddProviderDialog.vue")).default, {events: ["update:open", "add-catalog", "add-custom"], writeBack: {"update:open": {layer: "model", key: "open"}}})),
+        }),
+        defineLabFixture<typeof ManageModelsDialog>({
+            component: "ManageModelsDialog",
+            scenes: [
+                {id: "discovered", label: "拉取的结果：已加入、要补字段", input: {model: {open: true}, props: {providerName: "火山方舟", discoverable: true, candidates: SAMPLE_CANDIDATES, current: ["doubao-seed-2-0-pro"]}}},
+                {id: "loading", label: "还在拉取", input: {model: {open: true}, props: {providerName: "火山方舟", discoverable: true, candidates: null, current: []}}},
+                {id: "failed", label: "拉取失败", input: {model: {open: true}, props: {providerName: "火山方舟", discoverable: true, candidates: null, current: [], error: "鉴权失败：核对密钥"}}},
+            ],
+            load: async () => withModelsText(createSubjectFixture<typeof ManageModelsDialog>((await import("nbook/plugins/models/web/components/ManageModelsDialog.vue")).default, {events: ["update:open", "refetch", "done"], writeBack: {"update:open": {layer: "model", key: "open"}}})),
+        }),
+        defineLabFixture<typeof ModelEditDialog>({
+            component: "ModelEditDialog",
+            scenes: [
+                {id: "custom", label: "自定义模型（都能改）", input: {model: {open: true}, props: {providerKind: "custom", model: SAMPLE_PROVIDERS[2]!.models[0]!}}},
+                {id: "catalog", label: "目录模型（能力与单价只读）", input: {model: {open: true}, props: {providerKind: "catalog", model: SAMPLE_PROVIDERS[0]!.models[0]!}}},
+                {id: "add", label: "手动添加", input: {model: {open: true}, props: {providerKind: "custom", model: null, takenIds: ["doubao-seed-2-0-pro"]}}},
+                {id: "error", label: "保存失败（页脚写原因）", input: {model: {open: true}, props: {providerKind: "custom", model: SAMPLE_PROVIDERS[2]!.models[1]!, error: "设置文件有错或写不进去，先修好设置文件"}}},
+            ],
+            load: async () => withModelsText(createSubjectFixture<typeof ModelEditDialog>((await import("nbook/plugins/models/web/components/ModelEditDialog.vue")).default, {events: ["update:open", "save"], writeBack: {"update:open": {layer: "model", key: "open"}}})),
         }),
         defineLabFixture<typeof PluginsPage>({
             component: "PluginsPage",

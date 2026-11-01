@@ -33,7 +33,7 @@ import type {LayerTextPosition} from "../shared/layers";
 import {settingsText} from "../shared/text";
 import type {SettingsTextKey} from "../shared/text";
 import type {LayerFile} from "../shared/remote-link";
-import type {SettingsPageContext} from "./contracts";
+import type {SettingsPageContext, SettingsPageWriteFailure} from "./contracts";
 import type {SettingsPageDelivery, SettingsSectionEntry} from "./sections";
 import type {SettingsWindowSource, WindowSetting} from "./window-source";
 
@@ -448,10 +448,11 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
 
     // 通知交文字引用，视口显示时才翻（docs/specs/workbench/notifications.md 输出 9），切换语言后已显示的通知随之换文字；代入的
     // 设置项标题与失败原因只能是字符串，是发通知时按当前语言翻好的片段。
+    const notifyNotSaved = (title: string, reason: string, uncertain: boolean): void => {
+        options.notify({tone: "warning", title: settingsText(uncertain ? "model.unknownTitle" : "model.notSavedTitle"), message: settingsText("model.notSaved", {title, reason})});
+    };
     const notifyFailure = (setting: WindowSetting, code: SettingsFailure, detail: string): void => {
-        const title = options.text.t(setting.definition.declaration.title);
-        const message = settingsText("model.notSaved", {title, reason: settingsFailureText(code, detail, options.text)});
-        options.notify({tone: "warning", title: settingsText(code === "unknown-outcome" ? "model.unknownTitle" : "model.notSavedTitle"), message});
+        notifyNotSaved(options.text.t(setting.definition.declaration.title), settingsFailureText(code, detail, options.text), code === "unknown-outcome");
     };
 
     const editing: SettingsService = {
@@ -507,7 +508,8 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
                 if (value) dirtyVisit.value = token;
                 else if (dirtyVisit.value === token) dirtyVisit.value = null;
             };
-            visit = {token, context: markRaw({id, layer: readonlyLayer as Readonly<Ref<SettingLayer>>, projectTitle: projectTitle as Readonly<Ref<string | null>>, writable, options: source.options(), dirty})};
+            const reportWriteFailure = (subject: string, failure: SettingsPageWriteFailure): void => notifyNotSaved(subject, failure.reason, failure.uncertain === true);
+            visit = {token, context: markRaw({id, layer: readonlyLayer as Readonly<Ref<SettingLayer>>, projectTitle: projectTitle as Readonly<Ref<string | null>>, writable, options: source.options(), dirty, reportWriteFailure})};
             visits.set(id, visit);
         }
         return visit.context;

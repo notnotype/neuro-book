@@ -180,6 +180,10 @@
     --sidebar-surface: var(--bg-sidebar);
     --toolbar-surface: var(--bg-panel);
     --overlay-surface: var(--bg-panel);
+    /* 对话框的面（模态对话框、浮动窗口）与叠在别的对话框上的二级对话框的面：比菜单这类小浮层大、字段多，主题可以给更实的一档。
+       缺省跟着小浮层；二级缺省跟着一级，只改一级的主题不会让二级比一级更透（design-language.md 第二节）。 */
+    --dialog-surface: var(--overlay-surface);
+    --dialog-surface-nested: var(--dialog-surface);
     /* 浮层的磨砂配方。默认 none：不装主题时浮层是实心的，与改动前一模一样。
        它是**角色**不是材料——玻璃主题把它映射到自己的玻璃配方，别的主题不用管它存在。
        独立成一个角色而不是让组件直接引用某套主题的 --glass-*，是因为库不能引用第三方

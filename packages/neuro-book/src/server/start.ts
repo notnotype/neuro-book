@@ -30,7 +30,7 @@ import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import type {PluginDescriptor} from "nbook/manifest";
 import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected} from "nbook/plugins/http/backend/admission";
 import type {DrainClock} from "nbook/plugins/http/backend/admission";
-import {clockKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";
+import {clockKey, startupEnvKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";
 import {projectsKey} from "nbook/shared/projects";
 import {RPC_PATH} from "nbook/shared/rpc-socket";
 import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
@@ -39,6 +39,7 @@ import {loopbackOrigins} from "./config";
 import type {ServerConfig} from "./config";
 import {startServerHost} from "./host";
 import type {StateRootClaim} from "./instance";
+import {startupEnv} from "./startup-env";
 import {resolveUserDirectories} from "./user-directories";
 import type {FatalKind, ProcessEvents} from "./host";
 import {manifestServerPlugins} from "./plugins";
@@ -325,6 +326,7 @@ export function startServer(options: StartServerOptions): RunningServer {
         manifest: {
             capabilities: [
                 {id: "host.state-root", key: stateRootKey, create: () => stateRoot},
+                {id: "host.startup-env", key: startupEnvKey, create: () => ({env: startupEnv})},
                 {id: "host.user-directories", key: userDirectoriesKey, create: () => userDirectories},
                 {id: "host.clock", key: clockKey, create: () => systemClock},
                 {

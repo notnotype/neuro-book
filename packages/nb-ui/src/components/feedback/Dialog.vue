@@ -16,7 +16,7 @@ import {FLOATING_WINDOW_RESIZE_HANDLES, useFloatingWindow} from "../../composabl
 import {useModalLayer} from "../../composables/useModalLayer";
 import {useTeleportContained, useTeleportTarget} from "../../composables/useTeleportTarget";
 import {useUiText} from "../../text-port";
-import {NB_DIALOG_WINDOW_DEPTH, NB_DIALOG_WINDOW_Z_STEP, NB_MODAL_POPOVER_Z_INDEX, NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
+import {NB_DIALOG_LAYER, NB_DIALOG_WINDOW_DEPTH, NB_DIALOG_WINDOW_Z_STEP, NB_MODAL_POPOVER_Z_INDEX, NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
 import Button from "../controls/Button.vue";
 import IconButton from "../controls/IconButton.vue";
 
@@ -140,6 +140,9 @@ const bodyRef = ref<HTMLElement | null>(null);
  * 用法在建立时取定：注入只能在 setup 里给。
  */
 const parentDepth = inject(NB_DIALOG_WINDOW_DEPTH, 0);
+const parentLayer = inject(NB_DIALOG_LAYER, 0);
+provide(NB_DIALOG_LAYER, parentLayer + 1);
+const nested = parentLayer >= 1;
 const windowDepth = props.modal ? parentDepth : parentDepth + 1;
 const windowZIndex = NB_Z_INDEX.dialogWindow + (Math.max(windowDepth, 1) - 1) * NB_DIALOG_WINDOW_Z_STEP;
 provide(NB_DIALOG_WINDOW_DEPTH, windowDepth);
@@ -367,7 +370,7 @@ function onOverlayPointerUp(event: PointerEvent): void {
                     v-bind="$attrs"
                     ref="panelRef"
                     class="nb-dialog nb-ui-popover-surface nb-ui-dialog-surface nb-ui-surface-rim flex flex-col overflow-hidden text-[var(--text-main)] outline-none"
-                    :class="props.modal ? 'nb-dialog--modal' : 'nb-dialog--window nb-ui-dialog-surface--window'"
+                    :class="[props.modal ? 'nb-dialog--modal' : 'nb-dialog--window nb-ui-dialog-surface--window', nested ? 'nb-ui-dialog-surface--nested' : '']"
                     :style="panelStyle"
                     data-dialog-surface
                     :data-dialog-window="props.modal ? undefined : ''"

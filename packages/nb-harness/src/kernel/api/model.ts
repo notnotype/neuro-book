@@ -127,13 +127,32 @@ export interface CoreSettings {
     readonly readOnly: boolean;
 }
 
+/**
+ * 解析失败的码：没有可用的模型、没有凭据、指名的模型不存在或不可用、要的角色没有绑定模型（不回落到别的模型，
+ * docs/specs/harness/models.md）。
+ */
+export type ModelResolutionCode = "no-model" | "no-credentials" | "unknown-model" | "role-unbound";
+
 export type ModelResolution =
     | {readonly ok: true; readonly info: ModelInfo; call(request: ModelRequest, signal: AbortSignal, onDelta: (delta: ModelDelta) => void): Promise<ModelResponse>}
-    | {readonly ok: false; readonly code: "no-model" | "no-credentials" | "unknown-model"};
+    | {readonly ok: false; readonly code: ModelResolutionCode};
 
-/** 模型端口：模型目录与凭据由宿主实现（Agent 插件经 `nbook.models`，nb-story 用它自己的解析）。 */
+/** 一次解析要的是什么。 */
+export interface ModelQuery {
+    readonly settings: CoreSettings;
+    readonly purpose: RequestPurpose;
+    /** 会话当前 Profile 的 id（换 Profile 之后是新的）；`complete()` 是它要跑的 Profile。宿主按它找 Profile 设置里的模型或角色。 */
+    readonly profile: string;
+    /** 调用方指名的角色（压缩方法、审批钩子经 `ctx.model` 给的）；不给时由宿主按用途决定。 */
+    readonly role?: string;
+}
+
+/**
+ * 模型端口：模型目录与凭据由宿主实现（Agent 插件经 `nbook.models`，nb-story 用它自己的解析）。同步：宿主在内存里维护
+ * 目录、配置与“哪些服务商有凭据”的快照；解析之后、请求之前凭据没了，由适配器在请求时以 `auth` 失败。
+ */
 export interface ModelPort {
-    resolve(settings: CoreSettings, purpose: RequestPurpose, role?: string): ModelResolution;
+    resolve(query: ModelQuery): ModelResolution;
 }
 
 /** 主动调模型时交的请求：用途与模型由内核按 `purpose`、`role` 经模型端口填上，`model` 写了就用它。 */

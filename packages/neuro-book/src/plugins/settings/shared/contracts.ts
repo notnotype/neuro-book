@@ -97,8 +97,10 @@ const TextInput = Type.Object({text: Type.String(), revision: Type.String()}, {a
 const TextWritten = Type.Object({revision: Type.String(), snapshot: LayerSnapshotSchema}, {additionalProperties: false});
 const failures = {"settings-failed": SettingsFailedDetail};
 
-const SetInput = Type.Object({key: Type.String(), value: Type.Unknown()}, {additionalProperties: false});
-const KeyInput = Type.Object({key: Type.String()}, {additionalProperties: false});
+/** 比较后写入的期望（`SettingUpdateOptions.expect`）；用户编辑的 `edit`、`unset` 不带。 */
+const Expectation = Type.Union([Type.Object({present: Type.Literal(false)}, {additionalProperties: false}), Type.Object({present: Type.Literal(true), value: Type.Unknown()}, {additionalProperties: false})]);
+const SetInput = Type.Object({key: Type.String(), value: Type.Unknown(), expect: Type.Optional(Expectation)}, {additionalProperties: false});
+const KeyInput = Type.Object({key: Type.String(), expect: Type.Optional(Expectation)}, {additionalProperties: false});
 
 /**
  * `set`、`remove` 只写调用方插件自己声明的项；`edit`、`unset` 是用户编辑（configuration.md 输出 19），写任何已声明项，

@@ -15,5 +15,5 @@ export const manifest: NbThemeManifest = {
     description: "纸感、克制。靠边框和底色分层，几乎不用阴影。小圆角 4px，控制区 13px。",
     version: "1.0.0",
     author: "nb-ui",
-    hostVersion: "^0.2.0",
+    hostVersion: "^0.3.0",
 };

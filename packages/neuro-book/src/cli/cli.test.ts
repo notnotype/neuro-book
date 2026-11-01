@@ -7,7 +7,7 @@
 
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it} from "bun:test";
 import type {Subprocess} from "bun";
-import {chmod, mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
+import {chmod, cp, mkdir, readFile, rm, stat, symlink, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -15,6 +15,8 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {claimStateRoot, queryInstance} from "nbook/server/instance";
 import {PRODUCT_VERSION} from "nbook/shared/product";
+
+import {SERVER_EXTERNALS} from "../../scripts/pack-app";
 
 const PACKAGE_ROOT = resolve(import.meta.dir, "..", "..");
 
@@ -30,10 +32,14 @@ const spawned = new Set<Subprocess>();
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-cli", "nbook");
     const server = join(tmp, "app", "server");
-    for (const [entry, out] of [["src/cli/main.ts", "nbook.js"], ["src/project/main.ts", "project.js"]] as const) {
-        const built = Bun.spawnSync(["bun", "build", entry, "--target", "bun", "--outfile", join(server, out)], {cwd: PACKAGE_ROOT, stderr: "pipe"});
+    const externals = SERVER_EXTERNALS.flatMap((pattern) => ["--external", pattern]);
+    // 命令行开代码分割（入口 cli/main.ts 的说明）：入口是 nbook.js，本体在旁边的 chunk 里。
+    for (const [entry, output] of [["src/cli/main.ts", ["--splitting", "--outdir", server, "--entry-naming", "nbook.js", "--chunk-naming", "nbook-[hash].[ext]"]], ["src/project/main.ts", ["--outfile", join(server, "project.js")]]] as const) {
+        const built = Bun.spawnSync(["bun", "build", entry, "--target", "bun", ...externals, ...output], {cwd: PACKAGE_ROOT, stderr: "pipe"});
         if (built.exitCode !== 0) throw new Error(`构建 ${entry} 失败：${built.stderr.toString()}`);
     }
+    // OMP 不打进 bundle，装包时由 npm 装（scripts/pack-app.ts 的 SERVER_EXTERNALS）：把本仓库的 node_modules 链到应用旁边，相当于装过。
+    await symlink(resolve(PACKAGE_ROOT, "../../node_modules"), join(tmp, "app", "node_modules"), "dir");
     nbook = join(server, "nbook.js");
     web = join(tmp, "web");
     await mkdir(web, {recursive: true});
@@ -361,4 +367,20 @@ describe("nbook plugin（真实进程）", () => {
         expect(missing).toMatchObject({exit: 1, result: {ok: false, code: "path-rejected"}});
         expect(String(missing.result.message)).toContain("nbooke build");
     }, 30_000);
+});
+
+describe("没装 OMP 时（应用包装好依赖之前）", () => {
+    it("--version、--help 与插件管理照常可用：只有 start 要求值 OMP", async () => {
+        // 同一份构建拷到没有 node_modules 的目录：OMP 是外部依赖（scripts/pack-app.ts 的 SERVER_EXTERNALS），这里解析不到。
+        const bare = join(tmp, "bare", "server");
+        await cp(join(tmp, "app", "server"), bare, {recursive: true});
+        const bin = join(bare, "nbook.js");
+        const version = Bun.spawnSync(["bun", bin, "--version"], {env: cleanEnv()});
+        expect(version.stderr.toString()).toBe("");
+        expect(version.exitCode).toBe(0);
+        expect(version.stdout.toString()).toContain(`NeuroBook ${PRODUCT_VERSION}`);
+        expect(Bun.spawnSync(["bun", bin, "--help"], {env: cleanEnv()}).exitCode).toBe(0);
+        const listed = Bun.spawnSync(["bun", bin, "--json", "plugin", "list", "--state-root", join(tmp, "bare", "state")], {env: cleanEnv()});
+        expect(JSON.parse(listed.stdout.toString())).toMatchObject({ok: true});
+    });
 });

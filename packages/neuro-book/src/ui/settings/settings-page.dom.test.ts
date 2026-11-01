@@ -21,7 +21,7 @@ const Page = defineComponent({
     setup: (props) => () => h("p", {"data-page": props.context.id}, props.label),
 });
 
-const context: SettingsPageContext = {id: "x.notes.page", layer: ref("user"), projectTitle: ref(null), writable: ref(true), options: {}, dirty: () => undefined};
+const context: SettingsPageContext = {id: "x.notes.page", layer: ref("user"), projectTitle: ref(null), writable: ref(true), options: {}, dirty: () => undefined, reportWriteFailure: () => undefined};
 
 describe("settingsPage", () => {
     it("load 交模块（动态导入的写法）或组件本身都行；页面收到 context 与补的属性", async () => {

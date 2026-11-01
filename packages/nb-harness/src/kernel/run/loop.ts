@@ -154,14 +154,14 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
         environment: () => environment,
         write: guardedWrite,
         streaming: (request) => host.phase("streaming", request),
-        resolve: (purpose) => host.models.resolve(core.session.kernel.core, purpose),
+        resolve: (purpose, role) => host.models.resolve({settings: core.session.kernel.core, purpose, profile: core.assembly.profile.id, ...(role === undefined ? {} : {role})}),
     });
     try {
         if (run.compact !== undefined) {
             // 只压缩的运行：做一次压缩就收口（runtime.md 输出 52）。
             host.phase("compacting", null);
             // 只压缩的运行用压缩的模型：对话模型不可用时也能先压缩（受理时已查过压缩的模型）。
-            const resolution = host.models.resolve(core.session.kernel.core, "compaction");
+            const resolution = host.models.resolve({settings: core.session.kernel.core, purpose: "compaction", profile: core.assembly.profile.id});
             if (!resolution.ok) return await end("error", {reason: "error", error: {kind: "local", code: resolution.code}});
             const tools = host.box.current();
             const environment = host.environment(resolution.info, tools.map(toolInfo));
@@ -202,7 +202,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             if (steers.length > 0) await write(steers);
 
             host.phase("requesting", null);
-            const resolution = host.models.resolve(core.session.kernel.core, "turn");
+            const resolution = host.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
             if (!resolution.ok) return await end("error", {reason: "error", error: {kind: "local", code: resolution.code}});
             const environment = host.environment(resolution.info, tools.map(toolInfo));
 

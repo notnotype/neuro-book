@@ -37,18 +37,25 @@ function tarEntries(tarball: string): string[] {
 }
 
 describe("应用包", () => {
-    it("只有白名单里的文件；清单没有依赖、版本是产品版本、bin 是 nbook；许可清单含打进去的包、前端的包与字体", async () => {
+    it("只有白名单里的文件；依赖只有不打进 bundle 的 OMP、版本是产品版本、bin 是 nbook；许可清单含打进去的包、前端的包与字体", async () => {
         const out = join(tmp, "out", "neuro-book");
         const {directory, tarball} = await packApp({webRoot: web, outDir: out});
         expect(directory).toBe(out);
         expect(tarball).toBe(join(tmp, "out", `notnotype-neuro-book-${PRODUCT_VERSION}.tgz`));
-        expect(tarEntries(tarball)).toEqual(["LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "package.json", "server/nbook.js", "server/project.js", "web/assets/codicon-abc123.ttf", "web/index.html"].map((name) => `package/${name}`).sort());
+        // 命令行开代码分割：入口旁边有它的 chunk（名字带内容哈希），其余文件固定。
+        const entries = tarEntries(tarball);
+        const chunks = entries.filter((name) => /^package\/server\/(?:nbook|project)-[\w-]+\.js$/u.test(name));
+        expect(chunks.some((name) => name.startsWith("package/server/nbook-"))).toBe(true);
+        expect(entries.filter((name) => !chunks.includes(name))).toEqual(["LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "package.json", "server/nbook.js", "server/project.js", "web/assets/codicon-abc123.ttf", "web/index.html"].map((name) => `package/${name}`).sort());
 
         const manifest = JSON.parse(await readFile(join(out, "package.json"), "utf8")) as Record<string, unknown>;
         expect(manifest).toMatchObject({name: APP_NAME, version: PRODUCT_VERSION, bin: {nbook: "./server/nbook.js"}, engines: {bun: BUN_ENGINE}, license: "AGPL-3.0-only", publishConfig: {access: "public"}});
         // npm 上搜得到、页面上有主页与问题入口。
         expect(manifest).toMatchObject({keywords: expect.arrayContaining(["neurobook", "writing"]), homepage: expect.stringContaining("github.com/notnotype/neuro-book"), bugs: {url: expect.stringContaining("/issues")}});
-        expect(manifest).not.toHaveProperty("dependencies");
+        // 只有 OMP 不打进 bundle（决定 33）：写成依赖，版本是本仓库装的那个。
+        const ompAi = JSON.parse(await readFile(join(import.meta.dir, "../../../node_modules/@oh-my-pi/pi-ai/package.json"), "utf8")) as {version: string};
+        expect(manifest).toMatchObject({dependencies: expect.objectContaining({"@oh-my-pi/pi-ai": ompAi.version})});
+        expect(Object.keys(manifest.dependencies as Record<string, string>).every((name) => name.startsWith("@oh-my-pi/"))).toBe(true);
         expect(manifest).not.toHaveProperty("private");
         expect((await stat(join(out, "server", "nbook.js"))).mode & 0o111).not.toBe(0);
         expect((await readFile(join(out, "server", "nbook.js"), "utf8")).startsWith("#!/usr/bin/env bun\n")).toBe(true);
@@ -118,5 +125,8 @@ describe("bundle 的核对", () => {
         // 计算出来的动态导入只许插件平台装载插件入口的那一处。
         expect(bundleProblems("const name = pick(); await import(name);")).toEqual(["有 1 处计算出来的动态导入：打包看不见它要的模块"]);
         expect(bundleProblems("module = await (attempt === 0 ? import(file) : import(`${file}?attempt=${String(attempt)}`));")).toEqual([]);
+        // 名叫 import 的对象方法不是动态导入；同样以行首 import( 开头、后面接 .then 的照样算。
+        expect(bundleProblems("const scope = {\n    import(...names) {\n        return names;\n    },\n};")).toEqual([]);
+        expect(bundleProblems("import(name).then(() => {\n});")).toEqual(["有 1 处计算出来的动态导入：打包看不见它要的模块"]);
     });
 });

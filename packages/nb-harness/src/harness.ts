@@ -23,7 +23,7 @@ import type {JsonValue, SessionEntry, SessionEntryInput, SessionLog} from "@notn
 import {renderContext} from "./context.js";
 import {HarnessError} from "./errors.js";
 import {createFinishWatch, type FinishWatch} from "./finish-watch.js";
-import type {ThinkingEffort} from "./catalog.js";
+import type {ThinkingEffort} from "./models/catalog.js";
 import {MissingModelKeyError, type ResolvedModel} from "./model.js";
 import {mergeAdjacentUserMessages} from "./merge-user-messages.js";
 import {redactEventMessages} from "./redact.js";

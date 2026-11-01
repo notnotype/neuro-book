@@ -14,16 +14,27 @@ import {clampThinkingLevelForModel, getSupportedEfforts, type Effort, type Model
 import {providerToolName, type ContentBlock, type JsonValue, type Message, type ModelDelta, type ModelInfo, type ModelRequest, type ModelResponse, type ToolCall, type Usage} from "../api/index.js";
 import {classifyProviderError} from "./classify.js";
 import {createFinishWatch} from "./finish-watch.js";
-import {redactText} from "./redact.js";
+import {sanitizeProviderText} from "./redact.js";
 
 export interface OmpTarget {
     /** OMP 的模型对象（宿主用 `resolveModel`、`defineModel` 或自己的解析得到）。 */
     readonly model: Model;
-    /** 取密钥；取不到时抛错，适配器在发请求前以 `auth` 失败。只用宿主指定的来源。 */
-    readonly apiKey: () => string;
+    /**
+     * 取密钥，每次请求取一次（凭据库是异步的，OAuth 令牌以后要刷新）；取不到时抛错或 reject，适配器在发请求前以 `auth`、
+     * 码 `missing-key` 失败。只用宿主指定的来源。
+     */
+    readonly apiKey: () => string | Promise<string>;
     /** 单价未知时用量的 `cost` 为 null。 */
     readonly priceKnown: boolean;
+    /**
+     * 宿主配置的请求头（服务商级与模型级合好、`env:` 已解析），每次请求都带上，在请求自己的 `headers` 之前（同名时请求的赢）。
+     * 值可能是凭据，和密钥一起进遮盖。
+     */
+    readonly headers?: Readonly<Record<string, string>>;
 }
+
+/** 请求头的值至少这么长才进遮盖：短值（`writing` 这类标记）不像凭据，遮了反而把错误正文里的普通词换掉。 */
+const SECRET_HEADER_MIN = 8;
 
 export function ompModelInfo(model: Model): ModelInfo {
     return {
@@ -180,10 +191,11 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
         });
         let apiKey: string;
         try {
-            apiKey = target.apiKey();
+            apiKey = await target.apiKey();
         } catch (error) {
             return failed("auth", error instanceof Error ? error.message : String(error), {code: "missing-key"});
         }
+        const secrets = [apiKey, ...Object.values(target.headers ?? {}).filter((value) => value.length >= SECRET_HEADER_MIN)];
         let context: Context;
         try {
             context = toContext(request, target.model, Date.now());
@@ -205,7 +217,7 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
             signal,
             fetch: counted,
             onSseEvent: (event) => watch.observe(event),
-            headers: {...request.headers},
+            headers: {...target.headers, ...request.headers},
             ...(request.params.maxTokens === undefined ? {} : {maxTokens: request.params.maxTokens}),
             ...(request.params.temperature === undefined ? {} : {temperature: request.params.temperature}),
             ...(effort === undefined ? {} : {reasoning: effort}),
@@ -227,7 +239,7 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
         } catch (error) {
             // 建流时抛错或流 reject：没有结构化的错误信息，归为 provider（中止归 aborted），不按文字猜。
             if (signal.aborted) return {content: [], toolCalls: [], stopReason: "aborted", usage: {...EMPTY_USAGE, complete: false}, model: modelName};
-            return failed("provider", redactText(error instanceof Error ? error.message : String(error), [apiKey]), {usage: {...EMPTY_USAGE, complete: false}});
+            return failed("provider", sanitizeProviderText(error instanceof Error ? error.message : String(error), secrets), {usage: {...EMPTY_USAGE, complete: false}});
         }
         const usage: Usage = {
             input: message.usage.input,
@@ -244,7 +256,7 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
         switch (message.stopReason) {
             case "error": {
                 const {kind, status} = classifyProviderError(message);
-                return {...base, toolCalls: [], stopReason: "error", error: {kind, message: redactText(message.errorMessage ?? "model request failed", [apiKey]), ...(status === null ? {} : {status})}};
+                return {...base, toolCalls: [], stopReason: "error", error: {kind, message: sanitizeProviderText(message.errorMessage ?? "model request failed", secrets), ...(status === null ? {} : {status})}};
             }
             case "aborted":
                 return {...base, toolCalls: [], stopReason: "aborted"};

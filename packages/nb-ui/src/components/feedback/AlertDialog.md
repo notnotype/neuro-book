@@ -8,7 +8,7 @@
 
 ## 布局与交互
 
-内容以 Portal 放在页面上方，最大宽度为 420px，居中显示并带全屏遮罩。外框圆角取主题层变量 `--radius-dialog-compact`（修饰类 `.nb-ui-dialog-surface--compact`），不取 `Dialog` 的 `--radius-dialog`：小确认框常叠在另一个窗口上，圆角不该大于底下的窗口；缺省等于 `--radius-dialog`，nbook 主题让它等于浮动窗口的 `--radius-window`（12px）。标题始终显示；描述仅在 `description` 非空或提供 `description` 插槽时显示。底部固定为取消、确认两颗按钮。`tone="danger"` 时确认按钮使用危险样式，`warning` 与 `accent` 使用主按钮样式。
+内容以 Portal 放在页面上方，最大宽度为 420px，居中显示并带全屏遮罩。外框圆角取主题层变量 `--radius-dialog-compact`（修饰类 `.nb-ui-dialog-surface--compact`），不取 `Dialog` 的 `--radius-dialog`：小确认框常叠在另一个窗口上，圆角不该大于底下的窗口；缺省等于 `--radius-dialog`，nbook 主题让它等于浮动窗口的 `--radius-window`（12px）。面取对话框那档 `--dialog-surface`；放在 `Dialog` 内容里时算二级，面取 `--dialog-surface-nested`，圆角不大于 `--radius-window`（规则同 `Dialog` 的“叠放与层级”）。标题始终显示；描述仅在 `description` 非空或提供 `description` 插槽时显示。底部固定为取消、确认两颗按钮。`tone="danger"` 时确认按钮使用危险样式，`warning` 与 `accent` 使用主按钮样式。
 
 可选 `trigger` 插槽作为触发器。点击取消发出 `cancel`，点击确认发出 `confirm`；两者的关闭与受控状态同步由 Reka Alert Dialog 管理，`update:open(false)` 先于 `confirm`、`cancel` 发出。宿主不要在关闭事件里清掉确认要用的目标（例如待删除的条目），等 `confirm` 或 `cancel` 处理完再清，否则确认分支拿到的是空目标。没有触发器时不执行 Reka 的自动焦点归还。组件不提供 outside-click 或 Escape 关闭流程。
 

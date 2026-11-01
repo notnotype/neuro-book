@@ -33,7 +33,8 @@ export function remoteLayerLink(remote: ActivationContext["remote"], contract: S
         write: async (consumer, key, edit) => {
             const delegated = remote.on(consumer);
             const client = contract === userSettingsContract ? delegated.use(userSettingsContract) : delegated.use(projectSettingsContract);
-            const result = edit.kind === "set" ? await client.set({key, value: edit.value}) : await client.remove({key});
+            const expect = edit.expect === undefined ? {} : {expect: edit.expect};
+            const result = edit.kind === "set" ? await client.set({key, value: edit.value, ...expect}) : await client.remove({key, ...expect});
             return result.ok ? {ok: true, snapshot: frozen(result.value.snapshot as LayerSnapshot)} : fromRemote(result);
         },
     };

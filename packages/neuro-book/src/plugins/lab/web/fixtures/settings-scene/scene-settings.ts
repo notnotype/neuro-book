@@ -143,7 +143,7 @@ export function modelChoice(provider: string, model: string): string {
 export type SettingsWindowSceneId =
     | "user" | "project" | "unbound" | "user-invalid" | "project-invalid" | "unreachable" | "write-failed" | "other"
     | "choices" | "choices-lazy" | "choices-unavailable" | "file" | "file-invalid"
-    | "search" | "page-declared" | "page-blocked" | "page-failed" | "page-stopped" | "page-load-failed" | "page-column" | "page-fill";
+    | "search" | "page-declared" | "page-blocked" | "page-failed" | "page-stopped" | "page-load-failed" | "page-column" | "page-fill" | "long-titles";
 
 export const SETTINGS_WINDOW_SCENES: ReadonlyArray<{readonly id: SettingsWindowSceneId; readonly label: string}> = [
     {id: "user", label: "用户标签：已修改、被本作品覆盖"},
@@ -167,4 +167,5 @@ export const SETTINGS_WINDOW_SCENES: ReadonlyArray<{readonly id: SettingsWindowS
     {id: "page-load-failed", label: "page 分区：加载失败（可重新加载）"},
     {id: "page-column", label: "page 分区：column 页面"},
     {id: "page-fill", label: "page 分区：fill 页面"},
+    {id: "long-titles", label: "左栏长标题：中英文各一个被截断的分区，悬停显示全名"},
 ];

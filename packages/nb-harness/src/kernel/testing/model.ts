@@ -6,7 +6,7 @@
  * 一个词可能被拆在两块里）。
  */
 
-import type {ContentBlock, ModelDelta, ModelErrorKind, ModelInfo, ModelPort, ModelRequest, ModelResponse, RequestPurpose, ToolCall, Usage} from "../api/index.js";
+import type {ContentBlock, ModelDelta, ModelErrorKind, ModelInfo, ModelPort, ModelQuery, ModelRequest, ModelResolutionCode, ModelResponse, RequestPurpose, ToolCall, Usage} from "../api/index.js";
 
 /** 一次回复的简写：字符串是纯文字。 */
 export type Reply =
@@ -29,8 +29,10 @@ export interface TestModel {
     /** 到目前为止收到的请求，按先后。 */
     readonly requests: readonly ModelRequest[];
     readonly port: ModelPort;
-    /** 这些用途的模型解析不到（测“对话模型不可用时也能压缩”这类）；改它即生效。 */
-    readonly unavailable: Set<RequestPurpose>;
+    /** 这些用途的模型解析不到，得到对应的码（测“对话模型不可用时也能压缩”、失败码的传播这类）；改它即生效。 */
+    readonly unavailable: Map<RequestPurpose, ModelResolutionCode>;
+    /** 到目前为止端口收到的解析请求，按先后（测 Profile 与角色是否传到了端口）。 */
+    readonly queries: readonly ModelQuery[];
 }
 
 export const TEST_MODEL_INFO: ModelInfo = {id: "test/model", contextWindow: 100_000, maxOutput: 8_000, capabilities: {vision: false, thinking: true}, efforts: ["low", "medium", "high"]};
@@ -50,7 +52,8 @@ function streamOf(response: ModelResponse): ModelDelta[] {
 
 /** `info` 换掉模型信息（例如给 `compactAt`、小窗口）。 */
 export function createTestModel(info: ModelInfo = TEST_MODEL_INFO): TestModel {
-    const unavailable = new Set<RequestPurpose>();
+    const unavailable = new Map<RequestPurpose, ModelResolutionCode>();
+    const queries: ModelQuery[] = [];
     const queue: Reply[] = [];
     const requests: ModelRequest[] = [];
     let calls = 0;
@@ -72,8 +75,9 @@ export function createTestModel(info: ModelInfo = TEST_MODEL_INFO): TestModel {
         script: (...replies) => void queue.push(...replies),
         requests,
         unavailable,
+        queries,
         port: {
-            resolve: (_settings, purpose) => unavailable.has(purpose) ? {ok: false, code: "no-model"} : ({
+            resolve: (query) => (queries.push(query), unavailable.has(query.purpose)) ? {ok: false, code: unavailable.get(query.purpose)!} : ({
                 ok: true,
                 info,
                 call: async (request, signal, onDelta) => {

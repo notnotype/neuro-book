@@ -72,7 +72,15 @@ interface SceneSpec {
     readonly layer?: "user" | "project";
     /** 打开后立即搜索的词（搜索结果的场景）。 */
     readonly query?: string;
+    /** 只在这个场景里多登记的分区。 */
+    readonly extraSections?: ReadonlyArray<HostSection>;
 }
+
+/** 左栏装不下的两个标题（176px 宽），中英文各一个：截断后悬停显示全名。 */
+const LONG_TITLE_SECTIONS: ReadonlyArray<HostSection> = [
+    {id: "example.snippets.long-zh", plugin: "example.snippets", kind: "page", declaration: {title: {"zh-CN": "人物关系、世界观与时间线的一致性检查", "en-US": "Character and World Consistency"}, icon: "i-lucide-users", category: "plugins"}},
+    {id: "example.snippets.long-en", plugin: "example.snippets", kind: "page", declaration: {title: {"zh-CN": "Manuscript Export Presets", "en-US": "Manuscript Export Presets"}, icon: "i-lucide-file-output", category: "plugins"}},
+];
 
 const BOOK = {values: {"nbook.workbench/appearance": "light"}} satisfies HostLayer;
 
@@ -98,6 +106,7 @@ const SPECS: Readonly<Record<SettingsWindowSceneId, SceneSpec>> = {
     "page-load-failed": {project: BOOK, section: SNIPPETS_SECTION},
     "page-column": {user: {values: {"example.snippets/items": [{name: "旁白", text: "雾从港口漫上来。"}, {name: "落款", text: "——写于雾港"}]}}, project: {values: {"example.snippets/autoInsert": true}}, section: SNIPPETS_SECTION},
     "page-fill": {user: {values: {"example.models/effort": "high", "example.models/providers": SAMPLE_PROVIDERS, "example.models/defaultModel": modelChoice("deepseek", "deepseek-chat")}}, project: BOOK, section: MODELS_SECTION},
+    "long-titles": {project: BOOK, section: APPEARANCE_SECTION, extraSections: LONG_TITLE_SECTIONS},
 };
 
 /** 页面组件：插件的页面在自己的激活里拿到自己的配置服务，这里同样在交付时绑定。 */
@@ -121,7 +130,7 @@ export function createSettingsScene(id: SettingsWindowSceneId, notify: (input: N
     const spec = SPECS[id];
     const host = createSettingsHost({
         settings: SCENE_SETTINGS,
-        sections: SECTIONS,
+        sections: [...SECTIONS, ...(spec.extraSections ?? [])],
         ...(spec.user === undefined ? {} : {user: spec.user}),
         ...(spec.project === undefined ? {} : {project: spec.project}),
         projectTitle: SCENE_BOOK,

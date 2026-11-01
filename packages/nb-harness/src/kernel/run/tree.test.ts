@@ -246,9 +246,12 @@ describe("换 Profile", () => {
         await session.say("第一问");
         await session.say("第二问");
         const changed = await session.raw.changeProfile({commandId: id(), profile: "lab.tally"});
+        expect(session.model.queries.at(-1)!.profile).toBe("test.profile");
         expect(changed).toMatchObject({ok: true, value: {changed: true}});
         expect(await session.state(tally)).toEqual({inputs: 2});
         const third = await session.say("第三问");
+        // 模型端口按会话当前的 Profile 解析（宿主据此取 Profile 设置里的模型或角色，docs/specs/harness/models.md）。
+        expect(session.model.queries.at(-1)!.profile).toBe("lab.tally");
         expect(third.requests[0]!.raw.messages.filter((message) => message.role === "assistant").map((message) => (message.content[0] as {text: string}).text)).toEqual(["（旧回答）", "（旧回答）"]);
         const changes = (await session.raw.log({afterSeq: 0})).events.filter((event) => event.type === "profileChanged").map((event) => (event.data as {reason: string; profile: string}));
         expect(changes.map((change) => [change.reason, change.profile])).toEqual([["created", "test.profile"], ["user", "lab.tally"]]);

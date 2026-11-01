@@ -852,6 +852,25 @@ describe("通用列表的写入（输出 10、12、14）", () => {
         await window.write(themeOf(window), "solarized");
         expect(shown(recorder.notices[1]).message).toStartWith(beforeDetail(t("model.notSaved", {title: "主题", reason: t("writeFailure.invalidValue", {detail: DETAIL})})));
     });
+
+    it("page 分区报告自己的写入失败：通知与通用列表同一套文案；结果未知时换成“可能没有保存”的标题；离开页面后晚到的照样通知", async () => {
+        const Page = defineComponent({name: "WritingPage", render: () => null});
+        const started = await start([contributor("x.notes", {"x.notes.page": pageSection()}, toggle({implementation: {load: async () => Page}}))], true);
+        const {window, recorder} = windowFor(started.probe, true);
+        window.openWindow({section: "x.notes.page"});
+        await waitUntil("页面加载完", () => window.page("x.notes.page").status === "ready");
+        const context = window.page("x.notes.page").context;
+        const shown = (notice: NotificationInput | undefined) => ({tone: notice?.tone, title: settingsText.resolver.t(notice?.title ?? ""), message: settingsText.resolver.t(notice?.message ?? "")});
+
+        context.reportWriteFailure("DeepSeek 的密钥", {reason: "钥匙串不可用"});
+        expect(shown(recorder.notices[0])).toEqual({tone: "warning", title: t("model.notSavedTitle"), message: t("model.notSaved", {title: "DeepSeek 的密钥", reason: "钥匙串不可用"})});
+        context.reportWriteFailure("DeepSeek 的密钥", {reason: "连接断了", uncertain: true});
+        expect(shown(recorder.notices[1]).title).toBe(t("model.unknownTitle"));
+
+        window.close();
+        context.reportWriteFailure("DeepSeek", {reason: "写入失败"});
+        expect(recorder.notices).toHaveLength(3);
+    });
 });
 
 describe("层的说明（输出 13）", () => {

@@ -81,7 +81,7 @@ function onOpenChange(value: boolean): void {
 
             <DrawerContent
                 :style="{zIndex}"
-                class="nb-ui-popover-surface nb-ui-dialog-surface fixed flex flex-col text-[var(--text-main)] transition-transform [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] outline-none"
+                class="nb-ui-popover-surface nb-ui-dialog-surface nb-ui-drawer-surface fixed flex flex-col text-[var(--text-main)] transition-transform [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] outline-none"
                 :class="[
                     props.direction === 'right' ? 'inset-y-0 right-0 h-full w-[380px] max-w-[90cqw]' : '',
                     props.direction === 'left' ? 'inset-y-0 left-0 h-full w-[380px] max-w-[90cqw]' : '',

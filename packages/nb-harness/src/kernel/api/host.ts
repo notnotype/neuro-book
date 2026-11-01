@@ -11,7 +11,7 @@ import type {CommandErrorTable, DiagnosticCode, DiagnosticLevel} from "./codes.j
 import type {Resources} from "./ctx.js";
 import type {EntryPoint, InteractionDecision, KernelEvents, LogEvent, RunResultValue, SessionHeader, EventData} from "./events.js";
 import type {AnyExtension, CompactionMethodImpl, ContributedExtension} from "./extension.js";
-import type {ApprovalMode, CoreSettings, Message, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, RequestBlock, RequestPurpose, StopReason, Usage} from "./model.js";
+import type {ApprovalMode, CoreSettings, Message, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, ModelResolutionCode, RequestBlock, RequestPurpose, StopReason, Usage} from "./model.js";
 import type {AnyProfile} from "./profile.js";
 import type {Contract, ExportsOfContract} from "./contract.js";
 import type {LogStore, StorageResult} from "./storage.js";
@@ -414,7 +414,7 @@ export type OpenSession = (env: SessionEnv, id: string) => Promise<StorageResult
 
 /** 不带工具的单次请求：不读写会话日志；只接受不声明工具的 Profile。 */
 export type Complete = (env: Pick<SessionEnv, "models" | "resources" | "clock" | "profiles">, options: {readonly profile: string; readonly input: UserInput; readonly initial?: JsonValue; readonly signal?: AbortSignal}) =>
-    Promise<{ok: true; result: Omit<RunResult, "runId" | "entries">} | {ok: false; code: "profile-has-tools" | "unknown-profile" | "no-model" | "no-credentials"}>;
+    Promise<{ok: true; result: Omit<RunResult, "runId" | "entries">} | {ok: false; code: "profile-has-tools" | "unknown-profile" | ModelResolutionCode}>;
 
 // ====================================================================
 // 插件宿主：agent.extensions 贡献点

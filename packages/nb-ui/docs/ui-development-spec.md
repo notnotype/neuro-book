@@ -409,10 +409,10 @@ nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/
 
 全库所有下拉菜单（`DropdownMenu`）、选择器（`Select`）、命令面板（`QuickPick` / `WorkbenchCommandPalette`）与弹出浮层必须严格以 `Select` 的黄金调优标准为唯一样式规范：
 
-1. **底色与对比度（65% 温润白底 / 75% 烟熏深底）**：
-   - 亮色模式：`--overlay-surface: color-mix(in srgb, var(--bg-panel) 65%, transparent);`，提供一层温润半透明白底，保证浮层内文字具有充分对比度与可读性，杜绝过薄透明（如 14%）导致的底层正文透光干扰与眩光；
-   - 暗色模式：`--overlay-surface: color-mix(in srgb, var(--bg-panel) 75%, transparent);`，采用 75% 烟熏深底，既稳稳托住文字层级，又能透出背景微弱折射光感；
-   - 高对比度 / 降低透明度模式：`--overlay-surface: var(--bg-panel);` 彻底回退实心面板底。
+1. **底色与对比度（nbook：小浮层亮 72% / 暗 75%，对话框 90%）**：
+   - 小浮层（菜单、下拉、气泡、命令面板）读 `--overlay-surface`：nbook 亮色 `color-mix(in srgb, var(--bg-panel) 72%, transparent)`、暗色 75%，保证文字可读，杜绝过薄透明（如 14%）导致的底层正文透光干扰与眩光；
+   - 对话框与浮动窗口读 `--dialog-surface`，叠在对话框上的对话框读 `--dialog-surface-nested`：nbook 两档都是 90%，大面积、字段多的面要读得清（开发者 2026-11-01 在 Lab 里对着彩色背景挑定）。两个变量缺省都回落到上一档，主题不给时与小浮层一样；
+   - 高对比度 / 降低透明度模式：三档都回退 `var(--bg-panel)` 实心面板底。
 2. **高阶微滤波（8px 模糊 + 130% 饱和度）**：
    - 统一消费 `backdrop-filter: blur(8px) saturate(130%) brightness(1.0);`，避免大半径模糊与复杂 SVG 折射引发的边缘文字走样或错位。
 3. **4 阶立体微反光环境柔影**：

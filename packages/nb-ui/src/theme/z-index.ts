@@ -41,6 +41,13 @@ export const NB_DIALOG_WINDOW_Z_STEP = 2;
 /** 当前所在的浮动窗口嵌套深度，最外层窗口是 1。未提供时按 0 处理（注入方即第 1 层）。 */
 export const NB_DIALOG_WINDOW_DEPTH: InjectionKey<number> = Symbol("nb-dialog-window-depth");
 
+/**
+ * 当前所在的对话框层数（模态对话框与浮动窗口都算），最外层是 1；未提供时按 0。层数 ≥ 2 的对话框画二级的面
+ * （`.nb-ui-dialog-surface--nested`）。按组件树数、在建立时取定：从应用根上的服务打开的对话框不在别的对话框的组件树里，
+ * 即使看上去压在设置窗口上也算一级。
+ */
+export const NB_DIALOG_LAYER: InjectionKey<number> = Symbol("nb-dialog-layer");
+
 /** 同时打开的模态每多一层往上的跨度。 */
 export const NB_MODAL_Z_STEP = 2;
 

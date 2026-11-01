@@ -7,4 +7,4 @@
  * 为什么不直接读 package.json：库要能被打进浏览器产物，运行期读文件不可行；
  * 而 `import pkg from "../package.json"` 会让每个消费方的打包器都得开 JSON 导入。
  */
-export const NB_UI_VERSION = "0.2.0";
+export const NB_UI_VERSION = "0.3.0";

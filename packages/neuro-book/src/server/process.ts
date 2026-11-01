@@ -22,6 +22,7 @@ import {readServerConfig, ServerConfigError} from "./config";
 import type {ServerConfig} from "./config";
 import {claimStateRoot} from "./instance";
 import type {ClaimResult, InstanceKind, StateRootClaim} from "./instance";
+import {ompProcess} from "./omp-process";
 import {ServerAssemblyError, ServerStartupError, startServer} from "./start";
 import type {RunningServer, StartServerOptions} from "./start";
 
@@ -137,7 +138,7 @@ export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>
         const claimed = await claimStateRoot({stateRoot: config.stateRoot, kind: options.kind ?? "product", version: PRODUCT_VERSION, report: claimReport});
         if (!claimed.ok) {
             reportClaimFailure(claimed, config.stateRoot);
-            process.exit(1);
+            return exitAfterOmpCleanup(1);
         }
         claim = claimed.claim;
     }
@@ -147,12 +148,13 @@ export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>
         prepared = await prepareInstalledPlugins({root: join(config.stateRoot, "plugins"), profile: NEUROBOOK_PROFILE, safeMode: safeModeOf(process.env, NEUROBOOK_PROFILE)});
     } catch (error) {
         await claim.release();
+        await ompProcess.cleanup();
         throw error;
     }
     const server = startOrExit(config, claim, manifest, prepared, options);
     if (server === null) {
         await claim.release();
-        process.exit(1);
+        return exitAfterOmpCleanup(1);
     }
     // 启动失败时 startServer 已写出致命诊断，随后经 stopped 以 1 退出。
     let ran = false;
@@ -169,7 +171,16 @@ export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>
     );
     const {exitCode} = await server.stopped;
     if (ran) options.onStopped?.(exitCode);
-    process.exit(exitCode);
+    return exitAfterOmpCleanup(exitCode);
+}
+
+/**
+ * 服务端进程的每个退出出口都经这里：先跑 OMP 登记的清理（凭据与用量缓存的刷写等）再退出。OMP 装的进程级处理已被摘掉
+ * （omp-process.ts），剩下的 `exit` 监听不等异步的清理，所以要宿主自己等。
+ */
+async function exitAfterOmpCleanup(code: number): Promise<never> {
+    await ompProcess.cleanup();
+    process.exit(code);
 }
 
 /** 认领期间的次要错误：此时诊断存储还没建，直接写标准错误。 */

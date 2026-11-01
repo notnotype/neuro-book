@@ -18,6 +18,7 @@
 | Escape | 只关最上层（`closeOnEsc`） | 同左 |
 | 缩放 | 不适用 | `resizable` 时有六个手柄 |
 | 圆角 | `--radius-dialog` | `--radius-window`（缺省等于 `--radius-dialog`） |
+| 面 | `--dialog-surface`（缺省等于小浮层的 `--overlay-surface`） | 同左 |
 | 叠放 | 同时打开的按打开顺序叠放 | 按嵌套深度叠放 |
 | `request-close` 的原因 | `overlay`、`cancel`、`close-button`、`esc` | `cancel`、`close-button`、`esc` |
 
@@ -58,6 +59,7 @@
 
 - 同时打开的模态（`Dialog` 与 `AlertDialog`）按**打开顺序**叠放，后打开的在上面，与 DOM 顺序无关；最多 5 层，再多的都落在第 5 层。
 - 浮动窗口按**嵌套深度**叠放：从窗口里开出的窗口压住外层。整档在模态之下。
+- **二级对话框**：放在另一个 `Dialog`（两种用法都算）或 `AlertDialog` 内容里的 `Dialog`、`AlertDialog`，面取 `--dialog-surface-nested`，圆角收到不大于 `--radius-window`（修饰类 `.nb-ui-dialog-surface--nested`）。按组件树数层数，在组件建立时取定。它传送到 `body`，不是外层面板的后代，模糊采得到外层与页面，仍是玻璃；`teleportTarget` 为 `false` 时它成了外层面板的后代，模糊只采到外层面板之内（[设计语言](../../../docs/design-language.md) 第二节边界 4），不要这样用。
 - 两种用法都向内容树提供局部浮层层级（`NB_POPOVER_Z_INDEX`），里面的下拉、提示、取色面板显示在面板之上。模态给的是一个高于所有模态层的固定值，窗口给“自己 + 1”。
 - **宿主声明 `contained`**（`provideTeleportTarget(选择器, {contained: true})`，组件 Lab 的画布就是这样）时，模态只在传送目标里画遮罩并居中，以非模态方式挂载：不锁整页、不把目标外的界面设为读屏不可见、不锁焦点。点遮罩与 Escape 的判定不变。
 
@@ -166,6 +168,7 @@ interface DialogSlots {
 ## 已知限制
 
 - 模态开着时，reka 会把面板以外的界面设为读屏不可见，通知视口也在其中：读屏不播报这段时间里的新通知。
+- 二级对话框按组件树判定：不在外层对话框内容里的对话框，视觉上压在别的对话框上也算一级，面与圆角按一级画。例如从应用根上的服务打开的对话框，或两个并排的组件靠共享状态先后打开的两个 `Dialog`（Lab 的 `stacked` 场景就是这样）。要画成二级，把内层放进外层的内容里。
 - 模态给内容的浮层层级是固定值：下层对话框里的浮层在上层对话框打开时还开着，会盖住上层。点上层的入口按钮时外部点击已经把浮层关掉了，正常操作碰不到。
 
 ## 隐藏通道理由

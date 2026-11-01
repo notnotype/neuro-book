@@ -40,7 +40,7 @@ export const manifest: NbThemeManifest = {
     tagline: "一句话定位",
     description: "一段话讲清它长什么样。市场列表页只能读 manifest，没有它就只剩一个名字。",
     version: "1.0.0",
-    hostVersion: "^0.2.0",
+    hostVersion: "^0.3.0",
 };
 ```
 
@@ -106,7 +106,7 @@ installTheme(myTheme);
 - 装饰：`--surface-raise` `--inset-shadow` `--elevation-raised/popover/dialog` `--focus-ring`
 - 动效：`--motion-fast` `--motion-base` `--motion-enter` `--ease-standard`
 - **角色映射**：`--control-surface` `--button-surface` `--panel-surface` `--sidebar-surface`
-  `--toolbar-surface` `--overlay-surface` `--overlay-blur` `--strip-surface` `--divider` 及对应的 `-outline`
+  `--toolbar-surface` `--overlay-surface` `--dialog-surface` `--dialog-surface-nested` `--overlay-blur` `--strip-surface` `--divider` 及对应的 `-outline`
 
 角色映射这一层最容易被忽略：控件的面用哪个配色变量、描边用不用色、分隔靠线还是靠底色，
 这些是**主题决策不是颜色决策**。一整套「界面退场」的低 chrome 风格可以只靠它表达，
@@ -123,11 +123,13 @@ installTheme(myTheme);
 }
 ```
 
-### 浮层 Surface（`--overlay-surface`）透明度规范
+### 浮层 Surface 透明度规范（`--overlay-surface`、`--dialog-surface`、`--dialog-surface-nested`）
 
-浮层（`DropdownMenu` / `Popover` / `CommandPalette`）必须承担清晰的内容承载与文字阅读职责，严禁追求极致透明度而损害可读性：
-- **亮色模式**：基准为 `color-mix(in srgb, var(--bg-panel) 65%, transparent)`（65% 温润半透明白底，与 Select 黄金标准一致）；
-- **暗色模式**：基准为 `color-mix(in srgb, var(--bg-panel) 75%, transparent)`（75% 烟熏深底，保证文字高对比度）；
+浮层必须承担清晰的内容承载与文字阅读职责，严禁追求极致透明度而损害可读性。面分三档，后两档缺省回落到前一档：
+- **小浮层**（`DropdownMenu` / `Popover` / `Select` / `CommandPalette`）读 `--overlay-surface`：nbook 亮色 `color-mix(in srgb, var(--bg-panel) 72%, transparent)`、暗色 75%；
+- **对话框与浮动窗口**读 `--dialog-surface`：面积大、字段多，给得比小浮层实（nbook 90%）；
+- **叠在对话框上的对话框**读 `--dialog-surface-nested`（nbook 90%）：它传送到 `body`，仍是玻璃；再调实未必显得出层次，nbook 是对着彩色背景比过之后定的同档；
+- 减少透明度与高对比度下三档都换成实心 `var(--bg-panel)`；
 - **严禁降低到 14% 等过低不透明度**：过薄透明会导致底层正文、按钮严重透光穿透，彻底破坏实体面板感；
 - **机械守门**：全库由 `token-consumption.test.ts` 静态扫描守门，禁止任何组件在模板中内联硬编码 `backgroundColor: color-mix(...)` 或 `backdropFilter`。
 

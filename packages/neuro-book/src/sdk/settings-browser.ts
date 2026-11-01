@@ -7,7 +7,7 @@
 export {choices, settingsPage} from "./settings-browser-helpers";
 export type {ChoicesHelper, SettingsPageHelper} from "./settings-browser-helpers";
 
-export type {SettingsChoicesImplementation, SettingsPageContext} from "nbook/plugins/settings/web/contracts";
+export type {SettingsChoicesImplementation, SettingsPageContext, SettingsPageWriteFailure} from "nbook/plugins/settings/web/contracts";
 export type {OptionSource} from "@notnotype/nb-form";
 
 // 设置页里的排版组件：每一项用 `SettingsRow` 排，列表、操作行与保存栏同设置窗口自己的分区。
