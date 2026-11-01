@@ -131,7 +131,7 @@ t02。
   5. 删除与解绑不是一次收口：成立，改为先解除角色绑定再删（后一步失败只留下未绑定的角色，可重试），`setModels` 先校验再动。
   6. 失败分支缺真实合同测试：接受取舍。要注入设置层、凭据库与 RPC 的中途失败只能在产品代码里加测试专用分支（测试规则禁止）；新增的命令行用例覆盖了第 2 条。
 - 修正后验证：neuro-book 单元测试 1654 过、nb-harness 321 过、`models.e2e` 与 `settings.e2e` 21 过、governance 通过。
-- **完成（2026-11-01）**：Work 分支 `feat/w00032-agent-integration` 到 `d9fe4017c`，已合入 master（`460607402`）。留给后续：Spec `models/service.md`、`models/settings-pages.md` 仍是 planned，晋升 implemented 待开发者批准；OMP 上游 can1357/oh-my-pi#17674 有开关后删掉接管代码（ADR 0036）；需要隔离原生崩溃与内存时做模型服务子进程（审查证据见 `design-review-omp-isolation.txt`）；草稿 worktree `.worktree/w00032-t09-drafts` 可删。
+- **完成（2026-11-01）**：Work 分支 `feat/w00032-agent-integration` 到 `d9fe4017c`，已合入 master（`460607402`）。留给后续：Spec `models/service.md`、`models/settings-pages.md` 仍是 planned，晋升 implemented 待开发者批准；OMP 上游 can1357/oh-my-pi#17674 有开关后删掉接管代码（ADR 0036）；需要隔离原生崩溃与内存时做模型服务子进程（审查证据见 `design-review-omp-isolation.txt`）；草稿 worktree 已删；两份 Spec 已由开发者批准晋升（2026-11-01）。
 - **已解决的阻塞**（决定 33 到 35，`d7ff575ba`、`aa5805965`）：OMP 不打进 bundle、写进应用包依赖；服务端接管 OMP 的进程级处理。原先的记录：第 3 片把 OMP 带进了服务端进程，暴露两个问题，都源自“OMP 跑在服务端进程里”：
   1. **原生插件**：`@oh-my-pi/pi-catalog`、`pi-ai` 一被导入就加载 `pi_natives` 原生插件（每个平台约 122 MB）。打包后的服务端（`dist/server/*.js` 与应用包）按自己所在目录找 `native/`，找不到就启动即崩：产品 e2e 全部起不来服务（验证时临时把插件软链进 `dist/native/` 绕过），`cli.test.ts`、`pack-app.test.ts` 共约 30 条失败。应用包现在的合同是“单文件 bundle、清单没有依赖”。
   2. **进程级信号与异常处理**：`@oh-my-pi/pi-utils` 的 postmortem 在导入时就在主线程装上 SIGINT、SIGTERM、SIGHUP、`uncaughtException`、`unhandledRejection` 的处理，跑完自己的清理就以 130、143、129 硬退出，抢在服务端宿主的有序停止（排空、项目子进程先收口）之前；`server-projects.test.ts` 场景 14、15 因此失败。没有关闭它的开关（只在 Worker 线程里不装）。

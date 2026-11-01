@@ -169,6 +169,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Storage 插件记录 | [`storage/persistence.md`](storage/persistence.md) | `nbook.storage` 的记录定义、user 与 project 分区、读取分类、条件保存与订阅 |
 | 配置 | [`settings/configuration.md`](settings/configuration.md) | 配置项声明（含给设置窗口用的字段）、默认值与用户层、项目层的合成、外部改文件即时生效、只写自己声明的项、用户编辑的写入路径、跨实例分发与就绪；密钥与本机层只定合同 |
 | 设置窗口 | [`settings/settings-window.md`](settings/settings-window.md) | 分区贡献点 `settings.sections`（list）、`settings.pages`（page）与 page 的交付状态、通用控件、“用户 \| 本作品”两个标签、已修改与覆盖提示、层状态与写入失败、打开命令与窗口尺寸、给页面用的 `SettingsRow` 与 `SettingsPageList` |
+| 模型服务 | [`models/service.md`](models/service.md) | `nbook.models`：服务商与模型的配置、凭据库与 `env:`、模型角色与解析、写入只经服务端、检测与发现、远程合同 |
+| 模型服务的设置页 | [`models/settings-pages.md`](models/settings-pages.md) | “服务商与模型”“模型角色”两页：服务商列表与详情、连接与请求头、模型列表与检测、编辑与管理模型、删除确认、角色表 |
 | 菜单项 | [`workbench/menus.md`](workbench/menus.md) | 插件把命令放进别的插件拥有的菜单位置：菜单项的形状、显示与可用、排序与分隔、勾选、按后缀过滤与参数；四处位置（标题栏菜单、视图标题、资源管理器右键、编辑区标题） |
 | 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则 |
 | 书架页 | [`workbench/bookshelf.md`](workbench/bookshelf.md) | 没有项目时的首页：案头（统计、最近写到、看板娘）、卡片与列表、封面、新建与打开已有作品、修改信息与移出书架、新鲜度与刷新 |
@@ -210,8 +212,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | 热插拔三档、引用账本与转发器、三步停止、在途调用结算 |
 | 插件安装与升级 | [`runtime/plugin-install.md`](runtime/plugin-install.md) | 本地文件夹安装、卸载、重启生效的升级、兼容与安全模式；操作在下一次启动生效 |
 | 插件代码的装载与回收 | [`runtime/plugin-code-loading.md`](runtime/plugin-code-loading.md) | 服务端装载与缓存回收、浏览器宿主模块表、纯度检查、插件文件端点 |
-| 模型服务 | [`models/service.md`](models/service.md) | `nbook.models`：服务商与模型的配置、凭据库与 `env:`、模型角色与解析、写入只经服务端、检测与发现、远程合同 |
-| 模型服务的设置页 | [`models/settings-pages.md`](models/settings-pages.md) | “服务商与模型”“模型角色”两页：服务商列表与详情、连接与请求头、模型列表与检测、编辑与管理模型、删除确认、角色表 |
 | 插件公开 API | [`runtime/plugin-api.md`](runtime/plugin-api.md) | 远程形态约束、激活上下文、错误码、worker 池、私有存储、配置与密钥 |
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |

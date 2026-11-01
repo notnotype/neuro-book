@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: models.settings-pages
 owners:
   - nbook.models
@@ -89,6 +89,19 @@ owners:
 
 Smoke：`e2e/models.e2e.ts`。
 
+## 实现合同
+
+- **公开入口**：无新的公开符号。两页经 `settings.pages` 贡献（`nbook/ui/settings/settings-page` 的 `settingsPage`），调用 [`models.service`](service.md) 的远程合同。
+- **owner 与依赖方向**：`nbook.models` 的浏览器入口持有数据模块（`web/models-store.ts`）并贡献两页；页面组件只经数据模块读写，不各自订阅、不各自调用远程合同。依赖 `nbook.settings` 的设置窗口（页面上下文、写失败的窗口通知）与 nb-ui。
+- **关键不变量**：
+  - 快照只来自数据模块的订阅：别的窗口改了即时跟上；释放后不再跟着变、不再可用（输出 16、17，`models-store.test.ts`“数据模块”）。
+  - 检测状态归数据模块：单独检测与检测全部同时进行时各自结算、不会留下一直转圈的；取消回到开始之前；服务商或模型离开快照时它的结果清掉（输出 8，`models-store.test.ts`）。
+  - 写失败交回码与详情、不抛；页面经窗口通知告诉用户，控件回到实际值（输出 15，`models-store.test.ts`，`models.e2e.ts` 验收 3）。
+  - 删除确认关闭之后焦点回到“删除”（取消）或落到下一家服务商、列表空时落到“添加服务商”（输出 12，`models.e2e.ts`“删除的焦点”与验收 1）。
+
 ## 证据
 
-- 批准依据：w00032 t09 决定 11 到 30（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t09-models/README.md)，评审板 `review` v9）
+- 批准依据：w00032 t09 决定 11 到 30（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t09-models/README.md)，评审板 `review` v9）；开发者 2026-11-01 批准晋升为 `implemented`。
+- 实现入口：[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/models/web/plugin.ts)、[`web/models-store.ts`](../../../packages/neuro-book/src/plugins/models/web/models-store.ts)、[`web/components/`](../../../packages/neuro-book/src/plugins/models/web/components/ProvidersPage.vue)（`ProvidersPage`、`RolesPage` 与它们的部件）
+- 合同测试：[`models-store.test.ts`](../../../packages/neuro-book/src/plugins/models/web/models-store.test.ts)（真实服务端与远程合同，检测打到本机端点）
+- Smoke：[`models.e2e.ts`](../../../packages/neuro-book/e2e/models.e2e.ts)（验收 1–3 与删除的焦点）；Lab 场景 `ProvidersPage`、`RolesPage` 与各部件（`lab-scenes.e2e.ts` 逐个检查溢出与焦点环）
