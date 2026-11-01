@@ -1066,7 +1066,7 @@ function shelfFixtures(): LabFixture[] {
                 {id: "empty", label: "没有请求头", input: {props: {headers: {}}}},
                 {id: "english", label: "英文界面", input: {props: {headers: {"X-Team": "writing"}}}},
             ],
-            load: async () => withModelsText(createSubjectFixture<typeof HeadersEditor>((await import("nbook/plugins/models/web/components/HeadersEditor.vue")).default, {events: ["commit"], writeBack: {commit: {layer: "props", key: "headers"}}, class: "w-[520px]"})),
+            load: async () => withModelsText(createSubjectFixture<typeof HeadersEditor>((await import("nbook/plugins/models/web/components/HeadersEditor.vue")).default, {events: ["commit"], writeBack: {commit: {layer: "props", key: "headers"}}, class: "w-full max-w-[520px]"})),
         }),
         defineLabFixture<typeof ModelRow>({
             component: "ModelRow",

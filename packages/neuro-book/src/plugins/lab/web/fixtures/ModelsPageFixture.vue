@@ -58,6 +58,6 @@ const reportWriteFailure: SettingsPageContext["reportWriteFailure"] = (subject, 
 }
 
 .models-page-fixture--narrow {
-    width: 560px;
+    width: min(560px, 100%);
 }
 </style>

@@ -221,8 +221,10 @@ const checking = computed(() => props.provider.models.some((model) => props.chec
     color: var(--text-main);
 }
 
+/* 按钮放不下时（窄窗口、英文）换到下一行，不撑出页面。 */
 .provider-detail__title--actions {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-3);
 }
