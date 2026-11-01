@@ -101,7 +101,7 @@ t02。
 
 ## 当前状态
 
-设计定稿（决定 9 到 30，评审板 `review` v9 全部答完）。下一步按 implementation-planning 写 `plan.md`。第二轮“对话框太透明、圆角不对”查明是 nb-ui 的缺口：`design-language.md` 写了嵌套浮层用不透明层级色、圆角不大于底下窗口，`Dialog` 没有实现。草稿在 `.worktree/w00032-t09-drafts`（分支 `t09/drafts`，不提交、不合并），Lab 场景 `ModelSettingsDraft`。
+设计定稿（决定 9 到 30，评审板 `review` v9 全部答完）。[实施计划](plan.md)初稿已写，等开发者看过后交设计审查（后端与计划 omp，前端 Sonnet）。第二轮“对话框太透明、圆角不对”查明是 nb-ui 的缺口：`design-language.md` 写了嵌套浮层用不透明层级色、圆角不大于底下窗口，`Dialog` 没有实现。草稿在 `.worktree/w00032-t09-drafts`（分支 `t09/drafts`，不提交、不合并），Lab 场景 `ModelSettingsDraft`。
 
 ## 下一步
 
