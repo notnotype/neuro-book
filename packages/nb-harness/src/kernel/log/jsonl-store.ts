@@ -245,7 +245,8 @@ export function createJsonlStore(options: JsonlStoreOptions): LogStore {
                 handle.notices.push(...notices);
                 const stored = parseIndex(await files.read(join(directory, INDEX)));
                 handle.index = advanceIndex(emptyIndex(parsed.header), events);
-                if (stored === null || stored.throughSeq !== lastSeq) {
+                // 会话头里的后台标记与索引不符（旧版本写的索引没有这个字段）也重建。
+                if (stored === null || stored.throughSeq !== lastSeq || stored.background !== handle.index.background) {
                     await writeIndex(handle);
                     handle.notices.push({code: "index-rebuilt", detail: {from: stored?.throughSeq ?? -1, to: lastSeq}});
                 }

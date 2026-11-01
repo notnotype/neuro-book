@@ -36,9 +36,10 @@ export function advanceIndex(index: SessionIndexEntry, events: readonly LogEvent
 export function parseIndex(bytes: Uint8Array | null): SessionIndexEntry | null {
     if (bytes === null) return null;
     try {
-        const value = JSON.parse(new TextDecoder().decode(bytes)) as SessionIndexEntry;
-        // 加 `background` 之前写的索引没有它：当作读不懂、按日志重建，不在这里补默认值。
-        return typeof value === "object" && value !== null && typeof value.throughSeq === "number" && typeof value.background === "boolean" ? value : null;
+        const value = JSON.parse(new TextDecoder().decode(bytes)) as Omit<SessionIndexEntry, "background"> & {background?: boolean};
+        if (typeof value !== "object" || value === null || typeof value.throughSeq !== "number") return null;
+        // 加 `background` 之前写下的索引没有它：那时还没有后台会话，读作前台，列表照样列得出来、不必先打开。
+        return {...value, background: value.background === true};
     } catch {
         // 索引只是缓存：读不懂就当没有，调用方按日志重建并写诊断 index-rebuilt。
         return null;

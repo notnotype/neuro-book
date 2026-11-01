@@ -46,10 +46,11 @@ interface Internals {
     /** 插件贡献的扩展或 Profile 的代码变了、还没开始重新装配的部分（运行中时等这次运行结束）。 */
     pendingReassembly: Pending | null;
     /**
-     * 打开着时 Profile 解析不到了（`profilesChanged`）：会话进只读 `unknown-profile`，Profile 回来时重新装配即解除。
+     * 打开着时 Profile 解析不到了（`profilesChanged`）：会话进只读 `unknown-profile`，`before` 记下丢之前的只读原因（例如
+     * `tools-missing`）。之后的每次重新装配都重新解析，解析成功并装配完才回到 `before`，别的原因的只读不因 Profile 回来而解除。
      * 打开时就解析不到的会话（占位装配）不算：它没装上扩展、没跑恢复，要重开。
      */
-    profileLost: boolean;
+    profileLost: {readonly before: string | null} | null;
     /** 正在做的重新装配（含装上扩展）与它处理的变化。指令等它做完再受理，关闭等它做完再摘下（extensions.md 输出 19）。 */
     reassembling: {readonly promise: Promise<void>; readonly change: Pending} | null;
     /** 关闭进行中或已完成：重复与并发的 `closeSession` 等同一个。 */
@@ -127,7 +128,7 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
     const resources: Resources = {read: (uri) => currentResources.read(uri), resolve: (uri) => currentResources.resolve(uri)};
     const react: ReactHost = {environment: () => ({tools: tools(), model: modelInfo(), now: core.clock.now(), initial: initialOf()}), resources, session: context};
     const mounts = new Mounts(core, {...react, running: () => !control.idle});
-    const state: Internals = {core, control, react, mounts, box, environment, readOnly, closed: false, pendingReassembly: null, profileLost: false, reassembling: null, closing: null, settledWaiters: [], refreshContext: async () => {
+    const state: Internals = {core, control, react, mounts, box, environment, readOnly, closed: false, pendingReassembly: null, profileLost: null, reassembling: null, closing: null, settledWaiters: [], refreshContext: async () => {
         currentResources = env.resources(context());
         // 工具实现是按上一个 Profile 的上下文建的：全部释放，下次调用按新上下文重建。
         await box.retire([]);
@@ -594,66 +595,100 @@ function scheduleReassembly(state: Internals, env: SessionEnv): void {
     state.reassembling = {promise, change};
 }
 
+/**
+ * 一次重新装配。交回的 Promise 不会 reject：没有调用方在等它（插件发布、代码变化触发），关闭也等它；中途的任何失败都进只读
+ * 并写诊断（runtime.md 输出 57）。
+ */
 async function reassembleNow(state: Internals, env: SessionEnv, pending: Pending): Promise<void> {
+    try {
+        await reassembleOnce(state, env, pending);
+    } catch (error) {
+        // 写日志失败：句柄已进损坏状态，之后的指令得 log-broken。
+        if (error instanceof LogBrokenError) return;
+        // 宿主在重新装配中途失败（解析 Profile、建资源、建工具上下文）：日志与内存可能已是新装配、资源还是旧的，不再受理指令，
+        // 重开以日志为准。
+        state.readOnly = "reassembly-failed";
+        state.profileLost = null;
+        state.core.diagnostics.add({code: "reassembly-failed", entry: "host", message: "the host failed while reassembling after a plugin or profile change; the session is read-only until it is reopened", cause: error}, state.core.head);
+    }
+}
+
+async function reassembleOnce(state: Internals, env: SessionEnv, pending: Pending): Promise<void> {
     const {core} = state;
     // 打开时就解析不到 Profile 的会话装的是占位：没装扩展、没跑恢复，重新装配补不回来，要重开。
-    if (state.readOnly === "unknown-profile" && !state.profileLost) return;
+    if (state.readOnly === "unknown-profile" && state.profileLost === null) return;
+    const key = core.assembly.profile.id;
+    const current = core.assembly.profile;
+    // Profile 丢了时任何变化都重新解析：恢复只能凭一次成功的解析，不能拿丢之前的对象接着用。
+    let profile = current;
+    let lost = false;
+    if (pending.profile || state.profileLost !== null) {
+        const resolved = await env.profiles.resolve(key);
+        if (resolved === undefined) lost = true;
+        else profile = resolved;
+    }
+    if (state.closed) return;
     const pluginsChanged = pending.added.size > 0 || pending.removed.size > 0;
-    const reason = !pluginsChanged ? "code-updated" : pending.added.size > 0 && pending.removed.size > 0 ? "plugin-updated" : pending.added.size > 0 ? "plugin-added" : "plugin-removed";
-    let profile = core.assembly.profile;
-    if (pending.profile) {
-        const resolved = await env.profiles.resolve(profile.id);
-        if (resolved === undefined) {
-            // 解析不到：留着当前装配（只读，不会再跑），Profile 回来时再来一次。
+    if (lost) {
+        if (state.profileLost === null) {
+            state.profileLost = {before: state.readOnly};
             state.readOnly = "unknown-profile";
-            state.profileLost = true;
+            core.diagnostics.add({code: "unknown-profile", entry: "host", params: {profile: key, reason: "unknown-profile"}, message: `profile ${key} is no longer available; the session is read-only until it comes back`}, core.head);
+        }
+        // 解析不到：留着当前装配（只读，不会再跑），这批撤回的扩展照样摘下，撤回的 Promise 才能在清理之后完成。
+        if (!pluginsChanged) {
             core.revoked.clear();
-            core.diagnostics.add({code: "unknown-profile", entry: "host", params: {profile: profile.id, reason: "unknown-profile"}, message: `profile ${profile.id} is no longer available; the session is read-only until it comes back`}, core.head);
             return;
         }
-        profile = resolved;
     }
-    const assembled = assemble(profile, env.extensions?.() ?? []);
-    if (!assembled.ok) {
-        const problem = assembled.problems[0]!;
-        state.readOnly = "dependency-missing";
-        core.revoked.clear();
-        core.diagnostics.add({code: "dependency-missing", extension: problem.extension, entry: "assembly", params: {...(problem.dependency === undefined ? {} : {dependency: problem.dependency})}, message: `reassembling after a plugin change failed (${problem.message}); the session is read-only`, persisted: false}, core.head);
-        return;
-    }
-    const next = assembled.assembly;
-    // 重新装配整个做完才解除之前因依赖缺失、Profile 丢失进的只读（别的原因的只读，例如必需工具缺失，留到重开）。
+    // 重新装配整个做完才解除：先回到 Profile 丢之前的只读原因，再解除因依赖缺失进的只读（别的原因的只读留到重开）。
     const settled = () => {
-        if (state.readOnly === "dependency-missing" || (state.readOnly === "unknown-profile" && state.profileLost)) state.readOnly = null;
-        state.profileLost = false;
+        if (!lost && state.profileLost !== null) {
+            state.readOnly = state.profileLost.before;
+            state.profileLost = null;
+        }
+        if (state.readOnly === "dependency-missing") state.readOnly = null;
     };
-    // 哈希没变而 Profile 对象换了（改了提示词没升 version）：照样换上新对象，不写日志。会话不留着旧对象，旧的包才能回收。
-    const sameHash = next.hash === core.assembly.hash;
-    if (sameHash && profile === core.assembly.profile) {
-        core.revoked.clear();
-        settled();
-        return;
-    }
-    const from = core.assembly.hash;
-    try {
-        await core.queue.run(async () => {
-            if (!sameHash) await writeAndReact(core, [{type: "profileChanged", kind: "ctrl", scope: "session", data: {profile: profile.id, hash: next.hash, from, reason, manifest: next.manifest as unknown as JsonValue}}], state.react);
-            await state.mounts.unmountAll();
-            core.reassemble(next);
-            await state.refreshContext();
-            reportAssemblyWarnings(core);
-        });
-        await state.mounts.mountAll(state.environment);
-        await core.queue.drain();
-        settled();
-    } catch (error) {
-        // 写日志失败：句柄已进损坏状态，内存里的装配没换（profileChanged 没写下），之后的指令得 log-broken。
-        if (error instanceof LogBrokenError) return;
-        // 宿主在重新装配中途失败（建资源、建工具上下文）：日志与内存可能已是新装配、资源还是旧的，不再受理指令，重开以日志为准。
-        // 不往外抛：重新装配是插件发布或代码变化触发的，没有调用方在等它。
-        state.readOnly = "reassembly-failed";
-        core.diagnostics.add({code: "reassembly-failed", entry: "host", message: "the host failed while reassembling after a plugin or profile change; the session is read-only until it is reopened", cause: error}, core.head);
-    }
+    let requeued = false;
+    let mounting = false;
+    await core.queue.run(async () => {
+        // 等解析的这段时间里用户可能换了 Profile（`changeProfile` 也在这个队列里）：这次的结果作废，按现在的 Profile 再来一次。
+        if (core.assembly.profile.id !== key) {
+            state.pendingReassembly = mergePending(pending, state.pendingReassembly);
+            requeued = true;
+            return;
+        }
+        const assembled = assemble(profile, env.extensions?.() ?? []);
+        if (!assembled.ok) {
+            const problem = assembled.problems[0]!;
+            if (state.profileLost === null) state.readOnly = "dependency-missing";
+            core.revoked.clear();
+            core.diagnostics.add({code: "dependency-missing", extension: problem.extension, entry: "assembly", params: {...(problem.dependency === undefined ? {} : {dependency: problem.dependency})}, message: `reassembling after a plugin change failed (${problem.message}); the session is read-only`, persisted: false}, core.head);
+            return;
+        }
+        const next = assembled.assembly;
+        // 哈希没变而 Profile 对象换了（改了提示词没升 version）：照样换上新对象，不写日志。会话不留着旧对象，旧的包才能回收。
+        const sameHash = next.hash === core.assembly.hash;
+        if (sameHash && profile === core.assembly.profile) {
+            core.revoked.clear();
+            settled();
+            return;
+        }
+        if (!sameHash) {
+            // Profile 自己的版本变了就是代码更新，否则按插件的增减。
+            const reason = profile !== current && profile.version !== current.version ? "code-updated" : pending.added.size > 0 && pending.removed.size > 0 ? "plugin-updated" : pending.added.size > 0 ? "plugin-added" : pending.removed.size > 0 ? "plugin-removed" : "code-updated";
+            await writeAndReact(core, [{type: "profileChanged", kind: "ctrl", scope: "session", data: {profile: profile.id, hash: next.hash, from: core.assembly.hash, reason, manifest: next.manifest as unknown as JsonValue}}], state.react);
+        }
+        await state.mounts.unmountAll();
+        core.reassemble(next);
+        await state.refreshContext();
+        reportAssemblyWarnings(core);
+        mounting = true;
+    });
+    if (requeued || !mounting) return;
+    await state.mounts.mountAll(state.environment);
+    await core.queue.drain();
+    settled();
 }
 
 function reportAssemblyWarnings(core: SessionCore): void {
