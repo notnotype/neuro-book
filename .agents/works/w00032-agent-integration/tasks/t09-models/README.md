@@ -122,7 +122,8 @@ t02。
 - 第 4 片前端审查（Claude Sonnet，[`evidences/impl-review-slice4-sonnet.txt`](evidences/impl-review-slice4-sonnet.txt)）：重要 6、建议 19，全部成立并改（`b67c9aa4c`）。要点：检测的中止句柄移进数据模块（原先随页面卸载丢了，回来取消不了）、“检测全部”不重标正在单独检测的模型并只还原自己标的状态；没检成单独记、不算模型失败；快照交原对象（深只读代理放进载荷后 structuredClone 不了）；删除的焦点（取消与失败回到“删除”、按 id 找下一家、窄布局落到下拉）；编辑对话框只在打开时填表、模型被删时关掉；管理对话框按打开时的列表提交；草稿不打断正在编辑的输入、回车接失焦不重复写；地址与请求头名称校验；角色绑着不可用的模型时下拉补停用项；无障碍与文档订正；Lab 补场景；e2e 每条用例各起一套服务端，并补取消删除与删中间一家的焦点。Spec 输出 4、5、8 跟上。
 - 第 5 片：真实模型 `test:llm`（DeepSeek，经 `modelsKey.port()` 一轮，`aefd23ee5`）通过。服务端接管 OMP 的进程级处理、OMP 不进 bundle（决定 33 到 35）。
 - 已知的不稳定用例（与本 Task 无关，全量并行时偶发）：`plugin-sdk/examples/plugins/snippets/web/SnippetsPage.dom.test.ts` 的“本作品”标签一条、`src/plugins/explorer/browse.test.ts` 的“展开的目录改名”一条，单独重跑通过。
-- 下一步：全量 e2e 收口、对本 Task 的提交范围做一次实现审查（后端交 omp）。
+- 收口验证（2026-11-01，Work 分支 `b67c9aa4c`）：neuro-book 单元测试 1652 过（上面两条不稳定用例偶发）、vitest 410 过、nb-harness 323 过、类型检查与 governance 通过；全量 e2e 297 过、2 条标题栏布局用例（`lab-item-strip.e2e.ts:123`、`workbench-titlebar.e2e.ts:144`）在全量负载下失败、单独重跑通过；真实模型 `test:llm` 过。
+- 实现审查进行中：后端、内核与构建交 omp（报告 `/tmp/review-t09-impl/report.md`，会话在本地 `reports/omp-impl-review/`）。
 - **已解决的阻塞**（决定 33 到 35，`d7ff575ba`、`aa5805965`）：OMP 不打进 bundle、写进应用包依赖；服务端接管 OMP 的进程级处理。原先的记录：第 3 片把 OMP 带进了服务端进程，暴露两个问题，都源自“OMP 跑在服务端进程里”：
   1. **原生插件**：`@oh-my-pi/pi-catalog`、`pi-ai` 一被导入就加载 `pi_natives` 原生插件（每个平台约 122 MB）。打包后的服务端（`dist/server/*.js` 与应用包）按自己所在目录找 `native/`，找不到就启动即崩：产品 e2e 全部起不来服务（验证时临时把插件软链进 `dist/native/` 绕过），`cli.test.ts`、`pack-app.test.ts` 共约 30 条失败。应用包现在的合同是“单文件 bundle、清单没有依赖”。
   2. **进程级信号与异常处理**：`@oh-my-pi/pi-utils` 的 postmortem 在导入时就在主线程装上 SIGINT、SIGTERM、SIGHUP、`uncaughtException`、`unhandledRejection` 的处理，跑完自己的清理就以 130、143、129 硬退出，抢在服务端宿主的有序停止（排空、项目子进程先收口）之前；`server-projects.test.ts` 场景 14、15 因此失败。没有关闭它的开关（只在 Worker 线程里不装）。
