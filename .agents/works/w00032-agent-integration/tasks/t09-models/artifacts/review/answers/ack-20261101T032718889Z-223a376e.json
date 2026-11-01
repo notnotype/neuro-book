@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t09-models",
+    "artifactId": "review",
+    "ackId": "20261101T032718889Z-223a376e",
+    "answers": [
+        "20261101T032622804Z-b54436f6"
+    ],
+    "through": "20261101T032622804Z-b54436f6",
+    "included": [
+        ".agents/works/w00032-agent-integration/tasks/t09-models/README.md"
+    ],
+    "ackedAt": "2026-11-01T03:27:18.889Z"
+}
