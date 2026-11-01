@@ -17,7 +17,7 @@ export const manifest: NbThemeManifest = {
     description: "分层通透：窗体底纹透出来，侧栏比内容区更透，浮层最透；控件反而是实心的。密度高。",
     version: "1.0.0",
     author: "nb-ui",
-    hostVersion: "^0.2.0",
+    hostVersion: "^0.3.0",
     declares: [
         {
             name: "--glass-blur",

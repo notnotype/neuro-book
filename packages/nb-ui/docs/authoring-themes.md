@@ -40,7 +40,7 @@ export const manifest: NbThemeManifest = {
     tagline: "一句话定位",
     description: "一段话讲清它长什么样。市场列表页只能读 manifest，没有它就只剩一个名字。",
     version: "1.0.0",
-    hostVersion: "^0.2.0",
+    hostVersion: "^0.3.0",
 };
 ```
 
