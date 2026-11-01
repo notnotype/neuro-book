@@ -1,0 +1,56 @@
+## 本轮第二轮审查
+
+### O1：未解决
+- **结论**：未解决。3.3 只明确 `modelCaller` 把 `options.role` 转给 `resolve`，这修正了一个丢参点，但没有把角色接进内核的所有真实解析路径。
+- **依据**：当前 `SessionEnv.models` 仍是一个静态 `ModelPort`；`run/commands.ts:startProblem`、`run/loop.ts` 的 turn 与 compaction、`session/session.ts` 的 `modelInfo`/`compact`/`preview`、`session/preview.ts`、`session/complete.ts` 都直接调用 `resolve(settings, purpose)`，计划没有给这些调用点传 role，也没有新的 per-session port API 或调用上下文。计划表只写了 `port(defaults?)`，没有规定谁在 `createSession`/`openSession` 时创建它、如何放入 `SessionEnv.models`，也没有规定会话选择的 `settings.model`/`role` 怎样形成 `CoreSettings` 或 defaults。现有 `CoreSettings` 只有 `model`、`effort`、审批和只读，现有 Profile 类型也没有模型默认字段。
+- **用途核对**：`turn` 表写了“会话 settings.model → defaults.model → role defaults.role ?? main”，但 `commands` 的前置检查、循环实际请求、预览和 `complete()` 没有规定同一来源；`compaction`/`approval`/`background` 表写了角色名，却没有对应的调用方接口。`complete()` 仍以 `background` 解析，且计划未说明 Profile 参数怎样转换为 `port` defaults。
+- **Profile 变化**：`changeProfile` 当前只重装配会话、刷新资源和工具；计划没有说明它如何更新已有会话的模型端口/defaults。若 `port(defaults)` 在会话创建时只绑定一次，换 Profile 后会继续使用旧 defaults；若端口动态读取 Profile，则计划没有定义这个接口或生命周期。
+- **风险**：按字面实现可以让 `modelCaller` 的显式 role 生效，但普通 turn、预览、压缩受理检查、`complete()` 仍可走无角色解析；角色未绑定时的 `role-unbound` 也不能保证从这些用户可达入口返回。
+- **建议**：在计划中固定宿主与内核的接口：明确 `createSession/openSession` 如何按当前 Profile 创建每会话 `ModelPort`、defaults 的结构与更新点；将会话选择的 model/role 作为统一解析输入；逐项给 `commands.ts`、`loop.ts`、`session.ts`、`preview.ts`、`complete.ts` 和压缩/审批调用规定 role 来源；`changeProfile` 后原子更新 defaults/端口，并保留显式未绑定错误。
+
+### O2：部分解决
+- **结论**：部分解决，仍有实现合同缺口。计划已经把 `no-credentials` 的判定前移到同步快照，并明确“解析后、请求前被清掉”是 `auth/missing-key` 竞态；这条边界与现有收口基本一致，但快照的及时更新和非对话失败事件没有写完整。
+- **已解决依据**：计划 3.4 明确快照包含活动 API Key 服务商集合和 `apiKeyEnv` 在启动环境中是否有值，`resolve` 只据此返回 `no-credentials`。现有 `ompCall` 在真正调用前读取 `apiKey`，取不到返回 `auth`、`missing-key`；`run/loop.ts:241-273` 会在 `modelStarted` 已写下后把该回复写成 `modelFailed`，普通 turn 能区分“未开始请求的 `no-credentials`”与“已开始请求后的 `missing-key`”。
+- **未解决依据**：计划只给 `CredentialStore.onChange(listener)`，没有规定 `openCredentials` 何时完成初始 `credentials.reload`、何时发布首个快照，也没有规定 OMP 的 generation 变化如何串行重算。实际 OMP `CredentialsApi` 的 `list/get/has` 是内存快照上的同步操作，`set/remove` 在持久化并替换内存后才 bump generation；另有 `onGeneration`、`reload`、`poll`，但计划没有说明采用哪一个。按 O7 的取舍，外部凭据修改重启才生效可以成立，但“本进程唯一写者”必须明确写成 `set/remove` 完成后才更新端口快照，否则 `resolve` 可能观察旧集合。
+- **设置环境边界**：`apiKeyEnv` 的值来自不可变启动环境，变量值本身不需热更新；但设置项 `apiKeyEnv` 的改动必须触发快照重算。计划写了“任何一个变化”，没有指出由设置服务的哪条订阅、哪一个串行队列完成，也没有定义 `setKey` 同时修改设置与凭据时快照的中间态/代次。
+- **收口缺口**：现有 `modelCaller` 在 `resolve` 同步失败时直接返回错误响应，不写 `modelStarted`，也不写 `modelFailed`；只有解析成功后进入 `callModel`，才会写 `modelStarted` 并由 `modelCaller` 写 `modelFailed`。计划 3.3/3.4 又要求角色失败码进入 `modelFailed.error.code`，没有区分“没有发出请求所以不写事件”和“请求已开始后的失败”。这会让压缩、审批调用方无法仅靠事件判断同步 `no-credentials`/`role-unbound`，必须在合同中明确以返回值、压缩结果或诊断承载。
+- **建议**：给快照加明确的 ready/generation 语义：打开凭据库并完成初始加载后才创建可用端口；本进程 `set/remove` 完成后由 OMP `onGeneration` 或适配层通知，和设置变更在同一串行队列重算；外部库变更按 O7 明确只在重启时重读。逐种请求规定事件不变量：未通过 `resolve` 不写 `modelStarted`，已写 `modelStarted` 必有同请求号的 `modelFailed`/成功收口；若要求同步解析失败也进 `modelFailed`，则需先定义虚拟 request 或改事件合同。
+
+### O3：未解决
+- **结论**：未解决。把 `startup-env.ts` 作为 `server/main.ts`、`server/development-main.ts`、`server/testing/fixture-entry.ts` 的首条导入，足以覆盖这三个源码入口及其对应的生产 `main.js` bundle、开发后端和 e2e fixture；但计划漏了另一个实际服务端入口：CLI 生产产物 `dist/server/nbook.js`。
+- **已核对路径**：`packages/neuro-book/package.json` 的 `build:server` 会分别构建 `src/server/main.ts`、`src/project/main.ts`、`src/cli/main.ts`；`scripts/smoke-server.ts` 和 e2e 产品夹具只直接启动 `dist/server/main.js`，开发监督进程启动 `src/server/development-main.ts`，测试夹具启动 `src/server/testing/fixture-entry.ts`。这些路径由计划列出的三个入口覆盖。`project.js`/项目入口不承载服务端模型插件，计划声明不需要项目子进程快照在当前“模型只在服务端”取舍下可成立。
+- **遗漏事实**：`src/cli/main.ts` 静态导入 `nbook/manifest` 与 `./start`；`src/cli/start.ts` 又静态导入 `nbook/manifest`、`nbook/server/config`、`nbook/server/instance`、`nbook/server/process`，在同一 CLI 进程内直接调用 `runServerProcess`。因此 `dist/server/nbook.js` 是能启动服务端的独立打包入口，不会执行 `server/main.ts` 的首条 `startup-env` 导入。只在 manifest 或 server/start 上游放快照仍可能晚于 `@oh-my-pi/pi-utils`/模型插件的静态求值。
+- **Bun/ESM 判断**：对于列出的源码入口，只要 `startup-env.ts` 真正零依赖，ESM 的依赖图会先求值该模块，再求值后续导入；Bun 不需要也不会把有可观察副作用的 ESM 模块并行到破坏这个依赖顺序。问题不是并行求值，而是存在未纳入同一入口前置模块的 CLI 依赖图。
+- **风险**：用户以 `nbook start` 启动服务端时，快照顺序仍未保证，可能把 OMP 从家目录/agent 目录注入的 `.env` 当成插件启动环境；这与 ADR 0032 的“只认启动时环境”边界冲突。
+- **建议**：抽出唯一的零依赖服务端 bootstrap（或让 CLI 入口也以第一条导入加载同一 `startup-env`），并把 `src/server/main.ts`、开发入口、fixture、CLI 入口、构建后的 `main.js`/`nbook.js`、smoke/e2e 启动矩阵列入验收。若 CLI 明确不支持模型服务，需在 Spec 写出并证明它不会装载服务端插件；当前 `runServerProcess(productPlugins)` 不能据此排除。
+
+### O4：已解决
+- **结论**：已解决，前提是按计划的包装接口实现，不把 `credentials.has/get` 的语义直接误当成“API Key 专属”。计划已经明确只经 `AuthStorage.credentials.list/set/remove`，不再读 `auth_credentials` 私表。
+- **API 核对**：实际 OMP `CredentialsApi` 的 `list(provider?)` 返回同步的活动 `StoredAuthCredential[]`；`set(provider, credential)` 返回 `Promise<void>`，接受 `{type: "api_key", key}` 并执行 provider 级替换；`remove(provider)` 返回 `Promise<void>` 并移除该 provider 的全部活动凭据。计划的 `set`、`clear`（映射 `remove`）可以照此实现，`get` 可从 `list(provider)` 取 API-key 行并返回 `null`，不需要私有 SQL。`AuthStorage.close()` 实际是同步 `void`，包装成 `Promise<void>` 没有合同问题。
+- **必须保留的语义**：OMP 的 `credentials.has(provider)` 实际表示“有任意活动凭据”，包括 OAuth，不是“有 API Key”；`credentials.get(provider)` 是多条时取第一条的任意 `AuthCredential`。因此 `CredentialStore.has/get` 必须基于公开 `list` 明确筛选 `credential.type === "api_key"`，并规定多条 API Key 的选择顺序；不能直接调用 OMP 的 `has/get` 后强转。计划已把第一版限制为 API Key 并在 O6 接受 provider 级替换语义，剩余是实现时不能丢掉的细节。
+- **变更通知边界**：本进程 `set/remove` 会更新 OMP 内存池并触发 generation；计划的单状态根、单服务端写者和“外部工具改库需重启”取舍与“只靠本进程通知”一致。它不声称跨进程热更新，因此不是本轮 O4 阻断。
+
+### O10：部分解决
+- **结论**：部分解决，仍有阻断级合同缺口。计划已补上 `version: 1`、`provider: "server"`、`callers: ["browser"]`、读写属性，并利用 `effect: "write"`/`effect: "read"` 接上运行时的 `unknown-outcome`、`unavailable`、`timeout` 规则；但方法表还不是可实现的逐方法合同，且 `setKey` 的双写部分失败没有业务语义。
+- **已解决依据**：表中的 `write` 方法会在帧发出后断线统一得到 `unknown-outcome`，读方法由运行时按阶段得到 `unavailable`/`timeout`；计划也规定未知写结果后重取 `snapshot()`、`keyStatus()`，方向符合 `plugin-channel.md:85-94`。合同版本和提供方/调用方也已写出。
+- **业务码问题**：`catalogProviders()`、`catalogModels(provider)`、`snapshot()` 三个方法共用 `unknown-provider`，其中前两个（分别无 provider 参数、或只有后者可能有未知 provider）以及 `snapshot()` 不应按同一业务码声明；`keyStatus`、`setKey`、`clearKey` 只列 `unknown-provider`、`credentials-unavailable`，没有声明 `settings.update` 可能返回的 `invalid-value`、`write-failed`、`unavailable`/配置层失败如何映射，也没有给每个码的详情 schema。`check`/`checkAll` 的失败类别说放在结果里，但结果类型、`auth`、`unreachable`、`failed`、超时与取消的区分没有在计划表中定型。`defineRemoteService` 要求每个方法的 input/output/errors 是 TypeBox 合同，不能用“写进 Spec”替代逐方法形状。
+- **双写问题**：`setKey` 的 `env:` 分支要写 `apiKeyEnv` 并清除凭据，普通分支要写凭据并清除 `apiKeyEnv`。设置文件由 `nbook.settings` 的 user-layer owner 以自己的队列/文件锁写入，`nbook.models` 的“读最新值→合并→写回”只能经 `settingsKey.update`，不能另有文件写入队列。即便两边都走公开服务，设置更新与凭据 `set/remove` 不是一个事务：先成功的一半可能已经生效，后一半失败时计划只给 `credentials-unavailable`，没有回滚、补偿或返回“部分生效”的可观察状态；未知结果时重取两个快照也不能说明历史上是否短暂写入，只能说明当前状态。
+- **并发判断**：只要模型服务队列调用 `settings.update`，设置拥有者的输出 11–15 会继续负责授权、按键保留其它文本、跨拥有者锁和最终快照，二者不冲突；计划没有把这一调用路径写死，直接把“读最新值→写回”理解为插件自己改设置文件会违反 owner 合同。
+- **建议**：为每个方法列完整 TypeBox input/output/errors/详情，修正无关方法的错误码；明确 settings failure 到 models 业务码的映射和读方法的返回分类。把 `setKey` 建模为可观测的两阶段/补偿操作：记录目标代次，按固定顺序写入，失败后补偿并报告实际 `keyStatus`/设置快照；远程 unknown-outcome 后以快照作为唯一结算依据。计划中明确所有 providers/roles 改动经 `settingsKey.update`，不直接操作设置 owner 的文件。
+
+### 阻断：O12 的“只经服务端队列写入”与设置拥有者合同仍冲突
+- **位置**：`plan.md:86-95` 的 `nbook.models/providers`、`nbook.models/roles` 数组与“读最新值→合并→写回”队列；`docs/specs/settings/configuration.md:133-143,169-172`、`docs/specs/settings/settings-window.md:207-210,240`。
+- **现象**：计划把两个聚合数组声明为 `layers: ["user"]`，并声称浏览器不直接写、所有改动经 `nbook.models` 服务端队列按 id 打补丁。但既有设置合同允许官方设置窗口的“设置文件”视图经 `nbook.settings` 的 `writeText` 整份编辑用户层文件；该路径对所有已声明设置项开放，用户可以直接改这两个数组。设置拥有者按自己的文件队列和锁串行写，但不做数组元素级合并。
+- **为什么是问题**：模型服务从 `settings.get()` 读出旧数组后，在自己的队列里合并并调用 `settings.update`；若用户文件编辑在两步之间完成，后到的 `update` 会以旧数组整体覆盖用户刚写入的 provider/model/role。文件锁只能保证文本写入不同时发生，不能恢复数组项意图；“两窗口经服务端写入互不覆盖”的验收因此不覆盖官方设置文件编辑路径，用户会丢配置。
+- **如何核实**：在同一服务端对 `nbook.models/providers` 先读出数组 A；在模型服务合并前经设置文件视图 `writeText` 写入数组 B（保留一个用户新增项）；再让模型服务调用 `settings.update` 写回旧数组的单项修改；最终 user 层只剩模型服务基于旧快照的整体数组。现有 settings owner 的输出 13/24 只保证其它文本/修订号语义，不提供数组项 CAS。
+- **建议改法**：不要把多个可并发编辑的实体放进一个整体数组键；拆成稳定 id 的独立设置键，或给设置拥有者增加按 id 的原子 patch/CAS API，并让模型服务在 owner 队列内基于最新快照合并。若产品要禁止设置文件编辑这两个键，必须改变 settings 合同与窗口行为，而不是只在模型页面约束浏览器调用方；否则把直接文件编辑纳入冲突检测和可观察失败。
+
+## 核实记录
+- Bun ESM 顺序实验：`bun /tmp/t09-review-lab-2/main.ts`，输出 `startup=1`；证明零依赖的首条静态导入先于后续静态依赖求值，未发现 Bun 并行求值破坏该顺序。
+- 静态核对覆盖：服务端产品/开发/fixture 入口、生产 `main.js`、CLI `nbook.js`、开发监督进程、e2e fixture、`smoke-server.ts`、项目子进程入口；未安装依赖，未运行产品构建、e2e 或真实 RPC。
+
+## 数量
+- 阻断：5（O1、O2、O3、O10，以及 O12 处置引入的新阻断）。
+- 重要：0。
+- 建议：0。
+- 合计：5；O4 已解决，不计入问题数量。

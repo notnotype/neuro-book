@@ -50,6 +50,7 @@
 
 - `--settings-side-width` 212 → 176px：改 `SettingsWindow.vue`、`SettingsWindow.md`、Spec 输出 1、`settings.e2e.ts:524`（另加一条整窗几何断言）。分区条目被截断时悬停显示全名（`title` 或 Tooltip），Lab 加中英长标题各一个条目。
 - `nbook.models` 的两页上线后左栏出现“写作助手”组：改 `settings.e2e.ts:518` 的组标题断言（在切片 4）。
+- **比较后写入**（设计审查第二轮的新阻断）：`SettingUpdateOptions` 加 `expect?: unknown`：拥有者在自己的写入队列里拿本层当前值（按规范化文本）与 `expect` 比较，不一致返回新失败码 `conflict`、文件不变；不给 `expect` 时行为不变。这样插件“读最新值 → 合并 → 写回”不会盖掉同时从设置文件视图（`writeText`）或别处写入的内容。Spec `configuration.md` 加一条输出与失败码。
 - `SettingsPageContext` 加 `reportWriteFailure(subject, failure)`：页面写失败时交给窗口统一通知（同通用列表的文案与 `unknown-outcome` 的标题），页面不各发各的；Spec 输出 14 加一句。
 
 ### 3.3 `packages/nb-harness`：新子路径 `./models`
@@ -77,7 +78,18 @@ resolveEnvRef(name: string, env: StartupEnv): string | null;          // apiKeyE
 - `set` 用 OMP 的替换语义：同服务商的其它凭据（包括以后的 OAuth 行）被软删除。第一版库里只有本插件写的 API Key，Spec 写明；做 OAuth 时重议（O6）。
 - 凭据库在 `<状态根>` 下，只有本服务端写（ADR 0033：一个状态根一个服务端）；内存里的“哪些服务商有密钥”以本进程的写为准，库被外部工具改了要重启才生效，Spec 写明（O7 部分接受）。
 - `ompCall`：`apiKey` 改为 `() => string | Promise<string>`；新增 `secrets: () => readonly string[]`（本请求解析出的密钥与请求头值），全部进遮盖；服务商原文截到 8 KB、去控制字符、遮掉 URL 里的用户信息与查询串（O11）。改 `harness/models.md`。
-- 内核：`modelCaller` 把 `options.role` 交给 `host.resolve`（现在丢了，O1）；失败码 `unknown-model`、`role-unbound` 按 3.4 的传播表进 `api/codes.ts`、`commands.ts`、`preview.ts`、`complete()`，不再压成 `no-model`（O9）。
+- 内核（O1）：`ModelPort.resolve` 改成收一个对象 `resolve({settings, purpose, role?, profile})`，`profile` 是会话当前 Profile 的 key（`changeProfile` 之后自然是新的）。调用点逐个改：
+
+  | 调用点 | `purpose` | `role` |
+  |---|---|---|
+  | `run/commands.ts` 受理前检查、`run/loop.ts` 对话请求、`session/preview.ts` | `turn` | 不给 |
+  | `session/session.ts` 的 `modelInfo` | `turn` | 不给 |
+  | `run/loop.ts` 与 `session/session.ts` 的压缩（受理检查与请求） | `compaction` | 压缩方法声明的角色，没有不给 |
+  | `modelCaller`（压缩方法、审批钩子的 `ctx.model`） | 调用方给的 | `options.role`（现在丢了） |
+  | `session/complete.ts` | `background` | 不给 |
+
+  失败码 `unknown-model`、`role-unbound` 按 3.4 的传播表进 `api/codes.ts`、`commands.ts`、`preview.ts`、`complete()`，不再压成 `no-model`（O9）。
+- 事件不变量（O2）：`resolve` 失败时不写 `modelStarted`，也不写 `modelFailed`；`modelCaller` 把失败码放在交回的回复的 `error.code` 里（压缩方法、审批钩子据此处理），对话请求照现在的受理失败与运行收口。写了 `modelStarted` 的请求一定有同一请求号的结束或失败事件（现状，不变）。
 
 ### 3.4 `packages/neuro-book/src/plugins/models`（新插件 `nbook.models`）
 
@@ -92,19 +104,22 @@ resolveEnvRef(name: string, env: StartupEnv): string | null;          // apiKeyE
 - `nbook.models/roles`：`{items: [{id, axis, name, description, model: "<服务商>/<模型>" | null}]}`，缺省四档加“压缩”、都未绑定。
 - 请求头的值写进设置文件；名称像凭据（`authorization`、`x-api-key`、`api-key`，或含 `token`、`secret`、`key`）时，界面把值框变成密码框并提示改用 `env:变量名` 或“认证方式”（S17）。
 
-**写入只经服务端（O12、S9、S12）**：浏览器不直接写这两个设置项，所有改动调远程方法，按 id 打补丁；服务端用一个串行队列“读最新值 → 合并这一处 → 写回”。同一窗口里连着改、两个窗口同时改不同的项都不会互相覆盖；两个窗口改同一项的同一字段，后到的生效（Spec 写明）。外部直接改设置文件照常生效。
+**写入只经服务端（O12、S9、S12）**：浏览器不直接写这两个设置项，所有改动调远程方法，按 id 打补丁；服务端用一个串行队列，每次“`settings.get` 读本层当前值 → 合并这一处 → `settings.update(…, {expect: 读到的值})`”，得到 `conflict`（期间设置文件视图或外部改了文件）就重读重合并，最多 3 次，仍冲突报 `write-conflict`。写只经 `settingsKey.update`，不碰设置文件。同一窗口里连着改、两个窗口同时改不同的项、设置文件视图同时编辑，都不会互相覆盖；两处改同一项的同一字段，后到的生效（Spec 写明）。
 
 **服务端入口**（`backend/plugin.ts`，`location: "server"`，依赖 `settingsKey`、`stateRootKey`、`startupEnvKey`）：
 
 - 打开凭据库（目录 0700、文件尽量 0600，权限做不到的平台按 OMP 尽力而为并写诊断，O17）；入口停止时关闭。
-- **快照**：目录 + 两个设置项 + 凭据库的“哪些服务商有密钥” + 启动环境里 `apiKeyEnv` 有没有值；任何一个变化就重算，所以 `resolve` 同步（O2）。`resolve` 以快照报 `no-credentials`；解析后、请求前密钥被清掉的竞态由适配器报 `auth`／`missing-key`，Spec 写成已知竞态（模型请求已开始，按普通模型失败收口）。
+- **快照**（O2）：目录 + 两个设置项 + 凭据库里有 API Key 行的服务商（`credentials.list` 筛 `type === "api_key"`，不用 OMP 的 `has`／`get`，它们把 OAuth 也算上） + 启动环境里 `apiKeyEnv` 有没有值。入口激活时先打开凭据库并读完一次，再交出 `modelsKey`，之前没有可用的端口。重算排进写入用的同一个串行队列，触发点：设置的订阅（两个设置项变了）、本进程 `setKey`／`clearKey` 完成后。所以 `resolve` 同步，且本进程的写一完成就反映到解析里；外部工具改库按 O7 要重启。`resolve` 以快照报 `no-credentials`；解析后、请求前密钥被清掉的竞态由适配器报 `auth`／`missing-key`，Spec 写成已知竞态（模型请求已开始，按普通模型失败收口）。
 - **目录漂移**（O14）：引用的目录模型不在了，快照里保留这条引用并标 `missing`（原服务商与模型 id），`resolve` 给 `unknown-model`；角色页显示“原绑定 X 已不在目录”；写一条诊断。不做别名表。
 - **进程内服务 `modelsKey`**：
 
   ```ts
   interface ModelsService {
-      /** 给一个会话的模型端口；defaults 是 Profile 设置里的角色或模型（t05、t10 交来）。 */
-      port(defaults?: {readonly model?: string; readonly role?: string}): ModelPort;
+      /**
+       * 模型端口，所有会话共用一个。profileDefaults 按 Profile 的 key 给出 Profile 设置里的模型或角色（t05、t10 交来，
+       * 每次解析都调，所以换 Profile、改 Profile 设置都即时生效）；不给时没有 Profile 默认。
+       */
+      port(profileDefaults?: (profile: string) => {readonly model?: string; readonly role?: string}): ModelPort;
       snapshot(): ModelsSnapshot;          // 启用的模型、角色及其有效性，给 Composer、t10
       onChange(listener: () => void): () => void;
   }
@@ -114,27 +129,28 @@ resolveEnvRef(name: string, env: StartupEnv): string | null;          // apiKeyE
 
   | 用途 | 取模型 |
   |---|---|
-  | `turn`（含预览、`complete()`） | 会话里选的 `settings.model` → `defaults.model` → 角色 `defaults.role ?? "main"` |
+  | `turn`、`background`（含预览、`complete()`） | 调用方给的 `role` → 会话里选的 `settings.model` → Profile 默认的模型 → 角色（Profile 默认的角色，没有则 `main`） |
   | `compaction` | 调用方给的 `role` → `compaction` |
   | `approval` | 调用方给的 `role` → `fast` |
-  | `background` | 调用方给的 `role` → `main` |
 
   走到角色时未绑定 → `role-unbound`；绑定的模型不在或没启用、自定义模型缺上下文窗口 → `unknown-model`；没密钥 → `no-credentials`。`call` 内部用 `ompCall`，密钥异步取；密钥不出插件。
-- **失败码传播**（O9）：端口 → `send`／`start` 的受理结果、`complete()`、预览的 `PreviewUnavailable` 都原样保留 `unknown-model`、`role-unbound`；`modelCaller`（压缩、审批）把它写进 `modelFailed.error.code`。
-- **远程合同 `nbook.models/settings`**（`version: 1`，`provider: "server"`，`callers: ["browser"]`；每个方法的 TypeBox 输入输出与业务码写进 Spec，O10）：
+- **失败码传播**（O9）：端口 → `send`／`start` 的受理结果、`complete()`、预览的 `PreviewUnavailable` 都原样保留 `unknown-model`、`role-unbound`；`modelCaller`（压缩、审批）放在交回的回复的 `error.code` 里，不写事件（见 3.3 的事件不变量）。
+- **远程合同 `nbook.models/settings`**（`version: 1`，`provider: "server"`，`callers: ["browser"]`；每个方法的 TypeBox 输入、输出、业务码与详情写进 Spec 与 `shared/contracts.ts`，O10）。设置写入失败的映射：`invalid-value` 原样；`conflict` 重试后仍冲突为 `write-conflict`；层文件有错、写盘失败、连不上为 `settings-unavailable`（详情带设置的原码）。
 
-  | 方法 | 读写 | 业务码 |
-  |---|---|---|
-  | `catalogProviders()`、`catalogModels(provider)`、`snapshot()` | read | `unknown-provider` |
-  | `addProvider(input)`、`updateProvider(id, patch)`、`removeProvider(id)` | write | `unknown-provider`、`invalid-value`、`write-failed` |
-  | `upsertModel(provider, model)`、`removeModel(provider, id)`、`setModels(provider, changes)`（管理模型“完成”一次写） | write | 同上，加 `model-incomplete` |
-  | `setRole(id, model)`、`addRole(input)`、`removeRole(id)` | write | `unknown-role`、`builtin-role`、`invalid-value`、`write-failed` |
-  | `keyStatus(provider)` | read | `unknown-provider` |
-  | `setKey(provider, value)`、`clearKey(provider)` | write | `unknown-provider`、`credentials-unavailable` |
-  | `discover(provider)` | read | `no-credentials`、`not-supported`、`auth`、`unreachable`、`failed` |
-  | `check(provider, model)`、`checkAll(provider)` | read | `unknown-model`、`no-credentials`；结果里是通过或失败的类别、一句话与截断遮盖过的原文 |
+  | 方法 | 读写 | 输出 | 业务码 |
+  |---|---|---|---|
+  | `catalogProviders()` | read | 目录服务商列表 | 无 |
+  | `catalogModels(provider)` | read | 这家的目录模型 | `unknown-provider` |
+  | `snapshot()`、事件 `changed` | read | `ModelsSnapshot`（服务商、模型、角色及有效性、各服务商的密钥状态） | 无 |
+  | `addProvider(input)` | write | 生成的 id | `invalid-value`、`write-conflict`、`settings-unavailable` |
+  | `updateProvider(id, patch)`、`removeProvider(id)` | write | 无 | `unknown-provider`、`invalid-value`、`write-conflict`、`settings-unavailable` |
+  | `upsertModel(provider, model)`、`removeModel(provider, id)`、`setModels(provider, changes)` | write | 无 | 同上，加 `model-incomplete` |
+  | `setRole(id, model)`、`addRole(input)`、`removeRole(id)` | write | 无 | `unknown-role`、`builtin-role`、`invalid-value`、`write-conflict`、`settings-unavailable` |
+  | `setKey(provider, value)`、`clearKey(provider)` | write | 写后的密钥状态 | `unknown-provider`、`invalid-value`（`env:` 后不是变量名）、`credentials-unavailable`、`settings-unavailable`、`partially-applied` |
+  | `discover(provider)` | read | 候选模型 | `unknown-provider`、`no-credentials`、`not-supported`、`auth`、`unreachable`、`failed` |
+  | `check(provider, model)`、`checkAll(provider)` | read | 每个模型 `{ok: true} \| {ok: false, kind, message, raw}`（`kind` 照 `ModelErrorKind`，`raw` 截断遮盖过） | `unknown-provider`、`unknown-model` |
 
-  写方法遇到运行时的 `unknown-outcome`（帧已发出后断线）：页面先重取 `snapshot()`、`keyStatus()` 再决定显示什么。`setKey(value)` 里 `value` 以 `env:` 开头时改写 `apiKeyEnv` 并清掉库里的密钥，否则写库并清掉 `apiKeyEnv`。`checkAll` 并发上限 4（O15）；检测最大输出 min(32, 模型上限)、不带推理、超时 30 秒。
+  读方法的断线与超时照运行时（`unavailable`、`timeout`）；写方法帧发出后断线得 `unknown-outcome`，页面重取 `snapshot()` 作为唯一结算依据。`setKey` 改设置（`apiKeyEnv`）与凭据库两处，不是一个事务，靠优先级让中间态无害：解析时 `apiKeyEnv` 有值就用它、盖过库里的密钥。写原文密钥：先写库，再清 `apiKeyEnv`；写 `env:`：先写 `apiKeyEnv`，再删库里的密钥。后一步失败时前一步保留（按优先级，生效的总是最后一步想要的那个或更早的那个，不会混用），返回 `partially-applied`，详情带写后的实际密钥状态。`checkAll` 并发上限 4（O15）；检测最大输出 min(32, 模型上限)、不带推理、超时 30 秒。
 - 压缩角色的初值：第一次绑 fast 而压缩未绑时，`setRole` 在同一次写里把压缩设成同一个模型（t11 决定 3）。
 - 被角色用着的模型停用、移出，或它的服务商被删：服务端照写（不拦）；页面先确认（见 3.5）。
 
@@ -155,15 +171,15 @@ resolveEnvRef(name: string, env: StartupEnv): string | null;          // apiKeyE
 
 ### 3.6 启动环境快照（O3）
 
-新模块 `src/server/startup-env.ts`：只拷 `process.env`、不导入任何东西。它是每个服务端入口的第一条导入：`server/main.ts`、`server/development-main.ts`（每个 worker）、`server/testing/fixture-entry.ts`（ESM 按导入顺序先执行它的模块体，早于后面导入的 OMP）。`start.ts` 经宿主能力 `startupEnvKey`（只在服务端）交给插件。项目子进程不需要（模型只在服务端），Spec 写明。测试：真实子进程里家目录 `.env` 与当前目录 `.env` 各放一个键，快照只含后者与 shell 导出的。
+新模块 `src/server/startup-env.ts`：只拷 `process.env`、不导入任何东西。它是每个能起服务端的入口的第一条导入：`server/main.ts`、`server/development-main.ts`（每个 worker）、`server/testing/fixture-entry.ts`、`cli/main.ts`（`nbook start` 在同一进程里起服务端，O3 第二轮）。ESM 按导入顺序先执行它的模块体，早于后面导入的 OMP（第二轮用 Bun 实测过零依赖的首条导入先求值）。验收矩阵：源码的三个入口、构建后的 `dist/server/main.js` 与 `dist/server/nbook.js`、`smoke-server.ts`、e2e 夹具。`start.ts` 经宿主能力 `startupEnvKey`（只在服务端）交给插件。项目子进程不需要（模型只在服务端），Spec 写明。测试：真实子进程里家目录 `.env` 与当前目录 `.env` 各放一个键，快照只含后者与 shell 导出的。
 
 ## 4. Spec 与文档改动
 
 - 新 Spec `docs/specs/models/service.md`（`models.service`，planned）：配置形状与校验（id 规则、自定义模型的完整性）、凭据（存放、`apiKeyEnv`、替换语义、单写者、权限尽力而为）、快照与解析表、失败码与传播、目录漂移、写入只经服务端与并发、远程合同逐方法、检测与发现、遮盖与截断、启动环境。
 - 新 Spec `docs/specs/models/settings-pages.md`（`models.settings-pages`，planned）：两页的交互合同，编号条目逐条映射到测试。
 - `docs/specs/README.md` 注册表加两行。
-- `harness/models.md`：`apiKey` 可异步、`secrets` 全遮盖与原文截断；`role-unbound`；“不承诺”里改为链接 `models/service.md`。`harness/runtime.md`：`send`、`start`、预览的失败码加 `unknown-model`、`role-unbound`。
-- `settings/configuration.md` 输出 20：第一个使用者 `nbook.models` 用自己的凭据库，设置项的 `secret` 仍登记即拒。
+- `harness/models.md`：`ModelPort.resolve` 的新签名（对象、带 `profile` 与 `role`）；`apiKey` 可异步、`secrets` 全遮盖与原文截断；`role-unbound`；“不承诺”里改为链接 `models/service.md`。`harness/runtime.md` 与 `harness/extensions.md`：解析失败不写模型事件的不变量、`ctx.model` 的 `role`。`harness/runtime.md`：`send`、`start`、预览的失败码加 `unknown-model`、`role-unbound`。
+- `settings/configuration.md` 输出 20：第一个使用者 `nbook.models` 用自己的凭据库，设置项的 `secret` 仍登记即拒；另加一条输出与失败码：`update` 的 `expect` 比较后写入与 `conflict`。
 - `settings/settings-window.md`：输出 1 改 176px；输出 3 写“fill 页面可以自己左右分栏（例：服务商与模型）”，输出 19 改成“本组件不做左右分栏”（S22）；输出 14 加页面的 `reportWriteFailure`。
 - `docs/specs/theme/system.md` 第 2 层：加两个新变量与缺省回落。
 - `docs/proposals/model-roles-contract.md` 末尾追加决策记录：角色进 `nbook.models` 的设置项、专精种子只有“压缩”、`role-unbound`、Profile 默认经 `port(defaults)`。
@@ -174,9 +190,9 @@ resolveEnvRef(name: string, env: StartupEnv): string | null;          // apiKeyE
 | # | 内容 | 关键设计 | 自跑验证 |
 |---|---|---|---|
 | 0 | Work 分支合入最新 master；`plugins/models` 骨架与登记（入口为空、两页声明在） | — | `typecheck`、`architecture.test.ts`；`settings.e2e.ts` 的组标题断言随之改 |
-| 1 | nb-ui 分档与嵌套；分区栏 176px；`reportWriteFailure`；文档 | 3.1、3.2 | nb-ui 测试与 `typecheck`；e2e 计算样式（3.1 验收，亮、暗、减少透明度）；`settings.e2e.ts`；前端审查（Sonnet） |
+| 1 | nb-ui 分档与嵌套；分区栏 176px；`reportWriteFailure`；设置的 `expect` 比较后写入；文档 | 3.1、3.2 | nb-ui 测试与 `typecheck`；e2e 计算样式（3.1 验收，亮、暗、减少透明度）；`settings.e2e.ts`；前端审查（Sonnet） |
 | 2 | nb-harness `./models` 与 exports；凭据库；`ompCall` 的异步密钥、全遮盖与截断；内核 `modelCaller` 转交角色与失败码传播 | 3.3 | 本机 OpenAI 兼容端点（真 HTTP）：发现、检测、三种认证、地址覆盖、回显密钥与请求头值的错误被遮、超大原文截断；凭据库真文件：设置、替换、清除、两个连接；内核：带角色的 `ctx.model`、`role-unbound` 到 `send`／预览／`complete()` |
-| 3 | 启动环境快照；`nbook.models` 服务端：设置项与校验、写入队列、快照、端口与解析表、远程合同 | 3.4、3.6 | 真实子进程测启动环境；插件测试（设置场地 + 真凭据库 + 本机端点）：解析表各分支与失败码、目录漂移、两个窗口经真实 RPC 并发写不同项都保留、写方法帧发出后断线得 `unknown-outcome` 再重取、密钥与请求头值不出现在任何远程响应与诊断 |
+| 3 | 启动环境快照；`nbook.models` 服务端：设置项与校验、写入队列、快照、端口与解析表、远程合同 | 3.4、3.6 | 真实子进程测启动环境（验收矩阵见 3.6）；写入期间经设置文件视图改文件后重试不丢内容；`setKey` 后一步失败的 `partially-applied`；插件测试（设置场地 + 真凭据库 + 本机端点）：解析表各分支与失败码、目录漂移、两个窗口经真实 RPC 并发写不同项都保留、写方法帧发出后断线得 `unknown-outcome` 再重取、密钥与请求头值不出现在任何远程响应与诊断 |
 | 4 | 数据模块与页面组件；Lab | 3.5 | 组件 `*.dom.test.ts`；e2e：添加自定义服务商（本机端点）、设密钥与 `env:`、拉取并加入模型、补字段后启用、检测失败看原因、绑角色、停用被角色用的模型的确认、删除服务商与焦点、本作品标签下停用、窄窗口下拉、写失败通知；前端审查（Sonnet） |
 | 5 | 接真实模型：`modelsKey.port()` 跑一轮（DeepSeek，`test:llm`）；收口 | — | `test:llm`；`test:affected`；全量 e2e |
 
