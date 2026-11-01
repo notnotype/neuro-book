@@ -30,14 +30,40 @@ ul.notes li { font-size: 14px; }
 </style>
 </head>
 <body>
-<h1>模型服务的设置页：第四轮静态稿</h1>
+<h1>模型服务的设置页：最后一轮静态稿</h1>
 <p class="lead">第四轮按第三轮的答复改：连接一节更紧凑（说明收进标题旁的“?”），加默认收起的“高级”（认证方式、请求头，照 omp 的 models.yml），目录服务商也能改地址走中转站；叠在设置窗口上的对话框做了三种面，垫一张有硬边与文字的背景图对比。这几种在 Lab 里也能直接看：Component Lab → <code>ModelSettingsDraft</code>，场景名以“连接”“对话框的面”开头的几个。</p>
 
 <h2>待定</h2>
+<section class="q" data-nbdev-question="final-r5" data-nbdev-type="confirm">
+  <h3><span class="badge todo" data-nbdev-skip>待定</span>补齐的几处按这几张图做</h3>
+  <p>浮层面已按决定 27（小浮层 72%、一级 90%、二级 90%）。保存方式按决定 29：改了就写，没有保存栏。</p>
+  <ul class="notes">
+    <li><b>添加服务商</b>：OMP 目录约 50 家，菜单放不下，改成可搜索的对话框；已添加的停用并标出；本机端点标“不要密钥”；只能登录（OAuth）的停用并写“第一版不支持”；最下面是自定义 OpenAI 兼容服务商。</li>
+    <li><b>删除服务商</b>：确认框写明去掉几个模型、密钥一起删、哪些角色会变成未绑定。</li>
+    <li><b>检测失败</b>：行里的红色图标点开看原因（归类后的一句话、服务商原文、重新检测）；左栏这家标“有模型检测失败”。</li>
+    <li><b>开箱</b>：还没有服务商时右边是引导，左栏只有“全部模型”与“添加服务商”。</li>
+    <li><b>窄窗口</b>（页面不到 600px）：左栏收起，换成顶上的服务商下拉加“添加”。</li>
+  </ul>
+  <div class="grid">
+    <figure><img src="r7/final-add.webp" alt="添加服务商"><figcaption><b>添加服务商</b></figcaption></figure>
+    <figure><img src="r7/final-delete.webp" alt="删除服务商的确认"><figcaption><b>删除服务商的确认</b></figcaption></figure>
+    <figure><img src="r7/final-check.webp" alt="检测失败的详情"><figcaption><b>检测失败的详情</b></figcaption></figure>
+    <figure><img src="r7/final-empty.webp" alt="还没有服务商"><figcaption><b>还没有服务商</b></figcaption></figure>
+    <figure><img src="r7/final-anthropic.webp" alt="服务商详情"><figcaption><b>服务商详情</b></figcaption></figure>
+    <figure><img src="r7/final-edit.webp" alt="编辑模型"><figcaption><b>编辑模型</b>（二级 90%）</figcaption></figure>
+    <figure><img src="r7/final-anthropic-dark.webp" alt="暗色：服务商详情"><figcaption><b>暗色：服务商详情</b></figcaption></figure>
+    <figure><img src="r7/final-delete-dark.webp" alt="暗色：删除确认"><figcaption><b>暗色：删除确认</b></figcaption></figure>
+    <figure><img src="r7/final-edit-dark.webp" alt="暗色：编辑模型"><figcaption><b>暗色：编辑模型</b></figcaption></figure>
+    <figure><img src="r7/final-anthropic-phone.webp" alt="窄窗口：服务商详情"><figcaption><b>窄窗口：服务商详情</b></figcaption></figure>
+    <figure><img src="r7/final-empty-phone.webp" alt="窄窗口：还没有服务商"><figcaption><b>窄窗口：还没有服务商</b></figcaption></figure>
+  </div>
+</section>
+
+<h2>已定</h2>
 
 
 
-<section class="q" data-nbdev-question="connect-r4" data-nbdev-type="confirm">
+<section class="q">
   <h3><span class="badge todo" data-nbdev-skip>待定</span>连接一节按第四轮的稿做</h3>
   <p>行距收紧；API 密钥、接口地址的说明收进标题旁的“?”（悬停看），只有出错（例如环境变量没设置）才在下面写一行。接口地址的“?”里写实际的请求地址。目录服务商的地址也能改（走中转站），改过时出现“恢复目录地址”，模型的能力与单价仍按目录。</p>
   <p>“高级”默认收起：认证方式（按接口格式、Authorization: Bearer、不要认证）与服务商级的请求头（一行一个名称和值）；模型级的请求头在编辑对话框的“高级”里，与服务商的同名时用模型的。请求头的值写进设置文件；放令牌一类的值，打算像密钥一样支持 <code>env:变量名</code>。</p>
@@ -48,7 +74,7 @@ ul.notes li { font-size: 14px; }
   </div>
 </section>
 
-<h2>已定</h2>
+
 <section class="q">
   <h3><span class="badge done">已定</span>浮层面三档：小浮层 72%、一级对话框 90%、二级对话框 90%</h3>
   <p>开发者 2026-11-01 在 Lab 的“调面板”场景里拖滑块挑定：菜单、下拉、弹出框这类小浮层 72%；设置窗口这类一级对话框 90%；叠在一级上的二级对话框也是 90%、仍是玻璃。下面两节是挑定之前的候选。</p>
@@ -194,11 +220,6 @@ ul.notes li { font-size: 14px; }
   </div>
 </section>
 
-<h2>之后再出的</h2>
-<ul class="notes">
-  <li>保存方式：密钥写进凭据库是即时的；服务商与模型的配置是即时写入，还是改进草稿、点保存栏才写。</li>
-  <li>“添加服务商”的菜单、检测失败的说明、删除服务商的确认（列出会变成未绑定的角色）、开箱时的空状态。</li>
-  <li>暗色与窄窗口。</li>
-</ul>
+
 </body>
 </html>
