@@ -16,7 +16,7 @@ owners:
 明确不承诺：
 
 - 不保证代码一定被回收：回收依赖运行时行为，失效时退回“旧代码保留到重启”，热插拔 L1 的承诺不受影响。
-- 不在 State Root 中解析 `node_modules`，不在运行期编译 TypeScript、Vue SFC 或 JSX。
+- 不在 State Root 中解析 `node_modules`，不在运行期编译 TypeScript、Vue SFC 或 JSX。例外：用户自己写的 Agent Profile 在运行期打包（[`agent/contributions.md`](../agent/contributions.md) 输出 9），外部导入的检查与本 Spec 相同。
 - 内置插件的代码随产品构建静态进入镜像，不经本能力装载。
 - 第一版不隔离第三方界面（不使用 iframe）；以后引入隔离时公开 API 不变。
 
@@ -24,7 +24,7 @@ owners:
 
 - **服务端入口代码**：SDK 构建预设生成的单文件 ESM，只导出 `activate`（入口的声明以清单为准）；依赖打进文件，SDK、`@vue/reactivity`、TypeBox 与 Node、Bun 的内置模块留作外部引用，由宿主以运行期模块提供同一份。
 - **浏览器入口代码**：构建预设生成的登记工厂：CommonJS 模块体包在工厂函数 `factory(module, exports, require)` 里，脚本执行时调用宿主的登记函数交出工厂；入口每次激活，宿主调用一次工厂，得到一份新的模块实例。工厂同步执行，浏览器入口的代码不能用顶层 await（构建失败并说明原因，放进 `activate`）；工厂函数体是严格模式（与作者写的 ES 模块、服务端产物一致）；`import.meta.url` 是这个脚本的 URL；产物压缩，带 source map（源文件路径相对作者目录）。插件自己的动态导入内联进同一个文件，共享模块的动态导入与静态导入一样经工厂的 `require` 取。
-- **宿主模块表**：两端宿主给插件代码的共享模块。浏览器在第一次装载第三方入口时建立并冻结（没有第三方浏览器入口的窗口不取它；取不到时下一次激活重新取），含 `vue`、`@vue/reactivity`、`typebox`、`typebox/value`、`typebox/compile`、SDK 的全部子路径（`@notnotype/nb-plugin-sdk` 与 `/text`、`/text/browser`、`/state`、`/storage`、`/settings`、`/settings/browser`、`/commands`、`/workbench`、`/components`；组件与 `/text/browser` 的 `useText` 是宿主自己用的那一份 nb-ui，`useText` 注入的键因此与窗口根上提供翻译端口的是同一个值）；服务端与项目实例含 `@vue/reactivity`、TypeBox 的这三个说明符与 SDK 里服务端能用的子路径（根入口与 `/text`、`/state`、`/storage`、`/settings`、`/commands`；后端不加载界面框架）。服务端入口导入了只给浏览器的子路径时，“未共享”的报错附上原因。TypeBox 的其它子路径不共享。SDK 的子路径在模块表里各占一项，名单与 SDK 的子路径表一致。Vue 与 `@vue/reactivity` 必须是宿主那一份：两份响应式系统互相看不见，`computed` 不更新、`watch` 不触发，也不报错。
+- **宿主模块表**：两端宿主给插件代码的共享模块。浏览器在第一次装载第三方入口时建立并冻结（没有第三方浏览器入口的窗口不取它；取不到时下一次激活重新取），含 `vue`、`@vue/reactivity`、`typebox`、`typebox/value`、`typebox/compile`、SDK 的全部子路径（`@notnotype/nb-plugin-sdk` 与 `/text`、`/text/browser`、`/state`、`/storage`、`/settings`、`/settings/browser`、`/commands`、`/workbench`、`/components`；组件与 `/text/browser` 的 `useText` 是宿主自己用的那一份 nb-ui，`useText` 注入的键因此与窗口根上提供翻译端口的是同一个值）；服务端与项目实例含 `@vue/reactivity`、TypeBox 的这三个说明符与 SDK 里服务端能用的子路径（根入口与 `/text`、`/state`、`/storage`、`/settings`、`/commands`、`/agent`、`/agent/jsx-runtime`；后端不加载界面框架）。服务端入口导入了只给浏览器的子路径时，“未共享”的报错附上原因。TypeBox 的其它子路径不共享。SDK 的子路径在模块表里各占一项，名单与 SDK 的子路径表一致。Vue 与 `@vue/reactivity` 必须是宿主那一份：两份响应式系统互相看不见，`computed` 不更新、`watch` 不触发，也不报错。
 - **纯度检查**：构建预设按打包器的模块图检查两端的产物：打进了宿主那一份 Vue（`vue`、`@vue/reactivity`、`@vue/runtime-core`、`@vue/runtime-dom`）、nb-ui、SDK、内核或 TypeBox 的实现，或者外部引用（静态与动态导入）不在本位置的宿主模块表里（“未共享”），构建失败。其它无状态的 `@vue/*` 工具包（`@vue/shared`、`@vue/devtools-api`）照常打进插件。
 - **位置核对**：插件描述的 `locations` 与实际导出了插件定义的入口位置要一致：有入口的位置没写进 `locations`，或写了却没有那个位置的入口，构建失败并说明改哪里。只在没有别的构建问题时核对（入口模块读不出来时不另报一条误导的位置问题）。
 - **插件样式**：清单的 `style` 指向一份样式表。构建预设把各入口的样式合并后包进 `@layer components`（与宿主组件样式同层，宿主的原子类仍能覆盖插件组件），并为插件用到的 Lucide 图标类（`i-lucide-<名字>`）生成规则：宿主只为自己源码里出现过的类名生成规则，插件不能依赖宿主的原子类。扫描清单本身（声明里的图标）与各位置入口模块图里的源码（含打进来的依赖）；别的图标集的类名给构建警告，拼接出来的类名找不到。

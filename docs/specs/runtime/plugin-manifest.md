@@ -69,7 +69,7 @@ owners:
 
 `contracts` 与 `contributionPoints[].schema` 里的 schema 只能是纯 JSON Schema：`type` 是 JSON Schema 的类型、`format` 是标准 format、正则合法，`$ref` 只指向同一份 schema 里的位置或 `$id`（宿主不装载外部引用），不能用 TypeBox 的 `Refine`、`Codec` 或插件自己注册的 format。按关键字的语义检查：`properties` 这类映射的值才是 schema，`const`、`enum`、`default`、`examples` 里的是数据，属性名叫 `type`、`format` 不受限制。这些写法进不了 JSON：宿主按清单校验时会悄悄变宽，同一个插件内置与外置时结果不同。构建预设遇到它们构建失败；清单里出现不合法的 schema 时清单无效。
 
-激活事件由插件定义，内核不规定事件种类（2026-10-06 开发者修订）。内核只认识 `onStartup`；其它事件写作 `<前缀>:<参数>`，前缀由拥有者插件在 `activationEventPrefixes` 中声明，例如 `nbook.commands` 的 `onCommand:<命令 id>`、`nbook.workbench` 的 `onView:<视图 id>`、`nbook.agent` 的 `onAgentTool:<工具名>`。内核保留前缀 `onRemote`：`onRemote:<合同 id>` 在该远程服务首次被调用时激活提供它的入口，插件不能声明这个前缀。拥有者在需要时请内核触发自己前缀下的事件，内核激活本运行位置上声明了该事件的入口并逐个返回结果；新增激活方式只需新的拥有者声明前缀，不改内核。与本入口贡献对应的激活事件可以由 SDK 构建预设生成；手写清单与生成的清单同等有效，合同以清单为准。
+激活事件由插件定义，内核不规定事件种类（2026-10-06 开发者修订）。内核只认识 `onStartup`；其它事件写作 `<前缀>:<参数>`，前缀由拥有者插件在 `activationEventPrefixes` 中声明，例如 `nbook.commands` 的 `onCommand:<命令 id>`、`nbook.workbench` 的 `onView:<视图 id>`、`nbook.agent` 的 `onAgentTool:<工具 id>`。内核保留前缀 `onRemote`：`onRemote:<合同 id>` 在该远程服务首次被调用时激活提供它的入口，插件不能声明这个前缀。拥有者在需要时请内核触发自己前缀下的事件，内核激活本运行位置上声明了该事件的入口并逐个返回结果；新增激活方式只需新的拥有者声明前缀，不改内核。与本入口贡献对应的激活事件可以由 SDK 构建预设生成；手写清单与生成的清单同等有效，合同以清单为准。
 
 前置条件：
 
