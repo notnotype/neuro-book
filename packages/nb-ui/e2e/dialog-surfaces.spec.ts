@@ -65,6 +65,30 @@ test("二级对话框与叠在对话框上的确认框：圆角不大于窗口�
     expect(await alphaOf(alert)).toBeCloseTo(0.9, 2);
 });
 
+// nbook 里二级与一级同为 90%、确认框圆角又等于窗口圆角，从外观分不出嵌套生没生效；probe 场景把二级那档改成 50%，
+// 相关圆角改成与窗口不同的值（见夹具），验“二级读二级那档、圆角收到窗口那档”这条机制。
+test("二级读二级那档：对话框里的对话框、对话框里的确认框、浮动窗口里的浮动窗口", async ({page}) => {
+    await gotoScene(page, "nested-probe", "nbook-light");
+    const inner = page.locator("[data-fixture-inner]");
+    await settled(inner);
+    expect(await alphaOf(outerDialog(page)), "一级对话框不受影响").toBeCloseTo(0.9, 2);
+    expect(await alphaOf(inner), "二级对话框").toBeCloseTo(0.5, 2);
+
+    await gotoScene(page, "alert-probe", "nbook-light");
+    const alert = page.getByRole("alertdialog");
+    await settled(alert);
+    const windowRadius = await page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--radius-window")));
+    expect(await alphaOf(alert), "叠在对话框上的确认框").toBeCloseTo(0.5, 2);
+    expect(await radius(alert), "确认框圆角（一级时是 20px）收到窗口那档").toBe(windowRadius);
+
+    await gotoScene(page, "window-probe", "nbook-light");
+    const innerWindow = page.locator("[data-fixture-inner]");
+    await settled(innerWindow);
+    expect(await alphaOf(outerDialog(page)), "一级浮动窗口").toBeCloseTo(0.9, 2);
+    expect(await alphaOf(innerWindow), "二级浮动窗口").toBeCloseTo(0.5, 2);
+    expect(await radius(innerWindow), "二级浮动窗口仍是窗口那档，不取更小的对话框圆角（8px）").toBe(windowRadius);
+});
+
 test("减少透明度：菜单、对话框与二级对话框都是实心，不模糊", async ({page}) => {
     // Playwright 的 emulateMedia 还不收这个特性，经 Chrome 的调试协议设（配置只跑 Chromium）。
     const session = await page.context().newCDPSession(page);
@@ -77,7 +101,26 @@ test("减少透明度：菜单、对话框与二级对话框都是实心，不�
     await settled(menu);
     expect(await alphaOf(menu), "菜单").toBe(1);
 
-    await gotoScene(page, "nested", "nbook-dark");
+    for (const colorway of ["nbook-light", "nbook-dark"] as const) {
+        await gotoScene(page, "nested", colorway);
+        const inner = page.locator("[data-fixture-inner]");
+        await settled(inner);
+        for (const [name, surface] of [["一级对话框", outerDialog(page)], ["二级对话框", inner]] as const) {
+            expect(await alphaOf(surface), `${colorway} ${name}`).toBe(1);
+            await expect(surface, `${colorway} ${name}`).toHaveCSS("backdrop-filter", "none");
+        }
+    }
+});
+
+test("高对比度：菜单、对话框与二级对话框都是实心，不模糊", async ({page}) => {
+    await page.emulateMedia({contrast: "more"});
+    await page.goto("/acceptance/popup-lists?scene=material&theme=nbook&colorway=nbook-dark");
+    await page.locator("[data-fixture-dropdown-trigger]").click();
+    const menu = page.locator("[data-fixture-dropdown]");
+    await settled(menu);
+    expect(await alphaOf(menu), "菜单").toBe(1);
+
+    await gotoScene(page, "nested", "nbook-light");
     const inner = page.locator("[data-fixture-inner]");
     await settled(inner);
     for (const [name, surface] of [["一级对话框", outerDialog(page)], ["二级对话框", inner]] as const) {

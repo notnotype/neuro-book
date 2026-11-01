@@ -627,7 +627,7 @@ test("设置文件视图：看到带注释的全文，改主题后 Ctrl+S 保存
     expect(problems).toEqual([]);
 });
 
-test("Lab 左栏长标题：截断显示省略号，悬停时 Tooltip 给全名；没截断的分区悬停不出提示", async ({page}) => {
+test("Lab 左栏长标题：截断显示省略号，悬停时 Tooltip 给全名；没截断的分区聚焦也不出提示", async ({page}) => {
     const devRoot = join(tmp, "dev-long-titles");
     await mkdir(devRoot, {recursive: true});
     const dev = await startDevSession(devRoot);
@@ -642,6 +642,8 @@ test("Lab 左栏长标题：截断显示省略号，悬停时 Tooltip 给全名�
             const label = item.locator(".settings-window__nav-text");
             await expect(label).toHaveText(full);
             expect(await label.evaluate((element) => element.scrollWidth > element.clientWidth), `${full} 被截断`).toBe(true);
+            // 窗口量过截断之后才放开提示（data-settings-nav-truncated）；在那之前悬停，Tooltip 不会补开。
+            await expect(item).toHaveAttribute("data-settings-nav-truncated", "");
             await item.hover();
             await expect(tooltip).toContainText(full);
             await page.mouse.move(0, 0);

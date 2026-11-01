@@ -106,11 +106,21 @@ const navItems = computed(() => model.nav.value.flatMap((group) => group.items))
 const navRef = ref<HTMLElement | null>(null);
 const truncated = ref<ReadonlySet<string>>(new Set());
 
+/**
+ * 文字比自己的框宽：比文字范围与框的实际宽度。`scrollWidth`、`clientWidth` 取整，不到 1px 的溢出量不出来，而浏览器
+ * 照样画省略号。
+ */
+function overflows(label: HTMLElement): boolean {
+    const range = document.createRange();
+    range.selectNodeContents(label);
+    return range.getBoundingClientRect().width > label.getBoundingClientRect().width + 0.01;
+}
+
 function measureTruncation(): void {
     const next = new Set<string>();
     for (const element of navRef.value?.querySelectorAll<HTMLElement>("[data-settings-nav]") ?? []) {
         const label = element.querySelector<HTMLElement>(".settings-window__nav-text");
-        if (label !== null && label.scrollWidth > label.clientWidth) next.add(element.dataset.settingsNav ?? "");
+        if (label !== null && overflows(label)) next.add(element.dataset.settingsNav ?? "");
     }
     if (next.size !== truncated.value.size || [...next].some((id) => !truncated.value.has(id))) truncated.value = next;
 }
@@ -316,6 +326,7 @@ function onLeaveOpen(open: boolean): void {
                                     :aria-current="isCurrent(item) ? 'page' : undefined"
                                     :data-settings-nav="item.id"
                                     :data-settings-nav-current="item.id === model.section.value ? '' : undefined"
+                                    :data-settings-nav-truncated="truncated.has(item.id) ? '' : undefined"
                                     @click="navDisabled(item) || model.select(item.id)"
                                 >
                                     <span :class="item.icon" class="settings-window__nav-icon" aria-hidden="true"></span>

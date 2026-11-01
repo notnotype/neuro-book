@@ -180,7 +180,7 @@ input.nb-ui-native-input[type="number"] {
  * 浮层面板外观基座（与 theme/z-index.ts 的 NB_Z_INDEX 对称的登记处）。
  * DropdownMenu / Select / ContextMenu / Tooltip / Dialog 的浮层面板统一从这里取
  * 边框、圆角、底色、阴影与磨砂；新增浮层组件请消费此类，不要再复制这一组属性。
- * 对话框的两种用法都在这一层之上只加 `.nb-ui-dialog-surface` 换圆角与投影。
+ * 对话框的两种用法都在这一层之上只加 `.nb-ui-dialog-surface` 换圆角、面与投影。
  *
  * 五个取值全部走主题变量，且默认值逐项对齐改动前的写死值——
  * --panel-outline → --border-color、--overlay-surface → --bg-panel、--overlay-blur → none、
@@ -475,10 +475,10 @@ input.nb-ui-native-input[type="number"] {
  */
 
 /*
- * 对话框的面。它比菜单 / 下拉大一个数量级，圆角与阴影因此各单列一档（见 tokens.css）。
+ * 对话框的面。它比菜单 / 下拉大一个数量级，圆角、面与阴影因此各单列一档（见 tokens.css）。
  *
- * 只覆盖这两项，其余四项仍由 .nb-ui-popover-surface 一处给——这不是把浮层外观分叉出去，
- * 而是在同一个登记处里补一条对话框专用的尺寸。
+ * 只覆盖这三项，描边与磨砂仍由 .nb-ui-popover-surface 一处给——这不是把浮层外观分叉出去，
+ * 而是在同一个登记处里补一条对话框专用的档位。
  *
  * 阴影这一条是本轮补的。在此之前 --elevation-dialog **库内一个消费方都没有**，
  * 真 Dialog 拿的是浮层档，于是「对话框压得比浮层重」这个分档只存在于变量表里。
@@ -504,7 +504,8 @@ input.nb-ui-native-input[type="number"] {
 
 /*
  * 叠在另一个对话框或浮动窗口上的对话框（Dialog、AlertDialog 按组件树数出的层数 ≥ 2）：面取二级那档，圆角不大于底下的
- * 窗口（design-language.md 的几何清单）。写在上面三条后面，压过它们的面与圆角；小确认框在两档里取小的。
+ * 窗口（design-language.md 的几何清单）。写在上面三条后面，压过它们的面与圆角；小确认框与浮动窗口各自在
+ * “原来那档”与窗口那档里取小的（浮动窗口原来就是窗口那档，所以不变）。
  */
 .nb-ui-dialog-surface--nested {
     border-radius: min(var(--radius-window), var(--radius-dialog));
@@ -513,6 +514,10 @@ input.nb-ui-native-input[type="number"] {
 
 .nb-ui-dialog-surface--compact.nb-ui-dialog-surface--nested {
     border-radius: min(var(--radius-window), var(--radius-dialog-compact));
+}
+
+.nb-ui-dialog-surface--window.nb-ui-dialog-surface--nested {
+    border-radius: var(--radius-window);
 }
 
 /* 抽屉沿用小浮层那档的面：它贴在窗口一边、不压住整个窗口，分档没有评审过它（t09 只定了对话框）。 */
