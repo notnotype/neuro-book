@@ -12,6 +12,7 @@
         "dev": "bun src/server/dev/main.ts",
         "test": "bun run test:bun && bun run test:vitest",
         "test:bun": "bun test",
+        "test:llm": "NBOOK_LLM_TESTS=1 bun test .llm.test.ts",
         "test:vitest": "vitest run",
         "test:e2e": "bun run build && bun run build:e2e && playwright test -c e2e/playwright.config.ts",
         "typecheck": "tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json",
