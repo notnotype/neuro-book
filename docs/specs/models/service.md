@@ -95,7 +95,7 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
     | `discover(provider)` | read | `unknown-provider`、`no-credentials`、`not-supported`、`auth`、`unreachable`、`failed` |
     | `check`、`checkAll` | read | `unknown-provider`、`unknown-model` |
 
-    设置写入失败的映射：`invalid-value` 原样；`conflict` 重试后仍冲突为 `write-conflict`；层文件有错、写盘失败、连不上为 `settings-unavailable`。任何响应、事件与诊断里都没有密钥与请求头的值；`keyStatus` 只说有没有、读的是哪个变量、变量有没有值。
+    设置写入失败的映射：`invalid-value` 原样；`conflict` 重试后仍冲突为 `write-conflict`；层文件有错、写盘失败、连不上为 `settings-unavailable`。任何响应、事件与诊断里都没有密钥；`keyStatus` 只说有没有、读的是哪个变量、变量有没有值。请求头的值照设置文件原样出现在快照与事件里（设置文件对浏览器本来可读，设置页要显示与编辑它们），不进诊断与错误原文；凭据类的值应写成 `env:<变量名>`（见“边界与兼容”的信任边界）。
 13. **`setKey`**：值以 `env:` 开头时先写 `apiKeyEnv`、再删库里的密钥；否则先写库、再清 `apiKeyEnv`。`apiKeyEnv` 有值时盖过库里的密钥，所以后一步失败时生效的仍是前一步之前的或之后的那一个、不会混用；这时返回 `partially-applied`，详情带写后的实际密钥状态。
 14. **压缩角色的初值**：第一次绑 `fast` 而 `compaction` 未绑时，同一次写把 `compaction` 设成同一个模型（压缩先跟着快速档，之后各改各的）。
 15. **删除时解除绑定**：删服务商、删模型（含“管理模型”里移出）之后，绑着它们的角色变成未绑定（`role-unbound`），不留指向不存在的模型的引用；停用模型不解除，角色这时解析为 `unknown-model`，重新启用即恢复。删服务商同时删掉凭据库里这家的密钥。

@@ -1,0 +1,74 @@
+### 1. 启动失败路径跳过 OMP 清理
+严重程度：重要；类别：不变量
+位置：`packages/neuro-book/src/server/process.ts:134-175`，尤其 `startOrExit` 的 `:153-156` 与 `ompProcess.cleanup()` 的 `:171-175`
+
+现象：OMP 的进程级监听在入口阶段已经被摘掉，但 `ompProcess.cleanup()` 只放在 `await server.stopped` 之后。`startOrExit()` 捕获 `ServerAssemblyError` 后返回 `null`，调用方立即 `process.exit(1)`；认领失败、配置失败以及 `prepareInstalledPlugins()` 抛错也在到达这段清理前退出或直接把异常交给顶层。剩余的 OMP `exit` 监听只异步启动清理，不等待 Promise。
+
+为什么是问题：启动失败同样可能已经求值 OMP、登记凭据或用量等 postmortem 资源。此路径没有宿主等待清理，异步刷写可能在进程退出前丢失；而且它绕过了本次接管方案要求的“宿主结算后再跑 OMP 清理”不变量。现有宿主测试只核对启动失败的退出码，没有核对 OMP 清理已完成。
+
+如何核实：静态沿 `runServerProcess()` 的 `startOrExit() === null` 分支核对 `process.exit(1)` 位于唯一的 `ompProcess.cleanup()` 之前；运行 `bun test packages/neuro-book/src/server/server.test.ts`（43 项通过）只能证明退出码与宿主停止，不能覆盖清理完成这一条件。
+
+建议改法：把 OMP 清理纳入所有退出出口的统一收口函数，启动失败、认领/准备失败和正常 `server.stopped` 都先等待且只执行一次，再调用 `process.exit`；不要依赖 `process.on("exit")` 中无法等待的异步回调。
+### 2. 非 `start` 命令仍会加载 OMP 与模型原生依赖
+严重程度：重要；类别：不变量 / 安全与性能
+位置：`packages/neuro-book/src/cli/main.ts:11-14`、`packages/neuro-book/src/cli/run.ts:13-17`、`packages/neuro-book/src/cli/start.ts:12-17`
+
+现象：`cli/main.ts` 在解析参数前无条件静态导入 `nbook/server/omp-process`，随后无条件动态加载 `run.ts`；`run.ts` 又静态导入 `./start`，而 `start.ts` 静态导入 `nbook/server/process`。因此 `nbook --version`、`--help`、`plugin list`、用法错误等不启动服务端的命令也会求值 OMP。`server/plugins.ts` 的静态图还会经 `modelsBackendPlugin` 求值 `@oh-my-pi/pi-catalog` 等模型依赖。
+
+为什么是问题：ADR 0036 的接管与外部 OMP 依赖只属于能起服务端的入口。当前所有 CLI 子命令都承担 OMP 求值、原生模块加载和进程级处理的副作用；非 `start` 命令也可能因模型原生依赖或 OMP 初始化失败而不能显示版本/帮助。它还把本不需要服务端的命令放进“需要在退出前正确等待 OMP 清理”的范围，形成新的漏网求值路径。
+
+如何核实：沿上述静态导入链阅读即可；现有 `packages/neuro-book/src/cli/cli.test.ts` 的 43 项命令行/宿主测试通过，但没有断言 `--version`、`plugin` 或 usage 不求值 OMP。构建后的入口仍是同一 `nbook.js`，代码分割只延迟 `run.ts`，不会按子命令消除它的静态 `start` 导入。
+
+建议改法：把 CLI 解析本体与 `start` 实现拆开；只有命中 `start` 默认动作时才动态加载一个包含 `omp-process`、`server/process` 的启动 bootstrap。`--version`、`--help`、插件管理与参数错误路径不应导入任何 OMP 或服务端模型模块。
+### 3. 模型快照与变化事件把请求头原文发给浏览器
+严重程度：重要；类别：安全
+位置：`packages/neuro-book/src/plugins/models/backend/core.ts:157-190`；合同字段 `packages/neuro-book/src/plugins/models/shared/contracts.ts:29-64`
+
+现象：`snapshotModel()` 原样返回 `model.headers`，`snapshot()` 原样返回 `provider.headers`；同一个 `ModelsSnapshot` 还通过 `changed.emit(next)` 作为远程事件负载。请求头值可以是用户直接填写的真实令牌，而不是只有 `env:` 变量名。
+
+为什么是问题：`docs/specs/models/service.md:98` 明确要求任何响应、事件和诊断都不带密钥与请求头值。当前 `snapshot()` 和 `changed` 违反这一条，浏览器远程响应直接得到 `X-Test-Secret: header-secret-not-real-123`。界面虽对“像凭据”的名称给警告，但后端没有把警告当作安全边界。
+
+如何核实：在审查 worktree 的 `.lab-review/header-leak.test.ts` 中经真实设置场地与 JSON 远程合同写入 `X-Test-Secret`，再调用 `client.snapshot({})`；输出为 `{"containsSecret":true,"headers":{"X-Test-Secret":"header-secret-not-real-123"}}`，该实验 1 项通过（随后已删除实验文件）。
+
+建议改法：远程快照与事件只返回脱敏状态或 `env:` 引用的元数据；若编辑页必须读取原值，另设计受控的服务端编辑协议，不把值放进通用快照/事件。至少对所有非 `env:` 的请求头按与模型错误相同的密钥边界处理，并补远程响应与事件的泄漏断言。
+### 4. 凭据库初次重载失败时泄漏 SQLite 连接
+严重程度：重要；类别：资源释放
+位置：`packages/nb-harness/src/models/credentials.ts:31-49`
+
+现象：`openCredentials()` 先 `await AuthStorage.create(path)`，再 `await pool.reload()`；`reload()` 抛错时函数直接拒绝，没有 `storage.close()`。服务端插件只有 `openCredentials()` 成功返回后才把凭据库登记到 `context.scope`，所以这个失败连接不会进入作用域收口。
+
+为什么是问题：损坏、迁移失败、权限错误或并发打开时，OMP 已创建的 SQLite 连接/WAL 句柄会留到进程退出；激活失败后的重试可能继续持有旧连接，造成锁、句柄和诊断结果互相干扰。代码注释承诺打开失败由入口激活失败处理，但没有覆盖已经创建连接后的异常路径。
+
+如何核实：静态沿 `openCredentials()` 的两个 await 核对异常边界，`context.scope.register` 位于 `packages/neuro-book/src/plugins/models/backend/plugin.ts:36`、且在 `openCredentials()` 之后；对一个损坏的 credentials.db 调用 `openCredentials()` 会在 `pool.reload()` 拒绝而不经过任何 close。
+
+建议改法：把初始 `reload()` 放入 `try/catch`，失败时先 `storage.close()` 再原样抛出；同时给激活失败测试加上可观察的连接收口/重试场景。
+### 5. 删除模型或服务商后解除角色绑定不是同一收口，失败会留下悬挂绑定
+严重程度：重要；类别：正确性 / 不变量
+位置：`packages/neuro-book/src/plugins/models/backend/core.ts:378-410`；远程错误合同 `packages/neuro-book/src/plugins/models/shared/contracts.ts:175-181`
+
+现象：`removeProvider` 先成功写 providers 删除服务商，再写 roles 解除绑定，最后清凭据；`removeModel` 与 `setModels` 也是先写 providers/models，再写 roles。任意第二步失败时，前一步不会回滚。`removeModel`/`setModels` 甚至没有部分应用错误码；`removeProvider` 只声明凭据库失败，不声明“服务商已删但角色未解绑”的状态。
+
+为什么是问题：设置层文件无效、写入冲突耗尽、服务停止或写盘失败都能让解绑步骤失败。此时角色仍持有已删除的 `<provider>/<model>` 字符串，快照状态是 `unknown-model` 而不是 Spec 输出 15 要求的 `unbound`；服务商删除还可能已经清掉凭据，调用方收到普通失败码，无法据此知道前半步已生效。页面重取快照也只能看到悬挂绑定，不能恢复“删除后解除绑定”的不变量。
+
+如何核实：沿每个远程方法的两个独立 `await` 顺序阅读；令第一处 `mutate` 成功、第二处 roles 的 `mutate` 返回 `settings-unavailable`，最终 providers 已删除而 roles 仍引用旧模型。现有 `models.test.ts:124-137` 只覆盖两个步骤都成功，没有任何第二步失败的场景。
+
+建议改法：优先先解除角色，再删除模型/服务商，至少避免删除后留下悬挂引用；更稳妥是为跨设置项操作增加补偿/部分应用合同，返回实际快照与明确的 `partially-applied`，并在失败时按实际状态让调用方重试。凭据清理也应纳入同一可观察的部分应用语义。
+### 6. 高风险失败分支没有后端真实合同测试
+严重程度：建议；类别：测试
+位置：`packages/neuro-book/src/plugins/models/models.test.ts:182-240`、`packages/neuro-book/src/plugins/models/backend/core.ts:289-320,450-473`
+
+现象：本机端点测试覆盖了成功请求、一次 401、`checkAll` 的正常路径和 `/models` 返回，但没有覆盖：`check` 的 30 秒超时与调用方取消、批量检测并发上限 4、`setKey` 两步中的后一步失败与 `partially-applied`、写请求发出后断线的 `unknown-outcome`、只认启动环境的“运行中再设置 process.env 不生效”，以及请求头原文不进入远程快照/事件。`models.test.ts` 的 endpoint 也没有一个可控的挂起响应来验证超时语义。
+
+为什么是问题：这些分支正是本次新增的异步凭据、跨设置/凭据写入、RPC 断线和跨进程资源合同；当前绿色测试主要证明成功 wiring，不能证明失败后的状态结算。尤其 `setKey` 的部分应用与启动环境边界没有真实服务端行为证据，后续 UI 只能按未验证的错误码实现。
+
+如何核实：逐项搜索上述测试目录没有 `partially-applied`、`unknown-outcome` 或后端 timeout 断言；已运行的相关单元集合为 `bun test packages/nb-harness/src/kernel/model/omp.test.ts packages/nb-harness/src/models/boundary.test.ts packages/nb-harness/tests/process-guard.test.ts packages/neuro-book/src/plugins/models/models.test.ts packages/neuro-book/src/plugins/settings/settings.test.ts`，结果 39 项通过，但并未触及这些场景。
+
+建议改法：用真实设置场地、真实凭据库、真实远程合同和本机端点分别加失败场景；挂起请求用可控放手信号配合调用方取消，不用固定等待；让 setKey 的第二步可注入真实失败，断线在帧已发出后核对 unknown-outcome 与快照结算，并把 header/snapshot 的安全断言固定进测试。
+## 未发现问题的方面
+- 仔细检查后，`ModelPort.resolve({settings, purpose, profile, role})` 的内核调用点、`role-unbound`/`unknown-model`/`no-credentials` 传播，以及解析失败不写模型事件，未发现本次提交范围内的另一处遗漏；相关内核合同测试与模型适配器测试已通过。
+- 仔细检查后，`ompCall` 的异步 API key、配置请求头合并、服务商错误原文的 URL 脱敏与 8 KB 截断，未发现除第 3 条快照边界外的另一处新增问题；已运行 OMP 适配器测试通过。
+- 仔细检查后，设置 `expect` 的层拥有者比较、远程透传与模型服务冲突重试，未发现另一处实现问题；设置合同测试通过。
+- 仔细检查后，凭据读取使用 OMP 公开 `credentials.list/set/remove`、`./models` exports 登记，以及 `SERVER_EXTERNALS` 与 `build:server` 的外部包形状未发现另一处静态错误。打包构建本轮未重复运行。
+- 仔细检查后，正常服务端停止时先等待 `server.stopped` 再调用 OMP 清理的顺序本身符合设计；问题限于第 1 条列出的启动失败/早退出口。
+
+数量：阻断 0；重要 5；建议 1；合计 6。

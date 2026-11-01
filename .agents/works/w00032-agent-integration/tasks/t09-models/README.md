@@ -123,7 +123,14 @@ t02。
 - 第 5 片：真实模型 `test:llm`（DeepSeek，经 `modelsKey.port()` 一轮，`aefd23ee5`）通过。服务端接管 OMP 的进程级处理、OMP 不进 bundle（决定 33 到 35）。
 - 已知的不稳定用例（与本 Task 无关，全量并行时偶发）：`plugin-sdk/examples/plugins/snippets/web/SnippetsPage.dom.test.ts` 的“本作品”标签一条、`src/plugins/explorer/browse.test.ts` 的“展开的目录改名”一条，单独重跑通过。
 - 收口验证（2026-11-01，Work 分支 `b67c9aa4c`）：neuro-book 单元测试 1652 过（上面两条不稳定用例偶发）、vitest 410 过、nb-harness 323 过、类型检查与 governance 通过；全量 e2e 297 过、2 条标题栏布局用例（`lab-item-strip.e2e.ts:123`、`workbench-titlebar.e2e.ts:144`）在全量负载下失败、单独重跑通过；真实模型 `test:llm` 过。
-- 实现审查进行中：后端、内核与构建交 omp（报告 `/tmp/review-t09-impl/report.md`，会话在本地 `reports/omp-impl-review/`）。
+- 实现审查（omp，后端、内核与构建，[`evidences/impl-review-omp.txt`](evidences/impl-review-omp.txt)）：重要 5、建议 1。处置（修正在 Work 分支 `fix(models,server): 实现审查……`）：
+  1. 启动失败的出口不等 OMP 清理：成立，改为每个退出出口都经同一个“先清理再退出”。
+  2. 非 `start` 命令也求值 OMP：成立，接管与服务端只在 `start` 里加载；新增“没装 OMP 时 `--version`、`--help`、插件管理照常可用”的真实进程用例（变异检查：入口静态导入接管时该用例失败）。
+  3. 快照与事件带请求头原值：说明没写清。请求头的值本来就在浏览器可读的设置文件里，设置页要显示与编辑它们；矛盾的是 Spec 输出 12 的措辞，已改为“没有密钥；请求头值照设置文件原样，不进诊断与错误原文”。补上的依据：Spec 的信任边界一节。
+  4. 凭据库首次读取失败时泄漏连接：成立，先关连接再抛。
+  5. 删除与解绑不是一次收口：成立，改为先解除角色绑定再删（后一步失败只留下未绑定的角色，可重试），`setModels` 先校验再动。
+  6. 失败分支缺真实合同测试：接受取舍。要注入设置层、凭据库与 RPC 的中途失败只能在产品代码里加测试专用分支（测试规则禁止）；新增的命令行用例覆盖了第 2 条。
+- 修正后验证：neuro-book 单元测试 1654 过、nb-harness 321 过、`models.e2e` 与 `settings.e2e` 21 过、governance 通过。
 - **已解决的阻塞**（决定 33 到 35，`d7ff575ba`、`aa5805965`）：OMP 不打进 bundle、写进应用包依赖；服务端接管 OMP 的进程级处理。原先的记录：第 3 片把 OMP 带进了服务端进程，暴露两个问题，都源自“OMP 跑在服务端进程里”：
   1. **原生插件**：`@oh-my-pi/pi-catalog`、`pi-ai` 一被导入就加载 `pi_natives` 原生插件（每个平台约 122 MB）。打包后的服务端（`dist/server/*.js` 与应用包）按自己所在目录找 `native/`，找不到就启动即崩：产品 e2e 全部起不来服务（验证时临时把插件软链进 `dist/native/` 绕过），`cli.test.ts`、`pack-app.test.ts` 共约 30 条失败。应用包现在的合同是“单文件 bundle、清单没有依赖”。
   2. **进程级信号与异常处理**：`@oh-my-pi/pi-utils` 的 postmortem 在导入时就在主线程装上 SIGINT、SIGTERM、SIGHUP、`uncaughtException`、`unhandledRejection` 的处理，跑完自己的清理就以 130、143、129 硬退出，抢在服务端宿主的有序停止（排空、项目子进程先收口）之前；`server-projects.test.ts` 场景 14、15 因此失败。没有关闭它的开关（只在 Worker 线程里不装）。
