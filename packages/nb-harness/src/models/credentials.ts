@@ -31,8 +31,13 @@ export interface CredentialStore {
 export async function openCredentials(path: string): Promise<CredentialStore> {
     const storage = await AuthStorage.create(path);
     const pool = storage.credentials;
-    // 打开只建连接，内存快照要先读一次库才有内容。
-    await pool.reload();
+    // 打开只建连接，内存快照要先读一次库才有内容。读失败（库损坏、权限）时先关掉已建的连接再抛：调用方拿不到句柄，收不了它。
+    try {
+        await pool.reload();
+    } catch (error) {
+        storage.close();
+        throw error;
+    }
     const apiKeyRows = (provider?: string) => pool.list(provider).filter((row) => row.disabledCause === null && row.credential.type === "api_key");
     return {
         providers: () => new Set(apiKeyRows().map((row) => row.provider)),

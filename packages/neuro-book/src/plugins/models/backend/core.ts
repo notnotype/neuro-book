@@ -375,11 +375,14 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 });
                 return step.ok ? ctx.ok(null) : relay(step);
             }),
+            // 删服务商、删模型：先解除角色绑定再删（service.md 输出 15）。两次写入不是一次收口：先解绑的话，后一步失败只留下
+            // 未绑定的角色与还在的服务商或模型，重试即可；反过来会留下指向已删模型的绑定。
             removeProvider: (input, ctx) => queue(async () => {
-                const step = await withProvider<null>(input.id, () => ({ok: true, value: {provider: null, result: null}}));
-                if (!step.ok) return relay(step);
+                if (!providers().some((provider) => provider.id === input.id)) return relay(unknownProvider(input.id));
                 const unbound = await unbind(input.id);
                 if (!unbound.ok) return relay(unbound);
+                const step = await withProvider<null>(input.id, () => ({ok: true, value: {provider: null, result: null}}));
+                if (!step.ok) return relay(step);
                 const cleared = await credentialStep(() => credentials.clear(input.id));
                 return cleared.ok ? ctx.ok(null) : relay(cleared);
             }),
@@ -392,22 +395,28 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 return step.ok ? ctx.ok(null) : relay(step);
             }),
             removeModel: (input, ctx) => queue(async () => {
-                const step = await withProvider<null>(input.provider, (provider) => ({ok: true, value: {provider: {...provider, models: provider.models.filter((model) => model.id !== input.id)}, result: null}}));
-                if (!step.ok) return relay(step);
+                if (!providers().some((provider) => provider.id === input.provider)) return relay(unknownProvider(input.provider));
                 const unbound = await unbind(input.provider, [input.id]);
-                return unbound.ok ? ctx.ok(null) : relay(unbound);
+                if (!unbound.ok) return relay(unbound);
+                const step = await withProvider<null>(input.provider, (provider) => ({ok: true, value: {provider: {...provider, models: provider.models.filter((model) => model.id !== input.id)}, result: null}}));
+                return step.ok ? ctx.ok(null) : relay(step);
             }),
             setModels: (input, ctx) => queue(async () => {
+                // 先按当前配置校验（不合格就什么都不动），再解绑要移出的，最后写模型。
+                const current = providers().find((provider) => provider.id === input.provider);
+                if (current === undefined) return relay(unknownProvider(input.provider));
+                const rejected = incomplete(current, input.add.map((model) => stored(current, model)));
+                if (rejected !== null) return relay(rejected);
+                const gone = input.remove.filter((id) => !input.add.some((added) => added.id === id));
+                const unbound = gone.length === 0 ? {ok: true as const, value: null} : await unbind(input.provider, gone);
+                if (!unbound.ok) return relay(unbound);
                 const step = await withProvider<null>(input.provider, (provider) => {
                     const removed = new Set(input.remove);
                     const added = input.add.map((model) => stored(provider, model));
                     const kept = provider.models.filter((model) => !removed.has(model.id) && !added.some((item) => item.id === model.id));
                     return incomplete(provider, added) ?? {ok: true, value: {provider: {...provider, models: [...kept, ...added]}, result: null}};
                 });
-                if (!step.ok) return relay(step);
-                const gone = input.remove.filter((id) => !input.add.some((added) => added.id === id));
-                const unbound = gone.length === 0 ? {ok: true as const, value: null} : await unbind(input.provider, gone);
-                return unbound.ok ? ctx.ok(null) : relay(unbound);
+                return step.ok ? ctx.ok(null) : relay(step);
             }),
             setRole: (input, ctx) => queue(async () => {
                 const step = await editRoles<null>((value) => {

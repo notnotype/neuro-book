@@ -13,7 +13,6 @@ import {BUN_ENGINE, PRODUCT_VERSION} from "nbook/shared/product";
 import {CliFailure, createOutput} from "./output";
 import {installPlugin, listPlugins, setPluginEnabled, uninstallPlugin} from "./plugin";
 import type {PluginContext} from "./plugin";
-import {start} from "./start";
 import {defaultStateRoot, resolveStateRoot} from "./state-root";
 
 const TITLES: Readonly<Record<string, string>> = {"Usage:": "用法：", "Arguments:": "参数：", "Options:": "选项：", "Commands:": "命令：", "Global Options:": "全局选项："};
@@ -59,6 +58,10 @@ function program(): Command {
             const [unknown] = command.args;
             if (unknown !== undefined) throw new CliFailure("usage", `不认识的命令 ${unknown}；可用的命令：start、plugin（nbook --help 查看用法）`, 2);
             const globals = command.optsWithGlobals<GlobalOptions>();
+            // 只有起服务端的 start 才求值 OMP：先接管它要装的进程级处理，再加载服务端（server/omp-process.ts）。--version、
+            // --help 与插件管理不碰 OMP，没装 OMP 的原生包也能用。
+            await import("nbook/server/omp-process");
+            const {start} = await import("./start");
             await start(
                 {stateRoot: stateRootOf(globals), output: createOutput(globals.json === true), env: process.env, cwd: process.cwd()},
                 {port: options.port, rpcPort: options.rpcPort, open: options.open, safeMode: options.safeMode === true},
