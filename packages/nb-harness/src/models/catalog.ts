@@ -48,6 +48,8 @@ export interface CatalogModel {
     readonly id: string;
     readonly name: string;
     readonly api: string;
+    /** 目录给的接口地址。 */
+    readonly baseUrl: string;
     readonly contextWindow: number | null;
     readonly maxTokens: number | null;
     readonly reasoning: boolean;
@@ -114,6 +116,7 @@ export function catalogModel(model: Model): CatalogModel {
         id: model.id,
         name: model.name,
         api: model.api,
+        baseUrl: model.baseUrl,
         contextWindow: positiveOrNull(model.contextWindow),
         maxTokens: positiveOrNull(model.maxTokens),
         reasoning: model.reasoning,

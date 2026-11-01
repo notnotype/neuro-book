@@ -60,7 +60,11 @@ export interface SettingsWorld {
 export interface SettingsWorldOptions {
     /** 服务端给出状态根之前等它：服务端的配置入口激活因此挂起，用来验证首个快照的截止。 */
     readonly hubGate?: Promise<void>;
+    /** 服务端另加的宿主能力（宿主拥有的服务键，插件不能提供，例如启动环境）。 */
+    readonly hubCapabilities?: ReadonlyArray<HostCapability>;
 }
+
+type HostCapability = NonNullable<Parameters<typeof createApplication>[1]["capabilities"]>[number];
 
 
 export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<PluginDefinition>, options: SettingsWorldOptions = {}): Promise<SettingsWorld> {
@@ -90,6 +94,7 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
                     return {path: join(root, "state")};
                 }},
                 {id: "host.clock", key: clockKey, create: () => clock},
+                ...(options.hubCapabilities ?? []),
             ],
             plugins: [diagnosticsFor("server", "hub"), definitionAt("server", descriptor, settingsBackendPlugin), ...hubPlugins],
             gates: [],

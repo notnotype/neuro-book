@@ -33,6 +33,7 @@
     },
     "dependencies": {
         "@notnotype/nb-form": "workspace:*",
+        "@notnotype/nb-harness": "workspace:*",
         "@notnotype/nb-markdown": "workspace:*",
         "@notnotype/nb-runtime": "workspace:*",
         "@vue/reactivity": "^3.5.39",

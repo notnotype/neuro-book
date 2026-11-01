@@ -1,0 +1,12 @@
+{
+    "settings": {
+        "providers": {
+            "title": "Providers and Models",
+            "description": "Added providers with their endpoints, authentication, headers and enabled models; keys are kept in the local credential store, not here"
+        },
+        "roles": {
+            "title": "Model Roles",
+            "description": "Which model each role uses"
+        }
+    }
+}

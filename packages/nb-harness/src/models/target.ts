@@ -72,10 +72,7 @@ export function buildResolution(provider: ProviderTarget, config: ModelTarget, a
             ok: true,
             info,
             call: (request, signal, onDelta) => {
-                const missing: string[] = [];
-                const headers = resolveHeaders({...provider.headers, ...config.headers}, access.env, missing);
-                const key = keyOf(provider, access, missing);
-                if (key !== null && provider.auth === "bearer") headers.Authorization = `Bearer ${key}`;
+                const {key, headers, missing} = requestAuth(provider, config, access);
                 return ompCall({
                     model,
                     priceKnown,
@@ -88,6 +85,18 @@ export function buildResolution(provider: ProviderTarget, config: ModelTarget, a
             },
         },
     };
+}
+
+/**
+ * 一次请求用的密钥与请求头：请求头是服务商级与模型级合好（同名时模型的赢）、`env:` 已解析的；“认证方式”为 `bearer` 时另加
+ * `Authorization`。`missing` 是没有值的环境变量（密钥的或请求头的），非空时这次请求不该发出。发现模型列表也用它。
+ */
+export function requestAuth(provider: ProviderTarget, config: Pick<ModelTarget, "headers"> | null, access: KeyAccess): {key: string | null; headers: Record<string, string>; missing: string[]} {
+    const missing: string[] = [];
+    const headers = resolveHeaders({...provider.headers, ...config?.headers}, access.env, missing);
+    const key = keyOf(provider, access, missing);
+    if (key !== null && provider.auth === "bearer") headers.Authorization = `Bearer ${key}`;
+    return {key, headers, missing};
 }
 
 /** 这家现在有没有可用的密钥（不要认证的算有）；解析时报 `no-credentials` 用。 */

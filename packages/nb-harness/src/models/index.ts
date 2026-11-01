@@ -10,4 +10,4 @@ export {openCredentials} from "./credentials.js";
 export type {StartupEnv} from "./env.js";
 export {ENV_PREFIX, envRefName, envValue, isEnvName} from "./env.js";
 export type {AuthMode, BuildResult, CustomApi, KeyAccess, ModelTarget, ProviderTarget} from "./target.js";
-export {buildResolution, hasCredential} from "./target.js";
+export {buildResolution, hasCredential, requestAuth} from "./target.js";
