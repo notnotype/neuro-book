@@ -171,6 +171,10 @@ type SettingWriteResult = {ok: true} | {ok: false; code: SettingsFailure; detail
     - `writeText({text, revision}) → {revision, snapshot}`：在拥有者的写入队列与写入锁里，以磁盘上的当前文本为准：当前文件原始字节的摘要不是 `revision` 为 `conflict`，文件不变；`text` 按读取的检查不过（语法错误、根不是对象、任意深度的重复键）为 `invalid-text`，失败详情的 `detail` 是不带位置的中文原因、另带 `position: {line, column}`（从 1 起，BOM 不算，列按 UTF-16 码元），文件与快照不变。通过后原样写入（注释、格式、未声明的键都照 `text`），不合 schema 或本层不允许的键照写、按输出 5 丢弃并列入问题；成功带回新的修订号与写后的层快照。层 `invalid` 时照样可以写，这是修好文件的路。写盘失败同输出 14。
     - 事件 `text`：订阅先推一次当前文本的修订号，之后原始文本变了就推（监视到的外部修改与本拥有者的任何写入），只改注释、格式也推；层快照照旧只在内容变了时发布（输出 10）。
 
+### 比较后写入
+
+25. **`update` 的 `expect`**：`update(setting, value, {expect: {value: v}})` 只在目标层里这个键当前的值等于 `v` 时写（按规范化的 JSON 文本比，对象的键序不算；`v` 为 `undefined` 表示期望这一层还没有这个键），否则为 `conflict`、文件与快照不变。比较在拥有者的写入队列与写入锁里、以磁盘上的当前文本做，所以期间从设置文件视图、外部编辑或另一个实例写入的内容不会被盖掉；调用方重读后在新值上再改。核对顺序在输出 11 的各项之后、写盘之前；不给 `expect` 时行为不变。远程合同的 `set`、`remove` 只加可选字段，版本不变。
+
 ## 状态与转换
 
 一层（拥有者看到的）：
@@ -214,7 +218,7 @@ type SettingWriteResult = {ok: true} | {ok: false; code: SettingsFailure; detail
 | `unavailable` | 层的拥有者不可达 | 等恢复 |
 | `unknown-outcome` | 写请求发出后中断，可能已写入 | 等层快照 |
 | `read-failed` | 整份读：文件存在但读不了（输出 24） | 报告给用户，修好权限后重读 |
-| `conflict` | 整份写：文件在读出之后被别处改过（输出 24） | 重新读取，在新文本上再改 |
+| `conflict` | 整份写：文件在读出之后被别处改过（输出 24）；带 `expect` 的写：当前值不是期望的（输出 25） | 重新读取，在新文本或新值上再改 |
 | `invalid-text` | 整份写：文本不是合格的设置文件，带出错位置（输出 24） | 按位置修正文本 |
 
 一层出错只影响这一层；读取永不失败，出错的层按默认值与其它层合成。
