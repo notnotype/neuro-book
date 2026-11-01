@@ -64,7 +64,7 @@ ul.notes li { font-size: 14px; }
 
 
 <section class="q">
-  <h3><span class="badge todo" data-nbdev-skip>待定</span>连接一节按第四轮的稿做</h3>
+  <h3><span class="badge done">已定</span>连接一节按第四轮的稿做</h3>
   <p>行距收紧；API 密钥、接口地址的说明收进标题旁的“?”（悬停看），只有出错（例如环境变量没设置）才在下面写一行。接口地址的“?”里写实际的请求地址。目录服务商的地址也能改（走中转站），改过时出现“恢复目录地址”，模型的能力与单价仍按目录。</p>
   <p>“高级”默认收起：认证方式（按接口格式、Authorization: Bearer、不要认证）与服务商级的请求头（一行一个名称和值）；模型级的请求头在编辑对话框的“高级”里，与服务商的同名时用模型的。请求头的值写进设置文件；放令牌一类的值，打算像密钥一样支持 <code>env:变量名</code>。</p>
   <div class="grid">
@@ -80,13 +80,13 @@ ul.notes li { font-size: 14px; }
   <p>开发者 2026-11-01 在 Lab 的“调面板”场景里拖滑块挑定：菜单、下拉、弹出框这类小浮层 72%；设置窗口这类一级对话框 90%；叠在一级上的二级对话框也是 90%、仍是玻璃。下面两节是挑定之前的候选。</p>
 </section>
 <section class="q">
-  <h3><span class="badge todo" data-nbdev-skip>待定</span>浮层面按“菜单 72%、一级对话框 82%”分档</h3>
+  <h3><span class="badge done">已定</span>浮层面按“菜单 72%、一级对话框 82%”分档</h3>
   <p>开发者看了四档后定要分档：下拉菜单、弹出框这类小浮层在 65%–80% 最好；一级对话框（设置窗口这种）80%–85% 最好、90% 也能看；一级与二级都 90% 时二级看不出是一层新的面。按区间的中间取：小浮层 72%、一级对话框 82%。要调数字写在备注里。</p>
   <div class="grid"><figure><img src="r6/tiers-menus.webp" alt="菜单 72%、一级 82%"><figcaption><b>菜单与弹出框 72%、设置窗口 82%</b></figcaption></figure></div>
 </section>
 
 <section class="q">
-  <h3><span class="badge todo" data-nbdev-skip>待定</span>二级对话框（叠在一级上的）用哪种面</h3>
+  <h3><span class="badge done">已定</span>二级对话框（叠在一级上的）用哪种面</h3>
   <div class="opt">
     <h3>不透明</h3>
     <p>面板色本身、不再糊，靠遮罩与阴影分层；照 nb-ui design-language 已有的“玻璃叠玻璃不成立，二级浮层用层级色”。</p>
@@ -101,7 +101,7 @@ ul.notes li { font-size: 14px; }
 </section>
 
 <section class="q">
-  <h3><span class="badge todo" data-nbdev-skip>待定</span>nbook 主题的浮层面要分档（四档对比，开发者 2026-11-01 在会话里答复）</h3>
+  <h3><span class="badge done">已定</span>nbook 主题的浮层面要分档（四档对比，开发者 2026-11-01 在会话里答复）</h3>
   <p>开发者看了第四轮觉得设置窗口本身就太透明，要求把所有浮层放在一起比较再定。浮层面是一个主题变量（<code>--overlay-surface</code>：面板色的 N% 加模糊），设置窗口、对话框、下拉菜单、弹出框、提示共用；下面四档只改这一个变量，垫同一张背景图。定了之后，叠在设置窗口上的对话框就用和窗口同一种面（不再单独分不透明与玻璃），圆角取窗口那一档。Lab 里对应场景以“浮层面”开头。</p>
   <div class="opt">
     <h3>65%（现在）</h3>
@@ -144,7 +144,7 @@ ul.notes li { font-size: 14px; }
 
 
 <section class="q">
-  <h3><span class="badge todo" data-nbdev-skip>待定</span>模型列表、管理模型与全部模型按第三轮的稿做（第三轮）</h3>
+  <h3><span class="badge done">已定</span>模型列表、管理模型与全部模型按第三轮的稿做（第三轮）</h3>
   <p><b>模型行</b>：启用开关、名称与 id、能力图标（眼睛是看图、大脑是推理、扳手是工具调用，悬停说明，推理的悬停写出档位）、上下文窗口（淡色）、检测结果、检测与编辑两个按钮；价格不在行里，只在编辑对话框里。<b>分组</b>：按系列折叠分组（例如 doubao-seed-2.0、doubao-seed-1.6），系列缺省按 id 推出，编辑对话框里可以改。</p>
   <p><b>模型发现</b>：两类服务商都用“管理模型”（参照 Cherry Studio 的“管理”）：自定义服务商列拉取 <code>/models</code> 的结果，可以“重新拉取”；目录服务商列 OMP 目录里这一家的模型。按系列分组、可以搜索，每行“+”加入、“−”移出；拉取结果缺上下文窗口这类字段的标“要补字段”，加入后在编辑对话框里补（压缩要用，必填）。自定义服务商另有“手动添加”。</p>
   <p><b>全部模型</b>：服务商列表顶上一项，列出所有服务商里已启用的模型，按服务商分节，写出哪些角色在用它、哪些不能用（没设密钥、检测失败）；改模型点齿轮，打开那家服务商的编辑对话框。</p>
@@ -159,7 +159,7 @@ ul.notes li { font-size: 14px; }
 </section>
 
 <section class="q">
-  <h3><span class="badge todo" data-nbdev-skip>待定</span>叠在设置窗口上的对话框在 nb-ui 的 Dialog 里改（用哪种面见上面第四轮）</h3>
+  <h3><span class="badge done">已定</span>叠在设置窗口上的对话框在 nb-ui 的 Dialog 里改（用哪种面见上面第四轮）</h3>
   <p>第二轮编辑对话框“太透明、圆角不对”的原因在 nb-ui：<code>design-language.md</code> 已经写了两条规则（叠在另一个浮层上的对话框不再糊玻璃、改用不透明的层级色；圆角不大于底下窗口的圆角），但 <code>Dialog</code> 没有实现，从设置窗口里打开的模态对话框照样是玻璃面加 26px 圆角。第三轮的稿在草稿里先按这两条覆盖了，效果见下图。</p>
   <div class="opt">
     <h3>在 nb-ui 的 Dialog 里实现这两条规则</h3>
@@ -177,7 +177,7 @@ ul.notes li { font-size: 14px; }
 </section>
 
 <section class="q">
-  <h3><span class="badge todo" data-nbdev-skip>待定</span>设置窗口的分区栏改窄到 176px（产品里改，所有分区一起）：同意</h3>
+  <h3><span class="badge done">已定</span>设置窗口的分区栏改窄到 176px（产品里改，所有分区一起）：同意</h3>
   <p>分区栏是设置窗口自己的（settings-window 输出 1 写的约 212px），改它会让所有分区一起变，不只是模型服务。第三轮的图里已经是 176px；服务商列表从 200px 改成了 164px（只在这一页）。不改就只窄服务商列表。</p>
 </section>
 
