@@ -34,6 +34,7 @@
         "perf:files": "bun scripts/perf/files-perf.ts"
     },
     "dependencies": {
+        "@notnotype/nb-canon": "workspace:*",
         "@notnotype/nb-form": "workspace:*",
         "@notnotype/nb-harness": "workspace:*",
         "@notnotype/nb-markdown": "workspace:*",

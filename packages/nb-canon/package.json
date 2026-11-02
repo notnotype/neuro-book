@@ -7,6 +7,7 @@
     "module": "src/index.ts",
     "exports": {
         ".": "./src/index.ts",
+        "./schema": "./src/schema.ts",
         "./node": "./src/node/index.ts"
     },
     "scripts": {

@@ -111,7 +111,7 @@ describe("canon.project 输出 1、4、6、9 与场景 1：打开、章序、写
 
     test("章序调整是系统写入：独占期间照样发布；世界只读时只按新章序计算，写诊断", async () => {
         const service = await open();
-        service.acquireExclusive("记账", "task-1");
+        service.acquireExclusive("记账");
         await service.setChapters(["ch2", "ch1", "ch3"]);
         expect(service.world.revisions.at(-1)).toMatchObject({version: 2, what: "reorder"});
 
@@ -146,9 +146,9 @@ describe("canon.project 输出 10、场景 5：独占写入", () => {
     test("独占期间别人的写入得到 busy，持令牌的写入续期；释放后可写", async () => {
         const clock = {now: 1000};
         const service = await open(clock);
-        const lease = service.acquireExclusive("第 5 章记账", "task-1");
+        const lease = service.acquireExclusive("第 5 章记账");
         if ("code" in lease) throw new Error("busy");
-        expect(service.acquireExclusive("别的", "x")).toEqual({code: "busy", holder: "第 5 章记账", since: 1000});
+        expect(service.acquireExclusive("别的")).toEqual({code: "busy", holder: "第 5 章记账", since: 1000});
         expect(service.lookup(["星瑕"], latest)).toEqual({version: 1, found: {星瑕: []}});
         expect(await service.publish(entryRequest("星瑕", 1))).toEqual({ok: false, failure: {code: "busy", holder: "第 5 章记账", since: 1000}});
         clock.now += 50_000;
@@ -159,19 +159,19 @@ describe("canon.project 输出 10、场景 5：独占写入", () => {
         expect((await service.publish(entryRequest("星瑕", 2))).ok).toBe(true);
     });
 
-    test("强行解除、到期没续、持有者断开都结束独占；之后旧令牌得到 exclusive-lost", async () => {
+    test("强行解除、到期没续、释放都结束独占（持有者断开由插件经释放结束）；之后旧令牌得到 exclusive-lost", async () => {
         const clock = {now: 0};
         const service = await open(clock);
         const events: ServiceEvent[] = [];
         service.subscribe((event) => events.push(event));
-        const first = service.acquireExclusive("记账", "task-1") as {token: string};
+        const first = service.acquireExclusive("记账") as {token: string};
         service.breakExclusive();
         expect(await service.publish(entryRequest("星瑕", 1), first.token)).toEqual({ok: false, failure: {code: "exclusive-lost"}});
-        const second = service.acquireExclusive("记账", "task-1") as {token: string};
+        const second = service.acquireExclusive("记账") as {token: string};
         clock.now += LEASE_MS;
         expect(service.renewExclusive(second.token)).toEqual({code: "exclusive-lost"});
-        const third = service.acquireExclusive("记账", "task-2") as {token: string};
-        service.holderGone("task-2");
+        const third = service.acquireExclusive("记账") as {token: string};
+        service.releaseExclusive(third.token);
         expect(service.status().exclusive).toBeNull();
         expect(service.renewExclusive(third.token)).toEqual({code: "exclusive-lost"});
         expect(events.filter((event) => event.kind === "exclusive").map((event) => (event as {holder: string | null}).holder)).toEqual(["记账", null, "记账", null, "记账", null]);
@@ -346,7 +346,7 @@ describe("canon.project 输出 11、12、15、19：补归纳、游标与停止",
         await open();
         const paused = pausedAppend();
         const service = await open({now: 0}, {}, paused.files);
-        const lease = service.acquireExclusive("记账", "task-1") as {token: string};
+        const lease = service.acquireExclusive("记账") as {token: string};
         const inFlight = service.publish(entryRequest("甲", 1), lease.token);
         const queued = service.publish(entryRequest("乙", 1), lease.token);
         await paused.reached;

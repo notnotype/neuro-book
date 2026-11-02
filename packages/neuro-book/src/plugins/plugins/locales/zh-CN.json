@@ -130,6 +130,10 @@
             "name": "Agent",
             "description": "写作助手的会话与运行：接收插件给的扩展、工具与 Profile。"
         },
+        "nbook-canon": {
+            "name": "世界引擎",
+            "description": "作品的设定与剧情：条目、剧情变更、核对点与改动记录，按章算出每个位置上的样子。"
+        },
         "nbook-commands": {
             "name": "命令",
             "description": "登记与执行命令；命令面板与快捷键执行的都是这里登记的命令。"

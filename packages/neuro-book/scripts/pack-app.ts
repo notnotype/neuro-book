@@ -93,7 +93,8 @@ export function bundleProblems(source: string): string[] {
     // `./` 开头的是代码分割出来的同目录 chunk，随包发出（打包时核对它们都在，见 packApp）。
     const external = imports.map((entry) => entry.path).filter((path) => !path.startsWith("bun:") && path !== "bun" && !isBuiltin(path) && !isServerExternal(path) && !path.startsWith("./"));
     // scanImports 只报字面的导入；计算出来的 `import(x)` 按文本找：去掉允许的那一处之后，`import(` 后面不是引号的都算。
-    const computed = ALLOWED_DYNAMIC_IMPORTS.reduce((text, allowed) => text.replaceAll(allowed, ""), source).replace(IMPORT_METHOD_DEFINITION, "").match(/\bimport\(\s*(?!["'])/gu)?.length ?? 0;
+    // 没有参数的 `import()` 不是导入，只会出现在文字里（acorn 的报错 "Trailing comma is not allowed in import()"）。
+    const computed = ALLOWED_DYNAMIC_IMPORTS.reduce((text, allowed) => text.replaceAll(allowed, ""), source).replace(IMPORT_METHOD_DEFINITION, "").match(/\bimport\(\s*(?!["')])/gu)?.length ?? 0;
     return [
         ...[...new Set(external)].map((path) => `引用了外部模块 ${path}：依赖要打进 bundle`),
         ...(computed === 0 ? [] : [`有 ${String(computed)} 处计算出来的动态导入：打包看不见它要的模块`]),

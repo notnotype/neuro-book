@@ -78,7 +78,6 @@ export const LEASE_MS = 60_000;
 interface Lease {
     readonly token: string;
     readonly label: string;
-    readonly holder: string;
     readonly since: number;
     expires: number;
 }
@@ -390,12 +389,12 @@ export class WorldService {
 
     /* ---------- 独占写入（输出 10） ---------- */
 
-    acquireExclusive(label: string, holder: string): {readonly token: string; readonly expires: number} | {readonly code: "busy"; readonly holder: string; readonly since: number} {
+    acquireExclusive(label: string): {readonly token: string; readonly expires: number} | {readonly code: "busy"; readonly holder: string; readonly since: number} {
         this.#expireLease();
         if (this.#lease !== null) return {code: "busy", holder: this.#lease.label, since: this.#lease.since};
         const now = this.#ports.clock();
         const token = `lease-${String(++this.#tokens)}-${String(now)}`;
-        this.#lease = {token, label, holder, since: now, expires: now + LEASE_MS};
+        this.#lease = {token, label, since: now, expires: now + LEASE_MS};
         this.#emit({kind: "exclusive", holder: label});
         return {token, expires: this.#lease.expires};
     }
@@ -413,11 +412,6 @@ export class WorldService {
 
     breakExclusive(): void {
         if (this.#lease !== null) this.#endLease();
-    }
-
-    /** 申请独占的调用方的租约订阅结束了（插件在订阅的 signal 上调）。 */
-    holderGone(holder: string): void {
-        if (this.#lease?.holder === holder) this.#endLease();
     }
 
     #expireLease(): void {

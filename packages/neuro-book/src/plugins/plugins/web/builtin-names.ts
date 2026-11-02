@@ -10,6 +10,7 @@ import type {PluginsTextKey} from "./text";
 /** 有名称与说明的内置插件 id；新加的内置插件在这里登记，并在两份目录里补键（`builtin-names.test.ts` 对照产品清单检查）。 */
 export const BUILTIN_PLUGIN_IDS = [
     "nbook.agent",
+    "nbook.canon",
     "nbook.commands",
     "nbook.editor",
     "nbook.explorer",

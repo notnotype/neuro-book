@@ -27,6 +27,7 @@ import {agentCatalogs} from "nbook/plugins/agent/web/text";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
 import {explorerCatalogs} from "nbook/plugins/explorer/web/text";
 import {filesBrowserPlugin} from "nbook/plugins/files/web/plugin";
+import {canonBrowserPlugin} from "nbook/plugins/canon/web/plugin";
 import {pluginsBrowserPlugin} from "nbook/plugins/plugins/web/plugin";
 import {pluginsCatalogs} from "nbook/plugins/plugins/web/text";
 import {projectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
@@ -68,6 +69,7 @@ export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>
     "nbook.editor": editorBrowserPlugin,
     "nbook.image-viewer": imageViewerBrowserPlugin,
     "nbook.html-preview": htmlPreviewBrowserPlugin,
+    "nbook.canon": canonBrowserPlugin,
     "nbook.models": modelsBrowserPlugin,
 };
 

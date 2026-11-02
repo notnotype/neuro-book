@@ -20,6 +20,7 @@ const LEGACY: Readonly<Record<string, {readonly name: Record<string, string>; re
     "nbook.http": {name: {"zh-CN": "本机服务", "en-US": "Local Server"}, description: {"zh-CN": "提供页面与接口的本机 HTTP 服务。", "en-US": "The local HTTP server for pages and APIs."}},
     "nbook.image-viewer": {name: {"zh-CN": "图片查看器", "en-US": "Image Viewer"}, description: {"zh-CN": "查看作品里的图片。", "en-US": "Views images in your book."}},
     "nbook.markdown": {name: {"zh-CN": "Markdown", "en-US": "Markdown"}, description: {"zh-CN": "作品的 Markdown 写法：读写规则、编辑器扩展与显示。", "en-US": "Markdown for your book: reading and writing rules, editor extensions and rendering."}},
+    "nbook.canon": {name: {"zh-CN": "世界引擎", "en-US": "World engine"}, description: {"zh-CN": "作品的设定与剧情：条目、剧情变更、核对点与改动记录，按章算出每个位置上的样子。", "en-US": "The book's setting and story: entries, story changes, checks and the change history, worked out for every point in the book."}},
     "nbook.agent": {name: {"zh-CN": "Agent", "en-US": "Agent"}, description: {"zh-CN": "写作助手的会话与运行：接收插件给的扩展、工具与 Profile。", "en-US": "Writing assistant sessions and runs; takes the extensions, tools and profiles plugins provide."}},
     "nbook.models": {name: {"zh-CN": "模型服务", "en-US": "Model Service"}, description: {"zh-CN": "服务商与模型、密钥与模型角色；给写作助手提供模型。", "en-US": "Providers and models, keys and model roles; supplies models to the writing assistant."}},
     "nbook.plugins": {name: {"zh-CN": "插件管理", "en-US": "Plugin Manager"}, description: {"zh-CN": "安装、启用、禁用与卸载插件。", "en-US": "Installs, enables, disables and uninstalls plugins."}},

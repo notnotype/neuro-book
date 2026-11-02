@@ -482,6 +482,7 @@
       "name": "@notnotype/neuro-book",
       "version": "0.12.0",
       "dependencies": {
+        "@notnotype/nb-canon": "workspace:*",
         "@notnotype/nb-form": "workspace:*",
         "@notnotype/nb-harness": "workspace:*",
         "@notnotype/nb-markdown": "workspace:*",

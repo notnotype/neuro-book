@@ -133,6 +133,10 @@
             "name": "Agent",
             "description": "Writing assistant sessions and runs; takes the extensions, tools and profiles plugins provide."
         },
+        "nbook-canon": {
+            "name": "World engine",
+            "description": "The book's setting and story: entries, story changes, checks and the change history, worked out for every point in the book."
+        },
         "nbook-commands": {
             "name": "Commands",
             "description": "Registers and runs commands; the command palette and keybindings run the commands registered here."

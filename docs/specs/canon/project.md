@@ -160,7 +160,7 @@ owners:
 6. **分段与速度。** 按输出 14 的形状生成三百万字的模拟世界：除了独占一段的超长行，段大小都不超过 256 KiB 加一行；输出 14 的各项都达标。
 7. **断线重试。** 发布时远程连接断了：调用方按请求 id 调 `outcome`，得到已发布的修订；重发同一个请求得到同一次修订，日志里只有一行。
 
-Smoke：（planned）在临时项目里跑场景 1、2、6 的脚本，实现时补路径。
+Smoke：场景 1 跑 nb-canon 包目录的 `bun test tests/sample.test.ts`；场景 2、3 是同目录的 `tests/node-log.test.ts`（写一半由注入失败的文件操作造出，不杀进程）；场景 4 是应用包的 `src/plugins/canon/two-process.test.ts`；场景 6 在应用包目录跑 `bun scripts/perf/canon-scale.ts`。
 
 ## 证据
 

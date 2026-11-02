@@ -141,5 +141,7 @@ describe("bundle 的核对", () => {
         // 名叫 import 的对象方法不是动态导入；同样以行首 import( 开头、后面接 .then 的照样算。
         expect(bundleProblems("const scope = {\n    import(...names) {\n        return names;\n    },\n};")).toEqual([]);
         expect(bundleProblems("import(name).then(() => {\n});")).toEqual(["有 1 处计算出来的动态导入：打包看不见它要的模块"]);
+        // 没有参数的 import() 只会是文字，例如解析器的报错。
+        expect(bundleProblems("this.raise(pos, \"Trailing comma is not allowed in import()\");")).toEqual([]);
     });
 });

@@ -33,7 +33,7 @@ describe("后端文件监视", () => {
     });
 
     it("监视本包 src 与后端用到的 workspace 包源码", () => {
-        expect(backendWatchRoots(PACKAGE_ROOT)).toEqual([join(PACKAGE_ROOT, "src"), resolve(PACKAGE_ROOT, "../nb-form/src"), resolve(PACKAGE_ROOT, "../nb-harness/src"), resolve(PACKAGE_ROOT, "../nb-markdown/src"), resolve(PACKAGE_ROOT, "../nb-runtime/src")]);
+        expect(backendWatchRoots(PACKAGE_ROOT)).toEqual([join(PACKAGE_ROOT, "src"), resolve(PACKAGE_ROOT, "../nb-canon/src"), resolve(PACKAGE_ROOT, "../nb-form/src"), resolve(PACKAGE_ROOT, "../nb-harness/src"), resolve(PACKAGE_ROOT, "../nb-markdown/src"), resolve(PACKAGE_ROOT, "../nb-runtime/src")]);
     });
 
     it("递归监视：嵌套目录、新建的子目录与改名保存都报出后端文件，前端文件不报", async () => {
