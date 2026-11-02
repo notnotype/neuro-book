@@ -73,10 +73,11 @@ interface Request {
     readonly signal: AbortSignal;
 }
 
-/** 提交暂存的一个目标：暂存放在哪里、怎样提交。 */
+/** 提交暂存的一个目标：暂存放在哪里、怎样提交、写完（不论成败）之后放掉什么。 */
 interface StagingTarget {
     readonly directory: string;
     readonly commit: (input: Omit<CommitInput, "path">) => Promise<Result<{readonly baseline: Baseline}>>;
+    readonly release: () => void;
 }
 
 export function provideWorkspaceFiles(deps: WorkspaceFilesDeps): ProvidedService<WorkspaceFiles> {
@@ -158,40 +159,48 @@ function facadeFor(deps: WorkspaceFilesDeps, consumer: ConsumerIdentity, gone: A
         if (scheme === own.scheme) {
             const {commit, stagingDirectory} = user;
             if (commit === null || stagingDirectory === null) return fail("io-failed", "暂存目录不可用");
-            return {ok: true, value: {directory: stagingDirectory, commit: async (input) => toResult(await tracked(user.scope, "files.commit", () => commit({...input, path}, request.origin)))}};
+            return {ok: true, value: {directory: stagingDirectory, commit: async (input) => toResult(await tracked(user.scope, "files.commit", () => commit({...input, path}, request.origin))), release: () => undefined}};
         }
         if (scheme === "projects") {
             if (projects === null) return unknown(scheme);
             if (path === "") return fail("permission-denied", "projects:// 是只读的目录");
-            const located = await projects.locate(path);
-            if (!located.ok) return located;
-            const directory = await ensureStagingDirectory(located.value.record.path, [".nbook", "staging"]);
-            if (!directory.ok) return fail("io-failed", directory.detail);
-            return {ok: true, value: {directory: directory.path, commit: (input) => projects.call(path, request.signal, (client, inner) => client.commit({...input, path: inner, ...forwarded(request)}, {signal: request.signal}))}};
+            // 从建暂存起就持着项目的租约，一直到提交结算：写入函数运行期间项目不会停止或换代。
+            const held = await projects.hold(path);
+            if (!held.ok) return held;
+            const directory = await ensureStagingDirectory(held.value.record.path, [".nbook", "staging"]);
+            if (!directory.ok) {
+                held.value.release();
+                return fail("io-failed", directory.detail);
+            }
+            return {ok: true, value: {directory: directory.path, commit: (input) => projects.call(path, request.signal, (client, inner) => client.commit({...input, path: inner, ...forwarded(request)}, {signal: request.signal})), release: held.value.release}};
         }
         const mounted = mountedOf(scheme);
         if (mounted === null) return unknown(scheme);
         const directory = user.stagingDirectory;
         if (directory === null) return fail("io-failed", "暂存目录不可用");
-        return {ok: true, value: {directory, commit: (input) => mounted.commit(path, input, request.caller, request.origin, request.signal)}};
+        return {ok: true, value: {directory, commit: (input) => mounted.commit(path, input, request.caller, request.origin, request.signal), release: () => undefined}};
     };
 
     const stage = async (request: Request, write: (sink: StagedSink) => Promise<void>, options: CommitOptions): Promise<Result<{readonly baseline: Baseline}>> => {
         const target = await stagingTarget(request);
         if (!target.ok) return target;
-        const created = await createStage(target.value.directory, deps.report);
-        if (!created.ok) return fail("io-failed", created.detail);
-        const {stage: staged} = created;
-        const written = await fill(staged, write, request.signal, deps.report);
-        if (!written.ok) {
-            await staged.discard();
-            return written;
+        try {
+            const created = await createStage(target.value.directory, deps.report);
+            if (!created.ok) return fail("io-failed", created.detail);
+            const {stage: staged} = created;
+            const written = await fill(staged, write, request.signal, deps.report);
+            if (!written.ok) {
+                await staged.discard();
+                return written;
+            }
+            if (request.signal.aborted) {
+                await staged.discard();
+                return fail("cancelled", "调用已取消");
+            }
+            return await settle(staged, await target.value.commit({stage: staged.name, hash: written.value, expect: options.expect, ...(options.createParents === undefined ? {} : {createParents: options.createParents})}));
+        } finally {
+            target.value.release();
         }
-        if (request.signal.aborted) {
-            await staged.discard();
-            return fail("cancelled", "调用已取消");
-        }
-        return settle(staged, await target.value.commit({stage: staged.name, hash: written.value, expect: options.expect, ...(options.createParents === undefined ? {} : {createParents: options.createParents})}));
     };
 
     const write = (request: Request, content: Uint8Array | string, options: CommitOptions) => {

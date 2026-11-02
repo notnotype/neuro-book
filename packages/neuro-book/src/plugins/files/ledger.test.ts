@@ -39,26 +39,33 @@ afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-/** 记账者的行为由用例改：正常收下、抛错、或永不完成（忽略 `signal`）。 */
+/** 记账者的行为由用例改：正常收下、抛错、或挂起到用例放行（忽略 `signal`），放行时成功或失败。 */
 interface Recorder {
     readonly entries: LedgerEntry[];
     mode: "ok" | "throw" | "hang";
+    /** 挂起中的那一次：用例调用它放行。 */
+    release?: (outcome: "ok" | "fail") => void;
 }
 
-function ledgerPlugin(recorder: Recorder): PluginDefinition {
+function ledgerPlugin(recorder: Recorder, id = "nbook.test-ledger"): PluginDefinition {
     const ledger: Ledger = {
         record: async (entry) => {
             if (recorder.mode === "throw") throw new Error("账本坏了");
-            if (recorder.mode === "hang") return new Promise<void>(() => undefined);
+            if (recorder.mode === "hang") {
+                const outcome = await new Promise<"ok" | "fail">((resolve) => {
+                    recorder.release = resolve;
+                });
+                if (outcome === "fail") throw new Error("迟到的失败");
+            }
             recorder.entries.push(entry);
         },
     };
-    return {id: "nbook.test-ledger", entries: [defineEntry({
+    return {id, entries: [defineEntry({
         id: "server",
         location: "server",
         activationEvents: ["onStartup"],
-        contributions: [{capability: LEDGER_POINT, id: "nbook.test-ledger", declaration: {}}],
-        activate: () => ({contributions: {[LEDGER_POINT]: {"nbook.test-ledger": ledger}}}),
+        contributions: [{capability: LEDGER_POINT, id, declaration: {}}],
+        activate: () => ({contributions: {[LEDGER_POINT]: {[id]: ledger}}}),
     })]};
 }
 
@@ -128,6 +135,29 @@ describe("记账槽", () => {
         world.clock.advance(LEDGER_TIMEOUT_MS);
         expect(await pending).toMatchObject({ok: true});
         expect(events(world, "files.ledger.timeout")).toHaveLength(1);
+        // 超时之后才失败：有诊断，不变成没人处理的 rejection。
+        recorder.release?.("fail");
+        await waitUntil("迟到失败的诊断", () => events(world, "files.ledger.failed").length === 1);
+    });
+
+    it("记账者撤回后写入照常、不再交给它；新的记账者接手，序号接着递增", async () => {
+        const first: Recorder = {entries: [], mode: "ok"};
+        const {world, workspace} = await scene(null);
+        const scope = world.hub.root.createChild("ledger one");
+        expect(world.hub.plugins.register(ledgerPlugin(first, "nbook.test-ledger-one"), {scope})).toMatchObject({status: "accepted"});
+        expect(await world.hub.plugins.activate({plugin: "nbook.test-ledger-one", entry: "server"})).toMatchObject({status: "activated"});
+        expect(await workspace.write("user://e.md", "一", {expect: "absent"})).toMatchObject({ok: true});
+        await scope.close();
+        expect(await workspace.write("user://e.md", "二", {expect: {hash: hash("一")}})).toMatchObject({ok: true});
+        expect(first.entries).toHaveLength(1);
+
+        const second: Recorder = {entries: [], mode: "ok"};
+        const again = world.hub.root.createChild("ledger two");
+        expect(world.hub.plugins.register(ledgerPlugin(second, "nbook.test-ledger-two"), {scope: again})).toMatchObject({status: "accepted"});
+        expect(await world.hub.plugins.activate({plugin: "nbook.test-ledger-two", entry: "server"})).toMatchObject({status: "activated"});
+        expect(await workspace.write("user://e.md", "三", {expect: {hash: hash("二")}})).toMatchObject({ok: true});
+        expect(second.entries.map((entry) => entry.seq)).toEqual([3]);
+        expect(first.entries.map((entry) => entry.seq)).toEqual([1]);
     });
 
     it("没有记账者：写入照常", async () => {

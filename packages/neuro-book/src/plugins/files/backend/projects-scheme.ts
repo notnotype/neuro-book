@@ -54,6 +54,11 @@ export interface ProjectsAccess {
     virtual(): Promise<ServerFilesResult<VirtualListing>>;
     call<T>(path: string, signal: AbortSignal, run: (client: ProjectFilesClient, inner: string) => Promise<RemoteOutcome<T>>): Promise<ServerFilesResult<T>>;
     locate(path: string): Promise<ServerFilesResult<{readonly record: ProjectRecord; readonly inner: string}>>;
+    /**
+     * 解析引用并取得租约，交给调用方持有：写入方在写暂存文件期间持着它，项目不会停止或换代，打开项目也核对了项目目录的
+     * 身份。`release` 幂等。
+     */
+    hold(path: string): Promise<ServerFilesResult<{readonly record: ProjectRecord; readonly inner: string; release(): void}>>;
 }
 
 function split(path: string): {readonly reference: string; readonly inner: string} {
@@ -71,6 +76,14 @@ export function createProjectsAccess(projects: ProjectsService, remote: Activati
     };
     return {
         locate,
+        hold: async (path) => {
+            const located = await locate(path);
+            if (!located.ok) return located;
+            const acquired = await projects.acquire(located.value.record.id);
+            if (acquired.status === "rejected") return fail("project-unavailable", `打不开项目 ${located.value.record.name}：${acquired.reason}（${acquired.detail}）`);
+            const {lease} = acquired;
+            return {ok: true, value: {...located.value, release: () => lease.release()}};
+        },
         virtual: async () => {
             const listed = await projects.list();
             if (!listed.ok) return fail("project-unavailable", `项目登记表不可用：${listed.detail}`);

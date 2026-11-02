@@ -160,4 +160,19 @@ describe("commitStaged", () => {
             await rm(stage, {force: true});
         }
     });
+
+    it.if(shm !== null && shm !== statSync(join(import.meta.dir)).dev)("跨文件系统新建：拷进目标目录再链接到位，不覆盖、不留临时文件", async () => {
+        const {dir, file, lockPath} = await place();
+        const stage = join("/dev/shm", `nbook-test-${randomUUID()}.stage`);
+        await writeFile(stage, "新的", {mode: 0o600});
+        try {
+            const result = await commitStaged(file, options(stage, lockPath, {decide: (current) => (current === null ? {proceed: true} : {done: "conflict"})}));
+            expect(result).toMatchObject({ok: true, before: null});
+            expect(await readFile(file, "utf8")).toBe("新的");
+            expect(existsSync(stage)).toBe(false);
+            expect((await readdir(dir)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+        } finally {
+            await rm(stage, {force: true});
+        }
+    });
 });

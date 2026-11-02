@@ -217,7 +217,7 @@ const methods = {
     realPath: {input: Type.Object({path: Type.String(), follow: Type.Optional(Type.Literal(true))}, {additionalProperties: false}), output: Type.Object({path: Type.String(), kind: Type.Union([Type.Literal("file"), Type.Literal("directory"), Type.Literal("other")])}, {additionalProperties: false}), effect: "read", errors},
     /** 提交写入方放在本根暂存目录里的暂存文件（docs/specs/workspace/resources.md 的“暂存与提交”）；只接受服务端的 `nbook.files`。 */
     commit: {input: Type.Object({stage: Type.String(), hash: Type.String(), path: Type.String(), expect: ExpectSchema, createParents: Type.Optional(Type.Boolean()), as: As, group: Group}, {additionalProperties: false}), output: Type.Object({baseline: BaselineSchema}, {additionalProperties: false}), effect: "write", errors},
-    write: {input: Type.Object({path: Type.String(), text: Type.String(), baseline: BaselineSchema, as: As}, {additionalProperties: false}), output: Saved, effect: "write", errors},
+    write: {input: Type.Object({path: Type.String(), text: Type.String(), baseline: BaselineSchema, as: As, group: Group}, {additionalProperties: false}), output: Saved, effect: "write", errors},
     identify: {input: Type.Object({paths: Type.Array(Type.String(), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: IdentifySchema, effect: "read", errors},
     create: {input: Type.Object({path: Type.String(), kind: Type.Union([Type.Literal("file"), Type.Literal("directory")]), before: Type.Optional(Name), as: As, group: Group}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
     createContent: {input: Type.Object({path: Type.String(), as: As, group: Group}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},

@@ -189,6 +189,31 @@ describe("写入接口：暂存与提交", () => {
         }
     });
 
+    it("写入函数运行期间持着项目的租约：没在运行的项目被打开、写完之前不进宽限期", async () => {
+        const {h, agent, book} = await scene();
+        const stateOf = async (): Promise<string | undefined> => {
+            const listed = await h.manager.list();
+            return listed.ok ? listed.value.find((project) => project.id === h.project.id)?.state : undefined;
+        };
+        expect(await stateOf()).toBe("stopped");
+        let resume: () => void = () => undefined;
+        const gate = new Promise<void>((resolve) => {
+            resume = resolve;
+        });
+        let writing = false;
+        const pending = files(agent).stage("projects://book/慢.md", async (sink) => {
+            writing = true;
+            await gate;
+            await sink.write(new TextEncoder().encode("写完了"));
+        }, {expect: "absent"});
+        await waitUntil("写入函数在等", () => writing);
+        expect(await stateOf()).toBe("running");
+        resume();
+        expect(await pending).toMatchObject({ok: true});
+        expect(await readFile(join(book, "慢.md"), "utf8")).toBe("写完了");
+        expect(await stateOf()).toBe("idle-grace");
+    });
+
     it("新建的文件的权限位与“新建文件”相同", async () => {
         const {agent, book} = await scene();
         expect(await files(agent).create("projects://book/建的.md", "file")).toMatchObject({ok: true});
@@ -258,6 +283,12 @@ describe("写入接口：读", () => {
         const client = other.remote!.use(projectFilesContract).at({project: h.project.id});
         expect(await client.realPath({path: "", follow: true})).toMatchObject({ok: false, code: "permission-denied"});
         expect(await client.commit({stage: "00000000-0000-0000-0000-000000000000.stage", hash: "x", path: "a.md", expect: "any"})).toMatchObject({ok: false, code: "permission-denied"});
+        // 浏览器与别的插件的保存也可以带分组（版本 7 的全部写方法）。
+        const created = await client.create({path: "g.md", kind: "file"});
+        expect(created.ok).toBe(true);
+        const read = await client.read({path: "g.md"});
+        if (!read.ok) throw new Error(read.code);
+        expect(await client.write({path: "g.md", text: "x", baseline: read.value.baseline, group: {id: "g1", title: "一组"}})).toMatchObject({ok: true});
         lease.release();
         expect(await files(other).write("projects://book/a.md", "x", {...asAgent, expect: "any"})).toMatchObject({ok: false, code: "invalid-input"});
     });

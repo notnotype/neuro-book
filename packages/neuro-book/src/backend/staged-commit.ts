@@ -54,6 +54,8 @@ export interface StagedCommitOptions<T> {
 }
 
 const MAX_ATTEMPTS = 3;
+/** 文件系统不支持硬链接时 `link` 给的错误（FAT、部分网络盘）。 */
+const LINK_UNSUPPORTED: ReadonlySet<string> = new Set(["EPERM", "ENOTSUP", "EOPNOTSUPP", "ENOSYS"]);
 const CHUNK = 1024 * 1024;
 
 /** 提交 `options.staged` 到 `file`；`file` 必须已解析到最终目标（不是符号链接），所在目录必须已存在。 */
@@ -146,7 +148,7 @@ async function placeNew<T>(file: string, options: StagedCommitOptions<T>): Promi
         if (code === "EEXIST") return "exists";
         if (code === "EXDEV") return placeCopy(file, options, "new");
         // 不支持硬链接的文件系统（FAT、部分网络盘）：排他新建再拷入，期间能读到不完整的内容。
-        if (code === "EPERM" || code === "ENOTSUP" || code === "EOPNOTSUPP" || code === "ENOSYS") return exclusiveCopy(file, options);
+        if (code !== null && LINK_UNSUPPORTED.has(code)) return exclusiveCopy(file, options);
         throw error;
     }
     await unlinkQuietly(options.staged, options.report);
@@ -181,7 +183,10 @@ async function placeCopy<T>(file: string, options: StagedCommitOptions<T>, how: 
             try {
                 await link(temporary, file);
             } catch (error) {
-                if (errno(error) === "EEXIST") return "exists";
+                const code = errno(error);
+                if (code === "EEXIST") return "exists";
+                // 跨盘、目标盘又不支持硬链接：只能排他新建再拷入。
+                if (code !== null && LINK_UNSUPPORTED.has(code)) return await exclusiveCopy(file, options);
                 throw error;
             }
         }

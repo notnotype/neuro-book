@@ -207,6 +207,10 @@ class Root implements RootedRoot {
         const gone = await this.#checkRoot();
         if (gone !== null) return gone;
         const segments = path === "" ? [] : path.split("/");
+        if (process.platform === "win32") {
+            const bad = segments.find((segment) => windowsNameProblem(segment) !== null);
+            if (bad !== undefined) return fail("invalid-address", `${path}：${windowsNameProblem(bad) ?? ""}`);
+        }
         if (this.#options.controlDirectory && segments.length > 0 && isControlName(segments[0] as string)) return fail("protected-path", `${path} 在项目控制目录里`);
         if (segments.length > 0) {
             const first = await lstat(join(this.real, segments[0] as string)).catch(() => null);
