@@ -63,7 +63,7 @@ ol.week li { margin: 2px 0; }
 
 <section class="q" data-nbdev-question="r2-data" data-nbdev-type="text" data-nbdev-optional>
 <h2>看完数据长什么样，有没有和你理解的不一样的地方？ <span class="badge todo" data-nbdev-skip>待定</span></h2>
-<p>选答。下面“做数据结构时发现的”第 3、5、6 条会改到已接受提案里的说法，我在会话里另外问。</p>
+<p>选答。下面“做数据结构时发现的”第 3、6、11 条会改到已接受提案里的说法，我在会话里另外问。</p>
 </section>
 
 <section class="s">
@@ -130,6 +130,7 @@ ol.week li { margin: 2px 0; }
 <tr><td>7</td><td><b>计划与正文的差额不用存。</b>计划写 −10,000，正文两笔合计 −20,300，回执现算出来。</td><td>图 3 回执的“计划”一节</td></tr>
 <tr><td>8</td><td><b>找旧写法要字段声明“会在正文里重述”。</b>原身外观、性格、马甲的“这个身份的样子”有这个标记，数字没有。找的范围是正文、细纲、别的条目的这类字段；判断交给 Agent。</td><td>字段定义上的 <code>retold</code></td></tr>
 <tr><td>9</td><td><b>还原的依赖按字段算是可行的。</b>还原第 2 章的记账，找到你改蛋糕（同一条变更的同一个补丁）和改设定（同一条待定变更）两次依赖；还原你开局后填的数，只找到改外观那次。</td><td>图 9</td></tr>
+<tr><td>11</td><td><b>你的改动也有回执，但回执里的“带来的变化”要在发布时存下来。</b>开发者 11-02 问“作者的改动没有回执吗”：原来的回执只列新建的东西，改已有记录时几乎是空的。现在任何一次修订都有同一个回执页，多了“改了什么”（按字段，用作者的话）和“带来的变化”（修订前后在写到的位置上比：待处理少了哪些、多了哪些，碰到的值从多少变成多少）；小改动保存后先给一行提示，可以看回执或撤销。“带来的变化”要比较修订前后的世界，原型靠重放算；产品里不承诺按任意历史版本重算，所以要在发布时把它算好存进修订，它和保存前的预览是同一个计算。</td><td>图 6 下方的提示条；图 11</td></tr>
 <tr><td>10</td><td><b>引用别的条目读到未知。</b>主 MDX 里 <code>{ref("brother").identity.外观}</code> 读到未知：给作者显示“未知”，给 Agent 写成 <code>null</code> 加“（未知）”。</td><td>图 2 右栏下面的两段</td></tr>
 </tbody>
 </table>
@@ -141,10 +142,11 @@ ol.week li { margin: 2px 0; }
 <section class="s" id="p03"><h2>p03 第 2 章的回执</h2><figure><img src="r2/p03-receipt.webp" alt="第 2 章回执"><figcaption>情节排在前面，状态的改动作为每条情节下面的一行；计划的差额是现算的。右栏是这次修订的 8 个操作</figcaption></figure></section>
 <section class="s" id="p04"><h2>p04 待处理：存款对不上</h2><figure><img src="r2/p04-pending.webp" alt="待处理"><figcaption>右栏是核对点 k2 存下来的样子。嫌疑区间是折叠时现算的，每一笔直接“改这一笔”</figcaption></figure></section>
 <section class="s" id="p05"><h2>p05 变更详情：把蛋糕改成 −2,000</h2><figure><img src="r2/p05-change.webp" alt="变更详情"><figcaption>保存前，引擎在一份副本上发布一次，比较前后的待处理，得出预览。右栏是 c15 改之前存下来的样子</figcaption></figure></section>
-<section class="s" id="p06"><h2>p06 保存以后：面板与流水</h2><figure><img src="r2/p06-panel.webp" alt="面板"><figcaption>流水就是存款的来历；两个核对点都对上了。右栏是你这次修订：只有 c15 的一个补丁从 −300 变成 −2,000</figcaption></figure></section>
+<section class="s" id="p06"><h2>p06 保存以后：面板与流水</h2><figure><img src="r2/p06-panel.webp" alt="面板"><figcaption>流水就是存款的来历；两个核对点都对上了。右栏是你这次修订：只有 c15 的一个补丁从 −300 变成 −2,000。下方是保存后的一行提示：待处理少了 1 条、存款从 21,500 变成 19,800，可以看回执或撤销</figcaption></figure></section>
 <section class="s" id="p07"><h2>p07 “现在的样子”怎么来的</h2><figure><img src="r2/p07-shape.webp" alt="人物 Tab"><figcaption>初值“原身”（男生时的样子）→ 前史 p04 魔法少女 → 前史 p11 哥哥 → 第 1 章 c11 原身 → 第 2 章 c16 哥哥（发现 3）</figcaption></figure></section>
 <section class="s" id="p08"><h2>p08 头发按正文改设定以后</h2><figure><img src="r2/p08-suggestions.webp" alt="建议"><figcaption>右栏是“按正文改设定”那次修订：c18 从待定变成已撤销，星瑕初值的原身外观从银白变成淡金色（发现 2）。下面是 Agent 给的建议</figcaption></figure></section>
 <section class="s" id="p09"><h2>p09 还原第 2 章的记账</h2><figure><img src="r2/p09-revert.webp" alt="改动记录"><figcaption>按字段找出依赖：r7、r8 改过这次写下的同一处，只能连同一起还原（发现 9）</figcaption></figure></section>
+<section class="s" id="p11"><h2>p11 你的改动也有回执</h2><figure><img src="r2/p11-author-receipt.webp" alt="作者改动的回执"><figcaption>“按正文改设定”那一次：改了什么（那条待定的情节被撤销、星瑕初值的原身外观改成淡金色），带来的变化（待处理少了一条，原身外观变了）。旁边的标签是你改蛋糕那一次的回执（发现 11）</figcaption></figure></section>
 <section class="s" id="p10"><h2>p10 剧情容器与剧情表</h2><figure><img src="r2/p10-plot.webp" alt="剧情表"><figcaption>剧情线不在设定里了：活动栏单独一个“剧情”，有剧情表、四条剧情线、三个未排章的计划。表格是从剧情变更现算的</figcaption></figure></section>
 
 <div class="round">第 1 轮</div>
