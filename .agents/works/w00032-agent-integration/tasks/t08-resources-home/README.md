@@ -131,8 +131,18 @@ t12 开工前先做本 Task（开发者 2026-11-02 定）。写计划时定了�
 
 ## 当前状态
 
-计划第二稿已按第一轮设计审查修订（[plan.md](plan.md)、[处理](evidences/design-review-disposition.md)），开发者 2026-11-02 确认浏览器访问新方案推迟到 t17。三轮设计审查（16、13、8 条）已处理，计划第四稿定稿，开始实施（[处理](evidences/design-review-disposition.md)）。
+实施中（Work 分支 `feat/w00032-agent-integration`）：
+
+| 片 | 提交 | 内容 |
+|---|---|---|
+| 0 | `2287761a8`、`14b8d4a80`（master） | Spec：新增 `agent/resources.md`，改 `resources.md`、`prompt-editor.md`、`markdown-dialect.md`、`projects.md`、`contributions.md` |
+| 1 | `aadded6ca` | 方案注册与挂载方案、服务端文件服务、代表会话写，`project`/`user` 合同升到 6 |
+| 2 | `b4bfc6cf4` | `projects://` |
+| 3、4 | `e363cc7be` | Agent 的五个方案、临时目录、产品文档；会话的资源视图 |
+| 5 | `bcb57b83f` | 附件地址改为 `session://attachments/` |
+
+实施中的调整见 [plan.md](plan.md) 的“实施中的调整”。
 
 ## 下一步
 
-开发者确认计划后交 omp 设计审查，处理后按切片实施。
+收口验证后做实现审查（后端 omp，第 5 片前端 Sonnet），处理后合入 master；两份 Spec 的晋升由开发者批准。
