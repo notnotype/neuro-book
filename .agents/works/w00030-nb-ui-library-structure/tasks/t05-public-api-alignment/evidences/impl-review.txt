@@ -1,0 +1,134 @@
+# w00030 t05 实现审查（2026-11-02）
+
+审查对象：本 Task 的提交 f9fcb4a4f..53370901f（S0 至 S4，不含合并带进来的 master 改动）。Claude Sonnet 只读审查（前端），在快照里读码、跑单测与变异实验。11 条：重要 4、建议 7。报告原文附在后面。
+
+审查者核对过、没有问题的：S3b 的拆分对照拆分前的 Dialog.vue 逐项一致（叠放与二级、局部浮层层级、contained、aria-modal、初始焦点、滚动分隔线、插槽转发、$attrs 落点、data-* 与类名合同）；S0 的 v-bind 对象与 mergeProps 改写（含 .capture、.self、.prevent）等价。
+
+## 处理
+
+- F1 重要 FloatingWindow 的关闭路径没有单测（6 个变异都抓不住），Dialog 与 FloatingWindow 约 40 行重复：成立。抽出 dialog-close.ts 两边共用；overlay-close.test 加 FloatingWindow 一组（每种关闭方式、closeOnRequest、busy、点外面不关、closed、initialFocus、嵌套画二级）。
+- F2 重要 开发规范第 13 节与 Tier 4、nb-ui README、design-language 仍把浮动窗口写成 Dialog 的 modal=false，AlertDialog 语调还写 warning、accent：成立。都改了。
+- F3 重要 Input 带图标、清除按钮或前后缀时 aria-label 落在外层 div，输入框没有可访问名称（原有问题，S0 的透传声明让这种写法看起来类型正确）：成立。Input 关掉自动透传，aria-* 与 role 落在 input 上，class、style、data-* 与监听留在外层（宿主现有的选择器、尺寸测量与冒泡的 keydown 都按外层写，见 Task README）；加测试。Checkbox 的透传类型改 LabelHTMLAttributes。
+- F4 建议 Drawer 读屏标题、closeLabel、Breadcrumb ariaLabel 没有测试：成立。加进 default-text.test。
+- F5 重要 验收表三项没落地：成立。QuickPick 9200 层级断言（useOverlayLayer.test）；playground 加“对话框里的抽屉”“浮动窗口里的确认框”两个场景与一条 e2e（抽屉不画二级、窗口里的确认框画二级并压在窗口之上、遮罩用 nb-ui-overlay-in）。
+- F6 建议 styles.css 里 round() 的兜底不起作用：成立（基线 Chrome 119，round() 要 125）。改为 @supports 包住 round() 那条。
+- F7 建议 窗口深度钳制没测试，诊断措辞与钳制后的行为不符：成立。新增 useOverlayLayer.test（嵌套 6 层量层级，窗口里开模态在上）；措辞改为“与第 5 层同档，谁在上取决于 DOM 顺序”。
+- F8 建议 Drawer 只给 header 插槽不给 title 时读屏名是“面板”：成立，记进 Drawer.md（这时仍要传 title）。
+- F9 建议 重复代码与遗留：成立。见 F1；useFloatingWindow 的 enabled 选项删掉；Dialog.md 的 busy 去掉“缩放”；菜单项 id 的注释改正。
+- F10 建议 AlertDialog 的 trigger 插槽也拿到模态的浮层层级：成立，触发器一般只是按钮，记为已知限制（AlertDialog.md）。
+- F11 建议 aria-description 补在 @vue/runtime-dom 上，nb-ui 没有依赖它，严格解析的包管理器可能报错：成立。改补在 vue 上；临时删掉后应用的类型检查报 4 处，说明补充生效。
+
+另：合并 master 后的整套 e2e 暴露 S4 的 SuggestionMenu 传送目标改动在 Lab 里越出舞台、被顶栏盖住（lab-markdown 两条、lab-scenes），撤回，L07 第 4 点整项不做，理由写在 useTeleportTarget.ts 头注释。
+
+不成立：无。接受取舍：F8、F10 记为已知限制。
+
+---
+
+## 附：Sonnet 报告原文
+
+# w00030 t05 实现审查报告（前端部分，快照 53370901f，范围 S0 a095ccea9、S1 b1646e61e、S2 715daa108、S3b 30540854d、S4 c9df1ecde）
+# 说明：快照在 /tmp/review-w00030-t05-impl/c，nb-ui 单测在快照里跑：42 个文件 667 个用例全过（未改动时）。
+# 按核实顺序追加，最后一节汇总并按影响排序。
+
+[F1] 重要 | 测试 | FloatingWindow 的关闭路径没有任何单测（计划验收表点名要覆盖）
+位置：packages/nb-ui/src/components/feedback/FloatingWindow.vue:131-163（requestClose / onEscapeKeyDown / handleConfirm / onCloseAutoFocus）；packages/nb-ui/src/components/feedback/overlay-close.test.ts（全文无 FloatingWindow）
+现象：计划“验收映射”写“每个浮层 × 每种关闭方式发对的 request-close(reason) 或 update:open……新增 overlay-close.test.ts”“Dialog 的关闭不随监听器变化；closeOnRequest:false 时只发请求；confirm 不关闭”，覆盖对象含 FloatingWindow。实际 overlay-close.test.ts 只有 Dialog、ContextMenu、QuickPick（grep FloatingWindow 零命中）；components.test.ts 里的 FloatingWindow 用例只测了关闭按钮点击(close-button)与 busy。Escape、取消按钮、closeOnRequest=false、closeOnEsc=false、输入法组字时的 Escape、确认只发 confirm、closed 在 FloatingWindow 上都没有测试。
+为什么是问题：S3b 把这套逻辑从 Dialog.vue 复制了一份到 FloatingWindow.vue（两份几乎逐行相同的 requestClose、onEscapeKeyDown、onOpenAutoFocus），复制出来的那份没有测试保护。
+如何核实（变异，已在快照做）：在 FloatingWindow.vue 里删掉 `if (!handled && props.closeOnEsc) requestClose("escape");` 并把 `if (props.closeOnRequest) emit("update:open", false)` 改成无条件 emit；`npx vitest run src/components`：27 个文件 527 个用例仍全过。（e2e 的 settings 用例可能间接覆盖 Esc，但按规则未跑，单测层是空的。）
+建议改法：overlay-close.test.ts 加 FloatingWindow 的 FLOAT_WAYS 表（escape、close-button、cancel，没有 outside），照 Dialog 的“order 数组”写法断言先后、closeOnRequest=false、closed、点窗口外不关。
+
+[F2] 重要 | 文档过时 | 规范与 README 仍把浮动窗口写成 Dialog 的 modal=false 用法，README 组件清单没有 FloatingWindow
+位置：packages/nb-ui/docs/ui-development-spec.md:190-199（第 13 节“Dialog：一个组件两种用法”“浮动窗口（`modal=false`）”“两种用法都向内容树提供……”）、:271（Tier 4 “Dialog 的两种用法”）；packages/nb-ui/README.md:105（“`Dialog`：对话框，一个组件两种用法……`modal=false` 是浮动窗口……”），README 组件清单里没有 FloatingWindow 条目（grep 只在 351 行迁移说明的链接里出现）；packages/nb-ui/docs/design-language.md:268（“Dialog（模态与浮动窗口两种用法）”）
+现象：S3b 的提交只改了 spec 的 1 行；其余仍把 Dialog 写成两用组件、浮动窗口靠 modal=false。实现里 Dialog 已无 modal 属性（传了会落成面板上的 `modal` 属性，类型检查报错但运行时无声）。
+为什么是问题：ui-development-spec.md 是计划“Spec 与文档改动”表里点名要改“浮层合同”的规范，也是 SKILL 要求前端工作必读的文件；README 是发 npm 的包说明。读者照它写 `<Dialog :modal="false">` 会得到一个有遮罩、锁焦点的模态对话框。
+如何核实：grep -nE "modal=false|两种用法" packages/nb-ui/README.md packages/nb-ui/docs/ui-development-spec.md。
+建议改法：spec 第 13 节拆成 Dialog（模态）与 FloatingWindow（浮动窗口）两条，Tier 4 标题同步；README 的组件清单补 FloatingWindow、改 Dialog 一行；design-language 一句改成“Dialog 与 FloatingWindow”。
+附带的过时注释（同类，建议）：packages/nb-ui/src/theme/z-index.ts:17（“`Dialog` 的 `modal=false`”）、packages/nb-ui/src/composables/useFloatingWindow.ts:2（“`Dialog` 非模态用法”）、packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue:3（“外框是非模态的 Dialog”）与 :438（“Dialog 没有标题栏时的画法”）、packages/neuro-book/src/plugins/lab/web/use-lab-layout.ts:129、Dialog.md“状态与边界”一节仍写 `busy` 阻止“缩放”（Dialog 已无缩放）。
+
+[F3] 重要 | 透传声明的元素类型与落点不符（S0） | Input、Checkbox 的 /* @vue-ignore */ 类型选错了元素
+位置：packages/nb-ui/src/components/form/Input.vue:35（InputHTMLAttributes）；packages/nb-ui/src/components/form/Checkbox.vue:29（ButtonHTMLAttributes）
+现象：
+ (a) Input 没有 inheritAttrs:false，未声明属性按 Vue 默认落到“活动根节点”：有 iconClass / clearable / prefix / suffix 插槽时根是外层 <div>，否则根是 <input>（Input.vue:94-122）。声明成 InputHTMLAttributes 等于向调用方承诺“这些是 input 的属性”，类型检查放行 `aria-label`、`@blur`、`pattern`、`spellcheck`、`list` 等，但在带图标的分支它们落在 div 上：aria-label 落在没有 role 的 div 上，输入框没有可访问名称（只剩 placeholder）；blur 不冒泡，`@blur` 永不触发。
+ (b) Checkbox 的根是 <label>（Checkbox.vue:4），声明的却是 ButtonHTMLAttributes（type、value、form、formaction 等在 label 上全无意义）。
+为什么是问题：计划第 1 节“有意透传的 data-*、ARIA、class、style 不算误报；若某组件的透传产生成批报错，在该组件声明透传”，审查重点要求“选的元素类型对应属性真正落到的元素”。Input.md:93、Checkbox.md:62 自己写明“不能稳定透传到 input / 不是稳定的 input 属性透传合同”，S0 的类型声明与组件文档矛盾。已有真实调用方踩中 (a)：packages/nb-story/src/web/shell/SearchBox.vue:66（icon-class + aria-label="搜索"）、packages/neuro-book/src/plugins/models/web/components/AddProviderDialog.vue:101、ManageModelsDialog.vue:115（都是 icon-class + aria-label）。这些调用以前类型检查会报错（逼着作者想一想），打开检查并加声明后变成合法，把旧的 a11y 缺口固化为“类型正确”。
+如何核实：读 Input.vue 模板；快照里 mount(Input,{props:{iconClass:"x"},attrs:{"aria-label":"搜索"}}) 看 aria-label 落在 div（可自行验证，我只做了读码推断）。
+建议改法：Input 加 inheritAttrs:false，把 `class`/`style` 之外的透传绑到 <input>（与 SearchSelect 的 inputAttrs 一致），class/style 留在根；或按活动根分别声明。Checkbox 改声明为 LabelHTMLAttributes。
+
+[F4] 建议 | 测试覆盖 | S1 新增的三项行为没有测试：Drawer 的读屏标题与 closeLabel、Breadcrumb 的 ariaLabel 覆盖
+位置：packages/nb-ui/src/components/feedback/Drawer.vue（DrawerTitle v-if="!props.title" sr-only；DrawerClose :aria-label="closeText"）、packages/nb-ui/src/components/navigation/Breadcrumb.vue（props.ariaLabel ?? text(...)）、packages/nb-ui/src/components/default-text.test.ts（CASES 表无 Drawer；Breadcrumb 一行没有 override 项）
+现象：计划验收与 locales.test 新登记了 drawer.untitled、drawer.close，但没有任何用例读到它们。
+如何核实（变异，已在快照做）：去掉 Drawer 的 sr-only 标题和 :aria-label="closeText"、把 Breadcrumb 的 ariaLabel 覆盖去掉；`vitest run src/components src/locales`：28 个文件 530 个用例全过。（nb-ui/e2e 与 neuro-book/e2e 里也没有触及 Drawer 的用例，grep 零命中。）
+建议改法：default-text.test.ts 的 CASES 加 Drawer 两行（无标题时的读屏名、关闭按钮名，各带 override）和 Breadcrumb 的 override。
+
+[F2 补充] 同一类：packages/nb-ui/README.md:106 仍写 AlertDialog“支持 danger / warning / accent 语调”（S1 已收成 danger / neutral）；ui-development-spec.md 4.7 第一条“`Dialog`、`QuickPick`、`ContextMenu` 是受控的”漏了 FloatingWindow。
+
+[F5] 重要 | 计划验收未落地 | S3b 声明完成，但计划“验收映射”里三条与本片相关的验证没有对应的测试或场景
+位置：packages/nb-ui/src/components/popup/QuickPick.test.ts；packages/nb-ui/e2e/dialog-surfaces.spec.ts 与 packages/nb-ui/playground/app/acceptance/DialogSurfacesFixture.vue；packages/nb-ui/e2e/（遮罩关键帧）
+现象（计划 plan.md“验收映射”原文）：
+ (a)“命令面板层级不变（9200，压过通知与右键菜单）：现有 QuickPick.test.ts 加一条层级断言”——QuickPick.test.ts 里 grep 9200 / commandPalette / z-index 零命中；
+ (b)“嵌套分档……补‘对话框里开 Drawer’‘窗口里开 AlertDialog’两个场景”——DialogSurfacesFixture 只有 single / nested / alert 与三个 probe，e2e/dialog-surfaces.spec.ts 没改（git diff f9fcb4a4f..53370901f --stat 里 nb-ui/e2e 只有 popup-lists.spec.ts）；AlertDialog 改用 useOverlayLayer 后“窗口里开 AlertDialog”的 nested 与层级正是 S3b 改动的行为；
+ (c)“closed 在真实退场后触发；Drawer、AlertDialog 遮罩关键帧生效：Lab 里读 closed 时机与遮罩动画名，e2e 一条”——grep nb-ui-overlay / animationName 在 e2e 与 src 的 *.ts 里零命中。.nb-ui-overlay 是本片新增的共用类，三个浮层（含原来“实际没有动画”的 AlertDialog、Drawer）的入退场现在都靠它；类名写错、被主题覆盖或 reka 的 Presence 因此不再等动画，都不会有测试失败。
+为什么是问题：这些行为是 S3b 实际改变的（Drawer、AlertDialog 遮罩从“无动画”变成 120–180ms 的淡入淡出，reka 的 Presence 开始等 animationend），而验收表承诺过的守护没有补。
+如何核实：grep -rn "9200\|commandPalette" packages/nb-ui/src/components/popup/QuickPick.test.ts；grep -rn "nb-ui-overlay" packages/nb-ui/e2e packages/neuro-book/e2e。若 S5 还要补，忽略本条，但 README 的 S3b 小结没有写“这三条推到 S5”。
+建议改法：补三条，或在 plan 的“实施中写回的出入”里明确删掉这三行并写理由。
+
+[F6] 建议 | 正确性 | styles.css 里 `round()` 的“兜底”声明不起作用，注释的说法不成立
+位置：packages/nb-ui/src/styles.css:385-389（.nb-ui-menu-label：`line-height: var(--leading-tight);` 后接 `line-height: round(down, calc(var(--text-xs) * var(--leading-tight)), 1px);`）
+现象：注释说“上一条是不认 round() 的浏览器的兜底（design-language 坑 56）”。坑 56 的做法对字面量值成立（不认的值语法在解析时整条丢弃，前一条留下）。但第二条声明里含 var()：含 var() 的声明在解析时一律被接受，到计算值阶段才判定有效性；不认 round() 的浏览器会得到“计算值时无效”，属性按 unset 处理（line-height 是继承属性，取父级的值），前一条兜底声明已经被覆盖，不会回退。
+为什么是问题：兜底在恰好需要它的浏览器里不生效，而注释和坑 56 的引用让读者以为有保障。round() 的基线（Chrome 125、Firefox 118、Safari 15.4）对现在的目标环境大概率不是问题，所以只是建议；但真有不认的宿主（旧 Electron、旧 Safari 之外的内嵌浏览器）时，分组标题的行高会掉成继承值而非 1.3。
+如何核实：从 CSS Variables 规范推断（“invalid at computed-value time”），未在旧浏览器里实测。
+建议改法：用 `@supports (line-height: round(down, 1px, 1px))` 包住第二条（@supports 对含 var() 的值也能在解析时判断 round() 的支持），或改注释不再说“兜底”。
+
+[F1 补充变异结果] 在快照里对 S3b 新代码做了 6 个变异，nb-ui 全部单测（42 文件 667 用例）都仍通过：
+ 1. FloatingWindow 删掉 Escape 请求关闭；2. FloatingWindow 的 closeOnRequest 无条件当 true；3. FloatingWindow 的 requestClose / handleConfirm 去掉 busy 拦截（现有 “does not resize or close while busy” 点的是被 :disabled 禁用的按钮，碰不到这行守卫）；4. FloatingWindow 去掉 `closed`；5. FloatingWindow 忽略 initialFocus；6. Dialog 或 FloatingWindow 传给 DialogSurface 的 `:nested` 改成 false（二级的面只有 e2e/dialog-surfaces.spec.ts 能抓到，单测层是空的）。
+ 另：useOverlayLayer 的窗口深度钳制与 console.warn 诊断（MAX_WINDOW_DEPTH 5→50）也没有单测失败，见 F7。
+
+[F7] 建议 | 测试覆盖 + 注释 | useOverlayLayer 的窗口深度钳制与诊断没有测试；诊断文案与实际行为不一致
+位置：packages/nb-ui/src/composables/useOverlayLayer.ts:19-20、41-48
+现象：(a) 把 MAX_WINDOW_DEPTH 改成 50，所有单测仍过；计划“风险”一节与 FloatingWindow.md 都承诺“深度上限 5 层，钳制并给开发诊断”，没有断言。(b) console.warn 文案“超过 5 层的部分与最内层同档，会与模态对话框争层级”：钳制之后第 6 层与第 5 层同档（8998/8999），并不与模态（9000 起）争层级；不钳制才会（深度 6 得 9000）。文案把钳制要避免的后果当成钳制后的后果。(c) 诊断不分环境，生产构建每次建第 6 层以上窗口也会 console.warn；计划写的是“开发诊断”。
+为什么是问题：(a) 新增的边界行为无人守；(b) 误导排查；(c) 与计划不符，次要。
+如何核实：改 MAX_WINDOW_DEPTH 后跑 `npx vitest run src`；读 useOverlayLayer.ts:41-48。
+建议改法：加一条单测（嵌 6 层窗口，断言第 6 层 z-index 等于第 5 层、console.warn 被调用一次）；文案改为“与第 5 层同档，互相之间按 DOM 顺序叠放”；是否只在开发环境发由你定（nb-ui 其它组件的诊断都是无条件 console.warn，如 DropdownMenu radio 缺 group，所以也可以保持现状）。
+
+[F8] 建议 | 边界 | Drawer：只有 header 插槽、没有 title 时，读屏名称是通用的“面板”
+位置：packages/nb-ui/src/components/feedback/Drawer.vue:103-104（`<DrawerTitle v-if="!props.title" class="sr-only">`）
+现象：条件是 `!props.title`，没有考虑 `$slots.header`。传了自定义 header 插槽但没传 title 的调用方，同时得到一个 sr-only 的“面板”标题；Drawer 不导出 DrawerTitle，header 插槽里的内容无法成为对话框的名称，读屏听到的是“面板”而不是可见的页头。Drawer.md 的 title 说明（“为空时组件放一个只给读屏的标题”）和实现一致，但没有写 header 插槽的情形。当前调用方（dev-panel 两处、nb-story QaInspector）都传 title，所以现在不出问题。
+为什么是问题：新增的读屏兜底在 header 插槽用法下给出错误的名称，而 Dialog 的同类做法是 header 插槽整个包进 DialogTitle。
+如何核实：读 Drawer.vue 模板。
+建议改法：header 插槽用 `<DrawerTitle as="div">` 包起来（照 DialogSurface 的写法），sr-only 兜底只在既无 title 又无 header 时出现；或在 Drawer.md 写明“用 header 插槽时请同时传 title 作读屏名称”。
+
+[F9] 建议 | 代码质量 | S3b 拆分后的重复与遗留
+ (a) Dialog.vue 与 FloatingWindow.vue 之间逐行重复约 40 行：cancelText/confirmText/closeText/titleText 四个 computed、requestClose、handleConfirm、useCloseHandoff+onCloseAutoFocus、onOpenAutoFocus、preventDismiss、onEscapeKeyDown（FloatingWindow.vue:77-80,131-163 与 Dialog.vue:100-103,127-175）。任一份修一个 bug（例如 Escape 的输入法判断）另一份要同步，而 FloatingWindow 这份没有测试（F1）。计划为共用层级写了 useOverlayLayer，关闭逻辑没有同样处理。建议抽一个 `useDialogClose` 之类的组合式函数，放进 dialog-frame.ts 同级。
+ (b) packages/nb-ui/src/composables/useFloatingWindow.ts:47、159、278 的 `enabled` 选项：唯一调用方 FloatingWindow 写死 `() => true`，是 Dialog 兼做窗口时留下的开关，现在是死选项，可以删（连同三处判断）。
+ (c) Dialog.md“状态与边界”仍写 busy 阻止“缩放”，Dialog 已无缩放。
+ (d) packages/nb-ui/src/components/popup/dropdown-menu.types.ts 里 `id` 的注释写“分隔线也要一个（例如 "sep-1"），作列表 key”，但 MenuNodes.vue:120 的 v-for 用的是 `:key="index"`，id 并不作 key；旧注释“value 仍作为列表 key”同样不成立。要么让 key 真用 id（项重排时更稳），要么改注释。
+
+[F10] 建议 | 副作用 | AlertDialog 改用 useOverlayLayer 后，trigger 插槽的内容也拿到“模态的局部浮层层级”
+位置：packages/nb-ui/src/components/feedback/AlertDialog.vue:58-59；packages/nb-ui/src/composables/useOverlayLayer.ts:36-39
+现象：provide 发生在 AlertDialog 的 setup 里，其后代包括 `trigger` 插槽（渲染在 AlertDialogRoot 内，AlertDialog.vue:85-87）。此前 AlertDialog 只 provide 了 NB_DIALOG_LAYER，现在多 provide 了 NB_POPOVER_Z_INDEX（9010）与 NB_DIALOG_WINDOW_DEPTH。触发器里若放有自带浮层的控件（Tooltip、Select），它们的浮层层级从页面级 60/70 变成 9010，盖过页面里的普通浮层。NB_DIALOG_LAYER 的同类问题此前就在（触发器里的 Dialog 会被判成二级），这次扩大了范围。
+为什么是问题：层级随“挂在 AlertDialog 下”而非“在对话框里”决定；当前仓库内没有带 trigger 插槽的 AlertDialog 调用方（grep `<AlertDialog` 的结果都无 trigger），所以只是潜在问题，也没有在 AlertDialog.md 写明。
+如何核实：读码；仓库内调用方 grep。
+建议改法：AlertDialog.md 的 trigger 一句写明“触发器内容与对话框内容同在一棵注入树”，或把 provide 限定到 AlertDialogContent 的插槽里（需要一个小的内部提供者组件）。
+[F11] 建议 | 对外影响 | aria-attributes.ts 的模块增强随 nb-ui 源码发给所有使用方，且依赖 nb-ui 没有声明的 `@vue/runtime-dom`
+位置：packages/nb-ui/src/components/aria-attributes.ts:14-23；packages/nb-ui/src/components/index.ts:1-2；packages/nb-ui/package.json（peerDependencies 只有 vue，没有 @vue/runtime-dom）
+现象：(a) `declare module "vue" { interface AllowedComponentProps extends AriaAttributes … }` 对使用方整个程序生效，不只是 nb-ui 组件：任何组件（含第三方）都接受 ARIA 与 role。对 nb-ui 自己合理，但这是对使用方类型环境的改动，migration-0.4.md 与 nb-ui README 都没提，只在 ui-development-spec.md:73 一句话。(b) `declare module "@vue/runtime-dom"` 要求这个模块能从 nb-ui 源码所在位置解析。nb-ui 作为 .ts 源码发布（package.json files: src），使用方的 TypeScript 会检查它；在严格解析的包管理器（pnpm 默认布局）下 `@vue/runtime-dom` 只是 vue 的依赖、不在 nb-ui 旁边，会得到 TS2664（增强的模块找不到）。本仓库用 bun 的提升布局，所以看不出。（从包管理器行为推断，未在 pnpm 下验证。）
+为什么是问题：下一个 npm 版本（0.4.0）就带着它发出去；使用方升级后类型检查突然报错时，原因在一个“补 aria-description”的小项上。
+建议改法：aria-description 这一项直接删掉（ARIA 1.3 的属性，Vue 3.5 的类型里仍无，需要的人可以用 data 或自己增强），或把它改成不依赖 @vue/runtime-dom 的写法（给 "vue" 的 AllowedComponentProps 直接加 `"aria-description"?: string`）；(a) 在 migration-0.4.md 的“宿主打开检查”那段写一句。
+
+# 汇总
+
+条数：阻断 0；重要 4（F1、F2、F3、F5）；建议 7（F4、F6、F7、F8、F9、F10、F11）。F1 与 F2、F5 都是 S3b 的收尾问题，F3 是 S0 的类型声明。
+
+最重要的几条：
+1. F3（重要，S0）：Input 的 InputHTMLAttributes 与 Checkbox 的 ButtonHTMLAttributes 声明对不上真实落点。Input 带图标时 aria-label、@blur 落在外层 div（已在快照实测：WRAPPED root=DIV rootAria=搜索 inputAria=null），nb-story SearchBox、AddProviderDialog、ManageModelsDialog 三处已经踩中，输入框没有可访问名称；打开检查后这些写法反而“类型正确”。
+2. F1（重要，S3b）：FloatingWindow 的关闭路径没有单测（计划验收表点名要有）。6 个变异（删 Escape、closeOnRequest 恒真、busy 守卫、closed、initialFocus、nested 传 false）全部仍通过 667 个用例；Dialog 与 FloatingWindow 之间还有约 40 行逐行重复（F9a）。
+3. F2 + F5（重要）：ui-development-spec.md 第 13 节、Tier 4 与 nb-ui README 仍把浮动窗口写成 Dialog 的 modal=false 用法、README 组件清单没有 FloatingWindow、AlertDialog 语调还写 warning/accent；计划验收表里的三条（QuickPick 9200 层级断言、对话框里开 Drawer / 窗口里开 AlertDialog 两个 e2e 场景、.nb-ui-overlay 遮罩关键帧 e2e）没有落地。
+
+未发现问题的方面（逐项核对过）：
+- S3b 拆分对照拆分前 Dialog.vue：叠放与二级判断（嵌套层数、窗口深度、modal 原样下传窗口深度）、局部浮层层级、contained 与 aria-modal、遮罩按下松开的判定与 onTop、初始焦点、Esc 的输入法与 defaultPrevented 判断、closed 交接、滚动分隔线与 ResizeObserver 收口、header / header-extra / status / footer（带 confirm、cancel 参数）插槽转发、$attrs 与 class/style 落点、data-* 与类名合同、--nb-dialog-close-room、拖动区域与缩放手柄（经 edges 插槽）、数字宽度收窄，行为一致；Dialog.test.ts 未改动且通过。窗口深度钳制是新增行为（F7）。
+- S0：Dialog 遮罩的 @contextmenu.prevent 改对象写法等价；Collapsible 的 .self 改成 target === currentTarget 等价；DropdownMenu / Menubar 的 @keydown.capture 改 onKeydownCapture（含 mergeProps 保留 contentProps 里的同名监听）等价；QuickPick 的 mergeProps($attrs, {onKeydown}) 保留两边监听；Select 的 mergeProps 里 id 后写覆盖与原先 :id 在 v-bind 之后一致；SelectRoot 的 modal、DropdownMenuContent 的 position 在 reka 里确无此 prop；BookCard 的 @click.stop 本就落不到元素上，触发按钮上另有 .stop；在快照里写了 probe .vue，旧属性 modal、onCancel、onClose、placement、size="default"、菜单项 value 都被 vue-tsc 报错，nb-ui 自身 vue-tsc 零报错。
+- S1：size 的 "default" 在 Input、NumberInput、Select、SearchSelect 里没有残留的比较或动态绑定；Banner / Notification 的 danger 类名与 role 一致，工作台通知服务在边界映射 error→danger，durationOf 与 update 路径的 sticky 重算保持；SegmentedControl 的 tone 确实从未渲染；Tooltip / InfoTip 的 align 缺省 center 与 reka 缺省一致；.md 里没有残留的旧名。
+- S2：DropdownMenu 的 select 事件发 id、Menubar 发整项、Tabs 的“更多”菜单改 id；MenuNodes 用 index 作 key，没有因改名漏掉的 item.value；Select 的 tone 色点六档 token 都存在（--status-info 等在主题里），列表与触发器两处渲染一致；选中项画勾时色点让位的逻辑保持。
+- S4：SuggestionMenu 缺省目标读 useTeleportTarget，非 Lab 宿主仍是 body；SDK 白名单测试在快照里通过（4 个用例），断言是集合严格相等，比计划写的“或在排除表里”更严。
+- 测试里没有为让测试通过而放宽的断言：被改的既有断言都是机械改名，或换成更严格的按先后断言；e2e 里 28→30px、13→14px 是对 t04 已改字号的校正。
+- 快照验证：nb-ui 单测 42 文件 667 用例全过；vue-tsc 零报错；neuro-book 的 sdk.test（bun）4 个、Lab 夹具与 AddProviderDialog 的 dom 测试通过。未跑 e2e 与开发服务。
