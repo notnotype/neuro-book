@@ -134,7 +134,7 @@ function scheduleLevel(item: MenubarItemData | null, trigger: HTMLElement, depth
                     @pointer-down-outside="(event) => keepOpen(menu.id, event)"
                     @focus-outside="(event) => keepOpen(menu.id, event)"
                     class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion relative flex max-h-[var(--reka-popper-available-height)] min-w-[200px] flex-col overflow-hidden text-[var(--text-main)] outline-none select-none"
-                    @keydown.capture="cascade.rootKeydown"
+                    v-bind="{onKeydownCapture: cascade.rootKeydown}"
                 >
                     <!-- 每组各有一份滚动状态：切换组时旧一组还在退场动画里，共用一份会让它套上新一组的截断与渐隐。 -->
                     <PopupViewport class="w-full" :data-menubar-level="menu.id" @scroll="cascade.collapseBelow(0)">

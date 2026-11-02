@@ -7,7 +7,7 @@ import {
     DialogTitle,
     type PointerDownOutsideEvent,
 } from "reka-ui";
-import {computed, nextTick, ref, useId, watch} from "vue";
+import {computed, mergeProps, nextTick, ref, useId, watch} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
 import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import {usePopupScroll} from "../../composables/usePopupScroll";
@@ -291,14 +291,13 @@ function isLowSurrogate(code: number): boolean {
             <!-- 面板没有描述节点：先清掉 Reka 默认指向描述 id 的 aria-describedby（否则引用悬空并告警），宿主显式传入时仍以宿主为准 -->
             <DialogContent
                 :aria-describedby="undefined"
-                v-bind="$attrs"
+                v-bind="mergeProps($attrs, {onKeydown: onPanelKeydown})"
                 :style="panelStyle"
                 class="nb-ui-popover-surface nb-ui-menu-surface fixed inset-x-0 mx-auto flex flex-col gap-[var(--space-2)] overflow-hidden text-[var(--text-main)] outline-none"
                 :class="{ 'nb-ui-popover-motion': props.open }"
                 @open-auto-focus="onOpenAutoFocus"
                 @close-auto-focus="onCloseAutoFocus"
                 @pointer-down-outside="onPointerDownOutside"
-                @keydown="onPanelKeydown"
             >
                 <DialogTitle class="sr-only">{{ props.title }}</DialogTitle>
 

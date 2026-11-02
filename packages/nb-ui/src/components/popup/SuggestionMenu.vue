@@ -190,7 +190,7 @@ defineExpose({
                 @pointer-down-outside.prevent
                 @focus-outside.prevent
                 @interact-outside.prevent
-                @mousedown="onSurfaceMousedown"
+                v-bind="{onMousedown: onSurfaceMousedown}"
             >
                 <div v-if="$slots.header" class="shrink-0" data-suggestion-menu-header>
                     <slot name="header" />

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import {computed, inject, ref, useAttrs, watch} from "vue";
+import type {ButtonHTMLAttributes} from "vue";
+import {computed, inject, mergeProps, ref, useAttrs, watch} from "vue";
 import {
     SelectContent,
     SelectItem,
@@ -56,7 +57,7 @@ const props = withDefaults(defineProps<{
     /** 只读：可以聚焦、写 `aria-readonly`，交互不改值（docs/specs/ui/forms.md 输出 28）。 */
     readonly?: boolean;
     hideCheckmark?: boolean;
-}>(), {
+} & /* @vue-ignore */ ButtonHTMLAttributes>(), {
     modelValue: "",
     id: "",
     name: "",
@@ -168,20 +169,16 @@ function handleCloseAutoFocus(event: Event): void {
         :disabled="props.disabled"
         :name="props.name || undefined"
         :required="isRequired"
-        :modal="false"
         :open="open"
         @update:open="handleOpen"
         @update:model-value="handleUpdate"
     >
         <SelectTrigger
-            v-bind="forwardedAttrs"
-            :id="controlId"
+            v-bind="mergeProps(forwardedAttrs, {id: controlId, onFocus: (event: FocusEvent) => emit('focus', event), onPointerdown: handleTriggerPointerdown})"
             :aria-describedby="field?.ariaDescribedby.value"
             :aria-invalid="isInvalid || undefined"
             :aria-readonly="props.readonly || undefined"
             :class="triggerClass"
-            @focus="emit('focus', $event)"
-            @pointerdown="handleTriggerPointerdown"
         >
             <span class="flex min-w-0 items-center gap-1.5 pr-1">
                 <slot name="leading" :selected="selectedOption">
@@ -216,7 +213,7 @@ function handleCloseAutoFocus(event: Event): void {
                     class="nb-ui-popover-scroll w-full"
                     :class="scroll.fadeClass.value"
                     :style="scroll.viewportStyle.value"
-                    @scroll="scroll.onScroll"
+                    v-bind="{onScroll: scroll.onScroll}"
                 >
                     <SelectItem
                         v-for="option in props.options"

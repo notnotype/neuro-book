@@ -3,7 +3,8 @@ export type DropIndicatorVariant = "area" | "entry" | "line";
 </script>
 
 <script setup lang="ts">
-defineProps<{variant: DropIndicatorVariant}>();
+import type {HTMLAttributes} from "vue";
+defineProps<{variant: DropIndicatorVariant} & /* @vue-ignore */ HTMLAttributes>();
 defineSlots<{default(): unknown}>();
 </script>
 

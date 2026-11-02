@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {HTMLAttributes} from "vue";
 import {computed} from "vue";
 
 import {useUiText} from "../../text-port";
@@ -22,7 +23,7 @@ const props = withDefaults(defineProps<{
     size?: SliderSize;
     name?: string;
     ariaLabel?: string;
-}>(), {
+} & /* @vue-ignore */ HTMLAttributes>(), {
     modelValue: undefined,
     defaultValue: () => [0],
     min: 0,

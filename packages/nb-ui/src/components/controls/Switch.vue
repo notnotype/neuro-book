@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {ButtonHTMLAttributes} from "vue";
 import {
     SwitchRoot,
     SwitchThumb,
@@ -20,7 +21,7 @@ const props = withDefaults(defineProps<{
     invalid?: boolean;
     /** 只读：可以聚焦、写 `aria-readonly`，交互不改值（docs/specs/ui/forms.md 输出 28）。 */
     readonly?: boolean;
-}>(), {
+} & /* @vue-ignore */ ButtonHTMLAttributes>(), {
     modelValue: undefined,
     defaultValue: false,
     disabled: false,

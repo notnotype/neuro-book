@@ -73,7 +73,7 @@ function handleUpdate(value: unknown): void {
         :disabled="props.disabled"
         :required="props.required || field?.required.value === true"
         :orientation="props.orientation"
-        :id="field?.inputId.value"
+        v-bind="{id: field?.inputId.value}"
         :aria-labelledby="field?.labelId.value"
         :aria-describedby="field?.ariaDescribedby.value"
         :aria-invalid="isInvalid ? 'true' : undefined"

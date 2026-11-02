@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {HTMLAttributes} from "vue";
 import {computed} from "vue";
 
 /**
@@ -23,7 +24,7 @@ const props = withDefaults(defineProps<{
     dot?: boolean;
     iconClass?: string;
     count?: number | string;
-}>(), {
+} & /* @vue-ignore */ HTMLAttributes>(), {
     tone: "neutral",
     variant: "solid",
     size: "md",

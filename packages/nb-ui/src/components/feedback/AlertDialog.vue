@@ -115,13 +115,13 @@ function onCloseAutoFocus(event: Event): void {
                 </div>
 
                 <div class="nb-ui-dialog-footer mt-6 justify-end">
-                    <AlertDialogCancel as-child @click="emit('cancel')">
+                    <AlertDialogCancel as-child v-bind="{onClick: () => emit('cancel')}">
                         <Button variant="secondary">
                             {{ cancelLabel }}
                         </Button>
                     </AlertDialogCancel>
 
-                    <AlertDialogAction as-child @click="emit('confirm')">
+                    <AlertDialogAction as-child v-bind="{onClick: () => emit('confirm')}">
                         <Button :variant="props.tone === 'danger' ? 'danger' : 'primary'">
                             {{ confirmLabel }}
                         </Button>

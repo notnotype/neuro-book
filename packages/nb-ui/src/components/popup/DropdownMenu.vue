@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, ref} from "vue";
+import {computed, mergeProps, ref} from "vue";
 import {
     DropdownMenuContent,
     DropdownMenuItem,
@@ -126,7 +126,6 @@ function scheduleSubmenu(item: DropdownMenuItemData | null, trigger: HTMLElement
 
         <DropdownMenuPortal v-if="props.open === undefined || props.open">
             <DropdownMenuContent
-                position="popper"
                 :reference="unscaledAnchor"
                 :align="props.align"
                 :side="props.side"
@@ -136,9 +135,8 @@ function scheduleSubmenu(item: DropdownMenuItemData | null, trigger: HTMLElement
                 class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion relative flex max-h-[var(--reka-popper-available-height)] flex-col overflow-hidden"
                 :class="resolvedMenuClass"
                 :style="{zIndex, ...props.popoverStyle}"
-                v-bind="props.contentProps"
+                v-bind="mergeProps(props.contentProps, {onKeydownCapture: cascade.rootKeydown})"
                 @interact-outside="keepOpenForCascade"
-                @keydown.capture="cascade.rootKeydown"
             >
                 <div
                     :ref="scroll.setViewport"

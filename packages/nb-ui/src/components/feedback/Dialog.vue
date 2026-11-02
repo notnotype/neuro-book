@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {HTMLAttributes} from "vue";
 /**
  * 对话框（同名 .md）：一个组件两种用法，外框（面、标题、正文、页脚、分隔线）只有这一份。
  *
@@ -72,7 +73,7 @@ const props = withDefaults(defineProps<{
     cancelLabel?: string;
     confirmLabel?: string;
     closeLabel?: string;
-}>(), {
+} & /* @vue-ignore */ HTMLAttributes>(), {
     modal: true,
     title: "",
     size: "default",
@@ -342,9 +343,7 @@ function onOverlayPointerUp(event: PointerEvent): void {
                     :class="overlayClass"
                     :style="{zIndex}"
                     data-dialog-overlay
-                    @pointerdown="onOverlayPointerDown"
-                    @pointerup="onOverlayPointerUp"
-                    @contextmenu.prevent
+                    v-bind="{onPointerdown: onOverlayPointerDown, onPointerup: onOverlayPointerUp, onContextmenu: (event: MouseEvent) => event.preventDefault()}"
                 />
                 <div
                     v-else-if="props.modelValue"

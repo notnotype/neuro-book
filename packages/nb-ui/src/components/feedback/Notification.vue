@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {HTMLAttributes} from "vue";
 import {computed} from "vue";
 import {useUiText} from "../../text-port";
 import Progress from "../display/Progress.vue";
@@ -14,7 +15,7 @@ const props = withDefaults(defineProps<{
     closeLabel?: string;
     /** 进度（0 到 100）：画一条进度条；null 为不确定进度（来回滑动的条）；不给就没有。 */
     progress?: number | null;
-}>(), {
+} & /* @vue-ignore */ HTMLAttributes>(), {
     tone: "info",
     title: "",
     message: "",

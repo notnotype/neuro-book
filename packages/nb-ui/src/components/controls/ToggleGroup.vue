@@ -68,7 +68,7 @@ function sizeClass(): string {
                 :key="opt.value"
                 :value="opt.value"
                 :disabled="opt.disabled"
-                :title="opt.title || opt.label"
+                v-bind="{title: opt.title || opt.label}"
                 class="nb-ui-focus-ring inline-flex items-center justify-center rounded-[calc(var(--radius-control)-2px)] font-medium text-[var(--text-secondary)] transition-[background-color,color,transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] not-disabled:active:scale-[0.96] hover:bg-[color-mix(in_srgb,var(--text-main)_8%,transparent)] hover:text-[var(--text-main)] data-[state=on]:bg-[var(--bg-panel)] data-[state=on]:text-[var(--accent-main)] data-[state=on]:shadow-sm cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 disabled:active:transform-none"
                 :class="sizeClass()"
             >

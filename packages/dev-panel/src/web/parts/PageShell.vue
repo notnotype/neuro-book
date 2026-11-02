@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {HTMLAttributes} from "vue";
 import {Breadcrumb} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 import {isPlainClick} from "../host/routes.js";
@@ -12,7 +13,7 @@ const props = withDefaults(defineProps<{
     bare?: boolean;
     /** 工具页的一行页头（t17，会话页）：面包屑当标题行，内边距与间隙收小，把高度让给正文。`bare` 同时为真时 `bare` 优先。 */
     compact?: boolean;
-}>(), {crumbs: () => [], width: "list", bare: false, compact: false});
+} & /* @vue-ignore */ HTMLAttributes>(), {crumbs: () => [], width: "list", bare: false, compact: false});
 const emit = defineEmits<{navigate: [href: string]}>();
 const items = computed(() => props.crumbs.map((crumb, index) => (index === props.crumbs.length - 1 ? {label: crumb.label, current: true} : {label: crumb.label, href: crumb.href})));
 /** 一行页头里，面包屑的最后一项（当前页）由紧跟的 h1 代替，不再写两遍。 */

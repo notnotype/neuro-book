@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {HTMLAttributes} from "vue";
 import {computed, nextTick, ref} from "vue";
 import {moveRoving, rovingMove} from "../../utils/roving";
 
@@ -47,7 +48,7 @@ const props = withDefaults(defineProps<{
     invalid?: boolean;
     /** 必填：写 `aria-required`；与 `Field` 上下文的必填取或。 */
     required?: boolean;
-}>(), {
+} & /* @vue-ignore */ HTMLAttributes>(), {
     ariaLabel: "",
     size: "sm",
     tone: "default",

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {ButtonHTMLAttributes} from "vue";
 import {focusRingClass} from "./focus-ring";
 import type {FocusRingStyle} from "./focus-ring";
 
@@ -13,7 +14,7 @@ const props = withDefaults(defineProps<{
     disabled?: boolean;
     iconClass?: string;
     focusRing?: FocusRingStyle;
-}>(), {
+} & /* @vue-ignore */ ButtonHTMLAttributes>(), {
     title: "",
     ariaLabel: "",
     variant: "default",

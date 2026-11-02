@@ -67,6 +67,12 @@
 - a11y：角色、名称、状态、关联描述、键盘和焦点归还；
 - 边界：空值、未知值、禁用项、最小/最大值、溢出与窄屏行为。
 
+透传属性也是合同的一部分。各宿主的模板类型检查打开了 `checkUnknownProps`、`checkUnknownEvents`，用来拦写错或改过名的属性与事件；vue-tsc 认为组件只接受自己声明的属性，所以：
+
+- 组件把调用方的 HTML 属性与原生事件透传到某个元素上时，在 `defineProps` 里用 `& /* @vue-ignore */ <该元素的属性类型>` 声明（例如 `ButtonHTMLAttributes`；只类型检查用，不变成运行时 prop）。组件自己发出的事件与原生事件同名时（例如 `scroll`），从声明里 `Omit` 掉它。
+- ARIA 属性与 `role` 已在 `src/components/aria-attributes.ts` 里对所有组件放行，不用逐个声明。
+- 传给 reka 等第三方组件、而它的类型没声明的原生事件、`id`、`title`，写进 `v-bind` 对象（`v-bind="{onKeydown: …}"`），与透传属性合并时用 `mergeProps`，保留两边的同名监听。
+
 ### 4.1 状态下限
 
 所有可交互组件至少覆盖：默认、hover、focus-visible、active/selected、disabled。字段再覆盖 readonly、required、invalid、empty/placeholder；异步组件覆盖 loading、empty、error；浮层覆盖 open、close、outside interaction、Escape 与视口碰撞。

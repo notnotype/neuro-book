@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {HTMLAttributes} from "vue";
 /**
  * 可搜索的下拉（同名 .md，docs/specs/ui/forms.md 输出 30）：一个 combobox 输入框加 `SuggestionMenu`。输入的文字只是
  * 搜索词，只有选中选项才改值；Escape 与失焦都恢复显示已选项。列表的样子、截断与滚动就是 `SuggestionMenu` 的，与
@@ -43,7 +44,7 @@ const props = withDefaults(defineProps<{
     /** 出错外观与 `aria-invalid`；与 `Field` 上下文的出错取或。 */
     invalid?: boolean;
     required?: boolean;
-}>(), {
+} & /* @vue-ignore */ HTMLAttributes>(), {
     modelValue: "",
     id: "",
     name: "",

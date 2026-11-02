@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {InputHTMLAttributes} from "vue";
 import {computed} from "vue";
 import {useUiText} from "../../text-port";
 import {useFieldContext} from "./field-context";
@@ -30,7 +31,7 @@ const props = withDefaults(defineProps<{
     step?: string;
     min?: string;
     max?: string;
-}>(), {
+} & /* @vue-ignore */ InputHTMLAttributes>(), {
     modelValue: "",
     id: "",
     name: "",

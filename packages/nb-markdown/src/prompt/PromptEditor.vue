@@ -989,8 +989,7 @@ defineExpose({
                 v-if="editor"
                 :editor="editor"
                 class="prompt-editor__content"
-                @focusin="onContentFocusIn"
-                @focusout="onContentFocusOut"
+                v-bind="{onFocusin: onContentFocusIn, onFocusout: onContentFocusOut}"
             />
         </div>
         <!-- 候选菜单与输入历史：与外框同宽，按 menuPlacement 在上方或下方，不跟随光标（ui/prompt-editor.md 的“不做”）。 -->

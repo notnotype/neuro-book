@@ -21,5 +21,10 @@
         "themes/**/*.ts",
         "themes/**/*.vue",
         "vitest.config.ts"
-    ]
+    ],
+    "vueCompilerOptions": {
+        "checkUnknownProps": true,
+        "checkUnknownEvents": true,
+        "dataAttributes": ["data-*"]
+    }
 }

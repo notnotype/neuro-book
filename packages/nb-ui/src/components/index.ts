@@ -1,3 +1,6 @@
+// 只为把 aria-attributes.ts 里的模板类型补充带进每个导入组件的程序，运行时没有内容。
+import type {} from "./aria-attributes";
+
 export {default as Button} from "./controls/Button.vue";
 export {default as DropdownMenu} from "./popup/DropdownMenu.vue";
 export {default as IconButton} from "./controls/IconButton.vue";

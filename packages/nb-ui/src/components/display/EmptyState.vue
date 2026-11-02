@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {HTMLAttributes} from "vue";
 import {computed} from "vue";
 
 import {useUiText} from "../../text-port";
@@ -8,7 +9,7 @@ const props = withDefaults(defineProps<{
     iconClass?: string;
     title?: string;
     description?: string;
-}>(), {
+} & /* @vue-ignore */ HTMLAttributes>(), {
     iconClass: "i-lucide-inbox",
     description: "",
 });

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {HTMLAttributes} from "vue";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useAttrs, watch} from "vue";
 import DropdownMenu from "../popup/DropdownMenu.vue";
 import type {DropdownMenuItemData} from "../popup/dropdown-menu.types";
@@ -39,7 +40,7 @@ const props = withDefaults(defineProps<{
     maxItemWidth?: number;
     /** `adapt` 的“更多”按钮文字，后面跟收起来的个数。 */
     moreLabel?: string;
-}>(), {
+} & /* @vue-ignore */ HTMLAttributes>(), {
     ariaLabel: "",
     size: "md",
     baseline: true,

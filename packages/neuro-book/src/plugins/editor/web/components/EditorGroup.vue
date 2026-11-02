@@ -306,7 +306,7 @@ export interface EditorGroupTitleActions {
         </Banner>
         <div class="relative min-h-7 flex-1" :aria-busy="area.progress(groupId) ? 'true' : undefined" data-editor-content>
             <div v-if="activeTab === null" class="editor-group__empty" data-editor-empty>
-                <NeuroBookMark class="editor-group__mark" aria-hidden="true" />
+                <NeuroBookMark class="editor-group__mark" decorative />
                 <div v-if="emptyTips.length > 0" class="editor-group__tips">
                     <button v-for="tip in emptyTips" :key="tip.command" type="button" class="editor-group__tip nb-ui-focus-ring" :data-editor-empty-tip="tip.command" @click="emit('run-tip', tip.command)">
                         <span class="editor-group__tip-label">{{ tip.label }}</span>
