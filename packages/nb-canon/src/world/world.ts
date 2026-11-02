@@ -13,7 +13,7 @@ import {valueProblem} from "../components/values";
 import {addressKey, parsePath} from "../core/address";
 import {compareIds, ID_PREFIX, IdAllocator} from "../core/ids";
 import {readNumbers} from "../core/numerals";
-import {applyChanges, diffValues} from "../core/paths";
+import {applyChanges, diffValues, parseSegments, type FieldChange} from "../core/paths";
 import {chapterEnd, defaultPosition, type ChapterOrder} from "../core/position";
 import {
     OBJECT_SCHEMAS,
@@ -185,6 +185,55 @@ export class World {
 
     /** 发布一个写入请求；成功时返回新的世界与修订（本世界不变）。 */
     publish(input: WriteRequest, time: string): WriteResult {
+        return this.#publish(input, time, false);
+    }
+
+    /**
+     * 还原一次修订（revisions.md 输出 11、12）：有依赖时不单独还原，`withDependents` 为真时连同依赖从后往前一起还原，
+     * 作为一次补偿修订发布。补偿只恢复被还原的修订改过的东西，不覆盖后面的修改（有依赖的已被拒或一起还原）。
+     */
+    revert(target: string, withDependents: boolean, meta: {readonly requestId: string; readonly by: WriteRequest["by"]; readonly title?: string}, time: string): WriteResult | {readonly ok: false; readonly failure: RevertFailure} {
+        const index = this.revisions.findIndex((revision) => revision.id === target);
+        if (index < 0) return {ok: false, failure: {code: "not-found"}};
+        const set = this.dependents(target);
+        if (set === "not-revertable") return {ok: false, failure: {code: "not-revertable"}};
+        const others = set.filter((id) => id !== target);
+        if (others.length > 0 && !withDependents) return {ok: false, failure: {code: "has-dependents", dependents: [...others].reverse()}};
+        const previous = this.index.requests.get(meta.requestId);
+        if (previous !== undefined) return {ok: true, world: this, revision: previous.revision, ids: {}, repeated: true};
+        const working = new Map<string, {ref: ObjectRef; value: unknown}>();
+        const current = (ref: ObjectRef) => (working.has(refKey(ref)) ? working.get(refKey(ref))!.value : this.object(ref));
+        for (const id of [...set].reverse()) {
+            const revision = this.revisions.find((candidate) => candidate.id === id)!;
+            for (const op of [...revision.ops].reverse()) {
+                if (op.kind === "chapters") continue;
+                if (op.kind === "create") working.set(refKey(op.ref), {ref: op.ref, value: undefined});
+                else if (op.kind === "delete") working.set(refKey(op.ref), {ref: op.ref, value: structuredClone(op.before)});
+                else working.set(refKey(op.ref), {ref: op.ref, value: compensate(current(op.ref), op.fields)});
+            }
+        }
+        const puts = [...working.values()].map(({ref, value}) => ({ref, after: value === undefined ? null : value}));
+        const request: WriteRequest = {requestId: meta.requestId, by: meta.by, what: "revert", title: meta.title ?? `还原 ${target}`, baseVersion: this.version, puts};
+        return this.#publish(request, time, true, {reverts: [...set]});
+    }
+
+    /** 还原 `target` 要一起还原的修订（含它自己，按版本从旧到新），或章序调整不能还原（输出 12、13）。 */
+    dependents(target: string): string[] | "not-revertable" {
+        const start = this.revisions.findIndex((revision) => revision.id === target);
+        if (start < 0) return [];
+        const root = this.revisions[start]!;
+        if (root.ops.some((op) => op.kind === "chapters")) return "not-revertable";
+        const set = [root];
+        for (const later of this.revisions.slice(start + 1)) {
+            if (set.some((earlier) => dependsOn(later, earlier))) {
+                if (later.ops.some((op) => op.kind === "chapters")) continue;
+                set.push(later);
+            }
+        }
+        return set.map((revision) => revision.id);
+    }
+
+    #publish(input: WriteRequest, time: string, compensation: boolean, extra: Pick<Revision, "reverts"> = {}): WriteResult {
         const shape = schemaProblems(WriteRequestSchema, input);
         if (shape !== null) return invalid(shape.map((problem) => ({code: "type-mismatch", path: problem.path, message: problem.message})));
         const {baseVersion: _baseVersion, ...meaning} = input;
@@ -208,8 +257,9 @@ export class World {
         for (const put of request.puts) {
             const existing = this.object(put.ref);
             const isNew = Object.values(ids).includes(put.ref.id);
-            if (!isNew && existing === undefined) problems.push({code: "not-found", ref: put.ref, message: "object does not exist; new objects need a tmp: id"});
-            if (put.after === null && (put.ref.kind === "entry" || put.ref.kind === "change")) return {ok: false, failure: {code: "not-deletable", ref: put.ref}};
+            // 补偿修订会按原来的 id 建回被还原删掉的对象（id 不复用，所以不会撞）。
+            if (!isNew && existing === undefined && !compensation) problems.push({code: "not-found", ref: put.ref, message: "object does not exist; new objects need a tmp: id"});
+            if (!compensation && put.after === null && (put.ref.kind === "entry" || put.ref.kind === "change")) return {ok: false, failure: {code: "not-deletable", ref: put.ref}};
             const lastTouched = this.index.touched.get(refKey(put.ref)) ?? 0;
             if (!isNew && lastTouched > request.baseVersion) conflicts.push({ref: put.ref, changed: true, current: structuredClone(existing)});
         }
@@ -253,7 +303,8 @@ export class World {
 
         const data = freeze(tables, createdAt, version);
         const engine = this.engine.update(engineInputs(data, this.options), changed);
-        problems.push(...validate(this, data, engine, request, changed));
+        // 补偿修订只恢复旧值：恢复出来的记录套不上时不拒收，进待处理（输出 11）。
+        if (!compensation) problems.push(...validate(this, data, engine, request, changed));
         if (problems.length > 0) return invalid(problems);
 
         const where = whereOf(request.chapter, this.options.order);
@@ -272,6 +323,7 @@ export class World {
             baseVersion: request.baseVersion,
             ops,
             ...(request.notes === undefined ? {} : {notes: request.notes}),
+            ...extra,
             impact,
             ...(Object.keys(ids).length === 0 ? {} : {idMap: ids}),
         };
@@ -342,6 +394,108 @@ export class World {
         const requests = new Map(this.index.requests).set(revision.requestId, {revision});
         return new World(data, engine, [...this.revisions, revision], {requests, touched, brokenBy, allocator, recordedChapters: this.index.recordedChapters}, this.options);
     }
+}
+
+export type RevertFailure = {readonly code: "not-found"} | {readonly code: "not-revertable"} | {readonly code: "has-dependents"; readonly dependents: readonly string[]};
+
+/**
+ * 补偿一次修改：每个改过的叶子恢复成改前的值；没有 id 的数组里这次追加的元素（改后以改前为开头），只移除这些元素，
+ * 后来别的修订追加的保留（revisions.md 输出 11）。
+ */
+function compensate(value: unknown, fields: readonly FieldChange[]): unknown {
+    const restore: FieldChange[] = [];
+    let result = value;
+    for (const field of fields) {
+        if (isAppend(field)) {
+            const added = (field.after as unknown[]).slice((field.before as unknown[]).length);
+            const segments = field.path;
+            const current = applyChanges(result, [], "after");
+            const list = [...((readPath(current, segments) as unknown[] | undefined) ?? [])];
+            for (const item of [...added].reverse()) {
+                const at = findLastIndex(list, (candidate) => sameJson(candidate, item));
+                if (at >= 0) list.splice(at, 1);
+            }
+            result = applyChanges(result, [{path: segments, after: list}], "after");
+            continue;
+        }
+        restore.push({path: field.path, ...("before" in field ? {after: field.before} : {})});
+    }
+    return applyChanges(result, restore, "after");
+}
+
+function isAppend(field: FieldChange): boolean {
+    if (!Array.isArray(field.before) || !Array.isArray(field.after) || field.after.length <= field.before.length) return false;
+    if (field.path.endsWith("#order")) return false;
+    return field.before.every((item, index) => sameJson(item, (field.after as unknown[])[index]));
+}
+
+function findLastIndex<T>(list: readonly T[], predicate: (item: T) => boolean): number {
+    for (let index = list.length - 1; index >= 0; index -= 1) if (predicate(list[index]!)) return index;
+    return -1;
+}
+
+function readPath(value: unknown, path: string): unknown {
+    let current = value;
+    for (const segment of parseSegments(path)) {
+        if (segment.kind === "key") current = current !== null && typeof current === "object" && !Array.isArray(current) ? (current as Record<string, unknown>)[segment.key] : undefined;
+        else current = Array.isArray(current) ? current.find((item) => (item as {id?: string}).id === segment.id) : undefined;
+    }
+    return current;
+}
+
+/**
+ * `later` 是否依赖 `earlier`（revisions.md 输出 12）：同一对象上改过的路径重叠（一条是另一条的前缀；两边都只是往
+ * 同一个没有 id 的数组追加时不算）；改了 `earlier` 新建的对象；引用了 `earlier` 新建的对象 id；补丁指到 `earlier` 的
+ * 补丁加进列表的元素。
+ */
+function dependsOn(later: Revision, earlier: Revision): boolean {
+    const created = new Set<string>();
+    const elements: string[] = [];
+    const paths = new Map<string, FieldChange[]>();
+    for (const op of earlier.ops) {
+        if (op.kind === "chapters") continue;
+        if (op.kind === "create") created.add(refKey(op.ref));
+        if (op.kind === "modify") paths.set(refKey(op.ref), [...op.fields]);
+        const value = op.kind === "create" ? op.after : op.kind === "modify" ? undefined : undefined;
+        for (const patch of ((value as StoryChange | undefined)?.patches ?? [])) {
+            if (patch.op === "listAdd") elements.push(`${patch.at.entry}\u0000${patch.at.path}[${String((patch.value as {id?: unknown}).id)}]`);
+        }
+    }
+    const createdIds = new Set([...created].map((key) => key.slice(key.indexOf(":") + 1)));
+    const text = (value: unknown) => JSON.stringify(value) ?? "";
+    for (const op of later.ops) {
+        if (op.kind === "chapters") continue;
+        const key = refKey(op.ref);
+        if (created.has(key)) return true;
+        const earlierFields = paths.get(key);
+        if (earlierFields !== undefined && op.kind === "modify") {
+            for (const field of op.fields) {
+                for (const other of earlierFields) {
+                    if (!pathsOverlap(field.path, other.path)) continue;
+                    if (field.path === other.path && isAppend(field) && isAppend(other)) continue;
+                    return true;
+                }
+            }
+        }
+        if (earlierFields !== undefined && op.kind !== "modify") return true;
+        const body = text(op.kind === "create" ? op.after : op.kind === "modify" ? op.fields : op.before);
+        for (const id of createdIds) if (body.includes(`"${id}"`)) return true;
+        const patches = op.kind === "create" ? ((op.after as StoryChange).patches ?? []) : op.kind === "modify" ? op.fields.flatMap((field) => (Array.isArray(field.after) ? (field.after as Patch[]) : [])) : [];
+        for (const patch of patches) {
+            if (patch === null || typeof patch !== "object" || !("at" in patch)) continue;
+            const address = `${patch.at.entry}\u0000${patch.at.path}`;
+            if (elements.some((element) => address === element || address.startsWith(`${element}.`))) return true;
+        }
+    }
+    return false;
+}
+
+function pathsOverlap(a: string, b: string): boolean {
+    const base = (path: string) => (path.endsWith("#order") ? path.slice(0, -"#order".length) : path);
+    const left = base(a);
+    const right = base(b);
+    const covers = (outer: string, inner: string) => outer === inner || (inner.startsWith(outer) && (inner[outer.length] === "." || inner[outer.length] === "["));
+    return covers(left, right) || covers(right, left);
 }
 
 function invalid(problems: readonly Problem[]): WriteResult {

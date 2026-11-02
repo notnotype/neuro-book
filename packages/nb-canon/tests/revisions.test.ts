@@ -228,3 +228,55 @@ describe("canon.revisions 输出 13：章序调整", () => {
         expect(World.replay(result.world.revisions, {...options(), order: new ChapterOrder(["ch2", "ch1", "ch3"])}).recordedChapters).toEqual(["ch2", "ch1", "ch3"]);
     });
 });
+
+describe("canon.revisions 输出 11、12：还原与依赖（场景 3）", () => {
+    test("还原新建条目的修订：后面引用了它的修订是依赖，不单独还原；连同依赖一起还原后都消失，再还原补偿又回来", () => {
+        const base = start();
+        const a = ok(base.publish(request([{ref: {kind: "entry", id: "tmp:star"}, after: entry("tmp:star", "守护之星", {物品: []})}], {baseVersion: 1, what: "bookkeeping", chapter: "ch2"}), "t"));
+        const star = a.ids["tmp:star"]!;
+        const b = ok(a.world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch3", [{op: "listAdd", at: {entry: star, path: "panel.物品"}, value: {id: "i1", label: "碎片"}}])}], {baseVersion: 2, what: "bookkeeping", chapter: "ch3"}), "t"));
+        const world = b.world;
+        expect(world.revert(a.revision.id, false, {requestId: "undo-1", by: {kind: "author"}}, "t")).toEqual({ok: false, failure: {code: "has-dependents", dependents: [b.revision.id]}});
+        const undone = ok(world.revert(a.revision.id, true, {requestId: "undo-2", by: {kind: "author"}}, "t") as WriteResult);
+        expect(undone.revision.reverts).toEqual([a.revision.id, b.revision.id]);
+        expect(undone.world.data.entries.has(star)).toBe(false);
+        expect(undone.world.data.changes.has(b.ids["tmp:c"]!)).toBe(false);
+        const redone = ok(undone.world.revert(undone.revision.id, false, {requestId: "redo", by: {kind: "author"}}, "t") as WriteResult);
+        expect(redone.world.data.entries.has(star)).toBe(true);
+        expect(redone.world.data.changes.has(b.ids["tmp:c"]!)).toBe(true);
+    });
+
+    test("只往没有 id 的数组里追加的修改互不依赖；补偿只移除本次加的元素", () => {
+        const base = ok(start().publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch2", [add("e1", -2000)])}], {baseVersion: 1}), "t"));
+        const id = base.ids["tmp:c"]!;
+        const tell = (world: World, quote: string, version: number) => {
+            const current = world.data.changes.get(id)!;
+            return ok(world.publish(request([{ref: {kind: "change", id}, after: {...current, told: [...current.told, {source: "chapter", chapter: "ch2", quote}]}}], {baseVersion: version}), "t"));
+        };
+        const first = tell(base.world, "她花了两千买药", 2);
+        const second = tell(first.world, "又花了三千五", 3);
+        expect(second.world.dependents(first.revision.id)).toEqual([first.revision.id]);
+        const undone = ok(second.world.revert(first.revision.id, false, {requestId: "undo-tell", by: {kind: "author"}}, "t") as WriteResult);
+        expect(undone.world.data.changes.get(id)!.told.map((telling) => telling.quote)).toEqual(["又花了三千五"]);
+    });
+
+    test("还原改初值：恢复改前的值；之后又改了同一个字段的修订是依赖", () => {
+        const world = start();
+        const edit = (from: World, value: number, version: number) => {
+            const next = structuredClone(from.data.entries.get("e1")!);
+            next.init.data.panel!.fields.存款 = value;
+            return ok(from.publish(request([{ref: {kind: "entry", id: "e1"}, after: next}], {baseVersion: version}), "t"));
+        };
+        const first = edit(world, 50000, 1);
+        const undone = ok(first.world.revert(first.revision.id, false, {requestId: "u", by: {kind: "author"}}, "t") as WriteResult);
+        expect(undone.world.data.entries.get("e1")!.init.data.panel!.fields.存款).toBe(40000);
+        const second = edit(first.world, 60000, 2);
+        expect(second.world.dependents(first.revision.id)).toEqual([first.revision.id, second.revision.id]);
+    });
+
+    test("章序调整不能还原", () => {
+        const result = start().reorder(new ChapterOrder(["ch3", "ch1", "ch2"]), "t", "r");
+        if (result === null || !result.ok) throw new Error("no reorder");
+        expect(result.world.revert(result.revision.id, true, {requestId: "x", by: {kind: "author"}}, "t")).toEqual({ok: false, failure: {code: "not-revertable"}});
+    });
+});
