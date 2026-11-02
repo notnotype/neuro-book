@@ -1003,7 +1003,7 @@ defineExpose({
             :loading="menu.loading"
             :loading-text="t('prompt.menuLoading')"
             :empty-text="menu.emptyText || t('prompt.menuEmpty')"
-            :placement="menuSide"
+            :side="menuSide"
             match-anchor-width
             @select="confirmItem"
             @highlight="activeItemId = $event"
@@ -1021,7 +1021,7 @@ defineExpose({
             :anchor="rootRef"
             :label="t('prompt.historyTitle')"
             :empty-text="props.recall.length > 0 ? t('prompt.historyNoMatch') : t('prompt.historyEmpty')"
-            :placement="menuSide"
+            :side="menuSide"
             match-anchor-width
             @select="selectHistory"
             @highlight="historyActiveId = $event"

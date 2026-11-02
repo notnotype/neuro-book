@@ -420,7 +420,7 @@ function focusVisible(selectors: readonly string[]): void {
             @refetch="loadCandidates(current!)"
             @done="(change) => applyManage(current!, change)"
         />
-        <AlertDialog v-if="removeTarget !== null" v-model:open="removing" :title="text('remove.title', {name: removeTarget.name})" :description="removeDescription" :confirm-text="text('remove.confirm')" @confirm="removeProvider" @closed="onRemoveClosed" />
+        <AlertDialog v-if="removeTarget !== null" v-model:open="removing" :title="text('remove.title', {name: removeTarget.name})" :description="removeDescription" :confirm-label="text('remove.confirm')" @confirm="removeProvider" @closed="onRemoveClosed" />
     </div>
 </template>
 

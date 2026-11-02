@@ -104,7 +104,7 @@ const menuItems = computed((): ContextMenuItem[] => (props.menu?.entries ?? []).
     : {
         label: entry.label,
         disabled: entry.disabled,
-        tone: entry.danger ? "danger" : "default",
+        tone: entry.danger ? "danger" : "neutral",
         ...(entry.shortcut === null ? {} : {shortcut: entry.shortcut}),
         ...(entry.reason === null ? {} : {title: entry.reason}),
         ...(entry.checked === null ? {} : {type: "checkbox" as const, checked: entry.checked}),
@@ -207,8 +207,8 @@ defineExpose({focusTree});
         <AlertDialog
             :open="deleteDialog !== null"
             :title="text('dialog.delete.title', {count: deleteDialog?.items.length ?? 0})"
-            :confirm-text="text('dialog.delete.confirm')"
-            :cancel-text="text('common.cancel')"
+            :confirm-label="text('dialog.delete.confirm')"
+            :cancel-label="text('common.cancel')"
             tone="danger"
             @confirm="emit('delete-confirm')"
             @cancel="emit('dialog-close')"

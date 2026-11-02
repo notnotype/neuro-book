@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type {HTMLAttributes} from "vue";
 import {computed} from "vue";
+import type {ControlSize} from "../shared-types";
 
 /**
  * 状态徽章（Badge · 方案 2-B 现代工作区超椭圆实心体系）。
@@ -14,7 +15,7 @@ import {computed} from "vue";
 
 export type BadgeTone = "neutral" | "accent" | "success" | "warning" | "danger";
 export type BadgeVariant = "solid" | "soft" | "outline";
-export type BadgeSize = "sm" | "md";
+export type BadgeSize = Extract<ControlSize, "sm" | "md">;
 
 const props = withDefaults(defineProps<{
     tone?: BadgeTone;

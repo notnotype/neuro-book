@@ -1,3 +1,5 @@
+import type {Tone} from "../shared-types";
+
 /**
  * 右键菜单项。与 DropdownMenuItemData 的区别：动作用 action 回调（而非 value + select 事件）、
  * 支持任意层级 children 与 shortcut 快捷键展示。每一级都走共享菜单几何。
@@ -15,7 +17,7 @@ export interface ContextMenuItem {
     /** 提示与读屏描述（例如禁用原因）；默认不显示。 */
     title?: string;
     /** danger 用于删除等破坏性动作 */
-    tone?: "default" | "danger";
+    tone?: Extract<Tone, "neutral" | "danger">;
     /** checkbox：画成勾选项（`menuitemcheckbox`），勾选态由 checked 受控，组件不代为切换 */
     type?: "item" | "checkbox";
     checked?: boolean;

@@ -1,3 +1,5 @@
+import type {Tone} from "../shared-types";
+
 /** 菜单项的渲染形态：普通项、受控 radio、受控 checkbox。 */
 export type DropdownMenuItemType = "item" | "radio" | "checkbox";
 
@@ -15,7 +17,7 @@ export interface DropdownMenuItemData {
     /** 原生 title 提示（如禁用原因或操作说明） */
     title?: string;
     /** danger 用于删除等破坏性动作：文字与图标用 --status-danger，高亮底色与其它项相同 */
-    tone?: "default" | "danger";
+    tone?: Extract<Tone, "neutral" | "danger">;
     /** 为 true 时渲染为分隔线，label/图标被忽略；value 仍作为列表 key，用 "sep-1" 之类占位 */
     separator?: boolean;
     /**

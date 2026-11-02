@@ -316,7 +316,7 @@ function onLeaveOpen(open: boolean): void {
                                 列表行，不是按钮的外观：没有描边，悬停与当前项各是一层淡底，按下不缩放。停用项用 aria-disabled 而不是
                                 disabled：原生停用的按钮收不到指针事件，悬停出不了原因的 Tooltip；原因另经 aria-describedby 给读屏。
                             -->
-                            <Tooltip v-for="item in group.items" :key="item.id" :text="navTip(item) ?? ''" :disabled="navTip(item) === null" placement="right">
+                            <Tooltip v-for="item in group.items" :key="item.id" :text="navTip(item) ?? ''" :disabled="navTip(item) === null" side="right">
                                 <button
                                     type="button"
                                     class="settings-window__nav-item nb-ui-focus-ring-inset"
@@ -409,9 +409,9 @@ function onLeaveOpen(open: boolean): void {
             :open="model.leaving.value !== null"
             :title="text('window.leave.title')"
             :description="text('window.leave.description', {title: current?.title ?? ''})"
-            :confirm-text="text('window.leave.discard')"
-            :cancel-text="text('window.leave.keepEditing')"
-            tone="warning"
+            :confirm-label="text('window.leave.discard')"
+            :cancel-label="text('window.leave.keepEditing')"
+            tone="neutral"
             data-settings-leave
             @update:open="onLeaveOpen"
             @confirm="confirmLeave"

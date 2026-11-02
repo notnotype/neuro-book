@@ -339,9 +339,9 @@ const banners = computed<ShellBanner[]>(() => {
     const data = meta.data.value;
     const list: ShellBanner[] = [];
     if (data?.codeChanged) list.push({key: "code", tone: "info", icon: "i-lucide-refresh-cw", text: restartHint.value});
-    if (data?.build.failed) list.push({key: "build", tone: "error", icon: "i-lucide-triangle-alert", text: `前端构建失败，用的是旧版${data.build.message ? `：${data.build.message}` : ""}`});
+    if (data?.build.failed) list.push({key: "build", tone: "danger", icon: "i-lucide-triangle-alert", text: `前端构建失败，用的是旧版${data.build.message ? `：${data.build.message}` : ""}`});
     if (data && !data.audit.enabled) {
-        if (data.audit.reason !== "not_initialized") list.push({key: "audit", tone: "error", icon: "i-lucide-shield-alert", text: `审计不可用：不发通知，也不能替你打字或按键。${data.audit.detail}`});
+        if (data.audit.reason !== "not_initialized") list.push({key: "audit", tone: "danger", icon: "i-lucide-shield-alert", text: `审计不可用：不发通知，也不能替你打字或按键。${data.audit.detail}`});
         else if (auditDismissed.value !== auditKey.value) list.push({key: "audit", tone: "warning", icon: "i-lucide-shield-off", text: "审计未开启：不发通知，也不能替你打字或按键。运行 bun run --cwd packages/dev-panel audit-init 开启", dismiss: dismissAudit});
     }
     for (const [name, part] of Object.entries(data?.parts ?? {})) {

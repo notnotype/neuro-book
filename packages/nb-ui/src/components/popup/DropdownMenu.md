@@ -90,7 +90,7 @@ interface DropdownMenuItemData {
     /** 原生提示与读屏描述（`aria-description`），例如禁用原因；禁用项同样带上；默认 undefined */
     title?: string;
     /** 视觉语气；"danger" 只换文字与图标的颜色，高亮底色与其它项相同；默认 "default" */
-    tone?: "default" | "danger";
+    tone?: "neutral" | "danger";
     /** 是否显示分隔线；默认 false */
     separator?: boolean;
     /** 子菜单数据；非空时本项只展开子菜单、不发 select；默认 undefined */

@@ -123,7 +123,7 @@ provide(NB_FIELD_CONTEXT_KEY, {
                 class="nb-form-field__label"
                 :for="props.group ? undefined : props.id"
             >{{ props.label }}<span v-if="props.required" class="nb-form-field__required" aria-hidden="true">*</span><span v-if="props.required && props.group" class="nb-form-sr-only">{{ text.t('format.note', {note: text.t('required')}) }}</span></component>
-            <Tooltip v-if="tone" placement="right" :force-open="focused">
+            <Tooltip v-if="tone" side="right" :force-open="focused">
                 <span class="nb-form-field__reason" :class="`nb-form-field__reason--${tone}`" :data-tone="tone" aria-hidden="true">
                     <svg v-if="tone === 'warning'" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
                     <svg v-else-if="tone === 'error'" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 8v4" /><path d="M12 16h.01" /></svg>

@@ -10,7 +10,7 @@
 
 根节点是全宽、可收缩的控制容器：左侧为可伸缩的等宽字体输入区，右侧为上下排列的两个微型步进按钮，中间以竖线分隔。按钮固定在容器右侧，不参与正常 Tab 顺序；输入区可在 `390×844` 下收缩，长值不会把步进器推出控件。
 
-`size="sm"` 使用紧凑高度与字号；`size="default"` 使用标准 md 高度。`title` 作用于根控制容器，不是原生 input 的独立 prop。
+`size="sm"` 使用紧凑高度与字号；`size="md"`（缺省）使用标准高度。`title` 作用于根控制容器，不是原生 input 的独立 prop。
 
 ## 交互
 
@@ -24,7 +24,7 @@
 ## 数据
 
 ```ts
-type NumberInputSize = "default" | "sm";
+type NumberInputSize = "sm" | "md";
 
 type NumberInputProps = {
     /** 受控字符串值；默认 ""，组件不把它转换为 number。 */
@@ -54,7 +54,7 @@ type NumberInputProps = {
     max?: string;
     /** 步进字符串；默认 "1"；无效或非正值步进回退为 1。 */
     step?: string;
-    /** 控件尺寸；默认 "default"。 */
+    /** 控件尺寸；默认 "md"。 */
     size?: NumberInputSize;
     /** 根控制容器的 title；默认 undefined。 */
     title?: string;

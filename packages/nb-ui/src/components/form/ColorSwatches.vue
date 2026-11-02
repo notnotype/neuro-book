@@ -12,8 +12,9 @@ import {usePopoverLayer} from "../../composables/usePopoverLayer";
 import {useUiText} from "../../text-port";
 import Tooltip from "../feedback/Tooltip.vue";
 import ColorPickerPanel from "./ColorPickerPanel.vue";
+import type {ControlSize} from "../shared-types";
 
-export type ColorSwatchesSize = "sm" | "md";
+export type ColorSwatchesSize = Extract<ControlSize, "sm" | "md">;
 
 const props = withDefaults(defineProps<{
     modelValue: string | null;

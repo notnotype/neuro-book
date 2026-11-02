@@ -7,6 +7,7 @@ import {
 import {computed, ref} from "vue";
 
 import {useFieldContext} from "./field-context";
+import type {ControlSize} from "../shared-types";
 
 export interface RadioOption {
     value: string;
@@ -15,7 +16,7 @@ export interface RadioOption {
     disabled?: boolean;
 }
 
-export type RadioGroupSize = "sm" | "md";
+export type RadioGroupSize = Extract<ControlSize, "sm" | "md">;
 
 const props = withDefaults(defineProps<{
     modelValue?: string;

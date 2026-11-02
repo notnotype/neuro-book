@@ -64,7 +64,7 @@ describe("传送目标", () => {
     });
 
     it("reka 的 Portal 同样跟随宿主提供的目标（AlertDialog）", async () => {
-        host(() => h(AlertDialog as Component, {open: true, title: "删除章节？", confirmText: "删除", cancelText: "取消"}), "#canvas-overlays");
+        host(() => h(AlertDialog as Component, {open: true, title: "删除章节？", confirmLabel: "删除", cancelLabel: "取消"}), "#canvas-overlays");
         await settle();
         expect(document.querySelector("#canvas-overlays [role=\"alertdialog\"]")).not.toBeNull();
     });

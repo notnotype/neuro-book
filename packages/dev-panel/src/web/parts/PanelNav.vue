@@ -204,7 +204,7 @@ onBeforeUnmount(() => observer?.disconnect());
                             <button type="button" tabindex="-1" aria-hidden="true" class="nbdev-nav-toggle" @click="emit('toggle', branch.work.workId, !branch.work.open)">
                                 <span :class="branch.work.open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-3.5" aria-hidden="true" />
                             </button>
-                            <Tooltip :text="`${branch.work.number} ${branch.work.title}`" placement="right" :disabled="!truncated.has(branch.work.key)">
+                            <Tooltip :text="`${branch.work.number} ${branch.work.title}`" side="right" :disabled="!truncated.has(branch.work.key)">
                                 <a role="treeitem" aria-level="1" :aria-expanded="branch.work.open" :href="branch.work.href" class="nbdev-nav-item min-w-0 flex-1" :class="{'nbdev-nav-current': branch.work.current, 'nbdev-nav-ancestor': branch.work.ancestor}" :aria-current="branch.work.current ? 'page' : undefined" :data-ancestor="branch.work.ancestor || undefined" :data-row-key="branch.work.key" :tabindex="branch.work.key === rovingKey ? 0 : -1" @focus="focusKey = branch.work.key" @click="follow($event, branch.work.href)">
                                     <!-- 状态色点：与 StatusChip 同色；未标是空心。读屏器从标题后面的文字读状态。 -->
                                     <span class="nbdev-nav-dot shrink-0" :class="[TONE_CLASS[branch.work.tone ?? 'neutral'], branch.work.marked ? 'bg-current' : 'border border-current']" aria-hidden="true" />
@@ -217,7 +217,7 @@ onBeforeUnmount(() => observer?.disconnect());
                             </Tooltip>
                         </div>
                         <div v-if="branch.tasks.length > 0" role="group" class="flex flex-col pl-5">
-                            <Tooltip v-for="row in branch.tasks" :key="row.key" :text="`${row.number} ${row.title}`" placement="right" :disabled="!truncated.has(row.key)">
+                            <Tooltip v-for="row in branch.tasks" :key="row.key" :text="`${row.number} ${row.title}`" side="right" :disabled="!truncated.has(row.key)">
                                 <a role="treeitem" aria-level="2" :href="row.href" class="nbdev-nav-item min-w-0" :class="{'nbdev-nav-current': row.current, 'nbdev-nav-ancestor': row.ancestor}" :aria-current="row.current ? 'page' : undefined" :data-ancestor="row.ancestor || undefined" :data-row-key="row.key" :tabindex="row.key === rovingKey ? 0 : -1" @focus="focusKey = row.key" @click="follow($event, row.href)">
                                     <span class="min-w-0 truncate" :data-label-key="row.key"><span class="nbdev-secondary">{{ row.number }}</span> {{ row.title }}</span>
                                 </a>

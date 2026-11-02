@@ -79,7 +79,7 @@ export const formFixtures: LabFixture[] = [
         class: "w-full max-w-[360px]",
         slotPresets: {prefix: () => h("span", {class: "i-lucide-book-open shrink-0 text-[var(--text-muted)]", "aria-hidden": "true"})},
         scenes: [
-            {id: "default", label: "默认", input: {props: {placeholder: "书名", size: "default"}, model: {modelValue: ""}}},
+            {id: "default", label: "默认", input: {props: {placeholder: "书名", size: "md"}, model: {modelValue: ""}}},
             {id: "search", label: "搜索、可清空", input: {props: {type: "search", placeholder: "搜组件名", iconClass: "i-lucide-search", clearable: true, size: "sm"}, model: {modelValue: "Tree"}}},
             {id: "password", label: "密码", input: {props: {type: "password", placeholder: "API Key"}, model: {modelValue: "sk-test"}}},
             {id: "readonly", label: "只读", input: {props: {readonly: true}, model: {modelValue: "/home/writer/works/长夜行"}}},

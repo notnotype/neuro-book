@@ -3,8 +3,8 @@ import type {HTMLAttributes} from "vue";
 import {computed} from "vue";
 import {useUiText} from "../../text-port";
 import Progress from "../display/Progress.vue";
+import type {NotificationTone} from "../../composables/useNotification";
 
-export type NotificationTone = "info" | "success" | "warning" | "error";
 
 const props = withDefaults(defineProps<{
     tone?: NotificationTone;
@@ -40,7 +40,7 @@ const iconClass = computed(() => {
     if (props.tone === "warning") {
         return "i-lucide-alert-triangle";
     }
-    if (props.tone === "error") {
+    if (props.tone === "danger") {
         return "i-lucide-circle-x";
     }
     return "i-lucide-info";
@@ -48,7 +48,7 @@ const iconClass = computed(() => {
 const progressTone = computed(() => {
     if (props.tone === "success") return "success";
     if (props.tone === "warning") return "warning";
-    if (props.tone === "error") return "danger";
+    if (props.tone === "danger") return "danger";
     return "accent";
 });
 </script>
@@ -96,7 +96,7 @@ const progressTone = computed(() => {
     --nb-notification-tone: var(--status-warning);
 }
 
-.nb-notification--error {
+.nb-notification--danger {
     --nb-notification-tone: var(--status-danger);
 }
 

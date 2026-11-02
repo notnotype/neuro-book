@@ -8,14 +8,14 @@
 
 ## 布局与交互
 
-内容以 Portal 放在页面上方，最大宽度为 420px，居中显示并带全屏遮罩。外框圆角取主题层变量 `--radius-dialog-compact`（修饰类 `.nb-ui-dialog-surface--compact`），不取 `Dialog` 的 `--radius-dialog`：小确认框常叠在另一个窗口上，圆角不该大于底下的窗口；缺省等于 `--radius-dialog`，nbook 主题让它等于浮动窗口的 `--radius-window`（12px）。面取对话框那档 `--dialog-surface`；放在 `Dialog` 内容里时算二级，面取 `--dialog-surface-nested`，圆角不大于 `--radius-window`（规则同 `Dialog` 的“叠放与层级”）。标题始终显示；描述仅在 `description` 非空或提供 `description` 插槽时显示。底部固定为取消、确认两颗按钮。`tone="danger"` 时确认按钮使用危险样式，`warning` 与 `accent` 使用主按钮样式。
+内容以 Portal 放在页面上方，最大宽度为 420px，居中显示并带全屏遮罩。外框圆角取主题层变量 `--radius-dialog-compact`（修饰类 `.nb-ui-dialog-surface--compact`），不取 `Dialog` 的 `--radius-dialog`：小确认框常叠在另一个窗口上，圆角不该大于底下的窗口；缺省等于 `--radius-dialog`，nbook 主题让它等于浮动窗口的 `--radius-window`（12px）。面取对话框那档 `--dialog-surface`；放在 `Dialog` 内容里时算二级，面取 `--dialog-surface-nested`，圆角不大于 `--radius-window`（规则同 `Dialog` 的“叠放与层级”）。标题始终显示；描述仅在 `description` 非空或提供 `description` 插槽时显示。底部固定为取消、确认两颗按钮。`tone="danger"`（缺省）时确认按钮使用危险样式，`neutral` 使用主按钮样式。
 
 可选 `trigger` 插槽作为触发器。点击取消发出 `cancel`，点击确认发出 `confirm`；两者的关闭与受控状态同步由 Reka Alert Dialog 管理，`update:open(false)` 先于 `confirm`、`cancel` 发出。宿主不要在关闭事件里清掉确认要用的目标（例如待删除的条目），等 `confirm` 或 `cancel` 处理完再清，否则确认分支拿到的是空目标。没有触发器时不执行 Reka 的自动焦点归还。组件不提供 outside-click 或 Escape 关闭流程。
 
 ## 数据
 
 ```ts
-type AlertDialogTone = "danger" | "warning" | "accent";
+type AlertDialogTone = "danger" | "neutral";
 
 interface AlertDialogProps {
     /** 是否打开；可选，传入后为受控值；默认 undefined（非受控） */
@@ -27,9 +27,9 @@ interface AlertDialogProps {
     /** 描述；可选，默认空字符串 */
     description?: string;
     /** 确认按钮文字；可选，缺省按界面语言取（中文 "确定"） */
-    confirmText?: string;
+    confirmLabel?: string;
     /** 取消按钮文字；可选，缺省按界面语言取（中文 "取消"） */
-    cancelText?: string;
+    cancelLabel?: string;
     /** 确认按钮色调；可选，默认 "danger" */
     tone?: AlertDialogTone;
 }
@@ -70,4 +70,4 @@ Reka UI 负责 Alert Dialog 的模态语义、焦点管理、Portal、受控/非
 - `env:portal`：确认框必须脱离宿主的局部层叠上下文显示在页面上方；组件使用 Reka Portal，不提供目标选择 prop；默认在 `body`，宿主可用 `provideTeleportTarget(选择器)` 在组件树上给一个更近的目标（例如组件 Lab 的画布）；组件自己写明的 `teleportTarget` 优先，目标查不到时回退 `body`（`useTeleportTarget`）。
 - `env:global`：与 `Dialog` 共用全应用一份的已打开模态列表，按打开顺序叠放（后打开的在上面）；它只做叠放协调、不承载数据，理由见 [`Dialog.md`](Dialog.md) 的隐藏通道理由。
 - `env:timer`：`closed` 需等 Reka 的卸载清理结束后才上报；关闭交接使用一次零延迟定时器，并在重开或卸载时作废，避免宿主过早激活下一交互层。
-- `state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取标题与两个按钮的缺省文案，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `title`、`confirmText`、`cancelText` 时以属性为准，不读端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。
+- `state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取标题与两个按钮的缺省文案，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `title`、`confirmLabel`、`cancelLabel` 时以属性为准，不读端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。

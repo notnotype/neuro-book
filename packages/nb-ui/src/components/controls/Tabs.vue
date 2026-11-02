@@ -7,6 +7,7 @@ import {useUiText} from "../../text-port";
 import {moveRoving, rovingMove} from "../../utils/roving";
 import {adaptTabs} from "./tabs-adapt";
 import type {TabsAdaptState} from "./tabs-adapt";
+import type {ControlSize} from "../shared-types";
 
 // 线性标签页（仅标签栏，内容面板由消费方渲染）。
 // 与 SegmentedControl 的分工：Tabs 用于页面/区块级导航（底部指示线），SegmentedControl 用于紧凑的互斥模式切换。
@@ -23,7 +24,7 @@ export type TabsItem = {
     /** 写到这个标签元素上的额外属性（如 `data-*`、`aria-roledescription`）；与组件自己管的属性同名时以组件为准。 */
     attrs?: Readonly<Record<string, string>>;
 };
-export type TabsSize = "sm" | "md";
+export type TabsSize = Extract<ControlSize, "sm" | "md">;
 
 defineOptions({inheritAttrs: false});
 

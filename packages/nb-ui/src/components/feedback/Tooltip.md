@@ -19,13 +19,16 @@
 ## 数据
 
 ```ts
-type TooltipPlacement = "top" | "bottom" | "left" | "right";
+type Side = "top" | "right" | "bottom" | "left"; // 与 Align 同来自 shared-types
+type Align = "start" | "center" | "end";
 
 interface TooltipProps {
     /** 纯文本提示；默认空字符串，可由 content 插槽替换。 */
     text?: string;
     /** 首选显示方向；默认 "top"。 */
-    placement?: TooltipPlacement;
+    side?: Side;
+    /** 沿锚点的对齐；默认 "center"。 */
+    align?: Align;
     /** 悬停到显示的延迟毫秒数；默认 300。 */
     delay?: number;
     /** 是否禁用提示；默认 false。 */

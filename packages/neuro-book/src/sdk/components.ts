@@ -21,18 +21,18 @@ export {
 } from "@notnotype/nb-ui/components";
 
 export type {
-    AlertDialogTone, BadgeSize, BadgeTone, BadgeVariant, BannerTone,
+    Align, AlertDialogTone, BadgeSize, BadgeTone, BadgeVariant, BannerTone,
     BreadcrumbItemData, ButtonSize, ButtonVariant, CheckboxOption, CodeBlockLine,
-    CollapsibleCardStatus, CollapsibleRowStatus, ColorSwatchesSize, ContextMenuCloseReason, ContextMenuItem,
+    CollapsibleCardStatus, CollapsibleRowStatus, ColorSwatchesSize, ControlSize, ContextMenuCloseReason, ContextMenuItem,
     DialogCloseReason, DialogSize, DrawerDirection, DropFeedbackPreview, DropdownMenuItemData,
     DropdownMenuItemType, FocusRingStyle, GenericTreeNode, IconButtonSize, IconButtonVariant,
-    InfoTipPlacement, InputType, KbdSize, MenubarItemData, MenubarMenuData,
-    NotificationPosition, NotificationTone, NumberInputSize, ProgressSize, ProgressTone,
+    InputType, KbdSize, MenubarItemData, MenubarMenuData,
+    NotificationPosition, NotificationTone, NumberInputSize, Orientation, ProgressSize, ProgressTone,
     QuickPickCloseReason, QuickPickItem, QuickPickProps, RadioGroupSize, RadioOption,
     ScrollAreaOrientation, ScrollAreaType, SearchSelectOption, SearchSelectSize, SegmentedControlOption,
-    SegmentedControlSize, SegmentedControlTone, SegmentedControlValue, SelectDirection, SelectOption,
-    SelectSize, SkeletonShape, SliderSize, SpinnerSize, SplitterPanelConfig,
-    SuggestionMenuAnchor, SuggestionMenuGroup, SuggestionMenuItem, SuggestionMenuPlacement, SwitchSize,
+    SegmentedControlSize, SegmentedControlValue, SelectDirection, SelectOption,
+    SelectSize, Side, SkeletonShape, SliderSize, SpinnerSize, SplitterPanelConfig,
+    SuggestionMenuAnchor, SuggestionMenuGroup, SuggestionMenuItem, SuggestionSide, SwitchSize,
     TableColumn, TableDensity, TabsItem, TabsSize, ToggleGroupOption,
-    ToggleGroupSize, TooltipPlacement,
+    ToggleGroupSize, Tone,
 } from "@notnotype/nb-ui/components";

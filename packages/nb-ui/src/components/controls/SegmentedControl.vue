@@ -4,6 +4,7 @@ import {computed, nextTick, ref} from "vue";
 import {moveRoving, rovingMove} from "../../utils/roving";
 
 import {useFieldContext} from "../form/field-context";
+import type {ControlSize} from "../shared-types";
 
 /**
  * 分段选择器（SegmentedControl · 经典 macOS 系统蓝平滑滑动体系）。
@@ -18,8 +19,7 @@ import {useFieldContext} from "../form/field-context";
  */
 
 export type SegmentedControlValue = string | number | boolean | null;
-export type SegmentedControlSize = "xs" | "sm";
-export type SegmentedControlTone = "default" | "accent" | "warning";
+export type SegmentedControlSize = Extract<ControlSize, "xs" | "sm">;
 
 export type SegmentedControlOption = {
     count?: number | string;
@@ -28,7 +28,6 @@ export type SegmentedControlOption = {
     label?: string;
     testId?: string;
     title?: string;
-    tone?: SegmentedControlTone;
     value: SegmentedControlValue;
 };
 
@@ -37,7 +36,6 @@ const props = withDefaults(defineProps<{
     options: SegmentedControlOption[];
     ariaLabel?: string;
     size?: SegmentedControlSize;
-    tone?: SegmentedControlTone;
     wrap?: boolean;
     fullWidth?: boolean;
     /** 整组停用。 */
@@ -51,7 +49,6 @@ const props = withDefaults(defineProps<{
 } & /* @vue-ignore */ HTMLAttributes>(), {
     ariaLabel: "",
     size: "sm",
-    tone: "default",
     wrap: false,
     fullWidth: false,
     disabled: false,

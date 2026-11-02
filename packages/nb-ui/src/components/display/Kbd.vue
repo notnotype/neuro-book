@@ -1,5 +1,6 @@
 <script setup lang="ts">
-export type KbdSize = "sm" | "md" | "lg";
+import type {ControlSize} from "../shared-types";
+export type KbdSize = Extract<ControlSize, "sm" | "md" | "lg">;
 
 const props = withDefaults(defineProps<{
     size?: KbdSize;

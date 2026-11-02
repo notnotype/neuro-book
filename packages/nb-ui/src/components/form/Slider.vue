@@ -9,8 +9,9 @@ import {
     SliderThumb,
     SliderTrack,
 } from "reka-ui";
+import type {ControlSize} from "../shared-types";
 
-export type SliderSize = "sm" | "md" | "lg";
+export type SliderSize = Extract<ControlSize, "sm" | "md" | "lg">;
 
 const props = withDefaults(defineProps<{
     modelValue?: number | number[];

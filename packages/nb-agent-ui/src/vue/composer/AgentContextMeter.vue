@@ -27,7 +27,7 @@ const label = computed(() => {
 </script>
 
 <template>
-    <Tooltip :text="label" placement="top">
+    <Tooltip :text="label" side="top">
         <span class="acv-context-meter" :class="`is-${tone}`" role="img" tabindex="0" :aria-label="label" data-context-meter :data-tone="tone">
             <svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true">
                 <circle class="acv-context-meter__track" cx="9" cy="9" :r="RADIUS" />

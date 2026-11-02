@@ -7,8 +7,9 @@ import {
 import {computed, ref} from "vue";
 
 import {useFieldContext} from "../form/field-context";
+import type {ControlSize} from "../shared-types";
 
-export type SwitchSize = "sm" | "md" | "lg";
+export type SwitchSize = Extract<ControlSize, "sm" | "md" | "lg">;
 
 const props = withDefaults(defineProps<{
     modelValue?: boolean;

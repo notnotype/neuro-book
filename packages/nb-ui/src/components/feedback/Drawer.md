@@ -24,7 +24,7 @@ interface DrawerProps {
     defaultOpen?: boolean;
     /** 滑入方向；可选，默认 "right" */
     direction?: DrawerDirection;
-    /** 标题；可选，默认空字符串 */
+    /** 标题；可选，默认空字符串。为空时组件放一个只给读屏的标题（缺省“面板”，经翻译端口取），对话框角色仍有名字 */
     title?: string;
     /** 描述；可选，默认空字符串 */
     description?: string;
@@ -34,6 +34,8 @@ interface DrawerProps {
     handle?: boolean;
     /** 内容面板附加 class；可选，默认空字符串 */
     contentClass?: string;
+    /** 关闭按钮的读屏名称；可选，缺省经翻译端口取 */
+    closeLabel?: string;
 }
 
 interface DrawerEmits {
@@ -57,7 +59,7 @@ interface DrawerSlots {
 
 ## 状态与边界
 
-`modal` 默认开启，`handle` 默认关闭。即使 `title`、`description` 未传，正文仍可显示；空 `footer` 插槽不生成页脚。自定义 `header` 替换默认的标题与描述内容，调用方应自行提供适当的可访问标题语义。关闭图标当前没有显式 `aria-label`，使用时应确保宿主另有明确关闭途径。
+`modal` 默认开启，`handle` 默认关闭。即使 `title`、`description` 未传，正文仍可显示；空 `footer` 插槽不生成页脚。自定义 `header` 替换默认的标题与描述内容，调用方应自行提供适当的可访问标题语义。关闭图标的读屏名称取 `closeLabel`，缺省经翻译端口取（“关闭”）。
 
 ## 上游边界
 

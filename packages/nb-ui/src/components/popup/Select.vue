@@ -17,6 +17,7 @@ import {usePopoverLayer} from "../../composables/usePopoverLayer";
 import {usePopupScroll} from "../../composables/usePopupScroll";
 import {cn} from "../../utils/cn";
 import {useFieldContext} from "../form/field-context";
+import type {ControlSize} from "../shared-types";
 
 /**
  * 下拉选择。弹出层基于 reka 的 Select 原语：键盘漫游、选中、打开时滚到选中项都由 reka 负责。
@@ -27,7 +28,7 @@ import {useFieldContext} from "../form/field-context";
  * - 浮层的材质只来自 `.nb-ui-popover-surface` 与 `.nb-ui-menu-surface` 两个类，这里只绑层级与宽度。
  */
 
-export type SelectSize = "default" | "sm";
+export type SelectSize = Extract<ControlSize, "sm" | "md">;
 export type SelectDirection = "auto" | "up" | "down";
 
 export type SelectOption = {
@@ -62,7 +63,7 @@ const props = withDefaults(defineProps<{
     id: "",
     name: "",
     placeholder: "",
-    size: "default",
+    size: "md",
     dropdownDirection: "auto",
     disabled: false,
     required: false,

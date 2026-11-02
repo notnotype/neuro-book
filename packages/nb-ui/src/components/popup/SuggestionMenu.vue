@@ -7,7 +7,7 @@ import PopupScrollbar from "./PopupScrollbar.vue";
 import {usePopoverLayer} from "../../composables/usePopoverLayer";
 import {usePopupScroll} from "../../composables/usePopupScroll";
 import {toPopoverReference} from "./popover-anchor";
-import {suggestionOptionId, type SuggestionMenuAnchor, type SuggestionMenuGroup, type SuggestionMenuItem, type SuggestionMenuPlacement} from "./suggestion-menu";
+import {suggestionOptionId, type SuggestionMenuAnchor, type SuggestionMenuGroup, type SuggestionMenuItem, type SuggestionSide} from "./suggestion-menu";
 
 /**
  * 输入时弹出的候选菜单，焦点留在输入处（行为见同名 `.md`）。
@@ -30,7 +30,7 @@ const props = withDefaults(defineProps<{
     loading?: boolean;
     loadingText?: string;
     emptyText?: string;
-    placement?: SuggestionMenuPlacement;
+    side?: SuggestionSide;
     matchAnchorWidth?: boolean;
     sideOffset?: number;
     teleportTarget?: string;
@@ -42,7 +42,7 @@ const props = withDefaults(defineProps<{
     loading: false,
     loadingText: "",
     emptyText: "",
-    placement: "auto",
+    side: "auto",
     matchAnchorWidth: false,
     sideOffset: 6,
     teleportTarget: undefined,
@@ -59,7 +59,7 @@ defineSlots<{
 
 /** 夹进窗口时四边留的距离，与可用空间的计算是同一个数。 */
 const COLLISION_PADDING = 12;
-/** `placement: "auto"` 时偏好的下方至少要有这么高，否则上方更宽就翻上去。 */
+/** `side: "auto"` 时偏好的下方至少要有这么高，否则上方更宽就翻上去。 */
 const MIN_SIDE_SPACE = 96;
 
 const generatedId = useId();
@@ -110,7 +110,7 @@ watch(() => props.activeId, async () => {
 });
 
 /*
- * `placement: "auto"`：每帧按锚点上下的剩余空间选一侧。不交给 floating-ui 的 flip：flip 在整个菜单放不下时就翻，
+ * `side: "auto"`：每帧按锚点上下的剩余空间选一侧。不交给 floating-ui 的 flip：flip 在整个菜单放不下时就翻，
  * 而这里要的是“下方还有 96px 就留在下方、由外框收矮”，翻转的门槛与菜单多高无关。
  */
 const autoSide = ref<"top" | "bottom">("bottom");
@@ -135,13 +135,13 @@ function stopTrackingSide(): void {
     sideFrame = null;
 }
 
-watch(() => [reference.value, props.placement] as const, ([anchor, placement]) => {
+watch(() => [reference.value, props.side] as const, ([anchor, side]) => {
     stopTrackingSide();
-    if (anchor !== undefined && placement === "auto") trackSide();
+    if (anchor !== undefined && side === "auto") trackSide();
 }, {immediate: true});
 onBeforeUnmount(stopTrackingSide);
 
-const side = computed(() => (props.placement === "auto" ? autoSide.value : props.placement));
+const resolvedSide = computed(() => (props.side === "auto" ? autoSide.value : props.side));
 
 const widthClass = computed(() => (props.matchAnchorWidth
     ? "w-[min(var(--reka-popper-anchor-width),var(--reka-popper-available-width))]"
@@ -172,7 +172,7 @@ defineExpose({
         <PopoverPortal :to="props.teleportTarget ?? 'body'">
             <PopoverContent
                 :reference="reference"
-                :side="side"
+                :side="resolvedSide"
                 align="start"
                 :side-offset="props.sideOffset"
                 :avoid-collisions="true"

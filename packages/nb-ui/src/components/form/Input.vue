@@ -3,9 +3,10 @@ import type {InputHTMLAttributes} from "vue";
 import {computed} from "vue";
 import {useUiText} from "../../text-port";
 import {useFieldContext} from "./field-context";
+import type {ControlSize} from "../shared-types";
 
 export type InputType = "text" | "search" | "password" | "number";
-export type InputSize = "default" | "sm" | "md";
+export type InputSize = Extract<ControlSize, "sm" | "md">;
 
 const props = withDefaults(defineProps<{
     modelValue?: string;
@@ -37,7 +38,7 @@ const props = withDefaults(defineProps<{
     name: "",
     type: "text",
     placeholder: "",
-    size: "default",
+    size: "md",
     disabled: false,
     readonly: false,
     invalid: false,

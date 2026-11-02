@@ -39,7 +39,7 @@ export interface MenubarItemData {
     /** 原生提示与读屏描述，例如禁用原因；默认不显示 */
     title?: string;
     /** 视觉语气；默认 "default" */
-    tone?: "default" | "danger";
+    tone?: "neutral" | "danger";
     /** 是否渲染分隔线；默认 false */
     separator?: boolean;
     /** radio/checkbox 勾选显示态，由父组件提供；默认 false */

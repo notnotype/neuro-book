@@ -17,16 +17,18 @@ import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import Button from "../controls/Button.vue";
 import {useCloseHandoff} from "./close-handoff";
 import {NB_DIALOG_LAYER} from "../../theme/z-index";
+import type {Tone} from "../shared-types";
 
-export type AlertDialogTone = "danger" | "warning" | "accent";
+/** `danger`：确认按钮用危险样式；`neutral`：用主按钮样式。 */
+export type AlertDialogTone = Extract<Tone, "danger" | "neutral">;
 
 const props = withDefaults(defineProps<{
     open?: boolean;
     defaultOpen?: boolean;
     title?: string;
     description?: string;
-    confirmText?: string;
-    cancelText?: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
     tone?: AlertDialogTone;
 }>(), {
     open: undefined,
@@ -40,8 +42,8 @@ provide(NB_DIALOG_LAYER, parentLayer + 1);
 const nested = parentLayer >= 1;
 const text = useUiText();
 const titleText = computed(() => props.title ?? text("alertDialog.title"));
-const confirmLabel = computed(() => props.confirmText ?? text("alertDialog.confirm"));
-const cancelLabel = computed(() => props.cancelText ?? text("alertDialog.cancel"));
+const confirmText = computed(() => props.confirmLabel ?? text("alertDialog.confirm"));
+const cancelText = computed(() => props.cancelLabel ?? text("alertDialog.cancel"));
 // 居中类浮层：宿主可以把它收进更近的目标（例如 Lab 的画布），见 useTeleportTarget。
 const teleportTo = useTeleportTarget(() => undefined);
 
@@ -117,13 +119,13 @@ function onCloseAutoFocus(event: Event): void {
                 <div class="nb-ui-dialog-footer mt-6 justify-end">
                     <AlertDialogCancel as-child v-bind="{onClick: () => emit('cancel')}">
                         <Button variant="secondary">
-                            {{ cancelLabel }}
+                            {{ cancelText }}
                         </Button>
                     </AlertDialogCancel>
 
                     <AlertDialogAction as-child v-bind="{onClick: () => emit('confirm')}">
                         <Button :variant="props.tone === 'danger' ? 'danger' : 'primary'">
-                            {{ confirmLabel }}
+                            {{ confirmText }}
                         </Button>
                     </AlertDialogAction>
                 </div>

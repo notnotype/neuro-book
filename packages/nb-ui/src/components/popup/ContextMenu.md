@@ -37,7 +37,7 @@ interface ContextMenuItem {
     /** 原生提示与读屏描述（`aria-description`），例如禁用原因；默认不显示 */
     title?: string;
     /** 危险操作样式；可选，默认 "default" */
-    tone?: "default" | "danger";
+    tone?: "neutral" | "danger";
     /** "checkbox" 时画成勾选项（`menuitemcheckbox`，`aria-checked` 跟着 checked）；可选，默认普通项 */
     type?: "item" | "checkbox";
     /** 勾选项的勾选态；受控，选择后由宿主自己改 */

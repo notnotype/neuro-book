@@ -6,6 +6,7 @@ import MenuNodes from "./MenuNodes.vue";
 import PopupViewport from "./PopupViewport.vue";
 import {useMenuCascade} from "../../composables/useMenuCascade";
 import {usePopoverLayer} from "../../composables/usePopoverLayer";
+import type {Tone} from "../shared-types";
 
 /** 对话框或浮动窗口里的浮层跟随它们的层级（由 Dialog 注入）；不在里面时回退到普通页面层级。 */
 const {zIndex: popoverZIndex} = usePopoverLayer();
@@ -19,7 +20,7 @@ export interface MenubarItemData {
     disabled?: boolean;
     /** 提示与读屏描述（例如禁用原因）；默认不显示。 */
     title?: string;
-    tone?: "default" | "danger";
+    tone?: Extract<Tone, "neutral" | "danger">;
     separator?: boolean;
     checked?: boolean;
     type?: "default" | "checkbox" | "radio";

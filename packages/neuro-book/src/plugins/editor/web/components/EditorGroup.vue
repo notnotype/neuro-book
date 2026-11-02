@@ -168,22 +168,22 @@ const banner = computed((): GroupBanner | null => {
     const blocked = binding.value?.kind === "text" ? current.blocked.value.get(binding.value.token) : undefined;
     if (blocked !== undefined) {
         const excerpt = blocked.excerpt === "" ? "" : t("banner.unrepresentableExcerpt", {excerpt: blocked.excerpt});
-        return {tone: "error", text: t("banner.unrepresentable", {index: blocked.index, excerpt}), actions: [
+        return {tone: "danger", text: t("banner.unrepresentable", {index: blocked.index, excerpt}), actions: [
             {id: "locate", label: t("banner.locate"), run: () => props.area.locate(props.groupId)},
             {id: "adopt", label: t("banner.adopt"), run: () => props.area.unblock(props.groupId)},
         ]};
     }
     if (current.conflict.value !== null) {
-        return {tone: "error", text: t("banner.conflict"), actions: [
+        return {tone: "danger", text: t("banner.conflict"), actions: [
             {id: "reload", label: t("banner.reload"), run: () => void props.area.revert()},
             {id: "overwrite", label: t("banner.overwrite"), run: () => void props.area.overwrite()},
         ]};
     }
-    if (current.ended.value !== null) return {tone: "error", text: t("banner.ended", {reason: current.ended.value}), actions: []};
+    if (current.ended.value !== null) return {tone: "danger", text: t("banner.ended", {reason: current.ended.value}), actions: []};
     if (current.status.value === "deleted") return {tone: "warning", text: current.dirty.value ? t("banner.deleted") : t("banner.deletedClean"), actions: []};
     if (current.diskChanged.value) return {tone: "warning", text: t("banner.diskChanged"), actions: [{id: "reload", label: t("banner.reload"), run: () => void props.area.revert()}]};
     const problem = current.saveProblem.value;
-    if (problem !== null) return {tone: "error", text: problem.code === "unknown-outcome" ? t("banner.saveUnknown") : t("banner.saveFailed", {reason: problem.detail || problem.code}), actions: []};
+    if (problem !== null) return {tone: "danger", text: problem.code === "unknown-outcome" ? t("banner.saveUnknown") : t("banner.saveFailed", {reason: problem.detail || problem.code}), actions: []};
     return null;
 });
 

@@ -301,7 +301,7 @@ describe("nb-ui components", () => {
 
     it("banner: actions slot holds several buttons, error is announced as alert, icon can be replaced, dismiss only emits", async () => {
         const wrapper = mount(Banner, {
-            props: {tone: "error", message: "磁盘上的文件已被修改。", iconClass: "i-lucide-refresh-cw", dismissible: true, closeLabel: "知道了"},
+            props: {tone: "danger", message: "磁盘上的文件已被修改。", iconClass: "i-lucide-refresh-cw", dismissible: true, closeLabel: "知道了"},
             slots: {actions: "<button data-a>重新载入</button><button data-b>覆盖</button>"},
         });
 
@@ -1879,7 +1879,7 @@ describe("nb-ui dialog anatomy", () => {
             props: {
                 title: "删除章节确认",
                 description: "此操作无法恢复",
-                confirmText: "确认删除",
+                confirmLabel: "确认删除",
             },
             slots: {
                 trigger: "<button>删除章节</button>",
@@ -1916,7 +1916,7 @@ describe("nb-ui dialog anatomy", () => {
                     open: open.value,
                     title: "受控确认",
                     description: "请确认",
-                    confirmText: "确认",
+                    confirmLabel: "确认",
                     "onUpdate:open": (value: boolean) => { open.value = value; },
                 });
             },
@@ -1952,7 +1952,7 @@ describe("nb-ui dialog anatomy", () => {
             props: {
                 title: "删除章节确认",
                 description: "此操作无法恢复",
-                confirmText: "确认删除",
+                confirmLabel: "确认删除",
             },
             slots: {
                 trigger: "<button>删除章节</button>",

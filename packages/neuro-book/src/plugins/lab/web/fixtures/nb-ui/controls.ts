@@ -141,7 +141,7 @@ export const controlsFixtures: LabFixture[] = [
         component: "SegmentedControl",
         scenes: [
             {id: "default", label: "三档", input: {props: {options: SEGMENTS, ariaLabel: "画布尺寸", size: "sm"}, model: {modelValue: "free"}}},
-            {id: "counts", label: "带计数与强调色", input: {props: {options: [{value: "all", label: "全部", count: 128}, {value: "dirty", label: "未保存", count: 3, tone: "warning" as const}, {value: "conflict", label: "冲突", count: 0, disabled: true}], ariaLabel: "筛选", tone: "accent", size: "sm"}, model: {modelValue: "all"}}},
+            {id: "counts", label: "带计数", input: {props: {options: [{value: "all", label: "全部", count: 128}, {value: "dirty", label: "未保存", count: 3}, {value: "conflict", label: "冲突", count: 0, disabled: true}], ariaLabel: "筛选", size: "sm"}, model: {modelValue: "all"}}},
             {id: "uneven", label: "长短不一：段宽取最长一项", input: {props: {options: APPEARANCES, ariaLabel: "外观", size: "sm"}, model: {modelValue: "system"}}},
             {id: "full-width", label: "撑满等分", input: {props: {options: SEGMENTS, ariaLabel: "画布尺寸", size: "sm", fullWidth: true}, model: {modelValue: "phone"}}},
             {id: "xs", label: "最小号", input: {props: {options: SEGMENTS, ariaLabel: "画布尺寸", size: "xs"}, model: {modelValue: "tablet"}}},

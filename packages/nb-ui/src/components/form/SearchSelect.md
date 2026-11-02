@@ -43,7 +43,7 @@ type SearchSelectProps = {
     emptyText?: string;
     /** 列表的可访问名称；缺省指向 Field 的标签。 */
     listLabel?: string;
-    size?: "default" | "sm";
+    size?: "sm" | "md";
     disabled?: boolean;
     readonly?: boolean;
     /** 出错外观与 aria-invalid；与 Field 上下文的出错取或。 */

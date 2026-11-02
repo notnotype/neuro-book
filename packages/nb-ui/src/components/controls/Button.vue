@@ -2,9 +2,10 @@
 import type {ButtonHTMLAttributes} from "vue";
 import {focusRingClass} from "./focus-ring";
 import type {FocusRingStyle} from "./focus-ring";
+import type {ControlSize} from "../shared-types";
 
 export type ButtonVariant = "primary" | "secondary" | "subtle" | "danger" | "ghost";
-export type ButtonSize = "sm" | "md" | "lg";
+export type ButtonSize = Extract<ControlSize, "sm" | "md" | "lg">;
 
 const props = withDefaults(defineProps<{
     variant?: ButtonVariant;

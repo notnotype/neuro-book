@@ -354,6 +354,16 @@
 - `ToggleGroup` 是一组可以叠加的开关（粗体、斜体），可以同时按下几个，也可以都不按下；不做单选。
 - `Select` 从一列值里选一个，收在下拉框里；`DropdownMenu` 点按钮弹出一列动作，选了就执行，不保留选中值。
 
+### 4.6 取值词表与文案属性
+
+同一个意思只有一个名字，组件之间不各写一套。共用的词表在 `src/components/shared-types.ts`，从 `./components` 导出；各组件声明自己能渲染的子集（`type InputSize = Extract<ControlSize, "sm" | "md">`），不渲染的档不进类型，也不留“有类型、没外观”的属性。
+
+- **尺寸** `ControlSize = "2xs" | "xs" | "sm" | "md" | "lg"`。没有 `default`：缺省档就是 `md` 或组件说明里写的那一档。面板宽度（`DialogSize`）是另一套刻度，不用它。
+- **语调** `Tone = "neutral" | "accent" | "info" | "success" | "warning" | "danger"`。不带语义的缺省档叫 `neutral`，不叫 `default`；出错与危险都叫 `danger`，不叫 `error`。运行状态（`CollapsibleRow` 的 `status: "error"`）不是语调，不用这套词。
+- **方位** `Side = "top" | "right" | "bottom" | "left"`、`Align = "start" | "center" | "end"`；浮层的弹出位置叫 `side`，不叫 `placement`。组件有自己的选边算法时另起子类型（`SuggestionSide` 多一个 `auto`）。
+- **方向** `Orientation = "horizontal" | "vertical"`。
+- **文案属性**：按钮文字与读屏名称叫 `xxxLabel`（`confirmLabel`、`closeLabel`、`ariaLabel`），说明性文字叫 `xxxText`（`loadingText`、`emptyText`）。缺省值经翻译端口从 nb-ui 目录取（`src/locales/`），属性只用来覆盖；同一页可能有多个实例、需要各自名字的区域（例如 `Breadcrumb` 的导航区）才给覆盖属性。
+
 ## 5. 表单与无障碍
 
 1. 字段组件接入 `Field` context：生成或接受 `id`，连接 `aria-describedby`，合并 `required`，错误时输出 `aria-invalid`。

@@ -3,7 +3,8 @@ import type {ShallowRef} from "vue";
 
 import type {Text} from "../text";
 
-export type NotificationTone = "success" | "warning" | "info" | "error";
+/** 通知的语调，`Tone` 的子集（components/shared-types.ts）。`error()` 是“发一条出错通知”的动作名，发出的语调是 `danger`。 */
+export type NotificationTone = "info" | "success" | "warning" | "danger";
 
 /**
  * 通知里的文字是文字值（docs/specs/ui/i18n.md）：队列原样存着，视口渲染时经翻译端口翻成当前语言，切换语言后已显示的
@@ -19,7 +20,7 @@ export type NotificationInput = {
     title?: Text;
     tone?: NotificationTone;
     action?: NotificationAction;
-    /** 自动关闭的毫秒数；0 为常驻（只能手动关闭或由发出方移除）。缺省按色调取：info、success 3200，warning 4200，error 5200。 */
+    /** 自动关闭的毫秒数；0 为常驻（只能手动关闭或由发出方移除）。缺省按色调取：info、success 3200，warning 4200，danger 5200。 */
     duration?: number;
     /** 进度（0 到 100）；null 为不确定进度。不给就没有进度条。 */
     progress?: number | null;
@@ -55,7 +56,7 @@ export interface NotificationQueue {
 }
 
 /** 各色调的缺省自动关闭时长（毫秒）。 */
-export const DEFAULT_NOTIFICATION_DURATION: Readonly<Record<NotificationTone, number>> = {info: 3200, success: 3200, warning: 4200, error: 5200};
+export const DEFAULT_NOTIFICATION_DURATION: Readonly<Record<NotificationTone, number>> = {info: 3200, success: 3200, warning: 4200, danger: 5200};
 
 function createId(): string {
     return `notice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -157,7 +158,7 @@ export function createNotificationQueue(): NotificationQueue {
         resume,
         success: (message, options) => notify({...options, message, tone: "success"}),
         warning: (message, options) => notify({...options, message, tone: "warning"}),
-        error: (message, options) => notify({...options, message, tone: "error"}),
+        error: (message, options) => notify({...options, message, tone: "danger"}),
         info: (message, options) => notify({...options, message, tone: "info"}),
     };
 }

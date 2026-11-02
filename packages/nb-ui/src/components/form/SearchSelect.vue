@@ -15,6 +15,7 @@ import type {SuggestionMenuGroup} from "../popup/suggestion-menu";
 import {useUiText} from "../../text-port";
 import {useFieldContext} from "./field-context";
 import {moveRoving, type RovingMove} from "../../utils/roving";
+import type {ControlSize} from "../shared-types";
 
 export type SearchSelectOption = {
     value: string;
@@ -25,7 +26,7 @@ export type SearchSelectOption = {
     disabled?: boolean;
 };
 
-export type SearchSelectSize = "default" | "sm";
+export type SearchSelectSize = Extract<ControlSize, "sm" | "md">;
 
 const props = withDefaults(defineProps<{
     modelValue?: string;
@@ -50,7 +51,7 @@ const props = withDefaults(defineProps<{
     name: "",
     placeholder: "",
     listLabel: undefined,
-    size: "default",
+    size: "md",
     disabled: false,
     readonly: false,
     invalid: false,

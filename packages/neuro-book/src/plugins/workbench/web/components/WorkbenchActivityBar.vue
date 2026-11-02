@@ -83,7 +83,7 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
 <template>
     <nav class="workbench-activity-bar" :aria-label="label">
         <div ref="bandEl" class="workbench-activity-bar__containers" data-switcher-band="sidebar">
-            <Tooltip v-for="container in shownContainers" :key="container.id" :text="container.label" placement="right">
+            <Tooltip v-for="container in shownContainers" :key="container.id" :text="container.label" side="right">
                 <IconButton
                     size="lg"
                     :icon-class="container.icon"
@@ -105,7 +105,7 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
         <div class="workbench-activity-bar__footer" data-activity-items>
             <template v-for="item in items" :key="item.id">
                 <!-- 停用的按钮不触发悬停提示组件：停用时原因写在原生 title 上。 -->
-                <Tooltip v-if="item.command !== null" :text="item.title" placement="right" :disabled="item.disabledReason !== null">
+                <Tooltip v-if="item.command !== null" :text="item.title" side="right" :disabled="item.disabledReason !== null">
                     <IconButton
                         size="lg"
                         :icon-class="item.icon"
@@ -120,7 +120,7 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
                     />
                 </Tooltip>
                 <!-- 没有命令：不可点的占位（不以可操作的假入口呈现），样子同书架右上角的头像位。 -->
-                <Tooltip v-else :text="item.title" placement="right">
+                <Tooltip v-else :text="item.title" side="right">
                     <span class="workbench-activity-bar__placeholder" role="img" :aria-label="item.title" :data-activity-item="item.id" data-activity-item-placeholder>
                         <span class="workbench-activity-bar__placeholder-circle"><span class="workbench-activity-bar__placeholder-icon" :class="item.icon" aria-hidden="true"></span></span>
                     </span>

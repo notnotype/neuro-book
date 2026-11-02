@@ -10,10 +10,11 @@ import {
     DrawerTitle,
     DrawerTrigger,
 } from "reka-ui";
-import {provide, ref, watch} from "vue";
+import {computed, provide, ref, watch} from "vue";
 import {NB_MODAL_POPOVER_Z_INDEX, NB_POPOVER_Z_INDEX} from "../../theme/z-index";
 import {useModalLayer} from "../../composables/useModalLayer";
 import {useTeleportTarget} from "../../composables/useTeleportTarget";
+import {useUiText} from "../../text-port";
 
 export type DrawerDirection = "top" | "bottom" | "left" | "right";
 
@@ -26,6 +27,8 @@ const props = withDefaults(defineProps<{
     modal?: boolean;
     handle?: boolean;
     contentClass?: string;
+    /** 关闭按钮的读屏名称；缺省经翻译端口取。 */
+    closeLabel?: string;
 }>(), {
     open: undefined,
     defaultOpen: false,
@@ -38,6 +41,8 @@ const props = withDefaults(defineProps<{
 });
 // 居中类浮层：宿主可以把它收进更近的目标（例如 Lab 的画布），见 useTeleportTarget。
 const teleportTo = useTeleportTarget(() => undefined);
+const text = useUiText();
+const closeText = computed(() => props.closeLabel ?? text("drawer.close"));
 
 const emit = defineEmits<{
     (e: "update:open", value: boolean): void;
@@ -95,6 +100,9 @@ function onOpenChange(value: boolean): void {
                     class="mx-auto my-3 h-1.5 w-12 shrink-0 rounded-full bg-[color-mix(in_srgb,var(--text-main)_20%,transparent)] cursor-grab active:cursor-grabbing"
                 />
 
+                <!-- 没有标题时仍给对话框角色一个读屏名称（与 Dialog、QuickPick 一致）。 -->
+                <DrawerTitle v-if="!props.title" class="sr-only">{{ text("drawer.untitled") }}</DrawerTitle>
+
                 <div v-if="props.title || $slots.header" class="flex items-center justify-between px-5 py-4 border-b border-[var(--divider)]">
                     <slot name="header">
                         <div>
@@ -107,7 +115,7 @@ function onOpenChange(value: boolean): void {
                         </div>
                     </slot>
 
-                    <DrawerClose class="nb-ui-focus-ring -mr-1.5 flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-secondary)] transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-[0.92] cursor-pointer">
+                    <DrawerClose class="nb-ui-focus-ring -mr-1.5 flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-secondary)] transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-[0.92] cursor-pointer" :aria-label="closeText">
                         <span class="i-lucide-x h-4 w-4" aria-hidden="true"></span>
                     </DrawerClose>
                 </div>

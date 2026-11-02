@@ -28,6 +28,8 @@ type BreadcrumbProps = {
     items?: BreadcrumbItemData[];
     /** 分隔符图标类名；默认 "i-lucide-chevron-right" */
     separatorIcon?: string;
+    /** 导航区的读屏名称；同一页有多条面包屑时各给一个；缺省经翻译端口取 */
+    ariaLabel?: string;
 };
 
 type BreadcrumbEmits = {

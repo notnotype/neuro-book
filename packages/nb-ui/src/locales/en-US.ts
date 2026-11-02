@@ -31,6 +31,10 @@ export default {
         confirm: "Confirm",
         close: "Close",
     },
+    drawer: {
+        untitled: "Panel",
+        close: "Close",
+    },
     emptyState: {
         title: "No data",
     },

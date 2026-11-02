@@ -15,7 +15,7 @@
 ## 数据
 
 ```ts
-type NotificationTone = "info" | "success" | "warning" | "error";
+type NotificationTone = "info" | "success" | "warning" | "danger";
 
 interface NotificationProps {
     /** 通知色调；可选，默认 "info" */

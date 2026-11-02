@@ -4,7 +4,7 @@ import {NB_Z_INDEX} from "../../theme/z-index";
 import {useNotification, type NotificationItem, type NotificationQueue} from "../../composables/useNotification";
 import {useText} from "../../text-port";
 import Notification from "./Notification.vue";
-import type {NotificationTone} from "./Notification.vue";
+import type {NotificationTone} from "../../composables/useNotification";
 
 export type NotificationPosition = "bottom-center" | "bottom-right" | "top-right";
 

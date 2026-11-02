@@ -11,6 +11,8 @@ export interface BreadcrumbItemData {
 const props = withDefaults(defineProps<{
     items?: BreadcrumbItemData[];
     separatorIcon?: string;
+    /** 导航区的读屏名称；同一页有多条面包屑时各给一个。缺省经翻译端口取。 */
+    ariaLabel?: string;
 }>(), {
     items: () => [],
     separatorIcon: "i-lucide-chevron-right",
@@ -24,7 +26,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-    <nav :aria-label="text('breadcrumb.label')" class="flex items-center">
+    <nav :aria-label="props.ariaLabel ?? text('breadcrumb.label')" class="flex items-center">
         <ol class="flex flex-wrap items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--text-secondary)]">
             <template v-for="(item, index) in props.items" :key="index">
                 <li class="inline-flex items-center gap-1">

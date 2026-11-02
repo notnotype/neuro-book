@@ -4,6 +4,7 @@ import {
     ToggleGroupRoot,
 } from "reka-ui";
 import type {AcceptableValue} from "reka-ui";
+import type {ControlSize} from "../shared-types";
 
 export interface ToggleGroupOption {
     value: string;
@@ -13,7 +14,7 @@ export interface ToggleGroupOption {
     disabled?: boolean;
 }
 
-export type ToggleGroupSize = "sm" | "md" | "lg";
+export type ToggleGroupSize = Extract<ControlSize, "sm" | "md" | "lg">;
 
 /**
  * 只做多选（可叠加的开关，例如格式按钮）：“几个里选一个”用 SegmentedControl，那边始终有一个选中项，
