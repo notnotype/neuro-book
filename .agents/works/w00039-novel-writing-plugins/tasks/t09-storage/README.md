@@ -60,6 +60,10 @@ updated: 2026-11-02
 
 2026-11-02 按已接受的[内核提案](../../../../../docs/proposals/world-engine-kernel.md)重切（Work README 决定表同日）：范围改成上面的样子。
 
+2026-11-02 主会话拟了存储草稿 [storage-draft.md](storage-draft.md)，日志规模的测量在 [`evidences/log-scale.txt`](evidences/log-scale.txt)，四条待开发者定。开发者整体看过 Work 后认为存储开销与性能还没定好，同意先量原型引擎在大书上的折叠、待处理、发布与内存（[`scripts/engine-scale.ts`](scripts/engine-scale.ts)），量完再回草稿。
+
+开发者同日问到草稿第 2 条：原打算条目放在 `lorebook.content/`，Agent 能用文件工具（grep、glob）读；若条目不做成文件，能否把 lorebook 做成渲染出来的只读 MDX 视图。开发者关心的是检索效率：写作时 Agent 要检索什么、哪种检索方式最好，要做实验。主会话的回答：真相源仍是日志，文件视图是派生的、可删除的，做不做由检索实验决定；实验方案交开发者批准（用“回指”出题，比较只用世界引擎工具、只读文件视图加 read、grep、glob、两者都给三组）。产品 Agent 现在只有 read、edit 两个文件工具，grep、glob、bash 在 w00032 t12 里。
+
 ## 下一步
 
-开始讨论：读提案与 t16 原型的类型，拟存储方案交开发者，定了以后推 t27。
+量完引擎性能，连同检索实验的方案交开发者；草稿四条定了以后写 ADR、改提案，推 t27。
