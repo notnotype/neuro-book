@@ -62,6 +62,9 @@ t08 之后重新对齐需求：
 5. `edit` 首批只开 hashline 与 replace 两种模式。
 6. `todo` 要先设计：调研 omp、Codex、Claude Code 各有哪些工具、参数与交回给模型的结果，再定。
 7. 先不改 nb-agent-ui 的内置工具渲染器（它按旧应用的工具名写）。
+8. `todo` 与 Claude Code 一样默认关闭（Codex 2026-08、Claude Code 2.1.233 起都对较新的模型默认不提供，见 [调研](research/todo-tools.md)）：它现在主要是让用户知道 Agent 在做什么。
+9. 要做 omp 与 Claude Code 那种隔 N 轮没更新清单就提醒的机制。
+10. 工具声明的 token 数（[脚本](experiments/todo-tokens.py)，[结果](evidences/todo-tokens.txt)，o200k）：omp `todo` 472，Claude Code `Task*` 四个合计 2,033，`TodoWrite` 2,152，Codex `update_plan` 186；DeepSeek-V3 分词结果相差不到 2%。只量工具声明，不含各家主提示词里关于待办的段落与提醒。
 
 ## 当前状态
 
