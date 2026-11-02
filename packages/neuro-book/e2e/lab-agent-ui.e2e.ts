@@ -505,7 +505,7 @@ test.describe("输入框", () => {
         await editor(page).click();
         await page.keyboard.press("End");
         await page.keyboard.press("Enter");
-        await expect.poll(async () => String((await lastAction(page))?.text ?? "")).toMatch(/!\[image #1\]\(local:\/\/.+\)/u);
+        await expect.poll(async () => String((await lastAction(page))?.text ?? "")).toMatch(/!\[image #1\]\(session:\/\/attachments\/.+\)/u);
     });
 
     test("展开：输入框长高，回车换行、Ctrl+回车发送；模型下拉发出 model.set", async ({page}) => {
