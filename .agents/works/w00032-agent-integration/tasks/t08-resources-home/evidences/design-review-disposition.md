@@ -36,3 +36,25 @@
 | 16 | 重要 | 随总处理消失 | 编辑器不打开新方案；t17 开放时把调用方可写性交给文档模型 |
 
 另外更正计划里的一处事实：`changes.ts` 用的是 `node:fs` 的 `watch`，不是 chokidar（第 170 行附近的“未发现问题的方面”指出）。
+
+# 第二轮
+
+审查者：omp 默认模型，报告 [design-review-omp-r2.txt](design-review-omp-r2.txt)，13 条（阻断 1、重要 11、建议 1），审查对象为提交 `fa95086c0` 的第二稿。审查者确认第一轮第 3、5、6、7、11、13（相对引用）、14、15、16 条已解决或随 t17 退出，没有要求改变第二稿的形状。
+
+| # | 级别 | 归类 | 处理 |
+|---|---|---|---|
+| 1 | 阻断 | 成立，要改 | 授权回调改为 `authorize(caller, mount, operation, relativePath)`，挂载点名显式传入；同一个回调对词法与真实路径各调一次时用同一个挂载点名 |
+| 2 | 重要 | 成立，要改 | 服务的每个方法与 `SessionResources` 的方法收 `{signal?, as?}`；t12 从工具执行的 `signal` 传入。“不提供取消方法”与“支持 `AbortSignal`”分开写。门面释放与 Files 入口停止也会中止在途调用 |
+| 3 | 重要 | 成立，要改 | Agent 来源的事件会进 `user://` 与 `project://` 的订阅：两份合同的版本都加 1 |
+| 4 | 重要 | 成立，要改 | 物化流程写成步骤：只建挂载点根（受管容器下的单段名，非递归 `mkdir`）与 `ensure` 列出的单段子目录（在打开的根里用排他新建）；容器由注册方在激活时建好并核对是真实目录；已存在的同名文件或链接为 `not-a-directory`/`protected-path`，不覆盖；被拒的请求不建任何目录；建好后照常按真实路径授权实际目标 |
+| 5 | 重要 | 成立，要改 | 列出的结果逐项过 `authorize(…, "read", 子项路径)`，不通过的不返回 |
+| 6 | 重要 | 成立，要改 | `docs://builtin` 挂 `dist/docs/builtin/`，SDK 作者文档生成到其下的 `sdk/`；验收用 `docs://builtin/sdk/README.md` |
+| 7 | 重要 | 成立，要改 | Files 给注册方一个按挂载点撤下的接口 `retire(mount)`：先拒新借用、等在途结算、关闭 Backend；之后同名挂载点重新打开时按新根处理。`temps` 的归档清理改在“已归档的会话从句柄表卸下时”（t10 的卸下只在没有运行时发生），先 `retire` 再删。理由：内核的归档不停止运行，归档当下删会删掉正在运行的命令的工作文件。这是对开发者决定 3 的细化，汇报时说明 |
+| 8 | 重要 | 成立，要改 | 挂载方案的 Backend 不做文件夹类型投影（`.content`、`.binder` 当普通目录，不维护清单），新建不会顺带改 `content.xml`。授权在服务入口按词法与真实路径各做一次，操作内部等锁后的重新解析不再调授权回调：期间能换链接的只有 Agent 自己的 shell，而 shell 绕过文件工具是已接受的限制（t12 决定），写进 Spec 的已知限制 |
+| 9 | 重要 | 成立，要改 | `temps` 的受管容器 `nbook[-uid]`、状态根分区、`sessions` 逐层 `lstat` 核对是本用户的真实目录（建时权限 0700），任何一层是链接、文件或别的用户的就拒绝并诊断；系统临时目录本身不查 |
+| 10 | 重要 | 成立，要改 | 定义成功值：虚拟根的 `list` 返回 `{kind: "virtual", description, entries: [{name, address, title?, meta}]}`，实体目录沿用现有列出结果；虚拟根的 `read` 为 `not-a-file`，`realPath` 为 `unsupported-capability`；`SessionResources` 交回的条目带全局地址 |
+| 11 | 重要 | 成立，要改 | `projectsKey` 的 `registry-invalid`（`list`、`resolve`、`acquire`）映射为 `project-unavailable`，详情带原因；修好登记表后下一次调用照常 |
+| 12 | 建议 | 成立，要改 | 把“在一个根上执行一次已接纳的请求、记来源、转成公共结果”从 `implementation()` 抽成 Files 内部的执行模块，旧远程合同、`user://` 服务分派与挂载方案共用；`parseAddress` 与 `parseResource` 共用语法与 `pathProblem` |
+| 13 | 重要 | 成立，要改 | 验收映射补上：同一挂载点并发首次打开、`closing` 中的新请求、打开中撤回、切 Profile 前后的权限、首次 `home`/`profile`/`temp` 的真实路径、不带 `as` 的浏览器写入照常、伪造 `as` 被拒、旧版本订阅得 `version-changed`、运行中归档不删目录。应用包：把打包产物解到仓库外，用同一个定位函数找到文档目录并读 `docs://builtin/sdk/README.md` |
+
+审查者的两条规范回写建议是 Spec 内容，写进第 0 片的 `resources.md` 与 `agent/resources.md`，不另作规范回写。

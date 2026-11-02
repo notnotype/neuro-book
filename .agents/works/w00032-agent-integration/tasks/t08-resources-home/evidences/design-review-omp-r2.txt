@@ -1,0 +1,225 @@
+# w00032 t08 第二轮只读设计审查
+
+审查对象为 `/tmp/review-t08-design-r2/wt/.agents/works/w00032-agent-integration/tasks/t08-resources-home/plan.md`，第二稿，固定基线 `fa95086c0`。以下发现区分设计合同缺口与已经运行的基线验证；未把尚未实现的新服务宣称为已复现的产品漏洞。
+
+### 1. authorize 没有挂载点身份，无法区分自己的 home 与别人的 home
+
+- **严重程度**：阻断；**类别**：不变量。
+- **位置**：plan.md“方案注册”第 34–38 行、“Agent 的方案”第 65–71 行。
+- **现象**：方案级 `authorize(caller, operation, relativePath)` 只收到挂载点内的相对路径；`mount(name, caller)` 返回值也不含挂载点专属的授权闭包。以会话 A 写 `sessions://A/home/a.md` 和 `sessions://B/home/a.md` 为例，授权输入完全相同：调用方都是 A、操作都是 write、词法与真实相对路径都是 `home/a.md`。第一项必须允许，第二项必须拒绝。`profiles` 与 `temps` 同样需要比较挂载点 key/id，但该值不在授权输入中。
+- **为什么是问题**：这是接口表达能力不足，照字面实现不可能兑现权限表。用 `mount` 调用时把 name 存进方案级变量会引入并发共享状态；挂载 Backend 又跨调用方复用，不能把第一次调用方的授权结果缓存为挂载权限。第一轮第 1 条虽改成回调，仍没把判断所必需的对象身份传进去。
+- **如何核实**：逐读计划第 37–38 行的完整入参与返回形状，对照第 69–71 行三个“自己的／同 Profile”判据；将 A/B 两次调用代入可得相同的授权输入和相反的要求。此处为静态合同核对，不依赖伪造运行时身份的实验。
+- **建议改法**：授权显式接收不可变的挂载标识，例如 `authorize(caller, mountName, operation, relativePath)`，或由 `mount` 返回只捕获挂载标识、不捕获调用者权限的授权函数；词法与真实路径两次检查使用同一挂载标识。用真实插件宿主中的 Agent A，连续与并发访问 A/B 两个同名路径，验证自己可写、他人只读，Profile/temp 同样覆盖。
+
+### 2. 进程内方法没有 signal 入口，projects 的取消与租约释放写法无法接线
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：plan.md“服务端的进程内服务”第 50–52 行、“projects://”第 58 行、“Agent 地址层”第 86–90 行；`packages/nb-runtime/src/services/contracts.ts:36`、`packages/nb-runtime/src/services/per-consumer.ts:72`、`packages/nb-harness/src/kernel/api/host.ts:314`。
+- **现象**：服务的 5 个方法只列业务参数与可选 `as`，并明确“不提供……取消”，但下一节要求 acquire 返回后检查“调用方的 signal”、内层 RPC 传同一个 signal，验收又要求取消时释放租约。`perConsumer` 工厂只收到身份，`ConsumerIdentity` 没有 signal；方法代理原样 apply 参数，不像远程方法那样注入上下文。`ToolSessionContext` 也只有 sessionId/profile/project，没有一次工具执行的终止信号。
+- **为什么是问题**：把入口的 `context.signal` 当作一次工具的 signal，只能随整个 Agent 插件停止，不能在用户中止本次工具时生效。调用方停止后作废门面也不会终止已经开始的方法。照现有接口，项目创建期间取消后仍会继续派发读写，租约只能等迟到的调用结算；“取消时释放”测试若直接给内部函数塞 signal，会绕过真实服务入口。
+- **如何核实**：静态对照上述 3 份运行时类型和 `per-consumer.ts:72–75` 的原样参数调用；`plugin-channel.md` 输出 1 的自动终止上下文只属于远程方法，不能套到本地服务。`FilesResult` 第 295–297 行确实包含 `RemoteFailureCode` 与 `RemoteCause`，所以失败返回类型本身不是本条问题。
+- **建议改法**：5 个方法和 SessionResources 明确接受每次调用的 `{signal?, as?}`，t12 从真实 ToolContext 传 signal；将“没有 cancel 方法”与“支持 AbortSignal”写开。门面释放另有一个幂等终止控制器并与每次 signal、Files 入口停止信号连接，acquire 返回后复核；写请求发出后的中止保留 `unknown-outcome` 与 cause。经真实插件宿主入口测试：acquire 尚未完成时取消、RPC 已派发时取消、调用方入口停止，各自观察是否派发和租约是否释放。
+
+### 3. 只升项目合同版本，user 的 Agent 写入事件会被旧窗口静默丢弃
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：plan.md“服务端的进程内服务”第 51 行、“projects://”第 60 行、“不做与风险”第 140 行；`packages/neuro-book/src/plugins/files/shared/contracts.ts:198`、`:228`、`:233`、`:235`；`packages/nb-runtime/src/remote/node.ts:1034`。
+- **现象**：新服务允许 Agent 带 `as` 写 `user://`，来源为 `{kind: "agent", session}`；计划只规定 `projectFilesContract` 升 1。现有 `SourceSchema` 与 `events` 由 project/user 两份合同共用，旧的 user v5 schema 只接受 user/system/external。user Backend 与旧 `nbook.files/user` 合同继续共用，Agent 写入会进入这个仍为 v5 的订阅。
+- **为什么是问题**：旧窗口的 user 订阅与新提供方版本仍匹配，却无法校验 agent 事件；`node.ts:1034–1037` 只记 `payload-invalid` 并丢弃，不推 ended/resync，也不会得到 `version-changed`。因此它继续显示“实时同步”，实际漏掉 Agent 对用户资产的修改。“旧窗口要刷新”虽已接受，但这里没有触发刷新的版本信号。
+- **如何核实**：静态跟踪 plan 第 46、51、53 行共享旧 Backend 的写路径，`plugin.ts:90–93` → ChangeHub → 共享 `SourceSchema` → `node.ts` 订阅方校验。两份合同当前版本都为 5；这里只提升 project 不覆盖 user 的新增输出变体。
+- **建议改法**：凡可能发出 agent 来源的合同都提升版本（至少 project 与 user），并把旧 user 订阅的版本失败与刷新列入验收；或者明确本次 user 不发新来源，但那会违背已定来源规则，不建议。不要把 schema 变宽但保持版本不变当作无浏览器影响。
+
+### 4. create/ensure 的首次物化与两次授权互相依赖，缺失路径的安全流程仍没定义
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：plan.md“方案注册”第 37–43 行、“Agent 的方案”第 69、75 行；`packages/neuro-book/src/plugins/files/backend/rooted.ts:109`、`:133`、`:180`；`docs/specs/platform/files.md:85`。
+- **现象**：计划同时要求“词法与真实路径两次授权后才执行”“授权通过之后建根／ensure home”。但全新的 profiles/temps 根尚不存在时 `openRoot` 直接失败；旧会话缺 home 时 `resolve('home/a.md')` 与 `resolveSlot` 都无法取得完整真实路径。计划没有给“解析最深已存在祖先 + 待创建后缀”的表示，也没规定物化前后的授权与链接检查顺序。`create` 能力本身也没有声明项，只列 read/write/list/realPath，未说明 create 映射到哪一种授权操作。
+- **为什么是问题**：先按字符串授权然后 recursive mkdir，不能保证创建动作没有穿过已有链接到挂载点外；先用现有 RootedRoot 解析则无法完成首建。`home` 已经是文件、悬空链接、指向日志／根外的链接时，`ensure` 不能把它们当作“还没建”处理。第一轮第 8 条补了目标行为，仍没补能执行且不先产生越界副作用的流程。
+- **如何核实**：静态逐读 `openRoot:112–118`、`resolve:147–168`、`resolveSlot:187–193`，它们只处理存在根与存在父目录；对照 plan 第 43 行“授权通过之后”与第 38 行两次授权。现有排他 create 只在存在父目录下工作（`entry-ops.ts:42–55`），不能承担根／ensure 初始化。
+- **建议改法**：明确一次物化请求的步骤：词法授权；从可信的已存在父根解析每个已有段，拒绝根外／受保护链接；按“真实祖先 + 缺失后缀”授权待创建的位置；仅创建允许的根与 ensure 目录；打开并核对根身份后重新解析、授权实际目标，再执行操作。列清 create 与只读 realPath 触发初始化时的授权语义，并覆盖空状态根、旧会话缺 home、home 是文件／悬空链接／根外链接、被拒请求不建目录。无需扩展为任意父目录自动创建。
+
+### 5. 只授权被列出的目录，仍会把会话的控制文件列给调用方
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：plan.md“方案注册”第 38–39 行、“Agent 的方案”第 69 行；`packages/neuro-book/src/plugins/files/backend/rooted.ts:221`、`packages/nb-harness/src/kernel/log/jsonl-store.ts:18`。
+- **现象**：第二稿给 `list(address)` 的授权仍是针对该地址的词法／真实路径各一次，没有对返回子项的过滤合同。允许 `list('sessions://s')` 后，复用现有 Backend 会列出 `session.lock`、`session.owner`、`index.json`、`blobs`，以及截下的 `session.jsonl.tail-*`，不止计划承诺的 `session.jsonl` 与 `home`。若拒绝挂载根的 list，又无法列出合法的两个入口。
+- **为什么是问题**：读取子项时返回 `protected-path` 不等于“只露出”这两个子项。现有 RootedRoot.list 只有项目 `.nbook` 的专门过滤；`controlDirectory: false` 的会话根没有通用授权过滤。它还可能列出词法合法、实际指向受保护路径的链接别名。
+- **如何核实**：静态对照 `rooted.ts:230–236` 的完整过滤条件、`files-service.ts:100–112` 的原样目录项投影，与 JSONL 存储的 5 个内部名字及第 236 行尾部文件命名。这里不把“知道控制文件名”夸成已能读写这些文件；实际缺口是列表输出违反已定可见集合。
+- **建议改法**：定义 list 的子项可见性：对每个候选子项做路径授权／链接包含检查，受保护项不返回；或者给挂载声明单独的枚举过滤策略，并与 read/realPath 的真实路径规则共用。增加真实会话目录的 list 验收，断言日志与 home 可见、控制文件与它们的链接别名不可见。
+
+### 6. docs://builtin/sdk 的挂载层级少了一层 sdk
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：plan.md Context 第 14 行、“Agent 的方案”第 72 行、“SDK 作者文档”第 81–82 行；Task README“用例子验证”第 106 行；`packages/neuro-book/plugin-sdk/pack.ts:122`。
+- **现象**：已定外部地址是 `docs://builtin/sdk/`，生成目录是 `dist/docs/sdk/`。挂载表却把 `builtin` 直接挂到“SDK 作者文档的生成目录”；已有生成器在该目录直接写 `README.md`、`docs/`、`specs/`、`examples/`。去掉挂载段 builtin 后，`docs://builtin/sdk/README.md` 实际寻找的是 `dist/docs/sdk/sdk/README.md`，不存在；可用地址反而成为 `docs://builtin/README.md`。
+- **为什么是问题**：第三版设计的 SDK 查询例子、Context 固定地址和实施表不能同时成立。第 127 行验收只写“docs://builtin 读 README”，恰好可以绕过这个层级错误，不能检验已定地址。
+- **如何核实**：静态将 `mount(name)` 的“首段是挂载点、其后相对挂载根”规则代入表格；核对 `pack.ts:126–134` 的产物根位置，无需打包或运行未实现的新方案。
+- **建议改法**：`docs://builtin` 挂 `dist/docs/`（应用包同构目录），SDK 生成到其下的 `sdk/`；或者保持挂载根但在内部显式形成 sdk 子目录，统一开发／发布布局。验收写死行为地址 `docs://builtin/sdk/README.md`，再跟进附表与 Spec 相对链接。
+
+### 7. temps 归档删除绕过挂载点的借用与根身份，缺少安全撤销入口
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：plan.md“方案注册”第 40–44 行、“服务端的进程内服务”第 50 行、“Agent 的方案”第 71、76 行；`packages/nb-harness/src/kernel/run/commands.ts:219`、`packages/neuro-book/src/plugins/files/backend/rooted.ts:319`。
+- **现象**：Files 缓存 temp Backend、请求持借用、空闲 5 分钟才关；Agent 在归档时直接删除同一个 temp 根。服务和贡献接口都没有“停止接纳这个挂载点、排空、关掉并失效缓存”的入口。内核 archive 只是写 `archived` 事件，既不要求运行空闲，也不中止会话，后续照样能执行工具。
+- **为什么是问题**：归档可以在 temp 读写、或 t12 已取得 realPath 的工具运行中发生，删除不受 Files 借用保护。归档结束后再访问同一个 temps 地址，缓存中的 RootedRoot 仍认原 inode；目录被删／重建会变成 `root-gone`，不会因 `create: true` 自动变成新根。若绕过根身份直接重新打开，又破坏“根替换不静默改投”的既有约定。授权表只看“自己的”，也没有定义归档后的 materialize 应拒绝还是允许，清完可以立刻重建。
+- **如何核实**：静态核对 archiveCommand 的完整实现与会话入口（`session.ts:290`），对照 RootedRoot 逐请求 inode 核对及计划 5 个方法；计划仅在“贡献撤回／入口停止”定义排空，不含单个 temp 挂载点的数据清理。没有运行尚未实现的归档清理，也没有用手改缓存时序冒充真实复现。
+- **建议改法**：给 Files 内部注册合同一个受 owner 控制的按挂载点撤销／排空接缝，归档清理先关该挂载的新借用，等真实在途结算、失效 Backend 后再删除。明确归档期间与归档后 temp 的可用性，以及解除归档后的首次物化规则；已交出的 realPath 不受请求借用保护，要按真实工具寿命协调，不能靠 5 分钟计时保证。验收用真实运行中会话归档、并发 temp 访问、清理后再访问／解除归档与插件停止，断言不在仍被使用的目录下删除，也不复用旧 inode 的 Backend。
+
+### 8. 对 create 的两次路径授权没有覆盖它随后改写的 content.xml
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：plan.md“技术选型”第 22 行、“方案注册”第 38–39 行；`packages/neuro-book/src/plugins/files/backend/operations.ts:108`、`:121`；`packages/neuro-book/src/plugins/files/backend/manifests.ts:67`。
+- **现象**：计划沿用 `operations.ts` 实现 create，只规定对请求路径的词法／真实路径各授权一次。现有 create 不只新建目标：目标处于 `*.content` 时还会隐式改写该内容根的 `content.xml`。例如自己的 `home/book.content/item` 可写，但该目录的 `content.xml` 是指向 `home/attachments/manifest.xml` 的根内链接；附件里的 XML 有效时，创建 item 会连带修改这个对 Agent 只读的文件。两次对 item 的授权都会通过。
+- **为什么是问题**：省掉删除、改名与批量只消除了祖先递归写，不消除 create 自带的第二个写入位置。`editManifest` 直接调用 `root.replace`，现有 RootedRoot 只拦根外与项目 `.nbook`，没有 Agent 子树授权。若在服务层先授权、操作内部再解析，等锁后真实路径变成受保护子树也不会自动再次执行注册方授权。
+- **如何核实**：静态顺读 `operations.ts:109–123` → `commit.ts:77–80` → `manifests.ts:69–101` → `rooted.ts:263–275`，可确认 1 次 create 有目标与清单 2 个独立副作用位置；授权回调目前没有出现在这条底层调用链。此为新增策略与复用实现之间的缺口，未宣称未实现的新方案已运行复现。
+- **建议改法**：把按本次 caller 的路径授权放到所有实际读写／新建／解析接缝中，覆盖清单、初始化与等锁后的重新解析；不能只在 server-files 最外层 preflight。另一个更小的选择是 Agent 的普通 home 不使用内容文件夹投影与自动清单维护，但要明确它与既有 Files 行为的差异。验收经真实文件服务在普通可写 home 下创建内容节点，清单链接到 attachments/artifacts 或其它只读目标，断言只读字节不变、结果如实表达失败／部分完成。
+
+## 本轮实际验证（截至当前）
+
+- 命令：`bun test ./src/plugins/files/shared/resource.test.ts`；工作目录 `/tmp/review-t08-design-r2/wt/packages/neuro-book`。Bun `1.4.4 (38afee6c8)`，退出码 1，`0 pass / 1 fail / 1 error`，`[9.00ms]`；原始错误：`Cannot find package 'typebox' from '/tmp/review-t08-design-r2/wt/packages/neuro-book/src/plugins/files/shared/resource.test.ts'`。未执行到断言，属于缺依赖，不算产品行为失败；未安装依赖或借主工作区的旧依赖。
+- 命令：`bun test ./src/prompt-token-action.test.ts`；工作目录 `/tmp/review-t08-design-r2/wt/packages/nb-agent-ui`。退出码 0，`2 pass / 0 fail / 12 expect() calls`，`[37.00ms]`。仅验证当前附件动作基线，不代表第二稿改名已实现。
+- LSP references 查询 `FilesResult` 返回 `No language server found for this action`；调用链改用静态检索与源码核对。
+
+### 9. temps 只核对待删目录自身，不能证明它仍在本状态根的分区里
+
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：plan.md“Agent 的方案”第 71、76 行；`docs/specs/platform/files.md:36`、`:85`。
+- **现象**：删除前只写 `lstat` 核对 `<tmp>/nbook[-uid]/<hash>/sessions/<id>` 是本用户的真实目录。这不能识别祖先 `<hash>` 或 `sessions` 是链接：`lstat` 只不跟随最后一段，祖先仍会被文件系统跟随。例如本分区的 `sessions` 指向另一个状态根的 sessions 分区，最终 `<id>` 仍是真实目录、uid 也相同，删除条件全部通过。
+- **为什么是问题**：状态根 hash 只隔离字面目录名，祖先链接会重新连通两个分区；这既能误删另一个状态根的活会话 temp，也能删到任意同用户目录。“不跟随符号链接”若只落实为末端 lstat，不能兑现第一轮第 2 条的隔离修复。`openRoot` 会把给出的挂载根 realpath 成新的可信根，也不会替注册方验证这个路径来自正确分区。
+- **如何核实**：依据 Node `lstat(path)` 的路径解析语义，对照 `rooted.ts:112–119` 直接采纳 realpath 作为根的实现与计划第 76 行的唯一删除前置检查；静态构造上述祖先链接即可说明检查集合不足。本轮没有执行新清理逻辑或破坏性删除实验。
+- **建议改法**：创建和扫描前按层核对自己管理的 nbook 容器、状态根分区、sessions 容器都是预期的真实目录并校验归属／真实包含；不把 OS 的系统临时目录本身（macOS 的系统链接等）也一刀切禁止。其它用户已占用、容器是文件／链接、fallback 也已占用时明确拒绝并诊断；末端再核对目录身份，未知项保留。两个状态根测试增加父容器链接，而不只测末端 id 是链接。
+
+### 10. 虚拟根的说明与目录元数据没有对应的成功值合同
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：plan.md“方案注册”第 36 行、“服务端的进程内服务”第 50 行、“projects://”第 57 行、“Agent 的方案”第 67–73 行、“Agent 地址层”第 89 行；`packages/neuro-book/src/plugins/files/shared/contracts.ts:59`、`:80`、`:88`。
+- **现象**：`root(caller)` 交 `{description, entries}`，sessions 条目要有 id/标题/Profile/更新时间，profiles 条目要有 key/名称/来源/可用性，projects 根还要显示名与运行状态；外部方法却只说“结果形状沿用现有合同（FilesResult）”。现有目录值只有 folder/contentRoot/entries，条目没有这些元数据；read 的值只有 text/baseline；realPath 的值只有路径。计划没有说明 root 返回值怎样映射到 read/list，虚拟根的 realPath 失败、只读基线以及条目地址怎样表达也没有定。
+- **为什么是问题**：`FilesResult<T>` 的失败联合确实够用，但它只是信封，不能替代成功值 T 的合同。复用现有 Listing 会丢掉已批准的说明／元数据，直接把 root 对象当作 read/list 成功值又会让 t12 为根与实体自行猜形状。所谓“结果里的地址为全局形式”也没列出哪些字段：现有 Listing.contentRoot 与 OperationDone.manifests[].path 都是根内路径。
+- **如何核实**：逐项对照上述 3 个现有成功值 schema（均拒绝多余字段）与计划根表的字段；查 Task README 第 43 行，读虚拟根本身必须得到说明与条目，不是只在文档中介绍它。此项是尚未写出的跨切片合同，不是断言 FilesResult 的泛型不能扩展。
+- **建议改法**：给 serverFilesKey／SessionResources 明确命名的成功值类型：root read/list 如何呈现说明与元数据、实体 read/list 如何兼容现有值、虚拟根 realPath 的确定失败、返回地址／相对路径字段的含义。只新增服务端类型即可，浏览器保持双方案。验收从 AgentService.resources 经真实服务读／列每个虚拟根，直接断言已定字段与可继续访问的全局地址，不能只测注册函数 root 的内部返回值。
+
+### 11. projectsKey 的登记表损坏失败不在计划的映射中
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：plan.md“projects://”第 57–61 行；`packages/neuro-book/src/shared/projects.ts:103`、`:128`；`packages/neuro-book/src/server/projects/manager.ts:252`；`docs/specs/runtime/projects.md:161`。
+- **现象**：计划只规定未登记引用是 not-found、3 种 acquire 拒绝是 project-unavailable。实际 `list`、`resolve` 都会返回 `{ok:false, reason:"registry-invalid", detail}`，普通 acquire 同样会被这个原因拒绝；它不是路由失败，也不在 FilesFailureCode／RemoteFailureCode 中。第 57 行列 projects 根时甚至没有 acquire 可替它处理这项失败。
+- **为什么是问题**：外部改坏 projects.json 是已有明确恢复合同的输入，不是未预期异常。把结果原样 return 不符合 FilesResult，把失败当空表会掩盖登记损坏，把它当 null 则把所有项目错报 not-found。当前计划的枚举无法照字面实现一个穷尽的分支。
+- **如何核实**：静态对照 `ProjectsService.list/resolve/acquire` 的联合返回、manager 第 254–256 行明确生成 registry-invalid，与计划第 61 行的封闭枚举；登记表每次重新读取，修复后无需重启（registry.ts 第 1–4 行），所以不能把它升级为整个 Files 激活失败。
+- **建议改法**：为 list、resolve、acquire 的全部已声明失败给出映射，至少将 registry-invalid 作为当前调用的 project-unavailable 并保留可诊断原因，成功修表后下一次调用恢复；不加自动重试、不改动坏表。用真实 projectsKey 与损坏的隔离 projects.json 测根列表和有路径请求，修表后再次成功。
+
+### 12. user、挂载方案与 projects 分派复制写入编排，来源与失败转换没有共同接缝
+
+- **严重程度**：建议；**类别**：代码质量。
+- **位置**：plan.md“方案注册”第 46 行、“服务端的进程内服务”第 50–59 行；`packages/neuro-book/src/plugins/files/backend/plugin.ts:66`、`:89`。
+- **现象**：浏览器／远程 user 继续走旧 implementation，新服务 user 直接用旧 Backend，注册挂载走新 mounted，projects 又单列 acquire + RPC。现成 implementation 的 write 不只是转发：它登记 tracked、保存后隐藏内部 bytes/realPath、调用 changes.saved、附来源。新服务如果直接用 Backend，必须再做这套；如果用 implementation，又得在本地伪造远程方法上下文并把 Outcome 适配为 FilesResult。第 2、3、8 条已经显示来源、signal 和授权跨这些分支有不同遗漏。
+- **为什么是问题**：保留旧 user 远程合同与浏览器解析器并不要求保留两套后端写入编排。现在一个保存规则要在旧远程实现与新服务分别维护，失败详情还有 `{detail:{detail,current}}` 与 `{detail,current}` 两种形状。以后 t17 接回新方案会再经过一次拆分。
+- **如何核实**：静态对比 `plugin.ts:86–97` 与计划 3 条分派路径，核对 `files-service.ts:37–45` 的内部保存值和 contracts.ts 的 SavedText／FilesResult；这不是建议把 projects 挂成真实磁盘根，也不要求扩大浏览器范围。
+- **建议改法**：将“一个已接纳请求在同一根上执行、授权所有实际路径、tracked、记录来源、转成公共结果”收成一个 Files 内部执行 Module；user 以固定挂载 Adapter 复用这份执行，旧远程合同只做 schema／结果形状 Adapter，projects 以租约 RPC Adapter 实现同一服务端 provider Interface。parseResource 保持双方案兼容，parseAddress 复用同一个语法／pathProblem 核心，只把可接受方案集合留在外层。
+
+### 13. 验收表遗漏新接口的关键失败与寿命组合，现有测试不能自动补齐
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：plan.md“验收映射”第 122–128 行、“验证”第 134 行；`packages/neuro-book/scripts/pack-app.test.ts:40`。
+- **现象**：映射有普通读写、1 个取消、1 个断链与第 65 个挂载，但没有：同一挂载同时首次打开／closing 时新请求、opening 期间撤回、Agent 切 Profile 后旧与新上下文权限、首次 home/profile/temp realPath、无 as 的旧浏览器写入仍可用、浏览器／其它插件伪造项目 as 被拒、旧 user 合同升级，以及 realPath 后真实工具仍在使用时归档。文档只检查生成目录与白名单，未从仓库外实际运行定位后的 docs 地址。
+- **为什么是问题**：这些是本次新增身份与寿命接缝，不是现有 Files／Agent suite 已经测过的行为；只跑“受影响测试全跑”不会凭空产生这些场景。尤其 pack-app 当前只跑 `nbook.js --version`，不会激活 Files/Agent 或定位文档；tarball 中有文件仍能因安装路径计算错误而读不到。第 4、6、7、9 条都有可能在现有映射全绿时漏掉。
+- **如何核实**：逐项将计划第 38–44、51–60、75–90 行承诺映射到第 122–128 行；对照 `pack-app.ts:196–207` 与 `pack-app.test.ts:40–74`，真实包仅核 tar 名单、元数据与版本。缺依赖使本轮无法跑产品宿主；未把单元替身或直接构造 caller 当作证明。
+- **建议改法**：将这些组合补进现有映射，各走真实插件宿主／AgentService.resources 与真实项目子进程；生命周期用注入时钟和受控操作门闩，身份由运行时签发。应用包不必扩大成浏览器 e2e 或完整人工安装，但至少把 tarball 解到仓库外，运行同一安装布局定位代码，通过 Files 读 `docs://builtin/sdk/README.md` 和相对链接；不要仅检查白名单。Windows 明确保留未验证，不用 Linux 测试充当平台证据。
+
+## 补充的实际验证
+
+- 命令：`bun test ./src/services/per-consumer.test.ts`；工作目录 `/tmp/review-t08-design-r2/wt/packages/nb-runtime`。Bun `1.4.4 (38afee6c8)`，退出码 0，`8 pass / 0 fail / 47 expect() calls`，`[60.00ms]`。证明现有按调用方门面的合同基线；不代表新 serverFilesKey 已存在或已验收。
+- 命令如下；工作目录 `/tmp/review-t08-design-r2/wt/packages/neuro-book`。直接执行现有公开解析入口，未加载替身、未修改源码：
+
+```sh
+bun --eval 'import {parseResource, pathProblem} from "./src/plugins/files/shared/resource.ts"; for (const address of ["project://正文/a.md", "user://", "docs://builtin/sdk/README.md", "project://a/../b", "project://a/"]) console.log(JSON.stringify({address, result: parseResource(address)})); console.log(JSON.stringify({mountRelativeDrive: pathProblem("C:x"), globalDriveSegment: pathProblem("s/home/C:x")}));'
+```
+
+  输出：`project://正文/a.md` 与 `user://` 成功；`docs://builtin/sdk/README.md` 为 `unknown-scheme`；含 `..` 和结尾 `/` 的两个 project 地址均为 `invalid-address`；`pathProblem("C:x")` 为“路径以盘符开头”，`pathProblem("s/home/C:x")` 为 `null`。这证明当前双方案解析器与已定保留方向一致；全局地址去掉挂载段后仍须经过根原语的路径校验，不能把此 smoke 当作新 parseAddress 的测试。
+- 命令：`bun run ./lstat-ancestor-smoke.ts`；工作目录 `/tmp/review-t08-design-r2/scratch`。退出码 0；运行目录 `/tmp/review-t08-design-r2/scratch/lstat-ancestor-d3jCSv`。字面路径 `state-a/sessions/session-1` 的末端 `lstat` 同时得到 `isDirectory=true`、`isSymbolicLink=false`、uid 为当前用户；`realpath` 却得到 `state-b/sessions/session-1`。另一分区的 `active.txt` 字节保持不变，`deletedEntries=0`。这为第 9 条补充了实际 OS 路径解析证据，取代其“尚无实验”的时间点说明；没有运行未实现的产品清理器，也没有执行删除。
+- 未运行：类型检查、全量或受影响测试总入口、应用包构建／安装、真实项目子进程合同、e2e、开发服务、真实 Provider/Model、Windows 验证。资源解析合同测试已因缺 `typebox` 失败于加载阶段，没有为重复确认而重跑，也没有安装依赖、借用其它 worktree 的依赖或把失败算作产品缺陷。
+- 本轮没有仓库文件修改、Git 写操作、文件删除或子代理。实验脚本与数据仅在获准 scratch 目录，按“不得删除文件”保留供复核；报告保持追加，没有覆盖早先发现。
+
+## 第一轮处置与第二稿的核对
+
+以下是处置核对，不另计发现，也不把已批准的范围缩小重新报错。
+
+| 第一轮条目 | 本轮判断 |
+|---|---|
+| 1：路径授权 | 回调方向成立，但挂载点身份、列表可见性与隐式清单副作用仍有实际触达路径，见本轮 1、5、8。 |
+| 2：temp 状态根隔离 | 真实状态根哈希和本分区扫描能隔离正常布局；祖先链接会穿透字面分区，见本轮 9。 |
+| 3：浏览器原始字节地址 | 浏览器不接新方案，parseResource 保持 project/user；不重报。 |
+| 4：挂载缓存与借用 | opening/open/closing、唯一打开 Promise、全请求借用、5 分钟回收与 64 软上限已经补上；不重复原来的笼统缺口，归档外部删除与并发验收分别见本轮 7、13。 |
+| 5：编辑器与持久化 | 编辑器本次不打开新方案；不重报。 |
+| 6：订阅与监视 | 新挂载不声明 watch，浏览器不订阅；不重报，既有 user/project 的来源事件兼容性是本轮 3 的独立触达路径。 |
+| 7：多挂载批量操作 | 服务不提供批量、删除与改名，原来的跨挂载操作问题消失；本轮 2 的每次调用 AbortSignal 与批量 cancel 方法不同。 |
+| 8：首次目录创建 | 按需物化与缺失根的目标行为已写入，但现有根原语无法直接完成其授权顺序，见本轮 4。 |
+| 9：Agent 会话与 Profile 身份 | Files 只认服务端 nbook.agent，Agent 从当前 ToolSessionContext 取 session/profile，责任分工成立；本轮没有把它误报为未验证任意业务字符串的跨插件安全漏洞，需补真实入口的切换验收（13）。 |
+| 10：projects 租约与取消 | 每次 acquire/finally release 与取消后复核已经写入，但进程内方法没有信号参数可接，见本轮 2。 |
+| 11：逐跳 RPC 丢路由失败 | 改成进程内服务直接调用项目合同，绕过第二个远程提供方，方向解决原问题；本轮 11 是 projectsKey 自身的登记表失败映射，不是重复逐跳 RPC 问题。 |
+| 12：文档资产 | 共用 SDK 文档生成器、开发／应用包布局与白名单均纳入；实际地址层级仍冲突（6），仓库外布局的执行证据仍缺（13）。 |
+| 13：Markdown 相对引用与附件名 | 相对引用随浏览器范围退出，不重报；targets 与 prompt-token-action 的附件识别都已明确列入迁移。 |
+| 14：跨插件 Backend 与 SDK 公开面 | 声明式贡献由 Files 构造 Backend，注册方不再导入 Files 私有实现；第三方与 SDK 随 plot 是本轮已接受范围，不重报。 |
+| 15：expand/classify 与失败适配 | 先拒绝点段、再展开；单数与全局形式统一分类；内核 resolve 失败保留输入、read 仅 not-found 返回 undefined，均已补入。 |
+| 16：编辑器实际只读能力 | 浏览器不打开新方案，现有文档模型不受本次泛化；不重报。 |
+
+## 未发现问题的方面
+
+以下除明确列出的命令外均为静态核对；不代表第二稿尚未实现的行为已通过运行时验证。
+
+- **授权与已定边界**：nbook.files 作为资源唯一入口、进程内 serverFilesKey、temps 全局名、每调用项目租约、按服务端插件 id 接受代会话请求、200 条会话列表、5 分钟／64 软上限均作为已接受约束，未改题重议。所有会话可读其它会话日志／home、bash 能绕过文件工具策略也是已定边界。
+- **身份原语**：composition.ts:585–593 签发并冻结 ConsumerIdentity，委托同时核对签发门面与寿命，per-consumer 基线 8 个测试通过；Files 可按真实 location/plugin 区分 Agent 与其它调用者。按 ADR 0027，所有插件受信任，同进程检查不构成针对恶意插件的安全隔离，本轮没有要求新增插件权限系统。
+- **委托接线**：本地服务门面没有远程方法的自动调用上下文；remote.on 可以以签发给本入口的身份调用远程合同，不能据此取得另一本地服务的代身份门面。projects 内层使用 Files 自身身份、以受控 as 传业务来源，与现有模型相容。
+- **结果失败联合**：FilesResult 已包含业务失败、RemoteFailureCode 与 RemoteCause；新进程内服务具备保留 unknown-outcome/cause 的类型基础。本轮 10 针对成功值内容，11 针对业务失败映射，没有把泛型信封或路由联合误报为缺失。
+- **项目管理复用**：登记表按 id 优先、短名其次解析；manager 已处理共用创建、宽限期、停止接纳与幂等释放，持租约可阻止正常空闲关闭。无需 Files 再造一套项目状态机；router 对显式 project 目标执行 projectAccess，既有项目合同处理单根相对路径，不会固有地递归回 schemes。
+- **挂载生命周期的常规方向**：唯一 opening Promise、请求借用、仅回收空闲项、closing 完再开、贡献撤回先拒新请求再排空，覆盖了第一轮指出的常规所有权问题；没有把 64 软上限误当成必须拒第 65 项的硬限制。
+- **路径与文件原语**：RootedRoot 已处理词法／真实包含、根身份与项目 .nbook 保护，现有 Files 保留条件保存和操作锁；这些是可复用能力，不能自动承担新增 Agent 子树授权、缺失根物化或外部 temp 删除。pathProblem 的现有拒绝行为已有本轮直接执行证据。
+- **Agent 上下文切换**：内核按当前装配刷新 ToolSessionContext／Resources 并退休旧工具，设计可以沿用；没有证据要求在 Files 再做 Profile 签发或持久化会话权限表。
+- **文档与附件复用**：plugin-sdk/pack.ts 的 README 改写、附表、Spec 与示例复制已有真实产物逻辑；现有 pack.test.ts、pack-app.test.ts 可承接验收。附件改名有两个明确消费者，现有 prompt-token-action 基线 2 个测试通过；不把识别迁移扩大为上传功能或浏览器新方案导航。
+
+## 分派结构、参照能力与验收结论
+
+结构上，声明式挂载把 Backend 构造与寿命留在 Files，已经消除第一轮跨插件私有实现的耦合；user、mounted、projects 三条路径仍需共享来源、授权与公共结果转换的内部接缝（12），不需要新建通用文件系统框架。实施依赖宜先定包含挂载身份／调用信号／成功值的服务合同（1、2、10），再定安全物化与全部实际路径的授权（4、5、8），随后接 projects 和 temp 的失败／寿命（7、9、11），最后统一合同版本、文档布局与验收（3、6、13）。
+
+参照核对使用 [VS Code 官方 vscode.d.ts 的 FileSystemProvider 定义](https://raw.githubusercontent.com/microsoft/vscode/main/src/vscode-dts/vscode.d.ts)，本轮取得的内容含 registerFileSystemProvider 的 Disposable、同方案唯一、isReadonly/isCaseSensitive、逐文件 permissions、stat/readDirectory/watch/onDidChangeFile。可撤销注册、唯一方案、能力可区分这些原则与本次有关；watch、编辑器权限展示、大小写策略以及完整二进制／远程文件系统能力不因此自动成为 t08 新需求。公开文件来自 main，未固定 VS Code 提交，本轮只用它核对接口类别，不作 NeuroBook 行为的权威来源。
+
+验收应走调用者实际使用的 Interface：真实运行时签发的身份 → AgentService.resources → serverFilesKey → 挂载或真实项目子进程。把内部 authorize、root 或 LRU 单独测绿，不能替代身份、返回形状、取消、归档排空、安装布局的端到端合同证据；第 13 条及各发现的建议已给出可执行场景，不要求 e2e、开发服务或真实模型。
+
+## “不做与风险”逐项判断
+
+| 第二稿条目 | 判断 |
+|---|---|
+| 浏览器访问已注册方案随 t17 | 范围成立，parseResource、编辑器、文件树与 Markdown 方案判断保持双方案，不重报第一轮 3、5、6、7、13 相对引用部分、16。 |
+| 第三方插件注册方案与 SDK 公开面随 plot | 属已接受范围；声明式合同须可供本次内置 Agent 消费，不要求为尚无使用者的第三方另开公开入口。 |
+| watch 与订阅 | 本次新挂载可不提供；既有 user/project 的订阅仍会收到新来源，版本兼容需按第 3 条处理。 |
+| history:// 随 t13 | 范围成立，未注册时维持 unknown-scheme，不造占位或回退到其它方案。 |
+| mcp:// 随 t19 | 范围成立，当前注册表无需接入真实 MCP。 |
+| 插件声明文档目录 | 可等首个使用方；不免除内置 SDK/Agent 文档的正确挂载与应用布局验收（6、13）。 |
+| glob | 可由 t12 在 realPath 上实现；本次仍须定虚拟根拒绝、首次实体根物化与工具使用期间寿命（4、7、10）。 |
+| grep | 可由 t12 使用 pi-natives；不要求本次实现文件搜索，bash 绕过文件工具策略是已接受限制。 |
+| 项目实例里的方案注册 | 范围成立，项目合同保持单根相对路径终点；不因 projects 分派再引入项目内注册表。 |
+| 按天自动清理 temps | 不需要新增 TTL；归档／启动清理先保证安全撤销与本分区真实归属（7、9）。 |
+| 项目合同版本加 1、旧窗口刷新 | 升版本方向成立，但只升 project 不覆盖 user 新增 Agent 事件；风险描述须同时覆盖 user 的版本信号（3）。 |
+| projects 每次 acquire/release 的性能 | 属已接受成本，正常租约阻止宽限期关闭可复用；当前优先补真实信号入口和全部失败映射（2、11），无证据要求改成会话长持有。 |
+| 授权回调由注册方实现、测试覆盖 | “回调可能写错”是剩余风险，不能解释接口缺少挂载身份、list 子项及隐式副作用授权；应先补合同再谈覆盖（1、4、5、8、13）。 |
+| Windows temps 未验证 | 如实保留平台验证边界；Linux 的 uid／链接实验不能冒充 Windows 目录、reparse point 或清理证据。 |
+| 应用包只核目录与白名单、不装包实测 | 不要求完整安装或浏览器验收，但只列 tar 名称不足以证明运行时定位，至少应在仓库外解包并运行同一定位／读取入口（6、13）。 |
+
+## 最终统计与处置建议
+
+| 严重程度 | 数量 | 本轮编号 |
+|---|---:|---|
+| 阻断 | 1 | 1 |
+| 重要 | 11 | 2、3、4、5、6、7、8、9、10、11、13 |
+| 建议 | 1 | 12 |
+| 合计 | 13 | 1–13 |
+
+类别计数：不变量 6、正确性 4、安全与性能 1、代码质量 1、测试 1。没有撤回项，第一轮已退出范围的问题不计入本轮。结论：第二稿仍不宜直接按表实施；先补第 1 条无法表达的挂载身份及第 2、10 条公共合同，再把其余重要问题收进同一稿和验收映射。此结论不要求重新选择进程内服务或放开浏览器范围。
+
+## 规范回写建议（仅建议，未修改仓库）
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| 1 | 规范缺陷 | 本轮 1、2、4、5、8、10；外层路径校验不能覆盖挂载身份、信号、物化与隐式写入 | 新增／改写：“服务端资源请求显式携带每次调用的终止信号；授权使用调用方、挂载标识、操作及所有实际访问路径，列表输出也遵循可见集合；虚拟根与实体成功值分别定义。” | 随 t08 修改的 docs/specs/workspace/resources.md 服务合同与授权条目 |
+| 2 | 规范缺陷 | 本轮 7、9；缓存借用与归档删除分属两个拥有方，末端 lstat 不覆盖祖先链接 | 新增：“清理临时挂载点前停止接纳、排空实际使用并失效缓存，再按可信分区与目录身份删除；逐层验证受管祖先目录，未知或无法证明归属的项保留并诊断。” | 计划新增的 docs/specs/agent/resources.md 的 temps 寿命与清理条目 |
+
+缺 typebox 和无语言服务器属于本轮环境限制，现有测试规范已要求区分环境与产品失败，没有新增全局规则建议；回写由实施方更新所属 Spec，不把报告建议视为写入授权。
