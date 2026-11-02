@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t08-resources-home
-status: planned
-updated: 2026-10-28
+status: in-progress
+updated: 2026-11-02
 ---
 
 # 资源地址与 home：会话、Profile、Agent 三层与文档
@@ -119,10 +119,20 @@ t03、t05。
 - 2026-10-30（t14 讨论，开发者定）：bash（t12 的 `shell`）的工作目录改为：会话有主项目时 `project://`，没有时 `session://`。上面“方案”表与“用例子验证”已按这条改写。理由：Agent 的工作大多是改这本书，相对路径直接对着书的文件；bash 是执行档、缺省弹审批（t06），写书仍要用户批准。不用 `user://`：那里是用户的 Profile、Skill 与 `AGENTS.md`，写入要询问。“用例子验证”里的两行已同步改。只读对 Agent 的文件工具生效，bash 能绕过（t12 已接受的第一版限制）。
 - 2026-10-30（t14 审查后，开发者定）：任何会话都能读任何会话的 `sessions://<id>/`（日志与工作区），不做限制。
 
+### 实施前的决定（开发者 2026-11-02）
+
+t12 开工前先做本 Task（开发者 2026-11-02 定）。写计划时定了五条，都按推荐：
+
+1. Agent 的方案都注册进文件服务（`nbook.files`），不由 Agent 插件绕开它直接读写；`resources.md` 里 planned 的方案注册接口在本 Task 做掉，`nbook.files` 可以一起改设计。起因：初稿把“注册接口还没做”当作前提，让 Agent 自己的目录直接读写，开发者质疑后改判。
+2. Agent 写入的来源记为该会话：`nbook.files` 的合同加“代哪个会话写”，只认 `nbook.agent`。
+3. `tmp://` 在会话归档时清理，服务端启动时清掉已不存在或已归档的会话的目录；不在会话空闲卸下时清（t10 的“关闭”是 30 秒空闲卸下，按它清会丢文件）。
+4. `docs://` 先放插件 SDK 的说明与示例和 Agent 插件自己的文档；插件声明文档目录等第一个使用方；`skills://` 只有说明，条目随 t15。
+5. `sessions://` 的根先只按最近使用列出，与本会话有关的排前随 t14。
+
 ## 当前状态
 
-讨论完成（2026-10-28）。计划与实施切片在本 Work 的讨论全部完成后另定。
+计划初稿已写（[plan.md](plan.md)），等开发者看过再交 omp 设计审查。
 
 ## 下一步
 
-实施时按 implementation-planning 写 `plan.md`；同时改 `workspace/resources.md`（去掉 `local://`、新增方案、`user://` 写入规则）与 `ui/prompt-editor.md`（附件地址）。
+开发者确认计划后交 omp 设计审查，处理后按切片实施。
