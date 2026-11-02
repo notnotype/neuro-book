@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>作者视角的世界引擎：静态稿评审板</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df; --ok: #15803d; --ok-soft: #e4f4e8;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; --ok: #86efac; --ok-soft: #173322; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 920px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+.round { margin-top: 40px; font-size: 19px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+section.q, section.s { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.done { background: var(--ok-soft); color: var(--ok); }
+.badge.info { background: var(--accent-soft); color: var(--accent); }
+.opts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+.notice { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--warn-soft); }
+.notice b { color: var(--warn); }
+figure { margin: 12px 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; border-top: 0; }
+pre { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; font-size: 13px; overflow-x: auto; }
+ol.week { padding-left: 22px; }
+ol.week li { margin: 2px 0; }
+.toc { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+.toc a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+<main>
+<h1>作者视角的世界引擎：静态稿评审板</h1>
+<div class="lead">
+<p>w00039 t16。开发者 2026-11-02 要求：在开始存储与 Spec 之前，先用自己给的故事种子做一个具体的静态例子，从作者的视角看最终效果，借此找出现有设计（已接受的提案 <code>docs/proposals/world-engine-kernel.md</code>）的不足。</p>
+<p>每张图的外框都是真实组件：外壳网格、标题栏、活动栏、编辑器标签条、状态栏、右栏的 Agent 对话视图。中间的条目树、条目页、回执、待处理、变更详情、建议、改动记录、剧情表是一次性的草稿，不是产品代码。图是静态的，悬停、弹出、拖动这些交互没有画出来。画布 1440×900，亮色。</p>
+<p>样本：故事种子、“再加一个面板”和第一章大纲都是开发者 2026-11-01 给的原文。第 1 章正文按大纲写；第 2 章“用钱说话”是主会话续写的示意，里面故意留了两处要记账发现的问题：余额 19,800 和估计的蛋糕价钱对不上；“淡金色的长发”和开局设定的“银白长发”不同。</p>
+<p>界面上不出现记录 id、Component、字段路径（提案第 8 节“入口与用词”），所以草稿里把提案的几个词换成了作者的说法：初值 → 开局，讲述 → 讲到的地方，补丁 → 改了什么，生效位置 → 什么时候。</p>
+</div>
+
+<div class="round">第 1 轮 · 待定</div>
+
+<section class="q" data-nbdev-question="r1-expectation" data-nbdev-type="text">
+<h2>整体看下来，符合你的预期吗？ <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>先看下面的十屏和“搭稿时发现的缺口”。哪一屏和你想的不一样、缺了什么、哪里多了，直接写；可以只写屏号加一句话。</p>
+</section>
+
+<section class="q" data-nbdev-question="r1-detail-place" data-nbdev-type="single" data-nbdev-recommend="panel">
+<h2>待处理、建议点开以后的详情放在哪 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>待处理（第 4 屏）和建议（第 8 屏）的详情要 400px 左右才看得全，底部面板默认只有 200px。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="panel"><h3>留在底部面板，作者自己拉高</h3>
+<p>第 4、8 屏现在的画法。上面的章节滚到原句，下面是要拍板的事，两样同时看得到；面板的高度照常由作者拖，系统不替作者改尺寸。</p></div>
+<div class="opt" data-nbdev-option="editor"><h3>详情进编辑器区的标签页</h3>
+<p>底部面板只放列表，点一项在编辑器区打开一个“待处理”标签页，和变更详情一样。地方够大，但正文原句就要靠拆分并排才能同时看。</p></div>
+</div>
+<div class="rec-note"><b>推荐留在底部面板。</b>处理待处理时最要紧的是对照正文原句；放进编辑器区会把正文挤走。面板高度沿用外壳已有的记忆尺寸，拉高一次以后一直是这个高度。</div>
+</section>
+
+<div class="round">搭稿时发现的缺口</div>
+<section class="s">
+<h2>提案没写到、或者照着画出来别扭的地方 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>这些是搭稿时遇到的，草稿里先按“草稿里怎么画的”一列处理。哪些要改提案、哪些留给后续 Task，我在会话里逐条问你。</p>
+<table>
+<thead><tr><th>#</th><th>缺口</th><th>草稿里怎么画的</th><th>建议归到</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><b>种子开局时，数是“未知”。</b>种子只说“钱不多，但够用”。提案只给“已有成稿”定了“第一次在正文里出现的数当初值，标估计”，没说从种子开局时怎么办，也没说“未知”在条目页、给 Agent 的文字、核对点里怎么显示。</td><td>开局时面板的数空着，列进未决问题；第 1 章记账遇到“账户余额 41,800”，按正文定为开局数，标估计（第 1、6 屏）</td><td>t27 内核 Spec</td></tr>
+<tr><td>2</td><td><b>正文可能回答了未决问题。</b>第 2 章星瑾说“你走的那几年，一个电话都没有”，正好像“兄妹为什么关系不好”的答案。提案只说 Agent 不替作者补全，没说记账碰到可能的答案怎么办；而“角色说的不算世界的变化”。</td><td>回执里加一节“可能回答了一个未决问题”：当成答案、只算星瑾的一个说法、先放着（第 3 屏）</td><td>t19 写作流程</td></tr>
+<tr><td>3</td><td><b>就地改紧挨着核对点时，“改设定”的三种改法都和正文冲突。</b>第 2 章末尾刚对上“余额 19,800”，这时把存款改成 29,800，改开局数、改哪一笔，都会让正文的余额对不上，只有“补一笔”不冲突。而在第 2 章末尾，“补一笔漏记”和“这是剧情里发生的变化”是同一件事，两个入口重叠。</td><td>四种改法照提案列出，每种写明后果；勾选框照留（第 7 屏）</td><td>t16 作者界面；规则进 t27</td></tr>
+<tr><td>4</td><td><b>未决问题挂在哪。</b>提案写“挂在章或剧情线上”。种子里的未决问题挂在前史（双王）、剧情线（兄妹心结）、组织（部门名）、身份（代号）、面板字段（数）上。</td><td>挂在各自的对象上，开局审阅里列在最前，侧栏有一个入口（第 1、2 屏）</td><td>t27</td></tr>
+<tr><td>5</td><td><b>细纲里讲到的过去的事。</b>“被软禁，靠彗的魔偶逃脱”第一次出现在第 1 章大纲里。它不是计划，是已经发生的前史。提案只说 Agent 从细纲提出计划。</td><td>记成前史，出处写“第 1 章细纲”（第 10 屏“官方的腐败”一行）</td><td>t19；记法进 t27</td></tr>
+<tr><td>6</td><td><b>Agent 自己加的结构算不算替作者补全。</b>你只说“再加一个面板”，面板的四个字段是 Agent 按面板文的常见写法建的。</td><td>字段建了，数空着，并把“面板的数”列成未决问题（第 1 屏）</td><td>t19</td></tr>
+<tr><td>7</td><td><b>“现在的样子”与马甲条目重叠。</b>星瑕有一个“现在的样子”字段（原身、哥哥、魔法少女），又有“哥哥”“魔法少女”两个马甲条目。原身不是马甲；魔法少女变身后的外观放在马甲上还是本体上，提案没说。</td><td>样子是本体的字段，马甲只管社会身份；魔法少女的外观写在马甲的文字里，所以改设定时它被列为“请你判断”（第 8 屏）</td><td>t10 字段清单</td></tr>
+<tr><td>8</td><td><b>工具名撞名。</b>提案的 <code>read</code>、<code>write</code> 和 harness 自带的读写文件工具同名。</td><td>对话里写成 <code>world_lookup</code>、<code>world_read</code>、<code>world_write</code>（第 1、2 屏右栏）</td><td>t20</td></tr>
+<tr><td>9</td><td><b>详情放不进默认高度的底部面板。</b></td><td>见上面的待定题</td><td>t16</td></tr>
+</tbody>
+</table>
+</section>
+
+<div class="round">十屏：星瑕的第一周</div>
+<section class="s">
+<h2>故事线 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<ol class="week">
+<li>你把故事种子发给 Agent，看开局审阅。</li>
+<li>写第 1 章、记账，然后打开星瑕看看。</li>
+<li>写第 2 章“用钱说话”，记账，回执里有两处要你拍板。</li>
+<li>处理“存款对不上”：发现是蛋糕的价钱估错了。</li>
+<li>在变更详情里把蛋糕改成 −2,000。</li>
+<li>看星瑕的面板和存款的流水。</li>
+<li>（假设）你直接把存款改成 29,800，看确认条。</li>
+<li>处理“头发与设定不同”：你选按正文改设定，看正文修改建议。</li>
+<li>打开改动记录，想撤销第 2 章的记账。</li>
+<li>看剧情表。</li>
+</ol>
+<div class="toc"><a href="#s01">1 开局审阅</a><a href="#s02">2 条目页</a><a href="#s03">3 记账回执</a><a href="#s04">4 待处理</a><a href="#s05">5 变更详情</a><a href="#s06">6 面板</a><a href="#s07">7 就地改</a><a href="#s08">8 改设定以后</a><a href="#s09">9 改动记录</a><a href="#s10">10 剧情表</a></div>
+</section>
+
+<section class="s" id="s01">
+<h2>1 开局审阅：交了故事种子以后</h2>
+<figure><img src="r1/s01-opening.webp" alt="开局审阅"><figcaption>编辑器区是开局审阅，右栏是交种子的那段对话，侧栏是建出来的条目树</figcaption></figure>
+<p>你把种子（加“再加一个面板”）发给 Agent。开局的时间点种子里写清楚了，没有挡住开局的问题，Agent 直接建了 18 个条目、10 条前史，已经生效。它的两次写入（先预览、再发布）收在对话的“过程”里。</p>
+<p>开局审阅是“看过”，不是“批准”：你还没定的 7 件事排最前，每件附上种子原文，可以写下答案或先放着；后面是前史时间线和按类型列的条目。“看过 0 / 18”只是进度，不看也不影响写。</p>
+</section>
+
+<section class="s" id="s02">
+<h2>2 条目页：星瑕，第 1 章末尾</h2>
+<figure><img src="r1/s02-entry.webp" alt="条目页"><figcaption>文字 Tab，点开了魔力的来历；右栏是你问“还剩多少魔力”</figcaption></figure>
+<p>顶上：名字、类型、“也是：哥哥、魔法少女（代号未定）”，右边是看的位置（默认跟着你正在写的章）和锁。下面是主 MDX 渲染出来的文字，值直接嵌在句子里：虚线下划线表示这是一个可以改的值，悬停显示中文字段名；“第 1 章改过”“含估计”是淡色小字。点了魔力，来历展开：开局 3,200（你在开局审阅里填的），第 1 章 −90（估计，正文只写了“魔力又少了一点”）。</p>
+<p>人物、面板、情节在各自的 Tab 里，不和文字挤在一起。右栏 Agent 读到的是带值写法：</p>
+<pre>现在的样子：{character.形态 = "原身"}（显示名：现在的样子）
+魔力 {panel.魔力 = 3110}/{panel.魔力上限 = 12000}，存款 {panel.存款 = 41800}
+今天还能回溯 {panel.回溯次数 = 1} 次（显示名：今天还能回溯）
+{panel.魔力 >= 1000 ? "还能变身。" : "魔力不够变身。" -> "还能变身。"}</pre>
+</section>
+
+<section class="s" id="s03">
+<h2>3 第 2 章的记账回执</h2>
+<figure><img src="r1/s03-receipt.webp" alt="记账回执"><figcaption>记账后弹出，以后可以从改动记录重开</figcaption></figure>
+<p>从上往下：要你拍板的两项；一处“可能回答了未决问题”（缺口 2）；计划已兑现，细纲写“一万零花钱”、正文写“两万”，按正文记，没写到的“星瑾把卡推回来”拆成第 3 章开头的新计划；记下的四条变更，蛋糕的 −300 是估的；最后是没有建条目的（街角的蛋糕店没有名字）。除了要你拍板的，都已经生效；整次记账可以一键撤销。</p>
+</section>
+
+<section class="s" id="s04">
+<h2>4 待处理：存款对不上</h2>
+<figure><img src="r1/s04-pending.webp" alt="待处理"><figcaption>上面的章节滚到了原句；下面是待处理的列表与详情</figcaption></figure>
+<p>正文写余额 19,800，算出来 21,500。从上一个对得上的数（第 1 章“账户余额 41,800”）到这里只有两笔，估计的蛋糕排在前面。处理办法照提案不预选。</p>
+<div class="notice"><b>我自己看着别扭的一处：</b>每一笔已经有“打开”，下面的“改或撤前面的某一笔”又说了一遍。可以把三种办法拆开：每行直接“改这一笔”，下面只留“插一笔漏记”和“正文写错了”。这条不单独问，你在第一题里一起说就行。</div>
+</section>
+
+<section class="s" id="s05">
+<h2>5 变更详情：订草莓蛋糕</h2>
+<figure><img src="r1/s05-change.webp" alt="变更详情"><figcaption>从待处理点进来，改了数、还没保存；标签是斜体的预览标签，点别的变更会被替换</figcaption></figure>
+<p>一条剧情变更的全部内容都在这里改：发生了什么、什么时候、讲到的地方、涉及、剧情线、改了什么、连到哪个计划、谁记的。把 −300 改成 −2,000，“数从哪来”从“估计”换成“由核对点推出”，系统写出算式；保存前的预览说待处理会消失、后面没有别的记录受影响。</p>
+</section>
+
+<section class="s" id="s06">
+<h2>6 面板：存款的流水</h2>
+<figure><img src="r1/s06-panel.webp" alt="面板"><figcaption>第 2 章末尾，蛋糕处理过以后</figcaption></figure>
+<p>左边是面板的当前值，右边是选中的存款的流水：开局数按第 1 章正文定（估计，缺口 1），两次核对都对得上。每一行都能打开那条变更；“记一笔”落在当前位置（第 2 章末尾）。</p>
+</section>
+
+<section class="s" id="s07">
+<h2>7 就地改存款：确认条</h2>
+<figure><img src="r1/s07-inplace.webp" alt="就地改"><figcaption>你直接把 19,800 改成 29,800，保存前弹出</figcaption></figure>
+<p>存款是几笔累出来的，所以要你选改哪一处，不预选。每种改法写明后果：前三种都会让刚对上的“余额 19,800”对不上（缺口 3）。“这是剧情里发生的变化”的勾选框在这里和第四种改法是同一件事。</p>
+</section>
+
+<section class="s" id="s08">
+<h2>8 改设定以后：正文修改建议</h2>
+<figure><img src="r1/s08-suggestions.webp" alt="建议"><figcaption>上面是第 1 章，旧写法下面画了波浪线和建议；下面是建议列表</figcaption></figure>
+<p>处理“头发与设定不同”时，你选按正文改设定：原身外观的“银白”改成“淡金色”，写回开局设定。系统去找旧写法：第 1 章两处写的是原身，建议改；魔法少女身份的文字里有一处，变身后的样子可以和原身不同，请你判断（缺口 7）；第 3 章细纲里那处写的是母亲，不改。只给建议，不自动改正文；一组可以一起采用，也可以“都不改，以后不再提”。</p>
+</section>
+
+<section class="s" id="s09">
+<h2>9 改动记录：撤销第 2 章的记账</h2>
+<figure><img src="r1/s09-revisions.webp" alt="改动记录"><figcaption>底部面板的第三个视图，展开了第 2 章的记账</figcaption></figure>
+<p>所有修订按时间排，新的在上；每条写谁、什么时候、改了什么，可以还原。你想撤销第 2 章的记账，但后面你把蛋糕改成 −2,000 依赖它：第一版不单独撤，要么连同那条一起还原（从后往前），要么不撤。正文本身的修改历史不在这里，在文件历史里。</p>
+</section>
+
+<section class="s" id="s10">
+<h2>10 剧情表</h2>
+<figure><img src="r1/s10-plot.webp" alt="剧情表"><figcaption>已写加计划</figcaption></figure>
+<p>剧情线乘章。实底是已写的事，虚线框是计划，问号是挂着未决问题的。第 3 章的“星瑾把卡推回来”是第 2 章拆出来的；“官方的腐败”的前史里有一条出处是第 1 章细纲（缺口 5）。</p>
+</section>
+
+<div class="round">现状与参照</div>
+<section class="s">
+<p>新应用里还没有任何设定界面，外框之外都是新画的。旧应用的设定是文件夹加详情面板（<code>packages/neuro-book-legacy/app/components/novel-ide/workspace/WorkspaceLorebookDetailPanel.vue</code>），剧情工作台见归档文档站的截图（<code>docs/archived/vitepress/public/images/剧情工作台.jpg</code>）；两者的模型都已被提案取代，这一轮没有沿用它们的版式。</p>
+</section>
+</main>
+</body>
+</html>
