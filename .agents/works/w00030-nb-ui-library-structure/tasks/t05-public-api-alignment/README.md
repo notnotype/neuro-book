@@ -25,8 +25,10 @@ updated: 2026-11-02
 - S4 `c9df1ecde`：`SuggestionMenu` 的传送目标缺省读宿主目标；`./grid` 不并入 `./layout`（它是无 Vue、无 DOM 的入口，理由写回 plan.md 第 6 节）；SDK `/components` 补上原来漏掉的 8 个类型并加一条“类型白名单与 nb-ui 组件入口逐个对上”的测试；迁移说明收尾，nb-ui 与 SDK 的 README 链接它。
 - 合入 master `53370901f`：没有冲突，合并后九个模板检查入口零报错，master 新进来的代码没有用到旧写法。
 - S5 `7bffb3a8d`：实现审查（Sonnet，前端，整个 Task）11 条：重要 4、建议 7，全部成立；Input 带装饰时读屏名落在外层（原有问题）、FloatingWindow 关闭路径无测试、规范与 README 过时、验收表三项没落地是重要的四条；F8、F10 记为已知限制。处理见 [`evidences/impl-review.txt`](evidences/impl-review.txt)。合并 master 后的整套 e2e 暴露 S4 的 `SuggestionMenu` 传送目标改动在 Lab 里越出舞台、被顶栏盖住，撤回，L07 第 4 点整项不做。验证：九个模板检查入口零报错；nb-ui e2e 66 条通过；应用整套 e2e 296 条通过、3 条失败，都不是本 Task 引起的：`plugins.e2e.ts`（分支起点上同样失败）、`lab-agent-ui.e2e.ts` 的附件那条（被合并的 master 提交上同样失败）、`app-package.e2e.ts`（`bun add -g` 从 npm 装依赖超时，换出口后通过）。
-- S5 进行中：omp 审 SDK 白名单、迁移说明与发版清单；Lab 改前改后截图对照。
-- 待开发者定：插件 SDK 里会有两个同名的 `NotificationTone`，工作台服务的（`error`）与 nb-ui 组件的（`danger`），取值不同。工作台服务是否也改 `danger` 属于应用合同（`docs/specs/workbench/notifications.md`），不在本 Task 范围。
+- omp 审对外部分（SDK 白名单、迁移说明、发版清单）3 条：2 条成立已改（`740d568a9`：SDK 的 `components.d.ts` 带上 nb-ui 的模板类型补充、迁移说明补 `FloatingWindow` 的 `closed`），1 条不成立（旧关闭原因类型名的保留是 S3 的决定，计划第 7 节已同步）。处理见 [`evidences/impl-review-omp.txt`](evidences/impl-review-omp.txt)。
+- Lab 改前改后截图对照（master 与分支各一个开发服务，24 个组件、明暗两套配色）：178 对逐像素相同；有差异的 11 对逐张看过，都是动画帧（Dialog 的 busy、Notification 的不确定进度）、Lab 舞台尺寸抖动、渲染抖动（最大差 2 到 6）或按设计的变化（SuggestionMenu 分组标题行高取整）；`FloatingWindow` 三个场景与拆分前 `Dialog` 的窗口场景比，外框、圆角、标题栏与按钮一致，只有夹具的正文文字不同。没有外观回归。
+- 第二次合入 master `578a3177e`（这段时间 master 只进了文档）。
+- 原列为待开发者定的“SDK 里两个同名 `NotificationTone`”已关闭：工作台服务的那个不经插件 SDK 导出（omp 审查核实），插件作者看不到两个。
 - 动态绑定清单（类型检查管不到，每片改名时逐处核对）：Lab 的 nb-ui 场景 `subject.bindings`（登记表的键受类型检查）；`MenuNodes.vue` 的 `common(item)`；`Tabs.vue` 的 `item.attrs`；`CollapsibleCard.vue`、`CollapsibleRow.vue` 传给 `Spinner` 的对象；`DropdownMenu.vue` 的 `contentProps`（S1 处理）；nb-form `NodeField.vue` 的 `controlProps`（传给 nb-form 自己的控件）。
 - master 上原有的失败（不是本 Task 引起的）：nb-story `src/server/qa-service.ts(548)` 的 TS2352；应用 `e2e/plugins.e2e.ts` 的“安装 → 重启后配置项出现……”（设置窗口里多出“其它”分区）与 `e2e/lab-agent-ui.e2e.ts` 的附件那条；nb-ui `e2e/popup-lists.spec.ts` 5 条行高断言仍按 28px（t04 已把菜单行改为 30px），`e2e/suggestion-menu.spec.ts` 1 条 `toBeInViewport`（这两类 S2 已修）。
 
@@ -34,4 +36,4 @@ updated: 2026-11-02
 
 ## 下一步
 
-S5：收尾验证、实现审查与截图对照，处理后合入 master。
+合入 master；发版时按 `migration-0.4.md` 末尾与计划第 7 节的清单一起改版本。

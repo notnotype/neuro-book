@@ -1,0 +1,61 @@
+# w00030 t05 实现审查：对外部分（2026-11-02）
+
+审查对象：提交 7bffb3a8d（SDK 白名单、迁移说明与发版清单）。omp 默认模型只读审查，固定在被审提交的 detached worktree。3 条，都标重要。报告原文附在后面。
+
+## 处理
+
+- 1 迁移说明漏写 FloatingWindow 的 closed：成立，补上。
+- 2 SDK 生成的 components.d.ts 丢失 vue 的 ARIA 模块增强：成立。打平声明时 nb-ui 入口的 import type {} 被丢掉；pack.ts 把增强插回导出列表之前，pack.test 断言它在。影响面：只有打开了模板严格检查的插件作者会被误报。
+- 3 SDK 仍公开三个旧的关闭原因类型名，与计划第 7 节冲突：不成立。保留它们是 S3 实施时的决定（计划第 5 节已写明，是 OverlayCloseReason 的子集，宿主的处理函数要精确的类型），第 7 节没有同步；已把第 7 节改成一致。补上哪条依据能避免误判：审查说明里写明“计划里标了实施时改的条目以那条为准”。
+
+审查者另外确认：工作台通知服务的 NotificationTone（含 error）不经插件 SDK 导出，插件作者不会在同一公开模块里遇到两个同名类型，迁移说明不用为此加条目。这一点原来列为待开发者定，就此关闭。
+
+---
+
+## 附：omp 报告原文
+
+# w00030 t05 实现审查
+
+### 1. 迁移表漏写 FloatingWindow 的 `closed` 事件
+
+- **严重程度**：重要；**类别**：文档
+- **位置**：`packages/nb-ui/docs/migration-0.4.md:58-59`；对照 `packages/nb-ui/src/components/feedback/FloatingWindow.vue:83-90`、`packages/nb-ui/src/components/feedback/FloatingWindow.md:11,78-86`
+- **现象**：迁移表把新增 `closed` 只列给 `Dialog`、`Drawer`、`ContextMenu`，把 `<Dialog :modal="false">` 迁到 `<FloatingWindow>` 的一行只列属性和尺寸事件，没有列 `FloatingWindow` 同样新增的 `closed` 生命周期事件。当前实现确实声明并发出 `closed`。
+- **为什么是问题**：从 0.3 的非模态 `Dialog` 迁移到 `FloatingWindow` 的插件作者看不到需要迁移或接入的关闭完成通知；依赖关闭完成后再打开下一交互层、释放焦点或清理内容的代码会漏掉这个新合同，且 SDK 类型会允许监听但迁移文档没有告知。
+- **如何核实**：`git diff f9fcb4a4f 7bffb3a8d -- packages/nb-ui/src/components` 显示旧 `Dialog` 的 `modal=false` 实现拆出新 `FloatingWindow`；读取当前 `FloatingWindow.vue` 第 83-90 行可见 `(e: "closed"): void`，第 128-139 行把它交给关闭处理；读取迁移说明第 58-59 行可见表格没有 `FloatingWindow` 的 `closed`。
+- **建议改法**：在浮层迁移表中单独写明 `FloatingWindow` 的 `closed`（以及它在关闭完成、内容卸载与焦点清理后触发），并把从旧非模态 `Dialog` 迁移时的关闭完成监听列为迁移动作。
+
+### 2. SDK 生成的 `components.d.ts` 丢失 Vue 的 ARIA 模块增强
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-ui/src/components/index.ts:1-2`、`packages/nb-ui/src/components/aria-attributes.ts:10-21`、`packages/neuro-book/plugin-sdk/pack.ts:383-391`
+- **现象**：nb-ui 入口用 `import type {} from "./aria-attributes"` 把 `vue` 的 `AllowedComponentProps` 和 `AriaAttributes` 增强带进源码类型环境；但实际运行 `bun --cwd packages/neuro-book run build:sdk` 生成的 `components.d.ts` 中没有 `declare module "vue"`、`AllowedComponentProps`、`aria-description` 或 `role` 的增强，只保留了各组件自身显式交叉的 HTML 属性。因而 `AlertDialog` 等未显式交叉 HTML 属性的组件，在插件作者环境里不能传 ARIA 属性。
+- **为什么是问题**：SDK 的组件类型与 nb-ui 组件入口不再等价；插件作者为 `AlertDialog`、`ContextMenu`、`QuickPick` 等补充可访问名称时会被类型检查拒绝，虽然宿主运行时会透传这些属性。`sdk.test.ts` 只比较导出名称，不能发现模块增强在声明打包时被丢掉。
+- **如何核实**：构建命令成功；对生成的 `/tmp/neuro-book/agent/neuro-book-sdk-uWMVW9/sdk/components.d.ts` 检查 `declare module "vue"|AllowedComponentProps|aria-description` 无命中，且第 635-643 行的 `AlertDialog` props 没有 HTML/ARIA 交叉。报告目录 `experiment/consumer.ts` 以 `InstanceType<typeof AlertDialog>["$props"]` 传 `"aria-label"`，运行 `./node_modules/.bin/vue-tsc --noEmit -p experiment/tsconfig.json`，得到 `consumer.ts(5,5): error TS2353`，明确报 `"aria-label" does not exist`。
+- **建议改法**：让 dts 打包把 `aria-attributes.ts` 的 `declare module "vue"` 保留到 `components.d.ts`，或在 SDK 生成产物中加入等价的公开声明；给 `pack.test.ts` 增加真实消费者声明检查，至少覆盖 `AlertDialog` 的 `aria-label`、`role` 与 `aria-description`，避免只检查名称。
+
+### 3. SDK 仍公开计划要求删除的三个旧关闭原因类型
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/neuro-book/src/sdk/components.ts:26-31`、对照 `packages/nb-ui/src/components/index.ts:82-90` 与计划 `plan.md:134`；迁移说明 `packages/nb-ui/docs/migration-0.4.md:62` 也与计划冲突
+- **现象**：计划第 7 节明确要求 SDK 类型白名单删掉 `DialogCloseReason`、`ContextMenuCloseReason`、`QuickPickCloseReason`，统一使用新增的 `OverlayCloseReason`；当前 SDK 白名单仍逐个导出这三个名字，nb-ui 组件入口也仍导出它们。迁移说明反而写成“三个旧类型保留，是 `OverlayCloseReason` 的子集”。
+- **为什么是问题**：当前实现把计划要求的 SDK 对外面改成了另一份合同；插件作者仍能依赖三个旧名字，后续按计划清理时会再产生一次公开破坏。`sdk.test.ts` 的类型白名单断言不会发现它，因为测试把当前 nb-ui 入口当作唯一真相，无法检查入口本身是否已经违背计划。它们是 `Extract` 得到的独立子类型而非别名，但名字仍然是计划要求移除的旧公开类型。
+- **如何核实**：读取计划第 134 行可见删除清单；读取当前 `components.ts` 第 26、27、31 行与当前 `components/index.ts` 第 82-84、90 行可见三者仍在 SDK 与 nb-ui 入口；运行 `bun test packages/neuro-book/src/sdk/sdk.test.ts packages/neuro-book/plugin-sdk/pack.test.ts` 的 16 个断言全部通过，只能证明两份当前清单相同，不能证明清单符合计划。
+- **建议改法**：按已确认的“不留旧名”合同，从 nb-ui 入口与 SDK 白名单同时移除三个组件专用类型，组件事件内部直接使用 `OverlayCloseReason` 的子集表达；同步把迁移说明改为“改用 `OverlayCloseReason`”。若产品决定保留这三个独立子类型，则必须反向修订计划第 7 节与“不留旧名”的合同，并明确这是有意保留而非遗漏。
+
+## 未发现问题的方面
+
+- 组件入口的值导出与 SDK 值白名单：`FloatingWindow` 已列入，当前值导出对照测试通过；生成的 `docs/components.md` 已列出 `FloatingWindow`。
+- 除第 3 条合同冲突外，SDK 类型名对照：`sdk.test.ts` 与 `plugin-sdk/pack.test.ts` 共 16 个测试用例通过；`FieldContext`、`Splitter` 手势类型、`NestedGrid` 手势类型与共享词表类型均进入生成声明。
+- 依赖包的公开类型引用：`nb-form`、`nb-agent-ui`、`nb-markdown` 类型检查均通过；没有发现它们的公开导出仍引用已改名的 nb-ui 类型。`nb-story` 未重复运行，Task 记录已注明其基线已有失败。
+- 发版清单：四个内置主题、`NB_UI_VERSION`、四个依赖 nb-ui 的已发布包、应用与 SDK 的必做项均有列出；`bun run release:check` 通过，发布顺序包含 `@notnotype/nb-ui`、`@notnotype/nb-form`、`@notnotype/nb-markdown`、`@notnotype/nb-agent-ui`、`@notnotype/nb-story`。
+- 工作台通知服务的双 `NotificationTone`：工作台合同的 `NotificationTone`（含 `error`）不经插件 SDK `/workbench` 导出；`components` 入口只公开 nb-ui 的 `NotificationTone`，应用边界的 `error` 到 `danger` 映射在 `notifications.ts` 完成。按当前 SDK 对外面，插件作者不会在同一公开模块中遇到这两个同名类型，迁移说明无需为此增加条目。
+- 文档链接与仓库文档规则：`bun run docs:check` 通过，失败数为 0。
+
+## 数量
+
+- 阻断：0
+- 重要：3
+- 建议：0
+
+有效发现：1、2、3。
