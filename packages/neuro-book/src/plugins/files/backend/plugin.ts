@@ -33,10 +33,12 @@ import {createOperations} from "./operations";
 import type {Operations} from "./operations";
 import {createPreviewTokens, createRawRoutes, PREVIEW_PREFIX} from "./raw-route";
 import {SCHEMES_POINT, schemesPoint, serverFilesKey} from "../shared/schemes";
+import {workspaceFilesKey} from "../shared/workspace-files";
 import {saveText, tracked} from "./execute";
-import {createProjectsScheme} from "./projects-scheme";
+import {createProjectsAccess, createProjectsScheme} from "./projects-scheme";
 import {SchemeRegistry} from "./registry";
 import {provideServerFiles} from "./server-files";
+import {provideWorkspaceFiles} from "./workspace-files";
 import {openRoot} from "./rooted";
 import {createStagingCommitter, ensureStagingDirectory, sweepStaging} from "./staging";
 import type {StagingCommit} from "./staging";
@@ -78,6 +80,7 @@ interface Backend {
     readonly scope: Scope;
     /** 暂存目录建不起来时为 null，提交得 `io-failed`。 */
     readonly commit: StagingCommit | null;
+    readonly stagingDirectory: string | null;
 }
 
 /** 两份合同的方法与事件相同，实现也相同；`consumer` 是内核填写的调用方身份，写入来源由它确定。 */
@@ -173,8 +176,9 @@ async function openBackend(context: ActivationContext, scheme: "user" | "project
     } else {
         record("warn", "files.staging.unavailable", "暂存目录不可用，写入接口的提交会失败", {detail: staging.detail});
     }
-    const backend: Backend = {root, service, operations, batch, changes, scope: context.scope, commit};
-    return {root, record, backend};
+    const backend: Backend = {root, service, operations, batch, changes, scope: context.scope, commit, stagingDirectory: staging.ok ? staging.path : null};
+    const reportStage = (event: string, error: unknown): void => record("warn", `files.${event}`, "写入接口的收尾出错", {}, error);
+    return {root, record, backend, reportStage};
 }
 
 /**
@@ -188,15 +192,15 @@ const serverEntry = defineEntry({
     // 项目登记只有服务端宿主提供；只装了文件服务的实例（测试场地）里没有它，项目的字节地址随之不可用。
     dependencies: [{key: diagnosticsKey}, {key: clockKey}, {key: stateRootKey}, {key: projectsKey, required: false}],
     contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],
-    provides: [serverFilesKey],
+    provides: [serverFilesKey, workspaceFilesKey],
     remoteProvides: [userFilesContract, filesPreviewContract],
     receives: [SCHEMES_POINT],
     activate: async (context) => {
         const state = context.services.require(stateRootKey).path;
         const path = join(state, "user");
         await mkdir(path, {recursive: true});
-        const {root, record, backend} = await openBackend(context, "user", {path, options: {controlDirectory: false, lockDirectory: join(state, "locks", "user-files")}, staging: {base: state, segments: ["staging"]}});
-        const schemes = new SchemeRegistry({scope: context.scope, clock: context.services.require(clockKey), lockRoot: join(state, "locks", "schemes"), record});
+        const {root, record, backend, reportStage} = await openBackend(context, "user", {path, options: {controlDirectory: false, lockDirectory: join(state, "locks", "user-files")}, staging: {base: state, segments: ["staging"]}});
+        const schemes = new SchemeRegistry({scope: context.scope, clock: context.services.require(clockKey), lockRoot: join(state, "locks", "schemes"), staging: backend.stagingDirectory, record});
         context.onStop(() => schemes.stop());
         const projects = await context.services.resolve(projectsKey);
         const registry = projects.status === "resolved" ? projects.instance : null;
@@ -234,7 +238,10 @@ const serverEntry = defineEntry({
             for (const token of state.tokens) tokens.revoke(token);
         }});
         return {
-            services: [provideServerFiles({user: backend, registry: schemes, projects: registry === null ? null : createProjectsScheme(registry, context.remote), signal: context.signal, sourceOf})],
+            services: [
+                provideServerFiles({user: backend, registry: schemes, projects: registry === null ? null : createProjectsScheme(registry, context.remote), signal: context.signal, sourceOf}),
+                provideWorkspaceFiles({own: {scheme: "user", root: backend}, registry: schemes, projects: registry === null ? null : createProjectsAccess(registry, context.remote), signal: context.signal, sourceOf, report: reportStage}),
+            ],
             remote: [provideRemote(userFilesContract, (consumer) => implementation(backend, consumer)), preview],
             contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: routes}},
             receivers: {[SCHEMES_POINT]: schemes.receiver},
@@ -248,11 +255,15 @@ const projectEntry = defineEntry({
     location: "project",
     activationEvents: ["onStartup"],
     dependencies: [{key: diagnosticsKey}, {key: clockKey}, {key: currentProjectKey}],
+    provides: [workspaceFilesKey],
     remoteProvides: [projectFilesContract],
     activate: async (context) => {
         const path = context.services.require(currentProjectKey).root;
-        const {backend} = await openBackend(context, "project", {path, options: {controlDirectory: true, lockDirectory: join(path, ".nbook", "locks", "files")}, staging: {segments: [".nbook", "staging"]}});
-        return {remote: [provideRemote(projectFilesContract, (consumer) => implementation(backend, consumer))]};
+        const {backend, reportStage} = await openBackend(context, "project", {path, options: {controlDirectory: true, lockDirectory: join(path, ".nbook", "locks", "files")}, staging: {segments: [".nbook", "staging"]}});
+        return {
+            services: [provideWorkspaceFiles({own: {scheme: "project", root: backend}, registry: null, projects: null, signal: context.signal, sourceOf, report: reportStage})],
+            remote: [provideRemote(projectFilesContract, (consumer) => implementation(backend, consumer))],
+        };
     },
 });
 

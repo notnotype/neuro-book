@@ -8,7 +8,7 @@
 
 import type {ActivationContext} from "@notnotype/nb-runtime/plugins";
 
-import type {ProjectsService} from "nbook/shared/projects";
+import type {ProjectRecord, ProjectsService} from "nbook/shared/projects";
 
 import type {Baseline, FileText, Listing, OperationDone, SavedText} from "../shared/contracts";
 import {projectFilesContract} from "../shared/contracts";
@@ -40,61 +40,92 @@ function flatten<T>(result: RemoteOutcome<T>): ServerFilesResult<T> {
     };
 }
 
-export function createProjectsScheme(projects: ProjectsService, remote: ActivationContext["remote"]): ProjectsScheme {
-    const virtual = async (): Promise<ServerFilesResult<VirtualListing>> => {
-        const listed = await projects.list();
-        if (!listed.ok) return fail("project-unavailable", `项目登记表不可用：${listed.detail}`);
-        const entries = await Promise.all(listed.value.map(async (project) => {
-            const metadata = await projects.readMetadata(project.id);
-            const title = metadata.ok ? (metadata.metadata.title ?? undefined) : undefined;
-            return {name: project.name, address: `projects://${project.name}`, ...(title === undefined ? {} : {title}), meta: {id: project.id, state: project.state}};
-        }));
-        return {ok: true, value: {kind: "virtual", description: DESCRIPTION, entries}};
-    };
+/** 项目合同在 `{project}` 目标上的客户端。 */
+export type ProjectFilesClient = ReturnType<typeof projectClient>;
 
-    /** 解析引用、取得租约、调用、释放。`signal` 在取得租约之后已触发的，立即释放、不发出调用。 */
-    const withProject = async <T>(path: string, request: FilesRequest, call: (id: string, inner: string) => Promise<RemoteOutcome<T>>): Promise<ServerFilesResult<T>> => {
-        const slash = path.indexOf("/");
-        const reference = slash < 0 ? path : path.slice(0, slash);
-        const inner = slash < 0 ? "" : path.slice(slash + 1);
+function projectClient(remote: ActivationContext["remote"], project: string) {
+    return remote.use(projectFilesContract).at({project});
+}
+
+/**
+ * `projects://` 的公共步骤，写入接口与服务端文件服务共用：根的虚拟列表；解析引用、取得租约、调用、释放；只解析引用
+ * （写入方要知道项目目录，才能把暂存文件写进它的 `.nbook/staging/`）。
+ */
+export interface ProjectsAccess {
+    virtual(): Promise<ServerFilesResult<VirtualListing>>;
+    call<T>(path: string, signal: AbortSignal, run: (client: ProjectFilesClient, inner: string) => Promise<RemoteOutcome<T>>): Promise<ServerFilesResult<T>>;
+    locate(path: string): Promise<ServerFilesResult<{readonly record: ProjectRecord; readonly inner: string}>>;
+}
+
+function split(path: string): {readonly reference: string; readonly inner: string} {
+    const slash = path.indexOf("/");
+    return {reference: slash < 0 ? path : path.slice(0, slash), inner: slash < 0 ? "" : path.slice(slash + 1)};
+}
+
+export function createProjectsAccess(projects: ProjectsService, remote: ActivationContext["remote"]): ProjectsAccess {
+    const locate = async (path: string): Promise<ServerFilesResult<{readonly record: ProjectRecord; readonly inner: string}>> => {
+        const {reference, inner} = split(path);
         const resolved = await projects.resolve(reference);
         if (!resolved.ok) return fail("project-unavailable", `项目登记表不可用：${resolved.detail}`);
         if (resolved.value === null) return fail("not-found", `没有登记项目 ${reference}`);
-        const acquired = await projects.acquire(resolved.value.id);
-        if (acquired.status === "rejected") return fail("project-unavailable", `打不开项目 ${reference}：${acquired.reason}（${acquired.detail}）`);
-        const {lease} = acquired;
-        try {
-            if (request.signal.aborted) return fail("cancelled", "调用已取消");
-            return flatten(await call(lease.id, inner));
-        } finally {
-            lease.release();
-        }
+        return {ok: true, value: {record: resolved.value, inner}};
     };
-    const client = (id: string) => remote.use(projectFilesContract).at({project: id});
+    return {
+        locate,
+        virtual: async () => {
+            const listed = await projects.list();
+            if (!listed.ok) return fail("project-unavailable", `项目登记表不可用：${listed.detail}`);
+            const entries = await Promise.all(listed.value.map(async (project) => {
+                const metadata = await projects.readMetadata(project.id);
+                const title = metadata.ok ? (metadata.metadata.title ?? undefined) : undefined;
+                return {name: project.name, address: `projects://${project.name}`, ...(title === undefined ? {} : {title}), meta: {id: project.id, state: project.state}};
+            }));
+            return {ok: true, value: {kind: "virtual", description: DESCRIPTION, entries}};
+        },
+        /** 解析引用、取得租约、调用、释放。`signal` 在取得租约之后已触发的，立即释放、不发出调用。 */
+        call: async (path, signal, run) => {
+            const located = await locate(path);
+            if (!located.ok) return located;
+            const {record, inner} = located.value;
+            const acquired = await projects.acquire(record.id);
+            if (acquired.status === "rejected") return fail("project-unavailable", `打不开项目 ${record.name}：${acquired.reason}（${acquired.detail}）`);
+            const {lease} = acquired;
+            try {
+                if (signal.aborted) return fail("cancelled", "调用已取消");
+                return flatten(await run(projectClient(remote, lease.id), inner));
+            } finally {
+                lease.release();
+            }
+        },
+    };
+}
+
+export function createProjectsScheme(projects: ProjectsService, remote: ActivationContext["remote"]): ProjectsScheme {
+    const access = createProjectsAccess(projects, remote);
     const rootOnly = (path: string): boolean => path === "";
 
     return {
-        list: async (path, request) => (rootOnly(path) ? virtual() : withProject<Listing>(path, request, (id, inner) => client(id).list({path: inner}, {signal: request.signal}))),
+        list: async (path, request) => (rootOnly(path) ? access.virtual() : access.call<Listing>(path, request.signal, (client, inner) => client.list({path: inner}, {signal: request.signal}))),
         read: async (path, request) => {
             if (rootOnly(path)) {
-                const listed = await virtual();
+                const listed = await access.virtual();
                 if (!listed.ok) return listed;
                 const text = renderVirtual(listed.value);
                 return {ok: true, value: {text, baseline: {hash: hashOf(new TextEncoder().encode(text))}}};
             }
-            return withProject<FileText>(path, request, (id, inner) => client(id).read({path: inner}, {signal: request.signal}));
+            return access.call<FileText>(path, request.signal, (client, inner) => client.read({path: inner}, {signal: request.signal}));
         },
         write: async (path, text, baseline, request) => {
             if (rootOnly(path)) return fail("permission-denied", "projects:// 是只读的目录");
-            return withProject<SavedText>(path, request, (id, inner) => client(id).write({path: inner, text, baseline, as: request.source}, {signal: request.signal}));
+            return access.call<SavedText>(path, request.signal, (client, inner) => client.write({path: inner, text, baseline, as: request.source}, {signal: request.signal}));
         },
         create: async (path, kind, request) => {
             if (rootOnly(path)) return fail("permission-denied", "projects:// 是只读的目录");
-            return withProject<OperationDone>(path, request, (id, inner) => client(id).create({path: inner, kind, as: request.source}, {signal: request.signal}));
+            return access.call<OperationDone>(path, request.signal, (client, inner) => client.create({path: inner, kind, as: request.source}, {signal: request.signal}));
         },
         realPath: async (path, request) => {
             if (rootOnly(path)) return fail("unsupported-capability", "projects:// 是虚拟目录，没有真实路径");
-            return withProject<{readonly path: string; readonly kind: "file" | "directory" | "other"}>(path, request, (id, inner) => client(id).realPath({path: inner}, {signal: request.signal}));
+            return access.call<{readonly path: string; readonly kind: "file" | "directory" | "other"}>(path, request.signal, (client, inner) => client.realPath({path: inner}, {signal: request.signal}));
         },
     };
 }

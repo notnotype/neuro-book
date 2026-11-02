@@ -17,11 +17,13 @@ import {pathProblem} from "../shared/resource";
 import {renderVirtual} from "../shared/schemes";
 import type {MountDeclaration, MountedSchemeSpec, SchemeCaller, SchemeCapability, SchemeOperation, ServerFilesResult, VirtualListing} from "../shared/schemes";
 import {createChangeHub} from "./changes";
-import type {ChangeHub} from "./changes";
-import {createPlain, saveText, toResult} from "./execute";
+import type {ChangeHub, Origin} from "./changes";
+import {createPlain, saveText, toResult, tracked} from "./execute";
 import {createFilesService, hashOf} from "./files-service";
 import type {FilesService} from "./files-service";
 import {openRoot} from "./rooted";
+import {createStagingCommitter} from "./staging";
+import type {CommitInput} from "./staging";
 import type {RootedRoot} from "./rooted";
 
 export const IDLE_CLOSE_MS = 5 * 60 * 1000;
@@ -40,6 +42,8 @@ export interface MountedOptions {
     readonly clock: RuntimeClock;
     /** 挂载点保存用的锁目录放在它下面（按挂载点名分）。 */
     readonly lockRoot: string;
+    /** 写入用的暂存目录（见 `SchemeRegistryOptions.staging`）。 */
+    readonly staging: string | null;
     readonly record: (level: "info" | "warn", event: string, message: string, data?: unknown, error?: unknown) => void;
 }
 
@@ -136,6 +140,30 @@ export class MountedScheme {
             if (opened === null) return fail("not-found", `${this.#address(path)} 的上级不存在`);
             if (inner === "") return fail("conflict", `${this.#address(path)} 已存在`);
             return toResult(await createPlain(opened, inner, kind, {source}));
+        });
+    }
+
+    /**
+     * 写入接口的提交：暂存文件在 `staging` 里，挂载点只在提交期间借用。挂载方案不发事件、不记账，回声与事件落在没有订阅的
+     * 变更中心上，是空操作。
+     */
+    commit(path: string, input: Omit<CommitInput, "path">, caller: SchemeCaller, origin: Origin, signal: AbortSignal): Promise<ServerFilesResult<{readonly baseline: Baseline}>> {
+        return this.#run("write", path, caller, signal, async () => fail("permission-denied", `${this.#address("")} 是只读的目录`), async ({opened, path: inner}) => {
+            if (opened === null) return fail("not-found", `${this.#address(path)} 不存在`);
+            const {staging} = this.#options;
+            if (staging === null) return fail("io-failed", "暂存目录不可用");
+            const commit = createStagingCommitter({root: opened.root, directory: staging, changes: opened.changes, report: (event, error) => this.#options.record("warn", `files.${event}`, "暂存文件的收尾出错", {scheme: this.#options.scheme}, error)});
+            return toResult(await tracked(opened.scope, "files.commit", () => commit({...input, path: inner}, origin)));
+        });
+    }
+
+    /** 写入接口的读路径：按读授权，挂载点内跟随链接，不跟到挂载点外；不建目录。 */
+    readTarget(path: string, caller: SchemeCaller, signal: AbortSignal): Promise<ServerFilesResult<{readonly path: string; readonly kind: "file" | "directory" | "other"}>> {
+        return this.#run("read", path, caller, signal, async () => fail("unsupported-capability", `${this.#address("")} 是虚拟目录，没有真实路径`), async ({opened, path: inner}) => {
+            if (opened === null) return fail("not-found", `${this.#address(path)} 不存在`);
+            const resolved = await opened.root.resolve(inner);
+            if ("ok" in resolved) return fail(resolved.code, resolved.detail);
+            return {ok: true, value: {path: resolved.real, kind: resolved.stats.isFile() ? "file" : resolved.stats.isDirectory() ? "directory" : "other"}};
         });
     }
 

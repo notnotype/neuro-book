@@ -28,6 +28,9 @@ export {parseAddress} from "./resource";
 // 方案注册与服务端文件服务：别的插件只能经本文件导入（跨插件的运行时导入只指向对方的 shared/contracts.ts）。
 export {renderVirtual, SCHEMES_POINT, serverFilesKey} from "./schemes";
 export type {AgentOnBehalf, AuthorizeResult, MountDeclaration, MountedSchemeSpec, SchemeCaller, SchemeOperation, SchemeRoot, ServerFiles, ServerFilesOptions, ServerFilesResult, VirtualEntry, VirtualListing} from "./schemes";
+// 写入接口（docs/specs/workspace/resources.md 的“写入接口”）。
+export {baselineOf, workspaceFilesKey} from "./workspace-files";
+export type {CallOptions, CommitOptions, ReadPath, StagedSink, WorkspaceFiles} from "./workspace-files";
 
 /**
  * 正文按 JSON 编码后的字节上限：保存请求要装进一条 RPC 消息（超过时连接被断开、写请求成为结果未知），余下 64 KiB
