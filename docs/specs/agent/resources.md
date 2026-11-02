@@ -26,7 +26,7 @@ owners:
 - **全局地址**：文件服务认得的地址，例如 `sessions://<会话 id>/home/plan.md`。
 - **单数地址**：指“当前这一个”的地址：`project://`、`session://`、`profile://`、`tmp://`，只在 Agent 会话里有意义，使用前改写成全局地址。
 - **主项目**：会话建立时所属的项目（会话头的 `project`）；没有时 `project://` 不可用。
-- **会话的资源视图**（`SessionResources`）：按一个会话构造、交给这个会话的工具与内核的读写入口。
+- **会话的资源视图**（`SessionResources`）：按一个会话构造、交给这个会话的工具与内核的读写入口；写入接口实现后是它的会话绑定版（输出 10，planned）。
 - **作品内容**：属于某本书的文件，即 `projects://` 下的文件；其余都不算。
 
 ## 输入与前置条件
@@ -67,6 +67,7 @@ owners:
 7. **临时目录**：每个会话一个，在系统临时目录下按状态根分区（同一用户的两个状态根互不影响）。服务端启动时删除本状态根分区里已不存在或已归档的会话的目录；归档当下不删。
 8. **产品文档**：`docs://builtin/sdk/README.md` 是插件 SDK 的作者文档，其中链接的附表与 Spec 都在 `docs://builtin/sdk/` 下可读；开发时与安装后读到的是同一份生成产物。
 9. **内核的资源接口**：内核的 `resolve` 返回改写后的全局地址（校验不过的原样返回）；`read` 读文本，`not-found` 时为空，其它失败抛出。
+10. **写入接口的会话绑定版（planned）**：写入接口（[`workspace.resources`](../workspace/resources.md) 的“写入接口”）实现后，资源视图是它按会话绑定的版本：方法、参数、结果与失败码都同写入接口，改写与分类照第 1、2 条，权限照第 4 条，来源记为该会话；不另有一套方法，原有的列出、读、写、新建、取真实路径随之退役。`call(ctx)` 交回绑定一次工具调用的门面：来源另带这次调用的条目 id，这次调用里的写入与文件操作自动成一个操作分组，标题缺省为工具名，工具可以给。
 
 ## 状态与转换
 
@@ -110,6 +111,7 @@ owners:
 3. 会话换 Profile 后，`profile://` 指向新 Profile，旧 Profile 的笔记变为只读。
 4. 两个状态根并存，各有会话的临时文件；其中一个重启后只清掉自己分区里已归档的会话目录，另一个的文件不变。
 5. 从应用包解出的安装布局中读 `docs://builtin/sdk/README.md`，并跟进其中一条附表与一条 Spec 链接。
+6. （planned）一个测试工具在一次调用里经 `call(ctx)` 写两个文件、删一个文件：浏览器订阅收到的三条事件来源都是该会话、带这次调用的条目 id 与同一个组；经 `session://` 写与经 `sessions://<自己>/home/` 写结果相同；写 `docs://` 仍为 `permission-denied`。
 
 Smoke：不适用——没有界面；由 `plugins/agent/resources.test.ts` 经真实插件宿主覆盖。
 
@@ -125,7 +127,7 @@ Smoke：不适用——没有界面；由 `plugins/agent/resources.test.ts` 经�
 
 ## 证据
 
-- 批准依据：开发者 2026-10-28 定稿的第三版设计与 2026-10-30 的三条后续修改（[w00032 t08](../../../.agents/works/w00032-agent-integration/tasks/t08-resources-home/README.md) 的“决定”）；2026-11-02 的实施前决定与第三轮设计审查后的改判（同一 README 的“实施前的决定”、[计划](../../../.agents/works/w00032-agent-integration/tasks/t08-resources-home/plan.md)）；开发者 2026-11-02 批准晋升为 `implemented`。
+- 批准依据：开发者 2026-10-28 定稿的第三版设计与 2026-10-30 的三条后续修改（[w00032 t08](../../../.agents/works/w00032-agent-integration/tasks/t08-resources-home/README.md) 的“决定”）；2026-11-02 的实施前决定与第三轮设计审查后的改判（同一 README 的“实施前的决定”、[计划](../../../.agents/works/w00032-agent-integration/tasks/t08-resources-home/plan.md)）；开发者 2026-11-02 批准晋升为 `implemented`。输出 10 与验收 6（planned）依据 [文件访问与改动记账](../../proposals/file-access-and-history.md)（2026-11-02 `accepted`）的第 1 阶段。
 - 实现入口：[`backend/resources.ts`](../../../packages/neuro-book/src/plugins/agent/backend/resources.ts)（改写、分类与内核资源接口）、[`backend/schemes.ts`](../../../packages/neuro-book/src/plugins/agent/backend/schemes.ts)（五个方案）、[`backend/temps.ts`](../../../packages/neuro-book/src/plugins/agent/backend/temps.ts)（临时目录）、[`backend/docs-root.ts`](../../../packages/neuro-book/src/plugins/agent/backend/docs-root.ts)、[`scripts/agent-docs.ts`](../../../packages/neuro-book/scripts/agent-docs.ts)（产品文档）
 - 合同测试：[`resources.test.ts`](../../../packages/neuro-book/src/plugins/agent/resources.test.ts)（真实插件宿主、真实工具工厂）、[`scripts/pack-app.test.ts`](../../../packages/neuro-book/scripts/pack-app.test.ts)（应用包里的文档布局与定位）
 - Smoke：不适用——没有界面；工具读写随 t12 的基础工具一起验收
