@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t04-time-worldlines
-status: planned
+status: shelved
 updated: 2026-11-02
 ---
 
