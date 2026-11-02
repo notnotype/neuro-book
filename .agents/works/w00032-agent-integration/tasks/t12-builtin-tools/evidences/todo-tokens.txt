@@ -1,0 +1,12 @@
+## o200k_base（OpenAI）
+omp todo：472
+Claude Code Task*（4 个）：2033（TaskCreate 614，TaskGet 249，TaskUpdate 887，TaskList 283）
+Claude Code TodoWrite：2152
+Codex update_plan：186
+
+## DeepSeek-V3
+omp todo：473
+Claude Code Task*（4 个）：2048（TaskCreate 618，TaskGet 245，TaskUpdate 903，TaskList 282）
+Claude Code TodoWrite：2179
+Codex update_plan：188
+

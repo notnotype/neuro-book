@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t12-builtin-tools
-status: planned
+status: in-progress
 updated: 2026-10-28
 ---
 
@@ -47,10 +47,32 @@ t04、t06、t08。
 - eval（CodeAct）另开 [t21](../t21-eval-codeact/README.md) 搁置；后台任务、Agent Hub、Monitor 与 Agent 后台调用统一放进 [t22](../t22-background-work/README.md) 搁置。第一批 shell 只有前台：执行时限照 omp，缺省 300 秒、模型可设 1 到 3600 秒、不允许不限，输出过长截断、全文进 `session://artifacts/`（2026-10-28 会话里的推荐，开发者未单独否决，实施时可再调）。
 - 第一批工具：`read`、`write`、`edit`（master 的五种模式，缺省 hashline，中文长段落用哪种在 t18 按模型评测）、`grep`、`glob`（都用 `pi-natives`）、`shell`（`pi-natives` 内嵌的 brush shell，工作目录 `session://`（2026-10-30 t14 改为：有主项目时 `project://`，没有时 `session://`；另加 `async` 转后台，见 [t14](../t14-multi-agent/README.md)），命令里能对应真实目录的地址替换成绝对路径，虚拟地址报错，提供 `$NBOOK_PROJECT`、`$NBOOK_SESSION`）、`todo`；`ask`、`switch_mode` 见 t06，子代理见 t14。不进第一批：ast_grep、lsp、eval、github、checkpoint/rewind、apply_patch。内置工具经资源地址读写（t08）；说明用中文，失败在 `details` 给 `code`，`pi-natives` 原生 edit 的英文错误原样（ADR 0034）。
 
+### 补充决定（开发者 2026-11-02）
+
+- `shell` 原样继承服务端进程的环境变量，不剔除模型密钥一类的变量：别的 code agent 都这样做，不处理。
+
+### 开工前对齐（开发者 2026-11-02）
+
+t08 之后重新对齐需求：
+
+1. `read`、`edit` 先不针对长篇中文正文专门设计，用 LLM 最熟悉的 code agent 默认做法；以后有时间再优化。
+2. t12 只交工具：审批接线（按 t08 的分类决定写入要不要问、`shell` 的只读白名单怎样参与审批）不在本 Task。
+3. `write` 照 code agent 的做法，自动建上级目录。
+4. `read` 能读图片，照 omp 的做法。
+5. `edit` 首批只开 hashline 与 replace 两种模式。
+6. `todo` 要先设计：调研 omp、Codex、Claude Code 各有哪些工具、参数与交回给模型的结果，再定。
+7. 先不改 nb-agent-ui 的内置工具渲染器（它按旧应用的工具名写）。
+8. `todo` 与 Claude Code 一样默认关闭（Codex 2026-08、Claude Code 2.1.233 起都对较新的模型默认不提供，见 [调研](research/todo-tools.md)）：它现在主要是让用户知道 Agent 在做什么。
+9. 要做 omp 与 Claude Code 那种隔 N 轮没更新清单就提醒的机制。
+10. 工具声明的 token 数（[脚本](experiments/todo-tokens.py)，[结果](evidences/todo-tokens.txt)，o200k）：omp `todo` 472，Claude Code `Task*` 四个合计 2,033，`TodoWrite` 2,152，Codex `update_plan` 186；DeepSeek-V3 分词结果相差不到 2%。只量工具声明，不含各家主提示词里关于待办的段落与提醒。
+11. `todo` 暂定照 omp 的做法：一个工具、`op` 切换操作，交回的结果也照 omp（剩余项加整份清单）。`todo` 本 Task 先不做，搁置；第 8、9 条随它一起做。
+
+第一批因此是 `read`（能读图片）、`write`（自动建上级目录）、`edit`（hashline 与 replace）、`grep`、`glob`、`shell`。
+
 ## 当前状态
 
-讨论完成（2026-10-28）。计划与实施切片在本 Work 的讨论全部完成后另定。
+计划已经开发者看过（[plan.md](plan.md)；`grep`、`glob` 第一版不在虚拟根上跑，虚拟根下的真实目录可以搜），交 omp 设计审查。
 
 ## 下一步
 
-实施时按 implementation-planning 写 `plan.md`；先确认 `pi-natives` 的 brush shell 在升级后的 OMP 与 Windows 上可用。
+开发者确认计划后交 omp 设计审查，处理后按切片实施。

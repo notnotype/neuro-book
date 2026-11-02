@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t08-resources-home
-status: in-progress
+status: done
 updated: 2026-11-02
 ---
 
@@ -125,14 +125,27 @@ t12 开工前先做本 Task（开发者 2026-11-02 定）。写计划时定了�
 
 1. Agent 的方案都注册进文件服务（`nbook.files`），不由 Agent 插件绕开它直接读写；`resources.md` 里 planned 的方案注册接口在本 Task 做掉，`nbook.files` 可以一起改设计。起因：初稿把“注册接口还没做”当作前提，让 Agent 自己的目录直接读写，开发者质疑后改判。
 2. Agent 写入的来源记为该会话：`nbook.files` 的合同加“代哪个会话写”，只认 `nbook.agent`。
-3. `tmp://` 在会话归档时清理，服务端启动时清掉已不存在或已归档的会话的目录；不在会话空闲卸下时清（t10 的“关闭”是 30 秒空闲卸下，按它清会丢文件）。
+3. `tmp://` 在会话归档时清理，服务端启动时清掉已不存在或已归档的会话的目录；不在会话空闲卸下时清（t10 的“关闭”是 30 秒空闲卸下，按它清会丢文件）。第三轮设计审查后改判：只在服务端启动时清理（工具中止后底层可能仍在用目录、订阅会让归档会话一直不卸下）。
 4. `docs://` 先放插件 SDK 的说明与示例和 Agent 插件自己的文档；插件声明文档目录等第一个使用方；`skills://` 只有说明，条目随 t15。
 5. `sessions://` 的根先只按最近使用列出，与本会话有关的排前随 t14。
 
 ## 当前状态
 
-计划第二稿已按第一轮设计审查修订（[plan.md](plan.md)、[处理](evidences/design-review-disposition.md)），开发者 2026-11-02 确认浏览器访问新方案推迟到 t17。第二轮审查 13 条已处理，计划第三稿交第三轮（最后一轮）设计审查。
+已合入 master（`9f12c0bb4`）。开发者 2026-11-02 批准晋升：`agent/resources.md` 与 `resources.md` 里本次实现的部分改为 implemented，补了实现合同与证据。
+
+| 片 | 提交 | 内容 |
+|---|---|---|
+| 0 | `2287761a8`、`14b8d4a80`（master） | Spec：新增 `agent/resources.md`，改 `resources.md`、`prompt-editor.md`、`markdown-dialect.md`、`projects.md`、`contributions.md` |
+| 1 | `aadded6ca` | 方案注册与挂载方案、服务端文件服务、代表会话写，`project`/`user` 合同升到 6 |
+| 2 | `b4bfc6cf4` | `projects://` |
+| 3、4 | `e363cc7be` | Agent 的五个方案、临时目录、产品文档；会话的资源视图 |
+| 5 | `bcb57b83f` | 附件地址改为 `session://attachments/` |
+| 审查修正 | `190682b87`、`21e2e586c` | 前端审查 3 条、实现审查 5 条（[前端](evidences/impl-review-s5-disposition.md)、[后端](evidences/impl-review-disposition.md)） |
+
+验证：受影响测试（nb-story 两条配置命令行用例在负载下超时，单独重跑 22 条全过）、类型检查（含 vue-tsc）、治理与文档检查、`lab-markdown` e2e 10 条；关键修正都做了变异检查。
+
+实施中的调整见 [plan.md](plan.md) 的“实施中的调整”。
 
 ## 下一步
 
-开发者确认计划后交 omp 设计审查，处理后按切片实施。
+无。下一个 Task 是 t12（基础工具），工具经 `services.resources` 读写；开工前与开发者重新对齐需求。

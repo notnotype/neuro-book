@@ -1,0 +1,106 @@
+# w00030 t05 S3a 实现审查（2026-11-02）
+
+审查对象：提交 715daa108..51ceb179a（浮层的打开态、关闭请求与关闭原因）。Claude Sonnet 只读审查，后台进行，不阻塞 S3b。7 条：重要 2、建议 5。报告原文附在后面。修正与 S3b 一起提交。
+
+## 处理
+
+- 重要 1 ContextMenu 的 closed 发得太早（有 120ms 离场过渡）：成立。改为在 Transition 的 after-leave 发；overlay-close.test 用真的 Transition 等 closed。
+- 重要 2 守卫调用方没有测试：成立。新增 AddProviderDialog.dom.test.ts（“返回”不关窗、关闭按钮与 Esc 关窗）；变异检查：把 update:open 转发加回、去掉守卫时两条都失败。ProjectInfoDialog 的守卫已有测试（点空白不关）。DeveloperMessageDialog 只绑 :open、不接 update:open，组件发的关闭无人接，不另加测试。
+- 建议 3 文档把守卫写成 close-on-request="false"（缺冒号，传的是字符串，仍是真值）：成立。Dialog.md、Dialog.vue 注释、FloatingWindow.md 改为 :close-on-request="false"。
+- 建议 4 Lab“第二层”对话框没挂 @confirm、点确认不关：成立。补 @confirm。
+- 建议 5 测试没断言先后、closed 没测：成立。overlay-close.test 按发出顺序断言；补 Dialog 的 closed。“受控保持打开”那条用常量 open 是有意的：要证明的就是组件自己不翻转。
+- 建议 6 AddProviderDialog 的 @update:open 不可达：成立。删掉。
+- 建议 7 规范说 request-close 可被拒绝，但 ContextMenu、QuickPick 没有开关；QuickPick 事件顺序对调未写进迁移说明：成立。规范改为“打开态受控，宿主不接 update:open（或传 :close-on-request="false"）就等于拒绝”；迁移说明补 QuickPick 的先后变化。
+
+不成立：无。接受取舍：无。
+
+---
+
+## 附：Sonnet 报告原文
+
+审查对象：715daa108..51ceb179a（S3a）。注意：审查期间 worktree 里有未提交的 S3b 改动（Dialog.vue、AlertDialog.vue、Drawer.vue 等 11 个已修改文件加 5 个未跟踪文件），
+所有读码与实验都以 git show / git archive 取出的 51ceb179a 快照为准（/tmp/review-w00030-t05-s3a/c），不是工作区。
+快照里跑 Dialog/ContextMenu/QuickPick/overlay-close/components/default-text 等 12 个测试文件：229 个全过。
+（直接在脏工作区跑同批文件会有 22 个失败，来自未提交的 S3b，与本提交无关，勿误判。）
+
+======== 发现 ========
+
+[1] 重要 | 合同与实现不符 | ContextMenu 的 closed 在退场动画结束之前就发了
+位置：packages/nb-ui/src/components/popup/ContextMenu.vue:73-78（watch + nextTick + emit closed）、:105（<Transition name="nb-context-menu">）、:126-136（leave-active 过渡）；ContextMenu.md:67；ui-development-spec.md:370
+现象：注释写“菜单没有退场动画：从打开变成关闭，下一帧它已经卸载”，但同一文件的 <Transition> 带 .nb-context-menu-leave-active，
+  时长是 --motion-fast = 120ms（tokens.css:75）；v-if 变 false 后元素要等过渡结束才摘掉。组件在 nextTick 就发 closed，比卸载早约 120ms。
+为什么是问题：新合同（spec 4.7、ContextMenu.md）说 closed 是“关闭完成、内容卸载之后”，宿主据此才执行命令或打开下一层、“不用固定毫秒数代替”。
+  现在 closed 到手时菜单还留在 DOM 里，宿主在它之后立刻打开下一层/抢焦点，就是这条合同要防的那种过早交接。当前没有宿主听 closed，所以现在不出事，但合同是错的。
+  overlay-close.test.ts 因为 test-utils 默认把 Transition 换成桩，看不到这个差距；测试头注释还把 closed 的真实时机推给“浏览器里看”，实际也没人看。
+附带边界：关闭和卸载发生在同一 tick（宿主把 open 设 false 同时 v-if 掉整个 ContextMenu）时，watch 随组件停掉，closed 漏发；ContextMenu.md 没像 AlertDialog.md 那样写“中止的交接不发”。
+如何核实：读代码即可（从代码推断，未在真实浏览器里量；happy-dom 下 Transition 被桩化，无法复现）。建议在 e2e/Lab 里量 closed 到达时 [role=menu] 是否还在。
+建议改法：二选一——(a) 用 <Transition @after-leave="emit('closed')">，并在没有过渡可等（prefers-reduced-motion 时 --motion-fast 为 0）时同样成立；(b) 去掉退场过渡再保留当前写法。无论哪个，改正注释，并在 ContextMenu.md 写明“关闭同时卸载则不发”。
+
+[2] 重要 | 计划里点名的缓解措施没落地 | 守卫式调用方（closeOnRequest=false）没有测试，且这是类型检查查不出的回归
+位置：计划 plan.md 第 5 节风险段（“守卫式调用方漏加 :close-on-request="false"：类型检查查不出。… 在 ProjectInfoDialog、AddProviderDialog 已有的测试里覆盖守卫；没有测试的 DeveloperMessageDialog 补一条”）；
+  本提交没有改任何一个调用方测试；packages/neuro-book/src/plugins/models/web/components/AddProviderDialog.vue:96-99
+现象：AddProviderDialog 的 :close-on-request="false" 是唯一防止“点页脚‘返回’（cancel）把整个对话框关掉而不是退回服务商列表”的东西。
+  仓库里没有 AddProviderDialog 的单测，models.e2e.ts 只点了“取消”（172、256 行是别的对话框），没有点这个返回。DeveloperMessageDialog 同样无测试。
+  ProjectInfoDialog 的“改过后点遮罩不关”由 ProjectInfoDialog.dom.test.ts 覆盖（它是只传 :open 的宿主，本来就不受影响），所以这一条守卫测试其实没测到 closeOnRequest 的路径。
+为什么是问题：有人删掉那一行 prop（或抄 AddProviderDialog.md/Dialog.md 的写法漏了冒号，见 [3]），没有任何检查会失败，行为是“返回”直接关窗。
+如何核实：git grep 51ceb179a 里 add-provider 的测试，仅有 models.e2e.ts 进入对话框的步骤，无 back。
+建议改法：给 AddProviderDialog 补一条 dom 测试：自定义页点“返回”后 update:open 未发出且回到列表；点关闭按钮/Esc 才发 update:open(false)。DeveloperMessageDialog 的 replaced 分支按计划补一条。
+
+[3] 建议 | 文档陷阱 | Dialog 的文档与源码注释把用法写成 close-on-request="false"（缺冒号）
+位置：packages/nb-ui/src/components/feedback/Dialog.md:49；Dialog.vue:263-264（requestClose 上方的注释）；提交说明里同样写法
+现象：模板里不带冒号是传字符串 "false"。Boolean 属性只把 ""、"close-on-request" 转 true，"false" 保持字符串，仍是真值。
+  实验（快照，runtime 模板 <Dialog :open="true" close-on-request="false" @request-close=...>，按 Esc）：update:open 事件为 [[false]]，守卫失效，Vue 另有类型告警。
+  migration-0.4.md 和 AddProviderDialog 里写的是 :close-on-request="false"，是对的。
+为什么是问题：这一整套重构的主题就是“不再靠隐式规则，守卫要显式写”，而正好对守卫的写法示范错了；读 Dialog.md 的人照抄就会得到“看起来写了守卫、实际照关”。
+如何核实：见实验文件 /tmp/review-w00030-t05-s3a/exp/b.test.ts，输出 /tmp/review-w00030-t05-s3a/exp/out2.txt。
+建议改法：三处都改成 :close-on-request="false"（用 `:close-on-request="false"` 的反引号写法）。
+
+[4] 建议 | 被破坏的既有行为（Lab 夹具）| DialogFixture 的“第二层”对话框，确认按钮不再关闭
+位置：packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/DialogFixture.vue:45-47（<Dialog v-model:open="stackedOpen" … :show-cancel="true" data-lab-dialog-second>）
+现象：它没挂 @confirm 也没有 footer 插槽，旧行为是点“确认”自动关闭；新行为 confirm 只发事件，点“确认”什么也不发生，只有“取消”、关闭、Esc 能关。
+  计划（第 163 行）明确写了“没挂 @confirm 的只有 Lab 夹具 2 处，补关闭”，本提交没补（另一处 QuickPickFixture 的宿主对话框 :show-footer="false"，不受影响）。
+为什么是问题：Lab 里“叠一层”场景看到一个点了没反应的确认按钮；叠放的 e2e 目前只用 Esc/遮罩（lab-nb-ui.e2e.ts），所以没有被抓到。
+如何核实：git show 51ceb179a:.../DialogFixture.vue | sed -n 45,47p。
+建议改法：加 @confirm="stackedOpen = false"。
+
+[5] 建议 | 测试覆盖 | overlay-close.test.ts 的名字写“先……再……”，断言并不检查顺序；closed 的三条新路径无测试
+位置：packages/nb-ui/src/components/feedback/overlay-close.test.ts:62、107、132（测试名）；被测代码 Dialog.vue / Drawer.vue / AlertDialog.vue 的 handoff
+现象：
+  (a) 所有“先发 request-close，再发 update:open”只分别断言了两个事件各自的内容，没有断言先后（wrapper.emitted 是按事件名分桶的）。把 Dialog.requestClose 里两行 emit 对调，全部测试仍通过。
+      变异检查结果（读代码推演）：requestClose 忘记看 closeOnRequest 会让 4 条“closeOnRequest=false”失败；恢复“挂了 request-close 监听就不自动关”会让“挂了监听也照样关”失败；
+      handleConfirm 里加回关闭会让“确认只发 confirm”失败。这三条变异能被抓住。顺序变异、ContextMenu 的 select/tab 原因（在别的文件）不由本文件保证。
+  (b) 本提交新增的 Dialog.closed（模态、浮动窗口都要）、Drawer.closed、AlertDialog/Drawer“跟内部 opened、不受控重开作废旧 closed”都没有测试。我在快照里临时试了 Dialog 模态与浮动窗口的 closed：
+      都会发一次（FLOAT/MODAL 均为 [[]]），所以实现是对的，但没有测试保护它，尤其“重开作废”这条是本提交专门改的。
+  (c) “受控：宿主不接 update:open 时还开着”这条用常量 open:true 挂载，组件本来就没法自己翻转，无论实现怎样都通过，对合同没有约束力。
+如何核实：把 Dialog.vue 的 emit("request-close")/emit("update:open") 两行互换，跑 overlay-close.test.ts；/tmp/review-w00030-t05-s3a/exp/a.test.ts 是 closed 实验。
+建议改法：用 mount 时 props 里的监听函数按序记录（'onRequest-close': () => order.push('request-close')，'onUpdate:open': ...）断言数组；补 Dialog/Drawer 的 closed 与“关闭中途重开不发 closed”各一条。
+
+[6] 建议 | 不可达代码 | AddProviderDialog 的 @update:open 现在不可能触发
+位置：packages/neuro-book/src/plugins/models/web/components/AddProviderDialog.vue:97
+现象：加了 :close-on-request="false" 之后，Dialog 在这个用法里永远不发 update:open（confirm 也不关了）。97 行的 @update:open 转发是死代码，且和 99 行的 request-close 分支看起来重复，容易让后来的人以为两条路都会关窗。
+为什么是问题：违反“重构保留原有收口、不留多余第二条路径或不可达代码”的惯例；也和这一节想消除的“关闭有两条隐式路径”相反。
+建议改法：删掉 97 行，在 :close-on-request="false" 旁加一句为什么（cancel 要退回上一步，其余原因自己 emit）。
+
+[7] 建议 | 文档措辞 | 规范 4.7 对 ContextMenu/QuickPick 说“request-close 可被宿主拒绝”，但它们没有拒绝开关
+位置：packages/nb-ui/docs/ui-development-spec.md:370；ContextMenu.vue、QuickPick.vue 的 requestClose
+现象：Dialog 有 closeOnRequest，宿主用 v-model:open 时也能拒绝。ContextMenu 和 QuickPick 每次都无条件 emit("update:open", false)，用 v-model:open 的宿主没法拒绝，只能放弃 v-model、手接 :open + @update:open 才能忽略。
+  QuickPick 还把原先“先 update:open 后 close”的顺序对调成“先 request-close 后 update:open”，migration-0.4.md 没提顺序变化（当前唯一调用方 WorkbenchCommandPalette 只听 update:open，不受影响）。
+为什么是问题：规范说的“可拒绝”只对 Dialog 成立，别的浮层的使用者会以为 v-model 下也能拦。
+建议改法：规范里把“可被拒绝”限定成“Dialog 经 closeOnRequest；其余浮层靠不接 update:open”，或给另两者也加同名开关（需要先和开发者确认，属于范围扩大，不建议在本任务里做）。
+
+======== 逐条核对过、未发现问题的方面 ========
+- 调用方五种操作（Esc、点遮罩、关闭按钮、取消按钮、确认按钮）新旧推演，逐个检查了本提交迁移的全部 Dialog 调用方（dev-panel 4 个、nb-agent-ui 2 个、nb-story 4 个、应用 12 个含 Settings/Plugins/PathPicker/ProjectInfo/EditorArea/FilesExplorerView 三个、Lab/playground 夹具）：
+  · 只传 :open + @request-close 的（dev-panel 四个、EditorArea、FilesExplorerView 的 dirtyCopy/display/collision、PathPicker、ProjectInfo、SettingsWindow）：行为与旧一致，宿主说了算；新增的 update:open(false) 没人接，无副作用。
+  · 用 @update:open 的（AgentModelCatalog、OriginalImagePreviewDialog、ProviderDialog、ReviseDialog、PluginsPage 两个、ManageModels、ModelEdit）：旧的“没挂 request-close 就自动关”现在由 closeOnRequest 缺省 true 等价提供；它们的页脚要么是自带 #footer 插槽，要么挂了 @confirm，确认不再自动关闭不影响它们。
+  · AddProviderDialog：旧是挂了 @request-close 所以不自动关，新是显式 :close-on-request="false"，各原因的处理等价。
+  · ModeNotice：旧靠 @cancel 听任何关闭，新改 @request-close（与计划写的 @update:open 不同，但 ModeNotice 自己 emit('cancel') 的语义一致，页脚用 {cancel} 插槽，行为等价）。
+  · 仓库里已没有剩余的 Dialog 的 v-model、@update:model-value、@cancel、:visible、ContextMenu 的 @close（llmlint 用的是自己的 common/Dialog.vue，不受影响；FilesExplorerView/SettingsWindow 的 @cancel 挂在 AlertDialog 上，AlertDialog 仍保留该事件）。
+- ContextMenu 的 request-close + update:open：同时听两者的宿主只是重复赋值，没有副作用；宿主 closeMenu(reason) 取到的原因类型未变。卸载时 document 监听器的移除没有改动。
+- Dialog 的 closed：模态与浮动窗口（modal=false）实验都各发一次；contained 分支由同一个 DialogContent 的 FocusScope 触发 close-auto-focus（读 reka 源码）；重开由 useCloseHandoff 里的 watch 作废，卸载时 disposed 吞掉，与 QuickPick 一致。
+- AlertDialog/Drawer 改为跟内部 opened：受控时 opened 由 watch(props.open) 同步，不受控时由 onOpenChange 同步，重开都会作废旧交接；Drawer 全模态分支里 reka 把用户的 onCloseAutoFocus 与内部处理合并（mergeProps），closed 能发出。受控宿主拒绝关闭时 opened 与 props.open 分叉是本提交之前就有的行为，没有因本提交变坏。
+- 类型与导出：OverlayCloseReason 从 components/index.ts 与 sdk/components.ts 白名单一并导出，DialogCloseReason / ContextMenuCloseReason / QuickPickCloseReason 的 Extract 子集与各自 .md 里写的原因一致；Dialog.md、ContextMenu.md、QuickPick.md、Drawer.md、migration-0.4.md 与实现一致（除上面 [1]、[3]、[7]）。
+- 没有为通过测试而放宽的断言：被改的既有测试只做了 modelValue→open、esc→escape、overlay→outside、close→request-close 的机械替换。
+- 未验证：vue-tsc 类型检查（工作区被 S3b 改动占着，且需要 nuxt prepare）；e2e（按规则不跑）。
+
+======== 条数 ========
+阻断 0；重要 2（[1]、[2]）；建议 5（[3]-[7]）。

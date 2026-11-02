@@ -612,7 +612,7 @@ export const labFixtures: LabFixture[] = [
         scenes: [
             {id: "reference", label: "引用作品里的文件", input: {props: {kind: "reference", label: "林雪", target: "/设定/林雪.md"}}},
             {id: "reference-image", label: "引用一张图片", input: {props: {kind: "reference", label: "地图", target: "/资料/地图.png"}}},
-            {id: "attachment", label: "引用会话附件", input: {props: {kind: "reference", label: "截图", target: "local://截图.png"}}},
+            {id: "attachment", label: "引用会话附件", input: {props: {kind: "reference", label: "截图", target: "session://attachments/截图.png"}}},
             {id: "external", label: "外部链接", input: {props: {kind: "reference", label: "官网", target: "https://example.com"}}},
             {id: "other", label: "旧应用的领域地址", input: {props: {kind: "reference", label: "第一章", target: "chapter://c1"}}},
             {id: "long", label: "过长的名称截断", input: {props: {kind: "reference", label: "一个非常非常非常非常非常非常长的设定文件名字", target: "/设定/很长.md"}}},

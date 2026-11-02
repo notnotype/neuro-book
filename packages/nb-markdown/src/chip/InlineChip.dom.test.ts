@@ -32,7 +32,7 @@ describe("InlineChip", () => {
         expect(work.find("i.test-file-icon.nb-chip__icon").attributes("title")).toBe("林雪.md");
         expect(work.attributes("title")).toBe("引用：林雪 · /设定/林雪.md");
         expect(work.classes()).toContain("nb-chip--work");
-        expect(chip({kind: "reference", label: "截图", target: "local://截图.png"}).find(".i-lucide-link").exists()).toBe(true);
+        expect(chip({kind: "reference", label: "截图", target: "session://attachments/截图.png"}).find(".i-lucide-link").exists()).toBe(true);
         expect(chip({kind: "reference", label: "官网", target: "https://example.com", env}).find(".i-lucide-globe").exists()).toBe(true);
         expect(chip({kind: "reference", label: "旧章", target: "chapter://c1", env}).classes()).toContain("nb-chip--other");
         expect(chip({kind: "reference", label: "图", target: "a.png", base: "project://正文/第一章.md", env}).find("i.test-file-icon").exists()).toBe(true);

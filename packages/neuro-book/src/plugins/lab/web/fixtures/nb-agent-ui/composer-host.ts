@@ -2,7 +2,7 @@
  * Lab 里扮演 Agent 输入框的宿主：处理输入框发出的 action 并改写场景的 ctx。对话视图与输入框的夹具共用。
  *
  * - 发送：空闲时追加一条用户消息；运行中的补充说明、排队消息进 `composer.queued`。都记入输入历史，并给出新版本的空草稿。
- * - 附件：先“上传中”，约 0.9 秒后就绪，目标是会话内短地址 `local://名称`，图片用本地对象地址作缩略图与原图；
+ * - 附件：先“上传中”，约 0.9 秒后就绪，目标是会话附件地址 `session://attachments/名称`，图片用本地对象地址作缩略图与原图；
  *   打开“下次上传失败”时下一次上传以失败结束，重试后成功。
  * - 模式、模型、思考档位、停止、几个命令（plan、mode、model、clear）直接改 ctx；其余命令只记进事件日志。
  * - 触发菜单：`@` 与 `$` 用与 PromptEditor 夹具相同的数据，`$` 首次打开时先“正在加载”。
@@ -62,9 +62,9 @@ export function useLabComposerHost(options: HostOptions) {
     /** 名称在会话内唯一；重名时补一个序号。 */
     function uniqueTarget(name: string): string {
         const safe = name.replace(/[\s()]+/gu, "-") || "attachment";
-        let target = `local://${safe}`;
+        let target = `session://attachments/${safe}`;
         for (let index = 2; uploaded.has(target) || labAttachmentUrls[target] !== undefined; index += 1) {
-            target = `local://${index}-${safe}`;
+            target = `session://attachments/${index}-${safe}`;
         }
         return target;
     }

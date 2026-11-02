@@ -3,7 +3,7 @@ import {Badge, Button, Field, Textarea} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 import {controlCharProblem} from "../../core/text-rules.js";
 import {validateAnswerValue} from "../../core/questions.js";
-import {answerText, editingValue, groupQuestions, isNewQuestion, staleText, submittedValue} from "../host/answers.js";
+import {answerText, editingValue, groupQuestions, isBlankAnswer, isNewQuestion, staleText, submittedValue} from "../host/answers.js";
 import {relativeTime} from "../host/format.js";
 import type {QuestionState} from "../host/types.js";
 import QuestionControl from "./QuestionControl.vue";
@@ -46,10 +46,13 @@ function reset(): void {
 }
 watch(() => props.resetKey, reset, {immediate: true});
 
+/** 取值照存（文本框里的空白仍显示），清空了的不算改过、不交。 */
 function set(id: string, value: unknown): void {
     values.value = {...values.value, [id]: value};
-    touched.value = {...touched.value, [id]: true};
+    touched.value = {...touched.value, [id]: !isBlankAnswer(value)};
 }
+/** 单选组与确认题点了就收不回，待答的题给一个“清除选择”回到没答。 */
+const canClear = (state: QuestionState) => (state.question.type === "single" || state.question.type === "confirm") && values.value[state.question.id] !== undefined;
 function startEdit(state: QuestionState): void {
     const id = state.question.id;
     values.value = {...values.value, [id]: editingValue(state, values.value, touched.value)};
@@ -125,7 +128,10 @@ function submit(): void {
                 <Field v-if="commenting[state.question.id]" label="说明（可选）">
                     <Textarea :model-value="comments[state.question.id] ?? ''" :rows="2" @update:model-value="(value: string) => (comments = {...comments, [state.question.id]: value})" />
                 </Field>
-                <button v-else type="button" class="nbdev-note self-start" @click="commenting = {...commenting, [state.question.id]: true}">加说明</button>
+                <div v-if="!commenting[state.question.id] || canClear(state)" class="flex flex-wrap items-center gap-3">
+                    <button v-if="!commenting[state.question.id]" type="button" class="nbdev-note" @click="commenting = {...commenting, [state.question.id]: true}">加说明</button>
+                    <button v-if="canClear(state)" type="button" class="nbdev-note" @click="set(state.question.id, undefined)">清除选择</button>
+                </div>
                 <p v-if="problems[state.question.id] ?? errors[state.question.id]" class="nbdev-danger nbdev-small" role="alert">{{ problems[state.question.id] ?? errors[state.question.id] }}</p>
             </fieldset>
         </section>

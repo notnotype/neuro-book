@@ -12,6 +12,8 @@ import type {ContributionDeclaration, ContributionPointDefinition} from "@notnot
 
 import type {AnyExtension, AnyProfile, ToolEffect, ToolImplementation, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 
+import type {AgentToolServices} from "./resources";
+
 export const EXTENSIONS_POINT = "agent.extensions";
 export const TOOLS_POINT = "agent.tools";
 export const PROFILES_POINT = "agent.profiles";
@@ -65,9 +67,12 @@ export type AgentExtensionDeclaration = Static<typeof ExtensionDeclarationSchema
 export type AgentToolDeclaration = Static<typeof ToolDeclarationSchema>;
 export type AgentProfileDeclaration = Static<typeof ProfileDeclarationSchema>;
 
-/** `agent.tools` 的实现：按会话建一次真正的实现（t04 决定 2）；`effect` 给按参数求等级的工具。 */
+/**
+ * `agent.tools` 的实现：按会话建一次真正的实现（t04 决定 2）；`effect` 给按参数求等级的工具。`services.resources` 是这个会话的
+ * 资源视图，工具经它按资源地址读写（docs/specs/agent/resources.md）。
+ */
 export interface AgentToolImplementation {
-    create(context: ToolSessionContext): ToolImplementation | Promise<ToolImplementation>;
+    create(context: ToolSessionContext, services: AgentToolServices): ToolImplementation | Promise<ToolImplementation>;
     effect?(args: Readonly<Record<string, unknown>>): ToolEffect;
 }
 

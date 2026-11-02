@@ -1,0 +1,118 @@
+# w00032 t08 第三轮只读设计审查
+
+审查对象：`/tmp/review-t08-design-r3/wt/.agents/works/w00032-agent-integration/tasks/t08-resources-home/plan.md`，第三稿，固定基线 `2d970f706`。问题依据区分静态合同推导与实际运行；尚未实现的接口不宣称已在产品中复现。仓库只读，实验限指定 scratch 目录，报告只追加。
+
+### 1. retire 完成即重新接纳，目录删除不在它保护的区间内
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：plan.md“方案注册”第 41–47 行、“Agent 的方案”第 85 行、“验收映射”第 134、138 行。
+- **现象**：`retire(mount)` 的合同到“关闭 Backend”为止，之后访问同名挂载点就重新打开；清理方却在 `await retire(mount)` 之后才删除目录。删除是异步文件操作，期间任何新请求都能重新借用刚重新打开的同一目录。普通 `closing` 又规定等待后重开，计划没有把主动撤下与空闲回收分成不同的接纳规则。
+- **为什么是问题**：原来的排空只覆盖 retire 之前的请求，不覆盖删除期间新接纳的请求。可以出现“新请求打开旧根并持借用 → 清理删旧根 → 请求失败或写入被删除的树”，下一次访问还会命中认旧 inode 的 Backend 而得到 `root-gone`。授权表没有归档拒绝条件，系统调用方也可访问 temps；句柄表关闭中来的会话调用还会等关闭后重开（`agent/backend/sessions.ts:181–208`），所以“原运行已结束”不能关上这段窗口。这是第二轮第 7 条新增 retire 修法尚未覆盖的交错，不重报缺少 retire 本身。
+- **如何核实**：静态按字面排列：T1 retire 排空并完成；T2 在 T1 的异步删除完成前发起该挂载点的新请求；第 47 行允许它打开；T1 删除不再检查 T2 的借用。对照 `files/backend/rooted.ts:319–326`，Backend 的根身份不会因删除自动更新。新 retire 尚未实现，未用自制状态机冒充真实运行时复现；现有会话重开的时序由公开调用链核实。
+- **建议改法**：让目录清理处于同一段关闭接纳的操作内，例如 owner 调 `retire(mount, cleanup)`，或取得“已排空且仍禁止借用”的可释放句柄，在删除完成后才放开。明确空闲关闭、主动 retire、整个方案撤回的等待/拒绝规则及优先级；并发 retire 共用收口，方案撤回后不得重开。经真实 `serverFilesKey` 在删除门闩期间发请求，并覆盖正处于 idle-closing/opening 时的 retire，断言删除期间没有新 Backend/借用、放开后不复用旧根身份。
+
+### 2. docs 的两个真实根无法由这次声明式挂载接口表示
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：plan.md“方案注册”第 34–38 行、“Agent 的方案”第 80 行、“SDK 作者文档”第 90–91 行。
+- **现象**：`MountedSchemeSpec` 只有一个 `container`，所有挂载点都固定映射为 `<container>/<name>/`；`mount` 仅能返回 `create/ensure`，不能返回目录。docs 却要求 `builtin` 映射 `dist/docs/builtin/`，`agent` 映射 Agent 插件的 `plugins/agent/docs/`。这两个目录不是同一容器下以挂载点命名的兄弟目录。
+- **为什么是问题**：选 `dist/docs` 作容器能表示 builtin，但 agent 会查 `dist/docs/agent`，不是表格规定的目录；选插件目录也无法表示 builtin。服务端定位函数只能找到两个目录，不能把接口表达不了的第二个根交给 Files。照字面实施只能丢一份文档、另开 docs 特例后端，或临时引入计划未定义的路径映射；后两种都偏离本轮明确统一的声明式挂载合同。这里只指出目录形状矛盾，不重报第二轮已修正的 sdk 层级。
+- **如何核实**：将第 38 行唯一映射规则分别代入第 80 行两项；`plugin-sdk/pack.ts:122–135` 的输出根是传入的 outDir，现有 `scripts/pack-app.ts:151–208` 也没有运行时目录别名机制。本项是静态接口可表达性核对，无需运行尚未存在的 docs 方案。
+- **建议改法**：这次采用一个实际共同容器：开发生成与应用打包都产出 `docs/{builtin/sdk,agent}/`，Agent 文档在构建时复制进去，表格和定位函数统一指向该布局；或者明确允许只读挂载返回经过 Files 校验的固定真实根，并定义该根的身份与寿命。前者对当前两项文档更简单。验收经同一个真实 `serverFilesKey` 同时读 builtin 和 agent，仓库外解包后再重复两项地址。
+
+### 3. 声明式贡献没有把 retire 句柄交回注册方的机制
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：plan.md“方案注册”第 34–39、47 行、“服务端的进程内服务”第 56 行、“Agent 的方案”第 85 行；`packages/nb-runtime/src/plugins/contracts.ts:222–257`。
+- **现象**：计划要求 Agent 在卸下会话时使用“Files 交给注册方的句柄”调用 retire，但完整的 `MountedSchemeSpec` 没有接收句柄的字段，`serverFilesKey` 的 5 个方法也没有注册方控制入口。现有贡献机制只把 `ContributionHandle` 交给 Files 接收者，`prepare` 的返回值 `Prepared` 只会再传给同一个接收者的 `published/revoke`，不会回到贡献方。
+- **为什么是问题**：`nbook.agent` 的入口只能声明并交出方案实现，拿不到这份设计唯一允许的按挂载点关闭入口，因此第 85 行的必需清理步骤无法接线。贡献机制并不等价于 `register(spec) → disposable`；若到切片 3 才临时增加反向回调、查询或第二个注册入口，就要重做切片 1 的共享合同与寿命规则。这不是要求改变声明式注册方向，而是补它当前缺少的 owner 控制通道。
+- **如何核实**：逐读 `ContributionHandle` 的字段和 `ContributionReceiver` 全部 3 个回调；`implementation()` 只返回贡献方自己的实现，不能给它注入新字段，`prepare` 的结果也不是贡献注册的返回值。再对照计划完整列出的贡献与服务方法，没有合法取到 retire 的路径。语言服务器查询返回 `No language server found for this action`，此处以现有类型定义为证。
+- **建议改法**：明确一个随贡献方激活代次撤销、能按方案 owner 身份校验的控制入口，例如在现有按调用方服务上增加只允许该方案贡献方使用的 `retire(scheme, mount, cleanup)`，将第 1 条的排空/清理也包进去；或在声明式实现中规定 Files 发布后交回控制句柄的宿主适配回调及撤回顺序。选一条写进共享 Interface，验收由真实 Agent 贡献方取得控制权并撤下自己的 temps，另一个插件不能撤它。
+
+### 4. 虚拟根 read 被改成 not-a-file，已确认的“读说明与条目”用例失效
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：plan.md“服务端的进程内服务”第 57 行、“Agent 地址层”第 98–99 行、“验收映射”第 131、138 行；Task README“规律”第 43 行、“用例子验证”第 106 行。
+- **现象**：已确认第三版决定要求复数方案的根可读，读它得到说明与条目，明确举例先读 `docs://` 再搜索 `docs://builtin/sdk`。第三稿只让 `list` 返回虚拟根成功值，却把虚拟根 `read` 固定为 `not-a-file`；内核 Resources.read 对此会抛错（仅 not-found 返回 undefined）。
+- **为什么是问题**：这不是成功值写法的改善，而是把已批准的一条可观察读行为改成失败。t12 的首批工具列有 read、grep、glob，没有独立 list 工具；后两者的根展开不能让已承诺的 read 用法成立。第三稿的测试只写“虚拟根成功值”，完全可以仅测 list 通过，同时让根说明在 read 入口不可访问。第二轮第 10 条要求定义 read/list 的成功值，不能以补类型为由取消已定根读取。
+- **如何核实**：静态对照 README 第 43、106 行与 plan 第 57、99 行，将 `AgentService.resources(context).read('docs://')` 代入，确定得到 not-a-file 而不是说明；`api/ctx.ts:14–18` 的内核 read 只有字符串或 undefined，没有自动转调 list 的机制。此处是尚未实现的新合同矛盾，未宣称当前未注册的 docs 方案运行失败就是本次回归。
+- **建议改法**：保留结构化 list 成功值，并为 read 虚拟根规定一份文本呈现（说明、条目及全局地址），沿现有 `{text, baseline}` 或明确定义的虚拟文本值返回；虚拟根写入继续拒绝。验收显式通过 AgentService.resources.read 和内核 Resources.read 读取 docs、sessions、profiles 等根，断言说明和可继续使用的条目地址，不能只调用注册方 root 或服务 list。
+
+### 5. temps 清理绑定句柄卸下，活订阅可让已归档的空闲会话一直不清理
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：plan.md Context 第 13 行、“Agent 的方案”第 85 行；`agent/backend/sessions.ts:150–160,244–255`、`agent/backend/remote.ts:175–193`；`docs/specs/agent/sessions.md:60–61,90–92`。
+- **现象**：第三稿把归档清理改挂在句柄表卸下，但 t10 只有“无引用且无运行”才能开始 30 秒卸下计时；每个远程 frames 订阅一直持引用到退订。归档只是写日志，不结束订阅。因此窗口继续查看已归档会话时，即使完全没有运行，temps 清理也没有触发时刻；持续查询同样不断推迟卸下。
+- **为什么是问题**：已定目标是归档后清临时数据，推迟的理由是避免删除运行中的文件；现在临时数据是否清理额外取决于观察者是否关闭窗口，不只取决于实际使用。一条长期订阅就能把清理推迟到退订或下次服务端激活，未定义时间上限；启动扫描不能完成当前服务持续运行时的归档清理。不能直接在归档时强制关会话，否则又会打断原运行并改变订阅合同。
+- **如何核实**：已在真实插件宿主、真实 `nbook.agent`/`nbook.settings`、真实 JSONL/flock 与经 JSON 编解码的远程链路执行 create → frames.subscribe → archive(true)。推进 60,000 ms，输出 `{"phase":"real-rpc-archive-subscribed-after-60000ms","externalOpen":"session-busy","running":[]}`；退订再推进 30,000 ms，独立存储打开成功；两个实例最终均 `closed`。命令：`bun /tmp/review-t08-design-r3/scratch/cached-resolver.ts plugin-lifecycle-probe.ts && PI_NATIVES_DIR=/tmp/review-t08-design-r3/scratch/native-cache bun /tmp/review-t08-design-r3/scratch/bundles/plugin-lifecycle-probe.js`（仓库根执行，退出 0）。仅在 scratch 打包并按仓库版本接入缓存依赖；没有安装依赖或修改源码。实验证明 t10 卸下条件，不宣称尚未实现的 temp 删除已运行。
+- **建议改法**：将“归档且临时资源不再使用”的清理触发与会话句柄缓存卸下解耦；归档后运行/资源使用归零即可排空 temps，不必让只读观察订阅退订，沿第 1 条保护清理整个区间。若确实要接受“窗口一直开就一直留”，须把这个改变归档清理时机的条件明确列为取舍，而不能把 t10 卸下当作归档后必然发生的机制。验收保留一个真实远程订阅归档会话，核对运行结束后临时目录按最终合同清掉、订阅及日志读取照常。
+
+### 6. 句柄已经卸下仍可有真实工具在用临时目录，卸下不是删除安全点
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：plan.md“Agent 的方案”第 85 行、“验收映射”第 138 行；`packages/nb-harness/src/kernel/run/tools.ts:318–361`、`agent/backend/tools.ts:227–253`、`agent/backend/sessions.ts:249–275`；`docs/specs/agent/contributions.md:23,60`。
+- **现象**：内核中止工具最多等 2 秒就把运行结算为空闲，底层未结束的执行继续。随后 t10 可以开始 30 秒卸下；关闭会话时 AgentTools.dispose 也只等 5 秒，超时记 tool-abandoned 并推迟真正实现的释放，但会话日志与锁已关闭、句柄表已删。第三稿却把这个卸下当作 temps 的删除时机。
+- **为什么是问题**：realPath 请求返回就释放 Files 借用，shell/grep/glob 等真正使用目录的寿命在它之后；`retire` 等不到这段使用。于是中止→归档→句柄卸下可以删掉尚未结束的工具正在读写的临时文件，迟到的执行也可能继续写回已清理的地址。第 5 条是清理永不触发，本条是触发了仍太早，不能用缩短卸下时间同时解决。这里不要求改变已接受的 shell 强制终止限制，只要求不要把未知是否结束误当成已经不用目录。
+- **如何核实**：已经真实 `nbook.agent`、真实贡献工具、真实模型适配器连接本机脚本化 OpenAI 兼容端点执行。工具用门闩保持底层 Promise，真实 send 开始工具后发 abort，按注入时钟越过 2 秒，再 archive 并推进 30 秒/5 秒关闭。输出 `{"phase":"aborted-archived","runReason":"aborted","running":[],"underlyingFinished":false}`，随后 `{"phase":"actual-session-unloaded","externalOpen":"success","underlyingFinished":false,"abandoned":true}`。放开真实工具后才 `underlyingFinished:true`，世界正常关闭。命令：`bun /tmp/review-t08-design-r3/scratch/cached-resolver.ts tool-lifecycle-probe.ts && PI_NATIVES_DIR=/tmp/review-t08-design-r3/scratch/native-cache bun /tmp/review-t08-design-r3/scratch/bundles/tool-lifecycle-probe.js`（仓库根，退出 0）。没有手改状态表、直接调用 ToolWrapper.execute 或伪造 idle；实验未执行新 temps 删除。
+- **建议改法**：给需要真实路径的工具持有实际使用期的资源借用，或者让 AgentTools 在底层 calls 真结算时通知 temps owner；归档清理需同时满足“已归档、无运行、无实际使用”，工具被 abandoned 时保留目录并诊断，不阻塞会话卸下或插件有界停止。把真实工具中止后仍执行的场景加入验收，断言目录只在底层使用确实结束后删除。
+
+
+### 7. Agent 的资源服务没有进入工具实现的执行上下文
+
+- **严重程度**：重要；**类别**：接口接线。
+- **位置**：plan.md“Agent 地址层”第 93–100 行、“切片”第 123 行、“验收映射”第 138 行；t12 README 第 20–21、48 行；`packages/nb-harness/src/kernel/api/tool.ts:71–90`、`packages/nb-harness/src/kernel/run/tools.ts:268–280`、`packages/neuro-book/src/plugins/agent/backend/tools.ts:84–90`。
+- **现象**：计划只把 `AgentService.resources(context)` 接到内核的 `SessionEnv.resources`，但 t12 的 `read/write/edit/grep/glob/shell` 是 `ToolImplementation`。当前 `ToolContext` 只有 `signal`、调用信息、`read` 和可选 `ask`，没有 `Resources`；`runTools` 执行实现时也只传这些字段。Agent 的 `tools.create(id, context)` 只收到 `ToolSessionContext`，`AgentTools` 包装器没有保存或注入资源服务。
+- **为什么是问题**：按现有调用链，内置工具既拿不到 `AgentService.resources(context)`，也不能把 `options.signal` 传给 `serverFilesKey`。只改 `SessionEnv.resources` 会让扩展和拦截器能读资源，但不会让 t12 的工具按 t08 已定合同经资源地址读写；实现只能继续使用 `cwd`/Node 文件系统，绕过地址改写、授权、来源和取消。这使“工具经资源地址读写”这一前置合同无法落地，且验收只测 `AgentService.resources` 仍可能漏掉真实工具入口。
+- **如何核实**：从真实工具调用 `runTools → implementation.execute` 逐字段对照 `ToolContext`；没有 `resources` 字段或等价服务参数。再对照 Agent 工具包装的 `create(id, ToolSessionContext)`，它只能把会话身份交给工厂，无法取得当前 `SessionEnv.resources` 实例。此处是现有公开类型与计划接线的静态合同缺口，未把尚未实现的 t12 工具运行结果冒充为已复现。
+- **建议改法**：在 t08 的共享接口中明确唯一接线：例如给 `ToolContext` 增加按会话构造的 `resources: Resources`，由 `runTools` 传入 `ToolRunHost.resources`，并规定内置工具用它做全部地址 I/O、把 `context.signal` 传给每个资源方法；或定义等价的、可被 Agent 工具工厂取得且不绕过内核的资源能力。同步更新 `AgentTools`/工具工厂的合同与 t12 实现切片，验收必须从真实 `builtin.read`/`builtin.write` 调用 `session://`、`project://` 和失败码，而非只直接调用 `AgentService.resources`。
+
+### 8. `AgentService.resources(context)` 可被同进程调用方伪造会话身份
+
+- **严重程度**：重要；**类别**：授权边界。
+- **位置**：plan.md“服务端的进程内服务”第 59–60 行、“Agent 地址层”第 95–99 行；`packages/neuro-book/src/plugins/agent/shared/contracts.ts:43–60`；`packages/nb-runtime/src/plugins/contracts.ts:111–116`。
+- **现象**：计划让 `AgentService.resources` 接收普通的 `ToolSessionContext`，再把其中的 `session`、`profile` 放进 `serverFilesKey` 的 `as.agent`；`ToolSessionContext` 只有可构造的字符串字段，没有签名或调用方绑定。`agentKey` 是普通共享 `provideService`，任意同进程服务端插件只要声明依赖就能取得 `AgentService`，并可传入另一个会话 id/profile 构造上下文。
+- **为什么是问题**：Files 只核对“门面调用方是 `nbook.agent`”，并不能知道传入的上下文是否来自内核。于是一个获准依赖 `agentKey` 的服务端插件可借 `resources({sessionId: victim, profile: other})` 读写别人的 `sessions://`、`temps://`、`profile://`，并把写入伪装成目标会话；这绕过了计划第 60 行要求由 Agent 按内核签发身份的边界。现有 `AgentService` 的共享服务形状没有按调用方约束，不能把“只有 Agent 内部调用”当作类型或运行时保证。
+- **如何核实**：对照运行时服务合同：`context.services.require(agentKey)` 向所有可达的同进程入口交付共享实例；再逐字段对照计划新增方法的唯一输入 `ToolSessionContext`，不存在由 `AgentService` 取得并核验的 `ConsumerIdentity`、不可伪造 token 或宿主闭包。此项是新接口的静态授权证明，未把尚未实现的攻击路径冒充为当前产品回归。
+- **建议改法**：不要把可签发资源身份的工厂放进任意调用方共享的 `AgentService`。优先让 `SessionEnv.resources(context)` 在 `nbook.agent` 激活闭包内直接绑定内核的真实上下文，并让内置工具从内核传入的资源能力取得它；若必须公开服务，改成按调用方门面且只允许 Agent 自己的入口，或让服务先签发不可伪造、绑定 `ToolSessionContext` 代次的资源句柄，拒绝调用方自填 session/profile。验收至少加入另一服务端插件尝试伪造会话写入，断言 `invalid-input`/拒绝且没有文件或来源事件。
+
+**未发现问题的方面**
+
+- 第二轮第 1、2、3、4、5、8、9、11、12 条的文字处置已在第三稿中有对应合同：授权回调带挂载点名且做词法/真实路径两次检查；调用 signal、来源事件及两份合同版本、物化顺序、列出过滤、temps 分区防护、`registry-invalid` 映射、执行模块抽取均已写入计划。本轮没有再发现独立缺口。
+- `projects://` 的每次 acquire、取消复核、finally 释放，以及路由失败原样交回的时序已明确；没有把项目租约错误地提升为会话寿命，也没有发现第二层错误码改写合同。
+- 方案只声明读写列出真实路径、不声明 watch，且挂载 Backend 不做 `.content`/`.binder` 投影；这些与已批准范围一致，本轮未把 shell 绕过资源权限或浏览器延后重新定级。
+- 远程合同兼容性：计划明确给 `user://`、`project://` 的 Agent 来源事件各升一版，并要求旧订阅收到 `version-changed`；静态核对没有发现遗漏第三份既有合同的证据。
+- 上述未发现项是计划合同的静态核对结果，不等同于新接口已经通过实现测试。
+
+**第二轮 13 条处置与本轮结论**
+
+1. 授权回调的挂载点身份：已落实；本轮未重报。
+2. 每次调用 signal、门面/入口停止取消：已落实到计划合同；本轮未重报。
+3. Agent 来源进入 project/user 事件及合同升版：已落实；本轮未重报。
+4. 物化顺序、容器与 ensure 校验：已落实到设计步骤；本轮未重报。
+5. 列出结果逐项授权过滤：已落实；本轮未重报。
+6. `docs://builtin/sdk` 的 SDK 文档层级：该单根层级已落实；但第三稿同时规定的 builtin 与 agent 两个真实根仍有第 2 条发现的接口表达问题。
+7. retire 句柄与 temps 清理：未闭合，分别形成第 1、3、5、6 条发现；“先 retire 再删”已有意图，但接纳门闩、注册方控制通道和实际工具使用期仍未定义完整。
+8. 普通目录语义、锁内不重复授权：已落实；本轮未重报。
+9. temps 容器分区及逐层 lstat：已落实；本轮未重报。
+10. 虚拟根成功值：list 的结构化值已定义，但 read 被定为 `not-a-file`，与已确认根可读用例冲突，形成第 4 条发现。
+11. `registry-invalid` 映射：已落实到 `projects://` 合同；本轮未重报。
+12. 执行模块抽取：计划已有明确抽取边界；静态核对未发现会丢失 tracked、来源、变更或公共结果编排的遗漏。
+13. 验收映射补充：大部分场景已列入；第 1、5、6、7、8 条发现表明 retire/清理/工具接线/身份边界仍需把验收补成可观察拒绝或寿命断言。
+
+**不做与风险逐项判断**
+
+- 浏览器访问已注册方案：不做符合已批准的 t17 范围；风险是本轮不能用浏览器合同证明新方案，计划已把浏览器验证排除，不能把它当作 t08 已交付能力。
+- 第三方插件注册方案与 SDK 公开面：不做符合“随 `plot://`”的边界；风险是 `MountedSchemeSpec` 目前只需覆盖内置贡献，不应在本轮实现或验收第三方兼容性。
+- `watch` 与订阅：不做符合无订阅方的切片范围；风险是 ChangeHub 只记录写入来源而不提供新方案事件，t17 必须另定订阅寿命，不能把本轮无 watch 当作缺陷。
+- `history://`：不做符合 t13 依赖；本轮不判断历史读取能力。
+- `mcp://`：不做符合 t19 依赖；本轮不判断 MCP 资源能力。
+- 插件声明文档目录：不做第三方动态声明符合当前范围；但内置 Agent 文档仍是本计划明确要求的真实目录，不能用“不做”掩盖第 2 条的两个根映射问题。
+- glob 与 grep：不做 Files 新能力、由 t12 在真实路径侧使用 `pi-natives` 符合计划；本轮只要求 t08 交给工具的资源 I/O 接线明确，已由第 7 条指出。
+- 项目实例里的方案注册：不做符合当前只接受内置注册的边界；`projects://` 仍按已有项目合同直接调用，不因此新增实例侧注册要求。
+- 按天自动清理 temps：不做不影响已定的归档/启动扫描清理目标；风险是 abandoned 工具或长期存活订阅不能靠每日任务兜底，必须按第 5、6 条定义真实使用期和订阅条件。
+
+**核对收尾**
+
+- 发现数量：阻断 0，重要 8，建议 0。
+- `grep -c '^### ' /tmp/review-t08-design-r3/report.md` 应保持为 8；收尾段落没有使用 `### ` 标题，因此不会混入发现计数。
+- 已执行并观察到的真实运行验证：完整插件宿主/RPC 的归档订阅寿命探针、真实 Agent 工具中止后底层仍执行探针；两次命令均在 scratch 产物上运行并退出 0。其余新接口结论均明确为静态合同核对，未运行 e2e 或开发服务。

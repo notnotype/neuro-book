@@ -93,7 +93,7 @@ describe("commandMenu", () => {
 
 describe("sendBlockedReason", () => {
     const states = new Map<string, PromptAttachment>([
-        ["a", {localId: "a", state: "ready", target: "local://a.png"}],
+        ["a", {localId: "a", state: "ready", target: "session://attachments/a.png"}],
         ["b", {localId: "b", state: "uploading"}],
         ["c", {localId: "c", state: "failed", error: "太大"}],
     ]);

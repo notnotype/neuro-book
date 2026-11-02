@@ -255,7 +255,7 @@ export const labAttachmentUrls: Record<string, string> = {
         + "<path d='M52 50 L66 62' stroke='#5b4b3a' stroke-width='4'/></svg>",
     )}`,
     // 写明宽高，原图预览按它的原始尺寸显示、放不下时等比缩小。
-    "local://人物关系草图.png": `data:image/svg+xml;utf8,${encodeURIComponent(
+    "session://attachments/人物关系草图.png": `data:image/svg+xml;utf8,${encodeURIComponent(
         "<svg xmlns='http://www.w3.org/2000/svg' width='1200' height='800' viewBox='0 0 1200 800'><rect width='1200' height='800' fill='#ece4d6'/>"
         + "<circle cx='380' cy='360' r='130' fill='#b8674a'/><circle cx='820' cy='460' r='160' fill='#4f6f8f'/>"
         + "<path d='M500 400 L670 440' stroke='#5b4b3a' stroke-width='14' stroke-dasharray='28 18'/>"
@@ -282,7 +282,7 @@ export const messageStateMessages: MessageView[] = [
     assistant("m4", 70, {text: "人称统一，只有第 12 段把“他”写成了“她”。", usage: usage(9800, 40, 5200, 0.0041)}),
     // 按输入框的文字写法发出的消息：引用、选区、技能是标签，图片与文件进附件条，粘贴块折叠。
     user("m6", 90, [
-        "先读 [第三章 雨夜](chapter://c3) 和 [[manuscript/ch03.md#L12-L40]]，再用 $reviewer 对照草图 ![image #1](local://人物关系草图.png) ![image #2](local://旧草图.png) 与 [file #1 · 采访记录.pdf](lab:notes)。",
+        "先读 [第三章 雨夜](chapter://c3) 和 [[manuscript/ch03.md#L12-L40]]，再用 $reviewer 对照草图 ![image #1](session://attachments/人物关系草图.png) ![image #2](session://attachments/旧草图.png) 与 [file #1 · 采访记录.pdf](lab:notes)。",
         "<paste id=\"2\">",
         "function tick(clock) {",
         "    clock.seconds += 1;",

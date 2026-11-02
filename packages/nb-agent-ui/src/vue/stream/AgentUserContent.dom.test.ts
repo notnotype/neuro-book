@@ -17,7 +17,7 @@ function message(blocks: ContentBlockView[]): UserMessageView {
  */
 const TOKENS: PromptToken[] = [
     {kind: "reference", label: "第一章", target: "chapter://c1"},
-    {kind: "image", number: 2, target: "local://地图.png"},
+    {kind: "image", number: 2, target: "session://attachments/地图.png"},
     {kind: "command", name: "plan"},
 ];
 const FakeTextView = defineComponent({
@@ -43,13 +43,13 @@ function mountContent(blocks: ContentBlockView[], withRenderer = true): VueWrapp
 
 describe("AgentUserContent", () => {
     it("文字交给注入的显示组件，带上界面语言；标签按去向发出动作或请求预览，命令不做任何事", async () => {
-        const wrapper = mountContent([{kind: "text", text: "[第一章](chapter://c1) ![image #2](local://地图.png) /plan"}]);
+        const wrapper = mountContent([{kind: "text", text: "[第一章](chapter://c1) ![image #2](session://attachments/地图.png) /plan"}]);
         const content = wrapper.getComponent(AgentUserContent);
         expect(wrapper.get("[data-fake-text]").attributes("data-locale")).toBe("en-US");
         for (const kind of ["reference", "image", "command"]) await wrapper.get(`[data-token='${kind}']`).trigger("click");
         expect(content.emitted("action")?.map((args) => args[0])).toEqual([
             {type: "reference.open", target: "chapter://c1"},
-            {type: "image.preview", image: {locator: "local://地图.png", name: "Image #2 · 地图.png"}},
+            {type: "image.preview", image: {locator: "session://attachments/地图.png", name: "Image #2 · 地图.png"}},
         ]);
     });
 

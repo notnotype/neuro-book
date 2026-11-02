@@ -244,5 +244,5 @@ test("PromptEditor 粘贴分档：30 行成为粘贴块，150 行转为文件附
     expect(await promptText(page)).toMatch(/^<paste id="1">\nline 001: clock\.tick\(0\);[\s\S]*\n<\/paste>\n$/u);
     await page.locator("[data-lab-action='paste-large']").click();
     await expect(page.locator("[data-lab-stage] [data-prompt-card-state='ready']")).toHaveCount(1, {timeout: 10_000});
-    await expect.poll(() => promptText(page)).toContain("[file #2 · paste-2.txt](local://paste-2.txt)");
+    await expect.poll(() => promptText(page)).toContain("[file #2 · paste-2.txt](session://attachments/paste-2.txt)");
 });

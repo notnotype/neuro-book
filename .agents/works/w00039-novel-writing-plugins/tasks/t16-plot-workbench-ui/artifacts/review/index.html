@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>作者视角的世界引擎：静态稿与原型评审板</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df; --ok: #15803d; --ok-soft: #e4f4e8;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; --ok: #86efac; --ok-soft: #173322; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 920px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+.round { margin-top: 40px; font-size: 19px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+section.q, section.s { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.done { background: var(--ok-soft); color: var(--ok); }
+.badge.info { background: var(--accent-soft); color: var(--accent); }
+.opts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+.notice { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--warn-soft); }
+.notice b { color: var(--warn); }
+figure { margin: 12px 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; border-top: 0; }
+pre { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; font-size: 13px; overflow-x: auto; }
+ol.week { padding-left: 22px; }
+ol.week li { margin: 2px 0; }
+.toc { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+.toc a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+<main>
+<h1>作者视角的世界引擎：静态稿与原型评审板</h1>
+<div class="lead">
+<p>w00039 t16。开发者 2026-11-02 要求：在开始存储与 Spec 之前，先用自己给的故事种子做一个具体的静态例子，从作者的视角看最终效果，借此找出现有设计（已接受的提案 <code>docs/proposals/world-engine-kernel.md</code>）的不足。</p>
+<p>每张图的外框都是真实组件：外壳网格、标题栏、活动栏、编辑器标签条、状态栏、右栏的 Agent 对话视图。中间的条目树、条目页、回执、待处理、变更详情、建议、改动记录、剧情表是一次性的草稿，不是产品代码。图是静态的，悬停、弹出、拖动这些交互没有画出来。画布 1440×900，亮色。</p>
+<p>样本：故事种子、“再加一个面板”和第一章大纲都是开发者 2026-11-01 给的原文。第 1 章正文按大纲写；第 2 章“用钱说话”是主会话续写的示意，里面故意留了两处要记账发现的问题：余额 19,800 和估计的蛋糕价钱对不上；“淡金色的长发”和开局设定的“银白长发”不同。</p>
+<p>界面上不出现记录 id、Component、字段路径（提案第 8 节“入口与用词”），所以草稿里把提案的几个词换成了作者的说法：初值 → 开局，讲述 → 讲到的地方，补丁 → 改了什么，生效位置 → 什么时候。</p>
+</div>
+
+<div class="round">第 3 轮 · 按决定改原型</div>
+
+<section class="s">
+<h2>这一轮改了什么 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>开发者 11-02 定了：第 2 轮的四条按推荐；数值追踪做“精确”和“语义”两档，不做“大概”；改设定以后找旧写法，怀疑程序按旧词搜的效果。原型照这些改了（类型 <a href="r3/model.ts">r3/model.ts</a>，走完一周的世界 <a href="r3/world.json">r3/world.json</a>）：</p>
+<ul>
+<li><b>修订只存变了的字段。</b>新建的存整份，修改只存变了的那几个字段的改前改后。走完一周，修订从 48 KB 降到 35 KB，而且这 35 KB 里已经包括新存进去的“带来的变化”。</li>
+<li><b>“带来的变化”在发布时存进修订。</b>回执和保存后的提示都读它，不再靠重放历史。</li>
+<li><b>精确与语义两档。</b>字段声明自己是哪一档，作者可以换。精确档照旧由程序加减、和正文写明的数核对。语义档的值与事件都是文字：正文写明的数是新的起点；之后的事只记一句“发生了什么”；现在的样子由小模型从起点开始归纳，按输入缓存（缓存键是起点加之后事件的文字），输入一样就不再调模型。原型里小模型用查表代替。</li>
+<li><b>找旧写法改成两步。</b>记账时，把正文里重述设定的句子链到那个字段上（“这句写的就是原身外观”）；改设定以后，这些句子直接就是候选，不靠按旧词搜。其余的（换了说法的、还没记账的章、细纲、别的条目）交给 Agent 自己找、自己判断。</li>
+</ul>
+</section>
+<section class="s" id="p12"><h2>p12 语义档：存款不记确切的数</h2><figure><img src="r3/p12-semantic-money.webp" alt="语义档的存款"><figcaption>同一个故事，存款换成语义档。初值是种子原话“钱不多，但够用”；第 1、2 章正文写明的 41,800、19,800 是新的起点；中间的事只记一句话。你又记了两笔（工资到账，三千左右；路上捡到 24 块），现在是小模型归纳的“两万三上下”。右栏是来历和缓存键。这一档下第 2 章不会出“存款对不上”</figcaption></figure></section>
+<section class="s" id="p13"><h2>p13 语义档：星瑾对哥哥的态度</h2><figure><img src="r3/p13-semantic-attitude.webp" alt="星瑾的态度"><figcaption>本来就说不出数的字段。初值“生哥哥的气”（种子），第 1 章记了“不吃煎蛋，说‘晚上不用等我’”，第 2 章记了“没碰那张卡，说‘你走的那几年，一个电话都没有’”，归纳成“心结很深：怪哥哥走的那几年一个电话都没有，用钱示好只让她更反感”</figcaption></figure></section>
+<section class="s" id="p08b"><h2>p08 改设定以后的建议（新做法）</h2><figure><img src="r3/p08-suggestions.webp" alt="建议"><figcaption>前两条是记账时链到“原身外观”的句子，直接列出；后面是 Agent 自己找到并判断的（变身以后的样子请你定，写妈妈的不用改）。右栏是“按正文改设定”那次修订：只存了变了的字段，下面是发布时存下的“带来的变化”</figcaption></figure></section>
+<section class="s" id="p11b"><h2>p11 你的改动的回执</h2><figure><img src="r3/p11-author-receipt.webp" alt="作者改动的回执"><figcaption>“带来的变化”现在读的是发布时存进修订的那一份</figcaption></figure></section>
+
+<div class="round">第 2 轮 · 数据结构（原型）</div>
+
+<section class="q" data-nbdev-question="r2-data" data-nbdev-type="text" data-nbdev-optional>
+<h2>看完数据长什么样，有没有和你理解的不一样的地方？ <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>选答。下面“做数据结构时发现的”第 3、6、11 条会改到已接受提案里的说法，我在会话里另外问。</p>
+</section>
+
+<section class="s">
+<h2>这一轮做了什么 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>开发者 11-02：第 1 轮只能看到界面，看不到数据长什么样，要给静态稿设计数据结构，让它没那么静态。于是把草稿改成了一个可以操作的原型：</p>
+<ul>
+<li><b>类型</b>（<a href="r2/model.ts">r2/model.ts</a>）：内核要存的数据结构，注释对照提案。</li>
+<li><b>引擎</b>：一组纯函数。发布修订（存改前改后、版本加一）；按位置折叠出状态与来历；比较核对点、找嫌疑区间；算待处理、回执；按字段找还原的依赖、做补偿修订；渲染主 MDX（给作者、给 Agent 的带值写法）；改设定后找旧写法。</li>
+<li><b>样本</b>：星瑕的世界不是写死的，是六次修订一步步搭出来的：Agent 按种子开局 → 你填数、写外观 → Agent 从第 1 章细纲提计划 → Agent 记第 1 章的账 → 从第 2 章细纲提计划 → 记第 2 章的账。之后是你在界面上做的事，同样是修订。</li>
+<li><b>界面</b>：所有界面都从这些修订重放出来的世界算出来。顶上的步骤条点哪一步就退回到哪一步；右栏换成“数据”，选中什么就显示它存下来的原始记录，选中一个值就显示它的来历，选中一次修订就显示它改了哪些字段（改前 → 改后）；条目页开着时，下面还有主 MDX 的源文和给 Agent 的渲染。</li>
+<li><b>能点的</b>：条目树、看的位置与“按计划”、点值看来历、流水和嫌疑区间里的“改这一笔”、变更详情里改数（保存前有预览）、与设定冲突的三种处理、建议的采用与不改、改动记录的还原（有依赖时列出来）。在 Lab 里打开组件 <code>WorldEngineDraft</code> 就能玩，场景 p01 到 p10 是下面十张图的起点；要开着草稿 worktree 的开发服务。</li>
+<li>走完这一周以后的整个世界：<a href="r2/world.json">r2/world.json</a>（正文省略）。</li>
+</ul>
+</section>
+
+<section class="s">
+<h2>只存六种东西 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>回答 11-02 “同类有点多、架构有点乱”：存下来的只有六种，其余都是算出来的视图。</p>
+<table>
+<thead><tr><th>存下来的</th><th>是什么</th><th>样本里的例子</th></tr></thead>
+<tbody>
+<tr><td>条目</td><td>身份（id、类型、挂在哪、身份同一、出场）加初值：名字、一句话、主 MDX 的块、各 Component 的数据；初值里的数带依据</td><td>星瑕、哥哥（马甲，挂在星瑕下面，<code>sameAs: xingxia</code>）</td></tr>
+<tr><td>剧情变更</td><td>一件事，也就是一条情节；计划是还没写的情节。带位置、讲述、涉及、剧情线、连接、补丁、生效状态</td><td>c15 订蛋糕；pl8 用钱说话（计划）；c18 淡金色的头发（待定，报冲突）</td></tr>
+<tr><td>核对点</td><td>正文写明的一个数，有自己的位置</td><td>k2：第 2 章“余额 19,800”</td></tr>
+<tr><td>未决问题</td><td>作者没想好的事，挂在任何对象上，带“正文里可能的答案”</td><td>q1 双王（挂在前史“城市大灾难”上）</td></tr>
+<tr><td>正文建议</td><td>改设定以后的旧写法，Agent 判断过</td><td>s1 第 1 章“银白的长发垂到腰际”</td></tr>
+<tr><td>修订</td><td>一次写入：谁、做什么、一组操作（每个对象改前改后）</td><td>r6 第 2 章记账（8 个对象）；r7 你改蛋糕（1 个对象）</td></tr>
+</tbody>
+</table>
+<table style="margin-top:14px">
+<thead><tr><th>算出来的（不存）</th><th>怎么算</th></tr></thead>
+<tbody>
+<tr><td>某个位置上的状态</td><td>初值，按位置与排序键打上之前所有生效的已写变更的补丁；“按计划”再加上排到这里的未兑现计划</td></tr>
+<tr><td>来历</td><td>折叠时记下每个字段被哪几条记录依次改成什么，核对点对没对上</td></tr>
+<tr><td>待处理</td><td>写到的位置上重算出的诊断（核对点对不上、补丁套不上），加上待定的变更；前面修好了就自己消失</td></tr>
+<tr><td>计划进展</td><td>有生效的已写变更兑现它，就是已兑现</td></tr>
+<tr><td>回执</td><td>一次修订的详情：从它的操作里看出新建了什么、兑现了什么、哪些数是估的；计划与正文的差额现算</td></tr>
+</tbody>
+</table>
+<p>一条情节存下来的样子（处理过以后的 c15），和它对照的核对点：</p>
+<pre>{"id": "c15", "kind": "written", "text": "订了星瑾小时候最喜欢的那家店的草莓蛋糕，写了“给星瑾”",
+ "at": {"kind": "chapter", "chapter": "ch2", "key": 20},
+ "told": [{"source": "chapter", "chapter": "ch2", "quote": "她订了一个草莓蛋糕，店员问要不要写字，她想了半天，写了“给星瑾”。"}],
+ "involves": ["xingxia", "xingjin"], "lines": ["line-brother"], "links": [{"kind": "fulfills", "plan": "pl8"}],
+ "patches": [{"op": "add", "at": {"entry": "xingxia", "path": "panel.存款"}, "value": -2000, "basis": {"kind": "derived", "check": "k2"}}],
+ "status": "active", "by": {"kind": "agent", "session": "写作助手 · 星瑕"}}
+
+{"id": "k2", "at": {"entry": "xingxia", "path": "panel.存款"}, "value": 19800,
+ "told": {"source": "chapter", "chapter": "ch2", "quote": "星瑕坐在餐桌边，手机亮了一下，是消费提醒：余额 19,800。"},
+ "place": {"kind": "chapter", "chapter": "ch2", "key": 50}}</pre>
+</section>
+
+<section class="s">
+<h2>做数据结构时发现的 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<table>
+<thead><tr><th>#</th><th>发现</th><th>原型里怎么做的</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><b>同类概念收拢成六种。</b>回执就是修订的详情；待处理是诊断加待定的变更；开局审阅、记账回执都是回执。</td><td>见上表</td></tr>
+<tr><td>2</td><td><b>“与设定冲突”不用新对象。</b>它就是一条待定的剧情变更，补丁是“按正文的那个值”，记着跟哪个字段冲突。三种处理各是一次修订：按正文改设定 = 撤销这条、改设定；是剧情里的变化 = 让它生效；按设定改正文 = 撤销这条、给一条正文建议。</td><td>c18；图 8 右栏是“按正文改设定”那次修订的改前改后</td></tr>
+<tr><td>3</td><td><b>初值不是“开局”。</b>前史夹在初值与第 1 章之间：星瑕的初值是男生，前史里性转、变身、回家。第 1 轮把初值叫“开局”是错的，读位置要分“初值”和“第 1 章开头”。</td><td>位置选择里有“初值”与各章开头、末尾；图 7 是“现在的样子”从初值一路改到第 2 章</td></tr>
+<tr><td>4</td><td><b>初值里的数也要有依据。</b>提案只给补丁标依据。存款的初值是按第 1 章正文定的（估计），魔力是你填的，Agent 开局写的来自种子。</td><td>条目上加 <code>initBasis</code></td></tr>
+<tr><td>5</td><td><b>未知的数不能加减。</b>如果存款一直是未知，第 2 章的 −20,000 会“套不上”，整条情节在那里不算数。所以缺口 1 那条“第一次在正文里出现的数定成初值”不是可选的，是必须的。</td><td>引擎对未知做加减时报“套不上”</td></tr>
+<tr><td>6</td><td><b>修订存整份对象太占地方。</b>提案说存“每个被改对象的改前与改后”。走完这一周，记录本身 26 KB，修订已经 48 KB：星瑕这个条目 2 KB，改了 4 次，修订里存了 13 KB 的副本。书长了以后，主 MDX 长的条目每改一个字段就整份复制一次。还原与依赖本来就按字段算。</td><td>原型照提案存整份，界面上按字段显示差异。建议改成只存变了的字段</td></tr>
+<tr><td>7</td><td><b>计划与正文的差额不用存。</b>计划写 −10,000，正文两笔合计 −20,300，回执现算出来。</td><td>图 3 回执的“计划”一节</td></tr>
+<tr><td>8</td><td><b>找旧写法要字段声明“会在正文里重述”。</b>原身外观、性格、马甲的“这个身份的样子”有这个标记，数字没有。找的范围是正文、细纲、别的条目的这类字段；判断交给 Agent。</td><td>字段定义上的 <code>retold</code></td></tr>
+<tr><td>9</td><td><b>还原的依赖按字段算是可行的。</b>还原第 2 章的记账，找到你改蛋糕（同一条变更的同一个补丁）和改设定（同一条待定变更）两次依赖；还原你开局后填的数，只找到改外观那次。</td><td>图 9</td></tr>
+<tr><td>11</td><td><b>你的改动也有回执，但回执里的“带来的变化”要在发布时存下来。</b>开发者 11-02 问“作者的改动没有回执吗”：原来的回执只列新建的东西，改已有记录时几乎是空的。现在任何一次修订都有同一个回执页，多了“改了什么”（按字段，用作者的话）和“带来的变化”（修订前后在写到的位置上比：待处理少了哪些、多了哪些，碰到的值从多少变成多少）；小改动保存后先给一行提示，可以看回执或撤销。“带来的变化”要比较修订前后的世界，原型靠重放算；产品里不承诺按任意历史版本重算，所以要在发布时把它算好存进修订，它和保存前的预览是同一个计算。</td><td>图 6 下方的提示条；图 11</td></tr>
+<tr><td>10</td><td><b>引用别的条目读到未知。</b>主 MDX 里 <code>{ref("brother").identity.外观}</code> 读到未知：给作者显示“未知”，给 Agent 写成 <code>null</code> 加“（未知）”。</td><td>图 2 右栏下面的两段</td></tr>
+</tbody>
+</table>
+<p>原型从简、和提案不一样的地方：约束只查下限；“已兑现”只看有没有生效的兑现连接，不看这次套没套上；表达式只认取字段和一种比较；没有并发、没有写入校验；Agent 的判断（找旧写法后的分组）是写死的。</p>
+</section>
+
+<section class="s" id="p01"><h2>p01 开局的回执</h2><figure><img src="r2/p01-opening.webp" alt="开局的回执"><figcaption>只做了第一步。和记账回执是同一个页面：新记的未决问题、前史（情节）、新建的条目。右栏是这次修订：新建了 35 个对象</figcaption></figure></section>
+<section class="s" id="p02"><h2>p02 星瑕，第 1 章末尾，点了魔力</h2><figure><img src="r2/p02-entry.webp" alt="条目页"><figcaption>右栏上面是魔力的来历（初值 3,200 你填的，第 1 章 c11 −90 估计），下面是主 MDX 源文与给 Agent 的带值写法</figcaption></figure></section>
+<section class="s" id="p03"><h2>p03 第 2 章的回执</h2><figure><img src="r2/p03-receipt.webp" alt="第 2 章回执"><figcaption>情节排在前面，状态的改动作为每条情节下面的一行；计划的差额是现算的。右栏是这次修订的 8 个操作</figcaption></figure></section>
+<section class="s" id="p04"><h2>p04 待处理：存款对不上</h2><figure><img src="r2/p04-pending.webp" alt="待处理"><figcaption>右栏是核对点 k2 存下来的样子。嫌疑区间是折叠时现算的，每一笔直接“改这一笔”</figcaption></figure></section>
+<section class="s" id="p05"><h2>p05 变更详情：把蛋糕改成 −2,000</h2><figure><img src="r2/p05-change.webp" alt="变更详情"><figcaption>保存前，引擎在一份副本上发布一次，比较前后的待处理，得出预览。右栏是 c15 改之前存下来的样子</figcaption></figure></section>
+<section class="s" id="p06"><h2>p06 保存以后：面板与流水</h2><figure><img src="r2/p06-panel.webp" alt="面板"><figcaption>流水就是存款的来历；两个核对点都对上了。右栏是你这次修订：只有 c15 的一个补丁从 −300 变成 −2,000。下方是保存后的一行提示：待处理少了 1 条、存款从 21,500 变成 19,800，可以看回执或撤销</figcaption></figure></section>
+<section class="s" id="p07"><h2>p07 “现在的样子”怎么来的</h2><figure><img src="r2/p07-shape.webp" alt="人物 Tab"><figcaption>初值“原身”（男生时的样子）→ 前史 p04 魔法少女 → 前史 p11 哥哥 → 第 1 章 c11 原身 → 第 2 章 c16 哥哥（发现 3）</figcaption></figure></section>
+<section class="s" id="p08"><h2>p08 头发按正文改设定以后</h2><figure><img src="r2/p08-suggestions.webp" alt="建议"><figcaption>右栏是“按正文改设定”那次修订：c18 从待定变成已撤销，星瑕初值的原身外观从银白变成淡金色（发现 2）。下面是 Agent 给的建议</figcaption></figure></section>
+<section class="s" id="p09"><h2>p09 还原第 2 章的记账</h2><figure><img src="r2/p09-revert.webp" alt="改动记录"><figcaption>按字段找出依赖：r7、r8 改过这次写下的同一处，只能连同一起还原（发现 9）</figcaption></figure></section>
+<section class="s" id="p11"><h2>p11 你的改动也有回执</h2><figure><img src="r2/p11-author-receipt.webp" alt="作者改动的回执"><figcaption>“按正文改设定”那一次：改了什么（那条待定的情节被撤销、星瑕初值的原身外观改成淡金色），带来的变化（待处理少了一条，原身外观变了）。旁边的标签是你改蛋糕那一次的回执（发现 11）</figcaption></figure></section>
+<section class="s" id="p10"><h2>p10 剧情容器与剧情表</h2><figure><img src="r2/p10-plot.webp" alt="剧情表"><figcaption>剧情线不在设定里了：活动栏单独一个“剧情”，有剧情表、四条剧情线、三个未排章的计划。表格是从剧情变更现算的</figcaption></figure></section>
+
+<div class="round">第 1 轮</div>
+
+<section class="q" data-nbdev-question="r1-expectation" data-nbdev-type="text">
+<h2>整体看下来，符合你的预期吗？ <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p>先看下面的十屏和“搭稿时发现的缺口”。哪一屏和你想的不一样、缺了什么、哪里多了，直接写；可以只写屏号加一句话。</p>
+<p><b>开发者 11-02 在会话里的十条意见</b>（记在 Task README）：回执好，回执里要看得到情节；底部面板放待处理可以；改动记录与剧情表以后打磨；剧情线不放进设定；要作者审批的东西太多、同类太多。第 2 轮按这些改了。</p>
+</section>
+
+<section class="q" data-nbdev-question="r1-detail-place" data-nbdev-type="single" data-nbdev-recommend="panel">
+<h2>待处理、建议点开以后的详情放在哪 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p>待处理（第 4 屏）和建议（第 8 屏）的详情要 400px 左右才看得全，底部面板默认只有 200px。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="panel"><h3>留在底部面板，作者自己拉高</h3>
+<p>第 4、8 屏现在的画法。上面的章节滚到原句，下面是要拍板的事，两样同时看得到；面板的高度照常由作者拖，系统不替作者改尺寸。</p></div>
+<div class="opt" data-nbdev-option="editor"><h3>详情进编辑器区的标签页</h3>
+<p>底部面板只放列表，点一项在编辑器区打开一个“待处理”标签页，和变更详情一样。地方够大，但正文原句就要靠拆分并排才能同时看。</p></div>
+</div>
+<div class="rec-note"><b>已定：留在底部面板</b>（开发者 11-02：“这个面板用来放待处理这种事项也挺好的”）。<b>推荐理由：</b>处理待处理时最要紧的是对照正文原句；放进编辑器区会把正文挤走。面板高度沿用外壳已有的记忆尺寸，拉高一次以后一直是这个高度。</div>
+</section>
+
+<div class="round">搭稿时发现的缺口</div>
+<section class="s">
+<h2>提案没写到、或者照着画出来别扭的地方 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>这些是搭稿时遇到的，草稿里先按“草稿里怎么画的”一列处理。哪些要改提案、哪些留给后续 Task，我在会话里逐条问你。</p>
+<table>
+<thead><tr><th>#</th><th>缺口</th><th>草稿里怎么画的</th><th>建议归到</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><b>种子开局时，数是“未知”。</b>种子只说“钱不多，但够用”。提案只给“已有成稿”定了“第一次在正文里出现的数当初值，标估计”，没说从种子开局时怎么办，也没说“未知”在条目页、给 Agent 的文字、核对点里怎么显示。</td><td>开局时面板的数空着，列进未决问题；第 1 章记账遇到“账户余额 41,800”，按正文定为开局数，标估计（第 1、6 屏）</td><td>t27 内核 Spec</td></tr>
+<tr><td>2</td><td><b>正文可能回答了未决问题。</b>第 2 章星瑾说“你走的那几年，一个电话都没有”，正好像“兄妹为什么关系不好”的答案。提案只说 Agent 不替作者补全，没说记账碰到可能的答案怎么办；而“角色说的不算世界的变化”。</td><td>回执里加一节“可能回答了一个未决问题”：当成答案、只算星瑾的一个说法、先放着（第 3 屏）</td><td>t19 写作流程</td></tr>
+<tr><td>3</td><td><b>就地改紧挨着核对点时，“改设定”的三种改法都和正文冲突。</b>第 2 章末尾刚对上“余额 19,800”，这时把存款改成 29,800，改开局数、改哪一笔，都会让正文的余额对不上，只有“补一笔”不冲突。而在第 2 章末尾，“补一笔漏记”和“这是剧情里发生的变化”是同一件事，两个入口重叠。</td><td>四种改法照提案列出，每种写明后果；勾选框照留（第 7 屏）</td><td>t16 作者界面；规则进 t27</td></tr>
+<tr><td>4</td><td><b>未决问题挂在哪。</b>提案写“挂在章或剧情线上”。种子里的未决问题挂在前史（双王）、剧情线（兄妹心结）、组织（部门名）、身份（代号）、面板字段（数）上。</td><td>挂在各自的对象上，开局审阅里列在最前，侧栏有一个入口（第 1、2 屏）</td><td>t27</td></tr>
+<tr><td>5</td><td><b>细纲里讲到的过去的事。</b>“被软禁，靠彗的魔偶逃脱”第一次出现在第 1 章大纲里。它不是计划，是已经发生的前史。提案只说 Agent 从细纲提出计划。</td><td>记成前史，出处写“第 1 章细纲”（第 10 屏“官方的腐败”一行）</td><td>t19；记法进 t27</td></tr>
+<tr><td>6</td><td><b>Agent 自己加的结构算不算替作者补全。</b>你只说“再加一个面板”，面板的四个字段是 Agent 按面板文的常见写法建的。</td><td>字段建了，数空着，并把“面板的数”列成未决问题（第 1 屏）</td><td>t19</td></tr>
+<tr><td>7</td><td><b>“现在的样子”与马甲条目重叠。</b>星瑕有一个“现在的样子”字段（原身、哥哥、魔法少女），又有“哥哥”“魔法少女”两个马甲条目。原身不是马甲；魔法少女变身后的外观放在马甲上还是本体上，提案没说。</td><td>样子是本体的字段，马甲只管社会身份；魔法少女的外观写在马甲的文字里，所以改设定时它被列为“请你判断”（第 8 屏）</td><td>t10 字段清单</td></tr>
+<tr><td>8</td><td><b>工具名撞名。</b>提案的 <code>read</code>、<code>write</code> 和 harness 自带的读写文件工具同名。</td><td>对话里写成 <code>world_lookup</code>、<code>world_read</code>、<code>world_write</code>（第 1、2 屏右栏）</td><td>t20</td></tr>
+<tr><td>9</td><td><b>详情放不进默认高度的底部面板。</b></td><td>见上面的待定题</td><td>t16</td></tr>
+</tbody>
+</table>
+</section>
+
+<div class="round">十屏：星瑕的第一周</div>
+<section class="s">
+<h2>故事线 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<ol class="week">
+<li>你把故事种子发给 Agent，看开局审阅。</li>
+<li>写第 1 章、记账，然后打开星瑕看看。</li>
+<li>写第 2 章“用钱说话”，记账，回执里有两处要你拍板。</li>
+<li>处理“存款对不上”：发现是蛋糕的价钱估错了。</li>
+<li>在变更详情里把蛋糕改成 −2,000。</li>
+<li>看星瑕的面板和存款的流水。</li>
+<li>（假设）你直接把存款改成 29,800，看确认条。</li>
+<li>处理“头发与设定不同”：你选按正文改设定，看正文修改建议。</li>
+<li>打开改动记录，想撤销第 2 章的记账。</li>
+<li>看剧情表。</li>
+</ol>
+<div class="toc"><a href="#s01">1 开局审阅</a><a href="#s02">2 条目页</a><a href="#s03">3 记账回执</a><a href="#s04">4 待处理</a><a href="#s05">5 变更详情</a><a href="#s06">6 面板</a><a href="#s07">7 就地改</a><a href="#s08">8 改设定以后</a><a href="#s09">9 改动记录</a><a href="#s10">10 剧情表</a></div>
+</section>
+
+<section class="s" id="s01">
+<h2>1 开局审阅：交了故事种子以后</h2>
+<figure><img src="r1/s01-opening.webp" alt="开局审阅"><figcaption>编辑器区是开局审阅，右栏是交种子的那段对话，侧栏是建出来的条目树</figcaption></figure>
+<p>你把种子（加“再加一个面板”）发给 Agent。开局的时间点种子里写清楚了，没有挡住开局的问题，Agent 直接建了 18 个条目、10 条前史，已经生效。它的两次写入（先预览、再发布）收在对话的“过程”里。</p>
+<p>开局审阅是“看过”，不是“批准”：你还没定的 7 件事排最前，每件附上种子原文，可以写下答案或先放着；后面是前史时间线和按类型列的条目。“看过 0 / 18”只是进度，不看也不影响写。</p>
+</section>
+
+<section class="s" id="s02">
+<h2>2 条目页：星瑕，第 1 章末尾</h2>
+<figure><img src="r1/s02-entry.webp" alt="条目页"><figcaption>文字 Tab，点开了魔力的来历；右栏是你问“还剩多少魔力”</figcaption></figure>
+<p>顶上：名字、类型、“也是：哥哥、魔法少女（代号未定）”，右边是看的位置（默认跟着你正在写的章）和锁。下面是主 MDX 渲染出来的文字，值直接嵌在句子里：虚线下划线表示这是一个可以改的值，悬停显示中文字段名；“第 1 章改过”“含估计”是淡色小字。点了魔力，来历展开：开局 3,200（你在开局审阅里填的），第 1 章 −90（估计，正文只写了“魔力又少了一点”）。</p>
+<p>人物、面板、情节在各自的 Tab 里，不和文字挤在一起。右栏 Agent 读到的是带值写法：</p>
+<pre>现在的样子：{character.形态 = "原身"}（显示名：现在的样子）
+魔力 {panel.魔力 = 3110}/{panel.魔力上限 = 12000}，存款 {panel.存款 = 41800}
+今天还能回溯 {panel.回溯次数 = 1} 次（显示名：今天还能回溯）
+{panel.魔力 >= 1000 ? "还能变身。" : "魔力不够变身。" -> "还能变身。"}</pre>
+</section>
+
+<section class="s" id="s03">
+<h2>3 第 2 章的记账回执</h2>
+<figure><img src="r1/s03-receipt.webp" alt="记账回执"><figcaption>记账后弹出，以后可以从改动记录重开</figcaption></figure>
+<p>从上往下：要你拍板的两项；一处“可能回答了未决问题”（缺口 2）；计划已兑现，细纲写“一万零花钱”、正文写“两万”，按正文记，没写到的“星瑾把卡推回来”拆成第 3 章开头的新计划；记下的四条变更，蛋糕的 −300 是估的；最后是没有建条目的（街角的蛋糕店没有名字）。除了要你拍板的，都已经生效；整次记账可以一键撤销。</p>
+</section>
+
+<section class="s" id="s04">
+<h2>4 待处理：存款对不上</h2>
+<figure><img src="r1/s04-pending.webp" alt="待处理"><figcaption>上面的章节滚到了原句；下面是待处理的列表与详情</figcaption></figure>
+<p>正文写余额 19,800，算出来 21,500。从上一个对得上的数（第 1 章“账户余额 41,800”）到这里只有两笔，估计的蛋糕排在前面。处理办法照提案不预选。</p>
+<div class="notice"><b>我自己看着别扭的一处：</b>每一笔已经有“打开”，下面的“改或撤前面的某一笔”又说了一遍。可以把三种办法拆开：每行直接“改这一笔”，下面只留“插一笔漏记”和“正文写错了”。这条不单独问，你在第一题里一起说就行。</div>
+</section>
+
+<section class="s" id="s05">
+<h2>5 变更详情：订草莓蛋糕</h2>
+<figure><img src="r1/s05-change.webp" alt="变更详情"><figcaption>从待处理点进来，改了数、还没保存；标签是斜体的预览标签，点别的变更会被替换</figcaption></figure>
+<p>一条剧情变更的全部内容都在这里改：发生了什么、什么时候、讲到的地方、涉及、剧情线、改了什么、连到哪个计划、谁记的。把 −300 改成 −2,000，“数从哪来”从“估计”换成“由核对点推出”，系统写出算式；保存前的预览说待处理会消失、后面没有别的记录受影响。</p>
+</section>
+
+<section class="s" id="s06">
+<h2>6 面板：存款的流水</h2>
+<figure><img src="r1/s06-panel.webp" alt="面板"><figcaption>第 2 章末尾，蛋糕处理过以后</figcaption></figure>
+<p>左边是面板的当前值，右边是选中的存款的流水：开局数按第 1 章正文定（估计，缺口 1），两次核对都对得上。每一行都能打开那条变更；“记一笔”落在当前位置（第 2 章末尾）。</p>
+</section>
+
+<section class="s" id="s07">
+<h2>7 就地改存款：确认条</h2>
+<figure><img src="r1/s07-inplace.webp" alt="就地改"><figcaption>你直接把 19,800 改成 29,800，保存前弹出</figcaption></figure>
+<p>存款是几笔累出来的，所以要你选改哪一处，不预选。每种改法写明后果：前三种都会让刚对上的“余额 19,800”对不上（缺口 3）。“这是剧情里发生的变化”的勾选框在这里和第四种改法是同一件事。</p>
+</section>
+
+<section class="s" id="s08">
+<h2>8 改设定以后：正文修改建议</h2>
+<figure><img src="r1/s08-suggestions.webp" alt="建议"><figcaption>上面是第 1 章，旧写法下面画了波浪线和建议；下面是建议列表</figcaption></figure>
+<p>处理“头发与设定不同”时，你选按正文改设定：原身外观的“银白”改成“淡金色”，写回开局设定。系统去找旧写法：第 1 章两处写的是原身，建议改；魔法少女身份的文字里有一处，变身后的样子可以和原身不同，请你判断（缺口 7）；第 3 章细纲里那处写的是母亲，不改。只给建议，不自动改正文；一组可以一起采用，也可以“都不改，以后不再提”。</p>
+</section>
+
+<section class="s" id="s09">
+<h2>9 改动记录：撤销第 2 章的记账</h2>
+<figure><img src="r1/s09-revisions.webp" alt="改动记录"><figcaption>底部面板的第三个视图，展开了第 2 章的记账</figcaption></figure>
+<p>所有修订按时间排，新的在上；每条写谁、什么时候、改了什么，可以还原。你想撤销第 2 章的记账，但后面你把蛋糕改成 −2,000 依赖它：第一版不单独撤，要么连同那条一起还原（从后往前），要么不撤。正文本身的修改历史不在这里，在文件历史里。</p>
+</section>
+
+<section class="s" id="s10">
+<h2>10 剧情表</h2>
+<figure><img src="r1/s10-plot.webp" alt="剧情表"><figcaption>已写加计划</figcaption></figure>
+<p>剧情线乘章。实底是已写的事，虚线框是计划，问号是挂着未决问题的。第 3 章的“星瑾把卡推回来”是第 2 章拆出来的；“官方的腐败”的前史里有一条出处是第 1 章细纲（缺口 5）。</p>
+</section>
+
+<div class="round">现状与参照</div>
+<section class="s">
+<p>新应用里还没有任何设定界面，外框之外都是新画的。旧应用的设定是文件夹加详情面板（<code>packages/neuro-book-legacy/app/components/novel-ide/workspace/WorkspaceLorebookDetailPanel.vue</code>），剧情工作台见归档文档站的截图（<code>docs/archived/vitepress/public/images/剧情工作台.jpg</code>）；两者的模型都已被提案取代，这一轮没有沿用它们的版式。</p>
+</section>
+</main>
+</body>
+</html>

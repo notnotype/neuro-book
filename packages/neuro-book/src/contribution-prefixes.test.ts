@@ -26,6 +26,7 @@ const OWN_ID_RULES: Readonly<Record<string, string>> = {
     "markdown.dialects": "方言名（ui/markdown-dialects）",
     "markdown.syntaxes": "语法名（ui/markdown-dialects）",
     "editor.languages": "语言 id（workbench/editor.md）",
+    "files.schemes": "方案名，只接受内置插件注册（workspace/resources.md 的“方案注册”，files/schemes.test.ts）",
 };
 
 const INTRUDER = "acme.intruder";

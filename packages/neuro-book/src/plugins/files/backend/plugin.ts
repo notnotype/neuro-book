@@ -32,8 +32,13 @@ import type {Batch, BatchControl} from "./batch";
 import {createOperations} from "./operations";
 import type {Operations} from "./operations";
 import {createPreviewTokens, createRawRoutes, PREVIEW_PREFIX} from "./raw-route";
+import {SCHEMES_POINT, schemesPoint, serverFilesKey} from "../shared/schemes";
+import {saveText, tracked} from "./execute";
+import {createProjectsScheme} from "./projects-scheme";
+import {SchemeRegistry} from "./registry";
+import {provideServerFiles} from "./server-files";
 import {openRoot} from "./rooted";
-import type {RootOptions} from "./rooted";
+import type {RootedRoot, RootOptions} from "./rooted";
 
 /** 写入来源按调用方身份：窗口里的插件是写作者，服务端与项目实例里的插件是系统（resources.md 的“写入来源”）。 */
 export function sourceOf(consumer: ConsumerIdentity): ChangeSource {
@@ -41,20 +46,17 @@ export function sourceOf(consumer: ConsumerIdentity): ChangeSource {
 }
 
 /**
- * 写方法登记为提供入口作用域上的在途操作：入口停止时等它实际结束才关闭，不在关闭之后继续改用户的文件
- * （docs/specs/workspace/files.md 的“停止与取消”）。
+ * 写方法的 `as`（转发来的来源）只认服务端位置的 `nbook.files`（`projects://` 的转发，resources.md 的“写入来源”）；别的调用方
+ * 带了按无权拒绝。远程提供方不能交回路由层的 `invalid-input`，所以用业务码 `permission-denied`。
  */
-async function tracked<T>(scope: Scope, label: string, run: () => Promise<T>): Promise<T> {
-    let value: {readonly result: T} | null = null;
-    const handle = scope.accept({label, run: async () => {
-        value = {result: await run()};
-    }});
-    const ended = await handle.termination;
-    if (ended.status === "failed") throw ended.error;
-    return (value as {readonly result: T} | null)?.result as T;
+function sourceFor(consumer: ConsumerIdentity, as: ChangeSource | undefined): ChangeSource | {readonly ok: false; readonly code: "permission-denied"; readonly detail: {readonly detail: string}} {
+    if (as === undefined) return sourceOf(consumer);
+    if (consumer.location === "server" && consumer.plugin === descriptor.id) return as;
+    return {ok: false, code: "permission-denied", detail: {detail: "只有服务端的文件服务可以转发写入来源"}};
 }
 
 interface Backend {
+    readonly root: RootedRoot;
     readonly service: FilesService;
     readonly operations: Operations;
     readonly batch: Batch;
@@ -86,14 +88,15 @@ function implementation(backend: Backend, consumer: ConsumerIdentity): RemoteImp
             list: (input) => service.list(input.path),
             read: (input) => service.read(input.path),
             realPath: (input) => service.realPath(input.path),
-            write: (input) => tracked(scope, "files.write", async () => {
-                const saved = await service.write(input.path, input.text, input.baseline, changes.temporaryPath);
-                if (!saved.ok) return saved;
-                changes.saved({path: input.path, realPath: saved.value.realPath, bytes: saved.value.bytes}, source);
-                return {ok: true as const, value: {baseline: saved.value.baseline, ...(saved.value.identity === undefined ? {} : {identity: saved.value.identity})}};
-            }),
+            write: async (input) => {
+                const writer = sourceFor(consumer, input.as);
+                return "ok" in writer ? writer : saveText(backend, input.path, input.text, input.baseline, writer);
+            },
             identify: (input) => operations.identify(input.paths),
-            create: (input) => tracked(scope, "files.create", () => operations.create(input, source)),
+            create: async (input) => {
+                const writer = sourceFor(consumer, input.as);
+                return "ok" in writer ? writer : tracked(scope, "files.create", () => operations.create(input, writer));
+            },
             createContent: (input) => tracked(scope, "files.create-content", () => operations.createContent(input, source)),
             rename: (input) => tracked(scope, "files.rename", () => operations.rename(input, source)),
             convert: (input) => tracked(scope, "files.convert", () => operations.convert(input, source)),
@@ -134,7 +137,7 @@ async function openBackend(context: ActivationContext, scheme: "user" | "project
         diagnose,
         stopped: (operation, detail) => record("info", "files.batch.stopped", detail, {operation}),
     });
-    const backend: Backend = {service, operations, batch, changes, scope: context.scope};
+    const backend: Backend = {root, service, operations, batch, changes, scope: context.scope};
     return {root, record, backend};
 }
 
@@ -149,12 +152,16 @@ const serverEntry = defineEntry({
     // 项目登记只有服务端宿主提供；只装了文件服务的实例（测试场地）里没有它，项目的字节地址随之不可用。
     dependencies: [{key: diagnosticsKey}, {key: clockKey}, {key: stateRootKey}, {key: projectsKey, required: false}],
     contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],
+    provides: [serverFilesKey],
     remoteProvides: [userFilesContract, filesPreviewContract],
+    receives: [SCHEMES_POINT],
     activate: async (context) => {
         const state = context.services.require(stateRootKey).path;
         const path = join(state, "user");
         await mkdir(path, {recursive: true});
         const {root, record, backend} = await openBackend(context, "user", {path, options: {controlDirectory: false, lockDirectory: join(state, "locks", "user-files")}});
+        const schemes = new SchemeRegistry({scope: context.scope, clock: context.services.require(clockKey), lockRoot: join(state, "locks", "schemes"), record});
+        context.onStop(() => schemes.stop());
         const projects = await context.services.resolve(projectsKey);
         const registry = projects.status === "resolved" ? projects.instance : null;
         const tokens = createPreviewTokens();
@@ -191,8 +198,10 @@ const serverEntry = defineEntry({
             for (const token of state.tokens) tokens.revoke(token);
         }});
         return {
+            services: [provideServerFiles({user: backend, registry: schemes, projects: registry === null ? null : createProjectsScheme(registry, context.remote), signal: context.signal, sourceOf})],
             remote: [provideRemote(userFilesContract, (consumer) => implementation(backend, consumer)), preview],
             contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: routes}},
+            receivers: {[SCHEMES_POINT]: schemes.receiver},
         };
     },
 });
@@ -219,5 +228,6 @@ function recordTo(diagnostics: DiagnosticsService) {
 
 export const filesBackendPlugin: PluginDefinition = {
     id: descriptor.id,
+    contributionPoints: [schemesPoint],
     entries: [serverEntry, projectEntry],
 };

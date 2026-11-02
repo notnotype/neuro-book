@@ -45,6 +45,22 @@ describe("能不能往输入框里投", () => {
         }
     });
 
+    test("上沿横线里写着会话名时照样认输入框：框里有字仍不可投；横线前面有字、名字后面没有横线的不算横线（t19）", () => {
+        const sample = samples.find((entry) => entry.name === "claude-named-session")!;
+        const lines = sample.visibleAnsi.split("\n");
+        const promptIndex = lines.findIndex((line) => line.startsWith("❯"));
+        const typed = [...lines];
+        typed[promptIndex] = "❯ 我正在打的半截字";
+        expect(judgeDeliverable({agent: "claude", explain: {...sample.explain, livePromptBoxPreview: "❯ 我正在打的半截字\n"}, visibleAnsi: typed.join("\n")})).toMatchObject({ok: false, reason: "input_not_empty"});
+        const rule = lines[promptIndex - 1]!;
+        for (const broken of [rule.replace(/─ w00099/u, "x w00099"), rule.replace(/ ─(\u001b\[0m)?\r?$/u, "$1")]) {
+            expect(broken).not.toBe(rule);
+            const screen = [...lines];
+            screen[promptIndex - 1] = broken;
+            expect(judgeDeliverable({agent: "claude", explain: sample.explain, visibleAnsi: screen.join("\n")})).toMatchObject({ok: false, reason: "unknown_screen"});
+        }
+    });
+
     test("占位文字只在暗色时算空：同样的文字不暗就是开发者打的字", () => {
         const sample = samples.find((entry) => entry.name === "claude-placeholder")!;
         const undimmed = sample.visibleAnsi.replace("\u001b[2m", "");

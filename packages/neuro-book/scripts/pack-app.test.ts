@@ -11,6 +11,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {BUN_ENGINE, PRODUCT_VERSION} from "../src/shared/product";
 
+import {locateDocsRoot} from "../src/plugins/agent/backend/docs-root";
 import {APP_NAME, bundleProblems, packApp} from "./pack-app";
 
 let tmp = "";
@@ -46,7 +47,10 @@ describe("应用包", () => {
         const entries = tarEntries(tarball);
         const chunks = entries.filter((name) => /^package\/server\/(?:nbook|project)-[\w-]+\.js$/u.test(name));
         expect(chunks.some((name) => name.startsWith("package/server/nbook-"))).toBe(true);
-        expect(entries.filter((name) => !chunks.includes(name))).toEqual(["LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "package.json", "server/nbook.js", "server/project.js", "web/assets/codicon-abc123.ttf", "web/index.html"].map((name) => `package/${name}`).sort());
+        // Agent 读的产品文档（docs/specs/agent/resources.md 输出 8）：SDK 的作者文档与 Agent 自己的文档。
+        const docs = entries.filter((name) => name.startsWith("package/docs/"));
+        expect(docs).toEqual(expect.arrayContaining(["package/docs/builtin/sdk/README.md", "package/docs/builtin/sdk/docs/exports.md", "package/docs/agent/addresses.md"]));
+        expect(entries.filter((name) => !chunks.includes(name) && !docs.includes(name))).toEqual(["LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "package.json", "server/nbook.js", "server/project.js", "web/assets/codicon-abc123.ttf", "web/index.html"].map((name) => `package/${name}`).sort());
 
         const manifest = JSON.parse(await readFile(join(out, "package.json"), "utf8")) as Record<string, unknown>;
         expect(manifest).toMatchObject({name: APP_NAME, version: PRODUCT_VERSION, bin: {nbook: "./server/nbook.js"}, engines: {bun: BUN_ENGINE}, license: "AGPL-3.0-only", publishConfig: {access: "public"}});
@@ -68,6 +72,15 @@ describe("应用包", () => {
         const readme = await readFile(join(out, "README.md"), "utf8");
         expect(readme).not.toContain("{{");
         expect(readme).toContain(BUN_ENGINE);
+
+        // 解到仓库外：服务端按安装布局找到文档目录（与运行时同一个定位函数，起点是服务端代码所在的 `server/`）。
+        const unpacked = join(tmp, "unpacked");
+        await mkdir(unpacked, {recursive: true});
+        const extracted = Bun.spawnSync(["tar", "xzf", tarball, "-C", unpacked]);
+        expect(extracted.exitCode).toBe(0);
+        const located = locateDocsRoot(join(unpacked, "package", "server"));
+        expect(located).toBe(join(unpacked, "package", "docs"));
+        expect(await readFile(join(located as string, "builtin", "sdk", "README.md"), "utf8")).toContain("docs/exports.md");
 
         // 再打一次：上次生成的目录清掉重建。
         expect((await packApp({webRoot: web, outDir: out})).tarball).toBe(tarball);

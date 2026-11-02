@@ -1,6 +1,6 @@
 # t08 实施计划：资源地址与 home
 
-第三稿（2026-11-02）：按两轮设计审查修订，处理见 [evidences/design-review-disposition.md](evidences/design-review-disposition.md)。与初稿最大的不同：服务端插件经进程内服务访问已注册的方案，浏览器一侧不动，浏览器访问新方案随 t17（开发者 2026-11-02 确认）。
+第四稿（2026-11-02）：按三轮设计审查修订，处理见 [evidences/design-review-disposition.md](evidences/design-review-disposition.md)。与初稿最大的不同：服务端插件经进程内服务访问已注册的方案，浏览器一侧不动，浏览器访问新方案随 t17（开发者 2026-11-02 确认）。
 
 ## Context
 
@@ -10,7 +10,7 @@ t12（基础工具）要按资源地址读写，地址层却只有 `project://`�
 
 1. Agent 的方案都注册进文件服务（`nbook.files`），不由 Agent 插件绕开文件服务直接读写；方案注册接口（`resources.md` 里的 planned 项）在本 Task 做掉，`nbook.files` 可以一起改设计。
 2. Agent 写入记为该会话（来源 `{kind: "agent", session}`）：`nbook.files` 加“代哪个会话写”，只认 `nbook.agent`。
-3. `tmp://` 在会话归档时清理，服务端启动时清掉已不存在或已归档的会话留下的目录；不在会话空闲卸下（t10 的 30 秒关闭）时清。第二轮审查后细化：归档的会话等它卸下（不在运行）时再清，见“Agent 的方案”。
+3. `tmp://` 只在服务端启动时清理：清掉已不存在或已归档的会话留下的目录（开发者 2026-11-02 第三轮审查后改判，原为“归档时清理”：工具被中止后底层可能仍在用目录、订阅会让归档会话一直不卸下，归档时安全地删要一整套撤下与借用机制）。
 4. `docs://` 先放插件 SDK 的说明与示例（`docs://builtin/sdk/`）和 Agent 插件自己的文档（`docs://agent/`）；插件声明文档目录等第一个使用方。`skills://` 只有说明、没有条目，条目随 t15。
 5. `sessions://` 的根先只按最近使用列出，“与本会话有关的排在前面”随 t14 的父子会话。
 6. 初稿里另定、开发者已认可：`tmp://` 的全局名 `temps://<会话 id>/`；`projects://` 的租约跟着每次调用走；代会话写按插件 id 认人；`sessions://` 根至多 200 条；挂载目录空闲 5 分钟关闭、上限 64；新失败码 `unsupported-capability`、`project-unavailable`。
@@ -43,8 +43,7 @@ t12（基础工具）要按资源地址读写，地址层却只有 `project://`�
   - 64 是软上限：超出时回收空闲的，都在用就照开并写诊断；`closing` 中到来的请求等它收口后重新打开；
   - 挂载点的根目录不存在：读为 `not-found`，列出为空列表；
   - 物化（第一次写、新建或取真实路径）：先按词法路径授权；通过后核对容器是真实目录，`create` 为真时在容器下非递归建挂载点根（名字是单段），打开根并核对它是真实目录；目标落在 `ensure` 的子目录下时，在打开的根里排他新建这个子目录；同名的文件或链接已存在时为 `not-a-directory` 或 `protected-path`，不覆盖；然后照常按真实路径授权实际目标。被拒的请求不建任何目录；
-  - 注册方撤回或入口停止：先拒新请求，等在途请求结算，再关闭全部挂载点；
-  - `retire(mount)`（Files 交给注册方的句柄上）：只撤一个挂载点，同样先拒新借用、等在途结算、关闭 Backend；之后再访问时按新根重新打开。
+  - 注册方撤回或入口停止：先拒新请求，等在途请求结算，再关闭全部挂载点，撤回后不再重开。
 - 挂载方案的 Backend 不做文件夹类型投影：`.content`、`.binder` 当普通目录，不维护 `content.xml`，新建不会顺带写别的文件。
 - 授权只在服务入口做（词法与真实路径各一次），操作内部等锁后的重新解析不再调授权回调：其间能换链接的只有 Agent 自己的 shell，shell 绕过文件工具是已接受的限制（t12 决定），写进 Spec 的已知限制。
 - 这次不声明 `watch`：没有订阅方，挂载点的 ChangeHub 不开监视（`changes.ts` 只在有订阅时监视），写入照样经 ChangeHub 记来源，留给 t17 的订阅。
@@ -54,7 +53,7 @@ t12（基础工具）要按资源地址读写，地址层却只有 `project://`�
 ### 服务端的进程内服务（`files/shared/contracts.ts` 的 `serverFilesKey`，实现在 `files/backend/server-files.ts`）
 
 - `nbook.files` 服务端入口提供按调用方门面的服务 `serverFilesKey`（`nb-runtime/services` 的 `perConsumer`）。方法：`list(address, options?)`、`read(address, options?)`、`write(address, text, baseline, options?)`、`create(address, kind, options?)`、`realPath(address, options?)`。不提供批量、删除、改名，也没有单独的取消方法：t12 的工具用不到。
-- 成功值：实体沿用现有合同（`FilesResult` 里的列出结果、`{text, baseline}`、`{path}`）；虚拟根的 `list` 返回 `{kind: "virtual", description, entries: [{name, address, title?, meta}]}`（`address` 是全局地址），虚拟根的 `read` 为 `not-a-file`、`realPath` 为 `unsupported-capability`。
+- 成功值：实体沿用现有合同（`FilesResult` 里的列出结果、`{text, baseline}`、`{path}`）；虚拟根的 `list` 返回 `{kind: "virtual", description, entries: [{name, address, title?, meta}]}`（`address` 是全局地址）；虚拟根的 `read` 返回同一份内容的文字呈现（说明，加每个条目一行：全局地址、标题与元数据），基线为文字的哈希，写入为 `permission-denied`；`realPath` 为 `unsupported-capability`。
 - `options.signal`：调用方的 `AbortSignal`（t12 传工具执行的 `signal`）；门面释放与 Files 入口停止也中止在途调用。写请求已发出后中止的，结果照实交回（`projects://` 为 `unknown-outcome`）。
 - `options.as: {agent: {session, profile}}`：只在门面的调用方是服务端位置的 `nbook.agent` 时接受，否则为 `invalid-input`。带了它时写入来源为 `{kind: "agent", session}`，授权回调收到的 `caller.agent` 就是它；没带时来源按现有 `sourceOf` 为 `{kind: "system", plugin}`。
 - 会话与 Profile 的真伪由 `nbook.agent` 负责（它只按内核给的 `ToolSessionContext` 签发），Files 不查。
@@ -77,26 +76,26 @@ t12（基础工具）要按资源地址读写，地址层却只有 `project://`�
 | `sessions` | 最近使用的会话，至多 200 个（id、标题、Profile、更新时间） | `<id>` → `<状态根>/agent/sessions/<id>/`，`create: false`、`ensure: ["home"]`；只露出 `session.jsonl`（所有人只读）与 `home/`，其余为 `protected-path` | 自己的 `home/`，`home/attachments/`、`home/artifacts/` 除外 |
 | `profiles` | Profile 目录（key、名称、来源、可不可用），来自 `ProfileCatalog` | `<key>` → `<状态根>/agent/profiles/<key>/`，`create: true` | `caller.agent.profile` 与挂载点相同时 |
 | `temps` | 无条目（说明它是各会话的临时目录） | `<会话 id>` → `<系统临时目录>/nbook/<状态根标记>/sessions/<id>/`，`create: true`；`nbook` 属别的用户时用 `nbook-<uid>`；状态根标记是状态根真实路径 SHA-256 的前 16 位 | 自己的 |
-| `docs` | 说明与 `builtin`、`agent` | `builtin` → `dist/docs/builtin/`（SDK 作者文档在其下的 `sdk/`，下节）；`agent` → Agent 插件的文档目录 | 无 |
+| `docs` | 说明与 `builtin`、`agent` | 容器 `dist/docs/`：`builtin` → `dist/docs/builtin/`（SDK 作者文档在其下的 `sdk/`），`agent` → `dist/docs/agent/`（下节） | 无 |
 | `skills` | 只有说明（t15 之前没有条目） | 无 | 无 |
 
 - `home/` 按需建：`sessions` 的挂载点 `create: false`（会话目录由内核建，不存在就是没有这个会话），`ensure: ["home"]`，第一次写入或取真实路径落在 `home/` 下时建。fork 与已有会话因此不必另补。
 - `temps` 的容器：`nbook[-uid]`、状态根分区、`sessions` 三层由 `nbook.agent` 在激活时建（权限 0700），逐层 `lstat` 核对是本用户的真实目录；任何一层是链接、文件或别的用户的，就换 `nbook-<uid>` 再试一次，仍不行则 `temps` 不可用并写诊断。系统临时目录本身不查。
-- `temps` 的清理：内核的归档不停止运行，所以归档当下不删；已归档的会话从句柄表卸下时（t10 的卸下只在没有运行时发生）先 `retire` 该挂载点、再删目录。服务端入口激活时（还没注册方案之前）只扫本状态根的分区，删除已不存在或已归档的会话的目录。删除前逐层核对同上，不跟随符号链接。
+- `temps` 的清理：只在服务端入口激活时（注册方案之前）扫本状态根的分区，删除已不存在或已归档的会话的目录；这时新进程里没有工具在用它们。删除前逐层核对同上，不跟随符号链接。归档当下不删，已归档会话的临时文件留到下次启动。
 - `session://attachments/`、`session://artifacts/` 由宿主写入（附件上传在 t17，大结果全文在 t12），宿主写入不带 `as`。
 
 ### SDK 作者文档（`plugin-sdk/pack.ts`、`scripts/pack-app.ts`）
 
-- 从 `pack.ts` 抽出只生成作者文档的入口（README 的链接改写、三份附表、同版本 Spec、示例源码），开发时生成到 `packages/neuro-book/dist/docs/builtin/sdk/`（新脚本 `build:agent-docs`），`pack-app.ts` 调用同一入口生成进应用包，并把目录加进 `files` 白名单。Agent 插件的文档放 `plugins/agent/docs/`，打包时一并复制。
+- 从 `pack.ts` 抽出只生成作者文档的入口（README 的链接改写、三份附表、同版本 Spec、示例源码），开发时生成到 `packages/neuro-book/dist/docs/builtin/sdk/`（新脚本 `build:agent-docs`），同一脚本把 Agent 插件的文档（源码在 `plugins/agent/docs/`）复制到 `dist/docs/agent/`；`pack-app.ts` 调用同一入口生成进应用包，并把目录加进 `files` 白名单。
 - 服务端用一个定位函数按安装布局找这两个目录，开发与打包共用；开发时生成目录不存在，`docs://builtin` 的说明写明要先运行 `build:agent-docs`，列出为空。
 
 ### Agent 地址层（`agent/backend/resources.ts`）
 
-- `AgentService.resources(context: ToolSessionContext): SessionResources`，t12 的工具按会话取用：
+- `SessionResources` 只在 `nbook.agent` 的激活闭包里按内核给的真实 `ToolSessionContext` 构造，不经共享的 `AgentService` 交出（否则任何依赖 `agentKey` 的插件都能伪造会话）。交出的地方只有两处：内核的 `SessionEnv.resources`，与工具工厂 `agent.tools` 的 `create(context, services)` 的 `services.resources`（t12 的工具用它做全部地址读写，并把 `ToolContext.signal` 传给每个方法）。它提供：
   - `expand(address)`：单数地址先按 `pathProblem` 校验路径（拒绝 `.`、`..`，不做去点段），再拼成全局地址：`project://p` → `projects://<主项目 id>/p`（没有主项目为 `no-project`），`session://p` → `sessions://<id>/home/p`，`profile://p` → `profiles://<key>/p`，`tmp://p` → `temps://<id>/p`；全局地址原样通过；
   - `classify(address)` → `{content: boolean; write: "allowed" | "ask" | "denied"}`：只看 `expand` 之后的全局地址，`sessions://<自己>/home/…` 与 `session://…` 结果相同；作品内容是 `projects://`；`user://` 的写入为 `ask`；其余按上表。只给分类，审批的接线在 t06、t12；
   - `list`、`read`、`write`、`create`、`realPath`：收 `{signal?}`，`expand` 后经 `serverFilesKey` 调用并带上 `as: {agent: {session, profile}}`；结果里的地址是全局形式。
-- 内核的资源接口（`SessionEnv.resources`）改由它实现，取代 t10 的 `sessionResources`：`resolve` 返回 `expand` 的结果，校验不过的原样返回；`read` 在 `not-found` 时为 `undefined`，其它失败抛出。
+- 内核的资源接口（`SessionEnv.resources`）改由它实现，取代 t10 的 `sessionResources`；`agent.tools` 的实现形状 `AgentToolImplementation.create` 加第二个参数 `services`（`contributions.md` 同步）：`resolve` 返回 `expand` 的结果，校验不过的原样返回；`read` 在 `not-found` 时为 `undefined`，其它失败抛出。
 
 ### 附件地址改名（前端小片）
 
@@ -117,10 +116,10 @@ t12（基础工具）要按资源地址读写，地址层却只有 `project://`�
 ## 切片
 
 0. **Spec**（主工作区）：上面全部 Spec 改动，`docs:check`。单独提交。
-1. **注册表、挂载方案与服务**：执行模块（先抽出，旧合同测试照过）、`parseAddress`、贡献点、`mounted.ts`（寿命、物化、授权、`retire`）、`serverFilesKey`（不含 `projects://`）、`user://` 合同版本加 1。用测试插件注册一个挂载方案验证。验证：files 的合同测试。
+1. **注册表、挂载方案与服务**：执行模块（先抽出，旧合同测试照过）、`parseAddress`、贡献点、`mounted.ts`（寿命、物化、授权）、`serverFilesKey`（不含 `projects://`）、`user://` 合同版本加 1。用测试插件注册一个挂载方案验证。验证：files 的合同测试。
 2. **`projects://`**：租约、项目合同的 `as`、失败原样交回。验证：在 `project-child.test.ts` 的场地上起真实项目子进程。
 3. **Agent 的方案**：五个方案、`temps` 的分区与清理、SDK 作者文档的生成与打包。验证：agent 测试、`pack-app` 的检查。
-4. **Agent 地址层**：`resources.ts`、内核资源接口改接、`AgentService.resources`。验证：agent 测试、nb-harness 测试。
+4. **Agent 地址层**：`resources.ts`、内核资源接口改接、工具工厂的 `services.resources`。验证：agent 测试、nb-harness 测试。
 5. **附件地址改名**：前端小片，完成后派 Sonnet 审查（后台）。验证：markdown、nb-agent-ui 的测试。
 6. **收口**：受影响测试全跑、`typecheck`、`governance:check`、`docs:check`，然后做实现审查。
 
@@ -131,12 +130,12 @@ t12（基础工具）要按资源地址读写，地址层却只有 `project://`�
 | `resources.md` 场景 1（改写后） | `files/schemes.test.ts`：各方案的读、列出、真实路径；`docs://` 写入被拒；未注册方案 `unknown-scheme`；未声明能力 `unsupported-capability` |
 | `resources.md` 场景 2 | `files/schemes.test.ts`：带 `as` 的写入来源为该会话；别的服务端插件、浏览器（项目合同的 `as`）带了被拒；不带 `as` 的浏览器写入照常 |
 | `resources.md` 场景 4 | `files/schemes.test.ts`：测试插件注册只读方案；重复注册被拒；插件关闭后方案不可用，在途请求先结算 |
-| `resources.md` 新场景：挂载点寿命 | `files/mounted.test.ts`（经真实插件宿主与 `serverFilesKey`，操作用门闩卡住、时钟注入）：推进 5 分钟后空闲的被回收、在途的不被回收；第 65 个照开；同一挂载点并发首次打开只打开一次；`closing` 中的新请求等收口后重开；打开中撤回；`retire` 等在途结算 |
+| `resources.md` 新场景：挂载点寿命 | `files/mounted.test.ts`（经真实插件宿主与 `serverFilesKey`，操作用门闩卡住、时钟注入）：推进 5 分钟后空闲的被回收、在途的不被回收；第 65 个照开；同一挂载点并发首次打开只打开一次；`closing` 中的新请求等收口后重开；打开中撤回；撤回等在途结算且之后不再重开 |
 | `resources.md` 新场景：物化与授权 | `files/mounted.test.ts`：根不存在时读 `not-found`、列出为空；第一次写入、真实路径建根与 `ensure` 子目录；`ensure` 的位置已是文件或链接时不覆盖；被拒的请求不建目录；授权按挂载点名区分（A 会话写 A、B 两个同名路径）；列出不返回未授权的子项；`.content` 目录下新建不改 `content.xml` |
 | `resources.md` 新场景：合同版本 | `files/schemes.test.ts`：旧版本的 `user://`、`project://` 订阅方得 `version-changed` |
 | `resources.md` 新场景：`projects://` | `files/projects-scheme.test.ts`（真实项目子进程）：没在运行的项目经 `projects://` 读写；来源透传；`acquire` 未完成时取消、调用已派发时取消，各自观察是否派发与租约是否释放；子进程断链后 `unknown-outcome` 原样交回；登记表损坏为 `project-unavailable`、修好后照常 |
-| `agent/resources.md` 各输出 | `agent/resources.test.ts`（经 `AgentService.resources`）：地址改写、`no-project`、`..` 被拒、分类（单数与全局地址一致）、各方案对 Agent 的权限、切 Profile 前后 `profile://` 的权限、日志可读不可写、附件与大结果只读、经链接指向日志被拒、虚拟根的成功值与条目地址、首次 `home`/`profile`/`temp` 的真实路径、`temps` 的清理（运行中归档不删、卸下后删、启动扫描、两个状态根并存互不影响、容器某层是链接时拒绝）、`docs://builtin/sdk/README.md` 可读并跟进一条附表与一条 Spec 链接 |
-| 应用包的文档布局 | `scripts/pack-app.test.ts`：把打包产物解到仓库外，用同一个定位函数找到 `docs/builtin/sdk/README.md` 与 Agent 文档 |
+| `agent/resources.md` 各输出 | `agent/resources.test.ts`（经测试插件贡献的真实工具，从 `create` 的 `services.resources` 取用；另一服务端插件拿不到也伪造不了会话）：地址改写、`no-project`、`..` 被拒、分类（单数与全局地址一致）、各方案对 Agent 的权限、切 Profile 前后 `profile://` 的权限、日志可读不可写、附件与大结果只读、经链接指向日志被拒、虚拟根的 `list` 结构化值与 `read` 文字呈现（也经内核 `SessionEnv.resources.read`）、首次 `home`/`profile`/`temp` 的真实路径、`temps` 的清理（归档时不删、启动扫描删已归档与不存在的、两个状态根并存互不影响、容器某层是链接时拒绝）、`docs://builtin/sdk/README.md` 与 `docs://agent/` 可读并跟进一条附表与一条 Spec 链接 |
+| 应用包的文档布局 | `scripts/pack-app.test.ts`：把打包产物解到仓库外，用同一个定位函数找到 `docs/builtin/sdk/README.md` 与 `docs/agent/` |
 | `prompt-editor.md`、`markdown-dialect.md` 附件地址 | `markdown/shared/targets.test.ts`、`nb-agent-ui` 的 `prompt-token-action.test.ts` |
 
 ## 验证
@@ -152,3 +151,13 @@ t12（基础工具）要按资源地址读写，地址层却只有 `project://`�
   - `user://`、`project://` 合同版本各加 1：开着的旧窗口会得到 `version-changed`，要刷新。
   - `projects://` 每次调用 `acquire`、`release`：空闲项目会被打开，5 分钟宽限期内不会真的关；高频时再改为挂在会话上。
   - 授权回调由注册方实现：写错会放行。Agent 的规则集中在 `schemes.ts` 一处，测试逐条覆盖上表。
+
+## 实施中的调整
+
+- 服务端文件服务的类型与服务键放在 `files/shared/schemes.ts`，经 `files/shared/contracts.ts` 转出：架构规则只许跨插件的运行时导入指向对方的 `shared/contracts.ts`。
+- 远程合同拒绝别的调用方带 `as` 用 `permission-denied`：远程提供方不能交回路由层的 `invalid-input`（`resources.md` 已同步）。
+- 两个插件注册同一个方案名：平台按贡献 id 重复把两条都拒绝（`runtime/plugins.md` 输出 15），到不了接收者；接收者里的重复检查只防热插拔时的先后。`files.schemes` 不按插件 id 取贡献 id，登记进 `contribution-prefixes.test.ts` 的例外表。
+- `docs://`、`skills://` 没有写能力：写入在授权之前就是 `unsupported-capability`，不是 `permission-denied`。
+- `temps://` 总是注册（贡献声明是静态的），容器不可用时没有挂载点、根的说明写明原因。
+- 工具工厂的 `services` 参数这次没有加进插件 SDK 的公开类型：第一批用它的是 t12 的内置工具；第三方工具要用时随 SDK 一起补。
+- 第 3、4 片合成一次提交：资源视图的测试同时覆盖两片。
