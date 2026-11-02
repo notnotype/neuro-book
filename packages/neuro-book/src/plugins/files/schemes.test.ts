@@ -44,7 +44,7 @@ afterAll(async () => {
 
 /**
  * 测试方案的规则：挂载点 `<container>/<名>/`，`a`、`b`、`c` 存在于声明中；`home` 随写入建好。`secret*` 不可读写（受保护），
- * `locked/` 下只读；Agent 只能写与自己会话同名的挂载点。
+ * `vault/` 下的 `.key` 文件受保护（目录本身可读），`locked/` 下只读；Agent 只能写与自己会话同名的挂载点。
  */
 function notesSpec(container: string, capabilities: readonly SchemeCapability[] = ["read", "write", "list", "realPath"]): MountedSchemeSpec {
     return {
@@ -53,7 +53,7 @@ function notesSpec(container: string, capabilities: readonly SchemeCapability[] 
         root: () => ({description: "测试用的笔记", entries: [{name: "a", title: "甲"}, {name: "b", meta: {kind: "测试"}}]}),
         mount: (name) => (["a", "b", "c"].includes(name) ? {create: true, ensure: ["home"]} : null),
         authorize: (caller: SchemeCaller, mount, operation, path) => {
-            if (path.startsWith("secret")) return "protected-path";
+            if (path.startsWith("secret") || /^vault\/.*\.key$/u.test(path)) return "protected-path";
             const writing = operation === "write" || operation === "create";
             if (writing && path.startsWith("locked")) return "permission-denied";
             if (writing && caller.agent !== null && caller.agent.session !== mount) return "permission-denied";
@@ -136,6 +136,10 @@ describe("挂载方案", () => {
         // 会话 a 写 b：按挂载点名拒绝，b 的目录没有被建出来。
         expect(await agent.create("notes://b/home/x.md", "file", asAgent("a"))).toMatchObject({ok: false, code: "permission-denied"});
         expect(await lstat(join(container, "b")).catch(() => null)).toBeNull();
+        // 已中止的请求也不建目录。
+        const aborted = AbortSignal.abort();
+        expect(await agent.create("notes://b/home/x.md", "file", {...asAgent("b"), signal: aborted})).toMatchObject({ok: false, code: "cancelled"});
+        expect(await lstat(join(container, "b")).catch(() => null)).toBeNull();
 
         expect(await agent.create("notes://a/home/x.md", "file", asAgent("a"))).toEqual({ok: true, value: {}});
         expect((await stat(join(container, "a", "home"))).isDirectory()).toBe(true);
@@ -182,6 +186,15 @@ describe("挂载方案", () => {
         expect(await agent.write("notes://a/locked/doc.md", "改", doc.value.baseline, asAgent("a"))).toMatchObject({ok: false, code: "permission-denied"});
         const listed = await agent.list("notes://a");
         expect(listed.ok && listed.value.entries.map((entry) => entry.name).sort()).toEqual(["locked", "open.md"]);
+
+        // 目录链接：经别名列出时，子项按它实际所在的位置（链接目标下）判定。
+        await mkdir(join(container, "a", "vault"));
+        await writeFile(join(container, "a", "vault", "x.key"), "钥匙");
+        await writeFile(join(container, "a", "vault", "ok.md"), "可以看");
+        await symlink(join(container, "a", "vault"), join(container, "a", "door"));
+        const viaAlias = await agent.list("notes://a/door");
+        expect(viaAlias.ok && viaAlias.value.entries.map((entry) => entry.name)).toEqual(["ok.md"]);
+        expect(await agent.read("notes://a/door/x.key")).toMatchObject({ok: false, code: "protected-path"});
     });
 
     test("未声明的能力为 unsupported-capability", async () => {
@@ -254,6 +267,19 @@ describe("注册与寿命", () => {
         expect(await agent.read("notes://a/two.md")).toMatchObject({ok: false, code: "root-gone"});
         world.clock.advance(IDLE_CLOSE_MS);
         await waitUntil("空闲关闭后按新目录重开", async () => (await agent.read("notes://a/two.md")).ok);
+    });
+
+    test("容器被换成链接：重新打开挂载点时不跟着链接打开到别处", async () => {
+        const {world, agent, container, root} = await scene();
+        expect(await agent.realPath("notes://a")).toMatchObject({ok: true});
+        world.clock.advance(IDLE_CLOSE_MS);
+        const elsewhere = join(root, "elsewhere");
+        await mkdir(join(elsewhere, "a"), {recursive: true});
+        await writeFile(join(elsewhere, "a", "x.md"), "别处");
+        await rm(container, {recursive: true});
+        await symlink(elsewhere, container);
+        await waitUntil("挂载点已经按容器不可用拒绝", async () => (await agent.read("notes://a/x.md")).ok === false);
+        expect(await agent.read("notes://a/x.md")).toMatchObject({ok: false, code: "root-gone"});
     });
 
     test("验收 8：同时打开的超过上限时先关空闲最久的，第 65 个照开", async () => {

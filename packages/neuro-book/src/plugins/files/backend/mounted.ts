@@ -71,6 +71,7 @@ export class MountedScheme {
     #stopping = false;
     #inFlight = 0;
     #drained: (() => void) | null = null;
+    #stopped: Promise<void> | null = null;
 
     constructor(options: MountedOptions) {
         this.#options = options;
@@ -81,8 +82,8 @@ export class MountedScheme {
         return this.#mounts.size;
     }
 
-    list(path: string, caller: SchemeCaller): Promise<ServerFilesResult<Listing | VirtualListing>> {
-        return this.#run<Listing | VirtualListing>("list", path, caller, async (spec) => {
+    list(path: string, caller: SchemeCaller, signal: AbortSignal): Promise<ServerFilesResult<Listing | VirtualListing>> {
+        return this.#run<Listing | VirtualListing>("list", path, caller, signal, async (spec) => {
             const root = await spec.root(caller);
             return {ok: true, value: {kind: "virtual", description: root.description, entries: root.entries.map((entry) => ({...entry, address: `${this.#options.scheme}://${entry.name}`}))}};
         }, async (target) => {
@@ -94,66 +95,77 @@ export class MountedScheme {
                 if (listed.code === "not-found" && (target.declaration.ensure ?? []).includes(inner)) return {ok: true, value: {folder: "plain", contentRoot: null, entries: []}};
                 return toResult(listed);
             }
+            // 每一项都按它实际所在的位置再判一次：列出的目录本身经链接到了别处时，子项的真实路径在链接目标下；子项自己是
+            // 链接时按它指向的位置。经链接别名露出受保护的文件与直接露出一样。
+            const directory = await opened.root.resolve(inner);
+            if ("ok" in directory) return fail(directory.code, directory.detail);
             const visible = [];
             for (const entry of listed.value.entries) {
                 const child = inner === "" ? entry.name : `${inner}/${entry.name}`;
                 if (target.spec.authorize(caller, mount, "read", child) !== true) continue;
+                let real = directory.realPath === "" ? entry.name : `${directory.realPath}/${entry.name}`;
                 if (entry.kind === "link") {
-                    // 链接按它实际指向的位置再判一次：经链接别名露出受保护的文件与直接露出一样。
                     const resolved = await opened.root.resolve(child);
-                    if ("ok" in resolved || target.spec.authorize(caller, mount, "read", resolved.realPath) !== true) continue;
+                    if ("ok" in resolved) continue;
+                    real = resolved.realPath;
                 }
+                if (target.spec.authorize(caller, mount, "read", real) !== true) continue;
                 visible.push(entry);
             }
             return {ok: true, value: {...listed.value, entries: visible}};
         });
     }
 
-    read(path: string, caller: SchemeCaller): Promise<ServerFilesResult<FileText>> {
-        return this.#run("read", path, caller, async (spec) => {
+    read(path: string, caller: SchemeCaller, signal: AbortSignal): Promise<ServerFilesResult<FileText>> {
+        return this.#run("read", path, caller, signal, async (spec) => {
             const root = await spec.root(caller);
             const text = renderVirtual({kind: "virtual", description: root.description, entries: root.entries.map((entry) => ({...entry, address: `${this.#options.scheme}://${entry.name}`}))});
             return {ok: true, value: {text, baseline: {hash: hashOf(new TextEncoder().encode(text))}}};
         }, async ({opened, path: inner}) => (opened === null ? fail("not-found", `${this.#address(path)} 不存在`) : toResult(await opened.service.read(inner))));
     }
 
-    write(path: string, text: string, baseline: Baseline, caller: SchemeCaller, source: ChangeSource): Promise<ServerFilesResult<SavedText>> {
-        return this.#run("write", path, caller, async () => fail("permission-denied", `${this.#address("")} 是只读的目录`), async ({opened, path: inner}) => {
+    write(path: string, text: string, baseline: Baseline, caller: SchemeCaller, source: ChangeSource, signal: AbortSignal): Promise<ServerFilesResult<SavedText>> {
+        return this.#run("write", path, caller, signal, async () => fail("permission-denied", `${this.#address("")} 是只读的目录`), async ({opened, path: inner}) => {
             if (opened === null) return fail("not-found", `${this.#address(path)} 不存在`);
             return toResult(await saveText(opened, inner, text, baseline, source));
         });
     }
 
-    create(path: string, kind: "file" | "directory", caller: SchemeCaller, source: ChangeSource): Promise<ServerFilesResult<OperationDone>> {
-        return this.#run("create", path, caller, async () => fail("permission-denied", `${this.#address("")} 是只读的目录`), async ({opened, path: inner}) => {
+    create(path: string, kind: "file" | "directory", caller: SchemeCaller, source: ChangeSource, signal: AbortSignal): Promise<ServerFilesResult<OperationDone>> {
+        return this.#run("create", path, caller, signal, async () => fail("permission-denied", `${this.#address("")} 是只读的目录`), async ({opened, path: inner}) => {
             if (opened === null) return fail("not-found", `${this.#address(path)} 的上级不存在`);
             if (inner === "") return fail("conflict", `${this.#address(path)} 已存在`);
             return toResult(await createPlain(opened, inner, kind, source));
         });
     }
 
-    realPath(path: string, caller: SchemeCaller): Promise<ServerFilesResult<{readonly path: string}>> {
-        return this.#run("realPath", path, caller, async () => fail("unsupported-capability", `${this.#address("")} 是虚拟目录，没有真实路径`), async ({opened, path: inner}) => {
+    realPath(path: string, caller: SchemeCaller, signal: AbortSignal): Promise<ServerFilesResult<{readonly path: string}>> {
+        return this.#run("realPath", path, caller, signal, async () => fail("unsupported-capability", `${this.#address("")} 是虚拟目录，没有真实路径`), async ({opened, path: inner}) => {
             if (opened === null) return fail("not-found", `${this.#address(path)} 不存在`);
             return toResult(await opened.service.realPath(inner));
         });
     }
 
-    /** 方案撤回或入口停止：拒新请求，等在途请求结算，再关闭全部挂载点；之后不再重开。 */
-    async stop(): Promise<void> {
-        this.#stopping = true;
-        if (this.#inFlight > 0) await new Promise<void>((resolve) => (this.#drained = resolve));
-        await Promise.all([...this.#mounts.entries()].map(([name, mount]) => this.#close(name, mount)));
+    /** 方案撤回或入口停止：拒新请求，等在途请求结算，再关闭全部挂载点；之后不再重开。重复调用得到同一次停止。 */
+    stop(): Promise<void> {
+        this.#stopped ??= (async () => {
+            this.#stopping = true;
+            if (this.#inFlight > 0) await new Promise<void>((resolve) => (this.#drained = resolve));
+            await Promise.all([...this.#mounts.entries()].map(([name, mount]) => this.#close(name, mount)));
+        })();
+        return this.#stopped;
     }
 
     /**
      * 一次请求的公共步骤：能力 → 虚拟根 → 挂载点声明 → 按地址里的路径授权 → 借用挂载点（需要时建目录）→ 按真实路径授权 →
-     * 执行。借用从打开到结算一直持有。
+     * 执行。借用从打开到结算一直持有。`signal` 在建目录与执行之前核对：已中止的请求不建目录、不写；文件操作一旦开始就做完
+     * （本机的读写很短，半途放弃反而会留下写了一半的状态）。
      */
     async #run<T>(
         operation: SchemeOperation,
         path: string,
         caller: SchemeCaller,
+        signal: AbortSignal,
         atRoot: (spec: MountedSchemeSpec) => Promise<ServerFilesResult<T>>,
         body: (target: {readonly spec: MountedSchemeSpec; readonly mount: string; readonly path: string; readonly declaration: MountDeclaration; readonly opened: Opened | null}) => Promise<ServerFilesResult<T>>,
     ): Promise<ServerFilesResult<T>> {
@@ -178,9 +190,11 @@ export class MountedScheme {
             if (lexical !== true) return fail(lexical, `${this.#address(path)}：${lexical}`);
 
             const materialize = MATERIALIZES.has(operation);
+            if (signal.aborted) return fail("cancelled", "调用已取消");
             const lease = await this.#borrow(mount, spec, declaration, materialize);
             try {
                 if ("ok" in lease) return lease;
+                if (signal.aborted) return fail("cancelled", "调用已取消");
                 const opened = lease.opened;
                 if (opened !== null && materialize) {
                     const ensured = await ensureDirectory(opened.root, inner, declaration);
@@ -193,6 +207,7 @@ export class MountedScheme {
                         if (granted !== true) return fail(granted, `${this.#address(path)}：${granted}`);
                     }
                 }
+                if (signal.aborted) return fail("cancelled", "调用已取消");
                 return await body({spec, mount, path: inner, declaration, opened});
             } finally {
                 if (!("ok" in lease)) lease.release();
@@ -243,12 +258,13 @@ export class MountedScheme {
     async #openDirectory(name: string, container: string, declaration: MountDeclaration, materialize: boolean): Promise<Opened | Fail | null> {
         const path = join(container, name);
         const notDirectory = fail("not-a-directory", `${this.#address(name)} 不是普通目录`);
+        // 每次打开都核对容器与挂载点都是真实目录（不是链接）：`openRoot` 会解析整条路径，容器被换成链接时不能跟着打开到别处。
+        // 只在受管容器下建一层：挂载点名是合法单段（注册表已核对），不会经链接建到别处。
+        if ((await realDirectory(container)) !== "directory") return fail("root-gone", `${this.#options.scheme}:// 的容器目录不可用`);
         const present = await realDirectory(path);
         if (present === "other") return notDirectory;
         if (present === "missing") {
             if (!materialize || !declaration.create) return null;
-            // 只在受管容器下建一层：容器本身必须是真实目录，挂载点名是合法单段（注册表已核对），不会经链接建到别处。
-            if ((await realDirectory(container)) !== "directory") return fail("root-gone", `${this.#options.scheme}:// 的容器目录不可用`);
             try {
                 await mkdir(path, {mode: 0o700});
             } catch (error) {

@@ -6,7 +6,7 @@
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
 import {createHash} from "node:crypto";
-import {lstat, readFile, realpath, rm, symlink} from "node:fs/promises";
+import {lstat, readFile, realpath, rm, symlink, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -215,11 +215,15 @@ describe("按需建目录与临时目录", () => {
         expect(await lstat(join(w.stateRoot, "agent", "profiles", EDITOR)).catch(() => null)).toBeNull();
     });
 
-    test("验收 4：归档时不删临时目录；重启时只删本状态根分区里已归档的会话的目录，另一个状态根的不受影响", async () => {
+    test("验收 4：归档时不删临时目录；重启时只删本状态根分区里已归档的会话的目录，索引读不了的会话照样保留，另一个状态根的不受影响", async () => {
         const at = join(root, `restart-${String((counter += 1))}`);
         const first = await world(at);
         const kept = await open(first);
         const archived = await open(first);
+        const unreadable = await open(first);
+        expect(await put(unreadable.resources, "tmp://still.txt", "还在")).toMatchObject({ok: true});
+        const unreadableDir = await unreadable.resources.realPath("tmp://");
+        if (!unreadableDir.ok) throw new Error(unreadableDir.code);
         expect(await put(kept.resources, "tmp://keep.txt", "留")).toMatchObject({ok: true});
         expect(await put(archived.resources, "tmp://gone.txt", "删")).toMatchObject({ok: true});
         const goneDir = await archived.resources.realPath("tmp://");
@@ -234,9 +238,12 @@ describe("按需建目录与临时目录", () => {
 
         await first.close();
         worlds.splice(worlds.indexOf(first), 1);
+        // 索引坏了的会话不出现在会话列表里，但会话目录还在：不能当作不存在。
+        await writeFile(join(at, "state", "agent", "sessions", unreadable.id, "index.json"), "{坏了");
         const again = await world(at);
         const reopened = await open(again);
         expect(await lstat(goneDir.value.path).catch(() => null)).toBeNull();
+        expect(await readFile(join(unreadableDir.value.path, "still.txt"), "utf8")).toBe("还在");
         expect(await reopened.resources.read(`temps://${kept.id}/keep.txt`)).toMatchObject({ok: true, value: {text: "留"}});
         expect(await otherSession.resources.read("tmp://mine.txt")).toMatchObject({ok: true, value: {text: "别人的"}});
     });

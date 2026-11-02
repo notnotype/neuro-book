@@ -6,7 +6,7 @@
  * 之后的撤回落在已关的会话上什么也不做；`onStop` 等这次关闭完成。
  */
 
-import {mkdir} from "node:fs/promises";
+import {lstat, mkdir} from "node:fs/promises";
 import {join} from "node:path";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -67,10 +67,11 @@ export const agentBackendPlugin: PluginDefinition = {
             const profilesRoot = join(stateRoot, "agent", "profiles");
             await mkdir(profilesRoot, {recursive: true});
             const tempContainer = await prepareTempContainer(stateRoot, (message) => report("temps-unavailable", message));
-            // 注册方案之前清：这时新进程里没有工具在用这些临时目录（resources.md 输出 7）。
+            // 注册方案之前清：这时新进程里没有工具在用这些临时目录（resources.md 输出 7）。只删能确定的：索引说已归档的，或会话
+            // 目录已经不在的。索引读不了的会话不在列表里，但目录还在，按活会话保留。
             if (tempContainer !== null) {
-                const live = new Set((await runtime.listSessions()).filter((session) => !session.archived).map((session) => session.id));
-                await sweepTemps(tempContainer, async (session) => live.has(session), (message) => report("temps-sweep", message));
+                const archived = new Set((await runtime.listSessions()).filter((session) => session.archived).map((session) => session.id));
+                await sweepTemps(tempContainer, async (session) => !archived.has(session) && (await lstat(join(runtime.sessionsRoot, session)).then(() => true, () => false)), (message) => report("temps-sweep", message));
             }
             const schemes = agentSchemes({
                 sessionsRoot: runtime.sessionsRoot,

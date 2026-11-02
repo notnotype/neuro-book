@@ -72,7 +72,7 @@ export function provideServerFiles(deps: ServerFilesDeps): ProvidedService<Serve
                 const {address: {scheme, path}, request} = started;
                 if (scheme === "user") return toResult(await user.service.list(path));
                 if (scheme === "projects") return projects === null ? unknown(scheme) : projects.list(path, request);
-                return registry.get(scheme)?.list(path, request.caller) ?? unknown(scheme);
+                return registry.get(scheme)?.list(path, request.caller, request.signal) ?? unknown(scheme);
             },
             read: async (address, options) => {
                 const started = begin(address, options);
@@ -80,7 +80,7 @@ export function provideServerFiles(deps: ServerFilesDeps): ProvidedService<Serve
                 const {address: {scheme, path}, request} = started;
                 if (scheme === "user") return toResult(await user.service.read(path));
                 if (scheme === "projects") return projects === null ? unknown(scheme) : projects.read(path, request);
-                return registry.get(scheme)?.read(path, request.caller) ?? unknown(scheme);
+                return registry.get(scheme)?.read(path, request.caller, request.signal) ?? unknown(scheme);
             },
             write: async (address, text, baseline, options) => {
                 const started = begin(address, options);
@@ -88,7 +88,7 @@ export function provideServerFiles(deps: ServerFilesDeps): ProvidedService<Serve
                 const {address: {scheme, path}, request} = started;
                 if (scheme === "user") return toResult(await saveText(user, path, text, baseline, request.source));
                 if (scheme === "projects") return projects === null ? unknown(scheme) : projects.write(path, text, baseline, request);
-                return registry.get(scheme)?.write(path, text, baseline, request.caller, request.source) ?? unknown(scheme);
+                return registry.get(scheme)?.write(path, text, baseline, request.caller, request.source, request.signal) ?? unknown(scheme);
             },
             create: async (address, kind, options) => {
                 const started = begin(address, options);
@@ -96,7 +96,7 @@ export function provideServerFiles(deps: ServerFilesDeps): ProvidedService<Serve
                 const {address: {scheme, path}, request} = started;
                 if (scheme === "user") return toResult(await tracked(user.scope, "files.create", () => user.operations.create({path, kind}, request.source)));
                 if (scheme === "projects") return projects === null ? unknown(scheme) : projects.create(path, kind, request);
-                return registry.get(scheme)?.create(path, kind, request.caller, request.source) ?? unknown(scheme);
+                return registry.get(scheme)?.create(path, kind, request.caller, request.source, request.signal) ?? unknown(scheme);
             },
             realPath: async (address, options) => {
                 const started = begin(address, options);
@@ -104,7 +104,7 @@ export function provideServerFiles(deps: ServerFilesDeps): ProvidedService<Serve
                 const {address: {scheme, path}, request} = started;
                 if (scheme === "user") return toResult(await user.service.realPath(path));
                 if (scheme === "projects") return projects === null ? unknown(scheme) : projects.realPath(path, request);
-                return registry.get(scheme)?.realPath(path, request.caller) ?? unknown(scheme);
+                return registry.get(scheme)?.realPath(path, request.caller, request.signal) ?? unknown(scheme);
             },
         };
         released.set(facade, gone);
