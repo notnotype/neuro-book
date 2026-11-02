@@ -144,7 +144,7 @@ describe("挂载方案", () => {
         expect(await agent.create("notes://a/home/x.md", "file", asAgent("a"))).toEqual({ok: true, value: {}});
         expect((await stat(join(container, "a", "home"))).isDirectory()).toBe(true);
         const real = await agent.realPath("notes://c/home", asAgent("c"));
-        expect(real).toEqual({ok: true, value: {path: join(container, "c", "home")}});
+        expect(real).toEqual({ok: true, value: {path: join(container, "c", "home"), kind: "directory"}});
     });
 
     test("物化：ensure 的位置已经是文件或链接时不覆盖，为 not-a-directory", async () => {

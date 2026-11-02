@@ -100,7 +100,7 @@ export interface ServerFiles {
     read(address: string, options?: ServerFilesOptions): Promise<ServerFilesResult<FileText>>;
     write(address: string, text: string, baseline: Baseline, options?: ServerFilesOptions): Promise<ServerFilesResult<SavedText>>;
     create(address: string, kind: "file" | "directory", options?: ServerFilesOptions): Promise<ServerFilesResult<OperationDone>>;
-    realPath(address: string, options?: ServerFilesOptions): Promise<ServerFilesResult<{readonly path: string}>>;
+    realPath(address: string, options?: ServerFilesOptions): Promise<ServerFilesResult<{readonly path: string; readonly kind: "file" | "directory" | "other"}>>;
 }
 
 export const serverFilesKey: ServiceKey<ServerFiles> = defineServiceKey<ServerFiles>("nbook.files/server");

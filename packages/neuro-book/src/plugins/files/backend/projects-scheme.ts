@@ -94,7 +94,7 @@ export function createProjectsScheme(projects: ProjectsService, remote: Activati
         },
         realPath: async (path, request) => {
             if (rootOnly(path)) return fail("unsupported-capability", "projects:// 是虚拟目录，没有真实路径");
-            return withProject<{readonly path: string}>(path, request, (id, inner) => client(id).realPath({path: inner}, {signal: request.signal}));
+            return withProject<{readonly path: string; readonly kind: "file" | "directory" | "other"}>(path, request, (id, inner) => client(id).realPath({path: inner}, {signal: request.signal}));
         },
     };
 }

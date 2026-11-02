@@ -208,7 +208,7 @@ describe("按需建目录与临时目录", () => {
         const w = await world();
         const {id, resources} = await open(w);
         const home = await resources.realPath("session://");
-        expect(home).toEqual({ok: true, value: {path: join(await realpath(w.stateRoot), "agent", "sessions", id, "home")}});
+        expect(home).toEqual({ok: true, value: {path: join(await realpath(w.stateRoot), "agent", "sessions", id, "home"), kind: "directory"}});
         const temp = await resources.realPath("tmp://");
         expect(temp.ok && (await lstat(temp.value.path)).isDirectory()).toBe(true);
         expect(await resources.create(`profiles://${EDITOR}/x.md`, "file")).toMatchObject({ok: false, code: "permission-denied"});

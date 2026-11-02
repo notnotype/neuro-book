@@ -22,9 +22,9 @@ import {currentProjectKey, projectsKey} from "nbook/shared/projects";
 
 import {descriptor} from "../plugin";
 import {filesPreviewContract, projectFilesContract, userFilesContract} from "../shared/contracts";
-import type {ChangeSource, FilesContract} from "../shared/contracts";
+import type {ChangeGroup, ChangeSource, FilesContract} from "../shared/contracts";
 import {createChangeHub} from "./changes";
-import type {ChangeHub} from "./changes";
+import type {ChangeHub, Origin} from "./changes";
 import {createFilesService} from "./files-service";
 import type {FilesService} from "./files-service";
 import {createBatch} from "./batch";
@@ -38,6 +38,8 @@ import {createProjectsScheme} from "./projects-scheme";
 import {SchemeRegistry} from "./registry";
 import {provideServerFiles} from "./server-files";
 import {openRoot} from "./rooted";
+import {createStagingCommitter, ensureStagingDirectory, sweepStaging} from "./staging";
+import type {StagingCommit} from "./staging";
 import type {RootedRoot, RootOptions} from "./rooted";
 
 /** 写入来源按调用方身份：窗口里的插件是写作者，服务端与项目实例里的插件是系统（resources.md 的“写入来源”）。 */
@@ -49,10 +51,22 @@ export function sourceOf(consumer: ConsumerIdentity): ChangeSource {
  * 写方法的 `as`（转发来的来源）只认服务端位置的 `nbook.files`（`projects://` 的转发，resources.md 的“写入来源”）；别的调用方
  * 带了按无权拒绝。远程提供方不能交回路由层的 `invalid-input`，所以用业务码 `permission-denied`。
  */
-function sourceFor(consumer: ConsumerIdentity, as: ChangeSource | undefined): ChangeSource | {readonly ok: false; readonly code: "permission-denied"; readonly detail: {readonly detail: string}} {
-    if (as === undefined) return sourceOf(consumer);
-    if (consumer.location === "server" && consumer.plugin === descriptor.id) return as;
-    return {ok: false, code: "permission-denied", detail: {detail: "只有服务端的文件服务可以转发写入来源"}};
+function originFor(consumer: ConsumerIdentity, input: {readonly as?: ChangeSource; readonly group?: ChangeGroup}): Origin | Denied {
+    const group = input.group === undefined ? {} : {group: input.group};
+    if (input.as === undefined) return {source: sourceOf(consumer), ...group};
+    if (isServerFiles(consumer)) return {source: input.as, ...group};
+    return denied("只有服务端的文件服务可以转发写入来源");
+}
+
+type Denied = {readonly ok: false; readonly code: "permission-denied"; readonly detail: {readonly detail: string}};
+
+function denied(detail: string): Denied {
+    return {ok: false, code: "permission-denied", detail: {detail}};
+}
+
+/** 服务端的 `nbook.files`（写入接口的 `projects://` 转发）：提交与根外读路径只给它，不给浏览器。 */
+function isServerFiles(consumer: ConsumerIdentity): boolean {
+    return consumer.location === "server" && consumer.plugin === descriptor.id;
 }
 
 interface Backend {
@@ -62,12 +76,18 @@ interface Backend {
     readonly batch: Batch;
     readonly changes: ChangeHub;
     readonly scope: Scope;
+    /** 暂存目录建不起来时为 null，提交得 `io-failed`。 */
+    readonly commit: StagingCommit | null;
 }
 
 /** 两份合同的方法与事件相同，实现也相同；`consumer` 是内核填写的调用方身份，写入来源由它确定。 */
 function implementation(backend: Backend, consumer: ConsumerIdentity): RemoteImplementation<typeof userFilesContract> {
-    const {service, operations, batch, changes, scope} = backend;
-    const source = sourceOf(consumer);
+    const {root, service, operations, batch, changes, scope} = backend;
+    /** 带了 `as` 或 `group` 的写方法：按调用方身份核对后得到归属，核对不过时直接交回拒绝。 */
+    const attributed = <T>(input: {readonly as?: ChangeSource; readonly group?: ChangeGroup}, run: (origin: Origin) => Promise<T>): Promise<T | Denied> => {
+        const origin = originFor(consumer, input);
+        return "ok" in origin ? Promise.resolve(origin) : run(origin);
+    };
     /**
      * 这个调用方在途的批量：门面按调用方生成，别的窗口命中不了这里的操作 id。同一 id 正在执行时再发为 `busy`，
      * 结算后删除。
@@ -87,26 +107,32 @@ function implementation(backend: Backend, consumer: ConsumerIdentity): RemoteImp
         methods: {
             list: (input) => service.list(input.path),
             read: (input) => service.read(input.path),
-            realPath: (input) => service.realPath(input.path),
-            write: async (input) => {
-                const writer = sourceFor(consumer, input.as);
-                return "ok" in writer ? writer : saveText(backend, input.path, input.text, input.baseline, writer);
+            realPath: async (input) => {
+                if (input.follow !== true) return service.realPath(input.path);
+                if (!isServerFiles(consumer)) return denied("只有服务端的文件服务可以取跟随链接的读路径");
+                const target = await root.resolveForRead(input.path);
+                if ("ok" in target) return {ok: false, code: target.code as Exclude<typeof target.code, "unknown-scheme">, detail: {detail: target.detail}};
+                return {ok: true, value: {path: target.absolute, kind: target.kind}};
+            },
+            write: (input) => attributed(input, (origin) => saveText(backend, input.path, input.text, input.baseline, origin)),
+            commit: async (input) => {
+                if (!isServerFiles(consumer)) return denied("只有服务端的文件服务可以提交暂存文件");
+                const {commit} = backend;
+                if (commit === null) return {ok: false, code: "io-failed", detail: {detail: "暂存目录不可用"}};
+                return attributed(input, (origin) => tracked(scope, "files.commit", () => commit(input, origin)));
             },
             identify: (input) => operations.identify(input.paths),
-            create: async (input) => {
-                const writer = sourceFor(consumer, input.as);
-                return "ok" in writer ? writer : tracked(scope, "files.create", () => operations.create(input, writer));
-            },
-            createContent: (input) => tracked(scope, "files.create-content", () => operations.createContent(input, source)),
-            rename: (input) => tracked(scope, "files.rename", () => operations.rename(input, source)),
-            convert: (input) => tracked(scope, "files.convert", () => operations.convert(input, source)),
-            reorder: (input) => tracked(scope, "files.reorder", () => operations.reorder(input, source)),
-            display: (input) => tracked(scope, "files.display", () => operations.display(input, source)),
-            include: (input) => tracked(scope, "files.include", () => operations.include(input, source)),
-            drop: (input) => tracked(scope, "files.drop", () => operations.drop(input, source)),
-            move: (input, {signal}) => run(input.operation, signal, "files.move", (control) => batch.transfer("move", input, source, control)),
-            copy: (input, {signal}) => run(input.operation, signal, "files.copy", (control) => batch.transfer("copy", input, source, control)),
-            delete: (input, {signal}) => run(input.operation, signal, "files.delete", (control) => batch.remove(input, source, control)),
+            create: (input) => attributed(input, (origin) => tracked(scope, "files.create", () => operations.create(input, origin))),
+            createContent: (input) => attributed(input, (origin) => tracked(scope, "files.create-content", () => operations.createContent(input, origin))),
+            rename: (input) => attributed(input, (origin) => tracked(scope, "files.rename", () => operations.rename(input, origin))),
+            convert: (input) => attributed(input, (origin) => tracked(scope, "files.convert", () => operations.convert(input, origin))),
+            reorder: (input) => attributed(input, (origin) => tracked(scope, "files.reorder", () => operations.reorder(input, origin))),
+            display: (input) => attributed(input, (origin) => tracked(scope, "files.display", () => operations.display(input, origin))),
+            include: (input) => attributed(input, (origin) => tracked(scope, "files.include", () => operations.include(input, origin))),
+            drop: (input) => attributed(input, (origin) => tracked(scope, "files.drop", () => operations.drop(input, origin))),
+            move: (input, {signal}) => attributed(input, (origin) => run(input.operation, signal, "files.move", (control) => batch.transfer("move", input, origin, control))),
+            copy: (input, {signal}) => attributed(input, (origin) => run(input.operation, signal, "files.copy", (control) => batch.transfer("copy", input, origin, control))),
+            delete: (input, {signal}) => attributed(input, (origin) => run(input.operation, signal, "files.delete", (control) => batch.remove(input, origin, control))),
             cancel: async (input) => {
                 const control = active.get(input.operation);
                 if (control !== undefined) control.cancelled = true;
@@ -122,7 +148,7 @@ function implementation(backend: Backend, consumer: ConsumerIdentity): RemoteImp
 }
 
 /** 一个根上的文件服务：打开根、建变更、操作与批量，登记在入口的作用域上。根不可用时激活失败。 */
-async function openBackend(context: ActivationContext, scheme: "user" | "project", placed: {readonly path: string; readonly options: Omit<RootOptions, "report">}) {
+async function openBackend(context: ActivationContext, scheme: "user" | "project", placed: {readonly path: string; readonly options: Omit<RootOptions, "report">; readonly staging: {readonly base?: string; readonly segments: readonly string[]}}) {
     const record = recordTo(context.services.require(diagnosticsKey));
     const root = await openRoot(placed.path, {...placed.options, report: (event, error) => record("warn", `files.${event}`, "文件保存的收尾出错", {}, error)});
     if ("ok" in root) throw new Error(`${scheme}:// 的根不可用：${root.detail}`);
@@ -137,7 +163,17 @@ async function openBackend(context: ActivationContext, scheme: "user" | "project
         diagnose,
         stopped: (operation, detail) => record("info", "files.batch.stopped", detail, {operation}),
     });
-    const backend: Backend = {root, service, operations, batch, changes, scope: context.scope};
+    const report = (event: string, error: unknown): void => record("warn", `files.${event}`, "暂存文件的收尾出错", {}, error);
+    // 项目的暂存目录在根的真实路径下（`.nbook/staging/`）；`user://` 的在状态根下，不在根里。
+    const staging = await ensureStagingDirectory(placed.staging.base ?? root.real, placed.staging.segments);
+    let commit: StagingCommit | null = null;
+    if (staging.ok) {
+        await sweepStaging(staging.path, report);
+        commit = createStagingCommitter({root, directory: staging.path, changes, report});
+    } else {
+        record("warn", "files.staging.unavailable", "暂存目录不可用，写入接口的提交会失败", {detail: staging.detail});
+    }
+    const backend: Backend = {root, service, operations, batch, changes, scope: context.scope, commit};
     return {root, record, backend};
 }
 
@@ -159,7 +195,7 @@ const serverEntry = defineEntry({
         const state = context.services.require(stateRootKey).path;
         const path = join(state, "user");
         await mkdir(path, {recursive: true});
-        const {root, record, backend} = await openBackend(context, "user", {path, options: {controlDirectory: false, lockDirectory: join(state, "locks", "user-files")}});
+        const {root, record, backend} = await openBackend(context, "user", {path, options: {controlDirectory: false, lockDirectory: join(state, "locks", "user-files")}, staging: {base: state, segments: ["staging"]}});
         const schemes = new SchemeRegistry({scope: context.scope, clock: context.services.require(clockKey), lockRoot: join(state, "locks", "schemes"), record});
         context.onStop(() => schemes.stop());
         const projects = await context.services.resolve(projectsKey);
@@ -215,7 +251,7 @@ const projectEntry = defineEntry({
     remoteProvides: [projectFilesContract],
     activate: async (context) => {
         const path = context.services.require(currentProjectKey).root;
-        const {backend} = await openBackend(context, "project", {path, options: {controlDirectory: true, lockDirectory: join(path, ".nbook", "locks", "files")}});
+        const {backend} = await openBackend(context, "project", {path, options: {controlDirectory: true, lockDirectory: join(path, ".nbook", "locks", "files")}, staging: {segments: [".nbook", "staging"]}});
         return {remote: [provideRemote(projectFilesContract, (consumer) => implementation(backend, consumer))]};
     },
 });

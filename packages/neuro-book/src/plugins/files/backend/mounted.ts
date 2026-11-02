@@ -127,7 +127,7 @@ export class MountedScheme {
     write(path: string, text: string, baseline: Baseline, caller: SchemeCaller, source: ChangeSource, signal: AbortSignal): Promise<ServerFilesResult<SavedText>> {
         return this.#run("write", path, caller, signal, async () => fail("permission-denied", `${this.#address("")} 是只读的目录`), async ({opened, path: inner}) => {
             if (opened === null) return fail("not-found", `${this.#address(path)} 不存在`);
-            return toResult(await saveText(opened, inner, text, baseline, source));
+            return toResult(await saveText(opened, inner, text, baseline, {source}));
         });
     }
 
@@ -135,11 +135,11 @@ export class MountedScheme {
         return this.#run("create", path, caller, signal, async () => fail("permission-denied", `${this.#address("")} 是只读的目录`), async ({opened, path: inner}) => {
             if (opened === null) return fail("not-found", `${this.#address(path)} 的上级不存在`);
             if (inner === "") return fail("conflict", `${this.#address(path)} 已存在`);
-            return toResult(await createPlain(opened, inner, kind, source));
+            return toResult(await createPlain(opened, inner, kind, {source}));
         });
     }
 
-    realPath(path: string, caller: SchemeCaller, signal: AbortSignal): Promise<ServerFilesResult<{readonly path: string}>> {
+    realPath(path: string, caller: SchemeCaller, signal: AbortSignal): Promise<ServerFilesResult<{readonly path: string; readonly kind: "file" | "directory" | "other"}>> {
         return this.#run("realPath", path, caller, signal, async () => fail("unsupported-capability", `${this.#address("")} 是虚拟目录，没有真实路径`), async ({opened, path: inner}) => {
             if (opened === null) return fail("not-found", `${this.#address(path)} 不存在`);
             return toResult(await opened.service.realPath(inner));

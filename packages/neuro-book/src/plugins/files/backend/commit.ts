@@ -10,8 +10,8 @@
  * 改目标清单时持锁，复制过程本身不持锁：大目录的复制不挡住其它操作。
  */
 
-import type {ChangeSource, ManifestIssue} from "../shared/contracts";
-import type {ChangeHub, OperationEvent} from "./changes";
+import type {ManifestIssue} from "../shared/contracts";
+import type {ChangeHub, OperationEvent, Origin} from "./changes";
 import {copyEntry, deleteEntry, moveEntry} from "./entry-ops";
 import type {EntryFailure} from "./entry-ops";
 import {plainItem, renamedItem} from "./manifest-edit";
@@ -40,9 +40,9 @@ export interface Committer {
      * `before`：目标在内容树里时清单条目放在同层这一项之前，`null` 为末尾；缺省不指定位置（docs/specs/workspace/files.md
      * 的“移动到指定位置”）。
      */
-    move(input: {readonly source: string; readonly target: string; readonly expected?: string; readonly before?: string | null}, first: ResolvedEntry, origin: ChangeSource): Promise<ItemOutcome>;
-    copy(input: {readonly source: string; readonly target: string; readonly expected?: string}, first: ResolvedEntry, origin: ChangeSource): Promise<ItemOutcome>;
-    remove(input: {readonly path: string; readonly expected?: string}, first: ResolvedEntry, origin: ChangeSource): Promise<ItemOutcome>;
+    move(input: {readonly source: string; readonly target: string; readonly expected?: string; readonly before?: string | null}, first: ResolvedEntry, origin: Origin): Promise<ItemOutcome>;
+    copy(input: {readonly source: string; readonly target: string; readonly expected?: string}, first: ResolvedEntry, origin: Origin): Promise<ItemOutcome>;
+    remove(input: {readonly path: string; readonly expected?: string}, first: ResolvedEntry, origin: Origin): Promise<ItemOutcome>;
 }
 
 export function createCommitter(context: ManifestContext): Committer {

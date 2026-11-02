@@ -29,7 +29,7 @@ export interface SessionResources {
     read(address: string, options?: ResourceCallOptions): Promise<ResourceResult<FileText>>;
     write(address: string, text: string, baseline: Baseline, options?: ResourceCallOptions): Promise<ResourceResult<SavedText>>;
     create(address: string, kind: "file" | "directory", options?: ResourceCallOptions): Promise<ResourceResult<OperationDone>>;
-    realPath(address: string, options?: ResourceCallOptions): Promise<ResourceResult<{readonly path: string}>>;
+    realPath(address: string, options?: ResourceCallOptions): Promise<ResourceResult<{readonly path: string; readonly kind: "file" | "directory" | "other"}>>;
 }
 
 /** 工具工厂的第二个参数（docs/specs/agent/contributions.md）。 */

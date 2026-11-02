@@ -86,7 +86,7 @@ export function provideServerFiles(deps: ServerFilesDeps): ProvidedService<Serve
                 const started = begin(address, options);
                 if ("ok" in started) return started;
                 const {address: {scheme, path}, request} = started;
-                if (scheme === "user") return toResult(await saveText(user, path, text, baseline, request.source));
+                if (scheme === "user") return toResult(await saveText(user, path, text, baseline, {source: request.source}));
                 if (scheme === "projects") return projects === null ? unknown(scheme) : projects.write(path, text, baseline, request);
                 return registry.get(scheme)?.write(path, text, baseline, request.caller, request.source, request.signal) ?? unknown(scheme);
             },
@@ -94,7 +94,7 @@ export function provideServerFiles(deps: ServerFilesDeps): ProvidedService<Serve
                 const started = begin(address, options);
                 if ("ok" in started) return started;
                 const {address: {scheme, path}, request} = started;
-                if (scheme === "user") return toResult(await tracked(user.scope, "files.create", () => user.operations.create({path, kind}, request.source)));
+                if (scheme === "user") return toResult(await tracked(user.scope, "files.create", () => user.operations.create({path, kind}, {source: request.source})));
                 if (scheme === "projects") return projects === null ? unknown(scheme) : projects.create(path, kind, request);
                 return registry.get(scheme)?.create(path, kind, request.caller, request.source, request.signal) ?? unknown(scheme);
             },

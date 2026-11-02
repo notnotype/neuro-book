@@ -51,7 +51,7 @@ export interface FilesService {
     read(path: string): Promise<Outcome<FileText>>;
     write(path: string, text: string, baseline: Baseline, temporaryPath?: (file: string) => string): Promise<Outcome<SavedFile>>;
     /** 资源在服务端机器上的绝对路径；最后一段不跟随符号链接，根本身是根的真实路径。 */
-    realPath(path: string): Promise<Outcome<{readonly path: string}>>;
+    realPath(path: string): Promise<Outcome<{readonly path: string; readonly kind: "file" | "directory" | "other"}>>;
 }
 
 export function hashOf(bytes: Uint8Array): string {
@@ -143,10 +143,10 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
         realPath: async (path) => {
             const bad = invalid(path);
             if (bad !== null) return bad;
-            if (path === "") return {ok: true, value: {path: root.real}};
+            if (path === "") return {ok: true, value: {path: root.real, kind: "directory"}};
             const entry = await root.resolveEntry(path);
             if ("ok" in entry) return failed(entry, "files.real-path.failed");
-            return {ok: true, value: {path: entry.absolute}};
+            return {ok: true, value: {path: entry.absolute, kind: entry.stats.isFile() ? "file" : entry.stats.isDirectory() ? "directory" : "other"}};
         },
 
         read: async (path) => {
