@@ -49,7 +49,8 @@ export interface SavedFile {
 export interface FilesService {
     list(path: string): Promise<Outcome<Listing>>;
     read(path: string): Promise<Outcome<FileText>>;
-    write(path: string, text: string, baseline: Baseline, temporaryPath?: (file: string) => string): Promise<Outcome<SavedFile>>;
+    /** `committed` 在写入锁里、替换之后调用（交记账槽）。 */
+    write(path: string, text: string, baseline: Baseline, temporaryPath?: (file: string) => string, committed?: (placed: {readonly realPath: string; readonly before: {readonly hash: string; readonly bytes: Uint8Array}; readonly bytes: Uint8Array}) => Promise<void>): Promise<Outcome<SavedFile>>;
     /** 资源在服务端机器上的绝对路径；最后一段不跟随符号链接，根本身是根的真实路径。 */
     realPath(path: string): Promise<Outcome<{readonly path: string; readonly kind: "file" | "directory" | "other"}>>;
 }
@@ -161,7 +162,7 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
             return {ok: true, value: {text, baseline: {hash: hashOf(read.bytes)}}};
         },
 
-        write: async (path, text, baseline, temporaryPath) => {
+        write: async (path, text, baseline, temporaryPath, committed) => {
             const bad = invalid(path);
             if (bad !== null) return bad;
             if (encodedTextBytes(text) > TEXT_BUDGET_BYTES) return {ok: false, code: "too-large", detail: {detail: `${path} 的正文超过上限`}};
@@ -170,7 +171,10 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
                 if (current === null) return {done: {ok: false, code: "not-found", detail: {detail: `${path} 不存在`}}};
                 const now = hashOf(current.bytes);
                 return now === baseline.hash ? {write: bytes} : {done: {ok: false, code: "conflict", detail: {detail: `${path} 在读取后被修改过`, current: {hash: now}}}};
-            }, temporaryPath);
+            }, temporaryPath, committed === undefined ? undefined : async (placed) => {
+                // 保存只替换已有文件：到这里改前内容一定在。
+                if (placed.before !== null) await committed({realPath: placed.realPath, before: {hash: hashOf(placed.before.bytes), bytes: placed.before.bytes}, bytes});
+            });
             if (!replaced.ok) return failed(replaced, "files.write.failed");
             if ("done" in replaced) return replaced.done;
             // 经祖先目录的链接保存，替换的仍是这个目录项指向的普通文件，身份照样推进；最后一段本身是链接时目录项（链接）

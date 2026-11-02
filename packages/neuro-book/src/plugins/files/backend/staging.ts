@@ -11,7 +11,7 @@
 
 import {randomUUID} from "node:crypto";
 import type {Stats} from "node:fs";
-import {lstat, mkdir, open, readdir, unlink} from "node:fs/promises";
+import {lstat, mkdir, open, readdir, readFile, unlink} from "node:fs/promises";
 import {join} from "node:path";
 
 import {describe, errno, holdLock} from "nbook/backend/locked-replace";
@@ -21,6 +21,7 @@ import {STAGE_NAME} from "../shared/contracts";
 import type {Baseline, CommitExpect} from "../shared/contracts";
 import {pathProblem} from "../shared/resource";
 import type {ChangeHub, Origin} from "./changes";
+import type {LedgerSlot} from "./ledger-slot";
 import type {Outcome} from "./files-service";
 import type {RootedFailure, RootedRoot} from "./rooted";
 
@@ -139,6 +140,8 @@ export interface StagingCommitterOptions {
     /** 本根的暂存目录（`ensureStagingDirectory` 的结果）。 */
     readonly directory: string;
     readonly changes: ChangeHub;
+    /** 记账槽；挂载方案没有（不记账）。 */
+    readonly ledger?: LedgerSlot;
     readonly report: (event: string, error: unknown) => void;
 }
 
@@ -201,7 +204,21 @@ export function createStagingCommitter(options: StagingCommitterOptions): Stagin
                 if (current === null) return {done: {ok: false, code: "not-found", detail: {detail: `${input.path} 不存在`}}};
                 return current.hash === expect.hash ? {proceed: true} : {done: {ok: false, code: "conflict", detail: {detail: `${input.path} 在读取后被修改过`, current: {hash: current.hash}}}};
             },
+            // 锁内成功阶段，按 Spec 的顺序：记账槽 → 登记回声并发事件。
             committed: async ({realPath, after, before}) => {
+                const {ledger} = options;
+                if (ledger !== undefined) {
+                    // 有记账者时才为它读一遍新内容（32 MB 以内）；锁还在，读到的就是这一版。
+                    const bytes = ledger.active && after.size <= KEEP_BYTES ? new Uint8Array(await readFile(join(root.real, realPath))) : null;
+                    await ledger.record({
+                        path: realPath,
+                        op: before === null ? "created" : "write",
+                        before: before === null ? null : {hash: before.hash, bytes: before.bytes},
+                        after: {hash: input.hash, bytes},
+                        source: origin.source,
+                        ...(origin.group === undefined ? {} : {group: origin.group}),
+                    });
+                }
                 changes.placed({path: input.path, realPath, after, created: before === null}, origin);
             },
         });

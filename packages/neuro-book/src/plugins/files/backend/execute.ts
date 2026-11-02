@@ -8,7 +8,9 @@ import type {Scope} from "@notnotype/nb-runtime/lifecycle";
 import type {Baseline, OperationDone, SavedText} from "../shared/contracts";
 import type {ServerFilesResult} from "../shared/schemes";
 import type {ChangeHub, Origin} from "./changes";
+import type {LedgerSlot} from "./ledger-slot";
 import {createDirectory, createFile} from "./entry-ops";
+import {hashOf} from "./files-service";
 import type {FilesService, Outcome} from "./files-service";
 import type {RootedFailure, RootedRoot} from "./rooted";
 
@@ -31,13 +33,23 @@ export interface WriteTarget {
     readonly service: FilesService;
     readonly changes: ChangeHub;
     readonly scope: Scope;
+    /** 记账槽；挂载方案没有（不记账）。 */
+    readonly ledger?: LedgerSlot;
 }
 
 /** 按基线保存；成功后以真实来源发出变更（经链接保存时真实路径也发一条，由 ChangeHub 处理）。 */
 export function saveText(target: WriteTarget, path: string, text: string, baseline: Baseline, origin: Origin): Promise<Outcome<SavedText>> {
     const {service, changes} = target;
     return tracked(target.scope, "files.write", async () => {
-        const saved = await service.write(path, text, baseline, changes.temporaryPath);
+        const {ledger} = target;
+        const saved = await service.write(path, text, baseline, changes.temporaryPath, ledger === undefined ? undefined : (placed) => ledger.record({
+            path: placed.realPath,
+            op: "write",
+            before: placed.before,
+            after: {hash: hashOf(placed.bytes), bytes: placed.bytes},
+            source: origin.source,
+            ...(origin.group === undefined ? {} : {group: origin.group}),
+        }));
         if (!saved.ok) return saved;
         changes.saved({path, realPath: saved.value.realPath, bytes: saved.value.bytes}, origin);
         return {ok: true as const, value: {baseline: saved.value.baseline, ...(saved.value.identity === undefined ? {} : {identity: saved.value.identity})}};

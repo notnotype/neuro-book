@@ -58,6 +58,11 @@ export interface ReplaceOptions<T, W extends Uint8Array | string> {
     readonly temporaryPath?: (file: string) => string;
     /** 收尾时的次要错误（`lock.release-failed`、`temporary.cleanup-failed`）不改变结果，交给它记诊断；事件名由调用方加上自己的前缀。 */
     readonly report: (event: string, error: unknown) => void;
+    /**
+     * 锁内成功阶段：改名替换之后、释放锁之前调用（Files 在这里交记账槽）。它出错不撤回落盘，交给 `report`
+     * （`committed.failed`）。
+     */
+    readonly committed?: (written: W, before: CurrentFile, after: Stats) => Promise<void>;
 }
 
 /** 加锁替换 `file`；`file` 所在目录必须已存在。 */
@@ -185,6 +190,13 @@ async function replaceOnce<T, W extends Uint8Array | string>(file: string, optio
             return "modified";
         }
         await rename(temporary, file);
+        if (options.committed !== undefined) {
+            try {
+                await options.committed(decision.write, current, after);
+            } catch (error) {
+                options.report("committed.failed", error);
+            }
+        }
         return {ok: true, written: decision.write, before, after};
     } catch (error) {
         await unlink(temporary).catch((cleanup: unknown) => {

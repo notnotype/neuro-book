@@ -34,6 +34,8 @@ import type {Operations} from "./operations";
 import {createPreviewTokens, createRawRoutes, PREVIEW_PREFIX} from "./raw-route";
 import {SCHEMES_POINT, schemesPoint, serverFilesKey} from "../shared/schemes";
 import {workspaceFilesKey} from "../shared/workspace-files";
+import {LEDGER_POINT, ledgerPoint} from "../shared/ledger";
+import {LedgerSlot} from "./ledger-slot";
 import {saveText, tracked} from "./execute";
 import {createProjectsAccess, createProjectsScheme} from "./projects-scheme";
 import {SchemeRegistry} from "./registry";
@@ -81,6 +83,7 @@ interface Backend {
     /** 暂存目录建不起来时为 null，提交得 `io-failed`。 */
     readonly commit: StagingCommit | null;
     readonly stagingDirectory: string | null;
+    readonly ledger: LedgerSlot;
 }
 
 /** 两份合同的方法与事件相同，实现也相同；`consumer` 是内核填写的调用方身份，写入来源由它确定。 */
@@ -167,16 +170,17 @@ async function openBackend(context: ActivationContext, scheme: "user" | "project
         stopped: (operation, detail) => record("info", "files.batch.stopped", detail, {operation}),
     });
     const report = (event: string, error: unknown): void => record("warn", `files.${event}`, "暂存文件的收尾出错", {}, error);
+    const ledger = new LedgerSlot({root: scheme, clock: context.services.require(clockKey), record});
     // 项目的暂存目录在根的真实路径下（`.nbook/staging/`）；`user://` 的在状态根下，不在根里。
     const staging = await ensureStagingDirectory(placed.staging.base ?? root.real, placed.staging.segments);
     let commit: StagingCommit | null = null;
     if (staging.ok) {
         await sweepStaging(staging.path, report);
-        commit = createStagingCommitter({root, directory: staging.path, changes, report});
+        commit = createStagingCommitter({root, directory: staging.path, changes, ledger, report});
     } else {
         record("warn", "files.staging.unavailable", "暂存目录不可用，写入接口的提交会失败", {detail: staging.detail});
     }
-    const backend: Backend = {root, service, operations, batch, changes, scope: context.scope, commit, stagingDirectory: staging.ok ? staging.path : null};
+    const backend: Backend = {root, service, operations, batch, changes, scope: context.scope, commit, stagingDirectory: staging.ok ? staging.path : null, ledger};
     const reportStage = (event: string, error: unknown): void => record("warn", `files.${event}`, "写入接口的收尾出错", {}, error);
     return {root, record, backend, reportStage};
 }
@@ -194,7 +198,7 @@ const serverEntry = defineEntry({
     contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],
     provides: [serverFilesKey, workspaceFilesKey],
     remoteProvides: [userFilesContract, filesPreviewContract],
-    receives: [SCHEMES_POINT],
+    receives: [SCHEMES_POINT, LEDGER_POINT],
     activate: async (context) => {
         const state = context.services.require(stateRootKey).path;
         const path = join(state, "user");
@@ -244,7 +248,7 @@ const serverEntry = defineEntry({
             ],
             remote: [provideRemote(userFilesContract, (consumer) => implementation(backend, consumer)), preview],
             contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: routes}},
-            receivers: {[SCHEMES_POINT]: schemes.receiver},
+            receivers: {[SCHEMES_POINT]: schemes.receiver, [LEDGER_POINT]: backend.ledger.receiver},
         };
     },
 });
@@ -257,12 +261,14 @@ const projectEntry = defineEntry({
     dependencies: [{key: diagnosticsKey}, {key: clockKey}, {key: currentProjectKey}],
     provides: [workspaceFilesKey],
     remoteProvides: [projectFilesContract],
+    receives: [LEDGER_POINT],
     activate: async (context) => {
         const path = context.services.require(currentProjectKey).root;
         const {backend, reportStage} = await openBackend(context, "project", {path, options: {controlDirectory: true, lockDirectory: join(path, ".nbook", "locks", "files")}, staging: {segments: [".nbook", "staging"]}});
         return {
             services: [provideWorkspaceFiles({own: {scheme: "project", root: backend}, registry: null, projects: null, signal: context.signal, sourceOf, report: reportStage})],
             remote: [provideRemote(projectFilesContract, (consumer) => implementation(backend, consumer))],
+            receivers: {[LEDGER_POINT]: backend.ledger.receiver},
         };
     },
 });
@@ -275,6 +281,6 @@ function recordTo(diagnostics: DiagnosticsService) {
 
 export const filesBackendPlugin: PluginDefinition = {
     id: descriptor.id,
-    contributionPoints: [schemesPoint],
+    contributionPoints: [schemesPoint, ledgerPoint],
     entries: [serverEntry, projectEntry],
 };
