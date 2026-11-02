@@ -17,7 +17,7 @@ updated: 2026-11-02
 
 ## 当前状态
 
-2026-11-02 经 nbdev 新建，尚未开工。
+2026-11-02 经 nbdev 新建，同日开工。
 
 执行位置：`.worktree/w00039-t29-canon-kernel`，分支 `feat/w00039-t29-canon-kernel`。开发者 11-02：本次在单独的分支上进行，没有开发者允许不合并进 master。
 
@@ -35,6 +35,9 @@ updated: 2026-11-02
 
 - 第 5 片 d32f8885e：渲染与带值写法（MDX 依赖：micromark 及 mdxjs、GFM 表格与删除线、CJK 友好强调扩展，acorn 改为直接依赖）。
 
+- 第 6 片 abc60ad8e：分段日志存储（`./node` 子路径）。文件操作经一个窄接口，注入失败的实现与 `node:fs` 实现跑同一组契约测试；超过一段上限的单行另开新段。
+- 第 7 片 627a2c058：世界服务（单写者队列、独占租约、事件、补归纳、按请求 id 查结局、别的进程的行）。服务引用 node 存储，所以从 `./node` 导出。写服务测试时抓到第 4a 片的一处错：章序调整分配了修订 id 却没存回分配器，下一次发布会重用同一个 id，已修并在章序调整的测试里补断言。Spec 只给 `binder-invalid` 定了诊断码，服务的其余诊断（`reorder-not-recorded`、`duplicate-version`、`external-change`、`reduction-cache-bad-line`、`reduce-failed`）是实现取的名字。nb-canon 全包 208 条测试通过。
+
 ## 下一步
 
-第 6 片：node 存储（文件句柄接口与注入失败的实现、分段读写、写一半、坏行、写入失败与截回、尾部核对、归纳缓存文件）。
+第 8 片：canon 插件与验收（项目入口、活页夹、远程服务与预算、贡献变化；两进程与真实项目子进程的测试；星瑕样本对照；插件侧完整规模脚本；重测 `measure-project.ts`）。
