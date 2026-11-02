@@ -9,6 +9,7 @@ specs: []
 adrs:
   - docs/adr/0037-world-engine-story-change-log.md
   - docs/adr/0038-world-engine-entry-text-is-whitelisted-mdx.md
+  - docs/adr/0039-world-engine-segmented-revision-log.md
 ---
 
 # 作者视角的世界引擎内核（第一版）
@@ -611,3 +612,4 @@ c20 计划，未排章  实践“用钱说话”，搞砸                       
 | 2026-11-02 | 第三版可以，开第三轮审查：只派一个 omp 默认模型，审新定的数据合同 |
 | 2026-11-02 | 去掉“超出计划”这一类：待处理只收核对点不符、与设定冲突、Agent 没把握三类，计划与正文的差别写进回执 |
 | 2026-11-02 | 三轮审查到上限，按第三轮的处理计划改出第四版并接受；剩下的细节在写 Spec 时定，由 Spec 的审查兜底 |
+| 2026-11-02 | 存储（t09，待定项 2）：真相源是按 256 KiB 分段的只追加修订日志，打开时在内存里重放，不用数据库；条目不做成文件，`lorebook.content/` 不再是条目的家；第一版不开放经文件改设定，第四部分第 5 节“并发”的最后一条与“影响”里“主 MDX 若定为文件”的说法不再成立（[ADR 0039](../adr/0039-world-engine-segmented-revision-log.md)） |
