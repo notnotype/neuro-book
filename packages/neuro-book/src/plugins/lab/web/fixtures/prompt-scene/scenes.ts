@@ -12,9 +12,9 @@ type Scene<C> = {id: string; label: string; input: LabInputOf<C>};
 
 /** 夹具里的假附件目标；`PROMPT_LAB_THUMBNAILS` 认得前两个。 */
 export const PROMPT_LAB_TARGETS = {
-    sketch: "local://草图.png",
-    map: "local://地图.png",
-    notes: "local://采访记录.pdf",
+    sketch: "session://attachments/草图.png",
+    map: "session://attachments/地图.png",
+    notes: "session://attachments/采访记录.pdf",
 } as const;
 
 const svg = (body: string): string => `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'>${body}</svg>`)}`;
@@ -62,7 +62,7 @@ export const PASTE_SAMPLE = [
 const TOKENS_TEXT = [
     "/plan 先读 [第一章 雨夜](/正文/第一章.md) 和 [钟表铺](/设定/地点/钟表铺.md)，再用 $writer 改写 [[正文/第三章.md#L12-L40]]。",
     `参考图 ![image #1](${PROMPT_LAB_TARGETS.sketch}) 和 ![image #2](${PROMPT_LAB_TARGETS.map})，资料见 [file #1 · 采访记录.pdf](${PROMPT_LAB_TARGETS.notes})，外部链接 [写作手册](https://example.com/guide)。`,
-    "旧应用写出的领域地址照常是引用小块：[第二章 旧钟](chapter://c2)；没有编号的图片：![旧截图.png](local://旧截图.png)",
+    "旧应用写出的领域地址照常是引用小块：[第二章 旧钟](chapter://c2)；没有编号的图片：![旧截图.png](session://attachments/旧截图.png)",
 ].join("\n");
 
 const LONG_TEXT = Array.from({length: 18}, (_, index) => `第 ${String(index + 1)} 段：雨还在下，钟表铺的门半开着，柜台后面的人一直没有抬头。`).join("\n");

@@ -3,7 +3,7 @@
  * PromptEditor 的 Lab 夹具（docs/specs/ui/prompt-editor.md）。场景输入（草稿、触发字符、命令、粘贴设置等）可在数据 tab 编辑；
  * 夹具扮演宿主：把 change 写回草稿（同一版本，验证回声被忽略）、发送后清空并记入输入历史、假装上传附件（成功、失败或一直
  * 上传），并提供菜单数据：`@` 没输入时列目录、输入了按目录分组搜索，`$` 技能先“正在加载”再换一个新的 resolveMenu，`/` 命令
- * 只在开头有效。上传完成时给出会话内短地址 `local://名称`。“模拟”一栏用合成的粘贴事件放入图片、文件与大段文字。按钮带
+ * 只在开头有效。上传完成时给出会话附件地址 `session://attachments/名称`。“模拟”一栏用合成的粘贴事件放入图片、文件与大段文字。按钮带
  * `data-lab-action` 供 e2e 定位。由旧应用的夹具移植（分支 `archive/legacy-ui-tuning`，`865c9f593`）。
  */
 import {Button} from "@notnotype/nb-ui/components";
@@ -99,7 +99,7 @@ function fakeTarget(localId: string): string {
     let unique = name;
     for (let index = 2; usedNames.has(unique); index += 1) unique = `${stem}-${String(index)}${extension}`;
     usedNames.add(unique);
-    return `local://${unique}`;
+    return `session://attachments/${unique}`;
 }
 
 function writeAttachments(next: PromptEditorAttachment[]): void {

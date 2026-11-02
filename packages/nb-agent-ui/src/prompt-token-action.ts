@@ -19,8 +19,11 @@ function selectionTarget(token: Extract<PromptToken, {kind: "selection"}>): stri
     return end === token.startLine ? `${token.path}#L${token.startLine}` : `${token.path}#L${token.startLine}-L${end}`;
 }
 
+/** 会话附件的地址前缀（docs/specs/agent/resources.md）。 */
+const ATTACHMENTS = "session://attachments/";
+
 /**
- * `imageLabel` 给出“图片 #N”这样的显示名；目标是会话内短地址 `local://名称` 时名称也写进预览标题。
+ * `imageLabel` 给出“图片 #N”这样的显示名；目标是会话附件 `session://attachments/名称` 时名称也写进预览标题。
  * 还没上传完的附件没有目标，点击不做任何事。
  */
 export function promptTokenOutcome(token: PromptToken, imageLabel: (number: number) => string): PromptTokenOutcome {
@@ -38,7 +41,7 @@ export function promptTokenOutcome(token: PromptToken, imageLabel: (number: numb
                 return null;
             }
             const label = imageLabel(token.number);
-            const name = token.target.startsWith("local://") ? token.target.slice("local://".length) : "";
+            const name = token.target.startsWith(ATTACHMENTS) ? token.target.slice(ATTACHMENTS.length) : "";
             return {kind: "preview", image: {locator: token.target, name: name === "" ? label : `${label} · ${name}`}};
         }
         // 命令在发送时执行；位置标记只用于和粘贴块联动。

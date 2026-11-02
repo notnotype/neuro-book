@@ -534,7 +534,7 @@ describe("没有数据的区域不显示（验收 24）", () => {
         const ctx = context();
         ctx.messages = [{kind: "user", id: "u1", timestamp: 1, intent: "normal", contentOmitted: false, blocks: [
             {kind: "text", text: "看图"},
-            {kind: "attachment", locator: "local://草图.png", name: "草图.png", mimeType: "image/png", bytes: 10},
+            {kind: "attachment", locator: "session://attachments/草图.png", name: "草图.png", mimeType: "image/png", bytes: 10},
         ]}];
         const view = mountView("zh-CN", {}, {ctx, plain: true, bareServices: true});
         expect(view.find(".acv-user-content__image--missing").exists()).toBe(true);

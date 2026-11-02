@@ -37,10 +37,10 @@ async function hosted(component: HostedComponent, attrs: Record<string, unknown>
     return wrapper;
 }
 
-const LINKS = "[林雪](/设定/林雪.md) [头像](user://头像.png) [截图](local://截图.png) [旧章](chapter://c1) [官网](https://example.com)";
+const LINKS = "[林雪](/设定/林雪.md) [头像](user://头像.png) [截图](session://attachments/截图.png) [旧章](chapter://c1) [官网](https://example.com)";
 
 describe("nbook 的宿主到达 nb-markdown 的组件", () => {
-    it("展示器：作品里的文件与用户资产是文件小块（细分 work、user，带文件图标），local:// 是附件，别的方案是其它，外部链接是普通链接", async () => {
+    it("展示器：作品里的文件与用户资产是文件小块（细分 work、user，带文件图标），session://attachments/ 是附件，别的方案是其它，外部链接是普通链接", async () => {
         const wrapper = await hosted("MarkdownDisplay", {text: `${LINKS}\n`});
         await waitUntil("展示器画完", () => (wrapper.findAll("[data-reference-link]").length === 4 ? true : null));
         expect(wrapper.findAll("[data-reference-link]").map((chip) => chip.attributes("data-reference-link"))).toEqual(["work", "user", "attachment", "other"]);

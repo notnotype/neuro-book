@@ -39,8 +39,8 @@ describe("PromptTextView", () => {
 
     it("图片与文件按出现顺序进附件条，旧图片补显示号，缩略图取自 resolveThumbnail", () => {
         const wrapper = mountView({
-            text: "![image #2](local://b.png) [file #1 · 设定.pdf](local://设定.pdf) ![旧图.png](old/path.png)",
-            resolveThumbnail: (target) => target === "local://b.png" ? "data:image/png;base64,AAAA" : null,
+            text: "![image #2](session://attachments/b.png) [file #1 · 设定.pdf](session://attachments/设定.pdf) ![旧图.png](old/path.png)",
+            resolveThumbnail: (target) => target === "session://attachments/b.png" ? "data:image/png;base64,AAAA" : null,
         });
         const cards = wrapper.findAll("[data-prompt-card]");
         expect(cards.map((card) => card.text())).toEqual(expect.arrayContaining([expect.stringContaining("#2")]));
@@ -51,12 +51,12 @@ describe("PromptTextView", () => {
     });
 
     it("点击标签与卡片发出 token-activate", async () => {
-        const wrapper = mountView({text: "[file #1 · 设定.pdf](local://设定.pdf) $writer"});
+        const wrapper = mountView({text: "[file #1 · 设定.pdf](session://attachments/设定.pdf) $writer"});
         await wrapper.find("[data-inline-chip='skill']").trigger("click");
         await wrapper.find("[data-prompt-card] .prompt-strip__main").trigger("click");
         expect(activated(wrapper)).toEqual([
             {kind: "skill", name: "writer"},
-            {kind: "file", number: 1, name: "设定.pdf", target: "local://设定.pdf"},
+            {kind: "file", number: 1, name: "设定.pdf", target: "session://attachments/设定.pdf"},
         ]);
     });
 

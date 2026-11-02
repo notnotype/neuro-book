@@ -9,7 +9,7 @@
 
 ## 宿主
 
-- 链接目标按作品文件分类：作品里的文件与用户资产是文件小块（`data-reference-link` 为 `work`、`user`），`local://` 是附件（[`workspace/markdown-dialect`](../../../../../../../docs/specs/workspace/markdown-dialect.md) 输出 27）；文件图标按文件名取。
+- 链接目标按作品文件分类：作品里的文件与用户资产是文件小块（`data-reference-link` 为 `work`、`user`），`session://attachments/` 是附件（[`workspace/markdown-dialect`](../../../../../../../docs/specs/workspace/markdown-dialect.md) 输出 27）；文件图标按文件名取。
 - 展示器的语言由方言目录组成（[`workspace/markdown-syntaxes`](../../../../../../../docs/specs/workspace/markdown-syntaxes.md) 输出 7）；别的组件不用语言。
 - 诊断落到插件交给它的诊断出口；图片不显示时写明“不在作品里”。
 - `InlineChip` 与 `MarkdownImage` 的宿主信息只收属性：小块的分类与图标经 `env` 给，图片的“不在作品里”经 `missing` 给（`nbook.markdown` 目录里的键），不读 `provideMarkdownHost`。界面文字所有组件都经窗口注入的翻译端口取（[`ui/i18n`](../../../../../../../docs/specs/ui/i18n.md)），窗口登记了 nb-markdown 与 `nbook.markdown` 的目录。

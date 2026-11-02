@@ -24,7 +24,7 @@ import {markdownText} from "./text";
 const sameLocale: [DisplayLocale, MarkdownLocale] extends [MarkdownLocale, DisplayLocale] ? true : never = true;
 void sameLocale;
 
-/** 作品里的文件与用户资产归为文件（细分 work、user：`data-reference-link` 与色调类照旧），`local://` 是附件。 */
+/** 作品里的文件与用户资产归为文件（细分 work、user：`data-reference-link` 与色调类照旧），`session://attachments/` 是附件。 */
 export const nbookTargets: MarkdownTargets = {
     classify(target, base) {
         const classified = classifyTarget(target, base);

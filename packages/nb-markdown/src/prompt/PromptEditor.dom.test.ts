@@ -17,7 +17,7 @@ import PromptEditor from "./PromptEditor.vue";
 import type {PromptEditorAttachment, PromptEditorDraft, PromptEditorExpose, PromptEditorMenuContext} from "./prompt-editor.types";
 import {promptReferenceText} from "./prompt-text";
 
-const TARGET = "local://a.png";
+const TARGET = "session://attachments/a.png";
 const mounted: VueWrapper[] = [];
 
 type Props = InstanceType<typeof PromptEditor>["$props"];
