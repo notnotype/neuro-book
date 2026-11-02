@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t12-builtin-tools
-status: planned
+status: in-progress
 updated: 2026-10-28
 ---
 
@@ -71,8 +71,8 @@ t08 之后重新对齐需求：
 
 ## 当前状态
 
-讨论完成（2026-10-28）。计划与实施切片在本 Work 的讨论全部完成后另定。
+计划初稿已写（[plan.md](plan.md)），等开发者看过再交设计审查。
 
 ## 下一步
 
-实施时按 implementation-planning 写 `plan.md`；先确认 `pi-natives` 的 brush shell 在升级后的 OMP 与 Windows 上可用。
+开发者确认计划后交 omp 设计审查，处理后按切片实施。
