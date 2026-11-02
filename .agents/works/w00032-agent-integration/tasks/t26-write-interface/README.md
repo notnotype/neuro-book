@@ -15,6 +15,8 @@ updated: 2026-11-02
 
 ## 当前状态
 
+执行位置：`.worktree/w00032-t26-write-interface`，分支 `feat/w00032-t26-write-interface`（从 master）。
+
 计划第一稿 [plan.md](plan.md) 开发者已确认（2026-11-02，见计划末尾“开发者的决定”）：锁沿用现有规则；**在单独的分支上做，没有开发者允许不合并到 master**。正在做设计审查。
 
 ## 下一步
