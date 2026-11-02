@@ -88,6 +88,8 @@ updated: 2026-11-02
 
 2026-11-02 开发者确认主文字继续用 MDX，先不考虑前端渲染、不复用 Markdown 方言。按此与 35 个主题改出提案第三版，开发者看过要点，同意提交并开第三轮（A3，omp 默认模型，只审新定的数据合同）。
 
+2026-11-02 第三轮开审（提案提交 a95e7930c）。omp 跑了约 20 分钟后中转额度用完（403），写了 2 条；按规则不续跑，改派 Claude Opus 接续，写了 22 条。合计 24 条：阻断 0、重要 17、建议 7，都成立（报告 `evidences/design-review-A3-omp.txt`、`design-review-A3-opus.txt`，说明 `design-review-brief-A3*.md`，处理计划 `design-review-r3-resolution.txt`）。三轮已到上限；要开发者定：决策记录里“超出计划的进待处理”去留，以及改出第四版后直接接受、先拆小，还是再审一轮。
+
 ## 下一步
 
 按 Work README 的讨论顺序轮到时讨论；讨论定的事写进本 README 的“当前状态”。
