@@ -65,6 +65,9 @@ t08 之后重新对齐需求：
 8. `todo` 与 Claude Code 一样默认关闭（Codex 2026-08、Claude Code 2.1.233 起都对较新的模型默认不提供，见 [调研](research/todo-tools.md)）：它现在主要是让用户知道 Agent 在做什么。
 9. 要做 omp 与 Claude Code 那种隔 N 轮没更新清单就提醒的机制。
 10. 工具声明的 token 数（[脚本](experiments/todo-tokens.py)，[结果](evidences/todo-tokens.txt)，o200k）：omp `todo` 472，Claude Code `Task*` 四个合计 2,033，`TodoWrite` 2,152，Codex `update_plan` 186；DeepSeek-V3 分词结果相差不到 2%。只量工具声明，不含各家主提示词里关于待办的段落与提醒。
+11. `todo` 暂定照 omp 的做法：一个工具、`op` 切换操作，交回的结果也照 omp（剩余项加整份清单）。`todo` 本 Task 先不做，搁置；第 8、9 条随它一起做。
+
+第一批因此是 `read`（能读图片）、`write`（自动建上级目录）、`edit`（hashline 与 replace）、`grep`、`glob`、`shell`。
 
 ## 当前状态
 
