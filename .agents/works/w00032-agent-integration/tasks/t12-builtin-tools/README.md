@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t12-builtin-tools
-status: planned
+status: in-progress
 updated: 2026-10-28
 ---
 
@@ -47,10 +47,50 @@ t04、t06、t08。
 - eval（CodeAct）另开 [t21](../t21-eval-codeact/README.md) 搁置；后台任务、Agent Hub、Monitor 与 Agent 后台调用统一放进 [t22](../t22-background-work/README.md) 搁置。第一批 shell 只有前台：执行时限照 omp，缺省 300 秒、模型可设 1 到 3600 秒、不允许不限，输出过长截断、全文进 `session://artifacts/`（2026-10-28 会话里的推荐，开发者未单独否决，实施时可再调）。
 - 第一批工具：`read`、`write`、`edit`（master 的五种模式，缺省 hashline，中文长段落用哪种在 t18 按模型评测）、`grep`、`glob`（都用 `pi-natives`）、`shell`（`pi-natives` 内嵌的 brush shell，工作目录 `session://`（2026-10-30 t14 改为：有主项目时 `project://`，没有时 `session://`；另加 `async` 转后台，见 [t14](../t14-multi-agent/README.md)），命令里能对应真实目录的地址替换成绝对路径，虚拟地址报错，提供 `$NBOOK_PROJECT`、`$NBOOK_SESSION`）、`todo`；`ask`、`switch_mode` 见 t06，子代理见 t14。不进第一批：ast_grep、lsp、eval、github、checkpoint/rewind、apply_patch。内置工具经资源地址读写（t08）；说明用中文，失败在 `details` 给 `code`，`pi-natives` 原生 edit 的英文错误原样（ADR 0034）。
 
+### 补充决定（开发者 2026-11-02）
+
+- `shell` 原样继承服务端进程的环境变量，不剔除模型密钥一类的变量：别的 code agent 都这样做，不处理。
+
+### 开工前对齐（开发者 2026-11-02）
+
+t08 之后重新对齐需求：
+
+1. `read`、`edit` 先不针对长篇中文正文专门设计，用 LLM 最熟悉的 code agent 默认做法；以后有时间再优化。
+2. t12 只交工具：审批接线（按 t08 的分类决定写入要不要问、`shell` 的只读白名单怎样参与审批）不在本 Task。
+3. `write` 照 code agent 的做法，自动建上级目录。
+4. `read` 能读图片，照 omp 的做法。
+5. `edit` 首批只开 hashline 与 replace 两种模式。
+6. `todo` 要先设计：调研 omp、Codex、Claude Code 各有哪些工具、参数与交回给模型的结果，再定。
+7. 先不改 nb-agent-ui 的内置工具渲染器（它按旧应用的工具名写）。
+8. `todo` 与 Claude Code 一样默认关闭（Codex 2026-08、Claude Code 2.1.233 起都对较新的模型默认不提供，见 [调研](research/todo-tools.md)）：它现在主要是让用户知道 Agent 在做什么。
+9. 要做 omp 与 Claude Code 那种隔 N 轮没更新清单就提醒的机制。
+10. 工具声明的 token 数（[脚本](experiments/todo-tokens.py)，[结果](evidences/todo-tokens.txt)，o200k）：omp `todo` 472，Claude Code `Task*` 四个合计 2,033，`TodoWrite` 2,152，Codex `update_plan` 186；DeepSeek-V3 分词结果相差不到 2%。只量工具声明，不含各家主提示词里关于待办的段落与提醒。
+11. `todo` 暂定照 omp 的做法：一个工具、`op` 切换操作，交回的结果也照 omp（剩余项加整份清单）。`todo` 本 Task 先不做，搁置；第 8、9 条随它一起做。
+
+第一批因此是 `read`（能读图片）、`write`（自动建上级目录）、`edit`（hashline 与 replace）、`grep`、`glob`、`shell`。
+
+### 第一轮设计审查后的决定（开发者 2026-11-02）
+
+12. `edit` 不加“冻结基线”的护栏：别的 code agent 都没有；写回前取一次当前基线即可。
+13. 用户自己建的符号链接，目标当作书里的文件：文件工具取真实路径后直接读，顺着链接读到目标，不另做根内核对。文件服务对编辑器与文件树仍按 `outside-root` 拒绝根外链接，改成同样跟随链接另开 Task（nbook.files，不在本 Task）。
+14. （被第 15 条取代）读用文件服务交出的绝对路径在本机读；写仍经文件服务。
+
+### 文件访问的架构讨论（开发者 2026-11-02，进行中）
+
+讨论 t12 的读写时发现，nbook.files 的读写接口是照“浏览器经 RPC 编辑一个文档”设计的（一次交整份文本、约 960 KiB 上限、不能读写字节），服务端使用方（作品统计、Agent 工具、以后的图生文插件）都用不上，作品统计已经自己绕开。开发者提出换思路：
+
+15. 不再让 nbook.files 劫持所有文件访问（不现实），改为照 git 的思路记账：各方（Agent、用户经网页、插件）在服务端经一个共享接口直接读写文件，接口在写入时算出改动并连同操作者交给账本；不经接口的外部改动（shell、外部编辑器、git）由文件监视发现，账本用保存的上一版算出改动。读写文件的需求只在服务端。
+16. 写入的顺序：在文件锁里读改前值、写临时文件、算改动、把记录交给账本并等确认、改名替换，再放锁。记录不挪到锁外：先实测本机 RPC 的延迟，可以接受就这样做（最干净）；不行再考虑锁外异步加序号。实测（2026-11-02，本机 Linux，真实项目子进程，服务端经 `{project}` 目标调 `nbook.files/project` 的 `realPath`，空载荷，500 次 × 3 轮）：p50 0.30–0.38 ms，p90 0.70–0.75 ms，p99 1.9–2.4 ms，最大 3.6–4.6 ms。可以接受，按锁内同步做；记录带上改动内容后载荷会变大，实施时再测一次。
+17. 改名照 git：经接口的改名记为改名，外部改名记为删除加新建，看时间线时按内容相似度接起来。
+18. 二进制照 git：只记“已更改”加前后哈希与大小。
+19. nb-history 已经实现了这套账本的大半（代写并记账、观察型记账、对账、时间线、diff、恢复、收件箱、会话未见变更），但还没接进新应用，且只支持单进程单写者。是在它上面继续做，还是复用 git 或别的成熟实现，等调研（git 的做法、复用 git 或其组件、开源库、文件监视；Web 的文件资源管理器要能实时看到变化）再定。
+
+这次改动牵涉已接受的 [项目文件底座提案](../../../../../docs/proposals/project-file-foundation.md)（“读写都经文件服务”）、`workspace/resources.md` 与 t08 刚做完的服务端文件服务，定稿后要写提案或追加决策记录。t12 的计划在这之后再定。
+
 ## 当前状态
 
-讨论完成（2026-10-28）。计划与实施切片在本 Work 的讨论全部完成后另定。
+计划第二稿已按第一轮设计审查修订（[plan.md](plan.md)、[处理](evidences/design-review-disposition.md)），等开发者确认读写分工的变化再交第二轮审查。
 
 ## 下一步
 
-实施时按 implementation-planning 写 `plan.md`；先确认 `pi-natives` 的 brush shell 在升级后的 OMP 与 Windows 上可用。
+开发者确认计划后交 omp 设计审查，处理后按切片实施。

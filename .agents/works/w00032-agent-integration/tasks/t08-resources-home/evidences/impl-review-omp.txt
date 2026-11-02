@@ -1,0 +1,47 @@
+### 1. 重要｜正确性/不变量｜`packages/neuro-book/src/plugins/files/backend/server-files.ts:56-107`、`packages/neuro-book/src/plugins/files/backend/mounted.ts:153-203`
+现象：`serverFilesKey` 把 `options.signal` 合并进 `FilesRequest.signal`，但 `user://` 的 `list`、`read`、`realPath`、`write`、`create` 分支都没有把它传给底层，已注册挂载方案的分派只传 `request.caller` 和来源；`MountedScheme.#run` 也不接收或检查终止信号。只有 `projects://` 的远程调用实际使用了这个 signal。
+为什么是问题：Agent 的 `SessionResources` 把 `ToolContext.signal` 传给每个调用，且方案与服务合同约定门面释放、Files 入口停止会中止在途调用。现在工具中止或调用方入口释放后，`user://` 与五个 Agent 挂载方案的读写仍会继续落盘，调用方也不会在中止时收到 `cancelled`；入口停止还可能被长时间文件操作拖住，破坏停止时排空与资源收口边界。
+如何核实：代码追踪 `server-files.ts:61` 创建的 signal 到各分支；`user.service` 的 `FilesService` 接口在 `backend/files-service.ts:49-55` 本身没有 signal 参数，挂载的 `#run` 同样没有 signal 参数，因而不存在后续消费点。现有 `schemes.test.ts`、`resources.test.ts` 没有中止中的 user/挂载读写场景；合同测试命令因 worktree 缺少 `@notnotype/nb-runtime/*` 与测试支持包依赖而未执行。
+建议改法：让所有服务分派接收并在实际操作前后遵守请求 signal；把 signal 传入或接到受管文件操作的取消边界，至少保证请求在执行前被取消不物化、不写入，执行中取消按文件服务合同结算，并让挂载方案在 stop 时终止/结算其请求。
+
+### 2. 重要｜安全与性能/不变量｜`packages/neuro-book/src/plugins/files/backend/mounted.ts:243-260`
+现象：打开一个已存在的挂载点时只对 `<container>/<name>` 做 `lstat`，没有核对 `container` 本身是本地真实目录；随后 `openRoot(path, ...)` 会对整个路径执行 `realpath`。只有“挂载点缺失且本次请求允许物化”分支才调用 `realDirectory(container)`。
+为什么是问题：挂载点空闲关闭后，如果注册方的受管容器被替换为符号链接，下一次普通读/列出/真实路径请求会通过 `lstat(<container>/<name>)`，再由 `openRoot` 跟随容器链接打开容器外的目录。之后真实路径、读取和写入都以这个外部目录为根；方案的容器隔离与“挂载点根是受管目录”不变量被绕过。即使容器最初由 Agent 校验过，Agent 的 shell 仍能在两个请求之间替换它。
+如何核实：在 `schemes.test.ts` 的真实插件场地中先打开并让挂载点空闲关闭；删除原 `container`，把它改成指向仓库外目录的符号链接，并在链接目标中建立同名挂载点；再次调用 `list/read/realPath`。调用链会命中 `realDirectory(join(container,name)) === "directory"`，跳过容器检查，再由 `openRoot` 解析到链接目标。该场景目前没有测试；合同测试因 worktree 缺少 workspace 依赖未执行。
+建议改法：每次打开都先对容器做不跟随链接的真实目录核对，并把容器的真实身份与挂载根绑定；任何容器身份变化都返回 `root-gone`，绝不让 `openRoot` 从未核对的容器路径跟随链接。
+
+### 3. 重要｜正确性/数据保留｜`packages/neuro-book/src/plugins/agent/backend/plugin.ts:69-80`、`packages/neuro-book/src/plugins/agent/backend/temps.ts:53-71`、`packages/nb-harness/src/kernel/log/jsonl-store.ts:288-303`
+现象：启动清理先用 `runtime.listSessions()` 建 `live` 集合，再把不在集合里的临时目录删除。JSONL store 的 `list()` 对单个会话的 `index` 解析失败时直接 `continue`，把该会话静默从成功列表中省略；只有遍历目录等整体操作抛错才返回失败。
+为什么是问题：一个仍有会话目录、但索引暂时损坏或读取失败的会话会被当成“已不存在”，其 `tmp://` 目录在启动时被删除。合同只允许删除已不存在或已归档会话的目录；索引不可读不等于会话不存在，且这会丢掉工具留下的临时数据。整体列表失败时当前代码反而会让 Agent 激活失败、不会清理，保护策略对“部分列表失败”不一致。
+如何核实：在真实状态根创建会话目录与对应临时分区，保留会话目录但把其 `index` 写成不可解析内容；启动 Agent 时 `store.list()` 仍返回 `ok` 且不含该 id，`sweepTemps()` 的 `keep` 返回 false，随后 `rm` 删除该 id 的临时目录。现有 `resources.test.ts` 只覆盖正常索引下的归档/启动清理，没有损坏或单项读取失败；合同测试因 worktree 缺少依赖未执行。
+建议改法：会话列表只要有任一条目读取/解析失败就以“无法判定”失败关闭清理（保留全部临时目录），或让 store 返回带不确定项的结果并让 sweep 对不确定项一律保留；不能静默把损坏条目当作不存在。
+
+### 4. 重要｜不变量｜`packages/neuro-book/src/plugins/files/backend/mounted.ts:71-73`、`packages/neuro-book/src/plugins/files/backend/mounted.ts:142-147`、`packages/neuro-book/src/plugins/files/backend/mounted.ts:200-203`
+现象：`stop()` 在有在途请求时把唯一的 `#drained` 回调写入字段并等待；并发第二次 `stop()` 会覆盖第一次的回调。请求结算时只调用字段中最后一次回调，没有保存或复用第一次的停止 Promise。
+为什么是问题：两个合法的关闭路径同时停止同一个方案时，第一次 `stop()` 永远等不到 `#inFlight` 归零，进而永远不关闭其挂载点。生命周期合同要求关闭幂等、资源最终收口；这会把插件入口停止卡在挂载方案上，也使 `ChangeHub` 与打开根泄漏到停止流程之外。
+如何核实：用一个真实 `MountedScheme` 的挂起根请求让 `#inFlight` 保持为 1，同时调用两次 `stop()`；释放根请求后只有第二次等待被 `#drained` 唤醒，第一次 Promise 仍 pending。现有挂载测试覆盖打开中撤回和入口停止，但没有并发 stop；合同测试因 worktree 缺少依赖未执行。
+建议改法：把停止过程缓存为单一 Promise，所有 `stop()` 调用返回同一 Promise；或把排空等待改为可重复观察的条件，不用单个可覆盖的 resolver。
+### 5. 建议｜安全与性能/正确性｜`packages/neuro-book/src/plugins/files/backend/projects-scheme.ts:43-53`
+现象：每次 `projects://` 根 `list` 或根 `read` 都先执行一次 `projects.list()`，再对返回的每个项目并发调用一次 `projects.readMetadata()`；失败只被静默转成“没有 title”，没有诊断或失败标记。没有数量上限、并发限制或缓存，根 `read` 还会为文字呈现重复做同一整批读取。
+为什么是问题：登记项目数为 N 时，一次根列出固定产生 N 次身份文件读取，且 `Promise.all` 同时打开 N 个 IO；根地址是 Agent 资源视图会频繁读取的目录，N 大时会放大启动后的延迟与文件句柄压力。某个项目的身份读取失败也会被伪装成正常条目，调用方无法区分“没有标题”和“元数据不可用”。
+如何核实：对 `ProjectsService` 统计 `readMetadata` 调用次数即可得到 `list(projects://)` 与 `read(projects://)` 各为项目数 N；现有实现逐项执行 `readMetadata`，测试只覆盖单个项目，没有多项目或失败项场景。合同测试命令因 worktree 缺少依赖未执行。
+建议改法：让项目根列表使用带显示名的批量项目目录结果，或增加受控并发/批量元数据读取并定义失败呈现；根读复用同一次结构化列表的文字结果，不为同一调用再次扫登记表与身份文件。
+### 6. 重要｜安全与正确性｜`packages/neuro-book/src/plugins/files/backend/mounted.ts:88-108`
+现象：列出时先按请求目录做一次真实路径授权，然后只对“当前列出的子项本身是链接”的条目再解析真实路径。若请求目录本身是指向另一目录的链接，普通子项不是链接，就只按词法的 `alias/child` 授权，不再按它实际的 `target/child` 授权。
+为什么是问题：注册方案可以用授权回调保护子树。通过一个已允许访问的目录链接，调用方能列出受保护目标目录里的普通文件名，甚至取得这些子项的后续地址；真实路径授权的覆盖面因此取决于链接出现在当前项还是父项，违反“词法路径与解析链接后的真实路径各授权一次”以及列出结果逐项按 `read` 过滤的合同。
+如何核实：复用 `schemes.test.ts` 的 `notesSpec`：在 `a/hidden/secret.txt` 写入受保护内容，建立 `a/alias -> a/hidden`，调用 `agent.list("notes://a/alias")`。`#run` 对 `alias` 的真实路径 `hidden` 授权通过；循环中 `entry` 是普通文件，`child` 为 `alias/secret.txt`，不会进入 `entry.kind === "link"` 分支，结果会保留 `secret.txt`，而直接列 `notes://a` 的链接过滤路径不同。现有测试只测指向受保护文件的链接，没有测指向目录的链接；合同测试因 worktree 缺少依赖未执行。
+建议改法：列出每个返回项时都把词法子路径解析到真实路径并按 `read` 授权；对父目录链接得到的项按目标目录的真实前缀判定，不能只解析子项自身为链接的情况。
+### 7. 建议｜测试｜`packages/neuro-book/src/plugins/agent/resources.test.ts:39-47`
+现象：测试 `beforeAll` 把 `buildAgentDocs` 的输出固定写到 worktree 内的 `packages/neuro-book/dist/docs`，`afterAll` 只删除测试临时根，不删除这个生成目录；测试也没有显式清空该目录后再构建。
+为什么是问题：测试规范要求业务临时数据放在系统 Temp，且这会让一次资源测试修改仓库外观并把生成物留给后续测试/开发命令。若构建过程或测试中途失败，残留的 `dist/docs` 还能让 `locateDocsRoot()` 找到旧文档，使“开发环境未生成文档”的分支和默认定位结果被陈旧产物掩盖；并行 worktree 或多个测试进程还会共享同一个输出目录。
+如何核实：运行该测试前后检查 `packages/neuro-book/dist/docs`；测试代码的输出路径由 `new URL("../../../dist/docs", import.meta.url)` 固定，清理列表中没有它。当前合同测试因 worktree 缺少依赖未执行。
+建议改法：把文档输出放入 `createTestTmpRoot` 下的本次用例目录，并把该目录传给测试场地；需要验证安装布局时仍使用仓库外解包目录，避免测试写入 `dist/`。
+
+未发现问题的方面：
+- `projects://` 的引用解析、租约取得后取消复核、`finally` 释放，以及项目远程调用的路由失败原样透传；未发现除第 5 条根列表 IO 问题之外的合同回归。
+- `as` 只接受服务端 `nbook.files`、Agent 来源版本升为 6，以及 `SessionResources` 只从工具工厂和内核资源接口交出；未发现其它身份伪造路径。
+- temps 的状态根哈希分区、`nbook` 到 `nbook-<uid>` 回退、只在方案注册前启动清理；第 3 条是会话索引部分失败时的保留策略问题，不是分区串扫问题。
+- SDK 文档生成目录、应用包 `docs/` 白名单与解包后的定位布局；临时 Bun bundle 探针显示 `import.meta.dir` 取 bundle 所在目录，和打包后 `<包>/server` 到 `<包>/docs` 的定位一致。
+- 附件地址改名对 `nbook.files` 后端地址合同没有发现破坏。
+
+有效发现数量：阻断 0，重要 5，建议 2。

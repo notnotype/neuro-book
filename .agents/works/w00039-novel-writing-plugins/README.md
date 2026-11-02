@@ -3,14 +3,16 @@ schema: nbook.work/v1
 workId: w00039-novel-writing-plugins
 issueId: null
 status: active
-updated: 2026-10-31
+updated: 2026-11-02
 ---
 
 # 小说创作插件
 
 ## 目标
 
-设计小说创作方面的插件：把 nb-story（读者视角）、旧应用 WorldEngine 与剧情工坊（作者视角）合成一套故事模型，定项目文件结构与模板、可视化设定表单；先发现问题、按先后关系建 Task 逐项讨论，定稿后再实施。
+设计并实现小说创作方面的插件。先做作者视角的世界引擎（[内核提案](../../../docs/proposals/world-engine-kernel.md)已接受，[ADR 0037](../../../docs/adr/0037-world-engine-story-change-log.md)、[ADR 0038](../../../docs/adr/0038-world-engine-entry-text-is-whitelisted-mdx.md)）：存储、Component 与字段、内核 Spec、写作流程、Agent 工具、作者界面；以后再看与 nb-story（读者视角）合并底层结构。
+
+10-31 的目标是“把 nb-story、旧应用 WorldEngine 与剧情工坊合成一套故事模型”，10-31 当天开发者改为先从作者视角设计（见决定表）。
 
 ## 决定
 
@@ -40,6 +42,10 @@ updated: 2026-10-31
 | 2026-11-02 | 开发者：提案第三版可以，开第三轮审查（只派一个 omp 默认模型，审新定的数据合同） |
 | 2026-11-02 | 开发者：第三轮审查后按推荐走：去掉“超出计划”这一类（待处理只收核对点不符、与设定冲突、Agent 没把握）；按第三轮的处理计划改出第四版并接受提案，剩下的细节在写 Spec 时定（[ADR 0037](../../../docs/adr/0037-world-engine-story-change-log.md)、[ADR 0038](../../../docs/adr/0038-world-engine-entry-text-is-whitelisted-mdx.md)） |
 | 2026-11-02 | 开发者：同意按已接受的提案重新切分本 Work 的 Task（t09 存储排第一，t26 评测与它并行，新增内核 Spec 与作者编辑主 MDX 两个 Task，t04、t06 推到第二版）；开始之前先出作者界面的静态稿，用开发者自己的故事种子做例子，从作者视角看最终效果、找设计的不足。静态稿放在 [t16](tasks/t16-plot-workbench-ui/README.md)；重切等看完静态稿再落到各 Task 记录里（看稿可能改 t16 的范围） |
+| 2026-11-02 | 开发者看过 [t16 第 1 轮静态稿](tasks/t16-plot-workbench-ui/artifacts/review/index.html) 后：回执不分开局与记账，任何一次大的写入都用同一种回执；条目树的节点可以有子条目，马甲默认挂在本体下面；nb-story 只作参考、不照搬，以后再考虑合并底层结构；几笔累出来的数不直接改，在流水里改某一笔或补一笔（改的是已接受提案第 8 节“就地改”里的一点，Spec 按新规则写）；未决问题算“要作者定的事”的一种，不进状态栏的计数；第一版不做情节之间的因果连接；剧情线数据上仍是条目，界面上单独一个“剧情”容器，不放进设定；静态稿发现的缺口 1 到 8 都按主会话推荐。要作者审批的东西不强求统一成一种（“怎么方便怎么来，不要为了统一牺牲便利性、扩展性”），但同类概念太多、架构显得乱，要收拢。下一步：给静态稿设计数据结构，让它由数据驱动 |
+| 2026-11-02 | 开发者看过 [t16 第 2 轮原型](tasks/t16-plot-workbench-ui/artifacts/review/index.html)（数据结构）后，四条按主会话推荐：界面上分开写“初值”与“第 1 章开头”，不用“开局”（前史夹在两者之间）；修订只存变了的字段，不存整份对象（改已接受提案第 5 节“修订”的说法）；“与设定冲突”记成一条待定的剧情变更，不另设对象；回执里“带来的变化”在发布时算好存进修订（和保存前的预览是同一个计算）。数值追踪做“精确”与“语义”两档、不做“大概”：精确档照旧由程序加减；语义档的值与事件都是文字，当前值由小模型从最近一个确定的数起归纳、按输入缓存成派生值（改的是 [ADR 0037](../../../docs/adr/0037-world-engine-story-change-log.md) 背后提案里“加减由程序算，模型不心算”只对精确档成立）。改设定以后找正文旧写法：开发者怀疑程序按旧词搜的效果，倾向全交给 Agent 自己找、自己给建议，除非有更好的方案 |
+| 2026-11-02 | 开发者：改设定以后找正文旧写法，不用程序按旧词搜；记账时把正文重述设定的句子链到字段上，改设定后这些句子直接是候选，其余（换了说法的、还没记账的章、细纲、别的条目）交给 Agent 自己找、自己判断（主会话推荐，开发者“没问题，就这么做”）。t16 第 3 轮原型已照改 |
+| 2026-11-02 | 按已接受的提案重切本 Work 的 Task（方案开发者 11-02 已同意，看完 t16 静态稿后落地）：t09 存储排第一、t26 评测与它并行；新建 t27 内核 Spec、t28 作者编辑主 MDX；t16 改为作者界面、t22 改为改稿后重新记账、t19 不再依赖 t06；t04 收窄为换掉位置模块、t06 改为知情与秘密，两者搁置到第二版；关系、地点与地图 Component 与“与 nb-story 合并”到时再建 Task。各 Task 的 README 加了“重切后要定的”一节，原问题保留作参照 |
 
 ## 调研
 
@@ -48,24 +54,34 @@ updated: 2026-10-31
 
 ## 讨论顺序
 
-| Task | 讨论什么 | 前置 |
-|---|---|---|
-| [t02](tasks/t02-story-model/README.md) | 统一故事模型：两个视角、来源层与记录类型（含对象与身份、伏笔与悬念） | — |
-| [t26](tasks/t26-evaluation/README.md) | 评测与样本书（回档、平行宇宙题材的样本要在 t04 实验前备好） | t02 |
-| [t04](tasks/t04-time-worldlines/README.md) | 故事时间、世界线与随剧情变化的状态（Issue #144） | t02 |
-| [t09](tasks/t09-storage/README.md) | 真相源、存储形态与项目文件结构（含系列作品共享世界观） | t02 |
-| [t10](tasks/t10-setting-schema/README.md) | 设定类型、schema 与设定表单 | t09 |
-| [t06](tasks/t06-knowledge-reveal/README.md) | 揭示计划、一致性检查与试读者 | t02、t04 |
-| [t14](tasks/t14-plugin-split/README.md) | 插件切分、包边界与工作台里的形态（含 nb-memory 去留） | t02、t09 |
-| [t12](tasks/t12-project-templates/README.md) | 作品的来路：模板新建、旧项目迁移与导入已有作品 | t09、t10 |
-| [t16](tasks/t16-plot-workbench-ui/README.md) | 剧情工坊界面与可视化 | t02、t04、t09 |
-| [t22](tasks/t22-incremental-extraction/README.md) | 改稿后的增量抽取 | t09 |
-| [t19](tasks/t19-writing-workflow/README.md) | 写作流程与内置 Profile | t02、t06 |
-| [t20](tasks/t20-agent-tools/README.md) | Agent 工具与写手的上下文 | t04、t10、t14、t19 |
+2026-11-02 按已接受的内核提案重切（决定表同日）。第一版按依赖排序：
 
-讨论顺序就是依赖顺序。讨论定的事写进各 Task 的 README，实施的切片与分支在讨论完后另定。
+| 顺序 | Task | 讨论什么 | 前置 |
+|---|---|---|---|
+| 1 | [t09](tasks/t09-storage/README.md) | 存储：六种对象放文件还是数据库、条目与 `lorebook.content/`、修订放哪、Agent 能否直接改文件、缓存与索引、目录与系列作品 | — |
+| 1 | [t26](tasks/t26-evaluation/README.md) | 评测与样本书：三项验收量，星瑕与 100 章样本书 | —（与 t09 并行） |
+| 2 | [t10](tasks/t10-setting-schema/README.md) | Component 类型、字段与设定表单：字段清单、精确与语义两档、预设、schema 演进 | t09 |
+| 2 | [t14](tasks/t14-plugin-split/README.md) | 插件与包的切分、nb-memory 检索的复用、查看器进工作台 | t09 |
+| 3 | [t27](tasks/t27-kernel-spec/README.md) | 内核 Spec：把提案与 t16 原型定的数据结构写成 Spec | t09、t10、t14 |
+| 3 | [t19](tasks/t19-writing-workflow/README.md) | 写作流程与内置 Profile：开局、细纲、记账、改设定后协助、写手 | — |
+| 4 | [t20](tasks/t20-agent-tools/README.md) | Agent 工具与写手的上下文 | t27、t19 |
+| 4 | [t16](tasks/t16-plot-workbench-ui/README.md) | 作者界面（静态稿与原型已到第 3 轮） | t27 |
+| 5 | [t28](tasks/t28-entry-mdx-editing/README.md) | 作者编辑条目的主 MDX | t16 |
+| 5 | [t12](tasks/t12-project-templates/README.md) | 作品的来路：三条起步路、模板、旧项目迁移 | t09、t10 |
+| 5 | [t22](tasks/t22-incremental-extraction/README.md) | 改稿后重新记账 | t27 |
 
-2026-10-31 按开发者要求，把一次讨论能一起定下来的 Task 合并，25 个合成 12 个；并入的 Task 搁置，原列的问题原样搬进合并后的 Task，标着原编号：t03、t07 并入 t02；t05 并入 t04；t08 并入 t06；t11、t24 并入 t09；t15 并入 t10；t13、t25 并入 t12；t17 并入 t16；t23 并入 t19；t21 并入 t20；t18 拆开，查看器进工作台的形态并入 t14、试读者并入 t06、抽取触发并入 t22。
+第二版（搁置，不排期）：
+
+| Task 或事项 | 范围 |
+|---|---|
+| [t04](tasks/t04-time-worldlines/README.md) | 故事时间与世界线：换掉位置模块（状态怎么记已由 ADR 0037 定） |
+| [t06](tasks/t06-knowledge-reveal/README.md) | 知情、秘密与试读者（“三层对齐”不再做） |
+| 关系、地点与地图 Component | 开发者 11-01 定的方向，第一版不做；到时再建 Task |
+| 与 nb-story 合并 | 10-31 搁置；以后在“一件事、涉及谁、出处、在故事的哪里”这层公共骨架上合；到时再建 Task |
+
+讨论定的事写进各 Task 的 README，实施的切片与分支在讨论完后另定。
+
+2026-10-31 的合并：一次讨论能一起定下来的 Task 合并，25 个合成 12 个；并入的 Task 搁置，原列的问题原样搬进合并后的 Task，标着原编号：t03、t07 并入 t02；t05 并入 t04；t08 并入 t06；t11、t24 并入 t09；t15 并入 t10；t13、t25 并入 t12；t17 并入 t16；t23 并入 t19；t21 并入 t20；t18 拆开，查看器进工作台的形态并入 t14、试读者并入 t06、抽取触发并入 t22。
 
 ## 相关 Work
 

@@ -22,7 +22,7 @@ owners:
 - 项目子进程崩溃后不自动重启；绑定它的窗口由用户刷新后重新打开。
 - 最近打开、重命名短名属于 `nbook.projects` 的后续范围。书架页本身由 [`workbench.bookshelf`](../workbench/bookshelf.md) 定义，本合同提供它的数据与操作：作品信息、新建、移出书架与统计（输出第 13–18 条）。
 - 项目实例里的诊断先写各自的日志文件，不汇到服务端的诊断出口。
-- Agent 会话的项目租约与 `projects://` 提供者随 nb-harness；项目内的 Storage 分区随 K4；`project://` 的文件提供者随 Files。
+- Agent 跨项目访问的租约随 `projects://` 的每次调用取得与释放（[`workspace.resources`](../workspace/resources.md) 的“跨项目访问”）；项目内的 Storage 分区随 K4；`project://` 的文件提供者随 Files。
 - 不兼容旧应用的项目目录与数据，不做迁移。
 
 ## 术语与参与者

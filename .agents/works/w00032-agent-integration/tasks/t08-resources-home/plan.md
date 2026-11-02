@@ -151,3 +151,13 @@ t12（基础工具）要按资源地址读写，地址层却只有 `project://`�
   - `user://`、`project://` 合同版本各加 1：开着的旧窗口会得到 `version-changed`，要刷新。
   - `projects://` 每次调用 `acquire`、`release`：空闲项目会被打开，5 分钟宽限期内不会真的关；高频时再改为挂在会话上。
   - 授权回调由注册方实现：写错会放行。Agent 的规则集中在 `schemes.ts` 一处，测试逐条覆盖上表。
+
+## 实施中的调整
+
+- 服务端文件服务的类型与服务键放在 `files/shared/schemes.ts`，经 `files/shared/contracts.ts` 转出：架构规则只许跨插件的运行时导入指向对方的 `shared/contracts.ts`。
+- 远程合同拒绝别的调用方带 `as` 用 `permission-denied`：远程提供方不能交回路由层的 `invalid-input`（`resources.md` 已同步）。
+- 两个插件注册同一个方案名：平台按贡献 id 重复把两条都拒绝（`runtime/plugins.md` 输出 15），到不了接收者；接收者里的重复检查只防热插拔时的先后。`files.schemes` 不按插件 id 取贡献 id，登记进 `contribution-prefixes.test.ts` 的例外表。
+- `docs://`、`skills://` 没有写能力：写入在授权之前就是 `unsupported-capability`，不是 `permission-denied`。
+- `temps://` 总是注册（贡献声明是静态的），容器不可用时没有挂载点、根的说明写明原因。
+- 工具工厂的 `services` 参数这次没有加进插件 SDK 的公开类型：第一批用它的是 t12 的内置工具；第三方工具要用时随 SDK 一起补。
+- 第 3、4 片合成一次提交：资源视图的测试同时覆盖两片。
