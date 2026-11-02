@@ -25,6 +25,12 @@ updated: 2026-11-02
 
 计划审查：omp 写了 1 条后额度用完，按规则改派 Claude Opus 接手，共 27 条（阻断 1、重要 20、建议 6），全部成立（1 条接受取舍）；按它改出 Spec 第三版（分支 75a6ff4c7）并重写计划，处理见 [`evidences/plan-review-resolution.txt`](evidences/plan-review-resolution.txt)。依赖试验见 [`evidences/dependency-spike.txt`](evidences/dependency-spike.txt)。
 
+实施进展（分支提交）：
+
+- 第 1 片 cb9bd1913：包骨架与 core（schema、修订路径、地址、位置、精确档的数、中文数字、Component 登记与值校验）。
+- 第 2 片 909920b1b：补丁的执行与整本重算的参照实现。
+- 第 3 片：增量引擎与差分测试（6 个种子各 60 步；另跑过 20 个种子各 100 步全过；两处变异检查都被抓到）。差分测试抓到一处 Spec 没写的情况：核对点所在条目已删除时怎么办，定为不比较（model.md 输出 11）。规模见 [`evidences/scale-engine.txt`](evidences/scale-engine.txt)：三百万字时引擎建好约 0.5 秒、读一个条目中位约 0.3 毫秒、最新一章补记约 16 毫秒、改初值约 0.3 秒、按计划第一次读 0.3 到 0.45 秒；按计划模式起初按平方扫描（1.4 秒），建索引后达标。
+
 ## 下一步
 
-按计划的九个切片实施，从第 1 片（包骨架与 core）开始。
+第 4 片：修订（写入请求、校验、预览与发布、带来的变化、冲突、就地改、还原与依赖、章序调整、请求 id）。
