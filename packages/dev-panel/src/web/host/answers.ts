@@ -6,6 +6,14 @@ import type {QuestionState, VersionQuestion} from "./types.js";
  * 分组只看最新一版的题表与现算的状态（docs/file-formats.md 的“状态现算”），不另存。
  */
 
+/**
+ * 控件里清空了的取值：多选全取消、文字只剩空白、单选与确认点了“清除选择”（`undefined`）。清空的题回到“没答”、不交；
+ * 不这样它仍算改过，校验报“要选至少一个选项”，整份答复都交不了（t19，开发者 11-02：有的题不能不选）。
+ */
+export function isBlankAnswer(value: unknown): boolean {
+    return value === undefined || (Array.isArray(value) && value.length === 0) || (typeof value === "string" && value.trim() === "");
+}
+
 /** 答案给人看的文字：选项值换成选项名，确认题写“同意”“不同意”，多选用顿号连起来。 */
 export function answerText(question: Pick<VersionQuestion, "type" | "options">, value: unknown): string {
     const label = (entry: unknown) => question.options.find((option) => option.value === entry)?.label ?? String(entry);

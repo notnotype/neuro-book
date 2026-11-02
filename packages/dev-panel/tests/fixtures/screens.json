@@ -1,5 +1,5 @@
 {
- "_note": "t11 S0 的屏幕样本：真实 claude 2.1.296 与 omp 来自命名 herdr 会话 nbdev-test（不发提示词、没有模型调用），fake-* 来自设计审查的假 TUI。visibleAnsi 是 agent.read source=visible format=ansi（不去转义）的末尾几行；explain 是 agent.explain 里投递判据要用的几项。",
+ "_note": "t11 S0 的屏幕样本：真实 claude 2.1.296 与 omp 来自命名 herdr 会话 nbdev-test（不发提示词、没有模型调用），fake-* 来自设计审查的假 TUI；claude-named-session 是 t19 只读取样的真实 claude 2.1.316（会话 id 换成全零、会话名换掉）。visibleAnsi 是 agent.read source=visible format=ansi（不去转义）的末尾几行；explain 是 agent.explain 里投递判据要用的几项。",
  "samples": [
   {
    "name": "claude-placeholder",
@@ -105,6 +105,21 @@
     "manifestVersion": "2026.09.11.1"
    },
    "visibleAnsi": " project, or work from your team). If not, take a moment to review what's in this folder first.\n\n Claude Code'll be able to read, edit, and execute files here.\n\n Security guide\n\n ❯ No, exit\n   Yes, I trust this folder\n\n Enter to confirm · Esc to cancel\n"
+  },
+  {
+   "name": "claude-named-session",
+   "source": "真实 claude 2.1.316：带会话名的会话，输入框上沿的横线里写着会话名，输入框空",
+   "agent": "claude",
+   "expect": true,
+   "explain": {
+    "state": "idle",
+    "matchedRule": "live_prompt_box",
+    "fallbackReason": null,
+    "screenDetectionSkipped": false,
+    "livePromptBoxPreview": "❯\n",
+    "manifestVersion": "2026.10.11.1"
+   },
+   "visibleAnsi": "                                                                                                                                                                                                             \u001b[0m\u001b[38;2;78;186;101m✔ Update installed · /restart to apply\u001b[0m\r\n\u001b[0m\u001b[38;2;136;136;136m─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── w00099 status check ─\u001b[0m\r\n❯ \r\n\u001b[0m\u001b[38;2;136;136;136m─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[0m\r\n  \u001b[0m\u001b[38;5;6mOpus 5.5\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;8m·\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;4meffort high\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;8m·\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[1m\u001b[38;5;2m~/CodeRepository/neuro-book\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;8m·\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;5m⎇ master\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;8m·\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;8mcost\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;3m$742.60\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;8m│\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;8min\u001b[0m\u001b[38;2;153;153;153m $0.110 \u001b[0m\u001b[38;5;8m·\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;8mout\u001b[0m\u001b[38;2;153;153;153m $159.53 \u001b[0m\u001b[38;5;8m·\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;8mcw\u001b[0m\u001b[38;2;153;153;153m $191.15 \u001b[0m\u001b[38;5;8m·\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;8mcr\u001b[0m\u001b[38;2;153;153;153m $391.80\u001b[0m\r\n  \u001b[0m\u001b[38;5;2mctx ▓▓▓▓▓▓▓▓▓▓▓▓▓▓ 100%\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;8m·\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;8mcache --\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;8m·\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;3m7d ▓▓▓▓▓▓▓▓▓▓░░░░ 68%\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;8m│\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;2mreset 16h57m\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;8m·\u001b[0m\u001b[38;2;153;153;153m \u001b[0m\u001b[38;5;8m00000000-0000-0000-0000-000000000000\u001b[0m\r\n  \u001b[0m\u001b[38;2;255;193;7m⏵⏵ auto mode on\u001b[0m\u001b[38;2;153;153;153m (shift+tab to cycle)\u001b[0m\n"
   },
   {
    "name": "fake-idle-empty",

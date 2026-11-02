@@ -102,8 +102,10 @@ describe("产物与答复的命令（场景）", () => {
         const claude = await claudeSession();
         const result = await claude.cli(["artifact", "publish", "w00001", "t01", "review", "--kind", "design", "--json"], fixture.main);
         expect([result.exitCode, result.json?.errors]).toEqual([0, []]);
-        const published = data<{version: number; questions: Array<{id: string; type: string; options: Array<{value: string}>}>; lease: {leaseId: string; session: {key: string}}}>(result.json);
+        const published = data<{version: number; questions: Array<{id: string; type: string; options: Array<{value: string}>}>; lease: {leaseId: string; session: {key: string}}; waitCommand: string | null}>(result.json);
         expect([published.version, published.questions.map((question) => [question.id, question.type, question.options.map((option) => option.value)])]).toEqual([1, [["home-layout", "single", ["cards", "table"]], ["docs-tree", "confirm", []]]]);
+        // 有活的题时给出等答复的命令（t19）。
+        expect(published.waitCommand).toBe("nbdev answers w00001 t01 review --wait");
         expect(published.lease.session.key).toBe(`claude:${claude.sessionId}`);
         expect(await askerOf(fixture.main, REF, "docs-tree")).toMatchObject({leaseId: published.lease.leaseId, session: {key: `claude:${claude.sessionId}`}});
         expect((await inbox(fixture)).map((item) => [item.questionId, item.artifactTitle, item.askedBy])).toEqual([["docs-tree", "开发面板评审板", `claude:${claude.sessionId}`], ["home-layout", "开发面板评审板", `claude:${claude.sessionId}`]]);
@@ -126,7 +128,7 @@ describe("产物与答复的命令（场景）", () => {
     test("场景 3：ask 登记的题进收件箱，ask withdraw 之后消失；选答题不进收件箱", async () => {
         const fixture = await createFixture("cli-ask");
         const asked = await fixture.cli(["ask", "w00001", "t01", "--id", "migrate-order", "--type", "text", "--label", "迁移顺序怎么排", "--as", "bob", "--json"]);
-        expect([asked.exitCode, data<{artifactId: string; version: number}>(asked.json)]).toEqual([0, expect.objectContaining({artifactId: "questions", version: 1})]);
+        expect([asked.exitCode, data<{artifactId: string; version: number}>(asked.json)]).toEqual([0, expect.objectContaining({artifactId: "questions", version: 1, waitCommand: "nbdev answers w00001 t01 questions --wait"})]);
         expect((await inbox(fixture)).map((item) => [item.artifactId, item.questionId, item.askedBy])).toEqual([["questions", "migrate-order", "external:bob"]]);
         expect((await fixture.cli(["ask", "withdraw", "w00001", "t01", "migrate-order", "--as", "bob", "--json"])).exitCode).toBe(0);
         expect(await inbox(fixture)).toEqual([]);

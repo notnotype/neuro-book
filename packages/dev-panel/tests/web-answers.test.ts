@@ -1,5 +1,5 @@
 import {describe, expect, test} from "bun:test";
-import {answerText, editingValue, groupQuestions, isNewQuestion, submittedValue} from "../src/web/host/answers.js";
+import {answerText, editingValue, groupQuestions, isBlankAnswer, isNewQuestion, submittedValue} from "../src/web/host/answers.js";
 import type {QuestionState, VersionQuestion} from "../src/web/host/types.js";
 
 /** 产物页侧栏的分组（t15 阶段 4 第 1 批）：待答、已答、之前几版的题、已取代与撤回。 */
@@ -41,5 +41,13 @@ describe("改答的取值", () => {
         values.pick = [...(editingValue(multi, values, touched) as string[]), "b"];
         touched.pick = true;
         expect(submittedValue(multi, values, touched)).toEqual(["a", "b"]);
+    });
+});
+
+describe("清空了的题回到没答（t19）", () => {
+    test("多选全取消、文字只剩空白、单选与确认清除选择都算清空；选了的、确认题选“不同意”不算", () => {
+        const blank = [[], "", "  \n", undefined].map(isBlankAnswer);
+        const filled = [["a"], "a", false, true].map(isBlankAnswer);
+        expect([blank, filled]).toEqual([[true, true, true, true], [false, false, false, false]]);
     });
 });
