@@ -329,3 +329,31 @@ function constraintViolation(state: EntryState, namespace: string, registry: Com
     }
     return null;
 }
+
+/**
+ * 回放：已知一条变更在这个位置整条套上了，只把它对一个条目的补丁套到这个条目的状态上（增量引擎读一个条目时用）。
+ * 一条变更里各条目的补丁互不依赖，所以单独回放一个条目得到的状态与整条一起套时相同；`启用` 照样先处理。
+ * `events` 是这个条目的语义档事件，按路径；调用方传进可变的副本。
+ */
+export function replayChangeOnEntry(state: EntryState, events: Map<string, string[]>, change: StoryChange, entryId: string, registry: ComponentRegistry): void {
+    const patches = change.patches.filter((patch) => patch.at.entry === entryId).sort((a, b) => Number(!isEnable(a)) - Number(!isEnable(b)));
+    for (const patch of patches) {
+        const parsed = parsePath(patch.at.path);
+        if (parsed === null) continue;
+        applyPatch(state, parsed, patch, registry, (path) => {
+            let list = events.get(path);
+            if (list === undefined) events.set(path, (list = []));
+            return list;
+        });
+    }
+}
+
+/** 语义档的核对点在 `place` 上成为新的起点（model.md 输出 9、11）。 */
+export function replayAnchor(state: EntryState, events: Map<string, string[]>, path: string, value: number, field: FieldDeclaration): void {
+    const parsed = parsePath(path);
+    if (parsed?.root !== "namespace" || parsed.element !== undefined) return;
+    const data = state.data[parsed.namespace];
+    if (data === undefined) return;
+    data.fields[parsed.field] = semanticText(field, value);
+    events.set(path, []);
+}

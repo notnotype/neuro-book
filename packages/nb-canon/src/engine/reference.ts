@@ -16,21 +16,10 @@ import {addressKey, addressesOverlap, parsePath} from "../core/address";
 import {compareIds} from "../core/ids";
 import {ENABLE_FIELD} from "../core/identifiers";
 import {compareRanks, compareTie, placementRank, positionRank, rankBefore, type OrderTie, type Rank} from "../core/position";
-import type {Address, Check, Entry, EntryState, FieldDeclaration, ReadPosition, StoryChange} from "../core/schema";
-import {applyChange, incompleteAt, initialFoldState, namespaceAvailability, namespaceFields, type ChangeResult, type FoldState} from "../model/apply";
-import type {
-    ChangeOutcome,
-    Engine,
-    EngineInputs,
-    EntryView,
-    FieldState,
-    Mode,
-    NamespaceView,
-    OriginStep,
-    PendingItem,
-    PlanProgress,
-    UpcomingNamespace,
-} from "./types";
+import type {Address, Check, Entry, FieldDeclaration, ReadPosition, StoryChange} from "../core/schema";
+import {applyChange, incompleteAt, initialFoldState, namespaceFields, type ChangeResult, type FoldState} from "../model/apply";
+import {buildEntryView, readEntryAddress, type EntryFold} from "./views";
+import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress} from "./types";
 
 type FoldEvent =
     | {readonly kind: "change"; readonly rank: Rank; readonly tie: OrderTie; readonly change: StoryChange}
@@ -117,7 +106,10 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
     function exactChecks(): CheckPoint[] {
         const points: CheckPoint[] = [];
         for (const check of world.checks.values()) {
-            const field = fieldOf(registry, world.entries.get(check.at.entry), check.at);
+            const owner = world.entries.get(check.at.entry);
+            // 条目已删除时不比较（model.md 输出 11）。
+            if (owner === undefined || owner.deleted === true) continue;
+            const field = fieldOf(registry, owner, check.at);
             if (field === undefined || field.precision === "semantic") continue;
             const point = checkPoint(check);
             if (point !== null) points.push(point);
@@ -173,61 +165,13 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
     }
 
     function view(entry: Entry, state: FoldState, positionRankValue: Rank, checks: readonly CheckResult[]): EntryView {
-        const appeared = entry.appears === undefined || (() => {
-            const rank = placementRank(order, entry.appears);
-            return rank !== null && rankBefore(rank, positionRankValue);
-        })();
-        if (entry.deleted === true) {
-            return {id: entry.id, deleted: true, appeared, name: entry.init.name, aliases: [], summary: "", text: [], namespaces: {}, upcoming: [], components: []};
-        }
-        const current = state.entries.get(entry.id)!;
-        const namespaces: Record<string, NamespaceView> = {};
-        const upcoming: UpcomingNamespace[] = [];
-        for (const [namespace, data] of Object.entries(current.data)) {
-            if (data.removed === true) continue;
-            const availability = namespaceAvailability(registry, namespace, data);
-            if (!data.enabled) {
-                if (availability === "ok") {
-                    const next = upcomingNamespace(entry.id, namespace, positionRankValue);
-                    if (next !== null) upcoming.push(next);
-                }
-                continue;
-            }
-            const fields: Record<string, FieldState> = {};
-            const declarations = namespaceFields(registry, namespace, data);
-            const ids = availability === "ok" ? declarations.map((field) => field.id) : Object.keys(data.fields);
-            for (const fieldId of ids) {
-                const field = declarations.find((candidate) => candidate.id === fieldId);
-                const path = `${namespace}.${fieldId}`;
-                const incomplete = incompleteAt(state.incomplete.get(entry.id), path);
-                const textSays = latestMismatch(checks, {entry: entry.id, path});
-                const base = fieldValue(state, entry.id, namespace, data.type, field, data.fields[fieldId] ?? null);
-                fields[fieldId] = {...base, ...(incomplete === undefined ? {} : {incomplete}), ...(textSays === undefined ? {} : {textSays})};
-            }
-            namespaces[namespace] = {type: data.type, version: data.version, ...(availability === "ok" ? {} : {readOnly: availability}), fields};
-        }
-        return {
-            id: entry.id,
-            deleted: false,
-            appeared,
-            name: current.name,
-            aliases: [...current.aliases],
-            summary: current.summary,
-            text: current.text.map((block) => ({...block})),
-            namespaces,
-            upcoming,
-            components: [...(current.components ?? [])],
-        };
-    }
-
-    function fieldValue(state: FoldState, entryId: string, namespace: string, type: string, field: FieldDeclaration | undefined, raw: unknown): {value: unknown; notReduced?: true} {
-        if (field?.precision !== "semantic") return {value: structuredClone(raw)};
-        const anchor = raw === null ? null : semanticText(field, raw as string | number);
-        const events = state.events.get(addressKey({entry: entryId, path: `${namespace}.${field.id}`})) ?? [];
-        if (events.length === 0) return {value: anchor};
-        const reduced = inputs.reductions({type, field: field.id, label: field.label, kind: field.kind, ...(field.unit === undefined ? {} : {unit: field.unit}), anchor, events});
-        if (reduced !== undefined) return {value: reduced};
-        return {value: `${anchor ?? "未知"}；之后：${events.join("；")}`, notReduced: true};
+        return buildEntryView(entry, entryFold(state, entry.id), positionRankValue, {
+            order,
+            registry,
+            reductions: inputs.reductions,
+            textSays: (at) => latestMismatch(checks, at),
+            upcoming: (namespace) => upcomingNamespace(entry.id, namespace, positionRankValue),
+        });
     }
 
     function latestMismatch(checks: readonly CheckResult[], at: Address): number | undefined {
@@ -236,7 +180,7 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
         return latest?.result === "mismatch" ? latest.point.check.value : undefined;
     }
 
-    function upcomingNamespace(entryId: string, namespace: string, positionRankValue: Rank): UpcomingNamespace | null {
+    function upcomingNamespace(entryId: string, namespace: string, positionRankValue: Rank): {from: StoryChange["at"]; fields: Record<string, unknown>} | null {
         for (const event of actualEvents) {
             if (event.kind !== "change" || rankBefore(event.rank, positionRankValue)) continue;
             const enables = event.change.patches.some((patch) => patch.at.entry === entryId && patch.at.path === `${namespace}.${ENABLE_FIELD}` && patch.value === true);
@@ -244,7 +188,7 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
             const state = fold(actualEvents, beforePoint({rank: event.rank, tie: event.tie, inclusive: true}));
             const data = state.entries.get(entryId)?.data[namespace];
             if (data === undefined) return null;
-            return {namespace, from: event.change.at, fields: structuredClone(data.fields)};
+            return {from: event.change.at, fields: structuredClone(data.fields)};
         }
         return null;
     }
@@ -311,7 +255,7 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
                 if (!rankBefore(event.rank, rank)) break;
                 if (event.kind === "anchor") {
                     applyAnchor(state, event.check, event.field);
-                    if (event.check.at.entry === at.entry && event.check.at.path === at.path) {
+                    if (state.entries.has(at.entry) && event.check.at.entry === at.entry && event.check.at.path === at.path) {
                         steps.push({rank: event.rank, tie: event.tie, step: {kind: "check", check: event.check.id, written: event.check.value, result: "anchor"}});
                     }
                     continue;
@@ -438,17 +382,15 @@ export function fieldOf(registry: ComponentRegistry, entry: Entry | undefined, a
 
 /** 折叠状态里一个地址的值；不存在时为 undefined。 */
 export function readAddress(state: FoldState, at: Address): unknown {
-    const entry: EntryState | undefined = state.entries.get(at.entry);
-    const parsed = parsePath(at.path);
-    if (entry === undefined || parsed === null) return undefined;
-    if (parsed.root === "entry") return entry[parsed.field];
-    if (parsed.root === "text") return entry.text.find((block) => block.id === parsed.block)?.source;
-    const data = entry.data[parsed.namespace];
-    if (data === undefined) return undefined;
-    if (parsed.field === ENABLE_FIELD) return data.enabled;
-    const value = data.fields[parsed.field] ?? null;
-    if (parsed.element === undefined) return value;
-    const item = Array.isArray(value) ? (value as Array<Record<string, unknown>>).find((candidate) => candidate.id === parsed.element) : undefined;
-    if (item === undefined) return undefined;
-    return parsed.sub === undefined ? item : (item[parsed.sub] ?? null);
+    return readEntryAddress(state.entries.get(at.entry), at.path);
+}
+
+/** 从整本的折叠状态里取出一个条目的那一份。 */
+function entryFold(state: FoldState, id: string): EntryFold | undefined {
+    const current = state.entries.get(id);
+    if (current === undefined) return undefined;
+    const prefix = `${id}\u0000`;
+    const events = new Map<string, readonly string[]>();
+    for (const [key, list] of state.events) if (key.startsWith(prefix)) events.set(key.slice(prefix.length), list);
+    return {state: current, events, incomplete: state.incomplete.get(id) ?? []};
 }

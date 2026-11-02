@@ -1,11 +1,15 @@
 import {describe, expect, test} from "bun:test";
 
+import {createIncrementalEngine} from "../src/engine/incremental";
 import {createReferenceEngine} from "../src/engine/reference";
 import type {Engine, EngineInputs} from "../src/engine/types";
 import {add, chapter, end, note, set, start, WorldBuilder} from "./fixtures/world";
 
-/** 两种引擎对同一份输入的回答必须相同；增量引擎在第 3 片加进来。 */
-const ENGINES: ReadonlyArray<[string, (inputs: EngineInputs) => Engine]> = [["参照实现", createReferenceEngine]];
+/** 两种引擎对同一份输入的回答必须相同。 */
+const ENGINES: ReadonlyArray<[string, (inputs: EngineInputs) => Engine]> = [
+    ["参照实现", createReferenceEngine],
+    ["增量引擎", createIncrementalEngine],
+];
 
 const panelOf = (engine: Engine, id: string, position: Parameters<Engine["entry"]>[1], mode: "actual" | "planned" = "actual") => {
     const view = engine.entry(id, position, mode);
