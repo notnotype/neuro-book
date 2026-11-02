@@ -1,6 +1,6 @@
 # t12 实施计划：基础工具（read、write、edit、grep、glob、shell）
 
-初稿（2026-11-02）。
+第一稿（2026-11-02，开发者看过）：`grep`、`glob` 第一版不在虚拟根上跑。
 
 ## Context
 
@@ -86,7 +86,7 @@ Agent 插件（t10）有了工具贡献点，资源地址（t08）有了会话�
 ### `grep` 与 `glob`（`builtin/search.ts`）
 
 - `grep` 参数：`pattern`（正则）、`path?`（缺省 `shell` 的工作目录对应的地址）、`glob?`（文件过滤）、`ignoreCase?`、`context?`（上下文行数）、`limit?`（缺省 100 条）。`glob` 参数：`pattern`、`path?`、`limit?`（缺省 200 个）。参数名与缺省值照 omp 的 `grep`、`glob` 定稿前再对一次。
-- 都先把 `path` 换成真实路径交给 `pi-natives`，结果里的真实路径换回地址。`path` 是虚拟根（如 `docs://`）时，在它列出的每个条目上各跑一次再合并。
+- 都先把 `path` 换成真实路径交给 `pi-natives`，结果里的真实路径换回地址。`path` 是虚拟根（如 `docs://`、`sessions://`）时报 `unsupported-capability`，说明改在它下面的真实目录上搜（如 `docs://builtin/`）；虚拟根下的真实目录照常搜（开发者 2026-11-02 定）。
 - 结果按地址逐个过一遍授权（同一文件只查一次，`resources.realPath` 能取到才保留）：真实目录里有挂载方案不露出的文件（例如会话目录的 `index.json`），搜索不能把它们带出来。
 - 超出条数上限时截断并注明；全文不另存（搜索可以重跑）。
 
@@ -126,7 +126,7 @@ Agent 插件（t10）有了工具贡献点，资源地址（t08）有了会话�
 | `agent/builtin-tools.md` 的 `read` | `agent/builtin-tools.test.ts`：文本带头与行号、分页与截断、目录与虚拟根、图片缩放与说明、二进制报错、不存在的地址 |
 | `write` | 同上：新建并建上级目录、覆盖、`conflict`、写不了的位置 `permission-denied`、写完能直接 hashline 改 |
 | `edit` | 同上：hashline 改一行、陈旧的行锚被拒、replace 模式、`delete`/`move` 被拒、写入来源为该会话 |
-| `grep`、`glob` | 同上：结果是地址、虚拟根展开、会话目录里不露出的文件不出现在结果里、条数截断 |
+| `grep`、`glob` | 同上：结果是地址、虚拟根报错而它下面的真实目录可以搜、会话目录里不露出的文件不出现在结果里、条数截断 |
 | `shell` | 同上：工作目录（有项目与没有项目）、地址替换（引号内外、带空格的路径）、虚拟地址执行前报错、环境变量、超时、中止、长输出截断并存进 `artifacts/` |
 | 组合 | `agent/builtin-tools.llm.test.ts`（真实模型 smoke） |
 
