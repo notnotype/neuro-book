@@ -36,3 +36,5 @@ ADR 0001–0021 是旧应用的决策，随旧包留在 [`../../packages/neuro-b
 | [0034](0034-language-policy.md) | 界面文字与给用户看的失败说明经按插件、按包分的消息目录本地化（i18next）；开发诊断用英文、不本地化；界面按“拥有者命名空间 + 码”取失败文案；给模型的文字：领域提示词中文，新写的基础设施提示词中文，现有英文说明与 OMP 原生错误文本保持原样 |
 | [0035](0035-harness-log-driven-kernel.md) | Agent harness 以会话日志为唯一真相源（JSONL、写入批、单写者），循环由内核自写、与服务商通信只用 OMP `streamSimple`，Profile 与插件都是只做归约、反应、视图、拦截的扩展 |
 | [0036](0036-app-package-installs-omp.md) | 应用包把 OMP 作为依赖安装、不打进 bundle；服务端入口先拍启动环境、接管 OMP 的进程级处理，再以代码分割加载本体（接管是上游修复前的临时做法） |
+| [0037](0037-world-engine-story-change-log.md) | 作者视角的世界引擎以剧情变更日志与修订为真相（计划是没写的变更，修订带版本、可还原），条目由主 MDX 加按 Component 分块的状态组成；随剧情变化的文字整段替换，记账默认生效 |
+| [0038](0038-world-engine-entry-text-is-whitelisted-mdx.md) | 世界引擎条目的主文字用 MDX、不复用项目 Markdown 方言，按白名单解释语法树、不执行代码；给 Agent 的渲染用带值写法；作者的编辑界面另找办法 |
