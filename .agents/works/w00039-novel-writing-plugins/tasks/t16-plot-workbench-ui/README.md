@@ -47,6 +47,15 @@ updated: 2026-11-02
 - 草稿代码在草稿 worktree `.worktree/w00039-t16-drafts`（分支 `t16/drafts`，不合并、不推送）：`packages/neuro-book/src/plugins/drafts/web/components/world-engine/` 与 Lab 夹具 `fixtures/drafts/WorldEngineDraftFixture.vue`，Lab 组件名 `WorldEngineDraft`。第 2 章正文是主会话续写的示意，故意留了余额对不上与发色和设定不同两处。
 - 原图在本地 `.local/agent/works/w00039-novel-writing-plugins/tasks/t16-plot-workbench-ui/shots/`。
 
+2026-11-02 开发者看过第 1 轮，在会话里给了十条意见（代录为题 `r1-expectation` 的答复）：
+
+1. 记账回执好：作者写完一章，Agent 记账后给作者看它改了什么。回执里还要看得到情节；记账写回情节，优先照 nb-story 的抽取来做。
+2. 底部面板用来放待处理这类事项可以。
+3. 改动记录、剧情表还要打磨，但现在是内核设计环节，不急。
+4. 剧情线不要放进设定。
+5. 静态稿里要作者审批的地方很多（未决问题、底部面板、面板 Tab 上的就地改、改设定后的建议），是不是同一种“审批单”，Agent 与程序都能发，类似 nbdev 的评审板。主会话整理的材料：[作者要拍板的事：盘点与“审批单”的设想](author-decisions.md)。
+6. 其余是疑问，主会话在会话里逐条解释：开局审阅、来历卡片、底部面板与未决问题的区别、变更详情、就地改有没有必要、剧情表与承载树和因果树、剧情线是什么。
+
 ## 下一步
 
-等开发者看评审板（题 `r1-expectation`、`r1-detail-place`），在会话里逐条问“搭稿时发现的缺口”怎么归；定下来的写进本节上方，再随 Work 的重切改本 Task 的范围。
+等开发者定 [author-decisions.md](author-decisions.md) 第五节的三项、上一条消息里“搭稿时发现的缺口”1 到 8 怎么归，以及题 `r1-detail-place`；定下来的写进“当前状态”，再随 Work 的重切改本 Task 的范围。
