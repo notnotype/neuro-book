@@ -20,6 +20,7 @@ updated: 2026-11-02
 - S0 `a095ccea9`：八个 vue tsconfig 打开 `checkUnknownProps`、`checkUnknownEvents`。只开这两项时报约 3400 处，几乎都是合法透传；开发者同日选择保留检查并清掉报错。最后的做法：透传 HTML 属性的组件在 `defineProps` 里用 `/* @vue-ignore */` 声明落点元素的属性类型；`aria-attributes.ts` 对所有组件放行 ARIA 与 `role`；传给 reka、tiptap 的原生事件与 `id`、`title` 写进 `v-bind` 对象。试过但放弃的：`fallthroughAttributes`（Lab 场景表的类型推导失效）、全局放行全部 HTML 属性（与组件自己的同名事件冲突，并污染 Lab 的属性推导）。检查顺带查出三处无效写法并删掉；`NeuroBookMark` 加了 `decorative`。验证：九个模板检查入口零报错，故意写错的属性与事件会报；`test:affected --since master --typecheck --with-consumers` 只剩下面第一条；nb-ui e2e 59 条通过，失败的 6 条在 master 上同样失败。
 - S1 `b1646e61e`：共享词表 `shared-types.ts`，尺寸、语调、弹出位置与文案属性各收成一套写法，调用方一起迁移（模板检查报出 58 处）。与计划的出入写回了 plan.md 第 2、3 节：`DialogSize` 不动；`SegmentedControl` 的 `tone` 从未渲染、整个删掉；`NotificationTone` 原来有两份、收成一份；工作台通知服务仍用 `error`，在边界映射；读屏覆盖属性只补 `Breadcrumb`。迁移说明 `migration-0.4.md` 从这一片开始写。验证：九个模板检查入口零报错；`test:affected` 只剩 nb-story 原有那条；nb-ui e2e 与 S0 相同（59 过，6 条原有失败）。
 - S2 `715daa108`：`DropdownMenu`、`Menubar` 的项 `value` 改 `id`，`Menubar` 项 `type: "default"` 改 `"item"`，`Select` 的 `indicatorClass` 改 `tone`。开发者同日定 `iconClass` 与菜单 `shortcut` 不改名（理由见 plan.md 第 4 节）。调用方迁移交给 Haiku 子代理（32 个文件），主会话审 diff、自己跑验证。同一片修掉 master 上原有的 6 条弹出列表 e2e 失败：5 条断言按 t04 的 30px、14px 改；`suggestion-menu` 那条是分组标题行高带小数、最后一项差 0.19px 滚不进视口，行高向下取整。验证：九个模板检查入口零报错；`test:affected` 只剩 nb-story 原有那条；nb-ui 单测 652 条、e2e 65 条全部通过。
+- S3a `51ceb179a`：浮层的打开态、关闭请求与关闭原因。`Dialog` 改 `open`、关不关只看 `closeOnRequest`、`confirm` 不关闭、删 `cancel` 事件；`ContextMenu` 改 `open` 与 `request-close`；`QuickPick` 的 `close` 改 `request-close`；`Dialog`、`Drawer`、`ContextMenu` 补 `closed`。迁移时只有 `AddProviderDialog` 同时绑了打开态更新与 `request-close`，加 `close-on-request="false"`；`ModeNotice` 改听 `request-close`。新增 `overlay-close.test.ts`。验证：九个模板检查入口零报错；nb-ui 单测 666 条、e2e 65 条通过；`test:affected` 只剩 nb-story 原有那条。这一片改了所有对话框的关闭行为，提交后当场派 Sonnet 审（后台，不阻塞）。
 - 待开发者定：插件 SDK 里会有两个同名的 `NotificationTone`，工作台服务的（`error`）与 nb-ui 组件的（`danger`），取值不同。工作台服务是否也改 `danger` 属于应用合同（`docs/specs/workbench/notifications.md`），不在本 Task 范围。
 - 动态绑定清单（类型检查管不到，每片改名时逐处核对）：Lab 的 nb-ui 场景 `subject.bindings`（登记表的键受类型检查）；`MenuNodes.vue` 的 `common(item)`；`Tabs.vue` 的 `item.attrs`；`CollapsibleCard.vue`、`CollapsibleRow.vue` 传给 `Spinner` 的对象；`DropdownMenu.vue` 的 `contentProps`（S1 处理）；nb-form `NodeField.vue` 的 `controlProps`（传给 nb-form 自己的控件）。
 - master 上原有的失败（不是本 Task 引起的）：nb-story `src/server/qa-service.ts(548)` 的 TS2352；nb-ui `e2e/popup-lists.spec.ts` 5 条行高断言仍按 28px（t04 已把菜单行改为 30px），`e2e/suggestion-menu.spec.ts` 1 条 `toBeInViewport`（这两类 S2 已修）。
@@ -28,4 +29,4 @@ updated: 2026-11-02
 
 ## 下一步
 
-S3：浮层合同（计划第 5 节）。
+S3b：`FloatingWindow` 拆分、`useOverlayLayer` 与遮罩样式（计划第 5 节后半）；处理 S3a 的审查结果。
