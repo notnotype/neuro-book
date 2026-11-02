@@ -119,7 +119,13 @@ export function editInPlace(world: World, edit: InPlaceEdit, time: string): Edit
             request = {requestId: edit.requestId, by: edit.by, what: "edit", title: edit.title ?? "改设定", baseVersion: edit.read.version, puts: [{ref: {kind: "entry", id: entry.id}, after: next}]};
         } else {
             const change = world.data.changes.get(last.change)!;
-            const patches = change.patches.map((patch) => (patch.at.entry === edit.at.entry && patch.at.path === edit.at.path && (patch.op === "set" || patch.op === "replaceBlock") ? {...patch, value: structuredClone(edit.value) as never} : patch));
+            const patches = change.patches.map((patch) => {
+                if (patch.at.entry !== edit.at.entry || patch.at.path !== edit.at.path) return patch;
+                if (patch.op === "set" || patch.op === "replaceBlock") return {...patch, value: structuredClone(edit.value) as never};
+                // 这一块是这条变更增进来的：改它带的文字。
+                if (patch.op === "addBlock" && typeof edit.value === "string") return {...patch, value: {...(patch.value as object), source: edit.value}};
+                return patch;
+            });
             if (sameJson(patches, change.patches)) return {ok: false, failure: {code: "accumulated-value", origins}};
             request = {requestId: edit.requestId, by: edit.by, what: "edit", title: edit.title ?? "改设定", baseVersion: edit.read.version, puts: [{ref: {kind: "change", id: change.id}, after: {...change, patches}}]};
         }

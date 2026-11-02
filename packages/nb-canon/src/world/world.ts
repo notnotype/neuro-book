@@ -36,6 +36,7 @@ import {sameJson, stableStringify} from "../core/stable-json";
 import {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from "../engine/incremental";
 import type {EngineInputs, PendingItem, ReductionLookup, WorldData} from "../engine/types";
 import {readEntryAddress} from "../engine/views";
+import {blockProblem} from "../render/syntax";
 
 /** 宿主提供的、计算要用的东西（project.md 输入与前置条件）。 */
 export interface WorldOptions {
@@ -638,6 +639,12 @@ function validate(world: World, data: WorldData, engine: IncrementalEngine, requ
                 }
             }
         }
+        const oldBlocks = new Map(((world.object(ref) as Entry | undefined)?.init.text ?? []).map((block) => [block.id, block.source]));
+        for (const block of entry.init.text) {
+            if (oldBlocks.get(block.id) === block.source) continue;
+            const problem = blockProblem(block.source);
+            if (problem !== null) problems.push({code: problem.code, ref, path: `init.text[${block.id}]`, message: `${problem.message} (${String(problem.line)}:${String(problem.column)})`});
+        }
         for (const [path, tellings] of Object.entries(entry.retold ?? {})) {
             for (const telling of tellings) if (!quoteFound(telling)) problems.push({code: "quote-not-found", ref, path: `retold["${path}"]`, message: "quote is not in the chapter text"});
         }
@@ -682,6 +689,11 @@ function validate(world: World, data: WorldData, engine: IncrementalEngine, requ
             const target = data.entries.get(patch.at.entry);
             if (target === undefined || target.deleted === true) problems.push({code: "entry-missing", ref, path: `patches[${String(index)}]`, message: `entry "${patch.at.entry}" does not exist`});
             if (parsePath(patch.at.path) === null) problems.push({code: "unknown-field", ref, path: `patches[${String(index)}]`, message: `bad address "${patch.at.path}"`});
+            const blockSource = patch.op === "addBlock" ? (patch.value as {source?: unknown} | null)?.source : patch.op === "replaceBlock" && patch.at.path.startsWith("text[") ? patch.value : undefined;
+            if (typeof blockSource === "string") {
+                const problem = blockProblem(blockSource);
+                if (problem !== null) problems.push({code: problem.code, ref, path: `patches[${String(index)}]`, message: `${problem.message} (${String(problem.line)}:${String(problem.column)})`});
+            }
             if (typeof patch.value === "number" && patch.op !== "note") {
                 const basisProblem = checkBasis(patch, change, engine, data, chapterText, strictBasis);
                 if (basisProblem !== null) problems.push({...basisProblem, ref, path: `patches[${String(index)}]`});

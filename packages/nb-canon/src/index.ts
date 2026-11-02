@@ -32,3 +32,7 @@ export {createReferenceEngine} from "./engine/reference";
 export type {ChangeOutcome, Engine, EngineInputs, EntryView, FieldState, Mode, NamespaceView, OriginStep, PendingItem, PlanProgress, ReductionInput, ReductionLookup, UpcomingNamespace, WorldData} from "./engine/types";
 export {World, type ConflictDetail, type Problem, type RevertFailure, type WorldOptions, type WriteFailure, type WriteResult} from "./world/world";
 export {editInPlace, recordDelta, replaceOnce, type EditFailure, type EditResult, type InPlaceEdit} from "./world/edits";
+export {blockProblem, parseBlock, type ExpressionSite, type FieldReference, type ParsedBlock, type SyntaxCode, type SyntaxProblem} from "./render/syntax";
+export {annotation, displayText, evaluate, renderBlockForAgent, renderBlockForAuthor, resolverFor, type AgentBlock, type AuthorBlock, type AuthorNode, type Evaluated, type RenderContext, type Resolve, type Resolved} from "./render/render";
+export {renderEntryForAgent, renderEntryForAuthor, splitBlocks, type EntryRender} from "./render/entry";
+export {scanAnnotations, writeBack, type WriteBackFailure, type WriteBackInput, type WriteBackResult} from "./render/writeback";
