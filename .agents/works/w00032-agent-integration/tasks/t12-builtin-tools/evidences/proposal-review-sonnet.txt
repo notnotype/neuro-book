@@ -1,0 +1,182 @@
+# 接口体验审查：WorkspaceFiles（提案 file-access-and-history.md，提交 e574e7b00）
+
+视角：写插件或 Agent 工具的作者。以下每条都已对照仓库现有代码核实，位置写的是提案里的小节与代码文件。
+
+外部参照链接（后文按名引用）：
+- Node fs/promises：https://nodejs.org/api/fs.html#promises-api （`writeFile` 的 `flag: "wx"`、`signal`；`FileHandle` 有 `[Symbol.asyncDispose]`）
+- VS Code `workspace.fs` 与 `FileSystemProvider`：https://code.visualstudio.com/api/references/vscode-api#FileSystem 、https://code.visualstudio.com/api/references/vscode-api#FileSystemError
+- Obsidian Vault：https://docs.obsidian.md/Reference/TypeScript+API/Vault （`process`、`modify`、`create`、`createBinary`、`trash`）
+- Deno：https://docs.deno.com/api/deno/~/Deno.writeFile （`createNew`、`create`、`append`、`signal`）、https://docs.deno.com/api/deno/~/Deno.FsFile
+- write-file-atomic：https://github.com/npm/write-file-atomic
+
+### 1. `openWrite` 持锁到 commit：慢写入会让别的写入方 3 秒后得 `busy`，忘记收尾则文件一直写不进去
+- 严重程度：重要
+- 位置：提案“接口形态（草案）”里 `openWrite` 的注释“commit 之前一直持有这个文件的锁”；“写入的顺序”第 2 步“流式写在这里边写边算哈希”；锁实现 `packages/neuro-book/src/backend/locked-replace.ts`（`LOCK_RETRIES` 约 3 秒、`LOCK_STALE_MS = 10_000`）。
+- 现象：流式写的整个过程（图生文拉一张 8 MB 图、shell 几十 MB 日志）都占着该文件的锁。别的写入方（含浏览器保存、Agent 编辑）等锁约 3 秒后得 `busy`。作者忘了 `commit`/`abort`、或中途抛异常时，锁只靠 proper-lockfile 的心跳续命：进程活着心跳就不停，这个文件在服务端重启前一直 `busy`（没有空闲超时，也没有“FileWriter 被垃圾回收就释放”的保证）。
+- 为什么是问题：作者很难想到“写自己的图片会把用户的保存挤掉”，也没法写出正确的分支（`busy` 到底是别人在写还是自己漏了收尾）。
+- 参照：write-file-atomic、Node 常见做法都是先写临时文件、改名时才碰目标；Obsidian `Vault.process` 的读改写在一次回调里完成，不跨越长时间。
+- 建议改法：流式阶段不持锁，只写临时文件并边写边算哈希；`commit()` 才取锁，在锁内做第 1 步（读改前值、比 baseline）、第 3 至 5 步。`baseline` 在 commit 时核对，冲突得 `conflict`。这样锁只在毫秒级内持有，`openWrite` 忘了收尾最多留下一个临时文件（再加 FileWriter 空闲超时自动 abort，并在插件停用、`signal` 触发时自动 abort）。提案“写入的顺序”相应改写：第 2 步挪到锁外。
+
+### 2. 收尾靠作者自觉，示例本身就漏了：没有检查 `Result`、没有 try/finally
+- 严重程度：重要
+- 位置：提案“用法举例”的图生文片段；`FileWriter` 接口。
+- 现象：示例 `writer.value.write(chunk)` 没判 `writer.ok`；循环里 `image` 抛异常时不会 abort；`commit()` 的结果被丢掉（失败静默）。`FileWriter` 没说 commit/abort 之后再 `write`、重复 `commit` 会怎样，也没说 `signal` 触发是否自动 abort。
+- 为什么是问题：官方示例都写错，作者照抄就是泄漏锁与静默丢写。仓库已经在用 `await using`（`packages/nb-harness/src/kernel/extension/extension.test.ts` 多处），没有理由不用。
+- 参照：Node `FileHandle[Symbol.asyncDispose]`；Deno `FsFile` 可 `using`；Obsidian 的 `process` 回调式。
+- 建议改法：同时给两种形态，且让“忘了收尾”不可能：
+  ```ts
+  /** 回调式：回调正常返回即 commit，抛出或 signal 触发即 abort；返回 commit 的结果。 */
+  writeWith(address, async (w) => { for await (const c of image) await w.write(c); }, options?): Promise<Result<{baseline: Baseline}>>;
+  /** FileWriter 实现 AsyncDisposable：未 commit 就离开作用域等于 abort。 */
+  interface FileWriter extends AsyncDisposable { ... }
+  ```
+  并写明：commit/abort 之后的 `write` 抛错（编程错误），重复 `commit` 幂等返回同一结果。示例改为 `await using w = ...`。
+
+### 3. `write(chunk: Uint8Array | string)` 混用：字符串在代理对处被分块会写坏
+- 严重程度：重要
+- 位置：`FileWriter.write`。
+- 现象：作者把一个长字符串按 N 个 UTF-16 单元分块写入时，若切点落在代理对（emoji、生僻字）中间，逐块编码得到 U+FFFD，文件内容被悄悄改坏；写入方不会报错。字符串与字节混写时，BOM、换行（LF/CRLF）归属也不清楚。
+- 参照：Node `FileHandle.write` 分 string 与 Buffer 两个重载但编码由调用方显式给；Deno 的 writer 只收字节，文本用 `TextEncoderStream`。
+- 建议改法：`FileWriter.write` 只收 `Uint8Array`；另给文本版 `writeText(chunk: string)`，内部用有状态的 `TextEncoder`（`stream: true` 语义）并在 commit 时检查没有悬空的半个代理对（有则 `invalid-input`）。再提供最常用的一步写法，不必手写循环：
+  ```ts
+  writeStream(address: string, source: ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>, options?: WriteOptions): Promise<Result<{baseline: Baseline}>>;
+  ```
+  图生文的 `fetch(...).body` 直接传入即可，`openWrite` 只留给确实需要边算边写的人。
+
+### 4. `baseline` 没说怎么取：示例里的 `hashOf` 不存在，按文本哈希与按字节哈希会永远 `conflict`
+- 严重程度：重要
+- 位置：提案“用法举例”的 `baseline: hashOf(before)`；`Baseline` 类型（`files/shared/contracts.ts` 第 48 行 `{hash: string}`）；`hashOf` 在 `files/backend/files-service.ts` 第 57 行，是 backend 内部函数（对磁盘字节取 sha256 十六进制），插件拿不到。
+- 现象：新接口把“读”交给作者自己做（`locate` 后 `Bun.file(path).text()`），于是作者手里只有字符串。现有基线是对磁盘字节取哈希，与“字符串再编码后取哈希”在 BOM、CRLF、非法 UTF-8（读文本时被替换成 U+FFFD）时不一致，条件写永远 `conflict`；或者作者干脆不传 baseline，退化成无条件覆盖（见第 5 条）。作者也没法在读和算哈希之间保证是同一份字节。
+- 参照：Obsidian `Vault.process` 把“读、改、写”放进同一次调用；VS Code 的 `FileSystemProvider.writeFile` 不做条件写，靠 `stat().mtime/etag` 由调用方判断，同样需要给出取法。
+- 建议改法：两件事都由接口给。(a) 导出同源的 `baselineOf(bytes: Uint8Array): Baseline`（放在 `files/shared/contracts.ts` 公开入口，与 `hashOf` 同实现，文档写明“对磁盘上的原始字节”）；(b) 给一个整份读的便捷方法，在一次读里同时拿到字节与基线，只服务“要条件写回”的小文件：
+  ```ts
+  readText(address, options?): Promise<Result<{text: string; baseline: Baseline}>>; // 沿用现有 ServerFiles.read 的形状，不设 960 KiB 上限由 maxBytes 选项控制
+  ```
+  大文件仍走 `locate`。示例改成 `const {text, baseline} = (await files.readText(addr)).value`。
+
+### 5. `baseline` 可省略：缺省是无条件覆盖，且无法表达“只在不存在时创建”
+- 严重程度：重要
+- 位置：`WriteOptions.baseline?`；提案没有说明省略时的语义，也没有说写一个不存在的文件会怎样。现有 `FilesService.write(address, text, baseline)` 里 baseline 是必填，目标不存在会返回 `not-found`（`files-service.ts` 第 169 至 171 行），新建要另调 `create`。
+- 现象：作者最省事的写法 `writeText(addr, text)` 静默丢掉别人（含用户在编辑器里）刚写的内容；想“不覆盖已有文件”（导出、图生文存封面）却没有办法，只能先 `locate` 看 `exists` 再写，这是检查与使用之间的竞态。“写不存在的文件”是创建还是 `not-found`，也看不出来；与 `create`（见第 9 条）形成两条创建路径。
+- 参照：Node `writeFile` 的 `flag: "wx"`；Deno `createNew: true` 与 `create: false`；VS Code `FileSystemProvider.writeFile` 的 `{create, overwrite}` 选项。
+- 建议改法：必填且显式：
+  ```ts
+  interface WriteOptions extends OpOptions {
+      /** Baseline：磁盘上必须还是这一版；"absent"：必须不存在（创建）；"any"：明确无条件覆盖或创建。 */
+      expect: Baseline | "absent" | "any";
+      createParents?: boolean;
+  }
+  ```
+  `writeText/writeBytes/openWrite` 的 options 因此必传。这样“忘了防冲突”在类型层就暴露，创建也有了唯一的一条路径，`create(address, "file")` 只剩“建空文件”的用途或可去掉。
+
+### 6. 读改写（Agent 的 edit、插件改计数）每个作者都要自己写冲突重试循环
+- 严重程度：重要
+- 位置：“接口形态（草案）”整体；“写入的顺序”第 1 步的锁内读。
+- 现象：要正确地“读当前内容、按规则改、写回”，作者必须写 `readText -> 改 -> writeText({baseline}) -> conflict 就重来` 的循环，并决定重试几次、`conflict` 带不带最新基线。接口实际上已经在锁里读了当前内容（第 1 步），却不让作者的函数在那个点运行。仓库里 `locked-replace.ts` 的 `replaceLocked(decide)` 本来就是这个形态（`decide` 是当前文件的纯函数，冲突时重做，`MAX_ATTEMPTS = 3`），只是没有对外。
+- 参照：Obsidian `Vault.process(file, fn)`（“原子地读改写”）是该 API 里最推荐的修改方式；VS Code 没有，扩展作者因此常写出覆盖用户编辑的 bug。
+- 建议改法：加一个锁内的更新入口，Agent 的 `edit`、统计插件、清单类插件都用它：
+  ```ts
+  update(address: string, edit: (current: {bytes: Uint8Array; baseline: Baseline} | null) => Uint8Array | string | null, options?: OpOptions & {createParents?: boolean}): Promise<Result<{baseline: Baseline} | {unchanged: true}>>;
+  ```
+  `edit` 返回 `null` 表示不改。约束同 `replaceLocked`：必须是纯函数、同步、短，可能被重做。长时间生成的内容仍走 `writeStream`。
+
+### 7. 失败模型没写全：`Result` 丢了 `current`，每个方法没有失败码表，`openWrite` 里一半 Result 一半抛异常
+- 严重程度：重要
+- 位置：提案“Result 沿用现有形状（`{ok: true, value}` 或 `{ok: false, code, detail}`）”；现有 `ServerFilesResult`（`files/shared/schemes.ts` 第 98 至 100 行）还有 `current?: Baseline` 与 `cause?: RemoteCause`，码表还含 `unsupported-capability`、`project-unavailable`、`invalid-input`、`cancelled` 与路由失败码（`unknown-outcome` 等）。
+- 现象与问题（作者角度）：
+  1. “沿用现有形状”实际少了两个字段。冲突重试需要 `conflict` 带上最新的 `current` 基线（现有 `FilesService.write` 就带），否则作者只能重读一遍。
+  2. 哪个方法会返回哪些码没有表。例如 `locate` 对虚拟根、只读方案、未注册方案是 `unsupported-capability`；`projects://` 写入请求结果未知时是 `unknown-outcome`（规范明说作者要区分“可能已写”与“没写”）；账本不可用（第 4 步 RPC 失败，项目子进程不在）应是什么码、写盘是否已撤回，都没有说。
+  3. 取消：`signal` 触发返回 `cancelled` 还是抛 `AbortError`；锁内已写了临时文件时是否清理。
+  4. 混用：`openWrite` 返回 `Result<FileWriter>`，`write()` 返回 `Promise<void>`（失败如何出现？磁盘满时是抛异常），`commit()` 又是 `Result`，同一个对象里有两种错误风格。
+- 参照：VS Code 的 `FileSystemError` 有固定的静态工厂（`FileNotFound`、`FileExists`、`NoPermissions`、`Unavailable`），文档逐个说明何时出现；Node 的 `err.code`。
+- 建议改法：(a) 直接复用 `ServerFilesResult<T>`，不要另写“沿用”；(b) 在提案里加一张表，每个写方法列出可能的码与作者该怎么办（`conflict` 重读重试；`busy` 稍后重试；`permission-denied`/`protected-path` 不重试；`unknown-outcome` 先 `locate` 核对再决定；`cancelled`）；(c) `FileWriter.write` 只在编程错误时抛，I/O 失败都延迟到 `commit()` 以 `Result` 给出（`write` 内部记下第一个失败，之后的 `write` 直接 resolve），作者只需要在一处写分支。
+
+### 7a. 账本失败对作者可见的含义没有定义
+- 严重程度：建议
+- 位置：“写入的顺序”第 4、5 步（“等它确认；失败时撤回这条记录”）。
+- 现象：账本 RPC 失败（项目子进程重启、SQLite 忙）时，调用方看到的是写成功、写失败还是未知，没有写。如果账本失败让整个写入失败，作者的 `writeBytes` 会因为一个旁路组件失败，而且对 `user`（用户在浏览器保存正文）也是如此。
+- 建议改法：在提案里写明：账本不可用时写入失败并返回 `io-failed`（detail 里标明是“记账失败，文件未改”），或者降级为“写盘成功并把记录进待补队列，回执里带 `ledger: "deferred"`”，二选一并给出码。不确定语义前作者无法写出正确分支。
+
+### 8. `locate` 的名字与现有 `realPath` 冲突，提案自己两个名字混用；“不建任何东西”与现有行为矛盾
+- 严重程度：重要
+- 位置：提案“职责划分”（“地址与真实路径的换算（`realPath`）”）、“影响”（“读的使用方改用 `realPath`”）、“对 Spec 的预期改动”（“服务端读用 `realPath`”）都写 `realPath`；“接口形态”与示例写 `locate`。现有 `ServerFiles.realPath`（`files/shared/schemes.ts` 第 107 行）、`SessionResources.realPath`（`agent/shared/resources.ts`）、`SchemeCapability` 的 `"realPath"` 都叫 `realPath`，返回 `{path}`。
+- 现象：同一个概念两个名字；`locate` 的返回多了 `exists`、`kind`，且注释“不建任何东西”，而 Spec `workspace/resources.md` 第 90 行写的是“第一次写、新建或取真实路径时，在授权通过后建挂载点的目录与声明的子目录”。作者读到这两处会不知道 `locate` 到底会不会建目录。
+- 建议改法：保留 `realPath` 这个名字（与能力名、授权操作名、Agent 资源视图一致，已有使用方 t08），在其上扩展结果：`realPath(address, options?): Promise<ServerFilesResult<{path: string; kind: "file" | "directory" | "other" | null}>>`；并在注释里明确它对挂载方案的“建挂载点目录”副作用，或者在 Spec 里把它改为不建目录（读者拿不存在的路径去读本来就该得 `ENOENT`）。同时提案各处统一写法。
+
+### 9. `locate` 返回一个可写路径，作者很容易拿来直接写盘，绕过记账与授权
+- 严重程度：重要
+- 位置：`locate` 的注释“读由调用方在本机自己做”；`exists` 与 `kind` 字段。
+- 现象：拿到的是普通字符串路径，类型上没有任何“只读”的表达。作者会写 `await Bun.write(at.value.path, text)`（编程错误，绕过锁、记账、基线），这条路径一路畅通，账本只能事后当“外部”记。更糟的是对只读方案（`docs://` 写入被拒、虚拟根）和受保护位置（项目 `.nbook/`、`protected-path`），`locate` 的授权按 `realPath` 操作做，不等于写授权，作者用路径写进去会绕过这些规则。读取之间也没有说明是否保证读到完整的某一版：因为写入是改名替换，读者总是看到完整的一版，这是个很有用的保证，应写进注释。
+- 参照：Obsidian 刻意把文件当成不透明的 `TFile`，要绝对路径只能经 `adapter.getFullPath`，并在文档里写明“绕过 Vault 的写会让缓存失效”。
+- 建议改法：(a) 名字与类型表达意图，例如 `readPath(address): Promise<ServerFilesResult<{readonly path: ReadOnlyPath; kind: ...}>>`，`ReadOnlyPath` 是 `string & {readonly __brand: "read-only"}`，写盘的 Node/Bun 接口接受 `string`，不会误编译；至少在注释与 SDK 文档里用大字写“只能读；写必须经 `writeText`/`writeBytes`”，并给出一条仓库治理检查（`governance:check`）禁止在插件里对 `readPath` 结果调用 `writeFile`/`Bun.write`。(b) 写明“读到的永远是完整的某一版，但两次读之间可能被改；要条件写回请用 `readText` 拿基线”。(c) `exists` 与 `kind: null` 重复（`exists === (kind !== null)`），去掉 `exists`；`kind` 补上 `"other"`（链接、设备、管道；现有 `Listing` 的目录项就有 `link`、`other`）。
+
+### 10. `as` 每次调用都要重复，漏写时静默记成“插件自己”
+- 严重程度：重要
+- 位置：`OpOptions.as`；“接口形态”开头“只有 `nbook.agent` 能经 `as` 注明代表哪个会话”。
+- 现象：Agent 的每个工具都要在每次调用里带 `as: {agent: {session, profile}}`。漏写时（改一个工具、加一个新工具、复制示例）调用依然成功，只是账本里操作者是 `plugin: nbook.agent` 而不是该会话；审查收件箱与“每轮改动文件”（w00032 t13）就漏掉这些改动，没有任何报错。别的插件带了 `as` 要到运行时才得 `invalid-input`（现有 `server-files.ts` 第 60 行），类型上看不出来。同时 `as.agent` 的形状在提案里内联了一份，现有代码已有 `AgentOnBehalf`（`files/shared/schemes.ts`）；nb-history 的 agent 操作者只有 `sessionId`，没有 `profile`，两处不一致（提案“nb-history 要补的”第 4 点只提加 `plugin` 与会话条目 id）。
+- 参照：VS Code 的 `workspace.fs` 没有身份概念；但 Obsidian、VS Code 的做法都是“拿到对象时已绑定上下文”，而不是每次传。
+- 建议改法：把身份绑定在门面上，不在每次调用里传：
+  ```ts
+  interface WorkspaceFiles { /* … 去掉 OpOptions.as … */ }
+  /** 只有 nbook.agent 的门面有这个方法；返回的门面里所有写入都记为该会话。 */
+  interface AgentCapableFiles extends WorkspaceFiles { forSession(session: AgentOnBehalf): WorkspaceFiles }
+  ```
+  或者干脆给 `nbook.agent` 另一个服务键 `agentWorkspaceFilesKey`，普通插件的类型里根本没有 `as`/`forSession`。Agent 在每个会话创建工具时调用一次 `forSession`，工具作者拿到的就是已绑定的门面。并让 nb-history 的 `agent` 操作者带 `profile`（或明确不需要）。
+
+### 11. 新 `rename(from, to)` 与现有 `rename(address, name)`、`move` 同名不同义；`remove` 与 `delete` 一个概念两个名字；覆盖语义与 `expected` 没写
+- 严重程度：重要
+- 位置：`create`/`remove`/`rename`；现有 `FilesService`（`files/shared/contracts.ts` 第 342 至 372 行）：`rename(address, name, {expected})` 只在原目录内改名，跨目录是 `move(items)`，删除叫 `delete`，批量版带 `expected` 身份令牌；`renameNoReplace`（`backend/exclusive.ts`）保证不覆盖已有目标。
+- 现象：同一个应用里 `files.rename("a/x.md", "y.md")`（现有）与新接口 `rename("a/x.md", "b/y.md")`（地址对地址，实际是 move）形状相同、意思不同；删除叫 `remove` 而不是 `delete`。提案没说：目标已存在时覆盖还是失败（Node 的 `fs.rename` 默认覆盖，现有实现是排他不覆盖）；`remove` 目录是否递归、非空目录怎么办；`create` 与 `writeText` 的关系（第 5 条）；三者没有 `expected`/基线，Agent 要“删我刚读过的那一版”或“只改名我看过的那个文件”做不到，现有 `expected` 就是为此存在的。
+- 参照：VS Code `workspace.fs.rename(source, target, {overwrite})`、`delete(uri, {recursive, useTrash})`、`FileSystemError.FileExists`；Obsidian `vault.rename`、`trash`；Node `fs.rm({recursive, force})`。
+- 建议改法：沿用仓库名字与语义，并显式给选项：
+  ```ts
+  delete(address: string, options?: OpOptions & {expect?: Baseline | "directory"; recursive?: boolean}): Promise<ServerFilesResult<void>>;  // 现有叫 delete
+  move(from: string, to: string, options?: OpOptions & {overwrite?: boolean /* 缺省 false，目标存在为 "exists"（沿用现有排他语义） */; createParents?: boolean}): Promise<ServerFilesResult<void>>;
+  ```
+  “同目录改名”不必在新接口里再出现（作者用 `move` 即可）。返回值与现有一致用 `OperationDone`，不用 `void`，这样清单同步的部分完成信息（见第 12 条）不会丢。
+
+### 12. 新写入接口是否同步内容文件夹清单没有交代
+- 严重程度：重要
+- 位置：“职责划分”说浏览器的 RPC“内部改用下面的写入接口”；Spec `workspace/folder-kinds.md` 的“经文件服务的操作同步清单”；现有 `create`/`rename`/`move`/`delete` 在内容文件夹里会同步 `content.xml`（`backend/manifest-edit.ts`、`OperationDone` 含 `ManifestIssue` 的部分完成信息）。
+- 现象：剧情插件（活页夹）、导入导出插件在内容文件夹里新建章节、改名、删除时，若用新接口，清单是否更新？更新的话 `create` 缺 `before`（插入位置），结果缺“部分完成”；不更新的话，浏览器经 RPC 改用同一实现后行为就会变，作者也会得到“磁盘上有但清单里没有”的未列入项而不自知。
+- 建议改法：在提案里二选一写明。推荐：新接口是纯文件层，不碰清单；清单同步仍由现有 `FilesService` 的文件操作负责（它们内部再调写入接口）。同时在 `locate`/各写方法的注释里标注“内容文件夹里的新建、改名、删除请走 FilesService 的对应方法，否则清单不更新”，或者给写入接口的 `create/delete/move` 加 `manifest: "sync" | "skip"` 并默认 `sync`。
+
+### 13. 示例用单数地址 `project://`，服务端门面只认全局地址
+- 严重程度：重要
+- 位置：“用法举例”的 `files.locate("project://第三章.md")` 与 `openWrite("project://插图/封面.png", …)`；Spec `workspace/resources.md` 第 47 行（“单数地址由 Agent 改写成全局地址，文件服务不认它们”）；现有 `ServerFiles` 说明“地址是全局地址”。
+- 现象：非 Agent 的服务端插件没有“当前项目”，示例照抄会得到 `invalid-address`/`unknown-scheme`。作者要么不知道该写什么，要么去自己拼 `projects://<id>/…`，而“项目 id 从哪来”提案没写。
+- 建议改法：示例按真实可用的写法给：`projects://${projectId}/第三章.md`，并在提案里写清楚插件如何得到 `projectId`（项目入口自带？），或明确“该接口的单数地址只对 Agent 经资源视图改写后可用”。若希望项目入口的插件直接用 `project://`，要在合同里说明（项目入口里门面已绑定本项目）。
+
+### 14. 缺 `copy`：导出、素材复制、Agent 的 `cp` 第一版就要
+- 严重程度：重要
+- 位置：“接口形态”缺 `copy`；现有 `FilesService.copy(items)` 已有（文件树的复制）。
+- 现象与场景：图生文插件把已有插图复制到别的章节、导出插件复制素材目录、Agent 的 `cp` 工具、模板插件复制模板目录。作者只能 `locate` 后用 `fs.cp` 自己复制，这就是“绕过记账”的一条合法路径，账本只能当外部新增记（没有操作者），违背提案目标 2。大文件还不能经 `writeBytes`（内存）。
+- 参照：VS Code `workspace.fs.copy(source, target, {overwrite})`；Obsidian `vault.copy`；Deno `Deno.copyFile`。
+- 建议改法：`copy(from: string, to: string, options?: OpOptions & {overwrite?: boolean; createParents?: boolean}): Promise<ServerFilesResult<OperationDone>>`，文件与目录都支持（目录递归，在锁内逐文件记账为同一次操作），内部流式。
+
+### 15. Agent 会话里“一轮”的改动没法归组：`as` 没有条目或工具调用 id，也没有批量
+- 严重程度：建议
+- 位置：`OpOptions.as`（只有 `session`、`profile`）；提案“nb-history 要补的”第 4 点（“Agent 来源可带会话条目 id”）；目标里“每轮改动文件”（w00032 t13）。
+- 现象：Agent 的 `apply_patch` 或一轮里多个工具改多个文件，每个 `writeText` 独立记一条；账本要按“这一轮”归组，却没有字段可传。作者没有地方填，只能各自约定。
+- 建议改法：`as: {agent: {session, profile, entry?: string}}`，其中 `entry` 为触发这次写入的会话条目 id（可选）；多文件的工具要么都带同一个 `entry`，要么给 `batch(address[], …)`。属于接口形状，现在不定第一版发布后就是破坏性改动。
+
+### 16. 其余可能的缺口与可删部分
+- 严重程度：建议
+- 位置：整体，对照外部参照：
+  1. `stat`（大小、修改时间）：不必加。作者拿路径用 `fs.stat` 即可，这正是“读归你自己”。但 `locate` 的注释里要写明这一点，免得有人请求加 `readText/stat`。（`readText` 见第 4 条，因为它要给基线，所以例外。）
+  2. 追加写（`append`）：日志类插件会想要。不要提供：每次追加在锁内都是整份改写加整份快照，shell 全文日志几十 MB 时代价很大。在文档里写明：Agent 会话目录、临时目录“不记账”（已决），日志类写入该放不记账的位置，经 `locate` 自己写。
+  3. `writeText` 与 `writeBytes` 的区别只在编码：账本是否记文本按行改动由内容决定（“前 8000 字节含 NUL 判二进制”），不是由选了哪个方法决定，所以作者用 `writeBytes` 写 Markdown 也会记成文本改动，用 `writeText` 写含 NUL 的内容会被记成二进制。可以合并为一个 `write(address, content: string | Uint8Array, options)`，字符串按 UTF-8 编码；两个名字让作者误以为会影响记录方式。（若仍想保留，把这条写进注释。）
+  4. `createParents` 只出现在写操作的选项里；`create(address, "directory")` 与 `copy/move` 同样需要（`mkdir -p`）。统一放在 `OpOptions`。
+  5. `create(address, kind: "file" | "directory")` 与 `write…({expect: "absent"})` 重复（第 5 条）。保留 `create` 仅为 `"directory"` 更清楚：`createDirectory(address, options?)`，对应 VS Code 的 `createDirectory`。
+
+## 未发现问题的方面
+- 取消：`signal` 作为每个方法的选项，与现有 `ServerFilesOptions` 一致，位置合理（问题在取消后的返回形式，已并入第 7 条）。
+- 操作者由内核签发而非自报、`as` 只给 `nbook.agent`：方向正确，与现有 `server-files.ts` 的校验一致（改进点在第 10 条，不在方向上）。
+- “读不经接口”本身：对大文件、字节、分页都是对的，外部参照（VS Code、Deno、Node）也都允许直接读；本审查只指出读路径的配套（基线、只读表达、路径命名）缺失。
+- 写同目录临时文件再改名替换的原子写法：与 write-file-atomic 一致，没有问题。
+
+## 数量
+阻断 0 条；重要 13 条（第 1 至 14 条中除第 7a 条、第 15 条、第 16 条外）；建议 3 条（第 7a、15、16 条）。共 16 条（含 7a）。
+
+### 数量更正（以此为准）
+阻断 0 条；重要 14 条（第 1 至 14 条）；建议 3 条（第 7a、15、16 条）；共 17 条。

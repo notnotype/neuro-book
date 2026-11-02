@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t27-kernel-spec
-status: planned
+status: active
 updated: 2026-11-02
 ---
 
@@ -13,7 +13,7 @@ updated: 2026-11-02
 
 合同：要写的就是 Spec（`docs/specs/` 下新的几个 capability），本 Task 交付的是这些 Spec 与它们的审查。
 
-前置：t09、t10、t14。
+前置：t09（已定，ADR 0039）。2026-11-02 开发者要求内核优先：t10 的字段声明写法（t10“重切后要定的”第 3 条）与 t14 的包切分（t14 第 1、2 条）并进本 Task 一起定，不再等这两个 Task。
 
 ## 重切后要定的（2026-11-02）
 
@@ -28,6 +28,14 @@ updated: 2026-11-02
 
 2026-11-02 按已接受的内核提案重切 w00039 时新建（Work README 决定表同日）。尚未开工。
 
+2026-11-02 开发者定（Work README 决定表同日）：先实现内核，本 Task 先写内核 Spec，审一轮、开发者批准后由 t29 实现。
+
+- **包**：新的工作区包 `nb-canon`，纯 TS、前后端共用，只依赖 TypeBox 与 MDX 解析库；插件在 `packages/neuro-book` 里接存储、服务与界面。nb-story 保持原名。
+- **范围**：模型与计算（六种对象、位置与排序、补丁与折叠、核对点、待处理、发布与冲突、按字段的还原、Component 类型登记与字段声明、精确与语义两档）；分段日志存储（ADR 0039）；白名单 MDX 渲染、带值写法与回写（ADR 0038）；接进应用的服务合同。
+- **第一版不做**：schema 升级函数（只存版本号）；数值溢出“截到上限”（只做拒绝）；Agent 工具与记账管线、作者界面、内置 Component 的完整字段清单。
+
+Spec 写在 t29 的分支上：worktree `.worktree/w00039-t29-canon-kernel`，分支 `feat/w00039-t29-canon-kernel`（开发者 11-02：本次在单独的分支上进行，没有允许不合并）。
+
 ## 下一步
 
-等 t09、t10、t14 定了再写；先把提案第六部分列的 capability 与上面几条对一遍。
+按 writing-specs 写内核 Spec（`docs/specs/canon/` 下几份），把提案第四版、t16 第 1 到 3 轮的决定、第三轮审查的 24 条处理（`../t02-story-model/evidences/design-review-r3-resolution.txt`）与 ADR 0039 逐条对上；写完给开发者看要点，再交 omp 审一轮。

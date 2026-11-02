@@ -22,12 +22,16 @@ updated: 2026-11-02
 - S2 `715daa108`：`DropdownMenu`、`Menubar` 的项 `value` 改 `id`，`Menubar` 项 `type: "default"` 改 `"item"`，`Select` 的 `indicatorClass` 改 `tone`。开发者同日定 `iconClass` 与菜单 `shortcut` 不改名（理由见 plan.md 第 4 节）。调用方迁移交给 Haiku 子代理（32 个文件），主会话审 diff、自己跑验证。同一片修掉 master 上原有的 6 条弹出列表 e2e 失败：5 条断言按 t04 的 30px、14px 改；`suggestion-menu` 那条是分组标题行高带小数、最后一项差 0.19px 滚不进视口，行高向下取整。验证：九个模板检查入口零报错；`test:affected` 只剩 nb-story 原有那条；nb-ui 单测 652 条、e2e 65 条全部通过。
 - S3a `51ceb179a`：浮层的打开态、关闭请求与关闭原因。`Dialog` 改 `open`、关不关只看 `closeOnRequest`、`confirm` 不关闭、删 `cancel` 事件；`ContextMenu` 改 `open` 与 `request-close`；`QuickPick` 的 `close` 改 `request-close`；`Dialog`、`Drawer`、`ContextMenu` 补 `closed`。迁移时只有 `AddProviderDialog` 同时绑了打开态更新与 `request-close`，加 `close-on-request="false"`；`ModeNotice` 改听 `request-close`。新增 `overlay-close.test.ts`。验证：九个模板检查入口零报错；nb-ui 单测 666 条、e2e 65 条通过；`test:affected` 只剩 nb-story 原有那条。这一片改了所有对话框的关闭行为，提交后当场派 Sonnet 审（后台，不阻塞）。
 - S3b `30540854d`：浮动窗口拆成公开组件 `FloatingWindow`，`Dialog` 只做模态；内部外框 `DialogSurface` 与 `dialog-frame.ts`；`useOverlayLayer` 统一两条层级带、嵌套层数与局部浮层层级；模态遮罩共用 `.nb-ui-overlay` 的淡入淡出（`AlertDialog`、`Drawer` 原来引用的动画类名在产物里不存在，实际没有动画）。与计划的出入写回了 plan.md 第 5 节：`Dialog.teleportTarget` 保留 `false`；遮罩只共用入退场、不统一底色与模糊。同一提交处理了 S3a 的审查（Sonnet，7 条：重要 2、建议 5，全部成立，处理见 [`evidences/s3a-review.txt`](evidences/s3a-review.txt)）。验证：九个模板检查入口零报错；nb-ui 单测、e2e 65 条通过；应用整套 e2e 298 条通过、1 条失败（`plugins.e2e.ts` 的“安装 → 重启……”，在分支起点 `f9fcb4a4f` 上同样失败，原有问题）；`test:affected` 只剩 nb-story 原有那条。
+- S4 `c9df1ecde`：`SuggestionMenu` 的传送目标缺省读宿主目标；`./grid` 不并入 `./layout`（它是无 Vue、无 DOM 的入口，理由写回 plan.md 第 6 节）；SDK `/components` 补上原来漏掉的 8 个类型并加一条“类型白名单与 nb-ui 组件入口逐个对上”的测试；迁移说明收尾，nb-ui 与 SDK 的 README 链接它。
+- 合入 master `53370901f`：没有冲突，合并后九个模板检查入口零报错，master 新进来的代码没有用到旧写法。
+- S5 `7bffb3a8d`：实现审查（Sonnet，前端，整个 Task）11 条：重要 4、建议 7，全部成立；Input 带装饰时读屏名落在外层（原有问题）、FloatingWindow 关闭路径无测试、规范与 README 过时、验收表三项没落地是重要的四条；F8、F10 记为已知限制。处理见 [`evidences/impl-review.txt`](evidences/impl-review.txt)。合并 master 后的整套 e2e 暴露 S4 的 `SuggestionMenu` 传送目标改动在 Lab 里越出舞台、被顶栏盖住，撤回，L07 第 4 点整项不做。验证：九个模板检查入口零报错；nb-ui e2e 66 条通过；应用整套 e2e 296 条通过、3 条失败，都不是本 Task 引起的：`plugins.e2e.ts`（分支起点上同样失败）、`lab-agent-ui.e2e.ts` 的附件那条（被合并的 master 提交上同样失败）、`app-package.e2e.ts`（`bun add -g` 从 npm 装依赖超时，换出口后通过）。
+- S5 进行中：omp 审 SDK 白名单、迁移说明与发版清单；Lab 改前改后截图对照。
 - 待开发者定：插件 SDK 里会有两个同名的 `NotificationTone`，工作台服务的（`error`）与 nb-ui 组件的（`danger`），取值不同。工作台服务是否也改 `danger` 属于应用合同（`docs/specs/workbench/notifications.md`），不在本 Task 范围。
 - 动态绑定清单（类型检查管不到，每片改名时逐处核对）：Lab 的 nb-ui 场景 `subject.bindings`（登记表的键受类型检查）；`MenuNodes.vue` 的 `common(item)`；`Tabs.vue` 的 `item.attrs`；`CollapsibleCard.vue`、`CollapsibleRow.vue` 传给 `Spinner` 的对象；`DropdownMenu.vue` 的 `contentProps`（S1 处理）；nb-form `NodeField.vue` 的 `controlProps`（传给 nb-form 自己的控件）。
-- master 上原有的失败（不是本 Task 引起的）：nb-story `src/server/qa-service.ts(548)` 的 TS2352；应用 `e2e/plugins.e2e.ts` 的“安装 → 重启后配置项出现……”（设置窗口里多出“其它”分区）；nb-ui `e2e/popup-lists.spec.ts` 5 条行高断言仍按 28px（t04 已把菜单行改为 30px），`e2e/suggestion-menu.spec.ts` 1 条 `toBeInViewport`（这两类 S2 已修）。
+- master 上原有的失败（不是本 Task 引起的）：nb-story `src/server/qa-service.ts(548)` 的 TS2352；应用 `e2e/plugins.e2e.ts` 的“安装 → 重启后配置项出现……”（设置窗口里多出“其它”分区）与 `e2e/lab-agent-ui.e2e.ts` 的附件那条；nb-ui `e2e/popup-lists.spec.ts` 5 条行高断言仍按 28px（t04 已把菜单行改为 30px），`e2e/suggestion-menu.spec.ts` 1 条 `toBeInViewport`（这两类 S2 已修）。
 
 发版时必做（本 Task 不改版本号）：内置主题 `hostVersion` 与 `NB_UI_VERSION` 改 0.4；依赖 nb-ui 的已发布包一起升版本发布；应用与 SDK 升 0.13.0。详见计划第 7 节。
 
 ## 下一步
 
-S4：`SuggestionMenu` 的传送目标缺省、`./grid` 并入 `./layout`、SDK 与迁移说明收尾（计划第 6、7 节）。
+S5：收尾验证、实现审查与截图对照，处理后合入 master。

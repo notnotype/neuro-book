@@ -1,0 +1,241 @@
+# w00032 t12 只读设计审查
+
+审查基准：`6be1259d2`。仓库：`/tmp/review-t12-design/wt`。审查对象：`.agents/works/w00032-agent-integration/tasks/t12-builtin-tools/plan.md`。只追加记录，不修改仓库；实验放在 `/tmp/review-t12-design/scratch/`。不重新讨论开发者已确认的工具范围、审批边界、环境继承与虚拟根搜索决定。
+
+### 1. edit 在 writer 内重新取基线，会覆盖引擎读取后发生的外部修改
+
+- **严重程度：阻断；类别：正确性、不变量。**
+- **位置：** `plan.md:82`、`plan.md:144`；`packages/neuro-book/src/plugins/files/backend/files-service.ts:164`–`179`；`pi-natives/native/index.d.ts:1884`–`1905`（仓库精确依赖 18.14.0）。
+- **现象：** 引擎读到内容 A 并算出 A′，外部写者随后写入 B，writer 再按计划读取 B 的基线并提交 A′。文件服务比较的是 B 与 B，保存成功，B 被覆盖。
+- **为什么是问题：** 文件服务的条件保存只保护“传入基线被读取之后”的窗口。`EditWriteRequest` 只有最终 `content`，没有引擎生成内容时使用的 expected baseline；writer 换成最新基线恰好抹掉了旧内容的证据。计划末尾“得 conflict，不会覆盖”不成立；同会话 exclusive 也约束不了其它会话、编辑器或进程。
+- **如何核实：** 静态逐段核对 `files-service.ts:169`–`172` 的哈希比较及原生 writer 合同；时序为 `engine.read(A) → external.write(B) → writer.read(B) → resources.write(A′, hash(B))`。应补真实引擎加文件服务的门闩测试，外部修改发生在引擎读完、writer 取基线之前；原验收的“陈旧行锚”和一般 conflict 都覆盖不到这个窗口。
+- **建议改法：** 保存必须携带引擎实际基于的版本。可在进入 apply 前经资源视图读取并冻结文本与 baseline，让引擎处理同一版本，writer 仅提交这个 baseline；若引擎可能自行重读并重基，必须由引擎的 writer 合同交出相应 expected 内容/哈希，再映射文件服务基线。不能在 writer 里用一次最新 read 替代 expected。
+
+### 2. realPath 不等价于安全读取；最终分量的根外链接会被图片与单文件 grep 直接读穿
+
+- **严重程度：阻断；类别：不变量、安全与性能。**
+- **位置：** `plan.md:59`、`plan.md:69`、`plan.md:89`–`90`；`packages/neuro-book/src/plugins/files/backend/files-service.ts:143`–`150`；`backend/rooted.ts:180`–`207`；`backend/mounted.ts:203`–`211`、`:356`–`363`。
+- **现象：** 项目或 `user://` 根内已有一个指向根外图片/文本的最终符号链接。`realPath(link)` 经 `resolveEntry` 返回链接本身的绝对路径，并不解析最终分量；`read(link)` 才会经 `root.resolve` 拒绝 `outside-root`。计划用前者授权后让 Bun/原生 grep 自行打开，越过了后者的包含检查。grep 的事后过滤再次调用同一个 `realPath(link)`，仍然通过。
+- **为什么是问题：** 这扩大的是文件工具的读能力，不能援引“shell 的洞第一版不补”。挂载方案的 `realPathFor` 也会在解析失败时返回 null、交操作自己报错；随后 `service.realPath` 仍可能返回最后一段链接。计划的“真实路径的授权与读相同”没有包含最终链接的文件系统检查。
+- **如何核实：** 从完整实现可确认 `realPath → resolveEntry → lstat` 与 `read → resolve → realpath + outside-root` 是不同路径。`bun /tmp/review-t12-design/scratch/native-probe.ts search` 实测原生搜索接受根目录本身是链接并读取根外 `secret.md`。单文件 grep 与图片的完整插件路径受 worktree 缺依赖阻挡，未把该小实验冒充端到端测试。
+- **建议改法：** 将安全的“可供直接读取的真实文件”与“目录项的真实位置”分清；在文件服务提供经最终链接包含、受保护位置与身份校验的字节读取/文件定位，图片与搜索用这个合同。更上游地修正 `realPath` 的读用途合同也可，但须核对既有目录项操作消费者。补项目/user 的最终文件链接、最终目录链接、挂载点内保护路径链接的真实工具测试。
+
+### 3. 大结果走普通文本文件服务，超过 960 KiB 的 shell 全文根本存不进去
+
+- **严重程度：重要；类别：正确性、接口与合同。**
+- **位置：** `plan.md:61`、`plan.md:99`、`plan.md:130`；`packages/neuro-book/src/plugins/files/shared/contracts.ts:32`–`45`；`files/backend/files-service.ts:164`–`172`。
+- **现象：** 计划把截断后的全文用宿主文件服务写入 `artifacts/`；该服务仍强制 `TEXT_BUDGET_BYTES = RPC_MAX_MESSAGE_BYTES - 64 * 1024 = 983040`（960 KiB），而不是因为“不带 as”就取消正文上限。中文、引号和换行经 JSON 编码还会更早触限。
+- **为什么是问题：** `shell` 承诺“输出截断、全文可读回”，实际一个超过 960 KiB 的构建日志就得到 `too-large`；写失败之后到底整次调用失败、保留截断结果还是给出不存在地址，计划没有失败通道。即使另用宿主流式写入成功，普通 `resources.read` 仍按同一个上限整份读取，当前 offset/limit 在它之后执行，也读不回全文。
+- **如何核实：** 原生实验 `bun /tmp/review-t12-design/scratch/native-probe.ts shell` 在 30 ms 收到 **16777216 字节**，正常退出 0；检查文件服务 `encodedTextBytes(text) > TEXT_BUDGET_BYTES` 的明确拒绝与 `read` 同上限。该服务端门面没有分块/追加写 API。
+- **建议改法：** 工具大结果采用宿主拥有、范围受限的流式 artifact writer，并给 `read` 一个能按窗口读 artifact 的入口；权限规则仍保持 artifacts 由宿主写、Agent 只读。明确满盘/写失败/中止时结果与残留的处理，测试至少覆盖 1 MiB 以上全文落盘和分页读回，不能只用 50 KiB 到 960 KiB 之间的样本验收。
+
+### 4. 图片没有接入工具脱敏、改写审计与出站过滤合同
+
+- **严重程度：重要；类别：不变量、安全与性能。**
+- **位置：** `plan.md:36`–`39`、`:113`、`:125`；`packages/nb-harness/src/kernel/run/tools.ts:302`–`313`；`kernel/helpers/content.ts:18`–`24`、`:72`–`77`、`:107`–`108`；`docs/specs/harness/runtime.md` 输出 23、54；`session.md` 输出 10。
+- **现象：** 现有脱敏层的合法写法是 `{...result, text: "[已脱敏]", redacted: true}`，内核特意剔除继承下来的 `details`。给结果再加 `images` 后，相同写法仍继承原图；计划没有规定是否删除这些图片、如何只保留脱敏替图。另一个层只删除/替换图片而不改 `text` 时，现有 `changed = final.text !== ran.text` 完全看不到改写。`mapEventContent` 对 `toolResult` 只处理 text/raw/details，新增 images 被 spread 原样带出。
+- **为什么是问题：** 原图可以进入日志、blob、模型或出站结果，违反“redacted 原文只留哈希、会话目录里搜不到原文”与“出站过滤遍历全部内容”的既有合同；仅说“冻结规则不变”不解决内容所有权和脱敏语义。字段是新加在既有事件内，`CONTENT_FIELDS` 的完备性类型检查也不会提示漏字段。
+- **如何核实：** 已逐行核对工具拦截结算、完整 `CONTENT_FIELDS.toolResult` 与 `blocks` 实现；原测试 `run/tools.test.ts:455`–`472` 明确允许上述 spread 写法。当前验收只列日志/图片转换，不含图片被替换、图片被脱敏、仅图片改写、从中间 seq 查询的出站过滤。未修改内核来伪造“已实现图片”的运行结果。
+- **建议改法：** 在图片结果合同里明确 redacted 的图片删除/替换规则与原始内容哈希范围，审计比较覆盖 text 和 images；给出站过滤补二进制内容处理入口，不能把 base64 当普通文案做词替换。补真实会话拦截链、JSONL+blobs 搜原图、重开/fork 后仍不泄漏，以及远程分段查询同样过滤的验收。
+
+### 5. base64 图片会被按普通文字估算 token，一张 500 KiB 图片就被算成约 22.8 万 token
+
+- **严重程度：重要；类别：正确性、接口与合同。**
+- **位置：** `plan.md:36`–`40`；`packages/nb-harness/src/kernel/compaction/compact.ts:25`–`36`、`:59`–`70`；`kernel/session/preview.ts:92`–`97`。
+- **现象：** 原来 image.blob 是 64 字符哈希，计划换成完整 base64 后，`estimateEvent(JSON.stringify(event.data))` 与预览 `blockTokens` 仍直接按 UTF-8 每 3 字节一 token 算图片。**512000 字节**图片的 base64 是 **682668 字符**，仅 data 就估成 **227556 token**；这在图片首次送给模型之前就参与自动压缩触发。
+- **为什么是问题：** 1568×1568 的图片不是 682668 字符的文本输入；模型不能看图时适配器甚至只发送一行说明，但内核仍触发同样的巨大估算。128000 窗口的阈值 **108800** 会被这一张图片越过，导致错误的压缩、历史删除或反复 compaction-failed，预览的区域计数同样失真。这不是计划已接受的“图片占会话内存”。
+- **如何核实：** 核对自动估算从最近 assistant 沿父链累加工具结果、在模型适配器之前执行；预览另有独立的 JSON 图片估算。数字按两处实现的同一公式计算；当前工具尚未实现，不宣称已运行含图片的新内核路径。
+- **建议改法：** 同一切片更新图片的尺寸/模型能力估算策略，至少不把 base64 当正文 token；自动压缩、合法切点保留量与预览共用这个口径。补 500 KiB 图在支持/不支持 vision 模型下的真实会话测试，确保不会因编码长度触发虚假的压缩；图片被 omitted 后也必须真正不再附图。
+
+### 6. shell 的 50 KiB 只是返回上限，累计全文没有内存上限或落盘背压
+
+- **严重程度：重要；类别：安全与性能、资源释放。**
+- **位置：** `plan.md:61`、`:99`、`:130`；OMP 参照 `src/exec/bash-executor.ts:608`–`647`。
+- **现象：** 计划要求“输出边收边累计”，完成后截尾、再保存全文；没有内存预算、流式写盘、队列背压、输出硬限制或保存失败时的收口。300 秒/3600 秒期限限制的是时间，不是输出量。
+- **为什么是问题：** 一条前台命令就能把服务端进程的内存耗尽，拖垮全部会话。原生 `executeShell` 持续把 chunk 交给宿主，不自动替宿主限制累计量；等返回后才截断，已经错过了保护时机。
+- **如何核实：** `bun /tmp/review-t12-design/scratch/native-probe.ts shell` 的有界样本实测 **16777216 字节/30 ms**，正常退出；未运行无界耗内存命令。OMP 参照在执行前构造 `OutputSink`，分别控制 inline buffer 和 artifactMaxBytes，并在 finally dispose，计划漏掉的是这类第一版必要机制，不是后台能力。
+- **建议改法：** 执行开始就将完整输出流向受限的 artifact sink，内存只保留 50 KiB/2000 行尾窗；明确 artifact 大小/磁盘错误策略，持久写入队列必须有界并在超时、中止和异常时 drain/close。补一条远超 inline 大小的真实 shell 输出测试，断言完整内容或明确的保存失败，而不是只看最终返回字符串被截短。
+
+### 7. shell 替换地址依赖“目标已存在”，mkdir、重定向和新文件目标无法执行
+
+- **严重程度：重要；类别：正确性、接口与合同。**
+- **位置：** `plan.md:59`、`:96`–`97`；`packages/neuro-book/src/plugins/files/backend/files-service.ts:143`–`150`；`backend/rooted.ts:196`–`207`。
+- **现象：** `mkdir project://new-dir`、`printf x > session://new.log`、`cp project://a.md project://b.md` 都包含不存在但完全能定位的目标。`resources.realPath` 只接受已存在的目录项：最终 `lstat` 为 ENOENT 就返回 `not-found`；替换阶段先失败，命令根本没机会创建目标。
+- **为什么是问题：** 资源地址不是只能读现有文件的定位符。当前计划把 shell 的 mkdir、复制、重定向这类基础用途全部卡掉；`EditWriteRequest.op=create` 所说的“先建上级目录”也不能靠相同的 existing-only 定位直接完成。这个限制没有列入已知边界，验收只有现有地址替换，测不出来。
+- **如何核实：** 已核对 `realPath → resolveEntry → lstat` 的 not-found 返回，与 `create → resolveSlot` 的合同差别；没有把 `realPath` 按方法名想象成可定位不存在路径。shell 创建目标的完整插件路径尚未实现，结论来自计划与现有公开合同。
+- **建议改法：** 提供定位可创建路径的受根约束能力：从真实挂载根/已存在祖先得到真实路径，再校验剩余资源段，不能为了解析命令而预先创建目标文件。固定哪些地址位置可以作为不存在的目标；补 mkdir、重定向、cp 目标与缺中间目录的测试。虚拟根仍按已定决定拒绝。
+
+### 8. shell 对引号内替换不转义，合法路径里的 $、反引号和单引号会变成命令语法
+
+- **严重程度：重要；类别：正确性、不变量。**
+- **位置：** `plan.md:97`、`:130`、`:143`；资源名字规则 `packages/neuro-book/src/plugins/files/shared/resource.ts:58`–`67`。
+- **现象：** 计划只在引号外对特殊字符加单引号，没有规定如何把真实路径插进已有单/双引号，也没有单引号本身的编码规则。项目目录、文件名合法包含 `$`、反引号、`'`；把它们原样插入 `cat "project://a.md"` 会展开变量/执行命令，插进单引号会提前闭合。
+- **为什么是问题：** 这不是末尾接受的“变量拼接漏换后找不到文件”；直接写出的地址也会被误解释。带空格的测试覆盖不了 `$()`、反引号和引号闭合；真实路径由用户选择的根目录带入，即使资源地址本身只有 `project://a.md` 也受影响。heredoc、注释、命令替换还有各自的词法上下文，单一引号状态无法区分。
+- **如何核实：** `bun /tmp/review-t12-design/scratch/native-boundaries.ts quote` 经真实 brush 运行：含 `$T12_SHELL_UNSET` 与反引号的双引号路径被改成 `injected...`，退出 **1**；裸单引号包路径报 `unterminated single quote`，退出 **2**；按 POSIX 的单引号断开转义方式编码后读出 `RIGHT`，退出 **0**。实验仅用了 scratch 中的无害 `printf injected`。
+- **建议改法：** 把可支持的直接地址形式限定为明确 shell 词法位置，按所在引号上下文编码替换（单引号中的 `'`、双引号中的 `$`/反引号/反斜杠/双引号分别处理）。未支持的 heredoc/嵌套语法在执行前明确拒绝或保留字面量并告知，不把“通常找不到文件”当安全的失败模型。验收用真实 brush 比较 argv/文件内容。
+
+### 9. 到 writer 才拒绝 REM/MV，会先提交前面的文件，再返回“改了 0 个文件”的失败
+
+- **严重程度：重要；类别：正确性、不变量。**
+- **位置：** `plan.md:82`、`:84`、`:128`；`pi-natives/native/index.d.ts:1728`–`1735`、`:1884`–`1898`。
+- **现象：** 一个 hashline 调用先 PUT 文件 A，再 REM 文件 B。引擎先把 A 交 writer 并写成，再把 B 的 delete 请求交 writer；计划在这里拒绝，原生 outcome 是 `isError: true, errorKind: "write_failed", files: []`，但 A 已经改了。MV 同样。
+- **为什么是问题：** 模型与 `details` 都看不到已提交的 A，按照“本次拒绝”重试又会使用旧 tag；失败结果不能说明实际副作用。计划验收只写“delete/move 被拒”，单独测一条拒绝会通过，却漏掉混合载荷的部分提交。文件服务其它操作失败（包括后面文件 conflict/permission-denied）也有相同的失真。
+- **如何核实：** `bun /tmp/review-t12-design/scratch/edit-preflight.ts` 的 `update-then-delete` 与 `update-then-move` 均实测 **2 次 writer 请求**，A 从 `alpha` 变成 `ALPHA`，B 不变，outcome 的 **files 为 []**；使用真实 18.14.0 EditSession、真实文件与计划规定的拒绝 writer，没有直接调用内部引擎函数。
+- **建议改法：** 在任何写入之前用公开 `editInspect` 预检整份载荷，发现 REM/MV 就整体拒绝。其它运行期失败至少由宿主记录并报告已成功写入的文件、失效其快照；若要承诺整次原子性，需要明确批量事务/回滚合同，现有文件服务没有这个保证。补混合调用、第二个文件失败的真实引擎测试。
+
+### 10. 先限额、再过滤授权会漏掉可读结果；“重跑搜索”也取不到后面的文件
+
+- **严重程度：重要；类别：正确性、安全与性能。**
+- **位置：** `plan.md:88`–`91`、`:129`；`pi-natives/native/index.d.ts` 的 `GrepOptions.maxCount/offset`、`GlobOptions.maxResults` 与 `GlobResult.totalMatches`。
+- **现象：** 在 `sessions://<id>` 搜索，前面的隐藏 `index.json`、`blobs/` 可以先耗尽原生 maxCount/maxResults；然后逐文件授权把这些命中全删掉，可读 `home/` 的命中尚未被遍历。计划只截返回条数，没有授权后补足/分页规则，工具参数也没有 offset/cursor。同一调用重跑会重复拿到同样一批隐藏命中。
+- **为什么是问题：** 返回 0 条不能解释成没有可见结果；更不能把原生 counts 当可见 counts。若为了保证可见 100 条而让原生无界返回全部，再逐文件 `realPath`，N 个文件就额外 **N 次**文件服务调用，跨项目还是 N 次取/还项目租约；限额、取消、授权失败怎样结算都没有定义。
+- **如何核实：** `bun /tmp/review-t12-design/scratch/native-probe.ts search`：`index.json` 有 **150** 行匹配、`visible.md` 有 **1** 行，`maxCount:100` 结果只搜了 **1** 个文件、`filesWithMatches:1`、`limitReached:true`，后面的可见文件没有进入结果。`native-boundaries.ts search` 又核实 glob 的 `totalMatches` 是返回数量：总共 3 个文件、maxResults=2 时 totalMatches=2，不能用它判断真实总数或“恰好达到/超过上限”。普通隐藏文件的授权拒绝本身没问题，问题是限额的先后与不可继续读。
+- **建议改法：** 按资源视图裁剪可遍历的根/子树，避免先搜索不露出的会话控制文件；或实现有界、可取消的原生流/分页，授权后计数并读取到可见 limit+1，再给真实的截断/不完整信息。拒绝授权与取消/路由故障不能混成“没有结果”。glob 至少多取 1 项判截断。补隐藏结果占满原生配额而可见结果在后的用例。
+
+### 11. urlSchemes 只处理 URL 分支，不会禁止裸路径；writer 拒绝之前已经能读磁盘并回显原文
+
+- **严重程度：重要；类别：不变量、接口与合同。**
+- **位置：** `plan.md:80`–`84`；`packages/nb-harness/src/tools/edit.ts:55`–`69`、`:117`–`124`；OMP `src/edit/index.ts:683`–`699`。
+- **现象：** 照旧工具装配再加 urlSchemes/resolveUrl 后，模型传绝对路径或 `../`、`./` 裸路径仍进入引擎原有文件分支，根本不调用 resolveUrl。失败的 replace 在 writer 被调用前就读取文件、在 `outcome.text` 的 closest match 回显真实文件内容；事后“按真实路径找回地址，找不到就拒绝写”拦不住读侧。
+- **为什么是问题：** 工具的合同是资源地址、经会话资源视图访问。注册方案名单是识别 URL 的机制，不是输入白名单；默认 cwd/homeDir 还继续为本地路径提供解析上下文。不能把 shell 已接受的读能力扩散给 edit。原计划验收没有绝对/相对路径输入与未注册方案的前置拒绝。
+- **如何核实：** `bun /tmp/review-t12-design/scratch/edit-input-boundary.ts` 用与旧工具相同的 `allowFuzzy:true`、0.8 阈值，裸绝对路径输入得到 `Closest match (67% similar) ... + PRIVATE alpha`；**resolveUrl=0 次、writer=0 次**。真实 18.14.0 EditSession 已读出 scratch 文件；没有靠猜 tag，也没有改动目标。`edit-raw-access.ts` 同时核实未知 `unknown://` 会被拒绝，但裸路径不会。
+- **建议改法：** 在启动 EditSession/预览前，用公开 `editInspect` 检查全部目标（含 moveTo），强制每个目标先经 `parseAddress`/会话资源视图；裸路径、相对路径、伪 URI 整份拒绝，不能等 writer。更理想是引擎提供强制 URL-only/宿主文件读取策略，避免依赖默认本地 IO 分支。补“失败也不能泄露资源视图外文件”的真实工具入口测试。
+
+### 12. read 的“看过的行=[]”不是未看过：原生 EditStore 把空集解释为不限行
+
+- **严重程度：重要；类别：不变量、接口与合同。**
+- **位置：** `plan.md:67`；旧参照 `packages/nb-harness/src/tools/read.ts:144`–`155`、`src/text-budget.ts:22`–`36`；OMP `src/edit/store.ts:22`–`49`。
+- **现象：** read 允许的 limit、空结果和字节截断没有明确边界。沿旧实现，`limit:0` 或首行本身超过 50 KiB 时没有任何完整展示行，于是 `recordSnapshot(path, 全文, [])`；原生语义却是无受限 provenance，可编辑任意行。若改成截断长行，必须把未完整展示的行也从 seen 中排除，不能按展示行数直接登记。
+- **为什么是问题：** 计划说 `edit` 靠 EditStore 核对“只改看过的行”，照字面“看过的行”传空数组会反向放行。这是底层协议的特殊值，不从类型或方法名可知，read 与 write 需要不同处理：write 整份由模型给出，空集的不限行语义合理；read 一行未完整展示时则不合理。
+- **如何核实：** `bun /tmp/review-t12-design/scratch/edit-seen-lines.ts` 用真实 18.14.0 引擎：`seen=[]` 改第二行成功（**writer=1**）；`seen=[0]` 与 `seen=[1]` 同样编辑被拒为 `unseen_lines`（**writer=0**）。OMP 的 `NO_FULL_LINE=0` 正是为这个边界设置。
+- **建议改法：** 固定 offset/limit 的整数与零值合同；read 一行也没完整展示时用 `[0]` 哨兵或不发布可编辑快照，部分长行不能登记为完整已见。复用原生 `recordSeenLinesFromBody` 时仍要排除被截断行。补 limit=0（若允许）、首行超 50 KiB、截断行与稍后正常分页的真实 read→edit 用例。
+
+### 13. 两个 edit id 不是可替换绑定：必需项删不掉，换模式会触发重名丢弃甚至 tools-missing
+
+- **严重程度：重要；类别：正确性、接口与合同。**
+- **位置：** `plan.md:50`–`56`、`:104`、`:128`；`docs/specs/agent/contributions.md` 输出 4；`packages/neuro-book/src/plugins/agent/backend/tools.ts:72`–`85`；`packages/nb-harness/src/kernel/run/tools.ts:56`–`80`；`run/loop.ts:188`–`193`。
+- **现象：** Profile 若 required=[`nbook.agent.edit`]，用户把它放进 removed、把 edit-replace 放进 added，必需的 hashline 仍留下；结果两条 providerName 都叫 edit。内核现实现是**保留先到的声明、只丢后到的**，不是计划看起来承诺的整组拒绝；Profile optional/required 的顺序会决定哪种模式生效。若 edit-replace 排前而 hashline 是 required，缺 hashline 会使会话 `tools-missing`、进入只读直到重开。
+- **为什么是问题：** 本计划把“Profile 只绑一条”当作现有绑定机制能维持的不变量，实际 added/removed 的合同没有互斥组或模式切换语义；用工具声明非法的诊断处理合法的用户模式选择，会留下难恢复的顺序耦合。Profile 目录只看 id 存在，仍可能显示 ok。
+- **如何核实：** 已沿真实选集算法、providerName 去重和 required 检查读完整链；既有 `run/tools.test.ts:57`–`71` 明确断言同名两条只保留第一条，并检查 required 缺失进入只读。合同测试实际尝试因依赖缺失未运行，不把静态断言当本轮通过。
+- **建议改法：** 首选一个稳定逻辑 edit id，在会话/Profile 的 editMode 设置下生成相应声明与工厂；这样 required 与绑定身份不变。若保留两条贡献，必须定义并实现绑定层的互斥/替换规则，以及 required 的处理，不靠通用重名校验兜底。验收补 optional 的模式替换、required 的选择、两条同时加入与反转顺序、修复绑定后恢复。
+
+### 14. 工具结果返回 session:// 单数地址，fork 后全文链接会指向另一份目录
+
+- **严重程度：重要；类别：不变量、兼容与恢复。**
+- **位置：** `plan.md:61`（明确返回单数 artifact 地址）、`:67`、`:76`；`docs/specs/agent/resources.md:103`；`packages/nb-harness/src/kernel/session/session.ts:503`–`539`。
+- **现象：** 会话 A 的 shell 结果留下 `session://artifacts/c-shell.log`，fork 成 B 后同一条结果仍在对话历史里；B 读这个链接时资源视图展开成 B/home/artifacts，而 fork 只复制日志事件与 blob，不复制 A/home，所以得到 not-found（或读到 B 恰好同名的其它结果）。Profile 切换后，历史里 `profile://` 也会换指向。
+- **为什么是问题：** 已实现的资源合同明确“交给模型与工具结果里的地址是全局形式”。单数地址是输入便利写法，不适合作为持久化结果里的身份；只改 Smoke 一行而不动此合同，等于悄悄改变已定约定。这个失败不需要支持新的 fork 文件复制功能，返回 A 的全局地址即可。
+- **如何核实：** 已核对 `sessionResources.expand` 固定使用当前会话/Profile，fork 的完整实现只 `store.append` 复制路径事件、没有 home 复制。该推断由现有恢复/地址代码直接给出，未运行缺依赖的插件路径。
+- **建议改法：** 入口接受单数地址，输出头、目录项、搜索结果、edit displayPath 和 artifact 链接统一用 `resources.expand` 后的全局地址；保留原输入只能作诊断。补 A 产出 artifact、fork B 后从复制来的全局结果链接读到 A 全文的用例，以及换 Profile 后旧笔记引用不换目标。
+
+### 15. “所有失败用文件服务码”没有覆盖原生失败，且 details.code 的已定合同在具体输出中丢失
+
+- **严重程度：重要；类别：接口与合同、失败恢复。**
+- **位置：** `plan.md:17`、`:62`、`:84`；Task README “决定”中的失败 `details.code`；`ToolResult` 的顶层 code 与 details 是两个独立字段；`pi-natives` 的 `EditApplyOutcome.errorKind`。
+- **现象：** 行锚陈旧、unknown_tag、unseen_lines、replace no_match、非法正则、shell 非零退出/超时都没有等价的文件服务业务码。原生 edit 把 writer 抛出的错误折成 `errorKind:"write_failed"`，只剩文字；计划的 `details` 却只列模式与文件，没有 code/errorKind，也没说怎样保留 `resources.write` 的 `conflict`、`cancelled`、`unknown-outcome` 等原始码。
+- **为什么是问题：** 照此方案实现，要么丢失开发者已要求的 details.code，要么按英文错误文本猜码（违反错误域合同），要么把可重试冲突和普通匹配失败都报成泛化错误。真正写入结果未知时更不能给模型确定“没写”的业务失败。保留原生英文原文的决定不等于可以丢结构化失败。
+- **如何核实：** `native-boundaries.ts edit` 的 writer 明确抛 `permission-denied`，结果变成 `{text:"permission-denied",isError:true,errorKind:"write_failed",files:[]}`；无 typed file-service code。`edit-input-boundary.ts` 的匹配失败则是 `no_match`；`edit-seen-lines.ts` 是 `unseen_lines`。现有文件服务码表不含它们。
+- **建议改法：** 在新工具 Spec 定义所属错误域与映射：原生失败保留 errorKind（可加稳定前缀），宿主 writer 的 typed ResourceResult 另外保存并原样反映；顶层 code 与已定 details.code 同时遵守，不解析 outcome.text。为 shell 完成/超时/取消/非零退出与 grep/glob 非法模式分别定结果，验收断言结构码与副作用是否已发生。
+
+### 16. grep/glob 只有条数上限，没有结果字节预算、参数硬上限与扫描期限
+
+- **严重程度：重要；类别：安全与性能、可用性。**
+- **位置：** `plan.md:88`–`91`、`:129`；原生 `GrepOptions.maxColumns/timeoutMs/signal`、`GlobOptions.timeoutMs/signal`；OMP grep 的 2000 内部总条数、30 秒期限，glob 的 200 上限、5 秒期限。
+- **现象：** 100 条匹配不是小结果：原生 grep 在未给 maxColumns 时返回完整长行；context、limit 都只写了缺省值，没有最大值。glob 的名字数量受 limit 控制，路径总字节仍不受控。扫描本身没有计划中的 deadline/取消传递规则，原生 API 需要宿主明确给出。
+- **为什么是问题：** 一条 grep 会把大段正文灌进模型上下文与事件内存，按文件逐个授权还有相同规模的开销；把全文进 blob 只改变日志落盘，不缩短模型输入。搜索工具既不保存全文也没有 cursor，无法像 shell/read 那样给出可恢复的截断说明。超时/取消若被统一过滤成“无结果”，还会误报不存在。
+- **如何核实：** `bun /tmp/review-t12-design/scratch/native-boundaries.ts search` 中只含一个匹配的长行，原生返回行长 **70005**、JSON **70166 字节**，未标 truncated；100 行同样规模仅正文就是 **7000500 字节**。没有运行无界扫描。OMP 的这些预算与可中止原生调用代码已核对，不把完整 omp 搜索特性当第一版缺口。
+- **建议改法：** 为 limit/context 设可验证硬上限，原生 grep 给 maxColumns 与内部匹配预算，再对最终格式化结果施加总 UTF-8 字节上限；有截断就给可继续定位的文件/行信息。两个工具明确传 signal 与有限扫描期限，区分超时的不完整结果与真正没有匹配。验收加单行超预算、大 context、大 limit 与中止。
+
+## 结论勘误与证据分级
+
+本节只追加，不改写前面的审查轨迹；有效统计与最终编号以本节及末行清单为准。
+
+- **第 13 条撤回。** `AgentTools.forProfile` 先将 required、再将 optional 放入 Set，之后才加绑定；所以“可选 replace 排前挤掉必需 hashline”不是现有运行时可产生的时序。若 Profile 自己 required 两条，重名诊断与缺失后只读是 `runtime.md` 输出 15 已定行为；若 required 一条，removed 删不掉也符合既有合同。计划已明确同会话双绑视为重名，不能把未提出的“required 模式切换”产品需求算成缺口。原建议改成单 id 不作为本次必要改动。
+- **第 7 条收窄。** 有 cwd 与 `$NBOOK_*` 时，shell 本身仍能创建文件；问题仅是直接资源地址中的不存在目标在替换前失败，以及 edit URL create 同样无法走到 writer。是否支持 shell 中不存在目标应在工具 Spec 明确，不能据此声称整个 mkdir/cp 功能被禁用。
+- **第 8 条收窄。** 已确认文本扫描会漏换/误换，这个取舍不重新讨论；本条只要求直接支持的单/双引号地址，替换后仍表示同一 argv 路径。heredoc、变量拼接、嵌套 shell 语法不新增为本 Task 必须支持或拒绝的范围。
+- **第 12 条收窄。** `limit:0` 是否允许尚未定，不能当作必然输入；有效边界是 50 KiB 预算下没有任何完整行可展示，若仍发布可编辑头并传 seen=[] 就会不限行。具体新 read 尚未实现；原生协议已实测，工具层触发条件须由实施验收覆盖。
+- **第 15 条限定。** 顶层 `ToolResult.code` 本身是可选字段；已定硬要求是失败 `details.code`。不要求两处重复存码，只要求选定统一映射并保留文件服务与原生 errorKind，不按英文文案分支。
+- **第 1、2 条证据边界。** 两条为计划与现有 Files 实现的静态合同矛盾；第 1 条早期 `native-probe.ts` 的 writer 手工模拟条件写入，不计完整运行时复现。第 2 条原生 grep 跟随显式链接已实测，但完整 Agent→Files 授权链尚未实测。两条不能记为本轮端到端验证通过；实施者应先补真实文件服务与会话入口的回归证据。
+- **报告计数过程。** 前 16 条追加后均用 Python 算过累计条数；真实 `grep -c '^### '` 已观测 4、9、10、11、12、13、16，早期有逐条 grep 未执行的流程缺口，未补造历史命令。此后每次追加立即真实执行该 grep，撤回不删除标题，标题数保持单调不减。
+
+### 17. 选了 editGrammar，却没有可把它传到模型的 agent.tools 声明字段
+
+- **严重程度：重要；类别：接口与合同。**
+- **位置：** `plan.md:26`、`:44`–`56`、`:80`、`:102`–`108`；`packages/neuro-book/src/plugins/agent/shared/points.ts:42`–`55`；`backend/tools.ts:121`–`132`；`packages/nb-harness/src/kernel/model/omp.ts:142`–`147`。
+- **现象：** 旧 `createEditTool` 把 `editGrammar(hashline)` 包成 `customFormat:{syntax:"lark",definition:...}`；内核与 OMP 适配器也有这个字段，但 `agent.tools` 清单 schema 是 additionalProperties:false 且没有 customFormat，工具包装同样不转发。把旧声明原样贡献会被 schema 拒绝；只移除字段则交给模型的实际协议变成 JSON-string 工具，与选型表所列 grammar 接线不同。
+- **为什么是问题：** 缺的桥接位置在当前计划所有代码/Spec 改动面之外，不在 builtin/edit.ts 能单独完成。直到贡献登记或模型请求时才发现，内核直接测试工具会绕开这层 schema、不能兜底。
+- **如何核实：** 真实 18.14.0 `editGrammar("hashline")` 返回 **717 字符**的 grammar，replace 返回 null；已核对 schema、AgentTools.#declaration 与适配器三段完整字段表。没有用类型断言伪造一个可通过贡献校验的字段，也没有宣称跑过缺依赖的插件合同测试。
+- **建议改法：** 在计划列出 `AgentToolDeclaration` schema、SDK/文档与 `AgentTools` 转发的修改，验收经真实贡献点登记到模型请求后仍带 customFormat；若本 Task 决定只交 JSON `{input:string}`，就明确删去 editGrammar 的使用与对应协议承诺，避免保留一项无法兑现的选型。两种 edit 模式的数量不变。
+
+## 验收映射核查
+
+下表区分计划已有验收与本轮发现要求补足的消费者可观察行为；不把测试文件名当作已经通过的证据。
+
+| 验收行 | 现有映射的有效部分 | 漏掉的失败与边界 | 对应发现 |
+|---|---|---|---|
+| 内核图片（plan.md:125） | 工具结果落日志、blob 读回、适配器图片转换与非 vision 降级都有明确目标位置 | 图片脱敏/仅图片改写审计/出站过滤；省略结果不再附图；base64 不按正文算 token；远程分段读回也经过过滤 | 4、5 |
+| read（:126） | 文本头、分页截断、目录与虚拟根、图片、二进制与不存在地址有映射 | 真实授权链的最终文件/目录链接；没有完整展示行时快照不能不限行；图片格式/尺寸与数据一致；超过普通 Files 正文预算时不能假称可分页读回 | 2、3、12 |
+| write（:127） | 新建并建父目录、覆盖、基线冲突、禁止位置、写后可 edit 均有映射 | 冲突必须发生在实际 read 与 write 之间；创建竞争不得覆盖别人新建的内容；不能把任何同名文件/链接的 conflict 都当目录成功；输出引用全局地址 | 14；后三个输入/竞争边界为实施核对项，不额外计发现 |
+| edit（:128） | 正常 hashline、陈旧锚、replace、拒绝 REM/MV、会话写入来源有映射 | 引擎读与 writer 取基线之间的外部修改；多文件后续失败的已写副作用；所有目标资源地址的前置校验；URL 新建；两个模式各自正确参数；原生/资源错误码；贡献点到模型的 grammar | 1、7、9、11、15、17 |
+| grep/glob（:129） | 地址输出、拒绝虚拟根而允许其下真实目录、过滤隐藏项、条数截断有映射 | 最终链接不得读穿；隐藏命中吃完原生配额仍能得到可见结果；limit+1 判截断；长行/总字节/context 预算、取消与期限 | 2、10、16 |
+| shell（:130） | cwd、直接地址、环境、超时、中止、截尾与全文落盘有映射 | 不存在地址目标；真实路径中特殊字符的 argv 等价；大于 960 KiB 全文可保存并窗口读回；输出流内存有界；保存失败/取消后的收口；artifact 链接跨 fork 稳定 | 3、6、7、8、14、15 |
+| 组合（:131） | 读→改→搜→shell 的正常路径能证明工具接上实际会话 | 正常组合不能替代上述失败路径；真实模型调用本轮未运行，图片的 provider 接收与 Windows 本轮也未验证 | 见验证限制 |
+
+## 未发现问题的方面
+
+- **原生 URL 支持本身可用（已实测）。** EditSession 通过 urlSchemes/resolveUrl 接受 project/projects/session/sessions 四种头，writer 收到绝对 path 与资源 displayPath；不是“引擎完全不支持资源地址”。
+- **replace 的原生入口可用（已实测）。** `{path,old_string,new_string,replace_all?}` 能编辑；hashline 才用 `{input}`。不能把旧 createEditTool 对所有模式统一 input 的写法照搬成 replace 合同。
+- **真实路径与链接别名之间的已见行守卫（已实测）。** 同一文件通过 canonical/alias 互换后编辑未显示第二行都得到 unseen_lines，没有证据认定别名可绕过此守卫；seen=[] 是另一项已单列协议边界。
+- **shell 的原生超时与中止可用（已实测）。** 100 ms 时限约 254 ms 返回 timedOut，ready 后中止约 153 ms 返回 cancelled；signal 的声明为 unknown 不代表 AbortSignal 失效。两次独立 executeShell 也未继承前一次 export 的变量。
+- **大字符串日志机制可复用（已运行真实 JSONL 存储）。** `log-image-roundtrip.ts` 用 images 形状中的 43692 字节 base64 字符串，经 create/append/close/open 得到 1 个 blob、507 字节 JSONL，恢复数据 deepEqual；它只证明任意新字段的大字符串持久化，不证明 PNG 解码、工具拦截或 provider 图片协议。
+- **远程已有大内容通道（代码核对）。** log/path 先投影 oversized 占位，再 eventChunk；preview 超预算给令牌，再 previewChunk。没有把 1 MiB 通道限制误报为“所有大图片必然无法传输”；snapshot 本身是状态摘要，未找到新增 toolResult 图片必然塞满 snapshot 的证据。
+- **工具声明与一般生命周期可复用（代码核对）。** providerName 已有公开字段，shared/exclusive 在内核生效；工具懒建、移出工具集/关闭时 dispose，包装撤回等在途调用结算后释放。未发现“按会话引用计数”这个选型本身不能落实的证据；write 也必须持有共享 EditStore 引用，释放以实际持有者为准。
+- **mkdir 的文件服务仍保留失败保护（代码核对）。** create 冲突不会自行覆盖目录项，后续路径解析会拒绝非目录、根外链接或禁止路径；计划需区分冲突类型，但没有证据把它夸成已发生的越权写。
+- **已确认范围已遵守。** 不重开审批/只读白名单、继承环境、todo、渲染器、首批两种 edit、图片 read、write 建父目录与虚拟根搜索范围的产品选择；第 13 条撤回后不再要求改变双贡献方案。
+
+## “不做与风险”逐项判断
+
+| 原条目 | 判断 |
+|---|---|
+| todo 搁置 | 与 README 第 11 条一致，默认开关和隔轮提醒随它延期，不算本次遗漏。 |
+| 审批接线与 shell 只读白名单（t06） | 已确认不在本 Task，工具仍须声明 effect，不能把文件工具绕过资源视图归入此豁免。 |
+| shell 转后台（t22） | 前台 timeout/signal 足以实现本次已定入口，输出累计内存与落盘释放是当前入口自身的责任。 |
+| delete、move | 不提供符合范围，拒绝必须在任何文件提交前完成，见第 9 条。 |
+| apply_patch、patch | 不开放符合首批只给 hashline/replace 的决定，无需因此移除原生库其它能力。 |
+| read PDF | 明确延期，没有要求为它引入额外解析依赖。 |
+| omp 的 SQLite、压缩包、`?q=` 问图等格式 | 已明确不做，不能把完整 omp 的 read 功能列表当作本 Task 验收。 |
+| 用户消息里的图片 | 适配器继续明确失败符合本轮工具图片范围，工具结果图片的过滤/脱敏仍须完整。 |
+| 改渲染器 | 明确不做，不以 UI 是否已有专门图片/六工具展示作为本 Task 阻断项。 |
+| 文本扫描漏换或误换 | 接受只支持直接地址的边界，但“通常找不到文件”不能证明替换后 argv 等价，第 8 条只覆盖已承诺的引号内外直接地址。 |
+| edit 最新基线保证不覆盖 | 判断不成立，最新 read 保护不了更早的 engine.read 窗口，第 1 条给出确切丢更新时序。 |
+| 图片常驻会话内存 | 这是已写明的代价，本轮不要求改为按需 blob；第 5 条的 token 误估不属于接受的内存代价。 |
+
+## 按影响处理的索引与数量
+
+- **阻断（2）：1、2。** 第 1 条是丢更新，第 2 条是文件工具根约束失效；均以现有合同/实现为依据，完整插件运行证据受依赖限制。
+- **重要（14）：3、4、5、6、7、8、9、10、11、12、14、15、16、17。** 优先检查原生输入前置授权与部分写入（11、9），其次图片内容处理（4、5）、结果全文与内存（3、6、16）、引用及搜索可继续性（14、10），再补剩余入口合同（7、8、12、15、17）。
+- **建议（0）。撤回（1）：13。** 有效发现 **16** 条；追加轨迹中 `### ` 标题 **17** 个，标题计数包含撤回条目，不能据此称 17 条有效发现。
+
+本报告只交审查发现与验收补足项，不修改计划、Spec 或实现；没有本轮需要开发者补信息的待确认项。
+
+## 实际验证、失败与未运行项
+
+- 审查固定提交核对：`/usr/bin/git rev-parse HEAD` → **6be1259d2bebb908664bea1aa6c097db65bb984d**。
+- 仓库只读核对：`/usr/bin/git status --short --untracked-files=normal` → **空输出**。没有 commit、push、stash、切换分支或删除文件；实验及其夹具保留在指定 scratch 下。
+- 原生运行环境：**Bun 1.4.4 / Linux x64 / pi-natives 18.14.0**。仅原生小实验按授权只读引用 `/home/notnotype/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-natives/native/index.js`；没有将其它 worktree 依赖接到本仓库。
+- 已运行的原生实验：`bun /tmp/review-t12-design/scratch/native-probe.ts edit`、`native-probe.ts shell`、`native-probe.ts search`；`bun /tmp/review-t12-design/scratch/native-boundaries.ts edit`、`native-boundaries.ts search`、`native-boundaries.ts quote`；`bun /tmp/review-t12-design/scratch/edit-preflight.ts`、`edit-raw-access.ts`、`edit-input-boundary.ts`、`edit-seen-lines.ts`。各发现列出对应输出；`native-probe.ts search` 的首轮在“以文件为 glob 根”时以 GenericFailure 退出，未假称整轮通过，遗漏的显式文件 grep/长行/glob 计数由后续有界实验补齐。
+- 真实日志存储 smoke：`bun --no-install --no-env-file /tmp/review-t12-design/scratch/log-image-roundtrip.ts` → **退出 0**；结果 `base64Bytes:43692,jsonlBytes:507,blobs:1,restored:true`。直接使用本提交的 createJsonlStore、真实 flock/磁盘和关闭重开；base64 是人工构造的字符串，不当作图片 decoder/provider 接收证明。
+- 合同测试尝试：`bun test packages/nb-harness/src/kernel/run/tools.test.ts packages/nb-harness/src/kernel/log/store.test.ts packages/nb-harness/src/kernel/model/omp.test.ts` → **0 pass / 3 fail / 3 errors**，加载阶段缺 `@notnotype/neuro-book-test-support/tmp`、`@oh-my-pi/pi-ai`，没有执行到行为断言。
+- 资源合同测试尝试：`bun test packages/neuro-book/src/plugins/agent/resources.test.ts` → **0 pass / 1 fail / 1 error**，加载阶段 `Cannot find module '@notnotype/nb-runtime/plugins'`；不能把它说成资源行为断言失败或通过。
+- Files 真实入口可运行性：最终使用 `bun --no-install --no-env-file -e '…import(files-service.ts)…'` 明确得到 **ERR_MODULE_NOT_FOUND**，`Cannot find package '@notnotype/nb-runtime' imported from …/files/shared/contracts.ts`；因此没有继续做依赖替身或借其它 worktree 来伪造端到端复现。
+- 导入探针的流程偏差：两次早期 Bun 导入未显式加 `--no-install`，运行时可解析到 **Bun 全局缓存**里的 typebox/proper-lockfile/fast-xml-parser，曾返回 import ok；这不是本 worktree 依赖齐备的证据，也没有据此运行 Files 行为实验。发现后禁用自动安装重查，并以缺依赖为准；未手工安装或链接依赖。
+- 类型检查未运行：`Bun.which("tsc")` 返回 **null**，本 worktree 的根与两包 node_modules 均不存在；没有用会安装包的 bunx/npx 或其它 worktree 编译器补跑。LSP 返回 **No language servers configured for this project**。
+- 未运行：e2e、开发服务、真实 Provider/Model/DeepSeek smoke、Windows brush、完整 PNG/JPEG/GIF/WebP 工具链、图片拦截/过滤/压缩/adapter 的真实会话、Agent→Files 的丢更新/链接回归、governance/docs/全量测试。当前目标是只读设计审查，计划尚未实现，不能将验收建议写成已通过。
+- 报告结构核对：程序核对 **17** 个发现标题均含严重程度、类别、位置、现象、原因、核实、改法；扣除第 13 条后为 **2 阻断 / 14 重要 / 0 建议**。追加后真实 `grep -c '^### ' /tmp/review-t12-design/report.md` 为 **17**，撤回记录没有删除。
+
+## 回写建议的范围
+
+本轮规范差异（资源输出全局地址、图片脱敏/token、grammar 桥接、错误域）已分别写在对应发现的建议改法与验收映射中；不新增平行规范。本轮计数与 Bun 自动解析绕路属于已有只读/依赖规则的执行偏差，记录过程，不为未遵守已有规则再造一条规则；没有修改任何规范真相源。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、14、15、16、17；撤回编号：13。
+
