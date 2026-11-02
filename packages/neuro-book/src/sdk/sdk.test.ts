@@ -28,6 +28,7 @@ describe("SDK 的导出面", () => {
         "text-browser": ["usePluginText", "useText"],
         "state": ["definePublicState", "defineStore"],
         "storage": ["defineRecord", "storageKey"],
+        "files": ["baselineOf", "workspaceFilesKey"],
         "settings": ["SETTINGS_CHOICES_POINT", "SETTINGS_PAGES_POINT", "SETTINGS_SECTIONS_POINT", "defineSetting", "displayLocale", "section", "setting", "settingsChoicesEvent", "settingsKey"],
         "settings-browser": ["SettingsPageActions", "SettingsPageList", "SettingsRow", "SettingsSaveBar", "choices", "settingsPage"],
         "commands": ["COMMANDS_POINT", "command", "commandServiceKey"],
