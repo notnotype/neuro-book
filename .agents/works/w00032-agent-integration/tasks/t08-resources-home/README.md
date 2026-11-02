@@ -131,7 +131,7 @@ t12 开工前先做本 Task（开发者 2026-11-02 定）。写计划时定了�
 
 ## 当前状态
 
-已合入 master（`9f12c0bb4`）。两份 Spec（`agent/resources.md`，与 `resources.md` 里本次实现的部分）仍是 planned，晋升等开发者批准。
+已合入 master（`9f12c0bb4`）。开发者 2026-11-02 批准晋升：`agent/resources.md` 与 `resources.md` 里本次实现的部分改为 implemented，补了实现合同与证据。
 
 | 片 | 提交 | 内容 |
 |---|---|---|
@@ -148,4 +148,4 @@ t12 开工前先做本 Task（开发者 2026-11-02 定）。写计划时定了�
 
 ## 下一步
 
-开发者批准后把两份 Spec 晋升 implemented（补实现合同与证据）。下一个 Task 是 t12（基础工具），工具经 `services.resources` 读写。
+无。下一个 Task 是 t12（基础工具），工具经 `services.resources` 读写；开工前与开发者重新对齐需求。

@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.resources
 owners:
   - nbook.agent
@@ -113,6 +113,19 @@ owners:
 
 Smoke：不适用——没有界面；由 `plugins/agent/resources.test.ts` 经真实插件宿主覆盖。
 
+## 实现合同
+
+- **公开入口**：`nbook/plugins/agent/shared/resources`（`SessionResources`、`ResourceClass`、`AgentToolServices`）；工具工厂的形状在 `nbook/plugins/agent/shared/points`（`AgentToolImplementation.create(context, services)`）。五个方案经 `nbook.files` 的贡献点 `files.schemes` 注册，读写都经服务端文件服务（[`workspace.resources`](../workspace/resources.md)）。
+- **owner 与依赖方向**：`nbook.agent` 的服务端入口注册方案、建临时目录的容器并在注册之前做启动清理，按内核给的会话上下文构造资源视图；它依赖 `nbook.files` 的服务端文件服务，Files 不依赖它。
+- **关键不变量**：
+  - 资源视图只经工具工厂的 `services.resources` 与内核的 `SessionEnv.resources` 交出，`AgentService` 不交出：别的插件拿不到能代表会话的读写（`resources.test.ts`“各方案对 Agent 的权限”）。
+  - 分类只看改写后的全局地址，单数与全局写法结果相同；单数地址先校验路径再拼接，不做去点段（输出 1、2，`resources.test.ts`“改写与分类”）。
+  - 会话目录只露出 `session.jsonl` 与 `home/`，经链接落到别处与直接访问同样判定（输出 4，`resources.test.ts`、`files/schemes.test.ts`“授权”）。
+  - 启动清理只删能确定的：索引说已归档的，或会话目录已不在的；索引读不了的会话照样保留，容器逐层核对是本用户的真实目录（输出 7，`resources.test.ts`“验收 4”）。
+
 ## 证据
 
-- 批准依据：开发者 2026-10-28 定稿的第三版设计与 2026-10-30 的三条后续修改（[w00032 t08](../../../.agents/works/w00032-agent-integration/tasks/t08-resources-home/README.md) 的“决定”）；2026-11-02 的实施前决定与第三轮设计审查后的改判（同一 README 的“实施前的决定”、[计划](../../../.agents/works/w00032-agent-integration/tasks/t08-resources-home/plan.md)）。
+- 批准依据：开发者 2026-10-28 定稿的第三版设计与 2026-10-30 的三条后续修改（[w00032 t08](../../../.agents/works/w00032-agent-integration/tasks/t08-resources-home/README.md) 的“决定”）；2026-11-02 的实施前决定与第三轮设计审查后的改判（同一 README 的“实施前的决定”、[计划](../../../.agents/works/w00032-agent-integration/tasks/t08-resources-home/plan.md)）；开发者 2026-11-02 批准晋升为 `implemented`。
+- 实现入口：[`backend/resources.ts`](../../../packages/neuro-book/src/plugins/agent/backend/resources.ts)（改写、分类与内核资源接口）、[`backend/schemes.ts`](../../../packages/neuro-book/src/plugins/agent/backend/schemes.ts)（五个方案）、[`backend/temps.ts`](../../../packages/neuro-book/src/plugins/agent/backend/temps.ts)（临时目录）、[`backend/docs-root.ts`](../../../packages/neuro-book/src/plugins/agent/backend/docs-root.ts)、[`scripts/agent-docs.ts`](../../../packages/neuro-book/scripts/agent-docs.ts)（产品文档）
+- 合同测试：[`resources.test.ts`](../../../packages/neuro-book/src/plugins/agent/resources.test.ts)（真实插件宿主、真实工具工厂）、[`scripts/pack-app.test.ts`](../../../packages/neuro-book/scripts/pack-app.test.ts)（应用包里的文档布局与定位）
+- Smoke：不适用——没有界面；工具读写随 t12 的基础工具一起验收
