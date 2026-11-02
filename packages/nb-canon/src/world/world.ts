@@ -355,8 +355,13 @@ export class World {
         };
         const data: WorldData = {...moved.data, version};
         const engine = moved.engine.update(engineInputs(data, options), {});
-        const next = new World(data, engine, [...this.revisions, revision], {...this.index, recordedChapters: [...order.ids], requests: new Map(this.index.requests).set(requestId, {revision})}, options);
+        const next = new World(data, engine, [...this.revisions, revision], {...this.index, allocator, recordedChapters: [...order.ids], requests: new Map(this.index.requests).set(requestId, {revision})}, options);
         return {ok: true, world: next, revision, ids: {}, repeated: false};
+    }
+
+    /** 这个请求 id 发布出的修订（project.md 输出 16）。 */
+    requested(requestId: string): Revision | undefined {
+        return this.index.requests.get(requestId)?.revision;
     }
 
     object(ref: ObjectRef): unknown {

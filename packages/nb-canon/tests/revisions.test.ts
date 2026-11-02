@@ -225,6 +225,8 @@ describe("canon.revisions 输出 13：章序调整", () => {
         if (result === null || !result.ok) return;
         expect(result.revision.ops).toEqual([{kind: "chapters", before: [], after: ["ch2", "ch1", "ch3"]}]);
         expect(result.world.reorder(new ChapterOrder(["ch2", "ch1", "ch3"]), "t", "reorder-2")).toBeNull();
+        const after = ok(result.world.publish(request([{ref: {kind: "entry", id: "tmp:new"}, after: entry("tmp:new", "新人", {})}], {baseVersion: result.world.version}), "t"));
+        expect(after.revision.id).not.toBe(result.revision.id);
         expect(World.replay(result.world.revisions, {...options(), order: new ChapterOrder(["ch2", "ch1", "ch3"])}).recordedChapters).toEqual(["ch2", "ch1", "ch3"]);
     });
 });
