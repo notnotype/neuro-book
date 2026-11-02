@@ -69,6 +69,7 @@ const CLOSURES: Readonly<Record<string, ReadonlyArray<string>>> = {
     "./text/browser": ["shared/plugin-text.ts", "shared/use-plugin-text.ts"],
     "./state": ["plugins/state/shared/contracts.ts", "shared/store/persisted.ts", "shared/store/public.ts", "shared/store/store.ts"],
     "./storage": ["plugins/storage/shared/contracts.ts", "shared/storage.ts"],
+    "./files": ["plugins/files/shared/workspace-files.ts"],
     "./settings": ["plugin-platform/shared/descriptor-check.ts", "plugins/settings/shared/contracts.ts", "plugins/settings/shared/sections.ts", "plugins/settings/shared/text.ts", "shared/convention-keys.ts", "shared/host-locales.ts", "shared/plugin-text.ts", "shared/settings.ts", "shared/text.ts"],
     "./settings/browser": [
         "plugin-platform/shared/descriptor-check.ts",

@@ -10,7 +10,8 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import type {Baseline, BatchResult, CommitExpect, Identified, Listing, OperationDone} from "./contracts";
 import type {AgentOnBehalf, ServerFilesResult, VirtualListing} from "./schemes";
 
-export type {CommitExpect} from "./contracts";
+export type {Baseline, CommitExpect} from "./contracts";
+export type {ServerFilesResult} from "./schemes";
 
 export interface CallOptions {
     readonly signal?: AbortSignal;

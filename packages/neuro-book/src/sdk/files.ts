@@ -5,5 +5,5 @@
  * 规则同 `index.ts`：只再导出已有实现，每一项都是兼容范围内的承诺。
  */
 
-export {baselineOf, workspaceFilesKey} from "nbook/plugins/files/shared/contracts";
-export type {Baseline, CallOptions, CommitExpect, CommitOptions, ReadPath, ServerFilesResult, StagedSink, WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
+export {baselineOf, workspaceFilesKey} from "nbook/plugins/files/shared/workspace-files";
+export type {Baseline, CallOptions, CommitExpect, CommitOptions, ReadPath, ServerFilesResult, StagedSink, WorkspaceFiles} from "nbook/plugins/files/shared/workspace-files";
