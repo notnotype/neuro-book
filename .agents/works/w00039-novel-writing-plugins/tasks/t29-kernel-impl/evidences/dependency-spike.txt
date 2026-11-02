@@ -1,0 +1,21 @@
+w00039 t29：MDX、摘要与中文数字依赖的试验（2026-11-02，主会话）
+
+在仓库外的临时目录装依赖、跑小脚本，核实计划“技术选型”里没核实的三项。脚本与依赖都在 /tmp，跑完删除。
+
+1. MDX 解析链（micromark 4.0.3、micromark-extension-mdxjs 3.0.0、mdast-util-from-markdown 2.1.0、mdast-util-mdx 3.0.0、
+   micromark-extension-gfm-table 2.1.2 与 mdast-util-gfm-table 2.0.0、micromark-extension-gfm-strikethrough 2.1.0 与
+   mdast-util-gfm-strikethrough 2.0.1、micromark-extension-cjk-friendly 2.0.2，导出名 cjkFriendlyExtension）：
+   - `{panel.魔力}` → mdxTextExpression，estree 是 MemberExpression；三元 → ConditionalExpression；
+   - `{ref("e12").panel.任务[t3].奖励}`、`{character.立绘["原身"].说明}` → MemberExpression（可在树上查根与下标）；
+   - `import x from "y"` → mdxjsEsm（ImportDeclaration），能拒收；
+   - `{/* block:b7 */}` → mdxFlowExpression，estree 的 body 为空（只含注释）；
+   - `**“走吧。”**然后` → strong（CJK 扩展生效）；
+   - `<Ref id="e12" />`、`<Image src={…} alt="立绘" />` → mdxJsxTextElement，属性里的表达式带 estree；
+   - `他说\{+5}` → 文字“他说{+5}”；行内代码里的花括号是 inlineCode；
+   - GFM 表格与删除线正常；
+   - 未定义的引用式链接 `见[设定][s1]。` → 普通文字（与 Spec 第二版 rendering 输出 1 一致）。
+   依赖装好后约 6 MB（node_modules），浏览器包体在第 5 片接进应用时再量。
+2. 摘要：ohash 2.0.12 的 `ohash/crypto` 导出 `digest`，就是 SHA-256（base64url）；纯 JS 版与 Node 版、与 node:crypto 的结果一致；
+   `serialize` 给稳定的序列化。可以用。
+3. 中文数字：nzh 1.0.14（BSD-2-Clause）不合适：“两千”→0、“一万两千”→10000、“两万三千四百”→3400（不认“两”），
+   “三千五”→3005（不认口语的省略写法）。改为自写，用表格测试覆盖“两”、口语省略（三千五、四万五）、全角数字、千分位、“3万”。
