@@ -422,6 +422,30 @@ input.nb-ui-native-input[type="number"] {
     }
 }
 
+/*
+ * 模态遮罩（Dialog、AlertDialog、Drawer）的入退场：淡入淡出，共用这一对关键帧。底色与模糊各浮层自己给。
+ * 用关键帧而不是过渡：reka 关闭时等的是 animationend，过渡来不及播就被卸掉了。
+ */
+.nb-ui-overlay[data-state="open"] {
+    animation: nb-ui-overlay-in var(--motion-base) var(--ease-standard);
+}
+
+.nb-ui-overlay[data-state="closed"] {
+    animation: nb-ui-overlay-out var(--motion-fast) var(--ease-standard) forwards;
+}
+
+@keyframes nb-ui-overlay-in {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes nb-ui-overlay-out {
+    to {
+        opacity: 0;
+    }
+}
+
 .nb-ui-popover-motion {
     transform-origin: var(--reka-popover-content-transform-origin, var(--reka-hover-card-content-transform-origin, var(--reka-menubar-content-transform-origin, var(--reka-select-content-transform-origin, var(--reka-dropdown-menu-content-transform-origin, top center)))));
 }

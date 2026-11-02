@@ -54,7 +54,9 @@
 | `Dialog` | `cancel` 事件（任何方式关闭都发） | 删掉：取消按钮发 `request-close("cancel")`；要知道任何方式的关闭就听 `request-close` |
 | `Dialog` 的关闭原因 | `esc`、`overlay` | `escape`、`outside`（`cancel`、`close-button` 不变） |
 | `ContextMenu` | `visible`、`@close(reason)` | `v-model:open`、`@request-close(reason)` |
-| `QuickPick` | `@close(reason)` | `@request-close(reason)` |
+| `QuickPick` | `@close(reason)`，在 `update:open(false)` 之后发 | `@request-close(reason)`，在 `update:open(false)` 之前发（与其它浮层一致） |
 | `Dialog`、`Drawer`、`ContextMenu` | — | 新增 `closed`：关闭完成、内容卸载后发出（`AlertDialog`、`QuickPick` 原来就有） |
+| `Dialog` 的 `modal=false`（浮动窗口） | `<Dialog :modal="false">` | `<FloatingWindow>`：属性与 `Dialog` 相同，另有 `resizable`、`minWidth`、`minHeight`、`update:width`、`update:height`；没有遮罩相关的 `closeOnOverlay`、`overlayType` |
+| `Dialog` | `modal`、`resizable`、`minWidth`、`minHeight`、`update:width`、`update:height` | 删掉，`Dialog` 只做模态 |
 
-新增共用类型 `OverlayCloseReason`；`DialogCloseReason`、`ContextMenuCloseReason`、`QuickPickCloseReason` 保留，是它的子集。
+新增共用类型 `OverlayCloseReason`；`DialogCloseReason`、`ContextMenuCloseReason`、`QuickPickCloseReason` 保留，是它的子集；新增 `FloatingWindowCloseReason`。

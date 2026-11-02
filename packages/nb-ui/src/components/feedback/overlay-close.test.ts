@@ -7,7 +7,7 @@
  * 它的 Tab 与选择在 ContextMenu.test.ts；`closed` 的真实时机（等退场动画）只能在浏览器里看，happy-dom 没有动画。
  */
 import {flushPromises, mount} from "@vue/test-utils";
-import {afterEach, describe, expect, it} from "vitest";
+import {afterEach, describe, expect, it, vi} from "vitest";
 import {defineComponent, h, ref} from "vue";
 
 import Dialog from "./Dialog.vue";
@@ -54,36 +54,55 @@ const DIALOG_WAYS: ReadonlyArray<{reason: string; act: () => void}> = [
     {reason: "cancel", act: () => buttonNamed("取消").click()},
 ];
 
+/** 按发出的先后记下关闭相关的事件。 */
 function mountDialog(props: Record<string, unknown> = {}) {
-    return track(mount(Dialog, {props: {open: true, title: "改名", closable: true, showCancel: true, ...props}, attachTo: document.body}));
+    const order: string[] = [];
+    const wrapper = track(mount(Dialog, {
+        props: {
+            "open": true,
+            "title": "改名",
+            "closable": true,
+            "showCancel": true,
+            "onRequest-close": (reason: string) => order.push(`request-close:${reason}`),
+            "onUpdate:open": (value: boolean) => order.push(`update:open:${String(value)}`),
+            ...props,
+        },
+        attachTo: document.body,
+    }));
+    return {wrapper, order};
 }
 
 describe("Dialog 的关闭", () => {
     it.each(DIALOG_WAYS)("$reason：先发 request-close($reason)，再发 update:open(false)", async ({reason, act}) => {
-        const wrapper = mountDialog();
+        const {order} = mountDialog();
         await flushPromises();
         act();
-        expect(wrapper.emitted("request-close")).toEqual([[reason]]);
-        expect(wrapper.emitted("update:open")).toEqual([[false]]);
+        expect(order).toEqual([`request-close:${reason}`, "update:open:false"]);
     });
 
-    it("挂了 request-close 监听也照样关：行为不随监听变化", async () => {
-        const wrapper = mountDialog({"onRequest-close": () => undefined});
+    it("没挂任何监听也照样发 update:open：行为不随监听变化", async () => {
+        const wrapper = track(mount(Dialog, {props: {open: true, title: "改名"}, attachTo: document.body}));
         await flushPromises();
         clickOverlay();
         expect(wrapper.emitted("update:open")).toEqual([[false]]);
     });
 
     it.each(DIALOG_WAYS)("closeOnRequest=false：$reason 只发请求，不发 update:open", async ({reason, act}) => {
-        const wrapper = mountDialog({closeOnRequest: false});
+        const {order} = mountDialog({closeOnRequest: false});
         await flushPromises();
         act();
-        expect(wrapper.emitted("request-close")).toEqual([[reason]]);
-        expect(wrapper.emitted("update:open")).toBeUndefined();
+        expect(order).toEqual([`request-close:${reason}`]);
+    });
+
+    it("关掉之后发一次 closed", async () => {
+        const {wrapper} = mountDialog();
+        await flushPromises();
+        await wrapper.setProps({open: false});
+        await vi.waitFor(() => expect(wrapper.emitted("closed")).toEqual([[]]));
     });
 
     it("确认按钮只发 confirm，不关闭", async () => {
-        const wrapper = mountDialog();
+        const {wrapper} = mountDialog();
         await flushPromises();
         buttonNamed("确认").click();
         expect(wrapper.emitted("confirm")).toEqual([[]]);
@@ -117,23 +136,37 @@ describe("ContextMenu 的关闭", () => {
                 },
             }),
         });
-        const wrapper = track(mount(Host, {attachTo: document.body}));
+        // 用真的 Transition（测试库缺省把它换成桩）：closed 要等离场过渡结束才发。
+        const wrapper = track(mount(Host, {attachTo: document.body, global: {stubs: {transition: false}}}));
         await flushPromises();
         act();
         await flushPromises();
         const menu = wrapper.findComponent(ContextMenu);
         expect(menu.emitted("request-close")).toEqual([[reason]]);
         expect(menu.emitted("update:open")).toEqual([[false]]);
-        expect(menu.emitted("closed")).toEqual([[]]);
+        await vi.waitFor(() => expect(menu.emitted("closed")).toEqual([[]]));
     });
 });
 
 describe("QuickPick 的关闭", () => {
     it("escape：先发 request-close(escape)，再发 update:open(false)", async () => {
-        const wrapper = track(mount(QuickPick, {props: {open: true, query: "", items: [{id: "a", label: "打开"}], activeId: "a", title: "命令", placeholder: "输入命令", emptyText: "没有匹配的命令"}, attachTo: document.body}));
+        const order: string[] = [];
+        track(mount(QuickPick, {
+            props: {
+                "open": true,
+                "query": "",
+                "items": [{id: "a", label: "打开"}],
+                "activeId": "a",
+                "title": "命令",
+                "placeholder": "输入命令",
+                "emptyText": "没有匹配的命令",
+                "onRequest-close": (reason: string) => order.push(`request-close:${reason}`),
+                "onUpdate:open": (value: boolean) => order.push(`update:open:${String(value)}`),
+            },
+            attachTo: document.body,
+        }));
         await flushPromises();
         query("input").dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
-        expect(wrapper.emitted("request-close")).toEqual([["escape"]]);
-        expect(wrapper.emitted("update:open")).toEqual([[false]]);
+        expect(order).toEqual(["request-close:escape", "update:open:false"]);
     });
 });

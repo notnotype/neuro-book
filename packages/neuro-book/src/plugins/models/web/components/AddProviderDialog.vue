@@ -94,7 +94,6 @@ watch(custom, async (value) => {
         :status="custom ? error : ''"
         data-add-provider-dialog
         :close-on-request="false"
-        @update:open="(value: boolean) => emit('update:open', value)"
         @confirm="create"
         @request-close="(reason) => (reason === 'cancel' ? (custom = false) : emit('update:open', false))"
     >

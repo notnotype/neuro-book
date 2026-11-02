@@ -70,13 +70,6 @@ onUnmounted(() => {
     document.removeEventListener("keydown", handleKeydown);
 });
 
-// 菜单没有退场动画：从打开变成关闭，下一帧它已经卸载，这时发 `closed`。
-watch(() => props.open, async (open, wasOpen) => {
-    if (open || wasOpen !== true) return;
-    await nextTick();
-    emit("closed");
-});
-
 watch(() => [props.open, props.x, props.y] as const, async ([open, x, y]) => {
     if (!open) {
         return;
@@ -102,7 +95,8 @@ function setMenuRef(element: unknown): void {
 
 <template>
     <Teleport v-if="isMounted" :to="props.teleportTarget">
-        <Transition name="nb-context-menu">
+        <!-- `closed` 等离场过渡播完、菜单卸载之后才发。 -->
+        <Transition name="nb-context-menu" @after-leave="emit('closed')">
             <ContextMenuPanel
                 v-if="open"
                 :ref="setMenuRef"

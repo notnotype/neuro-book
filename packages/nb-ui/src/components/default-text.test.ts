@@ -17,6 +17,7 @@ import {createMinimalTranslator} from "../text/minimal";
 import Spinner from "./display/Spinner.vue";
 import Banner from "./feedback/Banner.vue";
 import Dialog from "./feedback/Dialog.vue";
+import FloatingWindow from "./feedback/FloatingWindow.vue";
 import AlertDialog from "./feedback/AlertDialog.vue";
 import InfoTip from "./feedback/InfoTip.vue";
 import Notification from "./feedback/Notification.vue";
@@ -84,7 +85,7 @@ const CASES: readonly Case[] = [
     {name: "Dialog 页脚按钮", component: Dialog, props: {open: true, showCancel: true, title: "标题"}, read: () => [...document.body.querySelectorAll("footer button")].map((node) => node.textContent?.trim()).join("|"), zh: "取消|确认", en: "Cancel|Confirm", override: {props: {cancelLabel: "算了", confirmLabel: "好的"}, expected: "算了|好的"}},
     {name: "Dialog 关闭按钮", component: Dialog, props: {open: true, closable: true, title: "标题"}, read: attr("header button[aria-label]", "aria-label"), zh: "关闭", en: "Close", override: {props: {closeLabel: "收起"}, expected: "收起"}},
     {name: "Dialog 无标题时的名字", component: Dialog, props: {open: true, title: ""}, read: text("[role=dialog] h2"), zh: "对话框", en: "Dialog"},
-    {name: "Dialog 浮动窗口缩放手柄", component: Dialog, props: {open: true, modal: false, resizable: true, teleportTarget: false, title: "窗口"}, read: attr("[data-dialog-resize='right']", "aria-label"), zh: "调整窗口宽度", en: "Resize window width"},
+    {name: "FloatingWindow 缩放手柄", component: FloatingWindow, props: {open: true, resizable: true, teleportTarget: false, title: "窗口"}, read: attr("[data-dialog-resize='right']", "aria-label"), zh: "调整窗口宽度", en: "Resize window width"},
     {name: "AlertDialog 标题与按钮", component: AlertDialog, props: {open: true}, read: () => [text("[role=alertdialog] h2")(), ...[...document.body.querySelectorAll("[role=alertdialog] button")].map((node) => node.textContent?.trim() ?? "")].join("|"), zh: "确认操作|取消|确定", en: "Confirm action|Cancel|OK", override: {props: {title: "删除？", cancelLabel: "留着", confirmLabel: "删掉"}, expected: "删除？|留着|删掉"}},
     {name: "Splitter 分隔线名与取值文字", component: Splitter, props: {panels: [{id: "outline", defaultSizePx: 200, sizing: "fixed"}, {id: "editor", defaultSizePx: 300}]}, read: () => `${attr("[role=separator]", "aria-label")()}|${attr("[role=separator]", "aria-valuetext")()}`, zh: "调整 outline 与 editor 的宽度|200 像素", en: "Resize width between outline and editor|200 pixels"},
     {name: "ColorSwatches 读屏名", component: ColorSwatches, props: {modelValue: null, colors: ["#ff0000"]}, read: attr("[role=listbox]", "aria-label"), zh: "颜色", en: "Color", override: {props: {label: "主题色"}, expected: "主题色"}},

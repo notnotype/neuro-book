@@ -91,7 +91,7 @@ function onCloseAutoFocus(): void {
         <DrawerPortal :to="teleportTo()">
             <DrawerOverlay
                 :style="{zIndex}"
-                class="fixed inset-0 bg-[var(--overlay-bg)] backdrop-blur-[4px] transition-opacity [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+                class="nb-ui-overlay fixed inset-0 bg-[var(--overlay-bg)] backdrop-blur-[4px]"
             />
 
             <DrawerContent

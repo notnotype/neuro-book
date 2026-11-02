@@ -12,6 +12,8 @@
 
 可选 `trigger` 插槽作为触发器。点击取消发出 `cancel`，点击确认发出 `confirm`；两者的关闭与受控状态同步由 Reka Alert Dialog 管理，`update:open(false)` 先于 `confirm`、`cancel` 发出。宿主不要在关闭事件里清掉确认要用的目标（例如待删除的条目），等 `confirm` 或 `cancel` 处理完再清，否则确认分支拿到的是空目标。没有触发器时不执行 Reka 的自动焦点归还。组件不提供 outside-click 或 Escape 关闭流程。
 
+以下来自 Reka 的 Alert Dialog，本组件保留不改：面板是 `role="alertdialog"`；打开时焦点落在取消按钮；点外面不关。确认与取消由 Reka 直接关闭，不经可拒绝的 `request-close`（与 `Dialog` 不同）。叠放与 `Dialog` 同一个模态序列，叠在另一个对话框或窗口里时画二级的面，并向内容树提供模态的局部浮层层级（`useOverlayLayer`）。
+
 ## 数据
 
 ```ts

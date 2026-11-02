@@ -16,6 +16,7 @@ import Table from "./display/Table.vue";
 import AlertDialog from "./feedback/AlertDialog.vue";
 import Banner from "./feedback/Banner.vue";
 import Dialog from "./feedback/Dialog.vue";
+import FloatingWindow from "./feedback/FloatingWindow.vue";
 import Drawer from "./feedback/Drawer.vue";
 import Notification from "./feedback/Notification.vue";
 import NotificationStack from "./feedback/NotificationStack.vue";
@@ -837,12 +838,11 @@ describe("nb-ui notification clearAll", () => {
     });
 });
 
-describe("nb-ui dialog window (Dialog modal=false)", () => {
+describe("nb-ui floating window (FloatingWindow)", () => {
     function mountWindow(props: Record<string, unknown> = {}, header?: string) {
-        return mount(Dialog, {
+        return mount(FloatingWindow, {
             props: {
                 open: true,
-                modal: false,
                 closable: true,
                 showFooter: false,
                 title: "浮动窗口",
@@ -1050,8 +1050,8 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
     }
 
     it("drags from the panel's blank space, the whole title bar and marked content regions", async () => {
-        const wrapper = mount(Dialog, {
-            props: {open: true, modal: false, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
+        const wrapper = mount(FloatingWindow, {
+            props: {open: true, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
             slots: {
                 "header-extra": "<span data-test-header-blank>头部空白</span>",
                 default: "<div data-dialog-drag><span data-test-region-text>可拖的标题</span></div><p data-test-plain>正文</p>",
@@ -1073,8 +1073,8 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
     });
 
     it("does not drag from buttons, inputs and role=button inside a drag region, nor below the 3px threshold", async () => {
-        const wrapper = mount(Dialog, {
-            props: {open: true, modal: false, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
+        const wrapper = mount(FloatingWindow, {
+            props: {open: true, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
             slots: {default: "<div data-dialog-drag><span data-test-blank>空白</span><button data-test-button>操作</button><input data-test-input /><span role=\"button\" data-test-role-button>自画的按钮</span></div>"},
             attachTo: document.body,
         });
@@ -1121,8 +1121,8 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
         }
     });
     it("raises Select popovers above the window surface", async () => {
-        const wrapper = mount(Dialog, {
-            props: {open: true, modal: false, showFooter: false, title: "设置", teleportTarget: false},
+        const wrapper = mount(FloatingWindow, {
+            props: {open: true, showFooter: false, title: "设置", teleportTarget: false},
             slots: {
                 default: () => h(Select, {
                     modelValue: "one",
@@ -1144,12 +1144,11 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
     });
 
     it("stacks a window opened from a window above it, popovers included", async () => {
-        const wrapper = mount(Dialog, {
-            props: {open: true, modal: false, showFooter: false, title: "设置", teleportTarget: false},
+        const wrapper = mount(FloatingWindow, {
+            props: {open: true, showFooter: false, title: "设置", teleportTarget: false},
             slots: {
-                default: () => h(Dialog, {
+                default: () => h(FloatingWindow, {
                     open: true,
-                    modal: false,
                     showFooter: false,
                     title: "编辑模型",
                     teleportTarget: false,

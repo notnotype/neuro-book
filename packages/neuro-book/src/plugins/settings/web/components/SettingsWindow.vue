@@ -3,7 +3,7 @@
  * 设置窗口（同名 .md）：窗口模型的呈现。外框是非模态的 Dialog，左栏分区、标签与右边的分区内容都读模型，操作交回模型
  * （docs/specs/settings/settings-window.md）。
  */
-import {AlertDialog, Dialog, Input, ScrollArea, SegmentedControl, Separator, Tooltip} from "@notnotype/nb-ui/components";
+import {AlertDialog, FloatingWindow, Input, ScrollArea, SegmentedControl, Separator, Tooltip} from "@notnotype/nb-ui/components";
 import type {SegmentedControlValue} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, provide, ref, useId, watch} from "vue";
 
@@ -258,9 +258,8 @@ function onLeaveOpen(open: boolean): void {
 </script>
 
 <template>
-    <Dialog
+    <FloatingWindow
         :open="open"
-        :modal="false"
         :title="text('window.title')"
         :show-header="false"
         :close-label="text('window.close')"
@@ -418,7 +417,7 @@ function onLeaveOpen(open: boolean): void {
             @cancel="model.cancelLeave()"
             @closed="onLeaveClosed"
         />
-    </Dialog>
+    </FloatingWindow>
 </template>
 
 <style scoped>

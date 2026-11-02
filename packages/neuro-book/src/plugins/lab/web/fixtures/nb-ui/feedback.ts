@@ -3,7 +3,7 @@
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
-import type {AlertDialog, Banner, ContextMenu, Dialog, Drawer, InfoTip, Notification, NotificationStack, Popover, QuickPick, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
+import type {AlertDialog, Banner, ContextMenu, Dialog, Drawer, FloatingWindow, InfoTip, Notification, NotificationStack, Popover, QuickPick, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
 
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
@@ -62,12 +62,20 @@ export const feedbackFixtures: LabFixture[] = [
             {id: "large", label: "大号、不带页脚", input: {props: {title: "导入素材", size: "lg", showFooter: false, overlayType: "blur"}, model: {open: true}, slots: {default: true}}},
             {id: "with-select", label: "里面放下拉（下拉要在对话框之上）", input: {props: {title: "新建作品", size: "md", showFooter: true, showCancel: true}, model: {open: true}, slots: {default: true}}},
             {id: "stacked", label: "叠一层（后开的在上面）", input: {props: {title: "新建作品", size: "md", showFooter: true, showCancel: true}, model: {open: true}, slots: {default: true}}},
-            {id: "window", label: "浮动窗口：可拖动，点外面不关", input: {props: {title: "新建作品", modal: false, closable: true}, model: {open: true, width: 560}, slots: {default: true, footer: true}}},
-            {id: "window-headerless", label: "浮动窗口：没有标题栏，关闭按钮在右上角，留白可拖", input: {props: {title: "素材", modal: false, closable: true, showHeader: false, showFooter: false}, model: {open: true, width: 480}, slots: {default: true}}},
-            {id: "window-resizable", label: "浮动窗口：可缩放", input: {props: {title: "素材预览", modal: false, closable: true, showFooter: false, resizable: true, minWidth: 360, minHeight: 240}, model: {open: true, width: 640, height: 420}, slots: {default: true}}},
+            {id: "custom-footer", label: "自定义页脚", input: {props: {title: "新建作品", size: "md"}, model: {open: true}, slots: {default: true, footer: true}}},
             {id: "closed", label: "关闭（用控制区打开）", input: {props: {title: "从书架移除", size: "sm", showFooter: true}, model: {open: false}, slots: {default: true}}},
         ],
         load: async () => (await import("./DialogFixture.vue")).default,
+    }),
+    defineLabFixture<typeof FloatingWindow>({
+        component: "FloatingWindow",
+        slots: ["default", "footer"],
+        scenes: [
+            {id: "default", label: "可拖动，点外面不关", input: {props: {title: "新建作品", closable: true}, model: {open: true, width: 560}, slots: {default: true, footer: true}}},
+            {id: "headerless", label: "没有标题栏，关闭按钮在右上角，留白可拖", input: {props: {title: "素材", closable: true, showHeader: false, showFooter: false}, model: {open: true, width: 480}, slots: {default: true}}},
+            {id: "resizable", label: "可缩放", input: {props: {title: "素材预览", closable: true, showFooter: false, resizable: true, minWidth: 360, minHeight: 240}, model: {open: true, width: 640, height: 420}, slots: {default: true}}},
+        ],
+        load: async () => (await import("./FloatingWindowFixture.vue")).default,
     }),
     defineSubjectFixture<typeof AlertDialog>({
         component: "AlertDialog",

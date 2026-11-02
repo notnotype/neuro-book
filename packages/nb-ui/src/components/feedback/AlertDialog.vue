@@ -10,13 +10,12 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "reka-ui";
-import {computed, inject, provide, ref, useSlots, watch} from "vue";
+import {computed, ref, useSlots, watch} from "vue";
 import {useUiText} from "../../text-port";
-import {useModalLayer} from "../../composables/useModalLayer";
+import {useOverlayLayer} from "../../composables/useOverlayLayer";
 import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import Button from "../controls/Button.vue";
 import {useCloseHandoff} from "./close-handoff";
-import {NB_DIALOG_LAYER} from "../../theme/z-index";
 import type {Tone} from "../shared-types";
 
 /** `danger`：确认按钮用危险样式；`neutral`：用主按钮样式。 */
@@ -36,10 +35,6 @@ const props = withDefaults(defineProps<{
     description: "",
     tone: "danger",
 });
-// 叠在别的对话框里打开时画二级的面（NB_DIALOG_LAYER）。
-const parentLayer = inject(NB_DIALOG_LAYER, 0);
-provide(NB_DIALOG_LAYER, parentLayer + 1);
-const nested = parentLayer >= 1;
 const text = useUiText();
 const titleText = computed(() => props.title ?? text("alertDialog.title"));
 const confirmText = computed(() => props.confirmLabel ?? text("alertDialog.confirm"));
@@ -60,7 +55,8 @@ const opened = ref(props.open ?? props.defaultOpen);
 watch(() => props.open, (value) => {
     if (value !== undefined) opened.value = value;
 });
-const {zIndex} = useModalLayer(() => opened.value);
+// 与 Dialog 同一个模态序列，叠在别的对话框里打开时画二级的面（useOverlayLayer）。
+const {zIndex, nested} = useOverlayLayer({kind: "modal", open: () => opened.value});
 
 function onOpenChange(value: boolean): void {
     opened.value = value;
@@ -95,7 +91,7 @@ function onCloseAutoFocus(event: Event): void {
         <AlertDialogPortal :to="teleportTo()">
             <AlertDialogOverlay
                 :style="{zIndex}"
-                class="fixed inset-0 bg-[var(--overlay-bg)] backdrop-blur-[4px] transition-opacity [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+                class="nb-ui-overlay fixed inset-0 bg-[var(--overlay-bg)] backdrop-blur-[4px]"
             />
             <AlertDialogContent
                 @close-auto-focus="onCloseAutoFocus"

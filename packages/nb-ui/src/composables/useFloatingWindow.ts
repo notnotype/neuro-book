@@ -9,7 +9,7 @@
  */
 
 import {computed, onBeforeUnmount, ref, shallowRef, watch} from "vue";
-import type {CSSProperties, Ref} from "vue";
+import type {CSSProperties} from "vue";
 import {useElementSize, useWindowSize} from "@vueuse/core";
 
 import type {NbUiTextKey} from "../locales";
@@ -55,7 +55,7 @@ export interface FloatingWindowOptions {
     /** 宿主声明的数字尺寸（px）；量不到实际尺寸时（刚挂上还没布局）按它。 */
     readonly declared: () => {readonly width: number | null; readonly height: number | null};
     /** 面板：带 `data-dialog-surface` 的元素，拖动时指针捕获在它上面。 */
-    readonly windowRef: Ref<HTMLElement | null>;
+    readonly windowRef: {readonly value: HTMLElement | null};
     readonly onResize: (dimension: "width" | "height", value: number) => void;
 }
 
