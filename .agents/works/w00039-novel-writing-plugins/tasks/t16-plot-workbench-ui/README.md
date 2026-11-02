@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t16-plot-workbench-ui
-status: planned
-updated: 2026-10-31
+status: active
+updated: 2026-11-02
 ---
 
 # 剧情工坊界面与可视化
@@ -36,8 +36,17 @@ updated: 2026-10-31
 
 ## 当前状态
 
-2026-10-31 由 t01 问题发现建为草稿；同日按开发者要求并入 t17（一次讨论能一起定下来）。尚未讨论。
+2026-10-31 由 t01 问题发现建为草稿；同日按开发者要求并入 t17（一次讨论能一起定下来）。
+
+2026-11-02 提案 [作者视角的世界引擎内核](../../../../../docs/proposals/world-engine-kernel.md) 接受后，开发者要求在开始存储与 Spec 之前先出作者界面的静态稿：用开发者自己的故事种子（星瑕）做例子，从作者视角看最终效果，找现有设计的不足。上面“要讨论的问题”是 10-31 按旧方向写的，等看完静态稿随 Work 的重切一起改。
+
+第 1 轮静态稿：
+
+- 评审板：[`artifacts/review/index.html`](artifacts/review/index.html)，十屏“星瑕的第一周”（开局审阅、条目页、记账回执、待处理、变更详情、面板、就地改、改设定以后的建议、改动记录、剧情表），加“搭稿时发现的缺口”9 条。
+- 主会话在会话里提出、开发者未反对的注意力顺序：条目树在左侧栏的“设定”容器；条目页、回执、变更详情、剧情表是编辑器区的标签页；待处理、建议、改动记录是底部面板的三个视图，状态栏显示条数；Agent 对话在右栏；就地改的确认条贴在被改的值下面。条目页先看名字、一句话与位置，主体是主 MDX 渲染的文字，“第 N 章改过”用淡色小字，来历默认收起，人物、面板、情节放在 Tab 里。
+- 草稿代码在草稿 worktree `.worktree/w00039-t16-drafts`（分支 `t16/drafts`，不合并、不推送）：`packages/neuro-book/src/plugins/drafts/web/components/world-engine/` 与 Lab 夹具 `fixtures/drafts/WorldEngineDraftFixture.vue`，Lab 组件名 `WorldEngineDraft`。第 2 章正文是主会话续写的示意，故意留了余额对不上与发色和设定不同两处。
+- 原图在本地 `.local/agent/works/w00039-novel-writing-plugins/tasks/t16-plot-workbench-ui/shots/`。
 
 ## 下一步
 
-按 Work README 的讨论顺序轮到时讨论；讨论定的事写进本 README 的“当前状态”。
+等开发者看评审板（题 `r1-expectation`、`r1-detail-place`），在会话里逐条问“搭稿时发现的缺口”怎么归；定下来的写进本节上方，再随 Work 的重切改本 Task 的范围。
