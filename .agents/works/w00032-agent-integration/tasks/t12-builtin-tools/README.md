@@ -100,8 +100,8 @@ t08 之后重新对齐需求：
 
 ## 当前状态
 
-计划第二稿（[plan.md](plan.md)、[处理](evidences/design-review-disposition.md)）已被文件访问的架构讨论取代。提案 [文件访问与改动记账](../../../../../docs/proposals/file-access-and-history.md) 按 B+ 重写，正在做第二轮深入审查（宏观）。
+计划第二稿（[plan.md](plan.md)、[处理](evidences/design-review-disposition.md)）已被文件访问的架构讨论取代。提案 [文件访问与改动记账](../../../../../docs/proposals/file-access-and-history.md) 已接受，写入接口拆到 t26。
 
 ## 下一步
 
-处理第二轮审查、提案定稿后：写账本的 Spec，改 `workspace/resources.md`、`files.md`、`folder-kinds.md`、`runtime/projects.md`、`agent/resources.md`；再按新的读写分工改 t12 计划并实施（写入接口与账本接入可能要拆成单独的 Task）。
+提案已接受（ADR 0040），第 1 阶段的 Spec 已写成 planned。写入接口拆成 [t26](../t26-write-interface/README.md)，先做；t26 完成后按新的读写分工改 t12 计划（读与写都经写入接口，`artifacts/` 用 `stage` 流式写），再审查与实施。

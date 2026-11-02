@@ -9,14 +9,14 @@ updated: 2026-11-02
 
 ## 目标与范围
 
-按提案“文件访问与改动记账”第 1 阶段与 ADR 0040，在 nbook.files 里实现写入接口（workspace/resources.md 的 planned 条目）与 Agent 资源视图的会话绑定版（agent/resources.md 输出 10），作为 t12 基础工具的底座
+按提案 [文件访问与改动记账](../../../../../docs/proposals/file-access-and-history.md) 第 1 阶段与 [ADR 0040](../../../../../docs/adr/0040-file-writes-staged-and-committed-by-root-owner.md)，在 nbook.files 里实现写入接口，并把 Agent 的资源视图改成它的会话绑定版，作为 [t12](../t12-builtin-tools/README.md) 基础工具的底座。从 t12 拆出（2026-11-02）：写入接口属于 nbook.files，自成一段可验收的行为。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：[`workspace/resources.md`](../../../../../docs/specs/workspace/resources.md) 标 `(planned)` 的写入接口各条与验收 11–15；[`agent/resources.md`](../../../../../docs/specs/agent/resources.md) 输出 10 与验收 6。
 
 ## 当前状态
 
-2026-11-02 经 nbdev 新建，尚未开工。
+计划第一稿：[plan.md](plan.md)，等开发者确认（含“待确认”里锁的范围）。
 
 ## 下一步
 
-待补充。
+开发者确认计划后做设计审查（后端，omp），处理后在 w00032 的 worktree 按切片实施。

@@ -84,7 +84,8 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | [t09](tasks/t09-models/README.md) | 模型服务与模型角色 | t02 |
 | [t10](tasks/t10-agent-plugin/README.md) | Agent 插件骨架与贡献点 | t02 到 t09 |
 | [t11](tasks/t11-compaction/README.md) | 上下文压缩 | t03、t09 |
-| [t12](tasks/t12-builtin-tools/README.md) | 基础工具与外部命令行依赖 | t04、t06、t08 |
+| [t12](tasks/t12-builtin-tools/README.md) | 基础工具与外部命令行依赖 | t04、t06、t08、t26 |
+| [t26](tasks/t26-write-interface/README.md) | 写入接口：读、暂存与提交、文件操作、操作分组与记账槽（文件访问第 1 阶段，从 t12 拆出） | t08 |
 | [t14](tasks/t14-multi-agent/README.md) | 多 Agent 与 Workflow | t05、t06、t07 |
 | [t15](tasks/t15-skills/README.md) | Skill 规范与目录 | t05、t08、t10 |
 | [t25](tasks/t25-plugin-marketplace/README.md) | 插件市场：索引、来源、版本与更新、信任；Skill 经插件分发 | t10、t15 |
