@@ -27,7 +27,7 @@ export type {
     DialogCloseReason, DialogSize, DrawerDirection, DropFeedbackPreview, DropdownMenuItemData,
     DropdownMenuItemType, FocusRingStyle, GenericTreeNode, IconButtonSize, IconButtonVariant,
     InputType, KbdSize, MenubarItemData, MenubarMenuData,
-    NotificationPosition, NotificationTone, NumberInputSize, Orientation, ProgressSize, ProgressTone,
+    NotificationPosition, NotificationTone, NumberInputSize, Orientation, OverlayCloseReason, ProgressSize, ProgressTone,
     QuickPickCloseReason, QuickPickItem, QuickPickProps, RadioGroupSize, RadioOption,
     ScrollAreaOrientation, ScrollAreaType, SearchSelectOption, SearchSelectSize, SegmentedControlOption,
     SegmentedControlSize, SegmentedControlValue, SelectDirection, SelectOption,

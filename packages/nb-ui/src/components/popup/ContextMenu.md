@@ -4,13 +4,13 @@
 
 # ContextMenu
 
-`ContextMenu` 是由宿主按需定位的右键菜单浮层，支持任意层级子菜单；它不负责监听触发区域或维护菜单项数据，宿主传入视口坐标和菜单项，并通过 `close` 接收关闭通知。
+`ContextMenu` 是由宿主按需定位的右键菜单浮层，支持任意层级子菜单；它不负责监听触发区域或维护菜单项数据，宿主传入视口坐标和菜单项，并通过 `request-close` 接收关闭请求。
 
 ## 布局与交互
 
 菜单固定定位于传入的视口坐标，超出视口右侧或底部时向内钳制并保留 8px 边距。主菜单与每一级子菜单各有自己的滚动视口：项超过 8 个时视口截在第 9 项的中间、露出半项提示还能滚（按真实盒子量，分隔线与换行项照实计入），不超过 8 个时取自然高度；主菜单最高为窗口高度减 16px，空间不够时视口跟着收矮，可滚动时显示悬浮滑块；某一级滚动时（滚轮或拖滑块）它展开的更深层级收起，焦点回到展开它的那一项。键盘移到看不见的项时只滚动这一级的视口。子菜单相对父菜单项展开，空间不足时调整方向；主菜单与子菜单按层级递增显示。目标元素必须是 `teleportTarget` 指定的现存 CSS 选择器，默认是 `body`。
 
-点击菜单项、菜单外点击或外部右键、按 Escape，以及焦点在菜单里时按 Tab，都会请求关闭并发出 `close`，参数是关闭原因（`select`、`outside`、`escape`、`tab`）：宿主据此决定焦点去向，外部点击时焦点已随用户落到别处，不应抢回。选择无子项且未禁用的条目时，先调用该条目的 `action`（若有），再发出 `close`。有子项的条目只展开子菜单，不执行自身 `action`。首次悬停展开子菜单会等待 300ms；点击、键盘（父项上的 ArrowRight、Enter、空格）与已有展开同级之间的切换立即响应。
+点击菜单项、菜单外点击或外部右键、按 Escape，以及焦点在菜单里时按 Tab，都会先发 `request-close`、再发 `update:open(false)`，参数是关闭原因（`select`、`outside`、`escape`、`tab`）：宿主据此决定焦点去向，外部点击时焦点已随用户落到别处，不应抢回。选择无子项且未禁用的条目时，先调用该条目的 `action`（若有），再请求关闭。有子项的条目只展开子菜单，不执行自身 `action`。首次悬停展开子菜单会等待 300ms；点击、键盘（父项上的 ArrowRight、Enter、空格）与已有展开同级之间的切换立即响应。
 
 键盘：菜单打开时焦点移到第一个可用项（焦点已在菜单里时不动）；上下方向键在同一级的可用项之间循环移动，Home、End 到首末项；Enter 与 Space 选择当前项（菜单项是原生按钮）；在父项上 ArrowRight、Enter 或 Space 展开子菜单并把焦点放到它的第一项；焦点停在某一级面板本身（指针离开项后）时，上下方向键从这一级的首末项开始；在子菜单里 ArrowLeft 收起这一级、焦点回到展开它的那一项；Escape 关闭；Tab 与 Shift+Tab 不在菜单项之间移动，而是关闭菜单（阻止默认的焦点移动）。菜单关闭后焦点回到哪里由宿主按关闭原因决定（例如回到打开菜单时的那一行）。不提供类型搜索。
 
@@ -47,8 +47,8 @@ interface ContextMenuItem {
 }
 
 interface ContextMenuProps {
-    /** 是否显示；必填、由父组件控制 */
-    visible: boolean;
+    /** 是否显示；必填、由父组件控制（组件只发 update:open，自己不翻转） */
+    open: boolean;
     /** 视口坐标系中的水平位置（px）；必填 */
     x: number;
     /** 视口坐标系中的垂直位置（px）；必填 */
@@ -60,14 +60,18 @@ interface ContextMenuProps {
 }
 
 interface ContextMenuEmits {
-    /** 选择叶子项、菜单外点击/右键、Escape 或焦点在菜单里时按 Tab 时发出；不会自行修改 visible */
-    (event: "close", reason: "select" | "outside" | "escape" | "tab"): void;
+    /** 选择叶子项、菜单外点击/右键、Escape 或焦点在菜单里时按 Tab 时发出；不会自行修改 open */
+    (event: "request-close", reason: "select" | "outside" | "escape" | "tab"): void;
+    /** 紧跟 request-close 发出 false */
+    (event: "update:open", value: boolean): void;
+    /** 菜单卸载之后发出 */
+    (event: "closed"): void;
 }
 
 interface ContextMenuSlots {} // 不提供插槽
 ```
 
-`visible`、`x`、`y` 都由父组件控制；关闭事件不会自动将 `visible` 改为 false。组件不提供 `expose` API；根节点是 Teleport，attrs 不属于稳定公共合同。`x`、`y` 是视口坐标而不是页面滚动坐标，通常应从 `contextmenu` 事件的 client 坐标取得。初始 `visible=true` 时位置直接取输入值；首次挂载不会主动测量钳位。打开后只在 `visible`、`x` 或 `y` 变化时重新测量，视口尺寸单独变化不会触发重算。
+`open`、`x`、`y` 都由父组件控制；组件不会自行把 `open` 改为 false，只发 `update:open`。组件不提供 `expose` API；根节点是 Teleport，attrs 不属于稳定公共合同。`x`、`y` 是视口坐标而不是页面滚动坐标，通常应从 `contextmenu` 事件的 client 坐标取得。初始 `open=true` 时位置直接取输入值；首次挂载不会主动测量钳位。打开后只在 `open`、`x` 或 `y` 变化时重新测量，视口尺寸单独变化不会触发重算。
 
 ## 不支持
 

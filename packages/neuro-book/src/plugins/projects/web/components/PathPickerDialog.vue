@@ -166,7 +166,7 @@ function activate(path: string): void {
 
 <template>
     <Dialog
-        :model-value="open"
+        :open="open"
         :title="text(mode === 'project' ? 'pathPicker.projectTitle' : 'pathPicker.directoryTitle')"
         size="md"
         :width="640"

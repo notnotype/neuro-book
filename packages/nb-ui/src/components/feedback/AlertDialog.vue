@@ -66,7 +66,8 @@ function onOpenChange(value: boolean): void {
     opened.value = value;
     emit("update:open", value);
 }
-const handoff = useCloseHandoff(() => props.open === true);
+// 跟内部打开态而不是 props.open：非受控用法（带触发器）重开时也要作废上一次没结算的 closed。
+const handoff = useCloseHandoff(() => opened.value);
 
 function preventTriggerlessCloseFocus(event: Event): void {
     if (!slots.trigger) event.preventDefault();

@@ -90,7 +90,7 @@ const dirty = computed(() => title.value !== opened.value.title
     || coverChange.value.kind !== "keep");
 
 function onRequestClose(reason: DialogCloseReason): void {
-    if (reason === "overlay" && dirty.value) return;
+    if (reason === "outside" && dirty.value) return;
     emit("cancel");
 }
 
@@ -180,7 +180,7 @@ function onConfirm(): void {
 
 <template>
     <Dialog
-        :model-value="open"
+        :open="open"
         :title="windowTitle"
         size="lg"
         :width="700"

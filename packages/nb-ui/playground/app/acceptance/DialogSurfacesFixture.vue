@@ -43,9 +43,9 @@ const alert = ref(props.sceneId === "alert" || props.sceneId === "alert-probe");
 <template>
     <FixtureShell v-model:controls="controls" :definition="definition" :scene-id="sceneId">
         <div id="nb-lab-target" class="dialog-surfaces-stage">
-            <Dialog v-model="outer" :modal="!floating" title="外层对话框" size="md" :show-footer="false" data-fixture-outer>
+            <Dialog v-model:open="outer" :modal="!floating" title="外层对话框" size="md" :show-footer="false" data-fixture-outer>
                 <p>外层的正文。</p>
-                <Dialog v-model="inner" :modal="!floating" title="二级对话框" :show-footer="false" data-fixture-inner>
+                <Dialog v-model:open="inner" :modal="!floating" title="二级对话框" :show-footer="false" data-fixture-inner>
                     <p>叠在外层上的对话框。</p>
                 </Dialog>
                 <AlertDialog v-model:open="alert" title="删除服务商？" description="确认框叠在外层上。" />

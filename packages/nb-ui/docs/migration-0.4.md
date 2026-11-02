@@ -44,3 +44,17 @@
 | `Select` 的选项 | `indicatorClass`（调用方传色类） | `tone`：组件按语调取主题的状态色画色点 |
 
 不变：`Select`、`SearchSelect` 选项的 `value`（表单提交值）；菜单与 `QuickPick` 的 `shortcut`；各组件的 `iconClass`。
+
+## 浮层的打开态与关闭
+
+| 组件 | 旧 | 新 |
+|---|---|---|
+| `Dialog` | `v-model`（`modelValue`、`update:modelValue`） | `v-model:open`（`open`、`update:open`） |
+| `Dialog` | 挂了 `@request-close` 就不自动关、没挂就自动关；`@confirm` 同理 | 一律先发 `request-close(reason)`，`closeOnRequest`（缺省 `true`）时随即发 `update:open(false)`；要自己决定关不关时传 `:close-on-request="false"`。`confirm` 只发事件，不关闭 |
+| `Dialog` | `cancel` 事件（任何方式关闭都发） | 删掉：取消按钮发 `request-close("cancel")`；要知道任何方式的关闭就听 `request-close` |
+| `Dialog` 的关闭原因 | `esc`、`overlay` | `escape`、`outside`（`cancel`、`close-button` 不变） |
+| `ContextMenu` | `visible`、`@close(reason)` | `v-model:open`、`@request-close(reason)` |
+| `QuickPick` | `@close(reason)` | `@request-close(reason)` |
+| `Dialog`、`Drawer`、`ContextMenu` | — | 新增 `closed`：关闭完成、内容卸载后发出（`AlertDialog`、`QuickPick` 原来就有） |
+
+新增共用类型 `OverlayCloseReason`；`DialogCloseReason`、`ContextMenuCloseReason`、`QuickPickCloseReason` 保留，是它的子集。

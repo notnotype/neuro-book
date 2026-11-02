@@ -29,10 +29,10 @@ const press = async (key: string): Promise<void> => {
 };
 
 async function open() {
-    const wrapper = mount(ContextMenu, {props: {visible: false, x: 10, y: 10, items: ITEMS}, attachTo: document.body});
+    const wrapper = mount(ContextMenu, {props: {open: false, x: 10, y: 10, items: ITEMS}, attachTo: document.body});
     mounted.push(wrapper);
     await flushPromises();
-    await wrapper.setProps({visible: true});
+    await wrapper.setProps({open: true});
     await flushPromises();
     return wrapper;
 }
@@ -71,7 +71,7 @@ describe("ContextMenu 键盘", () => {
         await press("End");
         (document.activeElement as HTMLButtonElement).click();
         expect(chosen).toEqual(["删除"]);
-        expect(wrapper.emitted("close")).toEqual([["select"]]);
+        expect(wrapper.emitted("request-close")).toEqual([["select"]]);
     });
 
     it("父项上按 Enter 或空格展开子菜单，焦点进它的第一项，父项不执行", async () => {
@@ -84,7 +84,7 @@ describe("ContextMenu 键盘", () => {
             await flushPromises();
             expect(focused(), `按 ${JSON.stringify(key)}`).toBe("子一");
             expect(chosen).toEqual([]);
-            expect(wrapper.emitted("close")).toBeUndefined();
+            expect(wrapper.emitted("request-close")).toBeUndefined();
             wrapper.unmount();
             mounted.length = 0;
         }
@@ -132,7 +132,7 @@ describe("ContextMenu 键盘", () => {
     });
 
     it("勾选项画成 menuitemcheckbox，aria-checked 跟着 checked，勾与快捷键同时显示；禁用项的 title 也是读屏描述", async () => {
-        const wrapper = mount(ContextMenu, {props: {visible: true, x: 10, y: 10, items: [
+        const wrapper = mount(ContextMenu, {props: {open: true, x: 10, y: 10, items: [
             {label: "显示隐藏文件", type: "checkbox", checked: true, shortcut: "Ctrl+H", action: () => chosen.push("勾")},
             {label: "导出", disabled: true, title: "没有选中的章节"},
         ]}, attachTo: document.body});
@@ -154,7 +154,7 @@ describe("ContextMenu 键盘", () => {
         expect(tab.defaultPrevented).toBe(true);
         await press("Escape");
         document.body.dispatchEvent(new MouseEvent("click", {bubbles: true}));
-        expect(wrapper.emitted("close")).toEqual([["tab"], ["escape"], ["outside"]]);
+        expect(wrapper.emitted("request-close")).toEqual([["tab"], ["escape"], ["outside"]]);
     });
 
     it("焦点在子菜单项上时 Tab、Escape 照样关闭", async () => {
@@ -167,6 +167,6 @@ describe("ContextMenu 键盘", () => {
         document.activeElement?.dispatchEvent(tab);
         expect(tab.defaultPrevented).toBe(true);
         await press("Escape");
-        expect(wrapper.emitted("close")).toEqual([["tab"], ["escape"]]);
+        expect(wrapper.emitted("request-close")).toEqual([["tab"], ["escape"]]);
     });
 });

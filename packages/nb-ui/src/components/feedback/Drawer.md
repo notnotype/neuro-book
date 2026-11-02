@@ -41,6 +41,8 @@ interface DrawerProps {
 interface DrawerEmits {
     /** Reka open 状态变化时发出 */
     (event: "update:open", value: boolean): void;
+    /** 关闭完成：内容已卸载、焦点栈已释放 */
+    (event: "closed"): void;
 }
 
 interface DrawerSlots {

@@ -777,7 +777,7 @@ describe("nb-ui context menu position", () => {
         const wrapper = mount(ContextMenu, {
             attachTo: document.body,
             props: {
-                visible: true,
+                open: true,
                 x: 20,
                 y: 20,
                 items: [{label: "一级", children: [{label: "二级", children: [{label: "三级", action}]}]}],
@@ -796,7 +796,7 @@ describe("nb-ui context menu position", () => {
         expect(leaf).toBeTruthy();
         leaf!.click();
         expect(action).toHaveBeenCalledOnce();
-        expect(wrapper.emitted("close")).toHaveLength(1);
+        expect(wrapper.emitted("request-close")).toHaveLength(1);
         wrapper.unmount();
     });
 });
@@ -841,7 +841,7 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
     function mountWindow(props: Record<string, unknown> = {}, header?: string) {
         return mount(Dialog, {
             props: {
-                modelValue: true,
+                open: true,
                 modal: false,
                 closable: true,
                 showFooter: false,
@@ -880,9 +880,9 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
         try {
             await flushPromises();
             expect(visibility()).toBe("");
-            await wrapper.setProps({modelValue: false});
+            await wrapper.setProps({open: false});
             await flushPromises();
-            await wrapper.setProps({modelValue: true});
+            await wrapper.setProps({open: true});
             await flushPromises();
             expect(visibility()).toBe("");
         } finally {
@@ -933,7 +933,7 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
             await nextTick();
 
             document.body.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
-            expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+            expect(wrapper.emitted("update:open")).toBeUndefined();
         } finally {
             wrapper.unmount();
         }
@@ -1051,7 +1051,7 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
 
     it("drags from the panel's blank space, the whole title bar and marked content regions", async () => {
         const wrapper = mount(Dialog, {
-            props: {modelValue: true, modal: false, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
+            props: {open: true, modal: false, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
             slots: {
                 "header-extra": "<span data-test-header-blank>头部空白</span>",
                 default: "<div data-dialog-drag><span data-test-region-text>可拖的标题</span></div><p data-test-plain>正文</p>",
@@ -1074,7 +1074,7 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
 
     it("does not drag from buttons, inputs and role=button inside a drag region, nor below the 3px threshold", async () => {
         const wrapper = mount(Dialog, {
-            props: {modelValue: true, modal: false, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
+            props: {open: true, modal: false, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
             slots: {default: "<div data-dialog-drag><span data-test-blank>空白</span><button data-test-button>操作</button><input data-test-input /><span role=\"button\" data-test-role-button>自画的按钮</span></div>"},
             attachTo: document.body,
         });
@@ -1115,14 +1115,14 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
             await wrapper.get("[aria-label='关闭']").trigger("click");
             expect(wrapper.emitted("update:width")).toBeUndefined();
             expect(wrapper.emitted("request-close")).toBeUndefined();
-            expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+            expect(wrapper.emitted("update:open")).toBeUndefined();
         } finally {
             wrapper.unmount();
         }
     });
     it("raises Select popovers above the window surface", async () => {
         const wrapper = mount(Dialog, {
-            props: {modelValue: true, modal: false, showFooter: false, title: "设置", teleportTarget: false},
+            props: {open: true, modal: false, showFooter: false, title: "设置", teleportTarget: false},
             slots: {
                 default: () => h(Select, {
                     modelValue: "one",
@@ -1145,10 +1145,10 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
 
     it("stacks a window opened from a window above it, popovers included", async () => {
         const wrapper = mount(Dialog, {
-            props: {modelValue: true, modal: false, showFooter: false, title: "设置", teleportTarget: false},
+            props: {open: true, modal: false, showFooter: false, title: "设置", teleportTarget: false},
             slots: {
                 default: () => h(Dialog, {
-                    modelValue: true,
+                    open: true,
                     modal: false,
                     showFooter: false,
                     title: "编辑模型",
@@ -1197,7 +1197,7 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
 describe("nb-ui dialog scroll separators", () => {
     function mountDialog() {
         return mount(Dialog, {
-            props: {modelValue: true, title: "标题", showCancel: true, teleportTarget: false},
+            props: {open: true, title: "标题", showCancel: true, teleportTarget: false},
             slots: {default: "<p>正文</p>"},
             attachTo: document.body,
         });
@@ -1245,7 +1245,7 @@ describe("nb-ui dialog anatomy", () => {
      */
     function mountDialog(props: Record<string, unknown> = {}) {
         return mount(Dialog, {
-            props: {modelValue: true, title: "标题", showCancel: true, teleportTarget: false, ...props},
+            props: {open: true, title: "标题", showCancel: true, teleportTarget: false, ...props},
             slots: {default: "<p>正文</p>"},
             attachTo: document.body,
         });

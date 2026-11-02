@@ -7,8 +7,8 @@ import {useLabSubject} from "../../lab-subject";
 import type {LabFixtureProps} from "../../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-// 关闭由组件自己发 `update:modelValue`，model 层回写；重新打开靠场景控制区的按钮，Lab 在这里扮演宿主。
-const subject = useLabSubject<typeof Dialog>(() => props.input, ["confirm", "cancel", "request-close"]);
+// 关闭由组件自己发 `update:open`，model 层回写；重新打开靠场景控制区的按钮，Lab 在这里扮演宿主。
+const subject = useLabSubject<typeof Dialog>(() => props.input, ["confirm", "request-close", "closed"]);
 const genre = ref("novel");
 const GENRES = [{label: "长篇小说", value: "novel"}, {label: "短篇集", value: "stories"}, {label: "剧本", value: "script"}];
 /** “叠一层”场景：从这个对话框里再打开一个，看后开的是否压在上面。 */
@@ -38,14 +38,14 @@ const headerless = (): boolean => props.scene === "window-headerless";
             </div>
         </template>
         <template v-if="subject.slots.value.footer" #footer>
-            <Button variant="secondary" @click="subject.write('model', 'modelValue', false)">取消</Button>
-            <Button @click="subject.write('model', 'modelValue', false)">创建</Button>
+            <Button variant="secondary" @click="subject.write('model', 'open', false)">取消</Button>
+            <Button @click="subject.write('model', 'open', false)">创建</Button>
         </template>
     </Dialog>
-    <Dialog v-model="stackedOpen" size="sm" title="第二层" :show-cancel="true" data-lab-dialog-second>
+    <Dialog v-model:open="stackedOpen" size="sm" title="第二层" :show-cancel="true" data-lab-dialog-second>
         <p class="text-sm">后打开的对话框压在先打开的上面；Esc 与点遮罩只关这一层。</p>
     </Dialog>
     <LabFixtureControls>
-        <Button size="sm" variant="secondary" @click="subject.write('model', 'modelValue', true)">打开对话框</Button>
+        <Button size="sm" variant="secondary" @click="subject.write('model', 'open', true)">打开对话框</Button>
     </LabFixtureControls>
 </template>

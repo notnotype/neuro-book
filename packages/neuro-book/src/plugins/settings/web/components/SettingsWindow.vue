@@ -259,7 +259,7 @@ function onLeaveOpen(open: boolean): void {
 
 <template>
     <Dialog
-        :model-value="open"
+        :open="open"
         :modal="false"
         :title="text('window.title')"
         :show-header="false"

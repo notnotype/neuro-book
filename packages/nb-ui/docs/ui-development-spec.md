@@ -364,6 +364,13 @@
 - **方向** `Orientation = "horizontal" | "vertical"`。
 - **文案属性**：按钮文字与读屏名称叫 `xxxLabel`（`confirmLabel`、`closeLabel`、`ariaLabel`），说明性文字叫 `xxxText`（`loadingText`、`emptyText`）。缺省值经翻译端口从 nb-ui 目录取（`src/locales/`），属性只用来覆盖；同一页可能有多个实例、需要各自名字的区域（例如 `Breadcrumb` 的导航区）才给覆盖属性。
 
+### 4.7 浮层的打开与关闭
+
+- **打开态**：一律 `open` 加 `update:open`。`Dialog`、`QuickPick`、`ContextMenu` 是受控的：`open` 必填，组件只发事件、自己不翻转，宿主不接 `update:open` 时浮层保持打开。`AlertDialog`、`Drawer`、`Popover`、`DropdownMenu` 另外支持带触发器的不受控用法。
+- **事件**：`request-close(reason)` 是可被宿主拒绝的关闭请求，随后发 `update:open(false)`；`closed` 在关闭完成、内容卸载并释放焦点之后发，宿主在它之后才执行命令或打开下一层，不用固定毫秒数代替。`AlertDialog`、`Drawer` 由 reka 直接关闭，不发请求。
+- **关闭原因** `OverlayCloseReason`（`shared-types.ts`）：`escape`、`outside`、`close-button`、`cancel`、`select`、`tab`，各浮层只发自己有的那几种，保留各自的子集类型（`DialogCloseReason` 等）。“取消”与“关闭按钮”分开：宿主可能用取消按钮退回上一步、用关闭按钮关窗。
+- **`Dialog` 关不关只看 `closeOnRequest`**（缺省 `true`），不看宿主挂了哪些监听；要拦（脏表单、守卫）就传 `false`，在 `request-close` 里自己决定。确认按钮只发 `confirm`，关不关由宿主决定。
+
 ## 5. 表单与无障碍
 
 1. 字段组件接入 `Field` context：生成或接受 `id`，连接 `aria-describedby`，合并 `required`，错误时输出 `aria-invalid`。

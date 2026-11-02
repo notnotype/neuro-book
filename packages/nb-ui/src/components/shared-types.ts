@@ -15,3 +15,10 @@ export type Orientation = "horizontal" | "vertical";
 /** 浮层相对锚点的方位与对齐。 */
 export type Side = "top" | "right" | "bottom" | "left";
 export type Align = "start" | "center" | "end";
+
+/**
+ * 浮层为什么请求关闭（`request-close` 的参数）。各浮层只发自己有的那几种：
+ * `escape` 按 Esc；`outside` 点遮罩或浮层外面；`close-button` 标题栏的关闭按钮；`cancel` 页脚的取消按钮；
+ * `select` 选了菜单里的一项；`tab` 用 Tab 离开菜单。
+ */
+export type OverlayCloseReason = "escape" | "outside" | "close-button" | "cancel" | "select" | "tab";

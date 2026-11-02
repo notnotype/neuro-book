@@ -15,6 +15,7 @@ import {NB_MODAL_POPOVER_Z_INDEX, NB_POPOVER_Z_INDEX} from "../../theme/z-index"
 import {useModalLayer} from "../../composables/useModalLayer";
 import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import {useUiText} from "../../text-port";
+import {useCloseHandoff} from "./close-handoff";
 
 export type DrawerDirection = "top" | "bottom" | "left" | "right";
 
@@ -46,6 +47,7 @@ const closeText = computed(() => props.closeLabel ?? text("drawer.close"));
 
 const emit = defineEmits<{
     (e: "update:open", value: boolean): void;
+    (e: "closed"): void;
 }>();
 
 /*
@@ -63,6 +65,14 @@ provide(NB_POPOVER_Z_INDEX, NB_MODAL_POPOVER_Z_INDEX);
 function onOpenChange(value: boolean): void {
     opened.value = value;
     emit("update:open", value);
+}
+
+// 跟内部打开态而不是 props.open：非受控用法（带触发器）重开时也要作废上一次没结算的 closed。
+const handoff = useCloseHandoff(() => opened.value);
+
+/** `closed`：内容卸载完、焦点栈释放之后才发（见 close-handoff.ts）。 */
+function onCloseAutoFocus(): void {
+    handoff.schedule(() => emit("closed"));
 }
 </script>
 
@@ -86,6 +96,7 @@ function onOpenChange(value: boolean): void {
 
             <DrawerContent
                 :style="{zIndex}"
+                @close-auto-focus="onCloseAutoFocus"
                 class="nb-ui-popover-surface nb-ui-dialog-surface nb-ui-drawer-surface fixed flex flex-col text-[var(--text-main)] transition-transform [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] outline-none"
                 :class="[
                     props.direction === 'right' ? 'inset-y-0 right-0 h-full w-[380px] max-w-[90cqw]' : '',

@@ -51,7 +51,7 @@ const TwoDialogs = defineComponent({
     render() {
         return h("div", [
             h(Dialog, {
-                "modelValue": this.second,
+                "open": this.second,
                 "title": "第二层",
                 "showFooter": false,
                 "data-second": "",
@@ -61,7 +61,7 @@ const TwoDialogs = defineComponent({
                 },
             }, () => h("input", {"data-second-input": ""})),
             h(Dialog, {
-                "modelValue": this.first,
+                "open": this.first,
                 "title": "第一层",
                 "showFooter": false,
                 "data-first": "",
@@ -76,7 +76,7 @@ const TwoDialogs = defineComponent({
 
 describe("Dialog（模态）", () => {
     it("遮罩上按下并松开同一个键才请求关闭；从面板里按下拖到遮罩松开不算；closeOnOverlay=false 时不关", async () => {
-        const wrapper = track(mount(Dialog, {props: {"modelValue": true, "title": "移除作品", "onRequest-close": () => undefined}, attachTo: document.body}));
+        const wrapper = track(mount(Dialog, {props: {"open": true, "title": "移除作品", "onRequest-close": () => undefined}, attachTo: document.body}));
         await flushPromises();
         const overlay = query("[data-dialog-overlay]");
         expect(query("[data-dialog-surface]").getAttribute("aria-modal")).toBe("true");
@@ -89,7 +89,7 @@ describe("Dialog（模态）", () => {
 
         press(overlay, "pointerdown");
         press(overlay, "pointerup");
-        expect(wrapper.emitted("request-close")).toEqual([["overlay"]]);
+        expect(wrapper.emitted("request-close")).toEqual([["outside"]]);
 
         await wrapper.setProps({closeOnOverlay: false});
         press(overlay, "pointerdown");
@@ -99,7 +99,7 @@ describe("Dialog（模态）", () => {
 
     it("对话框里开着下拉时，点遮罩只关下拉，不关对话框；下拉压在对话框之上", async () => {
         const wrapper = track(mount(Dialog, {
-            props: {"modelValue": true, "title": "体裁", "onRequest-close": () => undefined},
+            props: {"open": true, "title": "体裁", "onRequest-close": () => undefined},
             slots: {default: () => h(Select, {modelValue: "novel", options: [{label: "长篇", value: "novel"}, {label: "短篇", value: "stories"}]})},
             attachTo: document.body,
         }));
@@ -117,7 +117,7 @@ describe("Dialog（模态）", () => {
 
     it("Esc 请求关闭；输入法组字时、内层控件已经处理过的 Esc、closeOnEsc=false 时都不关", async () => {
         const wrapper = track(mount(Dialog, {
-            props: {"modelValue": true, "title": "改名", "onRequest-close": () => undefined},
+            props: {"open": true, "title": "改名", "onRequest-close": () => undefined},
             slots: {
                 default: () => [
                     h("input", {"data-plain": ""}),
@@ -134,7 +134,7 @@ describe("Dialog（模态）", () => {
         expect(wrapper.emitted("request-close")).toBeUndefined();
 
         escape(plain);
-        expect(wrapper.emitted("request-close")).toEqual([["esc"]]);
+        expect(wrapper.emitted("request-close")).toEqual([["escape"]]);
 
         await wrapper.setProps({closeOnEsc: false});
         escape(plain);
@@ -157,7 +157,7 @@ describe("Dialog（模态）", () => {
 
         escape(query("[data-second-input]"));
         await flushPromises();
-        expect(vm.reasons).toEqual(["second:esc"]);
+        expect(vm.reasons).toEqual(["second:escape"]);
         expect(vm.first).toBe(true);
 
         vm.second = true;
@@ -167,13 +167,13 @@ describe("Dialog（模态）", () => {
         press(topOverlay, "pointerdown");
         press(topOverlay, "pointerup");
         await flushPromises();
-        expect(vm.reasons).toEqual(["second:esc", "second:overlay"]);
+        expect(vm.reasons).toEqual(["second:escape", "second:outside"]);
         expect(vm.first).toBe(true);
     });
 
     it("页脚状态行：按钮靠右的尺寸一直留着，平时是 status 插槽，status 非空时换成错误；按钮平分整行的尺寸没有", async () => {
         const wrapper = track(mount(Dialog, {
-            props: {modelValue: true, title: "选择目录", size: "md"},
+            props: {open: true, title: "选择目录", size: "md"},
             slots: {status: () => "已选 Documents"},
             attachTo: document.body,
         }));
@@ -195,7 +195,7 @@ describe("Dialog（模态）", () => {
     it("初始焦点：按 initialFocus 找；找不到时聚焦面板；不给时是第一个可聚焦元素", async () => {
         const body = () => [h("button", {"data-a": ""}, "甲"), h("input", {"data-b": ""})];
         const open = async (initialFocus?: string): Promise<void> => {
-            track(mount(Dialog, {props: {modelValue: true, title: "焦点", showFooter: false, initialFocus}, slots: {default: body}, attachTo: document.body}));
+            track(mount(Dialog, {props: {open: true, title: "焦点", showFooter: false, initialFocus}, slots: {default: body}, attachTo: document.body}));
             await flushPromises();
         };
 
@@ -222,7 +222,7 @@ describe("Dialog（模态）", () => {
                     h("button", {"data-opener": "", "onClick": () => {
                         this.open = true;
                     }}, "打开"),
-                    h(Dialog, {"modelValue": this.open, "title": "确认", "onUpdate:modelValue": (value: boolean) => {
+                    h(Dialog, {"open": this.open, "title": "确认", "onUpdate:open": (value: boolean) => {
                         this.open = value;
                     }}, () => h("input")),
                 ]);

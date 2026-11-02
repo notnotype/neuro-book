@@ -102,7 +102,7 @@ function openNode(id: string): void {
                     <SelectionBar v-if="selectedNode" :label="selectedNode.label" :open-label="ACTION[selectedNode.type]" @open="openNode(selectedNode.id)" @clear="selected = null" />
                 </template>
             </StoryNetwork>
-            <ContextMenu :visible="menu !== null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" @close="menu = null" />
+            <ContextMenu :open="menu !== null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" @request-close="menu = null" />
         </div>
         <p class="px-3 pb-2 text-[length:var(--text-2xs)] text-[var(--text-muted)]">
             <template v-if="arrange === 'storyline'">横轴是章，一行一个主要人物或事物，点是他参与的一段情节，竖线把同一段情节里的几个人连起来；悬停一个点显示章号与标题。</template>

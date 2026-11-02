@@ -10,7 +10,7 @@ import type {HTMLAttributes} from "vue";
  *
  * 关闭一律经 `request-close`：reka 自己的外部点击与 Escape 关闭都拦下，由这里判定后发出。
  */
-import {computed, getCurrentInstance, inject, onBeforeUnmount, provide, ref, watch} from "vue";
+import {computed, inject, onBeforeUnmount, provide, ref, watch} from "vue";
 import {DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle} from "reka-ui";
 
 import {FLOATING_WINDOW_RESIZE_HANDLES, useFloatingWindow} from "../../composables/useFloatingWindow";
@@ -20,12 +20,15 @@ import {useUiText} from "../../text-port";
 import {NB_DIALOG_LAYER, NB_DIALOG_WINDOW_DEPTH, NB_DIALOG_WINDOW_Z_STEP, NB_MODAL_POPOVER_Z_INDEX, NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
 import Button from "../controls/Button.vue";
 import IconButton from "../controls/IconButton.vue";
+import {useCloseHandoff} from "./close-handoff";
+import type {OverlayCloseReason} from "../shared-types";
 
 // 根是 reka 的 DialogRoot（不渲染元素）：未声明的 attrs 显式交给面板。
 defineOptions({inheritAttrs: false});
 
 export type DialogSize = "sm" | "default" | "md" | "lg" | "xl" | "full";
-export type DialogCloseReason = "overlay" | "cancel" | "close-button" | "esc";
+/** `Dialog` 发出的关闭原因：`OverlayCloseReason` 的子集（浮动窗口没有遮罩，不发 `outside`）。 */
+export type DialogCloseReason = Extract<OverlayCloseReason, "escape" | "outside" | "close-button" | "cancel">;
 
 type DialogSizePreset = {
     width: string;
@@ -43,7 +46,8 @@ const DIALOG_SIZE_PRESETS: Record<DialogSize, DialogSizePreset> = {
 };
 
 const props = withDefaults(defineProps<{
-    modelValue: boolean;
+    /** 受控的打开态：组件只发 `update:open`，自己不翻转。 */
+    open: boolean;
     /** 模态（缺省）或浮动窗口；打开期间不要切换。 */
     modal?: boolean;
     size?: DialogSize;
@@ -52,6 +56,8 @@ const props = withDefaults(defineProps<{
     showHeader?: boolean;
     closeOnOverlay?: boolean;
     closeOnEsc?: boolean;
+    /** 请求关闭后随即发 `update:open(false)`；宿主要自己决定关不关（守卫、脏表单）时传 false。 */
+    closeOnRequest?: boolean;
     /** CSS 宽度，或 px 数字（按容器收窄，不会比容器宽）。 */
     width?: string | number;
     height?: string | number;
@@ -88,6 +94,7 @@ const props = withDefaults(defineProps<{
      * 真要做一个没有按钮的框，得自己显式传 closable。
      */
     closable: false,
+    closeOnRequest: true,
     showHeader: true,
     closeOnOverlay: true,
     closeOnEsc: true,
@@ -116,10 +123,10 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-    (e: "update:modelValue", value: boolean): void;
+    (e: "update:open", value: boolean): void;
     (e: "confirm"): void;
-    (e: "cancel"): void;
     (e: "request-close", reason: DialogCloseReason): void;
+    (e: "closed"): void;
     (e: "update:width", value: number): void;
     (e: "update:height", value: number): void;
 }>();
@@ -131,7 +138,6 @@ const closeText = computed(() => props.closeLabel ?? text("dialog.close"));
 // 标题为空时屏幕阅读器仍要有对话框的名字。
 const titleText = computed(() => props.title || text("dialog.untitled"));
 
-const instance = getCurrentInstance();
 const panelRef = ref<HTMLElement | null>(null);
 const bodyRef = ref<HTMLElement | null>(null);
 
@@ -148,7 +154,7 @@ const windowDepth = props.modal ? parentDepth : parentDepth + 1;
 const windowZIndex = NB_Z_INDEX.dialogWindow + (Math.max(windowDepth, 1) - 1) * NB_DIALOG_WINDOW_Z_STEP;
 provide(NB_DIALOG_WINDOW_DEPTH, windowDepth);
 provide(NB_POPOVER_Z_INDEX, props.modal ? NB_MODAL_POPOVER_Z_INDEX : windowZIndex + 1);
-const {zIndex: modalZIndex} = useModalLayer(() => props.modal && props.modelValue);
+const {zIndex: modalZIndex} = useModalLayer(() => props.modal && props.open);
 const zIndex = computed(() => (props.modal ? modalZIndex.value : windowZIndex));
 
 const contained = useTeleportContained();
@@ -165,7 +171,7 @@ function pxOf(value: string | number | undefined): number | null {
 
 const floating = useFloatingWindow({
     enabled: () => !props.modal,
-    open: () => props.modelValue,
+    open: () => props.open,
     target: () => (props.teleportTarget === false ? false : teleportTo()),
     resizable: () => props.resizable,
     busy: () => props.busy,
@@ -253,25 +259,26 @@ watch(panelRef, (panel) => {
 });
 onBeforeUnmount(() => panelResizeObserver?.disconnect());
 
-function hasListener(name: "onRequestClose" | "onConfirm"): boolean {
-    return Boolean(instance?.vnode.props && name in instance.vnode.props);
-}
-
-function closeImmediate(): void {
-    emit("update:modelValue", false);
-    emit("cancel");
-}
-
+/**
+ * 关闭先发 `request-close`，`closeOnRequest` 为真（缺省）时随即发 `update:open(false)`；宿主要拦（脏表单、守卫）时传
+ * `close-on-request="false"` 自己决定。行为不随宿主挂了哪些监听变化。确认按钮只发 `confirm`，关不关由宿主决定。
+ */
 function requestClose(reason: DialogCloseReason): void {
     if (props.busy) return;
     emit("request-close", reason);
-    if (!hasListener("onRequestClose")) closeImmediate();
+    if (props.closeOnRequest) emit("update:open", false);
 }
 
 function handleConfirm(): void {
     if (props.busy) return;
     emit("confirm");
-    if (!hasListener("onConfirm")) closeImmediate();
+}
+
+const handoff = useCloseHandoff(() => props.open);
+
+/** `closed`：内容卸载完、焦点栈释放之后才发（见 close-handoff.ts）。 */
+function onCloseAutoFocus(): void {
+    handoff.schedule(() => emit("closed"));
 }
 
 /** reka 想自己关（外部点击、Escape）都已在下面拦掉；这里不再另做事。 */
@@ -286,7 +293,7 @@ function preventDismiss(event: Event): void {
 function onEscapeKeyDown(event: KeyboardEvent): void {
     const handled = event.defaultPrevented || event.isComposing || event.keyCode === 229;
     event.preventDefault();
-    if (!handled && props.closeOnEsc) requestClose("esc");
+    if (!handled && props.closeOnEsc) requestClose("escape");
 }
 
 function onOpenAutoFocus(event: Event): void {
@@ -327,12 +334,12 @@ function onOverlayPointerUp(event: PointerEvent): void {
     const press = overlayPress;
     overlayPress = null;
     if (!props.closeOnOverlay || press === null || event.button !== press.button) return;
-    if (event.button === 0 || event.button === 2) requestClose("overlay");
+    if (event.button === 0 || event.button === 2) requestClose("outside");
 }
 </script>
 
 <template>
-    <DialogRoot :open="props.modelValue" :modal="pageModal">
+    <DialogRoot :open="props.open" :modal="pageModal">
         <DialogPortal :to="props.teleportTarget === false ? undefined : teleportTo()" :disabled="props.teleportTarget === false">
             <!-- 遮罩与面板是**平级**：面板若是遮罩的子元素，带 backdrop-filter 的遮罩会成为它的 backdrop root，玻璃采不到背景。
                  锁整页时用 reka 的 DialogOverlay：reka 会让 body 不接收指针，只有它的遮罩恢复了指针；contained 时用普通遮罩。 -->
@@ -346,7 +353,7 @@ function onOverlayPointerUp(event: PointerEvent): void {
                     v-bind="{onPointerdown: onOverlayPointerDown, onPointerup: onOverlayPointerUp, onContextmenu: (event: MouseEvent) => event.preventDefault()}"
                 />
                 <div
-                    v-else-if="props.modelValue"
+                    v-else-if="props.open"
                     class="nb-dialog__overlay fixed inset-0"
                     :class="overlayClass"
                     :style="{zIndex}"
@@ -360,6 +367,7 @@ function onOverlayPointerUp(event: PointerEvent): void {
                 as-child
                 :aria-describedby="undefined"
                 @open-auto-focus="onOpenAutoFocus"
+                @close-auto-focus="onCloseAutoFocus"
                 @escape-key-down="onEscapeKeyDown"
                 @pointer-down-outside="preventDismiss"
                 @interact-outside="preventDismiss"

@@ -167,7 +167,7 @@ const dialog = computed(() => props.area.dialog.value);
         </Teleport>
         <DropFeedbackOverlay :preview="drop?.preview ?? null" :label="dropLabel" :data-editor-drop="drop === null ? undefined : drop.label" />
         <Dialog
-            :model-value="dialog !== null"
+            :open="dialog !== null"
             :title="t(dialog?.saveable === false ? 'closeDialog.titleUnrepresentable' : 'closeDialog.title', {name: dialog === null ? '' : nameOf(dialog.address)})"
             size="sm"
             @request-close="area.answer('cancel')"

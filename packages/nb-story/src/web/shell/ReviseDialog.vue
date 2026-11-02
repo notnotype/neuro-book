@@ -88,7 +88,7 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-    <Dialog :model-value="open" :title="title" size="lg" closable :busy="busy" :status="status" @update:model-value="emit('update:open', $event)">
+    <Dialog :open="open" :title="title" size="lg" closable :busy="busy" :status="status" @update:open="emit('update:open', $event)">
         <div class="flex flex-col gap-2" data-testid="revise-dialog" :data-mode="mode">
             <template v-if="mode === 'name'">
                 <p id="revise-name-label" class="lab">哪个称呼</p>

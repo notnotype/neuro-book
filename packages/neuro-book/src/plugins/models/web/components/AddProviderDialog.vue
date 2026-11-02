@@ -82,7 +82,7 @@ watch(custom, async (value) => {
 
 <template>
     <Dialog
-        :model-value="open"
+        :open="open"
         size="md"
         :title="text('add.title')"
         :show-footer="custom"
@@ -93,7 +93,8 @@ watch(custom, async (value) => {
         :busy="busy"
         :status="custom ? error : ''"
         data-add-provider-dialog
-        @update:model-value="(value: boolean) => emit('update:open', value)"
+        :close-on-request="false"
+        @update:open="(value: boolean) => emit('update:open', value)"
         @confirm="create"
         @request-close="(reason) => (reason === 'cancel' ? (custom = false) : emit('update:open', false))"
     >

@@ -203,7 +203,7 @@ defineExpose({focusTree});
             @recheck="emit('recheck')"
             @abandon="emit('abandon')"
         />
-        <ContextMenu :visible="menu != null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" @close="closeMenu" />
+        <ContextMenu :open="menu != null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" @request-close="closeMenu" />
         <AlertDialog
             :open="deleteDialog !== null"
             :title="text('dialog.delete.title', {count: deleteDialog?.items.length ?? 0})"
@@ -228,7 +228,7 @@ defineExpose({focusTree});
             </template>
         </AlertDialog>
         <Dialog
-            :model-value="dirtyCopyDialog !== null"
+            :open="dirtyCopyDialog !== null"
             :title="text('dialog.dirtyCopy.title')"
             size="sm"
             @request-close="emit('dirty-copy', 'cancel')"
@@ -248,7 +248,7 @@ defineExpose({focusTree});
             </template>
         </Dialog>
         <Dialog
-            :model-value="displayDialog !== null"
+            :open="displayDialog !== null"
             :title="text('dialog.display.title', {name: displayDialog?.name ?? ''})"
             :busy="displayDialog?.busy === true"
             :show-cancel="true"
@@ -271,7 +271,7 @@ defineExpose({focusTree});
             </div>
         </Dialog>
         <Dialog
-            :model-value="collisionDialog !== null"
+            :open="collisionDialog !== null"
             :title="text('dialog.collision.title')"
             :cancel-label="text('dialog.collision.cancel')"
             size="sm"

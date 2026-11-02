@@ -51,7 +51,7 @@ export {default as ColorSwatches} from "./form/ColorSwatches.vue";
 export {default as Checkbox} from "./form/Checkbox.vue";
 export {default as Field} from "./form/Field.vue";
 export {NB_FIELD_CONTEXT_KEY, useFieldContext} from "./form/field-context";
-export type {Align, ControlSize, Orientation, Side, Tone} from "./shared-types";
+export type {Align, ControlSize, Orientation, OverlayCloseReason, Side, Tone} from "./shared-types";
 export type {FieldContext} from "./form/field-context";
 export {default as Input} from "./form/Input.vue";
 export {default as NumberInput} from "./form/NumberInput.vue";

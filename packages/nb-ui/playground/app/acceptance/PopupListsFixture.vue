@@ -126,7 +126,7 @@ function openContext(event: MouseEvent): void {
             </DropdownMenu>
             <Select v-model="longFormat" :options="LONG_SELECT_OPTIONS" class="w-[200px]" data-fixture-long-select />
             <div data-fixture-context-area class="popup-lists-context" @contextmenu.prevent="openContext">在这里右键</div>
-            <ContextMenu :visible="context !== null" :x="context?.x ?? 0" :y="context?.y ?? 0" :items="contextItems" @close="context = null" />
+            <ContextMenu :open="context !== null" :x="context?.x ?? 0" :y="context?.y ?? 0" :items="contextItems" @request-close="context = null" />
         </div>
         <div v-else-if="props.sceneId === 'quick-pick' || props.sceneId === 'quick-pick-long'" id="nb-lab-target" class="popup-lists-stage">
             <QuickPick
@@ -146,7 +146,7 @@ function openContext(event: MouseEvent): void {
             </DropdownMenu>
             <Menubar :menus="MENUBAR_MENUS" size="sm" data-fixture-menubar />
             <div data-fixture-context-area class="popup-lists-context" @contextmenu.prevent="openContext">在这里右键</div>
-            <ContextMenu :visible="context !== null" :x="context?.x ?? 0" :y="context?.y ?? 0" :items="contextItems" @close="context = null" />
+            <ContextMenu :open="context !== null" :x="context?.x ?? 0" :y="context?.y ?? 0" :items="contextItems" @request-close="context = null" />
         </div>
     </FixtureShell>
 </template>

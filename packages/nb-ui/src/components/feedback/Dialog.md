@@ -20,7 +20,7 @@
 | 圆角 | `--radius-dialog` | `--radius-window`（缺省等于 `--radius-dialog`） |
 | 面 | `--dialog-surface`（缺省等于小浮层的 `--overlay-surface`） | 同左 |
 | 叠放 | 同时打开的按打开顺序叠放 | 按嵌套深度叠放 |
-| `request-close` 的原因 | `overlay`、`cancel`、`close-button`、`esc` | `cancel`、`close-button`、`esc` |
+| `request-close` 的原因 | `outside`、`cancel`、`close-button`、`escape` | `cancel`、`close-button`、`escape` |
 
 用法在组件建立时取定，打开期间不要切换 `modal`。
 
@@ -46,7 +46,7 @@
 - **初始焦点**：给了 `initialFocus`（选择器）时在面板里找它，找不到就聚焦面板；没给时是第一个可聚焦元素，没有时聚焦面板。关闭后焦点还给打开前的元素。
 - **点遮罩**：按下与松开都在遮罩上、同一个键（主键或右键）才算一次点击；从面板里按下拖到遮罩上松开不算。对话框里还开着下拉、取色面板这类浮层时，这一下只关浮层，不关对话框。
 - **Escape**：只有最上层的对话框或窗口收到。输入法正在组字时按的、内层控件已经处理过（`preventDefault`）的 Escape 不算关闭。
-- **关闭**：遮罩、取消按钮、关闭按钮与 Escape 一律先发 `request-close`；父组件监听了它就完全由父组件决定关不关，没监听时组件自己发 `update:modelValue(false)` 与 `cancel`。默认页脚的确认按钮发 `confirm`；没有 `confirm` 监听器时随后自动关闭。`busy` 时这些动作都不生效，默认页脚按钮与关闭按钮禁用，缩放手柄退出 Tab 顺序。
+- **关闭**：遮罩、取消按钮、关闭按钮与 Escape 一律先发 `request-close(reason)`；`closeOnRequest` 为真（缺省）时随即发 `update:open(false)`。打开态是受控的：组件只发事件、自己不翻转，宿主不接 `update:open` 时对话框保持打开。宿主要拦（脏表单、守卫、用取消按钮退回上一步）时传 `close-on-request="false"`，在 `request-close` 里自己决定。行为不随宿主挂了哪些监听变化。默认页脚的确认按钮只发 `confirm`，关不关由宿主决定（与 `AlertDialog` 不同：它的确认与取消由 reka 直接关闭）。关闭完成、内容卸载并释放焦点之后发 `closed`。`busy` 时这些动作都不生效，默认页脚按钮与关闭按钮禁用，缩放手柄退出 Tab 顺序。
 - **页脚**：`sm`、`default` 的默认按钮等宽填满一行，其它尺寸靠右排列。自定义 `footer` 插槽时组件只提供 `confirm`、`cancel` 回调。
 - **状态行**：按钮靠右排列时，按钮左边一直留着一行状态（空着也在）。平时显示 `status` 插槽里的中性状态（例如“已选 …”，淡色），`status` 非空时换成这条错误（危险色，带图标），按钮与正文都不动；一行放不下时截断，悬停看全文；读屏以礼貌方式播报。表单提交之后才知道的错误写在这里（[UI 开发规范](../../../docs/ui-development-spec.md) 的“表单与无障碍”第 8 条）。按钮平分整行的 `sm`、`default` 没有状态行。
 - **浮动窗口的拖动区域**：按住这几处能拖动窗口：面板自己的留白，以及正文不滚动时正文自己的留白（没有内容的地方）；整条标题区；正文里标了 `data-dialog-drag` 的元素（宿主用它把自己画的标题区、工具条的空白处标为可拖）。按下处是其中的按钮、输入控件、链接、`role="button"` 或 `[data-interactive]` 时不拖，照常操作；正文里没标的地方不拖。按下时不拦默认动作（输入框照常失焦提交），移动超过 3px 才开始拖、这时才捕获指针，不到就松开是一次普通的点击。拖动区域不起选字，只有标题文字那一块显示移动光标。
@@ -67,11 +67,11 @@
 
 ```ts
 type DialogSize = "sm" | "default" | "md" | "lg" | "xl" | "full";
-type DialogCloseReason = "overlay" | "cancel" | "close-button" | "esc";
+type DialogCloseReason = "escape" | "outside" | "close-button" | "cancel"; // OverlayCloseReason 的子集
 
 interface DialogProps {
-    /** 是否打开；必填、受控 */
-    modelValue: boolean;
+    /** 是否打开；必填、受控（组件只发 update:open，自己不翻转） */
+    open: boolean;
     /** 模态或浮动窗口；默认 true；打开期间不要切换 */
     modal?: boolean;
     /** 尺寸预设；默认 "default" */
@@ -122,17 +122,19 @@ interface DialogProps {
     confirmLabel?: string;
     /** 关闭按钮的可访问名称与 title；缺省按界面语言取（中文 "关闭"） */
     closeLabel?: string;
+    /** 请求关闭后随即发 update:open(false)；默认 true；宿主自己决定关不关时传 false */
+    closeOnRequest?: boolean;
 }
 
 interface DialogEmits {
-    /** 仅在没有 request-close 监听器时，由默认关闭流程发出 false */
-    (event: "update:modelValue", value: boolean): void;
-    /** 默认确认按钮触发；没有 confirm 监听器时随后自动关闭 */
+    /** closeOnRequest 为真时，紧跟 request-close 发出 false */
+    (event: "update:open", value: boolean): void;
+    /** 默认确认按钮触发；不关闭 */
     (event: "confirm"): void;
-    /** 默认关闭流程发出 */
-    (event: "cancel"): void;
     /** 请求关闭及原因 */
     (event: "request-close", reason: DialogCloseReason): void;
+    /** 关闭完成：内容已卸载、焦点栈已释放 */
+    (event: "closed"): void;
     /** 浮动窗口缩放后提交的宽度（px） */
     (event: "update:width", value: number): void;
     /** 浮动窗口缩放后提交的高度（px） */

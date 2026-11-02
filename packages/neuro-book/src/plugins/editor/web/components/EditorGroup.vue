@@ -271,7 +271,7 @@ export interface EditorGroupTitleActions {
                 @move="(id: string, delta: -1 | 1) => area.groups.move(id, delta)"
                 @menu="openTabMenu"
             />
-            <ContextMenu :visible="tabMenuState !== null" :x="tabMenuState?.x ?? 0" :y="tabMenuState?.y ?? 0" :items="tabMenuItems" @close="tabMenuState = null" />
+            <ContextMenu :open="tabMenuState !== null" :x="tabMenuState?.x ?? 0" :y="tabMenuState?.y ?? 0" :items="tabMenuItems" @request-close="tabMenuState = null" />
             <TitleActions
                 v-if="hasTitleActions"
                 class="editor-group__title-actions"

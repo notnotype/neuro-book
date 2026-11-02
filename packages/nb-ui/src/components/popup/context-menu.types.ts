@@ -1,4 +1,4 @@
-import type {Tone} from "../shared-types";
+import type {OverlayCloseReason, Tone} from "../shared-types";
 
 /**
  * 右键菜单项。与 DropdownMenuItemData 的区别：动作用 action 回调（而非 value + select 事件）、
@@ -29,4 +29,4 @@ export interface ContextMenuItem {
  * 菜单为什么请求关闭：宿主据此决定焦点去向。选择、Escape 与 Tab 是键盘或菜单内的结束，焦点通常回到打开菜单的地方；
  * 外部点击时焦点已随用户落到别处，不应抢回。
  */
-export type ContextMenuCloseReason = "select" | "escape" | "tab" | "outside";
+export type ContextMenuCloseReason = Extract<OverlayCloseReason, "select" | "escape" | "tab" | "outside">;
