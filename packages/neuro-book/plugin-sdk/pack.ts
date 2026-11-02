@@ -332,6 +332,22 @@ export interface BuiltSdk {
     readonly tarball: string;
 }
 
+/**
+ * 只要作者文档（说明、附表、Spec 副本与示例源码），不打整个 SDK：应用包与开发服务把它放在 `docs://builtin/sdk/` 给 Agent 读
+ * （docs/specs/agent/resources.md 输出 8）。与 SDK 包里的文档是同一个生成逻辑，内容一致。
+ */
+export async function writeSdkDocs(outDir: string): Promise<void> {
+    await mkdir(outDir, {recursive: true});
+    await copyExamples(outDir);
+    await writeAuthorDocs(outDir);
+}
+
+async function copyExamples(outDir: string): Promise<void> {
+    for (const name of SHIPPED_EXAMPLES) {
+        await cp(join(packageRoot, "plugin-sdk/examples", name), join(outDir, "examples", name), {recursive: true, filter: isShippedExampleFile});
+    }
+}
+
 /** 随包分发的示例插件（`plugin-sdk/examples/` 下）：作者照着读的源码，不带场景测试、场地与构建产物。 */
 const SHIPPED_EXAMPLES = ["plugins", "external"];
 
@@ -403,9 +419,7 @@ export async function buildSdk(outDir: string): Promise<BuiltSdk> {
     const template = JSON.parse(await readFile(templatePackage, "utf8")) as {devDependencies: Record<string, string>};
     template.devDependencies = {...template.devDependencies, ...await dependencyRanges(AUTHOR_PACKAGES)};
     await writeFile(templatePackage, `${JSON.stringify(template, null, 4)}\n`);
-    for (const name of SHIPPED_EXAMPLES) {
-        await cp(join(packageRoot, "plugin-sdk/examples", name), join(outDir, "examples", name), {recursive: true, filter: isShippedExampleFile});
-    }
+    await copyExamples(outDir);
     const peers = await dependencyRanges(["vue", "typebox"]);
     // vue 的每个版本都把 @vue/reactivity 钉在同一个版本上：用与 vue 相同的范围，作者项目里两者才配成一对。
     peers["@vue/reactivity"] = peers.vue!;

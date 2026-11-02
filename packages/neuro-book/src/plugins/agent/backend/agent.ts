@@ -3,17 +3,18 @@
  * 句柄表与服务（docs/specs/agent/sessions.md、contributions.md）。入口（`plugin.ts`）只管依赖、激活与停止。
  */
 
-import {mkdir, readFile} from "node:fs/promises";
-import {join, normalize, relative} from "node:path";
+import {mkdir} from "node:fs/promises";
+import {join} from "node:path";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
-import type {AgentHost, ApproveHook, Clock, ModelPort, Resources, RunResult} from "@notnotype/nb-harness/kernel/contracts";
+import type {AgentHost, ApproveHook, Clock, ModelPort, RunResult, SessionIndexEntry} from "@notnotype/nb-harness/kernel/contracts";
 
 import {serverHostModules} from "nbook/backend/plugin-host-modules";
 import {SERVER_SHARED_MODULES} from "nbook/plugin-platform-profile";
+import type {ServerFiles} from "nbook/plugins/files/shared/contracts";
 import type {ModelsService} from "nbook/plugins/models/shared/contracts";
 import type {SettingsService} from "nbook/shared/settings";
 
@@ -23,6 +24,7 @@ import {ON_AGENT_SESSION} from "../shared/points";
 import {agentSettings} from "../shared/settings";
 
 import {ProfileBundles} from "./profile-bundles";
+import {kernelResources, sessionResources} from "./resources";
 import {ProfileCatalog} from "./profiles";
 import {SessionTable} from "./sessions";
 import {AgentTools} from "./tools";
@@ -31,6 +33,8 @@ export interface AgentRuntimeOptions {
     readonly stateRoot: string;
     readonly settings: SettingsService;
     readonly models: ModelsService | null;
+    /** `nbook.agent` 自己的服务端文件服务门面：资源视图经它读写并注明代表哪个会话。 */
+    readonly files: ServerFiles;
     readonly clock: RuntimeClock;
     readonly declarations: ContributionDeclarations;
     /** 触发本插件前缀下的激活事件；有入口激活失败或受阻时交回 false。 */
@@ -45,10 +49,12 @@ export interface AgentRuntime {
     readonly userProfiles: ProfileBundles;
     readonly sessions: SessionTable;
     readonly service: AgentService;
+    /** 会话目录的根：`sessions://` 的容器。 */
+    readonly sessionsRoot: string;
+    /** 存储层的会话列表，不加缺省的过滤（含归档与后台的），`sessions://` 与临时目录的清理用。 */
+    listSessions(): Promise<readonly SessionIndexEntry[]>;
     stop(): Promise<void>;
 }
-
-const SESSION_SCHEME = "session://";
 
 /**
  * 审批的最小规则（sessions.md 输出 4，t06 规则表之前）：只读的放行；会话处在只读模式时其余都问（只读模式优先于审批
@@ -86,33 +92,6 @@ function kernelClock(clock: RuntimeClock): Clock {
     };
 }
 
-/** `session://<路径>` 落在会话目录的 `home/` 里；越出 `home/` 的当作不存在（t08 的其余方案以后由资源能力给）。 */
-function sessionResources(sessionsRoot: string, sessionId: string): Resources {
-    const home = join(sessionsRoot, sessionId, "home");
-    const inside = (uri: string): string | null => {
-        if (!uri.startsWith(SESSION_SCHEME)) return null;
-        const path = normalize(join(home, uri.slice(SESSION_SCHEME.length)));
-        const rel = relative(home, path);
-        return rel.startsWith("..") ? null : path;
-    };
-    return {
-        resolve: (uri) => {
-            const path = inside(uri);
-            return path === null ? uri : `${SESSION_SCHEME}${relative(home, path).split("\\").join("/")}`;
-        },
-        read: async (uri) => {
-            const path = inside(uri);
-            if (path === null) return undefined;
-            try {
-                return await readFile(path, "utf8");
-            } catch (error) {
-                if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-                throw error;
-            }
-        },
-    };
-}
-
 export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<AgentRuntime> {
     const sessionsRoot = join(options.stateRoot, "agent", "sessions");
     await mkdir(sessionsRoot, {recursive: true});
@@ -121,7 +100,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
 
     // 宿主要先建好、再接收贡献；Profile 变了要通知它，它又要按 Profile 解析：用一个先占位的引用把这个环断开。
     let hostRef: AgentHost | null = null;
-    const tools = new AgentTools({declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report});
+    const tools = new AgentTools({declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context) => ({resources: sessionResources(options.files, context)})});
     const profiles = new ProfileCatalog({
         declarations: options.declarations,
         activate: options.trigger,
@@ -143,7 +122,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             declarations: (context) => tools.forProfile(profiles.requirements(context.profile), bindings()[context.profile]),
             create: (id, context) => tools.create(id, context),
         },
-        resources: (context) => sessionResources(sessionsRoot, context.sessionId),
+        resources: (context) => kernelResources(sessionResources(options.files, context)),
         sessions: {get: async (id, issuer) => sessions!.view(id, issuer)},
         clock: kernelClock(options.clock),
         approve: approveByMode,
@@ -243,6 +222,12 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         userProfiles,
         sessions: table,
         service,
+        sessionsRoot,
+        listSessions: async () => {
+            const listed = await store.list();
+            if (!listed.ok) throw new Error(`读不了会话列表：${listed.code}`);
+            return listed.value;
+        },
         // 先停 Profile 的监听与打包（迟到的结果不再发布），再关会话（sessions.md 输出 14）。
         stop: async () => {
             table.closeGate();

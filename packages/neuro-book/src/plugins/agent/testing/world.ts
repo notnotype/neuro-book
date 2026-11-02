@@ -1,6 +1,6 @@
 /**
  * `nbook.agent` 的测试场地：在配置的场地（`settings/testing/world.ts`：真实服务端内核、真实设置文件、经 JSON 编解码的
- * 链路、手动时钟）上装 `nbook.models` 与 `nbook.agent` 的服务端入口，另装测试给的贡献方插件。用户层设置在起场地之前
+ * 链路、手动时钟）上装 `nbook.files`、`nbook.models` 与 `nbook.agent` 的服务端入口，另装测试给的贡献方插件。用户层设置在起场地之前
  * 写好（例如本机端点的服务商）。测试拿到服务端的 `agentKey`。只由测试使用。
  */
 
@@ -12,6 +12,8 @@ import type {RemoteLink} from "@notnotype/nb-runtime/remote";
 import type {ActivationContext, PluginDefinition, RegisterPluginResult} from "@notnotype/nb-runtime/plugins";
 
 import {definitionAt} from "nbook/manifest";
+import {filesBackendPlugin} from "nbook/plugins/files/backend/plugin";
+import {descriptor as filesDescriptor} from "nbook/plugins/files/plugin";
 import {modelsBackendPlugin} from "nbook/plugins/models/backend/plugin";
 import {descriptor as modelsDescriptor} from "nbook/plugins/models/plugin";
 import {settingsWorld} from "nbook/plugins/settings/testing/world";
@@ -50,6 +52,7 @@ export async function agentWorld(root: string, options: {readonly plugins?: Read
         return {};
     }})]};
     const settings = await settingsWorld(root, [
+        definitionAt("server", filesDescriptor, filesBackendPlugin),
         ...(options.withoutModels === true ? [] : [definitionAt("server", modelsDescriptor, modelsBackendPlugin)]),
         definitionAt("server", descriptor, agentBackendPlugin),
         ...(options.plugins ?? []),

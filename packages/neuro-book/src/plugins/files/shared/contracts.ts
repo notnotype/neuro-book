@@ -23,7 +23,11 @@ import type {Scheme} from "./resource";
 export {FILES_FAILURES};
 export type {FilesFailureCode};
 export {basenameOf, formatResource, joinResource, MAX_PATH_BYTES, parentOf, parseResource, RESOURCE_PATH_PATTERN, SCHEMES} from "./resource";
-export type {Resource, Scheme} from "./resource";
+export type {Address, Resource, Scheme} from "./resource";
+export {parseAddress} from "./resource";
+// 方案注册与服务端文件服务：别的插件只能经本文件导入（跨插件的运行时导入只指向对方的 shared/contracts.ts）。
+export {renderVirtual, SCHEMES_POINT, serverFilesKey} from "./schemes";
+export type {AgentOnBehalf, AuthorizeResult, MountDeclaration, MountedSchemeSpec, SchemeCaller, SchemeOperation, SchemeRoot, ServerFiles, ServerFilesOptions, ServerFilesResult, VirtualEntry, VirtualListing} from "./schemes";
 
 /**
  * 正文按 JSON 编码后的字节上限：保存请求要装进一条 RPC 消息（超过时连接被断开、写请求成为结果未知），余下 64 KiB
