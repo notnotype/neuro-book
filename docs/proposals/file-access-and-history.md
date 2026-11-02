@@ -33,7 +33,8 @@ adrs: []
 目标：
 
 - 服务端使用方拿到本机路径后自己读，没有大小与格式限制；
-- 写只有一个入口：写入方把新内容写进临时文件（流式、任意大小），再请拥有根的进程提交；提交在锁里拿到真实的改前内容，算出改动、记下操作者，与落盘一致；
+- 写只有一个入口：写入方把新内容写进暂存文件（流式、任意大小），再由拥有根的进程提交；提交在锁里拿到真实的改前内容，算出改动、记下操作者，与落盘一致；
+- 一次逻辑操作跨多个文件时能作为一组审查与还原；恢复与还原也是经同一入口的写入；
 - 不经接口的外部改动由文件监视发现，由账本用保存的上一版算出改动，记为外部（Agent 的 `shell` 执行期间的改动归给该会话、标“推断”）；
 - 网页的文件资源管理器与编辑器照旧实时收到变更事件；
 - History 仍是可选插件：它不在、出错时文件读写照常；
@@ -44,7 +45,9 @@ adrs: []
 - 安全边界：记账只对守约的写入方成立（[ADR 0027](../adr/0027-builtin-and-third-party-plugins-are-equal.md)），不防恶意插件；
 - 浏览器直接读写新方案（随对话界面另定）；
 - 跨版本的差异压缩（先做单版本压缩，真实数据复测后再定）；
-- 外部改名的精确识别（照 git，看时间线时按内容相似度接起来）。
+- 外部改名的精确识别（照 git；只把安静期内内容完全相同的一删一建配成改名）；
+- 多设备共用一份账本、账本合并；
+- 暂存与提交跨机器（项目子进程移到别的机器时另定）。
 
 ## 当前行为与证据
 
@@ -73,128 +76,160 @@ VS Code 保存时整份就地写（截断后写入），不做原子替换，靠
 
 ## 方案
 
+### 前提
+
+暂存与提交依赖写入方和拥有根的进程在同一台机器、看得到同一个文件系统（服务端与项目子进程都在本机，[`runtime/projects.md`](../specs/runtime/projects.md)）。暂存文件由文件服务交出、管路径与清理，写入方不自己拼路径。项目子进程以后移到别的机器时，暂存要换成分块上传，不在本提案范围。
+
 ### 职责划分
 
 | 部件 | 负责 |
 |---|---|
-| **nbook.files** | 地址：方案注册、挂载方案、地址与本机路径的换算（按方案的读授权）；写入的唯一入口：提交暂存的内容、文件操作（新建、删除、移动、复制、清单），都在拥有根的进程里、锁里执行；文件监视：检测哪些路径变了，推给浏览器，转告记账；浏览器的读写入口（现有 RPC，不变） |
-| **写入接口**（nbook.files 交给服务端插件的按调用方服务） | 暂存与提交、文件操作、取本机读路径；操作者由内核签发的调用方身份决定 |
-| **记账**（`nbook.history` 插件，用 nb-history 包） | 每个根一份账本：操作者、改动、每个版本的内容；时间线、diff、恢复、收件箱、会话未见变更。它向 nbook.files 登记一个记账回调；没装、出错或超时，文件读写照常，写诊断 |
+| **nbook.files** | 地址：方案注册、挂载方案、地址与本机路径的换算（按方案的读授权）；写入的唯一入口：提交暂存的内容与文件操作，都在拥有根的进程里、根的操作锁里执行；文件监视与对账：检测哪些路径变了，推给浏览器，转告记账；**记账槽**：一个由 nbook.files 定义的贡献点，提交与外部改动都经它交给记账者；浏览器的读写入口（现有 RPC，不变） |
+| **写入接口**（nbook.files 交给服务端与项目实例插件的按调用方服务） | 读（字节与基线、本机读路径）、暂存与提交、文件操作、操作分组；操作者由内核签发的调用方身份决定 |
+| **记账**（`nbook.history` 插件，用 nb-history 包） | 向记账槽贡献记账者；每个根一份账本；时间线、diff、收件箱、会话未见变更；恢复只生成要恢复的内容，经写入接口提交，自己不写盘 |
+
+依赖方向：nbook.files 不依赖 History。记账槽空着（History 没装、还没激活、已停止）、记账者被撤回、超时或出错时，提交照常落盘、发事件，只写一条诊断；下次对账把这段改动记为外部。History 依赖 nbook.files 的写入接口与记账槽。
 
 ### 一次写入（经接口）
 
 以服务端的 Agent 改 `projects://book/第三章.md` 为例：
 
-1. **暂存**：写入方经接口取得这本书 `.nbook/staging/` 下的一个暂存文件，在本机写入新内容（可以流式、任意大小、不持锁）。`.nbook/` 是控制目录，文件监视本来就不看它，暂存文件不会出现在文件树里。
-2. **提交**：写入方调一次 `commit`，参数只有暂存文件、目标地址与期望（基线、“必须不存在”或“不论现状”），约 200 字节；项目文件经一次 RPC 交给项目子进程，`user://` 在服务端本进程内。
+1. **暂存**：写入方调 `stage(地址, 写入函数, 选项)`。文件服务在这本书的 `.nbook/staging/` 下建一个暂存文件，把写入口交给写入函数；写入方在本机写入新内容（可以流式、任意大小、不持锁）。`.nbook/` 是控制目录，文件监视不看它。
+2. **提交**：写入函数正常结束时，文件服务提交：参数只有暂存文件、目标地址、期望与操作分组，约 200 字节；项目文件经一次 RPC 交给项目子进程，`user://` 在服务端本进程内。写入函数抛错或被取消时丢弃暂存文件、不提交。
 3. **拥有根的进程在锁里**：
-   1. 核对期望，不符为 `conflict`，暂存文件删掉；
+   1. 核对期望，不符为 `conflict`；
    2. 读出改前内容；与账面末态不一致时（中间有外部改动），先请记账补一条外部记录；
    3. 改名替换（原子）；
-   4. 请记账记下这一次（操作者、改前与改后内容、改动）；记账失败不撤回落盘，只写诊断（之后对账记为外部）；
+   4. 请记账记下这一次（操作者、分组、改前与改后内容）；记账失败不撤回落盘，只写诊断；
    5. 登记回声（新文件的 inode、修改时间、大小），以真实来源发出变更事件；
-   6. 放锁，把新基线交回写入方。
-4. 结果不确定（RPC 得 `unknown-outcome`）时，写入方比对目标的当前基线与自己暂存内容的哈希即可知是否提交；暂存文件还在就是没提交。
+   6. 放锁，交回新基线。
+4. RPC 得 `unknown-outcome` 时，文件服务比对目标的当前基线与暂存内容的哈希，确定提交了没有再交结果；仍确定不了才交 `unknown-outcome`。
 
-改动在锁里、在同一个进程里、用真实的改前内容算出，与落盘一致；没有跨进程的“先记账再改名”，也就没有要撤回的假版本。改名之后、记账之前进程崩溃时，下次对账记为外部：历史不断链，只丢操作者。
+改动在锁里、在同一个进程里、用真实的改前内容算出，与落盘一致。改名之后、记账之前进程崩溃时，下次对账记为外部：历史不断链，只丢操作者。
 
-**文件操作**（新建、删除、移动、复制、内容文件夹的清单）同样在拥有根的进程里执行，执行后请记账记下。
+**文件操作**（新建、改名、移动、复制、删除、文件夹类型转换、内容文件夹的清单）沿用现有 `FilesService` 的方法与语义（`identify` 令牌、`before`、批量句柄、结果里的清单问题），同样在拥有根的进程里、同一把锁里执行，执行后请记账记下。
 
-**锁**：一个根里的全部写入（提交与文件操作）共用这个根的操作锁（现有 `operations.lock`，跨进程），在拥有根的进程里排队执行。一本书的写入频率很低，单次在毫秒级，串行不构成瓶颈；换来的是文件锁与目录锁不再分两把、不必定锁的先后。
+**锁**：一个根里的全部写入共用这个根的操作锁（现有 `operations.lock`，跨进程）。一本书的写入频率很低，单次在毫秒级，串行不构成瓶颈；换来的是不必分两把锁、不必定加锁的先后。
 
-**硬链接与链接目标**：目标的硬链接数大于 1 时，改名替换会断开链接；这种文件改为在锁里就地写（文件监视等锁放了再看，读不到半截）。目标的真实目录与 `.nbook/` 不在同一个文件系统（用户的链接指向别的盘）时不能跨盘改名，暂存文件改放在目标目录下、用固定的隐藏名前缀，文件监视按前缀忽略。
+**硬链接与跨盘**：目标的硬链接数大于 1 时，改名会断开链接，改为在锁里就地写（文件监视等锁放了再看）。目标的真实目录与 `.nbook/` 不在同一个文件系统（用户的链接指向别的盘）时，暂存文件放在目标目录下、用固定的隐藏名前缀，文件监视按前缀忽略。Windows 上目标被占用、改名失败时短暂重试，仍失败为 `busy`。
+
+### 操作分组
+
+一次逻辑操作常跨多个文件（把一章拆成两章、导入几百章、生成一张图再改一处引用）。写入接口提供不保证原子的**操作分组**：一组有标题与可选的说明，组内的每次写入与文件操作各记一条、带组号；收件箱与时间线按组展示，可以整组接受或还原。Agent 的一次工具调用自动成一组，工具可以给标题。分组不回滚：组内前几步成功、后一步失败时，已成功的照样记下。
 
 ### 读
 
-`readPath(地址)` 交回本机路径，按方案的读授权核对（挂载方案里不露出的文件取不到，用户自己建的链接目标当作书里的文件）。读由调用方自己做：分页、流式、字节、原生搜索都行。目录与虚拟根用 `list`。读不记账。
+- `read(地址)` 交回字节与基线（上限与快照上限相同，32 MB），读改写用它，不必自己算基线；
+- `readPath(地址)` 交回本机读路径，按方案的读授权核对（挂载方案里不露出的文件取不到，用户自己建的链接目标当作书里的文件），供分页、流式与原生搜索；这个路径只用来读，往里写等于外部改动，只能记为外部；
+- 目录与虚拟根用 `list`。
 
-### 文件监视与外部改动
+读不记账。
 
-- 文件监视**只检测哪些路径变了**：每个路径 `lstat` 一次，推给浏览器，同时转告记账。认出经接口写入的回声改为比对 inode、修改时间与大小，不读内容。
-- 锁被持着的文件（提交或就地写进行中）先不判定，锁放了再判定。
-- 记账收到外部改动后，等这个文件安静 1 到 2 秒（期间不再变化）再读一次内容，与保存的上一版比，记一条外部记录；超过快照上限的文件不读内容，只记“已更改”与大小、修改时间。
-- Agent 的 `shell` 执行期间，这个会话所在的根里出现的外部改动，记为该会话、标“推断（shell）”，进审查收件箱；同一时间别处的改动可能被误归给它。
-- 监视由拥有根的进程常驻（不再只在有浏览器订阅时开），启动时对账一次（先比修改时间、大小与 inode，变了才读）。
+### 文件监视、对账与外部改动
+
+- 文件监视**只检测哪些路径变了**：每个路径 `lstat` 一次，推给浏览器，同时转告记账。回声比对 inode、修改时间与大小，不读内容。锁被持着的文件先不判定，锁放了再判定。
+- **对账兜底**：监视溢出（现有的 `resync`）、监视出错、项目实例启动与定时都触发一次对账：先比修改时间、大小与 inode，变了才读内容。对账与提交共用操作锁，按路径逐个核对，遇到已记账的版本跳过。监视从“有浏览器订阅才开”改为项目实例在就常驻。
+- **外部改动**：记账收到外部改动后，等这个文件安静 1 到 2 秒再读一次，与保存的上一版比，记一条外部记录；超过快照上限的只记“已更改”与大小、修改时间。安静期内哈希完全相同的一删一建配成一次改名。
+- **首次接入已有的书**：项目第一次打开时在后台给快照上限内的文本文件建基线（实测 2000 个文件、60 MB 约 1.4 秒）；建好之前的外部改动只记“已更改”。
+- **排除**：固定一份缺省排除：`.nbook/`、`.git/`、`node_modules/`、暂存文件的隐藏名前缀、编辑器的交换与备份文件（`*.swp`、`*~`、`.DS_Store` 等）；以后再给用户一个设置。
+
+### shell 的推断归属
+
+Agent 的 `shell` 工具在命令执行期间持有这本书的项目租约（项目不会进宽限期、监视一直在），并经 Agent 的门面登记执行区间。区间内这个根里出现的外部改动记为该会话、标“推断（shell）”，单独成组；同一时间别处（例如用户在 VS Code 里）的改动可能被误归给它，所以收件箱的“全部还原”不含推断组，界面用平常话说明“Agent 运行命令期间发生的改动，可能不是 Agent 改的”，要还原逐个点。命令结束、取消或超时后区间结束，等安静期过了再放租约。
+
+### 恢复与还原
+
+时间线恢复、收件箱还原、误删找回都是一次用户可见的写入：History 在自己的事务里找出要恢复的内容与期望（目标当前应有的基线，或“必须不存在”），经写入接口提交，操作者记为用户（还原），与 Agent、编辑器的写入走同一把锁、同一套期望与事件。目标在这期间被改过时得 `conflict`，界面请用户重新确认。nb-history 现有的 `revert`、`restore` 直接写盘的路径去掉。
+
+### 账本的数据
+
+- 项目的账本 `.nbook/history.sqlite` 是作品数据，随书移动；诊断导出不得带它。只支持单设备：关闭项目时把预写日志并回主文件，关着的书只剩一个文件，可以直接备份；换一台机器打开时，账本末态与磁盘对不上的部分记为外部；同步盘产生的冲突副本不读，只写诊断；不做账本合并。
+- `user://` 的账本在状态根下。
+- 单个版本 32 MB 以内存全量（文本与二进制都可恢复），超过只记哈希与大小，时间线标明“这个版本太大，没有保存，不能恢复”；总体积由保留策略控制。
+- 同一本书被两个 NeuroBook 同时打开（`runtime/projects.md` 允许）：先打开的项目实例持有账本的写锁；后开的照常写文件、不记账，界面提示“这本书在另一个 NeuroBook 里也开着，这里的改动不会记下是谁改的”；先开的把它的写入当外部改动记下。操作锁是跨进程的，两边的写入照样串行。
 
 ### nb-history 要补的
 
-1. 二进制与大文件在快照上限内存全量（可以恢复），超过只记哈希；判二进制照 git（前 8000 字节含 NUL）；
-2. 快照用 Bun 自带的 zstd 单版本压缩；
-3. 对账用的修改时间、大小、inode 缓存，处理同一时间戳内的二次写入；
-4. 记账入口收“改前与改后内容”（提交时手里已有），不再自己推断改前值；
-5. 操作者加 `plugin`（带插件 id），Agent 来源可带会话条目 id（t13 的“每轮改动文件”用）；
-6. 外部改动的“安静期”与“shell 推断”的归属标记；
-7. 驱动换成 `bun:sqlite`，写入进事务，库带格式版本；
-8. 首次接入已有的书时建基线（见待定项 2）；排除规则（见待定项 3）。
+1. 记账者接口：收“改前与改后内容、操作者、分组”（提交时手里已有），不再自己推断改前值；
+2. 二进制与大文件在 32 MB 内存全量，判二进制照 git（前 8000 字节含 NUL）；快照用 Bun 自带的 zstd 单版本压缩；
+3. 对账用的修改时间、大小、inode 缓存，处理同一时间戳内的二次写入；外部改动的安静期与改名配对；
+4. 操作者与写入接口用同一套词（见下文“操作者”），加操作分组（标题、说明）与 Agent 的条目 id；
+5. `revert`、`restore` 改为只生成恢复内容，经写入接口提交；
+6. 驱动换成 `bun:sqlite`，写入进事务，库带格式版本，关闭时并回预写日志；账本写锁（两个实例时只有一个记账者）；
+7. 首次接入的基线扫描与排除规则。
 
 ### 接口形态（草案）
 
-服务端插件在入口里依赖 `workspaceFilesKey`，拿到按调用方生成的门面，操作者由调用方身份决定（`user`：替浏览器写的服务端入口；`plugin`：插件自己）。`nbook.agent` 另有 `forSession({session, profile, entryId?})`，得到一个操作者固定为该会话的门面，不在每次调用里传。
+插件的服务端入口与项目实例入口都依赖 `workspaceFilesKey`，拿到按调用方生成的门面；项目实例里是进程内实现，服务端写项目文件经 RPC。SDK 照 `/storage` 的先例开 `@notnotype/nb-plugin-sdk/files` 子路径导出它与相关类型，第三方插件可用。
 
 ```ts
 interface WorkspaceFiles {
-    /** 地址 → 本机读路径（按方案的读授权）；不存在为 not-found。只供读：写一律经 stage/commit。 */
+    /** 字节与基线，读改写用；超过 32 MB 为 too-large，改用 readPath。 */
+    read(address: string, options?: CallOptions): Promise<FilesResult<{bytes: Uint8Array; baseline: Baseline}>>;
+    /** 本机读路径（按方案的读授权）。只用来读：往里写记为外部改动。 */
     readPath(address: string, options?: CallOptions): Promise<FilesResult<{path: string; kind: "file" | "directory" | "other"}>>;
     list(address: string, options?: CallOptions): Promise<FilesResult<Listing | VirtualListing>>;
-    /** 一个文件当前的基线；不存在为 not-found。 */
-    baseline(address: string, options?: CallOptions): Promise<FilesResult<Baseline>>;
 
-    /** 取得暂存文件；await using 离开作用域时没提交就自动丢弃。 */
-    stage(address: string, options?: CallOptions): Promise<FilesResult<Staged>>;
-    /** 简写：整份内容一次写入并提交。 */
+    /** 流式写：write 函数正常结束即提交，抛错或取消即丢弃；结果统一经 FilesResult 交回。 */
+    stage(address: string, write: (sink: StagedSink) => Promise<void>, options: CommitOptions): Promise<FilesResult<{baseline: Baseline}>>;
+    /** 整份写入并提交。 */
     write(address: string, content: Uint8Array | string, options: CommitOptions): Promise<FilesResult<{baseline: Baseline}>>;
     /** 读、改、按基线写回，冲突时重读重试（照 Obsidian 的 Vault.process）。只用于文本。 */
     update(address: string, edit: (text: string) => string, options?: CallOptions): Promise<FilesResult<{baseline: Baseline}>>;
 
-    create(address: string, kind: "file" | "directory", options?: OpOptions): Promise<FilesResult<void>>;
-    delete(address: string, options?: OpOptions & {recursive?: boolean}): Promise<FilesResult<void>>;
-    move(from: string, to: string, options?: OpOptions): Promise<FilesResult<void>>;
-    copy(from: string, to: string, options?: OpOptions): Promise<FilesResult<void>>;
+    /** 文件操作：沿用 FilesService 的方法、参数与结果（identify、create、createContent、rename、convert、reorder、display、include、drop、move、copy、delete）。 */
+    // ...
+
+    /** 操作分组：组内经 scoped 的写入与文件操作带同一个组号；不回滚。 */
+    group<T>(info: {title: string; note?: string}, run: (scoped: WorkspaceFiles) => Promise<T>): Promise<T>;
 }
 
-interface Staged extends AsyncDisposable {
-    /** 只收字节：文本自己编码（避免在多字节字符中间切块）。 */
+interface StagedSink {
+    /** 只收字节：文本自己编码（避免在多字节字符中间切块）。I/O 失败时抛出，stage 交回失败结果。 */
     write(chunk: Uint8Array): Promise<void>;
-    commit(options: CommitOptions): Promise<FilesResult<{baseline: Baseline}>>;
-    abort(): Promise<void>;
 }
 
-interface CommitOptions extends OpOptions {
-    /** 必填：给出基线是条件写；"absent" 只在不存在时新建；"any" 不论现状覆盖。 */
+interface CommitOptions extends CallOptions {
+    /** 必填：基线是条件写；"absent" 只在不存在时新建；"any" 不论现状覆盖。 */
     expect: Baseline | "absent" | "any";
-}
-interface OpOptions extends CallOptions {
     createParents?: boolean;
 }
 interface CallOptions {
     signal?: AbortSignal;
 }
-
-/** 与文件服务同一算法（磁盘字节的 SHA-256），给已经自己读了文件的调用方。 */
-declare function baselineOf(bytes: Uint8Array): Baseline;
 ```
 
-- 结果沿用现有的 `FilesResult`（失败带 `code`、`detail`，冲突带 `current`，路由失败带 `cause`）；失败码沿用文件服务的码表，Spec 里给每个方法列出可能的码。
-- 暂存文件写入的 I/O 失败在 `write` 时抛出（流式写入方通常这样处理），提交的结果一律经 `FilesResult` 交回。
-- `move`、`copy` 不覆盖已存在的目标（与现有文件操作一致）。
-- 写不经 `readPath` 拿到的路径：那样落盘照样被文件监视发现，但只能记为外部。
+- 结果沿用现有的 `FilesResult`（失败带 `code`、`detail`，冲突带 `current`，路由失败带 `cause`），失败一律经结果交回；失败码沿用文件服务的码表，Spec 里给每个方法列出可能的码。
+- **Agent**：工具工厂拿到的 `services.resources` 是写入接口按会话绑定的版本（加 Agent 的地址改写与分类，不另写一套方法）；每次工具调用用 `resources.call(ctx)` 得到绑定这次调用的门面，操作者为该会话、带条目 id，这次调用自动成一组。shell 工具另用它登记执行区间。
+- **挂载方案**（Agent 的会话、临时目录、文档、Skill）不记账；按 [`workspace/resources.md`](../specs/workspace/resources.md) 的“挂载方案”，第一版也不支持监视与订阅，所以决策记录第三行里“只发变更事件”要等挂载方案支持监视后才成立。
 
 用法举例：
 
 ```ts
-// Agent 的 read：拿到读路径后自己读
-const at = await files.readPath("projects://book/第三章.md");
-const text = await Bun.file(at.value.path).text();
+// Agent 的 edit：读字节与基线，改完按基线写回
+const at = files.call(ctx);
+const {bytes, baseline} = unwrap(await at.read("projects://book/第三章.md"));
+await at.write("projects://book/第三章.md", edit(decode(bytes)), {expect: baseline});
 
-// Agent 的 edit：按读时的基线写回，冲突时重读
-const agent = files.forSession({session, profile});
-await agent.write("projects://book/第三章.md", after, {expect: baselineOf(beforeBytes)});
-
-// 图生文插件：流式存一张 8 MB 的 PNG
-await using staged = (await files.stage("projects://book/插图/封面.png")).value;
-for await (const chunk of image) await staged.write(chunk);
-await staged.commit({expect: "absent", createParents: true});
+// 图生文插件：流式存一张图，再改一处引用，作为一次操作
+await files.group({title: "生成封面插图"}, async (g) => {
+    await g.stage("projects://book/插图/封面.png", async (sink) => {
+        for await (const chunk of image) await sink.write(chunk);
+    }, {expect: "absent", createParents: true});
+    await g.update("projects://book/第一章.md", (text) => insertImage(text, "插图/封面.png"));
+});
 ```
+
+### 操作者
+
+与现有的 `ChangeSource` 对齐，只加两个字段：
+
+| 来源 | 什么时候 | 用户看到 |
+|---|---|---|
+| `user` | 浏览器里的操作；History 的恢复与还原（带 `restore: true`） | 你 / 你（还原） |
+| `agent`（`session`，可带 `entry`） | Agent 的工具经会话门面写；shell 推断另带 `inferred: "shell"` | Agent 会话名 / Agent 运行命令期间 |
+| `system`（`plugin`） | 服务端与项目实例里的插件 | 插件的显示名 |
+| `external` | 文件监视与对账发现的、无法归属的改动 | 外部 |
 
 ### 备选与取舍
 
@@ -204,34 +239,45 @@ await staged.commit({expect: "absent", createParents: true});
 | 写入方自己写盘，先交账本、再改名（本提案第一稿） | 账本确认后改名失败或崩溃，会留下磁盘上从没出现过的版本，而账本只能追加；跨进程要传整份内容 |
 | 写入方自己写盘，先改名、再交账本（评估里的方案 A） | 账本拿不到外部改动夹在中间时的改前内容，会把外部的改动算到写入方头上；文件锁的持有时间绑在另一个进程的 RPC 上 |
 | 照 git，所有改动都由监视发现、账本提交，写入方只“认领”（评估里的方案 C） | 攒批窗口里两次写只见最后一版，归属记错，收件箱还原会抹掉别人的版本；允许就地写时会把写到一半的内容记成版本；大文件追加写时每批都读全文 |
+| History 作为服务被 nbook.files 依赖 | 两者互相依赖成环，History 失败会拖垮文件服务；改为 nbook.files 定义记账槽、History 贡献 |
 | 在 `.nbook/` 下放隐藏 git 仓库 | 依赖系统 git、读用户的 `.gitignore`、每次记账一次进程；操作者与收件箱仍要另建一套 |
 | isomorphic-git、libgit2 绑定 | 没有 gc 与差异压缩、Bun 下的成熟度没有一手证据；同样要另建操作者与收件箱 |
+| 账本放状态根当本地缓存 | 书移动或换机器后历史就没了 |
+
+## 交付阶段
+
+| 阶段 | 内容 | 解锁 |
+|---|---|---|
+| 1 | 写入接口：`read`、`readPath`、`list`、暂存提交、`write`、`update`、文件操作、分组的接口（先不落账）、记账槽（空）、SDK 子路径；服务端经 RPC 提交项目文件；固定排除 `.nbook/` | t12 的 read、write、edit、grep、glob、shell |
+| 2 | 监视常驻、对账兜底、回声改比 stat、shell 持租约与登记区间、两个实例的账本写锁、首次基线与排除规则；用一万个文件、几百 MB 的书测打开、内存与对账的开销 | 记账要的可靠观察 |
+| 3 | History 接入记账槽：nb-history 补强、操作者与分组、恢复经写入接口、收件箱与时间线（w00032 t13） | 审查收件箱、每轮改动文件、恢复 |
+| 4 | 32 MB 快照与保留策略的真实数据复测、同步盘与换机器、Windows 与 macOS 的监视与改名、跨版本差异压缩 | 发布 |
+
+第 1 阶段交付后到第 3 阶段之前，改动不记账；变更事件照常带来源。
 
 ## 影响
 
-- **数据**：项目多一个 `.nbook/history.sqlite`（含全文快照，属于作品，随书移动；诊断导出不得带它）与 `.nbook/staging/`（暂存，启动时清掉残留）；`user://` 的账本在状态根下。
-- **接口**：nbook.files 新增服务端的写入接口（取代 t08 的服务端文件服务里的读写方法，挂载方案与授权保留）；浏览器的 RPC 合同不变；`nbook.history` 向 nbook.files 登记记账回调。
-- **使用方**：Agent 的 t12 工具建在 `readPath` 与写入接口上；作品统计不用改；以后的图生文、导入导出插件用 `stage`。
-- **进程**：项目子进程常驻文件监视，承担这本书的全部写入与记账；服务端写项目文件是一次几百字节的 RPC。
+- **数据**：项目多一个 `.nbook/history.sqlite`（第 3 阶段起）与 `.nbook/staging/`（暂存，启动时清掉残留）；`user://` 的账本在状态根下。
+- **接口**：nbook.files 新增写入接口与记账槽（取代 t08 的服务端文件服务里的读写方法，挂载方案与授权保留）；浏览器的 RPC 合同不变；SDK 新增 `/files` 子路径；Agent 的 `SessionResources` 改为写入接口的会话绑定版。
+- **使用方**：Agent 的 t12 工具建在写入接口上；作品统计不用改；以后的图生文、导入导出插件用 `stage` 与 `group`。
+- **进程**：项目子进程常驻文件监视，承担这本书的全部写入与记账；服务端写项目文件是一次几百字节的 RPC；shell 执行期间持项目租约。
 - **安全**：不是安全边界；shell 与外部工具的写入记为外部或推断。
 - **依赖**：不新增；zstd 与 SQLite 都是 Bun 自带。
 - **迁移与回滚**：账本是新增数据，没有旧格式要迁；停用 History 插件即停止记账，文件本身不受影响。
 
 ## 对 Spec 的预期改动
 
-- `workspace/resources.md`：文件服务的职责（地址、写入唯一入口、监视与事件、浏览器入口）；服务端写入接口（暂存与提交、文件操作、期望、操作者、失败码）；读路径与读授权；去掉“读写都经文件服务”的总括；验收补暂存提交、外部改动夹在中间、结果不确定的核对。
-- `workspace/files.md`：保存与文件操作改由提交与操作锁实现，对浏览器的行为不变；回声改为比对 inode、修改时间与大小。
+- `workspace/resources.md`：文件服务的职责（地址、写入唯一入口、监视与对账、记账槽、浏览器入口）；写入接口（读、暂存与提交、文件操作、分组、期望、操作者、失败码、结果不确定的核对）；读路径与读授权；去掉“读写都经文件服务”的总括；写入来源一节改为上文的操作者表；验收补暂存提交、外部改动夹在中间、结果不确定、记账槽空着与撤回。
+- `workspace/files.md`：保存与文件操作改由提交与操作锁实现，对浏览器的行为不变；回声改为比对 inode、修改时间与大小；监视常驻与对账兜底。
 - `workspace/folder-kinds.md`：清单的写入经同一条提交路径、同一把操作锁。
-- `runtime/projects.md`：项目子进程常驻监视、承担写入与记账；`.nbook/history.sqlite` 与 `.nbook/staging/`。
-- `agent/resources.md`：资源视图的写经写入接口、读经 `readPath`；`shell` 的推断归属。
-- 新建账本的 Spec（`workspace/history.md` 或随 t13 定名）：记录的形状、操作者、文本与二进制的改动、外部改动的安静期与对账、回声、时间线、恢复、收件箱、未见变更、保留策略、记账失败与插件不在时的行为。
+- `runtime/projects.md`：项目子进程常驻监视、承担写入与记账；`.nbook/history.sqlite` 与 `.nbook/staging/`；两个实例时的账本写锁。
+- `agent/resources.md`：资源视图是写入接口的会话绑定版；每次调用的门面与分组；`shell` 持租约与推断归属。
+- 插件 SDK 的作者文档：`/files` 子路径与读写的写法。
+- 新建账本的 Spec（`workspace/history.md` 或随 t13 定名）：记账者接口、记录的形状、操作者与分组、文本与二进制的改动、快照上限、外部改动的安静期与对账、改名配对、恢复经写入接口、收件箱（推断组不进全部还原）、未见变更、保留策略、单设备与两个实例、记账失败与插件不在时的行为。
 
 ## 待定项
 
-1. **同一本书被两个服务端同时打开**（`runtime/projects.md` 允许）。两个进程同写一个 `history.sqlite` 实测会频繁报忙。推荐：一本书同时只有一个记账者，先打开的项目实例持有账本的写锁，后开的只读、不记账，并写诊断；写入照常（操作锁是跨进程的）。
-2. **首次接入已有的书怎样建基线。** 没有基线的文件第一次被外部改动时拿不到改前内容。推荐：项目第一次打开时在后台给快照上限内的文本文件建基线（实测 2000 个文件、60 MB 约 1.4 秒，账本约 37 MB）；建好之前的外部改动只记“已更改”。
-3. **哪些文件不进账本。** 推荐固定一份缺省排除：`.nbook/`、`.git/`、`node_modules/`、编辑器的交换与备份文件（`*.swp`、`*~`、`.DS_Store` 等）；以后再给用户一个设置。
-4. **原子替换的代价。** 改名会换掉 inode，Windows 上目标被别的程序占用时改名失败。推荐：硬链接数大于 1 的文件就地写（见上）；Windows 上改名失败时短暂重试，仍失败为 `busy`；Windows 与 macOS 上的监视可靠性到对应平台验收时验证。
+无。对账的定时周期与大书的开销预算在第 2 阶段实测后写进 Spec。
 
 ## 决策记录
 
@@ -242,3 +288,4 @@ await staged.commit({expect: "absent", createParents: true});
 | 2026-11-02 | 开发者 | 账本放项目的 `.nbook/history.sqlite`；Agent 会话目录与临时目录不记账（只发变更事件），`user://` 记账；写入接口是 nbook.files 提供的按调用方服务；文件监视库先不换，到 Windows、macOS 验收时再对照验证 |
 | 2026-11-02 | 开发者 | Agent 用 `shell` 改的文件归给该会话、标“推断” |
 | 2026-11-02 | 开发者 | 第一轮深入审查与三种写入方案（A、B、照 git 的 C）的评估之后，采用 B+：写入方写暂存文件，拥有根的进程在锁里提交、记账、发事件；外部改动由文件监视发现、记账在文件安静后读一次；文件监视只检测变化。取代此前“锁内同步交账本再改名”的写入顺序 |
+| 2026-11-02 | 开发者 | 第二轮深入审查（宏观）之后：分四个阶段交付，第一阶段只做写入接口、不接 History；同一本书两个实例时后开的照常写、不记账；`history.sqlite` 是作品数据、只支持单设备；单个版本 32 MB 以内存全量；shell 推断的改动不进“全部还原” |

@@ -1,0 +1,319 @@
+# 第二轮（宏观）审查：文件访问与改动记账（B+ 版），接口与作者体验
+
+审查对象：`docs/proposals/file-access-and-history.md`（提交 `49a2a85e7`）。视角：插件作者与使用小说的人。已对照的现有材料：`files/shared/{contracts,schemes,failures}.ts`、`files/backend/{server-files,plugin}.ts`、`agent/shared/resources.ts`、`nb-harness/src/kernel/api/tool.ts`、`plugin-sdk/README.md` 与 `src/sdk/`、`plugin-sdk/template/tsconfig.json`、`nb-history` 的 README 与 `types.ts`、`workspace/resources.md`、`workspace/folder-kinds.md`、`runtime/services.md`、`agent/resources.md`、t13 README。不重复第一轮的签名级意见（报告 `proposal-review-sonnet.txt`）；第一轮里新稿没有吸收、而在整体视角下仍然成立的，在对应条目里注明“第一轮已提”。
+
+## 一、一段话：怎么读、怎么写、改动怎样被记下
+
+试写（按提案现状）：
+
+> 在 NeuroBook 里读文件，向 `nbook.files` 要 `readPath(地址)`，拿到本机路径后用 Bun 或 Node 自己读，读不记账。写文件，把内容交给 `nbook.files`：整份内容用 `write(地址, 内容, {expect})`，读改写用 `update`，大文件用 `stage` 写暂存文件再 `commit`，新建、删除、移动、复制用 `create`、`delete`、`move`、`copy`。写入在拥有这本书的进程里加锁落盘，同时把操作者与前后内容交给 `nbook.history` 记账；操作者由你的入口身份决定，Agent 的工具用会话的资源视图时记为该会话。
+
+写到这里要补的“但是”（每一条都是作者会撞上的）：
+
+1. 但是 `expect` 要的基线得自己用 `baselineOf` 对“读到的那份字节”算，而读的例子用的是 `.text()`，两者对不上（见发现 6）。
+2. 但是 `readPath` 拿到的路径只能读，写了就记成外部，类型上没有任何区别（见发现 7）。
+3. 但是 Agent 工具用的不是上面这个接口，而是 `SessionResources`，它现在没有 `delete`、`move`、`copy`、`stage`（见发现 2）。
+4. 但是 `forSession` 一会儿在 `nbook.agent` 上、一会儿在 `files` 上，且绑定时刻比 `entryId` 早（见发现 1）。
+5. 但是一次逻辑操作跨多个文件时，每个文件各记一条，没有“这一次”的概念（见发现 3）。
+6. 但是内容文件夹里新建文件要不要同步清单、结果里还带不带“清单没改成”，提案没说（见发现 4）。
+7. 但是“结果不确定”时要你自己比对哈希（见发现 8）；`await using` 在 SDK 模板里编不过（见发现 5）。
+8. 但是项目实例里的插件不在“只在服务端用”的范围内（见发现 9）；用户的 `user://`、Agent 的会话目录是否记账、记了进不进收件箱，作者看不出（见发现 10）。
+9. 但是 shell 与外部工具改的，要等监视发现，记为“外部”或“推断”，而“推断”需要的登记接口没有出现在接口草案里（见发现 11）。
+
+能消掉大多数“但是”的改法（详见各发现）：只保留一个写入接口 `WorkspaceFiles`，Agent 的 `SessionResources` 退化成它的绑定版加地址改写与分类；加一个轻量的 `batch({title})` 作为“一次逻辑操作”；`readPath` 换成带品牌类型的只读路径并附 `readWithBaseline` 辅助；`commit` 内部做“结果不确定”核对；清单同步与内容文件夹操作写进同一个接口。
+
+## 二、三类作者的典型任务（按提案现状写的伪代码与别扭之处）
+
+### A. Agent 工具“把一章拆成两章”（读一个、写两个新、删掉原文件，作为一次 Agent 操作进收件箱）
+
+```ts
+// 工具工厂 create(context, services)：每个会话每个工具建一次；services.resources 是 SessionResources
+async execute({address, at}, ctx /* ToolContext：callId、sessionId、signal，没有 entryId */) {
+    const r = services.resources;
+    const src = await r.realPath(address);                    // 提案里叫 readPath；SessionResources 里还叫 realPath
+    if (!src.ok) return errorOf(src);
+    const bytes = await Bun.file(src.value.path).bytes();
+    const base = baselineOf(bytes);                           // 自己算
+    const [a, b] = split(new TextDecoder().decode(bytes), at); // 解码后再算基线？BOM、非法 UTF-8 怎么办
+    const dir = parentOf(address);
+    const w1 = await r.write(`${dir}/第三章上.md`, a, {expect: "absent"});  // SessionResources.write 目前是 (address, text, baseline)
+    const w2 = await r.write(`${dir}/第三章下.md`, b, {expect: "absent"});
+    const d  = await r.delete(address);                       // SessionResources 没有 delete；WorkspaceFiles.delete 没有 expect
+    // 任一步失败：没有回滚、没有分组；三条记录只靠“这一轮”的 entryId 串起来，同一轮里别的工具调用也混在一起
+}
+```
+
+别扭之处：入口不是提案里的 `WorkspaceFiles` 而是另一个类型（发现 2）；`forSession` 的 `entryId` 无法逐次调用传入（发现 1）；删除原文件时没有“只删我读过的那一版”的条件（发现 4）；新文件进内容文件夹要不要进清单、排序在哪（发现 4）；三条记录没有共同的“这次操作”名字（发现 3）；基线要自己算且与解码脱节（发现 6）。
+
+### B. 图生文插件：生成图片存进书里，并改一处 Markdown 引用它
+
+```ts
+const files = context.services.require(serverFilesKey);    // 门面，操作者 = 插件自己（键名提案写 workspaceFilesKey，现有是 serverFilesKey）
+const png: Uint8Array = await generate(prompt);            // 8 MB
+const w = await files.write("projects://book/插图/封面.png", png, {expect: "absent", createParents: true});
+if (!w.ok) return w;                                       // 重名得 conflict：没有“取一个不重名的名字”
+const u = await files.update("projects://book/第三章.md", (t) => t.replace("<!--图-->", "![封面](插图/封面.png)"));
+// 两步之间没有“一次操作”；第二步失败时图已经在书里，收件箱里只看到一个孤立的“插件 acme.imagegen 新建了 封面.png”
+```
+
+别扭之处：项目引用 `book` 从哪里来（服务端门面不认 `project://`，插件要从命令参数里带）；图片只记“已更改”，用户在收件箱里看不到图（发现 14）；插件来源显示成插件 id（发现 12）；两个文件的修改没有组（发现 3）；该插件若是第三方作者写的，SDK 里根本没有 `/files` 子路径（发现 13）。
+
+### C. 导入插件：把一个 EPUB 导入成几百个章节文件
+
+```ts
+for (const [i, ch] of chapters.entries()) {
+    const r = await files.write(`projects://book/正文.content/第${i + 1}章.md`, ch.text, {expect: "absent", createParents: true, signal});
+    if (!r.ok) { /* 已写入的 i 个怎么办？没有回滚，也没有“这次导入”的记录可以整体还原 */ }
+}
+// 图片、字体另走 stage/commit；章节顺序要靠清单，但写入接口里没有 include / reorder
+```
+
+别扭之处：几百个文件各一次“RPC + 加锁 + 记账（一次 SQLite 事务）+ 事件”，单次几毫秒还行，但收件箱与时间线里是几百条同样的“插件 X 新建了某文件”（发现 3、12）；`plugin` 来源进不进收件箱没写（发现 10）；若每次写都同步清单，同一个 `content.xml` 被改写几百次，账本里留下几百份清单快照（发现 4）；中途取消或失败留下半本书，没有办法说清“这次导入写了哪些”（发现 3）。
+
+## 三、发现
+
+### 1. `forSession` 的位置前后矛盾，并且绑定时刻早于 `entryId` 能知道的时刻
+- 严重程度：重要
+- 位置：提案“接口形态（草案）”开头（“`nbook.agent` 另有 `forSession({session, profile, entryId?})`”）、用法举例里的 `files.forSession({session, profile})`、`WorkspaceFiles` 接口（没有 `forSession`）；`docs/specs/agent/resources.md` 的关键不变量（“`AgentService` 不交出资源视图：别的插件拿不到能代表会话的读写”）；`nb-harness/src/kernel/api/tool.ts`（`ToolContext` 只有 `callId`、`sessionId`、`signal`）。
+- 现象：同一个方法三种说法：开头说在 `nbook.agent` 上，例子里在 `files` 上，接口里不存在。更实质的是时序：工具实现“每个会话每个工具建一次”，`services.resources` 在那一刻绑定；而提案想让每次写入对得上“这一轮的会话条目”（t13 决定 2、10），`entryId` 要到工具被调用时才知道，会话级绑定拿不到。
+- 为什么是问题：作者（Agent 工具作者）读不出该调什么；若照例子在 `files` 上调 `forSession`，就等于任何插件都能代表会话写，破坏 Spec 现有的“别的插件拿不到”不变量，而现有实现里这一点由 `server-files.ts` 的 `AGENT_PLUGIN` 检查和 `as` 选项保证。`entryId` 绑不上，t13 的“每轮改动文件”就取不到。
+- 参照：VS Code 的 `WorkspaceEdit` 把整批改动连同元数据（`label`、`needsConfirmation`）作为一个对象交给 `workspace.applyEdit`，元数据逐次随编辑传入而不是绑在扩展实例上，https://code.visualstudio.com/api/references/vscode-api#WorkspaceEdit 。
+- 建议改法：
+  1. 类型上分开：`serverFilesKey` 交给普通插件的是 `WorkspaceFiles`（无 `forSession`）；只有解析方是服务端 `nbook.agent` 时，门面多一个 `AgentFiles extends WorkspaceFiles { forSession(on: AgentOnBehalf): BoundFiles }`（沿用现有 `AgentOnBehalf`，实现里仍由内核签发的身份核对）。
+  2. 逐次调用传 `entry`，不在绑定时传：`BoundFiles` 的每个方法的选项里有 `cause?: {callId: string}`（`ToolContext.callId`），账本在会话日志里把 `callId` 对到回复条目；`forSession` 里去掉 `entryId`。
+  3. 在 Spec 里写明：`BoundFiles` 随 `forSession` 的调用方门面释放；工具作者不直接调用 `forSession`，拿到的是 `services.resources`（见发现 2）。
+
+### 2. Agent 的 `SessionResources` 与 `WorkspaceFiles` 是并行的两套方法，提案没说合并还是分工
+- 严重程度：重要
+- 位置：`agent/shared/resources.ts` 的 `SessionResources`（`list/read/write/create/realPath`）；提案“接口形态”与“影响”（“Agent 的 t12 工具建在 `readPath` 与写入接口上”）、“对 Spec 的预期改动”里 `agent/resources.md` 一行。
+- 现象：Agent 工具作者看到的是 `services.resources`，它有自己的 `read`、`write(address, text, baseline)`、`create`、`realPath`，加上 `expand`、`classify`。提案里的新接口是 `readPath`、`write(address, content, {expect})`、`stage`、`update`、`delete`、`move`、`copy`、`baseline`、`baselineOf`。两套名字不同、签名不同、返回类型不同（`ResourceResult` 多一个 `no-project`），提案没说 `SessionResources` 会变成什么。作者要写“拆章节”（任务 A）需要 `delete`，`SessionResources` 现在没有，t12 的 `write`、`edit` 工具要 `stage`，`SessionResources` 也没有。
+- 为什么是问题：写入的“入口”至少有四个：`WorkspaceFiles`、`SessionResources`、浏览器 RPC、History 的查询（时间线、diff、恢复、收件箱，在提案里完全没有接口形态）；作者读完提案不知道自己该用哪个，也不知道方法列表以哪一个为准。
+- 参照：JetBrains 的做法是一个 VFS 加一个写入动作包装，没有按“谁在调用”再造一套并行 API，https://plugins.jetbrains.com/docs/intellij/virtual-file-system.html 。Obsidian 的 `Vault` 与 `FileManager` 是分层的（`FileManager` 在 `Vault` 之上多做链接维护），两者的方法名与参数一致，https://docs.obsidian.md/Plugins/Vault 。
+- 建议改法：写一张“我要做什么 → 用哪个”的表放进提案，并把 `SessionResources` 改成薄层：
+  ```ts
+  interface SessionResources extends BoundFiles {   // 同一组方法，操作者已绑定为本会话
+      expand(address: string): Expanded;
+      classify(address: string): ResourceClass | Extract<Expanded, {ok: false}>;
+  }
+  ```
+  `SessionResources` 上原有的 `read/write/create/realPath` 删除（Spec 的“公开接口变化时一次迁移全部调用方，不保留兼容层”），Agent 的授权（`classify`）作用在地址上，所有写入方法（`stage`/`write`/`update`/`delete`/`move`/`copy`）一律先过它。History 的查询另写一节“History 的服务接口”（至少列出：时间线、取旧版本、恢复、收件箱、按 `callId` 取这次的改动），放在同一份提案里，否则“记账”这一半对作者是黑盒。
+
+### 3. 没有“一次逻辑操作”的概念：跨文件的改动在账本里是无关的几十上百条
+- 严重程度：重要
+- 位置：提案“一次写入（经接口）”只讲单文件；“接口形态”没有分组、批次、事务；“nb-history 要补的”第 5 点只给 Agent 来源加会话条目 id；`nb-history/src/types.ts` 的 `OperationLogEntry` 没有分组字段；收件箱 `InboxGroup` 按路径分组。第一轮第 15 条（“一轮的改动没法归组”）新稿没有吸收。
+- 现象：任务 A 三条记录、任务 B 两条、任务 C 几百条，账本里只有“同一操作者”这一个共同点。Agent 一轮里改了十个文件，靠 `entryId`（整轮）归组，但这一轮里别的工具调用、别的目的的写入也在里面；插件没有任何办法标明“这是同一次导入”。收件箱按文件列出，用户面对几百行“插件 X 新建了某文件”。
+- 为什么是问题：写小说的人审查的单位是“这次发生了什么”，不是“这个文件被谁碰过”；作者也没有地方放一句说明（“拆分第三章”“导入《xx》.epub”）。又因为 `nb-history` 是已发布的包，公开类型第一版发出去之后再加字段是破坏性改动（t13 决定 15 已经为 `plugin`、`entryId` 要单独发版），应该和这两个字段一起加。
+- 参照：VS Code 的 `WorkspaceEdit`（多文件创建、重命名、删除、改文本放在同一个对象里，带 `label`，作为一次可撤销的单位）https://code.visualstudio.com/api/references/vscode-api#WorkspaceEdit ；JetBrains 的 `WriteCommandAction.runWriteCommandAction(project, commandName, groupID, ...)` 用 `commandName` 作为撤销栈里的名字，并用 `groupID` 把相邻命令合并 https://plugins.jetbrains.com/docs/intellij/threading-model.html 。
+- 建议改法：加一个很薄的“批次”，只做分组与说明，不承诺原子性，并在文档里明说：
+  ```ts
+  interface WorkspaceFiles {
+      /** 一次逻辑操作：回调里用 `b` 做的所有写入在账本里带同一个 batch id 与标题；不是事务，不回滚，失败时已写的保留。 */
+      batch<T>(info: {title: string}, run: (b: BoundFiles) => Promise<T>): Promise<T>;
+  }
+  interface OpOptions { note?: string }      // 单次写入也能带一句用户可读的说明（≤200 字）
+  ```
+  `nb-history` 的条目加可空的 `batchId`、`title`；收件箱与时间线按 `batchId` 折叠成一行“Agent · 拆分第三章（3 个文件）”，展开才是逐文件；第一版不做“按批整体还原”，只做折叠与展示（要整体还原再按文件逐个还原即可）。Agent 一轮的写入由 `forSession` 的绑定设施自动带上 `callId` 作为 batch（见发现 1），工具作者无需显式调用。文档里写明“先写新文件、最后才删原文件”这个顺序，因为没有回滚。
+
+### 4. 内容文件夹的清单同步、`delete/move` 的条件、批量与顺序，都从新接口里丢了
+- 严重程度：重要
+- 位置：提案“接口形态”的 `create/delete/move/copy`（`FilesResult<void>`，选项只有 `createParents` 与 `signal`）与“文件操作”一段（“同样在拥有根的进程里执行，执行后请记账记下”）；对照 `files/shared/contracts.ts` 的 `DoneSchema`（带 `manifests`）、`move/copy/delete` 的 `expected`、`before`（放在哪一项之前）；`docs/specs/workspace/folder-kinds.md` 的“经文件服务的操作同步清单”与第 9 条验收；第一轮第 12 条。
+- 现象：
+  1. 现有操作的成功值带 `manifests`（“文件改了但清单没改成”），新接口 `FilesResult<void>` 把这条信息丢了；
+  2. `commit({expect: "absent"})` 在内容文件夹里新建一个文件，算不算 Spec 里的“新建”，要不要追加清单条目、追加到哪里，提案没说（Spec 改动清单里 `folder-kinds.md` 只写“清单的写入经同一条提交路径、同一把操作锁”）；
+  3. 现有的 `move` 能指定“放在同层哪一项之前”，`include/drop/reorder/display/convert` 这些只改清单的操作在新接口里一个都没有；
+  4. `delete(address)`、`move(from, to)` 没有 `expect`，现有合同有 `expected`、失败码 `source-changed`。任务 A 里“删原文件”可能删掉用户刚在编辑器里存的改动（账本留有快照，但用户并不知道）。
+- 为什么是问题：导入插件（任务 C）写几百章，若每次新建都同步清单，`content.xml` 被改写几百次、账本里留几百份清单快照；若不同步，章节在资源管理器里全在“未编排”，作者又没有 `include` 可用。第 4 点让“删除”比现有浏览器里的删除更不安全。
+- 参照：VS Code 的 `WorkspaceEdit.deleteFile/renameFile` 带 `ignoreIfNotExists`、`overwrite` 等选项，并有 `WorkspaceEditEntryMetadata`，https://code.visualstudio.com/api/references/vscode-api#WorkspaceEdit ；Obsidian 的 `FileManager.renameFile` 在改名时同步链接，即“文件操作带着结构维护”也是该 API 的职责，https://docs.obsidian.md/Reference/TypeScript+API/FileManager 。
+- 建议改法：
+  ```ts
+  create/delete/move/copy → Promise<FilesResult<{manifests?: ManifestIssue[]}>>     // 保留现有 OperationDone
+  delete(address, options?: OpOptions & {expect?: Baseline | "any"; recursive?: boolean})
+  move(from, to, options?: OpOptions & {expect?: Baseline; before?: string})        // before 沿用现有语义
+  /** 清单：只改清单的操作，沿用现有四个，不在这一轮重新设计 */
+  manifest: {include(address, before?), drop(address), reorder(directory, names), display(address, {title, icon})}
+  ```
+  并在提案里明确一句：提交到内容文件夹里一个不存在的文件，按“新建”同步清单；批量场景（导入）在 `batch` 里，清单只在批次结束时合并改写一次（实现细节留给 Spec，但要在接口层允许）。
+
+### 5. `Staged extends AsyncDisposable` 与 `await using` 是仓库里没有人用过的写法，SDK 模板的类型检查大概率通不过
+- 严重程度：重要（类型检查结论从配置推断，未实测）
+- 位置：提案“接口形态”的 `interface Staged extends AsyncDisposable` 与用法举例里的 `await using staged = …`；`plugin-sdk/template/tsconfig.json`（`target: ES2022`、`lib: ["ES2022", "DOM"]`，没有 `esnext.disposable`，也没有 bun 的类型）；`plugin-sdk/README.md` 的清理约定（订阅句柄 `release()`、入口停止自动收口）。
+- 现象：在 `packages/neuro-book/src`、`nb-runtime/src`、`plugin-sdk` 里搜不到任何 `await using`、`Disposable`。SDK 里“要手动结束的东西”都是带 `release()` 的句柄，或随入口停止自动结束。模板 tsconfig 的 `lib` 里没有 `esnext.disposable`，`AsyncDisposable` 这个全局类型不存在，作者按模板建的插件在 `bun run typecheck`（`vue-tsc`）里会报“找不到名称”；`skipLibCheck: false` 时连带 SDK 的 `.d.ts` 一起报。
+- 为什么是问题：图生文、导入这两个典型任务的第一行就是这段代码；它编不过，作者要么去改自己的 tsconfig，要么放弃 `await using` 而忘记 `abort`，暂存文件残留到下次启动才清（提案写了启动时清）。
+- 参照：Node 的 `fs.promises.open` 返回 `FileHandle`，它支持 `await using`（Node 20+ 实现了 `Symbol.asyncDispose`），但文档主推的是 `try/finally` + `close()`，https://nodejs.org/api/fs.html#class-filehandle 。VS Code 的 `workspace.fs` 只有“一次写完整份字节”，没有暂存句柄这个概念。
+- 建议改法：不要求作者用 `using`。提供回调形式，由接口负责离开作用域时丢弃，同时给出带 `release()` 的句柄与 SDK 其它部分一致：
+  ```ts
+  /** 回调里写暂存；回调返回或抛错时，没提交的暂存自动丢弃。 */
+  withStaged<T>(address: string, run: (staged: Staged) => Promise<T>, options?: CallOptions): Promise<FilesResult<T>>;
+  interface Staged { readonly path: string; write(chunk: Uint8Array): Promise<void>; commit(o: CommitOptions): Promise<FilesResult<{baseline: Baseline}>>; release(): Promise<void> }
+  ```
+  `Staged` 同时在调用方门面释放时自动丢弃（沿用 `server-files.ts` 里 `gone` 的做法）。`AsyncDisposable` 可以以后再加，不影响这个形状。
+
+### 6. 读改写的正确用法需要作者自己拼三步，示例里的基线与读到的内容对不上
+- 严重程度：重要
+- 位置：提案“接口形态”的 `baseline(address)`、`baselineOf(bytes)`、“用法举例”前两段。
+- 现象：
+  1. “Agent 的 read”示例读的是 `Bun.file(path).text()`，“Agent 的 edit”示例用 `baselineOf(beforeBytes)`，`beforeBytes` 没有出处。若作者用 `.text()` 的结果再 `TextEncoder().encode(text)` 去算基线，遇到 BOM、非法 UTF-8（被替换成 U+FFFD）、换行不是预期时哈希永远对不上，`write` 永远 `conflict`；
+  2. `baseline(address)` 是独立的一次读：`const base = await files.baseline(a); const bytes = await read(a)` 是竞态写法（两次之间文件可能变了），这个方法放在接口上等于鼓励它；
+  3. `baselineOf(bytes)` 把整份内容读进内存：几十 MB 的文件只想改一处时也只能这样。
+- 为什么是问题：这是“读不记账、写走提交”的不对称里最常见的错误，而且错误的写法在测试里（文件不变时）永远是通的，到用户编辑冲突时才暴露；错的方向还是“写失败”（保守），作者不会马上发现，只会觉得“偶尔 conflict”。
+- 参照：Obsidian 的 `Vault.process(file, fn)` 把“读、算、条件写回”收成一个调用，且文档明确说明它是原子的，https://docs.obsidian.md/Reference/TypeScript+API/Vault/process ；Node 的 `fs/promises` 没有基线概念，调用方自己 `stat` 对比 `mtime`，这类写法历来出错，https://nodejs.org/api/fs.html#fspromisesreadfilepath-options 。
+- 建议改法：
+  - 加一个同步做“读一次、对同一份字节算基线”的辅助，放在同一个模块里，让“读到什么就对什么条件写回”成为最短的写法：
+    ```ts
+    /** 读一次，基线与 bytes 来自同一份读取；大文件改用 readPath 自己流式读。 */
+    declare function readWithBaseline(path: string, o?: {maxBytes?: number}): Promise<{bytes: Uint8Array; baseline: Baseline}>;
+    ```
+  - 删掉 `WorkspaceFiles.baseline()`，要“现在这个文件的基线”时用 `readWithBaseline(path)`；或者保留但在注释里写明“只用来判断是否变了，不能与别处读到的内容配对”。
+  - 示例改成：`const {bytes, baseline} = await readWithBaseline(at.value.path); … agent.write(address, after, {expect: baseline})`，并在示例旁写一句“基线必须对你读到的那份字节算”。
+
+### 7. `readPath` 的路径只能读，但类型与命名都不表达，写出的“外部改动”没人拦；而说明它的那句话本身有歧义
+- 严重程度：建议（第一轮第 9 条的品牌类型意见没有吸收，这里补整体角度）
+- 位置：提案“接口形态”的 `readPath` 与注释“只供读：写一律经 stage/commit”；末尾一条“写不经 `readPath` 拿到的路径：那样落盘照样被文件监视发现，但只能记为外部”；“读”一节。
+- 现象：
+  1. 末尾那句有两种读法：“不要写 `readPath` 给的路径”和“写的路径若不是经 `readPath` 得到的”。按它后面的“那样落盘……记为外部”，意思应是前者，但作者读到的字面是后者；而这一句恰恰是不对称里最重要的警告；
+  2. 返回值是 `string`，任何 `Bun.write(at.value.path, …)` 都能编译、能运行，账本只能记为外部，既没有操作者也没有基线；对只读方案和受保护目录，`readPath` 只按读授权，写也能写进去；
+  3. 没有写明读到的是完整的某一版（因为提交是改名替换）：这是个对作者有用的保证，硬链接文件就地写的例外也要写进去。
+- 为什么是问题：不对称的另一半是“写后立刻读”：作者以为路径要重新取，其实原路径仍然有效（只是 inode 换了，已经打开的句柄看到的是旧版本）；这条也没写。
+- 参照：Obsidian 刻意不把绝对路径给插件，只有 `adapter.getFullPath` 一个带警示的出口，文档建议优先用 Vault 的接口而不是 adapter（后者绕过缓存），https://docs.obsidian.md/Reference/TypeScript+API/DataAdapter 。
+- 建议改法：
+  ```ts
+  type ReadPath = string & {readonly __readOnly: unique symbol};   // 可以传给 Bun.file / spawn，但名字上就说明“只读”
+  readPath(address, o?): Promise<FilesResult<{path: ReadPath; kind: "file" | "directory" | "other"}>>;
+  ```
+  把最后一句改成：“不要对 `readPath` 的结果做写入（`Bun.write`、`fs.writeFile`、重定向到它的命令）：落盘会被文件监视发现，但没有操作者与基线，只记为外部。”并补两句保证：“读到的永远是完整的某一版（硬链接目标除外）；提交之后同一路径读到的是新版本，不用重新取路径；已经打开的句柄读到的仍是旧版本。”再加一条 `governance:check`：插件源码里对 `readPath` 的结果调用写入 API 报警告。
+
+### 8. “结果不确定”的核对交给作者，`Staged` 也不给路径：两件每个作者都要重写一遍的事
+- 严重程度：重要
+- 位置：提案“一次写入”第 4 点；“接口形态”的 `Staged`（`write(chunk)`、`commit`、`abort`）与 `CommitOptions`。
+- 现象：
+  1. 第 4 点说得很清楚：RPC 得 `unknown-outcome` 时，写入方比对目标的当前基线与自己暂存内容的哈希，暂存文件还在就是没提交。这套逻辑完全确定、只依赖门面已经知道的信息（目标地址、暂存文件），却要求每个作者自己写，而且要自己算暂存内容的哈希（`Staged` 没有暴露基线）；
+  2. `Staged` 只有 `write(chunk: Uint8Array)`：图生文插件从 `fetch` 的响应流、`sharp().toFile()`、`ffmpeg` 输出到文件时，需要的是“一个可以写的本机路径”，现在只能再把内容读出来、一块一块 `write`；
+  3. `signal` 在 `commit` 上，但提交请求发出之后无法取消；取消时返回什么（`cancelled` 还是已经提交）没写。
+- 为什么是问题：1 是“每个作者都会写错一次”的典型；2 迫使大文件多拷贝一次；3 让 `commit` 在取消时有第三种结局，作者得到一个无法判断的结果。
+- 参照：Node 的 `fs.rename` 与 `write-file-atomic` 这一类库把“临时文件 + 改名”整个封装起来，调用方只看到一次成功或失败，https://github.com/npm/write-file-atomic ；VS Code 的 `workspace.fs.writeFile` 只暴露“整份字节、成功或失败”这一个调用，没有让扩展处理中间状态，https://code.visualstudio.com/api/references/vscode-api#FileSystem 。
+- 建议改法：
+  - `commit` 内部在得到 `unknown-outcome` 时自己核对：门面持有暂存文件的哈希（写 `write(chunk)` 时顺便累计，或在 `commit` 时算一次），向拥有根的进程查询目标基线与暂存文件是否还在，对得上返回 `ok`（附 `recovered: true`），对不上返回 `conflict` 或 `io-failed`；只有核对本身也失败时才交出 `unknown-outcome`。
+  - `Staged` 增加 `readonly path: string`（“只往这里写，写完调 `commit`；不要自己改名或移动”），`write(chunk)` 保留为简便写法。
+  - 在 Spec 里写明取消语义：提交请求发出之前取消为 `cancelled` 且暂存被丢弃；发出之后取消不再生效，按实际结果返回。
+
+### 9. 项目实例里的插件没有写入入口，而它正是拥有这本书的那个进程
+- 严重程度：重要
+- 位置：提案“目标与非目标”（“读写需求只在服务端”）、决策记录（“接口只在服务端用”）、“职责划分”（“nbook.files 交给服务端插件的按调用方服务”）；`plugin-sdk/README.md` 的“服务端入口”一条（`location: "server"`，“每个打开的项目一份的写 `"project"`”）；`plugins/projects/project/stats-tracker.ts` 的注释（作品统计运行在项目子进程，订阅变更事件、直接读项目目录）。
+- 现象：SDK 给后端入口两个位置：服务端与项目实例。提案的写入接口只给服务端；项目实例里的插件（例如以后按书维护索引、自动生成目录文件的插件）要写这本书的文件，只有两条路：自己直接写盘（记成外部），或者先 RPC 到服务端、服务端再 RPC 回项目子进程提交。后一条绕了一圈，等于把“拥有根的进程”自己的本地调用变成两次跨进程。
+- 为什么是问题：作者会按位置选入口，选了 `project` 就发现“文件写入没有官方接口”；在这个位置写的插件会大量落成“外部”来源，收件箱里没有操作者，恰好是提案想消灭的情况。
+- 参照：JetBrains 的 `VirtualFile` 与 `WriteAction` 对所有插件在同一个进程里提供同一组接口，没有“某类插件没有写入口”，https://plugins.jetbrains.com/docs/intellij/virtual-file-system.html 。
+- 建议改法：同一个 `WorkspaceFiles` 也提供给项目实例入口：地址只接受 `project://`（本项目），调用是本进程内的函数调用，不经 RPC；服务端入口保留 `projects://<引用>/…`。接口形状不变，作者只因为入口位置不同而用不同地址前缀；`projects://` 的引用从哪里来（示例里的 `book`）也在这里写清：服务端入口需要它的由调用方（命令参数）带来。
+
+### 10. 哪些写入会被记账、记了进不进收件箱，作者在接口层看不出来，提案自己前后也不一致
+- 严重程度：重要
+- 位置：提案“决策记录”第 3 行（“Agent 会话目录与临时目录不记账（只发变更事件），`user://` 记账”）、“职责划分”、“影响”（“`user://` 的账本在状态根下”）；t13 README 决定 14（“记账范围只有 `project://`：Agent 写 `user://` 下的 Skill 或 `AGENTS.md` 不进历史”）；`workspace/resources.md`（“挂载方案……这次不支持监视与订阅”）；`nb-history/README.md` 收件箱规则（“某文件在接受位点之后存在 agent / system 条目时出现”）。
+- 现象：
+  1. `user://` 记不记账：提案决策记录说记，t13 决定 14 说不记；
+  2. “只发变更事件”的挂载方案（`sessions://`、`temps://` 等）：Spec 说这次不支持监视与订阅，提案要发事件，且这些方案的根在别的目录（系统临时目录、状态根下），`.nbook/staging/` 的位置、锁、原子改名的文件系统边界都没有交代；
+  3. 新增的 `plugin` 来源进不进收件箱没有定：按现有规则只有 agent/system 触发收件箱，`plugin` 是新类型；导入插件写了三百章，是三百个待审项还是一个也没有，用户的预期都不是这两个；
+  4. 作者写入时没有任何返回信息说明“这次记了没有”（History 不在、写的是不记账的方案、记账失败都只写诊断）。
+- 为什么是问题：作者没法在文档里告诉自己的用户“这次改动可以在历史里找回”；用户不知道哪些改动可恢复。
+- 参照：VS Code 的 `WorkspaceEdit` 有 `needsConfirmation` 元数据，决定一项改动是否要用户在“重构预览”里确认，也就是由编辑的发起方声明它在审查界面里的待遇，https://code.visualstudio.com/api/references/vscode-api#WorkspaceEditEntryMetadata 。
+- 建议改法：
+  1. 提案里加一张表：方案 × （是否记账、暂存放在哪、变更事件、`plugin`/`user`/`agent` 来源进不进收件箱）；`user://` 以开发者最近的决定为准，并同步 t13 决定 14。
+  2. `plugin` 来源默认不进收件箱，但在时间线里可见；写入可以声明 `review: "inbox" | "timeline"`（缺省 `"timeline"`，Agent 来源缺省 `"inbox"`），导入类插件用缺省，“让用户审查”的插件显式要求。
+  3. 成功值里加一个只读字段 `history: "recorded" | "not-applicable" | "unavailable"`（不进入失败分支），给需要它的作者看，不需要的忽略。
+
+### 11. “shell 推断”需要的登记接口不在接口草案里，而推断结果会让用户把自己的改动当作 Agent 的改动还原
+- 严重程度：重要
+- 位置：提案“文件监视与外部改动”第 4 条（“Agent 的 `shell` 执行期间……记为该会话、标‘推断（shell）’，进审查收件箱；同一时间别处的改动可能被误归给它”）；“接口形态”（没有登记 shell 窗口的方法）；t12 README 第 48 条（`shell` 可 `async` 转后台）；t13 决定 14 与 t12 README 先前“shell 的写入记为外部，不补”。
+- 现象：
+  1. 监视怎么知道“这个会话的 shell 此刻在运行”：文件监视是拥有根的进程里的，shell 工具在服务端的 Agent 里。要有一个“某会话在某时刻开始、结束运行命令”的登记，提案的接口草案里没有，它属于 `AgentFiles` 的一部分，却没写；
+  2. 误归属的后果：用户在编辑器里同时存了一个文件，也落在窗口里，被记成“推断（shell）”，进了收件箱；用户点“全部还原”，用户自己的改动被还原掉；`async` 的后台 shell（例如开着的开发服务器）会让整个后台期间都是“窗口”；
+  3. 用户看到“推断（shell）”这几个字：“shell”对写小说的人不是日常词。
+- 为什么是问题：这条会直接让用户丢内容，而且丢的是“没有被 Agent 改过”的内容。
+- 参照：git 把“工作区里的未提交改动”与“某次提交”分开，从不替工作区里的改动署名，只有 `git blame` 对已提交内容署名；VS Code 的 Timeline 视图里“本地历史”与“Git 提交”是两个来源，各有标签与图标，不合并成一个“谁改的”，https://code.visualstudio.com/docs/editor/codebasics#_local-history 。
+- 建议改法：
+  - 在 `BoundFiles` 上加登记：`window = await agent.beginCommand({command: string}); …; await window.end()`（带 `release()`，随会话停止自动结束），账本据此把窗口内的外部改动记为 `{kind:"external", inferredFor: {session, command}}`，并保存命令文本（截到 200 字）。
+  - 推断的记录不进“全部还原”：收件箱里单独成一段“Agent 运行命令期间发生的改动（可能不是 Agent 改的）”，还原前弹确认，写明“这些改动不一定是 Agent 改的”；
+  - 界面文案用“Agent 运行了 `sed -i …` 期间发生的改动”，不用“推断（shell）”。
+  - 为窗口设上限（例如 10 分钟或命令结束），后台 `async` 命令只在它写出文件的那一刻前后各几秒内算窗口，不整段算。
+
+### 12. 操作者的词汇有三套互不对应，用户看到的来源名是插件 id 与“推断”这类内部词
+- 严重程度：重要
+- 位置：提案“接口形态”开头（“`user`：替浏览器写的服务端入口；`plugin`：插件自己”）与“nb-history 要补的”第 5 点；`files/backend/plugin.ts` 的 `sourceOf`（浏览器、TUI 位置的插件为 `user`，服务端、项目实例位置为 `system`，都带 `plugin`）与 `workspace/resources.md` 的“写入来源”表；`files/shared/contracts.ts` 的 `ChangeSource`；`nb-history/src/types.ts` 的 `OperationActor`（`user{userId}`、`agent{sessionId}`、`system{source}`、`external`）。
+- 现象：事件里的来源是 `ChangeSource`（`system{plugin}`），账本里要加的是新种类 `plugin`，提案里说的是 `user`/`plugin`。提案写的“`user`：替浏览器写的服务端入口”与现有映射矛盾：现有 `sourceOf` 只让窗口位置的插件得到 `user`，服务端位置的插件（包括被用户点击命令触发的）一律 `system`，Spec 另写了“窗口里的插件替远程命令执行的写入在发起者传到执行边界之前也记为写作者”，没有任何“服务端入口替浏览器”的路径。`nb-history` 的 `user` 还要 `userId`，提案没有写它取自哪里。
+- 为什么是问题：用户在收件箱与时间线上看到的是 `plugin: acme.imagegen`、`system`、`推断（shell）`、`外部` 这几个标签；插件 id 对用户不是名字，“系统”“外部”也分不清是谁。三套词汇还会让写 Spec 与写 UI 的人各自映射一遍。
+- 参照：VS Code 的 Timeline 条目有 `label`、`description`、`detail` 三层文字，来源（Git、本地历史）作为条目的分组名显示，不把内部标识直接给用户，https://code.visualstudio.com/api/references/vscode-api#TimelineItem 。
+- 建议改法：
+  1. 统一成一套：`{kind: "user" | "plugin" | "agent" | "external", …}`，`ChangeSource` 与 `OperationActor` 都用它；`system` 删掉（现有 `system{plugin}` 就是 `plugin`），`user` 不带 `userId`，也不再用“替浏览器写的服务端入口”这种说法：窗口位置的入口为 `user`，其余为 `plugin`，与 `sourceOf` 一致，提案里这句话直接删掉。
+  2. 账本只存标识，界面层翻译：`plugin` → 插件清单里的显示名（插件已卸载时显示 id）、`agent` → 会话标题与 Profile 名、`external` → “软件之外”；同时 `OpOptions.note`（发现 3）负责“这次做了什么”，在时间线里显示在来源名后面。
+  3. 把“推断”做成外部记录的一个字段（见发现 11），不要和来源种类并列。
+
+### 13. 提案没有说这个接口是否进 SDK 公开面；现在 SDK 没有 `/files`，第三方作者写不了图生文或导入插件
+- 严重程度：重要
+- 位置：`packages/neuro-book/src/sdk/`（只有 `storage.ts` 等，没有 files）与 `surface.test.ts`（登记的子路径）；`plugin-sdk/README.md` 的“私有存储”一节（有完整示例）与“作者可用的内置命令”；`workspace/resources.md`（“第三方插件注册与 SDK 公开面随第一个插件方案”）；提案“影响”（“以后的图生文、导入导出插件用 `stage`”）；ADR 0027（内置与第三方插件地位相同）。
+- 现象：服务端文件服务现在只被内置插件通过 `nbook/plugins/files/shared/contracts` 导入使用，SDK 包里没有对应子路径，README 里没有任何关于读写书里文件的内容。提案把“图生文”“导入导出”当作这个接口的目标使用方，这类插件多半是第三方写的，而提案没有写 SDK 的 `/files` 子路径、文档一节与示例。
+- 为什么是问题：作者读 SDK 的 README 找不到“怎么读写书里的文件”；而按 ADR 0027 内置与第三方一视同仁，“`plugin` 来源带插件 id”这件事对第三方也成立，若接口只对内置开放，这个来源类别就只对内置插件有意义。
+- 参照：已有先例：`sdk/storage.ts` 把 `storageKey` 与 `defineRecord` 放进 SDK 子路径 `/storage`，README 有一节“私有存储”带完整读写示例；这个做法正好套用。
+- 建议改法：提案的“影响”里加一条：新增 SDK 子路径 `@notnotype/nb-plugin-sdk/files`（`serverFilesKey`、`WorkspaceFiles` 的类型、`readWithBaseline`、`baselineOf`、`ReadPath`），README 增加“读写书里的文件”一节，用 8 到 10 行覆盖“读、条件写回、流式写、记账与来源”；在 `plugin-sdk/examples/plugins/` 里加一个小示例（导入或生成图片）。如果决定第一版只对内置开放，就在提案里写明，并说明 `plugin` 来源在第一版只对应内置插件。
+
+### 14. 二进制“只记已更改”对图生文的用户是黑盒；账本其实存了全量
+- 严重程度：建议
+- 位置：提案“nb-history 要补的”第 1 点（“二进制与大文件在快照上限内存全量（可以恢复）”）、“目标”（“只记‘已更改’”的说法来自开发者决策第 2 行）；`plugins/image-viewer`。
+- 现象：写入的是图片，账本里存着全量快照（上限内），但收件箱与时间线只写“已更改”。用户得到的是“插件 X 更改了 封面.png”，不能看到前后两张图，也就无法决定接受还是还原。
+- 为什么是问题：对图生文这类插件，用户要审查的恰恰是图；不给预览，收件箱对这类改动没有信息量。
+- 参照：GitHub 的 pull request 对图片提供并排、滑动、叠加三种预览，二进制文件也能审，https://docs.github.com/en/repositories/working-with-files/using-files/working-with-non-code-files#rendering-and-diffing-images 。
+- 建议改法：Spec 里写明二进制条目的展示：已知媒体类型（图片）在快照上限内显示前后缩略图（用现有 image-viewer 的组件），其它类型显示大小与哈希变化；`snapshotBody(hash)` 对二进制返回可直接显示的字节。这一条不要求现在实现，但要在账本 Spec 里写上，免得接口层不留“媒体类型”字段而将来补不上：`HistoryEntry` 里记 `mime?: string`（由扩展名或前 8000 字节判断）。
+
+### 15. 名字与授权维度对不上现有代码：`workspaceFilesKey`、`FilesResult`、`readPath` 与 `realPath`、`SchemeOperation`
+- 严重程度：建议
+- 位置：提案“接口形态”（`workspaceFilesKey`、`FilesResult`、`readPath`、`CallOptions`）；`files/shared/schemes.ts`（`serverFilesKey`＝`nbook.files/server`、`ServerFilesResult`、`ServerFilesOptions`、`SchemeCapability`、`SchemeOperation`、`ServerFiles.realPath`）；`agent/shared/resources.ts`（`SessionResources.realPath`）；`workspace/resources.md` 验收第 1 条。
+- 现象：
+  1. 提案里的 `workspaceFilesKey`、`FilesResult` 在代码里都不存在，现有是 `serverFilesKey`、`ServerFilesResult`（失败码多出 `unsupported-capability`、`project-unavailable`、`invalid-input`、`cancelled`，这些在新接口里是否保留没写）；“沿用现有 `FilesResult`”一句读起来像是已经有；
+  2. `readPath` 与现有的 `realPath`：现有 `realPath` 对挂载方案有“建挂载点目录”的副作用、授权操作叫 `realPath`、Agent 的 `shell` 用的就是它；换名字后三处要同步迁移，提案没列；第一轮第 8 条已提过同类意见；
+  3. 挂载方案的 `authorize(caller, mount, operation, path)` 的 `SchemeOperation` 只有 `read | list | write | create | realPath`，没有 `delete`、`move`、`copy`、`stage`，新接口的这些方法该映射到哪个操作没有写；`docs://` 声明只读，靠的就是这个。
+- 为什么是问题：作者与实现者要对照现有代码迁移时，提案的名字与现有的一半对不上；授权的映射是 Agent 安全的一部分（`classify`、`permission-denied`），写错后果比命名严重。
+- 参照：SDK 自己的约定（README“服务端入口与远程服务”）：失败以结构化结果返回、码写在合同里，沿用现有 `ServerFilesResult` 即可。
+- 建议改法：保留 `serverFilesKey` 与 `ServerFiles`，在原地演进（Spec 已规定“公开接口变化时一次迁移全部调用方”），把 `WorkspaceFiles` 这个名字去掉；结果类型沿用 `ServerFilesResult`；`readPath` 与 `realPath` 二选一，我建议保留 `realPath` 为授权能力名，把返回只读路径的方法叫 `readPath`，两者对应同一个授权操作 `read`（取消“建目录”的副作用，原因是读一个不存在的路径本来就该 `not-found`）；写一张映射表：`stage/commit/write/update → write`（不存在则 `create`）、`delete/move/copy → write`、`create → create`。
+
+### 16. 经接口的改名显示为“改名”，外部改名显示为“删除加新建”，同一个动作在时间线里有两种样子
+- 严重程度：建议
+- 位置：提案“非目标”（“外部改名的精确识别（照 git，看时间线时按内容相似度接起来）”）、“一次写入”之后的文件操作；`nb-history/README.md` 已知限制第 3 条。
+- 现象：用户在资源管理器里改名，时间线是一条“改名”；用户在系统文件管理器或 shell 里 `mv`，时间线是“旧名被删除、新名被创建”，需要“按相似度接起来”才连得上。
+- 为什么是问题：用户会以为文件“消失了又出现了”；Agent 用 shell 整理章节名时尤其多见（推断的记录里还带着删与建）。
+- 参照：git 在查看时识别改名（`git log --follow`、`git diff -M`），这一点与提案一致；它的改名检测第一步就是找内容完全相同的文件对，没有误判，之后才做相似度匹配，https://git-scm.com/docs/git-diff#Documentation/git-diff.txt--Mltngt 。
+- 建议改法：外部记录在同一个“安静期”里（一两秒，已有）如果一个文件被删除、另一个文件被创建且哈希相同，就记成一条改名（哈希精确相同，没有误判）；不同哈希的才留给时间线按相似度提示。成本是账本里在安静期结束时多做一次配对，用户的收益是“改名”在两种来源下表现一致。
+
+### 17. History 缺席或记账失败时，用户看不出“这次改动不能找回”
+- 严重程度：建议
+- 位置：提案“目标”（“History 仍是可选插件：它不在、出错时文件读写照常”）、“职责划分”（“没装、出错或超时，文件读写照常，写诊断”）、“影响”（“停用 History 插件即停止记账”）。
+- 现象：记账失败只写诊断。用户经 Agent 删了一章，账本恰好不可用，之后想找回，收件箱与“已删除文件”里没有它，用户并不知道当时没记上；因为平时记账都成功，用户会形成“删了能找回”的预期。
+- 为什么是问题：写小说的人对“丢了内容”最敏感；“软依赖、写诊断”对开发者是合理的，对用户是静默失败。
+- 参照：VS Code 的 Local History 关闭（`workbench.localHistory.enabled`）时 Timeline 里就没有这个来源，不会假装有，https://code.visualstudio.com/docs/editor/codebasics#_local-history 。
+- 建议改法：History 插件在记账失败或积压时发一个公开状态（`definePublicState` 一类），工作台状态栏显示“历史记录暂停”；删除、移动类的用户操作在这个状态下的确认框里加一句“当前没有历史记录，删除后无法找回”；Agent 的写入在该状态下仍照常，但会话里给一条提示。这些是 UI 的事，接口层只需要 History 暴露一个“是否可用”的状态。
+
+### 18. 示例代码按现有类型编译不过，且错误的交付方式在同一接口里有两种
+- 严重程度：建议
+- 位置：提案“用法举例”（`at.value.path`、`(await files.stage(…)).value`、`files.forSession`、`beforeBytes`）；“接口形态”下的说明（“暂存文件写入的 I/O 失败在 `write` 时抛出……提交的结果一律经 `FilesResult` 交回”）。
+- 现象：`FilesResult` 是带 `ok` 的联合类型，失败分支没有 `value`，`at.value.path` 与 `(await files.stage(…)).value` 在严格模式下编译不过；`forSession` 不在接口里；`beforeBytes` 没有来源。同一个接口里 `stage` 与 `commit` 返回结果、`Staged.write` 抛异常，作者要同时写 `if (!r.ok)` 与 `try/catch`。
+- 为什么是问题：示例会被原样复制；SDK 的约定是失败以结构化结果返回（README），提案另造了第二种。
+- 参照：`plugin-sdk/README.md` 的示例都写 `if (!opened.ok) throw …` 再取值。
+- 建议改法：示例按 SDK 的习惯写出判断；`Staged.write` 也返回 `FilesResult<void>`（磁盘满、被移走都有码：`io-failed`、`root-gone`），这样作者对整个写入流程只有一种失败方式；若坚持 `write` 抛异常，在注释里写明哪些码会抛。
+
+## 四、仔细检查后没有发现问题的方面
+
+- 取消：`signal` 作为每个方法的 `CallOptions` 与现有 `ServerFilesOptions.signal` 一致，位置合理（取消后的结局问题已在发现 8）。
+- 按调用方门面的机制本身：同步工厂、随调用方释放、`ServiceRevokedError`，与 `runtime/services.md` 输出 12 的要求相容；问题只在 `Staged` 与派生门面的寿命没写（发现 1、5）。
+- `update(edit)` 的名字与语义（读、改、条件写回、冲突重读）与 `nbook.storage` 记录句柄的 `update(旧值 => 新值)` 一致，作者不用学两套。
+- 失败码沿用文件服务码表、结果带 `current`：方向正确（接口里的类型名问题在发现 15）。
+- 方案注册、挂载方案与授权保留不变（t08 的成果不受影响），这一点对作者最稳。
+- “写入对作者只有 `commit` 一个动作，暂存、锁、改名、记账、回声都在拥有根的进程里”：把 B+ 的复杂度挡在接口之外，作者面对的模型比第一稿简单得多（遗留问题集中在发现 6、8）。
+- 读不记账、读由调用方自己做、大文件不再受 960 KiB 限制：方向正确，第一轮意见已确认。
+- 浏览器 RPC 合同不变：对前端作者没有新增负担。
+
+## 五、数量
+
+阻断 0 条；重要 12 条（发现 1、2、3、4、5、6、8、9、10、11、12、13）；建议 6 条（发现 7、14、15、16、17、18）；共 18 条。
+
+最严重的几条：
+1. 发现 3：没有“一次逻辑操作”的分组与说明（接口、账本字段、收件箱折叠都要一起定，nb-history 已发布，晚加是破坏性改动）。
+2. 发现 1 与 2：`forSession` 的位置矛盾、绑定时刻早于 `entryId`；`SessionResources` 与 `WorkspaceFiles` 并行两套，Agent 工具作者实际用的入口缺 `delete/move/copy/stage`。
+3. 发现 11：shell 推断缺登记接口，且误归属会让用户还原掉自己的改动。
+4. 发现 4：清单同步、`delete/move` 的条件、`manifests` 回执从新接口里丢了；导入几百章时清单被反复改写。
+5. 发现 5：`await using`/`AsyncDisposable` 与 SDK 约定和模板 tsconfig 不符（类型检查结论从配置推断，未实测）。
