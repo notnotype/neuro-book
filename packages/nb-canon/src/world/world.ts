@@ -1,0 +1,639 @@
+/**
+ * 内存里的世界：重放修订、发布写入请求（docs/specs/canon/revisions.md），纯计算、不碰文件。
+ *
+ * 一次发布：校验请求的形状 → 查请求 id → 临时 id 换成正式 id → 按对象判冲突 → 套上新值、算出只存变了的叶子 →
+ * 用增量引擎在新世界上算 → 逐项校验 → 算“带来的变化” → 得到修订与新的世界。中途任何一步不过就整次拒收，
+ * 本世界不变（输出 1）。写盘由 service 做：它先把修订追加进日志，落盘后才换上新世界（project.md 输出 6）。
+ *
+ * World 是不可变的：发布返回新的 World，旧的照常可读，所以读取总是看到某一个版本。
+ */
+
+import {effectiveFields, fieldsProblem, type ComponentRegistry} from "../components/registry";
+import {valueProblem} from "../components/values";
+import {addressKey, parsePath} from "../core/address";
+import {compareIds, ID_PREFIX, IdAllocator} from "../core/ids";
+import {readNumbers} from "../core/numerals";
+import {applyChanges, diffValues} from "../core/paths";
+import {chapterEnd, defaultPosition, type ChapterOrder} from "../core/position";
+import {
+    OBJECT_SCHEMAS,
+    schemaProblems,
+    WriteRequestSchema,
+    type Address,
+    type Check,
+    type Entry,
+    type ObjectKind,
+    type ObjectRef,
+    type Op,
+    type Patch,
+    type ReadPosition,
+    type Revision,
+    type StoryChange,
+    type Telling,
+    type WriteRequest,
+} from "../core/schema";
+import {sameJson, stableStringify} from "../core/stable-json";
+import {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from "../engine/incremental";
+import type {EngineInputs, PendingItem, ReductionLookup, WorldData} from "../engine/types";
+import {readEntryAddress} from "../engine/views";
+
+/** 宿主提供的、计算要用的东西（project.md 输入与前置条件）。 */
+export interface WorldOptions {
+    readonly order: ChapterOrder;
+    readonly registry: ComponentRegistry;
+    readonly reductions: ReductionLookup;
+    /** 按章 id 取当前正文；没有这一章返回 undefined。 */
+    readonly chapterText: (chapter: string) => string | undefined;
+    /** 字符串的 SHA-256（请求摘要用）。 */
+    readonly digest: (text: string) => string;
+}
+
+export interface Problem {
+    readonly code: string;
+    readonly ref?: ObjectRef;
+    readonly path?: string;
+    readonly message: string;
+}
+
+export interface ConflictDetail {
+    readonly ref: ObjectRef;
+    readonly changed: boolean;
+    readonly current: unknown;
+}
+
+export type WriteFailure =
+    | {readonly code: "validation-failed"; readonly problems: readonly Problem[]}
+    | {readonly code: "version-conflict"; readonly objects: readonly ConflictDetail[]}
+    | {readonly code: "request-id-reused"}
+    | {readonly code: "not-deletable"; readonly ref: ObjectRef};
+
+export type WriteResult =
+    | {readonly ok: true; readonly world: World; readonly revision: Revision; readonly ids: Readonly<Record<string, string>>; readonly repeated: boolean}
+    | {readonly ok: false; readonly failure: WriteFailure};
+
+const TEMP = "tmp:";
+const KIND_OF_PREFIX: Readonly<Record<ObjectKind, string>> = {entry: ID_PREFIX.entry, change: ID_PREFIX.change, check: ID_PREFIX.check, question: ID_PREFIX.question, suggestion: ID_PREFIX.suggestion};
+const TABLE = {entry: "entries", change: "changes", check: "checks", question: "questions", suggestion: "suggestions"} as const;
+
+interface Indexes {
+    readonly requests: ReadonlyMap<string, {readonly revision: Revision}>;
+    /** 每个对象最后被哪个版本改过（按对象判冲突，输出 7）。 */
+    readonly touched: ReadonlyMap<string, number>;
+    /** 一条变更最近一次被哪次修订弄得套不上（待处理的根因，model.md 输出 22）。 */
+    readonly brokenBy: ReadonlyMap<string, string>;
+    readonly allocator: IdAllocator;
+    readonly recordedChapters: readonly string[] | null;
+}
+
+type Tables = {
+    entries: Map<string, Entry>;
+    changes: Map<string, StoryChange>;
+    checks: Map<string, Check>;
+    questions: Map<string, WorldData["questions"] extends ReadonlyMap<string, infer V> ? V : never>;
+    suggestions: Map<string, WorldData["suggestions"] extends ReadonlyMap<string, infer V> ? V : never>;
+};
+
+const refKey = (ref: ObjectRef) => `${ref.kind}:${ref.id}`;
+
+export class World {
+    private constructor(
+        readonly data: WorldData,
+        readonly engine: IncrementalEngine,
+        readonly revisions: readonly Revision[],
+        private readonly index: Indexes,
+        readonly options: WorldOptions,
+    ) {}
+
+    /** 空世界。 */
+    static empty(options: WorldOptions): World {
+        return World.replay([], options);
+    }
+
+    /** 重放日志里的修订（已由存储层校验过形状与版本连续）。不做写入时的校验：日志里的就是事实。 */
+    static replay(revisions: readonly Revision[], options: WorldOptions): World {
+        const tables: Tables = {entries: new Map(), changes: new Map(), checks: new Map(), questions: new Map(), suggestions: new Map()};
+        const createdAt = new Map<string, number>();
+        const requests = new Map<string, {revision: Revision}>();
+        const touched = new Map<string, number>();
+        const brokenBy = new Map<string, string>();
+        const allocator = new IdAllocator();
+        let recordedChapters: readonly string[] | null = null;
+        for (const revision of revisions) {
+            allocator.observe(revision.id);
+            requests.set(revision.requestId, {revision});
+            for (const op of revision.ops) {
+                if (op.kind === "chapters") {
+                    recordedChapters = op.after;
+                    continue;
+                }
+                allocator.observe(op.ref.id);
+                touched.set(refKey(op.ref), revision.version);
+                applyOp(tables, op, createdAt, revision.version);
+            }
+            for (const change of revision.impact.broken) brokenBy.set(change, revision.id);
+        }
+        const version = revisions.at(-1)?.version ?? 0;
+        const data = freeze(tables, createdAt, version);
+        const engine = createIncrementalEngine(engineInputs(data, options));
+        return new World(data, engine, [...revisions], {requests, touched, brokenBy, allocator, recordedChapters}, options);
+    }
+
+    get version(): number {
+        return this.data.version;
+    }
+
+    /** 最近一次章序调整修订记下的章序；从没记过为 null。 */
+    get recordedChapters(): readonly string[] | null {
+        return this.index.recordedChapters;
+    }
+
+    /** 宿主的输入变了（章序、登记的类型、归纳缓存、正文）：换上新输入重算，版本不变。 */
+    withOptions(options: WorldOptions): World {
+        const structural = !sameJson(options.order.ids, this.options.order.ids) || options.registry.digest !== this.options.registry.digest || options.reductions !== this.options.reductions;
+        const engine = structural ? this.engine.update(engineInputs(this.data, options), {structural: true}) : this.engine;
+        return new World(this.data, engine, this.revisions, this.index, options);
+    }
+
+    /** 待处理，套不上的按根因合并（model.md 输出 16、22）。 */
+    pending(position: ReadPosition): readonly PendingItem[] | "chapter-not-found" {
+        const items = this.engine.pending(position);
+        if (items === "chapter-not-found") return items;
+        const grouped: PendingItem[] = [];
+        const groups = new Map<string, {root: string; changes: string[]}>();
+        for (const item of items) {
+            if (item.kind !== "cannot-apply") {
+                grouped.push(item);
+                continue;
+            }
+            const change = item.changes[0]!;
+            const root = this.index.brokenBy.get(change) ?? change;
+            const group = groups.get(root);
+            if (group !== undefined) group.changes.push(change);
+            else {
+                const created = {root, changes: [change]};
+                groups.set(root, created);
+                grouped.push({kind: "cannot-apply", root, changes: created.changes});
+            }
+        }
+        return grouped.map((item) => (item.kind === "cannot-apply" ? {...item, changes: [...item.changes].sort(compareIds)} : item));
+    }
+
+    /** 预览：做发布的全部计算，不发布（输出 5）。 */
+    preview(request: WriteRequest, time: string): WriteResult {
+        return this.publish(request, time);
+    }
+
+    /** 发布一个写入请求；成功时返回新的世界与修订（本世界不变）。 */
+    publish(input: WriteRequest, time: string): WriteResult {
+        const shape = schemaProblems(WriteRequestSchema, input);
+        if (shape !== null) return invalid(shape.map((problem) => ({code: "type-mismatch", path: problem.path, message: problem.message})));
+        const {baseVersion: _baseVersion, ...meaning} = input;
+        const requestDigest = this.options.digest(stableStringify(meaning));
+        const previous = this.index.requests.get(input.requestId);
+        if (previous !== undefined) {
+            if (previous.revision.requestDigest !== requestDigest) return {ok: false, failure: {code: "request-id-reused"}};
+            return {ok: true, world: this, revision: previous.revision, ids: previous.revision.idMap ?? {}, repeated: true};
+        }
+
+        // 临时 id 换成正式 id；同一个请求里引用临时 id 的地方一起换。
+        const allocator = cloneAllocator(this.index.allocator, []);
+        const ids: Record<string, string> = {};
+        for (const put of input.puts) {
+            if (put.ref.id.startsWith(TEMP) && ids[put.ref.id] === undefined) ids[put.ref.id] = allocator.next(KIND_OF_PREFIX[put.ref.kind]);
+        }
+        const request = replaceTempIds(input, ids);
+
+        const problems: Problem[] = [];
+        const conflicts: ConflictDetail[] = [];
+        for (const put of request.puts) {
+            const existing = this.object(put.ref);
+            const isNew = Object.values(ids).includes(put.ref.id);
+            if (!isNew && existing === undefined) problems.push({code: "not-found", ref: put.ref, message: "object does not exist; new objects need a tmp: id"});
+            if (put.after === null && (put.ref.kind === "entry" || put.ref.kind === "change")) return {ok: false, failure: {code: "not-deletable", ref: put.ref}};
+            const lastTouched = this.index.touched.get(refKey(put.ref)) ?? 0;
+            if (!isNew && lastTouched > request.baseVersion) conflicts.push({ref: put.ref, changed: true, current: structuredClone(existing)});
+        }
+        if (conflicts.length > 0) {
+            for (const put of request.puts) if (!conflicts.some((conflict) => refKey(conflict.ref) === refKey(put.ref))) conflicts.push({ref: put.ref, changed: false, current: structuredClone(this.object(put.ref) ?? null)});
+            return {ok: false, failure: {code: "version-conflict", objects: conflicts}};
+        }
+        if (problems.length > 0) return invalid(problems);
+
+        const version = this.version + 1;
+        const tables = thaw(this.data);
+        const createdAt = new Map(this.data.createdAt);
+        const ops: Op[] = [];
+        const changed: {entries: string[]; changes: string[]; checks: string[]} = {entries: [], changes: [], checks: []};
+        for (const put of request.puts) {
+            const after = put.after === null ? undefined : fillDefaults(put.ref.kind, structuredClone(put.after), request, this.options);
+            if (after !== undefined) {
+                const shapeProblems = schemaProblems(OBJECT_SCHEMAS[put.ref.kind], after);
+                if (shapeProblems !== null) {
+                    problems.push(...shapeProblems.map((problem) => ({code: "type-mismatch", ref: put.ref, path: problem.path, message: problem.message})));
+                    continue;
+                }
+                if ((after as {id?: unknown}).id !== put.ref.id) problems.push({code: "id-taken", ref: put.ref, message: "object id must match its ref"});
+            }
+            const before = this.object(put.ref);
+            const op: Op | null = before === undefined
+                ? {ref: put.ref, kind: "create", after}
+                : after === undefined
+                  ? {ref: put.ref, kind: "delete", before}
+                  : diffValues(before, after).length === 0
+                    ? null
+                    : {ref: put.ref, kind: "modify", fields: diffValues(before, after)};
+            if (op === null) continue;
+            ops.push(op);
+            applyOp(tables, op, createdAt, version);
+            if (put.ref.kind === "entry") changed.entries.push(put.ref.id);
+            if (put.ref.kind === "change") changed.changes.push(put.ref.id);
+            if (put.ref.kind === "check") changed.checks.push(put.ref.id);
+        }
+        if (problems.length > 0) return invalid(problems);
+
+        const data = freeze(tables, createdAt, version);
+        const engine = this.engine.update(engineInputs(data, this.options), changed);
+        problems.push(...validate(this, data, engine, request, changed));
+        if (problems.length > 0) return invalid(problems);
+
+        const where = whereOf(request.chapter, this.options.order);
+        const impact = computeImpact(this, data, engine, where, ops);
+        const revision: Revision = {
+            id: allocator.next(ID_PREFIX.revision),
+            version,
+            requestId: request.requestId,
+            requestDigest,
+            time,
+            by: request.by,
+            what: request.what,
+            title: request.title,
+            ...(request.why === undefined ? {} : {why: request.why}),
+            ...(request.chapter === undefined ? {} : {chapter: request.chapter}),
+            baseVersion: request.baseVersion,
+            ops,
+            ...(request.notes === undefined ? {} : {notes: request.notes}),
+            impact,
+            ...(Object.keys(ids).length === 0 ? {} : {idMap: ids}),
+        };
+        return {ok: true, world: this.next(data, engine, revision), revision, ids, repeated: false};
+    }
+
+    /** 章序调整（model.md 输出 3，revisions.md 输出 13）：宿主给的章序与记下的不同时，返回发布它的写入结果。 */
+    reorder(order: ChapterOrder, time: string, requestId: string): WriteResult | null {
+        const recorded = this.index.recordedChapters;
+        if (recorded !== null && sameJson(recorded, order.ids)) return null;
+        if (recorded === null && order.ids.length === 0 && this.version === 0) return null;
+        const options = {...this.options, order};
+        const moved = this.withOptions(options);
+        const version = this.version + 1;
+        const allocator = cloneAllocator(this.index.allocator, []);
+        const revision: Revision = {
+            id: allocator.next(ID_PREFIX.revision),
+            version,
+            requestId,
+            requestDigest: this.options.digest(stableStringify({chapters: order.ids})),
+            time,
+            by: {kind: "system"},
+            what: "reorder",
+            title: "章序调整",
+            baseVersion: this.version,
+            ops: [{kind: "chapters", before: [...(recorded ?? [])], after: [...order.ids]}],
+            impact: computeImpact(this, moved.data, moved.engine, whereOf(undefined, order), []),
+        };
+        const data: WorldData = {...moved.data, version};
+        const engine = moved.engine.update(engineInputs(data, options), {});
+        const next = new World(data, engine, [...this.revisions, revision], {...this.index, recordedChapters: [...order.ids], requests: new Map(this.index.requests).set(requestId, {revision})}, options);
+        return {ok: true, world: next, revision, ids: {}, repeated: false};
+    }
+
+    object(ref: ObjectRef): unknown {
+        return (this.data[TABLE[ref.kind]] as ReadonlyMap<string, unknown>).get(ref.id);
+    }
+
+    /** 发布另一个进程写的修订（project.md 输出 17）：照重放的规矩套上，不校验。 */
+    absorb(revision: Revision): World {
+        const tables = thaw(this.data);
+        const createdAt = new Map(this.data.createdAt);
+        const changed: {entries: string[]; changes: string[]; checks: string[]} = {entries: [], changes: [], checks: []};
+        let recordedChapters = this.index.recordedChapters;
+        for (const op of revision.ops) {
+            if (op.kind === "chapters") {
+                recordedChapters = op.after;
+                continue;
+            }
+            applyOp(tables, op, createdAt, revision.version);
+            if (op.ref.kind === "entry") changed.entries.push(op.ref.id);
+            if (op.ref.kind === "change") changed.changes.push(op.ref.id);
+            if (op.ref.kind === "check") changed.checks.push(op.ref.id);
+        }
+        const data = freeze(tables, createdAt, revision.version);
+        const engine = this.engine.update(engineInputs(data, this.options), changed);
+        const world = this.next(data, engine, revision);
+        return recordedChapters === this.index.recordedChapters ? world : new World(world.data, world.engine, world.revisions, {...world.index, recordedChapters}, world.options);
+    }
+
+    private next(data: WorldData, engine: IncrementalEngine, revision: Revision): World {
+        const touched = new Map(this.index.touched);
+        for (const op of revision.ops) if (op.kind !== "chapters") touched.set(refKey(op.ref), revision.version);
+        const brokenBy = new Map(this.index.brokenBy);
+        for (const change of revision.impact.broken) brokenBy.set(change, revision.id);
+        const allocator = cloneAllocator(this.index.allocator, [revision]);
+        for (const op of revision.ops) if (op.kind !== "chapters") allocator.observe(op.ref.id);
+        const requests = new Map(this.index.requests).set(revision.requestId, {revision});
+        return new World(data, engine, [...this.revisions, revision], {requests, touched, brokenBy, allocator, recordedChapters: this.index.recordedChapters}, this.options);
+    }
+}
+
+function invalid(problems: readonly Problem[]): WriteResult {
+    return {ok: false, failure: {code: "validation-failed", problems}};
+}
+
+function engineInputs(data: WorldData, options: WorldOptions): EngineInputs {
+    return {world: data, order: options.order, registry: options.registry, reductions: options.reductions};
+}
+
+function cloneAllocator(source: IdAllocator, extra: readonly Revision[]): IdAllocator {
+    const allocator = source.clone();
+    for (const revision of extra) allocator.observe(revision.id);
+    return allocator;
+}
+
+function thaw(data: WorldData): Tables {
+    return {
+        entries: new Map(data.entries),
+        changes: new Map(data.changes),
+        checks: new Map(data.checks),
+        questions: new Map(data.questions),
+        suggestions: new Map(data.suggestions),
+    };
+}
+
+function freeze(tables: Tables, createdAt: Map<string, number>, version: number): WorldData {
+    return {version, entries: tables.entries, changes: tables.changes, checks: tables.checks, questions: tables.questions, suggestions: tables.suggestions, createdAt};
+}
+
+function applyOp(tables: Tables, op: Exclude<Op, {kind: "chapters"}>, createdAt: Map<string, number>, version: number): void {
+    const table = tables[TABLE[op.ref.kind]] as Map<string, unknown>;
+    if (op.kind === "create") {
+        table.set(op.ref.id, structuredClone(op.after));
+        if (!createdAt.has(op.ref.id)) createdAt.set(op.ref.id, version);
+    } else if (op.kind === "delete") table.delete(op.ref.id);
+    else table.set(op.ref.id, applyChanges(table.get(op.ref.id), op.fields, "after"));
+}
+
+function replaceTempIds(request: WriteRequest, ids: Readonly<Record<string, string>>): WriteRequest {
+    if (Object.keys(ids).length === 0) return request;
+    const replace = (value: unknown): unknown => {
+        if (typeof value === "string") return ids[value] ?? value;
+        if (Array.isArray(value)) return value.map(replace);
+        if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, replace(item)]));
+        return value;
+    };
+    return replace(request) as WriteRequest;
+}
+
+/**
+ * 写入时补上的缺省值：章内排序键（revisions.md 输出 18）；作者与系统写的数没给依据时记成“作者给的”
+ * （Agent 与后台任务必须自己给，输出 3）。
+ */
+function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, options: WorldOptions): unknown {
+    const authored = request.by.kind === "author" || request.by.kind === "system";
+    if (kind === "change") {
+        const change = after as StoryChange & {at: {key?: number}};
+        const at = change.at;
+        if (at?.kind === "chapter" && typeof at.key !== "number") {
+            const text = options.chapterText(at.chapter) ?? "";
+            const quote = change.told?.find((telling) => telling.source === "chapter" && telling.chapter === at.chapter)?.quote;
+            const index = quote === undefined ? -1 : text.indexOf(quote);
+            (change.at as {key: number}).key = index >= 0 ? index : 0;
+        }
+        if (authored && Array.isArray(change.patches)) for (const patch of change.patches) if (patch.basis === undefined && typeof patch.value === "number") (patch as Patch).basis = {kind: "author"};
+    }
+    if (kind === "check") {
+        const check = after as Check & {place: {key?: number}};
+        if (check.place?.kind === "chapter" && typeof check.place.key !== "number") {
+            const text = options.chapterText(check.place.chapter) ?? "";
+            const index = text.indexOf(check.told?.quote ?? "\u0000");
+            (check.place as {key: number}).key = index >= 0 ? index : 0;
+        }
+    }
+    return after;
+}
+
+function whereOf(chapter: string | undefined, order: ChapterOrder): ReadPosition {
+    return chapter !== undefined && order.has(chapter) ? chapterEnd(chapter) : defaultPosition(order);
+}
+
+/** 写入时校验（revisions.md 输出 3、17，model.md 输出 18、23，components.md 输出 3、5、14–16）。 */
+function validate(world: World, data: WorldData, engine: IncrementalEngine, request: WriteRequest, changed: {entries: string[]; changes: string[]; checks: string[]}): Problem[] {
+    const problems: Problem[] = [];
+    const {registry, chapterText} = world.options;
+    const strictBasis = request.by.kind === "agent" || request.by.kind === "task";
+
+    const quoteFound = (telling: Telling) => telling.source !== "chapter" || (telling.chapter !== undefined && (chapterText(telling.chapter) ?? "").includes(telling.quote));
+
+    for (const id of changed.entries) {
+        const entry = data.entries.get(id);
+        if (entry === undefined) continue;
+        const ref: ObjectRef = {kind: "entry", id};
+        if (entry.parent !== null) {
+            const seen = new Set<string>([id]);
+            let parent: string | null = entry.parent;
+            while (parent !== null) {
+                const node = data.entries.get(parent);
+                if (node === undefined || node.deleted === true || seen.has(parent)) {
+                    problems.push({code: "invalid-tree", ref, path: "parent", message: "parent must be an existing, live entry without cycles"});
+                    break;
+                }
+                seen.add(parent);
+                parent = node.parent;
+            }
+        }
+        if (entry.sameAs !== undefined) {
+            const target = data.entries.get(entry.sameAs);
+            if (target === undefined || entry.sameAs === id || target.sameAs !== undefined) problems.push({code: "invalid-tree", ref, path: "sameAs", message: "sameAs must point to another existing entry that has no sameAs"});
+        }
+        for (const [namespace, nsData] of Object.entries(entry.init.data)) {
+            const type = registry.byNamespace(namespace);
+            const old = (world.object(ref) as Entry | undefined)?.init.data[namespace];
+            if (sameJson(old, nsData)) continue;
+            if (type === undefined || type.id !== nsData.type) {
+                problems.push({code: "component-unknown", ref, path: `init.data.${namespace}`, message: "component type is not registered"});
+                continue;
+            }
+            if (type.version !== nsData.version) {
+                problems.push({code: "component-version-unsupported", ref, path: `init.data.${namespace}`, message: "component version differs from the registered type"});
+                continue;
+            }
+            const declaredProblem = nsData.declared === undefined ? null : fieldsProblem([...type.fields, ...nsData.declared], `init.data.${namespace}.declared`);
+            if (declaredProblem !== null) problems.push({code: "type-mismatch", ref, ...declaredProblem});
+            for (const field of effectiveFields(type, nsData.declared)) {
+                const value = nsData.fields[field.id] ?? null;
+                const problem = valueProblem(field, value);
+                if (problem !== null) {
+                    const redeclared = nsData.declared?.some((declared) => declared.id === field.id) === true && !(old?.declared ?? []).some((declared) => declared.id === field.id) && field.id in (old?.fields ?? {});
+                    problems.push({code: redeclared ? "field-redeclare-mismatch" : problem, ref, path: `init.data.${namespace}.fields.${field.id}`, message: `value does not fit field "${field.label}"`});
+                    continue;
+                }
+                if (strictBasis && field.kind === "number" && field.precision !== "semantic" && typeof value === "number" && !sameJson(old?.fields[field.id], value) && entry.initBasis?.[`${namespace}.${field.id}`] === undefined) {
+                    problems.push({code: "number-without-basis", ref, path: `initBasis["${namespace}.${field.id}"]`, message: "every number needs a basis (quote, derived, author, or estimate)"});
+                }
+            }
+        }
+        for (const [path, tellings] of Object.entries(entry.retold ?? {})) {
+            for (const telling of tellings) if (!quoteFound(telling)) problems.push({code: "quote-not-found", ref, path: `retold["${path}"]`, message: "quote is not in the chapter text"});
+        }
+    }
+
+    const replacements = new Map<string, string[]>();
+    for (const change of data.changes.values()) {
+        if (change.kind !== "plan" || change.status !== "active") continue;
+        for (const link of change.links) if (link.kind === "replaces") replacements.set(link.plan, [...(replacements.get(link.plan) ?? []), change.id]);
+    }
+
+    for (const id of changed.changes) {
+        const change = data.changes.get(id);
+        if (change === undefined || change.status === "undone") continue;
+        const ref: ObjectRef = {kind: "change", id};
+        for (const line of change.lines) if (data.entries.get(line)?.type !== "剧情线") problems.push({code: "invalid-line", ref, path: "lines", message: `"${line}" is not a plot line entry`});
+        for (const link of change.links) {
+            const plan = data.changes.get(link.plan);
+            const ok = plan !== undefined && plan.kind === "plan" && link.plan !== id && (link.kind === "fulfills" ? change.kind === "written" : change.kind === "plan");
+            if (!ok) problems.push({code: "invalid-link", ref, path: "links", message: `${link.kind} must point from ${link.kind === "fulfills" ? "a written change" : "a plan"} to another plan`});
+            if (link.kind === "splitFrom") {
+                const by = data.changes.get(link.by);
+                if (by === undefined || by.kind !== "written" || !by.links.some((other) => other.kind === "fulfills" && other.plan === link.plan)) problems.push({code: "invalid-link", ref, path: "links", message: "splitFrom.by must be a written change that fulfills the same plan"});
+            }
+            if (link.kind === "replaces" && change.kind === "plan" && change.status === "active") {
+                if ((replacements.get(link.plan) ?? []).length > 1) problems.push({code: "invalid-link", ref, path: "links", message: "a plan can be replaced by at most one active plan"});
+                let cursor: string | undefined = link.plan;
+                const seen = new Set<string>([id]);
+                while (cursor !== undefined) {
+                    if (seen.has(cursor)) {
+                        problems.push({code: "invalid-link", ref, path: "links", message: "replaces forms a cycle"});
+                        break;
+                    }
+                    seen.add(cursor);
+                    const next: StoryChange | undefined = data.changes.get(cursor);
+                    cursor = next?.status === "active" ? next.links.find((other) => other.kind === "replaces")?.plan : undefined;
+                }
+            }
+        }
+        for (const telling of change.told) if (!quoteFound(telling)) problems.push({code: "quote-not-found", ref, path: "told", message: "quote is not in the chapter text"});
+        for (const [index, patch] of change.patches.entries()) {
+            const target = data.entries.get(patch.at.entry);
+            if (target === undefined || target.deleted === true) problems.push({code: "entry-missing", ref, path: `patches[${String(index)}]`, message: `entry "${patch.at.entry}" does not exist`});
+            if (parsePath(patch.at.path) === null) problems.push({code: "unknown-field", ref, path: `patches[${String(index)}]`, message: `bad address "${patch.at.path}"`});
+            if (typeof patch.value === "number" && patch.op !== "note") {
+                const basisProblem = checkBasis(patch, change, engine, data, chapterText, strictBasis);
+                if (basisProblem !== null) problems.push({...basisProblem, ref, path: `patches[${String(index)}]`});
+            }
+        }
+        if (change.kind !== "written" || change.status !== "active") continue;
+        for (const entryId of new Set(change.patches.map((patch) => patch.at.entry))) {
+            const target = data.entries.get(entryId);
+            if (target?.appears === undefined) continue;
+            const appears = target.appears;
+            const appearsRank = appears.kind === "chapter" ? world.options.order.index(appears.chapter) : -1;
+            const changeRank = change.at.kind === "chapter" ? world.options.order.index(change.at.chapter) : -1;
+            if (appearsRank !== undefined && changeRank !== undefined && (changeRank < appearsRank || (changeRank === appearsRank && change.at.kind === "chapter" && appears.kind === "chapter" && change.at.key < appears.key))) {
+                problems.push({code: "not-appeared", ref, message: `entry "${entryId}" has not appeared at this placement`});
+            }
+        }
+        const detail = engine.detail(id);
+        if (detail === undefined) continue;
+        if (!detail.applied) {
+            problems.push({code: detail.reason, ref, path: detail.failedPatch >= 0 ? `patches[${String(detail.failedPatch)}]` : "patches", message: `change cannot apply at its placement (${detail.reason})`});
+            continue;
+        }
+        for (const [index, result] of detail.patches.entries()) {
+            if (result === "applied") continue;
+            const why = result.notApplicable;
+            const code = why === "disabled" || why === "removed" ? "component-disabled" : why === "undeclared" ? "unknown-field" : why;
+            problems.push({code, ref, path: `patches[${String(index)}]`, message: `patch does not apply (${why})`});
+        }
+    }
+
+    for (const id of changed.checks) {
+        const check = data.checks.get(id);
+        if (check === undefined) continue;
+        const ref: ObjectRef = {kind: "check", id};
+        if (!data.entries.has(check.at.entry)) problems.push({code: "entry-missing", ref, message: "entry does not exist"});
+        if (!quoteFound(check.told)) problems.push({code: "quote-not-found", ref, path: "told", message: "quote is not in the chapter text"});
+        if (check.anchor !== undefined && !data.changes.has(check.anchor.change)) problems.push({code: "invalid-link", ref, path: "anchor", message: "anchor change does not exist"});
+    }
+    return problems;
+}
+
+/** 每个数有依据（revisions.md 输出 3）：原文里读得出这个数（加减取绝对值）、核对点推出的差额复算相等、作者给的或估计。 */
+function checkBasis(patch: Patch, change: StoryChange, engine: IncrementalEngine, data: WorldData, chapterText: (chapter: string) => string | undefined, strict: boolean): Omit<Problem, "ref"> | null {
+    const value = patch.value as number;
+    const basis = patch.basis;
+    if (basis === undefined) return strict ? {code: "number-without-basis", message: "every number needs a basis (quote, derived, author, or estimate)"} : null;
+    if (basis.kind === "estimate" || basis.kind === "author") return null;
+    if (basis.kind === "quote") {
+        const wanted = patch.op === "add" ? Math.abs(value) : value;
+        if (!readNumbers(basis.quote).includes(wanted)) return {code: "basis-mismatch", message: `quote does not contain ${String(wanted)}`};
+        const inText = change.at.kind === "chapter" ? (chapterText(change.at.chapter) ?? "").includes(basis.quote) : false;
+        const inTold = change.told.some((telling) => telling.quote.includes(basis.quote));
+        return inText || inTold ? null : {code: "quote-not-found", message: "basis quote is not in the chapter text or the tellings"};
+    }
+    const check = data.checks.get(basis.check);
+    if (check === undefined || check.at.entry !== patch.at.entry || check.at.path !== patch.at.path) return {code: "basis-mismatch", message: "derived basis must name a check on the same address"};
+    if (patch.op === "set") return value === check.value ? null : {code: "basis-mismatch", message: "derived value differs from the check"};
+    const before = engine.valueBefore(change.id, patch.at);
+    return typeof before === "number" && before + value === check.value ? null : {code: "basis-mismatch", message: "derived difference does not recompute"};
+}
+
+/** 带来的变化：待处理的增减、相关地址的改前改后、让后面哪些变更套不上（revisions.md 输出 4、6）。 */
+function computeImpact(before: World, data: WorldData, engine: IncrementalEngine, where: ReadPosition, ops: readonly Op[]): Revision["impact"] {
+    const key = (item: PendingItem) => (item.kind === "check-mismatch" ? `check:${item.check}` : item.kind === "cannot-apply" ? `cannot:${item.changes[0]!}` : item.kind === "held" ? `held:${item.change}` : `deleted:${item.ref.kind}:${item.ref.id}`);
+    const was = before.engine.pending(where);
+    const now = engine.pending(where);
+    const wasKeys = new Set(was === "chapter-not-found" ? [] : was.map(key));
+    const nowKeys = new Set(now === "chapter-not-found" ? [] : now.map(key));
+    const addresses = new Map<string, Address>();
+    for (const op of ops) {
+        if (op.kind === "chapters") continue;
+        if (op.ref.kind === "change") {
+            for (const source of [op.kind === "create" ? op.after : op.kind === "delete" ? op.before : data.changes.get(op.ref.id), before.data.changes.get(op.ref.id)]) {
+                for (const patch of (source as StoryChange | undefined)?.patches ?? []) addresses.set(`${patch.at.entry}\u0000${patch.at.path}`, patch.at);
+            }
+        }
+        if (op.ref.kind === "entry" && op.kind === "modify") {
+            for (const field of op.fields) {
+                const match = /^init\.data\.([^.[\]]+)\.fields\.([^.[\]]+)/u.exec(field.path) ?? /^init\.(name|summary|aliases)/u.exec(field.path);
+                if (match === null) continue;
+                const path = match.length === 3 ? `${match[1]!}.${match[2]!}` : `entry.${match[1]!}`;
+                addresses.set(`${op.ref.id}\u0000${path}`, {entry: op.ref.id, path});
+            }
+        }
+    }
+    const read = (target: World["engine"], at: Address) => {
+        const view = target.entry(at.entry, where, "actual");
+        if (view === null || view === "chapter-not-found" || view.deleted) return undefined;
+        const namespace = at.path.split(".")[0]!;
+        if (namespace === "entry") return readEntryAddress({name: view.name, aliases: [...view.aliases], summary: view.summary, text: [], data: {}}, at.path);
+        const field = view.namespaces[namespace]?.fields[at.path.slice(namespace.length + 1).split("[")[0]!];
+        return field?.value;
+    };
+    const values: Revision["impact"]["values"] = [];
+    for (const at of [...addresses.values()].sort((a, b) => (addressKey(a) < addressKey(b) ? -1 : 1))) {
+        const old = read(before.engine, at);
+        const fresh = read(engine, at);
+        if (sameJson(old, fresh)) continue;
+        values.push({at, ...(old === undefined ? {} : {before: old}), ...(fresh === undefined ? {} : {after: fresh})});
+    }
+    const broken: string[] = [];
+    for (const change of data.changes.values()) {
+        if (before.engine.outcome(change.id)?.applied === true && engine.outcome(change.id)?.applied === false) broken.push(change.id);
+    }
+    return {
+        where,
+        pendingResolved: [...wasKeys].filter((item) => !nowKeys.has(item)).sort(),
+        pendingAdded: [...nowKeys].filter((item) => !wasKeys.has(item)).sort(),
+        values,
+        broken: broken.sort(compareIds),
+    };
+}
+

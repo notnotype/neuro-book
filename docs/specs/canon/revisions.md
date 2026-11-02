@@ -50,7 +50,7 @@ owners:
 | `reads` | 就地改、记一笔与回写必须给（输出 19）：读到的 `{地址, 读取位置, 值, 来历}` |
 | `notes` | 可选，附注（例如记账时“没建条目”的名字） |
 
-**存下来的修订**（世界日志的持久化格式，见 [`canon.project`](project.md)）：`{id, version, requestId, requestDigest, time, by, what, title, why?, chapter?, baseVersion, ops, notes?, reverts?, impact}`。`requestDigest` 是原始写入请求（去掉 `baseVersion`）按稳定序列化后的 SHA-256。
+**存下来的修订**（世界日志的持久化格式，见 [`canon.project`](project.md)）：`{id, version, requestId, requestDigest, time, by, what, title, why?, chapter?, baseVersion, ops, notes?, reverts?, impact, idMap?}`。`idMap` 是请求里的临时 id 到程序生成的 id 的对照（重发同一个请求时原样返回）；临时 id 写成 `tmp:` 开头，可以出现在同一个请求里别的对象引用它的地方。`requestDigest` 是原始写入请求（去掉 `baseVersion`）按稳定序列化后的 SHA-256。
 
 - `ops` 的每项是 `{ref, kind: "create", after}`、`{ref, kind: "modify", fields}`、`{ref, kind: "delete", before}`，或章序调整的 `{kind: "chapters", before, after}`（两份章 id 的列表）。
 - `fields` 的每项是 `{path, before?, after?}`：没有 `before` 表示改之前这个字段不存在，没有 `after` 表示改之后不存在；JSON 的 `null` 是“未知”，与“不存在”不同。

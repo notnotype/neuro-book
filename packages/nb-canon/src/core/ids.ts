@@ -39,6 +39,13 @@ export class IdAllocator {
         if (parts.number > (this.#max.get(parts.prefix) ?? 0)) this.#max.set(parts.prefix, parts.number);
     }
 
+    /** 一份独立的副本：预览与发布在副本上发号，失败时原来的不受影响。 */
+    clone(): IdAllocator {
+        const copy = new IdAllocator();
+        for (const [prefix, number] of this.#max) copy.#max.set(prefix, number);
+        return copy;
+    }
+
     next(prefix: string): string {
         const number = (this.#max.get(prefix) ?? 0) + 1;
         this.#max.set(prefix, number);

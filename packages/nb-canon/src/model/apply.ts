@@ -37,7 +37,10 @@ export interface ApplyContext {
     readonly entry: (id: string) => Entry | undefined;
 }
 
-export type PatchResult = "applied" | "notApplicable";
+/** 补丁的结果；不适用时带原因，写入时据此给出对应的失败码（revisions.md 输出 3）。 */
+export type PatchResult = "applied" | {readonly notApplicable: NotApplicable};
+
+export type NotApplicable = "disabled" | "removed" | "component-unknown" | "component-version-unsupported" | "undeclared";
 
 export type ChangeResult =
     | {readonly applied: true; readonly patches: readonly PatchResult[]}
@@ -83,7 +86,7 @@ export function applyChange(fold: FoldState, change: StoryChange, context: Apply
         const parsed = parsePath(patch.at.path);
         if (parsed === null) return fail(fold, change, "type-mismatch", index);
         const outcome = applyPatch(state, parsed, patch, context.registry, (path) => eventsOf(addressKey({entry: patch.at.entry, path})));
-        if (outcome !== "applied" && outcome !== "notApplicable") return fail(fold, change, outcome, index);
+        if (typeof outcome === "string" && outcome !== "applied") return fail(fold, change, outcome, index);
         results[index] = outcome;
         if (outcome === "applied" && parsed.root === "namespace") touchedNamespaces.add(`${patch.at.entry}\u0000${parsed.namespace}`);
     }
@@ -168,16 +171,18 @@ function applyPatch(state: EntryState, parsed: ParsedPath, patch: Patch, registr
     if (parsed.root === "text") return applyBlockPatch(state, parsed.block, patch);
     const data = state.data[parsed.namespace];
     if (data === undefined) return "type-mismatch";
-    if (data.removed === true || namespaceAvailability(registry, parsed.namespace, data) !== "ok") return "notApplicable";
+    if (data.removed === true) return {notApplicable: "removed"};
+    const availability = namespaceAvailability(registry, parsed.namespace, data);
+    if (availability !== "ok") return {notApplicable: availability};
     if (parsed.field === ENABLE_FIELD) {
         if (patch.op !== "set" || typeof patch.value !== "boolean" || parsed.element !== undefined) return "type-mismatch";
         data.enabled = patch.value;
         return "applied";
     }
-    if (!data.enabled) return "notApplicable";
+    if (!data.enabled) return {notApplicable: "disabled"};
     const field = namespaceFields(registry, parsed.namespace, data).find((candidate) => candidate.id === parsed.field);
     // 删除了声明的字段：数据保留、读取时看不到，对它的补丁不适用（components.md 输出 4）。
-    if (field === undefined) return "notApplicable";
+    if (field === undefined) return {notApplicable: "undeclared"};
     if (parsed.element !== undefined) return applyElementPatch(data, field, parsed.element, parsed.sub, patch);
     return applyFieldPatch(data, field, patch, () => events(`${parsed.namespace}.${parsed.field}`));
 }

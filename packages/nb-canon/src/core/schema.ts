@@ -214,6 +214,7 @@ export const RevisionSchema = Type.Object({
     notes: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
     reverts: Type.Optional(Type.Array(Id)),
     impact: ImpactSchema,
+    idMap: Type.Optional(Type.Record(Type.String(), Id)),
 });
 
 export const ReadSchema = Type.Object({at: AddressSchema, position: ReadPositionSchema, value: Type.Unknown(), origin: Type.Unknown()});

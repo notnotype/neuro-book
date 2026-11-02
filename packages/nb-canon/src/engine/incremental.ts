@@ -79,6 +79,10 @@ export interface IncrementalEngine extends Engine {
     update(inputs: EngineInputs, changed: ChangedRefs): IncrementalEngine;
     /** 上一次构建或更新重算了几条事件（进 status 的诊断，project.md 方法表）。 */
     readonly recomputed: number;
+    /** 实际模式下一条变更的详细结果（含每个补丁套上与否、不适用的原因）；写入时校验用。 */
+    detail(change: string): ChangeResult | undefined;
+    /** 实际模式下，一条变更之前那一刻某个地址的值（“由核对点推出的差额”的复算用）。 */
+    valueBefore(change: string, at: Address): unknown;
 }
 
 const compareEvents = (a: {rank: Rank; tie: OrderTie}, b: {rank: Rank; tie: OrderTie}) => compareRanks(a.rank, b.rank) || compareTie(a.tie, b.tie);
@@ -361,6 +365,15 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number):
                 }
             }
             return ordered;
+        },
+
+        detail: (id) => actual.outcomes.get(id),
+
+        valueBefore(id, at) {
+            const event = actual.events.find((candidate) => candidate.kind === "change" && candidate.change.id === id);
+            if (event === undefined) return undefined;
+            const fold = foldAtPoint(actual, world, registry, at.entry, {rank: event.rank, tie: event.tie, inclusive: false});
+            return readEntryAddress(fold?.state, at.path);
         },
 
         outcome(id): ChangeOutcome | undefined {
