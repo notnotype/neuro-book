@@ -8,7 +8,6 @@ import {usePopoverLayer} from "../../composables/usePopoverLayer";
 import {usePopupScroll} from "../../composables/usePopupScroll";
 import {toPopoverReference} from "./popover-anchor";
 import {suggestionOptionId, type SuggestionMenuAnchor, type SuggestionMenuGroup, type SuggestionMenuItem, type SuggestionSide} from "./suggestion-menu";
-import {useTeleportTarget} from "../../composables/useTeleportTarget";
 
 /**
  * 输入时弹出的候选菜单，焦点留在输入处（行为见同名 `.md`）。
@@ -142,9 +141,6 @@ watch(() => [reference.value, props.side] as const, ([anchor, side]) => {
 }, {immediate: true});
 onBeforeUnmount(stopTrackingSide);
 
-// 由 reka 的 Popper 定位，传送目标不是 body 时照样贴着锚点：缺省读宿主给的目标（Lab 的画布），属性写明的优先。
-const teleportTo = useTeleportTarget(() => props.teleportTarget);
-
 const resolvedSide = computed(() => (props.side === "auto" ? autoSide.value : props.side));
 
 const widthClass = computed(() => (props.matchAnchorWidth
@@ -173,7 +169,7 @@ defineExpose({
 
 <template>
     <PopoverRoot :open="reference !== undefined" :modal="false">
-        <PopoverPortal :to="teleportTo()">
+        <PopoverPortal :to="props.teleportTarget ?? 'body'">
             <PopoverContent
                 :reference="reference"
                 :side="resolvedSide"

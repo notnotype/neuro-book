@@ -89,6 +89,24 @@ test("二级读二级那档：对话框里的对话框、对话框里的确认�
     expect(await radius(innerWindow), "二级浮动窗口仍是窗口那档，不取更小的对话框圆角（8px）").toBe(windowRadius);
 });
 
+test("抽屉不画二级的面；窗口里的确认框画二级；模态遮罩用共用的淡入关键帧", async ({page}) => {
+    await gotoScene(page, "drawer-in-dialog", "nbook-light");
+    const drawer = page.locator(".nb-ui-drawer-surface");
+    await settled(drawer);
+    await expect(drawer, "抽屉只参加模态的叠放，不画二级的面").not.toHaveClass(/nb-ui-dialog-surface--nested/u);
+    const overlayAnimations = await page.locator(".nb-ui-overlay").evaluateAll((overlays) => overlays.map((overlay) => getComputedStyle(overlay).animationName));
+    expect(overlayAnimations.length, "对话框与抽屉各有一层遮罩").toBe(2);
+    expect(overlayAnimations, "遮罩的入场来自 .nb-ui-overlay").toEqual(["nb-ui-overlay-in", "nb-ui-overlay-in"]);
+
+    await gotoScene(page, "alert-in-window", "nbook-light");
+    const alert = page.getByRole("alertdialog");
+    await settled(alert);
+    await expect(alert, "窗口里的确认框画二级").toHaveClass(/nb-ui-dialog-surface--nested/u);
+    const windowZ = await outerDialog(page).evaluate((element) => Number(getComputedStyle(element).zIndex));
+    const alertZ = await alert.evaluate((element) => Number(getComputedStyle(element).zIndex));
+    expect(alertZ, "窗口里开的模态压在窗口之上").toBeGreaterThan(windowZ);
+});
+
 test("减少透明度：菜单、对话框与二级对话框都是实心，不模糊", async ({page}) => {
     // Playwright 的 emulateMedia 还不收这个特性，经 Chrome 的调试协议设（配置只跑 Chromium）。
     const session = await page.context().newCDPSession(page);

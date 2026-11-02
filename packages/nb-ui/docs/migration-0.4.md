@@ -65,7 +65,6 @@
 
 | 组件 | 变化 |
 |---|---|
-| `SuggestionMenu` | 传送目标缺省读宿主经 `provideTeleportTarget` 给的目标（原来写死 `body`）；`teleportTarget` 写明的仍然优先 |
 | 插件 SDK `/components` | 补上原来漏掉的类型：`FieldContext`、`Splitter` 与 `NestedGrid` 的手势类型 |
 
 不变：`@notnotype/nb-ui/grid` 仍是单独的入口，给不能带上 Vue 与 DOM 的消费者（插件激活时建的模型、Bun 里的测试）；`./layout` 含组件。

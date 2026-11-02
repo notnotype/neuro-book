@@ -41,7 +41,7 @@ export function useOverlayLayer(options: {kind: "modal" | "window"; open: () => 
 
     const depth = parentDepth + 1;
     if (depth > MAX_WINDOW_DEPTH) {
-        console.warn(`[nb-ui/FloatingWindow] 浮动窗口嵌套到第 ${String(depth)} 层，超过 ${String(MAX_WINDOW_DEPTH)} 层的部分与最内层同档，会与模态对话框争层级。`);
+        console.warn(`[nb-ui/FloatingWindow] 浮动窗口嵌套到第 ${String(depth)} 层：超过 ${String(MAX_WINDOW_DEPTH)} 层的窗口与第 ${String(MAX_WINDOW_DEPTH)} 层同档，谁在上取决于 DOM 顺序。`);
     }
     const windowZIndex = NB_Z_INDEX.dialogWindow + (Math.min(depth, MAX_WINDOW_DEPTH) - 1) * NB_DIALOG_WINDOW_Z_STEP;
     provide(NB_DIALOG_WINDOW_DEPTH, depth);

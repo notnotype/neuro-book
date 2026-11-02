@@ -15,7 +15,7 @@ import {useOverlayLayer} from "../../composables/useOverlayLayer";
 import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import {useUiText} from "../../text-port";
 import type {OverlayCloseReason} from "../shared-types";
-import {useCloseHandoff} from "./close-handoff";
+import {useDialogClose} from "./dialog-close";
 import {DIALOG_SURFACE_STYLE, pxOf, resolveDialogFrame} from "./dialog-frame";
 import type {DialogSize} from "./dialog-frame";
 import DialogSurface from "./DialogSurface.vue";
@@ -102,7 +102,6 @@ const surface = ref<InstanceType<typeof DialogSurface> | null>(null);
 const panel = computed(() => surface.value?.panel ?? null);
 
 const floating = useFloatingWindow({
-    enabled: () => true,
     open: () => props.open,
     target: () => (props.teleportTarget === false ? false : teleportTo()),
     resizable: () => props.resizable,
@@ -126,42 +125,18 @@ const panelStyle = computed(() => {
     };
 });
 
-function requestClose(reason: FloatingWindowCloseReason): void {
-    if (props.busy) return;
-    emit("request-close", reason);
-    if (props.closeOnRequest) emit("update:open", false);
-}
-
-function handleConfirm(): void {
-    if (props.busy) return;
-    emit("confirm");
-}
-
-const handoff = useCloseHandoff(() => props.open);
-
-/** `closed`：内容卸载完、焦点栈释放之后才发（见 close-handoff.ts）。 */
-function onCloseAutoFocus(): void {
-    handoff.schedule(() => emit("closed"));
-}
-
-function onOpenAutoFocus(event: Event): void {
-    if (props.initialFocus === undefined) return;
-    event.preventDefault();
-    const element = panel.value;
-    (element?.querySelector<HTMLElement>(props.initialFocus) ?? element)?.focus({preventScroll: true});
-}
-
-/** 点外面不关：reka 的外部交互一律拦下。 */
-function preventDismiss(event: Event): void {
-    event.preventDefault();
-}
-
-/** Escape：内层控件已经处理过（`.prevent`）的、输入法正在组字时按的，都不算关闭。 */
-function onEscapeKeyDown(event: KeyboardEvent): void {
-    const handled = event.defaultPrevented || event.isComposing || event.keyCode === 229;
-    event.preventDefault();
-    if (!handled && props.closeOnEsc) requestClose("escape");
-}
+const close = useDialogClose<FloatingWindowCloseReason>({
+    open: () => props.open,
+    busy: () => props.busy,
+    closeOnRequest: () => props.closeOnRequest,
+    closeOnEsc: () => props.closeOnEsc,
+    initialFocus: () => props.initialFocus,
+    panel,
+    emitRequest: (reason) => emit("request-close", reason),
+    emitOpen: (value) => emit("update:open", value),
+    emitConfirm: () => emit("confirm"),
+    emitClosed: () => emit("closed"),
+});
 </script>
 
 <template>
@@ -170,12 +145,12 @@ function onEscapeKeyDown(event: KeyboardEvent): void {
             <DialogContent
                 as-child
                 :aria-describedby="undefined"
-                @open-auto-focus="onOpenAutoFocus"
-                @close-auto-focus="onCloseAutoFocus"
-                @escape-key-down="onEscapeKeyDown"
-                @pointer-down-outside="preventDismiss"
-                @interact-outside="preventDismiss"
-                @focus-outside="preventDismiss"
+                @open-auto-focus="close.onOpenAutoFocus"
+                @close-auto-focus="close.onCloseAutoFocus"
+                @escape-key-down="close.onEscapeKeyDown"
+                @pointer-down-outside="close.preventDismiss"
+                @interact-outside="close.preventDismiss"
+                @focus-outside="close.preventDismiss"
             >
                 <DialogSurface
                     v-bind="$attrs"
@@ -198,8 +173,8 @@ function onEscapeKeyDown(event: KeyboardEvent): void {
                     :window="true"
                     :style="panelStyle"
                     @pointerdown="floating.startDrag"
-                    @request-close="requestClose"
-                    @confirm="handleConfirm"
+                    @request-close="close.requestClose"
+                    @confirm="close.confirm"
                 >
                     <template v-if="$slots.header" #header><slot name="header" /></template>
                     <template #header-extra><slot name="header-extra" /></template>

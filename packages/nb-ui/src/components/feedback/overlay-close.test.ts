@@ -11,6 +11,7 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import {defineComponent, h, ref} from "vue";
 
 import Dialog from "./Dialog.vue";
+import FloatingWindow from "./FloatingWindow.vue";
 import ContextMenu from "../popup/ContextMenu.vue";
 import QuickPick from "../popup/QuickPick.vue";
 
@@ -116,6 +117,86 @@ describe("Dialog 的关闭", () => {
         pressEscape(query("[data-dialog-surface]"));
         await flushPromises();
         expect(document.body.querySelector("[data-dialog-surface]")).not.toBeNull();
+    });
+});
+
+const WINDOW_WAYS: ReadonlyArray<{reason: string; act: () => void}> = [
+    {reason: "escape", act: () => pressEscape(query("[data-dialog-surface]"))},
+    {reason: "close-button", act: () => buttonNamed("关闭").click()},
+    {reason: "cancel", act: () => buttonNamed("取消").click()},
+];
+
+function mountWindow(props: Record<string, unknown> = {}) {
+    const order: string[] = [];
+    const wrapper = track(mount(FloatingWindow, {
+        props: {
+            "open": true,
+            "title": "素材",
+            "closable": true,
+            "showCancel": true,
+            "teleportTarget": false,
+            "onRequest-close": (reason: string) => order.push(`request-close:${reason}`),
+            "onUpdate:open": (value: boolean) => order.push(`update:open:${String(value)}`),
+            ...props,
+        },
+        slots: {default: () => h("input", {"data-window-input": ""})},
+        attachTo: document.body,
+    }));
+    return {wrapper, order};
+}
+
+describe("FloatingWindow 的关闭", () => {
+    it.each(WINDOW_WAYS)("$reason：先发 request-close($reason)，再发 update:open(false)", async ({reason, act}) => {
+        const {order} = mountWindow();
+        await flushPromises();
+        act();
+        expect(order).toEqual([`request-close:${reason}`, "update:open:false"]);
+    });
+
+    it.each(WINDOW_WAYS)("closeOnRequest=false：$reason 只发请求", async ({reason, act}) => {
+        const {order} = mountWindow({closeOnRequest: false});
+        await flushPromises();
+        act();
+        expect(order).toEqual([`request-close:${reason}`]);
+    });
+
+    it("busy 时关闭与确认都不发", async () => {
+        const {wrapper, order} = mountWindow({busy: true});
+        await flushPromises();
+        pressEscape(query("[data-dialog-surface]"));
+        buttonNamed("确认").click();
+        expect(order).toEqual([]);
+        expect(wrapper.emitted("confirm")).toBeUndefined();
+    });
+
+    it("点窗口外面不关", async () => {
+        const {order} = mountWindow();
+        await flushPromises();
+        document.body.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+        expect(order).toEqual([]);
+    });
+
+    it("关掉之后发一次 closed", async () => {
+        const {wrapper} = mountWindow();
+        await flushPromises();
+        await wrapper.setProps({open: false});
+        await vi.waitFor(() => expect(wrapper.emitted("closed")).toEqual([[]]));
+    });
+
+    it("initialFocus 按选择器给初始焦点", async () => {
+        mountWindow({initialFocus: "[data-window-input]"});
+        await flushPromises();
+        await vi.waitFor(() => expect(document.activeElement).toBe(query("[data-window-input]")));
+    });
+
+    it("一级窗口不画二级的面；窗口里开的窗口画", async () => {
+        const Host = defineComponent({
+            setup: () => () => h(FloatingWindow, {open: true, title: "外层", teleportTarget: false, "data-outer": ""}, () => h(FloatingWindow, {open: true, title: "内层", teleportTarget: false, "data-inner": ""})),
+        });
+        track(mount(Host, {attachTo: document.body}));
+        await flushPromises();
+        expect(query("[data-outer]").classList.contains("nb-ui-dialog-surface--nested")).toBe(false);
+        expect(query("[data-inner]").classList.contains("nb-ui-dialog-surface--nested")).toBe(true);
     });
 });
 

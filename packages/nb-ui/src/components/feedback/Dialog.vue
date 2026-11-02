@@ -14,7 +14,7 @@ import {useOverlayLayer} from "../../composables/useOverlayLayer";
 import {useTeleportContained, useTeleportTarget} from "../../composables/useTeleportTarget";
 import {useUiText} from "../../text-port";
 import type {OverlayCloseReason} from "../shared-types";
-import {useCloseHandoff} from "./close-handoff";
+import {useDialogClose} from "./dialog-close";
 import {DIALOG_SURFACE_STYLE, resolveDialogFrame} from "./dialog-frame";
 import type {DialogSize} from "./dialog-frame";
 import DialogSurface from "./DialogSurface.vue";
@@ -137,49 +137,18 @@ const panelStyle = computed(() => {
 /** 遮罩的底色与模糊；入退场的淡入淡出来自 `.nb-ui-overlay`。 */
 const overlayClass = computed(() => (props.overlayType === "transparent" ? "bg-transparent" : props.overlayType === "blur" ? "bg-[var(--overlay-bg)] backdrop-blur-sm" : "bg-[var(--overlay-bg)]"));
 
-/**
- * 关闭先发 `request-close`，`closeOnRequest` 为真（缺省）时随即发 `update:open(false)`；宿主要拦（脏表单、守卫）时传
- * `:close-on-request="false"` 自己决定。行为不随宿主挂了哪些监听变化。确认按钮只发 `confirm`，关不关由宿主决定。
- */
-function requestClose(reason: DialogCloseReason): void {
-    if (props.busy) return;
-    emit("request-close", reason);
-    if (props.closeOnRequest) emit("update:open", false);
-}
-
-function handleConfirm(): void {
-    if (props.busy) return;
-    emit("confirm");
-}
-
-const handoff = useCloseHandoff(() => props.open);
-
-/** `closed`：内容卸载完、焦点栈释放之后才发（见 close-handoff.ts）。 */
-function onCloseAutoFocus(): void {
-    handoff.schedule(() => emit("closed"));
-}
-
-/** reka 想自己关（外部点击、Escape）都已在下面拦掉；这里不再另做事。 */
-function preventDismiss(event: Event): void {
-    event.preventDefault();
-}
-
-/**
- * Escape：只有最上层收得到（reka 判定）。reka 在 window 上冒泡阶段监听，内层控件已经处理过（`.prevent`）的、
- * 输入法正在组字时按的，都不算关闭。
- */
-function onEscapeKeyDown(event: KeyboardEvent): void {
-    const handled = event.defaultPrevented || event.isComposing || event.keyCode === 229;
-    event.preventDefault();
-    if (!handled && props.closeOnEsc) requestClose("escape");
-}
-
-function onOpenAutoFocus(event: Event): void {
-    if (props.initialFocus === undefined) return;
-    event.preventDefault();
-    const element = panel.value;
-    (element?.querySelector<HTMLElement>(props.initialFocus) ?? element)?.focus({preventScroll: true});
-}
+const close = useDialogClose<DialogCloseReason>({
+    open: () => props.open,
+    busy: () => props.busy,
+    closeOnRequest: () => props.closeOnRequest,
+    closeOnEsc: () => props.closeOnEsc,
+    initialFocus: () => props.initialFocus,
+    panel,
+    emitRequest: (reason) => emit("request-close", reason),
+    emitOpen: (value) => emit("update:open", value),
+    emitConfirm: () => emit("confirm"),
+    emitClosed: () => emit("closed"),
+});
 
 /** 一个图层（reka 的可关闭层）的有效层级：自己或最近一个设了 z-index 的祖先。 */
 function layerZIndex(element: Element): number {
@@ -212,7 +181,7 @@ function onOverlayPointerUp(event: PointerEvent): void {
     const press = overlayPress;
     overlayPress = null;
     if (!props.closeOnOverlay || press === null || event.button !== press.button) return;
-    if (event.button === 0 || event.button === 2) requestClose("outside");
+    if (event.button === 0 || event.button === 2) close.requestClose("outside");
 }
 </script>
 
@@ -242,12 +211,12 @@ function onOverlayPointerUp(event: PointerEvent): void {
             <DialogContent
                 as-child
                 :aria-describedby="undefined"
-                @open-auto-focus="onOpenAutoFocus"
-                @close-auto-focus="onCloseAutoFocus"
-                @escape-key-down="onEscapeKeyDown"
-                @pointer-down-outside="preventDismiss"
-                @interact-outside="preventDismiss"
-                @focus-outside="preventDismiss"
+                @open-auto-focus="close.onOpenAutoFocus"
+                @close-auto-focus="close.onCloseAutoFocus"
+                @escape-key-down="close.onEscapeKeyDown"
+                @pointer-down-outside="close.preventDismiss"
+                @interact-outside="close.preventDismiss"
+                @focus-outside="close.preventDismiss"
             >
                 <DialogSurface
                     v-bind="$attrs"
@@ -270,8 +239,8 @@ function onOverlayPointerUp(event: PointerEvent): void {
                     :window="false"
                     :style="panelStyle"
                     :aria-modal="pageModal ? 'true' : undefined"
-                    @request-close="requestClose"
-                    @confirm="handleConfirm"
+                    @request-close="close.requestClose"
+                    @confirm="close.confirm"
                 >
                     <template v-if="$slots.header" #header><slot name="header" /></template>
                     <template #header-extra><slot name="header-extra" /></template>

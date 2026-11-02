@@ -8,7 +8,7 @@ export type DropdownMenuItemType = "item" | "radio" | "checkbox";
  */
 export interface DropdownMenuItemData {
     label: string;
-    /** 项的身份：`select` 事件发它；分隔线也要一个（例如 "sep-1"），作列表 key。 */
+    /** 项的身份：`select` 事件发它；分隔线也写一个（例如 "sep-1"），同级里唯一。 */
     id: string;
     disabled?: boolean;
     iconClass?: string;

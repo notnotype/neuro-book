@@ -2,6 +2,7 @@
 import {onBeforeUnmount, onMounted, ref} from "vue";
 import AlertDialog from "../../../src/components/feedback/AlertDialog.vue";
 import Dialog from "../../../src/components/feedback/Dialog.vue";
+import Drawer from "../../../src/components/feedback/Drawer.vue";
 import FloatingWindow from "../../../src/components/feedback/FloatingWindow.vue";
 import FixtureShell from "./AcceptanceShell.vue";
 import type {LabComponentDefinition} from "./definitions";
@@ -35,12 +36,13 @@ onBeforeUnmount(() => {
 });
 
 const controls = ref<Record<string, string | boolean>>({});
-const floating = props.sceneId === "window-probe";
+const floating = props.sceneId === "window-probe" || props.sceneId === "alert-in-window";
 /** 外层与内层用同一种：浮动窗口场景两层都是窗口，其余都是模态对话框。 */
 const Frame = floating ? FloatingWindow : Dialog;
 const outer = ref(true);
-const inner = ref(props.sceneId === "nested" || props.sceneId === "nested-probe" || floating);
-const alert = ref(props.sceneId === "alert" || props.sceneId === "alert-probe");
+const inner = ref(props.sceneId === "nested" || props.sceneId === "nested-probe" || props.sceneId === "window-probe");
+const alert = ref(props.sceneId === "alert" || props.sceneId === "alert-probe" || props.sceneId === "alert-in-window");
+const drawer = ref(props.sceneId === "drawer-in-dialog");
 </script>
 
 <template>
@@ -52,6 +54,7 @@ const alert = ref(props.sceneId === "alert" || props.sceneId === "alert-probe");
                     <p>叠在外层上的对话框。</p>
                 </component>
                 <AlertDialog v-model:open="alert" title="删除服务商？" description="确认框叠在外层上。" />
+                <Drawer v-model:open="drawer" title="设定详情" data-fixture-drawer><p>从对话框里打开的抽屉。</p></Drawer>
             </component>
         </div>
     </FixtureShell>

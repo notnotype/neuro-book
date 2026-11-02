@@ -384,11 +384,19 @@ input.nb-ui-native-input[type="number"] {
     font-size: var(--text-xs);
     font-weight: var(--weight-strong);
     line-height: var(--leading-tight);
-    /* 行高取整到像素：12px × 1.3 这类带小数的行高会让整行高出零点几像素，滚动容器的 scrollHeight 是取整的，
-       列表最后一项就差这一点滚不进视口。上一条是不认 round() 的浏览器的兜底（design-language 坑 56）。 */
-    line-height: round(down, calc(var(--text-xs) * var(--leading-tight)), 1px);
     color: var(--text-muted);
     user-select: none;
+}
+
+/*
+ * 行高取整到像素：12px × 1.3 这类带小数的行高会让整行高出零点几像素，滚动容器的 scrollHeight 是取整的，
+ * 列表最后一项就差这一点滚不进视口。放在 @supports 里：含 var() 的声明在不认 round() 的浏览器（Chrome 125 之前，
+ * 在基线 119 之内）里不会退回上一条，而是整条作废成未设置。
+ */
+@supports (line-height: round(down, 15.6px, 1px)) {
+    .nb-ui-menu-label {
+        line-height: round(down, calc(var(--text-xs) * var(--leading-tight)), 1px);
+    }
 }
 
 .nb-ui-menu-separator {

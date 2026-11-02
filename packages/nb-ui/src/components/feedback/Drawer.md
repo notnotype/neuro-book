@@ -61,7 +61,7 @@ interface DrawerSlots {
 
 ## 状态与边界
 
-`modal` 默认开启，`handle` 默认关闭。即使 `title`、`description` 未传，正文仍可显示；空 `footer` 插槽不生成页脚。自定义 `header` 替换默认的标题与描述内容，调用方应自行提供适当的可访问标题语义。关闭图标的读屏名称取 `closeLabel`，缺省经翻译端口取（“关闭”）。
+`modal` 默认开启，`handle` 默认关闭。即使 `title`、`description` 未传，正文仍可显示；空 `footer` 插槽不生成页脚。自定义 `header` 替换默认的标题与描述内容；这时仍要传 `title`，它是抽屉的读屏名称，不传时读屏只听到通用的“面板”。关闭图标的读屏名称取 `closeLabel`，缺省经翻译端口取（“关闭”）。
 
 ## 上游边界
 

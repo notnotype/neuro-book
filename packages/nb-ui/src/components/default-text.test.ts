@@ -27,6 +27,7 @@ import EmptyState from "./display/EmptyState.vue";
 import Table from "./display/Table.vue";
 import Toolbar from "./controls/Toolbar.vue";
 import Breadcrumb from "./navigation/Breadcrumb.vue";
+import Drawer from "./feedback/Drawer.vue";
 import ColorSwatches from "./form/ColorSwatches.vue";
 import Input from "./form/Input.vue";
 import NumberInput from "./form/NumberInput.vue";
@@ -74,7 +75,9 @@ const CASES: readonly Case[] = [
     {name: "CodeBlock 空态", component: CodeBlock, props: {lines: []}, read: text(".nb-code-block__empty"), zh: "无内容", en: "No content", override: {props: {emptyText: "空"}, expected: "空"}},
     {name: "CodeBlock 截断说明", component: CodeBlock, props: {lines: [], truncated: true}, read: text(".nb-code-block__note"), zh: "只公开了部分内容", en: "Only part of the content is shown", override: {props: {truncatedText: "已截断"}, expected: "已截断"}},
     {name: "Toolbar 读屏名", component: Toolbar, props: {}, read: attr("[role=toolbar]", "aria-label"), zh: "工具栏", en: "Toolbar", override: {props: {ariaLabel: "编辑工具"}, expected: "编辑工具"}},
-    {name: "Breadcrumb 读屏名", component: Breadcrumb, props: {items: [{label: "首页"}]}, read: attr("nav", "aria-label"), zh: "面包屑导航", en: "Breadcrumb"},
+    {name: "Breadcrumb 读屏名", component: Breadcrumb, props: {items: [{label: "首页"}]}, read: attr("nav", "aria-label"), zh: "面包屑导航", en: "Breadcrumb", override: {props: {ariaLabel: "章节路径"}, expected: "章节路径"}},
+    {name: "Drawer 关闭按钮", component: Drawer, props: {open: true, title: "设定详情"}, read: attr("[role=dialog] button[aria-label]", "aria-label"), zh: "关闭", en: "Close", override: {props: {closeLabel: "收起"}, expected: "收起"}},
+    {name: "Drawer 无标题时的读屏名", component: Drawer, props: {open: true}, read: text("[role=dialog] h2"), zh: "面板", en: "Panel"},
     {name: "Input 清空按钮", component: Input, props: {modelValue: "x", clearable: true}, read: attr("button[aria-label]", "aria-label"), zh: "清空输入", en: "Clear input", override: {props: {clearLabel: "清掉"}, expected: "清掉"}},
     {name: "NumberInput 增加按钮", component: NumberInput, props: {modelValue: "1"}, read: attr("button[aria-label]", "aria-label"), zh: "增加", en: "Increase", override: {props: {incrementLabel: "加一"}, expected: "加一"}},
     {name: "Slider 滑块名", component: Slider, props: {modelValue: [10, 20]}, read: attr("[role=slider]", "aria-label"), zh: "滑块 1", en: "Slider 1", override: {props: {ariaLabel: "音量"}, expected: "音量"}},

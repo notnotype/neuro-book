@@ -187,17 +187,17 @@
 - 一场手势只发布一个落点、一份反馈。前一项后半、间隙、后一项前半必须归到同一个语义插入位与同一个线坐标。反馈不参与 flex 布局，不能挤开成员或改变命中。每个宿主明确自己的取消条件；停止、失焦、切换工作面、结构失效和卸载必须清帧、监听与观察器。
 - 指针停住时滚动/尺寸变化仍需重算；正常释放按最终坐标再次验证且只提交最后已显示的同一动作，不允许失效锚点偷偷退化成末尾。外部文件/文本走原生数据交换；内部标签移动不能写 `text/plain` 把路径漏进正文。组件原语不拥有这些业务规则。
 
-#### 13. `Drawer`、`Dialog` & `AlertDialog`（对话框、浮动窗口与反馈规范）
+#### 13. `Drawer`、`Dialog`、`FloatingWindow` & `AlertDialog`（对话框、浮动窗口与反馈规范）
 - **Drawer**：支持 `top` / `bottom` / `left` / `right` 四向滑出，背景采用 80% Scrim + 4px 模糊，右侧默认 380px 大纲与设定抽屉。
-- **Dialog**：一个组件两种用法，外框只维护一份（组件文档 [`Dialog.md`](../src/components/feedback/Dialog.md)）。
-  - **模态（缺省）**：遮罩、居中、焦点锁定、背景不可交互，关闭后焦点还给打开前的元素。点遮罩要按下与松开都在遮罩上；对话框里开着浮层时，这一下只关浮层。Escape 只关最上层，输入法组字时与内层控件已处理（`preventDefault`）的 Escape 不关。
-  - **浮动窗口（`modal=false`）**：非模态语义，不渲染遮罩、不困住焦点、不锁定窗口外指针或背景滚动；窗口外页面必须继续可交互。标题区可拖动；`resizable` 默认关闭，开启后提供右、下两条边与四个角的手柄。鼠标在松开时提交 `update:width` / `update:height`，方向键按 10px、Shift 按 1px 调整，且不突破 `minWidth` / `minHeight`。
+- **Dialog 与 FloatingWindow**：模态对话框与非模态浮动窗口是两个组件，共用一份外框（内部零件 `DialogSurface`；组件文档 [`Dialog.md`](../src/components/feedback/Dialog.md)、[`FloatingWindow.md`](../src/components/feedback/FloatingWindow.md)）。
+  - **`Dialog`（模态）**：遮罩、居中、焦点锁定、背景不可交互，关闭后焦点还给打开前的元素。点遮罩要按下与松开都在遮罩上；对话框里开着浮层时，这一下只关浮层。Escape 只关最上层，输入法组字时与内层控件已处理（`preventDefault`）的 Escape 不关。
+  - **`FloatingWindow`（浮动窗口）**：非模态语义，不渲染遮罩、不困住焦点、不锁定窗口外指针或背景滚动；窗口外页面必须继续可交互。标题区可拖动；`resizable` 默认关闭，开启后提供右、下两条边与四个角的手柄。鼠标在松开时提交 `update:width` / `update:height`，方向键按 10px、Shift 按 1px 调整，且不突破 `minWidth` / `minHeight`。
   - 标题、`header` slot 和无标题回退都必须生成对话框标题；关闭按钮必须有可访问名称。标题一律左对齐，不做居中变体；关闭按钮用 `sm` 尺寸贴右上、不贴圆角。遮罩、Escape、取消与关闭按钮一律经 `request-close`，由受控宿主决定最终关闭时机。
   - 默认 Portal 目标为 `body`。公共组件不得绑定产品私有主题宿主；产品消费者必须显式传入主题宿主目标，避免 Portal 脱离主题变量作用域。
-  - 两种用法都向内容树提供局部浮层层级，里面的下拉、提示、取色面板显示在面板之上（规则见“叠放层级”）。
+  - 两者都向内容树提供局部浮层层级（`useOverlayLayer`），里面的下拉、提示、取色面板显示在面板之上（规则见“叠放层级”）。
   - 窄屏宽度必须收敛到容器内，不产生页面级横向溢出；body 拥有长内容滚动权，footer 不随 body 滚动。
   - **内边距只有一层**：body 自带的内边距是对话框给的那一层；内容自带页面节律（导航轨 / 内容列各有自己的 `--space-*` 边距）时，宿主必须传 `body-class="!p-0"` 把这层交出去。两层叠起来会到 24–32px，读起来像内容被挤在中间。
-- **AlertDialog**：居中破坏性二次确认模态窗，强制提供有明确意图的按钮出口（取消/确认），支持 `danger` / `warning` / `accent` 语调；受控模式可不提供 `trigger` slot，组件不得为无触发器实例渲染空的 `AlertDialogTrigger`。
+- **AlertDialog**：居中破坏性二次确认模态窗，强制提供有明确意图的按钮出口（取消/确认），支持 `danger` / `neutral` 语调（`neutral` 的确认按钮用主按钮样式）；受控模式可不提供 `trigger` slot，组件不得为无触发器实例渲染空的 `AlertDialogTrigger`。
 
 #### 14. `Progress` & `Kbd`（数据反馈与微排版组件规范）
 - **Progress**：全胶囊圆角，消费 `--motion-base` 平滑 `translateX` 进度位移，支持 4 种语义状态色。
@@ -268,7 +268,7 @@
   - **几何重构**：外框圆角明确锁定为 **14px**（`--nb-popover-radius: 14px`），彻底移除对 20px 巨角 `--radius-panel` 的盲目继承；与内部 8px 输入框（`rounded-lg`）达成黄金同心比例；
   - **纯净现代通透质感**：直接消费全局 `.nb-ui-popover-surface`，彻底清除顶部生硬塑料白光条（消除日光灯管反光），在 640px 宽度上呈现深邃柔和的环境悬浮投影与纯净毛玻璃底。
 
-- **Tier 4: 对话框与浮动窗口（Dialog 的两种用法 / AlertDialog · 独立窗口）**：
+- **Tier 4: 对话框与浮动窗口（Dialog / FloatingWindow / AlertDialog · 独立窗口）**：
   - **几何与层级**：外框圆角取 `--radius-dialog`（`.nb-ui-dialog-surface`），浮动窗口取 `--radius-window`（`.nb-ui-dialog-surface--window`）；叠在另一个窗口上的浮层，圆角不大于底下窗口的圆角，小确认框（`AlertDialog`）取 `--radius-dialog-compact`（`.nb-ui-dialog-surface--compact`）；常开、占大块屏幕的浮动窗口与工作台的部件卡片是同一类面，圆角取同一档（nbook 主题里 `--radius-window` 与 `--radius-dialog-compact` 都等于 `--shell-card-radius`，12px），不另写数值；层级按“叠放层级”一节从登记表取，模态按打开顺序、浮动窗口按嵌套深度；
   - **模态保护**：配合全屏半透明遮罩与焦点锁定，外点与 Escape 经组件判定后再请求关闭。
 

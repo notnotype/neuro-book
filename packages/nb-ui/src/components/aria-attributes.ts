@@ -9,13 +9,12 @@
  */
 import type {AriaAttributes} from "vue";
 
+// 都补在 `vue` 上：nb-ui 只依赖 `vue`，不依赖它内部的 `@vue/runtime-dom`，严格解析的包管理器下补那个模块会找不到。
 declare module "vue" {
     interface AllowedComponentProps extends AriaAttributes {
         role?: string;
     }
-}
 
-declare module "@vue/runtime-dom" {
     interface AriaAttributes {
         "aria-description"?: string;
     }

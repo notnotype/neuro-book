@@ -151,3 +151,19 @@ describe("phase 2 form control contracts", () => {
         expect(visual.classes()).toContain("peer-focus-visible:shadow-[var(--focus-ring)]");
     });
 });
+
+describe("Input 的透传属性", () => {
+    it("带图标、清除按钮时读屏属性落在输入框上，data-* 与 class 留在外层控件上；没有装饰时全落在输入框上", () => {
+        const decorated = mount(Input, {props: {modelValue: "", iconClass: "i-lucide-search", clearable: true}, attrs: {"aria-label": "搜索作品", "data-search": "", "class": "search-box"}});
+        const input = decorated.get("input");
+        expect(input.attributes("aria-label")).toBe("搜索作品");
+        expect(decorated.attributes("aria-label")).toBeUndefined();
+        expect(decorated.attributes("data-search")).toBe("");
+        expect(decorated.classes()).toContain("search-box");
+
+        const bare = mount(Input, {props: {modelValue: ""}, attrs: {"aria-label": "书名", "data-title": ""}});
+        expect(bare.element.tagName).toBe("INPUT");
+        expect(bare.attributes("aria-label")).toBe("书名");
+        expect(bare.attributes("data-title")).toBe("");
+    });
+});
