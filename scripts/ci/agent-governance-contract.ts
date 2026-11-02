@@ -17,8 +17,11 @@ export function defaultRepoRoot(moduleUrl: string): string {
     return resolve(dirname(fileURLToPath(moduleUrl)), "..", "..");
 }
 
+/** `git ls-files` 列全仓文件的输出已超过 Node 缺省的 1 MiB 缓冲（2026-11-02），上限放到 64 MiB。 */
+const GIT_MAX_BUFFER = 64 * 1024 * 1024;
+
 export function git(repoRoot: string, args: readonly string[]): string {
-    return execFileSync("git", [...args], {cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"]}).trimEnd();
+    return execFileSync("git", [...args], {cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: GIT_MAX_BUFFER}).trimEnd();
 }
 
 export function gitRevision(repoRoot: string): string {
