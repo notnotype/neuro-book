@@ -1,0 +1,42 @@
+# t08 第 5 片（bcb57b83f）实现审查报告
+
+## 发现 1　重要　e2e 断言漏改
+- 位置：`packages/neuro-book/e2e/lab-markdown.e2e.ts:247`
+- 现象：仍断言 `[file #2 · paste-2.txt](local://paste-2.txt)`。
+- 原因：该用例经 `PromptEditorFixture.vue` 的 `fakeTarget()` 取上传地址，本提交已把它改成 `session://attachments/${unique}`，所以写回的文字是 `[file #2 · paste-2.txt](session://attachments/paste-2.txt)`，`expect.poll(...).toContain(...)` 会超时失败。提交只改了单元测试、Lab 夹具与场景，没有改 e2e（`git show --stat` 里没有 e2e）。`grep -rn "local://" packages`（排除 legacy、node_modules）全仓库产品、测试、组件 .md 里只剩这一处。
+- 建议：把断言改成 `session://attachments/paste-2.txt`；提交前对 e2e 目录单独跑 `grep -rn "local://"`。（未跑 e2e，从代码推断。）
+
+## 发现 2　建议　取名规则两处不一致
+- 位置：`packages/nb-agent-ui/src/prompt-token-action.ts:44`，对照 `packages/neuro-book/src/plugins/markdown/shared/targets.ts:57`（`lastSegment(path.slice(ATTACHMENTS.length))`）
+- 现象：实测 `classifyTarget`：`session://attachments/a/b.png` 取 `b.png`；`.../%E6%88%AA%E5%9B%BE.png` 取 `截图.png`；`.../a%20b.png` 取 `a b.png`；`.../a.png?x=1` 取 `a.png`。而 `promptTokenOutcome` 直接 `slice` 前缀，同样的地址会得到 `a/b.png`、`%E6%88%AA%E5%9B%BE.png`、`a%20b.png`、`a.png?x=1`，预览标题带出子目录、百分号编码或查询串。
+- 为什么：同一个附件在引用小块与预览标题里的名字可能不同。这是 `local://` 时期就有的差异，本片换了前缀却没趁机对齐，也没有测试覆盖。目前 Lab 与 Spec 要求的附件名（会话内唯一、无空白括号、无子目录）不触发，所以只算建议。
+- 建议：nb-agent-ui 不能依赖 neuro-book，可改用 `@notnotype/nb-markdown` 已导出的 `pathPart`、`lastSegment`（`nb-markdown/src/targets.ts:41,44`，若 nb-agent-ui 已依赖它）；或在注释里写明“只认单层、不解码的名称”并补一条带 `%` 的测试。
+
+## 发现 3　建议　方案名大小写判定变严
+- 位置：`packages/neuro-book/src/plugins/markdown/shared/targets.ts:57`
+- 现象：旧代码 `scheme === "local"` 用的是 `schemeOf`（小写化），大小写不敏感；新代码 `path.startsWith("session://attachments/")` 区分大小写。实测 `SESSION://attachments/x.png` 判为 `other`，而同一个函数里 `PROJECT://`、`USER://` 仍按小写化后的 scheme 判。
+- 为什么：同函数内两种比较口径，行为比改前窄。实际写出的地址都是小写，影响很小。
+- 建议：用 `scheme === "session" && rest.startsWith("attachments/")` 的写法（rest 取 `path.slice("session://".length)`），与 project、user 分支一致。
+
+## 发现 4　建议　`..` 与空名称的边角，无测试
+- 位置：`targets.ts:57`、`targets.test.ts:34`
+- 现象：实测 `session://attachments/../plan.md` 判为附件（name `plan.md`），而它按路径解析实际是 `session://plan.md`（工作区根下的文件，不是附件）；`session://attachments/`（无名称）判为附件、name 为空。`session://plan.md` 与 `session://attachments`（无斜杠）判为 `other`，这与 Spec 输出 27 的“`session://attachments/` 下的地址为附件，别的方案为其它”一致，合理。
+- 为什么：分类只影响显示，不涉及安全；但 `..` 逃出 attachments 却仍显示为附件，与 `project://` 分支会 `normalized` 的做法不一致。测试只改了地址、没有为新规则增加 `session://plan.md` 判 `other`、百分号编码、子目录这几个边界，Spec 输出 27 的“别的 `session://` 地址归其它”缺少断言。
+- 建议：附件分支先对 `rest` 做 `normalized`，越出 `attachments/` 时判 `other`；在 `targets.test.ts` 补 `session://plan.md` → other、`session://attachments/%E6%88%AA.png` → 解码后名称两条断言。
+
+## 发现 5　建议　注释与测试标题残留“会话内短地址”
+- 位置：`packages/neuro-book/src/plugins/lab/web/fixtures/prompt-scene/PromptEditorFixture.vue:91`（“宿主给的会话内短地址”）、`packages/nb-agent-ui/src/prompt-token-action.test.ts:16`（测试标题“会话内短地址的文件名写进标题”）、`packages/nb-markdown/src/prompt/prompt-text.test.ts:78,107`（“短地址：”“会话内短地址的图片与文件识别为标签”）
+- 现象：地址已不是 `local://名称` 那种短地址，Spec（主工作区 `ui/prompt-editor.md:50`）已改称“会话工作区里的地址 `session://attachments/名称`”，这几处旧称谓没改。
+- 为什么：与同一提交里已更新的其它注释（`composer-host.ts:5`、`PromptEditorFixture.vue:6`）不一致，读者会以为还有另一种短地址。
+- 建议：改成“会话附件地址”。
+
+## 附：核对为一致的点
+- Lab 场景说明与地址：`index.ts:615`、`composer-host.ts:5,65-67`、`composer.scenes.ts:18`、`data.ts:258,285`、`scenes.ts:15-17,65` 的文字与地址一致；`labAttachmentUrls` 的键与场景里的目标同步改了（`人物关系草图.png`）。`data.ts:285` 里的 `旧草图.png` 本来就没有缩略图，行为未变。
+- 单元测试：`bun test` 跑 `packages/neuro-book/src/plugins/markdown/shared`（14 通过）与 `packages/nb-agent-ui/src/prompt-token-action.test.ts`、`composer-actions.test.ts`（27 通过）。dom 测试与类型检查未跑。
+- 注意：本 worktree 内 `docs/specs/ui/prompt-editor.md:50,106` 仍写 `local://`，这是开分支时的旧副本；主工作区的版本已改，按规则以主工作区为准，不算问题。
+
+## 未发现问题的方面
+- `session://plan.md` 判为 other：与 Spec 输出 27 的分类一致。
+- `MarkdownHosted.md`、`host.ts` 的说明文字与 Spec 输出 27 一致；组件同名 .md 没有其它 `local://` 残留。
+- `prompt-text.test.ts`、`PromptTextView.dom.test.ts`、`AgentUserContent.dom.test.ts` 等 dom 测试的地址与预期同步，无单边改动。
+- 没有产品代码按 `local` 方案分支（`grep -rn "local:" packages/nb-markdown packages/nb-agent-ui packages/neuro-book/src` 无残留）。
