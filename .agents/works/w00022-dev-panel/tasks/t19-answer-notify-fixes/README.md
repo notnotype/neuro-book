@@ -30,7 +30,7 @@ updated: 2026-11-02
 ## 验证
 
 - 修好的判定对 6 格空闲的真实 Claude 会话（只读调用默认 herdr 的 `agent.explain` 与 `agent.read`）都判可投；修之前取样的 3 格都是 `unknown_screen`。
-- 类型检查、`build:web`、`governance:check` 通过；dev-panel 全量与受影响测试的结果见下面“当前状态”。
+- 类型检查、`build:web`、`governance:check` 通过；dev-panel 全量 464 个用例 463 过，失败的一个是 `tests/leases-cli.test.ts` 的“只靠 HERDR_PANE_ID 认人”到 5 秒超时（与本次改动无关），单独重跑这个文件 14 个全过。
 
 未验证：
 
@@ -39,8 +39,8 @@ updated: 2026-11-02
 
 ## 当前状态
 
-2026-11-02 四片已在分支上提交，在跑 dev-panel 全量测试。
+2026-11-02 合入 `master`（`bd8116055`）。4400 还没重启，面板仍跑旧代码：自动通知与“清除选择”要重启后才生效。
 
 ## 下一步
 
-全量测试过了就合入 `master`；重启 4400 要开发者授权。
+开发者授权后重启 4400（`bun run --cwd packages/dev-panel service:restart`），在真实面板上核对上面两条未验证，再把 Task 改成完成。
