@@ -48,6 +48,7 @@ updated: 2026-11-02
 | 2026-11-02 | 按已接受的提案重切本 Work 的 Task（方案开发者 11-02 已同意，看完 t16 静态稿后落地）：t09 存储排第一、t26 评测与它并行；新建 t27 内核 Spec、t28 作者编辑主 MDX；t16 改为作者界面、t22 改为改稿后重新记账、t19 不再依赖 t06；t04 收窄为换掉位置模块、t06 改为知情与秘密，两者搁置到第二版；关系、地点与地图 Component 与“与 nb-story 合并”到时再建 Task。各 Task 的 README 加了“重切后要定的”一节，原问题保留作参照 |
 | 2026-11-02 | 开发者整体看过 Work 后：作者视角的内核已认可，“Agent 怎么用”和“程序怎么存”还没定好。按主会话的建议调整顺序：t09 先量原型引擎在大书上的折叠、待处理、发布与内存，再回存储草稿的四条；t19 提前，与 t09、t26 并行，测试模型用 `.env` 的 `NBOOK_LLM_*`（gpt-6-luna）；t19 的流程稿定了以后，在 `wetool.py` 上跑 t26 的第一份基线；t20 的工具参数仍在 t27 之后。开发者对 Agent 怎么用的意见：记账在后台用工作流跑（类似 nb-story 的管线），不开会话；记账期间先不允许作者改；正文作者、写作 Agent、主 Agent 都可以写；触发方式列了四种（写完自动记账、作者手动、写完自动记账并自动接受、主 Agent 在作者满意后记一次），在 t19 流程稿里定。开发者另问：条目做成渲染出来的只读文件视图，让 Agent 用 grep、glob 读，检索效率如何，要做实验（方案见 t09） |
 | 2026-11-02 | 开发者看过引擎性能与硬盘的测量后，按推荐确认 t09 存储草稿的四条与 t26 量法的 1 到 4 条（“可以，没问题”）：真相源是按 256 KiB 分段的只追加修订日志，打开时在内存里重放、按章留折叠的中间结果，不用数据库；条目不做成文件，`lorebook.content/` 不再是条目的家；第一版不开放经文件改设定（改了 11-01“直接读写文件暂时只留给 Agent”与 11-02“包括直接改文件”的前提）；目录照草稿，系列作品第一版不做（[ADR 0039](../../../docs/adr/0039-world-engine-segmented-revision-log.md)）。评测用静默错记率决定记账能否默认生效，阈值跑出基线再改，第一份基线在 `wetool.py` 上跑、评分只读导出文件，答案由主会话起草、开发者抽看一章。给 Agent 读的只读文件视图做不做，由检索实验定（排在 t19 流程稿之后） |
+| 2026-11-02 | 开发者：t19 流程稿先放着以后慢慢看；计划范围大、后续可能多次返工，内核架构大体已定，打磨一次就开工，先实现世界引擎内核。按主会话推荐：先写内核 Spec（t27，并入 t10 的字段声明写法与 t14 的包切分），审一轮、开发者批准后实现（新建 t29）；内核放一个新的工作区包，纯 TS、前后端共用，只依赖 TypeBox 与 MDX 解析库，插件在 `packages/neuro-book` 里接存储、服务与界面；第一版分四段：模型与计算、分段日志存储、白名单 MDX 渲染与带值写法、接进应用（星瑕样本在新内核上重放出与 t16 原型相同的结果）；不做 Agent 工具与记账管线、作者界面、评测、内置 Component 的完整字段清单；第一版另不做 schema 升级函数（只存版本号）与数值溢出的“截到上限”（只做拒绝）。包名用 `nb-canon`（开发者写作 nb-cannon，主会话按提案推荐的 canon 理解），nb-story 保持原名 |
 
 ## 调研
 
@@ -60,17 +61,19 @@ updated: 2026-11-02
 
 | 顺序 | Task | 讨论什么 | 前置 |
 |---|---|---|---|
-| 1 | [t09](tasks/t09-storage/README.md) | 存储：六种对象放文件还是数据库、条目与 `lorebook.content/`、修订放哪、Agent 能否直接改文件、缓存与索引、目录与系列作品 | — |
-| 1 | [t26](tasks/t26-evaluation/README.md) | 评测与样本书：三项验收量，星瑕与 100 章样本书 | —（与 t09 并行） |
-| 1 | [t19](tasks/t19-writing-workflow/README.md) | 写作流程与内置 Profile：开局、细纲、记账、改设定后协助、写手；记账的触发、在哪跑、几个 Agent、和作者同时改（11-02 提前） | — |
-| 2 | [t10](tasks/t10-setting-schema/README.md) | Component 类型、字段与设定表单：字段清单、精确与语义两档、预设、schema 演进 | t09 |
-| 2 | [t14](tasks/t14-plugin-split/README.md) | 插件与包的切分、nb-memory 检索的复用、查看器进工作台 | t09 |
-| 3 | [t27](tasks/t27-kernel-spec/README.md) | 内核 Spec：把提案与 t16 原型定的数据结构写成 Spec | t09、t10、t14 |
+| 1 | [t27](tasks/t27-kernel-spec/README.md) | 内核 Spec：提案、t16 原型、第三轮推过来的细节与存储合成黑盒合同；并入 t10 的字段声明写法与 t14 的包切分（11-02 提前） | t09（已定） |
+| 2 | [t29](tasks/t29-kernel-impl/README.md) | 内核实现（`nb-canon`）：模型与计算、分段日志存储、渲染与带值写法、接进应用 | t27 |
+| 3 | [t26](tasks/t26-evaluation/README.md) | 评测与样本书：量法已定，答案与基线在内核之后 | — |
+| 3 | [t19](tasks/t19-writing-workflow/README.md) | 写作流程与内置 Profile（流程稿待开发者看） | — |
+| 3 | [t10](tasks/t10-setting-schema/README.md) | 内置 Component 的字段清单与设定表单（字段声明写法已并入 t27） | t27 |
+| 3 | [t14](tasks/t14-plugin-split/README.md) | nb-memory 检索的复用、查看器进工作台（包切分已并入 t27） | t27 |
 | 4 | [t20](tasks/t20-agent-tools/README.md) | Agent 工具与写手的上下文 | t27、t19 |
 | 4 | [t16](tasks/t16-plot-workbench-ui/README.md) | 作者界面（静态稿与原型已到第 3 轮） | t27 |
 | 5 | [t28](tasks/t28-entry-mdx-editing/README.md) | 作者编辑条目的主 MDX | t16 |
-| 5 | [t12](tasks/t12-project-templates/README.md) | 作品的来路：三条起步路、模板、旧项目迁移 | t09、t10 |
+| 5 | [t12](tasks/t12-project-templates/README.md) | 作品的来路：三条起步路、模板、旧项目迁移 | t27、t10 |
 | 5 | [t22](tasks/t22-incremental-extraction/README.md) | 改稿后重新记账 | t27 |
+
+t09 存储已定（ADR 0039），只剩检索实验，排在 t19 流程稿之后。
 
 第二版（搁置，不排期）：
 
