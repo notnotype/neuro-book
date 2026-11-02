@@ -4,11 +4,11 @@
 
 # Dialog
 
-`Dialog` 是受控的对话框，一个组件两种用法：缺省是**模态对话框**（遮罩、居中、焦点锁定、背景不可交互），`modal=false` 是**浮动窗口**（没有遮罩、页面仍可交互、可拖动、可选缩放）。两种用法共用同一个外框：面、标题、可滚动正文、页脚与滚动时才出现的分隔线只有这一份。宿主通过插槽呈现业务内容，可接管关闭请求或确认流程。它与 `AlertDialog` 的区别是可承载任意正文，页脚可自定义，也可点遮罩关闭。
+`Dialog` 是受控的**模态对话框**（遮罩、居中、焦点锁定、背景不可交互）。没有遮罩、页面仍可交互、可拖动、可选缩放的**浮动窗口**是 [`FloatingWindow`](FloatingWindow.md)。两者共用同一个外框（内部零件 [`DialogSurface`](DialogSurface.md)）：面、标题、可滚动正文、页脚与滚动时才出现的分隔线只有这一份。宿主通过插槽呈现业务内容，可接管关闭请求或确认流程。它与 `AlertDialog` 的区别是可承载任意正文，页脚可自定义，也可点遮罩关闭。
 
-## 两种用法
+## 与 FloatingWindow 的区别
 
-| | 模态（缺省） | 浮动窗口（`modal=false`） |
+| | `Dialog` | `FloatingWindow` |
 | --- | --- | --- |
 | 遮罩 | 有，按 `overlayType` 画；`transparent` 时也有，只是看不见 | 没有 |
 | 位置 | 居中，不能拖动 | 打开时按容器居中；按住拖动区域可拖动，至少留一角在容器里 |
@@ -20,9 +20,8 @@
 | 圆角 | `--radius-dialog` | `--radius-window`（缺省等于 `--radius-dialog`） |
 | 面 | `--dialog-surface`（缺省等于小浮层的 `--overlay-surface`） | 同左 |
 | 叠放 | 同时打开的按打开顺序叠放 | 按嵌套深度叠放 |
-| `request-close` 的原因 | `overlay`、`cancel`、`close-button`、`esc` | `cancel`、`close-button`、`esc` |
+| `request-close` 的原因 | `outside`、`cancel`、`close-button`、`escape` | `cancel`、`close-button`、`escape` |
 
-用法在组件建立时取定，打开期间不要切换 `modal`。
 
 ## 布局
 
@@ -46,11 +45,9 @@
 - **初始焦点**：给了 `initialFocus`（选择器）时在面板里找它，找不到就聚焦面板；没给时是第一个可聚焦元素，没有时聚焦面板。关闭后焦点还给打开前的元素。
 - **点遮罩**：按下与松开都在遮罩上、同一个键（主键或右键）才算一次点击；从面板里按下拖到遮罩上松开不算。对话框里还开着下拉、取色面板这类浮层时，这一下只关浮层，不关对话框。
 - **Escape**：只有最上层的对话框或窗口收到。输入法正在组字时按的、内层控件已经处理过（`preventDefault`）的 Escape 不算关闭。
-- **关闭**：遮罩、取消按钮、关闭按钮与 Escape 一律先发 `request-close`；父组件监听了它就完全由父组件决定关不关，没监听时组件自己发 `update:modelValue(false)` 与 `cancel`。默认页脚的确认按钮发 `confirm`；没有 `confirm` 监听器时随后自动关闭。`busy` 时这些动作都不生效，默认页脚按钮与关闭按钮禁用，缩放手柄退出 Tab 顺序。
+- **关闭**：遮罩、取消按钮、关闭按钮与 Escape 一律先发 `request-close(reason)`；`closeOnRequest` 为真（缺省）时随即发 `update:open(false)`。打开态是受控的：组件只发事件、自己不翻转，宿主不接 `update:open` 时对话框保持打开。宿主要拦（脏表单、守卫、用取消按钮退回上一步）时传 `:close-on-request="false"`，在 `request-close` 里自己决定。行为不随宿主挂了哪些监听变化。默认页脚的确认按钮只发 `confirm`，关不关由宿主决定（与 `AlertDialog` 不同：它的确认与取消由 reka 直接关闭）。关闭完成、内容卸载并释放焦点之后发 `closed`。`busy` 时这些动作都不生效，默认页脚按钮与关闭按钮禁用。
 - **页脚**：`sm`、`default` 的默认按钮等宽填满一行，其它尺寸靠右排列。自定义 `footer` 插槽时组件只提供 `confirm`、`cancel` 回调。
 - **状态行**：按钮靠右排列时，按钮左边一直留着一行状态（空着也在）。平时显示 `status` 插槽里的中性状态（例如“已选 …”，淡色），`status` 非空时换成这条错误（危险色，带图标），按钮与正文都不动；一行放不下时截断，悬停看全文；读屏以礼貌方式播报。表单提交之后才知道的错误写在这里（[UI 开发规范](../../../docs/ui-development-spec.md) 的“表单与无障碍”第 8 条）。按钮平分整行的 `sm`、`default` 没有状态行。
-- **浮动窗口的拖动区域**：按住这几处能拖动窗口：面板自己的留白，以及正文不滚动时正文自己的留白（没有内容的地方）；整条标题区；正文里标了 `data-dialog-drag` 的元素（宿主用它把自己画的标题区、工具条的空白处标为可拖）。按下处是其中的按钮、输入控件、链接、`role="button"` 或 `[data-interactive]` 时不拖，照常操作；正文里没标的地方不拖。按下时不拦默认动作（输入框照常失焦提交），移动超过 3px 才开始拖、这时才捕获指针，不到就松开是一次普通的点击。拖动区域不起选字，只有标题文字那一块显示移动光标。
-- **浮动窗口的拖动与缩放**：拖动与鼠标缩放不改变页面滚动位置。缩放手柄是右、下两条边加四个角；拖左、上方向的手柄时窗口的 `left`、`top` 跟着那条边走，触到 `minWidth`、`minHeight` 后不再漂移。鼠标在松开时提交 `update:width`、`update:height`；方向键按 10px、Shift + 方向键按 1px 调整，语义是“移动那条边”（在 `top-left` 上按左键是变大）。拖动或缩放后的位置只留在本次组件实例里，下次打开重新居中。
 - **可访问性**：面板是 `role="dialog"`，锁整页的模态带 `aria-modal="true"`（宿主声明 `contained` 时不带）；标题（或 `header` 插槽）经 `aria-labelledby` 作可访问名称，没有标题时用视觉隐藏的“对话框”。关闭按钮有可访问名称 `closeLabel`。
 
 ## 叠放与层级
@@ -58,22 +55,20 @@
 层级规则见 [UI 开发规范](../../../docs/ui-development-spec.md) 的“叠放层级”一节，数值只在 `theme/z-index.ts`。
 
 - 同时打开的模态（`Dialog` 与 `AlertDialog`）按**打开顺序**叠放，后打开的在上面，与 DOM 顺序无关；最多 5 层，再多的都落在第 5 层。
-- 浮动窗口按**嵌套深度**叠放：从窗口里开出的窗口压住外层。整档在模态之下。
-- **二级对话框**：放在另一个 `Dialog`（两种用法都算）或 `AlertDialog` 内容里的 `Dialog`、`AlertDialog`，面取 `--dialog-surface-nested`，圆角收到不大于 `--radius-window`（修饰类 `.nb-ui-dialog-surface--nested`）。按组件树数层数，在组件建立时取定。它传送到 `body`，不是外层面板的后代，模糊采得到外层与页面，仍是玻璃；`teleportTarget` 为 `false` 时它成了外层面板的后代，模糊只采到外层面板之内（[设计语言](../../../docs/design-language.md) 第二节边界 4），不要这样用。
-- 两种用法都向内容树提供局部浮层层级（`NB_POPOVER_Z_INDEX`），里面的下拉、提示、取色面板显示在面板之上。模态给的是一个高于所有模态层的固定值，窗口给“自己 + 1”。
+- 浮动窗口（`FloatingWindow`）按**嵌套深度**叠放，整档在模态之下。
+- **二级对话框**：放在另一个 `Dialog`、`FloatingWindow` 或 `AlertDialog` 内容里的 `Dialog`、`AlertDialog`，面取 `--dialog-surface-nested`，圆角收到不大于 `--radius-window`（修饰类 `.nb-ui-dialog-surface--nested`）。按组件树数层数，在组件建立时取定。它传送到 `body`，不是外层面板的后代，模糊采得到外层与页面，仍是玻璃；`teleportTarget` 为 `false` 时它成了外层面板的后代，模糊只采到外层面板之内（[设计语言](../../../docs/design-language.md) 第二节边界 4），不要这样用。
+- 向内容树提供局部浮层层级（`NB_POPOVER_Z_INDEX`），里面的下拉、提示、取色面板显示在面板之上：一个高于所有模态层的固定值。叠放与二级的判断由 `useOverlayLayer` 统一处理。
 - **宿主声明 `contained`**（`provideTeleportTarget(选择器, {contained: true})`，组件 Lab 的画布就是这样）时，模态只在传送目标里画遮罩并居中，以非模态方式挂载：不锁整页、不把目标外的界面设为读屏不可见、不锁焦点。点遮罩与 Escape 的判定不变。
 
 ## 数据
 
 ```ts
 type DialogSize = "sm" | "default" | "md" | "lg" | "xl" | "full";
-type DialogCloseReason = "overlay" | "cancel" | "close-button" | "esc";
+type DialogCloseReason = "escape" | "outside" | "close-button" | "cancel"; // OverlayCloseReason 的子集
 
 interface DialogProps {
-    /** 是否打开；必填、受控 */
-    modelValue: boolean;
-    /** 模态或浮动窗口；默认 true；打开期间不要切换 */
-    modal?: boolean;
+    /** 是否打开；必填、受控（组件只发 update:open，自己不翻转） */
+    open: boolean;
     /** 尺寸预设；默认 "default" */
     size?: DialogSize;
     /** 标题；默认空字符串，此时用视觉隐藏的标题 */
@@ -82,7 +77,7 @@ interface DialogProps {
     closable?: boolean;
     /** 是否显示标题区；默认 true */
     showHeader?: boolean;
-    /** 点遮罩是否请求关闭（只对模态有意义）；默认 true */
+    /** 点遮罩是否请求关闭；默认 true */
     closeOnOverlay?: boolean;
     /** Escape 是否请求关闭；默认 true */
     closeOnEsc?: boolean;
@@ -94,21 +89,15 @@ interface DialogProps {
     maxHeight?: string;
     /** 初始焦点的选择器；默认第一个可聚焦元素 */
     initialFocus?: string;
-    /** 浮动窗口是否可缩放；默认 false */
-    resizable?: boolean;
-    /** 缩放的最小宽度（px）；默认 320 */
-    minWidth?: number;
-    /** 缩放的最小高度（px）；默认 240 */
-    minHeight?: number;
     /** Teleport 选择器；缺省用宿主提供的目标或 "body"；false 禁用 Teleport */
-    teleportTarget?: string | boolean;
+    teleportTarget?: string | false;
     /** 遮罩样式；默认 "opaque" */
     overlayType?: "transparent" | "blur" | "opaque";
     /** 默认页脚是否显示取消按钮；默认 false */
     showCancel?: boolean;
     /** 是否显示页脚；默认 true */
     showFooter?: boolean;
-    /** 是否阻止关闭、确认与缩放；默认 false */
+    /** 是否阻止关闭与确认；默认 false */
     busy?: boolean;
     /** 页脚左侧状态行的错误原因；默认空字符串；非空时替下 status 插槽；只在 md 及以上尺寸有 */
     status?: string;
@@ -122,21 +111,19 @@ interface DialogProps {
     confirmLabel?: string;
     /** 关闭按钮的可访问名称与 title；缺省按界面语言取（中文 "关闭"） */
     closeLabel?: string;
+    /** 请求关闭后随即发 update:open(false)；默认 true；宿主自己决定关不关时传 false */
+    closeOnRequest?: boolean;
 }
 
 interface DialogEmits {
-    /** 仅在没有 request-close 监听器时，由默认关闭流程发出 false */
-    (event: "update:modelValue", value: boolean): void;
-    /** 默认确认按钮触发；没有 confirm 监听器时随后自动关闭 */
+    /** closeOnRequest 为真时，紧跟 request-close 发出 false */
+    (event: "update:open", value: boolean): void;
+    /** 默认确认按钮触发；不关闭 */
     (event: "confirm"): void;
-    /** 默认关闭流程发出 */
-    (event: "cancel"): void;
     /** 请求关闭及原因 */
     (event: "request-close", reason: DialogCloseReason): void;
-    /** 浮动窗口缩放后提交的宽度（px） */
-    (event: "update:width", value: number): void;
-    /** 浮动窗口缩放后提交的高度（px） */
-    (event: "update:height", value: number): void;
+    /** 关闭完成：内容已卸载、焦点栈已释放 */
+    (event: "closed"): void;
 }
 
 interface DialogSlots {
@@ -157,12 +144,12 @@ interface DialogSlots {
 
 ## 状态与边界
 
-`busy` 只阻止本组件提供的确认、关闭与缩放，不替正文控件设置 disabled。组件不定义正文的加载、错误或空数据外观，由默认插槽负责。
+`busy` 只阻止本组件提供的确认与关闭，不替正文控件设置 disabled。组件不定义正文的加载、错误或空数据外观，由默认插槽负责。
 
 ## 不支持
 
 - 自动保存、异步确认的锁定与错误提示、业务数据管理；自定义页脚回调只触发组件动作，不替宿主等待异步任务。
-- 把浮动窗口的位置或尺寸存进浏览器存储；需要时由宿主经 `update:width`、`update:height` 自己保存。
+- 拖动与缩放：用 `FloatingWindow`。
 - 替代 `AlertDialog` 做破坏性二次确认。
 
 ## 已知限制
@@ -174,9 +161,9 @@ interface DialogSlots {
 ## 隐藏通道理由
 
 - `env:portal`：遮罩与面板要脱离宿主的裁剪与层叠上下文；默认传送到 `body`，宿主可用 `provideTeleportTarget(选择器)` 在组件树上给一个更近的目标；组件自己写明的 `teleportTarget` 优先，目标查不到时回退 `body`。`false` 时禁用 Teleport。
-- `env:global`：模态打开期间由 reka 在 `document` 处理 Escape 与焦点、锁定页面滚动；浮动窗口拖动期间在 `window` 上监听指针移动与松开（开始拖动后捕获在面板上，期间拦住 `document` 的 `selectstart`），缩放期间捕获在手柄上、在手柄上监听，手势结束或卸载时解除。另有全应用一份的已打开模态列表（按打开顺序）：打开时登记、关闭或卸载时移除，用它算自己叠在第几层。它和 reka 自己的图层栈一样只做叠放协调、不承载数据，所以不算 store；层级取决于别的对话框什么时候打开，父组件给不出来。
+- `env:global`：模态打开期间由 reka 在 `document` 处理 Escape 与焦点、锁定页面滚动。另有全应用一份的已打开模态列表（按打开顺序）：打开时登记、关闭或卸载时移除，用它算自己叠在第几层。它和 reka 自己的图层栈一样只做叠放协调、不承载数据，所以不算 store；层级取决于别的对话框什么时候打开，父组件给不出来。
 - `state:inject`：读宿主提供的传送目标与 `contained`、外层窗口的嵌套深度；向内容树提供嵌套深度与局部浮层层级。
-- `state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取取消、确认、关闭按钮的缺省文案，无标题时的屏幕阅读器标题，以及浮动窗口缩放手柄的可访问名称，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `cancelLabel`、`confirmLabel`、`closeLabel` 时以属性为准，不读端口。缩放手柄的名称没有对应的属性，固定走端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。
+- `state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取取消、确认、关闭按钮的缺省文案，无标题时的屏幕阅读器标题，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `cancelLabel`、`confirmLabel`、`closeLabel` 时以属性为准，不读端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。
 
 ## 上游边界
 

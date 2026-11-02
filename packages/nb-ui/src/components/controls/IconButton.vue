@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import type {ButtonHTMLAttributes} from "vue";
 import {focusRingClass} from "./focus-ring";
 import type {FocusRingStyle} from "./focus-ring";
+import type {ControlSize} from "../shared-types";
 
 export type IconButtonVariant = "default" | "danger" | "accent" | "secondary";
-export type IconButtonSize = "2xs" | "xs" | "sm" | "md" | "lg";
+export type IconButtonSize = Extract<ControlSize, "2xs" | "xs" | "sm" | "md" | "lg">;
 
 const props = withDefaults(defineProps<{
     title?: string;
@@ -13,7 +15,7 @@ const props = withDefaults(defineProps<{
     disabled?: boolean;
     iconClass?: string;
     focusRing?: FocusRingStyle;
-}>(), {
+} & /* @vue-ignore */ ButtonHTMLAttributes>(), {
     title: "",
     ariaLabel: "",
     variant: "default",

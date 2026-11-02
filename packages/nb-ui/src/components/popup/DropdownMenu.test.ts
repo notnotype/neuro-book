@@ -51,12 +51,12 @@ describe("DropdownMenu", () => {
         }
     });
 
-    it("扁平项：分隔线渲染、禁用项不执行、选中项只发 value", async () => {
+    it("扁平项：分隔线渲染、禁用项不执行、选中项只发 id", async () => {
         const wrapper = mountDropdownMenu({
             items: [
-                {label: "保存", value: "save"},
-                {label: "", value: "sep-1", separator: true},
-                {label: "删除", value: "delete", disabled: true, tone: "danger"},
+                {label: "保存", id: "save"},
+                {label: "", id: "sep-1", separator: true},
+                {label: "删除", id: "delete", disabled: true, tone: "danger"},
             ],
         });
         await open(wrapper);
@@ -79,13 +79,13 @@ describe("DropdownMenu", () => {
             items: [
                 {
                     label: "面板位置",
-                    value: "position",
+                    id: "position",
                     children: [
-                        {label: "底部", value: "bottom", type: "radio", group: "position", checked: true},
-                        {label: "顶部", value: "top", type: "radio", group: "position"},
+                        {label: "底部", id: "bottom", type: "radio", group: "position", checked: true},
+                        {label: "顶部", id: "top", type: "radio", group: "position"},
                     ],
                 },
-                {label: "隐藏面板", value: "hide"},
+                {label: "隐藏面板", id: "hide"},
             ],
         });
         await open(wrapper);
@@ -113,8 +113,8 @@ describe("DropdownMenu", () => {
     it("子菜单的键盘：展开后焦点进第一项，上下移动，左方向键收起回到父项；在子项上按下指针菜单不关，选中后整个菜单收起", async () => {
         const wrapper = mountDropdownMenu({
             items: [
-                {label: "视图", value: "group:view", children: [{label: "侧栏", value: "sidebar"}, {label: "面板", value: "panel"}]},
-                {label: "帮助", value: "help"},
+                {label: "视图", id: "group:view", children: [{label: "侧栏", id: "sidebar"}, {label: "面板", id: "panel"}]},
+                {label: "帮助", id: "help"},
             ],
         });
         await open(wrapper);
@@ -149,11 +149,11 @@ describe("DropdownMenu", () => {
         for (const key of ["Enter", " "]) {
             const wrapper = mountDropdownMenu({
                 items: [
-                    {label: "视图", value: "group:view", children: [
-                        {label: "布局", value: "group:layout", children: [{label: "单栏", value: "single"}, {label: "双栏", value: "double"}]},
-                        {label: "面板", value: "panel"},
+                    {label: "视图", id: "group:view", children: [
+                        {label: "布局", id: "group:layout", children: [{label: "单栏", id: "single"}, {label: "双栏", id: "double"}]},
+                        {label: "面板", id: "panel"},
                     ]},
-                    {label: "帮助", value: "help"},
+                    {label: "帮助", id: "help"},
                 ],
             });
             await open(wrapper);
@@ -181,9 +181,9 @@ describe("DropdownMenu", () => {
     it("radio/checkbox 的勾选态只读宿主的 checked，组件不代为切换", async () => {
         const wrapper = mountDropdownMenu({
             items: [
-                {label: "居中", value: "center", type: "radio", group: "alignment", checked: true},
-                {label: "左对齐", value: "left", type: "radio", group: "alignment"},
-                {label: "跟随窗口", value: "follow", type: "checkbox", checked: false},
+                {label: "居中", id: "center", type: "radio", group: "alignment", checked: true},
+                {label: "左对齐", id: "left", type: "radio", group: "alignment"},
+                {label: "跟随窗口", id: "follow", type: "checkbox", checked: false},
             ],
         });
         await open(wrapper);
@@ -211,11 +211,11 @@ describe("DropdownMenu", () => {
         const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
         const wrapper = mountDropdownMenu({
             items: [
-                {label: "孤例", value: "lonely", type: "radio", checked: true},
+                {label: "孤例", id: "lonely", type: "radio", checked: true},
                 {
                     label: "外层",
-                    value: "outer",
-                    children: [{label: "内层", value: "inner", children: [{label: "更深", value: "deeper"}]}],
+                    id: "outer",
+                    children: [{label: "内层", id: "inner", children: [{label: "更深", id: "deeper"}]}],
                 },
             ],
         });
@@ -242,7 +242,7 @@ describe("DropdownMenu", () => {
 
     it("受控展开：宿主不改 open 就不会展开，update:open 照常上报", async () => {
         const wrapper = mountDropdownMenu({
-            items: [{label: "保存", value: "save"}],
+            items: [{label: "保存", id: "save"}],
             open: false,
         });
 
@@ -261,8 +261,8 @@ describe("DropdownMenu", () => {
         try {
             const wrapper = mountDropdownMenu({
                 items: [
-                    {label: "保存", value: "save"},
-                    {label: "另存为", value: "save-as"},
+                    {label: "保存", id: "save"},
+                    {label: "另存为", id: "save-as"},
                 ],
             });
             await open(wrapper);
@@ -286,7 +286,7 @@ describe("DropdownMenu", () => {
         const wrapper = mount(DropdownMenu, {
             attachTo: document.body,
             props: {
-                items: [{label: "自定义项", value: "custom-1"}],
+                items: [{label: "自定义项", id: "custom-1"}],
                 contentProps: {"data-test-panel": "custom-panel"},
             },
             slots: {

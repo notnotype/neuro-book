@@ -17,7 +17,7 @@
 ## 数据
 
 ```ts
-type BannerTone = "info" | "success" | "warning" | "error";
+type BannerTone = "info" | "success" | "warning" | "danger";
 
 interface BannerProps {
     /** 色调；默认 "info" */

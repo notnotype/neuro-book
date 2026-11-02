@@ -6,6 +6,7 @@ import MenuNodes from "./MenuNodes.vue";
 import PopupViewport from "./PopupViewport.vue";
 import {useMenuCascade} from "../../composables/useMenuCascade";
 import {usePopoverLayer} from "../../composables/usePopoverLayer";
+import type {Tone} from "../shared-types";
 
 /** 对话框或浮动窗口里的浮层跟随它们的层级（由 Dialog 注入）；不在里面时回退到普通页面层级。 */
 const {zIndex: popoverZIndex} = usePopoverLayer();
@@ -13,16 +14,17 @@ const {zIndex: popoverZIndex} = usePopoverLayer();
 
 export interface MenubarItemData {
     label: string;
-    value: string;
+    /** 项的身份；`select` 事件发出整项，宿主按它分派。 */
+    id: string;
     shortcut?: string;
     iconClass?: string;
     disabled?: boolean;
     /** 提示与读屏描述（例如禁用原因）；默认不显示。 */
     title?: string;
-    tone?: "default" | "danger";
+    tone?: Extract<Tone, "neutral" | "danger">;
     separator?: boolean;
     checked?: boolean;
-    type?: "default" | "checkbox" | "radio";
+    type?: "item" | "checkbox" | "radio";
     children?: MenubarItemData[];
 }
 
@@ -134,7 +136,7 @@ function scheduleLevel(item: MenubarItemData | null, trigger: HTMLElement, depth
                     @pointer-down-outside="(event) => keepOpen(menu.id, event)"
                     @focus-outside="(event) => keepOpen(menu.id, event)"
                     class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion relative flex max-h-[var(--reka-popper-available-height)] min-w-[200px] flex-col overflow-hidden text-[var(--text-main)] outline-none select-none"
-                    @keydown.capture="cascade.rootKeydown"
+                    v-bind="{onKeydownCapture: cascade.rootKeydown}"
                 >
                     <!-- 每组各有一份滚动状态：切换组时旧一组还在退场动画里，共用一份会让它套上新一组的截断与渐隐。 -->
                     <PopupViewport class="w-full" :data-menubar-level="menu.id" @scroll="cascade.collapseBelow(0)">

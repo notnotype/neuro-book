@@ -49,11 +49,11 @@ const reviseOpen = computed({get: () => reviseMode.value !== null, set: open => 
 /** 与这个对象有关的修订条数（菜单第四项写出来；按阅读位置算）。 */
 const revisionTotal = useStoryQuery("revisions.list", () => ({entity: props.entity, limit: 1}));
 const reviseItems = computed<DropdownMenuItemData[]>(() => [
-    {value: "link", label: "连到另一个对象……", iconClass: "i-lucide-link-2"},
-    {value: "kind", label: "改对象种类……", iconClass: "i-lucide-user-round"},
-    {value: "name", label: "某个称呼属于别的对象……", iconClass: "i-lucide-tag"},
-    {value: "sep-1", label: "", separator: true},
-    {value: "list", label: `这个对象的修订（${revisionTotal.data.value?.total ?? 0}）`, iconClass: "i-lucide-history"},
+    {id: "link", label: "连到另一个对象……", iconClass: "i-lucide-link-2"},
+    {id: "kind", label: "改对象种类……", iconClass: "i-lucide-user-round"},
+    {id: "name", label: "某个称呼属于别的对象……", iconClass: "i-lucide-tag"},
+    {id: "sep-1", label: "", separator: true},
+    {id: "list", label: `这个对象的修订（${revisionTotal.data.value?.total ?? 0}）`, iconClass: "i-lucide-history"},
 ]);
 function onRevise(value: string): void {
     if (value === "list") book.jump("revisions", {kind: "entity", id: props.entity});

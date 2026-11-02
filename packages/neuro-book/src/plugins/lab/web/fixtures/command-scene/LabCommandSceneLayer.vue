@@ -26,9 +26,9 @@ const confirmation = props.scene.confirmation;
     <AlertDialog
         :open="confirmation.visible.value"
         :title="confirmation.title.value"
-        :tone="confirmation.destructive.value ? 'danger' : 'warning'"
-        confirm-text="批准执行"
-        cancel-text="取消"
+        :tone="confirmation.destructive.value ? 'danger' : 'neutral'"
+        confirm-label="批准执行"
+        cancel-label="取消"
         @update:open="confirmation.onOpenChange"
         @confirm="confirmation.settle(true)"
         @cancel="confirmation.settle(false)"

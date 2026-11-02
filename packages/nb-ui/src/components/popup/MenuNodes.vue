@@ -1,4 +1,4 @@
-<script setup lang="ts" generic="T extends {label?: string; title?: string; disabled?: boolean; separator?: boolean; iconClass?: string; shortcut?: string; tone?: 'default' | 'danger'; checked?: boolean; type?: string}">
+<script setup lang="ts" generic="T extends {label?: string; title?: string; disabled?: boolean; separator?: boolean; iconClass?: string; shortcut?: string; tone?: 'neutral' | 'danger'; checked?: boolean; type?: string}">
 import {computed, ref, type Component} from "vue";
 import {elementOf} from "../../utils/element-of";
 import MenuRow from "./MenuRow.vue";

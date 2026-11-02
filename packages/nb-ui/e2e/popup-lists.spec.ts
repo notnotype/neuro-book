@@ -15,8 +15,8 @@ async function gotoMenus(page: Page): Promise<void> {
 async function expectRowGeometry(item: Locator): Promise<void> {
     const box = (await item.boundingBox())!;
     const label = (await item.textContent())?.trim();
-    expect(box.height, `${label} 的行高`).toBeCloseTo(28, 0);
-    await expect(item, `${label} 的字号`).toHaveCSS("font-size", "13px");
+    expect(box.height, `${label} 的行高`).toBeCloseTo(30, 0);
+    await expect(item, `${label} 的字号`).toHaveCSS("font-size", "14px");
     await expect(item, `${label} 的圆角`).toHaveCSS("border-radius", "5px");
 }
 
@@ -37,7 +37,7 @@ async function settled(surface: Locator): Promise<void> {
     await surface.evaluate((element) => Promise.all(element.getAnimations({subtree: true}).map((animation) => animation.finished)));
 }
 
-test("下拉菜单：外框 10px、内边距 4px，项高 28px、字 13px、圆角 5px；勾选项的勾与快捷键同时显示", async ({page}) => {
+test("下拉菜单：外框 10px、内边距 4px，项高 30px、字 14px、圆角 5px；勾选项的勾与快捷键同时显示", async ({page}) => {
     await gotoMenus(page);
     await page.locator("[data-fixture-dropdown-trigger]").click();
     const menu = page.locator("[data-fixture-dropdown]");
@@ -149,7 +149,7 @@ test("菜单栏：一级里父项上按右方向键只展开子菜单、焦点�
     await expect(menubar.getByRole("menuitem", {name: "编辑"})).toHaveAttribute("data-state", "closed");
 });
 
-test("Select：所有项 28px，说明在同一行右侧；选中项在左侧一列画勾、替代它的图标，底色不变", async ({page}) => {
+test("Select：所有项 30px，说明在同一行右侧；选中项在左侧一列画勾、替代它的图标，底色不变", async ({page}) => {
     await page.goto("/acceptance/popup-lists?scene=select&theme=nbook&colorway=nbook-light");
     await page.locator("[data-fixture-select]").click();
     const listbox = page.getByRole("listbox");
@@ -200,7 +200,7 @@ test("Select 与 ColorSwatches 的浮层材质与 DropdownMenu 相同：底色�
     expect(await material(swatches), "ColorSwatches").toEqual(expected);
 });
 
-test("QuickPick：所有项 28px，分类与说明在同一行右侧；高亮跟着指针移动，只亮一项", async ({page}) => {
+test("QuickPick：所有项 30px，分类与说明在同一行右侧；高亮跟着指针移动，只亮一项", async ({page}) => {
     await page.goto("/acceptance/popup-lists?scene=quick-pick&theme=nbook&colorway=nbook-light");
     const panel = page.locator("[data-fixture-quick-pick]");
     await settled(panel);

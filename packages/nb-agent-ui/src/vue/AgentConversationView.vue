@@ -64,7 +64,7 @@ function setViewMode(mode: AgentViewMode) {
 }
 
 const overflowItems = computed<DropdownMenuItemData[]>(() => [{
-    value: "toggle-view-mode",
+    id: "toggle-view-mode",
     label: currentViewMode.value === "raw" ? t("header.turnsView") : t("header.rawView"),
     iconClass: currentViewMode.value === "raw" ? "i-lucide-list-collapse" : "i-lucide-list",
 }]);

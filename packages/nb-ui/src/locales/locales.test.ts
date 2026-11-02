@@ -3,7 +3,7 @@
  *
  * 防止迁移改错文字：`LEGACY` 是迁移前组件里写死的中文，逐字抄自提交 e1cc7b22b 的对应文件（出处写在每行末尾）；
  * 带参数的按迁移前模板字符串里的写法给出参数，期望值是迁移前代入后的结果。目录里每个键都要在表里、表里每个键都要
- * 在目录里，中文值翻出来与旧字面量逐字相同。以后有意改文字时，同一次改动里同步改这张表。
+ * 在目录里，中文值翻出来与旧字面量逐字相同。以后有意改文字时，同一次改动里同步改这张表；新加的键也登记在这里，行末写明是新增。
  *
  * 英文是迁移时新写的（迁移前不存在），这里只核对两种语言的键集与占位符一致。
  */
@@ -24,8 +24,8 @@ interface Legacy {
 
 const LEGACY: readonly Legacy[] = [
     {key: "alertDialog.title", zh: "确认操作"}, // feedback/AlertDialog.vue 的 title 缺省
-    {key: "alertDialog.confirm", zh: "确定"}, // 同上，confirmText 缺省
-    {key: "alertDialog.cancel", zh: "取消"}, // 同上，cancelText 缺省
+    {key: "alertDialog.confirm", zh: "确定"}, // 同上，confirmLabel 缺省
+    {key: "alertDialog.cancel", zh: "取消"}, // 同上，cancelLabel 缺省
     {key: "banner.close", zh: "关闭"}, // feedback/Banner.vue 的 closeLabel 缺省
     {key: "breadcrumb.label", zh: "面包屑导航"}, // navigation/Breadcrumb.vue 模板里的 aria-label
     {key: "codeBlock.empty", zh: "无内容"}, // display/CodeBlock.vue 的 emptyText 缺省
@@ -37,6 +37,8 @@ const LEGACY: readonly Legacy[] = [
     {key: "dialog.cancel", zh: "取消"}, // 同上，cancelLabel 缺省
     {key: "dialog.confirm", zh: "确认"}, // 同上，confirmLabel 缺省
     {key: "dialog.close", zh: "关闭"}, // 同上，closeLabel 缺省
+    {key: "drawer.untitled", zh: "面板"}, // feedback/Drawer.vue 没有 title 时只给读屏的标题（0.4 新增，原来没有）
+    {key: "drawer.close", zh: "关闭"}, // 同上，closeLabel 缺省（0.4 新增，原来关闭按钮没有名字）
     {key: "emptyState.title", zh: "暂无数据"}, // display/EmptyState.vue 的 title 缺省
     {key: "floatingWindow.resizeWidth", zh: "调整窗口宽度"}, // composables/useFloatingWindow.ts 右边手柄的 label
     {key: "floatingWindow.resizeHeight", zh: "调整窗口高度"}, // 同上，下边手柄

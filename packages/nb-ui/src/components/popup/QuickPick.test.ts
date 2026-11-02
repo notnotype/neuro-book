@@ -41,7 +41,7 @@ function mountHarness(options: HarnessOptions = {}) {
                 "onUpdate:query": (value: string) => { query.value = value; },
                 "onUpdate:activeId": (value: string | null) => { activeId.value = value; },
                 onAccept: (id: string) => { accepted.value.push(id); },
-                onClose: (reason: string) => { closes.push(reason); },
+                onRequestClose: (reason: string) => { closes.push(reason); },
                 onClosed: () => {
                     closed.value += 1;
                     mountedWhenClosed.value = document.body.querySelector('[role="combobox"]') !== null;
@@ -198,7 +198,7 @@ describe("QuickPick 受控合同", () => {
         }
     });
 
-    it("Escape 只关本层：发出 close(escape) 且下层 document 监听收不到按键", async () => {
+    it("Escape 只关本层：发出 request-close(escape) 且下层 document 监听收不到按键", async () => {
         const {wrapper, open, closes} = mountHarness({activeId: "outline.reorder"});
         const documentKeys: string[] = [];
         const documentListener = (event: KeyboardEvent): void => { documentKeys.push(event.key); };

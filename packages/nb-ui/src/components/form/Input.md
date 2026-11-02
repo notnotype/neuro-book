@@ -10,7 +10,7 @@
 
 没有前后缀、图标或清除能力时，组件渲染一个全宽原生 input；启用任一扩展能力时，组件渲染带边框的控制容器，内部依次放置图标、prefix slot、可伸缩 input、清除按钮和 suffix slot。输入区设置 `min-w-0`，因此长文本不会把扩展内容推出控制器。
 
-`size="sm"` 使用紧凑高度和字号；`size="default"` 与 `size="md"` 使用标准 md 高度，源码对两者采用同一视觉分支。`390×844` 下扩展控件保持单行，输入文本在可伸缩区域内处理溢出。
+`size="sm"` 使用紧凑高度和字号；`size="md"`（缺省）使用标准高度。`390×844` 下扩展控件保持单行，输入文本在可伸缩区域内处理溢出。
 
 ## 交互
 
@@ -24,7 +24,7 @@
 
 ```ts
 type InputType = "text" | "search" | "password" | "number";
-type InputSize = "default" | "sm" | "md";
+type InputSize = "sm" | "md";
 
 type InputProps = {
     /** 受控字符串值；默认 ""。 */
@@ -37,7 +37,7 @@ type InputProps = {
     type?: InputType;
     /** 原生占位文字；默认 ""。 */
     placeholder?: string;
-    /** 控件尺寸；默认 "default"；"default" 与 "md" 采用同一标准尺寸。 */
+    /** 控件尺寸；默认 "md"。 */
     size?: InputSize;
     /** 禁止输入；默认 false。 */
     disabled?: boolean;

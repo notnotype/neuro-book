@@ -3,7 +3,7 @@
  * 设置窗口（同名 .md）：窗口模型的呈现。外框是非模态的 Dialog，左栏分区、标签与右边的分区内容都读模型，操作交回模型
  * （docs/specs/settings/settings-window.md）。
  */
-import {AlertDialog, Dialog, Input, ScrollArea, SegmentedControl, Separator, Tooltip} from "@notnotype/nb-ui/components";
+import {AlertDialog, FloatingWindow, Input, ScrollArea, SegmentedControl, Separator, Tooltip} from "@notnotype/nb-ui/components";
 import type {SegmentedControlValue} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, provide, ref, useId, watch} from "vue";
 
@@ -258,9 +258,8 @@ function onLeaveOpen(open: boolean): void {
 </script>
 
 <template>
-    <Dialog
-        :model-value="open"
-        :modal="false"
+    <FloatingWindow
+        :open="open"
         :title="text('window.title')"
         :show-header="false"
         :close-label="text('window.close')"
@@ -316,7 +315,7 @@ function onLeaveOpen(open: boolean): void {
                                 列表行，不是按钮的外观：没有描边，悬停与当前项各是一层淡底，按下不缩放。停用项用 aria-disabled 而不是
                                 disabled：原生停用的按钮收不到指针事件，悬停出不了原因的 Tooltip；原因另经 aria-describedby 给读屏。
                             -->
-                            <Tooltip v-for="item in group.items" :key="item.id" :text="navTip(item) ?? ''" :disabled="navTip(item) === null" placement="right">
+                            <Tooltip v-for="item in group.items" :key="item.id" :text="navTip(item) ?? ''" :disabled="navTip(item) === null" side="right">
                                 <button
                                     type="button"
                                     class="settings-window__nav-item nb-ui-focus-ring-inset"
@@ -409,16 +408,16 @@ function onLeaveOpen(open: boolean): void {
             :open="model.leaving.value !== null"
             :title="text('window.leave.title')"
             :description="text('window.leave.description', {title: current?.title ?? ''})"
-            :confirm-text="text('window.leave.discard')"
-            :cancel-text="text('window.leave.keepEditing')"
-            tone="warning"
+            :confirm-label="text('window.leave.discard')"
+            :cancel-label="text('window.leave.keepEditing')"
+            tone="neutral"
             data-settings-leave
             @update:open="onLeaveOpen"
             @confirm="confirmLeave"
             @cancel="model.cancelLeave()"
             @closed="onLeaveClosed"
         />
-    </Dialog>
+    </FloatingWindow>
 </template>
 
 <style scoped>

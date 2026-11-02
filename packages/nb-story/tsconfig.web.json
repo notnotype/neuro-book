@@ -12,5 +12,10 @@
         "forceConsistentCasingInFileNames": true
     },
     "include": ["src/web/**/*.ts", "src/web/**/*.vue"],
-    "exclude": ["src/web/**/*.test.ts"]
+    "exclude": ["src/web/**/*.test.ts"],
+    "vueCompilerOptions": {
+        "checkUnknownProps": true,
+        "checkUnknownEvents": true,
+        "dataAttributes": ["data-*"]
+    }
 }

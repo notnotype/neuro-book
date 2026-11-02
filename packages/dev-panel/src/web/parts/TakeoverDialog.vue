@@ -14,7 +14,7 @@ const emit = defineEmits<{confirm: []; cancel: []}>();
 </script>
 
 <template>
-    <Dialog :model-value="open" :title="conflict ? '别处正在控制这个终端' : '接管键盘'" size="md" :busy="pending" @request-close="emit('cancel')">
+    <Dialog :open="open" :title="conflict ? '别处正在控制这个终端' : '接管键盘'" size="md" :busy="pending" @request-close="emit('cancel')">
         <div class="flex flex-col gap-3">
             <p v-if="conflict?.reason === 'other_browser'">面板的另一个浏览器正在接管它<template v-if="conflict.since">（{{ relativeTime(conflict.since) }}起）</template>。抢过来之后那边回到观看。</p>
             <p v-else-if="conflict">可能有别的程序在控制这个终端<template v-if="conflict.text">（herdr：{{ conflict.text }}）</template>。抢过来之后那边会断开。</p>

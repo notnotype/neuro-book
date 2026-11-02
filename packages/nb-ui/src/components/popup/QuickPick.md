@@ -74,7 +74,7 @@ interface QuickPickEmits {
     /** Enter 或点击有效候选项时发出。 */
     (event: "accept", id: string): void;
     /** Escape 或外点关闭请求；不等价于组件自行关闭。 */
-    (event: "close", reason: QuickPickCloseReason): void;
+    (event: "request-close", reason: QuickPickCloseReason): void;
     /** 浮层卸载、焦点交还完成后发出；中止的关闭交接不发。 */
     (event: "closed"): void;
 }

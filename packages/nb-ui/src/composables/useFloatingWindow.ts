@@ -1,5 +1,5 @@
 /**
- * `Dialog` 非模态用法（浮动窗口）的定位、拖动与缩放。打开时按容器居中；拖动时窗口至少留一角在容器里，顶上总能再抓住；
+ * 浮动窗口（`FloatingWindow`）的定位、拖动与缩放。打开时按容器居中；拖动时窗口至少留一角在容器里，顶上总能再抓住；
  * 缩放有六个手柄（右、下两条边加四个角），鼠标在松开时提交尺寸，方向键按 10px（Shift 1px）调整。
  *
  * 拖动区域有几处（面板留白、标题栏、内容里标了 `data-dialog-drag` 的元素），按下处由 `startDrag` 判定，指针捕获在面板上。
@@ -9,7 +9,7 @@
  */
 
 import {computed, onBeforeUnmount, ref, shallowRef, watch} from "vue";
-import type {CSSProperties, Ref} from "vue";
+import type {CSSProperties} from "vue";
 import {useElementSize, useWindowSize} from "@vueuse/core";
 
 import type {NbUiTextKey} from "../locales";
@@ -43,8 +43,6 @@ export const FLOATING_WINDOW_RESIZE_HANDLES: ReadonlyArray<FloatingWindowResizeH
 const DRAG_THRESHOLD = 3;
 
 export interface FloatingWindowOptions {
-    /** 是否用浮动窗口的定位（非模态时为真）；为假时本组合函数不做任何事。 */
-    readonly enabled: () => boolean;
     readonly open: () => boolean;
     /** 传送目标选择器；false 表示不传送（定位按 offsetParent）。 */
     readonly target: () => string | false;
@@ -55,7 +53,7 @@ export interface FloatingWindowOptions {
     /** 宿主声明的数字尺寸（px）；量不到实际尺寸时（刚挂上还没布局）按它。 */
     readonly declared: () => {readonly width: number | null; readonly height: number | null};
     /** 面板：带 `data-dialog-surface` 的元素，拖动时指针捕获在它上面。 */
-    readonly windowRef: Ref<HTMLElement | null>;
+    readonly windowRef: {readonly value: HTMLElement | null};
     readonly onResize: (dimension: "width" | "height", value: number) => void;
 }
 
@@ -156,7 +154,7 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
      * 区域里没认出来的可点元素照常收到 click。移动超过 `DRAG_THRESHOLD` 才算拖动，这时才捕获指针、清掉选区并拦住选字。
      */
     function startDrag(event: PointerEvent): void {
-        if (!options.enabled() || event.button !== 0 || options.busy()) return;
+        if (event.button !== 0 || options.busy()) return;
         const element = options.windowRef.value;
         if (element === null || !(event.target instanceof Element) || !inDragRegion(element, event.target)) return;
         dragCleanup?.();
@@ -275,7 +273,7 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
 
     // 打开时居中：量一次实际尺寸，按容器居中；量不到就用 64px 顶距。看的是面板元素而不只是“打开”：传送到 body 时
     // reka 的 Teleport 自己挂载后才渲染内容，第一次就打开的窗口面板比“打开”晚一拍出现。渲染之后才运行，量的是挂好的面板。
-    watch(() => (options.enabled() && options.open() ? options.windowRef.value : null), (element) => {
+    watch(() => (options.open() ? options.windowRef.value : null), (element) => {
         if (element === null) {
             positioned.value = false;
             return;

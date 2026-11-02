@@ -388,6 +388,17 @@ input.nb-ui-native-input[type="number"] {
     user-select: none;
 }
 
+/*
+ * 行高取整到像素：12px × 1.3 这类带小数的行高会让整行高出零点几像素，滚动容器的 scrollHeight 是取整的，
+ * 列表最后一项就差这一点滚不进视口。放在 @supports 里：含 var() 的声明在不认 round() 的浏览器（Chrome 125 之前，
+ * 在基线 119 之内）里不会退回上一条，而是整条作废成未设置。
+ */
+@supports (line-height: round(down, 15.6px, 1px)) {
+    .nb-ui-menu-label {
+        line-height: round(down, calc(var(--text-xs) * var(--leading-tight)), 1px);
+    }
+}
+
 .nb-ui-menu-separator {
     height: var(--border-w);
     margin: 4px;
@@ -416,6 +427,30 @@ input.nb-ui-native-input[type="number"] {
     to {
         opacity: 0;
         transform: scale(0.96);
+    }
+}
+
+/*
+ * 模态遮罩（Dialog、AlertDialog、Drawer）的入退场：淡入淡出，共用这一对关键帧。底色与模糊各浮层自己给。
+ * 用关键帧而不是过渡：reka 关闭时等的是 animationend，过渡来不及播就被卸掉了。
+ */
+.nb-ui-overlay[data-state="open"] {
+    animation: nb-ui-overlay-in var(--motion-base) var(--ease-standard);
+}
+
+.nb-ui-overlay[data-state="closed"] {
+    animation: nb-ui-overlay-out var(--motion-fast) var(--ease-standard) forwards;
+}
+
+@keyframes nb-ui-overlay-in {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes nb-ui-overlay-out {
+    to {
+        opacity: 0;
     }
 }
 

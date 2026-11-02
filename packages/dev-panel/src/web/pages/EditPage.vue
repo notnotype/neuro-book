@@ -205,7 +205,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", guardUnload));
                         <span class="nbdev-note" role="status">{{ shortcutNote && !write.slow.value ? `${saveShortcut}：${shortcutNote}` : "" }}</span>
                     </div>
                 </div>
-                <AlertDialog :open="leaveOpen" title="有未保存的改动" description="离开这一页会丢掉还没保存的改动。" confirm-text="离开，丢掉改动" cancel-text="留下" tone="warning" @update:open="(open) => (leaveOpen = open)" @confirm="settleLeave(true)" @cancel="settleLeave(false)" @closed="onLeaveDialogClosed" />
+                <AlertDialog :open="leaveOpen" title="有未保存的改动" description="离开这一页会丢掉还没保存的改动。" confirm-label="离开，丢掉改动" cancel-label="留下" tone="neutral" @update:open="(open) => (leaveOpen = open)" @confirm="settleLeave(true)" @cancel="settleLeave(false)" @closed="onLeaveDialogClosed" />
                 <UncommittedDialog :open="uncommitted !== null" :path="path" :changes="uncommitted?.changes ?? null" :pending="write.pending.value" @confirm="uncommitted && session.save(true, uncommitted.currentHash)" @cancel="uncommitted = null" />
             </template>
         </template>

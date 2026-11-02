@@ -449,11 +449,11 @@ onMounted(() => {
         </div>
 
         <Dialog
-            :model-value="previewOpen"
+            :open="previewOpen"
             size="sm"
             :title="preview === null ? '' : text(PREVIEW_KEYS[preview.relation].title)"
             :busy="busy === 'install'"
-            @update:model-value="closePreview"
+            @update:open="closePreview"
         >
             <template v-if="preview !== null">
                 <p class="plugins-page__dialog-subject">{{ preview.installed === null ? `${preview.id} ${preview.version}` : `${preview.id} ${preview.installed} → ${preview.version}` }}</p>
@@ -475,11 +475,11 @@ onMounted(() => {
         </Dialog>
 
         <Dialog
-            :model-value="uninstallOpen"
+            :open="uninstallOpen"
             size="sm"
             :title="text('uninstall.title')"
             :busy="busy !== null && busy.startsWith('uninstall:')"
-            @update:model-value="closeUninstall"
+            @update:open="closeUninstall"
         >
             <p class="plugins-page__dialog-text">{{ uninstalling === null ? "" : text('uninstall.body', {id: uninstalling.id}) }}</p>
             <template #footer="{cancel}">

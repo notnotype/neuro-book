@@ -122,7 +122,7 @@ const retry = (): void => {
 <template>
     <!-- 共享原图预览：仅在打开时挂载 img，因此缩略图列表不会提前请求原图。 -->
     <Dialog
-        :model-value="modelValue"
+        :open="modelValue"
         :title="alt"
         closable
         :close-label="t('imagePreview.close')"
@@ -133,7 +133,7 @@ const retry = (): void => {
         body-class="!overflow-hidden"
         header-class="image-preview__header"
         :teleport-target="props.teleportTarget"
-        @update:model-value="emit('update:modelValue', $event)"
+        @update:open="emit('update:modelValue', $event)"
     >
         <template #header-extra>
             <a :href="src" :download="downloadName || ''" class="image-preview__download nb-ui-focus-ring" :title="t('imagePreview.downloadOriginal')" :aria-label="t('imagePreview.downloadOriginal')">

@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import {computed} from "vue";
+import type {InputHTMLAttributes} from "vue";
+import {computed, mergeProps, useAttrs} from "vue";
 import {useUiText} from "../../text-port";
 import {useFieldContext} from "./field-context";
+import type {ControlSize} from "../shared-types";
 
 export type InputType = "text" | "search" | "password" | "number";
-export type InputSize = "default" | "sm" | "md";
+export type InputSize = Extract<ControlSize, "sm" | "md">;
 
 const props = withDefaults(defineProps<{
     modelValue?: string;
@@ -30,13 +32,13 @@ const props = withDefaults(defineProps<{
     step?: string;
     min?: string;
     max?: string;
-}>(), {
+} & /* @vue-ignore */ InputHTMLAttributes>(), {
     modelValue: "",
     id: "",
     name: "",
     type: "text",
     placeholder: "",
-    size: "default",
+    size: "md",
     disabled: false,
     readonly: false,
     invalid: false,
@@ -85,6 +87,20 @@ const inputAttrs = computed(() => ({
     "aria-invalid": isInvalid.value || undefined,
 }));
 
+/*
+ * 透传属性分两处落：读屏属性（`aria-*`、`role`）落在输入框上——装饰过的输入框（图标、清除按钮、前后缀）根是外层控件，
+ * 名字写在外层上读屏读不到；其余（class、style、`data-*`、监听）落在外层控件上，宿主的选择器与尺寸测量按外层写。
+ * 没有装饰时输入框自己就是根，全部落在它上面。
+ */
+defineOptions({inheritAttrs: false});
+const attrs = useAttrs();
+const splitAttrs = computed(() => {
+    const aria: Record<string, unknown> = {};
+    const root: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(attrs)) (key.startsWith("aria-") || key === "role" ? aria : root)[key] = value;
+    return {aria, root};
+});
+
 function handleClear(): void {
     emit("update:modelValue", "");
     emit("clear");
@@ -94,6 +110,7 @@ function handleClear(): void {
 <template>
     <div
         v-if="$slots.prefix || $slots.suffix || props.iconClass || props.clearable"
+        v-bind="splitAttrs.root"
         class="nb-ui-control flex w-full items-center gap-[var(--space-2)] rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] focus-within:outline-none"
         :class="[controlSizeClass, isInvalid ? 'nb-ui-control-invalid' : '']"
     >
@@ -102,7 +119,7 @@ function handleClear(): void {
             <slot name="prefix"></slot>
         </div>
         <input
-            v-bind="inputAttrs"
+            v-bind="mergeProps(inputAttrs, splitAttrs.aria)"
             class="nb-ui-native-input min-w-0 flex-1 h-full bg-transparent text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
             @focus="emit('focus', $event)"
             @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
@@ -120,7 +137,7 @@ function handleClear(): void {
     </div>
     <input
         v-else
-        v-bind="inputAttrs"
+        v-bind="mergeProps(inputAttrs, $attrs)"
         class="nb-ui-native-input nb-ui-control w-full rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
         :class="[controlSizeClass, isInvalid ? 'nb-ui-control-invalid' : '']"
         @focus="emit('focus', $event)"

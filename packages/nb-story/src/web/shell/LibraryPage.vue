@@ -155,7 +155,7 @@ onBeforeUnmount(() => {
             v-model:open="removeOpen"
             :title="`删除《${removing?.title ?? ''}》`"
             description="这本书的数据、抽取记录与问答记录都会删掉，不能恢复。"
-            confirm-text="删除"
+            confirm-label="删除"
             tone="danger"
             @confirm="confirmRemove"
         />

@@ -50,9 +50,9 @@ function when(item: ShelfItem): string {
 
 function menu(): DropdownMenuItemData[] {
     return [
-        {value: "open-new-window", label: text("shelfList.openNewWindow")},
-        {value: "edit", label: text("shelfList.edit")},
-        {value: "remove", label: text("shelfList.remove"), tone: "danger"},
+        {id: "open-new-window", label: text("shelfList.openNewWindow")},
+        {id: "edit", label: text("shelfList.edit")},
+        {id: "remove", label: text("shelfList.remove"), tone: "danger"},
     ];
 }
 

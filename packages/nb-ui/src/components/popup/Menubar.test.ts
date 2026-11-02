@@ -11,10 +11,10 @@ async function flush(times = 8): Promise<void> {
 
 const MENUS = [
     {id: "file", label: "文件", items: [
-        {label: "新建", value: "new"},
-        {label: "导出", value: "export", children: [{label: "Markdown", value: "md"}, {label: "EPUB", value: "epub"}]},
+        {label: "新建", id: "new"},
+        {label: "导出", id: "export", children: [{label: "Markdown", id: "md"}, {label: "EPUB", id: "epub"}]},
     ]},
-    {id: "edit", label: "编辑", items: [{label: "撤销", value: "undo"}]},
+    {id: "edit", label: "编辑", items: [{label: "撤销", id: "undo"}]},
 ];
 
 const press = async (key: string): Promise<void> => {

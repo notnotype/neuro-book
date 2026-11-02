@@ -166,7 +166,7 @@ function activate(path: string): void {
 
 <template>
     <Dialog
-        :model-value="open"
+        :open="open"
         :title="text(mode === 'project' ? 'pathPicker.projectTitle' : 'pathPicker.directoryTitle')"
         size="md"
         :width="640"
@@ -176,7 +176,7 @@ function activate(path: string): void {
         @request-close="emit('cancel')"
     >
         <template #header-extra>
-            <InfoTip :text="text(mode === 'project' ? 'pathPicker.projectHint' : 'pathPicker.directoryHint')" :label="text('pathPicker.info')" placement="bottom" data-path-picker-info />
+            <InfoTip :text="text(mode === 'project' ? 'pathPicker.projectHint' : 'pathPicker.directoryHint')" :label="text('pathPicker.info')" side="bottom" data-path-picker-info />
         </template>
         <div class="path-picker" data-path-picker>
             <div v-if="typing" class="path-picker__typing">
@@ -202,7 +202,7 @@ function activate(path: string): void {
             <span data-path-picker-summary>{{ summary }}</span>
         </template>
         <template #footer>
-            <Tooltip :text="text('pathPicker.typePath')" placement="top">
+            <Tooltip :text="text('pathPicker.typePath')" side="top">
                 <IconButton size="sm" icon-class="i-lucide-keyboard" :aria-label="text('pathPicker.typePath')" data-path-picker-type @click="startTyping" />
             </Tooltip>
             <Button variant="secondary" :disabled="busy" @click="emit('cancel')">{{ text('pathPicker.cancel') }}</Button>

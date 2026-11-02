@@ -51,6 +51,12 @@ describe("SDK 的导出面", () => {
         const components = exportedValues(readFileSync(nbUi, "utf8")).filter((item) => item.from.endsWith(".vue")).map((item) => item.name).filter((name) => !Object.hasOwn(NOT_FOR_PLUGINS, name)).sort();
         expect(listed).toEqual(components);
     });
+
+    it("组件子路径的类型与 nb-ui 组件入口的公共类型逐个对上：nb-ui 新增或改名的类型漏列时这里失败", () => {
+        const sdk = exportedTypes(readFileSync(join(import.meta.dir, "components.ts"), "utf8")).sort();
+        const nbUi = exportedTypes(readFileSync(fileURLToPath(import.meta.resolve("@notnotype/nb-ui/components")), "utf8")).sort();
+        expect(sdk).toEqual(nbUi);
+    });
 });
 
 /** nb-ui 组件入口里不给插件用的单文件组件，与理由。现在没有。 */
@@ -63,6 +69,15 @@ function exportedValues(text: string): Array<{readonly name: string; readonly fr
         if (!ts.isExportDeclaration(statement) || statement.isTypeOnly || statement.exportClause === undefined || !ts.isNamedExports(statement.exportClause)) return [];
         const from = statement.moduleSpecifier !== undefined && ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : "";
         return statement.exportClause.elements.filter((element) => !element.isTypeOnly).map((element) => ({name: element.name.text, from}));
+    });
+}
+
+/** 模块里 `type` 的具名再导出（整条 `export type {…}` 或单个 `type` 修饰的名字）。 */
+function exportedTypes(text: string): string[] {
+    const source = ts.createSourceFile("module.ts", text, ts.ScriptTarget.Latest);
+    return source.statements.flatMap((statement) => {
+        if (!ts.isExportDeclaration(statement) || statement.exportClause === undefined || !ts.isNamedExports(statement.exportClause)) return [];
+        return statement.exportClause.elements.filter((element) => statement.isTypeOnly || element.isTypeOnly).map((element) => element.name.text);
     });
 }
 

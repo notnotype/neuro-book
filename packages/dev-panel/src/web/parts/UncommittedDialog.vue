@@ -12,7 +12,7 @@ const emit = defineEmits<{confirm: []; cancel: []}>();
 </script>
 
 <template>
-    <Dialog :model-value="open" title="这个文件有别人没提交的改动" size="lg" :busy="pending" @request-close="emit('cancel')">
+    <Dialog :open="open" title="这个文件有别人没提交的改动" size="lg" :busy="pending" @request-close="emit('cancel')">
         <div v-if="changes" class="flex flex-col gap-3">
             <p><code>{{ path }}</code>（{{ changes.status.join("、") }}）</p>
             <p class="nbdev-note">路径限定的提交会把这些改动和你的这次改动一起提交进 master，提交作者是主工作区的 Git 身份。拿不准是谁改的，就先取消、在终端问清楚。</p>

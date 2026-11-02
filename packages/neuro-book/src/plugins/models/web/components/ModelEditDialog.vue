@@ -121,7 +121,7 @@ const title = computed(() => (props.model === null ? text("edit.addTitle") : tex
 
 <template>
     <Dialog
-        :model-value="open"
+        :open="open"
         size="md"
         :title="title"
         show-cancel
@@ -131,7 +131,7 @@ const title = computed(() => (props.model === null ? text("edit.addTitle") : tex
         :busy="busy"
         :status="error"
         data-model-edit-dialog
-        @update:model-value="(value: boolean) => emit('update:open', value)"
+        @update:open="(value: boolean) => emit('update:open', value)"
         @confirm="save"
     >
         <div class="model-edit">

@@ -60,7 +60,7 @@ Surface 的结构主判据是这块面**压在什么上面**：直接压在窗�
 | 承载关系 | 分栏的正确形态 |
 | --- | --- |
 | 直接压在窗体底纹上（独立页面、路由页） | 导航与详情各自是材质层的**面板**：可以有边、有底色、有圆角，彼此靠间距分开 |
-| 压在浮层里（`Dialog` 的 body，模态与浮动窗口都算） | 浮层已经占了材质层，里面的分栏属于层级轴 → **不给面**：一条分割线 + 统一内边距成组 |
+| 压在浮层里（`Dialog` 与 `FloatingWindow` 的 body） | 浮层已经占了材质层，里面的分栏属于层级轴 → **不给面**：一条分割线 + 统一内边距成组 |
 
 组件不猜自己压在什么上面，由宿主用显式变体声明（当前实例：`AgentProfileNavList` 的 `surface="panel" | "plain"`）。
 把卡片形态写死进组件的，在浮层里必然变成「窗口套两张卡片」的双层边框，
@@ -265,7 +265,7 @@ Save Dialog `0 36px 100px`（后者是上一轮从同一份文件的 Dialogs 页
 
 面色必须拆成 `background-color` 与 `background-image` 两条长写法，**不要写回 `background` 简写**：
 简写会把没写出来的那条重置掉。基座默认不铺镜面；macOS 把 `--overlay-sheen` 映射到已有的
-`--glass-rim`，但只有整块的 Dialog（模态与浮动窗口两种用法）显式挂 `.nb-ui-surface-rim`。nbook 保持
+`--glass-rim`，但只有整块的对话框外框（`Dialog` 与 `FloatingWindow`）显式挂 `.nb-ui-surface-rim`。nbook 保持
 `--overlay-sheen: none`，小浮层继续 8px 纯 blur、无面渐变。
 
 菜单、ContextMenu、Select 都必须挂

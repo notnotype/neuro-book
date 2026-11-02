@@ -17,6 +17,7 @@ import type {
     Textarea,
     RadioGroup,
     Slider,
+    SelectOption,
 } from "@notnotype/nb-ui/components";
 import {h} from "vue";
 
@@ -66,10 +67,10 @@ const EXPORT_FORMATS = [
     {value: "zip", label: "整本打包（.zip）", iconClass: "i-lucide-archive"},
     {value: "nbook", label: "NeuroBook 备份（.nbook）", iconClass: "i-lucide-save"},
 ];
-const STATUS_OPTIONS = [
-    {value: "draft", label: "草稿", indicatorClass: "bg-[var(--status-warning)]", description: "还在写"},
-    {value: "review", label: "待校对", indicatorClass: "bg-[var(--status-info)]", description: "交给编辑"},
-    {value: "done", label: "定稿", indicatorClass: "bg-[var(--status-success)]", description: "不再改动"},
+const STATUS_OPTIONS: SelectOption[] = [
+    {value: "draft", label: "草稿", tone: "warning", description: "还在写"},
+    {value: "review", label: "待校对", tone: "info", description: "交给编辑"},
+    {value: "done", label: "定稿", tone: "success", description: "不再改动"},
 ];
 
 export const formFixtures: LabFixture[] = [
@@ -79,7 +80,7 @@ export const formFixtures: LabFixture[] = [
         class: "w-full max-w-[360px]",
         slotPresets: {prefix: () => h("span", {class: "i-lucide-book-open shrink-0 text-[var(--text-muted)]", "aria-hidden": "true"})},
         scenes: [
-            {id: "default", label: "默认", input: {props: {placeholder: "书名", size: "default"}, model: {modelValue: ""}}},
+            {id: "default", label: "默认", input: {props: {placeholder: "书名", size: "md"}, model: {modelValue: ""}}},
             {id: "search", label: "搜索、可清空", input: {props: {type: "search", placeholder: "搜组件名", iconClass: "i-lucide-search", clearable: true, size: "sm"}, model: {modelValue: "Tree"}}},
             {id: "password", label: "密码", input: {props: {type: "password", placeholder: "API Key"}, model: {modelValue: "sk-test"}}},
             {id: "readonly", label: "只读", input: {props: {readonly: true}, model: {modelValue: "/home/writer/works/长夜行"}}},

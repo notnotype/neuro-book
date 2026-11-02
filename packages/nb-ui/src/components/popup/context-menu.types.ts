@@ -1,3 +1,5 @@
+import type {OverlayCloseReason, Tone} from "../shared-types";
+
 /**
  * 右键菜单项。与 DropdownMenuItemData 的区别：动作用 action 回调（而非 value + select 事件）、
  * 支持任意层级 children 与 shortcut 快捷键展示。每一级都走共享菜单几何。
@@ -15,7 +17,7 @@ export interface ContextMenuItem {
     /** 提示与读屏描述（例如禁用原因）；默认不显示。 */
     title?: string;
     /** danger 用于删除等破坏性动作 */
-    tone?: "default" | "danger";
+    tone?: Extract<Tone, "neutral" | "danger">;
     /** checkbox：画成勾选项（`menuitemcheckbox`），勾选态由 checked 受控，组件不代为切换 */
     type?: "item" | "checkbox";
     checked?: boolean;
@@ -27,4 +29,4 @@ export interface ContextMenuItem {
  * 菜单为什么请求关闭：宿主据此决定焦点去向。选择、Escape 与 Tab 是键盘或菜单内的结束，焦点通常回到打开菜单的地方；
  * 外部点击时焦点已随用户落到别处，不应抢回。
  */
-export type ContextMenuCloseReason = "select" | "escape" | "tab" | "outside";
+export type ContextMenuCloseReason = Extract<OverlayCloseReason, "select" | "escape" | "tab" | "outside">;

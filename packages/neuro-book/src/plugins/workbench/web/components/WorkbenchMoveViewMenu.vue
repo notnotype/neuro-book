@@ -58,13 +58,13 @@ const origin = ref<{readonly viewId: string; readonly sourceContainerId: string}
 const items = computed<DropdownMenuItemData[]>(() => {
     const result: DropdownMenuItemData[] = [];
     props.groups.forEach((group, index) => {
-        if (index > 0) result.push({label: "", value: `separator:${String(index)}`, separator: true});
-        for (const target of group.targets) result.push({label: target.label, value: `${MOVE_PREFIX}${target.id}`, iconClass: target.icon, shortcut: group.label});
-        result.push({label: group.createLabel, value: `${CREATE_PREFIX}${group.part}`, iconClass: "i-lucide-square-plus"});
+        if (index > 0) result.push({label: "", id: `separator:${String(index)}`, separator: true});
+        for (const target of group.targets) result.push({label: target.label, id: `${MOVE_PREFIX}${target.id}`, iconClass: target.icon, shortcut: group.label});
+        result.push({label: group.createLabel, id: `${CREATE_PREFIX}${group.part}`, iconClass: "i-lucide-square-plus"});
     });
     if (props.resetLabel !== null) {
-        if (result.length > 0) result.push({label: "", value: "separator:reset", separator: true});
-        result.push({label: props.resetLabel, value: RESET, iconClass: "i-lucide-undo-2"});
+        if (result.length > 0) result.push({label: "", id: "separator:reset", separator: true});
+        result.push({label: props.resetLabel, id: RESET, iconClass: "i-lucide-undo-2"});
     }
     return result;
 });

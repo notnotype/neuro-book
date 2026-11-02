@@ -176,16 +176,16 @@ onMounted(async () => {
         console.warn({error}, "取书单失败，换书菜单只剩回到书架");
     }
 });
-const menuSeparator = (value: string): DropdownMenuItemData => ({value, label: "", separator: true});
+const menuSeparator = (id: string): DropdownMenuItemData => ({id, label: "", separator: true});
 /** 菜单里“设置”这一项的值：书 id 只有小写字母、数字与连字符，不会撞上。 */
 const SETTINGS = "@settings";
 const bookItems = computed<DropdownMenuItemData[]>(() => [
-    ...otherBooks.value.map(item => ({value: item.id, label: item.title, iconClass: "i-lucide-book"})),
+    ...otherBooks.value.map(item => ({id: item.id, label: item.title, iconClass: "i-lucide-book"})),
     // `separator: true` 的项本身就是分隔线（不是“上面加一条线”）。
     ...(otherBooks.value.length > 0 ? [menuSeparator("sep-books")] : []),
-    {value: "", label: "全部书（书架）", iconClass: "i-lucide-library"},
+    {id: "", label: "全部书（书架）", iconClass: "i-lucide-library"},
     menuSeparator("sep-settings"),
-    {value: SETTINGS, label: "设置", iconClass: "i-lucide-settings"},
+    {id: SETTINGS, label: "设置", iconClass: "i-lucide-settings"},
 ]);
 function switchBook(id: string): void {
     void router.push(id === SETTINGS ? "/settings" : id === "" ? "/" : `/book/${encodeURIComponent(id)}`);

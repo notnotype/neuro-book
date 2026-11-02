@@ -11,5 +11,10 @@
         "jsx": "preserve",
         "forceConsistentCasingInFileNames": true
     },
-    "include": ["src/web/**/*.ts", "src/web/**/*.vue"]
+    "include": ["src/web/**/*.ts", "src/web/**/*.vue"],
+    "vueCompilerOptions": {
+        "checkUnknownProps": true,
+        "checkUnknownEvents": true,
+        "dataAttributes": ["data-*"]
+    }
 }

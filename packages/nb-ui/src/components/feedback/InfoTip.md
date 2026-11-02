@@ -19,7 +19,8 @@
 ## 数据
 
 ```ts
-type InfoTipPlacement = "top" | "bottom" | "left" | "right";
+type Side = "top" | "right" | "bottom" | "left"; // 与 Align 同来自 shared-types
+type Align = "start" | "center" | "end";
 
 interface InfoTipProps {
     /** 说明文字；必填 */
@@ -27,7 +28,9 @@ interface InfoTipProps {
     /** 按钮的可访问名称；缺省按界面语言取（中文 "说明"） */
     label?: string;
     /** 提示首选显示方向；默认 "top" */
-    placement?: InfoTipPlacement;
+    side?: Side;
+    /** 沿锚点的对齐；默认 "center" */
+    align?: Align;
 }
 ```
 

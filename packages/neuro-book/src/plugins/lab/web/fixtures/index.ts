@@ -848,9 +848,9 @@ export const labFixtures: LabFixture[] = [
     }),
     defineSubjectFixture<typeof NeuroBookMark>({
         component: "NeuroBookMark",
-        noInput: "图形标志没有 prop：大小由使用方的 class 给，颜色跟随文字色。",
         scenes: [
-            {id: "titlebar", label: "窄标题栏大小（18px）"},
+            {id: "titlebar", label: "窄标题栏大小（18px）", input: {props: {decorative: false}}},
+            {id: "decorative", label: "纯装饰（对读屏隐藏）", input: {props: {decorative: true}}},
         ],
         subject: () => import("nbook/ui/brand/NeuroBookMark.vue"),
         class: "h-[18px] text-[var(--text-main)]",

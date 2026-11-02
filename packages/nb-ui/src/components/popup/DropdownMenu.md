@@ -17,7 +17,7 @@
 ## 交互
 
 - 默认插槽内容是触发器；点击或由上游菜单原语支持的键盘操作打开/关闭菜单。组件不锁定页面指针事件（`modal` 为 `false`）。
-- 点击普通叶子项发出 `select`，传该项的 `value`；禁用项不发出，带 `children` 的父项只展开子菜单，不选择自己。
+- 点击普通叶子项发出 `select`，传该项的 `id`；禁用项不发出，带 `children` 的父项只展开子菜单，不选择自己。
 - `type: "radio"` 或 `"checkbox"` 的项分别使用对应 menuitem 语义并显示 `checked`；组件只读 `checked`，选择后仍由宿主更新输入数据，不在内部切换。
 - 指针悬停首次展开子菜单等待 300ms；点击、键盘 ArrowRight（以及父项上的 Enter、空格）或已有同级面板切换立即展开。离开/关闭会清理级联状态。
 - 级联面板的键盘：键盘展开时焦点进新一级的第一项；上下键、Home、End 在本级可用项之间移动（跳过分隔线与禁用项）；ArrowRight、Enter、空格在父项上展开下一级；ArrowLeft 收起本级、焦点回到展开它的那一项；Escape 关掉整个菜单、焦点还给触发器。
@@ -58,7 +58,7 @@ type DropdownMenuProps = {
 
 type DropdownMenuEmits = {
     /** 叶子项被选择时发出；禁用项和级联父项不发出 */
-    (event: "select", value: string): void;
+    (event: "select", id: string): void;
     /** 声明的焦点事件；当前实现没有触发路径，见「已知偏差」 */
     (event: "focus", payload: FocusEvent): void;
     /** 展开态变化时发出；受控和非受控两种用法都会发出 */
@@ -77,8 +77,8 @@ type DropdownMenuSlots = {
 interface DropdownMenuItemData {
     /** 菜单项可见文字；必填，分隔项会忽略 */
     label: string;
-    /** 菜单项稳定值；必填，也用作分隔项 key */
-    value: string;
+    /** 菜单项的身份；必填，`select` 事件发它，也用作分隔项 key */
+    id: string;
     /** 是否禁用选择；默认 false */
     disabled?: boolean;
     /** 左侧装饰图标 class；默认不显示 */
@@ -89,8 +89,8 @@ interface DropdownMenuItemData {
     shortcut?: string;
     /** 原生提示与读屏描述（`aria-description`），例如禁用原因；禁用项同样带上；默认 undefined */
     title?: string;
-    /** 视觉语气；"danger" 只换文字与图标的颜色，高亮底色与其它项相同；默认 "default" */
-    tone?: "default" | "danger";
+    /** 视觉语气；"danger" 只换文字与图标的颜色，高亮底色与其它项相同；默认 "neutral" */
+    tone?: "neutral" | "danger";
     /** 是否显示分隔线；默认 false */
     separator?: boolean;
     /** 子菜单数据；非空时本项只展开子菜单、不发 select；默认 undefined */
@@ -121,7 +121,7 @@ type DropdownMenuItemType = "item" | "radio" | "checkbox";
 
 ## 不支持
 
-- 不支持替宿主切换 radio/checkbox 的 `checked`，也不执行 `value` 对应的业务命令。
+- 不支持替宿主切换 radio/checkbox 的 `checked`，也不执行 `id` 对应的业务命令。
 - 不支持内置搜索、分页、异步加载或多选结果汇总；长列表只有滚动能力。
 - 不支持自定义 Portal 目标；目标位置及目标不可用时的具体表现由 Reka `DropdownMenuPortal` 决定，本地源码未核实。
 

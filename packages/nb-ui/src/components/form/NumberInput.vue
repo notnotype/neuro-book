@@ -2,8 +2,9 @@
 import {computed} from "vue";
 import {useUiText} from "../../text-port";
 import {useFieldContext} from "./field-context";
+import type {ControlSize} from "../shared-types";
 
-export type NumberInputSize = "default" | "sm";
+export type NumberInputSize = Extract<ControlSize, "sm" | "md">;
 type StepDirection = "down" | "up";
 
 const props = withDefaults(defineProps<{
@@ -37,7 +38,7 @@ const props = withDefaults(defineProps<{
     autofocus: false,
     min: undefined,
     max: undefined,
-    size: "default",
+    size: "md",
     step: "1",
     title: undefined,
 });

@@ -115,14 +115,14 @@ function confirm(): void {
 
 <template>
     <Dialog
-        :model-value="props.open"
+        :open="props.open"
         :title="t('catalog.title')"
         size="xl"
         :height="620"
         closable
         body-class="acv-catalog__body"
         initial-focus="[data-catalog-search] input"
-        @update:model-value="emit('update:open', $event)"
+        @update:open="emit('update:open', $event)"
     >
         <div class="acv-catalog" data-model-catalog>
             <aside class="acv-catalog__rail">

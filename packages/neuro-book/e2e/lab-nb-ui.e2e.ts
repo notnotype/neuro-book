@@ -158,7 +158,7 @@ test("下拉选择的长列表：收起成截半高度，键盘走到最后一�
 
 test("非模态窗口：不画遮罩、六个调整手柄、窗口外照常可点，方向键调整宽度一次 10px", async ({page}) => {
     await page.setViewportSize({width: 1600, height: 1000});
-    await openScene(page, "c=Dialog&s=window-resizable");
+    await openScene(page, "c=FloatingWindow&s=resizable");
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await expect(dialog).toHaveAttribute("aria-labelledby", /.+/u);
@@ -184,7 +184,7 @@ test("非模态窗口：不画遮罩、六个调整手柄、窗口外照常可�
 
 test("非模态窗口在手机画布里：按画布宽度收窄，落在画布以内", async ({page}) => {
     await page.setViewportSize({width: 1600, height: 1000});
-    await openScene(page, "c=Dialog&s=window-resizable&vp=phone");
+    await openScene(page, "c=FloatingWindow&s=resizable&vp=phone");
     const dialog = page.locator("[data-lab-overlay-root] [role='dialog']");
     await expect(dialog).toBeVisible();
     const [canvas, window] = await Promise.all([page.locator(".lab-main .nb-lab-stage-box").first().boundingBox(), dialog.boundingBox()]);

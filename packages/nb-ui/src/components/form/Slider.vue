@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {HTMLAttributes} from "vue";
 import {computed} from "vue";
 
 import {useUiText} from "../../text-port";
@@ -8,8 +9,9 @@ import {
     SliderThumb,
     SliderTrack,
 } from "reka-ui";
+import type {ControlSize} from "../shared-types";
 
-export type SliderSize = "sm" | "md" | "lg";
+export type SliderSize = Extract<ControlSize, "sm" | "md" | "lg">;
 
 const props = withDefaults(defineProps<{
     modelValue?: number | number[];
@@ -22,7 +24,7 @@ const props = withDefaults(defineProps<{
     size?: SliderSize;
     name?: string;
     ariaLabel?: string;
-}>(), {
+} & /* @vue-ignore */ HTMLAttributes>(), {
     modelValue: undefined,
     defaultValue: () => [0],
     min: 0,

@@ -102,8 +102,9 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - `Tabs`：换去处——下面的内容跟着换（设置的分页、面板里的几页）；只换看法、内容还是同一份时用 `SegmentedControl`。
 
 ### 弹层与反馈 (Feedback & Overlays)
-- `Dialog`：对话框，一个组件两种用法：缺省模态（遮罩、焦点锁定、背景不可交互、点遮罩与 Escape 关闭，同时打开的按打开顺序叠放）；`modal=false` 是浮动窗口（无遮罩、标题栏可拖动、`resizable` 时六个缩放手柄与键盘调整）。外框只有一份。
-- `AlertDialog`：二次确认/破坏性操作警示弹窗（支持 `danger` / `warning` / `accent` 语调）。
+- `Dialog`：模态对话框（遮罩、焦点锁定、背景不可交互、点遮罩与 Escape 请求关闭，同时打开的按打开顺序叠放）。
+- `FloatingWindow`：浮动窗口（无遮罩、标题栏可拖动、`resizable` 时六个缩放手柄与键盘调整、点外面不关），按嵌套深度叠放；外框与 `Dialog` 共用一份。
+- `AlertDialog`：二次确认/破坏性操作警示弹窗（支持 `danger` / `neutral` 语调）。
 - `Drawer`：侧边抽屉面板（支持 `top` / `bottom` / `left` / `right` 四向弹出与遮罩模糊）。
 - `Popover`：通用气泡卡片，消费磨砂浮层材质基座。
 - `Tooltip` / `ContextMenu`：延迟/即时提示框与右键上下文菜单。
@@ -348,3 +349,4 @@ pure data so a marketplace can index a theme without executing it.
 - [UI Development Specification](docs/ui-development-spec.md) — Comprehensive engineering contracts, token consumption, core component specifications (Button, IconButton, SegmentedControl, Checkbox, Select, DropdownMenu, ScrollArea), and Component Lab scene registration guidelines.
 - [Design Language](docs/design-language.md) — The rationale behind materials, layers, paper vs chrome, Chinese typography, and motion physics.
 - [Theme Authoring Guide](docs/authoring-themes.md) — Theme manifest structure, contracts, and override mechanisms.
+- [Upgrading from 0.3 to 0.4](docs/migration-0.4.md) — 公开 API 收成一套写法后的逐项对照（尺寸、语调、弹出位置、文案属性、列表字段、浮层的打开与关闭、`FloatingWindow`）。

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {HTMLAttributes} from "vue";
 import PopupViewport from "./PopupViewport.vue";
 
 /**
@@ -13,7 +14,7 @@ defineProps<{
     switching: boolean;
     /** 这一级展开自哪一项；换了父项时视口回到顶部 */
     contentKey?: unknown;
-}>();
+} & /* @vue-ignore */ Omit<HTMLAttributes, "onScroll">>();
 
 const emit = defineEmits<{
     (e: "scroll"): void;

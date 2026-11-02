@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {TextareaHTMLAttributes} from "vue";
 import {computed} from "vue";
 import {useFieldContext} from "./field-context";
 
@@ -16,7 +17,7 @@ const props = withDefaults(defineProps<{
     rows?: number;
     minlength?: number;
     maxlength?: number;
-}>(), {
+} & /* @vue-ignore */ TextareaHTMLAttributes>(), {
     modelValue: "",
     id: "",
     name: "",

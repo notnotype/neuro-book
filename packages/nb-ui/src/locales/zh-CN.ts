@@ -35,6 +35,10 @@ export default {
         confirm: "确认",
         close: "关闭",
     },
+    drawer: {
+        untitled: "面板",
+        close: "关闭",
+    },
     emptyState: {
         title: "暂无数据",
     },

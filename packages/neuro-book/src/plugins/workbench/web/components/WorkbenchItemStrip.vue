@@ -75,7 +75,7 @@ const shown = computed(() => props.entries.filter((entry) => layout.value.shown.
 const hidden = computed(() => props.entries.filter((entry) => layout.value.hidden.includes(entry.id)));
 
 const moreItems = computed<DropdownMenuItemData[]>(() => hidden.value.map((entry) => ({
-    value: entry.id,
+    id: entry.id,
     label: entry.command === null ? titled(entry) : entry.text,
     title: entry.disabledReason ?? entry.tooltip ?? undefined,
     disabled: entry.command === null || entry.disabledReason !== null,

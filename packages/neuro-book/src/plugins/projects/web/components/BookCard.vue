@@ -56,9 +56,9 @@ function when(): string | null {
 
 function menu(): DropdownMenuItemData[] {
     return [
-        {value: "open-new-window", label: text("bookCard.openNewWindow")},
-        {value: "edit", label: text("bookCard.edit")},
-        {value: "remove", label: text("bookCard.remove"), tone: "danger"},
+        {id: "open-new-window", label: text("bookCard.openNewWindow")},
+        {id: "edit", label: text("bookCard.edit")},
+        {id: "remove", label: text("bookCard.remove"), tone: "danger"},
     ];
 }
 
@@ -89,8 +89,8 @@ function onMenu(value: string): void {
                 <span v-else-if="when() !== null">{{ when() }}</span>
             </div>
         </div>
-        <!-- 更多菜单是卡片的兄弟交互：点它不触发打开（.stop），也不嵌在按钮里。 -->
-        <DropdownMenu :items="menu()" align="end" root-class="book-card__more" @select="onMenu" @click.stop>
+        <!-- 更多菜单是卡片的兄弟交互：触发按钮自己 .stop，点它不触发打开；也不嵌在按钮里。 -->
+        <DropdownMenu :items="menu()" align="end" root-class="book-card__more" @select="onMenu">
             <IconButton size="sm" icon-class="i-lucide-ellipsis" :aria-label="text('bookCard.more')" @click.stop />
         </DropdownMenu>
     </article>

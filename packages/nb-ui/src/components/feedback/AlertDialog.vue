@@ -10,23 +10,24 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "reka-ui";
-import {computed, inject, provide, ref, useSlots, watch} from "vue";
+import {computed, ref, useSlots, watch} from "vue";
 import {useUiText} from "../../text-port";
-import {useModalLayer} from "../../composables/useModalLayer";
+import {useOverlayLayer} from "../../composables/useOverlayLayer";
 import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import Button from "../controls/Button.vue";
 import {useCloseHandoff} from "./close-handoff";
-import {NB_DIALOG_LAYER} from "../../theme/z-index";
+import type {Tone} from "../shared-types";
 
-export type AlertDialogTone = "danger" | "warning" | "accent";
+/** `danger`：确认按钮用危险样式；`neutral`：用主按钮样式。 */
+export type AlertDialogTone = Extract<Tone, "danger" | "neutral">;
 
 const props = withDefaults(defineProps<{
     open?: boolean;
     defaultOpen?: boolean;
     title?: string;
     description?: string;
-    confirmText?: string;
-    cancelText?: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
     tone?: AlertDialogTone;
 }>(), {
     open: undefined,
@@ -34,14 +35,10 @@ const props = withDefaults(defineProps<{
     description: "",
     tone: "danger",
 });
-// 叠在别的对话框里打开时画二级的面（NB_DIALOG_LAYER）。
-const parentLayer = inject(NB_DIALOG_LAYER, 0);
-provide(NB_DIALOG_LAYER, parentLayer + 1);
-const nested = parentLayer >= 1;
 const text = useUiText();
 const titleText = computed(() => props.title ?? text("alertDialog.title"));
-const confirmLabel = computed(() => props.confirmText ?? text("alertDialog.confirm"));
-const cancelLabel = computed(() => props.cancelText ?? text("alertDialog.cancel"));
+const confirmText = computed(() => props.confirmLabel ?? text("alertDialog.confirm"));
+const cancelText = computed(() => props.cancelLabel ?? text("alertDialog.cancel"));
 // 居中类浮层：宿主可以把它收进更近的目标（例如 Lab 的画布），见 useTeleportTarget。
 const teleportTo = useTeleportTarget(() => undefined);
 
@@ -58,13 +55,15 @@ const opened = ref(props.open ?? props.defaultOpen);
 watch(() => props.open, (value) => {
     if (value !== undefined) opened.value = value;
 });
-const {zIndex} = useModalLayer(() => opened.value);
+// 与 Dialog 同一个模态序列，叠在别的对话框里打开时画二级的面（useOverlayLayer）。
+const {zIndex, nested} = useOverlayLayer({kind: "modal", open: () => opened.value});
 
 function onOpenChange(value: boolean): void {
     opened.value = value;
     emit("update:open", value);
 }
-const handoff = useCloseHandoff(() => props.open === true);
+// 跟内部打开态而不是 props.open：非受控用法（带触发器）重开时也要作废上一次没结算的 closed。
+const handoff = useCloseHandoff(() => opened.value);
 
 function preventTriggerlessCloseFocus(event: Event): void {
     if (!slots.trigger) event.preventDefault();
@@ -92,7 +91,7 @@ function onCloseAutoFocus(event: Event): void {
         <AlertDialogPortal :to="teleportTo()">
             <AlertDialogOverlay
                 :style="{zIndex}"
-                class="fixed inset-0 bg-[var(--overlay-bg)] backdrop-blur-[4px] transition-opacity [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+                class="nb-ui-overlay fixed inset-0 bg-[var(--overlay-bg)] backdrop-blur-[4px]"
             />
             <AlertDialogContent
                 @close-auto-focus="onCloseAutoFocus"
@@ -115,15 +114,15 @@ function onCloseAutoFocus(event: Event): void {
                 </div>
 
                 <div class="nb-ui-dialog-footer mt-6 justify-end">
-                    <AlertDialogCancel as-child @click="emit('cancel')">
+                    <AlertDialogCancel as-child v-bind="{onClick: () => emit('cancel')}">
                         <Button variant="secondary">
-                            {{ cancelLabel }}
+                            {{ cancelText }}
                         </Button>
                     </AlertDialogCancel>
 
-                    <AlertDialogAction as-child @click="emit('confirm')">
+                    <AlertDialogAction as-child v-bind="{onClick: () => emit('confirm')}">
                         <Button :variant="props.tone === 'danger' ? 'danger' : 'primary'">
-                            {{ confirmLabel }}
+                            {{ confirmText }}
                         </Button>
                     </AlertDialogAction>
                 </div>

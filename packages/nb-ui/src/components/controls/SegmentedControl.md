@@ -36,7 +36,6 @@
 ```ts
 export type SegmentedControlValue = string | number | boolean | null;
 export type SegmentedControlSize = "xs" | "sm";
-export type SegmentedControlTone = "default" | "accent" | "warning";
 
 export type SegmentedControlOption = {
     /** 右侧计数；默认不显示 */
@@ -51,8 +50,6 @@ export type SegmentedControlOption = {
     testId?: string;
     /** 原生 title 与可访问名称；默认回退到 label */
     title?: string;
-    /** 选项色调；默认 undefined；当前未应用，见已知偏差 */
-    tone?: SegmentedControlTone;
     /** 选项值；必填，应唯一 */
     value: SegmentedControlValue;
 };
@@ -66,8 +63,6 @@ type SegmentedControlProps = {
     ariaLabel?: string;
     /** 项目尺寸；默认 "sm" */
     size?: SegmentedControlSize;
-    /** 控件色调；默认 "default"；当前实现未应用该值，见已知偏差 */
-    tone?: SegmentedControlTone;
     /** 是否允许选项换行；默认 false；为 true 时不显示滑动指示块 */
     wrap?: boolean;
     /** 是否占满父容器宽度；默认 false */
@@ -110,5 +105,4 @@ type SegmentedControlSlots = {};
 
 ## 已知偏差
 
-- 顶层 `tone` 与每个 option 的 `tone` 都有类型和默认值，但当前模板没有读取它们；传入不同色调不会改变外观。本文不把它们描述为已生效能力，实现待订正。
 - 按键后聚焦目标选项时，组件以 `String(option.value)` 查找 DOM 项；当启用项使用不同类型但字符串表示相同的值（例如 `1` 和 `"1"`）时，焦点可能落到另一项。避免在同一组内混用这种可碰撞的值。

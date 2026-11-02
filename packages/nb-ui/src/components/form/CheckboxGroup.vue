@@ -74,7 +74,7 @@ function handleToggle(val: string, checked: boolean): void {
         :disabled="props.disabled"
         :orientation="props.orientation"
         role="group"
-        :id="field?.inputId.value"
+        v-bind="{id: field?.inputId.value}"
         :aria-labelledby="field?.labelId.value"
         :aria-describedby="field?.ariaDescribedby.value"
         :aria-invalid="isInvalid ? 'true' : undefined"

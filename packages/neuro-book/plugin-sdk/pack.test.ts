@@ -317,6 +317,10 @@ export const noProvides = plugin.entry({location: "server", activate: async () =
         // 组件子路径的声明与源码里逐个列出的名单一致：nb-ui 入口里别的导出不会混进来。
         const listed = [...(await readFile(fileURLToPath(new URL("../src/sdk/components.ts", import.meta.url)), "utf8")).matchAll(/export (?:type )?\{([^}]+)\}/gu)].flatMap((match) => match[1]!.split(",").map((name) => name.trim()).filter((name) => name !== ""));
         expect(declaredExports(await readFile(join(installed, "components.d.ts"), "utf8"))).toEqual([...listed].sort());
+        // nb-ui 的模板类型补充（任何组件都接受 ARIA 属性与 role）随组件声明一起交给作者，打开模板严格检查的作者才不会被误报。
+        const components = await readFile(join(installed, "components.d.ts"), "utf8");
+        expect(components).toContain('declare module "vue"');
+        expect(components).toContain('"aria-description"?: string;');
     });
 
     it("仓库外用生成的包里的构建预设构建插件：清单合格，产物只引用宿主共享的模块", async () => {

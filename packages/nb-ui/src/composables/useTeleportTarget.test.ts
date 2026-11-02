@@ -36,7 +36,7 @@ async function settle(): Promise<void> {
     for (let index = 0; index < 4; index += 1) await nextTick();
 }
 
-const dialog = (props: Record<string, unknown> = {}) => () => h(Dialog as Component, {modelValue: true, title: "章节属性", ...props}, {default: () => "内容"});
+const dialog = (props: Record<string, unknown> = {}) => () => h(Dialog as Component, {open: true, title: "章节属性", ...props}, {default: () => "内容"});
 
 describe("传送目标", () => {
     it("宿主提供了目标：对话框落进目标", async () => {
@@ -64,7 +64,7 @@ describe("传送目标", () => {
     });
 
     it("reka 的 Portal 同样跟随宿主提供的目标（AlertDialog）", async () => {
-        host(() => h(AlertDialog as Component, {open: true, title: "删除章节？", confirmText: "删除", cancelText: "取消"}), "#canvas-overlays");
+        host(() => h(AlertDialog as Component, {open: true, title: "删除章节？", confirmLabel: "删除", cancelLabel: "取消"}), "#canvas-overlays");
         await settle();
         expect(document.querySelector("#canvas-overlays [role=\"alertdialog\"]")).not.toBeNull();
     });

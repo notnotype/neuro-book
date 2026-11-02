@@ -99,7 +99,7 @@ function done(): void {
 
 <template>
     <Dialog
-        :model-value="open"
+        :open="open"
         size="md"
         :title="text('manage.title', {name: providerName})"
         closable
@@ -107,7 +107,7 @@ function done(): void {
         :busy="busy"
         :status="candidates === null ? '' : error"
         data-manage-models-dialog
-        @update:model-value="(value: boolean) => emit('update:open', value)"
+        @update:open="(value: boolean) => emit('update:open', value)"
         @confirm="done"
     >
         <div class="manage-models">

@@ -7,9 +7,10 @@ import type {ContextMenuCloseReason, ContextMenuItem} from "./context-menu.types
 import ContextMenuPanel from "./ContextMenuPanel.vue";
 
 // 右键菜单：固定定位浮层。子菜单层级不限，每一级都由 ContextMenuPanel 按共享几何定位。
-// 消费方持有 visible/x/y 状态（通常来自 @contextmenu.prevent 事件坐标），本组件只负责渲染与关闭时机。
+// 消费方持有 open/x/y 状态（通常来自 @contextmenu.prevent 事件坐标），本组件只负责渲染与关闭时机：
+// 先发 `request-close(reason)`（宿主据此决定焦点去向），再发 `update:open(false)`；菜单卸载后发 `closed`。
 const props = withDefaults(defineProps<{
-    visible: boolean;
+    open: boolean;
     x: number;
     y: number;
     items: ContextMenuItem[];
@@ -19,7 +20,9 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-    (e: "close", reason: ContextMenuCloseReason): void;
+    (e: "request-close", reason: ContextMenuCloseReason): void;
+    (e: "update:open", value: boolean): void;
+    (e: "closed"): void;
 }>();
 
 const menuRef = ref<HTMLElement | null>(null);
@@ -27,25 +30,30 @@ const adjustedX = ref(props.x);
 const adjustedY = ref(props.y);
 const isMounted = ref(false);
 
+function requestClose(reason: ContextMenuCloseReason): void {
+    emit("request-close", reason);
+    emit("update:open", false);
+}
+
 function close(): void {
-    emit("close", "select");
+    requestClose("select");
 }
 
 /** 点击/右键菜单外部时关闭 */
 function closeOnOutside(event: MouseEvent): void {
-    if (!props.visible || menuRef.value?.contains(event.target as Node)) {
+    if (!props.open || menuRef.value?.contains(event.target as Node)) {
         return;
     }
-    emit("close", "outside");
+    requestClose("outside");
 }
 
 function handleKeydown(event: KeyboardEvent): void {
-    if (!props.visible) return;
-    if (event.key === "Escape") emit("close", "escape");
+    if (!props.open) return;
+    if (event.key === "Escape") requestClose("escape");
     // Tab 不在菜单项之间移动（那是方向键的事），而是离开菜单：关闭，焦点去向交给宿主，不让它落进页面末尾的浮层之后。
     else if (event.key === "Tab" && menuRef.value?.contains(document.activeElement)) {
         event.preventDefault();
-        emit("close", "tab");
+        requestClose("tab");
     }
 }
 
@@ -62,8 +70,8 @@ onUnmounted(() => {
     document.removeEventListener("keydown", handleKeydown);
 });
 
-watch(() => [props.visible, props.x, props.y] as const, async ([visible, x, y]) => {
-    if (!visible) {
+watch(() => [props.open, props.x, props.y] as const, async ([open, x, y]) => {
+    if (!open) {
         return;
     }
     adjustedX.value = x;
@@ -87,9 +95,10 @@ function setMenuRef(element: unknown): void {
 
 <template>
     <Teleport v-if="isMounted" :to="props.teleportTarget">
-        <Transition name="nb-context-menu">
+        <!-- `closed` 等离场过渡播完、菜单卸载之后才发。 -->
+        <Transition name="nb-context-menu" @after-leave="emit('closed')">
             <ContextMenuPanel
-                v-if="visible"
+                v-if="open"
                 :ref="setMenuRef"
                 :items="items"
                 :depth="0"

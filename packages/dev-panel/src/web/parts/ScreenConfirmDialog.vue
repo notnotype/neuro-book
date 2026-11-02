@@ -7,7 +7,7 @@ const emit = defineEmits<{confirm: []; cancel: []}>();
 </script>
 
 <template>
-    <Dialog :model-value="open" :title="title" size="md" :busy="pending" @request-close="emit('cancel')">
+    <Dialog :open="open" :title="title" size="md" :busy="pending" @request-close="emit('cancel')">
         <div class="flex flex-col gap-3">
             <p>{{ message }}</p>
             <pre v-if="screen !== null" class="max-h-80 overflow-auto rounded-[var(--radius-control)] p-2 nbdev-pre" aria-label="会话屏幕末尾">{{ screen }}</pre>
