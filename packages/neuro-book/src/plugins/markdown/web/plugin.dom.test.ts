@@ -72,11 +72,11 @@ describe("markdownKey 交出的 nb-markdown 组件", () => {
         expect(["focus", "insertText", "insertFiles"].map((name) => typeof handle.value?.[name])).toEqual(["function", "function", "function"]);
     });
 
-    it("单独交出的图片写明不在作品里；单独交出的小块按作品文件分类（local:// 是回形针，作品里的文件是文件图标）", async () => {
+    it("单独交出的图片写明不在作品里；单独交出的小块按作品文件分类（session://attachments/ 是回形针，作品里的文件是文件图标）", async () => {
         const {MarkdownImage, InlineChip} = await served();
         const image = mountServed(MarkdownImage, {src: "../外面.png", alt: "外面"});
         await waitUntil("图片说明", () => (image.wrapper.text() === "外面（不在作品里，不显示）" ? true : null));
-        const attachment = mountServed(InlineChip, {kind: "reference", label: "截图", target: "local://截图.png"});
+        const attachment = mountServed(InlineChip, {kind: "reference", label: "截图", target: "session://attachments/截图.png"});
         const work = mountServed(InlineChip, {kind: "reference", label: "林雪", target: "/设定/林雪.md"});
         await flushPromises();
         await waitUntil("小块", () => (attachment.wrapper.find(".i-lucide-paperclip").exists() && work.wrapper.find("svg[data-file-icon]").exists() ? true : null));

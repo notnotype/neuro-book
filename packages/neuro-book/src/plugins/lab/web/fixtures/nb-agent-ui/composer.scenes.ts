@@ -15,7 +15,7 @@ function composerCtx(composer: Partial<ComposerView> = {}, patch: Partial<AgentC
 
 const DRAFT_INLINE = "先读 [第三章 雨夜](chapter://c3)，再用 $reviewer 检查人物关系。";
 
-const DRAFT = "先读 [第三章 雨夜](chapter://c3)，再用 $reviewer 对照 ![image #1](local://人物关系草图.png) 检查人物关系。";
+const DRAFT = "先读 [第三章 雨夜](chapter://c3)，再用 $reviewer 对照 ![image #1](session://attachments/人物关系草图.png) 检查人物关系。";
 
 const QUEUED: ComposerView["queued"] = [
     {id: "q1", text: "保留雨夜那段对话，别删。", delivery: "steer"},

@@ -13,6 +13,7 @@ import type {ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolR
 
 import {onAgentTool, TOOLS_POINT} from "../shared/points";
 import type {AgentToolDeclaration, AgentToolImplementation} from "../shared/points";
+import type {AgentToolServices} from "../shared/resources";
 
 /** 撤回时等执行中的调用结算的上限（提案 P11 停止的第一步）。 */
 export const REVOKE_GRACE_MS = 5_000;
@@ -30,6 +31,8 @@ export interface AgentToolsOptions {
     /** 激活声明了 `onAgentTool:<id>` 的入口；有入口激活失败或受阻时交回 false。 */
     readonly activate: (event: string) => Promise<boolean>;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
+    /** 交给工具工厂的会话服务（资源视图），按内核给的会话上下文构造。 */
+    readonly services: (context: ToolSessionContext) => AgentToolServices;
 }
 
 const unavailable = (id: string): ToolResult => ({text: `Tool ${id} is not available right now; its plugin is not running.`, status: "error", code: "tool-unavailable"});
@@ -214,7 +217,7 @@ class ToolWrapper implements ToolImplementation {
         if (this.#built?.handle === handle) return this.#built;
         let implementation: Promise<ToolImplementation>;
         try {
-            implementation = Promise.resolve(handle.implementation().create(this.context));
+            implementation = Promise.resolve(handle.implementation().create(this.context, this.options.services(this.context)));
         } catch (error) {
             // 句柄在这之间被撤回，或工厂同步抛错。
             implementation = Promise.reject(error);

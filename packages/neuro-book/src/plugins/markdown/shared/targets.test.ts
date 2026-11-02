@@ -31,7 +31,10 @@ describe("Spec workspace.markdown-dialect 输出 18、27：引用的目标", () 
     it("外部链接、附件与别的方案（包括旧应用的领域地址）", () => {
         expect(classifyTarget("https://example.com/a.png", BASE).kind).toBe("external");
         expect(classifyTarget("mailto:me@example.com", BASE).kind).toBe("external");
-        expect(classifyTarget("local://截图.png", null)).toEqual({kind: "attachment", address: null, name: "截图.png"});
+        expect(classifyTarget("session://attachments/截图.png", null)).toEqual({kind: "attachment", address: null, name: "截图.png"});
+        expect(classifyTarget("SESSION://attachments/%E6%88%AA%E5%9B%BE.png", null)).toEqual({kind: "attachment", address: null, name: "截图.png"});
+        // 会话工作区里别的文件不是附件。
+        expect(classifyTarget("session://plan.md", null)).toEqual({kind: "other", address: null, name: ""});
         expect(classifyTarget("chapter://c1", null)).toEqual({kind: "other", address: null, name: ""});
     });
 });
