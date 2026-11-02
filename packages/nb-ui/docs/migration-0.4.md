@@ -55,7 +55,7 @@
 | `Dialog` 的关闭原因 | `esc`、`overlay` | `escape`、`outside`（`cancel`、`close-button` 不变） |
 | `ContextMenu` | `visible`、`@close(reason)` | `v-model:open`、`@request-close(reason)` |
 | `QuickPick` | `@close(reason)`，在 `update:open(false)` 之后发 | `@request-close(reason)`，在 `update:open(false)` 之前发（与其它浮层一致） |
-| `Dialog`、`Drawer`、`ContextMenu` | — | 新增 `closed`：关闭完成、内容卸载后发出（`AlertDialog`、`QuickPick` 原来就有） |
+| `Dialog`、`FloatingWindow`、`Drawer`、`ContextMenu` | — | 新增 `closed`：关闭完成、内容卸载并释放焦点后发出（`AlertDialog`、`QuickPick` 原来就有）；要在关闭之后再打开下一层或执行命令时听它，不要用固定时长等待 |
 | `Dialog` 的 `modal=false`（浮动窗口） | `<Dialog :modal="false">` | `<FloatingWindow>`：属性与 `Dialog` 相同，另有 `resizable`、`minWidth`、`minHeight`、`update:width`、`update:height`；没有遮罩相关的 `closeOnOverlay`、`overlayType` |
 | `Dialog` | `modal`、`resizable`、`minWidth`、`minHeight`、`update:width`、`update:height` | 删掉，`Dialog` 只做模态 |
 

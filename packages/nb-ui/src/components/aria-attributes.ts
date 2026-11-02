@@ -7,8 +7,7 @@
  *   `id`、`title` 与原生事件不补，它们可能就是组件自己的属性或事件。
  * - Vue 的 `AriaAttributes` 还没有 ARIA 1.3 的 `aria-description`。Vue 补上以后删掉这一项。
  */
-import type {AriaAttributes} from "vue";
-
+// `AriaAttributes` 是 `vue` 自己的类型，在增强块里直接可见，不必另外导入（SDK 打包时把这一块原样附在组件声明末尾）。
 // 都补在 `vue` 上：nb-ui 只依赖 `vue`，不依赖它内部的 `@vue/runtime-dom`，严格解析的包管理器下补那个模块会找不到。
 declare module "vue" {
     interface AllowedComponentProps extends AriaAttributes {
