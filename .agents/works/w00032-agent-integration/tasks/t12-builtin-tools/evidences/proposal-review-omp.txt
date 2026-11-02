@@ -1,0 +1,233 @@
+# 文件访问与改动记账设计审查
+
+### 1. 阻断｜正确性与不变量｜提案“写入的顺序”第 130–141 行；packages/nb-history/src/workspace-history.ts:62–65,160–173,300–310；src/db.ts:33–37
+
+现象：方案要求在改名替换磁盘前先提交账本，若改名失败则“撤回这条记录”；但 nb-history 的写入是 append-only，公开 API 只有 registerWrite/reconcile，没有撤回或待提交记录状态。账本事务提交与文件系统 rename 不是同一事务。
+
+为什么是问题：账本确认成功后进程在 rename 前崩溃，账面末态已经是 after、磁盘仍是 before；下次 reconcile 会把磁盘旧内容记成 external edit，制造一条不存在的外部修改并污染收件箱、时间线和 beforeHash 链。rename 失败也没有安全的“撤回”：直接删除日志违反 append-only，补偿条目又把一次未发生的写入暴露为真实历史；若恢复期间有外部改动，按路径删除更会误删合法后续记录。这里不能靠 SQLite BEGIN IMMEDIATE 修复跨 SQLite 与文件系统的原子性。
+
+如何核实：用 nb-history 真实 API 先在目标仍为旧内容时调用 registerWrite(actor, path, old, new)，模拟进程在文件替换前退出，再调用 reconcile(path, old)；现有实现会追加 external edit，而不会恢复或标记 pending。也可直接检查 appendEntries 只在同一 SQLite 事务中提交快照和 operation_log，未包含文件 rename。
+
+建议改法：不要把“已完成写入”记录在 rename 前；优先在文件替换完成后、仍持文件锁时登记，并把崩溃窗口定义为账本落后后由 reconcile 补 external。若必须保留前置记录，新增带事务状态/目标身份/序号的 pending 记录、启动恢复与幂等补偿协议，不能写“撤回”作为未定义动作；同时为 rename 失败、进程崩溃和 unknown-outcome 分别定义可观察结果。
+
+### 2. 阻断｜接口与合同｜提案第 34、68–70、137–141、173–180 行；docs/specs/workspace/resources.md:111,140–142；docs/proposals/project-file-foundation.md:147–149；packages/nb-history/src/workspace-history.ts:870–905
+
+现象：既有底座把 History 定义为默认启用但非启动必需，History 失败或关闭时文件功能照常；新提案又要求每次共享接口写入在锁内同步等账本确认后才 rename。提案没有定义账本不可用、SQLite busy/损坏、快照写失败、close 或 provider-error 时写入的结果。
+
+为什么是问题：若等待账本确认，账本故障就必须拒绝文件写入，改变“History 失败不影响文件功能”；若继续 rename，则违反“经接口的写入必记账”，并且会把未记账写入留给监视器，操作者从 agent/plugin 降级为 external。现有 nb-history 写入失败是抛异常，不是文件服务合同声明的 io-failed；未经映射会从远程提供方冒泡成 provider-error，调用方无法按文件合同恢复。
+
+如何核实：检查 resources.md 的副作用与文件功能恢复条款、project-file-foundation.md 的 History 失败语义，以及 nb-history appendEntries 的异常/回滚行为；用一个拒绝 SQLite 写事务的历史门面调用共享写入，现有 Files 结果类型没有对应的“账本失败但磁盘未变/已变”分支。
+
+建议改法：在提案中选定并写入合同：账本是硬依赖（写失败即不改盘，映射为稳定业务码），或账本是软依赖（先改盘，返回“未记账/结果未知”，由 reconcile 补记并带丢失归因诊断）。同步更新 History 非必需条款、远程失败码、浏览器/服务端调用方行为和验收场景，禁止静默降级。
+
+### 3. 阻断｜接口与性能｜提案第 22–26、72、85–89、122–128、137 行；docs/specs/runtime/plugin-channel.md:18–23,117,138；packages/neuro-book/src/plugins/files/shared/contracts.ts:32–36,196–201,245–251；backend/projects-scheme.ts:55–97
+
+现象：提案把服务端写入宣称为无大小限制，并把 8 MB PNG 作为 openWrite 示例，但项目账本位于项目子进程；服务端写项目时仍必须经 projects-scheme 的 projectFilesContract RPC。现有远程协议单 JSON 帧上限 1 MiB、不传二进制、不提供流；当前 projectFilesContract 只有整份 text 字符串 write。提案的 WorkspaceFiles.openWrite/writeBytes 只是本地草案，没有跨进程实现。
+
+为什么是问题：照现有拓扑实现，服务端写 project:// 的大文本/字节要么在 RPC 编码阶段断链并成为 unknown-outcome，要么绕过项目进程直接用 locate 的绝对路径写，因而绕过项目拥有的锁、账本与监视器；分块 RPC 也不是已有能力，且每块的临时文件、取消和 commit 语义未定义。这样“服务端没有大小限制”和“项目账本由项目进程拥有”不能同时成立。
+
+如何核实：读取 plugin-channel 的二进制/流非目标与 1 MiB 帧规则，运行现有 transport.test.ts 中的预算场景；在真实 projectFilesContract 上发送一个超过 TEXT_BUDGET_BYTES 的 write，观察请求被判 too-large 或断链/unknown-outcome，而不是完成 8 MB 写入。
+
+建议改法：先决定跨项目写的唯一承载：在项目进程暴露本地调用方可用的流式写合同（需定义分块 id、背压、取消、租约、断线结果与临时文件寿命），或把写入与历史 owner 移到服务端并明确双服务端归属。不能用 realPath 作为隐式绕过；同时把大文件验收放到真实 IPC，而非只测同进程门面。
+
+### 4. 阻断｜资源释放与并发｜提案接口第 87–106 行；提案第 132–141 行；packages/neuro-book/src/backend/locked-replace.ts:25–30,91–132；packages/neuro-book/src/plugins/files/backend/execute.ts:15–26
+
+现象：openWrite 在 commit/abort 前一直持有文件锁，但 FileWriter 没有终止信号、期限、close/finally 约定，也没有说明 write/commit/abort 的重复与并发调用。现有锁的残留接管阈值是 10 秒；正常持有者会被 proper-lockfile 刷新，忘记结算则可永久阻塞同文件，进程退出才依靠残留接管。
+
+为什么是问题：调用方忘记 abort/commit、写流永久等待、入口停止或进程被强停时，后续写入一直得到 busy，直到 stale 机制接管；若事件循环被长同步计算阻塞，锁也可能被误判残留，另一个进程在原 writer 仍可能写临时文件时接管并提交。现有 tracked 只保证入口停止时等待在途操作结算，不会替一个未返回的 FileWriter 自动 abort。提案把锁生命周期当成 API 细节，却没有可观察失败和收口不变量。
+
+如何核实：用真实 locked-replace/ proper-lockfile 持锁超过 LOCK_STALE_MS，验证刷新与接管；启动 openWrite 后不调用 commit/abort，再发同文件写入，观察前者一直占锁、入口 stop 不能完成或后者 busy。再模拟 commit/abort 同时调用，现有接口没有状态机可判定结果。
+
+建议改法：把 writer 建模为单向状态机，commit/abort 幂等且互斥；将调用方 signal、入口停止和最大持有时长接入自动 abort；commit/abort 的 finally 必须释放锁并清理临时文件，释放失败要有明确诊断。若允许超长写，锁续租、租约过期后的提交拒绝和未知结果必须写进合同，不能只依赖 10 秒残留接管。
+
+### 5. 阻断｜并发与路径归属｜提案第 132–141、147–149 行；packages/neuro-book/src/plugins/files/backend/rooted.ts:263–274；packages/neuro-book/src/plugins/files/backend/rooted.ts:210–218；packages/neuro-book/src/plugins/files/backend/commit.ts:51–63,92–133
+
+现象：现有替换锁按解析后的单文件 realPath 哈希建立；目录改名/移动/内容树操作使用整根 operations.lock。两者不是同一把锁。replace 还在取文件锁之前先 resolve，随后只以设备号、inode、大小、mtime 在 rename 前复核；目录操作则在另一把锁里移动整个目录。提案直接把这套锁说成支撑“锁内读改前值→交账本→改名”的统一协议，却没有定义文件锁、操作锁、历史锁的顺序和覆盖关系。
+
+为什么是问题：目录在写者等待/持有文件锁期间被移动时，写者可能把结果提交到移动后的真实 inode、旧路径或被新建的同名路径，账本路径与变更事件无法与实际目录项一一对应；反向也可能让目录操作完成后再被旧写者覆盖。两个服务端、符号链接别名和删除/新建同名文件会进一步产生锁键不一致。只用“记录顺序”不能防止路径身份变化，也不能让 manifest 与文件操作保持同一原子范围。
+
+如何核实：在真实临时项目中并发调用现有 root.replace 与 commit.move/目录 rename，在 replace 的临时文件阶段暂停，观察两者分别取得不同锁且都可继续；代码层可直接看到 replace 使用 hash(realPath).lock，而目录操作使用 operations.lock。
+
+建议改法：先画出统一的锁层次：所有影响同一目录项身份或后代的写入必须共享整根操作锁，或把文件锁纳入同一 keyed lock/锁排序；锁内重新解析路径、身份和清单，再把历史登记和事件发出纳入同一范围。明确外部编辑器不受锁保护时仍保留的覆盖窗口，并为窗口内历史归因定义结果。
+
+### 6. 重要｜正确性与数据模型｜提案接口第 89–93、128、143–145 行；docs/specs/workspace/files.md:48–55,98–112；docs/specs/workspace/folder-kinds.md:73–77；packages/nb-history/src/types.ts:22–43；packages/neuro-book/src/plugins/files/backend/commit.ts:92–189
+
+现象：共享接口把 create/remove/rename 作为通用操作，但文件合同允许目录递归创建、复制、移动、删除及内容树清单同步；nb-history 的 FileOperation 只有单文件 create/edit/delete/rename，没有目录、批量、manifest 或残留范围语义。现有 commit 对目录改名只发一个目录 renamed 事件，删除/复制也可能涉及整棵子树。
+
+为什么是问题：若只给账本登记顶层目录，目录内每个文件的 timeline、deletedFiles、restore、unseen/inbox 都不会反映；若递归登记，又必须规定文件枚举时点、顺序、部分失败、清单文件、目录移动后 rename 链和大目录的锁持有时间。直接逐个调用 registerRename/registerDelete 还会把目录操作拆成多条非原子历史，和文件操作已接受的部分完成/manifest 结果不一致。
+
+如何核实：用现有 files 合同对含多个文件和 content.xml 的目录执行 rename/delete/copy，观察 commit 只产生顶层 OperationEvent/清单事件；用 nb-history 真实 API 可见 registerRename 只接收一个 fromPath/toPath，registerDelete 只接收一个文件的 before 字节，无法登记目录树。
+
+建议改法：在提案中明确目录是历史一等操作还是按文件展开；若按文件展开，定义快照/顺序/失败与重试、目录改名映射和事件批次，并把实现接入 commit/batch；若不追踪目录内容，明确历史、恢复和收件箱对目录的限制，不再宣称所有文件改动都被记账。
+
+### 7. 重要｜既有合同与接口｜提案第 68–72、89–93、176–187 行；docs/specs/workspace/folder-kinds.md:73–75,102；docs/specs/workspace/files.md:93–111；packages/neuro-book/src/plugins/files/shared/schemes.ts:97–103；backend/operations.ts:26–35
+
+现象：提案新增的 WorkspaceFiles 只列出 create/remove/rename，没有 reorder/display/include/drop、move/copy 的清单结果，也没有声明这些操作要复用现有 Operations/Committer 的整根操作锁。当前 serverFilesKey 更只有 list/read/write/create/realPath；已有清单同步发生在 operations/commit，而不是普通文件写入。
+
+为什么是问题：服务端插件照提案调用 rename/remove/createParents 写入 content 文件夹时，若走底层真实路径会留下文件与 content.xml/binder.xml 不一致；若另写一套“写入接口”又会形成第二套操作锁、回声和部分完成语义。现有合同明确要求文件已改而清单未改时报告 manifests，提案的 Result<void> 没有承载该结果；这会使服务端消费者无法按合同重列或处理残留。
+
+如何核实：检查 serverFilesKey 与 WorkspaceFiles 草案的操作集合，再用现有 operations.ts/commit.ts 跟踪一个内容树 rename：清单更新、manifest issue、事件和锁都由 Committer 负责，普通 root.replace 不会做这些事。
+
+建议改法：不要让通用写入 API直接暴露会破坏文件夹类型的不透明 remove/rename；复用现有 Operations/Batch 合同并返回 OperationDone/逐项结果，或给服务端接口明确“仅普通目录、内容树必须走结构化操作”的能力分派。createParents 也应拆成显式目录/清单操作，不能用布尔选项隐式改变 folder-kinds 语义。
+
+### 8. 重要｜接口与合同｜提案第 83–106 行；docs/specs/workspace/files.md:56–63,103–106；packages/neuro-book/src/plugins/files/shared/contracts.ts:60–62,95–100,196–202；backend/files-service.ts:164–179
+
+现象：提案把 WriteOptions.baseline 设为可选，并写明“给了 baseline 就是条件写”；同时允许 createParents。既有文件合同要求保存已有普通文件必须携带基线、保存不建父目录；当前远程 write 的 baseline 还是必填，且 Files 的 write 只替换已有文件，create 单独排他新建。
+
+为什么是问题：按草案字面，缺省 baseline 将变成无条件覆盖，服务端插件可绕过现有 conflict 保护；createParents 还可能在内容树中隐式创建目录，绕过清单与权限/失败语义。这不是只增加服务端便利，而是改了已实现的保存不变量。调用方也不知道缺省 baseline 是“强制覆盖”“首次创建”还是“从磁盘取当前基线后覆盖”，三种结果对 agent 重试与 unknown-outcome 完全不同。
+
+如何核实：读取 files.md 的条件保存条款与现有 `projectFilesContract` schema，尝试不带 baseline 的 RPC 输入会在合同校验阶段 invalid-input；尝试写不存在文件，现有 files-service 返回 not-found，不会由 write 自动创建。
+
+建议改法：保留基线为必填；另设明确的 create/replace-if-absent/force API，声明审批、冲突和结果未知语义。`createParents` 只能作为显式、逐级、按 folder-kinds 维护清单的操作，不要作为 write/openWrite 的隐式副作用；若开发者确实要服务端无条件写，先在 workspace.files 与 agent.resources 增加该权限和验收。
+
+### 9. 重要｜不变量与接入缺口｜提案第 68–70、173–180 行；packages/nb-history/src/workspace-history.ts:238–291；packages/nb-history/src/workspace-history.ts:731–755；packages/neuro-book/src/plugins/files/backend/execute.ts:36–43
+
+现象：nb-history 当前 revert/restore 在自己的写队列里直接 readDisk/writeDisk，再写 operation_log；它不取得 nbook.files 的文件锁，不更新 ChangeHub 的 expect/saved，不维护内容文件夹清单，也不发 Files 的来源事件。提案只说“账本负责恢复”并说服务端写入都经共享接口，没有列出这两个现有入口的迁移。
+
+为什么是问题：接入后用户在收件箱执行 revert/restore 会与普通写入并发，可能覆盖正在提交的文件；浏览器/统计/编辑器收不到正确变更或把回声当 external；content.xml 不同步；历史记录本身可能再次被 implicitReconcile 看到不同状态。若改成 History 调 Files，又容易形成 Files 锁等待 History 写队列、History 锁等待 Files 的反向锁顺序。
+
+如何核实：直接阅读 applyRevertPlan/restore 的 `writeDisk` 路径，并对照 execute.saveText 在成功后才调用 changes.saved；用两个并发任务分别调用 restore 与 files.write 可复现当前库只串行 History、不串行 Files 的事实。
+
+建议改法：让“恢复”成为 nbook.files 拥有的受锁写操作，History 只提供快照与生成日志所需的领域计划；或定义严格的锁顺序并让恢复经过同一个 writer/manifest/event 管道。为 revert/restore 增加事件、来源、基线冲突、清单失败和 unknown-outcome 的真实合同测试。
+
+### 10. 重要｜回声与事件一致性｜提案第 137–145 行；packages/neuro-book/src/plugins/files/backend/changes.ts:1–18,202–245,284–305；backend/execute.ts:36–43；packages/nb-history/src/workspace-history.ts:186–199,296–310
+
+现象：提案要求监视事件按“账面末态一致”吸收；现有 ChangeHub 并不查询 nb-history，而是用内存 expected 表判定回声。保存事件要在 root.replace 完成后由 changes.saved 登记 hash 并广播；watcher 批处理、resync、监视重建会清空 expected。nb-history 的 registerObservedWrite/reconcile 只在被调用后才有账本判定，不能改变已经发出的 FileChange.source。
+
+为什么是问题：把账本记录提前到 rename 前并不能自动让现有回声过滤知道这次写入。监视批次可能已在 `classify` 中等待 lstat，或 expected 尚未登记/因重建被清空；它会先发 external changed，随后 History 因账面末态相同而 no-op。于是 History 不重复记账但资源管理器、统计和 Agent 收到错误来源；反过来，expected 过期或只按 hash 匹配也会把真实外部改动吞掉。
+
+如何核实：在真实 ChangeHub 上让一个 pending path 的 flush 与 root.replace/changes.saved 交错，检查 classify 只读取 expected，不读取历史；再把同一 after 交给 registerObservedWrite，观察它返回 null 但事件已经以 external 发出。现有 changes.test.ts 的回声测试只覆盖内存登记，不覆盖 History 账面。
+
+建议改法：选一个唯一的回声 owner：要么 Files 在“副作用完成后”原子登记 expected、广播真实来源，再让 History 仅消费事件；要么把账本末态接入 ChangeHub 的判定接口，并定义登记/广播/监视重建的时序。补充“记录先到、rename 失败、watcher 先到、resync 后回声、外部同内容/再修改”测试，不能只复用当前 hash/entry expected。
+
+### 11. 重要｜数据完整性与迁移｜提案第 34–36、58、143–145、151–157 行；packages/nb-history/src/workspace-history.ts:186–199,296–310；packages/neuro-book/src/plugins/files/backend/changes.ts:272–289
+
+现象：提案把外部改动定义为用账本保存的上一版计算差异，但新项目接入时已有文件没有历史条目。nb-history 的 registerObservedWrite 在账本无记录/已删除时只能生成 create；reconcile 对无记录的现存文件同样只能补 external create。ChangeHub 的监视器只在有订阅时启动，且订阅方断线期间事件不补发。提案没有初始化全量快照/基线或迟接入补账步骤。
+
+为什么是问题：History 启用前已经存在的正文，第一次外部编辑无法知道 before；History 因故关闭或项目子进程重启期间的改动也不会得到旧版本。用户看到的第一条“改动”会错误地显示为新建，恢复/对比无法回到接入前的内容，且 initCursor/收件箱的第一段边界不明确。仅靠定期对账也只能保存当前 after，不能恢复 before。
+
+如何核实：在空 history.sqlite 下先写入一个已有文件但不调用 history，再直接改变文件并调用 reconcile(path, current)；现有实现按 ledger 无记录返回 file.create/external，beforeHash 为 null。停止所有 ChangeHub 订阅期间修改文件，再重建订阅，按 plugin-channel 合同断线事件不会补发。
+
+建议改法：定义首次打开/迁移的基线扫描（哪些文件、哪些目录排除、快照大小/二进制限制、是否生成“初始化”事件），并定义项目代次启动、History 晚激活、订阅重连和监视器 resync 的补账范围。若接受“接入前不可恢复”，必须在历史 UI/Spec 明确而不是宣称所有旧版本可恢复。
+
+### 12. 重要｜外部改动检测｜提案第 143–145、151–157 行；packages/neuro-book/src/plugins/files/backend/changes.ts:218–245；packages/nb-history/src/workspace-history.ts:296–310,807–815；packages/nb-history/src/hash.ts:8–10
+
+现象：提案计划用 mtime、size、inode 缓存跳过对账读，并称同一时间戳内二次写入再比内容；现有 Changes 只 lstat 后按 expected/hash 判回声，没有持久 stat cache，nb-history.reconcile 每次都要求调用方先提供完整当前字节。提案没有定义缓存的生命周期、旧 stat 所属的账本 revision、ctime/纳秒精度和 resync 后强制重读规则。
+
+为什么是问题：若把“mtime、size、inode 不变”当成未改，外部原地同大小写入、恢复 mtime、文件系统时间精度不足或 watcher 丢事件会被跳过；若每次同时间戳都重读，又无法达到宣称的优化，且大文件每次仍要完整读。更严重的是 stat 缓存若在账本记录前后更新，账面末态和缓存可能分别代表不同版本，下一次事件无法判断要不要读取。当前 hash.ts 还把任意位置 NUL 判为 binary，不是提案所说的 Git 前 8000 字节规则。
+
+如何核实：用真实临时文件做同大小原地写、将 mtime 恢复到原值，再触发 resync/直接调用对账；比较 stat-only 路径是否会跳过 hash。代码审查可确认现有 changes.ts 没有 stat cache，reconcile 不接受 stat/token，hash.ts:8–10 是全字节 includes(0)。
+
+建议改法：把缓存条目与已确认的 history entry/revision 绑定，明确 watcher event、resync、定期全量扫描的强制重读规则；采用与平台精度匹配的 stat 字段并保留 racy-clean 窗口，不把“相同 stat”当绝对证明。把 Git binary 检测（前 8000 字节）列为明确的 nb-history 改动和回归测试，而不是只写“照 Git”。
+
+### 13. 重要｜跨进程与归属｜提案第 147–149 行；docs/specs/runtime/projects.md:19–25,174–178；packages/nb-history/README.md:118–126；packages/nb-history/src/db.ts:60–74；src/workspace-history.ts:731–735,870–905
+
+现象：提案把项目账本归给“拥有根的项目进程”，把两个服务端同时打开同一项目降为少见并称 SQLite 事务兜底；但 runtime.projects 明确不阻止不同状态根的两个服务端打开同一项目，项目实例各自有子进程。nb-history 当前公开限制是单进程单写者、不支持多进程同库；openDatabase 只设 WAL/建表，没有 busy_timeout、跨进程重试或锁协议。
+
+为什么是问题：这里不是仅 SQLite 行级并发：两个 History 实例各有内存 queue、watcher、stat cache 和账面视图，文件锁与 SQLite 事务跨进程的顺序也可能不同。SQLite 事务只能串行数据库提交，不能把它与文件 rename、ChangeHub 回声和项目代次绑定成一个操作；没有明确 busy/SQLITE_BUSY 映射时一次写失败会触发第 2 条的歧义。两个 watcher 还可能各自发现同一外部改动，事件可重复或来源时序不同。
+
+如何核实：按 runtime 的不同状态根启动两个真实项目服务指向同一目录，分别打开 nb-history 并并发写同一 history.sqlite；现有 db.ts 没有等待/超时设置，nb-history README 也明确多进程不支持。再分别订阅两个 files ChangeHub，可看到每个进程独立维护 expected/sinks。
+
+建议改法：不要把“SQLite 事务兜底”当架构；选定项目账本唯一 owner（跨服务端代理到目录级单写者/锁服务），或正式扩展 nb-history 的跨进程协议：文件锁、DB 写锁、busy timeout/backoff、连接失效、重复 watcher 去重、代次和 writer epoch。为双服务端真实运行、项目崩溃、宽限期和新旧代次交错增加验收。
+
+### 14. 重要｜跨进程生命周期｜提案第 87–89、147–149、173–180 行；docs/specs/runtime/projects.md:37–39,65–78,82–86；packages/neuro-book/src/plugins/files/backend/projects-scheme.ts:55–71,87–97
+
+现象：现有 projects:// 每次调用 acquire 一次租约、完成后 finally release；项目代次进入 idle-grace 后无租约的 `{project}` 访问被拒，代次结束路由关闭。提案的 openWrite 是跨多次 write/commit/abort 的长操作，却没有定义它如何持有项目租约、如何在项目代次结束时终止，或如何把服务端 writer 绑定到某一代次。
+
+为什么是问题：若按现有 withProject 实现，openWrite 调用返回后租约立即释放，5 分钟宽限期结束时项目可被停掉，后续 chunk/commit 只能得到 unavailable/unknown-outcome；若为每个 chunk 重新 acquire，可能换到新代次，临时文件与账本却属于旧代次，写入目标和归属不再一致。项目子进程崩溃、服务端停止、入口释放时同样没有 writer 的收口与结果未知语义。
+
+如何核实：现有 projects-scheme 的 try/finally 在单次 remote call 后释放 lease；runtime.projects 明确 idle-grace 无租约访问 denied、代次结束关闭链路。用一个延迟的多段 writer 场景在宽限期内不持有 lease，再推进 grace timer，可观察后续调用到达不了旧代次。
+
+建议改法：为跨进程流写增加显式 writer session/lease：open 时取得并固定 `{project id,generation}`，所有 chunk/commit/abort 使用该 session，入口停止/信号/代次 revoked 自动 abort；租约释放必须晚于临时文件清理、账本结算和锁释放。定义旧代次结束、项目崩溃与服务端断线的 unknown-outcome 及恢复核对，不允许重新路由到新代次。
+
+### 15. 重要｜安全与性能／接口完整性｜提案第 33–36、103–126、132–141、151–154 行；packages/nb-history/src/workspace-history.ts:160–199,856–863；packages/nb-history/src/hash.ts:3–15；packages/nb-history/README.md:118–127
+
+现象：提案目标是服务端无大小与格式限制，openWrite 以流式临时文件写入；但现有 nb-history 的 registerWrite/registerObservedWrite 都要求把 before/after 整份 Uint8Array 传入，appendEntries 要把快照 body 交给 SQLite，文本 diff 依赖完整字符串。默认超过 2 MiB 或被判 binary 只留 hash，不能 diff/restore；当前 binary 判定还是全文件扫描 NUL。
+
+为什么是问题：接入者若为满足“把改后内容交给账本”而把 20 MB/GB 文件整份再读入内存，流式写的内存优势消失，写锁内 CPU、I/O 与 SQLite BLOB 写入无界；若不读全量，只交 hash，又没有 nb-history 的流式 hash/快照 API，无法生成文本 diff或按提案保存版本。提案同时宣称无大小限制与“设上限后可恢复”，实际超过上限的版本仍不可恢复，必须作为显式产品限制而非实现细节。
+
+如何核实：读取现有 registerWrite 与 putSnapshot 签名/实现，调用它们只能传完整 before/after；对 >2 MiB 或含 NUL 内容检查 file_snapshot.body 为 NULL、restore 明确失败。用一个 20 MB 临时文件测量写入流程会至少产生整份 after Uint8Array/SQLite 传输，而不是 chunked API。
+
+建议改法：把写入账本契约拆成 bounded history 与 unbounded file write：流式计算哈希，按配置选择落全量、分块快照或仅 hash，并在条目中记录 body 可用性/原因；文本 diff 对超限明确不可用。给 nb-history 增加流式/文件句柄受控接口或由宿主提供临时快照，且规定锁内外的读取、取消、磁盘空间和最大耗时。
+
+### 16. 重要｜兼容与数据迁移｜提案第 151–158、173–180 行；packages/nb-history/src/db.ts:12–37,60–65；packages/nb-history/src/workspace-history.ts:356–365,856–863；packages/nb-history/package.json:1–18
+
+现象：提案把“Bun 自带 zstd 单版本压缩”列为补强，却没有 schema/version、编码标记或旧 body 迁移方案；现有 file_snapshot 只有 hash/body/byte_size/created_at，snapshotBody 直接把 body 当原始字节返回，数据库由 IF NOT EXISTS 建表。提案还称“没有旧格式要迁”，但 nb-history 已有实际 SQLite 数据格式。
+
+为什么是问题：直接把压缩字节放进 body 会让旧读取器把压缩数据当正文恢复，新读取器也无法区分历史未压缩行与新压缩行；增加列则现有 CREATE TABLE IF NOT EXISTS 不会给旧库补列。项目 `.nbook/history.sqlite` 会随书移动、备份和升级，不能把所有已有历史当空库处理。Bun-only 压缩还需明确包在 Node/测试/未来宿主中的行为。
+
+如何核实：在现有库上执行当前 db.ts 的建表，再按提案把 body 改为压缩数据；snapshotBody 当前只做 bytesFromBlob 返回，不解压、不检查 encoding。用已有 nb-history 测试/真实库读取旧行可证明没有版本分支。
+
+建议改法：新增数据库 schema version 与 snapshot encoding/codec 字段，定义旧库打开、在线迁移、失败回滚和压缩损坏诊断；保持 hash 对原始字节不变，snapshotBody 解压后再校验 hash/size。若包继续 private/Bun-only，写明运行时前置并给非 Bun 的确定失败，不要把“零新依赖”当作兼容方案。
+
+### 17. 重要｜接口与权限合同｜提案第 68–70、74–77、151–157 行；docs/specs/workspace/resources.md:28–36,74–83；docs/specs/agent/resources.md:53–64,100–104；packages/neuro-book/src/plugins/files/shared/contracts.ts:181–194；packages/nb-history/src/types.ts:8–13
+
+现象：现有 Files 来源只有 user(plugin)、system(plugin)、agent(session)、external；nb-history actor 只有 user(userId)、system(source)、agent(sessionId)、external。提案的草案又在 nb-history 增加 plugin，并把 agent 的 as 写成 `{session, profile}`，但没有定义 browser userId 如何获得、service plugin 与 system/plugin 如何映射、同一插件多入口/多实例如何区分，也没有同步更新来源事件、收件箱触发规则和数据库行校验。
+
+为什么是问题：账本归因决定收件箱和 unseen：当前 nb-history 只有 agent/system 会触发收件箱，若所有插件被写成新 plugin actor，现有查询语义就改变；若浏览器 `{kind:user, plugin}` 映射成 userId=plugin，不同用户/入口会合并。现有 serverFiles 还会按调用方身份产生 system plugin，Agent 只能由 nbook.agent 通过 as 注明 session；提案不能靠调用方自填 plugin 或 profile 取得可信操作者。
+
+如何核实：对照 sourceOf/sourceFor 实现与 SourceSchema、OperationActor 联合类型，现有类型没有 plugin actor，且 serverFiles 的 `as` 仅在 nbook.files 转发时接受完整 ChangeSource。运行现有 changes.test.ts 的来源测试可看到输入伪造 source 被拒、服务端插件默认记为 system。
+
+建议改法：先固定一个跨 Files/History 的 actor/source schema，明确身份字段来源与作用域：user 身份由内核/认证提供，plugin 至少含插件 id、入口和实例/项目代次，agent 是否继承插件归因、profile 是否仅授权上下文。把收件箱、unseen、rename 迁移、旧行升级和跨服务转发的映射写进 Spec，并按调用方合同拒绝多余/伪造字段。
+
+### 18. 重要｜范围与共享状态｜提案第 39–45、68–72、147–149、173–180 行；docs/specs/agent/resources.md:43–67,81–86,118–124；packages/neuro-book/src/plugins/files/backend/mounted.ts:258–285；backend/changes.ts:272–289
+
+现象：开发者已定 Agent 会话目录与临时目录不记账但仍发变更事件，user:// 记账；现有这两类资源通过 nbook.files 的 MountedScheme 按挂载点动态 openRoot，并各自创建 FilesService/ChangeHub，没有 history owner、根类别标记或过滤接口。提案的“每个根一份账本”只讨论 project 与 user，没有定义 mounted root 的排除、外部改动扫描或事件来源。
+
+为什么是问题：若 History 订阅所有 files 事件，session/temp 的写入会误进项目/用户账本或创建大量无意义快照；若 History 按地址字符串排除，挂载方案的真实路径/方案注册可变，插件新增方案可能绕过策略。若不订阅这些 ChangeHub，提案要求的“只发变更事件”仍需由谁保证、何时启动和如何 resync。会话目录的 host-written attachments/artifacts 还会产生 external/host 来源边界。
+
+如何核实：读取 agent.resources 的五个方案映射和 MountedScheme.#openDirectory：每个挂载点只创建根与 ChangeHub，没有账本分类；订阅只有首个消费者建立 watcher。用 session:// 与 tmp:// 写入后检查不存在任何 history 接线，说明该行为尚未由代码/接口承诺。
+
+建议改法：在文件服务提供者能力或根实例元数据中声明 history policy（record / events-only / none），由 nbook.files 在根创建时确定，不允许 History 用路径猜；定义挂载点关闭、重开、会话归档、临时清理时的事件/resync与是否记账。把 Agent 权限（默认只读 user、可写 session/home）和记账 policy 分开验收。
+
+### 19. 重要｜失败语义与可恢复性｜提案第 83–106、130–141、147–149 行；docs/specs/runtime/plugin-channel.md:85–94；docs/specs/workspace/files.md:112–129；packages/neuro-book/src/plugins/files/shared/contracts.ts:196–214
+
+现象：远程协议规定写请求从帧发出起中断即 unknown-outcome，ACK 不证明副作用；现有 Files 合同没有操作状态查询，调用方只能核对磁盘。提案的 writeText/openWrite 没有 operation id、提交 token、账本 revision 或幂等重试键，却要求账本先确认、文件后改名，并把账本撤回留给失败路径。
+
+为什么是问题：服务端或项目子进程在账本事务提交、rename、结果返回任一时刻断链时，调用方无法知道是旧内容、新内容、账本记录还是临时文件状态；自动重试可能重复历史条目、覆盖外部修改或再次提交同一 writer。仅按当前磁盘 hash 核对也无法区分“这次 writer 的 after”与另一个相同内容的外部写入。
+
+如何核实：用真实 plugin-channel 测试在 ACK 前和 ACK 后 cut IPC，现有协议均给写 unknown-outcome；查看 projectFilesContract 的 write 输入只有 path/text/baseline/as，没有 request id 或状态查询。
+
+建议改法：给每次逻辑写入分配幂等 operation id，并让账本记录 operation id、目标身份、临时文件/提交状态；定义 query/recover（至少在同一项目代次与重启后可核对）及重复 commit/abort 的结果。若坚持现有“无状态查询”合同，则明确所有 unknown 只能人工/调用方核对，不能承诺账本与磁盘自动恢复一致。
+
+### 20. 重要｜安全与数据边界｜提案第 147–149、173–180 行；packages/nb-history/README.md:129–138；docs/specs/workspace/resources.md:107–112；docs/specs/runtime/projects.md:74–76
+
+现象：项目账本明确写在 `.nbook/history.sqlite`、诊断导出不得带它，但 user:// 账本只写“在状态根下”，没有说明具体目录、备份/导出/诊断收集、权限、清理与用户资产生命周期。nb-history 的快照含全文，且宿主集成义务明确禁止进入任何分享日志包/诊断流程。
+
+为什么是问题：user:// 跨项目共享，里面可能有用户资产和 Agent 产物；把全文历史放进状态根会让现有状态根打包、诊断上传、迁移或多用户路径扫描意外携带正文。只排除 `.nbook/history.sqlite` 不能覆盖 user history、WAL/SHM sidecar、临时压缩文件和复制/备份流程。
+
+如何核实：检查提案影响段只列项目 `.nbook/history.sqlite` 的诊断排除，nb-history README 的隐私条款却对宿主所有 history.sqlite 生效；检查 runtime 的状态根与日志路径分开但没有自动排除历史数据库。
+
+建议改法：为 project 与 user 分别指定数据库路径、权限、生命周期、备份/导出排除规则及 WAL/SHM 处理；在诊断/打包/迁移验收中放入包含正文与二进制快照的库，证明不会出现在产物、日志或错误详情中。
+
+### 21. 重要｜文档与验收映射｜提案第 18、182–188 行；docs/specs/workspace/folder-kinds.md:73–77,102–122；docs/specs/runtime/projects.md:65–86,174–178；docs/specs/runtime/plugin-channel.md:18–24,85–94,134–140；docs/specs/agent/resources.md:63–67,118–124
+
+现象：提案的“对 Spec 的预期改动”只列 resources、files、新 history、agent/resources，没有列 folder-kinds、runtime/projects、runtime/plugin-channel、测试门禁和现有 History/恢复合同；但方案新增的 createParents/rename/remove、项目子进程账本 owner、两个服务端、流写、unknown-outcome、会话/临时目录例外都直接改变这些合同。
+
+为什么是问题：按当前清单实施者会把服务端写法接入 files.resources，却不会更新清单同步与操作锁；会把“SQLite 兜底”当作 runtime.projects 已承诺；会在 plugin-channel 既有“无流、无二进制、写 unknown-outcome”下实现一个不存在的 RPC；Agent 资源的分类/授权也没有说明哪些写只发事件。现有的 workspace.files/folder-kinds 验收还要求部分完成、manifest issue、目录操作和停止结算，草案没有对应新接口的测试映射。
+
+如何核实：逐项对照上述 Spec 的实现合同与验收列表，再看提案第 184–187 行的改动清单；提案没有对应条目。尤其 files.md 第 112、114、125 条与 plugin-channel 第 90–94 条的 unknown-outcome 约束未被“预期改动”提及。
+
+建议改法：把受影响合同逐条列入提案：folder-kinds（清单/操作锁）、runtime.projects（代次/租约/双服务端/停止）、runtime.plugin-channel（流/二进制/失败）、agent.resources（history policy 与权限）、workspace.files/resources（基线、事件、操作结果）、nb-history 集成合同与 docs/testing 验收；每个承诺绑定一个真实子进程/磁盘/崩溃/回声场景。
+
+### 22. 建议｜架构取舍与可维护性｜提案第 137–141、163–171 行；packages/nb-history/README.md:68–75,93–94；packages/nb-history/src/workspace-history.ts:62–65,96–114,296–310
+
+现象：提案因“异步报账要靠哈希链加序号排序”放弃写盘后记账，选择账本确认后再 rename，并把现有 nb-history 明确采用的“先写盘、紧接记账、崩溃后 reconcile 补 external”当作需要撤回记录的替代路径。提案没有比较一个更简单的变体：文件锁内完成原子替换，随后仍持锁调用 registerWrite/reconcile，账本落后时由已有自愈机制恢复。
+
+为什么是问题：选中的顺序引入跨存储伪原子事务、pending/撤回、RPC 大载荷和 unknown-outcome 恢复，而没有消除外部工具不受锁保护的窗口；空载荷 RPC 的毫秒测量也不能证明“带快照、diff、SQLite BLOB 的锁内路径”可接受。现有 nb-history 的崩溃合同已经明确接受归因丢失但历史不断链，属于更少状态、更容易验收的基线。
+
+如何核实：对照提案的两个备选表与 nb-history README/实现的 R10、自愈 reconcile；用同一真实写入场景分别测“rename 后 registerWrite”和“ledger 后 rename”的锁持有时间、失败状态数量与恢复结果，前者不需要撤回已提交日志。
+
+建议改法：将“写盘后同步登记、锁内自愈”作为正式候选，按开发者已定的“锁内同步”理解为写盘与登记不跨出同一文件锁，而不是强行把 SQLite 提交放在 rename 前。若仍选前置账本，提案必须列出它相对现有 R10 的新增状态、恢复算法、性能预算和可验证证据。
+## 验证
+
+- `bun run --cwd packages/nb-history test`：未执行测试，worktree 缺少 `diff` 与 `@libsql/client`，结果 0 pass、11 fail。
+- `bun run --cwd packages/nb-history typecheck`：未执行类型检查，环境缺少 `tsc`，退出码 127。
+- `bun test packages/neuro-book/src/plugins/files/files.test.ts packages/neuro-book/src/plugins/files/changes.test.ts packages/neuro-book/src/plugins/files/batch.test.ts packages/neuro-book/src/plugins/files/projects-scheme.test.ts`：未执行合同测试，缺少 `@notnotype/neuro-book-test-support/tmp` 与 `@notnotype/nb-runtime/diagnostics`，结果 0 pass、4 fail。未安装依赖，未运行 e2e 或开发服务。
+
+## 未发现问题的方面
+
+- 仔细检查后，没有对开发者已定的总体方向（不让 nbook.files 劫持所有访问、服务端读写、Git 风格外部对账、项目账本位置、会话/临时目录不记账、user:// 记账、暂不更换监视库）另提出方向性反对；上述问题集中在这些决定与现有锁、RPC、History、清单和生命周期合同的接缝。
+- 现有 nb-history 的内容寻址 hash、append-only 日志、保留策略的“最新条目保护”、回声 hash 相等即 no-op 这些局部机制，仔细检查后没有发现超出已列问题的独立缺陷；其接入方式仍受第 1、6、9、11、12、15、16 条限制。
+
+阻断：5；重要：16；建议：1；合计：22。
