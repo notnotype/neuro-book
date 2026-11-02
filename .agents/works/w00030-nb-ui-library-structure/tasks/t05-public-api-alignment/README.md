@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t05-public-api-alignment
-status: planned
+status: done
 updated: 2026-11-02
 ---
 
