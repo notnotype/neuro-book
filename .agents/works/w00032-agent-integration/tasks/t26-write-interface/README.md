@@ -15,10 +15,16 @@ updated: 2026-11-02
 
 ## 当前状态
 
-执行位置：`.worktree/w00032-t26-write-interface`，分支 `feat/w00032-t26-write-interface`（从 master）。
+执行位置：`.worktree/w00032-t26-write-interface`，分支 `feat/w00032-t26-write-interface`（从 master）。**没有开发者允许不合并到 master。**
 
-计划第一稿 [plan.md](plan.md) 开发者已确认（2026-11-02，见计划末尾“开发者的决定”）：锁沿用现有规则；**在单独的分支上做，没有开发者允许不合并到 master**。设计审查（omp，27 条）已处理，计划改为第二稿；开始实施。开发者 2026-11-02 要求审完后按 autonomous-delivery 推进到本 Task 完成；本该开发者定的点记进 [待确认清单](../../pending-confirmations.md)。
+计划第二稿（[plan.md](plan.md)）的五个切片都已实现、单独提交（`00c8b90de` 暂存提交与项目合同版本 7；`d10d9f977` 服务端与项目实例的写入接口；`0d2af6211` 记账槽；`e60e137ce` Agent 资源视图迁移、删掉 `serverFilesKey`；`c359db1c5`、`fae5e8e77` SDK 的 `/files`；`2ff532c19` 修一条 t08 漏改的 e2e 断言）。设计审查（omp，27 条）的处理见 [evidences/design-review-disposition.md](evidences/design-review-disposition.md)。
+
+收口验证见 [evidences/closing-verification.txt](evidences/closing-verification.txt)：类型检查通过；受影响测试全过（闭包断言已修）；全量 e2e 297 过，余下 `plugins.e2e.ts` 一条与治理检查的 `Drawer.md` 一条在分支起点上同样失败，是基线问题。未验证：`absent` 提交在身份核对与 `link` 之间被并发新建的窗口；Windows、macOS。
+
+照推荐做、待开发者追认的五条记在 [待确认清单](../../pending-confirmations.md)（硬链接断开、结果不确定不按内容判定成功、跨盘拷入、文件操作的记账推迟到第 3 阶段、提交新建不改清单）。
+
+实现审查（omp）已启动，待处理。
 
 ## 下一步
 
-开发者确认计划后做设计审查（后端，omp），处理后在 w00032 的 worktree 按切片实施。
+处理实现审查，修正单独提交；之后请开发者决定是否合并到 master。合并后 t12 按新的读写分工改计划（读与写都经写入接口，`artifacts/` 用 `stage` 流式写）。
