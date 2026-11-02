@@ -1,0 +1,4767 @@
+{
+  "version": 9,
+  "componentTypes": [
+    {
+      "ns": "character",
+      "label": "人物",
+      "version": 1,
+      "fields": [
+        {
+          "id": "身体",
+          "label": "身体",
+          "kind": "enum",
+          "options": [
+            "男",
+            "女"
+          ]
+        },
+        {
+          "id": "样子",
+          "label": "现在的样子",
+          "kind": "enum",
+          "options": [
+            "原身",
+            "哥哥",
+            "魔法少女"
+          ]
+        },
+        {
+          "id": "外观",
+          "label": "原身外观",
+          "kind": "text",
+          "retold": true
+        },
+        {
+          "id": "性格",
+          "label": "性格",
+          "kind": "text",
+          "retold": true
+        }
+      ]
+    },
+    {
+      "ns": "panel",
+      "label": "面板",
+      "version": 1,
+      "fields": [
+        {
+          "id": "魔力",
+          "label": "魔力",
+          "kind": "number",
+          "min": 0,
+          "max": {
+            "field": "魔力上限"
+          }
+        },
+        {
+          "id": "魔力上限",
+          "label": "魔力上限",
+          "kind": "number",
+          "min": 0
+        },
+        {
+          "id": "存款",
+          "label": "存款",
+          "kind": "number",
+          "min": 0,
+          "unit": "联邦币"
+        },
+        {
+          "id": "回溯",
+          "label": "今天还能回溯",
+          "kind": "number",
+          "min": 0,
+          "unit": "次"
+        },
+        {
+          "id": "物品",
+          "label": "随身物品",
+          "kind": "list"
+        }
+      ]
+    },
+    {
+      "ns": "identity",
+      "label": "身份",
+      "version": 1,
+      "fields": [
+        {
+          "id": "谁知道",
+          "label": "谁知道",
+          "kind": "text"
+        },
+        {
+          "id": "外观",
+          "label": "这个身份的样子",
+          "kind": "text",
+          "retold": true
+        }
+      ]
+    },
+    {
+      "ns": "plotline",
+      "label": "剧情线",
+      "version": 1,
+      "fields": [
+        {
+          "id": "状态",
+          "label": "状态",
+          "kind": "enum",
+          "options": [
+            "计划中",
+            "进行中",
+            "已回收",
+            "放弃"
+          ]
+        },
+        {
+          "id": "意图",
+          "label": "想写什么",
+          "kind": "text"
+        }
+      ]
+    }
+  ],
+  "chapters": [
+    {
+      "id": "ch1",
+      "title": "第 1 章 好哥哥真难当",
+      "outline": "早餐场景，主角准备早餐，妹妹依旧生哥哥的气，傲了一下，出门去上学。主角趁妹妹走远了感叹，这个哥哥真难当啊。然后走进自己的房间关上门，关闭认知滤镜，展露出美少女真身，拿起桌上的一本《如何做个好哥哥》坐在阳台边上宁静地阅读。然后是主角和好朋友“彗”联系（主角被软禁，为了逃脱，这个朋友帮她做了一个魔偶）。主角问她：“如何做一个好姐姐”。",
+      "text": "（正文 650 字，省略）"
+    },
+    {
+      "id": "ch2",
+      "title": "第 2 章 用钱说话",
+      "outline": "实践第二条“用钱说话”：给星瑾一万零花钱，再订她小时候最喜欢的蛋糕。星瑾不领情，把卡推回来。星瑕很迟钝，过后才发现搞砸了。",
+      "text": "（正文 434 字，省略）"
+    },
+    {
+      "id": "ch3",
+      "title": "第 3 章",
+      "outline": "星瑾把卡推回来。夜里星瑾翻出旧相册，妈妈也有一头银白的头发。星瑕试着适度示弱。",
+      "text": ""
+    }
+  ],
+  "entries": {
+    "xingxia": {
+      "id": "xingxia",
+      "type": "人物",
+      "parent": null,
+      "folder": "人物",
+      "order": 0,
+      "init": {
+        "name": "星瑕",
+        "aliases": [],
+        "summary": "前蓝星最强的魔法少女，隐退后以哥哥的样子把妹妹接回家住",
+        "text": [
+          {
+            "id": "b1",
+            "source": "六岁那年的城市大灾难里，星瑕失去了父母。之后她觉醒了时间系的天赋，身体也随之变成女生，第一次回溯救下了妹妹星瑾。被对策委员会带进魔法少女部以后，她从基础做起，几年里成了蓝星最强；灾难平息后，官方给她安了罪名，她顺势隐退。"
+          },
+          {
+            "id": "b2",
+            "source": "现在她以哥哥的样子回到家，把星瑾从亲戚家接回来一起住，决心重新做个好哥哥。"
+          },
+          {
+            "id": "b3",
+            "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+          },
+          {
+            "id": "b4",
+            "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+          },
+          {
+            "id": "b5",
+            "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+          },
+          {
+            "id": "b6",
+            "source": "## 性格\n{character.性格}"
+          }
+        ],
+        "data": {
+          "character": {
+            "enabled": true,
+            "fields": {
+              "身体": "男",
+              "样子": "原身",
+              "外观": "淡金色长发及腰，浅灰蓝的眼睛，个子娇小",
+              "性格": "迟钝，情商不高，做事认真。想对妹妹好，常常用错方法，过后才知道搞砸了"
+            }
+          },
+          "panel": {
+            "enabled": true,
+            "fields": {
+              "魔力": 3200,
+              "魔力上限": 12000,
+              "存款": 41800,
+              "回溯": 1,
+              "物品": []
+            }
+          }
+        }
+      },
+      "initBasis": {
+        "panel.魔力": {
+          "kind": "author"
+        },
+        "panel.魔力上限": {
+          "kind": "author"
+        },
+        "panel.回溯": {
+          "kind": "author"
+        },
+        "character.外观": {
+          "kind": "author"
+        },
+        "character.性格": {
+          "kind": "author"
+        },
+        "panel.存款": {
+          "kind": "estimate",
+          "note": "种子只说“钱不多，但够用”；按第 1 章正文“账户余额 41,800”定"
+        }
+      }
+    },
+    "brother": {
+      "id": "brother",
+      "type": "身份",
+      "parent": "xingxia",
+      "folder": "人物",
+      "order": 1,
+      "init": {
+        "name": "哥哥",
+        "aliases": [],
+        "summary": "认知滤镜幻化的男生样子，改不了身体，维持起来累",
+        "text": [],
+        "data": {
+          "identity": {
+            "enabled": true,
+            "fields": {
+              "谁知道": "星瑾",
+              "外观": null
+            }
+          }
+        }
+      },
+      "sameAs": "xingxia"
+    },
+    "mg": {
+      "id": "mg",
+      "type": "身份",
+      "parent": "xingxia",
+      "folder": "人物",
+      "order": 2,
+      "init": {
+        "name": "魔法少女（代号未定）",
+        "aliases": [],
+        "summary": "变身形态，带认知干扰；在官方时从没解除过变身",
+        "text": [],
+        "data": {
+          "identity": {
+            "enabled": true,
+            "fields": {
+              "谁知道": "官方、对策局",
+              "外观": "变身时，银白的长发染上一层星光，眼睛变成金色"
+            }
+          }
+        }
+      },
+      "sameAs": "xingxia"
+    },
+    "xingjin": {
+      "id": "xingjin",
+      "type": "人物",
+      "parent": null,
+      "folder": "人物",
+      "order": 1,
+      "init": {
+        "name": "星瑾",
+        "aliases": [],
+        "summary": "星瑕的妹妹，只认识“哥哥”，还在生他的气",
+        "text": [],
+        "data": {
+          "character": {
+            "enabled": true,
+            "fields": {
+              "身体": null,
+              "样子": null,
+              "外观": null,
+              "性格": null
+            }
+          }
+        }
+      }
+    },
+    "parents": {
+      "id": "parents",
+      "type": "人物",
+      "parent": null,
+      "folder": "人物",
+      "order": 2,
+      "init": {
+        "name": "父母",
+        "aliases": [],
+        "summary": "城市大灾难里“死亡”",
+        "text": [],
+        "data": {
+          "character": {
+            "enabled": true,
+            "fields": {
+              "身体": null,
+              "样子": null,
+              "外观": null,
+              "性格": null
+            }
+          }
+        }
+      }
+    },
+    "relative": {
+      "id": "relative",
+      "type": "人物",
+      "parent": null,
+      "folder": "人物",
+      "order": 3,
+      "init": {
+        "name": "刻薄的亲戚",
+        "aliases": [],
+        "summary": "官方把星瑾安置在这里",
+        "text": [],
+        "data": {
+          "character": {
+            "enabled": true,
+            "fields": {
+              "身体": null,
+              "样子": null,
+              "外观": null,
+              "性格": null
+            }
+          }
+        }
+      }
+    },
+    "sprite": {
+      "id": "sprite",
+      "type": "人物",
+      "parent": null,
+      "folder": "人物",
+      "order": 4,
+      "init": {
+        "name": "魔法精灵（名字未定）",
+        "aliases": [],
+        "summary": "能展开面板的那位",
+        "text": [],
+        "data": {
+          "character": {
+            "enabled": true,
+            "fields": {
+              "身体": null,
+              "样子": null,
+              "外观": null,
+              "性格": null
+            }
+          }
+        }
+      }
+    },
+    "division": {
+      "id": "division",
+      "type": "组织",
+      "parent": null,
+      "folder": "组织",
+      "order": 0,
+      "init": {
+        "name": "魔法少女部（暂名）",
+        "aliases": [],
+        "summary": "对策委员会下的魔法少女部，其实是官方的外包组织",
+        "text": [],
+        "data": {}
+      }
+    },
+    "committee": {
+      "id": "committee",
+      "type": "组织",
+      "parent": null,
+      "folder": "组织",
+      "order": 1,
+      "init": {
+        "name": "对策委员会",
+        "aliases": [],
+        "summary": "官方部门",
+        "text": [],
+        "data": {}
+      }
+    },
+    "federation": {
+      "id": "federation",
+      "type": "组织",
+      "parent": null,
+      "folder": "组织",
+      "order": 2,
+      "init": {
+        "name": "联邦",
+        "aliases": [],
+        "summary": "蓝星的统一政府，社会的表层",
+        "text": [],
+        "data": {}
+      }
+    },
+    "bluestar": {
+      "id": "bluestar",
+      "type": "地点",
+      "parent": null,
+      "folder": "地点",
+      "order": 0,
+      "init": {
+        "name": "蓝星",
+        "aliases": [],
+        "summary": "超凡启蒙早期；表层是联邦社会，里层是超凡世界",
+        "text": [],
+        "data": {}
+      }
+    },
+    "home": {
+      "id": "home",
+      "type": "地点",
+      "parent": null,
+      "folder": "地点",
+      "order": 1,
+      "init": {
+        "name": "星家",
+        "aliases": [],
+        "summary": "兄妹现在住的地方",
+        "text": [],
+        "data": {}
+      }
+    },
+    "filter": {
+      "id": "filter",
+      "type": "概念",
+      "parent": null,
+      "folder": "物品与概念",
+      "order": 2,
+      "init": {
+        "name": "认知滤镜",
+        "aliases": [],
+        "summary": "认知改变魔法，不能改变生理结构",
+        "text": [],
+        "data": {}
+      }
+    },
+    "kinds": {
+      "id": "kinds",
+      "type": "概念",
+      "parent": null,
+      "folder": "物品与概念",
+      "order": 3,
+      "init": {
+        "name": "超凡者的种类",
+        "aliases": [],
+        "summary": "魔法少女、魔女、异能者、天使……",
+        "text": [],
+        "data": {}
+      }
+    },
+    "line-brother": {
+      "id": "line-brother",
+      "type": "剧情线",
+      "parent": null,
+      "folder": "剧情线",
+      "order": 0,
+      "init": {
+        "name": "做个好哥哥",
+        "aliases": [],
+        "summary": "",
+        "text": [],
+        "data": {
+          "plotline": {
+            "enabled": true,
+            "fields": {
+              "状态": "进行中",
+              "意图": "星瑕照着各种建议对妹妹好，每次都用戏剧化的方式搞砸"
+            }
+          }
+        }
+      }
+    },
+    "line-rift": {
+      "id": "line-rift",
+      "type": "剧情线",
+      "parent": null,
+      "folder": "剧情线",
+      "order": 1,
+      "init": {
+        "name": "兄妹的心结",
+        "aliases": [],
+        "summary": "",
+        "text": [],
+        "data": {
+          "plotline": {
+            "enabled": true,
+            "fields": {
+              "状态": "进行中",
+              "意图": ""
+            }
+          }
+        }
+      }
+    },
+    "line-corrupt": {
+      "id": "line-corrupt",
+      "type": "剧情线",
+      "parent": null,
+      "folder": "剧情线",
+      "order": 2,
+      "init": {
+        "name": "官方的腐败",
+        "aliases": [],
+        "summary": "",
+        "text": [],
+        "data": {
+          "plotline": {
+            "enabled": true,
+            "fields": {
+              "状态": "进行中",
+              "意图": ""
+            }
+          }
+        }
+      }
+    },
+    "line-kings": {
+      "id": "line-kings",
+      "type": "剧情线",
+      "parent": null,
+      "folder": "剧情线",
+      "order": 3,
+      "init": {
+        "name": "双王",
+        "aliases": [],
+        "summary": "",
+        "text": [],
+        "data": {
+          "plotline": {
+            "enabled": true,
+            "fields": {
+              "状态": "计划中",
+              "意图": "伏笔"
+            }
+          }
+        }
+      }
+    },
+    "hui": {
+      "id": "hui",
+      "type": "人物",
+      "parent": null,
+      "folder": "人物",
+      "order": 5,
+      "init": {
+        "name": "彗",
+        "aliases": [],
+        "summary": "星瑕的好友，做魔偶帮她逃出软禁",
+        "text": [],
+        "data": {
+          "character": {
+            "enabled": true,
+            "fields": {
+              "身体": null,
+              "样子": null,
+              "外观": null,
+              "性格": null
+            }
+          }
+        }
+      }
+    },
+    "doll": {
+      "id": "doll",
+      "type": "物品",
+      "parent": null,
+      "folder": "物品与概念",
+      "order": 0,
+      "init": {
+        "name": "魔偶",
+        "aliases": [],
+        "summary": "彗做的替身，星瑕靠它逃出软禁",
+        "text": [],
+        "data": {}
+      }
+    },
+    "book": {
+      "id": "book",
+      "type": "物品",
+      "parent": null,
+      "folder": "物品与概念",
+      "order": 1,
+      "init": {
+        "name": "《如何做个好哥哥》",
+        "aliases": [],
+        "summary": "星瑕在读的书",
+        "text": [],
+        "data": {}
+      },
+      "appears": {
+        "kind": "chapter",
+        "chapter": "ch1",
+        "key": 30
+      }
+    }
+  },
+  "changes": {
+    "p01": {
+      "id": "p01",
+      "kind": "written",
+      "text": "星家是联邦的上流家庭，一家四口",
+      "at": {
+        "kind": "prehistory",
+        "order": 1
+      },
+      "told": [
+        {
+          "source": "seed",
+          "quote": "幸福美满的家庭（算是联邦的上流家庭）"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "xingjin",
+        "parents"
+      ],
+      "lines": [],
+      "links": [],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "p02": {
+      "id": "p02",
+      "kind": "written",
+      "text": "星瑕 6 岁那年，城市大灾难；父母“死亡”",
+      "at": {
+        "kind": "prehistory",
+        "order": 2
+      },
+      "told": [
+        {
+          "source": "seed",
+          "quote": "6岁的时候城市大灾难 -> 结果是父母死亡（不是双亡就是双王，这里是：双王）"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "xingjin",
+        "parents"
+      ],
+      "lines": [
+        "line-kings"
+      ],
+      "links": [],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "p03": {
+      "id": "p03",
+      "kind": "written",
+      "text": "兄妹关系变差",
+      "at": {
+        "kind": "prehistory",
+        "order": 3
+      },
+      "told": [
+        {
+          "source": "seed",
+          "quote": "然后兄妹两关系不好（有矛盾，具体是怎么回事我这里没想好）"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "xingjin"
+      ],
+      "lines": [
+        "line-rift"
+      ],
+      "links": [],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "p04": {
+      "id": "p04",
+      "kind": "written",
+      "text": "星瑕觉醒，性转成女生、变成魔法少女；第一次用时间回溯救下星瑾",
+      "at": {
+        "kind": "prehistory",
+        "order": 4
+      },
+      "told": [
+        {
+          "source": "seed",
+          "quote": "直接性转成女生变成魔法少女（第一次使用自己的特殊天赋：时间相关的，利用回溯救下妹妹）"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "xingjin"
+      ],
+      "lines": [],
+      "links": [],
+      "patches": [
+        {
+          "op": "set",
+          "at": {
+            "entry": "xingxia",
+            "path": "character.身体"
+          },
+          "value": "女",
+          "basis": {
+            "kind": "quote",
+            "quote": "直接性转成女生"
+          }
+        },
+        {
+          "op": "set",
+          "at": {
+            "entry": "xingxia",
+            "path": "character.样子"
+          },
+          "value": "魔法少女",
+          "basis": {
+            "kind": "quote",
+            "quote": "变成魔法少女"
+          }
+        }
+      ],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "p05": {
+      "id": "p05",
+      "kind": "written",
+      "text": "被官方带走，进入对策委员会的魔法少女部；官方承诺安置星瑾",
+      "at": {
+        "kind": "prehistory",
+        "order": 5
+      },
+      "told": [
+        {
+          "source": "seed",
+          "quote": "被官方带走了，进入对策委员会，魔法少女部"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "committee",
+        "division"
+      ],
+      "lines": [
+        "line-corrupt"
+      ],
+      "links": [],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "p06": {
+      "id": "p06",
+      "kind": "written",
+      "text": "官方把星瑾安排到刻薄的亲戚家，兄妹更疏远",
+      "at": {
+        "kind": "prehistory",
+        "order": 6
+      },
+      "told": [
+        {
+          "source": "seed",
+          "quote": "把妹妹安排到某个刻薄的亲戚家去，这样导致兄妹两关系更加疏远"
+        }
+      ],
+      "involves": [
+        "xingjin",
+        "relative"
+      ],
+      "lines": [
+        "line-rift",
+        "line-corrupt"
+      ],
+      "links": [],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "p07": {
+      "id": "p07",
+      "kind": "written",
+      "text": "从基础做起，迅速晋升，建立人脉，成为蓝星最强",
+      "at": {
+        "kind": "prehistory",
+        "order": 7
+      },
+      "told": [
+        {
+          "source": "seed",
+          "quote": "从基础做起，迅速晋升……成为蓝星最强"
+        }
+      ],
+      "involves": [
+        "xingxia"
+      ],
+      "lines": [],
+      "links": [],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "p08": {
+      "id": "p08",
+      "kind": "written",
+      "text": "灾难暂时平息；官方安了莫须有的罪名，打算卸磨杀驴",
+      "at": {
+        "kind": "prehistory",
+        "order": 8
+      },
+      "told": [
+        {
+          "source": "seed",
+          "quote": "给主角安排一个莫须有的罪名打算卸磨杀驴"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "committee"
+      ],
+      "lines": [
+        "line-corrupt"
+      ],
+      "links": [],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "p10": {
+      "id": "p10",
+      "kind": "written",
+      "text": "顺势隐退；官方对外仍维持她的魔法少女身份",
+      "at": {
+        "kind": "prehistory",
+        "order": 10
+      },
+      "told": [
+        {
+          "source": "seed",
+          "quote": "刚好顺水推舟隐退了（虽然隐退了，但是官方明面上报道还是遵守她那个身份的）"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "mg"
+      ],
+      "lines": [
+        "line-corrupt"
+      ],
+      "links": [],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "p11": {
+      "id": "p11",
+      "kind": "written",
+      "text": "以哥哥的样子回到家，把星瑾接回来同住；钱大多花在研究上，剩下的够用",
+      "at": {
+        "kind": "prehistory",
+        "order": 11
+      },
+      "told": [
+        {
+          "source": "seed",
+          "quote": "于是以男生回到家，把妹妹接回来自己住"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "xingjin",
+        "home"
+      ],
+      "lines": [
+        "line-brother"
+      ],
+      "links": [],
+      "patches": [
+        {
+          "op": "set",
+          "at": {
+            "entry": "xingxia",
+            "path": "character.样子"
+          },
+          "value": "哥哥",
+          "basis": {
+            "kind": "quote",
+            "quote": "以男生回到家"
+          }
+        }
+      ],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "p09": {
+      "id": "p09",
+      "kind": "written",
+      "text": "被软禁，靠彗做的魔偶逃脱",
+      "at": {
+        "kind": "prehistory",
+        "order": 9
+      },
+      "told": [
+        {
+          "source": "outline",
+          "chapter": "ch1",
+          "quote": "主角被软禁，为了逃脱，这个朋友帮她做了一个魔偶"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "hui",
+        "doll"
+      ],
+      "lines": [
+        "line-corrupt"
+      ],
+      "links": [],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "pl1": {
+      "id": "pl1",
+      "kind": "plan",
+      "text": "早餐，星瑾还在生气，出门上学",
+      "at": {
+        "kind": "chapter",
+        "chapter": "ch1",
+        "key": 0
+      },
+      "told": [
+        {
+          "source": "outline",
+          "chapter": "ch1",
+          "quote": "早餐场景，主角准备早餐，妹妹依旧生哥哥的气"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "xingjin"
+      ],
+      "lines": [
+        "line-brother"
+      ],
+      "links": [],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "pl2": {
+      "id": "pl2",
+      "kind": "plan",
+      "text": "回房关掉滤镜，在阳台读《如何做个好哥哥》",
+      "at": {
+        "kind": "chapter",
+        "chapter": "ch1",
+        "key": 0
+      },
+      "told": [
+        {
+          "source": "outline",
+          "chapter": "ch1",
+          "quote": "关闭认知滤镜，展露出美少女真身"
+        }
+      ],
+      "involves": [
+        "xingxia"
+      ],
+      "lines": [
+        "line-brother"
+      ],
+      "links": [],
+      "patches": [
+        {
+          "op": "set",
+          "at": {
+            "entry": "xingxia",
+            "path": "character.样子"
+          },
+          "value": "原身",
+          "basis": {
+            "kind": "quote",
+            "quote": "关闭认知滤镜"
+          }
+        }
+      ],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "pl3": {
+      "id": "pl3",
+      "kind": "plan",
+      "text": "联系彗，问怎么做一个好姐姐",
+      "at": {
+        "kind": "chapter",
+        "chapter": "ch1",
+        "key": 0
+      },
+      "told": [
+        {
+          "source": "outline",
+          "chapter": "ch1",
+          "quote": "主角问她：“如何做一个好姐姐”"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "hui"
+      ],
+      "lines": [
+        "line-brother"
+      ],
+      "links": [],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "pl5": {
+      "id": "pl5",
+      "kind": "plan",
+      "text": "适度示弱，搞砸",
+      "at": {
+        "kind": "unscheduled"
+      },
+      "told": [],
+      "involves": [
+        "xingxia",
+        "xingjin"
+      ],
+      "lines": [
+        "line-brother"
+      ],
+      "links": [],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "pl6": {
+      "id": "pl6",
+      "kind": "plan",
+      "text": "给面子，但别惯",
+      "at": {
+        "kind": "unscheduled"
+      },
+      "told": [],
+      "involves": [
+        "xingxia",
+        "xingjin"
+      ],
+      "lines": [
+        "line-brother"
+      ],
+      "links": [],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "pl7": {
+      "id": "pl7",
+      "kind": "plan",
+      "text": "说心里话",
+      "at": {
+        "kind": "unscheduled"
+      },
+      "told": [],
+      "involves": [
+        "xingxia",
+        "xingjin"
+      ],
+      "lines": [
+        "line-brother"
+      ],
+      "links": [],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "c10": {
+      "id": "c10",
+      "kind": "written",
+      "text": "早餐，星瑾还在生气，不吃煎蛋，出门上学",
+      "at": {
+        "kind": "chapter",
+        "chapter": "ch1",
+        "key": 10
+      },
+      "told": [
+        {
+          "source": "chapter",
+          "chapter": "ch1",
+          "quote": "“上周是上周。”她把牛奶喝了一半，拎起书包往门口走，“晚上不用等我。”"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "xingjin"
+      ],
+      "lines": [
+        "line-brother",
+        "line-rift"
+      ],
+      "links": [
+        {
+          "kind": "fulfills",
+          "plan": "pl1"
+        }
+      ],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "c11": {
+      "id": "c11",
+      "kind": "written",
+      "text": "回房松开认知滤镜，变回原身",
+      "at": {
+        "kind": "chapter",
+        "chapter": "ch1",
+        "key": 20
+      },
+      "told": [
+        {
+          "source": "chapter",
+          "chapter": "ch1",
+          "quote": "反锁上门，松开了维持一早上的认知滤镜"
+        }
+      ],
+      "involves": [
+        "xingxia"
+      ],
+      "lines": [],
+      "links": [
+        {
+          "kind": "fulfills",
+          "plan": "pl2"
+        }
+      ],
+      "patches": [
+        {
+          "op": "set",
+          "at": {
+            "entry": "xingxia",
+            "path": "character.样子"
+          },
+          "value": "原身",
+          "basis": {
+            "kind": "quote",
+            "quote": "松开了维持一早上的认知滤镜"
+          }
+        },
+        {
+          "op": "add",
+          "at": {
+            "entry": "xingxia",
+            "path": "panel.魔力"
+          },
+          "value": -90,
+          "basis": {
+            "kind": "estimate",
+            "note": "正文只写了“魔力又少了一点”"
+          }
+        }
+      ],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "c12": {
+      "id": "c12",
+      "kind": "written",
+      "text": "在阳台读《如何做个好哥哥》",
+      "at": {
+        "kind": "chapter",
+        "chapter": "ch1",
+        "key": 30
+      },
+      "told": [
+        {
+          "source": "chapter",
+          "chapter": "ch1",
+          "quote": "星瑕把它抱到阳台，在藤椅上坐下"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "book"
+      ],
+      "lines": [
+        "line-brother"
+      ],
+      "links": [
+        {
+          "kind": "fulfills",
+          "plan": "pl2"
+        }
+      ],
+      "patches": [
+        {
+          "op": "listAdd",
+          "at": {
+            "entry": "xingxia",
+            "path": "panel.物品"
+          },
+          "value": {
+            "id": "book",
+            "label": "《如何做个好哥哥》",
+            "since": "ch1"
+          },
+          "basis": {
+            "kind": "quote",
+            "quote": "书桌上放着一本《如何做个好哥哥》"
+          }
+        }
+      ],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "c13": {
+      "id": "c13",
+      "kind": "written",
+      "text": "问彗怎么做一个好姐姐，得到五条建议，划掉了第五条",
+      "at": {
+        "kind": "chapter",
+        "chapter": "ch1",
+        "key": 40
+      },
+      "told": [
+        {
+          "source": "chapter",
+          "chapter": "ch1",
+          "quote": "星瑕盯着第五条看了很久，把它划掉了。"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "hui"
+      ],
+      "lines": [
+        "line-brother"
+      ],
+      "links": [
+        {
+          "kind": "fulfills",
+          "plan": "pl3"
+        }
+      ],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "pl8": {
+      "id": "pl8",
+      "kind": "plan",
+      "text": "用钱说话：给星瑾一万零花钱、订她小时候最喜欢的蛋糕；星瑾不领情，把卡推回来",
+      "at": {
+        "kind": "chapter",
+        "chapter": "ch2",
+        "key": 0
+      },
+      "told": [
+        {
+          "source": "outline",
+          "chapter": "ch2",
+          "quote": "实践第二条“用钱说话”：给星瑾一万零花钱，再订她小时候最喜欢的蛋糕。星瑾不领情，把卡推回来。星瑕很迟钝，过后才发现搞砸了。"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "xingjin"
+      ],
+      "lines": [
+        "line-brother"
+      ],
+      "links": [],
+      "patches": [
+        {
+          "op": "add",
+          "at": {
+            "entry": "xingxia",
+            "path": "panel.存款"
+          },
+          "value": -10000,
+          "basis": {
+            "kind": "quote",
+            "quote": "给星瑾一万零花钱"
+          }
+        }
+      ],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "c14": {
+      "id": "c14",
+      "kind": "written",
+      "text": "办了一张卡，存进两万给星瑾当零花钱",
+      "at": {
+        "kind": "chapter",
+        "chapter": "ch2",
+        "key": 10
+      },
+      "told": [
+        {
+          "source": "chapter",
+          "chapter": "ch2",
+          "quote": "先去银行办了一张卡，存进两万联邦币"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "xingjin"
+      ],
+      "lines": [
+        "line-brother"
+      ],
+      "links": [
+        {
+          "kind": "fulfills",
+          "plan": "pl8"
+        }
+      ],
+      "patches": [
+        {
+          "op": "add",
+          "at": {
+            "entry": "xingxia",
+            "path": "panel.存款"
+          },
+          "value": -20000,
+          "basis": {
+            "kind": "quote",
+            "quote": "存进两万联邦币"
+          }
+        }
+      ],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "c15": {
+      "id": "c15",
+      "kind": "written",
+      "text": "订了星瑾小时候最喜欢的那家店的草莓蛋糕，写了“给星瑾”",
+      "at": {
+        "kind": "chapter",
+        "chapter": "ch2",
+        "key": 20
+      },
+      "told": [
+        {
+          "source": "chapter",
+          "chapter": "ch2",
+          "quote": "她订了一个草莓蛋糕，店员问要不要写字，她想了半天，写了“给星瑾”。"
+        }
+      ],
+      "involves": [
+        "xingxia",
+        "xingjin"
+      ],
+      "lines": [
+        "line-brother"
+      ],
+      "links": [
+        {
+          "kind": "fulfills",
+          "plan": "pl8"
+        }
+      ],
+      "patches": [
+        {
+          "op": "add",
+          "at": {
+            "entry": "xingxia",
+            "path": "panel.存款"
+          },
+          "value": -2000,
+          "basis": {
+            "kind": "derived",
+            "check": "k2"
+          }
+        }
+      ],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "c16": {
+      "id": "c16",
+      "kind": "written",
+      "text": "回家前变回哥哥的样子",
+      "at": {
+        "kind": "chapter",
+        "chapter": "ch2",
+        "key": 30
+      },
+      "told": [
+        {
+          "source": "chapter",
+          "chapter": "ch2",
+          "quote": "重新罩上滤镜。哥哥的样子回来了。"
+        }
+      ],
+      "involves": [
+        "xingxia"
+      ],
+      "lines": [],
+      "links": [],
+      "patches": [
+        {
+          "op": "set",
+          "at": {
+            "entry": "xingxia",
+            "path": "character.样子"
+          },
+          "value": "哥哥",
+          "basis": {
+            "kind": "quote",
+            "quote": "哥哥的样子回来了"
+          }
+        }
+      ],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "c18": {
+      "id": "c18",
+      "kind": "written",
+      "text": "回家前把淡金色的长发拢进帽子",
+      "at": {
+        "kind": "chapter",
+        "chapter": "ch2",
+        "key": 31
+      },
+      "told": [
+        {
+          "source": "chapter",
+          "chapter": "ch2",
+          "quote": "回家前，她在楼道的镜子里把淡金色的长发拢进帽子"
+        }
+      ],
+      "involves": [
+        "xingxia"
+      ],
+      "lines": [],
+      "links": [],
+      "patches": [
+        {
+          "op": "set",
+          "at": {
+            "entry": "xingxia",
+            "path": "character.外观"
+          },
+          "value": "淡金色长发及腰，浅灰蓝的眼睛，个子娇小",
+          "basis": {
+            "kind": "quote",
+            "quote": "淡金色的长发"
+          }
+        }
+      ],
+      "status": "undone",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      },
+      "undoneReason": "按正文改了设定"
+    },
+    "c17": {
+      "id": "c17",
+      "kind": "written",
+      "text": "星瑾没碰那张卡，说“你走的那几年，一个电话都没有”，回了房间",
+      "at": {
+        "kind": "chapter",
+        "chapter": "ch2",
+        "key": 40
+      },
+      "told": [
+        {
+          "source": "chapter",
+          "chapter": "ch2",
+          "quote": "“你走的那几年，一个电话都没有。”她的声音很平"
+        }
+      ],
+      "involves": [
+        "xingjin",
+        "xingxia"
+      ],
+      "lines": [
+        "line-brother",
+        "line-rift"
+      ],
+      "links": [],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    },
+    "pl9": {
+      "id": "pl9",
+      "kind": "plan",
+      "text": "星瑾把卡推回来",
+      "at": {
+        "kind": "chapter",
+        "chapter": "ch3",
+        "key": 0
+      },
+      "told": [
+        {
+          "source": "outline",
+          "chapter": "ch2",
+          "quote": "星瑾不领情，把卡推回来"
+        }
+      ],
+      "involves": [
+        "xingjin",
+        "xingxia"
+      ],
+      "lines": [
+        "line-brother"
+      ],
+      "links": [
+        {
+          "kind": "splitFrom",
+          "plan": "pl8"
+        }
+      ],
+      "patches": [],
+      "status": "active",
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      }
+    }
+  },
+  "checks": {
+    "k1": {
+      "id": "k1",
+      "at": {
+        "entry": "xingxia",
+        "path": "panel.存款"
+      },
+      "value": 41800,
+      "told": {
+        "source": "chapter",
+        "chapter": "ch1",
+        "quote": "手机震了一下，是银行的月度提醒：账户余额 41,800 联邦币。"
+      },
+      "place": {
+        "kind": "chapter",
+        "chapter": "ch1",
+        "key": 35
+      }
+    },
+    "k2": {
+      "id": "k2",
+      "at": {
+        "entry": "xingxia",
+        "path": "panel.存款"
+      },
+      "value": 19800,
+      "told": {
+        "source": "chapter",
+        "chapter": "ch2",
+        "quote": "星瑕坐在餐桌边，手机亮了一下，是消费提醒：余额 19,800。"
+      },
+      "place": {
+        "kind": "chapter",
+        "chapter": "ch2",
+        "key": 50
+      }
+    }
+  },
+  "questions": {
+    "q1": {
+      "id": "q1",
+      "text": "“双王”指什么？父母是死了，还是成了某种“王”？",
+      "about": {
+        "kind": "change",
+        "id": "p02"
+      },
+      "status": "open",
+      "hints": [],
+      "quote": "不是双亡就是双王，这里是：双王"
+    },
+    "q2": {
+      "id": "q2",
+      "text": "兄妹为什么关系不好？",
+      "about": {
+        "kind": "entry",
+        "id": "line-rift"
+      },
+      "status": "open",
+      "hints": [
+        {
+          "chapter": "ch2",
+          "quote": "“你走的那几年，一个电话都没有。”"
+        }
+      ],
+      "quote": "有矛盾，具体是怎么回事我这里没想好"
+    },
+    "q3": {
+      "id": "q3",
+      "text": "星瑕为什么会被官方带走？",
+      "about": {
+        "kind": "change",
+        "id": "p05"
+      },
+      "status": "open",
+      "hints": [],
+      "quote": "目前这里我也没想好，可能是主角也不想暴露身份的原因"
+    },
+    "q4": {
+      "id": "q4",
+      "text": "魔法少女部的正式名字",
+      "about": {
+        "kind": "entry",
+        "id": "division"
+      },
+      "status": "open",
+      "hints": [],
+      "quote": "还可以取个更好的名字"
+    },
+    "q5": {
+      "id": "q5",
+      "text": "魔法少女身份的代号",
+      "about": {
+        "kind": "entry",
+        "id": "mg"
+      },
+      "status": "open",
+      "hints": []
+    },
+    "q6": {
+      "id": "q6",
+      "text": "魔法精灵叫什么？",
+      "about": {
+        "kind": "entry",
+        "id": "sprite"
+      },
+      "status": "open",
+      "hints": []
+    },
+    "q7": {
+      "id": "q7",
+      "text": "面板的数还没定：魔力、魔力上限、存款、今天还能回溯几次",
+      "about": {
+        "kind": "entry",
+        "id": "xingxia"
+      },
+      "status": "answered",
+      "hints": [],
+      "quote": "隐退后钱不多，但够用",
+      "answer": "魔力 3200 / 12000，今天能回溯 1 次；存款等正文写出来再定"
+    }
+  },
+  "suggestions": {
+    "s1": {
+      "id": "s1",
+      "cause": "r8",
+      "target": {
+        "kind": "chapter",
+        "chapter": "ch1"
+      },
+      "group": "原身的头发",
+      "before": "银白的长发垂到腰际，肩膀窄了一圈，睡衣的袖子长出一截。",
+      "after": "淡金色的长发垂到腰际，肩膀窄了一圈，睡衣的袖子长出一截。",
+      "reason": "写的是星瑕松开滤镜后的原身",
+      "judgment": "sure",
+      "status": "open"
+    },
+    "s2": {
+      "id": "s2",
+      "cause": "r8",
+      "target": {
+        "kind": "chapter",
+        "chapter": "ch1"
+      },
+      "group": "原身的头发",
+      "before": "风把几缕银白的头发吹到书页上，她拨开，翻到折了角的那一页：",
+      "after": "风把几缕淡金色的头发吹到书页上，她拨开，翻到折了角的那一页：",
+      "reason": "阳台上的原身",
+      "judgment": "sure",
+      "status": "open"
+    },
+    "s3": {
+      "id": "s3",
+      "cause": "r8",
+      "target": {
+        "kind": "outline",
+        "chapter": "ch3"
+      },
+      "group": "不是星瑕",
+      "before": "夜里星瑾翻出旧相册，妈妈也有一头银白的头发。",
+      "after": null,
+      "reason": "写的是母亲",
+      "judgment": "notThisOne",
+      "status": "declined"
+    },
+    "s4": {
+      "id": "s4",
+      "cause": "r8",
+      "target": {
+        "kind": "entryText",
+        "entry": "mg",
+        "block": "identity.外观"
+      },
+      "group": "变身以后的样子",
+      "before": "变身时，银白的长发染上一层星光，眼睛变成金色",
+      "after": "变身时，淡金色的长发染上一层星光，眼睛变成金色",
+      "reason": "变身形态的样子不一定和原身一样，可能是你有意写的不同",
+      "judgment": "ask",
+      "status": "open"
+    }
+  },
+  "revisions": [
+    {
+      "id": "r1",
+      "version": 1,
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      },
+      "what": "opening",
+      "title": "按故事种子开局：建了 18 个条目、10 条前史，记下 7 个未决问题",
+      "ops": [
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "xingxia"
+          },
+          "before": null,
+          "after": {
+            "id": "xingxia",
+            "type": "人物",
+            "parent": null,
+            "folder": "人物",
+            "order": 0,
+            "init": {
+              "name": "星瑕",
+              "aliases": [],
+              "summary": "前蓝星最强的魔法少女，隐退后以哥哥的样子把妹妹接回家住",
+              "text": [
+                {
+                  "id": "b1",
+                  "source": "六岁那年的城市大灾难里，星瑕失去了父母。之后她觉醒了时间系的天赋，身体也随之变成女生，第一次回溯救下了妹妹星瑾。被对策委员会带进魔法少女部以后，她从基础做起，几年里成了蓝星最强；灾难平息后，官方给她安了罪名，她顺势隐退。"
+                },
+                {
+                  "id": "b2",
+                  "source": "现在她以哥哥的样子回到家，把星瑾从亲戚家接回来一起住，决心重新做个好哥哥。"
+                },
+                {
+                  "id": "b3",
+                  "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+                },
+                {
+                  "id": "b4",
+                  "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+                },
+                {
+                  "id": "b5",
+                  "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+                },
+                {
+                  "id": "b6",
+                  "source": "## 性格\n{character.性格}"
+                }
+              ],
+              "data": {
+                "character": {
+                  "enabled": true,
+                  "fields": {
+                    "身体": "男",
+                    "样子": "原身",
+                    "外观": null,
+                    "性格": null
+                  }
+                },
+                "panel": {
+                  "enabled": true,
+                  "fields": {
+                    "魔力": null,
+                    "魔力上限": null,
+                    "存款": null,
+                    "回溯": null,
+                    "物品": []
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "brother"
+          },
+          "before": null,
+          "after": {
+            "id": "brother",
+            "type": "身份",
+            "parent": "xingxia",
+            "folder": "人物",
+            "order": 1,
+            "init": {
+              "name": "哥哥",
+              "aliases": [],
+              "summary": "认知滤镜幻化的男生样子，改不了身体，维持起来累",
+              "text": [],
+              "data": {
+                "identity": {
+                  "enabled": true,
+                  "fields": {
+                    "谁知道": "星瑾",
+                    "外观": null
+                  }
+                }
+              }
+            },
+            "sameAs": "xingxia"
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "mg"
+          },
+          "before": null,
+          "after": {
+            "id": "mg",
+            "type": "身份",
+            "parent": "xingxia",
+            "folder": "人物",
+            "order": 2,
+            "init": {
+              "name": "魔法少女（代号未定）",
+              "aliases": [],
+              "summary": "变身形态，带认知干扰；在官方时从没解除过变身",
+              "text": [],
+              "data": {
+                "identity": {
+                  "enabled": true,
+                  "fields": {
+                    "谁知道": "官方、对策局",
+                    "外观": null
+                  }
+                }
+              }
+            },
+            "sameAs": "xingxia"
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "xingjin"
+          },
+          "before": null,
+          "after": {
+            "id": "xingjin",
+            "type": "人物",
+            "parent": null,
+            "folder": "人物",
+            "order": 1,
+            "init": {
+              "name": "星瑾",
+              "aliases": [],
+              "summary": "星瑕的妹妹，只认识“哥哥”，还在生他的气",
+              "text": [],
+              "data": {
+                "character": {
+                  "enabled": true,
+                  "fields": {
+                    "身体": null,
+                    "样子": null,
+                    "外观": null,
+                    "性格": null
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "parents"
+          },
+          "before": null,
+          "after": {
+            "id": "parents",
+            "type": "人物",
+            "parent": null,
+            "folder": "人物",
+            "order": 2,
+            "init": {
+              "name": "父母",
+              "aliases": [],
+              "summary": "城市大灾难里“死亡”",
+              "text": [],
+              "data": {
+                "character": {
+                  "enabled": true,
+                  "fields": {
+                    "身体": null,
+                    "样子": null,
+                    "外观": null,
+                    "性格": null
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "relative"
+          },
+          "before": null,
+          "after": {
+            "id": "relative",
+            "type": "人物",
+            "parent": null,
+            "folder": "人物",
+            "order": 3,
+            "init": {
+              "name": "刻薄的亲戚",
+              "aliases": [],
+              "summary": "官方把星瑾安置在这里",
+              "text": [],
+              "data": {
+                "character": {
+                  "enabled": true,
+                  "fields": {
+                    "身体": null,
+                    "样子": null,
+                    "外观": null,
+                    "性格": null
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "sprite"
+          },
+          "before": null,
+          "after": {
+            "id": "sprite",
+            "type": "人物",
+            "parent": null,
+            "folder": "人物",
+            "order": 4,
+            "init": {
+              "name": "魔法精灵（名字未定）",
+              "aliases": [],
+              "summary": "能展开面板的那位",
+              "text": [],
+              "data": {
+                "character": {
+                  "enabled": true,
+                  "fields": {
+                    "身体": null,
+                    "样子": null,
+                    "外观": null,
+                    "性格": null
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "division"
+          },
+          "before": null,
+          "after": {
+            "id": "division",
+            "type": "组织",
+            "parent": null,
+            "folder": "组织",
+            "order": 0,
+            "init": {
+              "name": "魔法少女部（暂名）",
+              "aliases": [],
+              "summary": "对策委员会下的魔法少女部，其实是官方的外包组织",
+              "text": [],
+              "data": {}
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "committee"
+          },
+          "before": null,
+          "after": {
+            "id": "committee",
+            "type": "组织",
+            "parent": null,
+            "folder": "组织",
+            "order": 1,
+            "init": {
+              "name": "对策委员会",
+              "aliases": [],
+              "summary": "官方部门",
+              "text": [],
+              "data": {}
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "federation"
+          },
+          "before": null,
+          "after": {
+            "id": "federation",
+            "type": "组织",
+            "parent": null,
+            "folder": "组织",
+            "order": 2,
+            "init": {
+              "name": "联邦",
+              "aliases": [],
+              "summary": "蓝星的统一政府，社会的表层",
+              "text": [],
+              "data": {}
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "bluestar"
+          },
+          "before": null,
+          "after": {
+            "id": "bluestar",
+            "type": "地点",
+            "parent": null,
+            "folder": "地点",
+            "order": 0,
+            "init": {
+              "name": "蓝星",
+              "aliases": [],
+              "summary": "超凡启蒙早期；表层是联邦社会，里层是超凡世界",
+              "text": [],
+              "data": {}
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "home"
+          },
+          "before": null,
+          "after": {
+            "id": "home",
+            "type": "地点",
+            "parent": null,
+            "folder": "地点",
+            "order": 1,
+            "init": {
+              "name": "星家",
+              "aliases": [],
+              "summary": "兄妹现在住的地方",
+              "text": [],
+              "data": {}
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "filter"
+          },
+          "before": null,
+          "after": {
+            "id": "filter",
+            "type": "概念",
+            "parent": null,
+            "folder": "物品与概念",
+            "order": 2,
+            "init": {
+              "name": "认知滤镜",
+              "aliases": [],
+              "summary": "认知改变魔法，不能改变生理结构",
+              "text": [],
+              "data": {}
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "kinds"
+          },
+          "before": null,
+          "after": {
+            "id": "kinds",
+            "type": "概念",
+            "parent": null,
+            "folder": "物品与概念",
+            "order": 3,
+            "init": {
+              "name": "超凡者的种类",
+              "aliases": [],
+              "summary": "魔法少女、魔女、异能者、天使……",
+              "text": [],
+              "data": {}
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "line-brother"
+          },
+          "before": null,
+          "after": {
+            "id": "line-brother",
+            "type": "剧情线",
+            "parent": null,
+            "folder": "剧情线",
+            "order": 0,
+            "init": {
+              "name": "做个好哥哥",
+              "aliases": [],
+              "summary": "",
+              "text": [],
+              "data": {
+                "plotline": {
+                  "enabled": true,
+                  "fields": {
+                    "状态": "进行中",
+                    "意图": "星瑕照着各种建议对妹妹好，每次都用戏剧化的方式搞砸"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "line-rift"
+          },
+          "before": null,
+          "after": {
+            "id": "line-rift",
+            "type": "剧情线",
+            "parent": null,
+            "folder": "剧情线",
+            "order": 1,
+            "init": {
+              "name": "兄妹的心结",
+              "aliases": [],
+              "summary": "",
+              "text": [],
+              "data": {
+                "plotline": {
+                  "enabled": true,
+                  "fields": {
+                    "状态": "进行中",
+                    "意图": ""
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "line-corrupt"
+          },
+          "before": null,
+          "after": {
+            "id": "line-corrupt",
+            "type": "剧情线",
+            "parent": null,
+            "folder": "剧情线",
+            "order": 2,
+            "init": {
+              "name": "官方的腐败",
+              "aliases": [],
+              "summary": "",
+              "text": [],
+              "data": {
+                "plotline": {
+                  "enabled": true,
+                  "fields": {
+                    "状态": "进行中",
+                    "意图": ""
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "line-kings"
+          },
+          "before": null,
+          "after": {
+            "id": "line-kings",
+            "type": "剧情线",
+            "parent": null,
+            "folder": "剧情线",
+            "order": 3,
+            "init": {
+              "name": "双王",
+              "aliases": [],
+              "summary": "",
+              "text": [],
+              "data": {
+                "plotline": {
+                  "enabled": true,
+                  "fields": {
+                    "状态": "计划中",
+                    "意图": "伏笔"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "p01"
+          },
+          "before": null,
+          "after": {
+            "id": "p01",
+            "kind": "written",
+            "text": "星家是联邦的上流家庭，一家四口",
+            "at": {
+              "kind": "prehistory",
+              "order": 1
+            },
+            "told": [
+              {
+                "source": "seed",
+                "quote": "幸福美满的家庭（算是联邦的上流家庭）"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "xingjin",
+              "parents"
+            ],
+            "lines": [],
+            "links": [],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "p02"
+          },
+          "before": null,
+          "after": {
+            "id": "p02",
+            "kind": "written",
+            "text": "星瑕 6 岁那年，城市大灾难；父母“死亡”",
+            "at": {
+              "kind": "prehistory",
+              "order": 2
+            },
+            "told": [
+              {
+                "source": "seed",
+                "quote": "6岁的时候城市大灾难 -> 结果是父母死亡（不是双亡就是双王，这里是：双王）"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "xingjin",
+              "parents"
+            ],
+            "lines": [
+              "line-kings"
+            ],
+            "links": [],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "p03"
+          },
+          "before": null,
+          "after": {
+            "id": "p03",
+            "kind": "written",
+            "text": "兄妹关系变差",
+            "at": {
+              "kind": "prehistory",
+              "order": 3
+            },
+            "told": [
+              {
+                "source": "seed",
+                "quote": "然后兄妹两关系不好（有矛盾，具体是怎么回事我这里没想好）"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "xingjin"
+            ],
+            "lines": [
+              "line-rift"
+            ],
+            "links": [],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "p04"
+          },
+          "before": null,
+          "after": {
+            "id": "p04",
+            "kind": "written",
+            "text": "星瑕觉醒，性转成女生、变成魔法少女；第一次用时间回溯救下星瑾",
+            "at": {
+              "kind": "prehistory",
+              "order": 4
+            },
+            "told": [
+              {
+                "source": "seed",
+                "quote": "直接性转成女生变成魔法少女（第一次使用自己的特殊天赋：时间相关的，利用回溯救下妹妹）"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "xingjin"
+            ],
+            "lines": [],
+            "links": [],
+            "patches": [
+              {
+                "op": "set",
+                "at": {
+                  "entry": "xingxia",
+                  "path": "character.身体"
+                },
+                "value": "女",
+                "basis": {
+                  "kind": "quote",
+                  "quote": "直接性转成女生"
+                }
+              },
+              {
+                "op": "set",
+                "at": {
+                  "entry": "xingxia",
+                  "path": "character.样子"
+                },
+                "value": "魔法少女",
+                "basis": {
+                  "kind": "quote",
+                  "quote": "变成魔法少女"
+                }
+              }
+            ],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "p05"
+          },
+          "before": null,
+          "after": {
+            "id": "p05",
+            "kind": "written",
+            "text": "被官方带走，进入对策委员会的魔法少女部；官方承诺安置星瑾",
+            "at": {
+              "kind": "prehistory",
+              "order": 5
+            },
+            "told": [
+              {
+                "source": "seed",
+                "quote": "被官方带走了，进入对策委员会，魔法少女部"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "committee",
+              "division"
+            ],
+            "lines": [
+              "line-corrupt"
+            ],
+            "links": [],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "p06"
+          },
+          "before": null,
+          "after": {
+            "id": "p06",
+            "kind": "written",
+            "text": "官方把星瑾安排到刻薄的亲戚家，兄妹更疏远",
+            "at": {
+              "kind": "prehistory",
+              "order": 6
+            },
+            "told": [
+              {
+                "source": "seed",
+                "quote": "把妹妹安排到某个刻薄的亲戚家去，这样导致兄妹两关系更加疏远"
+              }
+            ],
+            "involves": [
+              "xingjin",
+              "relative"
+            ],
+            "lines": [
+              "line-rift",
+              "line-corrupt"
+            ],
+            "links": [],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "p07"
+          },
+          "before": null,
+          "after": {
+            "id": "p07",
+            "kind": "written",
+            "text": "从基础做起，迅速晋升，建立人脉，成为蓝星最强",
+            "at": {
+              "kind": "prehistory",
+              "order": 7
+            },
+            "told": [
+              {
+                "source": "seed",
+                "quote": "从基础做起，迅速晋升……成为蓝星最强"
+              }
+            ],
+            "involves": [
+              "xingxia"
+            ],
+            "lines": [],
+            "links": [],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "p08"
+          },
+          "before": null,
+          "after": {
+            "id": "p08",
+            "kind": "written",
+            "text": "灾难暂时平息；官方安了莫须有的罪名，打算卸磨杀驴",
+            "at": {
+              "kind": "prehistory",
+              "order": 8
+            },
+            "told": [
+              {
+                "source": "seed",
+                "quote": "给主角安排一个莫须有的罪名打算卸磨杀驴"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "committee"
+            ],
+            "lines": [
+              "line-corrupt"
+            ],
+            "links": [],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "p10"
+          },
+          "before": null,
+          "after": {
+            "id": "p10",
+            "kind": "written",
+            "text": "顺势隐退；官方对外仍维持她的魔法少女身份",
+            "at": {
+              "kind": "prehistory",
+              "order": 10
+            },
+            "told": [
+              {
+                "source": "seed",
+                "quote": "刚好顺水推舟隐退了（虽然隐退了，但是官方明面上报道还是遵守她那个身份的）"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "mg"
+            ],
+            "lines": [
+              "line-corrupt"
+            ],
+            "links": [],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "p11"
+          },
+          "before": null,
+          "after": {
+            "id": "p11",
+            "kind": "written",
+            "text": "以哥哥的样子回到家，把星瑾接回来同住；钱大多花在研究上，剩下的够用",
+            "at": {
+              "kind": "prehistory",
+              "order": 11
+            },
+            "told": [
+              {
+                "source": "seed",
+                "quote": "于是以男生回到家，把妹妹接回来自己住"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "xingjin",
+              "home"
+            ],
+            "lines": [
+              "line-brother"
+            ],
+            "links": [],
+            "patches": [
+              {
+                "op": "set",
+                "at": {
+                  "entry": "xingxia",
+                  "path": "character.样子"
+                },
+                "value": "哥哥",
+                "basis": {
+                  "kind": "quote",
+                  "quote": "以男生回到家"
+                }
+              }
+            ],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "question",
+            "id": "q1"
+          },
+          "before": null,
+          "after": {
+            "id": "q1",
+            "text": "“双王”指什么？父母是死了，还是成了某种“王”？",
+            "about": {
+              "kind": "change",
+              "id": "p02"
+            },
+            "status": "open",
+            "hints": [],
+            "quote": "不是双亡就是双王，这里是：双王"
+          }
+        },
+        {
+          "ref": {
+            "kind": "question",
+            "id": "q2"
+          },
+          "before": null,
+          "after": {
+            "id": "q2",
+            "text": "兄妹为什么关系不好？",
+            "about": {
+              "kind": "entry",
+              "id": "line-rift"
+            },
+            "status": "open",
+            "hints": [],
+            "quote": "有矛盾，具体是怎么回事我这里没想好"
+          }
+        },
+        {
+          "ref": {
+            "kind": "question",
+            "id": "q3"
+          },
+          "before": null,
+          "after": {
+            "id": "q3",
+            "text": "星瑕为什么会被官方带走？",
+            "about": {
+              "kind": "change",
+              "id": "p05"
+            },
+            "status": "open",
+            "hints": [],
+            "quote": "目前这里我也没想好，可能是主角也不想暴露身份的原因"
+          }
+        },
+        {
+          "ref": {
+            "kind": "question",
+            "id": "q4"
+          },
+          "before": null,
+          "after": {
+            "id": "q4",
+            "text": "魔法少女部的正式名字",
+            "about": {
+              "kind": "entry",
+              "id": "division"
+            },
+            "status": "open",
+            "hints": [],
+            "quote": "还可以取个更好的名字"
+          }
+        },
+        {
+          "ref": {
+            "kind": "question",
+            "id": "q5"
+          },
+          "before": null,
+          "after": {
+            "id": "q5",
+            "text": "魔法少女身份的代号",
+            "about": {
+              "kind": "entry",
+              "id": "mg"
+            },
+            "status": "open",
+            "hints": []
+          }
+        },
+        {
+          "ref": {
+            "kind": "question",
+            "id": "q6"
+          },
+          "before": null,
+          "after": {
+            "id": "q6",
+            "text": "魔法精灵叫什么？",
+            "about": {
+              "kind": "entry",
+              "id": "sprite"
+            },
+            "status": "open",
+            "hints": []
+          }
+        },
+        {
+          "ref": {
+            "kind": "question",
+            "id": "q7"
+          },
+          "before": null,
+          "after": {
+            "id": "q7",
+            "text": "面板的数还没定：魔力、魔力上限、存款、今天还能回溯几次",
+            "about": {
+              "kind": "entry",
+              "id": "xingxia"
+            },
+            "status": "open",
+            "hints": [],
+            "quote": "隐退后钱不多，但够用"
+          }
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "version": 2,
+      "by": {
+        "kind": "author"
+      },
+      "what": "creative",
+      "title": "填了面板的数，写了原身外观、性格与变身后的样子",
+      "ops": [
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "xingxia"
+          },
+          "before": {
+            "id": "xingxia",
+            "type": "人物",
+            "parent": null,
+            "folder": "人物",
+            "order": 0,
+            "init": {
+              "name": "星瑕",
+              "aliases": [],
+              "summary": "前蓝星最强的魔法少女，隐退后以哥哥的样子把妹妹接回家住",
+              "text": [
+                {
+                  "id": "b1",
+                  "source": "六岁那年的城市大灾难里，星瑕失去了父母。之后她觉醒了时间系的天赋，身体也随之变成女生，第一次回溯救下了妹妹星瑾。被对策委员会带进魔法少女部以后，她从基础做起，几年里成了蓝星最强；灾难平息后，官方给她安了罪名，她顺势隐退。"
+                },
+                {
+                  "id": "b2",
+                  "source": "现在她以哥哥的样子回到家，把星瑾从亲戚家接回来一起住，决心重新做个好哥哥。"
+                },
+                {
+                  "id": "b3",
+                  "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+                },
+                {
+                  "id": "b4",
+                  "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+                },
+                {
+                  "id": "b5",
+                  "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+                },
+                {
+                  "id": "b6",
+                  "source": "## 性格\n{character.性格}"
+                }
+              ],
+              "data": {
+                "character": {
+                  "enabled": true,
+                  "fields": {
+                    "身体": "男",
+                    "样子": "原身",
+                    "外观": null,
+                    "性格": null
+                  }
+                },
+                "panel": {
+                  "enabled": true,
+                  "fields": {
+                    "魔力": null,
+                    "魔力上限": null,
+                    "存款": null,
+                    "回溯": null,
+                    "物品": []
+                  }
+                }
+              }
+            }
+          },
+          "after": {
+            "id": "xingxia",
+            "type": "人物",
+            "parent": null,
+            "folder": "人物",
+            "order": 0,
+            "init": {
+              "name": "星瑕",
+              "aliases": [],
+              "summary": "前蓝星最强的魔法少女，隐退后以哥哥的样子把妹妹接回家住",
+              "text": [
+                {
+                  "id": "b1",
+                  "source": "六岁那年的城市大灾难里，星瑕失去了父母。之后她觉醒了时间系的天赋，身体也随之变成女生，第一次回溯救下了妹妹星瑾。被对策委员会带进魔法少女部以后，她从基础做起，几年里成了蓝星最强；灾难平息后，官方给她安了罪名，她顺势隐退。"
+                },
+                {
+                  "id": "b2",
+                  "source": "现在她以哥哥的样子回到家，把星瑾从亲戚家接回来一起住，决心重新做个好哥哥。"
+                },
+                {
+                  "id": "b3",
+                  "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+                },
+                {
+                  "id": "b4",
+                  "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+                },
+                {
+                  "id": "b5",
+                  "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+                },
+                {
+                  "id": "b6",
+                  "source": "## 性格\n{character.性格}"
+                }
+              ],
+              "data": {
+                "character": {
+                  "enabled": true,
+                  "fields": {
+                    "身体": "男",
+                    "样子": "原身",
+                    "外观": "银白长发及腰，浅灰蓝的眼睛，个子娇小",
+                    "性格": "迟钝，情商不高，做事认真。想对妹妹好，常常用错方法，过后才知道搞砸了"
+                  }
+                },
+                "panel": {
+                  "enabled": true,
+                  "fields": {
+                    "魔力": 3200,
+                    "魔力上限": 12000,
+                    "存款": null,
+                    "回溯": 1,
+                    "物品": []
+                  }
+                }
+              }
+            },
+            "initBasis": {
+              "panel.魔力": {
+                "kind": "author"
+              },
+              "panel.魔力上限": {
+                "kind": "author"
+              },
+              "panel.回溯": {
+                "kind": "author"
+              },
+              "character.外观": {
+                "kind": "author"
+              },
+              "character.性格": {
+                "kind": "author"
+              }
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "mg"
+          },
+          "before": {
+            "id": "mg",
+            "type": "身份",
+            "parent": "xingxia",
+            "folder": "人物",
+            "order": 2,
+            "init": {
+              "name": "魔法少女（代号未定）",
+              "aliases": [],
+              "summary": "变身形态，带认知干扰；在官方时从没解除过变身",
+              "text": [],
+              "data": {
+                "identity": {
+                  "enabled": true,
+                  "fields": {
+                    "谁知道": "官方、对策局",
+                    "外观": null
+                  }
+                }
+              }
+            },
+            "sameAs": "xingxia"
+          },
+          "after": {
+            "id": "mg",
+            "type": "身份",
+            "parent": "xingxia",
+            "folder": "人物",
+            "order": 2,
+            "init": {
+              "name": "魔法少女（代号未定）",
+              "aliases": [],
+              "summary": "变身形态，带认知干扰；在官方时从没解除过变身",
+              "text": [],
+              "data": {
+                "identity": {
+                  "enabled": true,
+                  "fields": {
+                    "谁知道": "官方、对策局",
+                    "外观": "变身时，银白的长发染上一层星光，眼睛变成金色"
+                  }
+                }
+              }
+            },
+            "sameAs": "xingxia"
+          }
+        },
+        {
+          "ref": {
+            "kind": "question",
+            "id": "q7"
+          },
+          "before": {
+            "id": "q7",
+            "text": "面板的数还没定：魔力、魔力上限、存款、今天还能回溯几次",
+            "about": {
+              "kind": "entry",
+              "id": "xingxia"
+            },
+            "status": "open",
+            "hints": [],
+            "quote": "隐退后钱不多，但够用"
+          },
+          "after": {
+            "id": "q7",
+            "text": "面板的数还没定：魔力、魔力上限、存款、今天还能回溯几次",
+            "about": {
+              "kind": "entry",
+              "id": "xingxia"
+            },
+            "status": "answered",
+            "hints": [],
+            "quote": "隐退后钱不多，但够用",
+            "answer": "魔力 3200 / 12000，今天能回溯 1 次；存款等正文写出来再定"
+          }
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "version": 3,
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      },
+      "what": "plan",
+      "title": "从第 1 章细纲提出 3 个计划、3 个未排章的计划；细纲里讲到的过去的事记成前史",
+      "chapter": "ch1",
+      "ops": [
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "hui"
+          },
+          "before": null,
+          "after": {
+            "id": "hui",
+            "type": "人物",
+            "parent": null,
+            "folder": "人物",
+            "order": 5,
+            "init": {
+              "name": "彗",
+              "aliases": [],
+              "summary": "星瑕的好友，做魔偶帮她逃出软禁",
+              "text": [],
+              "data": {
+                "character": {
+                  "enabled": true,
+                  "fields": {
+                    "身体": null,
+                    "样子": null,
+                    "外观": null,
+                    "性格": null
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "doll"
+          },
+          "before": null,
+          "after": {
+            "id": "doll",
+            "type": "物品",
+            "parent": null,
+            "folder": "物品与概念",
+            "order": 0,
+            "init": {
+              "name": "魔偶",
+              "aliases": [],
+              "summary": "彗做的替身，星瑕靠它逃出软禁",
+              "text": [],
+              "data": {}
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "p09"
+          },
+          "before": null,
+          "after": {
+            "id": "p09",
+            "kind": "written",
+            "text": "被软禁，靠彗做的魔偶逃脱",
+            "at": {
+              "kind": "prehistory",
+              "order": 9
+            },
+            "told": [
+              {
+                "source": "outline",
+                "chapter": "ch1",
+                "quote": "主角被软禁，为了逃脱，这个朋友帮她做了一个魔偶"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "hui",
+              "doll"
+            ],
+            "lines": [
+              "line-corrupt"
+            ],
+            "links": [],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "pl1"
+          },
+          "before": null,
+          "after": {
+            "id": "pl1",
+            "kind": "plan",
+            "text": "早餐，星瑾还在生气，出门上学",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch1",
+              "key": 0
+            },
+            "told": [
+              {
+                "source": "outline",
+                "chapter": "ch1",
+                "quote": "早餐场景，主角准备早餐，妹妹依旧生哥哥的气"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "xingjin"
+            ],
+            "lines": [
+              "line-brother"
+            ],
+            "links": [],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "pl2"
+          },
+          "before": null,
+          "after": {
+            "id": "pl2",
+            "kind": "plan",
+            "text": "回房关掉滤镜，在阳台读《如何做个好哥哥》",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch1",
+              "key": 0
+            },
+            "told": [
+              {
+                "source": "outline",
+                "chapter": "ch1",
+                "quote": "关闭认知滤镜，展露出美少女真身"
+              }
+            ],
+            "involves": [
+              "xingxia"
+            ],
+            "lines": [
+              "line-brother"
+            ],
+            "links": [],
+            "patches": [
+              {
+                "op": "set",
+                "at": {
+                  "entry": "xingxia",
+                  "path": "character.样子"
+                },
+                "value": "原身",
+                "basis": {
+                  "kind": "quote",
+                  "quote": "关闭认知滤镜"
+                }
+              }
+            ],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "pl3"
+          },
+          "before": null,
+          "after": {
+            "id": "pl3",
+            "kind": "plan",
+            "text": "联系彗，问怎么做一个好姐姐",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch1",
+              "key": 0
+            },
+            "told": [
+              {
+                "source": "outline",
+                "chapter": "ch1",
+                "quote": "主角问她：“如何做一个好姐姐”"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "hui"
+            ],
+            "lines": [
+              "line-brother"
+            ],
+            "links": [],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "pl5"
+          },
+          "before": null,
+          "after": {
+            "id": "pl5",
+            "kind": "plan",
+            "text": "适度示弱，搞砸",
+            "at": {
+              "kind": "unscheduled"
+            },
+            "told": [],
+            "involves": [
+              "xingxia",
+              "xingjin"
+            ],
+            "lines": [
+              "line-brother"
+            ],
+            "links": [],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "pl6"
+          },
+          "before": null,
+          "after": {
+            "id": "pl6",
+            "kind": "plan",
+            "text": "给面子，但别惯",
+            "at": {
+              "kind": "unscheduled"
+            },
+            "told": [],
+            "involves": [
+              "xingxia",
+              "xingjin"
+            ],
+            "lines": [
+              "line-brother"
+            ],
+            "links": [],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "pl7"
+          },
+          "before": null,
+          "after": {
+            "id": "pl7",
+            "kind": "plan",
+            "text": "说心里话",
+            "at": {
+              "kind": "unscheduled"
+            },
+            "told": [],
+            "involves": [
+              "xingxia",
+              "xingjin"
+            ],
+            "lines": [
+              "line-brother"
+            ],
+            "links": [],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "r4",
+      "version": 4,
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      },
+      "what": "bookkeeping",
+      "title": "第 1 章记账：记了 4 条情节，兑现 3 个计划，新建 1 个条目；存款的初值按正文定",
+      "chapter": "ch1",
+      "notes": {
+        "notCreated": []
+      },
+      "ops": [
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "book"
+          },
+          "before": null,
+          "after": {
+            "id": "book",
+            "type": "物品",
+            "parent": null,
+            "folder": "物品与概念",
+            "order": 1,
+            "init": {
+              "name": "《如何做个好哥哥》",
+              "aliases": [],
+              "summary": "星瑕在读的书",
+              "text": [],
+              "data": {}
+            },
+            "appears": {
+              "kind": "chapter",
+              "chapter": "ch1",
+              "key": 30
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "xingxia"
+          },
+          "before": {
+            "id": "xingxia",
+            "type": "人物",
+            "parent": null,
+            "folder": "人物",
+            "order": 0,
+            "init": {
+              "name": "星瑕",
+              "aliases": [],
+              "summary": "前蓝星最强的魔法少女，隐退后以哥哥的样子把妹妹接回家住",
+              "text": [
+                {
+                  "id": "b1",
+                  "source": "六岁那年的城市大灾难里，星瑕失去了父母。之后她觉醒了时间系的天赋，身体也随之变成女生，第一次回溯救下了妹妹星瑾。被对策委员会带进魔法少女部以后，她从基础做起，几年里成了蓝星最强；灾难平息后，官方给她安了罪名，她顺势隐退。"
+                },
+                {
+                  "id": "b2",
+                  "source": "现在她以哥哥的样子回到家，把星瑾从亲戚家接回来一起住，决心重新做个好哥哥。"
+                },
+                {
+                  "id": "b3",
+                  "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+                },
+                {
+                  "id": "b4",
+                  "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+                },
+                {
+                  "id": "b5",
+                  "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+                },
+                {
+                  "id": "b6",
+                  "source": "## 性格\n{character.性格}"
+                }
+              ],
+              "data": {
+                "character": {
+                  "enabled": true,
+                  "fields": {
+                    "身体": "男",
+                    "样子": "原身",
+                    "外观": "银白长发及腰，浅灰蓝的眼睛，个子娇小",
+                    "性格": "迟钝，情商不高，做事认真。想对妹妹好，常常用错方法，过后才知道搞砸了"
+                  }
+                },
+                "panel": {
+                  "enabled": true,
+                  "fields": {
+                    "魔力": 3200,
+                    "魔力上限": 12000,
+                    "存款": null,
+                    "回溯": 1,
+                    "物品": []
+                  }
+                }
+              }
+            },
+            "initBasis": {
+              "panel.魔力": {
+                "kind": "author"
+              },
+              "panel.魔力上限": {
+                "kind": "author"
+              },
+              "panel.回溯": {
+                "kind": "author"
+              },
+              "character.外观": {
+                "kind": "author"
+              },
+              "character.性格": {
+                "kind": "author"
+              }
+            }
+          },
+          "after": {
+            "id": "xingxia",
+            "type": "人物",
+            "parent": null,
+            "folder": "人物",
+            "order": 0,
+            "init": {
+              "name": "星瑕",
+              "aliases": [],
+              "summary": "前蓝星最强的魔法少女，隐退后以哥哥的样子把妹妹接回家住",
+              "text": [
+                {
+                  "id": "b1",
+                  "source": "六岁那年的城市大灾难里，星瑕失去了父母。之后她觉醒了时间系的天赋，身体也随之变成女生，第一次回溯救下了妹妹星瑾。被对策委员会带进魔法少女部以后，她从基础做起，几年里成了蓝星最强；灾难平息后，官方给她安了罪名，她顺势隐退。"
+                },
+                {
+                  "id": "b2",
+                  "source": "现在她以哥哥的样子回到家，把星瑾从亲戚家接回来一起住，决心重新做个好哥哥。"
+                },
+                {
+                  "id": "b3",
+                  "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+                },
+                {
+                  "id": "b4",
+                  "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+                },
+                {
+                  "id": "b5",
+                  "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+                },
+                {
+                  "id": "b6",
+                  "source": "## 性格\n{character.性格}"
+                }
+              ],
+              "data": {
+                "character": {
+                  "enabled": true,
+                  "fields": {
+                    "身体": "男",
+                    "样子": "原身",
+                    "外观": "银白长发及腰，浅灰蓝的眼睛，个子娇小",
+                    "性格": "迟钝，情商不高，做事认真。想对妹妹好，常常用错方法，过后才知道搞砸了"
+                  }
+                },
+                "panel": {
+                  "enabled": true,
+                  "fields": {
+                    "魔力": 3200,
+                    "魔力上限": 12000,
+                    "存款": 41800,
+                    "回溯": 1,
+                    "物品": []
+                  }
+                }
+              }
+            },
+            "initBasis": {
+              "panel.魔力": {
+                "kind": "author"
+              },
+              "panel.魔力上限": {
+                "kind": "author"
+              },
+              "panel.回溯": {
+                "kind": "author"
+              },
+              "character.外观": {
+                "kind": "author"
+              },
+              "character.性格": {
+                "kind": "author"
+              },
+              "panel.存款": {
+                "kind": "estimate",
+                "note": "种子只说“钱不多，但够用”；按第 1 章正文“账户余额 41,800”定"
+              }
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "c10"
+          },
+          "before": null,
+          "after": {
+            "id": "c10",
+            "kind": "written",
+            "text": "早餐，星瑾还在生气，不吃煎蛋，出门上学",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch1",
+              "key": 10
+            },
+            "told": [
+              {
+                "source": "chapter",
+                "chapter": "ch1",
+                "quote": "“上周是上周。”她把牛奶喝了一半，拎起书包往门口走，“晚上不用等我。”"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "xingjin"
+            ],
+            "lines": [
+              "line-brother",
+              "line-rift"
+            ],
+            "links": [
+              {
+                "kind": "fulfills",
+                "plan": "pl1"
+              }
+            ],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "c11"
+          },
+          "before": null,
+          "after": {
+            "id": "c11",
+            "kind": "written",
+            "text": "回房松开认知滤镜，变回原身",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch1",
+              "key": 20
+            },
+            "told": [
+              {
+                "source": "chapter",
+                "chapter": "ch1",
+                "quote": "反锁上门，松开了维持一早上的认知滤镜"
+              }
+            ],
+            "involves": [
+              "xingxia"
+            ],
+            "lines": [],
+            "links": [
+              {
+                "kind": "fulfills",
+                "plan": "pl2"
+              }
+            ],
+            "patches": [
+              {
+                "op": "set",
+                "at": {
+                  "entry": "xingxia",
+                  "path": "character.样子"
+                },
+                "value": "原身",
+                "basis": {
+                  "kind": "quote",
+                  "quote": "松开了维持一早上的认知滤镜"
+                }
+              },
+              {
+                "op": "add",
+                "at": {
+                  "entry": "xingxia",
+                  "path": "panel.魔力"
+                },
+                "value": -90,
+                "basis": {
+                  "kind": "estimate",
+                  "note": "正文只写了“魔力又少了一点”"
+                }
+              }
+            ],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "c12"
+          },
+          "before": null,
+          "after": {
+            "id": "c12",
+            "kind": "written",
+            "text": "在阳台读《如何做个好哥哥》",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch1",
+              "key": 30
+            },
+            "told": [
+              {
+                "source": "chapter",
+                "chapter": "ch1",
+                "quote": "星瑕把它抱到阳台，在藤椅上坐下"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "book"
+            ],
+            "lines": [
+              "line-brother"
+            ],
+            "links": [
+              {
+                "kind": "fulfills",
+                "plan": "pl2"
+              }
+            ],
+            "patches": [
+              {
+                "op": "listAdd",
+                "at": {
+                  "entry": "xingxia",
+                  "path": "panel.物品"
+                },
+                "value": {
+                  "id": "book",
+                  "label": "《如何做个好哥哥》",
+                  "since": "ch1"
+                },
+                "basis": {
+                  "kind": "quote",
+                  "quote": "书桌上放着一本《如何做个好哥哥》"
+                }
+              }
+            ],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "check",
+            "id": "k1"
+          },
+          "before": null,
+          "after": {
+            "id": "k1",
+            "at": {
+              "entry": "xingxia",
+              "path": "panel.存款"
+            },
+            "value": 41800,
+            "told": {
+              "source": "chapter",
+              "chapter": "ch1",
+              "quote": "手机震了一下，是银行的月度提醒：账户余额 41,800 联邦币。"
+            },
+            "place": {
+              "kind": "chapter",
+              "chapter": "ch1",
+              "key": 35
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "c13"
+          },
+          "before": null,
+          "after": {
+            "id": "c13",
+            "kind": "written",
+            "text": "问彗怎么做一个好姐姐，得到五条建议，划掉了第五条",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch1",
+              "key": 40
+            },
+            "told": [
+              {
+                "source": "chapter",
+                "chapter": "ch1",
+                "quote": "星瑕盯着第五条看了很久，把它划掉了。"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "hui"
+            ],
+            "lines": [
+              "line-brother"
+            ],
+            "links": [
+              {
+                "kind": "fulfills",
+                "plan": "pl3"
+              }
+            ],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "r5",
+      "version": 5,
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      },
+      "what": "plan",
+      "title": "从第 2 章细纲提出 1 个计划：“用钱说话”",
+      "chapter": "ch2",
+      "ops": [
+        {
+          "ref": {
+            "kind": "change",
+            "id": "pl8"
+          },
+          "before": null,
+          "after": {
+            "id": "pl8",
+            "kind": "plan",
+            "text": "用钱说话：给星瑾一万零花钱、订她小时候最喜欢的蛋糕；星瑾不领情，把卡推回来",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch2",
+              "key": 0
+            },
+            "told": [
+              {
+                "source": "outline",
+                "chapter": "ch2",
+                "quote": "实践第二条“用钱说话”：给星瑾一万零花钱，再订她小时候最喜欢的蛋糕。星瑾不领情，把卡推回来。星瑕很迟钝，过后才发现搞砸了。"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "xingjin"
+            ],
+            "lines": [
+              "line-brother"
+            ],
+            "links": [],
+            "patches": [
+              {
+                "op": "add",
+                "at": {
+                  "entry": "xingxia",
+                  "path": "panel.存款"
+                },
+                "value": -10000,
+                "basis": {
+                  "kind": "quote",
+                  "quote": "给星瑾一万零花钱"
+                }
+              }
+            ],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "r6",
+      "version": 6,
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      },
+      "what": "bookkeeping",
+      "title": "第 2 章记账：记了 4 条情节，兑现 1 个计划、拆出 1 个，报了 1 处与设定冲突",
+      "chapter": "ch2",
+      "notes": {
+        "notCreated": [
+          "街角的蛋糕店：没有名字，以后再出现可以建",
+          "蛋糕店的店员"
+        ]
+      },
+      "ops": [
+        {
+          "ref": {
+            "kind": "change",
+            "id": "c14"
+          },
+          "before": null,
+          "after": {
+            "id": "c14",
+            "kind": "written",
+            "text": "办了一张卡，存进两万给星瑾当零花钱",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch2",
+              "key": 10
+            },
+            "told": [
+              {
+                "source": "chapter",
+                "chapter": "ch2",
+                "quote": "先去银行办了一张卡，存进两万联邦币"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "xingjin"
+            ],
+            "lines": [
+              "line-brother"
+            ],
+            "links": [
+              {
+                "kind": "fulfills",
+                "plan": "pl8"
+              }
+            ],
+            "patches": [
+              {
+                "op": "add",
+                "at": {
+                  "entry": "xingxia",
+                  "path": "panel.存款"
+                },
+                "value": -20000,
+                "basis": {
+                  "kind": "quote",
+                  "quote": "存进两万联邦币"
+                }
+              }
+            ],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "c15"
+          },
+          "before": null,
+          "after": {
+            "id": "c15",
+            "kind": "written",
+            "text": "订了星瑾小时候最喜欢的那家店的草莓蛋糕，写了“给星瑾”",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch2",
+              "key": 20
+            },
+            "told": [
+              {
+                "source": "chapter",
+                "chapter": "ch2",
+                "quote": "她订了一个草莓蛋糕，店员问要不要写字，她想了半天，写了“给星瑾”。"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "xingjin"
+            ],
+            "lines": [
+              "line-brother"
+            ],
+            "links": [
+              {
+                "kind": "fulfills",
+                "plan": "pl8"
+              }
+            ],
+            "patches": [
+              {
+                "op": "add",
+                "at": {
+                  "entry": "xingxia",
+                  "path": "panel.存款"
+                },
+                "value": -300,
+                "basis": {
+                  "kind": "estimate",
+                  "note": "正文没写价钱"
+                }
+              }
+            ],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "c16"
+          },
+          "before": null,
+          "after": {
+            "id": "c16",
+            "kind": "written",
+            "text": "回家前变回哥哥的样子",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch2",
+              "key": 30
+            },
+            "told": [
+              {
+                "source": "chapter",
+                "chapter": "ch2",
+                "quote": "重新罩上滤镜。哥哥的样子回来了。"
+              }
+            ],
+            "involves": [
+              "xingxia"
+            ],
+            "lines": [],
+            "links": [],
+            "patches": [
+              {
+                "op": "set",
+                "at": {
+                  "entry": "xingxia",
+                  "path": "character.样子"
+                },
+                "value": "哥哥",
+                "basis": {
+                  "kind": "quote",
+                  "quote": "哥哥的样子回来了"
+                }
+              }
+            ],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "c18"
+          },
+          "before": null,
+          "after": {
+            "id": "c18",
+            "kind": "written",
+            "text": "回家前把淡金色的长发拢进帽子",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch2",
+              "key": 31
+            },
+            "told": [
+              {
+                "source": "chapter",
+                "chapter": "ch2",
+                "quote": "回家前，她在楼道的镜子里把淡金色的长发拢进帽子"
+              }
+            ],
+            "involves": [
+              "xingxia"
+            ],
+            "lines": [],
+            "links": [],
+            "patches": [
+              {
+                "op": "set",
+                "at": {
+                  "entry": "xingxia",
+                  "path": "character.外观"
+                },
+                "value": "淡金色长发及腰，浅灰蓝的眼睛，个子娇小",
+                "basis": {
+                  "kind": "quote",
+                  "quote": "淡金色的长发"
+                }
+              }
+            ],
+            "status": "held",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            },
+            "held": {
+              "reason": "conflict",
+              "note": "正文写“淡金色的长发”，设定里原身外观是“银白长发及腰”",
+              "against": {
+                "entry": "xingxia",
+                "path": "character.外观"
+              }
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "c17"
+          },
+          "before": null,
+          "after": {
+            "id": "c17",
+            "kind": "written",
+            "text": "星瑾没碰那张卡，说“你走的那几年，一个电话都没有”，回了房间",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch2",
+              "key": 40
+            },
+            "told": [
+              {
+                "source": "chapter",
+                "chapter": "ch2",
+                "quote": "“你走的那几年，一个电话都没有。”她的声音很平"
+              }
+            ],
+            "involves": [
+              "xingjin",
+              "xingxia"
+            ],
+            "lines": [
+              "line-brother",
+              "line-rift"
+            ],
+            "links": [],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "check",
+            "id": "k2"
+          },
+          "before": null,
+          "after": {
+            "id": "k2",
+            "at": {
+              "entry": "xingxia",
+              "path": "panel.存款"
+            },
+            "value": 19800,
+            "told": {
+              "source": "chapter",
+              "chapter": "ch2",
+              "quote": "星瑕坐在餐桌边，手机亮了一下，是消费提醒：余额 19,800。"
+            },
+            "place": {
+              "kind": "chapter",
+              "chapter": "ch2",
+              "key": 50
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "change",
+            "id": "pl9"
+          },
+          "before": null,
+          "after": {
+            "id": "pl9",
+            "kind": "plan",
+            "text": "星瑾把卡推回来",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch3",
+              "key": 0
+            },
+            "told": [
+              {
+                "source": "outline",
+                "chapter": "ch2",
+                "quote": "星瑾不领情，把卡推回来"
+              }
+            ],
+            "involves": [
+              "xingjin",
+              "xingxia"
+            ],
+            "lines": [
+              "line-brother"
+            ],
+            "links": [
+              {
+                "kind": "splitFrom",
+                "plan": "pl8"
+              }
+            ],
+            "patches": [],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        },
+        {
+          "ref": {
+            "kind": "question",
+            "id": "q2"
+          },
+          "before": {
+            "id": "q2",
+            "text": "兄妹为什么关系不好？",
+            "about": {
+              "kind": "entry",
+              "id": "line-rift"
+            },
+            "status": "open",
+            "hints": [],
+            "quote": "有矛盾，具体是怎么回事我这里没想好"
+          },
+          "after": {
+            "id": "q2",
+            "text": "兄妹为什么关系不好？",
+            "about": {
+              "kind": "entry",
+              "id": "line-rift"
+            },
+            "status": "open",
+            "hints": [
+              {
+                "chapter": "ch2",
+                "quote": "“你走的那几年，一个电话都没有。”"
+              }
+            ],
+            "quote": "有矛盾，具体是怎么回事我这里没想好"
+          }
+        }
+      ]
+    },
+    {
+      "id": "r7",
+      "version": 7,
+      "by": {
+        "kind": "author"
+      },
+      "what": "edit",
+      "title": "“订了星瑾小时候最…”：存款 -300 → -2000",
+      "ops": [
+        {
+          "ref": {
+            "kind": "change",
+            "id": "c15"
+          },
+          "before": {
+            "id": "c15",
+            "kind": "written",
+            "text": "订了星瑾小时候最喜欢的那家店的草莓蛋糕，写了“给星瑾”",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch2",
+              "key": 20
+            },
+            "told": [
+              {
+                "source": "chapter",
+                "chapter": "ch2",
+                "quote": "她订了一个草莓蛋糕，店员问要不要写字，她想了半天，写了“给星瑾”。"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "xingjin"
+            ],
+            "lines": [
+              "line-brother"
+            ],
+            "links": [
+              {
+                "kind": "fulfills",
+                "plan": "pl8"
+              }
+            ],
+            "patches": [
+              {
+                "op": "add",
+                "at": {
+                  "entry": "xingxia",
+                  "path": "panel.存款"
+                },
+                "value": -300,
+                "basis": {
+                  "kind": "estimate",
+                  "note": "正文没写价钱"
+                }
+              }
+            ],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          },
+          "after": {
+            "id": "c15",
+            "kind": "written",
+            "text": "订了星瑾小时候最喜欢的那家店的草莓蛋糕，写了“给星瑾”",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch2",
+              "key": 20
+            },
+            "told": [
+              {
+                "source": "chapter",
+                "chapter": "ch2",
+                "quote": "她订了一个草莓蛋糕，店员问要不要写字，她想了半天，写了“给星瑾”。"
+              }
+            ],
+            "involves": [
+              "xingxia",
+              "xingjin"
+            ],
+            "lines": [
+              "line-brother"
+            ],
+            "links": [
+              {
+                "kind": "fulfills",
+                "plan": "pl8"
+              }
+            ],
+            "patches": [
+              {
+                "op": "add",
+                "at": {
+                  "entry": "xingxia",
+                  "path": "panel.存款"
+                },
+                "value": -2000,
+                "basis": {
+                  "kind": "derived",
+                  "check": "k2"
+                }
+              }
+            ],
+            "status": "active",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "r8",
+      "version": 8,
+      "by": {
+        "kind": "author"
+      },
+      "what": "resolve",
+      "title": "按正文改设定：原身外观 银白 → 淡金色",
+      "ops": [
+        {
+          "ref": {
+            "kind": "change",
+            "id": "c18"
+          },
+          "before": {
+            "id": "c18",
+            "kind": "written",
+            "text": "回家前把淡金色的长发拢进帽子",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch2",
+              "key": 31
+            },
+            "told": [
+              {
+                "source": "chapter",
+                "chapter": "ch2",
+                "quote": "回家前，她在楼道的镜子里把淡金色的长发拢进帽子"
+              }
+            ],
+            "involves": [
+              "xingxia"
+            ],
+            "lines": [],
+            "links": [],
+            "patches": [
+              {
+                "op": "set",
+                "at": {
+                  "entry": "xingxia",
+                  "path": "character.外观"
+                },
+                "value": "淡金色长发及腰，浅灰蓝的眼睛，个子娇小",
+                "basis": {
+                  "kind": "quote",
+                  "quote": "淡金色的长发"
+                }
+              }
+            ],
+            "status": "held",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            },
+            "held": {
+              "reason": "conflict",
+              "note": "正文写“淡金色的长发”，设定里原身外观是“银白长发及腰”",
+              "against": {
+                "entry": "xingxia",
+                "path": "character.外观"
+              }
+            }
+          },
+          "after": {
+            "id": "c18",
+            "kind": "written",
+            "text": "回家前把淡金色的长发拢进帽子",
+            "at": {
+              "kind": "chapter",
+              "chapter": "ch2",
+              "key": 31
+            },
+            "told": [
+              {
+                "source": "chapter",
+                "chapter": "ch2",
+                "quote": "回家前，她在楼道的镜子里把淡金色的长发拢进帽子"
+              }
+            ],
+            "involves": [
+              "xingxia"
+            ],
+            "lines": [],
+            "links": [],
+            "patches": [
+              {
+                "op": "set",
+                "at": {
+                  "entry": "xingxia",
+                  "path": "character.外观"
+                },
+                "value": "淡金色长发及腰，浅灰蓝的眼睛，个子娇小",
+                "basis": {
+                  "kind": "quote",
+                  "quote": "淡金色的长发"
+                }
+              }
+            ],
+            "status": "undone",
+            "by": {
+              "kind": "agent",
+              "session": "写作助手 · 星瑕"
+            },
+            "undoneReason": "按正文改了设定"
+          }
+        },
+        {
+          "ref": {
+            "kind": "entry",
+            "id": "xingxia"
+          },
+          "before": {
+            "id": "xingxia",
+            "type": "人物",
+            "parent": null,
+            "folder": "人物",
+            "order": 0,
+            "init": {
+              "name": "星瑕",
+              "aliases": [],
+              "summary": "前蓝星最强的魔法少女，隐退后以哥哥的样子把妹妹接回家住",
+              "text": [
+                {
+                  "id": "b1",
+                  "source": "六岁那年的城市大灾难里，星瑕失去了父母。之后她觉醒了时间系的天赋，身体也随之变成女生，第一次回溯救下了妹妹星瑾。被对策委员会带进魔法少女部以后，她从基础做起，几年里成了蓝星最强；灾难平息后，官方给她安了罪名，她顺势隐退。"
+                },
+                {
+                  "id": "b2",
+                  "source": "现在她以哥哥的样子回到家，把星瑾从亲戚家接回来一起住，决心重新做个好哥哥。"
+                },
+                {
+                  "id": "b3",
+                  "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+                },
+                {
+                  "id": "b4",
+                  "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+                },
+                {
+                  "id": "b5",
+                  "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+                },
+                {
+                  "id": "b6",
+                  "source": "## 性格\n{character.性格}"
+                }
+              ],
+              "data": {
+                "character": {
+                  "enabled": true,
+                  "fields": {
+                    "身体": "男",
+                    "样子": "原身",
+                    "外观": "银白长发及腰，浅灰蓝的眼睛，个子娇小",
+                    "性格": "迟钝，情商不高，做事认真。想对妹妹好，常常用错方法，过后才知道搞砸了"
+                  }
+                },
+                "panel": {
+                  "enabled": true,
+                  "fields": {
+                    "魔力": 3200,
+                    "魔力上限": 12000,
+                    "存款": 41800,
+                    "回溯": 1,
+                    "物品": []
+                  }
+                }
+              }
+            },
+            "initBasis": {
+              "panel.魔力": {
+                "kind": "author"
+              },
+              "panel.魔力上限": {
+                "kind": "author"
+              },
+              "panel.回溯": {
+                "kind": "author"
+              },
+              "character.外观": {
+                "kind": "author"
+              },
+              "character.性格": {
+                "kind": "author"
+              },
+              "panel.存款": {
+                "kind": "estimate",
+                "note": "种子只说“钱不多，但够用”；按第 1 章正文“账户余额 41,800”定"
+              }
+            }
+          },
+          "after": {
+            "id": "xingxia",
+            "type": "人物",
+            "parent": null,
+            "folder": "人物",
+            "order": 0,
+            "init": {
+              "name": "星瑕",
+              "aliases": [],
+              "summary": "前蓝星最强的魔法少女，隐退后以哥哥的样子把妹妹接回家住",
+              "text": [
+                {
+                  "id": "b1",
+                  "source": "六岁那年的城市大灾难里，星瑕失去了父母。之后她觉醒了时间系的天赋，身体也随之变成女生，第一次回溯救下了妹妹星瑾。被对策委员会带进魔法少女部以后，她从基础做起，几年里成了蓝星最强；灾难平息后，官方给她安了罪名，她顺势隐退。"
+                },
+                {
+                  "id": "b2",
+                  "source": "现在她以哥哥的样子回到家，把星瑾从亲戚家接回来一起住，决心重新做个好哥哥。"
+                },
+                {
+                  "id": "b3",
+                  "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+                },
+                {
+                  "id": "b4",
+                  "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+                },
+                {
+                  "id": "b5",
+                  "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+                },
+                {
+                  "id": "b6",
+                  "source": "## 性格\n{character.性格}"
+                }
+              ],
+              "data": {
+                "character": {
+                  "enabled": true,
+                  "fields": {
+                    "身体": "男",
+                    "样子": "原身",
+                    "外观": "淡金色长发及腰，浅灰蓝的眼睛，个子娇小",
+                    "性格": "迟钝，情商不高，做事认真。想对妹妹好，常常用错方法，过后才知道搞砸了"
+                  }
+                },
+                "panel": {
+                  "enabled": true,
+                  "fields": {
+                    "魔力": 3200,
+                    "魔力上限": 12000,
+                    "存款": 41800,
+                    "回溯": 1,
+                    "物品": []
+                  }
+                }
+              }
+            },
+            "initBasis": {
+              "panel.魔力": {
+                "kind": "author"
+              },
+              "panel.魔力上限": {
+                "kind": "author"
+              },
+              "panel.回溯": {
+                "kind": "author"
+              },
+              "character.外观": {
+                "kind": "author"
+              },
+              "character.性格": {
+                "kind": "author"
+              },
+              "panel.存款": {
+                "kind": "estimate",
+                "note": "种子只说“钱不多，但够用”；按第 1 章正文“账户余额 41,800”定"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "r9",
+      "version": 9,
+      "by": {
+        "kind": "agent",
+        "session": "写作助手 · 星瑕"
+      },
+      "what": "suggest",
+      "title": "改设定以后：在正文和别的条目里找到 4 处“银白”，给了建议",
+      "ops": [
+        {
+          "ref": {
+            "kind": "suggestion",
+            "id": "s1"
+          },
+          "before": null,
+          "after": {
+            "id": "s1",
+            "cause": "r8",
+            "target": {
+              "kind": "chapter",
+              "chapter": "ch1"
+            },
+            "group": "原身的头发",
+            "before": "银白的长发垂到腰际，肩膀窄了一圈，睡衣的袖子长出一截。",
+            "after": "淡金色的长发垂到腰际，肩膀窄了一圈，睡衣的袖子长出一截。",
+            "reason": "写的是星瑕松开滤镜后的原身",
+            "judgment": "sure",
+            "status": "open"
+          }
+        },
+        {
+          "ref": {
+            "kind": "suggestion",
+            "id": "s2"
+          },
+          "before": null,
+          "after": {
+            "id": "s2",
+            "cause": "r8",
+            "target": {
+              "kind": "chapter",
+              "chapter": "ch1"
+            },
+            "group": "原身的头发",
+            "before": "风把几缕银白的头发吹到书页上，她拨开，翻到折了角的那一页：",
+            "after": "风把几缕淡金色的头发吹到书页上，她拨开，翻到折了角的那一页：",
+            "reason": "阳台上的原身",
+            "judgment": "sure",
+            "status": "open"
+          }
+        },
+        {
+          "ref": {
+            "kind": "suggestion",
+            "id": "s3"
+          },
+          "before": null,
+          "after": {
+            "id": "s3",
+            "cause": "r8",
+            "target": {
+              "kind": "outline",
+              "chapter": "ch3"
+            },
+            "group": "不是星瑕",
+            "before": "夜里星瑾翻出旧相册，妈妈也有一头银白的头发。",
+            "after": null,
+            "reason": "写的是母亲",
+            "judgment": "notThisOne",
+            "status": "declined"
+          }
+        },
+        {
+          "ref": {
+            "kind": "suggestion",
+            "id": "s4"
+          },
+          "before": null,
+          "after": {
+            "id": "s4",
+            "cause": "r8",
+            "target": {
+              "kind": "entryText",
+              "entry": "mg",
+              "block": "identity.外观"
+            },
+            "group": "变身以后的样子",
+            "before": "变身时，银白的长发染上一层星光，眼睛变成金色",
+            "after": "变身时，淡金色的长发染上一层星光，眼睛变成金色",
+            "reason": "变身形态的样子不一定和原身一样，可能是你有意写的不同",
+            "judgment": "ask",
+            "status": "open"
+          }
+        }
+      ]
+    }
+  ]
+}
