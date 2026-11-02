@@ -1,0 +1,29 @@
+/**
+ * `@notnotype/nb-canon` 的主入口：前后端共用，不引用 `node:*`（tests/architecture.test.ts）。
+ * 行为合同见 docs/specs/canon/。
+ */
+
+export * from "./core/schema";
+export {addressKey, addressesOverlap, formatPath, parsePath, type ParsedPath} from "./core/address";
+export {addExact, exactProblem, subtractExact, EXACT_DECIMALS, EXACT_LIMIT, type ExactProblem} from "./core/decimal";
+export {compareIds, IdAllocator, ID_PREFIX, LOCAL_ID_PREFIX, splitId} from "./core/ids";
+export {ENABLE_FIELD, isIdentifierName, isNamespaceName, RESERVED_ROOTS} from "./core/identifiers";
+export {parseChineseNumber, readNumbers} from "./core/numerals";
+export {applyChanges, diffValues, parseSegments, type FieldChange, type PathSegment} from "./core/paths";
+export {
+    allPositions,
+    chapterEnd,
+    chapterStart,
+    ChapterOrder,
+    compareRanks,
+    compareTie,
+    defaultPosition,
+    placementRank,
+    positionRank,
+    rankBefore,
+    type OrderTie,
+    type Rank,
+} from "./core/position";
+export {sameJson, stableStringify} from "./core/stable-json";
+export {buildRegistry, effectiveFields, fieldsProblem, generateFieldId, type ComponentDeclaration, type ComponentRegistry, type ComponentType, type RegistryDiagnostic} from "./components/registry";
+export {assetPathProblem, listItemProblem, semanticText, valueProblem, type ValueProblem} from "./components/values";

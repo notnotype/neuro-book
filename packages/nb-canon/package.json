@@ -1,0 +1,23 @@
+{
+    "name": "@notnotype/nb-canon",
+    "version": "0.1.0",
+    "private": true,
+    "description": "作者视角的世界引擎内核：条目、剧情变更与修订的模型与计算、渲染与带值写法、世界服务的语义；前后端共用，./node 是分段日志的存储",
+    "type": "module",
+    "module": "src/index.ts",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "test": "bun test",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "typebox": "^1.3.6"
+    },
+    "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "@types/node": "^26.1.0",
+        "typescript": "^6.0.3"
+    }
+}
