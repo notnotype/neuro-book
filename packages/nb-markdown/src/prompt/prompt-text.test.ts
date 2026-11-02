@@ -75,7 +75,7 @@ describe("prompt-text 读入与写回", () => {
         "/unknown 不是命令",
         " /plan 前面有空格",
         "[file #1 · a.txt](workspace/x) [file #2 · 名称](not a target)",
-        "短地址：![image #1](session://attachments/草图.png) 与 [file #2 · 采访记录.pdf](session://attachments/采访记录.pdf)",
+        "会话附件：![image #1](session://attachments/草图.png) 与 [file #2 · 采访记录.pdf](session://attachments/采访记录.pdf)",
         "看，$reviewer、${long-skill}。用$writer 不算",
     ];
 
@@ -104,7 +104,7 @@ describe("prompt-text 读入与写回", () => {
         expect(serializeImageToken(1, "session://attachments/草图.png")).toBe("![image #1](session://attachments/草图.png)");
     });
 
-    it("会话内短地址的图片与文件识别为标签", () => {
+    it("会话附件的图片与文件识别为标签", () => {
         const tokens = tokensOf(parsePromptText("![image #1](session://attachments/草图.png) [file #2 · 采访记录.pdf](session://attachments/采访记录.pdf)", {commands: []}));
         expect(tokens.map((token) => [token.kind, token.number, token.target])).toEqual([["image", 1, "session://attachments/草图.png"], ["file", 2, "session://attachments/采访记录.pdf"]]);
     });

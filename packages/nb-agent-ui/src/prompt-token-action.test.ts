@@ -13,7 +13,7 @@ describe("点击标签的去向", () => {
         expect(promptTokenOutcome({kind: "file", number: 1, name: "设定.pdf", target: "session://attachments/设定.pdf"}, imageLabel)).toEqual({kind: "action", action: {type: "attachment.open", target: "session://attachments/设定.pdf"}});
     });
 
-    it("图片请求预览，会话内短地址的文件名写进标题；还没上传完、命令与粘贴标记不做任何事", () => {
+    it("图片请求预览，会话附件的文件名写进标题；还没上传完、命令与粘贴标记不做任何事", () => {
         expect(promptTokenOutcome({kind: "image", number: 1, target: "ok:sketch"}, imageLabel)).toEqual({kind: "preview", image: {locator: "ok:sketch", name: "图片 #1"}});
         expect(promptTokenOutcome({kind: "image", number: 2, target: "session://attachments/地图.png"}, imageLabel)).toEqual({kind: "preview", image: {locator: "session://attachments/地图.png", name: "图片 #2 · 地图.png"}});
         expect(promptTokenOutcome({kind: "image", number: 3, target: null}, imageLabel)).toBeNull();

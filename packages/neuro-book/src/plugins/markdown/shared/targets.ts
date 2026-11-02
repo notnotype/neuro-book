@@ -41,8 +41,8 @@ function resource(scheme: "project" | "user", path: string | null): string | nul
 }
 
 
-/** 会话附件的地址前缀（docs/specs/agent/resources.md；Composer 的附件，workspace/markdown-dialect.md）。 */
-const ATTACHMENTS = "session://attachments/";
+/** 会话附件在 `session://` 下的目录（docs/specs/agent/resources.md；Composer 的附件，workspace/markdown-dialect.md）。 */
+const ATTACHMENTS_PATH = "attachments/";
 
 /**
  * 归类并解析一个目标。`base` 是目标所在文件的地址（编辑器里的文档）；没有所在文件时（Composer、展示器）为 null，这时以 `/`
@@ -54,7 +54,9 @@ export function classifyTarget(target: string, base: string | null): Target {
     if (scheme !== undefined) {
         // 外部链接按包的缺省规则判，两个宿主下同一个链接分类一致；文件与附件的方案是 NeuroBook 的。
         if (classifyScheme(target).kind === "external") return {kind: "external", address: null, name: ""};
-        if (path.startsWith(ATTACHMENTS)) return {kind: "attachment", address: null, name: lastSegment(path.slice(ATTACHMENTS.length))};
+        // 方案名不分大小写（与下面的 `project`、`user` 一致），只比较方案之后的部分。
+        const rest = path.slice(path.indexOf("://") + 3);
+        if (scheme === "session" && rest.startsWith(ATTACHMENTS_PATH)) return {kind: "attachment", address: null, name: lastSegment(rest.slice(ATTACHMENTS_PATH.length))};
         if (scheme === "project" || scheme === "user") {
             const rest = path.slice(`${scheme}://`.length);
             return {kind: scheme === "project" ? "work" : "user", address: resource(scheme, normalized(decodeTarget(rest).split("/"))), name: lastSegment(rest)};

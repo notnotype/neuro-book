@@ -88,7 +88,7 @@ type UploadMode = "success" | "fail" | "hang";
 const UPLOAD_MODES: ReadonlyArray<{mode: UploadMode; label: string}> = [{mode: "success", label: "成功"}, {mode: "fail", label: "失败"}, {mode: "hang", label: "一直上传"}];
 const UPLOAD_DELAY_MS = 900;
 const uploadMode = ref<UploadMode>("success");
-/** 宿主给的会话内短地址：文件名去掉空白与括号，重名时加序号。 */
+/** 宿主给的会话附件地址：文件名去掉空白与括号，重名时加序号。 */
 const usedNames = new Set<string>();
 const fileNames = new Map<string, string>();
 
