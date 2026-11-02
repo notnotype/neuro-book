@@ -535,15 +535,19 @@ function applyOp(tables: Tables, op: Exclude<Op, {kind: "chapters"}>, createdAt:
     else table.set(op.ref.id, applyChanges(table.get(op.ref.id), op.fields, "after"));
 }
 
+/** 放对象 id 的键：只在这些键下把临时 id 换成正式 id，描述、原句这类文字里碰巧写了同样的字不换。 */
+const ID_KEYS = new Set(["id", "parent", "sameAs", "entry", "plan", "by", "change", "cause"]);
+const ID_LIST_KEYS = new Set(["involves", "lines"]);
+
 function replaceTempIds(request: WriteRequest, ids: Readonly<Record<string, string>>): WriteRequest {
     if (Object.keys(ids).length === 0) return request;
-    const replace = (value: unknown): unknown => {
-        if (typeof value === "string") return ids[value] ?? value;
-        if (Array.isArray(value)) return value.map(replace);
-        if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, replace(item)]));
+    const replace = (value: unknown, key: string | null): unknown => {
+        if (typeof value === "string") return key !== null && ID_KEYS.has(key) ? (ids[value] ?? value) : value;
+        if (Array.isArray(value)) return value.map((item) => (typeof item === "string" ? (key !== null && ID_LIST_KEYS.has(key) ? (ids[item] ?? item) : item) : replace(item, null)));
+        if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([childKey, item]) => [childKey, replace(item, childKey)]));
         return value;
     };
-    return replace(request) as WriteRequest;
+    return replace(request, null) as WriteRequest;
 }
 
 /**

@@ -27,3 +27,8 @@ export {
 export {sameJson, stableStringify} from "./core/stable-json";
 export {buildRegistry, effectiveFields, fieldsProblem, generateFieldId, type ComponentDeclaration, type ComponentRegistry, type ComponentType, type RegistryDiagnostic} from "./components/registry";
 export {assetPathProblem, listItemProblem, semanticText, valueProblem, type ValueProblem} from "./components/values";
+export {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from "./engine/incremental";
+export {createReferenceEngine} from "./engine/reference";
+export type {ChangeOutcome, Engine, EngineInputs, EntryView, FieldState, Mode, NamespaceView, OriginStep, PendingItem, PlanProgress, ReductionInput, ReductionLookup, UpcomingNamespace, WorldData} from "./engine/types";
+export {World, type ConflictDetail, type Problem, type RevertFailure, type WorldOptions, type WriteFailure, type WriteResult} from "./world/world";
+export {editInPlace, recordDelta, replaceOnce, type EditFailure, type EditResult, type InPlaceEdit} from "./world/edits";
