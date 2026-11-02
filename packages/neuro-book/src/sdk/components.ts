@@ -35,4 +35,6 @@ export type {
     SuggestionMenuAnchor, SuggestionMenuGroup, SuggestionMenuItem, SuggestionSide, SwitchSize,
     TableColumn, TableDensity, TabsItem, TabsSize, ToggleGroupOption,
     ToggleGroupSize, Tone,
+    FieldContext, GridBranchChange, GridGestureCommit, GridGesturePreview,
+    SplitterGestureCancelReason, SplitterGestureCancellation, SplitterGestureSource, SplitterGestureState,
 } from "@notnotype/nb-ui/components";

@@ -60,3 +60,18 @@
 | `Dialog` | `modal`、`resizable`、`minWidth`、`minHeight`、`update:width`、`update:height` | 删掉，`Dialog` 只做模态 |
 
 新增共用类型 `OverlayCloseReason`；`DialogCloseReason`、`ContextMenuCloseReason`、`QuickPickCloseReason` 保留，是它的子集；新增 `FloatingWindowCloseReason`。
+
+## 其它
+
+| 组件 | 变化 |
+|---|---|
+| `SuggestionMenu` | 传送目标缺省读宿主经 `provideTeleportTarget` 给的目标（原来写死 `body`）；`teleportTarget` 写明的仍然优先 |
+| 插件 SDK `/components` | 补上原来漏掉的类型：`FieldContext`、`Splitter` 与 `NestedGrid` 的手势类型 |
+
+不变：`@notnotype/nb-ui/grid` 仍是单独的入口，给不能带上 Vue 与 DOM 的消费者（插件激活时建的模型、Bun 里的测试）；`./layout` 含组件。
+
+## 发版时一起改
+
+- 四个内置主题 `themes/*/manifest.ts` 的 `hostVersion` 改成 `^0.4.0`，`src/version.ts` 的 `NB_UI_VERSION` 同步；否则主题装载器按 `^0.3.0` 拒绝全部内置主题。
+- 依赖 nb-ui 的已发布包（nb-form、nb-agent-ui、nb-markdown、nb-story）一起升版本并发布；只发 nb-ui 会让旧版共享包把 0.3 装成第二份。
+- 应用与插件 SDK 升 minor。

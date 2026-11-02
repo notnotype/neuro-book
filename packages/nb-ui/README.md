@@ -348,3 +348,4 @@ pure data so a marketplace can index a theme without executing it.
 - [UI Development Specification](docs/ui-development-spec.md) — Comprehensive engineering contracts, token consumption, core component specifications (Button, IconButton, SegmentedControl, Checkbox, Select, DropdownMenu, ScrollArea), and Component Lab scene registration guidelines.
 - [Design Language](docs/design-language.md) — The rationale behind materials, layers, paper vs chrome, Chinese typography, and motion physics.
 - [Theme Authoring Guide](docs/authoring-themes.md) — Theme manifest structure, contracts, and override mechanisms.
+- [Upgrading from 0.3 to 0.4](docs/migration-0.4.md) — 公开 API 收成一套写法后的逐项对照（尺寸、语调、弹出位置、文案属性、列表字段、浮层的打开与关闭、`FloatingWindow`）。

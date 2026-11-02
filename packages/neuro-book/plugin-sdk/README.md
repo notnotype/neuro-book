@@ -306,6 +306,7 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 
 ## 界面
 
+- **从上一个版本升级**：组件 API 在 nb-ui 0.4 收成了一套写法（`Dialog` 的 `v-model:open`、关闭原因、`FloatingWindow` 等），逐项对照见 [nb-ui 的迁移说明](https://github.com/notnotype/neuro-book/blob/master/packages/nb-ui/docs/migration-0.4.md)。
 - **只用 SDK 的组件、`<style scoped>` 与主题变量**：组件从 `@notnotype/nb-plugin-sdk/components` 导入（清单见 `docs/components.md`，属性看包里的 `components.d.ts`，编辑器里跳转到定义即可）；样式写在组件的 `<style scoped>` 里，尺寸、间距、颜色、字号都用主题变量（清单见 `docs/tokens.md`），例如 `padding: var(--space-3); color: var(--text-muted);`。
 - **不写原子类**（`p-4`、`flex`、`text-sm` 这类）：NeuroBook 的原子类只按它自己的源码生成，插件里写了要么不生效，要么碰巧因为宿主某处也用了同一个类而生效，换个版本就失效。
 - **不覆写组件内部的样式**（选组件的内部类名、`:deep(...)`）：构建预设把插件的样式整体包进 `@layer components`，与宿主组件的样式同一层，谁赢取决于样式表的先后，不可靠；要换外观用组件给的属性（`variant`、`size`）。

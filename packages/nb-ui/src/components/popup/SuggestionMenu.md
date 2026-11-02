@@ -12,7 +12,7 @@
 
 列表在滚动视口里：项超过 8 个时截在第 9 项的中间，不超过时取自然高度；可滚动时显示悬浮滑块。
 
-定位经 reka 的 Popover 原语（底下是 floating-ui），浮层传送到 `body`（`teleportTarget` 写明了就传送到那里）。外框不是对话框：Popover 写死的 `role="dialog"`、`aria-labelledby` 与 `tabindex` 在挂上后去掉，可访问的结构只有里面的 `listbox`。
+定位经 reka 的 Popover 原语（底下是 floating-ui），浮层传送到宿主经 `provideTeleportTarget` 给的目标，没有就传送到 `body`；`teleportTarget` 写明了就以它为准。外框不是对话框：Popover 写死的 `role="dialog"`、`aria-labelledby` 与 `tabindex` 在挂上后去掉，可访问的结构只有里面的 `listbox`。
 
 - `anchor` 是元素（例如输入框外框）或虚拟锚点（例如光标的矩形）。打开期间每帧重新读一次锚点矩形，光标在同一个输入框里移动、输入框内滚动、窗口缩放时都跟得上；关闭或卸载后不再读。
 - `side: "auto"`（缺省）时优先放在锚点下方；下方放不下 96px、上方更宽时翻到上方。`"top"`、`"bottom"` 固定方向、不翻转。
@@ -114,7 +114,7 @@ function suggestionMenuOptions(groups: readonly SuggestionMenuGroup[]): Suggesti
 
 - `state:local`：滚动视口的截断高度、滑块几何与拖动状态，以及 `side: "auto"` 时这一刻放在哪一侧。
 - `state:inject`：读取 `Dialog` 注入的浮层层级。
-- `env:portal`：浮层经 reka 的 `PopoverPortal` 传送到 `body` 或 `teleportTarget`，并登记为浮层层（模态 `Dialog` 里也能接收指针；Escape 与外部点击不由它关闭）。
+- `env:portal`：浮层经 reka 的 `PopoverPortal` 传送到 `teleportTarget`、宿主给的目标或 `body`，并登记为浮层层（模态 `Dialog` 里也能接收指针；Escape 与外部点击不由它关闭）。
 - `env:timer`：打开期间每帧读一次锚点矩形（floating-ui 的逐帧更新，以及 `"auto"` 时选择上下哪一侧）；关闭或卸载时停止。
 
 ## 不支持
