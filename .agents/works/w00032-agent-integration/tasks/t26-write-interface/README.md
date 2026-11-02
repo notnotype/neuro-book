@@ -17,7 +17,7 @@ updated: 2026-11-02
 
 执行位置：`.worktree/w00032-t26-write-interface`，分支 `feat/w00032-t26-write-interface`（从 master）。
 
-计划第一稿 [plan.md](plan.md) 开发者已确认（2026-11-02，见计划末尾“开发者的决定”）：锁沿用现有规则；**在单独的分支上做，没有开发者允许不合并到 master**。正在做设计审查。开发者 2026-11-02 要求审完后按 autonomous-delivery 推进到本 Task 完成；本该开发者定的点记进 [待确认清单](../../pending-confirmations.md)。
+计划第一稿 [plan.md](plan.md) 开发者已确认（2026-11-02，见计划末尾“开发者的决定”）：锁沿用现有规则；**在单独的分支上做，没有开发者允许不合并到 master**。设计审查（omp，27 条）已处理，计划改为第二稿；开始实施。开发者 2026-11-02 要求审完后按 autonomous-delivery 推进到本 Task 完成；本该开发者定的点记进 [待确认清单](../../pending-confirmations.md)。
 
 ## 下一步
 
