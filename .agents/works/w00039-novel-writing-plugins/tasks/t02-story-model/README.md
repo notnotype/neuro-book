@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t02-story-model
-status: active
+status: done
 updated: 2026-11-02
 ---
 
