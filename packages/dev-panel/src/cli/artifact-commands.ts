@@ -129,6 +129,15 @@ function artifactLines(view: ArtifactAnswersView): string[] {
     return lines;
 }
 
+/**
+ * 发布或登记了题之后怎样等答复（t19：很多会话发完不挂等待，开发者答完只能自己去通知）。命令也放进 `data.waitCommand`，
+ * 用 `--json` 的调用方同样拿得到。
+ */
+function waitHint(data: {workId: string; taskId: string; artifactId: string}): {command: string; line: string} {
+    const command = `nbdev answers ${data.workId.slice(0, 6)} ${data.taskId.slice(0, data.taskId.indexOf("-"))} ${data.artifactId} --wait`;
+    return {command, line: `等答复：用会话的后台机制挂着 ${command}（Claude Code 用 run_in_background），退出码 0 是有了答复，4（超时或被打断）时按原参数重挂；会话空闲时面板也会把 [nbdev] 通知发进输入框`};
+}
+
 /** 没写新记录的结果（内容没变、已经关闭、都已确认）：顺带补交了上次的残留时，照写命令报提交结果，提交失败同样是退出码 1。 */
 function noNewRecord(schema: string, outcome: Parameters<typeof writeOutcome>[1], summary: string, extra: string[], failureHint: string): CommandOutcome {
     if (!outcome.commit.committed && outcome.commit.reason === "nothing_to_commit") {
@@ -167,13 +176,16 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
             if (data.unchanged) {
                 return noNewRecord("nbdev.artifact-publish/v1", outcome, `${data.artifactId} 的内容与题都没变，没有出新版本（要强制出新版本加 --force-version）`, leaseLines({lease: data.lease, released: []}), PUBLISH_FAILURE_HINT);
             }
+            const live = data.questions.filter((question) => !question.outcome).length;
+            const wait = live > 0 ? waitHint(data) : null;
             const previous = data.previous ? [`上一版 v${data.previous.version}（${data.previous.publishedAt}${data.previous.publishedBy ? `，${data.previous.publishedBy} 发布` : ""}）`] : [];
-            return writeOutcome("nbdev.artifact-publish/v1", outcome, `已发布 ${data.workId}/${data.taskId} ${data.artifactId} v${data.version}：${data.questions.filter((question) => !question.outcome).length} 道活的题`, [
+            return writeOutcome("nbdev.artifact-publish/v1", {...outcome, data: {...data, waitCommand: wait?.command ?? null}}, `已发布 ${data.workId}/${data.taskId} ${data.artifactId} v${data.version}：${live} 道活的题`, [
                 ...data.questions.map(questionLine),
                 ...(data.dropped.length > 0 ? [`被这一版取代（页面里没有了、还没答）：${data.dropped.join("、")}`] : []),
                 ...previous,
                 `提交的文件：${data.committedFiles.join("、")}`,
                 ...leaseLines({lease: data.lease, released: []}),
+                ...(wait ? [wait.line] : []),
             ], PUBLISH_FAILURE_HINT);
         },
     },
@@ -214,7 +226,8 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
             }
             const outcome = await withCaller(io, values, (context, options) => askQuestions(context, {workRef: positionals[0]!, taskRef: positionals[1]!, artifactId: stringValue(values, "artifact"), questions}, options));
             const {data} = outcome;
-            return writeOutcome("nbdev.ask/v1", outcome, `已登记 ${data.affected.length} 道题到 ${data.artifactId} v${data.version}：${data.affected.join("、")}`, leaseLines({lease: data.lease, released: []}), ASK_FAILURE_HINT);
+            const wait = waitHint(data);
+            return writeOutcome("nbdev.ask/v1", {...outcome, data: {...data, waitCommand: wait.command}}, `已登记 ${data.affected.length} 道题到 ${data.artifactId} v${data.version}：${data.affected.join("、")}`, [...leaseLines({lease: data.lease, released: []}), wait.line], ASK_FAILURE_HINT);
         },
     },
     "ask withdraw": {
