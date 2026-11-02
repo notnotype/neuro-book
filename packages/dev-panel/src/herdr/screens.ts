@@ -69,7 +69,11 @@ function segments(line: string): Array<{text: string; dim: boolean}> {
 
 /** 去掉提示符与空白（含不换行空格）之后的文字。 */
 const squeeze = (text: string) => text.replace(/[❯\s ]/gu, "");
-const isRule = (line: string) => /^[─━]{10,}\s*$/u.test(plain(line).trim());
+/**
+ * 输入框上下的横线。带会话名的 Claude 会话（2.1.316 起取样到）把名字写在上沿横线的右端：`──── nbook-agent ─`，
+ * 只认纯横线时这种会话全判成认不出、一次也不自动投（t19）。名字前面要有一长段横线，后面再收一小段横线。
+ */
+const isRule = (line: string) => /^[─━]{10,}(?:\s+\S.*?\s+[─━]+)?$/u.test(plain(line).trim());
 
 /**
  * `❯` 之后的输入框是不是“空”：去掉空白之后，只允许什么都没有，或者紧跟在 `❯` 后面的一整段暗色文字（占位或建议文字，
