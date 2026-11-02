@@ -186,7 +186,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 图片查看器 | [`workbench/image-viewer.md`](workbench/image-viewer.md) | 图片的字节编辑器：适应与缩放、棋盘格底、尺寸与大小、随文件更新 |
 | HTML 预览 | [`workbench/html-preview.md`](workbench/html-preview.md) | 沙箱里的预览编辑器：令牌限定的只读文件访问、相对引用、默认联网可关、随正文更新 |
 | 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | 文件读写、目录与批量操作、无覆盖冲突、逐项失败与取消；跨机器访问与非 Linux 平台的排他改名验证为已知限制；按地址读取字节与预览的受限读取 |
-| 资源寻址与文件服务 | [`workspace/resources.md`](workspace/resources.md) | `方案://路径` 寻址、`project://`/`user://` 两个真实目录型提供者的读写列出监视与订阅、写入来源与变更事件；glob、grep、bash 真实路径解析、`tmp://`/`local://`/`docs://`/`projects://` 与插件注册新方案的接口标 `(planned)` |
+| 资源寻址与文件服务 | [`workspace/resources.md`](workspace/resources.md) | `方案://路径` 寻址、`project://`/`user://` 两个真实目录型提供者的读写列出监视与订阅、写入来源与变更事件；方案注册、服务端文件服务、`projects://`、glob、grep、shell 真实路径解析标 `(planned)` |
 | 文件夹类型与清单 | [`workspace/folder-kinds.md`](workspace/folder-kinds.md) | 普通、内容、活页夹三类文件夹，后缀识别、XML 清单、未列入与缺失处理、渲染贡献点 |
 | Markdown 方言 | [`workspace/markdown-dialect.md`](workspace/markdown-dialect.md) | 作品 Markdown 的读写规则：CommonMark 与 GFM 之上的中文规则、项目方言、认不出的语法原样保留、以块为单位写回与读回校验 |
 | Markdown 方言的贡献 | [`workspace/markdown-syntaxes.md`](workspace/markdown-syntaxes.md) | 方言的声明与实现两个贡献点、生效条件与冲突、视图在建立时取定语言、字数按声明 |
@@ -218,6 +218,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
 | Agent 对话视图 | [`ui/agent-conversation-view.md`](ui/agent-conversation-view.md) | `nb-agent-ui` 包：分轮与过程时间线、工具渲染、输入框、注册表扩展点、宿主注入的 Markdown 与编辑器；2026-10-22 从归档搬回 |
+| Agent 的资源地址 | [`agent/resources.md`](agent/resources.md) | 单数地址的改写与分类、`sessions://`、`profiles://`、`temps://`、`docs://`、`skills://` 的内容与权限、按需建目录、临时目录的分区与启动清理 |
 | Agent harness | [`agent/harness.md`](agent/harness.md) | 只经 Profile 运行：生效工具集与会话快照、渲染即上下文、一次运行的结果与错误归类、收尾工具、单次请求、按配置给模型 |
 | Harness 会话 | [`harness/session.md`](harness/session.md) | 新内核的会话日志：会话目录与 JSONL、写入批、大块内容、锁、修复与校验、恢复、指令幂等、索引与 fork |
 | Harness 扩展 | [`harness/extensions.md`](harness/extensions.md) | 新内核的扩展（骨架）：定义与装配、id 规则、片与归约、反应与写入批、`mount`、各入口读的状态、插件装卸 |

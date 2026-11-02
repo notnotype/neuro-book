@@ -159,7 +159,7 @@ owners:
 27. **引用的目标分类**：链接、图片与 Composer 里引用的目标按以下顺序归为一类，三种界面（编辑器、[ui.markdown-display](../ui/markdown-display.md)、[ui.prompt-editor](../ui/prompt-editor.md)）按同一分类显示：
     - **作品里的文件**：相对地址、以 `/` 开头的地址（按输出 18 解析）与 `project://` 地址；
     - **用户资产**：`user://` 地址；
-    - **附件**：`local://` 地址（Composer 的会话附件）；
+    - **附件**：`session://attachments/` 下的地址（Composer 的会话附件，[`agent.resources`](../agent/resources.md)）；
     - **外部**：`http:`、`https:`、`mailto:` 方案；
     - **其它**：别的方案（包括旧应用的 `chapter://` 等领域地址）。
     作品里的文件与用户资产显示为引用小块，按文件扩展名取图标；外部链接显示为普通链接；其它显示为不带文件图标的引用小块。分类只影响显示，写回的地址不变。
