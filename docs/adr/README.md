@@ -39,3 +39,4 @@ ADR 0001–0021 是旧应用的决策，随旧包留在 [`../../packages/neuro-b
 | [0037](0037-world-engine-story-change-log.md) | 作者视角的世界引擎以剧情变更日志与修订为真相（计划是没写的变更，修订带版本、可还原），条目由主 MDX 加按 Component 分块的状态组成；随剧情变化的文字整段替换，记账默认生效（其中“包括直接改文件后被读进来的内容”已被 0039 取代） |
 | [0038](0038-world-engine-entry-text-is-whitelisted-mdx.md) | 世界引擎条目的主文字用 MDX、不复用项目 Markdown 方言，按白名单解释语法树、不执行代码；给 Agent 的渲染用带值写法；作者的编辑界面另找办法 |
 | [0039](0039-world-engine-segmented-revision-log.md) | 世界引擎的真相源是 `.nbook/world/log/` 下按 256 KiB 分段的只追加修订日志，打开时在内存里重放、按章留折叠的中间结果，不用数据库；条目不做成文件，第一版不开放经文件改设定；日志不进 nb-history |
+| [0040](0040-file-writes-staged-and-committed-by-root-owner.md) | 文件服务不劫持读，写只有一个入口：写入方暂存、拥有根的进程在锁里提交并记账；外部改动由监视与对账发现，History 经文件服务定义的记账槽接入（部分取代项目文件底座提案的“读写都经文件服务”） |

@@ -228,3 +228,4 @@ bash 绕过文件服务，它的写入由文件监视发现，来源记为“外
 | 2026-10-02 | 开发者 | 同意方案中主 Agent 补充的 8 项技术细节：bash 写入的来源推断；资源管理器的文件夹渲染贡献点；不预设持久化索引、按测量决定；`nbook.platform-files` 作为真实目录型提供者的基础进入产品清单、`nbook.project` 浏览器部分随本次实施；普通与内容文件夹的转换方式；新增 XML 解析库依赖；新 Spec 暂名 `workspace.resources`、`workspace.folder-kinds`；实施前补一次 VS Code 针对性源码调研。设计稿 `accepted` |
 | 2026-10-03 | 开发者 | 参照 VS Code（编辑区进度提示 800 毫秒后出现，见 [VS Code 调研第 16 章](../research/vscode/16-file-service-explorer-editor-latency.md#5-编辑器打开与切换路径上的延迟处理)），切换时进度条延迟由 100 毫秒改为 800 毫秒，此前编辑区保持空白、不显示任何加载提示 |
 | 2026-10-03 | 开发者 | 性能标准写明参考机器（Intel Core i5-1035G1、16 GB，选较慢的机器以暴露性能问题）；桌面版加载同一本机服务页面，不单独测 |
+| 2026-11-02 | 开发者 | “读写、列出、glob、grep、监视都经文件服务”被 [文件访问与改动记账](file-access-and-history.md) 与 [ADR 0040](../adr/0040-file-writes-staged-and-committed-by-root-owner.md) 取代：读拿本机路径自己读，写只有一个入口（暂存、拥有根的进程提交并记账），History 经文件服务定义的记账槽接入；其余决定不变 |

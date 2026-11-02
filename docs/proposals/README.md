@@ -27,7 +27,7 @@
 - [nb-harness：Profile 定义、工具三层与一次运行的结果](nb-harness-profile-and-tools.md)：Profile 声明工具与上下文、登记表加声明加禁用算出生效工具集、停止原因与用量、收尾工具、单次请求、按配置给模型。
 - [Agent harness 的事件模型](agent-harness-event-model.md)：harness 是一台由日志驱动的状态机，指令进、事件出，输入先进缓冲区；状态由日志归约、请求是状态的视图、副作用可拦截；Profile 与插件（连同对话记录）都是只做归约、反应、视图、拦截的扩展。
 - [界面文字的消息目录](i18n-message-catalogs.md)：每个插件、每个共享包自带按语言分的 JSON 目录（i18next 原生格式），声明按约定取键，失败文案按“拥有者 + 码”取。
-- [文件访问与改动记账](file-access-and-history.md)：nbook.files 退回地址、监视与变更事件；服务端经共享写入接口直接读写并在锁内记账，外部改动由监视对账，账本用 nb-history。
+- [文件访问与改动记账](file-access-and-history.md)：读拿本机路径自己读；写只有一个入口，写入方暂存、拥有根的进程在锁里提交并经记账槽记账；外部改动由监视与对账发现；分四个阶段交付。
 
 ### 旧应用的提案（只作参照）
 

@@ -1,8 +1,8 @@
 ---
 schema: nbook.proposal/v1
-status: draft
+status: accepted
 created: 2026-11-02
-decided: null
+decided: 2026-11-02
 supersedes: []
 superseded-by: null
 specs:
@@ -11,7 +11,8 @@ specs:
   - docs/specs/workspace/folder-kinds.md
   - docs/specs/runtime/projects.md
   - docs/specs/agent/resources.md
-adrs: []
+adrs:
+  - docs/adr/0040-file-writes-staged-and-committed-by-root-owner.md
 ---
 
 # 文件访问与改动记账
@@ -289,3 +290,4 @@ await files.group({title: "生成封面插图"}, async (g) => {
 | 2026-11-02 | 开发者 | Agent 用 `shell` 改的文件归给该会话、标“推断” |
 | 2026-11-02 | 开发者 | 第一轮深入审查与三种写入方案（A、B、照 git 的 C）的评估之后，采用 B+：写入方写暂存文件，拥有根的进程在锁里提交、记账、发事件；外部改动由文件监视发现、记账在文件安静后读一次；文件监视只检测变化。取代此前“锁内同步交账本再改名”的写入顺序 |
 | 2026-11-02 | 开发者 | 第二轮深入审查（宏观）之后：分四个阶段交付，第一阶段只做写入接口、不接 History；同一本书两个实例时后开的照常写、不记账；`history.sqlite` 是作品数据、只支持单设备；单个版本 32 MB 以内存全量；shell 推断的改动不进“全部还原” |
+| 2026-11-02 | 开发者 | 第三稿不再整体审查，接受；长期决定写成 [ADR 0040](../adr/0040-file-writes-staged-and-committed-by-root-owner.md)，第 1 阶段的行为写进 Spec，写入接口的细节随 t12 计划的设计审查再核 |
