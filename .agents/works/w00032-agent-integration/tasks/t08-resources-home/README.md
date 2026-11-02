@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t08-resources-home
-status: in-progress
+status: done
 updated: 2026-11-02
 ---
 
@@ -131,7 +131,7 @@ t12 开工前先做本 Task（开发者 2026-11-02 定）。写计划时定了�
 
 ## 当前状态
 
-实施中（Work 分支 `feat/w00032-agent-integration`）：
+已合入 master（`9f12c0bb4`）。两份 Spec（`agent/resources.md`，与 `resources.md` 里本次实现的部分）仍是 planned，晋升等开发者批准。
 
 | 片 | 提交 | 内容 |
 |---|---|---|
@@ -140,9 +140,12 @@ t12 开工前先做本 Task（开发者 2026-11-02 定）。写计划时定了�
 | 2 | `b4bfc6cf4` | `projects://` |
 | 3、4 | `e363cc7be` | Agent 的五个方案、临时目录、产品文档；会话的资源视图 |
 | 5 | `bcb57b83f` | 附件地址改为 `session://attachments/` |
+| 审查修正 | `190682b87`、`21e2e586c` | 前端审查 3 条、实现审查 5 条（[前端](evidences/impl-review-s5-disposition.md)、[后端](evidences/impl-review-disposition.md)） |
+
+验证：受影响测试（nb-story 两条配置命令行用例在负载下超时，单独重跑 22 条全过）、类型检查（含 vue-tsc）、治理与文档检查、`lab-markdown` e2e 10 条；关键修正都做了变异检查。
 
 实施中的调整见 [plan.md](plan.md) 的“实施中的调整”。
 
 ## 下一步
 
-收口验证后做实现审查（后端 omp，第 5 片前端 Sonnet），处理后合入 master；两份 Spec 的晋升由开发者批准。
+开发者批准后把两份 Spec 晋升 implemented（补实现合同与证据）。下一个 Task 是 t12（基础工具），工具经 `services.resources` 读写。
