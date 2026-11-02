@@ -34,6 +34,7 @@ import type {Operations} from "./operations";
 import {createPreviewTokens, createRawRoutes, PREVIEW_PREFIX} from "./raw-route";
 import {SCHEMES_POINT, schemesPoint, serverFilesKey} from "../shared/schemes";
 import {saveText, tracked} from "./execute";
+import {createProjectsScheme} from "./projects-scheme";
 import {SchemeRegistry} from "./registry";
 import {provideServerFiles} from "./server-files";
 import {openRoot} from "./rooted";
@@ -197,7 +198,7 @@ const serverEntry = defineEntry({
             for (const token of state.tokens) tokens.revoke(token);
         }});
         return {
-            services: [provideServerFiles({user: backend, registry: schemes, projects: null, signal: context.signal, sourceOf})],
+            services: [provideServerFiles({user: backend, registry: schemes, projects: registry === null ? null : createProjectsScheme(registry, context.remote), signal: context.signal, sourceOf})],
             remote: [provideRemote(userFilesContract, (consumer) => implementation(backend, consumer)), preview],
             contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: routes}},
             receivers: {[SCHEMES_POINT]: schemes.receiver},
