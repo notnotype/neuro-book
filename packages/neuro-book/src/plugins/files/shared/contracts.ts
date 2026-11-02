@@ -174,13 +174,28 @@ const Operation = Type.String({minLength: 1, maxLength: 64});
 const Name = Type.String();
 const Display = Type.Optional(Type.Union([Type.String(), Type.Null()]));
 
+/** 写入来源（docs/specs/workspace/resources.md 的“写入来源”）。`agent` 只由服务端文件服务替 `nbook.agent` 写上。 */
+const SourceSchema = Type.Union([
+    Type.Object({kind: Type.Literal("user"), plugin: Type.Union([Type.String(), Type.Null()])}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("system"), plugin: Type.Union([Type.String(), Type.Null()])}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("agent"), session: Type.String()}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("external")}, {additionalProperties: false}),
+]);
+export type ChangeSource = Static<typeof SourceSchema>;
+
+/**
+ * 写方法的 `as`：服务端文件服务经 `projects://` 转发时带上原调用方的来源。只接受服务端位置的 `nbook.files`，别的调用方
+ * 带了按输入不合法拒绝（docs/specs/workspace/resources.md 的“写入来源”）。
+ */
+const As = Type.Optional(SourceSchema);
+
 const methods = {
     list: {input: PathInput, output: ListingSchema, effect: "read", errors},
     read: {input: PathInput, output: FileTextSchema, effect: "read", errors},
     realPath: {input: PathInput, output: Type.Object({path: Type.String()}, {additionalProperties: false}), effect: "read", errors},
-    write: {input: Type.Object({path: Type.String(), text: Type.String(), baseline: BaselineSchema}, {additionalProperties: false}), output: Saved, effect: "write", errors},
+    write: {input: Type.Object({path: Type.String(), text: Type.String(), baseline: BaselineSchema, as: As}, {additionalProperties: false}), output: Saved, effect: "write", errors},
     identify: {input: Type.Object({paths: Type.Array(Type.String(), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: IdentifySchema, effect: "read", errors},
-    create: {input: Type.Object({path: Type.String(), kind: Type.Union([Type.Literal("file"), Type.Literal("directory")]), before: Type.Optional(Name)}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
+    create: {input: Type.Object({path: Type.String(), kind: Type.Union([Type.Literal("file"), Type.Literal("directory")]), before: Type.Optional(Name), as: As}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
     createContent: {input: PathInput, output: DoneSchema, effect: "write", errors},
     rename: {input: Type.Object({path: Type.String(), name: Name, expected: Expected}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
     convert: {input: Type.Object({path: Type.String(), to: Type.Union([Type.Literal("content"), Type.Literal("plain")]), expected: Expected}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
@@ -195,13 +210,6 @@ const methods = {
     cancel: {input: Type.Object({operation: Operation}, {additionalProperties: false}), output: Type.Object({found: Type.Boolean()}, {additionalProperties: false}), effect: "write", errors},
 } as const;
 
-/** 写入来源（docs/specs/workspace/resources.md 的“写入来源”）。 */
-const SourceSchema = Type.Union([
-    Type.Object({kind: Type.Literal("user"), plugin: Type.Union([Type.String(), Type.Null()])}, {additionalProperties: false}),
-    Type.Object({kind: Type.Literal("system"), plugin: Type.Union([Type.String(), Type.Null()])}, {additionalProperties: false}),
-    Type.Object({kind: Type.Literal("external")}, {additionalProperties: false}),
-]);
-export type ChangeSource = Static<typeof SourceSchema>;
 
 /**
  * 外部变化只有 `changed`（路径现在存在）与 `deleted`；经文件服务的操作给精确类型。`renamed` 与 `deleted` 对路径本身及
@@ -229,10 +237,14 @@ const events = {changes: {filter: Type.Object({}, {additionalProperties: false})
 
 const CALLERS = ["browser", "tui", "project", "server"];
 
-/** 版本 2：t69 加了文件操作与 `renamed` 事件（版本 1 的订阅方会丢掉改名事件）。版本 3：t71 的保存回执带目录项身份。版本 4：t86 加了 `realPath` 与目录项的 `leaf`。 */
-export const projectFilesContract = defineRemoteService({id: "nbook.files/project", version: 5, provider: "project", callers: CALLERS, methods, events});
+/**
+ * 版本 2：t69 加了文件操作与 `renamed` 事件（版本 1 的订阅方会丢掉改名事件）。版本 3：t71 的保存回执带目录项身份。版本 4：t86 加了
+ * `realPath` 与目录项的 `leaf`。版本 6：w00032 t08 的事件来源加了 `agent`（旧订阅方校验不过会静默丢掉这些事件，所以两份合同
+ * 一起升），写方法加了 `as`。
+ */
+export const projectFilesContract = defineRemoteService({id: "nbook.files/project", version: 6, provider: "project", callers: CALLERS, methods, events});
 
-export const userFilesContract = defineRemoteService({id: "nbook.files/user", version: 5, provider: "server", callers: CALLERS, methods, events});
+export const userFilesContract = defineRemoteService({id: "nbook.files/user", version: 6, provider: "server", callers: CALLERS, methods, events});
 
 /**
  * 预览的受限读取（docs/specs/workspace/files.md 的“预览的受限读取”）：签发只放行这部作品这一代的只读令牌，HTML 预览在沙箱里

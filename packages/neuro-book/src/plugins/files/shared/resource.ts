@@ -25,12 +25,26 @@ const SCHEME_PATTERN = /^([a-z][a-z0-9+.-]*):\/\/(.*)$/su;
 const DRIVE_PATTERN = /^[A-Za-z]:/u;
 
 export function parseResource(address: string): ParsedResource {
+    const parsed = parseAddress(address);
+    if (!parsed.ok) return parsed;
+    const {scheme, path} = parsed.address;
+    return isScheme(scheme) ? {ok: true, resource: {scheme, path}} : {ok: false, code: "unknown-scheme", detail: `没有方案 ${scheme}://`};
+}
+
+/** 全局地址：方案名不限于本应用已知的两个，存不存在由服务端的方案注册表判定（docs/specs/workspace/resources.md）。 */
+export interface Address {
+    readonly scheme: string;
+    readonly path: string;
+}
+
+export type ParsedAddress = {readonly ok: true; readonly address: Address} | {readonly ok: false; readonly code: "invalid-address"; readonly detail: string};
+
+/** 只按写法解析：方案名的形状与路径规则同 `parseResource`，不核对方案是否存在。服务端的文件服务与 Agent 用它。 */
+export function parseAddress(address: string): ParsedAddress {
     const match = SCHEME_PATTERN.exec(address);
-    if (match === null) return invalid(`${address} 不是“方案://路径”形式的资源地址`);
-    const scheme = match[1] as string;
-    if (!isScheme(scheme)) return {ok: false, code: "unknown-scheme", detail: `没有方案 ${scheme}://`};
+    if (match === null) return {ok: false, code: "invalid-address", detail: `${address} 不是“方案://路径”形式的资源地址`};
     const problem = pathProblem(match[2] as string);
-    return problem === null ? {ok: true, resource: {scheme, path: match[2] as string}} : invalid(`${address}：${problem}`);
+    return problem === null ? {ok: true, address: {scheme: match[1] as string, path: match[2] as string}} : {ok: false, code: "invalid-address", detail: `${address}：${problem}`};
 }
 
 /**
@@ -78,8 +92,4 @@ export function joinResource(directory: Resource, name: string): Resource {
 
 function isScheme(value: string): value is Scheme {
     return (SCHEMES as ReadonlyArray<string>).includes(value);
-}
-
-function invalid(detail: string): ParsedResource {
-    return {ok: false, code: "invalid-address", detail};
 }

@@ -10,7 +10,7 @@ import {createHash} from "node:crypto";
 import {lstat, opendir} from "node:fs/promises";
 import {join} from "node:path";
 
-import type {Baseline, DirectoryEntry, FileText, Listing, ManifestState, SavedIdentity} from "../shared/contracts";
+import type {Baseline, DirectoryEntry, FileText, FolderKind, Listing, ManifestState, SavedIdentity} from "../shared/contracts";
 import {encodedTextBytes, TEXT_BUDGET_BYTES} from "../shared/contracts";
 import type {FilesFailureCode} from "../shared/failures";
 import {pathProblem} from "../shared/resource";
@@ -32,6 +32,8 @@ export interface FilesServiceOptions {
     readonly root: RootedRoot;
     /** 失败的操作系统原文（含绝对路径）只进诊断。 */
     readonly diagnose: (event: string, detail: string, cause: string) => void;
+    /** 按目录名区分三类文件夹（缺省）；为 false 时一律是普通目录，不读清单（挂载方案，resources.md 的“挂载方案”）。 */
+    readonly folderKinds?: boolean;
 }
 
 export interface SavedFile {
@@ -69,6 +71,7 @@ export function decodeText(bytes: Uint8Array): string | null {
 
 export function createFilesService(options: FilesServiceOptions): FilesService {
     const {root} = options;
+    const kindOf = options.folderKinds === false ? (): FolderKind => "plain" : folderKindOf;
 
     const failed = (failure: RootedFailure, event: string): Outcome<never> => {
         if (failure.cause !== undefined) options.diagnose(event, failure.detail, failure.cause);
@@ -100,11 +103,11 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
             const listed = await root.list(path);
             if (!listed.ok) return failed(listed, "files.list.failed");
             const segments = path === "" ? [] : path.split("/");
-            const folder = segments.length === 0 ? "plain" : folderKindOf(segments[segments.length - 1] as string);
-            const disk: DirectoryEntry[] = listed.entries.map((entry) => entry.kind === "directory" ? {name: entry.name, kind: entry.kind, folder: folderKindOf(entry.name)} : {name: entry.name, kind: entry.kind});
+            const folder = segments.length === 0 ? "plain" : kindOf(segments[segments.length - 1] as string);
+            const disk: DirectoryEntry[] = listed.entries.map((entry) => entry.kind === "directory" ? {name: entry.name, kind: entry.kind, folder: kindOf(entry.name)} : {name: entry.name, kind: entry.kind});
             let index = -1;
             for (let at = segments.length - 1; at >= 0; at -= 1) {
-                if (folderKindOf(segments[at] as string) === "content") {
+                if (kindOf(segments[at] as string) === "content") {
                     index = at;
                     break;
                 }
