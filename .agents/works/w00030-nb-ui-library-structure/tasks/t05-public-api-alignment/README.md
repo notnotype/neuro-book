@@ -15,8 +15,10 @@ updated: 2026-11-02
 
 ## 当前状态
 
-2026-11-02 开发者同意按当前 master 重新核对 t01 计划的 t04 条目、写成本 Task 的计划；核对结果与计划已写进 [plan.md](plan.md)，开发者同日确认计划末尾三项（都取推荐）。计划审查进行中，尚未开工。
+2026-11-02 开发者同意按当前 master 重新核对 t01 计划的 t04 条目、写成本 Task 的计划；核对结果与计划已写进 [plan.md](plan.md)，开发者同日确认计划末尾三项（都取推荐）。同日计划审查：Sonnet 17 条、omp 8 条，全部成立，计划已据此修订（不抽外壳组件、保留取消与关闭按钮两个原因、不设强制的列表公共接口、`ContextMenu`/`Menubar` 传送目标与最上层判定不改、L07 第 2 点不做），处理见 [`evidences/design-review.txt`](evidences/design-review.txt)。worktree `.worktree/w00030-t05-api-alignment` 已建，尚未开工。
+
+发版时必做（本 Task 不改版本号）：内置主题 `hostVersion` 与 `NB_UI_VERSION` 改 0.4；依赖 nb-ui 的已发布包一起升版本发布；应用与 SDK 升 0.13.0。详见计划第 7 节。
 
 ## 下一步
 
-开发者确认计划后：计划审查（Sonnet 审前端设计，omp 审 API 形状与对外兼容），处理后建 worktree 从 S0 开始。
+开发者看过修订后的计划，从 S0 开始。
