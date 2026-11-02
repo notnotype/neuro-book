@@ -233,6 +233,7 @@
         "typebox": "^1.3.6",
       },
       "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
         "@types/bun": "^1.3.14",
         "@types/node": "^26.1.0",
         "typescript": "^6.0.3",
