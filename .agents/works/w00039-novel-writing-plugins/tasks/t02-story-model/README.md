@@ -74,6 +74,18 @@ updated: 2026-11-02
 
 同日按这些决定与 33 个主题改出提案第二版，逐条处理见 `evidences/design-review-round1-resolution.txt`；第二轮审查的方案追加在 [review-plan.md](review-plan.md#第二轮待开发者批准)，开发者确认了第二版要点与第二轮方案，提交后开审。
 
+2026-11-02 第二轮开审（提案提交 a9cf4fee2）：A2（omp 默认模型）、F3（deepseek-flash，可执行夹具）、B2（Sonnet）。可执行夹具是 `scripts/wetool.py`，数据由 `scripts/review2-fixture.py` 生成到 git 忽略的 `.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/review2/`，埋的问题与期望见 `evidences/design-review-r2-fixture-answers.md`。
+
+2026-11-02 第二轮三路交回（报告与说明在 `evidences/design-review-{A2,B2,F3}.txt`、`design-review-brief-*.md`，F3 的工具调用在 `design-review-F3-calls.log`）：
+
+| 环节 | 结果 |
+|---|---|
+| A2 领域与后端（omp） | 有效 12 条：阻断 2（重算时一条变更的补丁要么全生效要么全不生效；直接改文件没有读取基准）、重要 10；撤回 2 |
+| B2 作者界面（Sonnet） | 18 条：重要 14、建议 4 |
+| F3 Agent 体验（deepseek-flash，可执行夹具） | 四个任务都做对，三处埋点都按规则处理，共 74 次工具调用；提出 P0 6、P1 18、P2 10，其中一部分是夹具问题 |
+
+归并成 35 个主题，逐条处理见 `evidences/design-review-r2-resolution.txt`。质疑开发者决定的 1 个：条目的主文字仍用 MDX（B2 给出与章节方言不一致、编辑器要另做一套的证据），等开发者重新确认后改第三版。
+
 ## 下一步
 
 按 Work README 的讨论顺序轮到时讨论；讨论定的事写进本 README 的“当前状态”。
