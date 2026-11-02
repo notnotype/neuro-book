@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t02-story-model
 status: active
-updated: 2026-10-31
+updated: 2026-11-02
 ---
 
 # 统一故事模型：两个视角、来源层与记录类型
@@ -69,6 +69,10 @@ updated: 2026-10-31
 | F2 Agent 体验（deepseek-flash） | 细纲 3 处全部找到；记账与改正分类正确；18 条格式与工具问题 |
 
 归并成 33 个主题；明确质疑开发者决定的有 4 个（MDX 选型、主 MDX 文本 diff 与三方合并、按 token 间隔提醒、带值渲染的可逆性）。等开发者对这几项与记账默认生效、Agent 写入的可见与还原作决定后，修订提案再开第二轮。
+
+2026-11-02 开发者对第一轮遗留的五项作了决定（见 Work README 决定表的 11-02 各行）：仍用 MDX；随剧情变化的文字整段替换、作者就地改默认算改设定；设定改了以后系统协助改正文；记账默认生效；Agent 写入走同一条发布通道并留改动记录；用法提醒按轮数。MDX 的实测在 `evidences/mdx-probe-2026-11-02.txt`（脚本 `scripts/mdx-probe.mjs`）。
+
+同日按这些决定与 33 个主题改出提案第二版，逐条处理见 `evidences/design-review-round1-resolution.txt`；第二轮审查的方案追加在 [review-plan.md](review-plan.md#第二轮待开发者批准)，开发者确认了第二版要点与第二轮方案，提交后开审。
 
 ## 下一步
 

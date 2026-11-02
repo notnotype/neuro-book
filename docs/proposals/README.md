@@ -23,7 +23,7 @@
 - [书架页](bookshelf.md)：没打开项目时的首页，继续写作与书脊书架，作品信息与统计的来源。
 - [V9 小说记忆图](novel-memory-v9.md)：读者视角的小说记忆图，模型只写章草稿，其余记录由程序生成；评测在 w00005 分支上，2026-10-15 搬到 master。
 - [剧情图谱（nb-story）第一版](novel-story-app.md)：用 V9 记忆图做查看器、问答、命令行与 Skill，先独立服务、后接插件；界面设计定在 w00024 t01。
-- [作者视角的世界引擎内核（第一版）](world-engine-kernel.md)：条目（主 MDX 加按命名空间分块的状态）、剧情变更日志（描述加补丁，计划是未写的变更）、Component 类型与实例、带值渲染，以及作者与 Agent 怎么用；存储另定。
+- [作者视角的世界引擎内核（第一版）](world-engine-kernel.md)：条目（主 MDX 加随剧情变化的状态）、剧情变更日志（计划是未写的变更）、修订与改动记录、Component 贡献点、MDX 渲染与带值写法，以及作者与 Agent 怎么用；存储另定。
 - [nb-harness：Profile 定义、工具三层与一次运行的结果](nb-harness-profile-and-tools.md)：Profile 声明工具与上下文、登记表加声明加禁用算出生效工具集、停止原因与用量、收尾工具、单次请求、按配置给模型。
 - [Agent harness 的事件模型](agent-harness-event-model.md)：harness 是一台由日志驱动的状态机，指令进、事件出，输入先进缓冲区；状态由日志归约、请求是状态的视图、副作用可拦截；Profile 与插件（连同对话记录）都是只做归约、反应、视图、拦截的扩展。
 - [界面文字的消息目录](i18n-message-catalogs.md)：每个插件、每个共享包自带按语言分的 JSON 目录（i18next 原生格式），声明按约定取键，失败文案按“拥有者 + 码”取。

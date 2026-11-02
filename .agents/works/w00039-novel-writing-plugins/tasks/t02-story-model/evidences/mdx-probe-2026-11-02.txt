@@ -1,0 +1,36 @@
+# MDX 3.1.1 实测（scripts/mdx-probe.mjs 的输出，2026-11-02）
+
+一、编译结果
+== 尖括号网址：报错
+Unexpected character `/` (U+002F) before local name, expected a character that can start a name, such as a letter, `$`, or `_` (note: to create a link in MDX, use `[text](url)`)
+
+== HTML 注释：报错
+Unexpected character `!` (U+0021) before name, expected a character that can start a name, such as a letter, `$`, or `_` (note: to create a comment in MDX, use `{/* text */}`)
+
+== 项目方言的批注：编译通过
+function _createMdxContent(props) { const _components = { p: "p", ...props.components }; return _jsxs(_components.p, { children: ["她抬头", _jsx("comment", { body: "节奏太快", children: "看了他一眼" }), "。"] }); } 
+
+== 项目方言的文字颜色：编译通过
+function _createMdxContent(props) { return _jsx("span", { style: "color: #ef4444", children: "红字" }); } 
+
+== 网文系统提示：报错
+Unexpected character `！` (U+FF01) in name, expected a name character such as letters, digits, `$`, or `_`; whitespace before attributes; or the end of the tag
+
+== 比较：报错
+Unexpected character `5` (U+0035) before name, expected a character that can start a name, such as a letter, `$`, or `_`
+
+== 作者的心里话：报错
+Could not parse expression with acorn
+
+== 好感度写法：编译通过
+function _createMdxContent(props) { const _components = { p: "p", ...props.components }; return _jsxs(_components.p, { children: ["好感度", +5, "，现在是 60。"] }); } 
+
+== 作者用的花括号注记：报错
+Could not parse expression with acorn
+
+二、每个 {} 与 import 的语法树节点
+ESM：import fs from 'node:fs'
+panel.魔力 -> MemberExpression
+panel.魔力 > 100 ? '充足' : '不足' -> ConditionalExpression
++5 -> UnaryExpression
+fetch('http://x') -> CallExpression
