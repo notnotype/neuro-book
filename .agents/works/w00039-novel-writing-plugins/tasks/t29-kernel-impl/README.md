@@ -19,6 +19,8 @@ updated: 2026-11-02
 
 2026-11-02 经 nbdev 新建，尚未开工。
 
+执行位置：`.worktree/w00039-t29-canon-kernel`，分支 `feat/w00039-t29-canon-kernel`。开发者 11-02：本次在单独的分支上进行，没有开发者允许不合并进 master。
+
 ## 下一步
 
 t27 的 Spec 批准后，按 implementation-planning 写实施计划，在 worktree 里分四段实现。
