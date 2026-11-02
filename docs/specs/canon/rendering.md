@@ -52,7 +52,7 @@ owners:
 | `Literal` | 字符串、数、真假、`null` |
 | `BinaryExpression` | `==` `!=` `===` `!==` `<` `<=` `>` `>=` |
 | `LogicalExpression` | `&&` `||` |
-| `UnaryExpression` | `!` |
+| `UnaryExpression` | `!`；`-` 只许直接作用于数字字面量（负数） |
 | `ConditionalExpression` | `?:` |
 
 - 根名字的解析顺序：`entry`、`text`、`ref`、本条目的命名空间（Component 视图里是那个命名空间的字段）。`entry`、`text`、`ref` 与以后的内置函数名是保留名，命名空间不能用（[`canon.components`](components.md) 输入与前置条件）。
