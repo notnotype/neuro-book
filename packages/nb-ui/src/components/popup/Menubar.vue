@@ -14,7 +14,8 @@ const {zIndex: popoverZIndex} = usePopoverLayer();
 
 export interface MenubarItemData {
     label: string;
-    value: string;
+    /** 项的身份；`select` 事件发出整项，宿主按它分派。 */
+    id: string;
     shortcut?: string;
     iconClass?: string;
     disabled?: boolean;
@@ -23,7 +24,7 @@ export interface MenubarItemData {
     tone?: Extract<Tone, "neutral" | "danger">;
     separator?: boolean;
     checked?: boolean;
-    type?: "default" | "checkbox" | "radio";
+    type?: "item" | "checkbox" | "radio";
     children?: MenubarItemData[];
 }
 

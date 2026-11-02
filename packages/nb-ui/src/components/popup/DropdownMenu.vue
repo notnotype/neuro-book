@@ -55,7 +55,7 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-    (e: "select", value: string): void;
+    (e: "select", id: string): void;
     (e: "focus", event: FocusEvent): void;
     (e: "update:open", value: boolean): void;
 }>();
@@ -73,7 +73,7 @@ function handleOpenChange(value: boolean): void {
 /** 子菜单父项不走这里：它只展开子菜单，不执行自己的动作。 */
 function handleSelect(item: DropdownMenuItemData): void {
     if (item.disabled) return;
-    emit("select", item.value);
+    emit("select", item.id);
 }
 
 /** 级联面板里的选中：执行后关掉整个菜单，焦点由 Reka 还给触发器。 */
@@ -107,7 +107,7 @@ function onMainScroll(): void {
 }
 function warnMissingRadioGroup(items: readonly DropdownMenuItemData[]): void {
     for (const item of items) {
-        if (item.type === "radio" && item.group === undefined) console.warn(`[nb-ui/DropdownMenu] radio 项「${item.value}」缺少 group，已按单项独立成组渲染。`);
+        if (item.type === "radio" && item.group === undefined) console.warn(`[nb-ui/DropdownMenu] radio 项「${item.id}」缺少 group，已按单项独立成组渲染。`);
         if (item.children) warnMissingRadioGroup(item.children);
     }
 }

@@ -20,47 +20,47 @@ import {defineSubjectFixture} from "../subject-fixture";
 import {nbUiSubject} from "./shared";
 
 const DROPDOWN_ITEMS = [
-    {label: "重命名", value: "rename", iconClass: "i-lucide-pencil", shortcut: "F2"},
-    {label: "复制路径", value: "copy-path", iconClass: "i-lucide-copy"},
-    {label: "移到回收站", value: "trash", iconClass: "i-lucide-archive", disabled: true, title: "根目录不能移到回收站"},
-    {label: "", value: "sep-1", separator: true},
-    {label: "排序方式", value: "sort", iconClass: "i-lucide-arrow-down-wide-narrow", children: [
-        {label: "按名称", value: "sort-name", type: "radio" as const, checked: true, group: "sort"},
-        {label: "按修改时间", value: "sort-mtime", type: "radio" as const, checked: false, group: "sort"},
+    {label: "重命名", id: "rename", iconClass: "i-lucide-pencil", shortcut: "F2"},
+    {label: "复制路径", id: "copy-path", iconClass: "i-lucide-copy"},
+    {label: "移到回收站", id: "trash", iconClass: "i-lucide-archive", disabled: true, title: "根目录不能移到回收站"},
+    {label: "", id: "sep-1", separator: true},
+    {label: "排序方式", id: "sort", iconClass: "i-lucide-arrow-down-wide-narrow", children: [
+        {label: "按名称", id: "sort-name", type: "radio" as const, checked: true, group: "sort"},
+        {label: "按修改时间", id: "sort-mtime", type: "radio" as const, checked: false, group: "sort"},
     ]},
-    {label: "显示隐藏文件", value: "hidden", type: "checkbox" as const, checked: false},
-    {label: "", value: "sep-2", separator: true},
-    {label: "删除", value: "delete", iconClass: "i-lucide-trash-2", tone: "danger" as const},
+    {label: "显示隐藏文件", id: "hidden", type: "checkbox" as const, checked: false},
+    {label: "", id: "sep-2", separator: true},
+    {label: "删除", id: "delete", iconClass: "i-lucide-trash-2", tone: "danger" as const},
 ];
 
 /** 勾选项也带快捷键：左侧勾选列与右侧快捷键同时出现。 */
 const DROPDOWN_CHECKED_ITEMS = [
-    {label: "自动换行", value: "wrap", type: "checkbox" as const, checked: true, shortcut: "Alt+Z"},
-    {label: "显示行号", value: "line-numbers", type: "checkbox" as const, checked: false},
-    {label: "", value: "sep-1", separator: true},
-    {label: "浅色", value: "light", type: "radio" as const, checked: false, group: "theme"},
-    {label: "深色", value: "dark", type: "radio" as const, checked: true, group: "theme"},
-    {label: "跟随系统", value: "system", type: "radio" as const, checked: false, group: "theme"},
+    {label: "自动换行", id: "wrap", type: "checkbox" as const, checked: true, shortcut: "Alt+Z"},
+    {label: "显示行号", id: "line-numbers", type: "checkbox" as const, checked: false},
+    {label: "", id: "sep-1", separator: true},
+    {label: "浅色", id: "light", type: "radio" as const, checked: false, group: "theme"},
+    {label: "深色", id: "dark", type: "radio" as const, checked: true, group: "theme"},
+    {label: "跟随系统", id: "system", type: "radio" as const, checked: false, group: "theme"},
 ];
 
 const MENUBAR_MENUS = [
     {id: "file", label: "文件", items: [
-        {label: "新建章节", value: "new-chapter", shortcut: "Ctrl+N", iconClass: "i-lucide-file-plus"},
-        {label: "打开项目…", value: "open-project", shortcut: "Ctrl+O"},
-        {label: "", value: "sep", separator: true},
-        {label: "导出", value: "export", children: [
-            {label: "Markdown", value: "export-md"},
-            {label: "EPUB", value: "export-epub", disabled: true},
+        {label: "新建章节", id: "new-chapter", shortcut: "Ctrl+N", iconClass: "i-lucide-file-plus"},
+        {label: "打开项目…", id: "open-project", shortcut: "Ctrl+O"},
+        {label: "", id: "sep", separator: true},
+        {label: "导出", id: "export", children: [
+            {label: "Markdown", id: "export-md"},
+            {label: "EPUB", id: "export-epub", disabled: true},
         ]},
     ]},
     {id: "edit", label: "编辑", items: [
-        {label: "撤销", value: "undo", shortcut: "Ctrl+Z"},
-        {label: "重做", value: "redo", shortcut: "Ctrl+Shift+Z", disabled: true, title: "没有可以重做的操作"},
-        {label: "查找", value: "find", shortcut: "Ctrl+F"},
+        {label: "撤销", id: "undo", shortcut: "Ctrl+Z"},
+        {label: "重做", id: "redo", shortcut: "Ctrl+Shift+Z", disabled: true, title: "没有可以重做的操作"},
+        {label: "查找", id: "find", shortcut: "Ctrl+F"},
     ]},
     {id: "view", label: "视图", items: [
-        {label: "显示侧栏", value: "sidebar", type: "checkbox" as const, checked: true},
-        {label: "显示面板", value: "panel", type: "checkbox" as const, checked: false},
+        {label: "显示侧栏", id: "sidebar", type: "checkbox" as const, checked: true},
+        {label: "显示面板", id: "panel", type: "checkbox" as const, checked: false},
     ]},
     {id: "help", label: "帮助", disabled: true, items: []},
 ];
@@ -120,9 +120,9 @@ export const controlsFixtures: LabFixture[] = [
         scenes: [
             {id: "default", label: "图标、快捷键、子菜单与危险项", input: {props: {items: DROPDOWN_ITEMS, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
             {id: "checked", label: "勾选项与快捷键", input: {props: {items: DROPDOWN_CHECKED_ITEMS, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
-            {id: "long", label: "很多项时内部滚动", input: {props: {items: Array.from({length: 40}, (_, index) => ({label: `第 ${String(index + 1)} 章`, value: `chapter-${String(index + 1)}`})), align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
+            {id: "long", label: "很多项时内部滚动", input: {props: {items: Array.from({length: 40}, (_, index) => ({label: `第 ${String(index + 1)} 章`, id: `chapter-${String(index + 1)}`})), align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
             {id: "disabled", label: "禁用", input: {props: {items: DROPDOWN_ITEMS, disabled: true, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
-            {id: "wrap", label: "长文字换行", input: {props: {items: [{label: "未保存的文档：未保存 3 个（第一章.md、第二章.md、第三章.md）", value: "unsaved"}, {label: "字数：12,345 字", value: "words", disabled: true}, ...DROPDOWN_ITEMS.slice(0, 2)], wrap: true, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
+            {id: "wrap", label: "长文字换行", input: {props: {items: [{label: "未保存的文档：未保存 3 个（第一章.md、第二章.md、第三章.md）", id: "unsaved"}, {label: "字数：12,345 字", id: "words", disabled: true}, ...DROPDOWN_ITEMS.slice(0, 2)], wrap: true, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
         ],
         subject: nbUiSubject("DropdownMenu"),
     }),

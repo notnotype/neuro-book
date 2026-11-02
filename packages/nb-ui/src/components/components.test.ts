@@ -1995,8 +1995,8 @@ describe("nb-ui dialog anatomy", () => {
         const wrapper = mount(Menubar, {
             props: {
                 menus: [
-                    {id: "file", label: "文件", items: [{label: "新建", value: "new"}]},
-                    {id: "edit", label: "编辑", items: [{label: "撤销", value: "undo"}]},
+                    {id: "file", label: "文件", items: [{label: "新建", id: "new"}]},
+                    {id: "edit", label: "编辑", items: [{label: "撤销", id: "undo"}]},
                 ],
             },
         });

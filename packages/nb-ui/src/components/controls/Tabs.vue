@@ -114,7 +114,7 @@ function iconOnly(item: TabsItem): boolean {
     return adaptive.value && adapt.value.level >= 2 && !isSelected(item) && item.iconClass !== undefined;
 }
 const visibleItems = computed(() => (adaptive.value ? props.items.filter((item) => !adapt.value.hidden.has(item.value)) : props.items));
-const moreItems = computed<DropdownMenuItemData[]>(() => props.items.filter((item) => adapt.value.hidden.has(item.value)).map((item) => ({label: item.label, value: item.value, ...(item.iconClass === undefined ? {} : {iconClass: item.iconClass}), ...(item.disabled === true ? {disabled: true} : {})})));
+const moreItems = computed<DropdownMenuItemData[]>(() => props.items.filter((item) => adapt.value.hidden.has(item.value)).map((item) => ({label: item.label, id: item.value, ...(item.iconClass === undefined ? {} : {iconClass: item.iconClass}), ...(item.disabled === true ? {disabled: true} : {})})));
 
 /** 按测量层的实测宽度与标签带的可用宽度求这一档；量不到（还没挂上、不可见）时保持原状。 */
 function measure(): void {

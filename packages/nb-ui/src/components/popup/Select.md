@@ -37,10 +37,10 @@ export type SelectOption = {
     value: string;
     /** 选项说明，显示在同一行右侧；默认 undefined。 */
     description?: string;
-    /** i-lucide-* 图标 class；与 indicatorClass 互斥，indicatorClass 优先；默认 undefined。 */
+    /** i-lucide-* 图标 class；与 tone 同时给时画色点；默认 undefined。 */
     iconClass?: string;
-    /** 状态色圆点 class；与 iconClass 互斥，indicatorClass 优先；默认 undefined。 */
-    indicatorClass?: string;
+    /** 前导列画一个这个语调的色点，颜色取主题状态色（neutral 用 --text-muted，accent 用 --accent-main，其余用 --status-*）；与 iconClass 同时给时色点优先；默认 undefined。 */
+    tone?: "neutral" | "accent" | "info" | "success" | "warning" | "danger";
     /** 禁止选择该项；默认 undefined/false。 */
     disabled?: boolean;
 };
@@ -92,7 +92,7 @@ type SelectSlots = {
 ## 状态
 
 - **默认/空值**：触发器显示 placeholder；无匹配 `modelValue` 时也按空选择处理，选项列表仍可打开；`options=[]` 时没有选项行，也不显示自定义空状态。
-- **已选值**：显示匹配选项的 label，并按 `indicatorClass` 优先、否则 `iconClass` 显示前导标识；浮层中该项显示勾选标记（除非 hideCheckmark）。
+- **已选值**：显示匹配选项的 label，并按 `tone` 色点优先、否则 `iconClass` 显示前导标识；浮层中该项显示勾选标记（除非 hideCheckmark）。
 - **禁用**：触发器不可操作；单个 disabled 选项保留在列表中但不可选。
 - **错误**：Field 的 invalid 上下文使触发器使用错误样式并设置 `aria-invalid`、`aria-describedby`；required 与字段上下文取逻辑或。
 - **长列表**：浮层内部可滚动；内容超出视口时显示拖动滑块和渐隐提示。

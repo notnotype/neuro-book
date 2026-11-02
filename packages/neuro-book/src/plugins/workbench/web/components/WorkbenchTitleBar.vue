@@ -119,7 +119,7 @@ const entries = computed(() => new Map(menus.value.flatMap((group) => group.sect
 function itemOf(entry: MenuEntry): MenubarItemData {
     return {
         label: entry.label,
-        value: entry.id,
+        id: entry.id,
         disabled: !entry.enabled,
         ...(entry.reason === null ? {} : {title: entry.reason}),
         ...(entry.shortcut === null ? {} : {shortcut: entry.shortcut}),
@@ -130,7 +130,7 @@ function itemOf(entry: MenuEntry): MenubarItemData {
 function dropdownItemOf(entry: MenuEntry): DropdownMenuItemData {
     return {
         label: entry.label,
-        value: entry.id,
+        id: entry.id,
         disabled: !entry.enabled,
         ...(entry.reason === null ? {} : {title: entry.reason}),
         ...(entry.shortcut === null ? {} : {shortcut: entry.shortcut}),
@@ -146,17 +146,17 @@ function sectioned<T>(sections: ReadonlyArray<ReadonlyArray<MenuEntry>>, map: (e
 const menubar = computed<MenubarMenuData[]>(() => menus.value.map((group) => ({
     id: group.id,
     label: group.label,
-    items: sectioned(group.sections, itemOf, (index) => ({label: "", value: `${group.id}-sep-${String(index)}`, separator: true})),
+    items: sectioned(group.sections, itemOf, (index) => ({label: "", id: `${group.id}-sep-${String(index)}`, separator: true})),
 })));
 
 /** 收成 ≡ 后（M1）：一组一行，悬停或方向键展开它的子菜单，同完整菜单栏的分组。 */
 const compactItems = computed<DropdownMenuItemData[]>(() => menus.value.map((group) => ({
     label: group.label,
-    value: `${GROUP_PREFIX}${group.id}`,
-    children: sectioned(group.sections, dropdownItemOf, (index) => ({label: "", value: `${group.id}-sep-${String(index)}`, separator: true})),
+    id: `${GROUP_PREFIX}${group.id}`,
+    children: sectioned(group.sections, dropdownItemOf, (index) => ({label: "", id: `${group.id}-sep-${String(index)}`, separator: true})),
 })));
 
-const projectItems = computed<DropdownMenuItemData[]>(() => [{label: text("titlebar.openProject"), value: OPEN_PROJECT}]);
+const projectItems = computed<DropdownMenuItemData[]>(() => [{label: text("titlebar.openProject"), id: OPEN_PROJECT}]);
 
 function select(value: string): void {
     if (value === OPEN_PROJECT) {
@@ -313,7 +313,7 @@ onBeforeUnmount(() => {
                 <span v-if="showProjectName">{{ text('titlebar.openProject') }}</span>
             </Button>
             <span class="workbench-titlebar__divider" aria-hidden="true"></span>
-            <Menubar v-if="showMenubar" v-model="menubarOpen" :menus="menubar" size="sm" variant="flat" data-titlebar-menu-entry @select="(item) => select(item.value)" />
+            <Menubar v-if="showMenubar" v-model="menubarOpen" :menus="menubar" size="sm" variant="flat" data-titlebar-menu-entry @select="(item) => select(item.id)" />
             <DropdownMenu v-else :items="compactItems" align="start" @select="select" @update:open="(open: boolean) => { dropdownOpen = open; }">
                 <IconButton size="sm" icon-class="i-lucide-menu" :aria-label="text('titlebar.menuButton')" :title="text('titlebar.menuButton')" class="workbench-titlebar__button" data-titlebar-menu-entry />
             </DropdownMenu>

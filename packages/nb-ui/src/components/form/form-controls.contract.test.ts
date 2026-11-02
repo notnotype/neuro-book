@@ -86,7 +86,7 @@ describe("phase 2 form control contracts", () => {
                 dropdownDirection: "up",
                 options: [
                     {label: "Markdown", value: "md", description: "纯文本标记", iconClass: "i-lucide-file-text"},
-                    {label: "PDF", value: "pdf", description: "暂不可用", disabled: true, indicatorClass: "bg-red-500"},
+                    {label: "PDF", value: "pdf", description: "暂不可用", disabled: true, tone: "danger"},
                 ],
             },
             attachTo: document.body,
@@ -102,6 +102,8 @@ describe("phase 2 form control contracts", () => {
 
         expect(document.body.textContent).toContain("纯文本标记");
         expect(document.body.textContent).toContain("暂不可用");
+        const pdfOption = Array.from(document.querySelectorAll("[role='option']")).find((option) => option.textContent?.includes("暂不可用"));
+        expect(pdfOption?.querySelector(".rounded-full")?.classList.contains("bg-[var(--status-danger)]")).toBe(true);
         expect(document.querySelector("[role='listbox']")?.getAttribute("data-side")).toBe("top");
         wrapper.unmount();
     });

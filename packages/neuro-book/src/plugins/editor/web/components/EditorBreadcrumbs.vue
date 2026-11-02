@@ -121,20 +121,20 @@ watch(opened, (index) => {
 const directoryItems = computed((): DropdownMenuItemData[] => {
     const current = listing.value;
     if (current === null) return [];
-    if (current.state === "loading") return [{label: t("crumbs.loading"), value: "state:loading", disabled: true}];
-    if (current.state === "failed") return [{label: current.reason, value: "state:failed", disabled: true, tone: "danger"}, {label: t("crumbs.retry"), value: "state:retry", iconClass: "i-lucide-rotate-cw"}];
-    if (current.entries.length === 0) return [{label: t("crumbs.empty"), value: "state:empty", disabled: true}];
+    if (current.state === "loading") return [{label: t("crumbs.loading"), id: "state:loading", disabled: true}];
+    if (current.state === "failed") return [{label: current.reason, id: "state:failed", disabled: true, tone: "danger"}, {label: t("crumbs.retry"), id: "state:retry", iconClass: "i-lucide-rotate-cw"}];
+    if (current.entries.length === 0) return [{label: t("crumbs.empty"), id: "state:empty", disabled: true}];
     return current.entries.map((entry): DropdownMenuItemData => {
-        if (entry.kind === "directory") return {label: entry.name, value: `dir:${entry.address}`, iconClass: "i-lucide-folder", rightIconClass: "i-lucide-chevron-right"};
-        if (entry.kind === "file") return {label: entry.name, value: `file:${entry.address}`, iconClass: "i-lucide-file-text", type: "radio", group: "files", checked: entry.address === current.current};
-        return {label: entry.name, value: `other:${entry.address}`, iconClass: "i-lucide-file-question", disabled: true};
+        if (entry.kind === "directory") return {label: entry.name, id: `dir:${entry.address}`, iconClass: "i-lucide-folder", rightIconClass: "i-lucide-chevron-right"};
+        if (entry.kind === "file") return {label: entry.name, id: `file:${entry.address}`, iconClass: "i-lucide-file-text", type: "radio", group: "files", checked: entry.address === current.current};
+        return {label: entry.name, id: `other:${entry.address}`, iconClass: "i-lucide-file-question", disabled: true};
     });
 });
 
 const outlineItems = computed((): DropdownMenuItemData[] => (props.outline?.items ?? []).map((item) => ({
     // 按层级缩进：一级不缩，往下每级一个全角空格。
     label: `${"　".repeat(Math.max(0, item.level - 1))}${item.text}`,
-    value: `heading:${item.id}`,
+    id: `heading:${item.id}`,
     type: "radio",
     group: "outline",
     checked: item.id === props.outline?.current,

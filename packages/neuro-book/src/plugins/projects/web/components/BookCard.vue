@@ -56,9 +56,9 @@ function when(): string | null {
 
 function menu(): DropdownMenuItemData[] {
     return [
-        {value: "open-new-window", label: text("bookCard.openNewWindow")},
-        {value: "edit", label: text("bookCard.edit")},
-        {value: "remove", label: text("bookCard.remove"), tone: "danger"},
+        {id: "open-new-window", label: text("bookCard.openNewWindow")},
+        {id: "edit", label: text("bookCard.edit")},
+        {id: "remove", label: text("bookCard.remove"), tone: "danger"},
     ];
 }
 

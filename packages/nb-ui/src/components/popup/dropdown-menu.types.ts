@@ -8,7 +8,8 @@ export type DropdownMenuItemType = "item" | "radio" | "checkbox";
  */
 export interface DropdownMenuItemData {
     label: string;
-    value: string;
+    /** 项的身份：`select` 事件发它；分隔线也要一个（例如 "sep-1"），作列表 key。 */
+    id: string;
     disabled?: boolean;
     iconClass?: string;
     rightIconClass?: string;
@@ -18,7 +19,7 @@ export interface DropdownMenuItemData {
     title?: string;
     /** danger 用于删除等破坏性动作：文字与图标用 --status-danger，高亮底色与其它项相同 */
     tone?: Extract<Tone, "neutral" | "danger">;
-    /** 为 true 时渲染为分隔线，label/图标被忽略；value 仍作为列表 key，用 "sep-1" 之类占位 */
+    /** 为 true 时渲染为分隔线，label/图标被忽略 */
     separator?: boolean;
     /**
      * 任意层级子菜单。带 children 的项是子菜单父项：**自己不执行 select**，

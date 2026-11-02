@@ -34,3 +34,13 @@
 | `AlertDialog` | `confirmText`、`cancelText` | `confirmLabel`、`cancelLabel` |
 | `Drawer` | — | 新增 `closeLabel`；没有 `title` 时自带一个只给读屏的标题 |
 | `Breadcrumb` | — | 新增 `ariaLabel` |
+
+## 列表数据
+
+| 组件 | 旧 | 新 |
+|---|---|---|
+| `DropdownMenu` 的项（`DropdownMenuItemData`） | `value` | `id`；`select` 事件发出的仍是这个字符串 |
+| `Menubar` 的项（`MenubarItemData`） | `value`、`type: "default"` | `id`、`type: "item"`；`select` 事件发出整项，读 `item.id` |
+| `Select` 的选项 | `indicatorClass`（调用方传色类） | `tone`：组件按语调取主题的状态色画色点 |
+
+不变：`Select`、`SearchSelect` 选项的 `value`（表单提交值）；菜单与 `QuickPick` 的 `shortcut`；各组件的 `iconClass`。

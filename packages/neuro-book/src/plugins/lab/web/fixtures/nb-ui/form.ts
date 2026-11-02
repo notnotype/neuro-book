@@ -17,6 +17,7 @@ import type {
     Textarea,
     RadioGroup,
     Slider,
+    SelectOption,
 } from "@notnotype/nb-ui/components";
 import {h} from "vue";
 
@@ -66,10 +67,10 @@ const EXPORT_FORMATS = [
     {value: "zip", label: "整本打包（.zip）", iconClass: "i-lucide-archive"},
     {value: "nbook", label: "NeuroBook 备份（.nbook）", iconClass: "i-lucide-save"},
 ];
-const STATUS_OPTIONS = [
-    {value: "draft", label: "草稿", indicatorClass: "bg-[var(--status-warning)]", description: "还在写"},
-    {value: "review", label: "待校对", indicatorClass: "bg-[var(--status-info)]", description: "交给编辑"},
-    {value: "done", label: "定稿", indicatorClass: "bg-[var(--status-success)]", description: "不再改动"},
+const STATUS_OPTIONS: SelectOption[] = [
+    {value: "draft", label: "草稿", tone: "warning", description: "还在写"},
+    {value: "review", label: "待校对", tone: "info", description: "交给编辑"},
+    {value: "done", label: "定稿", tone: "success", description: "不再改动"},
 ];
 
 export const formFixtures: LabFixture[] = [

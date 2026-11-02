@@ -17,7 +17,7 @@ import {usePopoverLayer} from "../../composables/usePopoverLayer";
 import {usePopupScroll} from "../../composables/usePopupScroll";
 import {cn} from "../../utils/cn";
 import {useFieldContext} from "../form/field-context";
-import type {ControlSize} from "../shared-types";
+import type {ControlSize, Tone} from "../shared-types";
 
 /**
  * 下拉选择。弹出层基于 reka 的 Select 原语：键盘漫游、选中、打开时滚到选中项都由 reka 负责。
@@ -31,15 +31,25 @@ import type {ControlSize} from "../shared-types";
 export type SelectSize = Extract<ControlSize, "sm" | "md">;
 export type SelectDirection = "auto" | "up" | "down";
 
+/** 色点的颜色：语调映射到主题的状态色，调用方不传色类。 */
+const DOT_CLASS: Readonly<Record<Tone, string>> = {
+    neutral: "bg-[var(--text-muted)]",
+    accent: "bg-[var(--accent-main)]",
+    info: "bg-[var(--status-info)]",
+    success: "bg-[var(--status-success)]",
+    warning: "bg-[var(--status-warning)]",
+    danger: "bg-[var(--status-danger)]",
+};
+
 export type SelectOption = {
     label: string;
     value: string;
     /** 次行说明文字，富选项场景使用 */
     description?: string;
-    /** i-lucide-* 图标类，与 indicatorClass 互斥（indicator 优先） */
+    /** i-lucide-* 图标类；与 `tone` 同时给时画色点 */
     iconClass?: string;
-    /** 状态色圆点类（如 bg-emerald-500），与 iconClass 互斥（indicator 优先） */
-    indicatorClass?: string;
+    /** 在前导列画一个这个语调的色点（例如连接状态），颜色取主题的状态色；与 `iconClass` 同时给时色点优先 */
+    tone?: Tone;
     disabled?: boolean;
 };
 
@@ -121,7 +131,7 @@ const selectedLabel = computed(() => selectedOption.value?.label ?? "");
  * 左侧一列，勾与图标共用（Task 决定 8）：选中项画勾，其它项画自己的图标或状态点。要画勾或有一项带图标时每行都留这一列，
  * 名称左边对齐。
  */
-const leadColumn = computed(() => !props.hideCheckmark || props.options.some((option) => option.indicatorClass || option.iconClass));
+const leadColumn = computed(() => !props.hideCheckmark || props.options.some((option) => option.tone !== undefined || option.iconClass));
 
 function showsCheck(option: SelectOption): boolean {
     return !props.hideCheckmark && option.value === props.modelValue;
@@ -183,7 +193,7 @@ function handleCloseAutoFocus(event: Event): void {
         >
             <span class="flex min-w-0 items-center gap-1.5 pr-1">
                 <slot name="leading" :selected="selectedOption">
-                    <span v-if="selectedOption?.indicatorClass" class="h-1.5 w-1.5 shrink-0 rounded-full shadow-sm" :class="selectedOption.indicatorClass" aria-hidden="true"></span>
+                    <span v-if="selectedOption?.tone !== undefined" class="h-1.5 w-1.5 shrink-0 rounded-full shadow-sm" :class="DOT_CLASS[selectedOption.tone]" aria-hidden="true"></span>
                     <span v-else-if="selectedOption?.iconClass" class="h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" :class="selectedOption.iconClass" aria-hidden="true"></span>
                 </slot>
                 <SelectValue class="min-w-0 truncate text-left" :placeholder="props.placeholder">{{ selectedLabel || props.placeholder }}</SelectValue>
@@ -224,8 +234,8 @@ function handleCloseAutoFocus(event: Event): void {
                         :disabled="option.disabled"
                         class="nb-ui-menu-item"
                     >
-                        <MenuRow :lead-column="leadColumn" :checked="showsCheck(option)" :icon="option.indicatorClass ? undefined : option.iconClass" muted-icon :hint="option.description">
-                            <template #lead><span v-if="option.indicatorClass && !showsCheck(option)" class="h-1.5 w-1.5 rounded-full shadow-sm" :class="option.indicatorClass"></span></template>
+                        <MenuRow :lead-column="leadColumn" :checked="showsCheck(option)" :icon="option.tone !== undefined ? undefined : option.iconClass" muted-icon :hint="option.description">
+                            <template #lead><span v-if="option.tone !== undefined && !showsCheck(option)" class="h-1.5 w-1.5 rounded-full shadow-sm" :class="DOT_CLASS[option.tone]"></span></template>
                             <!-- 名称格必须是 reka 的 SelectItemText：它在 SelectItem 里登记文字，首字母跳转靠这个。 -->
                             <template #label><SelectItemText class="nb-ui-menu-item__label">{{ option.label }}</SelectItemText></template>
                         </MenuRow>

@@ -48,7 +48,7 @@ const currentThinking = computed(() => props.thinking === null ? null : thinking
 
 const items = computed<DropdownMenuItemData[]>(() => {
     const models: DropdownMenuItemData[] = props.models.map((model) => ({
-        value: `${MODEL_PREFIX}${model.key}`,
+        id: `${MODEL_PREFIX}${model.key}`,
         label: model.label,
         type: "radio",
         group: "model",
@@ -58,20 +58,20 @@ const items = computed<DropdownMenuItemData[]>(() => {
         ...(model.unavailable !== undefined ? {disabled: true, title: model.unavailable} : props.showImageSupport && !model.supportsImages ? {title: t("composer.model.noImages")} : {}),
     }));
     const manage: DropdownMenuItemData[] = props.canManage
-        ? [{value: "sep-manage", label: "", separator: true}, {value: MANAGE, label: t("composer.model.manage"), iconClass: "i-lucide-settings-2"}]
+        ? [{id: "sep-manage", label: "", separator: true}, {id: MANAGE, label: t("composer.model.manage"), iconClass: "i-lucide-settings-2"}]
         : [];
     if (props.thinkingLevels.length === 0) {
         return [...models, ...manage];
     }
     return [
         ...models,
-        {value: "sep-thinking", label: "", separator: true},
+        {id: "sep-thinking", label: "", separator: true},
         {
-            value: "thinking",
+            id: "thinking",
             label: currentThinking.value === null ? t("composer.model.thinking") : `${t("composer.model.thinking")} · ${currentThinking.value}`,
             iconClass: "i-lucide-brain",
             children: props.thinkingLevels.map((level) => ({
-                value: `${THINKING_PREFIX}${level}`,
+                id: `${THINKING_PREFIX}${level}`,
                 label: thinkingLabel(level),
                 type: "radio",
                 group: "thinking",
@@ -112,7 +112,7 @@ function onSelect(value: string): void {
         </button>
         <!-- 不支持图片的模型在右侧标一个图标；DropdownMenu 的 rightIconClass 目前不渲染，所以用插槽画。 -->
         <template #item-right="{item}">
-            <span v-if="noImageValues.has(item.value)" class="i-lucide-image-off acv-model-picker__no-images" aria-hidden="true" />
+            <span v-if="noImageValues.has(item.id)" class="i-lucide-image-off acv-model-picker__no-images" aria-hidden="true" />
         </template>
     </DropdownMenu>
 </template>

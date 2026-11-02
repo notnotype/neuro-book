@@ -77,7 +77,7 @@ const strip = computed(() => {
     return layoutStrip(props.containers.map((container, index) => ({id: container.id, order: index, priority: container.id === props.selected ? 1 : 0, width: ITEM_PX})), room, ITEM_PX, gap);
 });
 const shownContainers = computed(() => props.containers.filter((container) => strip.value.shown.includes(container.id)));
-const moreItems = computed(() => props.containers.filter((container) => strip.value.hidden.includes(container.id)).map((container) => ({label: container.label, value: container.id, iconClass: container.icon})));
+const moreItems = computed(() => props.containers.filter((container) => strip.value.hidden.includes(container.id)).map((container) => ({label: container.label, id: container.id, iconClass: container.icon})));
 </script>
 
 <template>

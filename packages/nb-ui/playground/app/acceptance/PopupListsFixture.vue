@@ -26,25 +26,25 @@ const props = defineProps<{
 const controls = ref<Record<string, string | boolean>>({});
 
 const DROPDOWN_ITEMS = [
-    {label: "重命名", value: "rename", iconClass: "i-lucide-pencil", shortcut: "F2"},
-    {label: "自动换行", value: "wrap", type: "checkbox" as const, checked: true, shortcut: "Alt+Z"},
-    {label: "", value: "sep-1", separator: true},
-    {label: "排序方式", value: "sort", children: [
-        {label: "按名称", value: "sort-name", type: "radio" as const, checked: true, group: "sort"},
-        {label: "按修改时间", value: "sort-mtime", type: "radio" as const, checked: false, group: "sort"},
+    {label: "重命名", id: "rename", iconClass: "i-lucide-pencil", shortcut: "F2"},
+    {label: "自动换行", id: "wrap", type: "checkbox" as const, checked: true, shortcut: "Alt+Z"},
+    {label: "", id: "sep-1", separator: true},
+    {label: "排序方式", id: "sort", children: [
+        {label: "按名称", id: "sort-name", type: "radio" as const, checked: true, group: "sort"},
+        {label: "按修改时间", id: "sort-mtime", type: "radio" as const, checked: false, group: "sort"},
     ]},
-    {label: "删除", value: "delete", iconClass: "i-lucide-trash-2", tone: "danger" as const},
+    {label: "删除", id: "delete", iconClass: "i-lucide-trash-2", tone: "danger" as const},
 ];
 
 const MENUBAR_MENUS = [
     {id: "file", label: "文件", items: [
-        {label: "新建章节", value: "new", shortcut: "Ctrl+N"},
-        {label: "导出", value: "export", children: [
-            {label: "Markdown", value: "export-md"},
-            {label: "EPUB", value: "export-epub"},
+        {label: "新建章节", id: "new", shortcut: "Ctrl+N"},
+        {label: "导出", id: "export", children: [
+            {label: "Markdown", id: "export-md"},
+            {label: "EPUB", id: "export-epub"},
         ]},
     ]},
-    {id: "edit", label: "编辑", items: [{label: "撤销", value: "undo", shortcut: "Ctrl+Z"}]},
+    {id: "edit", label: "编辑", items: [{label: "撤销", id: "undo", shortcut: "Ctrl+Z"}]},
 ];
 
 const CONTEXT_ITEMS: ContextMenuItem[] = [
@@ -71,15 +71,15 @@ const quickPickOpen = ref(props.sceneId === "quick-pick" || props.sceneId === "q
 const quickPickQuery = ref("");
 const quickPickActive = ref<string | null>(props.sceneId === "quick-pick-long" ? "命令-1" : "open");
 
-const numbered = (prefix: string, count: number): {label: string; value: string}[] =>
-    Array.from({length: count}, (_, index) => ({label: `${prefix} ${String(index + 1)}`, value: `${prefix}-${String(index + 1)}`}));
+const numbered = (prefix: string, count: number): {label: string; id: string}[] =>
+    Array.from({length: count}, (_, index) => ({label: `${prefix} ${String(index + 1)}`, id: `${prefix}-${String(index + 1)}`}));
 
 /** 长列表：主菜单 30 多项、第一项展开 20 项的子菜单（其中第一项再展开 20 项）、第二项只展开 2 项、第三项又是 20 项。 */
 const LONG_DROPDOWN_ITEMS = [
-    {label: "长子菜单", value: "long", children: [{label: "更深", value: "deeper", children: numbered("孙项", 20)}, ...numbered("子项", 19)]},
-    {label: "短子菜单", value: "short", children: numbered("短项", 2)},
-    {label: "长子菜单二", value: "long-2", children: numbered("二号子项", 20)},
-    {label: "", value: "sep", separator: true},
+    {label: "长子菜单", id: "long", children: [{label: "更深", id: "deeper", children: numbered("孙项", 20)}, ...numbered("子项", 19)]},
+    {label: "短子菜单", id: "short", children: numbered("短项", 2)},
+    {label: "长子菜单二", id: "long-2", children: numbered("二号子项", 20)},
+    {label: "", id: "sep", separator: true},
     ...numbered("主项", 30),
 ];
 const LONG_CONTEXT_ITEMS: ContextMenuItem[] = [
@@ -90,10 +90,10 @@ const LONG_CONTEXT_ITEMS: ContextMenuItem[] = [
 ];
 const SHORT_DROPDOWN_ITEMS = numbered("项", 8);
 /** 带说明的项与不带说明的项混排：每 4 项有一项带说明。 */
-const LONG_SELECT_OPTIONS = numbered("第", 30).map((option, index) => ({...option, label: `${option.label} 章`, description: index % 4 === 1 ? "带一行说明" : undefined}));
+const LONG_SELECT_OPTIONS = numbered("第", 30).map((option, index) => ({value: option.id, label: `${option.label} 章`, description: index % 4 === 1 ? "带一行说明" : undefined}));
 const longFormat = ref("第-20");
 
-const QUICK_PICK_LONG: QuickPickItem[] = numbered("命令", 30).map(({label, value}) => ({id: value, label}));
+const QUICK_PICK_LONG: QuickPickItem[] = numbered("命令", 30);
 const quickPickLongItems = computed(() => QUICK_PICK_LONG.filter((item) => item.label.includes(quickPickQuery.value)));
 
 const swatch = ref<string | null>("#2e7d55");

@@ -28,8 +28,8 @@
 export interface MenubarItemData {
     /** 菜单项文字；必填，分隔项忽略 */
     label: string;
-    /** 选择事件携带的值；必填 */
-    value: string;
+    /** 菜单项的身份；必填，宿主按它分派选择 */
+    id: string;
     /** 右侧快捷键提示；默认不显示 */
     shortcut?: string;
     /** 左侧装饰图标 class；默认不显示 */
@@ -38,14 +38,14 @@ export interface MenubarItemData {
     disabled?: boolean;
     /** 原生提示与读屏描述，例如禁用原因；默认不显示 */
     title?: string;
-    /** 视觉语气；默认 "default" */
+    /** 视觉语气；默认 "neutral" */
     tone?: "neutral" | "danger";
     /** 是否渲染分隔线；默认 false */
     separator?: boolean;
     /** radio/checkbox 勾选显示态，由父组件提供；默认 false */
     checked?: boolean;
-    /** 菜单项语义；默认 "default" */
-    type?: "default" | "checkbox" | "radio";
+    /** 菜单项语义；默认 "item" */
+    type?: "item" | "checkbox" | "radio";
     /** 子菜单；存在且非空时本项展开子菜单而不发选择事件；默认 undefined */
     children?: MenubarItemData[];
 }

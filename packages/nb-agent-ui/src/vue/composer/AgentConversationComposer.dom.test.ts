@@ -93,8 +93,8 @@ describe("AgentModelPicker", () => {
     it("“管理模型…”只在 canManage 时有，选中发出 manage；用不了的模型灰掉并写原因；组名写在右侧", () => {
         const models = [{key: "a", label: "Sonnet", supportsImages: true, group: "OpenRouter"}, {key: "b", label: "Sonnet", supportsImages: true, group: "Anthropic", unavailable: "ANTHROPIC_API_KEY 没有值"}];
         const picker = mount(AgentModelPicker, {props: {models, modelKey: "a", thinkingLevels: [], thinking: null, canManage: true}});
-        const items = picker.getComponent(DropdownMenu).props("items") as {value: string; disabled?: boolean; title?: string; shortcut?: string}[];
-        expect(items.map((item) => item.value)).toEqual(["model:a", "model:b", "sep-manage", "manage"]);
+        const items = picker.getComponent(DropdownMenu).props("items") as {id: string; disabled?: boolean; title?: string; shortcut?: string}[];
+        expect(items.map((item) => item.id)).toEqual(["model:a", "model:b", "sep-manage", "manage"]);
         expect(items[0]).toMatchObject({shortcut: "OpenRouter"});
         expect(items[1]).toMatchObject({disabled: true, title: "ANTHROPIC_API_KEY 没有值", shortcut: "Anthropic"});
         picker.getComponent(DropdownMenu).vm.$emit("select", "manage");
@@ -102,7 +102,7 @@ describe("AgentModelPicker", () => {
         picker.unmount();
 
         const plain = mount(AgentModelPicker, {props: {models, modelKey: "a", thinkingLevels: [], thinking: null}});
-        expect((plain.getComponent(DropdownMenu).props("items") as {value: string}[]).some((item) => item.value === "manage")).toBe(false);
+        expect((plain.getComponent(DropdownMenu).props("items") as {id: string}[]).some((item) => item.id === "manage")).toBe(false);
         plain.unmount();
     });
 });
