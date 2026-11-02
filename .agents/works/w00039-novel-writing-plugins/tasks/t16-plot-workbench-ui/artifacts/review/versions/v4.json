@@ -1,0 +1,99 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t16-plot-workbench-ui",
+    "artifactId": "review",
+    "version": 4,
+    "supersedes": 3,
+    "action": "publish",
+    "kind": "design",
+    "title": "作者视角的世界引擎：静态稿与原型",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "a015a37330fdb86604884b886937358efc6765ea7836b4ebeebd4e43c8b4133a",
+    "files": [
+        "index.html",
+        "r1/s01-opening.webp",
+        "r1/s02-entry.webp",
+        "r1/s03-receipt.webp",
+        "r1/s04-pending.webp",
+        "r1/s05-change.webp",
+        "r1/s06-panel.webp",
+        "r1/s07-inplace.webp",
+        "r1/s08-suggestions.webp",
+        "r1/s09-revisions.webp",
+        "r1/s10-plot.webp",
+        "r2/model.ts",
+        "r2/p01-opening.webp",
+        "r2/p02-entry.webp",
+        "r2/p03-receipt.webp",
+        "r2/p04-pending.webp",
+        "r2/p05-change.webp",
+        "r2/p06-panel.webp",
+        "r2/p07-shape.webp",
+        "r2/p08-suggestions.webp",
+        "r2/p09-revert.webp",
+        "r2/p10-plot.webp",
+        "r2/p11-author-receipt.webp",
+        "r2/world.json",
+        "r3/model.ts",
+        "r3/p08-suggestions.webp",
+        "r3/p11-author-receipt.webp",
+        "r3/p12-semantic-money.webp",
+        "r3/p13-semantic-attitude.webp",
+        "r3/world.json"
+    ],
+    "questions": [
+        {
+            "id": "r1-expectation",
+            "type": "text",
+            "label": "整体看下来，符合你的预期吗？",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-detail-place",
+            "type": "single",
+            "label": "待处理、建议点开以后的详情放在哪",
+            "options": [
+                {
+                    "value": "panel",
+                    "label": "留在底部面板，作者自己拉高"
+                },
+                {
+                    "value": "editor",
+                    "label": "详情进编辑器区的标签页"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "panel"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r2-data",
+            "type": "text",
+            "label": "看完数据长什么样，有没有和你理解的不一样的地方？",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-02T10:24:34.222Z"
+}

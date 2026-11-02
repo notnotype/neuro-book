@@ -59,6 +59,23 @@ ol.week li { margin: 2px 0; }
 <p>界面上不出现记录 id、Component、字段路径（提案第 8 节“入口与用词”），所以草稿里把提案的几个词换成了作者的说法：初值 → 开局，讲述 → 讲到的地方，补丁 → 改了什么，生效位置 → 什么时候。</p>
 </div>
 
+<div class="round">第 3 轮 · 按决定改原型</div>
+
+<section class="s">
+<h2>这一轮改了什么 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>开发者 11-02 定了：第 2 轮的四条按推荐；数值追踪做“精确”和“语义”两档，不做“大概”；改设定以后找旧写法，怀疑程序按旧词搜的效果。原型照这些改了（类型 <a href="r3/model.ts">r3/model.ts</a>，走完一周的世界 <a href="r3/world.json">r3/world.json</a>）：</p>
+<ul>
+<li><b>修订只存变了的字段。</b>新建的存整份，修改只存变了的那几个字段的改前改后。走完一周，修订从 48 KB 降到 35 KB，而且这 35 KB 里已经包括新存进去的“带来的变化”。</li>
+<li><b>“带来的变化”在发布时存进修订。</b>回执和保存后的提示都读它，不再靠重放历史。</li>
+<li><b>精确与语义两档。</b>字段声明自己是哪一档，作者可以换。精确档照旧由程序加减、和正文写明的数核对。语义档的值与事件都是文字：正文写明的数是新的起点；之后的事只记一句“发生了什么”；现在的样子由小模型从起点开始归纳，按输入缓存（缓存键是起点加之后事件的文字），输入一样就不再调模型。原型里小模型用查表代替。</li>
+<li><b>找旧写法改成两步。</b>记账时，把正文里重述设定的句子链到那个字段上（“这句写的就是原身外观”）；改设定以后，这些句子直接就是候选，不靠按旧词搜。其余的（换了说法的、还没记账的章、细纲、别的条目）交给 Agent 自己找、自己判断。</li>
+</ul>
+</section>
+<section class="s" id="p12"><h2>p12 语义档：存款不记确切的数</h2><figure><img src="r3/p12-semantic-money.webp" alt="语义档的存款"><figcaption>同一个故事，存款换成语义档。初值是种子原话“钱不多，但够用”；第 1、2 章正文写明的 41,800、19,800 是新的起点；中间的事只记一句话。你又记了两笔（工资到账，三千左右；路上捡到 24 块），现在是小模型归纳的“两万三上下”。右栏是来历和缓存键。这一档下第 2 章不会出“存款对不上”</figcaption></figure></section>
+<section class="s" id="p13"><h2>p13 语义档：星瑾对哥哥的态度</h2><figure><img src="r3/p13-semantic-attitude.webp" alt="星瑾的态度"><figcaption>本来就说不出数的字段。初值“生哥哥的气”（种子），第 1 章记了“不吃煎蛋，说‘晚上不用等我’”，第 2 章记了“没碰那张卡，说‘你走的那几年，一个电话都没有’”，归纳成“心结很深：怪哥哥走的那几年一个电话都没有，用钱示好只让她更反感”</figcaption></figure></section>
+<section class="s" id="p08b"><h2>p08 改设定以后的建议（新做法）</h2><figure><img src="r3/p08-suggestions.webp" alt="建议"><figcaption>前两条是记账时链到“原身外观”的句子，直接列出；后面是 Agent 自己找到并判断的（变身以后的样子请你定，写妈妈的不用改）。右栏是“按正文改设定”那次修订：只存了变了的字段，下面是发布时存下的“带来的变化”</figcaption></figure></section>
+<section class="s" id="p11b"><h2>p11 你的改动的回执</h2><figure><img src="r3/p11-author-receipt.webp" alt="作者改动的回执"><figcaption>“带来的变化”现在读的是发布时存进修订的那一份</figcaption></figure></section>
+
 <div class="round">第 2 轮 · 数据结构（原型）</div>
 
 <section class="q" data-nbdev-question="r2-data" data-nbdev-type="text" data-nbdev-optional>
