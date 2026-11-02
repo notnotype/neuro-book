@@ -32,7 +32,8 @@ export interface AgentToolsOptions {
     readonly activate: (event: string) => Promise<boolean>;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
     /** 交给工具工厂的会话服务（资源视图），按内核给的会话上下文构造。 */
-    readonly services: (context: ToolSessionContext) => AgentToolServices;
+    /** `toolId` 是要构造的工具，资源视图拿它作 `call(ctx)` 的分组缺省标题。 */
+    readonly services: (context: ToolSessionContext, toolId: string) => AgentToolServices;
 }
 
 const unavailable = (id: string): ToolResult => ({text: `Tool ${id} is not available right now; its plugin is not running.`, status: "error", code: "tool-unavailable"});
@@ -217,7 +218,7 @@ class ToolWrapper implements ToolImplementation {
         if (this.#built?.handle === handle) return this.#built;
         let implementation: Promise<ToolImplementation>;
         try {
-            implementation = Promise.resolve(handle.implementation().create(this.context, this.options.services(this.context)));
+            implementation = Promise.resolve(handle.implementation().create(this.context, this.options.services(this.context, this.id)));
         } catch (error) {
             // 句柄在这之间被撤回，或工厂同步抛错。
             implementation = Promise.reject(error);

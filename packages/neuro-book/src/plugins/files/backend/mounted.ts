@@ -157,9 +157,12 @@ export class MountedScheme {
         });
     }
 
-    /** 写入接口的读路径：按读授权，挂载点内跟随链接，不跟到挂载点外；不建目录。 */
-    readTarget(path: string, caller: SchemeCaller, signal: AbortSignal): Promise<ServerFilesResult<{readonly path: string; readonly kind: "file" | "directory" | "other"}>> {
-        return this.#run("read", path, caller, signal, async () => fail("unsupported-capability", `${this.#address("")} 是虚拟目录，没有真实路径`), async ({opened, path: inner}) => {
+    /**
+     * 写入接口的读路径，挂载点内跟随链接，不跟到挂载点外。`realPath`：`readPath`，与取真实路径同一种操作（同样的授权，
+     * 挂载点与声明的子目录不存在时建好，docs/specs/agent/resources.md 输出 6）；`read`：`read` 取字节前定位，不建目录。
+     */
+    readTarget(path: string, caller: SchemeCaller, signal: AbortSignal, operation: "read" | "realPath"): Promise<ServerFilesResult<{readonly path: string; readonly kind: "file" | "directory" | "other"}>> {
+        return this.#run(operation, path, caller, signal, async () => fail("unsupported-capability", `${this.#address("")} 是虚拟目录，没有真实路径`), async ({opened, path: inner}) => {
             if (opened === null) return fail("not-found", `${this.#address(path)} 不存在`);
             const resolved = await opened.root.resolve(inner);
             if ("ok" in resolved) return fail(resolved.code, resolved.detail);

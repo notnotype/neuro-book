@@ -14,6 +14,7 @@ import type {Baseline, DirectoryEntry, FileText, FolderKind, Listing, ManifestSt
 import {encodedTextBytes, TEXT_BUDGET_BYTES} from "../shared/contracts";
 import type {FilesFailureCode} from "../shared/failures";
 import {pathProblem} from "../shared/resource";
+import {decodeText} from "../shared/text";
 import {BODY_NAME, compareEntries, folderKindOf, itemsAt, MANIFEST_NAME, parseManifest} from "./folder-kinds";
 import type {ManifestItem} from "./folder-kinds";
 import {entryToken} from "./rooted";
@@ -59,16 +60,6 @@ export function hashOf(bytes: Uint8Array): string {
     return createHash("sha256").update(bytes).digest("hex");
 }
 
-/** 只接受 UTF-8；BOM 留在文本里（保存时原样写回），含 NUL 的视为二进制。 */
-export function decodeText(bytes: Uint8Array): string | null {
-    if (bytes.includes(0)) return null;
-    try {
-        return new TextDecoder("utf-8", {fatal: true, ignoreBOM: true}).decode(bytes);
-    } catch {
-        // 非法 UTF-8：TextDecoder 只给 TypeError，没有更多可记的信息。
-        return null;
-    }
-}
 
 export function createFilesService(options: FilesServiceOptions): FilesService {
     const {root} = options;

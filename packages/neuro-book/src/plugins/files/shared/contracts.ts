@@ -25,11 +25,12 @@ export type {FilesFailureCode};
 export {basenameOf, formatResource, joinResource, MAX_PATH_BYTES, parentOf, parseResource, RESOURCE_PATH_PATTERN, SCHEMES} from "./resource";
 export type {Address, Resource, Scheme} from "./resource";
 export {parseAddress} from "./resource";
-// 方案注册与服务端文件服务：别的插件只能经本文件导入（跨插件的运行时导入只指向对方的 shared/contracts.ts）。
-export {renderVirtual, SCHEMES_POINT, serverFilesKey} from "./schemes";
-export type {AgentOnBehalf, AuthorizeResult, MountDeclaration, MountedSchemeSpec, SchemeCaller, SchemeOperation, SchemeRoot, ServerFiles, ServerFilesOptions, ServerFilesResult, VirtualEntry, VirtualListing} from "./schemes";
+// 方案注册与写入接口：别的插件只能经本文件导入（跨插件的运行时导入只指向对方的 shared/contracts.ts）。
+export {renderVirtual, SCHEMES_POINT} from "./schemes";
+export type {AgentOnBehalf, AuthorizeResult, MountDeclaration, MountedSchemeSpec, SchemeCaller, SchemeOperation, SchemeRoot, ServerFilesResult, VirtualEntry, VirtualListing} from "./schemes";
 // 写入接口（docs/specs/workspace/resources.md 的“写入接口”）。
 export {baselineOf, workspaceFilesKey} from "./workspace-files";
+export {decodeText} from "./text";
 export type {CallOptions, CommitOptions, ReadPath, StagedSink, WorkspaceFiles} from "./workspace-files";
 
 /**

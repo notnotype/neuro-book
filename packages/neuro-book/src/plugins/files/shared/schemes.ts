@@ -1,17 +1,16 @@
 /**
- * 方案注册与服务端文件服务的合同（docs/specs/workspace/resources.md 的“方案注册”“服务端文件服务”“挂载方案”）。
+ * 方案注册与挂载方案的合同（docs/specs/workspace/resources.md 的“方案注册”“挂载方案”）。
  *
  * 注册方经贡献点 `files.schemes` 交出声明式的挂载方案：根的说明与条目、挂载点、授权规则；真实目录的打开、读写与寿命都由
- * `nbook.files` 管理，注册方不碰文件。服务端插件经进程内服务 `serverFilesKey` 按全局地址访问 `user://`、`projects://` 与
- * 已注册的方案。这里不引 Node：类型要能被浏览器构建的共享代码引用。
+ * `nbook.files` 管理，注册方不碰文件。服务端插件经写入接口（`workspace-files.ts`）按全局地址访问 `user://`、`projects://`
+ * 与已注册的方案。这里不引 Node：类型要能被浏览器构建的共享代码引用。
  */
 
 import type {ContributionPointDefinition} from "@notnotype/nb-runtime/plugins";
 import type {RemoteCause, RemoteFailureCode} from "@notnotype/nb-runtime/remote";
-import {defineServiceKey} from "@notnotype/nb-runtime/services";
-import type {ConsumerIdentity, ServiceKey} from "@notnotype/nb-runtime/services";
+import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
-import type {Baseline, FileText, FilesFailureCode, Listing, OperationDone, SavedText} from "./contracts";
+import type {Baseline, FilesFailureCode} from "./contracts";
 
 export const SCHEMES_POINT = "files.schemes";
 
@@ -87,23 +86,6 @@ export type ServerFilesFailureCode = FilesFailureCode | "unsupported-capability"
 export type ServerFilesResult<T> =
     | {readonly ok: true; readonly value: T}
     | {readonly ok: false; readonly code: ServerFilesFailureCode | RemoteFailureCode; readonly detail: string; readonly current?: Baseline; readonly cause?: RemoteCause};
-
-export interface ServerFilesOptions {
-    readonly signal?: AbortSignal;
-    /** 只接受服务端位置的 `nbook.agent`，别的调用方带了为 `invalid-input`。 */
-    readonly as?: {readonly agent: AgentOnBehalf};
-}
-
-/** 服务端文件服务：按调用方门面，地址是全局地址。不提供批量、删除、改名。 */
-export interface ServerFiles {
-    list(address: string, options?: ServerFilesOptions): Promise<ServerFilesResult<Listing | VirtualListing>>;
-    read(address: string, options?: ServerFilesOptions): Promise<ServerFilesResult<FileText>>;
-    write(address: string, text: string, baseline: Baseline, options?: ServerFilesOptions): Promise<ServerFilesResult<SavedText>>;
-    create(address: string, kind: "file" | "directory", options?: ServerFilesOptions): Promise<ServerFilesResult<OperationDone>>;
-    realPath(address: string, options?: ServerFilesOptions): Promise<ServerFilesResult<{readonly path: string; readonly kind: "file" | "directory" | "other"}>>;
-}
-
-export const serverFilesKey: ServiceKey<ServerFiles> = defineServiceKey<ServerFiles>("nbook.files/server");
 
 /** 虚拟根的文字呈现：读根本身得到它（docs/specs/agent/resources.md 输出 5）。 */
 export function renderVirtual(listing: VirtualListing): string {

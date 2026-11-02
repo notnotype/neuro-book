@@ -32,14 +32,13 @@ import type {Batch, BatchControl} from "./batch";
 import {createOperations} from "./operations";
 import type {Operations} from "./operations";
 import {createPreviewTokens, createRawRoutes, PREVIEW_PREFIX} from "./raw-route";
-import {SCHEMES_POINT, schemesPoint, serverFilesKey} from "../shared/schemes";
+import {SCHEMES_POINT, schemesPoint} from "../shared/schemes";
 import {workspaceFilesKey} from "../shared/workspace-files";
 import {LEDGER_POINT, ledgerPoint} from "../shared/ledger";
 import {LedgerSlot} from "./ledger-slot";
 import {saveText, tracked} from "./execute";
-import {createProjectsAccess, createProjectsScheme} from "./projects-scheme";
+import {createProjectsAccess} from "./projects-scheme";
 import {SchemeRegistry} from "./registry";
-import {provideServerFiles} from "./server-files";
 import {provideWorkspaceFiles} from "./workspace-files";
 import {openRoot} from "./rooted";
 import {createStagingCommitter, ensureStagingDirectory, sweepStaging} from "./staging";
@@ -196,7 +195,7 @@ const serverEntry = defineEntry({
     // 项目登记只有服务端宿主提供；只装了文件服务的实例（测试场地）里没有它，项目的字节地址随之不可用。
     dependencies: [{key: diagnosticsKey}, {key: clockKey}, {key: stateRootKey}, {key: projectsKey, required: false}],
     contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],
-    provides: [serverFilesKey, workspaceFilesKey],
+    provides: [workspaceFilesKey],
     remoteProvides: [userFilesContract, filesPreviewContract],
     receives: [SCHEMES_POINT, LEDGER_POINT],
     activate: async (context) => {
@@ -243,7 +242,6 @@ const serverEntry = defineEntry({
         }});
         return {
             services: [
-                provideServerFiles({user: backend, registry: schemes, projects: registry === null ? null : createProjectsScheme(registry, context.remote), signal: context.signal, sourceOf}),
                 provideWorkspaceFiles({own: {scheme: "user", root: backend}, registry: schemes, projects: registry === null ? null : createProjectsAccess(registry, context.remote), signal: context.signal, sourceOf, report: reportStage}),
             ],
             remote: [provideRemote(userFilesContract, (consumer) => implementation(backend, consumer)), preview],

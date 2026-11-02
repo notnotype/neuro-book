@@ -15,7 +15,6 @@ import {projectFilesContract} from "../shared/contracts";
 import {renderVirtual} from "../shared/schemes";
 import type {ServerFilesResult, VirtualListing} from "../shared/schemes";
 import {hashOf} from "./files-service";
-import type {FilesRequest, ProjectsScheme} from "./server-files";
 
 type Fail = Extract<ServerFilesResult<never>, {ok: false}>;
 const fail = (code: Fail["code"], detail: string): Fail => ({ok: false, code, detail});
@@ -96,36 +95,6 @@ export function createProjectsAccess(projects: ProjectsService, remote: Activati
             } finally {
                 lease.release();
             }
-        },
-    };
-}
-
-export function createProjectsScheme(projects: ProjectsService, remote: ActivationContext["remote"]): ProjectsScheme {
-    const access = createProjectsAccess(projects, remote);
-    const rootOnly = (path: string): boolean => path === "";
-
-    return {
-        list: async (path, request) => (rootOnly(path) ? access.virtual() : access.call<Listing>(path, request.signal, (client, inner) => client.list({path: inner}, {signal: request.signal}))),
-        read: async (path, request) => {
-            if (rootOnly(path)) {
-                const listed = await access.virtual();
-                if (!listed.ok) return listed;
-                const text = renderVirtual(listed.value);
-                return {ok: true, value: {text, baseline: {hash: hashOf(new TextEncoder().encode(text))}}};
-            }
-            return access.call<FileText>(path, request.signal, (client, inner) => client.read({path: inner}, {signal: request.signal}));
-        },
-        write: async (path, text, baseline, request) => {
-            if (rootOnly(path)) return fail("permission-denied", "projects:// 是只读的目录");
-            return access.call<SavedText>(path, request.signal, (client, inner) => client.write({path: inner, text, baseline, as: request.source}, {signal: request.signal}));
-        },
-        create: async (path, kind, request) => {
-            if (rootOnly(path)) return fail("permission-denied", "projects:// 是只读的目录");
-            return access.call<OperationDone>(path, request.signal, (client, inner) => client.create({path: inner, kind, as: request.source}, {signal: request.signal}));
-        },
-        realPath: async (path, request) => {
-            if (rootOnly(path)) return fail("unsupported-capability", "projects:// 是虚拟目录，没有真实路径");
-            return access.call<{readonly path: string; readonly kind: "file" | "directory" | "other"}>(path, request.signal, (client, inner) => client.realPath({path: inner}, {signal: request.signal}));
         },
     };
 }

@@ -22,6 +22,7 @@ import type {Baseline, BatchResult, ChangeGroup, ChangeSource, Identified, Listi
 import {parseAddress} from "../shared/resource";
 import type {Address} from "../shared/resource";
 import {renderVirtual} from "../shared/schemes";
+import {decodeText} from "../shared/text";
 import type {SchemeCaller, ServerFilesResult} from "../shared/schemes";
 import {workspaceFilesKey} from "../shared/workspace-files";
 import type {CallOptions, CommitOptions, ReadPath, StagedSink, WorkspaceFiles} from "../shared/workspace-files";
@@ -29,7 +30,7 @@ import type {Batch} from "./batch";
 import type {Origin} from "./changes";
 import {toResult, tracked} from "./execute";
 import type {WriteTarget} from "./execute";
-import {decodeText, hashOf} from "./files-service";
+import {hashOf} from "./files-service";
 import type {Operations} from "./operations";
 import type {ProjectsAccess} from "./projects-scheme";
 import type {SchemeRegistry} from "./registry";
@@ -110,7 +111,8 @@ function facadeFor(deps: WorkspaceFilesDeps, consumer: ConsumerIdentity, gone: A
     /** 项目合同的写方法要带的 `as` 与 `group`。 */
     const forwarded = (request: Request) => ({as: request.origin.source, ...(request.origin.group === undefined ? {} : {group: request.origin.group})});
 
-    const readPath = async (request: Request): Promise<Result<ReadPath>> => {
+    /** `forRead`：`read` 取字节前的定位，挂载方案里不建目录。 */
+    const readPath = async (request: Request, forRead = false): Promise<Result<ReadPath>> => {
         const {scheme, path} = request.address;
         if (scheme === own.scheme) {
             const target = await user.root.resolveForRead(path);
@@ -121,7 +123,7 @@ function facadeFor(deps: WorkspaceFilesDeps, consumer: ConsumerIdentity, gone: A
             if (path === "") return fail("unsupported-capability", "projects:// 是虚拟目录，没有真实路径");
             return projects.call(path, request.signal, (client, inner) => client.realPath({path: inner, follow: true}, {signal: request.signal}));
         }
-        return mountedOf(scheme)?.readTarget(path, request.caller, request.signal) ?? unknown(scheme);
+        return mountedOf(scheme)?.readTarget(path, request.caller, request.signal, forRead ? "read" : "realPath") ?? unknown(scheme);
     };
 
     /** 虚拟根的文字：`projects://` 的根与挂载方案的根；别的地址为 null。 */
@@ -145,7 +147,7 @@ function facadeFor(deps: WorkspaceFilesDeps, consumer: ConsumerIdentity, gone: A
             const bytes = new TextEncoder().encode(virtual.value);
             return {ok: true, value: {bytes, baseline: {hash: hashOf(bytes)}}};
         }
-        const located = await readPath(request);
+        const located = await readPath(request, true);
         if (!located.ok) return located;
         if (located.value.kind !== "file") return fail("not-a-file", `${formatAddress(request.address)} 不是普通文件`);
         return readLocal(located.value.path, formatAddress(request.address), deps.report);
