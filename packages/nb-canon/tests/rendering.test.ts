@@ -52,11 +52,18 @@ describe("canon.rendering 输出 1、2、3：白名单、保留名与切块", ()
         ["他说{+5}", "no-field-expression"],
         ["{panel.魔力 + 1}", "forbidden-syntax"],
         ["{ref(\"e1\")}", "no-field-expression"],
+        ["他说{}", "no-field-expression"],
+        ["{ }", "no-field-expression"],
         ["{panel.任务[3]}", "forbidden-syntax"],
         ["<Ref id=\"e1\">", "cross-block"],
     ])("%s → %s", (source, code) => {
         const result = parseBlock(source);
         expect(result.ok ? null : result.problem.code).toBe(code as never);
+    });
+
+    test("只含注释的表达式放行", () => {
+        expect(parseBlock("{/* 以后补 */}").ok).toBe(true);
+        expect(parseBlock("说明{// 行注释\n}").ok).toBe(true);
     });
 
     test("负数字面量、只含注释的表达式、转义与代码里的花括号放行", () => {

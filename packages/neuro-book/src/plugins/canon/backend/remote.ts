@@ -30,9 +30,12 @@ function within<T>(value: T): {readonly ok: true; readonly value: T} | Failure {
     return encodedBytes(value) > CANON_BUDGET_BYTES ? fail({code: "too-large"}) : {ok: true, value};
 }
 
-/** 分页读取：超过预算就减半条数重取。`read` 返回 `cursor-stale` 等字符串时原样当失败。 */
-function paged<T>(limit: number | undefined, read: (limit: number) => T | string): {readonly ok: true; readonly value: T} | Failure {
-    let size = limit ?? 50;
+/**
+ * 分页读取：超过预算就减半条数重取。`read` 返回 `cursor-stale` 等字符串时原样当失败。`fallback` 是调用方没给条数时的
+ * 缺省，与世界服务同一方法的缺省一致。
+ */
+function paged<T>(limit: number | undefined, read: (limit: number) => T | string, fallback = 50): {readonly ok: true; readonly value: T} | Failure {
+    let size = limit ?? fallback;
     for (;;) {
         const page = read(size);
         if (typeof page === "string") return fail({code: page});
@@ -66,9 +69,9 @@ export function remoteWorld(host: WorldHost, tokens: Set<string>): Implementatio
             lookup: (input) => withWorld((service) => read(service.lookup(input.names, input.position))),
             changes: (input) => withWorld((service) => paged(input.limit, (limit) => service.changes(input.filter ?? {}, input.cursor, limit))),
             pending: (input) => withWorld((service) => read(service.pending(input.position))),
-            questions: (input) => withWorld((service) => within(service.questions(input.status))),
-            suggestions: (input) => withWorld((service) => within(service.suggestions(input.status))),
-            revisions: (input) => withWorld((service) => paged(input.limit, (limit) => service.revisions(input.filter ?? {}, input.cursor, limit))),
+            questions: (input) => withWorld((service) => paged(input.limit, (limit) => service.questions(input.status, input.cursor, limit))),
+            suggestions: (input) => withWorld((service) => paged(input.limit, (limit) => service.suggestions(input.status, input.cursor, limit))),
+            revisions: (input) => withWorld((service) => paged(input.limit, (limit) => service.revisions(input.filter ?? {}, input.cursor, limit), 20)),
             render: (input) => withWorld((service) => read(service.render(input.entry, input.position, input.mode, input.audience))),
             preview: (input) => withWorld((service) => {
                 const result = service.preview(input.request);
@@ -115,14 +118,19 @@ export function remoteWorld(host: WorldHost, tokens: Set<string>): Implementatio
                         return () => undefined;
                     }
                     sink.next({state: "held"});
-                    const stop = service.subscribe((event) => {
-                        if (event.kind === "exclusive" && event.holder === null) sink.next({state: "ended"});
+                    // 只推一次 ended：之后别的独占开始、结束都与这张令牌无关。
+                    let stop: (() => unknown) | null = service.subscribe((event) => {
+                        if (event.kind !== "exclusive" || event.holder !== null || stop === null) return;
+                        stop();
+                        stop = null;
+                        tokens.delete(filter.token);
+                        sink.next({state: "ended"});
                     });
                     return () => {
-                        stop();
+                        stop?.();
+                        stop = null;
                         // 订阅结束（退订、连接断开、调用方实例失效）就结束这张令牌的独占。
-                        service.releaseExclusive(filter.token);
-                        tokens.delete(filter.token);
+                        if (tokens.delete(filter.token)) service.releaseExclusive(filter.token);
                     };
                 }),
             },

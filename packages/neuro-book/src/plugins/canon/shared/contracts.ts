@@ -12,7 +12,7 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import {ActorSchema, AddressSchema, ReadPositionSchema, WriteRequestSchema} from "@notnotype/nb-canon/schema";
-import type {EntryView, PendingItem, ReadPosition, Revision, StoryChange, WriteRequest} from "@notnotype/nb-canon/schema";
+import type {EntryView, PendingItem, Question, ReadPosition, Revision, StoryChange, Suggestion, WriteRequest} from "@notnotype/nb-canon/schema";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
@@ -62,8 +62,8 @@ const methods = {
         errors,
     },
     pending: {input: Type.Object({position: Type.Optional(ReadPositionSchema)}), output: Out, effect: "read", errors},
-    questions: {input: Type.Object({status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("answered"), Type.Literal("dropped")]))}), output: Out, effect: "read", errors},
-    suggestions: {input: Type.Object({status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("applied"), Type.Literal("declined")]))}), output: Out, effect: "read", errors},
+    questions: {input: Type.Object({status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("answered"), Type.Literal("dropped")])), cursor: Cursor, limit: Limit}), output: Out, effect: "read", errors},
+    suggestions: {input: Type.Object({status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("applied"), Type.Literal("declined")])), cursor: Cursor, limit: Limit}), output: Out, effect: "read", errors},
     revisions: {
         input: Type.Object({
             filter: Type.Optional(Type.Object({
@@ -186,8 +186,8 @@ export interface CanonOutputs {
     readonly lookup: {readonly version: number; readonly found: Readonly<Record<string, readonly string[]>>};
     readonly changes: Page<{readonly change: StoryChange; readonly outcome: unknown}>;
     readonly pending: {readonly version: number; readonly items: readonly PendingItem[]};
-    readonly questions: {readonly version: number; readonly items: readonly unknown[]};
-    readonly suggestions: {readonly version: number; readonly items: readonly unknown[]};
+    readonly questions: Page<Question>;
+    readonly suggestions: Page<Suggestion>;
     readonly revisions: Page<{readonly id: string; readonly version: number; readonly by: Revision["by"]; readonly what: string; readonly title: string; readonly time: string; readonly chapter?: string; readonly impact: Revision["impact"]; readonly revertable: {readonly ok: boolean; readonly reason?: string; readonly dependents?: readonly string[]}}>;
     readonly render: {readonly version: number; readonly position: ReadPosition; readonly blocks: readonly unknown[]} | null;
     readonly preview: {readonly revision: Revision; readonly ids: Readonly<Record<string, string>>};
@@ -206,17 +206,32 @@ export interface CanonOutputs {
 export type CanonEvent =
     | {readonly kind: "changed"; readonly version: number; readonly revision: string; readonly by: Revision["by"]; readonly what: string; readonly title: string}
     | {readonly kind: "exclusive"; readonly holder: string | null}
-    | {readonly kind: "reduced"};
+    | {readonly kind: "reduced"}
+    /** 同一项目代次内重连后订阅已重建：中间可能漏了事件，先读一次 `status` 拿当前版本再重读（Spec project“时序与寿命”）。 */
+    | {readonly kind: "resync"}
+    /** 订阅被提供方结束（项目实例停止、链路关闭）；之后不再有事件。调用方自己 `release` 时不发。 */
+    | {readonly kind: "ended"; readonly reason: string};
+
+/** 持有中的独占写入（`hold` 的结果）。 */
+export interface CanonLease {
+    readonly token: string;
+    /** 申请时的到期时间（毫秒时间戳）；带令牌的写入与 `renew` 都把它往后推 60 秒。 */
+    readonly expires: number;
+    renew(): Promise<CanonResult<{readonly expires: number}>>;
+    /** 退订租约并释放独占。 */
+    release(): Promise<CanonResult<null>>;
+}
 
 /**
  * 浏览器入口按调用方提供的世界客户端。请求超过预算时不发出，直接得到 `too-large`（输出 18）。
- * `hold` 申请独占并持有租约订阅：返回的 `release` 结束独占；连接断开时独占随订阅结束。
+ * `hold` 申请独占并持有租约订阅：独占结束（释放、到期、被强行解除、订阅被提供方结束）时调一次 `onEnded`；
+ * 连接断开时独占随订阅结束。经 `call("acquireExclusive")` 申请的独占没有租约订阅，只靠 60 秒到期结束。
  */
 export interface CanonClient {
     call<M extends CanonMethod>(method: M, input: CanonInput<M>): Promise<CanonResult<CanonOutputs[M]>>;
     publish(request: WriteRequest, token?: string): Promise<CanonResult<Published>>;
     subscribe(listener: (event: CanonEvent) => void): Promise<CanonResult<{release(): void}>>;
-    hold(label: string, onEnded?: () => void): Promise<CanonResult<{readonly token: string; release(): Promise<void>}>>;
+    hold(label: string, onEnded?: (reason: string) => void): Promise<CanonResult<CanonLease>>;
 }
 
 export const canonClientKey: ServiceKey<CanonClient> = defineServiceKey<CanonClient>("nbook.canon/client");

@@ -129,7 +129,7 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
         await mkdir(logDir, {recursive: true});
         await mkdir(locks, {recursive: true});
         const binder = await readBinder(root);
-        if (!binder.ok) record("warn", "canon.binder.invalid", `活页夹清单坏了，按没有章打开：${binder.detail}`);
+        if (!binder.ok) record("warn", "canon.binder.invalid", `活页夹清单坏了，按日志里记下的章序打开：${binder.detail}`);
         const opened = await WorldService.open(
             {
                 files: nodeFiles,
@@ -141,14 +141,22 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
                 digest: (text) => createHash("sha256").update(text).digest("hex"),
                 clock: () => Date.now(),
                 now: () => new Date().toISOString(),
+                // 独占到期的定时不拖住进程退出。
+                timer: {
+                    set: (ms, run) => {
+                        const handle = setTimeout(run, ms);
+                        handle.unref?.();
+                        return handle;
+                    },
+                    clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+                },
             },
-            {chapters: binder.ok ? binder.chapters : [], registry: buildRegistry(components)},
+            {chapters: binder.ok ? binder.chapters : "invalid", registry: buildRegistry(components)},
         );
         if ("code" in opened) {
             record("warn", "canon.open.locked", "打开世界时世界日志的锁一直被占着，下一次调用再试");
             return opened;
         }
-        if (!binder.ok) await opened.setChapters("invalid");
         if (stopped) {
             await opened.stop();
             return {code: "stopping"};

@@ -53,9 +53,12 @@ describe("canon.project 场景 1：星瑕的一周", () => {
             const declared = componentDeclarations(sample).find((type) => type.namespace === namespace)?.fields?.find((item) => item.id === field);
             return `${entry.init.name} · ${declared?.label ?? field}`;
         };
+        // 主文字的块不比：原型的回执不列它们（差异清单）；只要求 Spec 这边确实列了。
+        expect(revisions.some((revision) => revision.impact.values.some((value) => value.at.path.startsWith("text[")))).toBe(true);
         for (const [index, receipt] of sample.receipts.entries()) {
             const impact = revisions[index]!.impact;
-            expect({revision: index + 1, labels: impact.values.map((value) => label(value.at)).sort(), added: impact.pendingAdded.length, resolved: impact.pendingResolved.length})
+            const fields = impact.values.filter((value) => !value.at.path.startsWith("text["));
+            expect({revision: index + 1, labels: fields.map((value) => label(value.at)).sort(), added: impact.pendingAdded.length, resolved: impact.pendingResolved.length})
                 .toEqual({revision: index + 1, labels: receipt.impact.values.map((value) => value.label).sort(), added: receipt.impact.added.length, resolved: receipt.impact.resolved.length});
         }
         await service.stop();

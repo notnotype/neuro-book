@@ -292,3 +292,29 @@ describe("canon.revisions 输出 11、12：还原与依赖（场景 3）", () =>
         expect(result.world.revert(result.revision.id, true, {requestId: "x", by: {kind: "author"}}, "t")).toEqual({ok: false, failure: {code: "not-revertable"}});
     });
 });
+
+describe("canon.revisions 输出 6、12 与 canon.components 输出 10：带来的变化、依赖与类型版本的边界", () => {
+    test("改主文字的块：带来的变化记那一块改前改后的源文（输出 6）", () => {
+        const base = start();
+        const withText = structuredClone(base.data.entries.get("e1")!);
+        withText.init.text = [{id: "b1", source: "旧文"}];
+        const added = ok(base.publish(request([{ref: {kind: "entry", id: "e1"}, after: withText}], {baseVersion: 1}), "t"));
+        const changed = structuredClone(added.world.data.entries.get("e1")!);
+        changed.init.text = [{id: "b1", source: "新文"}];
+        const result = ok(added.world.publish(request([{ref: {kind: "entry", id: "e1"}, after: changed}], {baseVersion: 2}), "t"));
+        expect(result.revision.impact.values).toContainEqual({at: {entry: "e1", path: "text[b1]"}, before: "旧文", after: "新文"});
+    });
+
+    test("后面的修订只在自由文字里写到新建对象的 id：不算依赖，可以单独还原（输出 12）", () => {
+        const created = ok(start().publish(request([{ref: {kind: "entry", id: "tmp:new"}, after: entry("tmp:new", "新人")}], {baseVersion: 1}), "t"));
+        const newId = created.ids["tmp:new"]!;
+        const later = ok(created.world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch1", [], {text: newId})}], {baseVersion: 2}), "t"));
+        expect(later.world.dependents(created.revision.id)).toEqual([created.revision.id]);
+    });
+
+    test("对命名空间的补丁记上写入时登记的类型版本（components.md 输出 10）", () => {
+        const result = ok(start().publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch2", [add("e1", -100)])}], {baseVersion: 1}), "t"));
+        const created = result.revision.ops.find((op) => op.kind === "create");
+        expect(created !== undefined && created.kind === "create" && (created.after as StoryChange).patches[0]).toMatchObject({op: "add", version: 1});
+    });
+});

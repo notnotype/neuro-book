@@ -34,4 +34,7 @@ export const DIFFERENCES: readonly Expected[] = [
  * 所在章的末尾，没写章时取缺省读取位置，即最新一章的末尾（canon.revisions 输出 6、canon.model 输出 21）。样本第 3 章
  * 只有细纲没有正文，所以 Spec 的回执多落在第 3 章末尾。回执的其余部分（改了哪些地址、改前改后的值、新出现与消失的
  * 待处理）逐次修订对照。
+ *
+ * 回执里主文字的块也不比：Spec 的带来的变化列出改了的块与它改前改后的源文（canon.revisions 输出 6），原型的回执只列
+ * 字段。
  */

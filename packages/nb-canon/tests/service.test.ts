@@ -359,3 +359,108 @@ describe("canon.project 输出 11、12、15、19：补归纳、游标与停止",
         expect(await service.publish(entryRequest("丙", 2))).toEqual({ok: false, failure: {code: "stopping"}});
     });
 });
+
+describe("canon.project：审查补的边界（输出 6、10、11、16、19、23 与方法表）", () => {
+    test("打开时活页夹清单就是坏的：按日志里记下的章序计算，不发布章序调整，写诊断（输出 23）", async () => {
+        const first = await open();
+        await first.publish(entryRequest("星瑕", 1));
+        const reopened = await WorldService.open(ports({now: 0}), {chapters: "invalid", registry});
+        if ("code" in reopened) throw new Error(reopened.code);
+        services.push(reopened);
+        expect(reopened.status().version).toBe(2);
+        expect(reopened.world.options.order.ids).toEqual(chapters);
+        expect(reopened.status().diagnostics).toContainEqual({code: "binder-invalid"});
+    });
+
+    test("发布等待落盘时换了 Component 登记：落盘后的世界用新登记（输出 6）", async () => {
+        await open();
+        const paused = pausedAppend();
+        const service = await open({now: 0}, {}, paused.files);
+        const publishing = service.publish(entryRequest("星瑕", 1));
+        await paused.reached;
+        const swapped = service.setRegistry(buildRegistry([PANEL]));
+        paused.release();
+        expect((await publishing).ok).toBe(true);
+        await swapped;
+        expect(service.world.options.registry.digest).toBe(buildRegistry([PANEL]).digest);
+    });
+
+    test("归纳写进缓存失败：不当作已补上，下次读到再排（输出 11）", async () => {
+        let failCache = true;
+        const files: LogFiles = {...nodeFiles, async append(path, bytes) {
+            if (failCache && path.endsWith("reductions.jsonl")) {
+                failCache = false;
+                throw new Error("EIO: cache");
+            }
+            await nodeFiles.append(path, bytes);
+        }};
+        let calls = 0;
+        const reducer = {version: "m1", reduce: async () => {
+            calls += 1;
+            return "归纳";
+        }};
+        const service = await open({now: 0}, {reducer}, files);
+        await service.publish(entryRequest("星瑾", 1));
+        await service.publish(noteRequest(2));
+        await service.idle();
+        expect(service.status().diagnostics).toContainEqual({code: "reduce-failed", message: "EIO: cache"});
+        const read = () => {
+            const view = service.entry("e1", latest, "actual");
+            return view === "chapter-not-found" ? view : view?.view?.namespaces.character?.fields.态度;
+        };
+        // 失败的那次没留在内存里：同一次发布后排的那次读到它时又排了一次，这次写进了缓存。
+        await service.idle();
+        expect(read()).toEqual({value: "归纳"});
+        expect(calls).toBe(2);
+        expect(await readFile(join(root, ".nbook", "cache", "reductions.jsonl"), "utf8")).toContain("归纳");
+    });
+
+    test("独占到期时主动结束、发事件，不等下一次调用；续期过的按新的到期时间（输出 10）", async () => {
+        const clock = {now: 0};
+        const timers: Array<{at: number; run: () => void; cleared: boolean}> = [];
+        const timer = {
+            set: (ms: number, run: () => void) => {
+                const handle = {at: clock.now + ms, run, cleared: false};
+                timers.push(handle);
+                return handle;
+            },
+            clear: (handle: unknown) => {
+                (handle as {cleared: boolean}).cleared = true;
+            },
+        };
+        const advance = (ms: number) => {
+            clock.now += ms;
+            for (const handle of timers.filter((item) => !item.cleared && item.at <= clock.now)) {
+                handle.cleared = true;
+                handle.run();
+            }
+        };
+        const service = await open(clock, {timer});
+        const events: ServiceEvent[] = [];
+        service.subscribe((event) => events.push(event));
+        const lease = service.acquireExclusive("记账") as {token: string};
+        advance(50_000);
+        service.renewExclusive(lease.token);
+        advance(LEASE_MS - 50_000);
+        expect(events.filter((event) => event.kind === "exclusive")).toEqual([{kind: "exclusive", holder: "记账"}]);
+        advance(50_000);
+        expect(events.filter((event) => event.kind === "exclusive")).toEqual([{kind: "exclusive", holder: "记账"}, {kind: "exclusive", holder: null}]);
+    });
+
+    test("未决问题按游标分页（方法表）；改动记录按条目筛选时，自由文字里写到条目 id 不算（方法表）", async () => {
+        const service = await open();
+        const questions: WriteRequest["puts"] = ["甲", "乙", "丙"].map((text, index) => ({ref: {kind: "question", id: `tmp:q${String(index)}`}, after: {id: `tmp:q${String(index)}`, text, status: "open", hints: []}}));
+        expect((await service.publish({requestId: "questions", by: {kind: "author"}, what: "edit", title: "问题", baseVersion: 1, puts: questions})).ok).toBe(true);
+        const first = service.questions(undefined, undefined, 2);
+        if (first === "cursor-stale" || first.cursor === undefined) throw new Error("no cursor");
+        expect(first.items.map((item) => item.text)).toEqual(["甲", "乙"]);
+        const second = service.questions(undefined, first.cursor, 2);
+        expect(second !== "cursor-stale" && second.items.map((item) => item.text)).toEqual(["丙"]);
+
+        expect((await service.publish(entryRequest("星瑕", 2))).ok).toBe(true);
+        const mention = {requestId: "mention", by: {kind: "author"}, what: "edit", title: "e1", baseVersion: 3, puts: [{ref: {kind: "change", id: "tmp:c"}, after: {id: "tmp:c", kind: "written", text: "e1", at: {kind: "chapter", chapter: "ch1", key: 0}, told: [], involves: [], lines: [], links: [], patches: [], status: "active", by: {kind: "author"}}}]} as WriteRequest;
+        expect((await service.publish(mention)).ok).toBe(true);
+        const filtered = service.revisions({entry: "e1"});
+        expect(filtered !== "cursor-stale" && filtered.items.map((item) => item.title)).toEqual(["星瑕"]);
+    });
+});

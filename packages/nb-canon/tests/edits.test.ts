@@ -81,6 +81,16 @@ describe("canon.revisions 输出 8、9、10 与场景 2：就地改", () => {
         expect(result.world.engine.entry("e1", end("ch50"), "actual")).toMatchObject({namespaces: {panel: {fields: {存款: {value: 41500}}}}});
     });
 
+    test("记一笔的差额超过 4 位小数被拒收，不悄悄舍入；列表元素里的数同样记成一次加减", () => {
+        const tiny = recordDelta(world(), {requestId: id(), by: author, position: end("ch50"), at: {entry: "e1", path: "panel.存款"}, delta: 0.00001, reason: "零头", read: {value: 41800, version: 2}}, "t");
+        expect(tiny.ok === false && tiny.failure).toMatchObject({code: "validation-failed", problems: [{code: "number-out-of-range"}]});
+
+        const bag = ok(world().publish({requestId: id(), by: author, what: "edit", title: "买药", baseVersion: 2, puts: [{ref: {kind: "change", id: "tmp:buy"}, after: {id: "tmp:buy", kind: "written", text: "买药", at: {kind: "chapter", chapter: "ch45", key: 30}, told: [], involves: ["e1"], lines: [], links: [], patches: [{op: "listAdd", at: {entry: "e1", path: "panel.物品"}, value: {id: "药", label: "药", 数量: 3}}], status: "active", by: author}}]} as WriteRequest, "t") as WriteResult);
+        const used = ok(recordDelta(bag.world, {requestId: id(), by: author, position: end("ch50"), at: {entry: "e1", path: "panel.物品[药].数量"}, delta: -1, reason: "吃了一颗", read: {value: 3, version: 3}}, "t"));
+        const patch = used.revision.ops.flatMap((op) => (op.kind === "create" ? (op.after as {patches: unknown[]}).patches : []))[0];
+        expect(patch).toMatchObject({op: "add", at: {entry: "e1", path: "panel.物品[药].数量"}, value: -1});
+    });
+
     test("文字替换：A 恰好出现一次才替换", () => {
         expect(replaceOnce("银白长发，银白眼", "银白长发", "淡金长发")).toBe("淡金长发，银白眼");
         expect(replaceOnce("银白长发，银白眼", "银白", "淡金")).toBe("replace-not-unique");

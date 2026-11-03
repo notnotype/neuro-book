@@ -11,6 +11,7 @@
 import {effectiveFields, fieldsProblem, type ComponentRegistry} from "../components/registry";
 import {valueProblem} from "../components/values";
 import {addressKey, parsePath} from "../core/address";
+import {RESERVED_ROOTS} from "../core/identifiers";
 import {compareIds, ID_PREFIX, IdAllocator} from "../core/ids";
 import {readNumbers} from "../core/numerals";
 import {applyChanges, diffValues, parseSegments, type FieldChange} from "../core/paths";
@@ -468,7 +469,6 @@ function dependsOn(later: Revision, earlier: Revision): boolean {
         }
     }
     const createdIds = new Set([...created].map((key) => key.slice(key.indexOf(":") + 1)));
-    const text = (value: unknown) => JSON.stringify(value) ?? "";
     for (const op of later.ops) {
         if (op.kind === "chapters") continue;
         const key = refKey(op.ref);
@@ -484,8 +484,8 @@ function dependsOn(later: Revision, earlier: Revision): boolean {
             }
         }
         if (earlierFields !== undefined && op.kind !== "modify") return true;
-        const body = text(op.kind === "create" ? op.after : op.kind === "modify" ? op.fields : op.before);
-        for (const id of createdIds) if (body.includes(`"${id}"`)) return true;
+        const references = opReferences(op);
+        for (const id of createdIds) if (references.has(id)) return true;
         const patches = op.kind === "create" ? ((op.after as StoryChange).patches ?? []) : op.kind === "modify" ? op.fields.flatMap((field) => (Array.isArray(field.after) ? (field.after as Patch[]) : [])) : [];
         for (const patch of patches) {
             if (patch === null || typeof patch !== "object" || !("at" in patch)) continue;
@@ -544,6 +544,43 @@ function applyOp(tables: Tables, op: Exclude<Op, {kind: "chapters"}>, createdAt:
 /** 放对象 id 的键：只在这些键下把临时 id 换成正式 id，描述、原句这类文字里碰巧写了同样的字不换。 */
 const ID_KEYS = new Set(["id", "parent", "sameAs", "entry", "plan", "by", "change", "cause"]);
 const ID_LIST_KEYS = new Set(["involves", "lines"]);
+/** 引用别的对象的键：同 `ID_KEYS`，去掉对象自己的 `id`（列表元素与块的 id 也是局部的），加上依据里的核对点。 */
+const REFERENCE_KEYS = new Set(["parent", "sameAs", "entry", "plan", "by", "change", "cause", "check"]);
+
+/**
+ * 一个值里引用到的对象 id：只看放 id 的键，自由文字（描述、原句、标题）不算（revisions.md 输出 12 的依赖、改动记录按
+ * 条目筛选）。未决问题挂靠的对象写成 `{kind: "entry" | "change", id}`，也算引用。
+ */
+export function referencedIds(value: unknown, key: string | null = null, into = new Set<string>()): Set<string> {
+    if (typeof value === "string") {
+        if (key !== null && REFERENCE_KEYS.has(key)) into.add(value);
+    } else if (Array.isArray(value)) {
+        for (const item of value) {
+            if (typeof item !== "string") referencedIds(item, null, into);
+            else if (key !== null && ID_LIST_KEYS.has(key)) into.add(item);
+        }
+    } else if (value !== null && typeof value === "object") {
+        const record = value as Record<string, unknown>;
+        if ((record.kind === "entry" || record.kind === "change") && typeof record.id === "string" && Object.keys(record).length === 2) into.add(record.id);
+        for (const [childKey, item] of Object.entries(record)) referencedIds(item, childKey, into);
+    }
+    return into;
+}
+
+/** 一个操作里引用到的对象 id；改字段时，键取路径的最后一段。 */
+export function opReferences(op: Op): Set<string> {
+    const found = new Set<string>();
+    if (op.kind === "chapters") return found;
+    if (op.kind === "create") return referencedIds(op.after, null, found);
+    if (op.kind === "delete") return referencedIds(op.before, null, found);
+    for (const field of op.fields) {
+        const last = /(?:^|\.)([^.[\]]+)$|\["((?:[^"\\]|\\.)*)"\]$/u.exec(field.path);
+        const key = last === null ? null : (last[1] ?? JSON.parse(`"${last[2]!}"`) as string);
+        referencedIds(field.before, key, found);
+        referencedIds(field.after, key, found);
+    }
+    return found;
+}
 
 function replaceTempIds(request: WriteRequest, ids: Readonly<Record<string, string>>): WriteRequest {
     if (Object.keys(ids).length === 0) return request;
@@ -558,7 +595,7 @@ function replaceTempIds(request: WriteRequest, ids: Readonly<Record<string, stri
 
 /**
  * 写入时补上的缺省值：章内排序键（revisions.md 输出 18）；作者与系统写的数没给依据时记成“作者给的”
- * （Agent 与后台任务必须自己给，输出 3）。
+ * （Agent 与后台任务必须自己给，输出 3）；对命名空间的补丁记上写入时登记的类型版本（components.md 输出 10）。
  */
 function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, options: WorldOptions): unknown {
     const authored = request.by.kind === "author" || request.by.kind === "system";
@@ -572,6 +609,14 @@ function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, o
             (change.at as {key: number}).key = index >= 0 ? index : 0;
         }
         if (authored && Array.isArray(change.patches)) for (const patch of change.patches) if (patch.basis === undefined && typeof patch.value === "number") (patch as Patch).basis = {kind: "author"};
+        if (Array.isArray(change.patches)) {
+            for (const patch of change.patches) {
+                const root = /^[^.[]+/u.exec(patch.at?.path ?? "")?.[0];
+                if (root === undefined || RESERVED_ROOTS.has(root) || patch.version !== undefined) continue;
+                const type = options.registry.byNamespace(root);
+                if (type !== undefined) (patch as {version?: number}).version = type.version;
+            }
+        }
     }
     if (kind === "check") {
         const check = after as Check & {place: {key?: number}};
@@ -777,6 +822,13 @@ function computeImpact(before: World, data: WorldData, engine: IncrementalEngine
         }
         if (op.ref.kind === "entry" && op.kind === "modify") {
             for (const field of op.fields) {
+                // 主文字的块：改了哪一块（源文、增删、换顺序都算那一块或整个列表）就记那一块的源文。
+                const block = /^init\.text\[([^\]]+)\]/u.exec(field.path);
+                if (block !== null) {
+                    const id = block[1]!;
+                    addresses.set(`${op.ref.id}\u0000text[${id}]`, {entry: op.ref.id, path: `text[${id}]`});
+                    continue;
+                }
                 const match = /^init\.data\.([^.[\]]+)\.fields\.([^.[\]]+)/u.exec(field.path) ?? /^init\.(name|summary|aliases)/u.exec(field.path);
                 if (match === null) continue;
                 const path = match.length === 3 ? `${match[1]!}.${match[2]!}` : `entry.${match[1]!}`;
@@ -787,6 +839,8 @@ function computeImpact(before: World, data: WorldData, engine: IncrementalEngine
     const read = (target: World["engine"], at: Address) => {
         const view = target.entry(at.entry, where, "actual");
         if (view === null || view === "chapter-not-found" || view.deleted) return undefined;
+        const block = /^text\[([^\]]+)\]$/u.exec(at.path);
+        if (block !== null) return view.text.find((candidate) => candidate.id === block[1])?.source;
         const namespace = at.path.split(".")[0]!;
         if (namespace === "entry") return readEntryAddress({name: view.name, aliases: [...view.aliases], summary: view.summary, text: [], data: {}}, at.path);
         const field = view.namespaces[namespace]?.fields[at.path.slice(namespace.length + 1).split("[")[0]!];

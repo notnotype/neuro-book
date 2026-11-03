@@ -62,6 +62,19 @@ const FieldDeclarationCore = {
 /** 字段声明；`item` 是列表元素的子字段声明，不再嵌套列表（components.md 输入与前置条件）。 */
 export const FieldDeclarationSchema = Type.Object({...FieldDeclarationCore, item: Type.Optional(Type.Array(Type.Object(FieldDeclarationCore)))});
 
+/** 贡献点 `canon.components` 的一条声明的形状（components.md 输入与前置条件的表）；更细的规则由登记时再判。 */
+export const ComponentDeclarationSchema = Type.Object({
+    id: Id,
+    label: Type.String({minLength: 1}),
+    namespace: Type.Optional(Text),
+    version: Type.Optional(Type.Integer({minimum: 1})),
+    fields: Type.Optional(Type.Array(FieldDeclarationSchema)),
+    instanceFields: Type.Optional(Type.Boolean()),
+    agentView: Type.Optional(Text),
+    bookkeepingNotes: Type.Optional(Text),
+    usageNotes: Type.Optional(Text),
+}, {additionalProperties: false});
+
 export const NamespaceDataSchema = Type.Object({
     type: Id,
     version: Type.Integer({minimum: 1}),

@@ -172,6 +172,81 @@ describe("canon.project：世界服务在项目子进程里", () => {
         keep.release();
     }, 30_000);
 
+    it("输出 10：独占被强行解除时持有方收到一次结束；自己释放不算结束；持有窗口停止时独占结束", async () => {
+        const h = await projectHarness(tmp, {plugins: serverPlugins()});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const task = await windowOf(h, "browser-1", "profile-1");
+        const author = await windowOf(h, "browser-2", "profile-2");
+        const seen: CanonEvent[] = [];
+        expect((await author.canon.subscribe((event) => seen.push(event))).ok).toBe(true);
+        const holderNull = () => seen.filter((event) => event.kind === "exclusive" && event.holder === null).length;
+
+        const ends: string[] = [];
+        const first = await task.canon.hold("第 5 章记账", (reason) => ends.push(reason));
+        if (!first.ok) throw new Error(first.failure.code);
+        expect(first.value.expires).toBeGreaterThan(0);
+        expect((await first.value.renew()).ok).toBe(true);
+        expect((await author.canon.call("breakExclusive", {})).ok).toBe(true);
+        await until(() => ends.length > 0);
+        expect(ends).toEqual(["ended"]);
+        expect(await publish(author.canon, person("星瑾"))).toMatchObject({ok: true});
+
+        const second = await task.canon.hold("第 6 章记账", (reason) => ends.push(reason));
+        if (!second.ok) throw new Error(second.failure.code);
+        expect(await second.value.release()).toEqual({ok: true, value: null});
+        expect(await publish(author.canon, person("白灵"))).toMatchObject({ok: true});
+
+        const third = await task.canon.hold("第 7 章记账");
+        if (!third.ok) throw new Error(third.failure.code);
+        const before = holderNull();
+        await task.close();
+        await until(() => holderNull() > before);
+        expect(await publish(author.canon, person("彗"))).toMatchObject({ok: true});
+        expect(ends).toEqual(["ended"]);
+
+        await author.close();
+        keep.release();
+    }, 30_000);
+
+    it("订阅：释放后不再收到事件；没有绑定项目的窗口调用得到 no-project", async () => {
+        const h = await projectHarness(tmp, {plugins: serverPlugins()});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const window = await windowOf(h, "browser-1", "profile-1");
+        const released: CanonEvent[] = [];
+        const kept: CanonEvent[] = [];
+        const subscription = await window.canon.subscribe((event) => released.push(event));
+        if (!subscription.ok) throw new Error(subscription.failure.code);
+        expect((await window.canon.subscribe((event) => kept.push(event))).ok).toBe(true);
+        expect((await publish(window.canon, person("星瑕"))).ok).toBe(true);
+        await until(() => released.some((event) => event.kind === "changed") && kept.some((event) => event.kind === "changed"));
+        subscription.value.release();
+        expect((await publish(window.canon, person("星瑾"))).ok).toBe(true);
+        await until(() => kept.filter((event) => event.kind === "changed").length === 2);
+        expect(released.filter((event) => event.kind === "changed")).toHaveLength(1);
+        await window.close();
+
+        let unbound: CanonClient | null = null;
+        const app = createApplication(
+            {identity: {location: "browser", instanceId: "browser-unbound", client: "profile-9"}, stopSignal: new AbortController().signal, emergency: () => undefined},
+            {
+                capabilities: [{id: "window.project", key: windowProjectKey, create: () => ({project: null})}],
+                plugins: [canonBrowserPlugin, {id: "app.writer", entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: canonClientKey}], activate: (context) => {
+                    unbound = context.services.require(canonClientKey);
+                    return {};
+                }}]}],
+                gates: [],
+                remote: createRemoteNode({instance: {id: "browser-unbound", kind: "browser", role: "client", project: null, client: "profile-9"}}),
+            },
+        );
+        expect(await app.startup).toMatchObject({status: "available"});
+        expect(await unbound!.call("status", {})).toMatchObject({ok: false, failure: {code: "no-project"}});
+        expect(await unbound!.hold("记账")).toMatchObject({ok: false, failure: {code: "no-project"}});
+        await app.stop();
+        keep.release();
+    }, 30_000);
+
     it("输出 18：请求超过预算时不发出；结果超过预算回 too-large；列表按预算缩小一页", async () => {
         const h = await projectHarness(tmp, {plugins: serverPlugins()});
         const keep = leaseOf(await h.manager.acquire("book", "test"));

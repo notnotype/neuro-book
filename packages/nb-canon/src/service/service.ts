@@ -22,7 +22,7 @@ import {appendReduction, loadReductions} from "../node/cache";
 import {renderEntryForAgent, renderEntryForAuthor} from "../render/entry";
 import {writeBack, type WriteBackInput, type WriteBackResult} from "../render/writeback";
 import {editInPlace, recordDelta, type EditResult, type InPlaceEdit} from "../world/edits";
-import {World, type WriteResult} from "../world/world";
+import {opReferences, World, type WriteResult} from "../world/world";
 
 export interface ServicePorts {
     readonly files: LogFiles;
@@ -36,6 +36,11 @@ export interface ServicePorts {
     /** 毫秒时钟（租约到期）与 ISO 时间（修订的 time）。 */
     readonly clock: () => number;
     readonly now: () => string;
+    /**
+     * 定时：独占到期时主动结束、发 `exclusive` 事件（输出 10），不等下一次调用。宿主传 `setTimeout` 包一层；测试传可以
+     * 手动触发的实现，与注入的时钟一起推进。没有时到期只在下一次调用时生效。
+     */
+    readonly timer?: {readonly set: (ms: number, run: () => void) => unknown; readonly clear: (handle: unknown) => void};
     /** 小模型：没有时语义档一直是“未归纳”的写法（输入与前置条件）。 */
     readonly reducer?: {readonly version: string; readonly reduce: (input: ReductionInput) => Promise<string>};
 }
@@ -94,6 +99,7 @@ export class WorldService {
     #pendingReductions = new Map<string, ReductionInput>();
     #reducing = false;
     #tokens = 0;
+    #leaseTimer: unknown = null;
     readonly diagnostics: ServiceDiagnostic[];
     readonly #ports: ServicePorts;
 
@@ -107,15 +113,22 @@ export class WorldService {
         this.#reductions = reductions;
     }
 
-    /** 打开世界（输出 4）；章序与登记的类型由宿主给。打开后章序与记下的不同就发布章序调整（输出 9）。 */
-    static async open(ports: ServicePorts, initial: {readonly chapters: readonly string[]; readonly registry: ComponentRegistry}): Promise<WorldService | {readonly code: "world-locked"}> {
+    /**
+     * 打开世界（输出 4）；章序与登记的类型由宿主给。打开后章序与记下的不同就发布章序调整（输出 9）。宿主读不出活页夹清单
+     * 时给 `invalid`：按日志里最近一次记下的章序计算，不发布章序调整，写诊断（输出 23）。
+     */
+    static async open(ports: ServicePorts, initial: {readonly chapters: readonly string[] | "invalid"; readonly registry: ComponentRegistry}): Promise<WorldService | {readonly code: "world-locked"}> {
         const opened = await openLog(ports.files, ports.logDir, {lock: ports.lock, sideDir: ports.sideDir, now: ports.now});
         if ("code" in opened) return opened;
         const cache = await loadReductions(ports.files, ports.cachePath);
         let service!: WorldService;
         const reductions = cache.entries;
+        // 清单坏了：用日志里最后一次章序调整记下的章序。
+        let recorded: readonly string[] = [];
+        for (const revision of opened.revisions) for (const op of revision.ops) if (op.kind === "chapters") recorded = op.after;
+        const chapters = initial.chapters !== "invalid" ? initial.chapters : recorded;
         const options = {
-            order: new ChapterOrder(initial.chapters),
+            order: new ChapterOrder(chapters),
             registry: initial.registry,
             reductions: (input: ReductionInput) => service.#lookup(input),
             chapterText: ports.chapterText,
@@ -223,14 +236,22 @@ export class WorldService {
         return {version: world.version, items: page.items.map((change) => ({change, outcome: world.engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
-    questions(status?: "open" | "answered" | "dropped") {
+    /** 未决问题，按 id；状态筛选、游标分页（方法表）。 */
+    questions(status?: "open" | "answered" | "dropped", cursor?: string, limit = 50) {
         const world = this.#world;
-        return {version: world.version, items: [...world.data.questions.values()].filter((item) => status === undefined || item.status === status).sort((a, b) => compareIds(a.id, b.id))};
+        const matching = [...world.data.questions.values()].filter((item) => status === undefined || item.status === status).sort((a, b) => compareIds(a.id, b.id));
+        const page = this.#page(world.version, matching, cursor, limit);
+        if (page === "cursor-stale") return page;
+        return {version: world.version, items: page.items, ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
-    suggestions(status?: "open" | "applied" | "declined") {
+    /** 正文建议，按 id；状态筛选、游标分页（方法表）。 */
+    suggestions(status?: "open" | "applied" | "declined", cursor?: string, limit = 50) {
         const world = this.#world;
-        return {version: world.version, items: [...world.data.suggestions.values()].filter((item) => status === undefined || item.status === status).sort((a, b) => compareIds(a.id, b.id))};
+        const matching = [...world.data.suggestions.values()].filter((item) => status === undefined || item.status === status).sort((a, b) => compareIds(a.id, b.id));
+        const page = this.#page(world.version, matching, cursor, limit);
+        if (page === "cursor-stale") return page;
+        return {version: world.version, items: page.items, ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
     /** 改动记录，按版本从新到旧，带能不能还原（revisions.md 输出 14）。 */
@@ -239,7 +260,7 @@ export class WorldService {
         const matching = [...world.revisions].reverse().filter((revision) =>
             (filter.chapter === undefined || revision.chapter === filter.chapter) &&
             (filter.by === undefined || revision.by.kind === filter.by) &&
-            (filter.entry === undefined || revision.ops.some((op) => op.kind !== "chapters" && (op.ref.id === filter.entry || JSON.stringify(op).includes(`"${filter.entry}"`)))),
+            (filter.entry === undefined || revision.ops.some((op) => op.kind !== "chapters" && (op.ref.id === filter.entry || opReferences(op).has(filter.entry!)))),
         );
         const page = this.#page(world.version, matching, cursor, limit);
         if (page === "cursor-stale") return page;
@@ -302,7 +323,10 @@ export class WorldService {
             const lease = this.#lease;
             if (!system && lease !== null && lease.token !== token) return {ok: false, failure: {code: "busy", holder: lease.label, since: lease.since}};
             if (!system && token !== undefined && (lease === null || lease.token !== token)) return {ok: false, failure: {code: "exclusive-lost"}};
-            if (lease !== null && lease.token === token) lease.expires = this.#ports.clock() + LEASE_MS;
+            if (lease !== null && lease.token === token) {
+                lease.expires = this.#ports.clock() + LEASE_MS;
+                this.#scheduleExpiry();
+            }
             for (let attempt = 0; attempt < 3; attempt += 1) {
                 const result = compute(this.#world);
                 if (!result.ok || (result as {repeated?: boolean}).repeated === true) return result;
@@ -382,9 +406,17 @@ export class WorldService {
         });
     }
 
-    /** 登记的 Component 类型变了（插件启停）：换上新登记整本重算，版本不变。 */
-    setRegistry(registry: ComponentRegistry): void {
-        this.#world = this.#world.withOptions({...this.#world.options, registry});
+    /**
+     * 登记的 Component 类型变了（插件启停）：换上新登记整本重算，版本不变。排进写入队列：正在落盘的发布完成时会换上
+     * 它算出的世界，登记要在它之后换，否则被盖掉。
+     */
+    setRegistry(registry: ComponentRegistry): Promise<void> {
+        const run = () => {
+            this.#world = this.#world.withOptions({...this.#world.options, registry});
+        };
+        const next = this.#queue.then(run, run);
+        this.#queue = next.catch(() => undefined);
+        return next;
     }
 
     /* ---------- 独占写入（输出 10） ---------- */
@@ -395,6 +427,7 @@ export class WorldService {
         const now = this.#ports.clock();
         const token = `lease-${String(++this.#tokens)}-${String(now)}`;
         this.#lease = {token, label, since: now, expires: now + LEASE_MS};
+        this.#scheduleExpiry();
         this.#emit({kind: "exclusive", holder: label});
         return {token, expires: this.#lease.expires};
     }
@@ -403,6 +436,7 @@ export class WorldService {
         this.#expireLease();
         if (this.#lease?.token !== token) return {code: "exclusive-lost"};
         this.#lease.expires = this.#ports.clock() + LEASE_MS;
+        this.#scheduleExpiry();
         return {expires: this.#lease.expires};
     }
 
@@ -418,8 +452,26 @@ export class WorldService {
         if (this.#lease !== null && this.#ports.clock() >= this.#lease.expires) this.#endLease();
     }
 
+    /** 按当前租约的到期时间重排定时；到点时按注入的时钟再判一次（续期过就再排）。 */
+    #scheduleExpiry(): void {
+        const timer = this.#ports.timer;
+        if (timer === undefined) return;
+        if (this.#leaseTimer !== null) timer.clear(this.#leaseTimer);
+        this.#leaseTimer = null;
+        const lease = this.#lease;
+        if (lease === null || this.#state === "stopped") return;
+        this.#leaseTimer = timer.set(Math.max(0, lease.expires - this.#ports.clock()), () => {
+            this.#leaseTimer = null;
+            if (this.#lease !== lease) return;
+            this.#expireLease();
+            if (this.#lease === lease) this.#scheduleExpiry();
+        });
+    }
+
     #endLease(): void {
         this.#lease = null;
+        if (this.#leaseTimer !== null) this.#ports.timer?.clear(this.#leaseTimer);
+        this.#leaseTimer = null;
         this.#emit({kind: "exclusive", holder: null});
     }
 
@@ -470,8 +522,9 @@ export class WorldService {
                     const text = await this.#ports.reducer.reduce(input);
                     // 等小模型期间可能已经停止。
                     if ((this.#state as ServiceState) === "stopped") return;
-                    this.#reductions.set(key, text);
+                    // 落盘成功才算补上：写缓存失败时不留在内存里，下次读到再排（输出 11）。
                     await appendReduction(this.#ports.files, this.#ports.cachePath, key, text);
+                    this.#reductions.set(key, text);
                     this.#emit({kind: "reduced"});
                 } catch (error) {
                     this.diagnostics.push({code: "reduce-failed", message: error instanceof Error ? error.message : String(error)});

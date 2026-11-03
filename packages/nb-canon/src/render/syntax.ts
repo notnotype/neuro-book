@@ -176,10 +176,15 @@ function attributeSite(source: string, value: Record<string, unknown>, fail: Fai
     return siteFrom(source, start, start + text.length + 2, value.data as never, owner as never, fail);
 }
 
-function siteFrom(source: string, start: number, end: number, data: {estree?: {body: Array<{type: string; expression?: Expression}>}} | undefined, node: {position?: {start: {line: number; column: number}}}, fail: Fail): ExpressionSite | null {
+function siteFrom(source: string, start: number, end: number, data: {estree?: {body: Array<{type: string; expression?: Expression}>; comments?: readonly unknown[]}} | undefined, node: {position?: {start: {line: number; column: number}}}, fail: Fail): ExpressionSite | null {
     const inner = source.slice(start + 1, end - 1);
     const body = data?.estree?.body ?? [];
-    if (body.length === 0) return {start, end, source: inner, expression: null, reference: null, references: []};
+    if (body.length === 0) {
+        // 只含注释的表达式放行（rendering.md 白名单）；空的 `{}` 与只有空白的不引用任何字段，按 no-field-expression 拒收。
+        if ((data?.estree?.comments?.length ?? 0) > 0) return {start, end, source: inner, expression: null, reference: null, references: []};
+        fail("no-field-expression", node, "expression references no field; escape braces in prose as \\{");
+        return null;
+    }
     const statement = body[0]!;
     if (body.length !== 1 || statement.type !== "ExpressionStatement" || statement.expression === undefined) {
         fail("forbidden-syntax", node, "only a single expression is allowed");

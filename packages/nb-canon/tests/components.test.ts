@@ -27,6 +27,9 @@ describe("登记（canon.components 输出 1、2）", () => {
     test.each<[string, Partial<ComponentDeclaration>, string]>([
         ["保留名做命名空间", {namespace: "text"}, "namespace"],
         ["版本不是正整数", {version: 0}, "version"],
+        ["没有显示名", {label: undefined}, "label"],
+        ["字段不是数组", {fields: {} as never}, "fields"],
+        ["多写了不认识的项", {colour: "red"} as never, ""],
         ["字段 id 叫启用", {fields: [{id: "启用", label: "启用", kind: "boolean"}]}, "fields[0].id"],
         ["字段 id 重复", {fields: [{id: "a", label: "a", kind: "text"}, {id: "a", label: "b", kind: "text"}]}, "fields[1].id"],
         ["枚举没有选项", {fields: [{id: "a", label: "a", kind: "enum"}]}, "fields[0].options"],
@@ -51,6 +54,14 @@ describe("登记（canon.components 输出 1、2）", () => {
         const people: ComponentDeclaration = {id: "canon.person", label: "人物", namespace: "character", version: 1, fields: []};
         expect(buildRegistry([panel, people]).digest).toBe(buildRegistry([people, panel]).digest);
         expect(buildRegistry([panel, {...people, version: 2}]).digest).not.toBe(buildRegistry([panel, people]).digest);
+    });
+});
+
+describe("canon.components 输出 1：只做查询的类型也核对形状", () => {
+    test("没有命名空间的声明：形状不对时不登记、写诊断，不抛错", () => {
+        const registry = buildRegistry([{id: "canon.tag", label: 5} as never, {id: "canon.mood", label: "心情"}]);
+        expect([...registry.queryOnly.keys()]).toEqual(["canon.mood"]);
+        expect(registry.diagnostics).toEqual([expect.objectContaining({code: "component-declaration-invalid", type: "canon.tag", path: "label"})]);
     });
 });
 

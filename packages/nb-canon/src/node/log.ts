@@ -3,8 +3,8 @@
  *
  * - 一行一次修订，`"format": 1`，以换行结尾；段文件名是这一段第一行的版本号（左补零到至少 6 位）；当前一段已有
  *   256 KiB 或更多时新开一段，一行最大 4 MiB。
- * - 打开：只有最后一段末尾没有换行结尾的那一截算“写了一半”，持锁另存、截掉；任何以换行结尾却解析不了、版本不连续、
- *   格式不认识的行都让世界只读，不改写文件。
+ * - 打开：整个过程持锁（别的进程不会在读到一半时追加或开新段）。只有最后一段末尾没有换行结尾的那一截算“写了一半”，
+ *   另存、截掉；任何以换行结尾却解析不了、版本不连续、格式不认识的行都让世界只读，不改写文件。
  * - 追加：持锁，核对尾部（最后一段的文件名与长度）还是本实例上次读写后的样子，不是就交给调用方先读进新增的行；
  *   写入失败能截回就报确定失败，截不回就报结局不确定。
  *
@@ -69,9 +69,20 @@ async function segments(files: LogFiles, dir: string): Promise<{names: string[];
 }
 
 /**
- * 打开日志。`repair` 为真时持锁处理写了一半的末尾（另存到 `sideDir`、截掉）；拿不到锁时返回 `world-locked`。
+ * 打开日志：持锁列段、读段、处理写了一半的末尾（另存到 `sideDir`、截掉）、逐行校验（project.md 输出 4）；拿不到锁时
+ * 返回 `world-locked`。
  */
 export async function openLog(files: LogFiles, dir: string, options: {readonly lock: LogLock; readonly sideDir: string; readonly now: () => string}): Promise<Opened | {readonly code: "world-locked"}> {
+    const held = await options.lock.acquire();
+    if (held === "locked") return {code: "world-locked"};
+    try {
+        return await openLocked(files, dir, options);
+    } finally {
+        await held.release();
+    }
+}
+
+async function openLocked(files: LogFiles, dir: string, options: {readonly sideDir: string; readonly now: () => string}): Promise<Opened> {
     const {names, foreign} = await segments(files, dir);
     const diagnostics: LogDiagnostic[] = foreign.map((name) => ({code: "foreign-file", name}));
     const revisions: Revision[] = [];
@@ -79,28 +90,18 @@ export async function openLog(files: LogFiles, dir: string, options: {readonly l
     let tail: Tail = {segment: null, length: 0, version: 0};
     for (const [segmentIndex, name] of names.entries()) {
         const path = join(dir, name);
-        let bytes = await files.read(path);
+        const bytes = await files.read(path);
         const last = segmentIndex === names.length - 1;
         let end = bytes.length;
         if (last && end > 0 && bytes[end - 1] !== 0x0a) {
-            // 最后一段末尾没有换行结尾：写了一半。持锁再看一次（别的进程可能正在写），还是这样才另存、截掉。
-            const lock = await options.lock.acquire();
-            if (lock === "locked") return {code: "world-locked"};
-            try {
-                bytes = await files.read(path);
-                end = bytes.length;
-                const cut = bytes.lastIndexOf(0x0a) + 1;
-                if (end > 0 && bytes[end - 1] !== 0x0a) {
-                    const savedAs = join(options.sideDir, `torn-${name}-${options.now().replace(/[:.]/gu, "-")}`);
-                    await files.mkdirp(options.sideDir);
-                    await files.create(savedAs, bytes.slice(cut));
-                    await files.truncate(path, cut);
-                    diagnostics.push({code: "torn-tail", segment: name, savedAs, bytes: end - cut});
-                    end = cut;
-                }
-            } finally {
-                await lock.release();
-            }
+            // 最后一段末尾没有换行结尾：写了一半（持锁时没有别的进程在写）。另存、截掉。
+            const cut = bytes.lastIndexOf(0x0a) + 1;
+            const savedAs = join(options.sideDir, `torn-${name}-${options.now().replace(/[:.]/gu, "-")}`);
+            await files.mkdirp(options.sideDir);
+            await files.create(savedAs, bytes.slice(cut));
+            await files.truncate(path, cut);
+            diagnostics.push({code: "torn-tail", segment: name, savedAs, bytes: end - cut});
+            end = cut;
         }
         const text = decoder.decode(bytes.subarray(0, end));
         const lines = text.split("\n");

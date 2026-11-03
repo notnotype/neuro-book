@@ -3,10 +3,11 @@
  * 按来历转成写入请求，发布后核对这个位置上算出的值确实等于新值，不等就整次拒收。
  */
 
-import {exactProblem, subtractExact} from "../core/decimal";
+import {parsePath} from "../core/address";
+import {addExact, exactProblem, subtractExact} from "../core/decimal";
 import {chapterEnd, compareRanks, positionRank} from "../core/position";
 import {sameJson} from "../core/stable-json";
-import type {Actor, Address, Entry, Patch, ReadPosition, StoryChange, WriteRequest} from "../core/schema";
+import type {Actor, Address, Entry, FieldDeclaration, Patch, ReadPosition, StoryChange, WriteRequest} from "../core/schema";
 import {fieldOf} from "../engine/reference";
 import type {OriginStep} from "../engine/types";
 import type {World, WriteFailure, WriteResult} from "./world";
@@ -78,8 +79,8 @@ export function editInPlace(world: World, edit: InPlaceEdit, time: string): Edit
     if (!sameJson(current.value, edit.read.value)) return {ok: false, failure: {code: "value-conflict", current: current.value}};
     const intent = edit.intent ?? "creative";
     const entry = world.data.entries.get(edit.at.entry)!;
-    const field = fieldOf(world.options.registry, entry, edit.at);
-    const exactNumber = field?.kind === "number" && field.precision !== "semantic" && !edit.at.path.includes("[");
+    const field = declarationAt(world, entry, edit.at);
+    const exactNumber = field?.kind === "number" && field.precision !== "semantic";
 
     let request: WriteRequest;
     if (intent === "story") {
@@ -140,11 +141,20 @@ export function editInPlace(world: World, edit: InPlaceEdit, time: string): Edit
     return {...result, laterRecords: laterRecords(result.world, edit)};
 }
 
-/** 记一笔（输出 9）：意图为剧情变化的一次加减。 */
+/** 地址指向的字段声明；列表元素的子字段取列表的 `item` 里的声明（就地改与记一笔对它们一样记加减）。 */
+function declarationAt(world: World, entry: Entry, at: Address): FieldDeclaration | undefined {
+    const parsed = parsePath(at.path);
+    if (parsed?.root !== "namespace" || parsed.element === undefined) return fieldOf(world.options.registry, entry, at);
+    const list = fieldOf(world.options.registry, entry, {entry: at.entry, path: `${parsed.namespace}.${parsed.field}`});
+    return parsed.sub === undefined ? undefined : list?.item?.find((item) => item.id === parsed.sub);
+}
+
+/** 记一笔（输出 9）：意图为剧情变化的一次加减。差额与结果都按精确档的数核对，不悄悄舍入（components.md 输出 14）。 */
 export function recordDelta(world: World, input: {readonly requestId: string; readonly by: Actor; readonly position: ReadPosition; readonly at: Address; readonly delta: number; readonly reason: string; readonly read: {readonly value: unknown; readonly version: number}}, time: string): EditResult {
     if (typeof input.read.value !== "number") return {ok: false, failure: {code: "incomplete-field"}};
-    const value = input.read.value + input.delta;
-    return editInPlace(world, {requestId: input.requestId, by: input.by, position: input.position, at: input.at, value: Math.round(value * 1e4) / 1e4, read: input.read, intent: "story", title: input.reason}, time);
+    const value = exactProblem(input.delta) === null ? addExact(input.read.value, input.delta) : null;
+    if (value === null) return {ok: false, failure: {code: "validation-failed", problems: [{code: "number-out-of-range", message: "delta is out of range or has more than 4 decimals"}]}};
+    return editInPlace(world, {requestId: input.requestId, by: input.by, position: input.position, at: input.at, value, read: input.read, intent: "story", title: input.reason}, time);
 }
 
 /** 文字替换（输出 10）：A 在当时的值里必须恰好出现一次。 */

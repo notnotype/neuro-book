@@ -7,7 +7,7 @@
  */
 
 import {ENABLE_FIELD, isIdentifierName, isNamespaceName} from "../core/identifiers";
-import {schemaProblems, FieldDeclarationSchema, type FieldDeclaration} from "../core/schema";
+import {ComponentDeclarationSchema, schemaProblems, FieldDeclarationSchema, type FieldDeclaration} from "../core/schema";
 import {stableStringify} from "../core/stable-json";
 
 /** 贡献点 `canon.components` 的一条声明（components.md 输入与前置条件的表）。 */
@@ -52,11 +52,23 @@ export interface ComponentRegistry {
     readonly digest: string;
 }
 
+/** JSON 指针（`/fields/0/id`）写成诊断里用的路径（`fields[0].id`）。 */
+function pointerPath(pointer: string): string {
+    return pointer.split("/").filter((part) => part !== "").reduce((path, part) => (/^\d+$/u.test(part) ? `${path}[${part}]` : path === "" ? part : `${path}.${part}`), "");
+}
+
 export function buildRegistry(declarations: readonly ComponentDeclaration[]): ComponentRegistry {
     const diagnostics: RegistryDiagnostic[] = [];
     const candidates = new Map<string, ComponentType[]>();
     const queryOnly = new Map<string, ComponentDeclaration>();
     for (const declaration of declarations) {
+        // 先核对形状：声明来自插件清单，不能假定字段的类型对（输出 1）；只做查询的类型同样要核对。
+        const shape = schemaProblems(ComponentDeclarationSchema, declaration);
+        if (shape !== null) {
+            const first = shape[0]!;
+            diagnostics.push({code: "component-declaration-invalid", type: typeof (declaration as {id?: unknown}).id === "string" ? declaration.id : "", path: pointerPath(first.path), message: first.message});
+            continue;
+        }
         if (declaration.namespace === undefined) {
             queryOnly.set(declaration.id, declaration);
             continue;

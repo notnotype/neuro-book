@@ -184,3 +184,23 @@ describe("canon.project 输出 12：归纳缓存", () => {
         expect(cache.badLines).toEqual([3]);
     });
 });
+
+describe("canon.project 输出 4、22：打开持锁", () => {
+    test("日志完整时打开也要拿锁：锁被别的进程占着就得到 world-locked，不读到一半", async () => {
+        await write(3);
+        const busy = {acquire: async () => "locked" as const};
+        expect(await openLog(nodeFiles, dir, {lock: busy, sideDir: side, now})).toEqual({code: "world-locked"});
+        let held = false;
+        const watching = {acquire: async () => {
+            held = true;
+            return {release: async () => void (held = false)};
+        }};
+        const files: LogFiles = {...nodeFiles, read: async (path) => {
+            expect(held).toBe(true);
+            return nodeFiles.read(path);
+        }};
+        const opened = await openLog(files, dir, {lock: watching, sideDir: side, now});
+        expect("revisions" in opened && opened.revisions.map((item) => item.version)).toEqual([1, 2, 3]);
+        expect(held).toBe(false);
+    });
+});
