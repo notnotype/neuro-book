@@ -28,7 +28,7 @@ owners:
 - **文件服务**：按方案分派请求、记录写入来源、汇总变更事件的唯一入口。
 - **来源**：一次写入的发起方，取值为写作者（人）、Agent 会话（带会话 id）、系统、外部。
 - **挂载方案**：根是虚拟目录、根下第一段（挂载点）各对应一个真实目录的方案，由注册方声明根的说明与条目、挂载点与授权规则，真实目录的读写由文件服务完成。
-- **服务端文件服务**：服务端插件在进程内使用的文件服务入口，按全局地址分派到 `user://`、`projects://` 与已注册的方案。
+- **服务端文件服务**：服务端插件在进程内使用的文件服务入口，按全局地址分派到 `user://`、`projects://` 与已注册的方案。已被写入接口取代（代码在 2026-11-03 随 w00032 t26 删除）；下文凡说“服务端文件服务”处，现在指写入接口的同一入口。
 - **使用方**：资源管理器、编辑器、Agent 文件工具、插件等经文件服务访问资源的调用者。
 - **写入接口**（planned）：文件服务交给服务端与项目实例里插件的按调用方服务，提供读、暂存与提交、文件操作与操作分组；取代服务端文件服务的读写方法。
 - **拥有根的进程**：执行一个根的全部写入的进程：`project://` 是项目子进程，`user://` 与挂载方案是服务端进程。
@@ -57,7 +57,7 @@ owners:
   - 根的说明与条目；
   - 挂载点所在的容器目录，每个挂载点能不能在第一次写入时建、要随之建好的单段子目录；
   - 授权规则：按调用方、挂载点、操作与挂载点内的路径判断。
-- 服务端文件服务：服务端插件按调用方取得，方法为列出、读、写、新建、真实路径，每个方法收调用方的 `signal`；不提供批量、删除、改名。服务端的 `nbook.agent` 可以注明代表哪个 Agent 会话（会话 id 与当前 Profile），别的调用方注明为 `invalid-input`。
+- 服务端文件服务（已被写入接口取代，见下一条；旧接口只有列出、读文本、按基线写、新建、真实路径）：服务端的 `nbook.agent` 可以注明代表哪个 Agent 会话（会话 id 与当前 Profile），别的调用方注明为 `invalid-input`——这一条规则沿用到写入接口。
 - **写入接口（planned）：** 服务端与项目实例里的插件依赖服务键 `workspaceFilesKey` 取得按调用方的门面；项目实例里是进程内实现，服务端写项目文件经一次远程调用交给项目子进程。暂存与提交以同机共享文件系统为前提：暂存文件由文件服务建、管路径与清理。
 
   ```ts
@@ -215,7 +215,7 @@ glob 与 grep 的能力模型待讨论（见[设计稿的后续讨论](../../pro
 
 ## 实现合同
 
-- 公开入口：`files/shared/resource.ts`（`parseResource`、`Resource`、`Scheme`、`SCHEMES`）；写入来源与变更事件经 `files/shared/contracts.ts` 的事件 schema。方案注册与服务端文件服务也经 `files/shared/contracts.ts` 交给别的插件：贡献点 `SCHEMES_POINT`、`MountedSchemeSpec`、服务键 `serverFilesKey`、`ServerFiles`、`parseAddress`。
+- 公开入口：`files/shared/resource.ts`（`parseResource`、`Resource`、`Scheme`、`SCHEMES`）；写入来源与变更事件经 `files/shared/contracts.ts` 的事件 schema。方案注册与服务端文件服务也经 `files/shared/contracts.ts` 交给别的插件：贡献点 `SCHEMES_POINT`、`MountedSchemeSpec`、服务键 `workspaceFilesKey`（写入接口，实现已合入、条目仍待晋升）、`parseAddress`。
 - owner 与依赖方向：`workspace-files`（内置插件 `nbook.files`）；真实目录型提供者的根访问按 [`platform.files`](../platform/files.md) 的包含、链接与身份规则，由 `nbook.files` 自己的受根约束原语提供（尚无独立的平台文件插件，随第二个使用方出现）。
 - 不变量：
   - 调用方不能自称来源，来源完全由提供者按内核签发的调用方身份确定（`changes.test.ts` 的“写入来源：按调用方身份”）；
@@ -227,6 +227,6 @@ glob 与 grep 的能力模型待讨论（见[设计稿的后续讨论](../../pro
 ## 证据
 
 - 批准依据：[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（`accepted`，2026-10-02）的“分项决定”与方案第 1、3、8 节；2026-10-09 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 的 t68 条目（实现顺序、来源按调用方身份、外部事件只分修改与删除、根访问由 `nbook.files` 提供）与 t69 条目（文件操作的失败码与事件前缀规则）；[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 3、9 节（2026-10-07 `accepted`）与开发者 2026-10-07 在 [t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中的确认（`project://` 按客户端绑定解析、`projects://` 与路径可见性）；2026-10-14 本次晋升复核：glob、grep、bash、`tmp://`/`local://`/`docs://`/`projects://`、插件注册新方案的接口标 `(planned)`；2026-11-02 开发者在 [w00032 t08](../../../.agents/works/w00032-agent-integration/tasks/t08-resources-home/README.md) 定的方案注册、服务端文件服务、Agent 的方案与 `local://` 的取消（改为 `session://`），见 [t08 计划](../../../.agents/works/w00032-agent-integration/tasks/t08-resources-home/plan.md)；开发者 2026-11-02 批准这部分晋升为 `implemented`。写入接口、暂存与提交、操作分组与记账槽（planned）依据 [文件访问与改动记账](../../proposals/file-access-and-history.md)（2026-11-02 `accepted`）的第 1 阶段与 [ADR 0040](../../adr/0040-file-writes-staged-and-committed-by-root-owner.md)。
-- 实现入口：[`plugins/files/shared/resource.ts`](../../../packages/neuro-book/src/plugins/files/shared/resource.ts)、[`plugins/files/backend/changes.ts`](../../../packages/neuro-book/src/plugins/files/backend/changes.ts)、[`plugins/files/backend/mounted.ts`](../../../packages/neuro-book/src/plugins/files/backend/mounted.ts)（挂载方案）、[`plugins/files/backend/registry.ts`](../../../packages/neuro-book/src/plugins/files/backend/registry.ts)（方案注册）、[`plugins/files/backend/server-files.ts`](../../../packages/neuro-book/src/plugins/files/backend/server-files.ts)（服务端文件服务）、[`plugins/files/backend/projects-scheme.ts`](../../../packages/neuro-book/src/plugins/files/backend/projects-scheme.ts)
+- 实现入口：[`plugins/files/shared/resource.ts`](../../../packages/neuro-book/src/plugins/files/shared/resource.ts)、[`plugins/files/backend/changes.ts`](../../../packages/neuro-book/src/plugins/files/backend/changes.ts)、[`plugins/files/backend/mounted.ts`](../../../packages/neuro-book/src/plugins/files/backend/mounted.ts)（挂载方案）、[`plugins/files/backend/registry.ts`](../../../packages/neuro-book/src/plugins/files/backend/registry.ts)（方案注册）、[`plugins/files/backend/workspace-files.ts`](../../../packages/neuro-book/src/plugins/files/backend/workspace-files.ts)（写入接口）、[`plugins/files/backend/staging.ts`](../../../packages/neuro-book/src/plugins/files/backend/staging.ts)（暂存与提交）、[`backend/staged-commit.ts`](../../../packages/neuro-book/src/backend/staged-commit.ts)、[`plugins/files/backend/projects-scheme.ts`](../../../packages/neuro-book/src/plugins/files/backend/projects-scheme.ts)
 - 合同测试：[`files/shared/resource.test.ts`](../../../packages/neuro-book/src/plugins/files/shared/resource.test.ts)、[`files/changes.test.ts`](../../../packages/neuro-book/src/plugins/files/changes.test.ts)、[`files/project-child.test.ts`](../../../packages/neuro-book/src/plugins/files/project-child.test.ts)、[`files/schemes.test.ts`](../../../packages/neuro-book/src/plugins/files/schemes.test.ts)（验收 1、2、4、8、10）、[`files/projects-scheme.test.ts`](../../../packages/neuro-book/src/plugins/files/projects-scheme.test.ts)（验收 9，真实项目子进程）
 - Smoke：不适用——没有独立 e2e，经 [`workspace.files`](files.md)、[`workbench.files-explorer`](../workbench/files-explorer.md) 的 e2e 间接覆盖资源读写部分
