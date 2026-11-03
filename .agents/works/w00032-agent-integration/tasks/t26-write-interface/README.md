@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t26-write-interface
-status: active
-updated: 2026-11-02
+status: done
+updated: 2026-11-03
 ---
 
 # 写入接口：读、暂存与提交、文件操作、操作分组与记账槽（文件访问第 1 阶段）
