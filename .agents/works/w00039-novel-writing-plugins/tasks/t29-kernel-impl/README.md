@@ -38,6 +38,12 @@ updated: 2026-11-02
 - 第 6 片 abc60ad8e：分段日志存储（`./node` 子路径）。文件操作经一个窄接口，注入失败的实现与 `node:fs` 实现跑同一组契约测试；超过一段上限的单行另开新段。
 - 第 7 片 627a2c058：世界服务（单写者队列、独占租约、事件、补归纳、按请求 id 查结局、别的进程的行）。服务引用 node 存储，所以从 `./node` 导出。写服务测试时抓到第 4a 片的一处错：章序调整分配了修订 id 却没存回分配器，下一次发布会重用同一个 id，已修并在章序调整的测试里补断言。Spec 只给 `binder-invalid` 定了诊断码，服务的其余诊断（`reorder-not-recorded`、`duplicate-version`、`external-change`、`reduction-cache-bad-line`、`reduce-failed`）是实现取的名字。nb-canon 全包 208 条测试通过。
 
+- 第 8 片：canon 插件与验收，两次提交。
+  - 7541ea65c 插件：项目入口启动即在后台打开世界、监视日志目录与活页夹、接收 `canon.components`（内置人物与面板）；远程合同 `nbook.canon/world`，结果与请求按预算判，业务失败合成一个码 `canon`；浏览器入口按调用方转发，独占随租约订阅或调用方实例结束。nb-canon 加了只依赖 TypeBox 的子路径 `./schema` 给浏览器用。测试：真实项目子进程 4 条、两个真实子进程 2 条、星瑕样本对照 3 条（[差异清单](evidences/xingxia-differences.txt)：只有 1 处出入，依据 model 输出 14）。打包检查不再把 acorn 报错文字里的 `import()` 当动态导入。
+  - 8281e2ab2 规模：完整路径的规模脚本量出几处按平方增长（嫌疑记录、待处理不缓存、每版本重算全部核对点、日志里存未归纳全文），修完后 1000 章全部达标，发布一次记账中位 77 ms；改了 Spec revisions 输出 6（未归纳只存起点与条数）；重测 `measure-project.ts`，更新 runtime/projects 输出 12。见 [`evidences/scale-full.txt`](evidences/scale-full.txt)。
+  - 新增 6 条待确认（[清单](../../pending-confirmations.md)），其中要开发者定的一条：正文与记录分岔不处理时，嫌疑记录按平方增长，推荐改 model 输出 12 的区间起点。
+  - 没做到的：components 场景 3“停用一个插件后另一个可用”要经真实的插件启停，还没测；Spec project 场景 2 的“杀掉子进程留半行”用注入失败的文件操作代替。
+
 ## 下一步
 
-第 8 片：canon 插件与验收（项目入口、活页夹、远程服务与预算、贡献变化；两进程与真实项目子进程的测试；星瑕样本对照；插件侧完整规模脚本；重测 `measure-project.ts`）。
+第 9 片：Lab 接上原型界面（搬 t16 草稿的 14 个 `.vue`，加读取结果到视图模型的适配层，改成经远程服务异步调用；先接条目页、回执、待处理、改动记录）。之后开实现审查（后台、不阻塞）。
