@@ -1,0 +1,42 @@
+t29 第 1–8 片的实现审查与处理 —— 2026-11-03
+
+审查对象：分支 feat/w00039-t29-canon-kernel 的 75a6ff4c7..8281e2ab2（Spec 第三版之后的全部实现）。普通审查，按区域各派一个：
+- 后端（nb-canon 全包、canon 插件的项目入口与共享合同、规模与测量脚本）：omp 默认模型，40 分钟，13 条（阻断 1、重要 11、建议 1）。报告 impl-review-omp.txt。
+- 前端（canon 插件的浏览器入口、共享合同、登记与文案）：Claude Sonnet 子代理，12 条（重要 5、建议 7）。报告 impl-review-web.txt。
+两份报告到齐后一起归类，修正在一次提交里：5faf986a5。分类按 reviewing skill 的“处理结果”。
+
+后端（omp）
+1. recordDelta 悄悄舍入、列表元素的数写成赋值 —— 成立，要改。差额先按精确档核对（超范围或超过 4 位小数拒收 number-out-of-range），用十进制加法；列表元素的子字段也记 add。edits.test.ts 补用例。
+2. 带来的变化不记主文字的块 —— 成立，要改。text[块] 按块源文读，条目初值的块改动也收进地址。revisions.test.ts 补用例；星瑕对照的回执比较不比主文字的块（原型的回执不列，写进差异清单）。
+3. 启动时活页夹清单坏了会发布到空章序（阻断）—— 成立，要改。WorldService.open 接受 "invalid"：按日志里最后记下的章序计算，不发布章序调整，写诊断 binder-invalid。service.test.ts 补用例。
+4. setRegistry 被进行中的发布覆盖 —— 成立，要改。登记变化排进写入队列。service.test.ts 用停在落盘前的追加补用例。
+5. 归纳写缓存失败后被当作已补上 —— 成立，要改。落盘成功才进内存缓存。service.test.ts 补用例；变异检查（改回先进内存）让用例失败。
+6. 还原依赖用 JSON 文本搜索 —— 成立，要改。新增 referencedIds / opReferences，只看放 id 的键。revisions.test.ts 补“自由文字等于新建 id”的用例。
+7. 独占到期不主动结束 —— 成立，要改（与前端第 3 条同源）。ServicePorts 加可选的 timer，申请、续期、带令牌的写入时按到期时间排定时；宿主用 setTimeout（unref）。service.test.ts 用可手动触发的定时与注入时钟补用例。
+8. 追加写完整行后出错仍报 write-failed —— 不成立。出错后按长度截回原样（截回成功即确定没写进去），再报 write-failed；用真实 nodeFiles 复现：抛错后日志只有版本 1。审查者的“日志已包含完整版本 2 行”不对。想一想：说明里若写明“截回成功即确定没写进去”的 Spec 依据（project 输出 7），能避免这次误判。
+9. 打开重放的正常路径没持锁 —— 成立，要改（Spec project 输出 4 写明持锁）。openLog 整个过程持锁。node-log.test.ts 补用例（锁被占着时完整日志也得到 world-locked；读文件时锁在手里）。
+10. questions、suggestions 没有游标分页 —— 成立，要改。服务、合同、远程层都加游标与条数，远程层走按预算减半的分页。service.test.ts 补用例。
+11. revisions 的条目筛选被自由文字误命中 —— 成立，要改（建议级）。改用 opReferences。service.test.ts 补用例。
+12. 空表达式被放行 —— 成立，要改。没有字段引用、也没有注释的 {} 与 { } 按 no-field-expression 拒收。rendering.test.ts 补用例。
+13. 补丁没记类型版本 —— 成立，要改（components 输出 10）。写入时对命名空间的补丁补上已登记的类型版本。revisions.test.ts 补用例。没做的：补丁带了与登记不同的版本时拒收，留作下次（Spec 没写怎么判）。
+
+前端（Sonnet）
+1. 业务失败合成 canon 的理由不成立 —— 成立（理由写错了），但接受取舍。路由层只有 10 个码，与 nb-canon 的失败码没有重名；保留合成的理由改为：nb-canon 约 50 个失败码还会增加，逐个声明时漏一个就会在运行时变成 provider-error。待确认清单那一行已改正。
+2. subscribe、hold 不处理重连与提供方结束 —— 成立，要改。事件加 resync（重连后订阅已重建）与 ended（被提供方结束）；hold 在订阅被结束时也调 onEnded，只调一次。
+3. 到期不发事件、租约订阅重复推 ended —— 成立，要改。同后端第 7 条；远程层的租约订阅只推一次 ended 并解开监听。
+4. Component 声明校验不全 —— 成立，要改。nb-canon 加 ComponentDeclarationSchema，登记时先核对形状（只做查询的类型也核对），不再抛错。components.test.ts 补用例。
+5. 测试缺口 —— 部分成立。补了：被强行解除时持有方收到一次结束、自己释放不算结束、持有窗口停止时独占结束、订阅释放后不再收到事件、没绑定项目的窗口得到 no-project。接受取舍（不补）：真实 WebSocket 上的预算边界（files 的 transport.test.ts 已验证消息上限，canon 用同一条链路）；第三方类型经贡献点登记的端到端（接收者只把声明交给 setRegistry，已由 components 场景 3 经世界的读写覆盖）；路由层失败的映射（只是换形状）。
+6. hold 的释放与续期 —— 部分成立。hold 返回到期时间与 renew，release 返回结果。call("acquireExclusive") 绕过租约订阅：接受取舍，写进接口注释（仍按 60 秒到期结束）。
+7. subscribe 顺序等待、部分失败的收口 —— 成立，要改。三条订阅并行，按结果一起收口。
+8. 路由层失败丢了 cause —— 成立，要改。
+9. 结果类型手抄、事件载荷不一、questions 没类型、缺省条数不一 —— 部分成立。questions、suggestions 用 schema 里的类型；远程层的缺省条数与世界服务一致（revisions 20）。CanonOutputs 手抄：接受取舍（要接上项目侧的类型得把 node 的类型带进前端构建）。changed 的载荷带 kind：客户端按 CanonEvent 直接交出，不改。
+10. 预算常量与 files 各一份 —— 接受取舍：合起来要依赖 files 插件的合同；以后可以挪到 nbook/shared。
+11. publish 特殊对待、翻页要调用方自己写 —— 接受取舍：等作者界面再按实际用法加。
+12. 注释与 Spec 对不上 —— 成立，要改。Spec project 输出 1 写上浏览器入口按调用方转发与 no-project，失败表加 no-project 与路由层失败。
+
+验证（提交 5faf986a5）
+- nb-canon：bun test 233 条通过；tsc 通过；差分测试 20 个种子各 100 步通过。
+- 应用：bun test src/plugins/canon scripts/pack-app.test.ts src/plugins/plugins 21 条通过；bun run typecheck 通过。
+- 规模（400 章，复查没有回退）：打开 421 ms，发布一次记账中位 32 ms，改初值中位 168 ms，按计划之后的读取中位 1.6 ms。
+
+有效发现：后端 12 条（第 8 条不成立），前端 12 条（第 1、10、11 条与第 5、6、9 条的一部分接受取舍）。

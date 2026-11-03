@@ -1,0 +1,134 @@
+w00039 t29 canon 浏览器入口与共享合同：只读审查报告
+审查对象：提交 8281e2ab2（实现 worktree 的 canon 源码与它逐字相同，仅 nb-canon/tests/components.test.ts 多 26 行）
+已跑：bun test src/plugins/canon/canon.test.ts（4 通过 0 失败）；src/architecture.test.ts 与 builtin-names（9 通过）；
+      bun build src/plugins/canon/web/plugin.ts --target=browser（699 个模块，产物里 micromark、acorn、node: 命中 0 次）
+实验文件在 /tmp/w00039-t29-web-review-lab/
+
+### 1. 合成业务失败码 `canon` 的理由不成立：没有任何 nb-canon 失败码与路由层失败码重名，合成换来的是失败对象完全没有类型
+- **严重程度**：重要；**类别**：API 形状
+- **位置**：packages/neuro-book/src/plugins/canon/shared/contracts.ts:39-41、148-154；web/client.ts:17-21；待追认清单 pending-confirmations.md “接口取舍”一行
+- **现象**：清单里写“失败码里有与路由层同名的（`too-large` 等），不能逐个声明”。路由层失败码只有 10 个（nb-runtime/src/remote/protocol.ts:28-39：invalid-input、denied、target-gone、unavailable、not-provided、version-changed、timeout、cancelled、unknown-outcome、provider-error），`too-large` 不在其中。把 nb-canon 源码里所有 `code: "…"` 取出对照（约 50 个），与这 10 个没有一个重名。files 的合同（files/shared/contracts.ts:117）就直接把 `too-large`、`busy`、`not-found` 声明成了业务失败码，defineRemoteService 的重名检查（contract.ts:136）也不会拦它们。
+  合成之后：`CanonFailure` 是 `{code: string; [detail: string]: unknown}`，调用方拿到 `busy` 也只能把 `failure.holder` 当 `unknown` 用，不能按 code 收窄，也没有穷尽检查；内核对详情的校验只剩 `{code: string}`（FailureSchema），`holder`、`since`、`reason` 这些字段是否存在内核不管；路由层失败与业务失败被压进同一个 `code: string`，调用方只能靠字符串猜是哪一层。
+- **为什么是问题**：作者界面马上要按 `busy`、`exclusive-lost`、`version-conflict`、`cursor-stale` 分支做不同处理，全靠手写字符串与强转；这是后续每个调用方都要付的成本。而付它的理由是一个可核实为假的事实。AGENTS.md 要求“质疑上游选择，追到当初理由是否还成立”。
+- **如何核实**：`grep -rhno 'code: "[a-z-]*"' packages/nb-canon/src` 对照 protocol.ts:28-39，交集为空；读 files/shared/contracts.ts:112-128 看同名业务码的先例。
+- **建议改法**：二选一并重新交开发者追认。（a）按方法声明业务失败码及详情 schema（写方法与读方法的码集合本来就不同，Spec 的失败表也是按码列的），客户端返回 `RemoteResultFor` 同形的带类型联合；（b）至少在 shared 导出一个以 `code` 为判别字段的 `CanonFailure` 联合（把 nb-canon 的 `ServiceFailure`、各写入失败与路由层失败码并在一起，两层码无重名所以可以直接成判别联合），并在后端用类型保证 `fail()` 只能交出这个联合里的值。把追认清单那一行的理由改成真实的（“少写几十个码”）。
+
+### 2. 订阅与租约忽略了 `onResync` 与 `onEnd`：Spec 要求的“重连后先读一次 status”无法做到，`hold` 的 `onEnded` 在订阅被提供方结束时不触发
+- **严重程度**：重要；**类别**：不变量 / API 形状
+- **位置**：packages/neuro-book/src/plugins/canon/web/client.ts:41-60、61-82；shared/contracts.ts:215-220；Spec docs/specs/canon/project.md “时序与寿命”最后一条
+- **现象**：`events.*.subscribe` 的第三个参数 `RemoteSubscribeOptions`（nb-runtime/src/remote/contract.ts:295-300）有 `onResync`（同一项目代次内重连、订阅已重建）与 `onEnd`（提供方停止、重订失败等）。client.ts 四处 subscribe 都没传。node.ts:1120-1136 确认：重连后运行时会重订并调 `onResync`，重订失败调 `onEnd`，调用方没传就什么也不知道。
+  结果：（1）`CanonClient.subscribe` 的调用方在断线期间漏掉的 `changed` 没有任何信号，Spec 写的“重连后重新订阅事件，先读一次 `status` 拿当前版本”只有拿得到信号的人才做得到，现在连信号都拿不到；（2）项目实例停止或换代使订阅结束时，`subscribe` 的调用方静默不再收事件；（3）`hold` 的租约订阅被 `onEnd` 结束（不是服务端推 `ended`）时 `onEnded` 不触发，持有者继续以为自己持有。只有“重连后租约被重订、服务端发现令牌已不在 tokens 里推 `ended`”这一条路径碰巧能触发 `onEnded`。
+- **为什么是问题**：作者界面“事件后重读”是第一批要接的场景；断线重连是必然发生的。漏事件会让界面停在旧版本而不自知。
+- **如何核实**：读 node.ts:1041-1052（onEnd）、1120-1136（onResync）；在 client.ts 里 grep `onResync|onEnd` 无命中。canon.test.ts 的断线用例只关了链路，没有重连，所以覆盖不到。
+- **建议改法**：`subscribe(listener, options?: {onResync?, onEnd?})` 透传到三个订阅（三者任一 resync 就通知一次，任一 end 就整体收口并通知）；`hold` 的 `onEnded` 增加原因参数（`"ended" | "connection"`），租约订阅 `onEnd` 时也调用。或者让 `CanonEvent` 增加 `{kind: "resync"}`，由客户端自己插进事件流，调用方只有一条通路。
+
+### 3. 租约到期不会主动发 `exclusive` 事件，`hold` 的 `onEnded` 与作者界面都收不到“到期”；且租约订阅在结束后还会反复推 `ended`
+- **严重程度**：重要；**类别**：正确性 / 不变量（根因在 nb-canon 的 WorldService 与 backend/remote.ts，影响 `hold`/`subscribe` 的合同，列在这里）
+- **位置**：packages/nb-canon/src/service/service.ts:402-424（`#expireLease` 只在 acquire、renew、write、status 里被调用，没有计时器）；packages/neuro-book/src/plugins/canon/backend/remote.ts:110-128
+- **现象**（实验 /tmp/w00039-t29-web-review-lab/lease.ts，用真实 WorldService 与真实 `remoteWorld`）：A 申请独占并订 `lease`，时钟推进 61 秒、没有人碰服务：`exclusive` 事件序列仍是 `["A"]`，A 的 lease 订阅只有 `held`；直到有人调 `status()` 才补发 `null` 与 A 的 `ended`。之后 B 申请并释放，A 那条已经 `ended` 过的 lease 订阅因为 `service.subscribe` 监听器还挂着，又推了一次 `ended`（实测 A 共收到 2 次 `ended`）。
+- **为什么是问题**：Spec project.md 输出 10 把“到期没续”列为结束独占并“发 `exclusive` 事件”的情形，场景 5 要求“过了 60 秒，独占自动结束”。现在 `hold` 的 `onEnded` 在到期时不触发（持有者不会知道），别的窗口订阅 `exclusive` 的界面会一直显示“某某正在记账”直到有人恰好碰一下服务。陈旧的 lease 订阅再推 `ended`，会让持有者的 `onEnded` 在别人的独占结束时被误调。client.ts 的 `onEnded` 没有只触发一次的保证。
+- **如何核实**：运行 `cd .../w00039-t29-canon-kernel/packages/neuro-book && bun /tmp/w00039-t29-web-review-lab/lease.ts`。
+- **建议改法**：WorldService 在申请与续期时用注入的定时器（或 ports 里的 `setTimer`）安排到期，到期调用 `#expireLease`；lease 订阅在第一次推出 `ended` 之后解开 `service.subscribe` 监听并不再推。client 的 `onEnded` 也加一道只调一次的保险。若不想加计时器，至少把 Spec 输出 10 与场景 5 改成“到期在下一次访问时才生效”，并让 `hold` 文档写清楚。
+
+### 4. `componentDeclarationProblem` 只校验了带命名空间类型的一部分，只做查询的类型与多个必填项完全不查；畸形声明会抛英文 TypeError
+- **严重程度**：重要；**类别**：正确性 / 测试
+- **位置**：packages/neuro-book/src/plugins/canon/shared/components.ts:131-145；依赖 packages/nb-canon/src/components/registry.ts:55-67、100-106
+- **现象**：校验的全部内容就是“声明是对象、不带 id、`buildRegistry([一条]).diagnostics[0]`”。而 `buildRegistry` 对没有 `namespace` 的声明直接放进 `queryOnly`，不做任何检查（registry.ts:60-63）；带命名空间的只查 `namespace` 合法、`version` 正整数、`fields`。实验（/tmp/w00039-t29-web-review-lab/decl.ts，直接调用真实函数）：
+  - `{}`（没有 label）、`{label: 5, fields: "oops", version: "x"}`（只查询）：返回 null，即通过；
+  - `{namespace: "ns", version: 1}`（带数据缺 label）、`{label: 7, namespace: "ns", version: 1, agentView: 5, instanceFields: "yes", extra: 1}`：通过；
+  - `{label: "a", namespace: "ns", version: 1, fields: null}`：通过；`fields: {}`：抛 `TypeError: fields.entries is not a function`（宿主 catch 后以这条英文实现细节当拒绝原因）。
+  components.md 输入表要求 `label` 必填，输出 1 要求“载入时校验”。第三方插件的声明来自清单里的任意 JSON，这里是唯一的把关。另外：贡献点没写 `schema`（contracts.ts 里 point 只有 `validate`），而 plugin-manifest 的约定恰恰是“结构用 schema、跨条目用 validate”；`problem.code === "component-declaration-invalid" ? … : problem.code` 的 else 支路只会碰到 `component-namespace-conflict`，单条声明下不可能发生，是死分支；nb-canon 的 message 是英文（`namespace "5" is not an identifier or is reserved`），直接进了中文诊断。
+- **为什么是问题**：缺 label 的类型会登记成功，之后界面显示名为 undefined；`label: 5`、`agentView: 5` 现在无人使用，等 agentView 被渲染时才炸，而且炸在项目进程里的世界读取上。
+- **如何核实**：`cd .../w00039-t29-canon-kernel/packages/neuro-book && bun /tmp/w00039-t29-web-review-lab/decl.ts`。仓库里没有任何测试调用 `componentDeclarationProblem`（grep 全仓只有 components.ts 自己）。
+- **建议改法**：给 point 加纯 JSON Schema 的 `schema`（label 必填字符串、各可选项的类型、`fields` 必须是数组、不许多余字段），`validate` 只留 schema 管不了的（命名空间保留名、字段 id 规则，沿用 buildRegistry）；在 nb-canon 里把“单条声明校验”做成导出的函数（含 queryOnly 的基本检查），贡献点与 buildRegistry 共用同一个，避免两处对“合法”理解不一致；补一组表驱动测试（上面九种输入）。
+
+### 5. 测试没有覆盖本次新增的大半判据：no-project、路由层失败映射、`hold` 的释放与失败收口、订阅释放与部分失败、调用方实例失效、贡献点校验、真实传输下的预算边界
+- **严重程度**：重要；**类别**：测试
+- **位置**：packages/neuro-book/src/plugins/canon/canon.test.ts 全文（4 个用例，229 行）
+- **现象**：逐条对照任务说明里的重点 2：
+  - 没绑定项目的窗口调用得到 `no-project`：无用例（`windowOf` 总是绑定 "book"）；
+  - 路由层失败原样给出、写方法断线是 `unknown-outcome`、再按请求 id 调 `outcome`（Spec 场景 7“断线重试”）：无用例。用例 2 的 `task.disconnect()` 之后只看别的窗口的事件，没有让断线的窗口自己发一次写；
+  - `hold` 的 `release()`（先退租约订阅、后释放令牌）、租约订阅订不上时释放令牌、`onEnded` 回调：无用例；`hold` 一律不传 `onEnded`；
+  - `subscribe` 的 `release()` 之后不再收事件、三个事件里部分订阅失败的收口：无用例；只断言了 `changed`，`exclusive` 与 `reduced` 的映射（`holder` 改写成 `{kind: "exclusive", holder}`、`reduced` 补 `kind`）没有断言；
+  - “调用方实例失效”结束独占（Spec 输出 10、backend/plugin.ts 的 `provideRemote.release`）：用例 2 只测了链路断开，没有测 `app.stop()` 之后独占结束；
+  - 贡献点：没有用例让第三方的类型（带 id 前缀、撞前缀、畸形声明）经 `canon.components` 登记，`idPrefix: "plugin"` 与 `validate` 完全没被运行过；
+  - 预算：用例 3 在进程内链路上跑（createLinkPair 没有大小限制），`too-large` 能被发现是因为“发出去了会真的发布成功”，但真实 WebSocket 上 `CANON_BUDGET_BYTES` 附近的请求是否真的过得去（64 KiB 余量够不够装帧包络）没人测；files 有 transport.test.ts 在真实传输上测了对应边界（files/transport.test.ts:127、142），canon 没有。恰在预算上的请求（`>` 还是 `>=`）也没有测。
+- **为什么是问题**：任务说明点名的“每条判据是否真被测到”答案是否。这些路径都是客户端里手写的分支（`if (!lease.ok)`、`if (access === null)`、`failed` 收口），没有测试就没有任何东西防它被改坏。
+- **如何核实**：通读 canon.test.ts；grep `no-project|unknown-outcome|onEnded|release\(\)` 在该文件无命中。
+- **建议改法**：补用例（都能用现有 windowOf）：未绑定窗口一次 `call` 与一次 `hold`；断线窗口的写得到 `unknown-outcome` 后 `outcome` 查结局；`hold().release()` 后别人能 `acquireExclusive`；`app.stop()` 后独占结束；订阅 release 后无事件；通过 fake 的 `access` 单独测 `createCanonClient` 的部分失败支路（它本来就接受函数入参，天然可测）；第三方声明表驱动测试；预算边界按 files/transport.test.ts 的做法在真实 WebSocket 上测一次。
+
+### 6. `hold().release()` 吞掉释放结果且返回类型与其它方法不一致；`hold` 没有交出到期时间与续期入口；`call("acquireExclusive")` 绕过租约订阅
+- **严重程度**：建议（偏重要）；**类别**：不变量 / API 形状
+- **位置**：packages/neuro-book/src/plugins/canon/web/client.ts:61-82；shared/contracts.ts:215-220
+- **现象**：
+  - `release: async () => { lease.value.release(); await call("releaseExclusive", {token}); }`：释放调用的结果被丢弃，断线、超时、`denied` 都看不到，调用方以为释放了。租约订阅的退订是发出去的帧，不等确认。`hold` 订阅失败的分支（68-71）同样丢弃 `releaseExclusive` 的结果。返回类型 `Promise<void>`，而同一接口的 `subscribe` 的 `release(): void`、所有方法返回 `CanonResult`，三套风格并存。
+  - 重复调用 `release()` 会再发一次 `releaseExclusive`（令牌不同则服务端无副作用，但是白占一次往返）。
+  - `acquireExclusive` 的返回值里的 `expires` 在 `hold` 里被丢掉，只给了 `token`；60 秒租约要靠写入或 `renewExclusive` 续，`hold` 不续、不暴露续期入口，也没有说明；调用方只能自己 `call("renewExclusive")`。
+  - `CanonClient.call` 的方法参数类型是全部 `CanonMethod`，含 `acquireExclusive`。直接用它申请独占就没有租约订阅，违反 Spec 输出 10“申请独占的调用方同时持有一个租约订阅”：调用方崩溃后令牌只能等 60 秒到期（而到期还是懒的，见第 3 条）。后端也不拒绝没有订阅的令牌。
+  - `hold` 里“先申请、后订租约”之间有一个窗口，窗口里连接断开则令牌无人认领，失败分支的 `releaseExclusive` 也会因同一原因失败（结果被丢弃）。这是 Spec 两步式设计的固有窗口，但至少应该让调用方知道。
+- **为什么是问题**：独占写入是后台记账任务的保险丝，释放失败要让调用方看得见才能决定重试或等到期。
+- **如何核实**：读 client.ts:61-82；canon.test.ts 对 `release` 无用例（见第 5 条）。
+- **建议改法**：`release(): Promise<CanonResult<null>>` 并幂等（内部记 released 标志）；`hold` 的值加 `expires` 并提供 `renew()`，或在文档里写明由调用方续；`call` 的方法类型排除 `acquireExclusive`（让申请只能经 `hold`），`releaseExclusive`、`renewExclusive` 仍可用；失败分支回滚的结果合并进返回的失败详情。
+
+### 7. `subscribe` 三个订阅顺序等待，部分失败的收口依赖“不会 reject”，且回调早于句柄可用
+- **严重程度**：建议；**类别**：不变量 / 代码质量
+- **位置**：packages/neuro-book/src/plugins/canon/web/client.ts:41-60
+- **现象**：（1）三次 `await` 依次进行，要 3 个往返才返回，没有理由不并行（`Promise.all`）；（2）`subscriptions` 只在三个都 settle 之后才统一收进数组，所以其中任何一个 `subscribe` 抛出（而不是返回 `ok:false`）时，之前已建立的订阅没有人持有，无法释放；`async` 函数里的同步异常同理（`remote()` 里 `access!().use(...)`）。（3）`changed` 先订上、其余还没订完时事件已可能触发 `listener`，而调用方此时还没拿到 `release`；其中一个失败后又整体释放，调用方可能已经收到过事件。（4）`failed !== undefined && !failed.ok` 的第二个条件只是为了收窄类型，写法绕；当第一个已失败时仍然继续订后两个再整体释放，多余的往返。（5）`listener` 抛出的异常会进入运行时的事件分发，没有说明由谁处理。
+- **为什么是问题**：不变量“订阅有头必有尾”靠“不会抛”成立；这类 API 的收口习惯写法是 try/finally 或边订边登记。
+- **如何核实**：读代码；用 fake `access` 让第二个 subscribe reject，第一个订阅不会被释放。
+- **建议改法**：并行订，每个 promise 成功就登记；任一失败或抛出，统一 `release()` 并返回失败；`listener` 在 `subscribe` 返回前先缓冲（或文档写明可能先到事件）。
+
+### 8. 路由层失败的 `cause` 被丢掉，失败形状与 files、storage 的相邻实现不一致
+- **严重程度**：建议；**类别**：API 形状 / 代码质量
+- **位置**：packages/neuro-book/src/plugins/canon/web/client.ts:15-21
+- **现象**：自写的 `Raw` 类型没有 `cause`，而 `RemoteFailure.cause`（`target-gone`、`timeout`、`cancelled`、`disconnected`、`activation-cycle`，protocol.ts:43-48）正是区分“请求没到”与“请求可能已执行”的依据（`unknown-outcome` 总带 cause）。files 的 `fromRemote`（files/web/client.ts:307-314）保留了 `cause`，并把 `detail` 统一成可读的字符串。canon 把路由层说明放进 `failure.detail`，把业务失败的字段展平在 `failure` 上，同一个对象里 `detail` 有时是路由说明、有时是业务字段（nb-canon 的失败对象本身没有 `detail` 键，但索引签名允许有，一旦 nb-canon 以后加就撞）。`CanonResult` 是嵌套的 `{ok:false, failure}`，files/storage 是展平的 `{ok:false, code, detail}`，调用方在两个客户端之间要换写法。
+- **为什么是问题**：`unknown-outcome` 的下一步是调 `outcome`，调用方需要知道是哪种断；以及相邻插件的一致性。
+- **如何核实**：对照 files/web/client.ts:307-314。
+- **建议改法**：直接用 nb-runtime 导出的 `RemoteFailure` 类型；失败对象 `{code, cause?, detail?, ...业务字段}` 保持与 files 一致的字段名，业务字段放进专门的键（如 `info`）而不是展平，避免与 `detail` 撞。
+
+### 9. `CanonOutputs` 是手抄的第二份类型，与项目侧真实返回之间没有任何编译期或测试连接；`changed` 事件载荷未声明且夹带 `kind`；`questions`、`suggestions` 本可有类型却是 `unknown[]`
+- **严重程度**：建议；**类别**：API 形状 / 代码质量
+- **位置**：packages/neuro-book/src/plugins/canon/shared/contracts.ts:36-37、131-140、182-204；backend/remote.ts:107-109
+- **现象**：
+  - 所有方法的 `output` 都是 `Type.Unknown()`，客户端用 `result.value as T` 强转到 `CanonOutputs[M]`。我逐项对照了 `WorldService` 的返回（service.ts:158-285、392-410）与 remote.ts，目前形状是一致的（entry、tree、lookup、changes、pending、revisions、render 为 null、preview、outcome、acquire/renew 都对得上）；但一致是手工保证的：nb-canon 的返回类型改一个字段，`CanonOutputs` 与客户端强转都不会报错，canon.test.ts 里也没有对形状的断言（canon.test.ts 只断了 lookup 的完整值）。
+  - `events.changed.payload` 是 `Type.Unknown()`，而 Spec 事件段给出了确切的 `{version, revision, by, what, title}`。remote.ts:107 把 service 的整个事件对象（连同 `kind: "changed"`）发上线，而 `exclusive`、`reduced` 都去掉了 `kind` 再发；客户端 (client.ts:49) 却又对前者直接 `payload as CanonEvent`，对后两者补 `kind`。三个事件的线上形状不一致，`kind` 泄漏进了合同。
+  - `questions`、`suggestions` 的 items 是 `readonly unknown[]`，但 nb-canon/schema 已导出 `Question`、`Suggestion`（engine/types.ts 就是从 core/schema 引的）；`status.diagnostics`、`render.blocks` 也是 unknown，调用方每处都要自己强转。
+  - remote.ts:35 的 `paged` 默认条数 50 套在所有列表上，而 `service.revisions` 的默认是 20（service.ts 的 `limit = 20`）：同一个调用不带 `limit` 时，经远程与直接调用得到的页大小不同。
+- **为什么是问题**：合同的价值就是让两端对形状有同一份说法；现在有两份手写的说法加一条强转。
+- **如何核实**：对照上面列的行号；`grep -n "limit =" packages/nb-canon/src/service/service.ts`。
+- **建议改法**：事件载荷写成 Spec 里的确切 schema（`changed` 去掉 `kind` 在客户端补，三者对称）；`questions`/`suggestions`/`status` 用 schema 里已有的类型；加一个类型层面的断言测试（`satisfies`/`Expect<Equal<…>>`）把 `CanonOutputs[M]` 与 `Awaited<ReturnType<WorldService[M]>>` 去掉失败分支后对上；`paged` 的默认值改成按方法给。
+
+### 10. 预算常量与 `encodedBytes` 在 files 与 canon 各抄一份，同名导出
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：packages/neuro-book/src/plugins/canon/shared/contracts.ts:24-30；packages/neuro-book/src/plugins/files/shared/contracts.ts:36、44-46
+- **现象**：`RPC_MAX_MESSAGE_BYTES - 64 * 1024` 与 `new TextEncoder().encode(JSON.stringify(value)).length` 各写了两遍（`TEXT_BUDGET_BYTES`/`CANON_BUDGET_BYTES`，两个 `encodedBytes`），两处注释都在解释同一个理由；都从各自的 `shared/contracts.ts` 公开导出，其它插件同时引两个会撞名。此外 `encodedBytes` 用 `JSON.stringify`，而帧编码用的是 json-codec 的严格 replacer（遇到 `undefined` 数组元素、非有限数、非普通对象会抛）；BigInt 或循环引用会让 `JSON.stringify` 在 async 函数里变成 rejected promise，而不是 `CanonResult` 失败，`call` 因此会有一条“抛出”的出口。
+- **为什么是问题**：“同一件事各写一份”；预算是传输层的属性，应该和 `RPC_MAX_MESSAGE_BYTES` 放在一起，改传输上限时两处不会漏改。
+- **如何核实**：grep `64 \* 1024` 与 `function encodedBytes`。
+- **建议改法**：把 `RPC_BODY_BUDGET_BYTES` 与 `encodedBytes` 放到 `nbook/shared/rpc-socket.ts`，两个插件引它；`call` 里用 try/catch 把编码异常转成 `invalid-input` 失败（用错误类型，不按文案）。
+
+### 11. `CanonClient` 的形状：`publish` 特殊对待、其余写方法把 token 塞进 input；翻页与 `cursor-stale` 要每个调用方自己写
+- **严重程度**：建议；**类别**：API 形状
+- **位置**：packages/neuro-book/src/plugins/canon/shared/contracts.ts:84-124、215-220；web/client.ts:38-40
+- **现象**：`publish(request, token?)` 是 `call("publish", {request, token})` 的换皮（还专门判断 `token === undefined`，JSON 本来就会丢掉 undefined 属性），而 `editInPlace`、`recordDelta`、`writeBack`、`revert` 都要把 token 放进 input 里；同一接口里有两种带 token 的写法。列表类（`tree`、`changes`、`revisions`）要调用方自己循环 `cursor`，遇到 `cursor-stale`（Spec 输出 19，任何一次写入后都会发生）自己从头再来；作者界面在 Agent 持续写入时翻页会反复碰到。`limit` 的缺省是后端偷偷定的 50（见第 9 条）。事件后重读时调用方要自己比 `event.version` 与上次读取的 `version`，没有现成的“读到不早于版本 v”的帮助。
+- **为什么是问题**：任务说明点名“以后接作者界面（列表分页、事件后重读）会不会别扭”：会，每个界面都要重写同一个翻页循环。
+- **如何核实**：读 client.ts:38-40 与 contracts.ts:84-124。
+- **建议改法**：要么去掉 `publish` 这个特例，要么给所有写方法统一 `(input, {token})` 的第二参数；加一个 `pages(method, input)` 异步迭代器，内部处理 `cursor` 与 `cursor-stale` 重来并把 `version` 带出来。
+
+### 12. 注释与 Spec 的引用对不上：Spec 没写浏览器客户端、`no-project`、路由层失败码，失败表也缺它们
+- **严重程度**：建议；**类别**：文档
+- **位置**：packages/neuro-book/src/plugins/canon/web/plugin.ts:1-4（引“输出 1”）、web/client.ts:1-7（引“方法表与输出 18”“场景 7”）、shared/contracts.ts:1-9；docs/specs/canon/project.md 输出 1、18 与“失败与恢复”表
+- **现象**：project.md 输出 1 讲的是“一个项目一个世界、同项目实例里所有调用方共用”，没有讲浏览器入口按调用方转发，也没有说没绑定项目的窗口得到 `no-project`；“失败与恢复”表里没有 `no-project`，也没有路由层失败码（`unknown-outcome`、`unavailable`、`denied`、`timeout`…）与调用方怎么办（场景 7 只讲了 `outcome`）。`CanonClient` 的存在、`hold` 的“先申请后订租约、释放先退订后释放令牌”、`onEnded`、合成码 `canon` 全不在 Spec 里。AGENTS.md 规定行为规则链接 Spec 而不在注释里复述；这里的注释既复述了又引错了位置。
+- **为什么是问题**：行为合同的真相源应在 Spec，代码注释现在是唯一的说明；评审“这行为对不对”无处可对照。
+- **如何核实**：对照 project.md 输出 1、失败表；grep `no-project` docs/specs/canon 无命中。
+- **建议改法**：在 project.md 的“输入与前置条件”加一小节“浏览器客户端”（可选，浏览器入口的行为），失败表加上 `no-project` 与路由层失败码的处理；注释只留“为什么”，引用换成该小节。
+
+### 未发现问题的方面
+- 浏览器导入链：web/plugin.ts 到达的运行时模块只有 `@notnotype/nb-canon/schema`（core/schema、components/registry、identifiers、stable-json，只依赖 typebox 与 typebox/compile，后者在 commands/shared/registry.ts 等处已被浏览器代码使用）；`bun build --target=browser` 的 0.35 MB 产物里没有 micromark、acorn、`node:`。contracts.ts 里的 `import type` 全部擦除，`EntryView` 等来自 engine/types.ts 的类型只展开类型文件，不带运行时代码。
+- 委托访问每次调用时才取：`access` 是函数，`remote()` 在 `call`、`subscribe`、`hold` 每次都重新取，工厂里不碰；门面释放后得到 `denied` 而不是抛出。委托订阅随签发门面释放而结束，所以 `provideServicePerConsumer` 不需要像 storage 那样传 `release`。
+- 请求超预算不发出：`call` 在 `access === null` 之后、取委托之前核对，用例 3 在进程内链路上能区分“没发出”与“发出了被拒”（发出就会真的发布成功，版本不再是 0）。
+- 登记：内置插件名单、`src/web/plugins.ts` 定义表、manifest.ts 清单、两份 locales 的 `nbook-canon` 键齐全，builtin-names 与 architecture 测试通过；locations 为 ["project", "browser"] 与 markdown 的先例一致，没有 server 位置的定义不会让服务器实例缺贡献点。`idPrefix: "plugin"` 与内置类型 id（`nbook.canon.person`）和 Spec 的 `<插件 id>.<名>` 一致。
+- 没有发现按错误文案做分支、静默的 `catch`、跨包深导入；canon.test.ts 的 `until` 是等可观察状态的轮询（10 秒截止），不是固定等待。
+
+### 数量
+阻断 0；重要 5（第 1、2、3、4、5 条）；建议 7（第 6 至 12 条）。共 12 条。
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12

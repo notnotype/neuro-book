@@ -1,0 +1,105 @@
+### 1. recordDelta 会把非法小数静默舍入，并把列表数值写成赋值
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-canon/src/world/edits.ts:82-92,143-147`
+- **现象**：`recordDelta` 先用 `Math.round(value * 1e4) / 1e4`，没有检查 `delta` 的精度；`editInPlace` 只有不含 `[` 的数值地址才走精确数分支。于是对精确字段 `100 + 0.00001` 会发布一条 `add 0` 的修订，而不是按 `number-out-of-range`/小数位超限拒收；对列表元素的数值子字段则生成 `set` 绝对值，而不是记录传入的差额。
+- **为什么是问题**：`components.md` 输出 14 与 `revisions.md` 输出 9 要求精确数最多 4 位小数，记一笔的语义是一次加减。当前实现既丢掉调用方的输入，又能留下无意义的成功修订；列表数值的 `recordDelta` 会把“增加 delta”错误地变成“设成 current + delta”，后续还原、来历与待处理都记录成另一种操作。
+- **如何核实**：在实现 worktree 的 `packages/nb-canon` 运行：`bun -e 'import {createHash} from "node:crypto"; import {buildRegistry, ChapterOrder} from "./src/index.ts"; import {PANEL} from "./tests/fixtures/world.ts"; import {World} from "./src/world/world.ts"; import {recordDelta} from "./src/world/edits.ts"; const o={order:new ChapterOrder(["ch1"]),registry:buildRegistry([PANEL]),reductions:()=>undefined,chapterText:()=>"",digest:(s:string)=>createHash("sha256").update(s).digest("hex")}; const e={id:"tmp:e",type:"人物",parent:null,folder:"",order:0,init:{name:"甲",aliases:[],summary:"",text:[],data:{panel:{type:PANEL.id,version:1,enabled:true,fields:{存款:100,魔力上限:null,魔力:null,物品:[]}}}}}; const r=World.empty(o).publish({requestId:"r1",by:{kind:"author"},what:"opening",title:"开局",baseVersion:0,puts:[{ref:{kind:"entry",id:"tmp:e"},after:e}]} as any,"t"); if(!r.ok) throw r.failure; const d=recordDelta(r.world,{requestId:"r2",by:{kind:"author"},position:{kind:"chapter",chapter:"ch1",edge:"end"},at:{entry:"e1",path:"panel.存款"},delta:0.00001,reason:"微调",read:{value:100,version:1}},"t"); console.log(d.ok,d.ok?d.world.data.changes.get("c1")?.patches:d.failure);'`，输出为 `true`，补丁 `value: 0`。
+- **建议改法**：先用 `exactProblem(delta)` 拒收超范围或超过 4 位小数的差额，再用十进制 `addExact` 计算目标值；精确数判断应依据解析后的字段声明，即允许 `list[id].number` 子字段，统一生成 `add` 补丁而不是按路径是否含 `[` 分流。
+### 2. impact 不记录主 MDX 的改前改后
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-canon/src/world/world.ts:770-795`
+- **现象**：`computeImpact` 会把剧情变更里的 `text[块]` 地址放进 `addresses`，但 `read` 只处理 `entry` 根和命名空间字段；`text[...]` 被当成命名空间查找，结果恒为 `undefined`。条目初值的 `init.text[...]` 也没有被地址收集正则覆盖。因此回写块、`replaceBlock`/`addBlock`，以及直接改条目初值文字时，修订仍可能成功，但 `impact.values` 缺少该块的改前改后。
+- **为什么是问题**：`revisions.md` 输出 6 要求把相关地址的值存进修订，回执、保存提示和改动记录都必须读这份不可重算的数据。文字改动的回执会因此漏报，重开后也无法从 `impact` 恢复这次变化；这不是展示层可忽略的字段，而是持久化修订合同的一部分。
+- **如何核实**：在实现 worktree 的 `packages/nb-canon` 运行同一条 smoke：用 `World.empty` 建一个含 `init.text[{id:"b1",source:"旧文"}]` 的条目，再把它改为 `新文` 并发布；输出的 `revision.impact.values` 为 `[]`。相同脚本对 `replaceBlock` 也会得到空的 `values`。
+- **建议改法**：把 `text[块 id]` 作为一等地址由统一的地址读取函数处理；收集 `diffValues` 时覆盖 `init.text[...]` 的叶子路径，并让 `read` 从 `EntryView.text` 取对应块源文。为文字初值改动、剧情整块替换和增块各补一条 impact 行为测试。
+### 3. 启动时坏的 binder 会先把已记录章序改成空序
+- **严重程度**：阻断；**类别**：不变量
+- **位置**：`packages/neuro-book/src/plugins/canon/backend/world-host.ts:127-151`、`packages/nb-canon/src/service/service.ts:110-129`
+- **现象**：活页夹读取失败时，宿主把 `initial.chapters` 设为 `[]` 传给 `WorldService.open`；`WorldService.open` 会无条件执行 `setChapters(initial.chapters)`，因此在日志已有章序时发布一条到空章序的 `reorder`。宿主随后才调用 `opened.setChapters("invalid")`，这时已经来不及保持旧章序。
+- **为什么是问题**：`project.md` 输出 23 明确要求清单读不出或不合法时不给新章序，继续按上一次章序计算。当前代码不仅计算错，还把错误输入持久化为系统修订；清单恢复后会从错误的空章序继续，原本安放在章节上的记录暂时全部失效并产生待处理。
+- **如何核实**：运行 `/tmp/w00039-t29-review-lab/binder-invalid.ts`（使用真实 `createWorldHost`、`WorldService`、`./node` 日志）：先用 `<chapter id="1"/><chapter id="2"/>` 打开，再改成截断 XML 后重开。输出为 `first ["1","2"] 1`，随后 `invalid-reopen [] 2`，且仅带 `binder-invalid` 诊断；版本多了 1，章序被清空。
+- **建议改法**：坏清单时把“无新章序”建模为不传入 `setChapters`，或让 `WorldService.open` 接受 `chapters: readonly string[] | "invalid"` 并在重放后只记录诊断、不调用章序调整；补充“已有日志 + 启动时坏清单”的真实宿主测试，断言版本、旧章序与日志均不变。
+### 4. Component 登记变更会被进行中的发布覆盖
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`packages/nb-canon/src/service/service.ts:385-388`、`packages/nb-canon/src/service/service.ts:306-317`
+- **现象**：`setRegistry` 直接替换 `#world`，不进入单写者队列。发布在 `appendRevision` 等待落盘期间若收到登记变化，登记变更先换上的世界会在追加成功分支被 `this.#world = published.world` 覆盖；日志里的发布仍成功，但当前服务又恢复到旧 registry。
+- **为什么是问题**：Component 启停是宿主输入，下一次读取必须使用最新登记集合；当前结果取决于文件 I/O 的完成顺序，可能暂时允许已停用类型写入、拒绝刚启用类型写入，且没有事件或版本变化提示调用方。世界的单写者不变量也被绕过，`setRegistry` 的重算结果不是发布后世界的一部分。
+- **如何核实**：运行 `/tmp/w00039-t29-review-lab/registry-race.ts`：真实 `WorldService` 使用真实 `nodeFiles`，仅把追加挂在一个可释放的门上；发布到达追加后调用 `setRegistry(buildRegistry([PANEL, PERSON]))`，再放行追加。输出 `digests true false ...`，其中第一个 `true` 表示发布后的 digest 仍是旧的、第二个 `false` 表示新 registry 被覆盖。
+- **建议改法**：把登记变化串进与发布相同的队列，或给发布完成分支重新基于当前 `#world` 应用 registry，并确保顺序固定；至少在发布等待期间的 `setRegistry` 之后，落盘成功的世界必须保留新 registry。补充“发布等待落盘时启停 Component”的行为测试。
+### 5. 归纳缓存落盘失败后被错误地视为已缓存，不会再重试
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-canon/src/service/service.ts:469-480`
+- **现象**：`#drainReductions` 在 `appendReduction` 之前就执行 `this.#reductions.set(key, text)`；追加缓存失败进入 `catch` 后只写 `reduce-failed` 诊断，`finally` 删除待处理项。之后同一输入命中内存 Map，不会再次调用小模型，也不会重新尝试写缓存。
+- **为什么是问题**：`project.md` 输出 11 要求归纳写失败时下次遇到再排。当前进程会永久返回一个没有落盘的临时值；重启后该值消失，而本进程又不会再排，导致同一世界在重启前后结果不一致，且缓存权限或磁盘短暂故障无法恢复。
+- **如何核实**：运行 `/tmp/w00039-t29-review-lab/reduction-cache-failure.ts`：真实 `WorldService` 与 `nodeFiles` 运行，只让 `reductions.jsonl` 的追加失败。两次读取并等待 `idle()` 后输出 `reduce-calls 1 1`，诊断只有一次 `reduce-failed`，第二次没有重试。
+- **建议改法**：只有 `appendReduction` 成功后才写入 `#reductions` 并发 `reduced`；失败时保留或重新排入 pending，使下一次读取重试。若需要当前读取继续返回模型结果，应把“未持久化结果”与缓存命中分开建模，不能用同一个 Map 隐藏重试。
+### 6. 还原依赖用 JSON 文本搜索，会把普通文字误判成引用
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-canon/src/world/world.ts:470-489`
+- **现象**：`dependsOn` 为判断“后续修订是否引用了前一修订新建的对象”，把后续 op 序列化后用 `body.includes(\`"${id}"\`)` 搜索。只要描述、标题或原文恰好是一个新建对象 id，就会被算作依赖；它没有按对象引用字段解析。
+- **为什么是问题**：`revisions.md` 输出 12 的依赖只包括写同一地址、引用新建对象/列表元素和兑现组。当前误判会拒绝本来可以单独还原的修订，或把无关修订拖进补偿修订；对象 id 是程序生成的短字符串，普通文本命中并非理论上不可能。
+- **如何核实**：运行 `/tmp/w00039-t29-review-lab/dependency-false-positive.ts`：第一笔只新建 `e1`，第二笔只新建一条无补丁剧情记录，文本为 `e1`、没有任何引用。输出 `dependents ["r1", "r2"]`，第二笔被错误列为第一笔的依赖。
+- **建议改法**：删除字符串包含判断，按已定义的引用字段递归解析对象引用与补丁地址；文本、标题、讲述原句等自由文字永远不参与依赖判断。补充“自由文字等于新建 id、但没有对象引用”的还原测试。
+### 7. 租约到期不主动结束，远程 lease 订阅会永久保持 held
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`packages/nb-canon/src/service/service.ts:392-423`、`packages/neuro-book/src/plugins/canon/backend/remote.ts:110-126`
+- **现象**：服务只在 `status`、写入、申请、续期等下一次方法调用里执行 `#expireLease()`，没有按到期时间安排结束事件。持有者只订阅 `lease` 而不再调用任何方法时，60 秒后订阅不会收到 `ended`，服务也继续把令牌当作当前独占，直到另一个调用碰巧触发检查。
+- **为什么是问题**：`project.md` 输出 10 明确要求“到期没续”结束独占并发 `exclusive` 事件；租约订阅是调用方判断任务是否仍有写权限的生命线。当前行为会让后台任务在订阅层面一直显示 held，并让其他写入继续收到 busy，直到无关调用触发清理，违反期限与资源释放合同。
+- **如何核实**：运行 `/tmp/w00039-t29-review-lab/lease-expiry.ts`，用注入时钟推进 `LEASE_MS` 且在下一次状态调用前观察事件。输出 `before-next-call [{kind:"exclusive",holder:"任务"}]`；只有调用 `status()` 后才出现 `{holder:null}`。
+- **建议改法**：让租约调度器注入可控的定时能力，在申请/续期时安排到期回调；回调核对令牌与到期时间后调用 `#endLease()`。测试同时覆盖真实时间调度和注入时钟推进，且停止时取消定时器。
+### 8. 追加已写入完整行后出错仍返回 write-failed
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-canon/src/node/log.ts:170-179`
+- **现象**：追加异常后只按文件长度决定结局：长度不是旧长度才尝试截回，长度等于新行长度时直接返回 `write-failed`。这把“写入已经完成但后续步骤报错”（例如关闭句柄或同步返回后的异常）当成了确定没落盘；实现无法从通用 `LogFiles.append` 的异常知道错误发生在写入前还是 fsync/close 之后。
+- **为什么是问题**：`project.md` 输出 7 规定 `write-failed` 只能用于确定没有落盘，无法确定时必须转只读并返回 `write-unknown`。当前调用方会收到错误却保持可写，可能重试同一请求；虽然尾部核对有时会在下一次调用中吸收它，但本次结局码、只读状态和 `outcome` 语义都已经错误，断电时更无法保证按未知结局恢复。
+- **如何核实**：在实现 worktree 的 `packages/nb-canon` 用真实 `nodeFiles` 先追加版本 1，再注入一个 `append` 实现：先调用真实 `nodeFiles.append`，再抛出 `EIO after fsync`。对版本 2 调 `appendRevision` 输出 `{code: "write-failed", ...}`，而日志已包含完整版本 2 行。
+- **建议改法**：将文件操作的成功边界显式建模为“写入前失败 / 写入后状态未知”，任何异常只要不能证明未写入就走 `write-unknown`；若需要保留确定性，扩展 `LogFiles.append` 返回已写字节或带阶段的错误，而不是从长度相等反推安全结论。补充“完整写入后抛错”的契约测试。
+### 9. 打开重放的正常路径没有持跨进程锁
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`packages/nb-canon/src/node/log.ts:74-104`、`packages/nb-canon/src/service/service.ts:110-129`
+- **现象**：`openLog` 先列目录并读取所有段；只有发现最后一段没有换行时才申请锁、重新读该段。正常的完整尾部、读到目录变化或读到新段的路径都不持锁，`WorldService.open` 也没有在外层先持锁。
+- **为什么是问题**：`project.md` 输出 4 要求打开时持日志锁后依次读取并重放，输出 5/17 要求读取看到一个完整版本。当前若另一进程在“列目录/读文件”和服务建立监视器之间追加，打开可能返回旧版本并错过已发出的目录事件；若恰好在读多个段之间跨过段边界，还可能建立一个不含新段的世界。后续写入才会通过 `tail-moved` 被动修复，期间的读取已经违反单一完整版本的打开合同。
+- **如何核实**：代码路径核对即可：`openLog` 的第一次 `options.lock.acquire()` 位于第 87 行的“尾部无换行”分支，完整日志不会经过它。用一个在 `LogFiles.read` 返回旧尾部后才放行的测试文件操作，在放行前用第二个真实日志写入者追加完整行；当前 `openLog` 返回的 `revisions` 不含该行，而持锁重放应包含它。
+- **建议改法**：把列目录、读段、坏尾修复、逐行校验和返回 tail 的整个打开事务包在同一把锁中；拿不到锁直接返回 `world-locked`。不要只为半行单独加锁，否则“正常完整行”的竞态仍在。
+### 10. questions 与 suggestions 没有实现合同要求的游标分页
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-canon/src/service/service.ts:226-234`、`packages/neuro-book/src/plugins/canon/shared/contracts.ts:64-66`
+- **现象**：项目合同的方法表给 `questions`、`suggestions` 的参数包含状态筛选、游标和条数；实现方法只接收状态，直接把全部对象放进结果，远程合同也只声明 `status`。远程层只能对整份结果执行 `within`，超预算就返回 `too-large`，没有减半重取或下一页。
+- **为什么是问题**：当未决问题或正文建议累计到预算以上时，调用方无法读取任何一页，也没有恢复路径；这直接违反 `project.md` 方法表与输出 18 的“列表类方法用游标分页”，而且把一个可分页的大列表变成不可用的单次消息。
+- **如何核实**：代码核对 `service.ts:226-234` 与合同 `contracts.ts:64-66` 即可；向服务加入超过 `CANON_BUDGET_BYTES` 的问题对象后，`remote.ts:69-70` 只能调用 `within(service.questions(...))` 并返回 `too-large`，没有 cursor/limit 分支。
+- **建议改法**：让两个服务方法与 `tree`/`changes`/`revisions` 一样接收 cursor、limit，结果带版本和 next cursor；合同同步加输入字段，远程层走 `paged`。补充“首屏超预算自动缩页、旧游标版本过期”的真实远程测试。
+### 11. revisions 的 entry 筛选会被自由文字误命中
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/nb-canon/src/service/service.ts:236-243`
+- **现象**：按条目筛修订时，除了检查 `op.ref.id`，还对整个序列化 op 做 `JSON.stringify(op).includes(\`"${filter.entry}"\`)`。剧情描述、标题、讲述原句或任意文本字段等于某个条目 id 时，即使修订没有触及该条目，也会出现在结果里。
+- **为什么是问题**：项目方法表把 `entry` 定义为“按条目筛改动记录”，自由文字不是对象引用。错误结果会让改动记录、影响回溯和界面筛选显示无关修订；生成的短 id 使这种命中可由正常文本稳定触发，而不是只限于恶意输入。
+- **如何核实**：用第 6 条同样的最小世界：第一笔创建 `e1`，第二笔只创建无补丁剧情记录，`text` 为 `e1`；调用 `service.revisions({entry: "e1"})`，当前实现会返回第二笔。把 `JSON.stringify(op).includes(...)` 去掉后该结果应为空。
+- **建议改法**：按修订 op 的结构化引用字段筛选：对象本身的 `ref`、地址里的 `entry`、条目引用字段与列表元素引用；不要扫描 JSON 文本。为描述/原句等于条目 id 的负例补筛选测试。
+### 12. 白名单错误地放行空表达式
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：`packages/nb-canon/src/render/syntax.ts:179-200`
+- **现象**：`siteFrom` 只要 ESTree `body.length === 0` 就返回 `expression: null`；它没有区分“只含注释的表达式”和空的 `{}`/`{ }`。因此空表达式通过 `blockProblem`，渲染时被当成合法注释位点。
+- **为什么是问题**：`rendering.md` 白名单只允许只含注释的表达式，普通空花括号应按 `no-field-expression` 拒收。写入者可以用未定义的空表达式绕过白名单的字段引用约束；大量空表达式也会被当成合法块内容，改变后续回写的注记计数与渲染语义。
+- **如何核实**：在实现 worktree 的 `packages/nb-canon` 运行：`bun -e 'import {parseBlock} from "./src/render/syntax.ts"; for (const source of ["{}", "{ }", "{/* x */}"]) console.log(source, parseBlock(source).ok);'`。当前输出中 `{}` 和 `{ }` 都是 `true`，与只含注释的 `{/* x */}` 相同。
+- **建议改法**：在 `body.length === 0` 分支检查 ESTree 的 `comments` 是否至少有一条且表达式内容只由注释/空白组成；空表达式返回 `no-field-expression`。补充空、空白、注释三种写入校验与回写测试。
+### 13. 命名空间补丁没有记录写入时的类型版本
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-canon/src/world/world.ts:559-585`、`packages/nb-canon/src/world/edits.ts:88-106`
+- **现象**：`PatchSchema.version` 虽然存在，但写入缺省补全只处理章内排序键与数值依据；`fillDefaults` 不按补丁地址查 Component 版本，`editInPlace`/`recordDelta` 生成的命名空间补丁也不带 `version`。现有发布后的修订中，`panel.存款` 等补丁的版本字段为空。
+- **为什么是问题**：`components.md` 输出 10 要求命名空间数据、对它的补丁以及修订里的值都记录写入时的类型版本；这是第一版不做 schema 升级时区分旧值的持久化依据。当前日志无法知道一条补丁是按哪个声明版本写出的，类型变更或重放审计时只能依赖当前命名空间版本，丢失合同要求的版本信息。
+- **如何核实**：现有 `packages/nb-canon/tests/revisions.test.ts` 和 `edits.test.ts` 的正常数值/文字补丁均由实现发布，断言其 `revision.ops[*]` 后可见补丁没有 `version`；源码中 `grep -R "patch.version" packages/nb-canon/src` 也只有 schema 外的版本处理，没有任何写入或校验路径。
+- **建议改法**：在补丁进入持久化请求前按 `patch.at` 解析命名空间，补上当前已登记类型版本；对类型不可用或版本不匹配的写入按 Component 失败拒收；回写与所有 helper 生成的补丁复用同一补全函数，并补断言日志中的 namespace patch 带版本。
+
+## 未发现问题的方面
+- 增量引擎与 `reference.ts` 的已覆盖输入：仔细检查后没有发现新增的缓存沿用或嫌疑区间不一致；指定 `nb-canon` 测试的差分路径通过。
+- `nodeFiles` 的正常成功路径：`create`、`append`、`truncate` 都在返回前调用文件 `sync`；仔细检查后没有发现成功返回早于 fsync 的问题。第 8 条是异常后的结局分类问题，不否定正常成功路径。
+- `tree`、`changes`、`revisions` 的现有分页减半与游标版本检查：仔细检查后没有发现新增问题；第 10 条只针对未接入分页的 `questions`/`suggestions`。
+- 回写扫描对 JSON 字符串、嵌套括号、行内代码、代码块和转义的现有路径：仔细检查后没有发现除第 12 条空表达式白名单问题之外的新增问题。
+
+## 数量
+- 阻断：1
+- 重要：11
+- 建议：1
+- 合计：13
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、13
