@@ -15,7 +15,7 @@ updated: 2026-11-02
 
 ## 当前状态
 
-执行位置：`.worktree/w00032-t26-write-interface`，分支 `feat/w00032-t26-write-interface`（从 master）。**没有开发者允许不合并到 master。**
+执行位置：`.worktree/w00032-t26-write-interface`，分支 `feat/w00032-t26-write-interface`（从 master）。开发者 2026-11-03 允许合并，已合入 master（合并提交见 `git log --merges`，合并前先把 master 并进分支、重跑类型检查与相关测试 257 个全过）。
 
 计划第二稿（[plan.md](plan.md)）的五个切片都已实现、单独提交（`00c8b90de` 暂存提交与项目合同版本 7；`d10d9f977` 服务端与项目实例的写入接口；`0d2af6211` 记账槽；`e60e137ce` Agent 资源视图迁移、删掉 `serverFilesKey`；`c359db1c5`、`fae5e8e77` SDK 的 `/files`；`2ff532c19` 修一条 t08 漏改的 e2e 断言）。设计审查（omp，27 条）的处理见 [evidences/design-review-disposition.md](evidences/design-review-disposition.md)。
 
@@ -27,4 +27,5 @@ updated: 2026-11-02
 
 ## 下一步
 
-请开发者决定是否合并到 master（没有开发者允许不合并）。合并后 t12 按新的读写分工改计划（读与写都经写入接口，`artifacts/` 用 `stage` 流式写）。
+- 两份 Spec 里标 `(planned)` 的写入接口各条等开发者批准后晋升为 `implemented`（补实现合同与证据）。
+- t12 按新的读写分工改计划后审查、实施。
