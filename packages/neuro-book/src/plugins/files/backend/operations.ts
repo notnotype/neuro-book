@@ -9,8 +9,8 @@
 import {lstat, open, readdir} from "node:fs/promises";
 import {join} from "node:path";
 
-import type {ChangeSource, Identified, ManifestIssue, OperationDone} from "../shared/contracts";
-import type {OperationEvent} from "./changes";
+import type {Identified, ManifestIssue, OperationDone} from "../shared/contracts";
+import type {OperationEvent, Origin} from "./changes";
 import {createCommitter} from "./commit";
 import type {ItemOutcome} from "./commit";
 import {createDirectory, createFile, moveEntry} from "./entry-ops";
@@ -25,14 +25,14 @@ import type {RootedFailure} from "./rooted";
 
 export interface Operations {
     identify(paths: ReadonlyArray<string>): Promise<Outcome<Identified>>;
-    create(input: {readonly path: string; readonly kind: "file" | "directory"; readonly before?: string}, source: ChangeSource): Promise<Outcome<OperationDone>>;
-    createContent(input: {readonly path: string}, source: ChangeSource): Promise<Outcome<OperationDone>>;
-    rename(input: {readonly path: string; readonly name: string; readonly expected?: string}, source: ChangeSource): Promise<Outcome<OperationDone>>;
-    convert(input: {readonly path: string; readonly to: "content" | "plain"; readonly expected?: string}, source: ChangeSource): Promise<Outcome<OperationDone>>;
-    reorder(input: {readonly directory: string; readonly names: ReadonlyArray<string>}, source: ChangeSource): Promise<Outcome<OperationDone>>;
-    display(input: {readonly path: string; readonly title?: string | null; readonly icon?: string | null}, source: ChangeSource): Promise<Outcome<OperationDone>>;
-    include(input: {readonly path: string; readonly before?: string}, source: ChangeSource): Promise<Outcome<OperationDone>>;
-    drop(input: {readonly path: string}, source: ChangeSource): Promise<Outcome<OperationDone>>;
+    create(input: {readonly path: string; readonly kind: "file" | "directory"; readonly before?: string}, origin: Origin): Promise<Outcome<OperationDone>>;
+    createContent(input: {readonly path: string}, origin: Origin): Promise<Outcome<OperationDone>>;
+    rename(input: {readonly path: string; readonly name: string; readonly expected?: string}, origin: Origin): Promise<Outcome<OperationDone>>;
+    convert(input: {readonly path: string; readonly to: "content" | "plain"; readonly expected?: string}, origin: Origin): Promise<Outcome<OperationDone>>;
+    reorder(input: {readonly directory: string; readonly names: ReadonlyArray<string>}, origin: Origin): Promise<Outcome<OperationDone>>;
+    display(input: {readonly path: string; readonly title?: string | null; readonly icon?: string | null}, origin: Origin): Promise<Outcome<OperationDone>>;
+    include(input: {readonly path: string; readonly before?: string}, origin: Origin): Promise<Outcome<OperationDone>>;
+    drop(input: {readonly path: string}, origin: Origin): Promise<Outcome<OperationDone>>;
 }
 
 export function createOperations(context: ManifestContext): Operations {
@@ -50,11 +50,11 @@ export function createOperations(context: ManifestContext): Operations {
     /**
      * 只改清单的操作：清单不存在、不合法、条目不对都是这次操作本身的失败；写不进时报底层的失败码（锁、权限、I/O）。
      */
-    const manifestOnly = async (tree: string, edit: Edit, source: ChangeSource): Promise<Outcome<OperationDone>> => {
+    const manifestOnly = async (tree: string, edit: Edit, origin: Origin): Promise<Outcome<OperationDone>> => {
         const events: OperationEvent[] = [];
         const result = await commit.locked(true, async () => {
             const write = await commit.manifest(tree, edit, events, []);
-            changes.emit(events, source);
+            changes.emit(events, origin);
             return write;
         });
         if ("ok" in result) return failed(result, "files.manifest.lock-failed");
@@ -105,7 +105,7 @@ export function createOperations(context: ManifestContext): Operations {
             return {ok: true, value: {items}};
         },
 
-        create: async (input, source) => {
+        create: async (input, origin) => {
             const slot = await root.resolveSlot(input.path);
             if ("ok" in slot) return failed(slot, "files.create.failed");
             const result = await commit.locked(placeOf(slot.path) !== null, async (held): Promise<ItemOutcome> => {
@@ -120,13 +120,13 @@ export function createOperations(context: ManifestContext): Operations {
                 const issues: ManifestIssue[] = [];
                 const place = listedPlace(fresh.path);
                 if (place !== null) await commit.manifest(place.root, {kind: "insert", level: place.level, item: plainItem(place.name), ...(input.before === undefined ? {} : {before: input.before})}, events, issues);
-                changes.emit(events, source);
+                changes.emit(events, origin);
                 return {ok: true, manifests: issues};
             });
             return "manifests" in result ? settled(result, "files.create.failed") : failed(result, "files.create.failed");
         },
 
-        createContent: async (input, source) => {
+        createContent: async (input, origin) => {
             const entry = await root.resolveEntry(input.path);
             if ("ok" in entry) return failed(entry, "files.create-content.failed");
             if (!entry.stats.isDirectory()) return rejected("not-a-directory", `${input.path} 不是目录`);
@@ -138,20 +138,20 @@ export function createOperations(context: ManifestContext): Operations {
             const made = await createFile(slot);
             if (!made.ok) return failed(made, "files.create-content.failed");
             await changes.expect({present: [slot.path]});
-            changes.emit([{type: "created", path: slot.path}], source);
+            changes.emit([{type: "created", path: slot.path}], origin);
             return done([]);
         },
 
-        rename: async (input, source) => {
+        rename: async (input, origin) => {
             if (input.name.includes("/")) return rejected("invalid-address", `${JSON.stringify(input.name)} 不是单个名字`);
             const entry = await root.resolveEntry(input.path);
             if ("ok" in entry) return failed(input.expected !== undefined && entry.code === "not-found" ? {ok: false, code: "source-changed", detail: `${input.path} 已被替换或移走`} : entry, "files.rename.failed");
             const target = entry.parent.realPath === "" ? input.name : `${entry.parent.realPath}/${input.name}`;
-            const moved = await commit.move({source: entry.path, target, ...(input.expected === undefined ? {} : {expected: input.expected})}, entry, source);
+            const moved = await commit.move({source: entry.path, target, ...(input.expected === undefined ? {} : {expected: input.expected})}, entry, origin);
             return settled(moved, "files.rename.failed");
         },
 
-        convert: async (input, source) => {
+        convert: async (input, origin) => {
             const entry = await root.resolveEntry(input.path);
             if ("ok" in entry) return failed(entry, "files.convert.failed");
             if (!entry.stats.isDirectory()) return rejected("not-a-directory", `${input.path} 不是目录`);
@@ -181,40 +181,40 @@ export function createOperations(context: ManifestContext): Operations {
                     if (generated.kind === "issue") issues.push(generated.issue);
                     if (generated.kind === "created") events.push({type: "created", path: generated.path});
                 }
-                changes.emit(events, source);
+                changes.emit(events, origin);
                 return {ok: true, manifests: issues};
             });
             return "manifests" in result ? settled(result, "files.convert.failed") : failed(result, "files.convert.failed");
         },
 
-        reorder: async (input, source) => {
+        reorder: async (input, origin) => {
             const directory = await root.resolve(input.directory);
             if ("ok" in directory) return failed(directory, "files.reorder.failed");
             if (!directory.stats.isDirectory()) return rejected("not-a-directory", `${input.directory} 不是目录`);
             const place = levelOfDirectory(directory.realPath);
             if (place === null) return rejected("unsupported", `${input.directory} 不在内容文件夹里`);
-            return manifestOnly(place.tree, {kind: "reorder", level: place.level, names: input.names}, source);
+            return manifestOnly(place.tree, {kind: "reorder", level: place.level, names: input.names}, origin);
         },
 
-        display: async (input, source) => {
+        display: async (input, origin) => {
             const place = await itemPlace(input.path);
             if ("ok" in place) return failed(place, "files.display.failed");
-            return manifestOnly(place.tree, {kind: "display", level: place.level, name: place.name, ...(input.title === undefined ? {} : {title: input.title}), ...(input.icon === undefined ? {} : {icon: input.icon})}, source);
+            return manifestOnly(place.tree, {kind: "display", level: place.level, name: place.name, ...(input.title === undefined ? {} : {title: input.title}), ...(input.icon === undefined ? {} : {icon: input.icon})}, origin);
         },
 
-        include: async (input, source) => {
+        include: async (input, origin) => {
             const entry = await root.resolveEntry(input.path);
             if ("ok" in entry) return failed(entry, "files.include.failed");
             const place = placeOf(entry.path);
             if (place === null) return rejected("unsupported", `${input.path} 不在内容文件夹里`);
             if (listedPlace(entry.path) === null) return rejected("invalid-order", `${input.path} 是正文或清单本身，不进清单`);
-            return manifestOnly(place.root, {kind: "insert", level: place.level, item: plainItem(place.name), strict: true, ...(input.before === undefined ? {} : {before: input.before})}, source);
+            return manifestOnly(place.root, {kind: "insert", level: place.level, item: plainItem(place.name), strict: true, ...(input.before === undefined ? {} : {before: input.before})}, origin);
         },
 
-        drop: async (input, source) => {
+        drop: async (input, origin) => {
             const place = await itemPlace(input.path);
             if ("ok" in place) return failed(place, "files.drop.failed");
-            return manifestOnly(place.tree, {kind: "remove", level: place.level, name: place.name}, source);
+            return manifestOnly(place.tree, {kind: "remove", level: place.level, name: place.name}, origin);
         },
     };
 

@@ -17,6 +17,7 @@
 | `@notnotype/nb-plugin-sdk/text/browser` | 组件里取文字：`usePluginText`、`useText`、`TextPort` | 只在浏览器入口 |
 | `@notnotype/nb-plugin-sdk/state` | 内置插件 `nbook.state`：插件状态 `defineStore`、公开状态 `definePublicState` | 各运行位置 |
 | `@notnotype/nb-plugin-sdk/storage` | 内置插件 `nbook.storage`：私有存储 `defineRecord`、`storageKey` | 各运行位置 |
+| `@notnotype/nb-plugin-sdk/files` | 内置插件 `nbook.files` 的写入接口：`workspaceFilesKey`、`baselineOf` | 服务端与项目实例入口 |
 | `@notnotype/nb-plugin-sdk/settings` | 内置插件 `nbook.settings`：设置项 `setting`、list 分区 `section`、`settingsKey` | 各运行位置 |
 | `@notnotype/nb-plugin-sdk/settings/browser` | 设置页 `settingsPage`、选项来源 `choices`、设置页组件 `SettingsRow` 等 | 只在浏览器入口 |
 | `@notnotype/nb-plugin-sdk/commands` | 内置插件 `nbook.commands`：命令 `command`、从代码执行命令的 `commandServiceKey` | 各运行位置 |
@@ -289,6 +290,28 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 - 改了值的形状要升 `version`，旧数据读出来是 `unsupported-version`，不会被当成新形状。这时普通的 `save` 被拒（`protected`），要么按旧形状迁移，要么用 `reset` 换成新值（原件留在存储的原件区）；什么都不做的话，老用户的这条记录从此读写都失败。SDK 包里示例 `examples/plugins/focus` 的服务端入口示范了 `reset`。
 
 规则见 [persistence](../../../docs/specs/storage/persistence.md)；写法见示例 notes 的 `backend/plugin.ts`。
+
+### 读写书里的文件
+
+书里的文件（`projects://<书>/…`，项目实例里是 `project://…`）与用户资产（`user://…`）经内置插件 `nbook.files` 的写入接口读写，规则见 `workspace/resources.md` 的“写入接口”：
+
+- 入口依赖 `workspaceFilesKey`，激活后拿到按插件生成的门面；改动的来源记为这个插件。
+- 读：`read(地址)` 交回字节与基线（32 MB 以内），读改写用它；要分页、流式或交给别的程序时用 `readPath(地址)` 拿本机路径自己读。这个路径只用来读，往里写会被当作外部改动。
+- 写：`write(地址, 内容, {expect})` 整份写入；大文件或边生成边写用 `stage(地址, async (sink) => …, {expect})`，写入函数正常结束才提交，抛错或取消就丢弃。`expect` 必填：给基线是条件写，`"absent"` 只在不存在时新建，`"any"` 不论现状。`update(地址, 文本 => 新文本)` 冲突时自己重读重算。
+- 一次逻辑操作跨多个文件时包在 `group({title}, async (g) => …)` 里，经 `g` 的改动带同一个组，审查时一起看；不保证原子。
+- 失败都经结果交回（`ok: false` 带 `code`），不抛出；`conflict` 带当前基线。
+
+  ```ts
+  import {workspaceFilesKey} from "@notnotype/nb-plugin-sdk/files";
+
+  const files = context.services.require(workspaceFilesKey);
+  await files.group({title: "生成封面插图"}, async (g) => {
+      await g.stage("projects://book/插图/封面.png", async (sink) => {
+          for await (const chunk of image) await sink.write(chunk);
+      }, {expect: "absent", createParents: true});
+      await g.update("projects://book/第一章.md", (text) => insertCover(text, "插图/封面.png"));
+  });
+  ```
 
 ### 作者可用的内置命令
 

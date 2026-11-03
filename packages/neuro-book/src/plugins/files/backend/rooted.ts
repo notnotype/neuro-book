@@ -19,6 +19,8 @@ import {join, relative, sep} from "node:path";
 
 import {describe, errno, holdLock, replaceLocked} from "nbook/backend/locked-replace";
 import type {CurrentFile, HeldLock, ReplaceDecision} from "nbook/backend/locked-replace";
+import {commitStaged} from "nbook/backend/staged-commit";
+import type {StagedCommitOptions, StagedCurrent} from "nbook/backend/staged-commit";
 
 import type {FilesFailureCode} from "../shared/failures";
 import {pathProblem} from "../shared/resource";
@@ -82,6 +84,18 @@ function windowsNameProblem(name: string): string | null {
     return null;
 }
 
+/** 读路径的解析结果：最终目标的绝对路径（可能在根外）与它的类型。 */
+export interface ReadTarget {
+    readonly absolute: string;
+    readonly kind: "file" | "directory" | "other";
+}
+
+/** 提交暂存文件的参数：`lockPath` 由根按目标算出，其余同 `commitStaged`。 */
+export type RootCommitOptions<T> = Omit<StagedCommitOptions<T>, "lockPath" | "committed"> & {
+    /** 锁内成功阶段；`realPath` 是目标相对根的真实路径。 */
+    readonly committed: (placed: {readonly realPath: string; readonly after: Stats; readonly before: StagedCurrent}) => Promise<void>;
+};
+
 /** 操作锁在锁目录里的名字。 */
 export const OPERATIONS_LOCK = "operations.lock";
 
@@ -101,8 +115,18 @@ export interface RootedRoot {
     list(path: string): Promise<{readonly ok: true; readonly entries: ReadonlyArray<DirectoryEntry>; readonly resolved: Resolved} | RootedFailure>;
     /** 读普通文件的全部字节；超过 `maxBytes` 为 too-large，不读内容。 */
     read(path: string, maxBytes: number): Promise<{readonly ok: true; readonly bytes: Uint8Array; readonly resolved: Resolved} | RootedFailure>;
+    /**
+     * 写入接口的读路径（docs/specs/workspace/resources.md 的“写入接口的读”）：词法路径照旧核对控制目录与根身份，逐段解析时
+     * 遇到链接跟到最终目标，目标在根外也接受；目标在根内时再按名字与 inode 别名核对控制目录。只用来读，写不经它。
+     */
+    resolveForRead(path: string): Promise<ReadTarget | RootedFailure>;
+    /**
+     * 提交写入方的暂存文件：目标已存在时替换它的最终目标（链接保留），不存在时在位置上新建（父目录必须已存在）。
+     * 与 `replace` 对同一文件用同一把写入锁。
+     */
+    commit<T>(path: string, options: RootCommitOptions<T>): Promise<{readonly ok: true; readonly done: T} | {readonly ok: true; readonly realPath: string; readonly after: Stats; readonly before: StagedCurrent} | RootedFailure>;
     /** 在锁内按当前字节决定是否替换；路径是链接时替换最终目标、链接保留。目标不存在时 `decide` 收到 `null`。 */
-    replace<T>(path: string, decide: (current: CurrentFile) => ReplaceDecision<T, Uint8Array | string>, temporaryPath?: (file: string) => string): Promise<{readonly ok: true; readonly done: T} | {readonly ok: true; readonly written: Uint8Array | string; readonly resolved: Resolved; readonly before: Stats | null; readonly after: Stats} | RootedFailure>;
+    replace<T>(path: string, decide: (current: CurrentFile) => ReplaceDecision<T, Uint8Array | string>, temporaryPath?: (file: string) => string, committed?: (placed: {readonly realPath: string; readonly written: Uint8Array | string; readonly before: CurrentFile}) => Promise<void>): Promise<{readonly ok: true; readonly done: T} | {readonly ok: true; readonly written: Uint8Array | string; readonly resolved: Resolved; readonly before: Stats | null; readonly after: Stats} | RootedFailure>;
 }
 
 /** 打开一个根；路径不存在或不是目录为 root-gone。 */
@@ -175,6 +199,43 @@ class Root implements RootedRoot {
         } catch (error) {
             return missing(error, path);
         }
+    }
+
+    async resolveForRead(path: string): Promise<ReadTarget | RootedFailure> {
+        const problem = pathProblem(path);
+        if (problem !== null) return fail("invalid-address", `${path}：${problem}`);
+        const gone = await this.#checkRoot();
+        if (gone !== null) return gone;
+        const segments = path === "" ? [] : path.split("/");
+        if (process.platform === "win32") {
+            const bad = segments.find((segment) => windowsNameProblem(segment) !== null);
+            if (bad !== undefined) return fail("invalid-address", `${path}：${windowsNameProblem(bad) ?? ""}`);
+        }
+        if (this.#options.controlDirectory && segments.length > 0 && isControlName(segments[0] as string)) return fail("protected-path", `${path} 在项目控制目录里`);
+        if (segments.length > 0) {
+            const first = await lstat(join(this.real, segments[0] as string)).catch(() => null);
+            if (first !== null && (await this.#isControlEntry(first))) return fail("protected-path", `${path} 在项目控制目录里`);
+        }
+        let target: string;
+        try {
+            target = await realpath(join(this.real, ...segments));
+        } catch (error) {
+            return errno(error) === "ENOENT" || errno(error) === "ELOOP" || errno(error) === "ENOTDIR" ? fail("not-found", `${display(path)} 不存在`, error) : missing(error, path);
+        }
+        const inside = target === this.real || target.startsWith(this.real + sep);
+        if (inside && this.#options.controlDirectory) {
+            const first = relative(this.real, target).split(sep)[0] as string;
+            if (first !== "" && isControlName(first)) return fail("protected-path", `${path} 经符号链接指向项目控制目录`);
+            const head = await lstat(join(this.real, first)).catch(() => null);
+            if (first !== "" && head !== null && (await this.#isControlEntry(head))) return fail("protected-path", `${path} 经符号链接指向项目控制目录`);
+        }
+        let info: Stats;
+        try {
+            info = await stat(target);
+        } catch (error) {
+            return missing(error, path);
+        }
+        return {absolute: target, kind: info.isFile() ? "file" : info.isDirectory() ? "directory" : "other"};
     }
 
     async resolveSlot(path: string): Promise<ResolvedSlot | RootedFailure> {
@@ -260,7 +321,7 @@ class Root implements RootedRoot {
         }
     }
 
-    async replace<T>(path: string, decide: (current: CurrentFile) => ReplaceDecision<T, Uint8Array | string>, temporaryPath?: (file: string) => string): Promise<{readonly ok: true; readonly done: T} | {readonly ok: true; readonly written: Uint8Array | string; readonly resolved: Resolved; readonly before: Stats | null; readonly after: Stats} | RootedFailure> {
+    async replace<T>(path: string, decide: (current: CurrentFile) => ReplaceDecision<T, Uint8Array | string>, temporaryPath?: (file: string) => string, committed?: (placed: {readonly realPath: string; readonly written: Uint8Array | string; readonly before: CurrentFile}) => Promise<void>): Promise<{readonly ok: true; readonly done: T} | {readonly ok: true; readonly written: Uint8Array | string; readonly resolved: Resolved; readonly before: Stats | null; readonly after: Stats} | RootedFailure> {
         const resolved = await this.resolve(path);
         if ("ok" in resolved) return resolved;
         if (!resolved.stats.isFile()) return fail("not-a-file", `${path} 不是普通文件`);
@@ -271,7 +332,7 @@ class Root implements RootedRoot {
         } catch (error) {
             return fail("io-failed", "无法建立写入锁的目录", error);
         }
-        const replaced = await replaceLocked(resolved.real, {lockPath, decide, report: this.#options.report, ...(temporaryPath === undefined ? {} : {temporaryPath})});
+        const replaced = await replaceLocked(resolved.real, {lockPath, decide, report: this.#options.report, ...(temporaryPath === undefined ? {} : {temporaryPath}), ...(committed === undefined ? {} : {committed: (written: Uint8Array | string, before: CurrentFile) => committed({realPath: resolved.realPath, written, before})})});
         if (replaced.ok) return "done" in replaced ? replaced : {ok: true, written: replaced.written, resolved, before: replaced.before, after: replaced.after};
         switch (replaced.reason) {
             case "read-only":
@@ -282,6 +343,45 @@ class Root implements RootedRoot {
                 return fail("io-failed", `保存 ${path} 期间文件反复被别的程序改动`);
             case "failed":
                 return fail("io-failed", `保存 ${path} 失败`, replaced.detail);
+        }
+    }
+
+    async commit<T>(path: string, options: RootCommitOptions<T>): Promise<{readonly ok: true; readonly done: T} | {readonly ok: true; readonly realPath: string; readonly after: Stats; readonly before: StagedCurrent} | RootedFailure> {
+        // 已存在的（含经链接的）替换最终目标；不存在的在位置上新建。悬空链接按不存在报出，不在链接的名字上建文件。
+        const existing = await this.resolve(path);
+        let file: string;
+        let realPath: string;
+        if (!("ok" in existing)) {
+            if (!existing.stats.isFile()) return fail("not-a-file", `${path} 不是普通文件`);
+            file = existing.real;
+            realPath = existing.realPath;
+        } else if (existing.code === "not-found") {
+            const slot = await this.resolveSlot(path);
+            if ("ok" in slot) return slot;
+            const there = await lstat(slot.absolute).catch(() => null);
+            if (there !== null) return fail("not-found", `${path} 指向不存在的目标`);
+            file = slot.absolute;
+            realPath = slot.path;
+        } else {
+            return existing;
+        }
+        const lockPath = join(this.#options.lockDirectory, `${createHash("sha256").update(realPath).digest("hex")}.lock`);
+        try {
+            await mkdir(this.#options.lockDirectory, {recursive: true});
+        } catch (error) {
+            return fail("io-failed", "无法建立写入锁的目录", error);
+        }
+        const committed = await commitStaged(file, {...options, lockPath, committed: (after, before) => options.committed({realPath, after, before})});
+        if (committed.ok) return "done" in committed ? committed : {ok: true, realPath, after: committed.after, before: committed.before};
+        switch (committed.reason) {
+            case "read-only":
+                return fail("permission-denied", `${path} 是只读的`, committed.detail);
+            case "not-a-file":
+                return fail("not-a-file", `${path} 不是普通文件`);
+            case "unstable":
+                return fail("io-failed", `提交 ${path} 期间文件反复被别的程序改动`);
+            case "failed":
+                return fail("io-failed", `提交 ${path} 失败`, committed.detail);
         }
     }
 

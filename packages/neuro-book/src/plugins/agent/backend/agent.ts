@@ -14,7 +14,7 @@ import type {AgentHost, ApproveHook, Clock, ModelPort, RunResult, SessionIndexEn
 
 import {serverHostModules} from "nbook/backend/plugin-host-modules";
 import {SERVER_SHARED_MODULES} from "nbook/plugin-platform-profile";
-import type {ServerFiles} from "nbook/plugins/files/shared/contracts";
+import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 import type {ModelsService} from "nbook/plugins/models/shared/contracts";
 import type {SettingsService} from "nbook/shared/settings";
 
@@ -34,7 +34,7 @@ export interface AgentRuntimeOptions {
     readonly settings: SettingsService;
     readonly models: ModelsService | null;
     /** `nbook.agent` 自己的服务端文件服务门面：资源视图经它读写并注明代表哪个会话。 */
-    readonly files: ServerFiles;
+    readonly files: WorkspaceFiles;
     readonly clock: RuntimeClock;
     readonly declarations: ContributionDeclarations;
     /** 触发本插件前缀下的激活事件；有入口激活失败或受阻时交回 false。 */
@@ -100,7 +100,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
 
     // 宿主要先建好、再接收贡献；Profile 变了要通知它，它又要按 Profile 解析：用一个先占位的引用把这个环断开。
     let hostRef: AgentHost | null = null;
-    const tools = new AgentTools({declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context) => ({resources: sessionResources(options.files, context)})});
+    const tools = new AgentTools({declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId) => ({resources: sessionResources(options.files, context, toolId)})});
     const profiles = new ProfileCatalog({
         declarations: options.declarations,
         activate: options.trigger,
@@ -122,7 +122,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             declarations: (context) => tools.forProfile(profiles.requirements(context.profile), bindings()[context.profile]),
             create: (id, context) => tools.create(id, context),
         },
-        resources: (context) => kernelResources(sessionResources(options.files, context)),
+        resources: (context) => kernelResources(sessionResources(options.files, context, null)),
         sessions: {get: async (id, issuer) => sessions!.view(id, issuer)},
         clock: kernelClock(options.clock),
         approve: approveByMode,

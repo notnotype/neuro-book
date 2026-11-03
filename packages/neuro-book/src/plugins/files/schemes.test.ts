@@ -1,6 +1,6 @@
 /**
  * 方案注册、挂载方案与服务端文件服务（docs/specs/workspace/resources.md 输出“挂载方案”、状态表的“挂载点”、验收 1、2、4、8、
- * 10）：真实服务端内核实例装真实的 `nbook.files`，测试插件经贡献点注册挂载方案、经 `serverFilesKey` 调用；文件在真实临时
+ * 10）：真实服务端内核实例装真实的 `nbook.files`，测试插件经贡献点注册挂载方案、经 `workspaceFilesKey` 调用；文件在真实临时
  * 目录里，时间用场地的手动时钟推进。
  */
 
@@ -23,8 +23,10 @@ import {IDLE_CLOSE_MS, MOUNT_SOFT_LIMIT} from "./backend/mounted";
 import {descriptor} from "./plugin";
 import {userFilesContract} from "./shared/contracts";
 import type {WatchMessage} from "./shared/contracts";
-import {SCHEMES_POINT, serverFilesKey} from "./shared/schemes";
-import type {MountedSchemeSpec, SchemeCaller, SchemeCapability, ServerFiles} from "./shared/schemes";
+import {SCHEMES_POINT} from "./shared/schemes";
+import {workspaceFilesKey} from "./shared/workspace-files";
+import type {MountedSchemeSpec, SchemeCaller, SchemeCapability} from "./shared/schemes";
+import type {WorkspaceFiles} from "./shared/workspace-files";
 import {files, probe, probePlugin} from "./testing/scene";
 import {filesBrowserPlugin} from "./web/plugin";
 
@@ -73,14 +75,14 @@ function schemePlugin(id: string, scheme: string, spec: () => MountedSchemeSpec)
 }
 
 /** 取服务端文件服务的测试插件；id 为 `nbook.agent` 的那个可以注明代表哪个会话。 */
-function consumerPlugin(id: string, holder: {files: ServerFiles | null}): PluginDefinition {
+function consumerPlugin(id: string, holder: {files: WorkspaceFiles | null}): PluginDefinition {
     return {id, entries: [defineEntry({
         id: "server",
         location: "server",
         activationEvents: ["onStartup"],
-        dependencies: [{key: serverFilesKey}],
+        dependencies: [{key: workspaceFilesKey}],
         activate: (context) => {
-            holder.files = context.services.require(serverFilesKey);
+            holder.files = context.services.require(workspaceFilesKey);
             return {};
         },
     })]};
@@ -90,8 +92,8 @@ interface Scene {
     readonly world: SettingsWorld;
     readonly root: string;
     readonly container: string;
-    readonly agent: ServerFiles;
-    readonly other: ServerFiles;
+    readonly agent: WorkspaceFiles;
+    readonly other: WorkspaceFiles;
 }
 
 async function scene(options: {readonly extra?: ReadonlyArray<PluginDefinition>; readonly spec?: (container: string) => MountedSchemeSpec} = {}): Promise<Scene> {
@@ -99,8 +101,8 @@ async function scene(options: {readonly extra?: ReadonlyArray<PluginDefinition>;
     const root = join(tmp, `w${String(counter)}`);
     const container = join(root, "mounts");
     await mkdir(container, {recursive: true});
-    const agent = {files: null as ServerFiles | null};
-    const other = {files: null as ServerFiles | null};
+    const agent = {files: null as WorkspaceFiles | null};
+    const other = {files: null as WorkspaceFiles | null};
     const world = await settingsWorld(root, [
         definitionAt("server", descriptor, filesBackendPlugin),
         schemePlugin("nbook.test-notes", "notes", () => (options.spec ?? notesSpec)(container)),
@@ -120,9 +122,9 @@ describe("挂载方案", () => {
         const {agent} = await scene();
         expect(await agent.list("notes://")).toEqual({ok: true, value: {kind: "virtual", description: "测试用的笔记", entries: [{name: "a", title: "甲", address: "notes://a"}, {name: "b", meta: {kind: "测试"}, address: "notes://b"}]}});
         const read = await agent.read("notes://");
-        expect(read.ok && read.value.text).toBe("测试用的笔记\n\n- notes://a 甲\n- notes://b（kind: 测试）");
-        expect(await agent.write("notes://", "x", {hash: "0"})).toMatchObject({ok: false, code: "permission-denied"});
-        expect(await agent.realPath("notes://")).toMatchObject({ok: false, code: "unsupported-capability"});
+        expect(read.ok && new TextDecoder().decode(read.value.bytes)).toBe("测试用的笔记\n\n- notes://a 甲\n- notes://b（kind: 测试）");
+        expect(await agent.write("notes://", "x", {expect: {hash: "0"}})).toMatchObject({ok: false, code: "permission-denied"});
+        expect(await agent.readPath("notes://")).toMatchObject({ok: false, code: "unsupported-capability"});
         expect(await agent.read("nowhere://x")).toMatchObject({ok: false, code: "unknown-scheme"});
         expect(await agent.read("notes://zzz/x")).toMatchObject({ok: false, code: "not-found"});
         expect(await agent.read("notes://a/../b")).toMatchObject({ok: false, code: "invalid-address"});
@@ -143,8 +145,8 @@ describe("挂载方案", () => {
 
         expect(await agent.create("notes://a/home/x.md", "file", asAgent("a"))).toEqual({ok: true, value: {}});
         expect((await stat(join(container, "a", "home"))).isDirectory()).toBe(true);
-        const real = await agent.realPath("notes://c/home", asAgent("c"));
-        expect(real).toEqual({ok: true, value: {path: join(container, "c", "home")}});
+        const real = await agent.readPath("notes://c/home", asAgent("c"));
+        expect(real).toEqual({ok: true, value: {path: join(container, "c", "home"), kind: "directory"}});
     });
 
     test("物化：ensure 的位置已经是文件或链接时不覆盖，为 not-a-directory", async () => {
@@ -160,8 +162,8 @@ describe("挂载方案", () => {
         expect(await agent.create("notes://a/home/x.md", "file", asAgent("a"))).toMatchObject({ok: true});
         const empty = await agent.read("notes://a/home/x.md", asAgent("a"));
         if (!empty.ok) throw new Error(empty.code);
-        expect(await agent.write("notes://a/home/x.md", "第一版", empty.value.baseline, asAgent("a"))).toMatchObject({ok: true});
-        expect(await agent.write("notes://a/home/x.md", "第二版", empty.value.baseline, asAgent("a"))).toMatchObject({ok: false, code: "conflict", current: {hash: expect.any(String)}});
+        expect(await agent.write("notes://a/home/x.md", "第一版", {expect: empty.value.baseline, ...asAgent("a")})).toMatchObject({ok: true});
+        expect(await agent.write("notes://a/home/x.md", "第二版", {expect: empty.value.baseline, ...asAgent("a")})).toMatchObject({ok: false, code: "conflict", current: {hash: expect.any(String)}});
         expect(await readFile(join(container, "a", "home", "x.md"), "utf8")).toBe("第一版");
 
         expect(await agent.create("notes://a/home/book.content", "directory", asAgent("a"))).toMatchObject({ok: true});
@@ -183,7 +185,7 @@ describe("挂载方案", () => {
         expect(await agent.read("notes://a/alias.txt")).toMatchObject({ok: false, code: "protected-path"});
         const doc = await agent.read("notes://a/locked/doc.md");
         if (!doc.ok) throw new Error(doc.code);
-        expect(await agent.write("notes://a/locked/doc.md", "改", doc.value.baseline, asAgent("a"))).toMatchObject({ok: false, code: "permission-denied"});
+        expect(await agent.write("notes://a/locked/doc.md", "改", {expect: doc.value.baseline, ...asAgent("a")})).toMatchObject({ok: false, code: "permission-denied"});
         const listed = await agent.list("notes://a");
         expect(listed.ok && listed.value.entries.map((entry) => entry.name).sort()).toEqual(["locked", "open.md"]);
 
@@ -200,7 +202,7 @@ describe("挂载方案", () => {
     test("未声明的能力为 unsupported-capability", async () => {
         const {agent} = await scene({spec: (container) => notesSpec(container, ["read", "list"])});
         expect(await agent.create("notes://a/home/x.md", "file", asAgent("a"))).toMatchObject({ok: false, code: "unsupported-capability"});
-        expect(await agent.realPath("notes://a")).toMatchObject({ok: false, code: "unsupported-capability"});
+        expect(await agent.readPath("notes://a")).toMatchObject({ok: false, code: "unsupported-capability"});
         expect(await agent.list("notes://")).toMatchObject({ok: true});
     });
 });
@@ -246,7 +248,7 @@ describe("注册与寿命", () => {
         expect(await agent.read("third://a")).toMatchObject({ok: false, code: "unknown-scheme"});
         // 两个插件注册同一个方案：平台按贡献 id 重复把两条都拒绝（runtime/plugins.md 输出 15），不分先后，都到不了接收者。
         expect(world.hub.plugins.diagnostics().some((item) => item.reason === "receiver-connected" && item.capability === SCHEMES_POINT)).toBe(true);
-        expect(await agent.realPath("notes://a")).toMatchObject({ok: false, code: "unknown-scheme"});
+        expect(await agent.readPath("notes://a")).toMatchObject({ok: false, code: "unknown-scheme"});
 
         await mkdir(join(container, "later"));
         const scope = world.hub.root.createChild("later scheme");
@@ -271,7 +273,7 @@ describe("注册与寿命", () => {
 
     test("容器被换成链接：重新打开挂载点时不跟着链接打开到别处", async () => {
         const {world, agent, container, root} = await scene();
-        expect(await agent.realPath("notes://a")).toMatchObject({ok: true});
+        expect(await agent.readPath("notes://a")).toMatchObject({ok: true});
         world.clock.advance(IDLE_CLOSE_MS);
         const elsewhere = join(root, "elsewhere");
         await mkdir(join(elsewhere, "a"), {recursive: true});
@@ -285,12 +287,12 @@ describe("注册与寿命", () => {
     test("验收 8：同时打开的超过上限时先关空闲最久的，第 65 个照开", async () => {
         const names = Array.from({length: MOUNT_SOFT_LIMIT + 1}, (_, index) => `m${String(index)}`);
         const {agent, container} = await scene({spec: (container) => ({...notesSpec(container), mount: (name) => (names.includes(name) ? {create: true} : null)})});
-        for (const name of names.slice(0, MOUNT_SOFT_LIMIT)) expect(await agent.realPath(`notes://${name}`)).toMatchObject({ok: true});
+        for (const name of names.slice(0, MOUNT_SOFT_LIMIT)) expect(await agent.readPath(`notes://${name}`)).toMatchObject({ok: true});
         // 换掉最早打开的那个目录：它若还开着，读会报根不在。
         await rm(join(container, "m0"), {recursive: true});
         await mkdir(join(container, "m0"));
         await writeFile(join(container, "m0", "x.md"), "新");
-        expect(await agent.realPath(`notes://${names[MOUNT_SOFT_LIMIT] as string}`)).toMatchObject({ok: true});
+        expect(await agent.readPath(`notes://${names[MOUNT_SOFT_LIMIT] as string}`)).toMatchObject({ok: true});
         await waitUntil("最早的挂载点被关闭、按新目录重开", async () => (await agent.read("notes://m0/x.md")).ok);
     });
 });

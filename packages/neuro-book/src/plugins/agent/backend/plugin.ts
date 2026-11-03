@@ -14,7 +14,7 @@ import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 import type {PluginDefinition, TriggerActivationResult} from "@notnotype/nb-runtime/plugins";
 
-import {SCHEMES_POINT, serverFilesKey} from "nbook/plugins/files/shared/contracts";
+import {SCHEMES_POINT, workspaceFilesKey} from "nbook/plugins/files/shared/contracts";
 import {modelsKey} from "nbook/plugins/models/shared/contracts";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {clockKey, stateRootKey} from "nbook/shared/host";
@@ -40,7 +40,7 @@ export const agentBackendPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "server",
         location: "server",
-        dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}, {key: serverFilesKey}, {key: modelsKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}, {key: workspaceFilesKey}, {key: modelsKey, required: false}],
         provides: [agentKey],
         remoteProvides: [agentSessionsContract],
         receives: [EXTENSIONS_POINT, TOOLS_POINT, PROFILES_POINT],
@@ -55,7 +55,7 @@ export const agentBackendPlugin: PluginDefinition = {
                 stateRoot: context.services.require(stateRootKey).path,
                 settings: context.services.require(settingsKey),
                 models: models.status === "resolved" ? models.instance : null,
-                files: context.services.require(serverFilesKey),
+                files: context.services.require(workspaceFilesKey),
                 clock: context.services.require(clockKey),
                 declarations: context.declarations,
                 trigger: async (event) => allActivated(await context.activation.trigger(event, {signal: context.signal})),

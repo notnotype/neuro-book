@@ -359,6 +359,7 @@ const DECLARED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "text/browser": ["BoundText", "TextPort", "usePluginText", "useText"],
     "state": ["definePublicState", "defineStore"],
     "storage": ["RecordDefinition", "RecordHandle", "RecordSnapshot", "Revision", "StorageFailure", "StorageService", "UpdateResult", "WriteResult", "defineRecord", "storageKey"],
+    "files": ["Baseline", "CallOptions", "CommitExpect", "CommitOptions", "ReadPath", "ServerFilesResult", "StagedSink", "WorkspaceFiles", "baselineOf", "workspaceFilesKey"],
     "settings": ["SETTINGS_CHOICES_POINT", "SETTINGS_PAGES_POINT", "SETTINGS_SECTIONS_POINT", "SectionHelper", "SettingDefinition", "SettingLayer", "SettingWriteResult", "SettingsChoicesDeclaration", "SettingsFailure", "SettingsPageDeclaration", "SettingsSectionCategory", "SettingsSectionDeclaration", "SettingsService", "defineSetting", "displayLocale", "section", "setting", "settingsChoicesEvent", "settingsKey"],
     "settings/browser": ["ChoicesHelper", "OptionSource", "SettingsChoicesImplementation", "SettingsPageActions", "SettingsPageContext", "SettingsPageHelper", "SettingsPageList", "SettingsPageWriteFailure", "SettingsRow", "SettingsSaveBar", "choices", "settingsPage"],
     "commands": ["COMMANDS_POINT", "CommandDeclaration", "CommandFailure", "CommandFailureCode", "CommandHelper", "CommandImplementation", "CommandResult", "CommandService", "command", "commandServiceKey"],

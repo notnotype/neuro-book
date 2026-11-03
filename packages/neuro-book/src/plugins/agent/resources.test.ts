@@ -12,11 +12,15 @@ import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
-import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {defineProfile} from "@notnotype/nb-harness/kernel";
 import type {SessionApi} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+
+import {userFilesContract} from "nbook/plugins/files/shared/contracts";
+import type {ChangesMessage, FileChange} from "nbook/plugins/files/shared/contracts";
 
 import {buildAgentDocs} from "../../../scripts/agent-docs";
 import {kernelResources} from "./backend/resources";
@@ -59,11 +63,17 @@ const cid = () => `c-${String((commands += 1))}`;
 
 /** 工具工厂最近一次拿到的资源视图：用例里的会话依次调用工具，取完就清。 */
 let grabbed: SessionResources | null = null;
+/** 服务端测试插件的远程入口：订阅 `user://` 的变更用。 */
+let remote: ActivationContext["remote"] | null = null;
 
 function plugins(): PluginDefinition[] {
     const profiles = [WRITER, EDITOR].map((key) => agentProfile(key, {name: key, description: "测试用", tools: {required: [GRAB], optional: []}}));
     const tool = agentTool(GRAB, {description: "交出资源视图", parameters: {type: "object", properties: {}}, version: "1", effect: "read"});
     return [
+        {id: "test.watch", entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup"], activate: (context) => {
+            remote = context.remote;
+            return {};
+        }})]},
         {id: "test.res", entries: [defineEntry({id: "server", location: "server", activationEvents: [...profiles.map((item) => item.activationEvent), tool.activationEvent], contributions: [...profiles.map((item) => item.contribution), tool.contribution], activate: () => {
             const grab: AgentToolImplementation = {create: (context, services) => {
                 void context;
@@ -109,13 +119,15 @@ async function open(w: AgentWorld, profile = WRITER, project?: string): Promise<
     return {session, id: /^sessions:\/\/([^/]+)\/home$/u.exec(home.address)?.[1] ?? "", resources};
 }
 
-/** 先建再按基线写：服务端文件服务的写只改已存在的文件。 */
-async function put(resources: SessionResources, address: string, text: string): Promise<unknown> {
-    const made = await resources.create(address, "file");
-    if (!made.ok && made.code !== "conflict") return made;
-    const read = await resources.read(address);
-    if (!read.ok) return read;
-    return resources.write(address, text, read.value.baseline);
+/** 不论现状写入（写入接口按期望提交）。 */
+function put(resources: SessionResources, address: string, text: string): Promise<unknown> {
+    return resources.write(address, text, {expect: "any"});
+}
+
+/** 读到的文字；失败时为失败码。 */
+async function textOf(read: ReturnType<SessionResources["read"]>): Promise<string> {
+    const result = await read;
+    return result.ok ? new TextDecoder().decode(result.value.bytes) : `失败：${result.code}`;
 }
 
 describe("改写与分类", () => {
@@ -151,7 +163,7 @@ describe("各方案对 Agent 的权限", () => {
         const a = await open(w);
         const b = await open(w);
         expect(await put(a.resources, "session://plan.md", "计划")).toMatchObject({ok: true});
-        expect(await b.resources.read(`sessions://${a.id}/home/plan.md`)).toMatchObject({ok: true, value: {text: "计划"}});
+        expect(await textOf(b.resources.read(`sessions://${a.id}/home/plan.md`))).toBe("计划");
         expect(await b.resources.create(`sessions://${a.id}/home/x.md`, "file")).toMatchObject({ok: false, code: "permission-denied"});
         expect(await b.resources.read(`sessions://${a.id}/session.jsonl`)).toMatchObject({ok: true});
         expect(await a.resources.create("session://attachments/a.png", "file")).toMatchObject({ok: false, code: "permission-denied"});
@@ -160,7 +172,7 @@ describe("各方案对 Agent 的权限", () => {
         await symlink(join(w.stateRoot, "agent", "sessions", a.id, "session.jsonl"), join(home, "log-alias"));
         const alias = await a.resources.read("session://log-alias");
         if (!alias.ok) throw new Error(alias.code);
-        expect(await a.resources.write("session://log-alias", "改日志", alias.value.baseline)).toMatchObject({ok: false, code: "permission-denied"});
+        expect(await a.resources.write("session://log-alias", "改日志", {expect: alias.value.baseline})).toMatchObject({ok: false, code: "permission-denied"});
 
         const listed = await a.resources.list(`sessions://${a.id}`);
         expect(listed.ok && listed.value.entries.map((entry) => entry.name).sort()).toEqual(["home", "session.jsonl"]);
@@ -186,15 +198,14 @@ describe("各方案对 Agent 的权限", () => {
         const {id, resources} = await open(w);
         const listed = await resources.list("sessions://");
         expect(listed.ok && "kind" in listed.value && listed.value.entries.some((entry) => entry.address === `sessions://${id}`)).toBe(true);
-        const text = await resources.read("profiles://");
-        expect(text.ok && text.value.text).toContain(`profiles://${WRITER}`);
-        expect(await resources.write("sessions://", "x", {hash: "0"})).toMatchObject({ok: false, code: "permission-denied"});
-        expect(await resources.realPath("skills://")).toMatchObject({ok: false, code: "unsupported-capability"});
+        expect(await textOf(resources.read("profiles://"))).toContain(`profiles://${WRITER}`);
+        expect(await resources.write("sessions://", "x", {expect: {hash: "0"}})).toMatchObject({ok: false, code: "permission-denied"});
+        expect(await resources.readPath("skills://")).toMatchObject({ok: false, code: "unsupported-capability"});
 
-        const readme = await resources.read("docs://builtin/sdk/README.md");
-        expect(readme.ok && readme.value.text).toContain("docs/exports.md");
+        const readme = await textOf(resources.read("docs://builtin/sdk/README.md"));
+        expect(readme).toContain("docs/exports.md");
         expect(await resources.read("docs://builtin/sdk/docs/exports.md")).toMatchObject({ok: true});
-        const spec = readme.ok ? /\]\((specs\/[^)#]+)/u.exec(readme.value.text)?.[1] : undefined;
+        const spec = /\]\((specs\/[^)#]+)/u.exec(readme)?.[1];
         expect(spec).toBeDefined();
         expect(await resources.read(`docs://builtin/sdk/${spec as string}`)).toMatchObject({ok: true});
         expect(await resources.read("docs://agent/addresses.md")).toMatchObject({ok: true});
@@ -203,13 +214,43 @@ describe("各方案对 Agent 的权限", () => {
     });
 });
 
+describe("写入接口的会话绑定版", () => {
+    test("验收 6：一次调用里写两个、删一个，三条事件都是这个会话、带这次调用的条目 id 与同一个组（标题是工具 id）；取消后不再写", async () => {
+        const w = await world();
+        const {id, resources} = await open(w);
+        const messages: ChangesMessage[] = [];
+        const subscribed = await remote!.use(userFilesContract).events.changes.subscribe({}, (message) => messages.push(message));
+        expect(subscribed.ok).toBe(true);
+        await waitUntil("订阅就绪", () => messages.some((message) => message.kind === "ready"));
+        await writeFile(join(w.stateRoot, "user", "旧.md"), "要删的");
+
+        const controller = new AbortController();
+        const at = resources.call({callId: "call-1", signal: controller.signal});
+        expect(await at.write("user://上.md", "上半", {expect: "absent"})).toMatchObject({ok: true});
+        expect(await at.write("user://下.md", "下半", {expect: "absent"})).toMatchObject({ok: true});
+        expect(await at.delete([{address: "user://旧.md"}])).toMatchObject({ok: true});
+        const events = (): FileChange[] => messages.flatMap((message) => (message.kind === "batch" ? message.events : [])).filter((event) => ["上.md", "下.md", "旧.md"].includes(event.path));
+        await waitUntil("三条事件", () => events().length === 3);
+        expect(events().every((event) => event.source.kind === "agent" && event.source.session === id && event.source.entry === "call-1")).toBe(true);
+        expect(new Set(events().map((event) => event.group?.id)).size).toBe(1);
+        expect(events()[0]?.group?.title).toBe(GRAB);
+
+        controller.abort();
+        expect(await at.write("user://取消后.md", "x", {expect: "absent"})).toMatchObject({ok: false, code: "cancelled"});
+        expect(await lstat(join(w.stateRoot, "user", "取消后.md")).catch(() => null)).toBeNull();
+        // 读别的会话的日志照旧可以：只有写按分类判。
+        const other = await open(w);
+        expect(await other.resources.read(`sessions://${id}/session.jsonl`)).toMatchObject({ok: true});
+    });
+});
+
 describe("按需建目录与临时目录", () => {
     test("输出 6：真实路径与第一次写入建好 home、Profile 笔记目录与临时目录；被拒的请求不建目录", async () => {
         const w = await world();
         const {id, resources} = await open(w);
-        const home = await resources.realPath("session://");
-        expect(home).toEqual({ok: true, value: {path: join(await realpath(w.stateRoot), "agent", "sessions", id, "home")}});
-        const temp = await resources.realPath("tmp://");
+        const home = await resources.readPath("session://");
+        expect(home).toEqual({ok: true, value: {path: join(await realpath(w.stateRoot), "agent", "sessions", id, "home"), kind: "directory"}});
+        const temp = await resources.readPath("tmp://");
         expect(temp.ok && (await lstat(temp.value.path)).isDirectory()).toBe(true);
         expect(await resources.create(`profiles://${EDITOR}/x.md`, "file")).toMatchObject({ok: false, code: "permission-denied"});
         expect(await lstat(join(w.stateRoot, "agent", "profiles", EDITOR)).catch(() => null)).toBeNull();
@@ -222,11 +263,11 @@ describe("按需建目录与临时目录", () => {
         const archived = await open(first);
         const unreadable = await open(first);
         expect(await put(unreadable.resources, "tmp://still.txt", "还在")).toMatchObject({ok: true});
-        const unreadableDir = await unreadable.resources.realPath("tmp://");
+        const unreadableDir = await unreadable.resources.readPath("tmp://");
         if (!unreadableDir.ok) throw new Error(unreadableDir.code);
         expect(await put(kept.resources, "tmp://keep.txt", "留")).toMatchObject({ok: true});
         expect(await put(archived.resources, "tmp://gone.txt", "删")).toMatchObject({ok: true});
-        const goneDir = await archived.resources.realPath("tmp://");
+        const goneDir = await archived.resources.readPath("tmp://");
         if (!goneDir.ok) throw new Error(goneDir.code);
         expect((await archived.session.archive({commandId: cid(), archived: true})).ok).toBe(true);
         expect((await lstat(goneDir.value.path)).isDirectory()).toBe(true);
@@ -244,8 +285,8 @@ describe("按需建目录与临时目录", () => {
         const reopened = await open(again);
         expect(await lstat(goneDir.value.path).catch(() => null)).toBeNull();
         expect(await readFile(join(unreadableDir.value.path, "still.txt"), "utf8")).toBe("还在");
-        expect(await reopened.resources.read(`temps://${kept.id}/keep.txt`)).toMatchObject({ok: true, value: {text: "留"}});
-        expect(await otherSession.resources.read("tmp://mine.txt")).toMatchObject({ok: true, value: {text: "别人的"}});
+        expect(await textOf(reopened.resources.read(`temps://${kept.id}/keep.txt`))).toBe("留");
+        expect(await textOf(otherSession.resources.read("tmp://mine.txt"))).toBe("别人的");
     });
 });
 

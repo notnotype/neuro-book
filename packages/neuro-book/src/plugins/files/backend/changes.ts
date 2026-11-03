@@ -28,7 +28,7 @@ import {basename, dirname, join, sep} from "node:path";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import {TEXT_BUDGET_BYTES} from "../shared/contracts";
-import type {ChangeSource, ChangesMessage, FileChange} from "../shared/contracts";
+import type {ChangeGroup, ChangeSource, ChangesMessage, FileChange} from "../shared/contracts";
 import {hashOf} from "./files-service";
 import {isControlName} from "./rooted";
 import type {RootedRoot} from "./rooted";
@@ -48,20 +48,31 @@ export interface ChangeHubOptions {
     readonly record: (level: "info" | "warn", event: string, message: string, data?: unknown, error?: unknown) => void;
 }
 
+/** 一次写入的归属：来源与（经写入接口分组时的）操作分组，事件原样带上。 */
+export interface Origin {
+    readonly source: ChangeSource;
+    readonly group?: ChangeGroup;
+}
+
 export interface ChangeHub {
     /** 登记一个订阅：先收到 `ready`；监视器开不起来时抛错（订阅建立失败）。`signal` 触发即退订。 */
     subscribe(sink: (message: ChangesMessage) => void, signal: AbortSignal): void;
     /** 保存用的临时文件路径（同目录）；监视报来的这些路径不发出。 */
     temporaryPath(file: string): string;
     /** 经文件服务保存成功：立即以真实来源发出；经链接保存时真实路径也发一条。 */
-    saved(change: {readonly path: string; readonly realPath: string; readonly bytes: Uint8Array}, source: ChangeSource): void;
+    saved(change: {readonly path: string; readonly realPath: string; readonly bytes: Uint8Array}, origin: Origin): void;
+    /**
+     * 暂存文件提交成功：在提交的锁里、放到位之后立即调用。按 `after`（锁里取的状态）登记目录项身份的回声，不读内容；
+     * 新建发 `created`，覆盖发 `changed`，经链接时真实路径另发一条。
+     */
+    placed(change: {readonly path: string; readonly realPath: string; readonly after: Stats; readonly created: boolean}, origin: Origin): void;
     /**
      * 登记自己操作的回声：每个副作用落盘后立刻调用（在等清单锁等耗时步骤之前），监视这时处理一批也不会把它当外部变化；
      * 登记离副作用越近，外部恰在其间的修改被认作自己的窗口越小。路径都是相对根的真实路径。
      */
     expect(change: Expectation): Promise<void>;
     /** 以真实来源立即发出经文件服务的操作的精确事件。 */
-    emit(events: ReadonlyArray<OperationEvent>, source: ChangeSource): void;
+    emit(events: ReadonlyArray<OperationEvent>, origin: Origin): void;
     /** 提供者入口停止：关监视器，不再发出。 */
     close(): void;
 }
@@ -281,11 +292,20 @@ export function createChangeHub(options: ChangeHubOptions): ChangeHub {
             sink({kind: "ready"});
         },
         temporaryPath: (file) => join(dirname(file), `.${basename(file)}.nbook-${token}-${randomUUID()}.tmp`),
-        saved: (change, source) => {
+        saved: (change, origin) => {
             if (closed || watcher === null) return;
             expected.set(change.realPath, {state: {kind: "hash", hash: hashOf(change.bytes)}, at: clock.now()});
-            const events: FileChange[] = [{type: "changed", path: change.path, source}];
-            if (change.realPath !== change.path) events.push({type: "changed", path: change.realPath, source});
+            const events: FileChange[] = [stamp({type: "changed", path: change.path}, origin)];
+            if (change.realPath !== change.path) events.push(stamp({type: "changed", path: change.realPath}, origin));
+            broadcast({kind: "batch", events});
+        },
+        placed: (change, origin) => {
+            if (closed || watcher === null) return;
+            const {after} = change;
+            expected.set(change.realPath, {state: {kind: "entry", dev: after.dev, ino: after.ino, birthtimeMs: after.birthtimeMs, ctimeMs: after.ctimeMs}, at: clock.now()});
+            const type = change.created ? "created" : "changed";
+            const events: FileChange[] = [stamp({type, path: change.path}, origin)];
+            if (change.realPath !== change.path) events.push(stamp({type, path: change.realPath}, origin));
             broadcast({kind: "batch", events});
         },
         expect: async (change) => {
@@ -304,9 +324,9 @@ export function createChangeHub(options: ChangeHubOptions): ChangeHub {
                 for (const child of below) await expectEntry(child);
             }
         },
-        emit: (events, source) => {
+        emit: (events, origin) => {
             if (closed || watcher === null || events.length === 0) return;
-            const stamped: FileChange[] = events.map((event) => ({...event, source}));
+            const stamped: FileChange[] = events.map((event) => stamp(event, origin));
             broadcast(new TextEncoder().encode(JSON.stringify(stamped)).length > TEXT_BUDGET_BYTES ? {kind: "resync"} : {kind: "batch", events: stamped});
         },
         close: () => {
@@ -315,4 +335,8 @@ export function createChangeHub(options: ChangeHubOptions): ChangeHub {
             stopWatcher();
         },
     };
+}
+
+function stamp(event: OperationEvent, origin: Origin): FileChange {
+    return origin.group === undefined ? {...event, source: origin.source} : {...event, source: origin.source, group: origin.group};
 }

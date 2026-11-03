@@ -1,6 +1,6 @@
 /**
  * `projects://` 的跨项目访问（docs/specs/workspace/resources.md 输出“跨项目访问”、验收 9）：服务端实例、路由与项目管理器
- * 是真实的，项目跑在真实子进程里（项目宿主的测试入口，含 `nbook.files` 的项目入口）；测试插件经 `serverFilesKey` 调用。
+ * 是真实的，项目跑在真实子进程里（项目宿主的测试入口，含 `nbook.files` 的项目入口）；测试插件经 `workspaceFilesKey` 调用。
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
@@ -24,8 +24,8 @@ import {filesBackendPlugin} from "./backend/plugin";
 import {descriptor} from "./plugin";
 import {projectFilesContract} from "./shared/contracts";
 import type {ChangesMessage} from "./shared/contracts";
-import {serverFilesKey} from "./shared/schemes";
-import type {ServerFiles} from "./shared/schemes";
+import {workspaceFilesKey} from "./shared/workspace-files";
+import type {WorkspaceFiles} from "./shared/workspace-files";
 
 let tmp = "";
 const harnesses: ProjectHarness[] = [];
@@ -45,7 +45,7 @@ afterAll(async () => {
 });
 
 interface Held {
-    files: ServerFiles | null;
+    files: WorkspaceFiles | null;
     projects: ProjectsService | null;
     remote: ActivationContext["remote"] | null;
 }
@@ -56,9 +56,9 @@ function consumer(id: string, held: Held): PluginDefinition {
         id: "server",
         location: "server",
         activationEvents: ["onStartup"],
-        dependencies: [{key: serverFilesKey}, {key: projectsKey}],
+        dependencies: [{key: workspaceFilesKey}, {key: projectsKey}],
         activate: (context) => {
-            held.files = context.services.require(serverFilesKey);
+            held.files = context.services.require(workspaceFilesKey);
             held.projects = context.services.require(projectsKey);
             held.remote = context.remote;
             return {};
@@ -80,7 +80,7 @@ async function scene(): Promise<{readonly h: ProjectHarness; readonly agent: Hel
     return {h, agent, other};
 }
 
-const files = (held: Held): ServerFiles => held.files ?? (() => { throw new Error("测试插件没有激活"); })();
+const files = (held: Held): WorkspaceFiles => held.files ?? (() => { throw new Error("测试插件没有激活"); })();
 const asAgent = {as: {agent: {session: "s1", profile: "p"}}};
 
 async function stateOf(h: ProjectHarness): Promise<string | undefined> {
@@ -98,12 +98,12 @@ describe("projects://", () => {
         expect(await files(agent).create("projects://book/新章.md", "file", asAgent)).toEqual({ok: true, value: {}});
         const read = await files(agent).read(`projects://${h.project.id}/新章.md`, asAgent);
         if (!read.ok) throw new Error(read.code);
-        expect(await files(agent).write("projects://book/新章.md", "正文", read.value.baseline, asAgent)).toMatchObject({ok: true});
+        expect(await files(agent).write("projects://book/新章.md", "正文", {expect: read.value.baseline, ...asAgent})).toMatchObject({ok: true});
         expect(await readFile(join(h.root, "Book", "新章.md"), "utf8")).toBe("正文");
         // 调用结算后租约已释放：项目进入宽限期，而不是一直开着。
         expect(await stateOf(h)).toBe("idle-grace");
         expect(await files(agent).read("projects://nobody/x.md")).toMatchObject({ok: false, code: "not-found"});
-        expect(await files(agent).realPath("projects://")).toMatchObject({ok: false, code: "unsupported-capability"});
+        expect(await files(agent).readPath("projects://")).toMatchObject({ok: false, code: "unsupported-capability"});
     });
 
     it("写入来源透传到项目实例；别的服务端插件给项目合同带来源为 permission-denied", async () => {
@@ -153,7 +153,7 @@ describe("projects://", () => {
         if (pid === null || pid === undefined) throw new Error("项目没在运行");
         // 暂停子进程，请求发出后它收不到也答不了；再杀掉它，链路断开。
         process.kill(pid, "SIGSTOP");
-        const pending = files(agent).write("projects://book/d.md", "改", read.value.baseline, asAgent);
+        const pending = files(agent).write("projects://book/d.md", "改", {expect: read.value.baseline, ...asAgent});
         // 取得租约之后紧接着发出请求：项目回到运行中说明写请求已经发出。
         await waitUntil("写请求已经发出", async () => (await stateOf(h)) === "running");
         process.kill(pid, "SIGKILL");

@@ -14,6 +14,7 @@ import type {Baseline, DirectoryEntry, FileText, FolderKind, Listing, ManifestSt
 import {encodedTextBytes, TEXT_BUDGET_BYTES} from "../shared/contracts";
 import type {FilesFailureCode} from "../shared/failures";
 import {pathProblem} from "../shared/resource";
+import {decodeText} from "../shared/text";
 import {BODY_NAME, compareEntries, folderKindOf, itemsAt, MANIFEST_NAME, parseManifest} from "./folder-kinds";
 import type {ManifestItem} from "./folder-kinds";
 import {entryToken} from "./rooted";
@@ -49,25 +50,16 @@ export interface SavedFile {
 export interface FilesService {
     list(path: string): Promise<Outcome<Listing>>;
     read(path: string): Promise<Outcome<FileText>>;
-    write(path: string, text: string, baseline: Baseline, temporaryPath?: (file: string) => string): Promise<Outcome<SavedFile>>;
+    /** `committed` 在写入锁里、替换之后调用（交记账槽）。 */
+    write(path: string, text: string, baseline: Baseline, temporaryPath?: (file: string) => string, committed?: (placed: {readonly realPath: string; readonly before: {readonly hash: string; readonly bytes: Uint8Array}; readonly bytes: Uint8Array}) => Promise<void>): Promise<Outcome<SavedFile>>;
     /** 资源在服务端机器上的绝对路径；最后一段不跟随符号链接，根本身是根的真实路径。 */
-    realPath(path: string): Promise<Outcome<{readonly path: string}>>;
+    realPath(path: string): Promise<Outcome<{readonly path: string; readonly kind: "file" | "directory" | "other"}>>;
 }
 
 export function hashOf(bytes: Uint8Array): string {
     return createHash("sha256").update(bytes).digest("hex");
 }
 
-/** 只接受 UTF-8；BOM 留在文本里（保存时原样写回），含 NUL 的视为二进制。 */
-export function decodeText(bytes: Uint8Array): string | null {
-    if (bytes.includes(0)) return null;
-    try {
-        return new TextDecoder("utf-8", {fatal: true, ignoreBOM: true}).decode(bytes);
-    } catch {
-        // 非法 UTF-8：TextDecoder 只给 TypeError，没有更多可记的信息。
-        return null;
-    }
-}
 
 export function createFilesService(options: FilesServiceOptions): FilesService {
     const {root} = options;
@@ -143,10 +135,10 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
         realPath: async (path) => {
             const bad = invalid(path);
             if (bad !== null) return bad;
-            if (path === "") return {ok: true, value: {path: root.real}};
+            if (path === "") return {ok: true, value: {path: root.real, kind: "directory"}};
             const entry = await root.resolveEntry(path);
             if ("ok" in entry) return failed(entry, "files.real-path.failed");
-            return {ok: true, value: {path: entry.absolute}};
+            return {ok: true, value: {path: entry.absolute, kind: entry.stats.isFile() ? "file" : entry.stats.isDirectory() ? "directory" : "other"}};
         },
 
         read: async (path) => {
@@ -161,7 +153,7 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
             return {ok: true, value: {text, baseline: {hash: hashOf(read.bytes)}}};
         },
 
-        write: async (path, text, baseline, temporaryPath) => {
+        write: async (path, text, baseline, temporaryPath, committed) => {
             const bad = invalid(path);
             if (bad !== null) return bad;
             if (encodedTextBytes(text) > TEXT_BUDGET_BYTES) return {ok: false, code: "too-large", detail: {detail: `${path} 的正文超过上限`}};
@@ -170,7 +162,10 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
                 if (current === null) return {done: {ok: false, code: "not-found", detail: {detail: `${path} 不存在`}}};
                 const now = hashOf(current.bytes);
                 return now === baseline.hash ? {write: bytes} : {done: {ok: false, code: "conflict", detail: {detail: `${path} 在读取后被修改过`, current: {hash: now}}}};
-            }, temporaryPath);
+            }, temporaryPath, committed === undefined ? undefined : async (placed) => {
+                // 保存只替换已有文件：到这里改前内容一定在。
+                if (placed.before !== null) await committed({realPath: placed.realPath, before: {hash: hashOf(placed.before.bytes), bytes: placed.before.bytes}, bytes});
+            });
             if (!replaced.ok) return failed(replaced, "files.write.failed");
             if ("done" in replaced) return replaced.done;
             // 经祖先目录的链接保存，替换的仍是这个目录项指向的普通文件，身份照样推进；最后一段本身是链接时目录项（链接）
