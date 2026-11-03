@@ -11,7 +11,7 @@
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
-import {ActorSchema, AddressSchema, ReadPositionSchema, WriteRequestSchema} from "@notnotype/nb-canon/schema";
+import {ActorSchema, AddressSchema, ObjectRefSchema, ReadPositionSchema, WriteRequestSchema} from "@notnotype/nb-canon/schema";
 import type {EntryView, PendingItem, Question, ReadPosition, Revision, StoryChange, Suggestion, WriteRequest} from "@notnotype/nb-canon/schema";
 import {Type} from "typebox";
 import type {Static} from "typebox";
@@ -61,6 +61,7 @@ const methods = {
         effect: "read",
         errors,
     },
+    object: {input: Type.Object({ref: ObjectRefSchema}), output: Out, effect: "read", errors},
     pending: {input: Type.Object({position: Type.Optional(ReadPositionSchema)}), output: Out, effect: "read", errors},
     questions: {input: Type.Object({status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("answered"), Type.Literal("dropped")])), cursor: Cursor, limit: Limit}), output: Out, effect: "read", errors},
     suggestions: {input: Type.Object({status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("applied"), Type.Literal("declined")])), cursor: Cursor, limit: Limit}), output: Out, effect: "read", errors},
@@ -112,6 +113,7 @@ const methods = {
             block: Type.String(),
             position: ReadPositionSchema,
             version: Type.Integer(),
+            mode: Mode,
             text: Type.String(),
             intent: Type.Optional(Type.Union([Type.Literal("creative"), Type.Literal("story")])),
             title: Type.Optional(Type.String()),
@@ -189,7 +191,9 @@ export interface CanonOutputs {
     readonly questions: Page<Question>;
     readonly suggestions: Page<Suggestion>;
     readonly revisions: Page<{readonly id: string; readonly version: number; readonly by: Revision["by"]; readonly what: string; readonly title: string; readonly time: string; readonly chapter?: string; readonly impact: Revision["impact"]; readonly revertable: {readonly ok: boolean; readonly reason?: string; readonly dependents?: readonly string[]}}>;
-    readonly render: {readonly version: number; readonly position: ReadPosition; readonly blocks: readonly unknown[]} | null;
+    readonly render: {readonly version: number; readonly position: ReadPosition; readonly mode: "actual" | "planned"; readonly blocks: readonly unknown[]} | null;
+    /** 存下来的对象；不存在时 `object` 为 null。 */
+    readonly object: {readonly version: number; readonly object: unknown};
     readonly preview: {readonly revision: Revision; readonly ids: Readonly<Record<string, string>>};
     readonly outcome: {readonly published: true; readonly revision: string; readonly version: number} | {readonly published: false};
     readonly publish: Published;

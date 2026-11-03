@@ -8,6 +8,7 @@
 
 import {sameJson} from "../core/stable-json";
 import type {Actor, Address, ReadPosition, WriteRequest} from "../core/schema";
+import type {Mode} from "../engine/types";
 import {editInPlace, type EditFailure} from "../world/edits";
 import type {World, WriteResult} from "../world/world";
 import {evaluate, resolverFor} from "./render";
@@ -21,6 +22,8 @@ export interface WriteBackInput {
     readonly position: ReadPosition;
     /** 读取时的版本。 */
     readonly version: number;
+    /** 读取时的模式：只有按实际模式读到的块能回写（输出 12）。 */
+    readonly mode: Mode;
     readonly text: string;
     readonly intent?: "creative" | "story";
     readonly title?: string;
@@ -31,7 +34,8 @@ export type WriteBackFailure =
     | {readonly code: "not-found"}
     | {readonly code: "computed-edited"}
     | {readonly code: "annotation-mismatch"}
-    | {readonly code: "conflicting-values"; readonly at: Address};
+    | {readonly code: "conflicting-values"; readonly at: Address}
+    | {readonly code: "planned-not-writable"};
 
 export type WriteBackResult = Extract<WriteResult, {ok: true}> | {readonly ok: false; readonly failure: WriteBackFailure};
 
@@ -169,6 +173,8 @@ function jsonEnd(text: string, start: number): number {
 const REF_TAG = /<Ref\s+id=("(?:[^"\\]|\\.)*")\s+name="(?:[^"\\]|\\.)*"\s*\/>/gu;
 
 export function writeBack(world: World, input: WriteBackInput, time: string): WriteBackResult {
+    // 计划里的值不是现在的值：按计划模式读到的块原样交回也会被当成改动，悄悄改写设定。
+    if (input.mode !== "actual") return {ok: false, failure: {code: "planned-not-writable"}};
     const view = world.engine.entry(input.entry, input.position, "actual");
     if (view === "chapter-not-found") return {ok: false, failure: {code: "chapter-not-found"}};
     const block = view === null || view.deleted ? undefined : view.text.find((candidate) => candidate.id === input.block);

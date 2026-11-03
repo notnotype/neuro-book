@@ -145,10 +145,19 @@ describe("canon.rendering 输出 10、12、13 与场景 2、3、4：回写", () 
         return agent.blocks[0]!.text;
     };
 
+    test("按计划模式读到的块原样交回：拒收 planned-not-writable，世界不变（输出 12）", () => {
+        const base = world();
+        const planned = renderEntryForAgent(base, "e1", at("ch5"), "planned");
+        if (planned === null || planned === "chapter-not-found") throw new Error("no render");
+        expect(planned.mode).toBe("planned");
+        const result = writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: planned.position, version: planned.version, mode: planned.mode, text: planned.blocks[0]!.text}, "t");
+        expect(result).toEqual({ok: false, failure: {code: "planned-not-writable"}});
+    });
+
     test("值改了、文字也改了，剧情变化：一次修订里记一条差额并整段替换这一块", () => {
         const base = world();
         const text = agentText(base).replace("{panel.魔力 = 3110}", "{panel.魔力 = 3000}").replace("魔力 {", "魔法力 {");
-        const result = ok(writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, text, intent: "story"}, "t"));
+        const result = ok(writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, mode: "actual", text, intent: "story"}, "t"));
         expect(result.world.version).toBe(base.version + 1);
         const view = result.world.engine.entry("e1", at("ch5"), "actual");
         expect(view).toMatchObject({namespaces: {panel: {fields: {魔力: {value: 3000}}}}});
@@ -159,7 +168,7 @@ describe("canon.rendering 输出 10、12、13 与场景 2、3、4：回写", () 
     test("改了 -> 的部分得到 computed-edited；删掉注记得到 annotation-mismatch；同一字段两个不同值得到 conflicting-values", () => {
         const base = world(["{panel.魔力} 与 {panel.魔力}，{panel.魔力 >= 1000 ? \"能\" : \"不能\"}"]);
         const text = agentText(base);
-        const write = (changed: string) => writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, text: changed}, "t");
+        const write = (changed: string) => writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, mode: "actual", text: changed}, "t");
         const failure = (changed: string) => {
             const result = write(changed);
             return result.ok ? "ok" : result.failure.code;
@@ -174,7 +183,7 @@ describe("canon.rendering 输出 10、12、13 与场景 2、3、4：回写", () 
     test("装饰在回写时忽略：删掉或改掉都不影响", () => {
         const base = world();
         const text = agentText(base).replace("{panel.魔力 = 3110}", "{panel.魔力 = 3110 # 随便写}");
-        const result = writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, text}, "t");
+        const result = writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, mode: "actual", text}, "t");
         expect(result.ok).toBe(true);
         expect(result.ok && result.world.version).toBe(base.version);
     });
@@ -197,7 +206,7 @@ describe("canon.rendering 输出 10、12、13 与场景 2、3、4：回写", () 
         const agent = renderEntryForAgent(broken, "e1", at("ch5"), "actual");
         if (agent === null || agent === "chapter-not-found") throw new Error("no render");
         expect(agent.blocks[1]).toMatchObject({id: "b2", text: "<Foo />", error: {code: "unknown-tag"}});
-        const fixed = ok(writeBack(broken, {requestId: id(), by: author, entry: "e1", block: "b2", position: at("ch5"), version: broken.version, text: "修好了"}, "t"));
+        const fixed = ok(writeBack(broken, {requestId: id(), by: author, entry: "e1", block: "b2", position: at("ch5"), version: broken.version, mode: "actual", text: "修好了"}, "t"));
         expect(fixed.world.data.entries.get("e1")!.init.text[1]).toEqual({id: "b2", source: "修好了"});
     });
 });

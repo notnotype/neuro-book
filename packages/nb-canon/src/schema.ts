@@ -6,3 +6,4 @@
 export * from "./core/schema";
 export {buildRegistry, type ComponentDeclaration, type ComponentRegistry, type ComponentType, type RegistryDiagnostic} from "./components/registry";
 export type {EntryView, Mode, PendingItem} from "./engine/types";
+export {valueAt, type ViewValue} from "./core/view-value";

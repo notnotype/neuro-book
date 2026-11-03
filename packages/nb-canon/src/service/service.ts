@@ -13,7 +13,7 @@
 import type {ComponentRegistry} from "../components/registry";
 import {compareIds} from "../core/ids";
 import {ChapterOrder, compareRanks, defaultPosition, placementRank} from "../core/position";
-import type {ReadPosition, Revision, WriteRequest} from "../core/schema";
+import type {ObjectRef, ReadPosition, Revision, WriteRequest} from "../core/schema";
 import {stableStringify} from "../core/stable-json";
 import type {Mode, PendingItem, ReductionInput} from "../engine/types";
 import type {LogFiles} from "../node/files";
@@ -80,6 +80,9 @@ export type ServiceDiagnostic =
 
 export const LEASE_MS = 60_000;
 
+/** 世界服务交出的世界：读的部分。写入的方法（publish、revert、reorder 等）不在其中。 */
+export type WorldSnapshot = Pick<World, "version" | "data" | "options" | "engine" | "revisions" | "recordedChapters" | "object" | "pending" | "dependents" | "requested">;
+
 interface Lease {
     readonly token: string;
     readonly label: string;
@@ -142,7 +145,11 @@ export class WorldService {
         return service;
     }
 
-    get world(): World {
+    /**
+     * 当前的世界，只读：写入一律经服务的方法（排队、落盘、发事件）。世界本身的 `publish` 等方法只算出新世界、不写日志，
+     * 所以不从这里交出去。
+     */
+    get world(): WorldSnapshot {
         return this.#world;
     }
 
@@ -178,6 +185,12 @@ export class WorldService {
             for (const field of Object.keys(data.fields)) origins[`${namespace}.${field}`] = world.engine.origins({entry: id, path: `${namespace}.${field}`}, position, mode);
         }
         return {version: world.version, view, origins};
+    }
+
+    /** 按 id 读一个存下来的对象（条目、剧情变更、核对点、未决问题、正文建议）；不存在时为 null（方法表 `object`）。 */
+    object(ref: ObjectRef): {readonly version: number; readonly object: unknown} {
+        const world = this.#world;
+        return {version: world.version, object: world.object(ref) ?? null};
     }
 
     pending(position?: ReadPosition): {version: number; items: readonly PendingItem[]} | "chapter-not-found" {

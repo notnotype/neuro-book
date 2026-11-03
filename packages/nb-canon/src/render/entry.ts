@@ -12,7 +12,8 @@ import type {Mode} from "../engine/types";
 import type {World} from "../world/world";
 import {renderBlockForAgent, renderBlockForAuthor, resolverFor, type AgentBlock, type AuthorBlock, type RenderContext} from "./render";
 
-export type EntryRender<T> = {readonly version: number; readonly position: ReadPosition; readonly blocks: readonly T[]} | "chapter-not-found" | null;
+/** 渲染结果带着读取它的版本、位置与模式：回写时照带（rendering.md 输出 12）。 */
+export type EntryRender<T> = {readonly version: number; readonly position: ReadPosition; readonly mode: Mode; readonly blocks: readonly T[]} | "chapter-not-found" | null;
 
 function context(world: World, entry: string, position: ReadPosition, mode: Mode): RenderContext {
     const resolve = resolverFor(world.engine, world.options.registry, world.options.order, entry, position, mode);
@@ -29,14 +30,14 @@ export function renderEntryForAuthor(world: World, entry: string, position: Read
     const view = world.engine.entry(entry, position, mode);
     if (view === "chapter-not-found" || view === null) return view;
     const shared = context(world, entry, position, mode);
-    return {version: world.version, position, blocks: view.text.map((block) => renderBlockForAuthor(block.id, block.source, shared))};
+    return {version: world.version, position, mode, blocks: view.text.map((block) => renderBlockForAuthor(block.id, block.source, shared))};
 }
 
 export function renderEntryForAgent(world: World, entry: string, position: ReadPosition, mode: Mode): EntryRender<AgentBlock> {
     const view = world.engine.entry(entry, position, mode);
     if (view === "chapter-not-found" || view === null) return view;
     const shared = context(world, entry, position, mode);
-    return {version: world.version, position, blocks: view.text.map((block) => renderBlockForAgent(block.id, block.source, shared))};
+    return {version: world.version, position, mode, blocks: view.text.map((block) => renderBlockForAgent(block.id, block.source, shared))};
 }
 
 /**

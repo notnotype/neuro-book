@@ -53,10 +53,11 @@ owners:
 | `tree` | 读 | 父条目或分组、游标 | 条目树的一层 |
 | `lookup` | 读 | 名字或别名的列表、读取位置 | 每个词：匹配到的条目（按这个位置上有效的名字），或没找到 |
 | `changes` | 读 | 筛选（章、涉及的条目、剧情线、已写或计划、生效状态、计划进展）、游标、条数 | 剧情变更，每条带生效状态与这次套没套上 |
+| `object` | 读 | 对象的种类与 id | 存下来的那个对象（条目、剧情变更、核对点、未决问题、正文建议），没有时为空；改它的写入请求从这里取原样 |
 | `pending` | 读 | 读取位置（缺省见 [`canon.model`](model.md) 输出 21） | 待处理（同一 Spec 输出 16） |
 | `questions`、`suggestions` | 读 | 状态筛选、游标 | 未决问题、正文建议 |
 | `revisions` | 读 | 筛选（章、条目、写入者）、游标 | 改动记录（[`canon.revisions`](revisions.md) 输出 14） |
-| `render` | 读 | 条目、读取位置、模式、给作者或 Agent | [`canon.rendering`](rendering.md) 输出 7、8 |
+| `render` | 读 | 条目、读取位置、模式、给作者或 Agent | [`canon.rendering`](rendering.md) 输出 7、8；结果带版本、位置与模式，回写时照带 |
 | `preview` | 读 | 写入请求 | [`canon.revisions`](revisions.md) 输出 5 |
 | `outcome` | 读 | 请求 id | 这次写入有没有发布、发布成了哪次修订（[`canon.revisions`](revisions.md) 输出 16） |
 | `publish` | 写 | 写入请求，可选独占令牌 | 修订 id、版本、新对象的 id 对照，或失败 |

@@ -68,6 +68,7 @@ export function remoteWorld(host: WorldHost, tokens: Set<string>): Implementatio
             tree: (input) => withWorld((service) => paged(input.limit, (limit) => service.tree(input.parent, input.cursor, limit))),
             lookup: (input) => withWorld((service) => read(service.lookup(input.names, input.position))),
             changes: (input) => withWorld((service) => paged(input.limit, (limit) => service.changes(input.filter ?? {}, input.cursor, limit))),
+            object: (input) => withWorld((service) => within(service.object(input.ref))),
             pending: (input) => withWorld((service) => read(service.pending(input.position))),
             questions: (input) => withWorld((service) => paged(input.limit, (limit) => service.questions(input.status, input.cursor, limit))),
             suggestions: (input) => withWorld((service) => paged(input.limit, (limit) => service.suggestions(input.status, input.cursor, limit))),

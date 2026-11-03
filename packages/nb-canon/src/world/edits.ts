@@ -7,6 +7,7 @@ import {parsePath} from "../core/address";
 import {addExact, exactProblem, subtractExact} from "../core/decimal";
 import {chapterEnd, compareRanks, positionRank} from "../core/position";
 import {sameJson} from "../core/stable-json";
+import {valueAt, type ViewValue} from "../core/view-value";
 import type {Actor, Address, Entry, FieldDeclaration, Patch, ReadPosition, StoryChange, WriteRequest} from "../core/schema";
 import {fieldOf} from "../engine/reference";
 import type {OriginStep} from "../engine/types";
@@ -37,30 +38,9 @@ export type EditFailure =
 export type EditResult = (Extract<WriteResult, {ok: true}> & {readonly laterRecords: readonly string[]}) | {readonly ok: false; readonly failure: EditFailure};
 
 /** 一个地址在某个位置上的值、是否不完整、所在命名空间是否可写。 */
-function currentAt(world: World, position: ReadPosition, at: Address): {value: unknown; incomplete: boolean; available: boolean} | "chapter-not-found" {
+function currentAt(world: World, position: ReadPosition, at: Address): ViewValue | "chapter-not-found" {
     const view = world.engine.entry(at.entry, position, "actual");
-    if (view === "chapter-not-found") return view;
-    if (view === null || view.deleted) return {value: undefined, incomplete: false, available: false};
-    const [root, rest] = splitRoot(at.path);
-    if (root === "entry") return {value: structuredClone(view[rest as "name" | "aliases" | "summary"]), incomplete: false, available: true};
-    if (root === "text") return {value: view.text.find((block) => `[${block.id}]` === rest)?.source, incomplete: false, available: true};
-    const namespace = view.namespaces[root];
-    if (namespace === undefined || namespace.readOnly !== undefined) return {value: undefined, incomplete: false, available: false};
-    const field = namespace.fields[rest.split("[")[0]!];
-    if (field === undefined) return {value: undefined, incomplete: false, available: false};
-    let value = field.value;
-    const element = /\[([^\]]+)\](?:\.(.+))?$/u.exec(rest);
-    if (element !== null) {
-        const item = Array.isArray(value) ? (value as Array<Record<string, unknown>>).find((candidate) => candidate.id === element[1]) : undefined;
-        value = element[2] === undefined ? item : item?.[element[2]];
-    }
-    return {value: structuredClone(value), incomplete: field.incomplete !== undefined, available: true};
-}
-
-function splitRoot(path: string): [string, string] {
-    if (path.startsWith("text[")) return ["text", path.slice(4)];
-    const dot = path.indexOf(".");
-    return [path.slice(0, dot), path.slice(dot + 1)];
+    return view === "chapter-not-found" ? view : valueAt(view, at.path);
 }
 
 /** 剧情变化在读取位置的排序键：开头落在本章最前（最小键减一），末尾落在本章最后（最大键加一）（输出 18）。 */

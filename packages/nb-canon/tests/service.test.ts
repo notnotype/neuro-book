@@ -464,3 +464,15 @@ describe("canon.project：审查补的边界（输出 6、10、11、16、19、23
         expect(filtered !== "cursor-stale" && filtered.items.map((item) => item.title)).toEqual(["星瑕"]);
     });
 });
+
+describe("canon.project 方法表 object：按 id 读存下来的对象", () => {
+    test("读到的是存下来的原样，可以直接改了再写；没有时为 null", async () => {
+        const service = await open();
+        await service.publish(entryRequest("星瑕", 1));
+        const read = service.object({kind: "entry", id: "e1"});
+        expect(read).toMatchObject({version: 2, object: {id: "e1", init: {name: "星瑕"}}});
+        const entry = read.object as Entry;
+        expect((await service.publish({requestId: "rename", by: {kind: "author"}, what: "edit", title: "改名", baseVersion: read.version, puts: [{ref: {kind: "entry", id: "e1"}, after: {...entry, init: {...entry.init, aliases: ["瑕"]}}}]})).ok).toBe(true);
+        expect(service.object({kind: "check", id: "k9"})).toEqual({version: 3, object: null});
+    });
+});

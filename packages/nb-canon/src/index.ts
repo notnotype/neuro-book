@@ -4,6 +4,7 @@
  */
 
 export * from "./core/schema";
+export {valueAt, type ViewValue} from "./core/view-value";
 export {addressKey, addressesOverlap, formatPath, parsePath, type ParsedPath} from "./core/address";
 export {addExact, exactProblem, subtractExact, EXACT_DECIMALS, EXACT_LIMIT, type ExactProblem} from "./core/decimal";
 export {compareIds, IdAllocator, ID_PREFIX, LOCAL_ID_PREFIX, splitId} from "./core/ids";
