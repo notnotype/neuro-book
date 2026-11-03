@@ -1,6 +1,8 @@
 import {describe, expect, test} from "bun:test";
 
-import {assetPathProblem, buildRegistry, effectiveFields, generateFieldId, valueProblem, type ComponentDeclaration, type FieldDeclaration} from "../src/index";
+import {createHash} from "node:crypto";
+
+import {assetPathProblem, buildRegistry, ChapterOrder, effectiveFields, generateFieldId, valueProblem, World, type ComponentDeclaration, type Entry, type FieldDeclaration} from "../src/index";
 
 const panel: ComponentDeclaration = {
     id: "canon.panel",
@@ -49,6 +51,29 @@ describe("登记（canon.components 输出 1、2）", () => {
         const people: ComponentDeclaration = {id: "canon.person", label: "人物", namespace: "character", version: 1, fields: []};
         expect(buildRegistry([panel, people]).digest).toBe(buildRegistry([people, panel]).digest);
         expect(buildRegistry([panel, {...people, version: 2}]).digest).not.toBe(buildRegistry([panel, people]).digest);
+    });
+});
+
+describe("canon.components 场景 3：撞名", () => {
+    test("两个插件都声明 panel：两个都不可用、写入被拒、数据保留；停用一个（登记里去掉）后另一个可用，数据完整", () => {
+        const other = {...panel, id: "other.panel"};
+        const options = (types: ComponentDeclaration[]) => ({order: new ChapterOrder(["ch1"]), registry: buildRegistry(types), reductions: () => undefined, chapterText: () => "", digest: (text: string) => createHash("sha256").update(text).digest("hex")});
+        const star: Entry = {id: "tmp:xia", type: "人物", parent: null, folder: "", order: 0, init: {name: "星瑕", aliases: [], summary: "", text: [], data: {panel: {type: panel.id, version: 1, enabled: true, fields: {魔力上限: 12000, 魔力: 3200}}}}};
+        const opened = World.empty(options([panel])).publish({requestId: "open", by: {kind: "author"}, what: "opening", title: "开局", baseVersion: 0, puts: [{ref: {kind: "entry", id: "tmp:xia"}, after: star}]}, "t");
+        if (!opened.ok) throw new Error(JSON.stringify(opened.failure));
+        const end = {kind: "chapter", chapter: "ch1", edge: "end"} as const;
+        const before = opened.world.engine.entry("e1", end, "actual");
+
+        const clashing = opened.world.withOptions(options([panel, other]));
+        const clashView = clashing.engine.entry("e1", end, "actual");
+        expect(clashView !== null && clashView !== "chapter-not-found" && clashView.namespaces.panel).toMatchObject({readOnly: "component-unknown", fields: {魔力上限: {value: 12000}, 魔力: {value: 3200}}});
+        expect(clashing.options.registry.diagnostics).toEqual([{code: "component-namespace-conflict", namespace: "panel", types: ["canon.panel", "other.panel"]}]);
+        const write = clashing.publish({requestId: "write", by: {kind: "author"}, what: "edit", title: "记一笔", baseVersion: 1, puts: [{ref: {kind: "change", id: "tmp:c"}, after: {id: "tmp:c", kind: "written", text: "用了魔力", at: {kind: "chapter", chapter: "ch1", key: 0}, told: [], involves: ["e1"], lines: [], links: [], patches: [{op: "add", at: {entry: "e1", path: "panel.魔力"}, value: -100}], status: "active", by: {kind: "author"}}}]}, "t");
+        expect(write.ok).toBe(false);
+
+        const resolved = clashing.withOptions(options([panel]));
+        expect(resolved.engine.entry("e1", end, "actual")).toEqual(before);
+        expect(resolved.publish({requestId: "write-2", by: {kind: "author"}, what: "edit", title: "记一笔", baseVersion: 1, puts: [{ref: {kind: "change", id: "tmp:c"}, after: {id: "tmp:c", kind: "written", text: "用了魔力", at: {kind: "chapter", chapter: "ch1", key: 0}, told: [], involves: ["e1"], lines: [], links: [], patches: [{op: "add", at: {entry: "e1", path: "panel.魔力"}, value: -100}], status: "active", by: {kind: "author"}}}]}, "t").ok).toBe(true);
     });
 });
 
