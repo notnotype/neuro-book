@@ -1,0 +1,12 @@
+w00039 t29：独立设计（2026-11-02）
+
+做法：按 reviewing 的“独立设计”，派一个 Claude Sonnet 子代理（Plan 类型），只给目标、五份 Spec 的路径与已定约束，不给主会话的计划；它自己读仓库，先按六个视角质疑，再出方案。主会话据此改了 plan.md：按条目的时间线（每 8 个事件一份快照）替代按章的中间结果；差分测试；service 放进 nb-canon 并经接口注入外部能力；主入口不引 node 的架构测试；MDX 必须带 ESM 扩展；给 Agent 的渲染按源文偏移拼接；摘要用 ohash/crypto。中文数字主会话仍先找库（它建议自写）。
+
+要点（子代理原文的摘录）：
+- 质疑：不引 @mdx-js/mdx、unified、immer；MDX 约 8 个 micromark/mdast 扩展加 acorn，浏览器约 200KB，要 spike；所有失败码同一形状；TypeBox 只用 Value.Check，不用 Clean；publish 与 read 报告重算量与分段耗时；所有派生数据可丢，最重要的测试是“增量结果等于全量重算”。
+- 选型：micromark + mdast-util-from-markdown + mdx-expression、mdx-jsx、mdxjs-esm 与对应 mdast-util + gfm-table、gfm-strikethrough，acorn 解析表达式；必须带 esm 扩展，否则 import 被当文字放行；给 Agent 的渲染按节点 position 在源串上拼接；CJK 强调用 micromark-extension-cjk-friendly，包名与替换方式先 spike；中文数字自写约 100 行；摘要用 ohash/crypto 的 sha256 加稳定 JSON；持久结构自写路径拷贝。
+- 模块：core、components、model、engine、revisions、mdx、service（单写者、独占、事件，经端口取日志存储、章序、正文、小模型、时钟）；子路径 nb-canon/node 放分段日志、torn-tail、fsync 与截断、归纳缓存，锁用注入的 LockPort；插件传 holdLock；架构测试检查主入口不引 node。
+- 增量折叠：一条变更套不套上只取决于它之前的状态；一次全量前向遍历得到每条变更的结果与每个条目的时间线（每 K=8 个事件一份共享结构的快照），读取二分加最多重放 7 个补丁；跨条目原子性在草稿上套全部补丁；发布时按全序只重算涉及脏条目的变更，结果翻转时传染涉及的条目；换章序全量重建；每次发布产出新的时间线对象原子替换；待处理按记录维护，带来的变化只比较被重算记录的前后差；按计划模式做覆盖层、首次使用时懒建；预览与发布同一个纯函数；另缓存 MDX 块的解析、名字索引、语义档摘要；内存约 5MB 加世界约 42MB。
+- 依赖：按“对象+路径”建倒排索引（同对象内比路径前缀）、createdBy 表、引用表、兑现组索引；追加型列表不计入；BFS 求闭包；重开时扫 ops 重建。
+- 切片：骨架与 core、补丁与全量折叠、增量引擎加差分模糊测试与规模脚本、修订、MDX、node 存储（真跑两个子进程）、插件接入与验收。
+- Spec 里照字面难做或矛盾的地方：计划进展与按计划模式的循环（应定为按实际模式判定）；“安放在已写章节上的计划不进那一章”缺精确的有效位置；核对点 place 早于挂靠变更时遍历顺序的问题；按计划模式 20 毫秒与打开 2 秒要懒建；undefined-reference 无法直接从 micromark 得到；第 1 章发布 1 秒近乎全量、无余量；依赖“同一个地址”的粒度未说清；“三千五”一类缩写的核验歧义。

@@ -1,0 +1,142 @@
+w00039 t29 接入与 API 形状审查（提交 5faf986a5）
+审查者视角：前端（经 CanonClient）与后端（WorldService 或远程）两类接入者。接入草稿在 /tmp/w00039-t29-api-review-api/（frontend.ts 118 行、backend.ts 83 行，tsc 零错误；probe*.ts 是在真实 WorldService 上的小实验）。
+说明：草稿零错误本身就是证据之一：失败码分支、`as` 断言都能通过类型检查，没有一处被类型拦住。
+
+### 1. WorldService 的“失败”和“找不到”有四种返回形状，远程层要用四个辅助函数抹平
+- **严重程度**：重要；**类别**：API 形状
+- **位置**：packages/nb-canon/src/service/service.ts:172-286（读）、:295-312（写）、:424-440（独占）；对应的抹平代码 packages/neuro-book/src/plugins/canon/backend/remote.ts:27-55 与各方法里的 `"code" in x`
+- **现象**：同样是“出事了”，返回值是：
+  (a) 裸字符串：`entry/pending/lookup/render` 返回 `"chapter-not-found"`，`tree/changes/questions/suggestions/revisions` 返回 `"cursor-stale"`；
+  (b) `{ok:false, failure:{code}}`：`publish/editInPlace/recordDelta/writeBack/revert/preview`；
+  (c) 不带 ok 的 `{code}`：`acquireExclusive`（busy）、`renewExclusive`、`outcome`（write-unknown）、`WorldService.open`（world-locked）；
+  (d) `null`：`render` 条目不存在返回 null（没有 version）。
+  “条目/修订不存在”更是三种：`entry("nope")` 是成功 `{version, view:null}`，`render("nope")` 是 `null`，`revert("r99")` 与 `writeBack` 是 `{ok:false, failure:{code:"not-found"}}`（probe.ts 实测）。Spec 的失败码表只有一个 `not-found`。
+  草稿里的体现：
+    const page = service.revisions({}, undefined, 20);
+    page.items   // tsc: Property 'items' does not exist on type '"cursor-stale" | {...}'  —— 我自己写探针时就踩了
+    if ("code" in lease) ...        // 靠“有没有 code 属性”判成功失败
+- **为什么是问题**：调用方每个方法都要先记住它属于 a/b/c/d 哪一类；用属性探测（`"code" in x`）判成功，哪天成功结果也带 `code` 字段就悄悄判反。远程层 remote.ts 为此有 `read`、`paged`、`published`、`within` 四个辅助，加上 acquire/renew/outcome 各自手写 `"code" in`，这些都是纯形状转换，没有业务含义。后端接入者（Agent 工具）直接用 WorldService 时得自己再写一遍同样的转换。
+- **建议改法**：服务层所有方法统一返回 `{ok:true, value} | {ok:false, failure:{code,...}}`（读方法的 version 放进 value 里，已经是这样）。`cursor-stale`、`chapter-not-found`、`not-found`、`busy`、`exclusive-lost` 都走 failure；条目不存在统一成 `not-found`（`entry` 的 `view:null` 与 `render` 的 `null` 取消）。这样 remote.ts 的四个辅助函数缩成一个 `toRemote(result)`，`published()` 也只剩去掉 world 字段；项目内调用方与远程调用方看到同一种形状（CanonResult 已经是这个形状，等于把客户端的约定下沉到服务）。
+
+### 2. Agent 读“按计划”的带值写法再原样交回，会悄悄改写初值（render 带 mode，writeBack 不带）
+- **严重程度**：重要；**类别**：API 形状（引出数据错写）
+- **位置**：packages/nb-canon/src/service/service.ts:278（render 接受 mode）；packages/nb-canon/src/render/writeback.ts:30-41（WriteBackInput 没有 mode）、:172、:178（写死 "actual"）；contracts.ts:110-123 writeBack 输入同样没有 mode
+- **现象**：草稿 backend.ts 的“Agent 读一块、改完交回”写成：
+    const rendered = service.render(entry, pos, "planned", "agent");   // mode 是 render 的必填参数，可以选 planned
+    await service.writeBack({..., position: rendered.position, version: rendered.version, text: rendered.blocks[0].text});
+  在真实 WorldService 上实测（/tmp/w00039-t29-api-review-api/probe3.ts）：条目初值 `状态="健康"`，有一条计划把它设为“受伤”。按计划模式渲染得到 `状态 {panel.状态 = "受伤"}`；一个字没改原样交回，writeBack 返回 `ok:true, repeated:false`，发布了一次“改写一块”修订（版本 2 到 3），条目的初值变成了“受伤”（`entry(..., {kind:"initial"})` 读到“受伤”）。数字字段则因没有依据被 `number-without-basis` 拒收，只是碰巧没写进去。
+- **为什么是问题**：render 返回的结果里有 version 与 position，却没有 mode，调用方交回时没有地方带它；writeBack 把文字里的值和“实际模式”的当前值比，把差异当成 Agent 的编辑。Spec 允许 Agent 读计划模式（rendering.md 输入“模式（实际或按计划）”），回写输入里却没有模式，等于接口没把“只有实际模式的块能回写”这条约束表达出来。后果是静默写错设定，不是报错。
+- **建议改法**：二选一，都比现在少一个陷阱：(1) render 的结果带上 `mode`，WriteBackInput 加必填 `mode`，`planned` 一律拒收（新码 `planned-not-writable`）；(2) 更省概念：`audience:"agent"` 的 render 只支持 actual，把计划模式的 Agent 读取单列一个只读方法。方案 (1) 还顺带让“交回的东西必须来自哪次读取”这条约束体现在类型里（把 `{version, position, mode}` 打成一个 `ReadStamp` 对象，render 返回它、writeBack/editInPlace 接收它）。
+
+### 3. 前端无法按 id 读取存下来的对象，“处理待处理”这件事做不出来
+- **严重程度**：重要；**类别**：API 形状
+- **位置**：docs/specs/canon/project.md 方法表；contracts.ts:56-125（方法清单）；packages/nb-canon/src/world/world.ts:368 `World.object(ref)`（只有进程内可用）
+- **现象**：草稿 frontend.ts 的 C 段：待处理里的 `held` 项只给 `change: "c7"`；要处理它（把 status 改成 active）得发 `publish`，`puts[].after` 必须是整条 StoryChange 的新值。可远程方法里没有“按 id 取一条变更”：`changes` 的筛选只有章、条目、剧情线、种类、状态，没有 id。草稿只能 `changes({filter:{status:"held"}, limit:500})` 再 `find`——持有的变更超过一页就找不到了。`check-mismatch` 项只给 `check: "k3"`，远程根本没有读核对点的方法（也没有 `checks` 列表），`cannot-apply` 的 `root` 是修订 id，要看内容只能翻 revisions 再解 ops。条目同理：`entry` 返回的是算出来的 EntryView，而 `puts` 里条目要的是存下来的 Entry（含 init、initBasis、retold），前端拿不到。进程内能用 `service.world.object(ref)`，远程不行。
+- **为什么是问题**：作者界面“列待处理并在用户处理一条后刷新”是这个包的核心场景（待处理是产品卖点），但前端读不到处理所需的对象，只能靠 `editInPlace` 一类就地方法绕，而核对点不符、套不上、待定三类都不是就地改能表达的。
+- **建议改法**：加一个读方法 `object({ref}) -> {version, value}`（与进程内 `World.object` 同义，五种对象通用）；`changes`/`questions`/`suggestions` 的筛选可以保持不变。方法数 +1，但省掉“为每类待处理补一个专用读法”，也让 `puts` 的“基于哪个值写”有了来源。
+
+### 4. 作者在条目页保存一个字段，前端要自己重写一份“取某地址当前值”的逻辑
+- **严重程度**：重要；**类别**：API 形状 / 可维护性
+- **位置**：packages/nb-canon/src/world/edits.ts:35-52（私有的 `currentAt`/`splitRoot`）；contracts.ts:93-107 editInPlace 输入 `read:{value,version}`；packages/nb-canon/src/index.ts（没有导出取值函数）
+- **现象**：`editInPlace` 必须带 `read.value`（“读到的值”），服务端用 `sameJson(current, read.value)` 判 `value-conflict`。前端手里只有 `EntryView`，要从里面按地址取出这个值。草稿 frontend.ts 的 E 段写了 `valueAt(view, path)`，11 行：分 `entry.name|aliases|summary`、`text[块]`、`命名空间.字段`、`字段[元素].子键` 四种，靠 `parsePath` 拆路径，列表元素还要自己 `find(id)`。这段逻辑和 edits.ts 的 `currentAt` 做同一件事，但后者是私有函数，且多了“命名空间只读/没启用时算 unavailable”的判断。两份实现一旦在某类路径上不一致，表现就是作者保存时莫名 `value-conflict`。
+- **为什么是问题**：同一件事写了两份（一份在内核、一份在每个前端），没有机制保证一致；前端写错只会在运行时表现为冲突，不会有类型或测试提示。`recordDelta` 同样要 `read.value`。
+- **建议改法**：把 `currentAt` 的取值部分导出成 `valueAt(view: EntryView, path: string): unknown`（放 `./schema` 旁边或主入口，纯函数、不拉 MDX 链），edits.ts 自己也用它；这样草稿里 valueAt 的 11 行就整个不用写，前后端对“读到的值”也只有一个定义。（不建议让 `read.value` 变成可省略：它防的是“上游别的对象改变了这个位置的值”，version 判不出来。）
+
+### 5. 给作者与给 Agent 的渲染返回联合类型，按 audience 取不出确定的块类型；作者的出错块也带 text
+- **严重程度**：建议；**类别**：API 形状 / 使用体验
+- **位置**：packages/nb-canon/src/service/service.ts:278-280；packages/nb-canon/src/render/render.ts:165-166（AuthorBlock/AgentBlock）；contracts.ts:192（`blocks: readonly unknown[]`）
+- **现象**：`render(entry, position, mode, audience)` 的返回类型是 `EntryRender<AuthorBlock> | EntryRender<AgentBlock>`，audience 是运行时字符串，返回类型不随它变。草稿里 Agent 工具要读 `block.text`，只能 `"text" in block` 收窄；但 `AuthorBlock` 的出错变体 `{id, error, text}` 也有 text，这个判断对作者出错块同样成立，写错 audience 也不报错。远程客户端更彻底：`blocks` 是 `unknown[]`，草稿里 `(r.value?.blocks ?? []) as AuthorBlock[]`。内核明明有 `renderEntryForAuthor`、`renderEntryForAgent` 两个类型明确的函数（entry.ts:30-45），服务和合同又把它们并成了一个。
+- **为什么是问题**：Agent 工具作者和作者界面作者各自只关心一种块，却都要处理另一种的类型并做断言。
+- **建议改法**：服务和合同用泛型或重载把 audience 绑到返回类型（`render<A extends "author"|"agent">(…, audience: A): EntryRender<BlockOf<A>>`），合同里 `render` 的 blocks 改成对应联合；或者拆成 `renderForAuthor`、`renderForAgent` 两个方法（方法数 +1，换来每个方法一个确定类型，且 Agent 版可以像第 2 条建议的那样固定 actual）。
+
+### 6. 独占令牌要调用方逐次手传；令牌失效但别人持有时报 busy 而不是 exclusive-lost；结束原因丢失；两种申请方式并存
+- **严重程度**：建议；**类别**：API 形状 / 使用体验
+- **位置**：contracts.ts:93-142（每个写入输入都有 `token`）、:214-236（CanonLease、CanonClient.hold）、web/client.ts:63-96；service.ts:318-337（#write 先判 busy 再判 exclusive-lost）；backend/remote.ts 的 lease 订阅只推 `ended`
+- **现象**：
+  (a) 草稿里“后台任务记账”：`const lease = ...hold(...)`，之后每一次 `publish(request, lease.token)`、`call("editInPlace", {..., token: lease.token})` 都要记得传；漏传时得到的是 `busy`，而持有者就是自己（详情里 holder 是自己申请时写的说明）。`CanonLease` 只有 `renew/release`，没有 `publish` 之类的写方法。
+  (b) 实测（probe.ts）：独占持有中，用一个不是当前持有者的令牌（例如自己过期后别的任务已申请）写入，得到 `busy`（holder 是别人），不是 `exclusive-lost`。按 project.md 的失败表，`busy` 的处理是“等 exclusive 事件”，`exclusive-lost` 的处理是“停止这次任务”；过期的任务会先去等别人，等到对方结束后再写一次才得到 `exclusive-lost`。
+  (c) `hold(label, onEnded)` 的 `onEnded(reason)`：独占结束只有一个原因串 `"ended"`（remote 层的 lease 事件 payload 只有 held/ended），任务分不清是自己释放、到期、被作者强行解除还是断线，而后几种的善后不同（比如被强行解除应该保留已记的进度，断线应先按 requestId 查 outcome）。
+  (d) `CanonMethod` 里仍然有 `acquireExclusive/renewExclusive/releaseExclusive`，`call("acquireExclusive")` 通过类型检查，但得到的独占没有租约订阅，连接断开后只能等 60 秒到期。接口注释里写了这一点，类型上没拦。
+- **为什么是问题**：调用方要记住的东西多：令牌、续期、租约订阅、三个失败码的不同反应；其中 (a)(b) 是最容易漏的。
+- **建议改法**：(1) 令牌随租约走：`CanonLease` 提供 `lease.call(method, input)`/`lease.publish(request)`，内部带令牌，调用方不再看见 token；服务端 WorldService 同样可以返回一个带 `publish/editInPlace/...` 的 `ExclusiveHandle`。(2) #write 里先判“带了令牌但不是当前令牌”再判 busy：带了令牌且无效一律 `exclusive-lost`，只有“没带令牌”才是 `busy`。(3) lease 的 `ended` 事件带 `reason: "released"|"expired"|"broken"|"disconnected"`。(4) 客户端的 `CanonMethod` 去掉三个独占方法（服务端调用方走 `hold` 同款封装），概念变成“只有 hold”。
+
+### 7. WorldService 和远程合同是两套调用约定，remote.ts 是一层纯粹的参数拆装
+- **严重程度**：建议；**类别**：耦合 / 可维护性
+- **位置**：service.ts:172、:190、:218、:240、:249、:258、:278、:299-312（位置参数、token 在末位）；contracts.ts:56-142（对象参数、token 在对象里）；backend/remote.ts:73-117
+- **现象**：同一个能力，进程内是 `entry(id, position, mode, withOrigins)`、`tree(parent, cursor, limit)`、`changes(filter, cursor, limit)`、`questions(status, cursor, limit)`、`revert(target, withDependents, meta, token)`；远程是 `entry({id, position, mode, withOrigins})`、`revert({revision, withDependents, requestId, by, title, token})`。同一个概念的名字也不同：进程内 `target` 对远程 `revision`；`recordDelta` 在服务里的参数类型是 `Parameters<typeof recordDelta>[1]`（edits.ts:200 的内联类型），而 `InPlaceEdit`、`WriteBackInput` 有名字。remote.ts 里 `({token, ...edit}) => service.editInPlace(edit, token)`、`({token, revision, withDependents, ...meta}) => service.revert(revision, withDependents, meta, token)` 这样的拆装在 remote.ts 里共 4 处（editInPlace、recordDelta、writeBack、revert），读方法另有 7 处逐字段搬运。
+- **为什么是问题**：后端接入者（Agent 工具）既可能在项目进程里直接调 WorldService，也可能经远程调，要学两套形状；以后每加一个方法或参数，service、contracts、remote、client 的类型都要同步改（至少 4 处）。
+- **建议改法**：服务方法统一成“一个输入对象”，且就是合同里的那个对象类型（token 放对象里，与合同一致）；合同的 `Static<typeof 输入 schema>` 作为服务方法的参数类型，remote.ts 变成 `entry: (input) => withWorld((s) => toRemote(s.entry(input)))`，解构层消失。给 `recordDelta` 补一个具名的 `RecordDeltaInput`。
+
+### 8. `service.world` 把可变语义不同的纯 World 暴露出来，`world.publish()` 返回 ok 却什么都没写
+- **严重程度**：建议；**类别**：API 形状（陷阱）
+- **位置**：service.ts:145-147（无注释的 `get world()`）；world.ts:189 `publish`、:184 `preview`；index.ts 导出 `World`
+- **现象**：`WorldService.world` 是公开 getter，World 的 `data/engine/revisions/options/publish/revert/absorb/withOptions` 全是公开成员。实测（probe4.ts）：`service.world.publish(request, now)` 返回 `{ok:true, revision:{version:2}, world}`，而 `service.status().version` 仍是 1，日志没有新行。World 是不可变的纯计算对象，`publish` 的含义是“算出发布后的世界”，与 service.publish（排队、落盘、换世界、发事件）同名不同义。草稿里我为了读版本顺手写了 `service.world.version`（backend.ts:13）；同一个入口里也能 `service.world.publish(...)`，类型检查照过。world-host.ts 与 world-child.ts 也用了 `service.world.data / .object` 当读取后门。
+- **为什么是问题**：同名不同义，且“成功”的结果看起来和真的发布一模一样；进程内的后端接入者最容易写出这个错误，丢的是整次写入。
+- **建议改法**：给 World 里这类纯计算的方法改名为 `apply`/`compute`（`preview` 也一样），或不再通过 `service.world` 暴露；读需求补成服务方法（第 3 条的 `object({ref})` 和已有的 `status().version` 足够）。若保留 getter，加上注释“只读快照，publish 不落盘”，并把类型收窄成只含读方法的 `WorldSnapshot`。
+
+### 9. 公开面远大于接入者要用的：主入口 93 个运行时导出，应用只用到 1 个；WorldService 29 个成员里 5 个只给宿主
+- **严重程度**：建议；**类别**：API 形状 / 可维护性
+- **位置**：packages/nb-canon/src/index.ts:1-38（93 个运行时导出，另有大量类型）；src/node/index.ts:7-9（11 个）；src/schema.ts；service.ts:103-547
+- **现象**：数字（`bun -e` 数 `Object.keys`）：`.` 93 个运行时名，`./node` 11 个，`./schema` 32 个。应用包（neuro-book）与脚本真正用到的运行时符号：从 `.` 只有 `buildRegistry`（world-host.ts:20），从 `./node` 只有 `nodeFiles`、`WorldService`，其余全是类型。`.` 里有引擎构造器（`createIncrementalEngine`/`createReferenceEngine`）、中文数字解析（`parseChineseNumber`、`readNumbers`）、日志细节（`./node` 里的 `appendRevision/openLog/readNew/segmentName/LINE_LIMIT/SEGMENT_LIMIT/appendReduction/loadReductions`）、`stableStringify`、`IdAllocator` 等。包内测试用 `../src/...` 的内部路径（node-log、differential 等），不依赖这些公开出口。
+  WorldService 共 29 个公开成员，给调用方用的是读 12 个、写 5 个、独占 4 个；另有宿主专用的 `externalChanged`、`setChapters`、`setRegistry`、`stop`、仅测试用的 `idle`，以及公开且可变的 `diagnostics` 数组（`readonly diagnostics: ServiceDiagnostic[]`，调用方可以直接 push）。类型也有缺口：浏览器侧按 README 引 `./schema`，但 `./schema` 只导出 `EntryView/Mode/PendingItem`，渲染节点 `AuthorBlock`、来历 `OriginStep`、`FieldState` 等 UI 要画的类型要去 `.` 取（草稿 frontend.ts 第 4 行），而 README/AGENTS 说“浏览器只引 ./schema，不载入 MDX 链”，type-only 引用不会载入，但接入者需要自己知道这一点。
+- **为什么是问题**：每多一个公开名，就多一个以后不能随便改的承诺（AGENTS.md 说“公开合同是三个入口”）；接入者在 93 个名字里找“我该用哪个”，而日志/引擎细节其实是实现。
+- **建议改法**：(1) `.` 只留类型、`buildRegistry`、路径与地址小工具（`parsePath/formatPath/addressKey`，第 4 条的 `valueAt`）、两个渲染函数和 `writeBack`、`replaceOnce`，引擎、日志、数字解析、`IdAllocator` 等从 index 摘掉（测试走内部路径）；`./node` 只留 `WorldService`、`nodeFiles` 与端口类型。预计 `.` 降到约 25 个。(2) 把宿主专用方法收进一个对象：`service.host.{externalChanged,setChapters,setRegistry,stop}`，`idle` 改成测试夹具里的函数，`diagnostics` 改成只读访问。(3) 把 UI 要画的类型（`AuthorBlock`、`OriginStep`、`AuthorNode`）从 `./schema` 也导出。
+
+### 10. 客户端结果里最需要类型的几处是 unknown，接入者要靠 `as` 才能用
+- **严重程度**：建议；**类别**：API 形状 / 可维护性
+- **位置**：contracts.ts:37（`Out = Type.Unknown()`，所有方法的 output）、:171-172、:184、:187、:192（`diagnostics: unknown[]`、`recomputed: unknown`、`origins: Record<string, unknown>`、`outcome: unknown`、`blocks: unknown[]`）；service.ts:172-181（origins 实为 `OriginStep[] | "chapter-not-found"`）
+- **现象**：前端草稿里为了用这些结果写了 4 处 `as`：`origins["panel.魔力"] as OriginStep[]`、`blocks as AuthorBlock[]`、`outcome as {applied:boolean}`、`failure.dependents as string[]`。后端草稿 1 处。前一轮审查已接受“CanonOutputs 手抄”这个取舍，这里不重复它；新增的角度是：被抄成 unknown 的恰好是 UI 最要用的结果（来历、渲染块、变更是否套上），而 nb-canon 里这些类型都有（`OriginStep`、`ChangeOutcome`、`AuthorBlock`）。另外 `entry` 的 `origins` 以“命名空间.字段”为键，只覆盖命名空间字段，不含 `entry.name/aliases/summary` 与 `text[块]` 的来历；要“列这个条目某个值的来历”只能带 `withOrigins:true` 把全部字段的来历一次算出来再取一个键（service.ts:177-181 对每个字段调一次 `engine.origins`），没有“按地址取来历”的读法。
+- **为什么是问题**：运行时合同对结果不核对（Out 是 Unknown），类型上又是 unknown，接入者的 `as` 无人兜底；服务端改了结果形状，编译和合同校验都不会报。
+- **建议改法**：不要求把运行时核对加回去。(1) 在 nb-canon 里给每个读结果定一个具名类型（`EntryRead`、`ChangeRow`、`RenderRead<A>` 等），WorldService 的方法返回值标注它们，`CanonOutputs` 直接引用——这样不再有“手抄”，也解决 service 与合同的两份结构；(2) 把 `origins` 类型写准，并支持 `origins: ["panel.魔力"]` 这种按地址取（`withOrigins` 改成地址数组或保留布尔再加数组），避免整条目重算。
+
+### 11. 游标绑定版本，任何一次发布都使翻页作废；记账任务在后台发布时，改动记录翻不完
+- **严重程度**：建议；**类别**：使用体验 / API 形状
+- **位置**：service.ts:557-568 `#page`；docs/specs/canon/project.md 输出 19；`revisions` 方法
+- **现象**：`cursor` 编码为 `版本:偏移`，版本不等就 `cursor-stale`。草稿 D 段（改动记录分页）里我得写“遇到 cursor-stale 就从头再读”的循环；当后台任务正在连续发布（每次发布版本 +1，记账、Agent 写入、章序调整都算）时，翻页之间版本很可能已经变了，循环可能反复回到第一页，不保证收敛。`revisions` 是只追加的列表、按版本从新到旧排列，天然有稳定的游标（“比版本 N 更早的”）。作者在界面上点“加载更多”，在 Agent 干活的时候正是常见场景。
+- **为什么是问题**：Spec 选择的是对所有列表一刀切的 `cursor-stale`；对 `revisions` 这种只追加的列表没必要，调用方要写重试循环，且在活跃写入下不收敛。
+- **建议改法**：`revisions` 的游标改成“最后一条的版本号”，不检查世界版本，永不作废（新发布的修订出现在第一页，`changed` 事件已经通知前端刷新首页）；`changes/questions/suggestions` 保持现状，或同理用“最后一条的 id/排序键”。要改 project.md 输出 19 里“记着它所属的版本”这一句，只限于 revisions。
+
+### 12. 一个条目页要拼 3 到 4 次读取，每次各带一个版本；`changed` 事件不说动了什么，只能整页重读
+- **严重程度**：建议；**类别**：使用体验 / API 形状
+- **位置**：contracts.ts:56-108（entry、render、changes 分开）；contracts.ts:208-216 CanonEvent；docs/specs/canon/project.md 事件一段
+- **现象**：草稿 A 段打开条目页：`entry`（视图+来历）、`render`（作者块）、`changes({filter:{entry}})`（这个条目的来历之一：涉及它的变更），三次调用返回三个 `version`，草稿末尾得自己 `new Set([...]).size === 1` 检查一致，不一致只能重读。而 `render` 内部已经调用了 `engine.entry`（entry.ts:30-45），`entry` 又调一遍。B 段刷新：`changed` 事件载荷是 `{version, revision, by, what, title}`，不含改了哪些条目、哪一章，页面无法判断“这次发布和我看的条目有没有关系”，只能每个事件都重读 entry+render+pending。后台任务记账时每个事件都会触发全页重读。
+- **为什么是问题**：Spec 保证“同一次读取内部是同一版本”，但页面是由多次读取构成的，一致性只能靠接入者自己比对并重试，这是每个前端都要写的样板。
+- **建议改法**：(1) `entry` 加可选 `render: "author"`，一次返回 `{version, view, origins?, blocks?}`，条目页一次调用；(2) `changed` 事件加 `entries: string[]`（这次修订的 ops 涉及的条目 id，修订里本来就有）和 `chapter?`，前端只在相关时重读。两处都是在已有结果里加字段，不增加方法。
+
+### 13. 没有服务端入口：客户端封装放在 web/ 下，后端接入者要手写 fromRemote、租约订阅和 busy 处理；而 11 个端口 + 213 行宿主装配留在应用里，第二个宿主要照抄
+- **严重程度**：建议；**类别**：耦合 / 文档
+- **位置**：packages/neuro-book/src/plugins/canon/web/client.ts（96 行，`createCanonClient`）、web/plugin.ts（唯一提供 `canonClientKey` 的地方）、backend/plugin.ts:1-8（注明“第一版不建服务端入口”）；backend/world-host.ts（213 行）；service.ts:36-55 `ServicePorts`
+- **现象**：合同声明 `callers: ["browser","tui","server"]`，但 `canonClientKey` 只在浏览器入口提供，`createCanonClient` 又放在 `web/` 下并依赖 `DelegatedRemoteAccess`。后端接入者（Agent 工具、记账任务，下一个 Work 要做）经远程调用时拿到的是原始的 `{ok:false, code:"canon", detail:{code,...}}`，`fromRemote`、`hold`（独占加租约订阅加结束通知）、预算检查都得重写。另外直接用 WorldService 的路径：项目进程里没有任何服务键能拿到已打开的服务，`WorldHost` 是 backend 目录内部的、不经插件 SDK 导出。装配 WorldService 要 9 个必填端口（files、lock、logDir、sideDir、cachePath、chapterText、digest、clock、now）加 2 个可选（timer、reducer）；其中 `logDir/sideDir/cachePath` 都是 `.nbook/` 下的固定约定，`clock` 与 `now` 是同一个时间源的两种格式；这些约定、建目录、监视目录与活页夹、合并 50 毫秒变化（world-host.ts 全文）在应用里。另有一个 CLI 或测试宿主要打开同一个世界时，要整份照抄。
+- **为什么是问题**：计划里的“Agent 工具与后台任务”将是第一批后端接入者，他们碰到的第一件事就是没有现成的入口；约定分散在 Spec、world-host.ts、nb-canon 之间。
+- **建议改法**：(1) 把 `createCanonClient` 挪到 `shared/`（它与具体窗口无关，只要 `DelegatedRemoteAccess`），并在服务端入口提供同一个 `canonClientKey`；(2) nb-canon 的 `./node` 增加 `openWorldAt(root, {chapters, registry, lock, chapterText, reducer?})`，内部按 Spec 固定路径、建目录、用 `Date.now`/SHA-256，必填输入从 9 个端口降到 3 个（root、lock、chapterText），`clock/now` 合并成一个仅测试才注入的 `clock`。目录监视仍留给宿主。
+
+### 14. 写入请求的 `puts` 是 `{ref, after: unknown}`，记账的人没有类型帮助，id 与 by 要手写两遍
+- **严重程度**：建议；**类别**：API 形状 / 使用体验
+- **位置**：packages/nb-canon/src/core/schema.ts:235-246（WriteRequestSchema 的 puts）；tests/rendering.test.ts:44、tests/revisions.test.ts:247 一类的写法
+- **现象**：后端草稿 1（记账一章）里：
+    puts: [{ref: {kind: "change", id: "tmp:c1"}, after: change}]   // after: unknown
+  `change` 里还有 `id: "tmp:c1"` 与 `by: {...}`，请求本身又有 `by`，三处要保持一致；`ref.kind` 与 `after` 的类型对不上（把 Entry 放在 kind:"change" 下）编译照过，到发布时才 `validation-failed`。记账是后台任务最常写的请求（每章 5 个计划、15 条已写变更、2 个核对点），也是出错最贵的一处。没有任何构造辅助：临时 id 约定（`tmp:` 前缀）、`key: 0` 的排序键含义、`basis` 的取值，都只能读 Spec 与测试。
+- **为什么是问题**：`StoryChange`、`Entry`、`Check` 的类型都有，只是在 `puts` 这一层被抹成 unknown；`Static<typeof WriteRequestSchema>` 推出的类型就比对象本身宽松。
+- **建议改法**：在 nb-canon 导出一个带判别的 TS 类型 `Put = {ref:{kind:"entry",id}; after: Entry|null} | {ref:{kind:"change",id}; after: StoryChange|null} | ...`，`WriteRequest["puts"]` 用它（schema 仍可用 unknown，类型层收紧）；再加一个很薄的 `bookkeeping(chapter, {changes, checks})` 之类构造器可选，用来统一临时 id 与 `by`——但先做类型收紧即可，不增加概念。
+
+### 15. 失败码没有按方法归拢的联合类型；客户端的 `code` 是 string；README 只有 8 行
+- **严重程度**：建议；**类别**：文档 / 使用体验
+- **位置**：packages/nb-canon/README.md（8 行）、AGENTS.md；contracts.ts:41-43（`FailureSchema = {code: string}`）、:151-156（`CanonFailure.code: string`）；service.ts:57-65 `ServiceFailure`；world.ts:66、edits.ts:23、writeback.ts:43、world.ts:406（四个互相包含的失败联合）
+- **现象**：后端草稿里 `publish` 的失败要手工拼 `WriteFailure | ServiceFailure`，`editInPlace` 是 `EditFailure | ServiceFailure`，`revert` 是 `RevertFailure | WriteFailure | ServiceFailure`，`writeBack` 是 `WriteBackFailure | ServiceFailure`；这四个联合各自在不同文件，且 `ServiceFailure` 里混着读失败（`cursor-stale`、`chapter-not-found`）与写失败，使 `publish` 的失败类型里出现永远不会有的 `cursor-stale`。Spec 里近 50 个失败码分在 project、revisions、rendering 三份文件里（project.md 的“其余”一行转交）。客户端 `failure.code` 是 string，草稿里 `r.failure.code === "has-dependents"` 之后取详情得 `as`。README 只列了入口与验证命令，没有一个“打开、读、发布、处理失败”的最小示例，没有说 `./node` 的服务由谁来装配，也没有说 token、requestId、`outcome` 这几个概念。
+- **为什么是问题**：接入者要在“调用方怎么办”表里逐码找对应的处理，编译器帮不上；`write-unknown`、`busy`、`exclusive-lost`、`version-conflict` 这几个必须分别处理的码，和几十个“按详情改请求”的码混在一个 string 里。
+- **建议改法**：导出按方法归拢的失败类型（`FailureOf<"publish">` 或直接 `PublishFailure`），把需要特殊处理的少数码（`busy/exclusive-lost/write-unknown/version-conflict/value-conflict/cursor-stale/world-read-only`）放在一个小的 `Actionable` 联合里，其余归 `{code: "validation-failed", problems}` 等；客户端的 `CanonFailure` 用同一个联合（不要求运行时校验）。README 补一个 25 行内的接入示例（open → 读 → 发布 → 处理 busy 与 write-unknown），指向 project.md 的失败表。
+
+## 好用的地方
+1. 三个入口的分工清楚：`./schema` 32 个运行时名、不拉 MDX 链，且有 architecture 测试守闭包，浏览器侧能放心引。
+2. 请求 id 加 `outcome`：断线、`write-unknown` 之后“查结局或原样重发”这条路径完整，重发同一请求得到同一次修订，调用方不用自己做幂等。
+3. 所有读取结果都带 `version`，写入结果带 `ids` 临时 id 对照与 `repeated`，`changed` 事件之后再读一定不早于事件版本（Spec 状态与转换），刷新逻辑好写。
+4. 客户端 `CanonResult` 统一成 `{ok, value|failure}`，`hold` 把申请独占、租约订阅、结束通知收成一个调用（比自己拼 acquire + lease + 事件省三步）。
+5. 渲染两路（作者树 / Agent 带值文字）与回写共用一套注记文法，Agent 工具的“读一块、改一处、交回”一次调用完成（只是受第 2 条的约束）。
+
+## 数量
+- 重要：4（第 1、2、3、4 条）
+- 建议：11（第 5 至 15 条）
+- 合计：15 条；无阻断。
+- 草稿与实验：/tmp/w00039-t29-api-review-api/（frontend.ts、backend.ts 为接入草稿；probe.ts、probe2.ts、probe3.ts、probe4.ts 为在真实 WorldService 上的实验，第 2 条的复现在 probe3.ts）。probe.ts 里一处 tsc 报错是我自己写探针时踩到第 1 条（裸字符串失败）所致，保留作为证据。
+
+有效发现编号：1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
