@@ -54,6 +54,8 @@ export interface FieldState {
     readonly incomplete?: IncompleteMark;
     /** 语义档有事件、缓存里没有归纳（model.md 输出 9）。 */
     readonly notReduced?: true;
+    /** 未归纳时的起点与之后事件的条数：带来的变化存这一份，不存拼起来的全文（revisions.md 输出 6）。 */
+    readonly unreduced?: {readonly anchor: string | null; readonly events: number};
     /** 这个位置之前最近一次对这个地址的核对不符时，正文写的数（输出 11）。 */
     readonly textSays?: number;
 }

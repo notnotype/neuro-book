@@ -84,6 +84,17 @@ describe.each(ENGINES)("%s", (_name, createEngine) => {
             if (pending === "chapter-not-found") throw new Error("unexpected");
             expect(pending.some((item) => item.kind === "check-mismatch" && item.check === "k2")).toBe(false);
         });
+
+        test("上一个对得上的核对点挂在某条变更之后：那条变更在它之前，不算嫌疑", () => {
+            const anchored = new WorldBuilder()
+                .entry("xia", "星瑕", {panel: {存款: 40000}}, {initBasis: {"panel.存款": {kind: "quote", quote: "卡里还有四万"}}})
+                .change("c3", chapter("ch3", 20), [add("xia", "panel.存款", 2000)])
+                .check("k2", "xia", "panel.存款", 42000, chapter("ch3", 95), {anchor: {change: "c3", side: "after"}})
+                .change("c4", chapter("ch4"), [add("xia", "panel.存款", 100)])
+                .check("k3", "xia", "panel.存款", 50000, chapter("ch5"));
+            const engine = createEngine(anchored.inputs());
+            expect(engine.pending(end("ch6"))).toEqual([{kind: "check-mismatch", check: "k3", at: {entry: "xia", path: "panel.存款"}, computed: 42100, written: 50000, suspects: ["c4"]}]);
+        });
     });
 
     describe("canon.model 场景 5：语义档（输出 9）", () => {
@@ -96,7 +107,7 @@ describe.each(ENGINES)("%s", (_name, createEngine) => {
 
         test("缓存里有归纳时读到归纳，没有时读到起点加事件并标未归纳", () => {
             const plain = createEngine(world().inputs());
-            expect(panelOf(plain, "jin", end("ch2")).namespaces.character!.fields.态度).toEqual({value: "冷淡；之后：第 1 章：软了一点；第 2 章：叫了一声哥", notReduced: true});
+            expect(panelOf(plain, "jin", end("ch2")).namespaces.character!.fields.态度).toEqual({value: "冷淡；之后：第 1 章：软了一点；第 2 章：叫了一声哥", notReduced: true, unreduced: {anchor: "冷淡", events: 2}});
             const cached = world();
             cached.reductions = (input) => (input.anchor === "冷淡" && input.events.length === 2 ? "开始缓和" : undefined);
             expect(panelOf(createEngine(cached.inputs()), "jin", end("ch2")).namespaces.character!.fields.态度).toEqual({value: "开始缓和"});

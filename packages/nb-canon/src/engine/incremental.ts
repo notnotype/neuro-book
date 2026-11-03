@@ -26,7 +26,7 @@ import type {Address, Check, Entry, EntryState, FieldDeclaration, ReadPosition, 
 import {sameJson} from "../core/stable-json";
 import {applyChange, incompleteAt, replayAnchor, replayChangeOnEntry, type ChangeResult, type FoldState, type IncompleteEvent} from "../model/apply";
 import {fieldOf} from "./reference";
-import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress} from "./types";
+import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress, WorldData} from "./types";
 import {buildEntryView, readEntryAddress, type EntryFold} from "./views";
 
 const SNAPSHOT_EVERY = 8;
@@ -45,6 +45,9 @@ interface MutableFold {
     state: EntryState;
     events: Map<string, string[]>;
 }
+
+/** 按计划模式的覆盖层最多留几份（每份是受影响条目的一套时间线）。 */
+const OVERLAY_LIMIT = 8;
 
 interface Item {
     readonly ev: Ev;
@@ -95,18 +98,47 @@ export function createIncrementalEngine(inputs: EngineInputs): IncrementalEngine
     return engineFrom(inputs, snapshot, recomputed);
 }
 
-function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number): IncrementalEngine {
+/**
+ * 上一个版本的核对结果，交给新引擎沿用（只在非结构性的更新里给）。新引擎建好时就把还能用的逐条拷进自己的缓存，
+ * 不留着对旧引擎的引用：否则每个版本都拉住上一个版本，世界的历史版本一直留在内存里。
+ */
+interface InheritedChecks {
+    readonly results: ReadonlyMap<string, CheckResult | null>;
+    readonly checks: WorldData["checks"];
+    readonly dirtiedAt: ReadonlyMap<string, Point | null>;
+}
+
+type CheckResult = {readonly check: Check; readonly point: Point; readonly computed: unknown; readonly result: "ok" | "mismatch" | "skipped"};
+
+function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, inherited?: InheritedChecks): IncrementalEngine {
     const {world, order, registry} = inputs;
     const tieOf = (id: string): OrderTie => ({version: world.createdAt.get(id) ?? 0, id});
     const overlays = new Map<string, Snapshot>();
     const checkCache = new Map<string, CheckResult | null>();
+    // 核对结果只取决于核对点本身与它所在条目在比较时点之前的时间线：核对点没换、没挂靠变更（挂靠的时点随那条变更变），
+    // 条目没重算或只从比较时点之后重算的，结果不变（model.md 输出 11）。
+    if (inherited !== undefined) {
+        for (const [id, result] of inherited.results) {
+            if (result === null || result === undefined) continue;
+            const check = world.checks.get(id);
+            if (check === undefined || check !== inherited.checks.get(id) || check.anchor !== undefined) continue;
+            if (inherited.dirtiedAt.has(check.at.entry)) {
+                const from = inherited.dirtiedAt.get(check.at.entry)!;
+                if (from === null || compareEvents(result.point, from) >= 0) continue;
+            }
+            checkCache.set(id, result);
+        }
+    }
+    /**
+     * 待处理按读取位置缓存：引擎实例对应一个版本、不再变，同一位置的结果不变。发布时比较前后两份（revisions.md 输出 6）
+     * 与读取都在同一个位置上反复算，核对点不符多时一次要几十毫秒。调用方不得改返回的数组。
+     */
+    const pendingCache = new Map<string, readonly PendingItem[]>();
 
     const writtenChapters = new Set<string>();
     for (const change of world.changes.values()) {
         if (change.kind === "written" && change.status === "active" && change.at.kind === "chapter" && order.has(change.at.chapter)) writtenChapters.add(change.at.chapter);
     }
-
-    type CheckResult = {readonly check: Check; readonly point: Point; readonly computed: unknown; readonly result: "ok" | "mismatch" | "skipped"};
 
     function checkPoint(check: Check): Point | null {
         if (check.anchor !== undefined) {
@@ -196,13 +228,20 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number):
         if (included.length === 0) return actual;
         const key = included.map((event) => event.change.id).sort().join(",");
         const cached = overlays.get(key);
-        if (cached !== undefined) return cached;
+        if (cached !== undefined) {
+            // 按最近使用的先后保留：重新放到末尾。
+            overlays.delete(key);
+            overlays.set(key, cached);
+            return cached;
+        }
         const merged = [...actual.events, ...included].sort(compareEvents);
         const dirty = new Set<string>();
         for (const event of included) for (const entry of event.entries) dirty.add(entry);
         const from = included.reduce((earliest, event) => (compareEvents(event, earliest) < 0 ? event : earliest));
         const {snapshot} = recompute(inputs, actual, merged, {rank: from.rank, tie: from.tie, inclusive: false}, dirty);
         overlays.set(key, snapshot);
+        // 每个计入的计划集合一份覆盖层，随读取位置变；只留最近用过的几份，免得在随机位置读一遍就把内存占满。
+        if (overlays.size > OVERLAY_LIMIT) overlays.delete(overlays.keys().next().value!);
         return snapshot;
     }
 
@@ -227,36 +266,62 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number):
         return latest?.result === "mismatch" ? latest.check.value : undefined;
     }
 
-    function suspects(result: CheckResult): string[] {
+    /** 时间线里第一个不早于 `point` 的位置（按事件先后二分）。 */
+    function firstNotBefore(items: readonly Item[], point: Point): number {
+        let low = 0;
+        let high = items.length;
+        while (low < high) {
+            const middle = (low + high) >>> 1;
+            const compared = compareEvents(items[middle]!.ev, point);
+            if (point.inclusive ? compared <= 0 : compared < 0) low = middle + 1;
+            else high = middle;
+        }
+        return low;
+    }
+
+    /** 每个地址上套上了的 `set`（路径不比地址深）在时间线里的位置，按先后；一次 `pending` 里按地址算一次。 */
+    function setIndices(items: readonly Item[], at: Address): number[] {
+        const found: number[] = [];
+        for (const [index, item] of items.entries()) {
+            if (item.ev.kind !== "change" || !item.applied) continue;
+            if (item.ev.change.patches.some((patch) => patch.op === "set" && addressesOverlap(patch.at, at) && patch.at.path.length <= at.path.length)) found.push(index);
+        }
+        return found;
+    }
+
+    /**
+     * 嫌疑区间（model.md 输出 12）：从“上一个对得上的核对点”与“最后一次赋值”中较晚的一个起，到这个核对点为止。
+     * `previousOk` 由调用方按核对点的先后一遍算出；`sets` 是这个地址上赋值的位置。只扫区间本身，不从头扫时间线。
+     */
+    function suspects(result: CheckResult, previousOk: Point | undefined, sets: readonly number[]): string[] {
         const at = result.check.at;
-        const before = (event: Ev) => {
-            const compared = compareEvents(event, result.point);
-            return result.point.inclusive ? compared <= 0 : compared < 0;
-        };
-        const previousOk = exactChecks()
-            .filter((other) => other.check.id !== result.check.id && other.check.at.entry === at.entry && other.check.at.path === at.path && compareEvents(other.point, result.point) < 0)
-            .map(evaluate)
-            .filter((other) => other.result === "ok")
-            .at(-1);
-        let start: {rank: Rank; tie: OrderTie} | null = previousOk === undefined ? null : previousOk.point;
-        const timeline = actual.timelines.get(at.entry);
-        const items = timeline?.items ?? [];
-        for (const item of items) {
-            if (!before(item.ev)) break;
-            if (item.ev.kind !== "change") continue;
-            if (!item.ev.change.patches.some((patch) => patch.op === "set" && addressesOverlap(patch.at, at) && patch.at.path.length <= at.path.length)) continue;
-            if (!item.applied) continue;
-            if (start === null || compareEvents(item.ev, start) > 0) start = item.ev;
+        const items = actual.timelines.get(at.entry)?.items ?? [];
+        const end = firstNotBefore(items, result.point);
+        let lastSet = -1;
+        for (let low = 0, high = sets.length; low < high;) {
+            const middle = (low + high) >>> 1;
+            if (sets[middle]! < end) {
+                lastSet = sets[middle]!;
+                low = middle + 1;
+            } else high = middle;
+        }
+        // 区间起点：赋值那条本身在区间里；对得上的核对点之前的记录（按它的比较时点算）不在区间里。
+        let begin = lastSet;
+        if (previousOk !== undefined) {
+            const afterOk = firstNotBefore(items, previousOk);
+            if (afterOk > begin) begin = afterOk;
         }
         const list: Array<{id: string; estimate: boolean}> = [];
-        if (start === null) list.push({id: "init", estimate: world.entries.get(at.entry)?.initBasis?.[at.path]?.kind === "estimate"});
-        for (const item of items) {
-            if (!before(item.ev)) break;
-            if (item.ev.kind !== "change") continue;
-            if (start !== null && compareEvents(item.ev, start) < 0) continue;
-            const touching = item.ev.change.patches.filter((patch) => addressesOverlap(patch.at, at));
+        if (begin < 0) {
+            list.push({id: "init", estimate: world.entries.get(at.entry)?.initBasis?.[at.path]?.kind === "estimate"});
+            begin = 0;
+        }
+        for (let index = begin; index < end; index += 1) {
+            const event = items[index]!.ev;
+            if (event.kind !== "change") continue;
+            const touching = event.change.patches.filter((patch) => addressesOverlap(patch.at, at));
             if (touching.length === 0) continue;
-            list.push({id: item.ev.change.id, estimate: touching.some((patch) => patch.basis?.kind === "estimate")});
+            list.push({id: event.change.id, estimate: touching.some((patch) => patch.basis?.kind === "estimate")});
         }
         return list.sort((a, b) => Number(b.estimate) - Number(a.estimate)).map((item) => item.id);
     }
@@ -303,9 +368,9 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number):
                     earlier({rank, tie, inclusive: false});
                 }
             }
-            if (dirty.size === 0) return engineFrom(next, {...actual, events: nextEvents}, 0);
+            if (dirty.size === 0) return engineFrom(next, {...actual, events: nextEvents}, 0, {results: checkCache, checks: world.checks, dirtiedAt: new Map()});
             const result = recompute(next, actual, nextEvents, from, dirty);
-            return engineFrom(next, result.snapshot, result.recomputed);
+            return engineFrom(next, result.snapshot, result.recomputed, {results: checkCache, checks: world.checks, dirtiedAt: result.dirtiedAt});
         },
 
         entry(id, position, mode): EntryView | null | "chapter-not-found" {
@@ -392,11 +457,29 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number):
         pending(position) {
             const rank = resolve(position);
             if (rank === "chapter-not-found") return rank;
+            const cacheKey = rank.join(",");
+            const cached = pendingCache.get(cacheKey);
+            if (cached !== undefined) return cached;
             type Ranked = {rank: Rank | null; item: PendingItem; id: string};
             const items: Ranked[] = [];
+            // 核对点按先后排好：一遍走下来就知道每个核对点之前、同一地址上最后一个对得上的是哪个。
+            // 比较时点相同的两个核对点（挂在同一条变更的同一侧）互不算“之前”，所以从后往前找第一个严格更早的。
+            const oks = new Map<string, Point[]>();
+            const sets = new Map<string, number[]>();
             for (const result of checksBefore(rank)) {
+                const key = addressKey(result.check.at);
+                if (result.result === "ok") {
+                    const list = oks.get(key);
+                    if (list === undefined) oks.set(key, [result.point]);
+                    else list.push(result.point);
+                }
                 if (result.result !== "mismatch") continue;
-                items.push({rank: result.point.rank, id: result.check.id, item: {kind: "check-mismatch", check: result.check.id, at: result.check.at, computed: result.computed as number, written: result.check.value, suspects: suspects(result)}});
+                const earlier = oks.get(key) ?? [];
+                let previousOk: Point | undefined;
+                for (let index = earlier.length - 1; index >= 0 && previousOk === undefined; index -= 1) if (compareEvents(earlier[index]!, result.point) < 0) previousOk = earlier[index];
+                let addressSets = sets.get(key);
+                if (addressSets === undefined) sets.set(key, (addressSets = setIndices(actual.timelines.get(result.check.at.entry)?.items ?? [], result.check.at)));
+                items.push({rank: result.point.rank, id: result.check.id, item: {kind: "check-mismatch", check: result.check.id, at: result.check.at, computed: result.computed as number, written: result.check.value, suspects: suspects(result, previousOk, addressSets)}});
             }
             for (const event of actual.events) {
                 if (!rankBefore(event.rank, rank)) break;
@@ -421,7 +504,9 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number):
                 }
                 return PENDING_KIND_ORDER[a.item.kind] - PENDING_KIND_ORDER[b.item.kind] || compareIds(a.id, b.id);
             });
-            return items.map((item) => item.item);
+            const result = items.map((item) => item.item);
+            pendingCache.set(cacheKey, result);
+            return result;
         },
 
         chapterEntries(chapterId) {
@@ -518,10 +603,12 @@ function foldAtPoint(snapshot: Snapshot, world: EngineInputs["world"], registry:
  * 从 `from` 起重算：`dirty` 里的条目从 `from` 的状态（取自 `base`，没有 base 时从初值）开始，按全序处理碰到脏条目的
  * 事件。一条变更的结果与 base 里的不同时，它碰到的干净条目也从这里起变脏。返回新快照；`base` 不变。
  */
-function recompute(inputs: EngineInputs, base: Snapshot | null, events: readonly Ev[], from: Point | null, dirtyStart: ReadonlySet<string>): {snapshot: Snapshot; recomputed: number} {
+function recompute(inputs: EngineInputs, base: Snapshot | null, events: readonly Ev[], from: Point | null, dirtyStart: ReadonlySet<string>): {snapshot: Snapshot; recomputed: number; dirtiedAt: ReadonlyMap<string, Point | null>} {
     const {world, registry} = inputs;
     const context = {registry, entry: (id: string) => world.entries.get(id)};
     const dirty = new Set<string>();
+    /** 每个重算了的条目从哪一点起重算（null 是从头）：这一点之前的时间线与 base 的相同。 */
+    const dirtiedAt = new Map<string, Point | null>();
     const running = new Map<string, MutableFold>();
     const timelines = new Map<string, Timeline>(base === null ? [] : [...base.timelines]);
     const outcomes = new Map<string, ChangeResult>(base?.outcomes ?? []);
@@ -537,6 +624,7 @@ function recompute(inputs: EngineInputs, base: Snapshot | null, events: readonly
         }
         dirty.add(id);
         const old = base?.timelines.get(id);
+        dirtiedAt.set(id, old === undefined || point === null || !Number.isFinite(point.rank[0]) ? null : point);
         if (old === undefined || point === null || !Number.isFinite(point.rank[0])) {
             timelines.set(id, {items: [], snapshots: [], incomplete: []});
             running.set(id, initialFold(entry));
@@ -606,7 +694,7 @@ function recompute(inputs: EngineInputs, base: Snapshot | null, events: readonly
             append(id, {ev: event, applied: result.applied}, state.incomplete.get(id) ?? []);
         }
     }
-    return {snapshot: {events, outcomes, timelines}, recomputed};
+    return {snapshot: {events, outcomes, timelines}, recomputed, dirtiedAt};
 }
 
 function foldBefore(snapshot: Snapshot, world: EngineInputs["world"], registry: ComponentRegistry, id: string, point: Point): MutableFold | undefined {

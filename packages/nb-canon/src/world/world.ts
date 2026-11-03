@@ -790,6 +790,8 @@ function computeImpact(before: World, data: WorldData, engine: IncrementalEngine
         const namespace = at.path.split(".")[0]!;
         if (namespace === "entry") return readEntryAddress({name: view.name, aliases: [...view.aliases], summary: view.summary, text: [], data: {}}, at.path);
         const field = view.namespaces[namespace]?.fields[at.path.slice(namespace.length + 1).split("[")[0]!];
+        // 未归纳的语义档只存起点与事件条数（revisions.md 输出 6）。
+        if (field?.unreduced !== undefined) return {notReduced: true, anchor: field.unreduced.anchor, events: field.unreduced.events};
         return field?.value;
     };
     const values: Revision["impact"]["values"] = [];

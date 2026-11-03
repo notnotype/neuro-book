@@ -273,7 +273,7 @@ describe("canon.project 输出 11、12、15、19：补归纳、游标与停止",
             const read = from.entry("e1", {kind: "chapter", chapter: "ch1", edge: "end"}, "actual");
             return read === "chapter-not-found" ? read : read?.view?.namespaces.character?.fields.态度;
         };
-        expect(attitude(service)).toEqual({value: "冷淡；之后：软了一点", notReduced: true});
+        expect(attitude(service)).toEqual({value: "冷淡；之后：软了一点", notReduced: true, unreduced: {anchor: "冷淡", events: 1}});
         release();
         await service.idle();
         expect(events).toContainEqual({kind: "reduced"});

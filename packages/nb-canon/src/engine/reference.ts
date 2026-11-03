@@ -205,20 +205,26 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
             .map(evaluate)
             .filter((other) => other.result === "ok")
             .at(-1);
+        // 起点是对得上的核对点时，按它的比较时点排除它之前的记录（挂在某条变更之后的核对点，那条变更也在它之前）；
+        // 起点是最后一次赋值时，那条赋值本身在区间里。
         let start: {rank: Rank; tie: OrderTie} | null = previousOk === undefined ? null : previousOk.point.point;
+        let startExcluded = previousOk !== undefined && previousOk.point.point.inclusive;
         for (const event of actualEvents) {
             if (!before(event)) break;
             if (event.kind !== "change") continue;
             if (!event.change.patches.some((patch) => patch.op === "set" && addressesOverlap(patch.at, at) && patch.at.path.length <= at.path.length)) continue;
             if (allOutcomes().get(event.change.id)?.applied !== true) continue;
-            if (start === null || compareEvents(event, start) > 0) start = event;
+            if (start === null || compareEvents(event, start) > 0) {
+                start = event;
+                startExcluded = false;
+            }
         }
         const list: Array<{id: string; estimate: boolean}> = [];
         if (start === null) list.push({id: "init", estimate: world.entries.get(at.entry)?.initBasis?.[at.path]?.kind === "estimate"});
         for (const event of actualEvents) {
             if (!before(event)) break;
             if (event.kind !== "change") continue;
-            if (start !== null && compareEvents(event, start) < 0) continue;
+            if (start !== null && (startExcluded ? compareEvents(event, start) <= 0 : compareEvents(event, start) < 0)) continue;
             const touching = event.change.patches.filter((patch) => addressesOverlap(patch.at, at));
             if (touching.length === 0) continue;
             list.push({id: event.change.id, estimate: touching.some((patch) => patch.basis?.kind === "estimate")});

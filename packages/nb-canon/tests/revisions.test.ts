@@ -178,6 +178,16 @@ describe("canon.revisions 输出 4、5、6：带来的变化与预览", () => {
         expect(world.pending({kind: "chapter", chapter: "ch3", edge: "end"})).toEqual([{kind: "cannot-apply", root: result.revision.id, changes: [id]}]);
     });
 
+    test("语义档还没归纳时，带来的变化只存起点与事件条数，不存拼起来的全文", () => {
+        const withAttitude = structuredClone(start().data.entries.get("e2")!);
+        withAttitude.init.data.character = {type: PERSON.id, version: 1, enabled: true, fields: {外观: null, 状态: null, 态度: "冷淡"}};
+        let world = ok(start().publish(request([{ref: {kind: "entry", id: "e2"}, after: withAttitude}], {baseVersion: 1}), "t")).world;
+        const note = (text: string): Patch => ({op: "note", at: {entry: "e2", path: "character.态度"}, value: text});
+        world = ok(world.publish(request([{ref: {kind: "change", id: "tmp:a"}, after: change("tmp:a", "ch1", [note("软了一点".repeat(50))])}], {baseVersion: 2}), "t")).world;
+        const second = ok(world.publish(request([{ref: {kind: "change", id: "tmp:b"}, after: change("tmp:b", "ch2", [note("叫了一声哥")])}], {baseVersion: 3}), "t"));
+        expect(second.revision.impact.values).toContainEqual({at: {entry: "e2", path: "character.态度"}, before: {notReduced: true, anchor: "冷淡", events: 1}, after: {notReduced: true, anchor: "冷淡", events: 2}});
+    });
+
     test("预览与随后发布存下的带来的变化逐字相同（场景 4）", () => {
         const world = start();
         const write = request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch2", [add("e1", -2000)])}], {baseVersion: 1, chapter: "ch2"});

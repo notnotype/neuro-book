@@ -125,6 +125,7 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
     };
 
     const open = async (): Promise<WorldService | {readonly code: "world-locked" | "stopping"}> => {
+        const began = performance.now();
         await mkdir(logDir, {recursive: true});
         await mkdir(locks, {recursive: true});
         const binder = await readBinder(root);
@@ -154,6 +155,8 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
         }
         service = opened;
         const status = opened.status();
+        // 打开的耗时与规模（Spec project 输出 14 的“打开到可以读”；measure-project.ts 等这一条再量常驻内存）。
+        record("info", "canon.world.opened", "世界已打开", undefined, {durationMs: Math.round(performance.now() - began), version: status.version, entries: opened.world.data.entries.size});
         if (status.state === "read-only") record("error", "canon.open.read-only", `世界只读：${status.reason ?? ""}`, undefined, {diagnostics: status.diagnostics});
         watchDir(logDir, () => absorb());
         watchDir(root, (name) => {

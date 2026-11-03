@@ -85,14 +85,14 @@ export function fieldValue(
     field: FieldDeclaration | undefined,
     raw: unknown,
     reductions: ReductionLookup,
-): {value: unknown; notReduced?: true} {
+): {value: unknown; notReduced?: true; unreduced?: {anchor: string | null; events: number}} {
     if (field?.precision !== "semantic") return {value: structuredClone(raw)};
     const anchor = raw === null ? null : semanticText(field, raw as string | number);
     const events = fold.events.get(`${namespace}.${field.id}`) ?? [];
     if (events.length === 0) return {value: anchor};
     const reduced = reductions({type, field: field.id, label: field.label, kind: field.kind, ...(field.unit === undefined ? {} : {unit: field.unit}), anchor, events});
     if (reduced !== undefined) return {value: reduced};
-    return {value: `${anchor ?? "未知"}；之后：${events.join("；")}`, notReduced: true};
+    return {value: `${anchor ?? "未知"}；之后：${events.join("；")}`, notReduced: true, unreduced: {anchor, events: events.length}};
 }
 
 /** 一个条目折叠状态里某个地址的值；不存在时为 undefined。 */

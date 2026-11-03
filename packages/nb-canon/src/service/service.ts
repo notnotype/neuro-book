@@ -430,6 +430,8 @@ export class WorldService {
     }
 
     #lookup(input: ReductionInput): string | undefined {
+        // 没有小模型、缓存也是空的（第一版的产品就是这样）：不必算键。键要对整串事件做摘要，事件多的字段每次读取都要付。
+        if (this.#ports.reducer === undefined && this.#reductions.size === 0) return undefined;
         const key = this.#key(input);
         const hit = this.#reductions.get(key);
         if (hit === undefined && this.#ports.reducer !== undefined && !this.#pendingReductions.has(key)) {
