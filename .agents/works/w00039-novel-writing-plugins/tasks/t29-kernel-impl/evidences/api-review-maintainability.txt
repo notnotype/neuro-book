@@ -1,0 +1,153 @@
+w00039 t29 可维护性与 API 形状审查（站在"半年后要加东西的维护者"的位置）
+worktree: .worktree/w00039-t29-canon-kernel，提交 5faf986a5；只读。草稿与度量在 /tmp/w00039-t29-api-review-maint/。
+基线：packages/nb-canon 下 bun test 233 通过；主入口运行时导出 93 个值、./schema 32 个、./node 11 个。
+
+### 1. 补丁 op 的"分类"散在 5 个源文件的约 12 处字符串比较里，没有一张表
+- **严重程度**：重要；**类别**：可维护性 / 耦合
+- **位置**：packages/nb-canon/src/core/schema.ts:112；model/apply.ts:114、263、308；world/edits.ts:92、114、125、127；world/world.ts:468、742、747、795、803；engine/reference.ts:215；engine/incremental.ts:287；tests/differential.test.ts 的 Sim.patch()
+- **现象**：接入草稿"加一种补丁 op `multiply`（数值字段乘一个系数）"，要逐处查下面这些地方，没有哪个文件告诉你"一种 op 要回答哪几个问题"：
+  - schema.ts:112 加一个 Literal；
+  - apply.ts 的 applyFieldPatch（case "add"，263 行）和 applyElementPatch（308 行的 `else if (patch.op === "add")`）各写一份几乎相同的"数值运算 + 精确位数检查 + 未知值检查"，要改两处；
+  - apply.ts:114 `clearsIncomplete`（赋值类解除不完整，加减不解除）：新 op 属哪类要自己判断；
+  - edits.ts:114 `last.op === "add" || last.op === "note"`（累加类，就地改不能改）；edits.ts:125 `set || replaceBlock`（可被就地改写的类）；
+  - world.ts:747 `patch.op !== "note"`（带数值就要依据）；world.ts:795 `patch.op === "add" ? Math.abs(value) : value`（依据原句里的数是取绝对值还是原值）；world.ts:803 `patch.op === "set"`（核对点推出的是值还是差额）；world.ts:468 `listAdd`（依赖分析里"补丁加进列表的元素"）；
+  - reference.ts:215 与 incremental.ts:287 各写一份 `patch.op === "set" && addressesOverlap(...) && path.length <= ...`（"最近一次赋值"的判定，用于核对点不符时的嫌疑列表）；
+  - 差分测试的生成器 Sim.patch() 硬编码了 add/set/note/listAdd/listRemove 五种，新 op 不会自动被覆盖。
+  漏掉其中任何一处，编译都过：全是 `patch.op === "字符串"` 比较，不是穷尽的 switch。例如 edits.ts:114 漏了，multiply 写的值会被当成"可改写"，就地改的结果会走到 `sameJson(patches, change.patches)` 的兜底才报 accumulated-value，行为碰巧对但原因不对。
+- **为什么是问题**：每个 op 要回答的问题是固定的（是否赋值类、是否累加类、是否数值带依据、依据取绝对值还是原值、核对点推出差额还是值、是否改列表元素），但答案分散在 12 处，新增 op 的人只能靠 grep `"add"`。这正是"加一种补丁"这个最常见的扩展。
+- **建议改法**：在 core/ 加一张 `PATCH_OPS: Record<PatchOp, {resets: boolean; accumulates: boolean; numeric: boolean; ...}>`（schema.ts 的 PatchOpSchema 用 `Object.keys(PATCH_OPS)` 派生或反过来用 `satisfies Record<PatchOp, ...>` 保证穷尽），导出 `resetsValue(op)`、`isAccumulating(op)` 等谓词，上面 12 处改用谓词。apply.ts 的两份 add 逻辑抽成一个 `applyNumeric(current, patch, field)`。差分 Sim.patch() 改成"对表里每种 op 至少生成一次"。这样加 multiply 的清单变成：改表一行 + 写一个 apply 分支 + 测试。
+
+### 2. 地址路径的解析与"覆盖"判断被重写了 6 遍，已有的 parsePath 只有一半调用方在用
+- **严重程度**：重要；**类别**：耦合 / 可维护性
+- **位置**：core/address.ts:23-24（正式的 NAMESPACE_PATH、TEXT_PATH）；engine/views.ts:102、104；world/edits.ts:52、180、187；render/render.ts:73；world/world.ts:842；覆盖判断 core/address.ts:52、model/apply.ts:145、world/world.ts:503
+- **现象**：`core/address.ts` 的 `parsePath` 是路径写法的唯一定义，注释也说"只管写法"。但
+  - `views.ts:readEntryAddress` 把同一条正则（`/^([^.[\]]+)\.([^.[\]]+)(?:\[([^.[\]]+)\](?:\.([^.[\]]+))?)?$/u`）原样抄了一份（104 行），文本路径用了另一条更松的 `/^text\[(.+)\]$/u`（102 行，address.ts 里是 `[^.[\]]+`）；
+  - `edits.ts:writeInit`（180、187 行）又抄了这两条；`edits.ts:currentAt`（52 行）、`render.ts:resolverFor`（73 行）各写了一条"元素 + 子字段"的松正则；`world.ts:842` 又一条 text 正则；
+  - "一条路径是不是另一条的前缀（按段）"有三份：address.ts 的 pathCovers、apply.ts 的 covers、world.ts pathsOverlap 里的局部 covers。
+  这些"抄本"的宽严程度已经不同（有的接受 `text[a.b]`，有的不接受）。接入草稿里想加一种路径形态（例如元素的第二层子字段 `panel.物品[i1].效果[x]`），要同时改 6 处，且没有测试能发现漏改。
+- **为什么是问题**：同一条规则写 6 份，已经出现宽严不一；路径形态是 Spec 里最容易演化的部分（components.md 字段种类变化时会碰）。
+- **建议改法**：
+  1. `address.ts` 导出 `pathCovers`，apply.ts 与 world.ts 删掉自己的；
+  2. 新增 `readParsedValue(state: EntryState | EntryView 的公共子集, parsed: ParsedPath)`（放 core/address.ts 或 model/），views.ts 的 readEntryAddress、edits.ts 的 currentAt/writeInit、render.ts 的 resolver、world.ts 的 read 都先 `parsePath` 再调它，不再各自用正则；
+  3. 给 address.ts 加一个反例测试："所有对路径的解析都经 parsePath"（grep 源码里 `\[\^\.\[\\\]\]` 出现次数为 1，用架构测试守）。
+
+### 3. 两个引擎之间不只是"安排先后与缓存"不同：语义档核对点的起点、计划纳入规则、待处理拼装都各写了一份
+- **严重程度**：重要；**类别**：耦合 / 可维护性
+- **位置**：engine/reference.ts:367（applyAnchor）对 model/apply.ts:357（replayAnchor）；reference.ts:150-165（eventsFor）对 incremental.ts:214-232（snapshotFor）；reference.ts:41-42 与 incremental.ts:91-93（Point、compareEvents、PENDING_KIND_ORDER）；reference.ts:311-340 对 incremental.ts:457-510（pending 的三种 push）；incremental.ts:28 `import {fieldOf} from "./reference"`
+- **现象**：model/apply.ts 的头注释写的是"参照实现与增量引擎共用它，所以两者对一条变更的判定天然一致，差分测试比的是它们怎样安排先后与缓存"。但下面这些规则并没有共用：
+  - 语义档核对点"成为新的起点"：reference.applyAnchor（FoldState 上）与 apply.replayAnchor（EntryState 上）是同一条规则（`fields[field] = semanticText(field, value)`；`events.set(path, [])`；跳过元素路径、跳过没有命名空间数据），写了两遍。这条规则不涉及先后和缓存，应当只有一份。
+  - "按计划模式纳入哪些计划"：计划是 active、安放位置在读取位置之前、`progressAt === "unfulfilled"`、有 `splitFrom` 时拆出它的那条变更还是 active 且套上了。reference.eventsFor 与 incremental.snapshotFor 各写一遍。再加一种 link 种类（例如 `blocks`）要改两处。
+  - pending 的三种条目（check-mismatch / cannot-apply / held）的字段拼装（含 `held.reason ?? "unsure"` 这类缺省）在两个文件里各一段几乎逐字相同的 push；`PENDING_KIND_ORDER`、`Point`、`compareEvents`、`tieOf` 也是各一份。
+  - 生产引擎 incremental.ts 反过来依赖参照实现的文件（`fieldOf` 从 reference.ts 导入），而 reference 又被主入口导出（index.ts:31）：参照实现本应只被测试用。
+  - 两个闭包都很大：`createReferenceEngine` 322 行、`engineFrom` 411 行，函数里嵌套定义十几个局部函数，局部函数互相依赖闭包变量，读者无法单独看懂一个。
+- **为什么是问题**：问"改一条引擎规则怎样保证两个引擎一致"，现状的答案是"差分测试"。但差分测试只在随机序列恰好走到那条规则时才会失败（见发现 4），而规则本身的重复是可以直接消除的。
+- **建议改法**：新增 `engine/shared.ts`（或并入 views.ts），放 Point、compareEvents、PENDING_KIND_ORDER、fieldOf、`plansIncludedAt(world, order, rank, {progress, applied})`（返回纳入的计划）、`pendingItem.checkMismatch/cannotApply/held(...)` 三个构造函数；reference.applyAnchor 改成对 entry 状态调 replayAnchor。两个引擎只保留各自独有的部分：参照实现的整本折叠，增量引擎的时间线、快照与缓存。预计 reference.ts 少 40 行左右，两边规则各一份。reference.ts 不再被生产代码导入。
+
+### 4. 差分测试守得住"先后与缓存"，守不住"补丁种类与路径形态"，且生成器与 op 清单脱钩
+- **严重程度**：建议；**类别**：可维护性
+- **位置**：tests/differential.test.ts:79-91（Sim.patch）、`panel.存款` 等 6 个固定路径
+- **现象**：Sim 只生成 add/set/note/listAdd/listRemove 五种 op，路径只有 panel.存款、panel.魔力、character.状态、character.态度、panel.启用、panel.物品 六个：没有 aliasAdd/aliasRemove、replaceBlock/addBlock/removeBlock、`entry.*`、`text[…]`、元素补丁（`panel.物品[i1].数量`）。questions 与 suggestions 始终为空。新增 op 不会进入随机序列。因为 applyChange 两边共用，这些漏洞对"一致性"影响小，但对"嫌疑列表（suspects）、嫌疑区间起点、语义档事件清零"这些各写一份的规则（发现 3）确实是盲区。
+- **为什么是问题**：差分测试是改引擎规则时唯一的一致性保证，覆盖盲区应当随 op 清单自动缩小，而不是靠维护者记得去改 Sim。
+- **建议改法**：和发现 1 的 PATCH_OPS 表一起做：Sim.patch() 从表里取 op，再按 op 的适用字段种类挑路径；至少加一个"元素补丁"和"块补丁"的生成分支。`CANON_DIFF_SEEDS` 的跑法已经写在测试里，AGENTS.md 里提一句"改了 op 或路径形态要跑多种子"。
+
+### 5. 远程合同把同一个形状手写了三处，漂移没有守卫；服务方法的参数形状不一致，迫使 remote.ts 逐个拆装
+- **严重程度**：重要；**类别**：API 形状 / 可维护性
+- **位置**：packages/nb-canon/src/service/service.ts（读方法返回推断类型）；packages/neuro-book/src/plugins/canon/shared/contracts.ts:37（`Out = Type.Unknown()`）、:182-204（手写 CanonOutputs）；backend/remote.ts:62-107；web/client.ts:48（`payload as CanonEvent`）
+- **现象**：草稿 draft1-contract-drift.ts 里，把 `ReturnType<WorldService["status"]>` 等 7 个读方法的返回类型对 `CanonOutputs[M]` 做可赋值检查：今天全部通过（`tsc` 无错误；我故意写错的一行会报错，说明检查是真的）。但仓库里没有任何这样的检查：所有方法的 output 都是 `Type.Unknown()`，remote.ts 里的 `read()`、`within()`、`paged()` 都是泛型透传。某人给 `WorldService.changes` 的返回加一个字段、或改 `revisions` 里 revertable 的形状，CanonOutputs 不会报错，浏览器侧的类型就悄悄过期。
+  加一个"世界服务方法并交给浏览器"的清单：service.ts 加方法 → contracts.ts 的 `methods`（入参 schema）→ CanonOutputs（出参类型）→ remote.ts 写适配 → project.md 方法表。5 处，其中 contracts.ts 里就有两处。
+  remote.ts 的适配本身 45 行都在拆装参数，因为服务方法的形状不统一：`publish(request, token)`、`editInPlace(edit, token)`、`recordDelta(input, token)` 的入参类型是 `Parameters<typeof recordDelta>[1]`、`revert(target, withDependents, meta, token)` 四个位置参数、`entry(id, position, mode, withOrigins=false)` 是位置参数，而合同入参都是一个对象。于是 remote.ts 里出现 `({token, revision, withDependents, ...meta}) => service.revert(revision, withDependents, meta, token)` 这样的重新拆分。
+- **为什么是问题**：浏览器侧类型的正确性完全靠人记得同步；而每个方法适配时要选的助手有 6 个（withWorld、read、within、paged、fail、published），选错助手也编译得过。
+- **建议改法**（由小到大）：
+  - 最小：在 contracts.ts（或一个 `contracts.test-d.ts`）加一段与 draft1 相同的类型级检查，把 `CanonOutputs` 和 `ReturnType<WorldService[...]>` 绑上，10 行。
+  - 更好：服务方法统一成 `method(input: CanonInput<M>, token?)`（入参类型就是合同的入参），把入参 schema 放进 nb-canon（`./schema` 导出 `WorldMethods`），app 包的 contracts.ts 只做 `defineRemoteService`。remote.ts 的适配变成 `service[name](input)` 一行一个，加方法只剩"nb-canon 加方法 + 一张表一行"。
+
+### 6. 服务的失败有四种表达，浏览器收到的失败只有 `{code: string}`，不能按码窄化
+- **严重程度**：重要；**类别**：API 形状 / 使用体验
+- **位置**：service/service.ts:130-200（读）、:307-356（写）、:420-440（独占）；backend/remote.ts:21-46、59、89-98；shared/contracts.ts:148-154
+- **现象**：草稿 draft2-service-use.ts 里直接调 WorldService，每个方法的失败要换一种判法：
+  - `WorldService.open` 与 `acquireExclusive`、`renewExclusive`：失败是 `{code}` 对象，成功是另一种对象，用 `"code" in x` 区分；
+  - `entry`、`pending`、`lookup`、`tree`、`changes`、`questions`、`suggestions`、`revisions`：失败是字符串哨兵 `"chapter-not-found"` / `"cursor-stale"`，成功是对象，`entry` 还有 `view: null`；
+  - `render`：`null`（条目不存在）、`"chapter-not-found"`、对象三种；
+  - `publish`、`editInPlace`、`recordDelta`、`writeBack`、`revert`：`{ok: false, failure}`；
+  - `outcome`：成功是 `{published}` 联合，失败是 `{code: "write-unknown"}`，混在同一个返回联合里。
+  remote.ts 再把它们统一成 `{ok:false, code:"canon", detail}`，每个方法按自己的约定挑助手（`typeof page === "string"` / `"code" in lease` / `result.ok`）。这就是 remote.ts 里 `"code" in x`（56、82、91、97 行）、`typeof page === "string"`（41 行）、`result.ok`（25、78 行）三种判法并存的来源。
+  浏览器侧：`CanonFailure` 是 `{code: string; [detail: string]: unknown}`（contracts.ts:149-152）。草稿 draft3-browser.ts 里 `if (f.code === "busy") f.holder` 的 `f.holder` 是 `unknown`。失败码在源码里共有约 52 个字面量，分在 ServiceFailure（只从 `./node` 导出）、WriteFailure/EditFailure/WriteBackFailure/RevertFailure（从主入口导出，浏览器只想要类型却要引入整个 MDX 解析链的模块图）、ApplyFailure、ValueProblem 里。契约文件顶部注释解释了为什么不逐个声明为业务失败码（与路由层同名），但没给浏览器一个可窄化的联合类型。
+- **为什么是问题**：每个新调用方（TUI、Agent 工具）都要重新学一遍"这个方法用哪种判法"；浏览器的错误处理只能写 `f.code === "字符串"` 加强转型。
+- **建议改法**：
+  1. 读方法统一成 `Result<T> = {ok: true; value: T} | {ok: false; failure: Failure}`（`chapter-not-found`、`cursor-stale`、`world-locked` 都是 `Failure`），`entry` 里"条目不存在"用 `value.view === null` 或 `failure: {code: "entry-not-found"}` 二选一，不要 null 又有哨兵。remote.ts 的 `read/paged/fail/published` 助手收成 `passthrough(result)` 一个；
+  2. 在 `./schema` 导出 `CanonFailure` 联合类型：把 ServiceFailure、WriteFailure、EditFailure、WriteBackFailure、RevertFailure 的类型（只是类型）放进 core/ 的一个 failures.ts，主入口与 `./schema` 都从那里导出；CanonResult 的 `failure` 类型改用它，浏览器就能 `switch (f.code)` 窄化。
+
+### 7. 浏览器合同里 5 处输出是 `unknown`，因为 ./schema 没有导出 nb-canon 已有的对应类型
+- **严重程度**：建议；**类别**：API 形状 / 使用体验
+- **位置**：shared/contracts.ts:170-172（`diagnostics: readonly unknown[]`、`recomputed: unknown`）、:184（`origins?: Record<string, unknown>`）、:187（`changes` 的 `outcome: unknown`）、:192（`blocks: readonly unknown[]`）、:185（`type: string`）；schema.ts:7-8
+- **现象**：`ChangeOutcome`、`OriginStep`、`AuthorBlock`、`AgentBlock`、`ServiceDiagnostic` 在 nb-canon 里都有精确类型，但 `./schema` 只重导出了 `EntryView, Mode, PendingItem` 三个引擎类型，contracts.ts 只能写 `unknown`。draft3-browser.ts：想在界面里显示"这条变更为何套不上"，要写 `(outcome as {reason?: string} | null)?.reason`。
+- **为什么是问题**：浏览器是这套合同最主要的消费者（后面的界面全建在上面），而最需要精确类型的恰好是诊断、来历、渲染块这些展示数据。
+- **建议改法**：把这些纯数据类型（都是 `interface`/`type`，无运行时依赖）加进 `./schema` 的 `export type {…}`；这些类型所在的 engine/types.ts、render/render.ts 本身是类型文件，被 `import type` 引入不会让 architecture.test 的闭包检查变红（那个检查只看非 type 的 import）。随后 contracts.ts 里那 5 处 `unknown` 改成精确类型。另外 `tree.type: string` 可用 `Entry["type"]`。
+
+### 8. "哪些属性名放对象 id"靠三个手写的名字集合约定，新增引用字段时静默出错，没有测试从 schema 反推
+- **严重程度**：重要；**类别**：隐含的全局约定 / 耦合
+- **位置**：world/world.ts:545-548（ID_KEYS、ID_LIST_KEYS、REFERENCE_KEYS）、554-583（referencedIds、opReferences）、585-596（replaceTempIds）；tests/sample/convert.ts:94（第三份 ENTRY_KEYS）
+- **现象**：这三个集合依据属性名（`parent`、`sameAs`、`entry`、`plan`、`by`、`change`、`cause`、`check`；列表 `involves`、`lines`；以及 `{kind:"entry"|"change", id}` 形状）判断一个字符串是不是对象 id，用于：临时 id 换正式 id（replaceTempIds）、修订的依赖分析（dependsOn → opReferences，决定能不能还原）、改动记录按条目筛选。给 Question 或 Suggestion 加一个新的引用字段（例如 `about`、`relatesTo`）时，如果名字不在集合里：写入时临时 id 不会被换成正式 id（存下 `tmp:3` 这样的悬空引用）、依赖分析漏掉依赖（revert 没提示 has-dependents）、按条目筛选漏掉。三者都不报错。`grep -rn "ID_KEYS\|REFERENCE_KEYS" tests` 没有任何测试；convert.ts 里还有第三份相近的名单。
+- **为什么是问题**：这是半年后最容易踩的坑：改的是 schema.ts，错的是 world.ts，没有任何信号连着它们。
+- **建议改法**：二选一。
+  - 在 schema.ts 里给"值是对象 id"的属性加标注（TypeBox 的第二参数 `{ref: true}` 或定义 `const ObjectId = Type.String({minLength: 1, "x-ref": true})`），world.ts 从 `OBJECT_SCHEMAS` 遍历得到名字集合，一份来源；
+  - 或者最小：加一个测试，遍历 `OBJECT_SCHEMAS`，凡类型为 `Id` 的属性（排除 `id`、`chapter`、块与元素的局部 id）必须出现在 REFERENCE_KEYS 里，反过来 REFERENCE_KEYS 的每个名字必须在某个 schema 里出现。10 行，立刻堵住静默失败。
+
+### 9. world.ts 870 行混了五件事，`validate` 151 行、`#publish` 98 行
+- **严重程度**：建议；**类别**：可维护性
+- **位置**：world/world.ts:100-405（World 类）、407-505（compensate / dependsOn / pathsOverlap：还原与依赖）、545-596（id 引用扫描与临时 id）、600-631（fillDefaults）、637-787（validate）、789-870（checkBasis、computeImpact）
+- **现象**：一个文件同时是：对象表的重放与持久不变量（World）、写入前校验（validate：条目树、命名空间、字段值、块语法、依据、出场、链接、未决问题……逐对象种类）、还原（补偿、依赖闭包）、id 引用扫描、缺省值填充、影响计算。`validate` 是一个 151 行的函数，按对象种类串着 if；`opReferences` 导出给 service.revisions 用，所以 service 还从 world.ts 导入一个"纯函数工具"。加一条写入校验规则（例如新的 `invalid-tree` 检查）要在 151 行里找位置，且 validate 与 checkBasis 里再次重复 `patch.op` 的分类（发现 1）。
+- **为什么是问题**：文件大本身不是错，但这里每一块的变化原因不同：校验随 Spec 的失败码变，还原随修订 Spec 变，id 扫描随 schema 变。放一起，每次改动都在 870 行里找、评审 diff 也大。
+- **建议改法**：纯拆文件，不改行为：world/validate.ts（validate、checkBasis，再按对象种类拆成 validateEntry / validateChange / validateCheck 三个函数）、world/revert.ts（compensate、dependsOn、pathsOverlap、isAppend、readPath）、world/references.ts（ID_KEYS…referencedIds、opReferences、replaceTempIds，和发现 8 的集合一起放），world.ts 留类和 computeImpact。预计 world.ts 降到约 450 行。
+
+### 10. 宿主要自己装配 12 个端口，`.nbook/world/log` 等目录布局在 3 处各写了一遍
+- **严重程度**：建议；**类别**：使用体验 / 耦合
+- **位置**：service/service.ts:25-49（ServicePorts）；neuro-book/src/plugins/canon/backend/world-host.ts:133-157；nb-canon/tests/service.test.ts:28-42；tests/sample/replay.ts:33-50
+- **现象**：草稿 draft2 里"我只想在一个目录上开一个世界"（TUI、Agent 工具、测量脚本都会这么用）要写：`files: nodeFiles`、`lock`、`logDir`、`sideDir`、`cachePath`、`chapterText`、`digest: (t) => sha256…`、`clock`、`now`、`timer`（`setTimeout` + `unref`）、可选 `reducer`。其中 `.nbook/world/log`、`.nbook/world`（旁存目录是日志目录的上一级，但接口里是两个独立参数）、`.nbook/cache/reductions.jsonl` 这套布局在 world-host.ts、service.test.ts、sample/replay.ts 各写了一遍；sha256 摘要和 `Date.now/ISO` 钟也各一份。目录布局属于 Spec project 的"副作用与数据"，是 nb-canon 应当拥有的合同，现在由每个宿主自己拼。
+- **为什么是问题**：布局或摘要算法改一次要改三处；摘要算法如果在两个宿主里不一致，同一份缓存键就对不上（#key 用 digest 做缓存键）。
+- **建议改法**：`./node` 导出 `nodePorts({root, lock, chapterText, reducer?})`，内部固定 `.nbook` 布局、sha256、`Date`、带 unref 的定时；`ServicePorts` 里的 `logDir/sideDir/cachePath` 退化成"可覆盖"。world-host.ts 的装配段由 30 行降到约 8 行，测试里也一行搞定。
+
+### 11. `WorldService` 的位置、边界与自身实现里的几处小重复
+- **严重程度**：建议；**类别**：耦合 / 文档
+- **位置**：service/service.ts:1-4、114-116、358/384/417、339/375；src/node/index.ts:9；AGENTS.md "边界"；tests/architecture.test.ts:7-13
+- **现象**：
+  - 目录与出口不一致：服务在 `src/service/`，但只从 `./node` 导出，README 说 `./node` "只在 Bun 里用"；service.ts 头注释说"所以本模块不引用 `node:*`"。实际 service.ts 依赖 `../node/log`，而 log.ts 引入了 `node:path`（只为一个 `join`），所以 service 间接依赖 `node:*`。architecture.test 只排除 `node/` 目录，没有对 `service/` 的闭包做检查，所以这条"可以放在任何宿主"的说法没人守。
+  - `get world(): World` 让调用方拿到内存世界：它的 `publish`/`revert` 返回新世界但不落盘，调用方可以绕过写入队列与租约；world-host.ts 只是为了读 `world.data.entries.size` 写日志。`diagnostics` 是公开可变数组。
+  - 同一段"排进队列"的代码三份（358、384、417 行：`const next = this.#queue.then(run, run); this.#queue = next.catch(() => undefined); return next;`）；`changed` 事件对象的拼装两份（339、375 行）。
+- **为什么是问题**：多一个入队路径的人忘了 `.catch` 就会让队列在第一次失败后永远拒绝；`world` getter 是一个"不推荐但可用"的第二套 API。
+- **建议改法**：① 要么把 `service/` 并进 `node/`，要么把 log.ts 里的 `join` 换成字符串拼接，并给 `service/` 加和 `./schema` 一样的闭包测试；② `world` getter 改成 `stats()` 之类的只读摘要（entries 数、版本），或至少文档写"只读，不得调用其写方法"；③ 抽 `#enqueue(run)` 与 `#announce(revision)` 两个私有方法。
+
+### 12. 主入口 93 个值导出，外部只用到 1 个；README 与 AGENTS.md 没有模块地图，也没有"怎么扩展"清单
+- **严重程度**：建议；**类别**：文档 / API 形状
+- **位置**：src/index.ts:7-38；README.md（8 行）；AGENTS.md（23 行）
+- **现象**：`Object.keys(await import("…/src/index")).length` 是 93（./schema 32，./node 11）。neuro-book 里对主入口只导入 `buildRegistry` 一个值（world-host.ts:20），其余都是类型。测试里则大量绕过入口深导入 `../src/world/world`、`../src/engine/incremental`、`../src/render/syntax` 等（11 种深路径）。入口里导出了 `parseSegments`、`applyChanges`、`compareTie`、`placementRank`、`readNumbers` 这样的内部积木，两行超长的 `export {…}`（index.ts:15-35 每行 200 字以上）也难以评审。
+  README 与 AGENTS.md 只写了三个出口的边界，没有 core / components / model / engine / world / render / node / service 八个目录各管什么，也没有"加一种补丁 / 加一种字段种类 / 加一个服务方法要改哪里"。我是靠 grep 才知道发现 1 的 12 处。
+- **为什么是问题**：不知道哪些导出是合同，就不知道改动哪些算破坏性变更；新协作者无法判断 `parsePath` 该不该用。
+- **建议改法**：index.ts 按"消费者需要什么"收缩（类型 + buildRegistry + World/render 家族 + 差分测试需要的引擎工厂），内部积木留给测试深导入，不进入口；AGENTS.md 补两张表：目录职责一行一个（8 行）和扩展清单（补丁 op、字段种类、服务方法各一条，列出文件）。清单本身最好随发现 1、5 的结构调整缩短。
+
+### 13. 同一组枚举与声明字段在 schema、服务签名和合同里各手写一遍
+- **严重程度**：建议；**类别**：可维护性
+- **位置**：core/schema.ts:142、168、187（status 联合）；service/service.ts:218、240、249（changes/questions/suggestions 的 status 内联联合）；shared/contracts.ts:32、54-55、65-66、72（Mode、kind、status、by 再写一遍）；components/registry.ts:20-47、78-86（ComponentDeclaration 接口、ComponentType、复制构造）
+- **现象**：
+  - 变更/问题/建议的状态联合在 schema.ts 内联各一次，在 service.ts 的方法签名里再抄，在 contracts.ts 的入参 schema 里第三次写。加一个状态要改 3 个文件，漏改编译不报（入参 schema 比服务签名宽或窄都能过）。
+  - `Mode`：engine/types.ts 的 TS 联合与 contracts.ts 的 TypeBox 联合各一份。
+  - `ComponentDeclaration` 是手写接口，而 schema.ts 里的 `ComponentDeclarationSchema` 是它的运行时形状，其余所有类型都用 `Static<typeof …>` 派生，只有它手写；`ComponentType` 又重复 agentView、bookkeepingNotes、usageNotes 三个可选字段，buildRegistry 里再逐个拷贝（registry.ts:78-86）。给声明加一个会影响计算的属性：schema、接口、ComponentType、拷贝、digest（registry.ts:105-108，digest 刻意不含 label 与三段说明，所以新属性要不要进 digest 得有人判断）共 5 处。
+- **建议改法**：schema.ts 为 ChangeStatus/QuestionStatus/SuggestionStatus/Mode 各导出一个 `…Schema`，service.ts 用 `Static<>`，contracts.ts 直接引用；`ComponentDeclaration = Static<typeof ComponentDeclarationSchema>`（readonly 用 `Readonly<>`），`ComponentType = Required<Pick<…>> & …` 或在 buildRegistry 里直接 spread declaration。
+
+### 14. 临时 id 与局部 id 的前缀约定一半没导出、一半用正则重写
+- **严重程度**：建议；**类别**：隐含约定
+- **位置**：world/world.ts:76（`const TEMP = "tmp:"`，未导出）、77（KIND_OF_PREFIX 是 ID_PREFIX 的子集拷贝）；render/entry.ts:49（`/^b(\d+)$/u`）对 core/ids.ts:15（`LOCAL_ID_PREFIX.block`）；neuro-book 的 canon.test.ts:101、two-process.test.ts:92 手写 `tmp:${n}`
+- **现象**：调用方构造写入请求必须知道"新对象的 id 以 `tmp:` 开头"，但这个前缀既不在 `core/ids.ts` 里，也不从包导出，两个应用侧测试各自手写字符串。`splitBlocks` 用自己的正则 `^b(\d+)$` 找最大块号，而 `ids.ts` 已有 `splitId` 与 `LOCAL_ID_PREFIX.block`；改前缀要两处。
+- **建议改法**：core/ids.ts 导出 `TEMP_ID_PREFIX`、`isTempId(id)`、`tempId(n)`，world.ts 与测试都用；splitBlocks 用 `splitId` + `LOCAL_ID_PREFIX.block`；`KIND_OF_PREFIX` 删掉，直接用 `ID_PREFIX[kind]`（ObjectKind 的五个键本来就在 ID_PREFIX 里）。
+
+## 好用的地方
+1. model/apply.ts 把"套一条变更"收成一个模块，两个引擎共用，头注释把"整条套上或整条不套、不完整标记"的语义写得很清楚；这是整个包里最容易维护的部分。
+2. 三个出口的边界有机检：`tests/architecture.test.ts` 用依赖闭包守住了 `./schema` 只依赖 TypeBox，与主入口不碰 `node:*`；这种"用测试守住边界"的做法值得推广到发现 11 的 service。
+3. `LogFiles` 窄接口 + 按脚本注入失败的替身 + 契约测试跑同一组用例，加上 `ServicePorts` 注入时钟、定时器、摘要，让服务的并发与断电类测试可以确定地写。
+4. 注释普遍写"为什么"和"调用方要遵守什么"（例如 incremental 里不留对旧引擎的引用以免拉住历史版本；write 的 `compute` 必须是纯函数），并引用 Spec 编号；测试名也用 Spec 编号，从行为追到代码很快。
+5. 差分测试的设计（固定种子、失败时打印种子与步骤、断言套不上的变更至少占 10% 防止生成器退化）是维护引擎时最重要的安全网；只缺发现 4 说的覆盖面。
+
+## 各级数量
+重要：6（1、2、3、5、6、8）；建议：8（4、7、9、10、11、12、13、14）；共 14 条，均已对照源码核实，其中发现 5 的"今天没有漂移"是用草稿 tsc 验证过的（/tmp/w00039-t29-api-review-maint/draft1-contract-drift.ts）。
+
+有效发现编号：1,2,3,4,5,6,7,8,9,10,11,12,13,14
