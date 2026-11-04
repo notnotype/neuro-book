@@ -379,6 +379,8 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
         if (error instanceof LogBrokenError) throw error;
         // 内核自己的错：记诊断，按 internal 收口（写日志还能写的话）。
         core.diagnostics.add({code: "handler-threw", entry: "host", subject: "run-loop", message: "the run loop failed", cause: error}, core.head);
+        // 收口批已经写下、是之后的反应出的错（例如插件停止时宿主的服务已经撤回）：一次运行只有一条 runEnded。
+        if (core.leafState.kernel.run?.runId !== run.runId) return;
         stopped = true;
         await end("error", {reason: "error", error: {kind: "local", code: "internal"}});
     }

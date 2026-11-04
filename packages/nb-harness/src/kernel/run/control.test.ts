@@ -10,6 +10,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {Type} from "typebox";
 import type {LogEvent} from "../api/index.js";
 import {defineExtension} from "../extension/define.js";
+import {createTestModel} from "../testing/model.js";
 import {createTestSession, type TestSession, type TestTool} from "../testing/test-session.js";
 
 let root = "";
@@ -271,6 +272,30 @@ describe("设置、标题与归档", () => {
         expect([snapshot.title, snapshot.archived]).toEqual(["雨夜", true]);
         const {events} = await session.raw.log({afterSeq: 0});
         expect(dataOf(events, "titleChanged")).toEqual([{title: "雨夜", by: "user"}]);
+    });
+});
+
+describe("收口", () => {
+    test("输出 7：收口批写下之后反应才出错（宿主的服务已撤回）：只有一条 runEnded", async () => {
+        let revoked = false;
+        const model = createTestModel();
+        const watcher = defineExtension({id: "lab.watcher", on: {
+            assistant: () => {
+                revoked = true;
+            },
+            turnEnded: () => undefined,
+        }});
+        await using session = await createTestSession({extensions: [watcher], models: {resolve: (query) => {
+            if (revoked) throw new Error("the models service was revoked");
+            return model.port.resolve(query);
+        }}});
+        model.script("答");
+        const sent = await session.raw.send({commandId: id(), input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
+        const result = await session.raw.waitRun(sent.value.runId);
+        expect(result.reason).toBe("completed");
+        revoked = false;
+        expect(dataOf(await session.events(), "runEnded")).toEqual([{runId: sent.value.runId, reason: "completed"}]);
     });
 });
 
