@@ -9,12 +9,16 @@ import {TOOLS_POINT} from "../../shared/points";
 import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
 
 import {SessionEditStores} from "./common";
+import {hashlineDeclaration, hashlineTool, replaceDeclaration, replaceTool} from "./edit";
 import {readDeclaration, readTool} from "./read";
 import {writeDeclaration, writeTool} from "./write";
 
 const DECLARATIONS: Readonly<Record<string, AgentToolDeclaration>> = {
     "nbook.agent.read": {...readDeclaration, providerName: "read"},
     "nbook.agent.write": {...writeDeclaration, providerName: "write"},
+    // 给模型的名字相同：Profile 只绑一条，同一会话绑了两条按 harness/runtime.md 输出 15 处理。
+    "nbook.agent.edit": {...hashlineDeclaration, providerName: "edit"},
+    "nbook.agent.edit-replace": {...replaceDeclaration, providerName: "edit"},
 };
 
 export const BUILTIN_TOOL_CONTRIBUTIONS: ReadonlyArray<ContributionDeclaration<AgentToolDeclaration>> = Object.entries(DECLARATIONS).map(([id, declaration]) => ({capability: TOOLS_POINT, id, declaration}));
@@ -25,5 +29,7 @@ export function builtinTools(): Readonly<Record<string, AgentToolImplementation>
     return {
         "nbook.agent.read": readTool(stores),
         "nbook.agent.write": writeTool(stores),
+        "nbook.agent.edit": hashlineTool(stores),
+        "nbook.agent.edit-replace": replaceTool(stores),
     };
 }

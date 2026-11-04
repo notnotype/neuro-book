@@ -14,6 +14,11 @@ import {defineProfile} from "@notnotype/nb-harness/kernel";
 import type {SessionApi} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import {LEDGER_POINT} from "nbook/plugins/files/shared/ledger";
+import type {Ledger, LedgerEntry} from "nbook/plugins/files/shared/ledger";
+
+import {BUILTIN_TOOL_CONTRIBUTIONS} from "./backend/builtin";
+import {AgentTools} from "./backend/tools";
 import {agentProfile, agentTool} from "./shared/points";
 import type {AgentToolImplementation} from "./shared/points";
 import type {SessionArtifacts, SessionResources} from "./shared/resources";
@@ -44,27 +49,35 @@ afterAll(async () => {
 const MAIN = "test.bt.main";
 const REPLACE = "test.bt.replace";
 const GRAB = "test.bt.grab";
-const BUILTIN = ["read", "write"].map((name) => `nbook.agent.${name}`);
+const BUILTIN = ["read", "write", "edit"].map((name) => `nbook.agent.${name}`);
+const BUILTIN_REPLACE = ["read", "write", "edit-replace"].map((name) => `nbook.agent.${name}`);
 const cid = () => `c-${String((commands += 1))}`;
 
 /** 测试工具拿到的服务：断言宿主写全文、对照资源视图。 */
 let grabbed: {resources: SessionResources; artifacts: SessionArtifacts} | null = null;
 
+/** 记账者：提交走到锁内成功阶段时调用（只有 `user://` 这样的根记账）。用它在第一个文件写完、第二个还没写时插一次外部修改。 */
+let onLedger: ((entry: LedgerEntry) => Promise<void>) | null = null;
+
 function testPlugin(): PluginDefinition {
-    const profiles = [agentProfile(MAIN, {name: MAIN, description: "测试用", tools: {required: [...BUILTIN, GRAB], optional: []}}), agentProfile(REPLACE, {name: REPLACE, description: "测试用", tools: {required: [GRAB], optional: []}})];
+    const profiles = [agentProfile(MAIN, {name: MAIN, description: "测试用", tools: {required: [...BUILTIN, GRAB], optional: []}}), agentProfile(REPLACE, {name: REPLACE, description: "测试用", tools: {required: [...BUILTIN_REPLACE, GRAB], optional: []}})];
     const tool = agentTool(GRAB, {description: "交出服务", parameters: {type: "object", properties: {}}, version: "1", effect: "read"});
     const grab: AgentToolImplementation = {create: (_context, services) => {
         grabbed = services;
         return {execute: async () => "ok"};
     }};
+    const ledger: Ledger = {record: async (entry) => {
+        await onLedger?.(entry);
+    }};
     return {id: "test.bt", entries: [defineEntry({
         id: "server",
         location: "server",
-        activationEvents: [...profiles.map((item) => item.activationEvent), tool.activationEvent],
-        contributions: [...profiles.map((item) => item.contribution), tool.contribution],
+        activationEvents: ["onStartup", ...profiles.map((item) => item.activationEvent), tool.activationEvent],
+        contributions: [...profiles.map((item) => item.contribution), tool.contribution, {capability: LEDGER_POINT, id: "test.bt.ledger", declaration: {}}],
         activate: () => ({contributions: {
-            "agent.profiles": Object.fromEntries([MAIN, REPLACE].map((key) => [key, defineProfile({id: key, version: "1", name: key, description: "测试用", system: "测试。", tools: {required: key === MAIN ? [...BUILTIN, GRAB] : [GRAB]}})])),
+            "agent.profiles": Object.fromEntries([MAIN, REPLACE].map((key) => [key, defineProfile({id: key, version: "1", name: key, description: "测试用", system: "测试。", tools: {required: key === MAIN ? [...BUILTIN, GRAB] : [...BUILTIN_REPLACE, GRAB]}})])),
             "agent.tools": {[GRAB]: grab},
+            [LEDGER_POINT]: {"test.bt.ledger": ledger},
         }}),
     })]};
 }
@@ -224,8 +237,130 @@ describe("write", () => {
         expect(await readFile(join(home, "新/目录/a.md"), "utf8")).toBe("覆盖");
         await writeFile(join(home, "文件"), "x");
         expect(await call(session, "write", {path: "session://文件/下面.md", content: "x"})).toMatchObject({code: "not-a-directory"});
-        expect(await call(session, "write", {path: "docs://builtin/x.md", content: "x"})).toMatchObject({code: "permission-denied"});
+        expect(await call(session, "write", {path: "docs://builtin/x.md", content: "x"})).toMatchObject({code: "unsupported-capability"});
+        const other = await open(w);
+        expect(await call(session, "write", {path: `${other.global}/x.md`, content: "x"})).toMatchObject({code: "permission-denied"});
         expect(await call(session, "write", {path: "session://artifacts/x.log", content: "x"})).toMatchObject({code: "permission-denied"});
+    });
+});
+
+describe("edit", () => {
+    const hashline = (address: string, tag: string, body: string) => `[${address}#${tag}]\n${body}\n`;
+
+    test("hashline 改一行：结果是全局地址，单数写法也一样；写完可以接着改", async () => {
+        const w = await world();
+        const {session, home, global} = await open(w);
+        await mkdir(home, {recursive: true});
+        await writeFile(join(home, "a.md"), "一\n二\n三\n");
+        const read = await call(session, "read", {path: "session://a.md"});
+        const done = await call(session, "edit", {input: hashline("session://a.md", headerTag(read.text), "PUT 2.=2:\n+贰")});
+        expect(done.status).toBe("ok");
+        expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n贰\n三\n");
+        expect(done.text).toContain(`[${global}/a.md#`);
+        expect(done.text).not.toContain("[session://");
+        const again = await call(session, "edit", {input: hashline(`${global}/a.md`, headerTag(done.text), "PUT 3.=3:\n+叁")});
+        expect(again.status).toBe("ok");
+        expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n贰\n叁\n");
+    });
+
+    test("输出 12：没看过的行、写完 write 后直接改：引擎的规则；失败码 edit-<errorKind>", async () => {
+        const w = await world();
+        const {session, home} = await open(w);
+        await mkdir(home, {recursive: true});
+        await writeFile(join(home, "a.md"), "一\n二\n三\n");
+        const page = await call(session, "read", {path: "session://a.md", limit: 1});
+        const unseen = await call(session, "edit", {input: hashline("session://a.md", headerTag(page.text), "PUT 3.=3:\n+叁")});
+        expect(unseen.status).toBe("error");
+        expect(unseen.code).toMatch(/^edit-/u);
+        expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n二\n三\n");
+        const written = await call(session, "write", {path: "session://b.md", content: "甲\n乙\n"});
+        expect((await call(session, "edit", {input: hashline("session://b.md", headerTag(written.text), "PUT 2.=2:\n+丙")})).status).toBe("ok");
+        expect(await readFile(join(home, "b.md"), "utf8")).toBe("甲\n丙\n");
+    });
+
+    test("输出 10：裸路径、相对路径整次拒绝且不露内容；删除、移动整次拒绝；目标不存在提示用 write", async () => {
+        const w = await world();
+        const {session, home} = await open(w);
+        await mkdir(home, {recursive: true});
+        await writeFile(join(home, "a.md"), "一\n");
+        const read = await call(session, "read", {path: "session://a.md"});
+        const tag = headerTag(read.text);
+        const secret = join(root, `secret-${String(counter)}.md`);
+        await writeFile(secret, "机密内容\n");
+        for (const path of [secret, "a.md", "../a.md"]) {
+            const refused = await call(session, "edit", {input: hashline(path, "ABCD", "PUT 1.=1:\n+x")});
+            expect(refused).toMatchObject({status: "error", code: "invalid-address"});
+            expect(refused.text).not.toContain("机密内容");
+        }
+        expect(await readFile(secret, "utf8")).toBe("机密内容\n");
+        expect(await call(session, "edit", {input: hashline("session://a.md", tag, "REM")})).toMatchObject({code: "unsupported-capability"});
+        expect(await call(session, "edit", {input: hashline("session://a.md", tag, "MV session://b.md")})).toMatchObject({code: "unsupported-capability"});
+        expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n");
+        const missing = await call(session, "edit", {input: hashline("session://没有.md", "ABCD", "PUT 1.=1:\n+x")});
+        expect(missing).toMatchObject({code: "not-found"});
+        expect(missing.text).toContain("write");
+    });
+
+    test("replace：改写、全局地址，old_string 找不到得 edit- 码，声明里没有语法", async () => {
+        const w = await world();
+        const {session, home, global} = await open(w, REPLACE);
+        await mkdir(home, {recursive: true});
+        await writeFile(join(home, "a.md"), "林舟走进雨里\n");
+        const done = await call(session, "edit", {path: "session://a.md", old_string: "雨里", new_string: "雪里"});
+        expect(done.status).toBe("ok");
+        expect(done.text).not.toContain("session://");
+        expect(done.text).toContain(global);
+        expect(await readFile(join(home, "a.md"), "utf8")).toBe("林舟走进雪里\n");
+        const miss = await call(session, "edit", {path: "session://a.md", old_string: "没有这句", new_string: "x"});
+        expect(miss.status).toBe("error");
+        expect(miss.code).toMatch(/^edit-/u);
+        expect(await call(session, "edit", {path: "a.md", old_string: "x", new_string: "y"})).toMatchObject({code: "invalid-address"});
+    });
+
+    test("验收 4、输出 11、13：第二个文件被别人改过：第一个已写入、第二个 conflict 不覆盖，下一次请求里看得到", async () => {
+        const w = await world();
+        const {session} = await open(w);
+        const user = join(w.stateRoot, "user");
+        await writeFile(join(user, "甲.md"), "甲一\n");
+        await writeFile(join(user, "乙.md"), "乙一\n");
+        const tagA = headerTag((await call(session, "read", {path: "user://甲.md"})).text);
+        const tagB = headerTag((await call(session, "read", {path: "user://乙.md"})).text);
+        // 第一个文件提交到锁内成功阶段时改第二个：它的基线已经读过，引擎也算好了。
+        onLedger = async (entry) => {
+            if (entry.path === "甲.md") await writeFile(join(user, "乙.md"), "别人改的\n");
+        };
+        const before = endpoint.requests.length;
+        const result = await call(session, "edit", {input: `[user://甲.md#${tagA}]\nPUT 1.=1:\n+甲改\n[user://乙.md#${tagB}]\nPUT 1.=1:\n+乙改\n`});
+        onLedger = null;
+        expect(result).toMatchObject({status: "error", code: "conflict"});
+        expect(await readFile(join(user, "甲.md"), "utf8")).toBe("甲改\n");
+        expect(await readFile(join(user, "乙.md"), "utf8")).toBe("别人改的\n");
+        expect(result.text).toContain("user://甲.md：已写入");
+        expect(result.text).toContain("user://乙.md：失败（conflict）");
+        const nextRequest = endpoint.requests[before + 1]!;
+        const toolMessage = nextRequest.messages.filter((message) => message.role === "tool").at(-1)!;
+        expect(JSON.stringify(toolMessage.content)).toContain("已写入");
+    });
+
+    test("输出 3：多文件成功时事件来源是这个会话、带条目 id、同一个组", async () => {
+        const w = await world();
+        const {session, id} = await open(w);
+        const user = join(w.stateRoot, "user");
+        await writeFile(join(user, "丙.md"), "丙\n");
+        await writeFile(join(user, "丁.md"), "丁\n");
+        const tagC = headerTag((await call(session, "read", {path: "user://丙.md"})).text);
+        const tagD = headerTag((await call(session, "read", {path: "user://丁.md"})).text);
+        const entries: LedgerEntry[] = [];
+        onLedger = async (entry) => {
+            entries.push(entry);
+        };
+        const result = await call(session, "edit", {input: `[user://丙.md#${tagC}]\nPUT 1.=1:\n+丙改\n[user://丁.md#${tagD}]\nPUT 1.=1:\n+丁改\n`});
+        onLedger = null;
+        expect(result.status).toBe("ok");
+        expect(entries.map((entry) => entry.path).sort()).toEqual(["丁.md", "丙.md"]);
+        expect(entries.every((entry) => entry.source.kind === "agent" && entry.source.session === id && entry.source.entry !== undefined)).toBe(true);
+        expect(new Set(entries.map((entry) => entry.group?.id)).size).toBe(1);
+        expect(entries[0]!.group?.title).toBe("nbook.agent.edit");
     });
 });
 
@@ -250,10 +385,13 @@ describe("全文（resources 输出 11）", () => {
 });
 
 describe("声明", () => {
-    test("工具以模型熟悉的名字进请求", async () => {
+    test("工具以模型熟悉的名字进请求；hashline 的语法声明经贡献点到达内核", async () => {
         const w = await world();
         const {session} = await open(w);
         await call(session, "read", {path: "session://"});
-        expect(endpoint.requests.at(-1)!.tools).toEqual(expect.arrayContaining(["read", "write"]));
+        expect(endpoint.requests.at(-1)!.tools).toEqual(expect.arrayContaining(["read", "write", "edit"]));
+        const tools = new AgentTools({declarations: {list: <D>() => BUILTIN_TOOL_CONTRIBUTIONS.map((item) => ({id: item.id, plugin: "nbook.agent", declaration: item.declaration as unknown as D}))} as never, clock: w.settings.clock, activate: async () => false, report: () => undefined, services: () => { throw new Error("不会建实现"); }});
+        expect(tools.all().get("nbook.agent.edit")?.customFormat).toMatchObject({syntax: "lark"});
+        expect(tools.all().get("nbook.agent.edit-replace")?.customFormat).toBeUndefined();
     });
 });
