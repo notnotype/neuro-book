@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00039-novel-writing-plugins
 issueId: null
 status: active
-updated: 2026-11-02
+updated: 2026-11-04
 ---
 
 # 小说创作插件
@@ -51,6 +51,7 @@ updated: 2026-11-02
 | 2026-11-02 | 开发者：t19 流程稿先放着以后慢慢看；计划范围大、后续可能多次返工，内核架构大体已定，打磨一次就开工，先实现世界引擎内核。按主会话推荐：先写内核 Spec（t27，并入 t10 的字段声明写法与 t14 的包切分），审一轮、开发者批准后实现（新建 t29）；内核放一个新的工作区包，纯 TS、前后端共用，只依赖 TypeBox 与 MDX 解析库，插件在 `packages/neuro-book` 里接存储、服务与界面；第一版分四段：模型与计算、分段日志存储、白名单 MDX 渲染与带值写法、接进应用（星瑕样本在新内核上重放出与 t16 原型相同的结果）；不做 Agent 工具与记账管线、作者界面、评测、内置 Component 的完整字段清单；第一版另不做 schema 升级函数（只存版本号）与数值溢出的“截到上限”（只做拒绝）。包名用 `nb-canon`（开发者确认，此前写的 nb-cannon 是笔误），nb-story 保持原名 |
 | 2026-11-02 | 开发者：内核 Spec 的能力地图与六条假设按推荐（章的身份与先后由宿主从活页夹给、语义档归纳失败不挡发布、独占写入期间别的写入得到 `busy`、有后续依赖时不单独还原、三百万字的性能要求、id 由程序生成不复用）。本次（t27 的 Spec 与 t29 的实现）在单独的分支 `feat/w00039-t29-canon-kernel` 上进行，没有开发者允许不合并；Task 记录仍在主工作区 |
 | 2026-11-02 | 开发者：t27 的 Spec 审完后直接按 autonomous-delivery 开工（计划、计划审查、实施、实现审查），终点是 t29 内核完成；本该开发者确认的点记进 [待确认清单](pending-confirmations.md)，事后追认；仍在分支上、不合并、不 push |
+| 2026-11-04 | 开发者看过 t29 的交付报告后，四条按推荐：t29 到第 8 片收口，第 9 片（原型界面接上真实数据）并进作者界面 t16；嫌疑区间的起点改为“上一个比较过的核对点”（对不上的也算，Spec model 输出 12）；单开 [t30](tasks/t30-nb-canon-cleanup/README.md) 做 nb-canon 的整理，排在加内置 Component（t10）之前；t29 新增的待确认条目追认。t29 的三条反思回写（implementation-planning 两条、writing-specs 一条）批准。内核分支仍不合并 |
 
 ## 调研
 
@@ -67,10 +68,11 @@ updated: 2026-11-02
 | 2 | [t29](tasks/t29-kernel-impl/README.md) | 内核实现（`nb-canon`）：模型与计算、分段日志存储、渲染与带值写法、接进应用 | t27 |
 | 3 | [t26](tasks/t26-evaluation/README.md) | 评测与样本书：量法已定，答案与基线在内核之后 | — |
 | 3 | [t19](tasks/t19-writing-workflow/README.md) | 写作流程与内置 Profile（流程稿待开发者看） | — |
-| 3 | [t10](tasks/t10-setting-schema/README.md) | 内置 Component 的字段清单与设定表单（字段声明写法已并入 t27） | t27 |
+| 3 | [t30](tasks/t30-nb-canon-cleanup/README.md) | nb-canon 整理：t29 可维护性审查里不改行为的几项，差分测试兜底（11-04 新建） | t29 |
+| 3 | [t10](tasks/t10-setting-schema/README.md) | 内置 Component 的字段清单与设定表单（字段声明写法已并入 t27） | t27、t30 |
 | 3 | [t14](tasks/t14-plugin-split/README.md) | nb-memory 检索的复用、查看器进工作台（包切分已并入 t27） | t27 |
 | 4 | [t20](tasks/t20-agent-tools/README.md) | Agent 工具与写手的上下文 | t27、t19 |
-| 4 | [t16](tasks/t16-plot-workbench-ui/README.md) | 作者界面（静态稿与原型已到第 3 轮） | t27 |
+| 4 | [t16](tasks/t16-plot-workbench-ui/README.md) | 作者界面（静态稿与原型已到第 3 轮；含原 t29 第 9 片的界面接入） | t27、t29 |
 | 5 | [t28](tasks/t28-entry-mdx-editing/README.md) | 作者编辑条目的主 MDX | t16 |
 | 5 | [t12](tasks/t12-project-templates/README.md) | 作品的来路：三条起步路、模板、旧项目迁移 | t27、t10 |
 | 5 | [t22](tasks/t22-incremental-extraction/README.md) | 改稿后重新记账 | t27 |

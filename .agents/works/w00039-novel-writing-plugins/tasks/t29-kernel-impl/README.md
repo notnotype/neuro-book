@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t29-kernel-impl
 status: active
-updated: 2026-11-02
+updated: 2026-11-04
 ---
 
 # 世界引擎内核实现（nb-canon）
@@ -11,7 +11,7 @@ updated: 2026-11-02
 
 按 t27 的内核 Spec 实现 nb-canon 包与插件接入：模型与计算、分段日志存储、白名单 MDX 渲染与带值写法、项目进程里的服务；星瑕样本在新内核上重放出与 t16 原型相同的结果。不做 Agent 工具、记账管线与正式的作者界面（Work README 决定表 2026-11-02）。
 
-合同：实现 t27 写的内核 Spec（`docs/specs/canon/`，写好后补链接）；新建 capability，不改已有 Spec 的行为。
+合同：实现 t27 写的内核 Spec `docs/specs/canon/` 五份（components、model、revisions、rendering、project；在分支 `feat/w00039-t29-canon-kernel` 上，合并前主工作区没有这些文件，所以不写链接）；新建 capability，不改已有 Spec 的行为。
 
 前置：t27 的 Spec 经开发者批准。
 
@@ -46,10 +46,17 @@ updated: 2026-11-02
 
 实现审查（第 1–8 片，普通审查，按区域各派一个）：后端 omp 13 条（阻断 1、重要 11、建议 1），12 条成立、1 条不成立（实验证明）；前端 Sonnet 12 条（重要 5、建议 7），全部成立，其中几条接受取舍。修正一次提交 5faf986a5，阻断那条是“启动时活页夹清单坏了会发布到空章序”。处理逐条见 [`evidences/impl-review-resolution.txt`](evidences/impl-review-resolution.txt)，报告原文 `impl-review-omp.txt`、`impl-review-web.txt`。
 
-## 下一步
-
-第 9 片（Lab 接上原型界面）暂停，等开发者定：动手前核对，原型的条目页、回执、待处理在组件里直接调用原型自己的引擎，接上世界服务等于逐个重写；搬进分支就成了正式的插件组件（契约文档、能力标签、Lab 场景与测试），实际上是作者界面的第一版，而正式的作者界面不在 t29 范围内。三种做法：照计划做；在基于本分支的草稿 worktree 里接、不提交；t29 到第 8 片收口，界面接入并进作者界面的 Task（推荐）。
+第 9 片（Lab 接上原型界面）动手前核对：原型的条目页、回执、待处理在组件里直接调原型自己的引擎，接上世界服务等于逐个重写，搬进分支就成了正式的插件组件，实际上是作者界面的第一版。
 
 可维护性与 API 形状审查（正确性审查处理完之后，两个 Sonnet 按角度各一份，先写接入草稿）：接入 15 条（重要 4）、可维护性 14 条（重要 6）。现在改了 5 条（d5d519561），其中一条会写错数据：按计划模式读到的带值写法原样交回会悄悄改写初值，回写现在要带模式、按计划的拒收。其余都是不改行为的整理与要按实际用法定的接口，归成两组留给后续，见 [`evidences/api-review-resolution.txt`](evidences/api-review-resolution.txt)。
 
-建议的后续：在加内置 Component 之前单开一个“nb-canon 整理”Task，做上面那份里“留给后续的整理”一组（补丁种类成表、路径解析只留一份、两个引擎共用的规则抽出来、失败统一成一种形状、宿主装配收成一个打开函数），差分测试兜底。
+2026-11-04 开发者看过交付报告，四条按推荐（Work README 决定表）：
+
+- t29 到第 8 片收口，界面接入并进 [t16](../t16-plot-workbench-ui/README.md)。
+- 嫌疑区间的起点改为“上一个比较过的核对点”（对不上的也算）：66aef0055，Spec model 输出 12 与两个引擎同改，model.test.ts 场景 2 补用例；nb-canon 237 条测试、差分测试 20 个种子各 100 步、应用 canon 测试 8 条通过。`--diverge` 重测 300 章：待处理仍是 322 条，嫌疑记录从 15.6 万条降到 966 条，发布一次记账中位从 60 ms 降到 30 ms（[`evidences/scale-full.txt`](evidences/scale-full.txt) 末尾）。
+- 不改行为的整理单开 [t30](../t30-nb-canon-cleanup/README.md)，排在加内置 Component 之前。
+- t29 新增的待确认条目追认（[清单](../../pending-confirmations.md)）；三条反思回写进 implementation-planning 与 writing-specs。
+
+## 下一步
+
+无。实现都在分支 `feat/w00039-t29-canon-kernel` 上，没有开发者允许不合并进 master、不 push。
