@@ -11,11 +11,13 @@ updated: 2026-10-20
 
 整理 ui-development-spec、design-language、README、PROJECT-STATUS 与组件文档：与代码对齐、去掉评审代号、消除重复，定 nb-ui 在 docs/specs 里要不要有 Spec
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：行为合同未变，只改文档与注释；`docs/specs/ui/forms.md` 只改“与 nb-ui 规范”一条的说法。
 
 ## 当前状态
 
-尚未开工。2026-10-20 先做了一次只读审查（Sonnet），作为整理的输入：报告产物 [`artifacts/spec-review/`](artifacts/spec-review/index.html)，原文 [`evidences/spec-review.txt`](evidences/spec-review.txt)。43 条（重要 26、建议 17），要点：
+实施计划见 [plan.md](plan.md)。2026-11-04 开发者确认计划末尾七项，都取推荐（骨架规则改写、DL 的按钮胶囊按现状改、坑号不重排、受控视图搬到 `frontend.md`、README 统一中文、`forms.md` 留作真相源、nb-ui 不单独建 Spec）。文档与注释的改动，不另做计划审查，审查放在收尾。worktree `.worktree/w00029-t05-docs`（分支 `docs/w00029-t05-nb-ui-docs`）。
+
+2026-10-20 先做了一次只读审查（Sonnet），作为整理的输入：报告产物 [`artifacts/spec-review/`](artifacts/spec-review/index.html)，原文 [`evidences/spec-review.txt`](evidences/spec-review.txt)。43 条（重要 26、建议 17），要点：
 
 - `ui-development-spec.md` 的 4.2 节逐个复述组件参数，与组件同名 `.md` 重复，已有 4 处直接冲突；`Select` 的浮层配方在文内抄了 4 到 7 遍。
 - 4.3、4.4 两节被已接受的提案 `docs/proposals/workbench-view-host.md` 引用，只能搬、不能删；重排前要先清点至少 21 处按章节号、锚点或标题引用这几份文档的地方。
