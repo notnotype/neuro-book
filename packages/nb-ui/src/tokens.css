@@ -1,5 +1,5 @@
 /*
- * 设计 token 层（编辑室草案 §4）+ 主题层基线。
+ * 设计 token 层 + 主题层基线。
  *
  * 事实源。排版 / 间距 / 圆角 / 层级 / 动效五组，**不随配色变化**，所以不进
  * colorway/colorway-contract.ts 的配色契约，而是在这里一次性声明。名单与用途见 theme/tokens.ts。
@@ -124,9 +124,8 @@
     --stack-gap: 16px;
 
     /* 大控件的圆角单列一档。
-       原注释写着「Apple 只在 Large / X-Large 才走 capsule」——这条已被 Apple 官方的
-       macOS 27 UI Kit 推翻：Buttons 组里连 Mini（41×16）都是整颗胶囊。默认值仍取
-       --radius-control（不装主题时观感不变），要不要 pill 由主题自己决定。 */
+       缺省取 --radius-control（不装主题时观感不变），要不要整颗胶囊由主题决定；Apple 的读数见
+       docs/research/apple-macos-ui-kit-readings.md。 */
     --radius-control-lg: var(--radius-control);
 
     /*
@@ -145,7 +144,7 @@
     --radius-dialog-compact: var(--radius-dialog);
 
     /*
-     * 浮动窗口（Dialog 的 modal=false）的圆角，缺省等于对话框。单列一档是因为窗口常开着、占的面积大，和应用窗口
+     * 浮动窗口（`FloatingWindow`）的圆角，缺省等于对话框。单列一档是因为窗口常开着、占的面积大，和应用窗口
      * 是同一类东西：模态对话框那一档的大圆角画在它上面像一张卡片。主题需要时单独收小（nbook 就是）。
      */
     --radius-window: var(--radius-dialog);

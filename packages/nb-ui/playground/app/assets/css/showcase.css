@@ -104,7 +104,7 @@
  * 刻意不给 z-index、也不给宿主 isolation: isolate 来收敛这个伪元素：靠「定位元素默认画在
  * 流内非定位兄弟之上」这一条就够了，多一个层叠上下文只会多一处要维护的约束。
  *
- * 顺带纠正一条容易记反的事：按 Filter Effects Level 2 §3，isolation **不在** backdrop root
+ * 顺带纠正一条容易记反的事：按 Filter Effects Level 2 第 3 节，isolation **不在** backdrop root
  * 的触发清单里（清单是根元素、filter、opacity<1、mask*、clip-path、backdrop-filter、
  * mix-blend-mode、will-change）。规范还特意注明 backdrop root 的触发面比层叠上下文窄——
  * z-index、fixed/sticky、transform 都不触发。真正会切断后代取样的是 backdrop-filter 本身，

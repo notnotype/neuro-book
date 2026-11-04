@@ -4,7 +4,7 @@ import {computed} from "vue";
 import type {ControlSize} from "../shared-types";
 
 /**
- * 状态徽章（Badge · 方案 2-B 现代工作区超椭圆实心体系）。
+ * 状态徽章。
  *
  * 视觉特征：
  * 1. 形态：采用饱满现代超椭圆（Squircle，消费 var(--radius-control) / calc），与 Button / Input 等控件形成统一几何律动；
@@ -95,7 +95,7 @@ const sizeClass = computed(() => (props.size === "sm"
     --nb-badge-tone-border: color-mix(in srgb, var(--status-danger) 30%, transparent);
 }
 
-/* 核心方案 2-B：纯色实心 + 纯白反色文字 + 微反光边 + 微阴影 */
+/* 实心档：纯色实心 + 纯白反色文字 + 微反光边 + 微阴影 */
 .nb-badge--solid {
     border: var(--border-w) solid color-mix(in srgb, var(--text-inverse) 16%, transparent);
     background-color: var(--nb-badge-tone-solid);

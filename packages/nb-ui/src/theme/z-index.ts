@@ -14,7 +14,7 @@ export const NB_Z_INDEX = {
     dropFeedback: 60,
     /** 工作台拖动时跟着指针的拖影：高于页面里的浮层，低于对话框（拖动不会发生在对话框之下） */
     dragFeedback: 1000,
-    /** 非模态浮动窗口（`Dialog` 的 `modal=false`）的第一层；按嵌套深度往上，见 NB_DIALOG_WINDOW_Z_STEP */
+    /** 非模态浮动窗口（`FloatingWindow`）的第一层；按嵌套深度往上，见 NB_DIALOG_WINDOW_Z_STEP */
     dialogWindow: 8990,
     /** 模态对话框的第一层；同时打开的模态按打开顺序往上，见 NB_MODAL_Z_STEP */
     dialog: 9000,
@@ -22,7 +22,7 @@ export const NB_Z_INDEX = {
     notification: 9050,
     /** 右键菜单；子菜单用 contextMenu + 1 */
     contextMenu: 9100,
-    /** S4 全局命令面板角色：QuickPick 的遮罩与面板同档，面板在后绘制 */
+    /** 全局命令面板角色：QuickPick 的遮罩与面板同档，面板在后绘制 */
     commandPalette: 9200,
     /** 组件 Lab 的检查框：要压住被检查的一切，包括对话框与命令面板 */
     inspectorProbe: 9900,

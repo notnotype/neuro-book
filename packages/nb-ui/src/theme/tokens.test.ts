@@ -5,7 +5,7 @@ import {nbDesignTokens, nbRadiusTokens, nbReservedTokens, nbThemeTokens} from ".
 import {nbColorwayVarKeys} from "../colorway/colorway-contract";
 
 /**
- * 设计 token 层 + 主题层基线的兜底（编辑室草案 §4 / Task 146 D11）。
+ * 设计 token 层 + 主题层基线的兜底。
  *
  * 值的事实源是 src/tokens.css 与 src/theme.css（后者是与 Tailwind 主题键同名的那批，声明在 @theme static 里），
  * 名单在 theme/tokens.ts。两边任一侧漏改都会在这里失败。
@@ -73,7 +73,7 @@ describe("nb-ui design tokens", () => {
     });
 
     it("derives elevation from the themed shadow colour, not fixed rgba", () => {
-        // 草案 §4.4：阴影必须走 --shadow-color，否则换主题时阴影不跟着变
+        // 阴影必须走 --shadow-color，否则换主题时阴影不跟着变
         const css = readTokensCss();
         const elevationLines = css
             .split(/\r?\n/)

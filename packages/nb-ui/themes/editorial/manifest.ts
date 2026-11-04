@@ -1,12 +1,12 @@
 import type {NbThemeManifest} from "../../src/theme/theme-manifest";
 
 /**
- * editorial 是**最小主题**：不新增变量、不带配色、不带资源、不覆盖组件。
- * 整个包就是这 12 行 + 一份 vars.css。声明式主题的下限。
+ * editorial 是**最小主题**：不新增变量、不带配色、不带资源。
+ * 整个包就是这份清单加一份 vars.css。声明式主题的下限。
  *
  * 它同时是一方主题——刻意与第三方主题走**同一条装载路径**，
- * 这样主题包格式先在自己身上被验证一遍，且全仓只有一条代码路径。默认主题是 `macos`，
- * 它享受的待遇与这一套完全相同。
+ * 这样主题包格式先在自己身上被验证一遍，且全仓只有一条代码路径。默认主题 `nbook`
+ * 享受的待遇与这一套完全相同。
  */
 export const manifest: NbThemeManifest = {
     id: "editorial",

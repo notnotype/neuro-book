@@ -26,7 +26,7 @@ const props = withDefaults(defineProps<{
 });
 
 /*
- * 尺寸与材质消费主题 token（现代极简平滑方案 2：浓度跃升与丝滑平移）。边长是定值、不取 --control-h-*：图标按钮多放在定宽的竖条与
+ * 尺寸与材质消费主题 token。边长是定值、不取 --control-h-*：图标按钮多放在定宽的竖条与
  * 定高的工具条里（活动栏 48px 宽，lg 的 38px 两侧各留 5px 给焦点光环），随主题长高会被裁。
  * 零 Layout Shift，禁用态禁止任何缩放。
  */
