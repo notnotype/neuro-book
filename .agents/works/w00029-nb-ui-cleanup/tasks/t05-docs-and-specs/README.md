@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t05-docs-and-specs
-status: planned
-updated: 2026-10-20
+status: active
+updated: 2026-11-04
 ---
 
 # nb-ui 的规范文档与 Spec 整理
