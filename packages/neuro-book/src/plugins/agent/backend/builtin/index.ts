@@ -12,6 +12,7 @@ import {SessionEditStores} from "./common";
 import {hashlineDeclaration, hashlineTool, replaceDeclaration, replaceTool} from "./edit";
 import {readDeclaration, readTool} from "./read";
 import {globDeclaration, globTool, grepDeclaration, grepTool} from "./search";
+import {shellDeclaration, shellTool} from "./shell";
 import {writeDeclaration, writeTool} from "./write";
 
 const DECLARATIONS: Readonly<Record<string, AgentToolDeclaration>> = {
@@ -22,6 +23,7 @@ const DECLARATIONS: Readonly<Record<string, AgentToolDeclaration>> = {
     "nbook.agent.edit-replace": {...replaceDeclaration, providerName: "edit"},
     "nbook.agent.grep": {...grepDeclaration, providerName: "grep"},
     "nbook.agent.glob": {...globDeclaration, providerName: "glob"},
+    "nbook.agent.shell": {...shellDeclaration, providerName: "shell"},
 };
 
 export const BUILTIN_TOOL_CONTRIBUTIONS: ReadonlyArray<ContributionDeclaration<AgentToolDeclaration>> = Object.entries(DECLARATIONS).map(([id, declaration]) => ({capability: TOOLS_POINT, id, declaration}));
@@ -36,5 +38,6 @@ export function builtinTools(): Readonly<Record<string, AgentToolImplementation>
         "nbook.agent.edit-replace": replaceTool(stores),
         "nbook.agent.grep": grepTool,
         "nbook.agent.glob": globTool,
+        "nbook.agent.shell": shellTool,
     };
 }
