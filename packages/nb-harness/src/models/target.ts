@@ -9,10 +9,11 @@
  */
 
 import {unlink} from "node:fs/promises";
-import {basename, dirname} from "node:path";
+import {dirname, join, resolve} from "node:path";
 import {NO_AUTH_SENTINEL} from "@oh-my-pi/pi-ai/auth-retry";
 import {getBundledModel, getBundledProviders, type Model} from "@oh-my-pi/pi-catalog";
 import {buildModel} from "@oh-my-pi/pi-catalog/build";
+import {getLogsDir} from "@oh-my-pi/pi-utils";
 
 import {ompCall, ompModelInfo} from "../kernel/index.js";
 import type {ModelInfo, ModelResolution, OmpTransport} from "../kernel/index.js";
@@ -62,9 +63,12 @@ export interface KeyAccess {
 
 export type BuildResult = {readonly ok: true; readonly resolution: Extract<ModelResolution, {ok: true}>; readonly model: Model} | {readonly ok: false; readonly code: "unknown-model"};
 
-/** 删 `pi-ai` 落盘的请求全文（docs/specs/harness/models.md 输出 19）：只删它自己那个目录下的；文件已经没了算达成（它后台清理也会删）。 */
+/**
+ * 删 `pi-ai` 落盘的请求全文（docs/specs/harness/models.md 输出 19）。路径是从错误文字里取的，而错误文字含服务商的正文，可以伪造：
+ * 不是它自己日志目录下的就不删。文件已经没了算达成（它后台清理也会删）。
+ */
 async function discardRequestDump(path: string): Promise<void> {
-    if (basename(dirname(path)) !== "http-400-requests") throw new Error(`unexpected path ${path}`);
+    if (dirname(resolve(path)) !== join(getLogsDir(), "http-400-requests")) return;
     try {
         await unlink(path);
     } catch (error) {

@@ -93,6 +93,37 @@ describe("输出 6：请求序号", () => {
         expect(ended).toEqual(started.filter((item) => item.purpose === "approval").map((item) => item.request).sort());
     });
 
+    test("被拦下的请求也占号，重开之后不重复", async () => {
+        const blocker = defineExtension({id: "lab.blocker", intercept: {model: async (request) => ({content: [], toolCalls: [], stopReason: "error", usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, complete: true}, model: request.model, error: {kind: "local", code: "blocked", message: "拦下"}})}});
+        await using session = await createTestSession({extensions: [blocker]});
+        await session.raw.send({commandId: id(), input: {text: "一"}}).then(async (sent) => {
+            if (!sent.ok || sent.value.runId === null) throw new Error("no run");
+            await session.raw.waitRun(sent.value.runId);
+        });
+        await session.reopen();
+        await session.raw.send({commandId: id(), input: {text: "二"}}).then(async (sent) => {
+            if (!sent.ok || sent.value.runId === null) throw new Error("no run");
+            await session.raw.waitRun(sent.value.runId);
+        });
+        const requests = data<{request: number}>((await session.raw.log({afterSeq: 0, limit: 1000})).events, "modelFailed").map((item) => item.request);
+        expect(requests).toHaveLength(2);
+        expect(new Set(requests).size).toBe(2);
+    });
+
+    test("输出 71：并发调两次 next，两次的用量都记下", async () => {
+        const both = defineExtension({id: "lab.both", intercept: {model: async (request, next) => {
+            const [, second] = await Promise.all([next(request), next(request)]);
+            return second;
+        }}});
+        await using session = await createTestSession({extensions: [both]});
+        session.model.script({text: "甲", usage: {cost: 1}}, {text: "乙", usage: {cost: 2}});
+        const report = await session.say("问");
+        expect(report.result.usage.cost).toBe(3);
+        expect((await session.raw.snapshot()).usage.cost).toBe(3);
+        expect(data(report.events, "modelStarted")).toHaveLength(2);
+        expect(data(report.events, "modelEnded")).toHaveLength(1);
+    });
+
     test("输出 71：一层调两次 next，前一次的用量也记下，运行结果是总和", async () => {
         const twice = defineExtension({id: "lab.twice", intercept: {model: async (request, next) => {
             await next(request);

@@ -50,7 +50,8 @@ export const complete: Complete = async (env, options) => {
     // 不写日志，所以循环留在这里（docs/specs/harness/runtime.md 输出 67）。
     for (let retries = 0; ; retries += 1) {
         const delayMs = env.retry === undefined ? null : retryDelay(response, retries, env.retry());
-        if (delayMs === null || !(await env.clock.wait(delayMs, signal).then(() => true, () => false))) break;
+        if (delayMs === null) break;
+        if (!(await env.clock.wait(delayMs, signal).then(() => true, () => false))) return {ok: true, result: {reason: "aborted", stopReason: "aborted", text: "", result: null, error: null, usage}};
         response = await resolution.call(request, signal, () => undefined);
         usage = addUsage(usage, response.usage);
     }

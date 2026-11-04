@@ -84,8 +84,8 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
     let lastRequest: number | null = null;
     const environment = host.environment(resolution.info);
     const state = core.stateAt();
-    /** 一层调两次 `next` 时上一次的结果：它的用量没有别的地方记（docs/specs/harness/runtime.md 输出 71）。 */
-    let previous: {readonly number: number; readonly purpose: RequestPurpose; readonly response: ModelResponse} | null = null;
+    /** 一层多次调 `next`（可能并发）时每次的结果：除了调用方结算的最后一次，其余的用量没有别的地方记（docs/specs/harness/runtime.md 输出 71）。 */
+    const sent: {readonly number: number; readonly purpose: RequestPurpose; readonly response: ModelResponse}[] = [];
     const outcome = await runChain<ModelRequest, ModelResponse>({
         core,
         method: "model",
@@ -103,7 +103,6 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
             if (fields.length > 0) modifiedBy.push({extension: item.definition.id, fields});
         },
         terminal: async (final) => {
-            if (previous !== null) await host.write([settlement(previous.number, previous.purpose, previous.response)]);
             const number = core.reserveRequest();
             await host.write([ctrl("modelStarted", {request: number, purpose: final.purpose, model: final.model, hash: requestHash(final), now: core.clock.now(), invocation: core.newId(), modifiedBy: modifiedBy.map((item) => ({...item}))})]);
             lastRequest = number;
@@ -114,7 +113,7 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
                 deltaNumber += 1;
                 core.emit({type: "delta", request: number, purpose: final.purpose, n: deltaNumber, part: delta.part, text: delta.text, ...(delta.callId === undefined ? {} : {callId: delta.callId})});
             });
-            previous = {number, purpose: final.purpose, response};
+            sent.push({number, purpose: final.purpose, response});
             return response;
         },
         // 之前出错跳过这一层；之后出错用里层的回复（模型已经回复、花了钱，不丢）。
@@ -124,6 +123,8 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
             return returned;
         },
     });
+    const earlier = sent.filter((item) => item.number !== lastRequest).map((item) => settlement(item.number, item.purpose, item.response));
+    if (earlier.length > 0) await host.write(earlier);
     return {response: outcome.value, request: lastRequest ?? core.reserveRequest(), failures: outcome.failures};
 }
 

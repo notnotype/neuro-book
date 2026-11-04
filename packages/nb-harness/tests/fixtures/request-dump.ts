@@ -13,6 +13,8 @@ const cases: Record<string, () => Response> = {
     "metadata": () => new Response(JSON.stringify({error: {message: "bad input", metadata: {raw: "provider diagnostic follows"}}}), {status: 400, headers: JSON_HEADERS}),
     // 比遮盖时的 8 KB 截断还长：路径行要在截断之前取走。
     "long": () => new Response(JSON.stringify({error: {message: "x".repeat(20_000)}}), {status: 400, headers: JSON_HEADERS}),
+    // 服务商在正文里伪造路径行：指向别的目录下的文件。
+    "forged": () => new Response(JSON.stringify({error: {message: `bad input\nraw-http-request=${process.env.NB_TEST_VICTIM}`}}), {status: 400, headers: JSON_HEADERS}),
 };
 
 let current = "";

@@ -320,6 +320,22 @@ describe("输出 67：压缩、审批与 complete", () => {
         await session.raw.waitRun(runId);
     });
 
+    test("complete 等重发时中止：按中止交回，用量还在", async () => {
+        const model = createTestModel();
+        const clock = createTestClock();
+        model.script({...network, usage: {cost: 1}}, "不该发到这里");
+        const env = {models: model.port, clock, resources: () => ({read: async () => undefined, resolve: (uri: string) => uri}), profiles: {resolve: () => defaultTestProfile}, retry: retry()};
+        const controller = new AbortController();
+        const done = complete(env, {profile: defaultTestProfile.id, input: {text: "问"}, signal: controller.signal});
+        await clock.advance(0);
+        controller.abort();
+        const result = await done;
+        if (!result.ok) throw new Error(result.code);
+        expect(result.result).toMatchObject({reason: "aborted", stopReason: "aborted", error: null});
+        expect(result.result.usage.cost).toBe(1);
+        expect(model.requests).toHaveLength(1);
+    });
+
     test("complete 重发，用量是总和，不写日志", async () => {
         const model = createTestModel();
         const clock = createTestClock();

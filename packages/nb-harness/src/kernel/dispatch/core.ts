@@ -226,8 +226,8 @@ export class SessionCore {
             this.commands.set(data.commandId, {name: data.name, value: data.value, seq: event.seq, ...(data.argsHash === undefined ? {} : {argsHash: data.argsHash})});
         }
         if (event.key !== undefined) this.#keys.add(`${event.source}\u0000${event.key}`);
-        // 被模型拦截直接给出的回复没有 modelStarted，序号也要算进来（runtime.md 输出 22）。
-        if (event.type === "modelStarted" || event.type === "assistant") this.requestCounter = Math.max(this.requestCounter, (event.data as {request: number}).request);
+        // 被模型拦截直接给出的回复、拦下的请求没有 modelStarted，序号也要算进来（runtime.md 输出 22）。
+        if (event.type === "modelStarted" || event.type === "assistant" || event.type === "modelEnded" || event.type === "modelFailed") this.requestCounter = Math.max(this.requestCounter, (event.data as {request: number}).request);
         if (event.type === "assistant" || event.type === "modelEnded" || event.type === "modelFailed") {
             const usage = (event.data as {usage?: Usage}).usage;
             if (usage !== undefined) this.spend = usage.cost === null ? {...this.spend, unpriced: this.spend.unpriced + 1} : {...this.spend, cost: this.spend.cost + usage.cost};
