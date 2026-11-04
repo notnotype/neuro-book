@@ -17,6 +17,18 @@ updated: 2026-11-04
 
 实施计划见 [plan.md](plan.md)。2026-11-04 开发者确认计划末尾七项，都取推荐（骨架规则改写、DL 的按钮胶囊按现状改、坑号不重排、受控视图搬到 `frontend.md`、README 统一中文、`forms.md` 留作真相源、nb-ui 不单独建 Spec）。文档与注释的改动，不另做计划审查，审查放在收尾。worktree `.worktree/w00029-t05-docs`（分支 `docs/w00029-t05-nb-ui-docs`）。
 
+2026-11-04 做完，合入 master `7fc24af03`：
+
+- S1 `bea45d73b`：原 4.2 的单组件内容逐条比对后并进 23 份同名 `.md`（Sonnet 子代理，每条去向见 [`evidences/spec-migration.txt`](evidences/spec-migration.txt)）。
+- S2 `46bd8296f`：规范从 466 行重排到约 220 行，保留跨组件合同；第 2 节序号不变；受控视图搬到 `frontend.md`。
+- S3 `f1f0af5c2`：设计语言从 1334 行减到约 1100 行（Sonnet 子代理，见 [`evidences/dl-changes.txt`](evidences/dl-changes.txt)）：判据按开发者的决定与代码改，第九节删除，坑号不重排（只删了坑 27，留空号），Apple 读数移到 `docs/research/apple-macos-ui-kit-readings.md`（读数抄自原文，没有重新核对外部出处，文档里写明了）。
+- S4 `a4a3cf4f5`：README 改中文，主题指南、目录、状态页、组件规范与 Skill 跟上。master 上 `307a41ce8` 改了 `forms.md`、`workbench-shell.md` 的入链与提案决策记录。
+- S5 `182089ef7`：注释去掉评审代号与过时引用；分支相对 master 的 15 个非文档文件，去注释后完全相同。
+- 顺带修了 `Drawer.md` 漏标的 `state:inject`：w00030 t05 给 `Drawer` 加缺省文案时漏了，master 的 `governance:check` 从那时起一直失败，这次才查到。
+- 实现审查（Sonnet）16 条：重要 6、建议 10，全部成立，修正 `128e6e1da`，处理见 [`evidences/impl-review.txt`](evidences/impl-review.txt)。报告 43 条的结果见 [`evidences/spec-review-disposition.txt`](evidences/spec-review-disposition.txt)。
+- 验证：合入后 `docs:check`、`governance:check` 没有失败。`test:affected --since master --typecheck` 失败 3 项：nb-story 类型检查是 `qa-service.ts:548` 的老问题；nb-story 与 neuro-book 的 `bun test` 在并行负载下失败，单独重跑分别 669、1777 条全过。没有跑 e2e 与截图：行为与样式都没变。
+- 从代码看到、没有修的问题：`Button` 加载时图标从 1.15em 变 1em，宽度差 0.15em，违反零布局位移；级联的下一级面板没有入场动画；`.nb-ui-switch-*` 全仓没有消费方。
+
 2026-10-20 先做了一次只读审查（Sonnet），作为整理的输入：报告产物 [`artifacts/spec-review/`](artifacts/spec-review/index.html)，原文 [`evidences/spec-review.txt`](evidences/spec-review.txt)。43 条（重要 26、建议 17），要点：
 
 - `ui-development-spec.md` 的 4.2 节逐个复述组件参数，与组件同名 `.md` 重复，已有 4 处直接冲突；`Select` 的浮层配方在文内抄了 4 到 7 遍。
@@ -28,7 +40,6 @@ updated: 2026-11-04
 
 ## 下一步
 
-先后（开发者 2026-10-20 在 w00027 定）：本 Task 排在 [w00027 t07](../../../w00027-plugin-platform/tasks/t07-low-code-forms/README.md)（低代码表单）的 S3 之后。t07 改 nb-ui 的表单控件（`Field` 的组形态与上下文导出、`RadioGroup` 横排、`SearchSelect`、`SecretInput`、统一的只读与出错合同），合同先写在 `docs/specs/ui/forms.md`；本 Task 重排 nb-ui 规范时把“表单控件合同”并进第 5 节。
+无。
 
-
-开工前先请开发者定三处文档与代码的分歧（报告 F04、F05、F10/F43；2026-10-20 发在评审板 `artifacts/decisions/` v1，带截图）。开发者 2026-10-20 答复，都取推荐：F04 保留现在的多层投影，文档照实改、数值只留在 token 与主题变量；F05 暗色玻璃保持 `brightness(1.0)`，坑 7 的判据改为“暗色档要有自己的配方”；F10/F43 浮层外观只认 CSS 类，`usePopoverLayer.ts` 里的内联材质常量删掉（代码改动在 w00030 t03，t05 先按这个写规范）：浮层投影几层；暗色玻璃要不要压暗；浮层外观的唯一来源是 CSS 类还是 `useDropdownSurfaceStyle` 里的常量。t04 定下的列表项样式也要写进规范，t05 排在 t04 之后。
+开工前的决定（开发者 2026-10-20、2026-11-04）写在计划的“关键设计”第 2 节与“待开发者确认”。
