@@ -11,8 +11,7 @@ import type {EditStore} from "@oh-my-pi/pi-natives";
 
 import type {ToolResult} from "@notnotype/nb-harness/kernel/contracts";
 
-import {decodeText} from "nbook/plugins/files/shared/text";
-import {renderVirtual} from "nbook/plugins/files/shared/contracts";
+import {decodeText, renderVirtual} from "nbook/plugins/files/shared/contracts";
 
 import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
 import type {SessionResources} from "../../shared/resources";

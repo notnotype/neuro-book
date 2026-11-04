@@ -280,6 +280,20 @@ describe("edit", () => {
         expect(await readFile(join(home, "b.md"), "utf8")).toBe("甲\n丙\n");
     });
 
+    test("输出 5、12：截断的长行不算看过，只读到它时行锚也不放行编辑", async () => {
+        const w = await world();
+        const {session, home} = await open(w);
+        await mkdir(home, {recursive: true});
+        const long = "长".repeat(2_500);
+        await writeFile(join(home, "a.md"), `${long}\n二\n`);
+        const read = await call(session, "read", {path: "session://a.md", limit: 1});
+        expect(read.text).toContain("已截断");
+        const refused = await call(session, "edit", {input: hashline("session://a.md", headerTag(read.text), "PUT 1.=1:\n+短")});
+        expect(refused.status).toBe("error");
+        expect(refused.code).toMatch(/^edit-/u);
+        expect(await readFile(join(home, "a.md"), "utf8")).toBe(`${long}\n二\n`);
+    });
+
     test("输出 10：裸路径、相对路径整次拒绝且不露内容；删除、移动整次拒绝；目标不存在提示用 write", async () => {
         const w = await world();
         const {session, home} = await open(w);
@@ -484,6 +498,16 @@ describe("shell", () => {
         expect(single.status).toBe("ok");
         const double = await call(session, "shell", {command: `cat "session://a b\\$c\\\`d'e/f.md"`});
         expect(double.text.split("\n")[0]).toBe("内容");
+
+        // 地址本身写不进单引号；真实路径里的单引号要靠链接带进来：三种引号上下文都要按真实路径编码。
+        const quoted = join(root, `带'引$号\`-${String(counter)}`);
+        await mkdir(quoted, {recursive: true});
+        await writeFile(join(quoted, "h.md"), "链接内容");
+        await mkdir(join(w.stateRoot, "user"), {recursive: true});
+        await symlink(join(quoted, "h.md"), join(w.stateRoot, "user", "q.md"));
+        for (const command of ["cat user://q.md", "cat 'user://q.md'", 'cat "user://q.md"']) {
+            expect((await call(session, "shell", {command})).text.split("\n")[0]).toBe("链接内容");
+        }
 
         expect((await call(session, "shell", {command: "cat session://x.md;cat session://y.md"})).text.split("\n")[0]).toBe("左右");
         expect((await call(session, "shell", {command: "cat session://x.md|wc -c"})).text.split("\n")[0]?.trim()).toBe("3");
