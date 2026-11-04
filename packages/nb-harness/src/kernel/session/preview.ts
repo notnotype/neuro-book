@@ -9,7 +9,7 @@
 
 import type {Diagnostic, JsonValue, Message, ModelPort, ModelRequest, ModelResolutionCode, ModelResponse, PreviewArgs, PreviewResult, RequestBlock, RequestChange, RequestPath, Resources, ToolDeclaration} from "../api/index.js";
 import {diagnosticCodes} from "../api/index.js";
-import {estimateTokens, triggerPoint} from "../compaction/compact.js";
+import {estimateImageTokens, estimateTokens, triggerPoint} from "../compaction/compact.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
@@ -89,11 +89,9 @@ function changesBetween(before: ModelRequest, after: ModelRequest, extension: st
     return changes;
 }
 
-/** 一块内容大约多少 token：文字与思考按文字，别的（图片等）按序列化后的长度，与压缩估算事件数据的口径一致。 */
+/** 一块内容大约多少 token：文字与思考按文字，图片按固定口径，与压缩估算事件数据的口径一致。 */
 function blockTokens(block: RequestBlock): number {
-    if (block.kind === "text" || block.kind === "thinking") return estimateTokens(block.text);
-    const {origin: _origin, ...rest} = block;
-    return estimateTokens(JSON.stringify(rest));
+    return block.kind === "image" ? estimateImageTokens(block) : estimateTokens(block.text);
 }
 /** 一条消息里内容块之外的部分（工具调用及其参数、回应的调用 id）。 */
 const messageExtraTokens = (message: Message): number => (message.toolCalls === undefined || message.toolCalls.length === 0 ? 0 : estimateTokens(JSON.stringify(message.toolCalls))) + (message.callId === undefined ? 0 : estimateTokens(message.callId));

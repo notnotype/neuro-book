@@ -126,6 +126,26 @@ describe("OMP 适配器", () => {
         expect(second.response.content).toEqual([{kind: "text", text: "在第 3 章"}]);
     });
 
+    test("工具消息的图片：能看图的模型收到图片块，不能看图的换成一行文字", async () => {
+        const messages = (): ModelRequest["messages"] => [
+            {role: "user", content: [text("看图")]},
+            {role: "assistant", content: [], toolCalls: [{id: "call_1", tool: "story.search", args: {}}], model: "local-test/m"},
+            {role: "tool", callId: "call_1", content: [text("封面"), {kind: "image", data: "QUJD", mime: "image/png", width: 800, height: 600, origin: {kind: "fixed", by: "kernel"}}]},
+        ];
+        const seen = async (target: ReturnType<typeof ompCall>) => {
+            replies = [{text: "好"}];
+            const response = await target(request({tools: [search], messages: messages()}), new AbortController().signal, () => undefined);
+            expect(response.stopReason).not.toBe("error");
+            return JSON.stringify(bodies.at(-1)!.messages);
+        };
+        const blind = await seen(ompCall({model: {...resolved.model, input: ["text"]}, apiKey: resolved.apiKey, priceKnown: false}));
+        expect(blind).toContain("当前模型不能看图");
+        expect(blind).toContain("800x600");
+        expect(blind).not.toContain("QUJD");
+        const vision = await seen(ompCall({model: {...resolved.model, input: ["text", "image"]}, apiKey: resolved.apiKey, priceKnown: false}));
+        expect(vision).toContain("data:image/png;base64,QUJD");
+    });
+
     test("相邻的 user 消息合成一条发出；同一条消息里相邻的文字块合成一块", async () => {
         const {body} = await run(request({messages: [{role: "user", content: [text("提醒")]}, {role: "user", content: [text("附带"), text("问题")]}]}), {text: "嗯"});
         const users = body.messages.filter((message) => message.role === "user");
@@ -186,7 +206,7 @@ describe("OMP 适配器", () => {
 
     test("不支持的内容在发请求前失败：unsupported-content", async () => {
         requestCount = 0;
-        const response = await call(request({messages: [{role: "user", content: [{kind: "image", blob: "0".repeat(64), mime: "image/png", origin: {kind: "fixed", by: "kernel"}}]}]}), new AbortController().signal, () => undefined);
+        const response = await call(request({messages: [{role: "user", content: [{kind: "image", data: "AAAA", mime: "image/png", origin: {kind: "fixed", by: "kernel"}}]}]}), new AbortController().signal, () => undefined);
         expect(response.error).toMatchObject({kind: "local", code: "unsupported-content"});
         expect(requestCount).toBe(0);
     });

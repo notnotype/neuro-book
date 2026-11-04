@@ -4,12 +4,14 @@
  */
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
+import {createHash} from "node:crypto";
 import {readdir, readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {AnyProfile, ApproveHook, LogEvent, ToolCall} from "../api/index.js";
 import {conv, defineContract, defineExtension, shape, slice} from "../extension/define.js";
 import {defineProfile} from "../extension/profile.js";
+import {mapEventContent} from "../helpers/content.js";
 import {createTestClock} from "../testing/clock.js";
 import {createTestSession, type TestSession, type TestTool} from "../testing/test-session.js";
 import {ABORT_GRACE_MS} from "./tools.js";
@@ -696,5 +698,64 @@ describe("收尾", () => {
         expect(dataOf(report.events, "continued")).toEqual([{text: expect.stringContaining("yield"), by: "core", count: 1}]);
         expect(report.requests).toHaveLength(2);
         expect(report.result).toMatchObject({reason: "error", error: {kind: "local", code: "result-missing"}, result: {via: "text", value: "还是雨夜", valid: false}});
+    });
+});
+
+describe("图片", () => {
+    const small = {data: "QUJD", mime: "image/png", width: 800, height: 600};
+    const large = {data: "A".repeat(32_769), mime: "image/jpeg"};
+    const imagesOf = (message: {content: readonly {kind: string}[]}) => message.content.filter((block) => block.kind === "image");
+
+    test("输出 58：结果带图片进请求，文字在前；大图进 blobs/；重开与 fork 后一致", async () => {
+        await using session = await createTestSession({store: {root}, tools: [{id: "lab.pic", execute: () => ({text: "两张图", images: [small, large]})}]});
+        session.model.script({tools: [{tool: "lab.pic"}]}, "看到了", "再看");
+        const {requests, events} = await session.say("看图");
+        const tool = requests.at(-1)!.raw.messages.find((message) => message.role === "tool")!;
+        expect(tool.content).toMatchObject([{kind: "text", text: "两张图"}, {kind: "image", ...small}, {kind: "image", mime: "image/jpeg", data: large.data}]);
+        expect(dataOf(events, "toolResult")[0]!.images).toEqual([small, large]);
+
+        const line = (await readFile(join(root, session.id, "session.jsonl"), "utf8")).split("\n").find((item) => item.includes('"toolResult"'))!;
+        expect(line).toContain(small.data);
+        expect(line).not.toContain(large.data);
+        expect(line).toContain("$blob");
+
+        await session.reopen();
+        const again = await session.say("接着");
+        const reopened = again.requests.at(-1)!.raw.messages.find((message) => message.role === "tool")!;
+        expect(imagesOf(reopened)).toMatchObject([small, {data: large.data}]);
+
+        const forked = await session.raw.fork({commandId: "fork-images"});
+        if (!forked.ok) throw new Error(forked.code);
+        await using copy = await createTestSession({store: {root}, open: forked.value.sessionId});
+        copy.model.script("分支");
+        const branch = await copy.say("分支上");
+        expect(imagesOf(branch.requests.at(-1)!.raw.messages.find((message) => message.role === "tool")!)).toMatchObject([small, {data: large.data}]);
+    });
+
+    test("输出 59：脱敏丢掉图片，rawHash 算进图片；只改图片也算改写；没有图片的 rawHash 还是文字的哈希", async () => {
+        const guard = defineExtension({id: "lab.guard", intercept: {tool: async (call: ToolCall, next) => {
+            const result = await next(call);
+            if (call.tool === "lab.mask" || call.tool === "lab.plain") return {...result, text: "[已脱敏]", redacted: true};
+            if (call.tool === "lab.swap") return {...result, images: [{...small, data: "WFla"}]};
+            return result;
+        }}});
+        const picture = (id: string) => ({id, execute: () => ({text: "原文", images: [small]})});
+        await using session = await createTestSession({store: {root}, extensions: [guard], tools: [picture("lab.mask"), picture("lab.swap"), picture("lab.same"), {id: "lab.plain", execute: () => "原文"}]});
+        session.model.script({tools: [{tool: "lab.mask"}, {tool: "lab.swap"}, {tool: "lab.same"}, {tool: "lab.plain"}]}, "完成");
+        const {events} = await session.say("问");
+        const [mask, swap, same, plain] = dataOf(events, "toolResult");
+        expect(mask!.images).toBeUndefined();
+        expect(mask!.rawHash).toMatch(/^[0-9a-f]{64}$/u);
+        expect(mask!.rawHash).not.toBe(plain!.rawHash);
+        expect(plain!.rawHash).toBe(createHash("sha256").update("原文").digest("hex"));
+        expect(swap).toMatchObject({text: "原文", raw: "原文", rawImages: [small], images: [{data: "WFla"}]});
+        expect(same!.raw).toBeUndefined();
+        expect(same!.images).toEqual([small]);
+        expect(await readFile(join(root, session.id, "session.jsonl"), "utf8")).toContain("WFla");
+    });
+
+    test("输出 59：出站过滤换文字时不碰图片的字节", async () => {
+        const mapped = await mapEventContent({id: "e", seq: 1, type: "toolResult", kind: "conv", scope: "path", data: {callId: "c", tool: "lab.pic", text: "原文", status: "ok", images: [small]}} as unknown as LogEvent, {text: (value) => `过滤后 ${value}`});
+        expect(mapped.data).toMatchObject({text: "过滤后 原文", images: [small]});
     });
 });

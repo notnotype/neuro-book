@@ -49,9 +49,19 @@ export interface ToolCall {
  */
 export type ToolStatus = "ok" | "error" | "denied" | "blocked" | "unknown";
 
-/** 工具或工具拦截交回的结果。`status` 缺省 `ok`；`redacted` 时日志里的原文只记哈希。 */
+/** 工具结果里的一张图：`data` 是 base64，超过 16 KB 时和别的长字符串一样外置进 `blobs/`。 */
+export interface ToolImage {
+    readonly data: string;
+    readonly mime: string;
+    readonly width?: number;
+    readonly height?: number;
+}
+
+/** 工具或工具拦截交回的结果。`status` 缺省 `ok`；`redacted` 时日志里的原文只记哈希，图片不写。 */
 export interface ToolResult {
     readonly text: string;
+    /** 随文字一起给模型看的图（docs/specs/harness/runtime.md 输出 58）。 */
+    readonly images?: readonly ToolImage[];
     readonly status?: "ok" | "error" | "denied";
     /** 失败的码；内核造的失败结果都带码（`api/codes.ts` 的 `toolResultCodes`）。 */
     readonly code?: string;

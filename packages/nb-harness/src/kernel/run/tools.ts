@@ -12,7 +12,7 @@
 import {createHash} from "node:crypto";
 import {Value} from "typebox/value";
 import {providerNameProblem, providerToolName, TOOL_NAME_LIMIT, toolIdProblem} from "../api/index.js";
-import type {ApprovalCtx, ApproveHook, JsonValue, KernelEvents, EventData, ModelCaller, ReplyEvent, Resources, ToolCall, ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo, ToolResult, ToolSessionContext, ToolStatus, SessionEnv} from "../api/index.js";
+import type {ApprovalCtx, ApproveHook, JsonValue, KernelEvents, EventData, ModelCaller, ReplyEvent, Resources, ToolCall, ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo, ToolImage, ToolResult, ToolSessionContext, ToolStatus, SessionEnv} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {hostReader, interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
@@ -149,6 +149,9 @@ interface CallOutcome {
 }
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+const imagesKey = (images: readonly ToolImage[] | undefined): string => (images ?? []).map((image) => sha256(image.data)).join(",");
+/** 没有图片时就是文字的哈希，与没有图片那时写下的日志一致（docs/specs/harness/runtime.md 输出 59）。 */
+const rawHashOf = (result: ToolResult): string => sha256((result.images ?? []).length === 0 ? result.text : `${result.text}\0${imagesKey(result.images)}`);
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 function argumentProblems(schema: ToolDeclaration["parameters"], args: unknown): string | null {
@@ -300,17 +303,18 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
             by = outcome.stoppedBy;
         }
         const ran = executed as ToolResult | null;
-        const changed = ran !== null && final.text !== ran.text;
+        const changed = ran !== null && (final.text !== ran.text || imagesKey(final.images) !== imagesKey(ran.images));
         const data: ToolResultData = {
             callId: call.id,
             tool: call.tool,
             text: final.text,
+            ...(final.images === undefined || final.images.length === 0 || final.redacted === true ? {} : {images: final.images}),
             status,
             ...(final.code === undefined ? {} : {code: final.code}),
             ...(by === null ? {} : {by}),
             // 脱敏的结果不写 details：拦截层常写 {...result, text, redacted: true}，details 会把原文带进日志（session.md 输出 10）。
             ...(final.details === undefined || final.redacted === true ? {} : {details: final.details}),
-            ...(!changed ? {} : final.redacted === true ? {rawHash: sha256(ran.text)} : {raw: ran.text}),
+            ...(!changed ? {} : final.redacted === true ? {rawHash: rawHashOf(ran)} : {raw: ran.text, ...(ran.images === undefined || ran.images.length === 0 ? {} : {rawImages: ran.images})}),
         };
         return {data, failures: outcome.failures, args: executedArgs};
     };

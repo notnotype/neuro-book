@@ -9,7 +9,7 @@
  * 图片块还没有接上大块内容的读写：请求里有图片时以 `unsupported-content` 失败，回复里的图片块不收。
  */
 
-import {streamSimple, type AssistantMessage, type Context, type Message as OmpMessage, type SimpleStreamOptions, type TextContent, type ThinkingContent, type Tool, type ToolCall as OmpToolCall, type ToolChoice} from "@oh-my-pi/pi-ai";
+import {streamSimple, type AssistantMessage, type Context, type Message as OmpMessage, type SimpleStreamOptions, type ImageContent, type TextContent, type ThinkingContent, type Tool, type ToolCall as OmpToolCall, type ToolChoice} from "@oh-my-pi/pi-ai";
 import {clampThinkingLevelForModel, getSupportedEfforts, type Effort, type Model} from "@oh-my-pi/pi-catalog";
 import {providerToolName, type ContentBlock, type JsonValue, type Message, type ModelDelta, type ModelInfo, type ModelRequest, type ModelResponse, type ToolCall, type Usage} from "../api/index.js";
 import {classifyProviderError} from "./classify.js";
@@ -78,6 +78,23 @@ function userContent(blocks: readonly ContentBlock[]): TextContent[] {
     return out;
 }
 
+/** 工具结果消息的内容：文字合并同 `userContent`；图片转成服务商的图片块，模型不能看图时换成一行文字。 */
+function toolContent(blocks: readonly ContentBlock[], vision: boolean): (TextContent | ImageContent)[] {
+    const out: (TextContent | ImageContent)[] = [];
+    const pushText = (text: string): void => {
+        const last = out.at(-1);
+        if (last?.type === "text") out[out.length - 1] = {type: "text", text: `${last.text}\n\n${text}`};
+        else out.push({type: "text", text});
+    };
+    for (const block of blocks) {
+        if (block.kind === "text") pushText(block.text);
+        else if (block.kind !== "image") throw new UnsupportedContent(`${block.kind} block in a tool message is not supported`);
+        else if (vision) out.push({type: "image", data: block.data, mimeType: block.mime});
+        else pushText(`[图片 ${block.mime}${block.width === undefined || block.height === undefined ? "" : ` ${block.width}x${block.height}`}：当前模型不能看图]`);
+    }
+    return out;
+}
+
 function assistantContent(blocks: readonly ContentBlock[], calls: readonly ToolCall[], names: ReadonlyMap<string, string>): AssistantMessage["content"] {
     const content: AssistantMessage["content"] = blocks.map((block) => {
         switch (block.kind) {
@@ -137,7 +154,7 @@ function toContext(request: ModelRequest, model: Model, now: number): Context {
             } as AssistantMessage;
         }
         const tool = toolOfCall.get(message.callId ?? "") ?? "";
-        return {role: "toolResult", toolCallId: message.callId ?? "", toolName: names.get(tool) ?? tool.replaceAll(".", "__"), content: userContent(message.content), isError: message.isError ?? false, timestamp: now};
+        return {role: "toolResult", toolCallId: message.callId ?? "", toolName: names.get(tool) ?? tool.replaceAll(".", "__"), content: toolContent(message.content, model.input.includes("image")), isError: message.isError ?? false, timestamp: now};
     });
     const tools: Tool[] = request.tools.map((tool) => ({
         name: providerToolName(tool),

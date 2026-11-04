@@ -5,7 +5,7 @@
 
 import type {Actor, JsonValue, Scope, UserInput} from "./basics.js";
 import type {ContentBlock, ModelErrorKind, RequestPurpose, StopReason, Usage} from "./model.js";
-import type {ToolCall, ToolStatus} from "./tool.js";
+import type {ToolCall, ToolImage, ToolStatus} from "./tool.js";
 
 // ====================================================================
 // 事件的声明
@@ -171,12 +171,14 @@ export interface KernelEvents {
         callId: string;
         tool: string;
         text: string;
+        images?: readonly ToolImage[];
         status: ToolStatus;
         code?: string;
         /** `denied`、`blocked` 的署名。 */
         by?: string;
         details?: JsonValue;
         raw?: string;
+        rawImages?: readonly ToolImage[];
         rawHash?: string;
     }>;
 
