@@ -113,10 +113,10 @@ t08 之后重新对齐需求：
 
 ## 当前状态
 
-切片 0–7 都已完成：Spec 在 master，其余在分支 `feat/w00032-t12-builtin-tools`（worktree `.worktree/w00032-t12-builtin-tools`），等开发者允许后合并。[收口验证](evidences/closing-verification.txt)通过，真实模型 smoke（DeepSeek）通过。实现审查两段都处理完（[处理](evidences/impl-review-disposition.md)）。
+已于 2026-11-04 合入 master（`8abdc1bd9`）。`agent/builtin-tools.md` 与写入接口各条经开发者批准晋升为 `implemented`。验证与审查见 [收口验证](evidences/closing-verification.txt)、[实现审查的处理](evidences/impl-review-disposition.md)。
 
-实施中对计划的小改：`grep` 的搜索根也可以是文件（模型常这样用，Spec 已改）。
+未验证：Windows 上的 `shell`；服务商实际怎样计图片 token、怎样拒绝过大的图。透明图缩放的彩边不修（处理记录里写了理由）。
 
 ## 下一步
 
-开发者允许后合并；之后写 t27 的计划。
+[t27](../t27-run-reliability/README.md) 写计划。

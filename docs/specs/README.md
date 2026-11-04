@@ -173,6 +173,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 模型服务的设置页 | [`models/settings-pages.md`](models/settings-pages.md) | “服务商与模型”“模型角色”两页：服务商列表与详情、连接与请求头、模型列表与检测、编辑与管理模型、删除确认、角色表 |
 | Agent 的贡献点 | [`agent/contributions.md`](agent/contributions.md) | `nbook.agent` 的 `agent.extensions`、`agent.tools`、`agent.profiles`：声明形状、激活事件、工具集的合成、Profile 目录与用户级 Profile 的打包与重载、提供方停止的影响 |
 | Agent 的会话服务 | [`agent/sessions.md`](agent/sessions.md) | 会话存放与句柄寿命、远程合同与失败码、帧的合并与补齐、大小上限、`startTask` 的幂等、停止的收口 |
+| Agent 的内置工具 | [`agent/builtin-tools.md`](agent/builtin-tools.md) | `nbook.agent` 交出的 `read`、`write`、`edit`（hashline 与 replace）、`grep`、`glob`、`shell`：参数、输出、上限、失败码、全局地址、`shell` 的地址替换与全文 |
 | Agent 的资源地址 | [`agent/resources.md`](agent/resources.md) | 单数地址的改写与分类、`sessions://`、`profiles://`、`temps://`、`docs://`、`skills://` 的内容与权限、按需建目录、临时目录的分区与启动清理 |
 | 菜单项 | [`workbench/menus.md`](workbench/menus.md) | 插件把命令放进别的插件拥有的菜单位置：菜单项的形状、显示与可用、排序与分隔、勾选、按后缀过滤与参数；四处位置（标题栏菜单、视图标题、资源管理器右键、编辑区标题） |
 | 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则 |
@@ -187,7 +188,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 图片查看器 | [`workbench/image-viewer.md`](workbench/image-viewer.md) | 图片的字节编辑器：适应与缩放、棋盘格底、尺寸与大小、随文件更新 |
 | HTML 预览 | [`workbench/html-preview.md`](workbench/html-preview.md) | 沙箱里的预览编辑器：令牌限定的只读文件访问、相对引用、默认联网可关、随正文更新 |
 | 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | 文件读写、目录与批量操作、无覆盖冲突、逐项失败与取消；跨机器访问与非 Linux 平台的排他改名验证为已知限制；按地址读取字节与预览的受限读取 |
-| 资源寻址与文件服务 | [`workspace/resources.md`](workspace/resources.md) | `方案://路径` 寻址、`project://`/`user://` 两个真实目录型提供者的读写列出监视与订阅、写入来源与变更事件；方案注册与挂载方案、服务端文件服务、`projects://`；浏览器访问已注册方案、第三方注册、glob、grep 与 shell 标 `(planned)` |
+| 资源寻址与文件服务 | [`workspace/resources.md`](workspace/resources.md) | `方案://路径` 寻址、`project://`/`user://` 两个真实目录型提供者的读写列出监视与订阅、写入来源与变更事件；方案注册与挂载方案、服务端文件服务、`projects://`、写入接口（读、暂存与提交、文件操作、操作分组、记账槽）；浏览器访问已注册方案、第三方注册标 `(planned)` |
 | 文件夹类型与清单 | [`workspace/folder-kinds.md`](workspace/folder-kinds.md) | 普通、内容、活页夹三类文件夹，后缀识别、XML 清单、未列入与缺失处理、渲染贡献点 |
 | Markdown 方言 | [`workspace/markdown-dialect.md`](workspace/markdown-dialect.md) | 作品 Markdown 的读写规则：CommonMark 与 GFM 之上的中文规则、项目方言、认不出的语法原样保留、以块为单位写回与读回校验 |
 | Markdown 方言的贡献 | [`workspace/markdown-syntaxes.md`](workspace/markdown-syntaxes.md) | 方言的声明与实现两个贡献点、生效条件与冲突、视图在建立时取定语言、字数按声明 |
@@ -208,7 +209,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 
 | 功能域 | 当前规范 | 说明 |
 |---|---|---|
-| Agent 的内置工具 | [`agent/builtin-tools.md`](agent/builtin-tools.md) | `nbook.agent` 交出的 `read`、`write`、`edit`（hashline 与 replace）、`grep`、`glob`、`shell`：参数、输出、上限、失败码、全局地址、`shell` 的地址替换与全文 |
 | Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config、Storage、内存与领域数据的归属，插件与 grid 的消费边界 |
 | 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量与宿主、scope 仲裁与绝对指针跟随 |
 | 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | 清单格式、按入口声明的服务依赖、同一运行位置解析、受阻推导与启停顺序 |

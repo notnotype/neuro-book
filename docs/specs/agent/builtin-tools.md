@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.builtin-tools
 owners:
   - nbook.agent
@@ -130,6 +130,20 @@ owners:
 
 Smoke：`packages/neuro-book/src/plugins/agent/builtin-tools.llm.test.ts`（`test:llm`）。
 
+## 实现合同
+
+- **公开入口**：工具 id 与声明（`nbook.agent` 经 `agent.tools` 贡献），Profile 按 id 绑定；工具工厂的 `services` 形状在 `nbook/plugins/agent/shared/resources`。
+- **owner 与依赖方向**：`nbook.agent` 的服务端入口，既贡献也接收这些工具；读写依赖 `nbook.files` 的写入接口，行锚、搜索与 shell 依赖 `@oh-my-pi/pi-natives`。
+- **关键不变量**：
+  - 工具不自己写盘：写都经资源视图或 `SessionArtifacts`，所以来源、分组与授权由文件服务判定（`builtin-tools.test.ts`“edit”“全文”）。
+  - `edit` 的引擎只算新内容，写回核对这次调用里读到的基线；进引擎前把目标换成全局地址，不去改引擎的文字（输出 1、11，`builtin-tools.test.ts`“验收 4”）。
+  - `shell` 的输出回调只做同步的事，全文在命令结束后才保存：暂存不可用不影响执行，命令恰好执行一次（输出 22，`builtin-tools.test.ts`“验收 3”）。
+  - `grep` 的回调不等异步核对：匹配入队、逐文件核对，配额与期限到了都不再核对，核对过的结果留着（输出 14、17，`builtin-tools.test.ts`“grep 与 glob”）。
+  - `read`、`write`、`edit` 按会话共用行锚快照，按持有的工具引用计数（`builtin-tools.test.ts`“hashline 改一行”）。
+
 ## 证据
 
-- 批准依据：[w00032 t12](../../../.agents/works/w00032-agent-integration/tasks/t12-builtin-tools/README.md) 的决定；开发者 2026-11-04 确认的[第四稿计划](../../../.agents/works/w00032-agent-integration/tasks/t12-builtin-tools/plan.md)。
+- 批准依据：[w00032 t12](../../../.agents/works/w00032-agent-integration/tasks/t12-builtin-tools/README.md) 的决定与[第四稿计划](../../../.agents/works/w00032-agent-integration/tasks/t12-builtin-tools/plan.md)；开发者 2026-11-04 批准晋升为 `implemented`。
+- 实现入口：[`backend/builtin/index.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/index.ts)、[`read.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/read.ts)、[`image.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/image.ts)、[`write.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/write.ts)、[`edit.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/edit.ts)、[`search.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/search.ts)、[`shell.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/shell.ts)、[`shell-address.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/shell-address.ts)
+- 合同测试：[`builtin-tools.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools.test.ts)（真实服务端内核、真实文件、真实 brush、本机的 OpenAI 兼容端点）、[`builtin-tools-project.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools-project.test.ts)（真实项目子进程）
+- Smoke：[`builtin-tools.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools.llm.test.ts)（`test:llm`，真实模型）
