@@ -113,10 +113,10 @@ t08 之后重新对齐需求：
 
 ## 当前状态
 
-切片 0–7 都已完成：Spec 在 master，其余在分支 `feat/w00032-t12-builtin-tools`（worktree `.worktree/w00032-t12-builtin-tools`），没有开发者允许不合并。[收口验证](evidences/closing-verification.txt)通过，真实模型 smoke（DeepSeek）通过。实现审查（omp）进行中。
+切片 0–7 都已完成：Spec 在 master，其余在分支 `feat/w00032-t12-builtin-tools`（worktree `.worktree/w00032-t12-builtin-tools`），等开发者允许后合并。[收口验证](evidences/closing-verification.txt)通过，真实模型 smoke（DeepSeek）通过。实现审查两段都处理完（[处理](evidences/impl-review-disposition.md)）。
 
-实施中对计划的两处小改：`grep` 的搜索根也可以是文件（模型常这样用，Spec 已改）；`read` 的图片超过 500 KiB 时转 JPEG（图片随日志留在会话里、每次请求都发，上限取 omp 的做法）。
+实施中对计划的小改：`grep` 的搜索根也可以是文件（模型常这样用，Spec 已改）。
 
 ## 下一步
 
-处理实现审查的结论 → 向开发者汇报，等合并的允许。
+开发者允许后合并；之后写 t27 的计划。

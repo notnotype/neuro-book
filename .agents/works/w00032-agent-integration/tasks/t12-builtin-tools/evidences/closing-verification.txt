@@ -34,3 +34,14 @@ CAUGHT customFormat 不转发 | (fail) 声明 > 工具以模型熟悉的名字�
 CAUGHT 单引号不编码 | (fail) shell > 输出 19：地址替换的引号与分隔符；路径含空格、$、反引号、单引号；新文件目标；不认识的方案不动 [110.9 ;  1 fail
 CAUGHT 双引号不编码 | (fail) shell > 输出 19：地址替换的引号与分隔符；路径含空格、$、反引号、单引号；新文件目标；不认识的方案不动 [145.9 ;  1 fail
 CAUGHT 引号外不编码 | (fail) shell > 输出 19：地址替换的引号与分隔符；路径含空格、$、反引号、单引号；新文件目标；不认识的方案不动 [49.89 ;  1 fail
+
+收口之后的改动（照 omp 的调整与两段审查的修正）后重跑，提交见分支最新：
+ 1777 pass
+ 0 fail
+      Tests  412 passed (412)
+CAUGHT 透明也用 JPEG | (fail) read > 输出 7：压不动的图逐级压到 500 KiB 内；可能
+CAUGHT 不放大小图 | (fail) read > 输出 7：压不动的图逐级压到 500 KiB 内；可能有透明的
+CAUGHT 不逐级压缩 | (fail) read > 输出 7：压不动的图逐级压到 500 KiB 内；可能有透明的
+CAUGHT 只留结尾 | (fail) shell > 输出 21：短输出不留全文；超出窗口时只交回尾部，全文完整落盘
+CAUGHT 单行不限 | (fail) shell > 输出 21：短输出不留全文；超出窗口时只交回尾部，全文完整落盘
+CAUGHT WebP 不转 | (fail) OMP 适配器 > 本地后端解不了 WebP：发送前转成 PNG，转不了

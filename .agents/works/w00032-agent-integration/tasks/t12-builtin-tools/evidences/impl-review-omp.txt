@@ -40,3 +40,37 @@
 撤回或改级：无。
 有效发现索引：1、2、3、4、5。
 数量：阻断 0，重要 5，建议 0。
+## 第二段：00d85fdc8..HEAD
+### 重要｜正确性｜packages/neuro-book/src/plugins/agent/backend/builtin/image.ts:172-179
+- **严重程度**：重要；**类别**：正确性
+- **现象**：实现识别了可能透明的图片并禁止 JPEG，但缩放前仍直接对 straight-alpha 的源图调用 `Bun.Image(...).resize(...).png()`；没有 omp 参照中的 premultiply、缩放后 unpremultiply。透明像素下的 RGB 会被插值到不透明边缘，生成明显彩边。
+- **为什么是问题**：`mayHaveAlpha` 只防止 JPEG 丢透明，不能防止缩放的颜色污染。带透明背景的图片是 read 的明确输入，模型看到的缩略图会出现原本不存在的红/黑边；这比单纯压缩画质更改了图像语义。参照实现专门为此把 RGBA 预乘后缩放，再还原颜色，本实现没有带过来。
+- **如何核实**：用真实 Bun.Image 路径运行 `/tmp/review-t12-impl/lab/image-alpha.ts`，生成左半蓝色不透明、右半红色全透明的 `3000x20` RGBA PNG，经过产品 `prepareImage` 缩到 `1568x10` 后解码输出；边界样本出现 `[255,0,1,1]`、`[229,0,27,27]`，透明/低 alpha 像素仍带大量红色。参照 omp `image-resize.ts:164-175` 明确执行 premultiply，现有测试只检查尺寸与字节上限，没有检查像素边缘。
+- **建议改法**：复用或移植 omp 的 `premultipliedPng`/`readRgba`/`unpremultiply` 路径：只要实际存在非 255 alpha，就以预乘 PNG 作为 resize 与有损编码输入，编码后恢复 RGBA；补带透明彩边的真实像素验收。
+### 重要｜正确性｜packages/neuro-book/src/plugins/agent/backend/builtin/shell.ts:481-538
+- **严重程度**：重要；**类别**：正确性
+- **现象**：输出行数只按换行符计数。没有尾部换行的 `2001` 行输出只有 `2000` 个 `\n`，不会触发窗口截断；`window()` 的 `split("\\n").length - 1` 也把它当成 2000 行，完整交回，违反“至多 2000 行”。
+- **为什么是问题**：命令输出不保证以换行结束（`printf`、脚本最后一行、管道截断都常见）。模型可以一次收到超过合同上限的行数；同一内容仅加一个尾部换行就会进入另一条截断路径，窗口行为不稳定。
+- **如何核实**：真实 `projectHarness`、真实 `WorkspaceFiles`、真实 `builtinTools` 与真实 `executeShell` 运行 `/tmp/review-t12-impl/lab/shell-user-root.ts`，预置 `1` 到 `2001`、行间换行但末尾无换行的文件并执行 `cat user://lines.txt`；实测 `bytes: 8897`、`hasFirst: true`、`hasLast: true`、`hasMiddleNotice: false`，完整输出未截断。
+- **建议改法**：行数统一按“换行数加上非空尾部行”计算：`text.length === 0 ? 0 : newlineCount + (text.endsWith("\\n") ? 0 : 1)`；跨块统计时把当前未结束行计入阈值与 `window()` 判定，补有/无尾换行的 2000/2001 行边界测试。
+
+### 重要｜正确性｜第二段 3：OutputCapture 的完整内存分支绕过输出字节预算
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`/tmp/review-t12-impl/wt/packages/neuro-book/src/plugins/agent/backend/builtin/shell.ts:94-98,121-130`。
+- **现象**：`push` 首次超限时把整块留在 `#memory`；如果命令此时结束，`totalBytes === #memoryBytes` 成立。`window()` 只再检查换行数，没有检查 `WINDOW_BYTES`，于是把超出 50 KB 的输出原样交回，没有头尾窗口或中间省略。
+- **为什么是问题**：`cat` 等命令可在单次原生回调交出超过 50 KB 的内容。这不是人为伪造回调；实际 `executeShell` 已出现。新分支让模型收到超出合同的工具正文；base 的 `tail()` 会无条件按 50 KB 修剪，属于本段引入的回归。
+- **如何核实**：在仓库根运行 `bun --no-install --tsconfig-override /tmp/review-t12-impl/lab/tsconfig.json /tmp/review-t12-impl/lab/review2-surface.ts`。脚本经真实 Agent、真实 Files 和真实 brush 执行 `cat session://output.txt`。输入分别为 `52,000`、`56,550`、`63,700`、`69,550` 字节，每行 `649` 字节；原生每次只有 1 个 chunk。工具正文分别为 `51,999`、`56,549`、`63,699`、`69,549` 字节（工具去掉末尾换行），全部没有“中间省略”。现有测试只用大量小块的循环输出，未覆盖单块跨过总字节上限。
+- **建议改法**：完整内存的快捷分支同时要求 `totalBytes <= WINDOW_BYTES`，超出总字节或行数预算时必须走头尾裁剪。更稳妥的是显式判断“仅单行超限”，避免用内存是否尚未修剪来代替输出是否满足预算。
+
+## 第二段复核补正（追加，保留原文）
+
+- **第二段第 2 条（总报告第 7 个问题标题，shell 无尾换行 2001 行）撤回**：`00d85fdc8` 的 `OutputCapture` 同样按换行符计数；本段没有引入此问题。按“base 已有的问题不计回归”的规则，不计入第二段数量。该条原位置使用了 diff 行号，准确 HEAD 位置为 `shell.ts:86-94,124`，以此补正。
+- 第二段第 1 条透明缩放正在补充正确的 PNG 解码与 base 对照；此前像素样本尚未还原 PNG 行过滤器，不能单凭这些数字定案。最终口径以末尾索引为准。
+
+## 第二段第 1 条补充核实（收窄为新增放大路径）
+
+- **准确位置**：`/tmp/review-t12-impl/wt/packages/neuro-book/src/plugins/agent/backend/builtin/image.ts:63-70,77`。原第 1 条误用了 diff 行号，以本位置为准。
+- **收窄后的现象**：base 对 `100x100`、小于 500 KiB 的静态 PNG 原样交回，不会重采样；本段新增最短边放大，使同一小图重采样到 `200x200`。这条新增路径没有透明预乘，隐藏 RGB 污染可见边缘。大图缩小本来已有同类风险，不计本段回归。
+- **真实入口与正确解码证据**：运行 `bun --no-install --tsconfig-override /tmp/review-t12-impl/lab/tsconfig.json /tmp/review-t12-impl/lab/review2-alpha.ts`。经实际 Agent 工具调用、Files 和 `read`，分别输入两张视觉相同的 `100x100` PNG：左半蓝色不透明，右半全透明；唯一差别是透明像素下面的 RGB 分别为红色、蓝色。输出都为 `200x200 WebP`。用 `/tmp/review-t12-impl/lab/png-pixels.ts` 解码全部 PNG 过滤器后，红色隐藏 RGB 的 x=99 边界为 `[66,2,185,201]`，蓝色隐藏 RGB 同位置为 `[0,0,255,201]`；x=100 分别为 `[163,6,104,54]` 与 `[0,0,255,54]`。同一可见输入因全透明区域不可见的 RGB 不同而产生不同彩边，问题成立。
+- **补正建议**：实际 alpha 非 255 时，先做预乘，再缩放、反预乘后编码。预乘只属于 resize；不能把预乘状态的颜色直接交给最终 WebP/JPEG 编码器。保留第 1 条重要级别；旧实验未还原 PNG 过滤器的样本不再作为依据。
