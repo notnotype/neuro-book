@@ -2,7 +2,7 @@
 schema: nbook.work/v1
 workId: w00040-list-row-equal-height
 issueId: null
-status: active
+status: shelved
 updated: 2026-11-04
 ---
 
