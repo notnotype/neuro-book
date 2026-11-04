@@ -10,7 +10,8 @@
         "./vitest": "./src/vitest.ts",
         "./wait": "./src/wait.ts",
         "./llm": "./src/llm.ts",
-        "./import-boundary": "./src/import-boundary.ts"
+        "./import-boundary": "./src/import-boundary.ts",
+        "./style-tokens": "./src/style-tokens.ts"
     },
     "scripts": {
         "typecheck": "tsc --noEmit -p tsconfig.json",
