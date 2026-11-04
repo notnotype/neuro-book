@@ -2,8 +2,8 @@
 schema: nbook.work/v1
 workId: w00029-nb-ui-cleanup
 issueId: null
-status: active
-updated: 2026-10-20
+status: done
+updated: 2026-11-04
 ---
 
 # nb-ui 组件整理
