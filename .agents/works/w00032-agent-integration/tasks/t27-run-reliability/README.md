@@ -46,8 +46,8 @@ updated: 2026-11-04
 
 ## 当前状态
 
-设计审查已处理（[处理](evidences/design-review-disposition.md)）：omp 写 10 条后额度用完，Claude Opus 接手 12 条。开发者 2026-11-04 确认 [plan.md](plan.md) 第二稿，按切片实施中，分支 `feat/w00032-t27-run-reliability`。
+设计审查已处理（[处理](evidences/design-review-disposition.md)）：omp 写 10 条后额度用完，Claude Opus 接手 12 条。开发者 2026-11-04 确认 [plan.md](plan.md) 第二稿。切片 0（Spec）在 master，切片 1–6 在分支 `feat/w00032-t27-run-reliability`，收口验证见 [closing-verification.txt](evidences/closing-verification.txt)，实现审查进行中。
 
 ## 下一步
 
-按切片实施；收口做真实模型 smoke 与实现审查。
+处理实现审查的结论，再合入、晋升 Spec。

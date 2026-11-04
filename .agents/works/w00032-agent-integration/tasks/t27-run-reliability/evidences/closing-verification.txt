@@ -1,0 +1,26 @@
+t27 收口验证（分支 feat/w00032-t27-run-reliability，提交 3d12e2ee6，已并入 master）
+
+测试
+- neuro-book：bun 1797 pass，0 fail；vitest 412 pass，72 个文件；类型检查通过（tsc 与两份 vue-tsc）。
+- nb-harness：413 pass，0 fail；类型检查通过。
+- 真实模型 smoke（DeepSeek）：run-guards.llm.test.ts 1 pass。带传输设置时一轮对话完成，只发一次模型请求，没有 modelFailed，费用进会话累计。
+
+变异检查（改坏实现，确认测试失败；都恢复了）
+- 适配器：acceptEmptyResponse、firstEvent.seen、pi-ai 第一事件超时传 0、ThinkingLoop 排除。
+- 内核修正：reserveRequest、两次 next 的结算、spend 累计、单条 runEnded。
+- 重发：results 跳过带 retry 的失败、5 分钟上限、Retry-After 取较大值、maxRetries 上限、retryable 判断、length 的空回复、tool 的空回复、等待时中止、modelCaller 的重发、空回复的提醒、retries 清零、RunStatus 只改 running、complete 的重发与用量累加。
+- 保护：告警线可调高、无单价只提示一次、两个预览分支、拦下回复的 cost、start 不解除、steer 解除、结果相同才停、参数键序、path 片。
+过程中有 5 个变异第一次没被抓到（pi-ai 第一事件超时、等待时中止、RunStatus 只改 running、两个预览分支），都补了或收紧了测试；steer 解除也是后补的。另有一个结论是条件写多了：提醒过的哈希总等于当前哈希，改成布尔值。
+
+检查
+- governance:check：只有基线 Drawer.md。
+- docs:check：worktree 里一条失败，docs/proposals/world-engine-plot-side.md 指向主工作区未提交的 w00039 flow-draft.md，来自 master 上别的提交，与本 Task 无关。
+
+界面
+- 设置窗口实际打开（nbdev shot，开发服务）：分区“运行可靠性”在“写作助手”组下，六个数字框显示缺省值。第一次截图发现分区标题显示键名（约定键去掉插件前缀），改后复查。
+- 没有逐项点改数字框、没有看英文界面；范围校验走配置核心的现有校验。
+
+未验证
+- 真实服务商的错误标记是否与本机端点一致（429、500、流内错误）。
+- Windows 上的落盘路径。
+- anthropic-messages 内层重试的总时长只在本机 503 上测过（11 次，46.4 秒）。
