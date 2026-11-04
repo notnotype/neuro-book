@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t12-builtin-tools
-status: active
+status: done
 updated: 2026-11-04
 ---
 
