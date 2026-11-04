@@ -160,19 +160,21 @@ async function saveFull(artifacts: AgentToolServices["artifacts"], capture: Outp
     return saved.ok ? {address: saved.value.address} : {problem: `${saved.code}: ${saved.detail}`};
 }
 
-/** 全局地址定位成真实路径；目标不存在时从最近的已存在祖先接上余下的段（`mkdir`、重定向的目标），不预先建任何东西。 */
+/**
+ * 全局地址定位成真实路径；目标不存在时从最近的已存在祖先接上余下的段（`mkdir`、重定向的目标），不预先建任何东西。
+ * 祖先一直问到方案根（`user://new.txt` 的祖先是 `user://`）；虚拟方案的根没有真实路径，这时交回第一次的 `not-found`，原因才对得上。
+ */
 async function locate(resources: SessionResources, address: string, signal: AbortSignal): Promise<{readonly path: string} | {readonly failure: ToolResult}> {
-    const trailing = address.endsWith("/") && !address.endsWith("://");
-    const base = trailing ? address.slice(0, -1) : address;
-    const prefix = base.slice(0, base.indexOf("://") + 3);
-    const segments = base.slice(prefix.length).split("/");
+    const prefix = address.slice(0, address.indexOf("://") + 3);
+    const segments = address.slice(prefix.length).split("/");
     const missing: string[] = [];
+    let firstMissing: ToolResult | null = null;
     for (;;) {
-        const at = prefix + segments.join("/");
-        const located = await resources.readPath(at, {signal});
-        if (located.ok) return {path: join(located.value.path, ...missing) + (trailing ? "/" : "")};
-        if (located.code !== "not-found" || segments.length === 0) return {failure: failure({code: located.code, detail: `${address}：${located.detail}`})};
-        // 段走完了就问方案根：`user://new.txt` 的祖先是 `user://`。
+        const located = await resources.readPath(prefix + segments.join("/"), {signal});
+        if (located.ok) return {path: join(located.value.path, ...missing)};
+        const problem = failure({code: located.code, detail: `${address}：${located.detail}`});
+        if (located.code !== "not-found" || segments.length === 0) return {failure: firstMissing ?? problem};
+        firstMissing ??= problem;
         missing.unshift(segments.pop() as string);
     }
 }
@@ -194,11 +196,13 @@ async function replaceAddresses(resources: SessionResources, command: string, si
             replacements.push(null);
             continue;
         }
-        const expanded = resources.expand(item.address);
+        // shell 里常写 `ls project://dir/`、`cp a session://dir/`：地址规则不收末尾的斜杠，去掉再补回。
+        const trailing = item.address.endsWith("/") && !item.address.endsWith("://");
+        const expanded = resources.expand(trailing ? item.address.slice(0, -1) : item.address);
         if (!expanded.ok) return {failure: failure({code: expanded.code, detail: `${item.address}：${expanded.detail}，命令没有执行`})};
         const located = await locate(resources, expanded.address, signal);
         if ("failure" in located) return located;
-        replacements.push(located.path);
+        replacements.push(trailing ? `${located.path}/` : located.path);
     }
     return {command: substitute(command, found, replacements)};
 }

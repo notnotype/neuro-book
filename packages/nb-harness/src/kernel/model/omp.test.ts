@@ -166,6 +166,28 @@ describe("OMP 适配器", () => {
         expect(broken.stopReason).not.toBe("error");
         expect(JSON.stringify(bodies.at(-1)!.messages)).toContain("转换失败");
 
+        // 压不动的图转回 PNG 太大时改用 JPEG（BMP 头加噪声，省得在测试里组 PNG）。
+        const width = 1600;
+        const height = 1200;
+        const bmp = Buffer.alloc(54 + width * height * 3);
+        bmp.write("BM");
+        bmp.writeUInt32LE(bmp.length, 2);
+        bmp.writeUInt32LE(54, 10);
+        bmp.writeUInt32LE(40, 14);
+        bmp.writeInt32LE(width, 18);
+        bmp.writeInt32LE(height, 22);
+        bmp.writeUInt16LE(1, 26);
+        bmp.writeUInt16LE(24, 28);
+        let state = 7;
+        for (let at = 54; at < bmp.length; at += 1) {
+            state = (state * 1103515245 + 12345) & 0x7fffffff;
+            bmp[at] = state >> 16;
+        }
+        const noisy = await new Bun.Image(bmp).webp({quality: 40}).toBase64();
+        replies = [{text: "好"}];
+        await local(request({tools: [search], messages: messages(noisy)}), new AbortController().signal, () => undefined);
+        expect(JSON.stringify(bodies.at(-1)!.messages)).toContain("data:image/jpeg;base64,");
+
         const cloud = {provider: "openai", api: "openai-completions", baseUrl: "https://api.openai.com/v1"} as const;
         expect(lacksWebp(cloud as never)).toBe(false);
         for (const model of [{...cloud, provider: "ollama"}, {...cloud, provider: "lm-studio"}, {...cloud, api: "ollama-chat"}, {...cloud, baseUrl: "http://localhost:1234/v1"}, {...cloud, baseUrl: "http://127.0.0.1:8080/v1"}, {...cloud, imageInputDecoder: "stb"}]) {

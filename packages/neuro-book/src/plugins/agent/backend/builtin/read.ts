@@ -99,7 +99,7 @@ async function collect(lines: AsyncIterable<string> | Iterable<string>, offset: 
             break;
         }
         const truncated = line.length > MAX_LINE_CHARS;
-        const row = truncated ? `${line.slice(0, MAX_LINE_CHARS)} …[本行共 ${String(line.length)} 字符，已截断]` : line;
+        const row = truncated ? `${line.slice(0, MAX_LINE_CHARS)} …[本行${line.length >= MAX_BUFFERED_LINE ? "超过" : "共"} ${String(line.length)} 字符，已截断]` : line;
         const size = Buffer.byteLength(row, "utf8") + 1;
         if (rows.length > 0 && bytes + size > MAX_BYTES) {
             more = true;

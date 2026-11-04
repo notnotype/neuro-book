@@ -95,6 +95,8 @@ function toolContent(blocks: readonly ContentBlock[], vision: boolean): (TextCon
     return out;
 }
 
+const WEBP_FALLBACK_PNG_LIMIT = 4 * 1024 * 1024;
+
 /** 本地推理后端（llama.cpp 的解码器）解不了 WebP；同 omp 的判断，另加本机回环地址：自定义服务商指向本机的多半也是这类后端。 */
 export function lacksWebp(model: Pick<Model, "provider" | "api" | "baseUrl" | "imageInputDecoder">): boolean {
     return model.imageInputDecoder === "stb"
@@ -108,7 +110,11 @@ async function withoutWebp(request: ModelRequest): Promise<ModelRequest> {
     const convert = async (block: Message["content"][number]): Promise<Message["content"][number]> => {
         if (block.kind !== "image" || block.mime !== "image/webp") return block;
         try {
-            return {...block, data: await new Bun.Image(Buffer.from(block.data, "base64")).png().toBase64(), mime: "image/png"};
+            const source = Buffer.from(block.data, "base64");
+            const png = await new Bun.Image(source).png().bytes();
+            // PNG 无损，压过的图转回去可能大十几倍；回环地址后面也可能是转发到云端的网关，有单图上限。透明丢了也比这个会话之后每次都失败好。
+            if (png.length <= WEBP_FALLBACK_PNG_LIMIT) return {...block, data: Buffer.from(png).toString("base64"), mime: "image/png"};
+            return {...block, data: await new Bun.Image(source).jpeg({quality: 80}).toBase64(), mime: "image/jpeg"};
         } catch (error) {
             return {kind: "text", text: `[图片 image/webp：转换失败（${error instanceof Error ? error.message : String(error)}）]`, origin: block.origin};
         }

@@ -212,7 +212,7 @@ describe("read", () => {
         await writeFile(join(home, "单行.txt"), `${"甲".repeat(3 * 1024 * 1024)}\n第二行\n`);
         const long = await call(session, "read", {path: "session://单行.txt"});
         expect(long.status).toBe("ok");
-        expect(long.text).toContain("已截断");
+        expect(long.text).toContain("本行超过");
         expect(long.text).toContain("2:第二行");
     });
 
@@ -629,6 +629,12 @@ describe("shell", () => {
         // 祖先一直到方案根：`user://新.txt` 的段走完了问 `user://`。
         expect((await call(session, "shell", {command: "echo 根 > user://根下新文件.txt"})).status).toBe("ok");
         expect(await readFile(join(w.stateRoot, "user", "根下新文件.txt"), "utf8")).toBe("根\n");
+        // 虚拟方案下不存在的位置：原因是 not-found，不被“方案根没有真实路径”盖掉。
+        expect(await call(session, "shell", {command: "cat sessions://没有这个会话/a.md"})).toMatchObject({code: "not-found"});
+        // 末尾的斜杠：换成真实路径后补回。
+        await mkdir(join(home, "带斜杠"), {recursive: true});
+        await writeFile(join(home, "带斜杠/里面.md"), "x");
+        expect((await call(session, "shell", {command: "ls session://带斜杠/"})).text.split("\n")[0]).toBe("里面.md");
         const mkdirs = await call(session, "shell", {command: "mkdir -p session://新/目录 && echo 写 > session://新/目录/g.md"});
         expect(mkdirs.status).toBe("ok");
         expect(await readFile(join(home, "新/目录/g.md"), "utf8")).toBe("写\n");
