@@ -10,7 +10,7 @@
  */
 
 import {jsonProblem} from "../api/index.js";
-import type {CompactionCut, CompactionJob, CompactionMethod, CompactionResult, ConversationTurn, JsonValue, LogEvent, ModelCaller, ModelInfo, ModelRequest, Resources, ToolDeclaration, ToolSessionContext, Usage} from "../api/index.js";
+import type {CompactionCut, CompactionJob, CompactionMethod, CompactionResult, ConversationTurn, JsonValue, LogEvent, ModelCaller, ModelInfo, ModelRequest, Resources, ToolDeclaration, ToolImage, ToolSessionContext, Usage} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
@@ -23,7 +23,10 @@ import {computeRequest} from "../view/request.js";
 const DEFAULT_ORDER: Readonly<Record<"threshold" | "overflow", readonly CompactionMethod[]>> = {threshold: ["shake", "inplace"], overflow: ["shake", "summary"]};
 
 const encoder = new TextEncoder();
+const IMAGE_TOKENS_MAX = 1_600;
 export const estimateTokens = (text: string): number => Math.ceil(encoder.encode(text).length / 3);
+/** 一张图的估算（docs/specs/harness/runtime.md 输出 60）：服务商实际怎样计不在这里核对。 */
+export const estimateImageTokens = (image: {readonly width?: number; readonly height?: number}): number => (image.width === undefined || image.height === undefined ? IMAGE_TOKENS_MAX : Math.min(IMAGE_TOKENS_MAX, Math.ceil((image.width * image.height) / 750)));
 const finiteNonNegative = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 /**
  * 一条事件在请求里大约占多少 token：被压缩省略的按占位算（回复另加它的工具调用），其余按数据。
@@ -31,7 +34,12 @@ const finiteNonNegative = (value: unknown): value is number => typeof value === 
  */
 function estimateEvent(event: LogEvent, omitted: ReadonlyMap<string, string>): number {
     const placeholder = omitted.get(event.id);
-    if (placeholder === undefined) return estimateTokens(JSON.stringify(event.data));
+    if (placeholder === undefined) {
+        if (event.type !== "toolResult") return estimateTokens(JSON.stringify(event.data));
+        // base64 不按长度算，否则一张几百 KB 的图就会触发压缩；`rawImages` 不进请求，不算。
+        const {images, rawImages: _rawImages, ...rest} = event.data as {images?: readonly ToolImage[]; rawImages?: unknown};
+        return estimateTokens(JSON.stringify(rest)) + (images ?? []).reduce((sum, image) => sum + estimateImageTokens(image), 0);
+    }
     const calls = event.type === "assistant" ? JSON.stringify((event.data as {toolCalls?: unknown}).toolCalls ?? []) : "";
     return estimateTokens(placeholder + calls);
 }

@@ -105,6 +105,40 @@ describe("阈值触发", () => {
         expect(request.messages.find((message) => message.toolCalls !== undefined)!.toolCalls).toHaveLength(1);
     });
 
+    test("输出 58：被省略的工具结果只发占位、不附图，重开后仍如此", async () => {
+        const image = {data: "QUJD", mime: "image/png", width: 800, height: 600};
+        const omitResults: CompactionMethodImpl = async (job) => {
+            const blocks = job.request.messages.filter((message) => message.role === "tool").flatMap((message) => message.content);
+            expect(blocks.map((block) => block.kind)).toEqual(["text", "image"]);
+            const entryId = (blocks[0]!.origin as {eventId: string}).eventId;
+            return {method: job.method, firstKeptEntryId: job.cuts[0]!.entryId, replacement: null, omitted: [{entryId, placeholder: "（已省略）"}], tokensBefore: job.tokens, tokensAfter: job.tokens / 2};
+        };
+        await using session = await createTestSession({store: {root}, profile: profileWith({onThreshold: ["shake"]}), compaction: {methods: {shake: omitResults}}, tools: [{id: "lab.pic", execute: () => ({text: "图", images: [image]})}]});
+        session.model.script({tools: [{tool: "lab.pic"}]}, {text: "看完了", usage: HEAVY}, "答二", "答三");
+        await session.say("看图");
+        const second = await session.say("接着");
+        expect(second.requests.at(-1)!.raw.messages.find((message) => message.role === "tool")!.content).toMatchObject([{kind: "text", text: "（已省略）"}]);
+        await session.reopen();
+        const third = await session.say("再接着");
+        expect(third.requests.at(-1)!.raw.messages.find((message) => message.role === "tool")!.content).toHaveLength(1);
+    });
+
+    test("输出 60：500 KiB 的图按固定口径估算，不触发压缩；预览也按这个口径", async () => {
+        const image = {data: "A".repeat(500 * 1024), mime: "image/png", width: 800, height: 600};
+        let compactions = 0;
+        const count: CompactionMethodImpl = async (job) => {
+            compactions += 1;
+            return {method: job.method, firstKeptEntryId: null, replacement: null, omitted: [], tokensBefore: job.tokens, tokensAfter: job.tokens};
+        };
+        await using session = await createTestSession({profile: profileWith({onThreshold: ["shake"]}), compaction: {methods: {shake: count}}, tools: [{id: "lab.pic", execute: () => ({text: "图", images: [image]})}]});
+        session.model.script({tools: [{tool: "lab.pic"}]}, "看完了", "答二");
+        await session.say("看图");
+        await session.say("接着");
+        expect(compactions).toBe(0);
+        const preview = await session.raw.preview();
+        expect(preview.tokens.estimated).toBeLessThan(5_000);
+    });
+
     test("输出 49、extensions 输出 9：写了 resetOnCompaction 的片回到初始值；回退到压缩之前，对话是压缩前的", async () => {
         const told = defineExtension({id: "lab.told", state: {told: slice.path(0, {resetOnCompaction: true}), all: slice.path(0)}, reduce: {input: (_event, state) => ({told: state.told + 1, all: state.all + 1})}});
         await using session = await createTestSession({extensions: [told], profile: profileWith({onThreshold: ["summarize"]}), compaction: {methods: {summarize: summarizingCompaction}}});

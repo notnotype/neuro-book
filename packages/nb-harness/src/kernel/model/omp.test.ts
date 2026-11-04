@@ -6,7 +6,7 @@
 import {afterAll, describe, expect, test} from "bun:test";
 import {defineModel} from "@notnotype/nb-harness";
 import type {ModelDelta, ModelRequest, ToolDeclaration} from "../api/index.js";
-import {ompCall, ompModelInfo} from "./omp.js";
+import {lacksWebp, ompCall, ompModelInfo} from "./omp.js";
 import {REDACTED_KEY} from "./redact.js";
 
 interface Reply {
@@ -126,6 +126,75 @@ describe("OMP 适配器", () => {
         expect(second.response.content).toEqual([{kind: "text", text: "在第 3 章"}]);
     });
 
+    test("工具消息的图片：能看图的模型收到图片块，不能看图的换成一行文字", async () => {
+        const messages = (): ModelRequest["messages"] => [
+            {role: "user", content: [text("看图")]},
+            {role: "assistant", content: [], toolCalls: [{id: "call_1", tool: "story.search", args: {}}], model: "local-test/m"},
+            {role: "tool", callId: "call_1", content: [text("封面"), {kind: "image", data: "QUJD", mime: "image/png", width: 800, height: 600, origin: {kind: "fixed", by: "kernel"}}]},
+        ];
+        const seen = async (target: ReturnType<typeof ompCall>) => {
+            replies = [{text: "好"}];
+            const response = await target(request({tools: [search], messages: messages()}), new AbortController().signal, () => undefined);
+            expect(response.stopReason).not.toBe("error");
+            return JSON.stringify(bodies.at(-1)!.messages);
+        };
+        const blind = await seen(ompCall({model: {...resolved.model, input: ["text"]}, apiKey: resolved.apiKey, priceKnown: false}));
+        expect(blind).toContain("当前模型不能看图");
+        expect(blind).toContain("800x600");
+        expect(blind).not.toContain("QUJD");
+        const vision = await seen(ompCall({model: {...resolved.model, input: ["text", "image"]}, apiKey: resolved.apiKey, priceKnown: false}));
+        expect(vision).toContain("data:image/png;base64,QUJD");
+    });
+
+    test("本地后端解不了 WebP：发送前转成 PNG，转不了换成文字；云端服务商原样发", async () => {
+        const dot = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAEAQH/7yMK/gAAAABJRU5ErkJggg=="), (char) => char.charCodeAt(0));
+        const webp = await new Bun.Image(dot).webp().toBase64();
+        const image = (data: string) => ({kind: "image" as const, data, mime: "image/webp", origin: {kind: "fixed" as const, by: "kernel" as const}});
+        const messages = (data: string): ModelRequest["messages"] => [
+            {role: "user", content: [text("看图")]},
+            {role: "assistant", content: [], toolCalls: [{id: "call_1", tool: "story.search", args: {}}], model: "local-test/m"},
+            {role: "tool", callId: "call_1", content: [text("封面"), image(data)]},
+        ];
+        // 这个测试端点在回环地址上，属于本地后端。
+        const local = ompCall({model: {...resolved.model, input: ["text", "image"]}, apiKey: resolved.apiKey, priceKnown: false});
+        replies = [{text: "好"}];
+        await local(request({tools: [search], messages: messages(webp)}), new AbortController().signal, () => undefined);
+        expect(JSON.stringify(bodies.at(-1)!.messages)).toContain("data:image/png;base64,");
+        expect(JSON.stringify(bodies.at(-1)!.messages)).not.toContain("image/webp");
+        replies = [{text: "好"}];
+        const broken = await local(request({tools: [search], messages: messages("AAAA")}), new AbortController().signal, () => undefined);
+        expect(broken.stopReason).not.toBe("error");
+        expect(JSON.stringify(bodies.at(-1)!.messages)).toContain("转换失败");
+
+        // 压不动的图转回 PNG 太大时改用 JPEG（BMP 头加噪声，省得在测试里组 PNG）。
+        const width = 1600;
+        const height = 1200;
+        const bmp = Buffer.alloc(54 + width * height * 3);
+        bmp.write("BM");
+        bmp.writeUInt32LE(bmp.length, 2);
+        bmp.writeUInt32LE(54, 10);
+        bmp.writeUInt32LE(40, 14);
+        bmp.writeInt32LE(width, 18);
+        bmp.writeInt32LE(height, 22);
+        bmp.writeUInt16LE(1, 26);
+        bmp.writeUInt16LE(24, 28);
+        let state = 7;
+        for (let at = 54; at < bmp.length; at += 1) {
+            state = (state * 1103515245 + 12345) & 0x7fffffff;
+            bmp[at] = state >> 16;
+        }
+        const noisy = await new Bun.Image(bmp).webp({quality: 40}).toBase64();
+        replies = [{text: "好"}];
+        await local(request({tools: [search], messages: messages(noisy)}), new AbortController().signal, () => undefined);
+        expect(JSON.stringify(bodies.at(-1)!.messages)).toContain("data:image/jpeg;base64,");
+
+        const cloud = {provider: "openai", api: "openai-completions", baseUrl: "https://api.openai.com/v1"} as const;
+        expect(lacksWebp(cloud as never)).toBe(false);
+        for (const model of [{...cloud, provider: "ollama"}, {...cloud, provider: "lm-studio"}, {...cloud, api: "ollama-chat"}, {...cloud, baseUrl: "http://localhost:1234/v1"}, {...cloud, baseUrl: "http://127.0.0.1:8080/v1"}, {...cloud, imageInputDecoder: "stb"}]) {
+            expect(lacksWebp(model as never)).toBe(true);
+        }
+    });
+
     test("相邻的 user 消息合成一条发出；同一条消息里相邻的文字块合成一块", async () => {
         const {body} = await run(request({messages: [{role: "user", content: [text("提醒")]}, {role: "user", content: [text("附带"), text("问题")]}]}), {text: "嗯"});
         const users = body.messages.filter((message) => message.role === "user");
@@ -186,7 +255,7 @@ describe("OMP 适配器", () => {
 
     test("不支持的内容在发请求前失败：unsupported-content", async () => {
         requestCount = 0;
-        const response = await call(request({messages: [{role: "user", content: [{kind: "image", blob: "0".repeat(64), mime: "image/png", origin: {kind: "fixed", by: "kernel"}}]}]}), new AbortController().signal, () => undefined);
+        const response = await call(request({messages: [{role: "user", content: [{kind: "image", data: "AAAA", mime: "image/png", origin: {kind: "fixed", by: "kernel"}}]}]}), new AbortController().signal, () => undefined);
         expect(response.error).toMatchObject({kind: "local", code: "unsupported-content"});
         expect(requestCount).toBe(0);
     });

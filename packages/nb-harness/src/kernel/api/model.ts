@@ -29,12 +29,12 @@ export interface Usage {
 
 /**
  * 回复的内容块。服务商要求带回的签名与元数据（`provider`，适配器原样保存、原样送回，内核不读）跟着块存；
- * 图片一律是大块内容，`blob` 是会话目录 `blobs/` 下的 SHA-256。
+ * 图片的 `data` 是 base64，目前只出现在工具消息里（docs/specs/harness/models.md 的“不承诺”）。
  */
 export type ContentBlock =
     | {readonly kind: "text"; readonly text: string; readonly provider?: JsonValue}
     | {readonly kind: "thinking"; readonly text: string; readonly signature?: string; readonly redacted?: boolean; readonly provider?: JsonValue}
-    | {readonly kind: "image"; readonly blob: string; readonly mime: string; readonly width?: number; readonly height?: number};
+    | {readonly kind: "image"; readonly data: string; readonly mime: string; readonly width?: number; readonly height?: number};
 
 /** 请求里一块内容的来源：预览、修改记录、诊断与测试都按它定位，不解析字符串。 */
 export type Origin =

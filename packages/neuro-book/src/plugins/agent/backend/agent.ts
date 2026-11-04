@@ -24,7 +24,7 @@ import {ON_AGENT_SESSION} from "../shared/points";
 import {agentSettings} from "../shared/settings";
 
 import {ProfileBundles} from "./profile-bundles";
-import {kernelResources, sessionResources} from "./resources";
+import {kernelResources, sessionArtifacts, sessionResources} from "./resources";
 import {ProfileCatalog} from "./profiles";
 import {SessionTable} from "./sessions";
 import {AgentTools} from "./tools";
@@ -100,7 +100,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
 
     // 宿主要先建好、再接收贡献；Profile 变了要通知它，它又要按 Profile 解析：用一个先占位的引用把这个环断开。
     let hostRef: AgentHost | null = null;
-    const tools = new AgentTools({declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId) => ({resources: sessionResources(options.files, context, toolId)})});
+    const tools = new AgentTools({declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId) => ({resources: sessionResources(options.files, context, toolId), artifacts: sessionArtifacts(options.files, context)})});
     const profiles = new ProfileCatalog({
         declarations: options.declarations,
         activate: options.trigger,

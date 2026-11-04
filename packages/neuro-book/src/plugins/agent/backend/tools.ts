@@ -31,7 +31,7 @@ export interface AgentToolsOptions {
     /** 激活声明了 `onAgentTool:<id>` 的入口；有入口激活失败或受阻时交回 false。 */
     readonly activate: (event: string) => Promise<boolean>;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
-    /** 交给工具工厂的会话服务（资源视图），按内核给的会话上下文构造。 */
+    /** 交给工具工厂的会话服务（资源视图与全文保存），按内核给的会话上下文构造。 */
     /** `toolId` 是要构造的工具，资源视图拿它作 `call(ctx)` 的分组缺省标题。 */
     readonly services: (context: ToolSessionContext, toolId: string) => AgentToolServices;
 }
@@ -129,6 +129,7 @@ export class AgentTools {
             finish: declaration.finish ?? false,
             concurrency: declaration.concurrency ?? "exclusive",
             strict: declaration.strict ?? false,
+            ...(declaration.customFormat === undefined ? {} : {customFormat: declaration.customFormat}),
             effect,
         };
     }

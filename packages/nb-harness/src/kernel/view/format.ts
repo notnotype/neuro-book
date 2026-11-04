@@ -99,7 +99,10 @@ export function createFormat(sources: RenderSources, override: RenderTable = {})
             return text === null || text === "" ? null : {role: "assistant", content: [block(text, originOf(reply))], model: reply.data.model};
         },
         tool(result: ToolResultEvent): Message {
-            return {role: "tool", callId: result.data.callId, content: [block(requiredTextOf(result) ?? defaultText(result), originOf(result))], isError: result.data.status !== "ok"};
+            const origin = originOf(result);
+            // 被压缩省略的条目只发占位：图片再附上去，估算就和实际请求对不上了（docs/specs/harness/runtime.md 输出 58）。
+            const images = sources.omitted.has(result.id) ? [] : (result.data.images ?? []).map((image): RequestBlock => ({kind: "image", ...image, origin}));
+            return {role: "tool", callId: result.data.callId, content: [block(requiredTextOf(result) ?? defaultText(result), origin), ...images], isError: result.data.status !== "ok"};
         },
         step(step: Step) {
             return [format.assistant(step.reply), ...step.results.map((result) => format.tool(result)), format.user(...step.after)];

@@ -9,7 +9,7 @@
  * 图片块还没有接上大块内容的读写：请求里有图片时以 `unsupported-content` 失败，回复里的图片块不收。
  */
 
-import {streamSimple, type AssistantMessage, type Context, type Message as OmpMessage, type SimpleStreamOptions, type TextContent, type ThinkingContent, type Tool, type ToolCall as OmpToolCall, type ToolChoice} from "@oh-my-pi/pi-ai";
+import {streamSimple, type AssistantMessage, type Context, type Message as OmpMessage, type SimpleStreamOptions, type ImageContent, type TextContent, type ThinkingContent, type Tool, type ToolCall as OmpToolCall, type ToolChoice} from "@oh-my-pi/pi-ai";
 import {clampThinkingLevelForModel, getSupportedEfforts, type Effort, type Model} from "@oh-my-pi/pi-catalog";
 import {providerToolName, type ContentBlock, type JsonValue, type Message, type ModelDelta, type ModelInfo, type ModelRequest, type ModelResponse, type ToolCall, type Usage} from "../api/index.js";
 import {classifyProviderError} from "./classify.js";
@@ -78,6 +78,51 @@ function userContent(blocks: readonly ContentBlock[]): TextContent[] {
     return out;
 }
 
+/** 工具结果消息的内容：文字合并同 `userContent`；图片转成服务商的图片块，模型不能看图时换成一行文字。 */
+function toolContent(blocks: readonly ContentBlock[], vision: boolean): (TextContent | ImageContent)[] {
+    const out: (TextContent | ImageContent)[] = [];
+    const pushText = (text: string): void => {
+        const last = out.at(-1);
+        if (last?.type === "text") out[out.length - 1] = {type: "text", text: `${last.text}\n\n${text}`};
+        else out.push({type: "text", text});
+    };
+    for (const block of blocks) {
+        if (block.kind === "text") pushText(block.text);
+        else if (block.kind !== "image") throw new UnsupportedContent(`${block.kind} block in a tool message is not supported`);
+        else if (vision) out.push({type: "image", data: block.data, mimeType: block.mime});
+        else pushText(`[图片 ${block.mime}${block.width === undefined || block.height === undefined ? "" : ` ${block.width}x${block.height}`}：当前模型不能看图]`);
+    }
+    return out;
+}
+
+const WEBP_FALLBACK_PNG_LIMIT = 4 * 1024 * 1024;
+
+/** 本地推理后端（llama.cpp 的解码器）解不了 WebP；同 omp 的判断，另加本机回环地址：自定义服务商指向本机的多半也是这类后端。 */
+export function lacksWebp(model: Pick<Model, "provider" | "api" | "baseUrl" | "imageInputDecoder">): boolean {
+    return model.imageInputDecoder === "stb"
+        || ["ollama", "ollama-cloud", "llama.cpp", "lm-studio", "local-server"].includes(model.provider)
+        || model.api === "ollama-chat"
+        || /^https?:\/\/(?:localhost|127\.|\[::1\])/u.test(model.baseUrl);
+}
+
+/** 发送前把工具消息里的 WebP 转成 PNG；转不了的换成一行文字，不能让一张图卡死这个会话之后的每次请求。 */
+async function withoutWebp(request: ModelRequest): Promise<ModelRequest> {
+    const convert = async (block: Message["content"][number]): Promise<Message["content"][number]> => {
+        if (block.kind !== "image" || block.mime !== "image/webp") return block;
+        try {
+            const source = Buffer.from(block.data, "base64");
+            const png = await new Bun.Image(source).png().bytes();
+            // PNG 无损，压过的图转回去可能大十几倍；回环地址后面也可能是转发到云端的网关，有单图上限。透明丢了也比这个会话之后每次都失败好。
+            if (png.length <= WEBP_FALLBACK_PNG_LIMIT) return {...block, data: Buffer.from(png).toString("base64"), mime: "image/png"};
+            return {...block, data: await new Bun.Image(source).jpeg({quality: 80}).toBase64(), mime: "image/jpeg"};
+        } catch (error) {
+            return {kind: "text", text: `[图片 image/webp：转换失败（${error instanceof Error ? error.message : String(error)}）]`, origin: block.origin};
+        }
+    };
+    const messages = await Promise.all(request.messages.map(async (message) => (message.role === "tool" ? {...message, content: await Promise.all(message.content.map(convert))} : message)));
+    return {...request, messages};
+}
+
 function assistantContent(blocks: readonly ContentBlock[], calls: readonly ToolCall[], names: ReadonlyMap<string, string>): AssistantMessage["content"] {
     const content: AssistantMessage["content"] = blocks.map((block) => {
         switch (block.kind) {
@@ -137,7 +182,7 @@ function toContext(request: ModelRequest, model: Model, now: number): Context {
             } as AssistantMessage;
         }
         const tool = toolOfCall.get(message.callId ?? "") ?? "";
-        return {role: "toolResult", toolCallId: message.callId ?? "", toolName: names.get(tool) ?? tool.replaceAll(".", "__"), content: userContent(message.content), isError: message.isError ?? false, timestamp: now};
+        return {role: "toolResult", toolCallId: message.callId ?? "", toolName: names.get(tool) ?? tool.replaceAll(".", "__"), content: toolContent(message.content, model.input.includes("image")), isError: message.isError ?? false, timestamp: now};
     });
     const tools: Tool[] = request.tools.map((tool) => ({
         name: providerToolName(tool),
@@ -198,7 +243,8 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
         const secrets = [apiKey, ...Object.values(target.headers ?? {}).filter((value) => value.length >= SECRET_HEADER_MIN)];
         let context: Context;
         try {
-            context = toContext(request, target.model, Date.now());
+            const vision = target.model.input.includes("image");
+            context = toContext(vision && lacksWebp(target.model) ? await withoutWebp(request) : request, target.model, Date.now());
         } catch (error) {
             if (error instanceof UnsupportedContent) return failed("local", error.message, {code: "unsupported-content"});
             throw error;

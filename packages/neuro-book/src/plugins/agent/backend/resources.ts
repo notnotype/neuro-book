@@ -6,12 +6,14 @@
  * 若经共享的 `AgentService` 交出构造函数，任何依赖 `agentKey` 的插件都能自填会话 id 替别的会话读写。
  */
 
+import {randomUUID} from "node:crypto";
+
 import type {Resources, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 
 import {decodeText, parseAddress} from "nbook/plugins/files/shared/contracts";
 import type {CallOptions, WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 
-import type {Expanded, ResourceClass, SessionCalls, SessionResources} from "../shared/resources";
+import type {Expanded, ResourceClass, SessionArtifacts, SessionCalls, SessionResources} from "../shared/resources";
 
 /** `session://attachments/`、`session://artifacts/` 由宿主写入，Agent 只读。 */
 const HOST_WRITTEN = ["attachments", "artifacts"];
@@ -75,6 +77,21 @@ export function sessionResources(files: WorkspaceFiles, context: ToolSessionCont
             let grouped: Promise<WorkspaceFiles> | null = null;
             const scoped = (): Promise<WorkspaceFiles> => (grouped ??= files.group({title: info?.title ?? toolId ?? "Agent", ...(info?.note === undefined ? {} : {note: info.note})}, async (group) => group));
             return bind(lazy(scoped), expand, {agent: {...self, entry: call.callId}}, call.signal);
+        },
+    };
+}
+
+/**
+ * 宿主写全文（docs/specs/agent/resources.md 输出 11）。不带 `as`：来源是 `nbook.agent` 自己，绕开的是 Agent 不能写 `artifacts/` 的
+ * 规则。单数地址只有资源视图认，所以这里拼全局地址。文件名不用工具调用 id：它只保证同一条回复里不重复，换一次请求就可能再出现。
+ */
+export function sessionArtifacts(files: WorkspaceFiles, context: ToolSessionContext): SessionArtifacts {
+    return {
+        save: async (label, write) => {
+            if (label === "" || label === "." || label === ".." || /[/\\]/u.test(label)) return {ok: false, code: "invalid-address", detail: `artifact label must be a single segment: ${label}`};
+            const address = `sessions://${context.sessionId}/home/artifacts/${label}-${randomUUID()}.log`;
+            const saved = await files.stage(address, write, {expect: "absent", createParents: true});
+            return saved.ok ? {ok: true, value: {address}} : saved;
         },
     };
 }

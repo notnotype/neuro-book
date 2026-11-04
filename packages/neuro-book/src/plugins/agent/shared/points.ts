@@ -48,6 +48,8 @@ const ToolDeclarationSchema = Type.Object({
     concurrency: Type.Optional(Type.Union([Type.Literal("shared"), Type.Literal("exclusive")])),
     strict: Type.Optional(Type.Boolean()),
     effect: EffectSchema,
+    /** 模型按这份语法写参数（支持的服务商才用，其余仍按 `parameters`），原样转给内核。 */
+    customFormat: Type.Optional(Type.Object({syntax: Type.Literal("lark"), definition: Type.String({minLength: 1})}, {additionalProperties: false})),
     /** 设置里分组显示用。 */
     group: Type.Optional(Type.String({minLength: 1})),
     /** 装到所有 Profile 的工具集里（contributions.md 输出 4）。 */
@@ -69,7 +71,7 @@ export type AgentProfileDeclaration = Static<typeof ProfileDeclarationSchema>;
 
 /**
  * `agent.tools` 的实现：按会话建一次真正的实现（t04 决定 2）；`effect` 给按参数求等级的工具。`services.resources` 是这个会话的
- * 资源视图，工具经它按资源地址读写（docs/specs/agent/resources.md）。
+ * 资源视图，工具经它按资源地址读写；`services.artifacts` 以宿主身份保存大结果的全文（docs/specs/agent/resources.md）。
  */
 export interface AgentToolImplementation {
     create(context: ToolSessionContext, services: AgentToolServices): ToolImplementation | Promise<ToolImplementation>;
