@@ -111,4 +111,4 @@ Smoke：`packages/nb-harness/tests/kernel/kernel.llm.test.ts`（`bun run test:ll
 
 ## 证据
 
-- 批准依据：[提案：Agent harness 的事件模型](../../proposals/agent-harness-event-model.md)（2026-10-31 接受）、[ADR 0035](../../adr/0035-harness-log-driven-kernel.md)
+- 批准依据：[提案：Agent harness 的事件模型](../../proposals/agent-harness-event-model.md)（2026-10-31 接受）、[ADR 0035](../../adr/0035-harness-log-driven-kernel.md)；重发、费用累计与适配器的传输见 [w00032 t27](../../../.agents/works/w00032-agent-integration/tasks/t27-run-reliability/README.md)（已实现，开发者 2026-11-04 批准）

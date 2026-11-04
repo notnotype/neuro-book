@@ -60,7 +60,7 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
 
 进程内服务 `modelsKey` 与远程合同 `nbook.models/settings` 见输出 10、12。
 
-（planned）另有两个设置项 `nbook.models/streamFirstEventTimeoutSeconds`、`streamIdleTimeoutSeconds`：整数 0–3600，缺省 300，0 表示不设，只允许用户层，显示在 [`agent.run-guards`](../agent/run-guards.md) 的分区里。
+另有两个设置项 `nbook.models/streamFirstEventTimeoutSeconds`、`streamIdleTimeoutSeconds`：整数 0–3600，缺省 300，0 表示不设，只允许用户层，显示在 [`agent.run-guards`](../agent/run-guards.md) 的分区里。
 
 ## 输出与可观察行为
 
@@ -101,7 +101,7 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
 13. **`setKey`**：值以 `env:` 开头时先写 `apiKeyEnv`、再删库里的密钥；否则先写库、再清 `apiKeyEnv`。`apiKeyEnv` 有值时盖过库里的密钥，所以后一步失败时生效的仍是前一步之前的或之后的那一个、不会混用；这时返回 `partially-applied`，详情带写后的实际密钥状态。
 14. **压缩角色的初值**：第一次绑 `fast` 而 `compaction` 未绑时，同一次写把 `compaction` 设成同一个模型（压缩先跟着快速档，之后各改各的）。
 15. **删除时解除绑定**：删服务商、删模型（含“管理模型”里移出）之后，绑着它们的角色变成未绑定（`role-unbound`），不留指向不存在的模型的引用；停用模型不解除，角色这时解析为 `unknown-model`，重新启用即恢复。删服务商同时删掉凭据库里这家的密钥。
-16. （planned）**请求的传输**：每次请求现读两个超时设置交给适配器（[`harness/models.md`](../harness/models.md) 输出 18），`maxHttpAttempts` 固定为 1；检测同样这样。
+16. **请求的传输**：每次请求现读两个超时设置交给适配器（[`harness/models.md`](../harness/models.md) 输出 18），`maxHttpAttempts` 固定为 1；检测同样这样。
 
 ## 状态与转换
 

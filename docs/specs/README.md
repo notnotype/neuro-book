@@ -173,6 +173,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 模型服务的设置页 | [`models/settings-pages.md`](models/settings-pages.md) | “服务商与模型”“模型角色”两页：服务商列表与详情、连接与请求头、模型列表与检测、编辑与管理模型、删除确认、角色表 |
 | Agent 的贡献点 | [`agent/contributions.md`](agent/contributions.md) | `nbook.agent` 的 `agent.extensions`、`agent.tools`、`agent.profiles`：声明形状、激活事件、工具集的合成、Profile 目录与用户级 Profile 的打包与重载、提供方停止的影响 |
 | Agent 的会话服务 | [`agent/sessions.md`](agent/sessions.md) | 会话存放与句柄寿命、远程合同与失败码、帧的合并与补齐、大小上限、`startTask` 的幂等、停止的收口 |
+| Agent 的运行保护 | [`agent/run-guards.md`](agent/run-guards.md) | `nbook.agent` 默认装上的扩展：费用告警与上限、重复工具调用的提醒与停止；重发次数与卡死超时的设置、设置分区 |
 | Agent 的内置工具 | [`agent/builtin-tools.md`](agent/builtin-tools.md) | `nbook.agent` 交出的 `read`、`write`、`edit`（hashline 与 replace）、`grep`、`glob`、`shell`：参数、输出、上限、失败码、全局地址、`shell` 的地址替换与全文 |
 | Agent 的资源地址 | [`agent/resources.md`](agent/resources.md) | 单数地址的改写与分类、`sessions://`、`profiles://`、`temps://`、`docs://`、`skills://` 的内容与权限、按需建目录、临时目录的分区与启动清理 |
 | 菜单项 | [`workbench/menus.md`](workbench/menus.md) | 插件把命令放进别的插件拥有的菜单位置：菜单项的形状、显示与可用、排序与分隔、勾选、按后缀过滤与参数；四处位置（标题栏菜单、视图标题、资源管理器右键、编辑区标题） |
@@ -224,7 +225,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Harness 会话 | [`harness/session.md`](harness/session.md) | 新内核的会话日志：会话目录与 JSONL、写入批、大块内容、锁、修复与校验、恢复、指令幂等、索引与 fork |
 | Harness 扩展 | [`harness/extensions.md`](harness/extensions.md) | 新内核的扩展（骨架）：定义与装配、id 规则、片与归约、反应与写入批、`mount`、各入口读的状态、插件装卸 |
 | Harness 视图 | [`harness/profile.md`](harness/profile.md) | 新内核由状态算请求：模板节点与文字拼法、缺省布局、轮的渲染与 `render`、纯函数提交与提交缓存、槽、请求校验、块的来源、开发检查 |
-| Agent 的运行保护 | [`agent/run-guards.md`](agent/run-guards.md) | `nbook.agent` 默认装上的扩展：费用告警与上限、重复工具调用的提醒与停止；重发次数与卡死超时的设置、设置分区 |
 | Harness 运行 | [`harness/runtime.md`](harness/runtime.md) | 新内核的指令、运行循环与运行结果（逐步补齐）：输入缓冲区、受理批、followup、失败与中止的收口、位置章、帧、`waitRun` |
 | Harness 模型端口 | [`harness/models.md`](harness/models.md) | 模型端口与 OMP 适配器：失败归类、密钥遮盖、相邻 user 合并、工具名换算、思考签名、用量与停止原因 |
 | Schema 表单 | [`ui/forms.md`](ui/forms.md) | 按数据 schema 画表单：支持的写法与控件选择、受控值与缺失、校验与问题的显示、选项、条件显示、草稿与提交、展示态、列表编辑、自定义控件、Agent 策略、终端退回；nb-ui 表单控件的合同 |

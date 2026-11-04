@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.run-guards
 owners:
   - nbook.agent
@@ -91,6 +91,20 @@ owners:
 
 Smoke：`packages/neuro-book/src/plugins/agent/run-guards.llm.test.ts`（`test:llm`，真实模型）。
 
+## 实现合同
+
+- **公开入口**：扩展 id `nbook.agent.cost-guard`、`nbook.agent.loop-guard`（经 `agent.extensions` 贡献）；设置项见“输入与前置条件”；事件类型 `<扩展 id>/<名字>`。
+- **owner 与依赖方向**：`nbook.agent` 的服务端入口，既贡献也接收这两个扩展；费用累计读内核的 `ctx.spend`（[`harness/runtime.md`](../harness/runtime.md) 输出 70），重发由内核做，`nbook.agent` 只交次数；两个超时设置属于 `nbook.models`，只是显示在这里的分区。
+- **关键不变量**：
+  - 累计数在内核、按全部日志事件算，扩展不另记：旧会话打开时费用就是对的（`guards.test.ts`“验收 2”）。
+  - 拦下的回复形状要完整、`cost` 写 0：缺字段时内核跳过这一层，请求照发；null 会让这次运行的费用总和变成未知（`guards.test.ts`“输出 4”）。
+  - 设置在闭包里现读，不用扩展的 `settings` 字段：归约不读设置，所以不影响重放，也不进 Profile 哈希（`agent.test.ts`“运行保护的接线”）。
+  - 只有用户的新话解除循环停止，`inputId` 为 null 的 `turnStarted`（`start`）不解除（`guards.test.ts`“输出 10”）。
+  - 预览时两个拦截都一律往里走，否则预览算不到里面的拦截层（`guards.test.ts`“输出 4”“输出 12”）。
+
 ## 证据
 
-- 批准依据：[w00032 t27](../../../.agents/works/w00032-agent-integration/tasks/t27-run-reliability/README.md) 的决定与[第二稿计划](../../../.agents/works/w00032-agent-integration/tasks/t27-run-reliability/plan.md)；开发者 2026-11-04 确认。
+- 批准依据：[w00032 t27](../../../.agents/works/w00032-agent-integration/tasks/t27-run-reliability/README.md) 的决定与[第二稿计划](../../../.agents/works/w00032-agent-integration/tasks/t27-run-reliability/plan.md)；开发者 2026-11-04 确认，同日批准晋升为 `implemented`。
+- 实现入口：[`backend/guards/index.ts`](../../../packages/neuro-book/src/plugins/agent/backend/guards/index.ts)、[`cost-guard.ts`](../../../packages/neuro-book/src/plugins/agent/backend/guards/cost-guard.ts)、[`loop-guard.ts`](../../../packages/neuro-book/src/plugins/agent/backend/guards/loop-guard.ts)、[`shared/settings.ts`](../../../packages/neuro-book/src/plugins/agent/shared/settings.ts)
+- 合同测试：[`guards.test.ts`](../../../packages/neuro-book/src/plugins/agent/guards.test.ts)（真实内核）、[`agent.test.ts`](../../../packages/neuro-book/src/plugins/agent/agent.test.ts)（真实插件、设置与本机的 OpenAI 兼容端点）、[`retry.test.ts`](../../../packages/nb-harness/src/kernel/run/retry.test.ts)、[`spend.test.ts`](../../../packages/nb-harness/src/kernel/run/spend.test.ts)
+- Smoke：[`run-guards.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/run-guards.llm.test.ts)（`test:llm`，真实模型）

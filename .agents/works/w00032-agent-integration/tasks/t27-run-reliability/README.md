@@ -46,8 +46,8 @@ updated: 2026-11-04
 
 ## 当前状态
 
-设计审查已处理（[处理](evidences/design-review-disposition.md)）：omp 写 10 条后额度用完，Claude Opus 接手 12 条。开发者 2026-11-04 确认 [plan.md](plan.md) 第二稿。切片 0（Spec）在 master，切片 1–6 已合入 master（`5840abbf2`），收口验证见 [closing-verification.txt](evidences/closing-verification.txt)，实现审查 4 条都已修（[处理](evidences/impl-review-disposition.md)）。
+设计审查已处理（[处理](evidences/design-review-disposition.md)）：omp 写 10 条后额度用完，Claude Opus 接手 12 条。开发者 2026-11-04 确认 [plan.md](plan.md) 第二稿。切片 0（Spec）在 master，切片 1–6 已合入 master（`5840abbf2`），收口验证见 [closing-verification.txt](evidences/closing-verification.txt)，实现审查 4 条都已修（[处理](evidences/impl-review-disposition.md)）。开发者 2026-11-04 批准晋升：[`agent/run-guards.md`](../../../../../docs/specs/agent/run-guards.md) 整份、`models/service.md` 与 `agent/contributions.md` 的相关条目为 `implemented`；`harness/runtime.md`、`harness/models.md` 整份仍是 `planned`，只在证据里记这次。分支与 worktree 已清理。
 
 ## 下一步
 
-Spec 晋升等开发者批准；批准后补实现合同与证据，再把状态改为 done。
+无。
