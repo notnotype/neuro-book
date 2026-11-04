@@ -14,4 +14,10 @@ updated: 2026-10-20
 
 ## 待确认
 
-autonomous-delivery 推进时照推荐做、等开发者追认的决定：[pending-confirmations.md](pending-confirmations.md)。
+autonomous-delivery 推进时照推荐做、等开发者追认的决定：[pending-confirmations.md](pending-confirmations.md)（已全部有结果）。
+
+## 收尾
+
+已收尾：`a69d44003`（t02）、`44fea0c3d`（t03）、`7570c687e`（t04）、`fc57f3fda`（t05）；待清理：无，worktree 与分支都已删除。
+
+没有随本 Work 做的：nb-ui 0.4.0 的发版（版本号仍是 0.3.0），下次发版时按 [`migration-0.4.md`](../../../packages/nb-ui/docs/migration-0.4.md) 末尾的清单一起改。
