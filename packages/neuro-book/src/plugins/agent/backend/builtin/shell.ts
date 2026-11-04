@@ -43,6 +43,14 @@ export const shellDeclaration: AgentToolDeclaration = {
     effect: "exec",
 };
 
+/** 没有尾部换行的最后一段也算一行。 */
+function lineCount(text: string): number {
+    if (text === "") return 0;
+    let lines = text.endsWith("\n") ? 0 : 1;
+    for (let at = text.indexOf("\n"); at >= 0; at = text.indexOf("\n", at + 1)) lines += 1;
+    return lines;
+}
+
 function capLines(text: string): string {
     return text.split("\n").map((line) => {
         const size = Buffer.byteLength(line, "utf8");
@@ -60,7 +68,6 @@ class OutputCapture {
     #memory = "";
     #memoryBytes = 0;
     #head = "";
-    #lines = 0;
     /** 当前这一行已有多少字节：长行可能跨好几块。 */
     #lineBytes = 0;
     #spool: {readonly fd: number; readonly path: string} | null = null;
@@ -84,14 +91,13 @@ class OutputCapture {
             return;
         }
         const parts = chunk.split("\n");
-        this.#lines += parts.length - 1;
         let longest = 0;
         parts.forEach((part, index) => {
             const size = Buffer.byteLength(part, "utf8") + (index === 0 ? this.#lineBytes : 0);
             longest = Math.max(longest, size);
             if (index === parts.length - 1) this.#lineBytes = size;
         });
-        if (this.#memoryBytes > WINDOW_BYTES || this.#lines > WINDOW_LINES || longest > LINE_BYTES) {
+        if (this.#memoryBytes > WINDOW_BYTES || lineCount(this.#memory) > WINDOW_LINES || longest > LINE_BYTES) {
             this.overflowed = true;
             this.#head = Buffer.from(this.#memory, "utf8").subarray(0, PART_BYTES).toString("utf8");
             this.#spoolWrite(this.#memory);
@@ -120,8 +126,8 @@ class OutputCapture {
     /** 交给模型的输出窗口（docs/specs/agent/builtin-tools.md 的术语）；`clipped` 指内容少了，全文要去 `artifacts/` 看。 */
     window(): {readonly text: string; readonly clipped: boolean} {
         if (!this.overflowed) return {text: this.#memory, clipped: false};
-        // 内存在修剪之前就是全部输出：只是单行超限时不用省略中间。
-        if (this.totalBytes === this.#memoryBytes && this.#memory.split("\n").length - 1 <= WINDOW_LINES) return {text: capLines(this.#memory), clipped: true};
+        // 总量与行数都在预算内，只是单行超限（内存这时一定是全部输出）：不用省略中间。
+        if (this.totalBytes <= WINDOW_BYTES && lineCount(this.#memory) <= WINDOW_LINES) return {text: capLines(this.#memory), clipped: true};
         const head = this.#head.split("\n");
         if (head.length > 1) head.pop();
         const tail = Buffer.from(this.#memory, "utf8").subarray(-PART_BYTES).toString("utf8").split("\n");

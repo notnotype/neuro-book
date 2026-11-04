@@ -679,6 +679,17 @@ describe("shell", () => {
         expect(fits.text).toContain("\n1000\n");
         expect(fits.text).not.toContain("全文");
 
+        // 没有尾部换行时最后一段也算一行：2000 行放得下，2001 行放不下。
+        expect((await call(session, "shell", {command: "seq 1 2000 | head -c -1"})).text).not.toContain("中间省略");
+        expect((await call(session, "shell", {command: "seq 1 2001 | head -c -1"})).text).toContain("中间省略");
+        // 一次回调就交出超过 50 KB（cat 常这样）：同样只留头尾。
+        await writeFile(join(home, "一块.txt"), `${"第一行\n"}${`${"x".repeat(640)}\n`.repeat(90)}最后一行\n`);
+        const oneChunk = await call(session, "shell", {command: "cat session://一块.txt"});
+        expect(oneChunk.text).toContain("中间省略");
+        expect(oneChunk.text).toContain("第一行");
+        expect(oneChunk.text).toContain("最后一行");
+        expect(Buffer.byteLength(oneChunk.text, "utf8")).toBeLessThan(45 * 1024);
+
         // 一行超过上限：窗口里截断，全文完整。
         const line = await call(session, "shell", {command: "printf 'A%.0s' $(seq 1 3000); echo; echo 结尾"}) as Result & {details: {artifact: string}};
         expect(line.text).toContain("本行共 3000 字节，已截断");
