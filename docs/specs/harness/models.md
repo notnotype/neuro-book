@@ -76,7 +76,7 @@ ompModelInfo(model: Model): ModelInfo;
 16. 端口解析失败的码由调用方原样交回：`send`、`start` 的受理失败，`complete()` 的失败，预览的 `PreviewUnavailable`；`ctx.model`（压缩方法、审批钩子）解析失败时不写模型事件，码在交回的回复的 `error.code`（[`runtime.md`](runtime.md) 输出 5）。`role-unbound`：调用要的角色没有绑定模型，宿主不回落到别的模型。
 17. `retryable` 取 OMP 对错误标记的判断（`AIError.retriable`），只有模型重复循环例外：它不重发，码 `thinking-loop`。建流时抛错、没有错误标记的失败不给 `retryable`。`retryAfterMs` 是服务商要求的等待时间，从 OMP 的错误文字里用它自己的函数取。
 18. `target.transport` 给了时：`firstEventTimeoutMs` 由适配器自己计时，收到第一个内容事件前到时交回 `network`、码 `first-event-timeout`、`retryable` 为真，0 表示不计时，OMP 那一层的第一事件超时总是关掉（否则 `anthropic-messages` 会把超时再重试 10 次）；`idleTimeoutMs` 原样传给 OMP，0 表示不计时；`maxHttpAttempts` 原样传；并关掉 OMP 的空回复重试。不给 `transport` 时这些都按 OMP 的缺省。
-19. 错误文字里 OMP 写的落盘诊断行（请求全文的路径）在交回前去掉，不论它在文字的哪个位置；路径交给 `target.onRequestDump`。`buildResolution` 的实现删掉 `http-400-requests` 目录下的这个文件，文件已经没了算达成，其它删除失败写进错误文字末尾。
+19. 错误文字里 OMP 写的落盘诊断行（请求全文的路径）在交回前去掉，不论它在文字的哪个位置；路径交给 `target.onRequestDump`。`buildResolution` 的实现只删 OMP 日志目录下 `http-400-requests` 里的文件（路径行可能是服务商在错误正文里伪造的），文件已经没了算达成，其它删除失败写进错误文字末尾。
 
 ## 状态与转换
 
