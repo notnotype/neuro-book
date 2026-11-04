@@ -100,8 +100,8 @@ t08 之后重新对齐需求：
 
 ## 当前状态
 
-t26（写入接口）已于 2026-11-03 合入 master。[plan.md](plan.md) 第三稿按它重写：读写都经资源视图（`readPath`、`read`、`write`、`stage`），去掉第二稿的 `realPath(follow)` 与合同升版本，`edit` 不冻结基线，大结果由宿主经新的 `SessionArtifacts` 写进 `artifacts/`。等开发者确认后交设计审查。
+t26（写入接口）已于 2026-11-03 合入 master。[plan.md](plan.md) 第三稿按它重写：读写都经资源视图（`readPath`、`read`、`write`、`stage`），去掉第二稿的 `realPath(follow)` 与合同升版本，`edit` 不冻结基线，大结果由宿主经新的 `SessionArtifacts` 写进 `artifacts/`。开发者 2026-11-04 确认第三稿，omp 设计审查进行中（只读 worktree，会话与报告在仓库外）。
 
 ## 下一步
 
-开发者确认第三稿 → omp 设计审查 → 处理后按切片实施（建议单独的分支）。
+处理 omp 设计审查的结论 → 修订后的计划交开发者确认 → 按切片实施（单独的分支）。
