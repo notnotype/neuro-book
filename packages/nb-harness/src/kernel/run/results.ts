@@ -7,7 +7,7 @@ import {replyText, type EventData, type KernelEvents, type LogEvent, type RunRes
 
 const ZERO: Usage = {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, complete: true};
 
-function addUsage(total: Usage, usage: Usage): Usage {
+export function addUsage(total: Usage, usage: Usage): Usage {
     return {
         input: total.input + usage.input,
         output: total.output + usage.output,
@@ -54,7 +54,8 @@ function resultOver(events: readonly LogEvent[], runId: string): RunResult | nul
         } else if (event.type === "modelFailed") {
             const data = event.data as EventData<KernelEvents["modelFailed"]>;
             if (data.usage !== undefined) usage = addUsage(usage, data.usage);
-            lastFailure = data;
+            // 带 retry 的已经重发了：之后因别的原因收口时，错误文字不能是这条已恢复的。
+            if (data.retry === undefined) lastFailure = data;
         } else if (event.type === "runEnded" && (event.data as {runId: string}).runId === runId) {
             const data = event.data as EventData<KernelEvents["runEnded"]>;
             const stopReason = data.reason === "finished" ? "finished" : data.reason === "aborted" || data.reason === "interrupted" ? "aborted" : data.reason === "error" ? "error" : lastReply?.stopReason === "length" ? "length" : "stop";

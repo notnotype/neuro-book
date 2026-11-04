@@ -4,7 +4,7 @@
  * 自己的 path 片与 session 片合在一起、设置是缺省值加覆盖、`read` 只放依赖与 `core.history`。
  */
 
-import {jsonProblem, type AssistantCtx, type ConversationTurn, type InterceptCtx, type JsonValue, type ModelInfo, type MountCtx, type ReactCtx, type Resources, type Scope, type ToolInfo, type ToolSessionContext, type ViewCtx} from "../api/index.js";
+import {jsonProblem, type Spend, type AssistantCtx, type ConversationTurn, type InterceptCtx, type JsonValue, type ModelInfo, type MountCtx, type ReactCtx, type Resources, type Scope, type ToolInfo, type ToolSessionContext, type ViewCtx} from "../api/index.js";
 import {committedTurns, type HistoryState} from "../state/history.js";
 import type {Snapshot} from "../state/snapshot.js";
 import type {Assembled, Assembly, ExtensionDefinition} from "./assemble.js";
@@ -18,6 +18,7 @@ export interface StateAt {
     readonly settings: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
     /** 当前这一轮各扩展写过几条 `continued`（按路径事实计数，压缩不影响）。 */
     readonly continued: Readonly<Record<string, number>>;
+    readonly spend: Spend;
 }
 
 export interface ViewEnvironment {
@@ -158,6 +159,7 @@ export function reactCtx(params: ReactParams): ReactCtx<any, any, any, any, any>
     return {
         ...viewCtx(params.assembly, params.item, params.state, params.environment),
         resources: params.resources,
+        spend: params.state.spend,
         session: params.session,
         signal: params.signal,
         emit: write.emit,
@@ -250,6 +252,7 @@ export function interceptCtx(params: InterceptParams): InterceptCtx<any, any, an
     return {
         ...viewCtx(params.assembly, params.item, params.state, params.environment),
         resources: params.resources,
+        spend: params.state.spend,
         signal: params.signal,
         phase: params.phase,
         invocation: params.invocation,

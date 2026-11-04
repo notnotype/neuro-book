@@ -68,6 +68,12 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     const providers = (): readonly ProviderConfig[] => settings.get(providersSetting) as readonly ProviderConfig[];
     const roles = (): readonly RoleConfig[] => (settings.get(rolesSetting) as RolesConfig).items;
     const access: KeyAccess = {stored: (provider) => credentials.get(provider), env};
+    /** 重发归内核（docs/specs/models/service.md 输出 16），所以 HTTP 只发一次。每次请求现读。 */
+    const transport = () => ({
+        firstEventTimeoutMs: settings.get(modelsSettings.settings.streamFirstEventTimeoutSeconds) * 1000,
+        idleTimeoutMs: settings.get(modelsSettings.settings.streamIdleTimeoutSeconds) * 1000,
+        maxHttpAttempts: 1,
+    });
 
     // ---- 目录（OMP 内置，进程内不变） ----
     const catalog = new Map(listCatalog().map((provider) => [provider.id, provider]));
@@ -131,7 +137,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             // 目录漂移：设置里还有、目录里没了（输出 9）。先于凭据判断，界面才能指出是模型的问题。
             if (provider.kind === "catalog" && catalogModel(provider.id, model.id) === undefined) return {ok: false, code: "unknown-model"};
             if (!keyReady(keyStatusOf(provider))) return {ok: false, code: "no-credentials"};
-            const built = buildResolution(targetOf(provider), modelTargetOf(model), access);
+            const built = buildResolution(targetOf(provider), modelTargetOf(model), access, transport);
             return built.ok ? built.resolution : {ok: false, code: "unknown-model"};
         })();
         resolutions.set(reference, result);
@@ -309,7 +315,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     const probe: ModelRequest = {purpose: "background", model: "", params: {}, headers: {}, system: [], messages: [{role: "user", content: [{kind: "text", text: "ping", origin: {kind: "fixed", by: "kernel"}}]}], tools: []};
     async function check(provider: ProviderConfig, model: ModelConfig, signal: AbortSignal): Promise<CheckResult> {
         if (missingContextWindow(provider, model)) return {ok: false, kind: "local", code: "model-incomplete", raw: ""};
-        const built = buildResolution(targetOf(provider), modelTargetOf(model), access);
+        const built = buildResolution(targetOf(provider), modelTargetOf(model), access, transport);
         if (!built.ok) return {ok: false, kind: "local", code: "unknown-model", raw: ""};
         const timeout = AbortSignal.timeout(CHECK_TIMEOUT_MS);
         const combined = AbortSignal.any([signal, timeout]);

@@ -6,7 +6,7 @@ import type {DeepReadonly} from "./basics.js";
 import type {DepList, ReadResult} from "./contract.js";
 import type {CoreHistory} from "./conversation.js";
 import type {EventData, EventsDecl} from "./events.js";
-import type {ModelInfo} from "./model.js";
+import type {ModelInfo, Spend} from "./model.js";
 import type {SliceValue, StateDecl, StateValues} from "./state.js";
 import type {ToolInfo} from "./tool.js";
 import type {ToolSessionContext} from "./host.js";
@@ -46,6 +46,8 @@ export interface Writes<S extends StateDecl, E extends EventsDecl> {
  */
 export interface ReactCtx<S extends StateDecl, E extends EventsDecl, St, Deps extends DepList, I = unknown> extends ViewCtx<S, St, Deps, I>, Writes<S, E> {
     readonly resources: Resources;
+    /** 这个会话累计的费用，含触发这次处理函数的事件（docs/specs/harness/runtime.md 输出 70）。 */
+    readonly spend: Spend;
     readonly signal: AbortSignal;
     /** 这次装在哪个会话上（与交给宿主建资源、建工具的同一份）：扩展对象被所有会话共用，按会话取外部数据用它。 */
     readonly session: ToolSessionContext;
@@ -71,6 +73,8 @@ export interface MountCtx<S extends StateDecl, E extends EventsDecl, St, Deps ex
 /** 拦截：视图那些，加读资源、中止信号；不写事件。`phase` 是 `preview` 时不要做有副作用的 I/O。 */
 export interface InterceptCtx<S extends StateDecl, St, Deps extends DepList, I = unknown> extends ViewCtx<S, St, Deps, I> {
     readonly resources: Resources;
+    /** 这个会话累计的费用（docs/specs/harness/runtime.md 输出 70）。 */
+    readonly spend: Spend;
     readonly signal: AbortSignal;
     readonly phase: "run" | "preview";
     /** 这一层这次调用的 id，记进 `modelStarted`、`toolStarted`。 */

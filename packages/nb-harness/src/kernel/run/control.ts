@@ -6,7 +6,7 @@
  * 这次运行的收口留给重开时的恢复（session.md 输出 12、15）。
  */
 
-import type {RunResult, RunStatus} from "../api/index.js";
+import type {RetryWait, RunResult, RunStatus} from "../api/index.js";
 import type {SessionCore} from "../dispatch/core.js";
 import {LogBrokenError} from "../dispatch/core.js";
 import {Interactions} from "./interaction.js";
@@ -29,7 +29,7 @@ export class RunControl {
     #status: RunStatus = {state: "idle"};
     readonly #waiters = new Map<string, ((result: RunResult) => void)[]>();
     readonly #core: SessionCore;
-    #host: Omit<RunHost, "phase" | "interactions" | "takeCompactRequests"> | null = null;
+    #host: Omit<RunHost, "phase" | "retrying" | "interactions" | "takeCompactRequests"> | null = null;
     /** 运行结束、会话回到空闲之后调用（撤回插件后的重新装配在这里接上，runtime.md 输出 57）。 */
     onIdle: (() => void) | null = null;
     /**
@@ -57,7 +57,7 @@ export class RunControl {
         });
     }
 
-    attach(host: Omit<RunHost, "phase" | "interactions" | "takeCompactRequests">): void {
+    attach(host: Omit<RunHost, "phase" | "retrying" | "interactions" | "takeCompactRequests">): void {
         this.#host = host;
     }
 
@@ -102,12 +102,20 @@ export class RunControl {
         return mine;
     }
 
+    /** 只改运行中的状态：等审批的 `waiting`、中止中的 `aborting` 不被盖掉。 */
+    #setRetrying(wait: RetryWait | null): void {
+        const status = this.#status;
+        if (status.state !== "running") return;
+        const {retry: _previous, ...rest} = status;
+        this.#setStatus(wait === null ? rest : {...rest, retry: wait});
+    }
+
     launch(runId: string, options: {compact?: {require: readonly string[]}} = {}): void {
         const host = this.#host;
         if (host === null) throw new Error("run control is not attached");
         const controller = new AbortController();
         const run: ActiveRun = {runId, controller, ...(options.compact === undefined ? {} : {compact: options.compact})};
-        const done = runLoop({...host, interactions: this.interactions, takeCompactRequests: () => this.#takeCompactRequests(runId), phase: (phase, request) => this.#setStatus({state: "running", runId, turnId: this.#core.leafState.kernel.run?.turnId ?? null, phase, request})}, run)
+        const done = runLoop({...host, interactions: this.interactions, takeCompactRequests: () => this.#takeCompactRequests(runId), retrying: (wait) => this.#setRetrying(wait), phase: (phase, request) => this.#setStatus({state: "running", runId, turnId: this.#core.leafState.kernel.run?.turnId ?? null, phase, request})}, run)
             .catch((error: unknown) => {
                 // 只有写日志失败会到这里；onBroken 已经结算了等它的调用方。
                 if (!(error instanceof LogBrokenError)) throw error;

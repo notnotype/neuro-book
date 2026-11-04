@@ -6,12 +6,13 @@
  */
 
 import {createHash} from "node:crypto";
-import type {Message, ModelCaller, ModelInfo, ModelRequest, ModelResolution, ModelResponse, RequestPurpose, Resources} from "../api/index.js";
+import type {Message, ModelCaller, ModelInfo, ModelRequest, ModelResolution, ModelResponse, RequestPurpose, Resources, RetryPolicy, RetryWait} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
 import {isSealed, seal} from "../state/freeze.js";
 import {chainLayers, failureDrafts, runChain, type ChainFailure} from "./chain.js";
+import {NO_RETRY, retryDelay} from "./retry.js";
 import {ctrl} from "./writes.js";
 
 export interface ModelCallHost {
@@ -21,6 +22,9 @@ export interface ModelCallHost {
     write(drafts: EventDraft[]): Promise<unknown>;
     /** 开始流式接收（推状态帧用）。 */
     streaming?(request: number): void;
+    readonly retry?: () => RetryPolicy;
+    /** 在等重发（推状态帧用）；null 表示等完了。 */
+    retrying?(wait: RetryWait | null): void;
 }
 
 export interface ModelCallOutcome {
@@ -68,12 +72,20 @@ export const isResponse = (value: unknown): value is ModelResponse => {
     return typeof response === "object" && response !== null && Array.isArray(response.content) && Array.isArray(response.toolCalls) && typeof response.stopReason === "string" && typeof response.usage === "object" && typeof response.model === "string";
 };
 
+/** 非对话的请求（以及一层调两次 `next` 时前一次）的结算：对话请求的回复由运行循环写成 `assistant`。 */
+function settlement(request: number, purpose: RequestPurpose, response: ModelResponse, retry?: {attempt: number; max: number; delayMs: number}): EventDraft {
+    if (response.stopReason === "error" || response.stopReason === "aborted") return ctrl("modelFailed", {request, kind: response.stopReason === "aborted" ? "aborted" : (response.error?.kind ?? "provider"), ...(response.error?.code === undefined ? {} : {code: response.error.code}), usage: response.usage, ...(retry === undefined ? {} : {retry})});
+    return ctrl("modelEnded", {request, purpose, stopReason: response.stopReason, usage: response.usage, model: response.model});
+}
+
 export async function callModel(host: ModelCallHost, resolution: Extract<ModelResolution, {ok: true}>, request: ModelRequest, signal: AbortSignal): Promise<ModelCallOutcome> {
     const {core} = host;
     const modifiedBy: {extension: string; fields: string[]}[] = [];
     let lastRequest: number | null = null;
     const environment = host.environment(resolution.info);
     const state = core.stateAt();
+    /** 一层多次调 `next`（可能并发）时每次的结果：除了调用方结算的最后一次，其余的用量没有别的地方记（docs/specs/harness/runtime.md 输出 71）。 */
+    const sent: {readonly number: number; readonly purpose: RequestPurpose; readonly response: ModelResponse}[] = [];
     const outcome = await runChain<ModelRequest, ModelResponse>({
         core,
         method: "model",
@@ -91,16 +103,18 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
             if (fields.length > 0) modifiedBy.push({extension: item.definition.id, fields});
         },
         terminal: async (final) => {
-            const number = core.requestCounter + 1;
+            const number = core.reserveRequest();
             await host.write([ctrl("modelStarted", {request: number, purpose: final.purpose, model: final.model, hash: requestHash(final), now: core.clock.now(), invocation: core.newId(), modifiedBy: modifiedBy.map((item) => ({...item}))})]);
             lastRequest = number;
             // 只有对话请求让运行进入 streaming：压缩与审批模型的请求流式时，运行状态仍是 compacting、tools。
             if (final.purpose === "turn") host.streaming?.(number);
             let deltaNumber = 0;
-            return resolution.call(final, signal, (delta) => {
+            const response = await resolution.call(final, signal, (delta) => {
                 deltaNumber += 1;
                 core.emit({type: "delta", request: number, purpose: final.purpose, n: deltaNumber, part: delta.part, text: delta.text, ...(delta.callId === undefined ? {} : {callId: delta.callId})});
             });
+            sent.push({number, purpose: final.purpose, response});
+            return response;
         },
         // 之前出错跳过这一层；之后出错用里层的回复（模型已经回复、花了钱，不丢）。
         onFailure: () => ({kind: "skip"}),
@@ -109,7 +123,9 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
             return returned;
         },
     });
-    return {response: outcome.value, request: lastRequest ?? core.requestCounter + 1, failures: outcome.failures};
+    const earlier = sent.filter((item) => item.number !== lastRequest).map((item) => settlement(item.number, item.purpose, item.response));
+    if (earlier.length > 0) await host.write(earlier);
+    return {response: outcome.value, request: lastRequest ?? core.reserveRequest(), failures: outcome.failures};
 }
 
 /**
@@ -125,14 +141,22 @@ export function modelCaller(host: ModelCallHost & {resolve(purpose: RequestPurpo
         const resolution = host.resolve(options.purpose, options.role);
         if (!resolution.ok) return {content: [], toolCalls: [], stopReason: "error", usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true}, model: draft.model ?? "unknown", error: {kind: "local", code: resolution.code, message: `no model for ${options.purpose} requests (${resolution.code})`}};
         const request: ModelRequest = {...draft, purpose: options.purpose, model: draft.model ?? resolution.info.id};
-        const {response, request: number, failures} = await callModel(host, resolution, request, signal);
-        const failed = response.stopReason === "error" || response.stopReason === "aborted";
-        await host.write([
-            ...failureDrafts(host.core, "intercept.model", failures),
-            failed
-                ? ctrl("modelFailed", {request: number, kind: response.stopReason === "aborted" ? "aborted" : (response.error?.kind ?? "provider"), ...(response.error?.code === undefined ? {} : {code: response.error.code}), usage: response.usage})
-                : ctrl("modelEnded", {request: number, purpose: options.purpose, stopReason: response.stopReason, usage: response.usage, model: response.model}),
-        ]);
-        return response;
+        // 每次重新进链：费用这类检查要看发请求这一刻的累计（docs/specs/harness/runtime.md 输出 67）。
+        for (let retries = 0; ; retries += 1) {
+            const {response, request: number, failures} = await callModel(host, resolution, request, signal);
+            const policy = host.retry?.() ?? NO_RETRY;
+            const delayMs = signal.aborted ? null : retryDelay(response, retries, policy);
+            const intercepted = failureDrafts(host.core, "intercept.model", failures);
+            if (delayMs === null) {
+                await host.write([...intercepted, settlement(number, options.purpose, response)]);
+                return response;
+            }
+            await host.write([...intercepted, settlement(number, options.purpose, response, {attempt: retries + 1, max: policy.maxRetries, delayMs})]);
+            host.retrying?.({attempt: retries + 1, max: policy.maxRetries, resumeAt: host.core.clock.now() + delayMs});
+            const waited = await host.core.clock.wait(delayMs, signal).then(() => true, () => false);
+            host.retrying?.(null);
+            // 等待时被中止：这次失败已经写过了，不再写第二条。
+            if (!waited) return {...response, stopReason: "aborted"};
+        }
     };
 }

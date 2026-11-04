@@ -20,11 +20,11 @@ export type {FinalOnlyHelper, OpeningHelper, ReminderHelper, ReminderOptions, St
 export type {
     AgentHost, ApprovalCtx, ApprovalInfo, ApproveHook, BufferedInput, CommandErrorCode, CommandErrorDetails, CommandFailure, CommandMap, CommandName, CommandOk, CommandResult, Complete,
     CreateSession, CreateSessionOptions, DeltaFrame, Diagnostic, ExtensionDeclaration, ExtensionHandle, ExtensionInfo, ExtensionReceiver, Frame, InputMode, InteractionSummary, OpenSession,
-    OutboundContext, DeltaContext, OutboundFilter, PreviewArgs, PreviewResult, RequestChange, RequestPath, RevokeReason, RewindTarget, RunResult, RunStatus, SessionApi, SessionCommands, SessionEnv, SessionQueries,
+    OutboundContext, DeltaContext, OutboundFilter, PreviewArgs, PreviewResult, RequestChange, RequestPath, RevokeReason, RewindTarget, RunResult, RunStatus, RetryPolicy, RetryWait, SessionApi, SessionCommands, SessionEnv, SessionQueries,
     SessionSnapshot, SlotReport, ToolSessionContext,
 } from "./host.js";
 export type {
-    ApprovalMode, ContentBlock, CoreSettings, Message, ModelCaller, ModelDelta, ModelDraft, ModelErrorKind, ModelFailure, ModelInfo, ModelPort, ModelQuery, ModelRequest, ModelResolution, ModelResolutionCode, ModelResponse,
+    ApprovalMode, Spend, ContentBlock, CoreSettings, Message, ModelCaller, ModelDelta, ModelDraft, ModelErrorKind, ModelFailure, ModelInfo, ModelPort, ModelQuery, ModelRequest, ModelResolution, ModelResolutionCode, ModelResponse,
     Origin, RequestBlock, RequestPurpose, StopReason, Usage,
 } from "./model.js";
 export type {AnyProfile, CommitFn, DefineProfile, DeriveProfile, Profile, ProfileFields, ProfileRender, TurnFn} from "./profile.js";

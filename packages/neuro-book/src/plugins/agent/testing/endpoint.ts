@@ -1,10 +1,10 @@
 /**
- * 测试用的本机 OpenAI 兼容端点：按脚本一次请求回一条（文字或工具调用），记下每次请求的工具名与消息。`hold()` 让下一次
+ * 测试用的本机 OpenAI 兼容端点：按脚本一次请求回一条（文字、工具调用或错误状态码），记下每次请求的工具名与消息。`hold()` 让下一次
  * 请求挂着、直到测试放行，看运行中的行为。只由测试使用。
  */
 
-/** 一条回复：一段文字、分几块流出的文字，或一次工具调用。 */
-export type Scripted = string | {readonly chunks: readonly string[]} | {readonly tool: string; readonly args?: Readonly<Record<string, unknown>>};
+/** 一条回复：一段文字、分几块流出的文字、一次工具调用，或一个错误状态码。 */
+export type Scripted = string | {readonly status: number} | {readonly chunks: readonly string[]} | {readonly tool: string; readonly args?: Readonly<Record<string, unknown>>};
 
 export interface SeenRequest {
     readonly tools: readonly string[];
@@ -48,6 +48,7 @@ export function fakeEndpoint(): FakeEndpoint {
             }
             const reply = queue.shift() ?? "好";
             calls += 1;
+            if (typeof reply === "object" && "status" in reply) return Response.json({error: {message: "Service overloaded"}}, {status: reply.status});
             const texts = typeof reply === "string" ? [reply] : "chunks" in reply ? reply.chunks : null;
             const parts = texts !== null
                 ? [...texts.map((text) => chunk({choices: [{index: 0, delta: {role: "assistant", content: text}, finish_reason: null}]})), chunk({choices: [{index: 0, delta: {}, finish_reason: "stop"}]})]

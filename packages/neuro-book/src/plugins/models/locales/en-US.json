@@ -7,6 +7,14 @@
         "roles": {
             "title": "Model Roles",
             "description": "Which model each role uses"
+        },
+        "streamFirstEventTimeoutSeconds": {
+            "title": "First event timeout (seconds)",
+            "description": "Treats a request as stuck when nothing arrives for this long; 0 means no timeout. Raise it for local models that process long contexts slowly"
+        },
+        "streamIdleTimeoutSeconds": {
+            "title": "Stream idle timeout (seconds)",
+            "description": "Treats a reply as stuck when nothing new arrives for this long; 0 means no timeout"
         }
     },
     "settingsPages": {

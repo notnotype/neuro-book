@@ -355,3 +355,65 @@ describe("会话", () => {
         expect(ended).toEqual(["interrupted"]);
     });
 });
+
+describe("运行保护的接线（docs/specs/agent/run-guards.md）", () => {
+    /** 手动时钟上的运行：推进时钟直到它结束。 */
+    async function finish(w: AgentWorld, session: SessionApi, text: string) {
+        const sent = await session.send({commandId: cid(), input: {text}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(`send failed: ${JSON.stringify(sent)}`);
+        let result: Awaited<ReturnType<SessionApi["waitRun"]>> | null = null;
+        void session.waitRun(sent.value.runId).then((value) => {
+            result = value;
+        });
+        await waitUntil("运行结束", () => {
+            w.settings.clock.advance(1000);
+            return result !== null;
+        });
+        return result!;
+    }
+    const providers = (activations = {count: 0}) => [profilesPlugin(activations), toolsPlugin(activations)];
+
+    test("验收 3、输出 1：新会话默认装着两个扩展", async () => {
+        const session = await createSession(await world(providers()));
+        const active = (await session.snapshot()).extensions.filter((item) => item.id.startsWith("nbook.agent.")).map((item) => [item.id, item.status]).sort();
+        expect(active).toEqual([["nbook.agent.cost-guard", "active"], ["nbook.agent.loop-guard", "active"]]);
+    });
+
+    test("输出 2：缺省重发一次失败的请求；modelRetries 是 0 时不重发", async () => {
+        const w = await world(providers());
+        const session = await createSession(w);
+        const before = endpoint.requests.length;
+        endpoint.script({status: 503}, "好了");
+        expect(await finish(w, session, "问")).toMatchObject({reason: "completed", text: "好了"});
+        expect(endpoint.requests.length - before).toBe(2);
+
+        const off = await world(providers(), {"nbook.agent/modelRetries": 0});
+        const offSession = await createSession(off);
+        const offBefore = endpoint.requests.length;
+        endpoint.script({status: 503});
+        expect((await finish(off, offSession, "问")).reason).toBe("error");
+        expect(endpoint.requests.length - offBefore).toBe(1);
+    });
+
+    test("卡死超时读模型服务的设置：等第一个事件超时按 network 失败", async () => {
+        const w = await world(providers(), {"nbook.agent/modelRetries": 0, "nbook.models/streamFirstEventTimeoutSeconds": 1});
+        const session = await createSession(w);
+        const hold = endpoint.hold();
+        try {
+            expect((await finish(w, session, "问")).error).toMatchObject({kind: "network", code: "first-event-timeout"});
+        } finally {
+            hold.release();
+        }
+    });
+
+    test("设置读真实的值：循环阈值、费用上限", async () => {
+        const w = await world(providers(), {"nbook.agent/toolLoopThreshold": 1, "nbook.agent/maxCost": 1});
+        const session = await createSession(w);
+        endpoint.script({tool: "test__tools__echo", args: {text: "同样"}}, {tool: "test__tools__echo", args: {text: "同样"}});
+        const result = await finish(w, session, "问");
+        expect(result.error).toMatchObject({code: "tool-call-loop"});
+        // 本机端点的模型没有单价：设了上限就要提示一次。
+        const events = (await session.log({afterSeq: 0, limit: 100_000})).events;
+        expect(events.filter((event) => event.type === "nbook.agent.cost-guard/costUnpriced")).toHaveLength(1);
+    });
+});

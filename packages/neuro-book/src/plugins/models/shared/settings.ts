@@ -79,6 +79,9 @@ export const BUILTIN_ROLES: ReadonlyArray<Pick<RoleConfig, "id" | "axis">> = [
 
 export const DEFAULT_ROLES: RolesConfig = {items: BUILTIN_ROLES.map((role) => ({...role, name: "", description: "", model: null}))};
 
+/** `nbook.agent` 的分区（docs/specs/agent/run-guards.md）。Agent 依赖模型服务，反过来引用会成环，所以按 id 写。 */
+const RUN_GUARDS_SECTION = "nbook.agent.reliability";
+
 export const modelsSettings = defineSettings("nbook.models", {
     providers: {
         schema: ProvidersSchema,
@@ -95,5 +98,25 @@ export const modelsSettings = defineSettings("nbook.models", {
         description: modelsText("settings.roles.description"),
         layers: ["user"],
         section: ROLES_SECTION,
+    },
+    streamFirstEventTimeoutSeconds: {
+        schema: Type.Integer({minimum: 0, maximum: 3600}),
+        default: 300,
+        title: modelsText("settings.streamFirstEventTimeoutSeconds.title"),
+        description: modelsText("settings.streamFirstEventTimeoutSeconds.description"),
+        layers: ["user"],
+        section: RUN_GUARDS_SECTION,
+        group: "requests",
+        order: 20,
+    },
+    streamIdleTimeoutSeconds: {
+        schema: Type.Integer({minimum: 0, maximum: 3600}),
+        default: 300,
+        title: modelsText("settings.streamIdleTimeoutSeconds.title"),
+        description: modelsText("settings.streamIdleTimeoutSeconds.description"),
+        layers: ["user"],
+        section: RUN_GUARDS_SECTION,
+        group: "requests",
+        order: 30,
     },
 });

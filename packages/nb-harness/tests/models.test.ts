@@ -4,8 +4,8 @@
  */
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
-import {stat, rm} from "node:fs/promises";
-import {join} from "node:path";
+import {mkdir, readdir, readFile, stat, rm, writeFile} from "node:fs/promises";
+import {dirname, join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {ModelRequest} from "@notnotype/nb-harness/kernel";
 import {buildResolution, discoverModels, hasCredential, openCredentials, type ProviderTarget} from "@notnotype/nb-harness/models";
@@ -49,6 +49,30 @@ async function send(provider: ProviderTarget, stored: string | null, env: Record
     const response = await built.resolution.call(request, new AbortController().signal, () => undefined);
     return {response, headers: seen[0]?.headers, requests: seen.length};
 }
+
+describe("请求全文的落盘", () => {
+    test("400、413 之后磁盘上没有请求全文，错误文字不带路径；路径行不在末尾、正文很长时也一样", async () => {
+        const home = join(root, "dump-home");
+        await mkdir(home, {recursive: true});
+        const victim = join(home, "别的目录/http-400-requests/笔记.txt");
+        await mkdir(dirname(victim), {recursive: true});
+        await writeFile(victim, "不该被删");
+        // `pi-ai` 按这些变量决定日志目录，留着就看错了地方。
+        const env: Record<string, string | undefined> = {...process.env, HOME: home, NB_TEST_VICTIM: victim};
+        for (const name of ["XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "PI_CONFIG_DIR", "PI_CODING_AGENT_DIR", "OMP_PROFILE", "PI_PROFILE"]) delete env[name];
+        const child = Bun.spawn(["bun", join(import.meta.dir, "fixtures/request-dump.ts")], {env, stdout: "pipe", stderr: "pipe"});
+        const [out, failure, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+        expect({code, failure}).toEqual({code: 0, failure: ""});
+        const results = out.trim().split("\n").map((line) => JSON.parse(line) as {name: string; kind: string; message: string});
+        expect(results.map((result) => result.name)).toEqual(["400", "413", "metadata", "long", "forged"]);
+        for (const result of results) expect(result.message).not.toContain("raw-http-request");
+        expect(results.find((result) => result.name === "metadata")!.message).toContain("provider diagnostic follows");
+        // 目录这次确实被用过（否则这条断言什么也没证明），里面没有留下文件。
+        const dumps = await readdir(join(home, ".omp/logs/http-400-requests"));
+        expect(dumps).toEqual([]);
+        expect(await readFile(victim, "utf8")).toBe("不该被删");
+    }, 30_000);
+});
 
 describe("凭据库", () => {
     test("写入后立即可读、重开仍在；再写是替换（只剩一行）；清除后没有；变化通知；库文件只给本人读写", async () => {

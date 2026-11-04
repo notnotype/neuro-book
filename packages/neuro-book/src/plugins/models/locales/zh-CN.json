@@ -7,6 +7,14 @@
         "roles": {
             "title": "模型角色",
             "description": "每个角色用哪个模型"
+        },
+        "streamFirstEventTimeoutSeconds": {
+            "title": "等第一个事件的时限（秒）",
+            "description": "发出请求后这么久没有任何内容就算卡死；0 表示不设。本地大模型处理长上下文很慢时可以调大"
+        },
+        "streamIdleTimeoutSeconds": {
+            "title": "流中途的时限（秒）",
+            "description": "回复到一半，这么久没有新内容就算卡死；0 表示不设"
         }
     },
     "settingsPages": {
