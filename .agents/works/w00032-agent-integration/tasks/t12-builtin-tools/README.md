@@ -106,8 +106,10 @@ t08 之后重新对齐需求：
 
 ## 当前状态
 
-开发者 2026-11-04 确认 [plan.md](plan.md) 第四稿。切片 0（Spec）写在 master：新建 [`agent/builtin-tools.md`](../../../../../docs/specs/agent/builtin-tools.md)。其余切片在分支 `feat/w00032-t12-builtin-tools` 上实施，没有开发者允许不合并。
+切片 0–7 都已完成：Spec 在 master，其余在分支 `feat/w00032-t12-builtin-tools`（worktree `.worktree/w00032-t12-builtin-tools`），没有开发者允许不合并。[收口验证](evidences/closing-verification.txt)通过，真实模型 smoke（DeepSeek）通过。实现审查（omp）进行中。
+
+实施中对计划的两处小改：`grep` 的搜索根也可以是文件（模型常这样用，Spec 已改）；`read` 的图片超过 500 KiB 时转 JPEG（图片随日志留在会话里、每次请求都发，上限取 omp 的做法）。
 
 ## 下一步
 
-按切片实施；收口做真实模型 smoke 与实现审查。
+处理实现审查的结论 → 向开发者汇报，等合并的允许。
