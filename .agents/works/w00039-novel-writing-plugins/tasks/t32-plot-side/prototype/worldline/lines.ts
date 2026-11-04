@@ -6,6 +6,7 @@
  * 线的归属与分叉记录放在原型自己的表里；产品里它们在剧情变更与分叉记录上（剧情侧提案第 3 节）。
  *
  * 第一部分：星瑕第 8 章回溯，两条线各读第 8 章末尾。第二部分：1000 章的规模，量建一条线、写入时更新常驻的线、内存。
+ * 第三部分：第二轮审查 A2 要的情形（多层分叉、跨线计划、越界、受影响的线），并逐条变更对照从头重建。
  */
 
 import {buildRegistry, ChapterOrder, createIncrementalEngine} from "../../../../../../../.worktree/w00039-t29-canon-kernel/packages/nb-canon/src/index";
@@ -15,7 +16,8 @@ const line = (text = "") => console.log(text);
 
 // ---------- 线视图 ----------
 
-type Line = {readonly id: string; readonly parent?: string; readonly cutAfter?: string; readonly carry?: ReadonlyArray<{entry: string; path: string}>; readonly trigger?: ReadPosition};
+/** forkVersion：分叉写入时的版本。父线上安放在切口之后、在分叉之前写下的计划，缺省随新线走（第三版）。 */
+type Line = {readonly id: string; readonly parent?: string; readonly cutAfter?: string; readonly carry?: ReadonlyArray<{entry: string; path: string}>; readonly trigger?: ReadPosition; readonly forkVersion?: number};
 const MAIN = "main";
 
 /** 安放的先后：前史在前，之后按章序、章内排序键、写入版本、id 的数值部分（与内核一致）。 */
@@ -28,6 +30,12 @@ function rankOf(world: WorldData, order: ChapterOrder, placement: StoryChange["a
     if (placement.kind === "prehistory") return [0, placement.order, 0, version, numeric];
     if (placement.kind === "chapter") return [1, index.get(placement.chapter) ?? -1, placement.key, version, numeric];
     return [2, 0, 0, version, numeric];
+}
+/** 读取位置的先后，与 rankOf 同一把尺：章首在本章所有变更之前，章末在之后。 */
+function positionRank(order: ChapterOrder, position: ReadPosition): number[] {
+    if (position.kind === "initial") return [0, -Infinity, 0, 0, 0];
+    const index = order.ids.indexOf(position.chapter);
+    return [1, index, position.edge === "start" ? -Infinity : Infinity, 0, 0];
 }
 const compare = (a: number[], b: number[]) => {
     for (let index = 0; index < a.length; index += 1) if (a[index] !== b[index]) return a[index]! - b[index]!;
@@ -50,7 +58,12 @@ class LineViews {
             const parent = this.visible(definition.parent);
             const cut = world.changes.get(definition.cutAfter!)!;
             const cutRank = rankOf(world, order, cut.at, cut.id);
-            for (const [id, change] of parent.changes) if (compare(rankOf(world, order, change.at, id), cutRank) <= 0) changes.set(id, change);
+            for (const [id, change] of parent.changes) {
+                const before = compare(rankOf(world, order, change.at, id), cutRank) <= 0;
+                // 计划是作者对“接下来”的打算：分叉之前写下、安放在切口之后的，随新线走。
+                const carriedPlan = !before && change.kind === "plan" && definition.forkVersion !== undefined && (world.createdAt.get(id) ?? 0) < definition.forkVersion;
+                if (before || carriedPlan) changes.set(id, change);
+            }
             for (const [id, check] of parent.checks) if (compare(rankOf(world, order, check.place, id), cutRank) <= 0) checks.set(id, check);
             // 带过去的地址：取父线在触发处的值，记成切口之后紧接着的一条合成赋值。
             if (definition.carry !== undefined && definition.carry.length > 0) {
@@ -64,7 +77,8 @@ class LineViews {
                 }
                 const id = `carry-${lineId}`;
                 changes.set(id, {id, kind: "written", text: `${lineId}：带过去的东西`, at: cut.at.kind === "chapter" ? {kind: "chapter", chapter: cut.at.chapter, key: cut.at.key} : cut.at, told: [], involves: [], lines: [], links: [], patches, status: "active", by: {kind: "author"}});
-                createdAt.set(id, (world.createdAt.get(cut.id) ?? 0));
+                // 排在切口之后、本线第一条变更之前：同一个安放键上，版本取切口的版本加半。
+                createdAt.set(id, (world.createdAt.get(cut.id) ?? 0) + 0.5);
             }
         }
         for (const [id, change] of world.changes) if (own(id)) changes.set(id, change);
@@ -80,22 +94,48 @@ class LineViews {
     /** 用到才建，建好留着（产品里常驻当前线，其余按最近使用留几份）。 */
     engine(lineId: string): IncrementalEngine {
         let engine = this.engines.get(lineId);
-        if (engine === undefined) this.engines.set(lineId, (engine = createIncrementalEngine(this.inputs(lineId))));
+        if (engine === undefined) {
+            const inputs = this.inputs(lineId);
+            this.carried.set(lineId, this.carryOf(inputs, lineId));
+            this.engines.set(lineId, (engine = createIncrementalEngine(inputs)));
+        }
         return engine;
     }
 
-    /** 世界变了以后，只更新已经建好、而且看得到这些变化的线；返回重建视图与引擎更新各用了多久。 */
-    update(base: EngineInputs, changed: Parameters<IncrementalEngine["update"]>[1], seenBy?: ReadonlySet<string>): {viewMs: number; engineMs: number} {
+    /** 每条线上一次带过去的值，用来判断这次更新里合成赋值变没变。 */
+    private readonly carried = new Map<string, string>();
+    private carryOf(inputs: EngineInputs, lineId: string): string {
+        return JSON.stringify(inputs.world.changes.get(`carry-${lineId}`)?.patches ?? null);
+    }
+
+    /**
+     * 世界变了以后，只更新已经建好、而且看得到这些变化的线；返回重建视图与引擎更新各用了多久。
+     * 按线树从父到子更新：子线带过去的值读的是父线更新后的引擎。
+     * 引擎按 changed 里的 id 标脏，而子线视图里没有父线切口之后的变更：带过去的值变了时，要把变了的合成赋值
+     * carry-<线> 加进看得到它的每条线（本线与后代）的 changed，否则这些线读到旧值（translateCarry: false 用来演示这一点）。
+     */
+    update(base: EngineInputs, changed: Parameters<IncrementalEngine["update"]>[1], seenBy?: ReadonlySet<string>, options: {translateCarry?: boolean} = {}): {viewMs: number; engineMs: number} {
         (this as {base: EngineInputs}).base = base;
         let viewMs = 0;
         let engineMs = 0;
-        for (const [lineId, engine] of this.engines) {
+        const depth = (lineId: string): number => {
+            const parent = this.lines.get(lineId)?.parent;
+            return parent === undefined ? 0 : depth(parent) + 1;
+        };
+        const changedCarries = new Set<string>();
+        for (const lineId of [...this.engines.keys()].sort((a, b) => depth(a) - depth(b))) {
             if (seenBy !== undefined && !seenBy.has(lineId)) continue;
             let started = performance.now();
             const inputs = this.inputs(lineId);
+            const carry = this.carryOf(inputs, lineId);
+            if (carry !== this.carried.get(lineId)) changedCarries.add(`carry-${lineId}`);
+            this.carried.set(lineId, carry);
+            // 父线先更新，所以祖先线的合成赋值变没变这时已经知道。
+            const seen = [...changedCarries].filter((id) => inputs.world.changes.has(id));
+            const lineChanged = options.translateCarry !== false && seen.length > 0 ? {...changed, changes: [...(changed.changes ?? []), ...seen]} : changed;
             viewMs += performance.now() - started;
             started = performance.now();
-            this.engines.set(lineId, engine.update(inputs, changed));
+            this.engines.set(lineId, this.engines.get(lineId)!.update(inputs, lineChanged));
             engineMs += performance.now() - started;
         }
         return {viewMs, engineMs};
@@ -103,6 +143,50 @@ class LineViews {
 
     drop(lineId: string): void {
         this.engines.delete(lineId);
+    }
+
+    /** 子线自己的变更必须安放在切口之后（第三版：越界的写入拒收）。返回越界的变更。 */
+    violations(): string[] {
+        const {world, order} = this.base;
+        const found: string[] = [];
+        for (const [id, change] of world.changes) {
+            const definition = this.lines.get(this.lineOf.get(id) ?? MAIN)!;
+            if (definition.parent === undefined) continue;
+            const cut = world.changes.get(definition.cutAfter!)!;
+            if (compare(rankOf(world, order, change.at, id), rankOf(world, order, cut.at, cut.id)) <= 0) found.push(`${id}（${change.text}）在 ${definition.id} 的切口之前`);
+        }
+        return found;
+    }
+
+    /**
+     * 一条变更影响哪些线（由线树算出，不由调用方传）：它所在的线；子线继承了它的（安放不晚于切口，或分叉前写下的计划）；
+     * 以及子线没继承它、但它改到了子线带过去的地址、又安放不晚于触发的：子线带过去的值跟着变。
+     * 后一种对子线来说等于它的合成赋值变了，所以按“切口处的一条变更、只改带过去的地址”继续往下传。
+     */
+    affected(changeId: string): string[] {
+        const {world, order} = this.base;
+        const change = world.changes.get(changeId)!;
+        const out: string[] = [];
+        const touchesOf = (patches: readonly Patch[]) => new Set(patches.map((patch) => `${patch.at.entry}:${patch.at.path}`));
+        const walk = (lineId: string, rank: number[], touches: ReadonlySet<string>, plan: boolean, version: number) => {
+            out.push(lineId);
+            for (const child of this.lines.values()) {
+                if (child.parent !== lineId) continue;
+                const cut = world.changes.get(child.cutAfter!)!;
+                const cutRank = rankOf(world, order, cut.at, cut.id);
+                const inherited = compare(rank, cutRank) <= 0 || (plan && child.forkVersion !== undefined && version < child.forkVersion);
+                if (inherited) {
+                    walk(child.id, rank, touches, plan, version);
+                    continue;
+                }
+                const carried = (child.carry ?? []).filter((address) => touches.has(`${address.entry}:${address.path}`));
+                if (carried.length > 0 && compare(rank, positionRank(order, child.trigger!)) <= 0) {
+                    walk(child.id, cutRank, new Set(carried.map((address) => `${address.entry}:${address.path}`)), false, (world.createdAt.get(cut.id) ?? 0) + 0.5);
+                }
+            }
+        };
+        walk(this.lineOf.get(changeId) ?? MAIN, rankOf(world, order, change.at, changeId), touchesOf(change.patches), change.kind === "plan", world.createdAt.get(changeId) ?? 0);
+        return out;
     }
 }
 
@@ -287,4 +371,122 @@ line("## 第二部分：1000 章的规模（形状同 t29 的 scripts/scale.ts�
     const lateViews = new LineViews(current, lateLines, new Map());
     const [, lateMs] = time(() => lateViews.engine("r2"));
     line(`- 第 990 章分叉、建一条几乎是整本的线：${lateMs.toFixed(0)} ms`);
+}
+
+
+// ---------- 第三部分：第二轮审查 A2 要的情形 ----------
+
+line();
+line("## 第三部分：多层分叉、同章切口、切口与触发之间改过带过去的地址、跨线兑现计划、越界安放、受影响的线");
+{
+    const entry = (id: string, name: string, data: Entry["init"]["data"]): Entry => ({id, type: "人物", parent: null, folder: "", order: 0, init: {name, aliases: [], summary: "", text: [], data}});
+    const entries = new Map<string, Entry>([
+        ["e1", entry("e1", "星瑕", {panel: {type: PANEL.id, version: 1, enabled: true, fields: {存款: 20000, 回溯次数: 2}}, know: {type: MIND.id, version: 1, enabled: true, fields: {知情: []}}})],
+        ["e2", entry("e2", "星瑾", {body: {type: BODY.id, version: 1, enabled: true, fields: {伤: "没有"}}, know: {type: MIND.id, version: 1, enabled: true, fields: {知情: []}}})],
+    ]);
+    const change = (id: string, chapter: string, key: number, text: string, patches: Patch[], extra: Partial<StoryChange> = {}): StoryChange => ({id, kind: "written", text, at: {kind: "chapter", chapter, key}, told: [], involves: [], lines: [], links: [], patches, status: "active", by: {kind: "author"}, ...extra});
+    const know = (label: string): Patch => ({op: "listAdd", at: {entry: "e1", path: "know.知情"}, value: {id: label, label, 程度: "知道"}});
+    const changes = new Map<string, StoryChange>([
+        // 第 8 章：切口 c1 本身也改了带过去的地址（回溯次数），切口与触发之间又改了两次。
+        ["c1", change("c1", "ch8", 10, "早上出门；今天的回溯次数刷新为 2", [{op: "set", at: {entry: "e1", path: "panel.回溯次数"}, value: 2}])],
+        ["c2", change("c2", "ch8", 20, "中午买包；听说下午有雨", [{op: "add", at: {entry: "e1", path: "panel.存款"}, value: -5000}, know("下午有雨")])],
+        ["c3", change("c3", "ch8", 30, "下午出事；第一次回溯", [{op: "set", at: {entry: "e2", path: "body.伤"}, value: "右腿骨折"}, know("下午那个路口会出车祸"), {op: "add", at: {entry: "e1", path: "panel.回溯次数"}, value: -1}])],
+        // 第一次回溯后的线 r1：
+        ["c4", change("c4", "ch8", 40, "（r1）没买包，去学校接人", [])],
+        ["c5", change("c5", "ch9", 10, "（r1）第 9 章：又出事；第二次回溯", [know("晚上会停电"), {op: "add", at: {entry: "e1", path: "panel.回溯次数"}, value: -1}])],
+        // 第二次回溯后的线 r2（从 r1 的 c4 之后分出）：
+        ["c6", change("c6", "ch9", 20, "（r2）第 9 章：提前买蜡烛", [])],
+        // 计划：主线上、切口之前的计划 p1；切口之后在主线上建的计划 p2。
+        ["p1", {...change("p1", "ch9", 5, "计划：第 9 章兄妹一起吃饭", []), kind: "plan" as const}],
+        ["c7", change("c7", "ch9", 30, "（r2）兄妹一起吃饭", [], {links: [{kind: "fulfills", plan: "p1"}]})],
+        ["p2", {...change("p2", "ch8", 35, "计划（主线，切口之后建）：星瑾住院", []), kind: "plan" as const}],
+        // 越界：标在 r1 上，却安放在第 7 章（r1 的切口之前）。
+        ["c8", change("c8", "ch7", 10, "（r1，越界）第 7 章的事", [])],
+    ]);
+    const versions = ["c1", "c2", "c3", "p1", "c4", "c5", "c6", "c7", "p2", "c8"];
+    const createdAt = new Map<string, number>([["e1", 1], ["e2", 2], ...versions.map((id, index) => [id, index + 3] as [string, number])]);
+    // p1 要在 c1 之前写入才算“切口之前的计划”：这里让它的版本小于 c1。
+    createdAt.set("p1", 2.5);
+    const base: EngineInputs = {world: {version: 20, entries, changes, checks: new Map(), questions: new Map(), suggestions: new Map(), createdAt}, order: new ChapterOrder(["ch7", "ch8", "ch9"]), registry: buildRegistry([PANEL, BODY, MIND]), reductions: () => undefined};
+    const carry = [{entry: "e1", path: "know.知情"}, {entry: "e1", path: "panel.回溯次数"}];
+    const lines = new Map<string, Line>([
+        [MAIN, {id: MAIN}],
+        ["r1", {id: "r1", parent: MAIN, cutAfter: "c1", carry, trigger: {kind: "chapter", chapter: "ch8", edge: "end"}, forkVersion: 6.5}],
+        ["r2", {id: "r2", parent: "r1", cutAfter: "c4", carry, trigger: {kind: "chapter", chapter: "ch9", edge: "end"}, forkVersion: 8.5}],
+    ]);
+    const lineOf = new Map<string, string>([["c4", "r1"], ["c5", "r1"], ["c6", "r2"], ["c7", "r2"], ["c8", "r1"]]);
+    const views = new LineViews(base, lines, lineOf);
+    const show = (lineId: string, chapter: string) => {
+        const position: ReadPosition = {kind: "chapter", chapter, edge: "end"};
+        const engine = views.engine(lineId);
+        const xia = engine.entry("e1", position, "actual");
+        const jin = engine.entry("e2", position, "actual");
+        if (xia === null || xia === "chapter-not-found" || jin === null || jin === "chapter-not-found") throw new Error("读不到");
+        const rows = (xia.namespaces.know?.fields.知情?.value as Array<{label: string}>).map((row) => row.label);
+        // 线上看不到的计划，引擎的 progress 也答 unfulfilled；这里先查可见性，分开显示。
+        const seen = views.inputs(lineId).world.changes;
+        const progress = seen.has("p1") ? engine.progress("p1", position) : "看不到";
+        const p2 = seen.has("p2") ? engine.progress("p2", position) : "看不到";
+        line(`- ${lineId}，第 ${chapter.slice(2)} 章末尾：存款 ${String(xia.namespaces.panel?.fields.存款?.value)}、回溯次数 ${String(xia.namespaces.panel?.fields.回溯次数?.value)}、知道 ${JSON.stringify(rows)}、星瑾的伤 ${String(jin.namespaces.body?.fields.伤?.value)}；计划 p1 ${progress}、p2 ${p2}`);
+    };
+    show(MAIN, "ch8");
+    show("r1", "ch9");
+    show("r2", "ch9");
+    line(`- 越界的安放：${views.violations().join("；") || "没有"}`);
+    for (const id of ["c1", "c2", "c3", "c4", "c5", "c6", "p1", "p2"]) line(`- 变更 ${id} 影响的线：${views.affected(id).join("、")}`);
+
+    // 对照：逐条把一条变更改成空的（计划直接删掉；切口不能删，删了是改线结构），所有线从头重建，
+    // 看哪些线读出来的东西变了。变了的线必须都在 affected 里。
+    const snapshot = (target: LineViews) => {
+        const result = new Map<string, string>();
+        for (const lineId of lines.keys()) {
+            const engine = target.engine(lineId);
+            const seen = target.inputs(lineId).world.changes;
+            const parts: unknown[] = [];
+            for (const chapter of base.order.ids) {
+                const position: ReadPosition = {kind: "chapter", chapter, edge: "end"};
+                for (const id of entries.keys()) {
+                    const view = engine.entry(id, position, "actual");
+                    parts.push(view === null || view === "chapter-not-found" ? view : view.namespaces);
+                }
+                for (const plan of ["p1", "p2"]) parts.push(seen.has(plan) ? engine.progress(plan, position) : "看不到");
+            }
+            result.set(lineId, JSON.stringify(parts));
+        }
+        return result;
+    };
+    const before = snapshot(views);
+    let exact = 0;
+    const loose: string[] = [];
+    const missed: string[] = [];
+    for (const id of versions) {
+        const without = new Map(changes);
+        const original = changes.get(id)!;
+        if (original.kind === "plan") without.delete(id);
+        else without.set(id, {...original, patches: [], links: []});
+        const perturbed = new LineViews({...base, world: {...base.world, changes: without}}, lines, lineOf);
+        const after = snapshot(perturbed);
+        const differ = [...lines.keys()].filter((lineId) => before.get(lineId) !== after.get(lineId));
+        const claimed = views.affected(id);
+        const miss = differ.filter((lineId) => !claimed.includes(lineId));
+        const extra = claimed.filter((lineId) => !differ.includes(lineId));
+        if (miss.length > 0) missed.push(`${id} 漏了 ${miss.join("、")}`);
+        else if (extra.length > 0) loose.push(`${id} 多算了 ${extra.join("、")}（实际变了的：${differ.join("、") || "没有"}）`);
+        else exact += 1;
+    }
+    line(`- 对照（逐条改空再从头重建）：${versions.length} 条变更里 ${exact} 条算得正好；漏算：${missed.join("；") || "没有"}；多算：${loose.join("；") || "没有"}`);
+
+    // 增量更新：主线上切口与触发之间的 c2 改了带过去的地址（听到的消息换了）。只更新 affected(c2) 的线，与从头重建对照。
+    const edited = new Map(changes);
+    edited.set("c2", {...changes.get("c2")!, patches: [{op: "add", at: {entry: "e1", path: "panel.存款"}, value: -5000}, know("下午有暴雨")]});
+    const next: EngineInputs = {...base, world: {...base.world, version: 21, changes: edited}};
+    const fresh = snapshot(new LineViews(next, lines, lineOf));
+    for (const translateCarry of [false, true]) {
+        const live = new LineViews(base, lines, lineOf);
+        for (const lineId of lines.keys()) live.engine(lineId);
+        live.update(next, {changes: ["c2"]}, new Set(views.affected("c2")), {translateCarry});
+        const got = snapshot(live);
+        const stale = [...lines.keys()].filter((lineId) => got.get(lineId) !== fresh.get(lineId));
+        line(`- 增量更新 c2，${translateCarry ? "把变了的合成赋值加进看得到它的线的 changed" : "只传原变更 id"}：与从头重建不同的线 ${stale.join("、") || "没有"}`);
+    }
 }
