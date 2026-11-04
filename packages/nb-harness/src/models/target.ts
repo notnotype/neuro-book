@@ -8,12 +8,14 @@
  *   “认证方式”要把它放进请求头时也拿得到。取不到时交给适配器按 `auth`、`missing-key` 失败（不发请求）。
  */
 
+import {unlink} from "node:fs/promises";
+import {basename, dirname} from "node:path";
 import {NO_AUTH_SENTINEL} from "@oh-my-pi/pi-ai/auth-retry";
 import {getBundledModel, getBundledProviders, type Model} from "@oh-my-pi/pi-catalog";
 import {buildModel} from "@oh-my-pi/pi-catalog/build";
 
 import {ompCall, ompModelInfo} from "../kernel/index.js";
-import type {ModelInfo, ModelResolution} from "../kernel/index.js";
+import type {ModelInfo, ModelResolution, OmpTransport} from "../kernel/index.js";
 import {catalogPrice} from "./catalog.js";
 import {envRefName, envValue, type StartupEnv} from "./env.js";
 
@@ -60,7 +62,18 @@ export interface KeyAccess {
 
 export type BuildResult = {readonly ok: true; readonly resolution: Extract<ModelResolution, {ok: true}>; readonly model: Model} | {readonly ok: false; readonly code: "unknown-model"};
 
-export function buildResolution(provider: ProviderTarget, config: ModelTarget, access: KeyAccess): BuildResult {
+/** 删 `pi-ai` 落盘的请求全文（docs/specs/harness/models.md 输出 19）：只删它自己那个目录下的；文件已经没了算达成（它后台清理也会删）。 */
+async function discardRequestDump(path: string): Promise<void> {
+    if (basename(dirname(path)) !== "http-400-requests") throw new Error(`unexpected path ${path}`);
+    try {
+        await unlink(path);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+}
+
+/** `transport` 每次请求现读：解析结果会被缓存，设置改了要从下一次请求起生效。 */
+export function buildResolution(provider: ProviderTarget, config: ModelTarget, access: KeyAccess, transport?: () => OmpTransport): BuildResult {
     const built = provider.kind === "catalog" ? catalogModel(provider, config) : customModel(provider, config);
     if (built === null) return {ok: false, code: "unknown-model"};
     const {model, priceKnown} = built;
@@ -77,6 +90,8 @@ export function buildResolution(provider: ProviderTarget, config: ModelTarget, a
                     model,
                     priceKnown,
                     headers,
+                    onRequestDump: discardRequestDump,
+                    ...(transport === undefined ? {} : {transport: transport()}),
                     apiKey: () => {
                         if (missing.length > 0 || key === null) throw new Error(`no credential for provider ${provider.id}${missing.length > 0 ? ` (environment variable ${missing.join(", ")} is not set)` : ""}`);
                         return key;

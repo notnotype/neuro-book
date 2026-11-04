@@ -81,6 +81,10 @@ export interface ModelFailure {
     readonly code?: string;
     readonly status?: number;
     readonly message: string;
+    /** 同样的请求再发一次有意义（docs/specs/harness/runtime.md 输出 62）。不写算否。 */
+    readonly retryable?: boolean;
+    /** 服务商要求的等待时间。 */
+    readonly retryAfterMs?: number;
 }
 
 /**
