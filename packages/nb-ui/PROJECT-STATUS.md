@@ -1,26 +1,15 @@
 # nb-ui 项目状态
 
-> 本轮 T149 resync：来源 checkout 的 HEAD 为 `2a2ed2df79fe9b2a9336ec779b7792780d280e83`，来源分支为 `feat/component-lab`。本页记录当前收编包可确认的快照状态，不替代项目规范或 Task。
-
 ## 当前状态
 
-- `@notnotype/nb-ui` 已作为自治包收编到 `packages/nb-ui`。
-- 包保留源 package name、版本、scripts、exports、依赖语义，并设置 `private: true`。
-- 许可证为 `AGPL-3.0-only`，与仓库根和 `packages/neuro-book` 一致。收编时保留的 `PolyForm-Noncommercial-1.0.0` 与 AGPL 产品的分发条件冲突，已在主应用开始消费本包时切换。
-- 组件、主题、配色、token、playground、README 和项目文档均按 S0 import manifest 迁入。
-- 样式：不再有预编译产物。2026-10-21（w00030 t02）起 `dist/nb-ui.css` 与 `build:css` 已删除，宿主的 Tailwind v4 编译 `src/tailwind.css`（导出为 `@notnotype/nb-ui/tailwind.css`），层序按 Tailwind 标准 `theme, base, components, utilities`；宿主写法见 [`README.md`](README.md#styles-in-the-host-app)。
+- `@notnotype/nb-ui` 发布到 npm，发布的是 TypeScript 与 `.vue` 源码（[ADR 0029](../../docs/adr/0029-workspace-packages-publish-source-to-npm.md)）。版本号见 `package.json`；公开 API 已按 0.4 改完，版本号与发布留到下次发版，清单见 [`docs/migration-0.4.md`](docs/migration-0.4.md)。
+- 新应用 `packages/neuro-book` 与 nb-form、nb-agent-ui、nb-markdown、nb-story、dev-panel 都在用它。
+- 样式：没有预编译产物，宿主的 Tailwind v4 编译 `src/tailwind.css`（导出为 `@notnotype/nb-ui/tailwind.css`），见 [`README.md`](README.md#宿主里的样式) 与 [ADR 0028](../../docs/adr/0028-tailwind-only-host-compiles-nb-ui.md)。
+- 许可证：`AGPL-3.0-only`，与仓库根一致。
 
 ## 治理入口
 
 - 项目规则：[`AGENTS.md`](AGENTS.md)
 - 项目文档：[`docs/README.md`](docs/README.md)
-- 项目 Task：[`.agents/tasks/README.md`](.agents/tasks/README.md)
+- 历史 Task：[`.agents/tasks/README.md`](.agents/tasks/README.md)；当前工作在根 [`.agents/works/`](../../.agents/works/README.md)
 - 仓库共享规则：[`../../AGENTS.md`](../../AGENTS.md)
-
-## 验证边界
-
-T149 resync 当时（2026-08）运行了 `bun run build:css`（该命令与产物已在 2026-10-21 删除，见上）并成功；未运行本包测试、typecheck、playground 浏览器验收或完整 build。原 checkout 保持只读；导入范围与来源 hash 由 T149 resync manifest 复核。
-
-## 来源与范围
-
-本轮 resync manifest 位于系统临时目录 `00149-sibling-resync-20260818T123029Z`，记录 156 个 included 条目和 2 个排除条目；`.gitignore` 与根 `bun.lock` 不复制为目标包控制文件。

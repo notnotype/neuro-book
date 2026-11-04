@@ -1,18 +1,14 @@
 # nb-ui 文档
 
-这里维护 `nb-ui` 组件库自己的规范与设计资料。文档只约束 `packages/nb-ui` 的公共组件、主题、token、样式和 playground，不替代仓库根文档治理。
+本目录维护 nb-ui 自己的规范与设计资料，只约束 `packages/nb-ui` 的公共组件、主题、token、样式和 playground。
 
-## 当前入口
+- [开发规范](ui-development-spec.md)：组件、样式、主题和 playground 的工程合同。
+- [设计语言](design-language.md)：视觉判据与设计取舍。
+- [主题作者规范](authoring-themes.md)：主题包格式与作者指南。
+- [从 0.3 升级到 0.4](migration-0.4.md)：公开 API 的逐项对照。
+- [使用说明](../README.md)：安装、接入与公开入口。
+- [项目状态](../PROJECT-STATUS.md)：包的现状。
 
-- [UI development spec](ui-development-spec.md)：组件、样式、主题和 playground 的开发合同。
-- [Design language](design-language.md)：视觉规则与设计取舍。
-- [Authoring themes](authoring-themes.md)：主题包格式与作者指南。
-- [Project Status](../PROJECT-STATUS.md)：nb-ui 当前包状态与快照边界。
+组件的行为写在源码目录里的同名 `.md`（例如 [`Dialog.md`](../src/components/feedback/Dialog.md)、[`grid.md`](../src/components/layout/grid.md)）；哪些组件必须有，见[组件规范](../../../docs/standards/code/components.md)的“组件文档”。
 
-### 组件级契约
-
-组件源代码目录中包含组件级说明文档（如 [`Dialog.md`](../src/components/feedback/Dialog.md) 与 [`grid.md`](../src/components/layout/grid.md)）。在进行 UI 开发或查阅具体组件时，查阅范围限于**受管组件**：通过 [`src/components/index.ts`](../src/components/index.ts) 对外导出的组件，以及 `packages/neuro-book/app/components/common/**` 下的 `.vue`。这批组件必须有同名 `.md` 作为行为与能力标签说明；缺失会使 `bun run docs:check` 失败。其余组件不在门禁内，改动时补齐。
-
-项目 Agent 规则见 [`../AGENTS.md`](../AGENTS.md)，仓库共享合同见 [`../../../AGENTS.md`](../../../AGENTS.md)。current Work/Task 位于根 [`.agents/works/`](../../../.agents/works/README.md)；[`../.agents/tasks/`](../.agents/tasks/README.md) 只保存本包 legacy 记录。
-
-本目录没有从根 `docs/` 复制的共享正文；NeuroBook 主应用和跨项目事项仍归仓库根文档治理。
+项目 Agent 规则见 [`../AGENTS.md`](../AGENTS.md)，仓库共享合同见 [`../../../AGENTS.md`](../../../AGENTS.md)。当前的 Work 与 Task 在根 [`.agents/works/`](../../../.agents/works/README.md)，本包的历史 Task 在 [`../.agents/tasks/`](../.agents/tasks/README.md)。

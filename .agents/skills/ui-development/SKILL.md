@@ -11,13 +11,12 @@ description: 指导 NeuroBook 与 nb-ui 的前端与 UI 开发、组件设计与
 
 | 关注事项 | 唯一真相源 | 说明 |
 |---|---|---|
-| **视觉判据与设计哲学** | [`packages/nb-ui/docs/design-language.md`](../../../packages/nb-ui/docs/design-language.md) | 材质轴 vs 层级轴、冷暖分家、同心圆角、实测避坑总结。 |
-| **控件参数与工程标准** | [`packages/nb-ui/docs/ui-development-spec.md`](../../../packages/nb-ui/docs/ui-development-spec.md) | Surface Tier 1~4 分级、核心控件参数、零布局位移、滚动条与遮罩规范、自检清单。 |
+| **视觉判据与设计哲学** | [`packages/nb-ui/docs/design-language.md`](../../../packages/nb-ui/docs/design-language.md) | 视觉判据、设计取舍与踩过的坑。 |
+| **工程标准** | [`packages/nb-ui/docs/ui-development-spec.md`](../../../packages/nb-ui/docs/ui-development-spec.md) | 跨组件的工程合同：取值消费、浮层外框、弹出列表、滚动条、自检清单。单个组件的参数在同名 `.md`。 |
 | **组件连接与契约约束** | [`docs/standards/code/components.md`](../../../docs/standards/code/components.md) | 明面/隐藏通道划分、frontmatter 标签、同名 `.md` 规范、5 配方与 4 禁止规则。 |
 | **前端工程与存储边界** | [`docs/standards/code/frontend.md`](../../../docs/standards/code/frontend.md) | 客户端存储分层（严禁裸写 localStorage）、Tailwind/CSS 变量、390px 窄屏适配。 |
-| **基础控件组件池** | [`packages/nb-ui/README.md`](../../../packages/nb-ui/README.md) 与 `packages/nb-ui/src/components/index.ts` | 50+ 通用无业务倾向基础控件清单及导出。 |
+| **基础控件组件池** | [`packages/nb-ui/README.md`](../../../packages/nb-ui/README.md) 与 `packages/nb-ui/src/components/index.ts` | 基础控件清单及导出。 |
 
-- **样式参数**：Border 统一取 `var(--border-w)`，分割线 `var(--divider)`，外轮廓 `var(--control-outline)`；Surface 严格分材质轴（直接压底纹，整页一层）与层级轴（面板上叠纯不透明色阶，向上更亮，绝不叠玻璃）。
 
 ## 二、组件复用与伴生文档
 
@@ -30,8 +29,8 @@ description: 指导 NeuroBook 与 nb-ui 的前端与 UI 开发、组件设计与
 
 通用验证范围与停止条件以 [验证门禁](../../../docs/testing/README.md#验证门禁) 为准，本节只补 UI 特有的检查项。
 
-1. 涉及布局或响应式时，确认桌面与 390px 窄屏都没有水平溢出，并在宽窗口（≥1400px）下确认内容列封顶、宽度随内容的元素不拉满整行（见 [`design-language.md`](../../../packages/nb-ui/docs/design-language.md) 自检清单）；涉及主题 token 时，确认明暗两态对比正常。
-2. 对照 [`ui-development-spec.md` 的开发后自检与易错清单](../../../packages/nb-ui/docs/ui-development-spec.md#10-开发后自检与易错清单checklist)中与本次改动相关的条目。
+1. 涉及布局或响应式时，确认桌面与 390px 窄屏都没有水平溢出，并在宽窗口（≥1400px）下确认内容列封顶、宽度随内容的元素不拉满整行（见 [`ui-development-spec.md`](../../../packages/nb-ui/docs/ui-development-spec.md) 的开发后自检）；涉及主题 token 时，确认明暗两态对比正常。
+2. 对照 [`ui-development-spec.md` 的开发后自检与易错清单](../../../packages/nb-ui/docs/ui-development-spec.md#8-开发后自检与易错清单)中与本次改动相关的条目。
 3. 对话框组件名不以 Dialog 结尾时，在 `component-index-model.ts` 的撑满列表里登记，否则组件库画布没有高度。
 4. 设计信息流或信息密度高的界面前，先和开发者确认信息的注意力排序（首先看什么、默认折叠什么、什么时候整块收起），写进 Spec 后再出视觉候选；否则视觉迭代会反复推翻版式。
 

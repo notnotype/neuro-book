@@ -75,10 +75,10 @@ import myTheme from "./themes/my-theme";
 installTheme(myTheme);
 ```
 
-**装载 ≠ 激活**。`installTheme` 只做登记，哪一套当前生效由主题 store 决定——
+**装载不等于激活**。`installTheme` 只做登记，哪一套当前生效由主题 store 决定——
 「装了 N 套、激活 1 套」是常态。
 
-`themes/editorial/` 就是这个形态的实物：一个 12 行的 manifest 加一份 vars.css，没有别的。
+`themes/editorial/` 就是这个形态的实物：一个 manifest 加一份 vars.css，没有别的。
 它是 nb-ui 的一方主题，但走的是**和第三方完全相同的装载路径**，没有任何捷径——
 默认主题（`nbook`）也一样。
 
@@ -86,12 +86,8 @@ installTheme(myTheme);
 
 `manifest.ts` 里不能出现函数或组件对象，实现一律放在 `index.ts`。
 
-理由是市场：索引服务要能在**不执行第三方代码**的前提下知道这套主题是什么、动了哪些组件、
-兼容哪个宿主版本。一旦 manifest 里出现函数，索引就必须先跑别人的代码。VS Code 也是这么分的
+理由是市场：索引服务要能在**不执行第三方代码**的前提下知道这套主题是什么、兼容哪个宿主版本。一旦 manifest 里出现函数，索引就必须先跑别人的代码。VS Code 也是这么分的
 （`package.json` 的 contributions 与 extension entry 分离）。
-
-装载器会校验两者一致：manifest 声明覆盖了某个组件却没给实现，或给了实现却没声明，
-**都直接拒绝装载**。漏声明等于向市场隐藏能力。
 
 ## 能改哪些变量
 
@@ -123,16 +119,9 @@ installTheme(myTheme);
 }
 ```
 
-### 浮层 Surface 透明度规范（`--overlay-surface`、`--dialog-surface`、`--dialog-surface-nested`）
+### 浮层的三档面
 
-浮层必须承担清晰的内容承载与文字阅读职责，严禁追求极致透明度而损害可读性。面分三档，后两档缺省回落到前一档：
-- **小浮层**（`DropdownMenu` / `Popover` / `Select` / `CommandPalette`）读 `--overlay-surface`：nbook 亮色 `color-mix(in srgb, var(--bg-panel) 72%, transparent)`、暗色 75%；
-- **对话框与浮动窗口**读 `--dialog-surface`：面积大、字段多，给得比小浮层实（nbook 90%）；
-- **叠在对话框上的对话框**读 `--dialog-surface-nested`（nbook 90%）：它传送到 `body`，仍是玻璃；再调实未必显得出层次，nbook 是对着彩色背景比过之后定的同档；
-- 减少透明度与高对比度下三档都换成实心 `var(--bg-panel)`；
-- **严禁降低到 14% 等过低不透明度**：过薄透明会导致底层正文、按钮严重透光穿透，彻底破坏实体面板感；
-- **机械守门**：全库由 `token-consumption.test.ts` 静态扫描守门，禁止任何组件在模板中内联硬编码 `backgroundColor: color-mix(...)` 或 `backdropFilter`。
-
+`--overlay-surface`（小浮层）、`--dialog-surface`（对话框与浮动窗口）、`--dialog-surface-nested`（叠在对话框上的对话框）是三档面，后两档缺省回落到前一档。不透明度由主题定，但浮层要承载文字：过薄时底层的正文和按钮会透上来。减少透明度与高对比度下三档都换成实心 `var(--bg-panel)`。
 
 **新增变量**——主题层没有的东西，在 manifest 的 `declares` 里声明。每一项**必须自带 fallback**：
 
@@ -187,8 +176,7 @@ fallback 必须能从配色契约派生（字面值或 `color-mix`），保证�
 后者是配色的**身份**，对用户自定义的暗色配色一律失效，而且失效时不报任何错，
 只表现为「换了个暗色配色就不对了」。
 
-`macos` 的玻璃配方正是这么踩过一次：整套只按亮色调过，暗色下 `brightness` 和高光 alpha
-两项方向都是反的——Apple 的暗色 Liquid Glass 是**压暗**不是提亮，白色高光在暗底上会过曝成灰边。
+暗色配方不能照抄亮色，见设计语言“踩过的坑”第 7 条。
 
 ## 自带配色
 
@@ -276,5 +264,5 @@ export default {
 | --- | --- |
 | `themes/editorial/` | 最小主题：零新增变量、零配色、零资源 |
 | `themes/aurora/` | 新增一个变量并带 fallback |
-| `themes/macos/` | 格式天花板：10 个新变量、自带亮暗两套配色、SVG 资源、把窗口左上角判给侧栏 |
-| `themes/nbook/` | 产品默认主题：从 `macos` 衍生，17 个新变量、自带亮暗两套配色、自带 SVG 资源。示范两件事——① 「主题的论点写在变量里」：「稿面比桌面亮」不是写死一个亮色值，而是 `--page-surface` 取 `--bg-panel`，再由配色表保证 panel 恒亮于 main，所以换任何配色这条都成立；② **衍生主题是同级不是继承**，两套各自自包含，删掉任一套另一套照常装载 |
+| `themes/macos/` | 格式天花板：新增变量、自带亮暗两套配色、SVG 资源、把窗口左上角判给侧栏 |
+| `themes/nbook/` | 产品默认主题：从 `macos` 衍生，新增变量、自带亮暗两套配色、自带 SVG 资源。示范两件事——① 「主题的论点写在变量里」：「稿面比桌面亮」不是写死一个亮色值，而是 `--page-surface` 取 `--bg-panel`，再由配色表保证 panel 恒亮于 main，所以换任何配色这条都成立；② **衍生主题是同级不是继承**，两套各自自包含，删掉任一套另一套照常装载 |
