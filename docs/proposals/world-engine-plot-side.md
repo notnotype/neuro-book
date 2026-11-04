@@ -1,6 +1,6 @@
 ---
 schema: nbook.proposal/v1
-status: draft
+status: reviewing
 created: 2026-11-04
 decided: null
 supersedes: []
