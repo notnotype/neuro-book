@@ -3,6 +3,8 @@
  * 请求是 Profile 的系统提示词加输入这一条用户消息（Profile 模板里别的内容是会话用的，不混进来），`purpose: "background"`。
  */
 
+import {addUsage} from "../run/results.js";
+import {retryDelay} from "../run/retry.js";
 import {replyText} from "../api/index.js";
 import type {AnyProfile, Complete, ModelRequest, RunResult} from "../api/index.js";
 import {assemble} from "../extension/assemble.js";
@@ -42,11 +44,20 @@ export const complete: Complete = async (env, options) => {
         return failed(error instanceof Error ? error.message : String(error));
     }
     const request: ModelRequest = {purpose: "background", model: resolution.info.id, params: {}, headers: {}, system: rendered.system, messages: rendered.messages, tools: []};
-    const response = await resolution.call(request, options.signal ?? NEVER, () => undefined);
-    if (response.stopReason === "aborted") return {ok: true, result: {reason: "aborted", stopReason: "aborted", text: replyText(response.content), result: null, error: null, usage: response.usage}};
+    const signal = options.signal ?? NEVER;
+    let response = await resolution.call(request, signal, () => undefined);
+    let usage = response.usage;
+    // 不写日志，所以循环留在这里（docs/specs/harness/runtime.md 输出 67）。
+    for (let retries = 0; ; retries += 1) {
+        const delayMs = env.retry === undefined ? null : retryDelay(response, retries, env.retry());
+        if (delayMs === null || !(await env.clock.wait(delayMs, signal).then(() => true, () => false))) break;
+        response = await resolution.call(request, signal, () => undefined);
+        usage = addUsage(usage, response.usage);
+    }
+    if (response.stopReason === "aborted") return {ok: true, result: {reason: "aborted", stopReason: "aborted", text: replyText(response.content), result: null, error: null, usage}};
     if (response.stopReason === "error") {
         const error = response.error;
-        return {ok: true, result: {reason: "error", stopReason: "error", text: "", result: null, error: {kind: error?.kind ?? "provider", ...(error?.code === undefined ? {} : {code: error.code}), ...(error?.message === undefined ? {} : {message: error.message})}, usage: response.usage}};
+        return {ok: true, result: {reason: "error", stopReason: "error", text: "", result: null, error: {kind: error?.kind ?? "provider", ...(error?.code === undefined ? {} : {code: error.code}), ...(error?.message === undefined ? {} : {message: error.message})}, usage}};
     }
-    return {ok: true, result: {reason: "completed", stopReason: response.stopReason === "length" ? "length" : "stop", text: replyText(response.content), result: null, error: null, usage: response.usage}};
+    return {ok: true, result: {reason: "completed", stopReason: response.stopReason === "length" ? "length" : "stop", text: replyText(response.content), result: null, error: null, usage}};
 };

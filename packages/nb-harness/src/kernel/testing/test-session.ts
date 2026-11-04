@@ -60,6 +60,10 @@ export interface TestSessionOptions {
     readonly outbound?: SessionEnv["outbound"];
     /** 压缩方法与放回的内容（`SessionEnv.compaction`）。 */
     readonly compaction?: SessionEnv["compaction"];
+    /** 模型请求的重发（`SessionEnv.retry`）。 */
+    readonly retry?: SessionEnv["retry"];
+    /** 换掉假模型（接真实适配器与本机端点）。`session.model` 仍是那个假模型，不会被调用。 */
+    readonly models?: SessionEnv["models"];
     /** 包一层存储（例如在某个写入批上失败，测写失败时内存不领先日志）。 */
     readonly wrapStore?: (store: LogStore) => LogStore;
 }
@@ -117,7 +121,7 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
         store,
         profiles: {resolve: (key) => [profile, ...(options.profiles ?? [])].find((item) => item.id === key)},
         extensions: () => contributed,
-        models: model.port,
+        models: options.models ?? model.port,
         tools: {
             declarations: () => toolList().map(testToolDeclaration),
             create: (id, context) => {
@@ -140,6 +144,7 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
         approve: options.approve ?? (async () => ({verdict: "allow", by: "test-policy"})),
         ...(options.compaction === undefined ? {} : {compaction: options.compaction}),
         ...(options.outbound === undefined ? {} : {outbound: options.outbound}),
+        ...(options.retry === undefined ? {} : {retry: options.retry}),
     };
     sessionCounter += 1;
     const created = options.open !== undefined

@@ -159,6 +159,8 @@ export interface KernelEvents {
         message?: string;
         partial?: readonly ContentBlock[];
         usage?: Usage;
+        /** 这次运行还要接着发（docs/specs/harness/runtime.md 输出 64）：界面丢掉这次的半截文字，运行结果的错误不取它。 */
+        retry?: {attempt: number; max: number; delayMs: number};
     }>;
 
     // ---- 工具（path）----

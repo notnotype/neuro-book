@@ -6,12 +6,13 @@
  */
 
 import {createHash} from "node:crypto";
-import type {Message, ModelCaller, ModelInfo, ModelRequest, ModelResolution, ModelResponse, RequestPurpose, Resources} from "../api/index.js";
+import type {Message, ModelCaller, ModelInfo, ModelRequest, ModelResolution, ModelResponse, RequestPurpose, Resources, RetryPolicy, RetryWait} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
 import {isSealed, seal} from "../state/freeze.js";
 import {chainLayers, failureDrafts, runChain, type ChainFailure} from "./chain.js";
+import {NO_RETRY, retryDelay} from "./retry.js";
 import {ctrl} from "./writes.js";
 
 export interface ModelCallHost {
@@ -21,6 +22,9 @@ export interface ModelCallHost {
     write(drafts: EventDraft[]): Promise<unknown>;
     /** 开始流式接收（推状态帧用）。 */
     streaming?(request: number): void;
+    readonly retry?: () => RetryPolicy;
+    /** 在等重发（推状态帧用）；null 表示等完了。 */
+    retrying?(wait: RetryWait | null): void;
 }
 
 export interface ModelCallOutcome {
@@ -69,8 +73,8 @@ export const isResponse = (value: unknown): value is ModelResponse => {
 };
 
 /** 非对话的请求（以及一层调两次 `next` 时前一次）的结算：对话请求的回复由运行循环写成 `assistant`。 */
-function settlement(request: number, purpose: RequestPurpose, response: ModelResponse): EventDraft {
-    if (response.stopReason === "error" || response.stopReason === "aborted") return ctrl("modelFailed", {request, kind: response.stopReason === "aborted" ? "aborted" : (response.error?.kind ?? "provider"), ...(response.error?.code === undefined ? {} : {code: response.error.code}), usage: response.usage});
+function settlement(request: number, purpose: RequestPurpose, response: ModelResponse, retry?: {attempt: number; max: number; delayMs: number}): EventDraft {
+    if (response.stopReason === "error" || response.stopReason === "aborted") return ctrl("modelFailed", {request, kind: response.stopReason === "aborted" ? "aborted" : (response.error?.kind ?? "provider"), ...(response.error?.code === undefined ? {} : {code: response.error.code}), usage: response.usage, ...(retry === undefined ? {} : {retry})});
     return ctrl("modelEnded", {request, purpose, stopReason: response.stopReason, usage: response.usage, model: response.model});
 }
 
@@ -136,8 +140,22 @@ export function modelCaller(host: ModelCallHost & {resolve(purpose: RequestPurpo
         const resolution = host.resolve(options.purpose, options.role);
         if (!resolution.ok) return {content: [], toolCalls: [], stopReason: "error", usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true}, model: draft.model ?? "unknown", error: {kind: "local", code: resolution.code, message: `no model for ${options.purpose} requests (${resolution.code})`}};
         const request: ModelRequest = {...draft, purpose: options.purpose, model: draft.model ?? resolution.info.id};
-        const {response, request: number, failures} = await callModel(host, resolution, request, signal);
-        await host.write([...failureDrafts(host.core, "intercept.model", failures), settlement(number, options.purpose, response)]);
-        return response;
+        // 每次重新进链：费用这类检查要看发请求这一刻的累计（docs/specs/harness/runtime.md 输出 67）。
+        for (let retries = 0; ; retries += 1) {
+            const {response, request: number, failures} = await callModel(host, resolution, request, signal);
+            const policy = host.retry?.() ?? NO_RETRY;
+            const delayMs = signal.aborted ? null : retryDelay(response, retries, policy);
+            const intercepted = failureDrafts(host.core, "intercept.model", failures);
+            if (delayMs === null) {
+                await host.write([...intercepted, settlement(number, options.purpose, response)]);
+                return response;
+            }
+            await host.write([...intercepted, settlement(number, options.purpose, response, {attempt: retries + 1, max: policy.maxRetries, delayMs})]);
+            host.retrying?.({attempt: retries + 1, max: policy.maxRetries, resumeAt: host.core.clock.now() + delayMs});
+            const waited = await host.core.clock.wait(delayMs, signal).then(() => true, () => false);
+            host.retrying?.(null);
+            // 等待时被中止：这次失败已经写过了，不再写第二条。
+            if (!waited) return {...response, stopReason: "aborted"};
+        }
     };
 }

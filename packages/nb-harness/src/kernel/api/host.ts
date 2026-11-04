@@ -96,10 +96,17 @@ export interface InteractionSummary {
     kind: "approval" | "question";
 }
 
+/** 模型请求失败后在等重发（docs/specs/harness/runtime.md 输出 65）。`resumeAt` 是注入时钟上的毫秒。 */
+export interface RetryWait {
+    readonly attempt: number;
+    readonly max: number;
+    readonly resumeAt: number;
+}
+
 /** 运行到哪了。`aborting`、`compacting` 这类中间态不进日志，由服务端给。 */
 export type RunStatus =
     | {state: "idle"}
-    | {state: "running"; runId: string; turnId: string | null; phase: "requesting" | "streaming" | "tools" | "compacting"; request: number | null}
+    | {state: "running"; runId: string; turnId: string | null; phase: "requesting" | "streaming" | "tools" | "compacting"; request: number | null; retry?: RetryWait}
     | {state: "waiting"; runId: string; pending: InteractionSummary[]}
     | {state: "aborting"; runId: string}
     /** 写日志失败过：会话只能关闭后重开。 */
@@ -358,12 +365,20 @@ export interface DeltaContext extends OutboundContext {
     readonly before: string;
 }
 
+/** 模型请求的重发（docs/specs/harness/runtime.md 输出 62）。 */
+export interface RetryPolicy {
+    /** 一次请求最多再发几次；0 表示不重发。 */
+    readonly maxRetries: number;
+}
+
 export interface SessionEnv {
     readonly store: LogStore;
     readonly profiles: {resolve(key: string): AnyProfile | undefined | Promise<AnyProfile | undefined>};
     /** 插件经 `agent.extensions` 贡献的扩展（Profile 可按标签排除）。 */
     readonly extensions?: () => readonly ContributedExtension[];
     readonly models: ModelPort;
+    /** 每次失败时现读，设置改了下一次失败就生效。不给就不重发。 */
+    readonly retry?: () => RetryPolicy;
     readonly tools: {
         declarations(context: ToolSessionContext): readonly ToolDeclaration[];
         create(id: string, context: ToolSessionContext): ToolImplementation | Promise<ToolImplementation>;
@@ -418,7 +433,7 @@ export type CreateSession = (env: SessionEnv, options: CreateSessionOptions) => 
 export type OpenSession = (env: SessionEnv, id: string) => Promise<StorageResult<SessionApi>>;
 
 /** 不带工具的单次请求：不读写会话日志；只接受不声明工具的 Profile。 */
-export type Complete = (env: Pick<SessionEnv, "models" | "resources" | "clock" | "profiles">, options: {readonly profile: string; readonly input: UserInput; readonly initial?: JsonValue; readonly signal?: AbortSignal}) =>
+export type Complete = (env: Pick<SessionEnv, "models" | "resources" | "clock" | "profiles" | "retry">, options: {readonly profile: string; readonly input: UserInput; readonly initial?: JsonValue; readonly signal?: AbortSignal}) =>
     Promise<{ok: true; result: Omit<RunResult, "runId" | "entries">} | {ok: false; code: "profile-has-tools" | "unknown-profile" | ModelResolutionCode}>;
 
 // ====================================================================

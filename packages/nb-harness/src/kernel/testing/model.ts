@@ -16,9 +16,14 @@ export type Reply =
           readonly thinking?: string;
           readonly tools?: readonly {tool: string; args?: Record<string, unknown>}[];
           readonly usage?: Partial<Usage>;
-          readonly stop?: "stop" | "length";
+          readonly stop?: "stop" | "length" | "tool";
           /** 这次调用失败（与服务商报错同一组分类）。 */
           readonly fail?: ModelErrorKind;
+          /** 失败的细节：可不可重发、服务商要求的等待时间、已经产生的半截文字、错误文字。 */
+          readonly retryable?: boolean;
+          readonly retryAfterMs?: number;
+          readonly partial?: string;
+          readonly message?: string;
           /** 推完增量后停住直到中止，再以 `aborted` 交回已推出的内容与用量（与 OMP 适配器中止时一样）。 */
           readonly hold?: boolean;
       };
@@ -63,7 +68,7 @@ export function createTestModel(info: ModelInfo = TEST_MODEL_INFO): TestModel {
         if (reply === undefined) return {content: [], toolCalls: [], stopReason: "error", usage: USAGE, model: TEST_MODEL_INFO.id, error: {kind: "local", code: "script-exhausted", message: `the test model has no scripted reply for request ${calls}`}};
         const shape = typeof reply === "string" ? {text: reply} : reply;
         const usage = {...USAGE, ...shape.usage};
-        if (shape.fail !== undefined) return {content: [], toolCalls: [], stopReason: "error", usage, model: TEST_MODEL_INFO.id, error: {kind: shape.fail, message: `scripted ${shape.fail} failure`}};
+        if (shape.fail !== undefined) return {content: shape.partial === undefined ? [] : [{kind: "text", text: shape.partial}], toolCalls: [], stopReason: "error", usage, model: TEST_MODEL_INFO.id, error: {kind: shape.fail, message: shape.message ?? `scripted ${shape.fail} failure`, ...(shape.retryable === undefined ? {} : {retryable: shape.retryable}), ...(shape.retryAfterMs === undefined ? {} : {retryAfterMs: shape.retryAfterMs})}};
         const content: ContentBlock[] = [
             ...(shape.thinking === undefined ? [] : [{kind: "thinking" as const, text: shape.thinking, signature: `sig-${calls}`}]),
             ...(shape.text === undefined ? [] : [{kind: "text" as const, text: shape.text}]),

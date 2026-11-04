@@ -137,6 +137,7 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
         core,
         react,
         models: env.models,
+        ...(env.retry === undefined ? {} : {retry: env.retry}),
         box,
         resources,
         approve: env.approve,
