@@ -55,7 +55,7 @@ publish("opening", "开局", [
     ...people.map(([tmp, name]) => ({ref: {kind: "entry" as const, id: tmp}, after: person(tmp, name)})),
     {ref: {kind: "entry", id: "tmp:star"}, after: point("tmp:star", "tmp:hero", "勇者的额头有星印", "保密", "只有国王、贤者与勇者本人知道")},
     {ref: {kind: "entry", id: "tmp:confined"}, after: point("tmp:confined", "tmp:xia", "哥哥那几年是被软禁", "保密", "只有星瑕自己知道")},
-    {ref: {kind: "entry", id: "tmp:girl"}, after: point("tmp:girl", "tmp:xia", "星瑕就是魔法少女", "保密", "官方知道魔法少女的身份，但不知道她就是星瑕；家里没人知道")},
+    {ref: {kind: "entry", id: "tmp:girl"}, after: point("tmp:girl", "tmp:xia", "星瑕就是魔法少女", "保密", "官方知道“魔法少女”这个公开身份（代号与变身形态），不知道她的原身是星瑕；家里没人知道")},
     {ref: {kind: "entry", id: "tmp:k1"}, after: point("tmp:k1", "tmp:butler", "管家是凶手", "绝密", "")},
     {ref: {kind: "entry", id: "tmp:k2"}, after: point("tmp:k2", "tmp:master", "老爷生前改了遗嘱，把庄园留给小梅", "保密", "只有律师与偷听到的管家知道")},
 ]);
@@ -107,7 +107,7 @@ const knowledgeBrief = (chapterId: string, present: string[], pov: string) => {
         const content = level === "绝密" ? `一件涉及${name(item.parent!)}的绝密设定（不给内容）` : `“${item.init.name}”（${field(item.id, "规则")}）`;
         const states = present.map((who) => {
             const row = rows(id(who), position).find((candidate) => candidate.id === item.id);
-            return `${name(id(who))}：${row === undefined ? "不知道" : `${row.程度}${row.以为 === undefined ? "" : `（他以为：${row.以为}）`}`}`;
+            return `${name(id(who))}：${row === undefined ? "不知道" : `${row.程度}${row.以为 === undefined ? "" : `（以为：${row.以为}）`}`}`;
         });
         lines.push(`- ${level}：${content}。${states.join("；")}。没列为知道的人一律当作不知道，不得写成知道。`);
     }
@@ -125,7 +125,7 @@ const narrowQuestions = (chapterId: string, present: string[], pov: string) => {
         for (const who of present) {
             const row = rows(id(who), position).find((candidate) => candidate.id === item.id);
             if (row?.程度 === "知道") continue;
-            out.push(`- 对白层：${name(id(who))}（对“${item.init.name}”是${row === undefined ? "不知道" : row.程度 + (row.以为 === undefined ? "" : `，他以为：${row.以为}`)}）在这一章有没有按这件事说话或行动？有就引原句，没有就答“没有”。`);
+            out.push(`- 对白层：${name(id(who))}（对“${item.init.name}”是${row === undefined ? "不知道" : row.程度 + (row.以为 === undefined ? "" : `，以为：${row.以为}`)}）在这一章有没有按这件事说话或行动？有就引原句，没有就答“没有”。`);
         }
         const povRow = rows(id(pov), position).find((candidate) => candidate.id === item.id);
         if (povRow?.程度 !== "知道") out.push(`- 叙述层：这一章是${name(id(pov))}的有限视角，${name(id(pov))}对“${item.init.name}”是${povRow === undefined ? "不知道" : povRow.程度}。叙述有没有写出${name(id(pov))}不知道、看不到的、和这件事有关的内容？有就引原句。`);
@@ -192,3 +192,114 @@ await writeFile(join(output, "ch16-narrow-questions.txt"), `${header}# 第 16 �
 ${narrowQuestions("ch16", ["tmp:mei", "tmp:fu", "tmp:butler"], "tmp:mei")}
 `);
 console.log(`写到 ${output}`);
+
+
+// ---------- 第二版的简报（剧情侧提案第二版第 12、13 小节） ----------
+
+/** 第二版的窄问题：在场层分真相与误信、叙述层、读者层、伏笔物件层。 */
+const narrowQuestionsV2 = (chapterId: string, present: string[], pov: string, extra: string[]) => {
+    const position: ReadPosition = {kind: "chapter", chapter: chapterId, edge: "start"};
+    const out: string[] = [];
+    for (const item of relevant(position, present).filter((candidate) => ["保密", "绝密"].includes(field(candidate.id, "程度")))) {
+        for (const who of present) {
+            const row = rows(id(who), position).find((candidate) => candidate.id === item.id);
+            if (row?.程度 === "知道") continue;
+            out.push(`- 在场层（按真相）：${name(id(who))}对“${item.init.name}”是${row === undefined ? "不知道" : row.程度}。这一章${name(id(who))}有没有说出或做出只有知道这件事才会说、才会做的？有就引原句，没有就答“没有”。`);
+            if (row?.以为 !== undefined) out.push(`- 在场层（按误信）：${name(id(who))}以为“${row.以为}”。这一章${name(id(who))}的言行和这个误信一致吗？不一致的引原句；这个误信是从哪一章、怎么来的，正文里有没有交代？`);
+        }
+        const povRow = rows(id(pov), position).find((candidate) => candidate.id === item.id);
+        if (povRow?.程度 !== "知道") out.push(`- 叙述层：这一章是${name(id(pov))}的有限视角，${name(id(pov))}对“${item.init.name}”是${povRow === undefined ? "不知道" : povRow.程度}。叙述有没有写出${name(id(pov))}不知道、看不到、听不到的和这件事有关的内容？有就引原句。`);
+    }
+    out.push(...extra);
+    return out.join("\n");
+};
+
+const headerV2 = "（第二版格式。由 t32 prototype/review-fixture/build.ts 用分支上的 nb-canon 生成：“知情”一段按内核里的数据算出；“称呼”“读者已知”“在场的人”“伏笔”“决策”按提案第二版第 12 小节的规则手写成同样的格式（这几段的计算还没做）。）\n\n";
+const allowed = `## 本章允许新增什么
+- 可以编：场景里的小细节（天气、陈设、路人、动作、对话的措辞）。
+- 不许新增：有名字的人物、地点、物品，世界设定（规则、历史、能力），数值（钱、税额、数量），以及改变细纲写定的结果。真要用到，写进自陈，用泛称（“几个铜板”）。
+
+## 交回时附自陈
+- 新出现的名字与事实：……
+- 拿不准的：……
+- 偏离细纲的：……
+`;
+
+await writeFile(join(output, "ch4-guard-v2.txt"), `${headerV2}# 写手的上下文：第 4 章（约 800 字）
+
+## 写作指示
+视角：勇者（有限）。语气：轻松。结尾：停在旅店老板娘多看了他一眼，只写她看了，不解释为什么。不写：任何人认出勇者。
+
+## 细纲
+勇者第一次进王都。傍晚，他戴着兜帽在城门口被卫兵拦下盘查。卫兵例行公事地问了来历，收了入城税，放他进去。勇者在城里找到一家旅店住下，旅店老板娘多看了他一眼。
+
+## 本章计划（细纲之外的）
+- 没有状态变化；没有人新知道什么。
+
+## 简报
+### 知情
+${knowledgeBrief("ch4", ["tmp:hero", "tmp:guard"], "tmp:hero")}
+- 视角人物自己知道的秘密可以写进他的心理，但不能让在场的人看出来。
+- 星印只在月光下发亮；这一场是傍晚、月亮还没上来，额头没有异样。
+### 读者已知
+- 读者在第 3 章读到了国王与贤者的对话，已经知道勇者额头有星印、只在月光下发亮；卫兵不知道。这一场的紧张来自读者知道而卫兵不知道，不要再向读者解释星印。
+### 称呼
+- 叙述称他“勇者”或“他”；卫兵与老板娘不知道他是谁，对白里叫他“小子”“客官”之类。
+### 在场的人
+- 勇者：想先在王都站稳脚跟、不引人注意（进行）。来历对外只说“从东边来”，不说村名。
+- 卫兵：只想早点交班（这一场的临时人物，没有条目，不写名字）。
+### 决策
+- 已定：“勇者的身份在第一卷里不能被认出”（作者原话）。
+
+## 涉及的条目（第 4 章开头）
+- 勇者：年轻的旅人，戴兜帽，背一个旧包袱；额头的星印平时看不见，只有月光下才会发亮。
+
+## 上一章末尾
+窗外，一只乌鸦扑棱着翅膀飞走了。
+
+${allowed}`);
+
+await writeFile(join(output, "ch7-xingjin-v2.txt"), `${headerV2}# 写手的上下文：第 7 章（星瑾视角的一场，约 800 字）
+
+## 写作指示
+视角：星瑾（有限）。语气：克制，不煽情；她的动摇用动作与细节表现，不直接写“心里动摇了”。结尾：星瑾回房，没有和哥哥说晚安。不写：星瑾知道或猜到哥哥是魔法少女；兄妹和好。
+
+## 细纲
+星瑾放学回家，哥哥做了她小时候最爱吃的糖醋排骨。她嘴上冷淡，心里动摇了一下。吃完饭她经过哥哥的房间，门锁着，里面传出一个女孩子的声音在打电话。她站了一会儿，回了自己房间。
+
+## 本章计划（细纲之外的）
+- 星瑾对哥哥的态度：记一句“吃到小时候的菜，有一点松动”（这是给记账看的，不要照抄进正文）。
+
+## 简报
+### 知情
+${knowledgeBrief("ch7", ["tmp:jin", "tmp:xia"], "tmp:jin")}
+- 房间里打电话的女孩子声音，是哥哥用原身在和朋友彗通话。星瑾不知道，也听不出是谁：声音隔着门、字句不清、她不觉得耳熟；哥哥不知道她站在门外。叙述与星瑾的心理里都不能出现“原身”“魔法少女”“哥哥的声音”，也不要让她猜到。
+### 读者已知
+- 读者知道哥哥就是魔法少女、私下用原身活动，所以门里的声音对读者是反讽；星瑾不知道。
+### 称呼
+- 星瑾只知道“哥哥”这个身份：叙述与她的心理里一律称“哥哥”或“他”，不出现“星瑕”这个名字。
+### 在场的人
+- 星瑾：想要哥哥先开口认错（进行，主要）。为什么：她以为哥哥这些年不想回家（误信）。哥哥不在的那几年她被安置在一个刻薄的亲戚家；这一章不要展开那几年。对哥哥：冷淡，最近松动了一点。
+- 哥哥：不让妹妹发现自己是魔法少女（进行，主要）；修复和妹妹的关系（进行，主要）。对星瑾：想亲近，又怕说错话。
+### 决策
+- 已定：“第一卷不让星瑾发现哥哥是魔法少女，让读者跟着她慢慢发现。”（作者原话）
+
+## 涉及的条目（第 7 章开头，按星瑾的视角）
+- 星瑾：高中生，嘴硬。
+- 哥哥：回家没多久，房门常锁。
+
+## 上一章末尾
+（示意：第 6 章停在哥哥在厨房问她明天想吃什么，她没回答。）
+
+${allowed}`);
+
+await writeFile(join(output, "ch16-narrow-questions-v2.txt"), `${headerV2}# 第 16 章写完后的窄问题（第二版，给记账 Agent）
+
+在场：小梅、福伯、管家。视角：小梅（有限）。
+
+${narrowQuestionsV2("ch16", ["tmp:mei", "tmp:fu", "tmp:butler"], "tmp:mei", [
+    "- 读者层：“管家是凶手”计划第 20 章向读者揭示，已定决策 D1 是“第 20 章之前不要让读者确定凶手是谁”。读完这一章，读者能不能确定凶手是管家？能的话引出让读者确定的原句。",
+    "- 伏笔物件层：伏笔 F2“书房的钟停在十一点”打算第 20 章用来证明管家十一点在书房。这一章有没有动到这座钟？动了的话引原句，并说第 20 章的用法还成不成立。",
+])}
+`);
+console.log(`第二版简报写到 ${output}`);
