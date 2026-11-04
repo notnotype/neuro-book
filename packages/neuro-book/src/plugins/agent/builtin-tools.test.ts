@@ -18,6 +18,7 @@ import {LEDGER_POINT} from "nbook/plugins/files/shared/ledger";
 import type {Ledger, LedgerEntry} from "nbook/plugins/files/shared/ledger";
 
 import {BUILTIN_TOOL_CONTRIBUTIONS} from "./backend/builtin";
+import {runGlob, runGrep} from "./backend/builtin/search";
 import {AgentTools} from "./backend/tools";
 import {agentProfile, agentTool} from "./shared/points";
 import type {AgentToolImplementation} from "./shared/points";
@@ -49,7 +50,7 @@ afterAll(async () => {
 const MAIN = "test.bt.main";
 const REPLACE = "test.bt.replace";
 const GRAB = "test.bt.grab";
-const BUILTIN = ["read", "write", "edit"].map((name) => `nbook.agent.${name}`);
+const BUILTIN = ["read", "write", "edit", "grep", "glob"].map((name) => `nbook.agent.${name}`);
 const BUILTIN_REPLACE = ["read", "write", "edit-replace"].map((name) => `nbook.agent.${name}`);
 const cid = () => `c-${String((commands += 1))}`;
 
@@ -361,6 +362,97 @@ describe("edit", () => {
         expect(entries.every((entry) => entry.source.kind === "agent" && entry.source.session === id && entry.source.entry !== undefined)).toBe(true);
         expect(new Set(entries.map((entry) => entry.group?.id)).size).toBe(1);
         expect(entries[0]!.group?.title).toBe("nbook.agent.edit");
+    });
+});
+
+describe("grep 与 glob", () => {
+    test("输出 14、15：结果是全局地址，不露出的文件不出现；虚拟根报错，它下面的真实目录可以搜；搜索根可以是链接，根下面的目录链接不进", async () => {
+        const w = await world();
+        const {session, home, global, id} = await open(w);
+        await mkdir(join(home, "子"), {recursive: true});
+        await writeFile(join(home, "子/a.md"), "前\n林舟走进雨里\n后\n");
+        await writeFile(join(home, ".隐藏.md"), "林舟\n");
+        const found = await call(session, "grep", {pattern: "林舟", context: 1});
+        expect(found.status).toBe("ok");
+        expect(found.text).toContain(`${global}/子/a.md`);
+        expect(found.text).toContain("2:林舟走进雨里");
+        expect(found.text).toContain("1-前");
+        expect(found.text).toContain(`${global}/.隐藏.md`);
+        expect((await call(session, "grep", {pattern: "没有这个词"})).text).toBe("没有匹配");
+        expect((await call(session, "glob", {pattern: "**/*.md"})).text).toContain(`${global}/子/a.md`);
+
+        // 会话目录本身也能搜：index.json 不露出。
+        const dir = await call(session, "grep", {pattern: "profile|林舟", path: `sessions://${id}`});
+        expect(dir.text).toContain(`sessions://${id}/home/子/a.md`);
+        expect(dir.text).not.toContain("index.json");
+        const listed = await call(session, "glob", {pattern: "*", path: `sessions://${id}`});
+        expect(listed.text).not.toContain("index.json");
+
+        expect(await call(session, "grep", {pattern: "x", path: "sessions://"})).toMatchObject({code: "unsupported-capability"});
+        expect(await call(session, "glob", {pattern: "*", path: "docs://"})).toMatchObject({code: "unsupported-capability"});
+
+        const library = join(w.stateRoot, "user", "资料库");
+        await mkdir(library, {recursive: true});
+        await writeFile(join(library, "人物.md"), "林舟的设定\n");
+        await symlink(library, join(w.stateRoot, "user", "资料"));
+        const viaRoot = await call(session, "grep", {pattern: "林舟的设定", path: "user://资料"});
+        expect(viaRoot.text).toContain("user://资料/人物.md");
+        await mkdir(join(w.stateRoot, "user", "书"), {recursive: true});
+        await symlink(library, join(w.stateRoot, "user", "书", "链接"));
+        expect((await call(session, "grep", {pattern: "林舟的设定", path: "user://书"})).text).toBe("没有匹配");
+    });
+
+    test("输出 14、17：够了配额就停下，不露出的文件占不掉配额；limit + 1 判截断；长行与总字节有上限；不合法的模式不报错", async () => {
+        const w = await world();
+        const {session, home, global, id} = await open(w);
+        await mkdir(join(home, "many"), {recursive: true});
+        await Promise.all(Array.from({length: 1500}, (_, index) => writeFile(join(home, "many", `${String(index)}.md`), "needle\n")));
+        const few = await call(session, "grep", {pattern: "needle", path: `${global}/many`, limit: 3}) as Result & {details: {more: boolean; matches: number; filesChecked: number}};
+        expect(few.details).toMatchObject({matches: 3, more: true});
+        expect(few.details.filesChecked).toBeLessThan(1500);
+        expect(few.text).toContain("还有更多");
+
+        const blobs = join(w.stateRoot, "agent", "sessions", id, "blobs");
+        await mkdir(blobs, {recursive: true});
+        await Promise.all(Array.from({length: 50}, (_, index) => writeFile(join(blobs, `${String(index)}.md`), "hidden-word\n")));
+        await mkdir(join(home, "real"), {recursive: true});
+        await writeFile(join(home, "real/a.md"), "hidden-word\n");
+        const filtered = await call(session, "grep", {pattern: "hidden-word", path: `sessions://${id}`, glob: "*.md", limit: 1});
+        expect(filtered.text).toContain("real/a.md");
+        expect(filtered.text).not.toContain("blobs");
+        expect(filtered.text).not.toContain("还有更多");
+
+        await writeFile(join(home, "long.md"), `start${"长".repeat(3000)}\n`);
+        const clipped = await call(session, "grep", {pattern: "start", path: "session://long.md"});
+        expect(clipped.text).toContain("已截断");
+        expect(clipped.text.length).toBeLessThan(1_000);
+        await Promise.all(Array.from({length: 300}, (_, index) => writeFile(join(home, "many", `w${String(index)}.md`), `wide${"宽".repeat(400)}\n`)));
+        const wide = await call(session, "grep", {pattern: "wide", path: `${global}/many`, limit: 500});
+        expect(Buffer.byteLength(wide.text, "utf8")).toBeLessThan(55 * 1024);
+        expect(wide.text).toContain("超过 50 KB");
+
+        await writeFile(join(home, "括号.md"), "一个 [ 括号\n");
+        expect((await call(session, "grep", {pattern: "[", path: "session://括号.md"})).status).toBe("ok");
+
+        const globbed = await call(session, "glob", {pattern: "*.md", path: `${global}/many`, limit: 5});
+        expect(globbed.text).toContain("还有更多");
+        expect(globbed.text.split("\n").filter((line) => line.startsWith("sessions://"))).toHaveLength(5);
+    });
+
+    test("输出 17：到期限时 grep 标“不完整”、glob 报 timeout，与“没有匹配”分开；工具取消是 cancelled", async () => {
+        const w = await world();
+        const {session, home, global} = await open(w);
+        const {resources} = await services(session);
+        await mkdir(join(home, "many"), {recursive: true});
+        await Promise.all(Array.from({length: 2000}, (_, index) => writeFile(join(home, "many", `${String(index)}.md`), "needle\n")));
+        const live = new AbortController();
+        const grepped = await runGrep(resources, undefined, {pattern: "needle", path: `${global}/many`, limit: 500}, live.signal, 0);
+        expect(grepped.text).toContain("不完整");
+        expect(grepped.text).not.toBe("没有匹配");
+        expect(await runGlob(resources, undefined, {pattern: "**/*", path: `${global}/many`}, live.signal, 0)).toMatchObject({code: "timeout"});
+        live.abort();
+        expect(await runGrep(resources, undefined, {pattern: "needle", path: `${global}/many`}, live.signal)).toMatchObject({code: "cancelled"});
+        expect(await runGlob(resources, undefined, {pattern: "**/*", path: `${global}/many`}, live.signal)).toMatchObject({code: "cancelled"});
     });
 });
 

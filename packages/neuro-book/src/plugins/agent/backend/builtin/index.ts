@@ -11,6 +11,7 @@ import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/p
 import {SessionEditStores} from "./common";
 import {hashlineDeclaration, hashlineTool, replaceDeclaration, replaceTool} from "./edit";
 import {readDeclaration, readTool} from "./read";
+import {globDeclaration, globTool, grepDeclaration, grepTool} from "./search";
 import {writeDeclaration, writeTool} from "./write";
 
 const DECLARATIONS: Readonly<Record<string, AgentToolDeclaration>> = {
@@ -19,6 +20,8 @@ const DECLARATIONS: Readonly<Record<string, AgentToolDeclaration>> = {
     // 给模型的名字相同：Profile 只绑一条，同一会话绑了两条按 harness/runtime.md 输出 15 处理。
     "nbook.agent.edit": {...hashlineDeclaration, providerName: "edit"},
     "nbook.agent.edit-replace": {...replaceDeclaration, providerName: "edit"},
+    "nbook.agent.grep": {...grepDeclaration, providerName: "grep"},
+    "nbook.agent.glob": {...globDeclaration, providerName: "glob"},
 };
 
 export const BUILTIN_TOOL_CONTRIBUTIONS: ReadonlyArray<ContributionDeclaration<AgentToolDeclaration>> = Object.entries(DECLARATIONS).map(([id, declaration]) => ({capability: TOOLS_POINT, id, declaration}));
@@ -31,5 +34,7 @@ export function builtinTools(): Readonly<Record<string, AgentToolImplementation>
         "nbook.agent.write": writeTool(stores),
         "nbook.agent.edit": hashlineTool(stores),
         "nbook.agent.edit-replace": replaceTool(stores),
+        "nbook.agent.grep": grepTool,
+        "nbook.agent.glob": globTool,
     };
 }

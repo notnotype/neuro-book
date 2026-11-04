@@ -18,6 +18,9 @@ export function globalAddress(resources: SessionResources, address: string): Ext
     return expanded.ok ? expanded : {ok: false, failure: failure(expanded)};
 }
 
+/** `shell` 的工作目录，也是 `grep`、`glob` 的缺省搜索根：有主项目时是项目，没有时是会话的工作区。 */
+export const workingAddress = (project: string | undefined): string => (project === undefined ? "session://" : "project://");
+
 export const joinAddress = (base: string, relative: string): string => (base.endsWith("://") || base.endsWith("/") ? `${base}${relative}` : `${base}/${relative}`);
 
 /**
